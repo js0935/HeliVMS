@@ -1,0 +1,132 @@
+<!-- ============================================================
+     HeliVMS - 智慧影像管理系統     禾秝軟體開發團隊 / 代碼設計：洪俊士 / 版本：V1.0.0
+     ============================================================ -->
+<UserControl x:Class="HeliVMS.Views.LoginView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Background="{StaticResource BackgroundBrush}">
+    <Grid>
+        <Border Width="380"
+                HorizontalAlignment="Center"
+                VerticalAlignment="Center"
+                Style="{StaticResource CardBorder}">
+            <StackPanel>
+                <!-- Logo / Title -->
+                <Border Width="56" Height="56" CornerRadius="12"
+                        Background="{StaticResource PrimaryBrush}"
+                        HorizontalAlignment="Center" Margin="0,0,0,10">
+                    <TextBlock Text="📹" FontSize="28"
+                               HorizontalAlignment="Center"
+                               VerticalAlignment="Center"/>
+                </Border>
+                <TextBlock Text="HeliVMS" FontSize="24" FontWeight="Bold"
+                           Foreground="{StaticResource PrimaryBrush}"
+                           HorizontalAlignment="Center"
+                           Margin="0,0,0,2"/>
+                <TextBlock Text="智慧影像管理系統" FontSize="12"
+                           Foreground="{StaticResource SecondaryTextBrush}"
+                           HorizontalAlignment="Center"
+                           Margin="0,0,0,24"/>
+
+                <!-- Username -->
+                <TextBlock Text="帳號" Style="{StaticResource ModernLabel}"/>
+                <TextBox x:Name="UsernameBox" Style="{StaticResource ModernTextBox}"
+                         Margin="0,0,0,12"
+                         TextChanged="Input_TextChanged"/>
+
+                <!-- Password -->
+                <TextBlock Text="密碼" Style="{StaticResource ModernLabel}"/>
+                <PasswordBox x:Name="PasswordBox" Style="{StaticResource ModernPasswordBox}"
+                             Margin="0,0,0,8"
+                             KeyDown="PasswordBox_KeyDown"
+                             PasswordChanged="PasswordBox_PasswordChanged"/>
+
+                <CheckBox x:Name="RememberPasswordCheckBox" Content="記住密碼"
+                          Foreground="{StaticResource SecondaryTextBrush}"
+                          FontSize="12"
+                          Margin="0,0,0,8"/>
+
+                <!-- Error message box -->
+                <Border x:Name="ErrorBorder"
+                        Background="{StaticResource OverlayBrush}"
+                        BorderBrush="{StaticResource ErrorBrush}"
+                        BorderThickness="1"
+                        CornerRadius="4"
+                        Padding="10,6"
+                        Visibility="Collapsed"
+                        Margin="0,0,0,8">
+                    <TextBlock x:Name="ErrorText" Text=""
+                               Foreground="{StaticResource ErrorBrush}"
+                               FontSize="12"
+                               TextWrapping="Wrap"
+                               TextAlignment="Center"/>
+                </Border>
+
+                <!-- Loading spinner -->
+                <ProgressBar x:Name="LoadingSpinner"
+                             IsIndeterminate="True"
+                             Height="3"
+                             Margin="0,0,0,12"
+                             Visibility="Collapsed"
+                             Foreground="{StaticResource PrimaryBrush}"
+                             Background="{StaticResource SurfaceBrush}"
+                             BorderThickness="0"/>
+
+                <!-- Login button -->
+                <Button x:Name="LoginButton" Content="登入系統"
+                        Height="40" FontSize="14" FontWeight="SemiBold"
+                        Foreground="{StaticResource TextBrush}"
+                        Background="{StaticResource PrimaryBrush}"
+                        BorderThickness="0"
+                        Cursor="Hand"
+                        Click="LoginButton_Click"
+                        IsDefault="True"/>
+
+                <!-- Two-factor panel (hidden by default) -->
+                <StackPanel x:Name="TwoFactorPanel" Visibility="Collapsed"
+                            Margin="0,12,0,0">
+                    <Border Background="{StaticResource OverlayBrush}"
+                            BorderBrush="{StaticResource PrimaryBrush}"
+                            BorderThickness="1" CornerRadius="6" Padding="12">
+                        <StackPanel>
+                            <TextBlock Text="雙因子驗證" FontSize="14" FontWeight="Bold"
+                                       Foreground="{StaticResource TextBrush}"
+                                       HorizontalAlignment="Center" Margin="0,0,0,4"/>
+                            <TextBlock Text="請輸入 Authenticator 應用程式中的 6 位數驗證碼"
+                                       FontSize="11"
+                                       Foreground="{StaticResource SecondaryTextBrush}"
+                                       TextWrapping="Wrap"
+                                       TextAlignment="Center"
+                                       Margin="0,0,0,12"/>
+                            <TextBox x:Name="TwoFactorCodeBox"
+                                     Style="{StaticResource ModernTextBox}"
+                                     TextAlignment="Center"
+                                     FontSize="24" FontWeight="Bold"
+                                     MaxLength="6"
+                                     HorizontalAlignment="Center"
+                                     Width="160"
+                                     KeyDown="TwoFactorCodeBox_KeyDown"/>
+                            <Button x:Name="VerifyTwoFactorButton" Content="驗證"
+                                    Height="36" FontSize="13" FontWeight="SemiBold"
+                                    Foreground="{StaticResource TextBrush}"
+                                    Background="{StaticResource PrimaryBrush}"
+                                    BorderThickness="0"
+                                    Cursor="Hand"
+                                    Margin="0,10,0,0"
+                                    Click="VerifyTwoFactorButton_Click"/>
+                        </StackPanel>
+                    </Border>
+                    <Button x:Name="BackToLoginButton" Content="返回登入"
+                            FontSize="11"
+                            Foreground="{StaticResource SecondaryTextBrush}"
+                            Cursor="Hand"
+                            Background="Transparent"
+                            BorderThickness="0"
+                            HorizontalAlignment="Center"
+                            Margin="0,6,0,0"
+                            Click="BackToLoginButton_Click"/>
+                </StackPanel>
+            </StackPanel>
+        </Border>
+    </Grid>
+</UserControl>

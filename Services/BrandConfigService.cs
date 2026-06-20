@@ -1,0 +1,340 @@
+// ============================================================
+// HeliVMS - Intelligent Video Management System
+// H.R. Software Development Team / Code Design: Hong Jun-Shi / Version: V1.0.0
+// ============================================================
+
+using System.IO;
+using System.Net.Http;
+using Serilog;
+using System.Text.Json;
+using HeliVMS.Helpers;
+using HeliVMS.Models;
+
+namespace HeliVMS.Services;
+
+public interface IBrandConfigService
+{
+    CameraBrandConfig Config { get; }
+    int BrandCount { get; }
+    int TotalModelCount { get; }
+    void Load();
+    void Save();
+    Task<(int Added, int UpdatedModels, string[] Errors)> UpdateFromStrixCamDBAsync();
+}
+
+public class BrandConfigService : IBrandConfigService
+{
+    private static readonly string ConfigPath = Path.Combine(
+        AppDomain.CurrentDomain.BaseDirectory, "Data", "camera_brands.json");
+
+    private static readonly string StrixCamDbApi =
+        "https://api.github.com/repos/eduard256/StrixCamDB/contents/brands";
+
+    private static readonly string StrixCamDbRaw =
+        "https://raw.githubusercontent.com/eduard256/StrixCamDB/main/brands";
+
+    private CameraBrandConfig _config = new();
+    private readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(15) };
+
+    public CameraBrandConfig Config => _config;
+    public int BrandCount => _config.Brands.Count;
+    public int TotalModelCount
+    {
+        get
+        {
+            int total = 0;
+            var brands = _config.Brands;
+            for (int i = 0; i < brands.Count; i++)
+            {
+                total += brands[i].ModelCount;
+            }
+            return total;
+        }
+    }
+
+    public BrandConfigService()
+    {
+        Load();
+        // Feed brand config to RtspUrlBuilder for RTSP path resolution
+        RtspUrlBuilder.BrandConfig = _config;
+    }
+
+    public void Load()
+    {
+        try
+        {
+            if (!File.Exists(ConfigPath))
+            {
+                _config = CreateDefaultConfig();
+                Save();
+                return;
+            }
+            var json = File.ReadAllText(ConfigPath, System.Text.Encoding.UTF8);
+            var loaded = JsonSerializer.Deserialize<CameraBrandConfig>(json);
+            if (loaded is not null && loaded.Brands.Count > 0)
+            {
+                _config = loaded;
+            }
+            else
+            {
+                _config = CreateDefaultConfig();
+            }
+        }
+        catch
+        {
+            _config = CreateDefaultConfig();
+        }
+
+        RtspUrlBuilder.BrandConfig = _config;
+    }
+
+    public void Save()
+    {
+        try
+        {
+            var dir = Path.GetDirectoryName(ConfigPath);
+            if (dir is not null && !Directory.Exists(dir)) { Directory.CreateDirectory(dir); }
+            var json = JsonSerializer.Serialize(_config, new JsonSerializerOptions { WriteIndented = true });
+            File.WriteAllText(ConfigPath, json, System.Text.Encoding.UTF8);
+        }
+        catch { }
+    }
+
+    /// <summary>Update from StrixCamDB (github.com/eduard256/StrixCamDB) with RTSP paths</summary>
+    /// <remarks>
+    /// StrixCamDB is licensed under CC BY-NC 4.0.
+    /// Credits to eduard256 for maintaining the database.
+    /// Sources include ispyconnect.com.
+    /// </remarks>
+    public async Task<(int Added, int UpdatedModels, string[] Errors)> UpdateFromStrixCamDBAsync()
+    {
+        var errors = new List<string>(4);
+        var added = 0;
+        var updatedModels = 0;
+
+        try
+        {
+            // Step 1: Fetch brand list from StrixCamDB
+            var brandList = await FetchStrixCamBrandListAsync().ConfigureAwait(false);
+            if (brandList.Count == 0)
+            {
+                errors.Add("Failed to fetch brand list from StrixCamDB (GitHub API)");
+                return (0, 0, errors.ToArray());
+            }
+
+            var brandMap = new Dictionary<string, BrandEntry>(
+                _config.Brands.Count, StringComparer.OrdinalIgnoreCase);
+            for (int bi = 0; bi < _config.Brands.Count; bi++)
+                brandMap[_config.Brands[bi].Key] = _config.Brands[bi];
+
+            // Step 2: Download each brand JSON and merge RTSP paths
+            foreach (var brandId in brandList)
+            {
+                try
+                {
+                    var entry = await DownloadAndParseStrixCamBrandAsync(brandId).ConfigureAwait(false);
+                    if (entry is null) { continue; }
+
+                    if (brandMap.TryGetValue(brandId, out var existing))
+                    {
+                        // Update model count if changed
+                        if (existing.ModelCount != entry.ModelCount)
+                        {
+                            existing.ModelCount = entry.ModelCount;
+                            updatedModels++;
+                        }
+                        if (!string.IsNullOrEmpty(entry.MainPath))
+                        {
+                            existing.MainPath = entry.MainPath;
+                        }
+                        if (!string.IsNullOrEmpty(entry.SubPath))
+                        {
+                            existing.SubPath = entry.SubPath;
+                        }
+                    }
+                    else
+                    {
+                        // add new entry
+                        _config.Brands.Add(entry);
+                        brandMap[entry.Key] = entry;
+                        added++;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Log.Debug("[HeliVMS] StrixCamDB failed to load: {BrandId}: {Msg}", brandId, ex.Message);
+                }
+            }
+
+            if (added > 0 || updatedModels > 0)
+            {
+                Save();
+                RtspUrlBuilder.BrandConfig = _config;
+            }
+
+            return (added, updatedModels, errors.ToArray());
+        }
+        catch (Exception ex)
+        {
+            errors.Add($"Update failed: {ex.Message}");
+            return (0, 0, errors.ToArray());
+        }
+    }
+
+    /// <summary>Fetch brand list from GitHub API (brands/ directory JSON files)</summary>
+    private async Task<List<string>> FetchStrixCamBrandListAsync()
+    {
+        try
+        {
+            var req = new HttpRequestMessage(HttpMethod.Get, StrixCamDbApi);
+            req.Headers.UserAgent.ParseAdd("HeliVMS/1.0");
+            var resp = await _http.SendAsync(req).ConfigureAwait(false);
+            if (!resp.IsSuccessStatusCode) { return new(); }
+
+            var json = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+            var doc = JsonDocument.Parse(json);
+            var brands = new List<string>(doc.RootElement.GetArrayLength());
+            foreach (var item in doc.RootElement.EnumerateArray())
+            {
+                var name = item.TryGetProperty("name", out var n) ? n.GetString() : null;
+                if (name is not null && name.EndsWith(".json", StringComparison.OrdinalIgnoreCase))
+                {
+                    var id = Path.GetFileNameWithoutExtension(name);
+                    if (!string.IsNullOrEmpty(id)) { brands.Add(id); }
+                }
+            }
+            return brands;
+        }
+        catch
+        {
+            return new();
+        }
+    }
+
+    /// <summary>Download and parse a StrixCam brand JSON, extracting RTSP URL patterns</summary>
+    private async Task<BrandEntry?> DownloadAndParseStrixCamBrandAsync(string brandId)
+    {
+        var url = $"{StrixCamDbRaw}/{brandId}.json";
+        var resp = await _http.GetAsync(url).ConfigureAwait(false);
+        if (!resp.IsSuccessStatusCode) { return null; }
+
+        var json = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+        var doc = JsonDocument.Parse(json);
+        var root = doc.RootElement;
+
+        var brandName = root.TryGetProperty("brand", out var bName) ? bName.GetString() ?? brandId : brandId;
+
+        // Extract all RTSP stream URLs with model weights
+        var allModels = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        List<(string Url, int Weight)> rtspStreams;
+        if (root.TryGetProperty("streams", out var streams))
+        {
+            rtspStreams = new List<(string Url, int Weight)>(streams.GetArrayLength());
+            foreach (var s in streams.EnumerateArray())
+            {
+                var protocol = s.TryGetProperty("protocol", out var proto) ? proto.GetString() : "";
+                if (protocol != "rtsp") { continue; }
+
+                var urlVal = s.TryGetProperty("url", out var u) ? u.GetString() ?? "" : "";
+                if (string.IsNullOrEmpty(urlVal)) { continue; }
+
+                // Calculate weight based on model count
+                var weight = 0;
+                if (s.TryGetProperty("models", out var models))
+                {
+                    foreach (var m in models.EnumerateArray())
+                    {
+                        var model = m.GetString();
+                        if (model == "*") { weight += 1000; }
+                        else if (!string.IsNullOrEmpty(model)) { allModels.Add(model); weight++; }
+                    }
+                }
+                rtspStreams.Add((urlVal, weight));
+            }
+        }
+        else
+        {
+            rtspStreams = new List<(string Url, int Weight)>();
+        }
+
+        if (rtspStreams.Count == 0) { return null; }
+
+        // Sort by weight descending (most model matches first)
+        rtspStreams.Sort((a, b) => b.Weight.CompareTo(a.Weight));
+
+        var mainUrl = CleanRtspPath(rtspStreams[0].Url);
+        var subUrl = rtspStreams.Count > 1 ? CleanRtspPath(rtspStreams[1].Url) : "";
+
+        // Build alias list for brand matching
+        var aliases = new List<string> { brandId.ToLowerInvariant() };
+        var nameLower = brandName.ToLowerInvariant();
+        if (nameLower != brandId.ToLowerInvariant())
+        {
+            aliases.Add(nameLower);
+        }
+
+        return new BrandEntry
+        {
+            Key = brandId.ToLowerInvariant(),
+            Aliases = aliases,
+            MainPath = mainUrl,
+            SubPath = subUrl,
+            ModelCount = allModels.Count,
+        };
+    }
+
+    /// <summary>Clean RTSP path: strip query string, replace placeholders</summary>
+    private static string CleanRtspPath(string url)
+    {
+        // Strip query string; keep only the path portion
+        var qIdx = url.IndexOf('?');
+        var path = qIdx >= 0 ? url[..qIdx] : url;
+
+        // Replace common placeholders with defaults
+        path = path.Replace("[CHANNEL]", "1")
+                   .Replace("[CHANNEL+1]", "1")
+                   .Replace("[USERNAME]", "")
+                   .Replace("[PASSWORD]", "")
+                   .Replace("[USER]", "")
+                   .Replace("[PASS]", "")
+                   .Replace("[PWD]", "")
+                   .Replace("[AUTH]", "")
+                   .Replace("[TOKEN]", "");
+
+        path = path.TrimStart('/');
+        return path;
+    }
+
+    private static CameraBrandConfig CreateDefaultConfig()
+    {
+        return new CameraBrandConfig
+        {
+            Version = 1,
+            Brands = new List<BrandEntry>(20)
+            {
+                new() { Key = "hikvision",  Aliases = new(){ "hikvision" },                         MainPath = "h264",         SubPath = "h264_Sub" },
+                new() { Key = "dahua",      Aliases = new(){ "dahua" },                              MainPath = "cam/realmonitor", SubPath = "cam/realmonitor?channel=1&subtype=1" },
+                new() { Key = "axis",       Aliases = new(){ "axis" },                              MainPath = "axis-media/media.amp", SubPath = "axis-media/media.amp" },
+                new() { Key = "foscam",     Aliases = new(){ "foscam" },                            MainPath = "videoMain",    SubPath = "videoSub" },
+                new() { Key = "vivotek",    Aliases = new(){ "vivotek" },                           MainPath = "live1s1.sdp",  SubPath = "live1s2.sdp" },
+                new() { Key = "panasonic",  Aliases = new(){ "panasonic" },                         MainPath = "nphMotionJpeg", SubPath = "nphMotionJpeg" },
+                new() { Key = "sony",       Aliases = new(){ "sony" },                              MainPath = "stream",       SubPath = "stream" },
+                new() { Key = "samsung",    Aliases = new(){ "samsung", "hanwha" },                 MainPath = "profile",      SubPath = "profile" },
+                new() { Key = "tplink",     Aliases = new(){ "tplink" },                            MainPath = "stream",       SubPath = "stream2" },
+                new() { Key = "bosch",      Aliases = new(){ "bosch" },                             MainPath = "stream",       SubPath = "stream2" },
+                new() { Key = "pelco",      Aliases = new(){ "pelco" },                             MainPath = "stream",       SubPath = "stream2" },
+                new() { Key = "amcrest",    Aliases = new(){ "amcrest" },                           MainPath = "h264",         SubPath = "h264_Sub" },
+                new() { Key = "reolink",    Aliases = new(){ "reolink" },                           MainPath = "h264",         SubPath = "h264_sub" },
+                new() { Key = "aver",       Aliases = new(){ "aver", "avermedia", "aver information" }, MainPath = "live_st1", SubPath = "live_st2" },
+
+                // Additional brands (non-StrixCam, manually maintained)
+                new() { Key = "uniview",    Aliases = new(){ "uniview" },                             MainPath = "media/video1", SubPath = "media/video2" },
+                new() { Key = "acti",       Aliases = new(){ "acti" },                               MainPath = "stream1",      SubPath = "stream2" },
+                new() { Key = "geovision",  Aliases = new(){ "geovision", "geo vision" },            MainPath = "CH001.sdp",    SubPath = "CH002.sdp" },
+                new() { Key = "tiandy",     Aliases = new(){ "tiandy" },                              MainPath = "h264_stream",  SubPath = "live3.sdp" },
+                new() { Key = "honeywell",  Aliases = new(){ "honeywell" },                          MainPath = "cam/realmonitor", SubPath = "" },
+                new() { Key = "idis",       Aliases = new(){ "idis" },                               MainPath = "onvif/media",  SubPath = "" },
+            }
+        };
+    }
+}

@@ -1,0 +1,50 @@
+<UserControl x:Class="HeliVMS.Controls.CameraGrid"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:controls="clr-namespace:HeliVMS.Controls">
+    <Grid>
+        <Grid x:Name="MainGrid" Background="Transparent"/>
+
+        <!-- 無攝影機時顯示 -->
+        <Border x:Name="EmptyState" Background="Transparent" Visibility="Visible">
+            <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
+                <TextBlock Text="📹" FontSize="48"
+                           Foreground="{StaticResource SecondaryTextBrush}"
+                           HorizontalAlignment="Center"/>
+                <TextBlock Text="尚無攝影機"
+                           Foreground="{StaticResource TextBrush}"
+                           FontSize="16" FontWeight="SemiBold"
+                           Margin="0,12,0,4"
+                           HorizontalAlignment="Center"/>
+                <TextBlock Text="請前往「設備管理」新增攝影機"
+                           Foreground="{StaticResource SecondaryTextBrush}"
+                           FontSize="12"
+                           HorizontalAlignment="Center"/>
+            </StackPanel>
+        </Border>
+
+        <!-- 拖曳狀態指示器（偵錯用） -->
+        <Border x:Name="DragDebugPanel"
+                Background="#AA000000"
+                CornerRadius="3"
+                VerticalAlignment="Top" HorizontalAlignment="Left"
+                Margin="4" Padding="6,4"
+                IsHitTestVisible="False"
+                Visibility="Collapsed">
+            <StackPanel>
+                <TextBlock x:Name="DragEventText"
+                           Text="event: —"
+                           FontSize="10"
+                           Foreground="#AAFFFFFF"/>
+                <TextBlock x:Name="DragStateText"
+                           Text="state: —"
+                           FontSize="11"
+                           Foreground="#CCFFFFFF"/>
+                <TextBlock x:Name="DragDetailText"
+                             Text="detail: —"
+                             FontSize="10"
+                             Foreground="#88FFFF88"/>
+            </StackPanel>
+        </Border>
+    </Grid>
+</UserControl>

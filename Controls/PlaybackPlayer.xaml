@@ -1,0 +1,182 @@
+<UserControl x:Class="HeliVMS.Controls.PlaybackPlayer"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Background="{StaticResource SurfaceBrush}">
+    <UserControl.ContextMenu>
+        <ContextMenu>
+            <MenuItem x:Name="CtxSnapshot" Header="📷 拍照"
+                      Click="CtxSnapshot_Click"/>
+            <MenuItem x:Name="CtxMaximize" Header="🔍 放大檢視"
+                      Click="CtxMaximize_Click"/>
+            <Separator/>
+            <MenuItem x:Name="CtxSetMaster" Header="⭐ 設為同步主機"
+                      Click="CtxSetMaster_Click"/>
+        </ContextMenu>
+    </UserControl.ContextMenu>
+    <Border BorderBrush="{StaticResource BorderBrush}"
+             BorderThickness="1" CornerRadius="6">
+        <Grid>
+            <!-- Left accent color bar -->
+            <Border x:Name="AccentBar"
+                    HorizontalAlignment="Left" VerticalAlignment="Stretch"
+                    Width="3" CornerRadius="1,0,0,1"
+                    Background="#2196F3"/>
+
+            <!-- Main content -->
+            <Grid Margin="3,0,0,0">
+                <Image x:Name="VideoImage" Stretch="Uniform"
+                       Visibility="Collapsed"
+                       RenderTransformOrigin="0.5,0.5">
+                    <Image.RenderTransform>
+                        <TransformGroup>
+                            <ScaleTransform x:Name="ZoomScale"/>
+                            <TranslateTransform x:Name="ZoomTranslate"/>
+                        </TransformGroup>
+                    </Image.RenderTransform>
+                </Image>
+
+                <!-- Placeholder when idle -->
+                <Border x:Name="Placeholder"
+                        Background="{StaticResource SecondarySurfaceBrush}">
+                    <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
+                        <Border Width="44" Height="44" CornerRadius="22"
+                                Background="#18000000"
+                                HorizontalAlignment="Center" Margin="0,0,0,6">
+                            <TextBlock Text="🎥" FontSize="20"
+                                       HorizontalAlignment="Center"
+                                       VerticalAlignment="Center"/>
+                        </Border>
+                        <TextBlock x:Name="ChannelLabel" Text="CH--"
+                                   Foreground="{StaticResource SecondaryTextBrush}"
+                                   FontSize="26" FontWeight="Bold"
+                                   HorizontalAlignment="Center"/>
+                        <TextBlock x:Name="CameraNameText" Text=""
+                                   Foreground="{StaticResource TextBrush}"
+                                   FontSize="11" FontWeight="SemiBold"
+                                   HorizontalAlignment="Center" Opacity="0.7"
+                                   Margin="0,2,0,0"/>
+                        <TextBlock x:Name="StatusText" Text="等待中"
+                                   Foreground="{StaticResource SecondaryTextBrush}"
+                                   FontSize="10"
+                                   HorizontalAlignment="Center"
+                                   Margin="0,6,0,0"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- Bottom info overlay bar -->
+                <Border x:Name="InfoOverlay"
+                        VerticalAlignment="Bottom" Height="28"
+                        Background="#CC000000"
+                        IsHitTestVisible="False"
+                        Padding="8,0">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <Border x:Name="RecTypeBadge" Grid.Column="0"
+                                Padding="3,1" CornerRadius="2"
+                                Background="#444444" Margin="0,0,4,0"
+                                Visibility="Collapsed"
+                                IsHitTestVisible="False">
+                            <TextBlock x:Name="RecTypeText" FontSize="7"
+                                       Foreground="White" FontWeight="Bold"/>
+                        </Border>
+                        <Border x:Name="SpeedBadge" Grid.Column="1"
+                                Padding="3,1" CornerRadius="2"
+                                Background="#33FF9800" Margin="0,0,4,0"
+                                Visibility="Collapsed"
+                                IsHitTestVisible="False">
+                            <TextBlock x:Name="SpeedText" FontSize="7"
+                                       Foreground="#FF9800" FontWeight="Bold"/>
+                        </Border>
+                        <TextBlock x:Name="OverlayText" Grid.Column="2"
+                                   Text="" FontSize="11" FontWeight="SemiBold"
+                                   Foreground="White"
+                                   VerticalAlignment="Center"/>
+                        <StackPanel Grid.Column="3" Orientation="Horizontal"
+                                    VerticalAlignment="Center">
+                            <TextBlock x:Name="TimestampText"
+                                       FontSize="9" Foreground="#AAAAAA"
+                                       VerticalAlignment="Center" Margin="0,0,6,0"/>
+                            <Border x:Name="StatusDot"
+                                    Width="7" Height="7" CornerRadius="3.5"
+                                    Background="#666666"
+                                    VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Grid>
+                </Border>
+
+                <!-- Master sync badge -->
+                <Border x:Name="MasterBadge"
+                        VerticalAlignment="Top" HorizontalAlignment="Left"
+                        Margin="6" Padding="5,2"
+                        Background="#CC4CAF50" CornerRadius="3"
+                        Visibility="Collapsed"
+                        IsHitTestVisible="False">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="同步主機" FontSize="8"
+                                   Foreground="White" FontWeight="Bold"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- No signal badge -->
+                <Border x:Name="NoSignalOverlay"
+                        VerticalAlignment="Top" HorizontalAlignment="Right"
+                        Margin="6" Padding="6,2"
+                        Background="#CCFF4444" CornerRadius="3"
+                        Visibility="Collapsed"
+                        IsHitTestVisible="False">
+                    <TextBlock Text="無訊號" FontSize="9"
+                               Foreground="White" FontWeight="Bold"/>
+                </Border>
+
+                <!-- Speed OSD overlay (appears briefly on speed change) -->
+                <Border x:Name="SpeedOSD"
+                        VerticalAlignment="Center" HorizontalAlignment="Center"
+                        Padding="24,14"
+                        Background="#CC000000" CornerRadius="10"
+                        Visibility="Collapsed"
+                        IsHitTestVisible="False">
+                    <TextBlock x:Name="SpeedOSText"
+                               FontSize="40" FontWeight="Bold"
+                               Foreground="White"/>
+                </Border>
+
+                <!-- Digital zoom overlay -->
+                <Border x:Name="ZoomOverlay"
+                        VerticalAlignment="Top" HorizontalAlignment="Left"
+                        Margin="6" Padding="4,2"
+                        Background="#AA000000" CornerRadius="3"
+                        Visibility="Collapsed"
+                        IsHitTestVisible="True">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock x:Name="ZoomLevelText" Text="1.0x"
+                                   FontSize="10" Foreground="White"
+                                   VerticalAlignment="Center" Margin="0,0,4,0"/>
+                        <Button x:Name="ZoomResetBtn" Content="✕"
+                                FontSize="8" Width="16" Height="16"
+                                Padding="0" BorderThickness="0"
+                                Background="Transparent"
+                                Foreground="#AAAAAA"
+                                Click="ZoomResetBtn_Click"
+                                ToolTip="重設縮放"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- Playback progress bar (above InfoOverlay) -->
+                <Border x:Name="ProgressTrack"
+                        VerticalAlignment="Bottom" Height="2"
+                        Background="#40FFFFFF"
+                        IsHitTestVisible="False"
+                        Margin="0,0,0,28">
+                    <Border x:Name="ProgressFill"
+                            HorizontalAlignment="Left"
+                            Background="#FF4444"/>
+                </Border>
+            </Grid>
+        </Grid>
+    </Border>
+</UserControl>

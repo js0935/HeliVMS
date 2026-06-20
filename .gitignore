@@ -1,0 +1,42 @@
+## .NET
+bin/
+obj/
+*.user
+*.suo
+*.vs/
+*.DotSettings
+.vscode/
+
+## Build results
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+[Ww][Ii][Nn]32/
+[Aa][Rr][Mm]/
+[Aa][Rr][Mm]64/
+bld/
+[Bb]in/
+[Oo]bj/
+[Ll]og/
+[Ll]ogs/
+
+## NuGet
+*.nupkg
+**/[Pp]ackages/*
+!**/[Pp]ackages/build/
+*.nuget.props
+*.nuget.targets
+
+## Runtime data
+Data/
+*.db
+*.sqlite
+
+## FFmpeg binaries (downloaded separately)
+FFmpeg/*.dll
+FFmpeg/*.exe
+
+## OS
+Thumbs.db
+*.DS_Store

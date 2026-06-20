@@ -1,0 +1,66 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <ApplicationIcon>images\HeliNVR.ico</ApplicationIcon>
+    <PlatformTarget>x64</PlatformTarget>
+    <TieredCompilation>true</TieredCompilation>
+    <TieredCompilationQuickJit>true</TieredCompilationQuickJit>
+    <ServerGarbageCollection>false</ServerGarbageCollection>
+    <ConcurrentGarbageCollection>true</ConcurrentGarbageCollection>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.0" />
+    <PackageReference Include="FFmpeg.AutoGen.Abstractions" Version="8.0.0.1" />
+    <PackageReference Include="FFmpeg.AutoGen.Bindings.DynamicallyLoaded" Version="8.0.0.1" />
+    <PackageReference Include="FlyleafLib" Version="3.10.4" />
+    <PackageReference Include="FlyleafLib.Controls.WPF" Version="1.6.4" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.9" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.9" />
+    <PackageReference Include="Serilog" Version="4.2.0" />
+    <PackageReference Include="Serilog.Sinks.File" Version="6.0.0" />
+    <PackageReference Include="System.Management" Version="9.0.4" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="DLL\**\*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="FFmpeg\**\*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="images\HeliNVR.ico">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
+  <ItemGroup>
+    <Resource Include="images\Disable.png" />
+  </ItemGroup>
+
+  <!-- 確保 HeliVMS.Decoder 子處理序被建置並複製到輸出目錄 -->
+  <ItemGroup>
+    <ProjectReference Include="..\Tools\HeliVMS.Decoder\HeliVMS.Decoder.csproj" ReferenceOutputAssembly="false" SkipGetTargetFrameworkProperties="true" />
+  </ItemGroup>
+
+  <Target Name="CopyDecoderOutput" AfterTargets="Build" Condition="Exists('$(OutputPath)')">
+    <ItemGroup>
+      <_DecoderFiles Include="$(MSBuildProjectDirectory)\..\Tools\HeliVMS.Decoder\bin\$(Configuration)\$(TargetFramework)\*" />
+    </ItemGroup>
+    <Copy SourceFiles="@(_DecoderFiles)" DestinationFolder="$(OutputPath)" SkipUnchangedFiles="true" OverwriteReadOnlyFiles="true" />
+  </Target>
+
+</Project>

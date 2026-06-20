@@ -1,0 +1,189 @@
+<UserControl x:Class="HeliVMS.Views.LicenseView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Background="{StaticResource BackgroundBrush}">
+    <UserControl.Resources>
+        <Style x:Key="FieldLabel" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{StaticResource SecondaryTextBrush}"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="Margin" Value="0,0,0,4"/>
+        </Style>
+    </UserControl.Resources>
+    <Grid Margin="24">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <TextBlock Grid.Row="0" Text="授權資訊" Style="{StaticResource PageHeader}"/>
+
+        <ScrollViewer Grid.Row="1" Margin="0,12,0,0" VerticalScrollBarVisibility="Auto">
+            <StackPanel>
+
+                <!-- License Info Card -->
+                <Border Style="{StaticResource CardBorder}" Padding="16" Margin="0,0,0,16">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+
+                        <TextBlock Text="授權資訊" Style="{StaticResource SectionHeader}" Margin="0,0,0,14"/>
+
+                        <Grid Grid.Row="1" Margin="0,0,0,8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="160"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="授權狀態" Style="{StaticResource FieldLabel}"/>
+                            <TextBlock Grid.Column="1" x:Name="LicenseStatusText" Text="使用狀態"
+                                       Foreground="{StaticResource PrimaryBrush}" FontSize="14" FontWeight="Bold"/>
+                        </Grid>
+
+                        <Grid Grid.Row="2" Margin="0,0,0,8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="160"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="授權類型" Style="{StaticResource FieldLabel}"/>
+                            <TextBlock Grid.Column="1" x:Name="LicenseTypeText" Text="載入中..."
+                                       Foreground="{StaticResource TextBrush}" FontSize="13"/>
+                        </Grid>
+
+                        <Grid Grid.Row="3" Margin="0,0,0,8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="160"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="產品名稱" Style="{StaticResource FieldLabel}"/>
+                            <TextBlock Grid.Column="1" x:Name="LicenseNameText" Text="HeliVMS"
+                                       Foreground="{StaticResource TextBrush}" FontSize="13"/>
+                        </Grid>
+
+                        <Grid Grid.Row="4" Margin="0,0,0,8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="160"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="被授權人" Style="{StaticResource FieldLabel}"/>
+                            <TextBlock Grid.Column="1" x:Name="LicenseeText" Text="--"
+                                       Foreground="{StaticResource TextBrush}" FontSize="13"/>
+                        </Grid>
+
+                        <Grid Grid.Row="5" Margin="0,0,0,8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="160"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="有效期限" Style="{StaticResource FieldLabel}"/>
+                            <TextBlock Grid.Column="1" x:Name="ExpiryText" Text="--"
+                                       Foreground="{StaticResource TextBrush}" FontSize="13"/>
+                        </Grid>
+
+                        <Grid Grid.Row="6" Margin="0,0,0,8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="160"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="最大攝影機數量" Style="{StaticResource FieldLabel}"/>
+                            <TextBlock Grid.Column="1" x:Name="MaxCamerasText" Text="4"
+                                       Foreground="{StaticResource TextBrush}" FontSize="13"/>
+                        </Grid>
+
+                        <Grid Grid.Row="7">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="160"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="授權金鑰" Style="{StaticResource FieldLabel}"/>
+                            <TextBox Grid.Column="1" x:Name="LicenseKeyBox"
+                                     Style="{StaticResource ModernTextBox}"
+                                     Margin="0,0,8,0"/>
+                            <Button Grid.Column="2" Content="啟用" Style="{StaticResource ModernButton}"
+                                    Height="30" Width="60" Click="ActivateLicenseButton_Click"/>
+                            <Button Grid.Column="3" Content="移除授權"
+                                    Style="{StaticResource SecondaryButton}"
+                                    Height="30" Margin="8,0,0,0"
+                                    Click="RemoveLicenseButton_Click"/>
+                            <Button Grid.Column="4" Content="📤 匯出"
+                                    Style="{StaticResource SecondaryButton}"
+                                    Height="30" Width="64" Margin="8,0,0,0"
+                                    Click="ExportLicenseButton_Click"
+                                    ToolTip="將授權匯出為檔案（可在重新安裝後匯入）"/>
+                            <Button Grid.Column="5" Content="📥 匯入"
+                                    Style="{StaticResource SecondaryButton}"
+                                    Height="30" Width="64" Margin="4,0,0,0"
+                                    Click="ImportLicenseButton_Click"
+                                    ToolTip="從授權檔案匯入"/>
+                        </Grid>
+                    </Grid>
+                </Border>
+
+                <!-- System Info Card -->
+                <Border Style="{StaticResource CardBorder}" Padding="16" Margin="0,0,0,16">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+
+                        <TextBlock Text="系統資訊" Style="{StaticResource SectionHeader}" Margin="0,0,0,10"/>
+
+                        <Grid Grid.Row="1" Margin="0,0,0,6">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="160"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="版本" Style="{StaticResource FieldLabel}"/>
+                            <TextBlock Grid.Column="1" x:Name="VersionText" Text="V1.0.0"
+                                       Foreground="{StaticResource TextBrush}" FontSize="13"/>
+                        </Grid>
+
+                        <Grid Grid.Row="2" Margin="0,0,0,6">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="160"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="作業系統" Style="{StaticResource FieldLabel}"/>
+                            <TextBlock Grid.Column="1" x:Name="OsVersionText" Text=""
+                                       Foreground="{StaticResource TextBrush}" FontSize="13"/>
+                        </Grid>
+
+                        <Grid Grid.Row="3">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="160"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="設備碼" Style="{StaticResource FieldLabel}"/>
+                            <TextBlock Grid.Column="1" x:Name="MachineIdText" Text=""
+                                       Foreground="{StaticResource TextBrush}" FontSize="13"
+                                       VerticalAlignment="Center"/>
+                            <Button Grid.Column="2" Content="複製"
+                                    Style="{StaticResource SecondaryButton}"
+                                    Height="26" FontSize="11" Padding="10,0"
+                                    Margin="8,0,0,0"
+                                    Click="CopyMachineId_Click"/>
+                        </Grid>
+                    </Grid>
+                </Border>
+
+                <TextBlock Text="禾秝軟體開發團隊 版權所有"
+                           Foreground="{StaticResource SecondaryTextBrush}"
+                           FontSize="11" HorizontalAlignment="Center" Margin="0,8,0,0"/>
+            </StackPanel>
+        </ScrollViewer>
+    </Grid>
+</UserControl>

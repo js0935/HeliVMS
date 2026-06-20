@@ -1,0 +1,1163 @@
+<UserControl x:Class="HeliVMS.Views.PlaybackView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:sys="clr-namespace:System;assembly=System.Runtime"
+             xmlns:controls="clr-namespace:HeliVMS.Controls"
+             xmlns:local="clr-namespace:HeliVMS.Views"
+             Background="{StaticResource BackgroundBrush}">
+    <Grid Margin="12">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- ═══════════════════════════════════════════════════════
+             Full-screen overlay (spans all rows, hidden by default)
+             ═══════════════════════════════════════════════════════ -->
+        <Grid x:Name="FullScreenOverlay"
+              Grid.RowSpan="6"
+              Visibility="Collapsed"
+              Background="#FF000000">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+
+            <!-- Top bar: exit + time -->
+            <Border x:Name="FsTopBar" Grid.Row="0" Height="40"
+                    Background="#88000000"
+                    Padding="12,0">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+
+                    <TextBlock Grid.Column="0" x:Name="FsTimeText"
+                               Text="--:--:--"
+                               FontSize="16" FontWeight="Bold"
+                               FontFamily="Consolas"
+                               Foreground="White"
+                               VerticalAlignment="Center"/>
+
+                    <StackPanel Grid.Column="2" Orientation="Horizontal"
+                                VerticalAlignment="Center">
+                        <Button x:Name="FsBookmarkBtn" Content="🔖"
+                                Style="{StaticResource SecondaryButton}"
+                                Height="26" Width="30" FontSize="10"
+                                Padding="0" Margin="0,0,4,0"
+                                Background="#44FFFFFF" BorderThickness="0"
+                                Click="FsBookmarkBtn_Click"
+                                ToolTip="標記書籤 (B)"/>
+                        <Button x:Name="FsSnapshotBtn" Content="📷"
+                                Style="{StaticResource SecondaryButton}"
+                                Height="26" Width="30" FontSize="10"
+                                Padding="0" Margin="0,0,4,0"
+                                Background="#44FFFFFF" BorderThickness="0"
+                                Click="FsSnapshotBtn_Click"
+                                ToolTip="拍照"/>
+                        <Button x:Name="FsExitBtn" Content="⛶"
+                                Style="{StaticResource SecondaryButton}"
+                                Height="26" Width="30" FontSize="14"
+                                Padding="0"
+                                Background="#44FFFFFF" BorderThickness="0"
+                                Foreground="White"
+                                Click="FsExitBtn_Click"
+                                ToolTip="離開全螢幕 (F11)"/>
+                    </StackPanel>
+                </Grid>
+            </Border>
+
+            <!-- Center: empty (video grid is visible behind) -->
+
+            <!-- Bottom: mini transport bar -->
+            <Border x:Name="FsBottomBar" Grid.Row="2" Height="48"
+                    Background="#88000000"
+                    Padding="12,0">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+
+                    <Button Grid.Column="0" x:Name="FsJumpStartBtn" Content="⏮"
+                            Style="{StaticResource SecondaryButton}"
+                            Height="30" Width="32" FontSize="11"
+                            Background="#44FFFFFF" BorderThickness="0"
+                            Click="FsTransportBtn_Click" Tag="jumpStart"
+                            ToolTip="跳到開頭"/>
+                    <Button Grid.Column="1" x:Name="FsStepBackBtn" Content="◀"
+                            Style="{StaticResource SecondaryButton}"
+                            Height="30" Width="32" FontSize="10"
+                            Background="#44FFFFFF" BorderThickness="0"
+                            Margin="4,0,0,0"
+                            Click="FsTransportBtn_Click" Tag="stepBack"
+                            ToolTip="上一步"/>
+                    <Button Grid.Column="2" x:Name="FsPlayBtn" Content="▶"
+                            Style="{StaticResource SecondaryButton}"
+                            Height="32" Width="36" FontSize="12"
+                            Background="#66FFFFFF" BorderThickness="0"
+                            Foreground="White"
+                            Margin="4,0,0,0"
+                            Click="FsTransportBtn_Click" Tag="play"
+                            ToolTip="播放"/>
+                    <Button Grid.Column="3" x:Name="FsPauseBtn" Content="⏸"
+                            Style="{StaticResource SecondaryButton}"
+                            Height="30" Width="32" FontSize="10"
+                            Background="#44FFFFFF" BorderThickness="0"
+                            Margin="2,0,0,0"
+                            Click="FsTransportBtn_Click" Tag="pause"
+                            ToolTip="暫停"/>
+                    <Button Grid.Column="4" x:Name="FsStepFwdBtn" Content="▶"
+                            Style="{StaticResource SecondaryButton}"
+                            Height="30" Width="32" FontSize="10"
+                            Background="#44FFFFFF" BorderThickness="0"
+                            Margin="4,0,0,0"
+                            Click="FsTransportBtn_Click" Tag="stepFwd"
+                            ToolTip="下一步"/>
+                    <Button Grid.Column="5" x:Name="FsJumpEndBtn" Content="⏭"
+                            Style="{StaticResource SecondaryButton}"
+                            Height="30" Width="32" FontSize="11"
+                            Background="#44FFFFFF" BorderThickness="0"
+                            Margin="4,0,0,0"
+                            Click="FsTransportBtn_Click" Tag="jumpEnd"
+                            ToolTip="跳到結尾"/>
+                    <Button Grid.Column="6" x:Name="FsSpeedBtn" Content="1x"
+                            Style="{StaticResource SecondaryButton}"
+                            Height="30" Width="40" FontSize="10" FontWeight="SemiBold"
+                            Background="#44FFFFFF" BorderThickness="0"
+                            Margin="4,0,0,0"
+                            Click="FsTransportBtn_Click" Tag="speed"
+                            ToolTip="播放速度"/>
+
+                    <TextBlock Grid.Column="8" x:Name="FsClockText"
+                               Text=""
+                               FontSize="11"
+                               Foreground="#AAAAAA"
+                               FontFamily="Consolas"
+                               VerticalAlignment="Center"/>
+                </Grid>
+            </Border>
+        </Grid>
+
+        <!-- ═══════════════════════════════════════════════════════
+             Keyboard shortcuts overlay (H key, hidden by default)
+             ═══════════════════════════════════════════════════════ -->
+        <Border x:Name="ShortcutsOverlay"
+                Grid.RowSpan="6"
+                Visibility="Collapsed"
+                Background="#CC000000"
+                MouseDown="ShortcutsOverlay_MouseDown">
+            <ScrollViewer VerticalScrollBarVisibility="Auto"
+                          HorizontalScrollBarVisibility="Disabled">
+                <Border Background="#1A1A1A"
+                        BorderBrush="#333333" BorderThickness="1"
+                        CornerRadius="10"
+                        MaxWidth="560"
+                        Margin="0,40,0,40"
+                        Padding="24,20"
+                        HorizontalAlignment="Center">
+                    <StackPanel>
+                        <TextBlock Text="快捷鍵一覽"
+                                   FontSize="20" FontWeight="Bold"
+                                   Foreground="White"
+                                   Margin="0,0,0,16"
+                                   HorizontalAlignment="Center"/>
+
+                        <!-- Transport -->
+                        <TextBlock Text="播放控制" FontSize="13" FontWeight="SemiBold"
+                                   Foreground="#FFD700" Margin="0,0,0,6"/>
+                        <local:ShortcutRow Key_="Ctrl + P" Desc="全部播放"/>
+                        <local:ShortcutRow Key_="Space" Desc="播放 / 暫停"/>
+                        <local:ShortcutRow Key_="← / ," Desc="上一幀"/>
+                        <local:ShortcutRow Key_="→ / ." Desc="下一幀"/>
+                        <local:ShortcutRow Key_="Shift + ," Desc="跳回 10 幀"/>
+                        <local:ShortcutRow Key_="Shift + ." Desc="跳前 10 幀"/>
+                        <local:ShortcutRow Key_="Ctrl + ←" Desc="跳到開頭"/>
+                        <local:ShortcutRow Key_="Ctrl + →" Desc="跳到結尾"/>
+                        <local:ShortcutRow Key_="Ctrl + Shift + ←" Desc="前一個片段"/>
+                        <local:ShortcutRow Key_="Ctrl + Shift + →" Desc="後一個片段"/>
+                        <local:ShortcutRow Key_="Ctrl + G" Desc="跳轉到指定時間"/>
+                        <local:ShortcutRow Key_="↑ / +" Desc="加快播放速度"/>
+                        <local:ShortcutRow Key_="↓ / -" Desc="減慢播放速度"/>
+                        <local:ShortcutRow Key_="1 / 2 / 3 / 4" Desc="1x / 2x / 4x / 8x 速度"/>
+                        <Separator Background="#444" Height="1" Margin="0,8"/>
+
+                        <!-- Search -->
+                        <TextBlock Text="錄影搜尋" FontSize="13" FontWeight="SemiBold"
+                                   Foreground="#FFD700" Margin="0,0,0,6"/>
+                        <local:ShortcutRow Key_="Ctrl + F" Desc="開啟 / 關閉搜尋面板"/>
+                        <local:ShortcutRow Key_="Escape" Desc="關閉搜尋面板"/>
+                        <local:ShortcutRow Key_="Enter" Desc="執行搜尋（焦點在輸入框時）"/>
+                        <local:ShortcutRow Key_="↑ / ↓" Desc="選擇上 / 下一個搜尋結果"/>
+                        <local:ShortcutRow Key_="Ctrl + A" Desc="全選搜尋結果"/>
+                        <local:ShortcutRow Key_="Enter" Desc="跳至選取的搜尋結果"/>
+                        <Separator Background="#444" Height="1" Margin="0,8"/>
+
+                        <!-- Markers -->
+                        <TextBlock Text="標記與循環" FontSize="13" FontWeight="SemiBold"
+                                   Foreground="#FFD700" Margin="0,0,0,6"/>
+                        <local:ShortcutRow Key_="B" Desc="標記書籤"/>
+                        <local:ShortcutRow Key_="I" Desc="設定循環起點 A"/>
+                        <local:ShortcutRow Key_="O" Desc="設定循環終點 B"/>
+                        <local:ShortcutRow Key_="L" Desc="啟用 / 停用循環播放"/>
+                        <Separator Background="#444" Height="1" Margin="0,8"/>
+
+                        <!-- Display -->
+                        <TextBlock Text="顯示" FontSize="13" FontWeight="SemiBold"
+                                   Foreground="#FFD700" Margin="0,0,0,6"/>
+                        <local:ShortcutRow Key_="F11 / Escape" Desc="全螢幕模式"/>
+                        <local:ShortcutRow Key_="H / ?" Desc="顯示此快捷鍵一覽"/>
+                        <local:ShortcutRow Key_="雙擊 Player" Desc="放大 / 還原該頻道"/>
+
+                        <TextBlock Text="點擊任意處或按 H / Escape 關閉"
+                                   FontSize="11" Foreground="#888"
+                                   Margin="0,18,0,0"
+                                   HorizontalAlignment="Center"/>
+                    </StackPanel>
+                </Border>
+            </ScrollViewer>
+        </Border>
+
+        <!-- Row 0: Toolbar -->
+        <Border Grid.Row="0" x:Name="ToolbarRow" Style="{StaticResource CardBorder}"
+                Padding="12,8" Margin="0,0,0,8">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+
+                <TextBlock Grid.Column="0" Text="錄影回放"
+                           Style="{StaticResource PageHeader}"
+                           FontSize="20"
+                           Margin="0" VerticalAlignment="Center"/>
+
+                <Separator Grid.Column="1"
+                           Style="{StaticResource {x:Static ToolBar.SeparatorStyleKey}}"
+                           Margin="12,0"/>
+
+                <TextBlock Grid.Column="2" Text="日期" VerticalAlignment="Center"
+                           Foreground="{StaticResource SecondaryTextBrush}"
+                           FontSize="11" FontWeight="SemiBold" Margin="0,0,4,0"/>
+                <StackPanel Grid.Column="3" Orientation="Horizontal">
+                    <Button x:Name="PrevDayBtn" Content="◀"
+                            Style="{StaticResource SecondaryButton}"
+                            Height="28" Width="26" FontSize="9"
+                            Padding="0" Margin="0,0,2,0"
+                            Click="PrevDayBtn_Click"
+                            ToolTip="前一天"/>
+                    <DatePicker x:Name="FilterDatePicker"
+                                 SelectedDateChanged="FilterDatePicker_SelectedDateChanged"
+                                 Width="108"
+                                 Background="{StaticResource InputBackgroundBrush}"
+                                 Foreground="{StaticResource TextBrush}"
+                                 BorderBrush="{StaticResource BorderBrush}"/>
+                    <Button x:Name="NextDayBtn" Content="▶"
+                            Style="{StaticResource SecondaryButton}"
+                            Height="28" Width="26" FontSize="9"
+                            Padding="0" Margin="2,0,0,0"
+                            Click="NextDayBtn_Click"
+                            ToolTip="後一天"/>
+                </StackPanel>
+
+                <TextBlock Grid.Column="4" Text="時" VerticalAlignment="Center"
+                           Foreground="{StaticResource SecondaryTextBrush}"
+                           FontSize="11" FontWeight="SemiBold" Margin="8,0,4,0"/>
+                <ComboBox Grid.Column="5" x:Name="PlaybackHourCombo"
+                          Style="{StaticResource ModernComboBox}"
+                          SelectedIndex="0"
+                          Width="60" Height="26" FontSize="11">
+                    <sys:String>00</sys:String>
+                    <sys:String>01</sys:String>
+                    <sys:String>02</sys:String>
+                    <sys:String>03</sys:String>
+                    <sys:String>04</sys:String>
+                    <sys:String>05</sys:String>
+                    <sys:String>06</sys:String>
+                    <sys:String>07</sys:String>
+                    <sys:String>08</sys:String>
+                    <sys:String>09</sys:String>
+                    <sys:String>10</sys:String>
+                    <sys:String>11</sys:String>
+                    <sys:String>12</sys:String>
+                    <sys:String>13</sys:String>
+                    <sys:String>14</sys:String>
+                    <sys:String>15</sys:String>
+                    <sys:String>16</sys:String>
+                    <sys:String>17</sys:String>
+                    <sys:String>18</sys:String>
+                    <sys:String>19</sys:String>
+                    <sys:String>20</sys:String>
+                    <sys:String>21</sys:String>
+                    <sys:String>22</sys:String>
+                    <sys:String>23</sys:String>
+                </ComboBox>
+
+                <Button Grid.Column="6" x:Name="LoadTimeRangeBtn"
+                         Content="載入" FontSize="11" FontWeight="SemiBold"
+                         Style="{StaticResource ModernButton}"
+                         Height="28" Padding="12,0" Margin="6,0,0,0"
+                         Click="LoadTimeRangeBtn_Click"/>
+
+                <Button Grid.Column="7" x:Name="PlayAllBtn"
+                         Content="▶  全部播放" Tag="▶  全部播放"
+                         FontSize="11" FontWeight="Bold"
+                         Style="{StaticResource ModernButton}"
+                         Height="28" Padding="12,0" Margin="6,0,0,0"
+                         Click="PlayAllBtn_Click"
+                         ToolTip="全選所有頻道並載入目前時段的錄影播放"
+                         Background="#FF2E7D32"
+                         Foreground="White"
+                         BorderBrush="#FF1B5E20"/>
+
+                <Button Grid.Column="8" x:Name="SearchToggleBtn" Content="🔍  搜尋"
+                        Style="{StaticResource SecondaryButton}"
+                        Height="28" FontSize="11" Padding="8,0"
+                        Margin="8,0,0,0"
+                        Click="SearchToggleBtn_Click"
+                        ToolTip="開啟錄影搜尋面板"/>
+
+                <!-- Right-side actions -->
+                <StackPanel Grid.Column="9" Orientation="Horizontal"
+                            HorizontalAlignment="Right" VerticalAlignment="Center">
+                    <!-- Playing channel count -->
+                    <Border x:Name="PlayingCountBadge"
+                            Background="#332E7D32" CornerRadius="4"
+                            Padding="8,3" Margin="0,0,6,0"
+                            VerticalAlignment="Center"
+                            Visibility="Collapsed">
+                        <TextBlock x:Name="PlayingCountText"
+                                   Text=""
+                                   Foreground="#FF4CAF50"
+                                   FontSize="11" FontWeight="Bold"
+                                   FontFamily="Consolas"
+                                   VerticalAlignment="Center"/>
+                    </Border>
+
+                    <!-- Sync master indicator -->
+                    <Border x:Name="SyncIndicator"
+                            Background="#332196F3" CornerRadius="4"
+                            Padding="8,3" Margin="0,0,6,0"
+                            VerticalAlignment="Center"
+                            Visibility="Collapsed">
+                        <TextBlock x:Name="SyncIndicatorText"
+                                   Text=""
+                                   Foreground="#FF2196F3"
+                                   FontSize="11" FontWeight="Bold"
+                                   FontFamily="Consolas"
+                                   VerticalAlignment="Center"/>
+                    </Border>
+
+                    <!-- Live date-time clock -->
+                    <Border Background="{StaticResource SecondarySurfaceBrush}"
+                            CornerRadius="4" Padding="10,3" Margin="0,0,8,0"
+                            VerticalAlignment="Center">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock x:Name="ClockDateText"
+                                       Foreground="{StaticResource SecondaryTextBrush}"
+                                       FontSize="11" FontWeight="SemiBold"
+                                       VerticalAlignment="Center"/>
+                            <TextBlock x:Name="ClockTimeText"
+                                       Foreground="{StaticResource TextBrush}"
+                                       FontSize="13" FontWeight="Bold"
+                                       FontFamily="Consolas"
+                                       Margin="6,0,0,0"
+                                       VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Border>
+                    <Button x:Name="SnapshotBtn" Content="📷  拍照"
+                            Style="{StaticResource SecondaryButton}"
+                            Height="28" FontSize="11" Padding="10,0"
+                            Margin="0,0,4,0"
+                            Click="SnapshotBtn_Click"/>
+                    <Button x:Name="LayoutBtn" Content="▦  Auto"
+                            Style="{StaticResource SecondaryButton}"
+                            Height="28" FontSize="11" Padding="8,0"
+                            Margin="0,0,4,0"
+                            Click="LayoutBtn_Click"
+                            ToolTip="切換版面配置"/>
+                    <Button x:Name="BackupBtn" Content="💾  備份錄影"
+                            Style="{StaticResource SecondaryButton}"
+                            Height="28" FontSize="11" Padding="10,0"
+                            Margin="0,0,4,0"
+                            Click="BackupBtn_Click"/>
+                    <Button x:Name="RefreshBtn" Content="🔄  重新整理"
+                            Style="{StaticResource SecondaryButton}"
+                            Height="28" FontSize="11" Padding="10,0"
+                            Click="RefreshBtn_Click"/>
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- Search panel backdrop (click to close) -->
+        <Border x:Name="SearchBackdrop"
+                Grid.Row="0" Grid.RowSpan="5"
+                Panel.ZIndex="99"
+                Background="#80000000"
+                Visibility="Collapsed"
+                MouseLeftButtonDown="SearchBackdrop_MouseLeftButtonDown"/>
+
+        <!-- Search panel overlay (no longer pushes content down) -->
+        <Border x:Name="SearchPanel"
+                Grid.Row="0" Grid.RowSpan="5"
+                Panel.ZIndex="100"
+                HorizontalAlignment="Right" VerticalAlignment="Stretch"
+                Width="420"
+                Style="{StaticResource CardBorder}" Padding="12,8"
+                Margin="0" Visibility="Collapsed"
+                BorderThickness="1,0,0,0">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+
+                <!-- Search filters -->
+                <Grid Grid.Column="0">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+
+                    <!-- Quick time presets -->
+                    <WrapPanel Grid.Row="0" Grid.ColumnSpan="8" Margin="0,0,0,6">
+                        <TextBlock Text="快速選取:" VerticalAlignment="Center"
+                                   Foreground="{StaticResource SecondaryTextBrush}"
+                                   FontSize="10" FontWeight="SemiBold" Margin="0,0,4,0"/>
+                        <Button Content="本日" Style="{StaticResource SecondaryButton}"
+                                Height="22" FontSize="10" Padding="8,0" Margin="0,0,2,0"
+                                Click="SearchPresetToday_Click"/>
+                        <Button Content="過去1小時" Style="{StaticResource SecondaryButton}"
+                                Height="22" FontSize="10" Padding="8,0" Margin="0,0,2,0"
+                                Click="SearchPreset1H_Click"/>
+                        <Button Content="過去6小時" Style="{StaticResource SecondaryButton}"
+                                Height="22" FontSize="10" Padding="8,0" Margin="0,0,2,0"
+                                Click="SearchPreset6H_Click"/>
+                        <Button Content="過去24小時" Style="{StaticResource SecondaryButton}"
+                                Height="22" FontSize="10" Padding="8,0" Margin="0,0,2,0"
+                                Click="SearchPreset24H_Click"/>
+                        <Button Content="本週" Style="{StaticResource SecondaryButton}"
+                                Height="22" FontSize="10" Padding="8,0"
+                                Click="SearchPresetWeek_Click"/>
+                    </WrapPanel>
+
+                    <!-- Start date/time -->
+                    <TextBlock Grid.Row="1" Grid.Column="0"
+                               Text="從" VerticalAlignment="Center"
+                               Foreground="{StaticResource SecondaryTextBrush}"
+                               FontSize="11" FontWeight="SemiBold" Margin="0,0,6,6"/>
+                    <DatePicker Grid.Row="1" Grid.Column="1"
+                                x:Name="SearchFromDate"
+                                Width="120" Height="26"
+                                Background="{StaticResource InputBackgroundBrush}"
+                                Foreground="{StaticResource TextBrush}"
+                                BorderBrush="{StaticResource BorderBrush}"/>
+                    <TextBlock Grid.Row="1" Grid.Column="2" Text="時" VerticalAlignment="Center"
+                               Foreground="{StaticResource SecondaryTextBrush}"
+                               FontSize="11" Margin="4,0,2,6"/>
+                    <TextBox Grid.Row="1" Grid.Column="3" x:Name="SearchFromHour"
+                             Text="00" Width="36" Height="26" FontSize="11"
+                             HorizontalContentAlignment="Center"
+                             Background="{StaticResource InputBackgroundBrush}"
+                             Foreground="{StaticResource TextBrush}"
+                             BorderBrush="{StaticResource BorderBrush}"/>
+                    <TextBlock Grid.Row="1" Grid.Column="4" Text="分" VerticalAlignment="Center"
+                               Foreground="{StaticResource SecondaryTextBrush}"
+                               FontSize="11" Margin="4,0,2,6"/>
+                    <TextBox Grid.Row="1" Grid.Column="5" x:Name="SearchFromMinute"
+                             Text="00" Width="36" Height="26" FontSize="11"
+                             HorizontalContentAlignment="Center"
+                             Background="{StaticResource InputBackgroundBrush}"
+                             Foreground="{StaticResource TextBrush}"
+                             BorderBrush="{StaticResource BorderBrush}"/>
+                    <TextBlock Grid.Row="1" Grid.Column="6" Text="秒" VerticalAlignment="Center"
+                               Foreground="{StaticResource SecondaryTextBrush}"
+                               FontSize="11" Margin="4,0,2,6"/>
+                    <TextBox Grid.Row="1" Grid.Column="7" x:Name="SearchFromSecond"
+                             Text="00" Width="36" Height="26" FontSize="11"
+                             HorizontalContentAlignment="Center"
+                             Background="{StaticResource InputBackgroundBrush}"
+                             Foreground="{StaticResource TextBrush}"
+                             BorderBrush="{StaticResource BorderBrush}"/>
+
+                    <!-- End date/time -->
+                    <TextBlock Grid.Row="2" Grid.Column="0"
+                               Text="至" VerticalAlignment="Center"
+                               Foreground="{StaticResource SecondaryTextBrush}"
+                               FontSize="11" FontWeight="SemiBold" Margin="0,0,6,0"/>
+                    <DatePicker Grid.Row="2" Grid.Column="1"
+                                x:Name="SearchToDate"
+                                Width="120" Height="26"
+                                Background="{StaticResource InputBackgroundBrush}"
+                                Foreground="{StaticResource TextBrush}"
+                                BorderBrush="{StaticResource BorderBrush}"/>
+                    <TextBlock Grid.Row="2" Grid.Column="2" Text="時" VerticalAlignment="Center"
+                               Foreground="{StaticResource SecondaryTextBrush}"
+                               FontSize="11" Margin="4,0,2,0"/>
+                    <TextBox Grid.Row="2" Grid.Column="3" x:Name="SearchToHour"
+                             Text="23" Width="36" Height="26" FontSize="11"
+                             HorizontalContentAlignment="Center"
+                             Background="{StaticResource InputBackgroundBrush}"
+                             Foreground="{StaticResource TextBrush}"
+                             BorderBrush="{StaticResource BorderBrush}"/>
+                    <TextBlock Grid.Row="2" Grid.Column="4" Text="分" VerticalAlignment="Center"
+                               Foreground="{StaticResource SecondaryTextBrush}"
+                               FontSize="11" Margin="4,0,2,0"/>
+                    <TextBox Grid.Row="2" Grid.Column="5" x:Name="SearchToMinute"
+                             Text="59" Width="36" Height="26" FontSize="11"
+                             HorizontalContentAlignment="Center"
+                             Background="{StaticResource InputBackgroundBrush}"
+                             Foreground="{StaticResource TextBrush}"
+                             BorderBrush="{StaticResource BorderBrush}"/>
+                    <TextBlock Grid.Row="2" Grid.Column="6" Text="秒" VerticalAlignment="Center"
+                               Foreground="{StaticResource SecondaryTextBrush}"
+                               FontSize="11" Margin="4,0,2,0"/>
+                    <TextBox Grid.Row="2" Grid.Column="7" x:Name="SearchToSecond"
+                             Text="59" Width="36" Height="26" FontSize="11"
+                             HorizontalContentAlignment="Center"
+                             Background="{StaticResource InputBackgroundBrush}"
+                             Foreground="{StaticResource TextBrush}"
+                             BorderBrush="{StaticResource BorderBrush}"/>
+
+                    <!-- Camera filter + search button -->
+                    <WrapPanel Grid.Row="3" Grid.ColumnSpan="8" Margin="0,8,0,0">
+                        <TextBlock Text="類型:" VerticalAlignment="Center"
+                                   Foreground="{StaticResource SecondaryTextBrush}"
+                                   FontSize="11" FontWeight="SemiBold" Margin="0,0,4,0"/>
+                        <ComboBox x:Name="SearchTypeFilter" Width="80" Height="24" FontSize="11"
+                                  SelectedIndex="0"
+                                  Background="{StaticResource InputBackgroundBrush}"
+                                  Foreground="{StaticResource TextBrush}"
+                                  BorderBrush="{StaticResource BorderBrush}">
+                            <ComboBoxItem Content="全部"/>
+                            <ComboBoxItem Content="連續"/>
+                            <ComboBoxItem Content="動態"/>
+                            <ComboBoxItem Content="警報"/>
+                        </ComboBox>
+                        <TextBlock Text="頻道:" VerticalAlignment="Center"
+                                   Foreground="{StaticResource SecondaryTextBrush}"
+                                   FontSize="11" FontWeight="SemiBold" Margin="8,0,4,0"/>
+                        <TextBox x:Name="SearchCameraFilter"
+                                  Width="120" Height="24" FontSize="11"
+                                  ToolTip="輸入頻道編號或名稱篩選 (留空=搜尋全部已選頻道)"
+                                  Background="{StaticResource InputBackgroundBrush}"
+                                  Foreground="{StaticResource TextBrush}"
+                                  BorderBrush="{StaticResource BorderBrush}"
+                                  KeyDown="SearchInput_KeyDown"/>
+                        <CheckBox x:Name="SearchMotionFilter"
+                                  Content="僅顯示有動態的片段"
+                                  FontSize="11"
+                                  Foreground="{StaticResource SecondaryTextBrush}"
+                                  VerticalAlignment="Center"
+                                  Margin="8,0,0,0"/>
+                        <Button x:Name="ExecuteSearchBtn" Content="🔍  搜尋錄影"
+                                Style="{StaticResource SecondaryButton}"
+                                Height="28" FontSize="11" Padding="10,0"
+                                Margin="8,0,0,0"
+                                Click="ExecuteSearchBtn_Click"/>
+                        <Button x:Name="SearchClearFiltersBtn" Content="清除篩選"
+                                Style="{StaticResource SecondaryButton}"
+                                Height="28" FontSize="10" Padding="6,0"
+                                Margin="4,0,0,0"
+                                Click="SearchClearFiltersBtn_Click"
+                                ToolTip="重設所有搜尋條件"/>
+                        <Button x:Name="CloseSearchBtn" Content="✕"
+                                Style="{StaticResource SecondaryButton}"
+                                Height="28" Width="28" FontSize="11"
+                                Margin="4,0,0,0" Padding="0"
+                                Click="CloseSearchBtn_Click"
+                                ToolTip="關閉搜尋面板"/>
+                    </WrapPanel>
+
+                    <!-- Status hint -->
+                    <TextBlock Grid.Row="4" Grid.ColumnSpan="8"
+                                x:Name="SearchStatusText"
+                               Text="" FontSize="10"
+                               Foreground="{StaticResource SecondaryTextBrush}"
+                               Margin="0,4,0,0"
+                               Visibility="Collapsed"/>
+                </Grid>
+
+                <!-- Search results list -->
+                <Border Grid.Column="1" Margin="12,0,0,0"
+                        Background="{StaticResource InputBackgroundBrush}"
+                        CornerRadius="4" Padding="0"
+                        BorderBrush="{StaticResource BorderBrush}"
+                        BorderThickness="1">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                        </Grid.RowDefinitions>
+                        <Border Grid.Row="0" Padding="8,4"
+                                BorderThickness="0,0,0,1"
+                                BorderBrush="{StaticResource BorderBrush}">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="搜尋結果"
+                                           Foreground="{StaticResource TextBrush}"
+                                           FontSize="11" FontWeight="SemiBold"/>
+                                <Button x:Name="BatchExportBtn" Grid.Column="1"
+                                        Content="批次匯出" FontSize="9"
+                                        Padding="4,1" Margin="0,0,6,0"
+                                        MinWidth="0"
+                                        Style="{StaticResource SecondaryButton}"
+                                        Visibility="Collapsed"
+                                        Click="BatchExportBtn_Click"/>
+                                <TextBlock Grid.Column="2" x:Name="SearchResultCount"
+                                           Text="0"
+                                           Foreground="{StaticResource SecondaryTextBrush}"
+                                           FontSize="10" VerticalAlignment="Center"/>
+                            </Grid>
+                        </Border>
+                        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto"
+                                      HorizontalScrollBarVisibility="Disabled"
+                                      Background="Transparent" BorderThickness="0">
+                            <StackPanel x:Name="SearchResultList" Margin="4,0"/>
+                        </ScrollViewer>
+                        <!-- Loading overlay for search -->
+                        <Border x:Name="SearchLoadingOverlay" Grid.Row="1"
+                                Background="#CC1E1E1E" CornerRadius="4"
+                                Visibility="Collapsed">
+                            <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
+                                <TextBlock Text="⏳" FontSize="24" HorizontalAlignment="Center"
+                                           Foreground="{StaticResource TextBrush}"/>
+                                <TextBlock x:Name="SearchLoadingText" Text="搜尋中…"
+                                           Foreground="{StaticResource TextBrush}"
+                                           FontSize="12" Margin="0,6,0,0"
+                                           HorizontalAlignment="Center"/>
+                            </StackPanel>
+                        </Border>
+                    </Grid>
+                </Border>
+            </Grid>
+        </Border>
+
+        <!-- Row 2: Channel panel (left) + Video grid (right) -->
+        <Grid Grid.Row="2" Margin="0,0,0,8">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition x:Name="ChannelPanelColumn" Width="200"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+
+            <!-- Channel selector -->
+            <Border x:Name="ChannelPanel" Grid.Column="0" Background="{StaticResource SurfaceBrush}"
+                    BorderBrush="{StaticResource BorderBrush}" BorderThickness="1"
+                    CornerRadius="8" Margin="0,0,8,0">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+
+                    <!-- Header -->
+                    <Border Grid.Row="0" Padding="12,10,6,6">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="頻道選擇"
+                                       Foreground="{StaticResource TextBrush}"
+                                       FontSize="13" FontWeight="SemiBold"/>
+                            <TextBlock Grid.Column="1" x:Name="ChannelCountText"
+                                       Text="0 / 16 路"
+                                       Foreground="{StaticResource SecondaryTextBrush}"
+                                       FontSize="11" VerticalAlignment="Center"
+                                       Margin="0,0,4,0"/>
+                            <Button Grid.Column="2" x:Name="CollapseChannelBtn"
+                                    Content="◀"
+                                    Style="{StaticResource SecondaryButton}"
+                                    Height="18" Width="18" FontSize="7"
+                                    Padding="0" Margin="0"
+                                    Click="CollapseChannelBtn_Click"
+                                    ToolTip="隱藏頻道面板"/>
+                        </Grid>
+                    </Border>
+
+                    <!-- Quick filter bar -->
+                    <Border Grid.Row="1" Padding="12,0,12,6">
+                        <WrapPanel>
+                            <Button x:Name="SelectAllBtn" Content="全選"
+                                    Style="{StaticResource SecondaryButton}"
+                                    Height="22" FontSize="9" Padding="8,0"
+                                    Margin="0,0,4,0"
+                                    Click="SelectAllBtn_Click"/>
+                            <Button x:Name="ClearAllBtn" Content="清除"
+                                    Style="{StaticResource SecondaryButton}"
+                                    Height="22" FontSize="9" Padding="8,0"
+                                    Click="ClearAllBtn_Click"/>
+                        </WrapPanel>
+                    </Border>
+
+                    <!-- Search box -->
+                    <Border Grid.Row="2" Padding="12,0,12,6">
+                        <Border Background="{StaticResource InputBackgroundBrush}"
+                                BorderBrush="{StaticResource BorderBrush}"
+                                BorderThickness="1" CornerRadius="4"
+                                Padding="8,4">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBox x:Name="ChannelSearchBox"
+                                         Text=""
+                                         FontSize="11"
+                                         Background="Transparent"
+                                         BorderThickness="0"
+                                         Foreground="{StaticResource TextBrush}"
+                                         TextChanged="ChannelSearchBox_TextChanged"/>
+                                <TextBlock Grid.Column="1" Text="🔍" FontSize="10"
+                                           Foreground="{StaticResource SecondaryTextBrush}"
+                                           VerticalAlignment="Center"/>
+                            </Grid>
+                        </Border>
+                    </Border>
+
+                    <!-- Channel list -->
+                    <ScrollViewer Grid.Row="3" VerticalScrollBarVisibility="Auto"
+                                  HorizontalScrollBarVisibility="Disabled"
+                                  Background="Transparent" BorderThickness="0">
+                        <StackPanel x:Name="ChannelListPanel" Margin="4,0"/>
+                    </ScrollViewer>
+
+                    <!-- Bottom status bar -->
+                    <Border Grid.Row="4" Padding="10,6"
+                            BorderThickness="0,1,0,0"
+                            BorderBrush="{StaticResource BorderBrush}">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
+                            <Grid Grid.Row="0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock x:Name="ChannelStatusText"
+                                           Text="64 頻道"
+                                           Foreground="{StaticResource SecondaryTextBrush}"
+                                           FontSize="10" VerticalAlignment="Center"/>
+                                <Button Grid.Column="1" x:Name="RefreshChannelBtn" Content="↻"
+                                        Style="{StaticResource SecondaryButton}"
+                                        Height="20" Width="20" FontSize="10"
+                                        Padding="0"
+                                        Click="RefreshBtn_Click"/>
+                            </Grid>
+                            <TextBlock x:Name="StorageStatusText" Grid.Row="1"
+                                       Text=""
+                                       Foreground="{StaticResource SecondaryTextBrush}"
+                                       FontSize="9" Margin="0,3,0,0"
+                                       Visibility="Collapsed"/>
+                        </Grid>
+                    </Border>
+                </Grid>
+            </Border>
+
+            <!-- Video grid area -->
+            <Grid Grid.Column="1">
+                <!-- Expand channel panel overlay (hidden when panel is open) -->
+                <Button x:Name="ExpandChannelBtn"
+                        Content="▶"
+                        Style="{StaticResource SecondaryButton}"
+                        Width="16" Height="40" FontSize="8"
+                        Padding="0" Margin="0"
+                        HorizontalAlignment="Left" VerticalAlignment="Center"
+                        Visibility="Collapsed"
+                        Click="ExpandChannelBtn_Click"
+                        ToolTip="顯示頻道面板"/>
+
+                <!-- Dark background for video area -->
+                <Border Background="#FF141414" CornerRadius="8"
+                        BorderBrush="{StaticResource BorderBrush}"
+                        BorderThickness="1"/>
+
+                <Grid x:Name="PlaybackGrid" Visibility="Collapsed"/>
+
+                <!-- Empty state -->
+                <Border x:Name="EmptyPrompt"
+                        Background="Transparent" CornerRadius="8"
+                        Visibility="Visible">
+                    <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
+                        <TextBlock Text="🎥" FontSize="48"
+                                   Foreground="{StaticResource SecondaryTextBrush}"
+                                   HorizontalAlignment="Center"
+                                   Opacity="0.5"/>
+                        <TextBlock Text="選擇日期與頻道開始回放"
+                                   Foreground="{StaticResource TextBrush}"
+                                   FontSize="18" FontWeight="SemiBold"
+                                   Margin="0,12,0,4"
+                                   HorizontalAlignment="Center"/>
+                        <TextBlock Text="左側勾選已指派的攝影機頻道，選取日期後自動載入錄影資料"
+                                   Foreground="{StaticResource SecondaryTextBrush}"
+                                   FontSize="12"
+                                   HorizontalAlignment="Center"
+                                   Opacity="0.7"/>
+                        <Border Background="{StaticResource PrimaryBrush}"
+                                CornerRadius="4" Padding="16,6"
+                                Margin="0,16,0,0"
+                                Opacity="0.15">
+                            <TextBlock Text="支援最多 36 路同步回放"
+                                       Foreground="{StaticResource TextBrush}"
+                                       FontSize="11" HorizontalAlignment="Center"/>
+                        </Border>
+                        <Button x:Name="EmptyPlayAllBtn"
+                                Content="▶  快速全部播放  (Ctrl+P)"
+                                Style="{StaticResource ModernButton}"
+                                Height="32" Padding="16,0"
+                                Margin="0,12,0,0"
+                                FontSize="12" FontWeight="Bold"
+                                Background="#FF2E7D32"
+                                Foreground="White"
+                                BorderBrush="#FF1B5E20"
+                                Click="PlayAllBtn_Click"
+                                ToolTip="自動選取已指派攝影機的頻道，載入今日錄影播放"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- Loading overlay for video queries -->
+                <Border x:Name="VideoLoadingOverlay"
+                        Background="#CC141414" CornerRadius="8"
+                        Visibility="Collapsed">
+                    <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
+                        <TextBlock x:Name="VideoLoadingText" Text="載入中…"
+                                   Foreground="{StaticResource TextBrush}"
+                                   FontSize="16" FontWeight="SemiBold"
+                                   HorizontalAlignment="Center"/>
+                    </StackPanel>
+                </Border>
+            </Grid>
+        </Grid>
+
+        <!-- Row 3: Timeline + Bookmark strip -->
+        <Grid x:Name="TimelineRow" Grid.Row="3" Margin="0,0,0,6">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+
+            <controls:TimelineControl x:Name="TimelineCtrl"
+                                       SeekRequested="Timeline_SeekRequested"
+                                       PositionChanged="Timeline_PositionChanged"/>
+
+            <!-- Bookmark list toggle -->
+            <Border Grid.Column="1" x:Name="BookmarkPanel"
+                    Width="0" Background="{StaticResource SurfaceBrush}"
+                    BorderBrush="{StaticResource BorderBrush}"
+                    BorderThickness="1,1,1,1" CornerRadius="4"
+                    Margin="4,0,0,0"
+                    Visibility="Collapsed">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+                    <Border Grid.Row="0" Padding="8,6"
+                            BorderThickness="0,0,0,1"
+                            BorderBrush="{StaticResource BorderBrush}">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="書籤" FontSize="11"
+                                       FontWeight="SemiBold"
+                                       Foreground="{StaticResource TextBrush}"
+                                       VerticalAlignment="Center"/>
+                            <StackPanel Grid.Column="1" Orientation="Horizontal">
+                                <TextBlock x:Name="BookmarkCountBadge" Text="0"
+                                           FontSize="9" Foreground="#FFD700"
+                                           VerticalAlignment="Center" Margin="0,0,4,0"/>
+                                <Button x:Name="ClearBookmarksBtn" Content="✕"
+                                        FontSize="8" Width="16" Height="16"
+                                        Padding="0" BorderThickness="0"
+                                        Background="Transparent"
+                                        Foreground="{StaticResource SecondaryTextBrush}"
+                                        Click="ClearBookmarksBtn_Click"
+                                        ToolTip="清除所有書籤"/>
+                            </StackPanel>
+                        </Grid>
+                    </Border>
+                    <ScrollViewer Grid.Row="1"
+                                  VerticalScrollBarVisibility="Auto"
+                                  HorizontalScrollBarVisibility="Disabled"
+                                  Background="Transparent" BorderThickness="0">
+                        <StackPanel x:Name="BookmarkListPanel" Margin="4,0"/>
+                    </ScrollViewer>
+                </Grid>
+            </Border>
+        </Grid>
+
+        <!-- Row 4: Playback controls bar -->
+        <Border x:Name="ControlsRow" Grid.Row="4" Style="{StaticResource CardBorder}"
+                Padding="12,8">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <!-- Transport controls -->
+                <Button Grid.Column="0" x:Name="JumpStartBtn" Content="⏮"
+                        Style="{StaticResource SecondaryButton}"
+                        Height="30" Width="34" FontSize="13"
+                        Click="JumpStartBtn_Click"
+                        ToolTip="跳到開頭 (Ctrl+←)"/>
+
+                <Button Grid.Column="1" x:Name="StepBackBtn" Content="◀"
+                        Style="{StaticResource SecondaryButton}"
+                        Height="30" Width="34" FontSize="12"
+                        Margin="3,0,0,0"
+                        Click="StepBackBtn_Click"
+                        ToolTip="上一幀 (←)"/>
+
+                <Border Grid.Column="2" Background="{StaticResource SecondarySurfaceBrush}"
+                        CornerRadius="4" Margin="3,0,0,0" Padding="1">
+                    <StackPanel Orientation="Horizontal">
+                        <Button x:Name="PlayBtn" Content="▶"
+                                Style="{StaticResource ModernButton}"
+                                Height="28" Width="36" FontSize="11"
+                                BorderThickness="0"
+                                Click="PlayBtn_Click"
+                                ToolTip="播放 (Space)"/>
+                        <Border Width="1" Background="{StaticResource BorderBrush}"/>
+                        <Button x:Name="PauseBtn" Content="⏸"
+                                Style="{StaticResource SecondaryButton}"
+                                Height="28" Width="36" FontSize="10"
+                                BorderThickness="0"
+                                Click="PauseBtn_Click"
+                                ToolTip="暫停 (Space)"/>
+                    </StackPanel>
+                </Border>
+
+                <Button Grid.Column="4" x:Name="StepFwdBtn" Content="▶"
+                        Style="{StaticResource SecondaryButton}"
+                        Height="30" Width="34" FontSize="12"
+                        Margin="3,0,0,0"
+                        Click="StepFwdBtn_Click"
+                        ToolTip="下一幀 (→)"/>
+
+                <Button Grid.Column="5" x:Name="JumpEndBtn" Content="⏭"
+                        Style="{StaticResource SecondaryButton}"
+                        Height="30" Width="34" FontSize="13"
+                        Margin="3,0,0,0"
+                        Click="JumpEndBtn_Click"
+                        ToolTip="跳到結尾 (Ctrl+→)"/>
+
+                <!-- Segment jump navigation -->
+                <Button Grid.Column="6" x:Name="JumpPrevRecBtn" Content="⏪"
+                        Style="{StaticResource SecondaryButton}"
+                        Height="30" Width="34" FontSize="13"
+                        Margin="3,0,0,0"
+                        Click="JumpPrevRecBtn_Click"
+                        ToolTip="跳到前一區段 (Ctrl+Shift+←)"/>
+
+                <Button Grid.Column="7" x:Name="JumpNextRecBtn" Content="⏩"
+                        Style="{StaticResource SecondaryButton}"
+                        Height="30" Width="34" FontSize="13"
+                        Margin="3,0,0,0"
+                        Click="JumpNextRecBtn_Click"
+                        ToolTip="跳到後一區段 (Ctrl+Shift+→)"/>
+
+                <Button Grid.Column="8" x:Name="StopBtn" Content="⏹"
+                        Style="{StaticResource SecondaryButton}"
+                        Height="30" Width="34" FontSize="12"
+                        Margin="3,0,0,0"
+                        Click="StopBtn_Click"
+                        ToolTip="停止"/>
+
+                <Separator Grid.Column="9"
+                           Style="{StaticResource {x:Static ToolBar.SeparatorStyleKey}}"
+                           Margin="6,0"/>
+
+                <!-- Speed control -->
+                <TextBlock Grid.Column="10" Text="速度"
+                           VerticalAlignment="Center"
+                           Foreground="{StaticResource SecondaryTextBrush}"
+                           FontSize="11" FontWeight="SemiBold" Margin="0,0,4,0"/>
+                  <ComboBox Grid.Column="11" x:Name="SpeedCombo"
+                           Style="{StaticResource ModernComboBox}"
+                           SelectedIndex="2"
+                           SelectionChanged="SpeedCombo_SelectionChanged"
+                           Width="80"
+                           Height="26">
+                      <ComboBoxItem Content="0.25x"/>
+                      <ComboBoxItem Content="0.5x"/>
+                      <ComboBoxItem Content="1x"/>
+                      <ComboBoxItem Content="2x"/>
+                      <ComboBoxItem Content="4x"/>
+                      <ComboBoxItem Content="8x"/>
+                      <ComboBoxItem Content="16x"/>
+                      <ComboBoxItem Content="32x"/>
+                  </ComboBox>
+
+                <!-- A-B Loop controls -->
+                <Border Grid.Column="12" CornerRadius="4" Margin="4,0,0,0" Padding="2,0"
+                        Background="{StaticResource SecondarySurfaceBrush}" x:Name="LoopPanel">
+                    <StackPanel Orientation="Horizontal">
+                        <Button x:Name="LoopSetABtn" Content="A"
+                                Style="{StaticResource SecondaryButton}"
+                                Height="26" Width="26" FontSize="10" FontWeight="Bold"
+                                Margin="2,0" Padding="0"
+                                Click="LoopSetABtn_Click"
+                                ToolTip="設定循環起點 A (I)"/>
+                        <Button x:Name="LoopSetBBtn" Content="B"
+                                Style="{StaticResource SecondaryButton}"
+                                Height="26" Width="26" FontSize="10" FontWeight="Bold"
+                                Margin="2,0" Padding="0"
+                                Click="LoopSetBBtn_Click"
+                                ToolTip="設定循環終點 B (O)"/>
+                        <Border Width="1" Background="{StaticResource BorderBrush}" Margin="2,0"/>
+                        <Button x:Name="LoopToggleBtn" Content="↺"
+                                Style="{StaticResource SecondaryButton}"
+                                Height="26" Width="26" FontSize="12" FontWeight="Bold"
+                                Margin="2,0" Padding="0"
+                                Click="LoopToggleBtn_Click"
+                                ToolTip="啟用/停用循環播放 (L)"/>
+                        <Button x:Name="LoopClearBtn" Content="✕"
+                                Style="{StaticResource SecondaryButton}"
+                                Height="26" Width="14" FontSize="8"
+                                Margin="2,0" Padding="0"
+                                Click="LoopClearBtn_Click"
+                                ToolTip="清除 A-B 循環"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- Time display -->
+                <Border Grid.Column="13" Background="{StaticResource SecondarySurfaceBrush}"
+                        CornerRadius="4" Padding="10,4" Margin="8,0,0,0">
+                    <TextBlock x:Name="PlaybackTimeText"
+                               Text="--:--:--.--- / --:--:--"
+                               Foreground="{StaticResource TextBrush}"
+                               FontSize="12" FontWeight="SemiBold"
+                               FontFamily="Consolas"
+                               VerticalAlignment="Center"/>
+                </Border>
+
+                <!-- Right actions -->
+                <Button Grid.Column="14" x:Name="StopAllBtn" Content="全部停止"
+                        Style="{StaticResource SecondaryButton}"
+                        Height="30" FontSize="11" Padding="10,0"
+                        Margin="8,0,0,0" FontWeight="SemiBold"
+                        Foreground="{StaticResource ErrorBrush}"
+                        Click="StopAllBtn_Click"/>
+
+                <Button Grid.Column="15" x:Name="SnapshotBtn2" Content="📷"
+                        Style="{StaticResource SecondaryButton}"
+                        Height="30" Width="34" FontSize="12"
+                        Margin="3,0,0,0"
+                        Click="SnapshotBtn_Click"
+                        ToolTip="拍照"/>
+
+                <Button Grid.Column="16" x:Name="BookmarkBtn" Content="🔖"
+                        Style="{StaticResource SecondaryButton}"
+                        Height="30" Width="34" FontSize="12"
+                        Margin="3,0,0,0"
+                        Click="BookmarkBtn_Click"
+                        ToolTip="標記書籤 (B)"/>
+
+                <Button Grid.Column="17" x:Name="BookmarkListBtn" Content="📋"
+                        Style="{StaticResource SecondaryButton}"
+                        Height="30" Width="34" FontSize="11"
+                        Margin="0,0,0,0"
+                        Click="BookmarkListBtn_Click"
+                        ToolTip="書籤列表"/>
+
+                <Button Grid.Column="18" x:Name="ExportClipBtn" Content="匯出"
+                        Style="{StaticResource SecondaryButton}"
+                        Height="30" FontSize="11" Padding="10,0"
+                        Margin="3,0,0,0"
+                        IsEnabled="False"
+                        Click="ExportClipBtn_Click"
+                        ToolTip="匯出選取時間範圍的錄影 (Shift+拖曳時間軸選取)"/>
+
+                <!-- FPS counter (visible during playback) -->
+                <Border Grid.Column="19"
+                        x:Name="FpsBadge"
+                        Background="#22000000"
+                        CornerRadius="3"
+                        Padding="6,2"
+                        Margin="6,0,0,0"
+                        VerticalAlignment="Center"
+                        Visibility="Collapsed">
+                    <TextBlock x:Name="FpsText"
+                               Text="0 FPS"
+                               FontSize="9"
+                               FontWeight="SemiBold"
+                               FontFamily="Consolas"
+                               Foreground="#88FFFFFF"
+                               VerticalAlignment="Center"/>
+                </Border>
+            </Grid>
+        </Border>
+    </Grid>
+</UserControl>

@@ -1,0 +1,90 @@
+<!-- ============================================================
+     HeliVMS - 智慧影像管理系統     禾秝軟體開發團隊 / 代碼設計：洪俊士 / 版本：V1.0.0
+     ============================================================ -->
+<UserControl x:Class="HeliVMS.Views.UserManagementView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:conv="clr-namespace:HeliVMS.Converters"
+             Background="{StaticResource BackgroundBrush}">
+    <UserControl.Resources>
+        <conv:BoolToStatusConverter x:Key="BoolToStatusConverter"/>
+    </UserControl.Resources>
+    <Grid Margin="24">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <TextBlock Grid.Row="0" Text="用戶管理" Style="{StaticResource PageHeader}"/>
+
+        <WrapPanel Grid.Row="1" Margin="0,0,0,12">
+            <Button x:Name="AddUserButton" Content="＋ 新增用戶"
+                    Style="{StaticResource ModernButton}"
+                    Click="AddUserButton_Click"/>
+            <Button x:Name="EditUserButton" Content="編輯"
+                    Style="{StaticResource SecondaryButton}"
+                    Margin="8,0,0,0" IsEnabled="False"
+                    Click="EditUserButton_Click"/>
+            <Button x:Name="DeleteUserButton" Content="刪除"
+                    Style="{StaticResource SecondaryButton}"
+                    Margin="4,0,0,0" IsEnabled="False"
+                    Click="DeleteUserButton_Click"/>
+            <Separator Style="{StaticResource {x:Static ToolBar.SeparatorStyleKey}}"
+                       Margin="8,0"/>
+            <Button x:Name="ToggleUserButton" Content="停用"
+                    Style="{StaticResource SecondaryButton}"
+                    Margin="0,0,0,0" IsEnabled="False"
+                    Click="ToggleUserButton_Click"/>
+        </WrapPanel>
+
+        <DataGrid Grid.Row="2" x:Name="UserGrid"
+                  Style="{StaticResource ModernDataGrid}"
+                  AutoGenerateColumns="False"
+                  HeadersVisibility="Column"
+                  GridLinesVisibility="Horizontal"
+                  RowHeaderWidth="0"
+                  SelectionMode="Single"
+                  SelectionUnit="FullRow"
+                  CanUserAddRows="False"
+                  CanUserDeleteRows="False"
+                  CanUserResizeColumns="True"
+                  ColumnHeaderStyle="{StaticResource ModernColumnHeader}"
+                  SelectionChanged="UserGrid_SelectionChanged">
+            <DataGrid.Columns>
+                <DataGridTextColumn Header="帳號" Binding="{Binding Username}" Width="120"/>
+                <DataGridTextColumn Header="顯示名稱" Binding="{Binding DisplayName}" Width="150"/>
+                <DataGridTextColumn Header="角色" Binding="{Binding RoleDisplay}" Width="100"/>
+                <DataGridTemplateColumn Header="狀態" Width="80">
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate>
+                            <TextBlock Text="{Binding IsEnabled, Converter={StaticResource BoolToStatusConverter}}"
+                                       Foreground="{Binding IsEnabled, Converter={StaticResource BoolToStatusConverter}}"
+                                       VerticalAlignment="Center" Margin="2,0"/>
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
+                <DataGridTextColumn Header="最後登入" Binding="{Binding LastLoginAt, StringFormat=\{0:yyyy-MM-dd HH:mm\}}" Width="150"/>
+            </DataGrid.Columns>
+        </DataGrid>
+
+        <!-- User stats bar (ported from HeliNVR) -->
+        <Border Grid.Row="3" Background="{StaticResource SurfaceBrush}" Padding="12,8"
+                BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,1,0,0"
+                Margin="0,8,0,0">
+            <WrapPanel>
+                <TextBlock Text="用戶總數：" VerticalAlignment="Center"
+                           Foreground="{StaticResource SecondaryTextBrush}" FontSize="12"/>
+                <TextBlock x:Name="UserCountText" Text="0" FontWeight="Bold"
+                           VerticalAlignment="Center" Margin="0,0,20,0"
+                           Foreground="{StaticResource TextBrush}" FontSize="12"/>
+                <TextBlock Text="啟用用戶：" VerticalAlignment="Center"
+                           Foreground="{StaticResource SecondaryTextBrush}" FontSize="12"/>
+                <TextBlock x:Name="EnabledUserCountText" Text="0" FontWeight="Bold"
+                           VerticalAlignment="Center"
+                           Foreground="{StaticResource SuccessBrush}" FontSize="12"/>
+            </WrapPanel>
+        </Border>
+    </Grid>
+</UserControl>
