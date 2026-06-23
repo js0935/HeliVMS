@@ -55,6 +55,11 @@
                         Foreground="{StaticResource SecondaryTextBrush}"
                         BorderThickness="0,0,0,2" BorderBrush="Transparent"
                         Click="TabButton_Click"/>
+                <Button x:Name="TabEventRules" Content="事件規則" Tag="7" Padding="16,10" FontSize="13"
+                        FontWeight="SemiBold" Cursor="Hand" Background="Transparent"
+                        Foreground="{StaticResource SecondaryTextBrush}"
+                        BorderThickness="0,0,0,2" BorderBrush="Transparent"
+                        Click="TabButton_Click"/>
             </StackPanel>
         </Border>
 
@@ -548,6 +553,64 @@
                                     Height="28" FontSize="11" Padding="12,0" Margin="8,0,0,0"
                                     Click="MtxRefresh_Click"/>
                         </WrapPanel>
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+        </ScrollViewer>
+
+        <!-- Event rules panel -->
+        <ScrollViewer Grid.Row="2" x:Name="EventRulesPanel"
+                      VerticalScrollBarVisibility="Auto"
+                      HorizontalScrollBarVisibility="Disabled"
+                      Visibility="Collapsed">
+            <StackPanel>
+                <Border Style="{StaticResource CardBorder}" Padding="16" Margin="0,0,0,16">
+                    <StackPanel>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="事件規則引擎"
+                                       Style="{StaticResource SectionHeader}" Margin="0,0,0,8"/>
+                            <Button Grid.Column="1" x:Name="AddRuleBtn" Content="+ 新增規則"
+                                    Style="{StaticResource ModernButton}"
+                                    Height="28" FontSize="11" Padding="12,0"
+                                    Click="AddRule_Click"/>
+                        </Grid>
+                        <DataGrid x:Name="EventRulesGrid"
+                                  Style="{StaticResource ModernDataGrid}"
+                                  AutoGenerateColumns="False"
+                                  CanUserResizeRows="False"
+                                  MaxHeight="480"
+                                  IsReadOnly="True"
+                                  HeadersVisibility="Column"
+                                  GridLinesVisibility="Horizontal"
+                                  RowHeaderWidth="0"
+                                  SelectionMode="Single"
+                                  SelectionUnit="FullRow"
+                                  CanUserAddRows="False"
+                                  CanUserDeleteRows="False"
+                                  MouseDoubleClick="EventRulesGrid_MouseDoubleClick"
+                                  KeyDown="EventRulesGrid_KeyDown">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="規則名稱" Binding="{Binding Name}" Width="*" MinWidth="140"/>
+                                <DataGridCheckBoxColumn Header="啟用" Binding="{Binding Enabled}" Width="50"/>
+                                <DataGridTextColumn Header="條件數" Binding="{Binding Conditions.Count}" Width="60"/>
+                                <DataGridTextColumn Header="動作數" Binding="{Binding Actions.Count}" Width="60"/>
+                                <DataGridTextColumn Header="建立時間" Binding="{Binding CreatedAt, StringFormat=\{0:MM/dd HH:mm\}}" Width="100"/>
+                            </DataGrid.Columns>
+                        </DataGrid>
+                    </StackPanel>
+                </Border>
+                <Border Style="{StaticResource CardBorder}" Padding="16">
+                    <StackPanel>
+                        <TextBlock Text="事件規則運作方式" Style="{StaticResource SectionHeader}" Margin="0,0,0,8"/>
+                        <TextBlock TextWrapping="Wrap" Foreground="{StaticResource SecondaryTextBrush}" FontSize="12">
+                            當條件成立時，系統會自動執行對應動作。目前支援的事件類型：
+                        </TextBlock>
+                        <TextBlock Text="• CameraDisconnected — 攝影機離線&#x0a;• CameraReconnected — 攝影機恢復連線&#x0a;• MotionDetected — 移動偵測&#x0a;• RecordingFailed — 錄影失敗"
+                                   Foreground="{StaticResource TextBrush}" FontSize="12" Margin="0,4,0,0"/>
                     </StackPanel>
                 </Border>
             </StackPanel>

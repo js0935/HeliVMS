@@ -9,9 +9,10 @@ using Serilog;
 
 namespace HeliVMS.Services;
 
-public sealed class CameraHealthService(ICameraService cameraService, IEventService eventLog) : ICameraHealthService, IDisposable {
+public sealed class CameraHealthService(ICameraService cameraService, IEventService eventLog, IEventRuleService ruleEngine) : ICameraHealthService, IDisposable {
     private readonly ICameraService _cameraService = cameraService;
     private readonly IEventService _eventLog = eventLog;
+    private readonly IEventRuleService _ruleEngine = ruleEngine;
     private readonly ConcurrentDictionary<string, CameraHealthItem> _items = new();
     private Timer? _timer;
 
@@ -45,6 +46,7 @@ public sealed class CameraHealthService(ICameraService cameraService, IEventServ
             item.LastConnectedAt = DateTime.Now;
             item.LastError = null;
             _eventLog.LogInfo("Camera", "CameraHealth", $"{item.Name} 已恢復連線");
+            _ruleEngine.Evaluate("CameraReconnected", cameraId);
             NotifyChanged();
         }
     }
@@ -56,6 +58,7 @@ public sealed class CameraHealthService(ICameraService cameraService, IEventServ
             item.LastDisconnectedAt = DateTime.Now;
             item.LastError = error;
             _eventLog.LogWarning("Camera", "CameraHealth", $"{item.Name}: connection lost");
+            _ruleEngine.Evaluate("CameraDisconnected", cameraId, new() { ["error"] = error ?? "" });
             NotifyChanged();
         }
     }

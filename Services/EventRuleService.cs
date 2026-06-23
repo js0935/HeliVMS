@@ -1,0 +1,142 @@
+using System.IO;
+using System.Net.Http;
+using System.Text;
+using System.Text.Json;
+using HeliVMS.Models;
+
+namespace HeliVMS.Services;
+
+public sealed class EventRuleService : IEventRuleService {
+    private readonly List<EventRule> _rules = [];
+    private readonly string _filePath;
+    private readonly IEventService _eventLog;
+    private readonly object _lock = new();
+
+    public event Action<EventRule, RuleAction, string>? ActionExecuted;
+
+    public EventRuleService(IEventService eventLog) {
+        _eventLog = eventLog;
+        var dir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Data");
+        Directory.CreateDirectory(dir);
+        _filePath = Path.Combine(dir, "event_rules.json");
+        LoadFromDisk();
+    }
+
+    public void AddRule(EventRule rule) {
+        lock (_lock) {
+            _rules.Add(rule);
+            SaveToDisk();
+        }
+        _eventLog.LogInfo("事件規則", "EventRule", $"新增規則「{rule.Name}」");
+    }
+
+    public void UpdateRule(EventRule rule) {
+        lock (_lock) {
+            var idx = _rules.FindIndex(r => r.Id == rule.Id);
+            if (idx < 0) return;
+            rule.UpdatedAt = DateTime.Now;
+            _rules[idx] = rule;
+            SaveToDisk();
+        }
+    }
+
+    public void DeleteRule(string ruleId) {
+        lock (_lock) {
+            var rule = _rules.FirstOrDefault(r => r.Id == ruleId);
+            if (rule is null) return;
+            _rules.Remove(rule);
+            SaveToDisk();
+        }
+    }
+
+    public List<EventRule> GetAllRules() {
+        lock (_lock) return [.. _rules];
+    }
+
+    public EventRule? GetRuleById(string ruleId) {
+        lock (_lock) return _rules.FirstOrDefault(r => r.Id == ruleId);
+    }
+
+    public void Evaluate(string eventType, string cameraId, Dictionary<string, string>? context = null) {
+        List<EventRule> matched;
+        lock (_lock) {
+            matched = _rules.Where(r => r.Enabled && ConditionsMatch(r, eventType, cameraId)).ToList();
+        }
+        foreach (var rule in matched) {
+            foreach (var action in rule.Actions) {
+                ExecuteAction(rule, action, cameraId, context);
+            }
+        }
+    }
+
+    private static bool ConditionsMatch(EventRule rule, string eventType, string cameraId) {
+        if (rule.Conditions.Count == 0) return false;
+        foreach (var c in rule.Conditions) {
+            if (!string.IsNullOrEmpty(c.Type) && !c.Type.Equals(eventType, StringComparison.OrdinalIgnoreCase))
+                return false;
+            if (c.CameraIds.Count > 0 && !c.CameraIds.Contains(cameraId, StringComparer.OrdinalIgnoreCase))
+                return false;
+        }
+        return true;
+    }
+
+    private void ExecuteAction(EventRule rule, RuleAction action, string cameraId, Dictionary<string, string>? context) {
+        try {
+            switch (action.Type.ToLowerInvariant()) {
+                case "logevent":
+                    _eventLog.LogWarning("事件規則", "RuleEngine",
+                        $"規則「{rule.Name}」觸發：{cameraId} → {action.Type}");
+                    break;
+                case "httpwebhook":
+                    FireWebhook(rule, action, cameraId, context);
+                    break;
+            }
+            ActionExecuted?.Invoke(rule, action, cameraId);
+        } catch (Exception ex) {
+            Serilog.Log.Debug("[EventRule] ExecuteAction failed: {Msg}", ex.Message);
+        }
+    }
+
+    private static void FireWebhook(EventRule rule, RuleAction action, string cameraId, Dictionary<string, string>? context) {
+        var url = action.Params.GetValueOrDefault("url", "");
+        if (string.IsNullOrEmpty(url)) return;
+        _ = Task.Run(async () => {
+            try {
+                var payload = JsonSerializer.Serialize(new {
+                    rule = rule.Name,
+                    cameraId,
+                    eventType = context?.GetValueOrDefault("eventType", ""),
+                    timestamp = DateTime.Now
+                });
+                using var client = new HttpClient();
+                var content = new StringContent(payload, System.Text.Encoding.UTF8, "application/json");
+                await client.PostAsync(url, content).ConfigureAwait(false);
+            } catch { }
+        });
+    }
+
+    private void LoadFromDisk() {
+        try {
+            if (!File.Exists(_filePath)) return;
+            var json = File.ReadAllText(_filePath);
+            var list = JsonSerializer.Deserialize<List<EventRule>>(json);
+            if (list is not null) {
+                lock (_lock) {
+                    _rules.Clear();
+                    _rules.AddRange(list);
+                }
+            }
+        } catch (Exception ex) {
+            Serilog.Log.Debug("[EventRule] Load failed: {Msg}", ex.Message);
+        }
+    }
+
+    private void SaveToDisk() {
+        try {
+            var json = JsonSerializer.Serialize(_rules, new JsonSerializerOptions { WriteIndented = true });
+            File.WriteAllText(_filePath, json);
+        } catch (Exception ex) {
+            Serilog.Log.Debug("[EventRule] Save failed: {Msg}", ex.Message);
+        }
+    }
+}

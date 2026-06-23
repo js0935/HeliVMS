@@ -7,6 +7,7 @@ using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using HeliVMS.Dialog;
 using HeliVMS.Models;
 using HeliVMS.Services;
 using Microsoft.Extensions.DependencyInjection;
@@ -18,6 +19,7 @@ public partial class SettingsView : UserControl {
     private readonly ISettingsService _settingsService;
     private readonly ICameraService _cameraService;
     private readonly IBrandConfigService _brandConfigService;
+    private readonly IEventRuleService _ruleService;
     private string _keyword = "";
     private bool _loaded;
     private int _currentTab;
@@ -28,6 +30,7 @@ public partial class SettingsView : UserControl {
         _settingsService = App.Services.GetRequiredService<ISettingsService>();
         _cameraService = App.Services.GetRequiredService<ICameraService>();
         _brandConfigService = App.Services.GetRequiredService<IBrandConfigService>();
+        _ruleService = App.Services.GetRequiredService<IEventRuleService>();
 
         Loaded += (_, _) => {
             _loaded = true;
@@ -96,6 +99,13 @@ public partial class SettingsView : UserControl {
             ? TryFindResource("TextBrush") as Brush ?? System.Windows.Media.Brushes.White
             : TryFindResource("SecondaryTextBrush") as Brush ?? System.Windows.Media.Brushes.Gray;
 
+        TabEventRules.BorderBrush = index == 7
+            ? TryFindResource("PrimaryBrush") as Brush ?? System.Windows.Media.Brushes.DodgerBlue
+            : System.Windows.Media.Brushes.Transparent;
+        TabEventRules.Foreground = index == 7
+            ? TryFindResource("TextBrush") as Brush ?? System.Windows.Media.Brushes.White
+            : TryFindResource("SecondaryTextBrush") as Brush ?? System.Windows.Media.Brushes.Gray;
+
         EventLogPanel.Visibility = index == 0 ? Visibility.Visible : Visibility.Collapsed;
         FfmpegPanel.Visibility = index == 1 ? Visibility.Visible : Visibility.Collapsed;
         FontPanel.Visibility = index == 2 ? Visibility.Visible : Visibility.Collapsed;
@@ -103,6 +113,7 @@ public partial class SettingsView : UserControl {
         UserPanel.Visibility = index == 4 ? Visibility.Visible : Visibility.Collapsed;
         DebugPanel.Visibility = index == 5 ? Visibility.Visible : Visibility.Collapsed;
         MediaMTXPanel.Visibility = index == 6 ? Visibility.Visible : Visibility.Collapsed;
+        EventRulesPanel.Visibility = index == 7 ? Visibility.Visible : Visibility.Collapsed;
 
         if (index == 1) {
             CheckFfmpegStatus();
@@ -114,6 +125,8 @@ public partial class SettingsView : UserControl {
             LoadDebugSettings();
         } else if (index == 6) {
             RefreshMediaMTXStatus();
+        } else if (index == 7) {
+            RefreshEventRules();
         }
     }
 
@@ -659,6 +672,44 @@ public partial class SettingsView : UserControl {
             }
         } catch (Exception ex) {
             Log.Debug("[HeliVMS] Open file error: {Msg}", ex.Message);
+        }
+    }
+    #endregion
+
+    #region Event rules
+    private void RefreshEventRules() {
+        EventRulesGrid.ItemsSource = _ruleService.GetAllRules();
+    }
+
+    private void AddRule_Click(object sender, RoutedEventArgs e) {
+        var dialog = new Dialog.InputDialog("新增事件規則", "請輸入規則名稱：", "");
+        if (dialog.ShowDialog() == true && !string.IsNullOrWhiteSpace(dialog.Value)) {
+            var rule = new EventRule {
+                Name = dialog.Value.Trim(),
+                Conditions = [new() { Type = "CameraDisconnected" }],
+                Actions = [new() { Type = "LogEvent" }],
+            };
+            _ruleService.AddRule(rule);
+            RefreshEventRules();
+        }
+    }
+
+    private void EventRulesGrid_MouseDoubleClick(object sender, System.Windows.Input.MouseButtonEventArgs e) {
+        if (EventRulesGrid.SelectedItem is EventRule rule) {
+            var dialog = new EventRuleEditDialog(rule, _cameraService);
+            if (dialog.ShowDialog() == true) {
+                _ruleService.UpdateRule(dialog.Rule);
+                RefreshEventRules();
+            }
+        }
+    }
+
+    private void EventRulesGrid_KeyDown(object sender, System.Windows.Input.KeyEventArgs e) {
+        if (e.Key == System.Windows.Input.Key.Delete && EventRulesGrid.SelectedItem is EventRule rule) {
+            if (MessageBox.Show($"確定刪除規則「{rule.Name}」？", "確認", MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes) {
+                _ruleService.DeleteRule(rule.Id);
+                RefreshEventRules();
+            }
         }
     }
     #endregion

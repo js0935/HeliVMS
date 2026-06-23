@@ -296,6 +296,7 @@ public partial class App : Application {
         services.AddSingleton<IAuthorizationService, AuthorizationService>();
         services.AddSingleton<IRecordingService, RecordingService>();
         services.AddSingleton<IEventService, EventService>();
+        services.AddSingleton<IEventRuleService, EventRuleService>();
         services.AddSingleton<ISettingsService, SettingsService>();
         services.AddSingleton<IBrandConfigService, BrandConfigService>();
         services.AddSingleton<ILicenseService, LicenseService>();
