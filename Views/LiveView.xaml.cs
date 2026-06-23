@@ -323,18 +323,26 @@ public partial class LiveView : UserControl {
     }
 
     // ═══════════════════════════════════════════════════════════
-    //  PTZ
+    //  PTZ — popup panel with presets + tours
     // ═══════════════════════════════════════════════════════════
 
-    private void PtzUp_Click(object sender, RoutedEventArgs e) => MovePtz("up");
-    private void PtzDown_Click(object sender, RoutedEventArgs e) => MovePtz("down");
-    private void PtzLeft_Click(object sender, RoutedEventArgs e) => MovePtz("left");
-    private void PtzRight_Click(object sender, RoutedEventArgs e) => MovePtz("right");
-    private void PtzZoomIn_Click(object sender, RoutedEventArgs e) => MovePtz("zoomin");
-    private void PtzZoomOut_Click(object sender, RoutedEventArgs e) => MovePtz("zoomout");
-
-    private void MovePtz(string direction) {
+    private void BtnPtz_Click(object sender, RoutedEventArgs e) {
         if (_ptzCamera is null) return;
+        var panel = new Controls.PTZControlPanel { Width = 240 };
+        panel.LoadCamera(_ptzCamera);
+        var win = new Window {
+            Title = $"PTZ — {_ptzCamera.Name}",
+            Content = panel,
+            SizeToContent = SizeToContent.WidthAndHeight,
+            ResizeMode = ResizeMode.NoResize,
+            WindowStartupLocation = WindowStartupLocation.CenterScreen,
+            Owner = Window.GetWindow(this),
+            Background = System.Windows.Media.Brushes.Transparent,
+            WindowStyle = WindowStyle.ToolWindow,
+            Topmost = true,
+        };
+        win.Closed += (_, _) => panel.UnloadCamera();
+        win.Show();
     }
 
     // ═══════════════════════════════════════════════════════════
