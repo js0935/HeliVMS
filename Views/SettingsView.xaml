@@ -65,6 +65,11 @@
                         Foreground="{StaticResource SecondaryTextBrush}"
                         BorderThickness="0,0,0,2" BorderBrush="Transparent"
                         Click="TabButton_Click"/>
+                <Button x:Name="TabSchedule" Content="錄影排程" Tag="10" Padding="16,10" FontSize="13"
+                        FontWeight="SemiBold" Cursor="Hand" Background="Transparent"
+                        Foreground="{StaticResource SecondaryTextBrush}"
+                        BorderThickness="0,0,0,2" BorderBrush="Transparent"
+                        Click="TabButton_Click"/>
                 <Button x:Name="TabAuditLog" Content="稽核日誌" Tag="9" Padding="16,10" FontSize="13"
                         FontWeight="SemiBold" Cursor="Hand" Background="Transparent"
                         Foreground="{StaticResource SecondaryTextBrush}"
@@ -919,6 +924,77 @@
                         <TextBlock Text="HeliVMS — 智慧影像管理系統" Foreground="{StaticResource TextBrush}" FontSize="14" FontWeight="SemiBold"/>
                         <TextBlock Text="版本：V1.0.0" Foreground="{StaticResource SecondaryTextBrush}" FontSize="12"/>
                         <TextBlock Text="禾秝軟體開發團隊" Foreground="{StaticResource SecondaryTextBrush}" FontSize="12" Margin="0,4,0,0"/>
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+        </ScrollViewer>
+
+        <!-- Recording schedule panel -->
+        <ScrollViewer Grid.Row="2" x:Name="SchedulePanel"
+                      VerticalScrollBarVisibility="Auto"
+                      HorizontalScrollBarVisibility="Disabled"
+                      Visibility="Collapsed">
+            <StackPanel>
+                <Border Style="{StaticResource CardBorder}" Padding="16" Margin="0,0,0,16">
+                    <StackPanel>
+                        <TextBlock Text="錄影排程設定" Style="{StaticResource SectionHeader}" Margin="0,0,0,12"/>
+                        <TextBlock Text="設定各攝影機的錄影與移動偵測排程規則。若無任何規則，預設為全天候錄影。"
+                                   Foreground="{StaticResource SecondaryTextBrush}" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,12"/>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="攝影機" VerticalAlignment="Center"
+                                       Foreground="{StaticResource TextBrush}" FontSize="13" Margin="0,0,8,0"/>
+                            <ComboBox Grid.Column="1" x:Name="ScheduleCameraCombo" MinWidth="200"
+                                      Style="{StaticResource ModernComboBox}"
+                                      SelectionChanged="ScheduleCamera_Changed"/>
+                        </Grid>
+                        <ItemsControl x:Name="ScheduleRulesList" Margin="0,12,0,0">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,0,1" Padding="0,8">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="80"/>
+                                                <ColumnDefinition Width="80"/>
+                                                <ColumnDefinition Width="80"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                            </Grid.ColumnDefinitions>
+                                            <ComboBox Grid.Column="0" SelectedItem="{Binding Day}" MinWidth="70"
+                                                      FontSize="12" Background="{StaticResource SurfaceBrush}"
+                                                      Foreground="{StaticResource TextBrush}">
+                                                <ComboBoxItem Content="週一"/>
+                                                <ComboBoxItem Content="週二"/>
+                                                <ComboBoxItem Content="週三"/>
+                                                <ComboBoxItem Content="週四"/>
+                                                <ComboBoxItem Content="週五"/>
+                                                <ComboBoxItem Content="週六"/>
+                                                <ComboBoxItem Content="週日"/>
+                                            </ComboBox>
+                                            <TextBox Grid.Column="1" Text="{Binding StartTime}" FontSize="12" MinWidth="60" Margin="4,0"/>
+                                            <TextBox Grid.Column="2" Text="{Binding EndTime}" FontSize="12" MinWidth="60" Margin="4,0"/>
+                                            <CheckBox Grid.Column="3" IsChecked="{Binding RecordingEnabled}" Content="錄影" FontSize="12" Margin="8,0"/>
+                                            <CheckBox Grid.Column="4" IsChecked="{Binding MotionDetectionEnabled}" Content="偵測" FontSize="12" Margin="8,0"/>
+                                            <Button Grid.Column="5" Content="✕" Width="24" Height="24" FontSize="10"
+                                                    Background="Transparent" Foreground="{StaticResource SecondaryTextBrush}"
+                                                    BorderThickness="0" Cursor="Hand"/>
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                        <WrapPanel Margin="0,12,0,0">
+                            <Button x:Name="AddScheduleRuleBtn" Content="+ 新增規則"
+                                    Style="{StaticResource SecondaryButton}" Height="28" FontSize="11" Padding="12,0"
+                                    Click="AddScheduleRule_Click"/>
+                            <Button x:Name="SaveScheduleBtn" Content="儲存排程"
+                                    Style="{StaticResource ModernButton}" Height="28" FontSize="11" Padding="16,0" Margin="8,0,0,0"
+                                    Click="SaveSchedule_Click"/>
+                        </WrapPanel>
                     </StackPanel>
                 </Border>
             </StackPanel>

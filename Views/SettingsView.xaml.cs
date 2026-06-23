@@ -22,6 +22,7 @@ public partial class SettingsView : UserControl {
     private readonly IEventRuleService _ruleService;
     private readonly IEmailService _emailService;
     private readonly IAlertDispatcherService _alertDispatcher;
+    private readonly IRecordingScheduleService _scheduleService;
     private string _keyword = "";
     private bool _loaded;
     private int _currentTab;
@@ -35,6 +36,7 @@ public partial class SettingsView : UserControl {
         _ruleService = App.Services.GetRequiredService<IEventRuleService>();
         _emailService = App.Services.GetRequiredService<IEmailService>();
         _alertDispatcher = App.Services.GetRequiredService<IAlertDispatcherService>();
+        _scheduleService = App.Services.GetRequiredService<IRecordingScheduleService>();
 
         Loaded += (_, _) => {
             _loaded = true;
@@ -124,6 +126,13 @@ public partial class SettingsView : UserControl {
             ? TryFindResource("TextBrush") as Brush ?? System.Windows.Media.Brushes.White
             : TryFindResource("SecondaryTextBrush") as Brush ?? System.Windows.Media.Brushes.Gray;
 
+        TabSchedule.BorderBrush = index == 10
+            ? TryFindResource("PrimaryBrush") as Brush ?? System.Windows.Media.Brushes.DodgerBlue
+            : System.Windows.Media.Brushes.Transparent;
+        TabSchedule.Foreground = index == 10
+            ? TryFindResource("TextBrush") as Brush ?? System.Windows.Media.Brushes.White
+            : TryFindResource("SecondaryTextBrush") as Brush ?? System.Windows.Media.Brushes.Gray;
+
         EventLogPanel.Visibility = index == 0 ? Visibility.Visible : Visibility.Collapsed;
         FfmpegPanel.Visibility = index == 1 ? Visibility.Visible : Visibility.Collapsed;
         FontPanel.Visibility = index == 2 ? Visibility.Visible : Visibility.Collapsed;
@@ -134,6 +143,7 @@ public partial class SettingsView : UserControl {
         EventRulesPanel.Visibility = index == 7 ? Visibility.Visible : Visibility.Collapsed;
         NotificationPanel.Visibility = index == 8 ? Visibility.Visible : Visibility.Collapsed;
         AuditLogPanel.Visibility = index == 9 ? Visibility.Visible : Visibility.Collapsed;
+        SchedulePanel.Visibility = index == 10 ? Visibility.Visible : Visibility.Collapsed;
 
         if (index == 1) {
             CheckFfmpegStatus();
@@ -151,6 +161,8 @@ public partial class SettingsView : UserControl {
             LoadNotificationSettings();
         } else if (index == 9) {
             RefreshAuditLog();
+        } else if (index == 10) {
+            LoadScheduleTab();
         }
     }
 
@@ -891,6 +903,53 @@ public partial class SettingsView : UserControl {
         } catch (Exception ex) {
             MessageBox.Show($"匯出失敗：{ex.Message}", "錯誤", MessageBoxButton.OK, MessageBoxImage.Error);
         }
+    }
+    #endregion
+
+    #region Recording schedule
+    private void LoadScheduleTab() {
+        ScheduleCameraCombo.Items.Clear();
+        var cameras = _cameraService.GetAllCameras();
+        foreach (var cam in cameras) {
+            ScheduleCameraCombo.Items.Add(new ComboBoxItem { Content = cam.Name, Tag = cam.Id });
+        }
+        if (ScheduleCameraCombo.Items.Count > 0) {
+            ScheduleCameraCombo.SelectedIndex = 0;
+        }
+    }
+
+    private void ScheduleCamera_Changed(object sender, SelectionChangedEventArgs e) {
+        if (ScheduleCameraCombo.SelectedItem is ComboBoxItem item && item.Tag is string camId) {
+            var schedule = _scheduleService.GetCameraSchedule(camId);
+            ScheduleRulesList.ItemsSource = schedule?.Rules ?? [];
+        }
+    }
+
+    private void AddScheduleRule_Click(object sender, RoutedEventArgs e) {
+        if (ScheduleCameraCombo.SelectedItem is not ComboBoxItem item || item.Tag is not string camId) return;
+        var data = _scheduleService.Load();
+        var camSchedule = data.CameraSchedules.FirstOrDefault(s => s.CameraId == camId);
+        if (camSchedule is null) {
+            camSchedule = new CameraSchedule { CameraId = camId };
+            data.CameraSchedules.Add(camSchedule);
+        }
+        camSchedule.Rules.Add(new ScheduleRule());
+        _scheduleService.Save(data);
+        ScheduleRulesList.ItemsSource = null;
+        ScheduleRulesList.ItemsSource = camSchedule.Rules;
+    }
+
+    private void SaveSchedule_Click(object sender, RoutedEventArgs e) {
+        if (ScheduleCameraCombo.SelectedItem is not ComboBoxItem item || item.Tag is not string camId) return;
+        var data = _scheduleService.Load();
+        var camSchedule = data.CameraSchedules.FirstOrDefault(s => s.CameraId == camId);
+        if (camSchedule is null) {
+            camSchedule = new CameraSchedule { CameraId = camId };
+            data.CameraSchedules.Add(camSchedule);
+        }
+        camSchedule.Rules = ScheduleRulesList.ItemsSource as List<ScheduleRule> ?? camSchedule.Rules;
+        _scheduleService.Save(data);
+        MessageBox.Show("錄影排程已儲存。", "設定", MessageBoxButton.OK, MessageBoxImage.Information);
     }
     #endregion
 }

@@ -370,6 +370,7 @@ public partial class App : Application {
         services.AddSingleton<WebApiHostService>();
         services.AddSingleton<PluginLoaderService>();
         services.AddSingleton<AnalyticsPluginService>();
+        services.AddSingleton<IRecordingScheduleService, RecordingScheduleService>();
 
         // OnvifService (depends on QCTekService + RtspUrlResolver)
         services.AddSingleton<IOnvifService>(sp => {
