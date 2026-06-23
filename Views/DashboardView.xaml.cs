@@ -3,6 +3,7 @@ using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using System.Windows.Shapes;
 using HeliVMS.Services;
 using Microsoft.Extensions.DependencyInjection;
 using Serilog;
@@ -19,6 +20,7 @@ public partial class DashboardView : UserControl {
     private readonly IRecordingWatchdogService _watchdog;
     private readonly IRecordingService _recordingService;
     private readonly IAlertDispatcherService _alertDispatcher;
+    private readonly MetricsHistoryService _metrics;
     private DateTime _calendarMonth = new(DateTime.Today.Year, DateTime.Today.Month, 1);
     private bool _loaded;
     private long _lastBytesWritten;
@@ -35,7 +37,11 @@ public partial class DashboardView : UserControl {
         _recordingService = App.Services.GetRequiredService<IRecordingService>();
         _watchdog = App.Services.GetRequiredService<IRecordingWatchdogService>();
         _alertDispatcher = App.Services.GetRequiredService<IAlertDispatcherService>();
+        _metrics = App.Services.GetRequiredService<MetricsHistoryService>();
 
+        _metrics.HistoryUpdated += () => {
+            if (_loaded) { _ = Dispatcher.InvokeAsync(RefreshCharts); }
+        };
         _status.PropertyChanged += (_, e) => // REVIEW: lambda captures 'this' — consider weak event pattern
         {
             if (_loaded) { _ = Dispatcher.InvokeAsync(RefreshStats); }
@@ -60,6 +66,75 @@ public partial class DashboardView : UserControl {
         RefreshStats();
         RefreshRecordingStats();
         RefreshEvents();
+        RefreshCharts();
+    }
+
+    private void RefreshCharts() {
+        DrawLineChart(BandwidthChartCanvas, _metrics.BandwidthHistory, _metrics.GetMaxBandwidth(),
+            "B/s", v => v switch { > 1_000_000 => $"{(v / 1_000_000):F1}M", > 1_000 => $"{(v / 1_000):F0}K", _ => $"{v:F0}" });
+        DrawLineChart(StorageChartCanvas, _metrics.StorageHistory, _metrics.GetMaxStorage(),
+            "GB", v => $"{v:F1}");
+    }
+
+    private static void DrawLineChart(Canvas canvas, List<MetricsHistoryService.DataPoint> data, double maxVal,
+        string unitLabel, Func<double, string> formatValue) {
+        canvas.Children.Clear();
+        if (data.Count < 2) return;
+
+        var w = canvas.ActualWidth > 10 ? canvas.ActualWidth : 340;
+        var h = canvas.ActualHeight > 10 ? canvas.ActualHeight : 120;
+        var padL = 40.0;
+        var padR = 8.0;
+        var padT = 4.0;
+        var padB = 16.0;
+        var plotW = w - padL - padR;
+        var plotH = h - padT - padB;
+
+        // Draw horizontal grid lines (4 lines)
+        for (var i = 0; i <= 4; i++) {
+            var y = padT + plotH * (1 - i / 4.0);
+            var line = new Line {
+                X1 = padL, Y1 = y, X2 = w - padR, Y2 = y,
+                Stroke = new SolidColorBrush(Color.FromArgb(30, 255, 255, 255)),
+                StrokeThickness = 0.5
+            };
+            canvas.Children.Add(line);
+
+            var label = new TextBlock {
+                Text = formatValue(maxVal * i / 4.0),
+                FontSize = 9,
+                Foreground = new SolidColorBrush(Color.FromArgb(120, 255, 255, 255))
+            };
+            Canvas.SetLeft(label, 2);
+            Canvas.SetTop(label, y - 7);
+            canvas.Children.Add(label);
+        }
+
+        // Polyline for data
+        var points = new PointCollection();
+        for (var i = 0; i < data.Count; i++) {
+            var x = padL + plotW * i / (data.Count - 1);
+            var y = padT + plotH * (1 - data[i].Value / maxVal);
+            points.Add(new Point(x, y));
+        }
+
+        var polyline = new Polyline {
+            Points = points,
+            Stroke = new SolidColorBrush(Color.FromArgb(200, 0, 150, 255)),
+            StrokeThickness = 1.5,
+            StrokeLineJoin = PenLineJoin.Round
+        };
+        canvas.Children.Add(polyline);
+
+        // Fill
+        var fillPoints = new PointCollection(points);
+        fillPoints.Add(new Point(padL + plotW, padT + plotH));
+        fillPoints.Add(new Point(padL, padT + plotH));
+        var polygon = new Polygon {
+            Points = fillPoints,
+            Fill = new SolidColorBrush(Color.FromArgb(30, 0, 150, 255))
+        };
+        canvas.Children.Insert(0, polygon);
     }
 
     private void RefreshCameraHealth() {

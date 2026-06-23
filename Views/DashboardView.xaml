@@ -156,6 +156,22 @@
                 </StackPanel>
             </Border>
 
+            <!-- Historical charts -->
+            <WrapPanel Margin="0,0,0,16">
+                <Border Style="{StaticResource CardBorder}" MinWidth="360" Margin="0,0,12,12" Padding="16">
+                    <StackPanel>
+                        <TextBlock Text="頻寬趨勢（最近 60 分鐘）" Style="{StaticResource SectionHeader}" Margin="0,0,0,8"/>
+                        <Canvas x:Name="BandwidthChartCanvas" Width="340" Height="120" ClipToBounds="True"/>
+                    </StackPanel>
+                </Border>
+                <Border Style="{StaticResource CardBorder}" MinWidth="360" Margin="0,0,12,12" Padding="16">
+                    <StackPanel>
+                        <TextBlock Text="儲存使用趨勢（最近 24 小時）" Style="{StaticResource SectionHeader}" Margin="0,0,0,8"/>
+                        <Canvas x:Name="StorageChartCanvas" Width="340" Height="120" ClipToBounds="True"/>
+                    </StackPanel>
+                </Border>
+            </WrapPanel>
+
             <!-- Recording calendar -->
             <Border Style="{StaticResource CardBorder}" Padding="16" Margin="0,0,0,16">
                 <StackPanel>

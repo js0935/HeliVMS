@@ -390,6 +390,7 @@ public partial class App : Application {
         services.AddSingleton<SnapshotService>();
         services.AddSingleton<ThemeService>();
         services.AddSingleton<BackupService>();
+        services.AddSingleton<MetricsHistoryService>();
 
         // OnvifService (depends on QCTekService + RtspUrlResolver)
         services.AddSingleton<IOnvifService>(sp => {
