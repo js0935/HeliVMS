@@ -60,6 +60,13 @@ public partial class MainWindow : Window {
 
     private void OnLoginSucceeded(User user) {
         _auth.LoginSucceeded -= OnLoginSucceeded;
+        try {
+            var tray = App.Services.GetRequiredService<TrayIconService>();
+            tray.Initialize(this);
+            Log.Information("[Tray] Tray icon initialized after login");
+        } catch (Exception ex) {
+            Log.Warning(ex, "[Tray] Failed to initialize tray icon");
+        }
         SwitchToLive();
     }
 

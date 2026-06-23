@@ -329,6 +329,12 @@ public partial class App : Application {
         VideoPlayer.CleanupAllDecoderSessions();
         VideoPlayer.CleanupAllFlyleafPlayers();
 
+        try {
+            var tray = Services.GetRequiredService<TrayIconService>();
+            tray.Dispose();
+            Log.Information("Tray icon disposed");
+        } catch { }
+
         Log.Information("HeliVMS shutdown complete");
         Log.CloseAndFlush();
     }
@@ -371,6 +377,7 @@ public partial class App : Application {
         services.AddSingleton<PluginLoaderService>();
         services.AddSingleton<AnalyticsPluginService>();
         services.AddSingleton<IRecordingScheduleService, RecordingScheduleService>();
+        services.AddSingleton<TrayIconService>();
 
         // OnvifService (depends on QCTekService + RtspUrlResolver)
         services.AddSingleton<IOnvifService>(sp => {
