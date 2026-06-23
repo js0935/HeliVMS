@@ -382,6 +382,7 @@ public partial class App : Application {
         services.AddSingleton<MotionTriggeredRecordingService>();
         services.AddSingleton<CameraGroupService>();
         services.AddSingleton<TourService>();
+        services.AddSingleton<SnapshotService>();
         services.AddSingleton<BackupService>();
 
         // OnvifService (depends on QCTekService + RtspUrlResolver)
