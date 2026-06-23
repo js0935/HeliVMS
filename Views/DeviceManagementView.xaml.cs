@@ -555,6 +555,99 @@ public partial class DeviceManagementView : UserControl {
         public bool IsInGroup { get; set; }
     }
 
+    private void ExportCsv_Click(object sender, RoutedEventArgs e) {
+        var dlg = new Microsoft.Win32.SaveFileDialog {
+            Filter = "CSV 檔案 (*.csv)|*.csv",
+            FileName = $"cameras_{DateTime.Now:yyyyMMdd}.csv",
+            Title = "匯出攝影機清單"
+        };
+        if (dlg.ShowDialog() != true) return;
+        try {
+            var cameras = _cameraService.GetAllCameras();
+            using var sw = new System.IO.StreamWriter(dlg.FileName, false, System.Text.Encoding.UTF8);
+            sw.WriteLine("Name,IP,Port,RtspUrl,Username,Password,Group,Enabled,MotionEnabled");
+            foreach (var cam in cameras) {
+                var escapedName = cam.Name?.Replace("\"", "\"\"") ?? "";
+                sw.WriteLine($"\"{escapedName}\",{cam.IpAddress},{cam.Port},{cam.RtspUrl},{cam.Username},{cam.Password},{cam.Group},{cam.IsEnabled},{cam.IsMotionDetectionEnabled}");
+            }
+            System.Windows.MessageBox.Show($"已匯出 {cameras.Count} 台攝影機", "匯出成功", MessageBoxButton.OK, MessageBoxImage.Information);
+        } catch (Exception ex) {
+            System.Windows.MessageBox.Show($"匯出失敗：{ex.Message}", "錯誤", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
+    private void ImportCsv_Click(object sender, RoutedEventArgs e) {
+        var dlg = new Microsoft.Win32.OpenFileDialog {
+            Filter = "CSV 檔案 (*.csv)|*.csv",
+            Title = "匯入攝影機清單"
+        };
+        if (dlg.ShowDialog() != true) return;
+        try {
+            var lines = System.IO.File.ReadAllLines(dlg.FileName, System.Text.Encoding.UTF8);
+            if (lines.Length < 2) {
+                System.Windows.MessageBox.Show("CSV 檔案格式不正確（缺少標題或資料行）", "匯入失敗", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+            var imported = 0;
+            var skipped = 0;
+            for (var i = 1; i < lines.Length; i++) {
+                var line = lines[i].Trim();
+                if (string.IsNullOrEmpty(line)) continue;
+                var fields = ParseCsvLine(line);
+                if (fields.Length < 4) { skipped++; continue; }
+                var name = fields[0];
+                var ip = fields[1];
+                var port = int.TryParse(fields[2], out var p) ? p : 554;
+                var rtsp = fields[3];
+                var user = fields.Length > 4 ? fields[4] : "";
+                var pass = fields.Length > 5 ? fields[5] : "";
+                var group = fields.Length > 6 ? fields[6] : "";
+                var enabled = fields.Length <= 7 || !bool.TryParse(fields[7], out var en) || en;
+                var motionEnabled = fields.Length > 8 && bool.TryParse(fields[8], out var m) && m;
+                if (_cameraService.IsIpDuplicate(ip)) { skipped++; continue; }
+                var cam = new Camera {
+                    Name = name,
+                    IpAddress = ip,
+                    Port = port,
+                    RtspUrl = rtsp,
+                    Username = user,
+                    Password = pass,
+                    Group = group,
+                    IsEnabled = enabled,
+                    IsMotionDetectionEnabled = motionEnabled
+                };
+                if (_cameraService.AddCamera(cam)) imported++; else skipped++;
+            }
+            System.Windows.MessageBox.Show($"匯入完成：{imported} 台成功，{skipped} 台略過", "匯入結果", MessageBoxButton.OK, MessageBoxImage.Information);
+        } catch (Exception ex) {
+            System.Windows.MessageBox.Show($"匯入失敗：{ex.Message}", "錯誤", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
+    private static string[] ParseCsvLine(string line) {
+        var result = new System.Collections.Generic.List<string>();
+        var current = new System.Text.StringBuilder();
+        var inQuotes = false;
+        for (var i = 0; i < line.Length; i++) {
+            var c = line[i];
+            if (c == '"') {
+                if (inQuotes && i + 1 < line.Length && line[i + 1] == '"') {
+                    current.Append('"');
+                    i++;
+                } else {
+                    inQuotes = !inQuotes;
+                }
+            } else if (c == ',' && !inQuotes) {
+                result.Add(current.ToString());
+                current.Clear();
+            } else {
+                current.Append(c);
+            }
+        }
+        result.Add(current.ToString());
+        return [.. result];
+    }
+
     private static string? TryBuildSubUrlByBrand(OnvifDiscoveryResult result, string username, string password) {
         var brandKey = NormalizeBrand(result.Manufacturer);
         if (string.IsNullOrEmpty(brandKey)) { return null; }

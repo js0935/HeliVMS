@@ -83,6 +83,14 @@
                     Style="{StaticResource SecondaryButton}"
                     Margin="8,0,0,0"
                     Click="ImportLegacyButton_Click"/>
+            <Separator Style="{StaticResource {x:Static ToolBar.SeparatorStyleKey}}"
+                       Margin="8,0"/>
+            <Button Content="匯入 CSV" Style="{StaticResource SecondaryButton}"
+                    Margin="0,0,0,0"
+                    Click="ImportCsv_Click"/>
+            <Button Content="匯出 CSV" Style="{StaticResource SecondaryButton}"
+                    Margin="4,0,0,0"
+                    Click="ExportCsv_Click"/>
         </WrapPanel>
 
         <!-- ONVIF Scan Progress Bar -->
