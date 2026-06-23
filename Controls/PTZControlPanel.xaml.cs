@@ -18,6 +18,7 @@ public class PtzTour {
 public partial class PTZControlPanel : UserControl {
     private Camera? _camera;
     private readonly IOnvifService? _onvif;
+    private readonly TourService? _tourService;
     private bool _deleteMode;
     private bool _tourRunning;
     private CancellationTokenSource? _tourCts;
@@ -27,6 +28,7 @@ public partial class PTZControlPanel : UserControl {
     public PTZControlPanel() {
         InitializeComponent();
         _onvif = App.Services.GetService<IOnvifService>();
+        _tourService = App.Services.GetService<TourService>();
     }
 
     public void LoadCamera(Camera camera) {
@@ -34,6 +36,8 @@ public partial class PTZControlPanel : UserControl {
         IsEnabled = camera.HasPTZ;
         if (camera.HasPTZ) {
             _ = LoadPresetsAsync(camera);
+            _tourService?.LoadToursForCamera(camera.Id, _tours);
+            RefreshToursPanel();
         }
     }
 
@@ -68,15 +72,31 @@ public partial class PTZControlPanel : UserControl {
         ToursPanel.Children.Clear();
         _selectedTour = null;
         foreach (var tour in _tours) {
+            var sp = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 4, 4) };
             var btn = new Button {
                 Content = tour.Name,
                 Style = (Style)FindResource("SecondaryButton"),
-                Margin = new Thickness(0, 0, 4, 4),
                 Tag = tour
             };
             btn.Click += TourSelect_Click;
-            ToursPanel.Children.Add(btn);
+            sp.Children.Add(btn);
+            var delBtn = new Button {
+                Content = "✕",
+                Width = 22, Height = 22,
+                FontSize = 10,
+                Background = System.Windows.Media.Brushes.Transparent,
+                Foreground = System.Windows.Media.Brushes.Gray,
+                BorderThickness = new Thickness(0),
+                Cursor = System.Windows.Input.Cursors.Hand,
+                Tag = tour
+            };
+            delBtn.Click += (s, _) => {
+                if (s is Button { Tag: PtzTour t }) DeleteTour_Click(t);
+            };
+            sp.Children.Add(delBtn);
+            ToursPanel.Children.Add(sp);
         }
+        StartTourBtn.Content = "▶ 開始巡航";
     }
 
     private void TourSelect_Click(object sender, RoutedEventArgs e) {
@@ -133,10 +153,27 @@ public partial class PTZControlPanel : UserControl {
                 Owner = Window.GetWindow(this)
             };
             if (dlg.ShowDialog() == true && !string.IsNullOrEmpty(dlg.Value)) {
-                _tours.Add(new PtzTour { Name = dlg.Value.Trim() });
+                var tour = new PtzTour { Name = dlg.Value.Trim() };
+                _tours.Add(tour);
+                _tourService?.SaveTour(_camera.Id, tour);
                 RefreshToursPanel();
             }
         } catch (Exception ex) { Log.Debug("[HeliVMS] PTZ AddTour error: {Msg}", ex.Message); }
+    }
+
+    private void DeleteTour_Click(PtzTour tour) {
+        try {
+            if (_camera is null) return;
+            if (MessageBox.Show($"確定刪除巡航路線「{tour.Name}」？", "確認", MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes) {
+                _tours.Remove(tour);
+                _tourService?.DeleteTour(_camera.Id, tour.Name);
+                if (_selectedTour == tour) {
+                    _selectedTour = null;
+                    StartTourBtn.Content = "▶ 開始巡航";
+                }
+                RefreshToursPanel();
+            }
+        } catch (Exception ex) { Log.Debug("[HeliVMS] PTZ DeleteTour error: {Msg}", ex.Message); }
     }
 
     private async void ToggleTour_Click(object sender, RoutedEventArgs e) {
