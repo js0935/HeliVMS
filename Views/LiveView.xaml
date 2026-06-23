@@ -43,6 +43,14 @@
                             Style="{StaticResource FlatButton}"
                             Margin="4,0,0,0"
                             Click="BtnExport_Click"/>
+                    <Button x:Name="BtnTalk" Content="🎤 對講"
+                            Height="28" Padding="8,0" FontSize="10"
+                            Style="{StaticResource FlatButton}"
+                            Margin="4,0,0,0"
+                            Click="BtnTalk_Click"/>
+                    <Border x:Name="TalkLevelBar" Width="4" Height="20"
+                            Background="#444444" CornerRadius="2"
+                            Margin="4,0,0,0" VerticalAlignment="Center"/>
                 </StackPanel>
 
                 <Grid Grid.Column="1" VerticalAlignment="Center" Margin="8,0,0,0">

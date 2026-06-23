@@ -58,6 +58,14 @@ public partial class LiveView : UserControl {
     public LiveView() {
         InitializeComponent();
         Loaded += LiveView_Loaded;
+        _talkService.AudioLevelChanged += level =>
+            _ = Dispatcher.InvokeAsync(() => {
+                var w = Math.Clamp(level * 4, 0, 1) * 20;
+                TalkLevelBar.Width = w;
+                TalkLevelBar.Background = level > 0.5
+                    ? System.Windows.Media.Brushes.LimeGreen
+                    : System.Windows.Media.Brushes.Gray;
+            });
         Unloaded += (_, _) => Cleanup();
     }
 
@@ -310,6 +318,23 @@ public partial class LiveView : UserControl {
     private void BtnExport_Click(object sender, RoutedEventArgs e) {
         var dlg = new Dialog.ExportDialog { Owner = Window.GetWindow(this) };
         dlg.ShowDialog();
+    }
+    private readonly IAudioTalkService _talkService = App.Services.GetRequiredService<IAudioTalkService>();
+    private void BtnTalk_Click(object sender, RoutedEventArgs e) {
+        if (_talkService.IsTalking) {
+            _talkService.StopTalking();
+            BtnTalk.Background = System.Windows.Media.Brushes.Transparent;
+            BtnTalk.Foreground = TryFindResource("TextBrush") as System.Windows.Media.Brush ?? System.Windows.Media.Brushes.White;
+        } else {
+            var cameras = VideoGrid.GetSlotCameras().Where(c => c is not null).Select(c => c!.Id).ToList();
+            var targetCamera = cameras.FirstOrDefault() ?? "";
+            if (string.IsNullOrEmpty(targetCamera)) return;
+            var ok = _talkService.StartTalking(targetCamera);
+            if (ok) {
+                BtnTalk.Background = System.Windows.Media.Brushes.Red;
+                BtnTalk.Foreground = System.Windows.Media.Brushes.White;
+            }
+        }
     }
 
     // ═══════════════════════════════════════════════════════════

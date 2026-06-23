@@ -311,6 +311,7 @@ public partial class App : Application {
         services.AddSingleton<IEmailService, EmailService>();
         services.AddSingleton<IPushNotificationService, PushNotificationService>();
         services.AddSingleton<IAlertDispatcherService, AlertDispatcherService>();
+        services.AddSingleton<IAudioTalkService, AudioTalkService>();
         services.AddSingleton<ISettingsService, SettingsService>();
         services.AddSingleton<IBrandConfigService, BrandConfigService>();
         services.AddSingleton<ILicenseService, LicenseService>();
