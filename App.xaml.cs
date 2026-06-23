@@ -252,6 +252,15 @@ public partial class App : Application {
             Log.Warning(ex, "Disconnect buffer start failed (non-fatal)");
         }
 
+        // Start Web API (REST + Swagger)
+        try {
+            var webApi = Services.GetRequiredService<WebApiHostService>();
+            webApi.Start();
+            Log.Information("Web API started on port {Port}", webApi.Port);
+        } catch (Exception ex) {
+            Log.Warning(ex, "Web API start failed (non-fatal)");
+        }
+
         // Migrate camera settings from old project
         TryMigrateCameras();
     }
@@ -349,6 +358,7 @@ public partial class App : Application {
         services.AddSingleton<IBookmarkService, BookmarkService>();
         services.AddSingleton<MediaMTXService>();
         services.AddSingleton<EMapService>();
+        services.AddSingleton<WebApiHostService>();
 
         // OnvifService (depends on QCTekService + RtspUrlResolver)
         services.AddSingleton<IOnvifService>(sp => {
