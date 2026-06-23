@@ -109,7 +109,16 @@ public partial class EventRuleEditDialog : Window {
     private void AddAction_Click(object sender, RoutedEventArgs e) {
         var dlg = new InputDialog("新增動作", "動作類型\n(LogEvent / HttpWebhook / Email / Push):", "LogEvent");
         if (dlg.ShowDialog() == true && !string.IsNullOrWhiteSpace(dlg.Value)) {
-            Rule.Actions.Add(new RuleAction { Type = dlg.Value.Trim() });
+            var action = new RuleAction { Type = dlg.Value.Trim() };
+            switch (action.Type.ToLowerInvariant()) {
+                case "httpwebhook":
+                    action.Params["url"] = "http://";
+                    break;
+                case "email":
+                    action.Params["recipients"] = "";
+                    break;
+            }
+            Rule.Actions.Add(action);
             RefreshLists();
         }
     }
@@ -117,6 +126,42 @@ public partial class EventRuleEditDialog : Window {
     private void RemoveAction_Click(object sender, RoutedEventArgs e) {
         if (ActionsList.SelectedIndex >= 0 && ActionsList.SelectedIndex < Rule.Actions.Count) {
             Rule.Actions.RemoveAt(ActionsList.SelectedIndex);
+            RefreshLists();
+        }
+    }
+
+    private void ActionsList_SelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e) {
+        if (ActionsList.SelectedIndex >= 0 && ActionsList.SelectedIndex < Rule.Actions.Count) {
+            var action = Rule.Actions[ActionsList.SelectedIndex];
+            var lines = action.Params.Select(kv => $"  {kv.Key} = {kv.Value}");
+            ActionParamsText.Text = string.Join("\n", lines);
+            if (action.Params.Count == 0)
+                ActionParamsText.Text = "無參數";
+        } else {
+            ActionParamsText.Text = "選取動作以檢視參數";
+        }
+    }
+
+    private void EditActionParams_Click(object sender, RoutedEventArgs e) {
+        if (ActionsList.SelectedIndex < 0 || ActionsList.SelectedIndex >= Rule.Actions.Count) {
+            MessageBox.Show("請先選取一個動作", "提示", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+        var action = Rule.Actions[ActionsList.SelectedIndex];
+        var paramStr = string.Join("\n", action.Params.Select(kv => $"{kv.Key}={kv.Value}"));
+        var dlg = new InputDialog("編輯參數", $"請輸入 {action.Type} 參數（每行 key=value）：", paramStr, true);
+        if (dlg.ShowDialog() == true && dlg.Value is not null) {
+            action.Params.Clear();
+            foreach (var line in dlg.Value.Split('\n')) {
+                var trimmed = line.Trim();
+                if (string.IsNullOrEmpty(trimmed)) continue;
+                var eqIdx = trimmed.IndexOf('=');
+                if (eqIdx > 0) {
+                    var key = trimmed[..eqIdx].Trim();
+                    var val = trimmed[(eqIdx + 1)..].Trim();
+                    action.Params[key] = val;
+                }
+            }
             RefreshLists();
         }
     }

@@ -97,9 +97,10 @@
 
             <StackPanel Grid.Column="1" Margin="6,0,0,0">
                 <TextBlock Text="動作" FontSize="12" FontWeight="SemiBold" Foreground="#CCCCCC" Margin="0,0,0,4"/>
-                <ListBox x:Name="ActionsList" Height="200"
+                <ListBox x:Name="ActionsList" Height="120"
                          Background="#2D2D2D" BorderBrush="#444444"
-                         Foreground="#E1E1E1" FontSize="12"/>
+                         Foreground="#E1E1E1" FontSize="12"
+                         SelectionChanged="ActionsList_SelectionChanged"/>
                 <WrapPanel Margin="0,4,0,0">
                     <Button Content="+ 動作" Padding="8,3" FontSize="11"
                             Click="AddAction_Click" Width="65"
@@ -109,7 +110,17 @@
                             Click="RemoveAction_Click"
                             Background="#3D3D3D" Foreground="#E1E1E1"
                             BorderBrush="#555555" BorderThickness="1" Cursor="Hand"/>
+                    <Button Content="參數" Padding="8,3" FontSize="11" Margin="4,0,0,0"
+                            Click="EditActionParams_Click"
+                            Background="#3D3D3D" Foreground="#E1E1E1"
+                            BorderBrush="#555555" BorderThickness="1" Cursor="Hand"/>
                 </WrapPanel>
+
+                <!-- Action params preview -->
+                <Border Background="#252525" BorderBrush="#444444" BorderThickness="1" Margin="0,8,0,0" Padding="8" CornerRadius="4" MinHeight="60">
+                    <TextBlock x:Name="ActionParamsText" Text="選取動作以檢視參數" FontSize="10"
+                               Foreground="#888888" TextWrapping="Wrap"/>
+                </Border>
             </StackPanel>
         </Grid>
 

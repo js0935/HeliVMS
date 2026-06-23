@@ -12,18 +12,25 @@ namespace HeliVMS.Dialog;
 public partial class InputDialog : Window {
     public string? Value { get; private set; }
 
-    public InputDialog(string title, string prompt, string defaultValue = "") {
+    public InputDialog(string title, string prompt, string defaultValue = "", bool multiline = false) {
         InitializeComponent();
         Title = title;
         PromptText.Text = prompt;
         InputBox.Text = defaultValue;
         InputBox.SelectAll();
+        if (multiline) {
+            Height = 300;
+            InputBox.MinHeight = 120;
+            InputBox.TextWrapping = TextWrapping.Wrap;
+            InputBox.AcceptsReturn = true;
+            InputBox.VerticalScrollBarVisibility = System.Windows.Controls.ScrollBarVisibility.Auto;
+        }
         Loaded += (_, _) => InputBox.Focus();
     }
 
     private void OkButton_Click(object sender, RoutedEventArgs e) {
         Value = InputBox.Text.Trim();
-        DialogResult = !string.IsNullOrEmpty(Value);
+        DialogResult = true;
         Close();
     }
 
