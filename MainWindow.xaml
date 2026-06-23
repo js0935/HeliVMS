@@ -15,8 +15,8 @@
 
     <Grid>
         <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="45"/>
-            <ColumnDefinition Width="Auto"/>
+            <ColumnDefinition x:Name="NavColumn" Width="45"/>
+            <ColumnDefinition x:Name="DrawerColumn" Width="Auto"/>
             <ColumnDefinition Width="*"/>
         </Grid.ColumnDefinitions>
 

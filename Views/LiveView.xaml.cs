@@ -31,8 +31,19 @@ public partial class LiveView : UserControl {
 
     private PlaybackMode _playbackMode = PlaybackMode.Live;
     private DispatcherTimer? _liveTicker;
+    private DispatcherTimer? _recordingBarTimer;
     private double _playbackSpeed = 1.0;
     private static readonly double[] FwdSpeeds = [1.0, 2.0, 4.0, 8.0, 16.0];
+    private static readonly Color[] BarColors = [
+        Color.FromRgb(0x00, 0x7A, 0xCC),
+        Color.FromRgb(0x00, 0xCC, 0x7A),
+        Color.FromRgb(0xCC, 0x7A, 0x00),
+        Color.FromRgb(0x7A, 0x00, 0xCC),
+        Color.FromRgb(0xCC, 0x00, 0x7A),
+        Color.FromRgb(0x00, 0xCC, 0xCC),
+        Color.FromRgb(0xCC, 0xCC, 0x00),
+        Color.FromRgb(0x7A, 0xCC, 0x00),
+    ];
     private int _fwdSpeedIndex;
     private DateTime _timelineDay = DateTime.Today;
     private bool _timelineSyncing;
@@ -65,6 +76,7 @@ public partial class LiveView : UserControl {
         ReloadAllCamerasIntoGrid();
         StartLiveTicker();
         RefreshRecordingBars();
+        StartRecordingBarTimer();
 
         Log.Debug("[LiveView] Loaded — cameras in grid: {Count}",
             VideoGrid.GetSlotCameras().Count(c => c is not null));
@@ -73,6 +85,8 @@ public partial class LiveView : UserControl {
     private void Cleanup() {
         _liveTicker?.Stop();
         _liveTicker = null;
+        _recordingBarTimer?.Stop();
+        _recordingBarTimer = null;
     }
 
     // ═══════════════════════════════════════════════════════════
@@ -250,6 +264,15 @@ public partial class LiveView : UserControl {
     //  Recording Bar Visualization
     // ═══════════════════════════════════════════════════════════
 
+    private void StartRecordingBarTimer() {
+        _recordingBarTimer = new DispatcherTimer(
+            TimeSpan.FromSeconds(30),
+            DispatcherPriority.Background,
+            (_, _) => RefreshRecordingBars(),
+            Dispatcher);
+        _recordingBarTimer.Start();
+    }
+
     public async void RefreshRecordingBars() {
         RecordingBars.Children.Clear();
         try {
@@ -266,6 +289,12 @@ public partial class LiveView : UserControl {
 
             var width = RecordingBars.ActualWidth;
             if (width <= 0) width = 400;
+            var height = RecordingBars.ActualHeight > 0 ? RecordingBars.ActualHeight : 6;
+
+            var cameraIds = recordings.Select(r => r.CameraId).Distinct().ToList();
+            var colorMap = new Dictionary<string, Color>(cameraIds.Count);
+            for (int i = 0; i < cameraIds.Count; i++)
+                colorMap[cameraIds[i]] = BarColors[i % BarColors.Length];
 
             foreach (var seg in recordings) {
                 var startFrac = seg.StartTime.TimeOfDay.TotalSeconds / 86400.0;
@@ -274,14 +303,16 @@ public partial class LiveView : UserControl {
                     : 1.0;
                 var x = startFrac * width;
                 var w = Math.Max(1, (endFrac - startFrac) * width);
+                var color = colorMap.GetValueOrDefault(seg.CameraId, BarColors[0]);
+                var isLive = !seg.EndTime.HasValue;
 
                 var rect = new Rectangle {
-                    Fill = new SolidColorBrush(Color.FromArgb(0x66, 0x00, 0x7A, 0xCC)),
+                    Fill = new SolidColorBrush(Color.FromArgb((byte)(isLive ? 0xCC : 0x99), color.R, color.G, color.B)),
                     Width = w,
-                    Height = RecordingBars.ActualHeight > 0 ? RecordingBars.ActualHeight : 4,
+                    Height = isLive ? height * 1.5 : height,
                     RadiusX = 1,
                     RadiusY = 1,
-                    ToolTip = $"{seg.CameraId}: {seg.StartTime:HH:mm}\u2013{seg.EndTime?.ToString("HH:mm") ?? "now"}"
+                    ToolTip = $"{seg.CameraId}: {seg.StartTime:HH:mm}\u2013{(isLive ? "錄影中" : seg.EndTime!.Value.ToString("HH:mm"))}"
                 };
                 Canvas.SetLeft(rect, x);
                 RecordingBars.Children.Add(rect);
@@ -323,10 +354,11 @@ public partial class LiveView : UserControl {
         TimelineContainer.Visibility = Visibility.Collapsed;
         ControlBar.Visibility = Visibility.Collapsed;
 
-        if (Window.GetWindow(this) is Window win) {
-            win.WindowStyle = WindowStyle.None;
-            win.WindowState = WindowState.Maximized;
-            win.PreviewKeyDown += OnWindowPreviewKeyDown;
+        if (Window.GetWindow(this) is MainWindow main) {
+            main.SetFullScreenUI(true);
+            main.WindowStyle = WindowStyle.None;
+            main.WindowState = WindowState.Maximized;
+            main.PreviewKeyDown += OnWindowPreviewKeyDown;
         }
     }
 
@@ -334,10 +366,11 @@ public partial class LiveView : UserControl {
         if (!_isFullScreen) return;
         _isFullScreen = false;
 
-        if (Window.GetWindow(this) is Window win) {
-            win.WindowState = WindowState.Normal;
-            win.WindowStyle = WindowStyle.SingleBorderWindow;
-            win.PreviewKeyDown -= OnWindowPreviewKeyDown;
+        if (Window.GetWindow(this) is MainWindow main) {
+            main.SetFullScreenUI(false);
+            main.WindowState = WindowState.Normal;
+            main.WindowStyle = WindowStyle.SingleBorderWindow;
+            main.PreviewKeyDown -= OnWindowPreviewKeyDown;
         }
 
         TimelineContainer.Visibility = Visibility.Visible;

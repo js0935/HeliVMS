@@ -5,6 +5,7 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media.Animation;
 using System.Windows.Threading;
+using HeliVMS.Models;
 using HeliVMS.Services;
 using HeliVMS.Views;
 using Microsoft.Extensions.DependencyInjection;
@@ -52,9 +53,14 @@ public partial class MainWindow : Window {
         if (_auth.IsLoggedIn) {
             SwitchToLive();
         } else {
-            _auth.LoginSucceeded += _ => Dispatcher.InvokeAsync(SwitchToLive);
+            _auth.LoginSucceeded += OnLoginSucceeded;
             NavigateToLogin();
         }
+    }
+
+    private void OnLoginSucceeded(User user) {
+        _auth.LoginSucceeded -= OnLoginSucceeded;
+        SwitchToLive();
     }
 
     // ═══════════════════════════════════════════════════════════
@@ -123,6 +129,15 @@ public partial class MainWindow : Window {
             EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
         };
         DrawerContainer.BeginAnimation(FrameworkElement.WidthProperty, anim);
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  Full Screen — hide nav bar + drawer
+    // ═══════════════════════════════════════════════════════════
+
+    public void SetFullScreenUI(bool isFullScreen) {
+        NavColumn.Width = isFullScreen ? new GridLength(0) : new GridLength(45);
+        DrawerColumn.Width = isFullScreen ? new GridLength(0) : GridLength.Auto;
     }
 
     // ═══════════════════════════════════════════════════════════
