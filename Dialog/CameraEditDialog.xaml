@@ -74,6 +74,37 @@
                           ToolTip="輸入或選擇分組名稱（如：1F 大廳、停車場、機房）"/>
 
         <Separator Background="{StaticResource BorderBrush}" Margin="0,12,0,8"/>
+
+                <TextBlock Text="移動偵測設定" Foreground="{StaticResource TextBrush}"
+                           FontSize="14" FontWeight="SemiBold" Margin="0,0,0,8"/>
+
+                <CheckBox x:Name="MotionEnabledCheck" Content="啟用移動偵測" FontSize="12"
+                          Foreground="{StaticResource TextBrush}" Margin="0,0,0,8"
+                          Checked="OnMotionEnabledChanged" Unchecked="OnMotionEnabledChanged"/>
+
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="120"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+                    <TextBlock Grid.Row="0" Grid.Column="0" Text="靈敏度" VerticalAlignment="Center" FontSize="12"
+                               Foreground="{StaticResource SecondaryTextBrush}"/>
+                    <StackPanel Grid.Row="0" Grid.Column="1" Orientation="Horizontal" Margin="8,0,0,4">
+                        <Slider x:Name="MotionSensitivitySlider" Width="180" Minimum="0.0" Maximum="1.0"
+                                Value="0.5" SmallChange="0.05" LargeChange="0.1" TickFrequency="0.1"
+                                ValueChanged="OnMotionSensitivityChanged"
+                                Foreground="{StaticResource PrimaryBrush}"/>
+                        <TextBlock x:Name="MotionSensitivityLabel" Text="0.50" FontSize="12"
+                                   Foreground="{StaticResource TextBrush}" Margin="8,0,0,0" VerticalAlignment="Center"/>
+                    </StackPanel>
+                    <TextBlock Grid.Row="1" Grid.Column="0" Text="低靈敏度 (0.0) ← → 高靈敏度 (1.0)"
+                               Grid.ColumnSpan="2" FontSize="10" Foreground="{StaticResource SecondaryTextBrush}"
+                               Margin="0,0,0,4"/>
+                </Grid>
             </StackPanel>
         </ScrollViewer>
 

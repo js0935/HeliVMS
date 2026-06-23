@@ -66,6 +66,12 @@ public class Camera {
     [JsonPropertyName("isMotionDetectionEnabled")]
     public bool IsMotionDetectionEnabled { get; set; }
 
+    [JsonPropertyName("motionSensitivity")]
+    public double MotionSensitivity { get; set; } = 0.5;
+
+    [JsonPropertyName("motionZoneMask")]
+    public string? MotionZoneMask { get; set; }
+
     [JsonPropertyName("recordingConfigJson")]
     public string? RecordingConfigJson { get; set; }
 

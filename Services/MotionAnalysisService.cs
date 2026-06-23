@@ -1,13 +1,15 @@
 ﻿using System.Diagnostics;
 using System.Text.RegularExpressions;
+using HeliVMS.Models;
 using Serilog;
 
 namespace HeliVMS.Services;
 
-public sealed partial class MotionAnalysisService(IVideoIndexService videoIndexService, IEventService eventService, IEventRuleService ruleEngine) : IMotionAnalysisService, IDisposable {
+public sealed partial class MotionAnalysisService(IVideoIndexService videoIndexService, IEventService eventService, IEventRuleService ruleEngine, ICameraService cameraService) : IMotionAnalysisService, IDisposable {
     private readonly IVideoIndexService _videoIndexService = videoIndexService;
     private readonly IEventService _eventService = eventService;
     private readonly IEventRuleService _ruleEngine = ruleEngine;
+    private readonly ICameraService _cameraService = cameraService;
     private CancellationTokenSource? _cts;
     private Task? _monitorTask;
     private bool _disposed;
@@ -74,7 +76,8 @@ public sealed partial class MotionAnalysisService(IVideoIndexService videoIndexS
                     .ConfigureAwait(false);
                 await _videoIndexService.UpdateMotionScoreAsync(seg.Id, score)
                     .ConfigureAwait(false);
-                if (score > 0.5)
+                var sensitivity = GetCameraSensitivity(seg.CameraId);
+                if (score > 1.0 - sensitivity)
                     _ruleEngine.Evaluate("MotionDetected", seg.CameraId, new() { ["motionScore"] = score.ToString("F2") });
             } catch (Exception ex) {
                 Log.Warning(ex, "[HeliVMS] MotionAnalysis failed for {Path}", seg.FilePath);
@@ -135,6 +138,15 @@ public sealed partial class MotionAnalysisService(IVideoIndexService videoIndexS
         timeoutCts.CancelAfter(timeoutMs);
         try { await process.WaitForExitAsync(timeoutCts.Token).ConfigureAwait(false); return true; }
         catch (OperationCanceledException) { return false; }
+    }
+
+    private double GetCameraSensitivity(string cameraId) {
+        try {
+            var camera = _cameraService.GetCameraById(cameraId);
+            if (camera is not null && camera.IsMotionDetectionEnabled)
+                return Math.Clamp(camera.MotionSensitivity, 0.0, 1.0);
+        } catch { }
+        return 0.5;
     }
 
     [GeneratedRegex(@"lavfi\.scene_score=([\d\.]+)", RegexOptions.IgnoreCase | RegexOptions.Compiled, "zh-TW")]

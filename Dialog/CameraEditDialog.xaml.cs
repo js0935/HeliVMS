@@ -101,6 +101,11 @@ public partial class CameraEditDialog : Window {
         RtspUrlSubBox.Text = camera.RtspUrlSub ?? "";
         GroupCombo.Text = camera.Group ?? "";
 
+        MotionEnabledCheck.IsChecked = camera.IsMotionDetectionEnabled;
+        MotionSensitivitySlider.Value = camera.MotionSensitivity;
+        MotionSensitivityLabel.Text = camera.MotionSensitivity.ToString("F2");
+        MotionSensitivitySlider.IsEnabled = camera.IsMotionDetectionEnabled;
+
         if (!string.IsNullOrEmpty(camera.Manufacturer)) {
             SelectBrandByPorts(camera.Port, camera.OnvifPort);
         }
@@ -256,7 +261,9 @@ public partial class CameraEditDialog : Window {
             IsVisible = _existingCamera?.IsVisible ?? true,
             IsRecordingEnabled = true,
             RecordingConfigJson = defaultRecConfig.Serialize(),
-            CreatedAt = _existingCamera?.CreatedAt ?? DateTime.Now
+            CreatedAt = _existingCamera?.CreatedAt ?? DateTime.Now,
+            IsMotionDetectionEnabled = MotionEnabledCheck.IsChecked ?? false,
+            MotionSensitivity = MotionSensitivitySlider.Value,
         };
 
         DialogResult = true;
@@ -355,6 +362,14 @@ public partial class CameraEditDialog : Window {
 
     private static void ShowWarning(string msg) {
         MessageBox.Show(msg, "驗證錯誤", MessageBoxButton.OK, MessageBoxImage.Warning);
+    }
+
+    private void OnMotionEnabledChanged(object sender, RoutedEventArgs e) {
+        MotionSensitivitySlider.IsEnabled = MotionEnabledCheck.IsChecked ?? false;
+    }
+
+    private void OnMotionSensitivityChanged(object sender, RoutedPropertyChangedEventArgs<double> e) {
+        MotionSensitivityLabel.Text = e.NewValue.ToString("F2");
     }
 
     private record BrandEntry(string DisplayName, string BrandKey, int RtspPort, int OnvifPort);
