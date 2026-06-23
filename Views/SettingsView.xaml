@@ -75,6 +75,11 @@
                         Foreground="{StaticResource SecondaryTextBrush}"
                         BorderThickness="0,0,0,2" BorderBrush="Transparent"
                         Click="TabButton_Click"/>
+                <Button x:Name="TabBackup" Content="備份還原" Tag="11" Padding="16,10" FontSize="13"
+                        FontWeight="SemiBold" Cursor="Hand" Background="Transparent"
+                        Foreground="{StaticResource SecondaryTextBrush}"
+                        BorderThickness="0,0,0,2" BorderBrush="Transparent"
+                        Click="TabButton_Click"/>
             </StackPanel>
         </Border>
 
@@ -994,6 +999,62 @@
                             <Button x:Name="SaveScheduleBtn" Content="儲存排程"
                                     Style="{StaticResource ModernButton}" Height="28" FontSize="11" Padding="16,0" Margin="8,0,0,0"
                                     Click="SaveSchedule_Click"/>
+                        </WrapPanel>
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+        </ScrollViewer>
+
+        <!-- Backup & restore panel -->
+        <ScrollViewer Grid.Row="2" x:Name="BackupPanel"
+                      VerticalScrollBarVisibility="Auto"
+                      HorizontalScrollBarVisibility="Disabled"
+                      Visibility="Collapsed">
+            <StackPanel>
+                <Border Style="{StaticResource CardBorder}" Padding="16" Margin="0,0,0,16">
+                    <StackPanel>
+                        <TextBlock Text="資料備份" Style="{StaticResource SectionHeader}" Margin="0,0,0,8"/>
+                        <TextBlock Text="備份所有設定檔（攝影機、事件規則、排程、群組等 JSON 資料）。"
+                                   Foreground="{StaticResource SecondaryTextBrush}" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,12"/>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <Button x:Name="CreateBackupBtn" Content="建立備份"
+                                    Style="{StaticResource ModernButton}" Height="32" FontSize="12" Padding="20,0"
+                                    Click="CreateBackup_Click"/>
+                            <TextBlock Grid.Column="1" x:Name="BackupStatusText"
+                                       Text="" FontSize="11" VerticalAlignment="Center"
+                                       Margin="12,0,0,0" TextWrapping="Wrap"/>
+                        </Grid>
+                    </StackPanel>
+                </Border>
+
+                <Border Style="{StaticResource CardBorder}" Padding="16" Margin="0,0,0,16">
+                    <StackPanel>
+                        <TextBlock Text="備份清單" Style="{StaticResource SectionHeader}" Margin="0,0,0,8"/>
+                        <TextBlock Text="最近的備份檔案。按一下可直接還原該備份的所有設定。"
+                                   Foreground="{StaticResource SecondaryTextBrush}" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,12"/>
+                        <ListBox x:Name="BackupListBox" MaxHeight="300"
+                                 Background="{StaticResource SurfaceBrush}"
+                                 BorderBrush="{StaticResource BorderBrush}"
+                                 Margin="0,0,0,8">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate>
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock Text="{Binding}" FontSize="12" Foreground="{StaticResource TextBrush}"/>
+                                    </StackPanel>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                        <WrapPanel>
+                            <Button x:Name="RestoreBackupBtn" Content="還原選取備份"
+                                    Style="{StaticResource ModernButton}" Height="28" FontSize="11" Padding="16,0"
+                                    Click="RestoreBackup_Click"/>
+                            <Button x:Name="RefreshBackupListBtn" Content="重新整理"
+                                    Style="{StaticResource SecondaryButton}" Height="28" FontSize="11" Padding="12,0" Margin="8,0,0,0"
+                                    Click="RefreshBackupList_Click"/>
                         </WrapPanel>
                     </StackPanel>
                 </Border>

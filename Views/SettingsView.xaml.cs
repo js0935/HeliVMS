@@ -23,6 +23,7 @@ public partial class SettingsView : UserControl {
     private readonly IEmailService _emailService;
     private readonly IAlertDispatcherService _alertDispatcher;
     private readonly IRecordingScheduleService _scheduleService;
+    private readonly BackupService _backupService;
     private string _keyword = "";
     private bool _loaded;
     private int _currentTab;
@@ -37,6 +38,7 @@ public partial class SettingsView : UserControl {
         _emailService = App.Services.GetRequiredService<IEmailService>();
         _alertDispatcher = App.Services.GetRequiredService<IAlertDispatcherService>();
         _scheduleService = App.Services.GetRequiredService<IRecordingScheduleService>();
+        _backupService = App.Services.GetRequiredService<BackupService>();
 
         Loaded += (_, _) => {
             _loaded = true;
@@ -133,6 +135,13 @@ public partial class SettingsView : UserControl {
             ? TryFindResource("TextBrush") as Brush ?? System.Windows.Media.Brushes.White
             : TryFindResource("SecondaryTextBrush") as Brush ?? System.Windows.Media.Brushes.Gray;
 
+        TabBackup.BorderBrush = index == 11
+            ? TryFindResource("PrimaryBrush") as Brush ?? System.Windows.Media.Brushes.DodgerBlue
+            : System.Windows.Media.Brushes.Transparent;
+        TabBackup.Foreground = index == 11
+            ? TryFindResource("TextBrush") as Brush ?? System.Windows.Media.Brushes.White
+            : TryFindResource("SecondaryTextBrush") as Brush ?? System.Windows.Media.Brushes.Gray;
+
         EventLogPanel.Visibility = index == 0 ? Visibility.Visible : Visibility.Collapsed;
         FfmpegPanel.Visibility = index == 1 ? Visibility.Visible : Visibility.Collapsed;
         FontPanel.Visibility = index == 2 ? Visibility.Visible : Visibility.Collapsed;
@@ -144,6 +153,7 @@ public partial class SettingsView : UserControl {
         NotificationPanel.Visibility = index == 8 ? Visibility.Visible : Visibility.Collapsed;
         AuditLogPanel.Visibility = index == 9 ? Visibility.Visible : Visibility.Collapsed;
         SchedulePanel.Visibility = index == 10 ? Visibility.Visible : Visibility.Collapsed;
+        BackupPanel.Visibility = index == 11 ? Visibility.Visible : Visibility.Collapsed;
 
         if (index == 1) {
             CheckFfmpegStatus();
@@ -163,6 +173,8 @@ public partial class SettingsView : UserControl {
             RefreshAuditLog();
         } else if (index == 10) {
             LoadScheduleTab();
+        } else if (index == 11) {
+            RefreshBackupList();
         }
     }
 
@@ -950,6 +962,72 @@ public partial class SettingsView : UserControl {
         camSchedule.Rules = ScheduleRulesList.ItemsSource as List<ScheduleRule> ?? camSchedule.Rules;
         _scheduleService.Save(data);
         MessageBox.Show("錄影排程已儲存。", "設定", MessageBoxButton.OK, MessageBoxImage.Information);
+    }
+    #endregion
+
+    #region Backup & restore
+    private void RefreshBackupList() {
+        try {
+            var backups = _backupService.ListBackups();
+            BackupListBox.ItemsSource = backups.Select(f => Path.GetFileName(f)).ToList();
+        } catch (Exception ex) {
+            Log.Debug("[HeliVMS] Refresh backup list error: {Msg}", ex.Message);
+        }
+    }
+
+    private async void CreateBackup_Click(object sender, RoutedEventArgs e) {
+        CreateBackupBtn.IsEnabled = false;
+        BackupStatusText.Text = "備份中...";
+        BackupStatusText.Foreground = TryFindResource("SecondaryTextBrush") as Brush ?? Brushes.Gray;
+
+        try {
+            var path = await Task.Run(() => _backupService.CreateBackup());
+            _backupService.CleanupOldBackups();
+            BackupStatusText.Text = $"✓ 備份完成：{Path.GetFileName(path)}";
+            BackupStatusText.Foreground = Brushes.LimeGreen;
+            RefreshBackupList();
+        } catch (Exception ex) {
+            BackupStatusText.Text = $"✗ 備份失敗：{ex.Message}";
+            BackupStatusText.Foreground = Brushes.OrangeRed;
+        } finally {
+            CreateBackupBtn.IsEnabled = true;
+        }
+    }
+
+    private async void RestoreBackup_Click(object sender, RoutedEventArgs e) {
+        if (BackupListBox.SelectedItem is not string fileName) {
+            MessageBox.Show("請先從清單中選取一個備份檔案。", "提示", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        var result = MessageBox.Show(
+            $"確定要還原備份「{fileName}」？\n\n目前的所有設定將被覆蓋。建議先建立目前設定的備份。",
+            "還原備份", MessageBoxButton.YesNo, MessageBoxImage.Warning);
+
+        if (result != MessageBoxResult.Yes) return;
+
+        try {
+            var backups = _backupService.ListBackups();
+            var match = backups.FirstOrDefault(f => Path.GetFileName(f) == fileName);
+
+            if (match is null) {
+                MessageBox.Show("找不到選取的備份檔案。", "錯誤", MessageBoxButton.OK, MessageBoxImage.Error);
+                return;
+            }
+
+            await Task.Run(() => _backupService.RestoreBackup(match));
+            BackupStatusText.Text = $"✓ 還原完成：{fileName}";
+            BackupStatusText.Foreground = Brushes.LimeGreen;
+            MessageBox.Show("設定已還原。部分變更需要重新啟動應用程式方可生效。", "還原完成",
+                MessageBoxButton.OK, MessageBoxImage.Information);
+        } catch (Exception ex) {
+            BackupStatusText.Text = $"✗ 還原失敗：{ex.Message}";
+            BackupStatusText.Foreground = Brushes.OrangeRed;
+        }
+    }
+
+    private void RefreshBackupList_Click(object sender, RoutedEventArgs e) {
+        RefreshBackupList();
     }
     #endregion
 }
