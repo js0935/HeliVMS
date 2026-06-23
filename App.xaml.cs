@@ -225,6 +225,15 @@ public partial class App : Application {
             Log.Warning(ex, "MediaMTX relay start failed (non-fatal)");
         }
 
+        // Start alert notification dispatcher
+        try {
+            var alert = Services.GetRequiredService<IAlertDispatcherService>();
+            alert.Start();
+            Log.Information("Alert dispatcher started");
+        } catch (Exception ex) {
+            Log.Warning(ex, "Alert dispatcher start failed (non-fatal)");
+        }
+
         // Migrate camera settings from old project
         TryMigrateCameras();
     }
@@ -299,6 +308,9 @@ public partial class App : Application {
         services.AddSingleton<IEventRuleService, EventRuleService>();
         services.AddSingleton<ILayoutService, LayoutService>();
         services.AddSingleton<IExportService, ExportService>();
+        services.AddSingleton<IEmailService, EmailService>();
+        services.AddSingleton<IPushNotificationService, PushNotificationService>();
+        services.AddSingleton<IAlertDispatcherService, AlertDispatcherService>();
         services.AddSingleton<ISettingsService, SettingsService>();
         services.AddSingleton<IBrandConfigService, BrandConfigService>();
         services.AddSingleton<ILicenseService, LicenseService>();

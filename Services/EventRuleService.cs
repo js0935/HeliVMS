@@ -10,12 +10,16 @@ public sealed class EventRuleService : IEventRuleService {
     private readonly List<EventRule> _rules = [];
     private readonly string _filePath;
     private readonly IEventService _eventLog;
+    private readonly IAlertDispatcherService _alertDispatcher;
+    private readonly IPushNotificationService _push;
     private readonly object _lock = new();
 
     public event Action<EventRule, RuleAction, string>? ActionExecuted;
 
-    public EventRuleService(IEventService eventLog) {
+    public EventRuleService(IEventService eventLog, IAlertDispatcherService alertDispatcher, IPushNotificationService push) {
         _eventLog = eventLog;
+        _alertDispatcher = alertDispatcher;
+        _push = push;
         var dir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Data");
         Directory.CreateDirectory(dir);
         _filePath = Path.Combine(dir, "event_rules.json");
@@ -90,11 +94,30 @@ public sealed class EventRuleService : IEventRuleService {
                 case "httpwebhook":
                     FireWebhook(rule, action, cameraId, context);
                     break;
+                case "email":
+                    FireEmailNotification(rule, cameraId, context);
+                    break;
+                case "push":
+                    FirePushNotification(rule, cameraId, context);
+                    break;
             }
             ActionExecuted?.Invoke(rule, action, cameraId);
         } catch (Exception ex) {
             Serilog.Log.Debug("[EventRule] ExecuteAction failed: {Msg}", ex.Message);
         }
+    }
+
+    private void FireEmailNotification(EventRule rule, string cameraId, Dictionary<string, string>? context) {
+        _alertDispatcher.Enqueue(new Models.AlertNotification {
+            Channel = "email",
+            Type = rule.Name,
+            CameraId = cameraId,
+            Message = $"規則「{rule.Name}」觸發 | 攝影機：{cameraId} | 時間：{DateTime.Now:yyyy-MM-dd HH:mm:ss}",
+        });
+    }
+
+    private void FirePushNotification(EventRule rule, string cameraId, Dictionary<string, string>? context) {
+        _push.ShowToast(rule.Name, $"Camera: {cameraId}", cameraId);
     }
 
     private static void FireWebhook(EventRule rule, RuleAction action, string cameraId, Dictionary<string, string>? context) {

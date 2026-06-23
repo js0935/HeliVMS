@@ -60,6 +60,11 @@
                         Foreground="{StaticResource SecondaryTextBrush}"
                         BorderThickness="0,0,0,2" BorderBrush="Transparent"
                         Click="TabButton_Click"/>
+                <Button x:Name="TabNotification" Content="通知設定" Tag="8" Padding="16,10" FontSize="13"
+                        FontWeight="SemiBold" Cursor="Hand" Background="Transparent"
+                        Foreground="{StaticResource SecondaryTextBrush}"
+                        BorderThickness="0,0,0,2" BorderBrush="Transparent"
+                        Click="TabButton_Click"/>
             </StackPanel>
         </Border>
 
@@ -611,6 +616,111 @@
                         </TextBlock>
                         <TextBlock Text="• CameraDisconnected — 攝影機離線&#x0a;• CameraReconnected — 攝影機恢復連線&#x0a;• MotionDetected — 移動偵測&#x0a;• RecordingFailed — 錄影失敗"
                                    Foreground="{StaticResource TextBrush}" FontSize="12" Margin="0,4,0,0"/>
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+        </ScrollViewer>
+
+        <!-- Notification settings panel -->
+        <ScrollViewer Grid.Row="2" x:Name="NotificationPanel"
+                      VerticalScrollBarVisibility="Auto"
+                      HorizontalScrollBarVisibility="Disabled"
+                      Visibility="Collapsed">
+            <StackPanel>
+                <Border Style="{StaticResource CardBorder}" Padding="16" Margin="0,0,0,16">
+                    <StackPanel>
+                        <TextBlock Text="電子郵件通知 (SMTP)" Style="{StaticResource SectionHeader}" Margin="0,0,0,12"/>
+                        <Grid Margin="0,0,0,8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="120"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
+                            <TextBlock Grid.Row="0" Grid.Column="0" Text="啟用郵件通知" VerticalAlignment="Center" FontSize="12"
+                                       Foreground="{StaticResource SecondaryTextBrush}"/>
+                            <CheckBox x:Name="EmailEnabledCheck" Grid.Row="0" Grid.Column="1" Margin="8,0,0,4" VerticalAlignment="Center"/>
+
+                            <TextBlock Grid.Row="1" Grid.Column="0" Text="SMTP 主機" VerticalAlignment="Center" FontSize="12"
+                                       Foreground="{StaticResource SecondaryTextBrush}"/>
+                            <TextBox x:Name="SmtpHostBox" Grid.Row="1" Grid.Column="1" FontSize="12" Padding="4,3" Margin="8,0,0,4"
+                                     Background="#2D2D2D" Foreground="#E1E1E1" BorderBrush="#444444" BorderThickness="1"/>
+
+                            <TextBlock Grid.Row="2" Grid.Column="0" Text="連接埠" VerticalAlignment="Center" FontSize="12"
+                                       Foreground="{StaticResource SecondaryTextBrush}"/>
+                            <TextBox x:Name="SmtpPortBox" Grid.Row="2" Grid.Column="1" FontSize="12" Padding="4,3" Margin="8,0,0,4" Width="100" HorizontalAlignment="Left"
+                                     Background="#2D2D2D" Foreground="#E1E1E1" BorderBrush="#444444" BorderThickness="1" Text="587"/>
+
+                            <TextBlock Grid.Row="3" Grid.Column="0" Text="使用 SSL" VerticalAlignment="Center" FontSize="12"
+                                       Foreground="{StaticResource SecondaryTextBrush}"/>
+                            <CheckBox x:Name="UseSslCheck" Grid.Row="3" Grid.Column="1" Margin="8,0,0,4" VerticalAlignment="Center" IsChecked="True"/>
+
+                            <TextBlock Grid.Row="4" Grid.Column="0" Text="使用者名稱" VerticalAlignment="Center" FontSize="12"
+                                       Foreground="{StaticResource SecondaryTextBrush}"/>
+                            <TextBox x:Name="SmtpUserBox" Grid.Row="4" Grid.Column="1" FontSize="12" Padding="4,3" Margin="8,0,0,4"
+                                     Background="#2D2D2D" Foreground="#E1E1E1" BorderBrush="#444444" BorderThickness="1"/>
+
+                            <TextBlock Grid.Row="5" Grid.Column="0" Text="密碼" VerticalAlignment="Center" FontSize="12"
+                                       Foreground="{StaticResource SecondaryTextBrush}"/>
+                            <PasswordBox x:Name="SmtpPassBox" Grid.Row="5" Grid.Column="1" FontSize="12" Padding="4,3" Margin="8,0,0,4"
+                                         Background="#2D2D2D" Foreground="#E1E1E1" BorderBrush="#444444" BorderThickness="1"/>
+
+                            <TextBlock Grid.Row="6" Grid.Column="0" Text="寄件者地址" VerticalAlignment="Center" FontSize="12"
+                                       Foreground="{StaticResource SecondaryTextBrush}"/>
+                            <TextBox x:Name="FromAddressBox" Grid.Row="6" Grid.Column="1" FontSize="12" Padding="4,3" Margin="8,0,0,0"
+                                     Background="#2D2D2D" Foreground="#E1E1E1" BorderBrush="#444444" BorderThickness="1"/>
+                        </Grid>
+
+                        <TextBlock Text="預設收件人（多個以逗號或分號分隔）" FontSize="12" Margin="0,8,0,4"
+                                   Foreground="{StaticResource SecondaryTextBrush}"/>
+                        <TextBox x:Name="RecipientsBox" FontSize="12" Padding="4,3" Height="60" TextWrapping="Wrap" AcceptsReturn="True"
+                                 Background="#2D2D2D" Foreground="#E1E1E1" BorderBrush="#444444" BorderThickness="1"/>
+                    </StackPanel>
+                </Border>
+
+                <Border Style="{StaticResource CardBorder}" Padding="16" Margin="0,0,0,16">
+                    <StackPanel>
+                        <TextBlock Text="重試設定" Style="{StaticResource SectionHeader}" Margin="0,0,0,8"/>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="120"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
+                            <TextBlock Grid.Row="0" Grid.Column="0" Text="最大重試次數" VerticalAlignment="Center" FontSize="12"
+                                       Foreground="{StaticResource SecondaryTextBrush}"/>
+                            <TextBox x:Name="RetryMaxBox" Grid.Row="0" Grid.Column="1" FontSize="12" Padding="4,3" Margin="8,0,0,4" Width="80" HorizontalAlignment="Left"
+                                     Background="#2D2D2D" Foreground="#E1E1E1" BorderBrush="#444444" BorderThickness="1" Text="3"/>
+                            <TextBlock Grid.Row="1" Grid.Column="0" Text="重試間隔 (秒)" VerticalAlignment="Center" FontSize="12"
+                                       Foreground="{StaticResource SecondaryTextBrush}"/>
+                            <TextBox x:Name="RetryDelayBox" Grid.Row="1" Grid.Column="1" FontSize="12" Padding="4,3" Margin="8,0,0,0" Width="80" HorizontalAlignment="Left"
+                                     Background="#2D2D2D" Foreground="#E1E1E1" BorderBrush="#444444" BorderThickness="1" Text="30"/>
+                        </Grid>
+                    </StackPanel>
+                </Border>
+
+                <Border Style="{StaticResource CardBorder}" Padding="16">
+                    <StackPanel>
+                        <WrapPanel>
+                            <Button x:Name="SaveNotificationBtn" Content="儲存設定" Style="{StaticResource ModernButton}"
+                                    Height="30" FontSize="12" Padding="20,0" Margin="0,0,8,0"
+                                    Click="SaveNotification_Click"/>
+                            <Button x:Name="TestEmailBtn" Content="測試郵件" Style="{StaticResource SecondaryButton}"
+                                    Height="30" FontSize="12" Padding="20,0"
+                                    Click="TestEmail_Click"/>
+                        </WrapPanel>
+                        <TextBlock x:Name="NotificationStatus" Text="" FontSize="12" Margin="0,8,0,0"
+                                   Foreground="{StaticResource SecondaryTextBrush}"/>
                     </StackPanel>
                 </Border>
             </StackPanel>

@@ -20,6 +20,8 @@ public partial class SettingsView : UserControl {
     private readonly ICameraService _cameraService;
     private readonly IBrandConfigService _brandConfigService;
     private readonly IEventRuleService _ruleService;
+    private readonly IEmailService _emailService;
+    private readonly IAlertDispatcherService _alertDispatcher;
     private string _keyword = "";
     private bool _loaded;
     private int _currentTab;
@@ -31,6 +33,8 @@ public partial class SettingsView : UserControl {
         _cameraService = App.Services.GetRequiredService<ICameraService>();
         _brandConfigService = App.Services.GetRequiredService<IBrandConfigService>();
         _ruleService = App.Services.GetRequiredService<IEventRuleService>();
+        _emailService = App.Services.GetRequiredService<IEmailService>();
+        _alertDispatcher = App.Services.GetRequiredService<IAlertDispatcherService>();
 
         Loaded += (_, _) => {
             _loaded = true;
@@ -106,6 +110,13 @@ public partial class SettingsView : UserControl {
             ? TryFindResource("TextBrush") as Brush ?? System.Windows.Media.Brushes.White
             : TryFindResource("SecondaryTextBrush") as Brush ?? System.Windows.Media.Brushes.Gray;
 
+        TabNotification.BorderBrush = index == 8
+            ? TryFindResource("PrimaryBrush") as Brush ?? System.Windows.Media.Brushes.DodgerBlue
+            : System.Windows.Media.Brushes.Transparent;
+        TabNotification.Foreground = index == 8
+            ? TryFindResource("TextBrush") as Brush ?? System.Windows.Media.Brushes.White
+            : TryFindResource("SecondaryTextBrush") as Brush ?? System.Windows.Media.Brushes.Gray;
+
         EventLogPanel.Visibility = index == 0 ? Visibility.Visible : Visibility.Collapsed;
         FfmpegPanel.Visibility = index == 1 ? Visibility.Visible : Visibility.Collapsed;
         FontPanel.Visibility = index == 2 ? Visibility.Visible : Visibility.Collapsed;
@@ -114,6 +125,7 @@ public partial class SettingsView : UserControl {
         DebugPanel.Visibility = index == 5 ? Visibility.Visible : Visibility.Collapsed;
         MediaMTXPanel.Visibility = index == 6 ? Visibility.Visible : Visibility.Collapsed;
         EventRulesPanel.Visibility = index == 7 ? Visibility.Visible : Visibility.Collapsed;
+        NotificationPanel.Visibility = index == 8 ? Visibility.Visible : Visibility.Collapsed;
 
         if (index == 1) {
             CheckFfmpegStatus();
@@ -127,6 +139,8 @@ public partial class SettingsView : UserControl {
             RefreshMediaMTXStatus();
         } else if (index == 7) {
             RefreshEventRules();
+        } else if (index == 8) {
+            LoadNotificationSettings();
         }
     }
 
@@ -710,6 +724,63 @@ public partial class SettingsView : UserControl {
                 _ruleService.DeleteRule(rule.Id);
                 RefreshEventRules();
             }
+        }
+    }
+    #endregion
+
+    #region Notification settings
+    private void LoadNotificationSettings() {
+        var settings = _emailService.LoadSettings();
+        EmailEnabledCheck.IsChecked = settings.Email.Enabled;
+        SmtpHostBox.Text = settings.Email.SmtpHost;
+        SmtpPortBox.Text = settings.Email.SmtpPort.ToString();
+        UseSslCheck.IsChecked = settings.Email.UseSsl;
+        SmtpUserBox.Text = settings.Email.Username;
+        SmtpPassBox.Password = settings.Email.Password;
+        FromAddressBox.Text = settings.Email.FromAddress;
+        RecipientsBox.Text = settings.Email.DefaultRecipients;
+        RetryMaxBox.Text = settings.RetryMaxAttempts.ToString();
+        RetryDelayBox.Text = settings.RetryDelaySeconds.ToString();
+        NotificationStatus.Text = "";
+    }
+
+    private void SaveNotification_Click(object sender, RoutedEventArgs e) {
+        if (!int.TryParse(SmtpPortBox.Text, out var port)) port = 587;
+        if (!int.TryParse(RetryMaxBox.Text, out var retryMax)) retryMax = 3;
+        if (!int.TryParse(RetryDelayBox.Text, out var retryDelay)) retryDelay = 30;
+
+        var settings = new NotificationSettings {
+            Email = new EmailConfig {
+                Enabled = EmailEnabledCheck.IsChecked ?? false,
+                SmtpHost = SmtpHostBox.Text.Trim(),
+                SmtpPort = port,
+                UseSsl = UseSslCheck.IsChecked ?? true,
+                Username = SmtpUserBox.Text.Trim(),
+                Password = SmtpPassBox.Password,
+                FromAddress = FromAddressBox.Text.Trim(),
+                DefaultRecipients = RecipientsBox.Text.Trim(),
+            },
+            RetryMaxAttempts = retryMax,
+            RetryDelaySeconds = retryDelay,
+        };
+        _emailService.SaveSettings(settings);
+        NotificationStatus.Text = "✓ 設定已儲存";
+        NotificationStatus.Foreground = System.Windows.Media.Brushes.LimeGreen;
+    }
+
+    private async void TestEmail_Click(object sender, RoutedEventArgs e) {
+        TestEmailBtn.IsEnabled = false;
+        NotificationStatus.Text = "正在測試郵件發送...";
+        NotificationStatus.Foreground = TryFindResource("SecondaryTextBrush") as Brush ?? System.Windows.Media.Brushes.Gray;
+
+        var ok = await _emailService.TestConnectionAsync();
+        TestEmailBtn.IsEnabled = true;
+        if (ok) {
+            NotificationStatus.Text = "✓ 測試郵件發送成功";
+            NotificationStatus.Foreground = System.Windows.Media.Brushes.LimeGreen;
+        } else {
+            NotificationStatus.Text = "✗ 測試郵件發送失敗，請檢查設定";
+            NotificationStatus.Foreground = System.Windows.Media.Brushes.OrangeRed;
         }
     }
     #endregion

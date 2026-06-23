@@ -44,7 +44,7 @@ public partial class EventRuleEditDialog : Window {
     }
 
     private void AddAction_Click(object sender, RoutedEventArgs e) {
-        var dlg = new InputDialog("新增動作", "動作類型\n(LogEvent / HttpWebhook):", "LogEvent");
+        var dlg = new InputDialog("新增動作", "動作類型\n(LogEvent / HttpWebhook / Email / Push):", "LogEvent");
         if (dlg.ShowDialog() == true && !string.IsNullOrWhiteSpace(dlg.Value)) {
             Rule.Actions.Add(new RuleAction { Type = dlg.Value.Trim() });
             RefreshLists();
