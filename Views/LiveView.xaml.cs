@@ -29,6 +29,7 @@ public partial class LiveView : UserControl {
     private ILayoutService LayoutService => _lazyLayout ??= App.Services.GetRequiredService<ILayoutService>();
     private Camera? _ptzCamera;
     private bool _isFullScreen;
+    public bool IsFullScreen => _isFullScreen;
     private bool _initialized;
 
     private PlaybackMode _playbackMode = PlaybackMode.Live;
@@ -320,6 +321,8 @@ public partial class LiveView : UserControl {
         dlg.ShowDialog();
     }
     private readonly IAudioTalkService _talkService = App.Services.GetRequiredService<IAudioTalkService>();
+    private IRecordingService? _lazyRecording;
+    private IRecordingService RecordingService => _lazyRecording ??= App.Services.GetRequiredService<IRecordingService>();
     private void BtnTalk_Click(object sender, RoutedEventArgs e) {
         if (_talkService.IsTalking) {
             _talkService.StopTalking();
@@ -340,6 +343,17 @@ public partial class LiveView : UserControl {
     // ═══════════════════════════════════════════════════════════
     //  Recording Bar Visualization
     // ═══════════════════════════════════════════════════════════
+
+    public void ToggleRecordingSelectedCamera() {
+        var selected = VideoGrid.GetActiveSlots().FirstOrDefault(p => p.IsSelected);
+        var cam = selected?.Camera;
+        if (cam is null) return;
+        if (RecordingService.IsRecording(cam.Id)) {
+            RecordingService.StopRecording(cam.Id);
+        } else {
+            RecordingService.StartRecording(cam);
+        }
+    }
 
     private void StartRecordingBarTimer() {
         _recordingBarTimer = new DispatcherTimer(

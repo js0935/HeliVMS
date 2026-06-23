@@ -71,6 +71,32 @@ public partial class MainWindow : Window {
     }
 
     // ═══════════════════════════════════════════════════════════
+    //  Keyboard shortcuts
+    // ═══════════════════════════════════════════════════════════
+
+    private void MainWindow_PreviewKeyDown(object sender, KeyEventArgs e) {
+        if (e.Key == Key.F || (e.Key == Key.F11)) {
+            var live = MainWorkArea.Content as Views.LiveView;
+            if (live is not null) {
+                live.ToggleFullScreen();
+                e.Handled = true;
+            }
+        } else if (e.Key == Key.Escape) {
+            var live = MainWorkArea.Content as Views.LiveView;
+            if (live is not null && live.IsFullScreen) {
+                live.ToggleFullScreen();
+                e.Handled = true;
+            }
+        } else if (e.KeyboardDevice.Modifiers == ModifierKeys.Control && e.Key == Key.R) {
+            var live = MainWorkArea.Content as Views.LiveView;
+            if (live is not null) {
+                live.ToggleRecordingSelectedCamera();
+                e.Handled = true;
+            }
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════
     //  Navigation
     // ═══════════════════════════════════════════════════════════
 
