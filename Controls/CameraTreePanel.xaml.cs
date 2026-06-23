@@ -77,6 +77,12 @@ public partial class CameraTreePanel : UserControl {
         CameraTreeView.ItemsSource = roots;
     }
 
+    /// <summary>Focus the search text box.</summary>
+    public void FocusSearch() {
+        SearchBox?.Focus();
+        SearchBox?.SelectAll();
+    }
+
     /// <summary>Collapse or expand the panel.</summary>
     public bool IsCollapsed {
         get => _isCollapsed;

@@ -125,6 +125,9 @@ public partial class MainWindow : Window {
                 live.ToggleRecordingSelectedCamera();
                 e.Handled = true;
             }
+        } else if (e.KeyboardDevice.Modifiers == ModifierKeys.Control && e.Key == Key.F) {
+            FocusTreeSearch();
+            e.Handled = true;
         }
     }
 
@@ -184,6 +187,12 @@ public partial class MainWindow : Window {
         SubMenuDrawer.Visibility = Visibility.Visible;
         MainWorkArea.Content = new SettingsView();
         Log.Debug("[HeliVMS] Navigated to Settings");
+    }
+
+    private void FocusTreeSearch() {
+        if (LiveDrawer.Visibility == Visibility.Visible) {
+            LiveDrawer.FocusSearch();
+        }
     }
 
     private void NavigateToLogin() {
