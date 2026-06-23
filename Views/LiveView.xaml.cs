@@ -307,6 +307,10 @@ public partial class LiveView : UserControl {
     }
 
     private void BtnLive_Click(object sender, RoutedEventArgs e) => SwitchToLive();
+    private void BtnExport_Click(object sender, RoutedEventArgs e) {
+        var dlg = new Dialog.ExportDialog { Owner = Window.GetWindow(this) };
+        dlg.ShowDialog();
+    }
 
     // ═══════════════════════════════════════════════════════════
     //  Recording Bar Visualization
