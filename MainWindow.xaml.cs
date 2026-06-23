@@ -17,6 +17,7 @@ public partial class MainWindow : Window {
     private readonly IAuthenticationService _auth;
     private readonly IAuthorizationService _authz;
     private readonly ISystemStatusService _status;
+    private readonly NotificationHistoryService _notifHistory;
     private bool _isShuttingDown;
     private bool _drawerOpen = true;
 
@@ -29,6 +30,7 @@ public partial class MainWindow : Window {
         _auth = App.Services.GetRequiredService<IAuthenticationService>();
         _authz = App.Services.GetRequiredService<IAuthorizationService>();
         _status = App.Services.GetRequiredService<ISystemStatusService>();
+        _notifHistory = App.Services.GetRequiredService<NotificationHistoryService>();
 
         _auth.LoggedOut += () => NavigateToLogin();
         _auth.SessionExpired += () => Dispatcher.InvokeAsync(() => {
@@ -68,6 +70,33 @@ public partial class MainWindow : Window {
             Log.Warning(ex, "[Tray] Failed to initialize tray icon");
         }
         SwitchToLive();
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  Notification popup
+    // ═══════════════════════════════════════════════════════════
+
+    private void ToggleNotificationPopup_Click(object sender, RoutedEventArgs e) {
+        NotificationList.ItemsSource = _notifHistory.Entries;
+        NotificationPopup.IsOpen = !NotificationPopup.IsOpen;
+        if (NotificationPopup.IsOpen) {
+            NotificationPopup.HorizontalOffset = 45;
+            NotificationPopup.VerticalOffset = ActualHeight - 410;
+        }
+    }
+
+    private void MarkAllNotifRead_Click(object sender, RoutedEventArgs e) {
+        _notifHistory.MarkAllAsRead();
+        NotificationList.Items.Refresh();
+    }
+
+    private void CloseNotifPopup_Click(object sender, RoutedEventArgs e) {
+        NotificationPopup.IsOpen = false;
+    }
+
+    private void ClearAllNotif_Click(object sender, RoutedEventArgs e) {
+        _notifHistory.Clear();
+        NotificationList.ItemsSource = null;
     }
 
     // ═══════════════════════════════════════════════════════════

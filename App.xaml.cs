@@ -378,6 +378,7 @@ public partial class App : Application {
         services.AddSingleton<AnalyticsPluginService>();
         services.AddSingleton<IRecordingScheduleService, RecordingScheduleService>();
         services.AddSingleton<TrayIconService>();
+        services.AddSingleton<NotificationHistoryService>();
 
         // OnvifService (depends on QCTekService + RtspUrlResolver)
         services.AddSingleton<IOnvifService>(sp => {

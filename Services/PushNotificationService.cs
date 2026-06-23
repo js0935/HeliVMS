@@ -5,14 +5,17 @@ namespace HeliVMS.Services;
 
 public sealed class PushNotificationService : IPushNotificationService {
     private readonly INotificationService _toast;
+    private readonly NotificationHistoryService _history;
 
-    public PushNotificationService(INotificationService toast) {
+    public PushNotificationService(INotificationService toast, NotificationHistoryService history) {
         _toast = toast;
+        _history = history;
     }
 
     public void ShowToast(string title, string message, string? cameraId = null) {
         var display = string.IsNullOrEmpty(cameraId) ? message : $"[{cameraId}] {message}";
         _toast.Show($"{title}: {display}", "INFO");
+        _history.Add(title, display, "INFO");
 
         try {
             var main = Application.Current.MainWindow;
