@@ -12,14 +12,18 @@ public sealed class EventRuleService : IEventRuleService {
     private readonly IEventService _eventLog;
     private readonly IAlertDispatcherService _alertDispatcher;
     private readonly IPushNotificationService _push;
+    private readonly IRecordingService _recording;
+    private readonly ICameraService _cameraService;
     private readonly object _lock = new();
 
     public event Action<EventRule, RuleAction, string>? ActionExecuted;
 
-    public EventRuleService(IEventService eventLog, IAlertDispatcherService alertDispatcher, IPushNotificationService push) {
+    public EventRuleService(IEventService eventLog, IAlertDispatcherService alertDispatcher, IPushNotificationService push, IRecordingService recording, ICameraService cameraService) {
         _eventLog = eventLog;
         _alertDispatcher = alertDispatcher;
         _push = push;
+        _recording = recording;
+        _cameraService = cameraService;
         var dir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Data");
         Directory.CreateDirectory(dir);
         _filePath = Path.Combine(dir, "event_rules.json");
@@ -106,6 +110,14 @@ public sealed class EventRuleService : IEventRuleService {
                     break;
                 case "push":
                     FirePushNotification(rule, cameraId, context);
+                    break;
+                case "startrecording": {
+                        var targetCam = _cameraService.GetCameraById(cameraId);
+                        if (targetCam is not null) _recording.StartRecording(targetCam);
+                        break;
+                    }
+                case "stoprecording":
+                    _recording.StopRecording(cameraId);
                     break;
             }
             ActionExecuted?.Invoke(rule, action, cameraId);
