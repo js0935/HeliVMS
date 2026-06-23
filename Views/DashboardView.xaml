@@ -43,22 +43,54 @@
                                    Foreground="{StaticResource SecondaryTextBrush}"/>
                         <TextBlock x:Name="DiskUsageText" Text="" FontSize="12"
                                    Foreground="{StaticResource SecondaryTextBrush}"/>
+                        <TextBlock x:Name="BandwidthText" Text="" FontSize="12" Margin="0,4,0,0"
+                                   Foreground="{StaticResource SecondaryTextBrush}"/>
                     </StackPanel>
                 </Border>
 
                 <Border Style="{StaticResource CardBorder}" MinWidth="180" Margin="0,0,12,12" Padding="20">
                     <StackPanel>
-                        <TextBlock Text="錄影完整性" Style="{StaticResource SectionHeader}" Margin="0,0,0,8"/>
-                        <TextBlock x:Name="CheckedSegmentsText" Text="—" FontSize="28" FontWeight="Bold"
+                        <TextBlock Text="系統健康評分" Style="{StaticResource SectionHeader}" Margin="0,0,0,8"/>
+                        <TextBlock x:Name="HealthScoreText" Text="—" FontSize="36" FontWeight="Bold"
                                    Foreground="{StaticResource SuccessBrush}"/>
-                        <TextBlock Text="已檢查片段" Foreground="{StaticResource SecondaryTextBrush}" FontSize="12"/>
-                        <TextBlock x:Name="CorruptedSegmentsText" Text="" FontSize="12" Margin="0,8,0,0"
-                                   Foreground="{StaticResource ErrorBrush}"/>
-                        <Button x:Name="IntegrityCheckBtn" Content="🔍 立即檢查"
-                                Style="{StaticResource SecondaryButton}"
-                                Height="28" FontSize="11" Padding="8,0"
-                                Margin="0,8,0,0"
-                                Click="IntegrityCheckBtn_Click"/>
+                        <TextBlock Text="/ 100" Foreground="{StaticResource SecondaryTextBrush}" FontSize="12" Margin="0,-4,0,0"/>
+                        <WrapPanel Margin="0,8,0,0">
+                            <TextBlock x:Name="HealthDetailOnline" Text="" FontSize="11"
+                                       Foreground="{StaticResource SuccessBrush}" Margin="0,0,8,0"/>
+                            <TextBlock x:Name="HealthDetailRecording" Text="" FontSize="11"
+                                       Foreground="{StaticResource PrimaryBrush}" Margin="0,0,8,0"/>
+                            <TextBlock x:Name="HealthDetailStorage" Text="" FontSize="11"
+                                       Foreground="{StaticResource SecondaryTextBrush}"/>
+                        </WrapPanel>
+                    </StackPanel>
+                </Border>
+
+                <Border Style="{StaticResource CardBorder}" MinWidth="180" Margin="0,0,12,12" Padding="20">
+                    <StackPanel>
+                        <TextBlock Text="儲存空間" Style="{StaticResource SectionHeader}" Margin="0,0,0,8"/>
+                        <TextBlock x:Name="StorageTotalText" Text="—" FontSize="16" FontWeight="Bold"
+                                   Foreground="{StaticResource TextBrush}"/>
+                        <TextBlock x:Name="StorageUsedPercentText" Text="" FontSize="12" Margin="0,4,0,0"
+                                   Foreground="{StaticResource SecondaryTextBrush}"/>
+                        <Border x:Name="StorageBarBg" Height="8" CornerRadius="4" Margin="0,6,0,0"
+                                Background="#333333">
+                            <Border x:Name="StorageBarFill" Width="0" Height="8" CornerRadius="4"
+                                    HorizontalAlignment="Left" Background="{StaticResource PrimaryBrush}"/>
+                        </Border>
+                        <TextBlock x:Name="StorageBreakdownText" Text="" FontSize="11" Margin="0,6,0,0"
+                                   Foreground="{StaticResource SecondaryTextBrush}"/>
+                    </StackPanel>
+                </Border>
+
+                <Border Style="{StaticResource CardBorder}" MinWidth="180" Margin="0,0,12,12" Padding="20">
+                    <StackPanel>
+                        <TextBlock Text="錄影成功率" Style="{StaticResource SectionHeader}" Margin="0,0,0,8"/>
+                        <TextBlock x:Name="RecordingSuccessText" Text="—" FontSize="28" FontWeight="Bold"
+                                   Foreground="{StaticResource SuccessBrush}"/>
+                        <TextBlock x:Name="RecordingSuccessDetail" Text="" FontSize="11" Margin="0,4,0,0"
+                                   Foreground="{StaticResource SecondaryTextBrush}"/>
+                        <TextBlock x:Name="RecordingFailoverText" Text="" FontSize="11"
+                                   Foreground="{StaticResource SecondaryTextBrush}"/>
                     </StackPanel>
                 </Border>
             </WrapPanel>

@@ -14,11 +14,15 @@ public partial class DashboardView : UserControl {
     private readonly ISystemStatusService _status;
     private readonly IEventService _eventLog;
     private readonly IRecordingService _recording;
-    private readonly IRecordingIntegrityService _integrity;
     private readonly IVideoIndexService _videoIndex;
     private readonly ICameraService _cameraService;
+    private readonly IRecordingWatchdogService _watchdog;
+    private readonly IRecordingService _recordingService;
+    private readonly IAlertDispatcherService _alertDispatcher;
     private DateTime _calendarMonth = new(DateTime.Today.Year, DateTime.Today.Month, 1);
     private bool _loaded;
+    private long _lastBytesWritten;
+    private DateTime _lastBandwidthMeasure = DateTime.Now;
 
     public DashboardView() {
         InitializeComponent();
@@ -26,9 +30,11 @@ public partial class DashboardView : UserControl {
         _status = App.Services.GetRequiredService<ISystemStatusService>();
         _eventLog = App.Services.GetRequiredService<IEventService>();
         _recording = App.Services.GetRequiredService<IRecordingService>();
-        _integrity = App.Services.GetRequiredService<IRecordingIntegrityService>();
         _videoIndex = App.Services.GetRequiredService<IVideoIndexService>();
         _cameraService = App.Services.GetRequiredService<ICameraService>();
+        _recordingService = App.Services.GetRequiredService<IRecordingService>();
+        _watchdog = App.Services.GetRequiredService<IRecordingWatchdogService>();
+        _alertDispatcher = App.Services.GetRequiredService<IAlertDispatcherService>();
 
         _status.PropertyChanged += (_, e) => // REVIEW: lambda captures 'this' — consider weak event pattern
         {
@@ -42,11 +48,6 @@ public partial class DashboardView : UserControl {
         {
             if (_loaded) { _ = Dispatcher.InvokeAsync(RefreshRecordingStats); }
         };
-        _integrity.StatsChanged += () => // REVIEW: lambda captures 'this' — consider weak event pattern
-        {
-            if (_loaded) { _ = Dispatcher.InvokeAsync(RefreshIntegrityStats); }
-        };
-
         Loaded += (_, _) => {
             _loaded = true;
             RefreshAll();
@@ -58,7 +59,6 @@ public partial class DashboardView : UserControl {
         RefreshCameraHealth();
         RefreshStats();
         RefreshRecordingStats();
-        RefreshIntegrityStats();
         RefreshEvents();
     }
 
@@ -74,40 +74,74 @@ public partial class DashboardView : UserControl {
         CpuUsageText.Text = $"{_status.CpuUsagePercent:F0}%";
         var memText = $"{_status.MemoryUsedBytes / (1024 * 1024)} / {_status.MemoryTotalBytes / (1024 * 1024)} MB";
         MemoryUsageText.Text = memText;
-        var diskText = $"{_status.DiskFreeBytes / (1024 * 1024 * 1024)} GB 可用";
-        DiskUsageText.Text = diskText;
+        var diskFreeGB = _status.DiskFreeBytes / (1024.0 * 1024 * 1024);
+        var diskTotalGB = _status.DiskTotalBytes / (1024.0 * 1024 * 1024);
+        DiskUsageText.Text = $"{diskFreeGB:F1} GB / {diskTotalGB:F1} GB 可用";
+
+        var activeCount = _recording.GetActiveRecordings().Count;
+
+        // Estimate bandwidth from recording bytes written
+        var recordings = _recording.GetActiveRecordings();
+        var nowBytes = recordings.Sum(r => r.BytesWritten);
+        var elapsed = (DateTime.Now - _lastBandwidthMeasure).TotalSeconds;
+        if (elapsed > 1) {
+            var bps = (nowBytes - _lastBytesWritten) / elapsed;
+            BandwidthText.Text = bps switch {
+                > 1_000_000 => $"{(bps / 1_000_000):F1} MB/s 頻寬",
+                > 1_000 => $"{(bps / 1_000):F0} KB/s 頻寬",
+                _ => $"{bps:F0} B/s 頻寬",
+            };
+            _lastBytesWritten = nowBytes;
+            _lastBandwidthMeasure = DateTime.Now;
+        }
+
+        // Health score: 0-100
+        var onlineRatio = _health.TotalCount > 0 ? (double)_health.OnlineCount / _health.TotalCount : 1;
+        var recordingRatio = activeCount > 0 ? Math.Min(1.0, (double)activeCount / Math.Max(1, _health.OnlineCount)) : 0;
+        var storageRatio = _status.DiskTotalBytes > 0
+            ? Math.Clamp((double)(_status.DiskTotalBytes - _status.DiskFreeBytes) / _status.DiskTotalBytes, 0, 1)
+            : 0;
+        var healthScore = (int)(onlineRatio * 40 + recordingRatio * 30 + (1 - storageRatio) * 30);
+        HealthScoreText.Text = healthScore.ToString();
+        HealthScoreText.Foreground = healthScore switch {
+            >= 80 => Brushes.LimeGreen,
+            >= 50 => Brushes.Orange,
+            _ => Brushes.OrangeRed,
+        };
+        HealthDetailOnline.Text = $"{_health.OnlineCount}/{_health.TotalCount} 上線";
+        HealthDetailRecording.Text = $"{activeCount} 路錄影";
+        HealthDetailStorage.Text = $"儲存 {(1 - storageRatio) * 100:F0}%";
+
+        // Storage bar
+        StorageTotalText.Text = $"{diskTotalGB:F0} GB 總容量";
+        var usedPct = (int)(storageRatio * 100);
+        StorageUsedPercentText.Text = $"已使用 {usedPct}%（{diskTotalGB - diskFreeGB:F1} GB）";
+        StorageBarFill.Width = Math.Clamp(storageRatio * 200, 0, 200);
+        StorageBarFill.Background = usedPct switch {
+            >= 90 => Brushes.OrangeRed,
+            >= 75 => Brushes.Orange,
+            _ => TryFindResource("PrimaryBrush") as Brush ?? Brushes.DodgerBlue,
+        };
+        StorageBreakdownText.Text = $"{diskFreeGB:F1} GB 可用 ｜ {diskTotalGB - diskFreeGB:F1} GB 已使用";
     }
 
     private void RefreshRecordingStats() {
         var active = _recording.GetActiveRecordings().Count;
         RecordingCountText.Text = active.ToString();
         StorageUsageText.Text = active > 0 ? $"{active} 路錄影中" : "無進行中錄影";
-    }
 
-    private void RefreshIntegrityStats() {
-        CheckedSegmentsText.Text = _integrity.CheckedSegments.ToString();
-        CorruptedSegmentsText.Text = _integrity.CorruptedSegments > 0
-            ? $"{_integrity.CorruptedSegments} 個損毀（共 {_integrity.TotalSegments} 片段）"
-            : $"全部正常（共 {_integrity.TotalSegments} 片段）";
-    }
-
-    private async void IntegrityCheckBtn_Click(object sender, RoutedEventArgs e) {
-        IntegrityCheckBtn.IsEnabled = false;
-        IntegrityCheckBtn.Content = "掃描檔案中…";
-        try {
-            var storagePath = _recording.GetBasePath();
-            var (Added, Deleted) = await Task.Run(async () => await _videoIndex.RebuildRecordingIndexAsync(storagePath));
-            if (Added > 0 || Deleted > 0) {
-                IntegrityCheckBtn.Content = "檢查完整性…";
-            }
-            await Task.Run(async () => await _integrity.ForceCheck());
-        } catch (Exception ex) {
-            Serilog.Log.Error(ex, "[Dashboard] Integrity check failed");
-        } finally {
-            IntegrityCheckBtn.IsEnabled = true;
-            IntegrityCheckBtn.Content = "🔍 立即檢查";
-            RefreshIntegrityStats();
-        }
+        // Recording success rate
+        var watchdogRestarts = _watchdog.RestartedCount;
+        var estimatedTotal = Math.Max(1, active + watchdogRestarts);
+        var successRate = Math.Min(100, (double)active / estimatedTotal * 100);
+        RecordingSuccessText.Text = $"{successRate:F0}%";
+        RecordingSuccessText.Foreground = successRate switch {
+            >= 95 => Brushes.LimeGreen,
+            >= 80 => Brushes.Orange,
+            _ => Brushes.OrangeRed,
+        };
+        RecordingSuccessDetail.Text = $"{active} 路正常 ｜ {watchdogRestarts} 次恢復";
+        RecordingFailoverText.Text = $"緩衝：{App.Services.GetRequiredService<IDisconnectBufferService>().BufferedCount} 次 ｜ 已寫入：{App.Services.GetRequiredService<IDisconnectBufferService>().FlushedCount} 片段";
     }
 
     private void RefreshEvents() {
