@@ -102,6 +102,61 @@
 
 ---
 
+---
+
+## Post‑Phase 3 擴充功能（全自主持續建置）
+
+### ✅ 錄影排程 (RecordingScheduleService)
+- CameraSchedule / ScheduleRule 模型，JSON 持久化
+- SettingsView 分頁 10：攝影機下拉 + 規則編輯器（週幾／起訖時間／錄影啟用／偵測啟用）
+
+### ✅ 系統托盤圖示 (TrayIconService)
+- Hardcodet.NotifyIcon.Wpf TaskbarIcon
+- 關閉時最小化至系統匣，雙擊還原，內容功能表 (Show/Hide/Exit)
+
+### ✅ 鍵盤快捷鍵
+- F / F11 全螢幕，Esc 退出全螢幕
+- Ctrl+R 切換選取攝影機錄影，F1 顯示快捷鍵說明疊層
+
+### ✅ 快捷鍵說明疊層 (ShortcutHelpView)
+- 半透明彈出視窗列出所有快捷鍵
+
+### ✅ 通知歷史 (NotificationHistoryService)
+- 記憶體內佇列（最多 500 筆），未讀計數
+- 導航列鈴鐺按鈕 + 彈出飛出視窗（全部標為已讀／清除）
+
+### ✅ 攝影機分組 (CameraGroupService)
+- CameraGroup 模型 + JSON 持久化，明確的攝影機 ID 列表
+- DeviceManagementView 分頁 4：群組列表 + 每群組攝影機勾選清單
+
+### ✅ 移動觸發錄影 (MotionTriggeredRecordingService)
+- 對啟用移動偵測但未啟用連續錄影的攝影機，偵測到移動時自動開始錄影
+- 30 秒冷卻、5 秒預錄 ＋ 15 秒後錄緩衝
+
+### ✅ 備份還原 (BackupService)
+- ZIP 壓縮備份所有 Data/*.json 設定檔
+- 還原、列出備份、自動清理舊備份（最多保留 10 份）
+- SettingsView 分頁 11
+
+### ✅ 攝影機搜尋篩選
+- LiveView 右上角搜尋框，依名稱或 ID 過濾攝影機並重新載入網格
+
+### ✅ 儀表板警示統計
+- DashboardView 顯示今日 ERROR／WARN／INFO 計數卡
+
+### ✅ 自動重連設定
+- Camera 模型新增 AutoReconnectEnabled／MaxReconnectAttempts／ReconnectIntervalSeconds
+- CameraEditDialog 新增自動重連設定區塊
+
+### ✅ 系統操作控制
+- Settings 除錯頁面新增「重新啟動應用程式」與「關閉應用程式」按鈕
+
+### ✅ PTZ 巡航路線持久化 (TourService)
+- 巡航路線儲存至 Data/ptz_tours.json
+- PTZControlPanel 整合刪除按鈕，載入攝影機時自動載入對應路線
+
+---
+
 ## 開發原則
 
 1. **單一架構師：** 全由主代理（我）決策，不使用平行子代理以確保一致性
