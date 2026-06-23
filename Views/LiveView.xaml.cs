@@ -64,6 +64,7 @@ public partial class LiveView : UserControl {
 
         ReloadAllCamerasIntoGrid();
         StartLiveTicker();
+        RefreshRecordingBars();
 
         Log.Debug("[LiveView] Loaded — cameras in grid: {Count}",
             VideoGrid.GetSlotCameras().Count(c => c is not null));
@@ -173,6 +174,10 @@ public partial class LiveView : UserControl {
         _isDraggingTimeline = true;
         if (_playbackMode == PlaybackMode.Live)
             SwitchToSeekMode(GetTimelineTime());
+    }
+
+    private void GlobalTimeline_PreviewMouseUp(object sender, MouseButtonEventArgs e) {
+        _isDraggingTimeline = false;
     }
 
     private DateTime GetTimelineTime() => _timelineDay.AddSeconds(GlobalTimeline.Value);

@@ -49,6 +49,7 @@
                             SmallChange="60" LargeChange="900"
                             ValueChanged="GlobalTimeline_ValueChanged"
                             PreviewMouseDown="GlobalTimeline_PreviewMouseDown"
+                            PreviewMouseUp="GlobalTimeline_PreviewMouseUp"
                             Height="22" VerticalAlignment="Center"/>
                     <TextBlock x:Name="TimelineTimeLabel"
                                HorizontalAlignment="Right" VerticalAlignment="Top"
