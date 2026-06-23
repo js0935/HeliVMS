@@ -117,6 +117,13 @@ public partial class SettingsView : UserControl {
             ? TryFindResource("TextBrush") as Brush ?? System.Windows.Media.Brushes.White
             : TryFindResource("SecondaryTextBrush") as Brush ?? System.Windows.Media.Brushes.Gray;
 
+        TabAuditLog.BorderBrush = index == 9
+            ? TryFindResource("PrimaryBrush") as Brush ?? System.Windows.Media.Brushes.DodgerBlue
+            : System.Windows.Media.Brushes.Transparent;
+        TabAuditLog.Foreground = index == 9
+            ? TryFindResource("TextBrush") as Brush ?? System.Windows.Media.Brushes.White
+            : TryFindResource("SecondaryTextBrush") as Brush ?? System.Windows.Media.Brushes.Gray;
+
         EventLogPanel.Visibility = index == 0 ? Visibility.Visible : Visibility.Collapsed;
         FfmpegPanel.Visibility = index == 1 ? Visibility.Visible : Visibility.Collapsed;
         FontPanel.Visibility = index == 2 ? Visibility.Visible : Visibility.Collapsed;
@@ -126,6 +133,7 @@ public partial class SettingsView : UserControl {
         MediaMTXPanel.Visibility = index == 6 ? Visibility.Visible : Visibility.Collapsed;
         EventRulesPanel.Visibility = index == 7 ? Visibility.Visible : Visibility.Collapsed;
         NotificationPanel.Visibility = index == 8 ? Visibility.Visible : Visibility.Collapsed;
+        AuditLogPanel.Visibility = index == 9 ? Visibility.Visible : Visibility.Collapsed;
 
         if (index == 1) {
             CheckFfmpegStatus();
@@ -141,6 +149,8 @@ public partial class SettingsView : UserControl {
             RefreshEventRules();
         } else if (index == 8) {
             LoadNotificationSettings();
+        } else if (index == 9) {
+            RefreshAuditLog();
         }
     }
 
@@ -781,6 +791,80 @@ public partial class SettingsView : UserControl {
         } else {
             NotificationStatus.Text = "✗ 測試郵件發送失敗，請檢查設定";
             NotificationStatus.Foreground = System.Windows.Media.Brushes.OrangeRed;
+        }
+    }
+    #endregion
+
+    #region Audit log
+    private void PopulateAuditCategoryFilter() {
+        AuditCategoryFilter.Items.Clear();
+        AuditCategoryFilter.Items.Add(new ComboBoxItem { Content = "全部", Tag = "", IsSelected = true });
+        var auditCategories = new[] {
+            EventCategories.Operation,
+            EventCategories.Setting,
+            EventCategories.Security,
+            EventCategories.System,
+            EventCategories.Create,
+            EventCategories.Update,
+            EventCategories.Delete,
+        };
+        foreach (var cat in auditCategories) {
+            AuditCategoryFilter.Items.Add(new ComboBoxItem { Content = cat, Tag = cat });
+        }
+    }
+
+    private void RefreshAuditLog() {
+        if (AuditCategoryFilter.Items.Count == 0) {
+            PopulateAuditCategoryFilter();
+            AuditEndDate.SelectedDate = DateTime.Today;
+        }
+
+        var cat = AuditCategoryFilter.SelectedItem is ComboBoxItem c ? c.Tag?.ToString() : null;
+        if (string.IsNullOrEmpty(cat)) cat = null;
+        var user = AuditUserBox.Text.Trim().ToLowerInvariant();
+
+        var events = _eventService.QueryEvents(cat, null, null, 2000);
+
+        if (!string.IsNullOrEmpty(user))
+            events = events.Where(e => e.User.Contains(user, StringComparison.OrdinalIgnoreCase)).ToList();
+
+        if (AuditStartDate.SelectedDate is DateTime start)
+            events = events.Where(e => e.Timestamp.Date >= start.Date).ToList();
+
+        if (AuditEndDate.SelectedDate is DateTime end)
+            events = events.Where(e => e.Timestamp.Date <= end.Date).ToList();
+
+        AuditLogGrid.ItemsSource = events;
+    }
+
+    private void RefreshAuditLog_Click(object sender, RoutedEventArgs e) => RefreshAuditLog();
+
+    private void ExportCsv_Click(object sender, RoutedEventArgs args) {
+        if (AuditLogGrid.ItemsSource is not List<SystemEvent> events || events.Count == 0) {
+            MessageBox.Show("無資料可供匯出", "提示", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        var dlg = new Microsoft.Win32.SaveFileDialog {
+            Title = "匯出稽核日誌",
+            Filter = "CSV 檔案 (*.csv)|*.csv",
+            FileName = $"audit_log_{DateTime.Now:yyyyMMdd_HHmmss}.csv",
+        };
+
+        if (dlg.ShowDialog() != true) return;
+
+        try {
+            using var writer = new StreamWriter(dlg.FileName, false, System.Text.Encoding.UTF8);
+            writer.WriteLine("時間,層級,分類,使用者,來源,訊息");
+            foreach (var evt in events) {
+                var ts = evt.Timestamp.ToString("yyyy-MM-dd HH:mm:ss");
+                var msg = evt.Message.Replace("\"", "\"\"");
+                writer.WriteLine($"{ts},{evt.Severity},{evt.Category},{evt.User},{evt.Source},\"{msg}\"");
+            }
+            MessageBox.Show($"已匯出 {events.Count} 筆記錄至\n{dlg.FileName}", "匯出完成",
+                MessageBoxButton.OK, MessageBoxImage.Information);
+        } catch (Exception ex) {
+            MessageBox.Show($"匯出失敗：{ex.Message}", "錯誤", MessageBoxButton.OK, MessageBoxImage.Error);
         }
     }
     #endregion

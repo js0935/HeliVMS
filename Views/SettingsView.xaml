@@ -65,6 +65,11 @@
                         Foreground="{StaticResource SecondaryTextBrush}"
                         BorderThickness="0,0,0,2" BorderBrush="Transparent"
                         Click="TabButton_Click"/>
+                <Button x:Name="TabAuditLog" Content="稽核日誌" Tag="9" Padding="16,10" FontSize="13"
+                        FontWeight="SemiBold" Cursor="Hand" Background="Transparent"
+                        Foreground="{StaticResource SecondaryTextBrush}"
+                        BorderThickness="0,0,0,2" BorderBrush="Transparent"
+                        Click="TabButton_Click"/>
             </StackPanel>
         </Border>
 
@@ -721,6 +726,58 @@
                         </WrapPanel>
                         <TextBlock x:Name="NotificationStatus" Text="" FontSize="12" Margin="0,8,0,0"
                                    Foreground="{StaticResource SecondaryTextBrush}"/>
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+        </ScrollViewer>
+
+        <!-- Audit log panel -->
+        <ScrollViewer Grid.Row="2" x:Name="AuditLogPanel"
+                      VerticalScrollBarVisibility="Auto"
+                      HorizontalScrollBarVisibility="Disabled"
+                      Visibility="Collapsed">
+            <StackPanel>
+                <Border Style="{StaticResource CardBorder}" Padding="16" Margin="0,0,0,16">
+                    <StackPanel>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="稽核日誌" Style="{StaticResource SectionHeader}" Margin="0,0,0,8"/>
+                            <Button Grid.Column="1" Content="重新整理" Style="{StaticResource SecondaryButton}"
+                                    Height="28" FontSize="11" Margin="0,0,8,0" Click="RefreshAuditLog_Click"/>
+                            <Button Grid.Column="2" Content="匯出 CSV" Style="{StaticResource SecondaryButton}"
+                                    Height="28" FontSize="11" Click="ExportCsv_Click"/>
+                        </Grid>
+
+                        <WrapPanel Margin="0,4,0,8">
+                            <TextBlock Text="開始" VerticalAlignment="Center" Foreground="{StaticResource SecondaryTextBrush}" FontSize="12"/>
+                            <DatePicker x:Name="AuditStartDate" Margin="4,0,12,0" FontSize="12" SelectedDate="{x:Static sys:DateTime.Today}" xmlns:sys="clr-namespace:System;assembly=mscorlib"/>
+                            <TextBlock Text="結束" VerticalAlignment="Center" Foreground="{StaticResource SecondaryTextBrush}" FontSize="12"/>
+                            <DatePicker x:Name="AuditEndDate" Margin="4,0,12,0" FontSize="12"/>
+                            <TextBlock Text="分類" VerticalAlignment="Center" Foreground="{StaticResource SecondaryTextBrush}" FontSize="12"/>
+                            <ComboBox x:Name="AuditCategoryFilter" Width="100" Margin="4,0,12,0" Style="{StaticResource ModernComboBox}"/>
+                            <TextBlock Text="使用者" VerticalAlignment="Center" Foreground="{StaticResource SecondaryTextBrush}" FontSize="12"/>
+                            <TextBox x:Name="AuditUserBox" Width="120" Margin="4,0,0,0" Style="{StaticResource ModernTextBox}"/>
+                        </WrapPanel>
+
+                        <DataGrid x:Name="AuditLogGrid" Style="{StaticResource ModernDataGrid}"
+                                  AutoGenerateColumns="False" CanUserResizeRows="False" MaxHeight="480"
+                                  IsReadOnly="True" HeadersVisibility="Column" GridLinesVisibility="Horizontal"
+                                  RowHeaderWidth="0" SelectionMode="Single" SelectionUnit="FullRow"
+                                  CanUserAddRows="False" CanUserDeleteRows="False" CanUserResizeColumns="True"
+                                  ColumnHeaderStyle="{StaticResource ModernColumnHeader}">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="時間" Binding="{Binding Timestamp, StringFormat=\{0:yyyy-MM-dd HH:mm:ss\}}" Width="130"/>
+                                <DataGridTextColumn Header="層級" Binding="{Binding Severity}" Width="55"/>
+                                <DataGridTextColumn Header="分類" Binding="{Binding Category}" Width="70"/>
+                                <DataGridTextColumn Header="使用者" Binding="{Binding User}" Width="90"/>
+                                <DataGridTextColumn Header="來源" Binding="{Binding Source}" Width="100"/>
+                                <DataGridTextColumn Header="訊息" Binding="{Binding Message}" Width="*" MinWidth="200"/>
+                            </DataGrid.Columns>
+                        </DataGrid>
                     </StackPanel>
                 </Border>
             </StackPanel>
