@@ -747,6 +747,26 @@ public partial class SettingsView : UserControl {
             Log.Debug("[HeliVMS] Open file error: {Msg}", ex.Message);
         }
     }
+
+    private void RestartApp_Click(object sender, RoutedEventArgs e) {
+        var result = MessageBox.Show("確定要重新啟動 HeliVMS？", "重新啟動",
+            MessageBoxButton.YesNo, MessageBoxImage.Question);
+        if (result != MessageBoxResult.Yes) return;
+
+        var exePath = Environment.ProcessPath;
+        if (exePath is not null) {
+            Process.Start(exePath);
+        }
+        Application.Current.Shutdown();
+    }
+
+    private void ShutdownApp_Click(object sender, RoutedEventArgs e) {
+        var result = MessageBox.Show("確定要關閉 HeliVMS？", "關閉",
+            MessageBoxButton.YesNo, MessageBoxImage.Question);
+        if (result != MessageBoxResult.Yes) return;
+
+        Application.Current.Shutdown();
+    }
     #endregion
 
     #region Event rules

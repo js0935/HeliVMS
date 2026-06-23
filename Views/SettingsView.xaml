@@ -559,6 +559,26 @@
                         </WrapPanel>
                     </StackPanel>
                 </Border>
+
+                <!-- System operations -->
+                <Border Style="{StaticResource CardBorder}" Padding="16" Margin="0,0,0,16">
+                    <StackPanel>
+                        <TextBlock Text="系統操作" Style="{StaticResource SectionHeader}" Margin="0,0,0,8"/>
+                        <TextBlock Text="重新啟動或關閉 HeliVMS 應用程式。"
+                                   Foreground="{StaticResource SecondaryTextBrush}"
+                                   FontSize="11" TextWrapping="Wrap" Margin="0,0,0,12"/>
+                        <WrapPanel>
+                            <Button Content="重新啟動應用程式"
+                                    Style="{StaticResource ModernButton}"
+                                    Height="32" FontSize="12" Padding="16,0"
+                                    Click="RestartApp_Click"/>
+                            <Button Content="關閉應用程式"
+                                    Style="{StaticResource ModernButton}"
+                                    Height="32" FontSize="12" Padding="16,0" Margin="8,0,0,0"
+                                    Click="ShutdownApp_Click"/>
+                        </WrapPanel>
+                    </StackPanel>
+                </Border>
             </StackPanel>
         </ScrollViewer>
 
