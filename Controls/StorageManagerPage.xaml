@@ -1,0 +1,102 @@
+<UserControl x:Class="HeliVMS.Controls.StorageManagerPage"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <Border Background="{StaticResource BackgroundBrush}" Padding="16">
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+
+            <!-- 說明 -->
+            <Border Grid.Row="0" Background="{StaticResource SurfaceBrush}" Padding="12" Margin="0,0,0,12"
+                    BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="4">
+                <StackPanel>
+                    <TextBlock Text="錄影檔案儲存管理" FontSize="16" FontWeight="SemiBold"
+                               Foreground="{StaticResource TextBrush}" Margin="0,0,0,4"/>
+                    <TextBlock Text="設定多個錄影檔案存放位置，系統會自動分配儲存空間。預設路徑為 D:\Recordings。"
+                               FontSize="13" Foreground="{StaticResource SecondaryTextBrush}"
+                               TextWrapping="Wrap"/>
+                </StackPanel>
+            </Border>
+
+            <!-- 儲存位置列表 -->
+            <Border Grid.Row="1" Background="{StaticResource SurfaceBrush}" Padding="12"
+                    BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="4">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+
+                    <TextBlock Grid.Row="0" Text="儲存位置" FontSize="14" FontWeight="SemiBold"
+                               Foreground="{StaticResource TextBrush}" Margin="0,0,0,8"/>
+
+                    <ListView Grid.Row="1" x:Name="StorageList"
+                              Background="{StaticResource InputBackgroundBrush}"
+                              BorderBrush="{StaticResource BorderBrush}"
+                              Foreground="{StaticResource TextBrush}"
+                              BorderThickness="1"
+                              SelectionChanged="StorageList_SelectionChanged">
+                        <ListView.View>
+                            <GridView>
+                                <GridViewColumn Header="啟用" Width="50">
+                                    <GridViewColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <CheckBox IsChecked="{Binding IsActive}"
+                                                      HorizontalAlignment="Center"
+                                                      Checked="StorageItem_Changed"
+                                                      Unchecked="StorageItem_Changed"/>
+                                        </DataTemplate>
+                                    </GridViewColumn.CellTemplate>
+                                </GridViewColumn>
+                                <GridViewColumn Header="路徑" Width="300"
+                                                DisplayMemberBinding="{Binding Path}"/>
+                                <GridViewColumn Header="容量上限" Width="120">
+                                    <GridViewColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <TextBlock Text="{Binding MaxSizeGB, StringFormat='{}{0} GB'}"
+                                                       VerticalAlignment="Center"/>
+                                        </DataTemplate>
+                                    </GridViewColumn.CellTemplate>
+                                </GridViewColumn>
+                                <GridViewColumn Header="說明" Width="200"
+                                                DisplayMemberBinding="{Binding Description}"/>
+                            </GridView>
+                        </ListView.View>
+                    </ListView>
+                </Grid>
+            </Border>
+
+            <!-- 操作按鈕 -->
+            <Border Grid.Row="2" Background="{StaticResource SurfaceBrush}" Padding="12" Margin="0,12,0,0"
+                    BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="4">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+
+                    <Button Grid.Column="0" Content="＋ 新增路徑" Width="120" Height="34"
+                            Style="{StaticResource ModernButton}"
+                            Click="AddPath_Click"/>
+                    <Button Grid.Column="1" x:Name="EditPathButton" Content="編輯" Width="80" Height="34"
+                            Style="{StaticResource SecondaryButton}" Margin="8,0,0,0" IsEnabled="False"
+                            Click="EditPath_Click"/>
+                    <Button Grid.Column="2" x:Name="RemovePathButton" Content="移除" Width="80" Height="34"
+                            Style="{StaticResource SecondaryButton}" Margin="8,0,0,0" IsEnabled="False"
+                            Click="RemovePath_Click"/>
+
+                    <Button Grid.Column="4" Content="儲存設定" Width="120" Height="34"
+                            Style="{StaticResource ModernButton}"
+                            Click="SaveButton_Click"/>
+                </Grid>
+            </Border>
+        </Grid>
+    </Border>
+</UserControl>

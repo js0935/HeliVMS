@@ -1,0 +1,223 @@
+<UserControl x:Class="HeliVMS.Controls.VideoPlayer"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Background="{StaticResource SurfaceBrush}">
+    <UserControl.ContextMenu>
+        <ContextMenu Background="{StaticResource SurfaceBrush}"
+                     Foreground="{StaticResource TextBrush}"
+                     BorderBrush="{StaticResource BorderBrush}">
+            <MenuItem x:Name="CtxSnapshot" Header="📷 拍照"
+                      Foreground="{StaticResource TextBrush}"
+                      Click="CtxSnapshot_Click"/>
+            <MenuItem x:Name="CtxFullscreen" Header="全畫面"
+                      Foreground="{StaticResource TextBrush}"
+                      Click="CtxFullscreen_Click"/>
+            <MenuItem x:Name="CtxStreamToggle" Header="切換串流"
+                      Foreground="{StaticResource TextBrush}"
+                      Click="CtxStreamToggle_Click"/>
+            <Separator Background="{StaticResource BorderBrush}"/>
+            <MenuItem x:Name="CtxPtzSelect" Header="PTZ 控制此攝影機"
+                      Foreground="{StaticResource TextBrush}"
+                      Click="CtxPtzSelect_Click"/>
+        </ContextMenu>
+    </UserControl.ContextMenu>
+
+    <Border x:Name="PlayerBorder"
+            BorderBrush="#2D2D30"
+            BorderThickness="1" CornerRadius="4">
+        <Border.Effect>
+            <DropShadowEffect x:Name="GlowEffect"
+                              Color="#007ACC"
+                              BlurRadius="15"
+                              ShadowDepth="0"
+                              Opacity="0"/>
+        </Border.Effect>
+        <Grid x:Name="RootGrid"
+              Background="Transparent"
+              MouseDown="RootGrid_MouseDown"
+              MouseMove="RootGrid_MouseMove"
+              MouseUp="RootGrid_MouseUp"
+              MouseWheel="RootGrid_MouseWheel"
+              MouseRightButtonUp="RootGrid_MouseRightButtonUp"
+              MouseEnter="RootGrid_MouseEnter"
+              MouseLeave="RootGrid_MouseLeave">
+
+            <!-- Recording mode indicator dot (top-right) -->
+            <Ellipse x:Name="RecordingModeDot"
+                     Width="10" Height="10"
+                     Fill="Transparent"
+                     VerticalAlignment="Top" HorizontalAlignment="Right"
+                     Margin="0,10,40,0"
+                     Stroke="#80000000" StrokeThickness="1"
+                     Visibility="Collapsed"
+                     ToolTip="錄影模式"/>
+
+            <!-- Stream toggle button (top-right) -->
+            <Button x:Name="StreamToggle"
+                    VerticalAlignment="Top" HorizontalAlignment="Right"
+                    Margin="8" Padding="0"
+                    Background="Transparent" BorderThickness="0"
+                    Cursor="Hand"
+                    Visibility="Collapsed"
+                    Click="StreamToggle_Click">
+                <Border Background="#80000000" CornerRadius="3" Padding="6,2">
+                    <TextBlock x:Name="StreamToggleText" Text="HD"
+                               FontSize="10" FontWeight="Bold" Foreground="White"/>
+                </Border>
+            </Button>
+
+            <!-- PTZ floating overlay (bottom-right) -->
+            <Border x:Name="PtzOverlay"
+                    VerticalAlignment="Bottom" HorizontalAlignment="Right"
+                    Margin="8" Padding="4"
+                    Background="#80000000" CornerRadius="4"
+                    Visibility="Collapsed">
+                <StackPanel Orientation="Horizontal">
+                    <Button x:Name="PtzUp" Content="▲" FontSize="10"
+                            Width="24" Height="24" Padding="0"
+                            Style="{StaticResource SecondaryButton}"
+                            Click="PtzUp_Click"/>
+                    <Button x:Name="PtzDown" Content="▼" FontSize="10"
+                            Width="24" Height="24" Padding="0"
+                            Style="{StaticResource SecondaryButton}"
+                            Click="PtzDown_Click"/>
+                    <Button x:Name="PtzLeft" Content="◀" FontSize="10"
+                            Width="24" Height="24" Padding="0"
+                            Style="{StaticResource SecondaryButton}"
+                            Click="PtzLeft_Click"/>
+                    <Button x:Name="PtzRight" Content="▶" FontSize="10"
+                            Width="24" Height="24" Padding="0"
+                            Style="{StaticResource SecondaryButton}"
+                            Click="PtzRight_Click"/>
+                    <Button x:Name="PtzZoomIn" Content="＋" FontSize="10"
+                            Width="24" Height="24" Padding="0"
+                            Style="{StaticResource SecondaryButton}"
+                            Click="PtzZoomIn_Click"/>
+                    <Button x:Name="PtzZoomOut" Content="－" FontSize="10"
+                            Width="24" Height="24" Padding="0"
+                            Style="{StaticResource SecondaryButton}"
+                            Click="PtzZoomOut_Click"/>
+                </StackPanel>
+            </Border>
+
+            <!-- Camera name tag (bottom-left) -->
+            <Border x:Name="NameTag" Panel.ZIndex="10"
+                    VerticalAlignment="Bottom" HorizontalAlignment="Left"
+                    Margin="6" Padding="10,5"
+                    Background="#BB000000" CornerRadius="4"
+                    IsHitTestVisible="False">
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock x:Name="CameraNameText"
+                               Text=""
+                               FontFamily="Segoe UI"
+                               FontSize="12" FontWeight="SemiBold"
+                               Foreground="#E1E1E1"/>
+                    <TextBlock x:Name="HealthBadge"
+                               Margin="6,0,0,0"
+                               FontSize="10" FontWeight="Bold"
+                               Foreground="#FF6B35"
+                               Visibility="Collapsed"/>
+                </StackPanel>
+            </Border>
+
+            <!-- Hover overlay (fade in/out on mouse enter/leave) -->
+            <Grid x:Name="OverlayGrid" Panel.ZIndex="20"
+                  Visibility="Collapsed" Background="Transparent">
+                <StackPanel Orientation="Horizontal"
+                            VerticalAlignment="Top" HorizontalAlignment="Right"
+                            Margin="6">
+                    <Border Background="#AA000000" CornerRadius="3" Margin="2,0">
+                        <Button x:Name="SnapshotBtn" Content="📷"
+                                Width="28" Height="28" Padding="0"
+                                Background="Transparent" BorderThickness="0"
+                                Foreground="White" FontSize="13"
+                                Cursor="Hand"
+                                Click="SnapshotBtn_Click"/>
+                    </Border>
+                    <Border Background="#AA000000" CornerRadius="3" Margin="2,0">
+                        <Button x:Name="CloseBtn" Content="✕"
+                                Width="28" Height="28" Padding="0"
+                                Background="Transparent" BorderThickness="0"
+                                Foreground="White" FontSize="14"
+                                Cursor="Hand"
+                                Click="CloseBtn_Click"/>
+                    </Border>
+                </StackPanel>
+            </Grid>
+
+            <!-- Flyleaf hardware-accelerated video (primary) — created programmatically when engine is ready -->
+
+
+            <!-- Decoder stream frame fallback (in-process FFmpeg) -->
+            <Image x:Name="DecoderFrameImage" Visibility="Collapsed"
+                   Stretch="UniformToFill"
+                   RenderTransformOrigin="0.5,0.5"
+                   Panel.ZIndex="1">
+                <Image.RenderTransform>
+                    <TransformGroup>
+                        <ScaleTransform x:Name="DecoderZoomScale" />
+                        <TranslateTransform x:Name="DecoderZoomTranslate" />
+                    </TransformGroup>
+                </Image.RenderTransform>
+            </Image>
+
+            <!-- Reconnecting overlay (on frozen frame) -->
+            <Border x:Name="ReconnectingOverlay" Panel.ZIndex="12"
+                    Background="#CC000000"
+                    Visibility="Collapsed"
+                    IsHitTestVisible="False">
+                <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
+                    <TextBlock Text="重新連線中..." Foreground="White"
+                               FontSize="13" FontWeight="SemiBold"
+                               HorizontalAlignment="Center"/>
+                    <TextBlock x:Name="ReconnectAttemptText" Text=""
+                               Foreground="#CCFFFFFF" FontSize="10"
+                               Margin="0,4,0,0"
+                               HorizontalAlignment="Center"/>
+                </StackPanel>
+            </Border>
+
+            <!-- Offline / disconnected placeholder -->
+            <Border x:Name="Placeholder" Background="{StaticResource SecondarySurfaceBrush}">
+                <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
+                    <TextBlock Text="📷" FontSize="36"
+                               Foreground="{StaticResource SecondaryTextBrush}"
+                               HorizontalAlignment="Center"/>
+                    <TextBlock x:Name="CameraNameTextPlaceholder"
+                               Text="攝影機名稱"
+                               Foreground="{StaticResource TextBrush}"
+                               FontSize="13" FontWeight="SemiBold"
+                               Margin="0,8,0,2"
+                               HorizontalAlignment="Center"/>
+                    <TextBlock x:Name="StatusText"
+                               Text="未連線"
+                               Foreground="{StaticResource SecondaryTextBrush}"
+                               FontSize="11"
+                               HorizontalAlignment="Center"/>
+                </StackPanel>
+            </Border>
+
+            <!-- Digital zoom HUD -->
+            <TextBlock x:Name="DecoderZoomHud"
+                       FontSize="14" FontWeight="Bold"
+                       Foreground="#B4FFFFFF"
+                       HorizontalAlignment="Center"
+                       VerticalAlignment="Bottom"
+                       Margin="0,0,0,30"
+                       IsHitTestVisible="False"
+                       Visibility="Collapsed"/>
+
+            <!-- Decode info OSD (FPS / resolution) -->
+            <Border x:Name="InfoOSD" Panel.ZIndex="15"
+                    VerticalAlignment="Bottom" HorizontalAlignment="Left"
+                    Margin="6,0,0,6" Padding="6,2"
+                    Background="#88000000" CornerRadius="3"
+                    IsHitTestVisible="False"
+                    Visibility="Collapsed">
+                <TextBlock x:Name="InfoOSText" Text=""
+                           FontSize="10" FontWeight="Normal"
+                           Foreground="#DDFFFFFF"/>
+            </Border>
+        </Grid>
+    </Border>
+</UserControl>

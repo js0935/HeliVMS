@@ -1,0 +1,79 @@
+<UserControl x:Class="HeliVMS.Controls.CameraTreePanel"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <UserControl.Resources>
+        <!-- Leaf camera item template (no children) -->
+        <DataTemplate x:Key="CameraItemTemplate">
+            <StackPanel Orientation="Horizontal" Height="28" Margin="4,0,0,0">
+                <TextBlock Text="📷" FontSize="11" Margin="0,0,6,0"
+                           Foreground="#FFFFFFFF"
+                           VerticalAlignment="Center"/>
+                <TextBlock Text="{Binding DisplayName}" FontSize="11"
+                           Foreground="#FFFFFFFF"
+                           VerticalAlignment="Center"/>
+                <TextBlock Text="{Binding RtspHint}" FontSize="9"
+                           Foreground="#AAFFFFFF"
+                           Margin="8,0,0,0" VerticalAlignment="Center"
+                           MaxWidth="120" TextTrimming="CharacterEllipsis"/>
+            </StackPanel>
+        </DataTemplate>
+    </UserControl.Resources>
+
+    <Grid Background="#FF000000">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <!-- Header bar -->
+        <Border Grid.Row="0" Height="32"
+                Background="#FF000000"
+                BorderThickness="0,0,0,1"
+                BorderBrush="#33FFFFFF">
+            <Grid>
+                <TextBlock Text="攝影機清單" FontSize="12" FontWeight="SemiBold"
+                           VerticalAlignment="Center" Margin="10,0,0,0"
+                           Foreground="#FFFFFFFF"/>
+            </Grid>
+        </Border>
+
+        <!-- Search bar -->
+        <Border Grid.Row="1" Padding="6,4"
+                Background="#FF000000"
+                BorderThickness="0,0,0,1"
+                BorderBrush="#33FFFFFF">
+            <TextBox x:Name="SearchBox"
+                     Height="22" FontSize="11"
+                     Foreground="#FFFFFFFF"
+                     Background="#FF1A1A1A"
+                     BorderBrush="#33FFFFFF"
+                     TextChanged="OnSearchTextChanged"/>
+        </Border>
+
+        <!-- Camera TreeView -->
+        <TreeView x:Name="CameraTreeView" Grid.Row="2"
+                  Background="#FF000000"
+                  BorderThickness="0"
+                  Foreground="#FFFFFFFF"
+                  FontSize="12"
+                  VirtualizingPanel.IsVirtualizing="True"
+                  VirtualizingPanel.ScrollUnit="Pixel"
+                  PreviewMouseLeftButtonDown="OnTreePreviewMouseLeftButtonDown"
+                  MouseMove="OnTreeMouseMove">
+            <TreeView.ItemTemplate>
+                <HierarchicalDataTemplate ItemsSource="{Binding Children}"
+                                          ItemTemplate="{StaticResource CameraItemTemplate}">
+                    <StackPanel Orientation="Horizontal" Height="24">
+                        <TextBlock Text="{Binding Icon}" FontSize="11" Margin="4,0,4,0"
+                                   Foreground="#FFFFFFFF"
+                                   VerticalAlignment="Center"/>
+                        <TextBlock Text="{Binding DisplayName}" FontSize="11"
+                                   Foreground="#FFFFFFFF"
+                                   VerticalAlignment="Center"/>
+                    </StackPanel>
+                </HierarchicalDataTemplate>
+            </TreeView.ItemTemplate>
+        </TreeView>
+    </Grid>
+</UserControl>

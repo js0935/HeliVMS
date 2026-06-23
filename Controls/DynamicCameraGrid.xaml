@@ -1,0 +1,21 @@
+<UserControl x:Class="HeliVMS.Controls.DynamicCameraGrid"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Grid>
+        <!-- The main video grid — rows/cols built dynamically -->
+        <Grid x:Name="MainGrid" Background="Transparent" AllowDrop="True"/>
+
+        <!-- Empty-state prompt when no active slots or no cameras -->
+        <Border x:Name="EmptyOverlay" Background="Transparent" Visibility="Visible">
+            <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
+                <TextBlock Text="拖曳攝影機至此" FontSize="20"
+                           Foreground="{StaticResource SecondaryTextBrush}"
+                           HorizontalAlignment="Center"/>
+                <TextBlock Text="從左側樹狀清單將攝影機拖入網格" FontSize="12"
+                           Foreground="{StaticResource SecondaryTextBrush}"
+                           Margin="0,8,0,0"
+                           HorizontalAlignment="Center"/>
+            </StackPanel>
+        </Border>
+    </Grid>
+</UserControl>

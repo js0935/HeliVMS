@@ -1,0 +1,27 @@
+## .NET
+bin/
+obj/
+*.user
+*.suo
+*.cache
+*.log
+*.tmp
+
+## Build artifacts
+build.log
+stderr.txt
+stdout.txt
+
+## IDE
+.vs/
+*.sln.DotSettings.user
+
+## OS
+Thumbs.db
+.DS_Store
+
+## Large binaries (vendored SDKs, FFmpeg redist)
+DLL/
+FFmpeg/
+SDK/
+Data/

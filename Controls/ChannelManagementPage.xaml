@@ -1,0 +1,211 @@
+<!-- ============================================================
+     HeliVMS - 智慧影像管理系統     禾秝軟體開發團隊 / 代碼設計：洪俊士 / 版本：V1.0.0
+     ============================================================ -->
+<UserControl x:Class="HeliVMS.Controls.ChannelManagementPage"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             mc:Ignorable="d"
+             d:DesignHeight="600" d:DesignWidth="900"
+             Background="{StaticResource BackgroundBrush}">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <!-- Toolbar -->
+        <Border Grid.Row="0" Background="{StaticResource SurfaceBrush}" BorderThickness="0,0,0,1"
+                BorderBrush="{StaticResource BorderBrush}" Padding="12,8">
+            <StackPanel Orientation="Horizontal">
+                <TextBlock Text="頻道管理" FontSize="18" FontWeight="SemiBold"
+                           Foreground="{StaticResource TextBrush}" VerticalAlignment="Center"/>
+                <TextBlock x:Name="ChannelCountText" FontSize="12"
+                           Foreground="{StaticResource SecondaryTextBrush}"
+                           VerticalAlignment="Center" Margin="12,0,0,0"/>
+                <Button x:Name="AutoAssignBtn" Content="⚡ 一鍵分配 IP"
+                        Style="{StaticResource SecondaryButton}"
+                        Height="26" FontSize="11" Padding="10,0"
+                        Margin="12,0,0,0" VerticalAlignment="Center"
+                        Click="AutoAssignBtn_Click"
+                        ToolTip="將所有未指派的攝影機自動分配到空頻道"/>
+                <Button x:Name="ClearAllBtn" Content="🗑 清除全部 IP"
+                        Style="{StaticResource SecondaryButton}"
+                        Height="26" FontSize="11" Padding="10,0"
+                        Margin="6,0,0,0" VerticalAlignment="Center"
+                        Click="ClearAllBtn_Click"
+                        ToolTip="一鍵清除所有頻道的 IP 指派。攝影機會保留在系統中但取消頻道綁定"/>
+            </StackPanel>
+        </Border>
+
+        <!-- Main content -->
+        <Grid Grid.Row="1" Margin="8">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="280"/>
+            </Grid.ColumnDefinitions>
+
+            <!-- Left: 頻道列表 -->
+            <Border Grid.Column="0" Background="{StaticResource SurfaceBrush}"
+                    BorderThickness="1" BorderBrush="{StaticResource BorderBrush}"
+                    CornerRadius="4" Margin="0,0,4,0">
+                <DataGrid x:Name="ChannelGrid"
+                          Style="{StaticResource ModernDataGrid}"
+                          AutoGenerateColumns="False"
+                          HeadersVisibility="Column"
+                          GridLinesVisibility="Horizontal"
+                          RowHeaderWidth="0"
+                          SelectionMode="Single"
+                          SelectionUnit="FullRow"
+                          CanUserAddRows="False"
+                          CanUserDeleteRows="False"
+                          CanUserResizeColumns="True"
+                          ColumnHeaderStyle="{StaticResource ModernColumnHeader}"
+                          SelectionChanged="ChannelGrid_SelectionChanged"
+                          CellEditEnding="ChannelGrid_CellEditEnding">
+                    <DataGrid.Columns>
+                        <DataGridTextColumn Header="頻道" Width="60"
+                                            Binding="{Binding ChannelNumber}"
+                                            IsReadOnly="True"/>
+                        <DataGridTemplateColumn Header="攝影機名稱" Width="*" MinWidth="120">
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate>
+                            <TextBlock Text="{Binding DisplayName}" VerticalAlignment="Center" Margin="4,0"/>
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                    <DataGridTemplateColumn.CellEditingTemplate>
+                        <DataTemplate>
+                            <TextBox Text="{Binding DisplayName, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                     VerticalAlignment="Center" Margin="2,0"/>
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellEditingTemplate>
+                </DataGridTemplateColumn>
+                        <DataGridTextColumn Header="IP 位置" Width="130"
+                                            Binding="{Binding IpAddress}" IsReadOnly="True"/>
+                        <DataGridTextColumn Header="廠牌" Width="100"
+                                            Binding="{Binding Manufacturer}" IsReadOnly="True"/>
+                        <DataGridTextColumn Header="型號" Width="120"
+                                            Binding="{Binding Model}" IsReadOnly="True"/>
+                    </DataGrid.Columns>
+                </DataGrid>
+            </Border>
+
+            <!-- Right panel: 已新增設備列表 -->
+            <Border Grid.Column="1" Background="{StaticResource SurfaceBrush}"
+                    BorderThickness="1" BorderBrush="{StaticResource BorderBrush}"
+                    CornerRadius="4" Margin="4,0,0,0">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+
+                    <!-- 設備列表（含標題，同一 ScrollViewer 確保欄位對齊） -->
+                    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto"
+                                  Background="Transparent" BorderThickness="0">
+                        <StackPanel>
+                            <!-- 設備列表標題 -->
+                            <Border Background="{StaticResource InputBackgroundBrush}"
+                                    Padding="10,8" BorderThickness="0,0,0,1"
+                                    BorderBrush="{StaticResource BorderBrush}">
+                                <StackPanel>
+                                    <TextBlock Text="已新增設備" FontSize="14" FontWeight="SemiBold"
+                                               Foreground="{StaticResource TextBrush}" Margin="0,0,0,4"/>
+                                    <TextBlock x:Name="CameraCountText" Text="載入中..."
+                                               FontSize="12" Foreground="{StaticResource SecondaryTextBrush}"/>
+                                    <!-- 欄位標題 -->
+                                    <Grid Margin="0,6,0,0">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="36"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="IP 位址"
+                                                   FontSize="11" FontWeight="SemiBold"
+                                                   Foreground="{StaticResource SecondaryTextBrush}"/>
+                                        <TextBlock Grid.Column="1" Text="頻道"
+                                                   FontSize="11" FontWeight="SemiBold"
+                                                   Foreground="{StaticResource SecondaryTextBrush}"
+                                                   HorizontalAlignment="Center"/>
+                                    </Grid>
+                                </StackPanel>
+                            </Border>
+
+                            <!-- 設備列表 -->
+                            <ListBox x:Name="CameraListBox"
+                                     Background="Transparent" BorderThickness="0"
+                                     SelectionMode="Single"
+                                     SelectionChanged="CameraListBox_SelectionChanged">
+                                <ListBox.ItemContainerStyle>
+                                    <Style TargetType="ListBoxItem">
+                                        <Setter Property="Padding" Value="0"/>
+                                        <Setter Property="Margin" Value="0"/>
+                                        <Setter Property="BorderThickness" Value="0"/>
+                                        <Setter Property="Background" Value="Transparent"/>
+                                        <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                                    </Style>
+                                </ListBox.ItemContainerStyle>
+                                <ListBox.ItemTemplate>
+                                    <DataTemplate>
+                                        <Border Background="{StaticResource SurfaceBrush}"
+                                                BorderThickness="0,0,0,1"
+                                                BorderBrush="{StaticResource BorderBrush}"
+                                                Padding="10,6">
+                                            <Grid>
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="36"/>
+                                                </Grid.ColumnDefinitions>
+                                                <TextBlock Grid.Column="0" Text="{Binding IpAddress}"
+                                                           FontSize="13" FontWeight="SemiBold"
+                                                           Foreground="{StaticResource TextBrush}"
+                                                           VerticalAlignment="Center"/>
+                                                <Border Grid.Column="1"
+                                                        Background="{StaticResource PrimaryBrush}"
+                                                        CornerRadius="3" Padding="0"
+                                                        Width="28" Height="22"
+                                                        HorizontalAlignment="Center"
+                                                        Visibility="{Binding ChannelVisibility}">
+                                                    <TextBlock Text="{Binding DisplayInfo}"
+                                                               FontSize="11" FontWeight="Bold"
+                                                               Foreground="White"
+                                                               HorizontalAlignment="Center"
+                                                               VerticalAlignment="Center"/>
+                                                </Border>
+                                            </Grid>
+                                        </Border>
+                                    </DataTemplate>
+                                </ListBox.ItemTemplate>
+                            </ListBox>
+                        </StackPanel>
+                    </ScrollViewer>
+
+                    <!-- 指派控制 -->
+                    <Border Grid.Row="2" Background="{StaticResource InputBackgroundBrush}"
+                            Padding="10,8" BorderThickness="0,1,0,0"
+                            BorderBrush="{StaticResource BorderBrush}">
+                        <StackPanel>
+                            <TextBlock x:Name="SelectedChannelInfo" Text="未選擇頻道"
+                                       FontSize="12" Foreground="{StaticResource SecondaryTextBrush}"
+                                       Margin="0,0,0,8"/>
+                            <WrapPanel Margin="0,0,0,8">
+                                <Button x:Name="AssignButton" Content="指派到頻道"
+                                        Style="{StaticResource ModernButton}" Height="32"
+                                        IsEnabled="False" Click="AssignButton_Click"
+                                        MinWidth="80"/>
+                                <Button x:Name="ClearButton" Content="清除"
+                                        Style="{StaticResource SecondaryButton}" Height="32"
+                                        Margin="6,0,0,0" IsEnabled="False"
+                                        Click="ClearButton_Click" MinWidth="60"/>
+                            </WrapPanel>
+                            <Button x:Name="ApplyButton" Content="套用變更"
+                                    Style="{StaticResource ModernButton}" Height="32"
+                                    Click="ApplyButton_Click"/>
+                        </StackPanel>
+                    </Border>
+                </Grid>
+            </Border>
+        </Grid>
+    </Grid>
+</UserControl>

@@ -1,0 +1,214 @@
+<UserControl x:Class="HeliVMS.Views.DeviceManagementView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:conv="clr-namespace:HeliVMS.Converters"
+             xmlns:controls="clr-namespace:HeliVMS.Controls"
+             Background="{StaticResource BackgroundBrush}">
+    <UserControl.Resources>
+        <conv:BoolToStatusConverter x:Key="BoolToStatusConverter"/>
+        <conv:NullToEmptyConverter x:Key="NullToEmptyConverter"/>
+        <conv:RecordingConfigToStatusConverter x:Key="RecordingConfigToStatusConverter"/>
+    </UserControl.Resources>
+    <Grid Margin="24">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>   <!-- 0 Tab Bar -->
+            <RowDefinition Height="*"/>      <!-- 1 Content -->
+        </Grid.RowDefinitions>
+
+        <!-- Tab bar -->
+        <Border Grid.Row="0" Background="{StaticResource SurfaceBrush}" BorderThickness="0,0,0,1"
+                BorderBrush="{StaticResource BorderBrush}" Margin="0,0,0,16">
+            <StackPanel Orientation="Horizontal">
+                <Button x:Name="TabDevice" Content="攝影機管理" Tag="0" Padding="16,10" FontSize="13"
+                        FontWeight="SemiBold" Cursor="Hand" Background="Transparent"
+                        Foreground="{StaticResource TextBrush}"
+                        BorderThickness="0,0,0,2" BorderBrush="{StaticResource PrimaryBrush}"
+                        Click="TabButton_Click"/>
+                <Button x:Name="TabRecording" Content="錄影排程" Tag="1" Padding="16,10" FontSize="13"
+                        FontWeight="SemiBold" Cursor="Hand" Background="Transparent"
+                        Foreground="{StaticResource SecondaryTextBrush}"
+                        BorderThickness="0,0,0,2" BorderBrush="Transparent"
+                        Click="TabButton_Click"/>
+                <Button x:Name="TabStorage" Content="儲存管理" Tag="2" Padding="16,10" FontSize="13"
+                        FontWeight="SemiBold" Cursor="Hand" Background="Transparent"
+                        Foreground="{StaticResource SecondaryTextBrush}"
+                        BorderThickness="0,0,0,2" BorderBrush="Transparent"
+                        Click="TabButton_Click"/>
+                <Button x:Name="TabChannel" Content="頻道管理" Tag="3" Padding="16,10" FontSize="13"
+                        FontWeight="SemiBold" Cursor="Hand" Background="Transparent"
+                        Foreground="{StaticResource SecondaryTextBrush}"
+                        BorderThickness="0,0,0,2" BorderBrush="Transparent"
+                        Click="TabButton_Click"/>
+            </StackPanel>
+        </Border>
+
+        <!-- 設備設定面板 -->
+        <Grid Grid.Row="1" x:Name="DeviceSettingsPanel">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>   <!-- 0 Header -->
+                <RowDefinition Height="Auto"/>   <!-- 1 Toolbar / ScanProgress -->
+                <RowDefinition Height="Auto"/>   <!-- 2 Search -->
+                <RowDefinition Height="2*"/>     <!-- 3 DataGrid -->
+                <RowDefinition Height="Auto"/>   <!-- 4 Detail Panel -->
+            </Grid.RowDefinitions>
+
+        <!-- Header -->
+        <TextBlock Grid.Row="0" Text="攝影機管理" Style="{StaticResource PageHeader}"/>
+
+        <!-- Toolbar -->
+        <WrapPanel Grid.Row="1" Margin="0,0,0,12">
+            <Button x:Name="AddCameraButton" Content="＋ 新增攝影機"
+                    Style="{StaticResource ModernButton}"
+                    Click="AddCameraButton_Click"/>
+            <Button x:Name="OnvifScanButton" Content="ONVIF 掃描"
+                    Style="{StaticResource SecondaryButton}"
+                    Margin="8,0,0,0"
+                    Click="OnvifScanButton_Click"/>
+            <Separator Style="{StaticResource {x:Static ToolBar.SeparatorStyleKey}}"
+                       Margin="8,0"/>
+            <Button x:Name="EditCameraButton" Content="編輯"
+                    Style="{StaticResource SecondaryButton}"
+                    Margin="0,0,0,0" IsEnabled="False"
+                    Click="EditCameraButton_Click"/>
+            <Button x:Name="DeleteCameraButton" Content="刪除"
+                    Style="{StaticResource SecondaryButton}"
+                    Margin="4,0,0,0" IsEnabled="False"
+                    Click="DeleteCameraButton_Click"/>
+            <Button x:Name="ImportLegacyButton" Content="匯入舊專案設定"
+                    Style="{StaticResource SecondaryButton}"
+                    Margin="8,0,0,0"
+                    Click="ImportLegacyButton_Click"/>
+        </WrapPanel>
+
+        <!-- ONVIF Scan Progress Bar -->
+        <Border Grid.Row="1" x:Name="ScanProgressPanel" Visibility="Collapsed"
+                Margin="0,0,0,8" Padding="8" CornerRadius="4"
+                Background="{StaticResource SurfaceBrush}">
+            <StackPanel>
+                <TextBlock x:Name="ScanProgressText" Text="掃描中..."
+                           Foreground="{StaticResource SecondaryTextBrush}" FontSize="12"/>
+                <ProgressBar x:Name="ScanProgressBar" Height="4"
+                             Minimum="0" Maximum="254"
+                             Foreground="{StaticResource PrimaryBrush}"
+                             Background="{StaticResource InputBackgroundBrush}"
+                             BorderThickness="0" Margin="0,4,0,0"/>
+            </StackPanel>
+        </Border>
+
+        <!-- Search bar -->
+        <Border Grid.Row="2" Background="Transparent" Margin="0,0,0,8">
+            <TextBox x:Name="SearchBox"
+                     Style="{StaticResource ModernTextBox}"
+                     ToolTip="輸入名稱或 IP 進行搜尋"
+                     TextChanged="SearchBox_TextChanged"/>
+        </Border>
+
+        <!-- Camera List -->
+        <DataGrid Grid.Row="3" x:Name="CameraGrid"
+                  Style="{StaticResource ModernDataGrid}"
+                  AutoGenerateColumns="False"
+                  HeadersVisibility="Column"
+                  GridLinesVisibility="Horizontal"
+                  RowHeaderWidth="0"
+                  SelectionMode="Single"
+                  SelectionUnit="FullRow"
+                  CanUserAddRows="False"
+                  CanUserDeleteRows="False"
+                  CanUserResizeColumns="True"
+                   ColumnHeaderStyle="{StaticResource ModernColumnHeader}"
+                   Sorting="CameraGrid_Sorting"
+                   SelectionChanged="CameraGrid_SelectionChanged">
+            <DataGrid.Columns>
+                <DataGridTextColumn Header="名稱" Width="60"
+                                    Binding="{Binding Index}"/>
+                <DataGridTextColumn Header="型號" Binding="{Binding Model}" Width="120"/>
+                <DataGridTextColumn Header="IP" Binding="{Binding IpAddress}" Width="120"/>
+                <DataGridTemplateColumn Header="狀態" Width="70"
+                                        SortMemberPath="IsEnabled">
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate>
+                            <TextBlock Text="{Binding IsEnabled, Converter={StaticResource BoolToStatusConverter}}"
+                                       Foreground="{Binding IsEnabled, Converter={StaticResource BoolToStatusConverter}}"
+                                       VerticalAlignment="Center" Margin="2,0"/>
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
+                <DataGridTemplateColumn Header="已連線" Width="70"
+                                        SortMemberPath="IsConnected">
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate>
+                            <TextBlock Text="{Binding IsConnected, Converter={StaticResource BoolToStatusConverter}, ConverterParameter='在線,離線'}"
+                                       Foreground="{Binding IsConnected, Converter={StaticResource BoolToStatusConverter}}"
+                                       VerticalAlignment="Center" Margin="2,0"/>
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
+                <DataGridTextColumn Header="頻道" Width="50"
+                                    Binding="{Binding ChannelNumber, TargetNullValue='-'}"/>
+                <DataGridTextColumn Header="串流1 (Main)" Binding="{Binding RtspUrl}" Width="*" MinWidth="200"/>
+                <DataGridTextColumn Header="串流2 (Sub)" Width="*" MinWidth="160">
+                    <DataGridTextColumn.Binding>
+                        <Binding Path="RtspUrlSub" TargetNullValue="" FallbackValue="">
+                            <Binding.Converter>
+                                <conv:NullToEmptyConverter/>
+                            </Binding.Converter>
+                        </Binding>
+                    </DataGridTextColumn.Binding>
+                </DataGridTextColumn>
+            </DataGrid.Columns>
+        </DataGrid>
+
+        <!-- Camera Detail Panel -->
+        <Border Grid.Row="4" x:Name="DetailPanel" Style="{StaticResource CardBorder}"
+                Margin="0,8,0,8" Padding="12" Visibility="Collapsed">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+                <TextBlock Grid.Row="0" Text="攝影機詳情" Style="{StaticResource SectionHeader}" Margin="0,0,0,8"/>
+                <Grid Grid.Row="1">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Grid.Column="0" Margin="0,0,16,0">
+                        <TextBlock Text="名稱" Foreground="{StaticResource SecondaryTextBrush}" FontSize="11"/>
+                        <TextBlock x:Name="DetailName" Foreground="{StaticResource TextBrush}" FontSize="13" FontWeight="SemiBold"/>
+                        <TextBlock Text="IP 位址" Foreground="{StaticResource SecondaryTextBrush}" FontSize="11" Margin="0,8,0,0"/>
+                        <TextBlock x:Name="DetailIp" Foreground="{StaticResource TextBrush}" FontSize="13"/>
+                    </StackPanel>
+                    <StackPanel Grid.Column="1" Margin="0,0,16,0">
+                        <TextBlock Text="品牌 / 型號" Foreground="{StaticResource SecondaryTextBrush}" FontSize="11"/>
+                        <TextBlock x:Name="DetailManufacturer" Foreground="{StaticResource TextBrush}" FontSize="13"/>
+                        <TextBlock Text="序號" Foreground="{StaticResource SecondaryTextBrush}" FontSize="11" Margin="0,8,0,0"/>
+                        <TextBlock x:Name="DetailSerial" Foreground="{StaticResource TextBrush}" FontSize="13"/>
+                    </StackPanel>
+                    <StackPanel Grid.Column="2" Margin="0,0,16,0">
+                        <TextBlock Text="串流1 (Main)" Foreground="{StaticResource SecondaryTextBrush}" FontSize="11"/>
+                        <TextBlock x:Name="DetailRtspUrl" Foreground="{StaticResource TextBrush}" FontSize="11" TextWrapping="Wrap"/>
+                        <TextBlock Text="串流2 (Sub)" Foreground="{StaticResource SecondaryTextBrush}" FontSize="11" Margin="0,8,0,0"/>
+                        <TextBlock x:Name="DetailRtspUrlSub" Foreground="{StaticResource TextBrush}" FontSize="11" TextWrapping="Wrap"/>
+                    </StackPanel>
+                    <StackPanel Grid.Column="3">
+                        <TextBlock Text="ONVIF 連接埠" Foreground="{StaticResource SecondaryTextBrush}" FontSize="11"/>
+                        <TextBlock x:Name="DetailOnvifPort" Foreground="{StaticResource TextBrush}" FontSize="13"/>
+                    </StackPanel>
+                </Grid>
+            </Grid>
+        </Border>
+
+        </Grid>
+
+        <!-- Recording settings panel -->
+        <controls:RecordingSettingsPage Grid.Row="1" x:Name="RecordingSettingsPanel" Visibility="Collapsed"/>
+
+        <!-- Storage management panel -->
+        <controls:StorageManagerPage Grid.Row="1" x:Name="StorageManagerPanel" Visibility="Collapsed"/>
+
+        <!-- Channel management panel -->
+        <controls:ChannelManagementPage Grid.Row="1" x:Name="ChannelManagementPanel" Visibility="Collapsed"/>
+    </Grid>
+</UserControl>
