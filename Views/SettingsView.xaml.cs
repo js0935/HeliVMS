@@ -805,6 +805,41 @@ public partial class SettingsView : UserControl {
             }
         }
     }
+
+    private void CopyRule_Click(object sender, RoutedEventArgs e) {
+        if (EventRulesGrid.SelectedItem is not EventRule rule) return;
+        var copy = new EventRule {
+            Name = $"{rule.Name} (副本)",
+            Enabled = rule.Enabled,
+            Conditions = rule.Conditions.Select(c => new RuleCondition {
+                Type = c.Type,
+                CameraIds = [.. c.CameraIds],
+                ScheduleCron = c.ScheduleCron,
+            }).ToList(),
+            Actions = rule.Actions.Select(a => new RuleAction {
+                Type = a.Type,
+                Params = new Dictionary<string, string>(a.Params),
+            }).ToList(),
+        };
+        _ruleService.AddRule(copy);
+        RefreshEventRules();
+    }
+
+    private void EnableAllRules_Click(object sender, RoutedEventArgs e) {
+        foreach (var rule in _ruleService.GetAllRules()) {
+            rule.Enabled = true;
+            _ruleService.UpdateRule(rule);
+        }
+        RefreshEventRules();
+    }
+
+    private void DisableAllRules_Click(object sender, RoutedEventArgs e) {
+        foreach (var rule in _ruleService.GetAllRules()) {
+            rule.Enabled = false;
+            _ruleService.UpdateRule(rule);
+        }
+        RefreshEventRules();
+    }
     #endregion
 
     #region Notification settings

@@ -666,10 +666,24 @@
                             </Grid.ColumnDefinitions>
                             <TextBlock Grid.Column="0" Text="事件規則引擎"
                                        Style="{StaticResource SectionHeader}" Margin="0,0,0,8"/>
-                            <Button Grid.Column="1" x:Name="AddRuleBtn" Content="+ 新增規則"
-                                    Style="{StaticResource ModernButton}"
-                                    Height="28" FontSize="11" Padding="12,0"
-                                    Click="AddRule_Click"/>
+                            <WrapPanel Grid.Column="1">
+                                <Button x:Name="CopyRuleBtn" Content="📋 複製"
+                                        Style="{StaticResource SecondaryButton}"
+                                        Height="28" FontSize="11" Padding="8,0"
+                                        Click="CopyRule_Click"/>
+                                <Button x:Name="EnableAllRulesBtn" Content="✓ 全部啟用"
+                                        Style="{StaticResource SecondaryButton}"
+                                        Height="28" FontSize="11" Padding="8,0" Margin="4,0,0,0"
+                                        Click="EnableAllRules_Click"/>
+                                <Button x:Name="DisableAllRulesBtn" Content="✗ 全部停用"
+                                        Style="{StaticResource SecondaryButton}"
+                                        Height="28" FontSize="11" Padding="8,0" Margin="4,0,0,0"
+                                        Click="DisableAllRules_Click"/>
+                                <Button x:Name="AddRuleBtn" Content="+ 新增規則"
+                                        Style="{StaticResource ModernButton}"
+                                        Height="28" FontSize="11" Padding="12,0" Margin="4,0,0,0"
+                                        Click="AddRule_Click"/>
+                            </WrapPanel>
                         </Grid>
                         <DataGrid x:Name="EventRulesGrid"
                                   Style="{StaticResource ModernDataGrid}"
@@ -680,7 +694,7 @@
                                   HeadersVisibility="Column"
                                   GridLinesVisibility="Horizontal"
                                   RowHeaderWidth="0"
-                                  SelectionMode="Single"
+                                  SelectionMode="Extended"
                                   SelectionUnit="FullRow"
                                   CanUserAddRows="False"
                                   CanUserDeleteRows="False"
