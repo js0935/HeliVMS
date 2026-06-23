@@ -38,6 +38,48 @@ public partial class PTZControlPanel : UserControl {
             _ = LoadPresetsAsync(camera);
             _tourService?.LoadToursForCamera(camera.Id, _tours);
             RefreshToursPanel();
+            Loaded += (_, _) => Focus();
+        }
+    }
+
+    private async void Panel_PreviewKeyDown(object sender, System.Windows.Input.KeyEventArgs e) {
+        if (_onvif is null || _camera is null) return;
+
+        try {
+            switch (e.Key) {
+                case System.Windows.Input.Key.Up:
+                case System.Windows.Input.Key.W:
+                    await SafeMoveAsync(0, 0.3f, 0);
+                    break;
+                case System.Windows.Input.Key.Down:
+                case System.Windows.Input.Key.S:
+                    await SafeMoveAsync(0, -0.3f, 0);
+                    break;
+                case System.Windows.Input.Key.Left:
+                case System.Windows.Input.Key.A:
+                    await SafeMoveAsync(-0.3f, 0, 0);
+                    break;
+                case System.Windows.Input.Key.Right:
+                case System.Windows.Input.Key.D:
+                    await SafeMoveAsync(0.3f, 0, 0);
+                    break;
+                case System.Windows.Input.Key.Q:
+                case System.Windows.Input.Key.PageUp:
+                    await SafeMoveAsync(0, 0, 0.3f);
+                    break;
+                case System.Windows.Input.Key.E:
+                case System.Windows.Input.Key.PageDown:
+                    await SafeMoveAsync(0, 0, -0.3f);
+                    break;
+                case System.Windows.Input.Key.Space:
+                    await _onvif.PTZ_StopAsync(_camera.IpAddress ?? "127.0.0.1", _camera.OnvifPort, _camera.Username ?? "", _camera.Password ?? "");
+                    break;
+                default:
+                    return;
+            }
+            e.Handled = true;
+        } catch (Exception ex) {
+            Log.Debug("[HeliVMS] PTZ keyboard error: {Msg}", ex.Message);
         }
     }
 
