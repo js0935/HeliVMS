@@ -989,6 +989,7 @@ public partial class SettingsView : UserControl {
         if (ScheduleCameraCombo.SelectedItem is ComboBoxItem item && item.Tag is string camId) {
             var schedule = _scheduleService.GetCameraSchedule(camId);
             ScheduleRulesList.ItemsSource = schedule?.Rules ?? [];
+            ScheduleExceptionsList.ItemsSource = schedule?.Exceptions ?? [];
         }
     }
 
@@ -1015,8 +1016,23 @@ public partial class SettingsView : UserControl {
             data.CameraSchedules.Add(camSchedule);
         }
         camSchedule.Rules = ScheduleRulesList.ItemsSource as List<ScheduleRule> ?? camSchedule.Rules;
+        camSchedule.Exceptions = ScheduleExceptionsList.ItemsSource as List<ScheduleException> ?? camSchedule.Exceptions;
         _scheduleService.Save(data);
         MessageBox.Show("錄影排程已儲存。", "設定", MessageBoxButton.OK, MessageBoxImage.Information);
+    }
+
+    private void AddScheduleException_Click(object sender, RoutedEventArgs e) {
+        if (ScheduleCameraCombo.SelectedItem is not ComboBoxItem item || item.Tag is not string camId) return;
+        var data = _scheduleService.Load();
+        var camSchedule = data.CameraSchedules.FirstOrDefault(s => s.CameraId == camId);
+        if (camSchedule is null) {
+            camSchedule = new CameraSchedule { CameraId = camId };
+            data.CameraSchedules.Add(camSchedule);
+        }
+        camSchedule.Exceptions.Add(new ScheduleException { Date = DateTime.Today.AddDays(1), Override = ExceptionOverride.StopRecording, Label = "" });
+        _scheduleService.Save(data);
+        ScheduleExceptionsList.ItemsSource = null;
+        ScheduleExceptionsList.ItemsSource = camSchedule.Exceptions;
     }
     #endregion
 

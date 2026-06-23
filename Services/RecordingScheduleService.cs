@@ -41,17 +41,30 @@ public sealed class RecordingScheduleService : IRecordingScheduleService {
         var schedule = GetCameraSchedule(cameraId);
         if (schedule is null || schedule.Rules.Count == 0) return true;
         var now = DateTime.Now;
-        var day = now.DayOfWeek;
-        var time = now.TimeOfDay;
-        return schedule.Rules.Any(r => r.Day == day && r.StartTime <= time && time <= r.EndTime && r.RecordingEnabled);
+        var exception = schedule.Exceptions?.FirstOrDefault(e => e.Date.Date == now.Date);
+        if (exception is not null) {
+            return exception.Override switch {
+                ExceptionOverride.RecordFullDay => true,
+                ExceptionOverride.StopRecording => false,
+                _ => exception.Override == ExceptionOverride.Ignore && CheckRules(schedule.Rules, now.DayOfWeek, now.TimeOfDay, r => r.RecordingEnabled)
+            };
+        }
+        return CheckRules(schedule.Rules, now.DayOfWeek, now.TimeOfDay, r => r.RecordingEnabled);
     }
 
     public bool IsMotionDetectionScheduled(string cameraId) {
         var schedule = GetCameraSchedule(cameraId);
         if (schedule is null || schedule.Rules.Count == 0) return false;
         var now = DateTime.Now;
-        var day = now.DayOfWeek;
-        var time = now.TimeOfDay;
-        return schedule.Rules.Any(r => r.Day == day && r.StartTime <= time && time <= r.EndTime && r.MotionDetectionEnabled);
+        var exception = schedule.Exceptions?.FirstOrDefault(e => e.Date.Date == now.Date);
+        if (exception is not null) {
+            if (exception.Override == ExceptionOverride.RecordFullDay) return true;
+            if (exception.Override == ExceptionOverride.StopRecording) return false;
+        }
+        return CheckRules(schedule.Rules, now.DayOfWeek, now.TimeOfDay, r => r.MotionDetectionEnabled);
+    }
+
+    private static bool CheckRules(List<ScheduleRule> rules, DayOfWeek day, TimeSpan time, Func<ScheduleRule, bool> selector) {
+        return rules.Any(r => r.Day == day && r.StartTime <= time && time <= r.EndTime && selector(r));
     }
 }
