@@ -308,6 +308,17 @@ public partial class LiveView : UserControl {
         Log.Debug("[LiveView] Switched to Live");
     }
 
+    public void NavigateToDate(DateTime date) {
+        _timelineDay = date.Date;
+        _timelineSyncing = true;
+        var secs = Math.Clamp(DateTime.Now.TimeOfDay.TotalSeconds, 0, 86400);
+        GlobalTimeline.Value = secs;
+        _timelineSyncing = false;
+        UpdateTimelineTimeLabel(_timelineDay.AddSeconds(secs));
+        PerformSeek(_timelineDay.AddSeconds(secs));
+        Log.Debug("[LiveView] NavigateToDate: {Date}", date.ToString("yyyy-MM-dd"));
+    }
+
     private void PerformSeek(DateTime targetTime) {
         var players = VideoGrid.GetActiveSlots();
         if (players.Count == 0) return;

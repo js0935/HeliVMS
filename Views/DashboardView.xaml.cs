@@ -304,6 +304,14 @@ public partial class DashboardView : UserControl {
                         }
 
                         cellBorder.Child = dayStack;
+                        var clickedDate = dayDate;
+                        cellBorder.MouseDown += (_, _) => {
+                            try {
+                                if (Window.GetWindow(this) is MainWindow mw)
+                                    mw.SwitchToLive(clickedDate);
+                            } catch { }
+                        };
+                        cellBorder.Cursor = System.Windows.Input.Cursors.Hand;
                     } else {
                         cellBorder.Background = Brushes.Transparent;
                     }

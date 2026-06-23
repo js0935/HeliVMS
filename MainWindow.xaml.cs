@@ -152,6 +152,17 @@ public partial class MainWindow : Window {
         Log.Debug("[HeliVMS] Navigated to Live");
     }
 
+    public void SwitchToLive(DateTime date) {
+        SelectNavButton(BtnLive);
+        ShowDrawer(true);
+        LiveDrawer.Visibility = Visibility.Visible;
+        SubMenuDrawer.Visibility = Visibility.Collapsed;
+        var lv = new LiveView();
+        lv.Loaded += (_, _) => lv.NavigateToDate(date);
+        MainWorkArea.Content = lv;
+        Log.Debug("[HeliVMS] Navigated to Live (date: {Date})", date.ToString("yyyy-MM-dd"));
+    }
+
     private void SwitchToDevice() {
         SelectNavButton(BtnDevice);
         ShowDrawer(false);
