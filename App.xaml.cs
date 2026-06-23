@@ -261,6 +261,15 @@ public partial class App : Application {
             Log.Warning(ex, "Web API start failed (non-fatal)");
         }
 
+        // Load third-party plugins
+        try {
+            var plugins = Services.GetRequiredService<PluginLoaderService>();
+            plugins.LoadAll();
+            Log.Information("Plugin loader completed");
+        } catch (Exception ex) {
+            Log.Warning(ex, "Plugin load failed (non-fatal)");
+        }
+
         // Migrate camera settings from old project
         TryMigrateCameras();
     }
@@ -359,6 +368,7 @@ public partial class App : Application {
         services.AddSingleton<MediaMTXService>();
         services.AddSingleton<EMapService>();
         services.AddSingleton<WebApiHostService>();
+        services.AddSingleton<PluginLoaderService>();
 
         // OnvifService (depends on QCTekService + RtspUrlResolver)
         services.AddSingleton<IOnvifService>(sp => {
