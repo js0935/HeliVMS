@@ -369,6 +369,7 @@ public partial class App : Application {
         services.AddSingleton<EMapService>();
         services.AddSingleton<WebApiHostService>();
         services.AddSingleton<PluginLoaderService>();
+        services.AddSingleton<AnalyticsPluginService>();
 
         // OnvifService (depends on QCTekService + RtspUrlResolver)
         services.AddSingleton<IOnvifService>(sp => {
