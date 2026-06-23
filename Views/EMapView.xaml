@@ -5,6 +5,7 @@
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
 
@@ -18,14 +19,28 @@
                 <Button x:Name="ClearMapBtn" Content="清除地圖" Style="{StaticResource SecondaryButton}"
                         Height="28" Padding="8,0" Margin="4,0" Click="ClearMap_Click"/>
                 <Separator Style="{StaticResource {x:Static ToolBar.SeparatorStyleKey}}" Margin="8,0"/>
+                <Button x:Name="AddFloorBtn" Content="+ 樓層" Style="{StaticResource SecondaryButton}"
+                        Height="28" Padding="8,0" Margin="0,0,4,0" Click="AddFloor_Click"/>
+                <Button x:Name="RenameFloorBtn" Content="重新命名" Style="{StaticResource SecondaryButton}"
+                        Height="28" Padding="8,0" Margin="4,0" Click="RenameFloor_Click"/>
+                <Button x:Name="RemoveFloorBtn" Content="刪除樓層" Style="{StaticResource SecondaryButton}"
+                        Height="28" Padding="8,0" Margin="4,0" Click="RemoveFloor_Click"/>
+                <Separator Style="{StaticResource {x:Static ToolBar.SeparatorStyleKey}}" Margin="8,0"/>
                 <TextBlock Text="右鍵拖曳移動攝影機 ・ 滾輪縮放 ・ 雙鍵切換即時監看"
                            FontSize="12" Foreground="{StaticResource SecondaryTextBrush}"
                            VerticalAlignment="Center"/>
             </StackPanel>
         </Border>
 
+        <!-- Floor tabs -->
+        <Border Grid.Row="1" Background="{StaticResource SurfaceBrush}" Padding="8,0">
+            <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
+                <StackPanel x:Name="FloorTabBar" Orientation="Horizontal"/>
+            </ScrollViewer>
+        </Border>
+
         <!-- Map Canvas Area -->
-        <Border Grid.Row="1" Margin="4" Background="{StaticResource SurfaceBrush}"
+        <Border Grid.Row="2" Margin="4" Background="{StaticResource SurfaceBrush}"
                 BorderThickness="1" BorderBrush="{StaticResource BorderBrush}"
                 ClipToBounds="True">
             <Canvas x:Name="MapCanvas" Background="Transparent"

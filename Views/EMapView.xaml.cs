@@ -18,6 +18,7 @@ public partial class EMapView : UserControl {
     private readonly ICameraService _cameras;
     private readonly INavigationService _nav;
     private readonly INotificationService _notify;
+    private readonly IAudioTalkService _talkService;
     private bool _isDraggingMap;
     private Point _dragStart;
     private double _origOffsetX, _origOffsetY;
@@ -25,9 +26,13 @@ public partial class EMapView : UserControl {
     private FrameworkElement? _dragTarget;
     private Point _dragCameraStart;
     private double _origCameraLeft, _origCameraTop;
+    private Window? _previewWindow;
 
     private static readonly SolidColorBrush OnlineBrush = new(Color.FromRgb(76, 175, 80));
     private static readonly SolidColorBrush OfflineBrush = new(Color.FromRgb(244, 67, 54));
+    private static readonly SolidColorBrush WarningBrush = new(Color.FromRgb(255, 193, 7));
+    private static readonly SolidColorBrush TabActiveBg = new(Color.FromRgb(60, 60, 60));
+    private static readonly SolidColorBrush TabInactiveBg = new(Color.FromRgb(40, 40, 40));
 
     public EMapView() {
         InitializeComponent();
@@ -35,18 +40,57 @@ public partial class EMapView : UserControl {
         _cameras = App.Services.GetRequiredService<ICameraService>();
         _nav = App.Services.GetRequiredService<INavigationService>();
         _notify = App.Services.GetRequiredService<INotificationService>();
+        _talkService = App.Services.GetRequiredService<IAudioTalkService>();
         _emap.Load();
         Loaded += OnLoaded;
     }
 
     private void OnLoaded(object sender, RoutedEventArgs e) {
+        RebuildFloorTabs();
         RestoreViewState();
     }
 
-    private void RestoreViewState() {
-        if (!string.IsNullOrEmpty(_emap.Data.BackgroundImagePath) && File.Exists(_emap.Data.BackgroundImagePath)) {
-            LoadBackgroundImage(_emap.Data.BackgroundImagePath);
+    private void RebuildFloorTabs() {
+        FloorTabBar.Children.Clear();
+        for (var i = 0; i < _emap.Data.Floors.Count; i++) {
+            var floor = _emap.Data.Floors[i];
+            var isActive = i == _emap.Data.ActiveFloorIndex;
+            var btn = new Button {
+                Content = floor.Name,
+                Tag = i,
+                Height = 26,
+                Padding = new Thickness(10, 0, 10, 0),
+                FontSize = 12,
+                FontWeight = isActive ? FontWeights.Bold : FontWeights.Normal,
+                Cursor = Cursors.Hand,
+                Background = isActive ? TabActiveBg : TabInactiveBg,
+                Foreground = isActive ? Brushes.White : Brushes.Gray,
+                BorderThickness = new Thickness(0, 0, 0, 2),
+                BorderBrush = isActive ? (SolidColorBrush)TryFindResource("PrimaryBrush") ?? Brushes.DodgerBlue : Brushes.Transparent,
+                Margin = new Thickness(0, 0, 2, 0),
+            };
+            btn.Click += FloorTab_Click;
+            FloorTabBar.Children.Add(btn);
         }
+    }
+
+    private void FloorTab_Click(object sender, RoutedEventArgs e) {
+        if (sender is Button { Tag: int idx }) {
+            _emap.SwitchFloor(idx);
+            RebuildFloorTabs();
+            RestoreViewState();
+        }
+    }
+
+    private void RestoreViewState() {
+        var floor = _emap.CurrentFloor;
+        if (floor is null) return;
+        if (!string.IsNullOrEmpty(floor.BackgroundImagePath) && File.Exists(floor.BackgroundImagePath)) {
+            LoadBackgroundImage(floor.BackgroundImagePath);
+        } else {
+            MapImage.Source = null;
+        }
+        ApplyTransform();
         RebuildCameraIcons();
     }
 
@@ -67,8 +111,11 @@ public partial class EMapView : UserControl {
         MapContainer.Children.Clear();
         MapContainer.Children.Add(MapImage);
 
+        var floor = _emap.CurrentFloor;
+        if (floor is null) return;
+
         foreach (var cam in _cameras.GetAllCameras()) {
-            var pos = _emap.Data.Cameras.Find(c => c.CameraId == cam.Id);
+            var pos = floor.Cameras.Find(c => c.CameraId == cam.Id);
             if (pos is null) continue;
 
             var icon = CreateCameraIcon(cam);
@@ -80,10 +127,11 @@ public partial class EMapView : UserControl {
 
     private Border CreateCameraIcon(Camera cam) {
         var isOnline = cam.IsConnected;
+        var hasRecording = App.Services.GetRequiredService<IRecordingService>().IsRecording(cam.Id);
 
         var indicator = new Ellipse {
             Width = 12, Height = 12,
-            Fill = isOnline ? OnlineBrush : OfflineBrush,
+            Fill = isOnline ? (hasRecording ? OnlineBrush : WarningBrush) : OfflineBrush,
             Margin = new Thickness(0, 0, 4, 0),
             VerticalAlignment = VerticalAlignment.Center
         };
@@ -108,7 +156,7 @@ public partial class EMapView : UserControl {
             Padding = new Thickness(6, 3, 8, 3),
             Cursor = Cursors.Hand,
             Tag = cam.Id,
-            ToolTip = $"{cam.Name}\n{(isOnline ? "在線" : "離線")}\nIP: {cam.IpAddress}"
+            ToolTip = $"{cam.Name}\n{(isOnline ? "在線" : "離線")}\n錄影: {(hasRecording ? "進行中" : "未啟動")}\nIP: {cam.IpAddress}"
         };
 
         border.MouseDown += CameraIcon_MouseDown;
@@ -121,6 +169,14 @@ public partial class EMapView : UserControl {
 
     private ContextMenu CreateCameraContextMenu(string cameraId) {
         var menu = new ContextMenu();
+        var viewItem = new MenuItem { Header = "即時監看" };
+        viewItem.Click += (_, _) => _nav.NavigateTo(NavPage.LiveView);
+        menu.Items.Add(viewItem);
+
+        var previewItem = new MenuItem { Header = "預覽畫面" };
+        previewItem.Click += (_, _) => ShowCameraPreview(cameraId);
+        menu.Items.Add(previewItem);
+
         var removeItem = new MenuItem { Header = "從地圖移除" };
         removeItem.Click += (_, _) => {
             _emap.RemoveCamera(cameraId);
@@ -130,11 +186,41 @@ public partial class EMapView : UserControl {
         return menu;
     }
 
+    private void ShowCameraPreview(string cameraId) {
+        var cam = _cameras.GetCameraById(cameraId);
+        if (cam is null) return;
+
+        var player = new Controls.VideoPlayer {
+            Width = 400,
+            Height = 280,
+        };
+        player.LoadCamera(cam);
+
+        _previewWindow = new Window {
+            Title = $"預覽 — {cam.Name}",
+            Content = player,
+            Width = 420,
+            Height = 340,
+            WindowStartupLocation = WindowStartupLocation.CenterScreen,
+            Background = new SolidColorBrush(Color.FromRgb(30, 30, 30)),
+            Owner = Window.GetWindow(this),
+            WindowStyle = WindowStyle.ToolWindow,
+            ResizeMode = ResizeMode.CanResizeWithGrip,
+        };
+        _previewWindow.Closed += (_, _) => {
+            player.DetachCamera();
+            _previewWindow = null;
+        };
+        _previewWindow.Show();
+    }
+
     private void CameraIcon_MouseDown(object sender, MouseButtonEventArgs e) {
         if (sender is not FrameworkElement el) return;
 
         if (e.ClickCount == 2) {
-            _nav.NavigateTo(NavPage.LiveView);
+            if (el.Tag is string camId) {
+                ShowCameraPreview(camId);
+            }
             return;
         }
 
@@ -180,14 +266,48 @@ public partial class EMapView : UserControl {
     }
 
     private void ClearMap_Click(object sender, RoutedEventArgs e) {
-        _emap.Data.BackgroundImagePath = null;
-        _emap.Data.Cameras.Clear();
+        var floor = _emap.CurrentFloor;
+        if (floor is null) return;
+        floor.BackgroundImagePath = null;
+        floor.Cameras.Clear();
         _emap.Save();
         MapImage.Source = null;
         RebuildCameraIcons();
     }
 
-    // --- Map Pan & Zoom ---
+    private void AddFloor_Click(object sender, RoutedEventArgs e) {
+        var dlg = new Dialog.InputDialog("新增樓層", "請輸入樓層名稱：", $"{(char)('A' + _emap.Data.Floors.Count)}F");
+        if (dlg.ShowDialog() == true && !string.IsNullOrWhiteSpace(dlg.Value)) {
+            _emap.AddFloor(dlg.Value.Trim());
+            RebuildFloorTabs();
+        }
+    }
+
+    private void RenameFloor_Click(object sender, RoutedEventArgs e) {
+        var floor = _emap.CurrentFloor;
+        if (floor is null) return;
+        var dlg = new Dialog.InputDialog("重新命名樓層", "請輸入新名稱：", floor.Name);
+        if (dlg.ShowDialog() == true && !string.IsNullOrWhiteSpace(dlg.Value)) {
+            _emap.RenameFloor(_emap.Data.ActiveFloorIndex, dlg.Value.Trim());
+            RebuildFloorTabs();
+        }
+    }
+
+    private void RemoveFloor_Click(object sender, RoutedEventArgs e) {
+        if (_emap.Data.Floors.Count <= 1) {
+            MessageBox.Show("至少需要保留一個樓層", "提示", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+        var floor = _emap.CurrentFloor;
+        if (floor is null) return;
+        if (MessageBox.Show($"確定刪除樓層「{floor.Name}」？\n該樓層的所有攝影機位置將一併移除。",
+                "確認刪除", MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes) {
+            _emap.RemoveFloor(_emap.Data.ActiveFloorIndex);
+            RebuildFloorTabs();
+            RestoreViewState();
+        }
+    }
+
     private void MapCanvas_MouseLeftButtonDown(object sender, MouseButtonEventArgs e) {
         if (e.Source == MapCanvas || e.Source == MapImage) {
             _isDraggingMap = true;
