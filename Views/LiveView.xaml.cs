@@ -5,7 +5,6 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
-using System.Windows.Media.Animation;
 using System.Windows.Shapes;
 using System.Windows.Threading;
 using HeliVMS.Controls;
@@ -39,52 +38,134 @@ public partial class LiveView : UserControl {
     private bool _timelineSyncing;
     private bool _isDraggingTimeline;
 
+    private const int DefaultGridSize = 4;
+    private const int MaxSlots = 64;
+
     public LiveView() {
         InitializeComponent();
         Loaded += LiveView_Loaded;
+        Unloaded += (_, _) => Cleanup();
     }
+
+    // ═══════════════════════════════════════════════════════════
+    //  Loaded / Ignition
+    // ═══════════════════════════════════════════════════════════
 
     private void LiveView_Loaded(object sender, RoutedEventArgs e) {
         if (_initialized) return;
         _initialized = true;
 
         VideoGrid.DropCameraRequested += OnDropCameraToGrid;
-        VideoGrid.SlotChanged += (cam, _) => {
-            _ptzCamera = cam is { HasPTZ: true } ? cam : null;
-            PtzBar.Visibility = _ptzCamera is not null ? Visibility.Visible : Visibility.Collapsed;
-            if (_ptzCamera is not null)
-                PtzLabel.Text = _ptzCamera.Name;
-        };
+        VideoGrid.SlotChanged += OnSlotChanged;
 
-        VideoGrid.SetSlotCount(4);
+        VideoGrid.SetSlotCount(DefaultGridSize);
+        Log.Debug("[LiveView] Grid layout set to {Size}x{Size}",
+            DefaultGridSize, DefaultGridSize);
+
         ReloadAllCamerasIntoGrid();
         StartLiveTicker();
 
-        Log.Debug("[LiveView] Initialized — grid={GridSize}, cameras={CamCount}",
-            4, VideoGrid.GetSlotCameras().Count(c => c is not null));
+        Log.Debug("[LiveView] Loaded — cameras in grid: {Count}",
+            VideoGrid.GetSlotCameras().Count(c => c is not null));
     }
 
+    private void Cleanup() {
+        _liveTicker?.Stop();
+        _liveTicker = null;
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  Camera Grid — Load / Reload
+    // ═══════════════════════════════════════════════════════════
+
+    private void ReloadAllCamerasIntoGrid() {
+        try {
+            var all = CameraService.GetAllCameras();
+            if (all.Count == 0) {
+                Log.Warning("[LiveView] No cameras returned from service");
+                VideoGrid.SetSlotCount(DefaultGridSize);
+                return;
+            }
+
+            var count = Math.Min(all.Count, MaxSlots);
+            var arr = new Camera?[count];
+            for (int i = 0; i < count; i++)
+                arr[i] = all[i];
+
+            VideoGrid.LoadCameras(arr);
+            Log.Debug("[LiveView] Loaded {Count}/{Total} cameras into grid", count, all.Count);
+        } catch (Exception ex) {
+            Log.Error(ex, "[LiveView] Failed to load cameras");
+        }
+    }
+
+    private void OnSlotChanged(Camera? camera, int slotIndex) {
+        _ptzCamera = camera is { HasPTZ: true } ? camera : null;
+        PtzBar.Visibility = _ptzCamera is not null ? Visibility.Visible : Visibility.Collapsed;
+        if (_ptzCamera is not null)
+            PtzLabel.Text = _ptzCamera.Name;
+    }
+
+    private void OnDropCameraToGrid(string cameraId, int slotIndex) {
+        try {
+            var camera = CameraService.GetCameraById(cameraId);
+            if (camera is null) {
+                Log.Warning("[LiveView] Drop: camera {Id} not found", cameraId);
+                return;
+            }
+
+            var existing = VideoGrid.GetCameraAt(slotIndex);
+            if (existing is not null) {
+                for (int i = 0; i < MaxSlots; i++) {
+                    if (VideoGrid.GetCameraAt(i)?.Id == cameraId && i != slotIndex) {
+                        VideoGrid.AssignSlot(i, existing);
+                        break;
+                    }
+                }
+            }
+
+            VideoGrid.AssignSlot(slotIndex, camera);
+            Log.Debug("[LiveView] Camera {Name} dropped into slot {Slot}",
+                camera.Name, slotIndex);
+        } catch (Exception ex) {
+            Log.Error(ex, "[LiveView] DropCameraToGrid failed");
+        }
+    }
+
+    private void Layout_Click(object sender, RoutedEventArgs e) {
+        if (sender is Button { Tag: string tag } && int.TryParse(tag, out var size))
+            VideoGrid.SetSlotCount(size);
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  Timeline / Live Ticker
+    // ═══════════════════════════════════════════════════════════
+
     private void StartLiveTicker() {
-        _liveTicker = new DispatcherTimer(TimeSpan.FromSeconds(1), DispatcherPriority.Normal, (_, _) => {
-            if (_playbackMode != PlaybackMode.Live) return;
-            var elapsed = DateTime.Now.TimeOfDay.TotalSeconds;
-            _timelineSyncing = true;
-            GlobalTimeline.Value = Math.Clamp(elapsed, 0, 86400);
-            _timelineSyncing = false;
-            UpdateTimelineTimeLabel(DateTime.Now);
-        }, Dispatcher);
+        _liveTicker = new DispatcherTimer(
+            TimeSpan.FromSeconds(1),
+            DispatcherPriority.Normal,
+            OnLiveTickerTick,
+            Dispatcher);
         _liveTicker.Start();
+    }
+
+    private void OnLiveTickerTick(object? sender, EventArgs e) {
+        if (_playbackMode != PlaybackMode.Live) return;
+        var elapsed = DateTime.Now.TimeOfDay.TotalSeconds;
+        _timelineSyncing = true;
+        GlobalTimeline.Value = Math.Clamp(elapsed, 0, 86400);
+        _timelineSyncing = false;
+        UpdateTimelineTimeLabel(DateTime.Now);
     }
 
     private void GlobalTimeline_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e) {
         if (_timelineSyncing) return;
-        var seconds = e.NewValue;
-        var time = _timelineDay.AddSeconds(seconds);
+        var time = _timelineDay.AddSeconds(e.NewValue);
         UpdateTimelineTimeLabel(time);
         if (_isDraggingTimeline) {
-            var targetTime = GetTimelineTime();
             foreach (var p in VideoGrid.GetActiveSlots())
-                p.SwitchToPlayback(targetTime);
+                p.SwitchToPlayback(GetTimelineTime());
         }
     }
 
@@ -100,17 +181,23 @@ public partial class LiveView : UserControl {
         TimelineTimeLabel.Text = time.ToString("HH:mm:ss");
     }
 
+    // ═══════════════════════════════════════════════════════════
+    //  Playback Mode Switching
+    // ═══════════════════════════════════════════════════════════
+
     private void SwitchToSeekMode(DateTime targetTime) {
         _playbackMode = PlaybackMode.CustomSeek;
         _liveTicker?.Stop();
         PerformSeek(targetTime);
+        Log.Debug("[LiveView] Switched to CustomSeek at {Time}",
+            targetTime.ToString("HH:mm:ss"));
     }
 
     private void SwitchToLive() {
         _playbackMode = PlaybackMode.Live;
         _fwdSpeedIndex = 0;
         _playbackSpeed = 1.0;
-        FwdSpeedLabel.Text = "1×";
+        FwdSpeedLabel.Text = "1\u00d7";
         _liveTicker?.Start();
 
         foreach (var p in VideoGrid.GetActiveSlots())
@@ -120,6 +207,8 @@ public partial class LiveView : UserControl {
         GlobalTimeline.Value = Math.Clamp(DateTime.Now.TimeOfDay.TotalSeconds, 0, 86400);
         _timelineSyncing = false;
         UpdateTimelineTimeLabel(DateTime.Now);
+
+        Log.Debug("[LiveView] Switched to Live");
     }
 
     private void PerformSeek(DateTime targetTime) {
@@ -127,7 +216,13 @@ public partial class LiveView : UserControl {
         if (players.Count == 0) return;
         foreach (var p in players)
             p.SwitchToPlayback(targetTime);
+        Log.Debug("[LiveView] Seek to {Time} for {Count} players",
+            targetTime.ToString("HH:mm:ss"), players.Count);
     }
+
+    // ═══════════════════════════════════════════════════════════
+    //  Transport Controls
+    // ═══════════════════════════════════════════════════════════
 
     private void BtnPlayPause_Click(object sender, RoutedEventArgs e) {
         if (_playbackMode == PlaybackMode.Live)
@@ -144,27 +239,31 @@ public partial class LiveView : UserControl {
         FwdSpeedLabel.Text = $"{_playbackSpeed:F0}\u00d7";
     }
 
-    private void BtnLive_Click(object sender, RoutedEventArgs e) {
-        SwitchToLive();
-    }
+    private void BtnLive_Click(object sender, RoutedEventArgs e) => SwitchToLive();
+
+    // ═══════════════════════════════════════════════════════════
+    //  Recording Bar Visualization
+    // ═══════════════════════════════════════════════════════════
 
     public async void RefreshRecordingBars() {
         RecordingBars.Children.Clear();
         try {
-            var cameras = VideoGrid.GetSlotCameras().Where(c => c is not null).Cast<Camera>().ToList();
+            var cameras = VideoGrid.GetSlotCameras()
+                .Where(c => c is not null)
+                .Cast<Camera>()
+                .ToList();
             if (cameras.Count == 0) return;
 
             var today = DateTime.Today;
             var recordings = await VideoIndex.QuerySegmentsByCamerasAsync(
                 cameras.Select(c => c.Id), today, today.AddDays(1));
-
             if (recordings.Count == 0) return;
 
             var width = RecordingBars.ActualWidth;
             if (width <= 0) width = 400;
 
             foreach (var seg in recordings) {
-                var startFrac = (seg.StartTime.TimeOfDay.TotalSeconds) / 86400.0;
+                var startFrac = seg.StartTime.TimeOfDay.TotalSeconds / 86400.0;
                 var endFrac = seg.EndTime.HasValue
                     ? seg.EndTime.Value.TimeOfDay.TotalSeconds / 86400.0
                     : 1.0;
@@ -187,27 +286,9 @@ public partial class LiveView : UserControl {
         }
     }
 
-    private void OnDropCameraToGrid(string cameraId, int slotIndex) {
-        var camera = CameraService.GetCameraById(cameraId);
-        if (camera is null) return;
-
-        var existing = VideoGrid.GetCameraAt(slotIndex);
-        if (existing is not null) {
-            for (int i = 0; i < 64; i++) {
-                if (VideoGrid.GetCameraAt(i)?.Id == cameraId && i != slotIndex) {
-                    VideoGrid.AssignSlot(i, existing);
-                    break;
-                }
-            }
-        }
-
-        VideoGrid.AssignSlot(slotIndex, camera);
-    }
-
-    private void Layout_Click(object sender, RoutedEventArgs e) {
-        if (sender is Button { Tag: string tag } && int.TryParse(tag, out var size))
-            VideoGrid.SetSlotCount(size);
-    }
+    // ═══════════════════════════════════════════════════════════
+    //  PTZ
+    // ═══════════════════════════════════════════════════════════
 
     private void PtzUp_Click(object sender, RoutedEventArgs e) => MovePtz("up");
     private void PtzDown_Click(object sender, RoutedEventArgs e) => MovePtz("down");
@@ -219,6 +300,10 @@ public partial class LiveView : UserControl {
     private void MovePtz(string direction) {
         if (_ptzCamera is null) return;
     }
+
+    // ═══════════════════════════════════════════════════════════
+    //  Full Screen
+    // ═══════════════════════════════════════════════════════════
 
     private void FullScreen_Click(object sender, RoutedEventArgs e) => ToggleFullScreen();
 
@@ -258,16 +343,11 @@ public partial class LiveView : UserControl {
         if (e.Key == Key.Escape) ExitFullScreen();
     }
 
+    // ═══════════════════════════════════════════════════════════
+    //  Misc
+    // ═══════════════════════════════════════════════════════════
+
     private void OnPreviewKeyDown(object sender, KeyEventArgs e) {
         if (e.Key == Key.F5) { ReloadAllCamerasIntoGrid(); e.Handled = true; }
-    }
-
-    private void ReloadAllCamerasIntoGrid() {
-        var all = CameraService.GetAllCameras();
-        var arr = new Camera?[Math.Min(all.Count, 64)];
-        for (int i = 0; i < arr.Length; i++)
-            arr[i] = all[i];
-        VideoGrid.LoadCameras(arr);
-        Log.Debug("[LiveView] Loaded {Count} cameras into grid", arr.Length);
     }
 }
