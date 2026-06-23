@@ -84,6 +84,21 @@ public class Camera {
     [JsonPropertyName("group")]
     public string? Group { get; set; }
 
+    [JsonPropertyName("recordingQuality")]
+    public string RecordingQuality { get; set; } = "Medium";
+
+    [JsonPropertyName("targetBitrate")]
+    public int TargetBitrate { get; set; }
+
+    [JsonPropertyName("targetFps")]
+    public int TargetFps { get; set; }
+
+    [JsonPropertyName("resolutionWidth")]
+    public int ResolutionWidth { get; set; }
+
+    [JsonPropertyName("resolutionHeight")]
+    public int ResolutionHeight { get; set; }
+
     [JsonPropertyName("createdAt")]
     public DateTime CreatedAt { get; set; } = DateTime.Now;
 

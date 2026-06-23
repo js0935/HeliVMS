@@ -6,6 +6,7 @@ using Serilog;
 namespace HeliVMS.Services;
 
 public sealed partial class MotionAnalysisService(IVideoIndexService videoIndexService, IEventService eventService, IEventRuleService ruleEngine, ICameraService cameraService) : IMotionAnalysisService, IDisposable {
+    public event Action<string, double>? MotionDetected;
     private readonly IVideoIndexService _videoIndexService = videoIndexService;
     private readonly IEventService _eventService = eventService;
     private readonly IEventRuleService _ruleEngine = ruleEngine;
@@ -77,8 +78,10 @@ public sealed partial class MotionAnalysisService(IVideoIndexService videoIndexS
                 await _videoIndexService.UpdateMotionScoreAsync(seg.Id, score)
                     .ConfigureAwait(false);
                 var sensitivity = GetCameraSensitivity(seg.CameraId);
-                if (score > 1.0 - sensitivity)
+                if (score > 1.0 - sensitivity) {
                     _ruleEngine.Evaluate("MotionDetected", seg.CameraId, new() { ["motionScore"] = score.ToString("F2") });
+                    MotionDetected?.Invoke(seg.CameraId, score);
+                }
             } catch (Exception ex) {
                 Log.Warning(ex, "[HeliVMS] MotionAnalysis failed for {Path}", seg.FilePath);
                 try {
