@@ -8,6 +8,7 @@ namespace HeliVMS.Services;
 public sealed class MetricsHistoryService : IDisposable {
     private readonly System.Timers.Timer _timer;
     private readonly IRecordingService _recordingService;
+    private readonly ISystemStatusService _systemStatus;
     private long _lastBytesWritten;
     private DateTime _lastMeasure = DateTime.Now;
 
@@ -15,19 +16,25 @@ public sealed class MetricsHistoryService : IDisposable {
 
     public List<DataPoint> BandwidthHistory { get; } = [];
     public List<DataPoint> StorageHistory { get; } = [];
+    public List<DataPoint> CpuHistory { get; } = [];
+    public List<DataPoint> MemoryHistory { get; } = [];
     public List<DataPoint> CameraOnlineHistory { get; } = [];
 
     public event Action? HistoryUpdated;
 
-    private const int BandwidthCapacity = 60;
-    private const int StorageCapacity = 24;
+    private const int Capacity60 = 60;
+    private const int Capacity24 = 24;
 
-    public MetricsHistoryService(IRecordingService recordingService) {
+    public DateTime AppStartTime { get; } = DateTime.Now;
+
+    public MetricsHistoryService(IRecordingService recordingService, ISystemStatusService systemStatus) {
         _recordingService = recordingService;
+        _systemStatus = systemStatus;
         _timer = new System.Timers.Timer(60_000);
         _timer.Elapsed += (_, _) => { RecordSample(); HistoryUpdated?.Invoke(); };
         _timer.Start();
         RecordSample();
+        HistoryUpdated?.Invoke();
     }
 
     private void RecordSample() {
@@ -42,12 +49,14 @@ public sealed class MetricsHistoryService : IDisposable {
         }
         _lastBytesWritten = bytesNow;
         _lastMeasure = now;
-        AddPoint(BandwidthHistory, BandwidthCapacity, now, bps);
+        AddPoint(BandwidthHistory, Capacity60, now, bps);
 
         var diskInfo = GetDiskInfo();
-        AddPoint(StorageHistory, StorageCapacity, now, diskInfo.usedGB);
+        AddPoint(StorageHistory, Capacity24, now, diskInfo.usedGB);
 
-        AddPoint(CameraOnlineHistory, BandwidthCapacity, now, recordings.Count);
+        AddPoint(CameraOnlineHistory, Capacity60, now, recordings.Count);
+        AddPoint(CpuHistory, Capacity60, now, _systemStatus.CpuUsagePercent);
+        AddPoint(MemoryHistory, Capacity60, now, _systemStatus.MemoryUsagePercent);
     }
 
     private static void AddPoint(List<DataPoint> list, int capacity, DateTime time, double value) {

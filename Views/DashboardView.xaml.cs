@@ -74,6 +74,10 @@ public partial class DashboardView : UserControl {
             "B/s", v => v switch { > 1_000_000 => $"{(v / 1_000_000):F1}M", > 1_000 => $"{(v / 1_000):F0}K", _ => $"{v:F0}" });
         DrawLineChart(StorageChartCanvas, _metrics.StorageHistory, _metrics.GetMaxStorage(),
             "GB", v => $"{v:F1}");
+        DrawLineChart(CpuChartCanvas, _metrics.CpuHistory, 100,
+            "%", v => $"{v:F0}%");
+        DrawLineChart(MemoryChartCanvas, _metrics.MemoryHistory, 100,
+            "%", v => $"{v:F0}%");
     }
 
     private static void DrawLineChart(Canvas canvas, List<MetricsHistoryService.DataPoint> data, double maxVal,
@@ -185,6 +189,13 @@ public partial class DashboardView : UserControl {
         };
         HealthDetailOnline.Text = $"{_health.OnlineCount}/{_health.TotalCount} 上線";
         HealthDetailRecording.Text = $"{activeCount} 路錄影";
+
+        // Uptime
+        var uptime = DateTime.Now - _metrics.AppStartTime;
+        var uptimeStr = uptime.Days > 0
+            ? $"{uptime.Days}天 {uptime.Hours}小時 {uptime.Minutes}分鐘"
+            : $"{uptime.Hours}小時 {uptime.Minutes}分鐘";
+        BandwidthText.Text = $"已執行 {uptimeStr}";
         HealthDetailStorage.Text = $"儲存 {(1 - storageRatio) * 100:F0}%";
 
         // Storage bar
