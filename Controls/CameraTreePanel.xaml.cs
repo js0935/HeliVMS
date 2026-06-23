@@ -88,7 +88,7 @@ public partial class CameraTreePanel : UserControl {
 
     // ─── Tree Building ───
 
-    private static List<CameraTreeNode> BuildTree(IList<Camera> cameras, string filter) {
+    private List<CameraTreeNode> BuildTree(IList<Camera> cameras, string filter) {
         var groups = new Dictionary<string, CameraTreeGroup>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var cam in cameras) {
@@ -109,19 +109,53 @@ public partial class CameraTreePanel : UserControl {
                 DisplayName = cam.Name ?? cam.Id,
                 RtspHint = cam.RtspUrl,
                 CameraId = cam.Id,
-                Icon = "📷"
+                Icon = cam.IsFavorite ? "⭐" : "📷"
             });
         }
 
         var roots = new List<CameraTreeNode>(groups.Values);
 
-        // If only one group, flatten it (just list cameras directly)
+        // Prepend favorites group if any cameras favorited
+        var favorites = cameras.Where(c => c.IsEnabled && c.IsFavorite).ToList();
+        if (favorites.Count > 0) {
+            if (!string.IsNullOrEmpty(filter))
+                favorites = favorites.Where(c =>
+                    c.Name is not null && c.Name.Contains(filter, StringComparison.OrdinalIgnoreCase)).ToList();
+            if (favorites.Count > 0) {
+                var favGroup = new CameraTreeGroup {
+                    DisplayName = "⭐ 我的最愛",
+                    Icon = "⭐"
+                };
+                foreach (var cam in favorites) {
+                    favGroup.Children.Add(new CameraTreeItem {
+                        DisplayName = cam.Name ?? cam.Id,
+                        RtspHint = cam.RtspUrl,
+                        CameraId = cam.Id,
+                        Icon = "⭐"
+                    });
+                }
+                roots.Insert(0, favGroup);
+            }
+        }
+
+        // If only one group, flatten it
         if (roots.Count == 1 && roots[0] is CameraTreeGroup single) {
             if (single.DisplayName == "未分組")
                 return [.. single.Children];
         }
 
         return roots;
+    }
+
+    private void OnToggleFavorite(object sender, RoutedEventArgs e) {
+        if (sender is MenuItem mi && mi.Tag is string cameraId) {
+            var cam = _cameraService.GetAllCameras().FirstOrDefault(c => c.Id == cameraId);
+            if (cam is not null) {
+                cam.IsFavorite = !cam.IsFavorite;
+                _cameraService.UpdateCamera(cam);
+                ReloadCameras();
+            }
+        }
     }
 
     // ─── Search ───

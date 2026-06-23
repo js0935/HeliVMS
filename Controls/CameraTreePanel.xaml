@@ -5,7 +5,14 @@
         <!-- Leaf camera item template (no children) -->
         <DataTemplate x:Key="CameraItemTemplate">
             <StackPanel Orientation="Horizontal" Height="28" Margin="4,0,0,0">
-                <TextBlock Text="📷" FontSize="11" Margin="0,0,6,0"
+                <StackPanel.ContextMenu>
+                    <ContextMenu>
+                        <MenuItem Header="加入我的最愛" x:Name="FavMenu"
+                                  Tag="{Binding CameraId}"
+                                  Click="OnToggleFavorite"/>
+                    </ContextMenu>
+                </StackPanel.ContextMenu>
+                <TextBlock Text="{Binding Icon}" FontSize="11" Margin="0,0,6,0"
                            Foreground="#FFFFFFFF"
                            VerticalAlignment="Center"/>
                 <TextBlock Text="{Binding DisplayName}" FontSize="11"
@@ -72,6 +79,7 @@
                                    Foreground="#FFFFFFFF"
                                    VerticalAlignment="Center"/>
                     </StackPanel>
+
                 </HierarchicalDataTemplate>
             </TreeView.ItemTemplate>
         </TreeView>

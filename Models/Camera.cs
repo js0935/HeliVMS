@@ -99,6 +99,9 @@ public class Camera {
     [JsonPropertyName("resolutionHeight")]
     public int ResolutionHeight { get; set; }
 
+    [JsonPropertyName("isFavorite")]
+    public bool IsFavorite { get; set; }
+
     [JsonPropertyName("autoReconnectEnabled")]
     public bool AutoReconnectEnabled { get; set; } = true;
 
