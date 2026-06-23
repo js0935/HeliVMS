@@ -1018,13 +1018,20 @@ public partial class VideoPlayer : UserControl {
     }
 
     private void CtxSnapshot_Click(object sender, RoutedEventArgs e) {
-        var dir = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.Desktop),
-            "HeliVMS_Screenshots");
-        var path = SaveSnapshot(dir);
+        var cameraName = _camera?.Name ?? "Unknown";
+        var channel = _camera?.ChannelNumber ?? 0;
+        var safeName = SanitizeFileName(cameraName);
+        var dialog = new Microsoft.Win32.SaveFileDialog {
+            Title = "儲存快照",
+            Filter = "PNG 圖片 (*.png)|*.png|JPEG 圖片 (*.jpg)|*.jpg",
+            FileName = $"CH{channel:D2}_{safeName}_{DateTime.Now:yyyyMMdd_HHmmss}.png",
+        };
+        if (dialog.ShowDialog(Window.GetWindow(this)) != true) return;
+
+        var path = SaveSnapshot(Path.GetDirectoryName(dialog.FileName)!);
         if (path is not null) {
-            Log.Debug("[HeliVMS] 快照已儲存至 {Path}", path);
-            MessageBox.Show($"快照已儲存至\n{path}", "快照",
+            try { File.Move(path, dialog.FileName, overwrite: true); } catch { }
+            MessageBox.Show($"快照已儲存至\n{dialog.FileName}", "快照",
                 MessageBoxButton.OK, MessageBoxImage.Information);
         } else {
             MessageBox.Show("快照失敗：無法儲存快照", "快照",
