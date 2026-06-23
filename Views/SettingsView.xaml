@@ -495,6 +495,44 @@
                     </StackPanel>
                 </Border>
 
+                <!-- Performance tuning -->
+                <Border Style="{StaticResource CardBorder}" Padding="16" Margin="0,0,0,16">
+                    <StackPanel>
+                        <TextBlock Text="效能調校" Style="{StaticResource SectionHeader}" Margin="0,0,0,12"/>
+                        <Grid Margin="0,0,0,8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="160"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="60"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="子串流切換閾值"
+                                       Foreground="{StaticResource TextBrush}" FontSize="13"
+                                       VerticalAlignment="Center"/>
+                            <Slider x:Name="SubStreamThresholdSlider"
+                                    Grid.Column="1" Minimum="2" Maximum="16" TickFrequency="1"
+                                    IsSnapToTickEnabled="True" Value="4"
+                                    Margin="8,0"
+                                    ValueChanged="SubStreamThresholdSlider_ValueChanged"/>
+                            <TextBlock Grid.Column="2" x:Name="SubStreamThresholdText"
+                                       Text="4" Foreground="{StaticResource SecondaryTextBrush}"
+                                       FontSize="13" VerticalAlignment="Center"/>
+                        </Grid>
+                        <TextBlock Text="當即時監看網格顯示超過此數量的攝影機時，自動切換為子串流以節省頻寬。"
+                                   Foreground="{StaticResource SecondaryTextBrush}"
+                                   FontSize="11" TextWrapping="Wrap" Margin="0,0,0,8"/>
+                        <CheckBox x:Name="EnableHwAccelCheckBox"
+                                  Content="啟用硬體加速轉碼（Intel QSV / NVIDIA NVENC）"
+                                  FontSize="13"
+                                  Foreground="{StaticResource TextBrush}"
+                                  IsChecked="True"
+                                  Checked="EnableHwAccel_Changed"
+                                  Unchecked="EnableHwAccel_Changed"/>
+                        <TextBlock Text="啟用後 MediaMTX 與 FFmpeg 將嘗試使用 GPU 進行硬體加速編解碼，降低 CPU 使用率。"
+                                   Foreground="{StaticResource SecondaryTextBrush}"
+                                   FontSize="11" TextWrapping="Wrap" Margin="0,4,0,0"/>
+                    </StackPanel>
+                </Border>
+
                 <!-- Dev tools -->
                 <Border Style="{StaticResource CardBorder}" Padding="16" Margin="0,0,0,16">
                     <StackPanel>
@@ -563,6 +601,21 @@
                                     Height="28" FontSize="11" Padding="12,0" Margin="8,0,0,0"
                                     Click="MtxRefresh_Click"/>
                         </WrapPanel>
+                    </StackPanel>
+                </Border>
+                <Border Style="{StaticResource CardBorder}" Padding="16" Margin="0,0,0,16">
+                    <StackPanel>
+                        <TextBlock Text="轉碼設定" Style="{StaticResource SectionHeader}" Margin="0,0,0,12"/>
+                        <CheckBox x:Name="MtxHwAccelCheckBox"
+                                  Content="啟用硬體加速轉碼（Intel QSV / NVIDIA NVENC）"
+                                  FontSize="13"
+                                  Foreground="{StaticResource TextBrush}"
+                                  IsChecked="True"
+                                  Checked="MtxHwAccel_Changed"
+                                  Unchecked="MtxHwAccel_Changed"/>
+                        <TextBlock Text="啟用後 MediaMTX 與 FFmpeg 將嘗試使用 GPU 進行硬體加速編解碼，降低 CPU 使用率。需重新啟動 MediaMTX 生效。"
+                                   Foreground="{StaticResource SecondaryTextBrush}"
+                                   FontSize="11" TextWrapping="Wrap" Margin="0,4,0,0"/>
                     </StackPanel>
                 </Border>
             </StackPanel>

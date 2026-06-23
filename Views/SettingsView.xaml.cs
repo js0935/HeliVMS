@@ -577,6 +577,7 @@ public partial class SettingsView : UserControl {
 
         MtxConfigPathText.Text = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "MediaMTX", "mediamtx.yml");
         MtxPortText.Text = "8554";
+        MtxHwAccelCheckBox.IsChecked = _settingsService.Settings.EnableHardwareAcceleration;
 
         if (mtx.IsRunning) {
             MtxStatusDot.Fill = Brushes.LimeGreen;
@@ -608,6 +609,12 @@ public partial class SettingsView : UserControl {
     private void MtxRefresh_Click(object sender, RoutedEventArgs e) {
         RefreshMediaMTXStatus();
     }
+
+    private void MtxHwAccel_Changed(object sender, RoutedEventArgs e) {
+        if (!_loaded) return;
+        _settingsService.Settings.EnableHardwareAcceleration = MtxHwAccelCheckBox.IsChecked ?? true;
+        _settingsService.Save();
+    }
     #endregion
 
     #region Debug settings
@@ -616,6 +623,10 @@ public partial class SettingsView : UserControl {
         UseAsyncRtspRecordingCheckBox.IsChecked = _settingsService.Settings.UseAsyncRtspRecording;
         UseAsyncRtspLiveViewCheckBox.IsChecked = _settingsService.Settings.UseAsyncRtspLiveView;
 
+        SubStreamThresholdSlider.Value = _settingsService.Settings.SubStreamThreshold;
+        SubStreamThresholdText.Text = _settingsService.Settings.SubStreamThreshold.ToString();
+        EnableHwAccelCheckBox.IsChecked = _settingsService.Settings.EnableHardwareAcceleration;
+
         SysVersionText.Text = "V1.0.0";
         SysOsText.Text = RuntimeInformation.OSDescription;
         SysDotnetText.Text = RuntimeInformation.FrameworkDescription;
@@ -623,6 +634,20 @@ public partial class SettingsView : UserControl {
         SysSettingsPathText.Text = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Data");
 
         BrandCountText.Text = $"{_brandConfigService.BrandCount} 個品牌 ／ {_brandConfigService.TotalModelCount} 個型號";
+    }
+
+    private void SubStreamThresholdSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e) {
+        if (!_loaded) return;
+        var val = (int)SubStreamThresholdSlider.Value;
+        SubStreamThresholdText.Text = val.ToString();
+        _settingsService.Settings.SubStreamThreshold = val;
+        _settingsService.Save();
+    }
+
+    private void EnableHwAccel_Changed(object sender, RoutedEventArgs e) {
+        if (!_loaded) return;
+        _settingsService.Settings.EnableHardwareAcceleration = EnableHwAccelCheckBox.IsChecked ?? true;
+        _settingsService.Save();
     }
 
     private void ShowDragDebugCheckBox_Changed(object sender, RoutedEventArgs e) {

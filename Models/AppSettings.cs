@@ -27,4 +27,8 @@ public class AppSettings {
     // Live view layout
     public int LiveViewSplitLayout { get; set; }
     public int LiveViewCurrentPage { get; set; }
+
+    // Performance tuning
+    public int SubStreamThreshold { get; set; } = 4;
+    public bool EnableHardwareAcceleration { get; set; } = true;
 }
