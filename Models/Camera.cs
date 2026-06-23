@@ -99,6 +99,15 @@ public class Camera {
     [JsonPropertyName("resolutionHeight")]
     public int ResolutionHeight { get; set; }
 
+    [JsonPropertyName("autoReconnectEnabled")]
+    public bool AutoReconnectEnabled { get; set; } = true;
+
+    [JsonPropertyName("maxReconnectAttempts")]
+    public int MaxReconnectAttempts { get; set; }
+
+    [JsonPropertyName("reconnectIntervalSeconds")]
+    public int ReconnectIntervalSeconds { get; set; } = 30;
+
     [JsonPropertyName("createdAt")]
     public DateTime CreatedAt { get; set; } = DateTime.Now;
 

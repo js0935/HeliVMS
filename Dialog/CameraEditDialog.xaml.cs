@@ -106,6 +106,10 @@ public partial class CameraEditDialog : Window {
         MotionSensitivityLabel.Text = camera.MotionSensitivity.ToString("F2");
         MotionSensitivitySlider.IsEnabled = camera.IsMotionDetectionEnabled;
 
+        AutoReconnectCheck.IsChecked = camera.AutoReconnectEnabled;
+        MaxRetryBox.Text = camera.MaxReconnectAttempts.ToString();
+        ReconnectIntervalBox.Text = camera.ReconnectIntervalSeconds.ToString();
+
         if (!string.IsNullOrEmpty(camera.Manufacturer)) {
             SelectBrandByPorts(camera.Port, camera.OnvifPort);
         }
@@ -264,6 +268,9 @@ public partial class CameraEditDialog : Window {
             CreatedAt = _existingCamera?.CreatedAt ?? DateTime.Now,
             IsMotionDetectionEnabled = MotionEnabledCheck.IsChecked ?? false,
             MotionSensitivity = MotionSensitivitySlider.Value,
+            AutoReconnectEnabled = AutoReconnectCheck.IsChecked ?? true,
+            MaxReconnectAttempts = int.TryParse(MaxRetryBox.Text, out var retries) ? retries : 0,
+            ReconnectIntervalSeconds = int.TryParse(ReconnectIntervalBox.Text, out var interval) ? Math.Max(5, interval) : 30,
         };
 
         DialogResult = true;

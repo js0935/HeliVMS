@@ -105,6 +105,40 @@
                                Grid.ColumnSpan="2" FontSize="10" Foreground="{StaticResource SecondaryTextBrush}"
                                Margin="0,0,0,4"/>
                 </Grid>
+
+                <Separator Background="{StaticResource BorderBrush}" Margin="0,12,0,8"/>
+
+                <TextBlock Text="自動重連設定" Foreground="{StaticResource TextBrush}"
+                           FontSize="14" FontWeight="SemiBold" Margin="0,0,0,8"/>
+
+                <CheckBox x:Name="AutoReconnectCheck" Content="啟用自動重連" FontSize="12"
+                          Foreground="{StaticResource TextBrush}" Margin="0,0,0,8"
+                          IsChecked="True"/>
+
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="120"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+                    <TextBlock Grid.Row="0" Grid.Column="0" Text="最大重試次數" VerticalAlignment="Center" FontSize="12"
+                               Foreground="{StaticResource SecondaryTextBrush}"/>
+                    <TextBox x:Name="MaxRetryBox" Grid.Row="0" Grid.Column="1" Text="0" FontSize="12"
+                             Padding="4,3" Margin="8,0,0,4" Width="80" HorizontalAlignment="Left"
+                             Background="{StaticResource SurfaceBrush}" Foreground="{StaticResource TextBrush}"
+                             BorderBrush="{StaticResource BorderBrush}" BorderThickness="1"/>
+                    <TextBlock Grid.Row="1" Grid.Column="0" Text="重連間隔（秒）" VerticalAlignment="Center" FontSize="12"
+                               Foreground="{StaticResource SecondaryTextBrush}"/>
+                    <TextBox x:Name="ReconnectIntervalBox" Grid.Row="1" Grid.Column="1" Text="30" FontSize="12"
+                             Padding="4,3" Margin="8,0,0,0" Width="80" HorizontalAlignment="Left"
+                             Background="{StaticResource SurfaceBrush}" Foreground="{StaticResource TextBrush}"
+                             BorderBrush="{StaticResource BorderBrush}" BorderThickness="1"/>
+                </Grid>
+                <TextBlock Text="0 = 無限重試" FontSize="10" Foreground="{StaticResource SecondaryTextBrush}"
+                           Margin="0,4,0,0"/>
             </StackPanel>
         </ScrollViewer>
 
