@@ -1021,6 +1021,46 @@ public partial class SettingsView : UserControl {
         MessageBox.Show("錄影排程已儲存。", "設定", MessageBoxButton.OK, MessageBoxImage.Information);
     }
 
+    private void CopySchedule_Click(object sender, RoutedEventArgs e) {
+        if (ScheduleCameraCombo.SelectedItem is not ComboBoxItem item || item.Tag is not string srcCamId) return;
+        var data = _scheduleService.Load();
+        var srcSchedule = data.CameraSchedules.FirstOrDefault(s => s.CameraId == srcCamId);
+        if (srcSchedule is null) {
+            MessageBox.Show("請先為目前攝影機設定排程規則", "提示", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+        var allCameras = _cameraService.GetAllCameras();
+        var targets = new System.Collections.ObjectModel.ObservableCollection<Dialog.CameraCheckItem>();
+        foreach (var cam in allCameras) {
+            if (cam.Id == srcCamId || !cam.IsEnabled) continue;
+            targets.Add(new Dialog.CameraCheckItem { Id = cam.Id, Name = cam.Name ?? cam.Id, IsChecked = false });
+        }
+        if (targets.Count == 0) {
+            MessageBox.Show("沒有其他可複製的攝影機", "提示", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+        var dlg = new Dialog.CameraPickerDialog("選擇目標攝影機", targets);
+        if (dlg.ShowDialog() != true) return;
+        var selected = targets.Where(t => t.IsChecked).ToList();
+        if (selected.Count == 0) return;
+        foreach (var t in selected) {
+            var existing = data.CameraSchedules.FirstOrDefault(s => s.CameraId == t.Id);
+            if (existing is null) {
+                existing = new CameraSchedule { CameraId = t.Id };
+                data.CameraSchedules.Add(existing);
+            }
+            existing.Rules = srcSchedule.Rules.Select(r => new ScheduleRule {
+                Day = r.Day, StartTime = r.StartTime, EndTime = r.EndTime,
+                RecordingEnabled = r.RecordingEnabled, MotionDetectionEnabled = r.MotionDetectionEnabled
+            }).ToList();
+            existing.Exceptions = srcSchedule.Exceptions.Select(e => new ScheduleException {
+                Date = e.Date, Override = e.Override, Label = e.Label
+            }).ToList();
+        }
+        _scheduleService.Save(data);
+        MessageBox.Show($"排程已複製到 {selected.Count} 台攝影機", "完成", MessageBoxButton.OK, MessageBoxImage.Information);
+    }
+
     private void AddScheduleException_Click(object sender, RoutedEventArgs e) {
         if (ScheduleCameraCombo.SelectedItem is not ComboBoxItem item || item.Tag is not string camId) return;
         var data = _scheduleService.Load();

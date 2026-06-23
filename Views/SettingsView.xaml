@@ -1080,6 +1080,9 @@
                             <Button x:Name="AddScheduleExceptionBtn" Content="+ 新增例外日期"
                                     Style="{StaticResource SecondaryButton}" Height="28" FontSize="11" Padding="12,0"
                                     Click="AddScheduleException_Click"/>
+                            <Button x:Name="CopyScheduleBtn" Content="📋 複製排程到…"
+                                    Style="{StaticResource SecondaryButton}" Height="28" FontSize="11" Padding="12,0" Margin="8,0,0,0"
+                                    Click="CopySchedule_Click"/>
                         </WrapPanel>
                     </StackPanel>
                 </Border>
