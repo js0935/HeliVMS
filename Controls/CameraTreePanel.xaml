@@ -12,6 +12,9 @@
                                   Click="OnToggleFavorite"/>
                     </ContextMenu>
                 </StackPanel.ContextMenu>
+                <Ellipse Width="6" Height="6" Margin="0,0,6,0"
+                         Fill="{Binding ConnectionColor}"
+                         VerticalAlignment="Center"/>
                 <TextBlock Text="{Binding Icon}" FontSize="11" Margin="0,0,6,0"
                            Foreground="#FFFFFFFF"
                            VerticalAlignment="Center"/>

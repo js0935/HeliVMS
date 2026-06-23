@@ -37,7 +37,12 @@ public abstract class CameraTreeNode : INotifyPropertyChanged {
 public sealed class CameraTreeGroup : CameraTreeNode { }
 
 /// <summary>Leaf camera node.</summary>
-public sealed class CameraTreeItem : CameraTreeNode { }
+public sealed class CameraTreeItem : CameraTreeNode {
+    public bool IsConnected { get; set; }
+    public System.Windows.Media.Brush ConnectionColor =>
+        IsConnected ? new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(76, 175, 80))
+                    : new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(244, 67, 54));
+}
 
 // ═══════════════════════════════════════════════════════
 //  CameraTreePanel Control
@@ -115,7 +120,8 @@ public partial class CameraTreePanel : UserControl {
                 DisplayName = cam.Name ?? cam.Id,
                 RtspHint = cam.RtspUrl,
                 CameraId = cam.Id,
-                Icon = cam.IsFavorite ? "⭐" : "📷"
+                Icon = cam.IsFavorite ? "⭐" : "📷",
+                IsConnected = cam.IsConnected
             });
         }
 
@@ -137,7 +143,8 @@ public partial class CameraTreePanel : UserControl {
                         DisplayName = cam.Name ?? cam.Id,
                         RtspHint = cam.RtspUrl,
                         CameraId = cam.Id,
-                        Icon = "⭐"
+                        Icon = "⭐",
+                        IsConnected = cam.IsConnected
                     });
                 }
                 roots.Insert(0, favGroup);
