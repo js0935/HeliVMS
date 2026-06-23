@@ -116,6 +116,9 @@ public partial class MainWindow : Window {
                 live.ToggleFullScreen();
                 e.Handled = true;
             }
+        } else if (e.Key == Key.F1) {
+            ShowShortcutHelp();
+            e.Handled = true;
         } else if (e.KeyboardDevice.Modifiers == ModifierKeys.Control && e.Key == Key.R) {
             var live = MainWorkArea.Content as Views.LiveView;
             if (live is not null) {
@@ -191,6 +194,27 @@ public partial class MainWindow : Window {
             EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
         };
         DrawerContainer.BeginAnimation(FrameworkElement.WidthProperty, anim);
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  Shortcut help overlay
+    // ═══════════════════════════════════════════════════════════
+
+    private void ShowShortcutHelp() {
+        var overlay = new Window {
+            Title = "鍵盤快捷鍵",
+            Content = new Views.ShortcutHelpView(),
+            Width = 440,
+            Height = 360,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            Owner = this,
+            WindowStyle = WindowStyle.None,
+            AllowsTransparency = true,
+            Background = System.Windows.Media.Brushes.Transparent,
+            ShowInTaskbar = false,
+            ResizeMode = ResizeMode.NoResize,
+        };
+        overlay.ShowDialog();
     }
 
     // ═══════════════════════════════════════════════════════════
