@@ -31,4 +31,7 @@ public class AppSettings {
     // Performance tuning
     public int SubStreamThreshold { get; set; } = 4;
     public bool EnableHardwareAcceleration { get; set; } = true;
+
+    // Theme
+    public string Theme { get; set; } = "Dark";
 }

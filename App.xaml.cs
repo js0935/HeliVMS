@@ -98,6 +98,11 @@ public partial class App : Application {
             Log.Information("[TIMING] Step 3 — MainWindow constructed: {ElapsedMs}ms", sw.ElapsedMilliseconds);
             mainWindow.Show();
             Log.Information("[TIMING] Step 4 — MainWindow shown: {ElapsedMs}ms", sw.ElapsedMilliseconds);
+
+            // Apply saved theme before first render
+            try {
+                Services.GetRequiredService<ThemeService>().Initialize();
+            } catch { }
         } catch (Exception ex) {
             Log.Fatal(ex, "MainWindow creation failed — showing startup error dialog");
             var sb = new StringBuilder();
@@ -383,6 +388,7 @@ public partial class App : Application {
         services.AddSingleton<CameraGroupService>();
         services.AddSingleton<TourService>();
         services.AddSingleton<SnapshotService>();
+        services.AddSingleton<ThemeService>();
         services.AddSingleton<BackupService>();
 
         // OnvifService (depends on QCTekService + RtspUrlResolver)

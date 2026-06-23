@@ -45,6 +45,10 @@
                             Style="{StaticResource NavButton}"
                             ToolTip="系統設定"
                             Click="BtnSettings_Click"/>
+                    <Button x:Name="BtnTheme" Content="☀" Width="45" Height="42" Padding="0"
+                            Style="{StaticResource NavButton}"
+                            ToolTip="切換主題"
+                            Click="BtnThemeToggle_Click"/>
                 </StackPanel>
                 <Button x:Name="BtnNotification" Grid.Row="1"
                         Content="🔔" Width="45" Height="42" Padding="0"

@@ -136,6 +136,12 @@ public partial class MainWindow : Window {
     private void BtnDevice_Click(object sender, RoutedEventArgs e) => SwitchToDevice();
     private void BtnLicense_Click(object sender, RoutedEventArgs e) => SwitchToLicense();
     private void BtnSettings_Click(object sender, RoutedEventArgs e) => SwitchToSettings();
+    private void BtnThemeToggle_Click(object sender, RoutedEventArgs e) {
+        try {
+            App.Services.GetRequiredService<ThemeService>().Toggle();
+            BtnTheme.Content = App.Services.GetRequiredService<ThemeService>().CurrentTheme == "Dark" ? "☀" : "🌙";
+        } catch { }
+    }
 
     private void SwitchToLive() {
         SelectNavButton(BtnLive);
