@@ -93,6 +93,35 @@
                                    Foreground="{StaticResource SecondaryTextBrush}"/>
                     </StackPanel>
                 </Border>
+
+                <Border Style="{StaticResource CardBorder}" MinWidth="180" Margin="0,0,12,12" Padding="20">
+                    <StackPanel>
+                        <TextBlock Text="今日警示統計" Style="{StaticResource SectionHeader}" Margin="0,0,0,8"/>
+                        <WrapPanel>
+                            <StackPanel Margin="0,0,12,0">
+                                <TextBlock Text="{Binding ElementName=AlertStatsText, Path=Text}" FontSize="11"
+                                           Foreground="{StaticResource ErrorBrush}" FontWeight="Bold"/>
+                                <TextBlock x:Name="AlertCountText" Text="0" FontSize="28" FontWeight="Bold"
+                                           Foreground="{StaticResource ErrorBrush}"/>
+                                <TextBlock Text="錯誤" Foreground="{StaticResource SecondaryTextBrush}" FontSize="11"/>
+                            </StackPanel>
+                            <StackPanel Margin="0,0,12,0">
+                                <TextBlock Text="警告" FontSize="11"
+                                           Foreground="{StaticResource WarningBrush}" FontWeight="Bold"/>
+                                <TextBlock x:Name="WarningCountText" Text="0" FontSize="28" FontWeight="Bold"
+                                           Foreground="{StaticResource WarningBrush}"/>
+                            </StackPanel>
+                            <StackPanel>
+                                <TextBlock Text="資訊" FontSize="11"
+                                           Foreground="{StaticResource PrimaryBrush}" FontWeight="Bold"/>
+                                <TextBlock x:Name="InfoCountText" Text="0" FontSize="28" FontWeight="Bold"
+                                           Foreground="{StaticResource PrimaryBrush}"/>
+                            </StackPanel>
+                        </WrapPanel>
+                        <TextBlock x:Name="AlertStatsText" Text="" FontSize="11" Margin="0,8,0,0"
+                                   Foreground="{StaticResource SecondaryTextBrush}"/>
+                    </StackPanel>
+                </Border>
             </WrapPanel>
 
             <!-- Camera health list -->

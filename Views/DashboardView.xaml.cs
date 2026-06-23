@@ -123,6 +123,21 @@ public partial class DashboardView : UserControl {
             _ => TryFindResource("PrimaryBrush") as Brush ?? Brushes.DodgerBlue,
         };
         StorageBreakdownText.Text = $"{diskFreeGB:F1} GB 可用 ｜ {diskTotalGB - diskFreeGB:F1} GB 已使用";
+
+        // Alert stats for today
+        try {
+            var today = DateTime.Today;
+            var allEvents = _eventLog.QueryEvents(null, null, null, 5000);
+            var todayEvents = allEvents.Where(e => e.Timestamp.Date == today.Date).ToList();
+            AlertCountText.Text = todayEvents.Count(e => e.Severity == "ERROR").ToString();
+            WarningCountText.Text = todayEvents.Count(e => e.Severity == "WARN").ToString();
+            InfoCountText.Text = todayEvents.Count(e => e.Severity == "INFO").ToString();
+            AlertStatsText.Text = $"共 {todayEvents.Count} 筆事件 ｜ {today:MM/dd}";
+        } catch {
+            AlertCountText.Text = "—";
+            WarningCountText.Text = "—";
+            InfoCountText.Text = "—";
+        }
     }
 
     private void RefreshRecordingStats() {
