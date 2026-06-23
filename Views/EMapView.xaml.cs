@@ -224,6 +224,8 @@ public partial class EMapView : UserControl {
             return;
         }
 
+        if (e.ChangedButton != MouseButton.Left) return;
+
         _isDraggingCamera = true;
         _dragTarget = el;
         _dragCameraStart = e.GetPosition(MapContainer);
