@@ -17,6 +17,9 @@ public class RuleCondition {
     [JsonPropertyName("type")] public string Type { get; set; } = "";
     [JsonPropertyName("cameraIds")] public List<string> CameraIds { get; set; } = [];
     [JsonPropertyName("scheduleCron")] public string? ScheduleCron { get; set; }
+    [JsonPropertyName("timeStart")] public string? TimeStart { get; set; }
+    [JsonPropertyName("timeEnd")] public string? TimeEnd { get; set; }
+    [JsonPropertyName("daysOfWeek")] public List<int> DaysOfWeek { get; set; } = [];
 }
 
 public class RuleAction {

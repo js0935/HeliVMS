@@ -80,6 +80,13 @@ public sealed class EventRuleService : IEventRuleService {
                 return false;
             if (c.CameraIds.Count > 0 && !c.CameraIds.Contains(cameraId, StringComparer.OrdinalIgnoreCase))
                 return false;
+            if (!string.IsNullOrEmpty(c.TimeStart) || !string.IsNullOrEmpty(c.TimeEnd)) {
+                var now = DateTime.Now.TimeOfDay;
+                if (TimeSpan.TryParse(c.TimeStart, out var start) && now < start) return false;
+                if (TimeSpan.TryParse(c.TimeEnd, out var end) && now > end) return false;
+            }
+            if (c.DaysOfWeek.Count > 0 && !c.DaysOfWeek.Contains((int)DateTime.Now.DayOfWeek))
+                return false;
         }
         return true;
     }
