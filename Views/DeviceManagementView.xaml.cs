@@ -44,6 +44,9 @@ public partial class DeviceManagementView : UserControl {
 
     private int _currentTab;
     private List<Camera>? _camerasWithStatus;
+    private CameraGroupService? _lazyGroupService;
+    private CameraGroupService GroupService => _lazyGroupService ??= App.Services.GetRequiredService<CameraGroupService>();
+    private string? _selectedGroupId;
 
     private void TabButton_Click(object sender, RoutedEventArgs e) {
         if (sender is Button { Tag: string tag } && int.TryParse(tag, out var index)) {
@@ -83,15 +86,25 @@ public partial class DeviceManagementView : UserControl {
             ? TryFindResource("TextBrush") as Brush ?? Brushes.White
             : TryFindResource("SecondaryTextBrush") as Brush ?? Brushes.Gray;
 
+        TabGroup.BorderBrush = index == 4
+            ? TryFindResource("PrimaryBrush") as Brush ?? Brushes.DodgerBlue
+            : Brushes.Transparent;
+        TabGroup.Foreground = index == 4
+            ? TryFindResource("TextBrush") as Brush ?? Brushes.White
+            : TryFindResource("SecondaryTextBrush") as Brush ?? Brushes.Gray;
+
         DeviceSettingsPanel.Visibility = index == 0 ? Visibility.Visible : Visibility.Collapsed;
         RecordingSettingsPanel.Visibility = index == 1 ? Visibility.Visible : Visibility.Collapsed;
         StorageManagerPanel.Visibility = index == 2 ? Visibility.Visible : Visibility.Collapsed;
         ChannelManagementPanel.Visibility = index == 3 ? Visibility.Visible : Visibility.Collapsed;
+        GroupPanel.Visibility = index == 4 ? Visibility.Visible : Visibility.Collapsed;
 
         if (index == 1) {
             RecordingSettingsPanel.RefreshCameraList();
         } else if (index == 3) {
             ChannelManagementPanel.LoadChannels();
+        } else if (index == 4) {
+            LoadGroupTab();
         }
     }
 
@@ -478,6 +491,68 @@ public partial class DeviceManagementView : UserControl {
         if (m.Contains("pelco")) { return "pelco"; }
         if (m.Contains("aver") || m.Contains("avermedia") || m.Contains("aver information")) { return "aver"; }
         return "";
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  Camera group management
+    // ═══════════════════════════════════════════════════════════
+
+    private void LoadGroupTab() {
+        GroupListBox.ItemsSource = null;
+        GroupListBox.ItemsSource = GroupService.Groups.ToList();
+        GroupListBox.DisplayMemberPath = "Name";
+    }
+
+    private void GroupList_SelectionChanged(object sender, SelectionChangedEventArgs e) {
+        if (GroupListBox.SelectedItem is CameraGroup group) {
+            _selectedGroupId = group.Id;
+            GroupCameraHeader.Text = $"群組：{group.Name}";
+            var cameras = _cameraService.GetAllCameras();
+            var checkItems = cameras.Select(c => new CameraCheckItem {
+                Id = c.Id,
+                Name = c.Name ?? c.Id,
+                IsInGroup = group.CameraIds.Contains(c.Id),
+            }).ToList();
+            GroupCameraCheckList.ItemsSource = checkItems;
+        } else {
+            _selectedGroupId = null;
+            GroupCameraHeader.Text = "選取群組以編輯攝影機";
+            GroupCameraCheckList.ItemsSource = null;
+        }
+    }
+
+    private void AddGroup_Click(object sender, RoutedEventArgs e) {
+        var name = NewGroupNameBox.Text.Trim();
+        if (string.IsNullOrEmpty(name)) { MessageBox.Show("請輸入群組名稱", "提示", MessageBoxButton.OK, MessageBoxImage.Information); return; }
+        GroupService.AddGroup(name);
+        NewGroupNameBox.Clear();
+        LoadGroupTab();
+        GroupListBox.SelectedIndex = GroupListBox.Items.Count - 1;
+    }
+
+    private void DeleteGroup_Click(object sender, RoutedEventArgs e) {
+        if (_selectedGroupId is null) { MessageBox.Show("請先選取要刪除的群組", "提示", MessageBoxButton.OK, MessageBoxImage.Information); return; }
+        if (MessageBox.Show("確定刪除此群組？攝影機不會被刪除。", "確認", MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes) {
+            GroupService.DeleteGroup(_selectedGroupId);
+            _selectedGroupId = null;
+            LoadGroupTab();
+            GroupCameraCheckList.ItemsSource = null;
+        }
+    }
+
+    private void GroupCameraCheck_Changed(object sender, RoutedEventArgs e) {
+        if (_selectedGroupId is null || sender is not CheckBox { DataContext: CameraCheckItem item }) return;
+        if (item.IsInGroup) {
+            GroupService.AddCameraToGroup(_selectedGroupId, item.Id);
+        } else {
+            GroupService.RemoveCameraFromGroup(_selectedGroupId, item.Id);
+        }
+    }
+
+    private class CameraCheckItem {
+        public string Id { get; set; } = "";
+        public string Name { get; set; } = "";
+        public bool IsInGroup { get; set; }
     }
 
     private static string? TryBuildSubUrlByBrand(OnvifDiscoveryResult result, string username, string password) {

@@ -39,6 +39,11 @@
                         Foreground="{StaticResource SecondaryTextBrush}"
                         BorderThickness="0,0,0,2" BorderBrush="Transparent"
                         Click="TabButton_Click"/>
+                <Button x:Name="TabGroup" Content="攝影機群組" Tag="4" Padding="16,10" FontSize="13"
+                        FontWeight="SemiBold" Cursor="Hand" Background="Transparent"
+                        Foreground="{StaticResource SecondaryTextBrush}"
+                        BorderThickness="0,0,0,2" BorderBrush="Transparent"
+                        Click="TabButton_Click"/>
             </StackPanel>
         </Border>
 
@@ -210,5 +215,45 @@
 
         <!-- Channel management panel -->
         <controls:ChannelManagementPage Grid.Row="1" x:Name="ChannelManagementPanel" Visibility="Collapsed"/>
+
+        <!-- Group management panel -->
+        <Grid Grid.Row="1" x:Name="GroupPanel" Visibility="Collapsed">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="250"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+            <Border Grid.Column="0" Style="{StaticResource CardBorder}" Padding="12" Margin="0,0,8,0">
+                <StackPanel>
+                    <TextBlock Text="群組列表" Style="{StaticResource SectionHeader}" Margin="0,0,0,8"/>
+                    <ListBox x:Name="GroupListBox" Background="Transparent" BorderThickness="0"
+                             MinHeight="200" SelectionChanged="GroupList_SelectionChanged"/>
+                    <WrapPanel Margin="0,8,0,0">
+                        <TextBox x:Name="NewGroupNameBox" MinWidth="120" Height="24" FontSize="11"
+                                 Style="{StaticResource ModernTextBox}"/>
+                        <Button Content="新增" Height="24" FontSize="11" Padding="8,0" Margin="4,0,0,0"
+                                Style="{StaticResource ModernButton}" Click="AddGroup_Click"/>
+                    </WrapPanel>
+                    <Button x:Name="DeleteGroupBtn" Content="刪除選取群組" Height="24" FontSize="11"
+                            Margin="0,8,0,0" Style="{StaticResource SecondaryButton}"
+                            Click="DeleteGroup_Click"/>
+                </StackPanel>
+            </Border>
+            <Border Grid.Column="1" Style="{StaticResource CardBorder}" Padding="12">
+                <StackPanel>
+                    <TextBlock x:Name="GroupCameraHeader" Text="選取群組以編輯攝影機"
+                               Style="{StaticResource SectionHeader}" Margin="0,0,0,8"/>
+                    <ItemsControl x:Name="GroupCameraCheckList" Background="Transparent" BorderThickness="0">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <CheckBox Content="{Binding Name}" IsChecked="{Binding IsInGroup}"
+                                          FontSize="12" Foreground="{StaticResource TextBrush}"
+                                          Margin="0,2" Checked="GroupCameraCheck_Changed"
+                                          Unchecked="GroupCameraCheck_Changed"/>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </StackPanel>
+            </Border>
+        </Grid>
     </Grid>
 </UserControl>
