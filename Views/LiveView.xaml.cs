@@ -25,6 +25,8 @@ public partial class LiveView : UserControl {
     private ICameraService CameraService => _lazyCamera ??= App.Services.GetRequiredService<ICameraService>();
     private IVideoIndexService? _lazyVideoIndex;
     private IVideoIndexService VideoIndex => _lazyVideoIndex ??= App.Services.GetRequiredService<IVideoIndexService>();
+    private ILayoutService? _lazyLayout;
+    private ILayoutService LayoutService => _lazyLayout ??= App.Services.GetRequiredService<ILayoutService>();
     private Camera? _ptzCamera;
     private bool _isFullScreen;
     private bool _initialized;
@@ -49,6 +51,7 @@ public partial class LiveView : UserControl {
     private bool _timelineSyncing;
     private bool _isDraggingTimeline;
 
+    private int _currentGridSize = 4;
     private const int DefaultGridSize = 4;
     private const int MaxSlots = 64;
 
@@ -77,6 +80,7 @@ public partial class LiveView : UserControl {
         StartLiveTicker();
         RefreshRecordingBars();
         StartRecordingBarTimer();
+        PopulateLayoutCombo();
 
         Log.Debug("[LiveView] Loaded — cameras in grid: {Count}",
             VideoGrid.GetSlotCameras().Count(c => c is not null));
@@ -148,8 +152,52 @@ public partial class LiveView : UserControl {
     }
 
     private void Layout_Click(object sender, RoutedEventArgs e) {
-        if (sender is Button { Tag: string tag } && int.TryParse(tag, out var size))
+        if (sender is Button { Tag: string tag } && int.TryParse(tag, out var size)) {
+            _currentGridSize = size;
             VideoGrid.SetSlotCount(size);
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  Layout Save / Load
+    // ═══════════════════════════════════════════════════════════
+
+    private void PopulateLayoutCombo() {
+        LayoutCombo.Items.Clear();
+        LayoutCombo.Items.Add(new ComboBoxItem { Content = "📋 版面配置...", Tag = "", IsSelected = true });
+        foreach (var layout in LayoutService.GetAllLayouts()) {
+            LayoutCombo.Items.Add(new ComboBoxItem {
+                Content = $"📐 {layout.Name} ({layout.GridSize})",
+                Tag = layout.Id
+            });
+        }
+    }
+
+    private void LayoutCombo_SelectionChanged(object sender, SelectionChangedEventArgs e) {
+        if (LayoutCombo.SelectedItem is ComboBoxItem { Tag: string id } && !string.IsNullOrEmpty(id)) {
+            var layout = LayoutService.GetLayoutById(id);
+            if (layout is null) return;
+            VideoGrid.SetSlotCount(layout.GridSize);
+            var cameras = CameraService.GetAllCameras();
+            var camMap = cameras.ToDictionary(c => c.Id, c => c);
+            var arr = new Camera?[layout.Slots.Count];
+            for (int i = 0; i < layout.Slots.Count; i++) {
+                var camId = layout.Slots[i];
+                arr[i] = camId is not null && camMap.TryGetValue(camId, out var cam) ? cam : null;
+            }
+            VideoGrid.LoadCameras(arr);
+        }
+    }
+
+    private void BtnSaveLayout_Click(object sender, RoutedEventArgs e) {
+        var dlg = new Dialog.InputDialog("儲存版面配置", "請輸入配置名稱：", "") {
+            Owner = Window.GetWindow(this)
+        };
+        if (dlg.ShowDialog() == true && !string.IsNullOrWhiteSpace(dlg.Value)) {
+            var slots = VideoGrid.GetSlotCameras().Take(_currentGridSize).Select(c => c?.Id).ToList();
+            LayoutService.SaveLayout(dlg.Value.Trim(), _currentGridSize, slots);
+            PopulateLayoutCombo();
+        }
     }
 
     // ═══════════════════════════════════════════════════════════

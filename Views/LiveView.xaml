@@ -71,6 +71,13 @@
                 </Grid.ColumnDefinitions>
 
                 <StackPanel Orientation="Horizontal" Grid.Column="0">
+                    <ComboBox x:Name="LayoutCombo" Width="100" Height="22" FontSize="11"
+                              Style="{StaticResource ModernComboBox}"
+                              SelectionChanged="LayoutCombo_SelectionChanged"/>
+                    <Button x:Name="BtnSaveLayout" Content="💾" Width="24" Height="22" Padding="0" FontSize="12"
+                            Style="{StaticResource FlatButton}"
+                            ToolTip="儲存目前版面配置"
+                            Click="BtnSaveLayout_Click"/>
                     <Separator Style="{StaticResource {x:Static ToolBar.SeparatorStyleKey}}"
                                Margin="4,0" Foreground="#40FFFFFF"/>
                     <Button Content="1" Width="26" Height="22" Padding="0" FontSize="10"
