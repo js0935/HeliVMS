@@ -234,6 +234,24 @@ public partial class App : Application {
             Log.Warning(ex, "Alert dispatcher start failed (non-fatal)");
         }
 
+        // Start recording watchdog (auto-restart failed recordings)
+        try {
+            var watchdog = Services.GetRequiredService<IRecordingWatchdogService>();
+            watchdog.Start();
+            Log.Information("Recording watchdog started");
+        } catch (Exception ex) {
+            Log.Warning(ex, "Recording watchdog start failed (non-fatal)");
+        }
+
+        // Start disconnect buffer service
+        try {
+            var buffer = Services.GetRequiredService<IDisconnectBufferService>();
+            buffer.Start();
+            Log.Information("Disconnect buffer service started");
+        } catch (Exception ex) {
+            Log.Warning(ex, "Disconnect buffer start failed (non-fatal)");
+        }
+
         // Migrate camera settings from old project
         TryMigrateCameras();
     }
@@ -312,6 +330,8 @@ public partial class App : Application {
         services.AddSingleton<IPushNotificationService, PushNotificationService>();
         services.AddSingleton<IAlertDispatcherService, AlertDispatcherService>();
         services.AddSingleton<IAudioTalkService, AudioTalkService>();
+        services.AddSingleton<IRecordingWatchdogService, RecordingWatchdogService>();
+        services.AddSingleton<IDisconnectBufferService, DisconnectBufferService>();
         services.AddSingleton<ISettingsService, SettingsService>();
         services.AddSingleton<IBrandConfigService, BrandConfigService>();
         services.AddSingleton<ILicenseService, LicenseService>();
