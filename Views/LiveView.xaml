@@ -7,6 +7,47 @@
     <Grid>
         <controls:DynamicCameraGrid x:Name="VideoGrid"/>
 
+        <!-- Camera search filter -->
+        <TextBox x:Name="CameraFilterBox"
+                 HorizontalAlignment="Right" VerticalAlignment="Top"
+                 Width="200" Height="26" Margin="0,8,8,0"
+                 FontSize="12" Padding="6,2"
+                 Background="#CC111111" Foreground="{StaticResource TextBrush}"
+                 BorderBrush="{StaticResource BorderBrush}" BorderThickness="1"
+                 Panel.ZIndex="30"
+                 TextChanged="CameraFilterBox_TextChanged">
+            <TextBox.Style>
+                <Style TargetType="TextBox">
+                    <Setter Property="Background" Value="#CC111111"/>
+                    <Style.Triggers>
+                        <Trigger Property="Text" Value="">
+                            <Setter Property="Background" Value="#CC111111"/>
+                        </Trigger>
+                    </Style.Triggers>
+                </Style>
+            </TextBox.Style>
+        </TextBox>
+        <TextBlock Text="🔍 搜尋攝影機" FontSize="10"
+                   HorizontalAlignment="Right" VerticalAlignment="Top"
+                   Margin="0,13,216,0" Panel.ZIndex="31"
+                   Foreground="{StaticResource SecondaryTextBrush}"
+                   IsHitTestVisible="False">
+            <TextBlock.Style>
+                <Style TargetType="TextBlock">
+                    <Setter Property="Visibility" Value="Collapsed"/>
+                    <Style.Triggers>
+                        <MultiDataTrigger>
+                            <MultiDataTrigger.Conditions>
+                                <Condition Binding="{Binding Text, ElementName=CameraFilterBox}" Value=""/>
+                                <Condition Binding="{Binding IsKeyboardFocusWithin, ElementName=CameraFilterBox}" Value="False"/>
+                            </MultiDataTrigger.Conditions>
+                            <Setter Property="Visibility" Value="Visible"/>
+                        </MultiDataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </TextBlock.Style>
+        </TextBlock>
+
         <!-- Timeline Container (floating overlay) -->
         <Border x:Name="TimelineContainer"
                 VerticalAlignment="Bottom"

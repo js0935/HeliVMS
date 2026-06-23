@@ -127,6 +127,27 @@ public partial class LiveView : UserControl {
         }
     }
 
+    private void CameraFilterBox_TextChanged(object sender, TextChangedEventArgs e) {
+        try {
+            var all = CameraService.GetAllCameras();
+            var filter = CameraFilterBox.Text.Trim().ToLowerInvariant();
+            IEnumerable<Camera> filtered = all;
+            if (!string.IsNullOrEmpty(filter))
+                filtered = all.Where(c => c.Name.ToLowerInvariant().Contains(filter)
+                    || c.Id.ToLowerInvariant().Contains(filter));
+
+            var count = Math.Min(filtered.Count(), MaxSlots);
+            var arr = new Camera?[count];
+            var i = 0;
+            foreach (var cam in filtered.Take(count))
+                arr[i++] = cam;
+
+            VideoGrid.LoadCameras(arr);
+        } catch (Exception ex) {
+            Log.Debug("[LiveView] Filter error: {Msg}", ex.Message);
+        }
+    }
+
     private void OnSlotChanged(Camera? camera, int slotIndex) {
         _ptzCamera = camera is { HasPTZ: true } ? camera : null;
         PtzBar.Visibility = _ptzCamera is not null ? Visibility.Visible : Visibility.Collapsed;
