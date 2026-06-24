@@ -369,9 +369,10 @@ public partial class VideoPlayer : UserControl {
             ReconnectingOverlay.Visibility = Visibility.Collapsed;
             StatusText.Text = "連線中...";
 
+            var enableHw = GetCachedSettings()?.Settings.EnableHardwareAcceleration ?? true;
             _flyleafConfig = new Config();
             _flyleafConfig.Video.ClearScreen = true;
-            _flyleafConfig.Video.VideoAcceleration = true;
+            _flyleafConfig.Video.VideoAcceleration = enableHw;
             _flyleafConfig.Decoder.LowDelay = true;
             _flyleafConfig.Decoder.AllowDropFrames = true;
             _flyleafConfig.Player.ZeroLatency = true;
@@ -503,8 +504,9 @@ public partial class VideoPlayer : UserControl {
         }
         StatusText.Text = "連線中...";
 
+        var enableHw = GetCachedSettings()?.Settings.EnableHardwareAcceleration ?? true;
         _streamingService = new FFmpegStreamingService {
-            HwDeviceType = AVHWDeviceType.AV_HWDEVICE_TYPE_D3D11VA,
+            HwDeviceType = enableHw ? AVHWDeviceType.AV_HWDEVICE_TYPE_D3D11VA : AVHWDeviceType.AV_HWDEVICE_TYPE_NONE,
             UseAsyncRtsp = (GetCachedSettings()?.Settings.UseAsyncRtspLiveView).GetValueOrDefault()
         };
 

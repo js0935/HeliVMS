@@ -316,16 +316,29 @@ public class AuthenticationService : IAuthenticationService {
 
     private void TryRestoreSession() {
         try {
-            if (!File.Exists(_sessionPath)) { return; }
+            if (!File.Exists(_sessionPath)) {
+                Serilog.Log.Debug("[Auth] No session file at {Path}", _sessionPath);
+                return;
+            }
             var json = File.ReadAllText(_sessionPath);
             var data = JsonSerializer.Deserialize<SessionData>(json);
             if (data is not null) {
                 var user = _userService.GetUserById(data.UserId);
                 if (user is not null) {
                     CurrentUser = user;
+                    Serilog.Log.Debug("[Auth] Session restored: User={User}, Id={Id}", user.Username, data.UserId);
+                } else {
+                    Serilog.Log.Warning("[Auth] Session UserId={Id} not found in user store — clearing", data.UserId);
+                    ClearSession();
                 }
+            } else {
+                Serilog.Log.Warning("[Auth] Session file corrupt — clearing");
+                ClearSession();
             }
-        } catch { ClearSession(); }
+        } catch (Exception ex) {
+            Serilog.Log.Warning(ex, "[Auth] Session restore failed — clearing");
+            ClearSession();
+        }
     }
 
     private record SessionData(string UserId);

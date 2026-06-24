@@ -12,11 +12,22 @@ using HeliVMS.Services;
 namespace HeliVMS.Controls;
 
 public partial class NxTimeline : UserControl {
-    private static readonly Color ColorContinuous = Color.FromRgb(0x21, 0x96, 0xF3);
-    private static readonly Color ColorMotion = Color.FromRgb(0xFF, 0x57, 0x22);
-    private static readonly Color ColorAlarm = Color.FromRgb(0xF4, 0x43, 0x36);
-    private static readonly Color ColorAi = Color.FromRgb(0xFF, 0xC1, 0x07);
+    private static readonly Color ColorContinuous = LoadColor("RecordingContinuousColor");
+    private static readonly Color ColorMotion = LoadColor("RecordingMotionColor");
+    private static readonly Color ColorAlarm = LoadColor("RecordingAlarmColor");
+    private static readonly Color ColorAi = LoadColor("RecordingAiColor");
     private static readonly Color ColorNoData = Color.FromArgb(30, 0xFF, 0xFF, 0xFF);
+
+    private static Color LoadColor(string key) {
+        if (Application.Current?.TryFindResource(key) is Color c) return c;
+        return key switch {
+            "RecordingContinuousColor" => Color.FromRgb(0x21, 0x96, 0xF3),
+            "RecordingMotionColor" => Color.FromRgb(0xFF, 0x57, 0x22),
+            "RecordingAlarmColor" => Color.FromRgb(0xF4, 0x43, 0x36),
+            "RecordingAiColor" => Color.FromRgb(0xFF, 0xC1, 0x07),
+            _ => Colors.Gray,
+        };
+    }
 
     private static readonly double[] ZoomLevels = [86400, 43200, 21600, 10800, 3600];
     private static readonly double[] TickIntervals = [7200, 3600, 1800, 900, 300];

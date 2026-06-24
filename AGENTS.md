@@ -16,45 +16,42 @@ This project uses **全自主模式** — the agent should:
 
 ## 專案狀態
 ### 已完成 (Done)
-- **側欄全面改造為 Nx Witness 風格**
-- **所有 XAML emoji 全數取代為 PathGeometry 向量圖示**（曾使用 📹🔖📷🎥🔍📤📥💾🔄🗑📋📊☀🌙 等全部清除，僅餘 D3DImageRenderer 開發註解 🔴）
-- **所有 C# code-behind emoji 清除**：MainWindow 狀態列（📷💾🧠）、PlaybackView 同步指示器（🔄）、NxTimeline ToolTip（📌）、UserEditDialog 複製按鈕（✅📋）
-- **CameraTreePanel 重構**：📁/⭐/📷 emoji 改為 PathGeometry（IconGeometry 屬性）、全部 #FFFFFFFF/#FF000000 等 6 種硬編碼色碼改為 StaticResource
-- **SidebarButton 統一樣式**（48x42px + 左側 3px accent 指示條）
-- **SettingsView/ExportDialog/EventRuleEditDialog 硬編碼色碼全面修正**
-- **CameraPickerDialog/ShortcutHelpView/DashboardView 硬編碼色碼全面修正**
-- **LiveView 控制列 emoji 全數取代 + TimelineContainer/ControlBar 硬編碼色碼**
-- **PlaybackView 14 處 emoji 取代 + 書籤動畫重構（Grid 包裝 Path/TextBlock 切換）**
-- **MainWindow drawer 📹→IconCamera + 主題切鈕改用 ToolTip**
-- **VideoPlayer/PlaybackPlayer/CameraGrid/ChannelManagementPage 全面修正**
-- **Icons.xaml 擴充至 40 個 PathGeometry 圖示**（新增 IconFolder/IconStar/IconStop/IconRewind/IconFastForward）
-- **LiveView.xaml/VideoPlayer.xaml/PlaybackPlayer.xaml 全部硬編碼色碼改為 StaticResource**
-- **C# 全面清除生產代碼 emoji**：PlaybackView.xaml.cs（☑/☐/★）、SettingsView.xaml.cs（✓/✗）、MainWindow.xaml.cs（⚡）、PTZControlPanel.xaml.cs（✕/⏹）、CameraEditDialog.xaml.cs/ExportDialog.xaml.cs（✓/✗）
-- **XAML 全面清除生產代碼 emoji**：SettingsView.xaml（✓✗✕）、ChannelManagementPage.xaml（⚡）
-- **PlaybackView.xaml 14 顆傳輸控制 emoji → PathGeometry 圖示**（⏮⏸⏭⏪⏩⏹⏳✕ → IconSkipBack/IconPause/IconSkipForward/IconRewind/IconFastForward/IconStop/IconInfo/IconClose）
-- **攝影機樹狀節點狀態指示燈改良**：IsConnected PropertyChanged 通知、圓點 6px→8px、ConnectionColor 改用 StaticResource SuccessBrush/ErrorBrush
-- **四次 commit + push，所有建置 0 錯誤 0 警告**
+- **側欄全面改造為 Nx Witness 風格**：48px 窄側欄 + SidebarButton 樣式（左側 3px accent 指示條）+ SubMenuDrawer（Settings 11 項 / Device 5 項）
+- **生產代碼 emoji 全數清零**：XAML（SettingsView ✓✗✕、ChannelManagementPage ⚡、PlaybackView 14 顆傳輸控制）與 C# 全面清除
+- **Icons.xaml 擴充至 40 個 PathGeometry 圖示**：IconStop/IconRewind/IconFastForward/IconPause/IconSkipBack/IconSkipForward/IconSearch/IconLogout 等
+- **全部 ContextMenu 加入 PathGeometry 圖示 + 鍵盤快捷鍵提示**：CameraTreePanel（8 項）、VideoPlayer（6 項）、PlaybackPlayer（4 項）、MainWindow 側欄（14 項）、LayoutTabBar（4 項）、EMapView（6 項）、NxTimeline（4 項）— 全部 MenuItem.Icon + InputGestureText
+- **LiveView/VideoPlayer/PlaybackPlayer/PlaybackView 全部硬編碼色碼 → StaticResource**（約 100+ 行清理）
+- **DynamicCameraGrid 全部硬編碼色碼 → StaticResource** + 容器追蹤修復 MaximizeSlot bug
+- **NotificationsPanel/LayoutTabBar/NxTimeline/TimelineControl/SettingsView 等全面硬編碼色碼清理**（新增 60+ 行 StaticResource 替換）
+- **Colors.xaml 新增錄影類型 Brushes** + 應用至 RecordingSettingsPage（RecordingContinuousBrush/MotionBrush/AlarmBrush/AiBrush）
+- **CameraTreeItem 狀態燈即時更新**：IsConnected PropertyChanged、圓點 6px→8px、ConnectionColor StaticResource 快取
+- **DynamicCameraGrid.MaximizeSlot bug 修復**：_containers[] 陣列追蹤容器層級
+- **LiveView 版面配置改為 Popup 視覺化 Grid 預覽**：取代 8 顆純文字按鈕
+- **登出改為 NavigateToLogin**：而非 Application.Current.Shutdown()
+- **MainWindow_Loaded 加入 try-catch 診斷日誌**
 
-### 進行中 (In Progress)
-- 持續對照 Nx Witness UI 模式強化功能選單
+### 待完成 (~15%)
+- 登入畫面不出現（需 log 定位）
+- 版面預覽 Popup 拖放選擇器（Nx 風格 grid 預覽升級）
+- Flyleaf 硬體加速整合
+- 錄影類型色碼應用至 NxTimeline 區塊著色（C# code-behind 繪圖，目前顏色值與 Colors.xaml 一致）
 
 ### 阻塞中 (Blocked)
 - 使用者回報 **設備管理（DeviceManagementView）無法管理攝影機** — 需檢視執行時期行為，目前無法透過靜態分析重現
 
 ## 關鍵決策 (Key Decisions)
-- **Nx Witness 側欄風格**：保留 48px 窄側欄設計（非 Nx 頂部分頁列），因 HeliVMS 以 View 切換為核心；向量圖示 + 左側 accent 指示條 + 正確暗色主題色系
-- **SidebarButton 而非 RadioButton**：因需容納非導覽按鈕（主題/通知/使用者），改為 Button 基底 + 手動 Opacity 管理
-- **白底灰字修復策略**：TextBox/PasswordBox/ComboBox 三個屬性皆硬編碼 → Style="{StaticResource Modern...}"；僅部分屬性 → 逐一改為 StaticResource
-- **Emoji 取代策略**：Button 內 Path 元素取代純 emoji；text+emoji 保留文字移除 emoji；C# code-behind 使用 TextBlock/Path Visibility 切換取代 Content= 寫法；樹狀節點 IconGeometry 改用 Geometry.Parse 繫結
+- **Nx Witness 側欄 vs 頂部分頁列**：保留 48px 窄側欄設計，搭配 ContextMenu 快速操作捷徑
+- **SubMenuDrawer 雙模式**：Settings/Device 共用同一 Border 但內部兩個 ScrollViewer
+- **Sidebar ContextMenu 整合**：右鍵選單透過 MainWindow code-behind 判斷 MainWorkArea.Content 型別呼叫對應方法
+- **錄影類型 Brushes 統一**：RecordingContinuous/Motion/Alarm/Ai 4 組作為全域色彩語言
 
-## 下一步 (Next Steps)
-- 等待使用者確認 Nx Witness 風格改造結果，或指出更多需改良之處
-- 確認 DeviceManagementView 執行時期異常原因
+## 下一步
+- 等待使用者確認登入問題（提供 log）
 - 持續監看 ROADMAP.md 優先順序
+- 待使用者指示再繼續
 
-## 重要上下文 (Critical Context)
+## 重要上下文
 - 所有 `dotnet build` 輸出「建置成功。0 個警告 0 個錯誤」
-- 側欄：6 顆導覽按鈕（Live/Device/License/Dashboard/EMap/Settings）+ 3 顆工具按鈕（Theme/Notification/User），分隔線區隔
+- 側欄：6 顆導覽按鈕 + 3 顆工具按鈕，分隔線區隔
 - 專案 GitHub：`https://github.com/js0935/HeliVMS`，版本 1.0.0
-- 使用者提示「持續優化不要停止除非我中斷」
 - emoji 全數清除僅餘 1 筆開發註解（D3DImageRenderer.cs:125 🔴）
