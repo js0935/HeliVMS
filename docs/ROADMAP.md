@@ -155,6 +155,88 @@
 - 巡航路線儲存至 Data/ptz_tours.json
 - PTZControlPanel 整合刪除按鈕，載入攝影機時自動載入對應路線
 
+### ✅ 錄影日曆點選播放
+- Dashboard 日曆點選日期跳轉至 LiveView 播放該日錄影
+
+### ✅ 攝影機我的最愛
+- Camera.IsFavorite 欄位，樹頂 ⭐ 群組，右鍵切換
+
+### ✅ 錄影排程例外日期 (ScheduleException)
+- 三種覆寫模式：StopRecording/RecordFullDay/Ignore
+- Settings 排程分頁例外日期 UI，RecordingScheduleService 整合檢查
+
+### ✅ 地圖拖曳修正
+- 只允許左鍵拖曳移動攝影機，修正工具提示文字
+
+### ✅ 儀表板歷史圖表 (MetricsHistoryService)
+- 每分鐘記錄頻寬/儲存/CPU/記憶體趨勢，DashboardView Polyline 折線圖
+
+### ✅ PTZ 操控鍵盤熱鍵
+- 方向鍵/WASD 移動、Q/E 縮放、空白鍵停止
+
+### ✅ 事件規則時段條件
+- RuleCondition.TimeStart/TimeEnd/DaysOfWeek，編輯對話框 UI，評估邏輯
+
+### ✅ 事件規則動作參數編輯
+- EventRuleEditDialog 檢視編輯動作參數，InputDialog 多行輸入
+
+### ✅ 事件規則錄影動作
+- StartRecording/StopRecording 動作類型
+
+### ✅ 攝影機 CSV 批量匯入/匯出
+- DeviceManagementView 工具列 CSV 匯入匯出按鈕
+
+### ✅ 錄影排程複製
+- CameraPickerDialog 選取目標攝影機複製排程
+
+### ✅ 儀表板系統執行時間
+- 顯示系統已執行時間，CPU/記憶體使用率折線圖
+
+### ✅ LiveView 全域搜尋熱鍵 Ctrl+F
+- 聚焦 CameraTreePanel 搜尋框
+
+### ✅ CameraTreePanel 連線狀態指示燈
+- 綠色(在線)/紅色(離線)圓點
+
+### ✅ 底部狀態列 (Status Bar)
+- 顯示在線/錄影數、頻寬、儲存、CPU、記憶體、時鐘
+
+### ✅ 攝影機樹狀面板展開狀態持久化
+- 群組展開/收合儲存至 tree_state.json
+
+### ✅ 錄影回放快轉/倒轉 30 秒
+- ⏪ / ⏩(30) 跳轉按鈕
+
+### ✅ CameraTreePanel 右鍵選單強化
+- 新增播放/錄影切換/PTZ 控制
+
+### ✅ 視窗狀態持久化
+- 導覽列展開/收合儲存至 window_state.json
+
+### ✅ 錄影時間軸日期顯示
+- 時間上方 yyyy-MM-dd (ddd) 日期標籤
+
+### ✅ Settings 分頁鍵盤導航
+- Ctrl+Tab/Ctrl+Shift+Tab 快速切換
+
+### ✅ 系統日誌匯出 CSV
+- Settings 系統事件日誌匯出按鈕
+
+### ✅ 錄影回放「現在」跳轉按鈕
+- 一鍵跳回目前時間
+
+### ✅ CameraTreePanel 懸停提示
+- 顯示 ID/IP/RTSP/狀態/群組詳細資訊
+
+### ✅ 通知歷史右鍵標記已讀
+- 單筆通知標記為已讀
+
+### ✅ 自動子碼流切換
+- 4 分割以上自動使用子串流(SD)
+
+### ✅ CameraEditDialog 測試連線
+- 快速驗證 RTSP 埠連通性
+
 ---
 
 ## 開發原則
