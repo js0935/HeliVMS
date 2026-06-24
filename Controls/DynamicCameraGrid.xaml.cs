@@ -161,6 +161,30 @@ public partial class DynamicCameraGrid : UserControl {
         }
     }
 
+    public void SetPlaybackTimeVisible(bool visible) {
+        if (!MainGrid.IsLoaded) return;
+        foreach (var child in MainGrid.Children) {
+            if (child is not Grid g) continue;
+            foreach (var c in g.Children) {
+                if (c is Border { Tag: "TimeBadge" } badge)
+                    badge.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+            }
+        }
+    }
+
+    public void UpdatePlaybackTime(double seconds) {
+        if (!MainGrid.IsLoaded) return;
+        var ts = TimeSpan.FromSeconds(seconds);
+        var text = ts.Hours > 0 ? ts.ToString(@"hh\:mm\:ss") : ts.ToString(@"mm\:ss");
+        foreach (var child in MainGrid.Children) {
+            if (child is not Grid g) continue;
+            foreach (var c in g.Children) {
+                if (c is Border { Tag: "TimeBadge" } badge)
+                    ((TextBlock)badge.Child).Text = text;
+            }
+        }
+    }
+
     public void ClearAll() {
         for (int i = 0; i < _activeSlotCount; i++) {
             if (_slots[i] is { } p) {
@@ -292,7 +316,21 @@ public partial class DynamicCameraGrid : UserControl {
                     Foreground = new SolidColorBrush(Color.FromArgb(200, 0xFF, 0xFF, 0xFF)),
                 }
             };
-            container.Children.Add(speedBadge);
+            var timeBadge = new Border {
+                Tag = "TimeBadge",
+                Background = new SolidColorBrush(Color.FromArgb(140, 0, 0, 0)),
+                CornerRadius = new CornerRadius(2),
+                Padding = new Thickness(4, 0, 4, 0),
+                Margin = new Thickness(0, 0, 4, 2),
+                HorizontalAlignment = HorizontalAlignment.Right,
+                VerticalAlignment = VerticalAlignment.Bottom,
+                Visibility = Visibility.Collapsed,
+                Child = new TextBlock {
+                    FontSize = 9,
+                    Foreground = new SolidColorBrush(Color.FromArgb(200, 0xFF, 0xFF, 0xFF)),
+                }
+            };
+            container.Children.Add(timeBadge);
         }
         if (!MainGrid.Children.Contains(container))
             MainGrid.Children.Add(container);

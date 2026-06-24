@@ -293,6 +293,7 @@ public partial class LiveView : UserControl {
             var time = _timelineDay.AddSeconds(seconds);
             foreach (var p in VideoGrid.GetActiveSlots())
                 p.SwitchToPlayback(time);
+            VideoGrid.UpdatePlaybackTime(seconds);
         }
     }
 
@@ -307,10 +308,20 @@ public partial class LiveView : UserControl {
     //  Playback Mode Switching
     // ═══════════════════════════════════════════════════════════
 
+    private void ShowPlaybackTimeBadge(bool visible) {
+        VideoGrid.SetPlaybackTimeVisible(visible);
+        if (visible) {
+            var dt = _playbackMode == PlaybackMode.CustomSeek
+                ? _timelineDay.Date.AddSeconds(TimelineControl.PositionSeconds) : DateTime.Now;
+            VideoGrid.UpdatePlaybackTime(dt.TimeOfDay.TotalSeconds);
+        }
+    }
+
     private void SwitchToSeekMode(DateTime targetTime) {
         _playbackMode = PlaybackMode.CustomSeek;
         _liveTicker?.Stop();
         PerformSeek(targetTime);
+        ShowPlaybackTimeBadge(true);
         Log.Debug("[LiveView] Switched to CustomSeek at {Time}",
             targetTime.ToString("HH:mm:ss"));
     }
@@ -321,6 +332,7 @@ public partial class LiveView : UserControl {
         _playbackSpeed = 1.0;
         FwdSpeedLabel.Text = "1\u00d7";
         VideoGrid.SetPlaybackSpeed(1.0);
+        ShowPlaybackTimeBadge(false);
         _liveTicker?.Start();
 
         foreach (var p in VideoGrid.GetActiveSlots())
