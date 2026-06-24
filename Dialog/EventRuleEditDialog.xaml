@@ -3,7 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="編輯事件規則" Height="520" Width="560"
         WindowStartupLocation="CenterOwner"
-        Background="#1E1E1E" Foreground="#E1E1E1"
+        Background="{StaticResource BackgroundBrush}" Foreground="{StaticResource TextBrush}"
         SnapsToDevicePixels="True"
         WindowStyle="SingleBorderWindow"
         ResizeMode="CanResizeWithGrip">
@@ -21,18 +21,17 @@
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
                 <StackPanel>
-                    <TextBlock Text="規則名稱" FontSize="11" Foreground="#999999" Margin="0,0,0,2"/>
+                    <TextBlock Text="規則名稱" FontSize="11" Foreground="{StaticResource SecondaryTextBrush}" Margin="0,0,0,2"/>
                     <TextBox x:Name="RuleNameBox" FontSize="13" Padding="6,4"
-                             Background="#2D2D2D" Foreground="#E1E1E1"
-                             BorderBrush="#444444" BorderThickness="1" Width="280"/>
+                             Style="{StaticResource ModernTextBox}" Width="280"/>
                 </StackPanel>
                 <CheckBox x:Name="EnabledCheck" Content="啟用" Grid.Column="1"
                           FontSize="12" VerticalAlignment="Bottom" Margin="0,0,0,6"
-                          Foreground="#CCCCCC"/>
+                          Foreground="{StaticResource TextBrush}"/>
             </Grid>
             <TextBox x:Name="DescBox" Text="" FontSize="11" Padding="6,4"
-                     Background="#2D2D2D" Foreground="#999999"
-                     BorderBrush="#444444" BorderThickness="1" Margin="0,6,0,0"/>
+                     Style="{StaticResource ModernTextBox}"
+                     Margin="0,6,0,0"/>
         </StackPanel>
 
         <Grid Grid.Row="1">
@@ -42,26 +41,24 @@
             </Grid.ColumnDefinitions>
 
             <StackPanel Grid.Column="0" Margin="0,0,6,0">
-                <TextBlock Text="條件" FontSize="12" FontWeight="SemiBold" Foreground="#CCCCCC" Margin="0,0,0,4"/>
+                <TextBlock Text="條件" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource TextBrush}" Margin="0,0,0,4"/>
                 <ListBox x:Name="ConditionsList" Height="140"
-                         Background="#2D2D2D" BorderBrush="#444444"
-                         Foreground="#E1E1E1" FontSize="12"
+                         Background="{StaticResource InputBackgroundBrush}" BorderBrush="{StaticResource BorderBrush}"
+                         Foreground="{StaticResource TextBrush}" FontSize="12"
                          SelectionChanged="ConditionsList_SelectionChanged"/>
                 <WrapPanel Margin="0,4,0,0">
                     <Button Content="+ 條件" Padding="8,3" FontSize="11"
                             Click="AddCondition_Click" Width="65"
-                            Background="#3D3D3D" Foreground="#E1E1E1"
-                            BorderBrush="#555555" BorderThickness="1" Cursor="Hand"/>
+                            Style="{StaticResource SecondaryButton}"/>
                     <Button Content="刪除" Padding="8,3" FontSize="11" Margin="4,0,0,0"
                             Click="RemoveCondition_Click"
-                            Background="#3D3D3D" Foreground="#E1E1E1"
-                            BorderBrush="#555555" BorderThickness="1" Cursor="Hand"/>
+                            Style="{StaticResource SecondaryButton}"/>
                 </WrapPanel>
 
                 <!-- Time condition editor -->
-                <Border Background="#252525" BorderBrush="#444444" BorderThickness="1" Margin="0,8,0,0" Padding="8" CornerRadius="4">
+                <Border Background="{StaticResource SurfaceBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" Margin="0,8,0,0" Padding="8" CornerRadius="4">
                     <StackPanel>
-                        <TextBlock Text="時段條件（選填）" FontSize="11" FontWeight="SemiBold" Foreground="#CCCCCC" Margin="0,0,0,6"/>
+                        <TextBlock Text="時段條件（選填）" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource TextBrush}" Margin="0,0,0,6"/>
                         <Grid>
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="Auto"/>

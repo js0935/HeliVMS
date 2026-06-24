@@ -71,7 +71,7 @@
                                        FontSize="11"
                                        Foreground="{StaticResource SecondaryTextBrush}"
                                        TextWrapping="Wrap" Margin="0,0,0,6"/>
-                            <Border Background="White" CornerRadius="4" Padding="0"
+                            <Border Background="{StaticResource SurfaceBrush}" CornerRadius="4" Padding="0"
                                     HorizontalAlignment="Center" Margin="0,0,0,8"
                                     Width="160" Height="160">
                                 <Image x:Name="QrCodeImage" Width="160" Height="160"
