@@ -124,6 +124,7 @@
                      Foreground="{StaticResource TextBrush}"
                      Background="{StaticResource InputBackgroundBrush}"
                      BorderBrush="{StaticResource BorderBrush}"
+                     ToolTip="搜尋攝影機名稱或 IP"
                      TextChanged="OnSearchTextChanged"/>
         </Border>
 

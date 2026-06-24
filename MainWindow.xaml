@@ -353,7 +353,8 @@
                             </Grid.ColumnDefinitions>
                             <TextBlock Grid.Column="0" Text="搜尋資源" FontSize="11"
                                        Foreground="{StaticResource SecondaryTextBrush}"
-                                       VerticalAlignment="Center"/>
+                                       VerticalAlignment="Center"
+                                       ToolTip="搜尋攝影機或資源"/>
                             <Button Grid.Column="2" x:Name="QuickAddCameraBtn" Width="20" Height="20" Padding="0"
                                     Background="Transparent" BorderThickness="0"
                                     Foreground="{StaticResource SecondaryTextBrush}"

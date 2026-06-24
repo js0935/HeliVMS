@@ -531,26 +531,30 @@ public partial class LiveView : UserControl {
 
     private void FilterCont_Click(object sender, RoutedEventArgs e) {
         _filterCont = !_filterCont;
-        FilterCont.Background = _filterCont ? new SolidColorBrush(Color.FromArgb(0x33, 0x21, 0x96, 0xF3)) : System.Windows.Media.Brushes.Transparent;
+        FilterCont.Background = _filterCont ? TryGetResource<Brush>("FilterContBrush") ?? new SolidColorBrush(Color.FromArgb(0x33, 0x21, 0x96, 0xF3)) : System.Windows.Media.Brushes.Transparent;
         TimelineControl.SetTypeFilter(_filterCont, _filterMotion, _filterAlarm, _filterAi);
     }
 
     private void FilterMotion_Click(object sender, RoutedEventArgs e) {
         _filterMotion = !_filterMotion;
-        FilterMotion.Background = _filterMotion ? new SolidColorBrush(Color.FromArgb(0x33, 0xFF, 0x57, 0x22)) : System.Windows.Media.Brushes.Transparent;
+        FilterMotion.Background = _filterMotion ? TryGetResource<Brush>("FilterMotionBrush") ?? new SolidColorBrush(Color.FromArgb(0x33, 0xFF, 0x57, 0x22)) : System.Windows.Media.Brushes.Transparent;
         TimelineControl.SetTypeFilter(_filterCont, _filterMotion, _filterAlarm, _filterAi);
     }
 
     private void FilterAlarm_Click(object sender, RoutedEventArgs e) {
         _filterAlarm = !_filterAlarm;
-        FilterAlarm.Background = _filterAlarm ? new SolidColorBrush(Color.FromArgb(0x33, 0xF4, 0x43, 0x36)) : System.Windows.Media.Brushes.Transparent;
+        FilterAlarm.Background = _filterAlarm ? TryGetResource<Brush>("FilterAlarmBrush") ?? new SolidColorBrush(Color.FromArgb(0x33, 0xF4, 0x43, 0x36)) : System.Windows.Media.Brushes.Transparent;
         TimelineControl.SetTypeFilter(_filterCont, _filterMotion, _filterAlarm, _filterAi);
     }
 
     private void FilterAi_Click(object sender, RoutedEventArgs e) {
         _filterAi = !_filterAi;
-        FilterAi.Background = _filterAi ? new SolidColorBrush(Color.FromArgb(0x33, 0xFF, 0xC1, 0x07)) : System.Windows.Media.Brushes.Transparent;
+        FilterAi.Background = _filterAi ? TryGetResource<Brush>("FilterAiBrush") ?? new SolidColorBrush(Color.FromArgb(0x33, 0xFF, 0xC1, 0x07)) : System.Windows.Media.Brushes.Transparent;
         TimelineControl.SetTypeFilter(_filterCont, _filterMotion, _filterAlarm, _filterAi);
+    }
+
+    private static T? TryGetResource<T>(string key) where T : class {
+        try { return Application.Current.FindResource(key) as T; } catch { return null; }
     }
 
     private void AddBookmark() {
