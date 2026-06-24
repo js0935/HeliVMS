@@ -220,8 +220,9 @@ public partial class LiveView : UserControl {
         }
     }
 
-    private static readonly int[] LayoutSizes = [1, 4, 9, 16, 25, 36, 49, 64];
+    private const int LayoutGridCells = 8;
     private bool _layoutPopupInitialized;
+    private int _hoverCol = -1, _hoverRow = -1;
 
     private void LayoutToggle_Click(object sender, RoutedEventArgs e) {
         if (!_layoutPopupInitialized)
@@ -231,59 +232,89 @@ public partial class LiveView : UserControl {
 
     private void InitLayoutPopup() {
         _layoutPopupInitialized = true;
-        LayoutPreviewGrid.Children.Clear();
-        foreach (var size in LayoutSizes) {
-            var preview = CreateLayoutPreview(size);
-            preview.Tag = size.ToString();
-            preview.MouseDown += (s, _) => {
-                if (s is Border { Tag: string tag } && int.TryParse(tag, out var sz)) {
-                    ApplyLayout(sz);
-                    LayoutPopup.IsOpen = false;
-                }
-            };
-            LayoutPreviewGrid.Children.Add(preview);
+        LayoutDragGrid.Children.Clear();
+        LayoutDragGrid.RowDefinitions.Clear();
+        LayoutDragGrid.ColumnDefinitions.Clear();
+        for (int i = 0; i < LayoutGridCells; i++) {
+            LayoutDragGrid.RowDefinitions.Add(new RowDefinition());
+            LayoutDragGrid.ColumnDefinitions.Add(new ColumnDefinition());
         }
-        UpdateLayoutHighlight(_currentGridSize);
+        for (int r = 0; r < LayoutGridCells; r++) {
+            for (int c = 0; c < LayoutGridCells; c++) {
+                var cell = new Border {
+                    Background = Brushes.Transparent,
+                    BorderBrush = TryFindResource("SecondaryTextBrush") as Brush ?? Brushes.Gray,
+                    BorderThickness = new Thickness(0.5),
+                    Margin = new Thickness(1),
+                };
+                Grid.SetRow(cell, r);
+                Grid.SetColumn(cell, c);
+                LayoutDragGrid.Children.Add(cell);
+            }
+        }
     }
 
-    private Border CreateLayoutPreview(int size) {
-        var cols = (int)Math.Sqrt(size);
-        var rows = cols;
-        var inner = new UniformGrid { Columns = cols, Rows = rows };
-        var cellBrush = TryFindResource("SecondaryTextBrush") as Brush ?? Brushes.Gray;
-        var cellDim = new SolidColorBrush(Color.FromArgb(40, 128, 128, 128));
-        for (int i = 0; i < size; i++) {
-            inner.Children.Add(new Border {
-                Background = cellDim,
-                BorderBrush = cellBrush,
-                BorderThickness = new Thickness(0.5),
-                Margin = new Thickness(1),
-            });
+    private void LayoutDragGrid_MouseMove(object sender, MouseEventArgs e) {
+        var pos = e.GetPosition(LayoutDragGrid);
+        var cellW = LayoutDragGrid.ActualWidth / LayoutGridCells;
+        var cellH = LayoutDragGrid.ActualHeight / LayoutGridCells;
+        var col = (int)(pos.X / cellW);
+        var row = (int)(pos.Y / cellH);
+        col = Math.Clamp(col, 0, LayoutGridCells - 1);
+        row = Math.Clamp(row, 0, LayoutGridCells - 1);
+        if (col == _hoverCol && row == _hoverRow) return;
+        _hoverCol = col;
+        _hoverRow = row;
+        UpdateDragSelection(col, row);
+        var size = Math.Max(col + 1, row + 1);
+        var layout = size * size;
+        LayoutSizeLabel.Text = $"{layout} ({size}×{size})";
+    }
+
+    private void LayoutDragGrid_MouseLeave(object sender, MouseEventArgs e) {
+        _hoverCol = -1;
+        _hoverRow = -1;
+        ClearDragSelection();
+        LayoutSizeLabel.Text = _currentGridSize.ToString();
+    }
+
+    private void LayoutDragGrid_MouseDown(object sender, MouseButtonEventArgs e) {
+        if (_hoverCol >= 0 && _hoverRow >= 0) {
+            var size = Math.Max(_hoverCol + 1, _hoverRow + 1);
+            ApplyLayout(size * size);
+            LayoutPopup.IsOpen = false;
         }
-        var text = new TextBlock {
-            Text = size.ToString(),
-            Foreground = TryFindResource("SecondaryTextBrush") as Brush ?? Brushes.Gray,
-            FontSize = 9,
-            HorizontalAlignment = HorizontalAlignment.Center,
-        };
-        var wrap = new Grid();
-        wrap.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
-        wrap.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        Grid.SetRow(inner, 0);
-        Grid.SetRow(text, 1);
-        wrap.Children.Add(inner);
-        wrap.Children.Add(text);
-        return new Border {
-            Child = wrap,
-            Background = TryFindResource("SurfaceBrush") as Brush ?? Brushes.Transparent,
-            BorderThickness = new Thickness(1),
-            BorderBrush = Brushes.Transparent,
-            CornerRadius = new CornerRadius(3),
-            Margin = new Thickness(2),
-            Cursor = Cursors.Hand,
-            Width = 44,
-            Height = 48,
-        };
+    }
+
+    private void UpdateDragSelection(int col, int row) {
+        var accent = TryFindResource("PrimaryBrush") as Brush ?? Brushes.DodgerBlue;
+        var accentDim = new SolidColorBrush(
+            accent is SolidColorBrush scb
+                ? Color.FromArgb(60, scb.Color.R, scb.Color.G, scb.Color.B)
+                : Color.FromArgb(60, 30, 136, 229));
+        foreach (var child in LayoutDragGrid.Children) {
+            if (child is Border b) {
+                var r = Grid.GetRow(b);
+                var c = Grid.GetColumn(b);
+                if (r <= row && c <= col) {
+                    b.Background = accentDim;
+                    b.BorderBrush = accent;
+                } else {
+                    b.Background = Brushes.Transparent;
+                    b.BorderBrush = TryFindResource("SecondaryTextBrush") as Brush ?? Brushes.Gray;
+                }
+            }
+        }
+    }
+
+    private void ClearDragSelection() {
+        var dim = TryFindResource("SecondaryTextBrush") as Brush ?? Brushes.Gray;
+        foreach (var child in LayoutDragGrid.Children) {
+            if (child is Border b) {
+                b.Background = Brushes.Transparent;
+                b.BorderBrush = dim;
+            }
+        }
     }
 
     private void ApplyLayout(int size) {
@@ -291,22 +322,7 @@ public partial class LiveView : UserControl {
         VideoGrid.SetSlotCount(size);
         if (TabBar.CurrentTab is not null)
             TabBar.MarkDirty(TabBar.CurrentTab.Id);
-        UpdateLayoutHighlight(size);
         LayoutLabel.Text = size.ToString();
-    }
-
-    private void UpdateLayoutHighlight(int size) {
-        foreach (var child in LayoutPreviewGrid.Children) {
-            if (child is Border b && b.Tag?.ToString() == size.ToString()) {
-                b.BorderBrush = TryFindResource("PrimaryBrush") as Brush ?? Brushes.DodgerBlue;
-                b.Background = TryFindResource("PrimaryBrush") is Brush pb
-                    ? new SolidColorBrush(pb is SolidColorBrush scb ? Color.FromArgb(30, scb.Color.R, scb.Color.G, scb.Color.B) : Color.FromArgb(30, 30, 136, 229))
-                    : new SolidColorBrush(Color.FromArgb(30, 30, 136, 229));
-            } else if (child is Border b2) {
-                b2.BorderBrush = Brushes.Transparent;
-                b2.Background = TryFindResource("SurfaceBrush") as Brush ?? Brushes.Transparent;
-            }
-        }
     }
 
     // ═══════════════════════════════════════════════════════════
@@ -338,8 +354,6 @@ public partial class LiveView : UserControl {
         _currentGridSize = tab.SlotCount;
         VideoGrid.SetSlotCount(tab.SlotCount);
         LayoutLabel.Text = tab.SlotCount.ToString();
-        if (_layoutPopupInitialized)
-            UpdateLayoutHighlight(tab.SlotCount);
         var cameras = CameraService.GetAllCameras();
         var camMap = cameras.ToDictionary(c => c.Id, c => c);
         var arr = new Camera?[tab.CameraIds.Count];
