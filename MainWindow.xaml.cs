@@ -99,6 +99,14 @@ public partial class MainWindow : Window {
         }
     }
 
+    private void MarkNotifRead_Click(object sender, RoutedEventArgs e) {
+        if (sender is MenuItem { Tag: NotificationEntry entry }) {
+            _notifHistory.MarkAsRead(entry.Id);
+            NotificationList.ItemsSource = null;
+            NotificationList.ItemsSource = _notifHistory.Entries;
+        }
+    }
+
     private void MarkAllNotifRead_Click(object sender, RoutedEventArgs e) {
         _notifHistory.MarkAllAsRead();
         NotificationList.Items.Refresh();
