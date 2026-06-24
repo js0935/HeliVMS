@@ -9,6 +9,8 @@ using System.Windows.Input;
 using System.Windows.Media;
 using HeliVMS.Models;
 using HeliVMS.Services;
+using System.IO;
+using System.Text.Json;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace HeliVMS.Controls;
@@ -54,6 +56,8 @@ public sealed class CameraTreeItem : CameraTreeNode {
 /// </summary>
 public partial class CameraTreePanel : UserControl {
     private readonly ICameraService _cameraService;
+    private readonly string _statePath;
+    private readonly HashSet<string> _expandedGroups = [];
     private bool _isCollapsed;
     private Point _dragStartPoint;
 
@@ -63,13 +67,22 @@ public partial class CameraTreePanel : UserControl {
     public CameraTreePanel() {
         InitializeComponent();
         _cameraService = App.Services.GetRequiredService<ICameraService>();
+        _statePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Data", "tree_state.json");
         _cameraService.CamerasChanged += () => Dispatcher.Invoke(ReloadCameras);
-        Loaded += (_, _) => ReloadCameras();
+        Loaded += (_, _) => { LoadExpandedState(); ReloadCameras(); };
 
         CameraTreeView.SelectedItemChanged += (_, e) => {
             if (e.NewValue is CameraTreeItem item)
                 ToolTip = $"{item.DisplayName}\n{item.RtspHint}";
         };
+        CameraTreeView.AddHandler(TreeViewItem.ExpandedEvent, new RoutedEventHandler((_, e) => {
+            if (e.OriginalSource is TreeViewItem tvi && tvi.DataContext is CameraTreeGroup g)
+                SaveGroupState(g.DisplayName, true);
+        }));
+        CameraTreeView.AddHandler(TreeViewItem.CollapsedEvent, new RoutedEventHandler((_, e) => {
+            if (e.OriginalSource is TreeViewItem tvi && tvi.DataContext is CameraTreeGroup g)
+                SaveGroupState(g.DisplayName, false);
+        }));
     }
 
     // ─── Public API ───
@@ -80,6 +93,7 @@ public partial class CameraTreePanel : UserControl {
         var filter = SearchBox.Text?.Trim() ?? "";
         var roots = BuildTree(allCameras, filter);
         CameraTreeView.ItemsSource = roots;
+        Dispatcher.BeginInvoke(new Action(RestoreExpandedState), System.Windows.Threading.DispatcherPriority.Background);
     }
 
     /// <summary>Focus the search text box.</summary>
@@ -94,6 +108,39 @@ public partial class CameraTreePanel : UserControl {
         set {
             _isCollapsed = value;
             CollapseChanged?.Invoke(value);
+        }
+    }
+
+    // ─── Group State Persistence ───
+
+    private void LoadExpandedState() {
+        try {
+            if (File.Exists(_statePath)) {
+                var data = JsonSerializer.Deserialize<string[]>(File.ReadAllText(_statePath));
+                if (data is not null) { _expandedGroups.Clear(); foreach (var g in data) _expandedGroups.Add(g); }
+            }
+        } catch { _expandedGroups.Clear(); }
+    }
+
+    private void SaveExpandedState() {
+        try {
+            var dir = Path.GetDirectoryName(_statePath);
+            if (dir is not null && !Directory.Exists(dir)) Directory.CreateDirectory(dir);
+            File.WriteAllText(_statePath, JsonSerializer.Serialize(_expandedGroups.ToArray()));
+        } catch { }
+    }
+
+    private void SaveGroupState(string name, bool expanded) {
+        if (expanded) _expandedGroups.Add(name); else _expandedGroups.Remove(name);
+        SaveExpandedState();
+    }
+
+    private void RestoreExpandedState() {
+        foreach (var item in CameraTreeView.Items) {
+            if (item is CameraTreeGroup group && _expandedGroups.Contains(group.DisplayName)) {
+                if (CameraTreeView.ItemContainerGenerator.ContainerFromItem(item) is TreeViewItem tvi)
+                    tvi.IsExpanded = true;
+            }
         }
     }
 
