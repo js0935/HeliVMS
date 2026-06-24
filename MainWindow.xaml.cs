@@ -161,6 +161,12 @@ public partial class MainWindow : Window {
             switch (e.SystemKey) {
                 case Key.D1: ToggleDrawer(); e.Handled = true; break;
                 case Key.D2: ToggleNotifPanel(); e.Handled = true; break;
+                case Key.D3:
+                    if (MainWorkArea.Content is LiveView lv) {
+                        lv.TimelineVisible = !lv.TimelineVisible;
+                        ShowToast(lv.TimelineVisible ? "時間軸已顯示" : "時間軸已隱藏", "INFO");
+                    }
+                    e.Handled = true; break;
             }
         }
     }

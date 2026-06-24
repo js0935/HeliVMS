@@ -149,6 +149,8 @@ public partial class DynamicCameraGrid : UserControl {
                 _slotCameras[i] = null;
             }
         }
+        _selectionBorder = null;
+        _selectedSlot = -1;
         MainGrid.Children.Clear();
         _maximizedSlot = -1;
         EmptyOverlay.Visibility = _activeSlotCount == 0 ? Visibility.Visible : Visibility.Collapsed;
@@ -206,13 +208,17 @@ public partial class DynamicCameraGrid : UserControl {
     private void PlacePlayerInCell(VideoPlayer player, int slotIndex) {
         var cam = _slotCameras[slotIndex];
         var container = new Grid();
+        container.MouseDown += (_, args) => {
+            if (args.ChangedButton == MouseButton.Left)
+                SelectSlot(slotIndex);
+        };
         Grid.SetRow(container, slotIndex / _cols);
         Grid.SetColumn(container, slotIndex % _cols);
         container.Children.Add(player);
         if (cam is not null) {
             var label = new TextBlock {
                 Text = cam.Name,
-                FontSize = 11,
+                FontSize = _cols >= 5 ? 9 : 11,
                 Foreground = new SolidColorBrush(Color.FromArgb(200, 0xFF, 0xFF, 0xFF)),
                 Background = new SolidColorBrush(Color.FromArgb(120, 0, 0, 0)),
                 Padding = new Thickness(4, 1, 4, 1),
@@ -224,6 +230,31 @@ public partial class DynamicCameraGrid : UserControl {
         }
         if (!MainGrid.Children.Contains(container))
             MainGrid.Children.Add(container);
+    }
+
+    private int _selectedSlot = -1;
+    private Border? _selectionBorder;
+
+    public int SelectedSlot => _selectedSlot;
+
+    public event Action<int>? SlotSelected;
+
+    private void SelectSlot(int slotIndex) {
+        if (_selectionBorder is not null) {
+            MainGrid.Children.Remove(_selectionBorder);
+            _selectionBorder = null;
+        }
+        _selectedSlot = slotIndex;
+        if (slotIndex < 0) return;
+        _selectionBorder = new Border {
+            BorderBrush = new SolidColorBrush(Color.FromArgb(200, 0x21, 0x96, 0xF3)),
+            BorderThickness = new Thickness(2),
+            IsHitTestVisible = false,
+        };
+        Grid.SetRow(_selectionBorder, slotIndex / _cols);
+        Grid.SetColumn(_selectionBorder, slotIndex % _cols);
+        MainGrid.Children.Add(_selectionBorder);
+        SlotSelected?.Invoke(slotIndex);
     }
 
     // ═══════════════════════════════════════════════════

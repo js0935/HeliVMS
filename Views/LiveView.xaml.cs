@@ -278,6 +278,11 @@ public partial class LiveView : UserControl {
 
     internal DateTime GetTimelineTime() => _timelineDay.AddSeconds(TimelineControl.PositionSeconds);
 
+    public bool TimelineVisible {
+        get => TimelineContainer.Visibility == Visibility.Visible;
+        set => TimelineContainer.Visibility = value ? Visibility.Visible : Visibility.Collapsed;
+    }
+
     // ═══════════════════════════════════════════════════════════
     //  Playback Mode Switching
     // ═══════════════════════════════════════════════════════════
