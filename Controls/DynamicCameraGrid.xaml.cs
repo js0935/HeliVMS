@@ -38,6 +38,7 @@ public partial class DynamicCameraGrid : UserControl {
     private VideoPlayer? _dragSourcePlayer;
     private Point _dragStartPoint;
     private bool _isDragging;
+    private Border? _dragHighlight;
 
     // ═══════════════════════════════════════════════════
     //  Events
@@ -539,6 +540,27 @@ public partial class DynamicCameraGrid : UserControl {
             if (Math.Abs(dx) < thresh && Math.Abs(dy) < thresh) return;
             _isDragging = true;
         }
+
+        // Show drag highlight on target cell
+        var target = FindPlayerAt(pos);
+        if (_dragHighlight is not null) {
+            MainGrid.Children.Remove(_dragHighlight);
+            _dragHighlight = null;
+        }
+        if (target is not null && target != _dragSourcePlayer) {
+            _dragHighlight = new Border {
+                BorderBrush = new SolidColorBrush(Color.FromArgb(180, 0x21, 0x96, 0xF3)),
+                BorderThickness = new Thickness(2),
+                Background = new SolidColorBrush(Color.FromArgb(40, 0x21, 0x96, 0xF3)),
+                IsHitTestVisible = false,
+            };
+            int tgtIdx = IndexOfId(_slotCameras, target.Camera?.Id ?? "");
+            if (tgtIdx >= 0) {
+                Grid.SetRow(_dragHighlight, tgtIdx / _cols);
+                Grid.SetColumn(_dragHighlight, tgtIdx % _cols);
+                MainGrid.Children.Add(_dragHighlight);
+            }
+        }
     }
 
     private void OnMouseLeftButtonUp(object sender, MouseButtonEventArgs e) {
@@ -569,6 +591,10 @@ public partial class DynamicCameraGrid : UserControl {
     private void CancelDrag() {
         _dragSourcePlayer = null;
         _isDragging = false;
+        if (_dragHighlight is not null) {
+            MainGrid.Children.Remove(_dragHighlight);
+            _dragHighlight = null;
+        }
         if (Mouse.Captured == this) Mouse.Capture(null);
     }
 
