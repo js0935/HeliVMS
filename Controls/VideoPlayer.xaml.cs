@@ -1381,20 +1381,27 @@ public partial class VideoPlayer : UserControl {
     }
 
     private void RegisterActiveFramePlayer() {
-        // Shared singleton D3D9 device (single device for all players avoids GPU exhaustion)
-        _d3dRenderer = D3DRenderer.Instance;
+        // Diagnostics: skip D3D entirely in test mode
+        var skipD3D = File.Exists(@"C:\Users\JS\AppData\Local\HeliVMS\test_pattern");
+        if (skipD3D) {
+            DragDiag.Write($"[VideoPlayer:{_camera?.Name}] RegisterActiveFramePlayer: TEST MODE - skipping D3D entirely");
+        }
+        if (!skipD3D) {
+            // Shared singleton D3D9 device (single device for all players avoids GPU exhaustion)
+            _d3dRenderer = D3DRenderer.Instance;
 
-        // Per-player D3DImageSurface (backed by D3D9 offscreen surface from shared device)
-        if (_d3dRenderer is not null) {
-            _d3dImageSurface = new D3DImageSurface(_d3dRenderer);
-            if (_d3dImageSurface.IsValid) {
-                DecoderFrameImage.Source = _d3dImageSurface.Image;
-                DragDiag.Write($"[VideoPlayer:{_camera?.Name}] RegisterActiveFramePlayer: D3DImage set as Source (d3dRenderer ok)");
+            // Per-player D3DImageSurface (backed by D3D9 offscreen surface from shared device)
+            if (_d3dRenderer is not null) {
+                _d3dImageSurface = new D3DImageSurface(_d3dRenderer);
+                if (_d3dImageSurface.IsValid) {
+                    DecoderFrameImage.Source = _d3dImageSurface.Image;
+                    DragDiag.Write($"[VideoPlayer:{_camera?.Name}] RegisterActiveFramePlayer: D3DImage set as Source");
+                } else {
+                    DragDiag.Write($"[VideoPlayer:{_camera?.Name}] RegisterActiveFramePlayer: D3DImageSurface NOT valid");
+                }
             } else {
-                DragDiag.Write($"[VideoPlayer:{_camera?.Name}] RegisterActiveFramePlayer: D3DImage NOT valid");
+                DragDiag.Write($"[VideoPlayer:{_camera?.Name}] RegisterActiveFramePlayer: D3DRenderer.Instance returned null");
             }
-        } else {
-            DragDiag.Write($"[VideoPlayer:{_camera?.Name}] RegisterActiveFramePlayer: D3DRenderer.Instance returned null");
         }
 
         lock (_activeFramePlayers) {
