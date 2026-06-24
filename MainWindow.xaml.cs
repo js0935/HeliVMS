@@ -1,4 +1,6 @@
 ﻿using System;
+using System.IO;
+using System.Text.Json;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
@@ -63,6 +65,7 @@ public partial class MainWindow : Window {
     }
 
     private void MainWindow_Loaded(object sender, RoutedEventArgs e) {
+        LoadWindowState();
         if (_auth.IsLoggedIn) {
             SwitchToLive();
         } else {
@@ -218,6 +221,31 @@ public partial class MainWindow : Window {
         StatusTime.Text = DateTime.Now.ToString("HH:mm:ss");
     }
 
+    // ─── Window State Persistence ───
+
+    private static string StatePath =>
+        Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Data", "window_state.json");
+
+    private void SaveWindowState() {
+        try {
+            var dir = Path.GetDirectoryName(StatePath);
+            if (dir is not null && !Directory.Exists(dir)) Directory.CreateDirectory(dir);
+            File.WriteAllText(StatePath, JsonSerializer.Serialize(new {
+                DrawerOpen = _drawerOpen
+            }));
+        } catch { }
+    }
+
+    private void LoadWindowState() {
+        try {
+            if (!File.Exists(StatePath)) return;
+            using var doc = JsonDocument.Parse(File.ReadAllText(StatePath));
+            var root = doc.RootElement;
+            if (root.TryGetProperty("DrawerOpen", out var d))
+                ShowDrawer(d.GetBoolean());
+        } catch { }
+    }
+
     private void NavigateToLogin() {
         MainWorkArea.Content = new LoginView();
         ShowDrawer(false);
@@ -238,6 +266,7 @@ public partial class MainWindow : Window {
     public void ShowDrawer(bool open) {
         if (_drawerOpen == open) return;
         _drawerOpen = open;
+        SaveWindowState();
         var target = open ? DrawerOpenWidth : DrawerClosedWidth;
         var anim = new DoubleAnimation(target, TimeSpan.FromMilliseconds(250)) {
             EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
