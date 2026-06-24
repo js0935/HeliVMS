@@ -4,7 +4,8 @@
     <UserControl.Resources>
         <!-- Leaf camera item template (no children) -->
         <DataTemplate x:Key="CameraItemTemplate">
-            <StackPanel Orientation="Horizontal" Height="28" Margin="4,0,0,0">
+            <StackPanel Orientation="Horizontal" Height="28" Margin="4,0,0,0"
+                        ToolTip="{Binding Tooltip}">
                 <StackPanel.ContextMenu>
                     <ContextMenu>
                         <MenuItem Header="播放" Tag="{Binding CameraId}"

@@ -41,6 +41,7 @@ public sealed class CameraTreeGroup : CameraTreeNode { }
 /// <summary>Leaf camera node.</summary>
 public sealed class CameraTreeItem : CameraTreeNode {
     public bool IsConnected { get; set; }
+    public string Tooltip { get; set; } = "";
     public System.Windows.Media.Brush ConnectionColor =>
         IsConnected ? new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(76, 175, 80))
                     : new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(244, 67, 54));
@@ -171,7 +172,8 @@ public partial class CameraTreePanel : UserControl {
                 RtspHint = cam.RtspUrl,
                 CameraId = cam.Id,
                 Icon = cam.IsFavorite ? "⭐" : "📷",
-                IsConnected = cam.IsConnected
+                IsConnected = cam.IsConnected,
+                Tooltip = $"ID: {cam.Id}\nIP: {cam.IpAddress}\nRTSP: {cam.RtspUrl}\n狀態: {(cam.IsConnected ? "在線" : "離線")}\n群組: {cam.Group ?? "未分組"}"
             });
         }
 
@@ -194,7 +196,8 @@ public partial class CameraTreePanel : UserControl {
                         RtspHint = cam.RtspUrl,
                         CameraId = cam.Id,
                         Icon = "⭐",
-                        IsConnected = cam.IsConnected
+                        IsConnected = cam.IsConnected,
+                        Tooltip = $"ID: {cam.Id}\nIP: {cam.IpAddress}\nRTSP: {cam.RtspUrl}\n狀態: {(cam.IsConnected ? "在線" : "離線")}\n群組: {cam.Group ?? "未分組"}"
                     });
                 }
                 roots.Insert(0, favGroup);
