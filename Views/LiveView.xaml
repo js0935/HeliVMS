@@ -114,6 +114,11 @@
                             PreviewMouseDown="GlobalTimeline_PreviewMouseDown"
                             PreviewMouseUp="GlobalTimeline_PreviewMouseUp"
                             Height="22" VerticalAlignment="Center"/>
+                    <TextBlock x:Name="TimelineDateLabel"
+                               HorizontalAlignment="Right" VerticalAlignment="Top"
+                               Margin="0,-14,0,0"
+                               FontSize="9" Foreground="#99FFFFFF"
+                               IsHitTestVisible="False"/>
                     <TextBlock x:Name="TimelineTimeLabel"
                                HorizontalAlignment="Right" VerticalAlignment="Top"
                                Margin="0,-2,0,0"

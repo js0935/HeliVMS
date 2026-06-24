@@ -276,6 +276,7 @@ public partial class LiveView : UserControl {
 
     private void UpdateTimelineTimeLabel(DateTime time) {
         TimelineTimeLabel.Text = time.ToString("HH:mm:ss");
+        TimelineDateLabel.Text = time.ToString("yyyy-MM-dd (ddd)");
     }
 
     // ═══════════════════════════════════════════════════════════
