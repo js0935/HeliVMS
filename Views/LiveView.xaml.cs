@@ -537,7 +537,7 @@ public partial class LiveView : UserControl {
             var day = _timelineDay;
             var recordings = await VideoIndex.QuerySegmentsByCamerasAsync(
                 cameras.Select(c => c.Id), day, day.AddDays(1));
-            TimelineControl.LoadSegments(cameras.Select(c => c.Id), recordings);
+            TimelineControl.LoadSegments(cameras.Select(c => c.Id), recordings, cameras.ToDictionary(c => c.Id, c => c.Name));
             TimelineControl.LoadBookmarks(_bookmarks.LoadBookmarks(day));
         } catch (Exception ex) {
             Log.Debug("[LiveView] ReloadTimelineData error: {Msg}", ex.Message);

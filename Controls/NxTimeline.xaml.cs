@@ -26,6 +26,7 @@ public partial class NxTimeline : UserControl {
     private double _positionSeconds;
     private double _viewStartSeconds;
     private List<string> _cameraIds = [];
+    private Dictionary<string, string> _cameraNames = [];
     private List<VideoSegment> _segments = [];
     private bool _showContinuous = true;
     private bool _showMotion = true;
@@ -52,8 +53,9 @@ public partial class NxTimeline : UserControl {
         SizeChanged += (_, _) => DrawAll();
     }
 
-    public void LoadSegments(IEnumerable<string> cameraIds, List<VideoSegment> segments) {
+    public void LoadSegments(IEnumerable<string> cameraIds, List<VideoSegment> segments, Dictionary<string, string>? cameraNames = null) {
         _cameraIds = cameraIds.ToList();
+        _cameraNames = cameraNames ?? [];
         _segments = segments;
         DrawAll();
     }
@@ -180,6 +182,7 @@ public partial class NxTimeline : UserControl {
 
     private void DrawCameraRows() {
         CameraRowsCanvas.Children.Clear();
+        var labelWidth = 60.0;
         var w = CameraRowsCanvas.ActualWidth;
         var h = CameraRowsCanvas.ActualHeight;
         if (w <= 0 || h <= 0 || _cameraIds.Count == 0) return;
@@ -190,11 +193,21 @@ public partial class NxTimeline : UserControl {
 
         foreach (var (camId, idx) in _cameraIds.Select((id, i) => (id, i))) {
             var y = idx * (rowH + 1);
+            var name = _cameraNames.GetValueOrDefault(camId, camId.Length > 8 ? camId[..8] : camId);
+            var nameLabel = new TextBlock {
+                Text = name, FontSize = 9,
+                Foreground = new SolidColorBrush(Color.FromArgb(160, 0xFF, 0xFF, 0xFF)),
+                Width = labelWidth - 4,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                IsHitTestVisible = false,
+            };
+            Canvas.SetLeft(nameLabel, 2); Canvas.SetTop(nameLabel, y + 1);
+            CameraRowsCanvas.Children.Add(nameLabel);
             var camSegs = _segments.Where(s => s.CameraId == camId && IsTypeVisible(s.RecordType)).ToList();
 
             if (camSegs.Count == 0) {
-                var bg = new Rectangle { Fill = new SolidColorBrush(ColorNoData), Width = w, Height = rowH };
-                Canvas.SetLeft(bg, 0); Canvas.SetTop(bg, y);
+                var bg = new Rectangle { Fill = new SolidColorBrush(ColorNoData), Width = w - labelWidth, Height = rowH };
+                Canvas.SetLeft(bg, labelWidth); Canvas.SetTop(bg, y);
                 CameraRowsCanvas.Children.Add(bg);
                 continue;
             }
@@ -208,14 +221,16 @@ public partial class NxTimeline : UserControl {
                 var x1 = Math.Max(0, SecsToX(segStart));
                 var x2 = Math.Min(w, SecsToX(segEnd));
                 var rectW = Math.Max(1, x2 - x1);
+                var availW = w - labelWidth;
+                var rx1 = Math.Min(availW, x1);
 
                 var color = GetColorForRecordType(seg.RecordType);
                 var rect = new Rectangle {
                     Fill = new SolidColorBrush(Color.FromArgb(180, color.R, color.G, color.B)),
-                    Width = rectW, Height = rowH,
+                    Width = Math.Min(rectW, availW - rx1), Height = rowH,
                     ToolTip = $"{seg.CameraId}: {seg.StartTime:HH:mm}\u2013{(seg.EndTime.HasValue ? seg.EndTime.Value.ToString("HH:mm") : "錄影中")} ({(seg.RecordType == 0 ? "連續" : seg.RecordType == 1 ? "位移" : seg.RecordType == 2 ? "警報" : "AI")})"
                 };
-                Canvas.SetLeft(rect, x1); Canvas.SetTop(rect, y);
+                Canvas.SetLeft(rect, rx1 + labelWidth); Canvas.SetTop(rect, y);
                 CameraRowsCanvas.Children.Add(rect);
             }
         }
@@ -234,9 +249,9 @@ public partial class NxTimeline : UserControl {
             var color = GetColorForRecordType(seg.RecordType);
             var rect = new Rectangle {
                 Fill = new SolidColorBrush(Color.FromArgb(80, color.R, color.G, color.B)),
-                Width = rectW, Height = rowH
+                Width = Math.Min(rectW, w - labelWidth - x1), Height = rowH
             };
-            Canvas.SetLeft(rect, x1); Canvas.SetTop(rect, mergedY);
+            Canvas.SetLeft(rect, x1 + labelWidth); Canvas.SetTop(rect, mergedY);
             CameraRowsCanvas.Children.Add(rect);
         }
     }
