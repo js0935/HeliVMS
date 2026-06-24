@@ -362,6 +362,13 @@ public partial class LiveView : UserControl {
     }
 
     private void BtnLive_Click(object sender, RoutedEventArgs e) => SwitchToLive();
+    private void BtnNow_Click(object sender, RoutedEventArgs e) {
+        if (_playbackMode == PlaybackMode.Live) return;
+        var now = DateTime.Now;
+        GlobalTimeline.Value = Math.Clamp(now.TimeOfDay.TotalSeconds, 0, 86400);
+        GlobalTimeline_ValueChanged(GlobalTimeline, null!);
+        PerformSeek(now);
+    }
     private void BtnExport_Click(object sender, RoutedEventArgs e) {
         var dlg = new Dialog.ExportDialog { Owner = Window.GetWindow(this) };
         dlg.ShowDialog();

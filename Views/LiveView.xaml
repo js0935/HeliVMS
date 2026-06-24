@@ -88,6 +88,11 @@
                             Height="28" Padding="8,0" FontSize="10"
                             Style="{StaticResource FlatButton}"
                             Click="BtnLive_Click"/>
+                    <Button x:Name="BtnNow" Content="現在"
+                            Height="28" Padding="6,0" FontSize="10"
+                            Style="{StaticResource FlatButton}"
+                            Margin="4,0,0,0"
+                            Click="BtnNow_Click"/>
                     <Button x:Name="BtnExport" Content="⬇ 匯出"
                             Height="28" Padding="8,0" FontSize="10"
                             Style="{StaticResource FlatButton}"
