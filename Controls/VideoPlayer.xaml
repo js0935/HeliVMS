@@ -16,6 +16,13 @@
                       Foreground="{StaticResource TextBrush}"
                       Click="CtxStreamToggle_Click"/>
             <Separator Background="{StaticResource BorderBrush}"/>
+            <MenuItem x:Name="CtxBookmark" Header="加入書籤"
+                      Foreground="{StaticResource TextBrush}"
+                      Click="CtxBookmark_Click"/>
+            <MenuItem x:Name="CtxRecordingToggle" Header="開始錄影"
+                      Foreground="{StaticResource TextBrush}"
+                      Click="CtxRecordingToggle_Click"/>
+            <Separator Background="{StaticResource BorderBrush}"/>
             <MenuItem x:Name="CtxPtzSelect" Header="PTZ 控制此攝影機"
                       Foreground="{StaticResource TextBrush}"
                       Click="CtxPtzSelect_Click"/>

@@ -873,6 +873,11 @@ public partial class VideoPlayer : UserControl {
             }
             Mouse.Capture((IInputElement)sender, CaptureMode.None);
         }
+        // Update recording context menu header before showing
+        if (_camera is not null) {
+            var recording = App.Services.GetRequiredService<IRecordingService>();
+            CtxRecordingToggle.Header = recording.IsRecording(_camera.Id) ? "停止錄影" : "開始錄影";
+        }
         ContextMenu?.IsOpen = true;
     }
 
@@ -984,6 +989,29 @@ public partial class VideoPlayer : UserControl {
 
     private void CtxPtzSelect_Click(object sender, RoutedEventArgs e) {
         PtzSelected?.Invoke(_camera);
+    }
+
+    private void CtxBookmark_Click(object sender, RoutedEventArgs e) {
+        if (_camera is null) return;
+        var now = DateTime.Now;
+        var bm = new PlaybackBookmark {
+            Seconds = now.TimeOfDay.TotalSeconds,
+            Note = $"{_camera.Name} @ {now:HH:mm:ss}"
+        };
+        var bookmarks = App.Services.GetRequiredService<IBookmarkService>();
+        bookmarks.SaveBookmark(bm, now.Date);
+    }
+
+    private void CtxRecordingToggle_Click(object sender, RoutedEventArgs e) {
+        if (_camera is null) return;
+        var recording = App.Services.GetRequiredService<IRecordingService>();
+        if (recording.IsRecording(_camera.Id)) {
+            recording.StopRecording(_camera.Id);
+            CtxRecordingToggle.Header = "開始錄影";
+        } else {
+            recording.StartRecording(_camera);
+            CtxRecordingToggle.Header = "停止錄影";
+        }
     }
 
     public string? SaveSnapshot(string directory) {

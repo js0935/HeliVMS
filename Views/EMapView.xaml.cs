@@ -170,6 +170,7 @@ public partial class EMapView : UserControl {
 
     private ContextMenu CreateCameraContextMenu(string cameraId) {
         var menu = new ContextMenu();
+
         var viewItem = new MenuItem { Header = "即時監看" };
         viewItem.Click += (_, _) => _nav.NavigateTo(NavPage.LiveView);
         menu.Items.Add(viewItem);
@@ -178,6 +179,22 @@ public partial class EMapView : UserControl {
         previewItem.Click += (_, _) => ShowCameraPreview(cameraId);
         menu.Items.Add(previewItem);
 
+        menu.Items.Add(new Separator());
+
+        var snapshotItem = new MenuItem { Header = "拍照" };
+        snapshotItem.Click += (_, _) => TakeMapCameraSnapshot(cameraId);
+        menu.Items.Add(snapshotItem);
+
+        var bookmarkItem = new MenuItem { Header = "加入書籤" };
+        bookmarkItem.Click += (_, _) => AddMapCameraBookmark(cameraId);
+        menu.Items.Add(bookmarkItem);
+
+        menu.Items.Add(new Separator());
+
+        var settingsItem = new MenuItem { Header = "攝影機設定" };
+        settingsItem.Click += (_, _) => _nav.NavigateTo(NavPage.DeviceManagement);
+        menu.Items.Add(settingsItem);
+
         var removeItem = new MenuItem { Header = "從地圖移除" };
         removeItem.Click += (_, _) => {
             _emap.RemoveCamera(cameraId);
@@ -185,6 +202,28 @@ public partial class EMapView : UserControl {
         };
         menu.Items.Add(removeItem);
         return menu;
+    }
+
+    private void TakeMapCameraSnapshot(string cameraId) {
+        var cam = _cameras.GetCameraById(cameraId);
+        if (cam is null) return;
+        var snapDir = System.IO.Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.MyPictures), "HeliVMS");
+        System.IO.Directory.CreateDirectory(snapDir);
+        var preview = new Controls.VideoPlayer { Width = 1, Height = 1, Visibility = Visibility.Collapsed };
+        preview.LoadCamera(cam);
+        preview.SaveSnapshot(snapDir);
+    }
+
+    private void AddMapCameraBookmark(string cameraId) {
+        var now = DateTime.Now;
+        var cam = _cameras.GetCameraById(cameraId);
+        var bm = new Controls.PlaybackBookmark {
+            Seconds = now.TimeOfDay.TotalSeconds,
+            Note = $"{(cam?.Name ?? cameraId)} @ {now:HH:mm:ss}"
+        };
+        var bookmarks = App.Services.GetRequiredService<IBookmarkService>();
+        bookmarks.SaveBookmark(bm, now.Date);
     }
 
     private void ShowCameraPreview(string cameraId) {

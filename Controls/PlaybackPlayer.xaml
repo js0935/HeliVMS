@@ -3,13 +3,22 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              Background="{StaticResource SurfaceBrush}">
     <UserControl.ContextMenu>
-        <ContextMenu>
+        <ContextMenu Background="{StaticResource SurfaceBrush}"
+                     Foreground="{StaticResource TextBrush}"
+                     BorderBrush="{StaticResource BorderBrush}">
             <MenuItem x:Name="CtxSnapshot" Header="拍照"
+                      Foreground="{StaticResource TextBrush}"
                       Click="CtxSnapshot_Click"/>
             <MenuItem x:Name="CtxMaximize" Header="放大檢視"
+                      Foreground="{StaticResource TextBrush}"
                       Click="CtxMaximize_Click"/>
-            <Separator/>
-            <MenuItem x:Name="CtxSetMaster" Header="⭐ 設為同步主機"
+            <Separator Background="{StaticResource BorderBrush}"/>
+            <MenuItem x:Name="CtxBookmark" Header="加入書籤"
+                      Foreground="{StaticResource TextBrush}"
+                      Click="CtxBookmark_Click"/>
+            <Separator Background="{StaticResource BorderBrush}"/>
+            <MenuItem x:Name="CtxSetMaster" Header="設為同步主機"
+                      Foreground="{StaticResource TextBrush}"
                       Click="CtxSetMaster_Click"/>
         </ContextMenu>
     </UserControl.ContextMenu>

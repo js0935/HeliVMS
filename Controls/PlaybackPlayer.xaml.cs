@@ -7,6 +7,8 @@ using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
+using HeliVMS.Services;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace HeliVMS.Controls;
 
@@ -475,6 +477,16 @@ public partial class PlaybackPlayer : UserControl {
 
     private void CtxSetMaster_Click(object sender, RoutedEventArgs e) {
         SetAsMasterRequested?.Invoke(this);
+    }
+
+    private void CtxBookmark_Click(object sender, RoutedEventArgs e) {
+        var now = DateTime.Now;
+        var bm = new PlaybackBookmark {
+            Seconds = now.TimeOfDay.TotalSeconds,
+            Note = $"{CameraName} @ {now:HH:mm:ss}"
+        };
+        var bookmarks = App.Services.GetRequiredService<IBookmarkService>();
+        bookmarks.SaveBookmark(bm, now.Date);
     }
 
     private static string SanitizeFileName(string name) {
