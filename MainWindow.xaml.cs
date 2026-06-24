@@ -18,6 +18,7 @@ public partial class MainWindow : Window {
     private readonly IAuthorizationService _authz;
     private readonly ISystemStatusService _status;
     private readonly NotificationHistoryService _notifHistory;
+    private readonly DispatcherTimer _statusTimer;
     private bool _isShuttingDown;
     private bool _drawerOpen = true;
 
@@ -48,6 +49,10 @@ public partial class MainWindow : Window {
             UIElement.PreviewMouseDownEvent, new MouseButtonEventHandler((_, _) => _auth.ResetSessionTimer()));
 
         Closing += MainWindow_Closing;
+
+        _statusTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
+        _statusTimer.Tick += (_, _) => RefreshStatusBar();
+        _statusTimer.Start();
         _status.StartMonitoring();
     }
 
@@ -193,6 +198,18 @@ public partial class MainWindow : Window {
         if (LiveDrawer.Visibility == Visibility.Visible) {
             LiveDrawer.FocusSearch();
         }
+    }
+
+    private void RefreshStatusBar() {
+        var total = _status.CameraTotalCount;
+        var online = _status.CameraOnlineCount;
+        var recording = _status.RecordingActiveCount;
+        StatusCameras.Text = $"📷 {online}/{total} 在線 · {recording} 錄影";
+        StatusBandwidth.Text = _status.StatusSummary;
+        StatusStorage.Text = $"💾 儲存 {_status.DiskUsagePercent:F1}%";
+        StatusCpu.Text = $"⚡ CPU {_status.CpuUsagePercent:F1}%";
+        StatusMemory.Text = $"🧠 記憶體 {_status.MemoryUsagePercent:F1}%";
+        StatusTime.Text = DateTime.Now.ToString("HH:mm:ss");
     }
 
     private void NavigateToLogin() {
