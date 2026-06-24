@@ -16,7 +16,16 @@
                     PreviewMouseMove="Canvas_PreviewMouseMove"
                     PreviewMouseLeftButtonDown="Canvas_PreviewMouseLeftButtonDown"
                     PreviewMouseLeftButtonUp="Canvas_PreviewMouseLeftButtonUp"
-                    ClipToBounds="True"/>
+                    ClipToBounds="True">
+                <Canvas.ContextMenu>
+                    <ContextMenu>
+                        <MenuItem Header="放大至選區" Click="CtxZoomToSel"/>
+                        <MenuItem Header="清除選取" Click="CtxClearSel"/>
+                        <Separator/>
+                        <MenuItem Header="加入書籤" Click="CtxAddBookmark"/>
+                    </ContextMenu>
+                </Canvas.ContextMenu>
+            </Canvas>
         </Border>
         <Border Grid.Row="1" Background="#1A000000">
             <Canvas x:Name="TimeScaleCanvas" ClipToBounds="True"

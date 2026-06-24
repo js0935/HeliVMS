@@ -109,6 +109,8 @@ public partial class NxTimeline : UserControl {
         }
     }
 
+    public event EventHandler? BookmarkRequested;
+
     public void Refresh() => DrawAll();
 
     public void LoadBookmarks(List<PlaybackBookmark> bookmarks) {
@@ -372,6 +374,10 @@ public partial class NxTimeline : UserControl {
         Canvas.SetLeft(overlay, x1); Canvas.SetTop(overlay, 0);
         SelectionCanvas.Children.Add(overlay);
     }
+
+    private void CtxZoomToSel(object sender, RoutedEventArgs e) => ZoomToSelection();
+    private void CtxClearSel(object sender, RoutedEventArgs e) => ClearSelection();
+    private void CtxAddBookmark(object sender, RoutedEventArgs e) => BookmarkRequested?.Invoke(this, EventArgs.Empty);
 
     private void DrawBookmarks() {
         BookmarksCanvas.Children.Clear();

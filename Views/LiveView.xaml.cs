@@ -47,6 +47,7 @@ public partial class LiveView : UserControl {
         InitializeComponent();
         Loaded += LiveView_Loaded;
         TimelineControl.PositionChanged += OnTimelinePositionChanged;
+        TimelineControl.BookmarkRequested += (_, _) => AddBookmark();
         _talkService.AudioLevelChanged += level =>
             _ = Dispatcher.InvokeAsync(() => {
                 var w = Math.Clamp(level * 4, 0, 1) * 20;
@@ -394,6 +395,16 @@ public partial class LiveView : UserControl {
         TimelineControl.SetTypeFilter(_filterCont, _filterMotion, _filterAlarm, _filterAi);
     }
 
+    private void AddBookmark() {
+        var posSecs = TimelineControl.PositionSeconds;
+        var bm = new PlaybackBookmark {
+            Seconds = posSecs,
+            Note = $"標記 {DateTime.Now:HH:mm:ss}"
+        };
+        _bookmarks.SaveBookmark(bm, _timelineDay);
+        TimelineControl.AddBookmark(bm);
+    }
+
     private void BtnExport_Click(object sender, RoutedEventArgs e) {
         var dlg = new Dialog.ExportDialog { Owner = Window.GetWindow(this) };
         dlg.ShowDialog();
@@ -563,13 +574,7 @@ public partial class LiveView : UserControl {
     private void OnPreviewKeyDown(object sender, KeyEventArgs e) {
         if (e.Key == Key.F5) { ReloadAllCamerasIntoGrid(); e.Handled = true; }
         else if (e.Key == Key.B) {
-            var posSecs = TimelineControl.PositionSeconds;
-            var bm = new PlaybackBookmark {
-                Seconds = posSecs,
-                Note = $"標記 {DateTime.Now:HH:mm:ss}"
-            };
-            _bookmarks.SaveBookmark(bm, _timelineDay);
-            TimelineControl.AddBookmark(bm);
+            AddBookmark();
             e.Handled = true;
         }
     }
