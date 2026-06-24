@@ -493,6 +493,7 @@ public partial class VideoPlayer : UserControl {
     }
 
     private void StartPlaybackDecoder(string rtspUrl, string username, string password, Camera camera) {
+        DragDiag.Write($"[VideoPlayer:{camera.Name}] StartPlaybackDecoder ENTER: url={rtspUrl}");
         SaveZoomForRestore();
         ResetZoomState();
 
@@ -536,11 +537,13 @@ public partial class VideoPlayer : UserControl {
         _streamingService.StreamStuck += OnStreamStuck;
         RegisterActiveFramePlayer();
         _streamingService.Play(rtspUrl, username, password);
+        DragDiag.Write($"[VideoPlayer:{camera.Name}] StartPlaybackDecoder: Play() issued");
         StartInfoOSD();
     }
 
     private void OnPlayStatusChanged(bool isPlaying) {
         if (_isUnloaded) return;
+        DragDiag.Write($"[VideoPlayer:{_camera?.Name}] OnPlayStatusChanged: isPlaying={isPlaying}");
         _ = Dispatcher.BeginInvoke(() => {
             if (_isUnloaded || _camera is null) { return; }
 
@@ -578,6 +581,7 @@ public partial class VideoPlayer : UserControl {
 
     private void OnStreamStuck() {
         if (_isUnloaded) return;
+        DragDiag.Write($"[VideoPlayer:{_camera?.Name}] OnStreamStuck");
         _ = Dispatcher.BeginInvoke(() => {
             Log.Warning("[VideoPlayer:{Name}] Stream stuck, restarting service", _camera?.Name);
             StatusText.Text = "串流卡住，重新啟動中...";
@@ -1269,6 +1273,7 @@ public partial class VideoPlayer : UserControl {
                 DecoderFrameImage.Visibility = Visibility.Visible;
                 StatusText.Text = "串流播放中";
                 ReconnectingOverlay.Visibility = Visibility.Collapsed;
+                DragDiag.Write($"[VideoPlayer:{_camera.Name}] FlushPendingFrame: FIRST RENDER {width}x{height}");
             }
 
             _decoderVidWidth = (uint)width;

@@ -417,8 +417,16 @@ public partial class DynamicCameraGrid : UserControl {
             };
             container.Children.Add(timeBadge);
         }
-        if (!MainGrid.Children.Contains(container))
+        if (!MainGrid.Children.Contains(container)) {
+            // Remove any leftover placeholder at this slot first
+            for (int i = MainGrid.Children.Count - 1; i >= 0; i--) {
+                if (MainGrid.Children[i] is Border { Tag: int tag } && tag == slotIndex) {
+                    MainGrid.Children.RemoveAt(i);
+                    break;
+                }
+            }
             MainGrid.Children.Add(container);
+        }
     }
 
     private int _selectedSlot = -1;
