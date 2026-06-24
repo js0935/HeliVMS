@@ -45,6 +45,7 @@ public partial class NxTimeline : UserControl {
 
     public event EventHandler<double>? PositionChanged;
     public event EventHandler<(DateTime start, DateTime end)?>? SelectionChanged;
+    public event EventHandler? GoLiveRequested;
 
     public NxTimeline() {
         InitializeComponent();
@@ -65,6 +66,16 @@ public partial class NxTimeline : UserControl {
     public void SetPositionSilent(double seconds) {
         _positionSeconds = Math.Clamp(seconds, 0, 86400);
         DrawPosition();
+    }
+
+    private void GoLiveBtn_Click(object sender, RoutedEventArgs e) => GoLiveRequested?.Invoke(this, EventArgs.Empty);
+
+    private void UpdateZoomLabel() {
+        var totalSecs = ZoomLevels[_zoomIndex];
+        ZoomLabel.Text = totalSecs >= 86400 ? "24h" :
+                         totalSecs >= 43200 ? "12h" :
+                         totalSecs >= 21600 ? "6h" :
+                         totalSecs >= 10800 ? "3h" : "1h";
     }
 
     public void ZoomIn() {
@@ -136,6 +147,7 @@ public partial class NxTimeline : UserControl {
         DrawTimeScale();
         DrawPosition();
         DrawBookmarks();
+        UpdateZoomLabel();
     }
 
     private double SecsToX(double secs) {

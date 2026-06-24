@@ -38,5 +38,15 @@
                 Grid.RowSpan="2"/>
         <Canvas x:Name="BookmarksCanvas" IsHitTestVisible="False" ClipToBounds="True"
                 Grid.RowSpan="2"/>
+        <TextBlock x:Name="ZoomLabel" Grid.Row="1" Text="24h"
+                   FontSize="9" Foreground="#88FFFFFF"
+                   HorizontalAlignment="Right" VerticalAlignment="Center"
+                   Margin="0,0,4,0" IsHitTestVisible="False"/>
+        <Button x:Name="GoLiveBtn" Grid.Row="0" Content="現在"
+                FontSize="9" Padding="6,1" Height="18"
+                HorizontalAlignment="Right" VerticalAlignment="Top"
+                Margin="0,2,4,0" Cursor="Hand"
+                Background="#44000000" Foreground="#CCFFFFFF"
+                BorderThickness="0" Click="GoLiveBtn_Click"/>
     </Grid>
 </UserControl>

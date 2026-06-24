@@ -50,6 +50,7 @@ public partial class LiveView : UserControl {
         Loaded += LiveView_Loaded;
         TimelineControl.PositionChanged += OnTimelinePositionChanged;
         TimelineControl.BookmarkRequested += (_, _) => AddBookmark();
+        TimelineControl.GoLiveRequested += (_, _) => SwitchToLive();
         RecordingService.RecordingStatusChanged += (camId, isRec) =>
             _ = Dispatcher.InvokeAsync(() => VideoGrid.SetRecordingIndicator(camId, isRec));
         _talkService.AudioLevelChanged += level =>
