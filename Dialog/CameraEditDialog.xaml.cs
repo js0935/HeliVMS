@@ -282,6 +282,29 @@ public partial class CameraEditDialog : Window {
         Close();
     }
 
+    private async void TestConnectionButton_Click(object sender, RoutedEventArgs e) {
+        var btn = (Button)sender;
+        btn.IsEnabled = false;
+        btn.Content = "測試中...";
+        try {
+            var ip = IpBox.Text.Trim();
+            var port = int.TryParse(PortBox.Text, out var p) ? p : 554;
+            var ok = await Task.Run(() => {
+                try { using var tcp = new System.Net.Sockets.TcpClient(); var ar = tcp.BeginConnect(ip, port, null, null); return ar.AsyncWaitHandle.WaitOne(3000) && tcp.Connected; }
+                catch { return false; }
+            });
+            var user = UsernameBox.Text.Trim();
+            var pass = PasswordBox.Password;
+            MessageBox.Show(ok ? $"✓ {ip}:{port} 連線成功" : "✗ 連線失敗，請檢查 IP/Port", "測試結果",
+                MessageBoxButton.OK, ok ? MessageBoxImage.Information : MessageBoxImage.Warning);
+        } catch (Exception ex) {
+            MessageBox.Show($"連線測試異常：{ex.Message}", "錯誤", MessageBoxButton.OK, MessageBoxImage.Error);
+        } finally {
+            btn.IsEnabled = true;
+            btn.Content = "測試連線";
+        }
+    }
+
     private async void OnvifDetectButton_Click(object sender, RoutedEventArgs e) {
         var ip = IpBox.Text.Trim();
         if (string.IsNullOrEmpty(ip)) {
