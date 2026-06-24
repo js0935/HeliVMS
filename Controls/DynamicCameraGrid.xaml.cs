@@ -11,7 +11,8 @@ namespace HeliVMS.Controls;
 
 internal static class DragDiag {
     private static readonly string LogPath = Path.Combine(
-        AppDomain.CurrentDomain.BaseDirectory, "Data", "drag_debug.log");
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "HeliVMS", "drag_debug.log");
     private static readonly object _lock = new();
     internal static void Write(string msg) {
         lock (_lock) {
