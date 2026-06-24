@@ -374,6 +374,11 @@ public partial class VideoPlayer : UserControl {
             ReconnectingOverlay.Visibility = Visibility.Collapsed;
             StatusText.Text = "連線中...";
 
+            // Ensure FlyleafHost is in the visual tree (created in constructor, not yet parented)
+            if (_flyleafHost is not null && System.Windows.Media.VisualTreeHelper.GetParent(_flyleafHost) is null) {
+                RootGrid.Children.Add(_flyleafHost);
+            }
+
             var enableHw = GetCachedSettings()?.Settings.EnableHardwareAcceleration ?? true;
             _flyleafConfig = new Config();
             _flyleafConfig.Video.ClearScreen = true;
