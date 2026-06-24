@@ -88,6 +88,7 @@ public partial class LiveView : UserControl {
         TabBar.TabsReordered += (_, _) => SaveCurrentTabs();
 
         VideoGrid.SetSlotCount(DefaultGridSize);
+        HighlightLayoutButton(DefaultGridSize);
         Log.Debug("[LiveView] Grid layout set to {Size}x{Size}",
             DefaultGridSize, DefaultGridSize);
 
@@ -224,6 +225,27 @@ public partial class LiveView : UserControl {
             VideoGrid.SetSlotCount(size);
             if (TabBar.CurrentTab is not null)
                 TabBar.MarkDirty(TabBar.CurrentTab.Id);
+            HighlightLayoutButton(size);
+        }
+    }
+
+    private void HighlightLayoutButton(int size) {
+        var buttons = new[] {
+            (Button)BtnLayout1, (Button)BtnLayout4, (Button)BtnLayout9,
+            (Button)BtnLayout16, (Button)BtnLayout25, (Button)BtnLayout36,
+            (Button)BtnLayout49, (Button)BtnLayout64
+        };
+        var accent = TryFindResource("PrimaryBrush") as System.Windows.Media.Brush;
+        var dim = TryFindResource("SecondaryTextBrush") as System.Windows.Media.Brush;
+        var text = TryFindResource("TextBrush") as System.Windows.Media.Brush;
+        foreach (var btn in buttons) {
+            if (btn.Tag?.ToString() == size.ToString()) {
+                btn.Foreground = accent;
+                btn.FontWeight = FontWeights.Bold;
+            } else {
+                btn.Foreground = dim;
+                btn.FontWeight = FontWeights.Normal;
+            }
         }
     }
 
@@ -255,6 +277,7 @@ public partial class LiveView : UserControl {
     private void LoadTabLayout(LayoutTab tab) {
         _currentGridSize = tab.SlotCount;
         VideoGrid.SetSlotCount(tab.SlotCount);
+        HighlightLayoutButton(tab.SlotCount);
         var cameras = CameraService.GetAllCameras();
         var camMap = cameras.ToDictionary(c => c.Id, c => c);
         var arr = new Camera?[tab.CameraIds.Count];

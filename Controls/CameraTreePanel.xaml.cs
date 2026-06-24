@@ -91,6 +91,35 @@ public partial class CameraTreePanel : UserControl {
 
     // ─── Public API ───
 
+    /// <summary>Switch resource panel to a specific tab index (0=Resources, 1=Layouts, 2=Bookmarks).</summary>
+    public void SwitchTab(int tabIndex) {
+        CameraTreeView.Visibility = tabIndex == 0 ? Visibility.Visible : Visibility.Collapsed;
+        LayoutsPanel.Visibility = tabIndex == 1 ? Visibility.Visible : Visibility.Collapsed;
+        BookmarksPanel.Visibility = tabIndex == 2 ? Visibility.Visible : Visibility.Collapsed;
+
+        var accent = TryFindResource("PrimaryBrush") as System.Windows.Media.Brush ?? System.Windows.Media.Brushes.DodgerBlue;
+        var text = TryFindResource("TextBrush") as System.Windows.Media.Brush ?? System.Windows.Media.Brushes.White;
+        var dim = TryFindResource("SecondaryTextBrush") as System.Windows.Media.Brush ?? System.Windows.Media.Brushes.Gray;
+
+        TabResources.BorderThickness = tabIndex == 0 ? new Thickness(0, 0, 0, 2) : new Thickness(0);
+        TabResources.BorderBrush = tabIndex == 0 ? accent : System.Windows.Media.Brushes.Transparent;
+        TabResources.Foreground = tabIndex == 0 ? text : dim;
+
+        TabLayouts.BorderThickness = tabIndex == 1 ? new Thickness(0, 0, 0, 2) : new Thickness(0);
+        TabLayouts.BorderBrush = tabIndex == 1 ? accent : System.Windows.Media.Brushes.Transparent;
+        TabLayouts.Foreground = tabIndex == 1 ? text : dim;
+
+        TabBookmarks.BorderThickness = tabIndex == 2 ? new Thickness(0, 0, 0, 2) : new Thickness(0);
+        TabBookmarks.BorderBrush = tabIndex == 2 ? accent : System.Windows.Media.Brushes.Transparent;
+        TabBookmarks.Foreground = tabIndex == 2 ? text : dim;
+
+        SearchBox.Visibility = tabIndex == 0 ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private void TabResources_Click(object sender, RoutedEventArgs e) => SwitchTab(0);
+    private void TabLayouts_Click(object sender, RoutedEventArgs e) => SwitchTab(1);
+    private void TabBookmarks_Click(object sender, RoutedEventArgs e) => SwitchTab(2);
+
     /// <summary>Reload camera list from the service and rebuild the tree.</summary>
     public void ReloadCameras() {
         var allCameras = _cameraService.GetAllCameras();
