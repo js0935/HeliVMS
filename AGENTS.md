@@ -29,12 +29,15 @@ This project uses **全自主模式** — the agent should:
 - **LiveView 版面配置改為 Popup 視覺化 Grid 預覽**：取代 8 顆純文字按鈕
 - **登出改為 NavigateToLogin**：而非 Application.Current.Shutdown()
 - **MainWindow_Loaded 加入 try-catch 診斷日誌**
+- **登入畫面強制顯示**：清除殘留 session 不再跳過登入
+- **Flyleaf 硬體加速連結設定**：VideoAcceleration 與 FFmpeg HwDeviceType 跟隨 AppSettings.EnableHardwareAcceleration
+- **NotificationsPanel/LayoutTabBar/NxTimeline/TimelineControl/SettingsView/ChannelManagementPage/UserEditDialog 等全面硬編碼色碼清理**
+- **NxTimeline 錄影類型色碼改從 Colors.xaml 資源載入（含 fallback）**
+- **PlaybackPlayer 殘留色碼置換 + Session 還原加入完整診斷日誌**
 
-### 待完成 (~15%)
-- 登入畫面不出現（需 log 定位）
+### 待完成 (~5%)
 - 版面預覽 Popup 拖放選擇器（Nx 風格 grid 預覽升級）
-- Flyleaf 硬體加速整合
-- 錄影類型色碼應用至 NxTimeline 區塊著色（C# code-behind 繪圖，目前顏色值與 Colors.xaml 一致）
+- NxTimeline 錄影類型區塊著色（顏色值已與 Colors.xaml 一致，繪圖邏輯維持原狀）
 
 ### 阻塞中 (Blocked)
 - 使用者回報 **設備管理（DeviceManagementView）無法管理攝影機** — 需檢視執行時期行為，目前無法透過靜態分析重現

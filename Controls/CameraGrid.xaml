@@ -23,7 +23,7 @@
 
         <!-- 拖曳狀態指示器（偵錯用） -->
         <Border x:Name="DragDebugPanel"
-                Background="#AA000000"
+                Background="{StaticResource OverlayBrush}"
                 CornerRadius="3"
                 VerticalAlignment="Top" HorizontalAlignment="Left"
                 Margin="4" Padding="6,4"
@@ -33,15 +33,15 @@
                 <TextBlock x:Name="DragEventText"
                            Text="event: —"
                            FontSize="10"
-                           Foreground="#AAFFFFFF"/>
+                           Foreground="{StaticResource SecondaryTextBrush}"/>
                 <TextBlock x:Name="DragStateText"
                            Text="state: —"
                            FontSize="11"
-                           Foreground="#CCFFFFFF"/>
+                           Foreground="{StaticResource TextBrush}"/>
                 <TextBlock x:Name="DragDetailText"
                              Text="detail: —"
                              FontSize="10"
-                             Foreground="#88FFFF88"/>
+                             Foreground="{StaticResource SuccessBrush}" Opacity="0.5"/>
             </StackPanel>
         </Border>
     </Grid>
