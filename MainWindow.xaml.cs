@@ -452,8 +452,7 @@ public partial class MainWindow : Window {
     }
 
     private void SetSidebarAuthState(bool loggedIn) {
-        foreach (var btn in new[] { BtnLive, BtnDevice, BtnLicense, BtnDashboard, BtnEMap, BtnSettings })
-            btn.IsEnabled = loggedIn;
+        NavBlocker.Visibility = loggedIn ? Visibility.Collapsed : Visibility.Visible;
         BtnUser.ToolTip = loggedIn
             ? (_auth.CurrentUser?.Username ?? "使用者")
             : "未登入 — 請先登入";

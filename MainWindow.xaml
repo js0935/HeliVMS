@@ -34,7 +34,8 @@
                     <RowDefinition Height="*"/>
                     <RowDefinition Height="Auto"/>
                 </Grid.RowDefinitions>
-                <StackPanel Grid.Row="0" Margin="0,4,0,0">
+                <Grid Grid.Row="0">
+                    <StackPanel Margin="0,4,0,0">
                     <Button x:Name="BtnLive"
                             Style="{StaticResource SidebarButton}"
                             ToolTip="即時/回放監看"
@@ -171,7 +172,9 @@
                             <Path Data="{StaticResource IconSettings}" Fill="{StaticResource SecondaryTextBrush}"/>
                         </Viewbox>
                     </Button>
-                </StackPanel>
+                    </StackPanel>
+                    <Border x:Name="NavBlocker" Background="Transparent" Visibility="Collapsed"/>
+                </Grid>
                 <StackPanel Grid.Row="1">
                     <Line Style="{StaticResource SidebarSeparator}"/>
                     <Button x:Name="BtnTheme"
