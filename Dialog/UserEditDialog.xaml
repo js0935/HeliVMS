@@ -90,7 +90,7 @@
                                            Foreground="{StaticResource TextBrush}"
                                            TextWrapping="Wrap"/>
                             </Border>
-                            <Button x:Name="CopyKeyButton" Content="📋 複製金鑰"
+                            <Button x:Name="CopyKeyButton" Content="複製金鑰"
                                     Style="{StaticResource SecondaryButton}"
                                     Height="26" FontSize="11" FontWeight="SemiBold"
                                     Cursor="Hand" Margin="0,6,0,0"

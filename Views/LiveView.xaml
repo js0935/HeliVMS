@@ -32,7 +32,7 @@
                 </Style>
             </TextBox.Style>
         </TextBox>
-        <TextBlock Text="🔍 搜尋攝影機" FontSize="10"
+        <TextBlock Text="搜尋攝影機" FontSize="10"
                    HorizontalAlignment="Right" VerticalAlignment="Top"
                    Margin="0,13,216,0" Panel.ZIndex="31"
                    Foreground="{StaticResource SecondaryTextBrush}"

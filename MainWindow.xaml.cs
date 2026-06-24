@@ -188,7 +188,7 @@ public partial class MainWindow : Window {
     private void BtnThemeToggle_Click(object sender, RoutedEventArgs e) {
         try {
             App.Services.GetRequiredService<ThemeService>().Toggle();
-            BtnTheme.Content = App.Services.GetRequiredService<ThemeService>().CurrentTheme == "Dark" ? "☀" : "🌙";
+            BtnTheme.ToolTip = App.Services.GetRequiredService<ThemeService>().CurrentTheme == "Dark" ? "切換至淺色主題" : "切換至深色主題";
         } catch { }
     }
 

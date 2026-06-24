@@ -115,12 +115,12 @@
                                     Style="{StaticResource SecondaryButton}"
                                     Height="30" Margin="8,0,0,0"
                                     Click="RemoveLicenseButton_Click"/>
-                            <Button Grid.Column="4" Content="📤 匯出"
+                            <Button Grid.Column="4" Content="匯出"
                                     Style="{StaticResource SecondaryButton}"
                                     Height="30" Width="64" Margin="8,0,0,0"
                                     Click="ExportLicenseButton_Click"
                                     ToolTip="將授權匯出為檔案（可在重新安裝後匯入）"/>
-                            <Button Grid.Column="5" Content="📥 匯入"
+                            <Button Grid.Column="5" Content="匯入"
                                     Style="{StaticResource SecondaryButton}"
                                     Height="30" Width="64" Margin="4,0,0,0"
                                     Click="ImportLicenseButton_Click"

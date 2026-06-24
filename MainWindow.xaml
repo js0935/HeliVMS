@@ -220,7 +220,7 @@
                                 <ColumnDefinition Width="Auto"/>
                                 <ColumnDefinition Width="*"/>
                             </Grid.ColumnDefinitions>
-                            <TextBlock Grid.Column="0" Text="📹" FontSize="16" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                            <Path Grid.Column="0" Data="{StaticResource IconCamera}" Fill="{StaticResource TextBrush}" Width="16" Height="16" Stretch="Uniform" VerticalAlignment="Center" Margin="0,0,8,0"/>
                             <TextBlock Grid.Column="1" Text="HeliVMS" FontSize="14" FontWeight="Bold"
                                        Foreground="{StaticResource TextBrush}"
                                        VerticalAlignment="Center"/>
@@ -231,7 +231,7 @@
                             BorderThickness="0,0,0,1" BorderBrush="{StaticResource BorderBrush}"
                             Padding="8,0" Visibility="Visible">
                         <Grid>
-                            <TextBlock Text="🔍 搜尋資源" FontSize="11"
+                            <TextBlock Text="搜尋資源" FontSize="11"
                                        Foreground="{StaticResource SecondaryTextBrush}"
                                        VerticalAlignment="Center" Margin="4,0,0,0"/>
                         </Grid>

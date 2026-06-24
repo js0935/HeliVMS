@@ -682,7 +682,7 @@
                             <TextBlock Grid.Column="0" Text="事件規則引擎"
                                        Style="{StaticResource SectionHeader}" Margin="0,0,0,8"/>
                             <WrapPanel Grid.Column="1">
-                                <Button x:Name="CopyRuleBtn" Content="📋 複製"
+                                <Button x:Name="CopyRuleBtn" Content="複製"
                                         Style="{StaticResource SecondaryButton}"
                                         Height="28" FontSize="11" Padding="8,0"
                                         Click="CopyRule_Click"/>
@@ -1047,7 +1047,7 @@
                             <Button x:Name="AddScheduleExceptionBtn" Content="+ 新增例外日期"
                                     Style="{StaticResource SecondaryButton}" Height="28" FontSize="11" Padding="12,0"
                                     Click="AddScheduleException_Click"/>
-                            <Button x:Name="CopyScheduleBtn" Content="📋 複製排程到…"
+                            <Button x:Name="CopyScheduleBtn" Content="複製排程到…"
                                     Style="{StaticResource SecondaryButton}" Height="28" FontSize="11" Padding="12,0" Margin="8,0,0,0"
                                     Click="CopySchedule_Click"/>
                         </WrapPanel>

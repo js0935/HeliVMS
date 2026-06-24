@@ -8,9 +8,7 @@
         <!-- 無攝影機時顯示 -->
         <Border x:Name="EmptyState" Background="Transparent" Visibility="Visible">
             <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
-                <TextBlock Text="📹" FontSize="48"
-                           Foreground="{StaticResource SecondaryTextBrush}"
-                           HorizontalAlignment="Center"/>
+                <Path Data="{StaticResource IconCamera}" Fill="{StaticResource SecondaryTextBrush}" Width="48" Height="48" Stretch="Uniform" HorizontalAlignment="Center"/>
                 <TextBlock Text="尚無攝影機"
                            Foreground="{StaticResource TextBrush}"
                            FontSize="16" FontWeight="SemiBold"

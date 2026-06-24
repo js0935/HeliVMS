@@ -30,7 +30,7 @@
                         Margin="12,0,0,0" VerticalAlignment="Center"
                         Click="AutoAssignBtn_Click"
                         ToolTip="將所有未指派的攝影機自動分配到空頻道"/>
-                <Button x:Name="ClearAllBtn" Content="🗑 清除全部 IP"
+                <Button x:Name="ClearAllBtn" Content="清除全部 IP"
                         Style="{StaticResource SecondaryButton}"
                         Height="26" FontSize="11" Padding="10,0"
                         Margin="6,0,0,0" VerticalAlignment="Center"

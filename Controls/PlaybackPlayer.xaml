@@ -4,9 +4,9 @@
              Background="{StaticResource SurfaceBrush}">
     <UserControl.ContextMenu>
         <ContextMenu>
-            <MenuItem x:Name="CtxSnapshot" Header="📷 拍照"
+            <MenuItem x:Name="CtxSnapshot" Header="拍照"
                       Click="CtxSnapshot_Click"/>
-            <MenuItem x:Name="CtxMaximize" Header="🔍 放大檢視"
+            <MenuItem x:Name="CtxMaximize" Header="放大檢視"
                       Click="CtxMaximize_Click"/>
             <Separator/>
             <MenuItem x:Name="CtxSetMaster" Header="⭐ 設為同步主機"
@@ -20,7 +20,7 @@
             <Border x:Name="AccentBar"
                     HorizontalAlignment="Left" VerticalAlignment="Stretch"
                     Width="3" CornerRadius="1,0,0,1"
-                    Background="#2196F3"/>
+                    Background="{StaticResource PrimaryBrush}"/>
 
             <!-- Main content -->
             <Grid Margin="3,0,0,0">
@@ -40,11 +40,9 @@
                         Background="{StaticResource SecondarySurfaceBrush}">
                     <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
                         <Border Width="44" Height="44" CornerRadius="22"
-                                Background="#18000000"
+                                Background="{StaticResource OverlayBrush}"
                                 HorizontalAlignment="Center" Margin="0,0,0,6">
-                            <TextBlock Text="🎥" FontSize="20"
-                                       HorizontalAlignment="Center"
-                                       VerticalAlignment="Center"/>
+                            <Path Data="{StaticResource IconCamera}" Fill="{StaticResource SecondaryTextBrush}" Width="20" Height="20" Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                         </Border>
                         <TextBlock x:Name="ChannelLabel" Text="CH--"
                                    Foreground="{StaticResource SecondaryTextBrush}"

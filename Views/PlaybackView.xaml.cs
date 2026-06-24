@@ -2374,8 +2374,22 @@ public partial class PlaybackView : UserControl {
         AddBookmarkAtCurrentPosition();
     }
 
+    private void ShowBookmarkFeedback(string symbol) {
+        BookmarkIcon.Visibility = Visibility.Collapsed;
+        BookmarkFeedback.Text = symbol;
+        BookmarkFeedback.Visibility = Visibility.Visible;
+        var resetTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(400) };
+        resetTimer.Tick += (_, _) => { resetTimer.Stop(); ResetBookmarkIcon(); };
+        resetTimer.Start();
+    }
+
+    private void ResetBookmarkIcon() {
+        BookmarkIcon.Visibility = Visibility.Visible;
+        BookmarkFeedback.Visibility = Visibility.Collapsed;
+    }
+
     private void AddBookmarkAtCurrentPosition() {
-        if (_coordinator is null) { BookmarkBtn.Content = "🔖"; return; }
+        if (_coordinator is null) return;
 
         var seconds = TimelineCtrl.PositionFraction * 86400;
         var totalSec = (int)seconds;
@@ -2383,17 +2397,13 @@ public partial class PlaybackView : UserControl {
         var m = (totalSec % 3600) / 60;
         var s_val = totalSec % 60;
 
-        // Check if bookmark already exists within 5 seconds
         var exists = false;
         var bms = TimelineCtrl.Bookmarks;
         for (var bi = 0; bi < bms.Count; bi++) {
             if (Math.Abs(bms[bi].Seconds - seconds) < 5) { exists = true; break; }
         }
         if (exists) {
-            BookmarkBtn.Content = "✓";
-            var resetTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(400) };
-            resetTimer.Tick += (_, _) => { resetTimer.Stop(); BookmarkBtn.Content = "🔖"; }; // REVIEW: lambda captures 'this' — consider weak event pattern
-            resetTimer.Start();
+            ShowBookmarkFeedback("\u2713");
             return;
         }
 
@@ -2407,11 +2417,7 @@ public partial class PlaybackView : UserControl {
             _bookmarkService.SaveBookmark(lastBm, _currentDate);
         }
 
-        // Animated feedback
-        BookmarkBtn.Content = "★";
-        var feedbackTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(400) };
-        feedbackTimer.Tick += (_, _) => { feedbackTimer.Stop(); BookmarkBtn.Content = "🔖"; }; // REVIEW: lambda captures 'this' — consider weak event pattern
-        feedbackTimer.Start();
+        ShowBookmarkFeedback("\u2605");
 
         _eventLog.LogInfo(EventCategories.Playback, "PlaybackView",
             $"新增書籤", $"時間: {h:D2}:{m:D2}:{s_val:D2}");

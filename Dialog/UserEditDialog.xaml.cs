@@ -77,9 +77,9 @@ public partial class UserEditDialog : Window {
             var uri = TwoFactorSecretText.Text;
             if (!string.IsNullOrEmpty(uri)) {
                 Clipboard.SetText(uri);
-                CopyKeyButton.Content = "✅ 已複製";
+                CopyKeyButton.Content = "已複製";
                 var t = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
-                t.Tick += (_, _) => { t.Stop(); CopyKeyButton.Content = "📋 複製金鑰"; };
+                t.Tick += (_, _) => { t.Stop(); CopyKeyButton.Content = "複製金鑰"; };
                 t.Start();
             }
         } catch { }
