@@ -120,8 +120,9 @@ public partial class LiveView : UserControl {
             for (int i = 0; i < count; i++)
                 arr[i] = all[i];
 
-            VideoGrid.LoadCameras(arr);
-            Log.Debug("[LiveView] Loaded {Count}/{Total} cameras into grid", count, all.Count);
+            var useSub = count >= 4;
+            VideoGrid.LoadCameras(arr, useSub);
+            Log.Debug("[LiveView] Loaded {Count}/{Total} cameras into grid (subStream={Sub})", count, all.Count, useSub);
         } catch (Exception ex) {
             Log.Error(ex, "[LiveView] Failed to load cameras");
         }
