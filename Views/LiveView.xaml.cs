@@ -72,6 +72,7 @@ public partial class LiveView : UserControl {
         TabBar.TabSelected += OnTabSelected;
         TabBar.TabAdded += OnTabAdded;
         TabBar.TabRenamed += (_, id) => SaveCurrentTabs();
+        TabBar.TabsReordered += (_, _) => SaveCurrentTabs();
 
         VideoGrid.SetSlotCount(DefaultGridSize);
         Log.Debug("[LiveView] Grid layout set to {Size}x{Size}",

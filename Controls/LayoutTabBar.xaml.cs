@@ -13,6 +13,8 @@ public partial class LayoutTabBar : UserControl {
     private readonly List<TabItemData> _tabs = [];
     private TabItemData? _selectedTab;
     private bool _isRenaming;
+    private TabItemData? _dragTab;
+    private Point _dragStart;
 
     public LayoutTab? CurrentTab => _selectedTab?.Layout;
     public IReadOnlyList<LayoutTab> Tabs => _tabs.Select(t => t.Layout).ToList().AsReadOnly();
@@ -20,6 +22,7 @@ public partial class LayoutTabBar : UserControl {
     public event EventHandler<LayoutTab>? TabSelected;
     public event EventHandler<LayoutTab>? TabAdded;
     public event EventHandler<string>? TabRenamed;
+    public event EventHandler? TabsReordered;
 
     public LayoutTabBar() {
         InitializeComponent();
@@ -138,10 +141,36 @@ public partial class LayoutTabBar : UserControl {
         border.MouseDown += (_, args) => {
             if (args.ChangedButton == MouseButton.Left) {
                 SelectTab(data.Layout.Id);
+                _dragTab = data;
+                _dragStart = args.GetPosition(TabStrip);
                 if (args.ClickCount == 2)
                     BeginRename(data);
             }
         };
+        border.MouseMove += (_, args) => {
+            if (_dragTab is null || _dragTab != data || args.LeftButton != MouseButtonState.Pressed) return;
+            var pos = args.GetPosition(TabStrip);
+            if (Math.Abs(pos.X - _dragStart.X) < 20) return;
+            var srcIdx = _tabs.IndexOf(data);
+            if (srcIdx < 0) return;
+            var tgtIdx = srcIdx;
+            var cumulative = 0.0;
+            for (int i = 0; i < _tabs.Count; i++) {
+                var w = ((Border)_tabs[i].UI).ActualWidth;
+                cumulative += w / 2;
+                if (pos.X < cumulative) { tgtIdx = i; break; }
+                cumulative += w / 2;
+            }
+            if (tgtIdx != srcIdx && tgtIdx >= 0 && tgtIdx < _tabs.Count) {
+                _tabs.RemoveAt(srcIdx);
+                _tabs.Insert(tgtIdx, data);
+                TabStrip.Children.RemoveAt(srcIdx);
+                TabStrip.Children.Insert(tgtIdx, data.UI);
+                _dragTab = null;
+                TabsReordered?.Invoke(this, EventArgs.Empty);
+            }
+        };
+        border.MouseUp += (_, _) => _dragTab = null;
         return border;
     }
 
