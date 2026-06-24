@@ -149,7 +149,7 @@ public partial class MainWindow : Window {
                 live.ToggleFullScreen();
                 e.Handled = true;
             }
-        } else if (e.Key == Key.F1) {
+        } else if (e.Key == Key.F1 || e.Key == Key.H || e.Key == Key.OemQuestion) {
             ShowShortcutHelp();
             e.Handled = true;
         } else if (e.KeyboardDevice.Modifiers == ModifierKeys.Control && e.Key == Key.R) {
