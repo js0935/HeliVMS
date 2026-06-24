@@ -5,10 +5,10 @@
              Background="{StaticResource BackgroundBrush}"
              PreviewKeyDown="OnPreviewKeyDown">
     <UserControl.Resources>
-        <SolidColorBrush x:Key="FilterContBrush" Color="{StaticResource RecordingContinuousColor}" Opacity="0.2"/>
-        <SolidColorBrush x:Key="FilterMotionBrush" Color="{StaticResource RecordingMotionColor}" Opacity="0.2"/>
-        <SolidColorBrush x:Key="FilterAlarmBrush" Color="{StaticResource RecordingAlarmColor}" Opacity="0.2"/>
-        <SolidColorBrush x:Key="FilterAiBrush" Color="{StaticResource RecordingAiColor}" Opacity="0.2"/>
+        <SolidColorBrush x:Key="FilterContBrush" Color="{DynamicResource RecordingContinuousColor}" Opacity="0.2"/>
+        <SolidColorBrush x:Key="FilterMotionBrush" Color="{DynamicResource RecordingMotionColor}" Opacity="0.2"/>
+        <SolidColorBrush x:Key="FilterAlarmBrush" Color="{DynamicResource RecordingAlarmColor}" Opacity="0.2"/>
+        <SolidColorBrush x:Key="FilterAiBrush" Color="{DynamicResource RecordingAiColor}" Opacity="0.2"/>
     </UserControl.Resources>
     <Grid>
         <Grid.RowDefinitions>
