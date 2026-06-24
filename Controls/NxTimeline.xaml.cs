@@ -47,6 +47,7 @@ public partial class NxTimeline : UserControl {
     public event EventHandler<double>? PositionChanged;
     public event EventHandler<(DateTime start, DateTime end)?>? SelectionChanged;
     public event EventHandler? GoLiveRequested;
+    public event EventHandler<(DateTime start, DateTime end)>? ExportRangeRequested;
 
     public NxTimeline() {
         InitializeComponent();
@@ -405,6 +406,10 @@ public partial class NxTimeline : UserControl {
     private void CtxZoomToSel(object sender, RoutedEventArgs e) => ZoomToSelection();
     private void CtxClearSel(object sender, RoutedEventArgs e) => ClearSelection();
     private void CtxAddBookmark(object sender, RoutedEventArgs e) => BookmarkRequested?.Invoke(this, EventArgs.Empty);
+    private void CtxExportRange(object sender, RoutedEventArgs e) {
+        var sel = GetSelection();
+        if (sel.HasValue) ExportRangeRequested?.Invoke(this, sel.Value);
+    }
 
     private void DrawBookmarks() {
         BookmarksCanvas.Children.Clear();

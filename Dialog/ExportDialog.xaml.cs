@@ -11,12 +11,25 @@ public partial class ExportDialog : Window {
     private readonly IExportService _exportService;
     private readonly ICameraService _cameraService;
 
+    public (DateTime start, DateTime end)? PresetRange {
+        set {
+            if (value.HasValue) {
+                StartDatePicker.SelectedDate = value.Value.start.Date;
+                EndDatePicker.SelectedDate = value.Value.end.Date;
+                StartTimeBox.Text = value.Value.start.ToString("HH:mm:ss");
+                EndTimeBox.Text = value.Value.end.ToString("HH:mm:ss");
+            }
+        }
+    }
+
     public ExportDialog() {
         InitializeComponent();
         _exportService = App.Services.GetRequiredService<IExportService>();
         _cameraService = App.Services.GetRequiredService<ICameraService>();
         StartDatePicker.SelectedDate = DateTime.Today;
         EndDatePicker.SelectedDate = DateTime.Today;
+        StartTimeBox.Text = "00:00:00";
+        EndTimeBox.Text = "23:59:59";
         OutputPathBox.Text = Path.Combine(_exportService.GetDefaultExportPath(),
             $"export_{DateTime.Now:yyyyMMdd_HHmmss}.mp4");
     }
@@ -33,12 +46,12 @@ public partial class ExportDialog : Window {
     }
 
     private async void Export_Click(object sender, RoutedEventArgs e) {
-        var start = StartDatePicker.SelectedDate;
-        var end = EndDatePicker.SelectedDate;
-        if (start is null || end is null) {
+        if (StartDatePicker.SelectedDate is not DateTime startDate || EndDatePicker.SelectedDate is not DateTime endDate) {
             MessageBox.Show("請選擇日期範圍", "提示", MessageBoxButton.OK, MessageBoxImage.Information);
             return;
         }
+        if (!TimeSpan.TryParse(StartTimeBox.Text, out var startTime)) startTime = TimeSpan.Zero;
+        if (!TimeSpan.TryParse(EndTimeBox.Text, out var endTime)) endTime = new TimeSpan(23, 59, 59);
 
         var output = OutputPathBox.Text.Trim();
         if (string.IsNullOrEmpty(output)) {
@@ -53,8 +66,8 @@ public partial class ExportDialog : Window {
             var cameras = _cameraService.GetAllCameras().Select(c => c.Id).ToList();
             var fmt = FormatCombo.SelectedItem is FrameworkElement fe ? fe.Tag?.ToString() ?? "mp4" : "mp4";
             var request = new ExportRequest {
-                StartTime = start.Value,
-                EndTime = end.Value.AddDays(1).AddSeconds(-1),
+                StartTime = startDate + startTime,
+                EndTime = endDate + endTime,
                 CameraIds = cameras,
                 OutputPath = output,
                 Format = fmt,

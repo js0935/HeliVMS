@@ -51,6 +51,13 @@ public partial class LiveView : UserControl {
         TimelineControl.PositionChanged += OnTimelinePositionChanged;
         TimelineControl.BookmarkRequested += (_, _) => AddBookmark();
         TimelineControl.GoLiveRequested += (_, _) => SwitchToLive();
+        TimelineControl.ExportRangeRequested += (_, range) => {
+            var dlg = new Dialog.ExportDialog {
+                Owner = Window.GetWindow(this),
+                PresetRange = range,
+            };
+            dlg.ShowDialog();
+        };
         RecordingService.RecordingStatusChanged += (camId, isRec) =>
             _ = Dispatcher.InvokeAsync(() => VideoGrid.SetRecordingIndicator(camId, isRec));
         _talkService.AudioLevelChanged += level =>

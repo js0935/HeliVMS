@@ -22,6 +22,7 @@
                         <MenuItem Header="放大至選區" Click="CtxZoomToSel"/>
                         <MenuItem Header="清除選取" Click="CtxClearSel"/>
                         <Separator/>
+                        <MenuItem Header="匯出選取區段" Click="CtxExportRange"/>
                         <MenuItem Header="加入書籤" Click="CtxAddBookmark"/>
                     </ContextMenu>
                 </Canvas.ContextMenu>
