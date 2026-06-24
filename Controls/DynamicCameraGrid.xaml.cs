@@ -245,6 +245,22 @@ public partial class DynamicCameraGrid : UserControl {
                 IsHitTestVisible = false,
             };
             container.Children.Add(label);
+            if (cam.HasPTZ && _cols < 6) {
+                var ptzBadge = new Border {
+                    Background = new SolidColorBrush(Color.FromArgb(180, 0x21, 0x96, 0xF3)),
+                    CornerRadius = new CornerRadius(2),
+                    Padding = new Thickness(3, 0, 3, 0),
+                    Margin = new Thickness(4, 2, 0, 0),
+                    HorizontalAlignment = HorizontalAlignment.Right,
+                    VerticalAlignment = VerticalAlignment.Top,
+                    Child = new TextBlock {
+                        Text = "PTZ",
+                        FontSize = 8,
+                        Foreground = Brushes.White,
+                    }
+                };
+                container.Children.Add(ptzBadge);
+            }
         }
         if (!MainGrid.Children.Contains(container))
             MainGrid.Children.Add(container);
