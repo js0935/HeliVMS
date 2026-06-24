@@ -49,6 +49,9 @@ public partial class DynamicCameraGrid : UserControl {
     /// <summary>Raised when a camera is assigned to / removed from a slot.</summary>
     public event Action<Camera?, int>? SlotChanged;
 
+    /// <summary>Raised when user right-clicks a slot with a camera.</summary>
+    public event Action<string, string>? SlotContextMenuRequested;
+
     // ═══════════════════════════════════════════════════
     //  Constructor
     // ═══════════════════════════════════════════════════
@@ -212,6 +215,21 @@ public partial class DynamicCameraGrid : UserControl {
             if (args.ChangedButton == MouseButton.Left)
                 SelectSlot(slotIndex);
         };
+        if (cam is not null) {
+            var ctx = new ContextMenu();
+            var camId = cam.Id;
+            ctx.Items.Add(new MenuItem { Header = "移除攝影機", Tag = camId });
+            ctx.Items.Add(new MenuItem { Header = "開始錄影", Tag = camId });
+            ctx.Items.Add(new MenuItem { Header = "停止錄影", Tag = camId });
+            ctx.Items.Add(new Separator());
+            ctx.Items.Add(new MenuItem { Header = "PTZ 控制", Tag = camId });
+            foreach (MenuItem item in ctx.Items)
+                item.Click += (s, _) => {
+                    if (s is MenuItem mi)
+                        SlotContextMenuRequested?.Invoke(camId, (string)mi.Header);
+                };
+            container.ContextMenu = ctx;
+        }
         Grid.SetRow(container, slotIndex / _cols);
         Grid.SetColumn(container, slotIndex % _cols);
         container.Children.Add(player);

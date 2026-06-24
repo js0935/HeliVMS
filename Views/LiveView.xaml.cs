@@ -69,6 +69,7 @@ public partial class LiveView : UserControl {
 
         VideoGrid.DropCameraRequested += OnDropCameraToGrid;
         VideoGrid.SlotChanged += OnSlotChanged;
+        VideoGrid.SlotContextMenuRequested += OnGridContextMenu;
         TabBar.TabSelected += OnTabSelected;
         TabBar.TabAdded += OnTabAdded;
         TabBar.TabRenamed += (_, id) => SaveCurrentTabs();
@@ -136,6 +137,22 @@ public partial class LiveView : UserControl {
             VideoGrid.LoadCameras(arr);
         } catch (Exception ex) {
             Log.Debug("[LiveView] Filter error: {Msg}", ex.Message);
+        }
+    }
+
+    private void OnGridContextMenu(string cameraId, string action) {
+        var cam = CameraService.GetCameraById(cameraId);
+        if (cam is null) return;
+        switch (action) {
+            case "移除攝影機": {
+                var slots = VideoGrid.GetSlotCameras().ToList();
+                var idx = slots.FindIndex(c => c?.Id == cameraId);
+                if (idx >= 0) VideoGrid.RemoveSlot(idx);
+                break;
+            }
+            case "開始錄影": RecordingService.StartRecording(cam); break;
+            case "停止錄影": RecordingService.StopRecording(cam.Id); break;
+            case "PTZ 控制": HandleCameraAction(cameraId, "ptz"); break;
         }
     }
 
