@@ -1,0 +1,11 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:s="clr-namespace:System;assembly=mscorlib">
+    <FontFamily x:Key="FontFamily">Segoe UI Variable Display, Segoe UI</FontFamily>
+    <FontFamily x:Key="FontFamilyMono">Cascadia Code, Consolas</FontFamily>
+    <s:Double x:Key="FontSizeHeader">14</s:Double>
+    <s:Double x:Key="FontSizeBody">12</s:Double>
+    <s:Double x:Key="FontSizeSmall">11</s:Double>
+    <s:Double x:Key="FontSizeCaption">10</s:Double>
+    <s:Double x:Key="FontSizeTiny">9</s:Double>
+</ResourceDictionary>

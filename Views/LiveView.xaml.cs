@@ -5,7 +5,6 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
-using System.Windows.Shapes;
 using System.Windows.Threading;
 using HeliVMS.Controls;
 using HeliVMS.Models;
@@ -34,23 +33,10 @@ public partial class LiveView : UserControl {
 
     private PlaybackMode _playbackMode = PlaybackMode.Live;
     private DispatcherTimer? _liveTicker;
-    private DispatcherTimer? _recordingBarTimer;
     private double _playbackSpeed = 1.0;
     private static readonly double[] FwdSpeeds = [1.0, 2.0, 4.0, 8.0, 16.0];
-    private static readonly Color[] BarColors = [
-        Color.FromRgb(0x00, 0x7A, 0xCC),
-        Color.FromRgb(0x00, 0xCC, 0x7A),
-        Color.FromRgb(0xCC, 0x7A, 0x00),
-        Color.FromRgb(0x7A, 0x00, 0xCC),
-        Color.FromRgb(0xCC, 0x00, 0x7A),
-        Color.FromRgb(0x00, 0xCC, 0xCC),
-        Color.FromRgb(0xCC, 0xCC, 0x00),
-        Color.FromRgb(0x7A, 0xCC, 0x00),
-    ];
     private int _fwdSpeedIndex;
     private DateTime _timelineDay = DateTime.Today;
-    private bool _timelineSyncing;
-    private bool _isDraggingTimeline;
 
     private int _currentGridSize = 4;
     private const int DefaultGridSize = 4;
@@ -59,6 +45,7 @@ public partial class LiveView : UserControl {
     public LiveView() {
         InitializeComponent();
         Loaded += LiveView_Loaded;
+        TimelineControl.PositionChanged += OnTimelinePositionChanged;
         _talkService.AudioLevelChanged += level =>
             _ = Dispatcher.InvokeAsync(() => {
                 var w = Math.Clamp(level * 4, 0, 1) * 20;
@@ -80,16 +67,18 @@ public partial class LiveView : UserControl {
 
         VideoGrid.DropCameraRequested += OnDropCameraToGrid;
         VideoGrid.SlotChanged += OnSlotChanged;
+        TabBar.TabSelected += OnTabSelected;
+        TabBar.TabAdded += OnTabAdded;
+        TabBar.TabRenamed += (_, id) => SaveCurrentTabs();
 
         VideoGrid.SetSlotCount(DefaultGridSize);
         Log.Debug("[LiveView] Grid layout set to {Size}x{Size}",
             DefaultGridSize, DefaultGridSize);
 
+        LoadLayoutTabs();
         ReloadAllCamerasIntoGrid();
         StartLiveTicker();
-        RefreshRecordingBars();
-        StartRecordingBarTimer();
-        PopulateLayoutCombo();
+        ReloadTimelineData();
 
         Log.Debug("[LiveView] Loaded — cameras in grid: {Count}",
             VideoGrid.GetSlotCameras().Count(c => c is not null));
@@ -98,8 +87,6 @@ public partial class LiveView : UserControl {
     private void Cleanup() {
         _liveTicker?.Stop();
         _liveTicker = null;
-        _recordingBarTimer?.Stop();
-        _recordingBarTimer = null;
     }
 
     // ═══════════════════════════════════════════════════════════
@@ -154,6 +141,8 @@ public partial class LiveView : UserControl {
         PtzBar.Visibility = _ptzCamera is not null ? Visibility.Visible : Visibility.Collapsed;
         if (_ptzCamera is not null)
             PtzLabel.Text = _ptzCamera.Name;
+        if (TabBar.CurrentTab is not null)
+            TabBar.MarkDirty(TabBar.CurrentTab.Id);
     }
 
     private void OnDropCameraToGrid(string cameraId, int slotIndex) {
@@ -186,48 +175,74 @@ public partial class LiveView : UserControl {
         if (sender is Button { Tag: string tag } && int.TryParse(tag, out var size)) {
             _currentGridSize = size;
             VideoGrid.SetSlotCount(size);
+            if (TabBar.CurrentTab is not null)
+                TabBar.MarkDirty(TabBar.CurrentTab.Id);
         }
     }
 
     // ═══════════════════════════════════════════════════════════
-    //  Layout Save / Load
+    //  Layout Tabs
     // ═══════════════════════════════════════════════════════════
 
-    private void PopulateLayoutCombo() {
-        LayoutCombo.Items.Clear();
-        LayoutCombo.Items.Add(new ComboBoxItem { Content = "📋 版面配置...", Tag = "", IsSelected = true });
-        foreach (var layout in LayoutService.GetAllLayouts()) {
-            LayoutCombo.Items.Add(new ComboBoxItem {
-                Content = $"📐 {layout.Name} ({layout.GridSize})",
-                Tag = layout.Id
-            });
+    private void LoadLayoutTabs() {
+        var tabs = LayoutService.GetAllTabs();
+        if (tabs.Count == 0) {
+            var def = LayoutService.CreateTab("預設佈局");
+            tabs = [def];
         }
+        TabBar.LoadTabs(tabs);
+        if (tabs.Count > 0)
+            LoadTabLayout(tabs[0]);
     }
 
-    private void LayoutCombo_SelectionChanged(object sender, SelectionChangedEventArgs e) {
-        if (LayoutCombo.SelectedItem is ComboBoxItem { Tag: string id } && !string.IsNullOrEmpty(id)) {
-            var layout = LayoutService.GetLayoutById(id);
-            if (layout is null) return;
-            VideoGrid.SetSlotCount(layout.GridSize);
-            var cameras = CameraService.GetAllCameras();
-            var camMap = cameras.ToDictionary(c => c.Id, c => c);
-            var arr = new Camera?[layout.Slots.Count];
-            for (int i = 0; i < layout.Slots.Count; i++) {
-                var camId = layout.Slots[i];
-                arr[i] = camId is not null && camMap.TryGetValue(camId, out var cam) ? cam : null;
-            }
+    private void OnTabSelected(object? sender, LayoutTab tab) {
+        SaveCurrentTabToService();
+        LoadTabLayout(tab);
+    }
+
+    private void OnTabAdded(object? sender, LayoutTab tab) {
+        LayoutService.SaveTab(tab);
+        LoadTabLayout(tab);
+    }
+
+    private void LoadTabLayout(LayoutTab tab) {
+        _currentGridSize = tab.SlotCount;
+        VideoGrid.SetSlotCount(tab.SlotCount);
+        var cameras = CameraService.GetAllCameras();
+        var camMap = cameras.ToDictionary(c => c.Id, c => c);
+        var arr = new Camera?[tab.CameraIds.Count];
+        for (int i = 0; i < tab.CameraIds.Count; i++) {
+            var camId = tab.CameraIds[i];
+            arr[i] = camId is not null && camMap.TryGetValue(camId, out var cam) ? cam : null;
+        }
+        if (arr.Length > 0)
             VideoGrid.LoadCameras(arr);
-        }
+        ReloadTimelineData();
+    }
+
+    private void SaveCurrentTabToService() {
+        var tab = TabBar.CurrentTab;
+        if (tab is null) return;
+        tab.SlotCount = _currentGridSize;
+        tab.CameraIds = VideoGrid.GetSlotCameras().Take(_currentGridSize).Select(c => c?.Id).ToList();
+        LayoutService.SaveTab(tab);
+    }
+
+    private void SaveCurrentTabs() {
+        var tab = TabBar.CurrentTab;
+        if (tab is not null) LayoutService.SaveTab(tab);
     }
 
     private void BtnSaveLayout_Click(object sender, RoutedEventArgs e) {
-        var dlg = new Dialog.InputDialog("儲存版面配置", "請輸入配置名稱：", "") {
+        var tab = TabBar.CurrentTab;
+        if (tab is null) return;
+        var dlg = new Dialog.InputDialog("重新命名佈局", "請輸入佈局名稱：", tab.Name) {
             Owner = Window.GetWindow(this)
         };
         if (dlg.ShowDialog() == true && !string.IsNullOrWhiteSpace(dlg.Value)) {
-            var slots = VideoGrid.GetSlotCameras().Take(_currentGridSize).Select(c => c?.Id).ToList();
-            LayoutService.SaveLayout(dlg.Value.Trim(), _currentGridSize, slots);
-            PopulateLayoutCombo();
+            tab.Name = dlg.Value.Trim();
+            LayoutService.SaveTab(tab);
+            TabBar.MarkClean(tab.Id);
         }
     }
 
@@ -247,38 +262,20 @@ public partial class LiveView : UserControl {
     private void OnLiveTickerTick(object? sender, EventArgs e) {
         if (_playbackMode != PlaybackMode.Live) return;
         var elapsed = DateTime.Now.TimeOfDay.TotalSeconds;
-        _timelineSyncing = true;
-        GlobalTimeline.Value = Math.Clamp(elapsed, 0, 86400);
-        _timelineSyncing = false;
-        UpdateTimelineTimeLabel(DateTime.Now);
+        TimelineControl.PositionSeconds = Math.Clamp(elapsed, 0, 86400);
     }
 
-    private void GlobalTimeline_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e) {
-        if (_timelineSyncing) return;
-        var time = _timelineDay.AddSeconds(e.NewValue);
-        UpdateTimelineTimeLabel(time);
-        if (_isDraggingTimeline) {
+    private void OnTimelinePositionChanged(object? sender, double seconds) {
+        if (_playbackMode == PlaybackMode.Live)
+            SwitchToSeekMode(_timelineDay.AddSeconds(seconds));
+        else {
+            var time = _timelineDay.AddSeconds(seconds);
             foreach (var p in VideoGrid.GetActiveSlots())
-                p.SwitchToPlayback(GetTimelineTime());
+                p.SwitchToPlayback(time);
         }
     }
 
-    private void GlobalTimeline_PreviewMouseDown(object sender, MouseButtonEventArgs e) {
-        _isDraggingTimeline = true;
-        if (_playbackMode == PlaybackMode.Live)
-            SwitchToSeekMode(GetTimelineTime());
-    }
-
-    private void GlobalTimeline_PreviewMouseUp(object sender, MouseButtonEventArgs e) {
-        _isDraggingTimeline = false;
-    }
-
-    private DateTime GetTimelineTime() => _timelineDay.AddSeconds(GlobalTimeline.Value);
-
-    private void UpdateTimelineTimeLabel(DateTime time) {
-        TimelineTimeLabel.Text = time.ToString("HH:mm:ss");
-        TimelineDateLabel.Text = time.ToString("yyyy-MM-dd (ddd)");
-    }
+    internal DateTime GetTimelineTime() => _timelineDay.AddSeconds(TimelineControl.PositionSeconds);
 
     // ═══════════════════════════════════════════════════════════
     //  Playback Mode Switching
@@ -302,22 +299,19 @@ public partial class LiveView : UserControl {
         foreach (var p in VideoGrid.GetActiveSlots())
             p.SwitchToLive();
 
-        _timelineSyncing = true;
-        GlobalTimeline.Value = Math.Clamp(DateTime.Now.TimeOfDay.TotalSeconds, 0, 86400);
-        _timelineSyncing = false;
-        UpdateTimelineTimeLabel(DateTime.Now);
+        var elapsed = DateTime.Now.TimeOfDay.TotalSeconds;
+        TimelineControl.PositionSeconds = Math.Clamp(elapsed, 0, 86400);
 
         Log.Debug("[LiveView] Switched to Live");
     }
 
     public void NavigateToDate(DateTime date) {
         _timelineDay = date.Date;
-        _timelineSyncing = true;
+        TimelineControl.TimelineDay = date.Date;
         var secs = Math.Clamp(DateTime.Now.TimeOfDay.TotalSeconds, 0, 86400);
-        GlobalTimeline.Value = secs;
-        _timelineSyncing = false;
-        UpdateTimelineTimeLabel(_timelineDay.AddSeconds(secs));
+        TimelineControl.SetPosition(_timelineDay.AddSeconds(secs));
         PerformSeek(_timelineDay.AddSeconds(secs));
+        ReloadTimelineData();
         Log.Debug("[LiveView] NavigateToDate: {Date}", date.ToString("yyyy-MM-dd"));
     }
 
@@ -355,10 +349,9 @@ public partial class LiveView : UserControl {
     private void SkipTimeline(int seconds) {
         if (_playbackMode == PlaybackMode.Live)
             SwitchToSeekMode(DateTime.Now);
-        var newVal = Math.Clamp(GlobalTimeline.Value + seconds, 0, 86400);
-        GlobalTimeline.Value = newVal;
+        var newVal = Math.Clamp(TimelineControl.PositionSeconds + seconds, 0, 86400);
+        TimelineControl.PositionSeconds = newVal;
         var targetTime = _timelineDay.AddSeconds(newVal);
-        GlobalTimeline_ValueChanged(GlobalTimeline, null!);
         PerformSeek(targetTime);
     }
 
@@ -366,8 +359,7 @@ public partial class LiveView : UserControl {
     private void BtnNow_Click(object sender, RoutedEventArgs e) {
         if (_playbackMode == PlaybackMode.Live) return;
         var now = DateTime.Now;
-        GlobalTimeline.Value = Math.Clamp(now.TimeOfDay.TotalSeconds, 0, 86400);
-        GlobalTimeline_ValueChanged(GlobalTimeline, null!);
+        TimelineControl.SetPosition(now);
         PerformSeek(now);
     }
     private void BtnExport_Click(object sender, RoutedEventArgs e) {
@@ -447,17 +439,7 @@ public partial class LiveView : UserControl {
         }
     }
 
-    private void StartRecordingBarTimer() {
-        _recordingBarTimer = new DispatcherTimer(
-            TimeSpan.FromSeconds(30),
-            DispatcherPriority.Background,
-            (_, _) => RefreshRecordingBars(),
-            Dispatcher);
-        _recordingBarTimer.Start();
-    }
-
-    public async void RefreshRecordingBars() {
-        RecordingBars.Children.Clear();
+    public async void ReloadTimelineData() {
         try {
             var cameras = VideoGrid.GetSlotCameras()
                 .Where(c => c is not null)
@@ -465,43 +447,12 @@ public partial class LiveView : UserControl {
                 .ToList();
             if (cameras.Count == 0) return;
 
-            var today = DateTime.Today;
+            var day = _timelineDay;
             var recordings = await VideoIndex.QuerySegmentsByCamerasAsync(
-                cameras.Select(c => c.Id), today, today.AddDays(1));
-            if (recordings.Count == 0) return;
-
-            var width = RecordingBars.ActualWidth;
-            if (width <= 0) width = 400;
-            var height = RecordingBars.ActualHeight > 0 ? RecordingBars.ActualHeight : 6;
-
-            var cameraIds = recordings.Select(r => r.CameraId).Distinct().ToList();
-            var colorMap = new Dictionary<string, Color>(cameraIds.Count);
-            for (int i = 0; i < cameraIds.Count; i++)
-                colorMap[cameraIds[i]] = BarColors[i % BarColors.Length];
-
-            foreach (var seg in recordings) {
-                var startFrac = seg.StartTime.TimeOfDay.TotalSeconds / 86400.0;
-                var endFrac = seg.EndTime.HasValue
-                    ? seg.EndTime.Value.TimeOfDay.TotalSeconds / 86400.0
-                    : 1.0;
-                var x = startFrac * width;
-                var w = Math.Max(1, (endFrac - startFrac) * width);
-                var color = colorMap.GetValueOrDefault(seg.CameraId, BarColors[0]);
-                var isLive = !seg.EndTime.HasValue;
-
-                var rect = new Rectangle {
-                    Fill = new SolidColorBrush(Color.FromArgb((byte)(isLive ? 0xCC : 0x99), color.R, color.G, color.B)),
-                    Width = w,
-                    Height = isLive ? height * 1.5 : height,
-                    RadiusX = 1,
-                    RadiusY = 1,
-                    ToolTip = $"{seg.CameraId}: {seg.StartTime:HH:mm}\u2013{(isLive ? "錄影中" : seg.EndTime!.Value.ToString("HH:mm"))}"
-                };
-                Canvas.SetLeft(rect, x);
-                RecordingBars.Children.Add(rect);
-            }
+                cameras.Select(c => c.Id), day, day.AddDays(1));
+            TimelineControl.LoadSegments(cameras.Select(c => c.Id), recordings);
         } catch (Exception ex) {
-            Log.Debug("[LiveView] RefreshRecordingBars error: {Msg}", ex.Message);
+            Log.Debug("[LiveView] ReloadTimelineData error: {Msg}", ex.Message);
         }
     }
 

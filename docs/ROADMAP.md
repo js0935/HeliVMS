@@ -239,6 +239,38 @@
 
 ---
 
+## Nx Witness UI Overhaul
+
+**設計文件：** `docs/superpowers/specs/2026-06-24-nx-witness-ui-overhaul-design.md`
+
+### Phase 1 ✅ NxTimeline
+- 獨立 `Controls/NxTimeline` 控制項取代舊 RecordingBars + GlobalTimeline Slider
+- 5 層縮放（24h→1h），滾輪以滑鼠位置為中心縮放
+- 錄影類型色條：藍(連續)/橙紅(位移)/紅(警報)/黃(AI)
+- 右鍵選區放大、雙擊刻度尺回 24h、白色位置線+手柄
+- 整合進 LiveView 取代舊時間軸，`PositionChanged` 事件橋接播放
+
+### Phase 2 ✅ Layout 多分頁
+- `Controls/LayoutTabBar` 水平分頁列：關閉鈕、雙擊重新命名、+ 新增
+- `Models/LayoutTab` 獨立資料模型，儲存於 `Data/tabs.json`
+- `ILayoutService` 擴充分頁管理（GetAllTabs/CreateTab/SaveTab/DeleteTab）
+- LiveView 頂端 LayoutTabBar + 底部簡化控制列（僅留格線按鈕+儲存）
+- 分頁切換自動儲存當前佈局、載入目標分頁攝影機排列
+
+### Phase 3 ✅ MainWindow 架構強化
+- 右側通知面板 `Controls/NotificationsPanel`（可收合 260px）
+- 通知鈴鐺按鈕改造為未讀計數徽章
+- `Alt+1` 切換左側面板 / `Alt+2` 切換通知面板
+- 面板狀態持久化至 `Data/window_state.json`（含 NotifPanelOpen）
+
+### Phase 4 ✅ 視覺打磨
+- `Styles/Typography.xaml`：字型體系（Segoe UI Variable / Cascadia Code）
+- `Styles/Icons.xaml`：Fluent UI System Icons 向量路徑（PathGeometry）
+- `Styles/Animations.xaml`：FadeIn/FadeOut/SlideInRight/ToastShow Storyboard
+- 全部註冊於 App.xaml MergedDictionaries
+
+---
+
 ## 開發原則
 
 1. **單一架構師：** 全由主代理（我）決策，不使用平行子代理以確保一致性

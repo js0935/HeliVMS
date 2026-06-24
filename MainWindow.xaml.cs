@@ -23,6 +23,7 @@ public partial class MainWindow : Window {
     private readonly DispatcherTimer _statusTimer;
     private bool _isShuttingDown;
     private bool _drawerOpen = true;
+    private bool _notifPanelOpen;
 
     private const double DrawerOpenWidth = 175;
     private const double DrawerClosedWidth = 0;
@@ -45,6 +46,8 @@ public partial class MainWindow : Window {
         notif.NotificationReceived += args =>
             _ = Dispatcher.InvokeAsync(() => ShowToast(args.Message, args.Severity));
 
+        _notifHistory.Updated += () => Dispatcher.InvokeAsync(UpdateNotifBadge);
+
         EventManager.RegisterClassHandler(typeof(UIElement),
             UIElement.PreviewKeyDownEvent, new KeyEventHandler((_, _) => _auth.ResetSessionTimer()));
         EventManager.RegisterClassHandler(typeof(UIElement),
@@ -57,6 +60,8 @@ public partial class MainWindow : Window {
         _statusTimer.Start();
         _status.StartMonitoring();
 
+        NotifSidePanel.CloseRequested += (_, _) => ToggleNotifPanel(false);
+
         LiveDrawer.CameraAction += (cameraId, action) => {
             if (MainWorkArea.Content is Views.LiveView live) {
                 _ = Dispatcher.InvokeAsync(() => live.HandleCameraAction(cameraId, action));
@@ -66,6 +71,7 @@ public partial class MainWindow : Window {
 
     private void MainWindow_Loaded(object sender, RoutedEventArgs e) {
         LoadWindowState();
+        UpdateNotifBadge();
         if (_auth.IsLoggedIn) {
             SwitchToLive();
         } else {
@@ -90,13 +96,14 @@ public partial class MainWindow : Window {
     //  Notification popup
     // ═══════════════════════════════════════════════════════════
 
-    private void ToggleNotificationPopup_Click(object sender, RoutedEventArgs e) {
-        NotificationList.ItemsSource = _notifHistory.Entries;
-        NotificationPopup.IsOpen = !NotificationPopup.IsOpen;
-        if (NotificationPopup.IsOpen) {
-            NotificationPopup.HorizontalOffset = 45;
-            NotificationPopup.VerticalOffset = ActualHeight - 410;
-        }
+    private void ToggleNotifPanel_Click(object sender, RoutedEventArgs e) {
+        ToggleNotifPanel();
+    }
+
+    private void UpdateNotifBadge() {
+        var unread = _notifHistory.UnreadCount;
+        NotifBadge.Visibility = unread > 0 ? Visibility.Visible : Visibility.Collapsed;
+        NotifBadgeText.Text = unread > 99 ? "99+" : unread.ToString();
     }
 
     private void MarkNotifRead_Click(object sender, RoutedEventArgs e) {
@@ -150,6 +157,11 @@ public partial class MainWindow : Window {
         } else if (e.KeyboardDevice.Modifiers == ModifierKeys.Control && e.Key == Key.F) {
             FocusTreeSearch();
             e.Handled = true;
+        } else if (e.Key == Key.System && e.KeyboardDevice.Modifiers == ModifierKeys.Alt) {
+            switch (e.SystemKey) {
+                case Key.D1: ToggleDrawer(); e.Handled = true; break;
+                case Key.D2: ToggleNotifPanel(); e.Handled = true; break;
+            }
         }
     }
 
@@ -239,7 +251,8 @@ public partial class MainWindow : Window {
             var dir = Path.GetDirectoryName(StatePath);
             if (dir is not null && !Directory.Exists(dir)) Directory.CreateDirectory(dir);
             File.WriteAllText(StatePath, JsonSerializer.Serialize(new {
-                DrawerOpen = _drawerOpen
+                DrawerOpen = _drawerOpen,
+                NotifPanelOpen = _notifPanelOpen
             }));
         } catch { }
     }
@@ -251,6 +264,8 @@ public partial class MainWindow : Window {
             var root = doc.RootElement;
             if (root.TryGetProperty("DrawerOpen", out var d))
                 ShowDrawer(d.GetBoolean());
+            if (root.TryGetProperty("NotifPanelOpen", out var n) && n.GetBoolean())
+                ToggleNotifPanel(true);
         } catch { }
     }
 
@@ -270,6 +285,15 @@ public partial class MainWindow : Window {
     // ═══════════════════════════════════════════════════════════
 
     public void ToggleDrawer() => ShowDrawer(!_drawerOpen);
+
+    public void ToggleNotifPanel() => ToggleNotifPanel(!_notifPanelOpen);
+
+    private void ToggleNotifPanel(bool open) {
+        _notifPanelOpen = open;
+        NotifColumn.Width = open ? new GridLength(260) : new GridLength(0);
+        NotifSidePanel.Visibility = open ? Visibility.Visible : Visibility.Collapsed;
+        SaveWindowState();
+    }
 
     public void ShowDrawer(bool open) {
         if (_drawerOpen == open) return;

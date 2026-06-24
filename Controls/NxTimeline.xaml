@@ -1,0 +1,31 @@
+<UserControl x:Class="HeliVMS.Controls.NxTimeline"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Background="#CC111111"
+             BorderThickness="0,1,0,0" BorderBrush="#33FFFFFF">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="16"/>
+        </Grid.RowDefinitions>
+        <Border Grid.Row="0" BorderThickness="0,0,0,1" BorderBrush="#22FFFFFF">
+            <Canvas x:Name="CameraRowsCanvas" Background="Transparent"
+                    PreviewMouseWheel="Canvas_PreviewMouseWheel"
+                    PreviewMouseRightButtonDown="Canvas_PreviewMouseRightButtonDown"
+                    PreviewMouseRightButtonUp="Canvas_PreviewMouseRightButtonUp"
+                    PreviewMouseMove="Canvas_PreviewMouseMove"
+                    PreviewMouseLeftButtonDown="Canvas_PreviewMouseLeftButtonDown"
+                    PreviewMouseLeftButtonUp="Canvas_PreviewMouseLeftButtonUp"
+                    ClipToBounds="True"/>
+        </Border>
+        <Border Grid.Row="1" Background="#1A000000">
+            <Canvas x:Name="TimeScaleCanvas" ClipToBounds="True"
+                    PreviewMouseWheel="Scale_PreviewMouseWheel"
+                    MouseDown="Scale_MouseDown"/>
+        </Border>
+        <Canvas x:Name="SelectionCanvas" IsHitTestVisible="False" ClipToBounds="True"
+                Grid.RowSpan="2"/>
+        <Canvas x:Name="PositionCanvas" IsHitTestVisible="False" ClipToBounds="True"
+                Grid.RowSpan="2"/>
+    </Grid>
+</UserControl>
