@@ -65,6 +65,14 @@ public sealed class EventRuleService : IEventRuleService {
         lock (_lock) return _rules.FirstOrDefault(r => r.Id == ruleId);
     }
 
+    public void TestRule(string ruleId) {
+        var rule = GetRuleById(ruleId);
+        if (rule is null) return;
+        _eventLog.LogInfo("事件規則", "RuleTest", $"測試規則「{rule.Name}」");
+        foreach (var action in rule.Actions)
+            ExecuteAction(rule, action, rule.Conditions.FirstOrDefault()?.CameraIds.FirstOrDefault() ?? "", null);
+    }
+
     public void Evaluate(string eventType, string cameraId, Dictionary<string, string>? context = null) {
         List<EventRule> matched;
         lock (_lock) {

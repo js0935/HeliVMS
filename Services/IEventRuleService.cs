@@ -9,5 +9,6 @@ public interface IEventRuleService {
     List<EventRule> GetAllRules();
     EventRule? GetRuleById(string ruleId);
     void Evaluate(string eventType, string cameraId, Dictionary<string, string>? context = null);
+    void TestRule(string ruleId);
     event Action<EventRule, RuleAction, string>? ActionExecuted;
 }

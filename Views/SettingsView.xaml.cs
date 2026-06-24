@@ -862,6 +862,14 @@ public partial class SettingsView : UserControl {
         RefreshEventRules();
     }
 
+    private void TestRule_Click(object sender, RoutedEventArgs e) {
+        if (EventRulesGrid.SelectedItem is EventRule rule) {
+            _ruleService.TestRule(rule.Id);
+            System.Windows.MessageBox.Show($"規則「{rule.Name}」測試已執行，請查看系統日誌。", "測試結果",
+                MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+    }
+
     private void EnableAllRules_Click(object sender, RoutedEventArgs e) {
         foreach (var rule in _ruleService.GetAllRules()) {
             rule.Enabled = true;
