@@ -1344,13 +1344,23 @@ public partial class VideoPlayer : UserControl {
                 }
                 _renderMissCount = 0;
 
-                // Diagnostics: log DecoderFrameImage state after first render
+                // Diagnostics: log DecoderFrameImage state and parent chain sizes after first render
                 if (_hasShownFirstFrame) {
                     var srcType = DecoderFrameImage.Source?.GetType().Name ?? "null";
-                    var actualW = DecoderFrameImage.ActualWidth;
-                    var actualH = DecoderFrameImage.ActualHeight;
+                    var aw = DecoderFrameImage.ActualWidth;
+                    var ah = DecoderFrameImage.ActualHeight;
                     var vis = DecoderFrameImage.Visibility;
-                    DragDiag.Write($"[VideoPlayer:{_camera.Name}] FlushPendingFrame: DIAG imgSrc={srcType} aw={actualW:F1} ah={actualH:F1} vis={vis}");
+                    var playerW = ActualWidth;
+                    var playerH = ActualHeight;
+                    var parentInfo = "";
+                    if (Parent is FrameworkElement fe) {
+                        parentInfo = $"parent={fe.GetType().Name} pAw={fe.ActualWidth:F1} pAh={fe.ActualHeight:F1}";
+                    } else if (Parent is not null) {
+                        parentInfo = $"parent={Parent.GetType().Name}";
+                    } else {
+                        parentInfo = "parent=null";
+                    }
+                    DragDiag.Write($"[VideoPlayer:{_camera.Name}] FlushPendingFrame: DIAG img={srcType} aw={aw:F1} ah={ah:F1} vis={vis} plyW={playerW:F1} plyH={playerH:F1} {parentInfo}");
                 }
 
                 // Diagnostics: in test pattern mode, force a known good BitmapSource to verify Image element
