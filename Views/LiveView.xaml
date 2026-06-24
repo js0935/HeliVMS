@@ -113,7 +113,27 @@
                             Margin="4,0,0,0" VerticalAlignment="Center"/>
                 </StackPanel>
 
-                <controls:NxTimeline x:Name="TimelineControl" Grid.Column="1" Margin="8,0,0,0"/>
+                <Grid Grid.Column="1" Margin="8,0,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,4,0">
+                        <Button x:Name="FilterCont" Content="連續" Width="30" Height="18" FontSize="8"
+                                Style="{StaticResource FlatButton}" Background="#332196F3"
+                                Click="FilterCont_Click"/>
+                        <Button x:Name="FilterMotion" Content="位移" Width="30" Height="18" FontSize="8"
+                                Style="{StaticResource FlatButton}" Background="#33FF5722" Margin="1,0,0,0"
+                                Click="FilterMotion_Click"/>
+                        <Button x:Name="FilterAlarm" Content="警報" Width="30" Height="18" FontSize="8"
+                                Style="{StaticResource FlatButton}" Background="#33F44336" Margin="1,0,0,0"
+                                Click="FilterAlarm_Click"/>
+                        <Button x:Name="FilterAi" Content="AI" Width="24" Height="18" FontSize="8"
+                                Style="{StaticResource FlatButton}" Background="#33FFC107" Margin="1,0,0,0"
+                                Click="FilterAi_Click"/>
+                    </StackPanel>
+                    <controls:NxTimeline x:Name="TimelineControl" Grid.Column="1"/>
+                </Grid>
             </Grid>
         </Border>
 

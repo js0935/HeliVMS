@@ -41,6 +41,7 @@ public partial class LiveView : UserControl {
     private int _currentGridSize = 4;
     private const int DefaultGridSize = 4;
     private const int MaxSlots = 64;
+    private readonly IBookmarkService _bookmarks = App.Services.GetRequiredService<IBookmarkService>();
 
     public LiveView() {
         InitializeComponent();
@@ -262,7 +263,7 @@ public partial class LiveView : UserControl {
     private void OnLiveTickerTick(object? sender, EventArgs e) {
         if (_playbackMode != PlaybackMode.Live) return;
         var elapsed = DateTime.Now.TimeOfDay.TotalSeconds;
-        TimelineControl.PositionSeconds = Math.Clamp(elapsed, 0, 86400);
+        TimelineControl.SetPositionSilent(Math.Clamp(elapsed, 0, 86400));
     }
 
     private void OnTimelinePositionChanged(object? sender, double seconds) {
@@ -300,7 +301,7 @@ public partial class LiveView : UserControl {
             p.SwitchToLive();
 
         var elapsed = DateTime.Now.TimeOfDay.TotalSeconds;
-        TimelineControl.PositionSeconds = Math.Clamp(elapsed, 0, 86400);
+        TimelineControl.SetPositionSilent(Math.Clamp(elapsed, 0, 86400));
 
         Log.Debug("[LiveView] Switched to Live");
     }
@@ -309,7 +310,7 @@ public partial class LiveView : UserControl {
         _timelineDay = date.Date;
         TimelineControl.TimelineDay = date.Date;
         var secs = Math.Clamp(DateTime.Now.TimeOfDay.TotalSeconds, 0, 86400);
-        TimelineControl.SetPosition(_timelineDay.AddSeconds(secs));
+        TimelineControl.SetPositionSilent(secs);
         PerformSeek(_timelineDay.AddSeconds(secs));
         ReloadTimelineData();
         Log.Debug("[LiveView] NavigateToDate: {Date}", date.ToString("yyyy-MM-dd"));
@@ -362,6 +363,32 @@ public partial class LiveView : UserControl {
         TimelineControl.SetPosition(now);
         PerformSeek(now);
     }
+    private bool _filterCont = true, _filterMotion = true, _filterAlarm = true, _filterAi = true;
+
+    private void FilterCont_Click(object sender, RoutedEventArgs e) {
+        _filterCont = !_filterCont;
+        FilterCont.Background = _filterCont ? new SolidColorBrush(Color.FromArgb(0x33, 0x21, 0x96, 0xF3)) : System.Windows.Media.Brushes.Transparent;
+        TimelineControl.SetTypeFilter(_filterCont, _filterMotion, _filterAlarm, _filterAi);
+    }
+
+    private void FilterMotion_Click(object sender, RoutedEventArgs e) {
+        _filterMotion = !_filterMotion;
+        FilterMotion.Background = _filterMotion ? new SolidColorBrush(Color.FromArgb(0x33, 0xFF, 0x57, 0x22)) : System.Windows.Media.Brushes.Transparent;
+        TimelineControl.SetTypeFilter(_filterCont, _filterMotion, _filterAlarm, _filterAi);
+    }
+
+    private void FilterAlarm_Click(object sender, RoutedEventArgs e) {
+        _filterAlarm = !_filterAlarm;
+        FilterAlarm.Background = _filterAlarm ? new SolidColorBrush(Color.FromArgb(0x33, 0xF4, 0x43, 0x36)) : System.Windows.Media.Brushes.Transparent;
+        TimelineControl.SetTypeFilter(_filterCont, _filterMotion, _filterAlarm, _filterAi);
+    }
+
+    private void FilterAi_Click(object sender, RoutedEventArgs e) {
+        _filterAi = !_filterAi;
+        FilterAi.Background = _filterAi ? new SolidColorBrush(Color.FromArgb(0x33, 0xFF, 0xC1, 0x07)) : System.Windows.Media.Brushes.Transparent;
+        TimelineControl.SetTypeFilter(_filterCont, _filterMotion, _filterAlarm, _filterAi);
+    }
+
     private void BtnExport_Click(object sender, RoutedEventArgs e) {
         var dlg = new Dialog.ExportDialog { Owner = Window.GetWindow(this) };
         dlg.ShowDialog();
@@ -451,6 +478,7 @@ public partial class LiveView : UserControl {
             var recordings = await VideoIndex.QuerySegmentsByCamerasAsync(
                 cameras.Select(c => c.Id), day, day.AddDays(1));
             TimelineControl.LoadSegments(cameras.Select(c => c.Id), recordings);
+            TimelineControl.LoadBookmarks(_bookmarks.LoadBookmarks(day));
         } catch (Exception ex) {
             Log.Debug("[LiveView] ReloadTimelineData error: {Msg}", ex.Message);
         }
@@ -529,5 +557,15 @@ public partial class LiveView : UserControl {
 
     private void OnPreviewKeyDown(object sender, KeyEventArgs e) {
         if (e.Key == Key.F5) { ReloadAllCamerasIntoGrid(); e.Handled = true; }
+        else if (e.Key == Key.B) {
+            var posSecs = TimelineControl.PositionSeconds;
+            var bm = new PlaybackBookmark {
+                Seconds = posSecs,
+                Note = $"標記 {DateTime.Now:HH:mm:ss}"
+            };
+            _bookmarks.SaveBookmark(bm, _timelineDay);
+            TimelineControl.AddBookmark(bm);
+            e.Handled = true;
+        }
     }
 }

@@ -7,6 +7,7 @@ using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Shapes;
 using HeliVMS.Models;
+using HeliVMS.Services;
 
 namespace HeliVMS.Controls;
 
@@ -26,6 +27,11 @@ public partial class NxTimeline : UserControl {
     private double _viewStartSeconds;
     private List<string> _cameraIds = [];
     private List<VideoSegment> _segments = [];
+    private bool _showContinuous = true;
+    private bool _showMotion = true;
+    private bool _showAlarm = true;
+    private bool _showAi = true;
+    private List<PlaybackBookmark> _bookmarks = [];
     private bool _isDragging;
     private bool _isSelecting;
     private Point _selectStart;
@@ -54,6 +60,11 @@ public partial class NxTimeline : UserControl {
     public void SetPosition(DateTime time) {
         var secs = (time - _timelineDay).TotalSeconds;
         PositionSeconds = Math.Clamp(secs, 0, 86400);
+    }
+
+    public void SetPositionSilent(double seconds) {
+        _positionSeconds = Math.Clamp(seconds, 0, 86400);
+        DrawPosition();
     }
 
     public void ZoomIn() {
@@ -100,10 +111,29 @@ public partial class NxTimeline : UserControl {
 
     public void Refresh() => DrawAll();
 
+    public void LoadBookmarks(List<PlaybackBookmark> bookmarks) {
+        _bookmarks = bookmarks;
+        DrawBookmarks();
+    }
+
+    public void AddBookmark(PlaybackBookmark bookmark) {
+        _bookmarks.Add(bookmark);
+        DrawBookmarks();
+    }
+
+    public void SetTypeFilter(bool continuous, bool motion, bool alarm, bool ai) {
+        _showContinuous = continuous;
+        _showMotion = motion;
+        _showAlarm = alarm;
+        _showAi = ai;
+        DrawAll();
+    }
+
     private void DrawAll() {
         DrawCameraRows();
         DrawTimeScale();
         DrawPosition();
+        DrawBookmarks();
     }
 
     private double SecsToX(double secs) {
@@ -117,6 +147,14 @@ public partial class NxTimeline : UserControl {
         if (w <= 0) return 0;
         return _viewStartSeconds + x / w * ZoomLevels[_zoomIndex];
     }
+
+    private bool IsTypeVisible(int recordType) => recordType switch {
+        0 => _showContinuous,
+        1 => _showMotion,
+        2 => _showAlarm,
+        3 => _showAi,
+        _ => true,
+    };
 
     private Color GetColorForRecordType(int recordType) => recordType switch {
         0 => ColorContinuous,
@@ -138,7 +176,7 @@ public partial class NxTimeline : UserControl {
 
         foreach (var (camId, idx) in _cameraIds.Select((id, i) => (id, i))) {
             var y = idx * (rowH + 1);
-            var camSegs = _segments.Where(s => s.CameraId == camId).ToList();
+            var camSegs = _segments.Where(s => s.CameraId == camId && IsTypeVisible(s.RecordType)).ToList();
 
             if (camSegs.Count == 0) {
                 var bg = new Rectangle { Fill = new SolidColorBrush(ColorNoData), Width = w, Height = rowH };
@@ -170,7 +208,7 @@ public partial class NxTimeline : UserControl {
 
         // All Cameras merged row
         var mergedY = _cameraIds.Count * (rowH + 1);
-        var merged = _segments.GroupBy(s => (s.StartTime.Ticks / TimeSpan.TicksPerSecond, s.RecordType));
+        var merged = _segments.Where(s => IsTypeVisible(s.RecordType)).GroupBy(s => (s.StartTime.Ticks / TimeSpan.TicksPerSecond, s.RecordType));
         foreach (var group in merged) {
             var seg = group.First();
             var segStart = (seg.StartTime - _timelineDay).TotalSeconds;
@@ -333,6 +371,47 @@ public partial class NxTimeline : UserControl {
         };
         Canvas.SetLeft(overlay, x1); Canvas.SetTop(overlay, 0);
         SelectionCanvas.Children.Add(overlay);
+    }
+
+    private void DrawBookmarks() {
+        BookmarksCanvas.Children.Clear();
+        var w = CameraRowsCanvas.ActualWidth;
+        var h = CameraRowsCanvas.ActualHeight;
+        if (w <= 0 || h <= 0 || _bookmarks.Count == 0) return;
+
+        var totalSecs = ZoomLevels[_zoomIndex];
+        var viewEnd = _viewStartSeconds + totalSecs;
+
+        foreach (var bm in _bookmarks) {
+            if (bm.Seconds < _viewStartSeconds || bm.Seconds > viewEnd) continue;
+            var x = SecsToX(bm.Seconds);
+            if (x < 0 || x > w) continue;
+
+            var poly = new Polygon {
+                Fill = new SolidColorBrush(Color.FromArgb(200, 0xFF, 0xC1, 0x07)),
+                Stroke = new SolidColorBrush(Color.FromArgb(100, 0, 0, 0)),
+                StrokeThickness = 0.5,
+                Points = new PointCollection([
+                    new Point(x, 0),
+                    new Point(x + 5, 4),
+                    new Point(x, 8),
+                    new Point(x - 5, 4),
+                ]),
+                ToolTip = $"📌 {bm.Note}\n{TimeSpan.FromSeconds(bm.Seconds):hh\\:mm\\:ss}"
+            };
+            BookmarksCanvas.Children.Add(poly);
+
+            var label = new TextBlock {
+                Text = bm.Note,
+                FontSize = 9,
+                Foreground = new SolidColorBrush(Color.FromArgb(180, 0xFF, 0xC1, 0x07)),
+                Background = new SolidColorBrush(Color.FromArgb(80, 0, 0, 0)),
+                Padding = new Thickness(2, 0, 2, 0),
+                IsHitTestVisible = false
+            };
+            Canvas.SetLeft(label, x + 2); Canvas.SetTop(label, 2);
+            BookmarksCanvas.Children.Add(label);
+        }
     }
 
     private void Scale_PreviewMouseWheel(object sender, MouseWheelEventArgs e) {

@@ -100,9 +100,9 @@ public partial class DynamicCameraGrid : UserControl {
     /// <summary>Remove whatever is in the given slot (player + placeholder).</summary>
     public void RemoveSlot(int slotIndex) {
         if (slotIndex < 0 || slotIndex >= _activeSlotCount) return;
+        RemoveContainerAt(slotIndex);
         if (_slots[slotIndex] is { } player) {
             player.UnloadCamera();
-            MainGrid.Children.Remove(player);
             _slots[slotIndex] = null;
             _slotCameras[slotIndex] = null;
         }
@@ -111,6 +111,17 @@ public partial class DynamicCameraGrid : UserControl {
         Grid.SetRow(ph, slotIndex / _cols);
         Grid.SetColumn(ph, slotIndex % _cols);
         MainGrid.Children.Add(ph);
+    }
+
+    private void RemoveContainerAt(int slotIndex) {
+        for (int i = MainGrid.Children.Count - 1; i >= 0; i--) {
+            if (MainGrid.Children[i] is Grid container
+                && Grid.GetRow(container) == slotIndex / _cols
+                && Grid.GetColumn(container) == slotIndex % _cols) {
+                MainGrid.Children.RemoveAt(i);
+                return;
+            }
+        }
     }
 
     /// <summary>Get the camera at a slot, or null if empty.</summary>
@@ -134,11 +145,11 @@ public partial class DynamicCameraGrid : UserControl {
         for (int i = 0; i < _activeSlotCount; i++) {
             if (_slots[i] is { } p) {
                 p.UnloadCamera();
-                MainGrid.Children.Remove(p);
                 _slots[i] = null;
                 _slotCameras[i] = null;
             }
         }
+        MainGrid.Children.Clear();
         _maximizedSlot = -1;
         EmptyOverlay.Visibility = _activeSlotCount == 0 ? Visibility.Visible : Visibility.Collapsed;
     }
@@ -183,8 +194,7 @@ public partial class DynamicCameraGrid : UserControl {
         for (int r = 0; r < _rows; r++)
             MainGrid.RowDefinitions.Add(new RowDefinition());
 
-        // Replace placeholders
-        RemoveAllPlaceholders();
+        MainGrid.Children.Clear();
         for (int i = 0; i < _activeSlotCount; i++) {
             if (_slots[i] is { } player)
                 PlacePlayerInCell(player, i);
@@ -194,12 +204,26 @@ public partial class DynamicCameraGrid : UserControl {
     }
 
     private void PlacePlayerInCell(VideoPlayer player, int slotIndex) {
-        Grid.SetRow(player, slotIndex / _cols);
-        Grid.SetColumn(player, slotIndex % _cols);
-        Grid.SetRowSpan(player, 1);
-        Grid.SetColumnSpan(player, 1);
-        if (!MainGrid.Children.Contains(player))
-            MainGrid.Children.Add(player);
+        var cam = _slotCameras[slotIndex];
+        var container = new Grid();
+        Grid.SetRow(container, slotIndex / _cols);
+        Grid.SetColumn(container, slotIndex % _cols);
+        container.Children.Add(player);
+        if (cam is not null) {
+            var label = new TextBlock {
+                Text = cam.Name,
+                FontSize = 11,
+                Foreground = new SolidColorBrush(Color.FromArgb(200, 0xFF, 0xFF, 0xFF)),
+                Background = new SolidColorBrush(Color.FromArgb(120, 0, 0, 0)),
+                Padding = new Thickness(4, 1, 4, 1),
+                HorizontalAlignment = HorizontalAlignment.Left,
+                VerticalAlignment = VerticalAlignment.Bottom,
+                IsHitTestVisible = false,
+            };
+            container.Children.Add(label);
+        }
+        if (!MainGrid.Children.Contains(container))
+            MainGrid.Children.Add(container);
     }
 
     // ═══════════════════════════════════════════════════
