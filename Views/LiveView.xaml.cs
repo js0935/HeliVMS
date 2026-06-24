@@ -347,6 +347,19 @@ public partial class LiveView : UserControl {
         FwdSpeedLabel.Text = $"{_playbackSpeed:F0}\u00d7";
     }
 
+    private void BtnSkipBack_Click(object sender, RoutedEventArgs e) => SkipTimeline(-30);
+    private void BtnSkipFwd_Click(object sender, RoutedEventArgs e) => SkipTimeline(30);
+
+    private void SkipTimeline(int seconds) {
+        if (_playbackMode == PlaybackMode.Live)
+            SwitchToSeekMode(DateTime.Now);
+        var newVal = Math.Clamp(GlobalTimeline.Value + seconds, 0, 86400);
+        GlobalTimeline.Value = newVal;
+        var targetTime = _timelineDay.AddSeconds(newVal);
+        GlobalTimeline_ValueChanged(GlobalTimeline, null!);
+        PerformSeek(targetTime);
+    }
+
     private void BtnLive_Click(object sender, RoutedEventArgs e) => SwitchToLive();
     private void BtnExport_Click(object sender, RoutedEventArgs e) {
         var dlg = new Dialog.ExportDialog { Owner = Window.GetWindow(this) };

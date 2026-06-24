@@ -66,6 +66,10 @@
                             Width="30" Height="28" Padding="0" FontSize="16"
                             Style="{StaticResource FlatButton}"
                             Click="BtnPlayPause_Click"/>
+                    <Button x:Name="BtnSkipBack" Content="⏪"
+                            Width="28" Height="28" Padding="0" FontSize="12"
+                            Style="{StaticResource FlatButton}"
+                            Click="BtnSkipBack_Click"/>
                     <Button x:Name="BtnFwd" Content="⏩"
                             Width="28" Height="28" Padding="0" FontSize="14"
                             Style="{StaticResource FlatButton}"
@@ -75,6 +79,11 @@
                                FontSize="11" Foreground="#AAFFFFFF"
                                VerticalAlignment="Center" Margin="4,0,8,0"
                                Width="26" TextAlignment="Center"/>
+                    <Button x:Name="BtnSkipFwd" Content="⏩ (30)"
+                            Width="48" Height="28" Padding="0" FontSize="10"
+                            Style="{StaticResource FlatButton}"
+                            Margin="0,0,6,0"
+                            Click="BtnSkipFwd_Click"/>
                     <Button x:Name="BtnLive" Content="🔴 LIVE"
                             Height="28" Padding="8,0" FontSize="10"
                             Style="{StaticResource FlatButton}"
