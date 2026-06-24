@@ -28,7 +28,7 @@ public partial class MainWindow : Window {
     private string? _restoreView;
     private string? _restoreLayoutTab;
 
-    private const double DrawerOpenWidth = 175;
+    private const double DrawerOpenWidth = 220;
     private const double DrawerClosedWidth = 0;
 
     public MainWindow() {
@@ -239,6 +239,26 @@ public partial class MainWindow : Window {
         Log.Debug("[HeliVMS] Navigated to Settings");
     }
 
+    private void SwitchToDashboard() {
+        SelectNavButton(BtnDashboard);
+        ShowDrawer(false);
+        LiveDrawer.Visibility = Visibility.Collapsed;
+        SubMenuDrawer.Visibility = Visibility.Collapsed;
+        _activeView = "dashboard";
+        MainWorkArea.Content = new DashboardView();
+        Log.Debug("[HeliVMS] Navigated to Dashboard");
+    }
+
+    private void SwitchToEMap() {
+        SelectNavButton(BtnEMap);
+        ShowDrawer(false);
+        LiveDrawer.Visibility = Visibility.Collapsed;
+        SubMenuDrawer.Visibility = Visibility.Collapsed;
+        _activeView = "emap";
+        MainWorkArea.Content = new EMapView();
+        Log.Debug("[HeliVMS] Navigated to EMap");
+    }
+
     private void FocusTreeSearch() {
         if (LiveDrawer.Visibility == Visibility.Visible) {
             LiveDrawer.FocusSearch();
@@ -305,7 +325,7 @@ public partial class MainWindow : Window {
     }
 
     private void SelectNavButton(Button selected) {
-        foreach (var btn in new[] { BtnLive, BtnDevice, BtnLicense, BtnSettings })
+        foreach (var btn in new[] { BtnLive, BtnDevice, BtnLicense, BtnDashboard, BtnEMap, BtnSettings })
             btn.Opacity = btn == selected ? 1.0 : 0.35;
     }
 
@@ -384,26 +404,6 @@ public partial class MainWindow : Window {
             _toastTimer.Stop();
         }
         _toastTimer.Start();
-    }
-
-    private void SwitchToDashboard() {
-        SelectNavButton(BtnDashboard);
-        ShowDrawer(false);
-        LiveDrawer.Visibility = Visibility.Collapsed;
-        SubMenuDrawer.Visibility = Visibility.Collapsed;
-        _activeView = "dashboard";
-        MainWorkArea.Content = new DashboardView();
-        Log.Debug("[HeliVMS] Navigated to Dashboard");
-    }
-
-    private void SwitchToEMap() {
-        SelectNavButton(BtnEMap);
-        ShowDrawer(false);
-        LiveDrawer.Visibility = Visibility.Collapsed;
-        SubMenuDrawer.Visibility = Visibility.Collapsed;
-        _activeView = "emap";
-        MainWorkArea.Content = new EMapView();
-        Log.Debug("[HeliVMS] Navigated to EMap");
     }
 
     // ═══════════════════════════════════════════════════════════

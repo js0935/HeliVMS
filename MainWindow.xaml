@@ -21,74 +21,109 @@
         </Grid.RowDefinitions>
         <Grid Grid.Row="0">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition x:Name="NavColumn" Width="45"/>
+                <ColumnDefinition x:Name="NavColumn" Width="48"/>
                 <ColumnDefinition x:Name="DrawerColumn" Width="Auto"/>
                 <ColumnDefinition Width="*"/>
                 <ColumnDefinition x:Name="NotifColumn" Width="Auto"/>
             </Grid.ColumnDefinitions>
 
-        <!-- ═══ Column 0: Nav Bar (permanent 45px) ═══ -->
-        <Border Grid.Column="0" Width="45" Background="#141414">
+        <!-- ═══ Column 0: Nav Bar (permanent 48px) ═══ -->
+        <Border Grid.Column="0" Width="48" Background="{StaticResource SidebarBrush}">
             <Grid>
                 <Grid.RowDefinitions>
                     <RowDefinition Height="*"/>
                     <RowDefinition Height="Auto"/>
                 </Grid.RowDefinitions>
-                <StackPanel Grid.Row="0">
-                    <Button x:Name="BtnLive" Content="🖥" Width="45" Height="42" Padding="0"
-                            Style="{StaticResource NavButton}"
+                <StackPanel Grid.Row="0" Margin="0,4,0,0">
+                    <Button x:Name="BtnLive"
+                            Style="{StaticResource SidebarButton}"
                             ToolTip="即時/回放監看"
-                            Click="BtnLive_Click"/>
-                    <Button x:Name="BtnDevice" Content="📁" Width="45" Height="42" Padding="0"
-                            Style="{StaticResource NavButton}"
+                            Click="BtnLive_Click">
+                        <Viewbox Width="20" Height="20" Stretch="Uniform">
+                            <Path Data="{StaticResource IconLive}" Fill="{StaticResource SecondaryTextBrush}"/>
+                        </Viewbox>
+                    </Button>
+                    <Button x:Name="BtnDevice"
+                            Style="{StaticResource SidebarButton}"
                             ToolTip="設備管理"
-                            Click="BtnDevice_Click"/>
-                    <Button x:Name="BtnLicense" Content="🔑" Width="45" Height="42" Padding="0"
-                            Style="{StaticResource NavButton}"
+                            Click="BtnDevice_Click">
+                        <Viewbox Width="20" Height="20" Stretch="Uniform">
+                            <Path Data="{StaticResource IconDevice}" Fill="{StaticResource SecondaryTextBrush}"/>
+                        </Viewbox>
+                    </Button>
+                    <Button x:Name="BtnLicense"
+                            Style="{StaticResource SidebarButton}"
                             ToolTip="授權管理"
-                            Click="BtnLicense_Click"/>
-                    <Button x:Name="BtnDashboard" Content="📊" Width="45" Height="42" Padding="0"
-                            Style="{StaticResource NavButton}"
+                            Click="BtnLicense_Click">
+                        <Viewbox Width="20" Height="20" Stretch="Uniform">
+                            <Path Data="{StaticResource IconKey}" Fill="{StaticResource SecondaryTextBrush}"/>
+                        </Viewbox>
+                    </Button>
+                    <Button x:Name="BtnDashboard"
+                            Style="{StaticResource SidebarButton}"
                             ToolTip="系統儀表板"
-                            Click="BtnDashboard_Click"/>
-                    <Button x:Name="BtnEMap" Content="🗺" Width="45" Height="42" Padding="0"
-                            Style="{StaticResource NavButton}"
+                            Click="BtnDashboard_Click">
+                        <Viewbox Width="20" Height="20" Stretch="Uniform">
+                            <Path Data="{StaticResource IconDashboard}" Fill="{StaticResource SecondaryTextBrush}"/>
+                        </Viewbox>
+                    </Button>
+                    <Button x:Name="BtnEMap"
+                            Style="{StaticResource SidebarButton}"
                             ToolTip="電子地圖"
-                            Click="BtnEMap_Click"/>
-                    <Button x:Name="BtnSettings" Content="⚙" Width="45" Height="42" Padding="0"
-                            Style="{StaticResource NavButton}"
+                            Click="BtnEMap_Click">
+                        <Viewbox Width="20" Height="20" Stretch="Uniform">
+                            <Path Data="{StaticResource IconMap}" Fill="{StaticResource SecondaryTextBrush}"/>
+                        </Viewbox>
+                    </Button>
+                    <Button x:Name="BtnSettings"
+                            Style="{StaticResource SidebarButton}"
                             ToolTip="系統設定"
-                            Click="BtnSettings_Click"/>
-                    <Button x:Name="BtnTheme" Content="☀" Width="45" Height="42" Padding="0"
-                            Style="{StaticResource NavButton}"
-                            ToolTip="切換主題"
-                            Click="BtnThemeToggle_Click"/>
+                            Click="BtnSettings_Click">
+                        <Viewbox Width="20" Height="20" Stretch="Uniform">
+                            <Path Data="{StaticResource IconSettings}" Fill="{StaticResource SecondaryTextBrush}"/>
+                        </Viewbox>
+                    </Button>
                 </StackPanel>
-                <Button x:Name="BtnNotification" Grid.Row="1"
-                        Width="45" Height="42" Padding="0"
-                        Style="{StaticResource NavButton}"
-                        ToolTip="通知紀錄"
-                        Click="ToggleNotifPanel_Click">
-                    <Grid>
-                        <TextBlock Text="🔔" FontSize="16" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                        <Border x:Name="NotifBadge" HorizontalAlignment="Right" VerticalAlignment="Top"
-                                Background="#F44336" CornerRadius="6" MinWidth="12" Height="12"
-                                Margin="0,4,4,0" Padding="2,0" BorderThickness="0">
-                            <TextBlock x:Name="NotifBadgeText" Text="0" FontSize="8"
-                                       Foreground="White" TextAlignment="Center"/>
-                        </Border>
-                    </Grid>
-                </Button>
-                <Button x:Name="BtnUser" Grid.Row="2"
-                        Content="👤" Width="45" Height="42" Padding="0"
-                        Style="{StaticResource NavButton}"
-                        ToolTip="洪俊士 (Jiunn Shyh Hung)"/>
+                <StackPanel Grid.Row="1">
+                    <Line Style="{StaticResource SidebarSeparator}"/>
+                    <Button x:Name="BtnTheme"
+                            Style="{StaticResource SidebarButton}"
+                            ToolTip="切換主題"
+                            Click="BtnThemeToggle_Click">
+                        <Viewbox Width="20" Height="20" Stretch="Uniform">
+                            <Path Data="{StaticResource IconTheme}" Fill="{StaticResource SecondaryTextBrush}"/>
+                        </Viewbox>
+                    </Button>
+                    <Button x:Name="BtnNotification"
+                            Style="{StaticResource SidebarButton}"
+                            ToolTip="通知紀錄"
+                            Click="ToggleNotifPanel_Click">
+                        <Grid>
+                            <Viewbox Width="20" Height="20" Stretch="Uniform">
+                                <Path Data="{StaticResource IconBell}" Fill="{StaticResource SecondaryTextBrush}"/>
+                            </Viewbox>
+                            <Border x:Name="NotifBadge" HorizontalAlignment="Right" VerticalAlignment="Top"
+                                    Background="#F44336" CornerRadius="6" MinWidth="12" Height="12"
+                                    Margin="0,4,4,0" Padding="2,0" BorderThickness="0">
+                                <TextBlock x:Name="NotifBadgeText" Text="0" FontSize="8"
+                                           Foreground="White" TextAlignment="Center"/>
+                            </Border>
+                        </Grid>
+                    </Button>
+                    <Button x:Name="BtnUser"
+                            Style="{StaticResource SidebarButton}"
+                            ToolTip="洪俊士 (Jiunn Shyh Hung)">
+                        <Viewbox Width="20" Height="20" Stretch="Uniform">
+                            <Path Data="{StaticResource IconUser}" Fill="{StaticResource SecondaryTextBrush}"/>
+                        </Viewbox>
+                    </Button>
+                </StackPanel>
             </Grid>
         </Border>
         <!-- ═══ Notification bell + flyout ═══ -->
         <Popup x:Name="NotificationPopup" Grid.Column="1" Placement="Absolute" Width="340" Height="400"
                AllowsTransparency="True" StaysOpen="False" PopupAnimation="Slide">
-            <Border Background="#1E1E1E" CornerRadius="8" BorderThickness="1" BorderBrush="#33FFFFFF">
+            <Border Background="{StaticResource SurfaceBrush}" CornerRadius="8" BorderThickness="1" BorderBrush="{StaticResource BorderBrush}">
                 <Grid Margin="8">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
@@ -100,12 +135,12 @@
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
-                        <TextBlock Grid.Column="0" Text="通知紀錄" FontSize="14" FontWeight="SemiBold"
-                                   Foreground="{StaticResource TextBrush}" VerticalAlignment="Center"/>
-                        <Button Grid.Column="1" Content="全部已讀" FontSize="11" Height="24" Padding="8,0"
-                                Background="Transparent" BorderThickness="0"
-                                Foreground="{StaticResource SecondaryTextBrush}" Cursor="Hand"
-                                Click="MarkAllNotifRead_Click"/>
+                <TextBlock Grid.Column="0" Text="通知紀錄" FontSize="14" FontWeight="SemiBold"
+                           Foreground="{StaticResource TextBrush}" VerticalAlignment="Center"/>
+                <Button Grid.Column="1" Content="全部已讀" FontSize="11" Height="24" Padding="8,0"
+                        Background="Transparent" BorderThickness="0"
+                        Foreground="{StaticResource PrimaryBrush}" Cursor="Hand"
+                        Click="MarkAllNotifRead_Click"/>
                     </Grid>
                     <ListBox Grid.Row="1" x:Name="NotificationList" Margin="0,8,0,8"
                              Background="Transparent" BorderThickness="0"
@@ -161,7 +196,7 @@
                                 Click="CloseNotifPopup_Click"/>
                         <Button Content="清除全部" FontSize="11" Height="24" Padding="12,0" Margin="8,0,0,0"
                                 Background="Transparent" BorderThickness="0"
-                                Foreground="#FFE57373" Cursor="Hand"
+                                Foreground="{StaticResource AccentBrush}" Cursor="Hand"
                                 Click="ClearAllNotif_Click"/>
                     </WrapPanel>
                 </Grid>
@@ -170,24 +205,42 @@
 
         <!-- ═══ Column 1: Drawer (animated width via inner container) ═══ -->
         <Grid Grid.Column="1" ClipToBounds="True">
-            <Border x:Name="DrawerContainer" Width="175" Background="#FF000000">
+            <Border x:Name="DrawerContainer" Width="220" Background="{StaticResource SidebarBrush}">
                 <Grid>
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
                         <RowDefinition Height="*"/>
                     </Grid.RowDefinitions>
-                    <!-- Logo -->
-                    <Border Grid.Row="0" Height="42" Background="#FF000000"
-                            BorderThickness="0,0,0,1" BorderBrush="#33FFFFFF">
-                        <TextBlock Text="HeliVMS" FontSize="14" FontWeight="Bold"
-                                   Foreground="#FFFFFFFF"
-                                   VerticalAlignment="Center" Margin="10,0,0,0"/>
+                    <!-- Logo + header -->
+                    <Border Grid.Row="0" Height="42" Background="{StaticResource SidebarBrush}"
+                            BorderThickness="0,0,0,1" BorderBrush="{StaticResource BorderBrush}">
+                        <Grid Margin="10,0,10,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="📹" FontSize="16" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                            <TextBlock Grid.Column="1" Text="HeliVMS" FontSize="14" FontWeight="Bold"
+                                       Foreground="{StaticResource TextBrush}"
+                                       VerticalAlignment="Center"/>
+                        </Grid>
+                    </Border>
+                    <!-- Search bar (visible in Live mode) -->
+                    <Border x:Name="DrawerSearchBar" Grid.Row="1" Height="32" Background="{StaticResource SurfaceBrush}"
+                            BorderThickness="0,0,0,1" BorderBrush="{StaticResource BorderBrush}"
+                            Padding="8,0" Visibility="Visible">
+                        <Grid>
+                            <TextBlock Text="🔍 搜尋資源" FontSize="11"
+                                       Foreground="{StaticResource SecondaryTextBrush}"
+                                       VerticalAlignment="Center" Margin="4,0,0,0"/>
+                        </Grid>
                     </Border>
                     <!-- Camera tree (Live mode) -->
-                    <controls:CameraTreePanel x:Name="LiveDrawer" Grid.Row="1"/>
+                    <controls:CameraTreePanel x:Name="LiveDrawer" Grid.Row="2"/>
                     <!-- Sub-menu drawer (non-Live modes) -->
-                    <Border x:Name="SubMenuDrawer" Grid.Row="1" Visibility="Collapsed"
-                            Background="#FF000000"/>
+                    <Border x:Name="SubMenuDrawer" Grid.Row="2" Visibility="Collapsed"
+                            Background="{StaticResource SidebarBrush}"/>
                 </Grid>
             </Border>
         </Grid>
@@ -205,14 +258,14 @@
         <Border Grid.Column="2" x:Name="ToastOverlay"
                 HorizontalAlignment="Right" VerticalAlignment="Top"
                 Margin="0,8,16,0" Visibility="Collapsed"
-                Background="#E0000000" CornerRadius="8" Padding="14,10" MaxWidth="360"
-                BorderThickness="1" BorderBrush="#33FFFFFF">
-            <TextBlock x:Name="ToastText" Text="" FontSize="12" Foreground="#E1E1E1"
+                Background="{StaticResource OverlayBrush}" CornerRadius="8" Padding="14,10" MaxWidth="360"
+                BorderThickness="1" BorderBrush="{StaticResource BorderBrush}">
+            <TextBlock x:Name="ToastText" Text="" FontSize="12" Foreground="{StaticResource TextBrush}"
                        TextWrapping="Wrap"/>
         </Border>
         </Grid>
         <!-- ═══ Status Bar ═══ -->
-        <Border Grid.Row="1" Height="24" Background="#141414" BorderThickness="0,1,0,0" BorderBrush="#33FFFFFF">
+        <Border Grid.Row="1" Height="24" Background="{StaticResource SidebarBrush}" BorderThickness="0,1,0,0" BorderBrush="{StaticResource BorderBrush}">
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto"/>
@@ -223,13 +276,13 @@
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
-                <TextBlock Grid.Column="0" x:Name="StatusCameras" Text="" FontSize="11" Foreground="#AAFFFFFF" Margin="8,0,16,0" VerticalAlignment="Center"/>
-                <TextBlock Grid.Column="1" x:Name="StatusBandwidth" Text="" FontSize="11" Foreground="#AAFFFFFF" Margin="0,0,16,0" VerticalAlignment="Center"/>
-                <TextBlock Grid.Column="2" x:Name="StatusStorage" Text="" FontSize="11" Foreground="#AAFFFFFF" Margin="0,0,16,0" VerticalAlignment="Center"/>
-                <TextBlock Grid.Column="3" x:Name="StatusCpu" Text="" FontSize="11" Foreground="#AAFFFFFF" Margin="0,0,16,0" VerticalAlignment="Center"/>
-                <TextBlock Grid.Column="4" x:Name="StatusMemory" Text="" FontSize="11" Foreground="#AAFFFFFF" Margin="0,0,16,0" VerticalAlignment="Center"/>
-                <TextBlock Grid.Column="5" Text="" FontSize="11" Foreground="#AAFFFFFF" VerticalAlignment="Center"/>
-                <TextBlock Grid.Column="6" x:Name="StatusTime" Text="" FontSize="11" Foreground="#AAFFFFFF" Margin="0,0,8,0" VerticalAlignment="Center"/>
+                <TextBlock Grid.Column="0" x:Name="StatusCameras" Text="" FontSize="11" Foreground="{StaticResource SecondaryTextBrush}" Margin="8,0,16,0" VerticalAlignment="Center"/>
+                <TextBlock Grid.Column="1" x:Name="StatusBandwidth" Text="" FontSize="11" Foreground="{StaticResource SecondaryTextBrush}" Margin="0,0,16,0" VerticalAlignment="Center"/>
+                <TextBlock Grid.Column="2" x:Name="StatusStorage" Text="" FontSize="11" Foreground="{StaticResource SecondaryTextBrush}" Margin="0,0,16,0" VerticalAlignment="Center"/>
+                <TextBlock Grid.Column="3" x:Name="StatusCpu" Text="" FontSize="11" Foreground="{StaticResource SecondaryTextBrush}" Margin="0,0,16,0" VerticalAlignment="Center"/>
+                <TextBlock Grid.Column="4" x:Name="StatusMemory" Text="" FontSize="11" Foreground="{StaticResource SecondaryTextBrush}" Margin="0,0,16,0" VerticalAlignment="Center"/>
+                <TextBlock Grid.Column="5" Text="" FontSize="11" Foreground="{StaticResource SecondaryTextBrush}" VerticalAlignment="Center"/>
+                <TextBlock Grid.Column="6" x:Name="StatusTime" Text="" FontSize="11" Foreground="{StaticResource SecondaryTextBrush}" Margin="0,0,8,0" VerticalAlignment="Center"/>
             </Grid>
         </Border>
     </Grid>
