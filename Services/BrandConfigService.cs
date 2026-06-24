@@ -33,8 +33,22 @@ public class BrandConfigService : IBrandConfigService {
     private static readonly string StrixCamDbRaw =
         "https://raw.githubusercontent.com/eduard256/StrixCamDB/main/brands";
 
+    /// <summary>Fallback brand IDs used when GitHub API is rate-limited or unreachable</summary>
+    private static readonly string[] FallbackBrandIds = [
+        "hikvision", "dahua", "axis", "foscam", "vivotek",
+        "panasonic", "sony", "samsung", "tplink", "bosch",
+        "pelco", "amcrest", "reolink", "aver", "uniview", "acti",
+        "geovision", "tiandy", "honeywell", "idis", "arecont",
+        "avigilon", "mobotix", "wisenet", "jvc", "toshiba",
+        "d-link", "cisco", "grandstream", "ubiquiti", "sanyo",
+        "lg", "vstarcam", "wanscam", "tenvis", "airlive",
+        "hualu", "zxtech", "kjlink", "milesight", "davido",
+    ];
+
     private CameraBrandConfig _config = new();
-    private readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(15) };
+    private readonly HttpClient _http = new() {
+        Timeout = TimeSpan.FromSeconds(15),
+    };
 
     public CameraBrandConfig Config => _config;
     public int BrandCount => _config.Brands.Count;
@@ -100,7 +114,7 @@ public class BrandConfigService : IBrandConfigService {
             // Step 1: Fetch brand list from StrixCamDB
             var brandList = await FetchStrixCamBrandListAsync().ConfigureAwait(false);
             if (brandList.Count == 0) {
-                errors.Add("Failed to fetch brand list from StrixCamDB (GitHub API)");
+                errors.Add("無法連線 StrixCamDB 伺服器（GitHub API），請檢查網路後重試");
                 return (0, 0, errors.ToArray());
             }
 
@@ -150,34 +164,53 @@ public class BrandConfigService : IBrandConfigService {
         }
     }
 
-    /// <summary>Fetch brand list from GitHub API (brands/ directory JSON files)</summary>
+    /// <summary>Fetch brand list from GitHub API with retry + fallback list</summary>
     private async Task<List<string>> FetchStrixCamBrandListAsync() {
-        try {
-            var req = new HttpRequestMessage(HttpMethod.Get, StrixCamDbApi);
-            req.Headers.UserAgent.ParseAdd("HeliVMS/1.0");
-            var resp = await _http.SendAsync(req).ConfigureAwait(false);
-            if (!resp.IsSuccessStatusCode) { return []; }
+        for (var retry = 0; retry < 3; retry++) {
+            try {
+                var req = new HttpRequestMessage(HttpMethod.Get, StrixCamDbApi);
+                req.Headers.UserAgent.ParseAdd("HeliVMS/1.0");
+                req.Headers.Accept.ParseAdd("application/vnd.github.v3+json");
+                var resp = await _http.SendAsync(req).ConfigureAwait(false);
 
-            var json = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
-            var doc = JsonDocument.Parse(json);
-            var brands = new List<string>(doc.RootElement.GetArrayLength());
-            foreach (var item in doc.RootElement.EnumerateArray()) {
-                var name = item.TryGetProperty("name", out var n) ? n.GetString() : null;
-                if (name is not null && name.EndsWith(".json", StringComparison.OrdinalIgnoreCase)) {
-                    var id = Path.GetFileNameWithoutExtension(name);
-                    if (!string.IsNullOrEmpty(id)) { brands.Add(id); }
+                if (resp.StatusCode == System.Net.HttpStatusCode.Forbidden ||
+                    resp.StatusCode == System.Net.HttpStatusCode.TooManyRequests) {
+                    var retryAfter = resp.Headers.RetryAfter?.Delta ?? TimeSpan.FromSeconds(10);
+                    Log.Debug("[HeliVMS] GitHub API rate limited, retrying after {Sec}s", retryAfter.TotalSeconds);
+                    await Task.Delay(retryAfter).ConfigureAwait(false);
+                    continue;
                 }
+                if (!resp.IsSuccessStatusCode) { break; }
+
+                var json = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+                var doc = JsonDocument.Parse(json);
+                var brands = new List<string>(doc.RootElement.GetArrayLength());
+                foreach (var item in doc.RootElement.EnumerateArray()) {
+                    var type = item.TryGetProperty("type", out var t) ? t.GetString() : "";
+                    if (type != "file") { continue; }
+                    var name = item.TryGetProperty("name", out var n) ? n.GetString() : null;
+                    if (name is not null && name.EndsWith(".json", StringComparison.OrdinalIgnoreCase)) {
+                        var id = Path.GetFileNameWithoutExtension(name);
+                        if (!string.IsNullOrEmpty(id)) { brands.Add(id); }
+                    }
+                }
+                Log.Debug("[HeliVMS] Fetched {Count} brands from StrixCamDB API", brands.Count);
+                return brands;
+            } catch (HttpRequestException) when (retry < 2) {
+                await Task.Delay(TimeSpan.FromSeconds(1 << retry)).ConfigureAwait(false);
             }
-            return brands;
-        } catch {
-            return [];
         }
+
+        Log.Debug("[HeliVMS] GitHub API unavailable, falling back to {Count} known brands", FallbackBrandIds.Length);
+        return [.. FallbackBrandIds];
     }
 
     /// <summary>Download and parse a StrixCam brand JSON, extracting RTSP URL patterns</summary>
     private async Task<BrandEntry?> DownloadAndParseStrixCamBrandAsync(string brandId) {
         var url = $"{StrixCamDbRaw}/{brandId}.json";
-        var resp = await _http.GetAsync(url).ConfigureAwait(false);
+        var req = new HttpRequestMessage(HttpMethod.Get, url);
+        req.Headers.UserAgent.ParseAdd("HeliVMS/1.0");
+        var resp = await _http.SendAsync(req).ConfigureAwait(false);
         if (!resp.IsSuccessStatusCode) { return null; }
 
         var json = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
