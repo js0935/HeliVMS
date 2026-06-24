@@ -185,6 +185,15 @@ public partial class DynamicCameraGrid : UserControl {
         }
     }
 
+    /// <summary>Toggle maximize/restore of the given slot.</summary>
+    public void ToggleMaximize(int slotIndex) {
+        if (slotIndex < 0 || slotIndex >= _activeSlotCount) return;
+        if (_maximizedSlot == slotIndex)
+            RestoreLayout();
+        else
+            MaximizeSlot(slotIndex);
+    }
+
     public void SetPlaybackTimeVisible(bool visible) {
         if (!MainGrid.IsLoaded) return;
         foreach (var child in MainGrid.Children) {
@@ -283,11 +292,15 @@ public partial class DynamicCameraGrid : UserControl {
         if (cam is not null) {
             var ctx = new ContextMenu();
             var camId = cam.Id;
-            ctx.Items.Add(new MenuItem { Header = "移除攝影機", Tag = camId });
+            ctx.Items.Add(new MenuItem { Header = "全畫面", Tag = camId });
+            ctx.Items.Add(new MenuItem { Header = "拍照", Tag = camId });
+            ctx.Items.Add(new Separator());
+            ctx.Items.Add(new MenuItem { Header = "PTZ 控制", Tag = camId });
             ctx.Items.Add(new MenuItem { Header = "開始錄影", Tag = camId });
             ctx.Items.Add(new MenuItem { Header = "停止錄影", Tag = camId });
             ctx.Items.Add(new Separator());
-            ctx.Items.Add(new MenuItem { Header = "PTZ 控制", Tag = camId });
+            ctx.Items.Add(new MenuItem { Header = "加入書籤", Tag = camId });
+            ctx.Items.Add(new MenuItem { Header = "移除攝影機", Tag = camId });
             foreach (MenuItem item in ctx.Items)
                 item.Click += (s, _) => {
                     if (s is MenuItem mi)

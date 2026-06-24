@@ -258,6 +258,26 @@ public partial class MainWindow : Window {
         if (MainWorkArea.Content is SettingsView sv) { sv.ShowTab(7); }
     }
 
+    private void BtnAbout_Click(object sender, RoutedEventArgs e) {
+        MessageBox.Show(
+            $"HeliVMS — 智慧影像管理系統\n版本 1.0.0\n\n© 2025 Jiunn Shyh Hung\nhttps://github.com/js0935/HeliVMS",
+            "關於 HeliVMS", MessageBoxButton.OK, MessageBoxImage.Information);
+    }
+
+    private void BtnLogout_Click(object sender, RoutedEventArgs e) {
+        var result = MessageBox.Show("確定要登出？", "登出確認",
+            MessageBoxButton.YesNo, MessageBoxImage.Question);
+        if (result == MessageBoxResult.Yes) {
+            _auth.Logout();
+            Application.Current.Shutdown();
+        }
+    }
+
+    private void BtnExit_Click(object sender, RoutedEventArgs e) {
+        _isShuttingDown = true;
+        Application.Current.Shutdown();
+    }
+
     private void QuickAddCameraBtn_Click(object sender, RoutedEventArgs e) {
         var dialog = new CameraEditDialog();
         dialog.Owner = this;

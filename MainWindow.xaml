@@ -149,6 +149,17 @@
                     <Button x:Name="BtnUser"
                             Style="{StaticResource SidebarButton}"
                             ToolTip="洪俊士 (Jiunn Shyh Hung)">
+                        <Button.ContextMenu>
+                            <ContextMenu Background="{StaticResource SurfaceBrush}" Foreground="{StaticResource TextBrush}"
+                                        BorderBrush="{StaticResource BorderBrush}">
+                                <MenuItem Header="使用者管理" Click="SubSettingsUser_Click"/>
+                                <Separator/>
+                                <MenuItem Header="關於 HeliVMS" Click="BtnAbout_Click"/>
+                                <Separator/>
+                                <MenuItem Header="登出" Click="BtnLogout_Click"/>
+                                <MenuItem Header="結束" Click="BtnExit_Click"/>
+                            </ContextMenu>
+                        </Button.ContextMenu>
                         <Viewbox Width="20" Height="20" Stretch="Uniform">
                             <Path Data="{StaticResource IconUser}" Fill="{StaticResource SecondaryTextBrush}"/>
                         </Viewbox>

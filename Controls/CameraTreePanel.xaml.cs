@@ -223,6 +223,10 @@ public partial class CameraTreePanel : UserControl {
         if (sender is MenuItem mi) FireCameraAction(mi.Tag as string, "play");
     }
 
+    private void OnOpenNewTab(object sender, RoutedEventArgs e) {
+        if (sender is MenuItem mi) FireCameraAction(mi.Tag as string, "open_new_tab");
+    }
+
     private void OnToggleRecording(object sender, RoutedEventArgs e) {
         if (sender is MenuItem mi && mi.Tag is string id) {
             var recording = App.Services.GetRequiredService<IRecordingService>().IsRecording(id);
@@ -241,6 +245,28 @@ public partial class CameraTreePanel : UserControl {
                 cam.IsFavorite = !cam.IsFavorite;
                 _cameraService.UpdateCamera(cam);
                 ReloadCameras();
+            }
+        }
+    }
+
+    private void OnSnapshot(object sender, RoutedEventArgs e) {
+        if (sender is MenuItem mi) FireCameraAction(mi.Tag as string, "snapshot");
+    }
+
+    private void OnCameraSettings(object sender, RoutedEventArgs e) {
+        if (sender is MenuItem mi) FireCameraAction(mi.Tag as string, "camera_settings");
+    }
+
+    private void OnRemoveCamera(object sender, RoutedEventArgs e) {
+        if (sender is MenuItem mi && mi.Tag is string cameraId) {
+            var cam = _cameraService.GetAllCameras().FirstOrDefault(c => c.Id == cameraId);
+            if (cam is not null) {
+                var result = MessageBox.Show($"確定要移除攝影機「{cam.Name}」？\n此操作無法復原。",
+                    "移除攝影機", MessageBoxButton.YesNo, MessageBoxImage.Warning);
+                if (result == MessageBoxResult.Yes) {
+                    _cameraService.DeleteCamera(cameraId);
+                    ReloadCameras();
+                }
             }
         }
     }

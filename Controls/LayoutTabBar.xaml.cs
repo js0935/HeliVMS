@@ -171,6 +171,7 @@ public partial class LayoutTabBar : UserControl {
             }
         };
         border.MouseUp += (_, _) => _dragTab = null;
+        border.ContextMenu = BuildTabContextMenu(data);
         return border;
     }
 
@@ -216,6 +217,48 @@ public partial class LayoutTabBar : UserControl {
         var tab = new LayoutTab { Name = $"佈局 {_tabs.Count + 1}" };
         AddTab(tab);
         TabAdded?.Invoke(this, tab);
+    }
+
+    private ContextMenu BuildTabContextMenu(TabItemData data) {
+        var menu = new ContextMenu();
+
+        var renameItem = new MenuItem { Header = "重新命名" };
+        renameItem.Click += (_, _) => BeginRename(data);
+        menu.Items.Add(renameItem);
+
+        var dupItem = new MenuItem { Header = "複製" };
+        dupItem.Click += (_, _) => DuplicateTab(data);
+        menu.Items.Add(dupItem);
+
+        menu.Items.Add(new Separator());
+
+        var closeItem = new MenuItem { Header = "關閉" };
+        closeItem.Click += (_, _) => CloseTab(data.Layout.Id);
+        menu.Items.Add(closeItem);
+
+        var closeOthersItem = new MenuItem { Header = "關閉其他分頁" };
+        closeOthersItem.Click += (_, _) => CloseOtherTabs(data.Layout.Id);
+        menu.Items.Add(closeOthersItem);
+
+        return menu;
+    }
+
+    private void DuplicateTab(TabItemData data) {
+        var tab = new LayoutTab {
+            Name = $"{data.Layout.Name} (複製)",
+        };
+        AddTab(tab);
+        TabAdded?.Invoke(this, tab);
+    }
+
+    private void CloseOtherTabs(string id) {
+        var keep = _tabs.FirstOrDefault(t => t.Layout.Id == id);
+        if (keep is null) return;
+        _tabs.Clear();
+        TabStrip.Children.Clear();
+        _tabs.Add(keep);
+        TabStrip.Children.Add(keep.UI);
+        SelectTab(keep.Layout.Id);
     }
 
     private class TabItemData {

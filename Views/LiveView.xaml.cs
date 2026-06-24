@@ -163,6 +163,13 @@ public partial class LiveView : UserControl {
         var cam = CameraService.GetCameraById(cameraId);
         if (cam is null) return;
         switch (action) {
+            case "全畫面": {
+                var slots = VideoGrid.GetSlotCameras().ToList();
+                var idx = slots.FindIndex(c => c?.Id == cameraId);
+                if (idx >= 0) VideoGrid.ToggleMaximize(idx);
+                break;
+            }
+            case "拍照": HandleCameraAction(cameraId, "snapshot"); break;
             case "移除攝影機": {
                 var slots = VideoGrid.GetSlotCameras().ToList();
                 var idx = slots.FindIndex(c => c?.Id == cameraId);
@@ -172,6 +179,7 @@ public partial class LiveView : UserControl {
             case "開始錄影": RecordingService.StartRecording(cam); break;
             case "停止錄影": RecordingService.StopRecording(cam.Id); break;
             case "PTZ 控制": HandleCameraAction(cameraId, "ptz"); break;
+            case "加入書籤": HandleCameraAction(cameraId, "bookmark"); break;
         }
     }
 
@@ -508,12 +516,51 @@ public partial class LiveView : UserControl {
                 if (freeIndex >= 0) grid.AssignSlot(freeIndex, cam);
                 break;
             }
+            case "open_new_tab": {
+                var layout = new LayoutTab { Name = cam.Name };
+                TabBar.AddTab(layout);
+                TabBar.SelectTab(layout.Id);
+                ReloadAllCamerasIntoGrid();
+                var slots = VideoGrid.GetSlotCameras().ToList();
+                var freeIndex = slots.FindIndex(c => c is null);
+                if (freeIndex >= 0) VideoGrid.AssignSlot(freeIndex, cam);
+                break;
+            }
+            case "snapshot": {
+                var grid = VideoGrid;
+                var slots = grid.GetActiveSlots();
+                foreach (var s in slots) {
+                    if (s?.Camera?.Id == cameraId) {
+                        var snapDir = System.IO.Path.Combine(
+                            Environment.GetFolderPath(Environment.SpecialFolder.MyPictures), "HeliVMS");
+                        System.IO.Directory.CreateDirectory(snapDir);
+                        s.SaveSnapshot(snapDir);
+                        break;
+                    }
+                }
+                break;
+            }
+            case "bookmark": {
+                var now = DateTime.Now;
+                var bm = new Controls.PlaybackBookmark {
+                    Seconds = now.TimeOfDay.TotalSeconds,
+                    Note = $"{cam.Name} @ {now:HH:mm:ss}"
+                };
+                _bookmarks.SaveBookmark(bm, _timelineDay);
+                TimelineControl.AddBookmark(bm);
+                break;
+            }
             case "start_recording":
                 RecordingService.StartRecording(cam);
                 break;
             case "stop_recording":
                 RecordingService.StopRecording(cam.Id);
                 break;
+            case "camera_settings": {
+                var nav = App.Services.GetRequiredService<INavigationService>();
+                nav.NavigateTo(NavPage.DeviceManagement);
+                break;
+            }
             case "ptz": {
                 var panel = new Controls.PTZControlPanel { Width = 240 };
                 panel.LoadCamera(cam);

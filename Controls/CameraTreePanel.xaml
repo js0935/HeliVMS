@@ -10,6 +10,9 @@
                     <ContextMenu>
                         <MenuItem Header="播放" Tag="{Binding CameraId}"
                                   Click="OnPlayCamera"/>
+                        <MenuItem Header="在新分頁開啟" Tag="{Binding CameraId}"
+                                  Click="OnOpenNewTab"/>
+                        <Separator/>
                         <MenuItem Header="開始錄影" x:Name="RecMenu"
                                   Tag="{Binding CameraId}"
                                   Click="OnToggleRecording"/>
@@ -19,6 +22,13 @@
                         <MenuItem Header="加入我的最愛" x:Name="FavMenu"
                                   Tag="{Binding CameraId}"
                                   Click="OnToggleFavorite"/>
+                        <MenuItem Header="拍照" Tag="{Binding CameraId}"
+                                  Click="OnSnapshot"/>
+                        <Separator/>
+                        <MenuItem Header="攝影機設定" Tag="{Binding CameraId}"
+                                  Click="OnCameraSettings"/>
+                        <MenuItem Header="移除" Tag="{Binding CameraId}"
+                                  Click="OnRemoveCamera"/>
                     </ContextMenu>
                 </StackPanel.ContextMenu>
                 <Ellipse Width="6" Height="6" Margin="0,0,6,0"
