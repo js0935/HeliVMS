@@ -42,9 +42,7 @@ This project uses **全自主模式** — the agent should:
 - **NxTimeline 錄影類型色碼改從 Colors.xaml 資源載入（含 fallback）**
 - **PlaybackPlayer 殘留色碼置換 + Session 還原加入完整診斷日誌**
 
-### 待完成 (~0%)
-- 版面預覽 Popup 拖放選擇器（Nx 風格 grid 預覽升級）— 基本版已完成，進階拖放可後續優化
-- NxTimeline 錄影類型區塊著色（顏色值已與 Colors.xaml 一致，繪圖邏輯維持原狀）
+### 已無待辦項目
 
 ### 阻塞中 (Blocked)
 - 使用者回報 **設備管理（DeviceManagementView）無法管理攝影機** — 需檢視執行時期行為，目前無法透過靜態分析重現
