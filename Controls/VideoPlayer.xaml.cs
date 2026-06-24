@@ -1343,6 +1343,37 @@ public partial class VideoPlayer : UserControl {
                     }
                 }
                 _renderMissCount = 0;
+
+                // Diagnostics: log DecoderFrameImage state after first render
+                if (_hasShownFirstFrame) {
+                    var srcType = DecoderFrameImage.Source?.GetType().Name ?? "null";
+                    var actualW = DecoderFrameImage.ActualWidth;
+                    var actualH = DecoderFrameImage.ActualHeight;
+                    var vis = DecoderFrameImage.Visibility;
+                    DragDiag.Write($"[VideoPlayer:{_camera.Name}] FlushPendingFrame: DIAG imgSrc={srcType} aw={actualW:F1} ah={actualH:F1} vis={vis}");
+                }
+
+                // Diagnostics: in test pattern mode, force a known good BitmapSource to verify Image element
+                var diagForceTest = File.Exists(@"C:\Users\JS\AppData\Local\HeliVMS\test_pattern");
+                if (diagForceTest && _hasShownFirstFrame) {
+                    var raw = new byte[width * height * 4];
+                    for (var y = 0; y < height; y++) {
+                        for (var x = 0; x < width; x++) {
+                            var off = (y * width + x) * 4;
+                            var isRed = ((x / 40) + (y / 40)) % 2 == 0;
+                            raw[off] = 0;
+                            raw[off + 1] = 0;
+                            raw[off + 2] = isRed ? (byte)255 : (byte)0;
+                            raw[off + 3] = 255;
+                        }
+                    }
+                    var testBmp = System.Windows.Media.Imaging.BitmapSource.Create(
+                        width, height, 96, 96, System.Windows.Media.PixelFormats.Bgra32, null, raw, stride);
+                    DecoderFrameImage.Source = testBmp;
+                    DecoderFrameImage.InvalidateVisual();
+                    DecoderFrameImage.InvalidateMeasure();
+                    DragDiag.Write($"[VideoPlayer:{_camera.Name}] TEST: BitmapSource.Create set as Source + InvalidateVisual");
+                }
             } catch when (_isUnloaded) { } catch (Exception ex) {
                 Log.Warning(ex, "[VideoPlayer:{Name}] Decoder frame render error", _camera?.Name);
             }
@@ -1358,7 +1389,12 @@ public partial class VideoPlayer : UserControl {
             _d3dImageSurface = new D3DImageSurface(_d3dRenderer);
             if (_d3dImageSurface.IsValid) {
                 DecoderFrameImage.Source = _d3dImageSurface.Image;
+                DragDiag.Write($"[VideoPlayer:{_camera?.Name}] RegisterActiveFramePlayer: D3DImage set as Source (d3dRenderer ok)");
+            } else {
+                DragDiag.Write($"[VideoPlayer:{_camera?.Name}] RegisterActiveFramePlayer: D3DImage NOT valid");
             }
+        } else {
+            DragDiag.Write($"[VideoPlayer:{_camera?.Name}] RegisterActiveFramePlayer: D3DRenderer.Instance returned null");
         }
 
         lock (_activeFramePlayers) {
