@@ -5,6 +5,14 @@
         WindowStartupLocation="CenterOwner"
         Background="{StaticResource SurfaceBrush}" Foreground="{StaticResource TextBrush}"
         SnapsToDevicePixels="True">
+    <Window.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="/Styles/Colors.xaml"/>
+                <ResourceDictionary Source="/Styles/Styles.xaml"/>
+            </ResourceDictionary.MergedDictionaries>
+        </ResourceDictionary>
+    </Window.Resources>
     <Grid Margin="16">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
@@ -56,7 +64,7 @@
                      Background="{StaticResource InputBackgroundBrush}" Foreground="{StaticResource TextBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" Margin="4,0,4,0"/>
             <Button Grid.Column="2" Content="瀏覽..." Padding="8,3" FontSize="11"
                     Click="Browse_Click"
-                    Background="{StaticResource SecondarySurfaceBrush}" Foreground="{StaticResource TextBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" Cursor="Hand"/>
+                    Style="{StaticResource SecondaryButton}"/>
         </Grid>
 
         <TextBlock Grid.Row="3" Text="格式" FontSize="12" Margin="0,0,0,4"/>
@@ -72,12 +80,12 @@
                    Margin="0,8,0,0"/>
 
         <StackPanel Grid.Row="6" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
-            <Button x:Name="ExportBtn" Content="開始匯出" Padding="16,6" FontSize="12" Width="100"
+            <Button x:Name="ExportBtn" Content="開始匯出" Width="100"
                     Click="Export_Click"
-                    Background="{StaticResource PrimaryBrush}" Foreground="{StaticResource TextBrush}" BorderThickness="0" Cursor="Hand"/>
-            <Button Content="取消" Padding="16,6" FontSize="12" Width="80" Margin="8,0,0,0"
+                    Style="{StaticResource ModernButton}"/>
+            <Button Content="取消" Width="80" Margin="8,0,0,0"
                     Click="Cancel_Click"
-                    Background="{StaticResource SecondarySurfaceBrush}" Foreground="{StaticResource TextBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" Cursor="Hand"/>
+                    Style="{StaticResource SecondaryButton}"/>
         </StackPanel>
     </Grid>
 </Window>

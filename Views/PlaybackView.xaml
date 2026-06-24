@@ -214,7 +214,7 @@
 
                         <!-- Search -->
                         <TextBlock Text="錄影搜尋" FontSize="13" FontWeight="SemiBold"
-                                   Foreground="#FFD700" Margin="0,0,0,6"/>
+                                   Foreground="{StaticResource WarningBrush}" Margin="0,0,0,6"/>
                         <local:ShortcutRow Key_="Ctrl + F" Desc="開啟 / 關閉搜尋面板"/>
                         <local:ShortcutRow Key_="Escape" Desc="關閉搜尋面板"/>
                         <local:ShortcutRow Key_="Enter" Desc="執行搜尋（焦點在輸入框時）"/>
@@ -225,7 +225,7 @@
 
                         <!-- Markers -->
                         <TextBlock Text="標記與循環" FontSize="13" FontWeight="SemiBold"
-                                   Foreground="#FFD700" Margin="0,0,0,6"/>
+                                   Foreground="{StaticResource WarningBrush}" Margin="0,0,0,6"/>
                         <local:ShortcutRow Key_="B" Desc="標記書籤"/>
                         <local:ShortcutRow Key_="I" Desc="設定循環起點 A"/>
                         <local:ShortcutRow Key_="O" Desc="設定循環終點 B"/>
@@ -234,7 +234,7 @@
 
                         <!-- Display -->
                         <TextBlock Text="顯示" FontSize="13" FontWeight="SemiBold"
-                                   Foreground="#FFD700" Margin="0,0,0,6"/>
+                                   Foreground="{StaticResource WarningBrush}" Margin="0,0,0,6"/>
                         <local:ShortcutRow Key_="F11 / Escape" Desc="全螢幕模式"/>
                         <local:ShortcutRow Key_="H / ?" Desc="顯示此快捷鍵一覽"/>
                         <local:ShortcutRow Key_="雙擊 Player" Desc="放大 / 還原該頻道"/>

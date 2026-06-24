@@ -5,8 +5,15 @@
         WindowStartupLocation="CenterOwner"
         Background="{StaticResource BackgroundBrush}" Foreground="{StaticResource TextBrush}"
         SnapsToDevicePixels="True"
-        WindowStyle="SingleBorderWindow"
         ResizeMode="CanResizeWithGrip">
+    <Window.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="/Styles/Colors.xaml"/>
+                <ResourceDictionary Source="/Styles/Styles.xaml"/>
+            </ResourceDictionary.MergedDictionaries>
+        </ResourceDictionary>
+    </Window.Resources>
     <Grid Margin="16">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
@@ -101,16 +108,13 @@
                 <WrapPanel Margin="0,4,0,0">
                     <Button Content="+ 動作" Padding="8,3" FontSize="11"
                             Click="AddAction_Click" Width="65"
-                            Background="{StaticResource SecondarySurfaceBrush}" Foreground="{StaticResource TextBrush}"
-                            BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" Cursor="Hand"/>
+                            Style="{StaticResource SecondaryButton}"/>
                     <Button Content="刪除" Padding="8,3" FontSize="11" Margin="4,0,0,0"
                             Click="RemoveAction_Click"
-                            Background="{StaticResource SecondarySurfaceBrush}" Foreground="{StaticResource TextBrush}"
-                            BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" Cursor="Hand"/>
+                            Style="{StaticResource SecondaryButton}"/>
                     <Button Content="參數" Padding="8,3" FontSize="11" Margin="4,0,0,0"
                             Click="EditActionParams_Click"
-                            Background="{StaticResource SecondarySurfaceBrush}" Foreground="{StaticResource TextBrush}"
-                            BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" Cursor="Hand"/>
+                            Style="{StaticResource SecondaryButton}"/>
                 </WrapPanel>
 
                 <!-- Action params preview -->
@@ -122,14 +126,12 @@
         </Grid>
 
         <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
-            <Button Content="確定" Padding="16,6" FontSize="12" Width="80"
+            <Button Content="確定" Width="80"
                     Click="Ok_Click"
-                    Background="{StaticResource PrimaryBrush}" Foreground="{StaticResource TextBrush}"
-                    BorderThickness="0" Cursor="Hand"/>
-            <Button Content="取消" Padding="16,6" FontSize="12" Width="80" Margin="8,0,0,0"
+                    Style="{StaticResource ModernButton}"/>
+            <Button Content="取消" Width="80" Margin="8,0,0,0"
                     Click="Cancel_Click"
-                    Background="{StaticResource SecondarySurfaceBrush}" Foreground="{StaticResource TextBrush}"
-                    BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" Cursor="Hand"/>
+                    Style="{StaticResource SecondaryButton}"/>
         </StackPanel>
     </Grid>
 </Window>

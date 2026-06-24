@@ -50,6 +50,21 @@ This project uses **全自主模式** — the agent should:
 ### 阻塞中 (Blocked)
 - 使用者回報 **設備管理（DeviceManagementView）無法管理攝影機** — 需檢視執行時期行為，目前無法透過靜態分析重現
 
+## UI 視覺一致性規範（所有新視窗 / 對話框強制遵守）
+1. **XAML 頂層引入全域樣式**：每個 `<Window>` 或 `<UserControl>` 的 `<X.Resources>` 內第一時間引入樣式字典：
+   ```xml
+   <Window.Resources>
+       <ResourceDictionary>
+           <ResourceDictionary.MergedDictionaries>
+               <ResourceDictionary Source="pack://application:,,,/Styles/Colors.xaml"/>
+               <ResourceDictionary Source="pack://application:,,,/Styles/Styles.xaml"/>
+           </ResourceDictionary.MergedDictionaries>
+       </ResourceDictionary>
+   </Window.Resources>
+   ```
+2. **嚴格禁止 Hardcode 任何 Color 或 Brush**：視窗背景 → `{DynamicResource MainBackgroundBrush}`、文字 → `{DynamicResource PrimaryTextBrush}`、按鈕 → `{StaticResource ModernButton}`，絕不寫 `Background="White"` 或 `BorderBrush="Gray"`。
+3. **對話框基底對齊**：`WindowStyle="None"`、`AllowsTransparency="True"`（如需圓角陰影）、`WindowStartupLocation="CenterOwner"`，維持暗色調懸浮彈窗風格。
+
 ## 關鍵決策 (Key Decisions)
 - **Nx Witness 側欄 vs 頂部分頁列**：保留 48px 窄側欄設計，搭配 ContextMenu 快速操作捷徑
 - **SubMenuDrawer 雙模式**：Settings/Device 共用同一 Border 但內部兩個 ScrollViewer
