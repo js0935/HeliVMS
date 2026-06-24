@@ -4,22 +4,34 @@
              Background="{StaticResource SurfaceBrush}">
     <UserControl.ContextMenu>
         <ContextMenu Background="{StaticResource SurfaceBrush}"
-                     Foreground="{StaticResource TextBrush}"
                      BorderBrush="{StaticResource BorderBrush}">
-            <MenuItem x:Name="CtxSnapshot" Header="拍照"
-                      Foreground="{StaticResource TextBrush}"
-                      Click="CtxSnapshot_Click"/>
-            <MenuItem x:Name="CtxMaximize" Header="放大檢視"
-                      Foreground="{StaticResource TextBrush}"
-                      Click="CtxMaximize_Click"/>
+            <ContextMenu.Resources>
+                <Style TargetType="MenuItem">
+                    <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
+                </Style>
+            </ContextMenu.Resources>
+            <MenuItem x:Name="CtxSnapshot" Header="拍照" Click="CtxSnapshot_Click">
+                <MenuItem.Icon>
+                    <Path Data="{StaticResource IconSnapshot}" Fill="{StaticResource TextBrush}" Width="14" Height="14" Stretch="Uniform"/>
+                </MenuItem.Icon>
+            </MenuItem>
+            <MenuItem x:Name="CtxMaximize" Header="放大檢視" Click="CtxMaximize_Click">
+                <MenuItem.Icon>
+                    <Path Data="{StaticResource IconFullScreen}" Fill="{StaticResource TextBrush}" Width="14" Height="14" Stretch="Uniform"/>
+                </MenuItem.Icon>
+            </MenuItem>
             <Separator Background="{StaticResource BorderBrush}"/>
-            <MenuItem x:Name="CtxBookmark" Header="加入書籤"
-                      Foreground="{StaticResource TextBrush}"
-                      Click="CtxBookmark_Click"/>
+            <MenuItem x:Name="CtxBookmark" Header="加入書籤" Click="CtxBookmark_Click">
+                <MenuItem.Icon>
+                    <Path Data="{StaticResource IconBookmark}" Fill="{StaticResource TextBrush}" Width="14" Height="14" Stretch="Uniform"/>
+                </MenuItem.Icon>
+            </MenuItem>
             <Separator Background="{StaticResource BorderBrush}"/>
-            <MenuItem x:Name="CtxSetMaster" Header="設為同步主機"
-                      Foreground="{StaticResource TextBrush}"
-                      Click="CtxSetMaster_Click"/>
+            <MenuItem x:Name="CtxSetMaster" Header="設為同步主機" Click="CtxSetMaster_Click">
+                <MenuItem.Icon>
+                    <Path Data="{StaticResource IconInfo}" Fill="{StaticResource SuccessBrush}" Width="14" Height="14" Stretch="Uniform"/>
+                </MenuItem.Icon>
+            </MenuItem>
         </ContextMenu>
     </UserControl.ContextMenu>
     <Border BorderBrush="{StaticResource BorderBrush}"

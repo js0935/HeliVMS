@@ -315,8 +315,8 @@ public partial class DynamicCameraGrid : UserControl {
             var label = new TextBlock {
                 Text = cam.Name,
                 FontSize = _cols >= 5 ? 9 : 11,
-                Foreground = new SolidColorBrush(Color.FromArgb(200, 0xFF, 0xFF, 0xFF)),
-                Background = new SolidColorBrush(Color.FromArgb(120, 0, 0, 0)),
+                Foreground = (Brush)Application.Current.FindResource("TextBrush"),
+                Background = (Brush)Application.Current.FindResource("OverlayBrush"),
                 Padding = new Thickness(4, 1, 4, 1),
                 HorizontalAlignment = HorizontalAlignment.Left,
                 VerticalAlignment = VerticalAlignment.Bottom,

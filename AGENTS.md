@@ -27,11 +27,16 @@ This project uses **全自主模式** — the agent should:
 - **PlaybackView 14 處 emoji 取代 + 書籤動畫重構（Grid 包裝 Path/TextBlock 切換）**
 - **MainWindow drawer 📹→IconCamera + 主題切鈕改用 ToolTip**
 - **VideoPlayer/PlaybackPlayer/CameraGrid/ChannelManagementPage 全面修正**
-- **Icons.xaml 擴充至 37 個 PathGeometry 圖示**（新增 IconFolder/IconStar 等）
-- 三次 commit + push，所有建置 0 錯誤 0 警告
+- **Icons.xaml 擴充至 40 個 PathGeometry 圖示**（新增 IconFolder/IconStar/IconStop/IconRewind/IconFastForward）
+- **LiveView.xaml/VideoPlayer.xaml/PlaybackPlayer.xaml 全部硬編碼色碼改為 StaticResource**
+- **C# 全面清除生產代碼 emoji**：PlaybackView.xaml.cs（☑/☐/★）、SettingsView.xaml.cs（✓/✗）、MainWindow.xaml.cs（⚡）、PTZControlPanel.xaml.cs（✕/⏹）、CameraEditDialog.xaml.cs/ExportDialog.xaml.cs（✓/✗）
+- **XAML 全面清除生產代碼 emoji**：SettingsView.xaml（✓✗✕）、ChannelManagementPage.xaml（⚡）
+- **PlaybackView.xaml 14 顆傳輸控制 emoji → PathGeometry 圖示**（⏮⏸⏭⏪⏩⏹⏳✕ → IconSkipBack/IconPause/IconSkipForward/IconRewind/IconFastForward/IconStop/IconInfo/IconClose）
+- **攝影機樹狀節點狀態指示燈改良**：IsConnected PropertyChanged 通知、圓點 6px→8px、ConnectionColor 改用 StaticResource SuccessBrush/ErrorBrush
+- **四次 commit + push，所有建置 0 錯誤 0 警告**
 
 ### 進行中 (In Progress)
-- (無)
+- 持續對照 Nx Witness UI 模式強化功能選單
 
 ### 阻塞中 (Blocked)
 - 使用者回報 **設備管理（DeviceManagementView）無法管理攝影機** — 需檢視執行時期行為，目前無法透過靜態分析重現

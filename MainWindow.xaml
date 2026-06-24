@@ -42,10 +42,22 @@
                         <Button.ContextMenu>
                             <ContextMenu Background="{StaticResource SurfaceBrush}" Foreground="{StaticResource TextBrush}"
                                         BorderBrush="{StaticResource BorderBrush}">
-                                <MenuItem Header="新增攝影機" Click="AddCameraMenu_Click"/>
-                                <MenuItem Header="ONVIF 掃描" Click="OnvifScanMenu_Click"/>
-                                <Separator/>
-                                <MenuItem Header="切換全螢幕" Click="ToggleFullscreenMenu_Click"/>
+                                <MenuItem Header="新增攝影機" Click="AddCameraMenu_Click">
+                                    <MenuItem.Icon>
+                                        <Path Data="{StaticResource IconPlus}" Fill="{StaticResource TextBrush}" Width="14" Height="14" Stretch="Uniform"/>
+                                    </MenuItem.Icon>
+                                </MenuItem>
+                                <MenuItem Header="ONVIF 掃描" Click="OnvifScanMenu_Click">
+                                    <MenuItem.Icon>
+                                        <Path Data="{StaticResource IconSearch}" Fill="{StaticResource TextBrush}" Width="14" Height="14" Stretch="Uniform"/>
+                                    </MenuItem.Icon>
+                                </MenuItem>
+                                <Separator Background="{StaticResource BorderBrush}"/>
+                                <MenuItem Header="切換全螢幕" Click="ToggleFullscreenMenu_Click">
+                                    <MenuItem.Icon>
+                                        <Path Data="{StaticResource IconFullScreen}" Fill="{StaticResource TextBrush}" Width="14" Height="14" Stretch="Uniform"/>
+                                    </MenuItem.Icon>
+                                </MenuItem>
                             </ContextMenu>
                         </Button.ContextMenu>
                         <Viewbox Width="20" Height="20" Stretch="Uniform">
@@ -59,11 +71,27 @@
                         <Button.ContextMenu>
                             <ContextMenu Background="{StaticResource SurfaceBrush}" Foreground="{StaticResource TextBrush}"
                                         BorderBrush="{StaticResource BorderBrush}">
-                                <MenuItem Header="新增攝影機" Click="AddCameraMenu_Click"/>
-                                <MenuItem Header="ONVIF 掃描" Click="OnvifScanMenu_Click"/>
-                                <MenuItem Header="匯入 CSV" Click="ImportCsvMenu_Click"/>
-                                <Separator/>
-                                <MenuItem Header="頻道管理" Click="ChannelManagementMenu_Click"/>
+                                <MenuItem Header="新增攝影機" Click="AddCameraMenu_Click">
+                                    <MenuItem.Icon>
+                                        <Path Data="{StaticResource IconPlus}" Fill="{StaticResource TextBrush}" Width="14" Height="14" Stretch="Uniform"/>
+                                    </MenuItem.Icon>
+                                </MenuItem>
+                                <MenuItem Header="ONVIF 掃描" Click="OnvifScanMenu_Click">
+                                    <MenuItem.Icon>
+                                        <Path Data="{StaticResource IconSearch}" Fill="{StaticResource TextBrush}" Width="14" Height="14" Stretch="Uniform"/>
+                                    </MenuItem.Icon>
+                                </MenuItem>
+                                <MenuItem Header="匯入 CSV" Click="ImportCsvMenu_Click">
+                                    <MenuItem.Icon>
+                                        <Path Data="{StaticResource IconExport}" Fill="{StaticResource TextBrush}" Width="14" Height="14" Stretch="Uniform"/>
+                                    </MenuItem.Icon>
+                                </MenuItem>
+                                <Separator Background="{StaticResource BorderBrush}"/>
+                                <MenuItem Header="頻道管理" Click="ChannelManagementMenu_Click">
+                                    <MenuItem.Icon>
+                                        <Path Data="{StaticResource IconSettings}" Fill="{StaticResource TextBrush}" Width="14" Height="14" Stretch="Uniform"/>
+                                    </MenuItem.Icon>
+                                </MenuItem>
                             </ContextMenu>
                         </Button.ContextMenu>
                         <Viewbox Width="20" Height="20" Stretch="Uniform">
@@ -93,8 +121,16 @@
                         <Button.ContextMenu>
                             <ContextMenu Background="{StaticResource SurfaceBrush}" Foreground="{StaticResource TextBrush}"
                                         BorderBrush="{StaticResource BorderBrush}">
-                                <MenuItem Header="新增樓層" Click="AddFloorMenu_Click"/>
-                                <MenuItem Header="載入地圖" Click="LoadMapMenu_Click"/>
+                                <MenuItem Header="新增樓層" Click="AddFloorMenu_Click">
+                                    <MenuItem.Icon>
+                                        <Path Data="{StaticResource IconPlus}" Fill="{StaticResource TextBrush}" Width="14" Height="14" Stretch="Uniform"/>
+                                    </MenuItem.Icon>
+                                </MenuItem>
+                                <MenuItem Header="載入地圖" Click="LoadMapMenu_Click">
+                                    <MenuItem.Icon>
+                                        <Path Data="{StaticResource IconMap}" Fill="{StaticResource TextBrush}" Width="14" Height="14" Stretch="Uniform"/>
+                                    </MenuItem.Icon>
+                                </MenuItem>
                             </ContextMenu>
                         </Button.ContextMenu>
                         <Viewbox Width="20" Height="20" Stretch="Uniform">
@@ -108,11 +144,27 @@
                         <Button.ContextMenu>
                             <ContextMenu Background="{StaticResource SurfaceBrush}" Foreground="{StaticResource TextBrush}"
                                         BorderBrush="{StaticResource BorderBrush}">
-                                <MenuItem Header="系統日誌" Click="SubSettingsLog_Click"/>
-                                <MenuItem Header="使用者管理" Click="SubSettingsUser_Click"/>
-                                <MenuItem Header="事件規則" Click="SubSettingsEventRules_Click"/>
-                                <Separator/>
-                                <MenuItem Header="全部設定" Click="BtnSettings_Click"/>
+                                <MenuItem Header="系統日誌" Click="SubSettingsLog_Click">
+                                    <MenuItem.Icon>
+                                        <Path Data="{StaticResource IconInfo}" Fill="{StaticResource TextBrush}" Width="14" Height="14" Stretch="Uniform"/>
+                                    </MenuItem.Icon>
+                                </MenuItem>
+                                <MenuItem Header="使用者管理" Click="SubSettingsUser_Click">
+                                    <MenuItem.Icon>
+                                        <Path Data="{StaticResource IconUser}" Fill="{StaticResource TextBrush}" Width="14" Height="14" Stretch="Uniform"/>
+                                    </MenuItem.Icon>
+                                </MenuItem>
+                                <MenuItem Header="事件規則" Click="SubSettingsEventRules_Click">
+                                    <MenuItem.Icon>
+                                        <Path Data="{StaticResource IconWarning}" Fill="{StaticResource TextBrush}" Width="14" Height="14" Stretch="Uniform"/>
+                                    </MenuItem.Icon>
+                                </MenuItem>
+                                <Separator Background="{StaticResource BorderBrush}"/>
+                                <MenuItem Header="全部設定" Click="BtnSettings_Click">
+                                    <MenuItem.Icon>
+                                        <Path Data="{StaticResource IconSettings}" Fill="{StaticResource PrimaryBrush}" Width="14" Height="14" Stretch="Uniform"/>
+                                    </MenuItem.Icon>
+                                </MenuItem>
                             </ContextMenu>
                         </Button.ContextMenu>
                         <Viewbox Width="20" Height="20" Stretch="Uniform">
@@ -139,10 +191,10 @@
                                 <Path Data="{StaticResource IconBell}" Fill="{StaticResource SecondaryTextBrush}"/>
                             </Viewbox>
                             <Border x:Name="NotifBadge" HorizontalAlignment="Right" VerticalAlignment="Top"
-                                    Background="#F44336" CornerRadius="6" MinWidth="12" Height="12"
+                                    Background="{StaticResource ErrorBrush}" CornerRadius="6" MinWidth="12" Height="12"
                                     Margin="0,4,4,0" Padding="2,0" BorderThickness="0">
                                 <TextBlock x:Name="NotifBadgeText" Text="0" FontSize="8"
-                                           Foreground="White" TextAlignment="Center"/>
+                                           Foreground="{StaticResource TextBrush}" TextAlignment="Center"/>
                             </Border>
                         </Grid>
                     </Button>
@@ -152,12 +204,28 @@
                         <Button.ContextMenu>
                             <ContextMenu Background="{StaticResource SurfaceBrush}" Foreground="{StaticResource TextBrush}"
                                         BorderBrush="{StaticResource BorderBrush}">
-                                <MenuItem Header="使用者管理" Click="SubSettingsUser_Click"/>
-                                <Separator/>
-                                <MenuItem Header="關於 HeliVMS" Click="BtnAbout_Click"/>
-                                <Separator/>
-                                <MenuItem Header="登出" Click="BtnLogout_Click"/>
-                                <MenuItem Header="結束" Click="BtnExit_Click"/>
+                                <MenuItem Header="使用者管理" Click="SubSettingsUser_Click">
+                                    <MenuItem.Icon>
+                                        <Path Data="{StaticResource IconUser}" Fill="{StaticResource TextBrush}" Width="14" Height="14" Stretch="Uniform"/>
+                                    </MenuItem.Icon>
+                                </MenuItem>
+                                <Separator Background="{StaticResource BorderBrush}"/>
+                                <MenuItem Header="關於 HeliVMS" Click="BtnAbout_Click">
+                                    <MenuItem.Icon>
+                                        <Path Data="{StaticResource IconInfo}" Fill="{StaticResource TextBrush}" Width="14" Height="14" Stretch="Uniform"/>
+                                    </MenuItem.Icon>
+                                </MenuItem>
+                                <Separator Background="{StaticResource BorderBrush}"/>
+                                <MenuItem Header="登出" Click="BtnLogout_Click">
+                                    <MenuItem.Icon>
+                                        <Path Data="{StaticResource IconLogout}" Fill="{StaticResource TextBrush}" Width="14" Height="14" Stretch="Uniform"/>
+                                    </MenuItem.Icon>
+                                </MenuItem>
+                                <MenuItem Header="結束" Click="BtnExit_Click">
+                                    <MenuItem.Icon>
+                                        <Path Data="{StaticResource IconClose}" Fill="{StaticResource ErrorBrush}" Width="14" Height="14" Stretch="Uniform"/>
+                                    </MenuItem.Icon>
+                                </MenuItem>
                             </ContextMenu>
                         </Button.ContextMenu>
                         <Viewbox Width="20" Height="20" Stretch="Uniform">

@@ -221,26 +221,40 @@ public partial class LayoutTabBar : UserControl {
 
     private ContextMenu BuildTabContextMenu(TabItemData data) {
         var menu = new ContextMenu();
+        Application.Current.TryFindResource("SurfaceBrush");
 
         var renameItem = new MenuItem { Header = "重新命名" };
+        renameItem.Icon = MakeIcon("IconBookmark");
         renameItem.Click += (_, _) => BeginRename(data);
         menu.Items.Add(renameItem);
 
         var dupItem = new MenuItem { Header = "複製" };
+        dupItem.Icon = MakeIcon("IconSave");
         dupItem.Click += (_, _) => DuplicateTab(data);
         menu.Items.Add(dupItem);
 
         menu.Items.Add(new Separator());
 
         var closeItem = new MenuItem { Header = "關閉" };
+        closeItem.Icon = MakeIcon("IconClose");
         closeItem.Click += (_, _) => CloseTab(data.Layout.Id);
         menu.Items.Add(closeItem);
 
         var closeOthersItem = new MenuItem { Header = "關閉其他分頁" };
+        closeOthersItem.Icon = MakeIcon("IconClose");
         closeOthersItem.Click += (_, _) => CloseOtherTabs(data.Layout.Id);
         menu.Items.Add(closeOthersItem);
 
         return menu;
+    }
+
+    private static System.Windows.Shapes.Path MakeIcon(string key) {
+        var icon = new System.Windows.Shapes.Path {
+            Data = Application.Current.TryFindResource(key) as Geometry ?? Geometry.Parse("M0,0"),
+            Fill = (Brush)Application.Current.FindResource("TextBrush"),
+            Width = 14, Height = 14, Stretch = System.Windows.Media.Stretch.Uniform
+        };
+        return icon;
     }
 
     private void DuplicateTab(TabItemData data) {

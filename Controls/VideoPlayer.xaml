@@ -4,28 +4,44 @@
              Background="{StaticResource SurfaceBrush}">
     <UserControl.ContextMenu>
         <ContextMenu Background="{StaticResource SurfaceBrush}"
-                     Foreground="{StaticResource TextBrush}"
                      BorderBrush="{StaticResource BorderBrush}">
-            <MenuItem x:Name="CtxSnapshot" Header="拍照"
-                      Foreground="{StaticResource TextBrush}"
-                      Click="CtxSnapshot_Click"/>
-            <MenuItem x:Name="CtxFullscreen" Header="全畫面"
-                      Foreground="{StaticResource TextBrush}"
-                      Click="CtxFullscreen_Click"/>
-            <MenuItem x:Name="CtxStreamToggle" Header="切換串流"
-                      Foreground="{StaticResource TextBrush}"
-                      Click="CtxStreamToggle_Click"/>
+            <ContextMenu.Resources>
+                <Style TargetType="MenuItem">
+                    <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
+                </Style>
+            </ContextMenu.Resources>
+            <MenuItem x:Name="CtxSnapshot" Header="拍照" Click="CtxSnapshot_Click">
+                <MenuItem.Icon>
+                    <Path Data="{StaticResource IconSnapshot}" Fill="{StaticResource TextBrush}" Width="14" Height="14" Stretch="Uniform"/>
+                </MenuItem.Icon>
+            </MenuItem>
+            <MenuItem x:Name="CtxFullscreen" Header="全畫面" Click="CtxFullscreen_Click">
+                <MenuItem.Icon>
+                    <Path Data="{StaticResource IconFullScreen}" Fill="{StaticResource TextBrush}" Width="14" Height="14" Stretch="Uniform"/>
+                </MenuItem.Icon>
+            </MenuItem>
+            <MenuItem x:Name="CtxStreamToggle" Header="切換串流" Click="CtxStreamToggle_Click">
+                <MenuItem.Icon>
+                    <Path Data="{StaticResource IconCamera}" Fill="{StaticResource TextBrush}" Width="14" Height="14" Stretch="Uniform"/>
+                </MenuItem.Icon>
+            </MenuItem>
             <Separator Background="{StaticResource BorderBrush}"/>
-            <MenuItem x:Name="CtxBookmark" Header="加入書籤"
-                      Foreground="{StaticResource TextBrush}"
-                      Click="CtxBookmark_Click"/>
-            <MenuItem x:Name="CtxRecordingToggle" Header="開始錄影"
-                      Foreground="{StaticResource TextBrush}"
-                      Click="CtxRecordingToggle_Click"/>
+            <MenuItem x:Name="CtxBookmark" Header="加入書籤" Click="CtxBookmark_Click">
+                <MenuItem.Icon>
+                    <Path Data="{StaticResource IconBookmark}" Fill="{StaticResource TextBrush}" Width="14" Height="14" Stretch="Uniform"/>
+                </MenuItem.Icon>
+            </MenuItem>
+            <MenuItem x:Name="CtxRecordingToggle" Header="開始錄影" Click="CtxRecordingToggle_Click">
+                <MenuItem.Icon>
+                    <Path Data="{StaticResource IconRecording}" Fill="{StaticResource ErrorBrush}" Width="14" Height="14" Stretch="Uniform"/>
+                </MenuItem.Icon>
+            </MenuItem>
             <Separator Background="{StaticResource BorderBrush}"/>
-            <MenuItem x:Name="CtxPtzSelect" Header="PTZ 控制此攝影機"
-                      Foreground="{StaticResource TextBrush}"
-                      Click="CtxPtzSelect_Click"/>
+            <MenuItem x:Name="CtxPtzSelect" Header="PTZ 控制此攝影機" Click="CtxPtzSelect_Click">
+                <MenuItem.Icon>
+                    <Path Data="{StaticResource IconPtz}" Fill="{StaticResource TextBrush}" Width="14" Height="14" Stretch="Uniform"/>
+                </MenuItem.Icon>
+            </MenuItem>
         </ContextMenu>
     </UserControl.ContextMenu>
 

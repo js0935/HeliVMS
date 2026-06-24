@@ -7,28 +7,52 @@
             <StackPanel Orientation="Horizontal" Height="28" Margin="4,0,0,0"
                         ToolTip="{Binding Tooltip}">
                 <StackPanel.ContextMenu>
-                    <ContextMenu>
-                        <MenuItem Header="播放" Tag="{Binding CameraId}"
-                                  Click="OnPlayCamera"/>
-                        <MenuItem Header="在新分頁開啟" Tag="{Binding CameraId}"
-                                  Click="OnOpenNewTab"/>
-                        <Separator/>
-                        <MenuItem Header="開始錄影" x:Name="RecMenu"
-                                  Tag="{Binding CameraId}"
-                                  Click="OnToggleRecording"/>
-                        <MenuItem Header="PTZ 控制" Tag="{Binding CameraId}"
-                                  Click="OnOpenPtz"/>
-                        <Separator/>
-                        <MenuItem Header="加入我的最愛" x:Name="FavMenu"
-                                  Tag="{Binding CameraId}"
-                                  Click="OnToggleFavorite"/>
-                        <MenuItem Header="拍照" Tag="{Binding CameraId}"
-                                  Click="OnSnapshot"/>
-                        <Separator/>
-                        <MenuItem Header="攝影機設定" Tag="{Binding CameraId}"
-                                  Click="OnCameraSettings"/>
-                        <MenuItem Header="移除" Tag="{Binding CameraId}"
-                                  Click="OnRemoveCamera"/>
+                    <ContextMenu Background="{StaticResource SurfaceBrush}"
+                                Foreground="{StaticResource TextBrush}"
+                                BorderBrush="{StaticResource BorderBrush}">
+                        <MenuItem Header="播放" Tag="{Binding CameraId}" Click="OnPlayCamera">
+                            <MenuItem.Icon>
+                                <Path Data="{StaticResource IconPlay}" Fill="{StaticResource TextBrush}" Width="14" Height="14" Stretch="Uniform"/>
+                            </MenuItem.Icon>
+                        </MenuItem>
+                        <MenuItem Header="在新分頁開啟" Tag="{Binding CameraId}" Click="OnOpenNewTab">
+                            <MenuItem.Icon>
+                                <Path Data="{StaticResource IconPlus}" Fill="{StaticResource TextBrush}" Width="14" Height="14" Stretch="Uniform"/>
+                            </MenuItem.Icon>
+                        </MenuItem>
+                        <Separator Background="{StaticResource BorderBrush}"/>
+                        <MenuItem Header="開始錄影" x:Name="RecMenu" Tag="{Binding CameraId}" Click="OnToggleRecording">
+                            <MenuItem.Icon>
+                                <Path Data="{StaticResource IconRecording}" Fill="{StaticResource ErrorBrush}" Width="14" Height="14" Stretch="Uniform"/>
+                            </MenuItem.Icon>
+                        </MenuItem>
+                        <MenuItem Header="PTZ 控制" Tag="{Binding CameraId}" Click="OnOpenPtz">
+                            <MenuItem.Icon>
+                                <Path Data="{StaticResource IconPtz}" Fill="{StaticResource TextBrush}" Width="14" Height="14" Stretch="Uniform"/>
+                            </MenuItem.Icon>
+                        </MenuItem>
+                        <Separator Background="{StaticResource BorderBrush}"/>
+                        <MenuItem Header="加入我的最愛" x:Name="FavMenu" Tag="{Binding CameraId}" Click="OnToggleFavorite">
+                            <MenuItem.Icon>
+                                <Path Data="{StaticResource IconStar}" Fill="{StaticResource WarningBrush}" Width="14" Height="14" Stretch="Uniform"/>
+                            </MenuItem.Icon>
+                        </MenuItem>
+                        <MenuItem Header="拍照" Tag="{Binding CameraId}" Click="OnSnapshot">
+                            <MenuItem.Icon>
+                                <Path Data="{StaticResource IconSnapshot}" Fill="{StaticResource TextBrush}" Width="14" Height="14" Stretch="Uniform"/>
+                            </MenuItem.Icon>
+                        </MenuItem>
+                        <Separator Background="{StaticResource BorderBrush}"/>
+                        <MenuItem Header="攝影機設定" Tag="{Binding CameraId}" Click="OnCameraSettings">
+                            <MenuItem.Icon>
+                                <Path Data="{StaticResource IconSettings}" Fill="{StaticResource TextBrush}" Width="14" Height="14" Stretch="Uniform"/>
+                            </MenuItem.Icon>
+                        </MenuItem>
+                        <MenuItem Header="移除" Tag="{Binding CameraId}" Click="OnRemoveCamera">
+                            <MenuItem.Icon>
+                                <Path Data="{StaticResource IconClose}" Fill="{StaticResource SecondaryTextBrush}" Width="14" Height="14" Stretch="Uniform"/>
+                            </MenuItem.Icon>
+                        </MenuItem>
                     </ContextMenu>
                 </StackPanel.ContextMenu>
                 <Ellipse Width="8" Height="8" Margin="0,0,6,0"

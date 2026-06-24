@@ -172,36 +172,50 @@ public partial class EMapView : UserControl {
         var menu = new ContextMenu();
 
         var viewItem = new MenuItem { Header = "即時監看" };
+        viewItem.Icon = MakeMenuIcon("IconLive");
         viewItem.Click += (_, _) => _nav.NavigateTo(NavPage.LiveView);
         menu.Items.Add(viewItem);
 
         var previewItem = new MenuItem { Header = "預覽畫面" };
+        previewItem.Icon = MakeMenuIcon("IconCamera");
         previewItem.Click += (_, _) => ShowCameraPreview(cameraId);
         menu.Items.Add(previewItem);
 
         menu.Items.Add(new Separator());
 
         var snapshotItem = new MenuItem { Header = "拍照" };
+        snapshotItem.Icon = MakeMenuIcon("IconSnapshot");
         snapshotItem.Click += (_, _) => TakeMapCameraSnapshot(cameraId);
         menu.Items.Add(snapshotItem);
 
         var bookmarkItem = new MenuItem { Header = "加入書籤" };
+        bookmarkItem.Icon = MakeMenuIcon("IconBookmark");
         bookmarkItem.Click += (_, _) => AddMapCameraBookmark(cameraId);
         menu.Items.Add(bookmarkItem);
 
         menu.Items.Add(new Separator());
 
         var settingsItem = new MenuItem { Header = "攝影機設定" };
+        settingsItem.Icon = MakeMenuIcon("IconSettings");
         settingsItem.Click += (_, _) => _nav.NavigateTo(NavPage.DeviceManagement);
         menu.Items.Add(settingsItem);
 
         var removeItem = new MenuItem { Header = "從地圖移除" };
+        removeItem.Icon = MakeMenuIcon("IconClose");
         removeItem.Click += (_, _) => {
             _emap.RemoveCamera(cameraId);
             RebuildCameraIcons();
         };
         menu.Items.Add(removeItem);
         return menu;
+    }
+
+    private static System.Windows.Shapes.Path MakeMenuIcon(string key) {
+        return new System.Windows.Shapes.Path {
+            Data = Application.Current.TryFindResource(key) as Geometry ?? Geometry.Parse("M0,0"),
+            Fill = (Brush)Application.Current.FindResource("TextBrush"),
+            Width = 14, Height = 14, Stretch = System.Windows.Media.Stretch.Uniform
+        };
     }
 
     private void TakeMapCameraSnapshot(string cameraId) {
