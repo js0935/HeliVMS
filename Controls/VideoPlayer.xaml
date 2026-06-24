@@ -90,7 +90,7 @@
             </Button>
 
             <!-- PTZ floating overlay (bottom-right) -->
-            <Border x:Name="PtzOverlay"
+            <Border x:Name="PtzOverlay" Panel.ZIndex="11"
                     VerticalAlignment="Bottom" HorizontalAlignment="Right"
                     Margin="8" Padding="4"
                     Background="{StaticResource OverlayBrush}" CornerRadius="4"
@@ -123,24 +123,36 @@
                 </StackPanel>
             </Border>
 
-            <!-- Camera name tag (bottom-left) -->
+            <!-- Nx-style bottom info bar (full-width) -->
             <Border x:Name="NameTag" Panel.ZIndex="10"
-                    VerticalAlignment="Bottom" HorizontalAlignment="Left"
-                    Margin="6" Padding="10,5"
-                    Background="{StaticResource OverlayBrush}" CornerRadius="4"
+                    VerticalAlignment="Bottom" HorizontalAlignment="Stretch"
+                    Height="26"
+                    Background="{StaticResource OverlayBrush}"
                     IsHitTestVisible="False">
-                <StackPanel Orientation="Horizontal">
-                    <TextBlock x:Name="CameraNameText"
-                               Text=""
-                               FontFamily="Segoe UI"
-                               FontSize="12" FontWeight="SemiBold"
-                               Foreground="{StaticResource TextBrush}"/>
-                    <TextBlock x:Name="HealthBadge"
-                               Margin="6,0,0,0"
-                               FontSize="10" FontWeight="Bold"
-                               Foreground="{StaticResource WarningBrush}"
-                               Visibility="Collapsed"/>
-                </StackPanel>
+                <Grid Margin="8,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                        <TextBlock x:Name="CameraNameText"
+                                   Text="" FontSize="12" FontWeight="SemiBold"
+                                   Foreground="{StaticResource TextBrush}"/>
+                        <TextBlock x:Name="HealthBadge"
+                                   Margin="6,0,0,0"
+                                   FontSize="10" FontWeight="Bold"
+                                   Foreground="{StaticResource WarningBrush}"
+                                   Visibility="Collapsed"/>
+                    </StackPanel>
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                        <TextBlock x:Name="RecTimeText" Text="" FontSize="10"
+                                   Foreground="{StaticResource SecondaryTextBrush}"
+                                   Visibility="Collapsed" Margin="0,0,4,0"/>
+                        <Ellipse x:Name="RecIndicator" Width="8" Height="8"
+                                 Fill="{StaticResource ErrorBrush}"
+                                 Visibility="Collapsed" Margin="0,0,4,0"/>
+                    </StackPanel>
+                </Grid>
             </Border>
 
             <!-- Hover overlay (fade in/out on mouse enter/leave) -->

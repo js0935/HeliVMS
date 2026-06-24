@@ -195,18 +195,22 @@
                         </Grid.ColumnDefinitions>
                         <TextBlock Text="錄影日曆" Style="{StaticResource SectionHeader}" VerticalAlignment="Center"/>
                         <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
-                            <Button x:Name="CalendarPrevBtn" Content="◀"
+                            <Button x:Name="CalendarPrevBtn"
                                     Style="{StaticResource SecondaryButton}"
                                     Height="24" Width="28" FontSize="10" Padding="0"
-                                    Click="CalendarPrevBtn_Click"/>
+                                    Click="CalendarPrevBtn_Click">
+                                <Path Data="{StaticResource IconChevronLeft}" Fill="{StaticResource TextBrush}" Width="10" Height="10" Stretch="Uniform"/>
+                            </Button>
                             <TextBlock x:Name="CalendarMonthText" Text="----年--月"
                                        FontSize="13" FontWeight="SemiBold"
                                        Foreground="{StaticResource TextBrush}"
                                        VerticalAlignment="Center" Margin="8,0"/>
-                            <Button x:Name="CalendarNextBtn" Content="▶"
+                            <Button x:Name="CalendarNextBtn"
                                     Style="{StaticResource SecondaryButton}"
                                     Height="24" Width="28" FontSize="10" Padding="0"
-                                    Click="CalendarNextBtn_Click"/>
+                                    Click="CalendarNextBtn_Click">
+                                <Path Data="{StaticResource IconChevronRight}" Fill="{StaticResource TextBrush}" Width="10" Height="10" Stretch="Uniform"/>
+                            </Button>
                             <Button x:Name="CalendarTodayBtn" Content="今天"
                                     Style="{StaticResource SecondaryButton}"
                                     Height="24" FontSize="10" Padding="6,0"

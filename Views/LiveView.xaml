@@ -4,6 +4,12 @@
              xmlns:controls="clr-namespace:HeliVMS.Controls"
              Background="{StaticResource BackgroundBrush}"
              PreviewKeyDown="OnPreviewKeyDown">
+    <UserControl.Resources>
+        <SolidColorBrush x:Key="FilterContBrush" Color="{StaticResource RecordingContinuousColor}" Opacity="0.2"/>
+        <SolidColorBrush x:Key="FilterMotionBrush" Color="{StaticResource RecordingMotionColor}" Opacity="0.2"/>
+        <SolidColorBrush x:Key="FilterAlarmBrush" Color="{StaticResource RecordingAlarmColor}" Opacity="0.2"/>
+        <SolidColorBrush x:Key="FilterAiBrush" Color="{StaticResource RecordingAiColor}" Opacity="0.2"/>
+    </UserControl.Resources>
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
@@ -151,16 +157,16 @@
                     </Grid.ColumnDefinitions>
                     <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,4,0">
                         <Button x:Name="FilterCont" Content="連續" Width="30" Height="18" FontSize="8"
-                                Style="{StaticResource FlatButton}" Background="#332196F3"
+                                Style="{StaticResource FlatButton}" Background="{StaticResource FilterContBrush}"
                                 Click="FilterCont_Click"/>
                         <Button x:Name="FilterMotion" Content="位移" Width="30" Height="18" FontSize="8"
-                                Style="{StaticResource FlatButton}" Background="#33FF5722" Margin="1,0,0,0"
+                                Style="{StaticResource FlatButton}" Background="{StaticResource FilterMotionBrush}" Margin="1,0,0,0"
                                 Click="FilterMotion_Click"/>
                         <Button x:Name="FilterAlarm" Content="警報" Width="30" Height="18" FontSize="8"
-                                Style="{StaticResource FlatButton}" Background="#33F44336" Margin="1,0,0,0"
+                                Style="{StaticResource FlatButton}" Background="{StaticResource FilterAlarmBrush}" Margin="1,0,0,0"
                                 Click="FilterAlarm_Click"/>
                         <Button x:Name="FilterAi" Content="AI" Width="24" Height="18" FontSize="8"
-                                Style="{StaticResource FlatButton}" Background="#33FFC107" Margin="1,0,0,0"
+                                Style="{StaticResource FlatButton}" Background="{StaticResource FilterAiBrush}" Margin="1,0,0,0"
                                 Click="FilterAi_Click"/>
                     </StackPanel>
                     <controls:NxTimeline x:Name="TimelineControl" Grid.Column="1"/>
@@ -189,7 +195,7 @@
                             </Viewbox>
                             <TextBlock x:Name="LayoutLabel" Text="4" Foreground="{StaticResource SecondaryTextBrush}" FontSize="10"/>
                             <Viewbox Width="8" Height="8" Stretch="Uniform" Margin="4,0,0,0">
-                                <Path Data="M0,0 L6,0 L3,4 Z" Fill="{StaticResource SecondaryTextBrush}"/>
+                                <Path Data="{StaticResource IconChevronDown}" Fill="{StaticResource SecondaryTextBrush}"/>
                             </Viewbox>
                         </StackPanel>
                     </Button>

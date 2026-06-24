@@ -105,21 +105,25 @@
                             ToolTip="跳到開頭">
                         <Path Data="{StaticResource IconSkipBack}" Fill="{StaticResource TextBrush}" Width="12" Height="12" Stretch="Uniform"/>
                     </Button>
-                    <Button Grid.Column="1" x:Name="FsStepBackBtn" Content="◀"
+                    <Button Grid.Column="1" x:Name="FsStepBackBtn"
                             Style="{StaticResource SecondaryButton}"
                             Height="30" Width="32" FontSize="10"
                             Background="{StaticResource SecondaryTextBrush}" BorderThickness="0"
                             Margin="4,0,0,0"
                             Click="FsTransportBtn_Click" Tag="stepBack"
-                            ToolTip="上一步"/>
-                    <Button Grid.Column="2" x:Name="FsPlayBtn" Content="▶"
+                            ToolTip="上一步">
+                        <Path Data="{StaticResource IconRewind}" Fill="{StaticResource TextBrush}" Width="12" Height="12" Stretch="Uniform"/>
+                    </Button>
+                    <Button Grid.Column="2" x:Name="FsPlayBtn"
                             Style="{StaticResource SecondaryButton}"
                             Height="32" Width="36" FontSize="12"
                              Background="{StaticResource SecondaryTextBrush}" BorderThickness="0"
                             Foreground="{StaticResource TextBrush}"
                             Margin="4,0,0,0"
                             Click="FsTransportBtn_Click" Tag="play"
-                            ToolTip="播放"/>
+                            ToolTip="播放">
+                        <Path Data="{StaticResource IconPlay}" Fill="{StaticResource TextBrush}" Width="12" Height="12" Stretch="Uniform"/>
+                    </Button>
                     <Button Grid.Column="3" x:Name="FsPauseBtn"
                             Style="{StaticResource SecondaryButton}"
                             Height="30" Width="32"
@@ -129,13 +133,15 @@
                             ToolTip="暫停">
                         <Path Data="{StaticResource IconPause}" Fill="{StaticResource TextBrush}" Width="12" Height="12" Stretch="Uniform"/>
                     </Button>
-                    <Button Grid.Column="4" x:Name="FsStepFwdBtn" Content="▶"
+                    <Button Grid.Column="4" x:Name="FsStepFwdBtn"
                             Style="{StaticResource SecondaryButton}"
                             Height="30" Width="32" FontSize="10"
                             Background="{StaticResource SecondaryTextBrush}" BorderThickness="0"
                             Margin="4,0,0,0"
                             Click="FsTransportBtn_Click" Tag="stepFwd"
-                            ToolTip="下一步"/>
+                            ToolTip="下一步">
+                        <Path Data="{StaticResource IconFastForward}" Fill="{StaticResource TextBrush}" Width="12" Height="12" Stretch="Uniform"/>
+                    </Button>
                     <Button Grid.Column="5" x:Name="FsJumpEndBtn"
                             Style="{StaticResource SecondaryButton}"
                             Height="30" Width="32"
@@ -189,7 +195,7 @@
 
                         <!-- Transport -->
                         <TextBlock Text="播放控制" FontSize="13" FontWeight="SemiBold"
-                                   Foreground="#FFD700" Margin="0,0,0,6"/>
+                                   Foreground="{StaticResource WarningBrush}" Margin="0,0,0,6"/>
                         <local:ShortcutRow Key_="Ctrl + P" Desc="全部播放"/>
                         <local:ShortcutRow Key_="Space" Desc="播放 / 暫停"/>
                         <local:ShortcutRow Key_="← / ," Desc="上一幀"/>
@@ -271,24 +277,28 @@
                            Foreground="{StaticResource SecondaryTextBrush}"
                            FontSize="11" FontWeight="SemiBold" Margin="0,0,4,0"/>
                 <StackPanel Grid.Column="3" Orientation="Horizontal">
-                    <Button x:Name="PrevDayBtn" Content="◀"
+                    <Button x:Name="PrevDayBtn"
                             Style="{StaticResource SecondaryButton}"
                             Height="28" Width="26" FontSize="9"
                             Padding="0" Margin="0,0,2,0"
                             Click="PrevDayBtn_Click"
-                            ToolTip="前一天"/>
+                            ToolTip="前一天">
+                        <Path Data="{StaticResource IconChevronLeft}" Fill="{StaticResource TextBrush}" Width="10" Height="10" Stretch="Uniform"/>
+                    </Button>
                     <DatePicker x:Name="FilterDatePicker"
                                  SelectedDateChanged="FilterDatePicker_SelectedDateChanged"
                                  Width="108"
                                  Background="{StaticResource InputBackgroundBrush}"
                                  Foreground="{StaticResource TextBrush}"
                                  BorderBrush="{StaticResource BorderBrush}"/>
-                    <Button x:Name="NextDayBtn" Content="▶"
+                    <Button x:Name="NextDayBtn"
                             Style="{StaticResource SecondaryButton}"
                             Height="28" Width="26" FontSize="9"
                             Padding="0" Margin="2,0,0,0"
                             Click="NextDayBtn_Click"
-                            ToolTip="後一天"/>
+                            ToolTip="後一天">
+                        <Path Data="{StaticResource IconChevronRight}" Fill="{StaticResource TextBrush}" Width="10" Height="10" Stretch="Uniform"/>
+                    </Button>
                 </StackPanel>
 
                 <TextBlock Grid.Column="4" Text="時" VerticalAlignment="Center"
@@ -403,12 +413,17 @@
                             Height="28" FontSize="11" Padding="10,0"
                             Margin="0,0,4,0"
                             Click="SnapshotBtn_Click"/>
-                    <Button x:Name="LayoutBtn" Content="▦  Auto"
+                    <Button x:Name="LayoutBtn"
                             Style="{StaticResource SecondaryButton}"
                             Height="28" FontSize="11" Padding="8,0"
                             Margin="0,0,4,0"
                             Click="LayoutBtn_Click"
-                            ToolTip="切換版面配置"/>
+                            ToolTip="切換版面配置">
+                        <StackPanel Orientation="Horizontal">
+                            <Path Data="{StaticResource IconLayout}" Fill="{StaticResource TextBrush}" Width="12" Height="12" Stretch="Uniform"/>
+                            <TextBlock Text="Auto" Margin="4,0,0,0" FontSize="11" Foreground="{StaticResource TextBrush}"/>
+                        </StackPanel>
+                    </Button>
                     <Button x:Name="BackupBtn" Content="備份錄影"
                             Style="{StaticResource SecondaryButton}"
                             Height="28" FontSize="11" Padding="10,0"
@@ -793,11 +808,13 @@
                                            Text="64 頻道"
                                            Foreground="{StaticResource SecondaryTextBrush}"
                                            FontSize="10" VerticalAlignment="Center"/>
-                                <Button Grid.Column="1" x:Name="RefreshChannelBtn" Content="↻"
+                                <Button Grid.Column="1" x:Name="RefreshChannelBtn"
                                         Style="{StaticResource SecondaryButton}"
                                         Height="20" Width="20" FontSize="10"
                                         Padding="0"
-                                        Click="RefreshBtn_Click"/>
+                                        Click="RefreshBtn_Click">
+                                    <Path Data="{StaticResource IconRefresh}" Fill="{StaticResource TextBrush}" Width="12" Height="12" Stretch="Uniform"/>
+                                </Button>
                             </Grid>
                             <TextBlock x:Name="StorageStatusText" Grid.Row="1"
                                        Text=""
@@ -936,7 +953,7 @@
                         </Border>
                         <!-- Column headers -->
                         <Border Grid.Row="1" BorderThickness="0,0,0,1"
-                                BorderBrush="#33000000">
+                                BorderBrush="{StaticResource DividerBrush}">
                             <Grid Margin="4,2,4,0">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="24"/>
@@ -1017,7 +1034,7 @@
                                        VerticalAlignment="Center"/>
                             <StackPanel Grid.Column="1" Orientation="Horizontal">
                                 <TextBlock x:Name="BookmarkCountBadge" Text="0"
-                                           FontSize="9" Foreground="#FFD700"
+                                           FontSize="9" Foreground="{StaticResource WarningBrush}"
                                            VerticalAlignment="Center" Margin="0,0,4,0"/>
                                 <Button x:Name="ClearBookmarksBtn"
                                         Width="16" Height="16"
@@ -1081,22 +1098,26 @@
                     <Path Data="{StaticResource IconSkipBack}" Fill="{StaticResource TextBrush}" Width="14" Height="14" Stretch="Uniform"/>
                 </Button>
 
-                <Button Grid.Column="1" x:Name="StepBackBtn" Content="◀"
+                <Button Grid.Column="1" x:Name="StepBackBtn"
                         Style="{StaticResource SecondaryButton}"
                         Height="30" Width="34" FontSize="12"
                         Margin="3,0,0,0"
                         Click="StepBackBtn_Click"
-                        ToolTip="上一幀 (←)"/>
+                        ToolTip="上一幀 (←)">
+                    <Path Data="{StaticResource IconRewind}" Fill="{StaticResource TextBrush}" Width="12" Height="12" Stretch="Uniform"/>
+                </Button>
 
                 <Border Grid.Column="2" Background="{StaticResource SecondarySurfaceBrush}"
                         CornerRadius="4" Margin="3,0,0,0" Padding="1">
                     <StackPanel Orientation="Horizontal">
-                        <Button x:Name="PlayBtn" Content="▶"
+                        <Button x:Name="PlayBtn"
                                 Style="{StaticResource ModernButton}"
                                 Height="28" Width="36" FontSize="11"
                                 BorderThickness="0"
                                 Click="PlayBtn_Click"
-                                ToolTip="播放 (Space)"/>
+                                ToolTip="播放 (Space)">
+                            <Path Data="{StaticResource IconPlay}" Fill="{StaticResource TextBrush}" Width="14" Height="14" Stretch="Uniform"/>
+                        </Button>
                         <Border Width="1" Background="{StaticResource BorderBrush}"/>
                         <Button x:Name="PauseBtn"
                                 Style="{StaticResource SecondaryButton}"
@@ -1109,12 +1130,14 @@
                     </StackPanel>
                 </Border>
 
-                <Button Grid.Column="4" x:Name="StepFwdBtn" Content="▶"
+                <Button Grid.Column="4" x:Name="StepFwdBtn"
                         Style="{StaticResource SecondaryButton}"
                         Height="30" Width="34" FontSize="12"
                         Margin="3,0,0,0"
                         Click="StepFwdBtn_Click"
-                        ToolTip="下一幀 (→)"/>
+                        ToolTip="下一幀 (→)">
+                    <Path Data="{StaticResource IconFastForward}" Fill="{StaticResource TextBrush}" Width="12" Height="12" Stretch="Uniform"/>
+                </Button>
 
                 <Button Grid.Column="5" x:Name="JumpEndBtn"
                         Style="{StaticResource SecondaryButton}"
@@ -1195,12 +1218,14 @@
                                 Click="LoopSetBBtn_Click"
                                 ToolTip="設定循環終點 B (O)"/>
                         <Border Width="1" Background="{StaticResource BorderBrush}" Margin="2,0"/>
-                        <Button x:Name="LoopToggleBtn" Content="↺"
+                        <Button x:Name="LoopToggleBtn"
                                 Style="{StaticResource SecondaryButton}"
                                 Height="26" Width="26" FontSize="12" FontWeight="Bold"
                                 Margin="2,0" Padding="0"
                                 Click="LoopToggleBtn_Click"
-                                ToolTip="啟用/停用循環播放 (L)"/>
+                                ToolTip="啟用/停用循環播放 (L)">
+                            <Path Data="{StaticResource IconLoop}" Fill="{StaticResource TextBrush}" Width="12" Height="12" Stretch="Uniform"/>
+                        </Button>
                         <Button x:Name="LoopClearBtn"
                                 Style="{StaticResource SecondaryButton}"
                                 Height="26" Width="14"
@@ -1274,7 +1299,7 @@
                 <!-- FPS counter + perf toggle (visible during playback) -->
                 <Border Grid.Column="19"
                         x:Name="FpsBadge"
-                        Background="#22000000"
+                        Background="{StaticResource OverlayBrush}"
                         CornerRadius="3"
                         Padding="6,2"
                         Margin="6,0,0,0"

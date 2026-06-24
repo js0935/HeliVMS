@@ -152,20 +152,21 @@ public partial class DynamicCameraGrid : UserControl {
         return result;
     }
 
-    /// <summary>Clear all slots.</summary>
     public void SetRecordingIndicator(string cameraId, bool recording) {
         for (int i = 0; i < _activeSlotCount; i++) {
             if (_slotCameras[i]?.Id != cameraId) continue;
-            foreach (var child in MainGrid.Children) {
-                if (child is not Grid g) continue;
-                if (Grid.GetRow(g) != i / _cols || Grid.GetColumn(g) != i % _cols) continue;
-                foreach (var c in g.Children) {
-                    if (c is Border { Tag: "RecDot" } dot) {
-                        dot.Visibility = recording ? Visibility.Visible : Visibility.Collapsed;
-                        return;
-                    }
-                }
-            }
+            if (_slots[i] is VideoPlayer player)
+                player.SetRecordingIndicator(recording);
+            return;
+        }
+    }
+
+    public void UpdateRecordingElapsed(string cameraId, TimeSpan elapsed) {
+        for (int i = 0; i < _activeSlotCount; i++) {
+            if (_slotCameras[i]?.Id != cameraId) continue;
+            if (_slots[i] is VideoPlayer player)
+                player.UpdateRecordingElapsed(elapsed);
+            return;
         }
     }
 
@@ -321,28 +322,6 @@ public partial class DynamicCameraGrid : UserControl {
         Grid.SetColumnSpan(container, 1);
         container.Children.Add(player);
         if (cam is not null) {
-            var label = new TextBlock {
-                Text = cam.Name,
-                FontSize = _cols >= 5 ? 9 : 11,
-                Foreground = (Brush)Application.Current.FindResource("TextBrush"),
-                Background = (Brush)Application.Current.FindResource("OverlayBrush"),
-                Padding = new Thickness(4, 1, 4, 1),
-                HorizontalAlignment = HorizontalAlignment.Left,
-                VerticalAlignment = VerticalAlignment.Bottom,
-                IsHitTestVisible = false,
-            };
-            container.Children.Add(label);
-            var recDot = new Border {
-                Tag = "RecDot",
-                Width = 10, Height = 10,
-                CornerRadius = new CornerRadius(5),
-                Background = (Brush)Application.Current.FindResource("ErrorBrush"),
-                HorizontalAlignment = HorizontalAlignment.Right,
-                VerticalAlignment = VerticalAlignment.Top,
-                Margin = new Thickness(0, 6, 6, 0),
-                Visibility = Visibility.Collapsed,
-            };
-            container.Children.Add(recDot);
             var useSub = player.IsUsingSubStream;
             var streamBadge = new Border {
                 Tag = "StreamBadge",

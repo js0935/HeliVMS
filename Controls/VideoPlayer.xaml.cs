@@ -1156,6 +1156,21 @@ public partial class VideoPlayer : UserControl {
             : Visibility.Visible;
     }
 
+    public void SetRecordingIndicator(bool recording) {
+        RecIndicator.Visibility = recording ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    public void UpdateRecordingElapsed(TimeSpan elapsed) {
+        if (elapsed.TotalSeconds > 0) {
+            RecTimeText.Visibility = Visibility.Visible;
+            RecTimeText.Text = elapsed.TotalHours >= 1
+                ? elapsed.ToString(@"h\:mm\:ss")
+                : elapsed.ToString(@"mm\:ss");
+        } else {
+            RecTimeText.Visibility = Visibility.Collapsed;
+        }
+    }
+
     private void PtzMove(float x, float y, float zoom) {
         if (_camera is null || _onvif is null) { return; }
         _ = _onvif.PTZ_ContinuousMoveAsync(

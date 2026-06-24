@@ -26,7 +26,14 @@ This project uses **全自主模式** — the agent should:
 - **Colors.xaml 新增錄影類型 Brushes** + 應用至 RecordingSettingsPage（RecordingContinuousBrush/MotionBrush/AlarmBrush/AiBrush）
 - **CameraTreeItem 狀態燈即時更新**：IsConnected PropertyChanged、圓點 6px→8px、ConnectionColor StaticResource 快取
 - **DynamicCameraGrid.MaximizeSlot bug 修復**：_containers[] 陣列追蹤容器層級
-- **LiveView 版面配置改為 Popup 視覺化 Grid 預覽**：取代 8 顆純文字按鈕
+- **Camera tile 全面升級 Nx 風格**：NameTag 改為全寬底部資訊列（攝影機名稱 + HealthBadge + 錄影指示燈 + 錄影經過時間），移除 DynamicCameraGrid 重複名稱標籤與頂端 RecDot，PtzOverlay ZIndex 修正
+- **PlaybackView 殘留色碼清理**：4 處 #FFD700/#33000000/#22000000 → StaticResource
+- **PlaybackView Unicode 符號全面置換為 PathGeometry 圖示**：◀▶ PrevDayBtn/NextDayBtn → IconChevronLeft/Right、StepBackBtn/StepFwdBtn → IconRewind/IconFastForward、PlayBtn/FsPlayBtn → IconPlay、RefreshChannelBtn → IconRefresh、LoopToggleBtn → IconLoop、LayoutBtn → IconLayout、FsStepBack/FsStepFwd → IconRewind/IconFastForward
+- **LiveView 濾鏡按鈕殘留色碼清理**：4 處 #332196F3/#33FF5722/#33F44336/#33FFC107 → FilterContBrush/MotionBrush/AlarmBrush/AiBrush（Opacity=0.2 的 Recording 色系資源）
+- **LiveView 內聯 Path → StaticResource**：下拉箭頭改為 IconChevronDown
+- **DashboardView 日曆導覽 Unicode → IconChevronLeft/IconChevronRight**
+- **Icons.xaml 新增 3 個 PathGeometry**：IconChevronLeft、IconRefresh、IconLoop
+- **LiveView 版面配置改為 Nx 風格拖曳 Grid 選擇器**：8×8 可拖曳選取，即時高亮 + layout 標籤
 - **登出改為 NavigateToLogin**：而非 Application.Current.Shutdown()
 - **MainWindow_Loaded 加入 try-catch 診斷日誌**
 - **登入畫面強制顯示**：清除殘留 session 不再跳過登入
@@ -38,6 +45,9 @@ This project uses **全自主模式** — the agent should:
 ### 待完成 (~0%)
 - 版面預覽 Popup 拖放選擇器（Nx 風格 grid 預覽升級）— 基本版已完成，進階拖放可後續優化
 - NxTimeline 錄影類型區塊著色（顏色值已與 Colors.xaml 一致，繪圖邏輯維持原狀）
+
+### 阻塞中 (Blocked)
+- 使用者回報 **設備管理（DeviceManagementView）無法管理攝影機** — 需檢視執行時期行為，目前無法透過靜態分析重現
 
 ### 阻塞中 (Blocked)
 - 使用者回報 **設備管理（DeviceManagementView）無法管理攝影機** — 需檢視執行時期行為，目前無法透過靜態分析重現
