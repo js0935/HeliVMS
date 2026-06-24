@@ -49,6 +49,8 @@ public partial class LiveView : UserControl {
         Loaded += LiveView_Loaded;
         TimelineControl.PositionChanged += OnTimelinePositionChanged;
         TimelineControl.BookmarkRequested += (_, _) => AddBookmark();
+        RecordingService.RecordingStatusChanged += (camId, isRec) =>
+            _ = Dispatcher.InvokeAsync(() => VideoGrid.SetRecordingIndicator(camId, isRec));
         _talkService.AudioLevelChanged += level =>
             _ = Dispatcher.InvokeAsync(() => {
                 var w = Math.Clamp(level * 4, 0, 1) * 20;
@@ -114,6 +116,9 @@ public partial class LiveView : UserControl {
 
             var useSub = count >= 4;
             VideoGrid.LoadCameras(arr, useSub);
+            foreach (var cam in arr)
+                if (cam is not null)
+                    VideoGrid.SetRecordingIndicator(cam.Id, RecordingService.IsRecording(cam.Id));
             Log.Debug("[LiveView] Loaded {Count}/{Total} cameras into grid (subStream={Sub})", count, all.Count, useSub);
         } catch (Exception ex) {
             Log.Error(ex, "[LiveView] Failed to load cameras");
@@ -136,6 +141,9 @@ public partial class LiveView : UserControl {
                 arr[i++] = cam;
 
             VideoGrid.LoadCameras(arr);
+            foreach (var cam in arr)
+                if (cam is not null)
+                    VideoGrid.SetRecordingIndicator(cam.Id, RecordingService.IsRecording(cam.Id));
         } catch (Exception ex) {
             Log.Debug("[LiveView] Filter error: {Msg}", ex.Message);
         }

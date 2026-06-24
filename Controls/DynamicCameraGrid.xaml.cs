@@ -144,6 +144,22 @@ public partial class DynamicCameraGrid : UserControl {
     }
 
     /// <summary>Clear all slots.</summary>
+    public void SetRecordingIndicator(string cameraId, bool recording) {
+        for (int i = 0; i < _activeSlotCount; i++) {
+            if (_slotCameras[i]?.Id != cameraId) continue;
+            foreach (var child in MainGrid.Children) {
+                if (child is not Grid g) continue;
+                if (Grid.GetRow(g) != i / _cols || Grid.GetColumn(g) != i % _cols) continue;
+                foreach (var c in g.Children) {
+                    if (c is Border { Tag: "RecDot" } dot) {
+                        dot.Visibility = recording ? Visibility.Visible : Visibility.Collapsed;
+                        return;
+                    }
+                }
+            }
+        }
+    }
+
     public void SetPlaybackSpeed(double speed) {
         if (!MainGrid.IsLoaded) return;
         foreach (var child in MainGrid.Children) {
@@ -286,6 +302,17 @@ public partial class DynamicCameraGrid : UserControl {
                 IsHitTestVisible = false,
             };
             container.Children.Add(label);
+            var recDot = new Border {
+                Tag = "RecDot",
+                Width = 10, Height = 10,
+                CornerRadius = new CornerRadius(5),
+                Background = new SolidColorBrush(Color.FromArgb(220, 0xFF, 0x33, 0x33)),
+                HorizontalAlignment = HorizontalAlignment.Right,
+                VerticalAlignment = VerticalAlignment.Top,
+                Margin = new Thickness(0, 6, 6, 0),
+                Visibility = Visibility.Collapsed,
+            };
+            container.Children.Add(recDot);
             var useSub = player.IsUsingSubStream;
             var streamBadge = new Border {
                 Tag = "StreamBadge",
