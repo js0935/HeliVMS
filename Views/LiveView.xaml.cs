@@ -320,6 +320,7 @@ public partial class LiveView : UserControl {
         _fwdSpeedIndex = 0;
         _playbackSpeed = 1.0;
         FwdSpeedLabel.Text = "1\u00d7";
+        VideoGrid.SetPlaybackSpeed(1.0);
         _liveTicker?.Start();
 
         foreach (var p in VideoGrid.GetActiveSlots())
@@ -367,6 +368,7 @@ public partial class LiveView : UserControl {
         _fwdSpeedIndex = (_fwdSpeedIndex + 1) % FwdSpeeds.Length;
         _playbackSpeed = FwdSpeeds[_fwdSpeedIndex];
         FwdSpeedLabel.Text = $"{_playbackSpeed:F0}\u00d7";
+        VideoGrid.SetPlaybackSpeed(_playbackSpeed);
     }
 
     private void BtnSkipBack_Click(object sender, RoutedEventArgs e) => SkipTimeline(-30);

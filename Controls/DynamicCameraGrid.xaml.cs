@@ -144,6 +144,23 @@ public partial class DynamicCameraGrid : UserControl {
     }
 
     /// <summary>Clear all slots.</summary>
+    public void SetPlaybackSpeed(double speed) {
+        if (!MainGrid.IsLoaded) return;
+        foreach (var child in MainGrid.Children) {
+            if (child is not Grid g) continue;
+            foreach (var c in g.Children) {
+                if (c is Border { Tag: "SpeedBadge" } badge) {
+                    if (speed > 1.0) {
+                        ((TextBlock)badge.Child).Text = $"×{speed:F1}";
+                        badge.Visibility = Visibility.Visible;
+                    } else {
+                        badge.Visibility = Visibility.Collapsed;
+                    }
+                }
+            }
+        }
+    }
+
     public void ClearAll() {
         for (int i = 0; i < _activeSlotCount; i++) {
             if (_slots[i] is { } p) {
@@ -261,6 +278,21 @@ public partial class DynamicCameraGrid : UserControl {
                 };
                 container.Children.Add(ptzBadge);
             }
+            var speedBadge = new Border {
+                Tag = "SpeedBadge",
+                Background = new SolidColorBrush(Color.FromArgb(160, 0, 0, 0)),
+                CornerRadius = new CornerRadius(2),
+                Padding = new Thickness(3, 0, 3, 0),
+                Margin = new Thickness(4, 0, 0, 2),
+                HorizontalAlignment = HorizontalAlignment.Left,
+                VerticalAlignment = VerticalAlignment.Top,
+                Visibility = Visibility.Collapsed,
+                Child = new TextBlock {
+                    FontSize = 8,
+                    Foreground = new SolidColorBrush(Color.FromArgb(200, 0xFF, 0xFF, 0xFF)),
+                }
+            };
+            container.Children.Add(speedBadge);
         }
         if (!MainGrid.Children.Contains(container))
             MainGrid.Children.Add(container);
