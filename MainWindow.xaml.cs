@@ -77,15 +77,15 @@ public partial class MainWindow : Window {
         try {
             LoadWindowState();
             UpdateNotifBadge();
-            Log.Debug("[HeliVMS] MainWindow_Loaded: IsLoggedIn={IsLoggedIn}, User={User}",
-                _auth.IsLoggedIn, _auth.CurrentUser?.Username ?? "(null)");
+            Log.Debug("[HeliVMS] MainWindow_Loaded: IsLoggedIn={IsLoggedIn}, User={User}, SessionFile={SessionExists}",
+                _auth.IsLoggedIn, _auth.CurrentUser?.Username ?? "(null)",
+                File.Exists(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Data", "session.json")));
             if (_auth.IsLoggedIn) {
-                RestoreSession();
-                SwitchToLive();
-            } else {
-                _auth.LoginSucceeded += OnLoginSucceeded;
-                NavigateToLogin();
+                Log.Debug("[HeliVMS] Cleared stale session — showing login screen");
+                _auth.Logout();
             }
+            _auth.LoginSucceeded += OnLoginSucceeded;
+            NavigateToLogin();
         } catch (Exception ex) {
             Log.Error(ex, "[HeliVMS] MainWindow_Loaded crashed — forcing login");
             NavigateToLogin();
