@@ -1,5 +1,6 @@
 using System;
 using System.Diagnostics;
+using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -7,6 +8,21 @@ using System.Windows.Media;
 using HeliVMS.Models;
 
 namespace HeliVMS.Controls;
+
+internal static class DragDiag {
+    private static readonly string LogPath = Path.Combine(
+        AppDomain.CurrentDomain.BaseDirectory, "Data", "drag_debug.log");
+    private static readonly object _lock = new();
+    internal static void Write(string msg) {
+        lock (_lock) {
+            try {
+                var dir = Path.GetDirectoryName(LogPath);
+                if (dir is not null && !Directory.Exists(dir)) Directory.CreateDirectory(dir);
+                File.AppendAllText(LogPath, $"{DateTime.Now:HH:mm:ss.fff} {msg}{Environment.NewLine}");
+            } catch { }
+        }
+    }
+}
 
 /// <summary>
 /// Dynamic multi‑cell video grid that accepts camera drops from an external
@@ -88,25 +104,25 @@ public partial class DynamicCameraGrid : UserControl {
 
     /// <summary>Set the number of logical slots and rebuild the grid layout.</summary>
     public void SetSlotCount(int count) {
-        Debug.WriteLine($"[DynamicCameraGrid] SetSlotCount: count={count}");
+        DragDiag.Write($"[DynamicCameraGrid] SetSlotCount: count={count}, activeSlots={_activeSlotCount}");
         count = Math.Clamp(count, 1, MaxSlots);
         _activeSlotCount = count;
         _maximizedSlot = -1;
         (_rows, _cols) = CalculateGrid(count);
         RebuildGrid();
         EmptyOverlay.Visibility = Visibility.Collapsed;
-        Debug.WriteLine($"[DynamicCameraGrid] SetSlotCount: DONE rows={_rows} cols={_cols}");
+        DragDiag.Write($"[DynamicCameraGrid] SetSlotCount: DONE rows={_rows} cols={_cols}");
     }
 
     /// <summary>Assign a camera to the given slot (replaces any existing player there).</summary>
     public void AssignSlot(int slotIndex, Camera camera) {
-        Debug.WriteLine($"[DynamicCameraGrid] AssignSlot: slot={slotIndex}, camera={camera.Name}({camera.Id})");
+        DragDiag.Write($"[DynamicCameraGrid] AssignSlot: slot={slotIndex}, camera={camera.Name}({camera.Id})");
         if (slotIndex < 0 || slotIndex >= _activeSlotCount) {
-            Debug.WriteLine($"[DynamicCameraGrid] AssignSlot: OUT OF RANGE {slotIndex} >= {_activeSlotCount}");
+            DragDiag.Write($"[DynamicCameraGrid] AssignSlot: OUT OF RANGE {slotIndex} >= {_activeSlotCount}");
             return;
         }
         if (_slots[slotIndex]?.Camera?.Id == camera.Id) {
-            Debug.WriteLine($"[DynamicCameraGrid] AssignSlot: camera already in slot, skipping");
+            DragDiag.Write($"[DynamicCameraGrid] AssignSlot: camera already in slot, skipping");
             return;
         }
 
@@ -117,12 +133,12 @@ public partial class DynamicCameraGrid : UserControl {
         _slotCameras[slotIndex] = camera;
         PlacePlayerInCell(player, slotIndex);
         SlotChanged?.Invoke(camera, slotIndex);
-        Debug.WriteLine($"[DynamicCameraGrid] AssignSlot: DONE slot={slotIndex}");
+        DragDiag.Write($"[DynamicCameraGrid] AssignSlot: DONE slot={slotIndex}");
     }
 
     /// <summary>Remove whatever is in the given slot (player + placeholder).</summary>
     public void RemoveSlot(int slotIndex) {
-        Debug.WriteLine($"[DynamicCameraGrid] RemoveSlot: slot={slotIndex}");
+        DragDiag.Write($"[DynamicCameraGrid] RemoveSlot: slot={slotIndex}, cols={_cols}, rows={_rows}");
         if (slotIndex < 0 || slotIndex >= _activeSlotCount) return;
         RemoveContainerAt(slotIndex);
         if (_slots[slotIndex] is { } player) {
@@ -135,7 +151,7 @@ public partial class DynamicCameraGrid : UserControl {
         Grid.SetRow(ph, slotIndex / _cols);
         Grid.SetColumn(ph, slotIndex % _cols);
         MainGrid.Children.Add(ph);
-        Debug.WriteLine($"[DynamicCameraGrid] RemoveSlot: DONE MainGrid.Children.Count={MainGrid.Children.Count}");
+        DragDiag.Write($"[DynamicCameraGrid] RemoveSlot: DONE MainGrid.Children.Count={MainGrid.Children.Count}");
     }
 
     private void RemoveContainerAt(int slotIndex) {
@@ -281,7 +297,7 @@ public partial class DynamicCameraGrid : UserControl {
     };
 
     private void RebuildGrid() {
-        Debug.WriteLine($"[DynamicCameraGrid] RebuildGrid: rows={_rows} cols={_cols}");
+        DragDiag.Write($"[DynamicCameraGrid] RebuildGrid: rows={_rows} cols={_cols}, activeSlots={_activeSlotCount}");
         MainGrid.RowDefinitions.Clear();
         MainGrid.ColumnDefinitions.Clear();
         for (int c = 0; c < _cols; c++)
@@ -296,11 +312,11 @@ public partial class DynamicCameraGrid : UserControl {
             else
                 AddPlaceholder(i);
         }
-        Debug.WriteLine($"[DynamicCameraGrid] RebuildGrid: DONE children={MainGrid.Children.Count}");
+        DragDiag.Write($"[DynamicCameraGrid] RebuildGrid: DONE children={MainGrid.Children.Count}");
     }
 
     private void PlacePlayerInCell(VideoPlayer player, int slotIndex) {
-        Debug.WriteLine($"[DynamicCameraGrid] PlacePlayerInCell: slot={slotIndex}");
+        DragDiag.Write($"[DynamicCameraGrid] PlacePlayerInCell: slot={slotIndex}, containerNull={_containers[slotIndex] is null}");
         var cam = _slotCameras[slotIndex];
         var container = _containers[slotIndex];
         if (container is null) {
@@ -501,28 +517,36 @@ public partial class DynamicCameraGrid : UserControl {
         ClearDragHighlight();
         _dragOverSlotIndex = -1;
 
+        DragDiag.Write($"[DynamicCameraGrid] OnDrop ENTER sender={sender?.GetType().Name}, activeSlots={_activeSlotCount}");
         if (!e.Data.GetDataPresent("CameraId")) {
-            Debug.WriteLine("[DynamicCameraGrid] OnDrop: no CameraId data present");
+            DragDiag.Write("[DynamicCameraGrid] OnDrop: no CameraId data present");
             return;
         }
         var cameraId = e.Data.GetData("CameraId") as string;
-        Debug.WriteLine($"[DynamicCameraGrid] OnDrop: cameraId={cameraId}, activeSlots={_activeSlotCount}, cols={_cols}, rows={_rows}, MainGrid.ActualWidth={MainGrid.ActualWidth}, MainGrid.ActualHeight={MainGrid.ActualHeight}");
-        if (cameraId is null) return;
+        DragDiag.Write($"[DynamicCameraGrid] OnDrop: cameraId={cameraId}, ActualW={MainGrid.ActualWidth}, ActualH={MainGrid.ActualHeight}, cols={_cols}, rows={_rows}");
+        if (cameraId is null) {
+            DragDiag.Write("[DynamicCameraGrid] OnDrop: cameraId is null after cast");
+            return;
+        }
 
         // If grid is empty, auto-create first slot
         if (_activeSlotCount == 0) {
+            DragDiag.Write("[DynamicCameraGrid] OnDrop: grid empty, calling SetSlotCount(4)");
             SetSlotCount(4);
         }
 
         var pos = e.GetPosition(MainGrid);
-        Debug.WriteLine($"[DynamicCameraGrid] OnDrop: pos=({pos.X},{pos.Y})");
+        DragDiag.Write($"[DynamicCameraGrid] OnDrop: pos=({pos.X},{pos.Y})");
         int slotIndex = HitTestSlot(pos);
-        Debug.WriteLine($"[DynamicCameraGrid] OnDrop: slotIndex={slotIndex}, maximized={_maximizedSlot}");
+        DragDiag.Write($"[DynamicCameraGrid] OnDrop: slotIndex={slotIndex}, maximized={_maximizedSlot}");
         if (slotIndex >= 0 && _maximizedSlot < 0) {
-            Debug.WriteLine($"[DynamicCameraGrid] OnDrop: firing DropCameraRequested for {cameraId} at slot {slotIndex}");
+            DragDiag.Write($"[DynamicCameraGrid] OnDrop: firing DropCameraRequested for {cameraId} at slot {slotIndex}, handler={(DropCameraRequested is not null ? "subscribed" : "NULL!")}");
             DropCameraRequested?.Invoke(cameraId, slotIndex);
+        } else {
+            DragDiag.Write($"[DynamicCameraGrid] OnDrop: NOT firing (slotIndex={slotIndex}, maximized={_maximizedSlot})");
         }
         e.Handled = true;
+        DragDiag.Write($"[DynamicCameraGrid] OnDrop EXIT");
     }
 
     private int HitTestSlot(Point pos) {
@@ -716,7 +740,7 @@ public partial class DynamicCameraGrid : UserControl {
     // ═══════════════════════════════════════════════════
 
     private VideoPlayer CreatePlayer(Camera camera) {
-        Debug.WriteLine($"[DynamicCameraGrid] CreatePlayer: {camera.Name}({camera.Id}), useSub={_activeSlotCount > 1}");
+        DragDiag.Write($"[DynamicCameraGrid] CreatePlayer: {camera.Name}({camera.Id}), useSub={_activeSlotCount > 1}, activeSlots={_activeSlotCount}");
         var player = new VideoPlayer();
         player.SetFullBleed();
         player.LoadCamera(camera, useSubStream: _activeSlotCount > 1);

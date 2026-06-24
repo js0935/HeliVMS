@@ -311,6 +311,7 @@ public partial class VideoPlayer : UserControl {
     }
 
     public void LoadCamera(Camera camera, bool useSubStream = false) {
+        DragDiag.Write($"[VideoPlayer] LoadCamera: {camera.Name}({camera.Id}), useSub={useSubStream}, rtsp={camera.RtspUrl}, rtspSub={camera.RtspUrlSub}");
         Log.Debug("[VideoPlayer] LoadCamera: {Name}({Id}), useSub={Sub}, rtsp={Rtsp}, rtspSub={RtspSub}", camera.Name, camera.Id, useSubStream, camera.RtspUrl, camera.RtspUrlSub);
         _isUnloaded = false;
         _camera = camera;
@@ -329,6 +330,7 @@ public partial class VideoPlayer : UserControl {
         UpdateStreamToggleText();
 
         var (streamUrl, streamUser, streamPass) = ResolveStreamUrl(camera, useSubStream);
+        DragDiag.Write($"[VideoPlayer] LoadCamera: resolved url=|{streamUrl}|, user=|{streamUser}|, isEnabled={camera.IsEnabled}");
         Log.Debug("[VideoPlayer] LoadCamera: resolved url={Url}, user={User}, passLen={PassLen}", streamUrl, streamUser, streamPass?.Length ?? 0);
         if (camera.IsEnabled && !string.IsNullOrEmpty(streamUrl)) {
             StatusText.Text = "連線中...";
@@ -345,11 +347,14 @@ public partial class VideoPlayer : UserControl {
     }
 
     private void StartPlayback(string rtspUrl, string username, string password, Camera camera) {
+        DragDiag.Write($"[VideoPlayer:{camera.Name}] StartPlayback: url={rtspUrl}");
         Log.Debug("[VideoPlayer:{Name}] StartPlayback: url={Url}", camera.Name, rtspUrl);
         if (TryStartFlyleaf(rtspUrl, username, password)) {
+            DragDiag.Write($"[VideoPlayer:{camera.Name}] StartPlayback: using Flyleaf");
             Log.Debug("[VideoPlayer:{Name}] StartPlayback: using Flyleaf", camera.Name);
             return;
         }
+        DragDiag.Write($"[VideoPlayer:{camera.Name}] StartPlayback: Flyleaf not available, falling back to FFmpeg decoder");
         Log.Debug("[VideoPlayer:{Name}] StartPlayback: Flyleaf not available, falling back to FFmpeg decoder", camera.Name);
         StartPlaybackDecoder(rtspUrl, username, password, camera);
     }
