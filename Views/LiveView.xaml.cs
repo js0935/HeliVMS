@@ -40,6 +40,7 @@ public partial class LiveView : UserControl {
 
     private int _currentGridSize = 4;
     private const int DefaultGridSize = 4;
+    public string? SelectedTabId => TabBar.CurrentTab?.Id;
     private const int MaxSlots = 64;
     private readonly IBookmarkService _bookmarks = App.Services.GetRequiredService<IBookmarkService>();
 

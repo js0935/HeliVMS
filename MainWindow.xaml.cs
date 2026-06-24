@@ -24,6 +24,9 @@ public partial class MainWindow : Window {
     private bool _isShuttingDown;
     private bool _drawerOpen = true;
     private bool _notifPanelOpen;
+    private string? _activeView;
+    private string? _restoreView;
+    private string? _restoreLayoutTab;
 
     private const double DrawerOpenWidth = 175;
     private const double DrawerClosedWidth = 0;
@@ -73,6 +76,7 @@ public partial class MainWindow : Window {
         LoadWindowState();
         UpdateNotifBadge();
         if (_auth.IsLoggedIn) {
+            RestoreSession();
             SwitchToLive();
         } else {
             _auth.LoginSucceeded += OnLoginSucceeded;
@@ -191,6 +195,7 @@ public partial class MainWindow : Window {
         ShowDrawer(true);
         LiveDrawer.Visibility = Visibility.Visible;
         SubMenuDrawer.Visibility = Visibility.Collapsed;
+        _activeView = "live";
         MainWorkArea.Content = new LiveView();
         Log.Debug("[HeliVMS] Navigated to Live");
     }
@@ -209,6 +214,7 @@ public partial class MainWindow : Window {
     private void SwitchToDevice() {
         SelectNavButton(BtnDevice);
         ShowDrawer(false);
+        _activeView = "device";
         MainWorkArea.Content = new DeviceManagementView();
         Log.Debug("[HeliVMS] Navigated to DeviceManagement");
     }
@@ -216,6 +222,7 @@ public partial class MainWindow : Window {
     private void SwitchToLicense() {
         SelectNavButton(BtnLicense);
         ShowDrawer(false);
+        _activeView = "license";
         MainWorkArea.Content = new LicenseView();
         Log.Debug("[HeliVMS] Navigated to License");
     }
@@ -225,6 +232,7 @@ public partial class MainWindow : Window {
         ShowDrawer(true);
         LiveDrawer.Visibility = Visibility.Collapsed;
         SubMenuDrawer.Visibility = Visibility.Visible;
+        _activeView = "settings";
         MainWorkArea.Content = new SettingsView();
         Log.Debug("[HeliVMS] Navigated to Settings");
     }
@@ -256,9 +264,12 @@ public partial class MainWindow : Window {
         try {
             var dir = Path.GetDirectoryName(StatePath);
             if (dir is not null && !Directory.Exists(dir)) Directory.CreateDirectory(dir);
+            var activeTab = MainWorkArea.Content is LiveView lv ? lv.SelectedTabId : null;
             File.WriteAllText(StatePath, JsonSerializer.Serialize(new {
                 DrawerOpen = _drawerOpen,
-                NotifPanelOpen = _notifPanelOpen
+                NotifPanelOpen = _notifPanelOpen,
+                ActiveView = _activeView,
+                ActiveLayoutTab = activeTab
             }));
         } catch { }
     }
@@ -272,7 +283,17 @@ public partial class MainWindow : Window {
                 ShowDrawer(d.GetBoolean());
             if (root.TryGetProperty("NotifPanelOpen", out var n) && n.GetBoolean())
                 ToggleNotifPanel(true);
+            if (root.TryGetProperty("ActiveView", out var v))
+                _restoreView = v.GetString();
+            if (root.TryGetProperty("ActiveLayoutTab", out var lt))
+                _restoreLayoutTab = lt.GetString();
         } catch { }
+    }
+
+    private void RestoreSession() {
+        if (_restoreLayoutTab is not null && MainWorkArea.Content is LiveView lv) {
+            lv.TabBar.SelectTab(_restoreLayoutTab);
+        }
     }
 
     private void NavigateToLogin() {
