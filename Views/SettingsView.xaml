@@ -981,8 +981,8 @@
                                                 <ComboBoxItem Content="週六"/>
                                                 <ComboBoxItem Content="週日"/>
                                             </ComboBox>
-                                            <TextBox Grid.Column="1" Text="{Binding StartTime}" FontSize="12" MinWidth="60" Margin="4,0"/>
-                                            <TextBox Grid.Column="2" Text="{Binding EndTime}" FontSize="12" MinWidth="60" Margin="4,0"/>
+                                            <TextBox Grid.Column="1" Text="{Binding StartTime}" FontSize="12" MinWidth="60" Margin="4,0" Style="{StaticResource ModernTextBox}"/>
+                                            <TextBox Grid.Column="2" Text="{Binding EndTime}" FontSize="12" MinWidth="60" Margin="4,0" Style="{StaticResource ModernTextBox}"/>
                                             <CheckBox Grid.Column="3" IsChecked="{Binding RecordingEnabled}" Content="錄影" FontSize="12" Margin="8,0"/>
                                             <CheckBox Grid.Column="4" IsChecked="{Binding MotionDetectionEnabled}" Content="偵測" FontSize="12" Margin="8,0"/>
                                             <Button Grid.Column="5" Content="✕" Width="24" Height="24" FontSize="10"

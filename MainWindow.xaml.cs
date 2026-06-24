@@ -10,6 +10,7 @@ using System.Windows.Threading;
 using HeliVMS.Models;
 using HeliVMS.Services;
 using HeliVMS.Views;
+using HeliVMS.Dialog;
 using Microsoft.Extensions.DependencyInjection;
 using Serilog;
 
@@ -192,6 +193,78 @@ public partial class MainWindow : Window {
         } catch { }
     }
 
+    private void SubMenuItem_Click(object sender, RoutedEventArgs e) {
+        if (sender is Button { Tag: string tag } && int.TryParse(tag, out var index)) {
+            if (MainWorkArea.Content is SettingsView sv) {
+                sv.ShowTab(index);
+            } else if (MainWorkArea.Content is DeviceManagementView dv) {
+                dv.ShowTab(index);
+            }
+        }
+    }
+
+    private void AddCameraMenu_Click(object sender, RoutedEventArgs e) {
+        var dialog = new CameraEditDialog();
+        dialog.Owner = this;
+        if (dialog.ShowDialog() == true) {
+            SwitchToDevice();
+        }
+    }
+
+    private void OnvifScanMenu_Click(object sender, RoutedEventArgs e) {
+        var dialog = new OnvifScanDialog();
+        dialog.Owner = this;
+        dialog.ShowDialog();
+        SwitchToDevice();
+    }
+
+    private void ToggleFullscreenMenu_Click(object sender, RoutedEventArgs e) {
+        if (MainWorkArea.Content is Views.LiveView lv) {
+            lv.ToggleFullScreen();
+        }
+    }
+
+    private void ImportCsvMenu_Click(object sender, RoutedEventArgs e) {
+        SwitchToDevice();
+    }
+
+    private void ChannelManagementMenu_Click(object sender, RoutedEventArgs e) {
+        SwitchToDevice();
+        if (MainWorkArea.Content is DeviceManagementView dv) {
+            dv.ShowTab(3);
+        }
+    }
+
+    private void AddFloorMenu_Click(object sender, RoutedEventArgs e) {
+        SwitchToEMap();
+    }
+
+    private void LoadMapMenu_Click(object sender, RoutedEventArgs e) {
+        SwitchToEMap();
+    }
+
+    private void SubSettingsLog_Click(object sender, RoutedEventArgs e) {
+        SwitchToSettings();
+        if (MainWorkArea.Content is SettingsView sv) { sv.ShowTab(0); }
+    }
+
+    private void SubSettingsUser_Click(object sender, RoutedEventArgs e) {
+        SwitchToSettings();
+        if (MainWorkArea.Content is SettingsView sv) { sv.ShowTab(4); }
+    }
+
+    private void SubSettingsEventRules_Click(object sender, RoutedEventArgs e) {
+        SwitchToSettings();
+        if (MainWorkArea.Content is SettingsView sv) { sv.ShowTab(7); }
+    }
+
+    private void QuickAddCameraBtn_Click(object sender, RoutedEventArgs e) {
+        var dialog = new CameraEditDialog();
+        dialog.Owner = this;
+        dialog.ShowDialog();
+        LiveDrawer.ReloadCameras();
+    }
+
     private void SwitchToLive() {
         SelectNavButton(BtnLive);
         ShowDrawer(true);
@@ -215,8 +288,12 @@ public partial class MainWindow : Window {
 
     private void SwitchToDevice() {
         SelectNavButton(BtnDevice);
-        ShowDrawer(false);
+        ShowDrawer(true);
         _activeView = "device";
+        LiveDrawer.Visibility = Visibility.Collapsed;
+        SubMenuDrawer.Visibility = Visibility.Visible;
+        SettingsSubMenu.Visibility = Visibility.Collapsed;
+        DeviceSubMenu.Visibility = Visibility.Visible;
         MainWorkArea.Content = new DeviceManagementView();
         Log.Debug("[HeliVMS] Navigated to DeviceManagement");
     }
@@ -232,9 +309,11 @@ public partial class MainWindow : Window {
     private void SwitchToSettings() {
         SelectNavButton(BtnSettings);
         ShowDrawer(true);
+        _activeView = "settings";
         LiveDrawer.Visibility = Visibility.Collapsed;
         SubMenuDrawer.Visibility = Visibility.Visible;
-        _activeView = "settings";
+        SettingsSubMenu.Visibility = Visibility.Visible;
+        DeviceSubMenu.Visibility = Visibility.Collapsed;
         MainWorkArea.Content = new SettingsView();
         Log.Debug("[HeliVMS] Navigated to Settings");
     }

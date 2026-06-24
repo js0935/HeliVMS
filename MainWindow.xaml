@@ -39,6 +39,15 @@
                             Style="{StaticResource SidebarButton}"
                             ToolTip="即時/回放監看"
                             Click="BtnLive_Click">
+                        <Button.ContextMenu>
+                            <ContextMenu Background="{StaticResource SurfaceBrush}" Foreground="{StaticResource TextBrush}"
+                                        BorderBrush="{StaticResource BorderBrush}">
+                                <MenuItem Header="新增攝影機" Click="AddCameraMenu_Click"/>
+                                <MenuItem Header="ONVIF 掃描" Click="OnvifScanMenu_Click"/>
+                                <Separator/>
+                                <MenuItem Header="切換全螢幕" Click="ToggleFullscreenMenu_Click"/>
+                            </ContextMenu>
+                        </Button.ContextMenu>
                         <Viewbox Width="20" Height="20" Stretch="Uniform">
                             <Path Data="{StaticResource IconLive}" Fill="{StaticResource SecondaryTextBrush}"/>
                         </Viewbox>
@@ -47,6 +56,16 @@
                             Style="{StaticResource SidebarButton}"
                             ToolTip="設備管理"
                             Click="BtnDevice_Click">
+                        <Button.ContextMenu>
+                            <ContextMenu Background="{StaticResource SurfaceBrush}" Foreground="{StaticResource TextBrush}"
+                                        BorderBrush="{StaticResource BorderBrush}">
+                                <MenuItem Header="新增攝影機" Click="AddCameraMenu_Click"/>
+                                <MenuItem Header="ONVIF 掃描" Click="OnvifScanMenu_Click"/>
+                                <MenuItem Header="匯入 CSV" Click="ImportCsvMenu_Click"/>
+                                <Separator/>
+                                <MenuItem Header="頻道管理" Click="ChannelManagementMenu_Click"/>
+                            </ContextMenu>
+                        </Button.ContextMenu>
                         <Viewbox Width="20" Height="20" Stretch="Uniform">
                             <Path Data="{StaticResource IconDevice}" Fill="{StaticResource SecondaryTextBrush}"/>
                         </Viewbox>
@@ -71,6 +90,13 @@
                             Style="{StaticResource SidebarButton}"
                             ToolTip="電子地圖"
                             Click="BtnEMap_Click">
+                        <Button.ContextMenu>
+                            <ContextMenu Background="{StaticResource SurfaceBrush}" Foreground="{StaticResource TextBrush}"
+                                        BorderBrush="{StaticResource BorderBrush}">
+                                <MenuItem Header="新增樓層" Click="AddFloorMenu_Click"/>
+                                <MenuItem Header="載入地圖" Click="LoadMapMenu_Click"/>
+                            </ContextMenu>
+                        </Button.ContextMenu>
                         <Viewbox Width="20" Height="20" Stretch="Uniform">
                             <Path Data="{StaticResource IconMap}" Fill="{StaticResource SecondaryTextBrush}"/>
                         </Viewbox>
@@ -79,6 +105,16 @@
                             Style="{StaticResource SidebarButton}"
                             ToolTip="系統設定"
                             Click="BtnSettings_Click">
+                        <Button.ContextMenu>
+                            <ContextMenu Background="{StaticResource SurfaceBrush}" Foreground="{StaticResource TextBrush}"
+                                        BorderBrush="{StaticResource BorderBrush}">
+                                <MenuItem Header="系統日誌" Click="SubSettingsLog_Click"/>
+                                <MenuItem Header="使用者管理" Click="SubSettingsUser_Click"/>
+                                <MenuItem Header="事件規則" Click="SubSettingsEventRules_Click"/>
+                                <Separator/>
+                                <MenuItem Header="全部設定" Click="BtnSettings_Click"/>
+                            </ContextMenu>
+                        </Button.ContextMenu>
                         <Viewbox Width="20" Height="20" Stretch="Uniform">
                             <Path Data="{StaticResource IconSettings}" Fill="{StaticResource SecondaryTextBrush}"/>
                         </Viewbox>
@@ -231,16 +267,64 @@
                             BorderThickness="0,0,0,1" BorderBrush="{StaticResource BorderBrush}"
                             Padding="8,0" Visibility="Visible">
                         <Grid>
-                            <TextBlock Text="搜尋資源" FontSize="11"
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="搜尋資源" FontSize="11"
                                        Foreground="{StaticResource SecondaryTextBrush}"
-                                       VerticalAlignment="Center" Margin="4,0,0,0"/>
+                                       VerticalAlignment="Center"/>
+                            <Button Grid.Column="2" x:Name="QuickAddCameraBtn" Width="20" Height="20" Padding="0"
+                                    Background="Transparent" BorderThickness="0"
+                                    Foreground="{StaticResource SecondaryTextBrush}"
+                                    Cursor="Hand" FontSize="14" FontWeight="Bold"
+                                    ToolTip="新增攝影機"
+                                    Click="QuickAddCameraBtn_Click">
+                                <Path Data="{StaticResource IconPlus}" Fill="{StaticResource SecondaryTextBrush}" Width="14" Height="14" Stretch="Uniform"/>
+                            </Button>
                         </Grid>
                     </Border>
                     <!-- Camera tree (Live mode) -->
                     <controls:CameraTreePanel x:Name="LiveDrawer" Grid.Row="2"/>
                     <!-- Sub-menu drawer (non-Live modes) -->
                     <Border x:Name="SubMenuDrawer" Grid.Row="2" Visibility="Collapsed"
-                            Background="{StaticResource SidebarBrush}"/>
+                            Background="{StaticResource SidebarBrush}">
+                        <Grid Margin="0,8,0,0">
+                            <!-- Settings sub-menu -->
+                            <ScrollViewer x:Name="SettingsSubMenu" VerticalScrollBarVisibility="Auto">
+                                <StackPanel>
+                                    <TextBlock Text="設定分類" FontSize="10" FontWeight="SemiBold"
+                                               Foreground="{StaticResource SecondaryTextBrush}"
+                                               Margin="12,0,12,4"/>
+                                    <Button x:Name="SubSettingsLog" Content="系統日誌" Tag="0" Style="{StaticResource SidebarButton}" Click="SubMenuItem_Click"/>
+                                    <Button x:Name="SubSettingsFfmpeg" Content="FFmpeg" Tag="1" Style="{StaticResource SidebarButton}" Click="SubMenuItem_Click"/>
+                                    <Button x:Name="SubSettingsFont" Content="字型設定" Tag="2" Style="{StaticResource SidebarButton}" Click="SubMenuItem_Click"/>
+                                    <Button x:Name="SubSettingsRetention" Content="錄影保留" Tag="3" Style="{StaticResource SidebarButton}" Click="SubMenuItem_Click"/>
+                                    <Button x:Name="SubSettingsUser" Content="使用者管理" Tag="4" Style="{StaticResource SidebarButton}" Click="SubMenuItem_Click"/>
+                                    <Button x:Name="SubSettingsDebug" Content="除錯" Tag="5" Style="{StaticResource SidebarButton}" Click="SubMenuItem_Click"/>
+                                    <Button x:Name="SubSettingsMediaMTX" Content="MediaMTX" Tag="6" Style="{StaticResource SidebarButton}" Click="SubMenuItem_Click"/>
+                                    <Button x:Name="SubSettingsEventRules" Content="事件規則" Tag="7" Style="{StaticResource SidebarButton}" Click="SubMenuItem_Click"/>
+                                    <Button x:Name="SubSettingsNotification" Content="通知設定" Tag="8" Style="{StaticResource SidebarButton}" Click="SubMenuItem_Click"/>
+                                    <Button x:Name="SubSettingsSchedule" Content="錄影排程" Tag="9" Style="{StaticResource SidebarButton}" Click="SubMenuItem_Click"/>
+                                    <Button x:Name="SubSettingsBackup" Content="備份還原" Tag="10" Style="{StaticResource SidebarButton}" Click="SubMenuItem_Click"/>
+                                </StackPanel>
+                            </ScrollViewer>
+                            <!-- Device sub-menu -->
+                            <ScrollViewer x:Name="DeviceSubMenu" VerticalScrollBarVisibility="Auto" Visibility="Collapsed">
+                                <StackPanel>
+                                    <TextBlock Text="裝置分類" FontSize="10" FontWeight="SemiBold"
+                                               Foreground="{StaticResource SecondaryTextBrush}"
+                                               Margin="12,0,12,4"/>
+                                    <Button x:Name="SubDeviceCamera" Content="攝影機管理" Tag="0" Style="{StaticResource SidebarButton}" Click="SubMenuItem_Click"/>
+                                    <Button x:Name="SubDeviceRecording" Content="錄影排程" Tag="1" Style="{StaticResource SidebarButton}" Click="SubMenuItem_Click"/>
+                                    <Button x:Name="SubDeviceStorage" Content="儲存管理" Tag="2" Style="{StaticResource SidebarButton}" Click="SubMenuItem_Click"/>
+                                    <Button x:Name="SubDeviceChannel" Content="頻道管理" Tag="3" Style="{StaticResource SidebarButton}" Click="SubMenuItem_Click"/>
+                                    <Button x:Name="SubDeviceGroup" Content="攝影機群組" Tag="4" Style="{StaticResource SidebarButton}" Click="SubMenuItem_Click"/>
+                                </StackPanel>
+                            </ScrollViewer>
+                        </Grid>
+                    </Border>
                 </Grid>
             </Border>
         </Grid>

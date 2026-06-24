@@ -67,7 +67,7 @@ public partial class SettingsView : UserControl {
         }
     }
 
-    private void ShowTab(int index) {
+    public void ShowTab(int index) {
         if (index == _currentTab) return;
         _currentTab = index;
 
