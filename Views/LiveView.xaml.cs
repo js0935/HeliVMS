@@ -196,16 +196,20 @@ public partial class LiveView : UserControl {
 
     private void OnDropCameraToGrid(string cameraId, int slotIndex) {
         try {
+            Log.Debug("[LiveView] OnDropCameraToGrid: cameraId={Id}, slot={Slot}", cameraId, slotIndex);
             var camera = CameraService.GetCameraById(cameraId);
             if (camera is null) {
                 Log.Warning("[LiveView] Drop: camera {Id} not found", cameraId);
                 return;
             }
+            Log.Debug("[LiveView] OnDropCameraToGrid: found camera {Name}({Id}), rtsp={Rtsp}", camera.Name, camera.Id, camera.RtspUrl);
 
             var existing = VideoGrid.GetCameraAt(slotIndex);
+            Log.Debug("[LiveView] OnDropCameraToGrid: existing at slot={Slot} = {Name}", slotIndex, existing?.Name ?? "none");
             if (existing is not null) {
                 for (int i = 0; i < MaxSlots; i++) {
                     if (VideoGrid.GetCameraAt(i)?.Id == cameraId && i != slotIndex) {
+                        Log.Debug("[LiveView] OnDropCameraToGrid: swapping existing to slot {Slot}", i);
                         VideoGrid.AssignSlot(i, existing);
                         break;
                     }
@@ -213,8 +217,7 @@ public partial class LiveView : UserControl {
             }
 
             VideoGrid.AssignSlot(slotIndex, camera);
-            Log.Debug("[LiveView] Camera {Name} dropped into slot {Slot}",
-                camera.Name, slotIndex);
+            Log.Debug("[LiveView] Camera {Name} dropped into slot {Slot}", camera.Name, slotIndex);
         } catch (Exception ex) {
             Log.Error(ex, "[LiveView] DropCameraToGrid failed");
         }

@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -87,18 +88,27 @@ public partial class DynamicCameraGrid : UserControl {
 
     /// <summary>Set the number of logical slots and rebuild the grid layout.</summary>
     public void SetSlotCount(int count) {
+        Debug.WriteLine($"[DynamicCameraGrid] SetSlotCount: count={count}");
         count = Math.Clamp(count, 1, MaxSlots);
         _activeSlotCount = count;
         _maximizedSlot = -1;
         (_rows, _cols) = CalculateGrid(count);
         RebuildGrid();
         EmptyOverlay.Visibility = Visibility.Collapsed;
+        Debug.WriteLine($"[DynamicCameraGrid] SetSlotCount: DONE rows={_rows} cols={_cols}");
     }
 
     /// <summary>Assign a camera to the given slot (replaces any existing player there).</summary>
     public void AssignSlot(int slotIndex, Camera camera) {
-        if (slotIndex < 0 || slotIndex >= _activeSlotCount) return;
-        if (_slots[slotIndex]?.Camera?.Id == camera.Id) return;
+        Debug.WriteLine($"[DynamicCameraGrid] AssignSlot: slot={slotIndex}, camera={camera.Name}({camera.Id})");
+        if (slotIndex < 0 || slotIndex >= _activeSlotCount) {
+            Debug.WriteLine($"[DynamicCameraGrid] AssignSlot: OUT OF RANGE {slotIndex} >= {_activeSlotCount}");
+            return;
+        }
+        if (_slots[slotIndex]?.Camera?.Id == camera.Id) {
+            Debug.WriteLine($"[DynamicCameraGrid] AssignSlot: camera already in slot, skipping");
+            return;
+        }
 
         RemoveSlot(slotIndex);
 
@@ -107,10 +117,12 @@ public partial class DynamicCameraGrid : UserControl {
         _slotCameras[slotIndex] = camera;
         PlacePlayerInCell(player, slotIndex);
         SlotChanged?.Invoke(camera, slotIndex);
+        Debug.WriteLine($"[DynamicCameraGrid] AssignSlot: DONE slot={slotIndex}");
     }
 
     /// <summary>Remove whatever is in the given slot (player + placeholder).</summary>
     public void RemoveSlot(int slotIndex) {
+        Debug.WriteLine($"[DynamicCameraGrid] RemoveSlot: slot={slotIndex}");
         if (slotIndex < 0 || slotIndex >= _activeSlotCount) return;
         RemoveContainerAt(slotIndex);
         if (_slots[slotIndex] is { } player) {
@@ -123,6 +135,7 @@ public partial class DynamicCameraGrid : UserControl {
         Grid.SetRow(ph, slotIndex / _cols);
         Grid.SetColumn(ph, slotIndex % _cols);
         MainGrid.Children.Add(ph);
+        Debug.WriteLine($"[DynamicCameraGrid] RemoveSlot: DONE MainGrid.Children.Count={MainGrid.Children.Count}");
     }
 
     private void RemoveContainerAt(int slotIndex) {
@@ -268,6 +281,7 @@ public partial class DynamicCameraGrid : UserControl {
     };
 
     private void RebuildGrid() {
+        Debug.WriteLine($"[DynamicCameraGrid] RebuildGrid: rows={_rows} cols={_cols}");
         MainGrid.RowDefinitions.Clear();
         MainGrid.ColumnDefinitions.Clear();
         for (int c = 0; c < _cols; c++)
@@ -282,9 +296,11 @@ public partial class DynamicCameraGrid : UserControl {
             else
                 AddPlaceholder(i);
         }
+        Debug.WriteLine($"[DynamicCameraGrid] RebuildGrid: DONE children={MainGrid.Children.Count}");
     }
 
     private void PlacePlayerInCell(VideoPlayer player, int slotIndex) {
+        Debug.WriteLine($"[DynamicCameraGrid] PlacePlayerInCell: slot={slotIndex}");
         var cam = _slotCameras[slotIndex];
         var container = _containers[slotIndex];
         if (container is null) {
@@ -485,8 +501,12 @@ public partial class DynamicCameraGrid : UserControl {
         ClearDragHighlight();
         _dragOverSlotIndex = -1;
 
-        if (!e.Data.GetDataPresent("CameraId")) return;
+        if (!e.Data.GetDataPresent("CameraId")) {
+            Debug.WriteLine("[DynamicCameraGrid] OnDrop: no CameraId data present");
+            return;
+        }
         var cameraId = e.Data.GetData("CameraId") as string;
+        Debug.WriteLine($"[DynamicCameraGrid] OnDrop: cameraId={cameraId}, activeSlots={_activeSlotCount}, cols={_cols}, rows={_rows}, MainGrid.ActualWidth={MainGrid.ActualWidth}, MainGrid.ActualHeight={MainGrid.ActualHeight}");
         if (cameraId is null) return;
 
         // If grid is empty, auto-create first slot
@@ -494,9 +514,14 @@ public partial class DynamicCameraGrid : UserControl {
             SetSlotCount(4);
         }
 
-        int slotIndex = HitTestSlot(e.GetPosition(MainGrid));
-        if (slotIndex >= 0 && _maximizedSlot < 0)
+        var pos = e.GetPosition(MainGrid);
+        Debug.WriteLine($"[DynamicCameraGrid] OnDrop: pos=({pos.X},{pos.Y})");
+        int slotIndex = HitTestSlot(pos);
+        Debug.WriteLine($"[DynamicCameraGrid] OnDrop: slotIndex={slotIndex}, maximized={_maximizedSlot}");
+        if (slotIndex >= 0 && _maximizedSlot < 0) {
+            Debug.WriteLine($"[DynamicCameraGrid] OnDrop: firing DropCameraRequested for {cameraId} at slot {slotIndex}");
             DropCameraRequested?.Invoke(cameraId, slotIndex);
+        }
         e.Handled = true;
     }
 
@@ -691,6 +716,7 @@ public partial class DynamicCameraGrid : UserControl {
     // ═══════════════════════════════════════════════════
 
     private VideoPlayer CreatePlayer(Camera camera) {
+        Debug.WriteLine($"[DynamicCameraGrid] CreatePlayer: {camera.Name}({camera.Id}), useSub={_activeSlotCount > 1}");
         var player = new VideoPlayer();
         player.SetFullBleed();
         player.LoadCamera(camera, useSubStream: _activeSlotCount > 1);
