@@ -400,6 +400,44 @@ public partial class LiveView : UserControl {
         }
     }
 
+    public void HandleCameraAction(string cameraId, string action) {
+        var cam = App.Services.GetRequiredService<ICameraService>().GetAllCameras()
+            .FirstOrDefault(c => c.Id == cameraId);
+        if (cam is null) return;
+        switch (action) {
+            case "play": {
+                var grid = VideoGrid;
+                var slots = grid.GetActiveSlots();
+                var empty = grid.GetSlotCameras().ToList();
+                var freeIndex = empty.FindIndex(c => c is null);
+                if (freeIndex >= 0) grid.AssignSlot(freeIndex, cam);
+                break;
+            }
+            case "start_recording":
+                RecordingService.StartRecording(cam);
+                break;
+            case "stop_recording":
+                RecordingService.StopRecording(cam.Id);
+                break;
+            case "ptz": {
+                var panel = new Controls.PTZControlPanel { Width = 240 };
+                panel.LoadCamera(cam);
+                var win = new Window {
+                    Title = $"PTZ — {cam.Name}", Content = panel,
+                    SizeToContent = SizeToContent.WidthAndHeight,
+                    ResizeMode = ResizeMode.NoResize,
+                    WindowStartupLocation = WindowStartupLocation.CenterScreen,
+                    Owner = Window.GetWindow(this),
+                    Background = System.Windows.Media.Brushes.Transparent,
+                    WindowStyle = WindowStyle.ToolWindow, Topmost = true,
+                };
+                win.Closed += (_, _) => panel.UnloadCamera();
+                win.Show();
+                break;
+            }
+        }
+    }
+
     private void StartRecordingBarTimer() {
         _recordingBarTimer = new DispatcherTimer(
             TimeSpan.FromSeconds(30),

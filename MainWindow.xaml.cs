@@ -54,6 +54,12 @@ public partial class MainWindow : Window {
         _statusTimer.Tick += (_, _) => RefreshStatusBar();
         _statusTimer.Start();
         _status.StartMonitoring();
+
+        LiveDrawer.CameraAction += (cameraId, action) => {
+            if (MainWorkArea.Content is Views.LiveView live) {
+                _ = Dispatcher.InvokeAsync(() => live.HandleCameraAction(cameraId, action));
+            }
+        };
     }
 
     private void MainWindow_Loaded(object sender, RoutedEventArgs e) {

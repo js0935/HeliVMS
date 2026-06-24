@@ -7,6 +7,14 @@
             <StackPanel Orientation="Horizontal" Height="28" Margin="4,0,0,0">
                 <StackPanel.ContextMenu>
                     <ContextMenu>
+                        <MenuItem Header="播放" Tag="{Binding CameraId}"
+                                  Click="OnPlayCamera"/>
+                        <MenuItem Header="開始錄影" x:Name="RecMenu"
+                                  Tag="{Binding CameraId}"
+                                  Click="OnToggleRecording"/>
+                        <MenuItem Header="PTZ 控制" Tag="{Binding CameraId}"
+                                  Click="OnOpenPtz"/>
+                        <Separator/>
                         <MenuItem Header="加入我的最愛" x:Name="FavMenu"
                                   Tag="{Binding CameraId}"
                                   Click="OnToggleFavorite"/>

@@ -64,6 +64,9 @@ public partial class CameraTreePanel : UserControl {
     /// <summary>Raised when the panel collapse state changes.</summary>
     public event Action<bool>? CollapseChanged;
 
+    /// <summary>Raised when a camera action is requested from the context menu.</summary>
+    public event Action<string, string>? CameraAction; // (cameraId, action)
+
     public CameraTreePanel() {
         InitializeComponent();
         _cameraService = App.Services.GetRequiredService<ICameraService>();
@@ -205,6 +208,25 @@ public partial class CameraTreePanel : UserControl {
         }
 
         return roots;
+    }
+
+    private void FireCameraAction(string? cameraId, string action) {
+        if (cameraId is not null) CameraAction?.Invoke(cameraId, action);
+    }
+
+    private void OnPlayCamera(object sender, RoutedEventArgs e) {
+        if (sender is MenuItem mi) FireCameraAction(mi.Tag as string, "play");
+    }
+
+    private void OnToggleRecording(object sender, RoutedEventArgs e) {
+        if (sender is MenuItem mi && mi.Tag is string id) {
+            var recording = App.Services.GetRequiredService<IRecordingService>().IsRecording(id);
+            FireCameraAction(id, recording ? "stop_recording" : "start_recording");
+        }
+    }
+
+    private void OnOpenPtz(object sender, RoutedEventArgs e) {
+        if (sender is MenuItem mi) FireCameraAction(mi.Tag as string, "ptz");
     }
 
     private void OnToggleFavorite(object sender, RoutedEventArgs e) {
