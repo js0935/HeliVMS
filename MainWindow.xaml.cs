@@ -40,7 +40,10 @@ public partial class MainWindow : Window {
         _status = App.Services.GetRequiredService<ISystemStatusService>();
         _notifHistory = App.Services.GetRequiredService<NotificationHistoryService>();
 
-        _auth.LoggedOut += () => NavigateToLogin();
+        _auth.LoggedOut += () => {
+            NavigateToLogin();
+            SetSidebarAuthState(false);
+        };
         _auth.SessionExpired += () => Dispatcher.InvokeAsync(() => {
             _auth.Logout();
             ShowToast("閒置超過 30 分鐘，已自動登出", "WARN");
@@ -85,6 +88,7 @@ public partial class MainWindow : Window {
                 _auth.Logout();
             }
             _auth.LoginSucceeded += OnLoginSucceeded;
+            SetSidebarAuthState(false);
             NavigateToLogin();
         } catch (Exception ex) {
             Log.Error(ex, "[HeliVMS] MainWindow_Loaded crashed — forcing login");
@@ -94,6 +98,7 @@ public partial class MainWindow : Window {
 
     private void OnLoginSucceeded(User user) {
         _auth.LoginSucceeded -= OnLoginSucceeded;
+        SetSidebarAuthState(true);
         try {
             var tray = App.Services.GetRequiredService<TrayIconService>();
             tray.Initialize(this);
@@ -211,6 +216,7 @@ public partial class MainWindow : Window {
     }
 
     private void AddCameraMenu_Click(object sender, RoutedEventArgs e) {
+        if (!_auth.IsLoggedIn) { NavigateToLogin(); return; }
         var dialog = new CameraEditDialog();
         dialog.Owner = this;
         if (dialog.ShowDialog() == true) {
@@ -219,6 +225,7 @@ public partial class MainWindow : Window {
     }
 
     private void OnvifScanMenu_Click(object sender, RoutedEventArgs e) {
+        if (!_auth.IsLoggedIn) { NavigateToLogin(); return; }
         var dialog = new OnvifScanDialog();
         dialog.Owner = this;
         dialog.ShowDialog();
@@ -226,16 +233,19 @@ public partial class MainWindow : Window {
     }
 
     private void ToggleFullscreenMenu_Click(object sender, RoutedEventArgs e) {
+        if (!_auth.IsLoggedIn) { NavigateToLogin(); return; }
         if (MainWorkArea.Content is Views.LiveView lv) {
             lv.ToggleFullScreen();
         }
     }
 
     private void ImportCsvMenu_Click(object sender, RoutedEventArgs e) {
+        if (!_auth.IsLoggedIn) { NavigateToLogin(); return; }
         SwitchToDevice();
     }
 
     private void ChannelManagementMenu_Click(object sender, RoutedEventArgs e) {
+        if (!_auth.IsLoggedIn) { NavigateToLogin(); return; }
         SwitchToDevice();
         if (MainWorkArea.Content is DeviceManagementView dv) {
             dv.ShowTab(3);
@@ -243,10 +253,12 @@ public partial class MainWindow : Window {
     }
 
     private void AddFloorMenu_Click(object sender, RoutedEventArgs e) {
+        if (!_auth.IsLoggedIn) { NavigateToLogin(); return; }
         SwitchToEMap();
     }
 
     private void LoadMapMenu_Click(object sender, RoutedEventArgs e) {
+        if (!_auth.IsLoggedIn) { NavigateToLogin(); return; }
         SwitchToEMap();
     }
 
@@ -272,6 +284,7 @@ public partial class MainWindow : Window {
     }
 
     private void BtnLogout_Click(object sender, RoutedEventArgs e) {
+        if (!_auth.IsLoggedIn) return;
         var result = MessageBox.Show("確定要登出？", "登出確認",
             MessageBoxButton.YesNo, MessageBoxImage.Question);
         if (result == MessageBoxResult.Yes) {
@@ -286,6 +299,7 @@ public partial class MainWindow : Window {
     }
 
     private void QuickAddCameraBtn_Click(object sender, RoutedEventArgs e) {
+        if (!_auth.IsLoggedIn) { NavigateToLogin(); return; }
         var dialog = new CameraEditDialog();
         dialog.Owner = this;
         dialog.ShowDialog();
@@ -293,6 +307,7 @@ public partial class MainWindow : Window {
     }
 
     private void SwitchToLive() {
+        if (!_auth.IsLoggedIn) { NavigateToLogin(); return; }
         SelectNavButton(BtnLive);
         ShowDrawer(true);
         LiveDrawer.Visibility = Visibility.Visible;
@@ -303,6 +318,7 @@ public partial class MainWindow : Window {
     }
 
     public void SwitchToLive(DateTime date) {
+        if (!_auth.IsLoggedIn) { NavigateToLogin(); return; }
         SelectNavButton(BtnLive);
         ShowDrawer(true);
         LiveDrawer.Visibility = Visibility.Visible;
@@ -314,6 +330,7 @@ public partial class MainWindow : Window {
     }
 
     private void SwitchToDevice() {
+        if (!_auth.IsLoggedIn) { NavigateToLogin(); return; }
         SelectNavButton(BtnDevice);
         ShowDrawer(true);
         _activeView = "device";
@@ -326,6 +343,7 @@ public partial class MainWindow : Window {
     }
 
     private void SwitchToLicense() {
+        if (!_auth.IsLoggedIn) { NavigateToLogin(); return; }
         SelectNavButton(BtnLicense);
         ShowDrawer(false);
         _activeView = "license";
@@ -334,6 +352,7 @@ public partial class MainWindow : Window {
     }
 
     private void SwitchToSettings() {
+        if (!_auth.IsLoggedIn) { NavigateToLogin(); return; }
         SelectNavButton(BtnSettings);
         ShowDrawer(true);
         _activeView = "settings";
@@ -346,6 +365,7 @@ public partial class MainWindow : Window {
     }
 
     private void SwitchToDashboard() {
+        if (!_auth.IsLoggedIn) { NavigateToLogin(); return; }
         SelectNavButton(BtnDashboard);
         ShowDrawer(false);
         LiveDrawer.Visibility = Visibility.Collapsed;
@@ -356,6 +376,7 @@ public partial class MainWindow : Window {
     }
 
     private void SwitchToEMap() {
+        if (!_auth.IsLoggedIn) { NavigateToLogin(); return; }
         SelectNavButton(BtnEMap);
         ShowDrawer(false);
         LiveDrawer.Visibility = Visibility.Collapsed;
@@ -428,6 +449,14 @@ public partial class MainWindow : Window {
         MainWorkArea.Content = new LoginView();
         ShowDrawer(false);
         Log.Debug("[HeliVMS] Navigated to Login");
+    }
+
+    private void SetSidebarAuthState(bool loggedIn) {
+        foreach (var btn in new[] { BtnLive, BtnDevice, BtnLicense, BtnDashboard, BtnEMap, BtnSettings })
+            btn.IsEnabled = loggedIn;
+        BtnUser.ToolTip = loggedIn
+            ? (_auth.CurrentUser?.Username ?? "使用者")
+            : "未登入 — 請先登入";
     }
 
     private void SelectNavButton(Button selected) {
