@@ -286,6 +286,22 @@ public partial class DynamicCameraGrid : UserControl {
                 IsHitTestVisible = false,
             };
             container.Children.Add(label);
+            var useSub = player.IsUsingSubStream;
+            var streamBadge = new Border {
+                Tag = "StreamBadge",
+                Background = new SolidColorBrush(Color.FromArgb((byte)160, (byte)(useSub ? 96 : 0), (byte)(useSub ? 96 : 128), (byte)(useSub ? 96 : 0))),
+                CornerRadius = new CornerRadius(2),
+                Padding = new Thickness(3, 0, 3, 0),
+                Margin = new Thickness(4, useSub ? 18 : 2, 0, 0),
+                HorizontalAlignment = HorizontalAlignment.Left,
+                VerticalAlignment = VerticalAlignment.Top,
+                Child = new TextBlock {
+                    Text = useSub ? "SD" : "HD",
+                    FontSize = 8,
+                    Foreground = Brushes.White,
+                }
+            };
+            container.Children.Add(streamBadge);
             if (cam.HasPTZ && _cols < 6) {
                 var ptzBadge = new Border {
                     Background = new SolidColorBrush(Color.FromArgb(180, 0x21, 0x96, 0xF3)),
