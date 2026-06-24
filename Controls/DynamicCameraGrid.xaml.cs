@@ -59,6 +59,13 @@ public partial class DynamicCameraGrid : UserControl {
     public DynamicCameraGrid() {
         InitializeComponent();
 
+        // Handle drag-drop at the root Grid level too, so drops work even when
+        // EmptyOverlay (which covers MainGrid in the empty state) is visible.
+        RootGrid.AddHandler(Grid.DragEnterEvent, new DragEventHandler(OnDragEnter));
+        RootGrid.AddHandler(Grid.DragOverEvent, new DragEventHandler(OnDragOver));
+        RootGrid.AddHandler(Grid.DragLeaveEvent, new DragEventHandler(OnDragLeave));
+        RootGrid.AddHandler(Grid.DropEvent, new DragEventHandler(OnDrop));
+
         MainGrid.DragEnter += OnDragEnter;
         MainGrid.DragOver  += OnDragOver;
         MainGrid.DragLeave += OnDragLeave;
@@ -480,6 +487,11 @@ public partial class DynamicCameraGrid : UserControl {
         if (!e.Data.GetDataPresent("CameraId")) return;
         var cameraId = e.Data.GetData("CameraId") as string;
         if (cameraId is null) return;
+
+        // If grid is empty, auto-create first slot
+        if (_activeSlotCount == 0) {
+            SetSlotCount(4);
+        }
 
         int slotIndex = HitTestSlot(e.GetPosition(MainGrid));
         if (slotIndex >= 0 && _maximizedSlot < 0)

@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Windows;
@@ -308,6 +309,48 @@ public partial class EMapView : UserControl {
             RebuildFloorTabs();
             RestoreViewState();
         }
+    }
+
+    // ─── Add Camera to Map (right-click) ───
+
+    private void MapCanvas_ContextMenuOpening(object sender, ContextMenuEventArgs e) {
+        var floor = _emap.CurrentFloor;
+        if (floor is null) return;
+
+        MapContextMenu.Items.Clear();
+
+        var placedIds = new HashSet<string>(floor.Cameras.Select(c => c.CameraId));
+        var available = _cameras.GetAllCameras()
+            .Where(c => c.IsEnabled && !placedIds.Contains(c.Id))
+            .ToList();
+
+        if (available.Count == 0) {
+            MapContextMenu.Items.Add(new MenuItem {
+                Header = "無可用攝影機",
+                IsEnabled = false
+            });
+            return;
+        }
+
+        foreach (var cam in available.OrderBy(c => c.Group).ThenBy(c => c.Name)) {
+            var mi = new MenuItem { Header = $"[{cam.Group ?? "未分組"}] {cam.Name}", Tag = cam.Id };
+            mi.Click += (_, _) => AddCameraToMap(cam.Id);
+            MapContextMenu.Items.Add(mi);
+        }
+    }
+
+    private void AddCameraToMap(string cameraId) {
+        var floor = _emap.CurrentFloor;
+        if (floor is null) return;
+
+        // Place at the center of the visible area
+        var cx = (MapCanvas.ActualWidth / 2 - _emap.Data.OffsetX) / _emap.Data.ZoomLevel;
+        var cy = (MapCanvas.ActualHeight / 2 - _emap.Data.OffsetY) / _emap.Data.ZoomLevel;
+        cx = Math.Max(20, cx);
+        cy = Math.Max(20, cy);
+
+        _emap.SetCameraPosition(cameraId, cx, cy);
+        RebuildCameraIcons();
     }
 
     private void MapCanvas_MouseLeftButtonDown(object sender, MouseButtonEventArgs e) {
