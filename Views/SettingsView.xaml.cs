@@ -6,6 +6,7 @@ using System.Linq;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Media;
 using HeliVMS.Dialog;
 using HeliVMS.Models;
@@ -15,6 +16,7 @@ using Microsoft.Extensions.DependencyInjection;
 namespace HeliVMS.Views;
 
 public partial class SettingsView : UserControl {
+    private readonly IAuthorizationService _auth;
     private readonly IEventService _eventService;
     private readonly ISettingsService _settingsService;
     private readonly ICameraService _cameraService;
@@ -30,7 +32,9 @@ public partial class SettingsView : UserControl {
 
     public SettingsView() {
         InitializeComponent();
+        _auth = App.Services.GetRequiredService<IAuthorizationService>();
         _eventService = App.Services.GetRequiredService<IEventService>();
+        PreviewKeyDown += OnSettingsPreviewKeyDown;
         _settingsService = App.Services.GetRequiredService<ISettingsService>();
         _cameraService = App.Services.GetRequiredService<ICameraService>();
         _brandConfigService = App.Services.GetRequiredService<IBrandConfigService>();
@@ -46,6 +50,15 @@ public partial class SettingsView : UserControl {
             RefreshLog();
             CheckFfmpegStatus();
         };
+    }
+
+    private void OnSettingsPreviewKeyDown(object sender, System.Windows.Input.KeyEventArgs e) {
+        if (e.Key == Key.Tab && e.KeyboardDevice.Modifiers.HasFlag(ModifierKeys.Control)) {
+            var shift = e.KeyboardDevice.Modifiers.HasFlag(ModifierKeys.Shift);
+            var next = shift ? (_currentTab - 1 + 12) % 12 : (_currentTab + 1) % 12;
+            ShowTab(next);
+            e.Handled = true;
+        }
     }
 
     private void TabButton_Click(object sender, RoutedEventArgs e) {
