@@ -1284,6 +1284,7 @@ public partial class VideoPlayer : UserControl {
                 // --- D3D9 path (GPU surface). Falls back to CPU if surface allocation fails. ---
                 if (_d3dImageSurface is not null && _d3dImageSurface.EnsureSize(width, height)) {
                     _d3dImageSurface.PresentFrame(_localFrameBuffer, stride * height, stride);
+                    DragDiag.Write($"[VideoPlayer:{_camera.Name}] FlushPendingFrame: D3D path");
                 } else {
                     // --- Fallback: pre-allocated WriteableBitmap (D3D unavailable) ---
                     if (_decoderBitmap is null ||
@@ -1291,29 +1292,54 @@ public partial class VideoPlayer : UserControl {
                         _decoderBitmap.PixelHeight != height) {
                         _decoderBitmap = new WriteableBitmap(width, height, 96, 96, PixelFormats.Bgra32, null);
                         DecoderFrameImage.Source = _decoderBitmap;
+                        DragDiag.Write($"[VideoPlayer:{_camera.Name}] FlushPendingFrame: new WB {width}x{height}");
                     }
 
                     if (_decoderBitmap is not null) {
                         var dstStride = _decoderBitmap.BackBufferStride;
                         _decoderBitmap.Lock();
                         try {
-                            var src = (byte*)_localFrameBuffer;
-                            if (stride == dstStride) {
-                                Buffer.MemoryCopy(src, (void*)_decoderBitmap.BackBuffer,
-                                    dstStride * height, stride * height);
-                            } else {
+                            // Diagnostics: if trigger file exists, override with red checkerboard to test rendering pipeline
+                            var useTestPattern = File.Exists(@"C:\Users\JS\AppData\Local\HeliVMS\test_pattern");
+                            if (useTestPattern) {
                                 var dst = (byte*)_decoderBitmap.BackBuffer;
-                                var copyLen = Math.Min(stride, dstStride);
                                 for (var y = 0; y < height; y++) {
-                                    Buffer.MemoryCopy(src, dst, copyLen, copyLen);
-                                    src += stride;
-                                    dst += dstStride;
+                                    for (var x = 0; x < width; x++) {
+                                        var off = y * dstStride + x * 4;
+                                        if (off + 3 >= dstStride * height) break;
+                                        bool isRed = (x / 32 + y / 32) % 2 == 0;
+                                        dst[off + 0] = 0;    // B
+                                        dst[off + 1] = 0;    // G
+                                        dst[off + 2] = isRed ? (byte)255 : (byte)0; // R
+                                        dst[off + 3] = 255;  // A
+                                    }
+                                }
+                                DragDiag.Write($"[VideoPlayer:{_camera.Name}] TEST PATTERN RENDERED {width}x{height}");
+                            } else {
+                                var src = (byte*)_localFrameBuffer;
+                                if (stride == dstStride) {
+                                    Buffer.MemoryCopy(src, (void*)_decoderBitmap.BackBuffer,
+                                        dstStride * height, stride * height);
+                                } else {
+                                    var dst = (byte*)_decoderBitmap.BackBuffer;
+                                    var copyLen = Math.Min(stride, dstStride);
+                                    for (var y = 0; y < height; y++) {
+                                        Buffer.MemoryCopy(src, dst, copyLen, copyLen);
+                                        src += stride;
+                                        dst += dstStride;
+                                    }
                                 }
                             }
                             _decoderBitmap.AddDirtyRect(new Int32Rect(0, 0, width, height));
+                            if (_hasShownFirstFrame) {
+                                var firstPixel = *(uint*)_localFrameBuffer;
+                                DragDiag.Write($"[VideoPlayer:{_camera.Name}] FlushPendingFrame: WB rendered stride={stride}/{dstStride} px0=0x{firstPixel:X8}");
+                            }
                         } finally {
                             _decoderBitmap.Unlock();
                         }
+                    } else {
+                        DragDiag.Write($"[VideoPlayer:{_camera.Name}] FlushPendingFrame: WB IS NULL!");
                     }
                 }
                 _renderMissCount = 0;
