@@ -1,4 +1,4 @@
-﻿using System.Collections.Concurrent;
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.IO;
 using System.Threading;
@@ -774,14 +774,22 @@ public partial class PlaybackView : UserControl {
         innerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
         // Selection checkbox indicator
-        innerGrid.Children.Add(new TextBlock {
-            Text = isMultiSelected ? "☑" : "☐",
-            Foreground = isMultiSelected
-                ? new SolidColorBrush(Color.FromArgb(0xFF, 0x21, 0x96, 0xF3))
-                : (Brush)FindResource("SecondaryTextBrush"),
-            FontSize = 10,
-            VerticalAlignment = VerticalAlignment.Center,
-            Margin = new Thickness(0, 0, 4, 0)
+        innerGrid.Children.Add(new Viewbox {
+            Width = 12, Height = 12,
+            Margin = new Thickness(0, 0, 4, 0),
+            Child = new System.Windows.Shapes.Path {
+                Data = isMultiSelected
+                    ? Geometry.Parse("M3,6 L6,9 L11,3")   // check mark
+                    : Geometry.Parse("M2,2 L10,2 L10,10 L2,10 Z"), // empty square
+                Stroke = isMultiSelected
+                    ? (Brush)FindResource("PrimaryBrush")
+                    : (Brush)FindResource("SecondaryTextBrush"),
+                StrokeThickness = 1.5,
+                StrokeStartLineCap = PenLineCap.Round,
+                StrokeEndLineCap = PenLineCap.Round,
+                StrokeLineJoin = PenLineJoin.Round,
+                Fill = isMultiSelected ? (Brush)FindResource("PrimaryBrush") : Brushes.Transparent
+            }
         });
 
         innerGrid.Children.Add(new Border {
@@ -1809,7 +1817,7 @@ public partial class PlaybackView : UserControl {
             row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(60) });
 
             // Indicator dot for master
-            var chText = s.IsMaster ? "★" : $"{s.ChannelNumber:D2}";
+            var chText = s.IsMaster ? "M" : $"{s.ChannelNumber:D2}";
             var chColor = s.IsMaster ? "#FFD700" : "#FFFFFF";
 
             AddPerfCell(row, 0, chText, 9, chColor, HorizontalAlignment.Left);
@@ -2489,7 +2497,7 @@ public partial class PlaybackView : UserControl {
             };
 
             var delBtn = new Button {
-                Content = "✕",
+                Content = "X",
                 FontSize = 7,
                 Width = 14,
                 Height = 14,

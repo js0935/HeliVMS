@@ -73,7 +73,7 @@
                 <!-- Bottom info overlay bar -->
                 <Border x:Name="InfoOverlay"
                         VerticalAlignment="Bottom" Height="28"
-                        Background="#CC000000"
+                        Background="{StaticResource OverlayBrush}"
                         IsHitTestVisible="False"
                         Padding="8,0">
                     <Grid>
@@ -85,11 +85,11 @@
                         </Grid.ColumnDefinitions>
                         <Border x:Name="RecTypeBadge" Grid.Column="0"
                                 Padding="3,1" CornerRadius="2"
-                                Background="#444444" Margin="0,0,4,0"
+                                Background="{StaticResource InputBackgroundBrush}" Margin="0,0,4,0"
                                 Visibility="Collapsed"
                                 IsHitTestVisible="False">
                             <TextBlock x:Name="RecTypeText" FontSize="7"
-                                       Foreground="White" FontWeight="Bold"/>
+                                       Foreground="{StaticResource TextBrush}" FontWeight="Bold"/>
                         </Border>
                         <Border x:Name="SpeedBadge" Grid.Column="1"
                                 Padding="3,1" CornerRadius="2"
@@ -97,20 +97,20 @@
                                 Visibility="Collapsed"
                                 IsHitTestVisible="False">
                             <TextBlock x:Name="SpeedText" FontSize="7"
-                                       Foreground="#FF9800" FontWeight="Bold"/>
+                                       Foreground="{StaticResource WarningBrush}" FontWeight="Bold"/>
                         </Border>
                         <TextBlock x:Name="OverlayText" Grid.Column="2"
                                    Text="" FontSize="11" FontWeight="SemiBold"
-                                   Foreground="White"
+                                   Foreground="{StaticResource TextBrush}"
                                    VerticalAlignment="Center"/>
                         <StackPanel Grid.Column="3" Orientation="Horizontal"
                                     VerticalAlignment="Center">
                             <TextBlock x:Name="TimestampText"
-                                       FontSize="9" Foreground="#AAAAAA"
+                                       FontSize="9" Foreground="{StaticResource SecondaryTextBrush}"
                                        VerticalAlignment="Center" Margin="0,0,6,0"/>
                             <Border x:Name="StatusDot"
                                     Width="7" Height="7" CornerRadius="3.5"
-                                    Background="#666666"
+                                    Background="{StaticResource SecondaryTextBrush}"
                                     VerticalAlignment="Center"/>
                         </StackPanel>
                     </Grid>
@@ -125,7 +125,7 @@
                         IsHitTestVisible="False">
                     <StackPanel Orientation="Horizontal">
                         <TextBlock Text="同步主機" FontSize="8"
-                                   Foreground="White" FontWeight="Bold"/>
+                                   Foreground="{StaticResource TextBrush}" FontWeight="Bold"/>
                     </StackPanel>
                 </Border>
 
@@ -133,55 +133,56 @@
                 <Border x:Name="NoSignalOverlay"
                         VerticalAlignment="Top" HorizontalAlignment="Right"
                         Margin="6" Padding="6,2"
-                        Background="#CCFF4444" CornerRadius="3"
+                        Background="{StaticResource ErrorBrush}" CornerRadius="3"
                         Visibility="Collapsed"
                         IsHitTestVisible="False">
                     <TextBlock Text="無訊號" FontSize="9"
-                               Foreground="White" FontWeight="Bold"/>
+                               Foreground="{StaticResource TextBrush}" FontWeight="Bold"/>
                 </Border>
 
                 <!-- Speed OSD overlay (appears briefly on speed change) -->
                 <Border x:Name="SpeedOSD"
                         VerticalAlignment="Center" HorizontalAlignment="Center"
                         Padding="24,14"
-                        Background="#CC000000" CornerRadius="10"
+                        Background="{StaticResource OverlayBrush}" CornerRadius="10"
                         Visibility="Collapsed"
                         IsHitTestVisible="False">
                     <TextBlock x:Name="SpeedOSText"
                                FontSize="40" FontWeight="Bold"
-                               Foreground="White"/>
+                               Foreground="{StaticResource TextBrush}"/>
                 </Border>
 
                 <!-- Digital zoom overlay -->
                 <Border x:Name="ZoomOverlay"
                         VerticalAlignment="Top" HorizontalAlignment="Left"
                         Margin="6" Padding="4,2"
-                        Background="#AA000000" CornerRadius="3"
+                        Background="{StaticResource OverlayBrush}" CornerRadius="3"
                         Visibility="Collapsed"
                         IsHitTestVisible="True">
                     <StackPanel Orientation="Horizontal">
                         <TextBlock x:Name="ZoomLevelText" Text="1.0x"
-                                   FontSize="10" Foreground="White"
+                                   FontSize="10" Foreground="{StaticResource TextBrush}"
                                    VerticalAlignment="Center" Margin="0,0,4,0"/>
-                        <Button x:Name="ZoomResetBtn" Content="✕"
+                        <Button x:Name="ZoomResetBtn"
                                 FontSize="8" Width="16" Height="16"
                                 Padding="0" BorderThickness="0"
                                 Background="Transparent"
-                                Foreground="#AAAAAA"
                                 Click="ZoomResetBtn_Click"
-                                ToolTip="重設縮放"/>
+                                ToolTip="重設縮放">
+                            <Path Data="{StaticResource IconClose}" Fill="{StaticResource SecondaryTextBrush}" Width="8" Height="8" Stretch="Uniform"/>
+                        </Button>
                     </StackPanel>
                 </Border>
 
                 <!-- Playback progress bar (above InfoOverlay) -->
                 <Border x:Name="ProgressTrack"
                         VerticalAlignment="Bottom" Height="2"
-                        Background="#40FFFFFF"
+                        Background="{StaticResource DividerBrush}"
                         IsHitTestVisible="False"
                         Margin="0,0,0,28">
                     <Border x:Name="ProgressFill"
                             HorizontalAlignment="Left"
-                            Background="#FF4444"/>
+                            Background="{StaticResource ErrorBrush}"/>
                 </Border>
             </Grid>
         </Grid>

@@ -31,7 +31,7 @@
                                   Click="OnRemoveCamera"/>
                     </ContextMenu>
                 </StackPanel.ContextMenu>
-                <Ellipse Width="6" Height="6" Margin="0,0,6,0"
+                <Ellipse Width="8" Height="8" Margin="0,0,6,0"
                          Fill="{Binding ConnectionColor}"
                          VerticalAlignment="Center"/>
                 <Path Data="{Binding IconGeometry}" Fill="{StaticResource TextBrush}"

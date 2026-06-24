@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Windows;
@@ -123,7 +123,7 @@ public partial class PTZControlPanel : UserControl {
             btn.Click += TourSelect_Click;
             sp.Children.Add(btn);
             var delBtn = new Button {
-                Content = "✕",
+                Content = "X",
                 Width = 22, Height = 22,
                 FontSize = 10,
                 Background = System.Windows.Media.Brushes.Transparent,
@@ -245,7 +245,7 @@ public partial class PTZControlPanel : UserControl {
     private async Task StartTourAsync() {
         if (_camera is null || _onvif is null || _selectedTour is null) return;
         _tourRunning = true;
-        StartTourBtn.Content = "⏹ 停止巡航";
+        StartTourBtn.Content = "停止巡航";
         _tourCts = new CancellationTokenSource();
         var ct = _tourCts.Token;
         _ = Task.Run(async () => {

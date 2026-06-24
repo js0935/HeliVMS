@@ -1,4 +1,4 @@
-<!-- ============================================================
+﻿<!-- ============================================================
      HeliVMS - 智慧影像管理系統     禾秝軟體開發團隊 / 代碼設計：洪俊士 / 版本：V1.0.0
      ============================================================ -->
 <UserControl x:Class="HeliVMS.Controls.ChannelManagementPage"
@@ -24,7 +24,7 @@
                 <TextBlock x:Name="ChannelCountText" FontSize="12"
                            Foreground="{StaticResource SecondaryTextBrush}"
                            VerticalAlignment="Center" Margin="12,0,0,0"/>
-                <Button x:Name="AutoAssignBtn" Content="⚡ 一鍵分配 IP"
+                <Button x:Name="AutoAssignBtn" Content="一鍵分配 IP"
                         Style="{StaticResource SecondaryButton}"
                         Height="26" FontSize="11" Padding="10,0"
                         Margin="12,0,0,0" VerticalAlignment="Center"

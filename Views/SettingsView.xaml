@@ -1,4 +1,4 @@
-<!-- ============================================================
+﻿<!-- ============================================================
      HeliVMS - 智慧影像管理系統     禾秝軟體開發團隊 / 代碼設計：洪俊士 / 版本：V1.0.0
      ============================================================ -->
 <UserControl x:Class="HeliVMS.Views.SettingsView"
@@ -686,11 +686,11 @@
                                         Style="{StaticResource SecondaryButton}"
                                         Height="28" FontSize="11" Padding="8,0"
                                         Click="CopyRule_Click"/>
-                                <Button x:Name="EnableAllRulesBtn" Content="✓ 全部啟用"
+                                <Button x:Name="EnableAllRulesBtn" Content="全部啟用"
                                         Style="{StaticResource SecondaryButton}"
                                         Height="28" FontSize="11" Padding="8,0" Margin="4,0,0,0"
                                         Click="EnableAllRules_Click"/>
-                                <Button x:Name="DisableAllRulesBtn" Content="✗ 全部停用"
+                                <Button x:Name="DisableAllRulesBtn" Content="全部停用"
                                         Style="{StaticResource SecondaryButton}"
                                         Height="28" FontSize="11" Padding="8,0" Margin="4,0,0,0"
                                         Click="DisableAllRules_Click"/>
@@ -985,7 +985,7 @@
                                             <TextBox Grid.Column="2" Text="{Binding EndTime}" FontSize="12" MinWidth="60" Margin="4,0" Style="{StaticResource ModernTextBox}"/>
                                             <CheckBox Grid.Column="3" IsChecked="{Binding RecordingEnabled}" Content="錄影" FontSize="12" Margin="8,0"/>
                                             <CheckBox Grid.Column="4" IsChecked="{Binding MotionDetectionEnabled}" Content="偵測" FontSize="12" Margin="8,0"/>
-                                            <Button Grid.Column="5" Content="✕" Width="24" Height="24" FontSize="10"
+                                            <Button Grid.Column="5" Content="X" Width="24" Height="24" FontSize="10"
                                                     Background="Transparent" Foreground="{StaticResource SecondaryTextBrush}"
                                                     BorderThickness="0" Cursor="Hand"/>
                                         </Grid>
@@ -1035,7 +1035,7 @@
                                             <TextBox Grid.Column="2" Text="{Binding Label}" FontSize="12" MinWidth="80" Margin="4,0"
                                                      Background="{StaticResource SurfaceBrush}"
                                                      Foreground="{StaticResource TextBrush}"/>
-                                            <Button Grid.Column="3" Content="✕" Width="24" Height="24" FontSize="10"
+                                            <Button Grid.Column="3" Content="X" Width="24" Height="24" FontSize="10"
                                                     Background="Transparent" Foreground="{StaticResource SecondaryTextBrush}"
                                                     BorderThickness="0" Cursor="Hand"/>
                                         </Grid>

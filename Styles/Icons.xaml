@@ -39,4 +39,7 @@
     <PathGeometry x:Key="IconSnapshot">M9,2 L7.17,4 L4,4 C2.9,4 2,4.9 2,6 L2,18 C2,19.1 2.9,20 4,20 L20,20 C21.1,20 22,19.1 22,18 L22,6 C22,4.9 21.1,4 20,4 L16.83,4 L15,2 Z M12,17 C9.24,17 7,14.76 7,12 C7,9.24 9.24,7 12,7 C14.76,7 17,9.24 17,12 C17,14.76 14.76,17 12,17 Z</PathGeometry>
     <PathGeometry x:Key="IconFolder">M2,6 L2,18 C2,19.1 2.9,20 4,20 L20,20 C21.1,20 22,19.1 22,18 L22,8 C22,6.9 21.1,6 20,6 L12,6 L10,4 L4,4 C2.9,4 2,4.9 2,6 Z</PathGeometry>
     <PathGeometry x:Key="IconStar">M12,17.27 L18.18,21 L16.54,13.97 L22,9.24 L14.81,8.63 L12,2 L9.19,8.63 L2,9.24 L7.46,13.97 L5.82,21 Z</PathGeometry>
+    <PathGeometry x:Key="IconStop">M3,3 L13,3 L13,13 L3,13 Z</PathGeometry>
+    <PathGeometry x:Key="IconRewind">M8,2 L3,8 L8,14 Z M15,2 L10,8 L15,14 Z</PathGeometry>
+    <PathGeometry x:Key="IconFastForward">M8,2 L13,8 L8,14 Z M1,2 L6,8 L1,14 Z</PathGeometry>
 </ResourceDictionary>

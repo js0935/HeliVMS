@@ -30,7 +30,7 @@
     </UserControl.ContextMenu>
 
     <Border x:Name="PlayerBorder"
-            BorderBrush="#2D2D30"
+             BorderBrush="{StaticResource BorderBrush}"
             BorderThickness="1" CornerRadius="4">
         <Border.Effect>
             <DropShadowEffect x:Name="GlowEffect"
@@ -55,7 +55,7 @@
                      Fill="Transparent"
                      VerticalAlignment="Top" HorizontalAlignment="Right"
                      Margin="0,10,40,0"
-                     Stroke="#80000000" StrokeThickness="1"
+                      Stroke="{StaticResource OverlayBrush}" StrokeThickness="1"
                      Visibility="Collapsed"
                      ToolTip="錄影模式"/>
 
@@ -67,9 +67,9 @@
                     Cursor="Hand"
                     Visibility="Collapsed"
                     Click="StreamToggle_Click">
-                <Border Background="#80000000" CornerRadius="3" Padding="6,2">
+                <Border Background="{StaticResource OverlayBrush}" CornerRadius="3" Padding="6,2">
                     <TextBlock x:Name="StreamToggleText" Text="HD"
-                               FontSize="10" FontWeight="Bold" Foreground="White"/>
+                               FontSize="10" FontWeight="Bold" Foreground="{StaticResource TextBrush}"/>
                 </Border>
             </Button>
 
@@ -77,7 +77,7 @@
             <Border x:Name="PtzOverlay"
                     VerticalAlignment="Bottom" HorizontalAlignment="Right"
                     Margin="8" Padding="4"
-                    Background="#80000000" CornerRadius="4"
+                    Background="{StaticResource OverlayBrush}" CornerRadius="4"
                     Visibility="Collapsed">
                 <StackPanel Orientation="Horizontal">
                     <Button x:Name="PtzUp" Content="▲" FontSize="10"
@@ -111,18 +111,18 @@
             <Border x:Name="NameTag" Panel.ZIndex="10"
                     VerticalAlignment="Bottom" HorizontalAlignment="Left"
                     Margin="6" Padding="10,5"
-                    Background="#BB000000" CornerRadius="4"
+                    Background="{StaticResource OverlayBrush}" CornerRadius="4"
                     IsHitTestVisible="False">
                 <StackPanel Orientation="Horizontal">
                     <TextBlock x:Name="CameraNameText"
                                Text=""
                                FontFamily="Segoe UI"
                                FontSize="12" FontWeight="SemiBold"
-                               Foreground="#E1E1E1"/>
+                               Foreground="{StaticResource TextBrush}"/>
                     <TextBlock x:Name="HealthBadge"
                                Margin="6,0,0,0"
                                FontSize="10" FontWeight="Bold"
-                               Foreground="#FF6B35"
+                               Foreground="{StaticResource WarningBrush}"
                                Visibility="Collapsed"/>
                 </StackPanel>
             </Border>
@@ -139,16 +139,17 @@
                                 Background="Transparent" BorderThickness="0"
                                 Cursor="Hand"
                                 Click="SnapshotBtn_Click">
-                            <Path Data="{StaticResource IconSnapshot}" Fill="White" Width="14" Height="14" Stretch="Uniform"/>
+                            <Path Data="{StaticResource IconSnapshot}" Fill="{StaticResource TextBrush}" Width="14" Height="14" Stretch="Uniform"/>
                         </Button>
                     </Border>
                     <Border Background="{StaticResource OverlayBrush}" CornerRadius="3" Margin="2,0">
-                        <Button x:Name="CloseBtn" Content="✕"
+                        <Button x:Name="CloseBtn"
                                 Width="28" Height="28" Padding="0"
                                 Background="Transparent" BorderThickness="0"
-                                Foreground="White" FontSize="14"
                                 Cursor="Hand"
-                                Click="CloseBtn_Click"/>
+                                Click="CloseBtn_Click">
+                            <Path Data="{StaticResource IconClose}" Fill="{StaticResource TextBrush}" Width="12" Height="12" Stretch="Uniform"/>
+                        </Button>
                     </Border>
                 </StackPanel>
             </Grid>
@@ -171,15 +172,15 @@
 
             <!-- Reconnecting overlay (on frozen frame) -->
             <Border x:Name="ReconnectingOverlay" Panel.ZIndex="12"
-                    Background="#CC000000"
+                    Background="{StaticResource OverlayBrush}"
                     Visibility="Collapsed"
                     IsHitTestVisible="False">
                 <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
-                    <TextBlock Text="重新連線中..." Foreground="White"
+                    <TextBlock Text="重新連線中..." Foreground="{StaticResource TextBrush}"
                                FontSize="13" FontWeight="SemiBold"
                                HorizontalAlignment="Center"/>
                     <TextBlock x:Name="ReconnectAttemptText" Text=""
-                               Foreground="#CCFFFFFF" FontSize="10"
+                               Foreground="{StaticResource SecondaryTextBrush}" FontSize="10"
                                Margin="0,4,0,0"
                                HorizontalAlignment="Center"/>
                 </StackPanel>
@@ -206,7 +207,7 @@
             <!-- Digital zoom HUD -->
             <TextBlock x:Name="DecoderZoomHud"
                        FontSize="14" FontWeight="Bold"
-                       Foreground="#B4FFFFFF"
+                       Foreground="{StaticResource TextBrush}"
                        HorizontalAlignment="Center"
                        VerticalAlignment="Bottom"
                        Margin="0,0,0,30"
@@ -217,12 +218,12 @@
             <Border x:Name="InfoOSD" Panel.ZIndex="15"
                     VerticalAlignment="Bottom" HorizontalAlignment="Left"
                     Margin="6,0,0,6" Padding="6,2"
-                    Background="#88000000" CornerRadius="3"
+                    Background="{StaticResource OverlayBrush}" CornerRadius="3"
                     IsHitTestVisible="False"
                     Visibility="Collapsed">
                 <TextBlock x:Name="InfoOSText" Text=""
                            FontSize="10" FontWeight="Normal"
-                           Foreground="#DDFFFFFF"/>
+                           Foreground="{StaticResource TextBrush}"/>
             </Border>
         </Grid>
     </Border>

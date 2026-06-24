@@ -1,4 +1,4 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
 using System.IO;
 using System.IO.Compression;
 using Serilog;
@@ -405,13 +405,13 @@ public partial class SettingsView : UserControl {
         try {
             await Task.Run(() => ValidateAndImportFfmpeg(path));
         } catch (Exception ex) {
-            FfmpegImportStatus.Text = $"✗ {ex.Message}";
+            FfmpegImportStatus.Text = $"{ex.Message}";
             FfmpegImportStatus.Foreground = Brushes.OrangeRed;
             ImportFfmpegBtn.IsEnabled = true;
             return;
         }
 
-        FfmpegImportStatus.Text = "✓ 匯入完成，請重新啟動應用程式";
+        FfmpegImportStatus.Text = "匯入完成，請重新啟動應用程式";
         FfmpegImportStatus.Foreground = Brushes.LimeGreen;
         ImportFfmpegBtn.IsEnabled = true;
         CheckFfmpegStatus();
@@ -578,16 +578,16 @@ public partial class SettingsView : UserControl {
                     recordingService.GetBasePath()));
 
             if (deleted > 0) {
-                PurgeResultText.Text = $"✓ 已清除 {deleted} 個片段，釋放 {freed / (1024.0 * 1024.0):F1} MB";
+                PurgeResultText.Text = $"已清除 {deleted} 個片段，釋放 {freed / (1024.0 * 1024.0):F1} MB";
                 PurgeResultText.Foreground = Brushes.LimeGreen;
             } else {
-                PurgeResultText.Text = "✓ 無需清理";
+                PurgeResultText.Text = "無需清理";
                 PurgeResultText.Foreground = Brushes.LimeGreen;
             }
 
             UpdateCurrentStorageInfo();
         } catch (Exception ex) {
-            PurgeResultText.Text = $"✗ {ex.Message}";
+            PurgeResultText.Text = $"{ex.Message}";
             PurgeResultText.Foreground = Brushes.OrangeRed;
         } finally {
             PurgeNowBtn.IsEnabled = true;
@@ -746,23 +746,23 @@ public partial class SettingsView : UserControl {
             BrandCountText.Text = $"{_brandConfigService.BrandCount} 個品牌 ／ {_brandConfigService.TotalModelCount} 個型號";
 
             if (errors.Length > 0) {
-                BrandUpdateStatusText.Text = $"✗ {errors[0]}";
+                BrandUpdateStatusText.Text = $"{errors[0]}";
                 BrandUpdateStatusText.Foreground = Brushes.OrangeRed;
             } else if (added > 0 || updatedModels > 0) {
                 var parts = new List<string>(2);
                 if (added > 0) parts.Add($"新增 {added} 個品牌");
                 if (updatedModels > 0) parts.Add($"更新 {updatedModels} 個型號資料");
-                BrandUpdateStatusText.Text = $"✓ 更新完成，{string.Join("，", parts)}。共 {_brandConfigService.BrandCount} 個品牌／{_brandConfigService.TotalModelCount} 個型號";
+                BrandUpdateStatusText.Text = $"更新完成，{string.Join("，", parts)}。共 {_brandConfigService.BrandCount} 個品牌／{_brandConfigService.TotalModelCount} 個型號";
                 BrandUpdateStatusText.Foreground = Brushes.LimeGreen;
             } else {
-                BrandUpdateStatusText.Text = $"✓ 已是最新（{_brandConfigService.BrandCount} 個品牌／{_brandConfigService.TotalModelCount} 個型號）";
+                BrandUpdateStatusText.Text = $"已是最新（{_brandConfigService.BrandCount} 個品牌／{_brandConfigService.TotalModelCount} 個型號）";
                 BrandUpdateStatusText.Foreground = Brushes.LimeGreen;
             }
 
             UpdateBrandConfigBtn.IsEnabled = true;
         } catch (Exception ex) {
             Log.Debug("[HeliVMS] BrandConfig update error: {Msg}", ex.Message);
-            BrandUpdateStatusText.Text = $"✗ 更新失敗: {ex.Message}";
+            BrandUpdateStatusText.Text = $"更新失敗: {ex.Message}";
             BrandUpdateStatusText.Foreground = Brushes.OrangeRed;
             UpdateBrandConfigBtn.IsEnabled = true;
         }
@@ -932,7 +932,7 @@ public partial class SettingsView : UserControl {
             RetryDelaySeconds = retryDelay,
         };
         _emailService.SaveSettings(settings);
-        NotificationStatus.Text = "✓ 設定已儲存";
+        NotificationStatus.Text = "設定已儲存";
         NotificationStatus.Foreground = System.Windows.Media.Brushes.LimeGreen;
     }
 
@@ -944,10 +944,10 @@ public partial class SettingsView : UserControl {
         var ok = await _emailService.TestConnectionAsync();
         TestEmailBtn.IsEnabled = true;
         if (ok) {
-            NotificationStatus.Text = "✓ 測試郵件發送成功";
+            NotificationStatus.Text = "測試郵件發送成功";
             NotificationStatus.Foreground = System.Windows.Media.Brushes.LimeGreen;
         } else {
-            NotificationStatus.Text = "✗ 測試郵件發送失敗，請檢查設定";
+            NotificationStatus.Text = "測試郵件發送失敗，請檢查設定";
             NotificationStatus.Foreground = System.Windows.Media.Brushes.OrangeRed;
         }
     }
@@ -1074,11 +1074,11 @@ public partial class SettingsView : UserControl {
         try {
             var path = await Task.Run(() => _backupService.CreateBackup());
             _backupService.CleanupOldBackups();
-            BackupStatusText.Text = $"✓ 備份完成：{Path.GetFileName(path)}";
+            BackupStatusText.Text = $"備份完成：{Path.GetFileName(path)}";
             BackupStatusText.Foreground = Brushes.LimeGreen;
             RefreshBackupList();
         } catch (Exception ex) {
-            BackupStatusText.Text = $"✗ 備份失敗：{ex.Message}";
+            BackupStatusText.Text = $"備份失敗：{ex.Message}";
             BackupStatusText.Foreground = Brushes.OrangeRed;
         } finally {
             CreateBackupBtn.IsEnabled = true;
@@ -1107,12 +1107,12 @@ public partial class SettingsView : UserControl {
             }
 
             await Task.Run(() => _backupService.RestoreBackup(match));
-            BackupStatusText.Text = $"✓ 還原完成：{fileName}";
+            BackupStatusText.Text = $"還原完成：{fileName}";
             BackupStatusText.Foreground = Brushes.LimeGreen;
             MessageBox.Show("設定已還原。部分變更需要重新啟動應用程式方可生效。", "還原完成",
                 MessageBoxButton.OK, MessageBoxImage.Information);
         } catch (Exception ex) {
-            BackupStatusText.Text = $"✗ 還原失敗：{ex.Message}";
+            BackupStatusText.Text = $"還原失敗：{ex.Message}";
             BackupStatusText.Foreground = Brushes.OrangeRed;
         }
     }

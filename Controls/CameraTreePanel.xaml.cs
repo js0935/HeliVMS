@@ -40,11 +40,15 @@ public sealed class CameraTreeGroup : CameraTreeNode { }
 
 /// <summary>Leaf camera node.</summary>
 public sealed class CameraTreeItem : CameraTreeNode {
-    public bool IsConnected { get; set; }
+    bool _isConnected;
+    public bool IsConnected {
+        get => _isConnected;
+        set { _isConnected = value; Notify(nameof(IsConnected)); Notify(nameof(ConnectionColor)); }
+    }
     public string Tooltip { get; set; } = "";
-    public System.Windows.Media.Brush ConnectionColor =>
-        IsConnected ? new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(76, 175, 80))
-                    : new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(244, 67, 54));
+    public Brush ConnectionColor => IsConnected
+        ? (Brush)Application.Current.FindResource("SuccessBrush")
+        : (Brush)Application.Current.FindResource("ErrorBrush");
 }
 
 // ═══════════════════════════════════════════════════════

@@ -1,4 +1,4 @@
-﻿// ============================================================
+// ============================================================
 // HeliVMS - 智慧影像管理系統     禾秝軟體開發團隊 / 代碼設計：洪俊士 / 版本：V1.0.0
 // ============================================================
 
@@ -295,7 +295,7 @@ public partial class CameraEditDialog : Window {
             });
             var user = UsernameBox.Text.Trim();
             var pass = PasswordBox.Password;
-            MessageBox.Show(ok ? $"✓ {ip}:{port} 連線成功" : "✗ 連線失敗，請檢查 IP/Port", "測試結果",
+            MessageBox.Show(ok ? $"{ip}:{port} 連線成功" : "連線失敗，請檢查 IP/Port", "測試結果",
                 MessageBoxButton.OK, ok ? MessageBoxImage.Information : MessageBoxImage.Warning);
         } catch (Exception ex) {
             MessageBox.Show($"連線測試異常：{ex.Message}", "錯誤", MessageBoxButton.OK, MessageBoxImage.Error);

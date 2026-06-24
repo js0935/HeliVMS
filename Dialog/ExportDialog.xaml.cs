@@ -78,11 +78,11 @@ public partial class ExportDialog : Window {
             });
 
             var result = await _exportService.ExportAsync(request, progress);
-            ProgressText.Text = $"✓ 匯出完成：{result}";
+            ProgressText.Text = $"匯出完成：{result}";
             ProgressText.Foreground = System.Windows.Media.Brushes.LimeGreen;
             ExportBtn.Content = "完成";
         } catch (Exception ex) {
-            ProgressText.Text = $"✗ {ex.Message}";
+            ProgressText.Text = $"{ex.Message}";
             ProgressText.Foreground = System.Windows.Media.Brushes.OrangeRed;
             ExportBtn.IsEnabled = true;
         }
