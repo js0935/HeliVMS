@@ -106,6 +106,10 @@
                                     Style="{StaticResource SecondaryButton}"
                                     Height="28" FontSize="11"
                                     Click="ClearLog_Click"/>
+                            <Button Grid.Column="3" Content="匯出 CSV"
+                                    Style="{StaticResource SecondaryButton}"
+                                    Height="28" FontSize="11" Margin="8,0,0,0"
+                                    Click="ExportLogCsv_Click"/>
                         </Grid>
 
                         <!-- Filter row -->

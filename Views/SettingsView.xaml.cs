@@ -242,6 +242,30 @@ public partial class SettingsView : UserControl {
         RefreshLog();
     }
 
+    private void ExportLogCsv_Click(object sender, RoutedEventArgs e) {
+        var events = EventLogGrid.ItemsSource as List<SystemEvent>;
+        if (events is null || events.Count == 0) {
+            MessageBox.Show("無資料可供匯出", "提示", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+        var dlg = new Microsoft.Win32.SaveFileDialog {
+            Title = "匯出系統日誌", Filter = "CSV 檔案 (*.csv)|*.csv",
+            FileName = $"system_log_{DateTime.Now:yyyyMMdd_HHmmss}.csv",
+        };
+        if (dlg.ShowDialog() != true) return;
+        try {
+            using var writer = new StreamWriter(dlg.FileName, false, System.Text.Encoding.UTF8);
+            writer.WriteLine("時間,層級,分類,使用者,來源,訊息");
+            foreach (var evt in events) {
+                var msg = evt.Message.Replace("\"", "\"\"");
+                writer.WriteLine($"{evt.Timestamp:yyyy-MM-dd HH:mm:ss},{evt.Severity},{evt.Category},{evt.User},{evt.Source},\"{msg}\"");
+            }
+            MessageBox.Show($"已匯出 {events.Count} 筆記錄至\n{dlg.FileName}", "匯出完成", MessageBoxButton.OK, MessageBoxImage.Information);
+        } catch (Exception ex) {
+            MessageBox.Show($"匯出失敗：{ex.Message}", "錯誤", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
     private void ClearLog_Click(object sender, RoutedEventArgs e) {
         if (MessageBox.Show("確定清除所有事件日誌？", "確認", MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes) {
             _eventService.ClearEvents();
