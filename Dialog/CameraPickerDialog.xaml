@@ -4,7 +4,7 @@
         Title="{Binding Title, RelativeSource={RelativeSource Self}}"
         Height="400" Width="320"
         WindowStartupLocation="CenterOwner"
-        Background="#1E1E1E" Foreground="#E1E1E1"
+        Background="{StaticResource BackgroundBrush}" Foreground="{StaticResource TextBrush}"
         SnapsToDevicePixels="True">
     <Grid Margin="16">
         <Grid.RowDefinitions>
@@ -13,26 +13,26 @@
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
         <TextBlock Grid.Row="0" Text="{Binding Title, RelativeSource={RelativeSource Self}}"
-                   FontSize="14" FontWeight="SemiBold" Foreground="#CCCCCC" Margin="0,0,0,12"/>
+                   FontSize="14" FontWeight="SemiBold" Foreground="{StaticResource TextBrush}" Margin="0,0,0,12"/>
         <ListBox Grid.Row="1" x:Name="CameraCheckListBox"
-                 Background="#2D2D2D" BorderBrush="#444444"
-                 Foreground="#E1E1E1" FontSize="12">
+                 Background="{StaticResource InputBackgroundBrush}" BorderBrush="{StaticResource BorderBrush}"
+                 Foreground="{StaticResource TextBrush}" FontSize="12">
             <ListBox.ItemTemplate>
                 <DataTemplate>
                     <CheckBox Content="{Binding Name}" IsChecked="{Binding IsChecked}"
-                              FontSize="12" Foreground="#E1E1E1" Margin="4,2"/>
+                              FontSize="12" Foreground="{StaticResource TextBrush}" Margin="4,2"/>
                 </DataTemplate>
             </ListBox.ItemTemplate>
         </ListBox>
         <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
             <Button Content="確定" Padding="16,6" FontSize="12" Width="80"
                     Click="Ok_Click"
-                    Background="#007ACC" Foreground="White"
-                    BorderThickness="0" Cursor="Hand"/>
+                    Style="{StaticResource ModernButton}"
+                    Cursor="Hand"/>
             <Button Content="取消" Padding="16,6" FontSize="12" Width="80" Margin="8,0,0,0"
                     Click="Cancel_Click"
-                    Background="#3D3D3D" Foreground="#E1E1E1"
-                    BorderBrush="#555555" BorderThickness="1" Cursor="Hand"/>
+                    Style="{StaticResource SecondaryButton}"
+                    Cursor="Hand"/>
         </StackPanel>
     </Grid>
 </Window>

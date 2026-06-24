@@ -73,7 +73,7 @@
                         <TextBlock x:Name="StorageUsedPercentText" Text="" FontSize="12" Margin="0,4,0,0"
                                    Foreground="{StaticResource SecondaryTextBrush}"/>
                         <Border x:Name="StorageBarBg" Height="8" CornerRadius="4" Margin="0,6,0,0"
-                                Background="#333333">
+                                Background="{StaticResource SecondarySurfaceBrush}">
                             <Border x:Name="StorageBarFill" Width="0" Height="8" CornerRadius="4"
                                     HorizontalAlignment="Left" Background="{StaticResource PrimaryBrush}"/>
                         </Border>
