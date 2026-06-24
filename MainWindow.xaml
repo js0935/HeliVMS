@@ -47,6 +47,10 @@
                             Style="{StaticResource NavButton}"
                             ToolTip="授權管理"
                             Click="BtnLicense_Click"/>
+                    <Button x:Name="BtnDashboard" Content="📊" Width="45" Height="42" Padding="0"
+                            Style="{StaticResource NavButton}"
+                            ToolTip="系統儀表板"
+                            Click="BtnDashboard_Click"/>
                     <Button x:Name="BtnSettings" Content="⚙" Width="45" Height="42" Padding="0"
                             Style="{StaticResource NavButton}"
                             ToolTip="系統設定"
