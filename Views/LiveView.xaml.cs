@@ -43,6 +43,7 @@ public partial class LiveView : UserControl {
     public string? SelectedTabId => TabBar.CurrentTab?.Id;
     private const int MaxSlots = 64;
     private readonly IBookmarkService _bookmarks = App.Services.GetRequiredService<IBookmarkService>();
+    private readonly ISettingsService _settings = App.Services.GetRequiredService<ISettingsService>();
 
     public LiveView() {
         InitializeComponent();
@@ -114,12 +115,13 @@ public partial class LiveView : UserControl {
             for (int i = 0; i < count; i++)
                 arr[i] = all[i];
 
-            var useSub = count >= 4;
+            var threshold = _settings.Settings.SubStreamThreshold;
+            var useSub = count >= threshold;
             VideoGrid.LoadCameras(arr, useSub);
             foreach (var cam in arr)
                 if (cam is not null)
                     VideoGrid.SetRecordingIndicator(cam.Id, RecordingService.IsRecording(cam.Id));
-            Log.Debug("[LiveView] Loaded {Count}/{Total} cameras into grid (subStream={Sub})", count, all.Count, useSub);
+            Log.Debug("[LiveView] Loaded {Count}/{Total} cameras into grid (subStream={Sub}, threshold={Thresh})", count, all.Count, useSub, threshold);
         } catch (Exception ex) {
             Log.Error(ex, "[LiveView] Failed to load cameras");
         }
