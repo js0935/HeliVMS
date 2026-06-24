@@ -435,7 +435,7 @@ public partial class NxTimeline : UserControl {
                     new Point(x, 8),
                     new Point(x - 5, 4),
                 ]),
-                ToolTip = $"📌 {bm.Note}\n{TimeSpan.FromSeconds(bm.Seconds):hh\\:mm\\:ss}"
+                ToolTip = $"{bm.Note}\n{TimeSpan.FromSeconds(bm.Seconds):hh\\:mm\\:ss}"
             };
             BookmarksCanvas.Children.Add(poly);
 

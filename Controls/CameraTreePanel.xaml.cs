@@ -26,9 +26,9 @@ public abstract class CameraTreeNode : INotifyPropertyChanged {
 
     string _displayName = "";
     public string DisplayName { get => _displayName; set { _displayName = value; Notify(nameof(DisplayName)); } }
-    public string Icon { get; set; } = "";
     public string RtspHint { get; set; } = "";
     public string CameraId { get; set; } = "";
+    public Geometry IconGeometry { get; set; } = Geometry.Parse("M12,2 C6.48,2 2,6.48 2,12 C2,17.52 6.48,22 12,22 C17.52,22 22,17.52 22,12 C22,6.48 17.52,2 12,2 Z");
 
     /// <summary>Child nodes (group nodes only).</summary>
     public ObservableCollection<CameraTreeNode> Children { get; set; } = [];
@@ -162,7 +162,7 @@ public partial class CameraTreePanel : UserControl {
             if (!groups.TryGetValue(groupName, out var group)) {
                 group = new CameraTreeGroup {
                     DisplayName = groupName,
-                    Icon = "📁"
+                    IconGeometry = Geometry.Parse("M2,6 L2,18 C2,19.1 2.9,20 4,20 L20,20 C21.1,20 22,19.1 22,18 L22,8 C22,6.9 21.1,6 20,6 L12,6 L10,4 L4,4 C2.9,4 2,4.9 2,6 Z")
                 };
                 groups[groupName] = group;
             }
@@ -171,7 +171,9 @@ public partial class CameraTreePanel : UserControl {
                 DisplayName = cam.Name ?? cam.Id,
                 RtspHint = cam.RtspUrl,
                 CameraId = cam.Id,
-                Icon = cam.IsFavorite ? "⭐" : "📷",
+                IconGeometry = cam.IsFavorite
+                    ? Geometry.Parse("M12,17.27 L18.18,21 L16.54,13.97 L22,9.24 L14.81,8.63 L12,2 L9.19,8.63 L2,9.24 L7.46,13.97 L5.82,21 Z")
+                    : Geometry.Parse("M3,7 L11,7 L13,5 L15,7 L21,7 L21,19 L3,19 Z M8,13 A4,4 0 1,1 16,13 A4,4 0 1,1 8,13"),
                 IsConnected = cam.IsConnected,
                 Tooltip = $"ID: {cam.Id}\nIP: {cam.IpAddress}\nRTSP: {cam.RtspUrl}\n狀態: {(cam.IsConnected ? "在線" : "離線")}\n群組: {cam.Group ?? "未分組"}"
             });
@@ -187,15 +189,15 @@ public partial class CameraTreePanel : UserControl {
                     c.Name is not null && c.Name.Contains(filter, StringComparison.OrdinalIgnoreCase)).ToList();
             if (favorites.Count > 0) {
                 var favGroup = new CameraTreeGroup {
-                    DisplayName = "⭐ 我的最愛",
-                    Icon = "⭐"
+                    DisplayName = "我的最愛",
+                    IconGeometry = Geometry.Parse("M12,17.27 L18.18,21 L16.54,13.97 L22,9.24 L14.81,8.63 L12,2 L9.19,8.63 L2,9.24 L7.46,13.97 L5.82,21 Z")
                 };
                 foreach (var cam in favorites) {
                     favGroup.Children.Add(new CameraTreeItem {
                         DisplayName = cam.Name ?? cam.Id,
                         RtspHint = cam.RtspUrl,
                         CameraId = cam.Id,
-                        Icon = "⭐",
+                        IconGeometry = Geometry.Parse("M12,17.27 L18.18,21 L16.54,13.97 L22,9.24 L14.81,8.63 L12,2 L9.19,8.63 L2,9.24 L7.46,13.97 L5.82,21 Z"),
                         IsConnected = cam.IsConnected,
                         Tooltip = $"ID: {cam.Id}\nIP: {cam.IpAddress}\nRTSP: {cam.RtspUrl}\n狀態: {(cam.IsConnected ? "在線" : "離線")}\n群組: {cam.Group ?? "未分組"}"
                     });

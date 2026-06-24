@@ -1902,7 +1902,7 @@ public partial class PlaybackView : UserControl {
             if (masterId is not null && count > 1) {
                 var masterPlayer = _activePlayers.FirstOrDefault(p => p.CameraId == masterId);
                 var masterCh = masterPlayer?.ChannelNumber ?? 0;
-                SyncIndicatorText.Text = $"🔄 CH{masterCh:D2} + {count - 1} 路";
+                SyncIndicatorText.Text = $"> CH{masterCh:D2} + {count - 1} 路";
                 SyncIndicator.Visibility = Visibility.Visible;
             } else {
                 SyncIndicator.Visibility = Visibility.Collapsed;

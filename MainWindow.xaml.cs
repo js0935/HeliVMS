@@ -269,11 +269,11 @@ public partial class MainWindow : Window {
         var total = _status.CameraTotalCount;
         var online = _status.CameraOnlineCount;
         var recording = _status.RecordingActiveCount;
-        StatusCameras.Text = $"📷 {online}/{total} 在線 · {recording} 錄影";
+        StatusCameras.Text = $"{online}/{total} 在線 · {recording} 錄影";
         StatusBandwidth.Text = _status.StatusSummary;
-        StatusStorage.Text = $"💾 儲存 {_status.DiskUsagePercent:F1}%";
+        StatusStorage.Text = $"儲存 {_status.DiskUsagePercent:F1}%";
         StatusCpu.Text = $"⚡ CPU {_status.CpuUsagePercent:F1}%";
-        StatusMemory.Text = $"🧠 記憶體 {_status.MemoryUsagePercent:F1}%";
+        StatusMemory.Text = $"記憶體 {_status.MemoryUsagePercent:F1}%";
         StatusTime.Text = DateTime.Now.ToString("HH:mm:ss");
     }
 
