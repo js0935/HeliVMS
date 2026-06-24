@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
@@ -88,7 +89,7 @@ public partial class LiveView : UserControl {
         TabBar.TabsReordered += (_, _) => SaveCurrentTabs();
 
         VideoGrid.SetSlotCount(DefaultGridSize);
-        HighlightLayoutButton(DefaultGridSize);
+        LayoutLabel.Text = DefaultGridSize.ToString();
         Log.Debug("[LiveView] Grid layout set to {Size}x{Size}",
             DefaultGridSize, DefaultGridSize);
 
@@ -219,32 +220,91 @@ public partial class LiveView : UserControl {
         }
     }
 
-    private void Layout_Click(object sender, RoutedEventArgs e) {
-        if (sender is Button { Tag: string tag } && int.TryParse(tag, out var size)) {
-            _currentGridSize = size;
-            VideoGrid.SetSlotCount(size);
-            if (TabBar.CurrentTab is not null)
-                TabBar.MarkDirty(TabBar.CurrentTab.Id);
-            HighlightLayoutButton(size);
-        }
+    private static readonly int[] LayoutSizes = [1, 4, 9, 16, 25, 36, 49, 64];
+    private bool _layoutPopupInitialized;
+
+    private void LayoutToggle_Click(object sender, RoutedEventArgs e) {
+        if (!_layoutPopupInitialized)
+            InitLayoutPopup();
+        LayoutPopup.IsOpen = !LayoutPopup.IsOpen;
     }
 
-    private void HighlightLayoutButton(int size) {
-        var buttons = new[] {
-            (Button)BtnLayout1, (Button)BtnLayout4, (Button)BtnLayout9,
-            (Button)BtnLayout16, (Button)BtnLayout25, (Button)BtnLayout36,
-            (Button)BtnLayout49, (Button)BtnLayout64
+    private void InitLayoutPopup() {
+        _layoutPopupInitialized = true;
+        LayoutPreviewGrid.Children.Clear();
+        foreach (var size in LayoutSizes) {
+            var preview = CreateLayoutPreview(size);
+            preview.Tag = size.ToString();
+            preview.MouseDown += (s, _) => {
+                if (s is Border { Tag: string tag } && int.TryParse(tag, out var sz)) {
+                    ApplyLayout(sz);
+                    LayoutPopup.IsOpen = false;
+                }
+            };
+            LayoutPreviewGrid.Children.Add(preview);
+        }
+        UpdateLayoutHighlight(_currentGridSize);
+    }
+
+    private Border CreateLayoutPreview(int size) {
+        var cols = (int)Math.Sqrt(size);
+        var rows = cols;
+        var inner = new UniformGrid { Columns = cols, Rows = rows };
+        var cellBrush = TryFindResource("SecondaryTextBrush") as Brush ?? Brushes.Gray;
+        var cellDim = new SolidColorBrush(Color.FromArgb(40, 128, 128, 128));
+        for (int i = 0; i < size; i++) {
+            inner.Children.Add(new Border {
+                Background = cellDim,
+                BorderBrush = cellBrush,
+                BorderThickness = new Thickness(0.5),
+                Margin = new Thickness(1),
+            });
+        }
+        var text = new TextBlock {
+            Text = size.ToString(),
+            Foreground = TryFindResource("SecondaryTextBrush") as Brush ?? Brushes.Gray,
+            FontSize = 9,
+            HorizontalAlignment = HorizontalAlignment.Center,
         };
-        var accent = TryFindResource("PrimaryBrush") as System.Windows.Media.Brush;
-        var dim = TryFindResource("SecondaryTextBrush") as System.Windows.Media.Brush;
-        var text = TryFindResource("TextBrush") as System.Windows.Media.Brush;
-        foreach (var btn in buttons) {
-            if (btn.Tag?.ToString() == size.ToString()) {
-                btn.Foreground = accent;
-                btn.FontWeight = FontWeights.Bold;
-            } else {
-                btn.Foreground = dim;
-                btn.FontWeight = FontWeights.Normal;
+        var wrap = new Grid();
+        wrap.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+        wrap.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        Grid.SetRow(inner, 0);
+        Grid.SetRow(text, 1);
+        wrap.Children.Add(inner);
+        wrap.Children.Add(text);
+        return new Border {
+            Child = wrap,
+            Background = TryFindResource("SurfaceBrush") as Brush ?? Brushes.Transparent,
+            BorderThickness = new Thickness(1),
+            BorderBrush = Brushes.Transparent,
+            CornerRadius = new CornerRadius(3),
+            Margin = new Thickness(2),
+            Cursor = Cursors.Hand,
+            Width = 44,
+            Height = 48,
+        };
+    }
+
+    private void ApplyLayout(int size) {
+        _currentGridSize = size;
+        VideoGrid.SetSlotCount(size);
+        if (TabBar.CurrentTab is not null)
+            TabBar.MarkDirty(TabBar.CurrentTab.Id);
+        UpdateLayoutHighlight(size);
+        LayoutLabel.Text = size.ToString();
+    }
+
+    private void UpdateLayoutHighlight(int size) {
+        foreach (var child in LayoutPreviewGrid.Children) {
+            if (child is Border b && b.Tag?.ToString() == size.ToString()) {
+                b.BorderBrush = TryFindResource("PrimaryBrush") as Brush ?? Brushes.DodgerBlue;
+                b.Background = TryFindResource("PrimaryBrush") is Brush pb
+                    ? new SolidColorBrush(pb is SolidColorBrush scb ? Color.FromArgb(30, scb.Color.R, scb.Color.G, scb.Color.B) : Color.FromArgb(30, 30, 136, 229))
+                    : new SolidColorBrush(Color.FromArgb(30, 30, 136, 229));
+            } else if (child is Border b2) {
+                b2.BorderBrush = Brushes.Transparent;
+                b2.Background = TryFindResource("SurfaceBrush") as Brush ?? Brushes.Transparent;
             }
         }
     }
@@ -277,7 +337,9 @@ public partial class LiveView : UserControl {
     private void LoadTabLayout(LayoutTab tab) {
         _currentGridSize = tab.SlotCount;
         VideoGrid.SetSlotCount(tab.SlotCount);
-        HighlightLayoutButton(tab.SlotCount);
+        LayoutLabel.Text = tab.SlotCount.ToString();
+        if (_layoutPopupInitialized)
+            UpdateLayoutHighlight(tab.SlotCount);
         var cameras = CameraService.GetAllCameras();
         var camMap = cameras.ToDictionary(c => c.Id, c => c);
         var arr = new Camera?[tab.CameraIds.Count];

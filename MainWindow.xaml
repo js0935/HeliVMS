@@ -42,18 +42,18 @@
                         <Button.ContextMenu>
                             <ContextMenu Background="{StaticResource SurfaceBrush}" Foreground="{StaticResource TextBrush}"
                                         BorderBrush="{StaticResource BorderBrush}">
-                                <MenuItem Header="新增攝影機" Click="AddCameraMenu_Click">
+                                <MenuItem Header="新增攝影機" InputGestureText="Ctrl+N" Click="AddCameraMenu_Click">
                                     <MenuItem.Icon>
                                         <Path Data="{StaticResource IconPlus}" Fill="{StaticResource TextBrush}" Width="14" Height="14" Stretch="Uniform"/>
                                     </MenuItem.Icon>
                                 </MenuItem>
-                                <MenuItem Header="ONVIF 掃描" Click="OnvifScanMenu_Click">
+                                <MenuItem Header="ONVIF 掃描" InputGestureText="Ctrl+Shift+N" Click="OnvifScanMenu_Click">
                                     <MenuItem.Icon>
                                         <Path Data="{StaticResource IconSearch}" Fill="{StaticResource TextBrush}" Width="14" Height="14" Stretch="Uniform"/>
                                     </MenuItem.Icon>
                                 </MenuItem>
                                 <Separator Background="{StaticResource BorderBrush}"/>
-                                <MenuItem Header="切換全螢幕" Click="ToggleFullscreenMenu_Click">
+                                <MenuItem Header="切換全螢幕" InputGestureText="F11" Click="ToggleFullscreenMenu_Click">
                                     <MenuItem.Icon>
                                         <Path Data="{StaticResource IconFullScreen}" Fill="{StaticResource TextBrush}" Width="14" Height="14" Stretch="Uniform"/>
                                     </MenuItem.Icon>
@@ -71,23 +71,23 @@
                         <Button.ContextMenu>
                             <ContextMenu Background="{StaticResource SurfaceBrush}" Foreground="{StaticResource TextBrush}"
                                         BorderBrush="{StaticResource BorderBrush}">
-                                <MenuItem Header="新增攝影機" Click="AddCameraMenu_Click">
+                                <MenuItem Header="新增攝影機" InputGestureText="Ctrl+N" Click="AddCameraMenu_Click">
                                     <MenuItem.Icon>
                                         <Path Data="{StaticResource IconPlus}" Fill="{StaticResource TextBrush}" Width="14" Height="14" Stretch="Uniform"/>
                                     </MenuItem.Icon>
                                 </MenuItem>
-                                <MenuItem Header="ONVIF 掃描" Click="OnvifScanMenu_Click">
+                                <MenuItem Header="ONVIF 掃描" InputGestureText="Ctrl+Shift+N" Click="OnvifScanMenu_Click">
                                     <MenuItem.Icon>
                                         <Path Data="{StaticResource IconSearch}" Fill="{StaticResource TextBrush}" Width="14" Height="14" Stretch="Uniform"/>
                                     </MenuItem.Icon>
                                 </MenuItem>
-                                <MenuItem Header="匯入 CSV" Click="ImportCsvMenu_Click">
+                                <MenuItem Header="匯入 CSV" InputGestureText="Ctrl+Shift+I" Click="ImportCsvMenu_Click">
                                     <MenuItem.Icon>
                                         <Path Data="{StaticResource IconExport}" Fill="{StaticResource TextBrush}" Width="14" Height="14" Stretch="Uniform"/>
                                     </MenuItem.Icon>
                                 </MenuItem>
                                 <Separator Background="{StaticResource BorderBrush}"/>
-                                <MenuItem Header="頻道管理" Click="ChannelManagementMenu_Click">
+                                <MenuItem Header="頻道管理" InputGestureText="Ctrl+Alt+C" Click="ChannelManagementMenu_Click">
                                     <MenuItem.Icon>
                                         <Path Data="{StaticResource IconSettings}" Fill="{StaticResource TextBrush}" Width="14" Height="14" Stretch="Uniform"/>
                                     </MenuItem.Icon>
@@ -121,12 +121,12 @@
                         <Button.ContextMenu>
                             <ContextMenu Background="{StaticResource SurfaceBrush}" Foreground="{StaticResource TextBrush}"
                                         BorderBrush="{StaticResource BorderBrush}">
-                                <MenuItem Header="新增樓層" Click="AddFloorMenu_Click">
+                                <MenuItem Header="新增樓層" InputGestureText="Ctrl+Shift+F" Click="AddFloorMenu_Click">
                                     <MenuItem.Icon>
                                         <Path Data="{StaticResource IconPlus}" Fill="{StaticResource TextBrush}" Width="14" Height="14" Stretch="Uniform"/>
                                     </MenuItem.Icon>
                                 </MenuItem>
-                                <MenuItem Header="載入地圖" Click="LoadMapMenu_Click">
+                                <MenuItem Header="載入地圖" InputGestureText="Ctrl+Shift+M" Click="LoadMapMenu_Click">
                                     <MenuItem.Icon>
                                         <Path Data="{StaticResource IconMap}" Fill="{StaticResource TextBrush}" Width="14" Height="14" Stretch="Uniform"/>
                                     </MenuItem.Icon>
@@ -144,23 +144,23 @@
                         <Button.ContextMenu>
                             <ContextMenu Background="{StaticResource SurfaceBrush}" Foreground="{StaticResource TextBrush}"
                                         BorderBrush="{StaticResource BorderBrush}">
-                                <MenuItem Header="系統日誌" Click="SubSettingsLog_Click">
+                                <MenuItem Header="系統日誌" InputGestureText="Ctrl+L" Click="SubSettingsLog_Click">
                                     <MenuItem.Icon>
                                         <Path Data="{StaticResource IconInfo}" Fill="{StaticResource TextBrush}" Width="14" Height="14" Stretch="Uniform"/>
                                     </MenuItem.Icon>
                                 </MenuItem>
-                                <MenuItem Header="使用者管理" Click="SubSettingsUser_Click">
+                                <MenuItem Header="使用者管理" InputGestureText="Ctrl+U" Click="SubSettingsUser_Click">
                                     <MenuItem.Icon>
                                         <Path Data="{StaticResource IconUser}" Fill="{StaticResource TextBrush}" Width="14" Height="14" Stretch="Uniform"/>
                                     </MenuItem.Icon>
                                 </MenuItem>
-                                <MenuItem Header="事件規則" Click="SubSettingsEventRules_Click">
+                                <MenuItem Header="事件規則" InputGestureText="Ctrl+R" Click="SubSettingsEventRules_Click">
                                     <MenuItem.Icon>
                                         <Path Data="{StaticResource IconWarning}" Fill="{StaticResource TextBrush}" Width="14" Height="14" Stretch="Uniform"/>
                                     </MenuItem.Icon>
                                 </MenuItem>
                                 <Separator Background="{StaticResource BorderBrush}"/>
-                                <MenuItem Header="全部設定" Click="BtnSettings_Click">
+                                <MenuItem Header="全部設定" InputGestureText="Ctrl+," Click="BtnSettings_Click">
                                     <MenuItem.Icon>
                                         <Path Data="{StaticResource IconSettings}" Fill="{StaticResource PrimaryBrush}" Width="14" Height="14" Stretch="Uniform"/>
                                     </MenuItem.Icon>
@@ -204,24 +204,24 @@
                         <Button.ContextMenu>
                             <ContextMenu Background="{StaticResource SurfaceBrush}" Foreground="{StaticResource TextBrush}"
                                         BorderBrush="{StaticResource BorderBrush}">
-                                <MenuItem Header="使用者管理" Click="SubSettingsUser_Click">
+                                <MenuItem Header="使用者管理" InputGestureText="Ctrl+U" Click="SubSettingsUser_Click">
                                     <MenuItem.Icon>
                                         <Path Data="{StaticResource IconUser}" Fill="{StaticResource TextBrush}" Width="14" Height="14" Stretch="Uniform"/>
                                     </MenuItem.Icon>
                                 </MenuItem>
                                 <Separator Background="{StaticResource BorderBrush}"/>
-                                <MenuItem Header="關於 HeliVMS" Click="BtnAbout_Click">
+                                <MenuItem Header="關於 HeliVMS" InputGestureText="Ctrl+?" Click="BtnAbout_Click">
                                     <MenuItem.Icon>
                                         <Path Data="{StaticResource IconInfo}" Fill="{StaticResource TextBrush}" Width="14" Height="14" Stretch="Uniform"/>
                                     </MenuItem.Icon>
                                 </MenuItem>
                                 <Separator Background="{StaticResource BorderBrush}"/>
-                                <MenuItem Header="登出" Click="BtnLogout_Click">
+                                <MenuItem Header="登出" InputGestureText="Ctrl+Shift+Q" Click="BtnLogout_Click">
                                     <MenuItem.Icon>
                                         <Path Data="{StaticResource IconLogout}" Fill="{StaticResource TextBrush}" Width="14" Height="14" Stretch="Uniform"/>
                                     </MenuItem.Icon>
                                 </MenuItem>
-                                <MenuItem Header="結束" Click="BtnExit_Click">
+                                <MenuItem Header="結束" InputGestureText="Alt+F4" Click="BtnExit_Click">
                                     <MenuItem.Icon>
                                         <Path Data="{StaticResource IconClose}" Fill="{StaticResource ErrorBrush}" Width="14" Height="14" Stretch="Uniform"/>
                                     </MenuItem.Icon>
@@ -286,7 +286,7 @@
                                                        Foreground="{StaticResource SecondaryTextBrush}"
                                                        TextWrapping="Wrap" MaxHeight="32"/>
                                         </StackPanel>
-                                        <Ellipse Grid.Column="1" Width="8" Height="8" Fill="#FF4CAF50"
+                                        <Ellipse Grid.Column="1" Width="8" Height="8" Fill="{StaticResource SuccessBrush}"
                                                  VerticalAlignment="Top" Margin="4,0,0,0">
                                             <Ellipse.Style>
                                                 <Style TargetType="Ellipse">

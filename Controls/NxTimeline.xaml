@@ -1,14 +1,14 @@
 <UserControl x:Class="HeliVMS.Controls.NxTimeline"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             Background="#CC111111"
-             BorderThickness="0,1,0,0" BorderBrush="#33FFFFFF">
+             Background="{StaticResource SurfaceBrush}"
+             BorderThickness="0,1,0,0" BorderBrush="{StaticResource BorderBrush}">
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="*"/>
             <RowDefinition Height="16"/>
         </Grid.RowDefinitions>
-        <Border Grid.Row="0" BorderThickness="0,0,0,1" BorderBrush="#22FFFFFF">
+        <Border Grid.Row="0" BorderThickness="0,0,0,1" BorderBrush="{StaticResource BorderBrush}" Opacity="0.5">
             <Canvas x:Name="CameraRowsCanvas" Background="Transparent"
                     PreviewMouseWheel="Canvas_PreviewMouseWheel"
                     PreviewMouseRightButtonDown="Canvas_PreviewMouseRightButtonDown"
@@ -19,16 +19,16 @@
                     ClipToBounds="True">
                 <Canvas.ContextMenu>
                     <ContextMenu>
-                        <MenuItem Header="放大至選區" Click="CtxZoomToSel"/>
-                        <MenuItem Header="清除選取" Click="CtxClearSel"/>
+                        <MenuItem Header="放大至選區" InputGestureText="Ctrl+Wheel" Click="CtxZoomToSel"/>
+                        <MenuItem Header="清除選取" InputGestureText="Esc" Click="CtxClearSel"/>
                         <Separator/>
-                        <MenuItem Header="匯出選取區段" Click="CtxExportRange"/>
-                        <MenuItem Header="加入書籤" Click="CtxAddBookmark"/>
+                        <MenuItem Header="匯出選取區段" InputGestureText="Ctrl+E" Click="CtxExportRange"/>
+                        <MenuItem Header="加入書籤" InputGestureText="B" Click="CtxAddBookmark"/>
                     </ContextMenu>
                 </Canvas.ContextMenu>
             </Canvas>
         </Border>
-        <Border Grid.Row="1" Background="#1A000000">
+        <Border Grid.Row="1" Background="{StaticResource BackgroundBrush}" Opacity="0.5">
             <Canvas x:Name="TimeScaleCanvas" ClipToBounds="True"
                     PreviewMouseWheel="Scale_PreviewMouseWheel"
                     MouseDown="Scale_MouseDown"/>
@@ -40,14 +40,14 @@
         <Canvas x:Name="BookmarksCanvas" IsHitTestVisible="False" ClipToBounds="True"
                 Grid.RowSpan="2"/>
         <TextBlock x:Name="ZoomLabel" Grid.Row="1" Text="24h"
-                   FontSize="9" Foreground="#88FFFFFF"
+                   FontSize="9" Foreground="{StaticResource SecondaryTextBrush}"
                    HorizontalAlignment="Right" VerticalAlignment="Center"
                    Margin="0,0,4,0" IsHitTestVisible="False"/>
         <Button x:Name="GoLiveBtn" Grid.Row="0" Content="現在"
                 FontSize="9" Padding="6,1" Height="18"
                 HorizontalAlignment="Right" VerticalAlignment="Top"
                 Margin="0,2,4,0" Cursor="Hand"
-                Background="#44000000" Foreground="#CCFFFFFF"
+                Background="{StaticResource OverlayBrush}" Foreground="{StaticResource TextBrush}"
                 BorderThickness="0" Click="GoLiveBtn_Click"/>
     </Grid>
 </UserControl>

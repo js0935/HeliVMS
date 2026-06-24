@@ -45,10 +45,10 @@
                         Height="18" Width="26" FontSize="8" Padding="0"
                         Margin="0,0,4,0" Click="ZoomPreset_Click"
                         Tag="24"/>
-                <Border Background="#AA000000" CornerRadius="3"
+                <Border Background="{StaticResource OverlayBrush}" CornerRadius="3"
                         Padding="6,2" VerticalAlignment="Center">
                     <TextBlock x:Name="ZoomLevelText" Text="24H"
-                               FontSize="9" FontWeight="SemiBold" Foreground="White"/>
+                                FontSize="9" FontWeight="SemiBold" Foreground="{StaticResource TextBrush}"/>
                 </Border>
             </StackPanel>
         </Grid>

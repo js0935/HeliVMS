@@ -10,12 +10,12 @@
                     <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
                 </Style>
             </ContextMenu.Resources>
-            <MenuItem x:Name="CtxSnapshot" Header="拍照" Click="CtxSnapshot_Click">
+            <MenuItem x:Name="CtxSnapshot" Header="拍照" InputGestureText="Ctrl+P" Click="CtxSnapshot_Click">
                 <MenuItem.Icon>
                     <Path Data="{StaticResource IconSnapshot}" Fill="{StaticResource TextBrush}" Width="14" Height="14" Stretch="Uniform"/>
                 </MenuItem.Icon>
             </MenuItem>
-            <MenuItem x:Name="CtxFullscreen" Header="全畫面" Click="CtxFullscreen_Click">
+            <MenuItem x:Name="CtxFullscreen" Header="全畫面" InputGestureText="F11" Click="CtxFullscreen_Click">
                 <MenuItem.Icon>
                     <Path Data="{StaticResource IconFullScreen}" Fill="{StaticResource TextBrush}" Width="14" Height="14" Stretch="Uniform"/>
                 </MenuItem.Icon>
@@ -26,7 +26,7 @@
                 </MenuItem.Icon>
             </MenuItem>
             <Separator Background="{StaticResource BorderBrush}"/>
-            <MenuItem x:Name="CtxBookmark" Header="加入書籤" Click="CtxBookmark_Click">
+            <MenuItem x:Name="CtxBookmark" Header="加入書籤" InputGestureText="B" Click="CtxBookmark_Click">
                 <MenuItem.Icon>
                     <Path Data="{StaticResource IconBookmark}" Fill="{StaticResource TextBrush}" Width="14" Height="14" Stretch="Uniform"/>
                 </MenuItem.Icon>

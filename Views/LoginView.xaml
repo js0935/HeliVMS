@@ -16,7 +16,7 @@
                         Background="{StaticResource PrimaryBrush}"
                         HorizontalAlignment="Center" Margin="0,0,0,10">
                     <Viewbox Width="28" Height="28" Stretch="Uniform">
-                        <Path Data="{StaticResource IconCamera}" Fill="White"/>
+                        <Path Data="{StaticResource IconCamera}" Fill="{StaticResource TextBrush}"/>
                     </Viewbox>
                 </Border>
                 <TextBlock Text="HeliVMS" FontSize="24" FontWeight="Bold"

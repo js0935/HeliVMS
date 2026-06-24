@@ -118,7 +118,7 @@
                                        FontSize="12" VerticalAlignment="Center"/>
 
                             <Border Grid.Row="0" Grid.Column="1" x:Name="ModeContinuous" Width="24" Height="24"
-                                    CornerRadius="4" Background="#FF2196F3" Cursor="Hand"
+                                    CornerRadius="4" Background="{StaticResource RecordingContinuousBrush}" Cursor="Hand"
                                     Margin="4,0" ToolTip="全時錄影（藍色）"
                                     MouseDown="ModeSelector_MouseDown" Tag="Continuous">
                                 <Border x:Name="ModeContinuousBorder" BorderThickness="2"
@@ -126,15 +126,15 @@
                             </Border>
 
                             <Border Grid.Row="0" Grid.Column="2" x:Name="ModeMotion" Width="24" Height="24"
-                                    CornerRadius="4" Background="#FF4CAF50" Cursor="Hand"
-                                    Margin="4,0" ToolTip="位移偵測（綠色）"
+                                    CornerRadius="4" Background="{StaticResource RecordingMotionBrush}" Cursor="Hand"
+                                    Margin="4,0" ToolTip="位移偵測（橘色）"
                                     MouseDown="ModeSelector_MouseDown" Tag="Motion">
                                 <Border x:Name="ModeMotionBorder" BorderThickness="2"
                                         BorderBrush="Transparent" CornerRadius="4"/>
                             </Border>
 
                             <Border Grid.Row="0" Grid.Column="3" x:Name="ModeAlarm" Width="24" Height="24"
-                                    CornerRadius="4" Background="#FFF44336" Cursor="Hand"
+                                    CornerRadius="4" Background="{StaticResource RecordingAlarmBrush}" Cursor="Hand"
                                     Margin="4,0" ToolTip="警報錄影（紅色）"
                                     MouseDown="ModeSelector_MouseDown" Tag="Alarm">
                                 <Border x:Name="ModeAlarmBorder" BorderThickness="2"
@@ -178,23 +178,23 @@
                             <StackPanel Grid.Row="1" Grid.ColumnSpan="8" Orientation="Horizontal"
                                         Margin="0,6,0,0" VerticalAlignment="Center">
                                 <StackPanel Orientation="Horizontal" Margin="0,0,16,0">
-                                    <TextBlock Text="■" FontSize="11" Foreground="#FF2196F3" Margin="0,0,4,0"/>
+                                    <TextBlock Text="■" FontSize="11" Foreground="{StaticResource RecordingContinuousBrush}" Margin="0,0,4,0"/>
                                     <TextBlock FontSize="11" Foreground="{StaticResource SecondaryTextBrush}">
-                                        <Run Foreground="#FF2196F3" Text="全時錄影"/>
+                                        <Run Foreground="{StaticResource RecordingContinuousBrush}" Text="全時錄影"/>
                                         <Run Text="：24小時不間斷錄影"/>
                                     </TextBlock>
                                 </StackPanel>
                                 <StackPanel Orientation="Horizontal" Margin="0,0,16,0">
-                                    <TextBlock Text="■" FontSize="11" Foreground="#FF4CAF50" Margin="0,0,4,0"/>
+                                    <TextBlock Text="■" FontSize="11" Foreground="{StaticResource RecordingMotionBrush}" Margin="0,0,4,0"/>
                                     <TextBlock FontSize="11" Foreground="{StaticResource SecondaryTextBrush}">
-                                        <Run Foreground="#FF4CAF50" Text="位移錄影"/>
+                                        <Run Foreground="{StaticResource RecordingMotionBrush}" Text="位移錄影"/>
                                         <Run Text="：當畫面變動時錄影"/>
                                     </TextBlock>
                                 </StackPanel>
                                 <StackPanel Orientation="Horizontal" Margin="0,0,16,0">
-                                    <TextBlock Text="■" FontSize="11" Foreground="#FFF44336" Margin="0,0,4,0"/>
+                                    <TextBlock Text="■" FontSize="11" Foreground="{StaticResource RecordingAlarmBrush}" Margin="0,0,4,0"/>
                                     <TextBlock FontSize="11" Foreground="{StaticResource SecondaryTextBrush}">
-                                        <Run Foreground="#FFF44336" Text="警報錄影"/>
+                                        <Run Foreground="{StaticResource RecordingAlarmBrush}" Text="警報錄影"/>
                                         <Run Text="：由DI感應器觸發錄影"/>
                                     </TextBlock>
                                 </StackPanel>

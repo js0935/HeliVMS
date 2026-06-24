@@ -109,19 +109,19 @@
                                    Margin="0,0,0,8"/>
                         <CheckBox x:Name="PermDeviceMgmt" Content="設備管理"
                                   Tag="DeviceManagement" Margin="0,2"
-                                  Foreground="White"/>
+                                   Foreground="{StaticResource TextBrush}"/>
                         <CheckBox x:Name="PermPlayback" Content="錄影回放"
                                   Tag="Playback" Margin="0,2"
-                                  Foreground="White"/>
+                                   Foreground="{StaticResource TextBrush}"/>
                         <CheckBox x:Name="PermSystemSettings" Content="系統設定"
                                   Tag="SystemSettings" Margin="0,2"
-                                  Foreground="White"/>
+                                   Foreground="{StaticResource TextBrush}"/>
                         <CheckBox x:Name="PermLicense" Content="授權管理"
                                   Tag="License" Margin="0,2"
-                                  Foreground="White"/>
+                                   Foreground="{StaticResource TextBrush}"/>
                         <CheckBox x:Name="PermPTZ" Content="PTZ 雲台控制"
                                   Tag="PTZControl" Margin="0,2"
-                                  Foreground="White"/>
+                                   Foreground="{StaticResource TextBrush}"/>
                     </StackPanel>
                 </Border>
             </StackPanel>

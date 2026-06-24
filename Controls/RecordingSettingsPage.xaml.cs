@@ -28,7 +28,7 @@ public partial class RecordingSettingsPage : UserControl {
     private static readonly string[] DayNames = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 
     private static readonly Color ColorContinuous = Color.FromRgb(0x21, 0x96, 0xF3);
-    private static readonly Color ColorMotion = Color.FromRgb(0x4C, 0xAF, 0x50);
+    private static readonly Color ColorMotion = Color.FromRgb(0xFF, 0x57, 0x22);
     private static readonly Color ColorAlarm = Color.FromRgb(0xF4, 0x43, 0x36);
     private static readonly Color ColorSmart = Color.FromRgb(0xE9, 0x1E, 0x63);
     private static readonly Color ColorWeighted = Color.FromRgb(0xFF, 0x98, 0x00);
@@ -532,7 +532,7 @@ public partial class RecordingSettingsPage : UserControl {
             ScheduleMode.Weighted => ModeWeightedBorder,
             _ => ModeNoneBorder,
         };
-        sel.BorderBrush = new SolidColorBrush(Color.FromRgb(0xFF, 0xFF, 0xFF));
+        sel.BorderBrush = Brushes.White;
     }
     #endregion
 

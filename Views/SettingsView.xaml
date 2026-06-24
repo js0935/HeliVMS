@@ -220,7 +220,7 @@
                                 Padding="12,6" HorizontalAlignment="Left">
                             <TextBlock x:Name="FontPreviewText"
                                        Text="CH1 攝影機名稱"
-                                       Foreground="White"/>
+                                        Foreground="{StaticResource TextBrush}"/>
                         </Border>
 
                         <Button Content="套用字型設定"

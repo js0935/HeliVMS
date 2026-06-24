@@ -169,7 +169,7 @@
                                                         Visibility="{Binding ChannelVisibility}">
                                                     <TextBlock Text="{Binding DisplayInfo}"
                                                                FontSize="11" FontWeight="Bold"
-                                                               Foreground="White"
+                                                                Foreground="{StaticResource TextBrush}"
                                                                HorizontalAlignment="Center"
                                                                VerticalAlignment="Center"/>
                                                 </Border>

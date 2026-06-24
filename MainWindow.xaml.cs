@@ -74,13 +74,20 @@ public partial class MainWindow : Window {
     }
 
     private void MainWindow_Loaded(object sender, RoutedEventArgs e) {
-        LoadWindowState();
-        UpdateNotifBadge();
-        if (_auth.IsLoggedIn) {
-            RestoreSession();
-            SwitchToLive();
-        } else {
-            _auth.LoginSucceeded += OnLoginSucceeded;
+        try {
+            LoadWindowState();
+            UpdateNotifBadge();
+            Log.Debug("[HeliVMS] MainWindow_Loaded: IsLoggedIn={IsLoggedIn}, User={User}",
+                _auth.IsLoggedIn, _auth.CurrentUser?.Username ?? "(null)");
+            if (_auth.IsLoggedIn) {
+                RestoreSession();
+                SwitchToLive();
+            } else {
+                _auth.LoginSucceeded += OnLoginSucceeded;
+                NavigateToLogin();
+            }
+        } catch (Exception ex) {
+            Log.Error(ex, "[HeliVMS] MainWindow_Loaded crashed — forcing login");
             NavigateToLogin();
         }
     }
@@ -269,7 +276,7 @@ public partial class MainWindow : Window {
             MessageBoxButton.YesNo, MessageBoxImage.Question);
         if (result == MessageBoxResult.Yes) {
             _auth.Logout();
-            Application.Current.Shutdown();
+            NavigateToLogin();
         }
     }
 

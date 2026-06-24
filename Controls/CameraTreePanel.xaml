@@ -37,18 +37,18 @@
                                 <Path Data="{StaticResource IconStar}" Fill="{StaticResource WarningBrush}" Width="14" Height="14" Stretch="Uniform"/>
                             </MenuItem.Icon>
                         </MenuItem>
-                        <MenuItem Header="拍照" Tag="{Binding CameraId}" Click="OnSnapshot">
+                        <MenuItem Header="拍照" InputGestureText="Ctrl+P" Tag="{Binding CameraId}" Click="OnSnapshot">
                             <MenuItem.Icon>
                                 <Path Data="{StaticResource IconSnapshot}" Fill="{StaticResource TextBrush}" Width="14" Height="14" Stretch="Uniform"/>
                             </MenuItem.Icon>
                         </MenuItem>
                         <Separator Background="{StaticResource BorderBrush}"/>
-                        <MenuItem Header="攝影機設定" Tag="{Binding CameraId}" Click="OnCameraSettings">
+                        <MenuItem Header="攝影機設定" InputGestureText="Ctrl+I" Tag="{Binding CameraId}" Click="OnCameraSettings">
                             <MenuItem.Icon>
                                 <Path Data="{StaticResource IconSettings}" Fill="{StaticResource TextBrush}" Width="14" Height="14" Stretch="Uniform"/>
                             </MenuItem.Icon>
                         </MenuItem>
-                        <MenuItem Header="移除" Tag="{Binding CameraId}" Click="OnRemoveCamera">
+                        <MenuItem Header="移除" InputGestureText="Del" Tag="{Binding CameraId}" Click="OnRemoveCamera">
                             <MenuItem.Icon>
                                 <Path Data="{StaticResource IconClose}" Fill="{StaticResource SecondaryTextBrush}" Width="14" Height="14" Stretch="Uniform"/>
                             </MenuItem.Icon>
