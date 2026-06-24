@@ -184,6 +184,7 @@ public partial class MainWindow : Window {
     private void BtnLicense_Click(object sender, RoutedEventArgs e) => SwitchToLicense();
     private void BtnSettings_Click(object sender, RoutedEventArgs e) => SwitchToSettings();
     private void BtnDashboard_Click(object sender, RoutedEventArgs e) => SwitchToDashboard();
+    private void BtnEMap_Click(object sender, RoutedEventArgs e) => SwitchToEMap();
     private void BtnThemeToggle_Click(object sender, RoutedEventArgs e) {
         try {
             App.Services.GetRequiredService<ThemeService>().Toggle();
@@ -393,6 +394,16 @@ public partial class MainWindow : Window {
         _activeView = "dashboard";
         MainWorkArea.Content = new DashboardView();
         Log.Debug("[HeliVMS] Navigated to Dashboard");
+    }
+
+    private void SwitchToEMap() {
+        SelectNavButton(BtnEMap);
+        ShowDrawer(false);
+        LiveDrawer.Visibility = Visibility.Collapsed;
+        SubMenuDrawer.Visibility = Visibility.Collapsed;
+        _activeView = "emap";
+        MainWorkArea.Content = new EMapView();
+        Log.Debug("[HeliVMS] Navigated to EMap");
     }
 
     // ═══════════════════════════════════════════════════════════

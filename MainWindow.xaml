@@ -51,6 +51,10 @@
                             Style="{StaticResource NavButton}"
                             ToolTip="系統儀表板"
                             Click="BtnDashboard_Click"/>
+                    <Button x:Name="BtnEMap" Content="🗺" Width="45" Height="42" Padding="0"
+                            Style="{StaticResource NavButton}"
+                            ToolTip="電子地圖"
+                            Click="BtnEMap_Click"/>
                     <Button x:Name="BtnSettings" Content="⚙" Width="45" Height="42" Padding="0"
                             Style="{StaticResource NavButton}"
                             ToolTip="系統設定"
