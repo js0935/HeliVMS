@@ -27,6 +27,7 @@ public partial class DynamicCameraGrid : UserControl {
 
     private readonly VideoPlayer?[] _slots = new VideoPlayer?[MaxSlots];
     private readonly Camera?[] _slotCameras = new Camera?[MaxSlots];
+    private readonly Grid?[] _containers = new Grid?[MaxSlots];
     private int _rows = 1, _cols = 1;
     private int _activeSlotCount;
     private int _maximizedSlot = -1;
@@ -284,11 +285,17 @@ public partial class DynamicCameraGrid : UserControl {
 
     private void PlacePlayerInCell(VideoPlayer player, int slotIndex) {
         var cam = _slotCameras[slotIndex];
-        var container = new Grid();
-        container.MouseDown += (_, args) => {
-            if (args.ChangedButton == MouseButton.Left)
-                SelectSlot(slotIndex);
-        };
+        var container = _containers[slotIndex];
+        if (container is null) {
+            container = new Grid();
+            container.MouseDown += (_, args) => {
+                if (args.ChangedButton == MouseButton.Left)
+                    SelectSlot(slotIndex);
+            };
+            _containers[slotIndex] = container;
+        }
+        container.Children.Clear();
+        container.Visibility = Visibility.Visible;
         if (cam is not null) {
             var ctx = new ContextMenu();
             var camId = cam.Id;
@@ -310,6 +317,8 @@ public partial class DynamicCameraGrid : UserControl {
         }
         Grid.SetRow(container, slotIndex / _cols);
         Grid.SetColumn(container, slotIndex % _cols);
+        Grid.SetRowSpan(container, 1);
+        Grid.SetColumnSpan(container, 1);
         container.Children.Add(player);
         if (cam is not null) {
             var label = new TextBlock {
@@ -327,7 +336,7 @@ public partial class DynamicCameraGrid : UserControl {
                 Tag = "RecDot",
                 Width = 10, Height = 10,
                 CornerRadius = new CornerRadius(5),
-                Background = new SolidColorBrush(Color.FromArgb(220, 0xFF, 0x33, 0x33)),
+                Background = (Brush)Application.Current.FindResource("ErrorBrush"),
                 HorizontalAlignment = HorizontalAlignment.Right,
                 VerticalAlignment = VerticalAlignment.Top,
                 Margin = new Thickness(0, 6, 6, 0),
@@ -337,7 +346,7 @@ public partial class DynamicCameraGrid : UserControl {
             var useSub = player.IsUsingSubStream;
             var streamBadge = new Border {
                 Tag = "StreamBadge",
-                Background = new SolidColorBrush(Color.FromArgb((byte)160, (byte)(useSub ? 96 : 0), (byte)(useSub ? 96 : 128), (byte)(useSub ? 96 : 0))),
+                Background = (Brush)Application.Current.FindResource("SurfaceBrush"),
                 CornerRadius = new CornerRadius(2),
                 Padding = new Thickness(3, 0, 3, 0),
                 Margin = new Thickness(4, useSub ? 18 : 2, 0, 0),
@@ -346,13 +355,13 @@ public partial class DynamicCameraGrid : UserControl {
                 Child = new TextBlock {
                     Text = useSub ? "SD" : "HD",
                     FontSize = 8,
-                    Foreground = Brushes.White,
+                    Foreground = (Brush)Application.Current.FindResource("TextBrush"),
                 }
             };
             container.Children.Add(streamBadge);
             if (cam.HasPTZ && _cols < 6) {
                 var ptzBadge = new Border {
-                    Background = new SolidColorBrush(Color.FromArgb(180, 0x21, 0x96, 0xF3)),
+                    Background = (Brush)Application.Current.FindResource("RecordingContinuousBrush"),
                     CornerRadius = new CornerRadius(2),
                     Padding = new Thickness(3, 0, 3, 0),
                     Margin = new Thickness(4, 2, 0, 0),
@@ -361,14 +370,14 @@ public partial class DynamicCameraGrid : UserControl {
                     Child = new TextBlock {
                         Text = "PTZ",
                         FontSize = 8,
-                        Foreground = Brushes.White,
+                        Foreground = (Brush)Application.Current.FindResource("TextBrush"),
                     }
                 };
                 container.Children.Add(ptzBadge);
             }
             var speedBadge = new Border {
                 Tag = "SpeedBadge",
-                Background = new SolidColorBrush(Color.FromArgb(160, 0, 0, 0)),
+                Background = (Brush)Application.Current.FindResource("OverlayBrush"),
                 CornerRadius = new CornerRadius(2),
                 Padding = new Thickness(3, 0, 3, 0),
                 Margin = new Thickness(4, 0, 0, 2),
@@ -377,12 +386,12 @@ public partial class DynamicCameraGrid : UserControl {
                 Visibility = Visibility.Collapsed,
                 Child = new TextBlock {
                     FontSize = 8,
-                    Foreground = new SolidColorBrush(Color.FromArgb(200, 0xFF, 0xFF, 0xFF)),
+                    Foreground = (Brush)Application.Current.FindResource("TextBrush"),
                 }
             };
             var timeBadge = new Border {
                 Tag = "TimeBadge",
-                Background = new SolidColorBrush(Color.FromArgb(140, 0, 0, 0)),
+                Background = (Brush)Application.Current.FindResource("OverlayBrush"),
                 CornerRadius = new CornerRadius(2),
                 Padding = new Thickness(4, 0, 4, 0),
                 Margin = new Thickness(0, 0, 4, 2),
@@ -391,7 +400,7 @@ public partial class DynamicCameraGrid : UserControl {
                 Visibility = Visibility.Collapsed,
                 Child = new TextBlock {
                     FontSize = 9,
-                    Foreground = new SolidColorBrush(Color.FromArgb(200, 0xFF, 0xFF, 0xFF)),
+                    Foreground = (Brush)Application.Current.FindResource("TextBrush"),
                 }
             };
             container.Children.Add(timeBadge);
@@ -652,38 +661,36 @@ public partial class DynamicCameraGrid : UserControl {
 
     private void MaximizeSlot(int idx) {
         _maximizedSlot = idx;
-        var target = _slots[idx]!;
 
-        foreach (var child in MainGrid.Children) {
-            if (child is VideoPlayer vp) {
-                if (vp == target) {
-                    Grid.SetRow(vp, 0);
-                    Grid.SetColumn(vp, 0);
-                    Grid.SetRowSpan(vp, _rows);
-                    Grid.SetColumnSpan(vp, _cols);
-                    vp.IsMaximized = true;
-                } else {
-                    vp.Visibility = Visibility.Collapsed;
-                    vp.SuspendVideo();
-                }
-            } else if (child is Border border) {
-                border.Visibility = Visibility.Collapsed;
+        for (int i = 0; i < _activeSlotCount; i++) {
+            var container = _containers[i];
+            if (container is null) continue;
+            if (i == idx) {
+                Grid.SetRow(container, 0);
+                Grid.SetColumn(container, 0);
+                Grid.SetRowSpan(container, _rows);
+                Grid.SetColumnSpan(container, _cols);
+                container.Visibility = Visibility.Visible;
+                if (_slots[i] is not null)
+                    _slots[i]!.IsMaximized = true;
+            } else {
+                container.Visibility = Visibility.Collapsed;
+                _slots[i]?.SuspendVideo();
             }
         }
 
-        if (_slotCameras[idx] is not null)
-            target.SwitchToMainStream();
+        if (_slotCameras[idx] is not null && _slots[idx] is not null)
+            _slots[idx]!.SwitchToMainStream();
     }
 
     private void RestoreLayout() {
         if (_maximizedSlot < 0) return;
+        int prevMax = _maximizedSlot;
         _maximizedSlot = -1;
 
         for (int i = 0; i < _activeSlotCount; i++) {
             var player = _slots[i];
             if (player is not null) {
-                Grid.SetRowSpan(player, 1);
-                Grid.SetColumnSpan(player, 1);
                 PlacePlayerInCell(player, i);
                 player.Visibility = Visibility.Visible;
                 player.IsMaximized = false;
@@ -695,6 +702,9 @@ public partial class DynamicCameraGrid : UserControl {
         RemoveAllPlaceholders();
         for (int i = 0; i < _activeSlotCount; i++)
             if (_slots[i] is null) AddPlaceholder(i);
+
+        if (_slotCameras[prevMax] is not null && _slots[prevMax] is not null)
+            _slots[prevMax]!.SwitchToSubStream();
     }
 
     // ═══════════════════════════════════════════════════

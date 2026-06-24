@@ -263,7 +263,7 @@
                         <ListBox.ItemTemplate>
                             <DataTemplate>
                                  <Border Padding="6" Margin="0,0,0,4"
-                                        CornerRadius="4" Background="#0DFFFFFF"
+                                         CornerRadius="4" Background="{StaticResource SurfaceBrush}"
                                         Tag="{Binding}">
                                      <Border.ContextMenu>
                                          <ContextMenu>
