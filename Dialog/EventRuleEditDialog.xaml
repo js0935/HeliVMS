@@ -69,54 +69,54 @@
                                 <RowDefinition Height="Auto"/>
                                 <RowDefinition Height="Auto"/>
                             </Grid.RowDefinitions>
-                            <TextBlock Grid.Row="0" Grid.Column="0" Text="開始" FontSize="11" Foreground="#999999" VerticalAlignment="Center" Margin="0,0,6,4"/>
+                            <TextBlock Grid.Row="0" Grid.Column="0" Text="開始" FontSize="11" Foreground="{StaticResource SecondaryTextBrush}" VerticalAlignment="Center" Margin="0,0,6,4"/>
                             <TextBox Grid.Row="0" Grid.Column="1" x:Name="TimeStartBox" Text="08:00" FontSize="11" Padding="4,2"
-                                     Background="#2D2D2D" Foreground="#E1E1E1" BorderBrush="#444444" BorderThickness="1" Margin="0,0,0,4"
+                                     Style="{StaticResource ModernTextBox}" Margin="0,0,0,4"
                                      TextChanged="TimeCondition_Changed"/>
-                            <TextBlock Grid.Row="1" Grid.Column="0" Text="結束" FontSize="11" Foreground="#999999" VerticalAlignment="Center" Margin="0,0,6,4"/>
+                            <TextBlock Grid.Row="1" Grid.Column="0" Text="結束" FontSize="11" Foreground="{StaticResource SecondaryTextBrush}" VerticalAlignment="Center" Margin="0,0,6,4"/>
                             <TextBox Grid.Row="1" Grid.Column="1" x:Name="TimeEndBox" Text="18:00" FontSize="11" Padding="4,2"
-                                     Background="#2D2D2D" Foreground="#E1E1E1" BorderBrush="#444444" BorderThickness="1" Margin="0,0,0,4"
+                                     Style="{StaticResource ModernTextBox}" Margin="0,0,0,4"
                                      TextChanged="TimeCondition_Changed"/>
                         </Grid>
                         <WrapPanel Margin="0,4,0,0">
-                            <CheckBox x:Name="DayMon" Content="一" FontSize="11" Foreground="#CCCCCC" Margin="0,0,6,0" IsChecked="True" Checked="DayCheck_Changed" Unchecked="DayCheck_Changed"/>
-                            <CheckBox x:Name="DayTue" Content="二" FontSize="11" Foreground="#CCCCCC" Margin="0,0,6,0" IsChecked="True" Checked="DayCheck_Changed" Unchecked="DayCheck_Changed"/>
-                            <CheckBox x:Name="DayWed" Content="三" FontSize="11" Foreground="#CCCCCC" Margin="0,0,6,0" IsChecked="True" Checked="DayCheck_Changed" Unchecked="DayCheck_Changed"/>
-                            <CheckBox x:Name="DayThu" Content="四" FontSize="11" Foreground="#CCCCCC" Margin="0,0,6,0" IsChecked="True" Checked="DayCheck_Changed" Unchecked="DayCheck_Changed"/>
-                            <CheckBox x:Name="DayFri" Content="五" FontSize="11" Foreground="#CCCCCC" Margin="0,0,6,0" IsChecked="True" Checked="DayCheck_Changed" Unchecked="DayCheck_Changed"/>
-                            <CheckBox x:Name="DaySat" Content="六" FontSize="11" Foreground="#CCCCCC" Margin="0,0,6,0" IsChecked="True" Checked="DayCheck_Changed" Unchecked="DayCheck_Changed"/>
-                            <CheckBox x:Name="DaySun" Content="日" FontSize="11" Foreground="#CCCCCC" IsChecked="True" Checked="DayCheck_Changed" Unchecked="DayCheck_Changed"/>
+                            <CheckBox x:Name="DayMon" Content="一" FontSize="11" Foreground="{StaticResource TextBrush}" Margin="0,0,6,0" IsChecked="True" Checked="DayCheck_Changed" Unchecked="DayCheck_Changed"/>
+                            <CheckBox x:Name="DayTue" Content="二" FontSize="11" Foreground="{StaticResource TextBrush}" Margin="0,0,6,0" IsChecked="True" Checked="DayCheck_Changed" Unchecked="DayCheck_Changed"/>
+                            <CheckBox x:Name="DayWed" Content="三" FontSize="11" Foreground="{StaticResource TextBrush}" Margin="0,0,6,0" IsChecked="True" Checked="DayCheck_Changed" Unchecked="DayCheck_Changed"/>
+                            <CheckBox x:Name="DayThu" Content="四" FontSize="11" Foreground="{StaticResource TextBrush}" Margin="0,0,6,0" IsChecked="True" Checked="DayCheck_Changed" Unchecked="DayCheck_Changed"/>
+                            <CheckBox x:Name="DayFri" Content="五" FontSize="11" Foreground="{StaticResource TextBrush}" Margin="0,0,6,0" IsChecked="True" Checked="DayCheck_Changed" Unchecked="DayCheck_Changed"/>
+                            <CheckBox x:Name="DaySat" Content="六" FontSize="11" Foreground="{StaticResource TextBrush}" Margin="0,0,6,0" IsChecked="True" Checked="DayCheck_Changed" Unchecked="DayCheck_Changed"/>
+                            <CheckBox x:Name="DaySun" Content="日" FontSize="11" Foreground="{StaticResource TextBrush}" IsChecked="True" Checked="DayCheck_Changed" Unchecked="DayCheck_Changed"/>
                         </WrapPanel>
-                        <TextBlock Text="未勾選任何時段或日期 = 不限制" FontSize="9" Foreground="#888888" Margin="0,6,0,0"/>
+                        <TextBlock Text="未勾選任何時段或日期 = 不限制" FontSize="9" Foreground="{StaticResource SecondaryTextBrush}" Margin="0,6,0,0"/>
                     </StackPanel>
                 </Border>
             </StackPanel>
 
             <StackPanel Grid.Column="1" Margin="6,0,0,0">
-                <TextBlock Text="動作" FontSize="12" FontWeight="SemiBold" Foreground="#CCCCCC" Margin="0,0,0,4"/>
+                <TextBlock Text="動作" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource TextBrush}" Margin="0,0,0,4"/>
                 <ListBox x:Name="ActionsList" Height="120"
-                         Background="#2D2D2D" BorderBrush="#444444"
-                         Foreground="#E1E1E1" FontSize="12"
+                         Background="{StaticResource InputBackgroundBrush}" BorderBrush="{StaticResource BorderBrush}"
+                         Foreground="{StaticResource TextBrush}" FontSize="12"
                          SelectionChanged="ActionsList_SelectionChanged"/>
                 <WrapPanel Margin="0,4,0,0">
                     <Button Content="+ 動作" Padding="8,3" FontSize="11"
                             Click="AddAction_Click" Width="65"
-                            Background="#3D3D3D" Foreground="#E1E1E1"
-                            BorderBrush="#555555" BorderThickness="1" Cursor="Hand"/>
+                            Background="{StaticResource SecondarySurfaceBrush}" Foreground="{StaticResource TextBrush}"
+                            BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" Cursor="Hand"/>
                     <Button Content="刪除" Padding="8,3" FontSize="11" Margin="4,0,0,0"
                             Click="RemoveAction_Click"
-                            Background="#3D3D3D" Foreground="#E1E1E1"
-                            BorderBrush="#555555" BorderThickness="1" Cursor="Hand"/>
+                            Background="{StaticResource SecondarySurfaceBrush}" Foreground="{StaticResource TextBrush}"
+                            BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" Cursor="Hand"/>
                     <Button Content="參數" Padding="8,3" FontSize="11" Margin="4,0,0,0"
                             Click="EditActionParams_Click"
-                            Background="#3D3D3D" Foreground="#E1E1E1"
-                            BorderBrush="#555555" BorderThickness="1" Cursor="Hand"/>
+                            Background="{StaticResource SecondarySurfaceBrush}" Foreground="{StaticResource TextBrush}"
+                            BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" Cursor="Hand"/>
                 </WrapPanel>
 
                 <!-- Action params preview -->
-                <Border Background="#252525" BorderBrush="#444444" BorderThickness="1" Margin="0,8,0,0" Padding="8" CornerRadius="4" MinHeight="60">
+                <Border Background="{StaticResource SurfaceBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" Margin="0,8,0,0" Padding="8" CornerRadius="4" MinHeight="60">
                     <TextBlock x:Name="ActionParamsText" Text="選取動作以檢視參數" FontSize="10"
-                               Foreground="#888888" TextWrapping="Wrap"/>
+                               Foreground="{StaticResource SecondaryTextBrush}" TextWrapping="Wrap"/>
                 </Border>
             </StackPanel>
         </Grid>
@@ -124,12 +124,12 @@
         <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
             <Button Content="確定" Padding="16,6" FontSize="12" Width="80"
                     Click="Ok_Click"
-                    Background="#007ACC" Foreground="White"
+                    Background="{StaticResource PrimaryBrush}" Foreground="{StaticResource TextBrush}"
                     BorderThickness="0" Cursor="Hand"/>
             <Button Content="取消" Padding="16,6" FontSize="12" Width="80" Margin="8,0,0,0"
                     Click="Cancel_Click"
-                    Background="#3D3D3D" Foreground="#E1E1E1"
-                    BorderBrush="#555555" BorderThickness="1" Cursor="Hand"/>
+                    Background="{StaticResource SecondarySurfaceBrush}" Foreground="{StaticResource TextBrush}"
+                    BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" Cursor="Hand"/>
         </StackPanel>
     </Grid>
 </Window>

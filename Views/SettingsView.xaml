@@ -216,7 +216,7 @@
 
                         <!-- Preview -->
                         <TextBlock Text="預覽" Style="{StaticResource SectionHeader}" Margin="0,0,0,8"/>
-                        <Border Background="#80000000" CornerRadius="3"
+                        <Border Background="{StaticResource OverlayBrush}" CornerRadius="3"
                                 Padding="12,6" HorizontalAlignment="Left">
                             <TextBlock x:Name="FontPreviewText"
                                        Text="CH1 攝影機名稱"
@@ -252,7 +252,7 @@
                                    TextWrapping="Wrap"
                                    Margin="0,12,0,0"/>
                         <TextBlock Text="啟用後將增加10倍CPU處理器10倍RAM記憶體負載。"
-                                   Foreground="#FFCC4400"
+                                   Foreground="{StaticResource WarningBrush}"
                                    FontSize="11"
                                    FontWeight="SemiBold"
                                    TextWrapping="Wrap"
@@ -771,13 +771,13 @@
 
                             <TextBlock Grid.Row="1" Grid.Column="0" Text="SMTP 主機" VerticalAlignment="Center" FontSize="12"
                                        Foreground="{StaticResource SecondaryTextBrush}"/>
-                            <TextBox x:Name="SmtpHostBox" Grid.Row="1" Grid.Column="1" FontSize="12" Padding="4,3" Margin="8,0,0,4"
-                                     Background="#2D2D2D" Foreground="#E1E1E1" BorderBrush="#444444" BorderThickness="1"/>
+                             <TextBox x:Name="SmtpHostBox" Grid.Row="1" Grid.Column="1" FontSize="12" Padding="4,3" Margin="8,0,0,4"
+                                      Style="{StaticResource ModernTextBox}"/>
 
                             <TextBlock Grid.Row="2" Grid.Column="0" Text="連接埠" VerticalAlignment="Center" FontSize="12"
                                        Foreground="{StaticResource SecondaryTextBrush}"/>
-                            <TextBox x:Name="SmtpPortBox" Grid.Row="2" Grid.Column="1" FontSize="12" Padding="4,3" Margin="8,0,0,4" Width="100" HorizontalAlignment="Left"
-                                     Background="#2D2D2D" Foreground="#E1E1E1" BorderBrush="#444444" BorderThickness="1" Text="587"/>
+                             <TextBox x:Name="SmtpPortBox" Grid.Row="2" Grid.Column="1" FontSize="12" Padding="4,3" Margin="8,0,0,4" Width="100" HorizontalAlignment="Left"
+                                      Style="{StaticResource ModernTextBox}" Text="587"/>
 
                             <TextBlock Grid.Row="3" Grid.Column="0" Text="使用 SSL" VerticalAlignment="Center" FontSize="12"
                                        Foreground="{StaticResource SecondaryTextBrush}"/>
@@ -785,24 +785,24 @@
 
                             <TextBlock Grid.Row="4" Grid.Column="0" Text="使用者名稱" VerticalAlignment="Center" FontSize="12"
                                        Foreground="{StaticResource SecondaryTextBrush}"/>
-                            <TextBox x:Name="SmtpUserBox" Grid.Row="4" Grid.Column="1" FontSize="12" Padding="4,3" Margin="8,0,0,4"
-                                     Background="#2D2D2D" Foreground="#E1E1E1" BorderBrush="#444444" BorderThickness="1"/>
+                             <TextBox x:Name="SmtpUserBox" Grid.Row="4" Grid.Column="1" FontSize="12" Padding="4,3" Margin="8,0,0,4"
+                                      Style="{StaticResource ModernTextBox}"/>
 
                             <TextBlock Grid.Row="5" Grid.Column="0" Text="密碼" VerticalAlignment="Center" FontSize="12"
                                        Foreground="{StaticResource SecondaryTextBrush}"/>
-                            <PasswordBox x:Name="SmtpPassBox" Grid.Row="5" Grid.Column="1" FontSize="12" Padding="4,3" Margin="8,0,0,4"
-                                         Background="#2D2D2D" Foreground="#E1E1E1" BorderBrush="#444444" BorderThickness="1"/>
+                             <PasswordBox x:Name="SmtpPassBox" Grid.Row="5" Grid.Column="1" FontSize="12" Padding="4,3" Margin="8,0,0,4"
+                                          Style="{StaticResource ModernPasswordBox}"/>
 
                             <TextBlock Grid.Row="6" Grid.Column="0" Text="寄件者地址" VerticalAlignment="Center" FontSize="12"
                                        Foreground="{StaticResource SecondaryTextBrush}"/>
-                            <TextBox x:Name="FromAddressBox" Grid.Row="6" Grid.Column="1" FontSize="12" Padding="4,3" Margin="8,0,0,0"
-                                     Background="#2D2D2D" Foreground="#E1E1E1" BorderBrush="#444444" BorderThickness="1"/>
+                             <TextBox x:Name="FromAddressBox" Grid.Row="6" Grid.Column="1" FontSize="12" Padding="4,3" Margin="8,0,0,0"
+                                      Style="{StaticResource ModernTextBox}"/>
                         </Grid>
 
                         <TextBlock Text="預設收件人（多個以逗號或分號分隔）" FontSize="12" Margin="0,8,0,4"
                                    Foreground="{StaticResource SecondaryTextBrush}"/>
-                        <TextBox x:Name="RecipientsBox" FontSize="12" Padding="4,3" Height="60" TextWrapping="Wrap" AcceptsReturn="True"
-                                 Background="#2D2D2D" Foreground="#E1E1E1" BorderBrush="#444444" BorderThickness="1"/>
+                         <TextBox x:Name="RecipientsBox" FontSize="12" Padding="4,3" Height="60" TextWrapping="Wrap" AcceptsReturn="True"
+                                  Style="{StaticResource ModernTextBox}"/>
                     </StackPanel>
                 </Border>
 
@@ -820,12 +820,12 @@
                             </Grid.RowDefinitions>
                             <TextBlock Grid.Row="0" Grid.Column="0" Text="最大重試次數" VerticalAlignment="Center" FontSize="12"
                                        Foreground="{StaticResource SecondaryTextBrush}"/>
-                            <TextBox x:Name="RetryMaxBox" Grid.Row="0" Grid.Column="1" FontSize="12" Padding="4,3" Margin="8,0,0,4" Width="80" HorizontalAlignment="Left"
-                                     Background="#2D2D2D" Foreground="#E1E1E1" BorderBrush="#444444" BorderThickness="1" Text="3"/>
+                             <TextBox x:Name="RetryMaxBox" Grid.Row="0" Grid.Column="1" FontSize="12" Padding="4,3" Margin="8,0,0,4" Width="80" HorizontalAlignment="Left"
+                                      Style="{StaticResource ModernTextBox}" Text="3"/>
                             <TextBlock Grid.Row="1" Grid.Column="0" Text="重試間隔 (秒)" VerticalAlignment="Center" FontSize="12"
                                        Foreground="{StaticResource SecondaryTextBrush}"/>
-                            <TextBox x:Name="RetryDelayBox" Grid.Row="1" Grid.Column="1" FontSize="12" Padding="4,3" Margin="8,0,0,0" Width="80" HorizontalAlignment="Left"
-                                     Background="#2D2D2D" Foreground="#E1E1E1" BorderBrush="#444444" BorderThickness="1" Text="30"/>
+                             <TextBox x:Name="RetryDelayBox" Grid.Row="1" Grid.Column="1" FontSize="12" Padding="4,3" Margin="8,0,0,0" Width="80" HorizontalAlignment="Left"
+                                      Style="{StaticResource ModernTextBox}" Text="30"/>
                         </Grid>
                     </StackPanel>
                 </Border>
