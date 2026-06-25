@@ -937,18 +937,25 @@ public partial class SettingsView : UserControl {
     }
 
     private async void TestEmail_Click(object sender, RoutedEventArgs e) {
-        TestEmailBtn.IsEnabled = false;
-        NotificationStatus.Text = "正在測試郵件發送...";
-        NotificationStatus.Foreground = TryFindResource("SecondaryTextBrush") as Brush ?? System.Windows.Media.Brushes.Gray;
+        try {
+            TestEmailBtn.IsEnabled = false;
+            NotificationStatus.Text = "正在測試郵件發送...";
+            NotificationStatus.Foreground = TryFindResource("SecondaryTextBrush") as Brush ?? System.Windows.Media.Brushes.Gray;
 
-        var ok = await _emailService.TestConnectionAsync();
-        TestEmailBtn.IsEnabled = true;
-        if (ok) {
-            NotificationStatus.Text = "測試郵件發送成功";
-            NotificationStatus.Foreground = System.Windows.Media.Brushes.LimeGreen;
-        } else {
-            NotificationStatus.Text = "測試郵件發送失敗，請檢查設定";
+            var ok = await _emailService.TestConnectionAsync();
+            TestEmailBtn.IsEnabled = true;
+            if (ok) {
+                NotificationStatus.Text = "測試郵件發送成功";
+                NotificationStatus.Foreground = System.Windows.Media.Brushes.LimeGreen;
+            } else {
+                NotificationStatus.Text = "測試郵件發送失敗，請檢查設定";
+                NotificationStatus.Foreground = System.Windows.Media.Brushes.OrangeRed;
+            }
+        } catch (Exception ex) {
+            TestEmailBtn.IsEnabled = true;
+            NotificationStatus.Text = $"測試郵件發送異常: {ex.Message}";
             NotificationStatus.Foreground = System.Windows.Media.Brushes.OrangeRed;
+            System.Diagnostics.Debug.WriteLine($"[HeliVMS] TestEmail error: {ex}");
         }
     }
     #endregion

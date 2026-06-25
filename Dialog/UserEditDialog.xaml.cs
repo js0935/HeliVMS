@@ -207,7 +207,7 @@ public partial class UserEditDialog : Window {
                 TwoFactorSecret = _existingUser.TwoFactorSecret,
                 Permissions = userPermissions
             };
-            Password = string.IsNullOrEmpty(password) ? null! : password;
+            Password = password;
         } else {
             User = new User {
                 Username = username,
@@ -217,10 +217,6 @@ public partial class UserEditDialog : Window {
                 Permissions = userPermissions
             };
             Password = password;
-
-            if (string.IsNullOrEmpty(password)) {
-                Password = null!;
-            }
         }
 
         DialogResult = true;

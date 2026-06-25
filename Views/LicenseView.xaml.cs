@@ -40,19 +40,18 @@ public partial class LicenseView : UserControl {
 
             if (!string.IsNullOrEmpty(lic.InvalidationReason)) {
                 LicenseStatusText.Text = lic.InvalidationReason;
-                LicenseStatusText.Foreground =
-                    new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0xF4, 0x43, 0x36));
+                LicenseStatusText.Foreground = FindResource("ErrorBrush") as System.Windows.Media.Brush
+                    ?? new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0xF4, 0x43, 0x36));
             } else if (lic.IsValid) {
                 LicenseStatusText.Text = lic.IsExpired ? "已過期" : "已授權";
-                LicenseStatusText.Foreground =
-                    new System.Windows.Media.SolidColorBrush(
-                        lic.IsExpired
-                            ? System.Windows.Media.Color.FromRgb(0xFF, 0xA5, 0x00)
-                            : System.Windows.Media.Color.FromRgb(0x4C, 0xAF, 0x50));
+                var statusBrush = lic.IsExpired
+                    ? FindResource("WarningBrush") as System.Windows.Media.Brush
+                    : FindResource("SuccessBrush") as System.Windows.Media.Brush;
+                LicenseStatusText.Foreground = statusBrush;
             } else {
                 LicenseStatusText.Text = "未授權";
-                LicenseStatusText.Foreground =
-                    new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0xF4, 0x43, 0x36));
+                LicenseStatusText.Foreground = FindResource("ErrorBrush") as System.Windows.Media.Brush
+                    ?? new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0xF4, 0x43, 0x36));
             }
         } catch (Exception ex) {
             Log.Debug("[HeliVMS] LoadLicense error: {Msg}", ex.Message);

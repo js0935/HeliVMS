@@ -41,7 +41,7 @@ public partial class RecordingSettingsPage : UserControl {
     private static readonly Brush BrushSmart = FreezeBrush(new SolidColorBrush(ColorSmart));
     private static readonly Brush BrushWeighted = FreezeBrush(new SolidColorBrush(ColorWeighted));
     private static readonly Brush BrushNone = FreezeBrush(new SolidColorBrush(ColorNone));
-    private static readonly Brush CellBorderBrush = FreezeBrush(new SolidColorBrush(Color.FromArgb(40, 255, 255, 255)));
+    private static readonly Brush CellBorderBrush = FreezeBrush(new SolidColorBrush(Color.FromArgb(40, 255, 255, 255))); // BorderBrush at ~15% opacity
 
     private static SolidColorBrush FreezeBrush(SolidColorBrush b) { b.Freeze(); return b; }
 
@@ -77,10 +77,10 @@ public partial class RecordingSettingsPage : UserControl {
 
     private void OnLoaded(object sender, RoutedEventArgs e) {
         // Cache resource lookups once (avoid FindResource in loops)
-        _resSecondarySurface = FindResource("SecondarySurfaceBrush") as Brush ?? Brushes.DimGray;
-        _resBorder = FindResource("BorderBrush") as Brush ?? Brushes.Gray;
-        _resText = FindResource("TextBrush") as Brush ?? Brushes.White;
-        _resSecondaryText = FindResource("SecondaryTextBrush") as Brush ?? Brushes.Gray;
+        _resSecondarySurface = TryFindResource("SecondarySurfaceBrush") as Brush ?? Application.Current?.TryFindResource("SecondarySurfaceBrush") as Brush ?? Brushes.DimGray;
+        _resBorder = TryFindResource("BorderBrush") as Brush ?? Application.Current?.TryFindResource("BorderBrush") as Brush ?? Brushes.Gray;
+        _resText = TryFindResource("TextBrush") as Brush ?? Application.Current?.TryFindResource("TextBrush") as Brush ?? Brushes.White;
+        _resSecondaryText = TryFindResource("SecondaryTextBrush") as Brush ?? Application.Current?.TryFindResource("SecondaryTextBrush") as Brush ?? Brushes.Gray;
 
         LoadCameras();
         SelectMode(ScheduleMode.Continuous);

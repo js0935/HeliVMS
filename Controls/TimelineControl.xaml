@@ -1,9 +1,9 @@
-<UserControl x:Class="HeliVMS.Controls.TimelineControl"
+﻿<UserControl x:Class="HeliVMS.Controls.TimelineControl"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:local="clr-namespace:HeliVMS.Controls">
-    <Border Background="{StaticResource SurfaceBrush}"
-            BorderBrush="{StaticResource BorderBrush}"
+    <Border Background="{DynamicResource SurfaceBrush}"
+            BorderBrush="{DynamicResource BorderBrush}"
             BorderThickness="1" CornerRadius="4">
         <Grid>
             <ScrollViewer x:Name="TimelineScroller"
@@ -45,10 +45,10 @@
                         Height="18" Width="26" FontSize="8" Padding="0"
                         Margin="0,0,4,0" Click="ZoomPreset_Click"
                         Tag="24"/>
-                <Border Background="{StaticResource OverlayBrush}" CornerRadius="3"
+                <Border Background="{DynamicResource OverlayBrush}" CornerRadius="3"
                         Padding="6,2" VerticalAlignment="Center">
                     <TextBlock x:Name="ZoomLevelText" Text="24H"
-                                FontSize="9" FontWeight="SemiBold" Foreground="{StaticResource TextBrush}"/>
+                                FontSize="9" FontWeight="SemiBold" Foreground="{DynamicResource TextBrush}"/>
                 </Border>
             </StackPanel>
         </Grid>

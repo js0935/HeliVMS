@@ -1,4 +1,4 @@
-<Window x:Class="HeliVMS.Dialog.InputDialog"
+﻿<Window x:Class="HeliVMS.Dialog.InputDialog"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="輸入"
@@ -7,7 +7,7 @@
         WindowStartupLocation="CenterOwner"
         ResizeMode="NoResize"
         ShowInTaskbar="False"
-        Background="{StaticResource BackgroundBrush}">
+        Background="{DynamicResource BackgroundBrush}">
     <Window.Resources>
         <ResourceDictionary>
             <ResourceDictionary.MergedDictionaries>
@@ -23,7 +23,7 @@
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
         <TextBlock Grid.Row="0" x:Name="PromptText" Text="請輸入："
-                   Foreground="{StaticResource TextBrush}" FontSize="13" Margin="0,0,0,8"/>
+                   Foreground="{DynamicResource TextBrush}" FontSize="13" Margin="0,0,0,8"/>
         <TextBox Grid.Row="1" x:Name="InputBox" Style="{StaticResource ModernTextBox}"
                  VerticalAlignment="Top" AcceptsReturn="True"
                  TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"/>

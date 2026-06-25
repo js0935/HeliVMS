@@ -38,6 +38,7 @@ This project uses **全自主模式** — the agent should:
 - **MainWindow_Loaded 加入 try-catch 診斷日誌**
 - **登入畫面強制顯示**：清除殘留 session 不再跳過登入
 - **Flyleaf 硬體加速連結設定**：VideoAcceleration 與 FFmpeg HwDeviceType 跟隨 AppSettings.EnableHardwareAcceleration
+- **全域主題系統 (Global Theme Layer)**：Styles.xaml 全數 StaticResource→DynamicResource；新增 UserControl/Window/TextBlock 隱式樣式 + 12 個 BasedOn 隱式樣式；ColorsLight.xaml 補齊缺少的 9 個 Brush；移除 14 個 View/Control 的 local merged dictionaries — 所有頁面/按鈕/選單/對話框自動套用深色主題
 - **NotificationsPanel/LayoutTabBar/NxTimeline/TimelineControl/SettingsView/ChannelManagementPage/UserEditDialog 等全面硬編碼色碼清理**
 - **NxTimeline 錄影類型色碼改從 Colors.xaml 資源載入（含 fallback）**
 - **PlaybackPlayer 殘留色碼置換 + Session 還原加入完整診斷日誌**
@@ -51,19 +52,9 @@ This project uses **全自主模式** — the agent should:
 - 使用者回報 **設備管理（DeviceManagementView）無法管理攝影機** — 需檢視執行時期行為，目前無法透過靜態分析重現
 
 ## UI 視覺一致性規範（所有新視窗 / 對話框強制遵守）
-1. **XAML 頂層引入全域樣式**：每個 `<Window>` 或 `<UserControl>` 的 `<X.Resources>` 內第一時間引入樣式字典：
-   ```xml
-   <Window.Resources>
-       <ResourceDictionary>
-           <ResourceDictionary.MergedDictionaries>
-               <ResourceDictionary Source="pack://application:,,,/Styles/Colors.xaml"/>
-               <ResourceDictionary Source="pack://application:,,,/Styles/Styles.xaml"/>
-           </ResourceDictionary.MergedDictionaries>
-       </ResourceDictionary>
-   </Window.Resources>
-   ```
-2. **嚴格禁止 Hardcode 任何 Color 或 Brush**：視窗背景 → `{DynamicResource MainBackgroundBrush}`、文字 → `{DynamicResource PrimaryTextBrush}`、按鈕 → `{StaticResource ModernButton}`，絕不寫 `Background="White"` 或 `BorderBrush="Gray"`。
-3. **對話框基底對齊**：`WindowStyle="None"`、`AllowsTransparency="True"`（如需圓角陰影）、`WindowStartupLocation="CenterOwner"`，維持暗色調懸浮彈窗風格。
+0. **全域主題自動生效**：`Styles.xaml` 已定義 `UserControl`/`Window`/`TextBlock` + 12 種控制項的隱式樣式，所有頁面/對話框自動套用深色主題，**不需手動合併 Colors.xaml 或設定 Foreground/Background**。
+1. **嚴格禁止 Hardcode 任何 Color 或 Brush**：視窗背景 → `{DynamicResource BackgroundBrush}`、文字 → `{DynamicResource TextBrush}`、按鈕 → `{StaticResource ModernButton}`，絕不寫 `Background="White"` 或 `BorderBrush="Gray"`。
+2. **對話框基底對齊**：`WindowStyle="None"`、`AllowsTransparency="True"`（如需圓角陰影）、`WindowStartupLocation="CenterOwner"`，維持暗色調懸浮彈窗風格。
 
 ## 關鍵決策 (Key Decisions)
 - **Nx Witness 側欄 vs 頂部分頁列**：保留 48px 窄側欄設計，搭配 ContextMenu 快速操作捷徑

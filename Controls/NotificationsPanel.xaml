@@ -1,29 +1,29 @@
-<UserControl x:Class="HeliVMS.Controls.NotificationsPanel"
+﻿<UserControl x:Class="HeliVMS.Controls.NotificationsPanel"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             Background="{StaticResource BackgroundBrush}">
+             Background="{DynamicResource BackgroundBrush}">
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
-        <Border Grid.Row="0" Padding="8,6" BorderThickness="0,0,0,1" BorderBrush="{StaticResource BorderBrush}">
+        <Border Grid.Row="0" Padding="8,6" BorderThickness="0,0,0,1" BorderBrush="{DynamicResource BorderBrush}">
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
                 <TextBlock Text="通知" FontSize="12" FontWeight="SemiBold"
-                           Foreground="{StaticResource TextBrush}" VerticalAlignment="Center"/>
+                           Foreground="{DynamicResource TextBrush}" VerticalAlignment="Center"/>
                 <StackPanel Grid.Column="1" Orientation="Horizontal">
                     <Button Content="全部已讀" FontSize="10" Height="20" Padding="6,0"
                             Background="Transparent" BorderThickness="0"
-                            Foreground="{StaticResource SecondaryTextBrush}" Cursor="Hand"
+                            Foreground="{DynamicResource SecondaryTextBrush}" Cursor="Hand"
                             Click="MarkAllRead_Click"/>
                     <Button Content="×" Width="20" Height="20" FontSize="12" Padding="0"
                             Background="Transparent" BorderThickness="0"
-                            Foreground="{StaticResource SecondaryTextBrush}" Cursor="Hand" Margin="4,0,0,0"
+                            Foreground="{DynamicResource SecondaryTextBrush}" Cursor="Hand" Margin="4,0,0,0"
                             Click="ClosePanel_Click"/>
                 </StackPanel>
             </Grid>
@@ -34,7 +34,7 @@
             <ListBox.ItemTemplate>
                 <DataTemplate>
                     <Border Padding="6" Margin="0,0,0,2"
-                            CornerRadius="3" Background="{StaticResource SurfaceBrush}" Opacity="0.05">
+                            CornerRadius="3" Background="{DynamicResource SurfaceBrush}" Opacity="0.05">
                         <Grid>
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*"/>
@@ -42,13 +42,13 @@
                             </Grid.ColumnDefinitions>
                             <StackPanel>
                                 <TextBlock Text="{Binding Timestamp, StringFormat=\{0:MM/dd HH:mm:ss\}}"
-                                           FontSize="9" Foreground="{StaticResource SecondaryTextBrush}"/>
+                                           FontSize="9" Foreground="{DynamicResource SecondaryTextBrush}"/>
                                 <TextBlock Text="{Binding Title}" FontSize="11" FontWeight="SemiBold"
-                                           Foreground="{StaticResource TextBrush}" TextWrapping="Wrap"/>
+                                           Foreground="{DynamicResource TextBrush}" TextWrapping="Wrap"/>
                                 <TextBlock Text="{Binding Message}" FontSize="10"
-                                           Foreground="{StaticResource SecondaryTextBrush}" TextWrapping="Wrap" MaxHeight="24"/>
+                                           Foreground="{DynamicResource SecondaryTextBrush}" TextWrapping="Wrap" MaxHeight="24"/>
                             </StackPanel>
-                            <Ellipse Grid.Column="1" Width="6" Height="6" Fill="{StaticResource SuccessBrush}"
+                            <Ellipse Grid.Column="1" Width="6" Height="6" Fill="{DynamicResource SuccessBrush}"
                                      VerticalAlignment="Top" Margin="2,0,0,0">
                                 <Ellipse.Style>
                                     <Style TargetType="Ellipse">
@@ -66,10 +66,10 @@
                 </DataTemplate>
             </ListBox.ItemTemplate>
         </ListBox>
-        <Border Grid.Row="2" Padding="8,4" BorderThickness="0,1,0,0" BorderBrush="{StaticResource BorderBrush}">
+        <Border Grid.Row="2" Padding="8,4" BorderThickness="0,1,0,0" BorderBrush="{DynamicResource BorderBrush}">
             <Button Content="清除全部" FontSize="10" Height="20" Padding="6,0"
                     Background="Transparent" BorderThickness="0"
-                    Foreground="{StaticResource ErrorBrush}" Cursor="Hand"
+                    Foreground="{DynamicResource ErrorBrush}" Cursor="Hand"
                     Click="ClearAll_Click"/>
         </Border>
     </Grid>

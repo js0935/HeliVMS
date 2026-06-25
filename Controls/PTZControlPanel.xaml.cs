@@ -219,27 +219,31 @@ public partial class PTZControlPanel : UserControl {
     }
 
     private async void ToggleTour_Click(object sender, RoutedEventArgs e) {
-        if (_tourRunning) {
-            StopTour();
-            return;
-        }
-        if (_selectedTour is null || _selectedTour.Steps.Count == 0) {
-            if (_selectedTour is not null) {
-                var stepDlg = new Dialog.InputDialog("新增巡航步驟",
-                    "格式：預設點名稱,停留秒數\n例如：入口,5", "入口,5") {
-                    Owner = Window.GetWindow(this)
-                };
-                if (stepDlg.ShowDialog() == true && !string.IsNullOrEmpty(stepDlg.Value)) {
-                    var parts = stepDlg.Value.Split(',');
-                    if (parts.Length >= 2 && int.TryParse(parts[^1].Trim(), out var dwell)) {
-                        var name = string.Join(",", parts.Take(parts.Length - 1)).Trim();
-                        _selectedTour.Steps.Add(("", name, Math.Max(1, dwell)));
+        try {
+            if (_tourRunning) {
+                StopTour();
+                return;
+            }
+            if (_selectedTour is null || _selectedTour.Steps.Count == 0) {
+                if (_selectedTour is not null) {
+                    var stepDlg = new Dialog.InputDialog("新增巡航步驟",
+                        "格式：預設點名稱,停留秒數\n例如：入口,5", "入口,5") {
+                        Owner = Window.GetWindow(this)
+                    };
+                    if (stepDlg.ShowDialog() == true && !string.IsNullOrEmpty(stepDlg.Value)) {
+                        var parts = stepDlg.Value.Split(',');
+                        if (parts.Length >= 2 && int.TryParse(parts[^1].Trim(), out var dwell)) {
+                            var name = string.Join(",", parts.Take(parts.Length - 1)).Trim();
+                            _selectedTour.Steps.Add(("", name, Math.Max(1, dwell)));
+                        }
                     }
                 }
+                return;
             }
-            return;
+            await StartTourAsync();
+        } catch (Exception ex) {
+            Log.Debug("[HeliVMS] PTZ ToggleTour error: {Msg}", ex.Message);
         }
-        await StartTourAsync();
     }
 
     private async Task StartTourAsync() {

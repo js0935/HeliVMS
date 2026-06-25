@@ -68,14 +68,14 @@ public partial class LayoutTabBar : UserControl {
         if (data is null) return;
         if (_selectedTab is not null) {
             var prevBorder = (Border)_selectedTab.UI;
-            prevBorder.Background = new SolidColorBrush(Color.FromArgb(0, 0xFF, 0xFF, 0xFF));
+            prevBorder.Background = Brushes.Transparent;
             prevBorder.BorderThickness = new Thickness(0, 0, 1, 0);
         }
         _selectedTab = data;
         var border = (Border)data.UI;
-        border.Background = new SolidColorBrush(Color.FromArgb(30, 0x21, 0x96, 0xF3));
-        border.BorderThickness = new Thickness(0, 2, 0, 0);
-        border.BorderBrush = new SolidColorBrush(Color.FromArgb(200, 0x21, 0x96, 0xF3));
+        border.Background = new SolidColorBrush(Color.FromArgb(25, 0x21, 0x96, 0xF3));
+        border.BorderThickness = new Thickness(0, 0, 0, 2);
+        border.BorderBrush = new SolidColorBrush(Color.FromArgb(220, 0x21, 0x96, 0xF3));
         TabSelected?.Invoke(this, data.Layout);
     }
 
@@ -101,7 +101,7 @@ public partial class LayoutTabBar : UserControl {
         var nameText = new TextBlock {
             Text = data.Layout.Name,
             FontSize = 12,
-            Foreground = new SolidColorBrush(Color.FromArgb(204, 0xFF, 0xFF, 0xFF)),
+            Foreground = GetResource<Brush>("TextBrush"),
             VerticalAlignment = VerticalAlignment.Center
         };
         var dirtyText = new TextBlock {
@@ -111,11 +111,18 @@ public partial class LayoutTabBar : UserControl {
             Visibility = Visibility.Collapsed,
             VerticalAlignment = VerticalAlignment.Center
         };
+        var closeIcon = new System.Windows.Shapes.Path {
+            Data = TryFindResource("IconClose") as Geometry ?? Geometry.Parse("M0,0"),
+            Fill = GetResource<Brush>("SecondaryTextBrush"),
+            Width = 10, Height = 10, Stretch = Stretch.Uniform
+        };
         var closeBtn = new Button {
-            Content = "\u00d7",
-            Width = 16, Height = 16,
-            FontSize = 10, Padding = new Thickness(0),
-            Style = FindResource("FlatButton") as Style,
+            Content = closeIcon,
+            Width = 18, Height = 18,
+            Padding = new Thickness(0),
+            Background = Brushes.Transparent,
+            BorderThickness = new Thickness(0),
+            Cursor = Cursors.Hand,
             ToolTip = "關閉分頁",
             VerticalAlignment = VerticalAlignment.Center,
             Margin = new Thickness(6, 0, 0, 0),
@@ -132,11 +139,10 @@ public partial class LayoutTabBar : UserControl {
         var border = new Border {
             Child = innerBorder,
             Padding = new Thickness(8, 4, 8, 4),
-            Margin = new Thickness(1, 0, 1, 0),
+            Margin = new Thickness(0),
             Cursor = Cursors.Hand,
-            BorderThickness = new Thickness(0, 0, 1, 0),
-            BorderBrush = new SolidColorBrush(Color.FromArgb(51, 0xFF, 0xFF, 0xFF)),
-            MinWidth = 60
+            BorderThickness = new Thickness(0),
+            MinWidth = 50
         };
         border.MouseDown += (_, args) => {
             if (args.ChangedButton == MouseButton.Left) {
@@ -273,6 +279,11 @@ public partial class LayoutTabBar : UserControl {
         _tabs.Add(keep);
         TabStrip.Children.Add(keep.UI);
         SelectTab(keep.Layout.Id);
+    }
+
+    private static T GetResource<T>(string key) where T : class {
+        try { return (T)Application.Current.FindResource(key); }
+        catch { return null!; }
     }
 
     private class TabItemData {

@@ -1,4 +1,4 @@
-<UserControl x:Class="HeliVMS.Controls.DynamicCameraGrid"
+﻿<UserControl x:Class="HeliVMS.Controls.DynamicCameraGrid"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
     <Grid x:Name="RootGrid" AllowDrop="True">
@@ -9,10 +9,10 @@
         <Border x:Name="EmptyOverlay" Background="Transparent" Visibility="Visible">
             <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
                 <TextBlock Text="拖曳攝影機至此" FontSize="20"
-                           Foreground="{StaticResource SecondaryTextBrush}"
+                           Foreground="{DynamicResource SecondaryTextBrush}"
                            HorizontalAlignment="Center"/>
                 <TextBlock Text="從左側樹狀清單將攝影機拖入網格" FontSize="12"
-                           Foreground="{StaticResource SecondaryTextBrush}"
+                           Foreground="{DynamicResource SecondaryTextBrush}"
                            Margin="0,8,0,0"
                            HorizontalAlignment="Center"/>
             </StackPanel>

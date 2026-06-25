@@ -130,6 +130,15 @@ public partial class PlaybackPlayer : UserControl {
         MouseDown += OnMiddleMouseDown;
         MouseMove += OnMiddleMouseMove;
         MouseUp += OnMiddleMouseUp;
+
+        Unloaded += (_, _) => {
+            if (_speedOSDTimer is not null && _onSpeedOsdTick is not null) {
+                _speedOSDTimer.Tick -= _onSpeedOsdTick;
+            }
+            if (_loadingTimer is not null && _onLoadingTick is not null) {
+                _loadingTimer.Tick -= _onLoadingTick;
+            }
+        };
     }
 
     private void OnPreviewMouseWheel(object sender, MouseWheelEventArgs e) {
@@ -381,16 +390,18 @@ public partial class PlaybackPlayer : UserControl {
     }
 
     private DispatcherTimer? _speedOSDTimer;
+    private EventHandler? _onSpeedOsdTick;
 
     /// <summary>Show speed OSD briefly, auto-hide after 1.5s</summary>
     public void ShowSpeedOSD(string text) {
         if (_speedOSDTimer is null) {
             _speedOSDTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(1500) };
-            _speedOSDTimer.Tick += (_, _) => // REVIEW: lambda captures 'this' ??consider weak event pattern
+            _onSpeedOsdTick = (_, _) =>
             {
                 _speedOSDTimer.Stop();
                 SpeedOSD.Visibility = Visibility.Collapsed;
             };
+            _speedOSDTimer.Tick += _onSpeedOsdTick;
         }
 
         SpeedOSText.Text = text;
@@ -520,6 +531,7 @@ public partial class PlaybackPlayer : UserControl {
     }
 
     private DispatcherTimer? _loadingTimer;
+    private EventHandler? _onLoadingTick;
     private int _loadingDotCount;
 
     /// <summary>Show loading state with animated dots</summary>
@@ -531,10 +543,11 @@ public partial class PlaybackPlayer : UserControl {
             _loadingDotCount = 0;
             if (_loadingTimer is null) {
                 _loadingTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
-                _loadingTimer.Tick += (_, _) => {
+                _onLoadingTick = (_, _) => {
                     _loadingDotCount = (_loadingDotCount + 1) % 4;
                     StatusText.Text = message + new string('.', _loadingDotCount);
                 };
+                _loadingTimer.Tick += _onLoadingTick;
             }
             _loadingTimer.Start();
         } else {

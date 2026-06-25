@@ -1,4 +1,5 @@
 ﻿using System.Collections.ObjectModel;
+using System.Windows.Media;
 using HeliVMS.Models;
 
 namespace HeliVMS.Services;
@@ -27,4 +28,7 @@ public class CameraHealthItem {
     public TimeSpan? Uptime => IsOnline && LastConnectedAt.HasValue
         ? DateTime.Now - LastConnectedAt.Value : null;
     public string IndicatorColor => IsOnline ? "#FF00C897" : "#FFFF4444";
+    public Brush StatusBrush => IsOnline
+        ? new SolidColorBrush(Color.FromRgb(0, 200, 151))
+        : new SolidColorBrush(Color.FromRgb(255, 68, 68));
 }

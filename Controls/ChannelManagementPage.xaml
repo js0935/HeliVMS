@@ -8,7 +8,7 @@
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              mc:Ignorable="d"
              d:DesignHeight="600" d:DesignWidth="900"
-             Background="{StaticResource BackgroundBrush}">
+             Background="{DynamicResource BackgroundBrush}">
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
@@ -16,13 +16,13 @@
         </Grid.RowDefinitions>
 
         <!-- Toolbar -->
-        <Border Grid.Row="0" Background="{StaticResource SurfaceBrush}" BorderThickness="0,0,0,1"
-                BorderBrush="{StaticResource BorderBrush}" Padding="12,8">
+        <Border Grid.Row="0" Background="{DynamicResource SurfaceBrush}" BorderThickness="0,0,0,1"
+                BorderBrush="{DynamicResource BorderBrush}" Padding="12,8">
             <StackPanel Orientation="Horizontal">
                 <TextBlock Text="頻道管理" FontSize="18" FontWeight="SemiBold"
-                           Foreground="{StaticResource TextBrush}" VerticalAlignment="Center"/>
+                           Foreground="{DynamicResource TextBrush}" VerticalAlignment="Center"/>
                 <TextBlock x:Name="ChannelCountText" FontSize="12"
-                           Foreground="{StaticResource SecondaryTextBrush}"
+                           Foreground="{DynamicResource SecondaryTextBrush}"
                            VerticalAlignment="Center" Margin="12,0,0,0"/>
                 <Button x:Name="AutoAssignBtn" Content="一鍵分配 IP"
                         Style="{StaticResource SecondaryButton}"
@@ -47,8 +47,8 @@
             </Grid.ColumnDefinitions>
 
             <!-- Left: 頻道列表 -->
-            <Border Grid.Column="0" Background="{StaticResource SurfaceBrush}"
-                    BorderThickness="1" BorderBrush="{StaticResource BorderBrush}"
+            <Border Grid.Column="0" Background="{DynamicResource SurfaceBrush}"
+                    BorderThickness="1" BorderBrush="{DynamicResource BorderBrush}"
                     CornerRadius="4" Margin="0,0,4,0">
                 <DataGrid x:Name="ChannelGrid"
                           Style="{StaticResource ModernDataGrid}"
@@ -92,8 +92,8 @@
             </Border>
 
             <!-- Right panel: 已新增設備列表 -->
-            <Border Grid.Column="1" Background="{StaticResource SurfaceBrush}"
-                    BorderThickness="1" BorderBrush="{StaticResource BorderBrush}"
+            <Border Grid.Column="1" Background="{DynamicResource SurfaceBrush}"
+                    BorderThickness="1" BorderBrush="{DynamicResource BorderBrush}"
                     CornerRadius="4" Margin="4,0,0,0">
                 <Grid>
                     <Grid.RowDefinitions>
@@ -107,14 +107,14 @@
                                   Background="Transparent" BorderThickness="0">
                         <StackPanel>
                             <!-- 設備列表標題 -->
-                            <Border Background="{StaticResource InputBackgroundBrush}"
+                            <Border Background="{DynamicResource InputBackgroundBrush}"
                                     Padding="10,8" BorderThickness="0,0,0,1"
-                                    BorderBrush="{StaticResource BorderBrush}">
+                                    BorderBrush="{DynamicResource BorderBrush}">
                                 <StackPanel>
                                     <TextBlock Text="已新增設備" FontSize="14" FontWeight="SemiBold"
-                                               Foreground="{StaticResource TextBrush}" Margin="0,0,0,4"/>
+                                               Foreground="{DynamicResource TextBrush}" Margin="0,0,0,4"/>
                                     <TextBlock x:Name="CameraCountText" Text="載入中..."
-                                               FontSize="12" Foreground="{StaticResource SecondaryTextBrush}"/>
+                                               FontSize="12" Foreground="{DynamicResource SecondaryTextBrush}"/>
                                     <!-- 欄位標題 -->
                                     <Grid Margin="0,6,0,0">
                                         <Grid.ColumnDefinitions>
@@ -123,10 +123,10 @@
                                         </Grid.ColumnDefinitions>
                                         <TextBlock Grid.Column="0" Text="IP 位址"
                                                    FontSize="11" FontWeight="SemiBold"
-                                                   Foreground="{StaticResource SecondaryTextBrush}"/>
+                                                   Foreground="{DynamicResource SecondaryTextBrush}"/>
                                         <TextBlock Grid.Column="1" Text="頻道"
                                                    FontSize="11" FontWeight="SemiBold"
-                                                   Foreground="{StaticResource SecondaryTextBrush}"
+                                                   Foreground="{DynamicResource SecondaryTextBrush}"
                                                    HorizontalAlignment="Center"/>
                                     </Grid>
                                 </StackPanel>
@@ -148,9 +148,9 @@
                                 </ListBox.ItemContainerStyle>
                                 <ListBox.ItemTemplate>
                                     <DataTemplate>
-                                        <Border Background="{StaticResource SurfaceBrush}"
+                                        <Border Background="{DynamicResource SurfaceBrush}"
                                                 BorderThickness="0,0,0,1"
-                                                BorderBrush="{StaticResource BorderBrush}"
+                                                BorderBrush="{DynamicResource BorderBrush}"
                                                 Padding="10,6">
                                             <Grid>
                                                 <Grid.ColumnDefinitions>
@@ -159,17 +159,17 @@
                                                 </Grid.ColumnDefinitions>
                                                 <TextBlock Grid.Column="0" Text="{Binding IpAddress}"
                                                            FontSize="13" FontWeight="SemiBold"
-                                                           Foreground="{StaticResource TextBrush}"
+                                                           Foreground="{DynamicResource TextBrush}"
                                                            VerticalAlignment="Center"/>
                                                 <Border Grid.Column="1"
-                                                        Background="{StaticResource PrimaryBrush}"
+                                                        Background="{DynamicResource PrimaryBrush}"
                                                         CornerRadius="3" Padding="0"
                                                         Width="28" Height="22"
                                                         HorizontalAlignment="Center"
                                                         Visibility="{Binding ChannelVisibility}">
                                                     <TextBlock Text="{Binding DisplayInfo}"
                                                                FontSize="11" FontWeight="Bold"
-                                                                Foreground="{StaticResource TextBrush}"
+                                                                Foreground="{DynamicResource TextBrush}"
                                                                HorizontalAlignment="Center"
                                                                VerticalAlignment="Center"/>
                                                 </Border>
@@ -182,12 +182,12 @@
                     </ScrollViewer>
 
                     <!-- 指派控制 -->
-                    <Border Grid.Row="2" Background="{StaticResource InputBackgroundBrush}"
+                    <Border Grid.Row="2" Background="{DynamicResource InputBackgroundBrush}"
                             Padding="10,8" BorderThickness="0,1,0,0"
-                            BorderBrush="{StaticResource BorderBrush}">
+                            BorderBrush="{DynamicResource BorderBrush}">
                         <StackPanel>
                             <TextBlock x:Name="SelectedChannelInfo" Text="未選擇頻道"
-                                       FontSize="12" Foreground="{StaticResource SecondaryTextBrush}"
+                                       FontSize="12" Foreground="{DynamicResource SecondaryTextBrush}"
                                        Margin="0,0,0,8"/>
                             <WrapPanel Margin="0,0,0,8">
                                 <Button x:Name="AssignButton" Content="指派到頻道"

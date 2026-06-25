@@ -387,17 +387,17 @@
                                     <TextBlock Text="設定分類" FontSize="10" FontWeight="SemiBold"
                                                Foreground="{StaticResource SecondaryTextBrush}"
                                                Margin="12,0,12,4"/>
-                                    <Button x:Name="SubSettingsLog" Content="系統日誌" Tag="0" Style="{StaticResource SidebarButton}" Click="SubMenuItem_Click"/>
-                                    <Button x:Name="SubSettingsFfmpeg" Content="FFmpeg" Tag="1" Style="{StaticResource SidebarButton}" Click="SubMenuItem_Click"/>
-                                    <Button x:Name="SubSettingsFont" Content="字型設定" Tag="2" Style="{StaticResource SidebarButton}" Click="SubMenuItem_Click"/>
-                                    <Button x:Name="SubSettingsRetention" Content="錄影保留" Tag="3" Style="{StaticResource SidebarButton}" Click="SubMenuItem_Click"/>
-                                    <Button x:Name="SubSettingsUser" Content="使用者管理" Tag="4" Style="{StaticResource SidebarButton}" Click="SubMenuItem_Click"/>
-                                    <Button x:Name="SubSettingsDebug" Content="除錯" Tag="5" Style="{StaticResource SidebarButton}" Click="SubMenuItem_Click"/>
-                                    <Button x:Name="SubSettingsMediaMTX" Content="MediaMTX" Tag="6" Style="{StaticResource SidebarButton}" Click="SubMenuItem_Click"/>
-                                    <Button x:Name="SubSettingsEventRules" Content="事件規則" Tag="7" Style="{StaticResource SidebarButton}" Click="SubMenuItem_Click"/>
-                                    <Button x:Name="SubSettingsNotification" Content="通知設定" Tag="8" Style="{StaticResource SidebarButton}" Click="SubMenuItem_Click"/>
-                                    <Button x:Name="SubSettingsSchedule" Content="錄影排程" Tag="9" Style="{StaticResource SidebarButton}" Click="SubMenuItem_Click"/>
-                                    <Button x:Name="SubSettingsBackup" Content="備份還原" Tag="10" Style="{StaticResource SidebarButton}" Click="SubMenuItem_Click"/>
+                                    <Button x:Name="SubSettingsLog" Content="系統日誌" Tag="0" Style="{StaticResource SubMenuButton}" Click="SubMenuItem_Click"/>
+                                    <Button x:Name="SubSettingsFfmpeg" Content="FFmpeg" Tag="1" Style="{StaticResource SubMenuButton}" Click="SubMenuItem_Click"/>
+                                    <Button x:Name="SubSettingsFont" Content="字型設定" Tag="2" Style="{StaticResource SubMenuButton}" Click="SubMenuItem_Click"/>
+                                    <Button x:Name="SubSettingsRetention" Content="錄影保留" Tag="3" Style="{StaticResource SubMenuButton}" Click="SubMenuItem_Click"/>
+                                    <Button x:Name="SubSettingsUser" Content="使用者管理" Tag="4" Style="{StaticResource SubMenuButton}" Click="SubMenuItem_Click"/>
+                                    <Button x:Name="SubSettingsDebug" Content="除錯" Tag="5" Style="{StaticResource SubMenuButton}" Click="SubMenuItem_Click"/>
+                                    <Button x:Name="SubSettingsMediaMTX" Content="MediaMTX" Tag="6" Style="{StaticResource SubMenuButton}" Click="SubMenuItem_Click"/>
+                                    <Button x:Name="SubSettingsEventRules" Content="事件規則" Tag="7" Style="{StaticResource SubMenuButton}" Click="SubMenuItem_Click"/>
+                                    <Button x:Name="SubSettingsNotification" Content="通知設定" Tag="8" Style="{StaticResource SubMenuButton}" Click="SubMenuItem_Click"/>
+                                    <Button x:Name="SubSettingsSchedule" Content="錄影排程" Tag="9" Style="{StaticResource SubMenuButton}" Click="SubMenuItem_Click"/>
+                                    <Button x:Name="SubSettingsBackup" Content="備份還原" Tag="10" Style="{StaticResource SubMenuButton}" Click="SubMenuItem_Click"/>
                                 </StackPanel>
                             </ScrollViewer>
                             <!-- Device sub-menu -->
@@ -406,11 +406,11 @@
                                     <TextBlock Text="裝置分類" FontSize="10" FontWeight="SemiBold"
                                                Foreground="{StaticResource SecondaryTextBrush}"
                                                Margin="12,0,12,4"/>
-                                    <Button x:Name="SubDeviceCamera" Content="攝影機管理" Tag="0" Style="{StaticResource SidebarButton}" Click="SubMenuItem_Click"/>
-                                    <Button x:Name="SubDeviceRecording" Content="錄影排程" Tag="1" Style="{StaticResource SidebarButton}" Click="SubMenuItem_Click"/>
-                                    <Button x:Name="SubDeviceStorage" Content="儲存管理" Tag="2" Style="{StaticResource SidebarButton}" Click="SubMenuItem_Click"/>
-                                    <Button x:Name="SubDeviceChannel" Content="頻道管理" Tag="3" Style="{StaticResource SidebarButton}" Click="SubMenuItem_Click"/>
-                                    <Button x:Name="SubDeviceGroup" Content="攝影機群組" Tag="4" Style="{StaticResource SidebarButton}" Click="SubMenuItem_Click"/>
+                                    <Button x:Name="SubDeviceCamera" Content="攝影機管理" Tag="0" Style="{StaticResource SubMenuButton}" Click="SubMenuItem_Click"/>
+                                    <Button x:Name="SubDeviceRecording" Content="錄影排程" Tag="1" Style="{StaticResource SubMenuButton}" Click="SubMenuItem_Click"/>
+                                    <Button x:Name="SubDeviceStorage" Content="儲存管理" Tag="2" Style="{StaticResource SubMenuButton}" Click="SubMenuItem_Click"/>
+                                    <Button x:Name="SubDeviceChannel" Content="頻道管理" Tag="3" Style="{StaticResource SubMenuButton}" Click="SubMenuItem_Click"/>
+                                    <Button x:Name="SubDeviceGroup" Content="攝影機群組" Tag="4" Style="{StaticResource SubMenuButton}" Click="SubMenuItem_Click"/>
                                 </StackPanel>
                             </ScrollViewer>
                         </Grid>
@@ -420,7 +420,8 @@
         </Grid>
 
         <!-- ═══ Column 2: Main Work Area ═══ -->
-            <ContentControl x:Name="MainWorkArea" Grid.Column="2"/>
+            <ContentControl x:Name="MainWorkArea" Grid.Column="2"
+                            Background="{StaticResource BackgroundBrush}"/>
 
         <!-- ═══ Column 3: Notifications Panel ═══ -->
         <GridSplitter Grid.Column="3" Width="3" ResizeBehavior="PreviousAndNext"

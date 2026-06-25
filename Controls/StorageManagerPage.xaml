@@ -1,8 +1,8 @@
-<UserControl x:Class="HeliVMS.Controls.StorageManagerPage"
+﻿<UserControl x:Class="HeliVMS.Controls.StorageManagerPage"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
 
-    <Border Background="{StaticResource BackgroundBrush}" Padding="16">
+    <Border Background="{DynamicResource BackgroundBrush}" Padding="16">
         <Grid>
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto"/>
@@ -11,20 +11,20 @@
             </Grid.RowDefinitions>
 
             <!-- 說明 -->
-            <Border Grid.Row="0" Background="{StaticResource SurfaceBrush}" Padding="12" Margin="0,0,0,12"
-                    BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="4">
+            <Border Grid.Row="0" Background="{DynamicResource SurfaceBrush}" Padding="12" Margin="0,0,0,12"
+                    BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="4">
                 <StackPanel>
                     <TextBlock Text="錄影檔案儲存管理" FontSize="16" FontWeight="SemiBold"
-                               Foreground="{StaticResource TextBrush}" Margin="0,0,0,4"/>
+                               Foreground="{DynamicResource TextBrush}" Margin="0,0,0,4"/>
                     <TextBlock Text="設定多個錄影檔案存放位置，系統會自動分配儲存空間。預設路徑為 D:\Recordings。"
-                               FontSize="13" Foreground="{StaticResource SecondaryTextBrush}"
+                               FontSize="13" Foreground="{DynamicResource SecondaryTextBrush}"
                                TextWrapping="Wrap"/>
                 </StackPanel>
             </Border>
 
             <!-- 儲存位置列表 -->
-            <Border Grid.Row="1" Background="{StaticResource SurfaceBrush}" Padding="12"
-                    BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="4">
+            <Border Grid.Row="1" Background="{DynamicResource SurfaceBrush}" Padding="12"
+                    BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="4">
                 <Grid>
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
@@ -32,12 +32,12 @@
                     </Grid.RowDefinitions>
 
                     <TextBlock Grid.Row="0" Text="儲存位置" FontSize="14" FontWeight="SemiBold"
-                               Foreground="{StaticResource TextBrush}" Margin="0,0,0,8"/>
+                               Foreground="{DynamicResource TextBrush}" Margin="0,0,0,8"/>
 
                     <ListView Grid.Row="1" x:Name="StorageList"
-                              Background="{StaticResource InputBackgroundBrush}"
-                              BorderBrush="{StaticResource BorderBrush}"
-                              Foreground="{StaticResource TextBrush}"
+                              Background="{DynamicResource InputBackgroundBrush}"
+                              BorderBrush="{DynamicResource BorderBrush}"
+                              Foreground="{DynamicResource TextBrush}"
                               BorderThickness="1"
                               SelectionChanged="StorageList_SelectionChanged">
                         <ListView.View>
@@ -71,8 +71,8 @@
             </Border>
 
             <!-- 操作按鈕 -->
-            <Border Grid.Row="2" Background="{StaticResource SurfaceBrush}" Padding="12" Margin="0,12,0,0"
-                    BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="4">
+            <Border Grid.Row="2" Background="{DynamicResource SurfaceBrush}" Padding="12" Margin="0,12,0,0"
+                    BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="4">
                 <Grid>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="Auto"/>

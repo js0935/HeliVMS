@@ -15,16 +15,9 @@ using Serilog;
 
 namespace HeliVMS.Views;
 
-public enum PlaybackMode {
-    Live,
-    CustomSeek
-}
-
 public partial class LiveView : UserControl {
     private ICameraService? _lazyCamera;
     private ICameraService CameraService => _lazyCamera ??= App.Services.GetRequiredService<ICameraService>();
-    private IVideoIndexService? _lazyVideoIndex;
-    private IVideoIndexService VideoIndex => _lazyVideoIndex ??= App.Services.GetRequiredService<IVideoIndexService>();
     private ILayoutService? _lazyLayout;
     private ILayoutService LayoutService => _lazyLayout ??= App.Services.GetRequiredService<ILayoutService>();
     private Camera? _ptzCamera;
@@ -32,44 +25,22 @@ public partial class LiveView : UserControl {
     public bool IsFullScreen => _isFullScreen;
     private bool _initialized;
 
-    private PlaybackMode _playbackMode = PlaybackMode.Live;
-    private DispatcherTimer? _liveTicker;
-    private double _playbackSpeed = 1.0;
-    private static readonly double[] FwdSpeeds = [1.0, 2.0, 4.0, 8.0, 16.0];
-    private int _fwdSpeedIndex;
-    private DateTime _timelineDay = DateTime.Today;
-
     private int _currentGridSize = 4;
     private const int DefaultGridSize = 4;
     public string? SelectedTabId => TabBar.CurrentTab?.Id;
     private const int MaxSlots = 64;
-    private readonly IBookmarkService _bookmarks = App.Services.GetRequiredService<IBookmarkService>();
     private readonly ISettingsService _settings = App.Services.GetRequiredService<ISettingsService>();
 
     public LiveView() {
         InitializeComponent();
         Loaded += LiveView_Loaded;
-        TimelineControl.PositionChanged += OnTimelinePositionChanged;
-        TimelineControl.BookmarkRequested += (_, _) => AddBookmark();
-        TimelineControl.GoLiveRequested += (_, _) => SwitchToLive();
-        TimelineControl.ExportRangeRequested += (_, range) => {
-            var dlg = new Dialog.ExportDialog {
-                Owner = Window.GetWindow(this),
-                PresetRange = range,
-            };
-            dlg.ShowDialog();
-        };
-        RecordingService.RecordingStatusChanged += (camId, isRec) =>
+        Action<string, bool> onRecording = (camId, isRec) =>
             _ = Dispatcher.InvokeAsync(() => VideoGrid.SetRecordingIndicator(camId, isRec));
-        _talkService.AudioLevelChanged += level =>
-            _ = Dispatcher.InvokeAsync(() => {
-                var w = Math.Clamp(level * 4, 0, 1) * 20;
-                TalkLevelBar.Width = w;
-                TalkLevelBar.Background = level > 0.5
-                    ? System.Windows.Media.Brushes.LimeGreen
-                    : System.Windows.Media.Brushes.Gray;
-            });
-        Unloaded += (_, _) => Cleanup();
+        RecordingService.RecordingStatusChanged += onRecording;
+        Unloaded += (_, _) => {
+            RecordingService.RecordingStatusChanged -= onRecording;
+            Cleanup();
+        };
     }
 
     // ═══════════════════════════════════════════════════════════
@@ -95,16 +66,12 @@ public partial class LiveView : UserControl {
 
         LoadLayoutTabs();
         ReloadAllCamerasIntoGrid();
-        StartLiveTicker();
-        ReloadTimelineData();
 
         Log.Debug("[LiveView] Loaded — cameras in grid: {Count}",
             VideoGrid.GetSlotCameras().Count(c => c is not null));
     }
 
     private void Cleanup() {
-        _liveTicker?.Stop();
-        _liveTicker = null;
     }
 
     // ═══════════════════════════════════════════════════════════
@@ -116,6 +83,7 @@ public partial class LiveView : UserControl {
             var all = CameraService.GetAllCameras();
             if (all.Count == 0) {
                 Log.Warning("[LiveView] No cameras returned from service");
+                App.Services.GetRequiredService<INotificationService>().Show("尚未新增攝影機 — 請至設備管理新增", "WARN");
                 VideoGrid.SetSlotCount(DefaultGridSize);
                 return;
             }
@@ -134,30 +102,6 @@ public partial class LiveView : UserControl {
             Log.Debug("[LiveView] Loaded {Count}/{Total} cameras into grid (subStream={Sub}, threshold={Thresh})", count, all.Count, useSub, threshold);
         } catch (Exception ex) {
             Log.Error(ex, "[LiveView] Failed to load cameras");
-        }
-    }
-
-    private void CameraFilterBox_TextChanged(object sender, TextChangedEventArgs e) {
-        try {
-            var all = CameraService.GetAllCameras();
-            var filter = CameraFilterBox.Text.Trim().ToLowerInvariant();
-            IEnumerable<Camera> filtered = all;
-            if (!string.IsNullOrEmpty(filter))
-                filtered = all.Where(c => c.Name.ToLowerInvariant().Contains(filter)
-                    || c.Id.ToLowerInvariant().Contains(filter));
-
-            var count = Math.Min(filtered.Count(), MaxSlots);
-            var arr = new Camera?[count];
-            var i = 0;
-            foreach (var cam in filtered.Take(count))
-                arr[i++] = cam;
-
-            VideoGrid.LoadCameras(arr);
-            foreach (var cam in arr)
-                if (cam is not null)
-                    VideoGrid.SetRecordingIndicator(cam.Id, RecordingService.IsRecording(cam.Id));
-        } catch (Exception ex) {
-            Log.Debug("[LiveView] Filter error: {Msg}", ex.Message);
         }
     }
 
@@ -366,7 +310,6 @@ public partial class LiveView : UserControl {
         }
         if (arr.Length > 0)
             VideoGrid.LoadCameras(arr);
-        ReloadTimelineData();
     }
 
     private void SaveCurrentTabToService() {
@@ -396,207 +339,11 @@ public partial class LiveView : UserControl {
     }
 
     // ═══════════════════════════════════════════════════════════
-    //  Timeline / Live Ticker
+    //  Recording
     // ═══════════════════════════════════════════════════════════
 
-    private void StartLiveTicker() {
-        _liveTicker = new DispatcherTimer(
-            TimeSpan.FromSeconds(1),
-            DispatcherPriority.Normal,
-            OnLiveTickerTick,
-            Dispatcher);
-        _liveTicker.Start();
-    }
-
-    private void OnLiveTickerTick(object? sender, EventArgs e) {
-        if (_playbackMode != PlaybackMode.Live) return;
-        var elapsed = DateTime.Now.TimeOfDay.TotalSeconds;
-        TimelineControl.SetPositionSilent(Math.Clamp(elapsed, 0, 86400));
-    }
-
-    private void OnTimelinePositionChanged(object? sender, double seconds) {
-        if (_playbackMode == PlaybackMode.Live)
-            SwitchToSeekMode(_timelineDay.AddSeconds(seconds));
-        else {
-            var time = _timelineDay.AddSeconds(seconds);
-            foreach (var p in VideoGrid.GetActiveSlots())
-                p.SwitchToPlayback(time);
-            VideoGrid.UpdatePlaybackTime(seconds);
-        }
-    }
-
-    internal DateTime GetTimelineTime() => _timelineDay.AddSeconds(TimelineControl.PositionSeconds);
-
-    public bool TimelineVisible {
-        get => TimelineContainer.Visibility == Visibility.Visible;
-        set => TimelineContainer.Visibility = value ? Visibility.Visible : Visibility.Collapsed;
-    }
-
-    // ═══════════════════════════════════════════════════════════
-    //  Playback Mode Switching
-    // ═══════════════════════════════════════════════════════════
-
-    private void ShowPlaybackTimeBadge(bool visible) {
-        VideoGrid.SetPlaybackTimeVisible(visible);
-        if (visible) {
-            var dt = _playbackMode == PlaybackMode.CustomSeek
-                ? _timelineDay.Date.AddSeconds(TimelineControl.PositionSeconds) : DateTime.Now;
-            VideoGrid.UpdatePlaybackTime(dt.TimeOfDay.TotalSeconds);
-        }
-    }
-
-    private void SwitchToSeekMode(DateTime targetTime) {
-        _playbackMode = PlaybackMode.CustomSeek;
-        _liveTicker?.Stop();
-        PerformSeek(targetTime);
-        ShowPlaybackTimeBadge(true);
-        Log.Debug("[LiveView] Switched to CustomSeek at {Time}",
-            targetTime.ToString("HH:mm:ss"));
-    }
-
-    private void SwitchToLive() {
-        _playbackMode = PlaybackMode.Live;
-        _fwdSpeedIndex = 0;
-        _playbackSpeed = 1.0;
-        FwdSpeedLabel.Text = "1\u00d7";
-        VideoGrid.SetPlaybackSpeed(1.0);
-        ShowPlaybackTimeBadge(false);
-        _liveTicker?.Start();
-
-        foreach (var p in VideoGrid.GetActiveSlots())
-            p.SwitchToLive();
-
-        var elapsed = DateTime.Now.TimeOfDay.TotalSeconds;
-        TimelineControl.SetPositionSilent(Math.Clamp(elapsed, 0, 86400));
-
-        Log.Debug("[LiveView] Switched to Live");
-    }
-
-    public void NavigateToDate(DateTime date) {
-        _timelineDay = date.Date;
-        TimelineControl.TimelineDay = date.Date;
-        var secs = Math.Clamp(DateTime.Now.TimeOfDay.TotalSeconds, 0, 86400);
-        TimelineControl.SetPositionSilent(secs);
-        PerformSeek(_timelineDay.AddSeconds(secs));
-        ReloadTimelineData();
-        Log.Debug("[LiveView] NavigateToDate: {Date}", date.ToString("yyyy-MM-dd"));
-    }
-
-    private void PerformSeek(DateTime targetTime) {
-        var players = VideoGrid.GetActiveSlots();
-        if (players.Count == 0) return;
-        foreach (var p in players)
-            p.SwitchToPlayback(targetTime);
-        Log.Debug("[LiveView] Seek to {Time} for {Count} players",
-            targetTime.ToString("HH:mm:ss"), players.Count);
-    }
-
-    // ═══════════════════════════════════════════════════════════
-    //  Transport Controls
-    // ═══════════════════════════════════════════════════════════
-
-    private void BtnPlayPause_Click(object sender, RoutedEventArgs e) {
-        if (_playbackMode == PlaybackMode.Live)
-            SwitchToSeekMode(DateTime.Now);
-        else
-            SwitchToLive();
-    }
-
-    private void BtnFwd_Click(object sender, RoutedEventArgs e) {
-        if (_playbackMode == PlaybackMode.Live)
-            SwitchToSeekMode(DateTime.Now);
-        _fwdSpeedIndex = (_fwdSpeedIndex + 1) % FwdSpeeds.Length;
-        _playbackSpeed = FwdSpeeds[_fwdSpeedIndex];
-        FwdSpeedLabel.Text = $"{_playbackSpeed:F0}\u00d7";
-        VideoGrid.SetPlaybackSpeed(_playbackSpeed);
-    }
-
-    private void BtnSkipBack_Click(object sender, RoutedEventArgs e) => SkipTimeline(-30);
-    private void BtnSkipFwd_Click(object sender, RoutedEventArgs e) => SkipTimeline(30);
-
-    private void SkipTimeline(int seconds) {
-        if (_playbackMode == PlaybackMode.Live)
-            SwitchToSeekMode(DateTime.Now);
-        var newVal = Math.Clamp(TimelineControl.PositionSeconds + seconds, 0, 86400);
-        TimelineControl.PositionSeconds = newVal;
-        var targetTime = _timelineDay.AddSeconds(newVal);
-        PerformSeek(targetTime);
-    }
-
-    private void BtnLive_Click(object sender, RoutedEventArgs e) => SwitchToLive();
-    private void BtnNow_Click(object sender, RoutedEventArgs e) {
-        if (_playbackMode == PlaybackMode.Live) return;
-        var now = DateTime.Now;
-        TimelineControl.SetPosition(now);
-        PerformSeek(now);
-    }
-    private bool _filterCont = true, _filterMotion = true, _filterAlarm = true, _filterAi = true;
-
-    private void FilterCont_Click(object sender, RoutedEventArgs e) {
-        _filterCont = !_filterCont;
-        FilterCont.Background = _filterCont ? TryGetResource<Brush>("FilterContBrush") ?? new SolidColorBrush(Color.FromArgb(0x33, 0x21, 0x96, 0xF3)) : System.Windows.Media.Brushes.Transparent;
-        TimelineControl.SetTypeFilter(_filterCont, _filterMotion, _filterAlarm, _filterAi);
-    }
-
-    private void FilterMotion_Click(object sender, RoutedEventArgs e) {
-        _filterMotion = !_filterMotion;
-        FilterMotion.Background = _filterMotion ? TryGetResource<Brush>("FilterMotionBrush") ?? new SolidColorBrush(Color.FromArgb(0x33, 0xFF, 0x57, 0x22)) : System.Windows.Media.Brushes.Transparent;
-        TimelineControl.SetTypeFilter(_filterCont, _filterMotion, _filterAlarm, _filterAi);
-    }
-
-    private void FilterAlarm_Click(object sender, RoutedEventArgs e) {
-        _filterAlarm = !_filterAlarm;
-        FilterAlarm.Background = _filterAlarm ? TryGetResource<Brush>("FilterAlarmBrush") ?? new SolidColorBrush(Color.FromArgb(0x33, 0xF4, 0x43, 0x36)) : System.Windows.Media.Brushes.Transparent;
-        TimelineControl.SetTypeFilter(_filterCont, _filterMotion, _filterAlarm, _filterAi);
-    }
-
-    private void FilterAi_Click(object sender, RoutedEventArgs e) {
-        _filterAi = !_filterAi;
-        FilterAi.Background = _filterAi ? TryGetResource<Brush>("FilterAiBrush") ?? new SolidColorBrush(Color.FromArgb(0x33, 0xFF, 0xC1, 0x07)) : System.Windows.Media.Brushes.Transparent;
-        TimelineControl.SetTypeFilter(_filterCont, _filterMotion, _filterAlarm, _filterAi);
-    }
-
-    private static T? TryGetResource<T>(string key) where T : class {
-        try { return Application.Current.FindResource(key) as T; } catch { return null; }
-    }
-
-    private void AddBookmark() {
-        var posSecs = TimelineControl.PositionSeconds;
-        var bm = new PlaybackBookmark {
-            Seconds = posSecs,
-            Note = $"標記 {DateTime.Now:HH:mm:ss}"
-        };
-        _bookmarks.SaveBookmark(bm, _timelineDay);
-        TimelineControl.AddBookmark(bm);
-    }
-
-    private void BtnExport_Click(object sender, RoutedEventArgs e) {
-        var dlg = new Dialog.ExportDialog { Owner = Window.GetWindow(this) };
-        dlg.ShowDialog();
-    }
-    private readonly IAudioTalkService _talkService = App.Services.GetRequiredService<IAudioTalkService>();
     private IRecordingService? _lazyRecording;
     private IRecordingService RecordingService => _lazyRecording ??= App.Services.GetRequiredService<IRecordingService>();
-    private void BtnTalk_Click(object sender, RoutedEventArgs e) {
-        if (_talkService.IsTalking) {
-            _talkService.StopTalking();
-            BtnTalk.Background = System.Windows.Media.Brushes.Transparent;
-            BtnTalk.Foreground = TryFindResource("TextBrush") as System.Windows.Media.Brush ?? System.Windows.Media.Brushes.White;
-        } else {
-            var cameras = VideoGrid.GetSlotCameras().Where(c => c is not null).Select(c => c!.Id).ToList();
-            var targetCamera = cameras.FirstOrDefault() ?? "";
-            if (string.IsNullOrEmpty(targetCamera)) return;
-            var ok = _talkService.StartTalking(targetCamera);
-            if (ok) {
-                BtnTalk.Background = System.Windows.Media.Brushes.Red;
-                BtnTalk.Foreground = System.Windows.Media.Brushes.White;
-            }
-        }
-    }
-
-    // ═══════════════════════════════════════════════════════════
-    //  Recording Bar Visualization
-    // ═══════════════════════════════════════════════════════════
 
     public void ToggleRecordingSelectedCamera() {
         var selected = VideoGrid.GetActiveSlots().FirstOrDefault(p => p.IsSelected);
@@ -609,14 +356,18 @@ public partial class LiveView : UserControl {
         }
     }
 
+    // ═══════════════════════════════════════════════════════════
+    //  Camera Actions (snapshot, bookmark, etc.)
+    // ═══════════════════════════════════════════════════════════
+
     public void HandleCameraAction(string cameraId, string action) {
         var cam = App.Services.GetRequiredService<ICameraService>().GetAllCameras()
             .FirstOrDefault(c => c.Id == cameraId);
         if (cam is null) return;
+        var bookmarks = App.Services.GetRequiredService<IBookmarkService>();
         switch (action) {
             case "play": {
                 var grid = VideoGrid;
-                var slots = grid.GetActiveSlots();
                 var empty = grid.GetSlotCameras().ToList();
                 var freeIndex = empty.FindIndex(c => c is null);
                 if (freeIndex >= 0) grid.AssignSlot(freeIndex, cam);
@@ -633,8 +384,7 @@ public partial class LiveView : UserControl {
                 break;
             }
             case "snapshot": {
-                var grid = VideoGrid;
-                var slots = grid.GetActiveSlots();
+                var slots = VideoGrid.GetActiveSlots();
                 foreach (var s in slots) {
                     if (s?.Camera?.Id == cameraId) {
                         var snapDir = System.IO.Path.Combine(
@@ -648,12 +398,11 @@ public partial class LiveView : UserControl {
             }
             case "bookmark": {
                 var now = DateTime.Now;
-                var bm = new Controls.PlaybackBookmark {
+                var bm = new PlaybackBookmark {
                     Seconds = now.TimeOfDay.TotalSeconds,
                     Note = $"{cam.Name} @ {now:HH:mm:ss}"
                 };
-                _bookmarks.SaveBookmark(bm, _timelineDay);
-                TimelineControl.AddBookmark(bm);
+                bookmarks.SaveBookmark(bm, DateTime.Today);
                 break;
             }
             case "start_recording":
@@ -668,7 +417,7 @@ public partial class LiveView : UserControl {
                 break;
             }
             case "ptz": {
-                var panel = new Controls.PTZControlPanel { Width = 240 };
+                var panel = new PTZControlPanel { Width = 240 };
                 panel.LoadCamera(cam);
                 var win = new Window {
                     Title = $"PTZ — {cam.Name}", Content = panel,
@@ -676,7 +425,7 @@ public partial class LiveView : UserControl {
                     ResizeMode = ResizeMode.NoResize,
                     WindowStartupLocation = WindowStartupLocation.CenterScreen,
                     Owner = Window.GetWindow(this),
-                    Background = System.Windows.Media.Brushes.Transparent,
+                    Background = Brushes.Transparent,
                     WindowStyle = WindowStyle.ToolWindow, Topmost = true,
                 };
                 win.Closed += (_, _) => panel.UnloadCamera();
@@ -686,31 +435,13 @@ public partial class LiveView : UserControl {
         }
     }
 
-    public async void ReloadTimelineData() {
-        try {
-            var cameras = VideoGrid.GetSlotCameras()
-                .Where(c => c is not null)
-                .Cast<Camera>()
-                .ToList();
-            if (cameras.Count == 0) return;
-
-            var day = _timelineDay;
-            var recordings = await VideoIndex.QuerySegmentsByCamerasAsync(
-                cameras.Select(c => c.Id), day, day.AddDays(1));
-            TimelineControl.LoadSegments(cameras.Select(c => c.Id), recordings, cameras.ToDictionary(c => c.Id, c => c.Name));
-            TimelineControl.LoadBookmarks(_bookmarks.LoadBookmarks(day));
-        } catch (Exception ex) {
-            Log.Debug("[LiveView] ReloadTimelineData error: {Msg}", ex.Message);
-        }
-    }
-
     // ═══════════════════════════════════════════════════════════
     //  PTZ — popup panel with presets + tours
     // ═══════════════════════════════════════════════════════════
 
     private void BtnPtz_Click(object sender, RoutedEventArgs e) {
         if (_ptzCamera is null) return;
-        var panel = new Controls.PTZControlPanel { Width = 240 };
+        var panel = new PTZControlPanel { Width = 240 };
         panel.LoadCamera(_ptzCamera);
         var win = new Window {
             Title = $"PTZ — {_ptzCamera.Name}",
@@ -719,7 +450,7 @@ public partial class LiveView : UserControl {
             ResizeMode = ResizeMode.NoResize,
             WindowStartupLocation = WindowStartupLocation.CenterScreen,
             Owner = Window.GetWindow(this),
-            Background = System.Windows.Media.Brushes.Transparent,
+            Background = Brushes.Transparent,
             WindowStyle = WindowStyle.ToolWindow,
             Topmost = true,
         };
@@ -741,7 +472,6 @@ public partial class LiveView : UserControl {
         if (_isFullScreen) return;
         _isFullScreen = true;
 
-        TimelineContainer.Visibility = Visibility.Collapsed;
         ControlBar.Visibility = Visibility.Collapsed;
 
         if (Window.GetWindow(this) is MainWindow main) {
@@ -763,7 +493,6 @@ public partial class LiveView : UserControl {
             main.PreviewKeyDown -= OnWindowPreviewKeyDown;
         }
 
-        TimelineContainer.Visibility = Visibility.Visible;
         ControlBar.Visibility = Visibility.Visible;
     }
 
@@ -777,9 +506,5 @@ public partial class LiveView : UserControl {
 
     private void OnPreviewKeyDown(object sender, KeyEventArgs e) {
         if (e.Key == Key.F5) { ReloadAllCamerasIntoGrid(); e.Handled = true; }
-        else if (e.Key == Key.B) {
-            AddBookmark();
-            e.Handled = true;
-        }
     }
 }

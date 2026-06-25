@@ -1,9 +1,9 @@
-<Window x:Class="HeliVMS.Dialog.EventRuleEditDialog"
+﻿<Window x:Class="HeliVMS.Dialog.EventRuleEditDialog"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="編輯事件規則" Height="520" Width="560"
         WindowStartupLocation="CenterOwner"
-        Background="{StaticResource BackgroundBrush}" Foreground="{StaticResource TextBrush}"
+        Background="{DynamicResource BackgroundBrush}" Foreground="{DynamicResource TextBrush}"
         SnapsToDevicePixels="True"
         ResizeMode="CanResizeWithGrip">
     <Window.Resources>
@@ -28,13 +28,13 @@
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
                 <StackPanel>
-                    <TextBlock Text="規則名稱" FontSize="11" Foreground="{StaticResource SecondaryTextBrush}" Margin="0,0,0,2"/>
+                    <TextBlock Text="規則名稱" FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,0,0,2"/>
                     <TextBox x:Name="RuleNameBox" FontSize="13" Padding="6,4"
                              Style="{StaticResource ModernTextBox}" Width="280"/>
                 </StackPanel>
                 <CheckBox x:Name="EnabledCheck" Content="啟用" Grid.Column="1"
                           FontSize="12" VerticalAlignment="Bottom" Margin="0,0,0,6"
-                          Foreground="{StaticResource TextBrush}"/>
+                          Foreground="{DynamicResource TextBrush}"/>
             </Grid>
             <TextBox x:Name="DescBox" Text="" FontSize="11" Padding="6,4"
                      Style="{StaticResource ModernTextBox}"
@@ -48,10 +48,10 @@
             </Grid.ColumnDefinitions>
 
             <StackPanel Grid.Column="0" Margin="0,0,6,0">
-                <TextBlock Text="條件" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource TextBrush}" Margin="0,0,0,4"/>
+                <TextBlock Text="條件" FontSize="12" FontWeight="SemiBold" Foreground="{DynamicResource TextBrush}" Margin="0,0,0,4"/>
                 <ListBox x:Name="ConditionsList" Height="140"
-                         Background="{StaticResource InputBackgroundBrush}" BorderBrush="{StaticResource BorderBrush}"
-                         Foreground="{StaticResource TextBrush}" FontSize="12"
+                         Background="{DynamicResource InputBackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}"
+                         Foreground="{DynamicResource TextBrush}" FontSize="12"
                          SelectionChanged="ConditionsList_SelectionChanged"/>
                 <WrapPanel Margin="0,4,0,0">
                     <Button Content="+ 條件" Padding="8,3" FontSize="11"
@@ -63,9 +63,9 @@
                 </WrapPanel>
 
                 <!-- Time condition editor -->
-                <Border Background="{StaticResource SurfaceBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" Margin="0,8,0,0" Padding="8" CornerRadius="4">
+                <Border Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" Margin="0,8,0,0" Padding="8" CornerRadius="4">
                     <StackPanel>
-                        <TextBlock Text="時段條件（選填）" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource TextBrush}" Margin="0,0,0,6"/>
+                        <TextBlock Text="時段條件（選填）" FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource TextBrush}" Margin="0,0,0,6"/>
                         <Grid>
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="Auto"/>
@@ -76,34 +76,34 @@
                                 <RowDefinition Height="Auto"/>
                                 <RowDefinition Height="Auto"/>
                             </Grid.RowDefinitions>
-                            <TextBlock Grid.Row="0" Grid.Column="0" Text="開始" FontSize="11" Foreground="{StaticResource SecondaryTextBrush}" VerticalAlignment="Center" Margin="0,0,6,4"/>
+                            <TextBlock Grid.Row="0" Grid.Column="0" Text="開始" FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}" VerticalAlignment="Center" Margin="0,0,6,4"/>
                             <TextBox Grid.Row="0" Grid.Column="1" x:Name="TimeStartBox" Text="08:00" FontSize="11" Padding="4,2"
                                      Style="{StaticResource ModernTextBox}" Margin="0,0,0,4"
                                      TextChanged="TimeCondition_Changed"/>
-                            <TextBlock Grid.Row="1" Grid.Column="0" Text="結束" FontSize="11" Foreground="{StaticResource SecondaryTextBrush}" VerticalAlignment="Center" Margin="0,0,6,4"/>
+                            <TextBlock Grid.Row="1" Grid.Column="0" Text="結束" FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}" VerticalAlignment="Center" Margin="0,0,6,4"/>
                             <TextBox Grid.Row="1" Grid.Column="1" x:Name="TimeEndBox" Text="18:00" FontSize="11" Padding="4,2"
                                      Style="{StaticResource ModernTextBox}" Margin="0,0,0,4"
                                      TextChanged="TimeCondition_Changed"/>
                         </Grid>
                         <WrapPanel Margin="0,4,0,0">
-                            <CheckBox x:Name="DayMon" Content="一" FontSize="11" Foreground="{StaticResource TextBrush}" Margin="0,0,6,0" IsChecked="True" Checked="DayCheck_Changed" Unchecked="DayCheck_Changed"/>
-                            <CheckBox x:Name="DayTue" Content="二" FontSize="11" Foreground="{StaticResource TextBrush}" Margin="0,0,6,0" IsChecked="True" Checked="DayCheck_Changed" Unchecked="DayCheck_Changed"/>
-                            <CheckBox x:Name="DayWed" Content="三" FontSize="11" Foreground="{StaticResource TextBrush}" Margin="0,0,6,0" IsChecked="True" Checked="DayCheck_Changed" Unchecked="DayCheck_Changed"/>
-                            <CheckBox x:Name="DayThu" Content="四" FontSize="11" Foreground="{StaticResource TextBrush}" Margin="0,0,6,0" IsChecked="True" Checked="DayCheck_Changed" Unchecked="DayCheck_Changed"/>
-                            <CheckBox x:Name="DayFri" Content="五" FontSize="11" Foreground="{StaticResource TextBrush}" Margin="0,0,6,0" IsChecked="True" Checked="DayCheck_Changed" Unchecked="DayCheck_Changed"/>
-                            <CheckBox x:Name="DaySat" Content="六" FontSize="11" Foreground="{StaticResource TextBrush}" Margin="0,0,6,0" IsChecked="True" Checked="DayCheck_Changed" Unchecked="DayCheck_Changed"/>
-                            <CheckBox x:Name="DaySun" Content="日" FontSize="11" Foreground="{StaticResource TextBrush}" IsChecked="True" Checked="DayCheck_Changed" Unchecked="DayCheck_Changed"/>
+                            <CheckBox x:Name="DayMon" Content="一" FontSize="11" Foreground="{DynamicResource TextBrush}" Margin="0,0,6,0" IsChecked="True" Checked="DayCheck_Changed" Unchecked="DayCheck_Changed"/>
+                            <CheckBox x:Name="DayTue" Content="二" FontSize="11" Foreground="{DynamicResource TextBrush}" Margin="0,0,6,0" IsChecked="True" Checked="DayCheck_Changed" Unchecked="DayCheck_Changed"/>
+                            <CheckBox x:Name="DayWed" Content="三" FontSize="11" Foreground="{DynamicResource TextBrush}" Margin="0,0,6,0" IsChecked="True" Checked="DayCheck_Changed" Unchecked="DayCheck_Changed"/>
+                            <CheckBox x:Name="DayThu" Content="四" FontSize="11" Foreground="{DynamicResource TextBrush}" Margin="0,0,6,0" IsChecked="True" Checked="DayCheck_Changed" Unchecked="DayCheck_Changed"/>
+                            <CheckBox x:Name="DayFri" Content="五" FontSize="11" Foreground="{DynamicResource TextBrush}" Margin="0,0,6,0" IsChecked="True" Checked="DayCheck_Changed" Unchecked="DayCheck_Changed"/>
+                            <CheckBox x:Name="DaySat" Content="六" FontSize="11" Foreground="{DynamicResource TextBrush}" Margin="0,0,6,0" IsChecked="True" Checked="DayCheck_Changed" Unchecked="DayCheck_Changed"/>
+                            <CheckBox x:Name="DaySun" Content="日" FontSize="11" Foreground="{DynamicResource TextBrush}" IsChecked="True" Checked="DayCheck_Changed" Unchecked="DayCheck_Changed"/>
                         </WrapPanel>
-                        <TextBlock Text="未勾選任何時段或日期 = 不限制" FontSize="9" Foreground="{StaticResource SecondaryTextBrush}" Margin="0,6,0,0"/>
+                        <TextBlock Text="未勾選任何時段或日期 = 不限制" FontSize="9" Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,6,0,0"/>
                     </StackPanel>
                 </Border>
             </StackPanel>
 
             <StackPanel Grid.Column="1" Margin="6,0,0,0">
-                <TextBlock Text="動作" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource TextBrush}" Margin="0,0,0,4"/>
+                <TextBlock Text="動作" FontSize="12" FontWeight="SemiBold" Foreground="{DynamicResource TextBrush}" Margin="0,0,0,4"/>
                 <ListBox x:Name="ActionsList" Height="120"
-                         Background="{StaticResource InputBackgroundBrush}" BorderBrush="{StaticResource BorderBrush}"
-                         Foreground="{StaticResource TextBrush}" FontSize="12"
+                         Background="{DynamicResource InputBackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}"
+                         Foreground="{DynamicResource TextBrush}" FontSize="12"
                          SelectionChanged="ActionsList_SelectionChanged"/>
                 <WrapPanel Margin="0,4,0,0">
                     <Button Content="+ 動作" Padding="8,3" FontSize="11"
@@ -118,9 +118,9 @@
                 </WrapPanel>
 
                 <!-- Action params preview -->
-                <Border Background="{StaticResource SurfaceBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" Margin="0,8,0,0" Padding="8" CornerRadius="4" MinHeight="60">
+                <Border Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" Margin="0,8,0,0" Padding="8" CornerRadius="4" MinHeight="60">
                     <TextBlock x:Name="ActionParamsText" Text="選取動作以檢視參數" FontSize="10"
-                               Foreground="{StaticResource SecondaryTextBrush}" TextWrapping="Wrap"/>
+                               Foreground="{DynamicResource SecondaryTextBrush}" TextWrapping="Wrap"/>
                 </Border>
             </StackPanel>
         </Grid>

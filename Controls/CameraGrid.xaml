@@ -1,4 +1,4 @@
-<UserControl x:Class="HeliVMS.Controls.CameraGrid"
+﻿<UserControl x:Class="HeliVMS.Controls.CameraGrid"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:controls="clr-namespace:HeliVMS.Controls">
@@ -8,14 +8,14 @@
         <!-- 無攝影機時顯示 -->
         <Border x:Name="EmptyState" Background="Transparent" Visibility="Visible">
             <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
-                <Path Data="{StaticResource IconCamera}" Fill="{StaticResource SecondaryTextBrush}" Width="48" Height="48" Stretch="Uniform" HorizontalAlignment="Center"/>
+                <Path Data="{StaticResource IconCamera}" Fill="{DynamicResource SecondaryTextBrush}" Width="48" Height="48" Stretch="Uniform" HorizontalAlignment="Center"/>
                 <TextBlock Text="尚無攝影機"
-                           Foreground="{StaticResource TextBrush}"
+                           Foreground="{DynamicResource TextBrush}"
                            FontSize="16" FontWeight="SemiBold"
                            Margin="0,12,0,4"
                            HorizontalAlignment="Center"/>
                 <TextBlock Text="請前往「設備管理」新增攝影機"
-                           Foreground="{StaticResource SecondaryTextBrush}"
+                           Foreground="{DynamicResource SecondaryTextBrush}"
                            FontSize="12"
                            HorizontalAlignment="Center"/>
             </StackPanel>
@@ -23,7 +23,7 @@
 
         <!-- 拖曳狀態指示器（偵錯用） -->
         <Border x:Name="DragDebugPanel"
-                Background="{StaticResource OverlayBrush}"
+                Background="{DynamicResource OverlayBrush}"
                 CornerRadius="3"
                 VerticalAlignment="Top" HorizontalAlignment="Left"
                 Margin="4" Padding="6,4"
@@ -33,15 +33,15 @@
                 <TextBlock x:Name="DragEventText"
                            Text="event: —"
                            FontSize="10"
-                           Foreground="{StaticResource SecondaryTextBrush}"/>
+                           Foreground="{DynamicResource SecondaryTextBrush}"/>
                 <TextBlock x:Name="DragStateText"
                            Text="state: —"
                            FontSize="11"
-                           Foreground="{StaticResource TextBrush}"/>
+                           Foreground="{DynamicResource TextBrush}"/>
                 <TextBlock x:Name="DragDetailText"
                              Text="detail: —"
                              FontSize="10"
-                             Foreground="{StaticResource SuccessBrush}" Opacity="0.5"/>
+                             Foreground="{DynamicResource SuccessBrush}" Opacity="0.5"/>
             </StackPanel>
         </Border>
     </Grid>

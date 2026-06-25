@@ -33,7 +33,6 @@ public partial class VideoPlayer : UserControl {
 
     // Flyleaf hardware-accelerated player
     private Player? _flyleafPlayer;
-    private Config? _flyleafConfig;
 
     // Digital zoom RenderTransform constants
     private const float ZoomEpsilon = 0.001f;
@@ -53,6 +52,11 @@ public partial class VideoPlayer : UserControl {
     // Decoder reconnect state
     private const int MaxDecoderReconnectAttempts = 10;
     private static readonly HashSet<string> _permanentFailures = [];
+    private bool _deferStream;
+
+    // Cached test_pattern check (avoids syscall per frame per player)
+    private static int _testPatternCached = -1;
+    private static long _testPatternLastCheckTicks;
 
     // Batch UI frame update — CompositionTarget.Rendering for VSync-aligned per-player frame pacing
     private static bool _renderingSubscribed;
@@ -70,13 +74,16 @@ public partial class VideoPlayer : UserControl {
     // --- Direct3D9 hardware-accelerated rendering (D3DImage) ---
     private D3DRenderer? _d3dRenderer;
     private D3DImageSurface? _d3dImageSurface;
-    // Private native buffer: decoder copies into it, UI copies from it — fully decoupled
-    private IntPtr _localFrameBuffer = IntPtr.Zero;
-    private int _localBufferSize = 0;
-    private bool _hasNewFrame = false;
-    private int _pendingFrameW, _pendingFrameH, _pendingFrameStride;
-    /// <summary>Serialises the critical section: decoder → local copy + UI → bitmap copy.</summary>
-    private readonly object _frameCopyLock = new();
+    // 4-slot lock-free frame delivery via per-buffer atomic state machine.
+    // _bufferState[i]: -1 = free, i = BG wrote (ready), -(i+2) = UI reading.
+    // BG claims with CompareExchange(-1, i), UI claims with CompareExchange(i, -(i+2)).
+    private IntPtr[] _frameBuffers = new IntPtr[4];
+    private int[] _frameGenerations = new int[4];
+    private int _bgWriteIndex;
+    private int[] _bufferState = [-1, -1, -1, -1];
+    private int[] _pendingFrameW = new int[4];
+    private int[] _pendingFrameH = new int[4];
+    private int[] _pendingFrameStride = new int[4];
 
     // Fallback WriteableBitmap (pre-allocated once, reused; only when D3D9 unavailable)
     private WriteableBitmap? _decoderBitmap;
@@ -95,6 +102,22 @@ public partial class VideoPlayer : UserControl {
     public int TargetDecodeHeight { get; set; } = 360;
     /// <summary>Target decode FPS (0 = max, set before LoadCamera)</summary>
     public int TargetFps { get; set; } = 15;
+
+    public static int GetOptimalDecodeHeight(int cameraCount) => cameraCount switch {
+        <= 4  => 720,
+        <= 9  => 480,
+        <= 16 => 360,
+        <= 36 => 240,
+        _     => 180,
+    };
+
+    public static int GetOptimalFps(int cameraCount) => cameraCount switch {
+        <= 4  => 30,
+        <= 9  => 20,
+        <= 16 => 15,
+        <= 36 => 10,
+        _     => 5,
+    };
 
     public bool IsMaximized {
         get => _isMaximized;
@@ -118,13 +141,8 @@ public partial class VideoPlayer : UserControl {
     private static void OnIsSelectedChanged(DependencyObject d, DependencyPropertyChangedEventArgs e) {
         var player = (VideoPlayer)d;
         var selected = (bool)e.NewValue;
-        if (selected) {
-            player.PlayerBorder.BorderBrush = new SolidColorBrush(Color.FromArgb(0xFF, 0x00, 0x7A, 0xCC));
-            player.GlowEffect.Opacity = 1;
-        } else {
-            player.PlayerBorder.BorderBrush = new SolidColorBrush(Color.FromArgb(0xFF, 0x2D, 0x2D, 0x30));
-            player.GlowEffect.Opacity = 0;
-        }
+        player.PlayerBorder.BorderBrush = selected ? SelectedBorderBrush : UnselectedBorderBrush;
+        player.GlowEffect.Opacity = selected ? 1 : 0;
     }
 
     public void SuspendVideo() {
@@ -200,6 +218,17 @@ public partial class VideoPlayer : UserControl {
         return (rawUrl ?? "", camera.Username ?? "", camera.Password ?? "");
     }
 
+    // Slow-path diagnostics: File.Exists at most every 2s (not per-frame)
+    private static bool CheckTestPattern() {
+        var now = Stopwatch.GetTimestamp();
+        if (now - Volatile.Read(ref _testPatternLastCheckTicks) < Stopwatch.Frequency * 2)
+            return Volatile.Read(ref _testPatternCached) == 1;
+        Volatile.Write(ref _testPatternLastCheckTicks, now);
+        var exists = File.Exists(@"C:\Users\JS\AppData\Local\HeliVMS\test_pattern");
+        Volatile.Write(ref _testPatternCached, exists ? 1 : 0);
+        return exists;
+    }
+
     public void SetFullBleed() {
         PlayerBorder.BorderThickness = new Thickness(0);
         PlayerBorder.CornerRadius = new CornerRadius(0);
@@ -210,6 +239,8 @@ public partial class VideoPlayer : UserControl {
         if (FlyleafEngineReady) {
             _flyleafHost = CreateFlyleafHost();
         }
+        try { GlowEffect.Color = ((SolidColorBrush)Application.Current.FindResource("PrimaryBrush")).Color; }
+        catch { GlowEffect.Color = Color.FromRgb(0x00, 0xA8, 0xFF); }
         Loaded += OnLoaded;
         Unloaded += OnUnloaded;
         this.LostMouseCapture += VideoPlayer_LostMouseCapture;
@@ -301,13 +332,54 @@ public partial class VideoPlayer : UserControl {
 
     private void OnLoaded(object sender, RoutedEventArgs e) {
         _isUnloaded = false;
+        if (_camera is not null && _streamingService is null && !_deferStream) {
+            ResumeVideo();
+        }
     }
 
     private void OnUnloaded(object sender, RoutedEventArgs e) {
         _isUnloaded = true;
-        _hudTimer?.Stop();
+        StopStreaming();
+        if (_hudTimer is not null) {
+            _hudTimer.Tick -= HudTimer_Tick;
+            _hudTimer.Stop();
+        }
         CancelTimers();
         ResetReconnectState();
+    }
+
+    /// <summary>Set up player UI (camera name, status) without starting RTSP stream. Call <see cref="StartStream"/> later to begin.</summary>
+    public void SetPlaceholderOnly(Camera camera, bool useSubStream = false) {
+        _camera = camera;
+        _useSubStream = useSubStream;
+        _deferStream = true;
+        CameraNameText.Text = camera.Name;
+        CameraNameTextPlaceholder.Text = camera.Name;
+        var fontSettings = _cachedSettings;
+        if (fontSettings is not null) {
+            CameraNameText.FontSize = fontSettings.Settings.OverlayFontSize;
+        }
+        var hasSub = !string.IsNullOrEmpty(camera.RtspUrlSub);
+        StreamToggle.Visibility = hasSub ? Visibility.Visible : Visibility.Collapsed;
+        UpdateStreamToggleText();
+        StatusText.Text = "連線中...";
+        DecoderFrameImage.Visibility = Visibility.Collapsed;
+        Placeholder.Visibility = Visibility.Visible;
+        PtzOverlay.Visibility = camera.HasPTZ ? Visibility.Visible : Visibility.Collapsed;
+        DragDiag.Write($"[VideoPlayer] SetPlaceholderOnly: {camera.Name}({camera.Id}) deferred");
+    }
+
+    /// <summary>Start RTSP stream after deferred placeholder setup.</summary>
+    public void StartStream() {
+        if (_camera is null) { return; }
+        _deferStream = false;
+        var (streamUrl, streamUser, streamPass) = ResolveStreamUrl(_camera, _useSubStream);
+        DragDiag.Write($"[VideoPlayer] StartStream: {_camera.Name}, url=|{streamUrl}|");
+        if (_camera.IsEnabled && !string.IsNullOrEmpty(streamUrl)) {
+            StartPlayback(streamUrl, streamUser, streamPass ?? "", _camera);
+        } else {
+            StatusText.Text = "未連線";
+        }
     }
 
     public void LoadCamera(Camera camera, bool useSubStream = false) {
@@ -316,6 +388,7 @@ public partial class VideoPlayer : UserControl {
         _isUnloaded = false;
         _camera = camera;
         _useSubStream = useSubStream;
+        _deferStream = false;
         _onvif = App.Services.GetService<IOnvifService>();
         CameraNameText.Text = camera.Name;
         CameraNameTextPlaceholder.Text = camera.Name;
@@ -334,7 +407,8 @@ public partial class VideoPlayer : UserControl {
         Log.Debug("[VideoPlayer] LoadCamera: resolved url={Url}, user={User}, passLen={PassLen}", streamUrl, streamUser, streamPass?.Length ?? 0);
         if (camera.IsEnabled && !string.IsNullOrEmpty(streamUrl)) {
             StatusText.Text = "連線中...";
-            DecoderFrameImage.Visibility = Visibility.Collapsed;
+            DecoderFrameImage.Visibility = Visibility.Visible;
+            DecoderFrameImage.Opacity = 0;
             Placeholder.Visibility = Visibility.Visible;
             StartPlayback(streamUrl, streamUser, streamPass ?? "", camera);
         } else {
@@ -360,63 +434,7 @@ public partial class VideoPlayer : UserControl {
     }
 
     private bool TryStartFlyleaf(string rtspUrl, string username, string password) {
-        if (!FlyleafEngineReady) { return false; }
-        try {
-            SaveZoomForRestore();
-            ResetZoomState();
-
-            StopStreaming();
-
-            var url = rtspUrl;
-            if (!string.IsNullOrEmpty(username) && !string.IsNullOrEmpty(password)) {
-                var uri = new Uri(rtspUrl);
-                var userInfo = $"{Uri.EscapeDataString(username)}:{Uri.EscapeDataString(password)}";
-                url = $"rtsp://{userInfo}@{uri.Host}:{uri.Port}{uri.PathAndQuery}";
-            }
-
-            DecoderFrameImage.Visibility = Visibility.Collapsed;
-            Placeholder.Visibility = Visibility.Collapsed;
-            ReconnectingOverlay.Visibility = Visibility.Collapsed;
-            StatusText.Text = "連線中...";
-
-            // Ensure FlyleafHost is in the visual tree (created in constructor, not yet parented)
-            if (_flyleafHost is not null && System.Windows.Media.VisualTreeHelper.GetParent(_flyleafHost) is null) {
-                RootGrid.Children.Add(_flyleafHost);
-            }
-
-            var enableHw = GetCachedSettings()?.Settings.EnableHardwareAcceleration ?? true;
-            _flyleafConfig = new Config();
-            _flyleafConfig.Video.ClearScreen = true;
-            _flyleafConfig.Video.VideoAcceleration = enableHw;
-            _flyleafConfig.Decoder.LowDelay = true;
-            _flyleafConfig.Decoder.AllowDropFrames = true;
-            _flyleafConfig.Player.ZeroLatency = true;
-
-            _flyleafPlayer = new Player(_flyleafConfig);
-            if (_flyleafHost is not null) {
-                AttachFlyleafPlayer(_flyleafHost, _flyleafPlayer);
-            }
-            StartInfoOSD();
-
-            var cp = _flyleafPlayer;
-            _flyleafPlayer.OpenCompleted += (_, _) => {
-                if (_flyleafPlayer != cp) return;
-                _ = Dispatcher.BeginInvoke(OnFlyleafOpenCompletedCore);
-            };
-            _flyleafPlayer.PlaybackStopped += (_, _) => {
-                if (_flyleafPlayer != cp) return;
-                _ = Dispatcher.BeginInvoke(OnFlyleafPlaybackStoppedCore);
-            };
-
-            lock (_flyleafPlayers) { _flyleafPlayers.Add(_flyleafPlayer); }
-
-            _flyleafPlayer.OpenAsync(url);
-            return true;
-        } catch (Exception ex) {
-            Log.Warning(ex, "[VideoPlayer:{Name}] Flyleaf start failed", _camera?.Name);
-            CleanupFlyleaf();
-            return false;
-        }
+        return false;
     }
 
     private void OnFlyleafOpenCompletedCore() {
@@ -463,7 +481,6 @@ public partial class VideoPlayer : UserControl {
             try { _flyleafPlayer.Stop(); } catch (Exception ex) { Log.Debug("[HeliVMS] Flyleaf Stop: {Msg}", ex.Message); }
             try { _flyleafPlayer.Dispose(); } catch { }
             _flyleafPlayer = null;
-            _flyleafConfig = null;
         }
     }
 
@@ -506,14 +523,15 @@ public partial class VideoPlayer : UserControl {
 
         _decoderRtspUrl = rtspUrl;
         _streamFailCount = 0;
-        DecoderFrameImage.Visibility = Visibility.Collapsed;
+        DecoderFrameImage.Visibility = Visibility.Visible;
+        DecoderFrameImage.Opacity = 0;
         Placeholder.Visibility = Visibility.Collapsed;
         ReconnectingOverlay.Visibility = Visibility.Collapsed;
 
         var hasFrozenFrame = _decoderBitmap is not null;
         if (hasFrozenFrame) {
-            DecoderFrameImage.Visibility = Visibility.Visible;
-            ReconnectingOverlay.Visibility = Visibility.Visible;
+                DecoderFrameImage.Opacity = 1;
+                ReconnectingOverlay.Visibility = Visibility.Visible;
             ReconnectAttemptText.Text = $"重連 {_streamFailCount}/{MaxDecoderReconnectAttempts} 次";
         } else {
             Placeholder.Visibility = Visibility.Visible;
@@ -522,7 +540,7 @@ public partial class VideoPlayer : UserControl {
 
         var enableHw = GetCachedSettings()?.Settings.EnableHardwareAcceleration ?? true;
         _streamingService = new FFmpegStreamingService {
-            HwDeviceType = enableHw ? AVHWDeviceType.AV_HWDEVICE_TYPE_D3D11VA : AVHWDeviceType.AV_HWDEVICE_TYPE_NONE,
+            HwDeviceType = enableHw ? HardwareAccelerator.DetectBestType() : AVHWDeviceType.AV_HWDEVICE_TYPE_NONE,
             UseAsyncRtsp = (GetCachedSettings()?.Settings.UseAsyncRtspLiveView).GetValueOrDefault()
         };
 
@@ -566,7 +584,7 @@ public partial class VideoPlayer : UserControl {
 
                 StatusText.Text = $"正在重新連線 ({_streamFailCount}/{MaxDecoderReconnectAttempts})";
                 ReconnectAttemptText.Text = $"重連 {_streamFailCount}/{MaxDecoderReconnectAttempts} 次";
-                if (DecoderFrameImage.Visibility == Visibility.Visible) {
+                if (DecoderFrameImage.Opacity > 0) {
                     ReconnectingOverlay.Visibility = Visibility.Visible;
                 }
                 _camera.IsConnected = false;
@@ -597,34 +615,31 @@ public partial class VideoPlayer : UserControl {
 
         Interlocked.Increment(ref _osdFrameCount);
 
-        // Copy decoder data into the private local buffer under the lock,
-        // then release the ring-buffer slot straight away — UI never touches it.
-        lock (_frameCopyLock) {
-            // (Re)allocate local buffer if needed
-            if (_localBufferSize < dataSize) {
-                if (_localFrameBuffer != IntPtr.Zero) {
-                    Marshal.FreeHGlobal(_localFrameBuffer);
-                }
-                _localFrameBuffer = Marshal.AllocHGlobal(dataSize);
-                _localBufferSize = dataSize;
-            }
-
-            Buffer.MemoryCopy((void*)frameData, (void*)_localFrameBuffer, dataSize, dataSize);
-
-            _pendingFrameW = width;
-            _pendingFrameH = height;
-            _pendingFrameStride = width * 4;
-            _hasNewFrame = true;
-
-            // Slot data is now safely copied; return it to the ring buffer immediately.
-            _streamingService?.ReleaseFrame(frameData);
+        // Atomically claim a free buffer (-1 → bufIdx). If all busy, drop frame.
+        int startIdx = Volatile.Read(ref _bgWriteIndex);
+        int bufIdx = startIdx;
+        for (int i = 0; i < 4; i++) {
+            bufIdx = (startIdx + i) & 3;
+            if (Interlocked.CompareExchange(ref _bufferState[bufIdx], bufIdx, -1) == -1)
+                goto found;
         }
+        return;
+    found:
+        // Zero-copy: store ring-buffer pointer directly. No Marshal.AllocHGlobal + Buffer.MemoryCopy.
+        _frameBuffers[bufIdx] = frameData;
+        _frameGenerations[bufIdx] = _streamingService?.GetFrameGeneration(frameData) ?? 0;
+
+        _pendingFrameW[bufIdx] = width;
+        _pendingFrameH[bufIdx] = height;
+        _pendingFrameStride[bufIdx] = width * 4;
+
+        // Buffer state is already bufIdx (set by CompareExchange above) — signals "ready" to UI.
+        _bgWriteIndex = (bufIdx + 1) & 3;
     }
 
     private void StopStreaming() {
         _hasShownFirstFrame = false;
         CleanupFlyleaf();
-        UnregisterActiveFramePlayer();
         StopInfoOSD();
         if (_streamingService is not null) {
             _streamingService.FrameReady -= OnDecoderFrameReady;
@@ -634,6 +649,7 @@ public partial class VideoPlayer : UserControl {
             _streamingService.Dispose();
             _streamingService = null;
         }
+        UnregisterActiveFramePlayer();
     }
 
     private static void SaveZoomForRestore() {
@@ -1116,6 +1132,20 @@ public partial class VideoPlayer : UserControl {
     private static readonly Color ColorWeighted = Color.FromRgb(0xFF, 0x98, 0x00);
     private static readonly Color ColorNone = Colors.Transparent;
 
+    // Cached frozen brushes for hot paths (avoid per-call SolidColorBrush allocation)
+    private static readonly Brush SelectedBorderBrush = FreezeBrush(new SolidColorBrush(Color.FromArgb(0xFF, 0x00, 0x7A, 0xCC)));
+    private static readonly Brush UnselectedBorderBrush = FreezeBrush(new SolidColorBrush(Color.FromArgb(0xFF, 0x2D, 0x2D, 0x30)));
+    private static readonly Dictionary<Color, Brush> RecordingModeBrushes = new(6) {
+        { ColorContinuous, FreezeBrush(new SolidColorBrush(ColorContinuous)) },
+        { ColorMotion, FreezeBrush(new SolidColorBrush(ColorMotion)) },
+        { ColorAlarm, FreezeBrush(new SolidColorBrush(ColorAlarm)) },
+        { ColorSmart, FreezeBrush(new SolidColorBrush(ColorSmart)) },
+        { ColorWeighted, FreezeBrush(new SolidColorBrush(ColorWeighted)) },
+        { ColorNone, FreezeBrush(new SolidColorBrush(ColorNone)) },
+    };
+
+    private static Brush FreezeBrush(SolidColorBrush brush) { brush.Freeze(); return brush; }
+
     public void SwitchToMainStream() {
         if (_camera is null) { return; }
         if (!_useSubStream) { return; }
@@ -1169,7 +1199,9 @@ public partial class VideoPlayer : UserControl {
     }
 
     public void SetRecordingModeColor(Color color) {
-        RecordingModeDot.Fill = new SolidColorBrush(color);
+        if (!RecordingModeBrushes.TryGetValue(color, out var brush))
+            brush = FreezeBrush(new SolidColorBrush(color));
+        RecordingModeDot.Fill = brush;
         RecordingModeDot.Visibility = color == Colors.Transparent
             ? Visibility.Collapsed
             : Visibility.Visible;
@@ -1209,10 +1241,24 @@ public partial class VideoPlayer : UserControl {
         if (!_renderingSubscribed) {
             CompositionTarget.Rendering += OnCompositionRendering;
             _renderingSubscribed = true;
+            DragDiag.Write("[VideoPlayer] EnsureFrameBatchTimer: subscribed to CompositionTarget.Rendering");
         }
     }
 
+    private static bool HasReadyBuffer(VideoPlayer p) {
+        for (int i = 0; i < 4; i++) {
+            if (Volatile.Read(ref p._bufferState[i]) == i) return true;
+        }
+        return false;
+    }
+
+    private static string BufferStates(VideoPlayer p) {
+        return $"buf=[{p._bufferState[0]},{p._bufferState[1]},{p._bufferState[2]},{p._bufferState[3]}]";
+    }
+
+    private static int _renderSkipCounter; // frame-skip throttle to reduce UI thread overhead
     private static void OnCompositionRendering(object? sender, EventArgs e) {
+        if (++_renderSkipCounter % 2 != 0) return; // process every other VSync (~30fps iteration)
         var now = Stopwatch.GetTimestamp();
         VideoPlayer[]? snapshot;
         int count;
@@ -1227,11 +1273,11 @@ public partial class VideoPlayer : UserControl {
             var minInterval = (int)(Stopwatch.Frequency / 30);
             for (var i = 0; i < count; i++) {
                 var p = snapshot![i];
+                var name = p._camera?.Name ?? "?";
                 if (p._nextRenderTimestamp <= now) {
-                    if (!p._hasNewFrame) {
+                    if (!HasReadyBuffer(p)) {
                         p._renderMissCount++;
                         if (p._renderMissCount > 30) {
-                            // Back off render rate for idle players (reduce CPU)
                             p._renderIntervalTicks = Math.Min(p._renderIntervalTicks * 2, (int)(Stopwatch.Frequency / 5));
                             p._renderMissCount = 0;
                         }
@@ -1239,178 +1285,182 @@ public partial class VideoPlayer : UserControl {
                         continue;
                     }
                     p._renderMissCount = 0;
+                    p._renderIntervalTicks = minInterval;
+                    DragDiag.Write($"[VideoPlayer:{name}] OnCompositionRendering: calling FlushPendingFrame");
                     p.FlushPendingFrame();
-                    p._nextRenderTimestamp = now + Math.Max(p._renderIntervalTicks, minInterval);
+                    p._nextRenderTimestamp = now + minInterval;
                 }
             }
         } finally {
-            ArrayPool<VideoPlayer>.Shared.Return(snapshot);
+            ArrayPool<VideoPlayer>.Shared.Return(snapshot, clearArray: true);
         }
     }
 
     private unsafe void FlushPendingFrame() {
-        if (_isUnloaded || _camera is null) { return; }
+        if (_isUnloaded || _camera is null) {
+            DragDiag.Write($"[VideoPlayer:{_camera?.Name}] FlushPendingFrame: SKIP _isUnloaded={_isUnloaded}");
+            return;
+        }
 
-        lock (_frameCopyLock) {
-            if (!_hasNewFrame || _localFrameBuffer == IntPtr.Zero) { return; }
-            _hasNewFrame = false;
+        for (int bufIdx = 0; bufIdx < 4; bufIdx++) {
+            int readingState = -(bufIdx + 2);
+            if (Interlocked.CompareExchange(ref _bufferState[bufIdx], readingState, bufIdx) != bufIdx)
+                continue;
 
-            var width = _pendingFrameW;
-            var height = _pendingFrameH;
-            var stride = _pendingFrameStride;
+            var ptr = _frameBuffers[bufIdx];
+            var gen = _frameGenerations[bufIdx];
+            bool valid = ptr != IntPtr.Zero
+                && (_streamingService?.ValidateFrame(ptr, gen) ?? true);
 
-            if (!_camera.IsConnected) {
-                _camera.IsConnected = true;
-                _camera.LastConnectedAt = DateTime.Now;
-                _camera.FirstConnectedAt ??= DateTime.Now;
-                GetEventLog()?.LogInfo("Connection", "VideoPlayer", $"{_camera.Name} 已成功連接 (Decoder)");
-                Notify($"{_camera.Name} 已成功連接 (Decoder)", "INFO");
+            if (!valid) {
+                if (ptr != IntPtr.Zero)
+                    _streamingService?.ReleaseFrame(ptr);
+                _frameBuffers[bufIdx] = IntPtr.Zero;
+                _frameGenerations[bufIdx] = 0;
+                Volatile.Write(ref _bufferState[bufIdx], -1);
+                DragDiag.Write($"[VideoPlayer:{_camera.Name}] FlushPendingFrame: buf[{bufIdx}] gen={gen} INVALID -> skip");
+                continue;
             }
 
-            if (!_hasShownFirstFrame) {
-                _hasShownFirstFrame = true;
-                Placeholder.Visibility = Visibility.Collapsed;
-                DecoderFrameImage.Visibility = Visibility.Visible;
-                StatusText.Text = "串流播放中";
-                ReconnectingOverlay.Visibility = Visibility.Collapsed;
-                DragDiag.Write($"[VideoPlayer:{_camera.Name}] FlushPendingFrame: FIRST RENDER {width}x{height}");
-            }
-
-            _decoderVidWidth = (uint)width;
-            _decoderVidHeight = (uint)height;
-            UpdateHealthBadge();
-
+            var cleanupPtr = ptr;
             try {
-                // --- D3D9 path (GPU surface). Falls back to CPU if surface allocation fails. ---
-                if (_d3dImageSurface is not null && _d3dImageSurface.EnsureSize(width, height)) {
-                    _d3dImageSurface.PresentFrame(_localFrameBuffer, stride * height, stride);
-                    DragDiag.Write($"[VideoPlayer:{_camera.Name}] FlushPendingFrame: D3D path");
-                } else {
-                    // --- Fallback: pre-allocated WriteableBitmap (D3D unavailable) ---
-                    if (_decoderBitmap is null ||
-                        _decoderBitmap.PixelWidth != width ||
-                        _decoderBitmap.PixelHeight != height) {
-                        _decoderBitmap = new WriteableBitmap(width, height, 96, 96, PixelFormats.Bgra32, null);
-                        DecoderFrameImage.Source = _decoderBitmap;
-                        DragDiag.Write($"[VideoPlayer:{_camera.Name}] FlushPendingFrame: new WB {width}x{height}");
-                    }
+                var width = _pendingFrameW[bufIdx];
+                var height = _pendingFrameH[bufIdx];
+                var stride = _pendingFrameStride[bufIdx];
+                DragDiag.Write($"[VideoPlayer:{_camera.Name}] FlushPendingFrame: RENDER buf[{bufIdx}] {width}x{height} {BufferStates(this)}");
 
-                    if (_decoderBitmap is not null) {
-                        var dstStride = _decoderBitmap.BackBufferStride;
-                        _decoderBitmap.Lock();
-                        try {
-                            // Diagnostics: if trigger file exists, override with red checkerboard to test rendering pipeline
-                            var useTestPattern = File.Exists(@"C:\Users\JS\AppData\Local\HeliVMS\test_pattern");
-                            if (useTestPattern) {
-                                var dst = (byte*)_decoderBitmap.BackBuffer;
-                                for (var y = 0; y < height; y++) {
-                                    for (var x = 0; x < width; x++) {
-                                        var off = y * dstStride + x * 4;
-                                        if (off + 3 >= dstStride * height) break;
-                                        bool isRed = (x / 32 + y / 32) % 2 == 0;
-                                        dst[off + 0] = 0;    // B
-                                        dst[off + 1] = 0;    // G
-                                        dst[off + 2] = isRed ? (byte)255 : (byte)0; // R
-                                        dst[off + 3] = 255;  // A
-                                    }
-                                }
-                                DragDiag.Write($"[VideoPlayer:{_camera.Name}] TEST PATTERN RENDERED {width}x{height}");
-                            } else {
-                                var src = (byte*)_localFrameBuffer;
-                                if (stride == dstStride) {
-                                    Buffer.MemoryCopy(src, (void*)_decoderBitmap.BackBuffer,
-                                        dstStride * height, stride * height);
-                                } else {
+                if (!_camera.IsConnected) {
+                    _camera.IsConnected = true;
+                    _camera.LastConnectedAt = DateTime.Now;
+                    _camera.FirstConnectedAt ??= DateTime.Now;
+                    GetEventLog()?.LogInfo("Connection", "VideoPlayer", $"{_camera.Name} 已成功連接 (Decoder)");
+                    Notify($"{_camera.Name} 已成功連接 (Decoder)", "INFO");
+                }
+
+                if (!_hasShownFirstFrame) {
+                    _hasShownFirstFrame = true;
+                    Placeholder.Visibility = Visibility.Collapsed;
+                    DecoderFrameImage.Opacity = 1;
+                    StatusText.Text = "串流播放中";
+                    ReconnectingOverlay.Visibility = Visibility.Collapsed;
+                    DragDiag.Write($"[VideoPlayer:{_camera.Name}] FlushPendingFrame: FIRST RENDER {width}x{height}");
+                }
+
+                _decoderVidWidth = (uint)width;
+                _decoderVidHeight = (uint)height;
+                UpdateHealthBadge();
+
+                try {
+                    if (_d3dImageSurface is not null && _d3dImageSurface.EnsureSize(width, height)) {
+                        _d3dImageSurface.PresentFrame(ptr, stride * height, stride);
+                    } else {
+                        if (_decoderBitmap is null ||
+                            _decoderBitmap.PixelWidth != width ||
+                            _decoderBitmap.PixelHeight != height) {
+                            _decoderBitmap = new WriteableBitmap(width, height, 96, 96, PixelFormats.Bgra32, null);
+                            DecoderFrameImage.Source = _decoderBitmap;
+                            DragDiag.Write($"[VideoPlayer:{_camera.Name}] FlushPendingFrame: new WB {width}x{height}");
+                        }
+
+                        if (_decoderBitmap is not null) {
+                            var dstStride = _decoderBitmap.BackBufferStride;
+                            _decoderBitmap.Lock();
+                            try {
+                                if (CheckTestPattern()) {
                                     var dst = (byte*)_decoderBitmap.BackBuffer;
-                                    var copyLen = Math.Min(stride, dstStride);
                                     for (var y = 0; y < height; y++) {
-                                        Buffer.MemoryCopy(src, dst, copyLen, copyLen);
-                                        src += stride;
-                                        dst += dstStride;
+                                        for (var x = 0; x < width; x++) {
+                                            var off = y * dstStride + x * 4;
+                                            if (off + 3 >= dstStride * height) break;
+                                            bool isRed = (x / 32 + y / 32) % 2 == 0;
+                                            dst[off + 0] = 0;
+                                            dst[off + 1] = 0;
+                                            dst[off + 2] = isRed ? (byte)255 : (byte)0;
+                                            dst[off + 3] = 255;
+                                        }
+                                    }
+                                    DragDiag.Write($"[VideoPlayer:{_camera.Name}] TEST PATTERN RENDERED {width}x{height}");
+                                } else {
+                                    var src = (byte*)ptr;
+                                    if (stride == dstStride) {
+                                        Buffer.MemoryCopy(src, (void*)_decoderBitmap.BackBuffer,
+                                            dstStride * height, stride * height);
+                                    } else {
+                                        var dst = (byte*)_decoderBitmap.BackBuffer;
+                                        var copyLen = Math.Min(stride, dstStride);
+                                        for (var y = 0; y < height; y++) {
+                                            Buffer.MemoryCopy(src, dst, copyLen, copyLen);
+                                            src += stride;
+                                            dst += dstStride;
+                                        }
                                     }
                                 }
+                                _decoderBitmap.AddDirtyRect(new Int32Rect(0, 0, width, height));
+                            } finally {
+                                _decoderBitmap.Unlock();
                             }
-                            _decoderBitmap.AddDirtyRect(new Int32Rect(0, 0, width, height));
-                            if (_hasShownFirstFrame) {
-                                var firstPixel = *(uint*)_localFrameBuffer;
-                                DragDiag.Write($"[VideoPlayer:{_camera.Name}] FlushPendingFrame: WB rendered stride={stride}/{dstStride} px0=0x{firstPixel:X8}");
-                            }
-                        } finally {
-                            _decoderBitmap.Unlock();
-                        }
-                    } else {
-                        DragDiag.Write($"[VideoPlayer:{_camera.Name}] FlushPendingFrame: WB IS NULL!");
-                    }
-                }
-                _renderMissCount = 0;
-
-                // Diagnostics: log DecoderFrameImage state and parent chain sizes after first render
-                if (_hasShownFirstFrame) {
-                    var srcType = DecoderFrameImage.Source?.GetType().Name ?? "null";
-                    var aw = DecoderFrameImage.ActualWidth;
-                    var ah = DecoderFrameImage.ActualHeight;
-                    var vis = DecoderFrameImage.Visibility;
-                    var playerW = ActualWidth;
-                    var playerH = ActualHeight;
-                    var parentInfo = "";
-                    if (Parent is FrameworkElement fe) {
-                        parentInfo = $"parent={fe.GetType().Name} pAw={fe.ActualWidth:F1} pAh={fe.ActualHeight:F1}";
-                    } else if (Parent is not null) {
-                        parentInfo = $"parent={Parent.GetType().Name}";
-                    } else {
-                        parentInfo = "parent=null";
-                    }
-                    DragDiag.Write($"[VideoPlayer:{_camera.Name}] FlushPendingFrame: DIAG img={srcType} aw={aw:F1} ah={ah:F1} vis={vis} plyW={playerW:F1} plyH={playerH:F1} {parentInfo}");
-                }
-
-                // Diagnostics: in test pattern mode, force a known good BitmapSource to verify Image element
-                var diagForceTest = File.Exists(@"C:\Users\JS\AppData\Local\HeliVMS\test_pattern");
-                if (diagForceTest && _hasShownFirstFrame) {
-                    var raw = new byte[width * height * 4];
-                    for (var y = 0; y < height; y++) {
-                        for (var x = 0; x < width; x++) {
-                            var off = (y * width + x) * 4;
-                            var isRed = ((x / 40) + (y / 40)) % 2 == 0;
-                            raw[off] = 0;
-                            raw[off + 1] = 0;
-                            raw[off + 2] = isRed ? (byte)255 : (byte)0;
-                            raw[off + 3] = 255;
+                        } else {
+                            DragDiag.Write($"[VideoPlayer:{_camera.Name}] FlushPendingFrame: WB IS NULL!");
                         }
                     }
-                    var testBmp = System.Windows.Media.Imaging.BitmapSource.Create(
-                        width, height, 96, 96, System.Windows.Media.PixelFormats.Bgra32, null, raw, stride);
-                    DecoderFrameImage.Source = testBmp;
-                    DecoderFrameImage.InvalidateVisual();
-                    DecoderFrameImage.InvalidateMeasure();
-                    DragDiag.Write($"[VideoPlayer:{_camera.Name}] TEST: BitmapSource.Create set as Source + InvalidateVisual");
+                    _renderMissCount = 0;
+
+#if DEBUG
+                    if (CheckTestPattern() && _hasShownFirstFrame) {
+                        var raw = new byte[width * height * 4];
+                        for (var y = 0; y < height; y++) {
+                            for (var x = 0; x < width; x++) {
+                                var off = (y * width + x) * 4;
+                                var isRed = ((x / 40) + (y / 40)) % 2 == 0;
+                                raw[off] = 0;
+                                raw[off + 1] = 0;
+                                raw[off + 2] = isRed ? (byte)255 : (byte)0;
+                                raw[off + 3] = 255;
+                            }
+                        }
+                        var testBmp = System.Windows.Media.Imaging.BitmapSource.Create(
+                            width, height, 96, 96, System.Windows.Media.PixelFormats.Bgra32, null, raw, stride);
+                        DecoderFrameImage.Source = testBmp;
+                        DecoderFrameImage.InvalidateVisual();
+                        DecoderFrameImage.InvalidateMeasure();
+                        DragDiag.Write($"[VideoPlayer:{_camera.Name}] TEST: BitmapSource.Create set as Source + InvalidateVisual");
+                    }
+#endif
+                } catch when (_isUnloaded) { } catch (Exception ex) {
+                    Log.Warning(ex, "[VideoPlayer:{Name}] Decoder frame render error", _camera?.Name);
                 }
-            } catch when (_isUnloaded) { } catch (Exception ex) {
-                Log.Warning(ex, "[VideoPlayer:{Name}] Decoder frame render error", _camera?.Name);
+            } finally {
+                if (cleanupPtr != IntPtr.Zero)
+                    _streamingService?.ReleaseFrame(cleanupPtr);
+                _frameBuffers[bufIdx] = IntPtr.Zero;
+                _frameGenerations[bufIdx] = 0;
+                Volatile.Write(ref _bufferState[bufIdx], -1);
             }
+            return;
         }
     }
 
     private void RegisterActiveFramePlayer() {
-        // Diagnostics: skip D3D entirely in test mode
-        var skipD3D = File.Exists(@"C:\Users\JS\AppData\Local\HeliVMS\test_pattern");
+        var skipD3D = CheckTestPattern();
         if (skipD3D) {
-            DragDiag.Write($"[VideoPlayer:{_camera?.Name}] RegisterActiveFramePlayer: TEST MODE - skipping D3D entirely");
-        }
-        if (!skipD3D) {
-            // Shared singleton D3D9 device (single device for all players avoids GPU exhaustion)
+            DragDiag.Write($"[VideoPlayer:{_camera?.Name}] RegisterActiveFramePlayer: TEST MODE");
+            EnsureFallbackBitmap();
+        } else {
             _d3dRenderer = D3DRenderer.Instance;
-
-            // Per-player D3DImageSurface (backed by D3D9 offscreen surface from shared device)
             if (_d3dRenderer is not null) {
                 _d3dImageSurface = new D3DImageSurface(_d3dRenderer);
                 if (_d3dImageSurface.IsValid) {
                     DecoderFrameImage.Source = _d3dImageSurface.Image;
                     DragDiag.Write($"[VideoPlayer:{_camera?.Name}] RegisterActiveFramePlayer: D3DImage set as Source");
                 } else {
-                    DragDiag.Write($"[VideoPlayer:{_camera?.Name}] RegisterActiveFramePlayer: D3DImageSurface NOT valid");
+                    DragDiag.Write($"[VideoPlayer:{_camera?.Name}] RegisterActiveFramePlayer: D3DImageSurface NOT valid, using WB fallback");
+                    _d3dImageSurface.Dispose();
+                    _d3dImageSurface = null;
+                    EnsureFallbackBitmap();
                 }
             } else {
-                DragDiag.Write($"[VideoPlayer:{_camera?.Name}] RegisterActiveFramePlayer: D3DRenderer.Instance returned null");
+                DragDiag.Write($"[VideoPlayer:{_camera?.Name}] RegisterActiveFramePlayer: D3D null, using WB fallback");
+                EnsureFallbackBitmap();
             }
         }
 
@@ -1419,22 +1469,29 @@ public partial class VideoPlayer : UserControl {
                 _activeFramePlayers.Add(this);
             }
         }
-        // Initialize per-player render interval from target FPS
         var fps = TargetFps > 0 ? TargetFps : 15;
         _renderIntervalTicks = (int)(Stopwatch.Frequency / fps);
         _nextRenderTimestamp = Stopwatch.GetTimestamp();
         EnsureFrameBatchTimer();
+        DragDiag.Write($"[VideoPlayer:{_camera?.Name}] RegisterActiveFramePlayer: DONE playersCount={_activeFramePlayers.Count} {BufferStates(this)}");
+    }
+
+    private void EnsureFallbackBitmap() {
+        if (_decoderBitmap is null) {
+            _decoderBitmap = new WriteableBitmap(1, 1, 96, 96, PixelFormats.Bgra32, null);
+            DecoderFrameImage.Source = _decoderBitmap;
+            DragDiag.Write($"[VideoPlayer:{_camera?.Name}] EnsureFallbackBitmap: 1x1 WB set as Source");
+        }
     }
 
     private void UnregisterActiveFramePlayer() {
-        lock (_frameCopyLock) {
-            // Free per-player private native buffer (no ring-buffer slot to release)
-            if (_localFrameBuffer != IntPtr.Zero) {
-                Marshal.FreeHGlobal(_localFrameBuffer);
-                _localFrameBuffer = IntPtr.Zero;
-                _localBufferSize = 0;
+        for (int i = 0; i < 4; i++) {
+            Volatile.Write(ref _bufferState[i], -1);
+            if (_frameBuffers[i] != IntPtr.Zero) {
+                _streamingService?.ReleaseFrame(_frameBuffers[i]);
+                _frameBuffers[i] = IntPtr.Zero;
+                _frameGenerations[i] = 0;
             }
-            _hasNewFrame = false;
         }
 
         _d3dImageSurface?.Dispose();
@@ -1457,13 +1514,10 @@ public partial class VideoPlayer : UserControl {
         }
         lock (_activeFramePlayers) {
             foreach (var p in _activeFramePlayers) {
-                lock (p._frameCopyLock) {
-                    if (p._localFrameBuffer != IntPtr.Zero) {
-                        Marshal.FreeHGlobal(p._localFrameBuffer);
-                        p._localFrameBuffer = IntPtr.Zero;
-                        p._localBufferSize = 0;
-                    }
-                    p._hasNewFrame = false;
+                for (int i = 0; i < 4; i++) {
+                    Volatile.Write(ref p._bufferState[i], -1);
+                    p._frameBuffers[i] = IntPtr.Zero;
+                    p._frameGenerations[i] = 0;
                 }
                 p._d3dImageSurface?.Dispose();
                 p._d3dImageSurface = null;

@@ -1,5 +1,6 @@
 using System.IO;
 using System.Windows;
+using System.Windows.Controls;
 using HeliVMS.Models;
 using HeliVMS.Services;
 using Microsoft.Extensions.DependencyInjection;
@@ -10,6 +11,7 @@ namespace HeliVMS.Dialog;
 public partial class ExportDialog : Window {
     private readonly IExportService _exportService;
     private readonly ICameraService _cameraService;
+    private readonly List<CameraCheckItem> _cameraItems = new();
 
     public (DateTime start, DateTime end)? PresetRange {
         set {
@@ -32,6 +34,61 @@ public partial class ExportDialog : Window {
         EndTimeBox.Text = "23:59:59";
         OutputPathBox.Text = Path.Combine(_exportService.GetDefaultExportPath(),
             $"export_{DateTime.Now:yyyyMMdd_HHmmss}.mp4");
+        LoadCameras();
+    }
+
+    private void LoadCameras() {
+        var cameras = _cameraService.GetAllCameras();
+        foreach (var cam in cameras) {
+            var item = new CameraCheckItem { CameraId = cam.Id, CameraName = cam.Name, IsChecked = true };
+            _cameraItems.Add(item);
+            var border = new Border {
+                Background = FindResource("SurfaceBrush") as System.Windows.Media.Brush,
+                CornerRadius = new CornerRadius(4),
+                Margin = new Thickness(0, 0, 0, 2),
+                Padding = new Thickness(6, 3, 6, 3),
+            };
+            var cb = new CheckBox {
+                Content = $"CH{cam.ChannelNumber ?? _cameraItems.Count}  {cam.Name}",
+                IsChecked = true,
+                FontSize = 11,
+                Foreground = FindResource("TextBrush") as System.Windows.Media.Brush,
+                Tag = item,
+                Margin = new Thickness(0),
+            };
+            cb.Checked += CameraCheckChanged;
+            cb.Unchecked += CameraCheckChanged;
+            border.Child = cb;
+            CameraListPanel.Children.Add(border);
+        }
+        UpdateCameraCount();
+    }
+
+    private void CameraCheckChanged(object? sender, RoutedEventArgs e) {
+        UpdateCameraCount();
+    }
+
+    private void UpdateCameraCount() {
+        var count = 0;
+        foreach (var child in CameraListPanel.Children) {
+            if (child is Border b && b.Child is CheckBox cb && cb.IsChecked == true)
+                count++;
+        }
+        CameraCountText.Text = $"{count} / {_cameraItems.Count} 台";
+    }
+
+    private void SelectAllCameras_Click(object sender, RoutedEventArgs e) {
+        foreach (var child in CameraListPanel.Children) {
+            if (child is Border b && b.Child is CheckBox cb)
+                cb.IsChecked = true;
+        }
+    }
+
+    private void ClearAllCameras_Click(object sender, RoutedEventArgs e) {
+        foreach (var child in CameraListPanel.Children) {
+            if (child is Border b && b.Child is CheckBox cb)
+                cb.IsChecked = false;
+        }
     }
 
     private void Browse_Click(object sender, RoutedEventArgs e) {
@@ -59,16 +116,26 @@ public partial class ExportDialog : Window {
             return;
         }
 
+        var selectedCameras = new List<string>();
+        foreach (var child in CameraListPanel.Children) {
+            if (child is Border b && b.Child is CheckBox cb && cb.IsChecked == true && cb.Tag is CameraCheckItem item)
+                selectedCameras.Add(item.CameraId);
+        }
+        if (selectedCameras.Count == 0) {
+            MessageBox.Show("請至少選擇一台攝影機", "提示", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
         ExportBtn.IsEnabled = false;
         ProgressText.Text = "正在匯出...";
+        ProgressText.Foreground = FindResource("SecondaryTextBrush") as System.Windows.Media.Brush;
 
         try {
-            var cameras = _cameraService.GetAllCameras().Select(c => c.Id).ToList();
             var fmt = FormatCombo.SelectedItem is FrameworkElement fe ? fe.Tag?.ToString() ?? "mp4" : "mp4";
             var request = new ExportRequest {
                 StartTime = startDate + startTime,
                 EndTime = endDate + endTime,
-                CameraIds = cameras,
+                CameraIds = selectedCameras,
                 OutputPath = output,
                 Format = fmt,
             };
@@ -79,11 +146,13 @@ public partial class ExportDialog : Window {
 
             var result = await _exportService.ExportAsync(request, progress);
             ProgressText.Text = $"匯出完成：{result}";
-            ProgressText.Foreground = System.Windows.Media.Brushes.LimeGreen;
+            ProgressText.Foreground = FindResource("SuccessBrush") as System.Windows.Media.Brush
+                ?? System.Windows.Media.Brushes.LimeGreen;
             ExportBtn.Content = "完成";
         } catch (Exception ex) {
             ProgressText.Text = $"{ex.Message}";
-            ProgressText.Foreground = System.Windows.Media.Brushes.OrangeRed;
+            ProgressText.Foreground = FindResource("ErrorBrush") as System.Windows.Media.Brush
+                ?? System.Windows.Media.Brushes.OrangeRed;
             ExportBtn.IsEnabled = true;
         }
     }
@@ -91,5 +160,11 @@ public partial class ExportDialog : Window {
     private void Cancel_Click(object sender, RoutedEventArgs e) {
         DialogResult = false;
         Close();
+    }
+
+    private class CameraCheckItem {
+        public string CameraId { get; set; } = "";
+        public string CameraName { get; set; } = "";
+        public bool IsChecked { get; set; } = true;
     }
 }

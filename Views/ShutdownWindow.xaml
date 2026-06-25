@@ -1,4 +1,4 @@
-<!-- ============================================================
+﻿<!-- ============================================================
      HeliVMS - 智慧影像管理系統     禾秝軟體開發團隊 / 代碼設計：洪俊士 / 版本：V1.0.0
      ============================================================ -->
 <Window x:Class="HeliVMS.Views.ShutdownWindow"
@@ -8,7 +8,7 @@
         WindowStartupLocation="CenterScreen"
         WindowStyle="None" ResizeMode="NoResize"
         ShowInTaskbar="False" Topmost="True"
-        Background="{StaticResource BackgroundBrush}">
+        Background="{DynamicResource BackgroundBrush}">
     <Window.Resources>
         <ResourceDictionary>
             <ResourceDictionary.MergedDictionaries>
@@ -17,7 +17,7 @@
             </ResourceDictionary.MergedDictionaries>
         </ResourceDictionary>
     </Window.Resources>
-    <Border BorderBrush="{StaticResource PrimaryBrush}" BorderThickness="2" CornerRadius="8">
+    <Border BorderBrush="{DynamicResource PrimaryBrush}" BorderThickness="2" CornerRadius="8">
         <Grid Margin="40,36">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto"/>
@@ -27,26 +27,26 @@
             </Grid.RowDefinitions>
 
             <TextBlock Grid.Row="0" Text="智慧影像管理系統"
-                       Foreground="{StaticResource TextBrush}"
+                       Foreground="{DynamicResource TextBrush}"
                        FontSize="22" FontWeight="Bold"
                        HorizontalAlignment="Center"
                        Margin="0,0,0,8"/>
 
             <TextBlock Grid.Row="1" Text="檔案回存中"
-                       Foreground="{StaticResource SecondaryTextBrush}"
+                       Foreground="{DynamicResource SecondaryTextBrush}"
                        FontSize="16"
                        HorizontalAlignment="Center"
                        Margin="0,0,0,24"/>
 
             <ProgressBar Grid.Row="2" IsIndeterminate="True"
-                         Height="8" Foreground="{StaticResource PrimaryBrush}"
-                         Background="{StaticResource SurfaceBrush}"
+                         Height="8" Foreground="{DynamicResource PrimaryBrush}"
+                         Background="{DynamicResource SurfaceBrush}"
                          Margin="0,0,0,20"/>
 
             <ScrollViewer Grid.Row="3" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                 <TextBlock x:Name="StatusText"
                            Text="正在停止 ffmpeg 錄影程序…"
-                           Foreground="{StaticResource SecondaryTextBrush}"
+                           Foreground="{DynamicResource SecondaryTextBrush}"
                            FontSize="14"
                            TextWrapping="Wrap"/>
             </ScrollViewer>

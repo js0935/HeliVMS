@@ -1,4 +1,4 @@
-<!-- ============================================================
+﻿<!-- ============================================================
      HeliVMS - 智慧影像管理系統     禾秝軟體開發團隊 / 代碼設計：洪俊士 / 版本：V1.0.0
      ============================================================ -->
 <Window x:Class="HeliVMS.Dialog.UserEditDialog"
@@ -9,7 +9,7 @@
         WindowStartupLocation="CenterOwner"
         ResizeMode="NoResize"
         ShowInTaskbar="False"
-        Background="{StaticResource BackgroundBrush}">
+        Background="{DynamicResource BackgroundBrush}">
     <Window.Resources>
         <ResourceDictionary>
             <ResourceDictionary.MergedDictionaries>
@@ -27,7 +27,7 @@
 
         <TextBlock Grid.Row="0" Text="用戶資料"
                    FontSize="20" FontWeight="Bold"
-                   Foreground="{StaticResource TextBrush}"
+                   Foreground="{DynamicResource TextBrush}"
                    Margin="0,0,0,16"/>
 
         <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
@@ -45,7 +45,7 @@
                 </ComboBox>
                 <TextBlock Text="（角色會自動對應所選顯示名稱）"
                            FontSize="11"
-                           Foreground="{StaticResource SecondaryTextBrush}"
+                           Foreground="{DynamicResource SecondaryTextBrush}"
                            Margin="0,-8,0,12"/>
 
                 <TextBlock Text="密碼" Style="{StaticResource ModernLabel}"/>
@@ -59,17 +59,17 @@
                 </ComboBox>
 
                 <CheckBox x:Name="AutoLoginCheckBox" Content="自動登入"
-                          Foreground="{StaticResource SecondaryTextBrush}"
+                          Foreground="{DynamicResource SecondaryTextBrush}"
                           FontSize="12"
                           Margin="0,12,0,0"/>
 
                 <Border x:Name="TwoFactorSection" BorderThickness="1"
-                        BorderBrush="{StaticResource BorderBrush}"
+                        BorderBrush="{DynamicResource BorderBrush}"
                         CornerRadius="6" Padding="12" Margin="0,12,0,0"
                         Visibility="Collapsed">
                     <StackPanel>
                         <CheckBox x:Name="EnableTwoFactorCheckBox" Content="啟用雙因子驗證 (TOTP)"
-                                  Foreground="{StaticResource TextBrush}"
+                                  Foreground="{DynamicResource TextBrush}"
                                   FontSize="12" FontWeight="Bold"
                                   Checked="EnableTwoFactorCheckBox_Checked"
                                   Unchecked="EnableTwoFactorCheckBox_Unchecked"/>
@@ -77,9 +77,9 @@
                                     Margin="0,8,0,0">
                             <TextBlock Text="使用 Authenticator 應用程式掃描下列 QR Code："
                                        FontSize="11"
-                                       Foreground="{StaticResource SecondaryTextBrush}"
+                                       Foreground="{DynamicResource SecondaryTextBrush}"
                                        TextWrapping="Wrap" Margin="0,0,0,6"/>
-                            <Border Background="{StaticResource SurfaceBrush}" CornerRadius="4" Padding="0"
+                            <Border Background="{DynamicResource SurfaceBrush}" CornerRadius="4" Padding="0"
                                     HorizontalAlignment="Center" Margin="0,0,0,8"
                                     Width="160" Height="160">
                                 <Image x:Name="QrCodeImage" Width="160" Height="160"
@@ -87,15 +87,15 @@
                             </Border>
                             <TextBlock Text="或手動輸入金鑰 URI："
                                        FontSize="11"
-                                       Foreground="{StaticResource SecondaryTextBrush}"
+                                       Foreground="{DynamicResource SecondaryTextBrush}"
                                        TextWrapping="Wrap" Margin="0,0,0,6"/>
-                            <Border Background="{StaticResource SurfaceBrush}"
-                                    BorderBrush="{StaticResource BorderBrush}"
+                            <Border Background="{DynamicResource SurfaceBrush}"
+                                    BorderBrush="{DynamicResource BorderBrush}"
                                     BorderThickness="1" CornerRadius="4"
                                     Padding="8,6">
                                 <TextBlock x:Name="TwoFactorSecretText" FontSize="11"
                                            FontFamily="Consolas"
-                                           Foreground="{StaticResource TextBrush}"
+                                           Foreground="{DynamicResource TextBrush}"
                                            TextWrapping="Wrap"/>
                             </Border>
                             <Button x:Name="CopyKeyButton" Content="複製金鑰"
@@ -108,28 +108,28 @@
                 </Border>
 
                 <Border x:Name="PermissionsSection" BorderThickness="1"
-                        BorderBrush="{StaticResource BorderBrush}"
+                        BorderBrush="{DynamicResource BorderBrush}"
                         CornerRadius="6" Padding="12" Margin="0,16,0,0">
                     <StackPanel>
                         <TextBlock Text="功能權限（僅非管理員角色可設定）"
                                    FontSize="12" FontWeight="Bold"
-                                   Foreground="{StaticResource TextBrush}"
+                                   Foreground="{DynamicResource TextBrush}"
                                    Margin="0,0,0,8"/>
                         <CheckBox x:Name="PermDeviceMgmt" Content="設備管理"
                                   Tag="DeviceManagement" Margin="0,2"
-                                   Foreground="{StaticResource TextBrush}"/>
+                                   Foreground="{DynamicResource TextBrush}"/>
                         <CheckBox x:Name="PermPlayback" Content="錄影回放"
                                   Tag="Playback" Margin="0,2"
-                                   Foreground="{StaticResource TextBrush}"/>
+                                   Foreground="{DynamicResource TextBrush}"/>
                         <CheckBox x:Name="PermSystemSettings" Content="系統設定"
                                   Tag="SystemSettings" Margin="0,2"
-                                   Foreground="{StaticResource TextBrush}"/>
+                                   Foreground="{DynamicResource TextBrush}"/>
                         <CheckBox x:Name="PermLicense" Content="授權管理"
                                   Tag="License" Margin="0,2"
-                                   Foreground="{StaticResource TextBrush}"/>
+                                   Foreground="{DynamicResource TextBrush}"/>
                         <CheckBox x:Name="PermPTZ" Content="PTZ 雲台控制"
                                   Tag="PTZControl" Margin="0,2"
-                                   Foreground="{StaticResource TextBrush}"/>
+                                   Foreground="{DynamicResource TextBrush}"/>
                     </StackPanel>
                 </Border>
             </StackPanel>

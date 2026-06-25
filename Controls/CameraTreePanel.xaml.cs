@@ -47,8 +47,8 @@ public sealed class CameraTreeItem : CameraTreeNode {
     }
     public string Tooltip { get; set; } = "";
     public Brush ConnectionColor => IsConnected
-        ? (Brush)Application.Current.FindResource("SuccessBrush")
-        : (Brush)Application.Current.FindResource("ErrorBrush");
+        ? (Application.Current?.TryFindResource("SuccessBrush") as Brush) ?? Brushes.LimeGreen
+        : (Application.Current?.TryFindResource("ErrorBrush") as Brush) ?? Brushes.Red;
 }
 
 // ═══════════════════════════════════════════════════════
@@ -307,7 +307,19 @@ public partial class CameraTreePanel : UserControl {
     // ─── Search ───
 
     private void OnSearchTextChanged(object sender, TextChangedEventArgs e) {
+        SearchClearBtn.Visibility = string.IsNullOrEmpty(SearchBox.Text) ? Visibility.Collapsed : Visibility.Visible;
         ReloadCameras();
+    }
+
+    private void SearchToggle_Click(object sender, RoutedEventArgs e) {
+        SearchBar.Visibility = SearchBar.Visibility == Visibility.Visible ? Visibility.Collapsed : Visibility.Visible;
+        if (SearchBar.Visibility == Visibility.Visible)
+            SearchBox.Focus();
+    }
+
+    private void SearchClear_Click(object sender, RoutedEventArgs e) {
+        SearchBox.Text = "";
+        SearchBar.Visibility = Visibility.Collapsed;
     }
 
     // ─── Drag Source ───
@@ -322,7 +334,8 @@ public partial class CameraTreePanel : UserControl {
         }
     }
 
-    private void OnTreeMouseMove(object sender, MouseEventArgs e) {
+    private void OnTreePreviewMouseMove(object sender, MouseEventArgs e) {
+
         if (CameraTreeView.Tag is not string cameraId) return;
 
         var pos = e.GetPosition(this);

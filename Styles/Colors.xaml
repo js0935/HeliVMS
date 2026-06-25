@@ -29,6 +29,8 @@
     <Color x:Key="RecordingMotionColor">#FFFF5722</Color>
     <Color x:Key="RecordingAlarmColor">#FFF44336</Color>
     <Color x:Key="RecordingAiColor">#FFFFC107</Color>
+    <Color x:Key="RecordingSmartColor">#FFE91E63</Color>
+    <Color x:Key="RecordingWeightedColor">#FFFF9800</Color>
 
     <!-- Brush resources -->
     <SolidColorBrush x:Key="BackgroundBrush" Color="{StaticResource BackgroundColor}"/>
@@ -53,4 +55,11 @@
     <SolidColorBrush x:Key="RecordingMotionBrush" Color="{StaticResource RecordingMotionColor}"/>
     <SolidColorBrush x:Key="RecordingAlarmBrush" Color="{StaticResource RecordingAlarmColor}"/>
     <SolidColorBrush x:Key="RecordingAiBrush" Color="{StaticResource RecordingAiColor}"/>
+    <SolidColorBrush x:Key="RecordingSmartBrush" Color="{StaticResource RecordingSmartColor}"/>
+    <SolidColorBrush x:Key="RecordingWeightedBrush" Color="{StaticResource RecordingWeightedColor}"/>
+
+    <!-- Overlay brushes for hover/press states -->
+    <SolidColorBrush x:Key="HoverOverlayBrush" Color="#33FFFFFF"/>
+    <SolidColorBrush x:Key="NavHoverOverlayBrush" Color="#2AFFFFFF"/>
+    <SolidColorBrush x:Key="NavPressedOverlayBrush" Color="#4AFFFFFF"/>
 </ResourceDictionary>

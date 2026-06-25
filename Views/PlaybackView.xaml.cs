@@ -4,6 +4,7 @@ using System.IO;
 using System.Threading;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
@@ -32,7 +33,8 @@ public partial class PlaybackView : UserControl {
     private FrameSlot[] _frameSlots = [];
     private CancellationTokenSource? _queryCts;
     private List<CameraRecordingInfo> _currentRecordings = [];
-
+    private List<PlaybackBookmark> _bookmarks = [];
+ 
     private CancellationTokenSource? _searchCts;
     private List<SearchResultEntry> _searchResults = [];
     private int _selectedSearchIndex = -1;
@@ -55,7 +57,10 @@ public partial class PlaybackView : UserControl {
     private int _frameDisplayCount;
     private DispatcherTimer? _fpsTimer;
     private bool _isPerfPanelVisible;
-
+    private double _loopA;
+    private double _loopB;
+    private bool _loopEnabled;
+ 
     private sealed class ChannelStats {
         public string CameraId = "";
         public string CameraName = "";
@@ -74,8 +79,6 @@ public partial class PlaybackView : UserControl {
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, ChannelStats> _channelStats = new();
 
     private static readonly string[] DayNames = ["日", "一", "二", "三", "四", "五", "六"];
-
-    private Action<double, double>? _onTimelineSelectionChanged;
 
     public PlaybackView() {
         Log.Information("[DBG] PlaybackView ctor start");
@@ -111,6 +114,9 @@ public partial class PlaybackView : UserControl {
         try {
             PopulateChannelList();
             Log.Information("[DBG] PlaybackView PopulateChannelList done");
+            UpdateTimelineZoomLabel();
+            UpdateTimelineRecordingStats();
+            UpdateFilterButtonOpacity();
             UpdateButtonStates();
             var win = Window.GetWindow(this);
             win?.PreviewKeyDown += OnPreviewKeyDown;
@@ -169,17 +175,9 @@ public partial class PlaybackView : UserControl {
                 _fpsTimer.Start();
             }
 
-            TimelineCtrl.IsExportEnabled = true;
-            Log.Information("[DBG] PlaybackView IsExportEnabled set");
-            TimelineCtrl.BookmarkJumpRequested += OnBookmarkJumpRequested;
-            TimelineCtrl.BookmarkMoved += OnTimelineBookmarkMoved;
-            TimelineCtrl.BookmarkDeleted += OnTimelineBookmarkDeleted;
-            TimelineCtrl.BookmarkRenamed += OnTimelineBookmarkRenamed;
-
-            _onTimelineSelectionChanged = (startSec, endSec) => {
-                ExportClipBtn.IsEnabled = startSec > 0 && endSec > 0 && Math.Abs(endSec - startSec) > 1;
-            };
-            TimelineCtrl.SelectionChanged += _onTimelineSelectionChanged;
+            Timeline.PositionChanged += OnTimelinePositionChanged;
+            Timeline.SelectionChanged += OnTimelineSelectionChanged;
+            Timeline.BookmarkRequested += OnTimelineBookmarkRequested;
 
             // Initial storage status update, refresh every 60s
             _ = UpdateStorageStatusAsync();
@@ -206,13 +204,9 @@ public partial class PlaybackView : UserControl {
         // being unconsumed by OnCompositionRendering causing pinned buffers
         StopAllPlayback();
         UnsubscribeCoordinator();
-        TimelineCtrl.BookmarkJumpRequested -= OnBookmarkJumpRequested;
-        TimelineCtrl.BookmarkMoved -= OnTimelineBookmarkMoved;
-        TimelineCtrl.BookmarkDeleted -= OnTimelineBookmarkDeleted;
-        TimelineCtrl.BookmarkRenamed -= OnTimelineBookmarkRenamed;
-        if (_onTimelineSelectionChanged is not null) {
-            TimelineCtrl.SelectionChanged -= _onTimelineSelectionChanged;
-        }
+        Timeline.PositionChanged -= OnTimelinePositionChanged;
+        Timeline.SelectionChanged -= OnTimelineSelectionChanged;
+        Timeline.BookmarkRequested -= OnTimelineBookmarkRequested;
         ReturnPendingFrameBuffers();
         _storageTimer?.Stop();
         _storageTimer = null;
@@ -1231,42 +1225,24 @@ public partial class PlaybackView : UserControl {
                 return;
             }
 
-            // Build timeline channel data
-            var timelineChannels = new List<TimelineChannelData>(_currentRecordings.Count);
+            // Build timeline data
+            var cameraIds = new List<string>(_currentRecordings.Count);
+            var allSegments = new List<VideoSegment>();
+            var cameraNamesDict = new Dictionary<string, string>(_currentRecordings.Count);
             for (var ri = 0; ri < _currentRecordings.Count; ri++) {
                 var r = _currentRecordings[ri];
-                timelineChannels.Add(new TimelineChannelData {
-                    ChannelNumber = r.ChannelNumber,
-                    CameraName = r.CameraName,
-                    CameraId = r.CameraId,
-                    HourlyActivity = CalculateHourlyActivity(r.Segments)
-                });
+                cameraIds.Add(r.CameraId);
+                cameraNamesDict[r.CameraId] = r.CameraName;
+                allSegments.AddRange(r.Segments);
             }
 
-            TimelineCtrl.SetChannels(timelineChannels);
+            Timeline.LoadSegments(cameraIds, allSegments, cameraNamesDict);
+            Timeline.TimelineDay = date;
+            UpdateTimelineRecordingStats();
 
             var savedBookmarks = _bookmarkService.LoadBookmarks(date);
-            TimelineCtrl.ReplaceBookmarks(savedBookmarks);
-
-            var totalSegs = 0;
-            for (var ri = 0; ri < _currentRecordings.Count; ri++) {
-                totalSegs += _currentRecordings[ri].Segments.Count;
-            }
-            var segList = new List<SegmentRenderData>(totalSegs);
-            foreach (var rec in _currentRecordings) {
-                var camId = rec.CameraId;
-                foreach (var s in rec.Segments) {
-                    segList.Add(new SegmentRenderData {
-                        CameraId = camId,
-                        StartTime = s.StartTime,
-                        EndTime = s.EndTime,
-                        RecordType = s.RecordType,
-                        MotionScore = s.MotionScore
-                    });
-                }
-            }
-            TimelineCtrl.SetSegments(segList);
-            TimelineCtrl.SelectedDate = date;
+            _bookmarks = savedBookmarks;
+            Timeline.LoadBookmarks(_bookmarks);
 
             // Auto-select first recording time point
             VideoSegment? firstSegment = null;
@@ -1284,7 +1260,7 @@ public partial class PlaybackView : UserControl {
             if (firstSegment is not null) {
                 var startOfDay = date;
                 var fraction = (firstSegment.StartTime - startOfDay).TotalSeconds / 86400.0;
-                TimelineCtrl.PositionFraction = Math.Clamp(fraction, 0, 1);
+                Timeline.PositionSeconds = Math.Clamp(fraction * 86400, 0, 86400);
             }
 
             // Start playback (seek to targetTime if specified)
@@ -1293,7 +1269,7 @@ public partial class PlaybackView : UserControl {
             HideVideoLoading();
             if (targetTime.HasValue) {
                 var fraction = (targetTime.Value - date).TotalSeconds / 86400.0;
-                TimelineCtrl.PositionFraction = Math.Clamp(fraction, 0, 1);
+                Timeline.PositionSeconds = Math.Clamp(fraction * 86400, 0, 86400);
             }
 
             _eventLog.LogInfo(EventCategories.Playback, "PlaybackView",
@@ -1541,19 +1517,16 @@ public partial class PlaybackView : UserControl {
             var effDuration = duration > 0 ? duration : _lastKnownDuration;
             if (effDuration > 0) {
                 var fraction = (double)pts / effDuration;
-                TimelineCtrl.UpdatePlaybackPosition(fraction);
+                Timeline.SetPositionSilent(fraction * 86400);
             }
             UpdateTimeDisplay(pts, duration);
             UpdatePlayerTimestamps(pts);
             UpdatePlayerProgress(pts, effDuration);
 
-            // A-B loop: jump back to A when reaching B
-            if (TimelineCtrl.HasLoop && TimelineCtrl.LoopEnabled && effDuration > 0) {
+            if (_loopB > _loopA && _loopEnabled && effDuration > 0) {
                 var currentSec = pts / 1_000_000.0;
-                var loopB = TimelineCtrl.LoopB;
-                var loopA = TimelineCtrl.LoopA;
-                if (loopB > loopA && currentSec >= loopB) {
-                    var seekUs = (long)(loopA * 1_000_000);
+                if (currentSec >= _loopB) {
+                    var seekUs = (long)(_loopA * 1_000_000);
                     _coordinator?.SeekMasterImmediate(seekUs);
                 }
             }
@@ -1714,42 +1687,25 @@ public partial class PlaybackView : UserControl {
                 FilterDatePicker.SelectedDateChanged += FilterDatePicker_SelectedDateChanged;
 
                 // Update timeline
-                var timelineChannels = new List<TimelineChannelData>(nextRecordings.Count);
+                var cameraIds = new List<string>(nextRecordings.Count);
+                var allSegments = new List<VideoSegment>();
+                var cameraNamesDict = new Dictionary<string, string>(nextRecordings.Count);
                 for (var i = 0; i < nextRecordings.Count; i++) {
                     var r = nextRecordings[i];
-                    timelineChannels.Add(new TimelineChannelData {
-                        ChannelNumber = r.ChannelNumber,
-                        CameraName = r.CameraName,
-                        CameraId = r.CameraId,
-                        HourlyActivity = CalculateHourlyActivity(r.Segments)
-                    });
+                    cameraIds.Add(r.CameraId);
+                    cameraNamesDict[r.CameraId] = r.CameraName;
+                    allSegments.AddRange(r.Segments);
                 }
-                TimelineCtrl.SetChannels(timelineChannels);
+                Timeline.LoadSegments(cameraIds, allSegments, cameraNamesDict);
+                Timeline.TimelineDay = nextDate;
+                UpdateTimelineRecordingStats();
 
                 var nextBookmarks = _bookmarkService.LoadBookmarks(nextDate);
-                TimelineCtrl.ReplaceBookmarks(nextBookmarks);
-
-                var totalSegs = 0;
-                for (var ri = 0; ri < nextRecordings.Count; ri++) {
-                    totalSegs += nextRecordings[ri].Segments.Count;
-                }
-                var segList = new List<SegmentRenderData>(totalSegs);
-                foreach (var rec in nextRecordings) {
-                    foreach (var s in rec.Segments) {
-                        segList.Add(new SegmentRenderData {
-                            CameraId = rec.CameraId,
-                            StartTime = s.StartTime,
-                            EndTime = s.EndTime,
-                            RecordType = s.RecordType,
-                            MotionScore = s.MotionScore
-                        });
-                    }
-                }
-                TimelineCtrl.SetSegments(segList);
-                TimelineCtrl.SelectedDate = nextDate;
+                _bookmarks = nextBookmarks;
+                Timeline.LoadBookmarks(_bookmarks);
 
                 var fraction = (firstSeg.StartTime - nextDate.Date).TotalSeconds / 86400.0;
-                TimelineCtrl.PositionFraction = Math.Clamp(fraction, 0, 1);
+                Timeline.PositionSeconds = Math.Clamp(fraction * 86400, 0, 86400);
 
                 // Reload all channels for new date and continue playback
                 StopAllPlayback();
@@ -1790,13 +1746,15 @@ public partial class PlaybackView : UserControl {
     private void ShowPerfPanel() {
         _isPerfPanelVisible = true;
         PerfPanel.Visibility = Visibility.Visible;
-        PerfToggleBtn.Foreground = new SolidColorBrush(Color.FromRgb(0xFF, 0xD7, 0x00));
+        PerfToggleBtn.Foreground = FindResource("WarningBrush") as System.Windows.Media.Brush
+            ?? System.Windows.Media.Brushes.Orange;
     }
 
     private void HidePerfPanel() {
         _isPerfPanelVisible = false;
         PerfPanel.Visibility = Visibility.Collapsed;
-        PerfToggleBtn.Foreground = new SolidColorBrush(Color.FromArgb(0x66, 0xFF, 0xFF, 0xFF));
+        PerfToggleBtn.Foreground = FindResource("SecondaryTextBrush") as System.Windows.Media.Brush
+            ?? System.Windows.Media.Brushes.Gray;
     }
 
     private void UpdatePerfPanel(int totalFps, int pipeLag, int totalDrop, long workingSetMb, long gcHeapMb) {
@@ -1984,37 +1942,38 @@ public partial class PlaybackView : UserControl {
 
     // ── A-B Loop handlers ──
     private void LoopSetABtn_Click(object sender, RoutedEventArgs e) {
-        var posSecs = TimelineCtrl.PositionFraction * 86400;
-        TimelineCtrl.LoopA = posSecs;
+        var posSecs = Timeline.PositionSeconds;
+        _loopA = posSecs;
         LoopToggleBtn.Content = "↺";
         LoopToggleBtn.Foreground = Brushes.Gray;
         UpdateLoopVisual();
     }
 
     private void LoopSetBBtn_Click(object sender, RoutedEventArgs e) {
-        var posSecs = TimelineCtrl.PositionFraction * 86400;
-        TimelineCtrl.LoopB = posSecs;
-        TimelineCtrl.LoopEnabled = true;
+        var posSecs = Timeline.PositionSeconds;
+        _loopB = posSecs;
+        _loopEnabled = true;
         UpdateLoopVisual();
     }
 
     private void LoopToggleBtn_Click(object sender, RoutedEventArgs e) {
-        if (!TimelineCtrl.HasLoop) return;
-        TimelineCtrl.LoopEnabled = !TimelineCtrl.LoopEnabled;
+        _loopEnabled = !_loopEnabled;
         UpdateLoopVisual();
     }
 
     private void LoopClearBtn_Click(object sender, RoutedEventArgs e) {
-        TimelineCtrl.ClearLoop();
+        _loopA = 0;
+        _loopB = 0;
+        _loopEnabled = false;
         UpdateLoopVisual();
     }
 
     private void UpdateLoopVisual() {
-        if (TimelineCtrl.HasLoop && TimelineCtrl.LoopEnabled) {
+        if (_loopA > 0 && _loopB > _loopA && _loopEnabled) {
             LoopToggleBtn.Content = "⟳";
             LoopToggleBtn.Foreground = (Brush)FindResource("PrimaryBrush") ?? Brushes.LimeGreen;
             LoopPanel.Background = new SolidColorBrush(Color.FromArgb(40, 0x4C, 0xAF, 0x50));
-        } else if (TimelineCtrl.HasLoop) {
+        } else if (_loopA > 0 && _loopB > _loopA) {
             LoopToggleBtn.Content = "↺";
             LoopToggleBtn.Foreground = Brushes.Gray;
             LoopPanel.Background = (Brush)FindResource("SecondarySurfaceBrush");
@@ -2027,12 +1986,12 @@ public partial class PlaybackView : UserControl {
 
     private void JumpStartBtn_Click(object sender, RoutedEventArgs e) {
         _coordinator?.SeekToStart();
-        TimelineCtrl.PositionFraction = 0;
+        Timeline.PositionSeconds = 0;
     }
 
     private void JumpEndBtn_Click(object sender, RoutedEventArgs e) {
         _coordinator?.SeekToEnd();
-        TimelineCtrl.PositionFraction = 1;
+        Timeline.PositionSeconds = 86400;
     }
 
     private async void JumpPrevRecBtn_Click(object sender, RoutedEventArgs e) {
@@ -2100,7 +2059,7 @@ public partial class PlaybackView : UserControl {
 
         // Jump to target segment
         var fraction = (targetSeg.StartTime - _currentDate.Date).TotalSeconds / 86400.0;
-        TimelineCtrl.PositionFraction = Math.Clamp(fraction, 0, 1);
+        Timeline.PositionSeconds = Math.Clamp(fraction * 86400, 0, 86400);
         _coordinator.ReloadMasterCamera(targetSeg, targetSeg.StartTime);
         await ReloadIfMasterSegmentExpired(targetSeg.StartTime);
 
@@ -2186,13 +2145,13 @@ public partial class PlaybackView : UserControl {
 
             case Key.Left when Keyboard.Modifiers == ModifierKeys.Control:
                 _coordinator?.SeekToStart();
-                TimelineCtrl.PositionFraction = 0;
+                Timeline.PositionSeconds = 0;
                 e.Handled = true;
                 break;
 
             case Key.Right when Keyboard.Modifiers == ModifierKeys.Control:
                 _coordinator?.SeekToEnd();
-                TimelineCtrl.PositionFraction = 1;
+                Timeline.PositionSeconds = 86400;
                 e.Handled = true;
                 break;
 
@@ -2329,6 +2288,79 @@ public partial class PlaybackView : UserControl {
     //  Timeline interaction
     // ══════════════════════════════════════════════════════════
 
+    private void OnTimelinePositionChanged(object? sender, double seconds) {
+        var totalSecs = (int)seconds;
+        var h = totalSecs / 3600;
+        var m = (totalSecs % 3600) / 60;
+        var s = totalSecs % 60;
+        PlaybackTimeText.Text = $"{h:D2}:{m:D2}:{s:D2} / --:--:--";
+        FsTimeText.Text = $"{h:D2}:{m:D2}:{s:D2}";
+    }
+
+    private void OnTimelineSelectionChanged(object? sender, (DateTime start, DateTime end)? selection) {
+        ExportClipBtn.IsEnabled = selection.HasValue;
+    }
+
+    private void OnTimelineBookmarkRequested(object? sender, EventArgs e) {
+        AddBookmarkAtCurrentPosition();
+    }
+
+    private void ToggleTypeFilter(object sender, RoutedEventArgs e) {
+        if (sender is ToggleButton btn && btn.Tag is string tagStr && int.TryParse(tagStr, out var typeIndex)) {
+            var cont = ToggleContinuous.IsChecked ?? true;
+            var mot = ToggleMotion.IsChecked ?? true;
+            var alarm = ToggleAlarm.IsChecked ?? true;
+            var ai = ToggleAi.IsChecked ?? true;
+            Timeline.SetTypeFilter(cont, mot, alarm, ai);
+        }
+        UpdateFilterButtonOpacity();
+    }
+
+    private void UpdateFilterButtonOpacity() {
+        SetBtnOpacity(ToggleContinuous, ToggleContinuous.IsChecked ?? true);
+        SetBtnOpacity(ToggleMotion, ToggleMotion.IsChecked ?? true);
+        SetBtnOpacity(ToggleAlarm, ToggleAlarm.IsChecked ?? true);
+        SetBtnOpacity(ToggleAi, ToggleAi.IsChecked ?? true);
+    }
+
+    private static void SetBtnOpacity(ToggleButton btn, bool enabled) {
+        btn.Opacity = enabled ? 1.0 : 0.25;
+    }
+
+    private void UpdateTimelineZoomLabel() {
+        var field = typeof(NxTimeline).GetField("_zoomIndex", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+        if (field?.GetValue(Timeline) is int idx) {
+            var levelsField = typeof(NxTimeline).GetField("ZoomLevels", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+            if (levelsField?.GetValue(null) is double[] levels && idx < levels.Length) {
+                var hours = levels[idx];
+                TimelineZoomLabel.Text = hours >= 1 ? $"{hours:F0}h" : $"{hours * 60:F0}m";
+            }
+        }
+    }
+
+    private void TimelineZoomInBtn_Click(object sender, RoutedEventArgs e) {
+        Timeline.ZoomIn();
+        UpdateTimelineZoomLabel();
+    }
+
+    private void TimelineZoomOutBtn_Click(object sender, RoutedEventArgs e) {
+        Timeline.ZoomOut();
+        UpdateTimelineZoomLabel();
+    }
+
+    private void TimelineResetZoomBtn_Click(object sender, RoutedEventArgs e) {
+        var field = typeof(NxTimeline).GetField("_zoomIndex", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+        if (field is not null) {
+            field.SetValue(Timeline, 0);
+        }
+        var viewStartField = typeof(NxTimeline).GetField("_viewStartSeconds", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+        if (viewStartField is not null) {
+            viewStartField.SetValue(Timeline, 0.0);
+        }
+        TimelineZoomLabel.Text = "24h";
+        Timeline.Refresh();
+    }
+
     private void Timeline_SeekRequested(double seconds) {
         if (_coordinator is null) return;
 
@@ -2337,6 +2369,34 @@ public partial class PlaybackView : UserControl {
         _coordinator.SeekAbsolute(microseconds);
 
         _ = ReloadIfMasterSegmentExpired(targetTime);
+    }
+
+    private void UpdateTimelineRecordingStats() {
+        if (_currentRecordings is null || _currentRecordings.Count == 0) {
+            TimelineStatsText.Text = "";
+            return;
+        }
+        var totalSegs = 0;
+        var contSegs = 0;
+        var motSegs = 0;
+        var alarmSegs = 0;
+        var aiSegs = 0;
+        foreach (var rec in _currentRecordings) {
+            foreach (var seg in rec.Segments) {
+                totalSegs++;
+                if (seg.RecordType == 0) contSegs++;
+                else if (seg.RecordType == 1) motSegs++;
+                else if (seg.RecordType == 2) alarmSegs++;
+                else if (seg.RecordType == 3) aiSegs++;
+            }
+        }
+        if (totalSegs == 0) { TimelineStatsText.Text = ""; return; }
+        var parts = new List<string>();
+        if (contSegs > 0) parts.Add($"連續{contSegs}");
+        if (motSegs > 0) parts.Add($"位移{motSegs}");
+        if (alarmSegs > 0) parts.Add($"警報{alarmSegs}");
+        if (aiSegs > 0) parts.Add($"AI{aiSegs}");
+        TimelineStatsText.Text = $"{totalSegs} 區段 ({string.Join(" / ", parts)})";
     }
 
     private void Timeline_PositionChanged(double seconds) {
@@ -2352,23 +2412,6 @@ public partial class PlaybackView : UserControl {
     // ══════════════════════════════════════════════════════════
     //  Bookmarks
     // ══════════════════════════════════════════════════════════
-
-    private void OnTimelineBookmarkMoved(string id, double newSeconds) {
-        _bookmarkService.MoveBookmark(id, newSeconds, _currentDate);
-        RefreshBookmarkList();
-    }
-
-    private void OnTimelineBookmarkDeleted(string id) {
-        TimelineCtrl.RemoveBookmark(id);
-        _bookmarkService.RemoveBookmark(id, _currentDate);
-        RefreshBookmarkList();
-        BookmarkCountBadge.Text = TimelineCtrl.Bookmarks.Count.ToString();
-    }
-
-    private void OnTimelineBookmarkRenamed(string id, string newName) {
-        _bookmarkService.RenameBookmark(id, newName, _currentDate);
-        RefreshBookmarkList();
-    }
 
     private void OnBookmarkJumpRequested(double seconds) {
         if (_coordinator is null) return;
@@ -2399,16 +2442,15 @@ public partial class PlaybackView : UserControl {
     private void AddBookmarkAtCurrentPosition() {
         if (_coordinator is null) return;
 
-        var seconds = TimelineCtrl.PositionFraction * 86400;
+        var seconds = Timeline.PositionSeconds;
         var totalSec = (int)seconds;
         var h = totalSec / 3600;
         var m = (totalSec % 3600) / 60;
         var s_val = totalSec % 60;
 
         var exists = false;
-        var bms = TimelineCtrl.Bookmarks;
-        for (var bi = 0; bi < bms.Count; bi++) {
-            if (Math.Abs(bms[bi].Seconds - seconds) < 5) { exists = true; break; }
+        for (var bi = 0; bi < _bookmarks.Count; bi++) {
+            if (Math.Abs(_bookmarks[bi].Seconds - seconds) < 5) { exists = true; break; }
         }
         if (exists) {
             ShowBookmarkFeedback("\u2713");
@@ -2416,11 +2458,12 @@ public partial class PlaybackView : UserControl {
         }
 
         var note = $"CH{_coordinator.GetMasterId()?[..4] ?? "----"} {h:D2}:{m:D2}:{s_val:D2}";
-        TimelineCtrl.AddBookmark(seconds, note);
+        var newBm = new PlaybackBookmark { Seconds = seconds, Note = note };
+        _bookmarks.Add(newBm);
+        Timeline.AddBookmark(newBm);
         RefreshBookmarkList();
 
-        var bmList = TimelineCtrl.Bookmarks;
-        var lastBm = bmList.Count > 0 ? bmList[^1] : null;
+        var lastBm = _bookmarks.Count > 0 ? _bookmarks[^1] : null;
         if (lastBm is not null) {
             _bookmarkService.SaveBookmark(lastBm, _currentDate);
         }
@@ -2435,27 +2478,27 @@ public partial class PlaybackView : UserControl {
         if (BookmarkPanel.Visibility == Visibility.Visible) {
             BookmarkPanel.Visibility = Visibility.Collapsed;
             BookmarkPanel.Width = 0;
-            BookmarkListBtn.Foreground = (Brush)FindResource("SecondaryTextBrush");
+            BookmarkListIcon.Fill = (Brush)FindResource("SecondaryTextBrush");
         } else {
             BookmarkPanel.Width = 180;
             BookmarkPanel.Visibility = Visibility.Visible;
-            BookmarkListBtn.Foreground = Brushes.Gold;
+            BookmarkListIcon.Fill = Brushes.Gold;
             RefreshBookmarkList();
         }
     }
 
     private void ClearBookmarksBtn_Click(object sender, RoutedEventArgs e) {
-        TimelineCtrl.ClearBookmarks();
+        _bookmarks.Clear();
+        Timeline.LoadBookmarks(_bookmarks);
         _bookmarkService.ClearBookmarks(_currentDate);
         RefreshBookmarkList();
     }
 
     private void RefreshBookmarkList() {
         BookmarkListPanel.Children.Clear();
-        var bookmarks = TimelineCtrl.Bookmarks;
-        BookmarkCountBadge.Text = bookmarks.Count.ToString();
+        BookmarkCountBadge.Text = _bookmarks.Count.ToString();
 
-        if (bookmarks.Count == 0) {
+        if (_bookmarks.Count == 0) {
             BookmarkListPanel.Children.Add(new TextBlock {
                 Text = "暫無書籤",
                 FontSize = 10,
@@ -2465,9 +2508,9 @@ public partial class PlaybackView : UserControl {
             return;
         }
 
-        var sortedBookmarks = new List<PlaybackBookmark>(bookmarks.Count);
-        for (var bi = 0; bi < bookmarks.Count; bi++) {
-            sortedBookmarks.Add(bookmarks[bi]);
+        var sortedBookmarks = new List<PlaybackBookmark>(_bookmarks.Count);
+        for (var bi = 0; bi < _bookmarks.Count; bi++) {
+            sortedBookmarks.Add(_bookmarks[bi]);
         }
         sortedBookmarks.Sort((a, b) => a.Seconds.CompareTo(b.Seconds));
         foreach (var bm in sortedBookmarks) {
@@ -2512,11 +2555,12 @@ public partial class PlaybackView : UserControl {
             delBtn.Click += (s, _) => {
                 if (s is Button btn) {
                     var id = (string)btn.Tag;
-                    TimelineCtrl.RemoveBookmark(id);
+                    _bookmarks.RemoveAll(b => b.Id == id);
+                    Timeline.LoadBookmarks(_bookmarks);
                     _bookmarkService.RemoveBookmark(id, _currentDate);
                 }
                 RefreshBookmarkList();
-                BookmarkCountBadge.Text = TimelineCtrl.Bookmarks.Count.ToString();
+                BookmarkCountBadge.Text = _bookmarks.Count.ToString();
             };
 
             itemGrid.Children.Add(timeText);
@@ -2734,11 +2778,9 @@ public partial class PlaybackView : UserControl {
     }
 
     private void OnPlayerSelected(PlaybackPlayer player) {
-        // Deselect all, then select this one and highlight timeline track
         foreach (var p in _activePlayers)
             p.IsSelected = false;
         player.IsSelected = true;
-        TimelineCtrl.HighlightedCameraId = player.CameraId;
     }
 
     private void OnPlayerSetAsMasterRequested(PlaybackPlayer player) {
@@ -2897,16 +2939,16 @@ public partial class PlaybackView : UserControl {
     }
 
     private void CollapseChannelBtn_Click(object sender, RoutedEventArgs e) {
-        ChannelPanelColumn.Width = new GridLength(0);
-        ChannelPanel.Visibility = Visibility.Collapsed;
+        LeftSidebarColumn.Width = new GridLength(0);
+        SearchPanel.Visibility = Visibility.Collapsed;
         ExpandChannelBtn.Visibility = Visibility.Visible;
         CollapseChannelBtn.Content = "▶";
         CollapseChannelBtn.ToolTip = "顯示頻道面板";
     }
 
     private void ExpandChannelBtn_Click(object sender, RoutedEventArgs e) {
-        ChannelPanelColumn.Width = new GridLength(200);
-        ChannelPanel.Visibility = Visibility.Visible;
+        LeftSidebarColumn.Width = new GridLength(200);
+        SearchPanel.Visibility = Visibility.Visible;
         ExpandChannelBtn.Visibility = Visibility.Collapsed;
         CollapseChannelBtn.Content = "◀";
         CollapseChannelBtn.ToolTip = "隱藏頻道面板";
@@ -2964,10 +3006,11 @@ public partial class PlaybackView : UserControl {
     // ══════════════════════════════════════════════════════════
 
     private async void ExportClipBtn_Click(object sender, RoutedEventArgs e) {
-        if (!TimelineCtrl.HasSelection || _currentRecordings.Count == 0) return;
+        var sel = Timeline.GetSelection();
+        if (sel is null || _currentRecordings.Count == 0) return;
 
-        var startSec = TimelineCtrl.SelectionStartSeconds;
-        var endSec = TimelineCtrl.SelectionEndSeconds;
+        var startSec = (sel.Value.start - _currentDate.Date).TotalSeconds;
+        var endSec = (sel.Value.end - _currentDate.Date).TotalSeconds;
         if (endSec < startSec) (startSec, endSec) = (endSec, startSec);
         if (endSec - startSec < 1) return;
 
@@ -3423,8 +3466,8 @@ public partial class PlaybackView : UserControl {
             _fsAutoHideTimer?.Start();
             // Hide chrome
             ToolbarRow.Visibility = Visibility.Collapsed;
-            ChannelPanel.Visibility = Visibility.Collapsed;
-            TimelineRow.Visibility = Visibility.Collapsed;
+            SearchPanel.Visibility = Visibility.Collapsed;
+            TimelineArea.Visibility = Visibility.Collapsed;
             ControlsRow.Visibility = Visibility.Collapsed;
             FullScreenOverlay.Visibility = Visibility.Visible;
 
@@ -3436,8 +3479,8 @@ public partial class PlaybackView : UserControl {
             _fsAutoHideTimer?.Stop();
             // Restore chrome
             ToolbarRow.Visibility = Visibility.Visible;
-            ChannelPanel.Visibility = Visibility.Visible;
-            TimelineRow.Visibility = Visibility.Visible;
+            SearchPanel.Visibility = Visibility.Visible;
+            TimelineArea.Visibility = Visibility.Visible;
             ControlsRow.Visibility = Visibility.Visible;
             FullScreenOverlay.Visibility = Visibility.Collapsed;
         }

@@ -39,20 +39,19 @@ public partial class DashboardView : UserControl {
         _alertDispatcher = App.Services.GetRequiredService<IAlertDispatcherService>();
         _metrics = App.Services.GetRequiredService<MetricsHistoryService>();
 
-        _metrics.HistoryUpdated += () => {
-            if (_loaded) { _ = Dispatcher.InvokeAsync(RefreshCharts); }
-        };
-        _status.PropertyChanged += (_, e) => // REVIEW: lambda captures 'this' — consider weak event pattern
-        {
-            if (_loaded) { _ = Dispatcher.InvokeAsync(RefreshStats); }
-        };
-        _health.HealthChanged += () => // REVIEW: lambda captures 'this' — consider weak event pattern
-        {
-            if (_loaded) { _ = Dispatcher.InvokeAsync(RefreshCameraHealth); }
-        };
-        _recording.RecordingStatusChanged += (_, _) => // REVIEW: lambda captures 'this' — consider weak event pattern
-        {
-            if (_loaded) { _ = Dispatcher.InvokeAsync(RefreshRecordingStats); }
+        Action onMetrics = () => { if (_loaded) _ = Dispatcher.InvokeAsync(RefreshCharts); };
+        System.ComponentModel.PropertyChangedEventHandler onStatus = (_, e) => { if (_loaded) _ = Dispatcher.InvokeAsync(RefreshStats); };
+        Action onHealth = () => { if (_loaded) _ = Dispatcher.InvokeAsync(RefreshCameraHealth); };
+        Action<string, bool> onRecording = (_, _) => { if (_loaded) _ = Dispatcher.InvokeAsync(RefreshRecordingStats); };
+        _metrics.HistoryUpdated += onMetrics;
+        _status.PropertyChanged += onStatus;
+        _health.HealthChanged += onHealth;
+        _recording.RecordingStatusChanged += onRecording;
+        Unloaded += (_, _) => {
+            _metrics.HistoryUpdated -= onMetrics;
+            _status.PropertyChanged -= onStatus;
+            _health.HealthChanged -= onHealth;
+            _recording.RecordingStatusChanged -= onRecording;
         };
         Loaded += (_, _) => {
             _loaded = true;
@@ -80,7 +79,7 @@ public partial class DashboardView : UserControl {
             "%", v => $"{v:F0}%");
     }
 
-    private static void DrawLineChart(Canvas canvas, List<MetricsHistoryService.DataPoint> data, double maxVal,
+    private void DrawLineChart(Canvas canvas, List<MetricsHistoryService.DataPoint> data, double maxVal,
         string unitLabel, Func<double, string> formatValue) {
         canvas.Children.Clear();
         if (data.Count < 2) return;
@@ -94,12 +93,16 @@ public partial class DashboardView : UserControl {
         var plotW = w - padL - padR;
         var plotH = h - padT - padB;
 
+        var gridBrush = FindResource("BorderBrush") as SolidColorBrush ?? new SolidColorBrush(Color.FromArgb(30, 255, 255, 255));
+        var textBrush = FindResource("SecondaryTextBrush") as Brush ?? new SolidColorBrush(Color.FromArgb(120, 255, 255, 255));
+        var primaryBrush = FindResource("PrimaryBrush") as SolidColorBrush ?? new SolidColorBrush(Color.FromRgb(0, 150, 255));
+
         // Draw horizontal grid lines (4 lines)
         for (var i = 0; i <= 4; i++) {
             var y = padT + plotH * (1 - i / 4.0);
             var line = new Line {
                 X1 = padL, Y1 = y, X2 = w - padR, Y2 = y,
-                Stroke = new SolidColorBrush(Color.FromArgb(30, 255, 255, 255)),
+                Stroke = gridBrush,
                 StrokeThickness = 0.5
             };
             canvas.Children.Add(line);
@@ -107,7 +110,7 @@ public partial class DashboardView : UserControl {
             var label = new TextBlock {
                 Text = formatValue(maxVal * i / 4.0),
                 FontSize = 9,
-                Foreground = new SolidColorBrush(Color.FromArgb(120, 255, 255, 255))
+                Foreground = textBrush
             };
             Canvas.SetLeft(label, 2);
             Canvas.SetTop(label, y - 7);
@@ -122,9 +125,10 @@ public partial class DashboardView : UserControl {
             points.Add(new Point(x, y));
         }
 
+        var pc = primaryBrush.Color;
         var polyline = new Polyline {
             Points = points,
-            Stroke = new SolidColorBrush(Color.FromArgb(200, 0, 150, 255)),
+            Stroke = new SolidColorBrush(Color.FromArgb(200, pc.R, pc.G, pc.B)),
             StrokeThickness = 1.5,
             StrokeLineJoin = PenLineJoin.Round
         };
@@ -136,7 +140,7 @@ public partial class DashboardView : UserControl {
         fillPoints.Add(new Point(padL, padT + plotH));
         var polygon = new Polygon {
             Points = fillPoints,
-            Fill = new SolidColorBrush(Color.FromArgb(30, 0, 150, 255))
+            Fill = new SolidColorBrush(Color.FromArgb(30, pc.R, pc.G, pc.B))
         };
         canvas.Children.Insert(0, polygon);
     }
@@ -183,9 +187,9 @@ public partial class DashboardView : UserControl {
         var healthScore = (int)(onlineRatio * 40 + recordingRatio * 30 + (1 - storageRatio) * 30);
         HealthScoreText.Text = healthScore.ToString();
         HealthScoreText.Foreground = healthScore switch {
-            >= 80 => Brushes.LimeGreen,
-            >= 50 => Brushes.Orange,
-            _ => Brushes.OrangeRed,
+            >= 80 => FindResource("SuccessBrush") as Brush ?? Brushes.LimeGreen,
+            >= 50 => FindResource("WarningBrush") as Brush ?? Brushes.Orange,
+            _ => FindResource("ErrorBrush") as Brush ?? Brushes.OrangeRed,
         };
         HealthDetailOnline.Text = $"{_health.OnlineCount}/{_health.TotalCount} 上線";
         HealthDetailRecording.Text = $"{activeCount} 路錄影";
@@ -204,9 +208,9 @@ public partial class DashboardView : UserControl {
         StorageUsedPercentText.Text = $"已使用 {usedPct}%（{diskTotalGB - diskFreeGB:F1} GB）";
         StorageBarFill.Width = Math.Clamp(storageRatio * 200, 0, 200);
         StorageBarFill.Background = usedPct switch {
-            >= 90 => Brushes.OrangeRed,
-            >= 75 => Brushes.Orange,
-            _ => TryFindResource("PrimaryBrush") as Brush ?? Brushes.DodgerBlue,
+            >= 90 => FindResource("ErrorBrush") as Brush ?? Brushes.OrangeRed,
+            >= 75 => FindResource("WarningBrush") as Brush ?? Brushes.Orange,
+            _ => FindResource("PrimaryBrush") as Brush ?? Brushes.DodgerBlue,
         };
         StorageBreakdownText.Text = $"{diskFreeGB:F1} GB 可用 ｜ {diskTotalGB - diskFreeGB:F1} GB 已使用";
 
@@ -237,9 +241,9 @@ public partial class DashboardView : UserControl {
         var successRate = Math.Min(100, (double)active / estimatedTotal * 100);
         RecordingSuccessText.Text = $"{successRate:F0}%";
         RecordingSuccessText.Foreground = successRate switch {
-            >= 95 => Brushes.LimeGreen,
-            >= 80 => Brushes.Orange,
-            _ => Brushes.OrangeRed,
+            >= 95 => FindResource("SuccessBrush") as Brush ?? Brushes.LimeGreen,
+            >= 80 => FindResource("WarningBrush") as Brush ?? Brushes.Orange,
+            _ => FindResource("ErrorBrush") as Brush ?? Brushes.OrangeRed,
         };
         RecordingSuccessDetail.Text = $"{active} 路正常 ｜ {watchdogRestarts} 次恢復";
         RecordingFailoverText.Text = $"緩衝：{App.Services.GetRequiredService<IDisconnectBufferService>().BufferedCount} 次 ｜ 已寫入：{App.Services.GetRequiredService<IDisconnectBufferService>().FlushedCount} 片段";
@@ -364,7 +368,7 @@ public partial class DashboardView : UserControl {
 
                         if (isToday) {
                             cellBorder.BorderThickness = new Thickness(2);
-                            cellBorder.BorderBrush = (Brush)FindResource("PrimaryBrush") ?? Brushes.DodgerBlue;
+                            cellBorder.BorderBrush = FindResource("PrimaryBrush") as Brush ?? Brushes.DodgerBlue;
                         }
 
                         var dayStack = new StackPanel { HorizontalAlignment = HorizontalAlignment.Center };

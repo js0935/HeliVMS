@@ -1,4 +1,4 @@
-<UserControl x:Class="HeliVMS.Controls.CameraTreePanel"
+﻿<UserControl x:Class="HeliVMS.Controls.CameraTreePanel"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
     <UserControl.Resources>
@@ -7,50 +7,50 @@
             <StackPanel Orientation="Horizontal" Height="28" Margin="4,0,0,0"
                         ToolTip="{Binding Tooltip}">
                 <StackPanel.ContextMenu>
-                    <ContextMenu Background="{StaticResource SurfaceBrush}"
-                                Foreground="{StaticResource TextBrush}"
-                                BorderBrush="{StaticResource BorderBrush}">
+                    <ContextMenu Background="{DynamicResource SurfaceBrush}"
+                                Foreground="{DynamicResource TextBrush}"
+                                BorderBrush="{DynamicResource BorderBrush}">
                         <MenuItem Header="播放" Tag="{Binding CameraId}" Click="OnPlayCamera">
                             <MenuItem.Icon>
-                                <Path Data="{StaticResource IconPlay}" Fill="{StaticResource TextBrush}" Width="14" Height="14" Stretch="Uniform"/>
+                                <Path Data="{StaticResource IconPlay}" Fill="{DynamicResource TextBrush}" Width="14" Height="14" Stretch="Uniform"/>
                             </MenuItem.Icon>
                         </MenuItem>
                         <MenuItem Header="在新分頁開啟" Tag="{Binding CameraId}" Click="OnOpenNewTab">
                             <MenuItem.Icon>
-                                <Path Data="{StaticResource IconPlus}" Fill="{StaticResource TextBrush}" Width="14" Height="14" Stretch="Uniform"/>
+                                <Path Data="{StaticResource IconPlus}" Fill="{DynamicResource TextBrush}" Width="14" Height="14" Stretch="Uniform"/>
                             </MenuItem.Icon>
                         </MenuItem>
-                        <Separator Background="{StaticResource BorderBrush}"/>
+                        <Separator Background="{DynamicResource BorderBrush}"/>
                         <MenuItem Header="開始錄影" x:Name="RecMenu" Tag="{Binding CameraId}" Click="OnToggleRecording">
                             <MenuItem.Icon>
-                                <Path Data="{StaticResource IconRecording}" Fill="{StaticResource ErrorBrush}" Width="14" Height="14" Stretch="Uniform"/>
+                                <Path Data="{StaticResource IconRecording}" Fill="{DynamicResource ErrorBrush}" Width="14" Height="14" Stretch="Uniform"/>
                             </MenuItem.Icon>
                         </MenuItem>
                         <MenuItem Header="PTZ 控制" Tag="{Binding CameraId}" Click="OnOpenPtz">
                             <MenuItem.Icon>
-                                <Path Data="{StaticResource IconPtz}" Fill="{StaticResource TextBrush}" Width="14" Height="14" Stretch="Uniform"/>
+                                <Path Data="{StaticResource IconPtz}" Fill="{DynamicResource TextBrush}" Width="14" Height="14" Stretch="Uniform"/>
                             </MenuItem.Icon>
                         </MenuItem>
-                        <Separator Background="{StaticResource BorderBrush}"/>
+                        <Separator Background="{DynamicResource BorderBrush}"/>
                         <MenuItem Header="加入我的最愛" x:Name="FavMenu" Tag="{Binding CameraId}" Click="OnToggleFavorite">
                             <MenuItem.Icon>
-                                <Path Data="{StaticResource IconStar}" Fill="{StaticResource WarningBrush}" Width="14" Height="14" Stretch="Uniform"/>
+                                <Path Data="{StaticResource IconStar}" Fill="{DynamicResource WarningBrush}" Width="14" Height="14" Stretch="Uniform"/>
                             </MenuItem.Icon>
                         </MenuItem>
                         <MenuItem Header="拍照" InputGestureText="Ctrl+P" Tag="{Binding CameraId}" Click="OnSnapshot">
                             <MenuItem.Icon>
-                                <Path Data="{StaticResource IconSnapshot}" Fill="{StaticResource TextBrush}" Width="14" Height="14" Stretch="Uniform"/>
+                                <Path Data="{StaticResource IconSnapshot}" Fill="{DynamicResource TextBrush}" Width="14" Height="14" Stretch="Uniform"/>
                             </MenuItem.Icon>
                         </MenuItem>
-                        <Separator Background="{StaticResource BorderBrush}"/>
+                        <Separator Background="{DynamicResource BorderBrush}"/>
                         <MenuItem Header="攝影機設定" InputGestureText="Ctrl+I" Tag="{Binding CameraId}" Click="OnCameraSettings">
                             <MenuItem.Icon>
-                                <Path Data="{StaticResource IconSettings}" Fill="{StaticResource TextBrush}" Width="14" Height="14" Stretch="Uniform"/>
+                                <Path Data="{StaticResource IconSettings}" Fill="{DynamicResource TextBrush}" Width="14" Height="14" Stretch="Uniform"/>
                             </MenuItem.Icon>
                         </MenuItem>
                         <MenuItem Header="移除" InputGestureText="Del" Tag="{Binding CameraId}" Click="OnRemoveCamera">
                             <MenuItem.Icon>
-                                <Path Data="{StaticResource IconClose}" Fill="{StaticResource SecondaryTextBrush}" Width="14" Height="14" Stretch="Uniform"/>
+                                <Path Data="{StaticResource IconClose}" Fill="{DynamicResource SecondaryTextBrush}" Width="14" Height="14" Stretch="Uniform"/>
                             </MenuItem.Icon>
                         </MenuItem>
                     </ContextMenu>
@@ -58,95 +58,119 @@
                 <Ellipse Width="8" Height="8" Margin="0,0,6,0"
                          Fill="{Binding ConnectionColor}"
                          VerticalAlignment="Center"/>
-                <Path Data="{Binding IconGeometry}" Fill="{StaticResource TextBrush}"
+                <Path Data="{Binding IconGeometry}" Fill="{DynamicResource TextBrush}"
                       Width="12" Height="12" Stretch="Uniform" Margin="0,0,6,0"
                       VerticalAlignment="Center"/>
                 <TextBlock Text="{Binding DisplayName}" FontSize="11"
-                           Foreground="{StaticResource TextBrush}"
+                           Foreground="{DynamicResource TextBrush}"
                            VerticalAlignment="Center"/>
                 <TextBlock Text="{Binding RtspHint}" FontSize="9"
-                           Foreground="{StaticResource SecondaryTextBrush}"
+                           Foreground="{DynamicResource SecondaryTextBrush}"
                            Margin="8,0,0,0" VerticalAlignment="Center"
                            MaxWidth="120" TextTrimming="CharacterEllipsis"/>
             </StackPanel>
         </DataTemplate>
     </UserControl.Resources>
 
-    <Grid Background="{StaticResource SidebarBrush}">
+    <Grid Background="{DynamicResource SidebarBrush}">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
 
-        <!-- Header bar with tab buttons -->
+        <!-- Header bar with tab buttons + search toggle -->
         <Border Grid.Row="0" Height="32"
-                Background="{StaticResource SidebarBrush}"
+                Background="{DynamicResource SidebarBrush}"
                 BorderThickness="0,0,0,1"
-                BorderBrush="{StaticResource BorderBrush}">
+                BorderBrush="{DynamicResource BorderBrush}">
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
                 <Button x:Name="TabResources" Grid.Column="0"
                         Content="資源" FontSize="11" FontWeight="SemiBold"
                         Style="{StaticResource FlatButton}"
-                        Foreground="{StaticResource TextBrush}"
-                        Background="{StaticResource SidebarBrush}"
-                        BorderThickness="0,0,0,2" BorderBrush="{StaticResource PrimaryBrush}"
+                        Foreground="{DynamicResource TextBrush}"
+                        Background="{DynamicResource SidebarBrush}"
+                        BorderThickness="0,0,0,2" BorderBrush="{DynamicResource PrimaryBrush}"
                         Click="TabResources_Click"/>
                 <Button x:Name="TabLayouts" Grid.Column="1"
                         Content="佈局" FontSize="11"
                         Style="{StaticResource FlatButton}"
-                        Foreground="{StaticResource SecondaryTextBrush}"
-                        Background="{StaticResource SidebarBrush}"
+                        Foreground="{DynamicResource SecondaryTextBrush}"
+                        Background="{DynamicResource SidebarBrush}"
                         BorderThickness="0" BorderBrush="Transparent"
                         Click="TabLayouts_Click"/>
                 <Button x:Name="TabBookmarks" Grid.Column="2"
                         Content="書籤" FontSize="11"
                         Style="{StaticResource FlatButton}"
-                        Foreground="{StaticResource SecondaryTextBrush}"
-                        Background="{StaticResource SidebarBrush}"
+                        Foreground="{DynamicResource SecondaryTextBrush}"
+                        Background="{DynamicResource SidebarBrush}"
                         BorderThickness="0" BorderBrush="Transparent"
                         Click="TabBookmarks_Click"/>
+                <Button x:Name="SearchToggleBtn" Grid.Column="3"
+                        Width="28" Height="28" Margin="0,0,2,0"
+                        Background="Transparent" BorderThickness="0"
+                        Cursor="Hand"
+                        ToolTip="搜尋攝影機"
+                        Click="SearchToggle_Click">
+                    <Path Data="{StaticResource IconSearch}" Fill="{DynamicResource SecondaryTextBrush}" Width="14" Height="14" Stretch="Uniform"/>
+                </Button>
             </Grid>
         </Border>
 
-        <!-- Search bar -->
-        <Border Grid.Row="1" Padding="6,4"
-                Background="{StaticResource SidebarBrush}"
+        <!-- Search bar (collapsible) -->
+        <Border x:Name="SearchBar" Grid.Row="1" Padding="6,4" Visibility="Collapsed"
+                Background="{DynamicResource SidebarBrush}"
                 BorderThickness="0,0,0,1"
-                BorderBrush="{StaticResource BorderBrush}">
-            <TextBox x:Name="SearchBox"
-                     Height="22" FontSize="11"
-                     Foreground="{StaticResource TextBrush}"
-                     Background="{StaticResource InputBackgroundBrush}"
-                     BorderBrush="{StaticResource BorderBrush}"
-                     ToolTip="搜尋攝影機名稱或 IP"
-                     TextChanged="OnSearchTextChanged"/>
+                BorderBrush="{DynamicResource BorderBrush}">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBox x:Name="SearchBox" Grid.Column="0"
+                         Height="22" FontSize="11"
+                         Foreground="{DynamicResource TextBrush}"
+                         Background="{DynamicResource InputBackgroundBrush}"
+                         BorderBrush="{DynamicResource BorderBrush}"
+                         ToolTip="搜尋攝影機名稱或 IP"
+                         TextChanged="OnSearchTextChanged"/>
+                <Button x:Name="SearchClearBtn" Grid.Column="1"
+                        Width="20" Height="20" Margin="4,0,0,0"
+                        Background="Transparent" BorderThickness="0"
+                        Cursor="Hand"
+                        ToolTip="清除搜尋"
+                        Click="SearchClear_Click"
+                        Visibility="Collapsed">
+                    <Path Data="{StaticResource IconClose}" Fill="{DynamicResource SecondaryTextBrush}" Width="10" Height="10" Stretch="Uniform"/>
+                </Button>
+            </Grid>
         </Border>
 
         <!-- Camera TreeView (Resources tab) -->
         <TreeView x:Name="CameraTreeView" Grid.Row="2"
-                  Background="{StaticResource SidebarBrush}"
+                  Background="{DynamicResource SidebarBrush}"
                   BorderThickness="0"
-                  Foreground="{StaticResource TextBrush}"
+                  Foreground="{DynamicResource TextBrush}"
                   FontSize="12"
                   VirtualizingPanel.IsVirtualizing="True"
                   VirtualizingPanel.ScrollUnit="Pixel"
                   PreviewMouseLeftButtonDown="OnTreePreviewMouseLeftButtonDown"
-                  MouseMove="OnTreeMouseMove">
+                                     PreviewMouseMove="OnTreePreviewMouseMove">
             <TreeView.ItemTemplate>
                 <HierarchicalDataTemplate ItemsSource="{Binding Children}"
                                           ItemTemplate="{StaticResource CameraItemTemplate}">
                     <StackPanel Orientation="Horizontal" Height="24">
-                        <Path Data="{Binding IconGeometry}" Fill="{StaticResource TextBrush}"
+                        <Path Data="{Binding IconGeometry}" Fill="{DynamicResource TextBrush}"
                               Width="12" Height="12" Stretch="Uniform" Margin="4,0,4,0"
                               VerticalAlignment="Center"/>
                         <TextBlock Text="{Binding DisplayName}" FontSize="11"
-                                   Foreground="{StaticResource TextBrush}"
+                                   Foreground="{DynamicResource TextBrush}"
                                    VerticalAlignment="Center"/>
                     </StackPanel>
 
@@ -156,26 +180,26 @@
 
         <!-- Layouts panel (placeholder) -->
         <Border x:Name="LayoutsPanel" Grid.Row="2" Visibility="Collapsed"
-                Background="{StaticResource SidebarBrush}">
+                Background="{DynamicResource SidebarBrush}">
             <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
                 <TextBlock Text="已儲存佈局" FontSize="11"
-                           Foreground="{StaticResource SecondaryTextBrush}"
+                           Foreground="{DynamicResource SecondaryTextBrush}"
                            HorizontalAlignment="Center"/>
                 <TextBlock x:Name="LayoutCountText" Text="0 個佈局" FontSize="10"
-                           Foreground="{StaticResource SecondaryTextBrush}"
+                           Foreground="{DynamicResource SecondaryTextBrush}"
                            HorizontalAlignment="Center" Margin="0,4,0,0"/>
             </StackPanel>
         </Border>
 
         <!-- Bookmarks panel (placeholder) -->
         <Border x:Name="BookmarksPanel" Grid.Row="2" Visibility="Collapsed"
-                Background="{StaticResource SidebarBrush}">
+                Background="{DynamicResource SidebarBrush}">
             <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
                 <TextBlock Text="已儲存書籤" FontSize="11"
-                           Foreground="{StaticResource SecondaryTextBrush}"
+                           Foreground="{DynamicResource SecondaryTextBrush}"
                            HorizontalAlignment="Center"/>
                 <TextBlock x:Name="BookmarkCountText" Text="0 個書籤" FontSize="10"
-                           Foreground="{StaticResource SecondaryTextBrush}"
+                           Foreground="{DynamicResource SecondaryTextBrush}"
                            HorizontalAlignment="Center" Margin="0,4,0,0"/>
             </StackPanel>
         </Border>

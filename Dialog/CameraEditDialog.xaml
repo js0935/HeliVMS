@@ -1,4 +1,4 @@
-<!-- ============================================================
+﻿<!-- ============================================================
      HeliVMS - 智慧影像管理系統     禾秝軟體開發團隊 / 代碼設計：洪俊士 / 版本：V1.0.0
      ============================================================ -->
 <Window x:Class="HeliVMS.Dialog.CameraEditDialog"
@@ -10,7 +10,7 @@
         WindowStartupLocation="CenterOwner"
         ResizeMode="NoResize"
         ShowInTaskbar="False"
-        Background="{StaticResource BackgroundBrush}">
+        Background="{DynamicResource BackgroundBrush}">
     <Window.Resources>
         <ResourceDictionary>
             <ResourceDictionary.MergedDictionaries>
@@ -29,7 +29,7 @@
         <TextBlock x:Name="DialogTitle" Grid.Row="0"
                    Text="新增攝影機"
                    FontSize="20" FontWeight="Bold"
-                   Foreground="{StaticResource TextBrush}"
+                   Foreground="{DynamicResource TextBrush}"
                    Margin="0,0,0,16"/>
 
         <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
@@ -61,16 +61,16 @@
                 <PasswordBox x:Name="PasswordBox" Style="{StaticResource ModernPasswordBox}" Margin="0,0,0,12"
                              PasswordChanged="OnPasswordChanged"/>
 
-                <Separator Background="{StaticResource BorderBrush}" Margin="0,4,0,12"/>
+                <Separator Background="{DynamicResource BorderBrush}" Margin="0,4,0,12"/>
 
-                <TextBlock Text="串流設定" Foreground="{StaticResource TextBrush}"
+                <TextBlock Text="串流設定" Foreground="{DynamicResource TextBrush}"
                            FontSize="14" FontWeight="SemiBold" Margin="0,0,0,8"/>
 
                 <TextBlock Text="串流1 (Main) — RTSP URL" Style="{StaticResource ModernLabel}"/>
                 <TextBox x:Name="RtspUrlBox" Style="{StaticResource ModernTextBox}"
-                         IsReadOnly="True" Foreground="{StaticResource SecondaryTextBrush}"
+                         IsReadOnly="True" Foreground="{DynamicResource SecondaryTextBrush}"
                          Margin="0,0,0,8"/>
-                <TextBlock Text="品牌偵測後自動產生，也可手動編輯" Foreground="{StaticResource SecondaryTextBrush}"
+                <TextBlock Text="品牌偵測後自動產生，也可手動編輯" Foreground="{DynamicResource SecondaryTextBrush}"
                            FontSize="11" Margin="0,-4,0,12"/>
 
                 <TextBlock Text="串流2 (Sub) — RTSP URL（選填）" Style="{StaticResource ModernLabel}"/>
@@ -81,13 +81,13 @@
                           Margin="0,0,0,12" IsEditable="True"
                           ToolTip="輸入或選擇分組名稱（如：1F 大廳、停車場、機房）"/>
 
-        <Separator Background="{StaticResource BorderBrush}" Margin="0,12,0,8"/>
+        <Separator Background="{DynamicResource BorderBrush}" Margin="0,12,0,8"/>
 
-                <TextBlock Text="移動偵測設定" Foreground="{StaticResource TextBrush}"
+                <TextBlock Text="移動偵測設定" Foreground="{DynamicResource TextBrush}"
                            FontSize="14" FontWeight="SemiBold" Margin="0,0,0,8"/>
 
                 <CheckBox x:Name="MotionEnabledCheck" Content="啟用移動偵測" FontSize="12"
-                          Foreground="{StaticResource TextBrush}" Margin="0,0,0,8"
+                          Foreground="{DynamicResource TextBrush}" Margin="0,0,0,8"
                           Checked="OnMotionEnabledChanged" Unchecked="OnMotionEnabledChanged"/>
 
                 <Grid>
@@ -100,27 +100,27 @@
                         <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
                     <TextBlock Grid.Row="0" Grid.Column="0" Text="靈敏度" VerticalAlignment="Center" FontSize="12"
-                               Foreground="{StaticResource SecondaryTextBrush}"/>
+                               Foreground="{DynamicResource SecondaryTextBrush}"/>
                     <StackPanel Grid.Row="0" Grid.Column="1" Orientation="Horizontal" Margin="8,0,0,4">
                         <Slider x:Name="MotionSensitivitySlider" Width="180" Minimum="0.0" Maximum="1.0"
                                 Value="0.5" SmallChange="0.05" LargeChange="0.1" TickFrequency="0.1"
                                 ValueChanged="OnMotionSensitivityChanged"
-                                Foreground="{StaticResource PrimaryBrush}"/>
+                                Foreground="{DynamicResource PrimaryBrush}"/>
                         <TextBlock x:Name="MotionSensitivityLabel" Text="0.50" FontSize="12"
-                                   Foreground="{StaticResource TextBrush}" Margin="8,0,0,0" VerticalAlignment="Center"/>
+                                   Foreground="{DynamicResource TextBrush}" Margin="8,0,0,0" VerticalAlignment="Center"/>
                     </StackPanel>
                     <TextBlock Grid.Row="1" Grid.Column="0" Text="低靈敏度 (0.0) ← → 高靈敏度 (1.0)"
-                               Grid.ColumnSpan="2" FontSize="10" Foreground="{StaticResource SecondaryTextBrush}"
+                               Grid.ColumnSpan="2" FontSize="10" Foreground="{DynamicResource SecondaryTextBrush}"
                                Margin="0,0,0,4"/>
                 </Grid>
 
-                <Separator Background="{StaticResource BorderBrush}" Margin="0,12,0,8"/>
+                <Separator Background="{DynamicResource BorderBrush}" Margin="0,12,0,8"/>
 
-                <TextBlock Text="自動重連設定" Foreground="{StaticResource TextBrush}"
+                <TextBlock Text="自動重連設定" Foreground="{DynamicResource TextBrush}"
                            FontSize="14" FontWeight="SemiBold" Margin="0,0,0,8"/>
 
                 <CheckBox x:Name="AutoReconnectCheck" Content="啟用自動重連" FontSize="12"
-                          Foreground="{StaticResource TextBrush}" Margin="0,0,0,8"
+                          Foreground="{DynamicResource TextBrush}" Margin="0,0,0,8"
                           IsChecked="True"/>
 
                 <Grid>
@@ -133,19 +133,19 @@
                         <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
                     <TextBlock Grid.Row="0" Grid.Column="0" Text="最大重試次數" VerticalAlignment="Center" FontSize="12"
-                               Foreground="{StaticResource SecondaryTextBrush}"/>
+                               Foreground="{DynamicResource SecondaryTextBrush}"/>
                     <TextBox x:Name="MaxRetryBox" Grid.Row="0" Grid.Column="1" Text="0" FontSize="12"
                              Padding="4,3" Margin="8,0,0,4" Width="80" HorizontalAlignment="Left"
-                             Background="{StaticResource SurfaceBrush}" Foreground="{StaticResource TextBrush}"
-                             BorderBrush="{StaticResource BorderBrush}" BorderThickness="1"/>
+                             Background="{DynamicResource SurfaceBrush}" Foreground="{DynamicResource TextBrush}"
+                             BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1"/>
                     <TextBlock Grid.Row="1" Grid.Column="0" Text="重連間隔（秒）" VerticalAlignment="Center" FontSize="12"
-                               Foreground="{StaticResource SecondaryTextBrush}"/>
+                               Foreground="{DynamicResource SecondaryTextBrush}"/>
                     <TextBox x:Name="ReconnectIntervalBox" Grid.Row="1" Grid.Column="1" Text="30" FontSize="12"
                              Padding="4,3" Margin="8,0,0,0" Width="80" HorizontalAlignment="Left"
-                             Background="{StaticResource SurfaceBrush}" Foreground="{StaticResource TextBrush}"
-                             BorderBrush="{StaticResource BorderBrush}" BorderThickness="1"/>
+                             Background="{DynamicResource SurfaceBrush}" Foreground="{DynamicResource TextBrush}"
+                             BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1"/>
                 </Grid>
-                <TextBlock Text="0 = 無限重試" FontSize="10" Foreground="{StaticResource SecondaryTextBrush}"
+                <TextBlock Text="0 = 無限重試" FontSize="10" Foreground="{DynamicResource SecondaryTextBrush}"
                            Margin="0,4,0,0"/>
             </StackPanel>
         </ScrollViewer>

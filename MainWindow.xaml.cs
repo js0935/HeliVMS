@@ -178,12 +178,7 @@ public partial class MainWindow : Window {
             switch (e.SystemKey) {
                 case Key.D1: ToggleDrawer(); e.Handled = true; break;
                 case Key.D2: ToggleNotifPanel(); e.Handled = true; break;
-                case Key.D3:
-                    if (MainWorkArea.Content is LiveView lv) {
-                        lv.TimelineVisible = !lv.TimelineVisible;
-                        ShowToast(lv.TimelineVisible ? "時間軸已顯示" : "時間軸已隱藏", "INFO");
-                    }
-                    e.Handled = true; break;
+                case Key.D3: e.Handled = true; break;
             }
         }
     }
@@ -211,6 +206,9 @@ public partial class MainWindow : Window {
                 sv.ShowTab(index);
             } else if (MainWorkArea.Content is DeviceManagementView dv) {
                 dv.ShowTab(index);
+            } else {
+                Log.Debug("[HeliVMS] SubMenuItem_Click: content type mismatch (expected SettingsView or DeviceManagementView, got {Type}), tag={Tag}",
+                    MainWorkArea.Content?.GetType().Name ?? "null", tag);
             }
         }
     }
@@ -308,60 +306,88 @@ public partial class MainWindow : Window {
 
     private void SwitchToLive() {
         if (!_auth.IsLoggedIn) { NavigateToLogin(); return; }
-        SelectNavButton(BtnLive);
-        ShowDrawer(true);
-        LiveDrawer.Visibility = Visibility.Visible;
-        SubMenuDrawer.Visibility = Visibility.Collapsed;
-        _activeView = "live";
-        MainWorkArea.Content = new LiveView();
-        Log.Debug("[HeliVMS] Navigated to Live");
+        try {
+            SelectNavButton(BtnLive);
+            ShowDrawer(true);
+            LiveDrawer.Visibility = Visibility.Visible;
+            SubMenuDrawer.Visibility = Visibility.Collapsed;
+            _activeView = "live";
+            MainWorkArea.Content = new LiveView();
+            Log.Debug("[HeliVMS] Navigated to Live");
+        } catch (Exception ex) {
+            Log.Error(ex, "[HeliVMS] SwitchToLive failed");
+            ShowToast($"無法開啟即時監看: {ex.Message}", "ERROR");
+        }
     }
 
     public void SwitchToLive(DateTime date) {
         if (!_auth.IsLoggedIn) { NavigateToLogin(); return; }
-        SelectNavButton(BtnLive);
-        ShowDrawer(true);
-        LiveDrawer.Visibility = Visibility.Visible;
-        SubMenuDrawer.Visibility = Visibility.Collapsed;
-        var lv = new LiveView();
-        lv.Loaded += (_, _) => lv.NavigateToDate(date);
-        MainWorkArea.Content = lv;
-        Log.Debug("[HeliVMS] Navigated to Live (date: {Date})", date.ToString("yyyy-MM-dd"));
+        try {
+            SelectNavButton(BtnLive);
+            ShowDrawer(true);
+            LiveDrawer.Visibility = Visibility.Visible;
+            SubMenuDrawer.Visibility = Visibility.Collapsed;
+            var pv = new PlaybackView();
+            MainWorkArea.Content = pv;
+            Log.Debug("[HeliVMS] Navigated to Playback (date: {Date})", date.ToString("yyyy-MM-dd"));
+        } catch (Exception ex) {
+            Log.Error(ex, "[HeliVMS] SwitchToLive(date) failed");
+            ShowToast($"無法開啟回放: {ex.Message}", "ERROR");
+        }
     }
 
     private void SwitchToDevice() {
         if (!_auth.IsLoggedIn) { NavigateToLogin(); return; }
-        SelectNavButton(BtnDevice);
-        ShowDrawer(true);
-        _activeView = "device";
-        LiveDrawer.Visibility = Visibility.Collapsed;
-        SubMenuDrawer.Visibility = Visibility.Visible;
-        SettingsSubMenu.Visibility = Visibility.Collapsed;
-        DeviceSubMenu.Visibility = Visibility.Visible;
-        MainWorkArea.Content = new DeviceManagementView();
-        Log.Debug("[HeliVMS] Navigated to DeviceManagement");
+        try {
+            SelectNavButton(BtnDevice);
+            ShowDrawer(true);
+            _activeView = "device";
+            LiveDrawer.Visibility = Visibility.Collapsed;
+            SubMenuDrawer.Visibility = Visibility.Visible;
+            SettingsSubMenu.Visibility = Visibility.Collapsed;
+            DeviceSubMenu.Visibility = Visibility.Visible;
+            MainWorkArea.Content = new DeviceManagementView();
+            Log.Debug("[HeliVMS] Navigated to DeviceManagement");
+        } catch (Exception ex) {
+            Log.Error(ex, "[HeliVMS] SwitchToDevice failed");
+            var rootCause = ex.InnerException?.Message ?? ex.Message;
+            ShowToast($"無法開啟設備管理: {rootCause}", "ERROR");
+            LiveDrawer.Visibility = Visibility.Visible;
+            SubMenuDrawer.Visibility = Visibility.Collapsed;
+            _activeView = "live";
+        }
     }
 
     private void SwitchToLicense() {
         if (!_auth.IsLoggedIn) { NavigateToLogin(); return; }
-        SelectNavButton(BtnLicense);
-        ShowDrawer(false);
-        _activeView = "license";
-        MainWorkArea.Content = new LicenseView();
-        Log.Debug("[HeliVMS] Navigated to License");
+        try {
+            SelectNavButton(BtnLicense);
+            ShowDrawer(false);
+            _activeView = "license";
+            MainWorkArea.Content = new LicenseView();
+            Log.Debug("[HeliVMS] Navigated to License");
+        } catch (Exception ex) {
+            Log.Error(ex, "[HeliVMS] SwitchToLicense failed");
+            ShowToast($"無法開啟授權管理: {ex.Message}", "ERROR");
+        }
     }
 
     private void SwitchToSettings() {
         if (!_auth.IsLoggedIn) { NavigateToLogin(); return; }
-        SelectNavButton(BtnSettings);
-        ShowDrawer(true);
-        _activeView = "settings";
-        LiveDrawer.Visibility = Visibility.Collapsed;
-        SubMenuDrawer.Visibility = Visibility.Visible;
-        SettingsSubMenu.Visibility = Visibility.Visible;
-        DeviceSubMenu.Visibility = Visibility.Collapsed;
-        MainWorkArea.Content = new SettingsView();
-        Log.Debug("[HeliVMS] Navigated to Settings");
+        try {
+            SelectNavButton(BtnSettings);
+            ShowDrawer(true);
+            _activeView = "settings";
+            LiveDrawer.Visibility = Visibility.Collapsed;
+            SubMenuDrawer.Visibility = Visibility.Visible;
+            SettingsSubMenu.Visibility = Visibility.Visible;
+            DeviceSubMenu.Visibility = Visibility.Collapsed;
+            MainWorkArea.Content = new SettingsView();
+            Log.Debug("[HeliVMS] Navigated to Settings");
+        } catch (Exception ex) {
+            Log.Error(ex, "[HeliVMS] SwitchToSettings failed");
+            ShowToast($"無法開啟系統設定: {ex.Message}", "ERROR");
+        }
     }
 
     private void SwitchToDashboard() {
@@ -547,7 +573,11 @@ public partial class MainWindow : Window {
     private async void MainWindow_Closing(object? sender, System.ComponentModel.CancelEventArgs e) {
         if (_isShuttingDown) return;
         e.Cancel = true;
-        await ShutdownApplicationAsync();
+        try {
+            await ShutdownApplicationAsync();
+        } catch (Exception ex) {
+            Log.Warning(ex, "[HeliVMS] Shutdown error");
+        }
     }
 
     private async Task ShutdownApplicationAsync() {

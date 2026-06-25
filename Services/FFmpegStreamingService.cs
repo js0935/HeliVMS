@@ -20,16 +20,33 @@ namespace HeliVMS.Services {
         private int _writeIndex;
         /// <summary>Bitmask — bit i = 1 means slot i is occupied (published but not yet released).</summary>
         private volatile int _occupancyMask;
+        private readonly int[] _generations;
+        private int _globalGen;
         private bool _disposed;
 
         public int SlotSize => _slotSize;
         public int SlotCount => _slotCount;
+
+        /// <summary>Slot index for a given ring buffer pointer, or -1 if invalid.</summary>
+        public int GetSlotIndex(IntPtr ptr) {
+            var delta = (byte*)ptr - _buffer;
+            var idx = (int)(delta / _slotSize);
+            if ((uint)idx < (uint)_slotCount) return idx;
+            return -1;
+        }
+
+        /// <summary>Generation stamp for the slot. Matches while the data is valid (not yet overwritten).</summary>
+        public int GetGeneration(int slotIndex) {
+            if ((uint)slotIndex < (uint)_slotCount) return Volatile.Read(ref _generations[slotIndex]);
+            return -1;
+        }
 
         public NativeRingBuffer(int slotSize, int slotCount) {
             if (slotSize <= 0) throw new ArgumentOutOfRangeException(nameof(slotSize));
             if (slotCount <= 0) throw new ArgumentOutOfRangeException(nameof(slotCount));
             _slotSize = slotSize;
             _slotCount = slotCount;
+            _generations = new int[slotCount];
             _buffer = (byte*)NativeMemory.Alloc((nuint)(slotSize * slotCount));
         }
 
@@ -42,6 +59,7 @@ namespace HeliVMS.Services {
                 var bit = 1 << idx;
                 if ((_occupancyMask & bit) == 0) {
                     Interlocked.Or(ref _occupancyMask, bit);
+                    Volatile.Write(ref _generations[idx], ++_globalGen);
                     return (IntPtr)(_buffer + idx * _slotSize);
                 }
             }
@@ -49,6 +67,7 @@ namespace HeliVMS.Services {
             idx = _writeIndex;
             _writeIndex = (_writeIndex + 1) % _slotCount;
             Interlocked.Or(ref _occupancyMask, 1 << idx);
+            Volatile.Write(ref _generations[idx], ++_globalGen);
             return (IntPtr)(_buffer + idx * _slotSize);
         }
 
@@ -144,6 +163,17 @@ namespace HeliVMS.Services {
         public void ReleaseFrame(IntPtr ptr) {
             if (ptr == IntPtr.Zero) return;
             _ringBuffer?.ReleaseSlot(ptr);
+        }
+
+        public int GetFrameGeneration(IntPtr ptr) {
+            if (_ringBuffer is null) return -1;
+            var slotIdx = _ringBuffer.GetSlotIndex(ptr);
+            if (slotIdx < 0) return -1;
+            return _ringBuffer.GetGeneration(slotIdx);
+        }
+
+        public bool ValidateFrame(IntPtr ptr, int generation) {
+            return GetFrameGeneration(ptr) == generation;
         }
 
         public FFmpegStreamingService() { }
@@ -285,6 +315,7 @@ namespace HeliVMS.Services {
                 Volatile.Write(ref _connectStartTicks, DateTime.UtcNow.Ticks);
 
                 if (!OpenConnection(stopToken)) {
+                    return;
                 }
 
                 _isInitialized = true;
@@ -473,9 +504,6 @@ namespace HeliVMS.Services {
             try { _converter?.Dispose(); } catch (Exception ex) { Log($"[HeliVMS] CleanupConnection: converter dispose error: {ex.Message}"); }
             _converter = null;
 
-            _ringBuffer?.Dispose();
-            _ringBuffer = null;
-
             try { _asyncRtsp?.Dispose(); } catch (Exception ex) { Log($"[HeliVMS] CleanupConnection: asyncRtsp dispose error: {ex.Message}"); }
             _asyncRtsp = null;
         }
@@ -487,6 +515,8 @@ namespace HeliVMS.Services {
                 _isInitialized = false;
             }
 
+            _watchdogTimer?.Dispose();
+            _watchdogTimer = null;
             IsPlaying = false;
         }
 
@@ -498,6 +528,8 @@ namespace HeliVMS.Services {
             _watchdogTimer?.Dispose();
             _watchdogTimer = null;
             CleanupConnection();
+            _ringBuffer?.Dispose();
+            _ringBuffer = null;
             _interruptCts?.Dispose();
             _interruptCts = null;
             _stopCts?.Dispose();

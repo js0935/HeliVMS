@@ -29,11 +29,11 @@ public partial class EMapView : UserControl {
     private double _origCameraLeft, _origCameraTop;
     private Window? _previewWindow;
 
-    private static readonly SolidColorBrush OnlineBrush = new(Color.FromRgb(76, 175, 80));
-    private static readonly SolidColorBrush OfflineBrush = new(Color.FromRgb(244, 67, 54));
-    private static readonly SolidColorBrush WarningBrush = new(Color.FromRgb(255, 193, 7));
-    private static readonly SolidColorBrush TabActiveBg = new(Color.FromRgb(60, 60, 60));
-    private static readonly SolidColorBrush TabInactiveBg = new(Color.FromRgb(40, 40, 40));
+    private Brush SuccessBrush => FindResource("SuccessBrush") as Brush ?? new SolidColorBrush(Color.FromRgb(76, 175, 80));
+    private Brush ErrorBrush => FindResource("ErrorBrush") as Brush ?? new SolidColorBrush(Color.FromRgb(244, 67, 54));
+    private Brush WarningBrush => FindResource("WarningBrush") as Brush ?? new SolidColorBrush(Color.FromRgb(255, 193, 7));
+    private Brush TabActiveBg => FindResource("SurfaceBrush") as Brush ?? new SolidColorBrush(Color.FromRgb(60, 60, 60));
+    private Brush TabInactiveBg => FindResource("InputBackgroundBrush") as Brush ?? new SolidColorBrush(Color.FromRgb(40, 40, 40));
 
     public EMapView() {
         InitializeComponent();
@@ -65,9 +65,9 @@ public partial class EMapView : UserControl {
                 FontWeight = isActive ? FontWeights.Bold : FontWeights.Normal,
                 Cursor = Cursors.Hand,
                 Background = isActive ? TabActiveBg : TabInactiveBg,
-                Foreground = isActive ? Brushes.White : Brushes.Gray,
+                Foreground = isActive ? FindResource("TextBrush") as Brush ?? Brushes.White : FindResource("SecondaryTextBrush") as Brush ?? Brushes.Gray,
                 BorderThickness = new Thickness(0, 0, 0, 2),
-                BorderBrush = isActive ? (SolidColorBrush)TryFindResource("PrimaryBrush") ?? Brushes.DodgerBlue : Brushes.Transparent,
+                BorderBrush = isActive ? FindResource("PrimaryBrush") as Brush ?? Brushes.DodgerBlue : Brushes.Transparent,
                 Margin = new Thickness(0, 0, 2, 0),
             };
             btn.Click += FloorTab_Click;
@@ -132,7 +132,7 @@ public partial class EMapView : UserControl {
 
         var indicator = new Ellipse {
             Width = 12, Height = 12,
-            Fill = isOnline ? (hasRecording ? OnlineBrush : WarningBrush) : OfflineBrush,
+            Fill = isOnline ? (hasRecording ? SuccessBrush : WarningBrush) : ErrorBrush,
             Margin = new Thickness(0, 0, 4, 0),
             VerticalAlignment = VerticalAlignment.Center
         };
@@ -140,7 +140,7 @@ public partial class EMapView : UserControl {
         var nameBlock = new TextBlock {
             Text = cam.Name,
             FontSize = 12,
-            Foreground = Brushes.White,
+            Foreground = FindResource("TextBrush") as Brush ?? Brushes.White,
             VerticalAlignment = VerticalAlignment.Center,
             TextTrimming = TextTrimming.CharacterEllipsis,
             MaxWidth = 120
@@ -150,8 +150,8 @@ public partial class EMapView : UserControl {
 
         var border = new Border {
             Child = innerStack,
-            Background = new SolidColorBrush(Color.FromArgb(200, 0, 0, 0)),
-            BorderBrush = isOnline ? OnlineBrush : OfflineBrush,
+            Background = FindResource("SurfaceBrush") as Brush ?? new SolidColorBrush(Color.FromArgb(200, 0, 0, 0)),
+            BorderBrush = isOnline ? SuccessBrush : ErrorBrush,
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(4),
             Padding = new Thickness(6, 3, 8, 3),
@@ -210,10 +210,10 @@ public partial class EMapView : UserControl {
         return menu;
     }
 
-    private static System.Windows.Shapes.Path MakeMenuIcon(string key) {
+    private System.Windows.Shapes.Path MakeMenuIcon(string key) {
         return new System.Windows.Shapes.Path {
             Data = Application.Current.TryFindResource(key) as Geometry ?? Geometry.Parse("M0,0"),
-            Fill = (Brush)Application.Current.FindResource("TextBrush"),
+            Fill = FindResource("TextBrush") as Brush ?? Brushes.White,
             Width = 14, Height = 14, Stretch = System.Windows.Media.Stretch.Uniform
         };
     }
@@ -256,7 +256,7 @@ public partial class EMapView : UserControl {
             Width = 420,
             Height = 340,
             WindowStartupLocation = WindowStartupLocation.CenterScreen,
-            Background = new SolidColorBrush(Color.FromRgb(30, 30, 30)),
+            Background = FindResource("SurfaceBrush") as Brush ?? new SolidColorBrush(Color.FromRgb(30, 30, 30)),
             Owner = Window.GetWindow(this),
             WindowStyle = WindowStyle.ToolWindow,
             ResizeMode = ResizeMode.CanResizeWithGrip,

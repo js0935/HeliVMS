@@ -1,10 +1,13 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Threading;
 using HeliVMS.Models;
 
 namespace HeliVMS.Controls;
@@ -14,6 +17,7 @@ internal static class DragDiag {
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "HeliVMS", "drag_debug.log");
     private static readonly object _lock = new();
+    [Conditional("DEBUG")]
     internal static void Write(string msg) {
         lock (_lock) {
             try {
@@ -43,9 +47,15 @@ public partial class DynamicCameraGrid : UserControl {
     // ═══════════════════════════════════════════════════
     public const int MaxSlots = 64;
 
+    private static readonly Lazy<Brush> CachedSurfaceBrush = new(() => (Brush)Application.Current.FindResource("SurfaceBrush"));
+    private static readonly Lazy<Brush> CachedTextBrush = new(() => (Brush)Application.Current.FindResource("TextBrush"));
+    private static readonly Lazy<Brush> CachedRecordingContinuousBrush = new(() => (Brush)Application.Current.FindResource("RecordingContinuousBrush"));
+    private static readonly Lazy<Brush> CachedOverlayBrush = new(() => (Brush)Application.Current.FindResource("OverlayBrush"));
+
     private readonly VideoPlayer?[] _slots = new VideoPlayer?[MaxSlots];
     private readonly Camera?[] _slotCameras = new Camera?[MaxSlots];
     private readonly Grid?[] _containers = new Grid?[MaxSlots];
+    private DispatcherTimer? _staggerTimer;
     private int _rows = 1, _cols = 1;
     private int _activeSlotCount;
     private int _maximizedSlot = -1;
@@ -57,7 +67,7 @@ public partial class DynamicCameraGrid : UserControl {
     private VideoPlayer? _dragSourcePlayer;
     private Point _dragStartPoint;
     private bool _isDragging;
-    private Border? _dragHighlight;
+    private Border _dragHighlight;
 
     // ═══════════════════════════════════════════════════
     //  Events
@@ -88,6 +98,19 @@ public partial class DynamicCameraGrid : UserControl {
         MainGrid.DragEnter += OnDragEnter;
         MainGrid.DragOver  += OnDragOver;
         MainGrid.DragLeave += OnDragLeave;
+
+        // Pre-create drag highlight Border for reuse (avoids alloc/layout-thrash per mouse move)
+        Color accent;
+        try { accent = ((SolidColorBrush)Application.Current.FindResource("PrimaryBrush")).Color; }
+        catch { accent = Color.FromRgb(0x21, 0x96, 0xF3); }
+        _dragHighlight = new Border {
+            BorderBrush = new SolidColorBrush(Color.FromArgb(180, accent.R, accent.G, accent.B)),
+            Background = new SolidColorBrush(Color.FromArgb(40, accent.R, accent.G, accent.B)),
+            BorderThickness = new Thickness(2),
+            IsHitTestVisible = false,
+            Visibility = Visibility.Collapsed,
+        };
+        MainGrid.Children.Add(_dragHighlight);
         MainGrid.Drop      += OnDrop;
 
         MainGrid.MouseLeftButtonDown += OnMouseLeftButtonDown;
@@ -107,17 +130,20 @@ public partial class DynamicCameraGrid : UserControl {
     public void SetSlotCount(int count) {
         DragDiag.Write($"[DynamicCameraGrid] SetSlotCount: count={count}, activeSlots={_activeSlotCount}");
         count = Math.Clamp(count, 1, MaxSlots);
+        if (count == _activeSlotCount) { return; }
+        var prevRows = _rows;
+        var prevCols = _cols;
         _activeSlotCount = count;
         _maximizedSlot = -1;
         (_rows, _cols) = CalculateGrid(count);
-        RebuildGrid();
+        RebuildGrid(prevRows, prevCols);
         EmptyOverlay.Visibility = Visibility.Collapsed;
         DragDiag.Write($"[DynamicCameraGrid] SetSlotCount: DONE rows={_rows} cols={_cols}");
     }
 
     /// <summary>Assign a camera to the given slot (replaces any existing player there).</summary>
-    public void AssignSlot(int slotIndex, Camera camera) {
-        DragDiag.Write($"[DynamicCameraGrid] AssignSlot: slot={slotIndex}, camera={camera.Name}({camera.Id})");
+    public void AssignSlot(int slotIndex, Camera camera, bool deferStream = false) {
+        DragDiag.Write($"[DynamicCameraGrid] AssignSlot: slot={slotIndex}, camera={camera.Name}({camera.Id}), defer={deferStream}");
         if (slotIndex < 0 || slotIndex >= _activeSlotCount) {
             DragDiag.Write($"[DynamicCameraGrid] AssignSlot: OUT OF RANGE {slotIndex} >= {_activeSlotCount}");
             return;
@@ -127,9 +153,9 @@ public partial class DynamicCameraGrid : UserControl {
             return;
         }
 
-        RemoveSlot(slotIndex);
+        RemoveSlot(slotIndex, addPlaceholder: false);
 
-        var player = CreatePlayer(camera);
+        var player = CreatePlayer(camera, deferStream);
         _slots[slotIndex] = player;
         _slotCameras[slotIndex] = camera;
         PlacePlayerInCell(player, slotIndex);
@@ -138,7 +164,7 @@ public partial class DynamicCameraGrid : UserControl {
     }
 
     /// <summary>Remove whatever is in the given slot (player + placeholder).</summary>
-    public void RemoveSlot(int slotIndex) {
+    public void RemoveSlot(int slotIndex, bool addPlaceholder = true) {
         DragDiag.Write($"[DynamicCameraGrid] RemoveSlot: slot={slotIndex}, cols={_cols}, rows={_rows}");
         if (slotIndex < 0 || slotIndex >= _activeSlotCount) return;
         RemoveContainerAt(slotIndex);
@@ -147,11 +173,13 @@ public partial class DynamicCameraGrid : UserControl {
             _slots[slotIndex] = null;
             _slotCameras[slotIndex] = null;
         }
-        // Replace with placeholder
-        var ph = CreatePlaceholder(slotIndex);
-        Grid.SetRow(ph, slotIndex / _cols);
-        Grid.SetColumn(ph, slotIndex % _cols);
-        MainGrid.Children.Add(ph);
+        _containers[slotIndex] = null;
+        if (addPlaceholder) {
+            var ph = CreatePlaceholder(slotIndex);
+            Grid.SetRow(ph, slotIndex / _cols);
+            Grid.SetColumn(ph, slotIndex % _cols);
+            MainGrid.Children.Add(ph);
+        }
         DragDiag.Write($"[DynamicCameraGrid] RemoveSlot: DONE MainGrid.Children.Count={MainGrid.Children.Count}");
     }
 
@@ -160,10 +188,13 @@ public partial class DynamicCameraGrid : UserControl {
             if (MainGrid.Children[i] is Grid container
                 && Grid.GetRow(container) == slotIndex / _cols
                 && Grid.GetColumn(container) == slotIndex % _cols) {
+                var isContainerArray = Array.IndexOf(_containers, container);
+                DragDiag.Write($"[DynamicCameraGrid] RemoveContainerAt: slot={slotIndex} REMOVING container childIdx={i} containersIdx={isContainerArray}");
                 MainGrid.Children.RemoveAt(i);
                 return;
             }
         }
+        DragDiag.Write($"[DynamicCameraGrid] RemoveContainerAt: slot={slotIndex} NOT FOUND in MainGrid children={MainGrid.Children.Count}");
     }
 
     /// <summary>Get the camera at a slot, or null if empty.</summary>
@@ -251,34 +282,69 @@ public partial class DynamicCameraGrid : UserControl {
     }
 
     public void ClearAll() {
+        _staggerTimer?.Stop();
+        _staggerTimer = null;
         for (int i = 0; i < _activeSlotCount; i++) {
             if (_slots[i] is { } p) {
                 p.UnloadCamera();
                 _slots[i] = null;
                 _slotCameras[i] = null;
             }
+            _containers[i] = null;
         }
         _selectionBorder = null;
         _selectedSlot = -1;
         MainGrid.Children.Clear();
         _maximizedSlot = -1;
         EmptyOverlay.Visibility = _activeSlotCount == 0 ? Visibility.Visible : Visibility.Collapsed;
+        _activeSlotCount = 0;
+        _rows = 1;
+        _cols = 1;
     }
 
     /// <summary>Load a full set of cameras into the grid (replaces existing).</summary>
     public void LoadCameras(IList<Camera?> cameras, bool useSubStream = false) {
+        DragDiag.Write($"[DynamicCameraGrid] LoadCameras: count={cameras.Count}, useSub={useSubStream}");
         ClearAll();
         var count = Math.Min(cameras.Count, MaxSlots);
-        if (count == 0) { EmptyOverlay.Visibility = Visibility.Visible; return; }
+        if (count == 0) { DragDiag.Write("[DynamicCameraGrid] LoadCameras: count=0, empty overlay"); EmptyOverlay.Visibility = Visibility.Visible; return; }
 
-        // Auto-fit grid size to camera count
         SetSlotCount(count);
+        DragDiag.Write($"[DynamicCameraGrid] LoadCameras: SetSlotCount done, activeSlots={_activeSlotCount}");
 
+        var pending = new List<(int index, Camera cam)>();
         for (int i = 0; i < count; i++) {
             var cam = cameras[i];
-            if (cam is not null && cam.IsEnabled && cam.IsVisible)
-                AssignSlot(i, cam);
+            var canAssign = cam is not null && cam.IsEnabled && cam.IsVisible;
+            DragDiag.Write($"[DynamicCameraGrid] LoadCameras: i={i} cam={cam?.Name ?? "null"} enabled={cam?.IsEnabled} visible={cam?.IsVisible} assign={canAssign}");
+            if (cam is not null && cam.IsEnabled && cam.IsVisible) {
+                AssignSlot(i, cam, deferStream: true);
+                pending.Add((i, cam));
+            }
         }
+        if (pending.Count == 0) { DragDiag.Write("[DynamicCameraGrid] LoadCameras: pending=0, no cameras assigned"); return; }
+
+        // Phase 2: stagger RTSP connections 300ms apart for progressive appearance.
+        _staggerTimer?.Stop();
+        var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(300) };
+        _staggerTimer = timer;
+        int staggerIdx = 0;
+        EventHandler tick = null!;
+        tick = (_, _) => {
+            var (slotIdx, cam) = pending[staggerIdx];
+            var player = _slots[slotIdx];
+            if (player is not null) {
+                DragDiag.Write($"[DynamicCameraGrid] Stagger: starting stream slot={slotIdx} cam={cam.Name}");
+                player.StartStream();
+            }
+            staggerIdx++;
+            if (staggerIdx >= pending.Count) {
+                timer.Stop();
+                timer.Tick -= tick;
+            }
+        };
+        timer.Tick += tick;
+        timer.Start();
     }
 
     // ═══════════════════════════════════════════════════
@@ -297,21 +363,37 @@ public partial class DynamicCameraGrid : UserControl {
         64 => (8, 8),  _  => (4, 4)
     };
 
-    private void RebuildGrid() {
+    private void RebuildGrid(int prevRows = 0, int prevCols = 0) {
         DragDiag.Write($"[DynamicCameraGrid] RebuildGrid: rows={_rows} cols={_cols}, activeSlots={_activeSlotCount}");
         MainGrid.RowDefinitions.Clear();
         MainGrid.ColumnDefinitions.Clear();
         for (int c = 0; c < _cols; c++)
-            MainGrid.ColumnDefinitions.Add(new ColumnDefinition());
+            MainGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         for (int r = 0; r < _rows; r++)
-            MainGrid.RowDefinitions.Add(new RowDefinition());
+            MainGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
 
-        MainGrid.Children.Clear();
-        for (int i = 0; i < _activeSlotCount; i++) {
-            if (_slots[i] is { } player)
-                PlacePlayerInCell(player, i);
-            else
-                AddPlaceholder(i);
+        // Avoid full clear if layout (rows/cols) is unchanged — preserves players in visual tree.
+        if (prevRows == _rows && prevCols == _cols && MainGrid.Children.Count > 0) {
+            // Layout unchanged — just update child positions and count.
+            for (int i = 0; i < MainGrid.Children.Count; i++) {
+                if (MainGrid.Children[i] is Grid container) {
+                    var slotIdx = i; // sequential index matches slot index after initial build
+                    Grid.SetRow(container, slotIdx / _cols);
+                    Grid.SetColumn(container, slotIdx % _cols);
+                }
+            }
+            while (MainGrid.Children.Count > _activeSlotCount)
+                MainGrid.Children.RemoveAt(MainGrid.Children.Count - 1);
+            while (MainGrid.Children.Count < _activeSlotCount)
+                AddPlaceholder(MainGrid.Children.Count);
+        } else {
+            MainGrid.Children.Clear();
+            for (int i = 0; i < _activeSlotCount; i++) {
+                if (_slots[i] is { } player)
+                    PlacePlayerInCell(player, i);
+                else
+                    AddPlaceholder(i);
+            }
         }
         DragDiag.Write($"[DynamicCameraGrid] RebuildGrid: DONE children={MainGrid.Children.Count}");
     }
@@ -328,8 +410,18 @@ public partial class DynamicCameraGrid : UserControl {
             };
             _containers[slotIndex] = container;
         }
-        container.Children.Clear();
         container.Visibility = Visibility.Visible;
+        // If player is already a child, skip the full teardown (avoids OnUnloaded/OnLoaded cycle).
+        if (container.Children.Count > 0 && container.Children[0] == player) {
+            container.Margin = TileMarginThickness;
+            Grid.SetRow(container, slotIndex / _cols);
+            Grid.SetColumn(container, slotIndex % _cols);
+            if (!MainGrid.Children.Contains(container)) {
+                MainGrid.Children.Add(container);
+            }
+            return;
+        }
+        container.Children.Clear();
         if (cam is not null) {
             var ctx = new ContextMenu();
             var camId = cam.Id;
@@ -342,7 +434,7 @@ public partial class DynamicCameraGrid : UserControl {
             ctx.Items.Add(new Separator());
             ctx.Items.Add(new MenuItem { Header = "加入書籤", Tag = camId });
             ctx.Items.Add(new MenuItem { Header = "移除攝影機", Tag = camId });
-            foreach (MenuItem item in ctx.Items)
+            foreach (var item in ctx.Items.OfType<MenuItem>())
                 item.Click += (s, _) => {
                     if (s is MenuItem mi)
                         SlotContextMenuRequested?.Invoke(camId, (string)mi.Header);
@@ -353,12 +445,13 @@ public partial class DynamicCameraGrid : UserControl {
         Grid.SetColumn(container, slotIndex % _cols);
         Grid.SetRowSpan(container, 1);
         Grid.SetColumnSpan(container, 1);
+        container.Margin = TileMarginThickness;
         container.Children.Add(player);
         if (cam is not null) {
             var useSub = player.IsUsingSubStream;
             var streamBadge = new Border {
                 Tag = "StreamBadge",
-                Background = (Brush)Application.Current.FindResource("SurfaceBrush"),
+                Background = CachedSurfaceBrush.Value,
                 CornerRadius = new CornerRadius(2),
                 Padding = new Thickness(3, 0, 3, 0),
                 Margin = new Thickness(4, useSub ? 18 : 2, 0, 0),
@@ -367,13 +460,13 @@ public partial class DynamicCameraGrid : UserControl {
                 Child = new TextBlock {
                     Text = useSub ? "SD" : "HD",
                     FontSize = 8,
-                    Foreground = (Brush)Application.Current.FindResource("TextBrush"),
+                    Foreground = CachedTextBrush.Value,
                 }
             };
             container.Children.Add(streamBadge);
             if (cam.HasPTZ && _cols < 6) {
                 var ptzBadge = new Border {
-                    Background = (Brush)Application.Current.FindResource("RecordingContinuousBrush"),
+                    Background = CachedRecordingContinuousBrush.Value,
                     CornerRadius = new CornerRadius(2),
                     Padding = new Thickness(3, 0, 3, 0),
                     Margin = new Thickness(4, 2, 0, 0),
@@ -382,14 +475,14 @@ public partial class DynamicCameraGrid : UserControl {
                     Child = new TextBlock {
                         Text = "PTZ",
                         FontSize = 8,
-                        Foreground = (Brush)Application.Current.FindResource("TextBrush"),
+                        Foreground = CachedTextBrush.Value,
                     }
                 };
                 container.Children.Add(ptzBadge);
             }
             var speedBadge = new Border {
                 Tag = "SpeedBadge",
-                Background = (Brush)Application.Current.FindResource("OverlayBrush"),
+                Background = CachedOverlayBrush.Value,
                 CornerRadius = new CornerRadius(2),
                 Padding = new Thickness(3, 0, 3, 0),
                 Margin = new Thickness(4, 0, 0, 2),
@@ -398,12 +491,12 @@ public partial class DynamicCameraGrid : UserControl {
                 Visibility = Visibility.Collapsed,
                 Child = new TextBlock {
                     FontSize = 8,
-                    Foreground = (Brush)Application.Current.FindResource("TextBrush"),
+                    Foreground = CachedTextBrush.Value,
                 }
             };
             var timeBadge = new Border {
                 Tag = "TimeBadge",
-                Background = (Brush)Application.Current.FindResource("OverlayBrush"),
+                Background = CachedOverlayBrush.Value,
                 CornerRadius = new CornerRadius(2),
                 Padding = new Thickness(4, 0, 4, 0),
                 Margin = new Thickness(0, 0, 4, 2),
@@ -412,21 +505,22 @@ public partial class DynamicCameraGrid : UserControl {
                 Visibility = Visibility.Collapsed,
                 Child = new TextBlock {
                     FontSize = 9,
-                    Foreground = (Brush)Application.Current.FindResource("TextBrush"),
+                    Foreground = CachedTextBrush.Value,
                 }
             };
             container.Children.Add(timeBadge);
         }
-        if (!MainGrid.Children.Contains(container)) {
-            // Remove any leftover placeholder at this slot first
-            for (int i = MainGrid.Children.Count - 1; i >= 0; i--) {
-                if (MainGrid.Children[i] is Border { Tag: int tag } && tag == slotIndex) {
-                    MainGrid.Children.RemoveAt(i);
-                    break;
-                }
+        // Always ensure this exact container is a MainGrid child at the right position.
+        // Remove any earlier container (identified by reference or placeholder Border).
+        MainGrid.Children.Remove(container);
+        for (int i = MainGrid.Children.Count - 1; i >= 0; i--) {
+            if (MainGrid.Children[i] is Border { Tag: int tag } && tag == slotIndex) {
+                MainGrid.Children.RemoveAt(i);
+                break;
             }
-            MainGrid.Children.Add(container);
         }
+        MainGrid.Children.Add(container);
+        DragDiag.Write($"[DynamicCameraGrid] PlacePlayerInCell: END slot={slotIndex} containerInGrid={MainGrid.Children.Contains(container)} gridChildren={MainGrid.Children.Count} parentIsNull={player.Parent is null}");
     }
 
     private int _selectedSlot = -1;
@@ -443,10 +537,13 @@ public partial class DynamicCameraGrid : UserControl {
         }
         _selectedSlot = slotIndex;
         if (slotIndex < 0) return;
+        var primary = TryFindResource("PrimaryBrush") as SolidColorBrush;
+        var accent = primary?.Color ?? Color.FromRgb(0x21, 0x96, 0xF3);
         _selectionBorder = new Border {
-            BorderBrush = new SolidColorBrush(Color.FromArgb(200, 0x21, 0x96, 0xF3)),
+            BorderBrush = new SolidColorBrush(Color.FromArgb(200, accent.R, accent.G, accent.B)),
             BorderThickness = new Thickness(2),
             IsHitTestVisible = false,
+            Margin = TileMarginThickness,
         };
         Grid.SetRow(_selectionBorder, slotIndex / _cols);
         Grid.SetColumn(_selectionBorder, slotIndex % _cols);
@@ -459,22 +556,29 @@ public partial class DynamicCameraGrid : UserControl {
     // ═══════════════════════════════════════════════════
 
     private static readonly Brush PlaceholderBg
-        = new SolidColorBrush(Color.FromArgb(0x08, 0xFF, 0xFF, 0xFF));
+        = new SolidColorBrush(Color.FromRgb(0x1E, 0x1E, 0x1E));
     private static readonly Brush PlaceholderBorder
-        = new SolidColorBrush(Color.FromArgb(0x40, 0x88, 0x88, 0x88));
+        = new SolidColorBrush(Color.FromArgb(0x25, 0x55, 0x55, 0x55));
     private static readonly Brush DropHighlightBg
         = new SolidColorBrush(Color.FromArgb(0x30, 0x41, 0x69, 0xE1));
+    private static readonly Brush PlaceholderForeground
+        = new SolidColorBrush(Color.FromArgb(0x30, 0x66, 0x66, 0x66));
+
+    private const double TileMargin = 2;
+
+    private Thickness TileMarginThickness => new(TileMargin);
 
     private Border CreatePlaceholder(int slotIndex) {
         return new Border {
             Tag = slotIndex,
             Background = PlaceholderBg,
             BorderBrush = PlaceholderBorder,
-            BorderThickness = new Thickness(1, 1, 0, 0),
+            BorderThickness = new Thickness(1),
+            Margin = TileMarginThickness,
             Child = new TextBlock {
                 Text = "+",
                 FontSize = 28,
-                Foreground = new SolidColorBrush(Color.FromArgb(0x60, 0x88, 0x88, 0x88)),
+                Foreground = PlaceholderForeground,
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center,
                 ToolTip = "拖曳攝影機至此"
@@ -612,25 +716,19 @@ public partial class DynamicCameraGrid : UserControl {
             _isDragging = true;
         }
 
-        // Show drag highlight on target cell
+        // Show drag highlight on target cell (reuse pre-created Border)
         var target = FindPlayerAt(pos);
-        if (_dragHighlight is not null) {
-            MainGrid.Children.Remove(_dragHighlight);
-            _dragHighlight = null;
-        }
         if (target is not null && target != _dragSourcePlayer) {
-            _dragHighlight = new Border {
-                BorderBrush = new SolidColorBrush(Color.FromArgb(180, 0x21, 0x96, 0xF3)),
-                BorderThickness = new Thickness(2),
-                Background = new SolidColorBrush(Color.FromArgb(40, 0x21, 0x96, 0xF3)),
-                IsHitTestVisible = false,
-            };
             int tgtIdx = IndexOfId(_slotCameras, target.Camera?.Id ?? "");
             if (tgtIdx >= 0) {
+                _dragHighlight.Visibility = Visibility.Visible;
                 Grid.SetRow(_dragHighlight, tgtIdx / _cols);
                 Grid.SetColumn(_dragHighlight, tgtIdx % _cols);
-                MainGrid.Children.Add(_dragHighlight);
+            } else {
+                _dragHighlight.Visibility = Visibility.Collapsed;
             }
+        } else {
+            _dragHighlight.Visibility = Visibility.Collapsed;
         }
     }
 
@@ -662,10 +760,7 @@ public partial class DynamicCameraGrid : UserControl {
     private void CancelDrag() {
         _dragSourcePlayer = null;
         _isDragging = false;
-        if (_dragHighlight is not null) {
-            MainGrid.Children.Remove(_dragHighlight);
-            _dragHighlight = null;
-        }
+        _dragHighlight.Visibility = Visibility.Collapsed;
         if (Mouse.Captured == this) Mouse.Capture(null);
     }
 
@@ -748,11 +843,17 @@ public partial class DynamicCameraGrid : UserControl {
     //  Player Factory
     // ═══════════════════════════════════════════════════
 
-    private VideoPlayer CreatePlayer(Camera camera) {
-        DragDiag.Write($"[DynamicCameraGrid] CreatePlayer: {camera.Name}({camera.Id}), useSub={_activeSlotCount > 1}, activeSlots={_activeSlotCount}");
+    private VideoPlayer CreatePlayer(Camera camera, bool deferStream = false) {
+        DragDiag.Write($"[DynamicCameraGrid] CreatePlayer: {camera.Name}({camera.Id}), defer={deferStream}, activeSlots={_activeSlotCount}");
         var player = new VideoPlayer();
+        player.TargetDecodeHeight = VideoPlayer.GetOptimalDecodeHeight(_activeSlotCount);
+        player.TargetFps = VideoPlayer.GetOptimalFps(_activeSlotCount);
         player.SetFullBleed();
-        player.LoadCamera(camera, useSubStream: _activeSlotCount > 1);
+        if (deferStream) {
+            player.SetPlaceholderOnly(camera, useSubStream: _activeSlotCount > 1);
+        } else {
+            player.LoadCamera(camera, useSubStream: _activeSlotCount > 1);
+        }
         player.Selected += OnPlayerSelected;
         player.MaximizeRequested += cam => {
             if (cam is null) return;

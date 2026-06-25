@@ -122,7 +122,7 @@ internal sealed partial class D3DRenderer : IDisposable {
     }
 
     internal IntPtr CreateOffscreenPlainSurface(int width, int height) {
-        // 🔴 終極熔斷：D3D9 原生 VTable 與 .NET P/Invoke 之間存在 ABI 不相容風險，
+        // 終極熔斷：D3D9 原生 VTable 與 .NET P/Invoke 之間存在 ABI 不相容風險，
         //    64 路併發壓力下已反覆觸發 coreclr.dll 0xc0000005。
         //    全面強制降級至 WriteableBitmap 軟體渲染，保證系統 100% 穩定不閃退。
         return IntPtr.Zero;

@@ -58,8 +58,10 @@ public partial class App : Application {
                 baseDir,
                 Directory.Exists(Path.Combine(baseDir, "Data")),
                 Directory.Exists(Path.Combine(baseDir, "FFmpeg")));
-            // Only mark handled for non-fatal exceptions; let fatal ones crash for crash dump
-            // but for now keep handled to avoid silent termination of "usable" windows
+            try {
+                var notif = Services?.GetService<INotificationService>();
+                notif?.Show($"系統發生未預期錯誤: {args.Exception.Message}", "ERROR");
+            } catch { }
             args.Handled = true;
         };
         TaskScheduler.UnobservedTaskException += (_, args) => {

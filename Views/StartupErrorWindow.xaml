@@ -1,4 +1,4 @@
-<Window x:Class="HeliVMS.Views.StartupErrorWindow"
+﻿<Window x:Class="HeliVMS.Views.StartupErrorWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="HeliVMS 啟動錯誤"
@@ -14,20 +14,20 @@
             </ResourceDictionary.MergedDictionaries>
         </ResourceDictionary>
     </Window.Resources>
-    <Grid Background="{StaticResource BackgroundBrush}" Margin="20">
+    <Grid Background="{DynamicResource BackgroundBrush}" Margin="20">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
         <TextBlock Grid.Row="0" Text="HeliVMS 啟動失敗" FontSize="20" FontWeight="Bold"
-                   Foreground="{StaticResource ErrorBrush}" Margin="0,0,0,16"/>
-        <Border Grid.Row="1" Background="{StaticResource SurfaceBrush}" CornerRadius="6"
-                      BorderBrush="{StaticResource BorderBrush}" BorderThickness="1">
+                   Foreground="{DynamicResource ErrorBrush}" Margin="0,0,0,16"/>
+        <Border Grid.Row="1" Background="{DynamicResource SurfaceBrush}" CornerRadius="6"
+                      BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1">
             <ScrollViewer Padding="12">
                 <TextBox x:Name="ErrorDetailsBox" Text="" IsReadOnly="True"
                          TextWrapping="Wrap" FontSize="12" FontFamily="Consolas"
-                         Foreground="{StaticResource TextBrush}"
+                         Foreground="{DynamicResource TextBrush}"
                          Background="Transparent" BorderThickness="0"/>
             </ScrollViewer>
         </Border>
