@@ -618,74 +618,62 @@
         <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
     </Style>
 
-    <!-- Layer 2: named wrappers → theme-default BasedOn (avoids StaticResource {x:Type} timing issues) -->
-    <Style x:Key="ThemeButtonStyle" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}"/>
-    <Style x:Key="ThemeTextBoxStyle" TargetType="TextBox" BasedOn="{StaticResource {x:Type TextBox}}"/>
-    <Style x:Key="ThemePasswordBoxStyle" TargetType="PasswordBox" BasedOn="{StaticResource {x:Type PasswordBox}}"/>
-    <Style x:Key="ThemeComboBoxStyle" TargetType="ComboBox" BasedOn="{StaticResource {x:Type ComboBox}}"/>
-    <Style x:Key="ThemeCheckBoxStyle" TargetType="CheckBox" BasedOn="{StaticResource {x:Type CheckBox}}"/>
-    <Style x:Key="ThemeListBoxStyle" TargetType="ListBox" BasedOn="{StaticResource {x:Type ListBox}}"/>
-    <Style x:Key="ThemeListViewStyle" TargetType="ListView" BasedOn="{StaticResource {x:Type ListView}}"/>
-    <Style x:Key="ThemeTreeViewStyle" TargetType="TreeView" BasedOn="{StaticResource {x:Type TreeView}}"/>
-    <Style x:Key="ThemeDataGridStyle" TargetType="DataGrid" BasedOn="{StaticResource {x:Type DataGrid}}"/>
-    <Style x:Key="ThemeScrollViewerStyle" TargetType="ScrollViewer" BasedOn="{StaticResource {x:Type ScrollViewer}}"/>
-
-    <!-- Layer 3: implicit styles inheriting from theme wrappers -->
-    <Style TargetType="Button" BasedOn="{StaticResource ThemeButtonStyle}">
+    <!-- Layer 2: implicit styles for dark-theme brushes (no BasedOn — theme-default template fallback via OnApplyTemplate) -->
+    <Style TargetType="Button">
         <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
         <Setter Property="Background" Value="{DynamicResource SurfaceBrush}"/>
         <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
     </Style>
 
-    <Style TargetType="TextBox" BasedOn="{StaticResource ThemeTextBoxStyle}">
+    <Style TargetType="TextBox">
         <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
         <Setter Property="Background" Value="{DynamicResource InputBackgroundBrush}"/>
         <Setter Property="CaretBrush" Value="{DynamicResource TextBrush}"/>
         <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
     </Style>
 
-    <Style TargetType="PasswordBox" BasedOn="{StaticResource ThemePasswordBoxStyle}">
+    <Style TargetType="PasswordBox">
         <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
         <Setter Property="Background" Value="{DynamicResource InputBackgroundBrush}"/>
         <Setter Property="CaretBrush" Value="{DynamicResource TextBrush}"/>
         <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
     </Style>
 
-    <Style TargetType="ComboBox" BasedOn="{StaticResource ThemeComboBoxStyle}">
+    <Style TargetType="ComboBox">
         <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
         <Setter Property="Background" Value="{DynamicResource InputBackgroundBrush}"/>
         <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
     </Style>
 
-    <Style TargetType="CheckBox" BasedOn="{StaticResource ThemeCheckBoxStyle}">
+    <Style TargetType="CheckBox">
         <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
     </Style>
 
-    <Style TargetType="ListBox" BasedOn="{StaticResource ThemeListBoxStyle}">
-        <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
-        <Setter Property="Background" Value="{DynamicResource InputBackgroundBrush}"/>
-        <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
-    </Style>
-
-    <Style TargetType="ListView" BasedOn="{StaticResource ThemeListViewStyle}">
+    <Style TargetType="ListBox">
         <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
         <Setter Property="Background" Value="{DynamicResource InputBackgroundBrush}"/>
         <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
     </Style>
 
-    <Style TargetType="TreeView" BasedOn="{StaticResource ThemeTreeViewStyle}">
+    <Style TargetType="ListView">
+        <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
+        <Setter Property="Background" Value="{DynamicResource InputBackgroundBrush}"/>
+        <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
+    </Style>
+
+    <Style TargetType="TreeView">
         <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
         <Setter Property="Background" Value="{DynamicResource SurfaceBrush}"/>
         <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
     </Style>
 
-    <Style TargetType="DataGrid" BasedOn="{StaticResource ThemeDataGridStyle}">
+    <Style TargetType="DataGrid">
         <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
         <Setter Property="Background" Value="{DynamicResource SurfaceBrush}"/>
         <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
     </Style>
 
-    <Style TargetType="ScrollViewer" BasedOn="{StaticResource ThemeScrollViewerStyle}">
+    <Style TargetType="ScrollViewer">
         <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
         <Setter Property="Background" Value="Transparent"/>
     </Style>
