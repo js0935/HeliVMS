@@ -1428,6 +1428,8 @@ public partial class PlaybackView : UserControl {
             _frameSlots[i] = new FrameSlot();
         }
 
+        _isPlaying = true;
+
         // Set initial speed badge
         var currentRate = SliderValueToSpeed(SpeedSlider.Value);
         UpdatePlayerSpeedBadges(currentRate);
@@ -1438,7 +1440,6 @@ public partial class PlaybackView : UserControl {
         // Load to coordinator
         _coordinator.LoadCameras(slots, targetTime);
         SubscribeCoordinator();
-        _isPlaying = true;
         UpdateButtonStates();
         UpdatePlayingCount();
         _frameDisplayCount = 0;
@@ -1979,27 +1980,42 @@ public partial class PlaybackView : UserControl {
         _coordinator?.SetPlaybackRate(speed);
         UpdatePlayerSpeedBadges(speed);
         ShowSpeedOSDOnPlayers(speed);
-        SpeedLabel.Text = SliderToDisplayText(speed);
+        SpeedLabel.Text = SpeedToDisplayText(speed);
         UpdateFsSpeedDisplay();
     }
 
-    private static double SliderValueToSpeed(double sliderVal) {
-        return Math.Round(0.25 * Math.Pow(2, sliderVal / 14.285714), 2);
+    private double SliderValueToSpeed(double sliderVal) {
+        if (!_isPlaying) return SliderValueToSpeedPaused(sliderVal);
+        if (sliderVal == 50.0) return 1.0;
+        var offset = (sliderVal - 50.0) / 12.5;
+        return Math.Round(Math.Pow(2, offset), 2);
     }
 
-    private static string SliderToDisplayText(double speed) {
-        return speed >= 1.0 ? $"{(int)speed}x" : $"{speed:F2}".TrimEnd('0').TrimEnd('.') + "x";
+    private static double SliderValueToSpeedPaused(double sliderVal) {
+        if (sliderVal == 50.0) return 0.0;
+        var sign = sliderVal > 50.0 ? 1.0 : -1.0;
+        var offset = Math.Abs(sliderVal - 50.0) / 16.6667;
+        return Math.Round(sign * 0.25 * Math.Pow(2, offset), 2);
+    }
+
+    private static string SpeedToDisplayText(double speed) {
+        if (speed == 0.0) return "0x";
+        var prefix = speed < 0 ? "-" : "";
+        var abs = Math.Abs(speed);
+        return abs >= 1.0
+            ? $"{prefix}{(int)abs}x"
+            : $"{prefix}{abs:F2}".TrimEnd('0').TrimEnd('.') + "x";
     }
 
     private void ShowSpeedOSDOnPlayers(double rate) {
-        var text = rate >= 1.0 ? $"{(int)rate}x" : $"{rate:F2}".TrimEnd('0').TrimEnd('.') + "x";
+        var text = SpeedToDisplayText(rate);
         foreach (var player in _activePlayers) {
             player.ShowSpeedOSD(text);
         }
     }
 
     private void UpdatePlayerSpeedBadges(double rate) {
-        var text = rate >= 1.0 ? $"{(int)rate}x" : $"{rate:F2}".TrimEnd('0').TrimEnd('.') + "x";
+        var text = SpeedToDisplayText(rate);
         foreach (var player in _activePlayers) {
             player.SetSpeedText(text);
         }
