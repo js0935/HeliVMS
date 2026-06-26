@@ -820,19 +820,26 @@
                 <Separator Grid.Column="9"
                            Style="{StaticResource {x:Static ToolBar.SeparatorStyleKey}}" Margin="4,0"/>
 
-                <TextBlock Grid.Column="10" Text="速度" VerticalAlignment="Center"
-                           Foreground="{DynamicResource SecondaryTextBrush}"
-                           FontSize="10" FontWeight="SemiBold" Margin="0,0,2,0"/>
-                <ComboBox Grid.Column="11" x:Name="SpeedCombo"
-                          Style="{StaticResource ModernComboBox}"
-                          SelectedIndex="2"
-                          SelectionChanged="SpeedCombo_SelectionChanged"
-                          Width="70" Height="24">
-                    <ComboBoxItem Content="0.25x"/><ComboBoxItem Content="0.5x"/>
-                    <ComboBoxItem Content="1x"/><ComboBoxItem Content="2x"/>
-                    <ComboBoxItem Content="4x"/><ComboBoxItem Content="8x"/>
-                    <ComboBoxItem Content="16x"/><ComboBoxItem Content="32x"/>
-                </ComboBox>
+                <Border Grid.Column="10" x:Name="SpeedSliderPanel" MinWidth="120"
+                        Background="{DynamicResource SecondarySurfaceBrush}"
+                        CornerRadius="4" Padding="6,0" Margin="4,0,0,0">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock x:Name="SpeedLabel" Text="1x" FontSize="10" FontWeight="SemiBold"
+                                   Foreground="{DynamicResource TextBrush}"
+                                   VerticalAlignment="Center" MinWidth="24"/>
+                        <Slider Grid.Column="1" x:Name="SpeedSlider"
+                                Minimum="0" Maximum="100" Value="50"
+                                TickFrequency="1" IsSnapToTickEnabled="False"
+                                Width="100" Height="20" Margin="4,0,0,0"
+                                ValueChanged="SpeedSlider_ValueChanged"
+                                Style="{StaticResource ModernSlider}"
+                                VerticalAlignment="Center"/>
+                    </Grid>
+                </Border>
 
                 <Border x:Name="LoopPanel" Grid.Column="12" CornerRadius="4" Margin="4,0,0,0" Padding="1,0"
                         Background="{DynamicResource SecondarySurfaceBrush}">

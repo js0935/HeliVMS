@@ -599,6 +599,16 @@
         <Setter Property="BorderThickness" Value="0"/>
     </Style>
 
+    <!-- ModernSlider — for speed slider in PlaybackView -->
+    <Style x:Key="ModernSlider" TargetType="Slider">
+        <Setter Property="Foreground" Value="{DynamicResource PrimaryBrush}"/>
+        <Setter Property="Background" Value="{DynamicResource InputBackgroundBrush}"/>
+        <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
+        <Setter Property="BorderThickness" Value="0"/>
+        <Setter Property="IsSnapToTickEnabled" Value="False"/>
+        <Setter Property="TickFrequency" Value="1"/>
+    </Style>
+
     <!-- ══════════════════════════════════════════════════════════
          Global theme defaults — applied to ALL pages automatically
          ══════════════════════════════════════════════════════════ -->

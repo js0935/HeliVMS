@@ -1427,7 +1427,7 @@ public partial class PlaybackView : UserControl {
         }
 
         // Set initial speed badge
-        var currentRate = SpeedRates[SpeedCombo.SelectedIndex];
+        var currentRate = SliderValueToSpeed(SpeedSlider.Value);
         UpdatePlayerSpeedBadges(currentRate);
 
         EmptyPrompt.Visibility = Visibility.Collapsed;
@@ -1913,17 +1913,21 @@ public partial class PlaybackView : UserControl {
         StopAllPlayback();
     }
 
-    private static readonly double[] SpeedRates = [0.25, 0.5, 1.0, 2.0, 4.0, 8.0, 16.0, 32.0];
+    private void SpeedSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e) {
+        var speed = SliderValueToSpeed(SpeedSlider.Value);
+        _coordinator?.SetPlaybackRate(speed);
+        UpdatePlayerSpeedBadges(speed);
+        ShowSpeedOSDOnPlayers(speed);
+        SpeedLabel.Text = SliderToDisplayText(speed);
+        UpdateFsSpeedDisplay();
+    }
 
-    private void SpeedCombo_SelectionChanged(object sender, SelectionChangedEventArgs e) {
-        var idx = SpeedCombo.SelectedIndex;
-        if (idx >= 0 && idx < SpeedRates.Length) {
-            var rate = SpeedRates[idx];
-            _coordinator?.SetPlaybackRate(rate);
-            UpdatePlayerSpeedBadges(rate);
-            ShowSpeedOSDOnPlayers(rate);
-            UpdateFsSpeedDisplay();
-        }
+    private static double SliderValueToSpeed(double sliderVal) {
+        return Math.Round(0.25 * Math.Pow(2, sliderVal / 25.0), 2);
+    }
+
+    private static string SliderToDisplayText(double speed) {
+        return speed >= 1.0 ? $"{(int)speed}x" : $"{speed:F2}x".TrimEnd('0').TrimEnd('.') + "x";
     }
 
     private void ShowSpeedOSDOnPlayers(double rate) {
@@ -2229,45 +2233,42 @@ public partial class PlaybackView : UserControl {
                 break;
 
             case Key.Up:
-                var spdIdx = Math.Min(SpeedCombo.SelectedIndex + 1, SpeedCombo.Items.Count - 1);
-                SpeedCombo.SelectedIndex = spdIdx;
+                SpeedSlider.Value = Math.Min(SpeedSlider.Value + 12.5, 100);
                 e.Handled = true;
                 break;
 
             case Key.Down:
             case Key.OemMinus:
             case Key.Subtract:
-                var spdIdx2 = Math.Max(SpeedCombo.SelectedIndex - 1, 0);
-                SpeedCombo.SelectedIndex = spdIdx2;
+                SpeedSlider.Value = Math.Max(SpeedSlider.Value - 12.5, 0);
                 e.Handled = true;
                 break;
 
             case Key.OemPlus:
             case Key.Add:
-                var spdIdx3 = Math.Min(SpeedCombo.SelectedIndex + 1, SpeedCombo.Items.Count - 1);
-                SpeedCombo.SelectedIndex = spdIdx3;
+                SpeedSlider.Value = Math.Min(SpeedSlider.Value + 12.5, 100);
                 e.Handled = true;
                 break;
 
             // Direct speed selection via number keys (1-4 = 1x, 2x, 4x, 8x)
             case Key.D1:
             case Key.NumPad1:
-                SpeedCombo.SelectedIndex = 2; // 1x
+                SpeedSlider.Value = 50; // 1x
                 e.Handled = true;
                 break;
             case Key.D2:
             case Key.NumPad2:
-                SpeedCombo.SelectedIndex = 3; // 2x
+                SpeedSlider.Value = 75; // 2x
                 e.Handled = true;
                 break;
             case Key.D3:
             case Key.NumPad3:
-                SpeedCombo.SelectedIndex = 4; // 4x
+                SpeedSlider.Value = 87; // 4x
                 e.Handled = true;
                 break;
             case Key.D4:
             case Key.NumPad4:
-                SpeedCombo.SelectedIndex = 5; // 8x
+                SpeedSlider.Value = 94; // 8x
                 e.Handled = true;
                 break;
 
@@ -3497,9 +3498,7 @@ public partial class PlaybackView : UserControl {
     }
 
     private void UpdateFsSpeedDisplay() {
-        if (SpeedCombo.SelectedItem is ComboBoxItem item) {
-            FsSpeedBtn.Content = item.Content;
-        }
+        FsSpeedBtn.Content = SpeedLabel.Text;
     }
 
     private void FsExitBtn_Click(object sender, RoutedEventArgs e) {
@@ -3536,8 +3535,13 @@ public partial class PlaybackView : UserControl {
                     StepFwdBtn_Click(sender, e);
                     break;
                 case "speed":
-                    var idx = (SpeedCombo.SelectedIndex + 1) % SpeedCombo.Items.Count;
-                    SpeedCombo.SelectedIndex = idx;
+                    var currentSpeed = SliderValueToSpeed(SpeedSlider.Value);
+                    var nextSpeed = currentSpeed >= 16 ? 1.0 : currentSpeed * 2;
+                    var sliderVal = nextSpeed switch {
+                        0.25 => 0, 0.5 => 25, 1.0 => 50, 2.0 => 75, 4.0 => 87, 8.0 => 94, 16.0 => 100,
+                        _ => 50
+                    };
+                    SpeedSlider.Value = sliderVal;
                     break;
             }
         }
