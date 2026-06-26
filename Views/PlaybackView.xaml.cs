@@ -57,9 +57,6 @@ public partial class PlaybackView : UserControl {
     private int _frameDisplayCount;
     private DispatcherTimer? _fpsTimer;
     private bool _isPerfPanelVisible;
-    private double _loopA;
-    private double _loopB;
-    private bool _loopEnabled;
  
     private sealed class ChannelStats {
         public string CameraId = "";
@@ -1522,14 +1519,6 @@ public partial class PlaybackView : UserControl {
             UpdateTimeDisplay(pts, duration);
             UpdatePlayerTimestamps(pts);
             UpdatePlayerProgress(pts, effDuration);
-
-            if (_loopB > _loopA && _loopEnabled && effDuration > 0) {
-                var currentSec = pts / 1_000_000.0;
-                if (currentSec >= _loopB) {
-                    var seekUs = (long)(_loopA * 1_000_000);
-                    _coordinator?.SeekMasterImmediate(seekUs);
-                }
-            }
         });
     }
 
@@ -1893,20 +1882,36 @@ public partial class PlaybackView : UserControl {
     //  Playback control buttons
     // ══════════════════════════════════════════════════════════
 
-    private void PlayBtn_Click(object sender, RoutedEventArgs e) {
-        _coordinator?.Play();
-        _isPlaying = true;
-        UpdateButtonStates();
+    private void PlayPauseBtn_Click(object sender, RoutedEventArgs e) {
+        // TODO: Task 3 - implement play/pause toggle
     }
 
-    private void PauseBtn_Click(object sender, RoutedEventArgs e) {
-        _coordinator?.Pause();
-        _isPlaying = false;
-        UpdateButtonStates();
+    private void LiveBtn_Checked(object sender, RoutedEventArgs e) {
+        // TODO: Task 3
     }
 
-    private void StopBtn_Click(object sender, RoutedEventArgs e) {
-        StopAllPlayback();
+    private void LiveBtn_Unchecked(object sender, RoutedEventArgs e) {
+        // TODO: Task 3
+    }
+
+    private void SyncBtn_Checked(object sender, RoutedEventArgs e) {
+        // TODO: Task 3
+    }
+
+    private void SyncBtn_Unchecked(object sender, RoutedEventArgs e) {
+        // TODO: Task 3
+    }
+
+    private void ClndBtn_Click(object sender, RoutedEventArgs e) {
+        // TODO: Task 3
+    }
+
+    private void ThmbBtn_Checked(object sender, RoutedEventArgs e) {
+        // TODO: Task 3
+    }
+
+    private void ThmbBtn_Unchecked(object sender, RoutedEventArgs e) {
+        // TODO: Task 3
     }
 
     private void StopAllBtn_Click(object sender, RoutedEventArgs e) {
@@ -1944,59 +1949,7 @@ public partial class PlaybackView : UserControl {
         }
     }
 
-    // ── A-B Loop handlers ──
-    private void LoopSetABtn_Click(object sender, RoutedEventArgs e) {
-        var posSecs = Timeline.PositionSeconds;
-        _loopA = posSecs;
-        LoopToggleBtn.Content = "↺";
-        LoopToggleBtn.Foreground = Brushes.Gray;
-        UpdateLoopVisual();
-    }
 
-    private void LoopSetBBtn_Click(object sender, RoutedEventArgs e) {
-        var posSecs = Timeline.PositionSeconds;
-        _loopB = posSecs;
-        _loopEnabled = true;
-        UpdateLoopVisual();
-    }
-
-    private void LoopToggleBtn_Click(object sender, RoutedEventArgs e) {
-        _loopEnabled = !_loopEnabled;
-        UpdateLoopVisual();
-    }
-
-    private void LoopClearBtn_Click(object sender, RoutedEventArgs e) {
-        _loopA = 0;
-        _loopB = 0;
-        _loopEnabled = false;
-        UpdateLoopVisual();
-    }
-
-    private void UpdateLoopVisual() {
-        if (_loopA > 0 && _loopB > _loopA && _loopEnabled) {
-            LoopToggleBtn.Content = "⟳";
-            LoopToggleBtn.Foreground = (Brush)FindResource("PrimaryBrush") ?? Brushes.LimeGreen;
-            LoopPanel.Background = new SolidColorBrush(Color.FromArgb(40, 0x4C, 0xAF, 0x50));
-        } else if (_loopA > 0 && _loopB > _loopA) {
-            LoopToggleBtn.Content = "↺";
-            LoopToggleBtn.Foreground = Brushes.Gray;
-            LoopPanel.Background = (Brush)FindResource("SecondarySurfaceBrush");
-        } else {
-            LoopToggleBtn.Content = "↺";
-            LoopToggleBtn.Foreground = Brushes.Gray;
-            LoopPanel.Background = (Brush)FindResource("SecondarySurfaceBrush");
-        }
-    }
-
-    private void JumpStartBtn_Click(object sender, RoutedEventArgs e) {
-        _coordinator?.SeekToStart();
-        Timeline.PositionSeconds = 0;
-    }
-
-    private void JumpEndBtn_Click(object sender, RoutedEventArgs e) {
-        _coordinator?.SeekToEnd();
-        Timeline.PositionSeconds = 86400;
-    }
 
     private async void JumpPrevRecBtn_Click(object sender, RoutedEventArgs e) {
         try { await JumpToAdjacentSegment(direction: -1); } catch (Exception ex) { Log.Debug("[HeliVMS] JumpPrevRec error: {Msg}", ex.Message); }
@@ -2140,10 +2093,7 @@ public partial class PlaybackView : UserControl {
 
         switch (e.Key) {
             case Key.Space:
-                if (_isPlaying) {
-                    PauseBtn_Click(sender, e);
-                } else
-                    PlayBtn_Click(sender, e);
+                PlayPauseBtn_Click(sender, e);
                 e.Handled = true;
                 break;
 
@@ -2195,21 +2145,7 @@ public partial class PlaybackView : UserControl {
                 e.Handled = true;
                 break;
 
-            // A-B Loop shortcuts (no modifiers)
-            case Key.I:
-                LoopSetABtn_Click(sender, e);
-                e.Handled = true;
-                break;
 
-            case Key.O:
-                LoopSetBBtn_Click(sender, e);
-                e.Handled = true;
-                break;
-
-            case Key.L:
-                LoopToggleBtn_Click(sender, e);
-                e.Handled = true;
-                break;
 
             case Key.B when Keyboard.Modifiers == ModifierKeys.None:
                 AddBookmarkAtCurrentPosition();
@@ -2299,7 +2235,7 @@ public partial class PlaybackView : UserControl {
     }
 
     private void OnTimelineSelectionChanged(object? sender, (DateTime start, DateTime end)? selection) {
-        ExportClipBtn.IsEnabled = selection.HasValue;
+        // ExportClipBtn was removed in Task 2
     }
 
     private void OnTimelineBookmarkRequested(object? sender, EventArgs e) {
@@ -2473,19 +2409,6 @@ public partial class PlaybackView : UserControl {
 
         _eventLog.LogInfo(EventCategories.Playback, "PlaybackView",
             $"新增書籤", $"時間: {h:D2}:{m:D2}:{s_val:D2}");
-    }
-
-    private void BookmarkListBtn_Click(object sender, RoutedEventArgs e) {
-        if (BookmarkPanel.Visibility == Visibility.Visible) {
-            BookmarkPanel.Visibility = Visibility.Collapsed;
-            BookmarkPanel.Width = 0;
-            BookmarkListIcon.Fill = (Brush)FindResource("SecondaryTextBrush");
-        } else {
-            BookmarkPanel.Width = 180;
-            BookmarkPanel.Visibility = Visibility.Visible;
-            BookmarkListIcon.Fill = Brushes.Gold;
-            RefreshBookmarkList();
-        }
     }
 
     private void ClearBookmarksBtn_Click(object sender, RoutedEventArgs e) {
@@ -2771,11 +2694,7 @@ public partial class PlaybackView : UserControl {
     private string _forcedLayout = "auto"; // "auto", "1x1", "2x2", "3x3", "4x4"
 
     private void OnPlayerPlayPauseRequested(PlaybackPlayer player) {
-        if (_isPlaying) {
-            PauseBtn_Click(player, new RoutedEventArgs());
-        } else {
-            PlayBtn_Click(player, new RoutedEventArgs());
-        }
+        PlayPauseBtn_Click(player, new RoutedEventArgs());
     }
 
     private void OnPlayerSelected(PlaybackPlayer player) {
@@ -3000,122 +2919,6 @@ public partial class PlaybackView : UserControl {
 
     private void RefreshBtn_Click(object sender, RoutedEventArgs e) {
         PopulateChannelList();
-    }
-
-    // ══════════════════════════════════════════════════════════
-    //  Export clip
-    // ══════════════════════════════════════════════════════════
-
-    private async void ExportClipBtn_Click(object sender, RoutedEventArgs e) {
-        var sel = Timeline.GetSelection();
-        if (sel is null || _currentRecordings.Count == 0) return;
-
-        var startSec = (sel.Value.start - _currentDate.Date).TotalSeconds;
-        var endSec = (sel.Value.end - _currentDate.Date).TotalSeconds;
-        if (endSec < startSec) (startSec, endSec) = (endSec, startSec);
-        if (endSec - startSec < 1) return;
-
-        // Build list of channels with recordings in the selected range
-        var startTime = _currentDate.Date.AddSeconds(startSec);
-        var endTime = _currentDate.Date.AddSeconds(endSec);
-        var availableChannels = new List<(int ChannelNumber, string CameraName)>();
-        var seenChannels = new HashSet<int>();
-        for (var ri = 0; ri < _currentRecordings.Count; ri++) {
-            var rec = _currentRecordings[ri];
-            if (seenChannels.Contains(rec.ChannelNumber)) continue;
-            var hasOverlap = false;
-            var segs = rec.Segments;
-            for (var si = 0; si < segs.Count && !hasOverlap; si++) {
-                var s = segs[si];
-                if (s.StartTime <= endTime && (!s.EndTime.HasValue || s.EndTime.Value > startTime)) {
-                    hasOverlap = true;
-                }
-            }
-            if (hasOverlap) {
-                seenChannels.Add(rec.ChannelNumber);
-                availableChannels.Add((rec.ChannelNumber, rec.CameraName));
-            }
-        }
-        availableChannels.Sort((a, b) => a.ChannelNumber.CompareTo(b.ChannelNumber));
-
-        if (availableChannels.Count == 0) {
-            MessageBox.Show("選取時間範圍內無錄影資料可匯出。", "提示",
-                MessageBoxButton.OK, MessageBoxImage.Information);
-            return;
-        }
-
-        var optDialog = new ExportOptionsDialog(availableChannels);
-        if (optDialog.ShowDialog() != true) return;
-        var isRawCopy = optDialog.IsRawCopy;
-        var burnTimestamp = optDialog.BurnTimestamp;
-        var selectedChannels = optDialog.SelectedChannels;
-
-        // Collect all camera segments within selected time range
-        var exportSegments = new List<(CameraRecordingInfo Rec, VideoSegment Seg, double Offset, double Duration)>();
-        foreach (var rec in _currentRecordings) {
-            if (!selectedChannels.Contains(rec.ChannelNumber)) continue;
-            foreach (var seg in rec.Segments) {
-                var segStart = (seg.StartTime - _currentDate.Date).TotalSeconds;
-                var segEnd = seg.EndTime.HasValue
-                    ? (seg.EndTime.Value - _currentDate.Date).TotalSeconds
-                    : segStart + 60;
-                if (segEnd <= startSec || segStart >= endSec) continue;
-                var offset = Math.Max(0, startSec - segStart);
-                var duration = Math.Min(endSec, segEnd) - Math.Max(startSec, segStart);
-                if (duration > 0.5) {
-                    exportSegments.Add((rec, seg, offset, duration));
-                }
-            }
-        }
-
-        if (exportSegments.Count == 0) {
-            MessageBox.Show("選取時間範圍內無錄影資料可匯出。", "提示",
-                MessageBoxButton.OK, MessageBoxImage.Information);
-            return;
-        }
-
-        string outputPath;
-        if (isRawCopy) {
-            var saveDialog = new SaveFileDialog {
-                Title = "匯出錄影 — 選擇目標資料夾",
-                FileName = $"Export_{_currentDate:yyyyMMdd}_{startTime:HHmmss}-{endTime:HHmmss}",
-                DefaultExt = "",
-                Filter = "資料夾 (*.*)|*.*"
-            };
-            if (saveDialog.ShowDialog() != true) return;
-            var dir = Path.GetDirectoryName(saveDialog.FileName)!;
-            var name = Path.GetFileNameWithoutExtension(saveDialog.FileName);
-            outputPath = Path.Combine(dir, name);
-            Directory.CreateDirectory(outputPath);
-        } else {
-            var saveDialog = new SaveFileDialog {
-                Title = "匯出錄影 — 選擇目標檔案",
-                FileName = $"Export_{_currentDate:yyyyMMdd}_{startTime:HHmmss}-{endTime:HHmmss}",
-                DefaultExt = ".mp4",
-                Filter = "MP4 檔案 (*.mp4)|*.mp4|AVI 檔案 (*.avi)|*.avi"
-            };
-            if (saveDialog.ShowDialog() != true) return;
-            outputPath = saveDialog.FileName;
-        }
-
-        ExportClipBtn.IsEnabled = false;
-        ExportClipBtn.Content = "匯出中…";
-
-        try {
-            if (isRawCopy) {
-                await RawExportAsync(exportSegments, outputPath);
-            } else {
-                await FfmpegExportAsync(exportSegments, burnTimestamp, outputPath);
-            }
-        } catch (Exception ex) {
-            _eventLog.LogError(EventCategories.Playback, "PlaybackView",
-                $"匯出失敗", ex.ToString());
-            MessageBox.Show($"匯出失敗：{ex.Message}", "錯誤",
-                MessageBoxButton.OK, MessageBoxImage.Error);
-        } finally {
-            ExportClipBtn.IsEnabled = true;
-            ExportClipBtn.Content = "匯出";
-        }
     }
 
     private async Task RawExportAsync(
@@ -3393,15 +3196,21 @@ public partial class PlaybackView : UserControl {
 
     private void UpdateButtonStates() {
         var hasContent = _activePlayers.Count > 0;
-        PlayBtn.IsEnabled = hasContent && !_isPlaying;
-        PauseBtn.IsEnabled = hasContent && _isPlaying;
-        StopBtn.IsEnabled = hasContent;
-        StopAllBtn.IsEnabled = hasContent;
-        JumpStartBtn.IsEnabled = hasContent;
-        JumpEndBtn.IsEnabled = hasContent;
+        PlayPauseBtn.IsEnabled = hasContent;
         StepBackBtn.IsEnabled = hasContent;
         StepFwdBtn.IsEnabled = hasContent;
+        JumpPrevRecBtn.IsEnabled = hasContent;
+        JumpNextRecBtn.IsEnabled = hasContent;
+        StopAllBtn.IsEnabled = hasContent;
+        BookmarkBtn.IsEnabled = hasContent;
         LayoutBtn.IsEnabled = hasContent;
+
+        // Update icon based on play state
+        PlayPauseIcon.Data = (_isPlaying
+            ? TryFindResource("IconPause") ?? Application.Current?.TryFindResource("IconPause")
+            : TryFindResource("IconPlay") ?? Application.Current?.TryFindResource("IconPlay")) as Geometry
+            ?? PlayPauseIcon.Data;
+        PlayPauseBtn.ToolTip = _isPlaying ? "暫停 (Space)" : "播放 (Space)";
 
         UpdateFsTransportState();
     }
@@ -3517,16 +3326,10 @@ public partial class PlaybackView : UserControl {
         if (sender is Button btn && btn.Tag is string action) {
             switch (action) {
                 case "play":
-                    if (!_isPlaying) PlayBtn_Click(sender, e);
+                    if (!_isPlaying) PlayPauseBtn_Click(sender, e);
                     break;
                 case "pause":
-                    if (_isPlaying) PauseBtn_Click(sender, e);
-                    break;
-                case "jumpStart":
-                    JumpStartBtn_Click(sender, e);
-                    break;
-                case "jumpEnd":
-                    JumpEndBtn_Click(sender, e);
+                    if (_isPlaying) PlayPauseBtn_Click(sender, e);
                     break;
                 case "stepBack":
                     StepBackBtn_Click(sender, e);

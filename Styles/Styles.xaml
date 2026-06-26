@@ -687,4 +687,57 @@
         <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
         <Setter Property="Background" Value="Transparent"/>
     </Style>
+
+    <!-- Base NxToggleButton style for LIVE/SYNC/THMB toolbar toggles -->
+    <Style x:Key="NxToggleButton" TargetType="ToggleButton">
+        <Setter Property="Background" Value="Transparent"/>
+        <Setter Property="Foreground" Value="{DynamicResource SecondaryTextBrush}"/>
+        <Setter Property="BorderThickness" Value="0"/>
+        <Setter Property="FontSize" Value="9"/>
+        <Setter Property="FontWeight" Value="Bold"/>
+        <Setter Property="Height" Value="24"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ToggleButton">
+                    <Border x:Name="Root" Background="{TemplateBinding Background}"
+                            BorderThickness="0" CornerRadius="3" Padding="6,0">
+                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsChecked" Value="True">
+                            <Setter TargetName="Root" Property="Background" Value="{DynamicResource PrimaryBrush}"/>
+                            <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- LIVE green toggle -->
+    <Style x:Key="NxGreenToggleButton" BasedOn="{StaticResource NxToggleButton}" TargetType="ToggleButton">
+        <Style.Triggers>
+            <Trigger Property="IsChecked" Value="True">
+                <Setter Property="Background" Value="{DynamicResource SuccessBrush}"/>
+            </Trigger>
+        </Style.Triggers>
+    </Style>
+
+    <!-- SYNC blue toggle -->
+    <Style x:Key="NxBlueToggleButton" BasedOn="{StaticResource NxToggleButton}" TargetType="ToggleButton">
+        <Style.Triggers>
+            <Trigger Property="IsChecked" Value="True">
+                <Setter Property="Background" Value="{DynamicResource RecordingContinuousBrush}"/>
+            </Trigger>
+        </Style.Triggers>
+    </Style>
+
+    <!-- THMB orange toggle -->
+    <Style x:Key="NxOrangeToggleButton" BasedOn="{StaticResource NxToggleButton}" TargetType="ToggleButton">
+        <Style.Triggers>
+            <Trigger Property="IsChecked" Value="True">
+                <Setter Property="Background" Value="{DynamicResource RecordingMotionBrush}"/>
+            </Trigger>
+        </Style.Triggers>
+    </Style>
 </ResourceDictionary>
