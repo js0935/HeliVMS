@@ -43,6 +43,7 @@ public partial class NxTimeline : UserControl {
     private bool _showMotion = true;
     private bool _showAlarm = true;
     private bool _showAi = true;
+    private bool _showThumbnails;
     private List<PlaybackBookmark> _bookmarks = [];
     private bool _isDragging;
     private bool _isSelecting;
@@ -156,7 +157,60 @@ public partial class NxTimeline : UserControl {
         DrawAll();
     }
 
-    public void ToggleThumbnails(bool show) { }
+    public void ToggleThumbnails(bool show) {
+        _showThumbnails = show;
+        ThumbnailCanvas.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+        if (show) DrawThumbnails();
+        else ThumbnailCanvas.Children.Clear();
+    }
+
+    private void DrawThumbnails() {
+        ThumbnailCanvas.Children.Clear();
+        var w = ThumbnailCanvas.ActualWidth;
+        if (w <= 0 || _segments.Count == 0) return;
+
+        var totalSecs = ZoomLevels[_zoomIndex];
+        var viewEnd = _viewStartSeconds + totalSecs;
+        var h = ThumbnailCanvas.ActualHeight;
+
+        foreach (var seg in _segments) {
+            if (!IsTypeVisible(seg.RecordType)) continue;
+            var segStart = (seg.StartTime - _timelineDay).TotalSeconds;
+            var segEnd = seg.EndTime.HasValue
+                ? (seg.EndTime.Value - _timelineDay).TotalSeconds
+                : _viewStartSeconds + totalSecs;
+            if (segEnd < _viewStartSeconds || segStart > viewEnd) continue;
+
+            var x1 = Math.Max(0, SegsToThumbX(segStart));
+            var x2 = Math.Min(w, SegsToThumbX(segEnd));
+            var rectW = Math.Max(1, x2 - x1);
+
+            var color = GetColorForRecordType(seg.RecordType);
+            var rect = new Rectangle {
+                Width = rectW, Height = 4,
+                Fill = new SolidColorBrush(Color.FromArgb(60, color.R, color.G, color.B)),
+                ToolTip = $"{seg.CameraId}: {seg.StartTime:HH:mm}"
+            };
+            Canvas.SetLeft(rect, x1);
+            Canvas.SetTop(rect, h - 5);
+            ThumbnailCanvas.Children.Add(rect);
+        }
+    }
+
+    private double SegsToThumbX(double secs) {
+        var w = ThumbnailCanvas.ActualWidth;
+        if (w <= 0 || ZoomLevels[_zoomIndex] <= 0) return 0;
+        return (secs - _viewStartSeconds) / ZoomLevels[_zoomIndex] * w;
+    }
+
+    private void ThumbnailCanvas_MouseMove(object sender, MouseEventArgs e) {
+        var pos = e.GetPosition(ThumbnailCanvas);
+        var w = ThumbnailCanvas.ActualWidth;
+        if (w <= 0) return;
+        var secs = _viewStartSeconds + pos.X / w * ZoomLevels[_zoomIndex];
+        var time = _timelineDay.AddSeconds(secs);
+        ThumbnailCanvas.ToolTip = $"{time:HH:mm:ss}";
+    }
 
     public void InvalidateActivity() {
         if (Dispatcher.CheckAccess())
@@ -335,6 +389,7 @@ public partial class NxTimeline : UserControl {
         DrawTimeScale();
         DrawPosition();
         DrawBookmarks();
+        if (_showThumbnails) DrawThumbnails();
         UpdateZoomLabel();
     }
 
