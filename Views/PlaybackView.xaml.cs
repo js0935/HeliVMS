@@ -3357,8 +3357,17 @@ public partial class PlaybackView : UserControl {
     }
 
     private void UpdateFsTransportState() {
-        FsPlayBtn.IsEnabled = !_isPlaying;
-        FsPauseBtn.IsEnabled = _isPlaying;
+        var hasContent = _activePlayers.Count > 0;
+        FsPlayPauseBtn.IsEnabled = hasContent;
+        FsStepBackBtn.IsEnabled = hasContent;
+        FsStepFwdBtn.IsEnabled = hasContent;
+        FsSegPrevBtn.IsEnabled = hasContent;
+        FsSegNextBtn.IsEnabled = hasContent;
+        FsSpeedBtn.IsEnabled = hasContent;
+
+        var fsIcon = _isPlaying ? "IconPause" : "IconPlay";
+        FsPlayPauseIcon.Data = (Geometry)FindResource(fsIcon);
+        FsPlayPauseBtn.Tag = _isPlaying ? "pause" : "play";
     }
 
     private void UpdateFsSpeedDisplay() {
@@ -3381,10 +3390,14 @@ public partial class PlaybackView : UserControl {
         if (sender is Button btn && btn.Tag is string action) {
             switch (action) {
                 case "play":
-                    if (!_isPlaying) PlayPauseBtn_Click(sender, e);
-                    break;
                 case "pause":
-                    if (_isPlaying) PlayPauseBtn_Click(sender, e);
+                    PlayPauseBtn_Click(sender, e);
+                    break;
+                case "segPrev":
+                    JumpPrevRecBtn_Click(sender, e);
+                    break;
+                case "segNext":
+                    JumpNextRecBtn_Click(sender, e);
                     break;
                 case "stepBack":
                     StepBackBtn_Click(sender, e);
