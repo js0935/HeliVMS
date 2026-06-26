@@ -1923,22 +1923,22 @@ public partial class PlaybackView : UserControl {
     }
 
     private static double SliderValueToSpeed(double sliderVal) {
-        return Math.Round(0.25 * Math.Pow(2, sliderVal / 25.0), 2);
+        return Math.Round(0.25 * Math.Pow(2, sliderVal / 14.285714), 2);
     }
 
     private static string SliderToDisplayText(double speed) {
-        return speed >= 1.0 ? $"{(int)speed}x" : $"{speed:F2}x".TrimEnd('0').TrimEnd('.') + "x";
+        return speed >= 1.0 ? $"{(int)speed}x" : $"{speed:F2}".TrimEnd('0').TrimEnd('.') + "x";
     }
 
     private void ShowSpeedOSDOnPlayers(double rate) {
-        var text = rate >= 1.0 ? $"{(int)rate}x" : $"{rate:F2}x".TrimEnd('0').TrimEnd('.') + "x";
+        var text = rate >= 1.0 ? $"{(int)rate}x" : $"{rate:F2}".TrimEnd('0').TrimEnd('.') + "x";
         foreach (var player in _activePlayers) {
             player.ShowSpeedOSD(text);
         }
     }
 
     private void UpdatePlayerSpeedBadges(double rate) {
-        var text = rate >= 1.0 ? $"{(int)rate}x" : $"{rate:F2}x".TrimEnd('0').TrimEnd('.') + "x";
+        var text = rate >= 1.0 ? $"{(int)rate}x" : $"{rate:F2}".TrimEnd('0').TrimEnd('.') + "x";
         foreach (var player in _activePlayers) {
             player.SetSpeedText(text);
         }
