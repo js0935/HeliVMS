@@ -1,0 +1,966 @@
+# Review package: 48d06b7..f3a4a47a4a2ff056a621ac957d866664f0d6bb47
+
+## Commits
+
+f3a4a47 Task 1: ?™å??Ÿåº¦?¬å? ???’å¸¶?¯æ´ + è² é€Ÿåº¦é¡¯ç¤º
+
+## Files changed
+
+ .superpowers/sdd/rewind-task-1-brief.md            | 139 +++++++++
+ .superpowers/sdd/rewind-task-2-brief.md            | 180 +++++++++++
+ Views/PlaybackView.xaml.cs                         |  32 +-
+ ...2026-06-26-rewind-bidirectional-speed-slider.md | 338 +++++++++++++++++++++
+ ...2026-06-26-rewind-bidirectional-speed-slider.md | 180 +++++++++++
+ 5 files changed, 861 insertions(+), 8 deletions(-)
+
+## Diff
+
+diff --git a/.superpowers/sdd/rewind-task-1-brief.md b/.superpowers/sdd/rewind-task-1-brief.md
+new file mode 100644
+index 0000000..cae61e3
+--- /dev/null
++++ b/.superpowers/sdd/rewind-task-1-brief.md
+@@ -0,0 +1,139 @@
++### Task 1: Formula + Display Updates
++
++**Files:**
++- Modify: `Views/PlaybackView.xaml.cs` lines 1986-2006 (SliderValueToSpeed, SliderToDisplayText, ShowSpeedOSDOnPlayers, UpdatePlayerSpeedBadges)
++- Modify: `Views/PlaybackView.xaml.cs` lines 1977-1984 (SpeedSlider_ValueChanged)
++
++**Interfaces:**
++- Consumes: `_isPlaying` (line 44), `_coordinator.SetPlaybackRate(double)`
++- Produces: `SliderValueToSpeed(double sliderVal, bool isPlaying)` ??static, returns Â± speed
++- Produces: `SliderValueToSpeedPaused(double sliderVal)` ??static, returns 0-center speed
++- Produces: `SpeedToDisplayText(double speed)` ??static, handles negatives
++
++- [ ] **Step 1: Replace SliderValueToSpeed with bidirectional version**
++
++Current (line 1986-1988):
++```csharp
++private static double SliderValueToSpeed(double sliderVal) {
++    return Math.Round(0.25 * Math.Pow(2, sliderVal / 14.285714), 2);
++}
++```
++
++Replace with:
++```csharp
++private double SliderValueToSpeed(double sliderVal) {
++    if (!_isPlaying) return SliderValueToSpeedPaused(sliderVal);
++    if (sliderVal == 50.0) return 1.0;
++    var offset = (sliderVal - 50.0) / 12.5;
++    return Math.Round(Math.Pow(2, offset), 2);
++}
++
++private static double SliderValueToSpeedPaused(double sliderVal) {
++    if (sliderVal == 50.0) return 0.0;
++    var sign = sliderVal > 50.0 ? 1.0 : -1.0;
++    var offset = Math.Abs(sliderVal - 50.0) / 16.6667;
++    return Math.Round(sign * 0.25 * Math.Pow(2, offset), 2);
++}
++```
++
++Note: Changed from `static` to instance method (needs `_isPlaying`).
++
++- [ ] **Step 2: Replace SliderToDisplayText with SpeedToDisplayText (handles negatives)**
++
++Current (line 1990-1992):
++```csharp
++private static string SliderToDisplayText(double speed) {
++    return speed >= 1.0 ? $"{(int)speed}x" : $"{speed:F2}".TrimEnd('0').TrimEnd('.') + "x";
++}
++```
++
++Replace with:
++```csharp
++private static string SpeedToDisplayText(double speed) {
++    if (speed == 0.0) return "0x";
++    var prefix = speed < 0 ? "-" : "";
++    var abs = Math.Abs(speed);
++    return abs >= 1.0
++        ? $"{prefix}{(int)abs}x"
++        : $"{prefix}{abs:F2}".TrimEnd('0').TrimEnd('.') + "x";
++}
++```
++
++- [ ] **Step 3: Update ShowSpeedOSDOnPlayers and UpdatePlayerSpeedBadges for negatives**
++
++Current (lines 1994-2006):
++```csharp
++private void ShowSpeedOSDOnPlayers(double rate) {
++    var text = rate >= 1.0 ? $"{(int)rate}x" : $"{rate:F2}".TrimEnd('0').TrimEnd('.') + "x";
++    foreach (var player in _activePlayers) {
++        player.ShowSpeedOSD(text);
++    }
++}
++
++private void UpdatePlayerSpeedBadges(double rate) {
++    var text = rate >= 1.0 ? $"{(int)rate}x" : $"{rate:F2}".TrimEnd('0').TrimEnd('.') + "x";
++    foreach (var player in _activePlayers) {
++        player.SetSpeedText(text);
++    }
++}
++```
++
++Replace with:
++```csharp
++private void ShowSpeedOSDOnPlayers(double rate) {
++    var text = SpeedToDisplayText(rate);
++    foreach (var player in _activePlayers) {
++        player.ShowSpeedOSD(text);
++    }
++}
++
++private void UpdatePlayerSpeedBadges(double rate) {
++    var text = SpeedToDisplayText(rate);
++    foreach (var player in _activePlayers) {
++        player.SetSpeedText(text);
++    }
++}
++```
++
++- [ ] **Step 4: Update SpeedSlider_ValueChanged to pass _isPlaying**
++
++Current (lines 1977-1984):
++```csharp
++private void SpeedSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e) {
++    var speed = SliderValueToSpeed(SpeedSlider.Value);
++    _coordinator?.SetPlaybackRate(speed);
++    UpdatePlayerSpeedBadges(speed);
++    ShowSpeedOSDOnPlayers(speed);
++    SpeedLabel.Text = SliderToDisplayText(speed);
++    UpdateFsSpeedDisplay();
++}
++```
++
++Replace with:
++```csharp
++private void SpeedSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e) {
++    var speed = SliderValueToSpeed(SpeedSlider.Value);
++    _coordinator?.SetPlaybackRate(speed);
++    UpdatePlayerSpeedBadges(speed);
++    ShowSpeedOSDOnPlayers(speed);
++    SpeedLabel.Text = SpeedToDisplayText(speed);
++    UpdateFsSpeedDisplay();
++}
++```
++
++- [ ] **Step 5: Build and verify**
++
++Run:
++```powershell
++dotnet build "D:\HeliVMS\HeliVMS\HeliVMS.csproj"
++```
++Expected: 0 errors 0 warnings
++
++- [ ] **Step 6: Commit**
++
++```bash
++git add -A
++git commit -m "Task 1: ?™å??Ÿåº¦?¬å? ???’å¸¶?¯æ´ + è² é€Ÿåº¦é¡¯ç¤º"
++```
++
++---
+\ No newline at end of file
+diff --git a/.superpowers/sdd/rewind-task-2-brief.md b/.superpowers/sdd/rewind-task-2-brief.md
+new file mode 100644
+index 0000000..b37b3c0
+--- /dev/null
++++ b/.superpowers/sdd/rewind-task-2-brief.md
+@@ -0,0 +1,180 @@
++### Task 2: Click-Temporary + Mouse Wheel + State-Aware + Fs Speed Cycle
++
++**Files:**
++- Modify: `Views/PlaybackView.xaml.cs` ??add 5 fields, add 4 event handlers, update PlayPauseBtn_Click, update FsTransportBtn_Click "speed" case
++- Modify: `Views/PlaybackView.xaml` ??wire PreviewMouse* events to SpeedSlider
++
++**Interfaces:**
++- Consumes: `SliderValueToSpeed(double, bool)` (Task 1), `SpeedToDisplayText(double)` (Task 1), `_isPlaying`
++- Produces: `_isTemporarySpeed`, `_defaultSpeed` fields; `SpeedSlider_PreviewMouseDown/Up/Move/Wheel` handlers
++
++- [ ] **Step 1: Add state fields after `_syncEnabled` (line 50)**
++
++Add after line 50:
++```csharp
++private bool _isTemporarySpeed;
++private double _defaultSpeed = 1.0;
++```
++
++- [ ] **Step 2: Update PlayPauseBtn_Click to update default speed + slider position**
++
++Current (lines 1895-1904):
++```csharp
++private void PlayPauseBtn_Click(object sender, RoutedEventArgs e) {
++    if (_isPlaying) {
++        _coordinator?.Pause();
++        _isPlaying = false;
++    } else {
++        _coordinator?.Play();
++        _isPlaying = true;
++    }
++    UpdateButtonStates();
++}
++```
++
++Replace with:
++```csharp
++private void PlayPauseBtn_Click(object sender, RoutedEventArgs e) {
++    if (_isPlaying) {
++        _coordinator?.Pause();
++        _isPlaying = false;
++        _defaultSpeed = 0.0;
++    } else {
++        _coordinator?.Play();
++        _isPlaying = true;
++        _defaultSpeed = 1.0;
++    }
++    // Recalculate speed at current slider position with new state
++    if (!_isTemporarySpeed) {
++        var speed = SliderValueToSpeed(SpeedSlider.Value);
++        _coordinator?.SetPlaybackRate(speed);
++        UpdatePlayerSpeedBadges(speed);
++        ShowSpeedOSDOnPlayers(speed);
++        SpeedLabel.Text = SpeedToDisplayText(speed);
++        UpdateFsSpeedDisplay();
++    }
++    UpdateButtonStates();
++}
++```
++
++- [ ] **Step 3: Add temporary speed handlers**
++
++Add after `SpeedSlider_ValueChanged`:
++```csharp
++private Point _sliderMouseDownPos;
++
++private void SpeedSlider_PreviewMouseDown(object sender, MouseButtonEventArgs e) {
++    _sliderMouseDownPos = e.GetPosition(SpeedSlider);
++    _isTemporarySpeed = true;
++    _defaultSpeed = _isPlaying ? 1.0 : 0.0;
++    SpeedSlider.CaptureMouse();
++}
++
++private void SpeedSlider_PreviewMouseMove(object sender, MouseEventArgs e) {
++    if (e.LeftButton == MouseButtonState.Pressed && _isTemporarySpeed) {
++        var pos = e.GetPosition(SpeedSlider);
++        if (Math.Abs(pos.X - _sliderMouseDownPos.X) > 5 ||
++            Math.Abs(pos.Y - _sliderMouseDownPos.Y) > 5) {
++            _isTemporarySpeed = false; // became a drag
++        }
++    }
++}
++
++private void SpeedSlider_PreviewMouseUp(object sender, MouseButtonEventArgs e) {
++    SpeedSlider.ReleaseMouseCapture();
++    if (_isTemporarySpeed) {
++        SpeedSlider.Value = 50; // revert to center
++        _isTemporarySpeed = false;
++        _coordinator?.SetPlaybackRate(_defaultSpeed);
++        UpdatePlayerSpeedBadges(_defaultSpeed);
++        ShowSpeedOSDOnPlayers(_defaultSpeed);
++        SpeedLabel.Text = SpeedToDisplayText(_defaultSpeed);
++        UpdateFsSpeedDisplay();
++    }
++}
++
++private void SpeedSlider_PreviewMouseWheel(object sender, MouseWheelEventArgs e) {
++    var delta = e.Delta > 0 ? 4 : -4;
++    var newVal = Math.Clamp(SpeedSlider.Value + delta, 0, 100);
++    SpeedSlider.Value = newVal;
++    _isTemporarySpeed = true;
++    _defaultSpeed = _isPlaying ? 1.0 : 0.0;
++    e.Handled = true;
++}
++```
++
++- [ ] **Step 4: Add SpeedSlider_MouseLeave to revert temporary speed**
++
++Add after mouse wheel handler:
++```csharp
++private void SpeedSlider_MouseLeave(object sender, MouseEventArgs e) {
++    if (_isTemporarySpeed) {
++        _isTemporarySpeed = false;
++        SpeedSlider.Value = 50;
++        _coordinator?.SetPlaybackRate(_defaultSpeed);
++        UpdatePlayerSpeedBadges(_defaultSpeed);
++        ShowSpeedOSDOnPlayers(_defaultSpeed);
++        SpeedLabel.Text = SpeedToDisplayText(_defaultSpeed);
++        UpdateFsSpeedDisplay();
++    }
++}
++```
++
++- [ ] **Step 5: Update FsTransportBtn_Click "speed" case for new formula**
++
++Current (lines 3413-3421):
++```csharp
++case "speed":
++    var currentSpeed = SliderValueToSpeed(SpeedSlider.Value);
++    var nextSpeed = currentSpeed >= 16 ? 1.0 : currentSpeed * 2;
++    var sliderVal = nextSpeed switch {
++        0.25 => 0, 0.5 => 25, 1.0 => 50, 2.0 => 75, 4.0 => 87, 8.0 => 94, 16.0 => 100,
++        _ => 50
++    };
++    SpeedSlider.Value = sliderVal;
++    break;
++```
++
++Replace with:
++```csharp
++case "speed": {
++    var currentSpeed = Math.Abs(SliderValueToSpeed(SpeedSlider.Value));
++    var nextSpeed = currentSpeed >= 16 ? 1.0 : currentSpeed * 2;
++    var sliderVal = nextSpeed switch {
++        1.0 => 50, 2.0 => 62, 4.0 => 75, 8.0 => 87, 16.0 => 100,
++        _ => 50
++    };
++    SpeedSlider.Value = sliderVal;
++    break;
++}
++```
++
++Note: The slider values now map to the new bidirectional formula. At val=62 ??~2x, val=75 ??4x, val=87 ??~8x, val=100 ??16x.
++
++- [ ] **Step 6: Wire up XAML events**
++
++In `Views/PlaybackView.xaml`, add these event handlers to the SpeedSlider element (line ~834):
++```xml
++PreviewMouseDown="SpeedSlider_PreviewMouseDown"
++PreviewMouseUp="SpeedSlider_PreviewMouseUp"
++PreviewMouseMove="SpeedSlider_PreviewMouseMove"
++PreviewMouseWheel="SpeedSlider_PreviewMouseWheel"
++MouseLeave="SpeedSlider_MouseLeave"
++```
++
++Find the SpeedSlider in the XAML and add the attributes.
++
++- [ ] **Step 7: Build and verify**
++
++Run:
++```powershell
++dotnet build "D:\HeliVMS\HeliVMS\HeliVMS.csproj"
++```
++Expected: 0 errors 0 warnings
++
++- [ ] **Step 8: Commit**
++
++```bash
++git add -A
++git commit -m "Task 2: é»æ??«æ?è®Šé€?+ æ»¾è¼ª + ?€?‹æ???+ Fs ?Ÿåº¦å¾ªç’°"
++```
+\ No newline at end of file
+diff --git a/Views/PlaybackView.xaml.cs b/Views/PlaybackView.xaml.cs
+index c0c23a8..08e56c6 100644
+--- a/Views/PlaybackView.xaml.cs
++++ b/Views/PlaybackView.xaml.cs
+@@ -1421,31 +1421,32 @@ public partial class PlaybackView : UserControl {
+                 _channelStats[camId] = new ChannelStats {
+                     CameraId = camId,
+                     CameraName = cam?.Name ?? camId,
+                     ChannelNumber = cam?.ChannelNumber ?? i + 1,
+                     IsMaster = i == 0
+                 };
+             }
+             _frameSlots[i] = new FrameSlot();
+         }
+ 
++        _isPlaying = true;
++
+         // Set initial speed badge
+         var currentRate = SliderValueToSpeed(SpeedSlider.Value);
+         UpdatePlayerSpeedBadges(currentRate);
+ 
+         EmptyPrompt.Visibility = Visibility.Collapsed;
+         PlaybackGrid.Visibility = Visibility.Visible;
+ 
+         // Load to coordinator
+         _coordinator.LoadCameras(slots, targetTime);
+         SubscribeCoordinator();
+-        _isPlaying = true;
+         UpdateButtonStates();
+         UpdatePlayingCount();
+         _frameDisplayCount = 0;
+         FpsBadge.Visibility = Visibility.Visible;
+         _fpsTimer?.Start();
+ 
+         _eventLog.LogInfo(EventCategories.Playback, "PlaybackView",
+             $"?‹å??æ”¾ï¼š{slots.Count} è·?, $"?‚é?: {targetTime:HH:mm:ss}");
+     }
+ 
+@@ -1972,41 +1973,56 @@ public partial class PlaybackView : UserControl {
+ 
+     private void StopAllBtn_Click(object sender, RoutedEventArgs e) {
+         StopAllPlayback();
+     }
+ 
+     private void SpeedSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e) {
+         var speed = SliderValueToSpeed(SpeedSlider.Value);
+         _coordinator?.SetPlaybackRate(speed);
+         UpdatePlayerSpeedBadges(speed);
+         ShowSpeedOSDOnPlayers(speed);
+-        SpeedLabel.Text = SliderToDisplayText(speed);
++        SpeedLabel.Text = SpeedToDisplayText(speed);
+         UpdateFsSpeedDisplay();
+     }
+ 
+-    private static double SliderValueToSpeed(double sliderVal) {
+-        return Math.Round(0.25 * Math.Pow(2, sliderVal / 14.285714), 2);
++    private double SliderValueToSpeed(double sliderVal) {
++        if (!_isPlaying) return SliderValueToSpeedPaused(sliderVal);
++        if (sliderVal == 50.0) return 1.0;
++        var offset = (sliderVal - 50.0) / 12.5;
++        return Math.Round(Math.Pow(2, offset), 2);
++    }
++
++    private static double SliderValueToSpeedPaused(double sliderVal) {
++        if (sliderVal == 50.0) return 0.0;
++        var sign = sliderVal > 50.0 ? 1.0 : -1.0;
++        var offset = Math.Abs(sliderVal - 50.0) / 16.6667;
++        return Math.Round(sign * 0.25 * Math.Pow(2, offset), 2);
+     }
+ 
+-    private static string SliderToDisplayText(double speed) {
+-        return speed >= 1.0 ? $"{(int)speed}x" : $"{speed:F2}".TrimEnd('0').TrimEnd('.') + "x";
++    private static string SpeedToDisplayText(double speed) {
++        if (speed == 0.0) return "0x";
++        var prefix = speed < 0 ? "-" : "";
++        var abs = Math.Abs(speed);
++        return abs >= 1.0
++            ? $"{prefix}{(int)abs}x"
++            : $"{prefix}{abs:F2}".TrimEnd('0').TrimEnd('.') + "x";
+     }
+ 
+     private void ShowSpeedOSDOnPlayers(double rate) {
+-        var text = rate >= 1.0 ? $"{(int)rate}x" : $"{rate:F2}".TrimEnd('0').TrimEnd('.') + "x";
++        var text = SpeedToDisplayText(rate);
+         foreach (var player in _activePlayers) {
+             player.ShowSpeedOSD(text);
+         }
+     }
+ 
+     private void UpdatePlayerSpeedBadges(double rate) {
+-        var text = rate >= 1.0 ? $"{(int)rate}x" : $"{rate:F2}".TrimEnd('0').TrimEnd('.') + "x";
++        var text = SpeedToDisplayText(rate);
+         foreach (var player in _activePlayers) {
+             player.SetSpeedText(text);
+         }
+     }
+ 
+ 
+ 
+     private async void JumpPrevRecBtn_Click(object sender, RoutedEventArgs e) {
+         try { await JumpToAdjacentSegment(direction: -1); } catch (Exception ex) { Log.Debug("[HeliVMS] JumpPrevRec error: {Msg}", ex.Message); }
+     }
+diff --git a/docs/superpowers/plans/2026-06-26-rewind-bidirectional-speed-slider.md b/docs/superpowers/plans/2026-06-26-rewind-bidirectional-speed-slider.md
+new file mode 100644
+index 0000000..551e218
+--- /dev/null
++++ b/docs/superpowers/plans/2026-06-26-rewind-bidirectional-speed-slider.md
+@@ -0,0 +1,338 @@
++# ?™å??Ÿåº¦æ»‘æ¡¿ Implementation Plan
++
++> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
++
++**Goal:** Transform the playback speed slider from forward-only (0.25x??2x) to bidirectional (-16x??6x) with Nx Witness-style click-hold temporary speed, mouse wheel support, and state-aware positioning.
++
++**Architecture:** Single-file change to `Views/PlaybackView.xaml.cs` (~200 lines net). Two tasks: (1) formula + display updates (stand-alone), (2) interaction logic (click-hold, mouse wheel, state-aware, Fs speed cycle). Both tasks modify the same file, so coordination on field/method names is critical.
++
++**Tech Stack:** WPF .NET 10, C#, no new dependencies.
++
++## Global Constraints
++
++- Build must produce 0 errors 0 warnings (`dotnet build "D:\HeliVMS\HeliVMS\HeliVMS.csproj"`)
++- No hardcoded Color/Brush ??use `DynamicResource` or `FindResource`
++- Follow existing code patterns (private methods, same indentation, same comment style)
++
++---
++
++### Task 1: Formula + Display Updates
++
++**Files:**
++- Modify: `Views/PlaybackView.xaml.cs` lines 1986-2006 (SliderValueToSpeed, SliderToDisplayText, ShowSpeedOSDOnPlayers, UpdatePlayerSpeedBadges)
++- Modify: `Views/PlaybackView.xaml.cs` lines 1977-1984 (SpeedSlider_ValueChanged)
++
++**Interfaces:**
++- Consumes: `_isPlaying` (line 44), `_coordinator.SetPlaybackRate(double)`
++- Produces: `SliderValueToSpeed(double sliderVal, bool isPlaying)` ??static, returns Â± speed
++- Produces: `SliderValueToSpeedPaused(double sliderVal)` ??static, returns 0-center speed
++- Produces: `SpeedToDisplayText(double speed)` ??static, handles negatives
++
++- [ ] **Step 1: Replace SliderValueToSpeed with bidirectional version**
++
++Current (line 1986-1988):
++```csharp
++private static double SliderValueToSpeed(double sliderVal) {
++    return Math.Round(0.25 * Math.Pow(2, sliderVal / 14.285714), 2);
++}
++```
++
++Replace with:
++```csharp
++private double SliderValueToSpeed(double sliderVal) {
++    if (!_isPlaying) return SliderValueToSpeedPaused(sliderVal);
++    if (sliderVal == 50.0) return 1.0;
++    var offset = (sliderVal - 50.0) / 12.5;
++    return Math.Round(Math.Pow(2, offset), 2);
++}
++
++private static double SliderValueToSpeedPaused(double sliderVal) {
++    if (sliderVal == 50.0) return 0.0;
++    var sign = sliderVal > 50.0 ? 1.0 : -1.0;
++    var offset = Math.Abs(sliderVal - 50.0) / 16.6667;
++    return Math.Round(sign * 0.25 * Math.Pow(2, offset), 2);
++}
++```
++
++Note: Changed from `static` to instance method (needs `_isPlaying`).
++
++- [ ] **Step 2: Replace SliderToDisplayText with SpeedToDisplayText (handles negatives)**
++
++Current (line 1990-1992):
++```csharp
++private static string SliderToDisplayText(double speed) {
++    return speed >= 1.0 ? $"{(int)speed}x" : $"{speed:F2}".TrimEnd('0').TrimEnd('.') + "x";
++}
++```
++
++Replace with:
++```csharp
++private static string SpeedToDisplayText(double speed) {
++    if (speed == 0.0) return "0x";
++    var prefix = speed < 0 ? "-" : "";
++    var abs = Math.Abs(speed);
++    return abs >= 1.0
++        ? $"{prefix}{(int)abs}x"
++        : $"{prefix}{abs:F2}".TrimEnd('0').TrimEnd('.') + "x";
++}
++```
++
++- [ ] **Step 3: Update ShowSpeedOSDOnPlayers and UpdatePlayerSpeedBadges for negatives**
++
++Current (lines 1994-2006):
++```csharp
++private void ShowSpeedOSDOnPlayers(double rate) {
++    var text = rate >= 1.0 ? $"{(int)rate}x" : $"{rate:F2}".TrimEnd('0').TrimEnd('.') + "x";
++    foreach (var player in _activePlayers) {
++        player.ShowSpeedOSD(text);
++    }
++}
++
++private void UpdatePlayerSpeedBadges(double rate) {
++    var text = rate >= 1.0 ? $"{(int)rate}x" : $"{rate:F2}".TrimEnd('0').TrimEnd('.') + "x";
++    foreach (var player in _activePlayers) {
++        player.SetSpeedText(text);
++    }
++}
++```
++
++Replace with:
++```csharp
++private void ShowSpeedOSDOnPlayers(double rate) {
++    var text = SpeedToDisplayText(rate);
++    foreach (var player in _activePlayers) {
++        player.ShowSpeedOSD(text);
++    }
++}
++
++private void UpdatePlayerSpeedBadges(double rate) {
++    var text = SpeedToDisplayText(rate);
++    foreach (var player in _activePlayers) {
++        player.SetSpeedText(text);
++    }
++}
++```
++
++- [ ] **Step 4: Update SpeedSlider_ValueChanged to pass _isPlaying**
++
++Current (lines 1977-1984):
++```csharp
++private void SpeedSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e) {
++    var speed = SliderValueToSpeed(SpeedSlider.Value);
++    _coordinator?.SetPlaybackRate(speed);
++    UpdatePlayerSpeedBadges(speed);
++    ShowSpeedOSDOnPlayers(speed);
++    SpeedLabel.Text = SliderToDisplayText(speed);
++    UpdateFsSpeedDisplay();
++}
++```
++
++Replace with:
++```csharp
++private void SpeedSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e) {
++    var speed = SliderValueToSpeed(SpeedSlider.Value);
++    _coordinator?.SetPlaybackRate(speed);
++    UpdatePlayerSpeedBadges(speed);
++    ShowSpeedOSDOnPlayers(speed);
++    SpeedLabel.Text = SpeedToDisplayText(speed);
++    UpdateFsSpeedDisplay();
++}
++```
++
++- [ ] **Step 5: Build and verify**
++
++Run:
++```powershell
++dotnet build "D:\HeliVMS\HeliVMS\HeliVMS.csproj"
++```
++Expected: 0 errors 0 warnings
++
++- [ ] **Step 6: Commit**
++
++```bash
++git add -A
++git commit -m "Task 1: ?™å??Ÿåº¦?¬å? ???’å¸¶?¯æ´ + è² é€Ÿåº¦é¡¯ç¤º"
++```
++
++---
++
++### Task 2: Click-Temporary + Mouse Wheel + State-Aware + Fs Speed Cycle
++
++**Files:**
++- Modify: `Views/PlaybackView.xaml.cs` ??add 5 fields, add 4 event handlers, update PlayPauseBtn_Click, update FsTransportBtn_Click "speed" case
++- Modify: `Views/PlaybackView.xaml` ??wire PreviewMouse* events to SpeedSlider
++
++**Interfaces:**
++- Consumes: `SliderValueToSpeed(double, bool)` (Task 1), `SpeedToDisplayText(double)` (Task 1), `_isPlaying`
++- Produces: `_isTemporarySpeed`, `_defaultSpeed` fields; `SpeedSlider_PreviewMouseDown/Up/Move/Wheel` handlers
++
++- [ ] **Step 1: Add state fields after `_syncEnabled` (line 50)**
++
++Add after line 50:
++```csharp
++private bool _isTemporarySpeed;
++private double _defaultSpeed = 1.0;
++```
++
++- [ ] **Step 2: Update PlayPauseBtn_Click to update default speed + slider position**
++
++Current (lines 1895-1904):
++```csharp
++private void PlayPauseBtn_Click(object sender, RoutedEventArgs e) {
++    if (_isPlaying) {
++        _coordinator?.Pause();
++        _isPlaying = false;
++    } else {
++        _coordinator?.Play();
++        _isPlaying = true;
++    }
++    UpdateButtonStates();
++}
++```
++
++Replace with:
++```csharp
++private void PlayPauseBtn_Click(object sender, RoutedEventArgs e) {
++    if (_isPlaying) {
++        _coordinator?.Pause();
++        _isPlaying = false;
++        _defaultSpeed = 0.0;
++    } else {
++        _coordinator?.Play();
++        _isPlaying = true;
++        _defaultSpeed = 1.0;
++    }
++    // Recalculate speed at current slider position with new state
++    if (!_isTemporarySpeed) {
++        var speed = SliderValueToSpeed(SpeedSlider.Value);
++        _coordinator?.SetPlaybackRate(speed);
++        UpdatePlayerSpeedBadges(speed);
++        ShowSpeedOSDOnPlayers(speed);
++        SpeedLabel.Text = SpeedToDisplayText(speed);
++        UpdateFsSpeedDisplay();
++    }
++    UpdateButtonStates();
++}
++```
++
++- [ ] **Step 3: Add temporary speed handlers**
++
++Add after `SpeedSlider_ValueChanged`:
++```csharp
++private Point _sliderMouseDownPos;
++
++private void SpeedSlider_PreviewMouseDown(object sender, MouseButtonEventArgs e) {
++    _sliderMouseDownPos = e.GetPosition(SpeedSlider);
++    _isTemporarySpeed = true;
++    _defaultSpeed = _isPlaying ? 1.0 : 0.0;
++    SpeedSlider.CaptureMouse();
++}
++
++private void SpeedSlider_PreviewMouseMove(object sender, MouseEventArgs e) {
++    if (e.LeftButton == MouseButtonState.Pressed && _isTemporarySpeed) {
++        var pos = e.GetPosition(SpeedSlider);
++        if (Math.Abs(pos.X - _sliderMouseDownPos.X) > 5 ||
++            Math.Abs(pos.Y - _sliderMouseDownPos.Y) > 5) {
++            _isTemporarySpeed = false; // became a drag
++        }
++    }
++}
++
++private void SpeedSlider_PreviewMouseUp(object sender, MouseButtonEventArgs e) {
++    SpeedSlider.ReleaseMouseCapture();
++    if (_isTemporarySpeed) {
++        SpeedSlider.Value = 50; // revert to center
++        _isTemporarySpeed = false;
++        _coordinator?.SetPlaybackRate(_defaultSpeed);
++        UpdatePlayerSpeedBadges(_defaultSpeed);
++        ShowSpeedOSDOnPlayers(_defaultSpeed);
++        SpeedLabel.Text = SpeedToDisplayText(_defaultSpeed);
++        UpdateFsSpeedDisplay();
++    }
++}
++
++private void SpeedSlider_PreviewMouseWheel(object sender, MouseWheelEventArgs e) {
++    var delta = e.Delta > 0 ? 4 : -4;
++    var newVal = Math.Clamp(SpeedSlider.Value + delta, 0, 100);
++    SpeedSlider.Value = newVal;
++    _isTemporarySpeed = true;
++    _defaultSpeed = _isPlaying ? 1.0 : 0.0;
++    e.Handled = true;
++}
++```
++
++- [ ] **Step 4: Add SpeedSlider_MouseLeave to revert temporary speed**
++
++Add after mouse wheel handler:
++```csharp
++private void SpeedSlider_MouseLeave(object sender, MouseEventArgs e) {
++    if (_isTemporarySpeed) {
++        _isTemporarySpeed = false;
++        SpeedSlider.Value = 50;
++        _coordinator?.SetPlaybackRate(_defaultSpeed);
++        UpdatePlayerSpeedBadges(_defaultSpeed);
++        ShowSpeedOSDOnPlayers(_defaultSpeed);
++        SpeedLabel.Text = SpeedToDisplayText(_defaultSpeed);
++        UpdateFsSpeedDisplay();
++    }
++}
++```
++
++- [ ] **Step 5: Update FsTransportBtn_Click "speed" case for new formula**
++
++Current (lines 3413-3421):
++```csharp
++case "speed":
++    var currentSpeed = SliderValueToSpeed(SpeedSlider.Value);
++    var nextSpeed = currentSpeed >= 16 ? 1.0 : currentSpeed * 2;
++    var sliderVal = nextSpeed switch {
++        0.25 => 0, 0.5 => 25, 1.0 => 50, 2.0 => 75, 4.0 => 87, 8.0 => 94, 16.0 => 100,
++        _ => 50
++    };
++    SpeedSlider.Value = sliderVal;
++    break;
++```
++
++Replace with:
++```csharp
++case "speed": {
++    var currentSpeed = Math.Abs(SliderValueToSpeed(SpeedSlider.Value));
++    var nextSpeed = currentSpeed >= 16 ? 1.0 : currentSpeed * 2;
++    var sliderVal = nextSpeed switch {
++        1.0 => 50, 2.0 => 62, 4.0 => 75, 8.0 => 87, 16.0 => 100,
++        _ => 50
++    };
++    SpeedSlider.Value = sliderVal;
++    break;
++}
++```
++
++Note: The slider values now map to the new bidirectional formula. At val=62 ??~2x, val=75 ??4x, val=87 ??~8x, val=100 ??16x.
++
++- [ ] **Step 6: Wire up XAML events**
++
++In `Views/PlaybackView.xaml`, add these event handlers to the SpeedSlider element (line ~834):
++```xml
++PreviewMouseDown="SpeedSlider_PreviewMouseDown"
++PreviewMouseUp="SpeedSlider_PreviewMouseUp"
++PreviewMouseMove="SpeedSlider_PreviewMouseMove"
++PreviewMouseWheel="SpeedSlider_PreviewMouseWheel"
++MouseLeave="SpeedSlider_MouseLeave"
++```
++
++Find the SpeedSlider in the XAML and add the attributes.
++
++- [ ] **Step 7: Build and verify**
++
++Run:
++```powershell
++dotnet build "D:\HeliVMS\HeliVMS\HeliVMS.csproj"
++```
++Expected: 0 errors 0 warnings
++
++- [ ] **Step 8: Commit**
++
++```bash
++git add -A
++git commit -m "Task 2: é»æ??«æ?è®Šé€?+ æ»¾è¼ª + ?€?‹æ???+ Fs ?Ÿåº¦å¾ªç’°"
++```
+diff --git a/docs/superpowers/specs/2026-06-26-rewind-bidirectional-speed-slider.md b/docs/superpowers/specs/2026-06-26-rewind-bidirectional-speed-slider.md
+new file mode 100644
+index 0000000..4975753
+--- /dev/null
++++ b/docs/superpowers/specs/2026-06-26-rewind-bidirectional-speed-slider.md
+@@ -0,0 +1,180 @@
++# ?™å??Ÿåº¦æ»‘æ¡¿ ???’å¸¶?¯æ´ + Nx äº’å?è¡Œç‚º
++
++**?¥æ?:** 2026-06-26
++**?€??** å¯©æŸ¥ä¸?+**?œè¯:** 2026-06-26-nx-playback-panel-redesign.md
++
++---
++
++## 1. ?Ÿåº¦?¬å?
++
++æ»‘æ¡¿ç¶­æ?ç¯„å? **0??00**ï¼Œä¸­é»?**50**??+
++### ?­æ”¾ä¸?(`_isPlaying == true`)
++
++| val | speed | ?ç¾© |
++|-----|-------|------|
++| 0 | -16x | ?€å¿«å€’å¸¶ |
++| 25 | -4x | ä¸­é€Ÿå€’å¸¶ |
++| 50 | 1x | æ­?¸¸?­æ”¾ |
++| 75 | 4x | ä¸­é€Ÿå¿«è½?|
++| 100 | 16x | ?€å¿«å¿«è½?|
++
++**?¬å?:** `speed = Math.Pow(2, (val - 50) / 12.5)`ï¼Œval=50 ??speed=1x
++
++å¯¦ä?:
++```csharp
++private static double SliderValueToSpeed(double sliderVal, bool isPlaying) {
++    if (!isPlaying) return SliderValueToSpeedPaused(sliderVal);
++    if (sliderVal == 50.0) return 1.0;
++    var offset = (sliderVal - 50.0) / 12.5; // -4 to +4
++    return Math.Round(Math.Pow(2, offset), 2);
++}
++```
++
++### ?«å?ä¸?(`_isPlaying == false`)
++
++| val | speed | ?ç¾© |
++|-----|-------|------|
++| 0 | -2x | ?€å¿«é€Ÿå€’å¸¶ï¼ˆæ…¢?•ä?ï¼?|
++| 25 | -1x | ?¢å?ä½œå€’å¸¶ |
++| 37.5 | -0.5x | ?¢å?ä½?|
++| 43.75 | -0.25x | æ¥µæ…¢?’å¸¶ |
++| 50 | 0x | å®Œå…¨?«å? |
++| 56.25 | 0.25x | æ¥µæ…¢?•ä? |
++| 62.5 | 0.5x | ?¢å?ä½?|
++| 75 | 1x | ?¢å?ä½œå¿«è½?|
++| 100 | 2x | ?€å¿«é€Ÿæ…¢?•ä? |
++
++**?¬å?:** ??val=50 ??speed=0xï¼›å¦??`speed = sign(val-50) ? 0.25 ? 2^(|val-50|/16.667)`
++
++å¯¦ä?:
++```csharp
++private static double SliderValueToSpeedPaused(double sliderVal) {
++    if (sliderVal == 50.0) return 0.0;
++    var sign = sliderVal > 50.0 ? 1.0 : -1.0;
++    var offset = Math.Abs(sliderVal - 50.0) / 16.6667; // ~0 to 3
++    return Math.Round(sign * 0.25 * Math.Pow(2, offset), 2);
++}
++```
++
++---
++
++## 2. é»æ??«æ? vs ?–æ›³æ°¸ä?
++
++### ?€?‹æ?ä½?+
++```csharp
++private bool _isTemporarySpeed;
++private double _defaultSpeed; // ?æ­¸?Ÿåº¦ï¼šæ’­?¾ä¸­ = 1xï¼Œæš«?œä¸­ = 0x
++```
++
++### äº‹ä»¶?•ç?
++
++| äº‹ä»¶ | è¡Œç‚º |
++|------|------|
++| `Slider.PreviewMouseDown` | è¨˜é? `_isTemporarySpeed = true`?å„²å­˜æ?é¼ æ?ä¸‹ä?ç½?|
++| `Slider.PreviewMouseMove` (?‰ä?ä¸? | ç§»å? > 5px ??`_isTemporarySpeed = false` (?²å…¥?–æ›³) |
++| `Slider.PreviewMouseUp` | `_isTemporarySpeed == true` ??æ»‘æ¡¿?åˆ°ä¸­é?(val=50) ??å¥—ç”¨ `_defaultSpeed` |
++| `Slider.MouseWheel` | Delta æ¯å–®ä½???val Â± 4?è¨­ `_isTemporarySpeed = true`?å??•é??Ÿè??‚å™¨ |
++| `Slider.MouseLeave` | ??`_isTemporarySpeed` ???„å?ä¸­é??Ÿåº¦ |
++
++### ?«æ??Ÿåº¦?„å?æµç?
++
++```
++[ä½¿ç”¨?…æ?ä¸?æ»¾è¼ª] ??_isTemporarySpeed = true
++                    ??_defaultSpeed = (_isPlaying ? 1.0 : 0.0)
++                    ???¹è?æ»‘æ¡¿ val ??speed ?¹è?
++[?¾é?/æ»‘é??¢é?] ??val = 50
++                 ??å¥—ç”¨ _defaultSpeed
++                 ??_isTemporarySpeed = false
++```
++
++---
++
++## 3. ?€?‹å???+
++| äº‹ä»¶ | æ»‘æ¡¿è¡Œç‚º |
++|------|---------|
++| `PlayPauseBtn_Click` (?­æ”¾?’æš«?? | ??val=50 ??speed å¾?1x??x?‚è‹¥ val??0 ??ç¶­æ??®å? valï¼Œspeed ?¨æš«?œå…¬å¼é??°è?ç®?|
++| `PlayPauseBtn_Click` (?«å??’æ’­?? | ?Œä?ï¼Œspeed ?¨æ’­?¾å…¬å¼é??°è?ç®?|
++| `_coordinator.Play()` / `_coordinator.Pause()` å¤±æ? | ä¸æ”¹è®Šæ?æ¡¿ä?ç½®ï?ä¿ç??Ÿç???|
++
++---
++
++## 4. è² é€Ÿåº¦é¡¯ç¤º
++
++```csharp
++private static string SpeedToDisplayText(double speed) {
++    if (speed == 0.0) return "0x";
++    // ?•ç?è² è?
++    var prefix = speed < 0 ? "-" : "";
++    var abs = Math.Abs(speed);
++    return abs >= 1.0
++        ? $"{prefix}{(int)abs}x"
++        : $"{prefix}{abs:F2}".TrimEnd('0').TrimEnd('.') + "x";
++}
++```
++
++**æ³¨æ?:** ä¿®æ­£ double-x bugï¼ˆå·²??Task 1 fix ä¸­è??†ï???+
++**FsTransportBtn_Click "speed" å¾ªç’°:** `1x ??2x ??4x ??8x ??16x ??1x`ï¼ˆåªå¾ªç’°æ­?€Ÿåº¦ï¼?+
++---
++
++## 5. OSC ?Ÿåº¦é¡¯ç¤º
++
++OSDï¼ˆè¢å¹•é¡¯ç¤ºï??¨å€’å¸¶?‚é?è¦é¡¯ç¤ºè??¼ï?
++```
++"-4x"  ???’å¸¶ 4x
++"4x"   ??å¿«è? 4x
++"0x"   ???«å?
++```
++
++`ShowSpeedOSDOnPlayers(rate)` ??`UpdatePlayerSpeedBadges(rate)` å·²æ”¯?´è??¼ï?Task 1 fix ?‚å·²ç¢ºè?ï¼‰ã€?+
++---
++
++## 6. å¯¦ä?ç¯„å?
++
++### ä¿®æ”¹æª”æ?
++
++| æª”æ? | è®Šæ›´ |
++|------|------|
++| `Views/PlaybackView.xaml.cs` | ?Ÿåº¦?¬å??é????–æ›³/æ»¾è¼ª handlers?_isTemporarySpeed æ¬„ä??_defaultSpeed æ¬„ä??SpeedToDisplayText |
++| `Views/PlaybackView.xaml` | (?¡è??´æ?æ¥µå? ??Slider å·²å°±ä½? |
++| `Controls/NxTimeline.xaml.cs` | (?¡è??? |
++| `Styles/Styles.xaml` | (?¡è??? |
++
++### ä¸ä¿®??+
++- NxTimeline ???¡é?
++- PlaybackView.xaml ??Slider å·²å??¨ï?Task 1ï¼?+- ?‹è¼¸?§åˆ¶?‰é?ï¼ˆTask 2ï¼‰â€??¡é?
++- Styles.xaml ???¡é?
++
++---
++
++## 7. é¢¨éšª?‡é??Œæ?æ³?+
++| ?…æ? | ?•ç? |
++|------|------|
++| åº•å±¤ä¸æ”¯?´è??Ÿåº¦ | `_coordinator.SetSpeed(è² å€?` ?¥å¤±?????¥è?è­¦å?ï¼Œæ?æ¡¿å?ä¸­é? |
++| ?å¸¸å¿«é€Ÿæ???| `ValueChanged` æ¯ç?è§¸ç™¼å¤šæ¬¡ï¼Œæ??½å½±?¿å¯å¿½ç•¥ |
++| æ»‘é?æ»¾è¼ª?å¿« | Delta ç´¯å?ä¸è¨­?ï?ä½?val ?ƒè¢« clamp ??0-100 |
++| ?‡æ???LIVE æ¨¡å? | ?Ÿåº¦å¼·åˆ¶??1xï¼ˆLive æ¨¡å??ºå?æ­?¸¸?Ÿåº¦ï¼?|
++| SYNC ?‹å??‚é€Ÿåº¦ä¸ä???| ?µå¾ª `_coordinator.SetSpeed()` ?Œæ­¥?è¼¯ï¼ˆç¾?‰æ??¶ï? |
++
++---
++
++## 8. æ¸¬è©¦é©—æ”¶æ¨™æ?
++
++1. [ ] æ»‘æ¡¿?€å·?(val=0) ??speed=-16xï¼ˆæ’­?¾ä¸­ï¼‰æ? -2xï¼ˆæš«?œä¸­ï¼?+2. [ ] æ»‘æ¡¿ä¸­é? (val=50) ??speed=1xï¼ˆæ’­?¾ä¸­ï¼‰æ? 0xï¼ˆæš«?œä¸­ï¼?+3. [ ] æ»‘æ¡¿?€??(val=100) ??speed=16xï¼ˆæ’­?¾ä¸­ï¼‰æ? 2xï¼ˆæš«?œä¸­ï¼?+4. [ ] ?–æ›³æ»‘æ¡¿ ???Ÿåº¦æ°¸ä??¹è?
++5. [ ] é»æ?æ»‘æ¡¿ï¼ˆä??–æ›³ï¼‰â? ?«æ?è®Šé€Ÿï??¾é?å¾Œå?æ­¸é?è¨?+6. [ ] æ»‘é?æ»¾è¼ª?¨æ?æ¡¿ä? ???«æ?èª¿æ•´?Ÿåº¦
++7. [ ] ?­æ”¾?”æš«?œå?????æ»‘æ¡¿?€?‹æ­£ç¢ºæ›´??+8. [ ] ?Ÿåº¦é¡¯ç¤º?¼å?æ­?¢ºï¼?-4x"??0.25x"??0x"ï¼?+9. [ ] `dotnet build` ??0 errors 0 warnings

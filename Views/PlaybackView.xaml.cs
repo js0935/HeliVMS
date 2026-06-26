@@ -1987,8 +1987,9 @@ public partial class PlaybackView : UserControl {
     private double SliderValueToSpeed(double sliderVal) {
         if (!_isPlaying) return SliderValueToSpeedPaused(sliderVal);
         if (sliderVal == 50.0) return 1.0;
-        var offset = (sliderVal - 50.0) / 12.5;
-        return Math.Round(Math.Pow(2, offset), 2);
+        var sign = sliderVal > 50.0 ? 1.0 : -1.0;
+        var offset = Math.Abs(sliderVal - 50.0) / 12.5;
+        return Math.Round(sign * Math.Pow(2, offset), 2);
     }
 
     private static double SliderValueToSpeedPaused(double sliderVal) {
