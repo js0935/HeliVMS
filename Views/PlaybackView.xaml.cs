@@ -756,10 +756,10 @@ public partial class PlaybackView : UserControl {
         border.ContextMenu = ctxMenu;
 
         var dotColor = entry.RecordType switch {
-            1 => "#FFD700",    // Motion
-            2 => "#FF4444",    // Alarm
-            3 => "#44FF44",    // Manual
-            _ => "#4488FF"     // Continuous / other
+            1 => "RecordingAiBrush",    // Motion → Amber
+            2 => "RecordingAlarmBrush", // Alarm → Red
+            3 => "SuccessBrush",        // Manual → Green
+            _ => "RecordingContinuousBrush" // Continuous → Blue
         };
 
         var innerGrid = new Grid();
@@ -792,7 +792,7 @@ public partial class PlaybackView : UserControl {
             Width = 8,
             Height = 8,
             CornerRadius = new CornerRadius(4),
-            Background = new BrushConverter().ConvertFromString(dotColor) as Brush ?? Brushes.Gray,
+            Background = TryFindResource(dotColor) as Brush ?? Application.Current?.TryFindResource(dotColor) as Brush ?? Brushes.Gray,
             Margin = new Thickness(0, 0, 6, 0),
             VerticalAlignment = VerticalAlignment.Center,
             ToolTip = entry.RecordType
@@ -1770,46 +1770,51 @@ public partial class PlaybackView : UserControl {
 
             // Indicator dot for master
             var chText = s.IsMaster ? "M" : $"{s.ChannelNumber:D2}";
-            var chColor = s.IsMaster ? "#FFD700" : "#FFFFFF";
+            var chColor = s.IsMaster ? "WarningBrush" : "TextBrush";
 
             AddPerfCell(row, 0, chText, 9, chColor, HorizontalAlignment.Left);
-            AddPerfCell(row, 1, s.CameraName, 9, s.DisplayFps > 0 ? "#FFFFFF" : "#88FFFFFF", HorizontalAlignment.Left);
+            AddPerfCell(row, 1, s.CameraName, 9, s.DisplayFps > 0 ? "TextBrush" : "SecondaryTextBrush", HorizontalAlignment.Left);
             AddPerfCell(row, 2, s.DisplayFps.ToString(), 9,
-                s.DisplayFps >= 10 ? "#4CAF50" : s.DisplayFps > 0 ? "#FF9800" : "#888888",
+                s.DisplayFps >= 10 ? "SuccessBrush" : s.DisplayFps > 0 ? "WarningBrush" : "SecondaryTextBrush",
                 HorizontalAlignment.Right);
             AddPerfCell(row, 3, s.DropFps.ToString(), 9,
-                s.DropFps > 10 ? "#F44336" : s.DropFps > 0 ? "#FF9800" : "#888888",
+                s.DropFps > 10 ? "ErrorBrush" : s.DropFps > 0 ? "WarningBrush" : "SecondaryTextBrush",
                 HorizontalAlignment.Right);
             AddPerfCell(row, 4, s.Lag.ToString(), 9,
-                s.Lag > 0 ? "#F44336" : "#888888",
+                s.Lag > 0 ? "ErrorBrush" : "SecondaryTextBrush",
                 HorizontalAlignment.Right);
 
             // Latency (ms)
             var latStr = s.MaxLatencyMs >= 100 ? ">99" : s.MaxLatencyMs.ToString();
             AddPerfCell(row, 5, latStr, 9,
-                s.MaxLatencyMs > 50 ? "#F44336" : s.MaxLatencyMs > 20 ? "#FF9800" : "#888888",
+                s.MaxLatencyMs > 50 ? "ErrorBrush" : s.MaxLatencyMs > 20 ? "WarningBrush" : "SecondaryTextBrush",
                 HorizontalAlignment.Right);
 
             // PTS display
             var ptsStr = s.LastPtsMicroseconds > 0
                 ? TimeSpan.FromMicroseconds(s.LastPtsMicroseconds).ToString(@"mm\:ss\.fff")
                 : "--:--.---";
-            AddPerfCell(row, 6, ptsStr, 8, "#88FFFFFF", HorizontalAlignment.Right);
+            AddPerfCell(row, 6, ptsStr, 8, "SecondaryTextBrush", HorizontalAlignment.Right);
 
             PerfListPanel.Children.Add(row);
         }
     }
 
-    private static void AddPerfCell(Grid grid, int col, string text, int fontSize, string color, HorizontalAlignment align) {
+    private void AddPerfCell(Grid grid, int col, string text, int fontSize, string keyOrColor, HorizontalAlignment align) {
+        var brush = TryFindResource(keyOrColor) as Brush ?? Application.Current?.TryFindResource(keyOrColor) as Brush;
+        if (brush is null && keyOrColor.StartsWith("#")) {
+            brush = new SolidColorBrush(
+                (System.Windows.Media.Color)ColorConverter.ConvertFromString(keyOrColor));
+        }
+        brush ??= System.Windows.Media.Brushes.Gray;
         var tb = new TextBlock {
             Text = text,
             FontSize = fontSize,
-            FontFamily = new System.Windows.Media.FontFamily("Consolas"),
-            Foreground = new System.Windows.Media.SolidColorBrush(
-                (System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString(color)),
-            VerticalAlignment = System.Windows.VerticalAlignment.Center,
+            FontFamily = new FontFamily("Consolas"),
+            Foreground = brush,
+            VerticalAlignment = VerticalAlignment.Center,
             HorizontalAlignment = align,
-            TextTrimming = System.Windows.TextTrimming.CharacterEllipsis
+            TextTrimming = TextTrimming.CharacterEllipsis
         };
         Grid.SetColumn(tb, col);
         grid.Children.Add(tb);

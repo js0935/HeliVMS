@@ -1,0 +1,282 @@
+# Review package: b99c657..2cf4d1f03579b5914b5f1cf3b7f6bc82ccaa6882
+
+## Commits
+
+2cf4d1f ÂØ¶‰? Task 3: LIVE/SYNC/CLND/THMB ?âÈ??èËºØ + GoLive ‰∫ã‰ª∂
+
+## Files changed
+
+ Controls/NxTimeline.xaml.cs |  2 ++
+ Views/PlaybackView.xaml     | 22 ++++++++++++++
+ Views/PlaybackView.xaml.cs  | 71 ++++++++++++++++++++++++++++++++++++++++-----
+ 3 files changed, 87 insertions(+), 8 deletions(-)
+
+## Diff
+
+diff --git a/Controls/NxTimeline.xaml.cs b/Controls/NxTimeline.xaml.cs
+index d9b6168..dbe552d 100644
+--- a/Controls/NxTimeline.xaml.cs
++++ b/Controls/NxTimeline.xaml.cs
+@@ -149,20 +149,22 @@ public partial class NxTimeline : UserControl {
+     }
+ 
+     public void SetTypeFilter(bool continuous, bool motion, bool alarm, bool ai) {
+         _showContinuous = continuous;
+         _showMotion = motion;
+         _showAlarm = alarm;
+         _showAi = ai;
+         DrawAll();
+     }
+ 
++    public void ToggleThumbnails(bool show) { }
++
+     public void InvalidateActivity() {
+         if (Dispatcher.CheckAccess())
+             DrawActivityOverview();
+         else
+             Dispatcher.InvokeAsync(DrawActivityOverview);
+     }
+ 
+     private void DrawActivityOverview() {
+         ActivityCanvas.Children.Clear();
+         var w = ActivityCanvas.ActualWidth;
+diff --git a/Views/PlaybackView.xaml b/Views/PlaybackView.xaml
+index 52edf43..4c67056 100644
+--- a/Views/PlaybackView.xaml
++++ b/Views/PlaybackView.xaml
+@@ -1053,12 +1053,34 @@
+                         <local:ShortcutRow Key_="F11 / Escape" Desc="?®Ëû¢ÂπïÊ®°Âº?/>
+                         <local:ShortcutRow Key_="H / ?" Desc="È°ØÁ§∫Ê≠§Âø´?∑Èçµ‰∏ÄË¶?/>
+                         <local:ShortcutRow Key_="?ôÊ? Player" Desc="?æÂ§ß / ?ÑÂ?Ë©≤È†ª??/>
+                         <TextBlock Text="ÈªûÊ?‰ªªÊ??ïÊ???H / Escape ?úÈ?" FontSize="11"
+                                    Foreground="{DynamicResource SecondaryTextBrush}"
+                                    Margin="0,18,0,0" HorizontalAlignment="Center"/>
+                     </StackPanel>
+                 </Border>
+             </ScrollViewer>
+         </Border>
++        <!-- CLND Calendar Popup -->
++        <Popup x:Name="CalendarPopup" Grid.RowSpan="4"
++               PlacementTarget="{Binding ElementName=ClndBtn}"
++               Placement="Top" StaysOpen="False"
++               AllowsTransparency="True"
++               PopupAnimation="Slide">
++            <Border Background="{DynamicResource SurfaceBrush}"
++                    BorderBrush="{DynamicResource BorderBrush}"
++                    BorderThickness="1" CornerRadius="6"
++                    Padding="8" Effect="{StaticResource DropShadowEffect}">
++                <StackPanel>
++                    <Calendar x:Name="ClndCalendar"
++                              Background="Transparent"
++                              Foreground="{DynamicResource TextBrush}"
++                              BorderThickness="0"
++                              SelectedDatesChanged="ClndCalendar_SelectedDatesChanged"/>
++                    <Button Content="‰ªäÂ§©" Style="{StaticResource SecondaryButton}"
++                            Height="22" FontSize="10" Padding="8,0" Margin="0,4,0,0"
++                            Click="ClndCalendar_Today_Click"/>
++                </StackPanel>
++            </Border>
++        </Popup>
+     </Grid>
+ </UserControl>
+diff --git a/Views/PlaybackView.xaml.cs b/Views/PlaybackView.xaml.cs
+index e0b0032..6f0e1d7 100644
+--- a/Views/PlaybackView.xaml.cs
++++ b/Views/PlaybackView.xaml.cs
+@@ -39,20 +39,23 @@ public partial class PlaybackView : UserControl {
+     private List<SearchResultEntry> _searchResults = [];
+     private int _selectedSearchIndex = -1;
+     private readonly HashSet<int> _selectedSearchIndices = [];
+ 
+     private DateTime _currentDate = DateTime.Today;
+     private bool _isPlaying;
+     private long _lastKnownDuration;
+     private int _displayColumns = 4;
+     private int _displayRows = 4;
+ 
++    private bool _liveMode;
++    private bool _syncEnabled = true;
++
+     private const int MaxPlaybackChannels = 64;
+     private readonly DispatcherTimer _clockTimer;
+     private DispatcherTimer? _storageTimer;
+     private bool _isFullScreen;
+     private DispatcherTimer? _fsAutoHideTimer;
+     private Border? _fsTopBar;
+     private Border? _fsBottomBar;
+ 
+     private int _frameDisplayCount;
+     private DispatcherTimer? _fpsTimer;
+@@ -168,20 +171,21 @@ public partial class PlaybackView : UserControl {
+                     } else if (active > 0) {
+                         FpsText.Text = $"{active}ch idle";
+                     }
+                 };
+                 _fpsTimer.Start();
+             }
+ 
+             Timeline.PositionChanged += OnTimelinePositionChanged;
+             Timeline.SelectionChanged += OnTimelineSelectionChanged;
+             Timeline.BookmarkRequested += OnTimelineBookmarkRequested;
++            Timeline.GoLiveRequested += OnTimelineGoLiveRequested;
+ 
+             // Initial storage status update, refresh every 60s
+             _ = UpdateStorageStatusAsync();
+             if (_storageTimer is null) {
+                 _storageTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(60) };
+                 _storageTimer.Tick += OnStorageTimerTick;
+                 _storageTimer.Start();
+             }
+ 
+             Log.Information("[DBG] PlaybackView Loaded END");
+@@ -197,20 +201,21 @@ public partial class PlaybackView : UserControl {
+         _queryCts?.Cancel();
+         _clockTimer.Stop();
+         // Cancel decode threads, return pending buffers, unsubscribe
+         // CompositionTarget.Rendering to prevent frames from decode thread
+         // being unconsumed by OnCompositionRendering causing pinned buffers
+         StopAllPlayback();
+         UnsubscribeCoordinator();
+         Timeline.PositionChanged -= OnTimelinePositionChanged;
+         Timeline.SelectionChanged -= OnTimelineSelectionChanged;
+         Timeline.BookmarkRequested -= OnTimelineBookmarkRequested;
++        Timeline.GoLiveRequested -= OnTimelineGoLiveRequested;
+         ReturnPendingFrameBuffers();
+         _storageTimer?.Stop();
+         _storageTimer = null;
+         _coordinator = null;
+         var win = Window.GetWindow(this);
+         win?.PreviewKeyDown -= OnPreviewKeyDown;
+         Log.Information("[DBG] PlaybackView Unloaded END");
+     }
+ 
+     private void OnClockTick(object? sender, EventArgs e) => UpdateClock();
+@@ -1876,49 +1881,95 @@ public partial class PlaybackView : UserControl {
+         PlaybackGrid.Children.Clear();
+         PlaybackGrid.Visibility = Visibility.Collapsed;
+         EmptyPrompt.Visibility = Visibility.Visible;
+     }
+ 
+     // ?ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚?
+     //  Playback control buttons
+     // ?ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚?
+ 
+     private void PlayPauseBtn_Click(object sender, RoutedEventArgs e) {
+-        // TODO: Task 3 - implement play/pause toggle
++        if (_isPlaying) {
++            _coordinator?.Pause();
++            _isPlaying = false;
++        } else {
++            _coordinator?.Play();
++            _isPlaying = true;
++        }
++        UpdateButtonStates();
+     }
+ 
+     private void LiveBtn_Checked(object sender, RoutedEventArgs e) {
+-        // TODO: Task 3
++        ToggleLiveMode();
+     }
+ 
+     private void LiveBtn_Unchecked(object sender, RoutedEventArgs e) {
+-        // TODO: Task 3
++        _liveMode = false;
++    }
++
++    private void ToggleLiveMode() {
++        _liveMode = true;
++        LiveBtn.IsChecked = true;
++        var nowSecs = (DateTime.Now - DateTime.Today).TotalSeconds;
++        Timeline.PositionSeconds = Math.Clamp(nowSecs, 0, 86400);
++        Timeline_SeekRequested(Math.Clamp(nowSecs, 0, 86400));
++        UpdateButtonStates();
+     }
+ 
+     private void SyncBtn_Checked(object sender, RoutedEventArgs e) {
+-        // TODO: Task 3
++        if (_syncEnabled) return;
++        _syncEnabled = true;
++        if (_coordinator is not null) {
++            var masterId = _coordinator.GetMasterId();
++            if (masterId is not null) {
++                foreach (var player in _activePlayers) {
++                    if (player.CameraId != masterId) {
++                        player.SetMaster(false);
++                    }
++                }
++            }
++        }
+     }
+ 
+     private void SyncBtn_Unchecked(object sender, RoutedEventArgs e) {
+-        // TODO: Task 3
++        _syncEnabled = false;
+     }
+ 
+     private void ClndBtn_Click(object sender, RoutedEventArgs e) {
+-        // TODO: Task 3
++        ClndCalendar.DisplayDate = FilterDatePicker.SelectedDate ?? DateTime.Today;
++        CalendarPopup.IsOpen = true;
++    }
++
++    private void ClndCalendar_SelectedDatesChanged(object? sender, SelectionChangedEventArgs e) {
++        if (ClndCalendar.SelectedDate.HasValue) {
++            FilterDatePicker.SelectedDate = ClndCalendar.SelectedDate.Value;
++            CalendarPopup.IsOpen = false;
++            FilterDatePicker_SelectedDateChanged(FilterDatePicker, null!);
++        }
++    }
++
++    private void ClndCalendar_Today_Click(object sender, RoutedEventArgs e) {
++        FilterDatePicker.SelectedDate = DateTime.Today;
++        CalendarPopup.IsOpen = false;
++        FilterDatePicker_SelectedDateChanged(FilterDatePicker, null!);
+     }
+ 
+     private void ThmbBtn_Checked(object sender, RoutedEventArgs e) {
+-        // TODO: Task 3
++        Timeline.ToggleThumbnails(true);
+     }
+ 
+     private void ThmbBtn_Unchecked(object sender, RoutedEventArgs e) {
+-        // TODO: Task 3
++        Timeline.ToggleThumbnails(false);
++    }
++
++    private void OnTimelineGoLiveRequested(object? sender, EventArgs e) {
++        ToggleLiveMode();
+     }
+ 
+     private void StopAllBtn_Click(object sender, RoutedEventArgs e) {
+         StopAllPlayback();
+     }
+ 
+     private void SpeedSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e) {
+         var speed = SliderValueToSpeed(SpeedSlider.Value);
+         _coordinator?.SetPlaybackRate(speed);
+         UpdatePlayerSpeedBadges(speed);
+@@ -2219,20 +2270,24 @@ public partial class PlaybackView : UserControl {
+                 e.Handled = true;
+                 break;
+         }
+     }
+ 
+     // ?ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚?
+     //  Timeline interaction
+     // ?ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚?
+ 
+     private void OnTimelinePositionChanged(object? sender, double seconds) {
++        if (_liveMode) {
++            _liveMode = false;
++            LiveBtn.IsChecked = false;
++        }
+         var totalSecs = (int)seconds;
+         var h = totalSecs / 3600;
+         var m = (totalSecs % 3600) / 60;
+         var s = totalSecs % 60;
+         PlaybackTimeText.Text = $"{h:D2}:{m:D2}:{s:D2} / --:--:--";
+         FsTimeText.Text = $"{h:D2}:{m:D2}:{s:D2}";
+     }
+ 
+     private void OnTimelineSelectionChanged(object? sender, (DateTime start, DateTime end)? selection) {
+         // ExportClipBtn was removed in Task 2

@@ -1,0 +1,211 @@
+# Review package: 2cf4d1f..76723955697e951e761f4d469826bf06ced3148f
+
+## Commits
+
+7672395 Task 5: FullScreenOverlay ?³è¼¸?§åˆ¶?—ç°¡?–ç‚º 8 æ¬„å?å±€
+
+## Files changed
+
+ .superpowers/sdd/task-5-report.md | 29 +++++++++++++++++++++++
+ Views/PlaybackView.xaml           | 50 +++++++++++++++++++--------------------
+ Views/PlaybackView.xaml.cs        | 23 ++++++++++++++----
+ 3 files changed, 71 insertions(+), 31 deletions(-)
+
+## Diff
+
+diff --git a/.superpowers/sdd/task-5-report.md b/.superpowers/sdd/task-5-report.md
+new file mode 100644
+index 0000000..7ef63ee
+--- /dev/null
++++ b/.superpowers/sdd/task-5-report.md
+@@ -0,0 +1,29 @@
++# Task 5: FullScreenOverlay Sync ??Simplify Transport Layout
++
++## What Changed
++
++**Views/PlaybackView.xaml** (lines 954-1004):
++- Replaced 11-column definition with simplified 8-column layout
++- Removed `FsJumpStartBtn`, `FsPlayBtn`, `FsPauseBtn`, `FsJumpEndBtn`
++- Remapped `FsStepBackBtn` ??Col 0, `FsStepFwdBtn` ??Col 2, `FsSpeedBtn` ??Col 5, `FsClockText` ??Col 7
++- Added merged `FsPlayPauseBtn` at Col 1 with `FsPlayPauseIcon` (toggles between IconPlay/IconPause)
++- Added `FsSegPrevBtn` at Col 3 and `FsSegNextBtn` at Col 4
++- Added spacer column at Col 6 (Width="*")
++
++**Views/PlaybackView.xaml.cs** (lines 3359-3370, 3383-3404):
++- Replaced `UpdateFsTransportState` ??now enables/disables all fullscreen transport buttons based on `_activePlayers.Count > 0`, and toggles `FsPlayPauseIcon.Data` + `FsPlayPauseBtn.Tag` based on `_isPlaying`
++- Updated `FsTransportBtn_Click` ??merged "play"/"pause" cases to both call `PlayPauseBtn_Click` directly; added "segPrev"/"segNext" cases calling `JumpPrevRecBtn_Click`/`JumpNextRecBtn_Click`
++
++## Build Result
++
++```
++å»ºç½®?å???+    0 ?‹è­¦??+    0 ?‹éŒ¯èª?+```
++
++## Self-Review Notes
++
++- No lingering references to `FsJumpStartBtn`, `FsJumpEndBtn`, `FsPlayBtn`, `FsPauseBtn` in any `.xaml` or `.cs` files
++- All new buttons (`FsPlayPauseBtn`, `FsSegPrevBtn`, `FsSegNextBtn`, `FsPlayPauseIcon`) referenced only in the two modified files
++- `JumpPrevRecBtn_Click` and `JumpNextRecBtn_Click` exist at lines 2005 and 2009
+diff --git a/Views/PlaybackView.xaml b/Views/PlaybackView.xaml
+index 4c67056..8d22e98 100644
+--- a/Views/PlaybackView.xaml
++++ b/Views/PlaybackView.xaml
+@@ -947,65 +947,63 @@
+                                 Background="{DynamicResource SecondaryTextBrush}" BorderThickness="0"
+                                 Click="FsExitBtn_Click" ToolTip="?¢é??¨èž¢å¹?(F11)">
+                             <Path Data="{StaticResource IconFullScreen}" Fill="{DynamicResource TextBrush}" Width="14" Height="14" Stretch="Uniform"/>
+                         </Button>
+                     </StackPanel>
+                 </Grid>
+             </Border>
+             <Border Grid.Row="2" Height="44" Background="{DynamicResource OverlayBrush}" Padding="12,0">
+                 <Grid>
+                     <Grid.ColumnDefinitions>
+-                        <ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/>
+-                        <ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/>
+-                        <ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/>
+-                        <ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/>
+-                        <ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/>
+-                        <ColumnDefinition Width="Auto"/>
++                        <ColumnDefinition Width="Auto"/>  <!-- 0: FsStepBack -->
++                        <ColumnDefinition Width="Auto"/>  <!-- 1: FsPlayPauseBtn -->
++                        <ColumnDefinition Width="Auto"/>  <!-- 2: FsStepFwd -->
++                        <ColumnDefinition Width="Auto"/>  <!-- 3: FsSegPrev -->
++                        <ColumnDefinition Width="Auto"/>  <!-- 4: FsSegNext -->
++                        <ColumnDefinition Width="Auto"/>  <!-- 5: FsSpeedBtn -->
++                        <ColumnDefinition Width="*"/>     <!-- 6: spacer -->
++                        <ColumnDefinition Width="Auto"/>  <!-- 7: FsClockText -->
+                     </Grid.ColumnDefinitions>
+-                    <Button Grid.Column="0" x:Name="FsJumpStartBtn" Style="{StaticResource SecondaryButton}"
+-                            Height="28" Width="30" Background="{DynamicResource SecondaryTextBrush}" BorderThickness="0"
+-                            Click="FsTransportBtn_Click" Tag="jumpStart" ToolTip="è·³åˆ°?‹é ­">
+-                        <Path Data="{StaticResource IconSkipBack}" Fill="{DynamicResource TextBrush}" Width="12" Height="12" Stretch="Uniform"/>
+-                    </Button>
+-                    <Button Grid.Column="1" x:Name="FsStepBackBtn" Style="{StaticResource SecondaryButton}"
++                    <Button Grid.Column="0" x:Name="FsStepBackBtn" Style="{StaticResource SecondaryButton}"
+                             Height="28" Width="30" Background="{DynamicResource SecondaryTextBrush}" BorderThickness="0"
+                             Margin="4,0,0,0" Click="FsTransportBtn_Click" Tag="stepBack" ToolTip="ä¸Šä?æ­?>
+                         <Path Data="{StaticResource IconRewind}" Fill="{DynamicResource TextBrush}" Width="12" Height="12" Stretch="Uniform"/>
+                     </Button>
+-                    <Button Grid.Column="2" x:Name="FsPlayBtn" Style="{StaticResource SecondaryButton}"
++                    <Button Grid.Column="1" x:Name="FsPlayPauseBtn" Style="{StaticResource SecondaryButton}"
+                             Height="30" Width="34" FontSize="12"
+                             Background="{DynamicResource SecondaryTextBrush}" BorderThickness="0"
+                             Foreground="{DynamicResource TextBrush}" Margin="4,0,0,0"
+-                            Click="FsTransportBtn_Click" Tag="play" ToolTip="?­æ”¾">
+-                        <Path Data="{StaticResource IconPlay}" Fill="{DynamicResource TextBrush}" Width="12" Height="12" Stretch="Uniform"/>
+-                    </Button>
+-                    <Button Grid.Column="3" x:Name="FsPauseBtn" Style="{StaticResource SecondaryButton}"
+-                            Height="28" Width="30" Background="{DynamicResource SecondaryTextBrush}" BorderThickness="0"
+-                            Margin="2,0,0,0" Click="FsTransportBtn_Click" Tag="pause" ToolTip="?«å?">
+-                        <Path Data="{StaticResource IconPause}" Fill="{DynamicResource TextBrush}" Width="12" Height="12" Stretch="Uniform"/>
++                            Click="FsTransportBtn_Click" Tag="play" ToolTip="?­æ”¾ / ?«å?">
++                        <Path x:Name="FsPlayPauseIcon" Data="{StaticResource IconPlay}"
++                              Fill="{DynamicResource TextBrush}" Width="12" Height="12" Stretch="Uniform"/>
+                     </Button>
+-                    <Button Grid.Column="4" x:Name="FsStepFwdBtn" Style="{StaticResource SecondaryButton}"
++                    <Button Grid.Column="2" x:Name="FsStepFwdBtn" Style="{StaticResource SecondaryButton}"
+                             Height="28" Width="30" Background="{DynamicResource SecondaryTextBrush}" BorderThickness="0"
+                             Margin="4,0,0,0" Click="FsTransportBtn_Click" Tag="stepFwd" ToolTip="ä¸‹ä?æ­?>
+                         <Path Data="{StaticResource IconFastForward}" Fill="{DynamicResource TextBrush}" Width="12" Height="12" Stretch="Uniform"/>
+                     </Button>
+-                    <Button Grid.Column="5" x:Name="FsJumpEndBtn" Style="{StaticResource SecondaryButton}"
++                    <Button Grid.Column="3" x:Name="FsSegPrevBtn" Style="{StaticResource SecondaryButton}"
+                             Height="28" Width="30" Background="{DynamicResource SecondaryTextBrush}" BorderThickness="0"
+-                            Margin="4,0,0,0" Click="FsTransportBtn_Click" Tag="jumpEnd" ToolTip="è·³åˆ°çµå°¾">
+-                        <Path Data="{StaticResource IconSkipForward}" Fill="{DynamicResource TextBrush}" Width="12" Height="12" Stretch="Uniform"/>
++                            Margin="4,0,0,0" Click="FsTransportBtn_Click" Tag="segPrev" ToolTip="?ä?æ®?>
++                        <Path Data="{StaticResource IconRewind}" Fill="{DynamicResource TextBrush}" Width="12" Height="12" Stretch="Uniform"/>
++                    </Button>
++                    <Button Grid.Column="4" x:Name="FsSegNextBtn" Style="{StaticResource SecondaryButton}"
++                            Height="28" Width="30" Background="{DynamicResource SecondaryTextBrush}" BorderThickness="0"
++                            Margin="4,0,0,0" Click="FsTransportBtn_Click" Tag="segNext" ToolTip="å¾Œä?æ®?>
++                        <Path Data="{StaticResource IconFastForward}" Fill="{DynamicResource TextBrush}" Width="12" Height="12" Stretch="Uniform"/>
+                     </Button>
+-                    <Button Grid.Column="6" x:Name="FsSpeedBtn" Content="1x"
++                    <Button Grid.Column="5" x:Name="FsSpeedBtn" Content="1x"
+                             Style="{StaticResource SecondaryButton}"
+                             Height="28" Width="36" FontSize="10" FontWeight="SemiBold"
+                             Background="{DynamicResource SecondaryTextBrush}" BorderThickness="0"
+                             Margin="4,0,0,0" Click="FsTransportBtn_Click" Tag="speed" ToolTip="?­æ”¾?Ÿåº¦"/>
+-                    <TextBlock Grid.Column="8" x:Name="FsClockText" Text=""
++                    <TextBlock Grid.Column="7" x:Name="FsClockText" Text=""
+                                FontSize="10" Foreground="{DynamicResource SecondaryTextBrush}"
+                                FontFamily="Consolas" VerticalAlignment="Center"/>
+                 </Grid>
+             </Border>
+         </Grid>
+ 
+         <!-- Shortcuts overlay -->
+         <Border x:Name="ShortcutsOverlay" Grid.RowSpan="4" Visibility="Collapsed"
+                 Background="{DynamicResource OverlayBrush}"
+                 MouseDown="ShortcutsOverlay_MouseDown">
+diff --git a/Views/PlaybackView.xaml.cs b/Views/PlaybackView.xaml.cs
+index 6f0e1d7..5a73bdf 100644
+--- a/Views/PlaybackView.xaml.cs
++++ b/Views/PlaybackView.xaml.cs
+@@ -3350,22 +3350,31 @@ public partial class PlaybackView : UserControl {
+             FullScreenOverlay.Visibility = Visibility.Collapsed;
+         }
+     }
+ 
+     private void SyncFsTimeDisplay() {
+         // Mirror main playback time to overlay top-left
+         FsTimeText.Text = PlaybackTimeText.Text.Split('/')[0].Trim();
+     }
+ 
+     private void UpdateFsTransportState() {
+-        FsPlayBtn.IsEnabled = !_isPlaying;
+-        FsPauseBtn.IsEnabled = _isPlaying;
++        var hasContent = _activePlayers.Count > 0;
++        FsPlayPauseBtn.IsEnabled = hasContent;
++        FsStepBackBtn.IsEnabled = hasContent;
++        FsStepFwdBtn.IsEnabled = hasContent;
++        FsSegPrevBtn.IsEnabled = hasContent;
++        FsSegNextBtn.IsEnabled = hasContent;
++        FsSpeedBtn.IsEnabled = hasContent;
++
++        var fsIcon = _isPlaying ? "IconPause" : "IconPlay";
++        FsPlayPauseIcon.Data = (Geometry)FindResource(fsIcon);
++        FsPlayPauseBtn.Tag = _isPlaying ? "pause" : "play";
+     }
+ 
+     private void UpdateFsSpeedDisplay() {
+         FsSpeedBtn.Content = SpeedLabel.Text;
+     }
+ 
+     private void FsExitBtn_Click(object sender, RoutedEventArgs e) {
+         ToggleFullScreen();
+     }
+ 
+@@ -3374,24 +3383,28 @@ public partial class PlaybackView : UserControl {
+     }
+ 
+     private void FsSnapshotBtn_Click(object sender, RoutedEventArgs e) {
+         SnapshotBtn_Click(sender, e);
+     }
+ 
+     private void FsTransportBtn_Click(object sender, RoutedEventArgs e) {
+         if (sender is Button btn && btn.Tag is string action) {
+             switch (action) {
+                 case "play":
+-                    if (!_isPlaying) PlayPauseBtn_Click(sender, e);
+-                    break;
+                 case "pause":
+-                    if (_isPlaying) PlayPauseBtn_Click(sender, e);
++                    PlayPauseBtn_Click(sender, e);
++                    break;
++                case "segPrev":
++                    JumpPrevRecBtn_Click(sender, e);
++                    break;
++                case "segNext":
++                    JumpNextRecBtn_Click(sender, e);
+                     break;
+                 case "stepBack":
+                     StepBackBtn_Click(sender, e);
+                     break;
+                 case "stepFwd":
+                     StepFwdBtn_Click(sender, e);
+                     break;
+                 case "speed":
+                     var currentSpeed = SliderValueToSpeed(SpeedSlider.Value);
+                     var nextSpeed = currentSpeed >= 16 ? 1.0 : currentSpeed * 2;

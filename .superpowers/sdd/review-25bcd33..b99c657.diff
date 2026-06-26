@@ -1,0 +1,978 @@
+# Review package: 25bcd33..b99c6579f4577633880140cf51a0257c41b9316a
+
+## Commits
+
+b99c657 Task 2: ?çÊï¥?≠Êîæ?ßÂà∂?óÁÇ∫ 12 Ê¨ÑÂ?Â±Ä
+
+## Files changed
+
+ .superpowers/sdd/task-2-report.md |  40 ++++++
+ Styles/Styles.xaml                |  53 +++++++
+ Views/PlaybackView.xaml           | 216 +++++++++++++----------------
+ Views/PlaybackView.xaml.cs        | 283 ++++++--------------------------------
+ 4 files changed, 232 insertions(+), 360 deletions(-)
+
+## Diff
+
+diff --git a/.superpowers/sdd/task-2-report.md b/.superpowers/sdd/task-2-report.md
+new file mode 100644
+index 0000000..7fcbd75
+--- /dev/null
++++ b/.superpowers/sdd/task-2-report.md
+@@ -0,0 +1,40 @@
++# Task 2: Transport Controls Layout Restructure ??Report
++
++## Summary of Changes
++
++### XAML (`Views/PlaybackView.xaml`)
++- Replaced 19-column Grid definition with 12-column layout
++- **Removed:** JumpStartBtn, JumpEndBtn, StopBtn, PlayBtn, PauseBtn, LoopPanel (all children), BookmarkListBtn, ExportClipBtn
++- **Added:** `PlayPauseBtn` (merged Play/Pause, col 0), LIVE/SYNC/CLND/THMB button group (col 9)
++- **Re-assigned:** StepBackBtn?ícol 1, StepFwdBtn?ícol 2, Separator?ícol 3, JumpPrevRecBtn?ícol 4, JumpNextRecBtn?ícol 5, SpeedSliderPanel?ícol 6, PlaybackTimeText?ícol 7, FpsBadge?ícol 11
++- **Grouped:** BookmarkBtn + StopAllBtn in StackPanel at col 10
++
++### Styles (`Styles/Styles.xaml`)
++- Added `NxToggleButton` base style + 3 variants: `NxGreenToggleButton`, `NxBlueToggleButton`, `NxOrangeToggleButton`
++
++### Code-behind (`Views/PlaybackView.xaml.cs`)
++- **Replaced** `UpdateButtonStates()` ??references new controls + PlayPauseIcon toggle
++- **Added stubs:** `PlayPauseBtn_Click`, `LiveBtn_Checked/Unchecked`, `SyncBtn_Checked/Unchecked`, `ClndBtn_Click`, `ThmbBtn_Checked/Unchecked` (all `// TODO: Task 3`)
++- **Removed handlers:** PlayBtn_Click, PauseBtn_Click, StopBtn_Click, JumpStartBtn_Click, JumpEndBtn_Click, LoopSetABtn_Click, LoopSetBBtn_Click, LoopToggleBtn_Click, LoopClearBtn_Click, BookmarkListBtn_Click, ExportClipBtn_Click, UpdateLoopVisual
++- **Updated references:** Space key handler ??calls PlayPauseBtn_Click; OnPlayerPlayPauseRequested ??calls PlayPauseBtn_Click; FsTransportBtn_Click ??removed jumpStart/jumpEnd, play/pause ??PlayPauseBtn_Click
++- **Removed dead code:** `_loopA`, `_loopB`, `_loopEnabled` fields; loop-seeking in timer callback; A-B Loop keyboard shortcuts (I, O, L)
++
++## Build Result
++
++```
++dotnet build "D:\HeliVMS\HeliVMS\HeliVMS.csproj"
++Âª∫ÁΩÆ?êÂ??? ?ãË≠¶??0 ?ãÈåØË™?+```
++
++## Self-Review Notes
++
++- All TODO stubs (`// TODO: Task 3`) require implementation in the next task
++- BookmarkBtn still keeps `BookmarkIcon`/`BookmarkFeedback` named elements for visual feedback
++- `OnTimelineSelectionChanged` placeholder left empty since ExportClipBtn was removed
++- Full-screen transport bar still has `FsJumpStartBtn`/`FsJumpEndBtn` buttons (Tag="jumpStart"/"jumpEnd") but `FsTransportBtn_Click` no longer handles those tags ??they remain in XAML as inert until Task 3
++
++## Files Changed
++
++- `Styles/Styles.xaml` (+53 lines)
++- `Views/PlaybackView.xaml` (-22 lines net)
++- `Views/PlaybackView.xaml.cs` (-77 lines net)
+diff --git a/Styles/Styles.xaml b/Styles/Styles.xaml
+index 359778c..17e1154 100644
+--- a/Styles/Styles.xaml
++++ b/Styles/Styles.xaml
+@@ -680,11 +680,64 @@
+     <Style TargetType="DataGrid">
+         <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
+         <Setter Property="Background" Value="{DynamicResource SurfaceBrush}"/>
+         <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
+     </Style>
+ 
+     <Style TargetType="ScrollViewer">
+         <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
+         <Setter Property="Background" Value="Transparent"/>
+     </Style>
++
++    <!-- Base NxToggleButton style for LIVE/SYNC/THMB toolbar toggles -->
++    <Style x:Key="NxToggleButton" TargetType="ToggleButton">
++        <Setter Property="Background" Value="Transparent"/>
++        <Setter Property="Foreground" Value="{DynamicResource SecondaryTextBrush}"/>
++        <Setter Property="BorderThickness" Value="0"/>
++        <Setter Property="FontSize" Value="9"/>
++        <Setter Property="FontWeight" Value="Bold"/>
++        <Setter Property="Height" Value="24"/>
++        <Setter Property="Template">
++            <Setter.Value>
++                <ControlTemplate TargetType="ToggleButton">
++                    <Border x:Name="Root" Background="{TemplateBinding Background}"
++                            BorderThickness="0" CornerRadius="3" Padding="6,0">
++                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
++                    </Border>
++                    <ControlTemplate.Triggers>
++                        <Trigger Property="IsChecked" Value="True">
++                            <Setter TargetName="Root" Property="Background" Value="{DynamicResource PrimaryBrush}"/>
++                            <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
++                        </Trigger>
++                    </ControlTemplate.Triggers>
++                </ControlTemplate>
++            </Setter.Value>
++        </Setter>
++    </Style>
++
++    <!-- LIVE green toggle -->
++    <Style x:Key="NxGreenToggleButton" BasedOn="{StaticResource NxToggleButton}" TargetType="ToggleButton">
++        <Style.Triggers>
++            <Trigger Property="IsChecked" Value="True">
++                <Setter Property="Background" Value="{DynamicResource SuccessBrush}"/>
++            </Trigger>
++        </Style.Triggers>
++    </Style>
++
++    <!-- SYNC blue toggle -->
++    <Style x:Key="NxBlueToggleButton" BasedOn="{StaticResource NxToggleButton}" TargetType="ToggleButton">
++        <Style.Triggers>
++            <Trigger Property="IsChecked" Value="True">
++                <Setter Property="Background" Value="{DynamicResource RecordingContinuousBrush}"/>
++            </Trigger>
++        </Style.Triggers>
++    </Style>
++
++    <!-- THMB orange toggle -->
++    <Style x:Key="NxOrangeToggleButton" BasedOn="{StaticResource NxToggleButton}" TargetType="ToggleButton">
++        <Style.Triggers>
++            <Trigger Property="IsChecked" Value="True">
++                <Setter Property="Background" Value="{DynamicResource RecordingMotionBrush}"/>
++            </Trigger>
++        </Style.Triggers>
++    </Style>
+ </ResourceDictionary>
+diff --git a/Views/PlaybackView.xaml b/Views/PlaybackView.xaml
+index dfe2651..52edf43 100644
+--- a/Views/PlaybackView.xaml
++++ b/Views/PlaybackView.xaml
+@@ -727,196 +727,172 @@
+                                      Margin="0" Background="Transparent"
+                                      BorderThickness="0"/>
+             </Grid>
+         </Border>
+ 
+         <!-- ?ê‚??ê‚??ê‚???Row 3: Playback controls ?ê‚??ê‚??ê‚???-->
+         <Border x:Name="ControlsRow" Grid.Row="3" Style="{StaticResource CardBorder}"
+                 Padding="10,6" Margin="12,0,12,8">
+             <Grid>
+                 <Grid.ColumnDefinitions>
+-                    <ColumnDefinition Width="Auto"/>
+-                    <ColumnDefinition Width="Auto"/>
+-                    <ColumnDefinition Width="Auto"/>
+-                    <ColumnDefinition Width="Auto"/>
+-                    <ColumnDefinition Width="Auto"/>
+-                    <ColumnDefinition Width="Auto"/>
+-                    <ColumnDefinition Width="Auto"/>
+-                    <ColumnDefinition Width="Auto"/>
+-                    <ColumnDefinition Width="Auto"/>
+-                    <ColumnDefinition Width="Auto"/>
+-                    <ColumnDefinition Width="Auto"/>
+-                    <ColumnDefinition Width="Auto"/>
+-                    <ColumnDefinition Width="Auto"/>
+-                    <ColumnDefinition Width="Auto"/>
+-                    <ColumnDefinition Width="Auto"/>
+-                    <ColumnDefinition Width="Auto"/>
+-                    <ColumnDefinition Width="Auto"/>
+-                    <ColumnDefinition Width="*"/>
+-                    <ColumnDefinition Width="Auto"/>
++                    <ColumnDefinition Width="Auto"/>  <!-- 0: PlayPauseBtn (merged) -->
++                    <ColumnDefinition Width="Auto"/>  <!-- 1: StepBackBtn -->
++                    <ColumnDefinition Width="Auto"/>  <!-- 2: StepFwdBtn -->
++                    <ColumnDefinition Width="Auto"/>  <!-- 3: Separator -->
++                    <ColumnDefinition Width="Auto"/>  <!-- 4: SegPrevBtn (JumpPrevRecBtn) -->
++                    <ColumnDefinition Width="Auto"/>  <!-- 5: SegNextBtn (JumpNextRecBtn) -->
++                    <ColumnDefinition Width="Auto"/>  <!-- 6: SpeedSliderPanel -->
++                    <ColumnDefinition Width="Auto"/>  <!-- 7: PlaybackTimeText -->
++                    <ColumnDefinition Width="*"/>     <!-- 8: Spacer -->
++                    <ColumnDefinition Width="Auto"/>  <!-- 9: LiveBtn / SyncBtn / ClndBtn / ThmbBtn group -->
++                    <ColumnDefinition Width="Auto"/>  <!-- 10: BookmarkBtn + StopAllBtn -->
++                    <ColumnDefinition Width="Auto"/>  <!-- 11: FpsBadge -->
+                 </Grid.ColumnDefinitions>
+ 
+-                <Button Grid.Column="0" x:Name="JumpStartBtn"
+-                        Style="{StaticResource SecondaryButton}"
+-                        Height="28" Width="30"
+-                        Click="JumpStartBtn_Click" ToolTip="Ë∑≥Âà∞?ãÈ†≠ (Ctrl+??">
+-                    <Path Data="{StaticResource IconSkipBack}" Fill="{DynamicResource TextBrush}" Width="12" Height="12" Stretch="Uniform"/>
++                <!-- Column 0: PlayPauseBtn (merged Play/Pause) -->
++                <Button Grid.Column="0" x:Name="PlayPauseBtn"
++                        Style="{StaticResource ModernButton}"
++                        Height="28" Width="38" FontSize="13"
++                        BorderThickness="0" Click="PlayPauseBtn_Click"
++                        ToolTip="?≠Êîæ / ?´Â? (Space)">
++                    <Path x:Name="PlayPauseIcon" Data="{StaticResource IconPlay}"
++                          Fill="{DynamicResource TextBrush}" Width="14" Height="14" Stretch="Uniform"/>
+                 </Button>
++
++                <!-- Column 1: StepBackBtn -->
+                 <Button Grid.Column="1" x:Name="StepBackBtn"
+                         Style="{StaticResource SecondaryButton}"
+                         Height="28" Width="30" Margin="2,0,0,0"
+                         Click="StepBackBtn_Click" ToolTip="‰∏ä‰?ÂπÄ (??">
+                     <Path Data="{StaticResource IconRewind}" Fill="{DynamicResource TextBrush}" Width="11" Height="11" Stretch="Uniform"/>
+                 </Button>
+ 
+-                <Border Grid.Column="2" Background="{DynamicResource SecondarySurfaceBrush}"
+-                        CornerRadius="4" Margin="2,0,0,0" Padding="1">
+-                    <StackPanel Orientation="Horizontal">
+-                        <Button x:Name="PlayBtn" Style="{StaticResource ModernButton}"
+-                                Height="26" Width="32" FontSize="11" BorderThickness="0"
+-                                Click="PlayBtn_Click" ToolTip="?≠Êîæ (Space)">
+-                            <Path Data="{StaticResource IconPlay}" Fill="{DynamicResource TextBrush}" Width="12" Height="12" Stretch="Uniform"/>
+-                        </Button>
+-                        <Border Width="1" Background="{DynamicResource BorderBrush}"/>
+-                        <Button x:Name="PauseBtn" Style="{StaticResource SecondaryButton}"
+-                                Height="26" Width="32" BorderThickness="0"
+-                                Click="PauseBtn_Click" ToolTip="?´Â? (Space)">
+-                            <Path Data="{StaticResource IconPause}" Fill="{DynamicResource TextBrush}" Width="12" Height="12" Stretch="Uniform"/>
+-                        </Button>
+-                    </StackPanel>
+-                </Border>
+-
+-                <Button Grid.Column="4" x:Name="StepFwdBtn"
++                <!-- Column 2: StepFwdBtn -->
++                <Button Grid.Column="2" x:Name="StepFwdBtn"
+                         Style="{StaticResource SecondaryButton}"
+                         Height="28" Width="30" Margin="2,0,0,0"
+                         Click="StepFwdBtn_Click" ToolTip="‰∏ã‰?ÂπÄ (??">
+                     <Path Data="{StaticResource IconFastForward}" Fill="{DynamicResource TextBrush}" Width="11" Height="11" Stretch="Uniform"/>
+                 </Button>
+-                <Button Grid.Column="5" x:Name="JumpEndBtn"
+-                        Style="{StaticResource SecondaryButton}"
+-                        Height="28" Width="30" Margin="2,0,0,0"
+-                        Click="JumpEndBtn_Click" ToolTip="Ë∑≥Âà∞ÁµêÂ∞æ (Ctrl+??">
+-                    <Path Data="{StaticResource IconSkipForward}" Fill="{DynamicResource TextBrush}" Width="12" Height="12" Stretch="Uniform"/>
+-                </Button>
+ 
+-                <Button Grid.Column="6" x:Name="JumpPrevRecBtn"
++                <!-- Column 3: Separator -->
++                <Separator Grid.Column="3"
++                           Style="{StaticResource {x:Static ToolBar.SeparatorStyleKey}}" Margin="4,0"/>
++
++                <!-- Column 4: SegPrevBtn (was JumpPrevRecBtn) -->
++                <Button Grid.Column="4" x:Name="JumpPrevRecBtn"
+                         Style="{StaticResource SecondaryButton}"
+                         Height="28" Width="30" Margin="2,0,0,0"
+                         Click="JumpPrevRecBtn_Click" ToolTip="Ë∑≥Âà∞?ç‰??ÄÊÆ?(Ctrl+Shift+??">
+                     <Path Data="{StaticResource IconRewind}" Fill="{DynamicResource TextBrush}" Width="12" Height="12" Stretch="Uniform"/>
+                 </Button>
+-                <Button Grid.Column="7" x:Name="JumpNextRecBtn"
++
++                <!-- Column 5: SegNextBtn (was JumpNextRecBtn) -->
++                <Button Grid.Column="5" x:Name="JumpNextRecBtn"
+                         Style="{StaticResource SecondaryButton}"
+                         Height="28" Width="30" Margin="2,0,0,0"
+                         Click="JumpNextRecBtn_Click" ToolTip="Ë∑≥Âà∞Âæå‰??ÄÊÆ?(Ctrl+Shift+??">
+                     <Path Data="{StaticResource IconFastForward}" Fill="{DynamicResource TextBrush}" Width="12" Height="12" Stretch="Uniform"/>
+                 </Button>
+-                <Button Grid.Column="8" x:Name="StopBtn"
+-                        Style="{StaticResource SecondaryButton}"
+-                        Height="28" Width="30" Margin="2,0,0,0"
+-                        Click="StopBtn_Click" ToolTip="?úÊ≠¢">
+-                    <Path Data="{StaticResource IconStop}" Fill="{DynamicResource TextBrush}" Width="12" Height="12" Stretch="Uniform"/>
+-                </Button>
+-
+-                <Separator Grid.Column="9"
+-                           Style="{StaticResource {x:Static ToolBar.SeparatorStyleKey}}" Margin="4,0"/>
+ 
+-                <Border Grid.Column="10" x:Name="SpeedSliderPanel" MinWidth="120"
++                <!-- Column 6: SpeedSliderPanel -->
++                <Border Grid.Column="6" x:Name="SpeedSliderPanel" MinWidth="120"
+                         Background="{DynamicResource SecondarySurfaceBrush}"
+                         CornerRadius="4" Padding="6,0" Margin="4,0,0,0">
+                     <Grid>
+                         <Grid.ColumnDefinitions>
+                             <ColumnDefinition Width="Auto"/>
+                             <ColumnDefinition Width="*"/>
+                         </Grid.ColumnDefinitions>
+                         <TextBlock x:Name="SpeedLabel" Text="1x" FontSize="10" FontWeight="SemiBold"
+                                    Foreground="{DynamicResource TextBrush}"
+                                    VerticalAlignment="Center" MinWidth="24"/>
+                         <Slider Grid.Column="1" x:Name="SpeedSlider"
+                                 Minimum="0" Maximum="100" Value="50"
+                                 TickFrequency="1" IsSnapToTickEnabled="False"
+                                 Width="100" Height="20" Margin="4,0,0,0"
+                                 ValueChanged="SpeedSlider_ValueChanged"
+                                 Style="{StaticResource ModernSlider}"
+                                 VerticalAlignment="Center"/>
+                     </Grid>
+                 </Border>
+ 
+-                <Border x:Name="LoopPanel" Grid.Column="12" CornerRadius="4" Margin="4,0,0,0" Padding="1,0"
+-                        Background="{DynamicResource SecondarySurfaceBrush}">
+-                    <StackPanel Orientation="Horizontal">
+-                        <Button x:Name="LoopSetABtn" Content="A" Style="{StaticResource SecondaryButton}"
+-                                Height="24" Width="24" FontSize="9" FontWeight="Bold"
+-                                Margin="1,0" Padding="0"
+-                                Click="LoopSetABtn_Click" ToolTip="Ë®≠Â?Âæ™Áí∞Ëµ∑È? A (I)"/>
+-                        <Button x:Name="LoopSetBBtn" Content="B" Style="{StaticResource SecondaryButton}"
+-                                Height="24" Width="24" FontSize="9" FontWeight="Bold"
+-                                Margin="1,0" Padding="0"
+-                                Click="LoopSetBBtn_Click" ToolTip="Ë®≠Â?Âæ™Áí∞ÁµÇÈ? B (O)"/>
+-                        <Border Width="1" Background="{DynamicResource BorderBrush}" Margin="2,0"/>
+-                        <Button x:Name="LoopToggleBtn" Style="{StaticResource SecondaryButton}"
+-                                Height="24" Width="24" FontSize="10" FontWeight="Bold"
+-                                Margin="1,0" Padding="0"
+-                                Click="LoopToggleBtn_Click" ToolTip="?üÁî®/?úÁî®Âæ™Áí∞?≠Êîæ (L)">
+-                            <Path Data="{StaticResource IconLoop}" Fill="{DynamicResource TextBrush}" Width="10" Height="10" Stretch="Uniform"/>
+-                        </Button>
+-                        <Button x:Name="LoopClearBtn" Style="{StaticResource SecondaryButton}"
+-                                Height="24" Width="14" Margin="1,0" Padding="0"
+-                                Click="LoopClearBtn_Click" ToolTip="Ê∏ÖÈô§ A-B Âæ™Áí∞">
+-                            <Path Data="{StaticResource IconClose}" Fill="{DynamicResource TextBrush}" Width="7" Height="7" Stretch="Uniform"/>
+-                        </Button>
+-                    </StackPanel>
+-                </Border>
+-
+-                <Border Grid.Column="13" Background="{DynamicResource SecondarySurfaceBrush}"
++                <!-- Column 7: PlaybackTimeText -->
++                <Border Grid.Column="7" Background="{DynamicResource SecondarySurfaceBrush}"
+                         CornerRadius="4" Padding="8,3" Margin="6,0,0,0">
+                     <TextBlock x:Name="PlaybackTimeText"
+                                Text="--:--:-- / --:--:--"
+                                Foreground="{DynamicResource TextBrush}"
+                                FontSize="11" FontWeight="SemiBold" FontFamily="Consolas"
+                                VerticalAlignment="Center"/>
+                 </Border>
+ 
+-                <Button Grid.Column="14" x:Name="StopAllBtn" Content="?®ÈÉ®?úÊ≠¢"
+-                        Style="{StaticResource SecondaryButton}"
+-                        Height="26" FontSize="10" Padding="8,0"
+-                        Margin="4,0,0,0" FontWeight="SemiBold"
+-                        Foreground="{DynamicResource ErrorBrush}"
+-                        Click="StopAllBtn_Click"/>
+-                <Button Grid.Column="15" x:Name="BookmarkBtn"
+-                        Style="{StaticResource SecondaryButton}"
+-                        Height="26" Width="28" Margin="2,0,0,0"
+-                        Click="BookmarkBtn_Click" ToolTip="Ê®ôË??∏Á±§ (B)">
+-                    <Grid>
+-                        <Path x:Name="BookmarkIcon" Data="{StaticResource IconBookmark}"
+-                              Fill="{DynamicResource TextBrush}" Width="12" Height="12" Stretch="Uniform"/>
+-                        <TextBlock x:Name="BookmarkFeedback" Text="" Visibility="Collapsed"
+-                                   Foreground="{DynamicResource TextBrush}"
+-                                   FontSize="11" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+-                    </Grid>
+-                </Button>
+-                <Button Grid.Column="16" x:Name="BookmarkListBtn"
+-                        Style="{StaticResource SecondaryButton}"
+-                        Height="26" Width="28" FontSize="10" Padding="0"
+-                        Click="BookmarkListBtn_Click" ToolTip="?∏Á±§?óË°®">
+-                    <Path x:Name="BookmarkListIcon" Data="{StaticResource IconBookmark}"
+-                          Fill="{DynamicResource SecondaryTextBrush}" Width="12" Height="12" Stretch="Uniform"/>
+-                </Button>
+-                <Button Grid.Column="17" x:Name="ExportClipBtn" Content="?ØÂá∫"
+-                        Style="{StaticResource SecondaryButton}"
+-                        Height="26" FontSize="10" Padding="8,0" Margin="2,0,0,0"
+-                        IsEnabled="False"
+-                        Click="ExportClipBtn_Click"
+-                        ToolTip="?ØÂá∫?∏Â??ÇÈ?ÁØÑÂ??ÑÈ?ÂΩ?/>
++                <!-- Column 9: LIVE / SYNC / CLND / THMB group -->
++                <StackPanel Grid.Column="9" Orientation="Horizontal" Margin="6,0,0,0">
++                    <Border Background="{DynamicResource SecondarySurfaceBrush}"
++                            CornerRadius="4" Padding="2">
++                        <StackPanel Orientation="Horizontal">
++                            <ToggleButton x:Name="LiveBtn"
++                                          Content="LIVE" FontSize="9" FontWeight="Bold"
++                                          Height="24" Padding="6,0" Cursor="Hand"
++                                          Style="{StaticResource NxGreenToggleButton}"
++                                          Checked="LiveBtn_Checked" Unchecked="LiveBtn_Unchecked"
++                                          ToolTip="?áÊ??≥Ê?Ê®°Â? (L)"/>
++                            <Separator Style="{StaticResource {x:Static ToolBar.SeparatorStyleKey}}"/>
++                            <ToggleButton x:Name="SyncBtn"
++                                          Content="SYNC" FontSize="9" FontWeight="Bold"
++                                          Height="24" Padding="6,0" Cursor="Hand"
++                                          IsChecked="True"
++                                          Style="{StaticResource NxBlueToggleButton}"
++                                          Checked="SyncBtn_Checked" Unchecked="SyncBtn_Unchecked"
++                                          ToolTip="?áÊ?Â§öÈ†ª?ìÂ?Ê≠?(Ctrl+S)"/>
++                            <Separator Style="{StaticResource {x:Static ToolBar.SeparatorStyleKey}}"/>
++                            <Button x:Name="ClndBtn"
++                                    Style="{StaticResource SecondaryButton}"
++                                    Height="24" Width="28" Padding="0" FontSize="9"
++                                    Click="ClndBtn_Click" ToolTip="?•Ê? (Ctrl+C)">
++                                <TextBlock Text="CLND" FontSize="9" FontWeight="Bold"
++                                           Foreground="{DynamicResource TextBrush}"/>
++                            </Button>
++                            <Separator Style="{StaticResource {x:Static ToolBar.SeparatorStyleKey}}"/>
++                            <ToggleButton x:Name="ThmbBtn"
++                                          Content="THMB" FontSize="9" FontWeight="Bold"
++                                          Height="24" Padding="6,0" Cursor="Hand"
++                                          Style="{StaticResource NxOrangeToggleButton}"
++                                          Checked="ThmbBtn_Checked" Unchecked="ThmbBtn_Unchecked"
++                                          ToolTip="?áÊ?Á∏ÆÂ??êË¶Ω??(T)"/>
++                        </StackPanel>
++                    </Border>
++                </StackPanel>
++
++                <!-- Column 10: BookmarkBtn + StopAllBtn -->
++                <StackPanel Grid.Column="10" Orientation="Horizontal" Margin="4,0,0,0">
++                    <Button x:Name="BookmarkBtn" Style="{StaticResource SecondaryButton}"
++                            Height="26" Width="28" Padding="0" Margin="0,0,2,0"
++                            Click="BookmarkBtn_Click" ToolTip="Ê®ôË??∏Á±§ (B)">
++                        <Grid>
++                            <Path x:Name="BookmarkIcon" Data="{StaticResource IconBookmark}"
++                                  Fill="{DynamicResource TextBrush}" Width="12" Height="12" Stretch="Uniform"/>
++                            <TextBlock x:Name="BookmarkFeedback" Text="" Visibility="Collapsed"
++                                       Foreground="{DynamicResource TextBrush}"
++                                       FontSize="11" HorizontalAlignment="Center" VerticalAlignment="Center"/>
++                        </Grid>
++                    </Button>
++                    <Button x:Name="StopAllBtn" Content="?®ÈÉ®?úÊ≠¢"
++                            Style="{StaticResource SecondaryButton}"
++                            Height="26" FontSize="10" Padding="8,0"
++                            Foreground="{DynamicResource ErrorBrush}"
++                            Click="StopAllBtn_Click" ToolTip="?®ÈÉ®?úÊ≠¢"/>
++                </StackPanel>
+ 
+-                <!-- FPS badge -->
+-                <Border Grid.Column="18" x:Name="FpsBadge"
++                <!-- Column 11: FPS badge -->
++                <Border Grid.Column="11" x:Name="FpsBadge"
+                         Background="{DynamicResource OverlayBrush}" CornerRadius="3"
+                         Padding="4,1" Margin="4,0,0,0"
+                         VerticalAlignment="Center" Visibility="Collapsed">
+                     <StackPanel Orientation="Horizontal">
+                         <TextBlock x:Name="FpsText" Text="0 FPS" FontSize="9"
+                                    FontWeight="SemiBold" FontFamily="Consolas"
+                                    Foreground="{DynamicResource SecondaryTextBrush}"
+                                    VerticalAlignment="Center"/>
+                         <Button x:Name="PerfToggleBtn" Style="{StaticResource SecondaryButton}"
+                                 Height="14" Width="16" Margin="2,0,0,0" Padding="0"
+diff --git a/Views/PlaybackView.xaml.cs b/Views/PlaybackView.xaml.cs
+index a895ed3..e0b0032 100644
+--- a/Views/PlaybackView.xaml.cs
++++ b/Views/PlaybackView.xaml.cs
+@@ -50,23 +50,20 @@ public partial class PlaybackView : UserControl {
+     private readonly DispatcherTimer _clockTimer;
+     private DispatcherTimer? _storageTimer;
+     private bool _isFullScreen;
+     private DispatcherTimer? _fsAutoHideTimer;
+     private Border? _fsTopBar;
+     private Border? _fsBottomBar;
+ 
+     private int _frameDisplayCount;
+     private DispatcherTimer? _fpsTimer;
+     private bool _isPerfPanelVisible;
+-    private double _loopA;
+-    private double _loopB;
+-    private bool _loopEnabled;
+  
+     private sealed class ChannelStats {
+         public string CameraId = "";
+         public string CameraName = "";
+         public int ChannelNumber;
+         public int DisplayCount;
+         public int DropCount;
+         public long LastPtsMicroseconds;
+         public bool IsMaster;
+         // Computed each second
+@@ -1515,28 +1512,20 @@ public partial class PlaybackView : UserControl {
+                 _lastKnownDuration = duration;
+             }
+             var effDuration = duration > 0 ? duration : _lastKnownDuration;
+             if (effDuration > 0) {
+                 var fraction = (double)pts / effDuration;
+                 Timeline.SetPositionSilent(fraction * 86400);
+             }
+             UpdateTimeDisplay(pts, duration);
+             UpdatePlayerTimestamps(pts);
+             UpdatePlayerProgress(pts, effDuration);
+-
+-            if (_loopB > _loopA && _loopEnabled && effDuration > 0) {
+-                var currentSec = pts / 1_000_000.0;
+-                if (currentSec >= _loopB) {
+-                    var seekUs = (long)(_loopA * 1_000_000);
+-                    _coordinator?.SeekMasterImmediate(seekUs);
+-                }
+-            }
+         });
+     }
+ 
+     private void OnCoordinatorStateChanged(PlaybackState state) {
+         _ = Dispatcher.BeginInvoke(() => {
+             _isPlaying = state == PlaybackState.Playing;
+             UpdateButtonStates();
+         });
+     }
+ 
+@@ -1886,34 +1875,50 @@ public partial class PlaybackView : UserControl {
+         _activePlayers.Clear();
+         PlaybackGrid.Children.Clear();
+         PlaybackGrid.Visibility = Visibility.Collapsed;
+         EmptyPrompt.Visibility = Visibility.Visible;
+     }
+ 
+     // ?ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚?
+     //  Playback control buttons
+     // ?ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚?
+ 
+-    private void PlayBtn_Click(object sender, RoutedEventArgs e) {
+-        _coordinator?.Play();
+-        _isPlaying = true;
+-        UpdateButtonStates();
++    private void PlayPauseBtn_Click(object sender, RoutedEventArgs e) {
++        // TODO: Task 3 - implement play/pause toggle
+     }
+ 
+-    private void PauseBtn_Click(object sender, RoutedEventArgs e) {
+-        _coordinator?.Pause();
+-        _isPlaying = false;
+-        UpdateButtonStates();
++    private void LiveBtn_Checked(object sender, RoutedEventArgs e) {
++        // TODO: Task 3
+     }
+ 
+-    private void StopBtn_Click(object sender, RoutedEventArgs e) {
+-        StopAllPlayback();
++    private void LiveBtn_Unchecked(object sender, RoutedEventArgs e) {
++        // TODO: Task 3
++    }
++
++    private void SyncBtn_Checked(object sender, RoutedEventArgs e) {
++        // TODO: Task 3
++    }
++
++    private void SyncBtn_Unchecked(object sender, RoutedEventArgs e) {
++        // TODO: Task 3
++    }
++
++    private void ClndBtn_Click(object sender, RoutedEventArgs e) {
++        // TODO: Task 3
++    }
++
++    private void ThmbBtn_Checked(object sender, RoutedEventArgs e) {
++        // TODO: Task 3
++    }
++
++    private void ThmbBtn_Unchecked(object sender, RoutedEventArgs e) {
++        // TODO: Task 3
+     }
+ 
+     private void StopAllBtn_Click(object sender, RoutedEventArgs e) {
+         StopAllPlayback();
+     }
+ 
+     private void SpeedSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e) {
+         var speed = SliderValueToSpeed(SpeedSlider.Value);
+         _coordinator?.SetPlaybackRate(speed);
+         UpdatePlayerSpeedBadges(speed);
+@@ -1937,73 +1942,21 @@ public partial class PlaybackView : UserControl {
+         }
+     }
+ 
+     private void UpdatePlayerSpeedBadges(double rate) {
+         var text = rate >= 1.0 ? $"{(int)rate}x" : $"{rate:F2}".TrimEnd('0').TrimEnd('.') + "x";
+         foreach (var player in _activePlayers) {
+             player.SetSpeedText(text);
+         }
+     }
+ 
+-    // ?Ä?Ä A-B Loop handlers ?Ä?Ä
+-    private void LoopSetABtn_Click(object sender, RoutedEventArgs e) {
+-        var posSecs = Timeline.PositionSeconds;
+-        _loopA = posSecs;
+-        LoopToggleBtn.Content = "??;
+-        LoopToggleBtn.Foreground = Brushes.Gray;
+-        UpdateLoopVisual();
+-    }
+-
+-    private void LoopSetBBtn_Click(object sender, RoutedEventArgs e) {
+-        var posSecs = Timeline.PositionSeconds;
+-        _loopB = posSecs;
+-        _loopEnabled = true;
+-        UpdateLoopVisual();
+-    }
+-
+-    private void LoopToggleBtn_Click(object sender, RoutedEventArgs e) {
+-        _loopEnabled = !_loopEnabled;
+-        UpdateLoopVisual();
+-    }
+-
+-    private void LoopClearBtn_Click(object sender, RoutedEventArgs e) {
+-        _loopA = 0;
+-        _loopB = 0;
+-        _loopEnabled = false;
+-        UpdateLoopVisual();
+-    }
+-
+-    private void UpdateLoopVisual() {
+-        if (_loopA > 0 && _loopB > _loopA && _loopEnabled) {
+-            LoopToggleBtn.Content = "??;
+-            LoopToggleBtn.Foreground = (Brush)FindResource("PrimaryBrush") ?? Brushes.LimeGreen;
+-            LoopPanel.Background = new SolidColorBrush(Color.FromArgb(40, 0x4C, 0xAF, 0x50));
+-        } else if (_loopA > 0 && _loopB > _loopA) {
+-            LoopToggleBtn.Content = "??;
+-            LoopToggleBtn.Foreground = Brushes.Gray;
+-            LoopPanel.Background = (Brush)FindResource("SecondarySurfaceBrush");
+-        } else {
+-            LoopToggleBtn.Content = "??;
+-            LoopToggleBtn.Foreground = Brushes.Gray;
+-            LoopPanel.Background = (Brush)FindResource("SecondarySurfaceBrush");
+-        }
+-    }
+-
+-    private void JumpStartBtn_Click(object sender, RoutedEventArgs e) {
+-        _coordinator?.SeekToStart();
+-        Timeline.PositionSeconds = 0;
+-    }
+ 
+-    private void JumpEndBtn_Click(object sender, RoutedEventArgs e) {
+-        _coordinator?.SeekToEnd();
+-        Timeline.PositionSeconds = 86400;
+-    }
+ 
+     private async void JumpPrevRecBtn_Click(object sender, RoutedEventArgs e) {
+         try { await JumpToAdjacentSegment(direction: -1); } catch (Exception ex) { Log.Debug("[HeliVMS] JumpPrevRec error: {Msg}", ex.Message); }
+     }
+ 
+     private async void JumpNextRecBtn_Click(object sender, RoutedEventArgs e) {
+         try { await JumpToAdjacentSegment(direction: 1); } catch (Exception ex) { Log.Debug("[HeliVMS] JumpNextRec error: {Msg}", ex.Message); }
+     }
+ 
+     private async Task JumpToAdjacentSegment(int direction) {
+@@ -2133,24 +2086,21 @@ public partial class PlaybackView : UserControl {
+                 OnSearchResultClicked(_searchResults[_selectedSearchIndex]);
+                 e.Handled = true;
+                 return;
+             }
+         }
+ 
+         if (_activePlayers.Count == 0) return;
+ 
+         switch (e.Key) {
+             case Key.Space:
+-                if (_isPlaying) {
+-                    PauseBtn_Click(sender, e);
+-                } else
+-                    PlayBtn_Click(sender, e);
++                PlayPauseBtn_Click(sender, e);
+                 e.Handled = true;
+                 break;
+ 
+             case Key.Left when Keyboard.Modifiers == ModifierKeys.Control:
+                 _coordinator?.SeekToStart();
+                 Timeline.PositionSeconds = 0;
+                 e.Handled = true;
+                 break;
+ 
+             case Key.Right when Keyboard.Modifiers == ModifierKeys.Control:
+@@ -2188,35 +2138,21 @@ public partial class PlaybackView : UserControl {
+                 break;
+ 
+             case Key.OemPeriod:
+                 if (Keyboard.Modifiers == ModifierKeys.Shift)
+                     _coordinator?.StepForward(10);
+                 else
+                     _coordinator?.StepForward();
+                 e.Handled = true;
+                 break;
+ 
+-            // A-B Loop shortcuts (no modifiers)
+-            case Key.I:
+-                LoopSetABtn_Click(sender, e);
+-                e.Handled = true;
+-                break;
+-
+-            case Key.O:
+-                LoopSetBBtn_Click(sender, e);
+-                e.Handled = true;
+-                break;
+ 
+-            case Key.L:
+-                LoopToggleBtn_Click(sender, e);
+-                e.Handled = true;
+-                break;
+ 
+             case Key.B when Keyboard.Modifiers == ModifierKeys.None:
+                 AddBookmarkAtCurrentPosition();
+                 e.Handled = true;
+                 break;
+ 
+             case Key.G when Keyboard.Modifiers == ModifierKeys.Control:
+                 ShowGoToTimeDialog();
+                 e.Handled = true;
+                 break;
+@@ -2292,21 +2228,21 @@ public partial class PlaybackView : UserControl {
+     private void OnTimelinePositionChanged(object? sender, double seconds) {
+         var totalSecs = (int)seconds;
+         var h = totalSecs / 3600;
+         var m = (totalSecs % 3600) / 60;
+         var s = totalSecs % 60;
+         PlaybackTimeText.Text = $"{h:D2}:{m:D2}:{s:D2} / --:--:--";
+         FsTimeText.Text = $"{h:D2}:{m:D2}:{s:D2}";
+     }
+ 
+     private void OnTimelineSelectionChanged(object? sender, (DateTime start, DateTime end)? selection) {
+-        ExportClipBtn.IsEnabled = selection.HasValue;
++        // ExportClipBtn was removed in Task 2
+     }
+ 
+     private void OnTimelineBookmarkRequested(object? sender, EventArgs e) {
+         AddBookmarkAtCurrentPosition();
+     }
+ 
+     private void ToggleTypeFilter(object sender, RoutedEventArgs e) {
+         if (sender is ToggleButton btn && btn.Tag is string tagStr && int.TryParse(tagStr, out var typeIndex)) {
+             var cont = ToggleContinuous.IsChecked ?? true;
+             var mot = ToggleMotion.IsChecked ?? true;
+@@ -2468,33 +2404,20 @@ public partial class PlaybackView : UserControl {
+         if (lastBm is not null) {
+             _bookmarkService.SaveBookmark(lastBm, _currentDate);
+         }
+ 
+         ShowBookmarkFeedback("\u2605");
+ 
+         _eventLog.LogInfo(EventCategories.Playback, "PlaybackView",
+             $"?∞Â??∏Á±§", $"?ÇÈ?: {h:D2}:{m:D2}:{s_val:D2}");
+     }
+ 
+-    private void BookmarkListBtn_Click(object sender, RoutedEventArgs e) {
+-        if (BookmarkPanel.Visibility == Visibility.Visible) {
+-            BookmarkPanel.Visibility = Visibility.Collapsed;
+-            BookmarkPanel.Width = 0;
+-            BookmarkListIcon.Fill = (Brush)FindResource("SecondaryTextBrush");
+-        } else {
+-            BookmarkPanel.Width = 180;
+-            BookmarkPanel.Visibility = Visibility.Visible;
+-            BookmarkListIcon.Fill = Brushes.Gold;
+-            RefreshBookmarkList();
+-        }
+-    }
+-
+     private void ClearBookmarksBtn_Click(object sender, RoutedEventArgs e) {
+         _bookmarks.Clear();
+         Timeline.LoadBookmarks(_bookmarks);
+         _bookmarkService.ClearBookmarks(_currentDate);
+         RefreshBookmarkList();
+     }
+ 
+     private void RefreshBookmarkList() {
+         BookmarkListPanel.Children.Clear();
+         BookmarkCountBadge.Text = _bookmarks.Count.ToString();
+@@ -2764,25 +2687,21 @@ public partial class PlaybackView : UserControl {
+     // ?ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚?
+     //  Helpers
+     // ?ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚?
+ 
+     private bool _isMaximized;
+     private int _savedRows;
+     private int _savedCols;
+     private string _forcedLayout = "auto"; // "auto", "1x1", "2x2", "3x3", "4x4"
+ 
+     private void OnPlayerPlayPauseRequested(PlaybackPlayer player) {
+-        if (_isPlaying) {
+-            PauseBtn_Click(player, new RoutedEventArgs());
+-        } else {
+-            PlayBtn_Click(player, new RoutedEventArgs());
+-        }
++        PlayPauseBtn_Click(player, new RoutedEventArgs());
+     }
+ 
+     private void OnPlayerSelected(PlaybackPlayer player) {
+         foreach (var p in _activePlayers)
+             p.IsSelected = false;
+         player.IsSelected = true;
+     }
+ 
+     private void OnPlayerSetAsMasterRequested(PlaybackPlayer player) {
+         if (_coordinator is null) return;
+@@ -2995,136 +2914,20 @@ public partial class PlaybackView : UserControl {
+             item.IsChecked = false;
+         }
+         UpdateChannelCount();
+         UpdateButtonStates();
+     }
+ 
+     private void RefreshBtn_Click(object sender, RoutedEventArgs e) {
+         PopulateChannelList();
+     }
+ 
+-    // ?ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚?
+-    //  Export clip
+-    // ?ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚?
+-
+-    private async void ExportClipBtn_Click(object sender, RoutedEventArgs e) {
+-        var sel = Timeline.GetSelection();
+-        if (sel is null || _currentRecordings.Count == 0) return;
+-
+-        var startSec = (sel.Value.start - _currentDate.Date).TotalSeconds;
+-        var endSec = (sel.Value.end - _currentDate.Date).TotalSeconds;
+-        if (endSec < startSec) (startSec, endSec) = (endSec, startSec);
+-        if (endSec - startSec < 1) return;
+-
+-        // Build list of channels with recordings in the selected range
+-        var startTime = _currentDate.Date.AddSeconds(startSec);
+-        var endTime = _currentDate.Date.AddSeconds(endSec);
+-        var availableChannels = new List<(int ChannelNumber, string CameraName)>();
+-        var seenChannels = new HashSet<int>();
+-        for (var ri = 0; ri < _currentRecordings.Count; ri++) {
+-            var rec = _currentRecordings[ri];
+-            if (seenChannels.Contains(rec.ChannelNumber)) continue;
+-            var hasOverlap = false;
+-            var segs = rec.Segments;
+-            for (var si = 0; si < segs.Count && !hasOverlap; si++) {
+-                var s = segs[si];
+-                if (s.StartTime <= endTime && (!s.EndTime.HasValue || s.EndTime.Value > startTime)) {
+-                    hasOverlap = true;
+-                }
+-            }
+-            if (hasOverlap) {
+-                seenChannels.Add(rec.ChannelNumber);
+-                availableChannels.Add((rec.ChannelNumber, rec.CameraName));
+-            }
+-        }
+-        availableChannels.Sort((a, b) => a.ChannelNumber.CompareTo(b.ChannelNumber));
+-
+-        if (availableChannels.Count == 0) {
+-            MessageBox.Show("?∏Â??ÇÈ?ÁØÑÂ??ßÁÑ°?ÑÂΩ±Ë≥áÊ??ØÂåØ?∫„Ä?, "?êÁ§∫",
+-                MessageBoxButton.OK, MessageBoxImage.Information);
+-            return;
+-        }
+-
+-        var optDialog = new ExportOptionsDialog(availableChannels);
+-        if (optDialog.ShowDialog() != true) return;
+-        var isRawCopy = optDialog.IsRawCopy;
+-        var burnTimestamp = optDialog.BurnTimestamp;
+-        var selectedChannels = optDialog.SelectedChannels;
+-
+-        // Collect all camera segments within selected time range
+-        var exportSegments = new List<(CameraRecordingInfo Rec, VideoSegment Seg, double Offset, double Duration)>();
+-        foreach (var rec in _currentRecordings) {
+-            if (!selectedChannels.Contains(rec.ChannelNumber)) continue;
+-            foreach (var seg in rec.Segments) {
+-                var segStart = (seg.StartTime - _currentDate.Date).TotalSeconds;
+-                var segEnd = seg.EndTime.HasValue
+-                    ? (seg.EndTime.Value - _currentDate.Date).TotalSeconds
+-                    : segStart + 60;
+-                if (segEnd <= startSec || segStart >= endSec) continue;
+-                var offset = Math.Max(0, startSec - segStart);
+-                var duration = Math.Min(endSec, segEnd) - Math.Max(startSec, segStart);
+-                if (duration > 0.5) {
+-                    exportSegments.Add((rec, seg, offset, duration));
+-                }
+-            }
+-        }
+-
+-        if (exportSegments.Count == 0) {
+-            MessageBox.Show("?∏Â??ÇÈ?ÁØÑÂ??ßÁÑ°?ÑÂΩ±Ë≥áÊ??ØÂåØ?∫„Ä?, "?êÁ§∫",
+-                MessageBoxButton.OK, MessageBoxImage.Information);
+-            return;
+-        }
+-
+-        string outputPath;
+-        if (isRawCopy) {
+-            var saveDialog = new SaveFileDialog {
+-                Title = "?ØÂá∫?ÑÂΩ± ???∏Ê??ÆÊ?Ë≥áÊ?Â§?,
+-                FileName = $"Export_{_currentDate:yyyyMMdd}_{startTime:HHmmss}-{endTime:HHmmss}",
+-                DefaultExt = "",
+-                Filter = "Ë≥áÊ?Â§?(*.*)|*.*"
+-            };
+-            if (saveDialog.ShowDialog() != true) return;
+-            var dir = Path.GetDirectoryName(saveDialog.FileName)!;
+-            var name = Path.GetFileNameWithoutExtension(saveDialog.FileName);
+-            outputPath = Path.Combine(dir, name);
+-            Directory.CreateDirectory(outputPath);
+-        } else {
+-            var saveDialog = new SaveFileDialog {
+-                Title = "?ØÂá∫?ÑÂΩ± ???∏Ê??ÆÊ?Ê™îÊ?",
+-                FileName = $"Export_{_currentDate:yyyyMMdd}_{startTime:HHmmss}-{endTime:HHmmss}",
+-                DefaultExt = ".mp4",
+-                Filter = "MP4 Ê™îÊ? (*.mp4)|*.mp4|AVI Ê™îÊ? (*.avi)|*.avi"
+-            };
+-            if (saveDialog.ShowDialog() != true) return;
+-            outputPath = saveDialog.FileName;
+-        }
+-
+-        ExportClipBtn.IsEnabled = false;
+-        ExportClipBtn.Content = "?ØÂá∫‰∏≠‚Ä?;
+-
+-        try {
+-            if (isRawCopy) {
+-                await RawExportAsync(exportSegments, outputPath);
+-            } else {
+-                await FfmpegExportAsync(exportSegments, burnTimestamp, outputPath);
+-            }
+-        } catch (Exception ex) {
+-            _eventLog.LogError(EventCategories.Playback, "PlaybackView",
+-                $"?ØÂá∫Â§±Ê?", ex.ToString());
+-            MessageBox.Show($"?ØÂá∫Â§±Ê?Ôºö{ex.Message}", "?ØË™§",
+-                MessageBoxButton.OK, MessageBoxImage.Error);
+-        } finally {
+-            ExportClipBtn.IsEnabled = true;
+-            ExportClipBtn.Content = "?ØÂá∫";
+-        }
+-    }
+-
+     private async Task RawExportAsync(
+         List<(CameraRecordingInfo Rec, VideoSegment Seg, double Offset, double Duration)> exportSegments,
+         string outputDir) {
+         var total = exportSegments.Count;
+         var successCount = 0;
+         var wasCancelled = false;
+ 
+         var progressDialog = new ExportProgressDialog(total);
+         progressDialog.Show();
+ 
+@@ -3386,30 +3189,36 @@ public partial class PlaybackView : UserControl {
+             60 => (8, 8),
+             61 => (8, 8),
+             62 => (8, 8),
+             63 => (8, 8),
+             _ => (8, 8)
+         };
+     }
+ 
+     private void UpdateButtonStates() {
+         var hasContent = _activePlayers.Count > 0;
+-        PlayBtn.IsEnabled = hasContent && !_isPlaying;
+-        PauseBtn.IsEnabled = hasContent && _isPlaying;
+-        StopBtn.IsEnabled = hasContent;
+-        StopAllBtn.IsEnabled = hasContent;
+-        JumpStartBtn.IsEnabled = hasContent;
+-        JumpEndBtn.IsEnabled = hasContent;
++        PlayPauseBtn.IsEnabled = hasContent;
+         StepBackBtn.IsEnabled = hasContent;
+         StepFwdBtn.IsEnabled = hasContent;
++        JumpPrevRecBtn.IsEnabled = hasContent;
++        JumpNextRecBtn.IsEnabled = hasContent;
++        StopAllBtn.IsEnabled = hasContent;
++        BookmarkBtn.IsEnabled = hasContent;
+         LayoutBtn.IsEnabled = hasContent;
+ 
++        // Update icon based on play state
++        PlayPauseIcon.Data = (_isPlaying
++            ? TryFindResource("IconPause") ?? Application.Current?.TryFindResource("IconPause")
++            : TryFindResource("IconPlay") ?? Application.Current?.TryFindResource("IconPlay")) as Geometry
++            ?? PlayPauseIcon.Data;
++        PlayPauseBtn.ToolTip = _isPlaying ? "?´Â? (Space)" : "?≠Êîæ (Space)";
++
+         UpdateFsTransportState();
+     }
+ 
+     // ?ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚?
+     //  GoTo Time
+     // ?ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚??ê‚?
+ 
+     private void ShowGoToTimeDialog() {
+         if (_activePlayers.Count == 0 || _coordinator is null) return;
+ 
+@@ -3510,30 +3319,24 @@ public partial class PlaybackView : UserControl {
+     }
+ 
+     private void FsSnapshotBtn_Click(object sender, RoutedEventArgs e) {
+         SnapshotBtn_Click(sender, e);
+     }
+ 
+     private void FsTransportBtn_Click(object sender, RoutedEventArgs e) {
+         if (sender is Button btn && btn.Tag is string action) {
+             switch (action) {
+                 case "play":
+-                    if (!_isPlaying) PlayBtn_Click(sender, e);
++                    if (!_isPlaying) PlayPauseBtn_Click(sender, e);
+                     break;
+                 case "pause":
+-                    if (_isPlaying) PauseBtn_Click(sender, e);
+-                    break;
+-                case "jumpStart":
+-                    JumpStartBtn_Click(sender, e);
+-                    break;
+-                case "jumpEnd":
+-                    JumpEndBtn_Click(sender, e);
++                    if (_isPlaying) PlayPauseBtn_Click(sender, e);
+                     break;
+                 case "stepBack":
+                     StepBackBtn_Click(sender, e);
+                     break;
+                 case "stepFwd":
+                     StepFwdBtn_Click(sender, e);
+                     break;
+                 case "speed":
+                     var currentSpeed = SliderValueToSpeed(SpeedSlider.Value);
+                     var nextSpeed = currentSpeed >= 16 ? 1.0 : currentSpeed * 2;

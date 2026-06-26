@@ -1,0 +1,278 @@
+# Review package: 7672395..2e690e6da75f3e21852f9af7a7ef5ea30a4fd52b
+
+## Commits
+
+2e690e6 Task 6: THMB ThumbnailCanvas in NxTimeline
+
+## Files changed
+
+ .superpowers/sdd/task-6-report.md | 39 +++++++++++++++++++++++++++
+ Controls/NxTimeline.xaml          | 38 +++++++++++++++-----------
+ Controls/NxTimeline.xaml.cs       | 57 ++++++++++++++++++++++++++++++++++++++-
+ 3 files changed, 118 insertions(+), 16 deletions(-)
+
+## Diff
+
+diff --git a/.superpowers/sdd/task-6-report.md b/.superpowers/sdd/task-6-report.md
+new file mode 100644
+index 0000000..ef0dc15
+--- /dev/null
++++ b/.superpowers/sdd/task-6-report.md
+@@ -0,0 +1,39 @@
++# Task 6: THMB ThumbnailCanvas in NxTimeline
++
++## Changes Made
++
++### `Controls/NxTimeline.xaml`
++- Changed `Grid.RowDefinitions` from 3 rows to 4 rows:
++  - Row 0 (Auto): ThumbnailStrip ??48px when visible
++  - Row 1 (24px): ActivityCanvas (shifted from Row 0)
++  - Row 2 (*): CameraRowsCanvas (shifted from Row 1)
++  - Row 3 (16px): TimeScaleCanvas (shifted from Row 2)
++- Added `ThumbnailCanvas` at `Grid.Row="0"` with `Height="48"`, `ClipToBounds="True"`, `Visibility="Collapsed"`, and `PreviewMouseMove="ThumbnailCanvas_MouseMove"`
++- Updated all existing Grid.Row offsets (+1): ActivityCanvas, ActivityCanvas Border, CameraRowsCanvas Border, TimeScaleCanvas Border, ZoomLabel, GoLiveBtn
++- Updated overlay RowSpan from 3 to 4: SelectionCanvas, PositionCanvas, BookmarksCanvas
++
++### `Controls/NxTimeline.xaml.cs`
++- Added `_showThumbnails` field (line 46)
++- Filled in `ToggleThumbnails(bool show)` ??toggles visibility, draws or clears thumbnails
++- Added `DrawThumbnails()` ??renders recording segments as thin translucent colored bars at bottom of thumbnail strip
++- Added `SegsToThumbX(double secs)` ??converts seconds to X position using ThumbnailCanvas width
++- Added `ThumbnailCanvas_MouseMove` ??shows timestamp tooltip on hover
++- Updated `DrawAll()` to call `DrawThumbnails()` when `_showThumbnails` is true
++
++## Build Result
++```
++å»ºç½®?å???+    0 ?‹è­¦??+    0 ?‹éŒ¯èª?+```
++
++## Self-Review Notes
++- `GetColorForRecordType()` returns `Color` struct ??used directly with `Color.FromArgb(60, color.R, color.G, color.B)` ??+- `IsTypeVisible()` takes `int recordType` ??matches `seg.RecordType` ??+- `SegsToThumbX` is independent from `SecsToX` ??uses `ThumbnailCanvas.ActualWidth` not `CameraRowsCanvas.ActualWidth` ??+- All existing Grid.Row values incremented correctly; no stale references ??+- Overlay canvases RowSpan=4 covers all 4 rows ??+- `ToggleThumbnails` is public ??matches the stub that already existed ??+
++## Concerns
++None.
+diff --git a/Controls/NxTimeline.xaml b/Controls/NxTimeline.xaml
+index d9ae9a7..1e2a3eb 100644
+--- a/Controls/NxTimeline.xaml
++++ b/Controls/NxTimeline.xaml
+@@ -1,75 +1,83 @@
+ ï»?UserControl x:Class="HeliVMS.Controls.NxTimeline"
+              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+              Background="{DynamicResource SurfaceBrush}"
+              BorderThickness="0,1,0,0" BorderBrush="{DynamicResource BorderBrush}">
+     <Grid>
+         <Grid.RowDefinitions>
+-            <RowDefinition Height="24"/>
+-            <RowDefinition Height="*"/>
+-            <RowDefinition Height="16"/>
++            <RowDefinition Height="Auto"/>   <!-- 0: ThumbnailStrip (48px when visible) -->
++            <RowDefinition Height="24"/>     <!-- 1: ActivityCanvas -->
++            <RowDefinition Height="*"/>      <!-- 2: CameraRowsCanvas -->
++            <RowDefinition Height="16"/>     <!-- 3: TimeScaleCanvas -->
+         </Grid.RowDefinitions>
+ 
+-        <!-- ?â???Row 0: Activity Overview Bar (NEW) ?â???-->
+-        <Canvas x:Name="ActivityCanvas" Grid.Row="0"
++        <!-- ?â???Row 0: Thumbnail Strip ?â???-->
++        <Canvas x:Name="ThumbnailCanvas" Grid.Row="0"
++                Height="48" ClipToBounds="True"
++                Background="{DynamicResource OverlayBrush}"
++                Visibility="Collapsed"
++                PreviewMouseMove="ThumbnailCanvas_MouseMove"/>
++
++        <!-- ?â???Row 1: Activity Overview Bar ?â???-->
++        <Canvas x:Name="ActivityCanvas" Grid.Row="1"
+                 Height="24" ClipToBounds="True"
+                 Background="Transparent"
+                 PreviewMouseLeftButtonDown="ActivityCanvas_MouseLeftButtonDown"
+                 PreviewMouseRightButtonDown="ActivityCanvas_PreviewMouseRightButtonDown"
+                 PreviewMouseRightButtonUp="ActivityCanvas_PreviewMouseRightButtonUp"
+                 PreviewMouseMove="ActivityCanvas_MouseMove"
+                 PreviewMouseWheel="ActivityCanvas_PreviewMouseWheel"/>
+-        <Border Grid.Row="0" BorderThickness="0,0,0,1"
++        <Border Grid.Row="1" BorderThickness="0,0,0,1"
+                 BorderBrush="{DynamicResource BorderBrush}" Opacity="0.3"
+                 IsHitTestVisible="False" VerticalAlignment="Bottom" Height="1"/>
+ 
+-        <!-- ?â???Row 1: Camera Rows ?â???-->
+-        <Border Grid.Row="1" BorderThickness="0,0,0,1" BorderBrush="{DynamicResource BorderBrush}" Opacity="0.5">
++        <!-- ?â???Row 2: Camera Rows ?â???-->
++        <Border Grid.Row="2" BorderThickness="0,0,0,1" BorderBrush="{DynamicResource BorderBrush}" Opacity="0.5">
+             <Canvas x:Name="CameraRowsCanvas" Background="Transparent"
+                     PreviewMouseWheel="Canvas_PreviewMouseWheel"
+                     PreviewMouseRightButtonDown="Canvas_PreviewMouseRightButtonDown"
+                     PreviewMouseRightButtonUp="Canvas_PreviewMouseRightButtonUp"
+                     PreviewMouseMove="Canvas_PreviewMouseMove"
+                     PreviewMouseLeftButtonDown="Canvas_PreviewMouseLeftButtonDown"
+                     PreviewMouseLeftButtonUp="Canvas_PreviewMouseLeftButtonUp"
+                     ClipToBounds="True">
+                 <Canvas.ContextMenu>
+                     <ContextMenu>
+                         <MenuItem Header="?¾å¤§?³é¸?€" InputGestureText="Ctrl+Wheel" Click="CtxZoomToSel"/>
+                         <MenuItem Header="æ¸…é™¤?¸å?" InputGestureText="Esc" Click="CtxClearSel"/>
+                         <Separator/>
+                         <MenuItem Header="?¯å‡º?¸å??€æ®? InputGestureText="Ctrl+E" Click="CtxExportRange"/>
+                         <MenuItem Header="? å…¥?¸ç±¤" InputGestureText="B" Click="CtxAddBookmark"/>
+                     </ContextMenu>
+                 </Canvas.ContextMenu>
+             </Canvas>
+         </Border>
+ 
+-        <!-- ?â???Row 2: Time Scale ?â???-->
+-        <Border Grid.Row="2" Background="{DynamicResource BackgroundBrush}" Opacity="0.5">
++        <!-- ?â???Row 3: Time Scale ?â???-->
++        <Border Grid.Row="3" Background="{DynamicResource BackgroundBrush}" Opacity="0.5">
+             <Canvas x:Name="TimeScaleCanvas" ClipToBounds="True"
+                     PreviewMouseWheel="Scale_PreviewMouseWheel"
+                     MouseDown="Scale_MouseDown"/>
+         </Border>
+ 
+         <!-- ?â???Overlay Canvases (span all rows) ?â???-->
+         <Canvas x:Name="SelectionCanvas" IsHitTestVisible="False" ClipToBounds="True"
+-                Grid.RowSpan="3"/>
++                Grid.RowSpan="4"/>
+         <Canvas x:Name="PositionCanvas" IsHitTestVisible="False" ClipToBounds="True"
+-                Grid.RowSpan="3"/>
++                Grid.RowSpan="4"/>
+         <Canvas x:Name="BookmarksCanvas" IsHitTestVisible="False" ClipToBounds="True"
+-                Grid.RowSpan="3"/>
++                Grid.RowSpan="4"/>
+ 
+         <!-- ?â???Labels ?â???-->
+-        <TextBlock x:Name="ZoomLabel" Grid.Row="2" Text="24h"
++        <TextBlock x:Name="ZoomLabel" Grid.Row="3" Text="24h"
+                    FontSize="9" Foreground="{DynamicResource SecondaryTextBrush}"
+                    HorizontalAlignment="Right" VerticalAlignment="Center"
+                    Margin="0,0,4,0" IsHitTestVisible="False"/>
+-        <Button x:Name="GoLiveBtn" Grid.Row="1" Content="?¾åœ¨"
++        <Button x:Name="GoLiveBtn" Grid.Row="2" Content="?¾åœ¨"
+                 FontSize="9" Padding="6,1" Height="18"
+                 HorizontalAlignment="Right" VerticalAlignment="Top"
+                 Margin="0,2,4,0" Cursor="Hand"
+                 Background="{DynamicResource OverlayBrush}" Foreground="{DynamicResource TextBrush}"
+                 BorderThickness="0" Click="GoLiveBtn_Click"/>
+     </Grid>
+ </UserControl>
+diff --git a/Controls/NxTimeline.xaml.cs b/Controls/NxTimeline.xaml.cs
+index dbe552d..d7a8161 100644
+--- a/Controls/NxTimeline.xaml.cs
++++ b/Controls/NxTimeline.xaml.cs
+@@ -36,20 +36,21 @@ public partial class NxTimeline : UserControl {
+     private int _zoomIndex;
+     private double _positionSeconds;
+     private double _viewStartSeconds;
+     private List<string> _cameraIds = [];
+     private Dictionary<string, string> _cameraNames = [];
+     private List<VideoSegment> _segments = [];
+     private bool _showContinuous = true;
+     private bool _showMotion = true;
+     private bool _showAlarm = true;
+     private bool _showAi = true;
++    private bool _showThumbnails;
+     private List<PlaybackBookmark> _bookmarks = [];
+     private bool _isDragging;
+     private bool _isSelecting;
+     private Point _selectStart;
+     private Point _selectEnd;
+     private Rect? _selectionRect;
+ 
+     public DateTime TimelineDay { get => _timelineDay; set { _timelineDay = value.Date; InvalidateVisual(); Refresh(); } }
+     public double ZoomLevel => ZoomLevels[_zoomIndex];
+     public double PositionSeconds { get => _positionSeconds; set { _positionSeconds = Math.Clamp(value, 0, 86400); DrawPosition(); PositionChanged?.Invoke(this, _positionSeconds); } }
+@@ -149,21 +150,74 @@ public partial class NxTimeline : UserControl {
+     }
+ 
+     public void SetTypeFilter(bool continuous, bool motion, bool alarm, bool ai) {
+         _showContinuous = continuous;
+         _showMotion = motion;
+         _showAlarm = alarm;
+         _showAi = ai;
+         DrawAll();
+     }
+ 
+-    public void ToggleThumbnails(bool show) { }
++    public void ToggleThumbnails(bool show) {
++        _showThumbnails = show;
++        ThumbnailCanvas.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
++        if (show) DrawThumbnails();
++        else ThumbnailCanvas.Children.Clear();
++    }
++
++    private void DrawThumbnails() {
++        ThumbnailCanvas.Children.Clear();
++        var w = ThumbnailCanvas.ActualWidth;
++        if (w <= 0 || _segments.Count == 0) return;
++
++        var totalSecs = ZoomLevels[_zoomIndex];
++        var viewEnd = _viewStartSeconds + totalSecs;
++        var h = ThumbnailCanvas.ActualHeight;
++
++        foreach (var seg in _segments) {
++            if (!IsTypeVisible(seg.RecordType)) continue;
++            var segStart = (seg.StartTime - _timelineDay).TotalSeconds;
++            var segEnd = seg.EndTime.HasValue
++                ? (seg.EndTime.Value - _timelineDay).TotalSeconds
++                : _viewStartSeconds + totalSecs;
++            if (segEnd < _viewStartSeconds || segStart > viewEnd) continue;
++
++            var x1 = Math.Max(0, SegsToThumbX(segStart));
++            var x2 = Math.Min(w, SegsToThumbX(segEnd));
++            var rectW = Math.Max(1, x2 - x1);
++
++            var color = GetColorForRecordType(seg.RecordType);
++            var rect = new Rectangle {
++                Width = rectW, Height = 4,
++                Fill = new SolidColorBrush(Color.FromArgb(60, color.R, color.G, color.B)),
++                ToolTip = $"{seg.CameraId}: {seg.StartTime:HH:mm}"
++            };
++            Canvas.SetLeft(rect, x1);
++            Canvas.SetTop(rect, h - 5);
++            ThumbnailCanvas.Children.Add(rect);
++        }
++    }
++
++    private double SegsToThumbX(double secs) {
++        var w = ThumbnailCanvas.ActualWidth;
++        if (w <= 0 || ZoomLevels[_zoomIndex] <= 0) return 0;
++        return (secs - _viewStartSeconds) / ZoomLevels[_zoomIndex] * w;
++    }
++
++    private void ThumbnailCanvas_MouseMove(object sender, MouseEventArgs e) {
++        var pos = e.GetPosition(ThumbnailCanvas);
++        var w = ThumbnailCanvas.ActualWidth;
++        if (w <= 0) return;
++        var secs = _viewStartSeconds + pos.X / w * ZoomLevels[_zoomIndex];
++        var time = _timelineDay.AddSeconds(secs);
++        ThumbnailCanvas.ToolTip = $"{time:HH:mm:ss}";
++    }
+ 
+     public void InvalidateActivity() {
+         if (Dispatcher.CheckAccess())
+             DrawActivityOverview();
+         else
+             Dispatcher.InvokeAsync(DrawActivityOverview);
+     }
+ 
+     private void DrawActivityOverview() {
+         ActivityCanvas.Children.Clear();
+@@ -328,20 +382,21 @@ public partial class NxTimeline : UserControl {
+         if (c[3] > 0) parts.Add($"AI {c[3]}");
+         ActivityCanvas.ToolTip = $"{time:HH:mm:ss} ??{total} æ®?({string.Join(" / ", parts)})";
+     }
+ 
+     private void DrawAll() {
+         DrawActivityOverview();
+         DrawCameraRows();
+         DrawTimeScale();
+         DrawPosition();
+         DrawBookmarks();
++        if (_showThumbnails) DrawThumbnails();
+         UpdateZoomLabel();
+     }
+ 
+     private double SecsToX(double secs) {
+         var w = CameraRowsCanvas.ActualWidth;
+         if (w <= 0 || ZoomLevels[_zoomIndex] <= 0) return 0;
+         return (secs - _viewStartSeconds) / ZoomLevels[_zoomIndex] * w;
+     }
+ 
+     private double XToSecs(double x) {
