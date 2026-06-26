@@ -5,10 +5,21 @@
              BorderThickness="0,1,0,0" BorderBrush="{DynamicResource BorderBrush}">
     <Grid>
         <Grid.RowDefinitions>
+            <RowDefinition Height="24"/>
             <RowDefinition Height="*"/>
             <RowDefinition Height="16"/>
         </Grid.RowDefinitions>
-        <Border Grid.Row="0" BorderThickness="0,0,0,1" BorderBrush="{DynamicResource BorderBrush}" Opacity="0.5">
+
+        <!-- ═══ Row 0: Activity Overview Bar (NEW) ═══ -->
+        <Canvas x:Name="ActivityCanvas" Grid.Row="0"
+                Height="24" ClipToBounds="True"
+                Background="Transparent"/>
+        <Border Grid.Row="0" BorderThickness="0,0,0,1"
+                BorderBrush="{DynamicResource BorderBrush}" Opacity="0.3"
+                IsHitTestVisible="False" VerticalAlignment="Bottom" Height="1"/>
+
+        <!-- ═══ Row 1: Camera Rows ═══ -->
+        <Border Grid.Row="1" BorderThickness="0,0,0,1" BorderBrush="{DynamicResource BorderBrush}" Opacity="0.5">
             <Canvas x:Name="CameraRowsCanvas" Background="Transparent"
                     PreviewMouseWheel="Canvas_PreviewMouseWheel"
                     PreviewMouseRightButtonDown="Canvas_PreviewMouseRightButtonDown"
@@ -28,22 +39,28 @@
                 </Canvas.ContextMenu>
             </Canvas>
         </Border>
-        <Border Grid.Row="1" Background="{DynamicResource BackgroundBrush}" Opacity="0.5">
+
+        <!-- ═══ Row 2: Time Scale ═══ -->
+        <Border Grid.Row="2" Background="{DynamicResource BackgroundBrush}" Opacity="0.5">
             <Canvas x:Name="TimeScaleCanvas" ClipToBounds="True"
                     PreviewMouseWheel="Scale_PreviewMouseWheel"
                     MouseDown="Scale_MouseDown"/>
         </Border>
+
+        <!-- ═══ Overlay Canvases (span all rows) ═══ -->
         <Canvas x:Name="SelectionCanvas" IsHitTestVisible="False" ClipToBounds="True"
-                Grid.RowSpan="2"/>
+                Grid.RowSpan="3"/>
         <Canvas x:Name="PositionCanvas" IsHitTestVisible="False" ClipToBounds="True"
-                Grid.RowSpan="2"/>
+                Grid.RowSpan="3"/>
         <Canvas x:Name="BookmarksCanvas" IsHitTestVisible="False" ClipToBounds="True"
-                Grid.RowSpan="2"/>
-        <TextBlock x:Name="ZoomLabel" Grid.Row="1" Text="24h"
+                Grid.RowSpan="3"/>
+
+        <!-- ═══ Labels ═══ -->
+        <TextBlock x:Name="ZoomLabel" Grid.Row="2" Text="24h"
                    FontSize="9" Foreground="{DynamicResource SecondaryTextBrush}"
                    HorizontalAlignment="Right" VerticalAlignment="Center"
                    Margin="0,0,4,0" IsHitTestVisible="False"/>
-        <Button x:Name="GoLiveBtn" Grid.Row="0" Content="現在"
+        <Button x:Name="GoLiveBtn" Grid.Row="1" Content="現在"
                 FontSize="9" Padding="6,1" Height="18"
                 HorizontalAlignment="Right" VerticalAlignment="Top"
                 Margin="0,2,4,0" Cursor="Hand"
