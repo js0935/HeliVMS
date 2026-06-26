@@ -811,6 +811,11 @@
                                 TickFrequency="1" IsSnapToTickEnabled="False"
                                 Width="100" Height="20" Margin="4,0,0,0"
                                 ValueChanged="SpeedSlider_ValueChanged"
+                                PreviewMouseDown="SpeedSlider_PreviewMouseDown"
+                                PreviewMouseUp="SpeedSlider_PreviewMouseUp"
+                                PreviewMouseMove="SpeedSlider_PreviewMouseMove"
+                                PreviewMouseWheel="SpeedSlider_PreviewMouseWheel"
+                                MouseLeave="SpeedSlider_MouseLeave"
                                 Style="{StaticResource ModernSlider}"
                                 VerticalAlignment="Center"/>
                     </Grid>

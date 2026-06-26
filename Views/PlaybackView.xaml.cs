@@ -48,6 +48,8 @@ public partial class PlaybackView : UserControl {
 
     private bool _liveMode;
     private bool _syncEnabled = true;
+    private bool _isTemporarySpeed;
+    private double _defaultSpeed = 1.0;
 
     private const int MaxPlaybackChannels = 64;
     private readonly DispatcherTimer _clockTimer;
@@ -1897,9 +1899,19 @@ public partial class PlaybackView : UserControl {
         if (_isPlaying) {
             _coordinator?.Pause();
             _isPlaying = false;
+            _defaultSpeed = 0.0;
         } else {
             _coordinator?.Play();
             _isPlaying = true;
+            _defaultSpeed = 1.0;
+        }
+        if (!_isTemporarySpeed) {
+            var speed = SliderValueToSpeed(SpeedSlider.Value);
+            _coordinator?.SetPlaybackRate(speed);
+            UpdatePlayerSpeedBadges(speed);
+            ShowSpeedOSDOnPlayers(speed);
+            SpeedLabel.Text = SpeedToDisplayText(speed);
+            UpdateFsSpeedDisplay();
         }
         UpdateButtonStates();
     }
@@ -1982,6 +1994,59 @@ public partial class PlaybackView : UserControl {
         ShowSpeedOSDOnPlayers(speed);
         SpeedLabel.Text = SpeedToDisplayText(speed);
         UpdateFsSpeedDisplay();
+    }
+
+    private Point _sliderMouseDownPos;
+
+    private void SpeedSlider_PreviewMouseDown(object sender, MouseButtonEventArgs e) {
+        _sliderMouseDownPos = e.GetPosition(SpeedSlider);
+        _isTemporarySpeed = true;
+        _defaultSpeed = _isPlaying ? 1.0 : 0.0;
+        SpeedSlider.CaptureMouse();
+    }
+
+    private void SpeedSlider_PreviewMouseMove(object sender, MouseEventArgs e) {
+        if (e.LeftButton == MouseButtonState.Pressed && _isTemporarySpeed) {
+            var pos = e.GetPosition(SpeedSlider);
+            if (Math.Abs(pos.X - _sliderMouseDownPos.X) > 5 ||
+                Math.Abs(pos.Y - _sliderMouseDownPos.Y) > 5) {
+                _isTemporarySpeed = false;
+            }
+        }
+    }
+
+    private void SpeedSlider_PreviewMouseUp(object sender, MouseButtonEventArgs e) {
+        SpeedSlider.ReleaseMouseCapture();
+        if (_isTemporarySpeed) {
+            SpeedSlider.Value = 50;
+            _isTemporarySpeed = false;
+            _coordinator?.SetPlaybackRate(_defaultSpeed);
+            UpdatePlayerSpeedBadges(_defaultSpeed);
+            ShowSpeedOSDOnPlayers(_defaultSpeed);
+            SpeedLabel.Text = SpeedToDisplayText(_defaultSpeed);
+            UpdateFsSpeedDisplay();
+        }
+    }
+
+    private void SpeedSlider_PreviewMouseWheel(object sender, MouseWheelEventArgs e) {
+        var delta = e.Delta > 0 ? 4 : -4;
+        var newVal = Math.Clamp(SpeedSlider.Value + delta, 0, 100);
+        SpeedSlider.Value = newVal;
+        _isTemporarySpeed = true;
+        _defaultSpeed = _isPlaying ? 1.0 : 0.0;
+        e.Handled = true;
+    }
+
+    private void SpeedSlider_MouseLeave(object sender, MouseEventArgs e) {
+        if (_isTemporarySpeed) {
+            _isTemporarySpeed = false;
+            SpeedSlider.Value = 50;
+            _coordinator?.SetPlaybackRate(_defaultSpeed);
+            UpdatePlayerSpeedBadges(_defaultSpeed);
+            ShowSpeedOSDOnPlayers(_defaultSpeed);
+            SpeedLabel.Text = SpeedToDisplayText(_defaultSpeed);
+            UpdateFsSpeedDisplay();
+        }
     }
 
     private double SliderValueToSpeed(double sliderVal) {
@@ -3427,15 +3492,16 @@ public partial class PlaybackView : UserControl {
                 case "stepFwd":
                     StepFwdBtn_Click(sender, e);
                     break;
-                case "speed":
-                    var currentSpeed = SliderValueToSpeed(SpeedSlider.Value);
+                case "speed": {
+                    var currentSpeed = Math.Abs(SliderValueToSpeed(SpeedSlider.Value));
                     var nextSpeed = currentSpeed >= 16 ? 1.0 : currentSpeed * 2;
                     var sliderVal = nextSpeed switch {
-                        0.25 => 0, 0.5 => 25, 1.0 => 50, 2.0 => 75, 4.0 => 87, 8.0 => 94, 16.0 => 100,
+                        1.0 => 50, 2.0 => 62, 4.0 => 75, 8.0 => 87, 16.0 => 100,
                         _ => 50
                     };
                     SpeedSlider.Value = sliderVal;
                     break;
+                }
             }
         }
     }
