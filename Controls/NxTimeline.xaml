@@ -13,7 +13,12 @@
         <!-- ═══ Row 0: Activity Overview Bar (NEW) ═══ -->
         <Canvas x:Name="ActivityCanvas" Grid.Row="0"
                 Height="24" ClipToBounds="True"
-                Background="Transparent"/>
+                Background="Transparent"
+                PreviewMouseLeftButtonDown="ActivityCanvas_MouseLeftButtonDown"
+                PreviewMouseRightButtonDown="ActivityCanvas_PreviewMouseRightButtonDown"
+                PreviewMouseRightButtonUp="ActivityCanvas_PreviewMouseRightButtonUp"
+                PreviewMouseMove="ActivityCanvas_MouseMove"
+                PreviewMouseWheel="ActivityCanvas_PreviewMouseWheel"/>
         <Border Grid.Row="0" BorderThickness="0,0,0,1"
                 BorderBrush="{DynamicResource BorderBrush}" Opacity="0.3"
                 IsHitTestVisible="False" VerticalAlignment="Bottom" Height="1"/>

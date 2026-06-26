@@ -156,7 +156,179 @@ public partial class NxTimeline : UserControl {
         DrawAll();
     }
 
+    public void InvalidateActivity() {
+        if (Dispatcher.CheckAccess())
+            DrawActivityOverview();
+        else
+            Dispatcher.InvokeAsync(DrawActivityOverview);
+    }
+
+    private void DrawActivityOverview() {
+        ActivityCanvas.Children.Clear();
+        var w = ActivityCanvas.ActualWidth;
+        if (w <= 0 || _segments.Count == 0) return;
+
+        var totalSecs = ZoomLevels[_zoomIndex];
+        var viewEnd = _viewStartSeconds + totalSecs;
+        var h = ActivityCanvas.ActualHeight;
+        var bucketCount = (int)Math.Ceiling(w);
+        var secsPerPixel = totalSecs / w;
+
+        var counts = new int[bucketCount][];
+        for (int i = 0; i < bucketCount; i++) counts[i] = new int[4];
+
+        var visibleSegs = _segments.Where(s => IsTypeVisible(s.RecordType));
+
+        foreach (var seg in visibleSegs) {
+            var segStart = (seg.StartTime - _timelineDay).TotalSeconds;
+            var segEnd = seg.EndTime.HasValue
+                ? (seg.EndTime.Value - _timelineDay).TotalSeconds
+                : _viewStartSeconds + totalSecs;
+
+            if (segEnd < _viewStartSeconds || segStart > viewEnd) continue;
+
+            int startBucket = Math.Max(0, (int)((segStart - _viewStartSeconds) / secsPerPixel));
+            int endBucket = Math.Min(bucketCount - 1, (int)((segEnd - _viewStartSeconds) / secsPerPixel));
+
+            for (int b = startBucket; b <= endBucket; b++) {
+                int rt = seg.RecordType;
+                if (rt >= 0 && rt < 4) counts[b][rt]++;
+            }
+        }
+
+        int runStart = -1;
+        byte runR = 0, runG = 0, runB = 0;
+        byte runA = 0;
+
+        void FlushRun(int end) {
+            if (runStart < 0) return;
+            double x = runStart;
+            double rw = Math.Max(1, end - runStart);
+            var rect = new Rectangle {
+                Width = rw, Height = h,
+                Fill = new SolidColorBrush(Color.FromArgb(runA, runR, runG, runB))
+            };
+            Canvas.SetLeft(rect, x);
+            Canvas.SetTop(rect, 0);
+            ActivityCanvas.Children.Add(rect);
+        }
+
+        for (int b = 0; b < bucketCount; b++) {
+            var c = counts[b];
+            int total = c[0] + c[1] + c[2] + c[3];
+            if (total == 0) {
+                FlushRun(b);
+                runStart = -1;
+                continue;
+            }
+
+            Color col;
+            if (c[2] > 0) col = ColorAlarm;
+            else if (c[1] > 0) col = ColorMotion;
+            else if (c[3] > 0) col = ColorAi;
+            else col = ColorContinuous;
+
+            double opacity = Math.Min(0.15 + total * 0.20, 0.85);
+            byte a = (byte)(opacity * 255);
+
+            if (runStart >= 0 && runR == col.R && runG == col.G && runB == col.B && runA == a)
+                continue;
+
+            FlushRun(b);
+            runStart = b;
+            runR = col.R; runG = col.G; runB = col.B; runA = a;
+        }
+        FlushRun(bucketCount);
+    }
+
+    private void ActivityCanvas_MouseLeftButtonDown(object sender, MouseButtonEventArgs e) {
+        var pos = e.GetPosition(ActivityCanvas);
+        var w = ActivityCanvas.ActualWidth;
+        if (w <= 0) return;
+        var secs = _viewStartSeconds + pos.X / w * ZoomLevels[_zoomIndex];
+        PositionSeconds = Math.Clamp(secs, 0, 86400);
+        e.Handled = true;
+    }
+
+    private void ActivityCanvas_PreviewMouseRightButtonDown(object sender, MouseButtonEventArgs e) {
+        _isSelecting = true;
+        _selectStart = e.GetPosition(ActivityCanvas);
+        _selectEnd = _selectStart;
+        ActivityCanvas.CaptureMouse();
+        e.Handled = true;
+    }
+
+    private void ActivityCanvas_PreviewMouseRightButtonUp(object sender, MouseButtonEventArgs e) {
+        if (!_isSelecting) return;
+        _isSelecting = false;
+        ActivityCanvas.ReleaseMouseCapture();
+
+        var pos = e.GetPosition(ActivityCanvas);
+        _selectEnd = pos;
+        var x1 = Math.Min(_selectStart.X, _selectEnd.X);
+        var x2 = Math.Max(_selectStart.X, _selectEnd.X);
+        var w = CameraRowsCanvas.ActualWidth;
+        if (w <= 0 || Math.Abs(x2 - x1) < 5) { ClearSelection(); return; }
+
+        var totalSecs = ZoomLevels[_zoomIndex];
+        var startSecs = _viewStartSeconds + x1 / w * totalSecs;
+        var endSecs = _viewStartSeconds + x2 / w * totalSecs;
+        _selectionRect = new Rect(x1, 0, x2 - x1, CameraRowsCanvas.ActualHeight);
+
+        DrawSelection();
+        SelectionChanged?.Invoke(this, (_timelineDay.AddSeconds(startSecs), _timelineDay.AddSeconds(endSecs)));
+        e.Handled = true;
+    }
+
+    private void ActivityCanvas_MouseMove(object sender, MouseEventArgs e) {
+        if (_isSelecting && e.RightButton == MouseButtonState.Pressed) {
+            _selectEnd = e.GetPosition(ActivityCanvas);
+            DrawSelection();
+        }
+        UpdateActivityTooltip(e.GetPosition(ActivityCanvas));
+    }
+
+    private void ActivityCanvas_PreviewMouseWheel(object sender, MouseWheelEventArgs e) {
+        Canvas_PreviewMouseWheel(sender, e);
+    }
+
+    private void UpdateActivityTooltip(Point pos) {
+        var w = ActivityCanvas.ActualWidth;
+        if (w <= 0) return;
+        var totalSecs = ZoomLevels[_zoomIndex];
+        var secsPerPixel = totalSecs / w;
+        var bucketStart = _viewStartSeconds + pos.X / w * totalSecs;
+        var bucketEnd = bucketStart + secsPerPixel;
+
+        int[] c = new int[4];
+        foreach (var seg in _segments) {
+            if (!IsTypeVisible(seg.RecordType)) continue;
+            var segStart = (seg.StartTime - _timelineDay).TotalSeconds;
+            var segEnd = seg.EndTime.HasValue
+                ? (seg.EndTime.Value - _timelineDay).TotalSeconds
+                : _viewStartSeconds + totalSecs;
+            if (segEnd < bucketStart || segStart > bucketEnd) continue;
+            int rt = seg.RecordType;
+            if (rt >= 0 && rt < 4) c[rt]++;
+        }
+
+        int total = c[0] + c[1] + c[2] + c[3];
+        if (total == 0) {
+            ActivityCanvas.ToolTip = null;
+            return;
+        }
+
+        var time = _timelineDay.AddSeconds(bucketStart);
+        var parts = new List<string>();
+        if (c[0] > 0) parts.Add($"連續 {c[0]}");
+        if (c[1] > 0) parts.Add($"位移 {c[1]}");
+        if (c[2] > 0) parts.Add($"警報 {c[2]}");
+        if (c[3] > 0) parts.Add($"AI {c[3]}");
+        ActivityCanvas.ToolTip = $"{time:HH:mm:ss} — {total} 段 ({string.Join(" / ", parts)})";
+    }
+
     private void DrawAll() {
+        DrawActivityOverview();
         DrawCameraRows();
         DrawTimeScale();
         DrawPosition();
@@ -399,11 +571,12 @@ public partial class NxTimeline : UserControl {
         SelectionCanvas.Children.Clear();
         if (!_isSelecting && _selectionRect is null) return;
 
-        var rect = _selectionRect;
-        var x1 = _isSelecting ? Math.Min(_selectStart.X, _selectEnd.X) : rect!.Value.X;
-        var x2 = _isSelecting ? Math.Max(_selectStart.X, _selectEnd.X) : rect!.Value.X + rect!.Value.Width;
+        var selRect = _selectionRect;
+        var x1 = _isSelecting ? Math.Min(_selectStart.X, _selectEnd.X) : selRect!.Value.X;
+        var x2 = _isSelecting ? Math.Max(_selectStart.X, _selectEnd.X) : selRect!.Value.X + selRect!.Value.Width;
         var w = Math.Max(1, x2 - x1);
-        var h = CameraRowsCanvas.ActualHeight;
+        var h = SelectionCanvas.ActualHeight;
+        if (h <= 0) { h = ActivityCanvas.ActualHeight + CameraRowsCanvas.ActualHeight + TimeScaleCanvas.ActualHeight; }
         if (h <= 0) return;
 
         var overlay = new Rectangle {
