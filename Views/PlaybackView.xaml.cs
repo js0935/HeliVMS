@@ -46,6 +46,9 @@ public partial class PlaybackView : UserControl {
     private int _displayColumns = 4;
     private int _displayRows = 4;
 
+    private bool _liveMode;
+    private bool _syncEnabled = true;
+
     private const int MaxPlaybackChannels = 64;
     private readonly DispatcherTimer _clockTimer;
     private DispatcherTimer? _storageTimer;
@@ -175,6 +178,7 @@ public partial class PlaybackView : UserControl {
             Timeline.PositionChanged += OnTimelinePositionChanged;
             Timeline.SelectionChanged += OnTimelineSelectionChanged;
             Timeline.BookmarkRequested += OnTimelineBookmarkRequested;
+            Timeline.GoLiveRequested += OnTimelineGoLiveRequested;
 
             // Initial storage status update, refresh every 60s
             _ = UpdateStorageStatusAsync();
@@ -204,6 +208,7 @@ public partial class PlaybackView : UserControl {
         Timeline.PositionChanged -= OnTimelinePositionChanged;
         Timeline.SelectionChanged -= OnTimelineSelectionChanged;
         Timeline.BookmarkRequested -= OnTimelineBookmarkRequested;
+        Timeline.GoLiveRequested -= OnTimelineGoLiveRequested;
         ReturnPendingFrameBuffers();
         _storageTimer?.Stop();
         _storageTimer = null;
@@ -1883,35 +1888,81 @@ public partial class PlaybackView : UserControl {
     // ══════════════════════════════════════════════════════════
 
     private void PlayPauseBtn_Click(object sender, RoutedEventArgs e) {
-        // TODO: Task 3 - implement play/pause toggle
+        if (_isPlaying) {
+            _coordinator?.Pause();
+            _isPlaying = false;
+        } else {
+            _coordinator?.Play();
+            _isPlaying = true;
+        }
+        UpdateButtonStates();
     }
 
     private void LiveBtn_Checked(object sender, RoutedEventArgs e) {
-        // TODO: Task 3
+        ToggleLiveMode();
     }
 
     private void LiveBtn_Unchecked(object sender, RoutedEventArgs e) {
-        // TODO: Task 3
+        _liveMode = false;
+    }
+
+    private void ToggleLiveMode() {
+        _liveMode = true;
+        LiveBtn.IsChecked = true;
+        var nowSecs = (DateTime.Now - DateTime.Today).TotalSeconds;
+        Timeline.PositionSeconds = Math.Clamp(nowSecs, 0, 86400);
+        Timeline_SeekRequested(Math.Clamp(nowSecs, 0, 86400));
+        UpdateButtonStates();
     }
 
     private void SyncBtn_Checked(object sender, RoutedEventArgs e) {
-        // TODO: Task 3
+        if (_syncEnabled) return;
+        _syncEnabled = true;
+        if (_coordinator is not null) {
+            var masterId = _coordinator.GetMasterId();
+            if (masterId is not null) {
+                foreach (var player in _activePlayers) {
+                    if (player.CameraId != masterId) {
+                        player.SetMaster(false);
+                    }
+                }
+            }
+        }
     }
 
     private void SyncBtn_Unchecked(object sender, RoutedEventArgs e) {
-        // TODO: Task 3
+        _syncEnabled = false;
     }
 
     private void ClndBtn_Click(object sender, RoutedEventArgs e) {
-        // TODO: Task 3
+        ClndCalendar.DisplayDate = FilterDatePicker.SelectedDate ?? DateTime.Today;
+        CalendarPopup.IsOpen = true;
+    }
+
+    private void ClndCalendar_SelectedDatesChanged(object? sender, SelectionChangedEventArgs e) {
+        if (ClndCalendar.SelectedDate.HasValue) {
+            FilterDatePicker.SelectedDate = ClndCalendar.SelectedDate.Value;
+            CalendarPopup.IsOpen = false;
+            FilterDatePicker_SelectedDateChanged(FilterDatePicker, null!);
+        }
+    }
+
+    private void ClndCalendar_Today_Click(object sender, RoutedEventArgs e) {
+        FilterDatePicker.SelectedDate = DateTime.Today;
+        CalendarPopup.IsOpen = false;
+        FilterDatePicker_SelectedDateChanged(FilterDatePicker, null!);
     }
 
     private void ThmbBtn_Checked(object sender, RoutedEventArgs e) {
-        // TODO: Task 3
+        Timeline.ToggleThumbnails(true);
     }
 
     private void ThmbBtn_Unchecked(object sender, RoutedEventArgs e) {
-        // TODO: Task 3
+        Timeline.ToggleThumbnails(false);
+    }
+
+    private void OnTimelineGoLiveRequested(object? sender, EventArgs e) {
+        ToggleLiveMode();
     }
 
     private void StopAllBtn_Click(object sender, RoutedEventArgs e) {
@@ -2226,6 +2277,10 @@ public partial class PlaybackView : UserControl {
     // ══════════════════════════════════════════════════════════
 
     private void OnTimelinePositionChanged(object? sender, double seconds) {
+        if (_liveMode) {
+            _liveMode = false;
+            LiveBtn.IsChecked = false;
+        }
         var totalSecs = (int)seconds;
         var h = totalSecs / 3600;
         var m = (totalSecs % 3600) / 60;

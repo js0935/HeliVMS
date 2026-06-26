@@ -1060,5 +1060,27 @@
                 </Border>
             </ScrollViewer>
         </Border>
+        <!-- CLND Calendar Popup -->
+        <Popup x:Name="CalendarPopup" Grid.RowSpan="4"
+               PlacementTarget="{Binding ElementName=ClndBtn}"
+               Placement="Top" StaysOpen="False"
+               AllowsTransparency="True"
+               PopupAnimation="Slide">
+            <Border Background="{DynamicResource SurfaceBrush}"
+                    BorderBrush="{DynamicResource BorderBrush}"
+                    BorderThickness="1" CornerRadius="6"
+                    Padding="8" Effect="{StaticResource DropShadowEffect}">
+                <StackPanel>
+                    <Calendar x:Name="ClndCalendar"
+                              Background="Transparent"
+                              Foreground="{DynamicResource TextBrush}"
+                              BorderThickness="0"
+                              SelectedDatesChanged="ClndCalendar_SelectedDatesChanged"/>
+                    <Button Content="今天" Style="{StaticResource SecondaryButton}"
+                            Height="22" FontSize="10" Padding="8,0" Margin="0,4,0,0"
+                            Click="ClndCalendar_Today_Click"/>
+                </StackPanel>
+            </Border>
+        </Popup>
     </Grid>
 </UserControl>

@@ -156,6 +156,8 @@ public partial class NxTimeline : UserControl {
         DrawAll();
     }
 
+    public void ToggleThumbnails(bool show) { }
+
     public void InvalidateActivity() {
         if (Dispatcher.CheckAccess())
             DrawActivityOverview();
