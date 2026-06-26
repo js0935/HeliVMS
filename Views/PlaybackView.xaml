@@ -86,7 +86,7 @@
                         Content="載入" FontSize="11" FontWeight="SemiBold"
                         Style="{StaticResource ModernButton}"
                         Height="28" Padding="12,0" Margin="6,0,0,0"
-                        Click="LoadTimeRangeBtn_Click"/>
+                        ToolTip="載入選取時段的錄影資料" Click="LoadTimeRangeBtn_Click"/>
 
                 <Button Grid.Column="7" x:Name="PlayAllBtn"
                         Content="▶  全部播放" FontSize="11" FontWeight="Bold"
@@ -134,7 +134,7 @@
                     <Button x:Name="SnapshotBtn" Content="拍照"
                             Style="{StaticResource SecondaryButton}"
                             Height="28" FontSize="11" Padding="10,0"
-                            Margin="0,0,4,0" Click="SnapshotBtn_Click"/>
+                            Margin="0,0,4,0" ToolTip="拍攝目前畫面快照" Click="SnapshotBtn_Click"/>
                     <Button x:Name="LayoutBtn"
                             Style="{StaticResource SecondaryButton}"
                             Height="28" FontSize="11" Padding="8,0" Margin="0,0,4,0"
@@ -147,20 +147,21 @@
                     <Button x:Name="BackupBtn" Content="備份錄影"
                             Style="{StaticResource SecondaryButton}"
                             Height="28" FontSize="11" Padding="10,0" Margin="0,0,4,0"
-                            Click="BackupBtn_Click"/>
+                            ToolTip="備份目前時段的錄影" Click="BackupBtn_Click"/>
                     <Button x:Name="RefreshBtn" Content="重新整理"
                             Style="{StaticResource SecondaryButton}"
                             Height="28" FontSize="11" Padding="10,0"
-                            Click="RefreshBtn_Click"/>
+                            ToolTip="重新整理錄影資料" Click="RefreshBtn_Click"/>
                 </StackPanel>
             </Grid>
         </Border>
 
-        <!-- ═══════ Row 1: Main (Left sidebar + Video grid) ═══════ -->
+        <!-- ═══════ Row 1: Main (Left sidebar + Video grid + Motion search) ═══════ -->
         <Grid Grid.Row="1" Margin="12,0,12,8">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition x:Name="LeftSidebarColumn" Width="280"/>
                 <ColumnDefinition Width="*"/>
+                <ColumnDefinition x:Name="MotionSearchColumn" Width="0"/>
             </Grid.ColumnDefinitions>
 
             <!-- Left sidebar: Search + Channel -->
@@ -308,11 +309,11 @@
                         <Button x:Name="ExecuteSearchBtn" Content="搜尋"
                                 Style="{StaticResource SecondaryButton}"
                                 Height="24" FontSize="10" Padding="10,0"
-                                Click="ExecuteSearchBtn_Click"/>
+                                ToolTip="執行搜尋" Click="ExecuteSearchBtn_Click"/>
                         <Button x:Name="SearchClearFiltersBtn" Content="清除"
                                 Style="{StaticResource SecondaryButton}"
                                 Height="24" FontSize="10" Padding="6,0" Margin="4,0,0,0"
-                                Click="SearchClearFiltersBtn_Click"/>
+                                ToolTip="清除搜尋條件" Click="SearchClearFiltersBtn_Click"/>
                         <Button x:Name="CloseSearchBtn"
                                 Style="{StaticResource SecondaryButton}"
                                 Height="24" Width="24" Margin="4,0,0,0" Padding="0"
@@ -362,14 +363,14 @@
 
                     <!-- Channel quick buttons -->
                     <WrapPanel Grid.Row="8" Margin="12,0,12,4">
-                        <Button x:Name="SelectAllBtn" Content="全選"
-                                Style="{StaticResource SecondaryButton}"
-                                Height="20" FontSize="9" Padding="6,0" Margin="0,0,4,0"
-                                Click="SelectAllBtn_Click"/>
-                        <Button x:Name="ClearAllBtn" Content="清除"
-                                Style="{StaticResource SecondaryButton}"
-                                Height="20" FontSize="9" Padding="6,0"
-                                Click="ClearAllBtn_Click"/>
+                    <Button x:Name="SelectAllBtn" Content="全選"
+                            Style="{StaticResource SecondaryButton}"
+                            Height="20" FontSize="9" Padding="6,0" Margin="0,0,4,0"
+                            ToolTip="全選所有頻道" Click="SelectAllBtn_Click"/>
+                    <Button x:Name="ClearAllBtn" Content="清除"
+                            Style="{StaticResource SecondaryButton}"
+                            Height="20" FontSize="9" Padding="6,0"
+                            ToolTip="清除所有頻道選取" Click="ClearAllBtn_Click"/>
                     </WrapPanel>
 
                     <!-- Channel search -->
@@ -408,6 +409,7 @@
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="Auto"/>
                                 <RowDefinition Height="*"/>
+                                <RowDefinition Height="Auto"/>
                             </Grid.RowDefinitions>
                             <Grid Grid.Row="0" Margin="12,8,12,4">
                                 <Grid.ColumnDefinitions>
@@ -426,7 +428,79 @@
                                           Background="Transparent" BorderThickness="0" Margin="4,0,4,4">
                                 <StackPanel x:Name="SearchResultList"/>
                             </ScrollViewer>
-                            <Border x:Name="SearchLoadingOverlay" Grid.RowSpan="2"
+                            <Border x:Name="PinnedResultSection" Grid.Row="2"
+                                    Visibility="Collapsed"
+                                    BorderThickness="0">
+                                <Expander x:Name="PinnedResultsExpander" Header="已釘選結果 (0)"
+                                          Foreground="{DynamicResource TextBrush}"
+                                          Background="{DynamicResource SurfaceBrush}"
+                                          BorderBrush="{DynamicResource BorderBrush}"
+                                          Margin="4,0,4,4"
+                                          IsExpanded="True">
+                                    <Grid>
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto"/>
+                                            <RowDefinition Height="*"/>
+                                        </Grid.RowDefinitions>
+                                        <Border Grid.Row="0" BorderThickness="0,1,0,0"
+                                                BorderBrush="{DynamicResource BorderBrush}"
+                                                Padding="0,4,0,0" Margin="0,4,0,0">
+                                            <Grid>
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                </Grid.ColumnDefinitions>
+                                                <TextBlock Text="已釘選" FontSize="9"
+                                                           Foreground="{DynamicResource SecondaryTextBrush}"
+                                                           VerticalAlignment="Center"/>
+                                                <Button Grid.Column="1" x:Name="ExportPinnedBtn"
+                                                        Content="匯出全部已釘選"
+                                                        Style="{StaticResource ModernButton}" FontSize="9"
+                                                        Padding="6,1" Height="20"
+                                                        Click="ExportPinnedBtn_Click"
+                                                        Visibility="Collapsed"/>
+                                            </Grid>
+                                        </Border>
+                                        <ListBox x:Name="PinnedResultsList" Grid.Row="1"
+                                                 Background="Transparent" BorderThickness="0"
+                                                 ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                                                 MaxHeight="120" Margin="0,4,0,0">
+                                            <ListBox.ItemTemplate>
+                                                <DataTemplate>
+                                                    <Border Padding="4" Margin="0,0,0,2"
+                                                            CornerRadius="2"
+                                                            Background="{DynamicResource SecondarySurfaceBrush}">
+                                                        <Grid>
+                                                            <Grid.ColumnDefinitions>
+                                                                <ColumnDefinition Width="*"/>
+                                                                <ColumnDefinition Width="Auto"/>
+                                                            </Grid.ColumnDefinitions>
+                                                            <StackPanel>
+                                                                <TextBlock Text="{Binding CameraName}"
+                                                                           FontWeight="SemiBold"
+                                                                           Foreground="{DynamicResource TextBrush}"
+                                                                           FontSize="11"/>
+                                                                <TextBlock Text="{Binding TimeRange}" FontSize="9"
+                                                                           Foreground="{DynamicResource SecondaryTextBrush}"
+                                                                           TextTrimming="CharacterEllipsis"/>
+                                                            </StackPanel>
+                                                             <Button Grid.Column="1"
+                                                                     Width="18" Height="18"
+                                                                     Background="Transparent" BorderThickness="0"
+                                                                     Foreground="{DynamicResource SecondaryTextBrush}"
+                                                                     Click="RemovePinnedResult_Click"
+                                                                     Tag="{Binding}">
+                                                                 <Path Data="{StaticResource IconClose}" Fill="{DynamicResource SecondaryTextBrush}" Width="10" Height="10" Stretch="Uniform"/>
+                                                             </Button>
+                                                        </Grid>
+                                                    </Border>
+                                                </DataTemplate>
+                                            </ListBox.ItemTemplate>
+                                        </ListBox>
+                                    </Grid>
+                                </Expander>
+                            </Border>
+                            <Border x:Name="SearchLoadingOverlay" Grid.RowSpan="3"
                                     Background="{DynamicResource SurfaceBrush}" Opacity="0.8"
                                     Visibility="Collapsed">
                                 <TextBlock x:Name="SearchLoadingText" Text="搜尋中…"
@@ -484,26 +558,21 @@
                 <Grid x:Name="PlaybackGrid" Visibility="Collapsed"/>
 
                 <!-- Empty state -->
-                <Border x:Name="EmptyPrompt" Background="Transparent" CornerRadius="8" Visibility="Visible">
+                <Grid x:Name="PlaybackEmptyState" Grid.Row="1"
+                      Background="{DynamicResource BackgroundBrush}"
+                      Visibility="Visible">
                     <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
-                        <Path Data="{StaticResource IconCamera}" Fill="{DynamicResource SecondaryTextBrush}"
-                              Width="48" Height="48" Stretch="Uniform" HorizontalAlignment="Center" Opacity="0.5"/>
-                        <TextBlock Text="選擇日期與頻道開始回放"
-                                   Foreground="{DynamicResource TextBrush}"
-                                   FontSize="18" FontWeight="SemiBold" Margin="0,12,0,4" HorizontalAlignment="Center"/>
-                        <TextBlock Text="左側勾選已指派的攝影機頻道，選取日期後自動載入錄影資料"
-                                   Foreground="{DynamicResource SecondaryTextBrush}" FontSize="12"
-                                   HorizontalAlignment="Center" Opacity="0.7"/>
-                        <Button x:Name="EmptyPlayAllBtn" Content="▶  快速全部播放  (Ctrl+P)"
-                                Style="{StaticResource ModernButton}" Height="32" Padding="16,0"
-                                Margin="0,12,0,0" FontSize="12" FontWeight="Bold"
-                                Background="{DynamicResource SuccessBrush}"
-                                Foreground="{DynamicResource TextBrush}"
-                                BorderBrush="{DynamicResource SuccessBrush}"
-                                Click="PlayAllBtn_Click"
-                                ToolTip="自動選取已指派攝影機的頻道，載入今日錄影播放"/>
+                        <Path Data="{StaticResource IconPlay}" Fill="{DynamicResource SecondaryTextBrush}"
+                              Width="64" Height="64" Stretch="Uniform" HorizontalAlignment="Center"
+                              Opacity="0.15" Margin="0,0,0,16"/>
+                        <TextBlock Text="選擇攝影機開始回放" FontSize="16" FontWeight="SemiBold"
+                                   Foreground="{DynamicResource SecondaryTextBrush}"
+                                   HorizontalAlignment="Center" Margin="0,0,0,4"/>
+                        <TextBlock Text="從左側攝影機樹選擇攝影機，或按 Ctrl+F 搜尋"
+                                   FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"
+                                   Opacity="0.5" HorizontalAlignment="Center"/>
                     </StackPanel>
-                </Border>
+                </Grid>
 
                 <!-- Loading overlay -->
                 <Border x:Name="VideoLoadingOverlay"
@@ -619,8 +688,173 @@
                             <StackPanel x:Name="PerfListPanel" Margin="4,0"/>
                         </ScrollViewer>
                 </Grid>
-            </Border>
+                </Border>
             </Grid>
+
+            <!-- ═══════ Motion Search Panel (right side) ═══════ -->
+            <Border Grid.Column="2" x:Name="MotionSearchPanel"
+                    Background="{DynamicResource SurfaceBrush}"
+                    BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1,0,0,0"
+                    Visibility="Collapsed" Panel.ZIndex="10">
+                <Grid Margin="0">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+
+                    <!-- Header -->
+                    <Border Grid.Row="0" Padding="12,10,12,6"
+                            BorderThickness="0,0,0,1" BorderBrush="{DynamicResource BorderBrush}">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Orientation="Horizontal">
+                                <Path Data="{StaticResource IconMotionSearch}"
+                                      Fill="{DynamicResource TextBrush}"
+                                      Width="14" Height="14" Stretch="Uniform"
+                                      Margin="0,0,6,0" VerticalAlignment="Center"/>
+                                <TextBlock Text="智慧動態搜尋" FontSize="14" FontWeight="SemiBold"
+                                           Foreground="{DynamicResource TextBrush}" VerticalAlignment="Center"/>
+                            </StackPanel>
+                            <Button Grid.Column="1" x:Name="CloseMotionSearchBtn"
+                                    Style="{StaticResource SecondaryButton}"
+                                    Height="22" Width="22" Padding="0"
+                                    Click="CloseMotionSearchBtn_Click" ToolTip="關閉">
+                                <Path Data="{StaticResource IconClose}" Fill="{DynamicResource TextBrush}" Width="8" Height="8" Stretch="Uniform"/>
+                            </Button>
+                        </Grid>
+                    </Border>
+
+                    <!-- Instructions -->
+                    <TextBlock Grid.Row="1" Text="在畫面上拖曳選取搜尋區域" FontSize="11"
+                               Foreground="{DynamicResource SecondaryTextBrush}"
+                               Margin="12,8,12,4" TextWrapping="Wrap"/>
+
+                    <!-- Region list -->
+                    <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto"
+                                  HorizontalScrollBarVisibility="Disabled"
+                                  Background="Transparent" BorderThickness="0"
+                                  MaxHeight="120" Margin="8,0">
+                        <StackPanel x:Name="MotionRegionListPanel"/>
+                    </ScrollViewer>
+
+                    <!-- Region controls -->
+                    <StackPanel Grid.Row="3" Margin="12,8,12,8" VerticalAlignment="Top">
+                        <Button x:Name="ClearMotionRegionsBtn" Content="清除全部"
+                                Style="{StaticResource SecondaryButton}"
+                                Height="28" FontSize="11" Padding="0"
+                                Margin="0,0,0,4"
+                                ToolTip="清除所有動態搜尋區域" Click="ClearMotionRegionsBtn_Click"/>
+                        <Button x:Name="SelectFullFrameBtn" Content="全螢幕選取"
+                                Style="{StaticResource SecondaryButton}"
+                                Height="28" FontSize="11" Padding="0"
+                                Margin="0,0,0,8"
+                                ToolTip="選取整個畫面作為搜尋區域" Click="SelectFullFrameBtn_Click"/>
+
+                        <!-- Search time range -->
+                        <TextBlock Text="搜尋時間範圍" FontSize="12" FontWeight="SemiBold"
+                                   Foreground="{DynamicResource TextBrush}"
+                                   Margin="0,8,0,4"/>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="從" FontSize="10"
+                                       Foreground="{DynamicResource SecondaryTextBrush}"
+                                       VerticalAlignment="Center" Margin="0,0,4,0"/>
+                            <DatePicker Grid.Column="1" x:Name="MotionSearchFromDate"
+                                        Width="Auto" Height="24" FontSize="10"
+                                        Background="{DynamicResource InputBackgroundBrush}"
+                                        Foreground="{DynamicResource TextBrush}"
+                                        BorderBrush="{DynamicResource BorderBrush}"/>
+                        </Grid>
+                        <Grid Margin="0,4,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="時" FontSize="10"
+                                       Foreground="{DynamicResource SecondaryTextBrush}"
+                                       VerticalAlignment="Center" Margin="0,0,2,0"/>
+                            <TextBox Grid.Column="1" x:Name="MotionSearchFromHour" Text="00"
+                                     Width="Auto" Height="22" FontSize="10"
+                                     HorizontalContentAlignment="Center"
+                                     Background="{DynamicResource InputBackgroundBrush}"
+                                     Foreground="{DynamicResource TextBrush}"
+                                     BorderBrush="{DynamicResource BorderBrush}"/>
+                            <TextBlock Grid.Column="2" Text="分" FontSize="10"
+                                       Foreground="{DynamicResource SecondaryTextBrush}"
+                                       VerticalAlignment="Center" Margin="4,0,2,0"/>
+                            <TextBox Grid.Column="3" x:Name="MotionSearchFromMinute" Text="00"
+                                     Width="Auto" Height="22" FontSize="10"
+                                     HorizontalContentAlignment="Center"
+                                     Background="{DynamicResource InputBackgroundBrush}"
+                                     Foreground="{DynamicResource TextBrush}"
+                                     BorderBrush="{DynamicResource BorderBrush}"/>
+                        </Grid>
+                        <Grid Margin="0,4,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="至" FontSize="10"
+                                       Foreground="{DynamicResource SecondaryTextBrush}"
+                                       VerticalAlignment="Center" Margin="0,0,4,0"/>
+                            <DatePicker Grid.Column="1" x:Name="MotionSearchToDate"
+                                        Width="Auto" Height="24" FontSize="10"
+                                        Background="{DynamicResource InputBackgroundBrush}"
+                                        Foreground="{DynamicResource TextBrush}"
+                                        BorderBrush="{DynamicResource BorderBrush}"/>
+                            <TextBlock Grid.Column="2" Text="時" FontSize="10"
+                                       Foreground="{DynamicResource SecondaryTextBrush}"
+                                       VerticalAlignment="Center" Margin="4,0,2,0"/>
+                            <TextBox Grid.Column="3" x:Name="MotionSearchToHour" Text="23"
+                                     Width="Auto" Height="22" FontSize="10"
+                                     HorizontalContentAlignment="Center"
+                                     Background="{DynamicResource InputBackgroundBrush}"
+                                     Foreground="{DynamicResource TextBrush}"
+                                     BorderBrush="{DynamicResource BorderBrush}"/>
+                        </Grid>
+                        <Grid Margin="0,4,0,8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="分" FontSize="10"
+                                       Foreground="{DynamicResource SecondaryTextBrush}"
+                                       VerticalAlignment="Center" Margin="0,0,2,0"/>
+                            <TextBox Grid.Column="1" x:Name="MotionSearchToMinute" Text="59"
+                                     Width="Auto" Height="22" FontSize="10"
+                                     HorizontalContentAlignment="Center"
+                                     Background="{DynamicResource InputBackgroundBrush}"
+                                     Foreground="{DynamicResource TextBrush}"
+                                     BorderBrush="{DynamicResource BorderBrush}"/>
+                        </Grid>
+
+                        <Button x:Name="ExecuteMotionSearchBtn" Content="搜尋"
+                                Style="{StaticResource ModernButton}"
+                                Height="32" FontSize="12" FontWeight="SemiBold"
+                                Padding="0"
+                                ToolTip="執行動態搜尋" Click="ExecuteMotionSearchBtn_Click"/>
+                    </StackPanel>
+
+                    <!-- Status -->
+                    <TextBlock Grid.Row="4" x:Name="MotionSearchStatusText" Text=""
+                               FontSize="10" Foreground="{DynamicResource SecondaryTextBrush}"
+                               Margin="12,0,12,4" Visibility="Collapsed"/>
+                </Grid>
+            </Border>
         </Grid>
 
         <!-- ═══════ Row 2: NxTimeline ═══════ -->
@@ -734,21 +968,28 @@
                 Padding="10,6" Margin="12,0,12,8">
             <Grid>
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="Auto"/>  <!-- 0: PlayPauseBtn (merged) -->
+                    <ColumnDefinition Width="Auto"/>  <!-- 0: PlayPauseBtn -->
                     <ColumnDefinition Width="Auto"/>  <!-- 1: StepBackBtn -->
                     <ColumnDefinition Width="Auto"/>  <!-- 2: StepFwdBtn -->
-                    <ColumnDefinition Width="Auto"/>  <!-- 3: Separator -->
-                    <ColumnDefinition Width="Auto"/>  <!-- 4: SegPrevBtn (JumpPrevRecBtn) -->
-                    <ColumnDefinition Width="Auto"/>  <!-- 5: SegNextBtn (JumpNextRecBtn) -->
-                    <ColumnDefinition Width="Auto"/>  <!-- 6: SpeedSliderPanel -->
-                    <ColumnDefinition Width="Auto"/>  <!-- 7: PlaybackTimeText -->
-                    <ColumnDefinition Width="*"/>     <!-- 8: Spacer -->
-                    <ColumnDefinition Width="Auto"/>  <!-- 9: LiveBtn / SyncBtn / ClndBtn / ThmbBtn group -->
-                    <ColumnDefinition Width="Auto"/>  <!-- 10: BookmarkBtn + StopAllBtn -->
-                    <ColumnDefinition Width="Auto"/>  <!-- 11: FpsBadge -->
+                    <ColumnDefinition Width="Auto"/>  <!-- 3: SkipBackBtn -->
+                    <ColumnDefinition Width="Auto"/>  <!-- 4: SkipFwdBtn -->
+                    <ColumnDefinition Width="Auto"/>  <!-- 5: Separator -->
+                    <ColumnDefinition Width="Auto"/>  <!-- 6: SegPrevBtn -->
+                    <ColumnDefinition Width="Auto"/>  <!-- 7: SegNextBtn -->
+                    <ColumnDefinition Width="Auto"/>  <!-- 8: PrevBoundaryBtn -->
+                    <ColumnDefinition Width="Auto"/>  <!-- 9: NextBoundaryBtn -->
+                    <ColumnDefinition Width="Auto"/>  <!-- 10: Separator -->
+                    <ColumnDefinition Width="Auto"/>  <!-- 11: SpeedSliderPanel -->
+                    <ColumnDefinition Width="Auto"/>  <!-- 12: PlaybackTimeText -->
+                    <ColumnDefinition Width="Auto"/>  <!-- 13: VolumePanel -->
+                    <ColumnDefinition Width="Auto"/>  <!-- 14: LiveStatusText -->
+                    <ColumnDefinition Width="*"/>     <!-- 15: Spacer -->
+                    <ColumnDefinition Width="Auto"/>  <!-- 16: LIVE/SYNC/CLND/THMB -->
+                    <ColumnDefinition Width="Auto"/>  <!-- 17: BookmarkBtn + StopAllBtn -->
+                    <ColumnDefinition Width="Auto"/>  <!-- 18: FpsBadge -->
                 </Grid.ColumnDefinitions>
 
-                <!-- Column 0: PlayPauseBtn (merged Play/Pause) -->
+                <!-- Column 0: PlayPauseBtn -->
                 <Button Grid.Column="0" x:Name="PlayPauseBtn"
                         Style="{StaticResource ModernButton}"
                         Height="28" Width="38" FontSize="13"
@@ -774,28 +1015,76 @@
                     <Path Data="{StaticResource IconFastForward}" Fill="{DynamicResource TextBrush}" Width="11" Height="11" Stretch="Uniform"/>
                 </Button>
 
-                <!-- Column 3: Separator -->
-                <Separator Grid.Column="3"
+                <!-- Column 3: SkipBackBtn -->
+                <Button Grid.Column="3" x:Name="SkipBackBtn"
+                        Width="24" Height="24"
+                        ToolTip="回退 30 秒" Cursor="Hand"
+                        Background="{DynamicResource OverlayBrush}" BorderThickness="0"
+                        Margin="2,0"
+                        Click="SkipBackBtn_Click">
+                    <Path Data="{StaticResource IconSkipBack}" Width="12" Height="12"
+                          Stretch="Uniform" Fill="{DynamicResource TextBrush}"/>
+                </Button>
+
+                <!-- Column 4: SkipFwdBtn -->
+                <Button Grid.Column="4" x:Name="SkipFwdBtn"
+                        Width="24" Height="24"
+                        ToolTip="前進 30 秒" Cursor="Hand"
+                        Background="{DynamicResource OverlayBrush}" BorderThickness="0"
+                        Margin="2,0"
+                        Click="SkipFwdBtn_Click">
+                    <Path Data="{StaticResource IconSkipForward}" Width="12" Height="12"
+                          Stretch="Uniform" Fill="{DynamicResource TextBrush}"/>
+                </Button>
+
+                <!-- Column 5: Separator -->
+                <Separator Grid.Column="5"
                            Style="{StaticResource {x:Static ToolBar.SeparatorStyleKey}}" Margin="4,0"/>
 
-                <!-- Column 4: SegPrevBtn (was JumpPrevRecBtn) -->
-                <Button Grid.Column="4" x:Name="JumpPrevRecBtn"
+                <!-- Column 6: SegPrevBtn -->
+                <Button Grid.Column="6" x:Name="JumpPrevRecBtn"
                         Style="{StaticResource SecondaryButton}"
                         Height="28" Width="30" Margin="2,0,0,0"
                         Click="JumpPrevRecBtn_Click" ToolTip="跳到前一區段 (Ctrl+Shift+←)">
                     <Path Data="{StaticResource IconRewind}" Fill="{DynamicResource TextBrush}" Width="12" Height="12" Stretch="Uniform"/>
                 </Button>
 
-                <!-- Column 5: SegNextBtn (was JumpNextRecBtn) -->
-                <Button Grid.Column="5" x:Name="JumpNextRecBtn"
+                <!-- Column 7: SegNextBtn -->
+                <Button Grid.Column="7" x:Name="JumpNextRecBtn"
                         Style="{StaticResource SecondaryButton}"
                         Height="28" Width="30" Margin="2,0,0,0"
                         Click="JumpNextRecBtn_Click" ToolTip="跳到後一區段 (Ctrl+Shift+→)">
                     <Path Data="{StaticResource IconFastForward}" Fill="{DynamicResource TextBrush}" Width="12" Height="12" Stretch="Uniform"/>
                 </Button>
 
-                <!-- Column 6: SpeedSliderPanel -->
-                <Border Grid.Column="6" x:Name="SpeedSliderPanel" MinWidth="120"
+                <!-- Column 8: PrevBoundaryBtn -->
+                <Button Grid.Column="8" x:Name="PrevBoundaryBtn"
+                        Width="24" Height="24"
+                        ToolTip="上一個錄影邊界" Cursor="Hand"
+                        Background="{DynamicResource OverlayBrush}" BorderThickness="0"
+                        Margin="2,0"
+                        Click="PrevBoundaryBtn_Click">
+                    <Path Data="{StaticResource IconSkipPrevious}" Width="12" Height="12"
+                          Stretch="Uniform" Fill="{DynamicResource TextBrush}"/>
+                </Button>
+
+                <!-- Column 9: NextBoundaryBtn -->
+                <Button Grid.Column="9" x:Name="NextBoundaryBtn"
+                        Width="24" Height="24"
+                        ToolTip="下一個錄影邊界" Cursor="Hand"
+                        Background="{DynamicResource OverlayBrush}" BorderThickness="0"
+                        Margin="2,0"
+                        Click="NextBoundaryBtn_Click">
+                    <Path Data="{StaticResource IconSkipNext}" Width="12" Height="12"
+                          Stretch="Uniform" Fill="{DynamicResource TextBrush}"/>
+                </Button>
+
+                <!-- Column 10: Separator -->
+                <Separator Grid.Column="10"
+                           Style="{StaticResource {x:Static ToolBar.SeparatorStyleKey}}" Margin="4,0"/>
+
+                <!-- Column 11: SpeedSliderPanel -->
+                <Border Grid.Column="11" x:Name="SpeedSliderPanel" MinWidth="120"
                         Background="{DynamicResource SecondarySurfaceBrush}"
                         CornerRadius="4" Padding="6,0" Margin="4,0,0,0">
                     <Grid>
@@ -821,8 +1110,8 @@
                     </Grid>
                 </Border>
 
-                <!-- Column 7: PlaybackTimeText -->
-                <Border Grid.Column="7" Background="{DynamicResource SecondarySurfaceBrush}"
+                <!-- Column 12: PlaybackTimeText -->
+                <Border Grid.Column="12" Background="{DynamicResource SecondarySurfaceBrush}"
                         CornerRadius="4" Padding="8,3" Margin="6,0,0,0">
                     <TextBlock x:Name="PlaybackTimeText"
                                Text="--:--:-- / --:--:--"
@@ -831,8 +1120,39 @@
                                VerticalAlignment="Center"/>
                 </Border>
 
-                <!-- Column 9: LIVE / SYNC / CLND / THMB group -->
-                <StackPanel Grid.Column="9" Orientation="Horizontal" Margin="6,0,0,0">
+                <!-- Column 13: Volume Panel -->
+                <Border Grid.Column="13" x:Name="VolumePanel"
+                        Background="{DynamicResource SecondarySurfaceBrush}"
+                        CornerRadius="4" Padding="4,0" Margin="4,0,0,0"
+                        VerticalAlignment="Center">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <Button x:Name="VolumeSpeakerBtn"
+                                Style="{StaticResource SecondaryButton}"
+                                Height="20" Width="20" Padding="0"
+                                Background="Transparent" BorderThickness="0"
+                                Click="VolumeSpeakerBtn_Click"
+                                ToolTip="靜音切換">
+                            <Path x:Name="VolumeSpeakerIcon"
+                                  Data="{StaticResource IconSpeaker}"
+                                  Fill="{DynamicResource TextBrush}"
+                                  Width="14" Height="14" Stretch="Uniform"/>
+                        </Button>
+                        <Slider Grid.Column="1" x:Name="VolumeSlider"
+                                Minimum="0" Maximum="100" Value="50"
+                                TickFrequency="1" IsSnapToTickEnabled="False"
+                                Width="50" Height="18" Margin="2,0,0,0"
+                                ValueChanged="VolumeSlider_ValueChanged"
+                                Style="{StaticResource ModernSlider}"
+                                VerticalAlignment="Center"/>
+                    </Grid>
+                </Border>
+
+                <!-- Column 16: LIVE / SYNC / CLND / THMB group -->
+                <StackPanel Grid.Column="16" Orientation="Horizontal" Margin="6,0,0,0">
                     <Border Background="{DynamicResource SecondarySurfaceBrush}"
                             CornerRadius="4" Padding="2">
                         <StackPanel Orientation="Horizontal">
@@ -869,8 +1189,8 @@
                     </Border>
                 </StackPanel>
 
-                <!-- Column 10: BookmarkBtn + StopAllBtn -->
-                <StackPanel Grid.Column="10" Orientation="Horizontal" Margin="4,0,0,0">
+                <!-- Column 17: BookmarkBtn + StopAllBtn -->
+                <StackPanel Grid.Column="17" Orientation="Horizontal" Margin="4,0,0,0">
                     <Button x:Name="BookmarkBtn" Style="{StaticResource SecondaryButton}"
                             Height="26" Width="28" Padding="0" Margin="0,0,2,0"
                             Click="BookmarkBtn_Click" ToolTip="標記書籤 (B)">
@@ -889,8 +1209,18 @@
                             Click="StopAllBtn_Click" ToolTip="全部停止"/>
                 </StackPanel>
 
-                <!-- Column 11: FPS badge -->
-                <Border Grid.Column="11" x:Name="FpsBadge"
+                <!-- Column 14: LiveStatusText -->
+                <TextBlock Grid.Column="14" x:Name="LiveStatusText"
+                           Text="" FontSize="10" FontWeight="SemiBold"
+                           Foreground="{DynamicResource SuccessBrush}"
+                           VerticalAlignment="Center" HorizontalAlignment="Right"
+                           Margin="4,0,0,0" Visibility="Collapsed"/>
+
+                <!-- Column 15: Spacer -->
+                <Rectangle Grid.Column="15" Fill="Transparent"/>
+
+                <!-- Column 18: FPS badge -->
+                <Border Grid.Column="18" x:Name="FpsBadge"
                         Background="{DynamicResource OverlayBrush}" CornerRadius="3"
                         Padding="4,1" Margin="4,0,0,0"
                         VerticalAlignment="Center" Visibility="Collapsed">
@@ -915,6 +1245,17 @@
         <!-- Search backdrop (click to dismiss) -->
         <Border x:Name="SearchBackdrop" Grid.RowSpan="4" Background="Transparent"
                 Visibility="Collapsed" MouseLeftButtonDown="SearchBackdrop_MouseLeftButtonDown"/>
+
+        <!-- Skip OSD (temporary overlay showing skip amount) -->
+        <Border x:Name="SkipOSD" Grid.RowSpan="4"
+                Background="{DynamicResource OverlayBrush}"
+                CornerRadius="8" Padding="16,8"
+                HorizontalAlignment="Center" VerticalAlignment="Top"
+                Margin="0,12,0,0" Visibility="Collapsed"
+                IsHitTestVisible="False">
+            <TextBlock x:Name="SkipOSDText" Text="" FontSize="14" FontWeight="Bold"
+                       Foreground="{DynamicResource TextBrush}"/>
+        </Border>
 
         <!-- Fullscreen overlay -->
         <Grid x:Name="FullScreenOverlay" Grid.RowSpan="4" Visibility="Collapsed"
@@ -962,11 +1303,14 @@
                         <ColumnDefinition Width="Auto"/>  <!-- 0: FsStepBack -->
                         <ColumnDefinition Width="Auto"/>  <!-- 1: FsPlayPauseBtn -->
                         <ColumnDefinition Width="Auto"/>  <!-- 2: FsStepFwd -->
-                        <ColumnDefinition Width="Auto"/>  <!-- 3: FsSegPrev -->
-                        <ColumnDefinition Width="Auto"/>  <!-- 4: FsSegNext -->
-                        <ColumnDefinition Width="Auto"/>  <!-- 5: FsSpeedBtn -->
-                        <ColumnDefinition Width="*"/>     <!-- 6: spacer -->
-                        <ColumnDefinition Width="Auto"/>  <!-- 7: FsClockText -->
+                        <ColumnDefinition Width="Auto"/>  <!-- 3: FsSkipBack -->
+                        <ColumnDefinition Width="Auto"/>  <!-- 4: FsSkipFwd -->
+                        <ColumnDefinition Width="Auto"/>  <!-- 5: FsSegPrev -->
+                        <ColumnDefinition Width="Auto"/>  <!-- 6: FsSegNext -->
+                        <ColumnDefinition Width="Auto"/>  <!-- 7: FsSpeedBtn -->
+                        <ColumnDefinition Width="*"/>     <!-- 8: spacer -->
+                        <ColumnDefinition Width="Auto"/>  <!-- 9: FsVolumePanel -->
+                        <ColumnDefinition Width="Auto"/>  <!-- 10: FsClockText -->
                     </Grid.ColumnDefinitions>
                     <Button Grid.Column="0" x:Name="FsStepBackBtn" Style="{StaticResource SecondaryButton}"
                             Height="28" Width="30" Background="{DynamicResource SecondaryTextBrush}" BorderThickness="0"
@@ -986,22 +1330,66 @@
                             Margin="4,0,0,0" Click="FsTransportBtn_Click" Tag="stepFwd" ToolTip="下一步">
                         <Path Data="{StaticResource IconFastForward}" Fill="{DynamicResource TextBrush}" Width="12" Height="12" Stretch="Uniform"/>
                     </Button>
-                    <Button Grid.Column="3" x:Name="FsSegPrevBtn" Style="{StaticResource SecondaryButton}"
+                    <Button Grid.Column="3" x:Name="FsSkipBackBtn"
+                            Width="24" Height="24"
+                            Background="{DynamicResource SecondaryTextBrush}" BorderThickness="0"
+                            Margin="4,0,0,0"
+                            Click="FsTransportBtn_Click" Tag="skipBack" ToolTip="回退 30 秒">
+                        <Path Data="{StaticResource IconSkipBack}" Width="12" Height="12"
+                              Stretch="Uniform" Fill="{DynamicResource TextBrush}"/>
+                    </Button>
+                    <Button Grid.Column="4" x:Name="FsSkipFwdBtn"
+                            Width="24" Height="24"
+                            Background="{DynamicResource SecondaryTextBrush}" BorderThickness="0"
+                            Margin="4,0,0,0"
+                            Click="FsTransportBtn_Click" Tag="skipFwd" ToolTip="前進 30 秒">
+                        <Path Data="{StaticResource IconSkipForward}" Width="12" Height="12"
+                              Stretch="Uniform" Fill="{DynamicResource TextBrush}"/>
+                    </Button>
+                    <Button Grid.Column="5" x:Name="FsSegPrevBtn" Style="{StaticResource SecondaryButton}"
                             Height="28" Width="30" Background="{DynamicResource SecondaryTextBrush}" BorderThickness="0"
                             Margin="4,0,0,0" Click="FsTransportBtn_Click" Tag="segPrev" ToolTip="前一段">
                         <Path Data="{StaticResource IconRewind}" Fill="{DynamicResource TextBrush}" Width="12" Height="12" Stretch="Uniform"/>
                     </Button>
-                    <Button Grid.Column="4" x:Name="FsSegNextBtn" Style="{StaticResource SecondaryButton}"
+                    <Button Grid.Column="6" x:Name="FsSegNextBtn" Style="{StaticResource SecondaryButton}"
                             Height="28" Width="30" Background="{DynamicResource SecondaryTextBrush}" BorderThickness="0"
                             Margin="4,0,0,0" Click="FsTransportBtn_Click" Tag="segNext" ToolTip="後一段">
                         <Path Data="{StaticResource IconFastForward}" Fill="{DynamicResource TextBrush}" Width="12" Height="12" Stretch="Uniform"/>
                     </Button>
-                    <Button Grid.Column="5" x:Name="FsSpeedBtn" Content="1x"
+                    <Button Grid.Column="7" x:Name="FsSpeedBtn" Content="1x"
                             Style="{StaticResource SecondaryButton}"
                             Height="28" Width="36" FontSize="10" FontWeight="SemiBold"
                             Background="{DynamicResource SecondaryTextBrush}" BorderThickness="0"
                             Margin="4,0,0,0" Click="FsTransportBtn_Click" Tag="speed" ToolTip="播放速度"/>
-                    <TextBlock Grid.Column="7" x:Name="FsClockText" Text=""
+                    <Border Grid.Column="9" Background="{DynamicResource OverlayBrush}"
+                            CornerRadius="4" Padding="4,0" Margin="8,0,0,0"
+                            VerticalAlignment="Center">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <Button x:Name="FsVolumeSpeakerBtn"
+                                    Style="{StaticResource SecondaryButton}"
+                                    Height="20" Width="20" Padding="0"
+                                    Background="Transparent" BorderThickness="0"
+                                    Click="FsVolumeSpeakerBtn_Click"
+                                    ToolTip="靜音切換">
+                                <Path x:Name="FsVolumeSpeakerIcon"
+                                      Data="{StaticResource IconSpeaker}"
+                                      Fill="{DynamicResource TextBrush}"
+                                      Width="14" Height="14" Stretch="Uniform"/>
+                            </Button>
+                            <Slider Grid.Column="1" x:Name="FsVolumeSlider"
+                                    Minimum="0" Maximum="100" Value="50"
+                                    TickFrequency="1" IsSnapToTickEnabled="False"
+                                    Width="50" Height="18" Margin="2,0,0,0"
+                                    ValueChanged="FsVolumeSlider_ValueChanged"
+                                    Style="{StaticResource ModernSlider}"
+                                    VerticalAlignment="Center"/>
+                        </Grid>
+                    </Border>
+                    <TextBlock Grid.Column="10" x:Name="FsClockText" Text=""
                                FontSize="10" Foreground="{DynamicResource SecondaryTextBrush}"
                                FontFamily="Consolas" VerticalAlignment="Center"/>
                 </Grid>

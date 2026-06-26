@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Threading;
 using System.Windows;
+using HeliVMS.Helpers;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
@@ -10,6 +11,7 @@ using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using HeliVMS.Controls;
+using HeliVMS.Dialog;
 using HeliVMS.Models;
 using HeliVMS.Services;
 using Microsoft.Extensions.DependencyInjection;
@@ -39,6 +41,7 @@ public partial class PlaybackView : UserControl {
     private List<SearchResultEntry> _searchResults = [];
     private int _selectedSearchIndex = -1;
     private readonly HashSet<int> _selectedSearchIndices = [];
+    private readonly List<SearchResultEntry> _pinnedResults = [];
 
     private DateTime _currentDate = DateTime.Today;
     private bool _isPlaying;
@@ -51,6 +54,12 @@ public partial class PlaybackView : UserControl {
     private bool _isTemporarySpeed;
     private double _defaultSpeed = 1.0;
 
+    // JKL playback state machine
+    private static readonly double[] JklForwardSpeeds = [1.0, 2.0, 4.0, 8.0];
+    private static readonly double[] JklReverseSpeeds = [-1.0, -2.0, -4.0, -8.0];
+    private int _jklSpeedStep = -1;
+    private bool _jklActive;
+
     private const int MaxPlaybackChannels = 64;
     private readonly DispatcherTimer _clockTimer;
     private DispatcherTimer? _storageTimer;
@@ -62,7 +71,12 @@ public partial class PlaybackView : UserControl {
     private int _frameDisplayCount;
     private DispatcherTimer? _fpsTimer;
     private bool _isPerfPanelVisible;
- 
+    private readonly EventHandler _onFpsTick;
+    private readonly EventHandler _onFsAutoHideTick;
+    private readonly System.Windows.Input.MouseEventHandler _onFsMouseMove;
+    private double _volume = 50.0;
+    private bool _isMuted;
+
     private sealed class ChannelStats {
         public string CameraId = "";
         public string CameraName = "";
@@ -79,30 +93,54 @@ public partial class PlaybackView : UserControl {
     }
 
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, ChannelStats> _channelStats = new();
+    private readonly Stack<PlaybackPlayer> _playerPool = new();
 
     private static readonly string[] DayNames = ["日", "一", "二", "三", "四", "五", "六"];
 
     public PlaybackView() {
         Log.Information("[DBG] PlaybackView ctor start");
-        InitializeComponent();
-        Log.Information("[DBG] PlaybackView InitializeComponent done");
+        try {
+            InitializeComponent();
+            Log.Information("[DBG] PlaybackView InitializeComponent done");
+        } catch (Exception ex) {
+            var inner = ex.InnerException;
+            var stack = inner?.StackTrace ?? ex.StackTrace;
+            Log.Error(ex, "[DBG] PlaybackView InitializeComponent FAILED: {Type} {Msg}\n{Stack}",
+                (inner ?? ex).GetType().Name, (inner ?? ex).Message, stack);
+            throw;
+        }
 
-        _cameraService = App.Services.GetRequiredService<ICameraService>();
-        _recordingService = App.Services.GetRequiredService<IRecordingService>();
-        _videoIndexService = App.Services.GetRequiredService<IVideoIndexService>();
-        _eventLog = App.Services.GetRequiredService<IEventService>();
-        _bookmarkService = App.Services.GetRequiredService<IBookmarkService>();
-        Log.Information("[DBG] PlaybackView DI resolved");
+        try {
+            _cameraService = App.Services.GetRequiredService<ICameraService>();
+            Log.Information("[DBG] PlaybackView _cameraService OK");
+            _recordingService = App.Services.GetRequiredService<IRecordingService>();
+            _videoIndexService = App.Services.GetRequiredService<IVideoIndexService>();
+            _eventLog = App.Services.GetRequiredService<IEventService>();
+            _bookmarkService = App.Services.GetRequiredService<IBookmarkService>();
+            Log.Information("[DBG] PlaybackView DI resolved");
 
-        FilterDatePicker.SelectedDate = DateTime.Today;
+            Log.Information("[DBG] PlaybackView accessing FilterDatePicker...");
+            FilterDatePicker.SelectedDate = DateTime.Today;
+            Log.Information("[DBG] PlaybackView FilterDatePicker OK");
 
-        _clockTimer = new DispatcherTimer {
-            Interval = TimeSpan.FromSeconds(1)
-        };
-        _clockTimer.Tick += OnClockTick;
-        UpdateClock();
-        Log.Information("[DBG] PlaybackView ctor timer created");
+            _clockTimer = new DispatcherTimer {
+                Interval = TimeSpan.FromSeconds(1)
+            };
+            _clockTimer.Tick += OnClockTick;
+            Log.Information("[DBG] PlaybackView UpdateClock start...");
+            UpdateClock();
+            Log.Information("[DBG] PlaybackView ctor timer created");
+        } catch (Exception ex) {
+            var inner = ex.InnerException;
+            var stack = inner?.StackTrace ?? ex.StackTrace;
+            Log.Error(ex, "[DBG] PlaybackView ctor body FAILED: {Type} {Msg}\n{Stack}",
+                (inner ?? ex).GetType().Name, (inner ?? ex).Message, stack);
+            throw;
+        }
 
+        _onFpsTick = OnFpsTimerTick;
+        _onFsAutoHideTick = OnFsAutoHideTick;
+        _onFsMouseMove = OnFsMouseMove;
         Loaded += OnPlaybackLoaded;
         Unloaded += OnPlaybackUnloaded;
     }
@@ -127,53 +165,7 @@ public partial class PlaybackView : UserControl {
 
             if (_fpsTimer is null) {
                 _fpsTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
-                _fpsTimer.Tick += (_, _) => {
-                    var active = _activePlayers.Count;
-                    if (active > 0 && _frameDisplayCount > 0) {
-                        var totalFps = _frameDisplayCount;
-                        _frameDisplayCount = 0;
-                        var pipeLag = 0;
-                        foreach (var slot in _frameSlots)
-                            if (slot.Data is not null) pipeLag++;
-                        FpsText.Text = active <= 16
-                            ? $"Render: {totalFps}/{active}ch  Lag: {pipeLag}"
-                            : $"R:{totalFps}/{active}ch L:{pipeLag}";
-
-                        // Compute per-channel stats
-                        var now = Stopwatch.GetTimestamp();
-                        var freq = Stopwatch.Frequency / 1000.0;
-                        var totalDrop = 0;
-                        foreach (var kv in _channelStats) {
-                            var s = kv.Value;
-                            s.DisplayFps = s.DisplayCount;
-                            s.DropFps = Interlocked.Exchange(ref s.DropCount, 0);
-                            s.DisplayCount = 0;
-                            s.Lag = 0;
-                            s.MaxLatencyMs = 0;
-                            totalDrop += s.DropFps;
-                        }
-                        // Compute per-channel lag and latency
-                        foreach (var kv in _cameraToSlotIndex) {
-                            if (_channelStats.TryGetValue(kv.Key, out var s)) {
-                                var slot = _frameSlots[kv.Value];
-                                s.Lag = slot.Data is null ? 0 : 1;
-                                if (slot.ArrivalTimestamp > 0)
-                                    s.MaxLatencyMs = (int)((now - slot.ArrivalTimestamp) / freq);
-                            }
-                        }
-
-                        // Memory stats
-                        using var proc = Process.GetCurrentProcess();
-                        var workingSetMb = proc.WorkingSet64 / (1024 * 1024);
-                        var gcHeapMb = GC.GetTotalMemory(false) / (1024 * 1024);
-
-                        // Update perf panel overlay
-                        if (_isPerfPanelVisible)
-                            UpdatePerfPanel(totalFps, pipeLag, totalDrop, workingSetMb, gcHeapMb);
-                    } else if (active > 0) {
-                        FpsText.Text = $"{active}ch idle";
-                    }
-                };
+                _fpsTimer.Tick += _onFpsTick;
                 _fpsTimer.Start();
             }
 
@@ -196,15 +188,157 @@ public partial class PlaybackView : UserControl {
         }
     }
 
+    private bool _isMotionSearchActive;
+
+    public void ToggleMotionSearchPanel() {
+        _isMotionSearchActive = !_isMotionSearchActive;
+        ShowMotionSearchPanel(_isMotionSearchActive);
+    }
+
+    private void ShowMotionSearchPanel(bool show) {
+        if (show) {
+            MotionSearchColumn.Width = new GridLength(280);
+            MotionSearchPanel.Visibility = Visibility.Visible;
+            MotionSearchFromDate.SelectedDate = FilterDatePicker.SelectedDate ?? DateTime.Today;
+            MotionSearchToDate.SelectedDate = DateTime.Today;
+            MotionSearchFromHour.Text = "00";
+            MotionSearchFromMinute.Text = "00";
+            MotionSearchToHour.Text = "23";
+            MotionSearchToMinute.Text = "59";
+            UpdateMotionRegionList();
+        } else {
+            MotionSearchColumn.Width = new GridLength(0);
+            MotionSearchPanel.Visibility = Visibility.Collapsed;
+            Timeline.ClearMotionResults();
+            _isMotionSearchActive = false;
+        }
+    }
+
+    private void CloseMotionSearchBtn_Click(object sender, RoutedEventArgs e) {
+        ShowMotionSearchPanel(false);
+    }
+
+    private void ClearMotionRegionsBtn_Click(object sender, RoutedEventArgs e) {
+        var player = FindActivePlayer();
+        player?.MotionSearchLayer.ClearRegions();
+        UpdateMotionRegionList();
+    }
+
+    private void SelectFullFrameBtn_Click(object sender, RoutedEventArgs e) {
+        var player = FindActivePlayer();
+        player?.MotionSearchLayer.SelectAll();
+        UpdateMotionRegionList();
+    }
+
+    private VideoPlayer? FindActivePlayer() {
+        foreach (var child in PlaybackGrid.Children) {
+            if (child is PlaybackPlayer pb && pb.CameraId is not null) {
+                return FindPlayerInParent(pb);
+            }
+        }
+        return null;
+    }
+
+    private static VideoPlayer? FindPlayerInParent(DependencyObject child) {
+        while (child is not null) {
+            if (child is VideoPlayer vp) return vp;
+            child = VisualTreeHelper.GetParent(child);
+        }
+        return null;
+    }
+
+    private void UpdateMotionRegionList() {
+        MotionRegionListPanel.Children.Clear();
+        var player = FindActivePlayer();
+        var regions = player?.MotionSearchLayer.Regions;
+        if (regions is null || regions.Count == 0) {
+            MotionRegionListPanel.Children.Add(new TextBlock {
+                Text = "尚未選取區域\n在畫面上拖曳繪製矩形",
+                Foreground = TryFindResource("SecondaryTextBrush") as Brush ?? Brushes.Gray,
+                FontSize = 10,
+                Margin = new Thickness(4, 8, 4, 8),
+                TextWrapping = TextWrapping.Wrap,
+            });
+            return;
+        }
+        for (int i = 0; i < regions.Count; i++) {
+            var r = regions[i];
+            var idx = i;
+            var item = new Border {
+                Padding = new Thickness(6, 4, 6, 4),
+                Margin = new Thickness(0, 0, 0, 2),
+                CornerRadius = new CornerRadius(3),
+                Background = TryFindResource("SecondarySurfaceBrush") as Brush ?? new SolidColorBrush(Color.FromRgb(0x2D, 0x2D, 0x2D)),
+            };
+            var inner = new Grid();
+            inner.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(12) });
+            inner.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(100) });
+            inner.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            inner.Children.Add(new System.Windows.Shapes.Ellipse {
+                Width = 8, Height = 8,
+                Fill = new SolidColorBrush(Color.FromArgb(200, 0x21, 0x96, 0xF3)),
+                VerticalAlignment = VerticalAlignment.Center,
+            });
+            inner.Children.Add(new TextBlock {
+                Text = $"區域 {idx + 1}: ({r.X:F2}, {r.Y:F2})",
+                FontSize = 10,
+                Foreground = TryFindResource("TextBrush") as Brush ?? Brushes.White,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(4, 0, 0, 0),
+            });
+            inner.Children[0].SetValue(Grid.ColumnProperty, 0);
+            inner.Children[1].SetValue(Grid.ColumnProperty, 1);
+
+            var delBtn = new Button {
+                Content = "✕",
+                Width = 18, Height = 18,
+                Padding = new Thickness(0),
+                Background = Brushes.Transparent,
+                BorderThickness = new Thickness(0),
+                Cursor = Cursors.Hand,
+                Foreground = TryFindResource("SecondaryTextBrush") as Brush ?? Brushes.Gray,
+                FontSize = 9,
+                Tag = i,
+            };
+            delBtn.Click += (_, _) => {
+                player?.MotionSearchLayer.RemoveRegion(regions[idx]);
+                UpdateMotionRegionList();
+            };
+            inner.Children.Add(delBtn);
+            inner.Children[2].SetValue(Grid.ColumnProperty, 2);
+            item.Child = inner;
+            MotionRegionListPanel.Children.Add(item);
+        }
+    }
+
+    private async void ExecuteMotionSearchBtn_Click(object sender, RoutedEventArgs e) {
+        SetMotionSearchStatus("搜尋功能：模擬結果已顯示於時間軸", false);
+        var now = DateTime.Now;
+        var mockResults = new List<(DateTime start, DateTime end)> {
+            (now.AddMinutes(-30), now.AddMinutes(-28)),
+            (now.AddMinutes(-25), now.AddMinutes(-22)),
+            (now.AddMinutes(-18), now.AddMinutes(-15)),
+            (now.AddMinutes(-10), now.AddMinutes(-7)),
+            (now.AddMinutes(-3), now.AddMinutes(-1)),
+        };
+        Timeline.SetMotionResults(mockResults);
+        await Task.CompletedTask;
+    }
+
+    private void SetMotionSearchStatus(string message, bool isError) {
+        MotionSearchStatusText.Text = message;
+        MotionSearchStatusText.Foreground = isError
+            ? TryFindResource("ErrorBrush") as Brush ?? Brushes.Red
+            : TryFindResource("SecondaryTextBrush") as Brush ?? Brushes.Gray;
+        MotionSearchStatusText.Visibility = Visibility.Visible;
+    }
+
     private void OnPlaybackUnloaded(object sender, RoutedEventArgs e) {
         if (!_isPlaybackLoaded) return;
         _isPlaybackLoaded = false;
         Log.Information("[DBG] PlaybackView Unloaded START");
         _queryCts?.Cancel();
         _clockTimer.Stop();
-        // Cancel decode threads, return pending buffers, unsubscribe
-        // CompositionTarget.Rendering to prevent frames from decode thread
-        // being unconsumed by OnCompositionRendering causing pinned buffers
         StopAllPlayback();
         UnsubscribeCoordinator();
         Timeline.PositionChanged -= OnTimelinePositionChanged;
@@ -214,10 +348,78 @@ public partial class PlaybackView : UserControl {
         ReturnPendingFrameBuffers();
         _storageTimer?.Stop();
         _storageTimer = null;
+        if (_fpsTimer is not null) {
+            _fpsTimer.Tick -= _onFpsTick;
+            _fpsTimer.Stop();
+            _fpsTimer = null;
+        }
+        if (_fsAutoHideTimer is not null) {
+            _fsAutoHideTimer.Tick -= _onFsAutoHideTick;
+            FullScreenOverlay.MouseMove -= _onFsMouseMove;
+            _fsAutoHideTimer.Stop();
+            _fsAutoHideTimer = null;
+        }
         _coordinator = null;
         var win = Window.GetWindow(this);
         win?.PreviewKeyDown -= OnPreviewKeyDown;
         Log.Information("[DBG] PlaybackView Unloaded END");
+    }
+
+    private void OnFpsTimerTick(object? sender, EventArgs e) {
+        var active = _activePlayers.Count;
+        if (active > 0 && _frameDisplayCount > 0) {
+            var totalFps = _frameDisplayCount;
+            _frameDisplayCount = 0;
+            var pipeLag = 0;
+            foreach (var slot in _frameSlots)
+                if (slot.Data is not null) pipeLag++;
+            FpsText.Text = active <= 16
+                ? $"Render: {totalFps}/{active}ch  Lag: {pipeLag}"
+                : $"R:{totalFps}/{active}ch L:{pipeLag}";
+
+            var now = Stopwatch.GetTimestamp();
+            var freq = Stopwatch.Frequency / 1000.0;
+            var totalDrop = 0;
+            foreach (var kv in _channelStats) {
+                var s = kv.Value;
+                s.DisplayFps = s.DisplayCount;
+                s.DropFps = Interlocked.Exchange(ref s.DropCount, 0);
+                s.DisplayCount = 0;
+                s.Lag = 0;
+                s.MaxLatencyMs = 0;
+                totalDrop += s.DropFps;
+            }
+            foreach (var kv in _cameraToSlotIndex) {
+                if (_channelStats.TryGetValue(kv.Key, out var s)) {
+                    var slot = _frameSlots[kv.Value];
+                    s.Lag = slot.Data is null ? 0 : 1;
+                    if (slot.ArrivalTimestamp > 0)
+                        s.MaxLatencyMs = (int)((now - slot.ArrivalTimestamp) / freq);
+                }
+            }
+
+            using var proc = Process.GetCurrentProcess();
+            var workingSetMb = proc.WorkingSet64 / (1024 * 1024);
+            var gcHeapMb = GC.GetTotalMemory(false) / (1024 * 1024);
+
+            if (_isPerfPanelVisible)
+                UpdatePerfPanel(totalFps, pipeLag, totalDrop, workingSetMb, gcHeapMb);
+        } else if (active > 0) {
+            FpsText.Text = $"{active}ch idle";
+        }
+    }
+
+    private void OnFsAutoHideTick(object? sender, EventArgs e) {
+        _fsTopBar?.Visibility = Visibility.Collapsed;
+        _fsBottomBar?.Visibility = Visibility.Collapsed;
+        _fsAutoHideTimer?.Stop();
+    }
+
+    private void OnFsMouseMove(object sender, System.Windows.Input.MouseEventArgs e) {
+        _fsTopBar?.Visibility = Visibility.Visible;
+        _fsBottomBar?.Visibility = Visibility.Visible;
+        _fsAutoHideTimer?.Stop();
+        _fsAutoHideTimer?.Start();
     }
 
     private void OnClockTick(object? sender, EventArgs e) => UpdateClock();
@@ -226,7 +428,7 @@ public partial class PlaybackView : UserControl {
         var now = DateTime.Now;
         ClockDateText.Text = $"{now:yyyy-MM-dd} 週{DayNames[(int)now.DayOfWeek]}";
         ClockTimeText.Text = now.ToString("HH:mm:ss");
-        FsClockText.Text = now.ToString("HH:mm:ss");
+        if (FsClockText is not null) FsClockText.Text = now.ToString("HH:mm:ss");
     }
 
     private async void OnStorageTimerTick(object? sender, EventArgs e) => await UpdateStorageStatusAsync();
@@ -247,7 +449,7 @@ public partial class PlaybackView : UserControl {
                 StorageStatusText.Text = $"儲存 {usedGB:F1} / {totalGB:F0} GB ({pct:F0}%){recordingGB}";
 
                 if (info.IsLowSpace) {
-                    StorageStatusText.Foreground = new SolidColorBrush(Color.FromRgb(0xFF, 0x66, 0x44));
+                    StorageStatusText.Foreground = FindResource("WarningBrush") as Brush ?? new SolidColorBrush(Color.FromRgb(0xFF, 0x66, 0x44));
                 } else
                     StorageStatusText.Foreground = FindResource("SecondaryTextBrush") as Brush
                         ?? new SolidColorBrush(Color.FromRgb(0xAA, 0xAA, 0xAA));
@@ -359,9 +561,9 @@ public partial class PlaybackView : UserControl {
         ChannelCountText.Text = $"{selected} / {MaxPlaybackChannels} 路";
 
         if (selected > MaxPlaybackChannels) {
-            ChannelCountText.Foreground = Brushes.OrangeRed;
+            ChannelCountText.Foreground = FindResource("ErrorBrush") as Brush ?? Brushes.OrangeRed;
         } else {
-            ChannelCountText.Foreground = (Brush)FindResource("SecondaryTextBrush");
+            ChannelCountText.Foreground = TryFindResource("SecondaryTextBrush") as Brush ?? Brushes.Gray;
         }
 
         // Update bottom status bar
@@ -653,7 +855,7 @@ public partial class PlaybackView : UserControl {
                 : $"頻道「{SearchCameraFilter.Text}」在該時段無錄影資料";
             SearchResultList.Children.Add(new TextBlock {
                 Text = emptyMsg,
-                Foreground = (Brush)FindResource("SecondaryTextBrush"),
+                Foreground = TryFindResource("SecondaryTextBrush") as Brush ?? Brushes.Gray,
                 FontSize = 11,
                 Margin = new Thickness(8, 12, 8, 12),
                 HorizontalAlignment = HorizontalAlignment.Center
@@ -702,23 +904,23 @@ public partial class PlaybackView : UserControl {
         };
 
         if (isMultiSelected) {
-            border.Background = new SolidColorBrush(Color.FromArgb(40, 0x21, 0x96, 0xF3));
+            border.Background = TryFindResource("PrimaryBrush") is Brush pbMs ? new SolidColorBrush(Color.FromArgb(40, ((SolidColorBrush)pbMs).Color.R, ((SolidColorBrush)pbMs).Color.G, ((SolidColorBrush)pbMs).Color.B)) : new SolidColorBrush(Color.FromArgb(40, 0x21, 0x96, 0xF3));
         } else if (isSelected) {
-            border.Background = new SolidColorBrush(Color.FromArgb(60, 0x21, 0x96, 0xF3));
+            border.Background = TryFindResource("PrimaryBrush") is Brush pbSel ? new SolidColorBrush(Color.FromArgb(60, ((SolidColorBrush)pbSel).Color.R, ((SolidColorBrush)pbSel).Color.G, ((SolidColorBrush)pbSel).Color.B)) : new SolidColorBrush(Color.FromArgb(60, 0x21, 0x96, 0xF3));
         }
 
         border.MouseEnter += (_, _) => {
             var idx = (int)border.Tag;
             if (!_selectedSearchIndices.Contains(idx) && idx != _selectedSearchIndex) {
-                border.Background = (Brush)FindResource("SecondarySurfaceBrush");
+                border.Background = TryFindResource("SecondarySurfaceBrush") as Brush ?? new SolidColorBrush(Color.FromRgb(0x2D, 0x2D, 0x2D));
             }
         };
         border.MouseLeave += (_, _) => {
             var idx = (int)border.Tag;
             if (_selectedSearchIndices.Contains(idx)) {
-                border.Background = new SolidColorBrush(Color.FromArgb(40, 0x21, 0x96, 0xF3));
+                border.Background = TryFindResource("PrimaryBrush") is Brush pbMl ? new SolidColorBrush(Color.FromArgb(40, ((SolidColorBrush)pbMl).Color.R, ((SolidColorBrush)pbMl).Color.G, ((SolidColorBrush)pbMl).Color.B)) : new SolidColorBrush(Color.FromArgb(40, 0x21, 0x96, 0xF3));
             } else if (idx == _selectedSearchIndex) {
-                border.Background = new SolidColorBrush(Color.FromArgb(60, 0x21, 0x96, 0xF3));
+                border.Background = TryFindResource("PrimaryBrush") is Brush pbMl2 ? new SolidColorBrush(Color.FromArgb(60, ((SolidColorBrush)pbMl2).Color.R, ((SolidColorBrush)pbMl2).Color.G, ((SolidColorBrush)pbMl2).Color.B)) : new SolidColorBrush(Color.FromArgb(60, 0x21, 0x96, 0xF3));
             } else
                 border.Background = Brushes.Transparent;
         };
@@ -729,32 +931,22 @@ public partial class PlaybackView : UserControl {
         var ctxMenu = new ContextMenu();
 
         if (_selectedSearchIndices.Contains(index)) {
-            var deselectItem = new MenuItem { Header = "取消選取" };
-            deselectItem.Click += (_, _) => ToggleSearchSelection(index);
-            ctxMenu.Items.Add(deselectItem);
+            ctxMenu.Items.Add(MenuHelper.MakeMenuItem("取消選取", "IconClose", "", () => ToggleSearchSelection(index)));
         } else {
-            var selectItem = new MenuItem { Header = "選取此項" };
-            selectItem.Click += (_, _) => ToggleSearchSelection(index);
-            ctxMenu.Items.Add(selectItem);
+            ctxMenu.Items.Add(MenuHelper.MakeMenuItem("選取此項", "IconCheck", "", () => ToggleSearchSelection(index)));
         }
         ctxMenu.Items.Add(new Separator());
 
-        var navItem = new MenuItem { Header = "跳轉至此時間" };
-        navItem.Click += (_, _) => OnSearchResultClicked(entry);
-        ctxMenu.Items.Add(navItem);
+        ctxMenu.Items.Add(MenuHelper.MakeMenuItem("跳轉至此時間", "IconSearch", "", () => OnSearchResultClicked(entry)));
 
-        var copyItem = new MenuItem { Header = "複製時間資訊" };
-        copyItem.Click += (_, _) => {
+        ctxMenu.Items.Add(MenuHelper.MakeMenuItem("複製時間資訊", "IconSave", "", () => {
             try {
                 Clipboard.SetText(
                     $"{entry.CameraName}  CH{entry.ChannelNumber:D2}  {entry.StartTime:yyyy-MM-dd HH:mm:ss} ~ {entry.EndTime:HH:mm:ss}");
-            } catch { }
-        };
-        ctxMenu.Items.Add(copyItem);
+            } catch (Exception ex) { Log.Debug(ex, "Failed to copy time info to clipboard"); }
+        }));
 
-        var exportItem = new MenuItem { Header = "匯出此片段" };
-        exportItem.Click += async (_, _) => await ExportSingleSegmentAsync(entry);
-        ctxMenu.Items.Add(exportItem);
+        ctxMenu.Items.Add(MenuHelper.MakeMenuItem("匯出此片段", "IconExport", "", async () => await ExportSingleSegmentAsync(entry)));
         border.ContextMenu = ctxMenu;
 
         var dotColor = entry.RecordType switch {
@@ -764,11 +956,14 @@ public partial class PlaybackView : UserControl {
             _ => "RecordingContinuousBrush" // Continuous → Blue
         };
 
+        var isPinned = _pinnedResults.Any(r => r.StartTime == entry.StartTime && r.CameraId == entry.CameraId);
+
         var innerGrid = new Grid();
         innerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         innerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(40) });
         innerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(120) });
         innerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(70) });
+        innerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         innerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
         // Selection checkbox indicator
@@ -780,13 +975,13 @@ public partial class PlaybackView : UserControl {
                     ? Geometry.Parse("M3,6 L6,9 L11,3")   // check mark
                     : Geometry.Parse("M2,2 L10,2 L10,10 L2,10 Z"), // empty square
                 Stroke = isMultiSelected
-                    ? (Brush)FindResource("PrimaryBrush")
-                    : (Brush)FindResource("SecondaryTextBrush"),
+                    ? TryFindResource("PrimaryBrush") as Brush ?? new SolidColorBrush(Color.FromRgb(0x21, 0x96, 0xF3))
+                    : TryFindResource("SecondaryTextBrush") as Brush ?? Brushes.Gray,
                 StrokeThickness = 1.5,
                 StrokeStartLineCap = PenLineCap.Round,
                 StrokeEndLineCap = PenLineCap.Round,
                 StrokeLineJoin = PenLineJoin.Round,
-                Fill = isMultiSelected ? (Brush)FindResource("PrimaryBrush") : Brushes.Transparent
+                Fill = isMultiSelected ? TryFindResource("PrimaryBrush") as Brush ?? new SolidColorBrush(Color.FromRgb(0x21, 0x96, 0xF3)) : Brushes.Transparent
             }
         });
 
@@ -802,7 +997,7 @@ public partial class PlaybackView : UserControl {
 
         innerGrid.Children.Add(new TextBlock {
             Text = $"CH{entry.ChannelNumber:D2}",
-            Foreground = (Brush)FindResource("TextBrush"),
+            Foreground = TryFindResource("TextBrush") as Brush ?? Brushes.White,
             FontSize = 11,
             FontWeight = FontWeights.SemiBold,
             VerticalAlignment = VerticalAlignment.Center
@@ -810,7 +1005,7 @@ public partial class PlaybackView : UserControl {
 
         innerGrid.Children.Add(new TextBlock {
             Text = entry.TimeLabel,
-            Foreground = (Brush)FindResource("TextBrush"),
+            Foreground = TryFindResource("TextBrush") as Brush ?? Brushes.White,
             FontSize = 10,
             FontFamily = new FontFamily("Consolas"),
             VerticalAlignment = VerticalAlignment.Center
@@ -818,7 +1013,7 @@ public partial class PlaybackView : UserControl {
 
         innerGrid.Children.Add(new TextBlock {
             Text = entry.DurationLabel,
-            Foreground = (Brush)FindResource("SecondaryTextBrush"),
+            Foreground = TryFindResource("SecondaryTextBrush") as Brush ?? Brushes.Gray,
             FontSize = 10,
             VerticalAlignment = VerticalAlignment.Center
         });
@@ -829,11 +1024,49 @@ public partial class PlaybackView : UserControl {
         innerGrid.Children[3].SetValue(Grid.ColumnProperty, 3);
         innerGrid.Children.Add(new TextBlock {
             Text = entry.CameraName,
-            Foreground = (Brush)FindResource("SecondaryTextBrush"),
+            Foreground = TryFindResource("SecondaryTextBrush") as Brush ?? Brushes.Gray,
             FontSize = 10,
             VerticalAlignment = VerticalAlignment.Center
         });
         innerGrid.Children[4].SetValue(Grid.ColumnProperty, 4);
+
+        var pinBtn = new Button {
+            Width = 18, Height = 18,
+            Padding = new Thickness(0),
+            Background = Brushes.Transparent,
+            BorderThickness = new Thickness(0),
+            Cursor = Cursors.Hand,
+            ToolTip = isPinned ? "取消釘選" : "釘選此結果",
+            Tag = index,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(2, 0, 0, 0)
+        };
+        var pinIcon = new System.Windows.Shapes.Path {
+            Data = TryFindResource("IconStar") as Geometry ?? Geometry.Parse("M12,17.27 L18.18,21 L16.54,13.97 L22,9.24 L14.81,8.63 L12,2 L9.19,8.63 L2,9.24 L7.46,13.97 L5.82,21 Z"),
+            Width = 11, Height = 11,
+            Stretch = Stretch.Uniform,
+            Fill = isPinned
+                ? (TryFindResource("WarningBrush") as Brush ?? new SolidColorBrush(Color.FromRgb(0xFF, 0xD7, 0x00)))
+                : Brushes.Transparent,
+            Stroke = isPinned
+                ? (TryFindResource("WarningBrush") as Brush ?? new SolidColorBrush(Color.FromRgb(0xFF, 0xD7, 0x00)))
+                : (TryFindResource("SecondaryTextBrush") as Brush ?? Brushes.Gray),
+            StrokeThickness = 1.5,
+            StrokeStartLineCap = PenLineCap.Round,
+            StrokeEndLineCap = PenLineCap.Round,
+            StrokeLineJoin = PenLineJoin.Round,
+        };
+        pinBtn.Content = pinIcon;
+        pinBtn.Click += (_, _) => TogglePinSearchResult((int)pinBtn.Tag);
+        innerGrid.Children.Add(pinBtn);
+        innerGrid.Children[5].SetValue(Grid.ColumnProperty, 5);
+
+        // Add Pin/Unpin context menu item
+        ctxMenu.Items.Insert(2, new Separator());
+        ctxMenu.Items.Insert(3, MenuHelper.MakeMenuItem(
+            isPinned ? "取消釘選" : "釘選此結果",
+            "IconStar", "",
+            () => TogglePinSearchResult(index)));
 
         border.Child = innerGrid;
         return border;
@@ -863,6 +1096,58 @@ public partial class PlaybackView : UserControl {
         if (_selectedSearchIndices.Count > 0) {
             BatchExportBtn.Content = $"匯出選取 ({_selectedSearchIndices.Count})";
         }
+    }
+
+    private void TogglePinSearchResult(int index) {
+        if (index < 0 || index >= _searchResults.Count) return;
+        var entry = _searchResults[index];
+        if (_pinnedResults.Any(r => r.StartTime == entry.StartTime && r.CameraId == entry.CameraId)) {
+            _pinnedResults.RemoveAll(r => r.StartTime == entry.StartTime && r.CameraId == entry.CameraId);
+            entry.IsPinned = false;
+        } else {
+            _pinnedResults.Add(entry);
+            entry.IsPinned = true;
+        }
+        RefreshPinnedResults();
+        RefreshSearchResultsUI();
+    }
+
+    private void RefreshPinnedResults() {
+        if (PinnedResultsList is null || PinnedResultsExpander is null) return;
+        PinnedResultsList.ItemsSource = null;
+        PinnedResultsList.ItemsSource = _pinnedResults;
+        var count = _pinnedResults.Count;
+        PinnedResultsExpander.Header = $"已釘選結果 ({count})";
+        PinnedResultsExpander.Visibility = count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        if (ExportPinnedBtn is not null)
+            ExportPinnedBtn.Visibility = count > 0 ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private void RemovePinnedResult_Click(object sender, RoutedEventArgs e) {
+        if (sender is Button btn && btn.Tag is SearchResultEntry entry) {
+            _pinnedResults.Remove(entry);
+            entry.IsPinned = false;
+            RefreshPinnedResults();
+            RefreshSearchResultsUI();
+        }
+    }
+
+    private async void ExportPinnedBtn_Click(object sender, RoutedEventArgs e) {
+        if (_pinnedResults.Count == 0) return;
+
+        if (_pinnedResults.Count == 1) {
+            await ExportSingleSegmentAsync(_pinnedResults[0]);
+            return;
+        }
+
+        var minTime = _pinnedResults.Min(r => r.StartTime);
+        var maxTime = _pinnedResults.Max(r => r.EndTime);
+
+        var dialog = new Dialog.ExportDialog {
+            Owner = Window.GetWindow(this),
+            PresetRange = (minTime, maxTime)
+        };
+        dialog.ShowDialog();
     }
 
     private void SelectAllSearchResults() {
@@ -973,7 +1258,7 @@ public partial class PlaybackView : UserControl {
             if (SearchResultList.Children[i] is Border b) {
                 if (b.Tag is int idx) {
                     if (idx == _selectedSearchIndex) {
-                        b.Background = new SolidColorBrush(Color.FromArgb(40, 0x21, 0x96, 0xF3));
+                        b.Background = TryFindResource("PrimaryBrush") is Brush pb ? new SolidColorBrush(Color.FromArgb(40, ((SolidColorBrush)pb).Color.R, ((SolidColorBrush)pb).Color.G, ((SolidColorBrush)pb).Color.B)) : new SolidColorBrush(Color.FromArgb(40, 0x21, 0x96, 0xF3));
                     } else {
                         b.Background = Brushes.Transparent;
                     }
@@ -1007,8 +1292,8 @@ public partial class PlaybackView : UserControl {
     private void SetSearchStatus(string message, bool isError) {
         SearchStatusText.Text = message;
         SearchStatusText.Foreground = isError
-            ? (Brush)FindResource("ErrorBrush")
-            : (Brush)FindResource("SecondaryTextBrush");
+            ? TryFindResource("ErrorBrush") as Brush ?? new SolidColorBrush(Colors.Red)
+            : TryFindResource("SecondaryTextBrush") as Brush ?? Brushes.Gray;
         SearchStatusText.Visibility = Visibility.Visible;
     }
 
@@ -1387,9 +1672,10 @@ public partial class PlaybackView : UserControl {
         var compact = total >= 16;
         for (var i = 0; i < total; i++) {
             var slot = slots[i];
-            var player = new PlaybackPlayer();
+            var player = GetOrCreatePlayer();
             player.SetChannelInfo(slot.Camera?.ChannelNumber ?? i + 1,
                 slot.Camera?.Name ?? "", slot.Camera?.Id ?? "");
+            player.ShowSyncIndicator(_syncEnabled && i > 0);
             if (compact) player.SetCompactMode(true);
             if (slot.Segment is not null) {
                 player.SetRecordingType(slot.Segment.RecordType);
@@ -1402,6 +1688,7 @@ public partial class PlaybackView : UserControl {
             player.PlayPauseRequested += OnPlayerPlayPauseRequested;
             player.Selected += OnPlayerSelected;
             player.SetAsMasterRequested += OnPlayerSetAsMasterRequested;
+            RegisterPlayer(player);
             player.Margin = new Thickness(1);
             player.SetLoading(true);
 
@@ -1436,7 +1723,7 @@ public partial class PlaybackView : UserControl {
         var currentRate = SliderValueToSpeed(SpeedSlider.Value);
         UpdatePlayerSpeedBadges(currentRate);
 
-        EmptyPrompt.Visibility = Visibility.Collapsed;
+        PlaybackEmptyState.Visibility = Visibility.Collapsed;
         PlaybackGrid.Visibility = Visibility.Visible;
 
         // Load to coordinator
@@ -1613,6 +1900,17 @@ public partial class PlaybackView : UserControl {
         }
     }
 
+    /// <summary>Trigger preload if less than 30 seconds remaining in current segment</summary>
+    private void PreloadNextSegments() {
+        if (_coordinator is null || _currentRecordings.Count == 0) return;
+        var posUs = _coordinator.GetMasterPosition();
+        var durUs = _coordinator.GetMasterDuration();
+        if (durUs <= 0) return;
+        var remainingUs = durUs - posUs;
+        if (remainingUs > 30_000_000) return;
+        _ = HandleMasterEOF();
+    }
+
     private async Task TryLoadNextDay() {
         var nextDate = _currentDate.AddDays(1);
         if (nextDate > DateTime.Today) {
@@ -1728,6 +2026,7 @@ public partial class PlaybackView : UserControl {
         UnsubscribeCoordinator();
         ReturnPendingFrameBuffers();
         ClearVideoGrid();
+        _playerPool.Clear();
         _cameraToSlotIndex.Clear();
         _frameSlots = [];
         _isPlaying = false;
@@ -1883,12 +2182,43 @@ public partial class PlaybackView : UserControl {
 
     private void ClearVideoGrid() {
         foreach (var player in _activePlayers) {
-            player.ClearDisplay();
+            RecyclePlayer(player);
         }
         _activePlayers.Clear();
         PlaybackGrid.Children.Clear();
         PlaybackGrid.Visibility = Visibility.Collapsed;
-        EmptyPrompt.Visibility = Visibility.Visible;
+        PlaybackEmptyState.Visibility = Visibility.Visible;
+    }
+
+    private PlaybackPlayer GetOrCreatePlayer() {
+        if (_playerPool.TryPop(out var pooled)) {
+            pooled.Visibility = Visibility.Visible;
+            return pooled;
+        }
+        return new PlaybackPlayer();
+    }
+
+    private void RecyclePlayer(PlaybackPlayer player) {
+        UnregisterPlayer(player);
+        player.MaximizeRequested -= OnPlayerMaximizeRequested;
+        player.PlayPauseRequested -= OnPlayerPlayPauseRequested;
+        player.Selected -= OnPlayerSelected;
+        player.SetAsMasterRequested -= OnPlayerSetAsMasterRequested;
+        player.ClearDisplay();
+        player.ShowSyncIndicator(false);
+        player.IsSelected = false;
+        player.Visibility = Visibility.Collapsed;
+        player.SetMaster(false);
+    }
+
+    private void RegisterPlayer(PlaybackPlayer player) {
+        player.PlaybackSeeked += OnPlayerPlaybackSeeked;
+        player.PlaybackStateChanged += OnPlayerPlaybackStateChanged;
+    }
+
+    private void UnregisterPlayer(PlaybackPlayer player) {
+        player.PlaybackSeeked -= OnPlayerPlaybackSeeked;
+        player.PlaybackStateChanged -= OnPlayerPlaybackStateChanged;
     }
 
     // ══════════════════════════════════════════════════════════
@@ -1916,12 +2246,84 @@ public partial class PlaybackView : UserControl {
         UpdateButtonStates();
     }
 
+    /// <summary>Handle JKL professional playback shortcuts</summary>
+    public void HandleJKLCommand(string command) {
+        if (_activePlayers.Count == 0 || _coordinator is null) return;
+
+        switch (command) {
+            case "j": {
+                _jklActive = true;
+                _jklSpeedStep = (_jklSpeedStep + 1) % JklReverseSpeeds.Length;
+                var speed = JklReverseSpeeds[_jklSpeedStep];
+                _coordinator.Play();
+                _coordinator.SetPlaybackRate(speed);
+                _isPlaying = true;
+                _defaultSpeed = 1.0;
+                UpdatePlayerSpeedBadges(speed);
+                ShowSpeedOSDOnPlayers(speed);
+                SpeedLabel.Text = SpeedToDisplayText(speed);
+                UpdateFsSpeedDisplay();
+                UpdateButtonStates();
+                break;
+            }
+            case "l": {
+                _jklActive = true;
+                _jklSpeedStep = (_jklSpeedStep + 1) % JklForwardSpeeds.Length;
+                var speed = JklForwardSpeeds[_jklSpeedStep];
+                _coordinator.Play();
+                _coordinator.SetPlaybackRate(speed);
+                _isPlaying = true;
+                _defaultSpeed = 1.0;
+                UpdatePlayerSpeedBadges(speed);
+                ShowSpeedOSDOnPlayers(speed);
+                SpeedLabel.Text = SpeedToDisplayText(speed);
+                UpdateFsSpeedDisplay();
+                UpdateButtonStates();
+                break;
+            }
+            case "k": {
+                if (_jklActive) {
+                    // Return to 1x normal play (J+K or L+K behavior)
+                    _jklActive = false;
+                    _jklSpeedStep = -1;
+                    _coordinator.Play();
+                    _coordinator.SetPlaybackRate(1.0);
+                    _isPlaying = true;
+                    _defaultSpeed = 1.0;
+                    UpdatePlayerSpeedBadges(1.0);
+                    ShowSpeedOSDOnPlayers(1.0);
+                    SpeedLabel.Text = SpeedToDisplayText(1.0);
+                    UpdateFsSpeedDisplay();
+                } else {
+                    // Toggle play/pause
+                    if (_isPlaying) {
+                        _coordinator.Pause();
+                        _isPlaying = false;
+                        _defaultSpeed = 0.0;
+                    } else {
+                        _coordinator.Play();
+                        _isPlaying = true;
+                        _defaultSpeed = 1.0;
+                        _coordinator.SetPlaybackRate(1.0);
+                        UpdatePlayerSpeedBadges(1.0);
+                        ShowSpeedOSDOnPlayers(1.0);
+                        SpeedLabel.Text = SpeedToDisplayText(1.0);
+                        UpdateFsSpeedDisplay();
+                    }
+                }
+                UpdateButtonStates();
+                break;
+            }
+        }
+    }
+
     private void LiveBtn_Checked(object sender, RoutedEventArgs e) {
         ToggleLiveMode();
     }
 
     private void LiveBtn_Unchecked(object sender, RoutedEventArgs e) {
         _liveMode = false;
+        UpdateLiveStatus();
     }
 
     private void ToggleLiveMode() {
@@ -1931,6 +2333,19 @@ public partial class PlaybackView : UserControl {
         Timeline.PositionSeconds = Math.Clamp(nowSecs, 0, 86400);
         Timeline_SeekRequested(Math.Clamp(nowSecs, 0, 86400));
         UpdateButtonStates();
+        UpdateLiveStatus();
+    }
+
+    private void UpdateLiveStatus() {
+        if (LiveStatusText == null) return;
+        if (_liveMode) {
+            LiveStatusText.Text = "LIVE";
+            LiveStatusText.Visibility = Visibility.Visible;
+            LiveStatusText.Foreground = FindResource("RecordingContinuousBrush") as Brush
+                ?? new SolidColorBrush(Color.FromRgb(0x4C, 0xAF, 0x50));
+        } else {
+            LiveStatusText.Visibility = Visibility.Collapsed;
+        }
     }
 
     private void SyncBtn_Checked(object sender, RoutedEventArgs e) {
@@ -1938,11 +2353,9 @@ public partial class PlaybackView : UserControl {
         _syncEnabled = true;
         if (_coordinator is not null) {
             var masterId = _coordinator.GetMasterId();
-            if (masterId is not null) {
-                foreach (var player in _activePlayers) {
-                    if (player.CameraId != masterId) {
-                        player.SetMaster(false);
-                    }
+            foreach (var player in _activePlayers) {
+                if (player.CameraId != masterId) {
+                    player.ShowSyncIndicator(true);
                 }
             }
         }
@@ -1950,6 +2363,9 @@ public partial class PlaybackView : UserControl {
 
     private void SyncBtn_Unchecked(object sender, RoutedEventArgs e) {
         _syncEnabled = false;
+        foreach (var player in _activePlayers) {
+            player.ShowSyncIndicator(false);
+        }
     }
 
     private void ClndBtn_Click(object sender, RoutedEventArgs e) {
@@ -1992,7 +2408,7 @@ public partial class PlaybackView : UserControl {
         _coordinator?.SetPlaybackRate(speed);
         UpdatePlayerSpeedBadges(speed);
         ShowSpeedOSDOnPlayers(speed);
-        SpeedLabel.Text = SpeedToDisplayText(speed);
+        if (SpeedLabel is not null) SpeedLabel.Text = SpeedToDisplayText(speed);
         UpdateFsSpeedDisplay();
     }
 
@@ -2062,6 +2478,69 @@ public partial class PlaybackView : UserControl {
         var sign = sliderVal > 50.0 ? 1.0 : -1.0;
         var offset = Math.Abs(sliderVal - 50.0) / 16.6667;
         return Math.Round(sign * 0.25 * Math.Pow(2, offset), 2);
+    }
+
+    private void VolumeSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e) {
+        if (VolumeSpeakerIcon is null) return;
+        if (!_isMuted) {
+            _volume = VolumeSlider.Value;
+            UpdateVolumeState();
+        }
+        if (FsVolumeSlider is not null) {
+            SyncFsVolumeFromMain();
+        }
+    }
+
+    private void VolumeSpeakerBtn_Click(object sender, RoutedEventArgs e) {
+        _isMuted = !_isMuted;
+        UpdateVolumeState();
+        if (FsVolumeSlider is not null) {
+            SyncFsVolumeFromMain();
+        }
+    }
+
+    private void UpdateVolumeState() {
+        var iconSpeaker = TryFindResource("IconSpeaker") as PathGeometry;
+        var iconMuted = TryFindResource("IconSpeakerMuted") as PathGeometry;
+        if (_isMuted) {
+            VolumeSpeakerIcon.Data = iconMuted;
+            VolumeSpeakerIcon.Opacity = 0.5;
+            if (FsVolumeSpeakerIcon is not null) {
+                FsVolumeSpeakerIcon.Data = iconMuted;
+                FsVolumeSpeakerIcon.Opacity = 0.5;
+            }
+        } else {
+            VolumeSpeakerIcon.Data = iconSpeaker;
+            VolumeSpeakerIcon.Opacity = 1.0;
+            if (FsVolumeSpeakerIcon is not null) {
+                FsVolumeSpeakerIcon.Data = iconSpeaker;
+                FsVolumeSpeakerIcon.Opacity = 1.0;
+            }
+            _volume = VolumeSlider.Value;
+        }
+    }
+
+    private void FsVolumeSpeakerBtn_Click(object sender, RoutedEventArgs e) {
+        _isMuted = !_isMuted;
+        UpdateVolumeState();
+        if (VolumeSlider is not null) {
+            VolumeSlider.Value = _volume;
+        }
+    }
+
+    private void FsVolumeSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e) {
+        if (VolumeSlider is not null && e.NewValue is not double.NaN) {
+            VolumeSlider.Value = e.NewValue;
+        }
+    }
+
+    private void SyncFsVolumeFromMain() {
+        if (FsVolumeSlider is null) return;
+        FsVolumeSlider.Value = _volume;
+        if (FsVolumeSpeakerIcon is not null && VolumeSpeakerIcon is not null) {
+            FsVolumeSpeakerIcon.Data = VolumeSpeakerIcon.Data;
+            FsVolumeSpeakerIcon.Opacity = VolumeSpeakerIcon.Opacity;
+        }
     }
 
     private static string SpeedToDisplayText(double speed) {
@@ -2171,6 +2650,41 @@ public partial class PlaybackView : UserControl {
         _coordinator?.StepForward();
     }
 
+    private void SkipBackBtn_Click(object sender, RoutedEventArgs e) {
+        SkipPlayback(-30);
+    }
+
+    private void SkipFwdBtn_Click(object sender, RoutedEventArgs e) {
+        SkipPlayback(30);
+    }
+
+    private void SkipPlayback(int seconds) {
+        if (_coordinator == null || Timeline == null) return;
+        Timeline.SkipTime(seconds);
+        ShowSkipOSD(seconds);
+    }
+
+    private void ShowSkipOSD(int seconds) {
+        if (SkipOSD == null || SkipOSDText == null) return;
+        var sign = seconds > 0 ? "+" : "";
+        SkipOSDText.Text = $"{sign}{seconds}s";
+        SkipOSD.Visibility = Visibility.Visible;
+        var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(800) };
+        timer.Tick += (s, e) => {
+            SkipOSD.Visibility = Visibility.Collapsed;
+            timer.Stop();
+        };
+        timer.Start();
+    }
+
+    private void PrevBoundaryBtn_Click(object sender, RoutedEventArgs e) {
+        Timeline.GoToBoundary(false);
+    }
+
+    private void NextBoundaryBtn_Click(object sender, RoutedEventArgs e) {
+        Timeline.GoToBoundary(true);
+    }
+
     private void OnPreviewKeyDown(object sender, KeyEventArgs e) {
         // Play All shortcut: Ctrl+P (works even without active players)
         if (e.Key == Key.P && Keyboard.Modifiers == ModifierKeys.Control) {
@@ -2230,6 +2744,21 @@ public partial class PlaybackView : UserControl {
         if (_activePlayers.Count == 0) return;
 
         switch (e.Key) {
+            case Key.J:
+                HandleJKLCommand("j");
+                e.Handled = true;
+                break;
+
+            case Key.K:
+                HandleJKLCommand("k");
+                e.Handled = true;
+                break;
+
+            case Key.L:
+                HandleJKLCommand("l");
+                e.Handled = true;
+                break;
+
             case Key.Space:
                 PlayPauseBtn_Click(sender, e);
                 e.Handled = true;
@@ -2285,8 +2814,74 @@ public partial class PlaybackView : UserControl {
 
 
 
+            case Key.B when Keyboard.Modifiers == ModifierKeys.Control:
+                AddBookmarkWithDialog();
+                e.Handled = true;
+                break;
+
             case Key.B when Keyboard.Modifiers == ModifierKeys.None:
                 AddBookmarkAtCurrentPosition();
+                e.Handled = true;
+                break;
+
+            case Key.N when Keyboard.Modifiers == (ModifierKeys.Control | ModifierKeys.Shift):
+                JumpToBookmark(1);
+                e.Handled = true;
+                break;
+
+            case Key.P when Keyboard.Modifiers == (ModifierKeys.Control | ModifierKeys.Shift):
+                JumpToBookmark(-1);
+                e.Handled = true;
+                break;
+
+            // WASD timeline navigation
+            case Key.W when Keyboard.Modifiers == ModifierKeys.None:
+                Timeline.ZoomIn();
+                e.Handled = true;
+                break;
+
+            case Key.S when Keyboard.Modifiers == ModifierKeys.None:
+                Timeline.ZoomOut();
+                e.Handled = true;
+                break;
+
+            case Key.A when Keyboard.Modifiers == ModifierKeys.None:
+                Timeline.PanTimeline(-1);
+                e.Handled = true;
+                break;
+
+            case Key.D when Keyboard.Modifiers == ModifierKeys.None:
+                Timeline.PanTimeline(1);
+                e.Handled = true;
+                break;
+
+            case Key.Q when Keyboard.Modifiers == ModifierKeys.None:
+                Timeline.SkipTime(-10);
+                e.Handled = true;
+                break;
+
+            case Key.E when Keyboard.Modifiers == ModifierKeys.None:
+                Timeline.SkipTime(10);
+                e.Handled = true;
+                break;
+
+            case Key.Q when Keyboard.Modifiers == ModifierKeys.Shift:
+                Timeline.SkipTime(-30);
+                e.Handled = true;
+                break;
+
+            case Key.E when Keyboard.Modifiers == ModifierKeys.Shift:
+                Timeline.SkipTime(30);
+                e.Handled = true;
+                break;
+
+            case Key.Z when Keyboard.Modifiers == ModifierKeys.None:
+                Timeline.GoToBoundary(false);
+                e.Handled = true;
+                break;
+
+            case Key.C when Keyboard.Modifiers == ModifierKeys.None:
+                Timeline.GoToBoundary(true);
                 e.Handled = true;
                 break;
 
@@ -2386,23 +2981,24 @@ public partial class PlaybackView : UserControl {
 
     private void ToggleTypeFilter(object sender, RoutedEventArgs e) {
         if (sender is ToggleButton btn && btn.Tag is string tagStr && int.TryParse(tagStr, out var typeIndex)) {
-            var cont = ToggleContinuous.IsChecked ?? true;
-            var mot = ToggleMotion.IsChecked ?? true;
-            var alarm = ToggleAlarm.IsChecked ?? true;
-            var ai = ToggleAi.IsChecked ?? true;
-            Timeline.SetTypeFilter(cont, mot, alarm, ai);
+            var cont = ToggleContinuous?.IsChecked ?? true;
+            var mot = ToggleMotion?.IsChecked ?? true;
+            var alarm = ToggleAlarm?.IsChecked ?? true;
+            var ai = ToggleAi?.IsChecked ?? true;
+            Timeline?.SetTypeFilter(cont, mot, alarm, ai);
         }
         UpdateFilterButtonOpacity();
     }
 
     private void UpdateFilterButtonOpacity() {
-        SetBtnOpacity(ToggleContinuous, ToggleContinuous.IsChecked ?? true);
-        SetBtnOpacity(ToggleMotion, ToggleMotion.IsChecked ?? true);
-        SetBtnOpacity(ToggleAlarm, ToggleAlarm.IsChecked ?? true);
-        SetBtnOpacity(ToggleAi, ToggleAi.IsChecked ?? true);
+        SetBtnOpacity(ToggleContinuous, ToggleContinuous?.IsChecked ?? true);
+        SetBtnOpacity(ToggleMotion, ToggleMotion?.IsChecked ?? true);
+        SetBtnOpacity(ToggleAlarm, ToggleAlarm?.IsChecked ?? true);
+        SetBtnOpacity(ToggleAi, ToggleAi?.IsChecked ?? true);
     }
 
-    private static void SetBtnOpacity(ToggleButton btn, bool enabled) {
+    private static void SetBtnOpacity(ToggleButton? btn, bool enabled) {
+        if (btn is null) return;
         btn.Opacity = enabled ? 1.0 : 0.25;
     }
 
@@ -2445,7 +3041,14 @@ public partial class PlaybackView : UserControl {
 
         var targetTime = _currentDate.Date.AddSeconds(seconds);
         var microseconds = (long)(seconds * 1_000_000);
-        _coordinator.SeekAbsolute(microseconds);
+
+        if (_syncEnabled) {
+            var segStart = _coordinator.GetMasterSegmentStartTime();
+            var offsetUs = (long)((segStart - _currentDate.Date).TotalMilliseconds * 1000);
+            _coordinator.SeekMasterImmediate(Math.Max(0, microseconds - offsetUs));
+        } else {
+            _coordinator.SeekAbsolute(microseconds);
+        }
 
         _ = ReloadIfMasterSegmentExpired(targetTime);
     }
@@ -2496,7 +3099,13 @@ public partial class PlaybackView : UserControl {
         if (_coordinator is null) return;
         var targetTime = _currentDate.Date.AddSeconds(seconds);
         var microseconds = (long)(seconds * 1_000_000);
-        _coordinator.SeekAbsolute(microseconds);
+        if (_syncEnabled) {
+            var segStart = _coordinator.GetMasterSegmentStartTime();
+            var offsetUs = (long)((segStart - _currentDate.Date).TotalMilliseconds * 1000);
+            _coordinator.SeekMasterImmediate(Math.Max(0, microseconds - offsetUs));
+        } else {
+            _coordinator.SeekAbsolute(microseconds);
+        }
         _ = ReloadIfMasterSegmentExpired(targetTime);
     }
 
@@ -2537,7 +3146,12 @@ public partial class PlaybackView : UserControl {
         }
 
         var note = $"CH{_coordinator.GetMasterId()?[..4] ?? "----"} {h:D2}:{m:D2}:{s_val:D2}";
-        var newBm = new PlaybackBookmark { Seconds = seconds, Note = note };
+        var newBm = new PlaybackBookmark {
+            Seconds = seconds,
+            Note = note,
+            CameraId = _coordinator.GetMasterId() ?? "",
+            CameraName = _coordinator.GetMasterId() is string cid ? _cameraService.GetCameraById(cid)?.Name ?? cid : ""
+        };
         _bookmarks.Add(newBm);
         Timeline.AddBookmark(newBm);
         RefreshBookmarkList();
@@ -2551,6 +3165,57 @@ public partial class PlaybackView : UserControl {
 
         _eventLog.LogInfo(EventCategories.Playback, "PlaybackView",
             $"新增書籤", $"時間: {h:D2}:{m:D2}:{s_val:D2}");
+    }
+
+    private void AddBookmarkWithDialog() {
+        if (_coordinator is null) return;
+
+        var seconds = Timeline.PositionSeconds;
+        var totalSec = (int)seconds;
+        var h = totalSec / 3600;
+        var m = (totalSec % 3600) / 60;
+        var s = totalSec % 60;
+
+        for (var bi = 0; bi < _bookmarks.Count; bi++) {
+            if (Math.Abs(_bookmarks[bi].Seconds - seconds) < 5) { return; }
+        }
+
+        var dialog = new Dialog.InputDialog("新增書籤", "請輸入書籤說明：", $"{h:D2}:{m:D2}:{s:D2}");
+        dialog.Owner = Window.GetWindow(this);
+        if (dialog.ShowDialog() != true) return;
+
+        var note = dialog.Value ?? $"{h:D2}:{m:D2}:{s:D2}";
+        var newBm = new PlaybackBookmark {
+            Seconds = seconds,
+            Note = note,
+            Description = note,
+            CameraId = _coordinator.GetMasterId() ?? "",
+            CameraName = _coordinator.GetMasterId() is string cid ? _cameraService.GetCameraById(cid)?.Name ?? cid : ""
+        };
+        _bookmarks.Add(newBm);
+        Timeline.AddBookmark(newBm);
+        RefreshBookmarkList();
+        _bookmarkService.SaveBookmark(newBm, _currentDate);
+        ShowBookmarkFeedback("\u2605");
+        _eventLog.LogInfo(EventCategories.Playback, "PlaybackView",
+            $"新增書籤", $"時間: {h:D2}:{m:D2}:{s:D2}");
+    }
+
+    private void JumpToBookmark(int direction) {
+        if (_bookmarks.Count == 0) return;
+        var current = Timeline.PositionSeconds;
+
+        var sorted = _bookmarks.OrderBy(b => b.Seconds).ToList();
+        int idx = -1;
+        for (int i = 0; i < sorted.Count; i++) {
+            if (sorted[i].Seconds >= current) { idx = i; break; }
+        }
+        if (idx < 0) idx = direction > 0 ? 0 : sorted.Count - 1;
+
+        idx = (idx + direction + sorted.Count) % sorted.Count;
+        var target = sorted[idx].Seconds;
+        Timeline.PositionSeconds = target;
+        OnBookmarkJumpRequested(target);
     }
 
     private void ClearBookmarksBtn_Click(object sender, RoutedEventArgs e) {
@@ -2568,7 +3233,7 @@ public partial class PlaybackView : UserControl {
             BookmarkListPanel.Children.Add(new TextBlock {
                 Text = "暫無書籤",
                 FontSize = 10,
-                Foreground = (Brush)FindResource("SecondaryTextBrush"),
+                Foreground = TryFindResource("SecondaryTextBrush") as Brush ?? Brushes.Gray,
                 Margin = new Thickness(6, 8, 0, 0)
             });
             return;
@@ -2613,7 +3278,7 @@ public partial class PlaybackView : UserControl {
                 Padding = new Thickness(0),
                 BorderThickness = new Thickness(0),
                 Background = Brushes.Transparent,
-                Foreground = (Brush)FindResource("SecondaryTextBrush"),
+                Foreground = TryFindResource("SecondaryTextBrush") as Brush ?? Brushes.Gray,
                 HorizontalAlignment = HorizontalAlignment.Right,
                 VerticalAlignment = VerticalAlignment.Center,
                 Tag = bm.Id
@@ -2640,7 +3305,7 @@ public partial class PlaybackView : UserControl {
             };
 
             itemBorder.MouseEnter += (_, _) => {
-                itemBorder.Background = new SolidColorBrush(Color.FromArgb(30, 0xFF, 0xD7, 0x00));
+                itemBorder.Background = TryFindResource("WarningBrush") is Brush wb ? new SolidColorBrush(Color.FromArgb(30, ((SolidColorBrush)wb).Color.R, ((SolidColorBrush)wb).Color.G, ((SolidColorBrush)wb).Color.B)) : new SolidColorBrush(Color.FromArgb(30, 0xFF, 0xD7, 0x00));
             };
             itemBorder.MouseLeave += (_, _) => {
                 itemBorder.Background = Brushes.Transparent;
@@ -2871,6 +3536,30 @@ public partial class PlaybackView : UserControl {
         }
     }
 
+    private void OnPlayerPlaybackSeeked(object? sender, PlaybackSeekEventArgs e) {
+        if (_coordinator is null) return;
+        if (_syncEnabled && sender is PlaybackPlayer player && player.CameraId == _coordinator.GetMasterId()) {
+            _coordinator.SeekMasterImmediate(e.TargetMicroseconds);
+        }
+    }
+
+    private void OnPlayerPlaybackStateChanged(object? sender, PlaybackStateEventArgs e) {
+        if (_coordinator is null) return;
+        if (_syncEnabled) {
+            if (e.IsPlaying) _coordinator.Play();
+            else _coordinator.Pause();
+            _isPlaying = e.IsPlaying;
+            UpdateButtonStates();
+        }
+    }
+
+    /// <summary>Frame-accurate seek by N frames forward/backward</summary>
+    private void SeekFrame(int direction) {
+        if (_coordinator is null) return;
+        if (direction > 0) _coordinator.StepForward();
+        else _coordinator.StepBackward();
+    }
+
     private void MaximizePlayer(PlaybackPlayer target) {
         _isMaximized = true;
 
@@ -2905,14 +3594,14 @@ public partial class PlaybackView : UserControl {
         var menu = new ContextMenu();
 
         string[][] layouts = [
-            ["auto", "▦  Auto"],
-                ["1x1", "▦  1×1"],
-                ["3x3", "▦  3×3"],
-                ["4x4", "▦  4×4"],
-                ["5x5", "▦  5×5"],
-                ["6x6", "▦  6×6"],
-                ["7x7", "▦  7×7"],
-                ["8x8", "▦  8×8"]
+            ["auto", "Auto"],
+                ["1x1", "1×1"],
+                ["3x3", "3×3"],
+                ["4x4", "4×4"],
+                ["5x5", "5×5"],
+                ["6x6", "6×6"],
+                ["7x7", "7×7"],
+                ["8x8", "8×8"]
         ];
 
         foreach (var layout in layouts) {
@@ -2927,6 +3616,14 @@ public partial class PlaybackView : UserControl {
                 Background = Brushes.Transparent,
                 Cursor = Cursors.Hand
             };
+            if (FindResource("IconLayout") is Geometry geo) {
+                item.Icon = new System.Windows.Shapes.Path {
+                    Data = geo,
+                    Width = 14, Height = 14,
+                    Fill = (Brush)(FindResource("TextBrush") ?? Brushes.White),
+                    Stretch = Stretch.Uniform
+                };
+            }
             item.Click += (_, _) => {
                 if (_forcedLayout == key) return;
                 _forcedLayout = key;
@@ -2945,14 +3642,14 @@ public partial class PlaybackView : UserControl {
 
     private void SyncLayoutLabel() {
         var label = _forcedLayout switch {
-            "1x1" => "▦  1×1",
-            "3x3" => "▦  3×3",
-            "4x4" => "▦  4×4",
-            "5x5" => "▦  5×5",
-            "6x6" => "▦  6×6",
-            "7x7" => "▦  7×7",
-            "8x8" => "▦  8×8",
-            _ => "▦  Auto"
+            "1x1" => "1×1",
+            "3x3" => "3×3",
+            "4x4" => "4×4",
+            "5x5" => "5×5",
+            "6x6" => "6×6",
+            "7x7" => "7×7",
+            "8x8" => "8×8",
+            _ => "Auto"
         };
         LayoutBtn.Content = label;
     }
@@ -3198,7 +3895,7 @@ public partial class PlaybackView : UserControl {
                             $"匯出失敗 (exit={proc.ExitCode}): {cameraOutput}");
                 } catch (OperationCanceledException) {
                     wasCancelled = true;
-                    try { proc.Kill(); } catch { }
+                    try { proc.Kill(); } catch (Exception ex) { Log.Debug(ex, "Failed to kill export process after cancellation"); }
                     break;
                 }
             }
@@ -3245,7 +3942,7 @@ public partial class PlaybackView : UserControl {
 
     private void ShowEmptyState() {
         ClearVideoGrid();
-        EmptyPrompt.Visibility = Visibility.Visible;
+        PlaybackEmptyState.Visibility = Visibility.Visible;
     }
 
     // ══════════════════════════════════════════════════════════
@@ -3395,17 +4092,8 @@ public partial class PlaybackView : UserControl {
         _fsTopBar = FullScreenOverlay.FindName("FsTopBar") as Border;
         _fsBottomBar = FullScreenOverlay.FindName("FsBottomBar") as Border;
         _fsAutoHideTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(3) };
-        _fsAutoHideTimer.Tick += (_, _) => {
-            _fsTopBar?.Visibility = Visibility.Collapsed;
-            _fsBottomBar?.Visibility = Visibility.Collapsed;
-            _fsAutoHideTimer?.Stop();
-        };
-        FullScreenOverlay.MouseMove += (_, _) => {
-            _fsTopBar?.Visibility = Visibility.Visible;
-            _fsBottomBar?.Visibility = Visibility.Visible;
-            _fsAutoHideTimer?.Stop();
-            _fsAutoHideTimer?.Start();
-        };
+        _fsAutoHideTimer.Tick += _onFsAutoHideTick;
+        FullScreenOverlay.MouseMove += _onFsMouseMove;
     }
 
     private void ToggleFullScreen() {
@@ -3458,7 +4146,7 @@ public partial class PlaybackView : UserControl {
     }
 
     private void UpdateFsSpeedDisplay() {
-        FsSpeedBtn.Content = SpeedLabel.Text;
+        if (FsSpeedBtn is not null) FsSpeedBtn.Content = SpeedLabel.Text;
     }
 
     private void FsExitBtn_Click(object sender, RoutedEventArgs e) {
@@ -3492,6 +4180,12 @@ public partial class PlaybackView : UserControl {
                 case "stepFwd":
                     StepFwdBtn_Click(sender, e);
                     break;
+                case "skipBack":
+                    SkipPlayback(-30);
+                    break;
+                case "skipFwd":
+                    SkipPlayback(30);
+                    break;
                 case "speed": {
                     var currentSpeed = Math.Abs(SliderValueToSpeed(SpeedSlider.Value));
                     var nextSpeed = currentSpeed >= 16 ? 1.0 : currentSpeed * 2;
@@ -3521,6 +4215,8 @@ public class SearchResultEntry {
     public string FilePath { get; set; } = "";
     public string DurationLabel => $"{(EndTime - StartTime).TotalMinutes:F1} 分";
     public string TimeLabel => $"{StartTime:HH:mm:ss} - {EndTime:HH:mm:ss}";
+    public string TimeRange => $"{StartTime:yyyy-MM-dd HH:mm:ss} ~ {EndTime:HH:mm:ss}";
+    public bool IsPinned { get; set; }
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -3542,8 +4238,8 @@ public class ChannelCheckBox : Border {
         set {
             _hasCamera = value;
             _statusDot.Background = value
-                ? new SolidColorBrush(Color.FromRgb(0x4C, 0xAF, 0x50))
-                : new SolidColorBrush(Color.FromRgb(0x55, 0x55, 0x55));
+                ? (TryFindResource("SuccessBrush") as Brush ?? new SolidColorBrush(Color.FromRgb(0x4C, 0xAF, 0x50)))
+                : (TryFindResource("SecondaryTextBrush") as Brush ?? new SolidColorBrush(Color.FromRgb(0x55, 0x55, 0x55)));
             _statusDot.ToolTip = value ? "已指派攝影機" : "未指派攝影機";
             Opacity = value ? 1.0 : 0.6;
         }
@@ -3574,7 +4270,7 @@ public class ChannelCheckBox : Border {
             Height = 6,
             CornerRadius = new CornerRadius(3),
             Margin = new Thickness(6, 0, 4, 0),
-            Background = new SolidColorBrush(Color.FromRgb(0x55, 0x55, 0x55)),
+            Background = TryFindResource("SecondaryTextBrush") as Brush ?? new SolidColorBrush(Color.FromRgb(0x55, 0x55, 0x55)),
             VerticalAlignment = VerticalAlignment.Center,
             ToolTip = "未指派攝影機"
         };
@@ -3638,8 +4334,8 @@ public class ExportOptionsDialog : Window {
         Width = 440;
         Height = Math.Min(480, 240 + channelList.Count * 28);
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
-        Background = (Brush)Application.Current.FindResource("BackgroundBrush") ?? Brushes.Black;
-        Foreground = (Brush)Application.Current.FindResource("TextBrush") ?? Brushes.White;
+        Background = Application.Current?.TryFindResource("BackgroundBrush") as Brush ?? Brushes.Black;
+        Foreground = Application.Current?.TryFindResource("TextBrush") as Brush ?? Brushes.White;
         ResizeMode = ResizeMode.NoResize;
         WindowStyle = WindowStyle.None;
         AllowsTransparency = true;
@@ -3660,12 +4356,12 @@ public class ExportOptionsDialog : Window {
 
         // Export mode radio buttons
         var modeBorder = new Border {
-            BorderBrush = (Brush)Application.Current.FindResource("BorderBrush") ?? Brushes.Gray,
+            BorderBrush = Application.Current?.TryFindResource("BorderBrush") as Brush ?? Brushes.Gray,
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(4),
             Padding = new Thickness(10),
             Margin = new Thickness(0, 0, 0, 8),
-            Background = (Brush)Application.Current.FindResource("InputBackgroundBrush") ?? Brushes.Black
+            Background = Application.Current?.TryFindResource("InputBackgroundBrush") as Brush ?? Brushes.Black
         };
         var modeStack = new StackPanel();
         var modeLabel = new TextBlock {
@@ -3689,7 +4385,7 @@ public class ExportOptionsDialog : Window {
             Text = "直接複製原始 .ts 片段檔案，無需 ffmpeg，保有原始畫質。",
             TextWrapping = TextWrapping.Wrap,
             FontSize = 11,
-            Foreground = (Brush)Application.Current.FindResource("SecondaryTextBrush") ?? Brushes.Gray,
+            Foreground = Application.Current?.TryFindResource("SecondaryTextBrush") as Brush ?? Brushes.Gray,
             Margin = new Thickness(24, 0, 0, 6)
         };
         modeStack.Children.Add(_rawRb);
@@ -3707,7 +4403,7 @@ public class ExportOptionsDialog : Window {
             Text = "使用 ffmpeg 快速裁切，不重新編碼，可指定起訖時間精準度較高。",
             TextWrapping = TextWrapping.Wrap,
             FontSize = 11,
-            Foreground = (Brush)Application.Current.FindResource("SecondaryTextBrush") ?? Brushes.Gray,
+            Foreground = Application.Current?.TryFindResource("SecondaryTextBrush") as Brush ?? Brushes.Gray,
             Margin = new Thickness(24, 0, 0, 6)
         };
         modeStack.Children.Add(_fastRb);
@@ -3725,7 +4421,7 @@ public class ExportOptionsDialog : Window {
             Text = "使用 ffmpeg 重新編碼，可在影片上疊加時間戳記，花費時間較長。",
             TextWrapping = TextWrapping.Wrap,
             FontSize = 11,
-            Foreground = (Brush)Application.Current.FindResource("SecondaryTextBrush") ?? Brushes.Gray,
+            Foreground = Application.Current?.TryFindResource("SecondaryTextBrush") as Brush ?? Brushes.Gray,
             Margin = new Thickness(24, 0, 0, 0)
         };
         modeStack.Children.Add(_encodeRb);
@@ -3750,7 +4446,7 @@ public class ExportOptionsDialog : Window {
             Cursor = Cursors.Hand,
             Background = Brushes.Transparent,
             Foreground = Foreground,
-            BorderBrush = (Brush)Application.Current.FindResource("BorderBrush") ?? Brushes.Gray,
+            BorderBrush = Application.Current?.TryFindResource("BorderBrush") as Brush ?? Brushes.Gray,
             BorderThickness = new Thickness(1)
         };
         var clearBtn = new Button {
@@ -3761,7 +4457,7 @@ public class ExportOptionsDialog : Window {
             Cursor = Cursors.Hand,
             Background = Brushes.Transparent,
             Foreground = Foreground,
-            BorderBrush = (Brush)Application.Current.FindResource("BorderBrush") ?? Brushes.Gray,
+            BorderBrush = Application.Current?.TryFindResource("BorderBrush") as Brush ?? Brushes.Gray,
             BorderThickness = new Thickness(1)
         };
         channelHeaderPanel.Children.Add(channelLabel);
@@ -3772,8 +4468,8 @@ public class ExportOptionsDialog : Window {
         var channelContainer = new ScrollViewer {
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
-            Background = (Brush)Application.Current.FindResource("InputBackgroundBrush") ?? Brushes.Black,
-            BorderBrush = (Brush)Application.Current.FindResource("BorderBrush") ?? Brushes.Gray,
+            Background = Application.Current?.TryFindResource("InputBackgroundBrush") as Brush ?? Brushes.Black,
+            BorderBrush = Application.Current?.TryFindResource("BorderBrush") as Brush ?? Brushes.Gray,
             BorderThickness = new Thickness(1),
             Margin = new Thickness(0, 0, 0, 8)
         };
@@ -3811,8 +4507,8 @@ public class ExportOptionsDialog : Window {
             Height = 30,
             Margin = new Thickness(0, 0, 8, 0),
             Cursor = Cursors.Hand,
-            Background = (Brush)Application.Current.FindResource("PrimaryBrush") ?? Brushes.DodgerBlue,
-            Foreground = Brushes.White,
+            Background = Application.Current?.TryFindResource("PrimaryBrush") as Brush ?? Brushes.DodgerBlue,
+            Foreground = TryFindResource("TextBrush") as Brush ?? Brushes.White,
             BorderThickness = new Thickness(0)
         };
         okBtn.Click += (_, _) => {
@@ -3836,7 +4532,7 @@ public class ExportOptionsDialog : Window {
             Cursor = Cursors.Hand,
             Background = Brushes.Transparent,
             Foreground = Foreground,
-            BorderBrush = (Brush)Application.Current.FindResource("BorderBrush") ?? Brushes.Gray,
+            BorderBrush = Application.Current?.TryFindResource("BorderBrush") as Brush ?? Brushes.Gray,
             BorderThickness = new Thickness(1)
         };
         cancelBtn.Click += (_, _) => { DialogResult = false; Close(); };
@@ -3856,8 +4552,8 @@ public class ExportOptionsDialog : Window {
         Grid.SetRow(btnPanel, 4);
 
         Content = new Border {
-            Background = (Brush)Application.Current.FindResource("SurfaceBrush") ?? Brushes.DarkGray,
-            BorderBrush = (Brush)Application.Current.FindResource("BorderBrush") ?? Brushes.Gray,
+            Background = Application.Current?.TryFindResource("SurfaceBrush") as Brush ?? Brushes.DarkGray,
+            BorderBrush = Application.Current?.TryFindResource("BorderBrush") as Brush ?? Brushes.Gray,
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(8),
             Child = grid
@@ -3877,8 +4573,8 @@ public class TextInputDialog : Window {
         Width = 450;
         Height = 180;
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
-        Background = (Brush)Application.Current.FindResource("BackgroundBrush") ?? Brushes.Black;
-        Foreground = (Brush)Application.Current.FindResource("TextBrush") ?? Brushes.White;
+        Background = Application.Current?.TryFindResource("BackgroundBrush") as Brush ?? Brushes.Black;
+        Foreground = Application.Current?.TryFindResource("TextBrush") as Brush ?? Brushes.White;
         ResizeMode = ResizeMode.NoResize;
         WindowStyle = WindowStyle.None;
         AllowsTransparency = true;
@@ -3899,9 +4595,9 @@ public class TextInputDialog : Window {
             Text = defaultText,
             FontSize = 13,
             Margin = new Thickness(0, 0, 0, 12),
-            Background = (Brush)Application.Current.FindResource("InputBackgroundBrush") ?? Brushes.Gray,
+            Background = Application.Current?.TryFindResource("InputBackgroundBrush") as Brush ?? Brushes.Gray,
             Foreground = Foreground,
-            BorderBrush = (Brush)Application.Current.FindResource("BorderBrush") ?? Brushes.Gray,
+            BorderBrush = Application.Current?.TryFindResource("BorderBrush") as Brush ?? Brushes.Gray,
             Padding = new Thickness(8, 6, 8, 6)
         };
 
@@ -3916,8 +4612,8 @@ public class TextInputDialog : Window {
             Height = 30,
             Margin = new Thickness(0, 0, 8, 0),
             Cursor = System.Windows.Input.Cursors.Hand,
-            Background = (Brush)Application.Current.FindResource("PrimaryBrush") ?? Brushes.DodgerBlue,
-            Foreground = Brushes.White,
+            Background = Application.Current?.TryFindResource("PrimaryBrush") as Brush ?? Brushes.DodgerBlue,
+            Foreground = TryFindResource("TextBrush") as Brush ?? Brushes.White,
             BorderThickness = new Thickness(0)
         };
         _okBtn.Click += (_, _) => { DialogResult = true; Close(); };
@@ -3929,7 +4625,7 @@ public class TextInputDialog : Window {
             Cursor = System.Windows.Input.Cursors.Hand,
             Background = Brushes.Transparent,
             Foreground = Foreground,
-            BorderBrush = (Brush)Application.Current.FindResource("BorderBrush") ?? Brushes.Gray,
+            BorderBrush = Application.Current?.TryFindResource("BorderBrush") as Brush ?? Brushes.Gray,
             BorderThickness = new Thickness(1)
         };
         _cancelBtn.Click += (_, _) => { DialogResult = false; Close(); };
@@ -3945,8 +4641,8 @@ public class TextInputDialog : Window {
         Grid.SetRow(btnPanel, 2);
 
         Content = new Border {
-            Background = (Brush)Application.Current.FindResource("SurfaceBrush") ?? Brushes.DarkGray,
-            BorderBrush = (Brush)Application.Current.FindResource("BorderBrush") ?? Brushes.Gray,
+            Background = Application.Current?.TryFindResource("SurfaceBrush") as Brush ?? Brushes.DarkGray,
+            BorderBrush = Application.Current?.TryFindResource("BorderBrush") as Brush ?? Brushes.Gray,
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(8),
             Child = grid
@@ -3975,8 +4671,8 @@ public class GoToTimeDialog : Window {
         Width = 320;
         Height = 190;
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
-        Background = (Brush)Application.Current.FindResource("BackgroundBrush") ?? Brushes.Black;
-        Foreground = (Brush)Application.Current.FindResource("TextBrush") ?? Brushes.White;
+        Background = Application.Current?.TryFindResource("BackgroundBrush") as Brush ?? Brushes.Black;
+        Foreground = Application.Current?.TryFindResource("TextBrush") as Brush ?? Brushes.White;
         ResizeMode = ResizeMode.NoResize;
         WindowStyle = WindowStyle.None;
         AllowsTransparency = true;
@@ -4024,8 +4720,8 @@ public class GoToTimeDialog : Window {
             Height = 30,
             Margin = new Thickness(0, 0, 8, 0),
             Cursor = Cursors.Hand,
-            Background = (Brush)Application.Current.FindResource("PrimaryBrush") ?? Brushes.DodgerBlue,
-            Foreground = Brushes.White,
+            Background = Application.Current?.TryFindResource("PrimaryBrush") as Brush ?? Brushes.DodgerBlue,
+            Foreground = TryFindResource("TextBrush") as Brush ?? Brushes.White,
             BorderThickness = new Thickness(0)
         };
         _okBtn.Click += Ok_Click;
@@ -4037,7 +4733,7 @@ public class GoToTimeDialog : Window {
             Cursor = Cursors.Hand,
             Background = Brushes.Transparent,
             Foreground = Foreground,
-            BorderBrush = (Brush)Application.Current.FindResource("BorderBrush") ?? Brushes.Gray,
+            BorderBrush = Application.Current?.TryFindResource("BorderBrush") as Brush ?? Brushes.Gray,
             BorderThickness = new Thickness(1)
         };
         _cancelBtn.Click += (_, _) => { DialogResult = false; Close(); };
@@ -4052,8 +4748,8 @@ public class GoToTimeDialog : Window {
         Grid.SetRow(btnPanel, 2);
 
         Content = new Border {
-            Background = (Brush)Application.Current.FindResource("SurfaceBrush") ?? Brushes.DarkGray,
-            BorderBrush = (Brush)Application.Current.FindResource("BorderBrush") ?? Brushes.Gray,
+            Background = Application.Current?.TryFindResource("SurfaceBrush") as Brush ?? Brushes.DarkGray,
+            BorderBrush = Application.Current?.TryFindResource("BorderBrush") as Brush ?? Brushes.Gray,
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(8),
             Child = root
@@ -4076,9 +4772,9 @@ public class GoToTimeDialog : Window {
             HorizontalAlignment = HorizontalAlignment.Center,
             TextAlignment = TextAlignment.Center,
             MaxLength = 2,
-            Background = (Brush)Application.Current.FindResource("InputBackgroundBrush") ?? Brushes.Gray,
-            Foreground = (Brush)Application.Current.FindResource("TextBrush") ?? Brushes.White,
-            BorderBrush = (Brush)Application.Current.FindResource("BorderBrush") ?? Brushes.Gray,
+            Background = Application.Current?.TryFindResource("InputBackgroundBrush") as Brush ?? Brushes.Gray,
+            Foreground = Application.Current?.TryFindResource("TextBrush") as Brush ?? Brushes.White,
+            BorderBrush = Application.Current?.TryFindResource("BorderBrush") as Brush ?? Brushes.Gray,
             BorderThickness = new Thickness(1),
             Padding = new Thickness(4, 2, 4, 2)
         };
@@ -4120,8 +4816,8 @@ public class ExportProgressDialog : Window {
         Width = 420;
         Height = 150;
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
-        Background = (Brush)Application.Current.FindResource("BackgroundBrush") ?? Brushes.Black;
-        Foreground = (Brush)Application.Current.FindResource("TextBrush") ?? Brushes.White;
+        Background = Application.Current?.TryFindResource("BackgroundBrush") as Brush ?? Brushes.Black;
+        Foreground = Application.Current?.TryFindResource("TextBrush") as Brush ?? Brushes.White;
         ResizeMode = ResizeMode.NoResize;
         WindowStyle = WindowStyle.None;
         AllowsTransparency = true;
@@ -4147,14 +4843,14 @@ public class ExportProgressDialog : Window {
             Value = 0,
             Height = 18,
             Margin = new Thickness(0, 0, 0, 6),
-            Foreground = (Brush)Application.Current.FindResource("PrimaryBrush") ?? Brushes.DodgerBlue,
-            Background = (Brush)Application.Current.FindResource("SecondarySurfaceBrush") ?? Brushes.Gray
+            Foreground = Application.Current?.TryFindResource("PrimaryBrush") as Brush ?? Brushes.DodgerBlue,
+            Background = Application.Current?.TryFindResource("SecondarySurfaceBrush") as Brush ?? Brushes.Gray
         };
 
         _statusText = new TextBlock {
             Text = $"0 / {totalSegments}",
             FontSize = 11,
-            Foreground = (Brush)Application.Current.FindResource("SecondaryTextBrush") ?? Brushes.Gray,
+            Foreground = Application.Current?.TryFindResource("SecondaryTextBrush") as Brush ?? Brushes.Gray,
             Margin = new Thickness(0, 0, 0, 12)
         };
 
@@ -4166,7 +4862,7 @@ public class ExportProgressDialog : Window {
             Cursor = Cursors.Hand,
             Background = Brushes.Transparent,
             Foreground = Foreground,
-            BorderBrush = (Brush)Application.Current.FindResource("BorderBrush") ?? Brushes.Gray,
+            BorderBrush = Application.Current?.TryFindResource("BorderBrush") as Brush ?? Brushes.Gray,
             BorderThickness = new Thickness(1)
         };
         cancelBtn.Click += (_, _) => {
@@ -4184,8 +4880,8 @@ public class ExportProgressDialog : Window {
         Grid.SetRow(cancelBtn, 3);
 
         Content = new Border {
-            Background = (Brush)Application.Current.FindResource("SurfaceBrush") ?? Brushes.DarkGray,
-            BorderBrush = (Brush)Application.Current.FindResource("BorderBrush") ?? Brushes.Gray,
+            Background = Application.Current?.TryFindResource("SurfaceBrush") as Brush ?? Brushes.DarkGray,
+            BorderBrush = Application.Current?.TryFindResource("BorderBrush") as Brush ?? Brushes.Gray,
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(8),
             Child = root
@@ -4253,14 +4949,14 @@ public class ShortcutRow : Border {
             FontSize = 12,
             FontWeight = FontWeights.SemiBold,
             FontFamily = new FontFamily("Consolas"),
-            Foreground = new SolidColorBrush(Color.FromRgb(0x82, 0xAA, 0xFF)),
+            Foreground = FindResource("PrimaryBrush") as Brush ?? new SolidColorBrush(Color.FromRgb(0x82, 0xAA, 0xFF)),
             VerticalAlignment = VerticalAlignment.Center,
             Margin = new Thickness(0, 0, 20, 0)
         };
 
         _descText = new TextBlock {
             FontSize = 12,
-            Foreground = new SolidColorBrush(Color.FromRgb(0xCC, 0xCC, 0xCC)),
+            Foreground = FindResource("SecondaryTextBrush") as Brush ?? new SolidColorBrush(Color.FromRgb(0xCC, 0xCC, 0xCC)),
             VerticalAlignment = VerticalAlignment.Center
         };
 
