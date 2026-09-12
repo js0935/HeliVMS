@@ -23,7 +23,7 @@ jobs:
           dotnet-version: '10.0.x'
 
       - name: Restore (locked)
-        run: dotnet restore HeliVMS.slnx -c Release
+        run: dotnet restore HeliVMS.slnx
 
       - name: Build
         run: dotnet build HeliVMS.slnx -c Release --no-restore
