@@ -23,3 +23,11 @@ Desktop.ini
 
 # --- 暫存 ---
 *.tmp
+
+# --- 機密（§21.4）---
+.secrets/
+password.dat
+private.key
+private.pem
+*.pfx
+*.jks

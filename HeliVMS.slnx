@@ -1,0 +1,21 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/HeliVMS.Alarms/HeliVMS.Alarms.csproj" />
+    <Project Path="src/HeliVMS.App/HeliVMS.App.csproj" />
+    <Project Path="src/HeliVMS.Core/HeliVMS.Core.csproj" />
+    <Project Path="src/HeliVMS.Decoder/HeliVMS.Decoder.csproj" />
+    <Project Path="src/HeliVMS.Devices/HeliVMS.Devices.csproj" />
+    <Project Path="src/HeliVMS.Licensing/HeliVMS.Licensing.csproj" />
+    <Project Path="src/HeliVMS.Media/HeliVMS.Media.csproj" />
+    <Project Path="src/HeliVMS.Recording/HeliVMS.Recording.csproj" />
+    <Project Path="src/HeliVMS.Shared/HeliVMS.Shared.csproj" />
+    <Project Path="src/HeliVMS.Storage/HeliVMS.Storage.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/HeliVMS.Licensing.Tests/HeliVMS.Licensing.Tests.csproj" />
+    <Project Path="tests/HeliVMS.Storage.Tests/HeliVMS.Storage.Tests.csproj" />
+  </Folder>
+  <Folder Name="/Tools/">
+    <Project Path="Tools/HeliVMS.LicenseProducer/HeliVMS.LicenseProducer.csproj" />
+  </Folder>
+</Solution>

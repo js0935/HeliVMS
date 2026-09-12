@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "dependencies": {
+    "net10.0": {
+      "helivms.core": {
+        "type": "Project",
+        "dependencies": {
+          "HeliVMS.Licensing": "[0.1.0, )",
+          "HeliVMS.Shared": "[0.1.0, )"
+        }
+      },
+      "helivms.licensing": {
+        "type": "Project",
+        "dependencies": {
+          "HeliVMS.Shared": "[0.1.0, )"
+        }
+      },
+      "helivms.shared": {
+        "type": "Project"
+      },
+      "helivms.storage": {
+        "type": "Project",
+        "dependencies": {
+          "HeliVMS.Core": "[0.1.0, )",
+          "HeliVMS.Shared": "[0.1.0, )"
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,41 @@
+﻿<Window x:Class="HeliVMS.App.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:local="clr-namespace:HeliVMS.App"
+        mc:Ignorable="d"
+        Title="HeliVMS"
+        Icon="Assets/app.ico"
+        Width="1280" Height="800"
+        MinWidth="1024" MinHeight="640"
+        WindowStartupLocation="CenterScreen"
+        Background="{StaticResource Brand.BgDeep}"
+        d:DesignHeight="800" d:DesignWidth="1280">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <Border Grid.Row="0" Background="{StaticResource Brand.BgPanel}" Padding="12,8" BorderBrush="#1F3A5F" BorderThickness="0,0,0,1">
+            <StackPanel Orientation="Horizontal">
+                <Image Source="Assets/app.ico" Width="20" Height="20" VerticalAlignment="Center" Margin="0,0,8,0" />
+                <TextBlock Text="HeliVMS" Foreground="{StaticResource Brand.TextPrimary}" FontSize="15" FontWeight="SemiBold" VerticalAlignment="Center" />
+            </StackPanel>
+        </Border>
+
+        <Grid Grid.Row="1" Margin="24">
+            <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
+                <TextBlock Text="HeliVMS" Foreground="{StaticResource Brand.TextPrimary}" FontSize="36" FontWeight="Bold" HorizontalAlignment="Center" />
+                <TextBlock Text="智慧 32 路 NVR/VMS 錄影系統" Foreground="{StaticResource Brand.Accent}" FontSize="18" HorizontalAlignment="Center" Margin="0,8,0,0" />
+                <TextBlock Text="監看 · 錄影 · 回放 · 事件" Foreground="{StaticResource Brand.TextDim}" FontSize="13" HorizontalAlignment="Center" Margin="0,16,0,0" />
+            </StackPanel>
+        </Grid>
+
+        <Border Grid.Row="2" Background="{StaticResource Brand.BgPanel}" Padding="12,6" BorderBrush="#1F3A5F" BorderThickness="0,1,0,0">
+            <TextBlock x:Name="StatusText" Text="正在驗證授權…" Foreground="{StaticResource Brand.TextDim}" FontSize="12" HorizontalAlignment="Center" />
+        </Border>
+    </Grid>
+</Window>

@@ -1,0 +1,32 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\HeliVMS.Shared\HeliVMS.Shared.csproj" />
+    <ProjectReference Include="..\HeliVMS.Core\HeliVMS.Core.csproj" />
+    <ProjectReference Include="..\HeliVMS.Licensing\HeliVMS.Licensing.csproj" />
+    <ProjectReference Include="..\HeliVMS.Media\HeliVMS.Media.csproj" />
+    <ProjectReference Include="..\HeliVMS.Decoder\HeliVMS.Decoder.csproj" />
+    <ProjectReference Include="..\HeliVMS.Recording\HeliVMS.Recording.csproj" />
+    <ProjectReference Include="..\HeliVMS.Alarms\HeliVMS.Alarms.csproj" />
+    <ProjectReference Include="..\HeliVMS.Devices\HeliVMS.Devices.csproj" />
+    <ProjectReference Include="..\HeliVMS.Storage\HeliVMS.Storage.csproj" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <ApplicationIcon>..\..\Assets\app.ico</ApplicationIcon>
+    <AssemblyTitle>HeliVMS</AssemblyTitle>
+    <Product>HeliVMS</Product>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="..\..\Assets\splash.png" Link="Assets\splash.png">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+</Project>

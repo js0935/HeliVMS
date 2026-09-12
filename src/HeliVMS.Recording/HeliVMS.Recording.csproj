@@ -1,0 +1,16 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\HeliVMS.Core\HeliVMS.Core.csproj" />
+    <ProjectReference Include="..\HeliVMS.Storage\HeliVMS.Storage.csproj" />
+    <ProjectReference Include="..\HeliVMS.Media\HeliVMS.Media.csproj" />
+    <ProjectReference Include="..\HeliVMS.Shared\HeliVMS.Shared.csproj" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+</Project>

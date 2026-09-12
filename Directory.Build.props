@@ -1,0 +1,27 @@
+<Project>
+
+  <!-- HeliVms 全 repo 統一建置設定（§21.5：開工前檢查清單第 1 項）-->
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <AnalysisLevel>latest</AnalysisLevel>
+    <EnableNETAnalyzers>true</EnableNETAnalyzers>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+    <Version>0.1.0</Version>
+    <Authors>禾秝軟體開發團隊</Authors>
+    <Company>禾秝軟體開發團隊</Company>
+    <Description>HeliVms 智慧 32 路 NVR/VMS 錄影系統</Description>
+  </PropertyGroup>
+
+  <!-- NuGet 固定版本（§21.1）-->
+  <PropertyGroup>
+    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+    <RestoreLockedMode Condition="'$(CI)' == 'true'">true</RestoreLockedMode>
+    <AutomaticallyUseReferenceAssemblyPackages>true</AutomaticallyUseReferenceAssemblyPackages>
+  </PropertyGroup>
+
+</Project>

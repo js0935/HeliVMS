@@ -1,0 +1,14 @@
+<Window x:Class="HeliVMS.App.SplashWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        AllowsTransparency="True"
+        Background="Transparent"
+        ShowInTaskbar="False"
+        SizeToContent="WidthAndHeight"
+        WindowStyle="None"
+        UseLayoutRounding="True"
+        SnapsToDevicePixels="True">
+    <Image Source="Assets/splash.png"
+           Stretch="None"
+           StretchDirection="DownOnly" />
+</Window>

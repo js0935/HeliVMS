@@ -1,0 +1,13 @@
+﻿<Application x:Class="HeliVMS.App.App"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="clr-namespace:HeliVMS.App">
+    <Application.Resources>
+        <!-- 深色主題（BRAND.md 第 1 節 Design Tokens）-->
+        <SolidColorBrush x:Key="Brand.BgDeep" Color="#0B1B2E" />
+        <SolidColorBrush x:Key="Brand.BgPanel" Color="#12233C" />
+        <SolidColorBrush x:Key="Brand.TextPrimary" Color="#EBF3FF" />
+        <SolidColorBrush x:Key="Brand.TextDim" Color="#8296B4" />
+        <SolidColorBrush x:Key="Brand.Accent" Color="#2660AA" />
+    </Application.Resources>
+</Application>

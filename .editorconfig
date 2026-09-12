@@ -1,0 +1,28 @@
+root = true
+
+[*]
+charset = utf-8
+indent_style = space
+indent_size = 4
+end_of_line = crlf
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+[*.{cs,csx}]
+indent_size = 4
+
+[*.{xaml,css,html,json,yaml,yml}]
+indent_size = 2
+
+# --- C# 分析（§21.4 治理：CI 警告視為錯誤）---
+[*.cs]
+
+# 可空性與安全
+dotnet_diagnostic.CA1845.severity = none          # 'StringBuilder' 替代（此處無效能需求）
+dotnet_diagnostic.CA1062.severity = none          # 參數驗證（由可空性保證）
+
+# 命名
+dotnet_diagnostic.CA1707.severity = none          # 底線（檔案/欄位名）
+
+# StyleCop 優先級：與 CommonMark 風格一致
+dotnet_sort_system_directives_first = true
