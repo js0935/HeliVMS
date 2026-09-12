@@ -1,0 +1,179 @@
+<Window x:Class="LicenseKeyGenUI.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="HeliVMS 授權金鑰產生工具"
+        Width="640" Height="700"
+        MinWidth="520" MinHeight="600"
+        WindowStartupLocation="CenterScreen">
+    <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="20,16">
+        <StackPanel>
+
+            <!-- Title -->
+            <TextBlock Text="HeliVMS 授權金鑰產生工具"
+                       FontSize="20" FontWeight="Bold"
+                       Foreground="{StaticResource TextBrush}"
+                       Margin="0,0,0,20"/>
+
+            <!-- ========== Section 1: Device Code ========== -->
+            <Border Style="{StaticResource CardBorder}" Margin="0,0,0,16">
+                <StackPanel>
+                    <TextBlock Text="設備碼" Style="{StaticResource SectionHeader}"/>
+
+                    <Grid HorizontalAlignment="Stretch">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBox x:Name="DeviceCodeBox" Style="{StaticResource ReadOnlyBox}"
+                                 FontFamily="Consolas" FontSize="16"
+                                 HorizontalAlignment="Stretch"/>
+                        <Button Grid.Column="1" Content="複製" Style="{StaticResource CopyButton}"
+                                Margin="8,0,0,0" Click="CopyDeviceCode_Click"/>
+                    </Grid>
+
+                    <Button Content="重新取得設備碼" Style="{StaticResource CopyButton}"
+                            HorizontalAlignment="Left" Margin="0,10,0,0"
+                            Click="RefreshDeviceCode_Click"/>
+                </StackPanel>
+            </Border>
+
+            <!-- ========== Section 2: Key Management ========== -->
+            <Border Style="{StaticResource CardBorder}" Margin="0,0,0,16">
+                <StackPanel>
+                    <TextBlock Text="金鑰管理" Style="{StaticResource SectionHeader}"/>
+
+                    <Button x:Name="GenerateKeyBtn" Content="產生 RSA-2048 金鑰對"
+                            Style="{StaticResource ModernButton}"
+                            HorizontalAlignment="Left" Margin="0,0,0,12"
+                            Click="GenerateKeyPair_Click"/>
+
+                    <Grid Margin="0,0,0,8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="80"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="私鑰" Style="{StaticResource FieldLabel}" Grid.Column="0"/>
+                        <TextBox x:Name="PrivateKeyPathBox" Style="{StaticResource ReadOnlyBox}"
+                                 Grid.Column="1" FontSize="11"/>
+                    </Grid>
+
+                    <Grid Margin="0,0,0,8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="80"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="公鑰" Style="{StaticResource FieldLabel}" Grid.Column="0"/>
+                        <TextBox x:Name="PublicKeyPathBox" Style="{StaticResource ReadOnlyBox}"
+                                 Grid.Column="1" FontSize="11"/>
+                    </Grid>
+
+                    <TextBlock Text="EmbeddedPublicKey（貼入 LicenseService.cs）" Style="{StaticResource FieldLabel}"
+                               Margin="0,8,0,4"/>
+                    <Grid HorizontalAlignment="Stretch">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBox x:Name="PublicKeyCodeBox" Style="{StaticResource ReadOnlyBox}"
+                                 FontFamily="Consolas" FontSize="10"
+                                 TextWrapping="Wrap" MaxHeight="80"
+                                 VerticalScrollBarVisibility="Auto"/>
+                        <Button Grid.Column="1" Content="複製" Style="{StaticResource CopyButton}"
+                                Margin="8,0,0,0"
+                                VerticalAlignment="Bottom"
+                                Click="CopyPublicKeyCode_Click"/>
+                    </Grid>
+
+                    <TextBlock x:Name="KeyStatusText" Style="{StaticResource FieldLabel}"
+                               Foreground="{StaticResource SuccessBrush}"
+                               Margin="0,6,0,0"/>
+                </StackPanel>
+            </Border>
+
+            <!-- ========== Section 3: Sign License ========== -->
+            <Border Style="{StaticResource CardBorder}" Margin="0,0,0,16">
+                <StackPanel>
+                    <TextBlock Text="簽署授權碼" Style="{StaticResource SectionHeader}"/>
+
+                    <Grid Margin="0,0,0,10">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="120"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+
+                        <!-- Row 0 -->
+                        <TextBlock Text="設備碼" Style="{StaticResource FieldLabel}" Grid.Row="0" Grid.Column="0"/>
+                        <TextBox x:Name="SignMachineIdBox" Style="{StaticResource ModernTextBox}"
+                                 Grid.Row="0" Grid.Column="1"
+                                 FontFamily="Consolas" FontSize="13"
+                                 Text="{Binding ElementName=DeviceCodeBox, Path=Text, Mode=OneWay}"/>
+
+                        <!-- Row 1 -->
+                        <TextBlock Text="最大攝影機數" Style="{StaticResource FieldLabel}"
+                                   Grid.Row="1" Grid.Column="0" Margin="0,8,0,4"/>
+                        <TextBox x:Name="SignMaxBox" Style="{StaticResource ModernTextBox}"
+                                 Grid.Row="1" Grid.Column="1" Margin="0,8,0,4"
+                                 Text="64"/>
+
+                        <!-- Row 2 -->
+                        <TextBlock Text="到期日" Style="{StaticResource FieldLabel}"
+                                   Grid.Row="2" Grid.Column="0" Margin="0,8,0,4"/>
+                        <TextBox x:Name="SignExpiryBox" Style="{StaticResource ModernTextBox}"
+                                 Grid.Row="2" Grid.Column="1" Margin="0,8,0,4"
+                                 Text="yyyy-MM-dd 或留空=永久"/>
+
+                        <!-- Row 3 -->
+                        <TextBlock Text="授權類型" Style="{StaticResource FieldLabel}"
+                                   Grid.Row="3" Grid.Column="0" Margin="0,8,0,4"/>
+                        <TextBox x:Name="SignTypeBox" Style="{StaticResource ModernTextBox}"
+                                 Grid.Row="3" Grid.Column="1" Margin="0,8,0,4"
+                                 Text="進階版"/>
+
+                        <!-- Row 4 -->
+                        <TextBlock Text="被授權人" Style="{StaticResource FieldLabel}"
+                                   Grid.Row="4" Grid.Column="0" Margin="0,8,0,4"/>
+                        <TextBox x:Name="SignLicenseeBox" Style="{StaticResource ModernTextBox}"
+                                 Grid.Row="4" Grid.Column="1" Margin="0,8,0,4"
+                                 Text="禾秝軟體"/>
+                    </Grid>
+
+                    <Button x:Name="SignBtn" Content="產生授權碼" Style="{StaticResource ModernButton}"
+                            HorizontalAlignment="Left" Margin="0,0,0,12"
+                            Click="SignLicense_Click"/>
+
+                    <TextBlock Text="授權碼" Style="{StaticResource FieldLabel}"/>
+                    <Grid HorizontalAlignment="Stretch">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBox x:Name="LicenseKeyBox" Style="{StaticResource ReadOnlyBox}"
+                                 FontFamily="Consolas" FontSize="11"
+                                 TextWrapping="Wrap" MaxHeight="60"
+                                 VerticalScrollBarVisibility="Auto"/>
+                        <Button Grid.Column="1" Content="複製" Style="{StaticResource CopyButton}"
+                                Margin="8,0,0,0"
+                                VerticalAlignment="Bottom"
+                                Click="CopyLicenseKey_Click"/>
+                    </Grid>
+
+                    <TextBlock x:Name="SignStatusText" Style="{StaticResource FieldLabel}"
+                               Margin="0,6,0,0"/>
+                </StackPanel>
+            </Border>
+
+            <!-- Footer -->
+            <TextBlock Text="禾秝軟體開發團隊  版權所有"
+                       Foreground="{StaticResource SecondaryTextBrush}"
+                       FontSize="11" HorizontalAlignment="Center" Margin="0,4,0,8"/>
+
+        </StackPanel>
+    </ScrollViewer>
+</Window>

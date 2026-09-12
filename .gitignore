@@ -1,0 +1,25 @@
+# --- .NET ---
+bin/
+obj/
+*.user
+*.suo
+
+# --- Visual Studio ---
+.vs/
+.vscode/
+
+# --- 建置與發布 ---
+artifacts/
+publish/
+*.nupkg
+
+# --- 記錄檔 ---
+*.log
+
+# --- 作業系統 ---
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# --- 暫存 ---
+*.tmp
