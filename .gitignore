@@ -31,3 +31,6 @@ private.key
 private.pem
 *.pfx
 *.jks
+# 第三方伺服器二進位
+Tools/media-server/
+

@@ -11,7 +11,9 @@
         MinWidth="1024" MinHeight="640"
         WindowStartupLocation="CenterScreen"
         Background="{StaticResource Brand.BgDeep}"
-        d:DesignHeight="800" d:DesignWidth="1280">
+        d:DesignHeight="800" d:DesignWidth="1280"
+        Closed="OnWindowClosed">
+
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
@@ -19,6 +21,7 @@
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
+        <!-- 頂欄 -->
         <Border Grid.Row="0" Background="{StaticResource Brand.BgPanel}" Padding="12,8" BorderBrush="#1F3A5F" BorderThickness="0,0,0,1">
             <StackPanel Orientation="Horizontal">
                 <Image Source="Assets/app.ico" Width="20" Height="20" VerticalAlignment="Center" Margin="0,0,8,0" />
@@ -26,14 +29,68 @@
             </StackPanel>
         </Border>
 
-        <Grid Grid.Row="1" Margin="24">
-            <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
-                <TextBlock Text="HeliVMS" Foreground="{StaticResource Brand.TextPrimary}" FontSize="36" FontWeight="Bold" HorizontalAlignment="Center" />
-                <TextBlock Text="智慧 32 路 NVR/VMS 錄影系統" Foreground="{StaticResource Brand.Accent}" FontSize="18" HorizontalAlignment="Center" Margin="0,8,0,0" />
-                <TextBlock Text="監看 · 錄影 · 回放 · 事件" Foreground="{StaticResource Brand.TextDim}" FontSize="13" HorizontalAlignment="Center" Margin="0,16,0,0" />
-            </StackPanel>
+        <!-- 主區 -->
+        <Grid Grid.Row="1">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="260" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+
+            <!-- 控制面板 -->
+            <Border Grid.Column="0" Background="{StaticResource Brand.BgPanel}" BorderBrush="#1F3A5F" BorderThickness="0,0,1,0">
+                <StackPanel Margin="16" VerticalAlignment="Top">
+                    <TextBlock Text="頻道" Foreground="{StaticResource Brand.TextDim}" FontSize="12" Margin="0,0,0,6" />
+                    <ComboBox x:Name="ChannelCombo" SelectedIndex="0"
+                              Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="8,4">
+                        <ComboBoxItem Content="測試流 · 主流 (main)" Tag="rtsp://127.0.0.1:8554/main" />
+                        <ComboBoxItem Content="測試流 · 次流 (sub)" Tag="rtsp://127.0.0.1:8554/sub" />
+                    </ComboBox>
+
+                    <TextBlock Text="串流位址" Foreground="{StaticResource Brand.TextDim}" FontSize="12" Margin="0,14,0,6" />
+                    <TextBox x:Name="UrlBox"
+                             Text="rtsp://127.0.0.1:8554/main"
+                             Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"
+                             Padding="8,4" />
+
+                    <StackPanel Orientation="Horizontal" Margin="0,16,0,0">
+                        <Button x:Name="ConnectButton" Content="連線" Click="OnConnectClicked"
+                                Width="110" Padding="0,8" Margin="0,0,10,0"
+                                Foreground="White" Background="#2660AA" BorderThickness="0" />
+                        <Button x:Name="RecordButton" Content="錄影" Click="OnRecordClicked"
+                                Width="100" Padding="0,8" IsEnabled="False"
+                                Foreground="White" Background="#8A3C2E" BorderThickness="0" />
+                    </StackPanel>
+
+                    <TextBlock x:Name="HintText" TextWrapping="Wrap"
+                               Foreground="{StaticResource Brand.TextDim}" FontSize="11" Margin="0,18,0,0"
+                               Text="提示：請先以 Tools\TestStream\Start-TestStream.ps1 啟動虛擬 RTSP 測試流。" />
+                </StackPanel>
+            </Border>
+
+            <!-- 監看區 -->
+            <Grid Grid.Column="1" Margin="12">
+                <Border Background="#06090F" BorderBrush="#1F3A5F" BorderThickness="1">
+                    <Grid>
+                        <Image x:Name="LiveImage" Margin="1" Stretch="Uniform" />
+                        <TextBlock x:Name="StatusOverlay" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                   Foreground="{StaticResource Brand.TextDim}" FontSize="16" />
+                        <Border x:Name="RecBadge" HorizontalAlignment="Right" VerticalAlignment="Top"
+                                Margin="10" Padding="10,4" CornerRadius="3" Background="#B0352A" Visibility="Collapsed">
+                            <StackPanel Orientation="Horizontal">
+                                <Ellipse Width="10" Height="10" Fill="White" Margin="0,0,6,0" VerticalAlignment="Center" />
+                                <TextBlock Text="REC" Foreground="White" FontSize="12" FontWeight="Bold" />
+                            </StackPanel>
+                        </Border>
+                    </Grid>
+                </Border>
+                <Border HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,4,4"
+                        Background="#1A2C49" CornerRadius="3" Padding="8,3">
+                    <TextBlock x:Name="ResText" Foreground="{StaticResource Brand.TextDim}" FontSize="11" />
+                </Border>
+            </Grid>
         </Grid>
 
+        <!-- 底欄 -->
         <Border Grid.Row="2" Background="{StaticResource Brand.BgPanel}" Padding="12,6" BorderBrush="#1F3A5F" BorderThickness="0,1,0,0">
             <TextBlock x:Name="StatusText" Text="正在驗證授權…" Foreground="{StaticResource Brand.TextDim}" FontSize="12" HorizontalAlignment="Center" />
         </Border>
