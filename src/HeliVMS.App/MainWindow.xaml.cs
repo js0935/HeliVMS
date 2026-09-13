@@ -45,6 +45,53 @@ public partial class MainWindow : Window
         _dataRoot = ResolveDataRoot();
     }
 
+    protected override void OnSourceInitialized(EventArgs e)
+    {
+        base.OnSourceInitialized(e);
+
+        // 小螢幕／高縮放時將視窗收斂至工作區內，避免超出而無法操作標題列（縮小／關閉）。
+        var work = SystemParameters.WorkArea;
+        if (MinWidth > work.Width)
+        {
+            MinWidth = Math.Floor(work.Width);
+        }
+
+        if (MinHeight > work.Height)
+        {
+            MinHeight = Math.Floor(work.Height);
+        }
+
+        if (Width > work.Width)
+        {
+            Width = work.Width;
+        }
+
+        if (Height > work.Height)
+        {
+            Height = work.Height;
+        }
+
+        if (Left < work.Left)
+        {
+            Left = work.Left;
+        }
+
+        if (Top < work.Top)
+        {
+            Top = work.Top;
+        }
+
+        if (Left + Width > work.Right)
+        {
+            Left = Math.Max(work.Left, work.Right - Width);
+        }
+
+        if (Top + Height > work.Bottom)
+        {
+            Top = Math.Max(work.Top, work.Bottom - Height);
+        }
+    }
+
     /// <summary>由執行目錄 Assets 資料夾載入品牌圖檔。</summary>
     public static BitmapSource CreateBitmap(string fileName)
     {
