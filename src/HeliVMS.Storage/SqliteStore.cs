@@ -9,7 +9,7 @@ namespace HeliVMS.Storage;
 /// </summary>
 public sealed class SqliteStore : IDisposable
 {
-    private const int CurrentSchemaVersion = 3;
+    private const int CurrentSchemaVersion = 4;
     private readonly SqliteConnection _connection;
     private readonly object _gate = new();
     private bool _disposed;
@@ -68,6 +68,11 @@ public sealed class SqliteStore : IDisposable
             CreateScheduleTableV3();
         }
 
+        if (version < 4)
+        {
+            CreateDetectionTableV4();
+        }
+
         Execute("PRAGMA user_version = CURRENT_SCHEMA_VERSION;".Replace(
             "CURRENT_SCHEMA_VERSION", CurrentSchemaVersion.ToString(CultureInfo.InvariantCulture)));
     }
@@ -112,6 +117,26 @@ public sealed class SqliteStore : IDisposable
                 created_at  TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
             );
             CREATE INDEX IF NOT EXISTS idx_sched_channel ON recording_schedule(channel_id);
+            """);
+    }
+
+    private void CreateDetectionTableV4()
+    {
+        Execute(
+            """
+            CREATE TABLE IF NOT EXISTS detections (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                channel_id   INTEGER NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
+                class        TEXT    NOT NULL,
+                confidence   REAL    NOT NULL,
+                x            REAL    NOT NULL,
+                y            REAL    NOT NULL,
+                w            REAL    NOT NULL,
+                h            REAL    NOT NULL,
+                detected_at  TEXT    NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_detections_time ON detections(detected_at);
+            CREATE INDEX IF NOT EXISTS idx_detections_channel ON detections(channel_id);
             """);
     }
 

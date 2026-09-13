@@ -1,0 +1,142 @@
+<Window x:Class="HeliVMS.App.DetectionWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="HeliVMS AI 偵測記錄"
+        Width="1050" Height="620"
+        WindowStartupLocation="CenterOwner"
+        Background="#0B1622" Foreground="White"
+        Loaded="OnLoaded" Closing="OnClosing">
+
+    <Grid Margin="12">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <!-- 過濾面板 -->
+        <Border BorderBrush="#2A4A73" BorderThickness="1" Background="#0F1D2E" Padding="10">
+            <StackPanel>
+                <TextBlock Text="偵測過濾（全量 AI 物件偵測 metadata；座標為 0..1 正規化）"
+                           Foreground="{StaticResource Brand.TextDim}" FontSize="11" Margin="0,0,0,8"/>
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Margin="0,0,8,0">
+                        <TextBlock Text="頻道" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+                        <ComboBox x:Name="ChannelFilter" Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"
+                                  Padding="6,3" Margin="0,4,0,0"/>
+                    </StackPanel>
+                    <StackPanel Grid.Column="1" Margin="0,0,8,0">
+                        <TextBlock Text="開始（本地）" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+                        <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
+                            <TextBox x:Name="FromDateBox" Width="130" Foreground="White" Background="#1A2C49"
+                                     BorderBrush="#2A4A73" Padding="6,3"/>
+                            <TextBlock Text="　" Margin="4,0" VerticalAlignment="Center" FontSize="13" Foreground="#334"/>
+                            <TextBox x:Name="FromTimeBox" Width="70" Foreground="White" Background="#1A2C49"
+                                     BorderBrush="#2A4A73" Padding="6,3"/>
+                        </StackPanel>
+                    </StackPanel>
+                    <StackPanel Grid.Column="2" Margin="0,0,8,0">
+                        <TextBlock Text="結束（本地）" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+                        <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
+                            <TextBox x:Name="ToDateBox" Width="130" Foreground="White" Background="#1A2C49"
+                                     BorderBrush="#2A4A73" Padding="6,3"/>
+                            <TextBlock Text="　" Margin="4,0" VerticalAlignment="Center" FontSize="13" Foreground="#334"/>
+                            <TextBox x:Name="ToTimeBox" Width="70" Foreground="White" Background="#1A2C49"
+                                     BorderBrush="#2A4A73" Padding="6,3"/>
+                        </StackPanel>
+                    </StackPanel>
+                    <StackPanel Grid.Column="3" Margin="0,0,8,0">
+                        <TextBlock Text="類別" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+                        <ComboBox x:Name="ClassFilter" Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"
+                                  Padding="6,3" Margin="0,4,0,0"/>
+                    </StackPanel>
+                    <StackPanel Grid.Column="4" Margin="0,0,8,0">
+                        <TextBlock Text="信心 ≥" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+                        <TextBox x:Name="MinConfBox" Width="60" Text="" Foreground="White" Background="#1A2C49"
+                                 BorderBrush="#2A4A73" Padding="6,3" Margin="0,4,0,0"/>
+                    </StackPanel>
+                    <StackPanel Grid.Column="5" VerticalAlignment="Bottom">
+                        <Button x:Name="SearchButton" Content="查詢" Click="OnSearchClicked"
+                                Padding="18,4" Foreground="White" Background="#2A5C8A" BorderThickness="0"/>
+                    </StackPanel>
+                </Grid>
+            </StackPanel>
+        </Border>
+
+        <!-- 統計 -->
+        <Border Grid.Row="1" BorderBrush="#2A4A73" BorderThickness="1" Background="#0F1D2E"
+                Margin="0,8,0,0" Padding="10">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock Text="各類別次數：" Foreground="{StaticResource Brand.TextDim}" FontSize="12"
+                           VerticalAlignment="Center"/>
+                <TextBlock x:Name="StatText" Grid.Column="1" Text="（尚未查詢）" FontSize="12" TextWrapping="Wrap"
+                           VerticalAlignment="Center" Foreground="#8FDC9A"/>
+            </Grid>
+        </Border>
+
+        <!-- 明細 -->
+        <Border Grid.Row="2" BorderBrush="#2A4A73" BorderThickness="1" Background="#0F1D2E" Margin="0,8,0,0">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                </Grid.RowDefinitions>
+                <TextBlock x:Name="CountText" Text="0 筆" Foreground="{StaticResource Brand.TextDim}"
+                           Margin="8,6" FontSize="11"/>
+                <ListView x:Name="DetailList" Grid.Row="1" Background="Transparent" BorderThickness="0" Foreground="White">
+                    <ListView.View>
+                        <GridView>
+                            <GridViewColumn Header="時間（本地）" Width="170">
+                                <GridViewColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding TimeLabel}" FontSize="12"/>
+                                    </DataTemplate>
+                                </GridViewColumn.CellTemplate>
+                            </GridViewColumn>
+                            <GridViewColumn Header="頻道" Width="120">
+                                <GridViewColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding ChannelName}" FontSize="12"/>
+                                    </DataTemplate>
+                                </GridViewColumn.CellTemplate>
+                            </GridViewColumn>
+                            <GridViewColumn Header="類別" Width="90">
+                                <GridViewColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding Class}" FontSize="12"/>
+                                    </DataTemplate>
+                                </GridViewColumn.CellTemplate>
+                            </GridViewColumn>
+                            <GridViewColumn Header="信心" Width="80">
+                                <GridViewColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding ConfidenceLabel}" FontSize="12"/>
+                                    </DataTemplate>
+                                </GridViewColumn.CellTemplate>
+                            </GridViewColumn>
+                            <GridViewColumn Header="位置（x,y,w,h）" Width="280">
+                                <GridViewColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding BboxLabel}" FontSize="12" Foreground="#AAB8C8"/>
+                                    </DataTemplate>
+                                </GridViewColumn.CellTemplate>
+                            </GridViewColumn>
+                        </GridView>
+                    </ListView.View>
+                </ListView>
+            </Grid>
+        </Border>
+    </Grid>
+</Window>

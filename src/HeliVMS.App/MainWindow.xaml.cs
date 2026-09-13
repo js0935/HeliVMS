@@ -42,6 +42,7 @@ public partial class MainWindow : Window
     private string _footerBase = string.Empty;
     private int _preFullscreenLayout = 1;
     private RecordingScheduler? _scheduler;
+    private DetectionWriter? _detWriter;
 
     private static readonly SolidColorBrush BrOffline = new(Color.FromRgb(0x6B, 0x7B, 0x90));
     private static readonly SolidColorBrush BrConnecting = new(Color.FromRgb(0xD8, 0xA1, 0x2C));
@@ -163,6 +164,8 @@ public partial class MainWindow : Window
         _channels = new ChannelRepository(_store);
         _segRepo = new SegmentRepository(_store);
         _channels.EnsureSeedChannels();
+
+        _detWriter = new DetectionWriter(_store);
 
         _manager = new ChannelManager(_store, Path.Combine(_dataRoot, "recordings"), Path.Combine(_dataRoot, "snapshots"), DetectionModelResolver.TryResolve());
         _manager.FrameArrived += (_, e) => OnCellFrame(e.Cell, e.Frame);
@@ -618,6 +621,15 @@ public partial class MainWindow : Window
         sched.Show();
     }
 
+    private void OnDetectionClicked(object sender, RoutedEventArgs e)
+    {
+        var det = new DetectionWindow(_store!)
+        {
+            Owner = this,
+        };
+        det.Show();
+    }
+
     private void OnAddChannelClicked(object sender, RoutedEventArgs e)
     {
         var url = UrlBox.Text.Trim();
@@ -649,6 +661,22 @@ public partial class MainWindow : Window
         }
 
         _aiBoxes[cell] = frame.Items;
+
+        // M11：全量偵測 metadata 入佇列，由 DetectionWriter 批次寫入 detections 表
+        if (_detWriter is { } writer && _cellChannel[cell] is int chId && frame.Items.Count > 0)
+        {
+            writer.EnqueueRange(frame.Items.Select(d => new DetectionRecord
+            {
+                ChannelId = chId,
+                Class = d.Class,
+                Confidence = d.Confidence,
+                X = d.X,
+                Y = d.Y,
+                W = d.W,
+                H = d.H,
+                DetectedUtc = frame.SnapshotUtc,
+            }));
+        }
 
         Detection? best = null;
         foreach (var d in frame.Items)
@@ -880,6 +908,7 @@ public partial class MainWindow : Window
         await DisconnectAllAsync();
         _bgCts?.Cancel();
         _bgCts?.Dispose();
+        _detWriter?.Dispose();
         _manager?.Dispose();
         _store?.Dispose();
     }
