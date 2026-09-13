@@ -27,6 +27,7 @@ public partial class MainWindow : Window
     private ChannelRepository? _channels;
     private SegmentRepository? _segRepo;
     private ChannelManager? _manager;
+    private CancellationTokenSource? _bgCts;
     private WriteableBitmap?[] _bitmap = new WriteableBitmap?[MaxCells];
     private readonly int?[] _cellChannel = new int?[MaxCells];
     private IReadOnlyList<ChannelInfo> _channelList = [];
@@ -155,6 +156,9 @@ public partial class MainWindow : Window
         _manager.HealthRestart += (_, e) =>
             HintText.Text = $"頻道「{e.Channel.Name}」畫面逾時，已自動重連。";
 
+        _bgCts = new CancellationTokenSource();
+        _ = RunRetentionLoopAsync(_bgCts.Token);
+
         ChannelCombo.SelectionChanged += OnChannelSelectionChanged;
         RefreshChannelCombo();
 
@@ -198,6 +202,60 @@ public partial class MainWindow : Window
         ChannelCombo.ItemsSource = _channelList;
         ChannelCombo.DisplayMemberPath = nameof(ChannelInfo.Name);
         ChannelCombo.SelectedIndex = _channelList.Count > 0 ? 0 : -1;
+    }
+
+    private static string FormatBytes(long bytes) => bytes >= 1024d * 1024 * 1024
+        ? $"{bytes / 1024d / 1024 / 1024:0.#}GB"
+        : $"{bytes / 1024d / 1024:0.#}MB";
+
+    /// <summary>每小時執行一次配額清理與 tmp 隔離（配額可由 HELIVMS_QUOTA_GB 覆寫）。</summary>
+    private async Task RunRetentionLoopAsync(CancellationToken token)
+    {
+        var quota = ParseQuotaBytes();
+        var service = new RetentionService(_segRepo!, Path.Combine(_dataRoot, "recordings"));
+        while (!token.IsCancellationRequested)
+        {
+            try
+            {
+                var report = service.Apply(quota, DateTime.UtcNow);
+                if (report.DeletedSegments > 0)
+                {
+                    HintText.Text = $"配額清理：移除 {report.DeletedSegments} 段（釋放 {FormatBytes(report.FreedBytes)}）。";
+                }
+
+                if (report.PurgedTmp > 0)
+                {
+                    HintText.Text += $" 已清除 {report.PurgedTmp} 個錄影暫存檔。";
+                }
+            }
+            catch (Exception)
+            {
+                // 清理失敗不影響監看主線
+            }
+
+            try
+            {
+                await Task.Delay(TimeSpan.FromHours(1), token);
+            }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
+        }
+    }
+
+    private static long ParseQuotaBytes()
+    {
+        var gb = 10.0;
+        var raw = Environment.GetEnvironmentVariable("HELIVMS_QUOTA_GB");
+        if (!string.IsNullOrWhiteSpace(raw) &&
+            double.TryParse(raw, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var v) &&
+            v > 0)
+        {
+            gb = v;
+        }
+
+        return (long)(gb * 1024 * 1024 * 1024);
     }
 
     private void OnChannelSelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -439,6 +497,8 @@ public partial class MainWindow : Window
     private async void OnWindowClosed(object? sender, EventArgs e)
     {
         await DisconnectAllAsync();
+        _bgCts?.Cancel();
+        _bgCts?.Dispose();
         _manager?.Dispose();
         _store?.Dispose();
     }

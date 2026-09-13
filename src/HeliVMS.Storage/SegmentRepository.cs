@@ -104,6 +104,44 @@ public sealed class SegmentRepository
             cmd => cmd.Parameters.AddWithValue("$c", channelId));
     }
 
+    /// <summary>統計全部頻道錄影總量（位元組，final 限定）。</summary>
+    public long GetTotalUsage()
+    {
+        return _store.Query(
+            """
+            SELECT COALESCE(SUM(size_bytes), 0)
+            FROM segments WHERE status = 'final';
+            """,
+            static r =>
+            {
+                r.Read();
+                return r.GetInt64(0);
+            });
+    }
+
+    /// <summary>依開始時間取出最舊之 final 區段（配額清理用）。</summary>
+    public IReadOnlyList<SegmentRecord> ListOldestFinal(int take)
+    {
+        return _store.Query(
+            $"""
+            SELECT id, channel_id, stream, start_time, end_time, file_path,
+                   size_bytes, duration_sec, status, sha256
+            FROM segments
+            WHERE status = 'final'
+            ORDER BY start_time
+            LIMIT {Math.Max(1, take)};
+            """,
+            ReadRecords);
+    }
+
+    /// <summary>刪除區段記錄（檔案移除由配額策略負責）。</summary>
+    public void Delete(long id)
+    {
+        _store.Execute(
+            "DELETE FROM segments WHERE id = $id;",
+            cmd => cmd.Parameters.AddWithValue("$id", id));
+    }
+
     /// <summary>依時長計算統計（供 §15 配額/RPO 報告）。</summary>
     public IReadOnlyList<SegmentRecord> ListFinal(int channelId)
     {

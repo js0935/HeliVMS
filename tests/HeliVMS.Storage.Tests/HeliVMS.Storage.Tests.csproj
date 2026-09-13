@@ -19,6 +19,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\..\src\HeliVMS.Recording\HeliVMS.Recording.csproj" />
     <ProjectReference Include="..\..\src\HeliVMS.Storage\HeliVMS.Storage.csproj" />
   </ItemGroup>
 
