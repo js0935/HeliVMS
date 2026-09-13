@@ -1,7 +1,9 @@
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using System.Windows.Shapes;
 using HeliVMS.Media;
 using HeliVMS.Recording;
 using HeliVMS.Shared.Models;
@@ -9,12 +11,14 @@ using HeliVMS.Storage;
 
 namespace HeliVMS.App;
 
-/// <summary>回放視窗（M3）：挑選頻道/日期/錄影片段，以 PlaybackSession 播放。</summary>
+/// <summary>回放視窗（M3/M8）：挑選頻道/日期/錄影片段，以 PlaybackSession 播放；含當日時間軸帶與進度列跳轉。</summary>
 public partial class PlaybackWindow : Window
 {
     private readonly SqliteStore _store;
     private readonly ChannelRepository _channels;
     private readonly SegmentRepository _segments;
+    private readonly long? _focusChannelId;
+    private readonly DateTime? _focusUtc;
 
     private PlaybackSession? _session;
     private SegmentRecord? _current;
@@ -25,17 +29,23 @@ public partial class PlaybackWindow : Window
     private WriteableBitmap? _bitmap;
     private int _lastWidth;
     private int _lastHeight;
+    private IReadOnlyList<SegmentItem> _bandSegments = [];
+    private bool _seeking;
+    private readonly Rectangle _cursor = new() { Width = 2, Fill = Brushes.White, IsHitTestVisible = false };
 
     private sealed record SegmentItem(SegmentRecord Segment, string StartLabel, string DurationLabel, string SizeLabel);
 
-    public PlaybackWindow(SqliteStore store)
+    public PlaybackWindow(SqliteStore store, long? focusChannelId = null, DateTime? focusUtc = null)
     {
         _store = store;
+        _focusChannelId = focusChannelId;
+        _focusUtc = focusUtc;
         _channels = new ChannelRepository(_store);
         _segments = new SegmentRepository(_store);
         InitializeComponent();
         DatePick.SelectedDate = DateTime.Today;
         LoadChannels();
+        BandCanvas.Children.Add(_cursor);
     }
 
     private void LoadChannels()
@@ -43,11 +53,35 @@ public partial class PlaybackWindow : Window
         ChannelCombo.ItemsSource = _channels.List();
         if (ChannelCombo.Items.Count > 0)
         {
-            ChannelCombo.SelectedIndex = 0;
+            if (_focusChannelId is { } focus && _channels.List().FirstOrDefault(c => c.Id == focus) is { } match)
+            {
+                ChannelCombo.SelectedItem = match;
+            }
+            else
+            {
+                ChannelCombo.SelectedIndex = 0;
+            }
         }
     }
 
-    private void OnLoaded(object sender, RoutedEventArgs e) => LoadSegments();
+    private void OnLoaded(object sender, RoutedEventArgs e)
+    {
+        LoadSegments();
+        if (_focusUtc is { } focus)
+        {
+            foreach (var item in _bandSegments)
+            {
+                var seg = item.Segment;
+                var end = seg.EndUtc ?? seg.StartUtc.AddSeconds(seg.DurationSec ?? 10);
+                if (seg.StartUtc <= focus && end >= focus)
+                {
+                    SegmentList.SelectedItem = item;
+                    PlayFrom(seg, Math.Max(0, (focus - seg.StartUtc).TotalSeconds));
+                    break;
+                }
+            }
+        }
+    }
 
     private void OnChannelSelectionChanged(object sender, SelectionChangedEventArgs e) => LoadSegments();
 
@@ -62,6 +96,8 @@ public partial class PlaybackWindow : Window
         if (ChannelCombo.SelectedItem is not ChannelInfo ch)
         {
             SegmentList.ItemsSource = null;
+            _bandSegments = [];
+            RenderBlocks();
             LoadHint.Text = "沒有頻道，請先在上層視窗加入。";
             return;
         }
@@ -85,7 +121,9 @@ public partial class PlaybackWindow : Window
                     s.DurationSec is double d ? $"{d:0.#}秒" : "-",
                     s.SizeBytes > 0 ? $"{s.SizeBytes / 1024d:0}KB" : "-"))
                 .ToList();
+            _bandSegments = segs;
             SegmentList.ItemsSource = segs;
+            RenderBlocks();
             LoadHint.Text = $"當日 {segs.Count} 段。";
         }
         catch (Exception ex)
@@ -157,6 +195,11 @@ public partial class PlaybackWindow : Window
         var version = ++_sessionVersion;
         SetPlayingUi();
 
+        var dur = seg.DurationSec ?? 0;
+        SeekSlider.IsEnabled = dur > 0;
+        SeekSlider.Value = dur > 0 ? Math.Min(seekSeconds / dur, 1) * 10000 : 0;
+        UpdateCursor(seekSeconds);
+
         var session = new PlaybackSession(seg) { Speed = GetSpeed() };
         _session = session;
         session.FrameDecoded += (_, frame) => OnFrame(version, seg, frame);
@@ -198,6 +241,12 @@ public partial class PlaybackWindow : Window
             _posInside = _basePos + frame.PtsMs / 1000.0;
             TimeText.Text = $"{FormatTime(_posInside)} / {FormatTime(seg.DurationSec ?? 0)}";
             StatusText.Text = $"播放中（{GetSpeed():0.##}×）";
+            if (!_seeking && (seg.DurationSec ?? 0) > 0)
+            {
+                SeekSlider.Value = Math.Min(_posInside / (seg.DurationSec ?? 1), 1) * 10000;
+            }
+
+            UpdateCursor(_posInside);
         });
     }
 
@@ -276,6 +325,112 @@ public partial class PlaybackWindow : Window
         session?.Stop();
         DisposeQuietly(session);
         SetIdleUi();
+    }
+
+    /// <summary>當日時間軸帶尺寸改變時重新繪製。</summary>
+    private void OnBandSizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        RenderBlocks();
+        UpdateCursor(_posInside);
+    }
+
+    /// <summary>繪製當日時間軸帶：每段一個藍色區塊，遊標在最上層不受影響。</summary>
+    private void RenderBlocks()
+    {
+        for (var i = BandCanvas.Children.Count - 1; i >= 0; i--)
+        {
+            if (!ReferenceEquals(BandCanvas.Children[i], _cursor))
+            {
+                BandCanvas.Children.RemoveAt(i);
+            }
+        }
+
+        if (_bandSegments.Count == 0 || BandCanvas.ActualWidth <= 0)
+        {
+            return;
+        }
+
+        var dayStartUtc = TimeZoneInfo.ConvertTimeToUtc(_bandSegments[0].Segment.StartUtc.ToLocalTime().Date);
+        var fill = (Brush)new SolidColorBrush(Color.FromRgb(0x2A, 0x7F, 0xC9)).GetAsFrozen();
+        foreach (var item in _bandSegments)
+        {
+            var seg = item.Segment;
+            var width = Math.Max(2, (seg.DurationSec ?? 10) / 86400.0 * BandCanvas.ActualWidth);
+            var rect = new Rectangle
+            {
+                Width = width,
+                Height = 26,
+                Fill = fill,
+                IsHitTestVisible = false,
+            };
+            Canvas.SetLeft(rect, Math.Max(0, (seg.StartUtc - dayStartUtc).TotalMinutes / 1440.0 * BandCanvas.ActualWidth));
+            Canvas.SetTop(rect, 2);
+            BandCanvas.Children.Add(rect);
+        }
+    }
+
+    /// <summary>點擊時間軸帶：定位到該時刻所在片段並從該處播放。</summary>
+    private void OnBandClicked(object sender, MouseButtonEventArgs e)
+    {
+        if (_bandSegments.Count == 0 || BandCanvas.ActualWidth <= 0)
+        {
+            return;
+        }
+
+        var frac = Math.Max(0, Math.Min(1, e.GetPosition(BandCanvas).X / BandCanvas.ActualWidth));
+        var dayStartLocal = _bandSegments[0].Segment.StartUtc.ToLocalTime().Date;
+        var targetUtc = TimeZoneInfo.ConvertTimeToUtc(dayStartLocal).AddMinutes(frac * 1440);
+
+        foreach (var item in _bandSegments)
+        {
+            var seg = item.Segment;
+            var end = seg.EndUtc ?? seg.StartUtc.AddSeconds(seg.DurationSec ?? 10);
+            if (seg.StartUtc <= targetUtc && targetUtc <= end)
+            {
+                SegmentList.SelectedItem = item;
+                PlayFrom(seg, Math.Max(0, (targetUtc - seg.StartUtc).TotalSeconds));
+                return;
+            }
+        }
+
+        var last = _bandSegments[^1];
+        SegmentList.SelectedItem = last;
+        PlayFrom(last.Segment, 0);
+    }
+
+    private void OnSeekDragStarted(object sender, System.Windows.Controls.Primitives.DragStartedEventArgs e) => _seeking = true;
+
+    private void OnSeekDragCompleted(object sender, System.Windows.Controls.Primitives.DragCompletedEventArgs e)
+    {
+        _seeking = false;
+        if (_current is null)
+        {
+            return;
+        }
+
+        var dur = _current.DurationSec ?? 0;
+        if (dur <= 0)
+        {
+            return;
+        }
+
+        var offset = Math.Max(0, Math.Min(1, SeekSlider.Value / 10000)) * dur;
+        PlayFrom(_current, offset);
+    }
+
+    /// <summary>將播放位置遊標移到時間軸帶上的對應時刻。</summary>
+    private void UpdateCursor(double posSeconds)
+    {
+        if (_current is null || BandCanvas.ActualWidth <= 0)
+        {
+            Canvas.SetLeft(_cursor, -8);
+            return;
+        }
+
+        var dayStartUtc = TimeZoneInfo.ConvertTimeToUtc(_current.StartUtc.ToLocalTime().Date);
+        var frac = (_current.StartUtc.AddSeconds(posSeconds) - dayStartUtc).TotalMinutes / 1440.0;
+        Canvas.SetLeft(_cursor, Math.Max(0, Math.Min(1, frac)) * BandCanvas.ActualWidth - 1);
+        Canvas.SetTop(_cursor, 2);
     }
 
     private void DisposeQuietly(PlaybackSession? session)

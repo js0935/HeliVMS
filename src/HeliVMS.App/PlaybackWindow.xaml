@@ -86,6 +86,7 @@
             <Grid.RowDefinitions>
                 <RowDefinition Height="*"/>
                 <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
             <Border BorderBrush="#2A4A73" BorderThickness="1" Background="#05090E">
                 <Grid>
@@ -96,15 +97,25 @@
                 </Grid>
             </Border>
 
-            <StackPanel Orientation="Horizontal" Grid.Row="1" Margin="0,10,0,0">
+            <!-- 時間軸帶：當日全部錄影片段與播放位置 -->
+            <Border Grid.Row="1" Margin="0,8,0,0" BorderBrush="#2A4A73" BorderThickness="1"
+                    Background="#0F1D2E" Height="30" MouseLeftButtonDown="OnBandClicked">
+                <Canvas x:Name="BandCanvas" SizeChanged="OnBandSizeChanged"/>
+            </Border>
+
+            <StackPanel Orientation="Horizontal" Grid.Row="2" Margin="0,10,0,0">
+                <Slider x:Name="SeekSlider" Width="150" VerticalAlignment="Center" Minimum="0" Maximum="10000"
+                        Foreground="#2A5C8A" IsMoveToPointEnabled="True"
+                        Thumb.DragStarted="OnSeekDragStarted" Thumb.DragCompleted="OnSeekDragCompleted"/>
+                <TextBlock Text="進度" Foreground="{StaticResource Brand.TextDim}" VerticalAlignment="Center" Margin="8,0,0,0"/>
                 <Button x:Name="PlayPauseButton" Content="播放" Click="OnPlayPauseClicked"
-                        Width="76" Padding="0,6" IsEnabled="False"
+                        Width="76" Padding="0,6" Margin="16,0,0,0" IsEnabled="False"
                         Foreground="White" Background="#2660AA" BorderThickness="0"/>
                 <Button x:Name="StopButton" Content="停止" Click="OnStopClicked"
                         Width="70" Padding="0,6" Margin="8,0,0,0" IsEnabled="False"
                         Foreground="White" Background="#8A3C2E" BorderThickness="0"/>
                 <TextBlock Text="倍速" Foreground="{StaticResource Brand.TextDim}"
-                           VerticalAlignment="Center" Margin="18,0,6,0"/>
+                           VerticalAlignment="Center" Margin="14,0,6,0"/>
                 <ComboBox x:Name="SpeedCombo" Width="64" SelectedIndex="0" VerticalAlignment="Center"
                           Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"
                           SelectionChanged="OnSpeedChanged">
@@ -115,11 +126,11 @@
                     <ComboBoxItem Content="8×"/>
                 </ComboBox>
                 <TextBlock x:Name="TimeText" Foreground="White" FontSize="12"
-                           VerticalAlignment="Center" Margin="20,0,0,0" Text="--:--:-- / --:--:--"/>
+                           VerticalAlignment="Center" Margin="16,0,0,0" Text="--:--:-- / --:--:--"/>
                 <CheckBox x:Name="AutoAdvanceCheck" Content="自動接續下一段" Foreground="{StaticResource Brand.TextDim}"
-                          IsChecked="True" VerticalAlignment="Center" Margin="18,0,0,0"/>
+                          IsChecked="True" VerticalAlignment="Center" Margin="14,0,0,0"/>
                 <TextBlock x:Name="StatusText" Foreground="{StaticResource Brand.TextDim}" FontSize="11"
-                           VerticalAlignment="Center" Margin="16,0,0,0"/>
+                           VerticalAlignment="Center" Margin="14,0,0,0"/>
             </StackPanel>
         </Grid>
     </Grid>

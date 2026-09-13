@@ -31,6 +31,10 @@ public partial class EventCenterWindow : Window
     {
         public long Id { get; init; }
 
+        public long ChannelId { get; init; }
+
+        public DateTime StartUtc { get; init; }
+
         public string StartLabel { get; init; } = "";
 
         public string ChannelName { get; init; } = "";
@@ -117,6 +121,8 @@ public partial class EventCenterWindow : Window
             .Select(ev => new EventRow
             {
                 Id = ev.Id,
+                ChannelId = ev.ChannelId,
+                StartUtc = ev.StartUtc,
                 StartLabel = ev.StartUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss"),
                 ChannelName = byId.TryGetValue(ev.ChannelId, out var c) ? c.Name : $"#{ev.ChannelId}",
                 EventType = ev.EventType,
@@ -152,7 +158,19 @@ public partial class EventCenterWindow : Window
         var row = EventList.SelectedItem as EventRow;
         AckButton.IsEnabled = row != null && !row.Acknowledged;
         UnackButton.IsEnabled = row != null && row.Acknowledged;
+        PlaybackButton.IsEnabled = row != null;
         ShowSnapshot(row?.SnapshotPath, row?.Detail);
+    }
+
+    private void OnPlaybackClicked(object sender, RoutedEventArgs e)
+    {
+        if (EventList.SelectedItem is not EventRow row)
+        {
+            return;
+        }
+
+        var playback = new PlaybackWindow(_store, row.ChannelId, row.StartUtc) { Owner = this };
+        playback.Show();
     }
 
     private void OnEventDoubleClick(object sender, MouseButtonEventArgs e)

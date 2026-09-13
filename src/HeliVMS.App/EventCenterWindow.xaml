@@ -107,6 +107,8 @@
                                 Padding="10,4" Foreground="White" Background="#2A5C8A" BorderThickness="0"/>
                         <Button x:Name="UnackButton" Content="標記為未確認" Click="OnUnackClicked" IsEnabled="False"
                                 Padding="10,4" Margin="8,0,0,0" Foreground="White" Background="#5A4A2A" BorderThickness="0"/>
+                        <Button x:Name="PlaybackButton" Content="回放此事件" Click="OnPlaybackClicked" IsEnabled="False"
+                                Padding="10,4" Margin="8,0,0,0" Foreground="White" Background="#2A7F6E" BorderThickness="0"/>
                     </StackPanel>
                 </Grid>
             </Border>
