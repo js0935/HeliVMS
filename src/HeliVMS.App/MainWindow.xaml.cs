@@ -3,6 +3,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using HeliVMS.App.Services;
 using HeliVMS.Licensing;
 using HeliVMS.Media;
 using HeliVMS.Recording;
@@ -25,9 +26,9 @@ public partial class MainWindow : Window
     private SqliteStore? _store;
     private ChannelRepository? _channels;
     private SegmentRepository? _segRepo;
-    private RtspClient?[] _rtsp = new RtspClient?[MaxCells];
+    private ChannelManager? _manager;
     private WriteableBitmap?[] _bitmap = new WriteableBitmap?[MaxCells];
-    private SegmentRecorder? _recorder;
+    private readonly int?[] _cellChannel = new int?[MaxCells];
     private IReadOnlyList<ChannelInfo> _channelList = [];
     private string _footerBase = string.Empty;
 
@@ -144,6 +145,16 @@ public partial class MainWindow : Window
         _segRepo = new SegmentRepository(_store);
         _channels.EnsureSeedChannels();
 
+        _manager = new ChannelManager(_store, Path.Combine(_dataRoot, "recordings"));
+        _manager.FrameArrived += (_, e) => OnCellFrame(e.Cell, e.Frame);
+        _manager.StateChanged += (_, e) =>
+        {
+            _cellChannel[e.Cell] = e.Channel.Id;
+            OnCellState(e.Cell, e.State);
+        };
+        _manager.HealthRestart += (_, e) =>
+            HintText.Text = $"頻道「{e.Channel.Name}」畫面逾時，已自動重連。";
+
         ChannelCombo.SelectionChanged += OnChannelSelectionChanged;
         RefreshChannelCombo();
 
@@ -218,7 +229,7 @@ public partial class MainWindow : Window
 
     private async void OnConnectClicked(object sender, RoutedEventArgs e)
     {
-        if (_rtsp.Any(c => c is { IsRunning: true }))
+        if (_manager is { HasActiveSessions: true })
         {
             await DisconnectAllAsync();
             return;
@@ -232,27 +243,21 @@ public partial class MainWindow : Window
 
         var start = Math.Max(ChannelCombo.SelectedIndex, 0);
         var cells = LayoutCombo.SelectedIndex == 0 ? 1 : MaxCells;
+        await _manager!.ConnectAsync(_channelList, start, cells);
 
-        for (var i = 0; i < cells; i++)
+        if (_manager.HasActiveSessions)
         {
-            var channel = _channelList[(start + i) % _channelList.Count];
-            var rtsp = new RtspClient(channel.MainStreamUrl) { MaxFramesPerSecond = 15 };
-            var cell = i;
-            rtsp.FrameDecoded += (_, f) => OnCellFrame(cell, f);
-            rtsp.StateChanged += (_, st) => OnCellState(cell, st);
-            rtsp.Reconnecting += (_, _) => OnCellReconnect(cell);
-            _rtsp[cell] = rtsp;
-            await rtsp.StartAsync();
+            ConnectButton.Content = "中斷";
+            RecordButton.IsEnabled = true;
+            HintText.Text = $"連線中：{_channelList[start].MainStreamUrl}";
+        }
+        else
+        {
+            ConnectButton.Content = "連線";
+            HintText.Text = "連線失敗。";
         }
 
-        ConnectButton.Content = "中斷";
-        RecordButton.IsEnabled = true;
-        HintText.Text = $"連線中：{_channelList[start].MainStreamUrl}";
-    }
-
-    private void OnCellReconnect(int cell)
-    {
-        Dispatcher.Invoke(() => OnCellState(cell, RtspState.Reconnecting));
+        UpdateFooter();
     }
 
     private void OnCellState(int cell, RtspState state)
@@ -278,7 +283,7 @@ public partial class MainWindow : Window
 
     private void UpdateFooter()
     {
-        var live = _rtsp.Count(c => c is { IsRunning: true });
+        var live = _manager?.CountStreaming() ?? 0;
         StatusText.Text = _footerBase.Length > 0 ? $"{_footerBase} · 已連線 {live} 路" : string.Empty;
     }
 
@@ -321,60 +326,41 @@ public partial class MainWindow : Window
 
     private async Task DisconnectAllAsync()
     {
-        if (_recorder is { IsRecording: true })
+        if (_manager is not null)
         {
-            await (_recorder?.StopAsync() ?? Task.CompletedTask);
-            _recorder = null;
-            RecordButton.Content = "錄影";
-            RecBadge.Visibility = Visibility.Collapsed;
+            await _manager.DisconnectAllAsync();
         }
 
         for (var i = 0; i < MaxCells; i++)
         {
-            var rtsp = _rtsp[i];
-            if (rtsp is not null)
-            {
-                await rtsp.StopAsync();
-                await rtsp.DisposeAsync();
-                _rtsp[i] = null;
-            }
-
             _bitmap[i] = null;
+            _cellChannel[i] = null;
             SetCellSource(i, null);
             SetCellStatus(i, "未連線", BrOffline);
         }
 
         ConnectButton.Content = "連線";
         RecordButton.IsEnabled = false;
+        RecordButton.Content = "錄影";
+        RecBadge.Visibility = Visibility.Collapsed;
         HintText.Text = "已中斷。";
         UpdateFooter();
     }
 
     private async void OnRecordClicked(object sender, RoutedEventArgs e)
     {
-        if (_recorder is { IsRecording: true })
-        {
-            await (_recorder?.StopAsync() ?? Task.CompletedTask);
-            _recorder = null;
-            RecordButton.Content = "錄影";
-            RecBadge.Visibility = Visibility.Collapsed;
-            HintText.Text = "錄影已停止。";
-            return;
-        }
-
-        if (ChannelCombo.SelectedItem is not ChannelInfo channel)
+        if (_manager is null || ChannelCombo.SelectedItem is not ChannelInfo channel)
         {
             return;
         }
 
-        var root = Path.Combine(_dataRoot, "recordings");
-        var recorder = new SegmentRecorder(_segRepo!);
-        await recorder.StartAsync(channel.Id, channel.MainStreamUrl, root, "main", segmentSeconds: 15);
-
-        _recorder = recorder;
-        RecordButton.Content = "停止錄影";
-        RecBadge.Visibility = Visibility.Visible;
-        HintText.Text = $"錄影中：{Path.Combine(root, $"ch{channel.Id:000}")}";
+        var next = !_manager.IsRecording(channel.Id);
+        await _manager.SetRecordingAsync(channel.Id, next);
+        RecordButton.Content = next ? "停止錄影" : "錄影";
+        RecBadge.Visibility = next ? Visibility.Visible : Visibility.Collapsed;
+        HintText.Text = next
+            ? $"錄影中：{Path.Combine(_dataRoot, "recordings", $"ch{channel.Id:000}")}"
+            : "錄影已停止。";
     }
 
     private void OnOnvifClicked(object sender, RoutedEventArgs e)
@@ -453,6 +439,7 @@ public partial class MainWindow : Window
     private async void OnWindowClosed(object? sender, EventArgs e)
     {
         await DisconnectAllAsync();
+        _manager?.Dispose();
         _store?.Dispose();
     }
 }
