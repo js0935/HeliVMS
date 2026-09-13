@@ -13,6 +13,7 @@ public partial class SplashWindow : Window
     {
         InitializeComponent();
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
+        SplashImage.Source = MainWindow.CreateBitmap("splash.png");
     }
 
     /// <summary>

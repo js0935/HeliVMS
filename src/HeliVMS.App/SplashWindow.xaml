@@ -8,7 +8,7 @@
         WindowStyle="None"
         UseLayoutRounding="True"
         SnapsToDevicePixels="True">
-    <Image Source="Assets/splash.png"
+    <Image x:Name="SplashImage"
            Stretch="None"
            StretchDirection="DownOnly" />
 </Window>

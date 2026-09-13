@@ -4,7 +4,8 @@ using Microsoft.Data.Sqlite;
 namespace HeliVMS.Storage;
 
 /// <summary>
-/// 錄影區段索引（§15.6：區段記錄與存取）。
+/// 錄影區段索引（§4 segments 表；§15.6 區段記錄與存取）。
+/// 時間戳一律 ISO8601 UTC（TEXT），狀態以文字暫存 tmp／final／corrupt。
 /// </summary>
 public sealed class SegmentRepository
 {
@@ -15,33 +16,13 @@ public sealed class SegmentRepository
         _store = store;
     }
 
-    /// <summary>確保頻道存在（不存在則建立，冪等）。</summary>
-    public void EnsureChannel(int channelId, string name, string mainUrl)
-    {
-        _store.Execute(
-            """
-            INSERT OR IGNORE INTO channels (id, name, main_url, enabled)
-            VALUES ($id, $n, $u, 1);
-            """,
-            cmd =>
-            {
-                cmd.Parameters.AddWithValue("$id", channelId);
-                cmd.Parameters.AddWithValue("$n", name);
-                cmd.Parameters.AddWithValue("$u", mainUrl);
-            });
-    }
-
-    /// <summary>開啟一個錄影區段，回傳區段 ID。</summary>
-    public long BeginSegment(
-        int channelId,
-        string filePath,
-        DateTime startUtc,
-        string format = "mpegts")
+    /// <summary>開啟一個錄影區段（暫存檔，status=tmp），回傳區段 ID。</summary>
+    public long BeginSegment(int channelId, string stream, string filePath, DateTime startUtc)
     {
         return _store.Query(
             """
-            INSERT INTO segments (channel_id, start_ms, file_path, format, status, created_ms)
-            VALUES ($c, $s, $p, $f, $st, $cm);
+            INSERT INTO segments (channel_id, stream, start_time, file_path, status)
+            VALUES ($c, $s, $st, $p, 'tmp');
             SELECT last_insert_rowid();
             """,
             static r =>
@@ -52,63 +33,58 @@ public sealed class SegmentRepository
             cmd =>
             {
                 cmd.Parameters.AddWithValue("$c", channelId);
-                cmd.Parameters.AddWithValue("$s", SqliteStore.ToUnixMs(startUtc));
+                cmd.Parameters.AddWithValue("$s", stream);
+                cmd.Parameters.AddWithValue("$st", SqliteStore.Iso(startUtc));
                 cmd.Parameters.AddWithValue("$p", filePath);
-                cmd.Parameters.AddWithValue("$f", format);
-                cmd.Parameters.AddWithValue("$st", (int)SegmentStatus.Recording);
-                cmd.Parameters.AddWithValue("$cm", SqliteStore.ToUnixMs(DateTime.UtcNow));
             });
     }
 
-    /// <summary>完成錄影區段（寫入結束時間與檔案大小）。</summary>
-    public bool CompleteSegment(long id, DateTime endUtc, long sizeBytes)
+    /// <summary>完成錄影區段（status=final，含 SHA-256 與時長）。</summary>
+    public void CompleteSegment(long id, DateTime endUtc, long sizeBytes, double durationSec, string sha256)
     {
         _store.Execute(
             """
             UPDATE segments
-            SET end_ms = $e, size_bytes = $s, status = $st
-            WHERE id = $id AND status = $r;
+            SET end_time = $e, size_bytes = $s, duration_sec = $d, sha256 = $h, status = 'final'
+            WHERE id = $id AND status = 'tmp';
             """,
             cmd =>
             {
-                cmd.Parameters.AddWithValue("$e", SqliteStore.ToUnixMs(endUtc));
+                cmd.Parameters.AddWithValue("$e", SqliteStore.Iso(endUtc));
                 cmd.Parameters.AddWithValue("$s", sizeBytes);
-                cmd.Parameters.AddWithValue("$st", (int)SegmentStatus.Completed);
+                cmd.Parameters.AddWithValue("$d", durationSec);
+                cmd.Parameters.AddWithValue("$h", sha256);
                 cmd.Parameters.AddWithValue("$id", id);
-                cmd.Parameters.AddWithValue("$r", (int)SegmentStatus.Recording);
             });
-        return true;
     }
 
-    /// <summary>標記區段異常。</summary>
-    public bool MarkCorrupt(long id)
+    /// <summary>標記區段異常（status=corrupt）。</summary>
+    public void MarkCorrupt(long id)
     {
         _store.Execute(
-            "UPDATE segments SET status = $st WHERE id = $id;",
-            cmd =>
-            {
-                cmd.Parameters.AddWithValue("$st", (int)SegmentStatus.Corrupt);
-                cmd.Parameters.AddWithValue("$id", id);
-            });
-        return true;
+            "UPDATE segments SET status = 'corrupt' WHERE id = $id;",
+            cmd => cmd.Parameters.AddWithValue("$id", id));
     }
 
-    /// <summary>依時間範圍列出區段（§15.6 回放/時間軸）。</summary>
-    public IReadOnlyList<SegmentRecord> ListByRange(int channelId, DateTime fromUtc, DateTime toUtc)
+    /// <summary>依時間範圍列出區段（§3.4 時間軸回放）。</summary>
+    public IReadOnlyList<SegmentRecord> ListByRange(int channelId, string stream, DateTime fromUtc, DateTime toUtc)
     {
         return _store.Query(
             """
-            SELECT id, channel_id, start_ms, end_ms, file_path, size_bytes, format, status
+            SELECT id, channel_id, stream, start_time, end_time, file_path,
+                   size_bytes, duration_sec, status, sha256
             FROM segments
-            WHERE channel_id = $c AND start_ms >= $from AND start_ms <= $to
-            ORDER BY start_ms;
+            WHERE channel_id = $c AND stream = $s
+              AND start_time >= $from AND start_time <= $to
+            ORDER BY start_time;
             """,
             ReadRecords,
             cmd =>
             {
                 cmd.Parameters.AddWithValue("$c", channelId);
-                cmd.Parameters.AddWithValue("$from", SqliteStore.ToUnixMs(fromUtc));
-                cmd.Parameters.AddWithValue("$to", SqliteStore.ToUnixMs(toUtc));
+                cmd.Parameters.AddWithValue("$s", stream);
+                cmd.Parameters.AddWithValue("$from", SqliteStore.Iso(fromUtc));
+                cmd.Parameters.AddWithValue("$to", SqliteStore.Iso(toUtc));
             });
     }
 
@@ -118,19 +94,29 @@ public sealed class SegmentRepository
         return _store.Query(
             """
             SELECT COALESCE(SUM(size_bytes), 0)
-            FROM segments
-            WHERE channel_id = $c AND status = $st;
+            FROM segments WHERE channel_id = $c AND status = 'final';
             """,
             static r =>
             {
                 r.Read();
                 return r.GetInt64(0);
             },
-            cmd =>
-            {
-                cmd.Parameters.AddWithValue("$c", channelId);
-                cmd.Parameters.AddWithValue("$st", (int)SegmentStatus.Completed);
-            });
+            cmd => cmd.Parameters.AddWithValue("$c", channelId));
+    }
+
+    /// <summary>依時長計算統計（供 §15 配額/RPO 報告）。</summary>
+    public IReadOnlyList<SegmentRecord> ListFinal(int channelId)
+    {
+        return _store.Query(
+            """
+            SELECT id, channel_id, stream, start_time, end_time, file_path,
+                   size_bytes, duration_sec, status, sha256
+            FROM segments
+            WHERE channel_id = $c AND status = 'final'
+            ORDER BY start_time;
+            """,
+            ReadRecords,
+            cmd => cmd.Parameters.AddWithValue("$c", channelId));
     }
 
     private static IReadOnlyList<SegmentRecord> ReadRecords(SqliteDataReader reader)
@@ -142,15 +128,25 @@ public sealed class SegmentRepository
             {
                 Id = reader.GetInt64(0),
                 ChannelId = reader.GetInt32(1),
-                StartUtc = SqliteStore.FromUnixMs(reader.GetInt64(2)),
-                EndUtc = reader.IsDBNull(3) ? null : SqliteStore.FromUnixMs(reader.GetInt64(3)),
-                FilePath = reader.GetString(4),
-                SizeBytes = reader.GetInt64(5),
-                Format = reader.GetString(6),
-                Status = (SegmentStatus)reader.GetInt32(7),
+                Stream = reader.GetString(2),
+                StartUtc = SqliteStore.FromIso(reader.GetString(3)),
+                EndUtc = reader.IsDBNull(4) ? null : SqliteStore.FromIso(reader.GetString(4)),
+                FilePath = reader.GetString(5),
+                SizeBytes = reader.IsDBNull(6) ? 0 : reader.GetInt64(6),
+                DurationSec = reader.IsDBNull(7) ? null : reader.GetDouble(7),
+                Status = ParseStatus(reader.GetString(8)),
+                Sha256 = reader.IsDBNull(9) ? null : reader.GetString(9),
             });
         }
 
         return list;
     }
+
+    private static SegmentStatus ParseStatus(string text) => text switch
+    {
+        "tmp" => SegmentStatus.Temporary,
+        "final" => SegmentStatus.Final,
+        "corrupt" => SegmentStatus.Corrupt,
+        _ => SegmentStatus.Temporary,
+    };
 }

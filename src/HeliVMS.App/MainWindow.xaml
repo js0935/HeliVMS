@@ -6,7 +6,6 @@
         xmlns:local="clr-namespace:HeliVMS.App"
         mc:Ignorable="d"
         Title="HeliVMS"
-        Icon="Assets/app.ico"
         Width="1280" Height="800"
         MinWidth="1024" MinHeight="640"
         WindowStartupLocation="CenterScreen"
@@ -24,7 +23,7 @@
         <!-- 頂欄 -->
         <Border Grid.Row="0" Background="{StaticResource Brand.BgPanel}" Padding="12,8" BorderBrush="#1F3A5F" BorderThickness="0,0,0,1">
             <StackPanel Orientation="Horizontal">
-                <Image Source="Assets/app.ico" Width="20" Height="20" VerticalAlignment="Center" Margin="0,0,8,0" />
+                <Image x:Name="HeaderLogo" Width="20" Height="20" VerticalAlignment="Center" Margin="0,0,8,0" />
                 <TextBlock Text="HeliVMS" Foreground="{StaticResource Brand.TextPrimary}" FontSize="15" FontWeight="SemiBold" VerticalAlignment="Center" />
             </StackPanel>
         </Border>
@@ -39,18 +38,29 @@
             <!-- 控制面板 -->
             <Border Grid.Column="0" Background="{StaticResource Brand.BgPanel}" BorderBrush="#1F3A5F" BorderThickness="0,0,1,0">
                 <StackPanel Margin="16" VerticalAlignment="Top">
-                    <TextBlock Text="頻道" Foreground="{StaticResource Brand.TextDim}" FontSize="12" Margin="0,0,0,6" />
-                    <ComboBox x:Name="ChannelCombo" SelectedIndex="0"
+                    <TextBlock Text="佈局" Foreground="{StaticResource Brand.TextDim}" FontSize="12" Margin="0,0,0,6" />
+                    <ComboBox x:Name="LayoutCombo" SelectedIndex="0" SelectionChanged="OnLayoutChanged"
                               Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="8,4">
-                        <ComboBoxItem Content="測試流 · 主流 (main)" Tag="rtsp://127.0.0.1:8554/main" />
-                        <ComboBoxItem Content="測試流 · 次流 (sub)" Tag="rtsp://127.0.0.1:8554/sub" />
+                        <ComboBoxItem Content="單一畫面" />
+                        <ComboBoxItem Content="2 × 2 四路" />
                     </ComboBox>
+
+                    <TextBlock Text="頻道" Foreground="{StaticResource Brand.TextDim}" FontSize="12" Margin="0,14,0,6" />
+                    <ComboBox x:Name="ChannelCombo" SelectedIndex="0"
+                              Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="8,4" />
 
                     <TextBlock Text="串流位址" Foreground="{StaticResource Brand.TextDim}" FontSize="12" Margin="0,14,0,6" />
                     <TextBox x:Name="UrlBox"
-                             Text="rtsp://127.0.0.1:8554/main"
                              Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"
                              Padding="8,4" />
+
+                    <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                        <TextBox x:Name="NameBox" Width="80" ToolTip="頻道名稱"
+                                 Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="8,4" />
+                        <Button x:Name="AddChannelButton" Content="＋加入頻道" Click="OnAddChannelClicked"
+                                Margin="6,0,0,0" Padding="8,4"
+                                Foreground="White" Background="#2A5C8A" BorderThickness="0" />
+                    </StackPanel>
 
                     <StackPanel Orientation="Horizontal" Margin="0,16,0,0">
                         <Button x:Name="ConnectButton" Content="連線" Click="OnConnectClicked"
@@ -71,9 +81,37 @@
             <Grid Grid.Column="1" Margin="12">
                 <Border Background="#06090F" BorderBrush="#1F3A5F" BorderThickness="1">
                     <Grid>
-                        <Image x:Name="LiveImage" Margin="1" Stretch="Uniform" />
-                        <TextBlock x:Name="StatusOverlay" HorizontalAlignment="Center" VerticalAlignment="Center"
-                                   Foreground="{StaticResource Brand.TextDim}" FontSize="16" />
+                        <UniformGrid x:Name="CellGrid" Columns="2" Rows="2">
+                            <Border Grid.Row="0" Grid.Column="0" Margin="1">
+                                <Grid>
+                                    <Image x:Name="ImageCell0" Stretch="Uniform" />
+                                    <TextBlock x:Name="TextCell0" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                               Foreground="{StaticResource Brand.TextDim}" FontSize="14" Text="未連線" />
+                                </Grid>
+                            </Border>
+                            <Border Grid.Row="0" Grid.Column="1" Margin="1">
+                                <Grid>
+                                    <Image x:Name="ImageCell1" Stretch="Uniform" />
+                                    <TextBlock x:Name="TextCell1" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                               Foreground="{StaticResource Brand.TextDim}" FontSize="14" Text="未連線" />
+                                </Grid>
+                            </Border>
+                            <Border Grid.Row="1" Grid.Column="0" Margin="1">
+                                <Grid>
+                                    <Image x:Name="ImageCell2" Stretch="Uniform" />
+                                    <TextBlock x:Name="TextCell2" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                               Foreground="{StaticResource Brand.TextDim}" FontSize="14" Text="未連線" />
+                                </Grid>
+                            </Border>
+                            <Border Grid.Row="1" Grid.Column="1" Margin="1">
+                                <Grid>
+                                    <Image x:Name="ImageCell3" Stretch="Uniform" />
+                                    <TextBlock x:Name="TextCell3" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                               Foreground="{StaticResource Brand.TextDim}" FontSize="14" Text="未連線" />
+                                </Grid>
+                            </Border>
+                        </UniformGrid>
+
                         <Border x:Name="RecBadge" HorizontalAlignment="Right" VerticalAlignment="Top"
                                 Margin="10" Padding="10,4" CornerRadius="3" Background="#B0352A" Visibility="Collapsed">
                             <StackPanel Orientation="Horizontal">
@@ -82,10 +120,6 @@
                             </StackPanel>
                         </Border>
                     </Grid>
-                </Border>
-                <Border HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,4,4"
-                        Background="#1A2C49" CornerRadius="3" Padding="8,3">
-                    <TextBlock x:Name="ResText" Foreground="{StaticResource Brand.TextDim}" FontSize="11" />
                 </Border>
             </Grid>
         </Grid>

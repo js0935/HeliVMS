@@ -1,19 +1,22 @@
+using System.Globalization;
 using Microsoft.Data.Sqlite;
 
 namespace HeliVMS.Storage;
 
 /// <summary>
-/// SQLite 儲存層（§4；§21.2 #3：WAL＋busy_timeout）。
-/// 單一連線、單一寫入鎖，避免多執行緒寫鎖。
+/// SQLite 儲存層（§4 index.db；§21.2 #3：WAL＋busy_timeout、單一寫入佇列）。
+/// 時間一律以 ISO8601 UTC（TEXT）儲存（§3.2：全程 UTC 基準）。
 /// </summary>
 public sealed class SqliteStore : IDisposable
 {
+    private const int CurrentSchemaVersion = 2;
     private readonly SqliteConnection _connection;
     private readonly object _gate = new();
     private bool _disposed;
 
     public SqliteStore(string databasePath)
     {
+        DatabasePath = databasePath;
         var dir = Path.GetDirectoryName(databasePath);
         if (!string.IsNullOrEmpty(dir))
         {
@@ -27,37 +30,135 @@ public sealed class SqliteStore : IDisposable
         Execute("PRAGMA synchronous=NORMAL;");
     }
 
-    public string DatabasePath { get; init; } = string.Empty;
+    public string DatabasePath { get; }
 
-    /// <summary>建立資料表（冪等）。</summary>
+    /// <summary>建立/遷移資料表結構（§4；v1 舊庫直接重建）。</summary>
     public void Initialize()
+    {
+        var version = Query(
+            "PRAGMA user_version;",
+            static r =>
+            {
+                r.Read();
+                return r.GetInt32(0);
+            });
+
+        if (version == 0)
+        {
+            var hasChannels = Query(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='channels';",
+                static r =>
+                {
+                    r.Read();
+                    return r.GetInt32(0) > 0;
+                });
+
+            if (hasChannels)
+            {
+                RebuildForV2();
+            }
+            else
+            {
+                CreateSchemaV2();
+            }
+        }
+
+        Execute("PRAGMA user_version = CURRENT_SCHEMA_VERSION;".Replace(
+            "CURRENT_SCHEMA_VERSION", CurrentSchemaVersion.ToString(CultureInfo.InvariantCulture)));
+    }
+
+    private void RebuildForV2()
     {
         Execute(
             """
+            DROP TABLE IF EXISTS alarm_events;
+            DROP TABLE IF EXISTS segment_keyframes;
+            DROP TABLE IF EXISTS segments;
+            DROP TABLE IF EXISTS channels;
+            DROP TABLE IF EXISTS devices;
+            """);
+        ClearWal();
+        CreateSchemaV2();
+    }
+
+    private void ClearWal()
+    {
+        try
+        {
+            Execute("PRAGMA wal_checkpoint(TRUNCATE);");
+        }
+        catch (SqliteException)
+        {
+            // 無 WAL 檔時可忽略
+        }
+    }
+
+    private void CreateSchemaV2()
+    {
+        Execute(
+            """
+            CREATE TABLE IF NOT EXISTS devices (
+                id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+                name                TEXT    NOT NULL,
+                ip                  TEXT    NOT NULL UNIQUE,
+                port                INTEGER NOT NULL DEFAULT 80,
+                username            TEXT,
+                password_encrypted  TEXT,
+                vendor              TEXT    NOT NULL DEFAULT 'generic',
+                enabled             INTEGER NOT NULL DEFAULT 1,
+                created_at          TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+            );
+
             CREATE TABLE IF NOT EXISTS channels (
-                id            INTEGER PRIMARY KEY,
-                name          TEXT    NOT NULL,
-                main_url      TEXT    NOT NULL,
-                sub_url       TEXT,
-                recording_mode INTEGER NOT NULL DEFAULT 0,
-                enabled       INTEGER NOT NULL DEFAULT 1
+                id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+                device_id            INTEGER REFERENCES devices(id) ON DELETE CASCADE,
+                name                 TEXT    NOT NULL,
+                main_rtsp            TEXT    NOT NULL,
+                sub_rtsp             TEXT,
+                codec                TEXT    NOT NULL DEFAULT 'h264',
+                audio_enabled        INTEGER NOT NULL DEFAULT 1,
+                audio_encoder        TEXT    NOT NULL DEFAULT 'copy',
+                recording_mode       INTEGER NOT NULL DEFAULT 0,
+                motion_enabled       INTEGER NOT NULL DEFAULT 0,
+                motion_sensitivity   REAL    NOT NULL DEFAULT 0.5,
+                created_at           TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
             );
 
             CREATE TABLE IF NOT EXISTS segments (
-                id          INTEGER PRIMARY KEY AUTOINCREMENT,
-                channel_id  INTEGER NOT NULL,
-                start_ms    INTEGER NOT NULL,
-                end_ms      INTEGER,
-                file_path   TEXT    NOT NULL,
-                size_bytes  INTEGER NOT NULL DEFAULT 0,
-                format      TEXT    NOT NULL DEFAULT 'mpegts',
-                status      INTEGER NOT NULL DEFAULT 0,
-                created_ms  INTEGER NOT NULL,
-                FOREIGN KEY (channel_id) REFERENCES channels(id)
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                channel_id    INTEGER NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
+                stream        TEXT    NOT NULL DEFAULT 'main',
+                start_time    TEXT    NOT NULL,
+                end_time      TEXT,
+                file_path     TEXT    NOT NULL,
+                size_bytes    INTEGER,
+                duration_sec  REAL,
+                status        TEXT    NOT NULL DEFAULT 'tmp',
+                sha256        TEXT,
+                UNIQUE(channel_id, stream, start_time)
             );
+            CREATE INDEX IF NOT EXISTS idx_seg_channel_time ON segments(channel_id, start_time);
 
-            CREATE INDEX IF NOT EXISTS ix_segments_channel_start
-                ON segments(channel_id, start_ms);
+            CREATE TABLE IF NOT EXISTS segment_keyframes (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                segment_id    INTEGER NOT NULL REFERENCES segments(id) ON DELETE CASCADE,
+                time_sec      REAL    NOT NULL,
+                moof_offset   INTEGER NOT NULL,
+                UNIQUE(segment_id, time_sec)
+            );
+            CREATE INDEX IF NOT EXISTS idx_kf_segment ON segment_keyframes(segment_id);
+
+            CREATE TABLE IF NOT EXISTS alarm_events (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                channel_id    INTEGER NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
+                event_type    TEXT    NOT NULL,
+                start_time    TEXT    NOT NULL,
+                end_time      TEXT,
+                snapshot_path TEXT,
+                detail        TEXT,
+                acknowledged  INTEGER NOT NULL DEFAULT 0
+            );
+            CREATE INDEX IF NOT EXISTS idx_event_time ON alarm_events(start_time);
             """);
     }
 
@@ -98,7 +199,11 @@ public sealed class SqliteStore : IDisposable
         GC.SuppressFinalize(this);
     }
 
-    public static long ToUnixMs(DateTime utc) => new DateTimeOffset(utc).ToUnixTimeMilliseconds();
+    /// <summary>UTC → ISO8601（可排序、人可讀）。</summary>
+    public static string Iso(DateTime utc) =>
+        utc.ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'", CultureInfo.InvariantCulture);
 
-    public static DateTime FromUnixMs(long ms) => DateTimeOffset.FromUnixTimeMilliseconds(ms).UtcDateTime;
+    /// <summary>ISO8601 → UTC。</summary>
+    public static DateTime FromIso(string iso) =>
+        DateTime.Parse(iso, CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal);
 }

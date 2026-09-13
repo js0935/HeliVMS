@@ -47,6 +47,11 @@
           "SQLitePCLRaw.core": "2.1.12"
         }
       },
+      "System.Security.Cryptography.ProtectedData": {
+        "type": "Transitive",
+        "resolved": "10.0.12",
+        "contentHash": "wO0W8VDMeRJZakRySOmemAnrBZMwEFRlbfBtATxUiLf2I3IhSRnCp1Vt157NWptdE4IJ7eftd5n8q9LtaKHFTQ=="
+      },
       "helivms.core": {
         "type": "Project",
         "dependencies": {
@@ -83,7 +88,8 @@
         "dependencies": {
           "HeliVMS.Core": "[0.1.0, )",
           "HeliVMS.Shared": "[0.1.0, )",
-          "Microsoft.Data.Sqlite": "[10.0.12, )"
+          "Microsoft.Data.Sqlite": "[10.0.12, )",
+          "System.Security.Cryptography.ProtectedData": "[10.0.12, )"
         }
       }
     }

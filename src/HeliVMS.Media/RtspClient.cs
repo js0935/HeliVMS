@@ -1,7 +1,4 @@
 using System.Diagnostics;
-using System.Globalization;
-using System.Text;
-using System.Text.RegularExpressions;
 using HeliVMS.Shared.Models;
 
 namespace HeliVMS.Media;
@@ -106,40 +103,8 @@ public sealed class RtspClient : IAsyncDisposable
     /// <summary>以 ffprobe 取得影格解析度。</summary>
     private async Task<(int Width, int Height)> ProbeResolutionAsync(CancellationToken token)
     {
-        var psi = new ProcessStartInfo
-        {
-            FileName = _ffprobe,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-            CreateNoWindow = true,
-            StandardOutputEncoding = Encoding.UTF8,
-        };
-        psi.ArgumentList.Add("-rtsp_transport");
-        psi.ArgumentList.Add("tcp");
-        psi.ArgumentList.Add("-v");
-        psi.ArgumentList.Add("error");
-        psi.ArgumentList.Add("-select_streams");
-        psi.ArgumentList.Add("v:0");
-        psi.ArgumentList.Add("-show_entries");
-        psi.ArgumentList.Add("stream=width,height");
-        psi.ArgumentList.Add("-of");
-        psi.ArgumentList.Add("csv=p=0:s=x");
-        psi.ArgumentList.Add(RtspUrl);
-
-        using var proc = Process.Start(psi) ?? throw new InvalidOperationException("無法啟動 ffprobe");
-        var output = await proc.StandardOutput.ReadToEndAsync(token);
-        await proc.WaitForExitAsync(token);
-
-        var match = Regex.Match(output.Trim(), @"^(\d+)x(\d+)$");
-        if (!match.Success ||
-            !int.TryParse(match.Groups[1].Value, NumberStyles.None, CultureInfo.InvariantCulture, out var w) ||
-            !int.TryParse(match.Groups[2].Value, NumberStyles.None, CultureInfo.InvariantCulture, out var h))
-        {
-            throw new InvalidOperationException($"無法取得影格解析度：{output.Trim()}");
-        }
-
-        return (w, h);
+        var info = await Task.Run(() => StreamProbe.Probe(RtspUrl, _ffprobe), token);
+        return (info.Width, info.Height);
     }
 
     private async Task StreamFramesAsync(int width, int height, CancellationToken token)

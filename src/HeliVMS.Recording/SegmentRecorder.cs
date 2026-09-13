@@ -1,52 +1,57 @@
 using System.Diagnostics;
+using System.Security.Cryptography;
+using HeliVMS.Media;
 using HeliVMS.Shared.Models;
 using HeliVMS.Storage;
 
 namespace HeliVMS.Recording;
 
 /// <summary>
-/// 錄影服務（§15：區段式錄影）。
-/// 以 ffmpeg `-c copy` 直存 RTSP 主流（§21.2 #1：錄影不需解碼），
-/// 每 segmentSeconds 產一個 mpegts 區段並回寫 SQLite 索引。
+/// 錄影服務（§3.2 錄影管道：fMP4、`-c copy`、AAC 轉碼規則）。
+/// ffmpeg 直拉 RTSP 主流寫烘時暫存檔，區段收尾後改成正式檔並計算 SHA-256。
 /// </summary>
 public sealed class SegmentRecorder : IAsyncDisposable
 {
+    public const int DefaultSegmentSeconds = 600;
     private readonly SegmentRepository _repo;
-    private readonly string _ffmpeg;
     private readonly CancellationTokenSource _cts = new();
     private Process? _process;
     private long _activeSegmentId = -1;
-    private string? _activePath;
     private Task? _loop;
 
-    public SegmentRecorder(SegmentRepository repo, string? ffmpegPath = null)
+    public SegmentRecorder(SegmentRepository repo)
     {
         _repo = repo;
-        _ffmpeg = ffmpegPath ?? "ffmpeg";
     }
 
     public int ChannelId { get; private set; }
+
+    public string Stream { get; private set; } = "main";
 
     public string? RtspUrl { get; private set; }
 
     public bool IsRecording => _loop is { IsCompleted: false };
 
     /// <summary>每段錄製秒數。</summary>
-    public int SegmentSeconds { get; private set; } = 30;
+    public int SegmentSeconds { get; private set; } = DefaultSegmentSeconds;
 
-    /// <summary>區段完成時觸發（已完成且索引已回寫）。</summary>
+    /// <summary>區段完成時觸發（已改名為正式檔且索引已回寫）。</summary>
     public event EventHandler<SegmentRecord>? SegmentCompleted;
 
     /// <summary>開始錄影（背景分段迴圈）。</summary>
-    public Task StartAsync(int channelId, string rtspUrl, string outputDirectory, int? segmentSeconds = null)
+    public Task StartAsync(
+        int channelId,
+        string rtspUrl,
+        string recordingsRoot,
+        string stream = "main",
+        int? segmentSeconds = null)
     {
         ChannelId = channelId;
         RtspUrl = rtspUrl;
-        SegmentSeconds = segmentSeconds ?? 30;
-        Directory.CreateDirectory(outputDirectory);
-        _repo.EnsureChannel(channelId, $"ch-{channelId}", rtspUrl);
+        Stream = stream;
+        SegmentSeconds = segmentSeconds ?? DefaultSegmentSeconds;
 
-        _loop = Task.Run(() => RecordLoopAsync(outputDirectory, _cts.Token), _cts.Token);
+        _loop = Task.Run(() => RecordLoopAsync(recordingsRoot, _cts.Token), _cts.Token);
         return Task.CompletedTask;
     }
 
@@ -71,13 +76,15 @@ public sealed class SegmentRecorder : IAsyncDisposable
         }
     }
 
-    private async Task RecordLoopAsync(string outputDirectory, CancellationToken token)
+    private async Task RecordLoopAsync(string recordingsRoot, CancellationToken token)
     {
+        string? audioEncoderArgs = null;
         while (!token.IsCancellationRequested)
         {
             try
             {
-                await RecordOneSegmentAsync(outputDirectory, token);
+                audioEncoderArgs ??= ProbeAudioEncoderArgs();
+                await RecordOneSegmentAsync(recordingsRoot, audioEncoderArgs, token);
             }
             catch (OperationCanceledException)
             {
@@ -102,51 +109,79 @@ public sealed class SegmentRecorder : IAsyncDisposable
         }
     }
 
-    private async Task RecordOneSegmentAsync(string outputDirectory, CancellationToken token)
+    private async Task RecordOneSegmentAsync(string recordingsRoot, string audioEncoderArgs, CancellationToken token)
     {
         var startUtc = DateTime.UtcNow;
-        var filePath = Path.Combine(
-            outputDirectory,
-            $"ch{ChannelId:000}_{startUtc:yyyyMMdd_HHmmss}.ts");
+        var dir = Path.Combine(recordingsRoot, $"ch{ChannelId:000}", startUtc.ToString("yyyyMMdd"));
+        Directory.CreateDirectory(dir);
 
-        _activeSegmentId = _repo.BeginSegment(ChannelId, filePath, startUtc);
-        _activePath = filePath;
+        var finalPath = Path.Combine(dir, $"seg-{startUtc:HHmmss}.mp4");
+        var tmpPath = finalPath + ".tmp";
 
-        var exited = await RunSegmentAsync(filePath, token);
+        _activeSegmentId = _repo.BeginSegment(ChannelId, Stream, finalPath, startUtc);
 
-        if (!token.IsCancellationRequested && exited)
+        try
         {
-            var size = File.Exists(filePath) ? new FileInfo(filePath).Length : 0;
-            var endUtc = startUtc.AddSeconds(SegmentSeconds);
-            _repo.CompleteSegment(_activeSegmentId, endUtc, size);
-            SegmentCompleted?.Invoke(
-                this,
-                new SegmentRecord
-                {
-                    Id = _activeSegmentId,
-                    ChannelId = ChannelId,
-                    StartUtc = startUtc,
-                    EndUtc = endUtc,
-                    FilePath = filePath,
-                    SizeBytes = size,
-                    Format = "mpegts",
-                    Status = SegmentStatus.Completed,
-                });
+            var ok = await RunSegmentAsync(tmpPath, audioEncoderArgs, token);
+            if (!token.IsCancellationRequested && ok)
+            {
+                File.Move(tmpPath, finalPath);
+                var size = new FileInfo(finalPath).Length;
+                var sha256 = ComputeSha256(finalPath);
+                var endUtc = startUtc.AddSeconds(SegmentSeconds);
+                _repo.CompleteSegment(_activeSegmentId, endUtc, size, SegmentSeconds, sha256);
+
+                SegmentCompleted?.Invoke(
+                    this,
+                    new SegmentRecord
+                    {
+                        Id = _activeSegmentId,
+                        ChannelId = ChannelId,
+                        Stream = Stream,
+                        StartUtc = startUtc,
+                        EndUtc = endUtc,
+                        FilePath = finalPath,
+                        SizeBytes = size,
+                        DurationSec = SegmentSeconds,
+                        Format = "mp4",
+                        Status = SegmentStatus.Final,
+                        Sha256 = sha256,
+                    });
+            }
+            else
+            {
+                TryDeleteTmp(tmpPath);
+                _repo.MarkCorrupt(_activeSegmentId);
+            }
         }
-        else
+        catch
         {
+            TryDeleteTmp(tmpPath);
             _repo.MarkCorrupt(_activeSegmentId);
         }
-
-        _activeSegmentId = -1;
-        _activePath = null;
+        finally
+        {
+            _activeSegmentId = -1;
+        }
     }
 
-    private async Task<bool> RunSegmentAsync(string filePath, CancellationToken token)
+    private string ProbeAudioEncoderArgs()
+    {
+        var info = StreamProbe.Probe(RtspUrl!);
+        return info.AudioCodec switch
+        {
+            null => string.Empty,
+            "aac" => "-c:a copy",
+            _ => "-c:a aac -b:a 128k -ac 1 -ar 44100",
+        };
+    }
+
+    /// <summary>執行一段錄影，回傳是否正常收尾。</summary>
+    private async Task<bool> RunSegmentAsync(string tmpPath, string audioEncoderArgs, CancellationToken token)
     {
         var psi = new ProcessStartInfo
         {
-            FileName = _ffmpeg,
+            FileName = "ffmpeg",
             RedirectStandardError = true,
             RedirectStandardOutput = true,
             UseShellExecute = false,
@@ -159,16 +194,33 @@ public sealed class SegmentRecorder : IAsyncDisposable
         psi.ArgumentList.Add("tcp");
         psi.ArgumentList.Add("-i");
         psi.ArgumentList.Add(RtspUrl!);
-        psi.ArgumentList.Add("-c");
+        psi.ArgumentList.Add("-map");
+        psi.ArgumentList.Add("0:v:0");
+
+        if (audioEncoderArgs.Length > 0)
+        {
+            psi.ArgumentList.Add("-map");
+            psi.ArgumentList.Add("0:a:0?");
+        }
+
+        psi.ArgumentList.Add("-c:v");
         psi.ArgumentList.Add("copy");
+        if (audioEncoderArgs.Length > 0)
+        {
+            foreach (var arg in audioEncoderArgs.Split(' ', StringSplitOptions.RemoveEmptyEntries))
+            {
+                psi.ArgumentList.Add(arg);
+            }
+        }
+
         psi.ArgumentList.Add("-f");
-        psi.ArgumentList.Add("mpegts");
-        psi.ArgumentList.Add("-flush_packets");
-        psi.ArgumentList.Add("1");
+        psi.ArgumentList.Add("mp4");
+        psi.ArgumentList.Add("-movflags");
+        psi.ArgumentList.Add("frag_keyframe+empty_moov+default_base_moof+faststart");
         psi.ArgumentList.Add("-t");
         psi.ArgumentList.Add(SegmentSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture));
         psi.ArgumentList.Add("-y");
-        psi.ArgumentList.Add(filePath);
+        psi.ArgumentList.Add(tmpPath);
 
         using var proc = Process.Start(psi) ?? throw new InvalidOperationException("無法啟動 ffmpeg 錄影進程");
         _process = proc;
@@ -177,7 +229,7 @@ public sealed class SegmentRecorder : IAsyncDisposable
         {
             await proc.WaitForExitAsync(token);
             _process = null;
-            return true;
+            return proc.ExitCode == 0;
         }
         catch (OperationCanceledException)
         {
@@ -209,6 +261,27 @@ public sealed class SegmentRecorder : IAsyncDisposable
         {
             // 已結束
         }
+    }
+
+    private static void TryDeleteTmp(string path)
+    {
+        try
+        {
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
+        }
+        catch (IOException)
+        {
+            // 保留暫存檔供啟動掃描
+        }
+    }
+
+    private static string ComputeSha256(string path)
+    {
+        using var stream = File.OpenRead(path);
+        return Convert.ToHexString(SHA256.HashData(stream)).ToLowerInvariant();
     }
 
     public async ValueTask DisposeAsync()

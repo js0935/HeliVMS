@@ -26,14 +26,14 @@ public enum RecordingMode
     Manual,
 }
 
-/// <summary>錄影區段狀態。</summary>
+/// <summary>錄影區段狀態（§4：final／tmp／corrupt）。</summary>
 public enum SegmentStatus
 {
-    /// <summary>錄製中。</summary>
-    Recording,
+    /// <summary>錄製中（暫存檔）。</summary>
+    Temporary,
 
-    /// <summary>已完成。</summary>
-    Completed,
+    /// <summary>已完成（正式檔）。</summary>
+    Final,
 
     /// <summary>異常（檔案損壞／未正常收尾）。</summary>
     Corrupt,
@@ -42,10 +42,12 @@ public enum SegmentStatus
     Retired,
 }
 
-/// <summary>頻道資訊（§2：頻道模型）。</summary>
+/// <summary>頻道資訊（§4 channels 表）。</summary>
 public sealed class ChannelInfo
 {
     public int Id { get; init; }
+
+    public int? DeviceId { get; init; }
 
     public string Name { get; init; } = string.Empty;
 
@@ -55,17 +57,32 @@ public sealed class ChannelInfo
     /// <summary>次流位址。</summary>
     public string SubStreamUrl { get; init; } = string.Empty;
 
-    public RecordingMode RecordingMode { get; init; } = RecordingMode.Scheduled;
+    /// <summary>視訊編碼（h264／h265）。</summary>
+    public string Codec { get; init; } = "h264";
+
+    public bool AudioEnabled { get; init; } = true;
+
+    /// <summary>音訊錄製方式（aac 轉碼／copy／none）。</summary>
+    public string AudioEncoder { get; init; } = "copy";
+
+    public bool MotionEnabled { get; init; }
+
+    public double MotionSensitivity { get; init; } = 0.5;
+
+    public RecordingMode RecordingMode { get; init; } = RecordingMode.Always;
 
     public bool Enabled { get; init; } = true;
 }
 
-/// <summary>錄影區段索引記錄（§15.6 索引與生命週期）。</summary>
+/// <summary>錄影區段索引記錄（§4 segments 表）。</summary>
 public sealed class SegmentRecord
 {
     public long Id { get; init; }
 
     public int ChannelId { get; init; }
+
+    /// <summary>來源串流（main／sub）。</summary>
+    public string Stream { get; init; } = "main";
 
     public DateTime StartUtc { get; init; }
 
@@ -75,8 +92,13 @@ public sealed class SegmentRecord
 
     public long SizeBytes { get; init; }
 
-    /// <summary>容器格式（mpegts／mp4…）。</summary>
-    public string Format { get; init; } = "mpegts";
+    public double? DurationSec { get; init; }
 
-    public SegmentStatus Status { get; init; } = SegmentStatus.Completed;
+    /// <summary>容器格式。</summary>
+    public string Format { get; init; } = "mp4";
+
+    public SegmentStatus Status { get; init; } = SegmentStatus.Final;
+
+    /// <summary>檔案 SHA-256（§11.5 防竄改）。</summary>
+    public string? Sha256 { get; init; }
 }

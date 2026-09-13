@@ -24,9 +24,14 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <None Include="..\..\Assets\splash.png" Link="Assets\splash.png">
+    <Content Include="..\..\Assets\app.ico">
+      <Link>Assets\app.ico</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
+    </Content>
+    <Content Include="..\..\Assets\splash.png">
+      <Link>Assets\splash.png</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
   </ItemGroup>
 
 </Project>
