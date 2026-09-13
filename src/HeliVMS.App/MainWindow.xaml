@@ -70,7 +70,8 @@
                     </StackPanel>
 
                     <StackPanel Orientation="Horizontal" Margin="0,16,0,0">
-                        <Button x:Name="ConnectButton" Content="連線" Click="OnConnectClicked"
+                        <Button x:Name="ConnectButton" AutomationProperties.AutomationId="ConnectButton"
+                                Content="連線" Click="OnConnectClicked"
                                 Width="110" Padding="0,8" Margin="0,0,10,0"
                                 Foreground="White" Background="#2660AA" BorderThickness="0" />
                         <Button x:Name="RecordButton" Content="錄影" Click="OnRecordClicked"
@@ -98,6 +99,10 @@
 
             <!-- 監看區 -->
             <Grid Grid.Column="1" Margin="12">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="300"/>
+                </Grid.ColumnDefinitions>
                 <Border Background="#06090F" BorderBrush="#1F3A5F" BorderThickness="1">
                     <Grid>
                         <UniformGrid x:Name="CellGrid">
@@ -111,6 +116,55 @@
                             </StackPanel>
                         </Border>
                     </Grid>
+                </Border>
+
+                <!-- 頻道總覽側欄 -->
+                <Border Grid.Column="1" Background="#0F1D2E" BorderBrush="#1F3A5F" BorderThickness="1,1,0,1" Margin="12,0,0,0">
+                    <DockPanel Margin="8">
+                        <TextBlock DockPanel.Dock="Top" Text="頻道總覽" AutomationProperties.Name="頻道總覽"
+                                   Foreground="{StaticResource Brand.TextDim}"
+                                   FontSize="11" Margin="2,0,0,6"/>
+                        <TextBlock x:Name="OverviewHint" DockPanel.Dock="Bottom" Text="點選格子定位頻道 · 點列反選畫面格"
+                                   Foreground="{StaticResource Brand.TextDim}" FontSize="10" Margin="2,6,0,0"
+                                   TextWrapping="Wrap"/>
+                        <ListView x:Name="OverviewList" AutomationProperties.AutomationId="OverviewList"
+                                  SelectionChanged="OnOverviewSelection"
+                                  Background="Transparent" BorderThickness="0" Foreground="White">
+                            <ListView.View>
+                                <GridView>
+                                    <GridViewColumn Header="頻道" Width="100">
+                                        <GridViewColumn.CellTemplate>
+                                            <DataTemplate>
+                                                <TextBlock Text="{Binding CellLabel}" FontSize="12"/>
+                                            </DataTemplate>
+                                        </GridViewColumn.CellTemplate>
+                                    </GridViewColumn>
+                                    <GridViewColumn Header="狀態" Width="86">
+                                        <GridViewColumn.CellTemplate>
+                                            <DataTemplate>
+                                                <TextBlock Text="{Binding StateLabel}" FontSize="11"
+                                                           Foreground="{Binding StateBrush}"/>
+                                            </DataTemplate>
+                                        </GridViewColumn.CellTemplate>
+                                    </GridViewColumn>
+                                    <GridViewColumn Header="REC" Width="38">
+                                        <GridViewColumn.CellTemplate>
+                                            <DataTemplate>
+                                                <TextBlock Text="{Binding RecLabel}" FontSize="11" Foreground="#FF6A5A"/>
+                                            </DataTemplate>
+                                        </GridViewColumn.CellTemplate>
+                                    </GridViewColumn>
+                                    <GridViewColumn Header="AI">
+                                        <GridViewColumn.CellTemplate>
+                                            <DataTemplate>
+                                                <TextBlock Text="{Binding AiLabel}" FontSize="11" Foreground="#AAB8C8"/>
+                                            </DataTemplate>
+                                        </GridViewColumn.CellTemplate>
+                                    </GridViewColumn>
+                                </GridView>
+                            </ListView.View>
+                        </ListView>
+                    </DockPanel>
                 </Border>
             </Grid>
         </Grid>

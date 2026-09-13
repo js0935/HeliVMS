@@ -38,6 +38,14 @@ public partial class MainWindow : Window
     private readonly Image[] _cellImages = new Image[MaxCells];
     private readonly Canvas[] _cellOverlays = new Canvas[MaxCells];
     private readonly TextBlock[] _cellTexts = new TextBlock[MaxCells];
+    private readonly bool[] _cellHighlights = new bool[MaxCells];
+    private readonly TextBlock[] _cellBadges = new TextBlock[MaxCells];
+    private readonly Border[] _cellBorders = new Border[MaxCells];
+    private readonly Dictionary<int, RtspState> _channelStates = new();
+    private readonly Dictionary<int, DateTime> _channelLastAi = new();
+    private readonly Dictionary<int, DateTime> _channelLastFrame = new();
+    private readonly List<OverviewRow> _overviewRows = [];
+    private int _selectedCell = -1;
     private IReadOnlyList<ChannelInfo> _channelList = [];
     private string _footerBase = string.Empty;
     private int _preFullscreenLayout = 1;
@@ -49,11 +57,23 @@ public partial class MainWindow : Window
     private static readonly SolidColorBrush BrLive = new(Color.FromRgb(0x56, 0xC8, 0x86));
     private static readonly SolidColorBrush BrPerson = new(Color.FromRgb(0xFF, 0x63, 0x47));
     private static readonly SolidColorBrush BrVehicle = new(Color.FromRgb(0x00, 0xB6, 0xFF));
+    private static readonly SolidColorBrush BrCellEdge = new(Color.FromRgb(0x1F, 0x3A, 0x5F));
+    private static readonly SolidColorBrush BrHighlight = new(Color.FromRgb(0x4F, 0xC3, 0xF7));
 
     private bool _aiVisible;
     private readonly IReadOnlyList<Detection>[] _aiBoxes = new IReadOnlyList<Detection>[MaxCells];
     private readonly List<string> _alerts = [];
     private System.Threading.Timer? _unackTimer;
+    private System.Threading.Timer? _uiTimer;
+
+    /// <summary>側欄每一列對應一個監看格。</summary>
+    private sealed record OverviewRow(
+        int CellIndex,
+        string CellLabel,
+        string StateLabel,
+        string RecLabel,
+        string AiLabel,
+        SolidColorBrush StateBrush);
 
     public MainWindow()
     {
@@ -173,6 +193,7 @@ public partial class MainWindow : Window
         _manager.StateChanged += (_, e) =>
         {
             _cellChannel[e.Cell] = e.Channel.Id;
+            _channelStates[e.Channel.Id] = e.State;
             OnCellState(e.Cell, e.State);
         };
         _manager.HealthRestart += (_, e) =>
@@ -203,6 +224,13 @@ public partial class MainWindow : Window
             null,
             TimeSpan.FromSeconds(15),
             TimeSpan.FromSeconds(15));
+
+        // 頻道總覽側欄與格格徽章：每秒更新（M12）
+        _uiTimer = new System.Threading.Timer(
+            _ => Dispatcher.InvokeAsync(UpdateOverview),
+            null,
+            TimeSpan.FromSeconds(1),
+            TimeSpan.FromSeconds(1));
     }
 
     /// <summary>將 M1 舊資料（%LOCALAPPDATA%\HeliVMS）遷移至 C:\HeliVMSData（若尚未存在）。</summary>
@@ -346,17 +374,33 @@ public partial class MainWindow : Window
                 FontSize = Math.Max(9, 16 - cols),
                 Text = "未連線",
             };
+            var badge = new TextBlock
+            {
+                HorizontalAlignment = HorizontalAlignment.Left,
+                VerticalAlignment = VerticalAlignment.Bottom,
+                Margin = new Thickness(4),
+                Padding = new Thickness(7, 2, 7, 2),
+                Background = new SolidColorBrush(Color.FromArgb(0xC0, 0x03, 0x05, 0x08)),
+                Foreground = Brushes.White,
+                FontSize = Math.Max(9, 15 - cols),
+                Text = string.Empty,
+                Visibility = Visibility.Collapsed,
+            };
             var inner = new Grid();
             inner.Children.Add(img);
             inner.Children.Add(overlay);
             inner.Children.Add(text);
+            inner.Children.Add(badge);
 
             var border = new Border
             {
                 Margin = new Thickness(1),
                 Background = new SolidColorBrush(Color.FromRgb(0x06, 0x09, 0x0F)),
+                BorderBrush = new SolidColorBrush(Color.FromRgb(0x1F, 0x3A, 0x5F)),
+                BorderThickness = new Thickness(1),
                 Child = inner,
             };
+            border.MouseLeftButtonUp += (_, _) => SelectCell(i);
             var menu = new ContextMenu();
             AddMenuItem(menu, "切換全螢幕", OnCtxFullScreen, i);
             menu.Items.Add(new Separator());
@@ -367,6 +411,8 @@ public partial class MainWindow : Window
             _cellImages[i] = img;
             _cellOverlays[i] = overlay;
             _cellTexts[i] = text;
+            _cellBadges[i] = badge;
+            _cellBorders[i] = border;
 
             CellGrid.Children.Add(border);
         }
@@ -503,6 +549,10 @@ public partial class MainWindow : Window
     {
         Dispatcher.InvokeAsync(() =>
         {
+            if (_cellChannel[cell] is int frCh)
+            {
+                _channelLastFrame[frCh] = frame.TimestampUtc;
+            }
             var pending = _bitmap[cell];
             if (pending is null ||
                 pending.PixelWidth != frame.Width ||
@@ -554,6 +604,11 @@ public partial class MainWindow : Window
             SetCellStatus(i, "未連線", BrOffline);
             CellOverlay(i)?.Children.Clear();
         }
+
+        _channelStates.Clear();
+        _channelLastFrame.Clear();
+        _channelLastAi.Clear();
+        _selectedCell = -1;
 
         ConnectButton.Content = "連線";
         RecordButton.IsEnabled = false;
@@ -661,6 +716,11 @@ public partial class MainWindow : Window
         }
 
         _aiBoxes[cell] = frame.Items;
+
+        if (_cellChannel[cell] is int aiCh)
+        {
+            _channelLastAi[aiCh] = frame.SnapshotUtc;
+        }
 
         // M11：全量偵測 metadata 入佇列，由 DetectionWriter 批次寫入 detections 表
         if (_detWriter is { } writer && _cellChannel[cell] is int chId && frame.Items.Count > 0)
@@ -894,9 +954,127 @@ public partial class MainWindow : Window
 
     private string? GetCellStatusText(int cell) => CellText(cell)?.Text;
 
+    /// <summary>頻道總覽（M12）：每秒重建側欄列、同步選取，並更新每格徽章。</summary>
+    private void UpdateOverview()
+    {
+        if (OverviewList is null)
+        {
+            return;
+        }
+
+        var count = CurrentCellCount();
+        var rows = new List<OverviewRow>(count);
+        for (var i = 0; i < count; i++)
+        {
+            var ch = _cellChannel[i];
+            var rec = ch is int rc && _manager?.IsRecording(rc) == true;
+            var state = ch is int sc && _channelStates.TryGetValue(sc, out var st) ? st : RtspState.Stopped;
+            rows.Add(new OverviewRow(
+                i,
+                ch is int cc ? ChannelName(cc) : $"格 {i + 1}（未指派）",
+                StateLabel(state, rec),
+                rec ? "●" : string.Empty,
+                ch is int ac && _channelLastAi.TryGetValue(ac, out var ai) ? ai.ToLocalTime().ToString("HH:mm:ss") : "-",
+                BrushForState(state)));
+        }
+
+        _overviewRows.Clear();
+        _overviewRows.AddRange(rows);
+        var prevSel = _selectedCell;
+        OverviewList.ItemsSource = null;
+        OverviewList.ItemsSource = rows;
+        if (prevSel >= 0)
+        {
+            SelectCell(prevSel);
+        }
+
+        UpdateBadges();
+    }
+
+    private static string StateLabel(RtspState state, bool rec) => state switch
+    {
+        RtspState.Streaming => rec ? "錄影中" : "即時",
+        RtspState.Connecting => "連線中…",
+        RtspState.Reconnecting => "重連中…",
+        _ => "未連線",
+    };
+
+    private static SolidColorBrush BrushForState(RtspState state) => state switch
+    {
+        RtspState.Streaming => BrLive,
+        RtspState.Connecting => BrConnecting,
+        RtspState.Reconnecting => BrConnecting,
+        _ => BrOffline,
+    };
+
+    /// <summary>選定監看格：高亮邊框並與側欄列互選。</summary>
+    private void SelectCell(int cell)
+    {
+        _selectedCell = cell;
+        var count = CurrentCellCount();
+        for (var i = 0; i < MaxCells; i++)
+        {
+            var b = _cellBorders[i];
+            if (b is null)
+            {
+                continue;
+            }
+
+            var sel = i == cell && cell >= 0 && cell < count;
+            b.BorderBrush = sel ? BrHighlight : BrCellEdge;
+            b.BorderThickness = sel ? new Thickness(2) : new Thickness(1);
+        }
+
+        var idx = _overviewRows.FindIndex(r => r.CellIndex == cell);
+        if (idx >= 0 && OverviewList.SelectedIndex != idx)
+        {
+            OverviewList.SelectedIndex = idx;
+        }
+    }
+
+    private void OnOverviewSelection(object sender, SelectionChangedEventArgs e)
+    {
+        if (OverviewList.SelectedItem is OverviewRow row)
+        {
+            SelectCell(row.CellIndex);
+        }
+    }
+
+    /// <summary>每格左下角頻道名徽章（含錄影指示）。</summary>
+    private void UpdateBadges()
+    {
+        for (var i = 0; i < MaxCells; i++)
+        {
+            var badge = _cellBadges[i];
+            if (badge is null)
+            {
+                continue;
+            }
+
+            var ch = _cellChannel[i];
+            var text = ch is int id ? ChannelName(id) + (_manager?.IsRecording(id) == true ? " ●REC" : "") : string.Empty;
+            badge.Text = text;
+            badge.Visibility = text.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
+        }
+    }
+
+    private string ChannelName(int channelId)
+    {
+        foreach (var c in _channelList)
+        {
+            if (c.Id == channelId)
+            {
+                return c.Name;
+            }
+        }
+
+        return $"#{channelId}";
+    }
+
     private async void OnWindowClosed(object? sender, EventArgs e)
     {
         _unackTimer?.Dispose();
+        _uiTimer?.Dispose();
         var scheduler = _scheduler;
         _scheduler = null;
         if (scheduler is not null)
