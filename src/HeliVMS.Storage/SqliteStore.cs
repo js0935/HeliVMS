@@ -9,7 +9,7 @@ namespace HeliVMS.Storage;
 /// </summary>
 public sealed class SqliteStore : IDisposable
 {
-    private const int CurrentSchemaVersion = 2;
+    private const int CurrentSchemaVersion = 3;
     private readonly SqliteConnection _connection;
     private readonly object _gate = new();
     private bool _disposed;
@@ -63,6 +63,11 @@ public sealed class SqliteStore : IDisposable
             }
         }
 
+        if (version < 3)
+        {
+            CreateScheduleTableV3();
+        }
+
         Execute("PRAGMA user_version = CURRENT_SCHEMA_VERSION;".Replace(
             "CURRENT_SCHEMA_VERSION", CurrentSchemaVersion.ToString(CultureInfo.InvariantCulture)));
     }
@@ -91,6 +96,23 @@ public sealed class SqliteStore : IDisposable
         {
             // 無 WAL 檔時可忽略
         }
+    }
+
+    private void CreateScheduleTableV3()
+    {
+        Execute(
+            """
+            CREATE TABLE IF NOT EXISTS recording_schedule (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                channel_id  INTEGER NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
+                days_mask   INTEGER NOT NULL DEFAULT 127,
+                start_min   INTEGER NOT NULL,
+                end_min     INTEGER NOT NULL,
+                enabled     INTEGER NOT NULL DEFAULT 1,
+                created_at  TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_sched_channel ON recording_schedule(channel_id);
+            """);
     }
 
     private void CreateSchemaV2()
@@ -194,6 +216,7 @@ public sealed class SqliteStore : IDisposable
             return;
         }
 
+        SqliteConnection.ClearPool(_connection);   // 釋放 WAL/共享連線句柄，供測試與熱切換移除檔案
         _connection.Dispose();
         _disposed = true;
         GC.SuppressFinalize(this);

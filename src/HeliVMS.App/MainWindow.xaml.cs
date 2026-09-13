@@ -41,6 +41,7 @@ public partial class MainWindow : Window
     private IReadOnlyList<ChannelInfo> _channelList = [];
     private string _footerBase = string.Empty;
     private int _preFullscreenLayout = 1;
+    private RecordingScheduler? _scheduler;
 
     private static readonly SolidColorBrush BrOffline = new(Color.FromRgb(0x6B, 0x7B, 0x90));
     private static readonly SolidColorBrush BrConnecting = new(Color.FromRgb(0xD8, 0xA1, 0x2C));
@@ -173,6 +174,12 @@ public partial class MainWindow : Window
         };
         _manager.HealthRestart += (_, e) =>
             HintText.Text = $"頻道「{e.Channel.Name}」畫面逾時，已自動重連。";
+
+        _scheduler = new RecordingScheduler(
+            _store,
+            Path.Combine(_dataRoot, "recordings"),
+            isCellRecording: ch => _manager.IsRecording(ch));
+        _scheduler.Activity += (_, msg) => HintText.Text = msg;
 
         _bgCts = new CancellationTokenSource();
         _ = RunRetentionLoopAsync(_bgCts.Token);
@@ -602,6 +609,15 @@ public partial class MainWindow : Window
         events.Show();
     }
 
+    private void OnScheduleClicked(object sender, RoutedEventArgs e)
+    {
+        var sched = new SchedulingWindow(_store!)
+        {
+            Owner = this,
+        };
+        sched.Show();
+    }
+
     private void OnAddChannelClicked(object sender, RoutedEventArgs e)
     {
         var url = UrlBox.Text.Trim();
@@ -853,6 +869,14 @@ public partial class MainWindow : Window
     private async void OnWindowClosed(object? sender, EventArgs e)
     {
         _unackTimer?.Dispose();
+        var scheduler = _scheduler;
+        _scheduler = null;
+        if (scheduler is not null)
+        {
+            await scheduler.StopAllAsync();
+            scheduler.Dispose();
+        }
+
         await DisconnectAllAsync();
         _bgCts?.Cancel();
         _bgCts?.Dispose();
