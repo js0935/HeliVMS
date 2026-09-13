@@ -13,12 +13,13 @@ public sealed class ChannelSession : IDisposable
     private readonly SqliteStore _store;
     private readonly string _recordingsRoot;
     private MotionEventEngine? _motion;
+    private AiEventEngine? _ai;
     private readonly Stopwatch _motionClock = new();
     private long _lastMotionMs;
     private SegmentRecorder? _recorder;
     private bool _disposed;
 
-    public ChannelSession(int channelId, string name, string url, SqliteStore store, string recordingsRoot, string snapshotsRoot, bool motionEnabled)
+    public ChannelSession(int channelId, string name, string url, SqliteStore store, string recordingsRoot, string snapshotsRoot, bool motionEnabled, IDetectionEngine? detection)
     {
         ChannelId = channelId;
         Name = name;
@@ -33,6 +34,10 @@ public sealed class ChannelSession : IDisposable
         if (motionEnabled)
         {
             _motion = new MotionEventEngine(channelId, new AlarmEventRepository(_store), snapshotsRoot);
+            if (detection is not null)
+            {
+                _ai = new AiEventEngine(channelId, new AlarmEventRepository(_store), snapshotsRoot, detection);
+            }
         }
 
         _motionClock.Start();
@@ -86,11 +91,19 @@ public sealed class ChannelSession : IDisposable
     {
         await SetRecordingAsync(recording: false);
         _motion?.Flush();
+        _ai?.Flush();
         if (IsMonitoring)
         {
             await Client.StopAsync();
             IsMonitoring = false;
         }
+    }
+
+    /// <summary>健康重連後清除偵測窗口，避免殘留假事件。</summary>
+    public void ResetDetection()
+    {
+        _motion?.Reset();
+        _ai?.Reset();
     }
 
     private void OnClientFrame(object? sender, VideoFrame frame)
@@ -104,6 +117,9 @@ public sealed class ChannelSession : IDisposable
             _lastMotionMs = _motionClock.ElapsedMilliseconds;
             _motion.OnFrame(frame);
         }
+
+        // AI 取樣（推理佇列，引擎內部節流 400ms）
+        _ai?.OnFrame(frame);
     }
 
     public void Dispose()
@@ -124,6 +140,7 @@ public sealed class ChannelSession : IDisposable
         }
 
         _motion?.Dispose();
+        _ai?.Dispose();
         _recorder?.DisposeAsync().AsTask().GetAwaiter().GetResult();
         Client.DisposeAsync().AsTask().GetAwaiter().GetResult();
         GC.SuppressFinalize(this);

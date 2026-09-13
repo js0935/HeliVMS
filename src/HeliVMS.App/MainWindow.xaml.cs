@@ -3,6 +3,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using HeliVMS.Alarms;
 using HeliVMS.App.Services;
 using HeliVMS.Licensing;
 using HeliVMS.Media;
@@ -146,7 +147,7 @@ public partial class MainWindow : Window
         _segRepo = new SegmentRepository(_store);
         _channels.EnsureSeedChannels();
 
-        _manager = new ChannelManager(_store, Path.Combine(_dataRoot, "recordings"), Path.Combine(_dataRoot, "snapshots"));
+        _manager = new ChannelManager(_store, Path.Combine(_dataRoot, "recordings"), Path.Combine(_dataRoot, "snapshots"), DetectionModelResolver.TryResolve());
         _manager.FrameArrived += (_, e) => OnCellFrame(e.Cell, e.Frame);
         _manager.StateChanged += (_, e) =>
         {

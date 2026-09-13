@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.IO;
+using HeliVMS.Alarms;
 using HeliVMS.Media;
 using HeliVMS.Shared.Models;
 using HeliVMS.Storage;
@@ -19,16 +20,32 @@ public sealed class ChannelManager : IDisposable
     private readonly string _recordingsRoot;
     private readonly string _snapshotsRoot;
     private readonly System.Threading.Timer _health;
+    private IDetectionEngine? _detection;
     private bool _disposed;
 
-    public ChannelManager(SqliteStore store, string recordingsRoot, string snapshotsRoot)
+    public ChannelManager(SqliteStore store, string recordingsRoot, string snapshotsRoot, string? modelPath)
     {
         _store = store;
         _channels = new ChannelRepository(store);
         _recordingsRoot = recordingsRoot;
         _snapshotsRoot = snapshotsRoot;
+        if (!string.IsNullOrEmpty(modelPath))
+        {
+            try
+            {
+                _detection = new OnnxRuntimeCpuEngine(modelPath);
+            }
+            catch (Exception)
+            {
+                _detection = null;   // 模型壞檔或架構不符 → 關閉 AI 層
+            }
+        }
+
         _health = new System.Threading.Timer(OnHealthTick, null, Timeout.Infinite, Timeout.Infinite);
     }
+
+    /// <summary>已載入元件模型路徑（null 表示未部署）。</summary>
+    public string? ModelPath => _detection is OnnxRuntimeCpuEngine e ? e.ModelPath : null;
 
     /// <summary>單一頻道畫面抵達。</summary>
     public event EventHandler<(int Cell, VideoFrame Frame)>? FrameArrived;
@@ -56,7 +73,7 @@ public sealed class ChannelManager : IDisposable
         {
             var ch = channels[(startIndex + i) % channels.Count];
 
-            var session = new ChannelSession(ch.Id, ch.Name, ch.MainStreamUrl, _store, _recordingsRoot, _snapshotsRoot, ch.MotionEnabled);
+            var session = new ChannelSession(ch.Id, ch.Name, ch.MainStreamUrl, _store, _recordingsRoot, _snapshotsRoot, ch.MotionEnabled, _detection);
             var cell = i;
             session.FrameArrived += (_, f) => FrameArrived?.Invoke(this, (cell, f));
             session.StateChanged += (_, st) => StateChanged?.Invoke(this, (cell, ch, st));
@@ -153,6 +170,7 @@ public sealed class ChannelManager : IDisposable
         try
         {
             await session.Client.StartAsync();
+            session.ResetDetection();
         }
         catch (Exception)
         {
@@ -182,6 +200,7 @@ public sealed class ChannelManager : IDisposable
 
         _disposed = true;
         _health.Dispose();
+        _detection?.Dispose();
         foreach (var kv in _sessions)
         {
             kv.Value.Dispose();
