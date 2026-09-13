@@ -188,6 +188,11 @@ public partial class MainWindow : Window
         _segRepo = new SegmentRepository(_store);
         _channels.EnsureSeedChannels();
 
+        if (Environment.GetCommandLineArgs().Contains("--playback", StringComparer.OrdinalIgnoreCase))
+        {
+            Dispatcher.BeginInvoke(() => new PlaybackWindow(_store) { Owner = this }.Show());
+        }
+
         _detWriter = new DetectionWriter(_store);
 
         _manager = new ChannelManager(_store, Path.Combine(_dataRoot, "recordings"), Path.Combine(_dataRoot, "snapshots"), DetectionModelResolver.TryResolve());

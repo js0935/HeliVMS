@@ -30,6 +30,7 @@ public partial class PlaybackWindow : Window
     private int _lastWidth;
     private int _lastHeight;
     private IReadOnlyList<SegmentItem> _bandSegments = [];
+    private List<AlarmEventRecord> _events = [];
     private bool _seeking;
     private readonly Rectangle _cursor = new() { Width = 2, Fill = Brushes.White, IsHitTestVisible = false };
 
@@ -46,11 +47,13 @@ public partial class PlaybackWindow : Window
         DatePick.SelectedDate = DateTime.Today;
         LoadChannels();
         BandCanvas.Children.Add(_cursor);
+        Canvas.SetZIndex(_cursor, 10);
     }
 
     private void LoadChannels()
     {
         ChannelCombo.ItemsSource = _channels.List();
+        ChannelCombo.DisplayMemberPath = nameof(ChannelInfo.Name);
         if (ChannelCombo.Items.Count > 0)
         {
             if (_focusChannelId is { } focus && _channels.List().FirstOrDefault(c => c.Id == focus) is { } match)
@@ -123,8 +126,17 @@ public partial class PlaybackWindow : Window
                 .ToList();
             _bandSegments = segs;
             SegmentList.ItemsSource = segs;
+
+            var startEvt = TimeZoneInfo.ConvertTimeToUtc(day.Date);
+            var endEvt = startEvt.AddDays(1);
+            _events = new AlarmEventRepository(_store).ListByRange(ch.Id, startEvt, endEvt)
+                .OrderBy(e => e.StartUtc)
+                .ToList();
+
             RenderBlocks();
-            LoadHint.Text = $"當日 {segs.Count} 段。";
+            LoadHint.Text = _events.Count > 0
+                ? $"當日 {segs.Count} 段、{_events.Count} 事件。"
+                : $"當日 {segs.Count} 段。";
         }
         catch (Exception ex)
         {
@@ -334,7 +346,7 @@ public partial class PlaybackWindow : Window
         UpdateCursor(_posInside);
     }
 
-    /// <summary>繪製當日時間軸帶：每段一個藍色區塊，遊標在最上層不受影響。</summary>
+    /// <summary>繪製當日時間軸帶：每段一個藍色區塊＋事件標記圓點，遊標在最上層不受影響。</summary>
     private void RenderBlocks()
     {
         for (var i = BandCanvas.Children.Count - 1; i >= 0; i--)
@@ -345,29 +357,83 @@ public partial class PlaybackWindow : Window
             }
         }
 
-        if (_bandSegments.Count == 0 || BandCanvas.ActualWidth <= 0)
+        if (_bandSegments.Count > 0 && BandCanvas.ActualWidth > 0)
+        {
+            var fill = (Brush)new SolidColorBrush(Color.FromRgb(0x2A, 0x7F, 0xC9)).GetAsFrozen();
+            foreach (var item in _bandSegments)
+            {
+                var seg = item.Segment;
+                var width = Math.Max(2, (seg.DurationSec ?? 10) / 86400.0 * BandCanvas.ActualWidth);
+                var rect = new Rectangle
+                {
+                    Width = width,
+                    Height = 26,
+                    Fill = fill,
+                    IsHitTestVisible = false,
+                };
+                Canvas.SetLeft(rect, Math.Max(0, FracOfDay(seg.StartUtc)) * BandCanvas.ActualWidth);
+                Canvas.SetTop(rect, 2);
+                BandCanvas.Children.Add(rect);
+            }
+        }
+
+        RenderMarkers();
+    }
+
+    /// <summary>時間軸帶當日零時（UTC）。</summary>
+    private DateTime DayStartUtc()
+    {
+        if (_bandSegments.Count > 0)
+        {
+            return TimeZoneInfo.ConvertTimeToUtc(_bandSegments[0].Segment.StartUtc.ToLocalTime().Date);
+        }
+
+        if (_events.Count > 0)
+        {
+            return TimeZoneInfo.ConvertTimeToUtc(_events[0].StartUtc.ToLocalTime().Date);
+        }
+
+        return TimeZoneInfo.ConvertTimeToUtc(DateTime.Now.Date);
+    }
+
+    /// <summary>一天內比例（0..1）。</summary>
+    private double FracOfDay(DateTime utc) => Math.Max(0, Math.Min(1, (utc - DayStartUtc()).TotalMinutes / 1440.0));
+
+    /// <summary>繪製當日事件標記（AI/運動/離線）：「事件=向檢看」小圓點＋tooltip；點擊帶上對應時刻即跳播（OnBandClicked）。</summary>
+    private void RenderMarkers()
+    {
+        if (_events.Count == 0 || BandCanvas.ActualWidth <= 0)
         {
             return;
         }
 
-        var dayStartUtc = TimeZoneInfo.ConvertTimeToUtc(_bandSegments[0].Segment.StartUtc.ToLocalTime().Date);
-        var fill = (Brush)new SolidColorBrush(Color.FromRgb(0x2A, 0x7F, 0xC9)).GetAsFrozen();
-        foreach (var item in _bandSegments)
+        foreach (var evt in _events)
         {
-            var seg = item.Segment;
-            var width = Math.Max(2, (seg.DurationSec ?? 10) / 86400.0 * BandCanvas.ActualWidth);
-            var rect = new Rectangle
+            var dot = new Ellipse
             {
-                Width = width,
-                Height = 26,
-                Fill = fill,
-                IsHitTestVisible = false,
+                Width = 10,
+                Height = 10,
+                Fill = MarkerBrush(evt.EventType),
+                Stroke = Brushes.Black,
+                StrokeThickness = 1,
+                IsHitTestVisible = true,
+                ToolTip = $"{TimeZoneInfo.ConvertTimeFromUtc(evt.StartUtc, TimeZoneInfo.Local):HH:mm:ss} 「{evt.EventType}」{evt.Detail}",
+                Cursor = System.Windows.Input.Cursors.Hand,
             };
-            Canvas.SetLeft(rect, Math.Max(0, (seg.StartUtc - dayStartUtc).TotalMinutes / 1440.0 * BandCanvas.ActualWidth));
-            Canvas.SetTop(rect, 2);
-            BandCanvas.Children.Add(rect);
+            Canvas.SetLeft(dot, FracOfDay(evt.StartUtc) * BandCanvas.ActualWidth - 5);
+            Canvas.SetTop(dot, 10);
+            BandCanvas.Children.Add(dot);
         }
     }
+
+    private static Brush MarkerBrush(string eventType) => eventType switch
+    {
+        "ai_person" => (Brush)new SolidColorBrush(Color.FromRgb(0xE5, 0x53, 0x3C)).GetAsFrozen(),
+        "ai_vehicle" => (Brush)new SolidColorBrush(Color.FromRgb(0x3C, 0xA0, 0xE5)).GetAsFrozen(),
+        "motion" => (Brush)new SolidColorBrush(Color.FromRgb(0xE5, 0xC8, 0x3C)).GetAsFrozen(),
+        "offline" => (Brush)new SolidColorBrush(Color.FromRgb(0x9A, 0xA7, 0xB5)).GetAsFrozen(),
+        _ => (Brush)new SolidColorBrush(Color.FromRgb(0x4C, 0xAF, 0x7A)).GetAsFrozen(),
+    };
 
     /// <summary>點擊時間軸帶：定位到該時刻所在片段並從該處播放。</summary>
     private void OnBandClicked(object sender, MouseButtonEventArgs e)
@@ -427,7 +493,7 @@ public partial class PlaybackWindow : Window
             return;
         }
 
-        var dayStartUtc = TimeZoneInfo.ConvertTimeToUtc(_current.StartUtc.ToLocalTime().Date);
+        var dayStartUtc = DayStartUtc();
         var frac = (_current.StartUtc.AddSeconds(posSeconds) - dayStartUtc).TotalMinutes / 1440.0;
         Canvas.SetLeft(_cursor, Math.Max(0, Math.Min(1, frac)) * BandCanvas.ActualWidth - 1);
         Canvas.SetTop(_cursor, 2);
