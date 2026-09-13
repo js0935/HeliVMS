@@ -60,6 +60,9 @@
                         <Button x:Name="AddChannelButton" Content="＋加入頻道" Click="OnAddChannelClicked"
                                 Margin="6,0,0,0" Padding="8,4"
                                 Foreground="White" Background="#2A5C8A" BorderThickness="0" />
+                        <Button x:Name="OnvifButton" Content="ONVIF 探索" Click="OnOnvifClicked"
+                                Margin="6,0,0,0" Padding="8,4"
+                                Foreground="White" Background="#2A5C8A" BorderThickness="0" />
                     </StackPanel>
 
                     <StackPanel Orientation="Horizontal" Margin="0,16,0,0">

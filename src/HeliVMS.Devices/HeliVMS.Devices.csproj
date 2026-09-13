@@ -5,6 +5,10 @@
     <ProjectReference Include="..\HeliVMS.Shared\HeliVMS.Shared.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="HeliVMS.Devices.Tests" />
+  </ItemGroup>
+
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>

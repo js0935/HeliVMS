@@ -330,6 +330,20 @@ public partial class MainWindow : Window
         HintText.Text = $"錄影中：{Path.Combine(root, $"ch{channel.Id:000}")}";
     }
 
+    private void OnOnvifClicked(object sender, RoutedEventArgs e)
+    {
+        var wizard = new OnvifWizardWindow
+        {
+            Owner = this,
+        };
+        if (wizard.ShowDialog() == true && wizard.StreamUrl.Length > 0)
+        {
+            _channels!.Add(wizard.ChannelName, wizard.StreamUrl);
+            RefreshChannelCombo();
+            HintText.Text = $"已經由 ONVIF 加入頻道「{wizard.ChannelName}」。";
+        }
+    }
+
     private void OnAddChannelClicked(object sender, RoutedEventArgs e)
     {
         var url = UrlBox.Text.Trim();
