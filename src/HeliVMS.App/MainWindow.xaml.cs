@@ -1,4 +1,5 @@
 ﻿using System.IO;
+using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -16,13 +17,14 @@ using Path = System.IO.Path;
 namespace HeliVMS.App;
 
 /// <summary>
-/// 主視窗：M1–M2 監看（單一/多格佈局）與錄影控制中心。
+/// 主視窗：M1–M2 監看（單一/多格佈局，M9 擴充 3×3／4×4 與佈局記憶）與錄影控制中心。
 /// 資料基準目錄 C:\HeliVMSData（§2.1）。
 /// </summary>
 public partial class MainWindow : Window
 {
     private const string DefaultDataRoot = @"C:\HeliVMSData";
-    private const int MaxCells = 4;
+    private const int MaxCells = 16;
+    private const string UiSettingsFile = "ui.json";
 
     private readonly string _dataRoot;
     private readonly string _legacyDir;
@@ -33,8 +35,12 @@ public partial class MainWindow : Window
     private CancellationTokenSource? _bgCts;
     private WriteableBitmap?[] _bitmap = new WriteableBitmap?[MaxCells];
     private readonly int?[] _cellChannel = new int?[MaxCells];
+    private readonly Image[] _cellImages = new Image[MaxCells];
+    private readonly Canvas[] _cellOverlays = new Canvas[MaxCells];
+    private readonly TextBlock[] _cellTexts = new TextBlock[MaxCells];
     private IReadOnlyList<ChannelInfo> _channelList = [];
     private string _footerBase = string.Empty;
+    private int _preFullscreenLayout = 1;
 
     private static readonly SolidColorBrush BrOffline = new(Color.FromRgb(0x6B, 0x7B, 0x90));
     private static readonly SolidColorBrush BrConnecting = new(Color.FromRgb(0xD8, 0xA1, 0x2C));
@@ -144,6 +150,7 @@ public partial class MainWindow : Window
 
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
+        ApplyLayoutPreference();
         Title = $"{Title} | db={Path.Combine(_dataRoot, "index.db")}";
         var icon = CreateBitmap("app.ico");
         Icon = icon;
@@ -287,21 +294,138 @@ public partial class MainWindow : Window
 
     private void OnLayoutChanged(object sender, SelectionChangedEventArgs e)
     {
-        UpdateCellLayout();
+        RebuildCells();
+        SaveLayoutPreference();
     }
 
-    private void UpdateCellLayout()
+    /// <summary>目前佈局的格子數（1／4／9／16）。</summary>
+    private int CurrentCellCount()
     {
-        if (ImageCell1 is null)
+        var cols = Math.Clamp(LayoutCombo.SelectedIndex, 0, 3) + 1;
+        return cols * cols;
+    }
+
+    /// <summary>依佈局選項重建動態監看格（每格：影像＋AI 疊加＋狀態文字＋右鍵選單）。</summary>
+    private void RebuildCells()
+    {
+        if (CellGrid is null)
         {
             return;
         }
 
-        var single = LayoutCombo.SelectedIndex == 0;
-        ImageCell1.Visibility = TextCell1.Visibility =
-            ImageCell2.Visibility = TextCell2.Visibility =
-            ImageCell3.Visibility = TextCell3.Visibility =
-                single ? Visibility.Collapsed : Visibility.Visible;
+        var count = CurrentCellCount();
+        var cols = (int)Math.Sqrt(count);
+        CellGrid.Columns = cols;
+        CellGrid.Rows = cols;
+        CellGrid.Children.Clear();
+
+        for (var i = 0; i < count; i++)
+        {
+            var img = new Image { Stretch = Stretch.Uniform };
+            var overlay = new Canvas
+            {
+                IsHitTestVisible = false,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+            var text = new TextBlock
+            {
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+                Foreground = BrOffline,
+                FontSize = Math.Max(9, 16 - cols),
+                Text = "未連線",
+            };
+            var inner = new Grid();
+            inner.Children.Add(img);
+            inner.Children.Add(overlay);
+            inner.Children.Add(text);
+
+            var border = new Border
+            {
+                Margin = new Thickness(1),
+                Background = new SolidColorBrush(Color.FromRgb(0x06, 0x09, 0x0F)),
+                Child = inner,
+            };
+            var menu = new ContextMenu();
+            AddMenuItem(menu, "切換全螢幕", OnCtxFullScreen, i);
+            menu.Items.Add(new Separator());
+            AddMenuItem(menu, "切換錄影", OnCtxRecord, i);
+            AddMenuItem(menu, "開啟事件中心", OnCtxOpenEvents, i);
+            border.ContextMenu = menu;
+
+            _cellImages[i] = img;
+            _cellOverlays[i] = overlay;
+            _cellTexts[i] = text;
+
+            CellGrid.Children.Add(border);
+        }
+
+        ApplyCellStateAfterRebuild();
+    }
+
+    private static void AddMenuItem(ContextMenu menu, string header, RoutedEventHandler handler, int cell)
+    {
+        var item = new MenuItem { Header = header, Tag = cell };
+        item.Click += handler;
+        menu.Items.Add(item);
+    }
+
+    private void ApplyCellStateAfterRebuild()
+    {
+        for (var i = 0; i < MaxCells; i++)
+        {
+            if (_cellImages[i] is null)
+            {
+                continue;
+            }
+
+            _cellImages[i].Source = _bitmap[i];
+            SetCellStatus(i, "未連線", BrOffline);
+        }
+    }
+
+    /// <summary>佈局記憶：重開沿用上次分割（LIVEVIEW §1.1）。</summary>
+    private void ApplyLayoutPreference()
+    {
+        var pref = 0;
+        try
+        {
+            var path = Path.Combine(_dataRoot, UiSettingsFile);
+            if (File.Exists(path))
+            {
+                using var doc = JsonDocument.Parse(File.ReadAllText(path));
+                pref = doc.RootElement.GetProperty("layout").GetInt32();
+            }
+        }
+        catch (Exception)
+        {
+            pref = 0;
+        }
+
+        pref = pref is >= 0 and <= 3 ? pref : 0;
+        if (LayoutCombo.SelectedIndex != pref)
+        {
+            LayoutCombo.SelectedIndex = pref;
+        }
+        else
+        {
+            RebuildCells();
+        }
+    }
+
+    private void SaveLayoutPreference()
+    {
+        try
+        {
+            File.WriteAllText(
+                Path.Combine(_dataRoot, UiSettingsFile),
+                JsonSerializer.Serialize(new { layout = LayoutCombo.SelectedIndex }));
+        }
+        catch (Exception)
+        {
+            // 佈局記憶失敗不影響即時監看
+        }
     }
 
     private async void OnConnectClicked(object sender, RoutedEventArgs e)
@@ -319,7 +443,7 @@ public partial class MainWindow : Window
         }
 
         var start = Math.Max(ChannelCombo.SelectedIndex, 0);
-        var cells = LayoutCombo.SelectedIndex == 0 ? 1 : MaxCells;
+        var cells = CurrentCellCount();
         await _manager!.ConnectAsync(_channelList, start, cells);
 
         if (_manager.HasActiveSessions)
@@ -418,7 +542,7 @@ public partial class MainWindow : Window
             _aiBoxes[i] = [];
             SetCellSource(i, null);
             SetCellStatus(i, "未連線", BrOffline);
-            CellOverlay(i).Children.Clear();
+            CellOverlay(i)?.Children.Clear();
         }
 
         ConnectButton.Content = "連線";
@@ -497,13 +621,7 @@ public partial class MainWindow : Window
         HintText.Text = $"已加入頻道「{name}」。";
     }
 
-    private Canvas CellOverlay(int cell) => cell switch
-    {
-        0 => OverlayCell0,
-        1 => OverlayCell1,
-        2 => OverlayCell2,
-        _ => OverlayCell3,
-    };
+    private Canvas? CellOverlay(int cell) => cell is >= 0 and < MaxCells ? _cellOverlays[cell] : null;
 
     /// <summary>AI 偵測推播：更新各格疊加暫存，並將最佳目標推入警報列（規格 §1.4）。</summary>
     private void OnManagerAiDetections(object? _, (int Cell, DetectionsFrame Frame) e)
@@ -542,6 +660,11 @@ public partial class MainWindow : Window
     private void DrawLiveOverlay(int cell)
     {
         var canvas = CellOverlay(cell);
+        if (canvas is null)
+        {
+            return;
+        }
+
         canvas.Children.Clear();
         if (!_aiVisible)
         {
@@ -646,11 +769,23 @@ public partial class MainWindow : Window
         }
 
         var cell = Convert.ToInt32(((MenuItem)sender).Tag);
-        var goSingle = LayoutCombo.SelectedIndex != 0;
-        LayoutCombo.SelectedIndex = goSingle ? 0 : 1;
-        UpdateCellLayout();
+        if (cell >= MaxCells)
+        {
+            return;
+        }
 
-        var count = goSingle ? 1 : MaxCells;
+        var goSingle = LayoutCombo.SelectedIndex != 0;
+        if (goSingle)
+        {
+            _preFullscreenLayout = LayoutCombo.SelectedIndex;
+            LayoutCombo.SelectedIndex = 0;
+        }
+        else
+        {
+            LayoutCombo.SelectedIndex = _preFullscreenLayout is > 0 and <= 3 ? _preFullscreenLayout : 1;
+        }
+
+        var count = goSingle ? 1 : CurrentCellCount();
         var start = goSingle ? cell : 0;
         await _manager.ConnectAsync(_channelList, start, count);
         ConnectButton.Content = "中斷";
@@ -686,27 +821,25 @@ public partial class MainWindow : Window
     private static bool IsTargetClass(string cls) =>
         cls is "person" or "car" or "bus" or "truck" or "motorcycle" or "bicycle";
 
-    private Image CellImage(int cell) => cell switch
-    {
-        0 => ImageCell0,
-        1 => ImageCell1,
-        2 => ImageCell2,
-        _ => ImageCell3,
-    };
+    private Image? CellImage(int cell) => cell is >= 0 and < MaxCells ? _cellImages[cell] : null;
 
-    private TextBlock CellText(int cell) => cell switch
-    {
-        0 => TextCell0,
-        1 => TextCell1,
-        2 => TextCell2,
-        _ => TextCell3,
-    };
+    private TextBlock? CellText(int cell) => cell is >= 0 and < MaxCells ? _cellTexts[cell] : null;
 
-    private void SetCellSource(int cell, BitmapSource? source) => CellImage(cell).Source = source;
+    private void SetCellSource(int cell, BitmapSource? source)
+    {
+        if (CellImage(cell) is { } img)
+        {
+            img.Source = source;
+        }
+    }
 
     private void SetCellStatus(int cell, string text, SolidColorBrush? brush)
     {
-        var block = CellText(cell);
+        if (CellText(cell) is not { } block)
+        {
+            return;
+        }
+
         block.Text = text;
         block.Visibility = string.IsNullOrEmpty(text) ? Visibility.Collapsed : Visibility.Visible;
         if (brush is not null)
@@ -715,7 +848,7 @@ public partial class MainWindow : Window
         }
     }
 
-    private string? GetCellStatusText(int cell) => CellText(cell).Text;
+    private string? GetCellStatusText(int cell) => CellText(cell)?.Text;
 
     private async void OnWindowClosed(object? sender, EventArgs e)
     {

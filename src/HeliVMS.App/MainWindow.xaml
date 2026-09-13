@@ -45,6 +45,8 @@
                               Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="8,4">
                         <ComboBoxItem Content="單一畫面" />
                         <ComboBoxItem Content="2 × 2 四路" />
+                        <ComboBoxItem Content="3 × 3 九路" />
+                        <ComboBoxItem Content="4 × 4 十六路" />
                     </ComboBox>
 
                     <TextBlock Text="頻道" Foreground="{StaticResource Brand.TextDim}" FontSize="12" Margin="0,14,0,6" />
@@ -92,75 +94,7 @@
             <Grid Grid.Column="1" Margin="12">
                 <Border Background="#06090F" BorderBrush="#1F3A5F" BorderThickness="1">
                     <Grid>
-                        <UniformGrid x:Name="CellGrid" Columns="2" Rows="2">
-                            <Border Grid.Row="0" Grid.Column="0" Margin="1" Background="#06090F">
-                                <Grid>
-                                    <Image x:Name="ImageCell0" Stretch="Uniform" />
-                                    <Canvas x:Name="OverlayCell0" IsHitTestVisible="False"
-                                            HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                    <TextBlock x:Name="TextCell0" HorizontalAlignment="Center" VerticalAlignment="Center"
-                                               Foreground="{StaticResource Brand.TextDim}" FontSize="14" Text="未連線" />
-                                </Grid>
-                                <Border.ContextMenu>
-                                    <ContextMenu>
-                                        <MenuItem Header="切換全螢幕" Click="OnCtxFullScreen" Tag="0"/>
-                                        <MenuItem Header="切換錄影" Click="OnCtxRecord" Tag="0"/>
-                                        <Separator/>
-                                        <MenuItem Header="開啟事件中心" Click="OnCtxOpenEvents" Tag="0"/>
-                                    </ContextMenu>
-                                </Border.ContextMenu>
-                            </Border>
-                            <Border Grid.Row="0" Grid.Column="1" Margin="1" Background="#06090F">
-                                <Grid>
-                                    <Image x:Name="ImageCell1" Stretch="Uniform" />
-                                    <Canvas x:Name="OverlayCell1" IsHitTestVisible="False"
-                                            HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                    <TextBlock x:Name="TextCell1" HorizontalAlignment="Center" VerticalAlignment="Center"
-                                               Foreground="{StaticResource Brand.TextDim}" FontSize="14" Text="未連線" />
-                                </Grid>
-                                <Border.ContextMenu>
-                                    <ContextMenu>
-                                        <MenuItem Header="切換全螢幕" Click="OnCtxFullScreen" Tag="1"/>
-                                        <MenuItem Header="切換錄影" Click="OnCtxRecord" Tag="1"/>
-                                        <Separator/>
-                                        <MenuItem Header="開啟事件中心" Click="OnCtxOpenEvents" Tag="1"/>
-                                    </ContextMenu>
-                                </Border.ContextMenu>
-                            </Border>
-                            <Border Grid.Row="1" Grid.Column="0" Margin="1" Background="#06090F">
-                                <Grid>
-                                    <Image x:Name="ImageCell2" Stretch="Uniform" />
-                                    <Canvas x:Name="OverlayCell2" IsHitTestVisible="False"
-                                            HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                    <TextBlock x:Name="TextCell2" HorizontalAlignment="Center" VerticalAlignment="Center"
-                                               Foreground="{StaticResource Brand.TextDim}" FontSize="14" Text="未連線" />
-                                </Grid>
-                                <Border.ContextMenu>
-                                    <ContextMenu>
-                                        <MenuItem Header="切換全螢幕" Click="OnCtxFullScreen" Tag="2"/>
-                                        <MenuItem Header="切換錄影" Click="OnCtxRecord" Tag="2"/>
-                                        <Separator/>
-                                        <MenuItem Header="開啟事件中心" Click="OnCtxOpenEvents" Tag="2"/>
-                                    </ContextMenu>
-                                </Border.ContextMenu>
-                            </Border>
-                            <Border Grid.Row="1" Grid.Column="1" Margin="1" Background="#06090F">
-                                <Grid>
-                                    <Image x:Name="ImageCell3" Stretch="Uniform" />
-                                    <Canvas x:Name="OverlayCell3" IsHitTestVisible="False"
-                                            HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                    <TextBlock x:Name="TextCell3" HorizontalAlignment="Center" VerticalAlignment="Center"
-                                               Foreground="{StaticResource Brand.TextDim}" FontSize="14" Text="未連線" />
-                                </Grid>
-                                <Border.ContextMenu>
-                                    <ContextMenu>
-                                        <MenuItem Header="切換全螢幕" Click="OnCtxFullScreen" Tag="3"/>
-                                        <MenuItem Header="切換錄影" Click="OnCtxRecord" Tag="3"/>
-                                        <Separator/>
-                                        <MenuItem Header="開啟事件中心" Click="OnCtxOpenEvents" Tag="3"/>
-                                    </ContextMenu>
-                                </Border.ContextMenu>
-                            </Border>
+                        <UniformGrid x:Name="CellGrid">
                         </UniformGrid>
 
                         <Border x:Name="RecBadge" HorizontalAlignment="Right" VerticalAlignment="Top"
