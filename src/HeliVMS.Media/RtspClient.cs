@@ -3,10 +3,26 @@ using HeliVMS.Shared.Models;
 
 namespace HeliVMS.Media;
 
+/// <summary>拉流連線狀態（供 UI 角標，§3.3）。</summary>
+public enum RtspState
+{
+    /// <summary>已停止。</summary>
+    Stopped,
+
+    /// <summary>連線中（初次或重試）。</summary>
+    Connecting,
+
+    /// <summary>已解幀（即時串流中）。</summary>
+    Streaming,
+
+    /// <summary>斷線重連等待中。</summary>
+    Reconnecting,
+}
+
 /// <summary>
-/// 即時 RTSP 拉流（§3：監看管線）。
+/// 即時 RTSP 拉流（§3.3：監看管道；§21.2 #1：監看解碼、錄影不經此路）。
 /// 以外部 ffmpeg 進程解碼為 BGR24 原始影格，經管道送至呼叫端。
-/// 斷線後 5 秒自動重連。
+/// 斷線後 5 秒自動重連；支援最大幀率抽樣以保護 UI 執行緒。
 /// </summary>
 public sealed class RtspClient : IAsyncDisposable
 {
@@ -29,8 +45,17 @@ public sealed class RtspClient : IAsyncDisposable
 
     public bool IsRunning { get; private set; }
 
+    /// <summary>監看最大幀率上限（§3.3：防止 32 路塞爆 UI）。</summary>
+    public double MaxFramesPerSecond { get; set; } = 15;
+
+    /// <summary>目前連線狀態。</summary>
+    public RtspState State { get; private set; } = RtspState.Stopped;
+
     /// <summary>解碼出一幀。</summary>
     public event EventHandler<VideoFrame>? FrameDecoded;
+
+    /// <summary>連線狀態變更（供角標）。</summary>
+    public event EventHandler<RtspState>? StateChanged;
 
     /// <summary>斷線重連時通知。</summary>
     public event EventHandler<Exception>? Reconnecting;
@@ -70,14 +95,13 @@ public sealed class RtspClient : IAsyncDisposable
 
     private async Task RunLoopAsync(CancellationToken token)
     {
-        var attempt = 0;
         while (!token.IsCancellationRequested)
         {
             try
             {
+                SetState(RtspState.Connecting);
                 var (width, height) = await ProbeResolutionAsync(token);
                 await StreamFramesAsync(width, height, token);
-                attempt = 0;
             }
             catch (OperationCanceledException)
             {
@@ -86,7 +110,7 @@ public sealed class RtspClient : IAsyncDisposable
             catch (Exception ex)
             {
                 IsRunning = false;
-                attempt++;
+                SetState(RtspState.Reconnecting);
                 Reconnecting?.Invoke(this, ex);
                 try
                 {
@@ -98,13 +122,30 @@ public sealed class RtspClient : IAsyncDisposable
                 }
             }
         }
+
+        SetState(RtspState.Stopped);
     }
 
-    /// <summary>以 ffprobe 取得影格解析度。</summary>
-    private async Task<(int Width, int Height)> ProbeResolutionAsync(CancellationToken token)
+    private void SetState(RtspState state)
     {
-        var info = await Task.Run(() => StreamProbe.Probe(RtspUrl, _ffprobe), token);
-        return (info.Width, info.Height);
+        if (State == state)
+        {
+            return;
+        }
+
+        State = state;
+        var handler = StateChanged;
+        if (handler is not null)
+        {
+            try
+            {
+                handler(this, state);
+            }
+            catch
+            {
+                // 訂閱者例外不得影響拉流迴圈
+            }
+        }
     }
 
     private async Task StreamFramesAsync(int width, int height, CancellationToken token)
@@ -141,6 +182,8 @@ public sealed class RtspClient : IAsyncDisposable
         var frameSize = width * height * 3;
         var buffer = new byte[frameSize];
         var sw = Stopwatch.StartNew();
+        var emitIntervalMs = MaxFramesPerSecond > 0 ? 1000.0 / MaxFramesPerSecond : 0;
+        long lastEmitMs = 0;
 
         try
         {
@@ -158,13 +201,25 @@ public sealed class RtspClient : IAsyncDisposable
                     offset += read;
                 }
 
+                var nowMs = sw.ElapsedMilliseconds;
+                if (nowMs - lastEmitMs < emitIntervalMs)
+                {
+                    continue;
+                }
+
+                lastEmitMs = nowMs;
+                if (State != RtspState.Streaming)
+                {
+                    SetState(RtspState.Streaming);
+                }
+
                 var frame = new VideoFrame
                 {
                     Width = width,
                     Height = height,
                     Pixels = (byte[])buffer.Clone(),
                     TimestampUtc = DateTime.UtcNow,
-                    PtsMs = sw.ElapsedMilliseconds,
+                    PtsMs = nowMs,
                 };
                 FrameDecoded?.Invoke(this, frame);
             }
@@ -185,6 +240,13 @@ public sealed class RtspClient : IAsyncDisposable
 
             IsRunning = false;
         }
+    }
+
+    /// <summary>以 ffprobe 取得影格解析度。</summary>
+    private async Task<(int Width, int Height)> ProbeResolutionAsync(CancellationToken token)
+    {
+        var info = await Task.Run(() => StreamProbe.Probe(RtspUrl, _ffprobe), token);
+        return (info.Width, info.Height);
     }
 
     private void KillProcess()

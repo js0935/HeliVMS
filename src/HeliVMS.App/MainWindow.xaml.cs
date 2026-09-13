@@ -29,6 +29,11 @@ public partial class MainWindow : Window
     private WriteableBitmap?[] _bitmap = new WriteableBitmap?[MaxCells];
     private SegmentRecorder? _recorder;
     private IReadOnlyList<ChannelInfo> _channelList = [];
+    private string _footerBase = string.Empty;
+
+    private static readonly SolidColorBrush BrOffline = new(Color.FromRgb(0x6B, 0x7B, 0x90));
+    private static readonly SolidColorBrush BrConnecting = new(Color.FromRgb(0xD8, 0xA1, 0x2C));
+    private static readonly SolidColorBrush BrLive = new(Color.FromRgb(0x56, 0xC8, 0x86));
 
     public MainWindow()
     {
@@ -96,9 +101,10 @@ public partial class MainWindow : Window
         RefreshChannelCombo();
 
         var state = new LicenseManager().ValidateDefault();
-        StatusText.Text = state.IsValid
+        _footerBase = state.IsValid
             ? $"禾秝軟體開發團隊 · 已授權（{state.Payload!.Cameras} 路）"
             : $"未授權：{state.Message ?? state.Status.ToString()}";
+        UpdateFooter();
     }
 
     /// <summary>將 M1 舊資料（%LOCALAPPDATA%\HeliVMS）遷移至 C:\HeliVMSData（若尚未存在）。</summary>
@@ -183,12 +189,12 @@ public partial class MainWindow : Window
         for (var i = 0; i < cells; i++)
         {
             var channel = _channelList[(start + i) % _channelList.Count];
-            var rtsp = new RtspClient(channel.MainStreamUrl);
+            var rtsp = new RtspClient(channel.MainStreamUrl) { MaxFramesPerSecond = 15 };
             var cell = i;
             rtsp.FrameDecoded += (_, f) => OnCellFrame(cell, f);
-            rtsp.Reconnecting += (_, ex) => OnCellReconnect(cell, ex);
+            rtsp.StateChanged += (_, st) => OnCellState(cell, st);
+            rtsp.Reconnecting += (_, _) => OnCellReconnect(cell);
             _rtsp[cell] = rtsp;
-            SetCellStatus(cell, "連線中…", null);
             await rtsp.StartAsync();
         }
 
@@ -197,9 +203,36 @@ public partial class MainWindow : Window
         HintText.Text = $"連線中：{_channelList[start].MainStreamUrl}";
     }
 
-    private void OnCellReconnect(int cell, Exception ex)
+    private void OnCellReconnect(int cell)
     {
-        Dispatcher.Invoke(() => SetCellStatus(cell, $"重連中…（{ex.Message}）", null));
+        Dispatcher.Invoke(() => OnCellState(cell, RtspState.Reconnecting));
+    }
+
+    private void OnCellState(int cell, RtspState state)
+    {
+        Dispatcher.Invoke(() =>
+        {
+            switch (state)
+            {
+                case RtspState.Connecting:
+                    SetCellStatus(cell, "連線中…", BrConnecting);
+                    break;
+                case RtspState.Reconnecting:
+                    SetCellStatus(cell, "重連中…", BrConnecting);
+                    break;
+                case RtspState.Stopped:
+                    SetCellStatus(cell, "未連線", BrOffline);
+                    break;
+            }
+
+            UpdateFooter();
+        });
+    }
+
+    private void UpdateFooter()
+    {
+        var live = _rtsp.Count(c => c is { IsRunning: true });
+        StatusText.Text = _footerBase.Length > 0 ? $"{_footerBase} · 已連線 {live} 路" : string.Empty;
     }
 
     private void OnCellFrame(int cell, VideoFrame frame)
@@ -234,7 +267,7 @@ public partial class MainWindow : Window
                 (s.StartsWith("連線中", StringComparison.Ordinal) ||
                  s.StartsWith("重連中", StringComparison.Ordinal)))
             {
-                SetCellStatus(cell, $"即時監看 · {frame.Width}×{frame.Height}", null);
+                SetCellStatus(cell, $"即時監看 · {frame.Width}×{frame.Height}", BrLive);
             }
         });
     }
@@ -261,12 +294,13 @@ public partial class MainWindow : Window
 
             _bitmap[i] = null;
             SetCellSource(i, null);
-            SetCellStatus(i, "未連線", null);
+            SetCellStatus(i, "未連線", BrOffline);
         }
 
         ConnectButton.Content = "連線";
         RecordButton.IsEnabled = false;
         HintText.Text = "已中斷。";
+        UpdateFooter();
     }
 
     private async void OnRecordClicked(object sender, RoutedEventArgs e)
