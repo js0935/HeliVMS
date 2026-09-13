@@ -156,10 +156,34 @@
           "HeliVMS.Shared": "[0.1.0, )"
         }
       },
+      "helivms.decoder": {
+        "type": "Project",
+        "dependencies": {
+          "HeliVMS.Core": "[0.1.0, )",
+          "HeliVMS.Shared": "[0.1.0, )"
+        }
+      },
       "helivms.licensing": {
         "type": "Project",
         "dependencies": {
           "HeliVMS.Shared": "[0.1.0, )"
+        }
+      },
+      "helivms.media": {
+        "type": "Project",
+        "dependencies": {
+          "HeliVMS.Core": "[0.1.0, )",
+          "HeliVMS.Decoder": "[0.1.0, )",
+          "HeliVMS.Shared": "[0.1.0, )"
+        }
+      },
+      "helivms.recording": {
+        "type": "Project",
+        "dependencies": {
+          "HeliVMS.Core": "[0.1.0, )",
+          "HeliVMS.Media": "[0.1.0, )",
+          "HeliVMS.Shared": "[0.1.0, )",
+          "HeliVMS.Storage": "[0.1.0, )"
         }
       },
       "helivms.shared": {
