@@ -13,7 +13,6 @@ public sealed class AiEventEngine : IDisposable
 {
     private const long IdleCooldownMs = 900;
     private const long MinAiEventMs = 600;
-    private const long SampleIntervalMs = 400;
 
     private readonly int _channelId;
     private readonly AlarmEventRepository _repo;
@@ -25,6 +24,8 @@ public sealed class AiEventEngine : IDisposable
     private ConcurrentQueue<VideoFrame> _queue = new();
     private readonly object _gate = new();
     private volatile bool _running;
+    private volatile bool _enabled = true;
+    private int _sampleIntervalMs = 400;
     private Task _worker = Task.CompletedTask;
     private long _lastSampleMs;
 
@@ -69,9 +70,38 @@ public sealed class AiEventEngine : IDisposable
     /// <summary>最近一次推理例外（診斷）。</summary>
     public string? LastError { get; private set; }
 
-    /// <summary>推送一幀（監看線程呼叫）；每 400ms 取樣送入推理佇列。</summary>
+    /// <summary>推理列長（診斷；正常 ≦1）。</summary>
+    public int PendingCount => _queue.Count;
+
+    /// <summary>取樣幀間隔 ms（M14 策略支援：單格 200／2×2 400／多格 800）。</summary>
+    public int MinSampleIntervalMs
+    {
+        get => _sampleIntervalMs;
+        set => _sampleIntervalMs = Math.Clamp(value, 100, 5000);
+    }
+
+    /// <summary>是否啟用推疊（false＝省 CPU：停取樣與運動門檻，清佇列）。</summary>
+    public bool Enabled
+    {
+        get => _enabled;
+        set
+        {
+            _enabled = value;
+            if (!value)
+            {
+                Reset();
+            }
+        }
+    }
+
+    /// <summary>推送一幀（監看線程呼叫）；按取樣間隔（可依格大小調整）送入推理佇列。全域 maxConcurrency 由 AiConcurrencyScheduler 控管。</summary>
     public void OnFrame(VideoFrame frame)
     {
+        if (!_enabled)
+        {
+            return;
+        }
+
         FramesFed++;
         if (_motion.IsMotion(_motion.Update(frame)))
         {
@@ -79,12 +109,17 @@ public sealed class AiEventEngine : IDisposable
         }
 
         var nowMs = System.Diagnostics.Stopwatch.GetTimestamp() / (System.Diagnostics.Stopwatch.Frequency / 1000);
-        if (nowMs - _lastSampleMs < SampleIntervalMs)
+        if (nowMs - _lastSampleMs < _sampleIntervalMs)
         {
             return;
         }
 
         _lastSampleMs = nowMs;
+        if (_queue.Count > 1)
+        {
+            return;   // 上一個推理尚未消化：丟棄，避免張數堆積
+        }
+
         _queue.Enqueue(new VideoFrame
         {
             Width = frame.Width,
@@ -160,13 +195,16 @@ public sealed class AiEventEngine : IDisposable
             try
             {
                 var sw = System.Diagnostics.Stopwatch.StartNew();
-                IReadOnlyList<Detection> dets;
-                lock (_gate)
+                IReadOnlyList<Detection> dets = [];
+                AiConcurrencyScheduler.Shared.RunSync(() =>
                 {
-                    dets = _engine.Run(frame);
-                    OnDetections(frame, dets);
-                    FinalizeWindowIfIdle(force: false);
-                }
+                    lock (_gate)
+                    {
+                        dets = _engine.Run(frame);
+                        OnDetections(frame, dets);
+                        FinalizeWindowIfIdle(force: false);
+                    }
+                });
 
                 LastInferenceMs = (int)sw.ElapsedMilliseconds;
                 FramesInferred++;

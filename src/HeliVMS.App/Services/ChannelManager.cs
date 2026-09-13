@@ -124,6 +124,15 @@ public sealed class ChannelManager : IDisposable
     /// <summary>指定頻道是否正在錄影。</summary>
     public bool IsRecording(int channelId) => _sessions.TryGetValue(channelId, out var s) && s.IsRecording;
 
+    /// <summary>M14：套用單一頻道 AI 策略（enabled＝是否推理；intervalMs＝取樣間隔）。</summary>
+    public void SetAiPolicy(int channelId, bool enabled, int intervalMs)
+    {
+        if (_sessions.TryGetValue(channelId, out var session))
+        {
+            session.ConfigureAi(enabled, intervalMs);
+        }
+    }
+
     /// <summary>播放狀態（連線中／流媒體中）。</summary>
     public int CountStreaming()
     {

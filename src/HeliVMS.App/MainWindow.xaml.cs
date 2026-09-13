@@ -45,6 +45,7 @@ public partial class MainWindow : Window
     private readonly Dictionary<int, DateTime> _channelLastAi = new();
     private readonly Dictionary<int, DateTime> _channelLastFrame = new();
     private readonly List<OverviewRow> _overviewRows = [];
+    private readonly Dictionary<int, (bool Enabled, int Interval)> _aiPolicyCache = new();
     private int _selectedCell = -1;
     private IReadOnlyList<ChannelInfo> _channelList = [];
     private string _footerBase = string.Empty;
@@ -517,7 +518,36 @@ public partial class MainWindow : Window
             HintText.Text = "連線失敗。";
         }
 
+        UpdateAiPolicy();
         UpdateFooter();
+    }
+
+    /// <summary>M14 每格 AI 策略：單格取樣 200ms；多格僅選中格啟動、小格降頻（≤4路 400ms／多路 800ms）。</summary>
+    private void UpdateAiPolicy()
+    {
+        if (_manager is null)
+        {
+            return;
+        }
+
+        var count = CurrentCellCount();
+        for (var cell = 0; cell < count; cell++)
+        {
+            if (_cellChannel[cell] is not int channelId)
+            {
+                continue;
+            }
+
+            var enabled = count == 1 || cell == _selectedCell;
+            var interval = count == 1 ? 200 : (count <= 4 ? 400 : 800);
+            if (_aiPolicyCache.TryGetValue(channelId, out var cur) && cur.Enabled == enabled && cur.Interval == interval)
+            {
+                continue;
+            }
+
+            _manager.SetAiPolicy(channelId, enabled, interval);
+            _aiPolicyCache[channelId] = (enabled, interval);
+        }
     }
 
     private void OnCellState(int cell, RtspState state)
@@ -611,6 +641,7 @@ public partial class MainWindow : Window
         _channelStates.Clear();
         _channelLastFrame.Clear();
         _channelLastAi.Clear();
+        _aiPolicyCache.Clear();
         _selectedCell = -1;
 
         ConnectButton.Content = "連線";
@@ -1051,6 +1082,7 @@ public partial class MainWindow : Window
         }
 
         UpdateBadges();
+        UpdateAiPolicy();
     }
 
     private static string StateLabel(RtspState state, bool rec) => state switch

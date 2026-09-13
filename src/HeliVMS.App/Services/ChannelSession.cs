@@ -73,6 +73,18 @@ public sealed class ChannelSession : IDisposable
     /// <summary>最近一次 AI 推理結果時間（null 表示尚未有）。</summary>
     public DateTime? LastAiUtc { get; private set; }
 
+    /// <summary>M14：套用 AI 每格策略（啟用與否＋取樣間隔 ms）；停用時清窗捨棄待決幀。</summary>
+    public void ConfigureAi(bool enabled, int sampleIntervalMs)
+    {
+        if (_ai is null)
+        {
+            return;
+        }
+
+        _ai.MinSampleIntervalMs = sampleIntervalMs;
+        _ai.Enabled = enabled;
+    }
+
     public async Task StartMonitoringAsync()
     {
         if (!IsMonitoring && !_disposed)
