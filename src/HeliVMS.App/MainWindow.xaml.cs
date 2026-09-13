@@ -146,7 +146,7 @@ public partial class MainWindow : Window
         _segRepo = new SegmentRepository(_store);
         _channels.EnsureSeedChannels();
 
-        _manager = new ChannelManager(_store, Path.Combine(_dataRoot, "recordings"));
+        _manager = new ChannelManager(_store, Path.Combine(_dataRoot, "recordings"), Path.Combine(_dataRoot, "snapshots"));
         _manager.FrameArrived += (_, e) => OnCellFrame(e.Cell, e.Frame);
         _manager.StateChanged += (_, e) =>
         {
@@ -442,6 +442,15 @@ public partial class MainWindow : Window
             Owner = this,
         };
         playback.Show();
+    }
+
+    private void OnEventClicked(object sender, RoutedEventArgs e)
+    {
+        var events = new EventCenterWindow(_store!)
+        {
+            Owner = this,
+        };
+        events.Show();
     }
 
     private void OnAddChannelClicked(object sender, RoutedEventArgs e)

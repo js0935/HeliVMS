@@ -1,3 +1,5 @@
+using System.Diagnostics;
+using HeliVMS.Alarms;
 using HeliVMS.Media;
 using HeliVMS.Recording;
 using HeliVMS.Shared.Models;
@@ -5,15 +7,18 @@ using HeliVMS.Storage;
 
 namespace HeliVMS.App.Services;
 
-/// <summary>單一頻道之生命週期封裝：監看連線（RtspClient）＋選用錄影（SegmentRecorder）與健康訊息。</summary>
+/// <summary>單一頻道之生命週期封裝：監看連線（RtspClient）＋選用錄影（SegmentRecorder）＋運動偵測與健康訊息。</summary>
 public sealed class ChannelSession : IDisposable
 {
     private readonly SqliteStore _store;
     private readonly string _recordingsRoot;
+    private MotionEventEngine? _motion;
+    private readonly Stopwatch _motionClock = new();
+    private long _lastMotionMs;
     private SegmentRecorder? _recorder;
     private bool _disposed;
 
-    public ChannelSession(int channelId, string name, string url, SqliteStore store, string recordingsRoot)
+    public ChannelSession(int channelId, string name, string url, SqliteStore store, string recordingsRoot, string snapshotsRoot, bool motionEnabled)
     {
         ChannelId = channelId;
         Name = name;
@@ -24,6 +29,13 @@ public sealed class ChannelSession : IDisposable
         Client.FrameDecoded += OnClientFrame;
         Client.StateChanged += (_, s) => StateChanged?.Invoke(this, s);
         Client.Reconnecting += (_, _) => StateChanged?.Invoke(this, RtspState.Reconnecting);
+
+        if (motionEnabled)
+        {
+            _motion = new MotionEventEngine(channelId, new AlarmEventRepository(_store), snapshotsRoot);
+        }
+
+        _motionClock.Start();
     }
 
     public int ChannelId { get; }
@@ -73,6 +85,7 @@ public sealed class ChannelSession : IDisposable
     public async Task StopAsync()
     {
         await SetRecordingAsync(recording: false);
+        _motion?.Flush();
         if (IsMonitoring)
         {
             await Client.StopAsync();
@@ -84,6 +97,13 @@ public sealed class ChannelSession : IDisposable
     {
         LastFrameUtc = DateTime.UtcNow;
         FrameArrived?.Invoke(this, frame);
+
+        // 運動偵測抽樣：約每 250ms 一幀（低解析度網格成本可忽略）
+        if (_motion is not null && _motionClock.ElapsedMilliseconds - _lastMotionMs >= 250)
+        {
+            _lastMotionMs = _motionClock.ElapsedMilliseconds;
+            _motion.OnFrame(frame);
+        }
     }
 
     public void Dispose()
@@ -103,6 +123,7 @@ public sealed class ChannelSession : IDisposable
             // 事件解除失敗時忽略
         }
 
+        _motion?.Dispose();
         _recorder?.DisposeAsync().AsTask().GetAwaiter().GetResult();
         Client.DisposeAsync().AsTask().GetAwaiter().GetResult();
         GC.SuppressFinalize(this);

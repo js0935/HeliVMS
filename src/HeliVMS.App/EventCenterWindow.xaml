@@ -1,0 +1,137 @@
+<Window x:Class="HeliVMS.App.EventCenterWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="HeliVMS 事件中心"
+        Width="1100" Height="640"
+        WindowStartupLocation="CenterOwner"
+        Background="#0B1622" Foreground="White"
+        Loaded="OnLoaded" Closing="OnClosing">
+
+    <Grid Margin="12">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <!-- 過濾列 -->
+        <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
+            <TextBlock Text="頻道" Foreground="{StaticResource Brand.TextDim}" VerticalAlignment="Center"/>
+            <ComboBox x:Name="ChannelCombo" Width="180" Margin="6,0,0,0"
+                      Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"
+                      SelectionChanged="OnChannelSelectionChanged"/>
+
+            <TextBlock Text="範圍" Foreground="{StaticResource Brand.TextDim}" VerticalAlignment="Center" Margin="20,0,0,0"/>
+            <ComboBox x:Name="RangeCombo" Width="110" Margin="6,0,0,0" SelectedIndex="1"
+                      Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"
+                      SelectionChanged="OnChannelSelectionChanged">
+                <ComboBoxItem Content="今天"/>
+                <ComboBoxItem Content="24 小時"/>
+                <ComboBoxItem Content="7 天"/>
+                <ComboBoxItem Content="全部"/>
+            </ComboBox>
+
+            <Button x:Name="RefreshButton" Content="重新整理" Click="OnRefreshClicked"
+                    Padding="10,4" Margin="18,0,0,0" VerticalAlignment="Center"
+                    Foreground="White" Background="#2A5C8A" BorderThickness="0"/>
+            <TextBlock x:Name="CountText" Foreground="{StaticResource Brand.TextDim}"
+                       VerticalAlignment="Center" Margin="14,0,0,0" FontSize="11"/>
+        </StackPanel>
+
+        <Grid Grid.Row="1">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="2*"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+
+            <Border BorderBrush="#2A4A73" BorderThickness="1" Background="#0F1D2E" Margin="0,0,10,0">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+                    <TextBlock Text="事件清單（motion / offline / manual…）" Foreground="{StaticResource Brand.TextDim}" Margin="8,6" FontSize="11"/>
+                    <ListView x:Name="EventList" Grid.Row="1"
+                              SelectionChanged="OnEventSelected"
+                              MouseDoubleClick="OnEventDoubleClick"
+                              Background="Transparent" BorderThickness="0" Foreground="White">
+                        <ListView.View>
+                            <GridView>
+                                <GridViewColumn Header="時間（本地）" Width="150">
+                                    <GridViewColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <TextBlock Text="{Binding StartLabel}" FontSize="12"/>
+                                        </DataTemplate>
+                                    </GridViewColumn.CellTemplate>
+                                </GridViewColumn>
+                                <GridViewColumn Header="頻道" Width="90">
+                                    <GridViewColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <TextBlock Text="{Binding ChannelName}" FontSize="12"/>
+                                        </DataTemplate>
+                                    </GridViewColumn.CellTemplate>
+                                </GridViewColumn>
+                                <GridViewColumn Header="類型" Width="80">
+                                    <GridViewColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <TextBlock Text="{Binding EventType}" FontSize="12" Foreground="{Binding TypeBrush}"/>
+                                        </DataTemplate>
+                                    </GridViewColumn.CellTemplate>
+                                </GridViewColumn>
+                                <GridViewColumn Header="持續" Width="70">
+                                    <GridViewColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <TextBlock Text="{Binding DurationLabel}" FontSize="12"/>
+                                        </DataTemplate>
+                                    </GridViewColumn.CellTemplate>
+                                </GridViewColumn>
+                                <GridViewColumn Header="詳情" Width="220">
+                                    <GridViewColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <TextBlock Text="{Binding Detail}" FontSize="12" TextTrimming="CharacterEllipsis"/>
+                                        </DataTemplate>
+                                    </GridViewColumn.CellTemplate>
+                                </GridViewColumn>
+                                <GridViewColumn Header="確認" Width="60">
+                                    <GridViewColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <TextBlock Text="{Binding AckLabel}" FontSize="12"/>
+                                        </DataTemplate>
+                                    </GridViewColumn.CellTemplate>
+                                </GridViewColumn>
+                            </GridView>
+                        </ListView.View>
+                    </ListView>
+                    <StackPanel Orientation="Horizontal" Grid.Row="2" Margin="8">
+                        <Button x:Name="AckButton" Content="標記為已確認" Click="OnAckClicked" IsEnabled="False"
+                                Padding="10,4" Foreground="White" Background="#2A5C8A" BorderThickness="0"/>
+                        <Button x:Name="UnackButton" Content="標記為未確認" Click="OnUnackClicked" IsEnabled="False"
+                                Padding="10,4" Margin="8,0,0,0" Foreground="White" Background="#5A4A2A" BorderThickness="0"/>
+                    </StackPanel>
+                </Grid>
+            </Border>
+
+            <Border Grid.Column="1" BorderBrush="#2A4A73" BorderThickness="1" Background="#0F1D2E">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+                    <TextBlock Text="事件快照" Foreground="{StaticResource Brand.TextDim}" Margin="8,6" FontSize="11"/>
+                    <Border Grid.Row="1" Background="#05090E" Margin="6">
+                        <Grid>
+                            <Image x:Name="SnapshotImage" Stretch="Uniform" RenderOptions.BitmapScalingMode="Linear"/>
+                            <TextBlock x:Name="SnapshotHint" Text="選擇事件以顯示觸發快照"
+                                       HorizontalAlignment="Center" VerticalAlignment="Center"
+                                       Foreground="{StaticResource Brand.TextDim}" FontSize="12"/>
+                        </Grid>
+                    </Border>
+                    <TextBlock x:Name="SnapshotPathText" Grid.Row="2"
+                               Foreground="{StaticResource Brand.TextDim}" FontSize="10"
+                               Margin="8,4" TextTrimming="CharacterEllipsis"/>
+                </Grid>
+            </Border>
+        </Grid>
+    </Grid>
+</Window>

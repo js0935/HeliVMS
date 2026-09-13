@@ -17,14 +17,16 @@ public sealed class ChannelManager : IDisposable
     private readonly SqliteStore _store;
     private readonly ChannelRepository _channels;
     private readonly string _recordingsRoot;
+    private readonly string _snapshotsRoot;
     private readonly System.Threading.Timer _health;
     private bool _disposed;
 
-    public ChannelManager(SqliteStore store, string recordingsRoot)
+    public ChannelManager(SqliteStore store, string recordingsRoot, string snapshotsRoot)
     {
         _store = store;
         _channels = new ChannelRepository(store);
         _recordingsRoot = recordingsRoot;
+        _snapshotsRoot = snapshotsRoot;
         _health = new System.Threading.Timer(OnHealthTick, null, Timeout.Infinite, Timeout.Infinite);
     }
 
@@ -54,7 +56,7 @@ public sealed class ChannelManager : IDisposable
         {
             var ch = channels[(startIndex + i) % channels.Count];
 
-            var session = new ChannelSession(ch.Id, ch.Name, ch.MainStreamUrl, _store, _recordingsRoot);
+            var session = new ChannelSession(ch.Id, ch.Name, ch.MainStreamUrl, _store, _recordingsRoot, _snapshotsRoot, ch.MotionEnabled);
             var cell = i;
             session.FrameArrived += (_, f) => FrameArrived?.Invoke(this, (cell, f));
             session.StateChanged += (_, st) => StateChanged?.Invoke(this, (cell, ch, st));

@@ -75,6 +75,9 @@
                         <Button x:Name="PlaybackButton" Content="回放" Click="OnPlaybackClicked"
                                 Width="80" Padding="0,8" Margin="10,0,0,0"
                                 Foreground="White" Background="#2A5C8A" BorderThickness="0" />
+                        <Button x:Name="EventButton" Content="事件" Click="OnEventClicked"
+                                Width="80" Padding="0,8" Margin="6,0,0,0"
+                                Foreground="White" Background="#6A5A2E" BorderThickness="0" />
                     </StackPanel>
 
                     <TextBlock x:Name="HintText" TextWrapping="Wrap"
