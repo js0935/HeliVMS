@@ -92,5 +92,20 @@ public class AlarmEventRepositoryTests : IDisposable
         Assert.False(Assert.Single(rows2).Acknowledged);
     }
 
+    [Fact]
+    public void CountUnacknowledged_CountsOnlyUnacked()
+    {
+        var id1 = _repo.Insert(1, "motion", DateTime.UtcNow);
+        var id2 = _repo.Insert(1, "ai_person", DateTime.UtcNow);
+        var id3 = _repo.Insert(1, "offline", DateTime.UtcNow);
+
+        _repo.Acknowledge(id3, true);
+
+        Assert.Equal(2, _repo.CountUnacknowledged());
+        _repo.Acknowledge(id1, true);
+        _repo.Acknowledge(id2, true);
+        Assert.Equal(0, _repo.CountUnacknowledged());
+    }
+
     public void Dispose() => _store.Dispose();
 }

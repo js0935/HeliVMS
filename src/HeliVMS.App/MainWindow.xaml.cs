@@ -3,6 +3,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using System.Windows.Shapes;
 using HeliVMS.Alarms;
 using HeliVMS.App.Services;
 using HeliVMS.Licensing;
@@ -10,6 +11,7 @@ using HeliVMS.Media;
 using HeliVMS.Recording;
 using HeliVMS.Shared.Models;
 using HeliVMS.Storage;
+using Path = System.IO.Path;
 
 namespace HeliVMS.App;
 
@@ -37,6 +39,13 @@ public partial class MainWindow : Window
     private static readonly SolidColorBrush BrOffline = new(Color.FromRgb(0x6B, 0x7B, 0x90));
     private static readonly SolidColorBrush BrConnecting = new(Color.FromRgb(0xD8, 0xA1, 0x2C));
     private static readonly SolidColorBrush BrLive = new(Color.FromRgb(0x56, 0xC8, 0x86));
+    private static readonly SolidColorBrush BrPerson = new(Color.FromRgb(0xFF, 0x63, 0x47));
+    private static readonly SolidColorBrush BrVehicle = new(Color.FromRgb(0x00, 0xB6, 0xFF));
+
+    private bool _aiVisible;
+    private readonly IReadOnlyList<Detection>[] _aiBoxes = new IReadOnlyList<Detection>[MaxCells];
+    private readonly List<string> _alerts = [];
+    private System.Threading.Timer? _unackTimer;
 
     public MainWindow()
     {
@@ -149,6 +158,7 @@ public partial class MainWindow : Window
 
         _manager = new ChannelManager(_store, Path.Combine(_dataRoot, "recordings"), Path.Combine(_dataRoot, "snapshots"), DetectionModelResolver.TryResolve());
         _manager.FrameArrived += (_, e) => OnCellFrame(e.Cell, e.Frame);
+        _manager.AiDetections += OnManagerAiDetections;
         _manager.StateChanged += (_, e) =>
         {
             _cellChannel[e.Cell] = e.Channel.Id;
@@ -168,6 +178,14 @@ public partial class MainWindow : Window
             ? $"禾秝軟體開發團隊 · 已授權（{state.Payload!.Cameras} 路）"
             : $"未授權：{state.Message ?? state.Status.ToString()}";
         UpdateFooter();
+
+        // 未確認事件計數：即時一筆，之後每 15 秒（規格 §1.4）
+        RefreshUnackBadge();
+        _unackTimer = new System.Threading.Timer(
+            _ => Dispatcher.InvokeAsync(RefreshUnackBadge),
+            null,
+            TimeSpan.FromSeconds(15),
+            TimeSpan.FromSeconds(15));
     }
 
     /// <summary>將 M1 舊資料（%LOCALAPPDATA%\HeliVMS）遷移至 C:\HeliVMSData（若尚未存在）。</summary>
@@ -330,6 +348,7 @@ public partial class MainWindow : Window
                     break;
                 case RtspState.Reconnecting:
                     SetCellStatus(cell, "重連中…", BrConnecting);
+                    PushAlert($"頻道 #{cell + 1} 重連中");
                     break;
                 case RtspState.Stopped:
                     SetCellStatus(cell, "未連線", BrOffline);
@@ -380,6 +399,8 @@ public partial class MainWindow : Window
             {
                 SetCellStatus(cell, $"即時監看 · {frame.Width}×{frame.Height}", BrLive);
             }
+
+            DrawLiveOverlay(cell);
         });
     }
 
@@ -394,8 +415,10 @@ public partial class MainWindow : Window
         {
             _bitmap[i] = null;
             _cellChannel[i] = null;
+            _aiBoxes[i] = [];
             SetCellSource(i, null);
             SetCellStatus(i, "未連線", BrOffline);
+            CellOverlay(i).Children.Clear();
         }
 
         ConnectButton.Content = "連線";
@@ -447,6 +470,7 @@ public partial class MainWindow : Window
 
     private void OnEventClicked(object sender, RoutedEventArgs e)
     {
+        RefreshUnackBadge();
         var events = new EventCenterWindow(_store!)
         {
             Owner = this,
@@ -472,6 +496,195 @@ public partial class MainWindow : Window
         RefreshChannelCombo();
         HintText.Text = $"已加入頻道「{name}」。";
     }
+
+    private Canvas CellOverlay(int cell) => cell switch
+    {
+        0 => OverlayCell0,
+        1 => OverlayCell1,
+        2 => OverlayCell2,
+        _ => OverlayCell3,
+    };
+
+    /// <summary>AI 偵測推播：更新各格疊加暫存，並將最佳目標推入警報列（規格 §1.4）。</summary>
+    private void OnManagerAiDetections(object? _, (int Cell, DetectionsFrame Frame) e)
+    {
+        var (cell, frame) = e;
+        if (cell is < 0 or >= MaxCells)
+        {
+            return;
+        }
+
+        _aiBoxes[cell] = frame.Items;
+
+        Detection? best = null;
+        foreach (var d in frame.Items)
+        {
+            if (!IsTargetClass(d.Class))
+            {
+                continue;
+            }
+
+            if (best is null || d.Confidence > best.Confidence)
+            {
+                best = d;
+            }
+        }
+
+        if (best is not null)
+        {
+            Dispatcher.InvokeAsync(() => PushAlert($"頻道 #{cell + 1} AI {best.Class} conf={best.Confidence:0.00}"));
+        }
+    }
+
+    private void OnAiToggleChanged(object sender, RoutedEventArgs e) => _aiVisible = AiToggle.IsChecked == true;
+
+    /// <summary>於該格畫面上繪製最後一次 AI 偵測框（單格附標籤；多格只畫框，規格 §2）。</summary>
+    private void DrawLiveOverlay(int cell)
+    {
+        var canvas = CellOverlay(cell);
+        canvas.Children.Clear();
+        if (!_aiVisible)
+        {
+            canvas.Width = 0;
+            canvas.Height = 0;
+            return;
+        }
+
+        var src = _bitmap[cell];
+        var dets = _aiBoxes[cell];
+        if (src is null || dets is null || dets.Count == 0)
+        {
+            return;
+        }
+
+        var availW = Math.Max(0, src.PixelWidth);
+        var availH = Math.Max(0, src.PixelHeight);
+        var host = canvas.Parent is FrameworkElement f ? f : null;
+        var w = host?.ActualWidth ?? availW;
+        var h = host?.ActualHeight ?? availH;
+        var scale = Math.Min(w / Math.Max(1, availW), h / Math.Max(1, availH));
+        if (scale <= 0)
+        {
+            return;
+        }
+
+        canvas.Width = availW * scale;
+        canvas.Height = availH * scale;
+
+        var withLabels = LayoutCombo.SelectedIndex == 0;
+        foreach (var d in dets)
+        {
+            if (!IsTargetClass(d.Class))
+            {
+                continue;
+            }
+
+            var x = d.X * canvas.Width;
+            var y = d.Y * canvas.Height;
+            var bw = d.W * canvas.Width;
+            var bh = d.H * canvas.Height;
+            if (bw <= 0 || bh <= 0)
+            {
+                continue;
+            }
+
+            var brush = d.Class == "person" ? BrPerson : BrVehicle;
+            var rect = new Rectangle
+            {
+                Width = bw,
+                Height = bh,
+                Stroke = brush,
+                StrokeThickness = Math.Max(1.0, 2.0 / scale),
+                Fill = new SolidColorBrush(Color.FromArgb(20, 255, 255, 255)),
+            };
+            Canvas.SetLeft(rect, x);
+            Canvas.SetTop(rect, y);
+            canvas.Children.Add(rect);
+
+            if (withLabels)
+            {
+                var label = new TextBlock
+                {
+                    Text = $"{d.Class} {d.Confidence:0.00}",
+                    FontSize = 11,
+                    Foreground = Brushes.White,
+                    Background = new SolidColorBrush(Color.FromArgb(170, 8, 14, 22)),
+                    Padding = new Thickness(3, 0, 3, 0),
+                };
+                var ly = y - 16 >= 0 ? y - 16 : y;
+                Canvas.SetLeft(label, x);
+                Canvas.SetTop(label, ly);
+                canvas.Children.Add(label);
+            }
+        }
+    }
+
+    /// <summary>即時警報列：最多保留最近 3 筆。</summary>
+    private void PushAlert(string message)
+    {
+        _alerts.Add($"{DateTime.Now:HH:mm:ss} {message}");
+        while (_alerts.Count > 3)
+        {
+            _alerts.RemoveAt(0);
+        }
+
+        AlertText.Text = string.Join("　·　", _alerts);
+    }
+
+    private void RefreshUnackBadge()
+    {
+        var count = _store is null ? 0 : new AlarmEventRepository(_store).CountUnacknowledged();
+        UnackBadge.Visibility = count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        UnackText.Text = count > 0 ? $"未確認 {count}" : "";
+    }
+
+    private async void OnCtxFullScreen(object sender, RoutedEventArgs e)
+    {
+        if (_manager is null)
+        {
+            return;
+        }
+
+        var cell = Convert.ToInt32(((MenuItem)sender).Tag);
+        var goSingle = LayoutCombo.SelectedIndex != 0;
+        LayoutCombo.SelectedIndex = goSingle ? 0 : 1;
+        UpdateCellLayout();
+
+        var count = goSingle ? 1 : MaxCells;
+        var start = goSingle ? cell : 0;
+        await _manager.ConnectAsync(_channelList, start, count);
+        ConnectButton.Content = "中斷";
+        RecordButton.IsEnabled = true;
+        UpdateFooter();
+    }
+
+    private async void OnCtxRecord(object sender, RoutedEventArgs e)
+    {
+        if (_manager is null)
+        {
+            return;
+        }
+
+        var cell = Convert.ToInt32(((MenuItem)sender).Tag);
+        if (cell < 0 || cell >= MaxCells || _cellChannel[cell] is not int channelId)
+        {
+            return;
+        }
+
+        var next = !_manager.IsRecording(channelId);
+        await _manager.SetRecordingAsync(channelId, next);
+        RecordButton.Content = next ? "停止錄影" : "錄影";
+        RecBadge.Visibility = _manager.AnyRecording() ? Visibility.Visible : Visibility.Collapsed;
+        HintText.Text = next
+            ? $"錄影中：{Path.Combine(_dataRoot, "recordings", $"ch{channelId:000}")}"
+            : "錄影已停止。";
+        UpdateFooter();
+    }
+
+    private void OnCtxOpenEvents(object sender, RoutedEventArgs e) => OnEventClicked(sender, e);
+
+    private static bool IsTargetClass(string cls) =>
+        cls is "person" or "car" or "bus" or "truck" or "motorcycle" or "bicycle";
 
     private Image CellImage(int cell) => cell switch
     {
@@ -506,6 +719,7 @@ public partial class MainWindow : Window
 
     private async void OnWindowClosed(object? sender, EventArgs e)
     {
+        _unackTimer?.Dispose();
         await DisconnectAllAsync();
         _bgCts?.Cancel();
         _bgCts?.Dispose();

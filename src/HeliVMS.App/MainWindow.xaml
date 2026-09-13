@@ -25,6 +25,8 @@
             <StackPanel Orientation="Horizontal">
                 <Image x:Name="HeaderLogo" Width="20" Height="20" VerticalAlignment="Center" Margin="0,0,8,0" />
                 <TextBlock Text="HeliVMS" Foreground="{StaticResource Brand.TextPrimary}" FontSize="15" FontWeight="SemiBold" VerticalAlignment="Center" />
+                <CheckBox x:Name="AiToggle" Content="AI 疊加" Foreground="White" VerticalAlignment="Center"
+                          Margin="28,0,0,0" Checked="OnAiToggleChanged" Unchecked="OnAiToggleChanged"/>
             </StackPanel>
         </Border>
 
@@ -91,33 +93,73 @@
                 <Border Background="#06090F" BorderBrush="#1F3A5F" BorderThickness="1">
                     <Grid>
                         <UniformGrid x:Name="CellGrid" Columns="2" Rows="2">
-                            <Border Grid.Row="0" Grid.Column="0" Margin="1">
+                            <Border Grid.Row="0" Grid.Column="0" Margin="1" Background="#06090F">
                                 <Grid>
                                     <Image x:Name="ImageCell0" Stretch="Uniform" />
+                                    <Canvas x:Name="OverlayCell0" IsHitTestVisible="False"
+                                            HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                     <TextBlock x:Name="TextCell0" HorizontalAlignment="Center" VerticalAlignment="Center"
                                                Foreground="{StaticResource Brand.TextDim}" FontSize="14" Text="未連線" />
                                 </Grid>
+                                <Border.ContextMenu>
+                                    <ContextMenu>
+                                        <MenuItem Header="切換全螢幕" Click="OnCtxFullScreen" Tag="0"/>
+                                        <MenuItem Header="切換錄影" Click="OnCtxRecord" Tag="0"/>
+                                        <Separator/>
+                                        <MenuItem Header="開啟事件中心" Click="OnCtxOpenEvents" Tag="0"/>
+                                    </ContextMenu>
+                                </Border.ContextMenu>
                             </Border>
-                            <Border Grid.Row="0" Grid.Column="1" Margin="1">
+                            <Border Grid.Row="0" Grid.Column="1" Margin="1" Background="#06090F">
                                 <Grid>
                                     <Image x:Name="ImageCell1" Stretch="Uniform" />
+                                    <Canvas x:Name="OverlayCell1" IsHitTestVisible="False"
+                                            HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                     <TextBlock x:Name="TextCell1" HorizontalAlignment="Center" VerticalAlignment="Center"
                                                Foreground="{StaticResource Brand.TextDim}" FontSize="14" Text="未連線" />
                                 </Grid>
+                                <Border.ContextMenu>
+                                    <ContextMenu>
+                                        <MenuItem Header="切換全螢幕" Click="OnCtxFullScreen" Tag="1"/>
+                                        <MenuItem Header="切換錄影" Click="OnCtxRecord" Tag="1"/>
+                                        <Separator/>
+                                        <MenuItem Header="開啟事件中心" Click="OnCtxOpenEvents" Tag="1"/>
+                                    </ContextMenu>
+                                </Border.ContextMenu>
                             </Border>
-                            <Border Grid.Row="1" Grid.Column="0" Margin="1">
+                            <Border Grid.Row="1" Grid.Column="0" Margin="1" Background="#06090F">
                                 <Grid>
                                     <Image x:Name="ImageCell2" Stretch="Uniform" />
+                                    <Canvas x:Name="OverlayCell2" IsHitTestVisible="False"
+                                            HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                     <TextBlock x:Name="TextCell2" HorizontalAlignment="Center" VerticalAlignment="Center"
                                                Foreground="{StaticResource Brand.TextDim}" FontSize="14" Text="未連線" />
                                 </Grid>
+                                <Border.ContextMenu>
+                                    <ContextMenu>
+                                        <MenuItem Header="切換全螢幕" Click="OnCtxFullScreen" Tag="2"/>
+                                        <MenuItem Header="切換錄影" Click="OnCtxRecord" Tag="2"/>
+                                        <Separator/>
+                                        <MenuItem Header="開啟事件中心" Click="OnCtxOpenEvents" Tag="2"/>
+                                    </ContextMenu>
+                                </Border.ContextMenu>
                             </Border>
-                            <Border Grid.Row="1" Grid.Column="1" Margin="1">
+                            <Border Grid.Row="1" Grid.Column="1" Margin="1" Background="#06090F">
                                 <Grid>
                                     <Image x:Name="ImageCell3" Stretch="Uniform" />
+                                    <Canvas x:Name="OverlayCell3" IsHitTestVisible="False"
+                                            HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                     <TextBlock x:Name="TextCell3" HorizontalAlignment="Center" VerticalAlignment="Center"
                                                Foreground="{StaticResource Brand.TextDim}" FontSize="14" Text="未連線" />
                                 </Grid>
+                                <Border.ContextMenu>
+                                    <ContextMenu>
+                                        <MenuItem Header="切換全螢幕" Click="OnCtxFullScreen" Tag="3"/>
+                                        <MenuItem Header="切換錄影" Click="OnCtxRecord" Tag="3"/>
+                                        <Separator/>
+                                        <MenuItem Header="開啟事件中心" Click="OnCtxOpenEvents" Tag="3"/>
+                                    </ContextMenu>
+                                </Border.ContextMenu>
                             </Border>
                         </UniformGrid>
 
@@ -133,9 +175,24 @@
             </Grid>
         </Grid>
 
-        <!-- 底欄 -->
+        <!-- 底欄：即時警報列＋狀態＋未確認徽章 -->
         <Border Grid.Row="2" Background="{StaticResource Brand.BgPanel}" Padding="12,6" BorderBrush="#1F3A5F" BorderThickness="0,1,0,0">
-            <TextBlock x:Name="StatusText" Text="正在驗證授權…" Foreground="{StaticResource Brand.TextDim}" FontSize="12" HorizontalAlignment="Center" />
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock x:Name="AlertText" Foreground="{StaticResource Brand.TextDim}" FontSize="12"
+                           VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                           Text="（即時警報：AI 偵測／離線／重連）"/>
+                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                    <Border x:Name="UnackBadge" Background="#6A2E2E" CornerRadius="3" Padding="8,2" Visibility="Collapsed">
+                        <TextBlock x:Name="UnackText" Foreground="White" FontSize="11" Text=""/>
+                    </Border>
+                    <TextBlock x:Name="StatusText" Text="正在驗證授權…" Foreground="{StaticResource Brand.TextDim}"
+                               FontSize="12" Margin="10,0,0,0"/>
+                </StackPanel>
+            </Grid>
         </Border>
     </Grid>
 </Window>

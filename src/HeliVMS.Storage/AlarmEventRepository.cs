@@ -116,4 +116,16 @@ public sealed class AlarmEventRepository
                 cmd.Parameters.AddWithValue("$id", id);
             });
     }
+
+    /// <summary>未確認事件筆數。</summary>
+    public int CountUnacknowledged()
+    {
+        return _store.Query(
+            "SELECT COUNT(1) FROM alarm_events WHERE acknowledged = 0;",
+            static r =>
+            {
+                r.Read();
+                return r.GetInt32(0);
+            });
+    }
 }

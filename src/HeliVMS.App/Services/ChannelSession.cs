@@ -37,6 +37,11 @@ public sealed class ChannelSession : IDisposable
             if (detection is not null)
             {
                 _ai = new AiEventEngine(channelId, new AlarmEventRepository(_store), snapshotsRoot, detection);
+                _ai.DetectionsReady += (_, d) =>
+                {
+                    LastAiUtc = d.SnapshotUtc;
+                    AiDetections?.Invoke(this, d);
+                };
             }
         }
 
@@ -61,6 +66,12 @@ public sealed class ChannelSession : IDisposable
     public event EventHandler<VideoFrame>? FrameArrived;
 
     public event EventHandler<RtspState>? StateChanged;
+
+    /// <summary>該頻道每幀完整 AI 偵測（即時監看疊加用）。</summary>
+    public event EventHandler<DetectionsFrame>? AiDetections;
+
+    /// <summary>最近一次 AI 推理結果時間（null 表示尚未有）。</summary>
+    public DateTime? LastAiUtc { get; private set; }
 
     public async Task StartMonitoringAsync()
     {

@@ -158,6 +158,35 @@ public class AiEventEngineTests : IDisposable
         Assert.Empty(_repo.ListByRange(null, DateTime.MinValue, DateTime.MaxValue));
     }
 
+    [Fact]
+    public async Task DetectionsReady_PublishesEverySampleWithFullList()
+    {
+        var stub = new StubEngine
+        {
+            Detections =
+            [
+                new Detection("person", 0.9f, 0.3f, 0.4f, 0.2f, 0.5f),
+                new Detection("cat", 0.8f, 0.1f, 0.1f, 0.1f, 0.1f),
+            ],
+        };
+
+        var published = new List<DetectionsFrame>();
+        using var engine = new AiEventEngine(1, _repo, _snapRoot, stub);
+        engine.DetectionsReady += (_, f) => published.Add(f);
+
+        await FeedAsync(engine, frames: 6);
+
+        engine.Flush();
+
+        Assert.NotEmpty(published);
+        Assert.All(published, f =>
+        {
+            Assert.Equal(2, f.Items.Count);
+            Assert.Equal("person", f.Items[0].Class);
+            Assert.Equal("cat", f.Items[1].Class);
+        });
+    }
+
     public void Dispose()
     {
         _store.Dispose();
