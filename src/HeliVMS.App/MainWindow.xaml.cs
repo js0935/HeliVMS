@@ -63,6 +63,8 @@ public partial class MainWindow : Window
     private bool _aiVisible;
     private readonly IReadOnlyList<Detection>[] _aiBoxes = new IReadOnlyList<Detection>[MaxCells];
     private readonly List<string> _alerts = [];
+    private readonly List<int?> _alertCells = [];
+    private bool _expandInProgress;
     private System.Threading.Timer? _unackTimer;
     private System.Threading.Timer? _uiTimer;
 
@@ -332,6 +334,7 @@ public partial class MainWindow : Window
 
     private void OnLayoutChanged(object sender, SelectionChangedEventArgs e)
     {
+        _expandInProgress = false;
         RebuildCells();
         SaveLayoutPreference();
     }
@@ -528,7 +531,7 @@ public partial class MainWindow : Window
                     break;
                 case RtspState.Reconnecting:
                     SetCellStatus(cell, "重連中…", BrConnecting);
-                    PushAlert($"頻道 #{cell + 1} 重連中");
+                    PushAlert($"頻道 #{cell + 1} 重連中", cell);
                     break;
                 case RtspState.Stopped:
                     SetCellStatus(cell, "未連線", BrOffline);
@@ -754,7 +757,7 @@ public partial class MainWindow : Window
 
         if (best is not null)
         {
-            Dispatcher.InvokeAsync(() => PushAlert($"頻道 #{cell + 1} AI {best.Class} conf={best.Confidence:0.00}"));
+            Dispatcher.InvokeAsync(() => PushAlert($"頻道 #{cell + 1} AI {best.Class} conf={best.Confidence:0.00}", cell));
         }
     }
 
@@ -846,16 +849,37 @@ public partial class MainWindow : Window
         }
     }
 
-    /// <summary>即時警報列：最多保留最近 3 筆。</summary>
-    private void PushAlert(string message)
+    /// <summary>即時警報列：最多保留最近 3 筆；點擊跳至最後一筆對應格。</summary>
+    private void PushAlert(string message, int? cell = null)
     {
         _alerts.Add($"{DateTime.Now:HH:mm:ss} {message}");
+        _alertCells.Add(cell);
         while (_alerts.Count > 3)
         {
             _alerts.RemoveAt(0);
+            _alertCells.RemoveAt(0);
         }
 
         AlertText.Text = string.Join("　·　", _alerts);
+    }
+
+    private void OnAlertTextClicked(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    {
+        int? cell = null;
+        for (var i = _alertCells.Count - 1; i >= 0; i--)
+        {
+            if (_alertCells[i] is int c)
+            {
+                cell = c;
+                break;
+            }
+        }
+
+        if (cell is int target && target < CurrentCellCount())
+        {
+            SelectCell(target);
+            HintText.Text = $"已由警報跳至格 {target + 1}。";
+        }
     }
 
     private void RefreshUnackBadge()
@@ -878,15 +902,28 @@ public partial class MainWindow : Window
             return;
         }
 
+        await ToggleExpandCellAsync(cell);
+    }
+
+    /// <summary>F11／右鍵共用：單格展開 ↔ 原佈局往返（保留格位與連線）。</summary>
+    private async Task ToggleExpandCellAsync(int cell)
+    {
+        if (_manager is null)
+        {
+            return;
+        }
+
         var goSingle = LayoutCombo.SelectedIndex != 0;
         if (goSingle)
         {
             _preFullscreenLayout = LayoutCombo.SelectedIndex;
             LayoutCombo.SelectedIndex = 0;
+            _expandInProgress = true;
         }
         else
         {
             LayoutCombo.SelectedIndex = _preFullscreenLayout is > 0 and <= 3 ? _preFullscreenLayout : 1;
+            _expandInProgress = false;
         }
 
         var count = goSingle ? 1 : CurrentCellCount();
@@ -895,6 +932,31 @@ public partial class MainWindow : Window
         ConnectButton.Content = "中斷";
         RecordButton.IsEnabled = true;
         UpdateFooter();
+    }
+
+    private static readonly System.Windows.Input.Key[] HandledPreviewKeys =
+        [System.Windows.Input.Key.F11, System.Windows.Input.Key.Escape];
+
+    /// <summary>F11＝單格展開/還原（ESC 退出展開）。</summary>
+    private async void OnPreviewKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+    {
+        if (!HandledPreviewKeys.Contains(e.Key))
+        {
+            return;
+        }
+
+        e.Handled = true;
+        if (e.Key == System.Windows.Input.Key.F11)
+        {
+            await ToggleExpandCellAsync(_selectedCell >= 0 ? _selectedCell : 0);
+        }
+        else if (e.Key == System.Windows.Input.Key.Escape &&
+                 _expandInProgress &&
+                 LayoutCombo.SelectedIndex == 0 &&
+                 _preFullscreenLayout is > 0 and <= 3)
+        {
+            await ToggleExpandCellAsync(0);
+        }
     }
 
     private async void OnCtxRecord(object sender, RoutedEventArgs e)

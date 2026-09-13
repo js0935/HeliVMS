@@ -11,6 +11,7 @@
         WindowStartupLocation="CenterScreen"
         Background="{StaticResource Brand.BgDeep}"
         d:DesignHeight="800" d:DesignWidth="1280"
+        PreviewKeyDown="OnPreviewKeyDown"
         Closed="OnWindowClosed">
 
     <Grid>
@@ -41,7 +42,8 @@
             <Border Grid.Column="0" Background="{StaticResource Brand.BgPanel}" BorderBrush="#1F3A5F" BorderThickness="0,0,1,0">
                 <StackPanel Margin="16" VerticalAlignment="Top">
                     <TextBlock Text="佈局" Foreground="{StaticResource Brand.TextDim}" FontSize="12" Margin="0,0,0,6" />
-                    <ComboBox x:Name="LayoutCombo" SelectedIndex="0" SelectionChanged="OnLayoutChanged"
+                    <ComboBox x:Name="LayoutCombo" AutomationProperties.AutomationId="LayoutCombo"
+                              SelectedIndex="0" SelectionChanged="OnLayoutChanged"
                               Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="8,4">
                         <ComboBoxItem Content="單一畫面" />
                         <ComboBoxItem Content="2 × 2 四路" />
@@ -178,6 +180,7 @@
                 </Grid.ColumnDefinitions>
                 <TextBlock x:Name="AlertText" Foreground="{StaticResource Brand.TextDim}" FontSize="12"
                            VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                           MouseLeftButtonUp="OnAlertTextClicked" Cursor="Hand"
                            Text="（即時警報：AI 偵測／離線／重連）"/>
                 <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
                     <Border x:Name="UnackBadge" Background="#6A2E2E" CornerRadius="3" Padding="8,2" Visibility="Collapsed">
