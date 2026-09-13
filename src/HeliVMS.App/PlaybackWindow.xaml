@@ -1,0 +1,126 @@
+<Window x:Class="HeliVMS.App.PlaybackWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="HeliVMS 回放"
+        Width="980" Height="620"
+        WindowStartupLocation="CenterOwner"
+        Background="#0B1622" Foreground="White"
+        Loaded="OnLoaded" Closing="OnClosing">
+
+    <Grid Margin="12">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="250"/>
+            <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <!-- 挑選列 -->
+        <StackPanel Orientation="Horizontal" Grid.Row="0" Grid.ColumnSpan="2" Margin="0,0,0,10">
+            <StackPanel Orientation="Horizontal" Margin="0,0,14,0" VerticalAlignment="Center">
+                <TextBlock Text="頻道" Foreground="{StaticResource Brand.TextDim}" VerticalAlignment="Center"/>
+                <ComboBox x:Name="ChannelCombo" Width="170" Margin="6,0,0,0"
+                          Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"
+                          SelectionChanged="OnChannelSelectionChanged"/>
+            </StackPanel>
+
+            <StackPanel Orientation="Horizontal" Margin="0,0,14,0" VerticalAlignment="Center">
+                <TextBlock Text="日期" Foreground="{StaticResource Brand.TextDim}" VerticalAlignment="Center"/>
+                <DatePicker x:Name="DatePick" Width="130" Margin="6,0,0,0"
+                            Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"
+                            SelectedDateChanged="OnDateChanged"/>
+            </StackPanel>
+
+            <Button x:Name="LoadButton" Content="載入錄影" Click="OnLoadClicked"
+                    Padding="10,4" VerticalAlignment="Center"
+                    Foreground="White" Background="#2A5C8A" BorderThickness="0"/>
+            <TextBlock x:Name="LoadHint" Foreground="{StaticResource Brand.TextDim}"
+                       VerticalAlignment="Center" Margin="12,0,0,0" FontSize="11"/>
+        </StackPanel>
+
+        <!-- 左：段清單 -->
+        <Border Grid.Row="1" BorderBrush="#2A4A73" BorderThickness="1" Background="#0F1D2E" Margin="0,0,10,0">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                </Grid.RowDefinitions>
+                <TextBlock Text="錄影片段" Foreground="{StaticResource Brand.TextDim}" Margin="8,6" FontSize="11"/>
+                <ListView x:Name="SegmentList" Grid.Row="1"
+                          SelectionChanged="OnSegmentSelected"
+                          Background="Transparent" BorderThickness="0"
+                          Foreground="White">
+                    <ListView.View>
+                        <GridView>
+                            <GridViewColumn Header="開始" Width="110">
+                                <GridViewColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding StartLabel}" FontSize="12"/>
+                                    </DataTemplate>
+                                </GridViewColumn.CellTemplate>
+                            </GridViewColumn>
+                            <GridViewColumn Header="時長" Width="56">
+                                <GridViewColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding DurationLabel}" FontSize="12"/>
+                                    </DataTemplate>
+                                </GridViewColumn.CellTemplate>
+                            </GridViewColumn>
+                            <GridViewColumn Header="大小" Width="120">
+                                <GridViewColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding SizeLabel}" FontSize="12"/>
+                                    </DataTemplate>
+                                </GridViewColumn.CellTemplate>
+                            </GridViewColumn>
+                        </GridView>
+                    </ListView.View>
+                </ListView>
+            </Grid>
+        </Border>
+
+        <!-- 中：播放器 -->
+        <Grid Grid.Row="1" Grid.Column="1">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="*"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+            <Border BorderBrush="#2A4A73" BorderThickness="1" Background="#05090E">
+                <Grid>
+                    <Image x:Name="PlayerImage" Stretch="Uniform" RenderOptions.BitmapScalingMode="Linear"/>
+                    <TextBlock x:Name="EmptyHint" Text="請選擇錄影片段開始回放"
+                               HorizontalAlignment="Center" VerticalAlignment="Center"
+                               Foreground="{StaticResource Brand.TextDim}" FontSize="13"/>
+                </Grid>
+            </Border>
+
+            <StackPanel Orientation="Horizontal" Grid.Row="1" Margin="0,10,0,0">
+                <Button x:Name="PlayPauseButton" Content="播放" Click="OnPlayPauseClicked"
+                        Width="76" Padding="0,6" IsEnabled="False"
+                        Foreground="White" Background="#2660AA" BorderThickness="0"/>
+                <Button x:Name="StopButton" Content="停止" Click="OnStopClicked"
+                        Width="70" Padding="0,6" Margin="8,0,0,0" IsEnabled="False"
+                        Foreground="White" Background="#8A3C2E" BorderThickness="0"/>
+                <TextBlock Text="倍速" Foreground="{StaticResource Brand.TextDim}"
+                           VerticalAlignment="Center" Margin="18,0,6,0"/>
+                <ComboBox x:Name="SpeedCombo" Width="64" SelectedIndex="0" VerticalAlignment="Center"
+                          Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"
+                          SelectionChanged="OnSpeedChanged">
+                    <ComboBoxItem Content="0.5×"/>
+                    <ComboBoxItem Content="1×"/>
+                    <ComboBoxItem Content="2×"/>
+                    <ComboBoxItem Content="4×"/>
+                    <ComboBoxItem Content="8×"/>
+                </ComboBox>
+                <TextBlock x:Name="TimeText" Foreground="White" FontSize="12"
+                           VerticalAlignment="Center" Margin="20,0,0,0" Text="--:--:-- / --:--:--"/>
+                <CheckBox x:Name="AutoAdvanceCheck" Content="自動接續下一段" Foreground="{StaticResource Brand.TextDim}"
+                          IsChecked="True" VerticalAlignment="Center" Margin="18,0,0,0"/>
+                <TextBlock x:Name="StatusText" Foreground="{StaticResource Brand.TextDim}" FontSize="11"
+                           VerticalAlignment="Center" Margin="16,0,0,0"/>
+            </StackPanel>
+        </Grid>
+    </Grid>
+</Window>

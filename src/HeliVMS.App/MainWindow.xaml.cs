@@ -391,6 +391,15 @@ public partial class MainWindow : Window
         }
     }
 
+    private void OnPlaybackClicked(object sender, RoutedEventArgs e)
+    {
+        var playback = new PlaybackWindow(_store!)
+        {
+            Owner = this,
+        };
+        playback.Show();
+    }
+
     private void OnAddChannelClicked(object sender, RoutedEventArgs e)
     {
         var url = UrlBox.Text.Trim();
