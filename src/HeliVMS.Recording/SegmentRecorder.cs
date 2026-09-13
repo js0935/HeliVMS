@@ -90,8 +90,9 @@ public sealed class SegmentRecorder : IAsyncDisposable
             {
                 break;
             }
-            catch (Exception)
+            catch (Exception ex)
             {
+                LastFailure = ex.ToString();
                 if (_activeSegmentId >= 0)
                 {
                     _repo.MarkCorrupt(_activeSegmentId);
@@ -154,8 +155,9 @@ public sealed class SegmentRecorder : IAsyncDisposable
                 _repo.MarkCorrupt(_activeSegmentId);
             }
         }
-        catch
+        catch (Exception ex)
         {
+            LastFailure = ex.ToString();
             TryDeleteTmp(tmpPath);
             _repo.MarkCorrupt(_activeSegmentId);
         }
@@ -224,10 +226,19 @@ public sealed class SegmentRecorder : IAsyncDisposable
 
         using var proc = Process.Start(psi) ?? throw new InvalidOperationException("無法啟動 ffmpeg 錄影進程");
         _process = proc;
+        LastUtfError.Clear();
+        _lastExitCode = null;
 
         try
         {
             await proc.WaitForExitAsync(token);
+            _lastExitCode = proc.ExitCode;
+            var stderr = await proc.StandardError.ReadToEndAsync(token);
+            lock (LastUtfError)
+            {
+                LastUtfError.Append(stderr);
+            }
+
             _process = null;
             return proc.ExitCode == 0;
         }
@@ -241,6 +252,31 @@ public sealed class SegmentRecorder : IAsyncDisposable
             _process = null;
         }
     }
+
+    /// <summary>最近一次 ffmpeg 之 stderr（診斷用）。</summary>
+    public string LastFfError
+    {
+        get
+        {
+            lock (LastUtfError)
+            {
+                return LastUtfError.ToString().Trim();
+            }
+        }
+    }
+
+    /// <summary>最近一次錄影失敗之例外描述（診斷用）。</summary>
+    public string? LastFailure { get; private set; }
+
+    /// <summary>最近一次 ffmpeg 退出碼（診斷用）。</summary>
+    public int? LastExitCode
+    {
+        get => _lastExitCode;
+        set => _lastExitCode = value;
+    }
+
+    private int? _lastExitCode;
+    private readonly System.Text.StringBuilder LastUtfError = new();
 
     private void KillProcess()
     {

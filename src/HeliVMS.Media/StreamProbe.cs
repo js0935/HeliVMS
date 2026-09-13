@@ -5,7 +5,12 @@ using System.Text.Json;
 namespace HeliVMS.Media;
 
 /// <summary>串流探測結果。</summary>
-public sealed record StreamProbeInfo(int Width, int Height, string VideoCodec, string? AudioCodec);
+public sealed record StreamProbeInfo(
+    int Width,
+    int Height,
+    string VideoCodec,
+    string? AudioCodec,
+    double Fps = 25);
 
 /// <summary>
 /// 以 ffprobe 探測 RTSP 串流資訊（供監看與錄影共用）。
@@ -29,7 +34,7 @@ public static class StreamProbe
         psi.ArgumentList.Add("-v");
         psi.ArgumentList.Add("error");
         psi.ArgumentList.Add("-show_entries");
-        psi.ArgumentList.Add("stream=codec_type,codec_name,width,height");
+        psi.ArgumentList.Add("stream=codec_type,codec_name,width,height,r_frame_rate");
         psi.ArgumentList.Add("-of");
         psi.ArgumentList.Add("json");
         psi.ArgumentList.Add(rtspUrl);
@@ -49,6 +54,7 @@ public static class StreamProbe
         var height = 0;
         var videoCodec = string.Empty;
         string? audioCodec = null;
+        var fps = 25.0;
 
         foreach (var stream in doc.RootElement.GetProperty("streams").EnumerateArray())
         {
@@ -71,6 +77,10 @@ public static class StreamProbe
                 }
 
                 videoCodec = stream.TryGetProperty("codec_name", out var vc) ? vc.GetString() ?? string.Empty : string.Empty;
+                if (stream.TryGetProperty("r_frame_rate", out var rate))
+                {
+                    fps = ParseFrameRate(rate.GetString());
+                }
             }
             else if (t == "audio")
             {
@@ -83,6 +93,23 @@ public static class StreamProbe
             throw new InvalidOperationException($"無法取得解析度：{rtspUrl}");
         }
 
-        return new StreamProbeInfo(width, height, videoCodec, audioCodec);
+        return new StreamProbeInfo(width, height, videoCodec, audioCodec, fps);
+    }
+
+    /// <summary>解析 ffprobe 之 "15/1"、「30/1」等幀率字串。</summary>
+    private static double ParseFrameRate(string? value)
+    {
+        if (string.IsNullOrEmpty(value))
+        {
+            return 25;
+        }
+
+        var parts = value.Split('/');
+        if (parts.Length != 2 || !int.TryParse(parts[0], out var num))
+        {
+            return 25;
+        }
+
+        return num;
     }
 }
