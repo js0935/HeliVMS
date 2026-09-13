@@ -50,7 +50,7 @@
                         <RowDefinition Height="*"/>
                         <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
-                    <TextBlock Text="事件清單（motion / offline / manual…）" Foreground="{StaticResource Brand.TextDim}" Margin="8,6" FontSize="11"/>
+                    <TextBlock Text="事件清單（motion / offline / ai_person / ai_vehicle…）" Foreground="{StaticResource Brand.TextDim}" Margin="8,6" FontSize="11"/>
                     <ListView x:Name="EventList" Grid.Row="1"
                               SelectionChanged="OnEventSelected"
                               MouseDoubleClick="OnEventDoubleClick"
@@ -120,16 +120,22 @@
                     </Grid.RowDefinitions>
                     <TextBlock Text="事件快照" Foreground="{StaticResource Brand.TextDim}" Margin="8,6" FontSize="11"/>
                     <Border Grid.Row="1" Background="#05090E" Margin="6">
-                        <Grid>
+                        <Grid x:Name="SnapGrid" SizeChanged="OnSnapGridSizeChanged">
                             <Image x:Name="SnapshotImage" Stretch="Uniform" RenderOptions.BitmapScalingMode="Linear"/>
-                            <TextBlock x:Name="SnapshotHint" Text="選擇事件以顯示觸發快照"
+                            <Canvas x:Name="SnapOverlay" IsHitTestVisible="False"
+                                    HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            <TextBlock x:Name="SnapshotHint" Text="選擇 AI／運動事件以顯示觸發快照"
                                        HorizontalAlignment="Center" VerticalAlignment="Center"
                                        Foreground="{StaticResource Brand.TextDim}" FontSize="12"/>
                         </Grid>
                     </Border>
-                    <TextBlock x:Name="SnapshotPathText" Grid.Row="2"
-                               Foreground="{StaticResource Brand.TextDim}" FontSize="10"
-                               Margin="8,4" TextTrimming="CharacterEllipsis"/>
+                    <StackPanel Grid.Row="2" Margin="8,2">
+                        <TextBlock x:Name="SnapshotDetailText" Foreground="LightSteelBlue"
+                                   FontSize="11" TextWrapping="Wrap" Margin="0,0,0,2" MaxHeight="34"
+                                   TextTrimming="CharacterEllipsis"/>
+                        <TextBlock x:Name="SnapshotPathText" Foreground="{StaticResource Brand.TextDim}"
+                                   FontSize="10" TextTrimming="CharacterEllipsis"/>
+                    </StackPanel>
                 </Grid>
             </Border>
         </Grid>

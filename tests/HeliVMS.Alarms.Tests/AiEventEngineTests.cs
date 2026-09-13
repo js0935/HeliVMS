@@ -85,6 +85,9 @@ public class AiEventEngineTests : IDisposable
         Assert.NotNull(row.SnapshotPath);
         Assert.True(File.Exists(row.SnapshotPath));
         Assert.Contains("person conf=0.92", row.Detail);
+        Assert.True(DetectionDetail.TryParse(row.Detail, out var parsed));
+        Assert.Equal("person", parsed.Class);
+        Assert.Equal(0.92f, parsed.Confidence);
     }
 
     [Fact]

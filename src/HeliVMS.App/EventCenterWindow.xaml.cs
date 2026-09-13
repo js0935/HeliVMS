@@ -1,8 +1,11 @@
 using System.IO;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using System.Windows.Shapes;
+using HeliVMS.Alarms;
 using HeliVMS.Storage;
 
 namespace HeliVMS.App;
@@ -13,6 +16,8 @@ public partial class EventCenterWindow : Window
     private readonly SqliteStore _store;
     private readonly ChannelRepository _channels;
     private readonly AlarmEventRepository _events;
+    private Size _snapSource;
+    private IReadOnlyList<Detection> _snapDetections = [];
 
     public EventCenterWindow(SqliteStore store)
     {
@@ -45,6 +50,8 @@ public partial class EventCenterWindow : Window
         public Brush TypeBrush =>
             EventType switch
             {
+                "ai_person" => Brushes.Tomato,
+                "ai_vehicle" => new SolidColorBrush(Color.FromRgb(0x64, 0xB5, 0xF6)),
                 "offline" => Brushes.LightCoral,
                 "line_cross" or "intrusion" => Brushes.Gold,
                 _ => Brushes.LightSteelBlue,
@@ -145,7 +152,7 @@ public partial class EventCenterWindow : Window
         var row = EventList.SelectedItem as EventRow;
         AckButton.IsEnabled = row != null && !row.Acknowledged;
         UnackButton.IsEnabled = row != null && row.Acknowledged;
-        ShowSnapshot(row?.SnapshotPath);
+        ShowSnapshot(row?.SnapshotPath, row?.Detail);
     }
 
     private void OnEventDoubleClick(object sender, MouseButtonEventArgs e)
@@ -176,9 +183,13 @@ public partial class EventCenterWindow : Window
         DoRefresh();
     }
 
-    private void ShowSnapshot(string? path)
+    private void ShowSnapshot(string? path, string? detail)
     {
         ClearSnapshot();
+        SnapshotDetailText.Text = string.IsNullOrEmpty(detail)
+            ? "此事件無明細。"
+            : $"明細：{detail}";
+
         if (string.IsNullOrEmpty(path) || !File.Exists(path))
         {
             SnapshotHint.Text = string.IsNullOrEmpty(path) ? "此事件無快照。" : "快照檔已不在（可能已清理）。";
@@ -195,12 +206,85 @@ public partial class EventCenterWindow : Window
             bmp.EndInit();
             bmp.Freeze();
             SnapshotImage.Source = bmp;
+            _snapSource = new Size(bmp.PixelWidth, bmp.PixelHeight);
             SnapshotPathText.Text = path;
             SnapshotImage.Stretch = Stretch.Uniform;
+            SnapshotHint.Visibility = Visibility.Collapsed;
+
+            if (DetectionDetail.TryParse(detail, out var det))
+            {
+                _snapDetections = [det];
+            }
         }
         catch (Exception ex) when (ex is IOException or System.Runtime.InteropServices.COMException or NotSupportedException)
         {
             SnapshotHint.Text = "無法開啟快照：" + ex.Message;
+            SnapshotHint.Visibility = Visibility.Visible;
+        }
+
+        LayoutOverlay();
+    }
+
+    private void OnSnapGridSizeChanged(object sender, SizeChangedEventArgs e) => LayoutOverlay();
+
+    private void LayoutOverlay()
+    {
+        SnapOverlay.Children.Clear();
+        if (_snapSource.Width <= 0 || _snapDetections.Count == 0)
+        {
+            return;
+        }
+
+        var availW = Math.Max(0, SnapGrid.ActualWidth - 12);
+        var availH = Math.Max(0, SnapGrid.ActualHeight - 12);
+        if (availW <= 0 || availH <= 0)
+        {
+            return;
+        }
+
+        var scale = Math.Min(availW / _snapSource.Width, availH / _snapSource.Height);
+        if (scale <= 0)
+        {
+            return;
+        }
+
+        SnapOverlay.Width = _snapSource.Width * scale;
+        SnapOverlay.Height = _snapSource.Height * scale;
+
+        foreach (var d in _snapDetections)
+        {
+            var x = d.X * SnapOverlay.Width;
+            var y = d.Y * SnapOverlay.Height;
+            var w = d.W * SnapOverlay.Width;
+            var h = d.H * SnapOverlay.Height;
+            var brush = d.Class is "car" or "bus" or "truck" or "motorcycle" or "bicycle"
+                ? Brushes.DeepSkyBlue
+                : Brushes.Tomato;
+
+            var rect = new Rectangle
+            {
+                Width = w,
+                Height = h,
+                Stroke = brush,
+                StrokeThickness = Math.Max(1.5, 2.0 / scale),
+                Fill = new SolidColorBrush(Color.FromArgb(20, 255, 255, 255)),
+            };
+            Canvas.SetLeft(rect, x);
+            Canvas.SetTop(rect, y);
+            SnapOverlay.Children.Add(rect);
+
+            var label = new TextBlock
+            {
+                Text = $"{d.Class} {d.Confidence:0.00}",
+                FontSize = 11,
+                Foreground = Brushes.White,
+                Background = new SolidColorBrush(Color.FromArgb(170, 8, 14, 22)),
+                Padding = new Thickness(3, 0, 3, 0),
+            };
+            var ly = y - 16 >= 0 ? y - 16 : y;
+            Canvas.SetLeft(label, x);
+            Canvas.SetTop(label, ly);
+            SnapOverlay.Children.Add(label);
         }
     }
 
@@ -208,5 +292,8 @@ public partial class EventCenterWindow : Window
     {
         SnapshotImage.Source = null;
         SnapshotPathText.Text = "";
+        SnapOverlay.Children.Clear();
+        _snapSource = default;
+        _snapDetections = [];
     }
 }
