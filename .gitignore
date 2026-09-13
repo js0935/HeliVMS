@@ -31,6 +31,9 @@ private.key
 private.pem
 *.pfx
 *.jks
-# ²Ä¤T¤è¦øªA¾¹¤G¶i¦ì
+auto.crt
+auto.key
+# è‡ªå‹•ç°½ç« æ†‘è­‰ï¼Œä¸å¯å¤–æµ
+# ï¿½Ä¤Tï¿½ï¿½ï¿½ï¿½Aï¿½ï¿½ï¿½Gï¿½iï¿½ï¿½
 Tools/media-server/
 
