@@ -5,7 +5,8 @@
         Width="980" Height="620"
         WindowStartupLocation="CenterOwner"
         Background="#0B1622" Foreground="White"
-        Loaded="OnLoaded" Closing="OnClosing">
+        Loaded="OnLoaded" Closing="OnClosing"
+        PreviewKeyDown="OnPreviewKeyDown">
 
     <Grid Margin="12">
         <Grid.ColumnDefinitions>

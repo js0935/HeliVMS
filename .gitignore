@@ -34,6 +34,8 @@ private.pem
 auto.crt
 auto.key
 # 自動簽章憑證，不可外流
-# �ĤT����A���G�i��
 Tools/media-server/
+
+# --- 對話備份（含機密，不入庫）---
+docs/new-session---*.json
 

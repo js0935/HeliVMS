@@ -32,6 +32,7 @@ public partial class PlaybackWindow : Window
     private IReadOnlyList<SegmentItem> _bandSegments = [];
     private List<AlarmEventRecord> _events = [];
     private bool _seeking;
+    private bool _pendingFramePause;
     private readonly Rectangle _cursor = new() { Width = 2, Fill = Brushes.White, IsHitTestVisible = false };
 
     private sealed record SegmentItem(SegmentRecord Segment, string StartLabel, string DurationLabel, string SizeLabel);
@@ -227,6 +228,112 @@ public partial class PlaybackWindow : Window
         }
     }
 
+    /// <summary>全視窗鍵盤快捷鍵（M17，對齊 ARCHITECTURE §8.5）：Space 播放/暫停、方向鍵±10秒、Ctrl 方向鍵±1分、Shift 方向鍵±10分、F 逐幀、Esc 停止。</summary>
+    private void OnPreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if (Keyboard.FocusedElement is System.Windows.Controls.TextBox
+            or System.Windows.Controls.ComboBox
+            or System.Windows.Controls.DatePicker
+            or System.Windows.Controls.Slider)
+        {
+            return;
+        }
+
+        var ctrl = (Keyboard.Modifiers & ModifierKeys.Control) != 0;
+        var shift = (Keyboard.Modifiers & ModifierKeys.Shift) != 0;
+
+        switch (e.Key)
+        {
+            case Key.Space:
+                if (_current is not null)
+                {
+                    e.Handled = true;
+                    OnPlayPauseClicked(this, new RoutedEventArgs());
+                }
+                break;
+
+            case Key.Left:
+                e.Handled = true;
+                SeekBy(ctrl ? -60 : shift ? -600 : -10);
+                break;
+
+            case Key.Right:
+                e.Handled = true;
+                SeekBy(ctrl ? 60 : shift ? 600 : 10);
+                break;
+
+            case Key.F when !ctrl && !shift:
+                e.Handled = true;
+                StepFrame();
+                break;
+
+            case Key.Escape:
+                e.Handled = true;
+                StopPlayback();
+                break;
+        }
+    }
+
+    /// <summary>依目前位置向後/向前跳轉指定秒數；越過片段邊界時自動跨段，最後 clamp 於當日整段範圍。</summary>
+    private void SeekBy(double seconds)
+    {
+        if (_current is null || _bandSegments.Count == 0)
+        {
+            return;
+        }
+
+        var targetUtc = _current.StartUtc.AddSeconds(_posInside + seconds);
+        foreach (var item in _bandSegments)
+        {
+            var seg = item.Segment;
+            var end = seg.EndUtc ?? seg.StartUtc.AddSeconds(seg.DurationSec ?? 10);
+            if (seg.StartUtc <= targetUtc && targetUtc <= end)
+            {
+                SegmentList.SelectedItem = item;
+                PlayFrom(seg, Math.Max(0, (targetUtc - seg.StartUtc).TotalSeconds));
+                return;
+            }
+        }
+
+        var first = _bandSegments[0].Segment;
+        if (targetUtc < first.StartUtc)
+        {
+            SegmentList.SelectedItem = _bandSegments[0];
+            PlayFrom(first, 0);
+            return;
+        }
+
+        var lastItem = _bandSegments[^1];
+        var last = lastItem.Segment;
+        SegmentList.SelectedItem = lastItem;
+        PlayFrom(last, Math.Max(0, (last.DurationSec ?? 1) - 0.001));
+    }
+
+    /// <summary>逐幀（M17）：播放中先暫停，再向前推進約一幀（依 15fps 估約 66ms），並於首幀到達後再次暫停。</summary>
+    private void StepFrame()
+    {
+        if (_current is null)
+        {
+            return;
+        }
+
+        if (_session is not null && !_stopping && PlayPauseButton.Content.ToString() == "暫停")
+        {
+            OnPlayPauseClicked(this, new RoutedEventArgs());
+        }
+
+        var dur = _current.DurationSec ?? 0;
+        if (dur <= 0)
+        {
+            return;
+        }
+
+        var frame = 1.0 / 15.0;
+        var target = Math.Min(_posInside + frame, dur);
+        PlayFrom(_current, target);
+        _pendingFramePause = true;
+    }
+
     private double GetSpeed() => SpeedCombo.SelectedIndex switch
     {
         0 => 0.5,
@@ -299,6 +406,13 @@ public partial class PlaybackWindow : Window
             }
 
             UpdateCursor(_posInside);
+
+            if (_pendingFramePause)
+            {
+                _pendingFramePause = false;
+                StopPlayback(keepSelection: true);
+                StatusText.Text = "已暫停";
+            }
         });
     }
 
