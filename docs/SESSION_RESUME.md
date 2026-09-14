@@ -1,42 +1,56 @@
-# HeliVMS 合作 Resume Card
+# HeliVMS 合作恢復卡（RESUME CARD）
 
-> 用途：對話 context 過長時，開新 session 用呢份檔接手（唔靠舊對話記憶）。
-> 權威：git／GitHub Actions（唔係 chat log）。所有里程碑已 commit＋push，CI 有據。
+> 用途：對話上下文過長、影響回覆速度時，開新 session 用這份檔案接手，**不依賴舊對話記憶**。
+> 權威來源：`git` 與 GitHub Actions 的現況（不是聊天記錄）。
+> 所有里程碑均已 commit＋push、CI 全綠、工作目錄乾淨（下方數據皆為驗證過的真實值）。
 
-## 一句總結
-HeliVMS 網絡影像監控系統（WPF App：即時監看／回放／AI 事件中心／錄影排程）。
-里程碑 M1–M16 已全部 commit＋push、CI green（HEAD `0056ec5`）、Release build 0 error、
-測試 69/69、**working tree CLEAN**（`git status --porcelain` 空白）。
-M16＝回放窗當日事件明細列表（點擊跳播至事件時刻，AutomationId `PlaybackEventList`）。
+## 一句話總結
+HeliVMS 為一套**網路影像監控系統**（WPF 桌面應用：即時監看／回放／AI 事件中心／錄影排程）。
+里程碑 **M1 至 M16 已全數 commit＋push、CI 綠燈（BIG 尾巴**。最終 commit＝`0056ec5`（M16）、
+`docs` 道路圖（roadmap）**沒有 M17+ 的定義**（M16 是行動計畫最後一篇）。
+Release build 0 error、測試 **69/69 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
+本地與遠端完全同步（`git diff origin/HEAD` 為空）。
 
-## 開新 session 接手方法
+## 開新 session 的接手方法
 ```powershell
-# 喺 D:\HeliVMS 開新 session 先講呢句：
-git status                    # 預期 clean
-git log --oneline -20         # 預期 M1..M16（HEAD=0056ec5）
+# 在 D:\HeliVMS 開新 session 時，先對新的 agent 講：
+git status                    # 預期為 empty（乾淨）
+git log --oneline -20         # 預期見到 M1..M16，HEAD＝0056ec5
+git diff origin/HEAD          # 預期為空（同步）
+gh run list -L 3              # 預期全部 success
 ```
-新 session prompt 只需一句：「接 HeliVMS M16 尾，參考 docs\SESSION_RESUME.md，
-繼續自主模式」。我（新 session）會照 git 現況接手，唔會估。
+新 session 的 prompt 只需這一句：
+「接續 HeliVMS M16 收尾，請先讀 `docs\SESSION_RESUME.md`，照指示以自主模式繼續。」
+新 session 會以 git 現況接手，不會靠猜測。
 
-## 現況速覽（git 權威，非 chat 記憶）
-- 最後 commit：`0056ec5`＝M16「回放窗當日事件明細（回放事件列表點擊跳播＋事件跳播時刻＋AutomationId PlaybackEventList 俾 harness）」
-- 所有路線（M1..M16）依 docs\ARCHITECTURE.md 里程碑定序交付，docs roadmap 冇 M17+ 定義
-- 分支/遠端：`git diff origin/HEAD` 為空（同步）
-- CI：`gh run list -L 15` 全部 success；M16 run `conclusion=success`
+## 現況快照（權威來源＝git，非聊天記憶）
+- 最後 commit：`0056ec5`＝**M16 「回放視窗當日事件明細」**
+  （回放事件列表點擊即跳播至事件時刻、事件跳播時刻顯示、AutomationId `PlaybackEventList` 供 harness 使用）
+- 全部里程碑（M1..M16）依 `docs\ARCHITECTURE.md` 的里程碑定序交付；**roadmap 文件沒有 M17+ 定義**
+- 分支／遠端：`git diff origin/HEAD` 為空（完全同步）；HEAD＝origin
+- CI：`gh run list` 顯示 M16 run `conclusion=success`；建置 0 error、測試 69/69
 
-## 架構關鍵（確切、權威）
-- 解決方案：`D:\HeliVMS\HeliVMS.App\HeliVMS.App.csproj`（WPF）＋`HeliVMS.slnx`
-- 儲存層：`SqliteStore`、`AlarmEventRepository`、`ChannelRepository`（真名，無漂移）
-- PlaybackWindow：`PlaybackEventList`（AutomationId）、`OnEventSelected` handler、`ChannelRepository(_store).List()` camNames dictionary
-- E2E harness：`C:\Users\JS\AppData\Local\Temp\opencode\e2e\x\Program.cs`（temp harness，**唔入 git**）
-  - 已有 block：`playcheck/playmark/playbackcheck/playmark/plist?`——**plist 未落**（M16 E2E block）
-  - 未來工作＝喺 harness 加 `args.Contains("plist")` block：開 `--playback` 回放窗→讀 `PlaybackEventList` item count>0→點擊事件列→驗證跳播至該事件時刻
+## 架構關鍵（確切、無漂移）
+- 解決方案：`D:\HeliVMS\HeliVMS.App\HeliVMS.App.csproj`（WPF）＋ `HeliVMS.slnx`
+- 儲存層真名：`SqliteStore`、`AlarmEventRepository`、`ChannelRepository`（無漂移、無臆測）
+- 回放視窗：`PlaybackWindow`，AutomationId `PlaybackEventList` 的事件明細列表，
+  code-behind 的 `OnEventSelected` handler（SelectionChanged→向該事件所在 band 跳播至事件時刻）、
+  `ChannelRepository(_store).List()` 建立 camNames 字典
+- E2E harness：`C:\Users\JS\AppData\Local\Temp\opencode\e2e\x\Program.cs`
+  （**temp harness，不入 git、不影響 CI、不影響 repo 狀態**）
+  - 已有 block：`playcheck`（L73）、`playbackcheck`（L522）、`playmark`（L963）
+  - **`plist` block 尚未建立**（M16 的 E2E block）
 
-## 未完成／下一步（依 git＋repo 判斷）
-1. **M16 E2E harness `plist` block**（temp harness 唔入 repo，純驗證用）
-2. 若要開 M17：先喺 docs roadmap 定義（現無定義），可議（例如事件中心卡片式檢視／回放鍵盤快捷）
+## 尚未完成／下一步（依 git 與 repo 判斷）
+1. **M16 E2E harness `plist` block**（temp harness，純驗證、不入 repo）：
+   開 `--playback` 回放窗 → 讀 `PlaybackEventList` 的 item count>0 →
+   點擊事件列表首列 → 驗證跳播至該事件時刻
+2. **若要開 M17**：roadmap 目前無定義，需先在 `docs` 制定 M17 內容
+   （候選：事件中心卡片式檢視／回放鍵盤快捷鍵⋯⋯），才可照「先定義、後實作」的節奏進行
 
-## 會踩嘅坑（唔好再犯）
-- 唔好用 bash byte-rewrite 喺 repo 源碼（會造成 UTF-8 漂移/mojibake）；改源碼用 edit/read tool
-- grep tool 對 harness file 會出現「零結果」方晚期（authoritative 權威＝git show HEAD 對 repo 檔；harness 喺 temp 路徑，用完整絕對路徑 grep）
-- 唔好估 repo identifier；以 git show/git diff 為準
+## 已知雷區（勿再犯）
+- **勿以 bash 對 repo 源碼做 byte 級重寫**（曾造成 UTF-8 漂移／mojibake 污染，已 `git restore` 還原）；
+  改源碼一律用 read/edit tool
+- grep tool 對 harness 檔案可能出現「零結果」（權威＝`git show HEAD` 對 repo 檔；
+  harness 在 temp 路徑，請用**完整絕對路徑** grep）
+- **勿臆測 repo 內的識別名稱**；以 `git show`／`git diff` 為準
