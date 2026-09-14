@@ -49,6 +49,10 @@ public partial class EventCenterWindow : Window
 
         public string AckLabel => Acknowledged ? "已確認" : "未確認";
 
+        public Brush AckBrush => Acknowledged
+            ? new SolidColorBrush(Color.FromRgb(0x2A, 0x5C, 0x8A))
+            : new SolidColorBrush(Color.FromRgb(0x8A, 0x6F, 0x3A));
+
         public string? SnapshotPath { get; init; }
 
         public Brush TypeBrush =>
@@ -60,6 +64,8 @@ public partial class EventCenterWindow : Window
                 "line_cross" or "intrusion" => Brushes.Gold,
                 _ => Brushes.LightSteelBlue,
             };
+        
+        public BitmapImage? ThumbnailSource { get; set; }
     }
 
     private void OnLoaded(object sender, RoutedEventArgs e)
@@ -102,9 +108,33 @@ public partial class EventCenterWindow : Window
         }
     }
 
-    private void OnChannelSelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e) => DoRefresh();
+    private void OnChannelSelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
+    {
+        if (_events is null) return;
+        DoRefresh();
+    }
 
-    private void OnRefreshClicked(object sender, RoutedEventArgs e) => DoRefresh();
+    private void OnRefreshClicked(object sender, RoutedEventArgs e)
+    {
+        if (_events is null) return;
+        DoRefresh();
+    }
+
+    private void OnViewToggleClicked(object sender, RoutedEventArgs e)
+    {
+        if (EventList.Visibility == Visibility.Visible)
+        {
+            EventList.Visibility = Visibility.Collapsed;
+            CardList.Visibility = Visibility.Visible;
+            ViewToggleButton.Content = "清單";
+        }
+        else
+        {
+            EventList.Visibility = Visibility.Visible;
+            CardList.Visibility = Visibility.Collapsed;
+            ViewToggleButton.Content = "卡片";
+        }
+    }
 
     private void DoRefresh()
     {
@@ -117,7 +147,7 @@ public partial class EventCenterWindow : Window
 
         var list = _events.ListByRange(channelId, from, to);
         var byId = _channels.List().ToDictionary(x => x.Id);
-        EventList.ItemsSource = list
+        var eventRows = list
             .Select(ev => new EventRow
             {
                 Id = ev.Id,
@@ -135,8 +165,36 @@ public partial class EventCenterWindow : Window
             })
             .ToList();
 
+        // 載入縮圖（background, non-blocking）
+        foreach (var row in eventRows)
+        {
+            if (!string.IsNullOrEmpty(row.SnapshotPath) && File.Exists(row.SnapshotPath))
+            {
+                try
+                {
+                    var bmp = new BitmapImage();
+                    bmp.BeginInit();
+                    bmp.CacheOption = BitmapCacheOption.OnLoad;
+                    bmp.CreateOptions = BitmapCreateOptions.IgnoreImageCache;
+                    bmp.UriSource = new Uri(row.SnapshotPath, UriKind.Absolute);
+                    bmp.DecodePixelWidth = 48;
+                    bmp.EndInit();
+                    bmp.Freeze();
+                    row.ThumbnailSource = bmp;
+                }
+                catch
+                {
+                    // 縮圖載入失敗，保持 null
+                }
+            }
+        }
+
+        EventList.ItemsSource = eventRows;
+        CardList.ItemsSource = eventRows;
+
         CountText.Text = $"共 {list.Count} 筆事件";
         EventList.SelectedItem = null;
+        CardList.SelectedItem = null;
         ClearSnapshot();
     }
 
@@ -160,6 +218,27 @@ public partial class EventCenterWindow : Window
         UnackButton.IsEnabled = row != null && row.Acknowledged;
         PlaybackButton.IsEnabled = row != null;
         ShowSnapshot(row?.SnapshotPath, row?.Detail);
+        
+        // 同步卡片檢視的選中狀態
+        if (row != null && CardList.Visibility == Visibility.Visible)
+        {
+            CardList.SelectedItem = row;
+        }
+    }
+
+    private void OnCardSelected(object sender, SelectionChangedEventArgs e)
+    {
+        var row = CardList.SelectedItem as EventRow;
+        AckButton.IsEnabled = row != null && !row.Acknowledged;
+        UnackButton.IsEnabled = row != null && row.Acknowledged;
+        PlaybackButton.IsEnabled = row != null;
+        ShowSnapshot(row?.SnapshotPath, row?.Detail);
+        
+        // 同步網格檢視的選中狀態
+        if (row != null && EventList.Visibility == Visibility.Visible)
+        {
+            EventList.SelectedItem = row;
+        }
     }
 
     private void OnPlaybackClicked(object sender, RoutedEventArgs e)

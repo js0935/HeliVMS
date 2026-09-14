@@ -33,6 +33,11 @@
             <Button x:Name="RefreshButton" Content="重新整理" Click="OnRefreshClicked"
                     Padding="10,4" Margin="18,0,0,0" VerticalAlignment="Center"
                     Foreground="White" Background="#2A5C8A" BorderThickness="0"/>
+            
+            <Button x:Name="ViewToggleButton" Content="卡片" Click="OnViewToggleClicked"
+                    Padding="10,4" Margin="8,0,0,0" VerticalAlignment="Center"
+                    Foreground="White" Background="#2A7F6E" BorderThickness="0"/>
+            
             <TextBlock x:Name="CountText" Foreground="{StaticResource Brand.TextDim}"
                        VerticalAlignment="Center" Margin="14,0,0,0" FontSize="11"/>
         </StackPanel>
@@ -51,6 +56,8 @@
                         <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
                     <TextBlock Text="事件清單（motion / offline / ai_person / ai_vehicle…）" Foreground="{StaticResource Brand.TextDim}" Margin="8,6" FontSize="11"/>
+                    
+                    <!-- 網格檢視（既有） -->
                     <ListView x:Name="EventList" Grid.Row="1"
                               SelectionChanged="OnEventSelected"
                               MouseDoubleClick="OnEventDoubleClick"
@@ -102,6 +109,51 @@
                             </GridView>
                         </ListView.View>
                     </ListView>
+                    
+                    <!-- 卡片檢視（新增） -->
+                    <ListBox x:Name="CardList" Grid.Row="1" Visibility="Collapsed"
+                             Background="Transparent" BorderThickness="0" Foreground="White"
+                             SelectionChanged="OnCardSelected">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <Border Background="#1A2C49" BorderBrush="#2A4A73" BorderThickness="1" 
+                                        Margin="0,0,0,8" Padding="8" CornerRadius="4">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="60"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        
+                                        <!-- 縮圖 -->
+                                        <Border Grid.Column="0" Background="#05090E" Width="48" Height="36" 
+                                                CornerRadius="2" VerticalAlignment="Center">
+                                            <Image x:Name="ThumbImage" Source="{Binding ThumbnailSource}" 
+                                                   Stretch="Uniform" RenderOptions.BitmapScalingMode="LowQuality"/>
+                                        </Border>
+                                        
+                                        <!-- 事件資訊 -->
+                                        <StackPanel Grid.Column="1" Margin="8,0,0,0" VerticalAlignment="Center">
+                                            <StackPanel Orientation="Horizontal">
+                                                <Border Background="{Binding TypeBrush}" CornerRadius="3" 
+                                                        Padding="4,1" VerticalAlignment="Center">
+                                                    <TextBlock Text="{Binding EventType}" FontSize="9" Foreground="White"/>
+                                                </Border>
+                                                <Border Background="{Binding AckBrush}" CornerRadius="3" 
+                                                        Padding="4,1" Margin="4,0,0,0" VerticalAlignment="Center">
+                                                    <TextBlock Text="{Binding AckLabel}" FontSize="9" Foreground="White"/>
+                                                </Border>
+                                            </StackPanel>
+                                            <TextBlock Text="{Binding StartLabel}" FontSize="11" Foreground="White" Margin="0,3,0,0"/>
+                                            <TextBlock Text="{Binding ChannelName}" FontSize="10" Foreground="{StaticResource Brand.TextDim}"/>
+                                            <TextBlock Text="{Binding Detail}" FontSize="10" Foreground="LightSteelBlue" 
+                                                       TextTrimming="CharacterEllipsis" MaxWidth="300"/>
+                                        </StackPanel>
+                                    </Grid>
+                                </Border>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                    
                     <StackPanel Orientation="Horizontal" Grid.Row="2" Margin="8">
                         <Button x:Name="AckButton" Content="標記為已確認" Click="OnAckClicked" IsEnabled="False"
                                 Padding="10,4" Foreground="White" Background="#2A5C8A" BorderThickness="0"/>
