@@ -34,9 +34,11 @@ public sealed class ChannelSession : IDisposable
         if (motionEnabled)
         {
             _motion = new MotionEventEngine(channelId, new AlarmEventRepository(_store), snapshotsRoot);
+            _motion.EventInserted += (_, r) => EventInserted?.Invoke(this, r);
             if (detection is not null)
             {
                 _ai = new AiEventEngine(channelId, new AlarmEventRepository(_store), snapshotsRoot, detection);
+                _ai.EventInserted += (_, r) => EventInserted?.Invoke(this, r);
                 _ai.DetectionsReady += (_, d) =>
                 {
                     LastAiUtc = d.SnapshotUtc;
@@ -66,6 +68,9 @@ public sealed class ChannelSession : IDisposable
     public event EventHandler<VideoFrame>? FrameArrived;
 
     public event EventHandler<RtspState>? StateChanged;
+
+    /// <summary>該頻道事件已寫入 alarm_events（通知中心訂閱用）。</summary>
+    public event EventHandler<AlarmEventRecord>? EventInserted;
 
     /// <summary>該頻道每幀完整 AI 偵測（即時監看疊加用）。</summary>
     public event EventHandler<DetectionsFrame>? AiDetections;

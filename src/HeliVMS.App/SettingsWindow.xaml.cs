@@ -3,6 +3,7 @@ using System.IO;
 using System.Reflection;
 using System.Windows;
 using System.Windows.Controls;
+using HeliVMS.Alarms;
 using HeliVMS.Licensing;
 using HeliVMS.Recording;
 using HeliVMS.Shared.Models;
@@ -52,6 +53,7 @@ public partial class SettingsWindow : Window
         ReloadLicense();
         ReloadLaunchAvailability();
         ReloadChannels();
+        ReloadNotify();
 
         SettingsNav.SelectedIndex = 0;
     }
@@ -69,6 +71,7 @@ public partial class SettingsWindow : Window
         PageChannels.Visibility = visible == "頻道" ? Visibility.Visible : Visibility.Collapsed;
         PageLicense.Visibility = visible == "授權" ? Visibility.Visible : Visibility.Collapsed;
         PageLaunch.Visibility = visible == "功能" ? Visibility.Visible : Visibility.Collapsed;
+        PageNotify.Visibility = visible == "通知" ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private void ReloadQuota()
@@ -116,6 +119,47 @@ public partial class SettingsWindow : Window
         }
 
         return DefaultSnapshotDays;
+    }
+
+    private void ReloadNotify()
+    {
+        var cfg = NotificationSettings.Load(_settings);
+        NotifyEnabledBox.IsChecked = cfg.Enabled;
+        NotifyWebhookUrlBox.Text = cfg.WebhookUrl ?? string.Empty;
+        NotifySmtpEnabledBox.IsChecked = cfg.SmtpEnabled;
+        NotifySmtpHostBox.Text = cfg.SmtpHost ?? string.Empty;
+        NotifySmtpPortBox.Text = cfg.SmtpPort.ToString(CultureInfo.InvariantCulture);
+        NotifySmtpFromBox.Text = cfg.SmtpFrom ?? string.Empty;
+        NotifySmtpToBox.Text = string.Join(", ", cfg.SmtpTo);
+        NotifySmtpUserBox.Text = cfg.SmtpUser ?? string.Empty;
+        NotifySmtpPasswordBox.Password = string.Empty;   // 不預填密碼
+    }
+
+    private void OnApplyNotifyClicked(object sender, RoutedEventArgs e)
+    {
+        if (!int.TryParse(NotifySmtpPortBox.Text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var port) ||
+            port <= 0)
+        {
+            NotifyReportText.Text = "SMTP 埠必須是大於 0 的整數。";
+            return;
+        }
+
+        _settings.Set(NotificationSettings.EnabledKey, NotifyEnabledBox.IsChecked == true ? "true" : "false");
+        _settings.Set(NotificationSettings.WebhookUrlKey, NotifyWebhookUrlBox.Text.Trim());
+        _settings.Set(NotificationSettings.SmtpEnabledKey, NotifySmtpEnabledBox.IsChecked == true ? "true" : "false");
+        _settings.Set(NotificationSettings.SmtpHostKey, NotifySmtpHostBox.Text.Trim());
+        _settings.Set(NotificationSettings.SmtpPortKey, port.ToString(CultureInfo.InvariantCulture));
+        _settings.Set(NotificationSettings.SmtpFromKey, NotifySmtpFromBox.Text.Trim());
+        _settings.Set(NotificationSettings.SmtpToKey, NotifySmtpToBox.Text.Trim());
+        _settings.Set(NotificationSettings.SmtpUserKey, NotifySmtpUserBox.Text.Trim());
+
+        var password = NotifySmtpPasswordBox.Password;
+        if (!string.IsNullOrEmpty(password))
+        {
+            _settings.Set(NotificationSettings.SmtpPasswordKey, SecretProtector.Protect(password));
+        }
+
+        NotifyReportText.Text = "通知設定已套用（密碼以 DPAPI 加密保存）。";
     }
 
     private void OnApplySnapshotDaysClicked(object sender, RoutedEventArgs e)

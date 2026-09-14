@@ -40,6 +40,9 @@ public sealed class MotionEventEngine : IDisposable
     /// <summary>運動觸發（rising edge）通知 UI（參數為當下變動比例）。</summary>
     public event EventHandler<double>? MotionSignal;
 
+    /// <summary>事件已寫入 alarm_events 後引發（呼叫端勿在 handler 內做重工作；此處於鎖內 raise）。</summary>
+    public event EventHandler<AlarmEventRecord>? EventInserted;
+
     /// <summary>偵測幀數（診斷用）。</summary>
     public int FramesProcessed { get; private set; }
 
@@ -162,5 +165,15 @@ public sealed class MotionEventEngine : IDisposable
         var end = _lastMotionUtc > _armedUtc ? _lastMotionUtc : resolvedUtc;
         _repo.UpdateEnd(id, end, snapshotPath);
         _lastFrame = null;
+        EventInserted?.Invoke(this, new AlarmEventRecord
+        {
+            Id = id,
+            ChannelId = _channelId,
+            EventType = "motion",
+            StartUtc = _armedUtc,
+            EndUtc = end,
+            SnapshotPath = snapshotPath,
+            Detail = $"duration={duration:0}ms peak={_peakRatio:0%}",
+        });
     }
 }

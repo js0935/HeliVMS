@@ -52,6 +52,7 @@ public partial class MainWindow : Window
     private int _preFullscreenLayout = 1;
     private RecordingScheduler? _scheduler;
     private DetectionWriter? _detWriter;
+    private NotificationService? _notify;
 
     private static readonly SolidColorBrush BrOffline = new(Color.FromRgb(0x6B, 0x7B, 0x90));
     private static readonly SolidColorBrush BrConnecting = new(Color.FromRgb(0xD8, 0xA1, 0x2C));
@@ -204,6 +205,7 @@ public partial class MainWindow : Window
         }
 
         _detWriter = new DetectionWriter(_store);
+        _notify = new NotificationService(_store);
 
         _manager = new ChannelManager(_store, Path.Combine(_dataRoot, "recordings"), Path.Combine(_dataRoot, "snapshots"), DetectionModelResolver.TryResolve());
         _manager.FrameArrived += (_, e) => OnCellFrame(e.Cell, e.Frame);
@@ -216,6 +218,7 @@ public partial class MainWindow : Window
         };
         _manager.HealthRestart += (_, e) =>
             HintText.Text = $"頻道「{e.Channel.Name}」畫面逾時，已自動重連。";
+        _manager.AlarmEvent += (_, e) => _notify?.Enqueue(e.Record);
 
         _scheduler = new RecordingScheduler(
             _store,
@@ -1272,6 +1275,7 @@ public partial class MainWindow : Window
         _bgCts?.Cancel();
         _bgCts?.Dispose();
         _detWriter?.Dispose();
+        _notify?.Dispose();
         _manager?.Dispose();
         _store?.Dispose();
     }

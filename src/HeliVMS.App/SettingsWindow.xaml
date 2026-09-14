@@ -26,6 +26,7 @@
                     <ListBoxItem Content="頻道"/>
                     <ListBoxItem Content="授權"/>
                     <ListBoxItem Content="功能"/>
+                    <ListBoxItem Content="通知"/>
                 </ListBox>
             </DockPanel>
         </Border>
@@ -199,6 +200,64 @@
                             Width="92" Height="40" Margin="0,0,8,8" Background="#4A4A7A" BorderThickness="0"
                             Foreground="White"/>
                 </WrapPanel>
+            </StackPanel>
+
+            <!-- 通知 -->
+            <StackPanel x:Name="PageNotify" Visibility="Collapsed"
+                        AutomationProperties.AutomationId="SettingsPageNotify">
+                <TextBlock Text="通知" FontSize="17" FontWeight="Bold" Margin="0,0,0,12"/>
+                <TextBlock Text="事件發生時外送 Webhook／SMTP（M22，§18.5 通知平面）。設定以 app_settings 為權威。"
+                           Foreground="{StaticResource Brand.TextDim}" FontSize="11" Margin="0,0,0,10"
+                           TextWrapping="Wrap"/>
+                <CheckBox x:Name="NotifyEnabledBox" AutomationProperties.AutomationId="NotifyEnabledBox"
+                          Content="啟用通知中心" Foreground="White" Margin="0,0,0,10"/>
+
+                <TextBlock Text="Webhook 端點 URL（留空即停用）" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+                <TextBox x:Name="NotifyWebhookUrlBox" AutomationProperties.AutomationId="NotifyWebhookUrlBox"
+                         Width="420" Margin="0,4,0,12"
+                         Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="8,4"/>
+
+                <CheckBox x:Name="NotifySmtpEnabledBox" AutomationProperties.AutomationId="NotifySmtpEnabledBox"
+                          Content="啟用 SMTP 郵件通知" Foreground="White" Margin="0,0,0,8"/>
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Grid.Column="0" Margin="0,0,8,0">
+                        <TextBlock Text="SMTP 主機" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+                        <TextBox x:Name="NotifySmtpHostBox" AutomationProperties.AutomationId="NotifySmtpHostBox"
+                                 Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="8,4" Margin="0,4,0,10"/>
+                        <TextBlock Text="埠（預設 587）" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+                        <TextBox x:Name="NotifySmtpPortBox" AutomationProperties.AutomationId="NotifySmtpPortBox"
+                                 Text="587" Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="8,4" Margin="0,4,0,10"/>
+                        <TextBlock Text="寄件者地址" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+                        <TextBox x:Name="NotifySmtpFromBox" AutomationProperties.AutomationId="NotifySmtpFromBox"
+                                 Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="8,4" Margin="0,4,0,10"/>
+                    </StackPanel>
+                    <StackPanel Grid.Column="1" Margin="8,0,0,0">
+                        <TextBlock Text="收件者（逗號分隔）" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+                        <TextBox x:Name="NotifySmtpToBox" AutomationProperties.AutomationId="NotifySmtpToBox"
+                                 Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="8,4" Margin="0,4,0,10"/>
+                        <TextBlock Text="帳號（選填；留空＝匿名）" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+                        <TextBox x:Name="NotifySmtpUserBox" AutomationProperties.AutomationId="NotifySmtpUserBox"
+                                 Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="8,4" Margin="0,4,0,10"/>
+                        <TextBlock Text="密碼（留空＝不變更；以 DPAPI 加密保存）"
+                                   Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+                        <PasswordBox x:Name="NotifySmtpPasswordBox"
+                                     AutomationProperties.AutomationId="NotifySmtpPasswordBox"
+                                     Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="8,4" Margin="0,4,0,10"/>
+                    </StackPanel>
+                </Grid>
+
+                <DockPanel>
+                    <Button x:Name="NotifyApplyButton" AutomationProperties.AutomationId="NotifyApplyButton"
+                            Content="套用通知設定" Click="OnApplyNotifyClicked"
+                            DockPanel.Dock="Left" Padding="12,6"
+                            Foreground="White" Background="#2A5C8A" BorderThickness="0"/>
+                    <TextBlock x:Name="NotifyReportText" AutomationProperties.AutomationId="NotifyReportText"
+                               Margin="12,0,0,0" VerticalAlignment="Center" TextWrapping="Wrap"/>
+                </DockPanel>
             </StackPanel>
         </Grid>
     </Grid>

@@ -59,6 +59,9 @@ public sealed class ChannelManager : IDisposable
     /// <summary>單一頻道完整 AI 偵測（cell 對應監看格）。</summary>
     public event EventHandler<(int Cell, DetectionsFrame Frame)>? AiDetections;
 
+    /// <summary>單一頻道事件已寫入 alarm_events（通知中心訂閱用）。</summary>
+    public event EventHandler<(int Cell, AlarmEventRecord Record)>? AlarmEvent;
+
     public bool HasActiveSessions { get; private set; }
 
     /// <summary>依頻道清單連線到前 <paramref name="count"/> 路（自 <paramref name="startIndex"/> 起循環）。</summary>
@@ -81,6 +84,7 @@ public sealed class ChannelManager : IDisposable
             session.FrameArrived += (_, f) => FrameArrived?.Invoke(this, (cell, f));
             session.StateChanged += (_, st) => StateChanged?.Invoke(this, (cell, ch, st));
             session.AiDetections += (_, d) => AiDetections?.Invoke(this, (cell, d));
+            session.EventInserted += (_, r) => AlarmEvent?.Invoke(this, (cell, r));
             _sessions[ch.Id] = session;
 
             await session.StartMonitoringAsync();

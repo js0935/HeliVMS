@@ -55,6 +55,9 @@ public sealed class AiEventEngine : IDisposable
     /// <summary>每幀完整偵測結果（供即時監看疊加）；SnapshotUtc 對應取樣幀時間。</summary>
     public event EventHandler<DetectionsFrame>? DetectionsReady;
 
+    /// <summary>事件已寫入 alarm_events 後引發（呼叫端勿在 handler 內做重工作；此處於鎖內 raise）。</summary>
+    public event EventHandler<AlarmEventRecord>? EventInserted;
+
     /// <summary>已執行推理幀數（診斷）。</summary>
     public int FramesInferred { get; private set; }
 
@@ -315,6 +318,16 @@ public sealed class AiEventEngine : IDisposable
         var id = _repo.Insert(_channelId, _aiEventType ?? "ai_person", _aiStartUtc, snapshotPath, _aiDetail);
         _repo.UpdateEnd(id, end, snapshotPath);
         _snapshotPixels = [];
+        EventInserted?.Invoke(this, new AlarmEventRecord
+        {
+            Id = id,
+            ChannelId = _channelId,
+            EventType = _aiEventType ?? "ai_person",
+            StartUtc = _aiStartUtc,
+            EndUtc = end,
+            SnapshotPath = snapshotPath,
+            Detail = _aiDetail,
+        });
     }
 
     private static string? EventTypeFor(string cls) =>

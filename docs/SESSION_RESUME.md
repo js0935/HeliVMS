@@ -6,15 +6,15 @@
 
 ## 一句話總結
 HeliVMS 為一套**網路影像監控系統**（WPF 桌面應用：即時監看／回放／AI 事件中心／錄影排程）。
-里程碑 **M1 至 M21 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M21 為最新）。
-Release build 0 error、測試 **80/80 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
+里程碑 **M1 至 M22 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M22 為最新）。
+Release build 0 error、測試 **90/90 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
 本地與遠端完全同步（`git diff origin/HEAD` 為空）。
 
 ## 開新 session 的接手方法
 ```powershell
 # 在 D:\HeliVMS 開新 session 時，先對新的 agent 講：
 git status                    # 預期為 empty（乾淨）
-git log --oneline -20         # 預期見到 M1..M21，HEAD＝（M21）
+git log --oneline -20         # 預期見到 M1..M22，HEAD＝（M22）
 git diff origin/HEAD          # 預期為空（同步）
 gh run list -L 3              # 預期全部 success
 ```
@@ -23,14 +23,20 @@ gh run list -L 3              # 預期全部 success
 新 session 會以 git 現況接手，不會靠猜測。
 
 ## 現況快照（權威來源＝git，非聊天記憶）
-- 最後 commit：`HEAD`＝**M21（匯出精靈）**——`ExportService`（HeliVMS.Recording）ffmpeg concat
-  demuxer＋re-encode 輸出標準 MP4（`-preset ultrafast`、`-movflags +faststart`）、可選浮水印
-  （`drawtext`＋Windows `fontfile` 修正 fontconfig）、可選 SHA-256 附檔（`.sha256`）、`IProgress`
-  進度回報；`ExportWindow`（頻道/起迄時間/輸出資料夾 `OpenFolderDialog`/浮水印/SHA-256 勾選/
-  匯出按鈕/進度列＋狀態）；MainWindow「匯出」按鈕＋`--export` 旗標直開
-- 前一個 M20 主交付＝`ceea7e5`（快照保留清理＋頻道整合頁）
+- 最後 commit：`HEAD`＝**M22（通知中心 MVP，§18.5/§16.2 通知平面）**——`MotionEventEngine`／
+  `AiEventEngine` 於 `Insert` 後 raise `EventInserted`（`AlarmEventRecord`）→ App 層 `ChannelSession`
+  轉發 → `ChannelManager.AlarmEvent` → `MainWindow` 建 `NotificationService`（ConcurrentQueue＋
+  Timer worker，不在引擎 `_gate` 鎖內同步發送）；`WebhookNotifier`（POST `{type,channel,ts,
+  data{id,end,snapshot,detail}}`）、`SmtpNotifier`（`System.Net.Mail.SmtpClient`，csproj 已 `NoWarn
+  CS0618`）、`NotificationService` 指數退避重試（backoffBase×attempt，最多 3 次）、`Activity` 留痕；
+  SettingsWindow nav 新增「通知」（現 **6** 項）＋ `PageNotify`（總啟用/webhook URL/SMTP 六欄/套用，
+  密碼以 **DPAPI** `SecretProtector` 加密存 `notify.smtp.password`）；鍵 `notify.*`（DB→
+  `HELIVMS_*` env→預設）。單元測試 **90/90**（Storage 44＋Alarms 34＋Licensing 8＋Devices 4；
+  Alarms ＋10＝NotificationTests）、E2E **`notifcheck` NOTIF_OK**（本機 TcpListener 假 webhook
+  前 2 次 500→第 3 次 200 驗重試送達且 payload JSON 正確；設定頁填值套用→DB `notify.*`）
+- 前一個 M21 交付＝`0c65b71`（匯出精靈，`ExportService` ffmpeg concat/re-encode＋浮水印＋SHA-256）
 - 分支／遠端：`git diff origin/HEAD` 為空（完全同步）；HEAD＝origin
-- CI：`gh run list` 顯示最新 run `conclusion=success`；建置 0 error、測試 80/80
+- CI：`gh run list` 顯示最新 run `conclusion=success`；建置 0 error、測試 90/90
 
 ## 架構關鍵（確切、無漂移）
 - 解決方案：`D:\HeliVMS\HeliVMS.App\HeliVMS.App.csproj`（WPF）＋ `HeliVMS.slnx`
@@ -63,14 +69,18 @@ gh run list -L 3              # 預期全部 success
     直開匯出精靈；驗 `ChannelCombo/OutputFolderBox/HashCheckBox/ExportButton` 存在；點匯出後
     **輪詢 ResultText 含「匯出成功」且 `.sha256` 產出**（勿只等 mp4 出現）；驗 hash 檔內容與
     輸出 MP4 的 SHA-256 一致、ResultText 含 SHA-256；輸出 `EXP_OK`
+  - `notifcheck` 驗證（M22）：(A) 本機 `TcpListener` 假 webhook（前 2 次 500→第 3 次 200）＋
+    `NotificationService`（temp DB 設 `notify.enabled`/`notify.webhook.url`）enqueue motion 事件，
+    驗 `DeliveredCount=1、FailedCount=0、Hits=3` 且 payload JSON 含 `type/channel/data`；
+    (B) `--settings` 直開設定中心→切「通知」頁→填 webhook URL/埠/收件者＋開啟總啟用→套用→
+    DB 讀回 `notify.*` 值；輸出 `NOTIF_OK`
 
 ## 尚未完成／下一步（依 git 與 repo 判斷）
-1. **M22 定義（尚未開立）**：M21 已落地匯出工作流。roadmap 目前無定義。候選（照「先定義、後實作」節奏）：
-   - §8.5 未完快捷鍵 **`B` 書籤**（回放標記）
-   - 通知中心落地（§14：SMTP／webhook；目前**完全無通知服務**，需先實作寄送器＋
-     SettingsWindow 新增「通知」分類）
-   - 匯出功能增值：批次多段合併、fMP4→定長段落選取、回放窗「匯出此段」按鈕
-   - 回放多路同步（1/2/4 路同播放頭）
+**M22 已完成**（見現況快照）。下一步候選（開 M23 前先翻 §13-§21 對照確認範圍）：
+1. 通知中心完整化——`notification_log` 紀錄表＋通知紀錄檢視頁、靜默時段、快照附件（M22 明確延後項）
+2. PTZ 控制與 ONVIF 自動探索／新增精靈
+3. 系統匣常駐（tray icon）＋通知中心入口
+（由使用者「依照你的建議下一步」擇一；定義方式同 M19-M22：先寫入本檔再實作）
 
 ## 已知雷區（勿再犯）
 - **勿以 bash 對 repo 源碼做 byte 級重寫**（曾造成 UTF-8 漂移／mojibake 污染，已 `git restore` 還原）；
@@ -113,7 +123,7 @@ gh run list -L 3              # 預期全部 success
   手動 `File.SetLastWriteTimeUtc` 模擬「舊檔案」
 - **SettingsWindow 與 MainWindow 各有配額/天數讀取方法**（`SettingsWindow.QuotaGbFromStore`/
   `SnapDaysFromStore` vs `MainWindow.ReadQuotaBytes`/`ReadSnapshotDays`），改設定來源時兩處要同步
-- **SettingsNav 增刪分類會破 setcheck 的 nav 數斷言**（現為 5）：改 nav 項目時務必同步 harness
+- **SettingsNav 增刪分類會破 setcheck/snapcheck 的 nav 數斷言**（現為 6）：改 nav 項目時務必同步 harness
   `seNavCount/snNavCount` 預期值
 - **M21 匯出浮水印雷區**：Windows 無 fontconfig 會讓 `drawtext` 「exit=0 但文字不渲染」——務必加
   `:fontfile='C\:/Windows/Fonts/arial.ttf'`；浮水印內 `:` 要跳脫為 `\:`（用 `\\:` 的 C# 字串）
@@ -121,3 +131,21 @@ gh run list -L 3              # 預期全部 success
   `bin\Release\net10.0-windows\HeliVmsE2E.exe`（`bin\Release\net10.0\…exe` 是**舊產物**，會測到舊 code）
 - **M21 匯出完成判定**：`.sha256` 與 ResultText 更新比 MP4 落盤晚；harness 輪詢結果以
   「ResultText 含匯出成功＋.sha256 存在」為完成條件，勿以「mp4 已出現」判斷
+- **通知鍵名**：網鉤鍵是 `notify.webhook.url`（**不是** `notify.webhook_url`）；其餘同族為
+  `notify.enabled`／`notify.smtp.{enabled,host,port,from,to,user,password}`——E2E／單元測試寫
+  錯鍵名會「靜默無通知」（service 找無設定直接 return）
+- **`SecretProtector` DPAPI CA1416**（Storage 是 net10.0 非 -windows）：呼叫處需**內聯**
+  `if (!OperatingSystem.IsWindows()) throw new PlatformNotSupportedException(...)`；
+  包成 helper 方法／try/catch 包圍都不會被分析器認可，會直接 build error
+- **`SmtpClient` obsolete**：`HeliVMS.Alarms.csproj` 已 `<NoWarn>$(NoWarn);CS0618</NoWarn>`；
+  勿引 MailKit（會破壞既有 lock 檔）
+- **SMTP DATA payload 是 MIME**：中文主旨/內文會 base64＋encoded-word 且可**跨行折疊**
+  （`?==?\r\n =?`）；斷言不可直比中文原文，要解 base64＋併回折疊 token
+  （作法見 `tests\HeliVMS.Alarms.Tests\NotificationTests.cs` 的 `DecodeMail`）
+- **假 webhook 端點用 `TcpListener`**，不用 `HttpListener`（http.sys URLACL 非 admin 會檔）；
+  驗重試＝前 2 次回 500、第 3 次回 200，`Hits==3` 且 `DeliveredCount==1`（Alarms 單元與 harness
+  notifcheck 同款）
+- **`Interlocked.Increment(ref prop)` 不合法（CS0206）**：屬性無法當 ref 用，需 backing field
+  ＋ `Volatile.Read`（harness 假端點曾踩）
+- **SettingsNav 現為 6 項**：setcheck（`seNavCount`）與 snapcheck（`snNavCount`）斷言已改 6；
+  日後改 nav 項目務必同步 harness
