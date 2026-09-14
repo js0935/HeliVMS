@@ -111,7 +111,7 @@
                                     </DataTemplate>
                                 </GridViewColumn.CellTemplate>
                             </GridViewColumn>
-                            <GridViewColumn Header="詳情" Width="*">
+                            <GridViewColumn Header="詳情" Width="Auto">
                                 <GridViewColumn.CellTemplate>
                                     <DataTemplate>
                                         <TextBlock Text="{Binding DetailLabel}" FontSize="12"
