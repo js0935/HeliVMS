@@ -6,8 +6,8 @@
 
 ## 一句話總結
 HeliVMS 為一套**網路影像監控系統**（WPF 桌面應用：即時監看／回放／AI 事件中心／錄影排程）。
-里程碑 **M1 至 M18 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M18 為最新）。
-Release build 0 error、測試 **69/69 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
+里程碑 **M1 至 M19 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M19 為最新）。
+Release build 0 error、測試 **76/76 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
 本地與遠端完全同步（`git diff origin/HEAD` 為空）。
 
 ## 開新 session 的接手方法
@@ -23,14 +23,17 @@ gh run list -L 3              # 預期全部 success
 新 session 會以 git 現況接手，不會靠猜測。
 
 ## 現況快照（權威來源＝git，非聊天記憶）
-- 最後 commit：`HEAD`＝**M18（事件中心卡片式檢視）**
-  ——`EventCenterWindow` 左側新增「卡片/清單」切換（`OnViewToggleClicked`）；卡片 = 小縮圖(48×36)＋
-  時間＋頻道＋類型徽章色＋詳情摘要＋確認徽章，選中卡片右側即顯示完整快照＋偵測框＋明細；
-  GridView 清單保留為備援，兩檢視共用同一 `EventRow` 資料源。
-- 前一個 M17 主交付＝`7f16c08`（回放鍵盤快捷鍵：Space/方向鍵/Shift+Ctrl 跳轉/F 逐幀/Esc，輸入控制項不攔截）
-- 全部里程碑（M1..M18）依 `docs\ARCHITECTURE.md` 的里程碑定序交付；**roadmap 文件沒有 M19+ 定義**
+- 最後 commit：`HEAD`＝**M19（管理設定中心 SettingsWindow）**
+  ——首次統一設定介面（§9）：左側分類導航（一般／儲存／授權／功能）；
+  新增 `app_settings` 鍵值表（SqliteStore v5）＋`SettingsRepository.Get/Set`；「儲存」頁可改錄影保留配額
+  （`recording.quota_gb`，MainWindow 每小時清理優先讀 DB→再環境變數→預設 10GB）、顯示錄影用量、
+  「立即清理」（`RetentionService.Apply`＋報告）；「授權」頁顯示 `LicenseManager.ValidateDefault()` 狀態
+  與機器指紋、可貼金鑰套用寫 `%LOCALAPPDATA%\HeliVMS\license.lic`；「功能」頁整合入口
+  （回放／事件中心／排程／偵測）；MainWindow 新增「設定」按鈕＋`--settings` 命令列旗標直開。
+- 前一個 M18 主交付＝`d67d7a5`（事件中心卡片式檢視）
+- 全部里程碑（M1..M19）依 `docs\ARCHITECTURE.md` 的里程碑定序交付；**roadmap 文件沒有 M20+ 定義**
 - 分支／遠端：`git diff origin/HEAD` 為空（完全同步）；HEAD＝origin
-- CI：`gh run list` 顯示最新 run `conclusion=success`；建置 0 error、測試 69/69
+- CI：`gh run list` 顯示最新 run `conclusion=success`；建置 0 error、測試 76/76
 
 ## 架構關鍵（確切、無漂移）
 - 解決方案：`D:\HeliVMS\HeliVMS.App\HeliVMS.App.csproj`（WPF）＋ `HeliVMS.slnx`
@@ -44,19 +47,25 @@ gh run list -L 3              # 預期全部 success
 - E2E harness：`C:\Users\JS\AppData\Local\Temp\opencode\e2e\x\Program.cs`
   （**temp harness，不入 git、不影響 CI、不影響 repo 狀態**）
   - 已有 block：`playcheck`、`playbackcheck`、`playmark`、`plist`（M16）、`kbcheck`（M17，KB_OK）、
-    **`evcard`（M18，已驗證 EV_OK）**
+    `evcard`（M18，EV_OK）、**`setcheck`（M19，SET_OK）**
   - `kbcheck` 驗證：`Space` 暫停（t1）→ `→` 前跳 10 秒（t2−t1＝11s）→ `F` 逐幀仍暫停 →
     `Esc` 停止（StopButton disabled）；輸出 `KB_OK`
   - `evcard` 驗證：主視窗→右鍵 cell→「開啟事件中心」；選頻道後 grid DataItems≥2、
     「卡片」切換後 grid DataItems=0 且 card ListItems≥2、卡片含縮圖 Image、
     選中 `evcard-person` 卡片後 `SnapshotDetailText`＝「明細：evcard-person」且 `SnapshotPathText` 指向快照檔、
     切回清單 grid DataItems 回復；輸出 `EV_OK`
+  - `setcheck` 驗證：`--settings` 旗標直開設定中心；nav 4 項；初始「一般」頁可見（dataRoot
+    offscreen=false、儲存頁元素**不存在**）；切「儲存」後配額 Box 出現且值=種子「4」、SetValue「5」→
+    套用 → 重開 SqliteStore 讀 `app_settings["recording.quota_gb"]=="5"`；切「授權」狀態非空；切「功能」
+    入口按鈕存在；輸出 `SET_OK`
 
 ## 尚未完成／下一步（依 git 與 repo 判斷）
-1. **M19 定義（尚未開立）**：roadmap 目前無定義，需先在 `docs` 制定 M19 內容
-   （候選：§8.5 提及但未實作的**其他快捷鍵**（`B` 書籤／`E` 匯出）；事件中心**確認狀態批次操作**或
-   **縮圖牆全覽**；回放**多路同步**（1/2/4 路同播放頭）；匯出精靈 MP4+浮水印+SHA-256），
-   才可照「先定義、後實作」的節奏進行
+1. **M20 定義（尚未開立）**：roadmap 目前無定義。候選（照「先定義、後實作」節奏）：
+   - §8.5 未完快捷鍵 **`B` 書籤／`E` 匯出片段**
+   - 通知中心落地（§14：SMTP／webhook；目前**完全無通知服務**，需先定義並實作寄送器＋
+     SettingsWindow「授權」頁旁新增「通知」分類存 SMTP/webhook 設定）
+   - 設定中心擴充（把頻道細節、運動偵測、快照保留策略等收進 §9；snapshots 目前**無清理策略**）
+   - 回放多路同步（1/2/4 路同播放頭）或匯出精靈（MP4＋浮水印＋SHA-256）
 
 ## 已知雷區（勿再犯）
 - **勿以 bash 對 repo 源碼做 byte 級重寫**（曾造成 UTF-8 漂移／mojibake 污染，已 `git restore` 還原）；
@@ -87,3 +96,11 @@ gh run list -L 3              # 預期全部 success
   用 ffmpeg lavfi 產生當日段並 `BeginSegment/CompleteSegment` 入庫（否則「當日 0 段」無資料可播）
 - **`Space` 焦點衝突**：Tab 焦點落在 PlayPauseButton/StopButton 時按空白鍵會雙重觸發（Button 自身也處理空白鍵）；
   故 `OnPreviewKeyDown` 對按鈕聚焦需 `e.Handled=true` 後自行分派播放/暫停，避免 Button Click 與快捷鍵各觸發一次
+- **WPF Panel（StackPanel/Grid）沒有 AutomationPeer**：其 `AutomationId`/`x:Name` 無法用
+  `FindFirst(Descendants, AutomationIdProperty)` 找到；但 **`Visibility=Collapsed` 的子項目
+  （TextBlock/TextBox/Button 等具 peer 元素）在 UIA 樹中直接「不存在」**（FindFirst 回 null），
+  切頁測試用「目標頁元素存在／消失」判斷即可（`setcheck` 以此驗證翻頁）
+- **設定中心儲存庫權威**：錄影配額已從 DB 讀（`recording.quota_gb`），若改動 `MainWindow.ReadQuotaBytes()`
+  需同時顧及 `SettingsWindow.QuotaGbFromStore()`（同優先序：DB→`HELIVMS_QUOTA_GB`→10GB）
+- **本機存在有效授權檔**（`%LOCALAPPDATA%\HeliVMS\license.lic`：32 路、2027-09-30 到期），
+  授權頁 UIA 驗收以「狀態文字非空」為準，不可假定「未授權」

@@ -91,6 +91,10 @@
                         <Button x:Name="DetectionButton" Content="偵測" Click="OnDetectionClicked"
                                 Width="60" Padding="0,8" Margin="6,0,0,0"
                                 Foreground="White" Background="#4A4A7A" BorderThickness="0" />
+                        <Button x:Name="SettingsButton" AutomationProperties.AutomationId="SettingsButton"
+                                Content="設定" Click="OnSettingsClicked"
+                                Width="60" Padding="0,8" Margin="6,0,0,0"
+                                Foreground="White" Background="#3A3A5A" BorderThickness="0" />
                     </StackPanel>
 
                     <TextBlock x:Name="HintText" TextWrapping="Wrap"

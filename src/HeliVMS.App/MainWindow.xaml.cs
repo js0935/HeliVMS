@@ -193,6 +193,11 @@ public partial class MainWindow : Window
             Dispatcher.BeginInvoke(() => new PlaybackWindow(_store) { Owner = this }.Show());
         }
 
+        if (Environment.GetCommandLineArgs().Contains("--settings", StringComparer.OrdinalIgnoreCase))
+        {
+            Dispatcher.BeginInvoke(() => OpenSettingsWindow());
+        }
+
         _detWriter = new DetectionWriter(_store);
 
         _manager = new ChannelManager(_store, Path.Combine(_dataRoot, "recordings"), Path.Combine(_dataRoot, "snapshots"), DetectionModelResolver.TryResolve());
@@ -280,15 +285,15 @@ public partial class MainWindow : Window
         ? $"{bytes / 1024d / 1024 / 1024:0.#}GB"
         : $"{bytes / 1024d / 1024:0.#}MB";
 
-    /// <summary>每小時執行一次配額清理與 tmp 隔離（配額可由 HELIVMS_QUOTA_GB 覆寫）。</summary>
+    /// <summary>每小時執行一次配額清理與 tmp 隔離（配額每圈重讀，來自 app_settings／環境變數）。</summary>
     private async Task RunRetentionLoopAsync(CancellationToken token)
     {
-        var quota = ParseQuotaBytes();
         var service = new RetentionService(_segRepo!, Path.Combine(_dataRoot, "recordings"));
         while (!token.IsCancellationRequested)
         {
             try
             {
+                var quota = ReadQuotaBytes();
                 var report = service.Apply(quota, DateTime.UtcNow);
                 if (report.DeletedSegments > 0)
                 {
@@ -314,6 +319,21 @@ public partial class MainWindow : Window
                 break;
             }
         }
+    }
+
+    /// <summary>錄影保留配額（bytes）：app_settings["recording.quota_gb"] → HELIVMS_QUOTA_GB → 10GB。</summary>
+    private long ReadQuotaBytes()
+    {
+        if (_store is not null)
+        {
+            var fromDb = new SettingsRepository(_store).GetDoubleOrDefault("recording.quota_gb", -1);
+            if (fromDb > 0)
+            {
+                return (long)(fromDb * 1024 * 1024 * 1024);
+            }
+        }
+
+        return ParseQuotaBytes();
     }
 
     private static long ParseQuotaBytes()
@@ -722,6 +742,18 @@ public partial class MainWindow : Window
             Owner = this,
         };
         det.Show();
+    }
+
+    private void OnSettingsClicked(object sender, RoutedEventArgs e) => OpenSettingsWindow();
+
+    /// <summary>開啟管理設定中心（M19，§9）。</summary>
+    private void OpenSettingsWindow()
+    {
+        var settings = new SettingsWindow(_store!, _dataRoot)
+        {
+            Owner = this,
+        };
+        settings.Show();
     }
 
     private void OnAddChannelClicked(object sender, RoutedEventArgs e)
