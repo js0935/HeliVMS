@@ -23,6 +23,7 @@
                          Background="Transparent" BorderThickness="0" Foreground="White">
                     <ListBoxItem Content="一般"/>
                     <ListBoxItem Content="儲存"/>
+                    <ListBoxItem Content="頻道"/>
                     <ListBoxItem Content="授權"/>
                     <ListBoxItem Content="功能"/>
                 </ListBox>
@@ -65,6 +66,17 @@
                 <TextBlock Text="目前錄影用量" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
                 <TextBlock x:Name="UsageText" Margin="0,2,0,14" TextWrapping="Wrap"/>
 
+                <TextBlock Text="快照保留（天；每小時依此刪除更舊的快照檔 jpg/bmp）"
+                           Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+                <DockPanel Margin="0,6,0,14">
+                    <Button x:Name="ApplySnapshotDaysButton" Content="套用天數" Click="OnApplySnapshotDaysClicked"
+                            DockPanel.Dock="Right" Padding="12,6"
+                            Foreground="White" Background="#2A5C8A" BorderThickness="0"/>
+                    <TextBox x:Name="SnapshotDaysTextBox" AutomationProperties.AutomationId="SnapshotDaysTextBox"
+                             Width="120" Margin="0,0,10,0"
+                             Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
+                </DockPanel>
+
                 <DockPanel Margin="0,0,0,6">
                     <Button x:Name="CleanupButton" Content="立即清理" Click="OnCleanupClicked"
                             DockPanel.Dock="Left" Padding="12,6"
@@ -72,6 +84,75 @@
                     <TextBlock x:Name="CleanupReportText" Margin="12,0,0,0" VerticalAlignment="Center"
                                TextWrapping="Wrap" Text=""/>
                 </DockPanel>
+            </StackPanel>
+
+            <!-- 頻道 -->
+            <StackPanel x:Name="PageChannels" Visibility="Collapsed"
+                        AutomationProperties.AutomationId="SettingsPageChannels">
+                <TextBlock Text="頻道" FontSize="17" FontWeight="Bold" Margin="0,0,0,8"/>
+                <TextBlock Text="頻道為監看與錄影之源頭資料（§4 channels 表）。"
+                           Foreground="{StaticResource Brand.TextDim}" FontSize="11" Margin="0,0,0,10"
+                           TextWrapping="Wrap"/>
+                <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                    <TextBox x:Name="AddChannelUrlBox" AutomationProperties.AutomationId="AddChannelUrlBox"
+                             Width="300" ToolTip="RTSP 位址"
+                             Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="8,4"/>
+                    <TextBox x:Name="AddChannelNameBox" AutomationProperties.AutomationId="AddChannelNameBox"
+                             Width="120" Margin="6,0,0,0" ToolTip="頻道名稱"
+                             Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="8,4"/>
+                    <Button x:Name="AddChannelButton" AutomationProperties.AutomationId="AddChannelButton"
+                            Content="＋加入頻道" Click="OnAddChannelClicked" Margin="6,0,0,0" Padding="8,4"
+                            Foreground="White" Background="#2A5C8A" BorderThickness="0"/>
+                    <Button x:Name="OnvifWizardButton" AutomationProperties.AutomationId="OnvifWizardButton"
+                            Content="ONVIF 探索" Click="OnOnvifWizardClicked" Margin="6,0,0,0" Padding="8,4"
+                            Foreground="White" Background="#2A5C8A" BorderThickness="0"/>
+                    <Button x:Name="RefreshChannelsButton" AutomationProperties.AutomationId="RefreshChannelsButton"
+                            Content="重新整理" Click="OnRefreshChannelsClicked" Margin="6,0,0,0" Padding="8,4"
+                            Foreground="White" Background="#3A5A7A" BorderThickness="0"/>
+                </StackPanel>
+                <ListView x:Name="ChannelList" AutomationProperties.AutomationId="ChannelList"
+                          Background="#0E1D33" Foreground="White" BorderBrush="#1F3A5F">
+                    <ListView.View>
+                        <GridView>
+                            <GridViewColumn Header="ID" Width="46">
+                                <GridViewColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding Id}" FontSize="12"/>
+                                    </DataTemplate>
+                                </GridViewColumn.CellTemplate>
+                            </GridViewColumn>
+                            <GridViewColumn Header="名稱" Width="150">
+                                <GridViewColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding Name}" FontSize="12"/>
+                                    </DataTemplate>
+                                </GridViewColumn.CellTemplate>
+                            </GridViewColumn>
+                            <GridViewColumn Header="RTSP" Width="320">
+                                <GridViewColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding MainStreamUrl}" FontSize="11"
+                                                   TextTrimming="CharacterEllipsis"/>
+                                    </DataTemplate>
+                                </GridViewColumn.CellTemplate>
+                            </GridViewColumn>
+                            <GridViewColumn Header="錄影" Width="80">
+                                <GridViewColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding RecordingModeLabel}" FontSize="11"/>
+                                    </DataTemplate>
+                                </GridViewColumn.CellTemplate>
+                            </GridViewColumn>
+                            <GridViewColumn Header="運動" Width="52">
+                                <GridViewColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding MotionLabel}" FontSize="11"/>
+                                    </DataTemplate>
+                                </GridViewColumn.CellTemplate>
+                            </GridViewColumn>
+                        </GridView>
+                    </ListView.View>
+                </ListView>
             </StackPanel>
 
             <!-- 授權 -->

@@ -285,7 +285,7 @@ public partial class MainWindow : Window
         ? $"{bytes / 1024d / 1024 / 1024:0.#}GB"
         : $"{bytes / 1024d / 1024:0.#}MB";
 
-    /// <summary>每小時執行一次配額清理與 tmp 隔離（配額每圈重讀，來自 app_settings／環境變數）。</summary>
+    /// <summary>每小時執行一次配額清理與 tmp 隔離、快照過期清理（設定每圈重讀）。</summary>
     private async Task RunRetentionLoopAsync(CancellationToken token)
     {
         var service = new RetentionService(_segRepo!, Path.Combine(_dataRoot, "recordings"));
@@ -295,14 +295,28 @@ public partial class MainWindow : Window
             {
                 var quota = ReadQuotaBytes();
                 var report = service.Apply(quota, DateTime.UtcNow);
+                var hintParts = new List<string>();
                 if (report.DeletedSegments > 0)
                 {
-                    HintText.Text = $"配額清理：移除 {report.DeletedSegments} 段（釋放 {FormatBytes(report.FreedBytes)}）。";
+                    hintParts.Add($"移除 {report.DeletedSegments} 段（釋放 {FormatBytes(report.FreedBytes)}）");
                 }
 
                 if (report.PurgedTmp > 0)
                 {
-                    HintText.Text += $" 已清除 {report.PurgedTmp} 個錄影暫存檔。";
+                    hintParts.Add($"清除 {report.PurgedTmp} 個錄影暫存檔");
+                }
+
+                var snapDays = ReadSnapshotDays();
+                var snapRoot = Path.Combine(_dataRoot, "snapshots");
+                var snapReport = service.PurgeSnapshots(snapRoot, DateTime.UtcNow.AddDays(-snapDays));
+                if (snapReport.DeletedFiles > 0)
+                {
+                    hintParts.Add($"清除 {snapReport.DeletedFiles} 個過期快照（{FormatBytes(snapReport.FreedBytes)}）");
+                }
+
+                if (hintParts.Count > 0)
+                {
+                    HintText.Text = $"配額清理：{string.Join("、", hintParts)}。";
                 }
             }
             catch (Exception)
@@ -319,6 +333,29 @@ public partial class MainWindow : Window
                 break;
             }
         }
+    }
+
+    /// <summary>快照保留天數：app_settings["snapshots.retention_days"] → HELIVMS_SNAPSHOT_DAYS → 30。</summary>
+    private int ReadSnapshotDays()
+    {
+        if (_store is not null)
+        {
+            var fromDb = new SettingsRepository(_store).GetDoubleOrDefault("snapshots.retention_days", -1);
+            if (fromDb > 0)
+            {
+                return (int)fromDb;
+            }
+        }
+
+        var raw = Environment.GetEnvironmentVariable("HELIVMS_SNAPSHOT_DAYS");
+        if (!string.IsNullOrWhiteSpace(raw) &&
+            double.TryParse(raw, System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out var v) && v > 0)
+        {
+            return (int)v;
+        }
+
+        return 30;
     }
 
     /// <summary>錄影保留配額（bytes）：app_settings["recording.quota_gb"] → HELIVMS_QUOTA_GB → 10GB。</summary>

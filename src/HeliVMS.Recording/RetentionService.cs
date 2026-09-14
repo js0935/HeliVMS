@@ -5,9 +5,13 @@ namespace HeliVMS.Recording;
 /// <summary>配額清理執行報告。</summary>
 public sealed record RetentionReport(long UsedBytes, long FreedBytes, int DeletedSegments, int PurgedTmp);
 
+/// <summary>快照保留清理執行報告。</summary>
+public sealed record SnapshotReport(long FreedBytes, int DeletedFiles);
+
 /// <summary>
 /// 錄影配額策略（§9 儲存管理）：總量超過配額時，依開始時間由最舊開始刪除 final
 /// 區段（檔＋資料庫列），並清理擱置之 *.tmp 殘檔（異常錄影中斷遺留）。
+/// 亦負責快照保留清理（§9：snapshots/ 依檔案時間刪除過期快照，M20）。
 /// </summary>
 public sealed class RetentionService
 {
@@ -98,5 +102,39 @@ public sealed class RetentionService
         {
             // 無權限，略過
         }
+    }
+
+    /// <summary>依檔案時間清理過期快照（snapshots/ 下所有檔案）；回傳清理報告。</summary>
+    public SnapshotReport PurgeSnapshots(string snapshotsRoot, DateTime olderThanUtc)
+    {
+        if (!Directory.Exists(snapshotsRoot))
+        {
+            return new SnapshotReport(0, 0);
+        }
+
+        long freed = 0;
+        var deleted = 0;
+        foreach (var file in Directory.EnumerateFiles(snapshotsRoot, "*.*", SearchOption.AllDirectories))
+        {
+            try
+            {
+                if (File.GetLastWriteTimeUtc(file) < olderThanUtc)
+                {
+                    freed += new FileInfo(file).Length;
+                    File.Delete(file);
+                    deleted++;
+                }
+            }
+            catch (IOException)
+            {
+                // 使用中，略過
+            }
+            catch (UnauthorizedAccessException)
+            {
+                // 無權限，略過
+            }
+        }
+
+        return new SnapshotReport(freed, deleted);
     }
 }

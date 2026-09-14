@@ -105,6 +105,52 @@ public class RetentionServiceTests : IDisposable
         Assert.Empty(_repo.ListFinal(1));
     }
 
+    [Fact]
+    public void PurgeSnapshots_DeletesOnlyOlderThanThreshold()
+    {
+        var snapRoot = Path.Combine(Path.GetTempPath(), $"helivms-ret-snap-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(Path.Combine(snapRoot, "ch1"));
+        var oldFile = Path.Combine(snapRoot, "ch1", "old.jpg");
+        var newFile = Path.Combine(snapRoot, "ch1", "new.jpg");
+        File.WriteAllBytes(oldFile, new byte[200]);
+        File.WriteAllBytes(newFile, new byte[400]);
+
+        var now = DateTime.UtcNow;
+        File.SetLastWriteTimeUtc(oldFile, now.AddDays(-60));
+        File.SetLastWriteTimeUtc(newFile, now);
+
+        try
+        {
+            var svc = new RetentionService(_repo, _root);
+            var report = svc.PurgeSnapshots(snapRoot, now.AddDays(-30));
+
+            Assert.Equal(1, report.DeletedFiles);
+            Assert.Equal(200L, report.FreedBytes);
+            Assert.False(File.Exists(oldFile));
+            Assert.True(File.Exists(newFile));
+        }
+        finally
+        {
+            try
+            {
+                Directory.Delete(snapRoot, recursive: true);
+            }
+            catch (IOException)
+            {
+            }
+        }
+    }
+
+    [Fact]
+    public void PurgeSnapshots_MissingRoot_ReturnsEmptyReport()
+    {
+        var svc = new RetentionService(_repo, _root);
+        var report = svc.PurgeSnapshots(Path.Combine(Path.GetTempPath(), "helivms-no-such-dir"), DateTime.UtcNow);
+
+        Assert.Equal(0, report.DeletedFiles);
+        Assert.Equal(0L, report.FreedBytes);
+    }
+
     private void Seed(string channelDir, double offsetSeconds, long sizeBytes)
     {
         var dir = Path.Combine(_root, channelDir);

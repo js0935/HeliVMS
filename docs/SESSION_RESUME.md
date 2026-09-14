@@ -6,8 +6,8 @@
 
 ## 一句話總結
 HeliVMS 為一套**網路影像監控系統**（WPF 桌面應用：即時監看／回放／AI 事件中心／錄影排程）。
-里程碑 **M1 至 M19 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M19 為最新）。
-Release build 0 error、測試 **76/76 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
+里程碑 **M1 至 M20 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M20 為最新）。
+Release build 0 error、測試 **78/78 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
 本地與遠端完全同步（`git diff origin/HEAD` 為空）。
 
 ## 開新 session 的接手方法
@@ -23,17 +23,16 @@ gh run list -L 3              # 預期全部 success
 新 session 會以 git 現況接手，不會靠猜測。
 
 ## 現況快照（權威來源＝git，非聊天記憶）
-- 最後 commit：`HEAD`＝**M19（管理設定中心 SettingsWindow）**
-  ——首次統一設定介面（§9）：左側分類導航（一般／儲存／授權／功能）；
-  新增 `app_settings` 鍵值表（SqliteStore v5）＋`SettingsRepository.Get/Set`；「儲存」頁可改錄影保留配額
-  （`recording.quota_gb`，MainWindow 每小時清理優先讀 DB→再環境變數→預設 10GB）、顯示錄影用量、
-  「立即清理」（`RetentionService.Apply`＋報告）；「授權」頁顯示 `LicenseManager.ValidateDefault()` 狀態
-  與機器指紋、可貼金鑰套用寫 `%LOCALAPPDATA%\HeliVMS\license.lic`；「功能」頁整合入口
-  （回放／事件中心／排程／偵測）；MainWindow 新增「設定」按鈕＋`--settings` 命令列旗標直開。
-- 前一個 M18 主交付＝`d67d7a5`（事件中心卡片式檢視）
-- 全部里程碑（M1..M19）依 `docs\ARCHITECTURE.md` 的里程碑定序交付；**roadmap 文件沒有 M20+ 定義**
+- 最後 commit：`HEAD`＝**M20（快照保留清理＋頻道整合頁）**
+  ——`RetentionService.PurgeSnapshots`（依檔案時間刪過期快照，回傳 `SnapshotReport`）補上
+  「snapshots/ 完全無清理」缺口；`app_settings["snapshots.retention_days"]`（→`HELIVMS_SNAPSHOT_DAYS`→30）；
+  `MainWindow.RunRetentionLoopAsync` 每圈併入快照清理；SettingsWindow「儲存」頁加快照保留天數輸入＋
+  立即清理併清快照；SettingsWindow 新增「頻道」分類（nav 現 5 項：一般/儲存/頻道/授權/功能）——
+  GridView 頻道清單（id/名稱/RTSP/錄影/運動）＋「＋加入頻道」＋「ONVIF 探索」入口
+- 前一個 M19 主交付＝`c5bc456`（管理設定中心 SettingsWindow）
+- 全部里程碑（M1..M20）依 `docs\ARCHITECTURE.md` 的里程碑定序交付；**roadmap 文件沒有 M21+ 定義**
 - 分支／遠端：`git diff origin/HEAD` 為空（完全同步）；HEAD＝origin
-- CI：`gh run list` 顯示最新 run `conclusion=success`；建置 0 error、測試 76/76
+- CI：`gh run list` 顯示最新 run `conclusion=success`；建置 0 error、測試 78/78
 
 ## 架構關鍵（確切、無漂移）
 - 解決方案：`D:\HeliVMS\HeliVMS.App\HeliVMS.App.csproj`（WPF）＋ `HeliVMS.slnx`
@@ -47,7 +46,7 @@ gh run list -L 3              # 預期全部 success
 - E2E harness：`C:\Users\JS\AppData\Local\Temp\opencode\e2e\x\Program.cs`
   （**temp harness，不入 git、不影響 CI、不影響 repo 狀態**）
   - 已有 block：`playcheck`、`playbackcheck`、`playmark`、`plist`（M16）、`kbcheck`（M17，KB_OK）、
-    `evcard`（M18，EV_OK）、**`setcheck`（M19，SET_OK）**
+    `evcard`（M18，EV_OK）、`setcheck`（M19，SET_OK）、**`snapcheck`（M20，SNAP_OK）**
   - `kbcheck` 驗證：`Space` 暫停（t1）→ `→` 前跳 10 秒（t2−t1＝11s）→ `F` 逐幀仍暫停 →
     `Esc` 停止（StopButton disabled）；輸出 `KB_OK`
   - `evcard` 驗證：主視窗→右鍵 cell→「開啟事件中心」；選頻道後 grid DataItems≥2、
@@ -58,13 +57,16 @@ gh run list -L 3              # 預期全部 success
     offscreen=false、儲存頁元素**不存在**）；切「儲存」後配額 Box 出現且值=種子「4」、SetValue「5」→
     套用 → 重開 SqliteStore 讀 `app_settings["recording.quota_gb"]=="5"`；切「授權」狀態非空；切「功能」
     入口按鈕存在；輸出 `SET_OK`
+  - `snapcheck` 驗證：前置造 120/100 天前舊快照＋新快照、設 `snapshots.retention_days="30"`；
+    `--settings` 直開設定中心（nav 現 5 項）；儲存頁 `SnapshotDaysTextBox` 值＝「30」→「立即清理」
+    → 舊快照檔刪除、新快照保留；切「頻道」頁 ChannelList DataItems≥1；輸出 `SNAP_OK`
 
 ## 尚未完成／下一步（依 git 與 repo 判斷）
-1. **M20 定義（尚未開立）**：roadmap 目前無定義。候選（照「先定義、後實作」節奏）：
+1. **M21 定義（尚未開立）**：roadmap 目前無定義。候選（照「先定義、後實作」節奏）：
    - §8.5 未完快捷鍵 **`B` 書籤／`E` 匯出片段**
-   - 通知中心落地（§14：SMTP／webhook；目前**完全無通知服務**，需先定義並實作寄送器＋
-     SettingsWindow「授權」頁旁新增「通知」分類存 SMTP/webhook 設定）
-   - 設定中心擴充（把頻道細節、運動偵測、快照保留策略等收進 §9；snapshots 目前**無清理策略**）
+   - 通知中心落地（§14：SMTP／webhook；目前**完全無通知服務**，需先實作寄送器＋
+     SettingsWindow 新增「通知」分類）
+   - 設定中心擴充（頻道細節、運動偵測、AI 參數收進 §9；快照已於 M20 補清理）
    - 回放多路同步（1/2/4 路同播放頭）或匯出精靈（MP4＋浮水印＋SHA-256）
 
 ## 已知雷區（勿再犯）
@@ -104,3 +106,9 @@ gh run list -L 3              # 預期全部 success
   需同時顧及 `SettingsWindow.QuotaGbFromStore()`（同優先序：DB→`HELIVMS_QUOTA_GB`→10GB）
 - **本機存在有效授權檔**（`%LOCALAPPDATA%\HeliVMS\license.lic`：32 路、2027-09-30 到期），
   授權頁 UIA 驗收以「狀態文字非空」為準，不可假定「未授權」
+- **快照檔沒有 DB 索引**：清理只能以 `File.GetLastWriteTimeUtc` 判斷（`PurgeSnapshots`）；E2E 造檔後要
+  手動 `File.SetLastWriteTimeUtc` 模擬「舊檔案」
+- **SettingsWindow 與 MainWindow 各有配額/天數讀取方法**（`SettingsWindow.QuotaGbFromStore`/
+  `SnapDaysFromStore` vs `MainWindow.ReadQuotaBytes`/`ReadSnapshotDays`），改設定來源時兩處要同步
+- **SettingsNav 增刪分類會破 setcheck 的 nav 數斷言**（現為 5）：改 nav 項目時務必同步 harness
+  `seNavCount/snNavCount` 預期值

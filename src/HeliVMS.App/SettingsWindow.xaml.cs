@@ -5,6 +5,7 @@ using System.Windows;
 using System.Windows.Controls;
 using HeliVMS.Licensing;
 using HeliVMS.Recording;
+using HeliVMS.Shared.Models;
 using HeliVMS.Storage;
 using Path = System.IO.Path;
 
@@ -18,6 +19,11 @@ public partial class SettingsWindow : Window
 {
     private const string QuotaKey = "recording.quota_gb";
     private const double DefaultQuotaGb = 10.0;
+    private const string SnapshotDaysKey = "snapshots.retention_days";
+    private const int DefaultSnapshotDays = 30;
+
+    /// <summary>頻道頁顯示列。</summary>
+    private sealed record ChannelRow(int Id, string Name, string MainStreamUrl, string RecordingModeLabel, string MotionLabel);
 
     private readonly SqliteStore _store;
     private readonly string _dataRoot;
@@ -41,9 +47,11 @@ public partial class SettingsWindow : Window
         SnapshotsRootText.Text = _snapshotsRoot;
 
         ReloadQuota();
+        ReloadSnapshotDays();
         ReloadUsage();
         ReloadLicense();
         ReloadLaunchAvailability();
+        ReloadChannels();
 
         SettingsNav.SelectedIndex = 0;
     }
@@ -58,6 +66,7 @@ public partial class SettingsWindow : Window
         var visible = item.Content as string ?? string.Empty;
         PageGeneral.Visibility = visible == "一般" ? Visibility.Visible : Visibility.Collapsed;
         PageStorage.Visibility = visible == "儲存" ? Visibility.Visible : Visibility.Collapsed;
+        PageChannels.Visibility = visible == "頻道" ? Visibility.Visible : Visibility.Collapsed;
         PageLicense.Visibility = visible == "授權" ? Visibility.Visible : Visibility.Collapsed;
         PageLaunch.Visibility = visible == "功能" ? Visibility.Visible : Visibility.Collapsed;
     }
@@ -84,6 +93,42 @@ public partial class SettingsWindow : Window
         }
 
         return DefaultQuotaGb;
+    }
+
+    private void ReloadSnapshotDays()
+    {
+        SnapshotDaysTextBox.Text = SnapDaysFromStore().ToString(CultureInfo.InvariantCulture);
+    }
+
+    private int SnapDaysFromStore()
+    {
+        var fromDb = _settings.GetDoubleOrDefault(SnapshotDaysKey, -1);
+        if (fromDb > 0)
+        {
+            return (int)fromDb;
+        }
+
+        var raw = Environment.GetEnvironmentVariable("HELIVMS_SNAPSHOT_DAYS");
+        if (!string.IsNullOrWhiteSpace(raw) &&
+            double.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture, out var v) && v > 0)
+        {
+            return (int)v;
+        }
+
+        return DefaultSnapshotDays;
+    }
+
+    private void OnApplySnapshotDaysClicked(object sender, RoutedEventArgs e)
+    {
+        if (!int.TryParse(SnapshotDaysTextBox.Text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var days) ||
+            days <= 0)
+        {
+            CleanupReportText.Text = "請輸入大於 0 的天數。";
+            return;
+        }
+
+        _settings.Set(SnapshotDaysKey, days.ToString(CultureInfo.InvariantCulture));
+        CleanupReportText.Text = $"已套用：快照保留 {days} 天（每小時例行清理讀取此值生效）";
     }
 
     private static string FormatBytes(long bytes) => bytes >= 1024d * 1024 * 1024
@@ -135,8 +180,21 @@ public partial class SettingsWindow : Window
             var repo = new SegmentRepository(_store);
             var service = new RetentionService(repo, _recordingsRoot);
             var report = service.Apply(QuotaBytesFromGb(QuotaGbFromStore()), DateTime.UtcNow);
-            CleanupReportText.Text = $"清理完成：移除 {report.DeletedSegments} 段，釋放 {FormatBytes(report.FreedBytes)}" +
-                                     (report.PurgedTmp > 0 ? $"，清除 {report.PurgedTmp} 個暫存檔" : string.Empty);
+            var text = $"清理完成：錄影移除 {report.DeletedSegments} 段（釋放 {FormatBytes(report.FreedBytes)}）" +
+                       (report.PurgedTmp > 0 ? $"，清除 {report.PurgedTmp} 個暫存檔" : string.Empty);
+
+            var snapDays = SnapDaysFromStore();
+            var snapReport = service.PurgeSnapshots(_snapshotsRoot, DateTime.UtcNow.AddDays(-snapDays));
+            if (snapReport.DeletedFiles > 0)
+            {
+                text += $"，快照移除 {snapReport.DeletedFiles} 個（{FormatBytes(snapReport.FreedBytes)}）";
+            }
+            else
+            {
+                text += "，無過期快照";
+            }
+
+            CleanupReportText.Text = text;
         }
         catch (Exception ex)
         {
@@ -145,6 +203,64 @@ public partial class SettingsWindow : Window
 
         ReloadUsage();
     }
+
+    private void ReloadChannels()
+    {
+        var rows = new ChannelRepository(_store).List()
+            .Select(c => new ChannelRow(
+                c.Id,
+                c.Name,
+                c.MainStreamUrl,
+                c.RecordingMode.ToString(),
+                c.MotionEnabled ? "開" : "關"))
+            .ToList();
+        ChannelList.ItemsSource = rows;
+    }
+
+    private void OnAddChannelClicked(object sender, RoutedEventArgs e)
+    {
+        var url = AddChannelUrlBox.Text.Trim();
+        if (url.Length == 0)
+        {
+            return;
+        }
+
+        try
+        {
+            new ChannelRepository(_store).Add(
+                AddChannelNameBox.Text.Trim().Length > 0 ? AddChannelNameBox.Text.Trim() : "新頻道",
+                url);
+            CleanupReportText.Text = "已加入頻道。";
+            AddChannelUrlBox.Text = string.Empty;
+            ReloadChannels();
+        }
+        catch (Exception ex)
+        {
+            CleanupReportText.Text = $"加入失敗：{ex.Message}";
+        }
+    }
+
+    private void OnOnvifWizardClicked(object sender, RoutedEventArgs e)
+    {
+        var wizard = new OnvifWizardWindow
+        {
+            Owner = this,
+        };
+        if (wizard.ShowDialog() == true && wizard.StreamUrl.Length > 0)
+        {
+            try
+            {
+                new ChannelRepository(_store).Add(wizard.ChannelName, wizard.StreamUrl);
+                ReloadChannels();
+            }
+            catch (Exception ex)
+            {
+                CleanupReportText.Text = $"加入失敗：{ex.Message}";
+            }
+        }
+    }
+
+    private void OnRefreshChannelsClicked(object sender, RoutedEventArgs e) => ReloadChannels();
 
     private static long QuotaBytesFromGb(double gb) => (long)(gb * 1024 * 1024 * 1024);
 
