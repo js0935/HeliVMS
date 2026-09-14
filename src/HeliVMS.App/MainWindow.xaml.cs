@@ -198,6 +198,11 @@ public partial class MainWindow : Window
             Dispatcher.BeginInvoke(() => OpenSettingsWindow());
         }
 
+        if (Environment.GetCommandLineArgs().Contains("--export", StringComparer.OrdinalIgnoreCase))
+        {
+            Dispatcher.BeginInvoke(() => OpenExportWindow());
+        }
+
         _detWriter = new DetectionWriter(_store);
 
         _manager = new ChannelManager(_store, Path.Combine(_dataRoot, "recordings"), Path.Combine(_dataRoot, "snapshots"), DetectionModelResolver.TryResolve());
@@ -783,6 +788,8 @@ public partial class MainWindow : Window
 
     private void OnSettingsClicked(object sender, RoutedEventArgs e) => OpenSettingsWindow();
 
+    private void OnExportClicked(object sender, RoutedEventArgs e) => OpenExportWindow();
+
     /// <summary>開啟管理設定中心（M19，§9）。</summary>
     private void OpenSettingsWindow()
     {
@@ -791,6 +798,16 @@ public partial class MainWindow : Window
             Owner = this,
         };
         settings.Show();
+    }
+
+    /// <summary>開啟匯出精靈（M21，§8.5/§14）。</summary>
+    private void OpenExportWindow()
+    {
+        var export = new ExportWindow(_store!, _dataRoot)
+        {
+            Owner = this,
+        };
+        export.Show();
     }
 
     private void OnAddChannelClicked(object sender, RoutedEventArgs e)

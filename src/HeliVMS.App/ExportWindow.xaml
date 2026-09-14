@@ -1,0 +1,86 @@
+<Window x:Class="HeliVMS.App.ExportWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        AutomationProperties.AutomationId="ExportWindow"
+        Title="HeliVMS 匯出精靈"
+        Width="640" Height="460"
+        WindowStartupLocation="CenterOwner"
+        Background="#0B1622" Foreground="White"
+        Closing="OnClosing">
+
+    <Grid Margin="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <StackPanel>
+            <!-- 頻道 -->
+            <TextBlock Text="頻道" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+            <ComboBox x:Name="ChannelCombo" AutomationProperties.AutomationId="ChannelCombo"
+                      Width="280" Margin="0,4,0,12"
+                      Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
+
+            <!-- 時間範圍 -->
+            <TextBlock Text="匯出範圍" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+            <StackPanel Orientation="Horizontal" Margin="0,4,0,12">
+                <DatePicker x:Name="StartDate" AutomationProperties.AutomationId="StartDate"
+                            Width="140" Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
+                <TextBox x:Name="StartTime" Width="70" Margin="6,0,0,0"
+                         Text="00:00:00" VerticalContentAlignment="Center"
+                         Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
+                <TextBlock Text=" ～ " VerticalAlignment="Center" Margin="6,0"/>
+                <DatePicker x:Name="EndDate" AutomationProperties.AutomationId="EndDate"
+                            Width="140" Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
+                <TextBox x:Name="EndTime" Width="70" Margin="6,0,0,0"
+                         Text="23:59:59" VerticalContentAlignment="Center"
+                         Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
+            </StackPanel>
+
+            <!-- 輸出路徑 -->
+            <TextBlock Text="輸出資料夾" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+            <DockPanel Margin="0,4,0,12">
+                <Button x:Name="BrowseButton" Content="瀏覽…" Click="OnBrowseClicked"
+                        DockPanel.Dock="Right" Padding="12,6" Margin="6,0,0,0"
+                        Foreground="White" Background="#2A5C8A" BorderThickness="0"/>
+                <TextBox x:Name="OutputFolderBox" AutomationProperties.AutomationId="OutputFolderBox"
+                         Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="8,4"/>
+            </DockPanel>
+
+            <!-- 浮水印 -->
+            <TextBlock Text="浮水印文字（選填；留空則不加浮水印）" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+            <TextBox x:Name="WatermarkBox" AutomationProperties.AutomationId="WatermarkBox"
+                     Width="320" Margin="0,4,0,12"
+                     Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="8,4"/>
+
+            <!-- SHA-256 -->
+            <CheckBox x:Name="HashCheckBox" AutomationProperties.AutomationId="HashCheckBox"
+                      Content="匯出後產生 SHA-256 驗證檔（.sha256）"
+                      IsChecked="True" Foreground="White" Margin="0,0,0,12"/>
+
+            <!-- 狀態 -->
+            <TextBlock x:Name="StatusText" AutomationProperties.AutomationId="StatusText"
+                       Foreground="{StaticResource Brand.TextDim}" FontSize="11"
+                       TextWrapping="Wrap" Margin="0,0,0,4"/>
+            <TextBlock x:Name="ResultText" AutomationProperties.AutomationId="ResultText"
+                       Foreground="#56C886" FontSize="11"
+                       TextWrapping="Wrap"/>
+        </StackPanel>
+
+        <!-- 底部 -->
+        <StackPanel Grid.Row="1" Margin="0,12,0,0">
+            <ProgressBar x:Name="ExportProgress" AutomationProperties.AutomationId="ExportProgress"
+                         Height="18" Minimum="0" Maximum="100" Value="0"
+                         Foreground="#2660AA" Background="#12233C" Margin="0,0,0,8"/>
+            <StackPanel Orientation="Horizontal">
+                <Button x:Name="ExportButton" AutomationProperties.AutomationId="ExportButton"
+                        Content="匯出" Click="OnExportClicked"
+                        Width="100" Padding="0,8"
+                        Foreground="White" Background="#2A5C8A" BorderThickness="0"/>
+                <Button x:Name="CloseButton" Content="關閉" Click="OnCloseClicked"
+                        Width="80" Padding="0,8" Margin="8,0,0,0"
+                        Foreground="White" Background="#3A3A5A" BorderThickness="0"/>
+            </StackPanel>
+        </StackPanel>
+    </Grid>
+</Window>

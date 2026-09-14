@@ -6,15 +6,15 @@
 
 ## 一句話總結
 HeliVMS 為一套**網路影像監控系統**（WPF 桌面應用：即時監看／回放／AI 事件中心／錄影排程）。
-里程碑 **M1 至 M20 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M20 為最新）。
-Release build 0 error、測試 **78/78 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
+里程碑 **M1 至 M21 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M21 為最新）。
+Release build 0 error、測試 **80/80 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
 本地與遠端完全同步（`git diff origin/HEAD` 為空）。
 
 ## 開新 session 的接手方法
 ```powershell
 # 在 D:\HeliVMS 開新 session 時，先對新的 agent 講：
 git status                    # 預期為 empty（乾淨）
-git log --oneline -20         # 預期見到 M1..M16，HEAD＝456d20a
+git log --oneline -20         # 預期見到 M1..M21，HEAD＝（M21）
 git diff origin/HEAD          # 預期為空（同步）
 gh run list -L 3              # 預期全部 success
 ```
@@ -23,16 +23,14 @@ gh run list -L 3              # 預期全部 success
 新 session 會以 git 現況接手，不會靠猜測。
 
 ## 現況快照（權威來源＝git，非聊天記憶）
-- 最後 commit：`HEAD`＝**M20（快照保留清理＋頻道整合頁）**
-  ——`RetentionService.PurgeSnapshots`（依檔案時間刪過期快照，回傳 `SnapshotReport`）補上
-  「snapshots/ 完全無清理」缺口；`app_settings["snapshots.retention_days"]`（→`HELIVMS_SNAPSHOT_DAYS`→30）；
-  `MainWindow.RunRetentionLoopAsync` 每圈併入快照清理；SettingsWindow「儲存」頁加快照保留天數輸入＋
-  立即清理併清快照；SettingsWindow 新增「頻道」分類（nav 現 5 項：一般/儲存/頻道/授權/功能）——
-  GridView 頻道清單（id/名稱/RTSP/錄影/運動）＋「＋加入頻道」＋「ONVIF 探索」入口
-- 前一個 M19 主交付＝`c5bc456`（管理設定中心 SettingsWindow）
-- 全部里程碑（M1..M20）依 `docs\ARCHITECTURE.md` 的里程碑定序交付；**roadmap 文件沒有 M21+ 定義**
+- 最後 commit：`HEAD`＝**M21（匯出精靈）**——`ExportService`（HeliVMS.Recording）ffmpeg concat
+  demuxer＋re-encode 輸出標準 MP4（`-preset ultrafast`、`-movflags +faststart`）、可選浮水印
+  （`drawtext`＋Windows `fontfile` 修正 fontconfig）、可選 SHA-256 附檔（`.sha256`）、`IProgress`
+  進度回報；`ExportWindow`（頻道/起迄時間/輸出資料夾 `OpenFolderDialog`/浮水印/SHA-256 勾選/
+  匯出按鈕/進度列＋狀態）；MainWindow「匯出」按鈕＋`--export` 旗標直開
+- 前一個 M20 主交付＝`ceea7e5`（快照保留清理＋頻道整合頁）
 - 分支／遠端：`git diff origin/HEAD` 為空（完全同步）；HEAD＝origin
-- CI：`gh run list` 顯示最新 run `conclusion=success`；建置 0 error、測試 78/78
+- CI：`gh run list` 顯示最新 run `conclusion=success`；建置 0 error、測試 80/80
 
 ## 架構關鍵（確切、無漂移）
 - 解決方案：`D:\HeliVMS\HeliVMS.App\HeliVMS.App.csproj`（WPF）＋ `HeliVMS.slnx`
@@ -46,28 +44,33 @@ gh run list -L 3              # 預期全部 success
 - E2E harness：`C:\Users\JS\AppData\Local\Temp\opencode\e2e\x\Program.cs`
   （**temp harness，不入 git、不影響 CI、不影響 repo 狀態**）
   - 已有 block：`playcheck`、`playbackcheck`、`playmark`、`plist`（M16）、`kbcheck`（M17，KB_OK）、
-    `evcard`（M18，EV_OK）、`setcheck`（M19，SET_OK）、**`snapcheck`（M20，SNAP_OK）**
+    `evcard`（M18，EV_OK）、`setcheck`（M19，SET_OK）、**`snapcheck`（M20，SNAP_OK）**、
+    **`expcheck`（M21，EXP_OK）**
   - `kbcheck` 驗證：`Space` 暫停（t1）→ `→` 前跳 10 秒（t2−t1＝11s）→ `F` 逐幀仍暫停 →
     `Esc` 停止（StopButton disabled）；輸出 `KB_OK`
   - `evcard` 驗證：主視窗→右鍵 cell→「開啟事件中心」；選頻道後 grid DataItems≥2、
     「卡片」切換後 grid DataItems=0 且 card ListItems≥2、卡片含縮圖 Image、
     選中 `evcard-person` 卡片後 `SnapshotDetailText`＝「明細：evcard-person」且 `SnapshotPathText` 指向快照檔、
     切回清單 grid DataItems 回復；輸出 `EV_OK`
-  - `setcheck` 驗證：`--settings` 旗標直開設定中心；nav 4 項；初始「一般」頁可見（dataRoot
+  - `setcheck` 驗證：`--settings` 旗標直開設定中心；nav 5 項；初始「一般」頁可見（dataRoot
     offscreen=false、儲存頁元素**不存在**）；切「儲存」後配額 Box 出現且值=種子「4」、SetValue「5」→
     套用 → 重開 SqliteStore 讀 `app_settings["recording.quota_gb"]=="5"`；切「授權」狀態非空；切「功能」
     入口按鈕存在；輸出 `SET_OK`
   - `snapcheck` 驗證：前置造 120/100 天前舊快照＋新快照、設 `snapshots.retention_days="30"`；
     `--settings` 直開設定中心（nav 現 5 項）；儲存頁 `SnapshotDaysTextBox` 值＝「30」→「立即清理」
     → 舊快照檔刪除、新快照保留；切「頻道」頁 ChannelList DataItems≥1；輸出 `SNAP_OK`
+  - `expcheck` 驗證：前置造 6s 段入 C:\HeliVMSData 庫（第一頻道）、清空 exports/；`--export`
+    直開匯出精靈；驗 `ChannelCombo/OutputFolderBox/HashCheckBox/ExportButton` 存在；點匯出後
+    **輪詢 ResultText 含「匯出成功」且 `.sha256` 產出**（勿只等 mp4 出現）；驗 hash 檔內容與
+    輸出 MP4 的 SHA-256 一致、ResultText 含 SHA-256；輸出 `EXP_OK`
 
 ## 尚未完成／下一步（依 git 與 repo 判斷）
-1. **M21 定義（尚未開立）**：roadmap 目前無定義。候選（照「先定義、後實作」節奏）：
-   - §8.5 未完快捷鍵 **`B` 書籤／`E` 匯出片段**
+1. **M22 定義（尚未開立）**：M21 已落地匯出工作流。roadmap 目前無定義。候選（照「先定義、後實作」節奏）：
+   - §8.5 未完快捷鍵 **`B` 書籤**（回放標記）
    - 通知中心落地（§14：SMTP／webhook；目前**完全無通知服務**，需先實作寄送器＋
      SettingsWindow 新增「通知」分類）
-   - 設定中心擴充（頻道細節、運動偵測、AI 參數收進 §9；快照已於 M20 補清理）
-   - 回放多路同步（1/2/4 路同播放頭）或匯出精靈（MP4＋浮水印＋SHA-256）
+   - 匯出功能增值：批次多段合併、fMP4→定長段落選取、回放窗「匯出此段」按鈕
+   - 回放多路同步（1/2/4 路同播放頭）
 
 ## 已知雷區（勿再犯）
 - **勿以 bash 對 repo 源碼做 byte 級重寫**（曾造成 UTF-8 漂移／mojibake 污染，已 `git restore` 還原）；
@@ -112,3 +115,9 @@ gh run list -L 3              # 預期全部 success
   `SnapDaysFromStore` vs `MainWindow.ReadQuotaBytes`/`ReadSnapshotDays`），改設定來源時兩處要同步
 - **SettingsNav 增刪分類會破 setcheck 的 nav 數斷言**（現為 5）：改 nav 項目時務必同步 harness
   `seNavCount/snNavCount` 預期值
+- **M21 匯出浮水印雷區**：Windows 無 fontconfig 會讓 `drawtext` 「exit=0 但文字不渲染」——務必加
+  `:fontfile='C\:/Windows/Fonts/arial.ttf'`；浮水印內 `:` 要跳脫為 `\:`（用 `\\:` 的 C# 字串）
+- **M21 harness 產物路徑**：E2E csproj 目標含 `net10.0-windows`，Release 實跑要用
+  `bin\Release\net10.0-windows\HeliVmsE2E.exe`（`bin\Release\net10.0\…exe` 是**舊產物**，會測到舊 code）
+- **M21 匯出完成判定**：`.sha256` 與 ResultText 更新比 MP4 落盤晚；harness 輪詢結果以
+  「ResultText 含匯出成功＋.sha256 存在」為完成條件，勿以「mp4 已出現」判斷
