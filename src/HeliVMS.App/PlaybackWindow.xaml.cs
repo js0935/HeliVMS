@@ -36,6 +36,8 @@ public partial class PlaybackWindow : Window
 
     private sealed record SegmentItem(SegmentRecord Segment, string StartLabel, string DurationLabel, string SizeLabel);
 
+    private sealed record EventItem(long Id, string StartLabel, string TypeLabel, string DetailLabel);
+
     public PlaybackWindow(SqliteStore store, long? focusChannelId = null, DateTime? focusUtc = null)
     {
         _store = store;
@@ -133,6 +135,22 @@ public partial class PlaybackWindow : Window
                 .OrderBy(e => e.StartUtc)
                 .ToList();
 
+            var camNames = new ChannelRepository(_store).List()
+                .ToDictionary(c => c.Id, c => c.Name);
+
+            EventList.ItemsSource = _events
+                .Select(e =>
+                {
+                    var local = TimeZoneInfo.ConvertTimeFromUtc(e.StartUtc, TimeZoneInfo.Local);
+                    return new EventItem(
+                        e.Id,
+                        local.ToString("HH:mm:ss"),
+                        e.EventType,
+                        camNames.TryGetValue(e.ChannelId, out var cn) ? cn : $"ch {e.ChannelId}");
+                })
+                .ToList();
+            EventCountText.Text = _events.Count > 0 ? $" 共 {_events.Count} 條" : "";
+
             RenderBlocks();
             LoadHint.Text = _events.Count > 0
                 ? $"當日 {segs.Count} 段、{_events.Count} 事件。"
@@ -149,6 +167,28 @@ public partial class PlaybackWindow : Window
         if (SegmentList.SelectedItem is SegmentItem item)
         {
             PlayFrom(item.Segment, 0);
+        }
+    }
+
+    private void OnEventSelected(object sender, SelectionChangedEventArgs e)
+    {
+        if (EventList.SelectedItem is not EventItem evt)
+        {
+            return;
+        }
+
+        var rec = _events.FirstOrDefault(x => x.Id == evt.Id);
+        if (rec is null)
+        {
+            return;
+        }
+
+        var band = _bandSegments
+            .FirstOrDefault(b => b.Segment.StartUtc <= rec.StartUtc
+                              && rec.StartUtc <= b.Segment.StartUtc.AddSeconds(b.Segment.DurationSec ?? 0));
+        if (band is not null)
+        {
+            PlayFrom(band.Segment, (rec.StartUtc - band.Segment.StartUtc).TotalSeconds);
         }
     }
 
