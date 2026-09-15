@@ -121,7 +121,12 @@ gh run list -L 3              # 預期全部 success
    Storage ＋2（FindOpenOffline、CloseOpenEvents）＋Alarms ＋4（OfflineEventTracker 開窗防重複/
    復連補 online＋duration detail/無開窗 noop/startup close）＝全 **120**；
    harness `offcheck`→**OFFCHECK_OK**；回歸 11 全綠
-5. **M30（本次開立）— MQTT 通知通道**
+5. **M30 已完成**（commit `dfdd551`，CI success）：MQTT 通知通道——見「現況快照」＋Alarms
+   `MqttNotifier`（裸 MQTT 3.1.1、無第三方依賴）、`NotificationService` 第三 route
+   （複合 log Route "webhook+smtp+mqtt"）、SettingsWindow 通知頁 MQTT 群（密碼不預填）；
+   Alarms ＋5＝**56**、全 **125**（Storage 53＋Alarms 56＋Licensing 8＋Devices 8）；
+   E2E `mqttcheck`→**MQTTCHECK_OK**（Program 內 FakeMqttBroker：CONNECT→CONNACK rc0→收 PUBLISH
+   驗 topic＋JSON）；回歸 12 全綠含 off/evfilter/quiet
    - 現況：通知平面（M22）已有 Webhook＋SMTP 兩通道，無 MQTT。M30 補 **MQTT 3.1.1 通道**：
    - **NotificationSettings**：＋`MqttEnabled/MqttHost/MqttPort(=1883)/MqttTopic/MqttUser/
      MqttPassword`（鍵 `notify.mqtt.enabled/host/port/topic/user/password`、env
