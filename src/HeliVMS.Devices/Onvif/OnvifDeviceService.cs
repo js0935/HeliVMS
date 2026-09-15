@@ -14,6 +14,7 @@ public sealed class OnvifDeviceService : IDisposable
     internal static readonly XNamespace Td = "http://www.onvif.org/ver10/device/wsdl";
     internal static readonly XNamespace Trt = "http://www.onvif.org/ver10/media/wsdl";
     internal static readonly XNamespace Ts = "http://www.onvif.org/ver10/schema";
+    internal static readonly XNamespace Tptz = "http://www.onvif.org/ver10/ptz/wsdl";
     internal static readonly XNamespace Wsa = "http://www.w3.org/2005/08/addressing";
     internal static readonly XNamespace Wsse = "http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-secext-1.0.xsd";
     internal static readonly XNamespace Wsu = "http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-utility-1.0.xsd";
@@ -47,6 +48,12 @@ public sealed class OnvifDeviceService : IDisposable
 
     /// <summary>Media 服務位址（首次呼叫 GetProfiles 前以 GetCapabilities 解析）。</summary>
     public string? MediaXAddr { get; private set; }
+
+    /// <summary>PTZ 服務位址（首次呼叫 PTZ 動作前以 GetCapabilities Category=All 解析）。</summary>
+    public string? PtzXAddr { get; private set; }
+
+    /// <summary>設備是否具備 PTZ 能力（需先呼叫 <see cref="EnsurePtzCapabilityAsync"/>）。</summary>
+    public bool HasPtz => !string.IsNullOrWhiteSpace(PtzXAddr);
 
     /// <summary>取得設備基本資訊與系統時間。</summary>
     public async Task<OnvifDeviceInfo> GetInfoAsync(CancellationToken cancellationToken = default)
@@ -164,6 +171,173 @@ public sealed class OnvifDeviceService : IDisposable
         }
 
         return null;
+    }
+
+    /// <summary>確保已解析 PTZ 服務位址（GetCapabilities Category=All；不覆用 Media 快取）。</summary>
+    public async Task EnsurePtzCapabilityAsync(CancellationToken cancellationToken = default)
+    {
+        if (PtzXAddr is not null)
+        {
+            return;
+        }
+
+        try
+        {
+            var body = await PostAsync(
+                new XElement(Td + "GetCapabilities", new XElement(Td + "Category", "All")), null,
+                TdAction("GetCapabilities"), cancellationToken);
+
+            var ptzCaps = DescendantAnyNs(body, "Capabilities")?.Descendants()
+                .FirstOrDefault(e => e.Name.LocalName == "PTZ");
+            if (ptzCaps is null)
+            {
+                ptzCaps = DescendantAnyNs(body, "PTZ");
+            }
+
+            PtzXAddr = (string?)ptzCaps?.ElementAnyNs("XAddr") ?? string.Empty;
+        }
+        catch (InvalidOperationException)
+        {
+            PtzXAddr = string.Empty;
+        }
+        catch (System.Net.Http.HttpRequestException)
+        {
+            PtzXAddr = string.Empty;
+        }
+        catch (System.Xml.XmlException)
+        {
+            PtzXAddr = string.Empty;
+        }
+    }
+
+    /// <summary>取得 PTZ 目前位置（GetStatus）。</summary>
+    public async Task<PtzStatus> GetPtzStatusAsync(string profileToken, CancellationToken cancellationToken = default)
+    {
+        await EnsurePtzCapabilityAsync(cancellationToken);
+        var body = await PostAsync(
+            new XElement(Tptz + "GetStatus", new XElement(Tptz + "ProfileToken", profileToken)),
+            PtzXAddr,
+            TptzAction("GetStatus"), cancellationToken);
+
+        var position = DescendantAnyNs(body, "Position");
+        return ParsePtzStatus(position ?? DescendantAnyNs(body, "PTZStatus"));
+    }
+
+    /// <summary>連續移動（Velocity 各軸 -1..1；約 4 秒後自動停止，避免設備持續運轉）。</summary>
+    public async Task ContinuousMoveAsync(
+        string profileToken,
+        double pan,
+        double tilt,
+        double zoom,
+        CancellationToken cancellationToken = default)
+    {
+        await EnsurePtzCapabilityAsync(cancellationToken);
+        _ = await PostAsync(
+            new XElement(Tptz + "ContinuousMove",
+                new XElement(Tptz + "ProfileToken", profileToken),
+                new XElement(Tptz + "Velocity",
+                    new XElement(Ts + "PanTilt",
+                        new XAttribute("x", pan.ToString(System.Globalization.CultureInfo.InvariantCulture)),
+                        new XAttribute("y", tilt.ToString(System.Globalization.CultureInfo.InvariantCulture))),
+                    new XElement(Ts + "Zoom",
+                        new XAttribute("x", zoom.ToString(System.Globalization.CultureInfo.InvariantCulture)))),
+                new XElement(Tptz + "Timeout", "PT4S")),
+            PtzXAddr,
+            TptzAction("ContinuousMove"), cancellationToken);
+    }
+
+    /// <summary>停止 PTZ 移動（PanTilt＋Zoom 都停止）。</summary>
+    public async Task StopPtzAsync(string profileToken, CancellationToken cancellationToken = default)
+    {
+        await EnsurePtzCapabilityAsync(cancellationToken);
+        _ = await PostAsync(
+            new XElement(Tptz + "Stop",
+                new XElement(Tptz + "ProfileToken", profileToken),
+                new XElement(Tptz + "PanTilt", "true"),
+                new XElement(Tptz + "Zoom", "true")),
+            PtzXAddr,
+            TptzAction("Stop"), cancellationToken);
+    }
+
+    /// <summary>取得全部 PTZ 預設點。</summary>
+    public async Task<IReadOnlyList<PtzPreset>> GetPtzPresetsAsync(string profileToken, CancellationToken cancellationToken = default)
+    {
+        await EnsurePtzCapabilityAsync(cancellationToken);
+        var body = await PostAsync(
+            new XElement(Tptz + "GetPresets", new XElement(Tptz + "ProfileToken", profileToken)),
+            PtzXAddr,
+            TptzAction("GetPresets"), cancellationToken);
+
+        var presets = new List<PtzPreset>();
+        foreach (var preset in DescendantsAnyNs(body, "Preset"))
+        {
+            var token = (string?)preset.Attribute("token") ?? string.Empty;
+            if (token.Length == 0)
+            {
+                continue;
+            }
+
+            presets.Add(new PtzPreset
+            {
+                Token = token,
+                Name = (string?)preset.ElementAnyNs("Name") ?? token,
+            });
+        }
+
+        return presets;
+    }
+
+    /// <summary>移至指定預設點（GotoPreset）。</summary>
+    public async Task GotoPtzPresetAsync(string profileToken, string presetToken, CancellationToken cancellationToken = default)
+    {
+        await EnsurePtzCapabilityAsync(cancellationToken);
+        _ = await PostAsync(
+            new XElement(Tptz + "GotoPreset",
+                new XElement(Tptz + "ProfileToken", profileToken),
+                new XElement(Tptz + "PresetToken", presetToken)),
+            PtzXAddr,
+            TptzAction("GotoPreset"), cancellationToken);
+    }
+
+    /// <summary>將目前位置儲存為預設點（SetPreset），回傳預設點 Token。</summary>
+    public async Task<string> SetPtzPresetAsync(string profileToken, string presetName, CancellationToken cancellationToken = default)
+    {
+        await EnsurePtzCapabilityAsync(cancellationToken);
+        var body = await PostAsync(
+            new XElement(Tptz + "SetPreset",
+                new XElement(Tptz + "ProfileToken", profileToken),
+                new XElement(Tptz + "PresetName", presetName)),
+            PtzXAddr,
+            TptzAction("SetPreset"), cancellationToken);
+
+        return (string?)DescendantAnyNs(body, "PresetToken") ?? string.Empty;
+    }
+
+    private static PtzStatus ParsePtzStatus(XElement? position)
+    {
+        var panTilt = position?.Descendants().FirstOrDefault(e => e.Name.LocalName == "PanTilt");
+        var zoom = position?.Descendants().FirstOrDefault(e => e.Name.LocalName == "Zoom");
+        return new PtzStatus
+        {
+            Pan = ParseAxis((string?)panTilt?.Attribute("x")),
+            Tilt = ParseAxis((string?)panTilt?.Attribute("y")),
+            Zoom = ParseAxis((string?)zoom?.Attribute("x")),
+        };
+    }
+
+    private static double ParseAxis(string? raw)
+    {
+        if (double.TryParse(
+                raw,
+                System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture,
+                out var value) &&
+            !double.IsNaN(value))
+        {
+            return value;
+        }
+
+        return 0;
     }
 
     private async Task<string?> TryGetStreamUriAsync(string profileToken, CancellationToken cancellationToken)
@@ -305,6 +479,7 @@ public sealed class OnvifDeviceService : IDisposable
 
     private static string TdAction(string action) => $"http://www.onvif.org/ver10/device/wsdl/{action}";
     private static string TrtAction(string action) => $"http://www.onvif.org/ver10/media/wsdl/{action}";
+    private static string TptzAction(string action) => $"http://www.onvif.org/ver10/ptz/wsdl/{action}";
 
     public void Dispose() => _http.Dispose();
 

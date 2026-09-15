@@ -11,6 +11,12 @@ public sealed class DeviceRecord
 
     public int Port { get; init; } = 80;
 
+    /// <summary>ONVIF 帳號（僅 DeviceRepository.Get 帶入）。</summary>
+    public string? Username { get; init; }
+
+    /// <summary>ONVIF 密碼（DPAPI 加密存放；僅 DeviceRepository.Get 帶入原密文）。</summary>
+    public string? PasswordEncrypted { get; init; }
+
     /// <summary>供應商（hikvision／dahua／onvif／generic）。</summary>
     public string Vendor { get; init; } = "generic";
 

@@ -54,6 +54,36 @@ public class OnvifServiceTests
         </s:Envelope>
         """;
 
+    private const string CapsAllWithPtzResponse = """
+        <s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope">
+          <s:Body>
+            <td:GetCapabilitiesResponse xmlns:td="http://www.onvif.org/ver10/device/wsdl">
+              <td:Capabilities>
+                <td:Media><td:XAddr>http://192.168.1.5/onvif/Media</td:XAddr></td:Media>
+                <td:PTZ><td:XAddr>http://192.168.1.5/onvif/ptz_service</td:XAddr></td:PTZ>
+              </td:Capabilities>
+            </td:GetCapabilitiesResponse>
+          </s:Body>
+        </s:Envelope>
+        """;
+
+    private const string EmptyBodyResponse = """
+        <s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope">
+          <s:Body />
+        </s:Envelope>
+        """;
+
+    private const string PresetsResponse = """
+        <s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope">
+          <s:Body>
+            <tptz:GetPresetsResponse xmlns:tptz="http://www.onvif.org/ver10/ptz/wsdl">
+              <tptz:Preset token="p_main_preset"><tptz:Name>入口監看</tptz:Name></tptz:Preset>
+              <tptz:Preset token="p_park"><tptz:Name>停車場</tptz:Name></tptz:Preset>
+            </tptz:GetPresetsResponse>
+          </s:Body>
+        </s:Envelope>
+        """;
+
     /// <summary>GetProfiles 請求之信封應含 Media Action 與 Body；並解析出 2 個 Profile。</summary>
     [Fact]
     public async Task GetProfiles_KeepsMediaAction_AndParsesProfiles()
@@ -137,6 +167,72 @@ public class OnvifServiceTests
 
         Assert.Equal(2, profiles.Count);
         Assert.Contains(profiles, p => p.StreamUri == "rtsp://192.168.1.5/Streaming/Channels/101");
+    }
+
+    /// <summary>GetCapabilities（Category=All）回應含 Media＋PTZ XAddr 時，應解析出 PTZ 位址。</summary>
+    [Fact]
+    public async Task GetCapabilities_WithPtzAddress_ParsesPtz()
+    {
+        var handler = new RecordingHandler((_, _) => CapsAllWithPtzResponse);
+        using var service = new OnvifDeviceService("http://192.168.1.5/onvif/device_service", null, null, handler);
+
+        Assert.False(service.HasPtz);
+        await service.EnsurePtzCapabilityAsync();
+
+        Assert.True(service.HasPtz);
+        Assert.Equal("http://192.168.1.5/onvif/ptz_service", service.PtzXAddr);
+    }
+
+    /// <summary>ContinuousMove 應送 ptZ 端點並含 Velocity（PanTilt/Zoom 屬性值。Culture 依 Invariant）。</summary>
+    [Fact]
+    public async Task ContinuousMove_PostsVelocity_ToPtzEndpoint()
+    {
+        var handler = new RecordingHandler((_, body) =>
+            body.Contains("GetCapabilities", StringComparison.Ordinal) ? CapsAllWithPtzResponse : EmptyBodyResponse);
+        using var service = new OnvifDeviceService("http://192.168.1.5/onvif/device_service", null, null, handler);
+
+        await service.ContinuousMoveAsync("MainProfile", 0.5, -0.25, 0.1);
+
+        var request = handler.Requests.Single(r => r.Body.Contains("ContinuousMove", StringComparison.Ordinal));
+        Assert.Equal("http://192.168.1.5/onvif/ptz_service", request.Url);
+        Assert.Contains("http://www.onvif.org/ver10/ptz/wsdl/ContinuousMove", request.Body);
+        Assert.Contains("MainProfile", request.Body);
+        Assert.Contains("x=\"0.5\"", request.Body);
+        Assert.Contains("y=\"-0.25\"", request.Body);
+        Assert.Contains("x=\"0.1\"", request.Body);
+    }
+
+    /// <summary>GetPtzPresets 應解析 Preset token 與名稱。</summary>
+    [Fact]
+    public async Task GetPtzPresets_ParsesPresets()
+    {
+        var handler = new RecordingHandler((_, body) =>
+            body.Contains("GetCapabilities", StringComparison.Ordinal) ? CapsAllWithPtzResponse : PresetsResponse);
+        using var service = new OnvifDeviceService("http://192.168.1.5/onvif/device_service", null, null, handler);
+
+        var presets = await service.GetPtzPresetsAsync("MainProfile");
+
+        Assert.Equal(2, presets.Count);
+        Assert.Equal("p_main_preset", presets[0].Token);
+        Assert.Equal("入口監看", presets[0].Name);
+    }
+
+    /// <summary>Stop 應送至 ptZ 端點並含 PanTilt/Zoom=true。</summary>
+    [Fact]
+    public async Task Stop_PostsStop_ToPtzEndpoint()
+    {
+        var handler = new RecordingHandler((_, body) =>
+            body.Contains("GetCapabilities", StringComparison.Ordinal) ? CapsAllWithPtzResponse : EmptyBodyResponse);
+        using var service = new OnvifDeviceService("http://192.168.1.5/onvif/device_service", null, null, handler);
+
+        await service.StopPtzAsync("MainProfile");
+
+        var request = handler.Requests.Single(r => r.Body.Contains("Stop", StringComparison.Ordinal));
+        Assert.Equal("http://192.168.1.5/onvif/ptz_service", request.Url);
+        Assert.Contains("http://www.onvif.org/ver10/ptz/wsdl/Stop", request.Body);
+        Assert.Contains("MainProfile", request.Body);
+        Assert.Contains("PanTilt", request.Body);
+        Assert.Contains("Zoom", request.Body);
     }
 
     public sealed record RequestSnapshot(string Url, string Body);

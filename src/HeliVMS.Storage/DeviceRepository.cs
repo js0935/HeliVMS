@@ -44,6 +44,37 @@ public sealed class DeviceRepository
             });
     }
 
+    /// <summary>依 ID 取得單一設備（含帳密欄位，供 ONVIF 直連）；無此設備回傳 null。</summary>
+    public DeviceRecord? Get(int id)
+    {
+        return _store.Query(
+            """
+            SELECT id, name, ip, port, username, password_encrypted, vendor, enabled, created_at
+            FROM devices WHERE id = $id;
+            """,
+            static r =>
+            {
+                if (!r.Read())
+                {
+                    return null;
+                }
+
+                return new DeviceRecord
+                {
+                    Id = r.GetInt32(0),
+                    Name = r.GetString(1),
+                    Ip = r.GetString(2),
+                    Port = r.GetInt32(3),
+                    Username = r.IsDBNull(4) ? null : r.GetString(4),
+                    PasswordEncrypted = r.IsDBNull(5) ? null : r.GetString(5),
+                    Vendor = r.GetString(6),
+                    Enabled = r.GetInt32(7) != 0,
+                    CreatedAt = SqliteStore.FromIso(r.GetString(8)),
+                };
+            },
+            cmd => cmd.Parameters.AddWithValue("$id", id));
+    }
+
     /// <summary>新增設備，回傳新 ID。密碼以 DPAPI（目前使用者）加密後儲存。</summary>
     public int Add(string name, string ip, int port, string username, string password, string vendor)
     {

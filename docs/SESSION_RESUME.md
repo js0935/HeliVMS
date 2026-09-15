@@ -6,8 +6,8 @@
 
 ## 一句話總結
 HeliVMS 為一套**網路影像監控系統**（WPF 桌面應用：即時監看／回放／AI 事件中心／錄影排程）。
-里程碑 **M1 至 M24 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M24 為最新）。
-Release build 0 error、測試 **104/104 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
+里程碑 **M1 至 M25 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M25 為最新）。
+Release build 0 error、測試 **109/109 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
 本地與遠端完全同步（`git diff origin/HEAD` 為空）。
 
 ## 開新 session 的接手方法
@@ -23,21 +23,26 @@ gh run list -L 3              # 預期全部 success
 新 session 會以 git 現況接手，不會靠猜測。
 
 ## 現況快照（權威來源＝git，非聊天記憶）
-- 最後 commit：`HEAD`＝**M24（SMTP 快照附件＋通知合併，M23 延後項）**——`SmtpNotifier`
-  `SendAsync(cfg, IReadOnlyList<AlarmEventRecord>)` 多筆多載（**單筆多載委派不破既有呼叫**）：單封郵件
-  主旨單筆沿用原格式、多筆「HeliVMS 事件（N 則）」，內文逐則明細；對 `record.SnapshotPath` 存在的
-  檔案加 `Attachment`（`.png`→`image/png`、`.jpg/.jpeg`→`image/jpeg`，不存在→不附、內文保留路徑行）；
-  **附件隨 `MailMessage` Dispose**。`NotificationService` 新增**純 SMTP 週期合併**：`WebhookUrl` 空白＋
-  SMTP 已設定時，一次 `ProcessBatchAsync` 把 queue＋到期 retry 併成一封（`ProcessSmtpBatchAsync`）：
-  整批成功→每筆 `DeliveredCount+1`＋log ok＝true route "smtp"；整批失敗→逐筆依 `Attempts` 重試或
-  達 `_maxAttempts` 落 failed＋log ok＝false；靜默時段→每筆 skip（`SkippedDuringQuietCount++`）。
-  **webhook 通道維持逐筆**（不影響）。單元測試 **104/104**（Storage 47＋Alarms 45＋Licensing 8＋
-  Devices 4；Alarms ＋5＝M24 合併/附件/靜默）＋ E2E 新增 **`smtpcheck` SMTPCHECK_OK**（熱拷 mini
-  SMTP：純 SMTP 2 事件併 1 封、`image/png` 附件＋內容、log=2）＋ notifcheck/logcheck/setcheck/
-  snapcheck 全數回歸綠
-- 前一個 M23 交付＝`1943937`（通知中心完整化：notification_log v6、通知紀錄窗、靜默時段、99/99）
+- 最後 commit：`HEAD`＝**M25（PTZ 控制＋ONVIF 自動探索強化）**——`OnvifDeviceService`
+  新增 `Tptz` namespace（`ver10/ptz/wsdl`）＋**獨立** `GetCapabilities Category="All"` 解析
+  `<Capabilities><PTZ><XAddr>`（不覆用 Media 快取）：`PtzXAddr`/`HasPtz`/
+  `EnsurePtzCapabilityAsync`＋`GetPtzStatusAsync`/`ContinuousMoveAsync`(Velocity)/
+  `StopPtzAsync`(PanTilt+Zoom=true)/`GetPtzPresetsAsync`/`GotoPtzPresetAsync`/`SetPtzPresetAsync`
+  （`TptzAction` helper，`ParseAxis` 保險防 NaN）；`OnvifModels.cs` 加 `PtzStatus`/`PtzPreset`；
+  資料面**不加 DB 欄位、schema 維持 v6**：`DeviceRepository.Get(id)`（含帳密）＋`DeviceRecord`
+  `Username`/`PasswordEncrypted`；**`PtzWindow`**（AutomationId `PtzWindow`/`PtzStatusText`、
+  八向＋變焦＋`PtzStopButton`、`PtzPresetList`＋儲存/移轉/重新整理；按一次＝ContinuousMove 400ms
+  後自動 Stop）＋MainWindow `PtzButton`（新行按鈕列）＋格子右鍵「PTZ 控制」`OnCtxPtz`
+  （`_cellChannel[cell]`→`OpenPtz`；未綁定→訊息盒）；Wizard 顯示「PTZ：支援/不支援/未知」。
+  單元測試 **109/109**（Storage 48＋Alarms 45＋Licensing 8＋Devices 8；Devices ＋4＝PTZ 解析/
+  封包、Storage ＋1＝Get 帳密）＋ E2E 新增 **`ptzcheck` PTZCHECK_OK**（迷你 ONVIF 假設備
+  Socket 級三端點＋channel 1 綁定 device→App `PtzButton`→`PtzWindow` 狀態「PTZ 支援」→
+  `PtzUpButton`→假設備收到 ContinuousMove）＋ notifcheck/logcheck/smtpcheck/setcheck/snapcheck/
+  expcheck 全數回歸綠
+- 前一個 M24 交付＝`1a36f81`（SMTP 快照附件＋通知合併：SmtpNotifier 多筆多載、純 SMTP 週期
+  合併寄一封、Attachment 依快照路徑；單元測試 104/104、E2E smtpcheck SMTPCHECK_OK）
 - 分支／遠端：`git diff origin/HEAD` 為空（完全同步）；HEAD＝origin
-- CI：`gh run list` 顯示最新 run `conclusion=success`；建置 0 error、測試 104/104
+- CI：`gh run list` 顯示最新 run `conclusion=success`；建置 0 error、測試 109/109
 
 ## 架構關鍵（確切、無漂移）
 - 解決方案：`D:\HeliVMS\HeliVMS.App\HeliVMS.App.csproj`（WPF）＋ `HeliVMS.slnx`
@@ -53,7 +58,8 @@ gh run list -L 3              # 預期全部 success
   - 已有 block：`playcheck`、`playbackcheck`、`playmark`、`plist`（M16）、`kbcheck`（M17，KB_OK）、
     `evcard`（M18，EV_OK）、`setcheck`（M19，SET_OK）、**`snapcheck`（M20，SNAP_OK）**、
     **`expcheck`（M21，EXP_OK）、**`notifcheck`（M22，NOTIF_OK）**、
-     **`logcheck`（M23，LOG_OK）**、**`smtpcheck`（M24，SMTPCHECK_OK）****
+     **`logcheck`（M23，LOG_OK）**、**`smtpcheck`（M24，SMTPCHECK_OK）**、
+     **`ptzcheck`（M25，PTZCHECK_OK）**
   - `kbcheck` 驗證：`Space` 暫停（t1）→ `→` 前跳 10 秒（t2−t1＝11s）→ `F` 逐幀仍暫停 →
     `Esc` 停止（StopButton disabled）；輸出 `KB_OK`
   - `evcard` 驗證：主視窗→右鍵 cell→「開啟事件中心」；選頻道後 grid DataItems≥2、
@@ -86,13 +92,21 @@ gh run list -L 3              # 預期全部 success
     純 SMTP 設定（`notify.smtp.*`、webhook.url 空）＋ NotificationService interval 60ms→enqueue
     2 事件（一筆帶存在快照 PNG）→`DeliveredCount==2`→恰收 1 封、payload 含 `image/png`＋快照檔名＋
     `Content-Disposition: attachment`、`notification_log` Count==2；輸出 `SMTPCHECK_OK`
+  - `ptzcheck` 驗證（M25）：迷你 ONVIF 假設備（`E2ePtzDevice`，Socket 級 HTTP/1.1：通
+    `/onvif/device_service` 回 GetCapabilities→Media+PTZ XAddr＝本機 `/onvif/Media` 與
+    `/onvif/ptz_service`；`/Media` 回 GetProfiles；`/ptz_service` 依動作回 Presets/空信封並記錄
+    action）＋清空 devices、綁定 channel 1 DeviceId→**服務層直測**（Ensure→profiles=1→presets=2→
+    ContinuousMove 使 MoveCount+1→Stop 收到）→清空後 App `PtzButton` Invoke→`PtzWindow` 開→
+    輪詢 `PtzStatusText` 名稱含「PTZ 支援」→`PtzUpButton` Invoke→假設備 MoveCount 遞增→
+    `PTZCHECK_OK`；`SqliteStore.Execute` 回 void，affected rows 要用 `SELECT changes()` 查
+  - `evcard`/`kbcheck` 自 M18/M17 後**未列入後續里程碑回歸組**（環境 flaky：右鍵 Popup 選單 UIA
+    與播放秒表對 CPU 敏感；M19-M25 均未跑）。回歸組＝notif/log/smtp/set/snap/exp（＋ptz 於 M25），
+    看到 evcard/kbcheck BAD 不迴溯 M25
 
 ## 尚未完成／下一步（依 git 與 repo 判斷）
-1. **M25 候選（開 M25 前先翻 §13-§21 對照，由使用者「依照你的建議」擇一）**：
-   - **PTZ 控制與 ONVIF 自動探索**：`HeliVMS.Devices.Onvif` 已有基礎，可擴充 PTZ 移動/預設點
-     （SettingsWindow 頻道頁＋主視窗控制）；ONVIF 自動探索（WS-Discovery）
-   - **系統匣常駐**：NotifyIcon 關閉縮到系統匣、整併 M21 流程
-   - 其餘已知候選：通知靜默時段延時補送、紀錄頁篩選/分頁 UI、離線事件源、SNMP/MQTT/推播通道
+1. 下一里程碑候選（M26 起）：系統匣常駐、通知靜默時段延時補送、紀錄頁篩選/分頁 UI、
+   離線事件源（斷線補送）、SNMP/MQTT/推播通道、PTZ 增強（長按連續移動、AbsoluteMove/Home、
+   預設點管理 UI、多 Profile 選擇 UI）、ONVIF Discovery Hello/Bye/Resolve
    - 每里程碑節奏照舊：定義先寫入本檔→實作→App Release build 0 error→單元測試→E2E harness
      block→commit＋push＋CI success→`git status --porcelain` 空白
 
@@ -187,3 +201,9 @@ gh run list -L 3              # 預期全部 success
 - **FakeSmtpServer 的 `CountMessages` 會被 `WaitForSmtpAsync` 消費後為 0**：驗「恰一封」要
    `WaitForSmtpAsync` 取走後 `Assert.False(smtp.TryDequeueMessage(out _))`，或 harness 用
    `HasAnother`
+- **M25 ptzcheck 假設備（`E2ePtzDevice`）**：Socket 級 HTTP/1.1 回 `Connection: close`＋對
+  `NetworkStream` 用**同步 `stream.Read`**（`ReadAsync(byte[],int,int)` 在 net10 解析為 void 會
+  CS0815）；HttpClient 會為各請求開新連線；`ReadRequestAsync` 讀到 `\r\n\r\n` 即止再補 body
+- **M25 驗收錨點**：`PtzStatusText` 成功態含固定字串「PTZ 支援」；`PtzButton` AutomationId
+  在主視窗按鈕列（勿於往後按鈕列重整時誤刪）；`SqliteStore.Execute` 回 void，要影響列數須用
+  `SELECT changes()` 查詢

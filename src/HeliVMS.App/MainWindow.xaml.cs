@@ -479,6 +479,7 @@ public partial class MainWindow : Window
             AddMenuItem(menu, "切換全螢幕", OnCtxFullScreen, i);
             menu.Items.Add(new Separator());
             AddMenuItem(menu, "切換錄影", OnCtxRecord, i);
+            AddMenuItem(menu, "PTZ 控制", OnCtxPtz, i);
             AddMenuItem(menu, "開啟事件中心", OnCtxOpenEvents, i);
             border.ContextMenu = menu;
 
@@ -1118,6 +1119,57 @@ public partial class MainWindow : Window
     }
 
     private void OnCtxOpenEvents(object sender, RoutedEventArgs e) => OnEventClicked(sender, e);
+
+    private void OnCtxPtz(object sender, RoutedEventArgs e)
+    {
+        var cell = Convert.ToInt32(((MenuItem)sender).Tag);
+        if (cell < 0 || cell >= MaxCells || _cellChannel[cell] is not int channelId)
+        {
+            return;
+        }
+
+        OpenPtz(channelId);
+    }
+
+    private void OnPtzClicked(object sender, RoutedEventArgs e)
+    {
+        var idx = ChannelCombo.SelectedIndex;
+        if (idx is >= 0 && idx < _channelList.Count)
+        {
+            OpenPtz(_channelList[idx].Id);
+        }
+    }
+
+    private void OpenPtz(int channelId)
+    {
+        if (_store is not SqliteStore store)
+        {
+            return;
+        }
+
+        var channel = _channelList.FirstOrDefault(c => c.Id == channelId);
+        if (channel is null)
+        {
+            return;
+        }
+
+        if (channel.DeviceId is not int deviceId)
+        {
+            MessageBox.Show(this, "此頻道未綁定 ONVIF 設備，無法使用 PTZ。", "PTZ 控制",
+                MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        var device = new DeviceRepository(store).Get(deviceId);
+        if (device is null)
+        {
+            MessageBox.Show(this, "找不到綁定的 OEM 設備記錄。", "PTZ 控制",
+                MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        new PtzWindow(store, channel, device) { Owner = this }.Show();
+    }
 
     private static bool IsTargetClass(string cls) =>
         cls is "person" or "car" or "bus" or "truck" or "motorcycle" or "bicycle";

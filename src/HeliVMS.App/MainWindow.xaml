@@ -104,6 +104,13 @@
                                 Foreground="White" Background="#3A3A5A" BorderThickness="0" />
                     </StackPanel>
 
+                    <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                        <Button x:Name="PtzButton" AutomationProperties.AutomationId="PtzButton"
+                                Content="PTZ" Click="OnPtzClicked"
+                                Width="50" Padding="0,8" Margin="0,0,6,0"
+                                Foreground="White" Background="#5A4A8A" BorderThickness="0" />
+                    </StackPanel>
+
                     <TextBlock x:Name="HintText" TextWrapping="Wrap"
                                Foreground="{StaticResource Brand.TextDim}" FontSize="11" Margin="0,18,0,0"
                                Text="提示：請先以 Tools\TestStream\Start-TestStream.ps1 啟動虛擬 RTSP 測試流。" />

@@ -83,6 +83,17 @@ public partial class OnvifWizardWindow : Window
 
             var profiles = await service.GetProfilesAsync();
             _deviceLabel = profiles.Count > 0 ? $"{_deviceLabel}（{profiles.Count} 流）" : _deviceLabel;
+
+            try
+            {
+                await service.EnsurePtzCapabilityAsync();
+                _deviceLabel += service.HasPtz ? " · PTZ：支援" : " · PTZ：不支援";
+            }
+            catch (Exception)
+            {
+                _deviceLabel += " · PTZ：未知";
+            }
+
             ProfileList.ItemsSource = profiles;
             WizardHint.Text = _deviceLabel;
         }

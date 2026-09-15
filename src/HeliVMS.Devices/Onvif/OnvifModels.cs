@@ -54,3 +54,18 @@ public sealed class DiscoveredDevice
         return idx < 0 ? scope : scope[(idx + "onvif.org/".Length)..];
     }
 }
+
+/// <summary>PTZ 目前位置（GetStatus；平面座標，範圍約 -1..1）。</summary>
+public sealed class PtzStatus
+{
+    public double Pan { get; init; }
+    public double Tilt { get; init; }
+    public double Zoom { get; init; }
+}
+
+/// <summary>PTZ 預設點（Preset token＋名稱）。</summary>
+public sealed class PtzPreset
+{
+    public string Token { get; init; } = string.Empty;
+    public string Name { get; init; } = string.Empty;
+}
