@@ -22,6 +22,7 @@ public sealed class NotificationService : IDisposable
     private readonly SettingsRepository _settings;
     private readonly WebhookNotifier _webhook = new();
     private readonly SmtpNotifier _smtp = new();
+    private readonly NotificationLogRepository _log;
     private readonly ConcurrentQueue<Item> _queue = new();
     private readonly ConcurrentQueue<Item> _retry = new();
     private readonly System.Threading.Timer _timer;
@@ -40,6 +41,7 @@ public sealed class NotificationService : IDisposable
         int maxAttempts = 3)
     {
         _settings = new SettingsRepository(store);
+        _log = new NotificationLogRepository(store);
         _backoffBase = backoffBase ?? TimeSpan.FromSeconds(1);
         _maxAttempts = maxAttempts;
         var tick = interval ?? TimeSpan.FromSeconds(2);
@@ -51,6 +53,9 @@ public sealed class NotificationService : IDisposable
     public long DeliveredCount { get; private set; }
 
     public long FailedCount { get; private set; }
+
+    /// <summary>靜默時段跳過（不送、不落 log）的事件筆數。</summary>
+    public long SkippedDuringQuietCount { get; private set; }
 
     /// <summary>將事件放入佇列（非阻塞；前台呼叫安全）。</summary>
     public void Enqueue(AlarmEventRecord record)
@@ -134,26 +139,52 @@ public sealed class NotificationService : IDisposable
     private async Task ProcessItemAsync(NotificationSettings cfg, Item item)
     {
         item.Attempts++;
+
+        if (cfg.IsInQuietHours(DateTime.Now))
+        {
+            SkippedDuringQuietCount++;
+            Activity?.Invoke(this, $"靜默時段，跳過通知（{item.Record.EventType} 頻道{item.Record.ChannelId}）。");
+            return;
+        }
+
         var success = true;
+        var routes = new List<string>();
+        var failures = new List<string>();
 
         if (!string.IsNullOrWhiteSpace(cfg.WebhookUrl))
         {
-            success &= await _webhook.SendAsync(cfg.WebhookUrl, item.Record);
+            routes.Add("webhook");
+            var wOk = await _webhook.SendAsync(cfg.WebhookUrl, item.Record);
+            success &= wOk;
+            if (!wOk)
+            {
+                failures.Add("webhook");
+            }
         }
 
         if (cfg.SmtpEnabled && !string.IsNullOrWhiteSpace(cfg.SmtpHost))
         {
-            success &= await _smtp.SendAsync(cfg, item.Record);
+            routes.Add("smtp");
+            var sOk = await _smtp.SendAsync(cfg, item.Record);
+            success &= sOk;
+            if (!sOk)
+            {
+                failures.Add("smtp");
+            }
         }
 
+        var route = string.Join("+", routes);
         if (success)
         {
             DeliveredCount++;
+            _log.Add(item.Record.ChannelId, item.Record.EventType, route, true, item.Attempts, null);
             Activity?.Invoke(this, $"已通知（{item.Record.EventType} 頻道{item.Record.ChannelId}）。");
         }
         else if (item.Attempts >= _maxAttempts)
         {
             FailedCount++;
+            var reason = $"{string.Join("、", failures)} 失敗";
+            _log.Add(item.Record.ChannelId, item.Record.EventType, route, false, item.Attempts, reason);
             Activity?.Invoke(this,
                 $"通知失敗（{item.Record.EventType} 頻道{item.Record.ChannelId}，重試 {item.Attempts} 次）。");
         }

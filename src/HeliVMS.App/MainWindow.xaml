@@ -88,6 +88,10 @@
                         <Button x:Name="ExportButton" Content="匯出" Click="OnExportClicked"
                                 Width="60" Padding="0,8" Margin="6,0,0,0"
                                 Foreground="White" Background="#5A4A2E" BorderThickness="0" />
+                        <Button x:Name="NotificationButton" AutomationProperties.AutomationId="NotificationButton"
+                                Content="通知" Click="OnNotificationClicked"
+                                Width="60" Padding="0,8" Margin="6,0,0,0"
+                                Foreground="White" Background="#2A7F6E" BorderThickness="0" />
                         <Button x:Name="ScheduleButton" Content="排程" Click="OnScheduleClicked"
                                 Width="60" Padding="0,8" Margin="6,0,0,0"
                                 Foreground="White" Background="#3A5A7A" BorderThickness="0" />

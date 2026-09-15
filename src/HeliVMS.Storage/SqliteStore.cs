@@ -9,7 +9,7 @@ namespace HeliVMS.Storage;
 /// </summary>
 public sealed class SqliteStore : IDisposable
 {
-    private const int CurrentSchemaVersion = 5;
+    private const int CurrentSchemaVersion = 6;
     private readonly SqliteConnection _connection;
     private readonly object _gate = new();
     private bool _disposed;
@@ -76,6 +76,11 @@ public sealed class SqliteStore : IDisposable
         if (version < 5)
         {
             CreateAppSettingsTableV5();
+        }
+
+        if (version < 6)
+        {
+            CreateNotificationLogTableV6();
         }
 
         Execute("PRAGMA user_version = CURRENT_SCHEMA_VERSION;".Replace(
@@ -154,6 +159,24 @@ public sealed class SqliteStore : IDisposable
                 value      TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             );
+            """);
+    }
+
+    private void CreateNotificationLogTableV6()
+    {
+        Execute(
+            """
+            CREATE TABLE IF NOT EXISTS notification_log (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                ts          TEXT    NOT NULL,
+                channel_id  INTEGER NOT NULL,
+                event_type  TEXT    NOT NULL,
+                route       TEXT    NOT NULL,
+                ok          INTEGER NOT NULL,
+                attempts    INTEGER NOT NULL DEFAULT 1,
+                detail      TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_notification_log_ts ON notification_log(ts);
             """);
     }
 

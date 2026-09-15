@@ -13,7 +13,9 @@ public sealed record NotificationSettings(
     string? SmtpFrom,
     IReadOnlyList<string> SmtpTo,
     string? SmtpUser,
-    string? SmtpPassword)
+    string? SmtpPassword,
+    string? QuietStart,
+    string? QuietEnd)
 {
     public const string EnabledKey = "notify.enabled";
     public const string WebhookUrlKey = "notify.webhook.url";
@@ -24,11 +26,36 @@ public sealed record NotificationSettings(
     public const string SmtpToKey = "notify.smtp.to";
     public const string SmtpUserKey = "notify.smtp.user";
     public const string SmtpPasswordKey = "notify.smtp.password";
+    public const string QuietStartKey = "notify.quiet.start";
+    public const string QuietEndKey = "notify.quiet.end";
 
     /// <summary>是否有任一外送通道已設定。</summary>
     public bool AnyChannelConfigured =>
         !string.IsNullOrWhiteSpace(WebhookUrl) ||
         (SmtpEnabled && !string.IsNullOrWhiteSpace(SmtpHost) && SmtpTo.Count > 0);
+
+    /// <summary>是否位於靜默時段（notify.quiet.*，本地 24h 制 "HH:mm"；支援跨午夜）。</summary>
+    public bool IsInQuietHours(DateTime now)
+    {
+        if (string.IsNullOrWhiteSpace(QuietStart) || string.IsNullOrWhiteSpace(QuietEnd))
+        {
+            return false;
+        }
+
+        if (!TimeOnly.TryParseExact(QuietStart, "HH:mm", CultureInfo.InvariantCulture, DateTimeStyles.None, out var start) ||
+            !TimeOnly.TryParseExact(QuietEnd, "HH:mm", CultureInfo.InvariantCulture, DateTimeStyles.None, out var end))
+        {
+            return false;
+        }
+
+        if (start == end)
+        {
+            return false;   // 起訖相同＝不啟用
+        }
+
+        var t = TimeOnly.FromDateTime(now);
+        return start < end ? t >= start && t < end : t >= start || t < end;
+    }
 
     /// <summary>從 app_settings 讀取（DB → HELIVMS_* 環境變數 → 預設）。</summary>
     public static NotificationSettings Load(SettingsRepository settings)
@@ -74,6 +101,8 @@ public sealed record NotificationSettings(
         var toRaw = Str(settings, SmtpToKey, "HELIVMS_SMTP_TO", null);
         var user = Str(settings, SmtpUserKey, "HELIVMS_SMTP_USER", null);
         var passwordStored = Str(settings, SmtpPasswordKey, "HELIVMS_SMTP_PASSWORD", null);
+        var quietStart = Str(settings, QuietStartKey, "HELIVMS_NOTIFY_QUIET_START", null);
+        var quietEnd = Str(settings, QuietEndKey, "HELIVMS_NOTIFY_QUIET_END", null);
 
         var to = (toRaw ?? string.Empty)
             .Split(new[] { ',', ';' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
@@ -87,6 +116,8 @@ public sealed record NotificationSettings(
             from,
             to,
             user,
-            string.IsNullOrEmpty(passwordStored) ? null : SecretProtector.Unprotect(passwordStored));
+            string.IsNullOrEmpty(passwordStored) ? null : SecretProtector.Unprotect(passwordStored),
+            quietStart,
+            quietEnd);
     }
 }

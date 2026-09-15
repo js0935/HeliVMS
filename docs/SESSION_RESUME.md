@@ -6,15 +6,15 @@
 
 ## 一句話總結
 HeliVMS 為一套**網路影像監控系統**（WPF 桌面應用：即時監看／回放／AI 事件中心／錄影排程）。
-里程碑 **M1 至 M22 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M22 為最新）。
-Release build 0 error、測試 **90/90 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
+里程碑 **M1 至 M23 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M23 為最新）。
+Release build 0 error、測試 **99/99 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
 本地與遠端完全同步（`git diff origin/HEAD` 為空）。
 
 ## 開新 session 的接手方法
 ```powershell
 # 在 D:\HeliVMS 開新 session 時，先對新的 agent 講：
 git status                    # 預期為 empty（乾淨）
-git log --oneline -20         # 預期見到 M1..M22，HEAD＝（M22）
+git log --oneline -20         # 預期見到 M1..M23，HEAD＝（M23）
 git diff origin/HEAD          # 預期為空（同步）
 gh run list -L 3              # 預期全部 success
 ```
@@ -23,20 +23,22 @@ gh run list -L 3              # 預期全部 success
 新 session 會以 git 現況接手，不會靠猜測。
 
 ## 現況快照（權威來源＝git，非聊天記憶）
-- 最後 commit：`HEAD`＝**M22（通知中心 MVP，§18.5/§16.2 通知平面）**——`MotionEventEngine`／
-  `AiEventEngine` 於 `Insert` 後 raise `EventInserted`（`AlarmEventRecord`）→ App 層 `ChannelSession`
-  轉發 → `ChannelManager.AlarmEvent` → `MainWindow` 建 `NotificationService`（ConcurrentQueue＋
-  Timer worker，不在引擎 `_gate` 鎖內同步發送）；`WebhookNotifier`（POST `{type,channel,ts,
-  data{id,end,snapshot,detail}}`）、`SmtpNotifier`（`System.Net.Mail.SmtpClient`，csproj 已 `NoWarn
-  CS0618`）、`NotificationService` 指數退避重試（backoffBase×attempt，最多 3 次）、`Activity` 留痕；
-  SettingsWindow nav 新增「通知」（現 **6** 項）＋ `PageNotify`（總啟用/webhook URL/SMTP 六欄/套用，
-  密碼以 **DPAPI** `SecretProtector` 加密存 `notify.smtp.password`）；鍵 `notify.*`（DB→
-  `HELIVMS_*` env→預設）。單元測試 **90/90**（Storage 44＋Alarms 34＋Licensing 8＋Devices 4；
-  Alarms ＋10＝NotificationTests）、E2E **`notifcheck` NOTIF_OK**（本機 TcpListener 假 webhook
-  前 2 次 500→第 3 次 200 驗重試送達且 payload JSON 正確；設定頁填值套用→DB `notify.*`）
-- 前一個 M21 交付＝`0c65b71`（匯出精靈，`ExportService` ffmpeg concat/re-encode＋浮水印＋SHA-256）
+- 最後 commit：`HEAD`＝**M23（通知中心完整化，§16.3/§18.5 延伸）**——`notification_log` 表
+  （**schema v6** 遷移，`CREATE TABLE IF NOT EXISTS`，`id/ts/channel_id/event_type/route/ok/
+  attempts/detail`）＋`NotificationLogRepository`（`Add/ListRecent/Count`）；`NotificationService`
+  **分派寫 log**（成功 ok=1；達 maxAttempts 失敗 ok=0＋`webhook|smtp 失敗` detail、route＝`webhook+smtp`）
+  ＋**靜默時段**（`notify.quiet.start`/`notify.quiet.end`、"HH:mm" 24h、可跨午夜、起訖相同＝停用、
+  `IsInQuietHours(now)`；時段內跳過＝不送不落 log，僅 `SkippedDuringQuietCount++`）；SettingsWindow
+  通知頁加「靜默時段開始／結束」兩欄；**`NotificationLogWindow`**（title「HeliVMS 通知紀錄」、
+  AutomationId `NotificationLogWindow`、`NotificationRefreshButton`/`NotificationLogList`/
+  `NotificationCountText`，GridView DataItem 列時間（本地）/頻道/事件/通道/結果/嘗試/說明）＋
+  MainWindow 新增「通知」按鈕（`NotificationButton`，AutomationId 已有）。單元測試 **99/99**
+  （Storage 47＋Alarms 40＋Licensing 8＋Devices 4；+9＝LogRepository 3＋Quiet/Service log 6）＋
+  E2E **`notifcheck` NOTIF_OK**（擴充驗 `notification_log` ok=1 一筆）＋ **`logcheck` LOG_OK**
+  （主視窗「通知」→通知紀錄窗→refresh→DataItem≥2）
+- 前一個 M22 交付＝`e4f5a90`（通知中心 MVP：EventInserted 掛鉤、Webhook/SMTP、nav 6、90/90）
 - 分支／遠端：`git diff origin/HEAD` 為空（完全同步）；HEAD＝origin
-- CI：`gh run list` 顯示最新 run `conclusion=success`；建置 0 error、測試 90/90
+- CI：`gh run list` 顯示最新 run `conclusion=success`；建置 0 error、測試 99/99
 
 ## 架構關鍵（確切、無漂移）
 - 解決方案：`D:\HeliVMS\HeliVMS.App\HeliVMS.App.csproj`（WPF）＋ `HeliVMS.slnx`
@@ -51,7 +53,8 @@ gh run list -L 3              # 預期全部 success
   （**temp harness，不入 git、不影響 CI、不影響 repo 狀態**）
   - 已有 block：`playcheck`、`playbackcheck`、`playmark`、`plist`（M16）、`kbcheck`（M17，KB_OK）、
     `evcard`（M18，EV_OK）、`setcheck`（M19，SET_OK）、**`snapcheck`（M20，SNAP_OK）**、
-    **`expcheck`（M21，EXP_OK）**
+    **`expcheck`（M21，EXP_OK）、**`notifcheck`（M22，NOTIF_OK）**、
+     **`logcheck`（M23，LOG_OK）****
   - `kbcheck` 驗證：`Space` 暫停（t1）→ `→` 前跳 10 秒（t2−t1＝11s）→ `F` 逐幀仍暫停 →
     `Esc` 停止（StopButton disabled）；輸出 `KB_OK`
   - `evcard` 驗證：主視窗→右鍵 cell→「開啟事件中心」；選頻道後 grid DataItems≥2、
@@ -73,14 +76,21 @@ gh run list -L 3              # 預期全部 success
     `NotificationService`（temp DB 設 `notify.enabled`/`notify.webhook.url`）enqueue motion 事件，
     驗 `DeliveredCount=1、FailedCount=0、Hits=3` 且 payload JSON 含 `type/channel/data`；
     (B) `--settings` 直開設定中心→切「通知」頁→填 webhook URL/埠/收件者＋開啟總啟用→套用→
-    DB 讀回 `notify.*` 值；輸出 `NOTIF_OK`
+    DB 讀回 `notify.*` 值；(C)（M23）Phase A 後重開 temp store 驗 `notification_log`
+    `Count=1、Ok=true、Route="webhook"`；輸出 `NOTIF_OK`
+  - `logcheck` 驗證（M23）：前置在 C:\HeliVMSData 庫插 2 筆 notification_log（ok=1／ok=0 各一）→
+    啟動主視窗→`NotificationButton` Invoke→開「HeliVMS 通知紀錄」窗→`NotificationRefreshButton`
+    Invoke→`NotificationLogList` DataItem≥2、`NotificationCountText` 含「2 筆」；輸出 `LOG_OK`
 
 ## 尚未完成／下一步（依 git 與 repo 判斷）
-**M22 已完成**（見現況快照）。下一步候選（開 M23 前先翻 §13-§21 對照確認範圍）：
-1. 通知中心完整化——`notification_log` 紀錄表＋通知紀錄檢視頁、靜默時段、快照附件（M22 明確延後項）
-2. PTZ 控制與 ONVIF 自動探索／新增精靈
-3. 系統匣常駐（tray icon）＋通知中心入口
-（由使用者「依照你的建議下一步」擇一；定義方式同 M19-M22：先寫入本檔再實作）
+1. **下一里程碑候選（開 M24 前先翻 §13-§21 對照）**：
+   - **SMTP 快照附件＋通知合併**（M23 明確延後）：SMTP 外送時附該事件快照圖片
+     （`ImageId`/`SnapshotPath`），多事件批量合併成單封通知
+   - **PTZ 控制與 ONVIF 自動探索**、**系統匣常駐**
+   - 其餘已知候選：通知靜默時段延時補送、紀錄頁篩選/分頁 UI、
+     離線事件源（斷線期間事件補送）、SNMP/MQTT/推播通道
+   - 每里程碑節奏照舊：定義先寫入本檔→實作→App Release build 0 error→單元測試→E2E
+     harness（對應 block）→commit＋push＋CI success→`git status --porcelain` 空白
 
 ## 已知雷區（勿再犯）
 - **勿以 bash 對 repo 源碼做 byte 級重寫**（曾造成 UTF-8 漂移／mojibake 污染，已 `git restore` 還原）；
@@ -148,4 +158,15 @@ gh run list -L 3              # 預期全部 success
 - **`Interlocked.Increment(ref prop)` 不合法（CS0206）**：屬性無法當 ref 用，需 backing field
   ＋ `Volatile.Read`（harness 假端點曾踩）
 - **SettingsNav 現為 6 項**：setcheck（`seNavCount`）與 snapcheck（`snNavCount`）斷言已改 6；
-  日後改 nav 項目務必同步 harness
+   日後改 nav 項目務必同步 harness
+- **靜默時段鍵名**：`notify.quiet.start`／`notify.quiet.end`（"HH:mm" 24h、可跨午夜、起訖相同＝停用、
+   空值＝停用）；service 判定**讀 DB 裡的這兩個鍵**（不是測試自理 cfg）——單元測試要
+   `Settings.Set("notify.quiet.start", …)` 寫入 DB 才會生效；env 對映 `HELIVMS_NOTIFY_QUIET_START/END`
+- **`record with { QuietStart = null, … }.Method()` 曾踩 CS1003**（與 `with` 接續 method call、值含
+   `null` 時 compiler 誤報「必須是 ,」）——寫法改「先存 base 變數，`(b with { … }).Method()` 或以
+   變數承接」即可
+- **SQLite schema 現為 v6**（`CurrentSchemaVersion=6`）：M23 加 `notification_log` 表＋
+   `idx_notification_log_ts`（`CREATE TABLE IF NOT EXISTS`，v<6 才建，**勿改既有表**；
+   ChannelRepository List 合併後可用來做頻道名對應）；`notification_log.ts` 用 `SqliteStore.Iso`（UTC）
+- **playcheck 的 `PLAY_1X_BAD` 是環境 flaky**（ffprobe `readframes=91` vs 期望 120，1x 播放器解碼幀數
+   受 CPU 滿載影響；與 schema/通知變更零交集）——playcheck 非本次改動的 gate，看到此結果不迴溯

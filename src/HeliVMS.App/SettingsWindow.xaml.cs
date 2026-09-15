@@ -133,6 +133,8 @@ public partial class SettingsWindow : Window
         NotifySmtpToBox.Text = string.Join(", ", cfg.SmtpTo);
         NotifySmtpUserBox.Text = cfg.SmtpUser ?? string.Empty;
         NotifySmtpPasswordBox.Password = string.Empty;   // 不預填密碼
+        NotifyQuietStartBox.Text = cfg.QuietStart ?? string.Empty;
+        NotifyQuietEndBox.Text = cfg.QuietEnd ?? string.Empty;
     }
 
     private void OnApplyNotifyClicked(object sender, RoutedEventArgs e)
@@ -158,6 +160,9 @@ public partial class SettingsWindow : Window
         {
             _settings.Set(NotificationSettings.SmtpPasswordKey, SecretProtector.Protect(password));
         }
+
+        _settings.Set(NotificationSettings.QuietStartKey, NotifyQuietStartBox.Text.Trim());
+        _settings.Set(NotificationSettings.QuietEndKey, NotifyQuietEndBox.Text.Trim());
 
         NotifyReportText.Text = "通知設定已套用（密碼以 DPAPI 加密保存）。";
     }

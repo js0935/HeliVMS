@@ -793,6 +793,16 @@ public partial class MainWindow : Window
 
     private void OnExportClicked(object sender, RoutedEventArgs e) => OpenExportWindow();
 
+    /// <summary>開啟通知送達紀錄（M23，§16.3）。</summary>
+    private void OnNotificationClicked(object sender, RoutedEventArgs e)
+    {
+        var logWin = new NotificationLogWindow(_store!)
+        {
+            Owner = this,
+        };
+        logWin.Show();
+    }
+
     /// <summary>開啟管理設定中心（M19，§9）。</summary>
     private void OpenSettingsWindow()
     {

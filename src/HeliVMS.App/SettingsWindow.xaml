@@ -250,6 +250,19 @@
                     </StackPanel>
                 </Grid>
 
+                <TextBlock Text="靜默時段（此期間內事件不通知；24h制 HH:mm，可跨午夜，留空＝停用）"
+                           Foreground="{StaticResource Brand.TextDim}" FontSize="11" Margin="0,8,0,0"/>
+                <StackPanel Orientation="Horizontal" Margin="0,4,0,12">
+                    <TextBlock Text="開始" Foreground="{StaticResource Brand.TextDim}" FontSize="11" VerticalAlignment="Center"/>
+                    <TextBox x:Name="NotifyQuietStartBox" AutomationProperties.AutomationId="NotifyQuietStartBox"
+                             Width="90" Margin="6,0,14,0"
+                             Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="8,4"/>
+                    <TextBlock Text="結束" Foreground="{StaticResource Brand.TextDim}" FontSize="11" VerticalAlignment="Center"/>
+                    <TextBox x:Name="NotifyQuietEndBox" AutomationProperties.AutomationId="NotifyQuietEndBox"
+                             Width="90" Margin="6,0,0,0"
+                             Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="8,4"/>
+                </StackPanel>
+
                 <DockPanel>
                     <Button x:Name="NotifyApplyButton" AutomationProperties.AutomationId="NotifyApplyButton"
                             Content="套用通知設定" Click="OnApplyNotifyClicked"

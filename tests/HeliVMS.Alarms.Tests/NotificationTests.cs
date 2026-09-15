@@ -280,6 +280,112 @@ public sealed class NotificationTests : IDisposable
 
         Assert.Fail("條件在逾時內未成立。");
     }
+
+    [Fact]
+    public void IsInQuietHours_NormalInterval()
+    {
+        var at2h = new DateTime(2026, 9, 15, 2, 30, 0);
+        var at5h = new DateTime(2026, 9, 15, 5, 0, 0);
+        var cfg = QuietBase() with { QuietStart = "02:00", QuietEnd = "04:00" };
+        Assert.True(cfg.IsInQuietHours(at2h));
+        Assert.False(cfg.IsInQuietHours(at5h));
+    }
+
+    [Fact]
+    public void IsInQuietHours_OvernightInterval()
+    {
+        var at2h = new DateTime(2026, 9, 15, 2, 30, 0);
+        var atNoon = new DateTime(2026, 9, 15, 12, 0, 0);
+        var at23h = new DateTime(2026, 9, 15, 23, 30, 0);
+        var cfg = QuietBase() with { QuietStart = "22:00", QuietEnd = "06:00" };
+        Assert.True(cfg.IsInQuietHours(at2h));
+        Assert.True(cfg.IsInQuietHours(at23h));
+        Assert.False(cfg.IsInQuietHours(atNoon));
+    }
+
+    [Fact]
+    public void IsInQuietHours_EmptyOrInvalid_Disabled()
+    {
+        var at = new DateTime(2026, 9, 15, 2, 30, 0);
+        var b = QuietBase();
+        Assert.False((b with { QuietStart = null, QuietEnd = null }).IsInQuietHours(at));
+        Assert.False((b with { QuietStart = "02:00", QuietEnd = "02:00" }).IsInQuietHours(at));
+        Assert.False((b with { QuietStart = "25:00", QuietEnd = "04:00" }).IsInQuietHours(at));
+        Assert.False((b with { QuietStart = "22:00", QuietEnd = "xx" }).IsInQuietHours(at));
+    }
+
+    [Fact]
+    public async Task Service_AfterDelivery_WritesLogOk()
+    {
+        using var http = new FakeHttpServer(_ => "HTTP/1.1 200 OK");
+        Settings.Set("notify.enabled", "true");
+        Settings.Set("notify.webhook.url", $"http://127.0.0.1:{http.Port}/hook");
+
+        using var svc = new NotificationService(_store,
+            interval: TimeSpan.FromMilliseconds(100),
+            backoffBase: TimeSpan.FromMilliseconds(50));
+        svc.Enqueue(Event());
+        await WaitUntilAsync(() => svc.DeliveredCount == 1, TimeSpan.FromSeconds(10));
+
+        var log = new NotificationLogRepository(_store);
+        Assert.Equal(1, log.Count());
+        var row = Assert.Single(log.ListRecent(10));
+        Assert.True(row.Ok);
+        Assert.Equal("webhook", row.Route);
+        Assert.Equal(7, row.ChannelId);
+        Assert.Equal("motion", row.EventType);
+    }
+
+    [Fact]
+    public async Task Service_AfterMaxAttempts_WritesLogFailure()
+    {
+        using var http = new FakeHttpServer(_ => "HTTP/1.1 500 Internal Server Error");
+        Settings.Set("notify.enabled", "true");
+        Settings.Set("notify.webhook.url", $"http://127.0.0.1:{http.Port}/hook");
+
+        using var svc = new NotificationService(_store,
+            interval: TimeSpan.FromMilliseconds(100),
+            backoffBase: TimeSpan.FromMilliseconds(50),
+            maxAttempts: 3);
+        svc.Enqueue(Event());
+        await WaitUntilAsync(() => svc.FailedCount == 1, TimeSpan.FromSeconds(10));
+
+        var log = new NotificationLogRepository(_store);
+        Assert.Equal(1, log.Count());
+        var row = Assert.Single(log.ListRecent(10));
+        Assert.False(row.Ok);
+        Assert.Equal(3, row.Attempts);
+        Assert.Contains("webhook", row.Detail);
+    }
+
+    [Fact]
+    public async Task Service_QuietHours_SkipsWithoutLog()
+    {
+        using var http = new FakeHttpServer(_ => "HTTP/1.1 200 OK");
+        Settings.Set("notify.enabled", "true");
+        Settings.Set("notify.webhook.url", $"http://127.0.0.1:{http.Port}/hook");
+        var nowLocal = DateTime.Now;
+        var qStartText = nowLocal.AddMinutes(-30).ToString("HH:mm");
+        var qEndText = nowLocal.AddMinutes(30).ToString("HH:mm");
+        var cfgIn = QuietBase() with { QuietStart = qStartText, QuietEnd = qEndText };
+        Assert.True(cfgIn.IsInQuietHours(nowLocal));
+        Settings.Set("notify.quiet.start", qStartText);
+        Settings.Set("notify.quiet.end", qEndText);
+
+        using var svc = new NotificationService(_store,
+            interval: TimeSpan.FromMilliseconds(100),
+            backoffBase: TimeSpan.FromMilliseconds(50));
+        svc.Enqueue(Event());
+        await WaitUntilAsync(() => svc.SkippedDuringQuietCount == 1, TimeSpan.FromSeconds(10));
+
+        Assert.Equal(0, svc.DeliveredCount);
+        Assert.Equal(0, svc.FailedCount);
+        Assert.Equal(0, http.Hits);
+        Assert.Equal(0, new NotificationLogRepository(_store).Count());
+    }
+
+    private NotificationSettings QuietBase() =>
+        NotificationSettings.Load(Settings) with { QuietStart = null, QuietEnd = null };
 }
 
 internal static class NotificationSettingsTestExtensions
