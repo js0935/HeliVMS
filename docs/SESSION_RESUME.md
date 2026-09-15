@@ -6,7 +6,7 @@
 
 ## 一句話總結
 HeliVMS 為一套**網路影像監控系統**（WPF 桌面應用：即時監看／回放／AI 事件中心／錄影排程）。
-里程碑 **M1 至 M25 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M25 為最新）。
+里程碑 **M1 至 M26 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M26 為最新）。
 Release build 0 error、測試 **109/109 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
 本地與遠端完全同步（`git diff origin/HEAD` 為空）。
 
@@ -23,24 +23,20 @@ gh run list -L 3              # 預期全部 success
 新 session 會以 git 現況接手，不會靠猜測。
 
 ## 現況快照（權威來源＝git，非聊天記憶）
-- 最後 commit：`HEAD`＝**M25（PTZ 控制＋ONVIF 自動探索強化）**——`OnvifDeviceService`
-  新增 `Tptz` namespace（`ver10/ptz/wsdl`）＋**獨立** `GetCapabilities Category="All"` 解析
-  `<Capabilities><PTZ><XAddr>`（不覆用 Media 快取）：`PtzXAddr`/`HasPtz`/
-  `EnsurePtzCapabilityAsync`＋`GetPtzStatusAsync`/`ContinuousMoveAsync`(Velocity)/
-  `StopPtzAsync`(PanTilt+Zoom=true)/`GetPtzPresetsAsync`/`GotoPtzPresetAsync`/`SetPtzPresetAsync`
-  （`TptzAction` helper，`ParseAxis` 保險防 NaN）；`OnvifModels.cs` 加 `PtzStatus`/`PtzPreset`；
-  資料面**不加 DB 欄位、schema 維持 v6**：`DeviceRepository.Get(id)`（含帳密）＋`DeviceRecord`
-  `Username`/`PasswordEncrypted`；**`PtzWindow`**（AutomationId `PtzWindow`/`PtzStatusText`、
-  八向＋變焦＋`PtzStopButton`、`PtzPresetList`＋儲存/移轉/重新整理；按一次＝ContinuousMove 400ms
-  後自動 Stop）＋MainWindow `PtzButton`（新行按鈕列）＋格子右鍵「PTZ 控制」`OnCtxPtz`
-  （`_cellChannel[cell]`→`OpenPtz`；未綁定→訊息盒）；Wizard 顯示「PTZ：支援/不支援/未知」。
-  單元測試 **109/109**（Storage 48＋Alarms 45＋Licensing 8＋Devices 8；Devices ＋4＝PTZ 解析/
-  封包、Storage ＋1＝Get 帳密）＋ E2E 新增 **`ptzcheck` PTZCHECK_OK**（迷你 ONVIF 假設備
-  Socket 級三端點＋channel 1 綁定 device→App `PtzButton`→`PtzWindow` 狀態「PTZ 支援」→
-  `PtzUpButton`→假設備收到 ContinuousMove）＋ notifcheck/logcheck/smtpcheck/setcheck/snapcheck/
-  expcheck 全數回歸綠
-- 前一個 M24 交付＝`1a36f81`（SMTP 快照附件＋通知合併：SmtpNotifier 多筆多載、純 SMTP 週期
-  合併寄一封、Attachment 依快照路徑；單元測試 104/104、E2E smtpcheck SMTPCHECK_OK）
+- 最後 commit：`HEAD`＝**M26（系統匣常駐）**——`HeliVMS.App.csproj` 加
+  `<UseWindowsForms>true</UseWindowsForms>`＋`<Using Remove>`（避免 WinForms/Drawing 全域 using
+  與 WPF 型別 CS0104 衝突）；新檔 **`TrayIconHost.cs`**（包 `System.Windows.Forms.NotifyIcon`：
+  `Icon.ExtractAssociatedIcon(Environment.ProcessPath)`、`Text`＝"HeliVMS"、`Visible`、
+  DoubleClick＋ContextMenuStrip「顯示主視窗」／「結束 HeliVMS」→`ExitRequested`）；MainWindow
+  `OnClosing`（`!_exiting → Cancel＋Hide`、E2E 探針寫旗標）、`OnStateChanged`(Minimized→Hide)、
+  `ShowFromTray`、`OnTrayExit`（保留 tray 真正結束）、`OnClosed` 清 tray。單元維持 **109/109**
+  （純 UI 不加單元）＋ E2E 新增 **`tracheck` TRAYCHECK_OK**（`HELIVMS_TRAY_PROBE=1`→`WM_CLOSE`
+  →主窗 not visible＋proc 存活＋旗標檔出現）。回歸 notif/log/smtp/set/snap/exp/ptz 全綠。
+  另修 harness：ptzcheck 綁定頻道改「最小存在頻道」（index.db 的 channel 1 已被開發機移除，
+  硬編 id=1 會 affected=0）
+- 前一個 M25 交付＝`5b2b2c3`（PTZ 控制＋ONVIF 自動探索強化：OnvifDeviceService Tptz 能力、
+  DeviceRepository.Get 帳密、PtzWindow、MainWindow PtzButton/右鍵入口、Wizard PTZ 標示；
+  單元測試 109/109、E2E ptzcheck PTZCHECK_OK）
 - 分支／遠端：`git diff origin/HEAD` 為空（完全同步）；HEAD＝origin
 - CI：`gh run list` 顯示最新 run `conclusion=success`；建置 0 error、測試 109/109
 
@@ -59,7 +55,7 @@ gh run list -L 3              # 預期全部 success
     `evcard`（M18，EV_OK）、`setcheck`（M19，SET_OK）、**`snapcheck`（M20，SNAP_OK）**、
     **`expcheck`（M21，EXP_OK）、**`notifcheck`（M22，NOTIF_OK）**、
      **`logcheck`（M23，LOG_OK）**、**`smtpcheck`（M24，SMTPCHECK_OK）**、
-     **`ptzcheck`（M25，PTZCHECK_OK）**
+     **`ptzcheck`（M25，PTZCHECK_OK）**、**`tracheck`（M26，TRAYCHECK_OK）**
   - `kbcheck` 驗證：`Space` 暫停（t1）→ `→` 前跳 10 秒（t2−t1＝11s）→ `F` 逐幀仍暫停 →
     `Esc` 停止（StopButton disabled）；輸出 `KB_OK`
   - `evcard` 驗證：主視窗→右鍵 cell→「開啟事件中心」；選頻道後 grid DataItems≥2、
@@ -104,9 +100,15 @@ gh run list -L 3              # 預期全部 success
     看到 evcard/kbcheck BAD 不迴溯 M25
 
 ## 尚未完成／下一步（依 git 與 repo 判斷）
-1. 下一里程碑候選（M26 起）：系統匣常駐、通知靜默時段延時補送、紀錄頁篩選/分頁 UI、
-   離線事件源（斷線補送）、SNMP/MQTT/推播通道、PTZ 增強（長按連續移動、AbsoluteMove/Home、
-   預設點管理 UI、多 Profile 選擇 UI）、ONVIF Discovery Hello/Bye/Resolve
+1. **M26 已完成**（系統匣常駐，見「現況快照」）
+2. **M27 定義（下次開立）— 通知靜默時段延時補送**：靜默時段內產生的通知事件目前「直接 skip
+   （SkippedDuringQuietCount++、不入 log）」；改為「延後補送」：進入非靜默時段後，把靜默期
+   欠送事件以 batch 重送（webhook 逐筆／SMTP 併一封），並在 notification_log 紀錄
+   `route=“smtp/webhook”、ok、延遲秒數（或補送標記）`；app_settings 新增
+   `notify.quiet.retransmit`（「off」＝維持跳過）；（定義詳文於開工時補完）
+3. 下一里程碑候選（M28 起）：紀錄頁篩選/分頁 UI、離線事件源（斷線補送）、SNMP/MQTT/推播通道、
+   PTZ 增強（長按連續移動、AbsoluteMove/Home、預設點管理 UI、多 Profile 選擇 UI）、
+   ONVIF Discovery Hello/Bye/Resolve
    - 每里程碑節奏照舊：定義先寫入本檔→實作→App Release build 0 error→單元測試→E2E harness
      block→commit＋push＋CI success→`git status --porcelain` 空白
 
@@ -207,3 +209,13 @@ gh run list -L 3              # 預期全部 success
 - **M25 驗收錨點**：`PtzStatusText` 成功態含固定字串「PTZ 支援」；`PtzButton` AutomationId
   在主視窗按鈕列（勿於往後按鈕列重整時誤刪）；`SqliteStore.Execute` 回 void，要影響列數須用
   `SELECT changes()` 查詢
+- **M26 WinForms 並容**：啟用 `<UseWindowsForms>true</UseWindowsForms>` 後 implicit usings 會
+  注入 `System.Drawing/System.Windows.Forms`，與 WPF 型別衝突（`Application`/`Image`/`Brush`/
+  `Size`/`ContextMenu` 等 CS0104）——必須在 csproj `<Using Remove>` 三者；NotifyIcon 的 tooltip
+  屬性名是 **`Text`**（不是 `ToolTipText`）
+- **M26 Process 環境變數**：`ProcessStartInfo.Environment` 設定時
+  `UseShellExecute` 必須 `false`（true 會 InvalidOperationException）——GUI exe 直接
+  CreateProcess 啟動 WPF app 無礙
+- **ptzcheck 綁定頻道別硬編 id=1**：開發機 C:\HeliVMSData\index.db 的 channels id 已不含 1
+  （由使用者實際使用所致）；綁「最小存在頻道 `SELECT MIN(id)`」即可（App ChannelCombo index0
+  恰為最小 id）

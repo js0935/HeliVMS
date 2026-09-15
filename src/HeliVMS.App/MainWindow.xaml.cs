@@ -53,6 +53,8 @@ public partial class MainWindow : Window
     private RecordingScheduler? _scheduler;
     private DetectionWriter? _detWriter;
     private NotificationService? _notify;
+    private TrayIconHost? _tray;
+    private bool _exiting;
 
     private static readonly SolidColorBrush BrOffline = new(Color.FromRgb(0x6B, 0x7B, 0x90));
     private static readonly SolidColorBrush BrConnecting = new(Color.FromRgb(0xD8, 0xA1, 0x2C));
@@ -87,6 +89,86 @@ public partial class MainWindow : Window
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "HeliVMS");
         _dataRoot = ResolveDataRoot();
+        _tray = new TrayIconHost(ShowFromTray);
+        _tray.ExitRequested += OnTrayExit;
+    }
+
+    /// <summary>M26：關閉按鍵預設收進系統匣（真正結束請用匣選單「結束 HeliVMS」）。</summary>
+    protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
+    {
+        if (!_exiting)
+        {
+            e.Cancel = true;
+            Hide();
+            WriteTrayProbeIfRequested();
+            base.OnClosing(e);
+            return;
+        }
+
+        base.OnClosing(e);
+    }
+
+    protected override void OnStateChanged(EventArgs e)
+    {
+        base.OnStateChanged(e);
+        if (WindowState == WindowState.Minimized)
+        {
+            Hide();
+        }
+    }
+
+    protected override void OnClosed(EventArgs e)
+    {
+        _tray?.Dispose();
+        _tray = null;
+        base.OnClosed(e);
+    }
+
+    private void ShowFromTray()
+    {
+        Show();
+        if (WindowState == WindowState.Minimized)
+        {
+            WindowState = WindowState.Normal;
+        }
+
+        Activate();
+        Topmost = true;
+        Topmost = false;
+    }
+
+    private void OnTrayExit()
+    {
+        _exiting = true;
+        _tray?.Dispose();
+        _tray = null;
+        Close();
+    }
+
+    /// <summary>E2E 探針（僅 HELIVMS_TRAY_PROBE=1）：OnClosing 攔截成功且圖示可見時寫旗標檔。</summary>
+    private void WriteTrayProbeIfRequested()
+    {
+        if (Environment.GetEnvironmentVariable("HELIVMS_TRAY_PROBE") != "1")
+        {
+            return;
+        }
+
+        if (_tray is null || !_tray.IsVisible)
+        {
+            return;
+        }
+
+        try
+        {
+            Directory.CreateDirectory(@"C:\HeliVMSData");
+            File.WriteAllText(@"C:\HeliVMSData\tray-probe.ok", "1");
+        }
+        catch (IOException)
+        {
+        }
+        catch (UnauthorizedAccessException)
+        {
+        }
     }
 
     protected override void OnSourceInitialized(EventArgs e)
