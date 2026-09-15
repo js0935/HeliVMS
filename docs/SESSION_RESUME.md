@@ -23,11 +23,10 @@ gh run list -L 3              # 預期全部 success
 新 session 會以 git 現況接手，不會靠猜測。
 
 ## 現況快照（權威來源＝git，非聊天記憶）
-- 最後 commit：`HEAD`＝**M30（MQTT 通知通道）**——`NotificationSettings` ＋
+- 最後 commit：`HEAD`＝**M30 源碼（commit `24ad4c7`）——MQTT 通知通道**：`NotificationSettings`＋
   `MqttEnabled/MqttHost/MqttPort(1883)/MqttTopic/MqttUser/MqttPassword`（鍵 `notify.mqtt.*`、
-  env `HELIVMS_MQTT_*`、密碼 SecretProtector 單向 DPAPI）；Alarms 新 **`MqttNotifier`**
-  （裸 MQTT 3.1.1 無第三方依賴：TcpClient→CONNECT(clean/user/pass)→CONNACK rc=0 才算→
-  PUBLISH QoS0 topic＋base64-free JSON
+  env `HELIVMS_MQTT_*`、密碼 SecretProtector）。（快照 docs commit `dfdd551` 已含 M30 定義段；
+  M30 源碼本體在 `24ad4c7`。）
   `{"channel_id",..,"event_type","start_utc","detail"}`）；`NotificationService` 第三通道
   （`HasMqttRoute` guard＋route "mqtt"＋log Route "webhook+smtp+mqtt"）；SettingsWindow 通知頁
   MQTT 群（啟用/主機/埠/主題/使用者/密碼，密碼不預填＋僅非空才寫）。單元 **125/125**
