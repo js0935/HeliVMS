@@ -136,6 +136,12 @@ public partial class SettingsWindow : Window
         NotifyQuietStartBox.Text = cfg.QuietStart ?? string.Empty;
         NotifyQuietEndBox.Text = cfg.QuietEnd ?? string.Empty;
         NotifyQuietRetransmitBox.IsChecked = cfg.QuietRetransmit;
+        NotifyMqttEnabledBox.IsChecked = cfg.MqttEnabled;
+        NotifyMqttHostBox.Text = cfg.MqttHost ?? string.Empty;
+        NotifyMqttPortBox.Text = cfg.MqttPort.ToString(CultureInfo.InvariantCulture);
+        NotifyMqttTopicBox.Text = cfg.MqttTopic ?? string.Empty;
+        NotifyMqttUserBox.Text = cfg.MqttUser ?? string.Empty;
+        NotifyMqttPasswordBox.Password = string.Empty;   // 不預填密碼
     }
 
     private void OnApplyNotifyClicked(object sender, RoutedEventArgs e)
@@ -166,6 +172,19 @@ public partial class SettingsWindow : Window
         _settings.Set(NotificationSettings.QuietEndKey, NotifyQuietEndBox.Text.Trim());
         _settings.Set(NotificationSettings.QuietRetransmitKey,
             NotifyQuietRetransmitBox.IsChecked == true ? "true" : "false");
+        _settings.Set(NotificationSettings.MqttEnabledKey,
+            NotifyMqttEnabledBox.IsChecked == true ? "true" : "false");
+        _settings.Set(NotificationSettings.MqttHostKey, NotifyMqttHostBox.Text.Trim());
+        var mqttPort = int.TryParse(NotifyMqttPortBox.Text.Trim(), NumberStyles.Integer,
+            CultureInfo.InvariantCulture, out var mp) && mp > 0 ? mp : 1883;
+        _settings.Set(NotificationSettings.MqttPortKey, mqttPort.ToString(CultureInfo.InvariantCulture));
+        _settings.Set(NotificationSettings.MqttTopicKey, NotifyMqttTopicBox.Text.Trim());
+        _settings.Set(NotificationSettings.MqttUserKey, NotifyMqttUserBox.Text.Trim());
+        var mqttPassword = NotifyMqttPasswordBox.Password;
+        if (!string.IsNullOrEmpty(mqttPassword))
+        {
+            _settings.Set(NotificationSettings.MqttPasswordKey, SecretProtector.Protect(mqttPassword));
+        }
 
         NotifyReportText.Text = "通知設定已套用（密碼以 DPAPI 加密保存）。";
     }

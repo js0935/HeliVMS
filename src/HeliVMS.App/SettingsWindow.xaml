@@ -268,6 +268,34 @@
                           Content="靜默時段內事件延後補送（靜默結束後一併外送）"
                           Foreground="White" Margin="0,0,0,12"/>
 
+                <StackPanel Orientation="Horizontal" Margin="0,2,0,4">
+                    <CheckBox x:Name="NotifyMqttEnabledBox" AutomationProperties.AutomationId="NotifyMqttEnabledBox"
+                              Content="MQTT 發送" Foreground="White" VerticalAlignment="Center"/>
+                    <TextBlock Text="主機" Foreground="{StaticResource Brand.TextDim}" FontSize="11" VerticalAlignment="Center"/>
+                    <TextBox x:Name="NotifyMqttHostBox" AutomationProperties.AutomationId="NotifyMqttHostBox"
+                             Width="130" Margin="6,0,10,0"
+                             Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="8,4"/>
+                    <TextBlock Text="埠" Foreground="{StaticResource Brand.TextDim}" FontSize="11" VerticalAlignment="Center"/>
+                    <TextBox x:Name="NotifyMqttPortBox" AutomationProperties.AutomationId="NotifyMqttPortBox"
+                             Width="50" Margin="6,0,10,0"
+                             Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="8,4"/>
+                    <TextBlock Text="主題" Foreground="{StaticResource Brand.TextDim}" FontSize="11" VerticalAlignment="Center"/>
+                    <TextBox x:Name="NotifyMqttTopicBox" AutomationProperties.AutomationId="NotifyMqttTopicBox"
+                             Width="120" Margin="6,0,0,0"
+                             Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="8,4"/>
+                </StackPanel>
+
+                <StackPanel Orientation="Horizontal" Margin="0,2,0,12">
+                    <TextBlock Text="使用者" Foreground="{StaticResource Brand.TextDim}" FontSize="11" VerticalAlignment="Center"/>
+                    <TextBox x:Name="NotifyMqttUserBox" AutomationProperties.AutomationId="NotifyMqttUserBox"
+                             Width="110" Margin="6,0,14,0"
+                             Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="8,4"/>
+                    <TextBlock Text="密碼" Foreground="{StaticResource Brand.TextDim}" FontSize="11" VerticalAlignment="Center"/>
+                    <PasswordBox x:Name="NotifyMqttPasswordBox" AutomationProperties.AutomationId="NotifyMqttPasswordBox"
+                                 Width="150" Margin="6,0,0,0"
+                                 Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="8,4"/>
+                </StackPanel>
+
                 <DockPanel>
                     <Button x:Name="NotifyApplyButton" AutomationProperties.AutomationId="NotifyApplyButton"
                             Content="套用通知設定" Click="OnApplyNotifyClicked"

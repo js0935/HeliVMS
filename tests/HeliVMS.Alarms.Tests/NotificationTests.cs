@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
+using System.Text.Json;
 using HeliVMS.Shared.Models;
 using HeliVMS.Storage;
 using Xunit;
@@ -611,6 +612,104 @@ public sealed class NotificationTests : IDisposable
 
     private NotificationSettings QuietBase() =>
         NotificationSettings.Load(Settings) with { QuietStart = null, QuietEnd = null };
+
+    [Fact]
+    public void Load_ReadsMqttValues()
+    {
+        var s = Settings;
+        s.Set(NotificationSettings.MqttEnabledKey, "true");
+        s.Set(NotificationSettings.MqttHostKey, "broker.local");
+        s.Set(NotificationSettings.MqttPortKey, "2883");
+        s.Set(NotificationSettings.MqttTopicKey, "helivms/alerts");
+        s.Set(NotificationSettings.MqttUserKey, "ops");
+        s.Set(NotificationSettings.MqttPasswordKey, SecretProtector.Protect("sekrit"));
+
+        var cfg = NotificationSettings.Load(s);
+
+        Assert.True(cfg.MqttEnabled);
+        Assert.Equal("broker.local", cfg.MqttHost);
+        Assert.Equal(2883, cfg.MqttPort);
+        Assert.Equal("helivms/alerts", cfg.MqttTopic);
+        Assert.Equal("ops", cfg.MqttUser);
+        Assert.Equal("sekrit", cfg.MqttPassword);
+        Assert.True(cfg.AnyChannelConfigured);
+    }
+
+    [Fact]
+    public async Task MqttNotifier_PublishesJsonToBroker()
+    {
+        using var broker = new FakeMqttBroker();
+        var cfg = NotificationSettings.Load(Settings) with
+        {
+            MqttEnabled = true,
+            MqttHost = "127.0.0.1",
+            MqttPort = broker.Port,
+            MqttTopic = "helivms/alerts",
+        };
+
+        var ok = await new MqttNotifier().SendAsync(cfg, Event());
+
+        Assert.True(ok);
+        await broker.WaitForPublishAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal("helivms/alerts", broker.ReceivedTopic);
+        Assert.NotNull(broker.ReceivedPayload);
+        using var doc = JsonDocument.Parse(broker.ReceivedPayload!);
+        Assert.Equal(7, doc.RootElement.GetProperty("channel_id").GetInt32());
+        Assert.Equal("motion", doc.RootElement.GetProperty("event_type").GetString());
+    }
+
+    [Fact]
+    public async Task MqttNotifier_ConnackRejected_ReturnsFalse()
+    {
+        using var broker = new FakeMqttBroker { ConnackReturnCode = 5 };
+        var cfg = NotificationSettings.Load(Settings) with
+        {
+            MqttEnabled = true,
+            MqttHost = "127.0.0.1",
+            MqttPort = broker.Port,
+            MqttTopic = "helivms/alerts",
+        };
+
+        Assert.False(await new MqttNotifier().SendAsync(cfg, Event()));
+    }
+
+    [Fact]
+    public async Task MqttNotifier_CannotConnect_ReturnsFalse()
+    {
+        var cfg = NotificationSettings.Load(Settings) with
+        {
+            MqttEnabled = true,
+            MqttHost = "127.0.0.1",
+            MqttPort = 1,
+            MqttTopic = "helivms/alerts",
+        };
+
+        Assert.False(await new MqttNotifier().SendAsync(cfg, Event()));
+    }
+
+    [Fact]
+    public async Task Service_WebhookPlusMqtt_LogsBothRoutes()
+    {
+        using var http = new FakeHttpServer(_ => "HTTP/1.1 200 OK");
+        using var broker = new FakeMqttBroker();
+        Settings.Set(NotificationSettings.WebhookUrlKey, http.Url);
+        Settings.Set(NotificationSettings.MqttEnabledKey, "true");
+        Settings.Set(NotificationSettings.MqttHostKey, "127.0.0.1");
+        Settings.Set(NotificationSettings.MqttPortKey, broker.Port.ToString());
+        Settings.Set(NotificationSettings.MqttTopicKey, "helivms/alerts");
+
+        using var svc = new NotificationService(_store,
+            interval: TimeSpan.FromMilliseconds(50),
+            backoffBase: TimeSpan.FromMilliseconds(50));
+        svc.Enqueue(Event());
+        await WaitUntilAsync(() => svc.DeliveredCount == 1, TimeSpan.FromSeconds(10));
+        await broker.WaitForPublishAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Equal(1, http.Hits);
+        var row = Assert.Single(new NotificationLogRepository(_store).ListRecent(10));
+        Assert.True(row.Ok);
+        Assert.Equal("webhook+mqtt", row.Route);
+    }
 }
 
 internal static class NotificationSettingsTestExtensions
@@ -906,4 +1005,107 @@ internal sealed class FakeSmtpMessage
         string.Join("\r\n", Payload.Split("\r\n")
             .SkipWhile(l => !string.IsNullOrWhiteSpace(l))
             .Skip(1));
+}
+
+/// <summary>迷你 MQTT broker：接受 CONNECT→回 CONNACK→收 PUBLISH（QoS0）並記錄 topic/payload。</summary>
+internal sealed class FakeMqttBroker : IDisposable
+{
+    private readonly TcpListener _listener;
+    private readonly CancellationTokenSource _cts = new();
+    private readonly Task _serveTask;
+    private readonly TaskCompletionSource _published = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    public FakeMqttBroker()
+    {
+        _listener = new TcpListener(IPAddress.Loopback, 0);
+        _listener.Start();
+        Port = ((IPEndPoint)_listener.LocalEndpoint).Port;
+        _serveTask = Task.Run(ServeLoop);
+    }
+
+    public int Port { get; }
+    public int ConnackReturnCode { get; set; }
+    public string? ReceivedTopic { get; private set; }
+    public string? ReceivedPayload { get; private set; }
+
+    public Task WaitForPublishAsync(TimeSpan timeout) => _published.Task.WaitAsync(timeout);
+
+    private async Task ServeLoop()
+    {
+        using var client = await _listener.AcceptTcpClientAsync(_cts.Token);
+        var stream = client.GetStream();
+
+        // CONNECT（跳過 body）
+        await ReadExactAsync(stream, 1, _cts.Token);
+        var connectLen = await ReadVarintAsync(stream, _cts.Token);
+        await ReadExactAsync(stream, connectLen, _cts.Token);
+
+        // CONNACK：0x20 0x02 0x00 <rc>
+        stream.Write(new byte[] { 0x20, 0x02, 0x00, (byte)ConnackReturnCode });
+
+        // PUBLISH：0x30 <len> <topicLen:2> <topic> <payload>
+        await ReadExactAsync(stream, 1, _cts.Token);
+        var publishLen = await ReadVarintAsync(stream, _cts.Token);
+        var body = new byte[publishLen];
+        var done = 0;
+        while (done < body.Length)
+        {
+            var n = await stream.ReadAsync(body.AsMemory(done), _cts.Token);
+            if (n == 0)
+            {
+                throw new IOException("broker: peer closed during publish body");
+            }
+            done += n;
+        }
+        var topicLen = (body[0] << 8) | body[1];
+        ReceivedTopic = Encoding.UTF8.GetString(body, 2, topicLen);
+        ReceivedPayload = Encoding.UTF8.GetString(body, 2 + topicLen, publishLen - 2 - topicLen);
+        _published.TrySetResult();
+    }
+
+    private async Task ReadExactAsync(Stream s, int count, CancellationToken ct)
+    {
+        var buffer = new byte[count];
+        var offset = 0;
+        while (offset < count)
+        {
+            var n = await s.ReadAsync(buffer.AsMemory(offset, count - offset), ct);
+            if (n == 0)
+            {
+                throw new IOException("broker: peer closed");
+            }
+            offset += n;
+        }
+    }
+
+    private static async Task<int> ReadVarintAsync(Stream s, CancellationToken ct)
+    {
+        var value = 0;
+        var multiplier = 1;
+        for (var i = 0; i < 4; i++)
+        {
+            var one = new byte[1];
+            var n = await s.ReadAsync(one, ct);
+            if (n == 0)
+            {
+                throw new IOException("broker: peer closed");
+            }
+
+            value += (one[0] & 0x7F) * multiplier;
+            if ((one[0] & 0x80) == 0)
+            {
+                return value;
+            }
+
+            multiplier *= 128;
+        }
+
+        throw new FormatException("bad remaining length");
+    }
+
+    public void Dispose()
+    {
+        _cts.Cancel();
+        _listener.Stop();
+    }
 }
