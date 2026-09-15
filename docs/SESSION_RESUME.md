@@ -23,14 +23,22 @@ gh run list -L 3              # 預期全部 success
 新 session 會以 git 現況接手，不會靠猜測。
 
 ## 現況快照（權威來源＝git，非聊天記憶）
-- 最後 commit：`HEAD`＝**M29（離線事件源／斷線補送）**——`AlarmEventRepository` 加
-  `OpenOfflineEvent`＋`FindOpenOffline`＋`CloseOpenEvents`；Alarms 新 **`OfflineEventTracker`**
-  （`MarkOffline` 開窗防重複／`MarkOnline` 收斂＋補 `online` 事件帶 `offline_duration=HH:MM:SS`／
-  `CloseOpenAtStartup`）；`ChannelManager` ctor 收斂 startup、`StateChanged` 攔截
-  `Reconnecting→MarkOffline`、`Streaming→MarkOnline`、健康逾時亦 `MarkOffline`＋`RestartAsync`
-  回傳 bool 成功時 `MarkOnline`。單元 **120/120**（Storage 53＋Alarms 51＋Licensing 8＋Devices 8）
-  ＋ E2E 新增 **`offcheck` OFFCHECK_OK**。回歸 11 全綠（notif/log/smtp/set/snap/exp/ptz/tra/
-  quiet/evfilter/off）。
+- 最後 commit：`HEAD`＝**M30（MQTT 通知通道）**——`NotificationSettings` ＋
+  `MqttEnabled/MqttHost/MqttPort(1883)/MqttTopic/MqttUser/MqttPassword`（鍵 `notify.mqtt.*`、
+  env `HELIVMS_MQTT_*`、密碼 SecretProtector 單向 DPAPI）；Alarms 新 **`MqttNotifier`**
+  （裸 MQTT 3.1.1 無第三方依賴：TcpClient→CONNECT(clean/user/pass)→CONNACK rc=0 才算→
+  PUBLISH QoS0 topic＋base64-free JSON
+  `{"channel_id",..,"event_type","start_utc","detail"}`）；`NotificationService` 第三通道
+  （`HasMqttRoute` guard＋route "mqtt"＋log Route "webhook+smtp+mqtt"）；SettingsWindow 通知頁
+  MQTT 群（啟用/主機/埠/主題/使用者/密碼，密碼不預填＋僅非空才寫）。單元 **125/125**
+  （Storage 53＋Alarms **56**＋Licensing 8＋Devices 8；Alarms ＋5＝mqtt settings load、
+  publish ok＋payload JSON、CONNACK 拒絕→false、連不上→false、webhook+mqtt 複合 route）＋
+  E2E 新增 **`mqttcheck` MQTTCHECK_OK**（Program 內 FakeMqttBroker）。回歸 12 全綠
+  （notif/log/smtp/set/snap/exp/ptz/tra/quiet/evfilter/off/**mqtt**）。
+- 前一個 M29 交付＝`6e95ba8`（離線事件源：`OfflineEventTracker` MarkOffline/MarkOnline/
+  CloseOpenAtStartup；`AlarmEventRepository.FindOpenOffline+CloseOpenEvents`；ChannelManager
+  Reconnecting→開窗、Streaming→補 online、健康逾時開窗＋RestartAsync 回 bool；Storage 53、
+  Alarms 51、全 120、offcheck OFFCHECK_OK）
 - 前一個 M28 交付＝`ba95d0f`（事件中心篩選＋分頁：QueryArgs/ListByQuery/CountByQuery/
   ListEventTypes＋UI 類型 Combo＋Prev/Next 50/頁；114、evfiltercheck EVFILTERCHECK_OK）
 - 分支／遠端：`git diff origin/HEAD` 為空（完全同步）；HEAD＝origin
@@ -109,34 +117,36 @@ gh run list -L 3              # 預期全部 success
    加 `QueryArgs/ListByQuery/CountByQuery/ListEventTypes`；EventCenterWindow 頂加「類型」Combo、
    底部 `PrevPageButton/PageText/NextPageButton`（PageSize=50、筛选變動歸零、Count 顯示第 x/y 頁）；
    Storage ＋3 測試；harness `evfiltercheck`→**EVFILTERCHECK_OK**；回歸全綠；全 114/114
-4. **M29（本次開立）— 離線事件源（斷線補送）**
-   - 現況（已全案調查）：`offline` 事件類型是「有 UI 色彩映射、無資料來源」的空殼——
-     EventCenterWindow/PlaybackWindow 已備 offline 顯示色，但**無任何程式碼寫入**
-     `event_type='offline'`；RtspClient 內建 5s 重試、ChannelManager 10s 逾時重連都「只重連
-     不記錄」；schema 已可（`end_time` nullable、Insert＋UpdateEnd 兩步式）。M29 補上離線事件源：
-   - **AlarmEventRepository**：＋`public sealed record OpenOffline(long Id, DateTime StartUtc)`
-     ＋ `FindOpenOffline(channelId)`（`event_type='offline' AND end_time IS NULL ORDER BY id DESC
-     LIMIT 1`）＋ `CloseOpenEvents(endUtc)`（收斂所有 `end_time IS NULL` 事件）
-   - **Alarms 新 `OfflineEventTracker`**：`MarkOffline(chId)`（無 open 才 Insert
-     `("offline", now, null, "connection lost")` 防重複）、`MarkOnline(chId)`
-     （FindOpenOffline→`UpdateEnd(now)`＋Insert `("online", now, detail="offline_duration=HH:MM:SS")`
-     ）、`CloseOpenAtStartup()`（啟動收斂上次未完的 open 窗；不補 fake online）
-   - **ChannelManager**：ctor 注入 `OfflineEventTracker`＋`CloseOpenAtStartup()`；
-     `ConnectAsync` 的 `session.StateChanged` 攔截 `RtspState.Reconnecting→MarkOffline`、
-     `RtspState.Streaming→MarkOnline`；`OnHealthTick` stale 分支亦 `MarkOffline`（open-guard 防重複）、
-     `RestartAsync` 改回傳 bool，成功後 `MarkOnline`。offline/online 事件自動經既有
-     `AlarmEvent→NotificationService.Enqueue` 通知，不另接線
-   - 驗收：Storage ＋2（OpenOffline 查詢、CloseOpenEvents 收斂）＋Alarms ＋4（重複防、
-     online duration detail、無開窗 MarkOnline noop、startup close）＝全 **120**；App Release
-     build 0；E2E 新增
-     **`offcheck`** OFFCHECK_OK（temp store：MarkOffline×3 僅 1 open→MarkOnline→1 online、
-     offline 已閉、duration detail、CloseOpenAtStartup）；回歸全組含 evfilter/quiet
-   - 雷區預告：`alarm_events` FK 約束要 channel 先存在（測試建 channel 7）；offline/online
-     detail 固定字串 `"connection lost"`／`"offline_duration="` 保留給斷言；
-     `OpenOffline` record 放 AlarmEventRepository.cs 同檔；`FindOpenOffline` 回
-     `(Id, StartUtc)` 才能算持續時間
-5. 下一里程碑候選（M30 起）：SNMP/MQTT/推播通道、PTZ 增強（長按連續移動、AbsoluteMove/Home、
-   預設點管理 UI、多 Profile 選擇 UI）、ONVIF Discovery Hello/Bye/Resolve
+4. **M29 已完成**（commit `6e95ba8`，CI success）：離線事件源（斷線補送）——見「現況快照」；
+   Storage ＋2（FindOpenOffline、CloseOpenEvents）＋Alarms ＋4（OfflineEventTracker 開窗防重複/
+   復連補 online＋duration detail/無開窗 noop/startup close）＝全 **120**；
+   harness `offcheck`→**OFFCHECK_OK**；回歸 11 全綠
+5. **M30（本次開立）— MQTT 通知通道**
+   - 現況：通知平面（M22）已有 Webhook＋SMTP 兩通道，無 MQTT。M30 補 **MQTT 3.1.1 通道**：
+   - **NotificationSettings**：＋`MqttEnabled/MqttHost/MqttPort(=1883)/MqttTopic/MqttUser/
+     MqttPassword`（鍵 `notify.mqtt.enabled/host/port/topic/user/password`、env
+     `HELIVMS_MQTT_*`，password 以 DPAPI 加密保存）；`AnyChannelConfigured` 納入
+     （`MqttEnabled && host && topic`）
+   - **Alarms 新 `MqttNotifier`**（**裸 MQTT 3.1.1**，不引 NuGet——自寫 TCP socket 組
+     CONNECT/PUBLISH frame，CI 無第三方網路）：`SendAsync(cfg, record)`＝TCP 連線→CONNECT
+     （clientId `helivms-<rand>`、clean session 1、選填 user/pass）→讀 CONNACK（回碼 0 才算）
+     →PUBLISH QoS0（topic＋JSON payload：
+     `{"channel_id":N,"event_type":"motion","start_utc":"<ISO>","detail":"..."}`）→true/false
+   - **NotificationService**：`ProcessItemAsync` 第三route：`cfg.MqttEnabled && host && topic`
+     → `routes.Add("mqtt")`＋`_mqtt.SendAsync`；route join "webhook+mqtt+smtp" 照既有
+   - **SettingsWindow 通知頁**：加 `NotifyMqttEnabledBox`＋Host/Port/Topic/User/Password 盒群
+     （load/apply；密碼留空＝不變更，與 SMTP 同原樣）
+   - 驗收：Alarms ＋4（Settings load mqtt、MqttNotifier publish ok＋payload JSON、
+     CONNACK 拒絕→false、Service 多路 route 含 "mqtt+webhook"）＝全 **124**；App Release
+     build 0；E2E `mqttcheck`→**MQTTCHECK_OK**（Program.cs TCP listener 假 broker：
+     CONNECT→CONNACK code 0→收 PUBLISH 驗 topic＋payload `channel_id`）；回歸全組含 off
+   - 雷區預告：MQTT fixed header 2 bytes（type<<4＋remaining len）；varint remaining 長度
+     encoding（<128 單 byte）；CONNECT 需 `ProtocolName "MQTT"/Level 4`；假 broker 必須回
+     CONNACK（0x20 0x02 0x00 <rc>）否則 notifier 判定失敗；不要混淆 `record` namespace
+     （AlarmEventRecord 有 Record）；密碼 key 用 SecretProtector（比照 smtp.password）
+6. 下一里程碑候選（M31 起）：推播通道（chunk 推送/Device Token）、PTZ 增強（長按連續移動、
+   AbsoluteMove/Home、預設點管理 UI、多 Profile 選擇 UI）、ONVIF Discovery Hello/Bye/Resolve、
+   SNMP 陷阱
    - 每里程碑節奏照舊：定義先寫入本檔→實作→App Release build 0 error→單元測試→E2E harness
      block→commit＋push＋CI success→`git status --porcelain` 空白
 
