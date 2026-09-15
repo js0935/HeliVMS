@@ -1,3 +1,4 @@
+using Microsoft.Data.Sqlite;
 using HeliVMS.Shared.Models;
 
 namespace HeliVMS.Storage;
@@ -126,6 +127,124 @@ public sealed class AlarmEventRepository
             {
                 r.Read();
                 return r.GetInt32(0);
+            });
+    }
+
+    /// <summary>事件中心查詢參數（M28：類型篩選＋分頁）。</summary>
+    public sealed class QueryArgs
+    {
+        public int? ChannelId { get; init; }
+
+        public string? EventType { get; init; }
+
+        public DateTime FromUtc { get; init; }
+
+        public DateTime ToUtc { get; init; }
+
+        public int Limit { get; init; } = 200;
+
+        public int Offset { get; init; }
+    }
+
+    /// <summary>組出共用 WHERE 子句（時間窗＋可選頻道＋可選類型）。</summary>
+    private List<string> BuildWhere(QueryArgs q)
+    {
+        var where = new List<string> { "start_time >= $from", "start_time <= $to" };
+        if (q.ChannelId is int c)
+        {
+            where.Add("channel_id = $c");
+        }
+
+        if (!string.IsNullOrWhiteSpace(q.EventType))
+        {
+            where.Add("event_type = $et");
+        }
+
+        return where;
+    }
+
+    private void BindWhere(QueryArgs q, SqliteCommand cmd)
+    {
+        cmd.Parameters.AddWithValue("$from", SqliteStore.Iso(q.FromUtc));
+        cmd.Parameters.AddWithValue("$to", SqliteStore.Iso(q.ToUtc));
+        if (q.ChannelId is int c)
+        {
+            cmd.Parameters.AddWithValue("$c", c);
+        }
+
+        if (!string.IsNullOrWhiteSpace(q.EventType))
+        {
+            cmd.Parameters.AddWithValue("$et", q.EventType);
+        }
+    }
+
+    private AlarmEventRecord ReadRecord(SqliteDataReader r) => new()
+    {
+        Id = r.GetInt64(0),
+        ChannelId = r.GetInt32(1),
+        EventType = r.GetString(2),
+        StartUtc = SqliteStore.FromIso(r.GetString(3)),
+        EndUtc = r.IsDBNull(4) ? null : SqliteStore.FromIso(r.GetString(4)),
+        SnapshotPath = r.IsDBNull(5) ? null : r.GetString(5),
+        Detail = r.IsDBNull(6) ? null : r.GetString(6),
+        Acknowledged = r.GetInt32(7) != 0,
+    };
+
+    /// <summary>依 QueryArgs（類型／頻道／時間窗／頁）列出事件，由新到舊。</summary>
+    public IReadOnlyList<AlarmEventRecord> ListByQuery(QueryArgs q)
+    {
+        var where = BuildWhere(q);
+        var sql = string.Join(" AND ", where);
+        return _store.Query(
+            $"""
+            SELECT id, channel_id, event_type, start_time, end_time, snapshot_path, detail, acknowledged
+            FROM alarm_events
+            WHERE {sql}
+            ORDER BY start_time DESC
+            LIMIT {Math.Max(1, q.Limit)} OFFSET {Math.Max(0, q.Offset)};
+            """,
+            r =>
+            {
+                var list = new List<AlarmEventRecord>();
+                while (r.Read())
+                {
+                    list.Add(ReadRecord(r));
+                }
+
+                return list;
+            },
+            cmd => BindWhere(q, cmd));
+    }
+
+    /// <summary>同 ListByQuery 條件的總筆數（分頁計數用；忽略 Limit/Offset）。</summary>
+    public int CountByQuery(QueryArgs q)
+    {
+        var where = BuildWhere(q);
+        var sql = string.Join(" AND ", where);
+        return _store.Query(
+            $"SELECT COUNT(1) FROM alarm_events WHERE {sql};",
+            static r =>
+            {
+                r.Read();
+                return r.GetInt32(0);
+            },
+            cmd => BindWhere(q, cmd));
+    }
+
+    /// <summary>既有事件類型清單（去重、排序）。</summary>
+    public IReadOnlyList<string> ListEventTypes()
+    {
+        return _store.Query(
+            "SELECT DISTINCT event_type FROM alarm_events ORDER BY event_type;",
+            static r =>
+            {
+                var list = new List<string>();
+                while (r.Read())
+                {
+                    list.Add(r.GetString(0));
+                }
+
+                return list;
             });
     }
 }

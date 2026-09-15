@@ -107,5 +107,114 @@ public class AlarmEventRepositoryTests : IDisposable
         Assert.Equal(0, _repo.CountUnacknowledged());
     }
 
+    private void CreateChannel(string name, string rtsp)
+    {
+        _store.Execute(
+            """
+            INSERT INTO channels (device_id, name, main_rtsp, sub_rtsp, codec, audio_enabled, audio_encoder)
+            VALUES (NULL, $n, $m, NULL, 'h264', 1, 'copy');
+            """,
+            cmd =>
+            {
+                cmd.Parameters.AddWithValue("$n", name);
+                cmd.Parameters.AddWithValue("$m", rtsp);
+            });
+    }
+
+    [Fact]
+    public void ListByQuery_FiltersAndPaginates()
+    {
+        CreateChannel("第二頻道", "rtsp://127.0.0.1:8554/ev2");
+        var t0 = new DateTime(2026, 3, 1, 0, 0, 0, DateTimeKind.Utc);
+        for (var i = 0; i < 5; i++)
+        {
+            _repo.Insert(1, "motion", t0.AddSeconds(10 * i));
+        }
+
+        _repo.Insert(2, "offline", t0.AddMinutes(1));
+        _repo.Insert(2, "motion", t0.AddMinutes(2));
+
+        // 全部 motion（頻道不限）＝6
+        var allMotion = _repo.ListByQuery(new AlarmEventRepository.QueryArgs
+        {
+            EventType = "motion",
+            FromUtc = DateTime.MinValue,
+            ToUtc = DateTime.MaxValue,
+        });
+        Assert.Equal(6, allMotion.Count);
+        Assert.All(allMotion, e => Assert.Equal("motion", e.EventType));
+
+        // 頻道＋類型
+        var ch2Offline = _repo.ListByQuery(new AlarmEventRepository.QueryArgs
+        {
+            ChannelId = 2,
+            EventType = "offline",
+            FromUtc = DateTime.MinValue,
+            ToUtc = DateTime.MaxValue,
+        });
+        Assert.Single(ch2Offline);
+
+        // 分頁：第 1 頁 4 筆取最新的
+        var page1 = _repo.ListByQuery(new AlarmEventRepository.QueryArgs
+        {
+            EventType = "motion",
+            FromUtc = DateTime.MinValue,
+            ToUtc = DateTime.MaxValue,
+            Limit = 4,
+            Offset = 0,
+        });
+        Assert.Equal(4, page1.Count);
+        Assert.True(page1[0].StartUtc > page1[3].StartUtc);
+
+        var page2 = _repo.ListByQuery(new AlarmEventRepository.QueryArgs
+        {
+            EventType = "motion",
+            FromUtc = DateTime.MinValue,
+            ToUtc = DateTime.MaxValue,
+            Limit = 4,
+            Offset = 4,
+        });
+        Assert.Equal(2, page2.Count);
+    }
+
+    [Fact]
+    public void CountByQuery_MatchesFilter()
+    {
+        CreateChannel("第二頻道", "rtsp://127.0.0.1:8554/ev2");
+        var t0 = new DateTime(2026, 3, 2, 0, 0, 0, DateTimeKind.Utc);
+        _repo.Insert(1, "motion", t0);
+        _repo.Insert(1, "motion", t0.AddSeconds(1));
+        _repo.Insert(2, "offline", t0.AddSeconds(2));
+
+        var motionCount = _repo.CountByQuery(new AlarmEventRepository.QueryArgs
+        {
+            EventType = "motion",
+            FromUtc = DateTime.MinValue,
+            ToUtc = DateTime.MaxValue,
+        });
+        Assert.Equal(2, motionCount);
+
+        var ch2Count = _repo.CountByQuery(new AlarmEventRepository.QueryArgs
+        {
+            ChannelId = 2,
+            FromUtc = DateTime.MinValue,
+            ToUtc = DateTime.MaxValue,
+        });
+        Assert.Equal(1, ch2Count);
+    }
+
+    [Fact]
+    public void ListEventTypes_ReturnsDistinctSorted()
+    {
+        CreateChannel("第二頻道", "rtsp://127.0.0.1:8554/ev2");
+        _repo.Insert(1, "offline", DateTime.UtcNow);
+        _repo.Insert(1, "motion", DateTime.UtcNow);
+        _repo.Insert(1, "motion", DateTime.UtcNow);
+        _repo.Insert(2, "ai_person", DateTime.UtcNow);
+
+        var types = _repo.ListEventTypes();
+        Assert.Equal(new[] { "ai_person", "motion", "offline" }, types);
+    }
+
     public void Dispose() => _store.Dispose();
 }

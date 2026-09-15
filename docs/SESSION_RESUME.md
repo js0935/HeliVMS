@@ -23,22 +23,18 @@ gh run list -L 3              # 預期全部 success
 新 session 會以 git 現況接手，不會靠猜測。
 
 ## 現況快照（權威來源＝git，非聊天記憶）
-- 最後 commit：`HEAD`＝**M26（系統匣常駐）**——`HeliVMS.App.csproj` 加
-  `<UseWindowsForms>true</UseWindowsForms>`＋`<Using Remove>`（避免 WinForms/Drawing 全域 using
-  與 WPF 型別 CS0104 衝突）；新檔 **`TrayIconHost.cs`**（包 `System.Windows.Forms.NotifyIcon`：
-  `Icon.ExtractAssociatedIcon(Environment.ProcessPath)`、`Text`＝"HeliVMS"、`Visible`、
-  DoubleClick＋ContextMenuStrip「顯示主視窗」／「結束 HeliVMS」→`ExitRequested`）；MainWindow
-  `OnClosing`（`!_exiting → Cancel＋Hide`、E2E 探針寫旗標）、`OnStateChanged`(Minimized→Hide)、
-  `ShowFromTray`、`OnTrayExit`（保留 tray 真正結束）、`OnClosed` 清 tray。單元維持 **109/109**
-  （純 UI 不加單元）＋ E2E 新增 **`tracheck` TRAYCHECK_OK**（`HELIVMS_TRAY_PROBE=1`→`WM_CLOSE`
-  →主窗 not visible＋proc 存活＋旗標檔出現）。回歸 notif/log/smtp/set/snap/exp/ptz 全綠。
-  另修 harness：ptzcheck 綁定頻道改「最小存在頻道」（index.db 的 channel 1 已被開發機移除，
-  硬編 id=1 會 affected=0）
-- 前一個 M25 交付＝`5b2b2c3`（PTZ 控制＋ONVIF 自動探索強化：OnvifDeviceService Tptz 能力、
-  DeviceRepository.Get 帳密、PtzWindow、MainWindow PtzButton/右鍵入口、Wizard PTZ 標示；
-  單元測試 109/109、E2E ptzcheck PTZCHECK_OK）
+- 最後 commit：`HEAD`＝**M27（通知靜默時段延後補送）**——`NotificationSettings` 加
+  `QuietRetransmit`（`notify.quiet.retransmit`、env `HELIVMS_NOTIFY_QUIET_RETRANSMIT`）＋
+  `QuietEndUtc(now)`；`NotificationService` 延後佇列（`DelayedForQuiet` 旗標、
+  `NextDueUtc=QuietEndUtc+5s`、非靜默即時到期補送、成功 log `note="延後補送"`）；SettingsWindow
+  通知頁 `NotifyQuietRetransmitBox` 勾選。單元 **114/114**（Storage 51＋Alarms 47＋Licensing 8＋
+  Devices 8；Alarms ＋2、Storage ＋3）＋ E2E 新增 **`quietcheck` QUIETCHECK_OK**（延後補送流程）
+  ＋ **`evfiltercheck` EVFILTERCHECK_OK**（M28 資料層篩選/分頁冒煙）。回歸
+  notif/log/smtp/set/snap/exp/ptz/tra/quiet/evfilter 全綠。
+- 前一個 M26 交付＝`1bf6778`（系統匣常駐：`TrayIconHost`＋MainWindow tray 整合；
+  單元 109/109、E2E tracheck TRAYCHECK_OK）
 - 分支／遠端：`git diff origin/HEAD` 為空（完全同步）；HEAD＝origin
-- CI：`gh run list` 顯示最新 run `conclusion=success`；建置 0 error、測試 109/109
+- CI：`gh run list` 顯示最新 run `conclusion=success`；建置 0 error、測試 114/114
 
 ## 架構關鍵（確切、無漂移）
 - 解決方案：`D:\HeliVMS\HeliVMS.App\HeliVMS.App.csproj`（WPF）＋ `HeliVMS.slnx`
@@ -101,30 +97,34 @@ gh run list -L 3              # 預期全部 success
 
 ## 尚未完成／下一步（依 git 與 repo 判斷）
 1. **M26 已完成**（系統匣常駐，見「現況快照」）
-2. **M27（本次開立）— 通知靜默時段延時補送**
-   - 現況：靜默時段（`notify.quiet.start/end`）內事件直接 skip（`SkippedDuringQuietCount++`、
-     不外送、不落 log、不出 retry），事件永久消失。M27 新增 **延後補送**：
-   - **NotificationSettings**：記錄加 `bool QuietRetransmit`（鍵 `notify.quiet.retransmit`、
-     env `HELIVMS_NOTIFY_QUIET_RETRANSMIT`，預設 false）＋ `QuietEndUtc(DateTime now)`
-     （回本次靜默結束時刻；跨午夜含「今天日終→明日 end」「明日凌晨→今日 end」兩種）
-   - **NotificationService**：`Item` 加 `DelayedForQuiet` 旗標（防重複計數）；webhook 路徑
-     `ProcessItemAsync` 與純 SMTP `ProcessSmtpBatchAsync` 的靜默分支改：
-     `retransmit=off`→維持原 skip（既有 M23 行為與測試不破）；`on`→事件**不送出**、
-     設 `NextDueUtc=QuietEndUtc+5s`（Attempts 該批不加）、`SkippedDuringQuietCount++`
-     （僅首次，靠 `DelayedForQuiet`）並放回 `_retry`；非靜默開始後到期＝正常外送，
-     成功 log 比 `note="延後補送"`（Attempts=原語意）
-   - **SettingsWindow 通知頁**加 CheckBox `NotifyQuietRetransmitBox`（「靜默時段內事件延後補送」），
-     載入既有值＋套用寫 `notify.quiet.retransmit`（notifcheck 既有斷言不破）
-   - 驗收：Alarms 單元 ＋2（webhook 延後補送：靜默→skip 未送、移出後送出、log note 延後；
-     純 SMTP batch 延後→2 事件併 1 封）；App Release build 0；E2E 新增 **`quietcheck`**
-     QUIETCHECK_OK（temp store＋熱拷 webhook 假伺服器：retransmit on＋動態靜默窗（安全小時防護）
-     →enqueue→SkippedDuringQuietCount==1 未送→移出靜默→Delivered==1、Hits==1、log note 延後）；
-     回歸 notif/log/smtp/tra/set/snap/exp/ptz
-   - 雷區預告：動態「HH:mm」若 now 鄰近午夜±1h 會使 IsInQuietHours 誤判（測試/harness 用小時
-     守衛：now.Hour 1..22 才跑 or 改用 -30m/+30m 仍可能跨；務必 Assert cfg.IsInQuietHours
-     先行）；log note 固定字串「延後補送」保留給 E2E/單元斷言
-3. 下一里程碑候選（M28 起）：紀錄頁篩選/分頁 UI、離線事件源（斷線補送）、SNMP/MQTT/推播通道、
-   PTZ 增強（長按連續移動、AbsoluteMove/Home、預設點管理 UI、多 Profile 選擇 UI）、
+2. **M27 已完成**（commit `c198884`，CI success）：通知靜默時段延時補送
+   `notify.quiet.retransmit`（off＝維持原跳過）；`NotificationSettings` 加
+   `QuietRetransmit`＋`QuietEndUtc(now)`（跨午夜兩型）；`NotificationService` 延後佇列
+   （`DelayedForQuiet` 旗標、`NextDueUtc=QuietEndUtc+5s`、retry loop 於「非靜默時
+   DelayedForQuiet 且已非靜默」立即視為到期→提早結束靜默立即補送）；成功 log
+   `note="延後補送"`（保留供 E2E/單元斷言）；SettingsWindow 通知頁 `NotifyQuietRetransmitBox`；
+   Alarms ＋2 測試（webhook 延後、SMTP batch 延後）、Storage/Alarms 全 111；
+   harness `quietcheck`→**QUIETCHECK_OK**；回歸 8 全綠
+3. **M28（本次開立）— 事件中心篩選＋分頁 UI**
+   - 現況：事件中心（EventCenterWindow）已有頻道＋時間範圍篩選，但**整批全載**、無法依
+     事件類型過濾、無分頁。M28 加入：
+   - **AlarmEventRepository**：新增 `QueryArgs`（`ChannelId?/EventType?/FromUtc/ToUtc/
+     Limit/Offset`）＋`ListByQuery`（ORDER BY start_time DESC LIMIT/OFFSET）＋
+     `CountByQuery`（同條件總數，忽略頁）＋`ListEventTypes`（SELECT DISTINCT）；
+     `ListByRange` 保留不動（Playback 與既有測試沿用）
+   - **EventCenterWindow**：頂部加「類型」Combo（`TypeCombo`＝全部類型＋DB 既有類型）；
+     底部工具列加 `PrevPageButton/PageText/NextPageButton`（PageSize=50、`_page` 狀態、
+     筛选變動歸零）；`CountText` 顯示「共 N 筆事件（第 x/y 頁）」；`NextPageButton`
+     Enabled 為 `_page*PageSize < total`
+   - 驗收：Storage 單元 ＋3（過濾＋分頁、計數、去重類型）＝全 114；App Release build 0；
+     E2E 新增 **`evfiltercheck`** EVFILTERCHECK_OK（temp store：motion 6／頻道＋類型 1／
+     第 2 頁 2／總數 6／去重類型 ["motion","offline"]）；
+     回歸 notif/log/smtp/set/snap/exp/ptz/tra/quiet/evfilter 全綠
+   - 雷區預告：alarm_events 有 FOREIGN KEY channel 約束——測試若用 channelId 2 須先建
+     第二頻道（既有 helper `CreateChannel`）；`SqliteCommand/SqliteDataReader` 型別需
+     `using Microsoft.Data.Sqlite;`（AlarmEventRepository.cs 已加）
+4. 下一里程碑候選（M29 起）：離線事件源（斷線補送）、SNMP/MQTT/推播通道、PTZ 增強
+   （長按連續移動、AbsoluteMove/Home、預設點管理 UI、多 Profile 選擇 UI）、
    ONVIF Discovery Hello/Bye/Resolve
    - 每里程碑節奏照舊：定義先寫入本檔→實作→App Release build 0 error→單元測試→E2E harness
      block→commit＋push＋CI success→`git status --porcelain` 空白

@@ -18,6 +18,8 @@ public partial class EventCenterWindow : Window
     private readonly AlarmEventRepository _events;
     private Size _snapSource;
     private IReadOnlyList<Detection> _snapDetections = [];
+    private const int PageSize = 50;
+    private int _page = 1;
 
     public EventCenterWindow(SqliteStore store)
     {
@@ -71,11 +73,24 @@ public partial class EventCenterWindow : Window
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
         RefreshChannels();
+        RefreshTypes();
         DoRefresh();
     }
 
     private void OnClosing(object sender, System.ComponentModel.CancelEventArgs e)
     {
+    }
+
+    private void RefreshTypes()
+    {
+        TypeCombo.Items.Clear();
+        TypeCombo.Items.Add(new System.Windows.Controls.ComboBoxItem { Content = "全部類型", Tag = null });
+        foreach (var t in _events.ListEventTypes())
+        {
+            TypeCombo.Items.Add(new System.Windows.Controls.ComboBoxItem { Content = t, Tag = t });
+        }
+
+        TypeCombo.SelectedIndex = 0;
     }
 
     private void RefreshChannels()
@@ -111,6 +126,7 @@ public partial class EventCenterWindow : Window
     private void OnChannelSelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
     {
         if (_events is null) return;
+        _page = 1;
         DoRefresh();
     }
 
@@ -145,7 +161,23 @@ public partial class EventCenterWindow : Window
             channelId = cid;
         }
 
-        var list = _events.ListByRange(channelId, from, to);
+        string? eventType = null;
+        if (TypeCombo.SelectedItem is System.Windows.Controls.ComboBoxItem ti && ti.Tag is string ts)
+        {
+            eventType = ts;
+        }
+
+        var q = new AlarmEventRepository.QueryArgs
+        {
+            ChannelId = channelId,
+            EventType = eventType,
+            FromUtc = from,
+            ToUtc = to,
+            Limit = PageSize,
+            Offset = (_page - 1) * PageSize,
+        };
+        var list = _events.ListByQuery(q);
+        var total = _events.CountByQuery(q);
         var byId = _channels.List().ToDictionary(x => x.Id);
         var eventRows = list
             .Select(ev => new EventRow
@@ -192,10 +224,31 @@ public partial class EventCenterWindow : Window
         EventList.ItemsSource = eventRows;
         CardList.ItemsSource = eventRows;
 
-        CountText.Text = $"共 {list.Count} 筆事件";
+        var pages = Math.Max(1, (total + PageSize - 1) / PageSize);
+        CountText.Text = $"共 {total} 筆事件（第 {_page}/{pages} 頁）";
+        PageText.Text = $"第 {_page} / {pages} 頁";
+        PrevPageButton.IsEnabled = _page > 1;
+        NextPageButton.IsEnabled = _page * PageSize < total;
         EventList.SelectedItem = null;
         CardList.SelectedItem = null;
         ClearSnapshot();
+    }
+
+    private void OnPrevPageClicked(object sender, RoutedEventArgs e)
+    {
+        if (_page <= 1)
+        {
+            return;
+        }
+
+        _page--;
+        DoRefresh();
+    }
+
+    private void OnNextPageClicked(object sender, RoutedEventArgs e)
+    {
+        _page++;
+        DoRefresh();
     }
 
     private (DateTime From, DateTime To) RangeWindow()
