@@ -3,6 +3,9 @@ using HeliVMS.Shared.Models;
 
 namespace HeliVMS.Storage;
 
+/// <summary>一筆尚未結束的離線事件（M29：斷線補送）。</summary>
+public sealed record OpenOfflineEvent(long Id, DateTime StartUtc);
+
 /// <summary>
 /// 事件（警報/運動/斷線）存取（§4 alarm_events 表）。
 /// </summary>
@@ -246,5 +249,36 @@ public sealed class AlarmEventRepository
 
                 return list;
             });
+    }
+
+    /// <summary>指定頻道最新一筆尚未結束（end_time IS NULL）的離線事件。</summary>
+    public OpenOfflineEvent? FindOpenOffline(int channelId)
+    {
+        return _store.Query(
+            """
+            SELECT id, start_time
+            FROM alarm_events
+            WHERE channel_id = $c AND event_type = 'offline' AND end_time IS NULL
+            ORDER BY id DESC
+            LIMIT 1;
+            """,
+            static r =>
+            {
+                if (!r.Read())
+                {
+                    return null;
+                }
+
+                return new OpenOfflineEvent(r.GetInt64(0), SqliteStore.FromIso(r.GetString(1)));
+            },
+            cmd => cmd.Parameters.AddWithValue("$c", channelId));
+    }
+
+    /// <summary>收斂所有尚未結束的事件（App 啟動時呼叫；上次離線已因關閉而結束）。</summary>
+    public void CloseOpenEvents(DateTime endUtc)
+    {
+        _store.Execute(
+            "UPDATE alarm_events SET end_time = $e WHERE end_time IS NULL;",
+            cmd => cmd.Parameters.AddWithValue("$e", SqliteStore.Iso(endUtc)));
     }
 }

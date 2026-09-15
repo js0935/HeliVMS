@@ -20,6 +20,7 @@ public sealed class ChannelManager : IDisposable
     private readonly string _recordingsRoot;
     private readonly string _snapshotsRoot;
     private readonly System.Threading.Timer _health;
+    private readonly OfflineEventTracker _offline;
     private IDetectionEngine? _detection;
     private bool _disposed;
 
@@ -29,6 +30,8 @@ public sealed class ChannelManager : IDisposable
         _channels = new ChannelRepository(store);
         _recordingsRoot = recordingsRoot;
         _snapshotsRoot = snapshotsRoot;
+        _offline = new OfflineEventTracker(new AlarmEventRepository(store));
+        _offline.CloseOpenAtStartup();
         if (!string.IsNullOrEmpty(modelPath))
         {
             try
@@ -82,7 +85,19 @@ public sealed class ChannelManager : IDisposable
             var session = new ChannelSession(ch.Id, ch.Name, ch.MainStreamUrl, _store, _recordingsRoot, _snapshotsRoot, ch.MotionEnabled, _detection);
             var cell = i;
             session.FrameArrived += (_, f) => FrameArrived?.Invoke(this, (cell, f));
-            session.StateChanged += (_, st) => StateChanged?.Invoke(this, (cell, ch, st));
+            session.StateChanged += (_, st) =>
+            {
+                if (st == RtspState.Reconnecting)
+                {
+                    _offline.MarkOffline(ch.Id);
+                }
+                else if (st == RtspState.Streaming)
+                {
+                    _offline.MarkOnline(ch.Id);
+                }
+
+                StateChanged?.Invoke(this, (cell, ch, st));
+            };
             session.AiDetections += (_, d) => AiDetections?.Invoke(this, (cell, d));
             session.EventInserted += (_, r) => AlarmEvent?.Invoke(this, (cell, r));
             _sessions[ch.Id] = session;
@@ -172,7 +187,13 @@ public sealed class ChannelManager : IDisposable
             {
                 var info = _channels.Get(kv.Key);
                 var cell = GetCell(kv.Key);
-                await RestartAsync(session);
+                _offline.MarkOffline(kv.Key);
+                var restarted = await RestartAsync(session);
+                if (restarted)
+                {
+                    _offline.MarkOnline(kv.Key);
+                }
+
                 if (info is not null)
                 {
                     HealthRestart?.Invoke(this, (cell, info));
@@ -181,17 +202,18 @@ public sealed class ChannelManager : IDisposable
         }
     }
 
-    private async Task RestartAsync(ChannelSession session)
+    private async Task<bool> RestartAsync(ChannelSession session)
     {
         await session.Client.StopAsync();
         try
         {
             await session.Client.StartAsync();
             session.ResetDetection();
+            return true;
         }
         catch (Exception)
         {
-            // 重連失敗由下個 tick 再試
+            return false;
         }
     }
 

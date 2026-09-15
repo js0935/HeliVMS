@@ -23,18 +23,18 @@ gh run list -L 3              # 預期全部 success
 新 session 會以 git 現況接手，不會靠猜測。
 
 ## 現況快照（權威來源＝git，非聊天記憶）
-- 最後 commit：`HEAD`＝**M27（通知靜默時段延後補送）**——`NotificationSettings` 加
-  `QuietRetransmit`（`notify.quiet.retransmit`、env `HELIVMS_NOTIFY_QUIET_RETRANSMIT`）＋
-  `QuietEndUtc(now)`；`NotificationService` 延後佇列（`DelayedForQuiet` 旗標、
-  `NextDueUtc=QuietEndUtc+5s`、非靜默即時到期補送、成功 log `note="延後補送"`）；SettingsWindow
-  通知頁 `NotifyQuietRetransmitBox` 勾選。單元 **114/114**（Storage 51＋Alarms 47＋Licensing 8＋
-  Devices 8；Alarms ＋2、Storage ＋3）＋ E2E 新增 **`quietcheck` QUIETCHECK_OK**（延後補送流程）
-  ＋ **`evfiltercheck` EVFILTERCHECK_OK**（M28 資料層篩選/分頁冒煙）。回歸
-  notif/log/smtp/set/snap/exp/ptz/tra/quiet/evfilter 全綠。
-- 前一個 M26 交付＝`1bf6778`（系統匣常駐：`TrayIconHost`＋MainWindow tray 整合；
-  單元 109/109、E2E tracheck TRAYCHECK_OK）
+- 最後 commit：`HEAD`＝**M29（離線事件源／斷線補送）**——`AlarmEventRepository` 加
+  `OpenOfflineEvent`＋`FindOpenOffline`＋`CloseOpenEvents`；Alarms 新 **`OfflineEventTracker`**
+  （`MarkOffline` 開窗防重複／`MarkOnline` 收斂＋補 `online` 事件帶 `offline_duration=HH:MM:SS`／
+  `CloseOpenAtStartup`）；`ChannelManager` ctor 收斂 startup、`StateChanged` 攔截
+  `Reconnecting→MarkOffline`、`Streaming→MarkOnline`、健康逾時亦 `MarkOffline`＋`RestartAsync`
+  回傳 bool 成功時 `MarkOnline`。單元 **120/120**（Storage 53＋Alarms 51＋Licensing 8＋Devices 8）
+  ＋ E2E 新增 **`offcheck` OFFCHECK_OK**。回歸 11 全綠（notif/log/smtp/set/snap/exp/ptz/tra/
+  quiet/evfilter/off）。
+- 前一個 M28 交付＝`ba95d0f`（事件中心篩選＋分頁：QueryArgs/ListByQuery/CountByQuery/
+  ListEventTypes＋UI 類型 Combo＋Prev/Next 50/頁；114、evfiltercheck EVFILTERCHECK_OK）
 - 分支／遠端：`git diff origin/HEAD` 為空（完全同步）；HEAD＝origin
-- CI：`gh run list` 顯示最新 run `conclusion=success`；建置 0 error、測試 114/114
+- CI：`gh run list` 顯示最新 run `conclusion=success`；建置 0 error、測試 120/120
 
 ## 架構關鍵（確切、無漂移）
 - 解決方案：`D:\HeliVMS\HeliVMS.App\HeliVMS.App.csproj`（WPF）＋ `HeliVMS.slnx`
@@ -105,27 +105,38 @@ gh run list -L 3              # 預期全部 success
    `note="延後補送"`（保留供 E2E/單元斷言）；SettingsWindow 通知頁 `NotifyQuietRetransmitBox`；
    Alarms ＋2 測試（webhook 延後、SMTP batch 延後）、Storage/Alarms 全 111；
    harness `quietcheck`→**QUIETCHECK_OK**；回歸 8 全綠
-3. **M28（本次開立）— 事件中心篩選＋分頁 UI**
-   - 現況：事件中心（EventCenterWindow）已有頻道＋時間範圍篩選，但**整批全載**、無法依
-     事件類型過濾、無分頁。M28 加入：
-   - **AlarmEventRepository**：新增 `QueryArgs`（`ChannelId?/EventType?/FromUtc/ToUtc/
-     Limit/Offset`）＋`ListByQuery`（ORDER BY start_time DESC LIMIT/OFFSET）＋
-     `CountByQuery`（同條件總數，忽略頁）＋`ListEventTypes`（SELECT DISTINCT）；
-     `ListByRange` 保留不動（Playback 與既有測試沿用）
-   - **EventCenterWindow**：頂部加「類型」Combo（`TypeCombo`＝全部類型＋DB 既有類型）；
-     底部工具列加 `PrevPageButton/PageText/NextPageButton`（PageSize=50、`_page` 狀態、
-     筛选變動歸零）；`CountText` 顯示「共 N 筆事件（第 x/y 頁）」；`NextPageButton`
-     Enabled 為 `_page*PageSize < total`
-   - 驗收：Storage 單元 ＋3（過濾＋分頁、計數、去重類型）＝全 114；App Release build 0；
-     E2E 新增 **`evfiltercheck`** EVFILTERCHECK_OK（temp store：motion 6／頻道＋類型 1／
-     第 2 頁 2／總數 6／去重類型 ["motion","offline"]）；
-     回歸 notif/log/smtp/set/snap/exp/ptz/tra/quiet/evfilter 全綠
-   - 雷區預告：alarm_events 有 FOREIGN KEY channel 約束——測試若用 channelId 2 須先建
-     第二頻道（既有 helper `CreateChannel`）；`SqliteCommand/SqliteDataReader` 型別需
-     `using Microsoft.Data.Sqlite;`（AlarmEventRepository.cs 已加）
-4. 下一里程碑候選（M29 起）：離線事件源（斷線補送）、SNMP/MQTT/推播通道、PTZ 增強
-   （長按連續移動、AbsoluteMove/Home、預設點管理 UI、多 Profile 選擇 UI）、
-   ONVIF Discovery Hello/Bye/Resolve
+3. **M28 已完成**（commit `ba95d0f`，CI success）：事件中心篩選＋分頁——`AlarmEventRepository`
+   加 `QueryArgs/ListByQuery/CountByQuery/ListEventTypes`；EventCenterWindow 頂加「類型」Combo、
+   底部 `PrevPageButton/PageText/NextPageButton`（PageSize=50、筛选變動歸零、Count 顯示第 x/y 頁）；
+   Storage ＋3 測試；harness `evfiltercheck`→**EVFILTERCHECK_OK**；回歸全綠；全 114/114
+4. **M29（本次開立）— 離線事件源（斷線補送）**
+   - 現況（已全案調查）：`offline` 事件類型是「有 UI 色彩映射、無資料來源」的空殼——
+     EventCenterWindow/PlaybackWindow 已備 offline 顯示色，但**無任何程式碼寫入**
+     `event_type='offline'`；RtspClient 內建 5s 重試、ChannelManager 10s 逾時重連都「只重連
+     不記錄」；schema 已可（`end_time` nullable、Insert＋UpdateEnd 兩步式）。M29 補上離線事件源：
+   - **AlarmEventRepository**：＋`public sealed record OpenOffline(long Id, DateTime StartUtc)`
+     ＋ `FindOpenOffline(channelId)`（`event_type='offline' AND end_time IS NULL ORDER BY id DESC
+     LIMIT 1`）＋ `CloseOpenEvents(endUtc)`（收斂所有 `end_time IS NULL` 事件）
+   - **Alarms 新 `OfflineEventTracker`**：`MarkOffline(chId)`（無 open 才 Insert
+     `("offline", now, null, "connection lost")` 防重複）、`MarkOnline(chId)`
+     （FindOpenOffline→`UpdateEnd(now)`＋Insert `("online", now, detail="offline_duration=HH:MM:SS")`
+     ）、`CloseOpenAtStartup()`（啟動收斂上次未完的 open 窗；不補 fake online）
+   - **ChannelManager**：ctor 注入 `OfflineEventTracker`＋`CloseOpenAtStartup()`；
+     `ConnectAsync` 的 `session.StateChanged` 攔截 `RtspState.Reconnecting→MarkOffline`、
+     `RtspState.Streaming→MarkOnline`；`OnHealthTick` stale 分支亦 `MarkOffline`（open-guard 防重複）、
+     `RestartAsync` 改回傳 bool，成功後 `MarkOnline`。offline/online 事件自動經既有
+     `AlarmEvent→NotificationService.Enqueue` 通知，不另接線
+   - 驗收：Storage ＋2（OpenOffline 查詢、CloseOpenEvents 收斂）＋Alarms ＋4（重複防、
+     online duration detail、無開窗 MarkOnline noop、startup close）＝全 **120**；App Release
+     build 0；E2E 新增
+     **`offcheck`** OFFCHECK_OK（temp store：MarkOffline×3 僅 1 open→MarkOnline→1 online、
+     offline 已閉、duration detail、CloseOpenAtStartup）；回歸全組含 evfilter/quiet
+   - 雷區預告：`alarm_events` FK 約束要 channel 先存在（測試建 channel 7）；offline/online
+     detail 固定字串 `"connection lost"`／`"offline_duration="` 保留給斷言；
+     `OpenOffline` record 放 AlarmEventRepository.cs 同檔；`FindOpenOffline` 回
+     `(Id, StartUtc)` 才能算持續時間
+5. 下一里程碑候選（M30 起）：SNMP/MQTT/推播通道、PTZ 增強（長按連續移動、AbsoluteMove/Home、
+   預設點管理 UI、多 Profile 選擇 UI）、ONVIF Discovery Hello/Bye/Resolve
    - 每里程碑節奏照舊：定義先寫入本檔→實作→App Release build 0 error→單元測試→E2E harness
      block→commit＋push＋CI success→`git status --porcelain` 空白
 

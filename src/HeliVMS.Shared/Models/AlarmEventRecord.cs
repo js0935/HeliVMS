@@ -5,7 +5,7 @@ public sealed class AlarmEventRecord
 
     public int ChannelId { get; init; }
 
-    /// <summary>事件類型：motion / offline / schedule_start / manual。</summary>
+    /// <summary>事件類型：motion / offline / online / schedule_start / manual。</summary>
     public string EventType { get; init; } = "motion";
 
     public DateTime StartUtc { get; init; }

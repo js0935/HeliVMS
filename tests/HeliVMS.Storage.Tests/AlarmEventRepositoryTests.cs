@@ -204,6 +204,33 @@ public class AlarmEventRepositoryTests : IDisposable
     }
 
     [Fact]
+    public void FindOpenOffline_NoneThenFoundThenClosed()
+    {
+        Assert.Null(_repo.FindOpenOffline(1));
+        var id = _repo.Insert(1, "offline", DateTime.UtcNow, null, "connection lost");
+        var open = _repo.FindOpenOffline(1);
+        Assert.NotNull(open);
+        Assert.Equal(id, open.Id);
+
+        _repo.UpdateEnd(id, DateTime.UtcNow.AddMinutes(1), null);
+        Assert.Null(_repo.FindOpenOffline(1));
+    }
+
+    [Fact]
+    public void CloseOpenEvents_ClosesAllOpen()
+    {
+        var t0 = DateTime.UtcNow;
+        _repo.Insert(1, "offline", t0, null, "lost");
+        var motionId = _repo.Insert(1, "motion", t0.AddMinutes(1));
+
+        _repo.CloseOpenEvents(t0.AddMinutes(2));
+
+        Assert.Null(_repo.FindOpenOffline(1));
+        var row = _repo.ListByRange(1, t0, t0.AddMinutes(5)).First(e => e.Id == motionId);
+        Assert.NotNull(row.EndUtc);
+    }
+
+    [Fact]
     public void ListEventTypes_ReturnsDistinctSorted()
     {
         CreateChannel("第二頻道", "rtsp://127.0.0.1:8554/ev2");
