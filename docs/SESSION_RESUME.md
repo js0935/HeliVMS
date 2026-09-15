@@ -6,8 +6,8 @@
 
 ## 一句話總結
 HeliVMS 為一套**網路影像監控系統**（WPF 桌面應用：即時監看／回放／AI 事件中心／錄影排程）。
-里程碑 **M1 至 M23 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M23 為最新）。
-Release build 0 error、測試 **99/99 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
+里程碑 **M1 至 M24 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M24 為最新）。
+Release build 0 error、測試 **104/104 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
 本地與遠端完全同步（`git diff origin/HEAD` 為空）。
 
 ## 開新 session 的接手方法
@@ -23,22 +23,21 @@ gh run list -L 3              # 預期全部 success
 新 session 會以 git 現況接手，不會靠猜測。
 
 ## 現況快照（權威來源＝git，非聊天記憶）
-- 最後 commit：`HEAD`＝**M23（通知中心完整化，§16.3/§18.5 延伸）**——`notification_log` 表
-  （**schema v6** 遷移，`CREATE TABLE IF NOT EXISTS`，`id/ts/channel_id/event_type/route/ok/
-  attempts/detail`）＋`NotificationLogRepository`（`Add/ListRecent/Count`）；`NotificationService`
-  **分派寫 log**（成功 ok=1；達 maxAttempts 失敗 ok=0＋`webhook|smtp 失敗` detail、route＝`webhook+smtp`）
-  ＋**靜默時段**（`notify.quiet.start`/`notify.quiet.end`、"HH:mm" 24h、可跨午夜、起訖相同＝停用、
-  `IsInQuietHours(now)`；時段內跳過＝不送不落 log，僅 `SkippedDuringQuietCount++`）；SettingsWindow
-  通知頁加「靜默時段開始／結束」兩欄；**`NotificationLogWindow`**（title「HeliVMS 通知紀錄」、
-  AutomationId `NotificationLogWindow`、`NotificationRefreshButton`/`NotificationLogList`/
-  `NotificationCountText`，GridView DataItem 列時間（本地）/頻道/事件/通道/結果/嘗試/說明）＋
-  MainWindow 新增「通知」按鈕（`NotificationButton`，AutomationId 已有）。單元測試 **99/99**
-  （Storage 47＋Alarms 40＋Licensing 8＋Devices 4；+9＝LogRepository 3＋Quiet/Service log 6）＋
-  E2E **`notifcheck` NOTIF_OK**（擴充驗 `notification_log` ok=1 一筆）＋ **`logcheck` LOG_OK**
-  （主視窗「通知」→通知紀錄窗→refresh→DataItem≥2）
-- 前一個 M22 交付＝`e4f5a90`（通知中心 MVP：EventInserted 掛鉤、Webhook/SMTP、nav 6、90/90）
+- 最後 commit：`HEAD`＝**M24（SMTP 快照附件＋通知合併，M23 延後項）**——`SmtpNotifier`
+  `SendAsync(cfg, IReadOnlyList<AlarmEventRecord>)` 多筆多載（**單筆多載委派不破既有呼叫**）：單封郵件
+  主旨單筆沿用原格式、多筆「HeliVMS 事件（N 則）」，內文逐則明細；對 `record.SnapshotPath` 存在的
+  檔案加 `Attachment`（`.png`→`image/png`、`.jpg/.jpeg`→`image/jpeg`，不存在→不附、內文保留路徑行）；
+  **附件隨 `MailMessage` Dispose**。`NotificationService` 新增**純 SMTP 週期合併**：`WebhookUrl` 空白＋
+  SMTP 已設定時，一次 `ProcessBatchAsync` 把 queue＋到期 retry 併成一封（`ProcessSmtpBatchAsync`）：
+  整批成功→每筆 `DeliveredCount+1`＋log ok＝true route "smtp"；整批失敗→逐筆依 `Attempts` 重試或
+  達 `_maxAttempts` 落 failed＋log ok＝false；靜默時段→每筆 skip（`SkippedDuringQuietCount++`）。
+  **webhook 通道維持逐筆**（不影響）。單元測試 **104/104**（Storage 47＋Alarms 45＋Licensing 8＋
+  Devices 4；Alarms ＋5＝M24 合併/附件/靜默）＋ E2E 新增 **`smtpcheck` SMTPCHECK_OK**（熱拷 mini
+  SMTP：純 SMTP 2 事件併 1 封、`image/png` 附件＋內容、log=2）＋ notifcheck/logcheck/setcheck/
+  snapcheck 全數回歸綠
+- 前一個 M23 交付＝`1943937`（通知中心完整化：notification_log v6、通知紀錄窗、靜默時段、99/99）
 - 分支／遠端：`git diff origin/HEAD` 為空（完全同步）；HEAD＝origin
-- CI：`gh run list` 顯示最新 run `conclusion=success`；建置 0 error、測試 99/99
+- CI：`gh run list` 顯示最新 run `conclusion=success`；建置 0 error、測試 104/104
 
 ## 架構關鍵（確切、無漂移）
 - 解決方案：`D:\HeliVMS\HeliVMS.App\HeliVMS.App.csproj`（WPF）＋ `HeliVMS.slnx`
@@ -54,7 +53,7 @@ gh run list -L 3              # 預期全部 success
   - 已有 block：`playcheck`、`playbackcheck`、`playmark`、`plist`（M16）、`kbcheck`（M17，KB_OK）、
     `evcard`（M18，EV_OK）、`setcheck`（M19，SET_OK）、**`snapcheck`（M20，SNAP_OK）**、
     **`expcheck`（M21，EXP_OK）、**`notifcheck`（M22，NOTIF_OK）**、
-     **`logcheck`（M23，LOG_OK）****
+     **`logcheck`（M23，LOG_OK）**、**`smtpcheck`（M24，SMTPCHECK_OK）****
   - `kbcheck` 驗證：`Space` 暫停（t1）→ `→` 前跳 10 秒（t2−t1＝11s）→ `F` 逐幀仍暫停 →
     `Esc` 停止（StopButton disabled）；輸出 `KB_OK`
   - `evcard` 驗證：主視窗→右鍵 cell→「開啟事件中心」；選頻道後 grid DataItems≥2、
@@ -78,19 +77,24 @@ gh run list -L 3              # 預期全部 success
     (B) `--settings` 直開設定中心→切「通知」頁→填 webhook URL/埠/收件者＋開啟總啟用→套用→
     DB 讀回 `notify.*` 值；(C)（M23）Phase A 後重開 temp store 驗 `notification_log`
     `Count=1、Ok=true、Route="webhook"`；輸出 `NOTIF_OK`
-  - `logcheck` 驗證（M23）：前置在 C:\HeliVMSData 庫插 2 筆 notification_log（ok=1／ok=0 各一）→
+  - `logcheck` 驗證（M23）：前置清空 C:\HeliVMSData 的 `notification_log` 並插 2 筆（ok=1／ok=0 各一）→
     啟動主視窗→`NotificationButton` Invoke→開「HeliVMS 通知紀錄」窗→`NotificationRefreshButton`
-    Invoke→`NotificationLogList` DataItem≥2、`NotificationCountText` 含「2 筆」；輸出 `LOG_OK`
+    Invoke→`NotificationLogList` DataItem≥2、`NotificationCountText` 含「共 2 筆」；輸出 `LOG_OK`
+  - **`logcheck`/`smtpcheck` 前置污染**：與 C:\HeliVMSData 同庫的 block 建議先 `DELETE FROM
+    notification_log` 再插資料（M24 曾因 smtpcheck 殘留 log 造成 logcheck rows=6 誤判 BAD）
+  - `smtpcheck` 驗證（M24）：熱拷 mini SMTP 假伺服器（`E2eSmtpServer`，Socket 級）＋ temp/App DB
+    純 SMTP 設定（`notify.smtp.*`、webhook.url 空）＋ NotificationService interval 60ms→enqueue
+    2 事件（一筆帶存在快照 PNG）→`DeliveredCount==2`→恰收 1 封、payload 含 `image/png`＋快照檔名＋
+    `Content-Disposition: attachment`、`notification_log` Count==2；輸出 `SMTPCHECK_OK`
 
 ## 尚未完成／下一步（依 git 與 repo 判斷）
-1. **下一里程碑候選（開 M24 前先翻 §13-§21 對照）**：
-   - **SMTP 快照附件＋通知合併**（M23 明確延後）：SMTP 外送時附該事件快照圖片
-     （`ImageId`/`SnapshotPath`），多事件批量合併成單封通知
-   - **PTZ 控制與 ONVIF 自動探索**、**系統匣常駐**
-   - 其餘已知候選：通知靜默時段延時補送、紀錄頁篩選/分頁 UI、
-     離線事件源（斷線期間事件補送）、SNMP/MQTT/推播通道
-   - 每里程碑節奏照舊：定義先寫入本檔→實作→App Release build 0 error→單元測試→E2E
-     harness（對應 block）→commit＋push＋CI success→`git status --porcelain` 空白
+1. **M25 候選（開 M25 前先翻 §13-§21 對照，由使用者「依照你的建議」擇一）**：
+   - **PTZ 控制與 ONVIF 自動探索**：`HeliVMS.Devices.Onvif` 已有基礎，可擴充 PTZ 移動/預設點
+     （SettingsWindow 頻道頁＋主視窗控制）；ONVIF 自動探索（WS-Discovery）
+   - **系統匣常駐**：NotifyIcon 關閉縮到系統匣、整併 M21 流程
+   - 其餘已知候選：通知靜默時段延時補送、紀錄頁篩選/分頁 UI、離線事件源、SNMP/MQTT/推播通道
+   - 每里程碑節奏照舊：定義先寫入本檔→實作→App Release build 0 error→單元測試→E2E harness
+     block→commit＋push＋CI success→`git status --porcelain` 空白
 
 ## 已知雷區（勿再犯）
 - **勿以 bash 對 repo 源碼做 byte 級重寫**（曾造成 UTF-8 漂移／mojibake 污染，已 `git restore` 還原）；
@@ -170,3 +174,16 @@ gh run list -L 3              # 預期全部 success
    ChannelRepository List 合併後可用來做頻道名對應）；`notification_log.ts` 用 `SqliteStore.Iso`（UTC）
 - **playcheck 的 `PLAY_1X_BAD` 是環境 flaky**（ffprobe `readframes=91` vs 期望 120，1x 播放器解碼幀數
    受 CPU 滿載影響；與 schema/通知變更零交集）——playcheck 非本次改動的 gate，看到此結果不迴溯
+- **純 SMTP 合併路徑**（M24）：`ProcessBatchAsync` 判定「`WebhookUrl` 空白＋`SmtpEnabled`＋
+   `SmtpHost` 非空」才走 `ProcessSmtpBatchAsync` 週期合併；有 webhook（含混用）仍逐筆。batch 失敗＝
+   一封失敗，逐筆按 `Attempts` 重試／落 failed（與 webhook 重試語意一致）。**排雷**：單元測試漏設
+   `notify.smtp.host` 會讓 `AnyChannelConfigured=false`（host 空）→ service 開頭直接 return、事件
+   永不被處理（靜默測試一度因漏設 host 逾時）
+- **`SmtpNotifier` 保留單筆多載並委派 batch**：`SendAsync(cfg, AlarmEventRecord)` 呼叫
+   `SendAsync(cfg, new[]{record})`——既有呼叫（M22 測試、notification check）不破；MIME 附件
+   `image/png` 依副檔名，`MediaTypeNames.Application.Octet` 兜底；附件隨 `MailMessage` Dispose
+- **`AlarmEventRecord` 是 class 非 record**：測試/程式**不能用 `with`** 複製（需改 helper 參數或逐欄
+   構造）；「通知合併」測試先前誤用 `Event("offline") with {...}` 觸 CS8858/CS0201
+- **FakeSmtpServer 的 `CountMessages` 會被 `WaitForSmtpAsync` 消費後為 0**：驗「恰一封」要
+   `WaitForSmtpAsync` 取走後 `Assert.False(smtp.TryDequeueMessage(out _))`，或 harness 用
+   `HasAnother`

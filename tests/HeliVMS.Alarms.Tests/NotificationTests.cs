@@ -34,14 +34,19 @@ public sealed class NotificationTests : IDisposable
         }
     }
 
-    private static AlarmEventRecord Event(string type = "motion")
+    private static AlarmEventRecord Event(
+        string type = "motion",
+        int channelId = 7,
+        string? detail = "duration=1200ms peak=42%",
+        string? snapshotPath = null)
         => new()
         {
             Id = 1,
-            ChannelId = 7,
+            ChannelId = channelId,
             EventType = type,
             StartUtc = new DateTime(2026, 9, 14, 1, 2, 3, DateTimeKind.Utc),
-            Detail = "duration=1200ms peak=42%",
+            Detail = detail,
+            SnapshotPath = snapshotPath,
         };
 
     private SettingsRepository Settings => new(_store);
@@ -202,6 +207,140 @@ public sealed class NotificationTests : IDisposable
         Assert.Contains("motion", decoded.Subject);
         Assert.Contains("7", decoded.Subject);
         Assert.Contains("duration=1200ms", decoded.Body);
+    }
+
+    [Fact]
+    public async Task SmtpNotifier_MultiRecords_OneMergedMail()
+    {
+        Settings.Set("notify.smtp.enabled", "true");
+        Settings.Set("notify.smtp.from", "sender@helivms.local");
+        Settings.Set("notify.smtp.to", "ops@helivms.local");
+
+        using var smtp = new FakeSmtpServer();
+        var cfg = NotificationSettings.Load(Settings).WithHostPort(smtp.Host, smtp.Port);
+        var notifier = new SmtpNotifier();
+
+        var second = Event("offline", channelId: 8, detail: "signal lost");
+        var ok = await notifier.SendAsync(cfg, new[] { Event(), second });
+        Assert.True(ok);
+
+        var msg = await WaitForSmtpAsync(smtp, TimeSpan.FromSeconds(5));
+        Assert.NotNull(msg);
+        Assert.False(smtp.TryDequeueMessage(out _));
+
+        var decoded = DecodeMail(msg);
+        Assert.Contains("（2 則）", decoded.Subject);
+        Assert.Contains("motion", decoded.Body);
+        Assert.Contains("offline", decoded.Body);
+        Assert.Contains("signal lost", decoded.Body);
+        Assert.Contains("頻道：8", decoded.Body);
+    }
+
+    [Fact]
+    public async Task SmtpNotifier_AttachesExistingSnapshot()
+    {
+        Settings.Set("notify.smtp.enabled", "true");
+        Settings.Set("notify.smtp.from", "sender@helivms.local");
+        Settings.Set("notify.smtp.to", "ops@helivms.local");
+
+        var snapPath = Path.Combine(Path.GetTempPath(), $"helivms-snap-{Guid.NewGuid():N}.png");
+        try
+        {
+            await File.WriteAllBytesAsync(snapPath, new byte[] { 0x89, 0x50, 0x4E, 0x47, 1, 2, 3 });
+            using var smtp = new FakeSmtpServer();
+            var cfg = NotificationSettings.Load(Settings).WithHostPort(smtp.Host, smtp.Port);
+            var notifier = new SmtpNotifier();
+
+            var ok = await notifier.SendAsync(cfg, Event(snapshotPath: snapPath));
+            Assert.True(ok);
+
+            var msg = await WaitForSmtpAsync(smtp, TimeSpan.FromSeconds(5));
+            Assert.NotNull(msg);
+            Assert.Contains("image/png", msg.Payload);
+            Assert.Contains(Path.GetFileName(snapPath), msg.Payload);
+        }
+        finally
+        {
+            File.Delete(snapPath);
+        }
+    }
+
+    [Fact]
+    public async Task SmtpNotifier_MissingSnapshot_NoAttachment()
+    {
+        Settings.Set("notify.smtp.enabled", "true");
+        Settings.Set("notify.smtp.from", "sender@helivms.local");
+        Settings.Set("notify.smtp.to", "ops@helivms.local");
+
+        var snapPath = Path.Combine(Path.GetTempPath(), $"helivms-nosnap-{Guid.NewGuid():N}.png");
+        using var smtp = new FakeSmtpServer();
+        var cfg = NotificationSettings.Load(Settings).WithHostPort(smtp.Host, smtp.Port);
+        var notifier = new SmtpNotifier();
+
+        var ok = await notifier.SendAsync(cfg, Event(snapshotPath: snapPath));
+        Assert.True(ok);
+
+        var msg = await WaitForSmtpAsync(smtp, TimeSpan.FromSeconds(5));
+        Assert.NotNull(msg);
+        Assert.DoesNotContain("image/png", msg.Payload);
+        var decoded = DecodeMail(msg);
+        Assert.Contains(snapPath, decoded.Body);
+    }
+
+    [Fact]
+    public async Task Service_PureSmtp_MergesIntoSingleMail()
+    {
+        Settings.Set("notify.smtp.enabled", "true");
+        Settings.Set("notify.smtp.from", "sender@helivms.local");
+        Settings.Set("notify.smtp.to", "ops@helivms.local");
+
+        using var smtp = new FakeSmtpServer();
+        Settings.Set("notify.smtp.host", smtp.Host);
+        Settings.Set("notify.smtp.port", smtp.Port.ToString());
+
+        using var svc = new NotificationService(_store,
+            interval: TimeSpan.FromMilliseconds(50),
+            backoffBase: TimeSpan.FromMilliseconds(50));
+        svc.Enqueue(Event());
+        svc.Enqueue(Event("offline", channelId: 8, detail: "signal lost"));
+        await WaitUntilAsync(() => svc.DeliveredCount == 2, TimeSpan.FromSeconds(10));
+
+        var msg = await WaitForSmtpAsync(smtp, TimeSpan.FromSeconds(5));
+        Assert.NotNull(msg);
+        Assert.False(smtp.TryDequeueMessage(out _));
+        Assert.Equal(0, svc.FailedCount);
+
+        var decoded = DecodeMail(msg);
+        Assert.Contains("（2 則）", decoded.Subject);
+
+        var log = new NotificationLogRepository(_store);
+        Assert.Equal(2, log.Count());
+        var rows = log.ListRecent(10);
+        Assert.All(rows, r => Assert.True(r.Ok));
+        Assert.All(rows, r => Assert.Equal("smtp", r.Route));
+    }
+
+    [Fact]
+    public async Task Service_PureSmtp_QuietSkipsWithoutMail()
+    {
+        Settings.Set("notify.smtp.enabled", "true");
+        Settings.Set("notify.smtp.from", "sender@helivms.local");
+        Settings.Set("notify.smtp.to", "ops@helivms.local");
+        Settings.Set("notify.smtp.host", "127.0.0.1");
+        Settings.Set("notify.smtp.port", "2525");
+        var nowLocal = DateTime.Now;
+        Settings.Set("notify.quiet.start", nowLocal.AddMinutes(-30).ToString("HH:mm"));
+        Settings.Set("notify.quiet.end", nowLocal.AddMinutes(30).ToString("HH:mm"));
+
+        using var svc = new NotificationService(_store,
+            interval: TimeSpan.FromMilliseconds(50),
+            backoffBase: TimeSpan.FromMilliseconds(50));
+        svc.Enqueue(Event());
+        svc.Enqueue(Event());
+        await WaitUntilAsync(() => svc.SkippedDuringQuietCount == 2, TimeSpan.FromSeconds(10));
+
+        Assert.Equal(0, svc.DeliveredCount);
+        Assert.Equal(0, new NotificationLogRepository(_store).Count());
     }
 
     /// <summary>將 SMTP DATA payload 解出主旨與內文（處理 MIME base64 內文與折疊 encoded-word 主旨）。</summary>
@@ -535,6 +674,8 @@ internal sealed class FakeSmtpServer : IDisposable
 
     public bool TryDequeueMessage([System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out FakeSmtpMessage? message)
         => _messages.TryDequeue(out message);
+
+    public int CountMessages => _messages.Count;
 
     private async Task AcceptLoop()
     {

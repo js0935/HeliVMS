@@ -112,6 +112,14 @@ public sealed class NotificationService : IDisposable
             return;
         }
 
+        if (string.IsNullOrWhiteSpace(cfg.WebhookUrl) &&
+            cfg.SmtpEnabled &&
+            !string.IsNullOrWhiteSpace(cfg.SmtpHost))
+        {
+            await ProcessSmtpBatchAsync(cfg);
+            return;
+        }
+
         while (!_disposed && _queue.TryDequeue(out var item))
         {
             await ProcessItemAsync(cfg, item);
@@ -133,6 +141,84 @@ public sealed class NotificationService : IDisposable
         foreach (var item in notDue)
         {
             _retry.Enqueue(item);
+        }
+    }
+
+    private async Task ProcessSmtpBatchAsync(NotificationSettings cfg)
+    {
+        var items = new List<Item>();
+        while (!_disposed && _queue.TryDequeue(out var item))
+        {
+            items.Add(item);
+        }
+
+        var notDue = new List<Item>();
+        while (!_disposed && _retry.TryDequeue(out var item))
+        {
+            if (item.NextDueUtc <= DateTime.UtcNow)
+            {
+                items.Add(item);
+            }
+            else
+            {
+                notDue.Add(item);
+            }
+        }
+
+        foreach (var item in notDue)
+        {
+            _retry.Enqueue(item);
+        }
+
+        if (items.Count == 0)
+        {
+            return;
+        }
+
+        foreach (var item in items)
+        {
+            item.Attempts++;
+        }
+
+        if (cfg.IsInQuietHours(DateTime.Now))
+        {
+            foreach (var item in items)
+            {
+                SkippedDuringQuietCount++;
+                Activity?.Invoke(this,
+                    $"靜默時段，跳過通知（{item.Record.EventType} 頻道{item.Record.ChannelId}）。");
+            }
+
+            return;
+        }
+
+        var batchOk = await _smtp.SendAsync(cfg, items.Select(i => i.Record).ToList());
+        if (batchOk)
+        {
+            DeliveredCount += items.Count;
+            foreach (var item in items)
+            {
+                _log.Add(item.Record.ChannelId, item.Record.EventType, "smtp", true, item.Attempts, null);
+            }
+
+            Activity?.Invoke(this, $"已通知（{items.Count} 則，SMTP 合併）。");
+            return;
+        }
+
+        foreach (var item in items)
+        {
+            if (item.Attempts >= _maxAttempts)
+            {
+                FailedCount++;
+                _log.Add(item.Record.ChannelId, item.Record.EventType, "smtp", false, item.Attempts, "smtp 失敗");
+                Activity?.Invoke(this,
+                    $"通知失敗（{item.Record.EventType} 頻道{item.Record.ChannelId}，重試 {item.Attempts} 次）。");
+            }
+            else
+            {
+                item.NextDueUtc = DateTime.UtcNow.Add(_backoffBase * item.Attempts);
+                _retry.Enqueue(item);
+            }
         }
     }
 
