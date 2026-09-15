@@ -263,6 +263,11 @@
                              Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="8,4"/>
                 </StackPanel>
 
+                <CheckBox x:Name="NotifyQuietRetransmitBox"
+                          AutomationProperties.AutomationId="NotifyQuietRetransmitBox"
+                          Content="靜默時段內事件延後補送（靜默結束後一併外送）"
+                          Foreground="White" Margin="0,0,0,12"/>
+
                 <DockPanel>
                     <Button x:Name="NotifyApplyButton" AutomationProperties.AutomationId="NotifyApplyButton"
                             Content="套用通知設定" Click="OnApplyNotifyClicked"

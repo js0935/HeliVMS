@@ -343,6 +343,92 @@ public sealed class NotificationTests : IDisposable
         Assert.Equal(0, new NotificationLogRepository(_store).Count());
     }
 
+    [Fact]
+    public async Task Service_QuietRetransmit_DefersThenDeliversWebhook()
+    {
+        using var http = new FakeHttpServer(_ => "HTTP/1.1 200 OK");
+        Settings.Set("notify.enabled", "true");
+        Settings.Set("notify.webhook.url", $"http://127.0.0.1:{http.Port}/hook");
+        var nowLocal = DateTime.Now;
+        if (nowLocal.Hour < 1 || nowLocal.Hour >= 23)
+        {
+            return;   // 鄰近午夜避免 HH:mm 跨日誤判（守衛跳過）
+        }
+
+        var qStartText = nowLocal.AddMinutes(-30).ToString("HH:mm");
+        var qEndText = nowLocal.AddMinutes(30).ToString("HH:mm");
+        Settings.Set("notify.quiet.start", qStartText);
+        Settings.Set("notify.quiet.end", qEndText);
+        Settings.Set("notify.quiet.retransmit", "true");
+        var probe = NotificationSettings.Load(Settings);
+        Assert.True(probe.QuietRetransmit, "retransmit 未載入");
+        Assert.True(probe.IsInQuietHours(DateTime.Now), "未處於靜默時段");
+
+        using var svc = new NotificationService(_store,
+            interval: TimeSpan.FromMilliseconds(100),
+            backoffBase: TimeSpan.FromMilliseconds(50));
+        svc.Enqueue(Event());
+        await WaitUntilAsync(() => svc.SkippedDuringQuietCount == 1, TimeSpan.FromSeconds(10));
+
+        Assert.Equal(0, svc.DeliveredCount);
+        Assert.Equal(0, http.Hits);
+        Assert.Equal(0, new NotificationLogRepository(_store).Count());
+
+        Settings.Set("notify.quiet.start", nowLocal.AddHours(-2).ToString("HH:mm"));
+        Settings.Set("notify.quiet.end", nowLocal.AddHours(-1).ToString("HH:mm"));
+        await WaitUntilAsync(() => svc.DeliveredCount == 1, TimeSpan.FromSeconds(10));
+
+        Assert.Equal(1, http.Hits);
+        var log = new NotificationLogRepository(_store);
+        var row = Assert.Single(log.ListRecent(10));
+        Assert.True(row.Ok);
+        Assert.Contains("延後補送", row.Detail);
+    }
+
+    [Fact]
+    public async Task Service_QuietRetransmit_SmtpBatchDefersThenDelivers()
+    {
+        using var smtp = new FakeSmtpServer();
+        Settings.Set("notify.smtp.enabled", "true");
+        Settings.Set("notify.smtp.from", "sender@helivms.local");
+        Settings.Set("notify.smtp.to", "ops@helivms.local");
+        Settings.Set("notify.smtp.host", "127.0.0.1");
+        Settings.Set("notify.smtp.port", smtp.Port.ToString());
+        var nowLocal = DateTime.Now;
+        if (nowLocal.Hour < 1 || nowLocal.Hour >= 23)
+        {
+            return;   // 守衛同上
+        }
+
+        Settings.Set("notify.quiet.start", nowLocal.AddMinutes(-30).ToString("HH:mm"));
+        Settings.Set("notify.quiet.end", nowLocal.AddMinutes(30).ToString("HH:mm"));
+        Settings.Set("notify.quiet.retransmit", "true");
+
+        using var svc = new NotificationService(_store,
+            interval: TimeSpan.FromMilliseconds(50),
+            backoffBase: TimeSpan.FromMilliseconds(50));
+        svc.Enqueue(Event());
+        svc.Enqueue(Event());
+        await WaitUntilAsync(() => svc.SkippedDuringQuietCount == 2, TimeSpan.FromSeconds(10));
+
+        Assert.Equal(0, svc.DeliveredCount);
+        Assert.False(smtp.TryDequeueMessage(out _));
+
+        Settings.Set("notify.quiet.start", nowLocal.AddHours(-2).ToString("HH:mm"));
+        Settings.Set("notify.quiet.end", nowLocal.AddHours(-1).ToString("HH:mm"));
+        await WaitUntilAsync(() => svc.DeliveredCount == 2, TimeSpan.FromSeconds(10));
+
+        var msg = await WaitForSmtpAsync(smtp, TimeSpan.FromSeconds(5));
+        Assert.NotNull(msg);
+        Assert.False(smtp.TryDequeueMessage(out _));
+
+        var log = new NotificationLogRepository(_store);
+        var rows = log.ListRecent(10);
+        Assert.Equal(2, rows.Count);
+        Assert.All(rows, r => Assert.True(r.Ok));
+        Assert.All(rows, r => Assert.Contains("延後補送", r.Detail));
+    }
+
     /// <summary>將 SMTP DATA payload 解出主旨與內文（處理 MIME base64 內文與折疊 encoded-word 主旨）。</summary>
     private static (string Subject, string Body) DecodeMail(FakeSmtpMessage msg)
     {

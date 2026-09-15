@@ -101,11 +101,28 @@ gh run list -L 3              # 預期全部 success
 
 ## 尚未完成／下一步（依 git 與 repo 判斷）
 1. **M26 已完成**（系統匣常駐，見「現況快照」）
-2. **M27 定義（下次開立）— 通知靜默時段延時補送**：靜默時段內產生的通知事件目前「直接 skip
-   （SkippedDuringQuietCount++、不入 log）」；改為「延後補送」：進入非靜默時段後，把靜默期
-   欠送事件以 batch 重送（webhook 逐筆／SMTP 併一封），並在 notification_log 紀錄
-   `route=“smtp/webhook”、ok、延遲秒數（或補送標記）`；app_settings 新增
-   `notify.quiet.retransmit`（「off」＝維持跳過）；（定義詳文於開工時補完）
+2. **M27（本次開立）— 通知靜默時段延時補送**
+   - 現況：靜默時段（`notify.quiet.start/end`）內事件直接 skip（`SkippedDuringQuietCount++`、
+     不外送、不落 log、不出 retry），事件永久消失。M27 新增 **延後補送**：
+   - **NotificationSettings**：記錄加 `bool QuietRetransmit`（鍵 `notify.quiet.retransmit`、
+     env `HELIVMS_NOTIFY_QUIET_RETRANSMIT`，預設 false）＋ `QuietEndUtc(DateTime now)`
+     （回本次靜默結束時刻；跨午夜含「今天日終→明日 end」「明日凌晨→今日 end」兩種）
+   - **NotificationService**：`Item` 加 `DelayedForQuiet` 旗標（防重複計數）；webhook 路徑
+     `ProcessItemAsync` 與純 SMTP `ProcessSmtpBatchAsync` 的靜默分支改：
+     `retransmit=off`→維持原 skip（既有 M23 行為與測試不破）；`on`→事件**不送出**、
+     設 `NextDueUtc=QuietEndUtc+5s`（Attempts 該批不加）、`SkippedDuringQuietCount++`
+     （僅首次，靠 `DelayedForQuiet`）並放回 `_retry`；非靜默開始後到期＝正常外送，
+     成功 log 比 `note="延後補送"`（Attempts=原語意）
+   - **SettingsWindow 通知頁**加 CheckBox `NotifyQuietRetransmitBox`（「靜默時段內事件延後補送」），
+     載入既有值＋套用寫 `notify.quiet.retransmit`（notifcheck 既有斷言不破）
+   - 驗收：Alarms 單元 ＋2（webhook 延後補送：靜默→skip 未送、移出後送出、log note 延後；
+     純 SMTP batch 延後→2 事件併 1 封）；App Release build 0；E2E 新增 **`quietcheck`**
+     QUIETCHECK_OK（temp store＋熱拷 webhook 假伺服器：retransmit on＋動態靜默窗（安全小時防護）
+     →enqueue→SkippedDuringQuietCount==1 未送→移出靜默→Delivered==1、Hits==1、log note 延後）；
+     回歸 notif/log/smtp/tra/set/snap/exp/ptz
+   - 雷區預告：動態「HH:mm」若 now 鄰近午夜±1h 會使 IsInQuietHours 誤判（測試/harness 用小時
+     守衛：now.Hour 1..22 才跑 or 改用 -30m/+30m 仍可能跨；務必 Assert cfg.IsInQuietHours
+     先行）；log note 固定字串「延後補送」保留給 E2E/單元斷言
 3. 下一里程碑候選（M28 起）：紀錄頁篩選/分頁 UI、離線事件源（斷線補送）、SNMP/MQTT/推播通道、
    PTZ 增強（長按連續移動、AbsoluteMove/Home、預設點管理 UI、多 Profile 選擇 UI）、
    ONVIF Discovery Hello/Bye/Resolve

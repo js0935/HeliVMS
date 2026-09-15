@@ -17,6 +17,7 @@ public sealed class NotificationService : IDisposable
         public required AlarmEventRecord Record { get; init; }
         public int Attempts;
         public DateTime NextDueUtc = DateTime.MinValue;
+        public bool DelayedForQuiet;
     }
 
     private readonly SettingsRepository _settings;
@@ -128,7 +129,8 @@ public sealed class NotificationService : IDisposable
         var notDue = new List<Item>();
         while (!_disposed && _retry.TryDequeue(out var item))
         {
-            if (item.NextDueUtc <= DateTime.UtcNow)
+            if (item.NextDueUtc <= DateTime.UtcNow ||
+                (item.DelayedForQuiet && !cfg.IsInQuietHours(DateTime.Now)))
             {
                 await ProcessItemAsync(cfg, item);
             }
@@ -155,7 +157,8 @@ public sealed class NotificationService : IDisposable
         var notDue = new List<Item>();
         while (!_disposed && _retry.TryDequeue(out var item))
         {
-            if (item.NextDueUtc <= DateTime.UtcNow)
+            if (item.NextDueUtc <= DateTime.UtcNow ||
+                (item.DelayedForQuiet && !cfg.IsInQuietHours(DateTime.Now)))
             {
                 items.Add(item);
             }
@@ -182,11 +185,31 @@ public sealed class NotificationService : IDisposable
 
         if (cfg.IsInQuietHours(DateTime.Now))
         {
+            if (!cfg.QuietRetransmit)
+            {
+                foreach (var item in items)
+                {
+                    SkippedDuringQuietCount++;
+                    Activity?.Invoke(this,
+                        $"靜默時段，跳過通知（{item.Record.EventType} 頻道{item.Record.ChannelId}）。");
+                }
+
+                return;
+            }
+
+            var quietEnd = cfg.QuietEndUtc(DateTime.Now).AddSeconds(5);
             foreach (var item in items)
             {
-                SkippedDuringQuietCount++;
-                Activity?.Invoke(this,
-                    $"靜默時段，跳過通知（{item.Record.EventType} 頻道{item.Record.ChannelId}）。");
+                if (!item.DelayedForQuiet)
+                {
+                    item.DelayedForQuiet = true;
+                    SkippedDuringQuietCount++;
+                    Activity?.Invoke(this,
+                        $"靜默時段，延後通知（{item.Record.EventType} 頻道{item.Record.ChannelId}，靜默結束後補送）。");
+                }
+
+                item.NextDueUtc = quietEnd;
+                _retry.Enqueue(item);
             }
 
             return;
@@ -198,7 +221,8 @@ public sealed class NotificationService : IDisposable
             DeliveredCount += items.Count;
             foreach (var item in items)
             {
-                _log.Add(item.Record.ChannelId, item.Record.EventType, "smtp", true, item.Attempts, null);
+                _log.Add(item.Record.ChannelId, item.Record.EventType, "smtp", true, item.Attempts,
+                    item.DelayedForQuiet ? "延後補送" : null);
             }
 
             Activity?.Invoke(this, $"已通知（{items.Count} 則，SMTP 合併）。");
@@ -228,8 +252,22 @@ public sealed class NotificationService : IDisposable
 
         if (cfg.IsInQuietHours(DateTime.Now))
         {
-            SkippedDuringQuietCount++;
-            Activity?.Invoke(this, $"靜默時段，跳過通知（{item.Record.EventType} 頻道{item.Record.ChannelId}）。");
+            if (!cfg.QuietRetransmit && !item.DelayedForQuiet)
+            {
+                SkippedDuringQuietCount++;
+                Activity?.Invoke(this, $"靜默時段，跳過通知（{item.Record.EventType} 頻道{item.Record.ChannelId}）。");
+                return;
+            }
+
+            if (!item.DelayedForQuiet)
+            {
+                item.DelayedForQuiet = true;
+                SkippedDuringQuietCount++;
+                Activity?.Invoke(this, $"靜默時段，延後通知（{item.Record.EventType} 頻道{item.Record.ChannelId}）。");
+            }
+
+            item.NextDueUtc = cfg.QuietEndUtc(DateTime.Now).AddSeconds(5);
+            _retry.Enqueue(item);
             return;
         }
 
@@ -263,7 +301,8 @@ public sealed class NotificationService : IDisposable
         if (success)
         {
             DeliveredCount++;
-            _log.Add(item.Record.ChannelId, item.Record.EventType, route, true, item.Attempts, null);
+            _log.Add(item.Record.ChannelId, item.Record.EventType, route, true, item.Attempts,
+                item.DelayedForQuiet ? "延後補送" : null);
             Activity?.Invoke(this, $"已通知（{item.Record.EventType} 頻道{item.Record.ChannelId}）。");
         }
         else if (item.Attempts >= _maxAttempts)
