@@ -155,14 +155,19 @@ gh run list -L 3              # 預期全部 success
      （AlarmEventRecord 有 Record）；密碼 key 用 SecretProtector（比照 smtp.password）
 6. **M31 已完成**（commit `20e7c94`，CI success）：PTZ 增強——
    服務端（23813fd）`OnvifDeviceService` ＋3：`AbsoluteMoveAsync`（AbsoluteMove body `/tptz:Action`）、
-   `HomeAsync`（tptz `GotoHomePosition`）、`RemovePtzPresetAsync`（tptz `RemovePreset`
+   `HomeAsync`（tptz `<Home>`）、`RemovePtzPresetAsync`（tptz `RemovePreset`
    ProfileToken＋PresetToken）；App `PtzWindow` 以 **M25 原結構為基底**（`5b2b2c3`）補回
    M31 UI：方向/變焦 10 鈕加長按
    `PreviewMouseLeftButtonDown="OnMoveHeldDown" PreviewMouseLeftButtonUp="OnMoveHeldUp"
-   MouseLeave="OnMoveMouseLeave"`（鬆開/滑離→`StopMoveAsync`，取代曾計畫的固定 400ms 停）、
+   MouseLeave="OnMoveMouseLeave"`（鬆開/滑離→`StopMoveAsync`；`OnMoveHeldDown` 為真正長按
+   迴圈：按住期間每 300ms 持續 `ContinuousMoveAsync`，`_ptzHeld=false` 即停）、
    ＋`PtzHomeButton`→`HomeAsync`、`PtzDeletePresetButton`→`RemovePtzPresetAsync`（選中項）；
    Devices ＋3 單元＝**11**、全 **128**（Storage 53＋Alarms 56＋Licensing 8＋Devices 11）；
-   App Release 0 error；harness `ptzadvcheck`→**PTZADVCHECK_OK**；回歸含 ptzcheck
+   App Release 0 error；harness `ptzadvcheck`→**PTZADVCHECK_OK**（服務層
+   AbsoluteMove/HomePosition/RemovePreset 三 action＋UI `Native.MouseDown` 長按 PtzUpButton：
+   按住期間 ContinuousMove≥2 且鬆開收到 StopPtz──假設備 action 用 element name 匹配
+   `Contains("Home")/("AbsoluteMove")/("RemovePreset")`，勿用 `<tptz:` prefix（XElement
+   送 default namespace））；回歸含 ptzcheck
    - **排雷（20e7c94 收斂）**：M31 前三次 commit（23813fd/16d8dd2/a1a1d84）的 XAML 巢狀
      MC3089 從未編譯過；修法＝**不以 bash 重寫整檔**，`git checkout 5b2b2c3`（M25 綠版）
      拿乾淨基底→行號精準插 2 行自閉按鈕→.cs 補 handler；`OnMoveHeldUp` 用

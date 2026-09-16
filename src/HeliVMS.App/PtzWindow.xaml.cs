@@ -81,7 +81,7 @@ public partial class PtzWindow : Window
 
     private async void OnMoveHeldDown(object sender, MouseButtonEventArgs e)
     {
-        if (!_ready || sender is not Button button || button.Tag is not string tag)
+        if (!_ready || _ptzHeld || sender is not Button button || button.Tag is not string tag)
         {
             return;
         }
@@ -95,7 +95,11 @@ public partial class PtzWindow : Window
         _ptzHeld = true;
         try
         {
-            await _service.ContinuousMoveAsync(_profileToken, pan, tilt, zoom);
+            while (_ptzHeld)
+            {
+                await _service.ContinuousMoveAsync(_profileToken, pan, tilt, zoom);
+                await Task.Delay(300);
+            }
         }
         catch (Exception ex)
         {
