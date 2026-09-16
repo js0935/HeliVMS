@@ -299,6 +299,54 @@ public sealed class OnvifDeviceService : IDisposable
             TptzAction("GotoPreset"), cancellationToken);
     }
 
+    /// <summary>絕對移動（AbsoluteMove：設定絕對 Pan/Tilt/Zoom 位置）。</summary>
+    public async Task AbsoluteMoveAsync(
+        string profileToken,
+        double pan,
+        double tilt,
+        double zoom,
+        CancellationToken cancellationToken = default)
+    {
+        await EnsurePtzCapabilityAsync(cancellationToken);
+        _ = await PostAsync(
+            new XElement(Tptz + "AbsoluteMove",
+                new XElement(Tptz + "ProfileToken", profileToken),
+                new XElement(Tptz + "Position",
+                    new XElement(Ts + "PanTilt",
+                        new XAttribute("x", pan.ToString(System.Globalization.CultureInfo.InvariantCulture)),
+                        new XAttribute("y", tilt.ToString(System.Globalization.CultureInfo.InvariantCulture))),
+                    new XElement(Ts + "Zoom",
+                        new XAttribute("x", zoom.ToString(System.Globalization.CultureInfo.InvariantCulture))))),
+            PtzXAddr,
+            TptzAction("AbsoluteMove"), cancellationToken);
+    }
+
+    /// <summary>返回 Home 位置（Home）。</summary>
+    public async Task HomeAsync(string profileToken, CancellationToken cancellationToken = default)
+    {
+        await EnsurePtzCapabilityAsync(cancellationToken);
+        _ = await PostAsync(
+            new XElement(Tptz + "Home",
+                new XElement(Tptz + "ProfileToken", profileToken)),
+            PtzXAddr,
+            TptzAction("Home"), cancellationToken);
+    }
+
+    /// <summary>移除 PTZ 預設點（RemovePreset）。</summary>
+    public async Task RemovePtzPresetAsync(
+        string profileToken,
+        string presetToken,
+        CancellationToken cancellationToken = default)
+    {
+        await EnsurePtzCapabilityAsync(cancellationToken);
+        _ = await PostAsync(
+            new XElement(Tptz + "RemovePreset",
+                new XElement(Tptz + "ProfileToken", profileToken),
+                new XElement(Tptz + "PresetToken", presetToken)),
+            PtzXAddr,
+            TptzAction("RemovePreset"), cancellationToken);
+    }
+
     /// <summary>將目前位置儲存為預設點（SetPreset），回傳預設點 Token。</summary>
     public async Task<string> SetPtzPresetAsync(string profileToken, string presetName, CancellationToken cancellationToken = default)
     {

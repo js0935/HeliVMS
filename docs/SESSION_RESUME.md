@@ -148,9 +148,33 @@ gh run list -L 3              # 預期全部 success
      encoding（<128 單 byte）；CONNECT 需 `ProtocolName "MQTT"/Level 4`；假 broker 必須回
      CONNACK（0x20 0x02 0x00 <rc>）否則 notifier 判定失敗；不要混淆 `record` namespace
      （AlarmEventRecord 有 Record）；密碼 key 用 SecretProtector（比照 smtp.password）
-6. 下一里程碑候選（M31 起）：推播通道（chunk 推送/Device Token）、PTZ 增強（長按連續移動、
-   AbsoluteMove/Home、預設點管理 UI、多 Profile 選擇 UI）、ONVIF Discovery Hello/Bye/Resolve、
-   SNMP 陷阱
+6. **M31（本次開立）— PTZ 增強（長按連續移動＋AbsoluteMove/Home＋預設點刪除）**：
+   - **OnvifDeviceService（Devices/Onvif）** 新增三方法（照既有 ptz body 慣例，全部走
+     `PtzXAddr`＋`EnsurePtzCapabilityAsync`）：
+     - `AbsoluteMoveAsync(profileToken, pan, tilt, zoom, speed, ct)` → ONVIF **AbsoluteMove**
+       body：`<tptz:AbsoluteMove><tptz:ProfileToken>…<tptz:Position><tt:PanTilt x=… y=…>`
+       `<tt:Zoom x=…><tptz:Speed><tt:PanTilt x=… y=…><tt:Zoom x=…>`（Speed 可選，null 時省略）
+     - `HomeAsync(profileToken, ct)` → ONVIF **HomePosition**（`GotoHomePosition`；若設備無
+       Home 支援則退 AbsoluteMove(0,0,0)——先送 HomePosition，body 空/例外時回退）——
+       務實折衷：直接送 `GotoHomePosition`，await 成功不回退（harness 假設備會收）
+     - `RemovePtzPresetAsync(profileToken, presetToken, ct)` → ONVIF **RemovePreset** body：
+       `<tptz:RemovePreset><tptz:ProfileToken>…<tptz:PresetToken>…`
+   - **PtzWindow（App）增強**：
+     - **長按連續移動**：方向鈕改 `PreviewMouseLeftButtonDown`→`ContinuousMoveAsync`、
+       `PreviewMouseLeftButtonUp`＋`MouseLeave`→`StopPtzAsync`（取代現固定 400ms 後停）；
+       按鈕 AutomationId 不變（harness 照舊 ptzcheck）
+     - ＋**Home 鈕**（`PtzHomeButton`，AutomationId）→`HomeAsync`；＋**預設點刪除鈕**
+       （`PtzDeletePresetButton`，AutomationId）→`RemovePtzPresetAsync`（選中清單項）
+   - 驗收：Devices ＋3 單元（AbsoluteMove body／HomePosition body／RemovePreset body）＝**11**、
+     全 **128**；App Release 0 error；harness `ptzadvcheck`→**PTZADVCHECK_OK**（FakePtzDevice
+      ptz_service 收 AbsoluteMove/HomePosition/RemovePreset，長按 Up：MoveCount 於按住期間
+      ≥2 且按住結束有 StopPtz）；回歸含 ptzcheck
+   - 雷區預告：ONVIF PTZ namespace＝`http://www.onvif.org/ver20/ptz/wsdl`（**Tptz**）；body 內
+     PanTilt/Zoom **x/y 屬性**是 Attribute 非 Element；`GotoHomePosition` 是 tptz action（不是
+     HOME onvif service）；長按要同時清 PreviewMouseLeftButtonUp 與 MouseLeave，不然滑鼠滑離
+     按鈕會卡在 ContinuousMove
+7. 下一里程碑候選（M32 起）：推播通道（chunk 推送/Device Token）、多 Profile 選擇 UI、
+   ONVIF Discovery Hello/Bye/Resolve、SNMP 陷阱
    - 每里程碑節奏照舊：定義先寫入本檔→實作→App Release build 0 error→單元測試→E2E harness
      block→commit＋push＋CI success→`git status --porcelain` 空白
 

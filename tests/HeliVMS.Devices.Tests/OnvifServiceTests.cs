@@ -235,6 +235,56 @@ public class OnvifServiceTests
         Assert.Contains("Zoom", request.Body);
     }
 
+    /// <summary>AbsoluteMove 應送至 ptz 端點並含 Position 的 PanTilt/Zoom 值。</summary>
+    [Fact]
+    public async Task AbsoluteMove_PostsPosition_ToPtzEndpoint()
+    {
+        var handler = new RecordingHandler((_, body) =>
+            body.Contains("GetCapabilities", StringComparison.Ordinal) ? CapsAllWithPtzResponse : EmptyBodyResponse);
+        using var service = new OnvifDeviceService("http://192.168.1.5/onvif/device_service", null, null, handler);
+
+        await service.AbsoluteMoveAsync("MainProfile", 0.6, -0.3, 0.5);
+
+        var request = handler.Requests.Single(r => r.Body.Contains("AbsoluteMove", StringComparison.Ordinal));
+        Assert.Equal("http://192.168.1.5/onvif/ptz_service", request.Url);
+        Assert.Contains("http://www.onvif.org/ver10/ptz/wsdl/AbsoluteMove", request.Body);
+        Assert.Contains("MainProfile", request.Body);
+        Assert.Contains("x=\"0.6\"", request.Body);
+        Assert.Contains("y=\"-0.3\"", request.Body);
+        Assert.Contains("x=\"0.5\"", request.Body);
+    }
+
+    /// <summary>Home 應送至 ptz 端點（GotoHomePosition）。</summary>
+    [Fact]
+    public async Task Home_PostsHomeAction_ToPtzEndpoint()
+    {
+        var handler = new RecordingHandler((_, body) =>
+            body.Contains("GetCapabilities", StringComparison.Ordinal) ? CapsAllWithPtzResponse : EmptyBodyResponse);
+        using var service = new OnvifDeviceService("http://192.168.1.5/onvif/device_service", null, null, handler);
+
+        await service.HomeAsync("MainProfile");
+
+        var request = handler.Requests.Single(r => r.Body.Contains("Home", StringComparison.Ordinal));
+        Assert.Equal("http://192.168.1.5/onvif/ptz_service", request.Url);
+        Assert.Contains("MainProfile", request.Body);
+    }
+
+    /// <summary>RemovePtzPreset 應送至 ptz 端點並含 ProfileToken/PresetToken。</summary>
+    [Fact]
+    public async Task RemovePtzPreset_PostsRemoveAction_ToPtzEndpoint()
+    {
+        var handler = new RecordingHandler((_, body) =>
+            body.Contains("GetCapabilities", StringComparison.Ordinal) ? CapsAllWithPtzResponse : EmptyBodyResponse);
+        using var service = new OnvifDeviceService("http://192.168.1.5/onvif/device_service", null, null, handler);
+
+        await service.RemovePtzPresetAsync("MainProfile", "p_main");
+
+        var request = handler.Requests.Single(r => r.Body.Contains("RemovePreset", StringComparison.Ordinal));
+        Assert.Equal("http://192.168.1.5/onvif/ptz_service", request.Url);
+        Assert.Contains("MainProfile", request.Body);
+        Assert.Contains("p_main", request.Body);
+    }
+
     public sealed record RequestSnapshot(string Url, string Body);
 
     private sealed class RecordingHandler : HttpMessageHandler

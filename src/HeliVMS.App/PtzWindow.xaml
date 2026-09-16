@@ -25,38 +25,51 @@
                 <UniformGrid Columns="3" Margin="0,6,0,0">
                     <Button x:Name="PtzUpLeftButton" AutomationProperties.AutomationId="PtzUpLeftButton"
                             Content="↖" Click="OnMoveClicked" Tag="-0.6,-0.6,0"
+                            PreviewMouseLeftButtonDown="OnMoveHeldDown" PreviewMouseLeftButtonUp="OnMoveHeldUp" MouseLeave="OnMoveHeldUp"
                             Padding="0,6" Margin="2" Foreground="White" Background="#2660AA" BorderThickness="0" />
                     <Button x:Name="PtzUpButton" AutomationProperties.AutomationId="PtzUpButton"
                             Content="↑" Click="OnMoveClicked" Tag="0,-0.8,0"
+                            PreviewMouseLeftButtonDown="OnMoveHeldDown" PreviewMouseLeftButtonUp="OnMoveHeldUp" MouseLeave="OnMoveHeldUp"
                             Padding="0,6" Margin="2" Foreground="White" Background="#2660AA" BorderThickness="0" />
                     <Button x:Name="PtzUpRightButton" AutomationProperties.AutomationId="PtzUpRightButton"
                             Content="↗" Click="OnMoveClicked" Tag="0.6,-0.6,0"
+                            PreviewMouseLeftButtonDown="OnMoveHeldDown" PreviewMouseLeftButtonUp="OnMoveHeldUp" MouseLeave="OnMoveHeldUp"
                             Padding="0,6" Margin="2" Foreground="White" Background="#2660AA" BorderThickness="0" />
                     <Button x:Name="PtzLeftButton" AutomationProperties.AutomationId="PtzLeftButton"
                             Content="←" Click="OnMoveClicked" Tag="-0.8,0,0"
+                            PreviewMouseLeftButtonDown="OnMoveHeldDown" PreviewMouseLeftButtonUp="OnMoveHeldUp" MouseLeave="OnMoveHeldUp"
                             Padding="0,6" Margin="2" Foreground="White" Background="#2660AA" BorderThickness="0" />
                     <Button x:Name="PtzStopButton" AutomationProperties.AutomationId="PtzStopButton"
                             Content="■" Click="OnStopClicked"
                             Padding="0,6" Margin="2" Foreground="White" Background="#8A3C2E" BorderThickness="0" />
                     <Button x:Name="PtzRightButton" AutomationProperties.AutomationId="PtzRightButton"
                             Content="→" Click="OnMoveClicked" Tag="0.8,0,0"
+                            PreviewMouseLeftButtonDown="OnMoveHeldDown" PreviewMouseLeftButtonUp="OnMoveHeldUp" MouseLeave="OnMoveHeldUp"
                             Padding="0,6" Margin="2" Foreground="White" Background="#2660AA" BorderThickness="0" />
                     <Button x:Name="PtzDownLeftButton" AutomationProperties.AutomationId="PtzDownLeftButton"
                             Content="↙" Click="OnMoveClicked" Tag="-0.6,0.6,0"
+                            PreviewMouseLeftButtonDown="OnMoveHeldDown" PreviewMouseLeftButtonUp="OnMoveHeldUp" MouseLeave="OnMoveHeldUp"
                             Padding="0,6" Margin="2" Foreground="White" Background="#2660AA" BorderThickness="0" />
                     <Button x:Name="PtzDownButton" AutomationProperties.AutomationId="PtzDownButton"
                             Content="↓" Click="OnMoveClicked" Tag="0,0.8,0"
+                            PreviewMouseLeftButtonDown="OnMoveHeldDown" PreviewMouseLeftButtonUp="OnMoveHeldUp" MouseLeave="OnMoveHeldUp"
                             Padding="0,6" Margin="2" Foreground="White" Background="#2660AA" BorderThickness="0" />
                     <Button x:Name="PtzDownRightButton" AutomationProperties.AutomationId="PtzDownRightButton"
                             Content="↘" Click="OnMoveClicked" Tag="0.6,0.6,0"
+                            PreviewMouseLeftButtonDown="OnMoveHeldDown" PreviewMouseLeftButtonUp="OnMoveHeldUp" MouseLeave="OnMoveHeldUp"
                             Padding="0,6" Margin="2" Foreground="White" Background="#2660AA" BorderThickness="0" />
                 </UniformGrid>
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,6,0,0">
                     <Button x:Name="PtzZoomInButton" AutomationProperties.AutomationId="PtzZoomInButton"
                             Content="＋變焦" Click="OnMoveClicked" Tag="0,0,0.8"
+                            PreviewMouseLeftButtonDown="OnMoveHeldDown" PreviewMouseLeftButtonUp="OnMoveHeldUp" MouseLeave="OnMoveHeldUp"
                             Padding="14,6" Margin="2" Foreground="White" Background="#2A5C8A" BorderThickness="0" />
                     <Button x:Name="PtzZoomOutButton" AutomationProperties.AutomationId="PtzZoomOutButton"
                             Content="－變焦" Click="OnMoveClicked" Tag="0,0,-0.8"
+                            PreviewMouseLeftButtonDown="OnMoveHeldDown" PreviewMouseLeftButtonUp="OnMoveHeldUp" MouseLeave="OnMoveHeldUp"
+                            Padding="14,6" Margin="2" Foreground="White" Background="#2A5C8A" BorderThickness="0" />
+                    <Button x:Name="PtzHomeButton" AutomationProperties.AutomationId="PtzHomeButton"
+                            Content="回原點" Click="OnHomeClicked"
                             Padding="14,6" Margin="2" Foreground="White" Background="#2A5C8A" BorderThickness="0" />
                 </StackPanel>
             </StackPanel>
@@ -90,10 +103,14 @@
                     </ListBox.ItemTemplate>
                 </ListBox>
 
-                <Button x:Name="PtzGotoPresetButton" Grid.Row="2" AutomationProperties.AutomationId="PtzGotoPresetButton"
+            <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,8,0,0">
+                <Button x:Name="PtzGotoPresetButton" AutomationProperties.AutomationId="PtzGotoPresetButton"
                         Content="移至選取預設點" Click="OnGotoPresetClicked"
-                        Margin="0,8,0,0" Padding="0,7" Foreground="White" Background="#2660AA" BorderThickness="0" />
-            </Grid>
+                        Padding="10,7" Foreground="White" Background="#2660AA" BorderThickness="0" />
+                <Button x:Name="PtzDeletePresetButton" AutomationProperties.AutomationId="PtzDeletePresetButton"
+                        Content="刪除選取預設點" Click="OnDeletePresetClicked"
+                        Margin="6,0,0,0" Padding="10,7" Foreground="White" Background="#8A3C2E" BorderThickness="0" />
+            </StackPanel>
         </GroupBox>
 
         <Button Grid.Row="3" Content="關閉" Click="OnCloseClicked"

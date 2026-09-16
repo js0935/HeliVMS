@@ -18,6 +18,7 @@ public partial class PtzWindow : Window
 
     private string _profileToken = string.Empty;
     private bool _ready;
+    private bool _ptzHeld;
 
     public PtzWindow(SqliteStore store, ChannelInfo channel, DeviceRecord device)
     {
@@ -77,9 +78,54 @@ public partial class PtzWindow : Window
         }
     }
 
-    private async void OnMoveClicked(object sender, RoutedEventArgs e)
+    private async void OnMoveHeldDown(object sender, MouseButtonEventArgs e)
     {
         if (!_ready || sender is not Button button || button.Tag is not string tag)
+        {
+            return;
+        }
+
+        var parts = tag.Split(',');
+        var (pan, tilt, zoom) = (
+            double.Parse(parts[0], CultureInfo.InvariantCulture),
+            double.Parse(parts[1], CultureInfo.InvariantCulture),
+            double.Parse(parts[2], CultureInfo.InvariantCulture));
+
+        _ptzHeld = true;
+        try
+        {
+            await _service.ContinuousMoveAsync(_profileToken, pan, tilt, zoom);
+            PtzStatusText.Text = "連續移動中…（放開停止）";
+        }
+        catch (Exception ex)
+        {
+            PtzStatusText.Text = $"移動失敗：{ex.Message}";
+            _ptzHeld = false;
+        }
+    }
+
+    private async void OnMoveHeldUp(object sender, MouseButtonEventArgs e)
+    {
+        if (!_ptzHeld)
+        {
+            return;
+        }
+
+        _ptzHeld = false;
+        try
+        {
+            await _service.StopPtzAsync(_profileToken);
+            PtzStatusText.Text = "已停止。";
+        }
+        catch (Exception ex)
+        {
+            PtzStatusText.Text = $"停止失敗：{ex.Message}";
+        }
+    }
+
+    private async void OnMoveClicked(object sender, RoutedEventArgs e)
+    {
+        if (!_ready || _ptzHeld || sender is not Button button || button.Tag is not string tag)
         {
             return;
         }
@@ -177,6 +223,43 @@ public partial class PtzWindow : Window
         catch (Exception ex)
         {
             PtzStatusText.Text = $"移轉失敗：{ex.Message}";
+        }
+    }
+
+    private async void OnHomeClicked(object sender, RoutedEventArgs e)
+    {
+        if (!_ready)
+        {
+            return;
+        }
+
+        try
+        {
+            await _service.HomeAsync(_profileToken);
+            PtzStatusText.Text = "已移至原點。";
+        }
+        catch (Exception ex)
+        {
+            PtzStatusText.Text = $"移至原點失敗：{ex.Message}";
+        }
+    }
+
+    private async void OnDeletePresetClicked(object sender, RoutedEventArgs e)
+    {
+        if (!_ready || PtzPresetList.SelectedItem is not PtzPreset preset)
+        {
+            return;
+        }
+
+        try
+        {
+            await _service.RemovePtzPresetAsync(_profileToken, preset.Token);
+            PtzStatusText.Text = $"已刪除預設點：{preset.Name}";
+            await RefreshPresetsAsync();
+        }
+        catch (Exception ex)
+        {
+            PtzStatusText.Text = $"刪除失敗：{ex.Message}";
         }
     }
 
