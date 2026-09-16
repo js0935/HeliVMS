@@ -6,8 +6,8 @@
 
 ## 一句話總結
 HeliVMS 為一套**網路影像監控系統**（WPF 桌面應用：即時監看／回放／AI 事件中心／錄影排程）。
-里程碑 **M1 至 M26 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M26 為最新）。
-Release build 0 error、測試 **109/109 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
+里程碑 **M1 至 M31 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M31 為最新）。
+Release build 0 error、測試 **128/128 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
 本地與遠端完全同步（`git diff origin/HEAD` 為空）。
 
 ## 開新 session 的接手方法
@@ -23,14 +23,18 @@ gh run list -L 3              # 預期全部 success
 新 session 會以 git 現況接手，不會靠猜測。
 
 ## 現況快照（權威來源＝git，非聊天記憶）
-- 最後 commit：`HEAD`＝**M30 源碼（commit `24ad4c7`）——MQTT 通知通道**：`NotificationSettings`＋
+- 最後 commit：`HEAD`＝**M31（commit `20e7c94`）——PTZ 增強**：`OnvifDeviceService`＋3
+  （`AbsoluteMoveAsync`/`HomeAsync`/`RemovePtzPresetAsync`）；`PtzWindow`＝M25 結構基底補
+  長按（`OnMoveHeldDown/OnMoveHeldUp/OnMoveMouseLeave`→`StopMoveAsync`）＋Home/刪除預設點
+  鈕＋handler；Devices ＋3 單元＝**11**、全 **128**（Storage 53＋Alarms 56＋Licensing 8＋
+  Devices 11）；App Release 0 error；harness `ptzadvcheck`→**PTZADVCHECK_OK**；回歸含 ptzcheck
+- 前一個 M30 交付＝`24ad4c7`（MQTT 通知通道）：`NotificationSettings`＋
   `MqttEnabled/MqttHost/MqttPort(1883)/MqttTopic/MqttUser/MqttPassword`（鍵 `notify.mqtt.*`、
-  env `HELIVMS_MQTT_*`、密碼 SecretProtector）。（快照 docs commit `dfdd551` 已含 M30 定義段；
-  M30 源碼本體在 `24ad4c7`。）
+  env `HELIVMS_MQTT_*`、密碼 SecretProtector）；（快照 docs commit `dfdd551` 已含 M30 定義段）
   `{"channel_id",..,"event_type","start_utc","detail"}`）；`NotificationService` 第三通道
   （`HasMqttRoute` guard＋route "mqtt"＋log Route "webhook+smtp+mqtt"）；SettingsWindow 通知頁
   MQTT 群（啟用/主機/埠/主題/使用者/密碼，密碼不預填＋僅非空才寫）。單元 **125/125**
-  （Storage 53＋Alarms **56**＋Licensing 8＋Devices 8；Alarms ＋5＝mqtt settings load、
+  （Storage 53＋Alarms 56＋Licensing 8＋Devices 8；Alarms ＋5＝mqtt settings load、
   publish ok＋payload JSON、CONNACK 拒絕→false、連不上→false、webhook+mqtt 複合 route）＋
   E2E 新增 **`mqttcheck` MQTTCHECK_OK**（Program 內 FakeMqttBroker）。回歸 12 全綠
   （notif/log/smtp/set/snap/exp/ptz/tra/quiet/evfilter/off/**mqtt**）。
@@ -58,7 +62,8 @@ gh run list -L 3              # 預期全部 success
     `evcard`（M18，EV_OK）、`setcheck`（M19，SET_OK）、**`snapcheck`（M20，SNAP_OK）**、
     **`expcheck`（M21，EXP_OK）、**`notifcheck`（M22，NOTIF_OK）**、
      **`logcheck`（M23，LOG_OK）**、**`smtpcheck`（M24，SMTPCHECK_OK）**、
-     **`ptzcheck`（M25，PTZCHECK_OK）**、**`tracheck`（M26，TRAYCHECK_OK）**
+     **`ptzcheck`（M25，PTZCHECK_OK）**、**`tracheck`（M26，TRAYCHECK_OK）**、
+     **`ptzadvcheck`（M31，PTZADVCHECK_OK）**
   - `kbcheck` 驗證：`Space` 暫停（t1）→ `→` 前跳 10 秒（t2−t1＝11s）→ `F` 逐幀仍暫停 →
     `Esc` 停止（StopButton disabled）；輸出 `KB_OK`
   - `evcard` 驗證：主視窗→右鍵 cell→「開啟事件中心」；選頻道後 grid DataItems≥2、
@@ -148,31 +153,22 @@ gh run list -L 3              # 預期全部 success
      encoding（<128 單 byte）；CONNECT 需 `ProtocolName "MQTT"/Level 4`；假 broker 必須回
      CONNACK（0x20 0x02 0x00 <rc>）否則 notifier 判定失敗；不要混淆 `record` namespace
      （AlarmEventRecord 有 Record）；密碼 key 用 SecretProtector（比照 smtp.password）
-6. **M31（本次開立）— PTZ 增強（長按連續移動＋AbsoluteMove/Home＋預設點刪除）**：
-   - **OnvifDeviceService（Devices/Onvif）** 新增三方法（照既有 ptz body 慣例，全部走
-     `PtzXAddr`＋`EnsurePtzCapabilityAsync`）：
-     - `AbsoluteMoveAsync(profileToken, pan, tilt, zoom, speed, ct)` → ONVIF **AbsoluteMove**
-       body：`<tptz:AbsoluteMove><tptz:ProfileToken>…<tptz:Position><tt:PanTilt x=… y=…>`
-       `<tt:Zoom x=…><tptz:Speed><tt:PanTilt x=… y=…><tt:Zoom x=…>`（Speed 可選，null 時省略）
-     - `HomeAsync(profileToken, ct)` → ONVIF **HomePosition**（`GotoHomePosition`；若設備無
-       Home 支援則退 AbsoluteMove(0,0,0)——先送 HomePosition，body 空/例外時回退）——
-       務實折衷：直接送 `GotoHomePosition`，await 成功不回退（harness 假設備會收）
-     - `RemovePtzPresetAsync(profileToken, presetToken, ct)` → ONVIF **RemovePreset** body：
-       `<tptz:RemovePreset><tptz:ProfileToken>…<tptz:PresetToken>…`
-   - **PtzWindow（App）增強**：
-     - **長按連續移動**：方向鈕改 `PreviewMouseLeftButtonDown`→`ContinuousMoveAsync`、
-       `PreviewMouseLeftButtonUp`＋`MouseLeave`→`StopPtzAsync`（取代現固定 400ms 後停）；
-       按鈕 AutomationId 不變（harness 照舊 ptzcheck）
-     - ＋**Home 鈕**（`PtzHomeButton`，AutomationId）→`HomeAsync`；＋**預設點刪除鈕**
-       （`PtzDeletePresetButton`，AutomationId）→`RemovePtzPresetAsync`（選中清單項）
-   - 驗收：Devices ＋3 單元（AbsoluteMove body／HomePosition body／RemovePreset body）＝**11**、
-     全 **128**；App Release 0 error；harness `ptzadvcheck`→**PTZADVCHECK_OK**（FakePtzDevice
-      ptz_service 收 AbsoluteMove/HomePosition/RemovePreset，長按 Up：MoveCount 於按住期間
-      ≥2 且按住結束有 StopPtz）；回歸含 ptzcheck
-   - 雷區預告：ONVIF PTZ namespace＝`http://www.onvif.org/ver20/ptz/wsdl`（**Tptz**）；body 內
-     PanTilt/Zoom **x/y 屬性**是 Attribute 非 Element；`GotoHomePosition` 是 tptz action（不是
-     HOME onvif service）；長按要同時清 PreviewMouseLeftButtonUp 與 MouseLeave，不然滑鼠滑離
-     按鈕會卡在 ContinuousMove
+6. **M31 已完成**（commit `20e7c94`，CI success）：PTZ 增強——
+   服務端（23813fd）`OnvifDeviceService` ＋3：`AbsoluteMoveAsync`（AbsoluteMove body `/tptz:Action`）、
+   `HomeAsync`（tptz `GotoHomePosition`）、`RemovePtzPresetAsync`（tptz `RemovePreset`
+   ProfileToken＋PresetToken）；App `PtzWindow` 以 **M25 原結構為基底**（`5b2b2c3`）補回
+   M31 UI：方向/變焦 10 鈕加長按
+   `PreviewMouseLeftButtonDown="OnMoveHeldDown" PreviewMouseLeftButtonUp="OnMoveHeldUp"
+   MouseLeave="OnMoveMouseLeave"`（鬆開/滑離→`StopMoveAsync`，取代曾計畫的固定 400ms 停）、
+   ＋`PtzHomeButton`→`HomeAsync`、`PtzDeletePresetButton`→`RemovePtzPresetAsync`（選中項）；
+   Devices ＋3 單元＝**11**、全 **128**（Storage 53＋Alarms 56＋Licensing 8＋Devices 11）；
+   App Release 0 error；harness `ptzadvcheck`→**PTZADVCHECK_OK**；回歸含 ptzcheck
+   - **排雷（20e7c94 收斂）**：M31 前三次 commit（23813fd/16d8dd2/a1a1d84）的 XAML 巢狀
+     MC3089 從未編譯過；修法＝**不以 bash 重寫整檔**，`git checkout 5b2b2c3`（M25 綠版）
+     拿乾淨基底→行號精準插 2 行自閉按鈕→.cs 補 handler；`OnMoveHeldUp` 用
+     `MouseButtonEventArgs` 無法同時綁 `MouseLeave`（CS0123，需 `MouseEventHandler`）——
+     拆 `OnMoveHeldUp(object,MouseButtonEventArgs)`（PreviewMouseLeftButtonUp）與
+     `OnMoveMouseLeave(object,MouseEventArgs)`（MouseLeave）共用 `StopMoveAsync`
 7. 下一里程碑候選（M32 起）：推播通道（chunk 推送/Device Token）、多 Profile 選擇 UI、
    ONVIF Discovery Hello/Bye/Resolve、SNMP 陷阱
    - 每里程碑節奏照舊：定義先寫入本檔→實作→App Release build 0 error→單元測試→E2E harness

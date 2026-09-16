@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using HeliVMS.Devices.Onvif;
 using HeliVMS.Shared.Models;
 using HeliVMS.Storage;
@@ -18,6 +19,7 @@ public partial class PtzWindow : Window
 
     private string _profileToken = string.Empty;
     private bool _ready;
+    private bool _ptzHeld;
 
     public PtzWindow(SqliteStore store, ChannelInfo channel, DeviceRecord device)
     {
@@ -77,9 +79,56 @@ public partial class PtzWindow : Window
         }
     }
 
-    private async void OnMoveClicked(object sender, RoutedEventArgs e)
+    private async void OnMoveHeldDown(object sender, MouseButtonEventArgs e)
     {
         if (!_ready || sender is not Button button || button.Tag is not string tag)
+        {
+            return;
+        }
+
+        var parts = tag.Split(',');
+        var (pan, tilt, zoom) = (
+            double.Parse(parts[0], CultureInfo.InvariantCulture),
+            double.Parse(parts[1], CultureInfo.InvariantCulture),
+            double.Parse(parts[2], CultureInfo.InvariantCulture));
+
+        _ptzHeld = true;
+        try
+        {
+            await _service.ContinuousMoveAsync(_profileToken, pan, tilt, zoom);
+        }
+        catch (Exception ex)
+        {
+            PtzStatusText.Text = $"移動失敗：{ex.Message}";
+            _ptzHeld = false;
+        }
+    }
+
+    private async void OnMoveHeldUp(object sender, MouseButtonEventArgs e) => await StopMoveAsync();
+
+    private async void OnMoveMouseLeave(object sender, System.Windows.Input.MouseEventArgs e) => await StopMoveAsync();
+
+    private async Task StopMoveAsync()
+    {
+        if (!_ptzHeld)
+        {
+            return;
+        }
+
+        _ptzHeld = false;
+        try
+        {
+            await _service.StopPtzAsync(_profileToken);
+        }
+        catch (Exception ex)
+        {
+            PtzStatusText.Text = $"停止失敗：{ex.Message}";
+        }
+    }
+
+    private async void OnMoveClicked(object sender, RoutedEventArgs e)
+    {
+        if (!_ready || _ptzHeld || sender is not Button button || button.Tag is not string tag)
         {
             return;
         }
