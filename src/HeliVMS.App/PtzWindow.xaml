@@ -111,7 +111,7 @@
                         Content="刪除選取預設點" Click="OnDeletePresetClicked"
                         Margin="6,0,0,0" Padding="10,7" Foreground="White" Background="#8A3C2E" BorderThickness="0" />
             </StackPanel>
-        </GroupBox>
+        </Grid>
 
         <Button Grid.Row="3" Content="關閉" Click="OnCloseClicked"
                 HorizontalAlignment="Right" Margin="0,14,0,0" Padding="20,8"
