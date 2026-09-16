@@ -17,6 +17,7 @@ public partial class PtzWindow : Window
 {
     private readonly OnvifDeviceService _service;
 
+    private IReadOnlyList<OnvifProfile> _profiles = Array.Empty<OnvifProfile>();
     private string _profileToken = string.Empty;
     private bool _ready;
     private bool _ptzHeld;
@@ -47,13 +48,17 @@ public partial class PtzWindow : Window
             }
 
             var profiles = await _service.GetProfilesAsync();
-            _profileToken = profiles.FirstOrDefault()?.Token ?? string.Empty;
-            if (_profileToken.Length == 0)
+            if (profiles.Count == 0)
             {
                 PtzStatusText.Text = "已連線，但設備未提供可操控的 Profile。";
                 SetControlsEnabled(false);
                 return;
             }
+
+            _profiles = profiles;
+            PtzProfileCombo.ItemsSource = _profiles;
+            PtzProfileCombo.SelectedIndex = 0;
+            _profileToken = _profiles[0].Token;
 
             _ready = true;
             PtzStatusText.Text = $"已連線（{_service.DeviceXAddr}）· PTZ 支援。";
@@ -68,7 +73,7 @@ public partial class PtzWindow : Window
 
     private void SetControlsEnabled(bool enabled)
     {
-        var controls = new Control[] { PtzUpLeftButton, PtzUpButton, PtzUpRightButton,
+        var controls = new Control[] { PtzProfileCombo, PtzUpLeftButton, PtzUpButton, PtzUpRightButton,
             PtzLeftButton, PtzStopButton, PtzRightButton,
             PtzDownLeftButton, PtzDownButton, PtzDownRightButton,
             PtzZoomInButton, PtzZoomOutButton,
@@ -77,6 +82,18 @@ public partial class PtzWindow : Window
         {
             c.IsEnabled = enabled;
         }
+    }
+
+    private async void OnProfileChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (!_ready || PtzProfileCombo.SelectedItem is not OnvifProfile profile)
+        {
+            return;
+        }
+
+        _profileToken = profile.Token;
+        PtzStatusText.Text = $"已切換 Profile：{profile.Token}";
+        await RefreshPresetsAsync();
     }
 
     private async void OnMoveHeldDown(object sender, MouseButtonEventArgs e)

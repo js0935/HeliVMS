@@ -23,13 +23,9 @@ gh run list -L 3              # 預期全部 success
 新 session 會以 git 現況接手，不會靠猜測。
 
 ## 現況快照（權威來源＝git，非聊天記憶）
-- 最後 commit：`HEAD`＝**M31（`d50bc52`）**——PTZ 長按連續移動＋服務層
-  `AbsoluteMove/Home/RemovePreset`＋`ptzadvcheck` harness：`OnvifDeviceService`＋3、
-  `PtzWindow`＝M25 基底補長按迴圈（每 300ms `ContinuousMoveAsync`，`_ptzHeld=false` 即停）
-  ＋Home/刪除預設點鈕；Devices 11、全 **128**、App Release 0 error；**PTZADVCHECK_OK**
-  （回歸含 ptzcheck）
-- 進行中：**M32＝ONVIF Discovery 測試補完**（未 commit，見下方 M32 定義段）：
-  Devices ＋8 單元＝**19**、全 **136**（Storage 53＋Alarms 56＋Licensing 8＋Devices 19）
+- 最後 commit：`HEAD`＝**M32（`d71813b`）**——ONVIF Discovery 測試補完
+  （見下方 M32 定義段）；Devices ＋8 單元＝**19**、全 **136**、App Release 0 error
+- 進行中：**M33＝多 Profile 選擇 UI**（未 commit，見下方 M33 定義段）
 - 前一個 M30 交付＝`24ad4c7`（MQTT 通知通道）：`NotificationSettings`＋
   `MqttEnabled/MqttHost/MqttPort(1883)/MqttTopic/MqttUser/MqttPassword`（鍵 `notify.mqtt.*`、
   env `HELIVMS_MQTT_*`、密碼 SecretProtector）；（快照 docs commit `dfdd551` 已含 M30 定義段）
@@ -195,8 +191,27 @@ gh run list -L 3              # 預期全部 success
    - 雷區預告：**「MulticastTimeToLive 設在非 multicast socket 於 CI（Windows）拋
      SocketException」**——所以 multicast 設定只在 `DiscoverAsync`、測試一律注入自備
      UdpClient（loopback unicast，不設 TTL）
-8. 下一里程碑候選（M33 起，照序）：推播通道（chunk 推送/Device Token）、多 Profile 選擇 UI、
-   ONVIF Discovery Hello/Bye/Resolve（M32 後之 Discovery 強化）、SNMP 陷阱
+8. **M33 進行中＝多 Profile 選擇 UI**（實作已完、harness PROFCHECK_OK，尚未 commit）：
+   - 背景：`PtzWindow` 自 M25 起 `_profileToken = profiles.FirstOrDefault()`（硬取第一個）；
+     多 Profile 設備（主/子碼流）只能操控第一個
+   - App `PtzWindow`：Row0 狀態列下加 `PtzProfileCombo`（AutomationId `PtzProfileCombo`，
+     ItemTemplate 顯示「{Name}（{Token}）」`SelectionChanged="OnProfileChanged"`）——
+     切換後 `_profileToken`＝所選、`RefreshPresetsAsync()`（預設點 per-profile）、狀態列示
+     「已切換 Profile：{Token}」；`_profiles` 欄位、`SetControlsEnabled` 納入 ComboBox
+   - harness `profcheck`→**PROFCHECK_OK**：`E2ePtzDevice` 加 `ProfilesXml`（預設單 profile
+     保 ptzcheck 之 `profiles.Count==1`）＋`MultiProfilesXml`（Main/Sub）＋`LastProfileToken`
+     （regex 解析 ptz body 內 ProfileToken）＋`ResetCounts()`；direct 驗 GetProfiles=2 ＋
+     ContinuousMove 帶 SubProfile；UI 開 PtzWindow→combo Expand→找 Text「子碼流（SubProfile）」
+     →TreeWalker 取 ListBoxItem→`SelectionItemPattern.Select()`→Collapse（防 popup 蓋住按鈕）
+     →長按 PtzUpButton→`LastProfileToken=="SubProfile"` 且 MoveCount≥2
+   - 排雷：UIA 下 ComboBox item 的 Name 是 item ToString（`HeliVMS.Devices.Onvif.OnvifProfile`）
+     非顯示文字——需抓 ItemTemplate 內 Text block；選完**必須 Collapse** popup，否則蓋住
+     按鈕、MouseDown 打不到（holdDelta=0）
+   - 附帶修 harness 脆弱點：ptzcheck/ptzadvcheck/profcheck 在 `channels` 空表時
+     `ChannelRepository.Add` 自建測試頻道（取代直接 BAD「no channels」——主 DB 可能被清空）
+   - 驗收：App Release 0 error；ptzcheck/ptzadvcheck/profcheck 三健；單元全 **136** 不破
+9. 下一里程碑候選（M34 起）：推播通道（chunk 推送/Device Token）、ONVIF Discovery
+   Hello/Bye/Resolve（M32 後之 Discovery 強化）、SNMP 陷阱
    - 每里程碑節奏照舊：定義先寫入本檔→實作→App Release build 0 error→單元測試→E2E harness
      block→commit＋push＋CI success→`git status --porcelain` 空白
 
