@@ -19,23 +19,39 @@ public static class DiscoveryClient
     private static readonly XNamespace WsdNs = "http://docs.oasis-open.org/ws-dd/ns/discovery/2009/01";
 
     /// <summary>
-    /// 於指定逾時內執行 WS-Discovery 探測，回傳所有收到之設備候選。
+    /// 於指定逾時內對 ONVIF 多播端位址執行 WS-Discovery 探測，
+    /// 回傳所有收到之設備候選。
     /// </summary>
-    /// <param name="timeoutMs">總探測時間（建議 ≥3000）。</param>
+    /// <param name="timeout">總探測時間（建議 ≥3000 毫秒）。</param>
     /// <param name="cancellationToken">取消權杖。</param>
     public static async Task<IReadOnlyList<DiscoveredDevice>> DiscoverAsync(
-        TimeSpan timeoutMs,
+        TimeSpan timeout,
+        CancellationToken cancellationToken = default)
+    {
+        using var udp = new UdpClient();
+        udp.Client.SetSocketOption(
+            SocketOptionLevel.Socket,
+            SocketOptionName.MulticastTimeToLive,
+            1);
+        udp.EnableBroadcast = true;
+
+        var endpoint = new IPEndPoint(IPAddress.Parse(DiscoveryAddress), DiscoveryPort);
+        return await ProbeAsync(udp, endpoint, timeout, cancellationToken);
+    }
+
+    /// <summary>
+    /// 對指定端位址執行 WS-Discovery 探測（測試可注入 loopback 假設備與自備 UdpClient）。
+    /// </summary>
+    internal static async Task<IReadOnlyList<DiscoveredDevice>> ProbeAsync(
+        UdpClient udp,
+        IPEndPoint endpoint,
+        TimeSpan timeout,
         CancellationToken cancellationToken = default)
     {
         var results = new Dictionary<string, DiscoveredDevice>(StringComparer.OrdinalIgnoreCase);
-        var endpoint = new IPEndPoint(IPAddress.Parse(DiscoveryAddress), DiscoveryPort);
         var envelope = BuildProbe(Guid.NewGuid().ToString("D"));
 
-        using var udp = new UdpClient();
-        udp.Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.MulticastTimeToLive, 1);
-        udp.EnableBroadcast = true;
-
-        var deadline = DateTime.UtcNow + timeoutMs;
+        var deadline = DateTime.UtcNow + timeout;
         while (DateTime.UtcNow < deadline)
         {
             try
@@ -86,7 +102,7 @@ public static class DiscoveryClient
         return doc.ToString(SaveOptions.DisableFormatting);
     }
 
-    private static void ParseMatch(string response, IDictionary<string, DiscoveredDevice> results)
+    internal static void ParseMatch(string response, IDictionary<string, DiscoveredDevice> results)
     {
         XDocument doc;
         try

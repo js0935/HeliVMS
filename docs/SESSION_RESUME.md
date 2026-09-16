@@ -23,11 +23,13 @@ gh run list -L 3              # 預期全部 success
 新 session 會以 git 現況接手，不會靠猜測。
 
 ## 現況快照（權威來源＝git，非聊天記憶）
-- 最後 commit：`HEAD`＝**M31（commit `20e7c94`）——PTZ 增強**：`OnvifDeviceService`＋3
-  （`AbsoluteMoveAsync`/`HomeAsync`/`RemovePtzPresetAsync`）；`PtzWindow`＝M25 結構基底補
-  長按（`OnMoveHeldDown/OnMoveHeldUp/OnMoveMouseLeave`→`StopMoveAsync`）＋Home/刪除預設點
-  鈕＋handler；Devices ＋3 單元＝**11**、全 **128**（Storage 53＋Alarms 56＋Licensing 8＋
-  Devices 11）；App Release 0 error；harness `ptzadvcheck`→**PTZADVCHECK_OK**；回歸含 ptzcheck
+- 最後 commit：`HEAD`＝**M31（`d50bc52`）**——PTZ 長按連續移動＋服務層
+  `AbsoluteMove/Home/RemovePreset`＋`ptzadvcheck` harness：`OnvifDeviceService`＋3、
+  `PtzWindow`＝M25 基底補長按迴圈（每 300ms `ContinuousMoveAsync`，`_ptzHeld=false` 即停）
+  ＋Home/刪除預設點鈕；Devices 11、全 **128**、App Release 0 error；**PTZADVCHECK_OK**
+  （回歸含 ptzcheck）
+- 進行中：**M32＝ONVIF Discovery 測試補完**（未 commit，見下方 M32 定義段）：
+  Devices ＋8 單元＝**19**、全 **136**（Storage 53＋Alarms 56＋Licensing 8＋Devices 19）
 - 前一個 M30 交付＝`24ad4c7`（MQTT 通知通道）：`NotificationSettings`＋
   `MqttEnabled/MqttHost/MqttPort(1883)/MqttTopic/MqttUser/MqttPassword`（鍵 `notify.mqtt.*`、
   env `HELIVMS_MQTT_*`、密碼 SecretProtector）；（快照 docs commit `dfdd551` 已含 M30 定義段）
@@ -174,8 +176,27 @@ gh run list -L 3              # 預期全部 success
      `MouseButtonEventArgs` 無法同時綁 `MouseLeave`（CS0123，需 `MouseEventHandler`）——
      拆 `OnMoveHeldUp(object,MouseButtonEventArgs)`（PreviewMouseLeftButtonUp）與
      `OnMoveMouseLeave(object,MouseEventArgs)`（MouseLeave）共用 `StopMoveAsync`
-7. 下一里程碑候選（M32 起）：推播通道（chunk 推送/Device Token）、多 Profile 選擇 UI、
-   ONVIF Discovery Hello/Bye/Resolve、SNMP 陷阱
+7. **M32 進行中＝ONVIF Discovery 測試補完**（refactor 已備、8 測試已跑綠，尚未 commit）：
+   - 背景：`DiscoveryClient`（`src\HeliVMS.Devices\Onvif\DiscoveryClient.cs`）自 M20 已有完整
+     WS-Discovery 實作（單一 multicast `239.255.255.250:3702` Probe、收 ProbeMatch、依
+     `HttpXAddr` 去重、`<types>`/`<scopes>` 解析），`OnvifWizardWindow` 已用
+     `DiscoverAsync(5s)`＋IP fallback；但 **tests 完全零覆蓋**，且硬編碼 multicast 無法在 CI
+     測
+   - refactor（public 簽名不變）：將真正監聽邏輯抽為
+     `internal ProbeAsync(UdpClient udp, IPEndPoint endpoint, TimeSpan timeout, ct)`——端點與
+     socket 皆可注入；multicast （TTL=1）＋`EnableBroadcast` 留在 `DiscoverAsync`；`ParseMatch`
+     由 private→**internal**（供解析層直接驗證）
+   - 新 `DiscoveryClientTests`（+8）：ParseMatch 6 例（欄位擷取含 `HttpXAddr`/`NameHint`、
+     壞 XML 忽略、無 ProbeMatch 忽略、少 EndpointAddress 跳過、無 http(s) XAddr 跳過、同
+     HttpXAddr 去重後到覆蓋）＋ProbeAsync 2 例（loopback 假 peer 回 ProbeMatch→解析回傳；
+     假 peer 不回→逾時回空）
+   - 驗收：Devices 11→**19**、全 **136**（Storage 53＋Alarms 56＋Licensing 8＋Devices 19）；
+     App Release 0 error；其餘 tests 不破
+   - 雷區預告：**「MulticastTimeToLive 設在非 multicast socket 於 CI（Windows）拋
+     SocketException」**——所以 multicast 設定只在 `DiscoverAsync`、測試一律注入自備
+     UdpClient（loopback unicast，不設 TTL）
+8. 下一里程碑候選（M33 起，照序）：推播通道（chunk 推送/Device Token）、多 Profile 選擇 UI、
+   ONVIF Discovery Hello/Bye/Resolve（M32 後之 Discovery 強化）、SNMP 陷阱
    - 每里程碑節奏照舊：定義先寫入本檔→實作→App Release build 0 error→單元測試→E2E harness
      block→commit＋push＋CI success→`git status --porcelain` 空白
 
