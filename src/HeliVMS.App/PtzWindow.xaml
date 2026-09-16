@@ -74,7 +74,7 @@
                 </StackPanel>
             </StackPanel>
         </GroupBox>
-
+</Grid>
         <GroupBox Grid.Row="2" Header="預設點" Foreground="{StaticResource Brand.TextDim}" Padding="8">
             <Grid>
                 <Grid.RowDefinitions>
