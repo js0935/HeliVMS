@@ -6,15 +6,15 @@
 
 ## 一句話總結
 HeliVMS 為一套**網路影像監控系統**（WPF 桌面應用：即時監看／回放／AI 事件中心／錄影排程）。
-里程碑 **M1 至 M46 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M46 錄影遮蔽）。
-Release build 0 error、測試 **293/293 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
+里程碑 **M1 至 M47 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M47 警報管理器）。
+Release build 0 error、測試 **299/299 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
 本地與遠端完全同步（`git diff origin/HEAD` 為空）。
 
 ## 開新 session 的接手方法
 ```powershell
 # 在 D:\HeliVMS 開新 session 時，先對新的 agent 講：
 git status                    # 預期為 empty（乾淨）
-git log --oneline -20         # 預期見到 M1..M46，HEAD＝M46
+git log --oneline -20         # 預期見到 M1..M47，HEAD＝M47
 git diff origin/HEAD          # 預期為空（同步）
 gh run list -L 3              # 預期全部 success
 ```
@@ -23,9 +23,10 @@ gh run list -L 3              # 預期全部 success
 新 session 會以 git 現況接手，不會靠猜測。
 
 ## 現況快照（權威來源＝git，非聊天記憶）
-- 最後 commit：`HEAD`＝**M46（`c7f6e8f`）**——錄影遮蔽（Redaction／隱私遮罩）（見下方 §21 M46 定義段）；全 **293**、CI `35284550851` success
+- 最後 commit：`HEAD`＝**M47（`f3c01e1`）**——警報管理器（Alarm Manager／分診面板）（見下方 §22 M47 定義段）；全 **299**、CI `35286083642` success
+- 前一個 M46 交付＝`c7f6e8f`（錄影遮蔽 Redaction，見下方 §21 M46 定義段）、全 **293**、CI `35284550851` success
 - 前一個 M45 交付＝`ef3a8bc`（備份與異地備援，見下方 §20 M45 定義段）、全 **289**、CI `35263453271` success
-- 進行中：**M47＝警報管理器（Alarm Manager／分診面板）**（見下方 §22 M47 定義段）
+- 下一個里程碑：待選（§14.7 尚餘 **#2 魚眼矯正 Dewarping** 等影像處理候選）
 - 前一個 M41 交付＝`2d89ea7`（電子地圖/平面圖）、全 **222**、CI `35232094120` success
 - 前一個 M38 交付＝`d09b045`（事件回應工作流，見下方 M38 定義段）、全 **172**、CI `35185639491` success
 - 前一個 M30 交付＝`24ad4c7`（MQTT 通知通道）：`NotificationSettings`＋
@@ -616,7 +617,7 @@ gh run list -L 3              # 預期全部 success
       SHA-256→`redacted` 下輸出存在＋`ffprobe` duration>0 且 codec=h264
     - 回歸影響：MainWindow 新增工具列按鈕（不影響既有 10 鈕）；無 New DB 表
     - 驗收：App Release 0 error、全 293、REDACTION_OK（連續 2 次綠：既有段 ch27 遮蔽產出 6s h264＋SHA-256）、回歸全綠、CI `35284550851` success
-22. **M47 進行中＝警報管理器（Alarm Manager／分診面板）（§14.7 #3 P1：事件營運「分診/指派/傳遞/進度狀態大面板」；M38 四態為前置）**：
+22. **M47 已驗收＝警報管理器（Alarm Manager／分診面板）（§14.7 #3 P1：事件營運「分診/指派/傳遞/進度狀態大面板」；M38 四態為前置；commit `f3c01e1`，全 **299**，CI `35286083642` success；docs 定義＝`d927295`）**：
     - 背景：M38 已有四態（pending/acknowledged/actioned/false_alarm）＋指派＋備註＋軌跡，但缺「優先序／處理時限（SLA 到期）／分診總覽面板」；本里程碑補事件營運面
     - Storage schema **v14**：新表 `alarm_triage`（`event_id` PK→alarm_events ON DELETE CASCADE、`priority`（預設 normal）、`due_utc`、`owner`、`updated_at`）＋索引 `idx_triage_due(due_utc)`
     - Storage 新 `AlarmTriageRepository`：
@@ -629,7 +630,7 @@ gh run list -L 3              # 預期全部 success
     - 測試：Storage **153→159**（`AlarmTriageRepositoryTests` 6：SetTriage round-trip＋UPSERT 更新／無效 priority throw／ListBoard 排除 false_alarm／排序＝逾期→優先序→新→舊／IsOverdue 判定（pending/acknowledged 且到期；actioned 或無 due 不計）／Summarize 計數）；不需 ffmpeg（CI 友好）
     - harness `alarmmanagercheck`→**ALARMMANAGER_OK**：先以臨時 seed 工具（temp console 引用 HeliVMS.Storage；`detail='harness triage seed'` 可重跑覆蓋，含一筆逾期 critical）插入事件→`--alarmmanager` 開窗→`SummaryText` 含「逾期」→`BoardList` ≥1 列→選首列→`PriorityCombo` 選「高」＋`OwnerBox`/`NoteBox` 填值→套用→輪詢 `ManagerStatusText` 含「已更新」→清單出現優先序「高」儲存格
     - 回歸影響：MainWindow 新增工具列按鈕；新表 v14（舊庫自動升版）
-    - 驗收：App Release 0 error、全 **293→299**、ALARMMANAGER_OK（連續 2 次綠）、回歸全綠、CI 綠
+    - 驗收：App Release 0 error、全 **293→299**、ALARMMANAGER_OK（連續 2 次綠）、回歸全綠、CI `35286083642` success
 23. 每里程碑節奏照舊：定義先寫入本檔→實作→App Release build 0 error→單元測試→
     （有 UI 面者）E2E harness block→commit＋push＋CI success→`git status --porcelain` 空白
 
@@ -642,6 +643,10 @@ gh run list -L 3              # 預期全部 success
 - **回放窗 ComboBox 的 UIA**：下拉 item 的 `ListBoxItem.Current.Name` 是物件的 ToString（型別名），
   要以 item 內層 `ControlType.Text` 的 Name 來配「頻道 N」再對 `ListItem` 下
   `SelectionItemPattern.Select()`（對 Text 下 Select 會靜默失敗）
+- **ComboBox 展開後的 popup item 不在 combo 子樹**（popup 是獨立視窗，`$combo.FindAll(Descendants, ListItem)` 為 0）；
+  且 `RootElement.FindFirst(Name=「高」)` 會先命中 item 內層 `ControlType.Text`，對 Text 下
+  `SelectionItemPattern.Select()` 會丟 `InvalidOperationException`（不支援此模式）；需以
+  `TreeWalker.ControlViewWalker.GetParent` 由該 Text 上溯至 `ControlType.ListItem` 再 `Select()`（M47 alarmmanagercheck 實證）
 - **WPF GridView 事件列是 `ControlType.DataItem` 不是 `ListItem`**；`FindAll(ListItem)` 會拿到 0 筆
 - **驗證跳播後 `PlaybackTime` 要輪詢**（ffmpeg 解碼有啟動延遲，且內建倍速預設 0.5×）；不要只等固定 1.5s
 - **`EventCenterWindow` 開窗必 NRE（M18 排雷）**：XAML 的 `RangeCombo`/`ChannelCombo` `SelectedIndex` 在
@@ -660,6 +665,10 @@ gh run list -L 3              # 預期全部 success
   忘 rebuild 會測到舊版且行為不解）
 - **回放窗快捷鍵 E2E（kbcheck）前置**：要先 `ChannelRepository.Get(特定 id)` 確認頻道存在、
   用 ffmpeg lavfi 產生當日段並 `BeginSegment/CompleteSegment` 入庫（否則「當日 0 段」無資料可播）
+- **M47 警報管理器 E2E 前置**：本機真 DB `C:\HeliVMSData\index.db` 未必有 `alarm_events`
+  （`Summarize` 全 0、`BoardList` 0 列）；`alarmmanagercheck` 先跑臨時 console（temp `seedtriage`，
+  ProjectReference `HeliVMS.Storage`）插入 `detail='harness triage seed'` 事件（先 DELETE 同名再 INSERT，
+  可重跑覆蓋），並對一筆設逾期 critical（`SetTriage(..., now.AddMinutes(-5), ...)`）以驗「逾期」計數
 - **`Space` 焦點衝突**：Tab 焦點落在 PlayPauseButton/StopButton 時按空白鍵會雙重觸發（Button 自身也處理空白鍵）；
   故 `OnPreviewKeyDown` 對按鈕聚焦需 `e.Handled=true` 後自行分派播放/暫停，避免 Button Click 與快捷鍵各觸發一次
 - **WPF Panel（StackPanel/Grid）沒有 AutomationPeer**：其 `AutomationId`/`x:Name` 無法用
