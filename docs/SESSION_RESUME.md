@@ -6,7 +6,7 @@
 
 ## 一句話總結
 HeliVMS 為一套**網路影像監控系統**（WPF 桌面應用：即時監看／回放／AI 事件中心／錄影排程）。
-里程碑 **M1 至 M39 已全數 commit＋push**（M39 遮蔽偵測 Tamper 為最新，CI 驗收由 docs commit 標記）。
+里程碑 **M1 至 M39 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M39 遮蔽偵測 Tamper）。
 Release build 0 error、測試 **185/185 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
 本地與遠端完全同步（`git diff origin/HEAD` 為空）。
 
@@ -23,8 +23,8 @@ gh run list -L 3              # 預期全部 success
 新 session 會以 git 現況接手，不會靠猜測。
 
 ## 現況快照（權威來源＝git，非聊天記憶）
-- 最後 commit：`HEAD`＝**M39（遮蔽偵測 Tamper）**——見下方 M39 定義段；全 **185**、`tampercheck` TAMPERCHECK_OK、回歸 13 全綠
-- 進行中：**無**（M39 功能已 commit；commit hash 與 CI run 由接續的 docs(SESSION_RESUME) commit 標記）
+- 最後 commit：`HEAD`＝**M39（`0bc2ec1`）**——遮蔽偵測 Tamper（見下方 M39 定義段）；全 **185**、CI `35220667530` success
+- 進行中：**無**（M39 已驗收；下一里程碑待定）
 - 前一個 M38 交付＝`d09b045`（事件回應工作流，見下方 M38 定義段）、全 **172**、CI `35185639491` success
 - 前一個 M30 交付＝`24ad4c7`（MQTT 通知通道）：`NotificationSettings`＋
   `MqttEnabled/MqttHost/MqttPort(1883)/MqttTopic/MqttUser/MqttPassword`（鍵 `notify.mqtt.*`、
@@ -361,7 +361,7 @@ gh run list -L 3              # 預期全部 success
     - 回歸：全 172（Storage 62＋Alarms 78＋Licensing 8＋Devices 24）；set/snap/snmp/push/mqtt/
       ptz/notif/log/smtp/exp/off/evfilter/quiet 全綠
     - 驗收：App Release 0 error、Storage 62/62、Alarms 78/78、全 **172**、CI `35185639491` success
-14. **M39 功能 commit 完成＝遮蔽偵測（Tamper）**（實作＋測試＋tampercheck 全綠；commit hash 與 CI run 由 docs(SESSION_RESUME) commit 標記）：
+14. **M39 已驗收＝遮蔽偵測（Tamper）**（commit `0bc2ec1`，CI `35220667530` success）：
     - 背景：專業 NVR 基本警報「鏡頭被遮／被移／被噴漆」；L0 以純 CPU 幀分析即可落地（ARCHITECTURE §14.4 功能表 P1）
     - Alarms 新 `TamperDetector`（`src\HeliVMS.Alarms\TamperDetector.cs`）：16×16 灰階網格
       （`FrameDifferenceMotionDetector.DownsampleToGrid`）算**平均亮度**與**邊緣能量**
@@ -400,7 +400,7 @@ gh run list -L 3              # 預期全部 success
     - 排雷／設計決策：抽幀由呼叫端（ChannelSession 250ms）負責，引擎不限頻率；開窗後首幀
       像素才 Clone（長窗節省記憶體）；基準更新限定「正常」幀防污染
     - 回歸 13 全綠：set/snap/snmp/push/mqtt/ptz/notif/log/smtp/exp/off/evfilter/quiet
-    - 驗收：App Release 0 error、全 **185**、CI 綠（run 由 docs commit 標記）
+    - 驗收：App Release 0 error、全 **185**、CI `35220667530` success
 15. 每里程碑節奏照舊：定義先寫入本檔→實作→App Release build 0 error→單元測試→
     （有 UI 面者）E2E harness block→commit＋push＋CI success→`git status --porcelain` 空白
 
