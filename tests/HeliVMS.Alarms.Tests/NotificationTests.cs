@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Sockets;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using HeliVMS.Shared.Models;
@@ -34,6 +35,10 @@ public sealed class NotificationTests : IDisposable
         {
         }
     }
+
+    private static byte[] DecodeB64Url(string s)
+        => Convert.FromBase64String(s.Replace('-', '+').Replace('_', '/')
+            + new string('=', (4 - s.Length % 4) % 4));
 
     private static AlarmEventRecord Event(
         string type = "motion",
@@ -688,6 +693,160 @@ public sealed class NotificationTests : IDisposable
     }
 
     [Fact]
+    public void Load_PushFromStore_UnprotectsPrivateKey()
+    {
+        var s = Settings;
+        s.Set(NotificationSettings.PushEnabledKey, "true");
+        s.Set(NotificationSettings.PushEndpointKey, "https://push.example/v2/sub");
+        s.Set(NotificationSettings.PushPublicKeyKey, "BPubKey");
+        s.Set(NotificationSettings.PushPrivateKeyKey, SecretProtector.Protect("priv-key-raw"));
+
+        var cfg = NotificationSettings.Load(s);
+        Assert.True(cfg.PushEnabled);
+        Assert.Equal("https://push.example/v2/sub", cfg.PushEndpoint);
+        Assert.Equal("BPubKey", cfg.PushPublicKey);
+        Assert.Equal("priv-key-raw", cfg.PushPrivateKey);
+        Assert.True(cfg.HasPushRoute);
+        Assert.True(cfg.AnyChannelConfigured);
+    }
+
+    [Fact]
+    public void PushRoute_RequiresEnabledEndpointAndKey()
+    {
+        var cfg = NotificationSettings.Load(Settings) with
+        {
+            PushEnabled = true,
+            PushEndpoint = "http://x:8080/sub",
+        };
+        Assert.False(cfg.HasPushRoute);
+
+        var cfg2 = NotificationSettings.Load(Settings) with
+        {
+            PushEnabled = false,
+            PushEndpoint = "http://x:8080/sub",
+            PushPrivateKey = "priv",
+        };
+        Assert.False(cfg2.HasPushRoute);
+
+        var cfg3 = NotificationSettings.Load(Settings) with
+        {
+            PushEnabled = true,
+            PushEndpoint = "http://x:8080/sub",
+            PushPrivateKey = "priv",
+        };
+        Assert.True(cfg3.HasPushRoute);
+    }
+
+    [Fact]
+    public void VapidJwt_Es256SignatureVerifies()
+    {
+        var (pub, priv) = PushNotifier.GenerateKeyPair();
+        var jwt = PushNotifier.CreateVapidJwt(priv, pub, "http://127.0.0.1:9999");
+
+        var parts = jwt.Split('.');
+        Assert.Equal(3, parts.Length);
+
+        var point = DecodeB64Url(pub);
+        using var verifier = ECDsa.Create();
+        verifier.ImportParameters(new ECParameters
+        {
+            Curve = ECCurve.NamedCurves.nistP256,
+            Q = new ECPoint { X = point[1..33], Y = point[33..] },
+        });
+
+        var signingInput = Encoding.ASCII.GetBytes($"{parts[0]}.{parts[1]}");
+        Assert.True(verifier.VerifyData(signingInput, DecodeB64Url(parts[2]), HashAlgorithmName.SHA256));
+
+        using var claims = JsonDocument.Parse(Encoding.UTF8.GetString(DecodeB64Url(parts[1])));
+        Assert.Equal("http://127.0.0.1:9999", claims.RootElement.GetProperty("aud").GetString());
+        Assert.Equal("mailto:helivms@localhost", claims.RootElement.GetProperty("sub").GetString());
+    }
+
+    [Fact]
+    public async Task PushNotifier_PostsToEndpointWithVapidAuth()
+    {
+        using var server = new FakeHttpServer(_ => "HTTP/1.1 201 Created");
+        var (pub, priv) = PushNotifier.GenerateKeyPair();
+        var cfg = NotificationSettings.Load(Settings) with
+        {
+            PushEnabled = true,
+            PushEndpoint = server.Url,
+            PushPrivateKey = priv,
+            PushPublicKey = pub,
+        };
+
+        var ok = await new PushNotifier().SendAsync(cfg, Event());
+        Assert.True(ok);
+        Assert.Equal(1, server.Hits);
+
+        var req = server.Requests.Single();
+        Assert.Equal("POST", req.Method);
+        var auth = req.Headers
+            .Single(h => h.Name.Equals("Authorization", StringComparison.OrdinalIgnoreCase))
+            .Value;
+        Assert.StartsWith("vapid t=", auth);
+        Assert.Contains(", k=", auth);
+        Assert.Equal("60", req.Headers
+            .Single(h => h.Name.Equals("TTL", StringComparison.OrdinalIgnoreCase))
+            .Value);
+
+        using var doc = JsonDocument.Parse(req.Body);
+        Assert.Equal(7, doc.RootElement.GetProperty("channel_id").GetInt32());
+        Assert.Equal("motion", doc.RootElement.GetProperty("event_type").GetString());
+    }
+
+    [Fact]
+    public async Task PushNotifier_ServerError_ReturnsFalse()
+    {
+        using var server = new FakeHttpServer(_ => "HTTP/1.1 410 Gone");
+        var (pub, priv) = PushNotifier.GenerateKeyPair();
+        var cfg = NotificationSettings.Load(Settings) with
+        {
+            PushEnabled = true,
+            PushEndpoint = server.Url,
+            PushPrivateKey = priv,
+            PushPublicKey = pub,
+        };
+
+        Assert.False(await new PushNotifier().SendAsync(cfg, Event()));
+    }
+
+    [Fact]
+    public async Task PushNotifier_MissingPrivateKey_ReturnsFalse()
+    {
+        var cfg = NotificationSettings.Load(Settings) with
+        {
+            PushEnabled = true,
+            PushEndpoint = "http://127.0.0.1:1/sub",
+        };
+
+        Assert.False(await new PushNotifier().SendAsync(cfg, Event()));
+    }
+
+    [Fact]
+    public async Task Service_WebhookPlusPush_LogsBothRoutes()
+    {
+        using var http = new FakeHttpServer(_ => "HTTP/1.1 201 Created");
+        var (pub, priv) = PushNotifier.GenerateKeyPair();
+        Settings.Set(NotificationSettings.WebhookUrlKey, http.Url);
+        Settings.Set(NotificationSettings.PushEnabledKey, "true");
+        Settings.Set(NotificationSettings.PushEndpointKey, http.Url);
+        Settings.Set(NotificationSettings.PushPublicKeyKey, pub);
+        Settings.Set(NotificationSettings.PushPrivateKeyKey, SecretProtector.Protect(priv));
+
+        using var svc = new NotificationService(_store,
+            interval: TimeSpan.FromMilliseconds(50),
+            backoffBase: TimeSpan.FromMilliseconds(50));
+        svc.Enqueue(Event());
+        await WaitUntilAsync(() => svc.DeliveredCount == 1, TimeSpan.FromSeconds(10));
+
+        Assert.Equal(2, http.Hits);
+        var row = Assert.Single(new NotificationLogRepository(_store).ListRecent(10));
+        Assert.True(row.Ok);
+        Assert.Equal("webhook+push", row.Route);
+    }
+
+    [Fact]
     public async Task Service_WebhookPlusMqtt_LogsBothRoutes()
     {
         using var http = new FakeHttpServer(_ => "HTTP/1.1 200 OK");
@@ -742,7 +901,7 @@ internal sealed class FakeHttpServer : IDisposable
 
     public int Hits => Volatile.Read(ref _hits);
 
-    public ConcurrentQueue<(string Method, string Path, string Body)> Requests { get; } = new();
+    public ConcurrentQueue<(string Method, string Path, string Body, List<(string Name, string Value)> Headers)> Requests { get; } = new();
 
     private async Task AcceptLoop()
     {
@@ -783,9 +942,17 @@ internal sealed class FakeHttpServer : IDisposable
             var path = parts.Length > 1 ? parts[1] : string.Empty;
 
             var contentLength = 0;
+            var headers = new List<(string Name, string Value)>();
             string? line;
             while (!string.IsNullOrEmpty(line = await reader.ReadLineAsync().WaitAsync(TimeSpan.FromSeconds(5))))
             {
+                var idx = line.IndexOf(':');
+                if (idx <= 0)
+                {
+                    continue;
+                }
+
+                headers.Add((line[..idx], line[(idx + 1)..].Trim()));
                 if (line.StartsWith("Content-Length:", StringComparison.OrdinalIgnoreCase))
                 {
                     int.TryParse(line.Split(':')[1], out contentLength);
@@ -805,7 +972,7 @@ internal sealed class FakeHttpServer : IDisposable
                 body = new string(buf);
             }
 
-            Requests.Enqueue((method, path, body));
+            Requests.Enqueue((method, path, body, headers));
             var hit = Interlocked.Increment(ref _hits);
             var response = _responder(hit);
             var payload = Encoding.ASCII.GetBytes(

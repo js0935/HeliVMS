@@ -23,9 +23,9 @@ gh run list -L 3              # 預期全部 success
 新 session 會以 git 現況接手，不會靠猜測。
 
 ## 現況快照（權威來源＝git，非聊天記憶）
-- 最後 commit：`HEAD`＝**M32（`d71813b`）**——ONVIF Discovery 測試補完
-  （見下方 M32 定義段）；Devices ＋8 單元＝**19**、全 **136**、App Release 0 error
-- 進行中：**M33＝多 Profile 選擇 UI**（未 commit，見下方 M33 定義段）
+- 最後 commit：`HEAD`＝**M33（`1b376db`）**——多 Profile 選擇 UI
+  （見下方 M33 定義段）；Devices 19、全 **136**、App Release 0 error、CI `35160317102` success
+- 進行中：**M34＝Web Push 推播（RFC 8030/8292）**（未 commit，見下方 M34 定義段）
 - 前一個 M30 交付＝`24ad4c7`（MQTT 通知通道）：`NotificationSettings`＋
   `MqttEnabled/MqttHost/MqttPort(1883)/MqttTopic/MqttUser/MqttPassword`（鍵 `notify.mqtt.*`、
   env `HELIVMS_MQTT_*`、密碼 SecretProtector）；（快照 docs commit `dfdd551` 已含 M30 定義段）
@@ -210,10 +210,38 @@ gh run list -L 3              # 預期全部 success
    - 附帶修 harness 脆弱點：ptzcheck/ptzadvcheck/profcheck 在 `channels` 空表時
      `ChannelRepository.Add` 自建測試頻道（取代直接 BAD「no channels」——主 DB 可能被清空）
    - 驗收：App Release 0 error；ptzcheck/ptzadvcheck/profcheck 三健；單元全 **136** 不破
-9. 下一里程碑候選（M34 起）：推播通道（chunk 推送/Device Token）、ONVIF Discovery
-   Hello/Bye/Resolve（M32 後之 Discovery 強化）、SNMP 陷阱
-   - 每里程碑節奏照舊：定義先寫入本檔→實作→App Release build 0 error→單元測試→E2E harness
-     block→commit＋push＋CI success→`git status --porcelain` 空白
+9. **M34 進行中＝Web Push 推播（RFC 8030/8292）**（實作＋測試＋pushcheck 已完成，尚未 commit）：
+   - 背景：候選「推播通道」在「無第三方＋CI 可驗」約束下落地為 Web Push 提交端
+     （RFC 8030）；VAPID JWT（RFC 8292）用 .NET BCL `ECDsa` P-256 自簽，不需 NuGet；
+     endpoint 可為任何自選訂閱端點（無外部商業服務依賴），CI 用本機假端點完整驗證
+   - `PushNotifier`（Alarms）：`GenerateKeyPair()`（公鑰＝65B uncompressed point 之
+     base64url，RFC 8292 格式；私鑰＝PKCS#8 DER base64）、`CreateVapidJwt()`（ES256：
+     header+claims（aud=endpoint origin、exp=+12h、sub=mailto:）+raw R||S 64B 簽名）、
+     `SendAsync` POST endpoint＋headers `TTL:60`/`Urgency:normal`/`Authorization: vapid t=,k=`
+     /`Content-Encoding: identity`；body 同 MQTT 事件 JSON（channel_id/event_type/start_utc/detail）
+   - 關鍵發現：本環境 **.NET 10 的 `ECDsa.SignData(byte[], HashAlgorithmName)` 直接回傳
+     raw IEEE P1363（64B）而非 DER**（先前實測確認）——恰好就是 JWS ES256 所需的格式，
+     免去 DER→raw 轉換
+   - Settings：`notify.push.enabled/endpoint/public_key/private_key`（私鑰 DPAPI 保護）、
+     `HasPushRoute`（enabled＋endpoint＋私鑰）；SettingsWindow 通知頁加推播群，
+     「套用」時 endpoint 非空且無現有私鑰 → 自動 `GenerateKeyPair()` 落庫
+   - NotificationService：`ProcessItemAsync` 加 push route（複合 route 會併 `<x>+push`）
+   - 測試（NotificationTests +7）：Load 解析＋DPAPI 解私鑰、HasPushRoute 三要件、
+     VAPID JWT ES256 簽章以公鑰驗證（aud/sub claim）、PushNotifier POST 帶
+     `vapid t=.., k=..`＋TTL＋body（FakeHttpServer 擴充記錄 headers）、410→false、
+     缺私鑰→false、Service webhook+push 複合 route；Alarms **56→63**、全 **143**
+   - harness `pushcheck`→**PUSHCHECK_OK**（比照 mqttcheck）：本機 TcpListener 假 push
+     端點收 POST＋驗 Authorization `vapid t=`+`k=`＋body channel_id/event_type＋delivered=1
+   - 附帶：Signature 驗證測試因應 .NET 10 raw 簽章，改用直接驗 raw；不引入 DER helper
+   - 驗收：App Release 0 error、Alarms 63/63、全 **143**、mqttcheck/pushcheck 雙健、
+     CI 綠
+10. **M35（下一步）＝ONVIF Discovery Hello/Bye/Resolve**：M32 只驗 `Probe`；補
+    Hello/Bye/Resolve 三訊息傳送（`DiscoveryClient.SendHello/Bye/Resolve`），
+    本機 UDP 收包驗證＋單元測試
+11. **M36（之後）＝SNMP 陷阱**：裸 socket 送 SNMPv2c trap（OID＋community），
+    本機 UDP 收包驗證
+12. 每里程碑節奏照舊：定義先寫入本檔→實作→App Release build 0 error→單元測試→E2E harness
+    block→commit＋push＋CI success→`git status --porcelain` 空白
 
 ## 已知雷區（勿再犯）
 - **勿以 bash 對 repo 源碼做 byte 級重寫**（曾造成 UTF-8 漂移／mojibake 污染，已 `git restore` 還原）；

@@ -142,6 +142,8 @@ public partial class SettingsWindow : Window
         NotifyMqttTopicBox.Text = cfg.MqttTopic ?? string.Empty;
         NotifyMqttUserBox.Text = cfg.MqttUser ?? string.Empty;
         NotifyMqttPasswordBox.Password = string.Empty;   // 不預填密碼
+        NotifyPushEnabledBox.IsChecked = cfg.PushEnabled;
+        NotifyPushEndpointBox.Text = cfg.PushEndpoint ?? string.Empty;
     }
 
     private void OnApplyNotifyClicked(object sender, RoutedEventArgs e)
@@ -184,6 +186,18 @@ public partial class SettingsWindow : Window
         if (!string.IsNullOrEmpty(mqttPassword))
         {
             _settings.Set(NotificationSettings.MqttPasswordKey, SecretProtector.Protect(mqttPassword));
+        }
+
+        _settings.Set(NotificationSettings.PushEnabledKey,
+            NotifyPushEnabledBox.IsChecked == true ? "true" : "false");
+        var pushEndpoint = NotifyPushEndpointBox.Text.Trim();
+        _settings.Set(NotificationSettings.PushEndpointKey, pushEndpoint);
+        if (!string.IsNullOrWhiteSpace(pushEndpoint) &&
+            string.IsNullOrWhiteSpace(_settings.Get(NotificationSettings.PushPrivateKeyKey)))
+        {
+            var (publicKey, privateKey) = PushNotifier.GenerateKeyPair();
+            _settings.Set(NotificationSettings.PushPublicKeyKey, publicKey);
+            _settings.Set(NotificationSettings.PushPrivateKeyKey, SecretProtector.Protect(privateKey));
         }
 
         NotifyReportText.Text = "通知設定已套用（密碼以 DPAPI 加密保存）。";

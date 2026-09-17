@@ -296,6 +296,20 @@
                                  Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="8,4"/>
                 </StackPanel>
 
+                <TextBlock Text="Web Push 推播（RFC 8030/8292，不需外部服務）"
+                           Foreground="{StaticResource Brand.TextDim}" FontSize="11" Margin="0,8,0,0"/>
+                <StackPanel Orientation="Horizontal" Margin="0,2,0,4">
+                    <CheckBox x:Name="NotifyPushEnabledBox" AutomationProperties.AutomationId="NotifyPushEnabledBox"
+                              Content="推播發送" Foreground="White" VerticalAlignment="Center"/>
+                    <TextBlock Text="端點 URL" Foreground="{StaticResource Brand.TextDim}" FontSize="11" VerticalAlignment="Center"/>
+                    <TextBox x:Name="NotifyPushEndpointBox" AutomationProperties.AutomationId="NotifyPushEndpointBox"
+                             Width="300" Margin="6,0,0,0"
+                             Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="8,4"/>
+                </StackPanel>
+                <TextBlock Text="啟用且端點非空時自動產生 VAPID 金鑰對（ES256 P-256）；私鑰以 DPAPI 加密保存。"
+                           Foreground="{StaticResource Brand.TextDim}" FontSize="11" Margin="0,0,0,12"
+                           TextWrapping="Wrap"/>
+
                 <DockPanel>
                     <Button x:Name="NotifyApplyButton" AutomationProperties.AutomationId="NotifyApplyButton"
                             Content="套用通知設定" Click="OnApplyNotifyClicked"

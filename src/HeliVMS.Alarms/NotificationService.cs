@@ -24,6 +24,7 @@ public sealed class NotificationService : IDisposable
     private readonly WebhookNotifier _webhook = new();
     private readonly SmtpNotifier _smtp = new();
     private readonly MqttNotifier _mqtt = new();
+    private readonly PushNotifier _push = new();
     private readonly NotificationLogRepository _log;
     private readonly ConcurrentQueue<Item> _queue = new();
     private readonly ConcurrentQueue<Item> _retry = new();
@@ -306,6 +307,17 @@ public sealed class NotificationService : IDisposable
             if (!mOk)
             {
                 failures.Add("mqtt");
+            }
+        }
+
+        if (cfg.HasPushRoute)
+        {
+            routes.Add("push");
+            var pOk = await _push.SendAsync(cfg, item.Record);
+            success &= pOk;
+            if (!pOk)
+            {
+                failures.Add("push");
             }
         }
 
