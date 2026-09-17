@@ -24,7 +24,7 @@ gh run list -L 3              # 預期全部 success
 
 ## 現況快照（權威來源＝git，非聊天記憶）
 - 最後 commit：`HEAD`＝**M45（`ef3a8bc`）**——備份與異地備援（Backup）（見下方 §20 M45 定義段）；全 **289**、CI `35263453271` success
-- 進行中：**無**（M45 已驗收；下一里程碑待定）
+- 進行中：**M46＝錄影遮蔽（Redaction／隱私遮罩）**（見下方 §21 M46 定義段）
 - 前一個 M41 交付＝`2d89ea7`（電子地圖/平面圖）、全 **222**、CI `35232094120` success
 - 前一個 M38 交付＝`d09b045`（事件回應工作流，見下方 M38 定義段）、全 **172**、CI `35185639491` success
 - 前一個 M30 交付＝`24ad4c7`（MQTT 通知通道）：`NotificationSettings`＋
@@ -595,7 +595,27 @@ gh run list -L 3              # 預期全部 success
       開窗→左導航選「備份」→`BackupTargetBox` 填 temp 目標→「立即備份」→狀態含「備份完成」→log 清單有列
     - 回歸影響：Retention loop 每小時多一次 backup 檢查（無 target 設定時跳過）；Settings nav 第 11 項
     - 驗收：App Release 0 error、Storage 149、全 289、BACKUP_OK（連續 2 次綠：UI 立即備份複製 1 段＋推進、第二次 0 段）、回歸全綠、CI 綠
-21. 每里程碑節奏照舊：定義先寫入本檔→實作→App Release build 0 error→單元測試→
+21. **M46 進行中＝錄影遮蔽（Redaction／隱私遮罩）（§14.7 #5 P1：影像處理鏈缺「匯出前隱私遮罩」）**：
+    - 背景：§14.7 影像處理候選中，「錄影遮蔽」為隱私合規面（遮蔽敏感區/人物）且可獨立交付；ffmpeg 既有（M3/M21）
+    - Recording 新 `RedactionService`：`RedactAsync(RedactionRequest)`——`segments=ListByRange(main,from,to)`
+      → concat demuxer → `-filter_complex <BuildFilter(rois)> -map "[vout]"` → libx264 重新編碼
+      → 回傳 `RedactionResult{OutputPath, Sha256, FileSizeBytes, DurationSeconds}`（範圍無段 throw「無錄影段落」）
+    - `RedactionFilter.Build(rois)`（**純字串建構、CI 可測不需 ffmpeg**）：`[0:v]split={n+1}[s0..sn]`＋
+      每 ROI `[s{k}]crop={w}:{h}:{x}:{y},boxblur={r}:2:{r}:2,scale={w}:{h}[r{k}]`＋依序
+      `[s0][r1]overlay={x}:{y}[m1]…[vout]`；`r=clamp(min(w,h)/4,1,12)`（避開 boxblur chroma radius
+      上限 12 與 radius≤min/2 限制）；空 ROIs→throw、負座標/零寬高→throw
+    - `RedactionRoi(int X,int Y,int Width,int Height)`（絕對像素，多 ROI 同解析度假設）
+    - App：`RedactionWindow`（`--redaction`；MainWindow 工具列「遮蔽」按鈕）：頻道＋起訖時段＋
+      ROI 編輯（X/Y/W/H 輸入＋加入清單＋移除所選，RoiList）＋輸出預設 `dataRoot\redacted`＋「開始遮蔽」→
+      進度→結果（路徑/大小/時長/SHA-256）；頻道預設選第一個有 final 段者、時段預設對準該頻道 final 段範圍
+    - 測試：全 **289→293**（Storage/Recording 混合慣例：`RedactionFilterTests` 4——單 ROI 字串含
+      crop/boxblur/scale/overlay＋split=2、三 ROI 依序且 split=4、空 throw、負座標/零寬高 throw）
+    - harness `redactioncheck`→**REDACTION_OK**（真 ffmpeg 端到端，走 UI 真 DB）：`--redaction` 開窗→
+      `RedactRoiW/H` 設 64/48→加入遮罩（RoiList 1 列）→「開始遮蔽」→輪詢狀態含「遮蔽完成」且含 64-hex
+      SHA-256→`redacted` 下輸出存在＋`ffprobe` duration>0 且 codec=h264
+    - 回歸影響：MainWindow 新增工具列按鈕（不影響既有 10 鈕）；無 New DB 表
+    - 驗收：App Release 0 error、全 293、REDACTION_OK（連續 2 次綠：既有段遮蔽產出成功）、回歸全綠、CI 綠
+22. 每里程碑節奏照舊：定義先寫入本檔→實作→App Release build 0 error→單元測試→
     （有 UI 面者）E2E harness block→commit＋push＋CI success→`git status --porcelain` 空白
 
 ## 已知雷區（勿再犯）
