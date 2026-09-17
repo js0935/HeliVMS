@@ -9,7 +9,7 @@ namespace HeliVMS.Storage;
 /// </summary>
 public sealed class SqliteStore : IDisposable
 {
-    private const int CurrentSchemaVersion = 13;
+    private const int CurrentSchemaVersion = 14;
     private readonly SqliteConnection _connection;
     private readonly object _gate = new();
     private bool _disposed;
@@ -117,6 +117,11 @@ public sealed class SqliteStore : IDisposable
         if (version < 13)
         {
             CreateBackupLogTableV13();
+        }
+
+        if (version < 14)
+        {
+            CreateAlarmTriageTableV14();
         }
 
         Execute("PRAGMA user_version = CURRENT_SCHEMA_VERSION;".Replace(
@@ -451,6 +456,22 @@ public sealed class SqliteStore : IDisposable
                 detail         TEXT
             );
             CREATE INDEX IF NOT EXISTS idx_backup_log_target ON backup_log(target_root, run_at);
+            """);
+    }
+
+    /// <summary>M47 事件分診（§14.7 #3）：優先序／處理時限／負責人（一事件一列）。</summary>
+    private void CreateAlarmTriageTableV14()
+    {
+        Execute(
+            """
+            CREATE TABLE IF NOT EXISTS alarm_triage (
+                event_id   INTEGER PRIMARY KEY REFERENCES alarm_events(id) ON DELETE CASCADE,
+                priority   TEXT    NOT NULL DEFAULT 'normal',
+                due_utc    TEXT,
+                owner      TEXT,
+                updated_at TEXT    NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_triage_due ON alarm_triage(due_utc);
             """);
     }
 

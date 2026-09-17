@@ -298,6 +298,11 @@ public partial class MainWindow : Window
             Dispatcher.BeginInvoke(() => OpenRedactionWindow());
         }
 
+        if (Environment.GetCommandLineArgs().Contains("--alarmmanager", StringComparer.OrdinalIgnoreCase))
+        {
+            Dispatcher.BeginInvoke(() => OpenAlarmManagerWindow());
+        }
+
         if (Environment.GetCommandLineArgs().Contains("--events", StringComparer.OrdinalIgnoreCase))
         {
             Dispatcher.BeginInvoke(() => OpenEventCenter());
@@ -961,6 +966,18 @@ public partial class MainWindow : Window
     private void OnExportCenterClicked(object sender, RoutedEventArgs e) => OpenExportCenterWindow();
 
     private void OnRedactionClicked(object sender, RoutedEventArgs e) => OpenRedactionWindow();
+
+    private void OnAlarmManagerClicked(object sender, RoutedEventArgs e) => OpenAlarmManagerWindow();
+
+    /// <summary>開啟警報管理器（M47，§14.7 #3）：分診面板，與事件中心同權限（不另限 admin）。</summary>
+    private void OpenAlarmManagerWindow()
+    {
+        var window = new AlarmManagerWindow(_store!)
+        {
+            Owner = this,
+        };
+        window.Show();
+    }
 
     /// <summary>開啟錄影遮蔽窗（M46，§14.7 #5）。viewer 與匯出同權限限制。</summary>
     private void OpenRedactionWindow()
