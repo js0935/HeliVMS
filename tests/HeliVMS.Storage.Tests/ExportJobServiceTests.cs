@@ -1,4 +1,4 @@
-using System.Diagnostics;
+using System.Security.Cryptography;
 using HeliVMS.Recording;
 using HeliVMS.Storage;
 using Xunit;
@@ -18,6 +18,7 @@ public sealed class ExportJobServiceTests : IDisposable
         Directory.CreateDirectory(_dir);
         _store = new SqliteStore(_dbPath);
         _store.Initialize();
+        new ChannelRepository(_store).EnsureSeedChannels();
     }
 
     public void Dispose()
@@ -31,72 +32,43 @@ public sealed class ExportJobServiceTests : IDisposable
 
     private static readonly DateTime Base = new(2026, 9, 1, 1, 0, 0, DateTimeKind.Utc);
 
-    private int AddChannel(string name)
+    /// <summary>Fake 執行器：core 判定失敗時拋錯，否則寫「輸出檔」並回傳實測 SHA。</summary>
+    private static Func<ExportRequest, CancellationToken, Task<ExportResult>> FakeExecutor(
+        Func<ExportRequest, bool>? failWhen = null,
+        string failMessage = "無錄影段落（模擬）")
     {
-        return new ChannelRepository(_store).Add(name, $"rtsp://x/{Guid.NewGuid():N}");
-    }
-
-    private void SeedVideoSegment(int channelId, DateTime startUtc, string color)
-    {
-        var file = Path.Combine(_dir, $"seg-{Guid.NewGuid():N}.mp4");
-        var psi = new ProcessStartInfo
+        return (request, ct) =>
         {
-            FileName = "ffmpeg",
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-            CreateNoWindow = true,
+            if (failWhen?.Invoke(request) == true)
+            {
+                throw new InvalidOperationException(failMessage);
+            }
+
+            var payload = new byte[] { 1, 2, 3, (byte)(request.ChannelId % 256) };
+            File.WriteAllBytes(request.OutputPath, payload);
+            var sha = Convert.ToHexString(SHA256.HashData(payload)).ToLowerInvariant();
+            return Task.FromResult(new ExportResult(request.OutputPath, sha, payload.Length, 1.0));
         };
-        psi.ArgumentList.Add("-y");
-        psi.ArgumentList.Add("-hide_banner");
-        psi.ArgumentList.Add("-loglevel");
-        psi.ArgumentList.Add("error");
-        psi.ArgumentList.Add("-f");
-        psi.ArgumentList.Add("lavfi");
-        psi.ArgumentList.Add("-i");
-        psi.ArgumentList.Add($"color={color}:s=160x120:d=2");
-        psi.ArgumentList.Add("-an");
-        psi.ArgumentList.Add("-c:v");
-        psi.ArgumentList.Add("libx264");
-        psi.ArgumentList.Add("-preset");
-        psi.ArgumentList.Add("ultrafast");
-        psi.ArgumentList.Add("-pix_fmt");
-        psi.ArgumentList.Add("yuv420p");
-        psi.ArgumentList.Add(file);
-
-        using var proc = Process.Start(psi)!;
-        proc.StandardOutput.ReadToEnd();
-        proc.StandardError.ReadToEnd();
-        proc.WaitForExit();
-        Assert.Equal(0, proc.ExitCode);
-
-        var segRepo = new SegmentRepository(_store);
-        var id = segRepo.BeginSegment(channelId, "main", file, startUtc);
-        segRepo.CompleteSegment(id, startUtc.AddSeconds(2), new FileInfo(file).Length, 2, "seed");
     }
 
     [Fact]
     public async Task ProcessQueued_Empty_Noop()
     {
-        var svc = new ExportJobService(_store);
+        var svc = new ExportJobService(_store, FakeExecutor());
         var result = await svc.ProcessQueuedAsync(_dir);
 
         Assert.Equal(0, result.Processed);
+        Assert.Equal(0, result.Succeeded);
     }
 
     [Fact]
     public async Task ProcessQueued_TwoJobs_BothDoneWithVerifiableOutput()
     {
-        var ch1 = AddChannel("A");
-        var ch2 = AddChannel("B");
-        SeedVideoSegment(ch1, Base, "blue");
-        SeedVideoSegment(ch2, Base, "green");
-
         var jobs = new ExportJobRepository(_store);
-        var j1 = jobs.Enqueue(ch1, "main", Base.AddMinutes(-2), Base.AddMinutes(2));
-        var j2 = jobs.Enqueue(ch2, "main", Base.AddMinutes(-2), Base.AddMinutes(2));
+        var j1 = jobs.Enqueue(1, "main", Base.AddMinutes(-2), Base.AddMinutes(2));
+        var j2 = jobs.Enqueue(2, "main", Base.AddMinutes(-2), Base.AddMinutes(2));
 
-        var svc = new ExportJobService(_store);
+        var svc = new ExportJobService(_store, FakeExecutor());
         var result = await svc.ProcessQueuedAsync(_dir);
 
         Assert.Equal(2, result.Processed);
@@ -119,34 +91,28 @@ public sealed class ExportJobServiceTests : IDisposable
     [Fact]
     public async Task ProcessQueued_OneBadJob_FailedBehindContinues()
     {
-        var ch1 = AddChannel("A");
-        var ch2 = AddChannel("B");
-        SeedVideoSegment(ch2, Base, "red");
-
         var jobs = new ExportJobRepository(_store);
-        var bad = jobs.Enqueue(ch1, "main", Base.AddMinutes(-2), Base.AddMinutes(2));
-        var good = jobs.Enqueue(ch2, "main", Base.AddMinutes(-2), Base.AddMinutes(2));
+        var bad = jobs.Enqueue(1, "main", Base.AddMinutes(-2), Base.AddMinutes(2));
+        var good = jobs.Enqueue(2, "main", Base.AddMinutes(-2), Base.AddMinutes(2));
 
-        var svc = new ExportJobService(_store);
+        var svc = new ExportJobService(_store, FakeExecutor(
+            failWhen: r => r.ChannelId == 1));
         var result = await svc.ProcessQueuedAsync(_dir);
 
         Assert.Equal(2, result.Processed);
         Assert.Equal(1, result.Succeeded);
         Assert.Equal("failed", jobs.Get(bad)!.Status);
         Assert.Equal("done", jobs.Get(good)!.Status);
-        Assert.Contains("無錄影段落", jobs.Get(bad)!.Error);
+        Assert.Equal("無錄影段落（模擬）", jobs.Get(bad)!.Error);
     }
 
     [Fact]
     public async Task ProcessQueued_OutputsUseJobIdInName()
     {
-        var ch1 = AddChannel("A");
-        SeedVideoSegment(ch1, Base, "orange");
-
         var jobs = new ExportJobRepository(_store);
-        var j1 = jobs.Enqueue(ch1, "main", Base.AddMinutes(-2), Base.AddMinutes(2));
+        var j1 = jobs.Enqueue(1, "main", Base.AddMinutes(-2), Base.AddMinutes(2));
 
-        var svc = new ExportJobService(_store);
+        var svc = new ExportJobService(_store, FakeExecutor());
         await svc.ProcessQueuedAsync(_dir);
 
         var done = jobs.Get(j1)!;
