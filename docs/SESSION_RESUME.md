@@ -6,15 +6,15 @@
 
 ## 一句話總結
 HeliVMS 為一套**網路影像監控系統**（WPF 桌面應用：即時監看／回放／AI 事件中心／錄影排程）。
-里程碑 **M1 至 M43 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M43 數位證據安全包）。
-Release build 0 error、測試 **266/266 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
+里程碑 **M1 至 M44 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M44 匯出中心）。
+Release build 0 error、測試 **283/283 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
 本地與遠端完全同步（`git diff origin/HEAD` 為空）。
 
 ## 開新 session 的接手方法
 ```powershell
 # 在 D:\HeliVMS 開新 session 時，先對新的 agent 講：
 git status                    # 預期為 empty（乾淨）
-git log --oneline -20         # 預期見到 M1..M43，HEAD＝M43
+git log --oneline -20         # 預期見到 M1..M44，HEAD＝M44
 git diff origin/HEAD          # 預期為空（同步）
 gh run list -L 3              # 預期全部 success
 ```
@@ -23,8 +23,8 @@ gh run list -L 3              # 預期全部 success
 新 session 會以 git 現況接手，不會靠猜測。
 
 ## 現況快照（權威來源＝git，非聊天記憶）
-- 最後 commit：`HEAD`＝**M43（`3406f77`）**——數位證據安全包（Evidence Bundle）（見下方 M43 定義段）；全 **266**、CI `35243549066` success
-- 進行中：**無**（M43 已驗收；下一里程碑待定）
+- 最後 commit：`HEAD`＝**M44（`99556f6`）**——匯出中心（Export Center）（見下方 M44 定義段）；全 **283**、CI 進行中
+- 進行中：**無**（M44 已驗收；下一里程碑待定）
 - 前一個 M41 交付＝`2d89ea7`（電子地圖/平面圖）、全 **222**、CI `35232094120` success
 - 前一個 M38 交付＝`d09b045`（事件回應工作流，見下方 M38 定義段）、全 **172**、CI `35185639491` success
 - 前一個 M30 交付＝`24ad4c7`（MQTT 通知通道）：`NotificationSettings`＋
@@ -540,7 +540,38 @@ gh run list -L 3              # 預期全部 success
       匯出→輪詢 ResultText 含「證據包」→`exports` 下 `.evp` 存在→以 Service `Verify(密碼)` Valid→cleanup 刪
     - 回歸影響：無（原 15 blocks 不觸及 ExportWindow 新控制項；`expcheck` 未勾包照舊）
     - 驗收：App Release 0 error、Storage 126、全 266、EVIDCHECK_OK、回歸全綠（evidcheck 連續 2 次綠）、CI 綠
-19. 每里程碑節奏照舊：定義先寫入本檔→實作→App Release build 0 error→單元測試→
+19. **M44 已驗收＝匯出中心（Export Center）：批量匯出＋歷史工作＋完整性驗證（§14.3(2) P0 剩餘）**（commit `99556f6`，全 **283**，CI 進行中）：
+    - 背景：§14.3(2)「匯出證據工作流」已有單段匯出精靈＋證據包（M43），缺「批量匯出＋進度與續傳＋匯出中心（歷史清單與狀態）＋匯出即驗證（ffprobe 完整性報告）」
+    - Storage schema **v12**：新表 `export_jobs`（
+      `id`、`channel_id`、`stream`、`start_time`、`end_time`（ISO UTC）、`status`
+      `('queued'|'running'|'done'|'failed')`、`output_path`、`file_size_bytes`、`sha256`、`error`、
+      `created_at/started_at/finished_at`）；`ExportJobRepository`（
+      Enqueue＋List(全部,倒序)＋Get＋UpdateStatus＋SetResult(輸出/SHA/size)＋SetError＋Delete＋ListQueued）
+    - Storage 新 `ExportVerifier`：`Verify(outputPath, expectedSha?, useFfprobe?)`→
+      `VerificationReport{OutputPath, Sha256, SizeBytes, HashMatches, FfprobeSummary?, Valid}`
+      （重算 SHA-256 比對→HashMatches；`ffprobe -v error -show_entries format=duration -of csv` 非缺失時出 summary；
+      報告文字供 UI「完整性報告」）
+    - Recording 新 `ExportJobService`：`ProcessQueued(store, jobsRepo?, temp/settings)`——依序取 queued（最舊優先）
+      各 job 以既有 `ExportService.ExportAsync` 執行（channel/range→concatenate→write output_path collate job 名），
+      成功→status=done＋sha256＋size；例外→failed＋error；單一反任一 job 失敗不卡佇列（續下一）；
+      `PurgeFinished(olderThan)` 供「清完成紀錄」
+    - App：`ExportCenterWindow`（`--exportcenter` 開啟；MainWindow 工具列「匯出」旁加「匯出中心」按鈕）：
+      「新增匯出」群（多通道 Checklist、起訖時段、目的資料夾）→批次 Enqueue；關閉列狀態與刷新 Timer；
+      DataGrid 歷史清單（id/channel/range/status/大小/SHA/時間）＋「開始處理」（循序跑 queued，處理中
+      ExportButton disable）＋「驗證」（done job→ExportVerifier.Verify→報告文字含完整性 ok/fail）＋
+      「刪除」＋「清完成紀錄」
+    - 測試：Storage **126→143**（`ExportJobRepositoryTests` 7：Enqueue 回 id＋queued／List 新→舊／
+      ListQueued 僅 queued 且舊→新／MarkRunning→SetResult done＋輸出路徑＋sha＋size＋時間／SetError→failed＋error／
+      Delete／PurgeFinished 僅舊 done；`ExportVerifierTests` 6：hash 符→Valid／不符→fail／無預期 hash 存在即 Valid／
+      缺檔 invalid／sha 小寫 hex 64／ffprobe summary 可選；`ExportJobServiceTests` 4：空佇列 noop／兩 job 循序 done＋
+      輸出存在＋Verify 對 sha Valid＋ffprobe 非空／一 job 失敗 failed 續下一（「無錄影段落」）／輸出檔名含 export-job{id}）＝全 **266→283**
+    - harness `exportcentercheck`→**EXPORTCENTER_OK**：(A) Service——temp store＋假 segments（兩通道各
+      一段 6s）→Enqueue 2 job→`ProcessQueued`→兩 done＋output 存在＋`ExportVerifier.Verify` Valid；
+      一 job 指向不存在段→failed＋佇列續作；(B) UI——`--exportcenter` 開窗→列表顯示 jobs→點「驗證」
+      →報告含「完整性」；(C) 安全：真實 DB 只讀不改 jobs／不執行「開始處理」
+    - 回歸影響：`expcheck`/`evidcheck` 不觸新窗；新增 EXPORTCENTER_CHECK（回歸 17 blocks）
+    - 驗收：App Release 0 error、Storage 143、全 283、EXPORTCENTER_OK（連續 2 次綠）、回歸全綠、CI 綠
+20. 每里程碑節奏照舊：定義先寫入本檔→實作→App Release build 0 error→單元測試→
     （有 UI 面者）E2E harness block→commit＋push＋CI success→`git status --porcelain` 空白
 
 ## 已知雷區（勿再犯）
