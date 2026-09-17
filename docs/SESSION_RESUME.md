@@ -26,7 +26,7 @@ gh run list -L 3              # 預期全部 success
 - 最後 commit：`HEAD`＝**M47（`f3c01e1`）**——警報管理器（Alarm Manager／分診面板）（見下方 §22 M47 定義段）；全 **299**、CI `35286083642` success
 - 前一個 M46 交付＝`c7f6e8f`（錄影遮蔽 Redaction，見下方 §21 M46 定義段）、全 **293**、CI `35284550851` success
 - 前一個 M45 交付＝`ef3a8bc`（備份與異地備援，見下方 §20 M45 定義段）、全 **289**、CI `35263453271` success
-- 下一個里程碑：待選（§14.7 尚餘 **#2 魚眼矯正 Dewarping** 等影像處理候選）
+- 進行中：**M48＝魚眼矯正（Dewarping／全景校正）**（見下方 §23 M48 定義段）
 - 前一個 M41 交付＝`2d89ea7`（電子地圖/平面圖）、全 **222**、CI `35232094120` success
 - 前一個 M38 交付＝`d09b045`（事件回應工作流，見下方 M38 定義段）、全 **172**、CI `35185639491` success
 - 前一個 M30 交付＝`24ad4c7`（MQTT 通知通道）：`NotificationSettings`＋
@@ -631,7 +631,21 @@ gh run list -L 3              # 預期全部 success
     - harness `alarmmanagercheck`→**ALARMMANAGER_OK**：先以臨時 seed 工具（temp console 引用 HeliVMS.Storage；`detail='harness triage seed'` 可重跑覆蓋，含一筆逾期 critical）插入事件→`--alarmmanager` 開窗→`SummaryText` 含「逾期」→`BoardList` ≥1 列→選首列→`PriorityCombo` 選「高」＋`OwnerBox`/`NoteBox` 填值→套用→輪詢 `ManagerStatusText` 含「已更新」→清單出現優先序「高」儲存格
     - 回歸影響：MainWindow 新增工具列按鈕；新表 v14（舊庫自動升版）
     - 驗收：App Release 0 error、全 **293→299**、ALARMMANAGER_OK（連續 2 次綠）、回歸全綠、CI `35286083642` success
-23. 每里程碑節奏照舊：定義先寫入本檔→實作→App Release build 0 error→單元測試→
+23. **M48 進行中＝魚眼矯正（Dewarping／全景校正）（§14.7 #2 P1：魚眼/全景攝影機漸普及，QNAP Qdewarp、Genetec、Synology 皆有；本機完全沒有）**：
+    - 背景：回放/匯出目前僅原樣呈現魚眼畫面；ffmpeg 內建 `v360`（本機 `ffmpeg -filters` 已確認 `V->V`）可離線矯正、不需 GPU；與 M46 遮蔽同屬「錄影段後處理」模式（`ListByRange`→concat→重編碼）
+    - Recording 新 `DewarpFilter.Build(DewarpSettings)`（**純字串建構、CI 可測不需 ffmpeg**）：
+      - 白名單投影：`input`∈{`fisheye`,`dfisheye`,`equirect`}、`output`∈{`flat`,`equirect`,`c3x2`}（其他 throw）
+      - 參數：`ih_fov`/`iv_fov`（輸入視角 0–360）、`h_fov`/`v_fov`（輸出視角 0–360；`flat` 時需 >0）、`yaw`/`pitch`/`roll`（−180–180）、`w`/`h`（輸出尺寸，0＝沿用輸入）
+      - 產出：`v360=input={in}:output={out}:ih_fov={ihfv}:iv_fov={ivfv}:h_fov={hfv}:v_fov={vfv}:yaw={yaw}:pitch={pitch}:roll={roll}`＋（w/h>0 時）`:w={w}:h={h}`
+      - 驗證：視角超界（<0 或 >360）、角度超界（<−180 或 >180）、`flat` 且 `h_fov`/`v_fov` ≤0、`w`/`h` <0 → throw
+    - `DewarpSettings`（record：`Input`/`Output` 投影列舉＋`InputHFov`/`InputVFov`/`HFov`/`VFov`＋`Yaw`/`Pitch`/`Roll`＋`Width`/`Height`；`Default`＝fisheye→flat、輸入 180×180、輸出 90×90、1280×720）
+    - Recording 新 `DewarpService.DewarpAsync(DewarpRequest, IProgress<ExportProgress>?, ct)`：`ListByRange(ch,"main",from,to)` 依 `StartUtc` 排序→無段 throw「所選範圍無錄影段落可供矯正」→concat demuxer→`-vf <DewarpFilter.Build>`→libx264 ultrafast crf23＋aac＋`+faststart`＋可選 SHA-256→`DewarpResult{OutputPath,Sha256,FileSizeBytes,DurationSeconds=Σ DurationSec}`（temp concat 清理；骨架比照 `RedactionService`，不共用避免動 M46）
+    - App 新 `DewarpWindow`（`--dewarp`；MainWindow 工具列「矯正」鈕）：頻道＋起訖時段（預設選第一個有 final 段者、時段對準該頻道 final 段，比照 `RedactionWindow`）＋`InputCombo`/`OutputCombo`＋輸入/輸出視角四框＋`YawBox`/`PitchBox`/`RollBox`＋`WidthBox`/`HeightBox`＋「預覽」（對首段抽 1 幀套 `v360` 產生 PNG 並於 `PreviewImage` 顯示）＋「開始矯正」→進度→結果（路徑/大小/時長/SHA-256）；輸出預設 `dataRoot\dewarped`
+    - 測試：`DewarpFilterTests`（Storage/Recording 混合慣例）——fisheye→flat 基本字串、dfisheye→equirect、尺寸附加、視角超界 throw、角度超界 throw、flat 零視角 throw、白名單 throw；全 **299→約 305**
+    - harness `dewarpcheck`→**DEWARP_OK**（真 ffmpeg 端到端，走 UI 真 DB）：`--dewarp` 開窗→設定 fisheye→flat、h_fov/v_fov=90、1280×720→「開始矯正」→輪詢狀態含「矯正完成」且含 64-hex SHA-256→輸出存在＋`ffprobe` 解析度＝1280x720 且 `codec=h264` 且 duration>0
+    - 回歸影響：MainWindow 新增工具列按鈕；**無 New DB 表**（不涉 schema，維持 v14）
+    - 驗收：App Release 0 error、全約 **305**、DEWARP_OK（連續 2 次綠）、`redactioncheck` 回歸綠、CI 綠
+24. 每里程碑節奏照舊：定義先寫入本檔→實作→App Release build 0 error→單元測試→
     （有 UI 面者）E2E harness block→commit＋push＋CI success→`git status --porcelain` 空白
 
 ## 已知雷區（勿再犯）
