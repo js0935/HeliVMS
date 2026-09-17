@@ -23,7 +23,7 @@ gh run list -L 3              # 預期全部 success
 新 session 會以 git 現況接手，不會靠猜測。
 
 ## 現況快照（權威來源＝git，非聊天記憶）
-- 最後 commit：`HEAD`＝**M44（`99556f6`）**——匯出中心（Export Center）（見下方 M44 定義段）；全 **283**、CI 進行中
+- 最後 commit：`HEAD`＝**M44（`99556f6`）**——匯出中心（Export Center）（見下方 M44 定義段）；全 **283**、CI `35260052774` success（含修復 `1112251`：CI runner 無 ffmpeg→ExportJobService 注入 executor）
 - 進行中：**無**（M44 已驗收；下一里程碑待定）
 - 前一個 M41 交付＝`2d89ea7`（電子地圖/平面圖）、全 **222**、CI `35232094120` success
 - 前一個 M38 交付＝`d09b045`（事件回應工作流，見下方 M38 定義段）、全 **172**、CI `35185639491` success
@@ -540,7 +540,7 @@ gh run list -L 3              # 預期全部 success
       匯出→輪詢 ResultText 含「證據包」→`exports` 下 `.evp` 存在→以 Service `Verify(密碼)` Valid→cleanup 刪
     - 回歸影響：無（原 15 blocks 不觸及 ExportWindow 新控制項；`expcheck` 未勾包照舊）
     - 驗收：App Release 0 error、Storage 126、全 266、EVIDCHECK_OK、回歸全綠（evidcheck 連續 2 次綠）、CI 綠
-19. **M44 已驗收＝匯出中心（Export Center）：批量匯出＋歷史工作＋完整性驗證（§14.3(2) P0 剩餘）**（commit `99556f6`，全 **283**，CI 進行中）：
+19. **M44 已驗收＝匯出中心（Export Center）：批量匯出＋歷史工作＋完整性驗證（§14.3(2) P0 剩餘）**（commit `99556f6`，全 **283**，CI `35260052774` success；修復 `1112251`＝CI 無 ffmpeg→`ExportJobService` 注入 executor、測試改用 fake executor）：
     - 背景：§14.3(2)「匯出證據工作流」已有單段匯出精靈＋證據包（M43），缺「批量匯出＋進度與續傳＋匯出中心（歷史清單與狀態）＋匯出即驗證（ffprobe 完整性報告）」
     - Storage schema **v12**：新表 `export_jobs`（
       `id`、`channel_id`、`stream`、`start_time`、`end_time`（ISO UTC）、`status`
