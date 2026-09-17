@@ -6,7 +6,7 @@
 
 ## 一句話總結
 HeliVMS 為一套**網路影像監控系統**（WPF 桌面應用：即時監看／回放／AI 事件中心／錄影排程）。
-里程碑 **M1 至 M36 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M36 為最新）。
+里程碑 **M1 至 M37 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M37 為最新）。
 Release build 0 error、測試 **168/168 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
 本地與遠端完全同步（`git diff origin/HEAD` 為空）。
 
@@ -14,18 +14,18 @@ Release build 0 error、測試 **168/168 全過**、`git status --porcelain` **�
 ```powershell
 # 在 D:\HeliVMS 開新 session 時，先對新的 agent 講：
 git status                    # 預期為 empty（乾淨）
-git log --oneline -20         # 預期見到 M1..M23，HEAD＝（M23）
+git log --oneline -20         # 預期見到 M1..M37，HEAD＝M37
 git diff origin/HEAD          # 預期為空（同步）
 gh run list -L 3              # 預期全部 success
 ```
 新 session 的 prompt 只需這一句：
-「接續 HeliVMS M16 收尾，請先讀 `docs\SESSION_RESUME.md`，照指示以自主模式繼續。」
+「接續 HeliVMS M37 收尾，請先讀 `docs\SESSION_RESUME.md`，照指示以自主模式繼續。」
 新 session 會以 git 現況接手，不會靠猜測。
 
 ## 現況快照（權威來源＝git，非聊天記憶）
-- 最後 commit：`HEAD`＝**M36（`4c5dd71`）**——SNMP 陷阱 SNMPv2c（見下方 M36 定義段）
-- 進行中：**M37＝告警規則層**（見下方 M37 定義段）——**harness rulescheck RULECHECK_OK**
-- 前一個 M35 交付＝`0493612`（ONVIF Discovery Hello/Bye/Resolve）：Devices 19→24、全 **148**、CI success
+- 最後 commit：`HEAD`＝**M37（`ba1636b`）**——告警規則層（見下方 M37 定義段）；全 **168**、CI `35175424681` success
+- 進行中：**無**（M37 已驗收；下一里程碑待定）
+- 前一個 M36 交付＝`4c5dd71`（SNMP 陷阱 SNMPv2c）；M35 交付＝`0493612`（ONVIF Discovery Hello/Bye/Resolve）、全 **148**、CI success
 - 前一個 M30 交付＝`24ad4c7`（MQTT 通知通道）：`NotificationSettings`＋
   `MqttEnabled/MqttHost/MqttPort(1883)/MqttTopic/MqttUser/MqttPassword`（鍵 `notify.mqtt.*`、
   env `HELIVMS_MQTT_*`、密碼 SecretProtector）；（快照 docs commit `dfdd551` 已含 M30 定義段）
@@ -284,7 +284,7 @@ gh run list -L 3              # 預期全部 success
       位元組序列＋delivered=1；OID 99999 之 base-128 末位是 `0x1F` 非 `0x9F` 易算錯）
     - 回歸：snmpcheck/pushcheck/mqttcheck/ptzcheck 全 OK
     - 驗收：App Release 0 error、Alarms 68/68、全 **153**、CI 綠
-12. **M37 進行中＝告警規則層**（實作＋測試＋harness rulescheck 已完成，尚未 commit）：
+12. **M37 已驗收＝告警規則層**（commit `ba1636b`，CI `35175424681` success）：
     - 背景：多通道建好後需「規則白名單」——命中規則事件僅走指定通道，多規則第一命中優先
     - `AlertRule`（Storage）：`Id/Name/EventType/ChannelId/Keyword/Channels/Enabled`；
       `alert_rules` 表為 schema **v7**（`CurrentSchemaVersion` 6→7、
@@ -316,6 +316,9 @@ gh run list -L 3              # 預期全部 success
     - 排雷：規則頁 `PageRules` 是 StackPanel 無 AutomationPeer——`RuFind("SettingsPageRules")`
       得 null（UIA 找不到 page）但子元素都在，conditions 不應以 page 為必要（見雷區）；且
       規則 harness 開 App 用「設定中心」窗標籤＋enum `GetWindowTextW` 含「設定中心」判斷 focus
+    - 回歸影響：設定中心 nav 由 6→**7**（新增「規則」頁）——`setcheck`/`snapcheck` 之
+      `navCount==6` 硬期望須同步改 **7**（已更新 harness）；回歸組全綠
+      （set/snap/snmp/push/mqtt/ptz/notif/log/smtp/exp/off/evfilter/quiet）
     - 驗收：App Release 0 error、Storage 58/58、Alarms 78/78、全 **168**、CI 綠
 13. 每里程碑節奏照舊：定義先寫入本檔→實作→App Release build 0 error→單元測試→
     （有 UI 面者）E2E harness block→commit＋push＋CI success→`git status --porcelain` 空白
@@ -353,6 +356,11 @@ gh run list -L 3              # 預期全部 success
   `FindFirst(Descendants, AutomationIdProperty)` 找到；但 **`Visibility=Collapsed` 的子項目
   （TextBlock/TextBox/Button 等具 peer 元素）在 UIA 樹中直接「不存在」**（FindFirst 回 null），
   切頁測試用「目標頁元素存在／消失」判斷即可（`setcheck` 以此驗證翻頁）
+  - M37 再證：即使 nav 已切到規則頁（子元素 `RuleNameBox` 等都找得到＝頁面 Visible），
+    page 本身 `SettingsPageRules` 仍回 null（Panel 無 peer）——故 rules-ui 的成立條件
+    應以子控件為準，page 存在與否僅供診斷（切勿把 `ruPage is not null` 當 gate）
+  - M37 回歸：設定中心 nav 由 6→7，凡 harness 硬斷言 `navCount==6` 者（setcheck/snapcheck）
+    都必須同步更新為 7
 - **設定中心儲存庫權威**：錄影配額已從 DB 讀（`recording.quota_gb`），若改動 `MainWindow.ReadQuotaBytes()`
   需同時顧及 `SettingsWindow.QuotaGbFromStore()`（同優先序：DB→`HELIVMS_QUOTA_GB`→10GB）
 - **本機存在有效授權檔**（`%LOCALAPPDATA%\HeliVMS\license.lic`：32 路、2027-09-30 到期），
