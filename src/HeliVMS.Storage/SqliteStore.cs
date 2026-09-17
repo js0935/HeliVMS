@@ -9,7 +9,7 @@ namespace HeliVMS.Storage;
 /// </summary>
 public sealed class SqliteStore : IDisposable
 {
-    private const int CurrentSchemaVersion = 7;
+    private const int CurrentSchemaVersion = 8;
     private readonly SqliteConnection _connection;
     private readonly object _gate = new();
     private bool _disposed;
@@ -86,6 +86,11 @@ public sealed class SqliteStore : IDisposable
         if (version < 7)
         {
             CreateAlertRulesTableV7();
+        }
+
+        if (version < 8)
+        {
+            CreateEventDispositionsTableV8();
         }
 
         Execute("PRAGMA user_version = CURRENT_SCHEMA_VERSION;".Replace(
@@ -200,6 +205,29 @@ public sealed class SqliteStore : IDisposable
                 created_at  TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
             );
             CREATE INDEX IF NOT EXISTS idx_alert_rules_enabled ON alert_rules(enabled);
+            """);
+    }
+
+    private void CreateEventDispositionsTableV8()
+    {
+        Execute(
+            """
+            CREATE TABLE IF NOT EXISTS event_dispositions (
+                event_id    INTEGER PRIMARY KEY REFERENCES alarm_events(id) ON DELETE CASCADE,
+                status      TEXT    NOT NULL DEFAULT 'pending',
+                assigned_to TEXT,
+                note        TEXT,
+                updated_at  TEXT    NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS event_disposition_trail (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                event_id    INTEGER NOT NULL REFERENCES alarm_events(id) ON DELETE CASCADE,
+                status      TEXT    NOT NULL,
+                assigned_to TEXT,
+                note        TEXT,
+                changed_at  TEXT    NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_disp_trail_event ON event_disposition_trail(event_id);
             """);
     }
 

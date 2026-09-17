@@ -20,6 +20,7 @@ public partial class EventCenterWindow : Window
     private IReadOnlyList<Detection> _snapDetections = [];
     private const int PageSize = 50;
     private int _page = 1;
+    private long? _selectedId;
 
     public EventCenterWindow(SqliteStore store)
     {
@@ -49,11 +50,23 @@ public partial class EventCenterWindow : Window
 
         public bool Acknowledged { get; init; }
 
-        public string AckLabel => Acknowledged ? "已確認" : "未確認";
+        public string Status { get; init; } = AlarmEventStatus.Pending;
 
-        public Brush AckBrush => Acknowledged
-            ? new SolidColorBrush(Color.FromRgb(0x2A, 0x5C, 0x8A))
-            : new SolidColorBrush(Color.FromRgb(0x8A, 0x6F, 0x3A));
+        public string? AssignedTo { get; init; }
+
+        public string? Note { get; init; }
+
+        public string StatusLabel => AlarmEventStatus.Label(Status);
+
+        public string AssignedLabel => string.IsNullOrWhiteSpace(AssignedTo) ? "" : AssignedTo!;
+
+        public Brush StatusBrush => Status switch
+        {
+            AlarmEventStatus.Acknowledged => new SolidColorBrush(Color.FromRgb(0x2A, 0x5C, 0x8A)),
+            AlarmEventStatus.Actioned => new SolidColorBrush(Color.FromRgb(0x2A, 0x7F, 0x6E)),
+            AlarmEventStatus.FalseAlarm => new SolidColorBrush(Color.FromRgb(0x55, 0x5F, 0x6B)),
+            _ => new SolidColorBrush(Color.FromRgb(0x8A, 0x6F, 0x3A)),
+        };
 
         public string? SnapshotPath { get; init; }
 
@@ -193,6 +206,9 @@ public partial class EventCenterWindow : Window
                     ? $"{(end - ev.StartUtc).TotalSeconds:0.#}s"
                     : "",
                 Acknowledged = ev.Acknowledged,
+                Status = ev.Status,
+                AssignedTo = ev.AssignedTo,
+                Note = ev.Note,
                 SnapshotPath = ev.SnapshotPath,
             })
             .ToList();
@@ -229,9 +245,29 @@ public partial class EventCenterWindow : Window
         PageText.Text = $"第 {_page} / {pages} 頁";
         PrevPageButton.IsEnabled = _page > 1;
         NextPageButton.IsEnabled = _page * PageSize < total;
+        var keepId = _selectedId;
         EventList.SelectedItem = null;
         CardList.SelectedItem = null;
+        _selectedId = keepId;
         ClearSnapshot();
+
+        if (keepId is long keep)
+        {
+            var again = eventRows.FirstOrDefault(r => r.Id == keep);
+            if (again is not null)
+            {
+                EventList.SelectedItem = again;
+            }
+            else
+            {
+                _selectedId = null;
+                ApplySelection(null);
+            }
+        }
+        else
+        {
+            ApplySelection(null);
+        }
     }
 
     private void OnPrevPageClicked(object sender, RoutedEventArgs e)
@@ -267,11 +303,8 @@ public partial class EventCenterWindow : Window
     private void OnEventSelected(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
     {
         var row = EventList.SelectedItem as EventRow;
-        AckButton.IsEnabled = row != null && !row.Acknowledged;
-        UnackButton.IsEnabled = row != null && row.Acknowledged;
-        PlaybackButton.IsEnabled = row != null;
-        ShowSnapshot(row?.SnapshotPath, row?.Detail);
-        
+        ApplySelection(row);
+
         // 同步卡片檢視的選中狀態
         if (row != null && CardList.Visibility == Visibility.Visible)
         {
@@ -282,11 +315,8 @@ public partial class EventCenterWindow : Window
     private void OnCardSelected(object sender, SelectionChangedEventArgs e)
     {
         var row = CardList.SelectedItem as EventRow;
-        AckButton.IsEnabled = row != null && !row.Acknowledged;
-        UnackButton.IsEnabled = row != null && row.Acknowledged;
-        PlaybackButton.IsEnabled = row != null;
-        ShowSnapshot(row?.SnapshotPath, row?.Detail);
-        
+        ApplySelection(row);
+
         // 同步網格檢視的選中狀態
         if (row != null && EventList.Visibility == Visibility.Visible)
         {
@@ -294,9 +324,85 @@ public partial class EventCenterWindow : Window
         }
     }
 
+    /// <summary>套用選取：按鈕狀態、快照、處置控制項與軌跡。</summary>
+    private void ApplySelection(EventRow? row)
+    {
+        _selectedId = row?.Id;
+        AckButton.IsEnabled = row != null && !row.Acknowledged;
+        UnackButton.IsEnabled = row != null && row.Acknowledged;
+        PlaybackButton.IsEnabled = row != null;
+        ApplyDispositionButton.IsEnabled = row != null;
+        ShowSnapshot(row?.SnapshotPath, row?.Detail);
+
+        if (row is null)
+        {
+            DisposeDispositionEditor();
+            TrailText.Text = "軌跡：—";
+            return;
+        }
+
+        SelectDisposition(row.Status);
+        AssignBox.Text = row.AssignedTo ?? "";
+        NoteBox.Text = row.Note ?? "";
+        ShowTrail(row.Id);
+    }
+
+    private void DisposeDispositionEditor()
+    {
+        DispositionCombo.SelectedIndex = 0;
+        AssignBox.Text = "";
+        NoteBox.Text = "";
+    }
+
+    private void SelectDisposition(string status)
+    {
+        var idx = 0;
+        for (var i = 0; i < DispositionCombo.Items.Count; i++)
+        {
+            if (DispositionCombo.Items[i] is ComboBoxItem item && (item.Tag as string) == status)
+            {
+                idx = i;
+                break;
+            }
+        }
+
+        DispositionCombo.SelectedIndex = idx;
+    }
+
+    private void ShowTrail(long eventId)
+    {
+        var trail = _events.ListDispositionTrail(eventId);
+        if (trail.Count == 0)
+        {
+            TrailText.Text = "軌跡：尚無處置紀錄。";
+            return;
+        }
+
+        var last = trail[^1];
+        var at = last.ChangedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm");
+        var who = string.IsNullOrWhiteSpace(last.AssignedTo) ? "" : $" by {last.AssignedTo}";
+        var note = string.IsNullOrWhiteSpace(last.Note) ? "" : $" － {last.Note}";
+        TrailText.Text = $"軌跡：共 {trail.Count} 筆｜最近 {at} {AlarmEventStatus.Label(last.Status)}{who}{note}";
+    }
+
+    private void OnApplyDispositionClicked(object sender, RoutedEventArgs e)
+    {
+        if (SelectedRow is not EventRow row)
+        {
+            return;
+        }
+
+        var status = (DispositionCombo.SelectedItem as ComboBoxItem)?.Tag as string
+            ?? AlarmEventStatus.Pending;
+        var assign = string.IsNullOrWhiteSpace(AssignBox.Text) ? null : AssignBox.Text.Trim();
+        var note = string.IsNullOrWhiteSpace(NoteBox.Text) ? null : NoteBox.Text.Trim();
+        _events.SetDisposition(row.Id, status, assign, note, DateTime.UtcNow);
+        DoRefresh();
+    }
+
     private void OnPlaybackClicked(object sender, RoutedEventArgs e)
     {
-        if (EventList.SelectedItem is not EventRow row)
+        if (SelectedRow is not EventRow row)
         {
             return;
         }
@@ -304,6 +410,10 @@ public partial class EventCenterWindow : Window
         var playback = new PlaybackWindow(_store, row.ChannelId, row.StartUtc) { Owner = this };
         playback.Show();
     }
+
+    /// <summary>目前檢視中被選取的事件列。</summary>
+    private EventRow? SelectedRow =>
+        (CardList.Visibility == Visibility.Visible ? CardList.SelectedItem : EventList.SelectedItem) as EventRow;
 
     private void OnEventDoubleClick(object sender, MouseButtonEventArgs e)
     {
@@ -324,7 +434,7 @@ public partial class EventCenterWindow : Window
 
     private void SetAck(bool acknowledged)
     {
-        if (EventList.SelectedItem is not EventRow row)
+        if (SelectedRow is not EventRow row)
         {
             return;
         }

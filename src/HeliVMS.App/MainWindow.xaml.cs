@@ -286,6 +286,11 @@ public partial class MainWindow : Window
             Dispatcher.BeginInvoke(() => OpenExportWindow());
         }
 
+        if (Environment.GetCommandLineArgs().Contains("--events", StringComparer.OrdinalIgnoreCase))
+        {
+            Dispatcher.BeginInvoke(() => OpenEventCenter());
+        }
+
         _detWriter = new DetectionWriter(_store);
         _notify = new NotificationService(_store, ruleRepo: new AlertRuleRepository(_store));
 
@@ -847,6 +852,12 @@ public partial class MainWindow : Window
     private void OnEventClicked(object sender, RoutedEventArgs e)
     {
         RefreshUnackBadge();
+        OpenEventCenter();
+    }
+
+    /// <summary>開啟事件中心（M38 供 harness 以 --events 自動開啟）。</summary>
+    private void OpenEventCenter()
+    {
         var events = new EventCenterWindow(_store!)
         {
             Owner = this,

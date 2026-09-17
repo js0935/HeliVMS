@@ -243,5 +243,102 @@ public class AlarmEventRepositoryTests : IDisposable
         Assert.Equal(new[] { "ai_person", "motion", "offline" }, types);
     }
 
+    [Fact]
+    public void SetDisposition_DefaultsPending_ThenPersistsAndTrails()
+    {
+        var id = _repo.Insert(1, "motion", DateTime.UtcNow);
+        var initial = Assert.Single(_repo.ListByRange(null, DateTime.MinValue, DateTime.MaxValue));
+        Assert.Equal(AlarmEventStatus.Pending, initial.Status);
+        Assert.Empty(_repo.ListDispositionTrail(id));
+
+        var t1 = new DateTime(2026, 4, 1, 1, 0, 0, DateTimeKind.Utc);
+        _repo.SetDisposition(id, AlarmEventStatus.Actioned, "alice", "已派工處理", t1);
+
+        var row = Assert.Single(_repo.ListByQuery(new AlarmEventRepository.QueryArgs
+        {
+            FromUtc = DateTime.MinValue,
+            ToUtc = DateTime.MaxValue,
+        }));
+        Assert.Equal(AlarmEventStatus.Actioned, row.Status);
+        Assert.Equal("alice", row.AssignedTo);
+        Assert.Equal("已派工處理", row.Note);
+        Assert.True(row.Acknowledged);
+
+        var entry = Assert.Single(_repo.ListDispositionTrail(id));
+        Assert.Equal(AlarmEventStatus.Actioned, entry.Status);
+        Assert.Equal("alice", entry.AssignedTo);
+        Assert.Equal(t1, entry.ChangedAt);
+    }
+
+    [Fact]
+    public void SetDisposition_AppendsTrail_AndQueryFiltersByStatus()
+    {
+        var id1 = _repo.Insert(1, "motion", DateTime.UtcNow);
+        var id2 = _repo.Insert(1, "offline", DateTime.UtcNow);
+        _repo.SetDisposition(id1, AlarmEventStatus.Actioned, null, null, DateTime.UtcNow);
+        _repo.SetDisposition(id1, AlarmEventStatus.FalseAlarm, "bob", "誤報", DateTime.UtcNow.AddMinutes(1));
+        _repo.SetDisposition(id2, AlarmEventStatus.Acknowledged, null, null, DateTime.UtcNow);
+
+        Assert.Equal(2, _repo.ListDispositionTrail(id1).Count);
+        Assert.Single(_repo.ListDispositionTrail(id2));
+        Assert.Equal(AlarmEventStatus.Actioned, _repo.ListDispositionTrail(id1)[0].Status);
+        Assert.Equal(AlarmEventStatus.FalseAlarm, _repo.ListDispositionTrail(id1)[1].Status);
+
+        var q = new AlarmEventRepository.QueryArgs
+        {
+            FromUtc = DateTime.MinValue,
+            ToUtc = DateTime.MaxValue,
+            Status = AlarmEventStatus.FalseAlarm,
+        };
+        var falseAlarms = Assert.Single(_repo.ListByQuery(q));
+        Assert.Equal(id1, falseAlarms.Id);
+        Assert.Equal(1, _repo.CountByQuery(q));
+
+        var ack = Assert.Single(_repo.ListByQuery(new AlarmEventRepository.QueryArgs
+        {
+            FromUtc = DateTime.MinValue,
+            ToUtc = DateTime.MaxValue,
+            Status = AlarmEventStatus.Acknowledged,
+        }));
+        Assert.Equal(id2, ack.Id);
+    }
+
+    [Fact]
+    public void SetDisposition_PendingClearsAcknowledged_AndRejectsInvalidStatus()
+    {
+        var id = _repo.Insert(1, "motion", DateTime.UtcNow);
+        _repo.SetDisposition(id, AlarmEventStatus.Actioned, "a", "n", DateTime.UtcNow);
+        _repo.SetDisposition(id, AlarmEventStatus.Pending, null, null, DateTime.UtcNow.AddMinutes(1));
+
+        var row = Assert.Single(_repo.ListByRange(null, DateTime.MinValue, DateTime.MaxValue));
+        Assert.Equal(AlarmEventStatus.Pending, row.Status);
+        Assert.False(row.Acknowledged);
+        Assert.Null(row.AssignedTo);
+        Assert.Null(row.Note);
+        Assert.Equal(2, _repo.ListDispositionTrail(id).Count);
+
+        Assert.Throws<ArgumentException>(() =>
+            _repo.SetDisposition(id, "bogus", null, null, DateTime.UtcNow));
+    }
+
+    [Fact]
+    public void Acknowledge_SyncsStatusAndTrail_AndKeepsAssignment()
+    {
+        var id = _repo.Insert(1, "motion", DateTime.UtcNow);
+        _repo.SetDisposition(id, AlarmEventStatus.Actioned, "alice", "處理中", DateTime.UtcNow);
+
+        _repo.Acknowledge(id, true);
+        var acked = Assert.Single(_repo.ListByRange(null, DateTime.MinValue, DateTime.MaxValue));
+        Assert.Equal(AlarmEventStatus.Acknowledged, acked.Status);
+        Assert.Equal("alice", acked.AssignedTo);
+        Assert.True(acked.Acknowledged);
+        Assert.Equal(2, _repo.ListDispositionTrail(id).Count);
+
+        _repo.Acknowledge(id, false);
+        var pending = Assert.Single(_repo.ListByRange(null, DateTime.MinValue, DateTime.MaxValue));
+        Assert.Equal(AlarmEventStatus.Pending, pending.Status);
+        Assert.False(pending.Acknowledged);
+    }
+
     public void Dispose() => _store.Dispose();
 }

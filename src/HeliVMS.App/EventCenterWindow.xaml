@@ -59,6 +59,8 @@
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="*"/>
                         <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
                     <TextBlock Text="事件清單（motion / offline / ai_person / ai_vehicle…）" Foreground="{StaticResource Brand.TextDim}" Margin="8,6" FontSize="11"/>
                     
@@ -104,10 +106,17 @@
                                         </DataTemplate>
                                     </GridViewColumn.CellTemplate>
                                 </GridViewColumn>
-                                <GridViewColumn Header="確認" Width="60">
+                                <GridViewColumn Header="狀態" Width="70">
                                     <GridViewColumn.CellTemplate>
                                         <DataTemplate>
-                                            <TextBlock Text="{Binding AckLabel}" FontSize="12"/>
+                                            <TextBlock Text="{Binding StatusLabel}" FontSize="12" Foreground="{Binding StatusBrush}"/>
+                                        </DataTemplate>
+                                    </GridViewColumn.CellTemplate>
+                                </GridViewColumn>
+                                <GridViewColumn Header="指派" Width="70">
+                                    <GridViewColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <TextBlock Text="{Binding AssignedTo}" FontSize="12"/>
                                         </DataTemplate>
                                     </GridViewColumn.CellTemplate>
                                 </GridViewColumn>
@@ -143,9 +152,9 @@
                                                         Padding="4,1" VerticalAlignment="Center">
                                                     <TextBlock Text="{Binding EventType}" FontSize="9" Foreground="White"/>
                                                 </Border>
-                                                <Border Background="{Binding AckBrush}" CornerRadius="3" 
+                                                <Border Background="{Binding StatusBrush}" CornerRadius="3" 
                                                         Padding="4,1" Margin="4,0,0,0" VerticalAlignment="Center">
-                                                    <TextBlock Text="{Binding AckLabel}" FontSize="9" Foreground="White"/>
+                                                    <TextBlock Text="{Binding StatusLabel}" FontSize="9" Foreground="White"/>
                                                 </Border>
                                             </StackPanel>
                                             <TextBlock Text="{Binding StartLabel}" FontSize="11" Foreground="White" Margin="0,3,0,0"/>
@@ -159,7 +168,34 @@
                         </ListBox.ItemTemplate>
                     </ListBox>
                     
-                    <StackPanel Orientation="Horizontal" Grid.Row="2" Margin="8">
+                    <StackPanel Orientation="Horizontal" Grid.Row="2" Margin="8,4,8,0">
+                        <TextBlock Text="處置" Foreground="{StaticResource Brand.TextDim}" VerticalAlignment="Center"/>
+                        <ComboBox x:Name="DispositionCombo" AutomationProperties.AutomationId="DispositionCombo"
+                                  Width="100" Margin="4,0,0,0" SelectedIndex="0"
+                                  Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73">
+                            <ComboBoxItem Content="待處理" Tag="pending"/>
+                            <ComboBoxItem Content="已確認" Tag="acknowledged"/>
+                            <ComboBoxItem Content="已處理" Tag="actioned"/>
+                            <ComboBoxItem Content="誤報" Tag="false_alarm"/>
+                        </ComboBox>
+                        <TextBlock Text="指派" Foreground="{StaticResource Brand.TextDim}" VerticalAlignment="Center" Margin="12,0,0,0"/>
+                        <TextBox x:Name="AssignBox" AutomationProperties.AutomationId="AssignBox"
+                                 Width="100" Margin="4,0,0,0" VerticalAlignment="Center"
+                                 Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
+                        <TextBlock Text="備註" Foreground="{StaticResource Brand.TextDim}" VerticalAlignment="Center" Margin="12,0,0,0"/>
+                        <TextBox x:Name="NoteBox" AutomationProperties.AutomationId="NoteBox"
+                                 Width="180" Margin="4,0,0,0" VerticalAlignment="Center"
+                                 Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
+                        <Button x:Name="ApplyDispositionButton" AutomationProperties.AutomationId="ApplyDispositionButton"
+                                Content="套用處置" Click="OnApplyDispositionClicked" IsEnabled="False"
+                                Padding="10,4" Margin="10,0,0,0" Foreground="White" Background="#2A5C8A" BorderThickness="0"/>
+                    </StackPanel>
+
+                    <TextBlock x:Name="TrailText" AutomationProperties.AutomationId="TrailText" Grid.Row="3"
+                               Margin="8,4,8,0" FontSize="10" Foreground="LightSteelBlue"
+                               TextTrimming="CharacterEllipsis" Text="軌跡：—"/>
+
+                    <StackPanel Orientation="Horizontal" Grid.Row="4" Margin="8">
                         <Button x:Name="AckButton" Content="標記為已確認" Click="OnAckClicked" IsEnabled="False"
                                 Padding="10,4" Foreground="White" Background="#2A5C8A" BorderThickness="0"/>
                         <Button x:Name="UnackButton" Content="標記為未確認" Click="OnUnackClicked" IsEnabled="False"

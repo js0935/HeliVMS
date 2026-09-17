@@ -6,25 +6,25 @@
 
 ## 一句話總結
 HeliVMS 為一套**網路影像監控系統**（WPF 桌面應用：即時監看／回放／AI 事件中心／錄影排程）。
-里程碑 **M1 至 M37 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M37 為最新）。
-Release build 0 error、測試 **168/168 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
+里程碑 **M1 至 M38 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M38 為最新）。
+Release build 0 error、測試 **172/172 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
 本地與遠端完全同步（`git diff origin/HEAD` 為空）。
 
 ## 開新 session 的接手方法
 ```powershell
 # 在 D:\HeliVMS 開新 session 時，先對新的 agent 講：
 git status                    # 預期為 empty（乾淨）
-git log --oneline -20         # 預期見到 M1..M37，HEAD＝M37
+git log --oneline -20         # 預期見到 M1..M38，HEAD＝M38
 git diff origin/HEAD          # 預期為空（同步）
 gh run list -L 3              # 預期全部 success
 ```
 新 session 的 prompt 只需這一句：
-「接續 HeliVMS M37 收尾，請先讀 `docs\SESSION_RESUME.md`，照指示以自主模式繼續。」
+「接續 HeliVMS M38 收尾，請先讀 `docs\SESSION_RESUME.md`，照指示以自主模式繼續。」
 新 session 會以 git 現況接手，不會靠猜測。
 
 ## 現況快照（權威來源＝git，非聊天記憶）
-- 最後 commit：`HEAD`＝**M37（`ba1636b`）**——告警規則層（見下方 M37 定義段）；全 **168**、CI `35175424681` success
-- 進行中：**無**（M37 已驗收；下一里程碑待定）
+- 最後 commit：`HEAD`＝**M38（`待補`）**——事件回應工作流（見下方 M38 定義段）；全 **172**、CI `待補` success
+- 進行中：**無**（M38 已驗收；下一里程碑待定）
 - 前一個 M36 交付＝`4c5dd71`（SNMP 陷阱 SNMPv2c）；M35 交付＝`0493612`（ONVIF Discovery Hello/Bye/Resolve）、全 **148**、CI success
 - 前一個 M30 交付＝`24ad4c7`（MQTT 通知通道）：`NotificationSettings`＋
   `MqttEnabled/MqttHost/MqttPort(1883)/MqttTopic/MqttUser/MqttPassword`（鍵 `notify.mqtt.*`、
@@ -43,7 +43,7 @@ gh run list -L 3              # 預期全部 success
 - 前一個 M28 交付＝`ba95d0f`（事件中心篩選＋分頁：QueryArgs/ListByQuery/CountByQuery/
   ListEventTypes＋UI 類型 Combo＋Prev/Next 50/頁；114、evfiltercheck EVFILTERCHECK_OK）
 - 分支／遠端：`git diff origin/HEAD` 為空（完全同步）；HEAD＝origin
-- CI：`gh run list` 顯示最新 run `conclusion=success`；建置 0 error、測試 120/120
+- CI：`gh run list` 顯示最新 run `conclusion=success`；建置 0 error、測試 172/172
 
 ## 架構關鍵（確切、無漂移）
 - 解決方案：`D:\HeliVMS\HeliVMS.App\HeliVMS.App.csproj`（WPF）＋ `HeliVMS.slnx`
@@ -64,7 +64,8 @@ gh run list -L 3              # 預期全部 success
      **`ptzadvcheck`（M31，PTZADVCHECK_OK）**、**`mqttcheck`（M30，MQTTCHECK_OK）**、
      **`pushcheck`（M34，PUSHCHECK_OK）**、**`quietcheck`（M27，QUIETCHECK_OK）**、
      **`evfiltercheck`（M28，EVFILTERCHECK_OK）**、**`offcheck`（M29，OFFCHECK_OK）**、
-     **`snmpcheck`（M36，SNMPCHECK_OK）**、**`rulescheck`（M37，RULECHECK_OK）**
+     **`snmpcheck`（M36，SNMPCHECK_OK）**、**`rulescheck`（M37，RULECHECK_OK）**、
+     **`dispcheck`（M38，DISPCHECK_OK）**
   - `kbcheck` 驗證：`Space` 暫停（t1）→ `→` 前跳 10 秒（t2−t1＝11s）→ `F` 逐幀仍暫停 →
     `Esc` 停止（StopButton disabled）；輸出 `KB_OK`
   - `evcard` 驗證：主視窗→右鍵 cell→「開啟事件中心」；選頻道後 grid DataItems≥2、
@@ -320,7 +321,46 @@ gh run list -L 3              # 預期全部 success
       `navCount==6` 硬期望須同步改 **7**（已更新 harness）；回歸組全綠
       （set/snap/snmp/push/mqtt/ptz/notif/log/smtp/exp/off/evfilter/quiet）
     - 驗收：App Release 0 error、Storage 58/58、Alarms 78/78、全 **168**、CI 綠
-13. 每里程碑節奏照舊：定義先寫入本檔→實作→App Release build 0 error→單元測試→
+13. **M38 已驗收＝事件回應工作流**（commit 待補，§14.4）：
+    - 背景：事件中心原本僅 `acknowledged` 位元（已確認/未確認），缺四態、指派、備註與軌跡
+    - Storage schema **v8**（`CurrentSchemaVersion` 7→8、`CreateEventDispositionsTableV8` 遷移接線）：
+      - `event_dispositions(event_id PK REFERENCES alarm_events ON DELETE CASCADE, status TEXT
+        DEFAULT 'pending', assigned_to TEXT, note TEXT, updated_at TEXT)`
+      - `event_disposition_trail(id PK AUTOINCREMENT, event_id, status, assigned_to, note,
+        changed_at)`＋`idx_disp_trail_event`
+      - **設計決策**：用新表而非 `ALTER TABLE alarm_events`——`Initialize()` 對新庫會依序跑所有
+        `version<N` 遷移，ALTER 加欄會 duplicate column
+    - `AlarmEventStatus`（Storage）：四態代碼 `pending/acknowledged/actioned/false_alarm`、
+      `All`、`Label()`（待處理/已確認/已處理/誤報）、`IsValid()`
+    - `EventDispositionEntry`（Storage）軌跡列；`AlarmEventRecord` 加 `Status`（預設 pending）/
+      `AssignedTo`/`Note`
+    - `AlarmEventRepository`：`SetDisposition(id,status,assignedTo,note,changedAtUtc)`（UPSERT
+      dispositions ＋寫 trail ＋同步 legacy `acknowledged`＝status≠pending）、
+      `ListDispositionTrail(eventId)`（舊→新）、`QueryArgs.Status` 篩選
+      （`COALESCE(d.status,'pending')`）；`ListByQuery/ListByRange/CountByQuery` SELECT 改
+      LEFT JOIN `event_dispositions`；`Acknowledge` 保留舊簽章但同步 status＋trail
+    - `EventCenterWindow`：底部處置列 `DispositionCombo`（四態）＋`AssignBox`/`NoteBox`＋
+      `ApplyDispositionButton`；`TrailText` 顯示「共 N 筆｜最近 …」；清單「確認」欄改「狀態」＋
+      新增「指派」欄；`EventRow` 加 `StatusLabel/StatusBrush/AssignedTo/Note`；選取後帶入編輯器
+      （`_selectedId` 保留、刷新後重選）；`SelectedRow`（卡片/網格兩模式通用）
+    - App：`--events` 啟動參數（供 harness 自動開事件中心，比照 `--settings`）
+    - 測試：Storage ＋4（`SetDisposition_DefaultsPending_ThenPersistsAndTrails`、
+      `SetDisposition_AppendsTrail_AndQueryFiltersByStatus`、
+      `SetDisposition_PendingClearsAcknowledged_AndRejectsInvalidStatus`、
+      `Acknowledge_SyncsStatusAndTrail_AndKeepsAssignment`）**58→62**；全 **172**
+    - harness `dispcheck`→**DISPCHECK_OK**：(A) Service——temp DB 預設 pending、SetDisposition
+      四態＋指派＋備註、trail 2 筆、`QueryArgs.Status` 篩選（actioned/acknowledged/false_alarm）
+      (B) UI——App DB seed 一筆 event、`--events` 開「事件中心」、`DispositionCombo/AssignBox/
+      NoteBox/ApplyDispositionButton/TrailText/EventList` 存在、選取列後按鈕 enabled、SetValue
+      指派/備註、Invoke 套用→重讀 DB 驗 trail>=1（combo 展開選項 UIA 不易操作，狀態切換以
+      service 層驗證；UI 套用路徑以「指派 alice＋trail」證實）
+    - 排雷：WPF `ListView` 的列 UIA peer 為 **`ControlType.DataItem`**（非 ListItem）——
+      `FindAll(ControlType.ListItem)` 得 0，須用 `OrCondition(ListItem, DataItem)` 或
+      `ItemContainerPattern`；且該列 peer 的 `Name` 是型別名
+      （`HeliVMS.App.EventCenterWindow+EventRow`）而非顯示文字
+    - 回歸：全 172（Storage 62＋Alarms 78＋Licensing 8＋Devices 24）；set/snap/snmp/push/mqtt/
+      ptz/notif/log/smtp/exp/off/evfilter/quiet 全綠
+14. 每里程碑節奏照舊：定義先寫入本檔→實作→App Release build 0 error→單元測試→
     （有 UI 面者）E2E harness block→commit＋push＋CI success→`git status --porcelain` 空白
 
 ## 已知雷區（勿再犯）

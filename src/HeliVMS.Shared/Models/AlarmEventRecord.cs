@@ -19,4 +19,13 @@ public sealed class AlarmEventRecord
     public string? Detail { get; init; }
 
     public bool Acknowledged { get; init; }
+
+    /// <summary>處置狀態（M38）：pending / acknowledged / actioned / false_alarm。</summary>
+    public string Status { get; init; } = "pending";
+
+    /// <summary>指派對象（M38；可空）。</summary>
+    public string? AssignedTo { get; init; }
+
+    /// <summary>處置備註（M38；可空）。</summary>
+    public string? Note { get; init; }
 }

@@ -274,6 +274,26 @@ CREATE TABLE alarm_events (
 );
 CREATE INDEX idx_event_time ON alarm_events(start_time);
 
+-- 事件處置（M38 §14.4；一事件一列，狀態四態）
+CREATE TABLE event_dispositions (
+  event_id INTEGER PRIMARY KEY REFERENCES alarm_events(id) ON DELETE CASCADE,
+  status TEXT NOT NULL DEFAULT 'pending',   -- pending / acknowledged / actioned / false_alarm
+  assigned_to TEXT,
+  note TEXT,
+  updated_at TEXT NOT NULL
+);
+
+-- 事件處置軌跡（M38；append-only 稽核）
+CREATE TABLE event_disposition_trail (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  event_id INTEGER NOT NULL REFERENCES alarm_events(id) ON DELETE CASCADE,
+  status TEXT NOT NULL,
+  assigned_to TEXT,
+  note TEXT,
+  changed_at TEXT NOT NULL
+);
+CREATE INDEX idx_disp_trail_event ON event_disposition_trail(event_id);
+
 -- 排程規則（每通道每日 7 段窗口）
 CREATE TABLE schedules (
   id INTEGER PRIMARY KEY,
@@ -990,7 +1010,7 @@ L2 比對（人臉/車牌）置「進階·需權限」區，預設關閉（§5.1
 | 3 | **地圖/平面圖檢視（Map View）** | 只有基礎概念 | 專業賣點與空間直覺 | P0′（§16.1 完整設計） |
 | 4 | 備份與異地備援 | 沒有（僅本地錄影 + ROI） | 資料安全（災後） | P1 |
 | 5 | 數位簽章與證據包 | 僅 SHA-256 | 證據鏈完整性 | P1 |
-| 6 | 事件回應工作流 | 僅 `acknowledged` 位元 | 營運（確認/指派/留言） | P1 |
+| 6 | 事件回應工作流 | 僅 `acknowledged` 位元 | 營運（確認/指派/留言） | P1（**已實作 M38**） |
 | 7 | 多語言 i18n | 僅繁體中文 | 市場（出口與外文通路） | P1 |
 | 8 | 智慧搜尋（物體/區域/色） | 僅時間與事件篩選 | 現代 VMS 賣點 | P2 |
 | 9 | 統計報表 | 僅提及（§11.7）未深化 | 管理與驗收 | P2 |
@@ -1035,7 +1055,7 @@ L2 比對（人臉/車牌）置「進階·需權限」區，預設關閉（§5.1
 |---|---|
 | 備份與異地備援 | 可排程批次複製錄影區段至第二磁碟/NAS/雲端；事件級錄影可雙寫 |
 | 數位簽章 | 匯出影片以私鑰簽署，`HeliVmsVerify` 工具可驗證（司法效力） |
-| 事件回應工作流 | 確認/未決/誤報/已處理四態 + 指派 + 附註 + 時間戳軌跡 |
+| 事件回應工作流 | 確認/未決/誤報/已處理四態 + 指派 + 附註 + 時間戳軌跡（**已實作 M38**：`event_dispositions`/`event_disposition_trail`、`AlarmEventRepository.SetDisposition`/`ListDispositionTrail`、事件中心處置列） |
 | 遮蔽偵測（Tamper） | L0 即可實作：幀亮度突變 / 邊緣能量急降 / 全黑全白偵測 → 「鏡頭被遮、被移、被噴漆」警報（附快照） |
 | 多語言 i18n | RESX 資源庫 + 語言切換（繁中/簡中/EN/日本語）；字型與格式全面參數化 |
 

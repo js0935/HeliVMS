@@ -6,6 +6,41 @@ namespace HeliVMS.Storage;
 /// <summary>一筆尚未結束的離線事件（M29：斷線補送）。</summary>
 public sealed record OpenOfflineEvent(long Id, DateTime StartUtc);
 
+/// <summary>事件處置狀態代碼（M38 §14.4 事件回應工作流）。</summary>
+public static class AlarmEventStatus
+{
+    public const string Pending = "pending";
+    public const string Acknowledged = "acknowledged";
+    public const string Actioned = "actioned";
+    public const string FalseAlarm = "false_alarm";
+
+    /// <summary>固定四態（順序即 UI 呈現順序）。</summary>
+    public static readonly IReadOnlyList<string> All =
+        [Pending, Acknowledged, Actioned, FalseAlarm];
+
+    /// <summary>中文標籤（未知值原樣回傳）。</summary>
+    public static string Label(string? status) => status switch
+    {
+        Pending or null or "" => "待處理",
+        Acknowledged => "已確認",
+        Actioned => "已處理",
+        FalseAlarm => "誤報",
+        _ => status,
+    };
+
+    /// <summary>是否為有效狀態代碼。</summary>
+    public static bool IsValid(string? status) => status is Pending or Acknowledged or Actioned or FalseAlarm;
+}
+
+/// <summary>一筆處置軌跡（M38；append-only）。</summary>
+public sealed record EventDispositionEntry(
+    long Id,
+    long EventId,
+    string Status,
+    string? AssignedTo,
+    string? Note,
+    DateTime ChangedAt);
+
 /// <summary>
 /// 事件（警報/運動/斷線）存取（§4 alarm_events 表）。
 /// </summary>
@@ -64,36 +99,28 @@ public sealed class AlarmEventRepository
     /// <summary>依時間範圍（與可選頻道）列出事件，由新到舊。包含事件之間隔，以 start_time 倒序。</summary>
     public IReadOnlyList<AlarmEventRecord> ListByRange(int? channelId, DateTime fromUtc, DateTime toUtc)
     {
-        var where = new List<string> { "start_time >= $from", "start_time <= $to" };
+        var where = new List<string> { "a.start_time >= $from", "a.start_time <= $to" };
         if (channelId is int c)
         {
-            where.Add("channel_id = $c");
+            where.Add("a.channel_id = $c");
         }
 
         var sql = string.Join(" AND ", where);
         return _store.Query(
             $"""
-            SELECT id, channel_id, event_type, start_time, end_time, snapshot_path, detail, acknowledged
-            FROM alarm_events
+            SELECT a.id, a.channel_id, a.event_type, a.start_time, a.end_time, a.snapshot_path, a.detail, a.acknowledged,
+                   COALESCE(d.status, 'pending'), d.assigned_to, d.note
+            FROM alarm_events a
+            LEFT JOIN event_dispositions d ON d.event_id = a.id
             WHERE {sql}
-            ORDER BY start_time DESC;
+            ORDER BY a.start_time DESC;
             """,
             static r =>
             {
                 var list = new List<AlarmEventRecord>();
                 while (r.Read())
                 {
-                    list.Add(new AlarmEventRecord
-                    {
-                        Id = r.GetInt64(0),
-                        ChannelId = r.GetInt32(1),
-                        EventType = r.GetString(2),
-                        StartUtc = SqliteStore.FromIso(r.GetString(3)),
-                        EndUtc = r.IsDBNull(4) ? null : SqliteStore.FromIso(r.GetString(4)),
-                        SnapshotPath = r.IsDBNull(5) ? null : r.GetString(5),
-                        Detail = r.IsDBNull(6) ? null : r.GetString(6),
-                        Acknowledged = r.GetInt32(7) != 0,
-                    });
+                    list.Add(ReadRecord(r));
                 }
 
                 return list;
@@ -109,9 +136,11 @@ public sealed class AlarmEventRepository
             });
     }
 
-    /// <summary>確認／取消確認事件。</summary>
+    /// <summary>確認／取消確認事件（舊 API；同步處置狀態與軌跡，指派/備註保留）。</summary>
     public void Acknowledge(long id, bool acknowledged)
     {
+        var status = acknowledged ? AlarmEventStatus.Acknowledged : AlarmEventStatus.Pending;
+        var at = DateTime.UtcNow;
         _store.Execute(
             "UPDATE alarm_events SET acknowledged = $a WHERE id = $id;",
             cmd =>
@@ -119,6 +148,101 @@ public sealed class AlarmEventRepository
                 cmd.Parameters.AddWithValue("$a", acknowledged ? 1 : 0);
                 cmd.Parameters.AddWithValue("$id", id);
             });
+        _store.Execute(
+            """
+            INSERT INTO event_dispositions (event_id, status, updated_at)
+            VALUES ($id, $s, $t)
+            ON CONFLICT(event_id) DO UPDATE SET status = $s, updated_at = $t;
+            """,
+            cmd =>
+            {
+                cmd.Parameters.AddWithValue("$id", id);
+                cmd.Parameters.AddWithValue("$s", status);
+                cmd.Parameters.AddWithValue("$t", SqliteStore.Iso(at));
+            });
+        AppendTrail(id, status, null, null, at);
+    }
+
+    /// <summary>
+    /// 設定事件處置（M38 §14.4）：狀態＋指派＋備註，並寫入一筆軌跡。
+    /// status 非 pending 時同步 legacy acknowledged=1（LiveView 未確認計數相容）。
+    /// </summary>
+    public void SetDisposition(long id, string status, string? assignedTo, string? note, DateTime changedAtUtc)
+    {
+        if (!AlarmEventStatus.IsValid(status))
+        {
+            throw new ArgumentException($"無效的處置狀態：{status}", nameof(status));
+        }
+
+        _store.Execute(
+            "UPDATE alarm_events SET acknowledged = $a WHERE id = $id;",
+            cmd =>
+            {
+                cmd.Parameters.AddWithValue("$a", status == AlarmEventStatus.Pending ? 0 : 1);
+                cmd.Parameters.AddWithValue("$id", id);
+            });
+        _store.Execute(
+            """
+            INSERT INTO event_dispositions (event_id, status, assigned_to, note, updated_at)
+            VALUES ($id, $s, $a, $n, $t)
+            ON CONFLICT(event_id) DO UPDATE SET
+                status = $s, assigned_to = $a, note = $n, updated_at = $t;
+            """,
+            cmd =>
+            {
+                cmd.Parameters.AddWithValue("$id", id);
+                cmd.Parameters.AddWithValue("$s", status);
+                cmd.Parameters.AddWithValue("$a", (object?)assignedTo ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("$n", (object?)note ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("$t", SqliteStore.Iso(changedAtUtc));
+            });
+        AppendTrail(id, status, assignedTo, note, changedAtUtc);
+    }
+
+    private void AppendTrail(long id, string status, string? assignedTo, string? note, DateTime atUtc)
+    {
+        _store.Execute(
+            """
+            INSERT INTO event_disposition_trail (event_id, status, assigned_to, note, changed_at)
+            VALUES ($id, $s, $a, $n, $t);
+            """,
+            cmd =>
+            {
+                cmd.Parameters.AddWithValue("$id", id);
+                cmd.Parameters.AddWithValue("$s", status);
+                cmd.Parameters.AddWithValue("$a", (object?)assignedTo ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("$n", (object?)note ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("$t", SqliteStore.Iso(atUtc));
+            });
+    }
+
+    /// <summary>指定事件的處置軌跡（M38；由舊到新）。</summary>
+    public IReadOnlyList<EventDispositionEntry> ListDispositionTrail(long eventId)
+    {
+        return _store.Query(
+            """
+            SELECT id, event_id, status, assigned_to, note, changed_at
+            FROM event_disposition_trail
+            WHERE event_id = $id
+            ORDER BY changed_at ASC, id ASC;
+            """,
+            static r =>
+            {
+                var list = new List<EventDispositionEntry>();
+                while (r.Read())
+                {
+                    list.Add(new EventDispositionEntry(
+                        r.GetInt64(0),
+                        r.GetInt64(1),
+                        r.GetString(2),
+                        r.IsDBNull(3) ? null : r.GetString(3),
+                        r.IsDBNull(4) ? null : r.GetString(4),
+                        SqliteStore.FromIso(r.GetString(5))));
+                }
+
+                return list;
+            },
+            cmd => cmd.Parameters.AddWithValue("$id", eventId));
     }
 
     /// <summary>未確認事件筆數。</summary>
@@ -140,6 +264,9 @@ public sealed class AlarmEventRepository
 
         public string? EventType { get; init; }
 
+        /// <summary>處置狀態篩選（M38；null／空＝不限）。</summary>
+        public string? Status { get; init; }
+
         public DateTime FromUtc { get; init; }
 
         public DateTime ToUtc { get; init; }
@@ -149,18 +276,23 @@ public sealed class AlarmEventRepository
         public int Offset { get; init; }
     }
 
-    /// <summary>組出共用 WHERE 子句（時間窗＋可選頻道＋可選類型）。</summary>
+    /// <summary>組出共用 WHERE 子句（時間窗＋可選頻道＋可選類型＋可選處置狀態）。</summary>
     private List<string> BuildWhere(QueryArgs q)
     {
-        var where = new List<string> { "start_time >= $from", "start_time <= $to" };
+        var where = new List<string> { "a.start_time >= $from", "a.start_time <= $to" };
         if (q.ChannelId is int c)
         {
-            where.Add("channel_id = $c");
+            where.Add("a.channel_id = $c");
         }
 
         if (!string.IsNullOrWhiteSpace(q.EventType))
         {
-            where.Add("event_type = $et");
+            where.Add("a.event_type = $et");
+        }
+
+        if (!string.IsNullOrWhiteSpace(q.Status))
+        {
+            where.Add("COALESCE(d.status, 'pending') = $st");
         }
 
         return where;
@@ -179,9 +311,14 @@ public sealed class AlarmEventRepository
         {
             cmd.Parameters.AddWithValue("$et", q.EventType);
         }
+
+        if (!string.IsNullOrWhiteSpace(q.Status))
+        {
+            cmd.Parameters.AddWithValue("$st", q.Status);
+        }
     }
 
-    private AlarmEventRecord ReadRecord(SqliteDataReader r) => new()
+    private static AlarmEventRecord ReadRecord(SqliteDataReader r) => new()
     {
         Id = r.GetInt64(0),
         ChannelId = r.GetInt32(1),
@@ -191,6 +328,9 @@ public sealed class AlarmEventRepository
         SnapshotPath = r.IsDBNull(5) ? null : r.GetString(5),
         Detail = r.IsDBNull(6) ? null : r.GetString(6),
         Acknowledged = r.GetInt32(7) != 0,
+        Status = r.IsDBNull(8) ? AlarmEventStatus.Pending : r.GetString(8),
+        AssignedTo = r.IsDBNull(9) ? null : r.GetString(9),
+        Note = r.IsDBNull(10) ? null : r.GetString(10),
     };
 
     /// <summary>依 QueryArgs（類型／頻道／時間窗／頁）列出事件，由新到舊。</summary>
@@ -200,10 +340,12 @@ public sealed class AlarmEventRepository
         var sql = string.Join(" AND ", where);
         return _store.Query(
             $"""
-            SELECT id, channel_id, event_type, start_time, end_time, snapshot_path, detail, acknowledged
-            FROM alarm_events
+            SELECT a.id, a.channel_id, a.event_type, a.start_time, a.end_time, a.snapshot_path, a.detail, a.acknowledged,
+                   COALESCE(d.status, 'pending'), d.assigned_to, d.note
+            FROM alarm_events a
+            LEFT JOIN event_dispositions d ON d.event_id = a.id
             WHERE {sql}
-            ORDER BY start_time DESC
+            ORDER BY a.start_time DESC
             LIMIT {Math.Max(1, q.Limit)} OFFSET {Math.Max(0, q.Offset)};
             """,
             r =>
@@ -225,7 +367,12 @@ public sealed class AlarmEventRepository
         var where = BuildWhere(q);
         var sql = string.Join(" AND ", where);
         return _store.Query(
-            $"SELECT COUNT(1) FROM alarm_events WHERE {sql};",
+            $"""
+            SELECT COUNT(1)
+            FROM alarm_events a
+            LEFT JOIN event_dispositions d ON d.event_id = a.id
+            WHERE {sql};
+            """,
             static r =>
             {
                 r.Read();
