@@ -19,12 +19,12 @@ git diff origin/HEAD          # 預期為空（同步）
 gh run list -L 3              # 預期全部 success
 ```
 新 session 的 prompt 只需這一句：
-「接續 HeliVMS M39 收尾，請先讀 `docs\SESSION_RESUME.md`，照指示以自主模式繼續。」
+「接續 HeliVMS M41（依你建議），請先讀 `docs\SESSION_RESUME.md`，照指示以自主模式繼續。」
 新 session 會以 git 現況接手，不會靠猜測。
 
 ## 現況快照（權威來源＝git，非聊天記憶）
-- 最後 commit：`HEAD`＝**M39（`0bc2ec1`）**——遮蔽偵測 Tamper（見下方 M39 定義段）；全 **185**、CI `35220667530` success
-- 進行中：**無**（M39 已驗收；下一里程碑待定）
+- 最後 commit：`HEAD`＝**M40（`ad1b822`）**——警報 IO DI/DO（見下方 M40 定義段）；全 **210**、CI 進行中
+- 進行中：**無**（M40 已驗收；下一里程碑待定）
 - 前一個 M38 交付＝`d09b045`（事件回應工作流，見下方 M38 定義段）、全 **172**、CI `35185639491` success
 - 前一個 M30 交付＝`24ad4c7`（MQTT 通知通道）：`NotificationSettings`＋
   `MqttEnabled/MqttHost/MqttPort(1883)/MqttTopic/MqttUser/MqttPassword`（鍵 `notify.mqtt.*`、
@@ -401,7 +401,51 @@ gh run list -L 3              # 預期全部 success
       像素才 Clone（長窗節省記憶體）；基準更新限定「正常」幀防污染
     - 回歸 13 全綠：set/snap/snmp/push/mqtt/ptz/notif/log/smtp/exp/off/evfilter/quiet
     - 驗收：App Release 0 error、全 **185**、CI `35220667530` success
-15. 每里程碑節奏照舊：定義先寫入本檔→實作→App Release build 0 error→單元測試→
+15. **M40 已驗收＝警報 IO（DI/DO 乾接點，Modbus/TCP 網路 IO 模組）**（§16.2 完整設計落地「核心」，全 **210**，CI success）：
+    - 背景：外部物理感測（門磁/煙霧/紅外主機乾接點）與執行器（聲光/鎖門）融入事件引擎；
+      第一落地協議＝**Modbus/TCP**（無第三方，手編 MBAP+PDU，CI 用本機假模組 loopback 驗）
+    - Storage schema v9（`CurrentSchemaVersion` 8→9、`CreateIoTablesV9`）：`io_devices(id PK, name,
+      protocol DEFAULT 'modbus_tcp', host, port 502, unit_id 1, enabled 1, poll_ms 500)`＋`io_channels(id PK,
+      device_id REFERENCES io_devices ON DELETE CASCADE, direction CHECK('DI'/'DO'), io_index, name, enabled 1,
+      debounce_ms 200, polarity 0, camera_id, alarm_priority 'normal', UNIQUE(device_id,direction,io_index))`
+      （DI／DO 的 index 是不同位址空間，故 UNIQUE 含 direction）
+      **啟用 `PRAGMA foreign_keys=ON`**（ctor 每連線一次，CASCADE 才生效；因此 io_input 事件必須綁定相機，
+      camera_id NULL 時不寫事件僅送 StateChanged——FK 防護）
+    - Storage 新 `IoRepository`：device/channel 完整 CRUD＋`ListChannels(deviceId,direction,enabledOnly)`；
+      `IoDevice/IoChannel` records（camera_id 可 null）
+    - Alarms 新 `ModbusTcpClient`（手寫 binary）：FC02 ReadDiscreteInputs／FC01 ReadCoils／FC05 WriteSingleCoil、
+      MBAP（TransactionId 隨機/ProtocolId=0/Length/UnitId）＋PDU、回應 echo 比對、byteCount 驗證；
+      例外 frame `fc|0x80` throw；靜態 Build/Parse 供測試、`OpenAsync`→`StreamHolder`
+    - Alarms 新 `IoDeviceMonitor`（IDisposable，Timer 週期 poll `poll_ms`）：`RefreshChannels()` 載入啟用 DI；
+      去抖狀態機（polarity 反相、raw==候選且維持≥debounce_ms 才切換、首次採樣即基準）；
+      **升沿** `Insert(channelId=cameraId,"io_input")` detail=`device=..;io=..;index=..;priority=..;state=on`
+      ＋`EventInserted`→可接通知平面；**降沿** `UpdateEnd` 關窗；`StateChanged`；`WriteOutputByChannelAsync`
+      （DO→FC05）；`Flush()`/`Dispose()`；`PollOnceAsync`（public，測試與進階客製用）；
+      Alarms.csproj 加 `InternalsVisibleTo HeliVMS.Alarms.Tests`
+    - App：
+      - `SettingsWindow` nav 第 8 項「IO」＋PageIo：模組群（IoDeviceList＋IoNameBox/IoHostBox/IoPortBox/
+        IoUnitBox/IoPollBox＋啟停/刪除）、通道群（方向/Index/名稱/去抖/NC 勾選/相機必綁（DI）＋啟停/刪除）、
+        DO 測試（IoDoDeviceCombo/IoDoChannelCombo/DoOnButton/DoOffButton/IoDoStatusText）
+      - `IoMonitorHost`（App Services）：依 io_devices 建立/同步各 `IoDeviceMonitor`（啟用者輪詢；
+        停用/刪除即釋放）；`EventInserted` 對外；`WriteOutputAsync(deviceId,channelId,on)`；`RefreshAndStart()`
+      - MainWindow：`_ioHost = new IoMonitorHost(_store)`＋`RefreshAndStart()`＋
+        `EventInserted → _notify?.Enqueue`；關閉時 `_ioHost?.Dispose()`
+      - `EventCenterWindow`「io_input」→ `Brushes.Orange`
+    - 測試：Storage `IoRepositoryTests` 62→**70**（含 foreign_keys CASCADE、UNIQUE 衝突 throw）；Alarms
+      `ModbusTcpClientTests`（frame 編碼/bits 解析/byteCount 例外/echo 比對/loopback FC02·FC05·例外）
+      ＋`IoDeviceMonitorTests`（升沿 detail、降沿 UpdateEnd、NC 反相、debounce 濾抖、停用通道忽略、
+      方向不符、DO 寫出、未綁相機僅 StateChanged）91→**108**；全 **70＋108＋8＋24＝210**
+    - harness `iocheck`→**IOCHECK_OK**：本機假 Modbus 伺服器（TcpListener Loopback：FC02 回可控位元、
+      FC05 echo、例外 fc|0x80）；(A) Service——temp DB seed 頻道（綁相機）＋模組＋DI/DO→真實 TCP 輪詢
+      （r1 基準 off、r2/r3 on 升沿開事件、r4/r5 off 降沿結算）＋DO 寫入回饋；(B) UI——`--settings`→nav「IO」
+      （**nav 7→8，setcheck/snapcheck 硬斷言已同步 8**）→IoNameBox/IoHostBox 填寫＋IoAddDeviceButton→
+      io_devices 持久化讀回（測完清理）
+    - 設計決策：io_input 事件 channel 為綁定相機（foreign_keys=ON 強制存在）；debounce=0 仍須連續兩次
+      同 raw 才觸發（candidate→trigger）；Modbus 請求 count=maxIndex+1、大端位元組序；Unbound DI 事件不寫
+      僅 StateChanged（FK 防護）；EventCenter 頻道名 fallback `#id`
+    - 回歸 13 全綠：set/snap（nav 8）＋snmp/push/mqtt/ptz/notif/log/smtp/exp/off/evfilter/quiet
+    - 驗收：App Release 0 error、全 210、IOCHECK_OK、CI success
+16. 每里程碑節奏照舊：定義先寫入本檔→實作→App Release build 0 error→單元測試→
     （有 UI 面者）E2E harness block→commit＋push＋CI success→`git status --porcelain` 空白
 
 ## 已知雷區（勿再犯）

@@ -1266,18 +1266,25 @@ L2 比對（人臉/車牌）置「進階·需權限」區，預設關閉（§5.1
   - **去抖動**：`debounce_ms` 防誤觸（電磁/雷擊抖動）
   - 警報分級：緊急（煙霧/緊急鈕）vs 一般（門磁）→ 地圖顏色分級
 - **DO 操作**：測試面板一鍵開/關（含狀態回饋）、DO 排程、DO 與事件/時間聯動
-- **資料模型**
+- **資料模型（M40 已實作，schema v9）**
   ```sql
-  io_devices(id, name, protocol,           -- onvif_device_id / modbus / vendor_sdk
-             ip, port, address_map_json, enabled);
-  io_channels(id, device_id, direction,    -- DI / DO
-              io_index, name, enabled, debounce_ms, polarity,     -- DI
-              pulse_ms, default_state,                             -- DO
-              alarm_priority,               -- emergency / normal
-              UNIQUE(device_id, io_index));
-  io_event_map(id, io_channel_id, linked_camera_ids TEXT,         -- JSON 陣列
-               action_io_ids TEXT, action_template_id);
+  io_devices(id, name, protocol,    -- 目前 modbus_tcp
+             host, port DEFAULT 502, unit_id DEFAULT 1,
+             enabled DEFAULT 1, poll_ms DEFAULT 500);
+  io_channels(id, device_id → io_devices CASCADE,
+              direction,           -- DI / DO
+              io_index, name, enabled DEFAULT 1,
+              debounce_ms DEFAULT 200, polarity DEFAULT 0,   -- DI 去抖＋常閉反相
+              camera_id NULL → channels（DI 綁定，io_input 事件需綁定）
+              alarm_priority DEFAULT 'normal',
+              UNIQUE(device_id, direction, io_index));
   ```
+  - 未來擴充：`io_event_map`（鏡頭/動作鏈）、`pulse_ms/default_state`（DO 脈衝）、ONVIF/品牌 SDK 接入（protocol 欄預留）
+- **M40 實作摘要**：`IoRepository`（Storage）＋`ModbusTcpClient`/`IoDeviceMonitor`（HeliVMS.Alarms，
+  FC02 Read Discrete Inputs／FC01 Read Coils／FC05 Write Single Coil，MBAP echo 驗證）；監視器以 `poll_ms` 輪詢
+  啟用 DI 通道 → debounce 狀態機 → 上升沿寫 `io_input` 事件（`EventInserted`）→ 下降沿 `UpdateEnd`；
+  `IoMonitorHost`（HeliVMS.App）按 io_devices 管理監視器；設定中心「IO」頁（nav 第 8 項）管理模組/通道並提供
+  DO 測試；事件中心 `io_input` 以橙色呈現。
 - **測試/Tool**：掃描 IO 模組、單點 TTL（`io_probe`）、DI 事件回放檢視
 
 ### 16.3 地圖 × IO × AI × 錄影 整合案例
