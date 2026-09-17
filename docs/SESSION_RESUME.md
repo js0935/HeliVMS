@@ -6,15 +6,15 @@
 
 ## 一句話總結
 HeliVMS 為一套**網路影像監控系統**（WPF 桌面應用：即時監看／回放／AI 事件中心／錄影排程）。
-里程碑 **M1 至 M45 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M45 備份與異地備援）。
-Release build 0 error、測試 **289/289 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
+里程碑 **M1 至 M46 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M46 錄影遮蔽）。
+Release build 0 error、測試 **293/293 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
 本地與遠端完全同步（`git diff origin/HEAD` 為空）。
 
 ## 開新 session 的接手方法
 ```powershell
 # 在 D:\HeliVMS 開新 session 時，先對新的 agent 講：
 git status                    # 預期為 empty（乾淨）
-git log --oneline -20         # 預期見到 M1..M45，HEAD＝M45
+git log --oneline -20         # 預期見到 M1..M46，HEAD＝M46
 git diff origin/HEAD          # 預期為空（同步）
 gh run list -L 3              # 預期全部 success
 ```
@@ -23,8 +23,9 @@ gh run list -L 3              # 預期全部 success
 新 session 會以 git 現況接手，不會靠猜測。
 
 ## 現況快照（權威來源＝git，非聊天記憶）
-- 最後 commit：`HEAD`＝**M45（`ef3a8bc`）**——備份與異地備援（Backup）（見下方 §20 M45 定義段）；全 **289**、CI `35263453271` success
-- 進行中：**M46＝錄影遮蔽（Redaction／隱私遮罩）**（見下方 §21 M46 定義段）
+- 最後 commit：`HEAD`＝**M46（`c7f6e8f`）**——錄影遮蔽（Redaction／隱私遮罩）（見下方 §21 M46 定義段）；全 **293**、CI `35284550851` success
+- 前一個 M45 交付＝`ef3a8bc`（備份與異地備援，見下方 §20 M45 定義段）、全 **289**、CI `35263453271` success
+- 進行中：**M47（待定義）**
 - 前一個 M41 交付＝`2d89ea7`（電子地圖/平面圖）、全 **222**、CI `35232094120` success
 - 前一個 M38 交付＝`d09b045`（事件回應工作流，見下方 M38 定義段）、全 **172**、CI `35185639491` success
 - 前一個 M30 交付＝`24ad4c7`（MQTT 通知通道）：`NotificationSettings`＋
@@ -44,7 +45,7 @@ gh run list -L 3              # 預期全部 success
 - 前一個 M28 交付＝`ba95d0f`（事件中心篩選＋分頁：QueryArgs/ListByQuery/CountByQuery/
   ListEventTypes＋UI 類型 Combo＋Prev/Next 50/頁；114、evfiltercheck EVFILTERCHECK_OK）
 - 分支／遠端：`git diff origin/HEAD` 為空（完全同步）；HEAD＝origin
-- CI：`gh run list` 顯示最新 run `conclusion=success`；建置 0 error、測試 185/185
+- CI：`gh run list` 顯示最新 run `conclusion=success`；建置 0 error、測試 293/293
 
 ## 架構關鍵（確切、無漂移）
 - 解決方案：`D:\HeliVMS\HeliVMS.App\HeliVMS.App.csproj`（WPF）＋ `HeliVMS.slnx`
@@ -595,7 +596,7 @@ gh run list -L 3              # 預期全部 success
       開窗→左導航選「備份」→`BackupTargetBox` 填 temp 目標→「立即備份」→狀態含「備份完成」→log 清單有列
     - 回歸影響：Retention loop 每小時多一次 backup 檢查（無 target 設定時跳過）；Settings nav 第 11 項
     - 驗收：App Release 0 error、Storage 149、全 289、BACKUP_OK（連續 2 次綠：UI 立即備份複製 1 段＋推進、第二次 0 段）、回歸全綠、CI 綠
-21. **M46 進行中＝錄影遮蔽（Redaction／隱私遮罩）（§14.7 #5 P1：影像處理鏈缺「匯出前隱私遮罩」）**：
+21. **M46 已驗收＝錄影遮蔽（Redaction／隱私遮罩）（§14.7 #5 P1；commit `c7f6e8f`，全 **293**，CI `35284550851` success）**：
     - 背景：§14.7 影像處理候選中，「錄影遮蔽」為隱私合規面（遮蔽敏感區/人物）且可獨立交付；ffmpeg 既有（M3/M21）
     - Recording 新 `RedactionService`：`RedactAsync(RedactionRequest)`——`segments=ListByRange(main,from,to)`
       → concat demuxer → `-filter_complex <BuildFilter(rois)> -map "[vout]"` → libx264 重新編碼
@@ -614,7 +615,7 @@ gh run list -L 3              # 預期全部 success
       `RedactRoiW/H` 設 64/48→加入遮罩（RoiList 1 列）→「開始遮蔽」→輪詢狀態含「遮蔽完成」且含 64-hex
       SHA-256→`redacted` 下輸出存在＋`ffprobe` duration>0 且 codec=h264
     - 回歸影響：MainWindow 新增工具列按鈕（不影響既有 10 鈕）；無 New DB 表
-    - 驗收：App Release 0 error、全 293、REDACTION_OK（連續 2 次綠：既有段遮蔽產出成功）、回歸全綠、CI 綠
+    - 驗收：App Release 0 error、全 293、REDACTION_OK（連續 2 次綠：既有段 ch27 遮蔽產出 6s h264＋SHA-256）、回歸全綠、CI `35284550851` success
 22. 每里程碑節奏照舊：定義先寫入本檔→實作→App Release build 0 error→單元測試→
     （有 UI 面者）E2E harness block→commit＋push＋CI success→`git status --porcelain` 空白
 
