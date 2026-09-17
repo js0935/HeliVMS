@@ -23,7 +23,7 @@ gh run list -L 3              # 預期全部 success
 新 session 會以 git 現況接手，不會靠猜測。
 
 ## 現況快照（權威來源＝git，非聊天記憶）
-- 最後 commit：`HEAD`＝**M40（`ad1b822`）**——警報 IO DI/DO（見下方 M40 定義段）；全 **210**、CI 進行中
+- 最後 commit：`HEAD`＝**M40（`ad1b822`）**——警報 IO DI/DO（見下方 M40 定義段）；全 **210**、CI `35227187378` success
 - 進行中：**無**（M40 已驗收；下一里程碑待定）
 - 前一個 M38 交付＝`d09b045`（事件回應工作流，見下方 M38 定義段）、全 **172**、CI `35185639491` success
 - 前一個 M30 交付＝`24ad4c7`（MQTT 通知通道）：`NotificationSettings`＋
