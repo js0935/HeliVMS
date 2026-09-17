@@ -23,7 +23,7 @@ gh run list -L 3              # 預期全部 success
 新 session 會以 git 現況接手，不會靠猜測。
 
 ## 現況快照（權威來源＝git，非聊天記憶）
-- 最後 commit：`HEAD`＝**M38（`待補`）**——事件回應工作流（見下方 M38 定義段）；全 **172**、CI `待補` success
+- 最後 commit：`HEAD`＝**M38（`d09b045`）**——事件回應工作流（見下方 M38 定義段）；全 **172**、CI `35185639491` success
 - 進行中：**無**（M38 已驗收；下一里程碑待定）
 - 前一個 M36 交付＝`4c5dd71`（SNMP 陷阱 SNMPv2c）；M35 交付＝`0493612`（ONVIF Discovery Hello/Bye/Resolve）、全 **148**、CI success
 - 前一個 M30 交付＝`24ad4c7`（MQTT 通知通道）：`NotificationSettings`＋
@@ -321,7 +321,7 @@ gh run list -L 3              # 預期全部 success
       `navCount==6` 硬期望須同步改 **7**（已更新 harness）；回歸組全綠
       （set/snap/snmp/push/mqtt/ptz/notif/log/smtp/exp/off/evfilter/quiet）
     - 驗收：App Release 0 error、Storage 58/58、Alarms 78/78、全 **168**、CI 綠
-13. **M38 已驗收＝事件回應工作流**（commit 待補，§14.4）：
+13. **M38 已驗收＝事件回應工作流**（commit `d09b045`，CI `35185639491` success，§14.4）：
     - 背景：事件中心原本僅 `acknowledged` 位元（已確認/未確認），缺四態、指派、備註與軌跡
     - Storage schema **v8**（`CurrentSchemaVersion` 7→8、`CreateEventDispositionsTableV8` 遷移接線）：
       - `event_dispositions(event_id PK REFERENCES alarm_events ON DELETE CASCADE, status TEXT
@@ -360,6 +360,7 @@ gh run list -L 3              # 預期全部 success
       （`HeliVMS.App.EventCenterWindow+EventRow`）而非顯示文字
     - 回歸：全 172（Storage 62＋Alarms 78＋Licensing 8＋Devices 24）；set/snap/snmp/push/mqtt/
       ptz/notif/log/smtp/exp/off/evfilter/quiet 全綠
+    - 驗收：App Release 0 error、Storage 62/62、Alarms 78/78、全 **172**、CI `35185639491` success
 14. 每里程碑節奏照舊：定義先寫入本檔→實作→App Release build 0 error→單元測試→
     （有 UI 面者）E2E harness block→commit＋push＋CI success→`git status --porcelain` 空白
 
