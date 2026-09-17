@@ -1,0 +1,91 @@
+<Window x:Class="HeliVMS.App.ExportCenterWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        AutomationProperties.AutomationId="ExportCenterWindow"
+        Title="HeliVMS 匯出中心"
+        Width="760" Height="640"
+        WindowStartupLocation="CenterOwner"
+        Background="#0B1622" Foreground="White">
+
+    <Grid Margin="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- 新增匯出 -->
+        <StackPanel Grid.Row="0">
+            <TextBlock Text="新增匯出（多通道批量，依序加入佇列）" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+            <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
+                <TextBlock Text="頻道" VerticalAlignment="Center" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+                <ListBox x:Name="ChannelList" Width="200" Height="56" Margin="8,0,0,0"
+                         SelectionMode="Multiple" Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
+            </StackPanel>
+
+            <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                <DatePicker x:Name="StartDate" AutomationProperties.AutomationId="CenterStartDate"
+                            Width="120" Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
+                <TextBox x:Name="StartTime" Width="64" Margin="6,0,0,0" Text="00:00:00"
+                         VerticalContentAlignment="Center" Foreground="White"
+                         Background="#1A2C49" BorderBrush="#2A4A73"/>
+                <TextBlock Text="～" VerticalAlignment="Center" Margin="8,0"/>
+                <DatePicker x:Name="EndDate" AutomationProperties.AutomationId="CenterEndDate"
+                            Width="120" Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
+                <TextBox x:Name="EndTime" Width="64" Margin="6,0,0,0" Text="23:59:59"
+                         VerticalContentAlignment="Center" Foreground="White"
+                         Background="#1A2C49" BorderBrush="#2A4A73"/>
+            </StackPanel>
+
+            <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                <TextBlock Text="輸出資料夾" VerticalAlignment="Center" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+                <TextBox x:Name="CenterOutputBox" AutomationProperties.AutomationId="CenterOutputBox"
+                         Width="420" Margin="8,0,0,0" VerticalContentAlignment="Center"
+                         Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
+                <Button x:Name="CenterBrowseButton" Content="瀏覽" Click="OnCenterBrowseClicked"
+                        Width="60" Margin="8,0,0,0" Padding="0,6"
+                        Foreground="White" Background="#2A4A73" BorderThickness="0"/>
+                <Button x:Name="AddExportButton" AutomationProperties.AutomationId="AddExportButton"
+                        Content="加入佇列" Click="OnAddClicked"
+                        Width="80" Margin="8,0,0,0" Padding="0,6"
+                        Foreground="White" Background="#2A5C8A" BorderThickness="0"/>
+            </StackPanel>
+        </StackPanel>
+
+        <!-- 工作清單 -->
+        <TextBlock Grid.Row="1" Text="歷史／佇列" Foreground="{StaticResource Brand.TextDim}" FontSize="11" Margin="0,14,0,2"/>
+        <ListView Grid.Row="2" x:Name="JobList" AutomationProperties.AutomationId="JobList"
+                  Background="#0E1C30" BorderBrush="#2A4A73" Foreground="White">
+            <ListView.ItemTemplate>
+                <DataTemplate>
+                    <TextBlock Text="{Binding Display}" Foreground="White"/>
+                </DataTemplate>
+            </ListView.ItemTemplate>
+        </ListView>
+
+        <!-- 動作列 -->
+        <StackPanel Grid.Row="3" Orientation="Horizontal" Margin="0,10,0,0">
+            <Button x:Name="CenterRefreshButton" Content="刷新" Click="OnRefreshClicked"
+                    Width="64" Padding="0,6" Foreground="White" Background="#2A4A73" BorderThickness="0"/>
+            <Button x:Name="CenterRunButton" AutomationProperties.AutomationId="CenterRunButton"
+                    Content="開始處理" Click="OnRunClicked"
+                    Width="80" Padding="0,6" Margin="8,0,0,0"
+                    Foreground="White" Background="#2A5C8A" BorderThickness="0"/>
+            <Button x:Name="CenterVerifyButton" AutomationProperties.AutomationId="CenterVerifyButton"
+                    Content="驗證" Click="OnVerifyClicked"
+                    Width="64" Padding="0,6" Margin="8,0,0,0"
+                    Foreground="White" Background="#4A5C4A" BorderThickness="0"/>
+            <Button x:Name="CenterDeleteButton" Content="刪除" Click="OnDeleteClicked"
+                    Width="64" Padding="0,6" Margin="8,0,0,0"
+                    Foreground="White" Background="#8A3C2E" BorderThickness="0"/>
+            <Button x:Name="CenterPurgeButton" Content="清完成紀錄" Click="OnPurgeClicked"
+                    Width="90" Padding="0,6" Margin="8,0,0,0"
+                    Foreground="White" Background="#3A4A6A" BorderThickness="0"/>
+        </StackPanel>
+
+        <TextBlock Grid.Row="4" x:Name="ExportCenterStatus" AutomationProperties.AutomationId="ExportCenterStatus"
+                   Margin="0,10,0,0" Foreground="#9FB8D8" TextWrapping="Wrap"/>
+    </Grid>
+</Window>

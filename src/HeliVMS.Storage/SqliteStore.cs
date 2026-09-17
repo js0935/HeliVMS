@@ -9,7 +9,7 @@ namespace HeliVMS.Storage;
 /// </summary>
 public sealed class SqliteStore : IDisposable
 {
-    private const int CurrentSchemaVersion = 11;
+    private const int CurrentSchemaVersion = 12;
     private readonly SqliteConnection _connection;
     private readonly object _gate = new();
     private bool _disposed;
@@ -107,6 +107,11 @@ public sealed class SqliteStore : IDisposable
         if (version < 11)
         {
             CreateUsersTableV11();
+        }
+
+        if (version < 12)
+        {
+            CreateExportJobsTableV12();
         }
 
         Execute("PRAGMA user_version = CURRENT_SCHEMA_VERSION;".Replace(
@@ -399,6 +404,29 @@ public sealed class SqliteStore : IDisposable
                 acknowledged  INTEGER NOT NULL DEFAULT 0
             );
             CREATE INDEX IF NOT EXISTS idx_event_time ON alarm_events(start_time);
+            """);
+    }
+
+    private void CreateExportJobsTableV12()
+    {
+        Execute(
+            """
+            CREATE TABLE IF NOT EXISTS export_jobs (
+                id             INTEGER PRIMARY KEY AUTOINCREMENT,
+                channel_id     INTEGER NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
+                stream         TEXT    NOT NULL DEFAULT 'main',
+                start_time     TEXT    NOT NULL,
+                end_time       TEXT    NOT NULL,
+                status         TEXT    NOT NULL DEFAULT 'queued',
+                output_path    TEXT,
+                file_size_bytes INTEGER,
+                sha256         TEXT,
+                error          TEXT,
+                created_at     TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+                started_at     TEXT,
+                finished_at    TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_export_jobs_status ON export_jobs(status);
             """);
     }
 

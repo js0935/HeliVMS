@@ -288,6 +288,11 @@ public partial class MainWindow : Window
             Dispatcher.BeginInvoke(() => OpenExportWindow());
         }
 
+        if (Environment.GetCommandLineArgs().Contains("--exportcenter", StringComparer.OrdinalIgnoreCase))
+        {
+            Dispatcher.BeginInvoke(() => OpenExportCenterWindow());
+        }
+
         if (Environment.GetCommandLineArgs().Contains("--events", StringComparer.OrdinalIgnoreCase))
         {
             Dispatcher.BeginInvoke(() => OpenEventCenter());
@@ -893,12 +898,30 @@ public partial class MainWindow : Window
 
     private void OnExportClicked(object sender, RoutedEventArgs e) => OpenExportWindow();
 
+    private void OnExportCenterClicked(object sender, RoutedEventArgs e) => OpenExportCenterWindow();
+
+    /// <summary>開啟匯出中心（M44，§14.3(2)）。viewer 與匯出精靈同權限限制。</summary>
+    private void OpenExportCenterWindow()
+    {
+        if (!SessionContext.IsAdmin)
+        {
+            return;
+        }
+
+        var center = new ExportCenterWindow(_store!, _dataRoot)
+        {
+            Owner = this,
+        };
+        center.Show();
+    }
+
     /// <summary>依登入角色限制管理功能（M42）：viewer 不能開設定中心／匯出精靈。</summary>
     private void ApplyRoleRestrictions()
     {
         var isAdmin = SessionContext.IsAdmin;
         SettingsButton.IsEnabled = isAdmin;
         ExportButton.IsEnabled = isAdmin;
+        ExportCenterButton.IsEnabled = isAdmin;
     }
 
     /// <summary>開啟通知送達紀錄（M23，§16.3）。</summary>
