@@ -23,7 +23,7 @@ gh run list -L 3              # 預期全部 success
 新 session 會以 git 現況接手，不會靠猜測。
 
 ## 現況快照（權威來源＝git，非聊天記憶）
-- 最後 commit：`HEAD`＝**M43（`3406f77`）**——數位證據安全包（Evidence Bundle）（見下方 M43 定義段）；全 **266**、CI 進行中
+- 最後 commit：`HEAD`＝**M43（`3406f77`）**——數位證據安全包（Evidence Bundle）（見下方 M43 定義段）；全 **266**、CI `35243549066` success
 - 進行中：**無**（M43 已驗收；下一里程碑待定）
 - 前一個 M41 交付＝`2d89ea7`（電子地圖/平面圖）、全 **222**、CI `35232094120` success
 - 前一個 M38 交付＝`d09b045`（事件回應工作流，見下方 M38 定義段）、全 **172**、CI `35185639491` success
@@ -514,7 +514,7 @@ gh run list -L 3              # 預期全部 success
     - 回歸影響：設定中心 nav 由 9→**10**（新增「身份」頁）——`setcheck`/`snapcheck` 之 nav 斷言已同步改 **10**；回歸 **15 blocks 全綠**（set/snap 10＋snmp/push/mqtt/ptz/notif/log/smtp/exp/off/evfilter/quiet＋mapcheck＋***authcheck***）
     - 設計決策：登入窗在 `MainWindow` 建立前以暫用 `SqliteStore` 檢查（`AuthService.IsAuthEnabled`）→ 失敗/取消 `Shutdown(1)`；viewer 僅監看（設定/匯出按鈕 disabled＋handler guard）；`LoginWindow` 密碼錯誤即清空重新輸入（harness 友善）
     - 驗收：App Release 0 error、Storage 113/113、全 253、AUTHCHECK_OK、15 回歸全綠、CI 綠
-18. **M43 已驗收＝數位證據安全包（Evidence Bundle）**（§14.3「證據包：影片＋快照＋SHA-256 清單」、§14.7 #4「安全共享」，P1；以 `EvidencePackager` ＋ `.evp` 格式落地「完整性＋密碼保護＋到期」，`Verify` 驗證含篡改偵測；commit `3406f77`，全 **266**，CI 進行中）：
+18. **M43 已驗收＝數位證據安全包（Evidence Bundle）**（§14.3「證據包：影片＋快照＋SHA-256 清單」、§14.7 #4「安全共享」，P1；以 `EvidencePackager` ＋ `.evp` 格式落地「完整性＋密碼保護＋到期」，`Verify` 驗證含篡改偵測；commit `3406f77`，全 **266**，CI `35243549066` success）：
     - 背景：匯出後「證據力」＝檔本身＋SHA-256 清單（§14.3 已列）＋可選密碼保護（前述 `PasswordHasher` 之 PBKDF2 可重用 KDF）；不做 RSA 公鑰簽署（金鑰管理複雜、需另配發驗證工具），先以 **AES-256-GCM**（tag 即篡改偵測）＋完整 SHA-256 清單達成同等完整性
     - **包格式 `.evp`**（Storage 新檔 `EvidencePackager.cs`）：
       ```
