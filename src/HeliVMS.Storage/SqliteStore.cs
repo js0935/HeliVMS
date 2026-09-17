@@ -9,7 +9,7 @@ namespace HeliVMS.Storage;
 /// </summary>
 public sealed class SqliteStore : IDisposable
 {
-    private const int CurrentSchemaVersion = 9;
+    private const int CurrentSchemaVersion = 10;
     private readonly SqliteConnection _connection;
     private readonly object _gate = new();
     private bool _disposed;
@@ -97,6 +97,11 @@ public sealed class SqliteStore : IDisposable
         if (version < 9)
         {
             CreateIoTablesV9();
+        }
+
+        if (version < 10)
+        {
+            CreateMapTablesV10();
         }
 
         Execute("PRAGMA user_version = CURRENT_SCHEMA_VERSION;".Replace(
@@ -267,6 +272,39 @@ public sealed class SqliteStore : IDisposable
                 UNIQUE (device_id, direction, io_index)
             );
             CREATE INDEX IF NOT EXISTS idx_io_ch_device ON io_channels(device_id);
+            """);
+    }
+
+    private void CreateMapTablesV10()
+    {
+        Execute(
+            """
+            CREATE TABLE IF NOT EXISTS maps (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                name        TEXT    NOT NULL,
+                type        TEXT    NOT NULL DEFAULT 'plan',
+                image_path  TEXT    NOT NULL,
+                width       INTEGER NOT NULL,
+                height      INTEGER NOT NULL,
+                enabled     INTEGER NOT NULL DEFAULT 1,
+                sort_order  INTEGER NOT NULL DEFAULT 0,
+                created_at  TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+            );
+
+            CREATE TABLE IF NOT EXISTS map_devices (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                map_id      INTEGER NOT NULL REFERENCES maps(id) ON DELETE CASCADE,
+                device_type TEXT    NOT NULL CHECK (device_type IN ('camera', 'io')),
+                channel_id  INTEGER NOT NULL,
+                x           REAL    NOT NULL DEFAULT 0.5,
+                y           REAL    NOT NULL DEFAULT 0.5,
+                angle       REAL    NOT NULL DEFAULT 0,
+                fov_deg     REAL    NOT NULL DEFAULT 90,
+                fov_depth   REAL    NOT NULL DEFAULT 3,
+                enabled     INTEGER NOT NULL DEFAULT 1,
+                UNIQUE (map_id, device_type, channel_id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_map_dev_map ON map_devices(map_id);
             """);
     }
 

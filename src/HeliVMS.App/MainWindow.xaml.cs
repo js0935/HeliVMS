@@ -1229,6 +1229,9 @@ public partial class MainWindow : Window
         OpenPtz(channelId);
     }
 
+    private void OnMapClicked(object sender, RoutedEventArgs e)
+        => new MapWindow(_store!) { Owner = this }.Show();
+
     private void OnPtzClicked(object sender, RoutedEventArgs e)
     {
         var idx = ChannelCombo.SelectedIndex;

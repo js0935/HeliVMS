@@ -29,6 +29,7 @@
                     <ListBoxItem Content="通知"/>
                     <ListBoxItem Content="規則"/>
                     <ListBoxItem Content="IO"/>
+                    <ListBoxItem Content="地圖"/>
                 </ListBox>
             </DockPanel>
         </Border>
@@ -529,6 +530,99 @@
                 </StackPanel>
                 <TextBlock Text="DO 測試需由主視窗監視器（IoMonitorHost）接線後生效；未接線時顯示提示。"
                            Foreground="{StaticResource Brand.TextDim}" FontSize="11" Margin="0,2,0,0" TextWrapping="Wrap"/>
+            </StackPanel>
+
+            <!-- 地圖（M41，§16.1） -->
+            <StackPanel x:Name="PageMap" Visibility="Collapsed"
+                        AutomationProperties.AutomationId="SettingsPageMap">
+                <TextBlock Text="電子地圖" FontSize="17" FontWeight="Bold" Margin="0,0,0,6"/>
+                <TextBlock Text="上傳平面圖為背景，將鏡頭（含視角扇形）與 IO 圖釘佈置於圖面；"
+                           Foreground="{StaticResource Brand.TextDim}" FontSize="11" Margin="0,0,0,10" TextWrapping="Wrap"/>
+                <TextBlock Text="事件觸發時對應圖釘閃爍；事件中心可「在地圖定位」。上傳圖檔複製至資料根目錄 maps\u002F。"
+                           Foreground="{StaticResource Brand.TextDim}" FontSize="11" Margin="0,0,0,10" TextWrapping="Wrap"/>
+
+                <TextBlock Text="地圖（平面圖）" FontSize="14" FontWeight="Bold" Margin="0,0,0,6"/>
+                <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                    <TextBox x:Name="MapNameBox" AutomationProperties.AutomationId="MapNameBox"
+                             Width="120" ToolTip="地圖名稱（樓層）"
+                             Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="8,4"/>
+                    <TextBox x:Name="MapImageBox" AutomationProperties.AutomationId="MapImageBox"
+                             Width="300" Margin="6,0,0,0" ToolTip="平面圖檔路徑（PNG/JPG/BMP）"
+                             Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="8,4"/>
+                    <Button x:Name="MapBrowseButton" AutomationProperties.AutomationId="MapBrowseButton"
+                            Content="瀏覽" Click="OnMapBrowseClicked" Margin="6,0,0,0" Padding="8,4"
+                            Foreground="White" Background="#3A5A7A" BorderThickness="0"/>
+                    <Button x:Name="MapAddButton" AutomationProperties.AutomationId="MapAddButton"
+                            Content="＋新增地圖" Click="OnMapAddClicked" Margin="6,0,0,0" Padding="8,4"
+                            Foreground="White" Background="#2A5C8A" BorderThickness="0"/>
+                    <Button x:Name="MapRefreshButton" AutomationProperties.AutomationId="MapRefreshButton"
+                            Content="重新整理" Click="OnMapRefreshClicked" Margin="6,0,0,0" Padding="8,4"
+                            Foreground="White" Background="#3A5A7A" BorderThickness="0"/>
+                </StackPanel>
+
+                <ListView x:Name="MapList" AutomationProperties.AutomationId="MapList" SelectionMode="Single"
+                          Height="120" SelectionChanged="OnMapSelectionChanged"
+                          Background="#0E1D33" Foreground="White" BorderBrush="#1F3A5F">
+                    <ListView.View>
+                        <GridView>
+                            <GridViewColumn Header="ID" Width="42" DisplayMemberBinding="{Binding Id}"/>
+                            <GridViewColumn Header="名稱" Width="130" DisplayMemberBinding="{Binding Name}"/>
+                            <GridViewColumn Header="尺寸" Width="90" DisplayMemberBinding="{Binding SizeLabel}"/>
+                            <GridViewColumn Header="啟用" Width="70" DisplayMemberBinding="{Binding EnabledLabel}"/>
+                            <GridViewColumn Header="順序" Width="56" DisplayMemberBinding="{Binding SortOrder}"/>
+                        </GridView>
+                    </ListView.View>
+                </ListView>
+                <StackPanel Orientation="Horizontal" Margin="0,4,0,8">
+                    <Button x:Name="MapToggleButton" Content="啟用/停用" Click="OnMapToggleClicked"
+                            Padding="8,4" Foreground="White" Background="#3A5A7A" BorderThickness="0"/>
+                    <Button x:Name="MapDeleteButton" Content="刪除地圖（含圖釘）" Click="OnMapDeleteClicked" Margin="6,0,0,0"
+                            Padding="8,4" Foreground="White" Background="#8A3C2E" BorderThickness="0"/>
+                </StackPanel>
+
+                <TextBlock Text="圖釘編輯（鏡頭／IO）" FontSize="14" FontWeight="Bold" Margin="0,4,0,6"/>
+                <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                    <ComboBox x:Name="MapPinKindCombo" AutomationProperties.AutomationId="MapPinKindCombo" Width="84"
+                              SelectionChanged="OnMapPinKindChanged"
+                              Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="2,4">
+                        <ComboBoxItem Content="camera"/>
+                        <ComboBoxItem Content="io"/>
+                    </ComboBox>
+                    <ComboBox x:Name="MapPinChannelCombo" AutomationProperties.AutomationId="MapPinChannelCombo"
+                              Width="200" Margin="6,0,0,0" ToolTip="選擇要放置的頻道／IO 通道"
+                              Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="2,4"/>
+                </StackPanel>
+                <TextBlock Text="選擇種類與通道後，點擊下方地圖畫布即放置圖釘；拖曳圖釘可微調位置後放開即儲存。"
+                           Foreground="{StaticResource Brand.TextDim}" FontSize="11" Margin="0,0,0,4" TextWrapping="Wrap"/>
+
+                <Border Height="210" Background="#080F1A" BorderBrush="#1F3A5F" BorderThickness="1" VerticalAlignment="Top">
+                    <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
+                        <Canvas x:Name="MapPinCanvas" AutomationProperties.AutomationId="MapPinCanvas">
+                            <Image x:Name="MapPinImage" Stretch="None"/>
+                        </Canvas>
+                    </ScrollViewer>
+                </Border>
+
+                <ListView x:Name="MapPinList" AutomationProperties.AutomationId="MapPinList" SelectionMode="Single"
+                          Height="100" Margin="0,6,0,0"
+                          Background="#0E1D33" Foreground="White" BorderBrush="#1F3A5F">
+                    <ListView.View>
+                        <GridView>
+                            <GridViewColumn Header="類型" Width="64" DisplayMemberBinding="{Binding DeviceType}"/>
+                            <GridViewColumn Header="頻道" Width="60" DisplayMemberBinding="{Binding ChannelId}"/>
+                            <GridViewColumn Header="位置(x,y)" Width="130" DisplayMemberBinding="{Binding PositionLabel}"/>
+                            <GridViewColumn Header="啟用" Width="52" DisplayMemberBinding="{Binding EnabledLabel}"/>
+                            <GridViewColumn Header="名稱" Width="150" DisplayMemberBinding="{Binding Name}"/>
+                        </GridView>
+                    </ListView.View>
+                </ListView>
+                <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
+                    <Button x:Name="MapDeletePinButton" Content="刪除圖釘" Click="OnMapDeletePinClicked"
+                            Padding="8,4" Foreground="White" Background="#8A3C2E" BorderThickness="0"/>
+                    <TextBlock x:Name="MapReportText" AutomationProperties.AutomationId="MapReportText"
+                               Margin="14,0,0,0" VerticalAlignment="Center" TextWrapping="Wrap"
+                               Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+                </StackPanel>
             </StackPanel>
         </Grid>
     </Grid>

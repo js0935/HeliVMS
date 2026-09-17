@@ -333,6 +333,7 @@ public partial class EventCenterWindow : Window
         AckButton.IsEnabled = row != null && !row.Acknowledged;
         UnackButton.IsEnabled = row != null && row.Acknowledged;
         PlaybackButton.IsEnabled = row != null;
+        MapLocateButton.IsEnabled = row != null;
         ApplyDispositionButton.IsEnabled = row != null;
         ShowSnapshot(row?.SnapshotPath, row?.Detail);
 
@@ -411,6 +412,17 @@ public partial class EventCenterWindow : Window
 
         var playback = new PlaybackWindow(_store, row.ChannelId, row.StartUtc) { Owner = this };
         playback.Show();
+    }
+
+    private void OnMapLocateClicked(object sender, RoutedEventArgs e)
+    {
+        if (SelectedRow is not EventRow row)
+        {
+            return;
+        }
+
+        var map = new MapWindow(_store, (int)row.ChannelId, "camera") { Owner = this };
+        map.Show();
     }
 
     /// <summary>目前檢視中被選取的事件列。</summary>

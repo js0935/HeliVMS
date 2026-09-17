@@ -109,6 +109,10 @@
                                 Content="PTZ" Click="OnPtzClicked"
                                 Width="50" Padding="0,8" Margin="0,0,6,0"
                                 Foreground="White" Background="#5A4A8A" BorderThickness="0" />
+                        <Button x:Name="MapButton" AutomationProperties.AutomationId="MapButton"
+                                Content="地圖" Click="OnMapClicked"
+                                Width="50" Padding="0,8"
+                                Foreground="White" Background="#2A7F6E" BorderThickness="0" />
                     </StackPanel>
 
                     <TextBlock x:Name="HintText" TextWrapping="Wrap"

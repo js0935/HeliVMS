@@ -202,6 +202,9 @@
                                 Padding="10,4" Margin="8,0,0,0" Foreground="White" Background="#5A4A2A" BorderThickness="0"/>
                         <Button x:Name="PlaybackButton" Content="回放此事件" Click="OnPlaybackClicked" IsEnabled="False"
                                 Padding="10,4" Margin="8,0,0,0" Foreground="White" Background="#2A7F6E" BorderThickness="0"/>
+                        <Button x:Name="MapLocateButton" AutomationProperties.AutomationId="MapLocateButton"
+                                Content="在地圖定位" Click="OnMapLocateClicked" IsEnabled="False"
+                                Padding="10,4" Margin="8,0,0,0" Foreground="White" Background="#3A7A6E" BorderThickness="0"/>
                         <Button x:Name="PrevPageButton" AutomationProperties.AutomationId="PrevPageButton"
                                 Content="◀ 上一頁" Click="OnPrevPageClicked" IsEnabled="False"
                                 Padding="10,4" Margin="22,0,0,0" Foreground="White"

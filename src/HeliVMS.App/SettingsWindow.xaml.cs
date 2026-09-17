@@ -3,6 +3,10 @@ using System.IO;
 using System.Reflection;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
+using System.Windows.Media;
+using System.Windows.Media.Imaging;
+using System.Windows.Shapes;
 using HeliVMS.Alarms;
 using HeliVMS.App.Services;
 using HeliVMS.Licensing;
@@ -36,6 +40,8 @@ public partial class SettingsWindow : Window
 
     /// <summary>IO 通道頁顯示列。</summary>
     private sealed record IoChannelRow(int Id, string Direction, int IoIndex, string Name, string EnabledLabel, string NcLabel, int DebounceMs, string CameraLabel);
+    private sealed record MapRow(int Id, string Name, string SizeLabel, string EnabledLabel, int SortOrder);
+    private sealed record MapPinRow(int Id, string DeviceType, int ChannelId, string PositionLabel, string EnabledLabel, string Name);
 
     private readonly SqliteStore _store;
     private readonly string _dataRoot;
@@ -45,6 +51,8 @@ public partial class SettingsWindow : Window
     private readonly AlertRuleRepository _rules;
     private readonly IoRepository _io;
     private readonly IoMonitorHost? _ioHost;
+    private readonly MapRepository _maps;
+    private readonly string _mapsRoot;
 
     public SettingsWindow(SqliteStore store, string dataRoot, IoMonitorHost? ioHost = null)
     {
@@ -56,8 +64,11 @@ public partial class SettingsWindow : Window
         _rules = new AlertRuleRepository(store);
         _io = new IoRepository(store);
         _ioHost = ioHost;
+        _maps = new MapRepository(store);
+        _mapsRoot = Path.Combine(dataRoot, "maps");
 
         InitializeComponent();
+        MapPinCanvas.MouseLeftButtonUp += OnMapPinCanvasClick;
 
         VersionText.Text = $"HeliVMS {Assembly.GetExecutingAssembly().GetName().Version}";
         DataRootText.Text = _dataRoot;
@@ -74,6 +85,7 @@ public partial class SettingsWindow : Window
         ReloadRules();
         ReloadTamper();
         ReloadIo();
+        ReloadMaps();
 
         SettingsNav.SelectedIndex = 0;
     }
@@ -94,6 +106,7 @@ public partial class SettingsWindow : Window
         PageNotify.Visibility = visible == "通知" ? Visibility.Visible : Visibility.Collapsed;
         PageRules.Visibility = visible == "規則" ? Visibility.Visible : Visibility.Collapsed;
         PageIo.Visibility = visible == "IO" ? Visibility.Visible : Visibility.Collapsed;
+        PageMap.Visibility = visible == "地圖" ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private void ReloadRules()
@@ -840,4 +853,335 @@ public partial class SettingsWindow : Window
 
     private void OnLaunchDetectionClicked(object sender, RoutedEventArgs e)
         => new DetectionWindow(_store) { Owner = this }.Show();
+
+    // ── 電子地圖（M41，§16.1）──────────────────────────────────────────
+
+    private MapRecord? SelectedMap =>
+        MapList.SelectedItem is MapRow r ? _maps.GetMap(r.Id) : null;
+
+    private void ReloadMaps()
+    {
+        MapList.ItemsSource = _maps.ListMaps()
+            .Select(m => new MapRow(
+                m.Id,
+                m.Name,
+                $"{m.Width}×{m.Height}",
+                m.Enabled ? "啟用" : "停用",
+                m.SortOrder))
+            .ToList();
+        ReloadMapPins();
+    }
+
+    private void ReloadMapPins()
+    {
+        ReloadMapPinChannelCombo();
+
+        foreach (var child in MapPinCanvas.Children.OfType<Ellipse>().ToList())
+        {
+            MapPinCanvas.Children.Remove(child);
+        }
+
+        MapPinList.ItemsSource = null;
+        var map = SelectedMap;
+        if (map is null)
+        {
+            MapPinImage.Source = null;
+            MapPinCanvas.Width = 0;
+            MapPinCanvas.Height = 0;
+            return;
+        }
+
+        BitmapImage bitmap;
+        try
+        {
+            bitmap = LoadBitmap(map.ImagePath);
+        }
+        catch (Exception ex)
+        {
+            MapReportText.Text = $"無法載入地圖圖檔：{ex.Message}";
+            return;
+        }
+
+        MapPinImage.Source = bitmap;
+        int w = bitmap.PixelWidth;
+        int h = bitmap.PixelHeight;
+        MapPinCanvas.Width = w;
+        MapPinCanvas.Height = h;
+        MapPinImage.Width = w;
+        MapPinImage.Height = h;
+
+        var cameras = new ChannelRepository(_store).List().ToDictionary(c => c.Id, c => c.Name);
+        var ios = _io.ListChannels().ToDictionary(c => c.Id, c => c.Name);
+
+        MapPinList.ItemsSource = _maps.ListDevices(map.Id)
+            .Select(p => new MapPinRow(
+                p.Id,
+                p.DeviceType,
+                p.ChannelId,
+                $"({p.X:0.00}, {p.Y:0.00})",
+                p.Enabled ? "啟用" : "停用",
+                p.DeviceType == "camera"
+                    ? (cameras.TryGetValue(p.ChannelId, out var cn) ? cn : $"頻道 #{p.ChannelId}")
+                    : (ios.TryGetValue(p.ChannelId, out var ioName) ? ioName : $"IO #{p.ChannelId}"))
+            ).ToList();
+
+        foreach (var p in _maps.ListDevices(map.Id))
+        {
+            if (!p.Enabled)
+            {
+                continue;
+            }
+
+            var dot = new Ellipse
+            {
+                Width = 10,
+                Height = 10,
+                Fill = p.DeviceType == "camera"
+                    ? new SolidColorBrush(Color.FromRgb(52, 211, 153))
+                    : new SolidColorBrush(Color.FromRgb(107, 122, 144)),
+                Stroke = Brushes.White,
+                StrokeThickness = 1,
+                Tag = $"md:{p.Id}",
+                ToolTip = $"{p.DeviceType} #{p.ChannelId} ({p.X:0.00}, {p.Y:0.00})",
+            };
+            Canvas.SetLeft(dot, p.X * w - 5);
+            Canvas.SetTop(dot, p.Y * h - 5);
+            dot.MouseLeftButtonDown += OnMapPinDragStart;
+            dot.MouseMove += OnMapPinDragMove;
+            dot.MouseLeftButtonUp += OnMapPinDragEnd;
+            MapPinCanvas.Children.Add(dot);
+        }
+    }
+
+    private void ReloadMapPinChannelCombo()
+    {
+        if (MapPinChannelCombo is null)
+        {
+            return;
+        }
+
+        MapPinChannelCombo.Items.Clear();
+        var kind = (MapPinKindCombo.SelectedItem as ComboBoxItem)?.Content as string ?? "camera";
+        if (kind == "camera")
+        {
+            foreach (var c in new ChannelRepository(_store).List())
+            {
+                MapPinChannelCombo.Items.Add(new ComboBoxItem { Content = $"{c.Name}（#{c.Id}）", Tag = c.Id });
+            }
+        }
+        else
+        {
+            foreach (var c in _io.ListChannels())
+            {
+                MapPinChannelCombo.Items.Add(new ComboBoxItem { Content = $"{c.Name}（#{c.Id}）", Tag = c.Id });
+            }
+        }
+
+        if (MapPinChannelCombo.Items.Count > 0)
+        {
+            MapPinChannelCombo.SelectedIndex = 0;
+        }
+    }
+
+    private void OnMapBrowseClicked(object sender, RoutedEventArgs e)
+    {
+        var dlg = new Microsoft.Win32.OpenFileDialog
+        {
+            Filter = "平面圖（PNG/JPG/BMP）|*.png;*.jpg;*.jpeg;*.bmp|所有檔案|*.*",
+            Title = "選擇平面圖",
+        };
+        if (dlg.ShowDialog(this) == true)
+        {
+            MapImageBox.Text = dlg.FileName;
+        }
+    }
+
+    private void OnMapAddClicked(object sender, RoutedEventArgs e)
+    {
+        var name = MapNameBox.Text.Trim();
+        var source = MapImageBox.Text.Trim();
+        if (name.Length == 0 || source.Length == 0)
+        {
+            MapReportText.Text = "請填地圖名稱與圖檔路徑。";
+            return;
+        }
+
+        if (!File.Exists(source))
+        {
+            MapReportText.Text = $"圖檔不存在：{source}";
+            return;
+        }
+
+        BitmapImage bitmap;
+        try
+        {
+            bitmap = LoadBitmap(source);
+        }
+        catch (Exception ex)
+        {
+            MapReportText.Text = $"無法讀取圖檔：{ex.Message}";
+            return;
+        }
+
+        Directory.CreateDirectory(_mapsRoot);
+        var ext = Path.GetExtension(source);
+        if (ext.Length == 0)
+        {
+            ext = ".png";
+        }
+
+        var target = Path.Combine(_mapsRoot, $"map-{Guid.NewGuid():N}{ext}");
+        File.Copy(source, target, overwrite: true);
+
+        _maps.AddMap(name, target, bitmap.PixelWidth, bitmap.PixelHeight, sortOrder: _maps.ListMaps().Count);
+        MapNameBox.Clear();
+        MapImageBox.Clear();
+        MapReportText.Text = $"已新增地圖「{name}」（{bitmap.PixelWidth}×{bitmap.PixelHeight}）。";
+        ReloadMaps();
+    }
+
+    private void OnMapRefreshClicked(object sender, RoutedEventArgs e) => ReloadMaps();
+
+    private void OnMapSelectionChanged(object sender, SelectionChangedEventArgs e) => ReloadMapPins();
+
+    private void OnMapToggleClicked(object sender, RoutedEventArgs e)
+    {
+        if (SelectedMap is not { } map)
+        {
+            MapReportText.Text = "請先選擇地圖。";
+            return;
+        }
+
+        _maps.SetMapEnabled(map.Id, !map.Enabled);
+        ReloadMaps();
+    }
+
+    private void OnMapDeleteClicked(object sender, RoutedEventArgs e)
+    {
+        if (SelectedMap is not { } map)
+        {
+            MapReportText.Text = "請先選擇地圖。";
+            return;
+        }
+
+        _maps.DeleteMap(map.Id);
+        MapReportText.Text = $"已刪除地圖「{map.Name}」。";
+        ReloadMaps();
+    }
+
+    private void OnMapPinKindChanged(object sender, SelectionChangedEventArgs e)
+        => ReloadMapPinChannelCombo();
+
+    private void OnMapPinCanvasClick(object sender, MouseButtonEventArgs e)
+    {
+        if (e.OriginalSource is Ellipse)
+        {
+            return;
+        }
+
+        var map = SelectedMap;
+        if (map is null)
+        {
+            MapReportText.Text = "請先選擇地圖。";
+            return;
+        }
+
+        if (MapPinChannelCombo.SelectedItem is not ComboBoxItem ci || ci.Tag is not int channelId)
+        {
+            MapReportText.Text = "尚無可放置的頻道／IO 通道。";
+            return;
+        }
+
+        var kind = (MapPinKindCombo.SelectedItem as ComboBoxItem)?.Content as string ?? "camera";
+        var pos = e.GetPosition(MapPinCanvas);
+        var x = Math.Clamp(pos.X / MapPinCanvas.Width, 0, 1);
+        var y = Math.Clamp(pos.Y / MapPinCanvas.Height, 0, 1);
+
+        try
+        {
+            _maps.AddDevice(map.Id, kind, channelId, x, y);
+            MapReportText.Text = $"已放置 {kind} #{channelId}（{x:0.00}, {y:0.00}）。";
+        }
+        catch (Exception ex)
+        {
+            MapReportText.Text = $"放置失敗：{ex.Message}";
+        }
+
+        ReloadMapPins();
+    }
+
+    private FrameworkElement? _dragPin;
+
+    private void OnMapPinDragStart(object sender, MouseButtonEventArgs e)
+    {
+        if (sender is not Ellipse dot || dot.Tag is not string tag || !tag.StartsWith("md:", StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        _dragPin = dot;
+        dot.CaptureMouse();
+        e.Handled = true;
+    }
+
+    private void OnMapPinDragMove(object sender, MouseEventArgs e)
+    {
+        if (_dragPin is not Ellipse dot || ReferenceEquals(_dragPin, sender) is false || !dot.IsMouseCaptured)
+        {
+            return;
+        }
+
+        var pos = e.GetPosition(MapPinCanvas);
+        Canvas.SetLeft(dot, pos.X - dot.Width / 2);
+        Canvas.SetTop(dot, pos.Y - dot.Height / 2);
+        e.Handled = true;
+    }
+
+    private void OnMapPinDragEnd(object sender, MouseButtonEventArgs e)
+    {
+        if (_dragPin is not Ellipse dot || dot.Tag is not string tag || !tag.StartsWith("md:", StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        if (dot.IsMouseCaptured)
+        {
+            dot.ReleaseMouseCapture();
+        }
+
+        _dragPin = null;
+        if (MapPinCanvas.Width <= 0 || MapPinCanvas.Height <= 0)
+        {
+            return;
+        }
+
+        var id = int.Parse(tag.AsSpan("md:".Length));
+        var pos = e.GetPosition(MapPinCanvas);
+        _maps.SetDevicePosition(id, Math.Clamp(pos.X / MapPinCanvas.Width, 0, 1), Math.Clamp(pos.Y / MapPinCanvas.Height, 0, 1));
+        MapReportText.Text = $"已更新圖釘位置（{pos.X / MapPinCanvas.Width:0.00}, {pos.Y / MapPinCanvas.Height:0.00}）。";
+        ReloadMapPins();
+    }
+
+    private void OnMapDeletePinClicked(object sender, RoutedEventArgs e)
+    {
+        if (MapPinList.SelectedItem is not MapPinRow row)
+        {
+            MapReportText.Text = "請先選擇圖釘。";
+            return;
+        }
+
+        _maps.DeleteDevice(row.Id);
+        MapReportText.Text = $"已刪除圖釘 {row.DeviceType} #{row.ChannelId}。";
+        ReloadMapPins();
+    }
+
+    private static BitmapImage LoadBitmap(string path)
+    {
+        var bi = new BitmapImage();
+        bi.BeginInit();
+        bi.UriSource = new Uri(path, UriKind.RelativeOrAbsolute);
+        bi.CacheOption = BitmapCacheOption.OnLoad;
+        bi.EndInit();
+        return bi;
+    }
 }
