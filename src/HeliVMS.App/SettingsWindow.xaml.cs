@@ -144,6 +144,10 @@ public partial class SettingsWindow : Window
         NotifyMqttPasswordBox.Password = string.Empty;   // 不預填密碼
         NotifyPushEnabledBox.IsChecked = cfg.PushEnabled;
         NotifyPushEndpointBox.Text = cfg.PushEndpoint ?? string.Empty;
+        NotifySnmpEnabledBox.IsChecked = cfg.SnmpEnabled;
+        NotifySnmpHostBox.Text = cfg.SnmpHost ?? string.Empty;
+        NotifySnmpPortBox.Text = cfg.SnmpPort.ToString(CultureInfo.InvariantCulture);
+        NotifySnmpCommunityBox.Text = cfg.SnmpCommunity ?? string.Empty;
     }
 
     private void OnApplyNotifyClicked(object sender, RoutedEventArgs e)
@@ -199,6 +203,14 @@ public partial class SettingsWindow : Window
             _settings.Set(NotificationSettings.PushPublicKeyKey, publicKey);
             _settings.Set(NotificationSettings.PushPrivateKeyKey, SecretProtector.Protect(privateKey));
         }
+
+        _settings.Set(NotificationSettings.SnmpEnabledKey,
+            NotifySnmpEnabledBox.IsChecked == true ? "true" : "false");
+        _settings.Set(NotificationSettings.SnmpHostKey, NotifySnmpHostBox.Text.Trim());
+        var snmpPort = int.TryParse(NotifySnmpPortBox.Text.Trim(), NumberStyles.Integer,
+            CultureInfo.InvariantCulture, out var sp) && sp > 0 ? sp : 162;
+        _settings.Set(NotificationSettings.SnmpPortKey, snmpPort.ToString(CultureInfo.InvariantCulture));
+        _settings.Set(NotificationSettings.SnmpCommunityKey, NotifySnmpCommunityBox.Text.Trim());
 
         NotifyReportText.Text = "通知設定已套用（密碼以 DPAPI 加密保存）。";
     }

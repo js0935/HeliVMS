@@ -25,6 +25,7 @@ public sealed class NotificationService : IDisposable
     private readonly SmtpNotifier _smtp = new();
     private readonly MqttNotifier _mqtt = new();
     private readonly PushNotifier _push = new();
+    private readonly SnmpTrapSender _snmp = new();
     private readonly NotificationLogRepository _log;
     private readonly ConcurrentQueue<Item> _queue = new();
     private readonly ConcurrentQueue<Item> _retry = new();
@@ -318,6 +319,17 @@ public sealed class NotificationService : IDisposable
             if (!pOk)
             {
                 failures.Add("push");
+            }
+        }
+
+        if (cfg.HasSnmpRoute)
+        {
+            routes.Add("snmp");
+            var sOk = await _snmp.SendAsync(cfg, item.Record);
+            success &= sOk;
+            if (!sOk)
+            {
+                failures.Add("snmp");
             }
         }
 

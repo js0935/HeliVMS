@@ -26,7 +26,11 @@ public sealed record NotificationSettings(
     bool PushEnabled = false,
     string? PushEndpoint = null,
     string? PushPrivateKey = null,
-    string? PushPublicKey = null)
+    string? PushPublicKey = null,
+    bool SnmpEnabled = false,
+    string? SnmpHost = null,
+    int SnmpPort = 162,
+    string? SnmpCommunity = "public")
 {
     public const string EnabledKey = "notify.enabled";
     public const string WebhookUrlKey = "notify.webhook.url";
@@ -50,13 +54,18 @@ public sealed record NotificationSettings(
     public const string PushEndpointKey = "notify.push.endpoint";
     public const string PushPrivateKeyKey = "notify.push.private_key";
     public const string PushPublicKeyKey = "notify.push.public_key";
+    public const string SnmpEnabledKey = "notify.snmp.enabled";
+    public const string SnmpHostKey = "notify.snmp.host";
+    public const string SnmpPortKey = "notify.snmp.port";
+    public const string SnmpCommunityKey = "notify.snmp.community";
 
     /// <summary>是否有任一外送通道已設定。</summary>
     public bool AnyChannelConfigured =>
         !string.IsNullOrWhiteSpace(WebhookUrl) ||
         (SmtpEnabled && !string.IsNullOrWhiteSpace(SmtpHost) && SmtpTo.Count > 0) ||
         (MqttEnabled && !string.IsNullOrWhiteSpace(MqttHost) && !string.IsNullOrWhiteSpace(MqttTopic)) ||
-        (PushEnabled && !string.IsNullOrWhiteSpace(PushEndpoint));
+        (PushEnabled && !string.IsNullOrWhiteSpace(PushEndpoint)) ||
+        HasSnmpRoute;
 
     /// <summary>MQTT 通道是否可送（enabled＋host＋topic）。</summary>
     public bool HasMqttRoute => MqttEnabled && !string.IsNullOrWhiteSpace(MqttHost) && !string.IsNullOrWhiteSpace(MqttTopic);
@@ -64,6 +73,9 @@ public sealed record NotificationSettings(
     /// <summary>Push 通道是否可送（enabled＋endpoint＋VAPID 私鑰）。</summary>
     public bool HasPushRoute =>
         PushEnabled && !string.IsNullOrWhiteSpace(PushEndpoint) && !string.IsNullOrWhiteSpace(PushPrivateKey);
+
+    /// <summary>SNMP 陷阱通道是否可送（enabled＋host）。</summary>
+    public bool HasSnmpRoute => SnmpEnabled && !string.IsNullOrWhiteSpace(SnmpHost);
 
     /// <summary>是否位於靜默時段（notify.quiet.*，本地 24h 制 "HH:mm"；支援跨午夜）。</summary>
     public bool IsInQuietHours(DateTime now)
@@ -174,6 +186,10 @@ public sealed record NotificationSettings(
         var pushEndpoint = Str(settings, PushEndpointKey, "HELIVMS_PUSH_ENDPOINT", null);
         var pushPrivateKeyStored = Str(settings, PushPrivateKeyKey, "HELIVMS_PUSH_PRIVATE_KEY", null);
         var pushPublicKey = Str(settings, PushPublicKeyKey, "HELIVMS_PUSH_PUBLIC_KEY", null);
+        var snmpEnabled = Bool(Str(settings, SnmpEnabledKey, "HELIVMS_SNMP_ENABLED", "false")!, false);
+        var snmpHost = Str(settings, SnmpHostKey, "HELIVMS_SNMP_HOST", null);
+        var snmpPort = Int(Str(settings, SnmpPortKey, "HELIVMS_SNMP_PORT", "162")!, 162);
+        var snmpCommunity = Str(settings, SnmpCommunityKey, "HELIVMS_SNMP_COMMUNITY", "public");
 
         var to = (toRaw ?? string.Empty)
             .Split(new[] { ',', ';' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
@@ -200,6 +216,10 @@ public sealed record NotificationSettings(
             pushEnabled,
             pushEndpoint,
             string.IsNullOrEmpty(pushPrivateKeyStored) ? null : SecretProtector.Unprotect(pushPrivateKeyStored),
-            pushPublicKey);
+            pushPublicKey,
+            snmpEnabled,
+            snmpHost,
+            snmpPort,
+            snmpCommunity);
     }
 }

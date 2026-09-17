@@ -40,6 +40,87 @@ public sealed class NotificationTests : IDisposable
         => Convert.FromBase64String(s.Replace('-', '+').Replace('_', '/')
             + new string('=', (4 - s.Length % 4) % 4));
 
+    private static (byte Tag, byte[] Content) ReadTlv(byte[] data, ref int offset)
+    {
+        var tag = data[offset++];
+        var len = (int)data[offset++];
+        if ((len & 0x80) != 0)
+        {
+            var n = len & 0x7F;
+            len = 0;
+            for (var i = 0; i < n; i++)
+            {
+                len = (len << 8) | data[offset++];
+            }
+        }
+
+        var content = data.AsSpan(offset, len).ToArray();
+        offset += len;
+        return (tag, content);
+    }
+
+    private static int DecodeInteger(byte[] value)
+    {
+        var result = 0;
+        for (var i = 0; i < value.Length; i++)
+        {
+            result = (result << 8) | value[i];
+        }
+
+        return result;
+    }
+
+    private static int[] DecodeOid(byte[] content)
+    {
+        var oid = new List<int> { content[0] / 40, content[0] % 40 };
+        var v = 0;
+        for (var i = 1; i < content.Length; i++)
+        {
+            v = (v << 7) | (content[i] & 0x7F);
+            if ((content[i] & 0x80) == 0)
+            {
+                oid.Add(v);
+                v = 0;
+            }
+        }
+
+        return oid.ToArray();
+    }
+
+    private static int[] Oid(string s) => s.Split('.').Select(int.Parse).ToArray();
+
+    private static (int Version, string Community, List<(int[] Oid, byte Tag, byte[] Value)> Varbinds) ParseTrap(byte[] packet)
+    {
+        var offset = 0;
+        var root = ReadTlv(packet, ref offset);
+        Assert.Equal(0x30, root.Tag);
+
+        var off = 0;
+        var version = DecodeInteger(ReadTlv(root.Content, ref off).Content);
+        var community = Encoding.UTF8.GetString(ReadTlv(root.Content, ref off).Content);
+        var pdu = ReadTlv(root.Content, ref off);
+        Assert.Equal(0xA7, pdu.Tag);
+
+        var po = 0;
+        _ = DecodeInteger(ReadTlv(pdu.Content, ref po).Content); // request-id
+        _ = DecodeInteger(ReadTlv(pdu.Content, ref po).Content); // error-status
+        _ = DecodeInteger(ReadTlv(pdu.Content, ref po).Content); // error-index
+        var vbl = ReadTlv(pdu.Content, ref po);
+
+        var varbinds = new List<(int[] Oid, byte Tag, byte[] Value)>();
+        var vo = 0;
+        while (vo < vbl.Content.Length)
+        {
+            var vb = ReadTlv(vbl.Content, ref vo);
+            var voff = 0;
+            var oid = DecodeOid(ReadTlv(vb.Content, ref voff).Content);
+            var valueTlv = ReadTlv(vb.Content, ref voff);
+            varbinds.Add((oid, valueTlv.Tag, valueTlv.Content));
+        }
+
+        return (version, community, varbinds);
+    }
+
     private static AlarmEventRecord Event(
         string type = "motion",
         int channelId = 7,
@@ -844,6 +925,116 @@ public sealed class NotificationTests : IDisposable
         var row = Assert.Single(new NotificationLogRepository(_store).ListRecent(10));
         Assert.True(row.Ok);
         Assert.Equal("webhook+push", row.Route);
+    }
+
+    [Fact]
+    public void Load_SnmpFromStore()
+    {
+        var s = Settings;
+        s.Set(NotificationSettings.SnmpEnabledKey, "true");
+        s.Set(NotificationSettings.SnmpHostKey, "192.168.1.200");
+        s.Set(NotificationSettings.SnmpPortKey, "1162");
+        s.Set(NotificationSettings.SnmpCommunityKey, "ng");
+
+        var cfg = NotificationSettings.Load(s);
+        Assert.True(cfg.SnmpEnabled);
+        Assert.Equal("192.168.1.200", cfg.SnmpHost);
+        Assert.Equal(1162, cfg.SnmpPort);
+        Assert.Equal("ng", cfg.SnmpCommunity);
+        Assert.True(cfg.HasSnmpRoute);
+        Assert.True(cfg.AnyChannelConfigured);
+    }
+
+    [Fact]
+    public void SnmpRoute_RequiresEnabledAndHost()
+    {
+        var cfg = NotificationSettings.Load(Settings) with
+        {
+            SnmpHost = "192.168.1.200",
+        };
+        Assert.False(cfg.HasSnmpRoute);
+
+        var cfg2 = NotificationSettings.Load(Settings) with
+        {
+            SnmpEnabled = true,
+            SnmpHost = "192.168.1.200",
+        };
+        Assert.True(cfg2.HasSnmpRoute);
+    }
+
+    [Fact]
+    public async Task SnmpTrapSender_SendsBerTrap()
+    {
+        using var receiver = new UdpClient(new IPEndPoint(IPAddress.Loopback, 0));
+        var port = ((IPEndPoint)receiver.Client.LocalEndPoint!).Port;
+        var cfg = NotificationSettings.Load(Settings) with
+        {
+            SnmpEnabled = true,
+            SnmpHost = "127.0.0.1",
+            SnmpPort = port,
+            SnmpCommunity = "public",
+        };
+
+        var sendTask = new SnmpTrapSender().SendAsync(cfg, Event());
+        var rx = await receiver.ReceiveAsync().WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.True(await sendTask);
+
+        var trap = ParseTrap(rx.Buffer);
+        Assert.Equal(1, trap.Version);
+        Assert.Equal("public", trap.Community);
+        Assert.Equal(5, trap.Varbinds.Count);
+
+        var sysUpTime = trap.Varbinds.Single(v => v.Oid.SequenceEqual(
+            Oid("1.3.6.1.2.1.1.3.0")));
+        Assert.Equal(0x43, sysUpTime.Tag);
+
+        var trapOid = trap.Varbinds.Single(v => v.Oid.SequenceEqual(
+            Oid("1.3.6.1.6.3.1.1.4.1.0")));
+        Assert.Equal(0x06, trapOid.Tag);
+        Assert.Equal(Oid("1.3.6.1.4.1.99999.0.1"), DecodeOid(trapOid.Value));
+
+        var channel = trap.Varbinds.Single(v => v.Oid.SequenceEqual(
+            Oid("1.3.6.1.4.1.99999.2.1")));
+        Assert.Equal(7, DecodeInteger(channel.Value));
+        var eventType = trap.Varbinds.Single(v => v.Oid.SequenceEqual(
+            Oid("1.3.6.1.4.1.99999.2.2")));
+        Assert.Equal("motion", Encoding.UTF8.GetString(eventType.Value));
+    }
+
+    [Fact]
+    public async Task SnmpTrapSender_MissingHost_ReturnsFalse()
+    {
+        var cfg = NotificationSettings.Load(Settings) with
+        {
+            SnmpEnabled = true,
+            SnmpHost = null,
+        };
+
+        Assert.False(await new SnmpTrapSender().SendAsync(cfg, Event()));
+    }
+
+    [Fact]
+    public async Task Service_WebhookPlusSnmp_LogsBothRoutes()
+    {
+        using var http = new FakeHttpServer(_ => "HTTP/1.1 200 OK");
+        using var receiver = new UdpClient(new IPEndPoint(IPAddress.Loopback, 0));
+        var port = ((IPEndPoint)receiver.Client.LocalEndPoint!).Port;
+        Settings.Set(NotificationSettings.WebhookUrlKey, http.Url);
+        Settings.Set(NotificationSettings.SnmpEnabledKey, "true");
+        Settings.Set(NotificationSettings.SnmpHostKey, "127.0.0.1");
+        Settings.Set(NotificationSettings.SnmpPortKey, port.ToString());
+
+        using var svc = new NotificationService(_store,
+            interval: TimeSpan.FromMilliseconds(50),
+            backoffBase: TimeSpan.FromMilliseconds(50));
+        svc.Enqueue(Event());
+        await WaitUntilAsync(() => svc.DeliveredCount == 1, TimeSpan.FromSeconds(10));
+        _ = await receiver.ReceiveAsync().WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Equal(1, http.Hits);
+        var row = Assert.Single(new NotificationLogRepository(_store).ListRecent(10));
+        Assert.True(row.Ok);
+        Assert.Equal("webhook+snmp", row.Route);
     }
 
     [Fact]

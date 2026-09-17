@@ -23,9 +23,9 @@ gh run list -L 3              # 預期全部 success
 新 session 會以 git 現況接手，不會靠猜測。
 
 ## 現況快照（權威來源＝git，非聊天記憶）
-- 最後 commit：`HEAD`＝**M34（`6b421b3`）**——Web Push 推播
-  （見下方 M34 定義段）；Alarms 56→63、全 **143**、App Release 0 error、CI `35165376088` success
-- 進行中：**M35＝ONVIF Discovery Hello/Bye/Resolve**（未 commit，見下方 M35 定義段）
+- 最後 commit：`HEAD`＝**M35（`0493612`）**——ONVIF Discovery Hello/Bye/Resolve
+  （見下方 M35 定義段）；Devices 19→24、全 **148**、App Release 0 error、CI `35165622598` success
+- 進行中：**M36＝SNMP 陷阱**（見下方 M36 定義段）
 - 前一個 M30 交付＝`24ad4c7`（MQTT 通知通道）：`NotificationSettings`＋
   `MqttEnabled/MqttHost/MqttPort(1883)/MqttTopic/MqttUser/MqttPassword`（鍵 `notify.mqtt.*`、
   env `HELIVMS_MQTT_*`、密碼 SecretProtector）；（快照 docs commit `dfdd551` 已含 M30 定義段）
@@ -235,7 +235,7 @@ gh run list -L 3              # 預期全部 success
    - 附帶：Signature 驗證測試因應 .NET 10 raw 簽章，改用直接驗 raw；不引入 DER helper
    - 驗收：App Release 0 error、Alarms 63/63、全 **143**、mqttcheck/pushcheck 雙健、
      CI 綠
-10. **M35 進行中＝ONVIF Discovery Hello/Bye/Resolve**（實作＋單元已完成，尚未 commit）：
+10. **M35 已驗收＝ONVIF Discovery Hello/Bye/Resolve**（commit `0493612`，CI `35165622598` success）：
    - M32 只補 Probe 的測試；本里程碑補 WS-Discovery 其餘三訊息
      （對 HeliVMS 之價值：Hello/Bye 可作設備上線/離線公告之送出；Resolve 可精確查詢
      特定 InstanceId 設備在位與取得 XAddrs）
@@ -259,8 +259,28 @@ gh run list -L 3              # 預期全部 success
    - 沿用 M32 先例：Discovery 純 UDP client 無 UI 面，不加 harness/UiCheck，
      以 loopback 單元 round-trip 為 CI 驗證主體
    - 驗收：App Release 0 error、Devices 24/24、全 148、CI 綠
-11. **M36（下一步）＝SNMP 陷阱**：無第三方下以裸 socket 送 SNMPv2c trap
-    （PDU：sysUpTime＋OID＋community），本機 UDP 收包驗證＋單元測試
+11. **M36 已驗收＝SNMP 陷阱**（commit 待補）：
+    - 無第三方下以裸 UDP 手編 BER 送 SNMPv2c trap：message＝
+      `0x30{ version=1(0x02)＋community(0x04)＋SNMPv2-Trap PDU(0xA7) }`
+    - `SnmpTrapSender`（Alarms）：`SendAsync(cfg, record)`（UDP 送出即成功）；internal
+      `BuildTrap(community, record)`（可直接驗 wire format）；varbind 五筆：
+      sysUpTime.0（TimeTicks `0x43`，值 0）、snmpTrapOID.0（事件 OID
+      `1.3.6.1.4.1.99999.0.1`）、`…2.1`=channel_id(Int32)、`…2.2`=event_type(String)、
+      `…2.3`=detail(String)；`ParseOid` internal
+    - `NotificationSettings`：`SnmpEnabled/SnmpHost/SnmpPort(162)/SnmpCommunity(public)`，
+      鍵 `notify.snmp.enabled/host/port/community`、env `HELIVMS_SNMP_*`；
+      `HasSnmpRoute = enabled && host 非空`；`AnyChannelConfigured` 併入
+    - `NotificationService` 第四/五 route 化（webhook/smtp/mqtt/push/snmp，複合 route
+      會併 `<x>+snmp`）；`SettingsWindow` 通知頁加 SNMP 群（啟用/主機/埠/Community，
+      AutomationId `NotifySnmpEnabledBox/HostBox/PortBox/CommunityBox`）
+    - 測試（NotificationTests +6＋helper ReadTlv/DecodeInteger/DecodeOid/ParseTrap，
+      對 Fake UDP receiver 收包做 mini BER decode、缺 host false、複合 webhook+snmp route、
+      Load 解析、HasSnmpRoute 二要件）；Alarms **63→68**、全 **153**
+      （Storage 53＋Alarms 68＋Licensing 8＋Devices 24）
+    - harness `snmpcheck`→**SNMPCHECK_OK**（本機 UDP 收包驗 community＋`…99999.2.1` OID
+      位元組序列＋delivered=1；OID 99999 之 base-128 末位是 `0x1F` 非 `0x9F` 易算錯）
+    - 回歸：snmpcheck/pushcheck/mqttcheck/ptzcheck 全 OK
+    - 驗收：App Release 0 error、Alarms 68/68、全 **153**、CI 綠
 12. 每里程碑節奏照舊：定義先寫入本檔→實作→App Release build 0 error→單元測試→
     （有 UI 面者）E2E harness block→commit＋push＋CI success→`git status --porcelain` 空白
 

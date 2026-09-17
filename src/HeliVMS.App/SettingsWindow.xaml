@@ -310,6 +310,25 @@
                            Foreground="{StaticResource Brand.TextDim}" FontSize="11" Margin="0,0,0,12"
                            TextWrapping="Wrap"/>
 
+                <TextBlock Text="SNMP 陷阱（SNMPv2c，裸 UDP 手編 BER，不需外部服務）"
+                           Foreground="{StaticResource Brand.TextDim}" FontSize="11" Margin="0,8,0,0"/>
+                <StackPanel Orientation="Horizontal" Margin="0,2,0,12">
+                    <CheckBox x:Name="NotifySnmpEnabledBox" AutomationProperties.AutomationId="NotifySnmpEnabledBox"
+                              Content="SNMP 發送" Foreground="White" VerticalAlignment="Center"/>
+                    <TextBlock Text="主機" Foreground="{StaticResource Brand.TextDim}" FontSize="11" VerticalAlignment="Center"/>
+                    <TextBox x:Name="NotifySnmpHostBox" AutomationProperties.AutomationId="NotifySnmpHostBox"
+                             Width="130" Margin="6,0,10,0"
+                             Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="8,4"/>
+                    <TextBlock Text="埠" Foreground="{StaticResource Brand.TextDim}" FontSize="11" VerticalAlignment="Center"/>
+                    <TextBox x:Name="NotifySnmpPortBox" AutomationProperties.AutomationId="NotifySnmpPortBox"
+                             Width="50" Margin="6,0,10,0" Text="162"
+                             Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="8,4"/>
+                    <TextBlock Text="Community" Foreground="{StaticResource Brand.TextDim}" FontSize="11" VerticalAlignment="Center"/>
+                    <TextBox x:Name="NotifySnmpCommunityBox" AutomationProperties.AutomationId="NotifySnmpCommunityBox"
+                             Width="90" Margin="6,0,0,0"
+                             Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="8,4"/>
+                </StackPanel>
+
                 <DockPanel>
                     <Button x:Name="NotifyApplyButton" AutomationProperties.AutomationId="NotifyApplyButton"
                             Content="套用通知設定" Click="OnApplyNotifyClicked"
