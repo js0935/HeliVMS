@@ -399,6 +399,7 @@ public partial class MainWindow : Window
         {
             try
             {
+                RunScheduledBackup();
                 var quota = ReadQuotaBytes();
                 var report = service.Apply(quota, DateTime.UtcNow);
                 var hintParts = new List<string>();
@@ -439,6 +440,60 @@ public partial class MainWindow : Window
                 break;
             }
         }
+    }
+
+    /// <summary>排程備份（§14.4）：讀 backup.enabled/target/interval_hours，距 backup.last_run 達間隔時背景執行；無目標設定跳過。</summary>
+    private void RunScheduledBackup()
+    {
+        if (_store is null)
+        {
+            return;
+        }
+
+        var settings = new SettingsRepository(_store);
+        if (settings.Get("backup.enabled") != "1")
+        {
+            return;
+        }
+
+        var target = settings.Get("backup.target");
+        if (string.IsNullOrWhiteSpace(target))
+        {
+            return;
+        }
+
+        var hours = settings.GetDoubleOrDefault("backup.interval_hours", 24);
+        if (hours <= 0)
+        {
+            hours = 24;
+        }
+
+        var lastRaw = settings.Get("backup.last_run");
+        var last = string.IsNullOrWhiteSpace(lastRaw)
+            ? DateTime.MinValue
+            : SqliteStore.FromIso(lastRaw);
+        if (DateTime.UtcNow - last < TimeSpan.FromHours(hours))
+        {
+            return;
+        }
+
+        settings.Set("backup.last_run", SqliteStore.Iso(DateTime.UtcNow)); // 先記錄，防失敗熱循環
+        var source = Path.Combine(_dataRoot, "recordings");
+        _ = Task.Run(() =>
+        {
+            try
+            {
+                var result = new BackupService(_store).Run(source, target);
+                var text = result.Failed == 0
+                    ? $"備份：複製 {result.Copied} 段（{FormatBytes(result.CopiedBytes)}），檢查點已推進。"
+                    : $"備份：複製 {result.Copied} 段、失敗 {result.Failed}，下次重試。";
+                Dispatcher.BeginInvoke(() => HintText.Text = text);
+            }
+            catch (Exception ex)
+            {
+                Dispatcher.BeginInvoke(() => HintText.Text = $"備份失敗：{ex.Message}");
+            }
+        });
     }
 
     /// <summary>快照保留天數：app_settings["snapshots.retention_days"] → HELIVMS_SNAPSHOT_DAYS → 30。</summary>

@@ -9,7 +9,7 @@ namespace HeliVMS.Storage;
 /// </summary>
 public sealed class SqliteStore : IDisposable
 {
-    private const int CurrentSchemaVersion = 12;
+    private const int CurrentSchemaVersion = 13;
     private readonly SqliteConnection _connection;
     private readonly object _gate = new();
     private bool _disposed;
@@ -112,6 +112,11 @@ public sealed class SqliteStore : IDisposable
         if (version < 12)
         {
             CreateExportJobsTableV12();
+        }
+
+        if (version < 13)
+        {
+            CreateBackupLogTableV13();
         }
 
         Execute("PRAGMA user_version = CURRENT_SCHEMA_VERSION;".Replace(
@@ -427,6 +432,25 @@ public sealed class SqliteStore : IDisposable
                 finished_at    TEXT
             );
             CREATE INDEX IF NOT EXISTS idx_export_jobs_status ON export_jobs(status);
+            """);
+    }
+
+    private void CreateBackupLogTableV13()
+    {
+        Execute(
+            """
+            CREATE TABLE IF NOT EXISTS backup_log (
+                id             INTEGER PRIMARY KEY AUTOINCREMENT,
+                run_at         TEXT    NOT NULL,
+                source_root    TEXT    NOT NULL,
+                target_root    TEXT    NOT NULL,
+                checkpoint_utc TEXT,
+                copied_count   INTEGER NOT NULL DEFAULT 0,
+                copied_bytes   INTEGER NOT NULL DEFAULT 0,
+                failed_count   INTEGER NOT NULL DEFAULT 0,
+                detail         TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_backup_log_target ON backup_log(target_root, run_at);
             """);
     }
 

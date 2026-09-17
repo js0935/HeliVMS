@@ -31,6 +31,7 @@
                     <ListBoxItem Content="IO"/>
                     <ListBoxItem Content="地圖"/>
                     <ListBoxItem Content="身份"/>
+                    <ListBoxItem Content="備份"/>
                 </ListBox>
             </DockPanel>
         </Border>
@@ -699,6 +700,60 @@
                                Margin="14,0,0,0" VerticalAlignment="Center" TextWrapping="Wrap"
                                Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
                 </StackPanel>
+            </StackPanel>
+
+            <!-- 備份 -->
+            <StackPanel x:Name="PageBackup" Visibility="Collapsed"
+                        AutomationProperties.AutomationId="SettingsPageBackup">
+                <TextBlock Text="備份與異地備援" FontSize="17" FontWeight="Bold" Margin="0,0,0,14"/>
+                <TextBlock Text="將完成之錄影區段增量複製至目標目錄（第二磁碟／異地掛載），複製後以 SHA-256 驗證完整性。"
+                           Foreground="{StaticResource Brand.TextDim}" FontSize="11" TextWrapping="Wrap"/>
+                <CheckBox x:Name="BackupEnabledBox" Content="啟用自動備份（每小時檢查）" Margin="0,10,0,8"
+                          HorizontalAlignment="Left"/>
+
+                <TextBlock Text="目標目錄" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+                <DockPanel Margin="0,4,0,10">
+                    <Button x:Name="BackupBrowseButton" Content="瀏覽…" Click="OnBackupBrowseClicked"
+                            DockPanel.Dock="Right" Padding="12,4" Margin="8,0,0,0"
+                            Foreground="White" Background="#2A5C8A" BorderThickness="0"/>
+                    <TextBox x:Name="BackupTargetBox" AutomationProperties.AutomationId="BackupTargetBox"
+                             Height="28" VerticalContentAlignment="Center"
+                             Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
+                </DockPanel>
+
+                <TextBlock Text="備份間隔（小時；到達間隔後於每小時例行檢查時執行）"
+                           Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+                <DockPanel Margin="0,4,0,14">
+                    <Button x:Name="ApplyBackupButton" Content="儲存設定" Click="OnSaveBackupClicked"
+                            DockPanel.Dock="Right" Padding="12,6"
+                            Foreground="White" Background="#2A5C8A" BorderThickness="0"/>
+                    <TextBox x:Name="BackupIntervalBox" AutomationProperties.AutomationId="BackupIntervalBox"
+                             Width="120" Margin="0,0,10,0" Text="24"
+                             Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
+                </DockPanel>
+
+                <DockPanel Margin="0,0,0,10">
+                    <Button x:Name="BackupNowButton" AutomationProperties.AutomationId="BackupNowButton"
+                            Content="立即備份" Click="OnBackupNowClicked" Padding="14,8"
+                            Foreground="White" Background="#2A5C8A" BorderThickness="0"/>
+                    <TextBlock x:Name="BackupStatusText" AutomationProperties.AutomationId="BackupStatusText"
+                               Margin="12,0,0,0" VerticalAlignment="Center" TextWrapping="Wrap"
+                               Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+                </DockPanel>
+
+                <TextBlock Text="最近備份紀錄" Foreground="{StaticResource Brand.TextDim}" FontSize="11" Margin="0,6,0,4"/>
+                <ListView x:Name="BackupLogList" Height="200" Background="#0D1B2B" BorderBrush="#1F3A5F"
+                          Foreground="White">
+                    <ListView.View>
+                        <GridView>
+                            <GridViewColumn Header="時間" Width="130" DisplayMemberBinding="{Binding TimeLabel}"/>
+                            <GridViewColumn Header="目標" Width="200" DisplayMemberBinding="{Binding TargetLabel}"/>
+                            <GridViewColumn Header="複製" Width="54" DisplayMemberBinding="{Binding CopiedLabel}"/>
+                            <GridViewColumn Header="失敗" Width="54" DisplayMemberBinding="{Binding FailedLabel}"/>
+                            <GridViewColumn Header="推進" Width="54" DisplayMemberBinding="{Binding AdvancedLabel}"/>
+                        </GridView>
+                    </ListView.View>
+                </ListView>
             </StackPanel>
         </Grid>
     </Grid>

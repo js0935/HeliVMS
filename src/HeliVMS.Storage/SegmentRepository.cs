@@ -157,6 +157,20 @@ public sealed class SegmentRepository
             cmd => cmd.Parameters.AddWithValue("$c", channelId));
     }
 
+    /// <summary>全部 final 區段（開始時間由舊至新；§14.4 異地備援與統計用）。</summary>
+    public IReadOnlyList<SegmentRecord> ListAllFinal()
+    {
+        return _store.Query(
+            """
+            SELECT id, channel_id, stream, start_time, end_time, file_path,
+                   size_bytes, duration_sec, status, sha256
+            FROM segments
+            WHERE status = 'final'
+            ORDER BY start_time;
+            """,
+            ReadRecords);
+    }
+
     private static IReadOnlyList<SegmentRecord> ReadRecords(SqliteDataReader reader)
     {
         var list = new List<SegmentRecord>();

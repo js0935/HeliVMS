@@ -44,6 +44,9 @@ public partial class SettingsWindow : Window
     private sealed record MapPinRow(int Id, string DeviceType, int ChannelId, string PositionLabel, string EnabledLabel, string Name);
     private sealed record UserRow(int Id, string Username, string Role, string EnabledLabel, string FailedLabel, string LastLoginLabel);
 
+    /// <summary>備份紀錄頁顯示列。</summary>
+    private sealed record BackupRow(string TimeLabel, string TargetLabel, string CopiedLabel, string FailedLabel, string AdvancedLabel);
+
     private readonly SqliteStore _store;
     private readonly string _dataRoot;
     private readonly string _recordingsRoot;
@@ -91,6 +94,7 @@ public partial class SettingsWindow : Window
         ReloadMaps();
         ReloadAuthPolicy();
         ReloadUsers();
+        ReloadBackup();
 
         SettingsNav.SelectedIndex = 0;
     }
@@ -113,6 +117,100 @@ public partial class SettingsWindow : Window
         PageIo.Visibility = visible == "IO" ? Visibility.Visible : Visibility.Collapsed;
         PageMap.Visibility = visible == "地圖" ? Visibility.Visible : Visibility.Collapsed;
         PageUsers.Visibility = visible == "身份" ? Visibility.Visible : Visibility.Collapsed;
+        PageBackup.Visibility = visible == "備份" ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private void ReloadBackup()
+    {
+        BackupEnabledBox.IsChecked = _settings.Get("backup.enabled") == "1";
+        var target = _settings.Get("backup.target");
+        if (!string.IsNullOrWhiteSpace(target))
+        {
+            BackupTargetBox.Text = target;
+        }
+
+        var interval = _settings.GetDoubleOrDefault("backup.interval_hours", 24);
+        BackupIntervalBox.Text = interval > 0 ? interval.ToString(CultureInfo.InvariantCulture) : "24";
+        ReloadBackupLog();
+    }
+
+    /// <summary>將備份設定（啟用/目標/間隔）寫入 app_settings；參數不合法時回傳 false。</summary>
+    private bool SaveBackupSettings()
+    {
+        _settings.Set("backup.enabled", BackupEnabledBox.IsChecked == true ? "1" : "0");
+        _settings.Set("backup.target", BackupTargetBox.Text.Trim());
+        if (!double.TryParse(BackupIntervalBox.Text, NumberStyles.Float, CultureInfo.InvariantCulture, out var interval) ||
+            interval <= 0)
+        {
+            BackupStatusText.Text = "間隔需為大於 0 的數字。";
+            return false;
+        }
+
+        _settings.Set("backup.interval_hours", interval.ToString(CultureInfo.InvariantCulture));
+        return true;
+    }
+
+    private void OnSaveBackupClicked(object sender, RoutedEventArgs e)
+    {
+        if (SaveBackupSettings())
+        {
+            BackupStatusText.Text = "設定已儲存。";
+        }
+    }
+
+    private void OnBackupBrowseClicked(object sender, RoutedEventArgs e)
+    {
+        var dlg = new Microsoft.Win32.OpenFolderDialog { Title = "選擇備份目標目錄" };
+        if (dlg.ShowDialog() == true)
+        {
+            BackupTargetBox.Text = dlg.FolderName;
+            BackupStatusText.Text = "";
+        }
+    }
+
+    private async void OnBackupNowClicked(object sender, RoutedEventArgs e)
+    {
+        if (!SaveBackupSettings())
+        {
+            return;
+        }
+
+        var target = BackupTargetBox.Text.Trim();
+        if (string.IsNullOrWhiteSpace(target))
+        {
+            BackupStatusText.Text = "請先指定目標目錄。";
+            return;
+        }
+
+        BackupNowButton.IsEnabled = false;
+        BackupStatusText.Text = "備份執行中…";
+        try
+        {
+            var result = await Task.Run(() => new BackupService(_store).Run(_recordingsRoot, target));
+            BackupStatusText.Text = result.Failed == 0
+                ? $"備份完成：掃描 {result.Scanned} 段、複製 {result.Copied} 段（{FormatBytes(result.CopiedBytes)}）、檢查點已推進。"
+                : $"備份完成：掃描 {result.Scanned} 段、複製 {result.Copied} 段、失敗 {result.Failed}（未推進，下次重試）。";
+        }
+        catch (Exception ex)
+        {
+            BackupStatusText.Text = $"備份失敗：{ex.Message}";
+        }
+        finally
+        {
+            BackupNowButton.IsEnabled = true;
+            ReloadBackupLog();
+        }
+    }
+
+    private void ReloadBackupLog()
+    {
+        var runs = new BackupRepository(_store).ListRuns(targetRoot: null, take: 20);
+        BackupLogList.ItemsSource = runs.Select(r => new BackupRow(
+            r.RunAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture),
+            r.TargetRoot,
+            r.CopiedCount.ToString(CultureInfo.InvariantCulture),
+            r.FailedCount.ToString(CultureInfo.InvariantCulture),
+            r.CheckpointUtc.HasValue ? "是" : "否")).ToList();
     }
 
     private void ReloadRules()
