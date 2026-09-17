@@ -119,6 +119,41 @@ public partial class ExportWindow : Window
                               (result.Sha256Hash is not null
                                   ? $"\nSHA-256：{result.Sha256Hash}"
                                   : string.Empty);
+
+            if (BundleCheckBox.IsChecked == true)
+            {
+                try
+                {
+                    var sourceFiles = new List<string> { result.OutputPath };
+                    if (generateHash && File.Exists(outputPath + ".sha256"))
+                    {
+                        sourceFiles.Add(outputPath + ".sha256");
+                    }
+
+                    var manifest = EvidencePackager.BuildManifest(
+                        $"HeliVMS-{DateTime.UtcNow:yyyyMMddHHmmss}",
+                        sourceFiles);
+                    var expires = ParseExpiryUtc(BundleExpiryBox.Text);
+                    if (expires is not null)
+                    {
+                        manifest = manifest with { ExpiresUtc = expires };
+                    }
+
+                    var bundlePassword = BundlePasswordBox.Password;
+                    var bundlePath = outputPath + ".evp";
+                    var bundleSha = EvidencePackager.Create(
+                        bundlePath,
+                        manifest,
+                        string.IsNullOrEmpty(bundlePassword) ? null : bundlePassword);
+
+                    ResultText.Text += $"\\n證據包：{Path.GetFileName(bundlePath)}（SHA-256：{bundleSha}）";
+                    StatusText.Text = "匯出成功，證據包已建立。";
+                }
+                catch (Exception bEx)
+                {
+                    StatusText.Text = $"匯出成功，但證據包失敗：{bEx.Message}";
+                }
+            }
         }
         catch (OperationCanceledException)
         {
@@ -149,4 +184,20 @@ public partial class ExportWindow : Window
     private static string FormatBytes(long bytes) => bytes >= 1024d * 1024 * 1024
         ? $"{bytes / 1024d / 1024 / 1024:0.#}GB"
         : $"{bytes / 1024d / 1024:0.#}MB";
+
+    private static DateTime? ParseExpiryUtc(string? text)
+    {
+        var t = text?.Trim();
+        if (string.IsNullOrEmpty(t))
+        {
+            return null;
+        }
+
+        if (!DateTime.TryParseExact(t, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var day))
+        {
+            throw new FormatException("到期日格式須為 yyyy-MM-dd。");
+        }
+
+        return day.Date.AddDays(1).ToUniversalTime().AddSeconds(-1);
+    }
 }

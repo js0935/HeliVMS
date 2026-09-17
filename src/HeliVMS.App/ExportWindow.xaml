@@ -3,7 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         AutomationProperties.AutomationId="ExportWindow"
         Title="HeliVMS 匯出精靈"
-        Width="640" Height="460"
+        Width="640" Height="560"
         WindowStartupLocation="CenterOwner"
         Background="#0B1622" Foreground="White"
         Closing="OnClosing">
@@ -56,7 +56,29 @@
             <!-- SHA-256 -->
             <CheckBox x:Name="HashCheckBox" AutomationProperties.AutomationId="HashCheckBox"
                       Content="匯出後產生 SHA-256 驗證檔（.sha256）"
-                      IsChecked="True" Foreground="White" Margin="0,0,0,12"/>
+                      IsChecked="True" Foreground="White" Margin="0,0,0,8"/>
+
+            <!-- 證據包 -->
+            <CheckBox x:Name="BundleCheckBox" AutomationProperties.AutomationId="BundleCheckBox"
+                      Content="匯出後打包數位證據包（.evp）"
+                      IsChecked="False" Foreground="White" Margin="0,0,0,4"/>
+            <StackPanel Margin="22,0,0,8"
+                        IsEnabled="{Binding ElementName=BundleCheckBox, Path=IsChecked}">
+                <DockPanel Margin="0,0,0,4">
+                    <TextBlock Text="包密碼（留空＝開放包）" DockPanel.Dock="Left"
+                               Foreground="{StaticResource Brand.TextDim}" FontSize="11" VerticalAlignment="Center"/>
+                    <PasswordBox x:Name="BundlePasswordBox" AutomationProperties.AutomationId="BundlePasswordBox"
+                                 Width="180" HorizontalAlignment="Right"
+                                 Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
+                </DockPanel>
+                <DockPanel>
+                    <TextBlock Text="到期日（yyyy-MM-dd，選填）" DockPanel.Dock="Left"
+                               Foreground="{StaticResource Brand.TextDim}" FontSize="11" VerticalAlignment="Center"/>
+                    <TextBox x:Name="BundleExpiryBox" AutomationProperties.AutomationId="BundleExpiryBox"
+                             Width="120" HorizontalAlignment="Right"
+                             Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="8,2"/>
+                </DockPanel>
+            </StackPanel>
 
             <!-- 狀態 -->
             <TextBlock x:Name="StatusText" AutomationProperties.AutomationId="StatusText"
