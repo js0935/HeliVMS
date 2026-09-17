@@ -25,7 +25,7 @@ gh run list -L 3              # 預期全部 success
 ## 現況快照（權威來源＝git，非聊天記憶）
 - 最後 commit：`HEAD`＝**M46（`c7f6e8f`）**——錄影遮蔽（Redaction／隱私遮罩）（見下方 §21 M46 定義段）；全 **293**、CI `35284550851` success
 - 前一個 M45 交付＝`ef3a8bc`（備份與異地備援，見下方 §20 M45 定義段）、全 **289**、CI `35263453271` success
-- 進行中：**M47（待定義）**
+- 進行中：**M47＝警報管理器（Alarm Manager／分診面板）**（見下方 §22 M47 定義段）
 - 前一個 M41 交付＝`2d89ea7`（電子地圖/平面圖）、全 **222**、CI `35232094120` success
 - 前一個 M38 交付＝`d09b045`（事件回應工作流，見下方 M38 定義段）、全 **172**、CI `35185639491` success
 - 前一個 M30 交付＝`24ad4c7`（MQTT 通知通道）：`NotificationSettings`＋
@@ -616,7 +616,21 @@ gh run list -L 3              # 預期全部 success
       SHA-256→`redacted` 下輸出存在＋`ffprobe` duration>0 且 codec=h264
     - 回歸影響：MainWindow 新增工具列按鈕（不影響既有 10 鈕）；無 New DB 表
     - 驗收：App Release 0 error、全 293、REDACTION_OK（連續 2 次綠：既有段 ch27 遮蔽產出 6s h264＋SHA-256）、回歸全綠、CI `35284550851` success
-22. 每里程碑節奏照舊：定義先寫入本檔→實作→App Release build 0 error→單元測試→
+22. **M47 進行中＝警報管理器（Alarm Manager／分診面板）（§14.7 #3 P1：事件營運「分診/指派/傳遞/進度狀態大面板」；M38 四態為前置）**：
+    - 背景：M38 已有四態（pending/acknowledged/actioned/false_alarm）＋指派＋備註＋軌跡，但缺「優先序／處理時限（SLA 到期）／分診總覽面板」；本里程碑補事件營運面
+    - Storage schema **v14**：新表 `alarm_triage`（`event_id` PK→alarm_events ON DELETE CASCADE、`priority`（預設 normal）、`due_utc`、`owner`、`updated_at`）＋索引 `idx_triage_due(due_utc)`
+    - Storage 新 `AlarmTriageRepository`：
+      - `AlarmPriority`（`low/normal/high/critical`＋`All/Label/IsValid`，比照 AlarmEventStatus）
+      - `SetTriage(eventId, priority, dueUtc?, owner?, updatedAtUtc)`（無效 priority throw；UPSERT）
+      - `Get(eventId)`→`AlarmTriageRecord?`
+      - `ListBoard(nowUtc, take=100)`→`AlarmBoardRow{EventId,ChannelId,EventType,StartUtc,Status,Priority,DueUtc?,Owner?,AssignedTo?,IsOverdue}`：LEFT JOIN `alarm_events`＋`event_dispositions`＋`alarm_triage`，僅活躍（`COALESCE(status,'pending') != 'false_alarm'`）；排序＝逾期優先→優先序權重（critical>high>normal>low，無 triage 視 normal）→`start_time` 新→舊；`IsOverdue`＝`due_utc < now` 且狀態∈(pending, acknowledged)（C# 計算）
+      - `Summarize(nowUtc)`→`AlarmBoardSummary{Pending,Acknowledged,Actioned,FalseAlarm,Overdue}`（各狀態計數＋逾期數）
+    - App 新 `AlarmManagerWindow`（`--alarmmanager`；MainWindow 工具列「警報」鈕）：頂摘要列（待處理/已確認/已處理/誤報/逾期計數）＋`BoardList`（時間/頻道/類型/狀態/優先序/負責人/到期/逾期）＋操作區（`DispositionCombo` 四態、`PriorityCombo` 四級、`OwnerBox`、到期 `DueDate`/`DueTime`、`NoteBox`、`ApplyButton`、`RefreshButton`）＋`ManagerStatusText`；選列載入欄位、套用＝`SetDisposition`＋`SetTriage`；開窗列 board（預設選第一列）
+    - 測試：Storage **153→159**（`AlarmTriageRepositoryTests` 6：SetTriage round-trip＋UPSERT 更新／無效 priority throw／ListBoard 排除 false_alarm／排序＝逾期→優先序→新→舊／IsOverdue 判定（pending/acknowledged 且到期；actioned 或無 due 不計）／Summarize 計數）；不需 ffmpeg（CI 友好）
+    - harness `alarmmanagercheck`→**ALARMMANAGER_OK**：先以臨時 seed 工具（temp console 引用 HeliVMS.Storage；`detail='harness triage seed'` 可重跑覆蓋，含一筆逾期 critical）插入事件→`--alarmmanager` 開窗→`SummaryText` 含「逾期」→`BoardList` ≥1 列→選首列→`PriorityCombo` 選「高」＋`OwnerBox`/`NoteBox` 填值→套用→輪詢 `ManagerStatusText` 含「已更新」→清單出現優先序「高」儲存格
+    - 回歸影響：MainWindow 新增工具列按鈕；新表 v14（舊庫自動升版）
+    - 驗收：App Release 0 error、全 **293→299**、ALARMMANAGER_OK（連續 2 次綠）、回歸全綠、CI 綠
+23. 每里程碑節奏照舊：定義先寫入本檔→實作→App Release build 0 error→單元測試→
     （有 UI 面者）E2E harness block→commit＋push＋CI success→`git status --porcelain` 空白
 
 ## 已知雷區（勿再犯）
