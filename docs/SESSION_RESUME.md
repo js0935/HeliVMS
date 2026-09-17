@@ -23,9 +23,9 @@ gh run list -L 3              # 預期全部 success
 新 session 會以 git 現況接手，不會靠猜測。
 
 ## 現況快照（權威來源＝git，非聊天記憶）
-- 最後 commit：`HEAD`＝**M33（`1b376db`）**——多 Profile 選擇 UI
-  （見下方 M33 定義段）；Devices 19、全 **136**、App Release 0 error、CI `35160317102` success
-- 進行中：**M34＝Web Push 推播（RFC 8030/8292）**（未 commit，見下方 M34 定義段）
+- 最後 commit：`HEAD`＝**M34（`6b421b3`）**——Web Push 推播
+  （見下方 M34 定義段）；Alarms 56→63、全 **143**、App Release 0 error、CI `35165376088` success
+- 進行中：**M35＝ONVIF Discovery Hello/Bye/Resolve**（未 commit，見下方 M35 定義段）
 - 前一個 M30 交付＝`24ad4c7`（MQTT 通知通道）：`NotificationSettings`＋
   `MqttEnabled/MqttHost/MqttPort(1883)/MqttTopic/MqttUser/MqttPassword`（鍵 `notify.mqtt.*`、
   env `HELIVMS_MQTT_*`、密碼 SecretProtector）；（快照 docs commit `dfdd551` 已含 M30 定義段）
@@ -235,13 +235,34 @@ gh run list -L 3              # 預期全部 success
    - 附帶：Signature 驗證測試因應 .NET 10 raw 簽章，改用直接驗 raw；不引入 DER helper
    - 驗收：App Release 0 error、Alarms 63/63、全 **143**、mqttcheck/pushcheck 雙健、
      CI 綠
-10. **M35（下一步）＝ONVIF Discovery Hello/Bye/Resolve**：M32 只驗 `Probe`；補
-    Hello/Bye/Resolve 三訊息傳送（`DiscoveryClient.SendHello/Bye/Resolve`），
-    本機 UDP 收包驗證＋單元測試
-11. **M36（之後）＝SNMP 陷阱**：裸 socket 送 SNMPv2c trap（OID＋community），
-    本機 UDP 收包驗證
-12. 每里程碑節奏照舊：定義先寫入本檔→實作→App Release build 0 error→單元測試→E2E harness
-    block→commit＋push＋CI success→`git status --porcelain` 空白
+10. **M35 進行中＝ONVIF Discovery Hello/Bye/Resolve**（實作＋單元已完成，尚未 commit）：
+   - M32 只補 Probe 的測試；本里程碑補 WS-Discovery 其餘三訊息
+     （對 HeliVMS 之價值：Hello/Bye 可作設備上線/離線公告之送出；Resolve 可精確查詢
+     特定 InstanceId 設備在位與取得 XAddrs）
+   - `DiscoveryClient` 新增：`SendHelloAsync(instanceId, xAddrs, types?, scopes?)`、
+     `SendByeAsync(instanceId)`（皆多播 TTL=1）與 `ResolveAsync(instanceId, timeout)`
+     （發 Resolve、收集 ResolveMatch、比對 EndpointReference==urn:uuid:{id}）
+   - internal 注入面（測試可用 loopback 假設備/自備 UdpClient）：
+     `SendHelloAsync(UdpClient, IPEndPoint, …)`、`SendByeAsync(UdpClient, IPEndPoint, …)`、
+     `ResolveAsync(UdpClient, IPEndPoint, instanceId, timeout, ct)`；
+     `BuildHello/BuildBye/BuildResolve`、`ParseResolveMatch`；抽共通
+     `SendDiscoveryMessageAsync`（SendAsync 送包，套 try/catch）
+   - 測試（DiscoveryClientTests +5，沿用 Probe 之 loopback round-trip 模式）：
+     SendHello 驗對端 XML（EndpointReference/Address=urn:uuid:、XAddrs、MetadataVersion=1）、
+     SendBye 驗對端 XML、Resolve 發送（對端驗 Action=…/Resolve＋含 instanceId）
+     ＋回 ResolveMatch 之解析（含 NameHint、HttpXAddr）、Resolve 收到非本機 instanceId
+     之 ResolveMatch 忽略→null、Resolve 無回應逾時→null
+   - 排雷：測試對 XNamespace 之用法 hack（`"…" + "ElementName"` 字串拼接）在 C# 是
+     string concat 非 XNamespace→改用 `Wsa＋"…"/Wsd＋"…"` 靜態欄位；public API XML
+     註解需完整 `<param>`（CS1573 視為 error）
+   - 快照：Devices 19→**24**、全 **148**（Storage 53＋Alarms 63＋Licensing 8＋Devices 24）
+   - 沿用 M32 先例：Discovery 純 UDP client 無 UI 面，不加 harness/UiCheck，
+     以 loopback 單元 round-trip 為 CI 驗證主體
+   - 驗收：App Release 0 error、Devices 24/24、全 148、CI 綠
+11. **M36（下一步）＝SNMP 陷阱**：無第三方下以裸 socket 送 SNMPv2c trap
+    （PDU：sysUpTime＋OID＋community），本機 UDP 收包驗證＋單元測試
+12. 每里程碑節奏照舊：定義先寫入本檔→實作→App Release build 0 error→單元測試→
+    （有 UI 面者）E2E harness block→commit＋push＋CI success→`git status --porcelain` 空白
 
 ## 已知雷區（勿再犯）
 - **勿以 bash 對 repo 源碼做 byte 級重寫**（曾造成 UTF-8 漂移／mojibake 污染，已 `git restore` 還原）；
