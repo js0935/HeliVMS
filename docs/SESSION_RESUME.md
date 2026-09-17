@@ -6,15 +6,15 @@
 
 ## 一句話總結
 HeliVMS 為一套**網路影像監控系統**（WPF 桌面應用：即時監看／回放／AI 事件中心／錄影排程）。
-里程碑 **M1 至 M44 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M44 匯出中心）。
-Release build 0 error、測試 **283/283 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
+里程碑 **M1 至 M45 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M45 備份與異地備援）。
+Release build 0 error、測試 **289/289 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
 本地與遠端完全同步（`git diff origin/HEAD` 為空）。
 
 ## 開新 session 的接手方法
 ```powershell
 # 在 D:\HeliVMS 開新 session 時，先對新的 agent 講：
 git status                    # 預期為 empty（乾淨）
-git log --oneline -20         # 預期見到 M1..M44，HEAD＝M44
+git log --oneline -20         # 預期見到 M1..M45，HEAD＝M45
 git diff origin/HEAD          # 預期為空（同步）
 gh run list -L 3              # 預期全部 success
 ```
@@ -23,8 +23,8 @@ gh run list -L 3              # 預期全部 success
 新 session 會以 git 現況接手，不會靠猜測。
 
 ## 現況快照（權威來源＝git，非聊天記憶）
-- 最後 commit：`HEAD`＝**M44（`99556f6`）**——匯出中心（Export Center）（見下方 M44 定義段）；全 **283**、CI `35260052774` success（含修復 `1112251`：CI runner 無 ffmpeg→ExportJobService 注入 executor）
-- 進行中：**M45＝備份與異地備援（Backup & Off-Site Redundancy）**（見下方 §20 M45 定義段）
+- 最後 commit：`HEAD`＝**M45（`ef3a8bc`）**——備份與異地備援（Backup）（見下方 §20 M45 定義段）；全 **289**、CI `35263453271` success
+- 進行中：**無**（M45 已驗收；下一里程碑待定）
 - 前一個 M41 交付＝`2d89ea7`（電子地圖/平面圖）、全 **222**、CI `35232094120` success
 - 前一個 M38 交付＝`d09b045`（事件回應工作流，見下方 M38 定義段）、全 **172**、CI `35185639491` success
 - 前一個 M30 交付＝`24ad4c7`（MQTT 通知通道）：`NotificationSettings`＋
@@ -571,7 +571,7 @@ gh run list -L 3              # 預期全部 success
       →報告含「完整性」；(C) 安全：真實 DB 只讀不改 jobs／不執行「開始處理」
     - 回歸影響：`expcheck`/`evidcheck` 不觸新窗；新增 EXPORTCENTER_CHECK（回歸 17 blocks）
     - 驗收：App Release 0 error、Storage 143、全 283、EXPORTCENTER_OK（連續 2 次綠）、回歸全綠、CI 綠
-20. **M45 進行中＝備份與異地備援（Backup & Off-Site Redundancy）（§14.4 P1）**：
+20. **M45 已驗收＝備份與異地備援（Backup & Off-Site Redundancy）（§14.4 P1；commit `ef3a8bc`，全 **289**，CI `35263453271` success）**：
     - 背景：§14.1 既有 Retention 只做本機配額清除，單機故障即失資料；需「錄影區段增量複製至第二磁碟／異地目標＋可追溯備份紀錄＋自動推進檢查點」
     - Storage schema **v13**：新表 `backup_log`（`id`、`run_at`（ISO UTC）、`source_root`、`target_root`、
       `checkpoint_utc`（成功 run 才寫，此時間前之 final segment 已備妥）、`copied_count`、`copied_bytes`、
