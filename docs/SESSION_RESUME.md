@@ -6,25 +6,26 @@
 
 ## 一句話總結
 HeliVMS 為一套**網路影像監控系統**（WPF 桌面應用：即時監看／回放／AI 事件中心／錄影排程）。
-里程碑 **M1 至 M39 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M39 遮蔽偵測 Tamper）。
-Release build 0 error、測試 **185/185 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
+里程碑 **M1 至 M42 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M42 本機身份驗證＋RBAC）。
+Release build 0 error、測試 **253/253 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
 本地與遠端完全同步（`git diff origin/HEAD` 為空）。
 
 ## 開新 session 的接手方法
 ```powershell
 # 在 D:\HeliVMS 開新 session 時，先對新的 agent 講：
 git status                    # 預期為 empty（乾淨）
-git log --oneline -20         # 預期見到 M1..M39，HEAD＝M39
+git log --oneline -20         # 預期見到 M1..M42，HEAD＝M42
 git diff origin/HEAD          # 預期為空（同步）
 gh run list -L 3              # 預期全部 success
 ```
 新 session 的 prompt 只需這一句：
-「接續 HeliVMS M42（建議 P1 選項），請先讀 `docs\SESSION_RESUME.md`，照指示以自主模式繼續。」
+「接續 HeliVMS（下一里程碑依 SESSION_RESUME 規劃自主選定並先寫定義），請先讀 `docs\SESSION_RESUME.md`，照指示以自主模式繼續。」
 新 session 會以 git 現況接手，不會靠猜測。
 
 ## 現況快照（權威來源＝git，非聊天記憶）
-- 最後 commit：`HEAD`＝**M41（`2d89ea7`）**——電子地圖／平面圖（見下方 M41 定義段）；全 **222**、CI `35232094120` success
-- 進行中：**無**（M41 已驗收；下一里程碑待定）
+- 最後 commit：`HEAD`＝**M42（`6322fae`）**——本機身份驗證＋RBAC（見下方 M42 定義段）；全 **253**、CI `（後補）` success
+- 進行中：**無**（M42 已驗收；下一里程碑待定）
+- 前一個 M41 交付＝`2d89ea7`（電子地圖/平面圖）、全 **222**、CI `35232094120` success
 - 前一個 M38 交付＝`d09b045`（事件回應工作流，見下方 M38 定義段）、全 **172**、CI `35185639491` success
 - 前一個 M30 交付＝`24ad4c7`（MQTT 通知通道）：`NotificationSettings`＋
   `MqttEnabled/MqttHost/MqttPort(1883)/MqttTopic/MqttUser/MqttPassword`（鍵 `notify.mqtt.*`、
@@ -65,7 +66,10 @@ gh run list -L 3              # 預期全部 success
      **`pushcheck`（M34，PUSHCHECK_OK）**、**`quietcheck`（M27，QUIETCHECK_OK）**、
      **`evfiltercheck`（M28，EVFILTERCHECK_OK）**、**`offcheck`（M29，OFFCHECK_OK）**、
      **`snmpcheck`（M36，SNMPCHECK_OK）**、**`rulescheck`（M37，RULECHECK_OK）**、
-     **`dispcheck`（M38，DISPCHECK_OK）**、**`tampercheck`（M39，TAMPERCHECK_OK）**
+     **`dispcheck`（M38，DISPCHECK_OK）**、**`tampercheck`（M39，TAMPERCHECK_OK）**、
+     **`mapcheck`（M41，MAPCHECK_OK）**
+   - `setcheck`/`snapcheck` 的設定中心 nav 斷言＝**10**（M42 增「身份」頁後）；
+     `authcheck`（M42，AUTHCHECK_OK）以 Win32 keybd_event 鍵入密碼（PasswordBox 無 ValuePattern）
   - `kbcheck` 驗證：`Space` 暫停（t1）→ `→` 前跳 10 秒（t2−t1＝11s）→ `F` 逐幀仍暫停 →
     `Esc` 停止（StopButton disabled）；輸出 `KB_OK`
   - `evcard` 驗證：主視窗→右鍵 cell→「開啟事件中心」；選頻道後 grid DataItems≥2、
@@ -485,7 +489,32 @@ gh run list -L 3              # 預期全部 success
       圖、驗 DB ＋主視窗 `MapButton`→電子地圖視窗開啟；setcheck/snapcheck 全綠；回歸 **14 blocks** 全綠
       （set/snap nav 9＋snmp/push/mqtt/ptz/notif/log/smtp/exp/off/evfilter/quiet＋***mapcheck***）
     - 驗收：App Release 0 error、全 222、MAPCHECK_OK、14 回歸全綠、CI success
-17. 每里程碑節奏照舊：定義先寫入本檔→實作→App Release build 0 error→單元測試→
+17. **M42 已驗收＝本機身份驗證＋RBAC**（§14.7 #1、§18.6「本機帳號＋雜湊＋失敗鎖定」P1；`auth.enabled=0` 預設無感、不破既有 harness；commit `6322fae`，全 **253**，CI 進行中）：
+    - 背景：企業授權門檻＝「本機登入＋角色」；無第三方約束下以 **PBKDF2（BCL `Rfc2898DeriveBytes`，SHA-256、100k iter、16B salt、32B hash）** 取代 bcrypt（.NET 無內建 bcrypt）；鎖定採「連錯達 threshold 鎖 N 分鐘」
+    - **Storage schema v11**（`CurrentSchemaVersion` 10→11、`CreateUsersTableV11`）：
+      ```sql
+      users(id PK AUTOINCREMENT, username TEXT NOT NULL UNIQUE COLLATE NOCASE,
+            password_hash TEXT NOT NULL,                    -- v1$iter$salt$hash（base64）
+            role TEXT NOT NULL CHECK(role IN ('admin','viewer')) DEFAULT 'viewer',
+            display_name TEXT, enabled INTEGER NOT NULL DEFAULT 1,
+            failed_logins INTEGER NOT NULL DEFAULT 0,
+            locked_until TEXT,        -- ISO8601 UTC；null＝未鎖定
+            last_login TEXT, created_at TEXT);
+      ```
+    - App 設定鍵（app_settings）：`auth.enabled`（0/1，預設 0）、`auth.lockout.threshold`（預設 5）、`auth.lockout.minutes`（預設 5）
+    - Storage 新檔案：`PasswordHasher`（static `Hash/Verify`）、`UserRecord`（Id/Username/PasswordHash/Role/DisplayName/Enabled/FailedLogins/LockedUntil/LastLogin）、`UserRepository`（`CreateUser`/`GetByUsername`/`GetById`/`ListUsers`/`SetEnabled`/`SetRole`/`SetDisplayName`/`DeleteUser`/`RecordFailedLogin`[逾 threshold 自動設 locked_until]`/`RecordLoginSuccess`[failed=0＋last_login]）、`AuthService`（`IsAuthEnabled`、`Authenticate(username,password)`→`AuthResult{Success(role,displayName)|InvalidCredentials|Locked|Disabled|UserNotFound}`，流程＝GetByUsername→enabled→鎖定檢查→Verify→錯則 RecordFailedLogin＋連錯達標鎖定→成功 RecordLoginSuccess）
+    - App：
+      - `SessionContext`（App，static）：`CurrentUser`（Username/Role/DisplayName）、`IsSignedIn`、`IsAdmin`；`auth.enabled=0` 時一律視為 admin（維持現況不限權限）
+      - `LoginWindow`（新窗，Title「登入」）：`UsernameBox`/`PasswordBox`/`LoginButton`/`LoginCancelButton`/`LoginMessage`（錯誤文字）；Enter 鍵登入；取消＝Shutdown
+      - `App.OnStartup`：顯示 Splash 前以暫用 `SqliteStore` 讀 `auth.enabled`；`1`→`LoginWindow.ShowDialog()`（成功設 SessionContext、失敗/取消→`Shutdown()`）；`0`→維持現流程（所有 harness 不受影響）
+      - RCAC guard：MainWindow `OnLoaded` 依 `SessionContext.IsAdmin` 設 `SettingsButton`/`ExportButton` `IsEnabled`；`OpenSettingsWindow`/`OpenExportWindow` 開頭再 guard（viewer→return）
+      - `SettingsWindow` nav 第 10「身份」＋`PageUsers`：`AuthEnabledBox`（Toggle 即寫）＋`AuthThresholdBox`/`AuthMinutesBox`＋使用者群（`UserAddNameBox`/`UserAddPasswordBox`/`UserAddRoleCombo`[admin/viewer]/`UserAddButton`＋`UserList`[selection 顯示]＋`UserToggleButton`/`UserDeleteButton`＋`UserReportText`）；新增時 `PasswordHasher.Hash` 落庫、密碼不顯示
+    - 測試：Storage **82→113**（`PasswordHasherTests` 5：Hash 非明文＋Verify ok/bad＋malformed 拒＋隨機 salt＋自訂 iterations；`UserRepositoryTests` 15：CRUD＋NOCASE unique 衝突 throw＋啟停/角色/display_name＋failed counter＋達 threshold 鎖定有效期限＋成功清除＋ClearLock；`AuthServiceTests` 11：預設關＋設定變更＋四態結果＋連錯達標鎖定＋鎖定期內拒＋過期重試＋停用拒＋成功重置）全 **222→253**（Storage 113＋Alarms 108＋Licensing 8＋Devices 24）
+    - harness `authcheck`→**AUTHCHECK_OK**：(A) Service——temp DB 驗整套雜湊/NOCASE unique/登入/鎖定（threshold 3）；(B) UI——App DB `auth.enabled="1"`＋建 admin/viewer 兩帳→開 App→**登入窗出現**→錯密碼→`LoginMessage` 含「密碼錯誤」→正確→主窗出現且 admin `SettingsButton` enabled；改用 viewer 登入→`SettingsButton` **disabled**（RBAC）；密碼以 Win32 keybd_event 鍵入（PasswordBox 無 ValuePattern）；測完復原 `auth.enabled=0`＋刪帳
+    - 回歸影響：設定中心 nav 由 9→**10**（新增「身份」頁）——`setcheck`/`snapcheck` 之 nav 斷言已同步改 **10**；回歸 **15 blocks 全綠**（set/snap 10＋snmp/push/mqtt/ptz/notif/log/smtp/exp/off/evfilter/quiet＋mapcheck＋***authcheck***）
+    - 設計決策：登入窗在 `MainWindow` 建立前以暫用 `SqliteStore` 檢查（`AuthService.IsAuthEnabled`）→ 失敗/取消 `Shutdown(1)`；viewer 僅監看（設定/匯出按鈕 disabled＋handler guard）；`LoginWindow` 密碼錯誤即清空重新輸入（harness 友善）
+    - 驗收：App Release 0 error、Storage 113/113、全 253、AUTHCHECK_OK、15 回歸全綠、CI 綠
+18. 每里程碑節奏照舊：定義先寫入本檔→實作→App Release build 0 error→單元測試→
     （有 UI 面者）E2E harness block→commit＋push＋CI success→`git status --porcelain` 空白
 
 ## 已知雷區（勿再犯）

@@ -1081,7 +1081,7 @@ L2 比對（人臉/車牌）置「進階·需權限」區，預設關閉（§5.1
 
 | # | 類別 | 欠缺功能 | 市場代表 | HeliVms 現況 | 建議 |
 |---|---|---|---|---|---|
-| 1 | 身份整合 | **企業帳戶：LDAP / AD / OIDC SSO** | Milestone（Active Directory、OIDC SSO）、Synology | 僅本機帳號/角色 | **P1**（企業標案基本門檻） |
+| 1 | 身份整合 | **企業帳戶：LDAP / AD / OIDC SSO** | Milestone（Active Directory、OIDC SSO）、Synology | **本機帳號＋RBAC（PBKDF2＋失敗鎖定，M42 已實作）**；LDAP/SSO 待接 | **P1**（企業標案基本門檻） |
 | 2 | 影像 | **魚眼攝影機矯正（Dewarping）** | QNAP Qdewarp、Genetec、Synology | 完全沒有 | P1（魚眼/全景漸普及） |
 | 3 | 事件營運 | **警報管理器（Alarm Manager）**：分診/指派/傳遞/進度狀態大面板 | Milestone Alarm Manager | 僅事件中心 + 四態(§14.4) | P1（營運效率亮點） |
 | 4 | 證據 | **外部安全共享**（無帳號分享錄影片段/連結） | Synology Share Link、Genetec Secure Share | 沒有 | P1 |
@@ -1446,7 +1446,7 @@ L2 比對（人臉/車牌）置「進階·需權限」區，預設關閉（§5.1
 
 ### 18.6 安全與認證
 
-- **本地**：本機帳號 bcrypt＋失敗鎖定；**企業**：LDAP/AD/OIDC SSO（P1，§14.7 #1）
+- **本地**：本機帳號 **PBKDF2**（BCL `Rfc2898DeriveBytes`，SHA-256、100k iter）＋失敗鎖定、RBAC admin/viewer，**M42 已實作**；**企業**：LDAP/AD/OIDC SSO（P1，§14.7 #1）
 - **TLS**：TLS 1.2+；憑證可自簽（將導引申請）或 ACME 自動簽發；私鑰保護（DPAPI）
 - **埠偵測**：預設埠綁定 127.0.0.1（本機 IPC），僅遠程選配才對外開放
 - **速率限制**：API 每 IP 限速、登入滑動驗證、CSRF 保護（Cookie 場景）、CSP 標頭（Web）
