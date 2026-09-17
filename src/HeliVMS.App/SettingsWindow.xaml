@@ -28,6 +28,7 @@
                     <ListBoxItem Content="功能"/>
                     <ListBoxItem Content="通知"/>
                     <ListBoxItem Content="規則"/>
+                    <ListBoxItem Content="IO"/>
                 </ListBox>
             </DockPanel>
         </Border>
@@ -402,6 +403,132 @@
                 </ListView>
                 <TextBlock x:Name="RuleReportText" AutomationProperties.AutomationId="RuleReportText"
                            Margin="0,6,0,0" TextWrapping="Wrap"/>
+            </StackPanel>
+
+            <!-- IO（乾接點） -->
+            <StackPanel x:Name="PageIo" Visibility="Collapsed"
+                        AutomationProperties.AutomationId="SettingsPageIo">
+                <TextBlock Text="IO（乾接點）" FontSize="17" FontWeight="Bold" Margin="0,0,0,6"/>
+                <TextBlock Text="網路 IO 模組（Modbus/TCP：FC02 讀取 DI、FC01 讀 Coil、FC05 寫 DO）。"
+                           Foreground="{StaticResource Brand.TextDim}" FontSize="11" Margin="0,0,0,4" TextWrapping="Wrap"/>
+                <TextBlock Text="DI 觸發上升沿寫入 io_input 事件（可綁定相機）；DO 可由此頁直接測試輸出。"
+                           Foreground="{StaticResource Brand.TextDim}" FontSize="11" Margin="0,0,0,10" TextWrapping="Wrap"/>
+
+                <TextBlock Text="IO 模組" FontSize="14" FontWeight="Bold" Margin="0,0,0,6"/>
+                <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                    <TextBox x:Name="IoNameBox" AutomationProperties.AutomationId="IoNameBox"
+                             Width="120" ToolTip="模組名稱"
+                             Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="8,4"/>
+                    <TextBox x:Name="IoHostBox" AutomationProperties.AutomationId="IoHostBox"
+                             Width="130" Margin="6,0,0,0" ToolTip="主機（IP 或主機名）"
+                             Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="8,4"/>
+                    <TextBox x:Name="IoPortBox" AutomationProperties.AutomationId="IoPortBox"
+                             Text="502" Width="66" Margin="6,0,0,0" ToolTip="Port（預設 502）"
+                             Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="8,4"/>
+                    <TextBox x:Name="IoUnitBox" AutomationProperties.AutomationId="IoUnitBox"
+                             Text="1" Width="50" Margin="6,0,0,0" ToolTip="Unit ID"
+                             Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="8,4"/>
+                    <TextBox x:Name="IoPollBox" AutomationProperties.AutomationId="IoPollBox"
+                             Text="500" Width="70" Margin="6,0,0,0" ToolTip="輪詢間隔 ms"
+                             Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="8,4"/>
+                    <Button x:Name="IoAddDeviceButton" AutomationProperties.AutomationId="IoAddDeviceButton"
+                            Content="＋新增模組" Click="OnIoAddDeviceClicked" Margin="6,0,0,0" Padding="8,4"
+                            Foreground="White" Background="#2A5C8A" BorderThickness="0"/>
+                    <Button x:Name="IoRefreshButton" AutomationProperties.AutomationId="IoRefreshButton"
+                            Content="重新整理" Click="OnIoRefreshClicked" Margin="6,0,0,0" Padding="8,4"
+                            Foreground="White" Background="#3A5A7A" BorderThickness="0"/>
+                </StackPanel>
+
+                <ListView x:Name="IoDeviceList" AutomationProperties.AutomationId="IoDeviceList" SelectionMode="Single"
+                          Height="118" SelectionChanged="OnIoDeviceSelectionChanged"
+                          Background="#0E1D33" Foreground="White" BorderBrush="#1F3A5F">
+                    <ListView.View>
+                        <GridView>
+                            <GridViewColumn Header="ID" Width="42" DisplayMemberBinding="{Binding Id}"/>
+                            <GridViewColumn Header="名稱" Width="110" DisplayMemberBinding="{Binding Name}"/>
+                            <GridViewColumn Header="主機" Width="120" DisplayMemberBinding="{Binding Host}"/>
+                            <GridViewColumn Header="埠/Unit" Width="80" DisplayMemberBinding="{Binding EndpointLabel}"/>
+                            <GridViewColumn Header="啟用" Width="50" DisplayMemberBinding="{Binding EnabledLabel}"/>
+                            <GridViewColumn Header="輪詢" Width="56" DisplayMemberBinding="{Binding PollMs}"/>
+                        </GridView>
+                    </ListView.View>
+                </ListView>
+                <StackPanel Orientation="Horizontal" Margin="0,4,0,10">
+                    <Button x:Name="IoToggleDeviceButton" Content="啟用/停用" Click="OnIoToggleDeviceClicked"
+                            Padding="8,4" Foreground="White" Background="#3A5A7A" BorderThickness="0"/>
+                    <Button x:Name="IoDeleteDeviceButton" Content="刪除模組（含通道）" Click="OnIoDeleteDeviceClicked" Margin="6,0,0,0"
+                            Padding="8,4" Foreground="White" Background="#8A3C2E" BorderThickness="0"/>
+                </StackPanel>
+
+                <TextBlock Text="通道（DI／DO）" FontSize="14" FontWeight="Bold" Margin="0,4,0,6"/>
+                <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                    <ComboBox x:Name="IoDirCombo" AutomationProperties.AutomationId="IoDirCombo" Width="70"
+                              Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="2,4">
+                        <ComboBoxItem Content="DI"/>
+                        <ComboBoxItem Content="DO"/>
+                    </ComboBox>
+                    <TextBox x:Name="IoIndexBox" AutomationProperties.AutomationId="IoIndexBox"
+                             Width="50" Margin="6,0,0,0" ToolTip="IO index（0 起）"
+                             Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="8,4"/>
+                    <TextBox x:Name="IoChannelNameBox" AutomationProperties.AutomationId="IoChannelNameBox"
+                             Width="110" Margin="6,0,0,0" ToolTip="通道名稱"
+                             Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="8,4"/>
+                    <TextBox x:Name="IoDebounceBox" AutomationProperties.AutomationId="IoDebounceBox"
+                             Text="200" Width="60" Margin="6,0,0,0" ToolTip="去抖 ms（DI）"
+                             Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="8,4"/>
+                    <CheckBox x:Name="IoNcBox" AutomationProperties.AutomationId="IoNcBox"
+                              Content="常閉(NC)" Foreground="White" VerticalAlignment="Center" Margin="10,0,0,0"/>
+                    <ComboBox x:Name="IoCameraCombo" AutomationProperties.AutomationId="IoCameraCombo"
+                              Width="150" Margin="10,0,0,0" ToolTip="DI 綁定相機"
+                              Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="2,4"/>
+                    <Button x:Name="IoAddChannelButton" AutomationProperties.AutomationId="IoAddChannelButton"
+                            Content="＋新增通道" Click="OnIoAddChannelClicked" Margin="10,0,0,0" Padding="8,4"
+                            Foreground="White" Background="#2A5C8A" BorderThickness="0"/>
+                </StackPanel>
+
+                <ListView x:Name="IoChannelList" AutomationProperties.AutomationId="IoChannelList" SelectionMode="Single"
+                          Height="108"
+                          Background="#0E1D33" Foreground="White" BorderBrush="#1F3A5F">
+                    <ListView.View>
+                        <GridView>
+                            <GridViewColumn Header="方向" Width="52" DisplayMemberBinding="{Binding Direction}"/>
+                            <GridViewColumn Header="Index" Width="52" DisplayMemberBinding="{Binding IoIndex}"/>
+                            <GridViewColumn Header="名稱" Width="110" DisplayMemberBinding="{Binding Name}"/>
+                            <GridViewColumn Header="啟用" Width="48" DisplayMemberBinding="{Binding EnabledLabel}"/>
+                            <GridViewColumn Header="NC" Width="40" DisplayMemberBinding="{Binding NcLabel}"/>
+                            <GridViewColumn Header="去抖" Width="56" DisplayMemberBinding="{Binding DebounceMs}"/>
+                            <GridViewColumn Header="相機" Width="110" DisplayMemberBinding="{Binding CameraLabel}"/>
+                        </GridView>
+                    </ListView.View>
+                </ListView>
+                <StackPanel Orientation="Horizontal" Margin="0,4,0,8">
+                    <Button x:Name="IoToggleChannelButton" Content="啟用/停用通道" Click="OnIoToggleChannelClicked"
+                            Padding="8,4" Foreground="White" Background="#3A5A7A" BorderThickness="0"/>
+                    <Button x:Name="IoDeleteChannelButton" Content="刪除通道" Click="OnIoDeleteChannelClicked" Margin="6,0,0,0"
+                            Padding="8,4" Foreground="White" Background="#8A3C2E" BorderThickness="0"/>
+                    <TextBlock x:Name="IoReportText" AutomationProperties.AutomationId="IoReportText"
+                               Margin="14,0,0,0" VerticalAlignment="Center" TextWrapping="Wrap"/>
+                </StackPanel>
+
+                <TextBlock Text="DO 輸出測試" FontSize="14" FontWeight="Bold" Margin="0,8,0,6"/>
+                <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                    <ComboBox x:Name="IoDoDeviceCombo" AutomationProperties.AutomationId="IoDoDeviceCombo" Width="150"
+                              SelectionChanged="OnIoDoDeviceChanged"
+                              Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="2,4"/>
+                    <ComboBox x:Name="IoDoChannelCombo" AutomationProperties.AutomationId="IoDoChannelCombo"
+                              Width="170" Margin="6,0,0,0"
+                              Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="2,4"/>
+                    <Button x:Name="DoOnButton" AutomationProperties.AutomationId="DoOnButton"
+                            Content="ON" Click="OnIoDoWriteClicked" Tag="true" Margin="10,0,0,0" Padding="12,4"
+                            Foreground="White" Background="#2A7F6E" BorderThickness="0"/>
+                    <Button x:Name="DoOffButton" AutomationProperties.AutomationId="DoOffButton"
+                            Content="OFF" Click="OnIoDoWriteClicked" Tag="false" Margin="6,0,0,0" Padding="12,4"
+                            Foreground="White" Background="#8A3C2E" BorderThickness="0"/>
+                    <TextBlock x:Name="IoDoStatusText" AutomationProperties.AutomationId="IoDoStatusText"
+                               Margin="12,0,0,0" VerticalAlignment="Center" TextWrapping="Wrap"/>
+                </StackPanel>
+                <TextBlock Text="DO 測試需由主視窗監視器（IoMonitorHost）接線後生效；未接線時顯示提示。"
+                           Foreground="{StaticResource Brand.TextDim}" FontSize="11" Margin="0,2,0,0" TextWrapping="Wrap"/>
             </StackPanel>
         </Grid>
     </Grid>

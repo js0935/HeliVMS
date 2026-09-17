@@ -54,6 +54,7 @@ public partial class MainWindow : Window
     private DetectionWriter? _detWriter;
     private NotificationService? _notify;
     private TrayIconHost? _tray;
+    private IoMonitorHost? _ioHost;
     private bool _exiting;
 
     private static readonly SolidColorBrush BrOffline = new(Color.FromRgb(0x6B, 0x7B, 0x90));
@@ -306,6 +307,10 @@ public partial class MainWindow : Window
         _manager.HealthRestart += (_, e) =>
             HintText.Text = $"頻道「{e.Channel.Name}」畫面逾時，已自動重連。";
         _manager.AlarmEvent += (_, e) => _notify?.Enqueue(e.Record);
+
+        _ioHost = new IoMonitorHost(_store);
+        _ioHost.RefreshAndStart();
+        _ioHost.EventInserted += (_, record) => _notify?.Enqueue(record);
 
         _scheduler = new RecordingScheduler(
             _store,
@@ -900,7 +905,7 @@ public partial class MainWindow : Window
     /// <summary>開啟管理設定中心（M19，§9）。</summary>
     private void OpenSettingsWindow()
     {
-        var settings = new SettingsWindow(_store!, _dataRoot)
+        var settings = new SettingsWindow(_store!, _dataRoot, _ioHost)
         {
             Owner = this,
         };
@@ -1430,6 +1435,7 @@ public partial class MainWindow : Window
         _bgCts?.Cancel();
         _bgCts?.Dispose();
         _detWriter?.Dispose();
+        _ioHost?.Dispose();
         _notify?.Dispose();
         _manager?.Dispose();
         _store?.Dispose();

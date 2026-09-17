@@ -4,6 +4,7 @@ using System.Reflection;
 using System.Windows;
 using System.Windows.Controls;
 using HeliVMS.Alarms;
+using HeliVMS.App.Services;
 using HeliVMS.Licensing;
 using HeliVMS.Recording;
 using HeliVMS.Shared.Models;
@@ -30,14 +31,22 @@ public partial class SettingsWindow : Window
     /// <summary>告警規則頁顯示列。</summary>
     private sealed record RuleRow(long Id, string Name, string EventType, string ChannelLabel, string Keyword, string Channels, string EnabledLabel);
 
+    /// <summary>IO 模組頁顯示列。</summary>
+    private sealed record IoDeviceRow(int Id, string Name, string Host, string EndpointLabel, string EnabledLabel, int PollMs);
+
+    /// <summary>IO 通道頁顯示列。</summary>
+    private sealed record IoChannelRow(int Id, string Direction, int IoIndex, string Name, string EnabledLabel, string NcLabel, int DebounceMs, string CameraLabel);
+
     private readonly SqliteStore _store;
     private readonly string _dataRoot;
     private readonly string _recordingsRoot;
     private readonly string _snapshotsRoot;
     private readonly SettingsRepository _settings;
     private readonly AlertRuleRepository _rules;
+    private readonly IoRepository _io;
+    private readonly IoMonitorHost? _ioHost;
 
-    public SettingsWindow(SqliteStore store, string dataRoot)
+    public SettingsWindow(SqliteStore store, string dataRoot, IoMonitorHost? ioHost = null)
     {
         _store = store;
         _dataRoot = dataRoot;
@@ -45,6 +54,8 @@ public partial class SettingsWindow : Window
         _snapshotsRoot = Path.Combine(dataRoot, "snapshots");
         _settings = new SettingsRepository(store);
         _rules = new AlertRuleRepository(store);
+        _io = new IoRepository(store);
+        _ioHost = ioHost;
 
         InitializeComponent();
 
@@ -62,6 +73,7 @@ public partial class SettingsWindow : Window
         ReloadNotify();
         ReloadRules();
         ReloadTamper();
+        ReloadIo();
 
         SettingsNav.SelectedIndex = 0;
     }
@@ -81,6 +93,7 @@ public partial class SettingsWindow : Window
         PageLaunch.Visibility = visible == "功能" ? Visibility.Visible : Visibility.Collapsed;
         PageNotify.Visibility = visible == "通知" ? Visibility.Visible : Visibility.Collapsed;
         PageRules.Visibility = visible == "規則" ? Visibility.Visible : Visibility.Collapsed;
+        PageIo.Visibility = visible == "IO" ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private void ReloadRules()
@@ -114,6 +127,289 @@ public partial class SettingsWindow : Window
     private void OnTamperToggled(object sender, RoutedEventArgs e)
     {
         _settings.Set(TamperKey, TamperEnabledBox.IsChecked == true ? "true" : "false");
+    }
+
+    private IoDeviceRow? SelectedIoDevice => IoDeviceList.SelectedItem as IoDeviceRow;
+
+    /// <summary>M40：重載 IO 模組清單、相機下拉與 DO 測試下拉。</summary>
+    private void ReloadIo()
+    {
+        var devices = _io.ListDevices();
+        IoDeviceList.ItemsSource = devices.Select(d => new IoDeviceRow(
+            d.Id,
+            d.Name,
+            d.Host,
+            $"{d.Port}/{d.UnitId}",
+            d.Enabled ? "啟用" : "停用",
+            d.PollMs)).ToList();
+
+        IoDoDeviceCombo.Items.Clear();
+        foreach (var d in devices)
+        {
+            IoDoDeviceCombo.Items.Add(new ComboBoxItem { Content = d.Name, Tag = d.Id });
+        }
+
+        if (IoDoDeviceCombo.Items.Count > 0)
+        {
+            IoDoDeviceCombo.SelectedIndex = 0;
+            ReloadIoDoChannels();
+        }
+        else
+        {
+            IoDoChannelCombo.Items.Clear();
+        }
+
+        ReloadIoCameraCombo();
+        ReloadIoChannels();
+    }
+
+    private void ReloadIoCameraCombo()
+    {
+        IoCameraCombo.Items.Clear();
+        IoCameraCombo.Items.Add(new ComboBoxItem { Content = "（不綁定）", Tag = null });
+        foreach (var c in new ChannelRepository(_store).List())
+        {
+            IoCameraCombo.Items.Add(new ComboBoxItem { Content = $"{c.Name}（#{c.Id}）", Tag = c.Id });
+        }
+
+        IoCameraCombo.SelectedIndex = 0;
+    }
+
+    /// <summary>M40：依目前選取模組重載通道清單（未選則顯示全部）。</summary>
+    private void ReloadIoChannels()
+    {
+        var devId = SelectedIoDevice?.Id;
+        var cameras = new ChannelRepository(_store).List().ToDictionary(c => c.Id, c => c.Name);
+        var rows = (devId is int did
+            ? _io.ListChannels(deviceId: did)
+            : _io.ListChannels()).Select(ch => new IoChannelRow(
+                ch.Id,
+                ch.Direction,
+                ch.IoIndex,
+                ch.Name,
+                ch.Enabled ? "啟用" : "停用",
+                ch.Polarity ? "NC" : "",
+                ch.DebounceMs,
+                ch.CameraId is { } cam && cameras.TryGetValue(cam, out var n) ? n : "—")).ToList();
+        IoChannelList.ItemsSource = rows;
+        IoReportText.Text = devId is not null && rows.Count == 0 ? "此模組尚無通道。" : " ";
+    }
+
+    private void OnIoAddDeviceClicked(object sender, RoutedEventArgs e)
+    {
+        var name = IoNameBox.Text.Trim();
+        var host = IoHostBox.Text.Trim();
+        if (name.Length == 0 || host.Length == 0)
+        {
+            IoReportText.Text = "請填模組名稱與主機。";
+            return;
+        }
+
+        if (!int.TryParse(IoPortBox.Text, out var port) || port is <= 0 or > 65535)
+        {
+            IoReportText.Text = "連接埠無效（1–65535）。";
+            return;
+        }
+
+        if (!int.TryParse(IoUnitBox.Text, out var unit) || unit is < 0 or > 247)
+        {
+            IoReportText.Text = "Unit ID 需為 0–247。";
+            return;
+        }
+
+        if (!int.TryParse(IoPollBox.Text, out var pollMs) || pollMs < 50)
+        {
+            IoReportText.Text = "輪詢間隔需 ≥50 ms。";
+            return;
+        }
+
+        _io.AddDevice(name, host, port, unit, pollMs);
+        IoNameBox.Clear();
+        IoHostBox.Clear();
+        IoReportText.Text = $"已新增模組「{name}」。";
+        ReloadIo();
+        _ioHost?.RefreshAndStart();
+    }
+
+    private void OnIoRefreshClicked(object sender, RoutedEventArgs e) => ReloadIo();
+
+    private void OnIoDeviceSelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        ReloadIoChannels();
+        ReloadIoDoChannels();
+    }
+
+    private void OnIoToggleDeviceClicked(object sender, RoutedEventArgs e)
+    {
+        if (SelectedIoDevice is not { } dev)
+        {
+            IoReportText.Text = "請先選取模組。";
+            return;
+        }
+
+        var current = _io.GetDevice(dev.Id);
+        if (current is null)
+        {
+            ReloadIo();
+            return;
+        }
+
+        _io.SetDeviceEnabled(dev.Id, !current.Enabled);
+        ReloadIo();
+        _ioHost?.RefreshAndStart();
+    }
+
+    private void OnIoDeleteDeviceClicked(object sender, RoutedEventArgs e)
+    {
+        if (SelectedIoDevice is not { } dev)
+        {
+            IoReportText.Text = "請先選取模組。";
+            return;
+        }
+
+        _io.DeleteDevice(dev.Id);
+        IoReportText.Text = $"已刪除模組 #{dev.Id}。";
+        ReloadIo();
+        _ioHost?.RefreshAndStart();
+    }
+
+    private void OnIoAddChannelClicked(object sender, RoutedEventArgs e)
+    {
+        if (SelectedIoDevice is not { } dev)
+        {
+            IoReportText.Text = "請先選取要新增通道的模組。";
+            return;
+        }
+
+        if (IoDirCombo.SelectedItem is not ComboBoxItem dirItem)
+        {
+            IoReportText.Text = "請選擇方向（DI／DO）。";
+            return;
+        }
+
+        var direction = dirItem.Content as string ?? "DI";
+        if (!int.TryParse(IoIndexBox.Text, out var idx) || idx is < 0 or > 65535)
+        {
+            IoReportText.Text = "IO index 需為 0–65535。";
+            return;
+        }
+
+        var name = IoChannelNameBox.Text.Trim();
+        if (name.Length == 0)
+        {
+            IoReportText.Text = "請填通道名稱。";
+            return;
+        }
+
+        if (!int.TryParse(IoDebounceBox.Text, out var debounce) || debounce < 0)
+        {
+            IoReportText.Text = "去抖需 ≥0 ms。";
+            return;
+        }
+
+        int? cameraId = IoCameraCombo.SelectedItem is ComboBoxItem { Tag: int cam } ? cam : null;
+        if (direction == "DI" && cameraId is null)
+        {
+            IoReportText.Text = "DI 通道必須綁定相機（io_input 事件才能寫入事件中心）。";
+            return;
+        }
+
+        try
+        {
+            _io.AddChannel(dev.Id, direction, idx, name, debounce, IoNcBox.IsChecked == true, cameraId);
+        }
+        catch (Exception ex)
+        {
+            IoReportText.Text = $"新增失敗：{ex.Message}";
+            return;
+        }
+
+        IoIndexBox.Clear();
+        IoChannelNameBox.Clear();
+        IoNcBox.IsChecked = false;
+        IoReportText.Text = $"已新增通道「{name}」（{direction} #{idx}）。";
+        ReloadIoChannels();
+        ReloadIoDoChannels();
+        _ioHost?.RefreshAndStart();
+    }
+
+    private void OnIoToggleChannelClicked(object sender, RoutedEventArgs e)
+    {
+        if (IoChannelList.SelectedItem is not IoChannelRow row)
+        {
+            IoReportText.Text = "請先選取通道。";
+            return;
+        }
+
+        var current = _io.GetChannel(row.Id);
+        if (current is null)
+        {
+            ReloadIoChannels();
+            return;
+        }
+
+        _io.SetChannelEnabled(row.Id, !current.Enabled);
+        ReloadIoChannels();
+        ReloadIoDoChannels();
+        _ioHost?.RefreshAndStart();
+    }
+
+    private void OnIoDeleteChannelClicked(object sender, RoutedEventArgs e)
+    {
+        if (IoChannelList.SelectedItem is not IoChannelRow row)
+        {
+            IoReportText.Text = "請先選取通道。";
+            return;
+        }
+
+        _io.DeleteChannel(row.Id);
+        ReloadIoChannels();
+        ReloadIoDoChannels();
+        _ioHost?.RefreshAndStart();
+    }
+
+    private void ReloadIoDoChannels()
+    {
+        IoDoChannelCombo.Items.Clear();
+        if (IoDoDeviceCombo.SelectedItem is not ComboBoxItem { Tag: int devId })
+        {
+            return;
+        }
+
+        foreach (var ch in _io.ListChannels(deviceId: devId, direction: "DO"))
+        {
+            IoDoChannelCombo.Items.Add(new ComboBoxItem { Content = $"[{ch.IoIndex}] {ch.Name}", Tag = ch.Id });
+        }
+
+        if (IoDoChannelCombo.Items.Count > 0)
+        {
+            IoDoChannelCombo.SelectedIndex = 0;
+        }
+    }
+
+    private void OnIoDoDeviceChanged(object sender, SelectionChangedEventArgs e) => ReloadIoDoChannels();
+
+    private async void OnIoDoWriteClicked(object sender, RoutedEventArgs e)
+    {
+        if (_ioHost is null)
+        {
+            IoDoStatusText.Text = "主視窗尚未接線監視器（IoMonitorHost）。";
+            return;
+        }
+
+        if (IoDoDeviceCombo.SelectedItem is not ComboBoxItem { Tag: int devId } ||
+            IoDoChannelCombo.SelectedItem is not ComboBoxItem { Tag: int chId } ||
+            sender is not Button btn)
+        {
+            IoDoStatusText.Text = "請先選取模組與 DO 通道。";
+            return;
+        }
+
+        var on = string.Equals(btn.Tag?.ToString(), "true", StringComparison.OrdinalIgnoreCase);
+        var ok = await _ioHost.WriteOutputAsync(devId, chId, on);
+        IoDoStatusText.Text = ok
+            ? $"DO #{chId} 已設 {(on ? "ON" : "OFF")}（FC05 完成）。"
+            : "寫出失敗（裝置離線或非 DO 通道）。";
     }
 
     private static string FormatRuleChannels(string? channels)

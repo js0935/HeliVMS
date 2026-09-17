@@ -9,7 +9,7 @@ namespace HeliVMS.Storage;
 /// </summary>
 public sealed class SqliteStore : IDisposable
 {
-    private const int CurrentSchemaVersion = 8;
+    private const int CurrentSchemaVersion = 9;
     private readonly SqliteConnection _connection;
     private readonly object _gate = new();
     private bool _disposed;
@@ -28,6 +28,7 @@ public sealed class SqliteStore : IDisposable
         Execute("PRAGMA journal_mode=WAL;");
         Execute("PRAGMA busy_timeout=5000;");
         Execute("PRAGMA synchronous=NORMAL;");
+        Execute("PRAGMA foreign_keys=ON;");
     }
 
     public string DatabasePath { get; }
@@ -91,6 +92,11 @@ public sealed class SqliteStore : IDisposable
         if (version < 8)
         {
             CreateEventDispositionsTableV8();
+        }
+
+        if (version < 9)
+        {
+            CreateIoTablesV9();
         }
 
         Execute("PRAGMA user_version = CURRENT_SCHEMA_VERSION;".Replace(
@@ -228,6 +234,39 @@ public sealed class SqliteStore : IDisposable
                 changed_at  TEXT    NOT NULL
             );
             CREATE INDEX IF NOT EXISTS idx_disp_trail_event ON event_disposition_trail(event_id);
+            """);
+    }
+
+    private void CreateIoTablesV9()
+    {
+        Execute(
+            """
+            CREATE TABLE IF NOT EXISTS io_devices (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                name        TEXT    NOT NULL,
+                protocol    TEXT    NOT NULL DEFAULT 'modbus_tcp',
+                host        TEXT    NOT NULL,
+                port        INTEGER NOT NULL DEFAULT 502,
+                unit_id     INTEGER NOT NULL DEFAULT 1,
+                enabled     INTEGER NOT NULL DEFAULT 1,
+                poll_ms     INTEGER NOT NULL DEFAULT 500,
+                created_at  TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+            );
+
+            CREATE TABLE IF NOT EXISTS io_channels (
+                id             INTEGER PRIMARY KEY AUTOINCREMENT,
+                device_id      INTEGER NOT NULL REFERENCES io_devices(id) ON DELETE CASCADE,
+                direction      TEXT    NOT NULL CHECK (direction IN ('DI', 'DO')),
+                io_index       INTEGER NOT NULL,
+                name           TEXT    NOT NULL,
+                enabled        INTEGER NOT NULL DEFAULT 1,
+                debounce_ms    INTEGER NOT NULL DEFAULT 200,
+                polarity       INTEGER NOT NULL DEFAULT 0,
+                camera_id      INTEGER,
+                alarm_priority TEXT    NOT NULL DEFAULT 'normal',
+                UNIQUE (device_id, direction, io_index)
+            );
+            CREATE INDEX IF NOT EXISTS idx_io_ch_device ON io_channels(device_id);
             """);
     }
 
