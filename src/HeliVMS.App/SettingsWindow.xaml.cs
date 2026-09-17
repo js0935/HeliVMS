@@ -42,6 +42,7 @@ public partial class SettingsWindow : Window
     private sealed record IoChannelRow(int Id, string Direction, int IoIndex, string Name, string EnabledLabel, string NcLabel, int DebounceMs, string CameraLabel);
     private sealed record MapRow(int Id, string Name, string SizeLabel, string EnabledLabel, int SortOrder);
     private sealed record MapPinRow(int Id, string DeviceType, int ChannelId, string PositionLabel, string EnabledLabel, string Name);
+    private sealed record UserRow(int Id, string Username, string Role, string EnabledLabel, string FailedLabel, string LastLoginLabel);
 
     private readonly SqliteStore _store;
     private readonly string _dataRoot;
@@ -53,6 +54,7 @@ public partial class SettingsWindow : Window
     private readonly IoMonitorHost? _ioHost;
     private readonly MapRepository _maps;
     private readonly string _mapsRoot;
+    private readonly UserRepository _users;
 
     public SettingsWindow(SqliteStore store, string dataRoot, IoMonitorHost? ioHost = null)
     {
@@ -66,6 +68,7 @@ public partial class SettingsWindow : Window
         _ioHost = ioHost;
         _maps = new MapRepository(store);
         _mapsRoot = Path.Combine(dataRoot, "maps");
+        _users = new UserRepository(store);
 
         InitializeComponent();
         MapPinCanvas.MouseLeftButtonUp += OnMapPinCanvasClick;
@@ -86,6 +89,8 @@ public partial class SettingsWindow : Window
         ReloadTamper();
         ReloadIo();
         ReloadMaps();
+        ReloadAuthPolicy();
+        ReloadUsers();
 
         SettingsNav.SelectedIndex = 0;
     }
@@ -107,6 +112,7 @@ public partial class SettingsWindow : Window
         PageRules.Visibility = visible == "規則" ? Visibility.Visible : Visibility.Collapsed;
         PageIo.Visibility = visible == "IO" ? Visibility.Visible : Visibility.Collapsed;
         PageMap.Visibility = visible == "地圖" ? Visibility.Visible : Visibility.Collapsed;
+        PageUsers.Visibility = visible == "身份" ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private void ReloadRules()
@@ -1183,5 +1189,138 @@ public partial class SettingsWindow : Window
         bi.CacheOption = BitmapCacheOption.OnLoad;
         bi.EndInit();
         return bi;
+    }
+
+    // ── 身份與權限（M42，§18.6） ──
+
+    private void ReloadAuthPolicy()
+    {
+        var auth = new AuthService(_store);
+        AuthEnabledBox.IsChecked = auth.IsAuthEnabled;
+        AuthThresholdBox.Text = auth.LockoutThreshold.ToString(CultureInfo.InvariantCulture);
+        AuthMinutesBox.Text = auth.LockoutMinutes.ToString(CultureInfo.InvariantCulture);
+    }
+
+    private void ReloadUsers()
+    {
+        UserList.ItemsSource = _users.ListUsers().Select(u => new UserRow(
+            u.Id,
+            u.Username,
+            u.Role,
+            u.Enabled ? "啟用" : "停用",
+            u.FailedLogins > 0 ? $"{u.FailedLogins}{(u.LockedUntil is { Length: > 0 } ? "（鎖）" : string.Empty)}" : "0",
+            u.LastLogin is { Length: > 0 } ll
+                ? SqliteStore.FromIso(ll).ToLocalTime().ToString("MM-dd HH:mm", CultureInfo.InvariantCulture)
+                : "—")).ToList();
+
+        UserToggleButton.IsEnabled = false;
+        UserDeleteButton.IsEnabled = false;
+        UserUnlockButton.IsEnabled = false;
+    }
+
+    private void OnAuthEnabledChanged(object sender, RoutedEventArgs e)
+    {
+        if (!IsLoaded)
+        {
+            return;
+        }
+
+        var enabled = AuthEnabledBox.IsChecked == true;
+        _settings.Set("auth.enabled", enabled ? "1" : "0");
+        UserReportText.Text = enabled ? "已啟用登入驗證（下次啟動生效）。" : "已停用登入驗證。";
+    }
+
+    private void OnAuthApplyClicked(object sender, RoutedEventArgs e)
+    {
+        if (!int.TryParse(AuthThresholdBox.Text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var threshold) || threshold < 1 ||
+            !int.TryParse(AuthMinutesBox.Text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var minutes) || minutes < 1)
+        {
+            UserReportText.Text = "鎖定門檻與分鐘需為正整數。";
+            return;
+        }
+
+        _settings.Set("auth.lockout.threshold", threshold.ToString(CultureInfo.InvariantCulture));
+        _settings.Set("auth.lockout.minutes", minutes.ToString(CultureInfo.InvariantCulture));
+        UserReportText.Text = $"已套用：連續失敗 {threshold} 次鎖定 {minutes} 分鐘。";
+    }
+
+    private void OnUserAddClicked(object sender, RoutedEventArgs e)
+    {
+        var name = UserAddNameBox.Text.Trim();
+        var password = UserAddPasswordBox.Password;
+        if (name.Length == 0 || password.Length == 0)
+        {
+            UserReportText.Text = "請輸入使用者名稱與密碼。";
+            return;
+        }
+
+        var role = (UserAddRoleCombo.SelectedItem as ComboBoxItem)?.Content as string ?? "viewer";
+        try
+        {
+            _users.CreateUser(name, PasswordHasher.Hash(password), role);
+            UserReportText.Text = $"已新增使用者「{name}」（{role}）。";
+        }
+        catch (Microsoft.Data.Sqlite.SqliteException)
+        {
+            UserReportText.Text = $"使用者名稱「{name}」已存在。";
+            return;
+        }
+
+        UserAddNameBox.Clear();
+        UserAddPasswordBox.Clear();
+        ReloadUsers();
+    }
+
+    private void OnUserSelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        var selected = UserList.SelectedItem is UserRow;
+        UserToggleButton.IsEnabled = selected;
+        UserDeleteButton.IsEnabled = selected;
+        UserUnlockButton.IsEnabled = selected;
+    }
+
+    private void OnUserToggleClicked(object sender, RoutedEventArgs e)
+    {
+        if (UserList.SelectedItem is not UserRow row)
+        {
+            UserReportText.Text = "請先選擇使用者。";
+            return;
+        }
+
+        var user = _users.GetById(row.Id);
+        if (user is null)
+        {
+            return;
+        }
+
+        _users.SetEnabled(row.Id, !user.Enabled);
+        UserReportText.Text = $"使用者「{row.Username}」已{(user.Enabled ? "停用" : "啟用")}。";
+        ReloadUsers();
+    }
+
+    private void OnUserUnlockClicked(object sender, RoutedEventArgs e)
+    {
+        if (UserList.SelectedItem is not UserRow row)
+        {
+            UserReportText.Text = "請先選擇使用者。";
+            return;
+        }
+
+        _users.ClearLock(row.Id);
+        UserReportText.Text = $"使用者「{row.Username}」已解除鎖定。";
+        ReloadUsers();
+    }
+
+    private void OnUserDeleteClicked(object sender, RoutedEventArgs e)
+    {
+        if (UserList.SelectedItem is not UserRow row)
+        {
+            UserReportText.Text = "請先選擇使用者。";
+            return;
+        }
+
+        _users.DeleteUser(row.Id);
+        UserReportText.Text = $"已刪除使用者「{row.Username}」。";
+        ReloadUsers();
     }
 }

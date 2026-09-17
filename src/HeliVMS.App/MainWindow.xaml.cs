@@ -22,7 +22,7 @@ namespace HeliVMS.App;
 /// </summary>
 public partial class MainWindow : Window
 {
-    private const string DefaultDataRoot = @"C:\HeliVMSData";
+    internal const string DefaultDataRoot = @"C:\HeliVMSData";
     private const int MaxCells = 16;
     private const string UiSettingsFile = "ui.json";
 
@@ -230,7 +230,7 @@ public partial class MainWindow : Window
     }
 
     /// <summary>資料根目錄：優先 C:\HeliVMSData（§2.1）；不可寫時降級至本機資料夾。</summary>
-    private static string ResolveDataRoot()
+    internal static string ResolveDataRoot()
     {
         var fromEnv = Environment.GetEnvironmentVariable("HELIVMS_DATA");
         if (!string.IsNullOrWhiteSpace(fromEnv))
@@ -260,6 +260,7 @@ public partial class MainWindow : Window
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
         ApplyLayoutPreference();
+        ApplyRoleRestrictions();
         Title = $"{Title} | db={Path.Combine(_dataRoot, "index.db")}";
         var icon = CreateBitmap("app.ico");
         Icon = icon;
@@ -892,6 +893,14 @@ public partial class MainWindow : Window
 
     private void OnExportClicked(object sender, RoutedEventArgs e) => OpenExportWindow();
 
+    /// <summary>依登入角色限制管理功能（M42）：viewer 不能開設定中心／匯出精靈。</summary>
+    private void ApplyRoleRestrictions()
+    {
+        var isAdmin = SessionContext.IsAdmin;
+        SettingsButton.IsEnabled = isAdmin;
+        ExportButton.IsEnabled = isAdmin;
+    }
+
     /// <summary>開啟通知送達紀錄（M23，§16.3）。</summary>
     private void OnNotificationClicked(object sender, RoutedEventArgs e)
     {
@@ -902,9 +911,14 @@ public partial class MainWindow : Window
         logWin.Show();
     }
 
-    /// <summary>開啟管理設定中心（M19，§9）。</summary>
+    /// <summary>開啟管理設定中心（M19，§9）。僅 admin（M42）。</summary>
     private void OpenSettingsWindow()
     {
+        if (!SessionContext.IsAdmin)
+        {
+            return;
+        }
+
         var settings = new SettingsWindow(_store!, _dataRoot, _ioHost)
         {
             Owner = this,
@@ -912,9 +926,14 @@ public partial class MainWindow : Window
         settings.Show();
     }
 
-    /// <summary>開啟匯出精靈（M21，§8.5/§14）。</summary>
+    /// <summary>開啟匯出精靈（M21，§8.5/§14）。僅 admin（M42）。</summary>
     private void OpenExportWindow()
     {
+        if (!SessionContext.IsAdmin)
+        {
+            return;
+        }
+
         var export = new ExportWindow(_store!, _dataRoot)
         {
             Owner = this,

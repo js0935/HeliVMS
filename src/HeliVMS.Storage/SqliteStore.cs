@@ -9,7 +9,7 @@ namespace HeliVMS.Storage;
 /// </summary>
 public sealed class SqliteStore : IDisposable
 {
-    private const int CurrentSchemaVersion = 10;
+    private const int CurrentSchemaVersion = 11;
     private readonly SqliteConnection _connection;
     private readonly object _gate = new();
     private bool _disposed;
@@ -102,6 +102,11 @@ public sealed class SqliteStore : IDisposable
         if (version < 10)
         {
             CreateMapTablesV10();
+        }
+
+        if (version < 11)
+        {
+            CreateUsersTableV11();
         }
 
         Execute("PRAGMA user_version = CURRENT_SCHEMA_VERSION;".Replace(
@@ -305,6 +310,26 @@ public sealed class SqliteStore : IDisposable
                 UNIQUE (map_id, device_type, channel_id)
             );
             CREATE INDEX IF NOT EXISTS idx_map_dev_map ON map_devices(map_id);
+            """);
+    }
+
+    private void CreateUsersTableV11()
+    {
+        Execute(
+            """
+            CREATE TABLE IF NOT EXISTS users (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                username      TEXT    NOT NULL UNIQUE COLLATE NOCASE,
+                password_hash TEXT    NOT NULL,
+                role          TEXT    NOT NULL DEFAULT 'viewer' CHECK (role IN ('admin', 'viewer')),
+                display_name  TEXT,
+                enabled       INTEGER NOT NULL DEFAULT 1,
+                failed_logins INTEGER NOT NULL DEFAULT 0,
+                locked_until  TEXT,
+                last_login    TEXT,
+                created_at    TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
             """);
     }
 

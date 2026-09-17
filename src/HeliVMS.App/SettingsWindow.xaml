@@ -30,6 +30,7 @@
                     <ListBoxItem Content="規則"/>
                     <ListBoxItem Content="IO"/>
                     <ListBoxItem Content="地圖"/>
+                    <ListBoxItem Content="身份"/>
                 </ListBox>
             </DockPanel>
         </Border>
@@ -620,6 +621,81 @@
                     <Button x:Name="MapDeletePinButton" Content="刪除圖釘" Click="OnMapDeletePinClicked"
                             Padding="8,4" Foreground="White" Background="#8A3C2E" BorderThickness="0"/>
                     <TextBlock x:Name="MapReportText" AutomationProperties.AutomationId="MapReportText"
+                               Margin="14,0,0,0" VerticalAlignment="Center" TextWrapping="Wrap"
+                               Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+                </StackPanel>
+            </StackPanel>
+
+            <!-- 身份（M42：本機登入＋角色） -->
+            <StackPanel x:Name="PageUsers" Visibility="Collapsed"
+                        AutomationProperties.AutomationId="SettingsPageUsers">
+                <TextBlock Text="身份與權限" FontSize="17" FontWeight="Bold" Margin="0,0,0,6"/>
+                <TextBlock Text="啟用後，啟動 HeliVMS 需先登入；admin 可進設定中心與匯出，viewer 僅能監看。"
+                           Foreground="{StaticResource Brand.TextDim}" FontSize="11" Margin="0,0,0,10" TextWrapping="Wrap"/>
+
+                <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                    <CheckBox x:Name="AuthEnabledBox" AutomationProperties.AutomationId="AuthEnabledBox"
+                              Content="啟用登入驗證" Foreground="White" VerticalAlignment="Center"
+                              Checked="OnAuthEnabledChanged" Unchecked="OnAuthEnabledChanged"/>
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
+                    <TextBlock Text="連續失敗" Foreground="{StaticResource Brand.TextDim}" FontSize="11"
+                               VerticalAlignment="Center"/>
+                    <TextBox x:Name="AuthThresholdBox" AutomationProperties.AutomationId="AuthThresholdBox"
+                             Width="48" Margin="6,0,0,0" Padding="6,3"
+                             Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
+                    <TextBlock Text="次鎖定" Foreground="{StaticResource Brand.TextDim}" FontSize="11"
+                               Margin="6,0,0,0" VerticalAlignment="Center"/>
+                    <TextBox x:Name="AuthMinutesBox" AutomationProperties.AutomationId="AuthMinutesBox"
+                             Width="48" Margin="10,0,0,0" Padding="6,3"
+                             Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
+                    <TextBlock Text="分鐘" Foreground="{StaticResource Brand.TextDim}" FontSize="11"
+                               Margin="6,0,0,0" VerticalAlignment="Center"/>
+                    <Button x:Name="AuthApplyButton" AutomationProperties.AutomationId="AuthApplyButton"
+                            Content="套用鎖定設定" Click="OnAuthApplyClicked" Margin="12,0,0,0" Padding="8,4"
+                            Foreground="White" Background="#3A5A7A" BorderThickness="0"/>
+                </StackPanel>
+
+                <TextBlock Text="使用者" FontSize="14" FontWeight="Bold" Margin="0,0,0,6"/>
+                <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                    <TextBox x:Name="UserAddNameBox" AutomationProperties.AutomationId="UserAddNameBox"
+                             Width="130" ToolTip="使用者名稱"
+                             Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="8,4"/>
+                    <PasswordBox x:Name="UserAddPasswordBox" AutomationProperties.AutomationId="UserAddPasswordBox"
+                                 Width="140" Margin="6,0,0,0" Padding="6,4" ToolTip="密碼"/>
+                    <ComboBox x:Name="UserAddRoleCombo" AutomationProperties.AutomationId="UserAddRoleCombo"
+                              Width="96" Margin="6,0,0,0" Padding="2,4"
+                              Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73">
+                        <ComboBoxItem Content="admin"/>
+                        <ComboBoxItem Content="viewer"/>
+                    </ComboBox>
+                    <Button x:Name="UserAddButton" AutomationProperties.AutomationId="UserAddButton"
+                            Content="＋新增使用者" Click="OnUserAddClicked" Margin="6,0,0,0" Padding="8,4"
+                            Foreground="White" Background="#2A5C8A" BorderThickness="0"/>
+                </StackPanel>
+
+                <ListView x:Name="UserList" AutomationProperties.AutomationId="UserList" SelectionMode="Single"
+                          Height="150" SelectionChanged="OnUserSelectionChanged"
+                          Background="#0E1D33" Foreground="White" BorderBrush="#1F3A5F">
+                    <ListView.View>
+                        <GridView>
+                            <GridViewColumn Header="ID" Width="42" DisplayMemberBinding="{Binding Id}"/>
+                            <GridViewColumn Header="名稱" Width="130" DisplayMemberBinding="{Binding Username}"/>
+                            <GridViewColumn Header="角色" Width="80" DisplayMemberBinding="{Binding Role}"/>
+                            <GridViewColumn Header="啟用" Width="56" DisplayMemberBinding="{Binding EnabledLabel}"/>
+                            <GridViewColumn Header="失敗" Width="56" DisplayMemberBinding="{Binding FailedLabel}"/>
+                            <GridViewColumn Header="最近登入" Width="150" DisplayMemberBinding="{Binding LastLoginLabel}"/>
+                        </GridView>
+                    </ListView.View>
+                </ListView>
+                <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
+                    <Button x:Name="UserToggleButton" Content="啟用/停用" Click="OnUserToggleClicked"
+                            Padding="8,4" Foreground="White" Background="#3A5A7A" BorderThickness="0"/>
+                    <Button x:Name="UserUnlockButton" Content="解除鎖定" Click="OnUserUnlockClicked" Margin="6,0,0,0"
+                            Padding="8,4" Foreground="White" Background="#3A5A7A" BorderThickness="0"/>
+                    <Button x:Name="UserDeleteButton" Content="刪除使用者" Click="OnUserDeleteClicked" Margin="6,0,0,0"
+                            Padding="8,4" Foreground="White" Background="#8A3C2E" BorderThickness="0"/>
+                    <TextBlock x:Name="UserReportText" AutomationProperties.AutomationId="UserReportText"
                                Margin="14,0,0,0" VerticalAlignment="Center" TextWrapping="Wrap"
                                Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
                 </StackPanel>
