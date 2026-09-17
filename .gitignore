@@ -23,6 +23,7 @@ Desktop.ini
 
 # --- 暫存 ---
 *.tmp
+TestResults/
 
 # --- 機密（§21.4）---
 .secrets/
