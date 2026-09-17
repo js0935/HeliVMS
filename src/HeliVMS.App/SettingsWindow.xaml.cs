@@ -26,11 +26,15 @@ public partial class SettingsWindow : Window
     /// <summary>頻道頁顯示列。</summary>
     private sealed record ChannelRow(int Id, string Name, string MainStreamUrl, string RecordingModeLabel, string MotionLabel);
 
+    /// <summary>告警規則頁顯示列。</summary>
+    private sealed record RuleRow(long Id, string Name, string EventType, string ChannelLabel, string Keyword, string Channels, string EnabledLabel);
+
     private readonly SqliteStore _store;
     private readonly string _dataRoot;
     private readonly string _recordingsRoot;
     private readonly string _snapshotsRoot;
     private readonly SettingsRepository _settings;
+    private readonly AlertRuleRepository _rules;
 
     public SettingsWindow(SqliteStore store, string dataRoot)
     {
@@ -39,6 +43,7 @@ public partial class SettingsWindow : Window
         _recordingsRoot = Path.Combine(dataRoot, "recordings");
         _snapshotsRoot = Path.Combine(dataRoot, "snapshots");
         _settings = new SettingsRepository(store);
+        _rules = new AlertRuleRepository(store);
 
         InitializeComponent();
 
@@ -54,6 +59,7 @@ public partial class SettingsWindow : Window
         ReloadLaunchAvailability();
         ReloadChannels();
         ReloadNotify();
+        ReloadRules();
 
         SettingsNav.SelectedIndex = 0;
     }
@@ -72,6 +78,104 @@ public partial class SettingsWindow : Window
         PageLicense.Visibility = visible == "授權" ? Visibility.Visible : Visibility.Collapsed;
         PageLaunch.Visibility = visible == "功能" ? Visibility.Visible : Visibility.Collapsed;
         PageNotify.Visibility = visible == "通知" ? Visibility.Visible : Visibility.Collapsed;
+        PageRules.Visibility = visible == "規則" ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private void ReloadRules()
+    {
+        RuleChannelCombo.Items.Clear();
+        RuleChannelCombo.Items.Add(new ComboBoxItem { Content = "不限", Tag = null });
+        foreach (var c in new ChannelRepository(_store).List())
+        {
+            RuleChannelCombo.Items.Add(new ComboBoxItem { Content = $"{c.Name}（#{c.Id}）", Tag = c.Id });
+        }
+
+        RuleChannelCombo.SelectedIndex = 0;
+
+        RuleList.ItemsSource = _rules.ListAll().Select(r => new RuleRow(
+            r.Id,
+            r.Name,
+            r.EventType ?? "不限",
+            r.ChannelId is { } cid ? $"#{cid}" : "不限",
+            r.Keyword ?? "不限",
+            FormatRuleChannels(r.Channels),
+            r.Enabled ? "啟用" : "停用")).ToList();
+    }
+
+    private static string FormatRuleChannels(string? channels)
+        => string.IsNullOrWhiteSpace(channels) ? "全部通道" : string.Join("＋",
+            channels.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+
+    private string? BuildRuleChannels()
+    {
+        var set = new List<string>();
+        if (RuleChannelWebhookBox.IsChecked == true) set.Add("webhook");
+        if (RuleChannelSmtpBox.IsChecked == true) set.Add("smtp");
+        if (RuleChannelMqttBox.IsChecked == true) set.Add("mqtt");
+        if (RuleChannelPushBox.IsChecked == true) set.Add("push");
+        if (RuleChannelSnmpBox.IsChecked == true) set.Add("snmp");
+        return set.Count == 0 ? null : string.Join(",", set);
+    }
+
+    private void OnAddRuleClicked(object sender, RoutedEventArgs e)
+    {
+        var name = RuleNameBox.Text.Trim();
+        if (name.Length == 0)
+        {
+            RuleReportText.Text = "請填規則名稱。";
+            return;
+        }
+
+        var eventType = RuleEventTypeBox.Text.Trim();
+        int? channelId = RuleChannelCombo.SelectedItem is ComboBoxItem { Tag: int cid } ? cid : null;
+        var keyword = RuleKeywordBox.Text.Trim();
+        var channels = BuildRuleChannels();
+
+        _rules.Add(
+            name,
+            string.IsNullOrWhiteSpace(eventType) ? null : eventType,
+            channelId,
+            string.IsNullOrWhiteSpace(keyword) ? null : keyword,
+            channels);
+
+        RuleReportText.Text = $"已新增「{name}」。";
+        RuleNameBox.Clear();
+        RuleEventTypeBox.Clear();
+        RuleKeywordBox.Clear();
+        RuleChannelCombo.SelectedIndex = 0;
+        RuleChannelWebhookBox.IsChecked = false;
+        RuleChannelSmtpBox.IsChecked = false;
+        RuleChannelMqttBox.IsChecked = false;
+        RuleChannelPushBox.IsChecked = false;
+        RuleChannelSnmpBox.IsChecked = false;
+        ReloadRules();
+    }
+
+    private void OnToggleRuleClicked(object sender, RoutedEventArgs e)
+    {
+        if (RuleList.SelectedItem is not RuleRow row)
+        {
+            RuleReportText.Text = "請先選取規則。";
+            return;
+        }
+
+        var rule = _rules.ListAll().First(r => r.Id == row.Id);
+        _rules.SetEnabled(rule.Id, !rule.Enabled);
+        RuleReportText.Text = $"「{rule.Name}」已{(rule.Enabled ? "停用" : "啟用")}。";
+        ReloadRules();
+    }
+
+    private void OnDeleteRuleClicked(object sender, RoutedEventArgs e)
+    {
+        if (RuleList.SelectedItem is not RuleRow row)
+        {
+            RuleReportText.Text = "請先選取規則。";
+            return;
+        }
+
+        _rules.Delete(row.Id);
+        RuleReportText.Text = $"已刪除規則。";
+        ReloadRules();
     }
 
     private void ReloadQuota()

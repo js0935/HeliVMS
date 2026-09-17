@@ -27,6 +27,7 @@
                     <ListBoxItem Content="授權"/>
                     <ListBoxItem Content="功能"/>
                     <ListBoxItem Content="通知"/>
+                    <ListBoxItem Content="規則"/>
                 </ListBox>
             </DockPanel>
         </Border>
@@ -337,6 +338,62 @@
                     <TextBlock x:Name="NotifyReportText" AutomationProperties.AutomationId="NotifyReportText"
                                Margin="12,0,0,0" VerticalAlignment="Center" TextWrapping="Wrap"/>
                 </DockPanel>
+            </StackPanel>
+
+            <!-- 告警規則 -->
+            <StackPanel x:Name="PageRules" Visibility="Collapsed"
+                        AutomationProperties.AutomationId="SettingsPageRules">
+                <TextBlock Text="告警規則" FontSize="17" FontWeight="Bold" Margin="0,0,0,8"/>
+                <TextBlock Text="命中規則的事件限走指定通道（條件全 AND；無規則時維持全部啟用通道；第一筆命中優先）。"
+                           Foreground="{StaticResource Brand.TextDim}" FontSize="11" Margin="0,0,0,12" TextWrapping="Wrap"/>
+
+                <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                    <TextBox x:Name="RuleNameBox" AutomationProperties.AutomationId="RuleNameBox"
+                             Width="120" ToolTip="規則名稱"
+                             Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="8,4"/>
+                    <TextBox x:Name="RuleEventTypeBox" AutomationProperties.AutomationId="RuleEventTypeBox"
+                             Width="100" Margin="6,0,0,0" ToolTip="事件類型（留空＝不限）"
+                             Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="8,4"/>
+                    <ComboBox x:Name="RuleChannelCombo" AutomationProperties.AutomationId="RuleChannelCombo"
+                              Width="120" Margin="6,0,0,0"
+                              Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="2,4"/>
+                    <TextBox x:Name="RuleKeywordBox" AutomationProperties.AutomationId="RuleKeywordBox"
+                             Width="110" Margin="6,0,0,0" ToolTip="事件類型或細節含此字串（留空＝不限）"
+                             Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="8,4"/>
+                    <Button x:Name="AddRuleButton" AutomationProperties.AutomationId="AddRuleButton"
+                            Content="＋新增規則" Click="OnAddRuleClicked" Margin="6,0,0,0" Padding="8,4"
+                            Foreground="White" Background="#2A5C8A" BorderThickness="0"/>
+                </StackPanel>
+
+                <TextBlock Text="限制通道（勾選＝白名單；未勾任何且規則命中＝仍走全部啟用通道）"
+                           Foreground="{StaticResource Brand.TextDim}" FontSize="11" Margin="0,0,0,6"/>
+                <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
+                    <CheckBox x:Name="RuleChannelWebhookBox" Content="Webhook" Foreground="White"/>
+                    <CheckBox x:Name="RuleChannelSmtpBox" Content="SMTP" Foreground="White" Margin="18,0,0,0"/>
+                    <CheckBox x:Name="RuleChannelMqttBox" Content="MQTT" Foreground="White" Margin="18,0,0,0"/>
+                    <CheckBox x:Name="RuleChannelPushBox" Content="推播" Foreground="White" Margin="18,0,0,0"/>
+                    <CheckBox x:Name="RuleChannelSnmpBox" Content="SNMP" Foreground="White" Margin="18,0,0,0"/>
+                    <Button x:Name="ToggleRuleButton" Content="啟用/停用" Click="OnToggleRuleClicked" Margin="24,0,0,0"
+                            Padding="8,4" Foreground="White" Background="#3A5A7A" BorderThickness="0"/>
+                    <Button x:Name="DeleteRuleButton" Content="刪除" Click="OnDeleteRuleClicked" Margin="6,0,0,0"
+                            Padding="8,4" Foreground="White" Background="#8A3C2E" BorderThickness="0"/>
+                </StackPanel>
+
+                <ListView x:Name="RuleList" AutomationProperties.AutomationId="RuleList" SelectionMode="Single"
+                          Background="#0E1D33" Foreground="White" BorderBrush="#1F3A5F" Height="230">
+                    <ListView.View>
+                        <GridView>
+                            <GridViewColumn Header="名稱" Width="130" DisplayMemberBinding="{Binding Name}"/>
+                            <GridViewColumn Header="事件類型" Width="90" DisplayMemberBinding="{Binding EventType}"/>
+                            <GridViewColumn Header="頻道" Width="90" DisplayMemberBinding="{Binding ChannelLabel}"/>
+                            <GridViewColumn Header="關鍵字" Width="100" DisplayMemberBinding="{Binding Keyword}"/>
+                            <GridViewColumn Header="通道" Width="150" DisplayMemberBinding="{Binding Channels}"/>
+                            <GridViewColumn Header="啟用" Width="70" DisplayMemberBinding="{Binding EnabledLabel}"/>
+                        </GridView>
+                    </ListView.View>
+                </ListView>
+                <TextBlock x:Name="RuleReportText" AutomationProperties.AutomationId="RuleReportText"
+                           Margin="0,6,0,0" TextWrapping="Wrap"/>
             </StackPanel>
         </Grid>
     </Grid>

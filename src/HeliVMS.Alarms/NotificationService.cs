@@ -21,6 +21,7 @@ public sealed class NotificationService : IDisposable
     }
 
     private readonly SettingsRepository _settings;
+    private readonly AlertRuleRepository? _rules;
     private readonly WebhookNotifier _webhook = new();
     private readonly SmtpNotifier _smtp = new();
     private readonly MqttNotifier _mqtt = new();
@@ -42,10 +43,12 @@ public sealed class NotificationService : IDisposable
         SqliteStore store,
         TimeSpan? interval = null,
         TimeSpan? backoffBase = null,
-        int maxAttempts = 3)
+        int maxAttempts = 3,
+        AlertRuleRepository? ruleRepo = null)
     {
         _settings = new SettingsRepository(store);
         _log = new NotificationLogRepository(store);
+        _rules = ruleRepo;
         _backoffBase = backoffBase ?? TimeSpan.FromSeconds(1);
         _maxAttempts = maxAttempts;
         var tick = interval ?? TimeSpan.FromSeconds(2);
@@ -277,8 +280,9 @@ public sealed class NotificationService : IDisposable
         var success = true;
         var routes = new List<string>();
         var failures = new List<string>();
+        var allow = _rules is null ? null : AlertRuleMatcher.Match(_rules.ListEnabled(), item.Record);
 
-        if (!string.IsNullOrWhiteSpace(cfg.WebhookUrl))
+        if (!string.IsNullOrWhiteSpace(cfg.WebhookUrl) && Allow(allow, "webhook"))
         {
             routes.Add("webhook");
             var wOk = await _webhook.SendAsync(cfg.WebhookUrl, item.Record);
@@ -289,7 +293,7 @@ public sealed class NotificationService : IDisposable
             }
         }
 
-        if (cfg.SmtpEnabled && !string.IsNullOrWhiteSpace(cfg.SmtpHost))
+        if (cfg.SmtpEnabled && !string.IsNullOrWhiteSpace(cfg.SmtpHost) && Allow(allow, "smtp"))
         {
             routes.Add("smtp");
             var sOk = await _smtp.SendAsync(cfg, item.Record);
@@ -300,7 +304,7 @@ public sealed class NotificationService : IDisposable
             }
         }
 
-        if (cfg.HasMqttRoute)
+        if (cfg.HasMqttRoute && Allow(allow, "mqtt"))
         {
             routes.Add("mqtt");
             var mOk = await _mqtt.SendAsync(cfg, item.Record);
@@ -311,7 +315,7 @@ public sealed class NotificationService : IDisposable
             }
         }
 
-        if (cfg.HasPushRoute)
+        if (cfg.HasPushRoute && Allow(allow, "push"))
         {
             routes.Add("push");
             var pOk = await _push.SendAsync(cfg, item.Record);
@@ -322,7 +326,7 @@ public sealed class NotificationService : IDisposable
             }
         }
 
-        if (cfg.HasSnmpRoute)
+        if (cfg.HasSnmpRoute && Allow(allow, "snmp"))
         {
             routes.Add("snmp");
             var sOk = await _snmp.SendAsync(cfg, item.Record);
@@ -355,6 +359,10 @@ public sealed class NotificationService : IDisposable
             _retry.Enqueue(item);
         }
     }
+
+    private static bool Allow(AlertRule? rule, string route)
+        => rule is null || rule.Channels is null
+            || AlertRuleMatcher.ParseChannels(rule.Channels).Contains(route);
 
     public void Dispose()
     {

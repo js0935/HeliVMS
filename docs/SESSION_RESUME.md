@@ -6,8 +6,8 @@
 
 ## 一句話總結
 HeliVMS 為一套**網路影像監控系統**（WPF 桌面應用：即時監看／回放／AI 事件中心／錄影排程）。
-里程碑 **M1 至 M31 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M31 為最新）。
-Release build 0 error、測試 **128/128 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
+里程碑 **M1 至 M36 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M36 為最新）。
+Release build 0 error、測試 **168/168 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
 本地與遠端完全同步（`git diff origin/HEAD` 為空）。
 
 ## 開新 session 的接手方法
@@ -23,9 +23,9 @@ gh run list -L 3              # 預期全部 success
 新 session 會以 git 現況接手，不會靠猜測。
 
 ## 現況快照（權威來源＝git，非聊天記憶）
-- 最後 commit：`HEAD`＝**M35（`0493612`）**——ONVIF Discovery Hello/Bye/Resolve
-  （見下方 M35 定義段）；Devices 19→24、全 **148**、App Release 0 error、CI `35165622598` success
-- 進行中：**M36＝SNMP 陷阱**（見下方 M36 定義段）
+- 最後 commit：`HEAD`＝**M36（`4c5dd71`）**——SNMP 陷阱 SNMPv2c（見下方 M36 定義段）
+- 進行中：**M37＝告警規則層**（見下方 M37 定義段）——**harness rulescheck RULECHECK_OK**
+- 前一個 M35 交付＝`0493612`（ONVIF Discovery Hello/Bye/Resolve）：Devices 19→24、全 **148**、CI success
 - 前一個 M30 交付＝`24ad4c7`（MQTT 通知通道）：`NotificationSettings`＋
   `MqttEnabled/MqttHost/MqttPort(1883)/MqttTopic/MqttUser/MqttPassword`（鍵 `notify.mqtt.*`、
   env `HELIVMS_MQTT_*`、密碼 SecretProtector）；（快照 docs commit `dfdd551` 已含 M30 定義段）
@@ -61,7 +61,10 @@ gh run list -L 3              # 預期全部 success
     **`expcheck`（M21，EXP_OK）、**`notifcheck`（M22，NOTIF_OK）**、
      **`logcheck`（M23，LOG_OK）**、**`smtpcheck`（M24，SMTPCHECK_OK）**、
      **`ptzcheck`（M25，PTZCHECK_OK）**、**`tracheck`（M26，TRAYCHECK_OK）**、
-     **`ptzadvcheck`（M31，PTZADVCHECK_OK）**
+     **`ptzadvcheck`（M31，PTZADVCHECK_OK）**、**`mqttcheck`（M30，MQTTCHECK_OK）**、
+     **`pushcheck`（M34，PUSHCHECK_OK）**、**`quietcheck`（M27，QUIETCHECK_OK）**、
+     **`evfiltercheck`（M28，EVFILTERCHECK_OK）**、**`offcheck`（M29，OFFCHECK_OK）**、
+     **`snmpcheck`（M36，SNMPCHECK_OK）**、**`rulescheck`（M37，RULECHECK_OK）**
   - `kbcheck` 驗證：`Space` 暫停（t1）→ `→` 前跳 10 秒（t2−t1＝11s）→ `F` 逐幀仍暫停 →
     `Esc` 停止（StopButton disabled）；輸出 `KB_OK`
   - `evcard` 驗證：主視窗→右鍵 cell→「開啟事件中心」；選頻道後 grid DataItems≥2、
@@ -281,7 +284,40 @@ gh run list -L 3              # 預期全部 success
       位元組序列＋delivered=1；OID 99999 之 base-128 末位是 `0x1F` 非 `0x9F` 易算錯）
     - 回歸：snmpcheck/pushcheck/mqttcheck/ptzcheck 全 OK
     - 驗收：App Release 0 error、Alarms 68/68、全 **153**、CI 綠
-12. 每里程碑節奏照舊：定義先寫入本檔→實作→App Release build 0 error→單元測試→
+12. **M37 進行中＝告警規則層**（實作＋測試＋harness rulescheck 已完成，尚未 commit）：
+    - 背景：多通道建好後需「規則白名單」——命中規則事件僅走指定通道，多規則第一命中優先
+    - `AlertRule`（Storage）：`Id/Name/EventType/ChannelId/Keyword/Channels/Enabled`；
+      `alert_rules` 表為 schema **v7**（`CurrentSchemaVersion` 6→7、
+      `CreateAlertRulesTableV7` 遷移接線）
+    - `AlertRuleRepository`（Storage）：`Add/ListAll/ListEnabled/SetEnabled/Delete`
+    - `AlertRuleMatcher`（Alarms）：`Match(record)`＝先 ListEnabled 後比對（規則條件全 AND：
+      EventType/ChannelId/Keyword，Keyword 比對型別或 Detail）、`Matches`、
+      `ParseChannels`（逗號分隔 route 白名單）、`ParseOid`（分號複合）
+    - `NotificationService` ctor 加 `AlertRuleRepository? ruleRepo`（MainWindow 以
+      `ruleRepo: new AlertRuleRepository(_store)` 接線）；`Allow(rule, route)`——命中規則且
+      Channels 非 null ⇒ 僅白名單通道（webhook/smtp/mqtt/push/snmp 五 route 各加 `&& Allow`），
+      未命中或無規則維持全通道；`RecordAllows` 空白時視為「規則命中但未限制」仍全通道
+    - SettingsWindow 規則頁（nav 第 7 項「規則」）：`PageRules`＋`RuleNameBox/
+      RuleEventTypeBox/RuleChannelCombo/RuleKeywordBox`＋五個 `RuleChannel*Box` CheckBox
+      （Webhook/SMTP/MQTT/推播/SNMP）＋`AddRuleButton/ToggleRuleButton/DeleteRuleButton/
+      RuleList`；code-behind `ReloadRules/ReloadRuleChannels/OnAddRuleClicked/
+      OnToggleRuleClicked/OnDeleteRuleClicked`
+    - 測試：Storage `AlertRuleRepositoryTests` **53→58**（Add/ListAll/ListEnabled/SetEnabled/Delete）；
+      Alarms `AlertRuleMatcherTests`＋`NotificationTests` 新 2（Service_RuleWhitelist_WebhookOnly、
+      Service_RuleNotMatching_SendsAllRoutes）**68→78**；全 **168**
+    - harness `rulescheck`→**RULECHECK_OK**：(A) Service 層——temp DB 設
+      `notify.webhook.url`＋`notify.snmp.*`、`AlertRuleRepository.Add("motion 只走 webhook",
+      "motion", null, null, "webhook")`、`new NotificationService(store, ruleRepo:…)` enqueue
+      motion 事件→驗 `DeliveredCount==1` 且收 webhook body 含 `"channel":7`/`"type":"motion"`
+      （否 `snmpSilent==true`）(B) UI 層——`--settings` 開設定中心→nav 規則項 Select→
+      `RuleNameBox`/`RuleEventTypeBox` SetValue＋`RuleChannelWebhookBox` Toggle→
+      `AddRuleButton` Invoke→重開 SqliteStore 讀 `ListAll()` 有 `peak-only`＝
+      `person/webhook/True`
+    - 排雷：規則頁 `PageRules` 是 StackPanel 無 AutomationPeer——`RuFind("SettingsPageRules")`
+      得 null（UIA 找不到 page）但子元素都在，conditions 不應以 page 為必要（見雷區）；且
+      規則 harness 開 App 用「設定中心」窗標籤＋enum `GetWindowTextW` 含「設定中心」判斷 focus
+    - 驗收：App Release 0 error、Storage 58/58、Alarms 78/78、全 **168**、CI 綠
+13. 每里程碑節奏照舊：定義先寫入本檔→實作→App Release build 0 error→單元測試→
     （有 UI 面者）E2E harness block→commit＋push＋CI success→`git status --porcelain` 空白
 
 ## 已知雷區（勿再犯）

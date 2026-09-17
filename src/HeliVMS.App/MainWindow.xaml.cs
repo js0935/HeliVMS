@@ -287,7 +287,7 @@ public partial class MainWindow : Window
         }
 
         _detWriter = new DetectionWriter(_store);
-        _notify = new NotificationService(_store);
+        _notify = new NotificationService(_store, ruleRepo: new AlertRuleRepository(_store));
 
         _manager = new ChannelManager(_store, Path.Combine(_dataRoot, "recordings"), Path.Combine(_dataRoot, "snapshots"), DetectionModelResolver.TryResolve());
         _manager.FrameArrived += (_, e) => OnCellFrame(e.Cell, e.Frame);

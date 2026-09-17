@@ -1038,6 +1038,64 @@ public sealed class NotificationTests : IDisposable
     }
 
     [Fact]
+    public async Task Service_RuleWhitelist_WebhookOnly()
+    {
+        using var http = new FakeHttpServer(_ => "HTTP/1.1 200 OK");
+        using var receiver = new UdpClient(new IPEndPoint(IPAddress.Loopback, 0));
+        var port = ((IPEndPoint)receiver.Client.LocalEndPoint!).Port;
+        Settings.Set(NotificationSettings.WebhookUrlKey, http.Url);
+        Settings.Set(NotificationSettings.SnmpEnabledKey, "true");
+        Settings.Set(NotificationSettings.SnmpHostKey, "127.0.0.1");
+        Settings.Set(NotificationSettings.SnmpPortKey, port.ToString());
+
+        var rules = new AlertRuleRepository(_store);
+        rules.Add("motion 僅走 webhook", "motion", null, null, "webhook");
+
+        using var svc = new NotificationService(_store,
+            interval: TimeSpan.FromMilliseconds(50),
+            backoffBase: TimeSpan.FromMilliseconds(50),
+            ruleRepo: rules);
+        svc.Enqueue(Event());
+        await WaitUntilAsync(() => svc.DeliveredCount == 1, TimeSpan.FromSeconds(10));
+
+        Assert.Equal(1, http.Hits);
+        var row = Assert.Single(new NotificationLogRepository(_store).ListRecent(10));
+        Assert.True(row.Ok);
+        Assert.Equal("webhook", row.Route);
+
+        // 白名單未含 snmp → 不應噴送 trap
+        await Assert.ThrowsAsync<TimeoutException>(
+            () => receiver.ReceiveAsync().WaitAsync(TimeSpan.FromMilliseconds(400)));
+    }
+
+    [Fact]
+    public async Task Service_RuleNotMatching_SendsAllRoutes()
+    {
+        using var http = new FakeHttpServer(_ => "HTTP/1.1 200 OK");
+        using var receiver = new UdpClient(new IPEndPoint(IPAddress.Loopback, 0));
+        var port = ((IPEndPoint)receiver.Client.LocalEndPoint!).Port;
+        Settings.Set(NotificationSettings.WebhookUrlKey, http.Url);
+        Settings.Set(NotificationSettings.SnmpEnabledKey, "true");
+        Settings.Set(NotificationSettings.SnmpHostKey, "127.0.0.1");
+        Settings.Set(NotificationSettings.SnmpPortKey, port.ToString());
+
+        var rules = new AlertRuleRepository(_store);
+        rules.Add("規則不含 motion 事件", "person", null, null, "webhook");
+
+        using var svc = new NotificationService(_store,
+            interval: TimeSpan.FromMilliseconds(50),
+            backoffBase: TimeSpan.FromMilliseconds(50),
+            ruleRepo: rules);
+        svc.Enqueue(Event());
+        await WaitUntilAsync(() => svc.DeliveredCount == 1, TimeSpan.FromSeconds(10));
+        _ = await receiver.ReceiveAsync().WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Equal(1, http.Hits);
+        var row = Assert.Single(new NotificationLogRepository(_store).ListRecent(10));
+        Assert.Equal("webhook+snmp", row.Route);
+    }
+
+    [Fact]
     public async Task Service_WebhookPlusMqtt_LogsBothRoutes()
     {
         using var http = new FakeHttpServer(_ => "HTTP/1.1 200 OK");
