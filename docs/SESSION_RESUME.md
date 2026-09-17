@@ -23,7 +23,7 @@ gh run list -L 3              # 預期全部 success
 新 session 會以 git 現況接手，不會靠猜測。
 
 ## 現況快照（權威來源＝git，非聊天記憶）
-- 最後 commit：`HEAD`＝**M41（`2d89ea7`）**——電子地圖／平面圖（見下方 M41 定義段）；全 **222**、CI 進行中
+- 最後 commit：`HEAD`＝**M41（`2d89ea7`）**——電子地圖／平面圖（見下方 M41 定義段）；全 **222**、CI `35232094120` success
 - 進行中：**無**（M41 已驗收；下一里程碑待定）
 - 前一個 M38 交付＝`d09b045`（事件回應工作流，見下方 M38 定義段）、全 **172**、CI `35185639491` success
 - 前一個 M30 交付＝`24ad4c7`（MQTT 通知通道）：`NotificationSettings`＋
@@ -445,7 +445,7 @@ gh run list -L 3              # 預期全部 success
       僅 StateChanged（FK 防護）；EventCenter 頻道名 fallback `#id`
     - 回歸 13 全綠：set/snap（nav 8）＋snmp/push/mqtt/ptz/notif/log/smtp/exp/off/evfilter/quiet
     - 驗收：App Release 0 error、全 210、IOCHECK_OK、CI success
-16. **M41 已驗收＝電子地圖／平面圖（E-Map）**（§16.1 完整設計落地「P0′」，commit `2d89ea7`，全 **222**，CI `35230012345` success）：
+16. **M41 已驗收＝電子地圖／平面圖（E-Map）**（§16.1 完整設計落地「P0′」，commit `2d89ea7`，全 **222**，CI `35232094120` success）：
     - 目標：場域空間一覽＋所有裝置（鏡頭/IO）狀態與事件視覺化；承接 M40 事件源
       （motion/offline/ai/tamper/io_input）與 M38 事件回覆工作流
     - **Storage schema v10**（`CurrentSchemaVersion` 9→10、`CreateMapTablesV10`）：
