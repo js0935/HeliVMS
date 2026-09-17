@@ -17,6 +17,7 @@ public sealed class MotionEventEngine : IDisposable
     private readonly AlarmEventRepository _repo;
     private readonly string _snapshotDir;
     private readonly FrameDifferenceMotionDetector _detector;
+    private readonly Func<DateTime> _utcNow;
     private readonly object _gate = new();
 
     private bool _armed;
@@ -29,12 +30,14 @@ public sealed class MotionEventEngine : IDisposable
     private double _peakRatio;
     private VideoFrame? _lastFrame;
 
-    public MotionEventEngine(int channelId, AlarmEventRepository repo, string snapshotDir, double sensitivity = 0.5)
+    public MotionEventEngine(int channelId, AlarmEventRepository repo, string snapshotDir, double sensitivity = 0.5,
+        Func<DateTime>? utcNow = null)
     {
         _channelId = channelId;
         _repo = repo;
         _snapshotDir = snapshotDir;
         _detector = new FrameDifferenceMotionDetector(sensitivity);
+        _utcNow = utcNow ?? (() => DateTime.UtcNow);
     }
 
     /// <summary>運動觸發（rising edge）通知 UI（參數為當下變動比例）。</summary>
@@ -56,7 +59,7 @@ public sealed class MotionEventEngine : IDisposable
             _lastFrame = frame;
             FramesProcessed++;
             ratio = _detector.Update(frame);
-            nowUtc = DateTime.UtcNow;
+            nowUtc = _utcNow();
             var motion = _detector.IsMotion(ratio);
 
             if (motion)
@@ -94,7 +97,7 @@ public sealed class MotionEventEngine : IDisposable
         {
             if (_armed)
             {
-                FinalizeLocked(DateTime.UtcNow);
+                FinalizeLocked(_utcNow());
             }
         }
     }

@@ -109,14 +109,15 @@ public class MotionEventEngineTests : IDisposable
     }
 
     [Fact]
-    public async Task BriefBlip_BelowMinDuration_Discarded()
+    public void BriefBlip_BelowMinDuration_Discarded()
     {
-        var engine = new MotionEventEngine(1, _repo, _snapRoot);
+        var now = DateTime.UtcNow;
+        var engine = new MotionEventEngine(1, _repo, _snapRoot, utcNow: () => now);
         try
         {
             engine.OnFrame(Frame(80));
             engine.OnFrame(Frame(150));       // 單一瞬間運動
-            await Task.Delay(150);
+            now = now.AddMilliseconds(150);
             engine.Flush();                   // 尚未達最短事件時長 → 捨棄
 
             Assert.Empty(_repo.ListByRange(null, DateTime.MinValue, DateTime.MaxValue));
