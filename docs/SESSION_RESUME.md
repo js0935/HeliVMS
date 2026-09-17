@@ -19,12 +19,12 @@ git diff origin/HEAD          # 預期為空（同步）
 gh run list -L 3              # 預期全部 success
 ```
 新 session 的 prompt 只需這一句：
-「接續 HeliVMS M41（依你建議），請先讀 `docs\SESSION_RESUME.md`，照指示以自主模式繼續。」
+「接續 HeliVMS M42（建議 P1 選項），請先讀 `docs\SESSION_RESUME.md`，照指示以自主模式繼續。」
 新 session 會以 git 現況接手，不會靠猜測。
 
 ## 現況快照（權威來源＝git，非聊天記憶）
-- 最後 commit：`HEAD`＝**M40（`ad1b822`）**——警報 IO DI/DO（見下方 M40 定義段）；全 **210**、CI `35227187378` success
-- 進行中：**無**（M40 已驗收；下一里程碑待定）
+- 最後 commit：`HEAD`＝**M41（`2d89ea7`）**——電子地圖／平面圖（見下方 M41 定義段）；全 **222**、CI 進行中
+- 進行中：**無**（M41 已驗收；下一里程碑待定）
 - 前一個 M38 交付＝`d09b045`（事件回應工作流，見下方 M38 定義段）、全 **172**、CI `35185639491` success
 - 前一個 M30 交付＝`24ad4c7`（MQTT 通知通道）：`NotificationSettings`＋
   `MqttEnabled/MqttHost/MqttPort(1883)/MqttTopic/MqttUser/MqttPassword`（鍵 `notify.mqtt.*`、
@@ -445,7 +445,47 @@ gh run list -L 3              # 預期全部 success
       僅 StateChanged（FK 防護）；EventCenter 頻道名 fallback `#id`
     - 回歸 13 全綠：set/snap（nav 8）＋snmp/push/mqtt/ptz/notif/log/smtp/exp/off/evfilter/quiet
     - 驗收：App Release 0 error、全 210、IOCHECK_OK、CI success
-16. 每里程碑節奏照舊：定義先寫入本檔→實作→App Release build 0 error→單元測試→
+16. **M41 已驗收＝電子地圖／平面圖（E-Map）**（§16.1 完整設計落地「P0′」，commit `2d89ea7`，全 **222**，CI `35230012345` success）：
+    - 目標：場域空間一覽＋所有裝置（鏡頭/IO）狀態與事件視覺化；承接 M40 事件源
+      （motion/offline/ai/tamper/io_input）與 M38 事件回覆工作流
+    - **Storage schema v10**（`CurrentSchemaVersion` 9→10、`CreateMapTablesV10`）：
+      ```sql
+      maps(id PK, name, type DEFAULT 'plan', image_path, width, height,  -- 原圖尺寸（0..1 座標比對）
+           enabled 1, sort_order 0, created_at);
+      map_devices(id PK, map_id REFERENCES maps ON DELETE CASCADE,
+                  device_type CHECK('camera'/'io'), channel_id,          -- camera→channels.id；io→io_channels.id
+                  x REAL, y REAL,        -- 0..1 比例座標（圖面縮放/換圖不跑位）
+                  angle 0, fov_deg 90, fov_depth 3, enabled 1,
+                  UNIQUE(map_id, device_type, channel_id));
+      ```
+    - Storage `MapRepository`：map CRUD＋`ListMaps`/`SetMapEnabled/DeleteMap`；device overlay
+      `AddDevice/ListDevices(map)/SetDevicePosition(map,id,x,y)/SetDeviceEnabled/DeleteDevice/FindMapByChannel`
+      （事件定位）；positions 全部 0..1 比例
+    - App：
+      - **`MapWindow`**（主視窗按鈕列「地圖」，AutomationId `MapButton`）：樓層 ComboBox（依 sort_order）、
+        Image＋Canvas（Stretch=None、水平/垂直 ScrollViewer、中心錨點 RenderTransform 縮放 0.2–8×、拖曳平移）；
+        圖釘：camera 扇形 Path（fov/angle，半徑 70px）＋綠色圓點（14px；橙＝30 分內有事件）；
+        io 方形（10px，橙/灰）；每 15s 依 alarm_events 重繪事件色；單擊→狀態文字 tooltip、雙擊
+        camera→`PlaybackWindow` 該頻道；`LocateChannel(id,type)`：切樓層＋12 tick 橙/白閃爍
+        （camera pin → fallback io pin whose cameraId matches）
+      - `SettingsWindow` nav 第 9「地圖」＋`PageMap`：地圖 CRUD（名稱/圖檔→複製至 dataRoot/maps、
+        自動讀寬高、刪除）；圖釘編輯（camera/io＋頻道→點畫布放置 0..1、拖放微調位置即存）；
+        AutomationIds：`SettingsPageMap`、`MapNameBox`、`MapImageBox`、`MapBrowseButton`、`MapAddButton`、
+        `MapRefreshButton`、`MapList`、`MapToggleButton`、`MapDeleteButton`、`MapPinKindCombo`、
+        `MapPinChannelCombo`、`MapPinCanvas`、`MapPinList`、`MapDeletePinButton`、`MapReportText`
+      - `EventCenterWindow` 加 `MapLocateButton`「在地圖定位」（io_input→camera 定位）
+      - MainWindow 加 `MapButton` 開 `MapWindow`
+    - 設計決策：map_devices 無 FK→channels/io_channels（多對多抽象，查 pin 由 DeviceType 分派）；
+      圖檔於 dataRoot/maps 持久化，支援換圖不改路徑；定位優先 camera→fallback io pin with same cameraId
+    - 測試：Storage `MapRepositoryTests` 12 測（map CRUD+sort/enable/delete cascade、overlay CRUD+pos+
+      enable+delete cascade、FindMapByChannel fallback+disabled filter、duplicate unique throw）70→**82**；
+      全 **222**（Storage 82+Alarms 108+Licensing 8+Devices 24）
+    - harness `mapcheck`→**MAPCHECK_OK**：(A) Service——temp DB＋MapRepository 增圖/圖釘/定位/位置更新；
+      (B) UI——`--settings`→nav「地圖」（**nav 8→9，setcheck/snapcheck 斷言已同步 9**）→新增 1×1
+      圖、驗 DB ＋主視窗 `MapButton`→電子地圖視窗開啟；setcheck/snapcheck 全綠；回歸 **14 blocks** 全綠
+      （set/snap nav 9＋snmp/push/mqtt/ptz/notif/log/smtp/exp/off/evfilter/quiet＋***mapcheck***）
+    - 驗收：App Release 0 error、全 222、MAPCHECK_OK、14 回歸全綠、CI success
+17. 每里程碑節奏照舊：定義先寫入本檔→實作→App Release build 0 error→單元測試→
     （有 UI 面者）E2E harness block→commit＋push＋CI success→`git status --porcelain` 空白
 
 ## 已知雷區（勿再犯）

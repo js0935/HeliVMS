@@ -1236,14 +1236,21 @@ L2 比對（人臉/車牌）置「進階·需權限」區，預設關閉（§5.1
   - 單擊圖釘 → 即時影像浮窗；雙擊 → 進入該鏡頭監看/回放
   - 事件發生 → 對應圖釘閃爍 + 可選「視窗自動跳轉」
   - 警報列表點擊 → 地圖定位（雙向聯動）
-- **資料模型**
+- **資料模型（M41 已實作，schema v10）**
   ```sql
-  maps(id, name, type, image_path, scale, sort_order);
-  map_devices(id, map_id, device_type,          -- camera / io / group
-              channel_id, x, y, angle, fov_depth,
-              overlay_json, UNIQUE(map_id, channel_id));
+  maps(id PK, name, type DEFAULT 'plan', image_path, width, height,   -- 原圖尺寸（0..1 座標比對）
+       enabled DEFAULT 1, sort_order DEFAULT 0, created_at);
+  map_devices(id PK, map_id REFERENCES maps(id) ON DELETE CASCADE,
+              device_type CHECK('camera'/'io'), channel_id,           -- camera→channels.id；io→io_channels.id
+              x REAL, y REAL,             -- 0..1 比例座標（圖面縮放/換圖不跑位）
+              angle REAL DEFAULT 0, fov_deg REAL DEFAULT 90, fov_depth REAL DEFAULT 3,
+              enabled DEFAULT 1,
+              UNIQUE(map_id, device_type, channel_id));
   ```
-- 佈設：圖釘拖放、批次上版、可複製背景圖層
+- **M41 實作摘要**：`MapRepository`（Storage）＋主視窗「地圖」`MapWindow`（樓層頁籤、Image 背景＋Canvas
+  圖釘、滾輪縮放/拖曳平移、camera 視角扇形、io 狀態點、事件觸發橙色閃爍、雙擊→回放）；設定中心「地圖」
+  頁（nav 第 9 項）管理地圖與圖釘；事件中心「在地圖定位」雙向聯動；事件閃爍依 `alarm_events` 對應 channel
+- 佈設：圖釘拖放、批次上版、可複製背景圖層（承接未來 §14.7 #11 智慧地圖）
 
 ### 16.2 警報 IO（Alarm Input / Output）
 
