@@ -6,15 +6,15 @@
 
 ## 一句話總結
 HeliVMS 為一套**網路影像監控系統**（WPF 桌面應用：即時監看／回放／AI 事件中心／錄影排程）。
-里程碑 **M1 至 M42 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M42 本機身份驗證＋RBAC）。
-Release build 0 error、測試 **253/253 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
+里程碑 **M1 至 M43 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M43 數位證據安全包）。
+Release build 0 error、測試 **266/266 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
 本地與遠端完全同步（`git diff origin/HEAD` 為空）。
 
 ## 開新 session 的接手方法
 ```powershell
 # 在 D:\HeliVMS 開新 session 時，先對新的 agent 講：
 git status                    # 預期為 empty（乾淨）
-git log --oneline -20         # 預期見到 M1..M42，HEAD＝M42
+git log --oneline -20         # 預期見到 M1..M43，HEAD＝M43
 git diff origin/HEAD          # 預期為空（同步）
 gh run list -L 3              # 預期全部 success
 ```
@@ -23,8 +23,8 @@ gh run list -L 3              # 預期全部 success
 新 session 會以 git 現況接手，不會靠猜測。
 
 ## 現況快照（權威來源＝git，非聊天記憶）
-- 最後 commit：`HEAD`＝**M42（`6322fae`）**——本機身份驗證＋RBAC（見下方 M42 定義段）；全 **253**、CI `35237620589` success
-- 進行中：**無**（M42 已驗收；下一里程碑待定）
+- 最後 commit：`HEAD`＝**M43（`3406f77`）**——數位證據安全包（Evidence Bundle）（見下方 M43 定義段）；全 **266**、CI 進行中
+- 進行中：**無**（M43 已驗收；下一里程碑待定）
 - 前一個 M41 交付＝`2d89ea7`（電子地圖/平面圖）、全 **222**、CI `35232094120` success
 - 前一個 M38 交付＝`d09b045`（事件回應工作流，見下方 M38 定義段）、全 **172**、CI `35185639491` success
 - 前一個 M30 交付＝`24ad4c7`（MQTT 通知通道）：`NotificationSettings`＋
@@ -514,7 +514,33 @@ gh run list -L 3              # 預期全部 success
     - 回歸影響：設定中心 nav 由 9→**10**（新增「身份」頁）——`setcheck`/`snapcheck` 之 nav 斷言已同步改 **10**；回歸 **15 blocks 全綠**（set/snap 10＋snmp/push/mqtt/ptz/notif/log/smtp/exp/off/evfilter/quiet＋mapcheck＋***authcheck***）
     - 設計決策：登入窗在 `MainWindow` 建立前以暫用 `SqliteStore` 檢查（`AuthService.IsAuthEnabled`）→ 失敗/取消 `Shutdown(1)`；viewer 僅監看（設定/匯出按鈕 disabled＋handler guard）；`LoginWindow` 密碼錯誤即清空重新輸入（harness 友善）
     - 驗收：App Release 0 error、Storage 113/113、全 253、AUTHCHECK_OK、15 回歸全綠、CI 綠
-18. 每里程碑節奏照舊：定義先寫入本檔→實作→App Release build 0 error→單元測試→
+18. **M43 已驗收＝數位證據安全包（Evidence Bundle）**（§14.3「證據包：影片＋快照＋SHA-256 清單」、§14.7 #4「安全共享」，P1；以 `EvidencePackager` ＋ `.evp` 格式落地「完整性＋密碼保護＋到期」，`Verify` 驗證含篡改偵測；commit `3406f77`，全 **266**，CI 進行中）：
+    - 背景：匯出後「證據力」＝檔本身＋SHA-256 清單（§14.3 已列）＋可選密碼保護（前述 `PasswordHasher` 之 PBKDF2 可重用 KDF）；不做 RSA 公鑰簽署（金鑰管理複雜、需另配發驗證工具），先以 **AES-256-GCM**（tag 即篡改偵測）＋完整 SHA-256 清單達成同等完整性
+    - **包格式 `.evp`**（Storage 新檔 `EvidencePackager.cs`）：
+      ```
+      無密碼：直接 ZipArchive ─ manifest.json + items（相對路徑原樣）
+      有密碼：ZipArchive → PBKDF2-SHA256(password, salt16, 200000, 32B)
+              → AES-256-GCM(nonce12) 加密整包
+              → HELIVMS-EVP(11B) | ver(1B=1) | salt(16B) | nonce(12B) | tag(16B) | ciphertext
+      ```
+    - API：`BundleManifest(BundleId, CreatedUtc, ExpiresUtc?, BundleName, Items[RelativePath/Sha256/SizeBytes/Kind])`；
+      `BuildManifest(bundleName, files)`──每檔 SHA-256＋kind 依副檔（mp4=video、bmp/jpg/png=snapshot、json=manifest、txt=note）＋
+      定位用 `SourcePath`（不入 manifest，僅供 `Create` 開檔）；
+      `Create(outputPath, manifest, password?)` 回傳包檔 SHA-256；`Verify(path, password?)`→`EvidenceVerifyResult{Valid, Expired, BundleId, CreatedUtc, Items, Failures}`（解包後逐 item 重算 sha256＋size 比對，GCM tag 驗證失敗／hash 不符→`Valid=false`）
+    - UI（ExportWindow，原「匯出後產生 SHA-256」下方）：`BundleCheckBox`（AutomationId "BundleCheckBox"，Content「匯出後打包數位證據包（.evp）」）
+      ＋`BundlePasswordBox`（PasswordBox，選填「包密碼（留空＝開放包）」）＋`BundleExpiryBox`（TextBox，選填「到期日 yyyy-MM-dd」）；
+      匯出成功後自動建 `<輸出>.evp`，ResultText 追加「證據包：…evp（SHA-256：…）」；失敗仍回報原匯出成功
+    - 測試：Storage **113→126**（`EvidencePackageTests` 13：無密碼 roundtrip Valid＋hash/size 比對＋Expired=false、
+      篡改 1 byte→sha256 不符（ZipArchive mode Update 直接改 entry）、密碼包對密碼 Valid／錯密碼 fail、
+      到期 expired、nonce 唯一、密碼包無密碼 open fail、kind 分類、空輸入拒、
+      非 EVP 檔拒）全 **253→266**
+    - harness `evidcheck`→**EVIDCHECK_OK**：(A) Service——temp 檔產 sample.mp4/sample.bmp→BuildManifest→
+      無密碼 Create→Verify Valid＋items 序對＋Expired=false→改 bytes→Verify 失敗；密碼包錯/對密碼；到期包 Expired；
+      (B) UI——`--export` 開窗→勾 `BundleCheckBox`＋`BundlePasswordBox` 鍵入密碼（keybd_event）＋`BundleExpiryBox` 填明日→
+      匯出→輪詢 ResultText 含「證據包」→`exports` 下 `.evp` 存在→以 Service `Verify(密碼)` Valid→cleanup 刪
+    - 回歸影響：無（原 15 blocks 不觸及 ExportWindow 新控制項；`expcheck` 未勾包照舊）
+    - 驗收：App Release 0 error、Storage 126、全 266、EVIDCHECK_OK、回歸全綠（evidcheck 連續 2 次綠）、CI 綠
+19. 每里程碑節奏照舊：定義先寫入本檔→實作→App Release build 0 error→單元測試→
     （有 UI 面者）E2E harness block→commit＋push＋CI success→`git status --porcelain` 空白
 
 ## 已知雷區（勿再犯）
