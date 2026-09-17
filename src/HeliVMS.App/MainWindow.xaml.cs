@@ -303,6 +303,11 @@ public partial class MainWindow : Window
             Dispatcher.BeginInvoke(() => OpenAlarmManagerWindow());
         }
 
+        if (Environment.GetCommandLineArgs().Contains("--dewarp", StringComparer.OrdinalIgnoreCase))
+        {
+            Dispatcher.BeginInvoke(() => OpenDewarpWindow());
+        }
+
         if (Environment.GetCommandLineArgs().Contains("--events", StringComparer.OrdinalIgnoreCase))
         {
             Dispatcher.BeginInvoke(() => OpenEventCenter());
@@ -967,6 +972,8 @@ public partial class MainWindow : Window
 
     private void OnRedactionClicked(object sender, RoutedEventArgs e) => OpenRedactionWindow();
 
+    private void OnDewarpClicked(object sender, RoutedEventArgs e) => OpenDewarpWindow();
+
     private void OnAlarmManagerClicked(object sender, RoutedEventArgs e) => OpenAlarmManagerWindow();
 
     /// <summary>開啟警報管理器（M47，§14.7 #3）：分診面板，與事件中心同權限（不另限 admin）。</summary>
@@ -988,6 +995,21 @@ public partial class MainWindow : Window
         }
 
         var window = new RedactionWindow(_store!, _dataRoot)
+        {
+            Owner = this,
+        };
+        window.Show();
+    }
+
+    /// <summary>開啟魚眼矯正窗（M48，§14.7 #2）。viewer 與匯出同權限限制。</summary>
+    private void OpenDewarpWindow()
+    {
+        if (!SessionContext.IsAdmin)
+        {
+            return;
+        }
+
+        var window = new DewarpWindow(_store!, _dataRoot)
         {
             Owner = this,
         };

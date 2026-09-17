@@ -1,0 +1,133 @@
+<Window x:Class="HeliVMS.App.DewarpWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        AutomationProperties.AutomationId="DewarpWindow"
+        Title="HeliVMS 魚眼矯正"
+        Width="820" Height="620"
+        WindowStartupLocation="CenterOwner"
+        Background="#0B1622" Foreground="White">
+
+    <Grid Margin="12">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <TextBlock Text="魚眼矯正（Dewarping／全景校正）" FontSize="17" FontWeight="Bold"/>
+        <TextBlock Grid.Row="1" Margin="0,6,0,0" FontSize="11" TextWrapping="Wrap"
+                   Foreground="{StaticResource Brand.TextDim}"
+                   Text="以 ffmpeg v360 將魚眼／全景畫面校正為平面（flat）、全景（equirect）或立方貼圖（c3x2）並重新編碼輸出。"/>
+
+        <Grid Grid.Row="2" Margin="0,10,0,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+            <StackPanel Orientation="Horizontal">
+                <TextBlock Text="頻道" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                <ComboBox x:Name="ChannelCombo" AutomationProperties.AutomationId="DewarpChannelCombo"
+                          Width="150" Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
+            </StackPanel>
+            <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right">
+                <DatePicker x:Name="StartDate" AutomationProperties.AutomationId="DewarpStartDate"
+                            Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Width="120"/>
+                <TextBox x:Name="StartTime" Width="70" Text="00:00:00" Margin="6,0,0,0"
+                         Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
+                <TextBlock Text="至" VerticalAlignment="Center" Margin="8,0"/>
+                <DatePicker x:Name="EndDate" AutomationProperties.AutomationId="DewarpEndDate"
+                            Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Width="120"/>
+                <TextBox x:Name="EndTime" Width="70" Text="23:59:59" Margin="6,0,0,0"
+                         Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
+            </StackPanel>
+        </Grid>
+
+        <Grid Grid.Row="3" Margin="0,10,0,0">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+
+            <TextBlock Grid.Row="0" Grid.Column="0" Text="輸入投影" VerticalAlignment="Center"/>
+            <ComboBox x:Name="InputCombo" AutomationProperties.AutomationId="DewarpInputCombo"
+                      Grid.Row="0" Grid.Column="1" Width="100" Margin="6,0,14,0"
+                      Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
+            <TextBlock Grid.Row="0" Grid.Column="2" Text="輸出投影" VerticalAlignment="Center"/>
+            <ComboBox x:Name="OutputCombo" AutomationProperties.AutomationId="DewarpOutputCombo"
+                      Grid.Row="0" Grid.Column="3" Width="100" Margin="6,0,14,0"
+                      Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
+
+            <StackPanel Grid.Row="1" Grid.ColumnSpan="5" Orientation="Horizontal" Margin="0,8,0,0">
+                <TextBlock Text="輸入視角 H/V" VerticalAlignment="Center"/>
+                <TextBox x:Name="InputHFov" AutomationProperties.AutomationId="DewarpInputHFov" Width="56"
+                         Text="180" Margin="6,0" VerticalContentAlignment="Center"
+                         Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
+                <TextBox x:Name="InputVFov" AutomationProperties.AutomationId="DewarpInputVFov" Width="56"
+                         Text="180" VerticalContentAlignment="Center"
+                         Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
+                <TextBlock Text="輸出視角 H/V" VerticalAlignment="Center" Margin="14,0,0,0"/>
+                <TextBox x:Name="HFov" AutomationProperties.AutomationId="DewarpHFov" Width="56"
+                         Text="90" Margin="6,0" VerticalContentAlignment="Center"
+                         Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
+                <TextBox x:Name="VFov" AutomationProperties.AutomationId="DewarpVFov" Width="56"
+                         Text="90" VerticalContentAlignment="Center"
+                         Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
+            </StackPanel>
+
+            <StackPanel Grid.Row="2" Grid.ColumnSpan="5" Orientation="Horizontal" Margin="0,8,0,0">
+                <TextBlock Text="Yaw" VerticalAlignment="Center"/>
+                <TextBox x:Name="Yaw" AutomationProperties.AutomationId="DewarpYaw" Width="56"
+                         Text="0" Margin="6,0" VerticalContentAlignment="Center"
+                         Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
+                <TextBlock Text="Pitch" VerticalAlignment="Center"/>
+                <TextBox x:Name="Pitch" AutomationProperties.AutomationId="DewarpPitch" Width="56"
+                         Text="0" Margin="6,0" VerticalContentAlignment="Center"
+                         Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
+                <TextBlock Text="Roll" VerticalAlignment="Center"/>
+                <TextBox x:Name="Roll" AutomationProperties.AutomationId="DewarpRoll" Width="56"
+                         Text="0" Margin="6,0" VerticalContentAlignment="Center"
+                         Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
+                <TextBlock Text="輸出寬" VerticalAlignment="Center" Margin="14,0,0,0"/>
+                <TextBox x:Name="WidthBox" AutomationProperties.AutomationId="DewarpWidth" Width="64"
+                         Text="1280" Margin="6,0" VerticalContentAlignment="Center"
+                         Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
+                <TextBlock Text="高" VerticalAlignment="Center"/>
+                <TextBox x:Name="HeightBox" AutomationProperties.AutomationId="DewarpHeight" Width="64"
+                         Text="720" Margin="6,0" VerticalContentAlignment="Center"
+                         Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
+                <Button x:Name="PreviewButton" AutomationProperties.AutomationId="DewarpPreviewButton"
+                        Content="預覽" Click="OnPreviewClicked" Margin="14,0,0,0"
+                        Padding="10,4" Foreground="White" Background="#2A5C8A" BorderThickness="0"/>
+            </StackPanel>
+        </Grid>
+
+        <Border Grid.Row="4" Margin="0,10,0,0" Background="#0D1B2B" BorderBrush="#1F3A5F" BorderThickness="1">
+            <Image x:Name="PreviewImage" AutomationProperties.AutomationId="DewarpPreviewImage" Stretch="Uniform"/>
+        </Border>
+
+        <DockPanel Grid.Row="5" Margin="0,12,0,0">
+            <Button x:Name="DewarpButton" AutomationProperties.AutomationId="DewarpButton"
+                    Content="開始矯正" Click="OnDewarpClicked"
+                    DockPanel.Dock="Right" Padding="14,8"
+                    Foreground="White" Background="#2A5C8A" BorderThickness="0"/>
+            <ProgressBar x:Name="DewarpProgress" AutomationProperties.AutomationId="DewarpProgress"
+                         Height="4" Margin="0,12,12,0" Value="0"/>
+        </DockPanel>
+
+        <TextBlock Grid.Row="6" x:Name="DewarpStatusText" AutomationProperties.AutomationId="DewarpStatusText"
+                   Margin="0,10,0,0" TextWrapping="Wrap" FontSize="11"
+                   Foreground="{StaticResource Brand.TextDim}"/>
+    </Grid>
+</Window>

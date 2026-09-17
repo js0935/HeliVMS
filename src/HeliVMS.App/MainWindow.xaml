@@ -117,6 +117,10 @@
                                 Content="遮蔽" Click="OnRedactionClicked"
                                 Width="50" Padding="0,8" Margin="0,0,6,0"
                                 Foreground="White" Background="#6A4A2A" BorderThickness="0" />
+                        <Button x:Name="DewarpButton" AutomationProperties.AutomationId="DewarpButton"
+                                Content="矯正" Click="OnDewarpClicked"
+                                Width="50" Padding="0,8" Margin="0,0,6,0"
+                                Foreground="White" Background="#2A5C8A" BorderThickness="0" />
                         <Button x:Name="PtzButton" AutomationProperties.AutomationId="PtzButton"
                                 Content="PTZ" Click="OnPtzClicked"
                                 Width="50" Padding="0,8" Margin="0,0,6,0"
