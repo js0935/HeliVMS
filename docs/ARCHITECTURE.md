@@ -265,7 +265,7 @@ CREATE INDEX idx_kf_segment ON segment_keyframes(segment_id);
 CREATE TABLE alarm_events (
   id INTEGER PRIMARY KEY,
   channel_id INTEGER REFERENCES channels(id) ON DELETE CASCADE,
-  event_type TEXT NOT NULL,      -- motion / offline / schedule_start / manual
+  event_type TEXT NOT NULL,      -- motion / offline / tamper / ai_person / ai_vehicle / schedule_start / manual / io_input
   start_time TEXT NOT NULL,
   end_time TEXT,
   snapshot_path TEXT,
@@ -1019,7 +1019,7 @@ L2 比對（人臉/車牌）置「進階·需權限」區，預設關閉（§5.1
 | 12 | 雲整合 / 訂閱 | 沒有 | 商業模式（訂閱營收） | P3 |
 | 13 | Legal Hold（保存鎖定/沖銷） | 沒有 | 個資法合規用的「暫停汰除」 | P3 |
 | 14 | GPS 時鐘/高精度時間源 | 僅 NTP | 證據時間可信度（法庭） | P3 |
-| 15 | **遮蔽偵測（Tamper）** | 沒有 | 專業 NVR 基本警報（鏡頭被遮/被移/被噴漆） | P1 |
+| 15 | **遮蔽偵測（Tamper）** | L0 已實作（M39） | 專業 NVR 基本警報（鏡頭被遮/被移/被噴漆） | P1（**已實作 M39**） |
 | 16 | **感測器/乾接點 IO（DI/DO）** | 沒有 | 門磁/煙霧/紅外警報主機整合 | P1（§16.2 完整設計） |
 | 17 | **斷線補錄（Gap 補抓）** | 沒有 | 斷網期間設備 SD 自錄，重連後補抓 | P3 |
 
@@ -1056,7 +1056,7 @@ L2 比對（人臉/車牌）置「進階·需權限」區，預設關閉（§5.1
 | 備份與異地備援 | 可排程批次複製錄影區段至第二磁碟/NAS/雲端；事件級錄影可雙寫 |
 | 數位簽章 | 匯出影片以私鑰簽署，`HeliVmsVerify` 工具可驗證（司法效力） |
 | 事件回應工作流 | 確認/未決/誤報/已處理四態 + 指派 + 附註 + 時間戳軌跡（**已實作 M38**：`event_dispositions`/`event_disposition_trail`、`AlarmEventRepository.SetDisposition`/`ListDispositionTrail`、事件中心處置列） |
-| 遮蔽偵測（Tamper） | L0 即可實作：幀亮度突變 / 邊緣能量急降 / 全黑全白偵測 → 「鏡頭被遮、被移、被噴漆」警報（附快照） |
+| 遮蔽偵測（Tamper） | L0 即可實作：幀亮度突變 / 邊緣能量急降 / 全黑全白偵測 → 「鏡頭被遮、被移、被噴漆」警報（附快照）（**已實作 M39**：`TamperDetector`（16×16 灰階網格／亮暗閾值／邊緣能量基準 EMA）＋`TamperEventEngine`（連續 N 幀開窗、冷卻收尾、寫入 `alarm_events` `event_type='tamper'` 附 BMP 快照）；設定鍵 `detect.tamper.enabled`，設定中心「功能」頁開關） |
 | 多語言 i18n | RESX 資源庫 + 語言切換（繁中/簡中/EN/日本語）；字型與格式全面參數化 |
 
 ### 14.5 P2 建議（差異化 / 擴展）

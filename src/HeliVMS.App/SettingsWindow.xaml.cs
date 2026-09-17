@@ -22,6 +22,7 @@ public partial class SettingsWindow : Window
     private const double DefaultQuotaGb = 10.0;
     private const string SnapshotDaysKey = "snapshots.retention_days";
     private const int DefaultSnapshotDays = 30;
+    private const string TamperKey = "detect.tamper.enabled";
 
     /// <summary>頻道頁顯示列。</summary>
     private sealed record ChannelRow(int Id, string Name, string MainStreamUrl, string RecordingModeLabel, string MotionLabel);
@@ -60,6 +61,7 @@ public partial class SettingsWindow : Window
         ReloadChannels();
         ReloadNotify();
         ReloadRules();
+        ReloadTamper();
 
         SettingsNav.SelectedIndex = 0;
     }
@@ -100,6 +102,18 @@ public partial class SettingsWindow : Window
             r.Keyword ?? "不限",
             FormatRuleChannels(r.Channels),
             r.Enabled ? "啟用" : "停用")).ToList();
+    }
+
+    /// <summary>M39：載入遮蔽偵測開關（app_settings `detect.tamper.enabled`）。</summary>
+    private void ReloadTamper()
+    {
+        TamperEnabledBox.IsChecked = string.Equals(_settings.Get(TamperKey), "true", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>M39：切換即寫入 app_settings（重新連線頻道後生效）。</summary>
+    private void OnTamperToggled(object sender, RoutedEventArgs e)
+    {
+        _settings.Set(TamperKey, TamperEnabledBox.IsChecked == true ? "true" : "false");
     }
 
     private static string FormatRuleChannels(string? channels)

@@ -201,6 +201,14 @@
                             Width="92" Height="40" Margin="0,0,8,8" Background="#4A4A7A" BorderThickness="0"
                             Foreground="White"/>
                 </WrapPanel>
+
+                <TextBlock Text="遮蔽偵測（Tamper）" FontSize="15" FontWeight="Bold" Margin="0,18,0,8"/>
+                <CheckBox x:Name="TamperEnabledBox" AutomationProperties.AutomationId="TamperEnabledBox"
+                          Foreground="White" Checked="OnTamperToggled" Unchecked="OnTamperToggled"
+                          Content="啟用遮蔽偵測（全黑／全白／鏡頭被遮）"/>
+                <TextBlock Text="偵測到連續遮蔽將寫入 tamper 事件（附快照）並可經通知平面送出；變更後重新連線頻道即生效。"
+                           Foreground="{StaticResource Brand.TextDim}" FontSize="11" Margin="0,6,0,0"
+                           TextWrapping="Wrap"/>
             </StackPanel>
 
             <!-- 通知 -->

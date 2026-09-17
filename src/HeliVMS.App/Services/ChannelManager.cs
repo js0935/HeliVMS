@@ -82,7 +82,7 @@ public sealed class ChannelManager : IDisposable
         {
             var ch = channels[(startIndex + i) % channels.Count];
 
-            var session = new ChannelSession(ch.Id, ch.Name, ch.MainStreamUrl, _store, _recordingsRoot, _snapshotsRoot, ch.MotionEnabled, _detection);
+            var session = new ChannelSession(ch.Id, ch.Name, ch.MainStreamUrl, _store, _recordingsRoot, _snapshotsRoot, ch.MotionEnabled, _detection, IsTamperEnabled());
             var cell = i;
             session.FrameArrived += (_, f) => FrameArrived?.Invoke(this, (cell, f));
             session.StateChanged += (_, st) =>
@@ -115,6 +115,13 @@ public sealed class ChannelManager : IDisposable
             _ = _health.Change(Timeout.Infinite, Timeout.Infinite);
         }
     }
+
+    /// <summary>M39：是否啟用遮蔽偵測（app_settings `detect.tamper.enabled`；重新連線時讀取）。</summary>
+    private bool IsTamperEnabled()
+        => string.Equals(
+            new SettingsRepository(_store).Get("detect.tamper.enabled"),
+            "true",
+            StringComparison.OrdinalIgnoreCase);
 
     /// <summary>中斷所有監看。</summary>
     public async Task DisconnectAllAsync()

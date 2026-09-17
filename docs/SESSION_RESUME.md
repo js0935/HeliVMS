@@ -6,26 +6,26 @@
 
 ## 一句話總結
 HeliVMS 為一套**網路影像監控系統**（WPF 桌面應用：即時監看／回放／AI 事件中心／錄影排程）。
-里程碑 **M1 至 M38 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M38 為最新）。
-Release build 0 error、測試 **172/172 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
+里程碑 **M1 至 M39 已全數 commit＋push**（M39 遮蔽偵測 Tamper 為最新，CI 驗收由 docs commit 標記）。
+Release build 0 error、測試 **185/185 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
 本地與遠端完全同步（`git diff origin/HEAD` 為空）。
 
 ## 開新 session 的接手方法
 ```powershell
 # 在 D:\HeliVMS 開新 session 時，先對新的 agent 講：
 git status                    # 預期為 empty（乾淨）
-git log --oneline -20         # 預期見到 M1..M38，HEAD＝M38
+git log --oneline -20         # 預期見到 M1..M39，HEAD＝M39
 git diff origin/HEAD          # 預期為空（同步）
 gh run list -L 3              # 預期全部 success
 ```
 新 session 的 prompt 只需這一句：
-「接續 HeliVMS M38 收尾，請先讀 `docs\SESSION_RESUME.md`，照指示以自主模式繼續。」
+「接續 HeliVMS M39 收尾，請先讀 `docs\SESSION_RESUME.md`，照指示以自主模式繼續。」
 新 session 會以 git 現況接手，不會靠猜測。
 
 ## 現況快照（權威來源＝git，非聊天記憶）
-- 最後 commit：`HEAD`＝**M38（`d09b045`）**——事件回應工作流（見下方 M38 定義段）；全 **172**、CI `35185639491` success
-- 進行中：**無**（M38 已驗收；下一里程碑待定）
-- 前一個 M36 交付＝`4c5dd71`（SNMP 陷阱 SNMPv2c）；M35 交付＝`0493612`（ONVIF Discovery Hello/Bye/Resolve）、全 **148**、CI success
+- 最後 commit：`HEAD`＝**M39（遮蔽偵測 Tamper）**——見下方 M39 定義段；全 **185**、`tampercheck` TAMPERCHECK_OK、回歸 13 全綠
+- 進行中：**無**（M39 功能已 commit；commit hash 與 CI run 由接續的 docs(SESSION_RESUME) commit 標記）
+- 前一個 M38 交付＝`d09b045`（事件回應工作流，見下方 M38 定義段）、全 **172**、CI `35185639491` success
 - 前一個 M30 交付＝`24ad4c7`（MQTT 通知通道）：`NotificationSettings`＋
   `MqttEnabled/MqttHost/MqttPort(1883)/MqttTopic/MqttUser/MqttPassword`（鍵 `notify.mqtt.*`、
   env `HELIVMS_MQTT_*`、密碼 SecretProtector）；（快照 docs commit `dfdd551` 已含 M30 定義段）
@@ -43,7 +43,7 @@ gh run list -L 3              # 預期全部 success
 - 前一個 M28 交付＝`ba95d0f`（事件中心篩選＋分頁：QueryArgs/ListByQuery/CountByQuery/
   ListEventTypes＋UI 類型 Combo＋Prev/Next 50/頁；114、evfiltercheck EVFILTERCHECK_OK）
 - 分支／遠端：`git diff origin/HEAD` 為空（完全同步）；HEAD＝origin
-- CI：`gh run list` 顯示最新 run `conclusion=success`；建置 0 error、測試 172/172
+- CI：`gh run list` 顯示最新 run `conclusion=success`；建置 0 error、測試 185/185
 
 ## 架構關鍵（確切、無漂移）
 - 解決方案：`D:\HeliVMS\HeliVMS.App\HeliVMS.App.csproj`（WPF）＋ `HeliVMS.slnx`
@@ -65,7 +65,7 @@ gh run list -L 3              # 預期全部 success
      **`pushcheck`（M34，PUSHCHECK_OK）**、**`quietcheck`（M27，QUIETCHECK_OK）**、
      **`evfiltercheck`（M28，EVFILTERCHECK_OK）**、**`offcheck`（M29，OFFCHECK_OK）**、
      **`snmpcheck`（M36，SNMPCHECK_OK）**、**`rulescheck`（M37，RULECHECK_OK）**、
-     **`dispcheck`（M38，DISPCHECK_OK）**
+     **`dispcheck`（M38，DISPCHECK_OK）**、**`tampercheck`（M39，TAMPERCHECK_OK）**
   - `kbcheck` 驗證：`Space` 暫停（t1）→ `→` 前跳 10 秒（t2−t1＝11s）→ `F` 逐幀仍暫停 →
     `Esc` 停止（StopButton disabled）；輸出 `KB_OK`
   - `evcard` 驗證：主視窗→右鍵 cell→「開啟事件中心」；選頻道後 grid DataItems≥2、
@@ -361,7 +361,47 @@ gh run list -L 3              # 預期全部 success
     - 回歸：全 172（Storage 62＋Alarms 78＋Licensing 8＋Devices 24）；set/snap/snmp/push/mqtt/
       ptz/notif/log/smtp/exp/off/evfilter/quiet 全綠
     - 驗收：App Release 0 error、Storage 62/62、Alarms 78/78、全 **172**、CI `35185639491` success
-14. 每里程碑節奏照舊：定義先寫入本檔→實作→App Release build 0 error→單元測試→
+14. **M39 功能 commit 完成＝遮蔽偵測（Tamper）**（實作＋測試＋tampercheck 全綠；commit hash 與 CI run 由 docs(SESSION_RESUME) commit 標記）：
+    - 背景：專業 NVR 基本警報「鏡頭被遮／被移／被噴漆」；L0 以純 CPU 幀分析即可落地（ARCHITECTURE §14.4 功能表 P1）
+    - Alarms 新 `TamperDetector`（`src\HeliVMS.Alarms\TamperDetector.cs`）：16×16 灰階網格
+      （`FrameDifferenceMotionDetector.DownsampleToGrid`）算**平均亮度**與**邊緣能量**
+      （`EdgeEnergy`＝水平＋垂直平均梯度）；閾值黑 12／白 243 直接判定 Blackout/Whiteout；
+      「被遮（Covered）」與**暖機 8 幀建立的邊緣基準**比較（`edge <= baseline*0.2`，
+      `MinBaselineEdge=6` 防止低紋理場景誤判）；基準只用「正常」幀累積（暖機後以
+      `EMA 0.98/0.02` 慢速跟隨場景變化，避免遮蔽狀態污染基準）；`Reset()` 清基準
+    - Alarms 新 `TamperEventEngine`（`src\HeliVMS.Alarms\TamperEventEngine.cs`）：
+      連續 **6 幀同類遮蔽**才開窗（防瞬時誤報）；遮蔽中止且過 **1500ms 冷卻**後結算
+      （收到正常幀才觸發結算，`MinEventMs=300` 以下捨棄）；結算寫一筆 `alarm_events`
+      `event_type='tamper'`（`Insert`＋`UpdateEnd`，與 Motion/Ai 引擎同款），detail=
+      `kind={blackout|whiteout|covered};brightness=..;edge=..;duration=..ms`，並把**首幀**
+      存 BMP 快照 `tamper-{channelId}-{armedUtc:HHmmss}.bmp`（`BmpSnapshotWriter.Save`，
+      IO Exception 吞掉僅不打快照）；事件 `EventInserted`（寫庫後）、`TamperSignal`（開窗
+      rising edge，UI 用）；`Flush()`（停止前立即結算未關窗口）、`Reset()`（斷線重連/切頻道
+      直接捨棄進行中窗口）、`Dispose()=Flush()`
+    - App 接線：
+      - `SettingsWindow` 功能頁（第 3 頁）加 `TamperEnabledBox`（AutomationId
+        `TamperEnabledBox`，Toggle 即寫 `app_settings["detect.tamper.enabled"]`；
+        `ReloadTamper` ctor 載入）——**不新增 nav 項目**（setcheck/snapcheck nav 維持 7）
+      - `ChannelManager` 開新 session 時 `IsTamperEnabled()` 讀該鍵（重新連線即生效）
+      - `ChannelSession` ctor 加 `bool tamperEnabled = false`；`OnClientFrame` 對
+        tamper 引擎**每 ~250ms 抽一幀**（`_motionClock` 節流）；`DisconnectAsync/Reset/Dispose`
+        補 `_tamper?.Flush()/Reset()/Dispose()`
+      - `EventCenterWindow` 事件顏色加 `"tamper" => Brushes.MediumPurple`
+    - 測試：**Alarms 78→91**（`TamperDetectionTests` ×7：Blackout/Whiteout 瞬時、正常幀建
+      基準、Covered 急降、低紋理不誤判、Reset 清基準、EdgeEnergy 均勻 0／棋盤正；
+      `TamperEventEngineTests` ×6：持續黑→事件＋快照檔存在、5 幀中斷→無事件、過冷卻
+      Checker 收尾→單事件、Reset 捨棄窗口、Whiteout kind、KindText 對映）；全 **185**
+      （Storage 62＋Alarms 91＋Licensing 8＋Devices 24）
+    - harness `tampercheck`→**TAMPERCHECK_OK**：(A) Service——temp DB＋temp 快照目錄：
+      belowThreshold（5 幀黑＋Checker→0 事件）＋blackout（6 幀黑→恰 1 筆 tamper、
+      `kind=blackout`、快照檔存在）(B) UI——App DB `detect.tamper.enabled="false"`
+      →`--settings` 開設定中心→nav「功能」→`TamperEnabledBox` Toggle→重開 SqliteStore 讀
+      `detect.tamper.enabled=="true"`（測完復原 false）
+    - 排雷／設計決策：抽幀由呼叫端（ChannelSession 250ms）負責，引擎不限頻率；開窗後首幀
+      像素才 Clone（長窗節省記憶體）；基準更新限定「正常」幀防污染
+    - 回歸 13 全綠：set/snap/snmp/push/mqtt/ptz/notif/log/smtp/exp/off/evfilter/quiet
+    - 驗收：App Release 0 error、全 **185**、CI 綠（run 由 docs commit 標記）
+15. 每里程碑節奏照舊：定義先寫入本檔→實作→App Release build 0 error→單元測試→
     （有 UI 面者）E2E harness block→commit＋push＋CI success→`git status --porcelain` 空白
 
 ## 已知雷區（勿再犯）

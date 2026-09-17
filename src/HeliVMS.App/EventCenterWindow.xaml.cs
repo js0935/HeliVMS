@@ -76,6 +76,7 @@ public partial class EventCenterWindow : Window
                 "ai_person" => Brushes.Tomato,
                 "ai_vehicle" => new SolidColorBrush(Color.FromRgb(0x64, 0xB5, 0xF6)),
                 "offline" => Brushes.LightCoral,
+                "tamper" => Brushes.MediumPurple,
                 "line_cross" or "intrusion" => Brushes.Gold,
                 _ => Brushes.LightSteelBlue,
             };

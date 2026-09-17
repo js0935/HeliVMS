@@ -14,12 +14,14 @@ public sealed class ChannelSession : IDisposable
     private readonly string _recordingsRoot;
     private MotionEventEngine? _motion;
     private AiEventEngine? _ai;
+    private TamperEventEngine? _tamper;
     private readonly Stopwatch _motionClock = new();
     private long _lastMotionMs;
+    private long _lastTamperMs;
     private SegmentRecorder? _recorder;
     private bool _disposed;
 
-    public ChannelSession(int channelId, string name, string url, SqliteStore store, string recordingsRoot, string snapshotsRoot, bool motionEnabled, IDetectionEngine? detection)
+    public ChannelSession(int channelId, string name, string url, SqliteStore store, string recordingsRoot, string snapshotsRoot, bool motionEnabled, IDetectionEngine? detection, bool tamperEnabled = false)
     {
         ChannelId = channelId;
         Name = name;
@@ -45,6 +47,12 @@ public sealed class ChannelSession : IDisposable
                     AiDetections?.Invoke(this, d);
                 };
             }
+        }
+
+        if (tamperEnabled)
+        {
+            _tamper = new TamperEventEngine(channelId, new AlarmEventRepository(_store), snapshotsRoot);
+            _tamper.EventInserted += (_, r) => EventInserted?.Invoke(this, r);
         }
 
         _motionClock.Start();
@@ -120,6 +128,7 @@ public sealed class ChannelSession : IDisposable
         await SetRecordingAsync(recording: false);
         _motion?.Flush();
         _ai?.Flush();
+        _tamper?.Flush();
         if (IsMonitoring)
         {
             await Client.StopAsync();
@@ -132,6 +141,7 @@ public sealed class ChannelSession : IDisposable
     {
         _motion?.Reset();
         _ai?.Reset();
+        _tamper?.Reset();
     }
 
     private void OnClientFrame(object? sender, VideoFrame frame)
@@ -144,6 +154,13 @@ public sealed class ChannelSession : IDisposable
         {
             _lastMotionMs = _motionClock.ElapsedMilliseconds;
             _motion.OnFrame(frame);
+        }
+
+        // 遮蔽偵測抽樣：約每 250ms 一幀（引擎內部需連續 N 次才開窗）
+        if (_tamper is not null && _motionClock.ElapsedMilliseconds - _lastTamperMs >= 250)
+        {
+            _lastTamperMs = _motionClock.ElapsedMilliseconds;
+            _tamper.OnFrame(frame);
         }
 
         // AI 取樣（推理佇列，引擎內部節流 400ms）
@@ -169,6 +186,7 @@ public sealed class ChannelSession : IDisposable
 
         _motion?.Dispose();
         _ai?.Dispose();
+        _tamper?.Dispose();
         _recorder?.DisposeAsync().AsTask().GetAwaiter().GetResult();
         Client.DisposeAsync().AsTask().GetAwaiter().GetResult();
         GC.SuppressFinalize(this);
