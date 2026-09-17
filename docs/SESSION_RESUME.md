@@ -6,15 +6,15 @@
 
 ## 一句話總結
 HeliVMS 為一套**網路影像監控系統**（WPF 桌面應用：即時監看／回放／AI 事件中心／錄影排程）。
-里程碑 **M1 至 M47 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M47 警報管理器）。
-Release build 0 error、測試 **299/299 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
+里程碑 **M1 至 M48 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M48 魚眼矯正）。
+Release build 0 error、測試 **308/308 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
 本地與遠端完全同步（`git diff origin/HEAD` 為空）。
 
 ## 開新 session 的接手方法
 ```powershell
 # 在 D:\HeliVMS 開新 session 時，先對新的 agent 講：
 git status                    # 預期為 empty（乾淨）
-git log --oneline -20         # 預期見到 M1..M47，HEAD＝M47
+git log --oneline -20         # 預期見到 M1..M48，HEAD＝M48
 git diff origin/HEAD          # 預期為空（同步）
 gh run list -L 3              # 預期全部 success
 ```
@@ -23,10 +23,11 @@ gh run list -L 3              # 預期全部 success
 新 session 會以 git 現況接手，不會靠猜測。
 
 ## 現況快照（權威來源＝git，非聊天記憶）
-- 最後 commit：`HEAD`＝**M47（`f3c01e1`）**——警報管理器（Alarm Manager／分診面板）（見下方 §22 M47 定義段）；全 **299**、CI `35286083642` success
+- 最後 commit：`HEAD`＝**M48（`2f6508a`）**——魚眼矯正（Dewarping／全景校正）（見下方 §23 M48 定義段）；全 **308**、CI `35287346481` success
+- 前一個 M47 交付＝`f3c01e1`（警報管理器 Alarm Manager，見下方 §22 M47 定義段）、全 **299**、CI `35286083642` success
 - 前一個 M46 交付＝`c7f6e8f`（錄影遮蔽 Redaction，見下方 §21 M46 定義段）、全 **293**、CI `35284550851` success
 - 前一個 M45 交付＝`ef3a8bc`（備份與異地備援，見下方 §20 M45 定義段）、全 **289**、CI `35263453271` success
-- 進行中：**M48＝魚眼矯正（Dewarping／全景校正）**（見下方 §23 M48 定義段）
+- 下一個里程碑：待選（§14.7 尚餘 **#1 企業身份整合 LDAP/AD/OIDC SSO** 等 P1；#3/#4/#5 已由 M47/M43/M46 覆蓋）
 - 前一個 M41 交付＝`2d89ea7`（電子地圖/平面圖）、全 **222**、CI `35232094120` success
 - 前一個 M38 交付＝`d09b045`（事件回應工作流，見下方 M38 定義段）、全 **172**、CI `35185639491` success
 - 前一個 M30 交付＝`24ad4c7`（MQTT 通知通道）：`NotificationSettings`＋
@@ -631,7 +632,7 @@ gh run list -L 3              # 預期全部 success
     - harness `alarmmanagercheck`→**ALARMMANAGER_OK**：先以臨時 seed 工具（temp console 引用 HeliVMS.Storage；`detail='harness triage seed'` 可重跑覆蓋，含一筆逾期 critical）插入事件→`--alarmmanager` 開窗→`SummaryText` 含「逾期」→`BoardList` ≥1 列→選首列→`PriorityCombo` 選「高」＋`OwnerBox`/`NoteBox` 填值→套用→輪詢 `ManagerStatusText` 含「已更新」→清單出現優先序「高」儲存格
     - 回歸影響：MainWindow 新增工具列按鈕；新表 v14（舊庫自動升版）
     - 驗收：App Release 0 error、全 **293→299**、ALARMMANAGER_OK（連續 2 次綠）、回歸全綠、CI `35286083642` success
-23. **M48 進行中＝魚眼矯正（Dewarping／全景校正）（§14.7 #2 P1：魚眼/全景攝影機漸普及，QNAP Qdewarp、Genetec、Synology 皆有；本機完全沒有）**：
+23. **M48 已驗收＝魚眼矯正（Dewarping／全景校正）（§14.7 #2 P1：魚眼/全景攝影機漸普及，QNAP Qdewarp、Genetec、Synology 皆有；本機原本完全沒有；commit `2f6508a`，全 **308**，CI `35287346481` success；docs 定義＝`18f81e5`；另含 CI flaky 修正 `79b47f4`）**：
     - 背景：回放/匯出目前僅原樣呈現魚眼畫面；ffmpeg 內建 `v360`（本機 `ffmpeg -filters` 已確認 `V->V`）可離線矯正、不需 GPU；與 M46 遮蔽同屬「錄影段後處理」模式（`ListByRange`→concat→重編碼）
     - Recording 新 `DewarpFilter.Build(DewarpSettings)`（**純字串建構、CI 可測不需 ffmpeg**）：
       - 白名單投影：`input`∈{`fisheye`,`dfisheye`,`equirect`}、`output`∈{`flat`,`equirect`,`c3x2`}（其他 throw）
@@ -641,10 +642,11 @@ gh run list -L 3              # 預期全部 success
     - `DewarpSettings`（record：`Input`/`Output` 投影列舉＋`InputHFov`/`InputVFov`/`HFov`/`VFov`＋`Yaw`/`Pitch`/`Roll`＋`Width`/`Height`；`Default`＝fisheye→flat、輸入 180×180、輸出 90×90、1280×720）
     - Recording 新 `DewarpService.DewarpAsync(DewarpRequest, IProgress<ExportProgress>?, ct)`：`ListByRange(ch,"main",from,to)` 依 `StartUtc` 排序→無段 throw「所選範圍無錄影段落可供矯正」→concat demuxer→`-vf <DewarpFilter.Build>`→libx264 ultrafast crf23＋aac＋`+faststart`＋可選 SHA-256→`DewarpResult{OutputPath,Sha256,FileSizeBytes,DurationSeconds=Σ DurationSec}`（temp concat 清理；骨架比照 `RedactionService`，不共用避免動 M46）
     - App 新 `DewarpWindow`（`--dewarp`；MainWindow 工具列「矯正」鈕）：頻道＋起訖時段（預設選第一個有 final 段者、時段對準該頻道 final 段，比照 `RedactionWindow`）＋`InputCombo`/`OutputCombo`＋輸入/輸出視角四框＋`YawBox`/`PitchBox`/`RollBox`＋`WidthBox`/`HeightBox`＋「預覽」（對首段抽 1 幀套 `v360` 產生 PNG 並於 `PreviewImage` 顯示）＋「開始矯正」→進度→結果（路徑/大小/時長/SHA-256）；輸出預設 `dataRoot\dewarped`
-    - 測試：`DewarpFilterTests`（Storage/Recording 混合慣例）——fisheye→flat 基本字串、dfisheye→equirect、尺寸附加、視角超界 throw、角度超界 throw、flat 零視角 throw、白名單 throw；全 **299→約 305**
-    - harness `dewarpcheck`→**DEWARP_OK**（真 ffmpeg 端到端，走 UI 真 DB）：`--dewarp` 開窗→設定 fisheye→flat、h_fov/v_fov=90、1280×720→「開始矯正」→輪詢狀態含「矯正完成」且含 64-hex SHA-256→輸出存在＋`ffprobe` 解析度＝1280x720 且 `codec=h264` 且 duration>0
+    - 測試：`DewarpFilterTests` 9（Storage/Recording 混合慣例）——fisheye→flat 精確字串、dfisheye→equirect 角度格式、w=h=0 省略尺寸、視角超界 throw、角度超界 throw、flat 零視角 throw、負尺寸 throw、投影白名單 throw、`ToToken` 對映；Storage **159→168**、全 **299→308**
+    - harness `dewarpcheck`→**DEWARP_OK**（真 ffmpeg 端到端，走 UI 真 DB）：`--dewarp` 開窗→設定 fisheye→flat、h_fov/v_fov=90、1280×720→「開始矯正」→輪詢狀態含「矯正完成」且含 64-hex SHA-256→輸出存在＋`ffprobe` 解析度＝1280x720 且 `codec=h264` 且 duration>0（實測 ch27 6s→6581 bytes）
     - 回歸影響：MainWindow 新增工具列按鈕；**無 New DB 表**（不涉 schema，維持 v14）
-    - 驗收：App Release 0 error、全約 **305**、DEWARP_OK（連續 2 次綠）、`redactioncheck` 回歸綠、CI 綠
+    - 驗收：App Release 0 error、全 **308**（Storage 168＋Alarms 108＋Licensing 8＋Devices 24）、DEWARP_OK（連續 2 次綠）、`redactioncheck` REDACTION_OK＋`alarmmanagercheck` ALARMMANAGER_OK 回歸綠、CI `35287346481` success
+    - 附帶修正（`79b47f4`）：`MotionEventEngine` 支援可注入時鐘（ctor 選用 `utcNow`，預設 `DateTime.UtcNow` 行為不變）——`MotionEventEngineTests.BriefBlip_BelowMinDuration_Discarded` 原依賴真實 `Task.Delay(150)`，CI 執行緒延遲使其實際達 1015ms > `MinEventMs`(400) 而誤判為事件（CI `35287015216` 失敗）；改為固定時鐘僅推進 150ms
 24. 每里程碑節奏照舊：定義先寫入本檔→實作→App Release build 0 error→單元測試→
     （有 UI 面者）E2E harness block→commit＋push＋CI success→`git status --porcelain` 空白
 
@@ -683,6 +685,12 @@ gh run list -L 3              # 預期全部 success
   （`Summarize` 全 0、`BoardList` 0 列）；`alarmmanagercheck` 先跑臨時 console（temp `seedtriage`，
   ProjectReference `HeliVMS.Storage`）插入 `detail='harness triage seed'` 事件（先 DELETE 同名再 INSERT，
   可重跑覆蓋），並對一筆設逾期 critical（`SetTriage(..., now.AddMinutes(-5), ...)`）以驗「逾期」計數
+- **M48 魚眼矯正 E2E 前置**：`dewarpcheck` 不 seed DB，直接吃既有 final 段（本機 ch27 有 6s 段）；
+  ffmpeg 內建 `v360`（`-vf v360=input=…:output=flat:…:w=…:h=…`，**用 `-vf`、無 `-filter_complex`/`-map`**）；
+  CI 不跑 harness，故 runner 無 ffmpeg 亦不影響
+- **時間敏感單元測試勿依賴真實 `Task.Delay` 上界**：`MotionEventEngineTests.BriefBlip`（門檻
+  `MinEventMs`=400ms）在 CI 慢機因 `Task.Delay(150)` 實際達 ~1s 而 flaky（CI `35287015216`）；
+  `MotionEventEngine` 已支援可注入時鐘（ctor 選用 `utcNow`），同類測試請注入假時鐘而非真實延遲
 - **`Space` 焦點衝突**：Tab 焦點落在 PlayPauseButton/StopButton 時按空白鍵會雙重觸發（Button 自身也處理空白鍵）；
   故 `OnPreviewKeyDown` 對按鈕聚焦需 `e.Handled=true` 後自行分派播放/暫停，避免 Button Click 與快捷鍵各觸發一次
 - **WPF Panel（StackPanel/Grid）沒有 AutomationPeer**：其 `AutomationId`/`x:Name` 無法用
