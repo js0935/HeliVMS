@@ -109,6 +109,10 @@
                     </StackPanel>
 
                     <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                        <Button x:Name="RedactionButton" AutomationProperties.AutomationId="RedactionButton"
+                                Content="遮蔽" Click="OnRedactionClicked"
+                                Width="50" Padding="0,8" Margin="0,0,6,0"
+                                Foreground="White" Background="#6A4A2A" BorderThickness="0" />
                         <Button x:Name="PtzButton" AutomationProperties.AutomationId="PtzButton"
                                 Content="PTZ" Click="OnPtzClicked"
                                 Width="50" Padding="0,8" Margin="0,0,6,0"

@@ -293,6 +293,11 @@ public partial class MainWindow : Window
             Dispatcher.BeginInvoke(() => OpenExportCenterWindow());
         }
 
+        if (Environment.GetCommandLineArgs().Contains("--redaction", StringComparer.OrdinalIgnoreCase))
+        {
+            Dispatcher.BeginInvoke(() => OpenRedactionWindow());
+        }
+
         if (Environment.GetCommandLineArgs().Contains("--events", StringComparer.OrdinalIgnoreCase))
         {
             Dispatcher.BeginInvoke(() => OpenEventCenter());
@@ -954,6 +959,23 @@ public partial class MainWindow : Window
     private void OnExportClicked(object sender, RoutedEventArgs e) => OpenExportWindow();
 
     private void OnExportCenterClicked(object sender, RoutedEventArgs e) => OpenExportCenterWindow();
+
+    private void OnRedactionClicked(object sender, RoutedEventArgs e) => OpenRedactionWindow();
+
+    /// <summary>開啟錄影遮蔽窗（M46，§14.7 #5）。viewer 與匯出同權限限制。</summary>
+    private void OpenRedactionWindow()
+    {
+        if (!SessionContext.IsAdmin)
+        {
+            return;
+        }
+
+        var window = new RedactionWindow(_store!, _dataRoot)
+        {
+            Owner = this,
+        };
+        window.Show();
+    }
 
     /// <summary>開啟匯出中心（M44，§14.3(2)）。viewer 與匯出精靈同權限限制。</summary>
     private void OpenExportCenterWindow()
