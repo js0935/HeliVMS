@@ -24,7 +24,7 @@ gh run list -L 3              # 預期全部 success
 
 ## 現況快照（權威來源＝git，非聊天記憶）
 - 最後 commit：`HEAD`＝**M44（`99556f6`）**——匯出中心（Export Center）（見下方 M44 定義段）；全 **283**、CI `35260052774` success（含修復 `1112251`：CI runner 無 ffmpeg→ExportJobService 注入 executor）
-- 進行中：**無**（M44 已驗收；下一里程碑待定）
+- 進行中：**M45＝備份與異地備援（Backup & Off-Site Redundancy）**（見下方 §20 M45 定義段）
 - 前一個 M41 交付＝`2d89ea7`（電子地圖/平面圖）、全 **222**、CI `35232094120` success
 - 前一個 M38 交付＝`d09b045`（事件回應工作流，見下方 M38 定義段）、全 **172**、CI `35185639491` success
 - 前一個 M30 交付＝`24ad4c7`（MQTT 通知通道）：`NotificationSettings`＋
@@ -571,7 +571,31 @@ gh run list -L 3              # 預期全部 success
       →報告含「完整性」；(C) 安全：真實 DB 只讀不改 jobs／不執行「開始處理」
     - 回歸影響：`expcheck`/`evidcheck` 不觸新窗；新增 EXPORTCENTER_CHECK（回歸 17 blocks）
     - 驗收：App Release 0 error、Storage 143、全 283、EXPORTCENTER_OK（連續 2 次綠）、回歸全綠、CI 綠
-20. 每里程碑節奏照舊：定義先寫入本檔→實作→App Release build 0 error→單元測試→
+20. **M45 進行中＝備份與異地備援（Backup & Off-Site Redundancy）（§14.4 P1）**：
+    - 背景：§14.1 既有 Retention 只做本機配額清除，單機故障即失資料；需「錄影區段增量複製至第二磁碟／異地目標＋可追溯備份紀錄＋自動推進檢查點」
+    - Storage schema **v13**：新表 `backup_log`（`id`、`run_at`（ISO UTC）、`source_root`、`target_root`、
+      `checkpoint_utc`（成功 run 才寫，此時間前之 final segment 已備妥）、`copied_count`、`copied_bytes`、
+      `failed_count`、`detail`）；`BackupRepository`（RecordRun；LastCheckpoint(source,target)=MAX(checkpoint_utc)；
+      ListRuns(targetRoot?, take)→新→舊）
+    - Storage 新 `BackupService`：`Run(sourceRoot, targetRoot, checkpointUtc?)`——列全部 final segments
+      （start_time > lastCheckpoint）→逐一 `File.Copy` 至 targetRoot 之相對 mirror 路徑→複製後以 db `sha256`
+      重算比對（不符→failed 不中斷）；缺來源檔→failed＋detail；結束
+      `RecordRun(checkpointUtc = failed==0 ? now : null)`（**有失敗不推進**，下次重跑再試同批）；
+      回傳 `BackupRunResult{Scanned, Copied, CopiedBytes, Failed, Advanced}`
+    - App：SettingsWindow 左導航新增「備份」頁（`PageBackup`，nav 第 11 項）：啟用 CheckBox＋目標目錄（輸入＋
+      瀏覽）＋間隔時數＋「立即備份」＋最近紀錄 ListView（時間/目標/複製/失敗/推進）；MainWindow
+      `RunRetentionLoopAsync` 每圈併跑 `RunScheduledBackup`（讀 backup.enabled/target/interval_hours，距
+      backup.last_run 達間隔→背景執行→寫 last_run 防熱循環）
+    - 設定鍵：`backup.enabled`（1/0）、`backup.target`、`backup.interval_hours`（預設 24）、`backup.last_run`（ISO）
+    - 測試：Storage **143→149**（`BackupServiceTests` 6：空段 noop＋逐一複製且 target SHA==db SHA＋增量依
+      checkpoint 只複製新段＋來源檔遺失→failed 不推進、補檔重試即成功＋目標=來源 throw＋ListRuns 新→舊）；
+      假位元組檔即可（不需 ffmpeg，CI 友好）
+    - harness `backupcheck`→BACKUP_OK：(A) Service——temp store＋兩通道假段→run1 copied=2＋target hash 符合→
+      追加第三段→run2 只複製新增→run3 無變更 copied=0→刪來源→run4 failed=1 且不推進；(B) UI——`--settings`
+      開窗→左導航選「備份」→`BackupTargetBox` 填 temp 目標→「立即備份」→狀態含「備份完成」→log 清單有列
+    - 回歸影響：Retention loop 每小時多一次 backup 檢查（無 target 設定時跳過）；Settings nav 第 11 項
+    - 驗收：App Release 0 error、Storage 149、全 289、BACKUP_OK（連續 2 次綠：UI 立即備份複製 1 段＋推進、第二次 0 段）、回歸全綠、CI 綠
+21. 每里程碑節奏照舊：定義先寫入本檔→實作→App Release build 0 error→單元測試→
     （有 UI 面者）E2E harness block→commit＋push＋CI success→`git status --porcelain` 空白
 
 ## 已知雷區（勿再犯）
