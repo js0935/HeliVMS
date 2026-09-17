@@ -27,7 +27,7 @@ gh run list -L 3              # 預期全部 success
 - 前一個 M47 交付＝`f3c01e1`（警報管理器 Alarm Manager，見下方 §22 M47 定義段）、全 **299**、CI `35286083642` success
 - 前一個 M46 交付＝`c7f6e8f`（錄影遮蔽 Redaction，見下方 §21 M46 定義段）、全 **293**、CI `35284550851` success
 - 前一個 M45 交付＝`ef3a8bc`（備份與異地備援，見下方 §20 M45 定義段）、全 **289**、CI `35263453271` success
-- 下一個里程碑：待選（§14.7 尚餘 **#1 企業身份整合 LDAP/AD/OIDC SSO** 等 P1；#3/#4/#5 已由 M47/M43/M46 覆蓋）
+- 進行中：**M49＝智慧地圖深化（視角扇形 FOV/深度＋比例尺）**（見下方 §24 M49 定義段）
 - 前一個 M41 交付＝`2d89ea7`（電子地圖/平面圖）、全 **222**、CI `35232094120` success
 - 前一個 M38 交付＝`d09b045`（事件回應工作流，見下方 M38 定義段）、全 **172**、CI `35185639491` success
 - 前一個 M30 交付＝`24ad4c7`（MQTT 通知通道）：`NotificationSettings`＋
@@ -647,7 +647,21 @@ gh run list -L 3              # 預期全部 success
     - 回歸影響：MainWindow 新增工具列按鈕；**無 New DB 表**（不涉 schema，維持 v14）
     - 驗收：App Release 0 error、全 **308**（Storage 168＋Alarms 108＋Licensing 8＋Devices 24）、DEWARP_OK（連續 2 次綠）、`redactioncheck` REDACTION_OK＋`alarmmanagercheck` ALARMMANAGER_OK 回歸綠、CI `35287346481` success
     - 附帶修正（`79b47f4`）：`MotionEventEngine` 支援可注入時鐘（ctor 選用 `utcNow`，預設 `DateTime.UtcNow` 行為不變）——`MotionEventEngineTests.BriefBlip_BelowMinDuration_Discarded` 原依賴真實 `Task.Delay(150)`，CI 執行緒延遲使其實際達 1015ms > `MinEventMs`(400) 而誤判為事件（CI `35287015216` 失敗）；改為固定時鐘僅推進 150ms
-24. 每里程碑節奏照舊：定義先寫入本檔→實作→App Release build 0 error→單元測試→
+24. **M49 進行中＝智慧地圖深化（視角扇形 FOV/深度＋比例尺）（§14.7 #11 P2「視角扇形 FOV/深度」承 §16.1；M41 已落地地圖/圖釘/扇形，但半徑固定 70px、`fov_depth` 未使用、UI 無法編輯角度/FOV/深度且無比例尺）**：
+    - 背景：M41 `MapWindow.CreateCameraPin` 以固定半徑 70px 畫扇形（`MapDeviceRecord.FovDepth` 被忽略），且設定頁地圖圖釘只有種類/通道/位置，無 angle/fov/depth 編輯 → 覆蓋範圍無法反映真實尺度；本里程碑補「深度→像素半徑」與比例尺標定
+    - Storage schema **v15**：`maps` 加 `scale_m_per_px REAL NOT NULL DEFAULT 0`（0＝未標定；每像素代表公尺）
+    - `MapRepository`：`MapRecord` 追加 `ScaleMPerPx`；`SetMapScale(mapId, mPerPx)`（負值 throw）；`ListMaps`/`GetMap` SELECT 帶入；`UpdateDeviceGeometry(id, angle, fovDeg, fovDepth)`（超界 throw）
+    - 新 `MapGeometry`（Storage，**純函式、CI 可測**）：
+      - `NormalizeAngle(double)`→[0,360)、`ClampFov(double)`→[5,360]、`ClampDepth(double)`→[0,1000]
+      - `Bearing(double angleDeg)`→八方位字串（北/東北/東/東南/南/西南/西/西北，45° 為單位、四捨五入）
+      - `SectorRadiusPixels(double fovDepthMeters, double scaleMPerPx, double fallbackPixels = 70)`：`scale>0 && depth>0` → `clamp(depth/scale, 8, 100000)`；否則 `fallback`
+    - `MapWindow`：`ShowMap` 記錄 `_scaleMPerPx`；camera 扇形半徑改用 `MapGeometry.SectorRadiusPixels(d.FovDepth, _scaleMPerPx)`；新增 `MapScaleText`（AutomationId）顯示「比例：{scale} m/px｜扇形半徑：N px」；圖釘 ToolTip 追加角度/FOV/深度/方位
+    - `SettingsWindow` 地圖頁：地圖比例 `MapScaleBox`＋「套用比例」鈕（`OnMapApplyScaleClicked`）；圖釘幾何 `MapPinAngleBox`/`MapPinFovBox`/`MapPinDepthBox`＋「套用幾何」鈕（套用至 `MapPinList` 選取項）；新增圖釘時採用欄位值；`MapPinRow` 追加角度/FOV/深度/方位；`MapReportText` 回報（**nav 數不變**，不破 setcheck/snapcheck）
+    - 測試：新 `MapGeometryTests`（Storage.Tests：角度正規化/FOV 與深度 clamp/八方位/半徑＝depth÷scale、無比例回退、極小 scale 上限）；`MapRepositoryTests` 擴充（`SetMapScale` round-trip＋負值 throw、`UpdateDeviceGeometry` round-trip＋超界 throw、`MapRecord.ScaleMPerPx`）；全 **308→約 320**
+    - harness `mapfovcheck`→**MAPFOV_OK**（走 UI 真 DB）：seed 地圖（temp console 插 `maps` 列＋產 PNG）→`--settings` 地圖頁→選地圖→`MapScaleBox=0.05`→套用比例→`MapPinKindCombo=camera`→選通道→`MapPinAngleBox=45`/`Fov=120`/`Depth=5`→於 `MapPinCanvas` 放置→`MapPinList` 選列→套用幾何→`MapReportText` 含「已更新幾何」→DB 驗 `maps.scale_m_per_px=0.05` 與 `map_devices` angle/fov/depth→開 `MapWindow`（`--map`）→`MapScaleText` 含「0.05」→MAPFOV_OK 連續 2 次
+    - 回歸影響：schema v15（舊庫自動升版）；設定頁新增欄位；`MapWindow` 需新增 `--map` 命令列旗標（目前僅主視窗「地圖」鈕）
+    - 驗收：App Release 0 error、全約 **320**、MAPFOV_OK（連續 2 次綠）、回歸綠、CI 綠
+25. 每里程碑節奏照舊：定義先寫入本檔→實作→App Release build 0 error→單元測試→
     （有 UI 面者）E2E harness block→commit＋push＋CI success→`git status --porcelain` 空白
 
 ## 已知雷區（勿再犯）
