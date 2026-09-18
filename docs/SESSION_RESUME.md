@@ -6,15 +6,15 @@
 
 ## 一句話總結
 HeliVMS 為一套**網路影像監控系統**（WPF 桌面應用：即時監看／回放／AI 事件中心／錄影排程）。
-里程碑 **M1 至 M49 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M49 智慧地圖深化）。
-Release build 0 error、測試 **346/346 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
+里程碑 **M1 至 M50 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M50 企業身份整合）。
+Release build 0 error、測試 **400/400 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
 本地與遠端完全同步（`git diff origin/HEAD` 為空）。
 
 ## 開新 session 的接手方法
 ```powershell
 # 在 D:\HeliVMS 開新 session 時，先對新的 agent 講：
 git status                    # 預期為 empty（乾淨）
-git log --oneline -20         # 預期見到 M1..M49，HEAD＝M49
+git log --oneline -20         # 預期見到 M1..M50，HEAD＝M50
 git diff origin/HEAD          # 預期為空（同步）
 gh run list -L 3              # 預期全部 success
 ```
@@ -23,7 +23,7 @@ gh run list -L 3              # 預期全部 success
 新 session 會以 git 現況接手，不會靠猜測。
 
 ## 現況快照（權威來源＝git，非聊天記憶）
-- 最後 commit：`HEAD`＝**M49（`d201bc3`）**——智慧地圖深化（視角扇形 FOV/深度＋比例尺）（見下方 §24 M49 定義段）；全 **346**、CI `35289916444` success
+- 最後 commit：`HEAD`＝**M50（`d43c058`）**——企業身份整合（OIDC SSO 核心＋LDAP 設定面）（見下方 §25 M50 定義段）；全 **400**、CI `35293174402` success
 - 前一個 M48 交付＝`2f6508a`（魚眼矯正 Dewarping，見下方 §23 M48 定義段）、全 **308**、CI `35287346481` success
 - 前一個 M47 交付＝`f3c01e1`（警報管理器 Alarm Manager，見下方 §22 M47 定義段）、全 **299**、CI `35286083642` success
 - 前一個 M46 交付＝`c7f6e8f`（錄影遮蔽 Redaction，見下方 §21 M46 定義段）、全 **293**、CI `35284550851` success
@@ -665,7 +665,11 @@ gh run list -L 3              # 預期全部 success
     - harness `mapfovcheck`→**MAPFOV_OK**（走 UI 真 DB）：seed 地圖（temp console 插 `maps` 列＋產 PNG）→`--settings` 地圖頁→選地圖→`MapScaleBox=0.05`→套用比例→`MapPinKindCombo=camera`→選通道→`MapPinAngleBox=45`/`Fov=120`/`Depth=5`→於 `MapPinCanvas` 放置→`MapPinList` 選列→套用幾何→`MapReportText` 含「已更新幾何」→DB 驗 `maps.scale_m_per_px=0.05` 與 `map_devices` angle/fov/depth→開 `MapWindow`（`--map`）→`MapScaleText` 含「0.05」→MAPFOV_OK 連續 2 次
     - 回歸影響：schema v15（舊庫自動升版）；設定頁新增欄位；`MapWindow` 需新增 `--map` 命令列旗標（目前僅主視窗「地圖」鈕）
     - 驗收：App Release 0 error、全 **346**（≈320）、MAPFOV_OK（連續 2 次綠）、回歸綠、CI 綠
-25. **M50 ＝企業身份整合（OIDC SSO 核心＋LDAP 設定面）（§14.7 #1 P1：企業標案基本門檻；M42 已有本機帳號＋RBAC）**：
+25. **M50 已驗收＝企業身份整合（OIDC SSO 核心＋LDAP 設定面）（§14.7 #1 P1：企業標案基本門檻；M42 已有本機帳號＋RBAC）**：
+    - **交付**：功能＋測試 `d43c058`（CI `35293174402` success）；docs 定義 `84ecd72`；本 snapshot 段。
+    - **結果**：App Release build **0 error**、測試 **400/400**（Storage **260**＋Alarms 108＋Devices 24＋Licensing 8）、
+      harness `ssoidcheck`→**SSOID_OK 連續 2 次**（`provider=harness-idp;expired=rejected;valid=accepted`）；
+      回歸 **ALARMMANAGER_OK**／**DEWARP_OK**／**MAPFOV_OK**；`git status --porcelain` 空白。
     - 背景：市場對標（Milestone／Genetec／Synology）唯一尚未覆蓋的 P1——大型案要求「沿用企業 AD／OIDC SSO」
     - Storage schema **v16**：`auth_providers`（id, name UNIQUE, kind CHECK(oidc|ldap), enabled, config_json, created_at）
     - Storage 新檔（純函式／BCL，**無新套件依賴**）：
@@ -680,10 +684,10 @@ gh run list -L 3              # 預期全部 success
       - SettingsWindow「身份」頁新增「企業身份」區（`EnterpriseProviderList`／`EntNameBox`／`EntKindCombo`／`EntIssuerBox`／`EntAudienceBox`／`EntRoleClaimBox`／`EntAdminGroupsBox`／`EntDefaultRoleCombo`／`EntJwksBox`／`EntAddButton`／`EntToggleButton`／`EntDeleteButton`／`EntReportText`）
       - LoginWindow 新增「企業 SSO」區（`OidcProviderCombo`／`OidcTokenBox`／`OidcLoginButton`／`OidcMessage`）：僅當有啟用 OIDC provider 時顯示；成功→`SessionContext.CurrentUser`（角色由對映決定）
       - `App.PerformLogin` 傳入 `SqliteStore` 供 `LoginWindow` 建 `EnterpriseAuthService`
-    - 測試：`OidcValidatorTests`（自簽 RSA：有效、錯誤簽章、alg=none、過期、nbf、iss／aud 不符、未知 kid、clock skew、角色對映）、`RsaJwkTests`、`LdapFilterTests`、`AuthProviderRepositoryTests`、`EnterpriseAuthServiceTests`；全 **346→約 380**
+    - 測試：`OidcValidatorTests`（自簽 RSA：有效、錯誤簽章、alg=none、過期、nbf、iss／aud 不符、未知 kid、clock skew、角色對映）、`RsaJwkTests`、`LdapFilterTests`、`AuthProviderRepositoryTests`、`EnterpriseAuthServiceTests`；全 **346→400**（Storage **206→260**）
     - harness `ssoidcheck`→**SSOID_OK**（seed `--sso` 產 RSA＋JWKS＋有效/過期 token＋provider→設定頁驗清單→`auth.enabled=1` 重啟→LoginWindow 貼有效 token 登入成功→過期 token 被拒→還原 `auth.enabled=0`）連續 2 次
     - 回歸影響：schema v16；設定頁新增區塊（nav 數不變）；`auth.enabled` 預設 0，既有流程與 harness 不受影響；LDAP 目錄連線以 `ILdapBinder` 抽象（本里程碑完成設定／filter／角色對映，實際 AD 綁定由部署端提供）
-    - 驗收：App Release 0 error、全約 **380**、SSOID_OK ×2、回歸綠、CI 綠
+    - 驗收：App Release 0 error、全 **400**、SSOID_OK ×2、回歸綠、CI **35293174402** success
 26. 每里程碑節奏照舊：定義先寫入本檔→實作→App Release build 0 error→單元測試→
     （有 UI 面者）E2E harness block→commit＋push＋CI success→`git status --porcelain` 空白
 
