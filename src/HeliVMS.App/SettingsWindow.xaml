@@ -745,6 +745,74 @@
                                Margin="14,0,0,0" VerticalAlignment="Center" TextWrapping="Wrap"
                                Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
                 </StackPanel>
+
+                <TextBlock Text="企業身份（OIDC／LDAP SSO）" FontSize="14" FontWeight="Bold" Margin="0,16,0,6"/>
+                <TextBlock Text="供企業沿用 AD／OIDC 登入。OIDC 需填入 Issuer／Audience 與 JWKS（可貼入 JSON）；LDAP 供目錄綁定擴充。"
+                           Foreground="{StaticResource Brand.TextDim}" FontSize="11" Margin="0,0,0,6" TextWrapping="Wrap"/>
+                <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                    <TextBox x:Name="EntNameBox" AutomationProperties.AutomationId="EntNameBox"
+                             Width="130" ToolTip="提供者名稱"
+                             Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="8,4"/>
+                    <ComboBox x:Name="EntKindCombo" AutomationProperties.AutomationId="EntKindCombo"
+                              Width="90" Margin="6,0,0,0" Padding="2,4"
+                              Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73">
+                        <ComboBoxItem Content="oidc"/>
+                        <ComboBoxItem Content="ldap"/>
+                    </ComboBox>
+                    <TextBox x:Name="EntIssuerBox" AutomationProperties.AutomationId="EntIssuerBox"
+                             Width="220" Margin="6,0,0,0" ToolTip="OIDC：Issuer／LDAP：主機"
+                             Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="8,4"/>
+                    <TextBox x:Name="EntAudienceBox" AutomationProperties.AutomationId="EntAudienceBox"
+                             Width="150" Margin="6,0,0,0" ToolTip="OIDC：Audience／Client ID；LDAP：Base DN"
+                             Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="8,4"/>
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                    <TextBlock Text="角色宣告" Foreground="{StaticResource Brand.TextDim}" FontSize="11" VerticalAlignment="Center"/>
+                    <TextBox x:Name="EntRoleClaimBox" AutomationProperties.AutomationId="EntRoleClaimBox"
+                             Width="110" Margin="6,0,0,0" Text="roles"
+                             Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="8,4"/>
+                    <TextBlock Text="Admin 群組（逗號分隔）" Foreground="{StaticResource Brand.TextDim}" FontSize="11"
+                               Margin="10,0,0,0" VerticalAlignment="Center"/>
+                    <TextBox x:Name="EntAdminGroupsBox" AutomationProperties.AutomationId="EntAdminGroupsBox"
+                             Width="180" Margin="6,0,0,0"
+                             Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="8,4"/>
+                    <ComboBox x:Name="EntDefaultRoleCombo" AutomationProperties.AutomationId="EntDefaultRoleCombo"
+                              Width="90" Margin="6,0,0,0" Padding="2,4"
+                              Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73">
+                        <ComboBoxItem Content="viewer"/>
+                        <ComboBoxItem Content="admin"/>
+                    </ComboBox>
+                </StackPanel>
+                <TextBlock Text="JWKS JSON（OIDC；貼上 IdP 公鑰集）" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+                <TextBox x:Name="EntJwksBox" AutomationProperties.AutomationId="EntJwksBox"
+                         Height="52" Margin="0,3,0,6" AcceptsReturn="True" TextWrapping="Wrap"
+                         VerticalScrollBarVisibility="Auto"
+                         Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="6,4"/>
+                <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                    <Button x:Name="EntAddButton" AutomationProperties.AutomationId="EntAddButton"
+                            Content="＋新增提供者" Click="OnEntAddClicked" Padding="8,4"
+                            Foreground="White" Background="#2A5C8A" BorderThickness="0"/>
+                    <Button x:Name="EntToggleButton" Content="啟用/停用" Click="OnEntToggleClicked" Margin="6,0,0,0"
+                            Padding="8,4" Foreground="White" Background="#3A5A7A" BorderThickness="0"/>
+                    <Button x:Name="EntDeleteButton" Content="刪除提供者" Click="OnEntDeleteClicked" Margin="6,0,0,0"
+                            Padding="8,4" Foreground="White" Background="#8A3C2E" BorderThickness="0"/>
+                    <TextBlock x:Name="EntReportText" AutomationProperties.AutomationId="EntReportText"
+                               Margin="14,0,0,0" VerticalAlignment="Center" TextWrapping="Wrap"
+                               Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+                </StackPanel>
+                <ListView x:Name="EnterpriseProviderList" AutomationProperties.AutomationId="EnterpriseProviderList"
+                          SelectionMode="Single" Height="110"
+                          Background="#0E1D33" Foreground="White" BorderBrush="#1F3A5F">
+                    <ListView.View>
+                        <GridView>
+                            <GridViewColumn Header="ID" Width="42" DisplayMemberBinding="{Binding Id}"/>
+                            <GridViewColumn Header="名稱" Width="140" DisplayMemberBinding="{Binding Name}"/>
+                            <GridViewColumn Header="種類" Width="70" DisplayMemberBinding="{Binding KindLabel}"/>
+                            <GridViewColumn Header="啟用" Width="56" DisplayMemberBinding="{Binding EnabledLabel}"/>
+                            <GridViewColumn Header="摘要" Width="300" DisplayMemberBinding="{Binding SummaryLabel}"/>
+                        </GridView>
+                    </ListView.View>
+                </ListView>
             </StackPanel>
 
             <!-- 備份 -->

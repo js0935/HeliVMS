@@ -56,6 +56,6 @@ public partial class App : Application
             return true;
         }
 
-        return new LoginWindow(auth).ShowDialog() == true;
+        return new LoginWindow(auth, store).ShowDialog() == true;
     }
 }

@@ -44,6 +44,9 @@ public partial class SettingsWindow : Window
     private sealed record MapPinRow(int Id, string DeviceType, int ChannelId, string PositionLabel, string AngleLabel, string FovLabel, string DepthLabel, string BearingLabel, string EnabledLabel, string Name);
     private sealed record UserRow(int Id, string Username, string Role, string EnabledLabel, string FailedLabel, string LastLoginLabel);
 
+    /// <summary>企業身份提供者頁顯示列（M50，§14.7 #1）。</summary>
+    private sealed record EnterpriseProviderRow(int Id, string Name, string KindLabel, string EnabledLabel, string SummaryLabel);
+
     /// <summary>備份紀錄頁顯示列。</summary>
     private sealed record BackupRow(string TimeLabel, string TargetLabel, string CopiedLabel, string FailedLabel, string AdvancedLabel);
 
@@ -58,6 +61,8 @@ public partial class SettingsWindow : Window
     private readonly MapRepository _maps;
     private readonly string _mapsRoot;
     private readonly UserRepository _users;
+    private readonly EnterpriseAuthService _enterprise;
+    private readonly AuthProviderRepository _providers;
 
     public SettingsWindow(SqliteStore store, string dataRoot, IoMonitorHost? ioHost = null)
     {
@@ -72,6 +77,8 @@ public partial class SettingsWindow : Window
         _maps = new MapRepository(store);
         _mapsRoot = Path.Combine(dataRoot, "maps");
         _users = new UserRepository(store);
+        _enterprise = new EnterpriseAuthService(store);
+        _providers = new AuthProviderRepository(store);
 
         InitializeComponent();
         MapPinCanvas.MouseLeftButtonUp += OnMapPinCanvasClick;
@@ -95,6 +102,7 @@ public partial class SettingsWindow : Window
         ReloadMaps();
         ReloadAuthPolicy();
         ReloadUsers();
+        ReloadEnterpriseProviders();
         ReloadBackup();
 
         SettingsNav.SelectedIndex = 0;
@@ -1435,6 +1443,119 @@ public partial class SettingsWindow : Window
         UserToggleButton.IsEnabled = false;
         UserDeleteButton.IsEnabled = false;
         UserUnlockButton.IsEnabled = false;
+    }
+
+    // ── 企業身份（M50，§14.7 #1：OIDC／LDAP SSO） ──
+
+    private void ReloadEnterpriseProviders()
+    {
+        EnterpriseProviderList.ItemsSource = _enterprise.ListProviders()
+            .Select(p => new EnterpriseProviderRow(
+                p.Id,
+                p.Name,
+                p.Kind.ToUpperInvariant(),
+                p.Enabled ? "啟用" : "停用",
+                SummarizeProvider(p)))
+            .ToList();
+    }
+
+    private static string SummarizeProvider(AuthProviderRecord provider)
+        => provider.Kind == AuthProviderRepository.KindOidc
+            ? OidcOptions.FromJson(provider.ConfigJson).Issuer
+            : LdapSettings.FromJson(provider.ConfigJson).Host;
+
+    private void OnEntAddClicked(object sender, RoutedEventArgs e)
+    {
+        var name = EntNameBox.Text.Trim();
+        if (name.Length == 0)
+        {
+            EntReportText.Text = "請輸入提供者名稱";
+            return;
+        }
+
+        var kind = (EntKindCombo.SelectedItem as ComboBoxItem)?.Content as string ?? AuthProviderRepository.KindOidc;
+        var issuer = EntIssuerBox.Text.Trim();
+        var audience = EntAudienceBox.Text.Trim();
+        var adminGroups = EntAdminGroupsBox.Text
+            .Split(new[] { ',', ';' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var defaultRole = (EntDefaultRoleCombo.SelectedItem as ComboBoxItem)?.Content as string ?? "viewer";
+
+        string configJson;
+        if (kind == AuthProviderRepository.KindOidc)
+        {
+            if (issuer.Length == 0)
+            {
+                EntReportText.Text = "OIDC 需填入 Issuer";
+                return;
+            }
+
+            var roleClaim = EntRoleClaimBox.Text.Trim();
+            configJson = new OidcOptions
+            {
+                Issuer = issuer,
+                Audience = audience,
+                ClientId = audience.Length > 0 ? audience : null,
+                RoleClaim = roleClaim.Length > 0 ? roleClaim : "roles",
+                AdminGroups = adminGroups,
+                DefaultRole = defaultRole,
+                JwksJson = EntJwksBox.Text.Trim().Length > 0 ? EntJwksBox.Text.Trim() : null,
+            }.ToJson();
+        }
+        else
+        {
+            configJson = new LdapSettings
+            {
+                Host = issuer,
+                BaseDn = audience,
+                AdminGroups = adminGroups,
+                DefaultRole = defaultRole,
+            }.ToJson();
+        }
+
+        try
+        {
+            _providers.Add(name, kind, configJson);
+            EntReportText.Text = $"已新增提供者「{name}」（{kind}）。";
+            ReloadEnterpriseProviders();
+        }
+        catch (Microsoft.Data.Sqlite.SqliteException)
+        {
+            EntReportText.Text = $"名稱「{name}」已存在。";
+        }
+    }
+
+    private void OnEntToggleClicked(object sender, RoutedEventArgs e)
+    {
+        if (EnterpriseProviderList.SelectedItem is not EnterpriseProviderRow row)
+        {
+            EntReportText.Text = "請先選擇提供者";
+            return;
+        }
+
+        var record = _providers.Get(row.Id);
+        if (record is null)
+        {
+            EntReportText.Text = "提供者已不存在";
+            ReloadEnterpriseProviders();
+            return;
+        }
+
+        _providers.SetEnabled(row.Id, !record.Enabled);
+        EntReportText.Text = $"提供者「{row.Name}」已{(record.Enabled ? "停用" : "啟用")}。";
+        ReloadEnterpriseProviders();
+    }
+
+    private void OnEntDeleteClicked(object sender, RoutedEventArgs e)
+    {
+        if (EnterpriseProviderList.SelectedItem is not EnterpriseProviderRow row)
+        {
+            EntReportText.Text = "請先選擇提供者";
+            return;
+        }
+
+        _providers.Delete(row.Id);
+        EntReportText.Text = $"已刪除提供者「{row.Name}」。";
+        ReloadEnterpriseProviders();
     }
 
     private void OnAuthEnabledChanged(object sender, RoutedEventArgs e)

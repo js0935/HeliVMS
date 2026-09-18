@@ -9,7 +9,7 @@ namespace HeliVMS.Storage;
 /// </summary>
 public sealed class SqliteStore : IDisposable
 {
-    private const int CurrentSchemaVersion = 15;
+    private const int CurrentSchemaVersion = 16;
     private readonly SqliteConnection _connection;
     private readonly object _gate = new();
     private bool _disposed;
@@ -127,6 +127,11 @@ public sealed class SqliteStore : IDisposable
         if (version < 15)
         {
             AddMapScaleV15();
+        }
+
+        if (version < 16)
+        {
+            CreateAuthProvidersTableV16();
         }
 
         Execute("PRAGMA user_version = CURRENT_SCHEMA_VERSION;".Replace(
@@ -484,6 +489,22 @@ public sealed class SqliteStore : IDisposable
     private void AddMapScaleV15()
     {
         Execute("ALTER TABLE maps ADD COLUMN scale_m_per_px REAL NOT NULL DEFAULT 0;");
+    }
+
+    /// <summary>M50 企業身份整合（§14.7 #1）：OIDC／LDAP 身分提供者。</summary>
+    private void CreateAuthProvidersTableV16()
+    {
+        Execute(
+            """
+            CREATE TABLE IF NOT EXISTS auth_providers (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                name        TEXT    NOT NULL UNIQUE COLLATE NOCASE,
+                kind        TEXT    NOT NULL CHECK (kind IN ('oidc', 'ldap')),
+                enabled     INTEGER NOT NULL DEFAULT 1,
+                config_json TEXT    NOT NULL,
+                created_at  TEXT    NOT NULL
+            );
+            """);
     }
 
     /// <summary>執行無回傳 SQL（呼叫端負責參數）。</summary>
