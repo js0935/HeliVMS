@@ -28,7 +28,7 @@ gh run list -L 3              # 預期全部 success
 - 前一個 M47 交付＝`f3c01e1`（警報管理器 Alarm Manager，見下方 §22 M47 定義段）、全 **299**、CI `35286083642` success
 - 前一個 M46 交付＝`c7f6e8f`（錄影遮蔽 Redaction，見下方 §21 M46 定義段）、全 **293**、CI `35284550851` success
 - 前一個 M45 交付＝`ef3a8bc`（備份與異地備援，見下方 §20 M45 定義段）、全 **289**、CI `35263453271` success
-- 進行中：**M50＝企業身份整合（OIDC SSO 核心＋LDAP 設定面）**（見下方 §25 M50 定義段）
+- 進行中：**M51＝外部安全共享（Share Link／無帳號分享）**（§14.7 #4 P1，見下方 §26 定義段）
 - 前一個 M38 交付＝`d09b045`（事件回應工作流，見下方 M38 定義段）、全 **172**、CI `35185639491` success
 - 前一個 M30 交付＝`24ad4c7`（MQTT 通知通道）：`NotificationSettings`＋
   `MqttEnabled/MqttHost/MqttPort(1883)/MqttTopic/MqttUser/MqttPassword`（鍵 `notify.mqtt.*`、
@@ -688,7 +688,22 @@ gh run list -L 3              # 預期全部 success
     - harness `ssoidcheck`→**SSOID_OK**（seed `--sso` 產 RSA＋JWKS＋有效/過期 token＋provider→設定頁驗清單→`auth.enabled=1` 重啟→LoginWindow 貼有效 token 登入成功→過期 token 被拒→還原 `auth.enabled=0`）連續 2 次
     - 回歸影響：schema v16；設定頁新增區塊（nav 數不變）；`auth.enabled` 預設 0，既有流程與 harness 不受影響；LDAP 目錄連線以 `ILdapBinder` 抽象（本里程碑完成設定／filter／角色對映，實際 AD 綁定由部署端提供）
     - 驗收：App Release 0 error、全 **400**、SSOID_OK ×2、回歸綠、CI **35293174402** success
-26. 每里程碑節奏照舊：定義先寫入本檔→實作→App Release build 0 error→單元測試→
+26. **M51 ＝外部安全共享（Share Link／無帳號分享）（§14.7 #4 P1：對標 Synology Share Link／Genetec Secure Share／Milestone；企業與法務常需把片段／證據以「連結＋到期＋密碼」分享給無帳號第三方）**：
+    - 背景：現有輸出僅本機檔案（匯出中心）與 `.evp` 證據包；無「產生一次性／限時連結供外部檢視下載」能力
+    - Storage schema **v17**：`share_links`（id, token UNIQUE, kind CHECK(segment|snapshot|evidence), resource_path, label, password_hash, created_at, created_by, expires_at, max_uses, use_count, revoked, last_used_at）
+    - Storage 新檔：
+      - `ShareLinkRepository`：`Add`／`GetByToken`／`List`／`ListActive(nowUtc)`／`IncrementUse`／`SetRevoked`／`Delete`／`PurgeExpired(nowUtc)`
+      - `ShareLinkService`：`ShareToken.Create()`（`RandomNumberGenerator` 32 bytes→base64url）；`Create(kind, path, label, createdBy, expiresAt, maxUses, password, allowedRoots)`（驗證 kind、路徑在允許根內且存在、可選 `PasswordHasher.Hash`）；`Evaluate(record, nowUtc, password)`→`ShareAccessResult{Ok,Error}`（revoked／過期／超次數／密碼）；`Revoke`／`PurgeExpired`
+      - 純函式 `SharePath.IsWithinRoot(root, path)`（`Path.GetFullPath` 正規化後前綴比對，拒 `..` 逃逸；大小寫不敏感）
+    - App：
+      - `ShareHost`（`System.Net.HttpListener`，綁 `http://localhost:{port}/`）：`GET /share/{token}` 下載、`GET /share/{token}/info` 摘要 JSON、`POST /share/{token}` 表單帶密碼；狀態碼 404（查無／撤銷）／410（過期）／401（密碼錯）／403（超次數）
+      - 設定頁「一般」新增分享服務區（`ShareEnabledBox`／`SharePortBox`／`ShareBaseUrlText`／套用鈕／狀態文字；預設 `share.enabled=0`）
+      - 匯出中心新增「建立分享連結」與「分享連結管理」（清單／複製連結／撤銷）；`--share` 命令列可開管理視窗
+    - 測試：`ShareLinkTests`（token 唯一且長度足夠、路徑逃逸拒絕、kind 驗證、過期／撤銷／超次數／密碼、`IncrementUse`、`PurgeExpired`、`ShareAccessResult`）；全 **400→約 430**
+    - harness `sharecheck`→**SHARE_OK**（seed 建分享指向 temp 檔→`share.enabled=1` 啟主機→HTTP 下載 200＋內容相符→錯 token 404→撤銷後 404→過期 410→`info` JSON 正確）連續 2 次
+    - 回歸影響：schema v17；HttpListener 預設關閉，不影響既有流程與 harness；CI 僅跑單元（無網路）；`PasswordHasher` 重用
+    - 驗收：App Release 0 error、全約 **430**、SHARE_OK ×2、回歸綠、CI 綠
+27. 每里程碑節奏照舊：定義先寫入本檔→實作→App Release build 0 error→單元測試→
     （有 UI 面者）E2E harness block→commit＋push＋CI success→`git status --porcelain` 空白
 
 ## 已知雷區（勿再犯）
