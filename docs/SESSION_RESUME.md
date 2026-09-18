@@ -6,15 +6,15 @@
 
 ## 一句話總結
 HeliVMS 為一套**網路影像監控系統**（WPF 桌面應用：即時監看／回放／AI 事件中心／錄影排程）。
-里程碑 **M1 至 M50 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M50 企業身份整合）。
-Release build 0 error、測試 **400/400 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
+里程碑 **M1 至 M51 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M51 外部安全共享）。
+Release build 0 error、測試 **425/425 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
 本地與遠端完全同步（`git diff origin/HEAD` 為空）。
 
 ## 開新 session 的接手方法
 ```powershell
 # 在 D:\HeliVMS 開新 session 時，先對新的 agent 講：
 git status                    # 預期為 empty（乾淨）
-git log --oneline -20         # 預期見到 M1..M50，HEAD＝M50
+git log --oneline -20         # 預期見到 M1..M51，HEAD＝M51
 git diff origin/HEAD          # 預期為空（同步）
 gh run list -L 3              # 預期全部 success
 ```
@@ -23,12 +23,13 @@ gh run list -L 3              # 預期全部 success
 新 session 會以 git 現況接手，不會靠猜測。
 
 ## 現況快照（權威來源＝git，非聊天記憶）
-- 最後 commit：`HEAD`＝**M50（`d43c058`）**——企業身份整合（OIDC SSO 核心＋LDAP 設定面）（見下方 §25 M50 定義段）；全 **400**、CI `35293174402` success
+- 最後 commit：`HEAD`＝**M51（`2dea00f`）**——外部安全共享（Share Link／無帳號分享 §14.7 #4 P1）（見下方 §26 M51 定義段）；全 **425**、CI `35294863720` success
+- 前一個 M50 交付＝`d43c058`（企業身份整合 OIDC SSO 核心＋LDAP 設定面，見下方 §25 M50 定義段）、全 **400**、CI `35293174402` success
 - 前一個 M48 交付＝`2f6508a`（魚眼矯正 Dewarping，見下方 §23 M48 定義段）、全 **308**、CI `35287346481` success
 - 前一個 M47 交付＝`f3c01e1`（警報管理器 Alarm Manager，見下方 §22 M47 定義段）、全 **299**、CI `35286083642` success
 - 前一個 M46 交付＝`c7f6e8f`（錄影遮蔽 Redaction，見下方 §21 M46 定義段）、全 **293**、CI `35284550851` success
 - 前一個 M45 交付＝`ef3a8bc`（備份與異地備援，見下方 §20 M45 定義段）、全 **289**、CI `35263453271` success
-- 進行中：**M51＝外部安全共享（Share Link／無帳號分享）**（§14.7 #4 P1，見下方 §26 定義段）
+- 下一個里程碑：**M52 待選**（M51 已完成驗收，見下方 §26 定義段）
 - 前一個 M38 交付＝`d09b045`（事件回應工作流，見下方 M38 定義段）、全 **172**、CI `35185639491` success
 - 前一個 M30 交付＝`24ad4c7`（MQTT 通知通道）：`NotificationSettings`＋
   `MqttEnabled/MqttHost/MqttPort(1883)/MqttTopic/MqttUser/MqttPassword`（鍵 `notify.mqtt.*`、
@@ -696,17 +697,19 @@ gh run list -L 3              # 預期全部 success
       - `ShareLinkService`：`ShareToken.Create()`（`RandomNumberGenerator` 32 bytes→base64url）；`Create(kind, path, label, createdBy, expiresAt, maxUses, password, allowedRoots)`（驗證 kind、路徑在允許根內且存在、可選 `PasswordHasher.Hash`）；`Evaluate(record, nowUtc, password)`→`ShareAccessResult{Ok,Error}`（revoked／過期／超次數／密碼）；`Revoke`／`PurgeExpired`
       - 純函式 `SharePath.IsWithinRoot(root, path)`（`Path.GetFullPath` 正規化後前綴比對，拒 `..` 逃逸；大小寫不敏感）
     - App：
-      - `ShareHost`（`System.Net.HttpListener`，綁 `http://localhost:{port}/`）：`GET /share/{token}` 下載、`GET /share/{token}/info` 摘要 JSON、`POST /share/{token}` 表單帶密碼；狀態碼 404（查無／撤銷）／410（過期）／401（密碼錯）／403（超次數）
+      - `ShareHost`（`System.Net.Sockets.TcpListener`，綁 loopback（避免 HttpListener 的 URL ACL 需求），位址 `http://localhost:{port}/`）：`GET /share/{token}` 下載、`GET /share/{token}/info` 摘要 JSON、`POST /share/{token}` 表單帶密碼；狀態碼 404（查無／撤銷／資源消失）／410（過期）／401（密碼錯）／403（超次數）／405（方法不允許）
       - 設定頁「一般」新增分享服務區（`ShareEnabledBox`／`SharePortBox`／`ShareBaseUrlText`／套用鈕／狀態文字；預設 `share.enabled=0`）
       - 匯出中心新增「建立分享連結」與「分享連結管理」（清單／複製連結／撤銷）；`--share` 命令列可開管理視窗
-    - 測試：`ShareLinkTests`（token 唯一且長度足夠、路徑逃逸拒絕、kind 驗證、過期／撤銷／超次數／密碼、`IncrementUse`、`PurgeExpired`、`ShareAccessResult`）；全 **400→約 430**
+    - 測試：`ShareLinkTests`（token 唯一且長度足夠、路徑逃逸拒絕、kind 驗證、過期／撤銷／超次數／密碼、`IncrementUse`、`PurgeExpired`、`ShareAccessResult`）；Storage 260→**285**、全 400→**425**
     - harness `sharecheck`→**SHARE_OK**（seed 建分享指向 temp 檔→`share.enabled=1` 啟主機→HTTP 下載 200＋內容相符→錯 token 404→撤銷後 404→過期 410→`info` JSON 正確）連續 2 次
-    - 回歸影響：schema v17；HttpListener 預設關閉，不影響既有流程與 harness；CI 僅跑單元（無網路）；`PasswordHasher` 重用
-    - 驗收：App Release 0 error、全約 **430**、SHARE_OK ×2、回歸綠、CI 綠
+    - 回歸影響：schema v17；`TcpListener` 預設關閉，不影響既有流程與 harness；CI 僅跑單元（無網路）；`PasswordHasher` 重用
+    - **已驗收**：App Release 0 error、測試 **425/425**（Storage 285、Alarms 108、Devices 24、Licensing 8）；harness `sharecheck`→**SHARE_OK ×2**、`sharewindowcheck`→**SHAREWIN_OK**；回歸 **ALARMMANAGER_OK／DEWARP_OK／MAPFOV_OK**；功能 `2dea00f`、CI `35294863720` success
 27. 每里程碑節奏照舊：定義先寫入本檔→實作→App Release build 0 error→單元測試→
     （有 UI 面者）E2E harness block→commit＋push＋CI success→`git status --porcelain` 空白
 
 ## 已知雷區（勿再犯）
+- **harness `.ps1` 必須存成 UTF-8 with BOM**：寫檔工具產出的是 UTF-8 無 BOM，含中文的 `.ps1` 會被 PowerShell 5.1 以 ANSI/Big5 誤讀而**靜默破壞解析**（症狀：`Start-Process` 看似無效、App 根本沒啟動、`Get-Process HeliVMS.App` 找不到）。修法：`[System.IO.File]::WriteAllText($p,[System.IO.File]::ReadAllText($p,[System.Text.Encoding]::UTF8),(New-Object System.Text.UTF8Encoding($true)))`（temp/opencode 有 `fix-encoding.ps1`）
+- **PowerShell 雙引號內 `$var?xxx` 的 `?` 是合法變數字元**：`"$url/$token?password=x"` 會把 `$token?password` 當成變數名（不存在→空字串），導致 token 遺失。改用 `${token}`（M51 `sharecheck` 實證）
 - **勿以 bash 對 repo 源碼做 byte 級重寫**（曾造成 UTF-8 漂移／mojibake 污染，已 `git restore` 還原）；
   改源碼一律用 read/edit tool
 - grep tool 對 harness 檔案可能出現「零結果」（權威＝`git show HEAD` 對 repo 檔；
