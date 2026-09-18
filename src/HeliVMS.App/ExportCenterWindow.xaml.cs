@@ -193,4 +193,20 @@ public partial class ExportCenterWindow : Window
         ExportCenterStatus.Text = $"已清除 {removed} 筆完成（done／failed）紀錄。";
         Reload();
     }
+
+    /// <summary>以選取工作之輸出檔建立分享連結（M51，§14.7 #4）。</summary>
+    private void OnShareClicked(object sender, RoutedEventArgs e)
+    {
+        string? path = null;
+        if (JobList.SelectedItem is JobItem { Job.OutputPath: { Length: > 0 } output })
+        {
+            path = output;
+        }
+
+        var window = new ShareWindow(_store, _dataRoot, path)
+        {
+            Owner = this,
+        };
+        window.Show();
+    }
 }

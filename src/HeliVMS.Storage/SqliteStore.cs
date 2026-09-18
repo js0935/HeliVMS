@@ -9,7 +9,7 @@ namespace HeliVMS.Storage;
 /// </summary>
 public sealed class SqliteStore : IDisposable
 {
-    private const int CurrentSchemaVersion = 16;
+    private const int CurrentSchemaVersion = 17;
     private readonly SqliteConnection _connection;
     private readonly object _gate = new();
     private bool _disposed;
@@ -132,6 +132,11 @@ public sealed class SqliteStore : IDisposable
         if (version < 16)
         {
             CreateAuthProvidersTableV16();
+        }
+
+        if (version < 17)
+        {
+            CreateShareLinksTableV17();
         }
 
         Execute("PRAGMA user_version = CURRENT_SCHEMA_VERSION;".Replace(
@@ -504,6 +509,30 @@ public sealed class SqliteStore : IDisposable
                 config_json TEXT    NOT NULL,
                 created_at  TEXT    NOT NULL
             );
+            """);
+    }
+
+    /// <summary>M51 外部安全共享（§14.7 #4）：具到期／次數／密碼／撤銷的分享連結。</summary>
+    private void CreateShareLinksTableV17()
+    {
+        Execute(
+            """
+            CREATE TABLE IF NOT EXISTS share_links (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                token         TEXT    NOT NULL UNIQUE,
+                kind          TEXT    NOT NULL CHECK (kind IN ('segment', 'snapshot', 'evidence')),
+                resource_path TEXT    NOT NULL,
+                label         TEXT,
+                password_hash TEXT,
+                created_at    TEXT    NOT NULL,
+                created_by    TEXT,
+                expires_at    TEXT,
+                max_uses      INTEGER NOT NULL DEFAULT 0,
+                use_count     INTEGER NOT NULL DEFAULT 0,
+                revoked       INTEGER NOT NULL DEFAULT 0,
+                last_used_at  TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_share_expires ON share_links(expires_at);
             """);
     }
 

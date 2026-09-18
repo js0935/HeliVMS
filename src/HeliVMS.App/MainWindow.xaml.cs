@@ -55,6 +55,7 @@ public partial class MainWindow : Window
     private NotificationService? _notify;
     private TrayIconHost? _tray;
     private IoMonitorHost? _ioHost;
+    private ShareHost? _shareHost;
     private bool _exiting;
 
     private static readonly SolidColorBrush BrOffline = new(Color.FromRgb(0x6B, 0x7B, 0x90));
@@ -308,6 +309,11 @@ public partial class MainWindow : Window
             Dispatcher.BeginInvoke(() => OpenDewarpWindow());
         }
 
+        if (Environment.GetCommandLineArgs().Contains("--share", StringComparer.OrdinalIgnoreCase))
+        {
+            Dispatcher.BeginInvoke(() => OpenShareWindow());
+        }
+
         if (Environment.GetCommandLineArgs().Contains("--map", StringComparer.OrdinalIgnoreCase))
         {
             Dispatcher.BeginInvoke(() => OpenMapWindow());
@@ -337,6 +343,9 @@ public partial class MainWindow : Window
         _ioHost = new IoMonitorHost(_store);
         _ioHost.RefreshAndStart();
         _ioHost.EventInserted += (_, record) => _notify?.Enqueue(record);
+
+        _shareHost = new ShareHost(_store);
+        _shareHost.ApplySettings(new SettingsRepository(_store));
 
         _scheduler = new RecordingScheduler(
             _store,
@@ -1021,6 +1030,21 @@ public partial class MainWindow : Window
         window.Show();
     }
 
+    /// <summary>開啟外部安全共享視窗（M51，§14.7 #4）。viewer 與匯出同權限限制。</summary>
+    private void OpenShareWindow()
+    {
+        if (!SessionContext.IsAdmin)
+        {
+            return;
+        }
+
+        var window = new ShareWindow(_store!, _dataRoot)
+        {
+            Owner = this,
+        };
+        window.Show();
+    }
+
     /// <summary>開啟匯出中心（M44，§14.3(2)）。viewer 與匯出精靈同權限限制。</summary>
     private void OpenExportCenterWindow()
     {
@@ -1063,7 +1087,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        var settings = new SettingsWindow(_store!, _dataRoot, _ioHost)
+        var settings = new SettingsWindow(_store!, _dataRoot, _ioHost, _shareHost)
         {
             Owner = this,
         };
@@ -1605,6 +1629,7 @@ public partial class MainWindow : Window
         _bgCts?.Dispose();
         _detWriter?.Dispose();
         _ioHost?.Dispose();
+        _shareHost?.Dispose();
         _notify?.Dispose();
         _manager?.Dispose();
         _store?.Dispose();

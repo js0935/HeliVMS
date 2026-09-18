@@ -83,6 +83,10 @@
             <Button x:Name="CenterPurgeButton" Content="清完成紀錄" Click="OnPurgeClicked"
                     Width="90" Padding="0,6" Margin="8,0,0,0"
                     Foreground="White" Background="#3A4A6A" BorderThickness="0"/>
+            <Button x:Name="ShareFromExportButton" AutomationProperties.AutomationId="ShareFromExportButton"
+                    Content="建立分享連結" Click="OnShareClicked"
+                    Width="100" Padding="0,6" Margin="8,0,0,0"
+                    Foreground="White" Background="#2A5C8A" BorderThickness="0"/>
         </StackPanel>
 
         <TextBlock Grid.Row="4" x:Name="ExportCenterStatus" AutomationProperties.AutomationId="ExportCenterStatus"

@@ -1,0 +1,98 @@
+<Window x:Class="HeliVMS.App.ShareWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        AutomationProperties.AutomationId="ShareWindow"
+        Title="HeliVMS 外部安全共享"
+        Width="800" Height="640"
+        WindowStartupLocation="CenterOwner"
+        Background="#0B1622" Foreground="White">
+
+    <Grid Margin="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- 建立分享 -->
+        <StackPanel Grid.Row="0">
+            <TextBlock Text="建立分享連結（到期／次數／密碼皆可選；連結供無帳號第三方下載）"
+                       Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+            <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                <TextBlock Text="資源路徑" VerticalAlignment="Center" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+                <TextBox x:Name="SharePathBox" AutomationProperties.AutomationId="SharePathBox"
+                         Width="520" Margin="8,0,0,0" VerticalContentAlignment="Center"
+                         Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
+                <Button x:Name="ShareBrowseButton" Content="瀏覽" Click="OnBrowseClicked"
+                        Width="60" Margin="8,0,0,0" Padding="0,6"
+                        Foreground="White" Background="#2A4A73" BorderThickness="0"/>
+            </StackPanel>
+
+            <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                <TextBlock Text="種類" VerticalAlignment="Center" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+                <ComboBox x:Name="ShareKindCombo" AutomationProperties.AutomationId="ShareKindCombo"
+                          Width="110" Margin="8,0,0,0" Foreground="Black"/>
+                <TextBlock Text="標籤" VerticalAlignment="Center" Margin="12,0,0,0"
+                           Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+                <TextBox x:Name="ShareLabelBox" Width="140" Margin="8,0,0,0" VerticalContentAlignment="Center"
+                         Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
+                <TextBlock Text="到期(時;0=不限)" VerticalAlignment="Center" Margin="12,0,0,0"
+                           Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+                <TextBox x:Name="ShareExpireBox" AutomationProperties.AutomationId="ShareExpireBox"
+                         Width="70" Margin="8,0,0,0" VerticalContentAlignment="Center"
+                         Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
+                <TextBlock Text="次數(0=不限)" VerticalAlignment="Center" Margin="12,0,0,0"
+                           Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+                <TextBox x:Name="ShareMaxUsesBox" Width="60" Margin="8,0,0,0" VerticalContentAlignment="Center"
+                         Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
+                <TextBlock Text="密碼" VerticalAlignment="Center" Margin="12,0,0,0"
+                           Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+                <PasswordBox x:Name="SharePasswordBox" Width="110" Margin="8,0,0,0" VerticalContentAlignment="Center"
+                             Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
+                <Button x:Name="ShareCreateButton" AutomationProperties.AutomationId="ShareCreateButton"
+                        Content="建立並複製連結" Click="OnCreateClicked"
+                        Margin="12,0,0,0" Padding="12,6"
+                        Foreground="White" Background="#2A5C8A" BorderThickness="0"/>
+            </StackPanel>
+        </StackPanel>
+
+        <!-- 連結清單 -->
+        <TextBlock Grid.Row="1" Text="現有分享連結" Foreground="{StaticResource Brand.TextDim}" FontSize="11" Margin="0,14,0,2"/>
+        <ListView Grid.Row="2" x:Name="ShareList" AutomationProperties.AutomationId="ShareList"
+                  Background="#0E1C30" BorderBrush="#2A4A73" Foreground="White">
+            <ListView.View>
+                <GridView>
+                    <GridViewColumn Header="ID" Width="44" DisplayMemberBinding="{Binding Id}"/>
+                    <GridViewColumn Header="摘要" Width="250" DisplayMemberBinding="{Binding Title}"/>
+                    <GridViewColumn Header="狀態" Width="150" DisplayMemberBinding="{Binding Detail}"/>
+                    <GridViewColumn Header="使用者" Width="110" DisplayMemberBinding="{Binding CreatedBy}"/>
+                </GridView>
+            </ListView.View>
+        </ListView>
+
+        <!-- 動作列 -->
+        <StackPanel Grid.Row="3" Orientation="Horizontal" Margin="0,10,0,0">
+            <Button x:Name="ShareRefreshButton" Content="刷新" Click="OnRefreshClicked"
+                    Width="64" Padding="0,6" Foreground="White" Background="#2A4A73" BorderThickness="0"/>
+            <Button x:Name="ShareCopyButton" AutomationProperties.AutomationId="ShareCopyButton"
+                    Content="複製連結" Click="OnCopyClicked"
+                    Width="80" Padding="0,6" Margin="8,0,0,0"
+                    Foreground="White" Background="#2A5C8A" BorderThickness="0"/>
+            <Button x:Name="ShareRevokeButton" AutomationProperties.AutomationId="ShareRevokeButton"
+                    Content="撤銷" Click="OnRevokeClicked"
+                    Width="64" Padding="0,6" Margin="8,0,0,0"
+                    Foreground="White" Background="#8A5C2E" BorderThickness="0"/>
+            <Button x:Name="ShareDeleteButton" Content="刪除" Click="OnDeleteClicked"
+                    Width="64" Padding="0,6" Margin="8,0,0,0"
+                    Foreground="White" Background="#8A3C2E" BorderThickness="0"/>
+            <Button x:Name="SharePurgeButton" Content="清除已過期" Click="OnPurgeClicked"
+                    Width="90" Padding="0,6" Margin="8,0,0,0"
+                    Foreground="White" Background="#3A4A6A" BorderThickness="0"/>
+        </StackPanel>
+
+        <TextBlock Grid.Row="4" x:Name="ShareStatusText" AutomationProperties.AutomationId="ShareStatusText"
+                   Margin="0,10,0,0" Foreground="#9FB8D8" TextWrapping="Wrap"/>
+    </Grid>
+</Window>

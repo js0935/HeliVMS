@@ -52,6 +52,28 @@
                 <TextBlock x:Name="SnapshotsRootText" Margin="0,2,0,14" TextWrapping="Wrap"/>
                 <TextBlock Text="提示：資料根目錄可由環境變數 HELIVMS_DATA 覆寫（唯讀）。"
                            Foreground="{StaticResource Brand.TextDim}" FontSize="11" TextWrapping="Wrap"/>
+
+                <TextBlock Text="外部安全共享服務（M51；僅綁定 localhost，供無帳號第三方以連結下載）"
+                           Foreground="{StaticResource Brand.TextDim}" FontSize="11" Margin="0,14,0,0"/>
+                <StackPanel Orientation="Horizontal" Margin="0,6,0,6">
+                    <CheckBox x:Name="ShareEnabledBox" AutomationProperties.AutomationId="ShareEnabledBox"
+                              Content="啟用分享服務" Foreground="White" VerticalAlignment="Center"/>
+                    <TextBlock Text="連接埠" VerticalAlignment="Center" Margin="12,0,0,0"
+                               Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+                    <TextBox x:Name="SharePortBox" AutomationProperties.AutomationId="SharePortBox"
+                             Width="70" Margin="8,0,0,0" VerticalContentAlignment="Center"
+                             Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
+                    <TextBlock Text="對外網址(空=localhost)" VerticalAlignment="Center" Margin="12,0,0,0"
+                               Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+                    <TextBox x:Name="ShareBaseUrlBox" AutomationProperties.AutomationId="ShareBaseUrlBox"
+                             Width="200" Margin="8,0,0,0" VerticalContentAlignment="Center"
+                             Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
+                    <Button x:Name="ShareApplyButton" AutomationProperties.AutomationId="ShareApplyButton"
+                            Content="套用" Click="OnApplyShareClicked" Margin="12,0,0,0" Padding="12,6"
+                            Foreground="White" Background="#2A5C8A" BorderThickness="0"/>
+                </StackPanel>
+                <TextBlock x:Name="ShareServiceStatusText" AutomationProperties.AutomationId="ShareServiceStatusText"
+                           Foreground="#9FB8D8" TextWrapping="Wrap"/>
             </StackPanel>
 
             <!-- 儲存 -->

@@ -63,8 +63,9 @@ public partial class SettingsWindow : Window
     private readonly UserRepository _users;
     private readonly EnterpriseAuthService _enterprise;
     private readonly AuthProviderRepository _providers;
+    private readonly ShareHost? _shareHost;
 
-    public SettingsWindow(SqliteStore store, string dataRoot, IoMonitorHost? ioHost = null)
+    public SettingsWindow(SqliteStore store, string dataRoot, IoMonitorHost? ioHost = null, ShareHost? shareHost = null)
     {
         _store = store;
         _dataRoot = dataRoot;
@@ -79,6 +80,7 @@ public partial class SettingsWindow : Window
         _users = new UserRepository(store);
         _enterprise = new EnterpriseAuthService(store);
         _providers = new AuthProviderRepository(store);
+        _shareHost = shareHost;
 
         InitializeComponent();
         MapPinCanvas.MouseLeftButtonUp += OnMapPinCanvasClick;
@@ -104,6 +106,7 @@ public partial class SettingsWindow : Window
         ReloadUsers();
         ReloadEnterpriseProviders();
         ReloadBackup();
+        ReloadShare();
 
         SettingsNav.SelectedIndex = 0;
     }
@@ -165,6 +168,35 @@ public partial class SettingsWindow : Window
         {
             BackupStatusText.Text = "設定已儲存。";
         }
+    }
+
+    /// <summary>載入分享服務設定（M51，§14.7 #4）。</summary>
+    private void ReloadShare()
+    {
+        ShareEnabledBox.IsChecked = _settings.Get(ShareHost.EnabledKey) == "1";
+        SharePortBox.Text = _settings.Get(ShareHost.PortKey) ?? ShareHost.DefaultPort.ToString(CultureInfo.InvariantCulture);
+        ShareBaseUrlBox.Text = _settings.Get(ShareHost.BaseUrlKey) ?? string.Empty;
+        ShareServiceStatusText.Text = _shareHost?.IsRunning == true
+            ? $"分享服務：執行中（連接埠 {_shareHost.Port}）"
+            : "分享服務：未啟動";
+    }
+
+    /// <summary>儲存並即時套用分享服務設定（M51，§14.7 #4）。</summary>
+    private void OnApplyShareClicked(object sender, RoutedEventArgs e)
+    {
+        if (!int.TryParse(SharePortBox.Text, out var port) || port is <= 0 or > 65535)
+        {
+            ShareServiceStatusText.Text = "連接埠需為 1～65535。";
+            return;
+        }
+
+        _settings.Set(ShareHost.EnabledKey, ShareEnabledBox.IsChecked == true ? "1" : "0");
+        _settings.Set(ShareHost.PortKey, port.ToString(CultureInfo.InvariantCulture));
+        _settings.Set(ShareHost.BaseUrlKey, ShareBaseUrlBox.Text.Trim());
+
+        ShareServiceStatusText.Text = _shareHost is null
+            ? "設定已儲存（分享服務將於下次啟動應用程式時生效）。"
+            : _shareHost.ApplySettings(_settings);
     }
 
     private void OnBackupBrowseClicked(object sender, RoutedEventArgs e)
