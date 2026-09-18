@@ -6,15 +6,15 @@
 
 ## 一句話總結
 HeliVMS 為一套**網路影像監控系統**（WPF 桌面應用：即時監看／回放／AI 事件中心／錄影排程）。
-里程碑 **M1 至 M48 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M48 魚眼矯正）。
-Release build 0 error、測試 **308/308 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
+里程碑 **M1 至 M49 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M49 智慧地圖深化）。
+Release build 0 error、測試 **346/346 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
 本地與遠端完全同步（`git diff origin/HEAD` 為空）。
 
 ## 開新 session 的接手方法
 ```powershell
 # 在 D:\HeliVMS 開新 session 時，先對新的 agent 講：
 git status                    # 預期為 empty（乾淨）
-git log --oneline -20         # 預期見到 M1..M48，HEAD＝M48
+git log --oneline -20         # 預期見到 M1..M49，HEAD＝M49
 git diff origin/HEAD          # 預期為空（同步）
 gh run list -L 3              # 預期全部 success
 ```
@@ -23,12 +23,12 @@ gh run list -L 3              # 預期全部 success
 新 session 會以 git 現況接手，不會靠猜測。
 
 ## 現況快照（權威來源＝git，非聊天記憶）
-- 最後 commit：`HEAD`＝**M48（`2f6508a`）**——魚眼矯正（Dewarping／全景校正）（見下方 §23 M48 定義段）；全 **308**、CI `35287346481` success
+- 最後 commit：`HEAD`＝**M49（`d201bc3`）**——智慧地圖深化（視角扇形 FOV/深度＋比例尺）（見下方 §24 M49 定義段）；全 **346**、CI `35289916444` success
+- 前一個 M48 交付＝`2f6508a`（魚眼矯正 Dewarping，見下方 §23 M48 定義段）、全 **308**、CI `35287346481` success
 - 前一個 M47 交付＝`f3c01e1`（警報管理器 Alarm Manager，見下方 §22 M47 定義段）、全 **299**、CI `35286083642` success
 - 前一個 M46 交付＝`c7f6e8f`（錄影遮蔽 Redaction，見下方 §21 M46 定義段）、全 **293**、CI `35284550851` success
 - 前一個 M45 交付＝`ef3a8bc`（備份與異地備援，見下方 §20 M45 定義段）、全 **289**、CI `35263453271` success
-- 進行中：**M49＝智慧地圖深化（視角扇形 FOV/深度＋比例尺）**（見下方 §24 M49 定義段）
-- 前一個 M41 交付＝`2d89ea7`（電子地圖/平面圖）、全 **222**、CI `35232094120` success
+- 下一個里程碑：待選（§14.7 尚餘 **#1 企業身份整合 LDAP/AD/OIDC SSO** 等 P1）
 - 前一個 M38 交付＝`d09b045`（事件回應工作流，見下方 M38 定義段）、全 **172**、CI `35185639491` success
 - 前一個 M30 交付＝`24ad4c7`（MQTT 通知通道）：`NotificationSettings`＋
   `MqttEnabled/MqttHost/MqttPort(1883)/MqttTopic/MqttUser/MqttPassword`（鍵 `notify.mqtt.*`、
@@ -647,7 +647,11 @@ gh run list -L 3              # 預期全部 success
     - 回歸影響：MainWindow 新增工具列按鈕；**無 New DB 表**（不涉 schema，維持 v14）
     - 驗收：App Release 0 error、全 **308**（Storage 168＋Alarms 108＋Licensing 8＋Devices 24）、DEWARP_OK（連續 2 次綠）、`redactioncheck` REDACTION_OK＋`alarmmanagercheck` ALARMMANAGER_OK 回歸綠、CI `35287346481` success
     - 附帶修正（`79b47f4`）：`MotionEventEngine` 支援可注入時鐘（ctor 選用 `utcNow`，預設 `DateTime.UtcNow` 行為不變）——`MotionEventEngineTests.BriefBlip_BelowMinDuration_Discarded` 原依賴真實 `Task.Delay(150)`，CI 執行緒延遲使其實際達 1015ms > `MinEventMs`(400) 而誤判為事件（CI `35287015216` 失敗）；改為固定時鐘僅推進 150ms
-24. **M49 進行中＝智慧地圖深化（視角扇形 FOV/深度＋比例尺）（§14.7 #11 P2「視角扇形 FOV/深度」承 §16.1；M41 已落地地圖/圖釘/扇形，但半徑固定 70px、`fov_depth` 未使用、UI 無法編輯角度/FOV/深度且無比例尺）**：
+24. **M49 已驗收＝智慧地圖深化（視角扇形 FOV/深度＋比例尺）（§14.7 #11 P2「視角扇形 FOV/深度」承 §16.1；M41 已落地地圖/圖釘/扇形，但半徑固定 70px、`fov_depth` 未使用、UI 無法編輯角度/FOV/深度且無比例尺）**：
+    - **交付**：功能＋測試 `d201bc3`（CI `35289916444` success）；docs 定義 `78e6ce2`；本 snapshot 段。
+    - **結果**：App Release build **0 error**、測試 **346/346**（Storage **206**＋Alarms 108＋Devices 24＋Licensing 8）、
+      harness `mapfovcheck`→**MAPFOV_OK 連續 2 次**（`db=DUMP_OK:scale=0.05;angle=45;fov=120;depth=5`、`map-scale=比例：0.05 m/px｜扇形半徑：100 px`）；
+      回歸 **ALARMMANAGER_OK**（`rows=2`）／**DEWARP_OK**；`git status --porcelain` 空白。
     - 背景：M41 `MapWindow.CreateCameraPin` 以固定半徑 70px 畫扇形（`MapDeviceRecord.FovDepth` 被忽略），且設定頁地圖圖釘只有種類/通道/位置，無 angle/fov/depth 編輯 → 覆蓋範圍無法反映真實尺度；本里程碑補「深度→像素半徑」與比例尺標定
     - Storage schema **v15**：`maps` 加 `scale_m_per_px REAL NOT NULL DEFAULT 0`（0＝未標定；每像素代表公尺）
     - `MapRepository`：`MapRecord` 追加 `ScaleMPerPx`；`SetMapScale(mapId, mPerPx)`（負值 throw）；`ListMaps`/`GetMap` SELECT 帶入；`UpdateDeviceGeometry(id, angle, fovDeg, fovDepth)`（超界 throw）
@@ -660,7 +664,7 @@ gh run list -L 3              # 預期全部 success
     - 測試：新 `MapGeometryTests`（Storage.Tests：角度正規化/FOV 與深度 clamp/八方位/半徑＝depth÷scale、無比例回退、極小 scale 上限）；`MapRepositoryTests` 擴充（`SetMapScale` round-trip＋負值 throw、`UpdateDeviceGeometry` round-trip＋超界 throw、`MapRecord.ScaleMPerPx`）；全 **308→約 320**
     - harness `mapfovcheck`→**MAPFOV_OK**（走 UI 真 DB）：seed 地圖（temp console 插 `maps` 列＋產 PNG）→`--settings` 地圖頁→選地圖→`MapScaleBox=0.05`→套用比例→`MapPinKindCombo=camera`→選通道→`MapPinAngleBox=45`/`Fov=120`/`Depth=5`→於 `MapPinCanvas` 放置→`MapPinList` 選列→套用幾何→`MapReportText` 含「已更新幾何」→DB 驗 `maps.scale_m_per_px=0.05` 與 `map_devices` angle/fov/depth→開 `MapWindow`（`--map`）→`MapScaleText` 含「0.05」→MAPFOV_OK 連續 2 次
     - 回歸影響：schema v15（舊庫自動升版）；設定頁新增欄位；`MapWindow` 需新增 `--map` 命令列旗標（目前僅主視窗「地圖」鈕）
-    - 驗收：App Release 0 error、全約 **320**、MAPFOV_OK（連續 2 次綠）、回歸綠、CI 綠
+    - 驗收：App Release 0 error、全 **346**（≈320）、MAPFOV_OK（連續 2 次綠）、回歸綠、CI 綠
 25. 每里程碑節奏照舊：定義先寫入本檔→實作→App Release build 0 error→單元測試→
     （有 UI 面者）E2E harness block→commit＋push＋CI success→`git status --porcelain` 空白
 
