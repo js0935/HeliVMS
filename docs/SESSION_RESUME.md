@@ -29,7 +29,7 @@ gh run list -L 3              # 預期全部 success
 - 前一個 M47 交付＝`f3c01e1`（警報管理器 Alarm Manager，見下方 §22 M47 定義段）、全 **299**、CI `35286083642` success
 - 前一個 M46 交付＝`c7f6e8f`（錄影遮蔽 Redaction，見下方 §21 M46 定義段）、全 **293**、CI `35284550851` success
 - 前一個 M45 交付＝`ef3a8bc`（備份與異地備援，見下方 §20 M45 定義段）、全 **289**、CI `35263453271` success
-- 下一個里程碑：**M52 待選**（M51 已完成驗收，見下方 §26 定義段）
+- 進行中：**M52＝模組化分析情境套件（Analytics Modules）**（§14.7 #6 P2，見下方 §27 定義段）
 - 前一個 M38 交付＝`d09b045`（事件回應工作流，見下方 M38 定義段）、全 **172**、CI `35185639491` success
 - 前一個 M30 交付＝`24ad4c7`（MQTT 通知通道）：`NotificationSettings`＋
   `MqttEnabled/MqttHost/MqttPort(1883)/MqttTopic/MqttUser/MqttPassword`（鍵 `notify.mqtt.*`、
@@ -704,7 +704,20 @@ gh run list -L 3              # 預期全部 success
     - harness `sharecheck`→**SHARE_OK**（seed 建分享指向 temp 檔→`share.enabled=1` 啟主機→HTTP 下載 200＋內容相符→錯 token 404→撤銷後 404→過期 410→`info` JSON 正確）連續 2 次
     - 回歸影響：schema v17；`TcpListener` 預設關閉，不影響既有流程與 harness；CI 僅跑單元（無網路）；`PasswordHasher` 重用
     - **已驗收**：App Release 0 error、測試 **425/425**（Storage 285、Alarms 108、Devices 24、Licensing 8）；harness `sharecheck`→**SHARE_OK ×2**、`sharewindowcheck`→**SHAREWIN_OK**；回歸 **ALARMMANAGER_OK／DEWARP_OK／MAPFOV_OK**；功能 `2dea00f`、CI `35294863720` success
-27. 每里程碑節奏照舊：定義先寫入本檔→實作→App Release build 0 error→單元測試→
+27. **M52 ＝模組化分析情境套件（Analytics Modules）（§14.7 #6 P2；§5.6 落地）**：
+    - 背景：對標 Genetec KiwiVision 等以「場景情境模組」販售，全部以幾何規則引擎組合、不寫死。本里程碑落地 §5.6 的 P2 三模組：**周界跨線（line_cross）／區域侵入（intrusion）／人群聚集（crowd）**；靜止車/尾隨/車流/徘徊（需跨幀追蹤）留待後續
+    - Storage schema **v18**：`analytics_zones`（id, name, channel_id, module CHECK IN('line_cross','intrusion','crowd','loitering','stationary'), enabled, polygon_json, direction CHECK IN('both','a_to_b','b_to_a'), min_count, dwell_seconds, created_at）；`AnalyticsZoneRepository`（Add／List／ListByChannel／Get／Update／SetEnabled／Delete；module／direction 驗證；polygon 以 `"x,y;x,y;…"` 正規化 0..1 存取）
+    - **HeliVMS.Alarms 新檔**：
+      - `AnalyticsGeometry`：`NormalizedPoint(X,Y)`；`ParsePoints`／`FormatPoints`；`IsValidPolygon`（≥3 點且座標於 [0,1]）；`PointInPolygon`（射線法，含邊界）；`SegmentIntersects`；`SignedSide`（點在線段左／右）；`Area`（鞋帶公式）
+      - `AnalyticsZone`（Id／Name／ChannelId／Module／Enabled／Polygon／Direction／MinCount／DwellSeconds）＋`AnalyticsModuleCatalog`（模組 id／顯示名／事件類型／授權 feature：`analytics.line_cross`／`analytics.intrusion`／`analytics.crowd`）
+      - `AnalyticsDetection(Class, X, Y, Confidence, TrackId?)`（**中心點**正規化）＋`AnalyticsResult(Module, EventType, ZoneId, ZoneName, ChannelId, TrackId?, Count, Detail)`
+      - `AnalyticsZoneEvaluator`（有狀態逐幀）：intrusion（以 track／class+格位追蹤 inside 集合，產生進入／離開）、line_cross（polygon 前 2 點為線段，依前一幀側向判方向並支援 direction；track_id 去重）、crowd（zone 內數量 ≥ min_count，連續 N 幀去抖動）；`Reset()`
+      - `AnalyticsEventEngine`（ctor(store, snapshotDir)；`LoadZones()`；`OnDetections(channelId, DetectionsFrame)`：以 `Detection` 中心 `(X+W/2, Y+H/2)` 評估，並以 `AlarmEventRepository.Insert` 寫 `ai_line_cross`／`ai_intrusion`／`ai_crowd`，detail 含 zone 名）
+    - **App**：`AnalyticsWindow`（`--analytics`；admin 限制）：zone 清單（通道／模組／點數／啟用）、新增區（名稱／通道 Combo／模組 Combo／多邊形點文字／方向／min_count／dwell）、簡易 `AnalyticsCanvas` 點擊加點顯示、啟用停用／刪除、「測試評估」按鈕（以假偵測跑 evaluator 並輸出 `AnalyticsReportText`）；MainWindow 建立 `AnalyticsEventEngine` 並於 `OnManagerAiDetections` 轉呼叫（真實偵測到位時觸發）
+    - 測試：`AnalyticsGeometryTests`、`AnalyticsZoneEvaluatorTests`、`AnalyticsZoneRepositoryTests`、`AnalyticsEventEngineTests`（約 +45；Storage／Alarms 增加；總 425→約 **470**）
+    - harness `analyticscheck`→**ANALYTICS_OK**（seed 建 zone→開 `--analytics`→列出現→UI 新增 zone→測試評估命中→DB 驗證）；回歸 **ALARMMANAGER／DEWARP／MAPFOV／SHARE**
+    - 驗收：App Release 0 error、全約 **470**、ANALYTICS_OK、回歸綠、CI 綠
+28. 每里程碑節奏照舊：定義先寫入本檔→實作→App Release build 0 error→單元測試→
     （有 UI 面者）E2E harness block→commit＋push＋CI success→`git status --porcelain` 空白
 
 ## 已知雷區（勿再犯）
