@@ -9,7 +9,7 @@ namespace HeliVMS.Storage;
 /// </summary>
 public sealed class SqliteStore : IDisposable
 {
-    private const int CurrentSchemaVersion = 14;
+    private const int CurrentSchemaVersion = 15;
     private readonly SqliteConnection _connection;
     private readonly object _gate = new();
     private bool _disposed;
@@ -122,6 +122,11 @@ public sealed class SqliteStore : IDisposable
         if (version < 14)
         {
             CreateAlarmTriageTableV14();
+        }
+
+        if (version < 15)
+        {
+            AddMapScaleV15();
         }
 
         Execute("PRAGMA user_version = CURRENT_SCHEMA_VERSION;".Replace(
@@ -473,6 +478,12 @@ public sealed class SqliteStore : IDisposable
             );
             CREATE INDEX IF NOT EXISTS idx_triage_due ON alarm_triage(due_utc);
             """);
+    }
+
+    /// <summary>M49 智慧地圖（§14.7 #11）：地圖比例尺（每像素公尺；0＝未標定）。</summary>
+    private void AddMapScaleV15()
+    {
+        Execute("ALTER TABLE maps ADD COLUMN scale_m_per_px REAL NOT NULL DEFAULT 0;");
     }
 
     /// <summary>執行無回傳 SQL（呼叫端負責參數）。</summary>

@@ -36,6 +36,7 @@ public partial class MapWindow : Window
     private double _panH;
     private double _panV;
     private double _zoom = 1.0;
+    private double _scaleMPerPx;
 
     /// <summary>待定位（開窗時由事件中心呼叫）。</summary>
     private int? _locateChannelId;
@@ -200,6 +201,9 @@ public partial class MapWindow : Window
 
         MapStatusText.Text = $"{map.Name} · {w}×{h}";
 
+        _scaleMPerPx = map.ScaleMPerPx;
+        UpdateScaleText(mapId, map);
+
         LoadPins(mapId);
 
         Dispatcher.BeginInvoke(() =>
@@ -215,6 +219,16 @@ public partial class MapWindow : Window
             _locateChannelId = null;
             FlashPinFor(id, type);
         }
+    }
+
+    private void UpdateScaleText(int mapId, MapRecord map)
+    {
+        var cam = _maps.ListDevices(mapId)
+            .FirstOrDefault(x => x.DeviceType == "camera" && x.Enabled);
+        var radius = cam is null
+            ? MapGeometry.DefaultSectorRadiusPixels
+            : MapGeometry.SectorRadiusPixels(cam.FovDepth, map.ScaleMPerPx);
+        MapScaleText.Text = $"比例：{MapGeometry.ScaleLabel(map.ScaleMPerPx)}｜扇形半徑：{radius:0.#} px";
     }
 
     private void LoadPins(int mapId)
@@ -265,12 +279,13 @@ public partial class MapWindow : Window
         var cx = d.X * MapCanvas.Width;
         var cy = d.Y * MapCanvas.Height;
 
+        var radius = MapGeometry.SectorRadiusPixels(d.FovDepth, _scaleMPerPx);
         var sector = new Path
         {
             Fill = new SolidColorBrush(Color.FromArgb(70, 245, 158, 11)),
             Stroke = new SolidColorBrush(Color.FromArgb(120, 245, 158, 11)),
             StrokeThickness = 1,
-            Data = CreateSector(cx, cy, d.Angle, d.FovDeg, 70),
+            Data = CreateSector(cx, cy, d.Angle, d.FovDeg, radius),
         };
         Canvas.SetLeft(sector, 0);
         Canvas.SetTop(sector, 0);
@@ -289,7 +304,7 @@ public partial class MapWindow : Window
         var root = new Grid { Width = 14, Height = 14 };
         Canvas.SetLeft(root, cx - 7);
         Canvas.SetTop(root, cy - 7);
-        root.ToolTip = name;
+        root.ToolTip = $"{name} · {MapGeometry.Bearing(d.Angle)} {d.Angle:0.#}°／FOV {d.FovDeg:0.#}°／深度 {d.FovDepth:0.#} m";
         root.Tag = $"camera:{d.ChannelId}";
         root.MouseLeftButtonUp += OnPinClick;
         root.Children.Add(sector);

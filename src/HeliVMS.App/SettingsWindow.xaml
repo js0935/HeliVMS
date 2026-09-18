@@ -572,6 +572,7 @@
                             <GridViewColumn Header="尺寸" Width="90" DisplayMemberBinding="{Binding SizeLabel}"/>
                             <GridViewColumn Header="啟用" Width="70" DisplayMemberBinding="{Binding EnabledLabel}"/>
                             <GridViewColumn Header="順序" Width="56" DisplayMemberBinding="{Binding SortOrder}"/>
+                            <GridViewColumn Header="比例" Width="80" DisplayMemberBinding="{Binding ScaleLabel}"/>
                         </GridView>
                     </ListView.View>
                 </ListView>
@@ -580,6 +581,22 @@
                             Padding="8,4" Foreground="White" Background="#3A5A7A" BorderThickness="0"/>
                     <Button x:Name="MapDeleteButton" Content="刪除地圖（含圖釘）" Click="OnMapDeleteClicked" Margin="6,0,0,0"
                             Padding="8,4" Foreground="White" Background="#8A3C2E" BorderThickness="0"/>
+                </StackPanel>
+
+                <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
+                    <TextBlock Text="比例尺" Foreground="{StaticResource Brand.TextDim}" FontSize="11"
+                               VerticalAlignment="Center"/>
+                    <TextBox x:Name="MapScaleBox" AutomationProperties.AutomationId="MapScaleBox" Width="72"
+                             Margin="6,0,0,0" Padding="6,3" ToolTip="每像素代表公尺（0＝未標定）"
+                             Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
+                    <TextBlock Text="m/px" Foreground="{StaticResource Brand.TextDim}" FontSize="11"
+                               Margin="6,0,0,0" VerticalAlignment="Center"/>
+                    <Button x:Name="MapApplyScaleButton" AutomationProperties.AutomationId="MapApplyScaleButton"
+                            Content="套用比例" Click="OnMapApplyScaleClicked" Margin="10,0,0,0" Padding="8,4"
+                            Foreground="White" Background="#3A5A7A" BorderThickness="0"/>
+                    <TextBlock Text="（依深度換算扇形半徑；未標定時以固定半徑顯示）"
+                               Foreground="{StaticResource Brand.TextDim}" FontSize="11"
+                               Margin="10,0,0,0" VerticalAlignment="Center"/>
                 </StackPanel>
 
                 <TextBlock Text="圖釘編輯（鏡頭／IO）" FontSize="14" FontWeight="Bold" Margin="0,4,0,6"/>
@@ -597,6 +614,30 @@
                 <TextBlock Text="選擇種類與通道後，點擊下方地圖畫布即放置圖釘；拖曳圖釘可微調位置後放開即儲存。"
                            Foreground="{StaticResource Brand.TextDim}" FontSize="11" Margin="0,0,0,4" TextWrapping="Wrap"/>
 
+                <WrapPanel Margin="0,0,0,4">
+                    <TextBlock Text="角度" Foreground="{StaticResource Brand.TextDim}" FontSize="11"
+                               VerticalAlignment="Center"/>
+                    <TextBox x:Name="MapPinAngleBox" AutomationProperties.AutomationId="MapPinAngleBox" Width="52"
+                             Margin="6,0,0,0" Padding="6,3" ToolTip="視角中線角度（0＝正右、順時針）"
+                             Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
+                    <TextBlock Text="FOV" Foreground="{StaticResource Brand.TextDim}" FontSize="11"
+                               Margin="10,0,0,0" VerticalAlignment="Center"/>
+                    <TextBox x:Name="MapPinFovBox" AutomationProperties.AutomationId="MapPinFovBox" Width="52"
+                             Margin="6,0,0,0" Padding="6,3" ToolTip="視角張角（1–360 度）"
+                             Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
+                    <TextBlock Text="深度 m" Foreground="{StaticResource Brand.TextDim}" FontSize="11"
+                               Margin="10,0,0,0" VerticalAlignment="Center"/>
+                    <TextBox x:Name="MapPinDepthBox" AutomationProperties.AutomationId="MapPinDepthBox" Width="52"
+                             Margin="6,0,0,0" Padding="6,3" ToolTip="覆蓋深度（0–1000 公尺）"
+                             Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
+                    <Button x:Name="MapApplyGeometryButton" AutomationProperties.AutomationId="MapApplyGeometryButton"
+                            Content="套用幾何" Click="OnMapApplyGeometryClicked" Margin="10,0,0,0" Padding="8,4"
+                            Foreground="White" Background="#3A5A7A" BorderThickness="0"/>
+                    <TextBlock Text="（套用至上方清單選取的圖釘；放置新圖釘時亦採用）"
+                               Foreground="{StaticResource Brand.TextDim}" FontSize="11"
+                               Margin="10,0,0,0" VerticalAlignment="Center"/>
+                </WrapPanel>
+
                 <Border Height="210" Background="#080F1A" BorderBrush="#1F3A5F" BorderThickness="1" VerticalAlignment="Top">
                     <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
                         <Canvas x:Name="MapPinCanvas" AutomationProperties.AutomationId="MapPinCanvas">
@@ -612,7 +653,11 @@
                         <GridView>
                             <GridViewColumn Header="類型" Width="64" DisplayMemberBinding="{Binding DeviceType}"/>
                             <GridViewColumn Header="頻道" Width="60" DisplayMemberBinding="{Binding ChannelId}"/>
-                            <GridViewColumn Header="位置(x,y)" Width="130" DisplayMemberBinding="{Binding PositionLabel}"/>
+                            <GridViewColumn Header="位置(x,y)" Width="112" DisplayMemberBinding="{Binding PositionLabel}"/>
+                            <GridViewColumn Header="角度" Width="52" DisplayMemberBinding="{Binding AngleLabel}"/>
+                            <GridViewColumn Header="FOV" Width="48" DisplayMemberBinding="{Binding FovLabel}"/>
+                            <GridViewColumn Header="深度" Width="52" DisplayMemberBinding="{Binding DepthLabel}"/>
+                            <GridViewColumn Header="方位" Width="48" DisplayMemberBinding="{Binding BearingLabel}"/>
                             <GridViewColumn Header="啟用" Width="52" DisplayMemberBinding="{Binding EnabledLabel}"/>
                             <GridViewColumn Header="名稱" Width="150" DisplayMemberBinding="{Binding Name}"/>
                         </GridView>

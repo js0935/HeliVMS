@@ -11,7 +11,8 @@ public sealed record MapRecord(
     int Width,
     int Height,
     bool Enabled,
-    int SortOrder);
+    int SortOrder,
+    double ScaleMPerPx);
 
 /// <summary>地圖上一個圖釘：camera→channels.id、io→io_channels.id。座標為 0..1 比例。</summary>
 public sealed record MapDeviceRecord(
@@ -67,7 +68,7 @@ public sealed class MapRepository
     {
         return _store.Query(
             """
-            SELECT id, name, type, image_path, width, height, enabled, sort_order
+            SELECT id, name, type, image_path, width, height, enabled, sort_order, scale_m_per_px
             FROM maps ORDER BY sort_order, id;
             """,
             static r =>
@@ -87,7 +88,7 @@ public sealed class MapRepository
     {
         return _store.Query(
             """
-            SELECT id, name, type, image_path, width, height, enabled, sort_order
+            SELECT id, name, type, image_path, width, height, enabled, sort_order, scale_m_per_px
             FROM maps WHERE id = $id;
             """,
             static r => r.Read() ? ReadMap(r) : null,
@@ -102,6 +103,23 @@ public sealed class MapRepository
             cmd =>
             {
                 cmd.Parameters.AddWithValue("$e", enabled ? 1 : 0);
+                cmd.Parameters.AddWithValue("$id", id);
+            });
+    }
+
+    /// <summary>設定地圖比例尺（每像素公尺；0＝未標定；負值 throw）。</summary>
+    public void SetMapScale(int id, double metersPerPixel)
+    {
+        if (double.IsNaN(metersPerPixel) || double.IsInfinity(metersPerPixel) || metersPerPixel < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(metersPerPixel), "比例尺需為非負數（0＝未標定）。");
+        }
+
+        _store.Execute(
+            "UPDATE maps SET scale_m_per_px = $s WHERE id = $id;",
+            cmd =>
+            {
+                cmd.Parameters.AddWithValue("$s", metersPerPixel);
                 cmd.Parameters.AddWithValue("$id", id);
             });
     }
@@ -196,6 +214,21 @@ public sealed class MapRepository
             });
     }
 
+    /// <summary>更新圖釘視角幾何（角度以 0°＝正右、順時針；FOV/深度超界 throw）。</summary>
+    public void UpdateDeviceGeometry(int id, double angle, double fovDeg, double fovDepth)
+    {
+        var normalized = MapGeometry.ValidateGeometry(angle, fovDeg, fovDepth);
+        _store.Execute(
+            "UPDATE map_devices SET angle = $a, fov_deg = $fd, fov_depth = $fp WHERE id = $id;",
+            cmd =>
+            {
+                cmd.Parameters.AddWithValue("$a", normalized);
+                cmd.Parameters.AddWithValue("$fd", fovDeg);
+                cmd.Parameters.AddWithValue("$fp", fovDepth);
+                cmd.Parameters.AddWithValue("$id", id);
+            });
+    }
+
     /// <summary>啟用/停用圖釘（停用＝地圖檢視不顯示）。</summary>
     public void SetDeviceEnabled(int id, bool enabled)
     {
@@ -246,7 +279,8 @@ public sealed class MapRepository
             r.GetInt32(4),
             r.GetInt32(5),
             r.GetInt32(6) != 0,
-            r.GetInt32(7));
+            r.GetInt32(7),
+            r.GetDouble(8));
 
     private static MapDeviceRecord ReadDevice(SqliteDataReader r)
         => new(

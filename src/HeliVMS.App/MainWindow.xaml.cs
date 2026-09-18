@@ -308,6 +308,11 @@ public partial class MainWindow : Window
             Dispatcher.BeginInvoke(() => OpenDewarpWindow());
         }
 
+        if (Environment.GetCommandLineArgs().Contains("--map", StringComparer.OrdinalIgnoreCase))
+        {
+            Dispatcher.BeginInvoke(() => OpenMapWindow());
+        }
+
         if (Environment.GetCommandLineArgs().Contains("--events", StringComparer.OrdinalIgnoreCase))
         {
             Dispatcher.BeginInvoke(() => OpenEventCenter());
@@ -1387,7 +1392,10 @@ public partial class MainWindow : Window
         OpenPtz(channelId);
     }
 
-    private void OnMapClicked(object sender, RoutedEventArgs e)
+    private void OnMapClicked(object sender, RoutedEventArgs e) => OpenMapWindow();
+
+    /// <summary>開啟電子地圖（M41；M49 補比例尺與 FOV 深度）。</summary>
+    private void OpenMapWindow()
         => new MapWindow(_store!) { Owner = this }.Show();
 
     private void OnPtzClicked(object sender, RoutedEventArgs e)

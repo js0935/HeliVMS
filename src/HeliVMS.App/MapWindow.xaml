@@ -20,6 +20,9 @@
                       Foreground="White" Background="#14243F" BorderBrush="#2A4A73" Padding="6,3" />
             <Button x:Name="MapRefreshButton" Content="重新整理" Click="OnRefreshClicked" Padding="10,4"
                     Foreground="White" Background="#2A5C8A" BorderThickness="0" />
+            <TextBlock x:Name="MapScaleText" AutomationProperties.AutomationId="MapScaleText"
+                       VerticalAlignment="Center" Margin="16,0,0,0"
+                       Foreground="{StaticResource Brand.TextDim}" FontSize="12" />
             <TextBlock x:Name="MapStatusText" VerticalAlignment="Center" Margin="16,0,0,0"
                        Foreground="{StaticResource Brand.TextDim}" FontSize="12" />
         </DockPanel>

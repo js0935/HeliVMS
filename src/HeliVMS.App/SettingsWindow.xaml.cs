@@ -40,8 +40,8 @@ public partial class SettingsWindow : Window
 
     /// <summary>IO 通道頁顯示列。</summary>
     private sealed record IoChannelRow(int Id, string Direction, int IoIndex, string Name, string EnabledLabel, string NcLabel, int DebounceMs, string CameraLabel);
-    private sealed record MapRow(int Id, string Name, string SizeLabel, string EnabledLabel, int SortOrder);
-    private sealed record MapPinRow(int Id, string DeviceType, int ChannelId, string PositionLabel, string EnabledLabel, string Name);
+    private sealed record MapRow(int Id, string Name, string SizeLabel, string EnabledLabel, int SortOrder, string ScaleLabel);
+    private sealed record MapPinRow(int Id, string DeviceType, int ChannelId, string PositionLabel, string AngleLabel, string FovLabel, string DepthLabel, string BearingLabel, string EnabledLabel, string Name);
     private sealed record UserRow(int Id, string Username, string Role, string EnabledLabel, string FailedLabel, string LastLoginLabel);
 
     /// <summary>備份紀錄頁顯示列。</summary>
@@ -75,6 +75,7 @@ public partial class SettingsWindow : Window
 
         InitializeComponent();
         MapPinCanvas.MouseLeftButtonUp += OnMapPinCanvasClick;
+        MapPinList.SelectionChanged += OnMapPinSelectionChanged;
 
         VersionText.Text = $"HeliVMS {Assembly.GetExecutingAssembly().GetName().Version}";
         DataRootText.Text = _dataRoot;
@@ -965,14 +966,21 @@ public partial class SettingsWindow : Window
 
     private void ReloadMaps()
     {
+        var previous = MapList.SelectedItem is MapRow r ? r.Id : (int?)null;
         MapList.ItemsSource = _maps.ListMaps()
             .Select(m => new MapRow(
                 m.Id,
                 m.Name,
                 $"{m.Width}×{m.Height}",
                 m.Enabled ? "啟用" : "停用",
-                m.SortOrder))
+                m.SortOrder,
+                MapGeometry.ScaleLabel(m.ScaleMPerPx)))
             .ToList();
+        if (previous is int pid && MapList.ItemsSource is IEnumerable<MapRow> rows)
+        {
+            MapList.SelectedItem = rows.FirstOrDefault(x => x.Id == pid);
+        }
+
         ReloadMapPins();
     }
 
@@ -1006,6 +1014,7 @@ public partial class SettingsWindow : Window
             return;
         }
 
+        MapScaleBox.Text = map.ScaleMPerPx.ToString("0.###", CultureInfo.InvariantCulture);
         MapPinImage.Source = bitmap;
         int w = bitmap.PixelWidth;
         int h = bitmap.PixelHeight;
@@ -1023,6 +1032,10 @@ public partial class SettingsWindow : Window
                 p.DeviceType,
                 p.ChannelId,
                 $"({p.X:0.00}, {p.Y:0.00})",
+                $"{p.Angle:0.#}°",
+                $"{p.FovDeg:0.#}°",
+                $"{p.FovDepth:0.#}m",
+                MapGeometry.Bearing(p.Angle),
                 p.Enabled ? "啟用" : "停用",
                 p.DeviceType == "camera"
                     ? (cameras.TryGetValue(p.ChannelId, out var cn) ? cn : $"頻道 #{p.ChannelId}")
@@ -1176,6 +1189,109 @@ public partial class SettingsWindow : Window
     private void OnMapPinKindChanged(object sender, SelectionChangedEventArgs e)
         => ReloadMapPinChannelCombo();
 
+    private void OnMapPinSelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (MapPinList.SelectedItem is not MapPinRow row)
+        {
+            return;
+        }
+
+        var dev = _maps.GetDevice(row.Id);
+        if (dev is null)
+        {
+            return;
+        }
+
+        MapPinAngleBox.Text = dev.Angle.ToString("0.###", CultureInfo.InvariantCulture);
+        MapPinFovBox.Text = dev.FovDeg.ToString("0.###", CultureInfo.InvariantCulture);
+        MapPinDepthBox.Text = dev.FovDepth.ToString("0.###", CultureInfo.InvariantCulture);
+    }
+
+    private void OnMapApplyScaleClicked(object sender, RoutedEventArgs e)
+    {
+        if (SelectedMap is not { } map)
+        {
+            MapReportText.Text = "請先選擇地圖。";
+            return;
+        }
+
+        if (!double.TryParse(MapScaleBox.Text?.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out var scale) ||
+            scale < 0)
+        {
+            MapReportText.Text = "比例尺需為非負數字（0＝未標定）。";
+            return;
+        }
+
+        try
+        {
+            _maps.SetMapScale(map.Id, scale);
+            MapReportText.Text = scale > 0
+                ? $"已設定地圖「{map.Name}」比例尺：{MapGeometry.ScaleLabel(scale)}。"
+                : $"已清除地圖「{map.Name}」比例尺（未標定）。";
+        }
+        catch (ArgumentOutOfRangeException ex)
+        {
+            MapReportText.Text = ex.Message;
+        }
+
+        ReloadMaps();
+    }
+
+    private void OnMapApplyGeometryClicked(object sender, RoutedEventArgs e)
+    {
+        if (MapPinList.SelectedItem is not MapPinRow row)
+        {
+            MapReportText.Text = "請先選擇圖釘。";
+            return;
+        }
+
+        if (!TryReadGeometry(out var angle, out var fovDeg, out var fovDepth))
+        {
+            return;
+        }
+
+        try
+        {
+            _maps.UpdateDeviceGeometry(row.Id, angle, fovDeg, fovDepth);
+            MapReportText.Text = $"已更新幾何：{row.DeviceType} #{row.ChannelId} 角度 {angle:0.#}°／FOV {fovDeg:0.#}°／深度 {fovDepth:0.#} m（{MapGeometry.Bearing(angle)}）。";
+        }
+        catch (ArgumentOutOfRangeException ex)
+        {
+            MapReportText.Text = ex.Message;
+        }
+
+        ReloadMapPins();
+    }
+
+    private bool TryReadGeometry(out double angle, out double fovDeg, out double fovDepth)
+    {
+        angle = 0;
+        fovDeg = 90;
+        fovDepth = 3;
+        if (!TryParseBox(MapPinAngleBox, out angle) ||
+            !TryParseBox(MapPinFovBox, out fovDeg) ||
+            !TryParseBox(MapPinDepthBox, out fovDepth))
+        {
+            MapReportText.Text = "角度／FOV／深度需為數字。";
+            return false;
+        }
+
+        try
+        {
+            angle = MapGeometry.ValidateGeometry(angle, fovDeg, fovDepth);
+            return true;
+        }
+        catch (ArgumentOutOfRangeException ex)
+        {
+            MapReportText.Text = ex.Message;
+            return false;
+        }
+    }
+
+    private static bool TryParseBox(TextBox box, out double value)
+        => double.TryParse(box.Text?.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out value)
+           || double.TryParse(box.Text?.Trim(), NumberStyles.Float, CultureInfo.CurrentCulture, out value);
+
     private void OnMapPinCanvasClick(object sender, MouseButtonEventArgs e)
     {
         if (e.OriginalSource is Ellipse)
@@ -1197,14 +1313,19 @@ public partial class SettingsWindow : Window
         }
 
         var kind = (MapPinKindCombo.SelectedItem as ComboBoxItem)?.Content as string ?? "camera";
+        if (!TryReadGeometry(out var angle, out var fovDeg, out var fovDepth))
+        {
+            return;
+        }
+
         var pos = e.GetPosition(MapPinCanvas);
         var x = Math.Clamp(pos.X / MapPinCanvas.Width, 0, 1);
         var y = Math.Clamp(pos.Y / MapPinCanvas.Height, 0, 1);
 
         try
         {
-            _maps.AddDevice(map.Id, kind, channelId, x, y);
-            MapReportText.Text = $"已放置 {kind} #{channelId}（{x:0.00}, {y:0.00}）。";
+            _maps.AddDevice(map.Id, kind, channelId, x, y, angle, fovDeg, fovDepth);
+            MapReportText.Text = $"已放置 {kind} #{channelId}（{x:0.00}, {y:0.00}）";
         }
         catch (Exception ex)
         {

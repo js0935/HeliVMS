@@ -29,6 +29,7 @@ public class MapRepositoryTests : IDisposable
         Assert.Equal(1920, map.Width);
         Assert.Equal(1080, map.Height);
         Assert.Equal(2, map.SortOrder);
+        Assert.Equal(0, map.ScaleMPerPx);
         Assert.True(map.Enabled);
     }
 
@@ -161,6 +162,55 @@ public class MapRepositoryTests : IDisposable
 
         Assert.Null(_repo.FindMapByChannel(1, "io"));
         Assert.Null(_repo.FindMapByChannel(99, "camera"));
+    }
+
+    [Fact]
+    public void SetMapScale_PersistsAndLists()
+    {
+        var a = _repo.AddMap("一樓", "1.png", 800, 600);
+        var b = _repo.AddMap("二樓", "2.png", 800, 600);
+
+        _repo.SetMapScale(a, 0.05);
+
+        Assert.Equal(0.05, _repo.GetMap(a)!.ScaleMPerPx);
+        Assert.Equal(0, _repo.GetMap(b)!.ScaleMPerPx);
+        Assert.Equal(0.05, _repo.ListMaps().Single(m => m.Id == a).ScaleMPerPx);
+    }
+
+    [Fact]
+    public void SetMapScale_NegativeThrows()
+    {
+        var id = _repo.AddMap("一樓", "1.png", 800, 600);
+
+        Assert.Throws<ArgumentOutOfRangeException>(() => _repo.SetMapScale(id, -0.1));
+        Assert.Equal(0, _repo.GetMap(id)!.ScaleMPerPx);
+    }
+
+    [Fact]
+    public void UpdateDeviceGeometry_PersistsNormalizedAngle()
+    {
+        var mapId = _repo.AddMap("一樓", "1.png", 800, 600);
+        var devId = _repo.AddDevice(mapId, "camera", 3, angle: 0, fovDeg: 90, fovDepth: 3);
+
+        _repo.UpdateDeviceGeometry(devId, angle: 405, fovDeg: 120, fovDepth: 8);
+
+        var dev = _repo.GetDevice(devId)!;
+        Assert.Equal(45, dev.Angle);
+        Assert.Equal(120, dev.FovDeg);
+        Assert.Equal(8, dev.FovDepth);
+    }
+
+    [Fact]
+    public void UpdateDeviceGeometry_OutOfRangeThrows()
+    {
+        var mapId = _repo.AddMap("一樓", "1.png", 800, 600);
+        var devId = _repo.AddDevice(mapId, "camera", 3);
+
+        Assert.Throws<ArgumentOutOfRangeException>(() => _repo.UpdateDeviceGeometry(devId, 0, 0, 3));
+        Assert.Throws<ArgumentOutOfRangeException>(() => _repo.UpdateDeviceGeometry(devId, 0, 361, 3));
+        Assert.Throws<ArgumentOutOfRangeException>(() => _repo.UpdateDeviceGeometry(devId, 0, 90, -1));
+        Assert.Throws<ArgumentOutOfRangeException>(() => _repo.UpdateDeviceGeometry(devId, 0, 90, 1001));
+        Assert.Equal(90, _repo.GetDevice(devId)!.FovDeg);
     }
 
     public void Dispose()
