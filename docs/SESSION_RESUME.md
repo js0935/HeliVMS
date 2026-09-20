@@ -6,15 +6,15 @@
 
 ## 一句話總結
 HeliVMS 為一套**網路影像監控系統**（WPF 桌面應用：即時監看／回放／AI 事件中心／錄影排程）。
-里程碑 **M1 至 M61 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M61 目標追蹤原語）。
-Release build 0 error、測試 **570/570 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
+里程碑 **M1 至 M62 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M62 複合事件規則引擎）。
+Release build 0 error、測試 **591/591 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
 本地與遠端完全同步（`git diff origin/HEAD` 為空）。
 
 ## 開新 session 的接手方法
 ```powershell
 # 在 D:\HeliVMS 開新 session 時，先對新的 agent 講：
 git status                    # 預期為 empty（乾淨）
-git log --oneline -20         # 預期見到 M1..M52，HEAD＝M52
+git log --oneline -20         # 預期見到 M1..M62，HEAD＝M62
 git diff origin/HEAD          # 預期為空（同步）
 gh run list -L 3              # 預期全部 success
 ```
@@ -23,7 +23,8 @@ gh run list -L 3              # 預期全部 success
 新 session 會以 git 現況接手，不會靠猜測。
 
 ## 現況快照（權威來源＝git，非聊天記憶）
-- 最後 commit：`HEAD`＝**M61（`d4303b0`）**——單鏡目標追蹤原語（匈牙利 IoU 指派／track_id／EMA 平滑／生命周期，§5.7，見下方 §37 定義段）；全 **570**、CI `35544108591` success
+- 最後 commit：`HEAD`＝**M62（`ea512cf`）**——複合事件規則引擎（§5.10：match/all/any/not/within/count/timeBetween、ai_rules 設定層、規則編輯器，見下方 §38 定義段）；全 **591**、CI `35545119891` success
+- 前一個 M61 交付＝`d4303b0`（單鏡目標追蹤原語，見下方 §37 定義段）、全 **570**、CI `35544108591` success
 - 前一個 M60 交付＝`ef567a7`（統圖報表／管理報表，見下方 §36 定義段）、全 **559**、CI `35543378978` success
 - 前一個 M58 交付＝`3e28bcd`（智慧分析模組二，見下方 §34 定義段）、全 **543**、CI `35541102070` success
 - 前一個 M57 交付＝`5225a3a`（多語言介面 i18n，見下方 §33 定義段）、全 **525**、CI `35537573067` success
@@ -37,8 +38,8 @@ gh run list -L 3              # 預期全部 success
 - 前一個 M47 交付＝`f3c01e1`（警報管理器 Alarm Manager，見下方 §22 M47 定義段）、全 **299**、CI `35286083642` success
 - 前一個 M46 交付＝`c7f6e8f`（錄影遮蔽 Redaction，見下方 §21 M46 定義段）、全 **293**、CI `35284550851` success
 - 前一個 M45 交付＝`ef3a8bc`（備份與異地備援，見下方 §20 M45 定義段）、全 **289**、CI `35263453271` success
-- 已驗收：**M61＝單鏡目標追蹤原語（匈牙利 IoU 指派／track_id／EMA 平滑／生命周期）**（§5.7，見下方 §37 定義段）；**M60＝統圖報表／管理報表（錄影時數／斷線／容量趨勢／AI 事件統計）**（§14.7 #9、§11.7，見下方 §36 定義段）；**M59＝智慧分析模組三（尾隨／逆行 `ai_tailgating`）**（§5.6，見下方 §35 定義段）；**M58＝智慧分析模組二（長時間徘徊／靜止物／車流統計／熱區圖）**（§5.6，見下方 §34 定義段）；**M57＝多語言介面 i18n（繁中／簡中／English）**（§14.7 P1，見下方 §33 定義段）
-- 進行中：（下一里程碑依規劃，見下方 §38 M62 定義段）
+- 已驗收：**M62＝複合事件規則引擎（match/all/any/not/within/count/timeBetween、ai_rules 設定層、規則編輯器）**（§5.10，見下方 §38 定義段）；**M61＝單鏡目標追蹤原語（匈牙利 IoU 指派／track_id／EMA 平滑／生命周期）**（§5.7，見下方 §37 定義段）；**M60＝統圖報表／管理報表（錄影時數／斷線／容量趨勢／AI 事件統計）**（§14.7 #9、§11.7，見下方 §36 定義段）；**M59＝智慧分析模組三（尾隨／逆行 `ai_tailgating`）**（§5.6，見下方 §35 定義段）；**M58＝智慧分析模組二（長時間徘徊／靜止物／車流統計／熱區圖）**（§5.6，見下方 §34 定義段）；**M57＝多語言介面 i18n（繁中／簡中／English）**（§14.7 P1，見下方 §33 定義段）
+- 進行中：（下一里程碑依規劃，見下方 §39 定義段）
 - 前一個 M38 交付＝`d09b045`（事件回應工作流，見下方 M38 定義段）、全 **172**、CI `35185639491` success
 - 前一個 M30 交付＝`24ad4c7`（MQTT 通知通道）：`NotificationSettings`＋
   `MqttEnabled/MqttHost/MqttPort(1883)/MqttTopic/MqttUser/MqttPassword`（鍵 `notify.mqtt.*`、
@@ -57,7 +58,7 @@ gh run list -L 3              # 預期全部 success
 - 前一個 M28 交付＝`ba95d0f`（事件中心篩選＋分頁：QueryArgs/ListByQuery/CountByQuery/
   ListEventTypes＋UI 類型 Combo＋Prev/Next 50/頁；114、evfiltercheck EVFILTERCHECK_OK）
 - 分支／遠端：`git diff origin/HEAD` 為空（完全同步）；HEAD＝origin
-- CI：`gh run list` 顯示最新 run `conclusion=success`；建置 0 error、測試 543/543
+- CI：`gh run list` 顯示最新 run `conclusion=success`；建置 0 error、測試 591/591
 
 ## 架構關鍵（確切、無漂移）
 - 解決方案：`D:\HeliVMS\HeliVMS.App\HeliVMS.App.csproj`（WPF）＋ `HeliVMS.slnx`
@@ -939,8 +940,31 @@ gh run list -L 3              # 預期全部 success
     - 定位：為 §5.6 靜止/尾隨/徘徊與 §5.9 圖搜提供穩定追蹤地基（§5.7「事件以 track_id 去重」）；
       UI／harness 待追蹤接入即時分析管線後之里程碑一併驗證
 
-38. **M62 ＝（待定義；依 SESSION_RESUME 規劃表下一個尚未交付之里程碑）**：
-    - （本段佔位，接續里程碑於下個 session 依開頭「尚未完成／下一步」清單與 PCC 表選定後撰寫）
+38. **M62 已完成**（commit `ea512cf`，CI `35545119891` success）：複合事件規則引擎（§5.10 Compound Rules /
+     Rule Builder）——以**設定層＋評估引擎＋編輯器 UI**交付（無模型外接），全數單元測試＋`rulescheck` harness 驗證：
+    - Storage **v23→v24**：`ai_rules(id, name, expression_json, actions_json, enabled, created_at)`
+      （`CreateAiRulesTableV24`）；新 `RuleRepository`（Add 驗空名／空表達式、List／ListEnabled／Get／SetEnabled／
+      Delete）——Storage 361→**368**（RuleRepositoryTests 7：v24、CRUD 全欄位 round-trip、ListEnabled 排除停用等）
+    - Alarms 新 `RuleEngine`：表達式 JSON（camelCase、PropertyNameCaseInsensitive、null 省略）解析成
+      `RuleExpressionNode` 樹——`match`＝`RuleEventPredicate`{eventType, channelId}（`within`/`count` 的 match
+      是**葉節點**，不可巢狀全節點）／`all`／`any`／`not`／`within`{seconds}／`count`{atLeast, seconds}／
+      `timeBetween`{start, end HHMM}；`RuleEvaluator` 僅取 **enabled** 規則、逐規則吞 `JsonException` 跳過損壞規則、
+      緩衝窗預設 2h（Feed 前 Prune）、`timeBetween` 用本機時區（Unspecified 視牆鐘，測試跨機器確定）且跨午夜直翌日；
+      `RuleActions`（severity/tag/notify）隨命中浮出——Alarms 177→**191**（RuleEngineTests 14：match/強制全子/
+      任一子/反向/within 窗內外/count 下限/緩衝淘汰/時窗內外/跨午夜含整日/actions 浮出/停用＋損壞略過/Reset/
+      表達式 JSON 往返）；全 **591**（Storage 368＋Alarms 191＋Devices 24＋Licensing 8）
+    - App 規則編輯器：`RulesWindow`（AutomationId：RulesWindow／RulesAddToggleButton／RulesRefreshButton／
+      RulesNameBox／RulesEnabledBox／RulesExprBox／RulesActionsBox／RulesConfirmButton／RulesCancelButton／
+      RulesList／RulesEvalText／RulesStatusText）；主視窗工具列「規則」按鈕（報表旁）＋`--rules` 直開（admin 限定）；
+      開啟即內建樣本評估（t0 motion→t+5 ai_intrusion→t+10 offline→t+20/t+25 motion，輸出 `RULE_MATCH:<name>`）
+    - harness `rulescheck.ps1`（回歸第 18 支）：seedtriage `--rules-seed` 種 3 條（啟用「harness intrud-after-motion」
+      ＝all[match ai_intrusion, within 60s motion]＋actions severity=critical/tag=escalated；停用
+      「harness disabled-rule」同表達式 enabled=0；啟用「harness 3-motions-60s」＝count atLeast 3／60s motion）→
+      `--rules` 開窗→RulesList `DataItem`＝3 且三名稱齊（用內層 Text 名稱）→`RulesEvalText` 含
+      `RULE_MATCH:harness intrud-after-motion @ t+5s (severity=critical)` 與 `RULE_MATCH:harness 3-motions-60s @ t+25s`
+      →`RulesStatusText` 共 3 條（啟用 2）→`--rules-clean` 回收 harness 規則；`RULES_OK`（回歸 18 支全綠）
+    - 定位：規則（match/all/any/not/within/count/timeBetween）＋動作（severity/tag/notify）以 JSON 存 `ai_rules`，
+      為擴充複合事件規則（§5.10）落地；事件引擎銜接（§5.4）留待 v2 即時分析管線里程碑
 
 ## 已知雷區（勿再犯）
 - **harness `.ps1` 必須存成 UTF-8 with BOM**：寫檔工具產出的是 UTF-8 無 BOM，含中文的 `.ps1` 會被 PowerShell 5.1 以 ANSI/Big5 誤讀而**靜默破壞解析**（症狀：`Start-Process` 看似無效、App 根本沒啟動、`Get-Process HeliVMS.App` 找不到）。修法：`[System.IO.File]::WriteAllText($p,[System.IO.File]::ReadAllText($p,[System.Text.Encoding]::UTF8),(New-Object System.Text.UTF8Encoding($true)))`（temp/opencode 有 `fix-encoding.ps1`）
