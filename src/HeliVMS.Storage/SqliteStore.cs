@@ -9,7 +9,7 @@ namespace HeliVMS.Storage;
 /// </summary>
 public sealed class SqliteStore : IDisposable
 {
-    private const int CurrentSchemaVersion = 19;
+    private const int CurrentSchemaVersion = 20;
     private readonly SqliteConnection _connection;
     private readonly object _gate = new();
     private bool _disposed;
@@ -147,6 +147,11 @@ public sealed class SqliteStore : IDisposable
         if (version < 19)
         {
             CreateEvidenceManifestsTableV19();
+        }
+
+        if (version < 20)
+        {
+            AddSmartAlertColumnsV20();
         }
 
         Execute("PRAGMA user_version = CURRENT_SCHEMA_VERSION;".Replace(
@@ -576,6 +581,30 @@ public sealed class SqliteStore : IDisposable
             );
             CREATE INDEX IF NOT EXISTS idx_analytics_channel ON analytics_zones(channel_id);
             """);
+    }
+
+    /// <summary>M54 智慧警報（§14.7 #8）：alert_rules 增列聚合窗／類別篩選（冪等）。</summary>
+    private void AddSmartAlertColumnsV20()
+    {
+        EnsureColumn("alert_rules", "match_event_types", "TEXT");
+        EnsureColumn("alert_rules", "frame_minutes", "INTEGER NOT NULL DEFAULT 0");
+        EnsureColumn("alert_rules", "min_events_in_window", "INTEGER NOT NULL DEFAULT 1");
+    }
+
+    private void EnsureColumn(string table, string column, string definition)
+    {
+        var has = Query(
+            $"SELECT COUNT(*) FROM pragma_table_info('{table}') WHERE name='{column}';",
+            static r =>
+            {
+                r.Read();
+                return r.GetInt64(0) > 0;
+            });
+
+        if (!has)
+        {
+            Execute($"ALTER TABLE {table} ADD COLUMN {column} {definition};");
+        }
     }
 
     /// <summary>M53 數位證據完整性（§14.7 #5）：證據集的 manifest 記錄（含數位簽章）。</summary>

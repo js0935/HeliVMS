@@ -14,12 +14,20 @@ public sealed class AlertRuleRepository
     }
 
     /// <summary>新增一筆規則，回傳新 ID。</summary>
-    public long Add(string name, string? eventType, int? channelId, string? keyword, string? channels)
+    public long Add(
+        string name,
+        string? eventType,
+        int? channelId,
+        string? keyword,
+        string? channels,
+        string? matchEventTypes = null,
+        int frameMinutes = 0,
+        int minEventsInWindow = 1)
     {
         _store.Execute(
             """
-            INSERT INTO alert_rules (name, event_type, channel_id, keyword, channels, enabled)
-            VALUES ($name, $t, $c, $k, $ch, 1);
+            INSERT INTO alert_rules (name, event_type, channel_id, keyword, channels, enabled, match_event_types, frame_minutes, min_events_in_window)
+            VALUES ($name, $t, $c, $k, $ch, 1, $mt, $fm, $mi);
             """,
             cmd =>
             {
@@ -28,6 +36,9 @@ public sealed class AlertRuleRepository
                 cmd.Parameters.AddWithValue("$c", (object?)channelId ?? DBNull.Value);
                 cmd.Parameters.AddWithValue("$k", (object?)keyword ?? DBNull.Value);
                 cmd.Parameters.AddWithValue("$ch", (object?)channels ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("$mt", (object?)matchEventTypes ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("$fm", frameMinutes);
+                cmd.Parameters.AddWithValue("$mi", minEventsInWindow);
             });
 
         return _store.Query(
@@ -36,6 +47,41 @@ public sealed class AlertRuleRepository
             {
                 r.Read();
                 return r.GetInt64(0);
+            });
+    }
+
+    /// <summary>更新一筆規則（含 M54 三欄）。</summary>
+    public void Update(
+        long id,
+        string name,
+        string? eventType,
+        int? channelId,
+        string? keyword,
+        string? channels,
+        bool enabled,
+        string? matchEventTypes = null,
+        int frameMinutes = 0,
+        int minEventsInWindow = 1)
+    {
+        _store.Execute(
+            """
+            UPDATE alert_rules
+            SET name = $name, event_type = $t, channel_id = $c, keyword = $k, channels = $ch,
+                enabled = $e, match_event_types = $mt, frame_minutes = $fm, min_events_in_window = $mi
+            WHERE id = $id;
+            """,
+            cmd =>
+            {
+                cmd.Parameters.AddWithValue("$id", id);
+                cmd.Parameters.AddWithValue("$name", name);
+                cmd.Parameters.AddWithValue("$t", (object?)eventType ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("$c", (object?)channelId ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("$k", (object?)keyword ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("$ch", (object?)channels ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("$e", enabled ? 1 : 0);
+                cmd.Parameters.AddWithValue("$mt", (object?)matchEventTypes ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("$fm", frameMinutes);
+                cmd.Parameters.AddWithValue("$mi", minEventsInWindow);
             });
     }
 
@@ -56,13 +102,13 @@ public sealed class AlertRuleRepository
         return _store.Query(
             enabledOnly
                 ? """
-                SELECT id, name, event_type, channel_id, keyword, channels, enabled
+                SELECT id, name, event_type, channel_id, keyword, channels, enabled, match_event_types, frame_minutes, min_events_in_window
                 FROM alert_rules
                 WHERE enabled = 1
                 ORDER BY id;
                 """
                 : """
-                SELECT id, name, event_type, channel_id, keyword, channels, enabled
+                SELECT id, name, event_type, channel_id, keyword, channels, enabled, match_event_types, frame_minutes, min_events_in_window
                 FROM alert_rules
                 ORDER BY id;
                 """,
@@ -78,7 +124,10 @@ public sealed class AlertRuleRepository
                         r.IsDBNull(3) ? null : r.GetInt32(3),
                         r.IsDBNull(4) ? null : r.GetString(4),
                         r.IsDBNull(5) ? null : r.GetString(5),
-                        r.GetInt32(6) != 0));
+                        r.GetInt32(6) != 0,
+                        r.IsDBNull(7) ? null : r.GetString(7),
+                        r.GetInt32(8),
+                        r.GetInt32(9)));
                 }
 
                 return list;

@@ -57,6 +57,9 @@ public partial class MainWindow : Window
     private IoMonitorHost? _ioHost;
     private ShareHost? _shareHost;
     private AnalyticsEventEngine? _analytics;
+    private AlertRuleRepository? _alertRules;
+    private AlarmEventRepository? _alarmEvents;
+    private int _smartAlertSuppressed;
     private bool _exiting;
 
     private static readonly SolidColorBrush BrOffline = new(Color.FromRgb(0x6B, 0x7B, 0x90));
@@ -362,8 +365,18 @@ public partial class MainWindow : Window
         _shareHost.ApplySettings(new SettingsRepository(_store));
 
         _analytics = new AnalyticsEventEngine(_store);
+        _alertRules = new AlertRuleRepository(_store);
+        _alarmEvents = new AlarmEventRepository(_store);
         _analytics.LoadZones();
-        _analytics.EventInserted += (_, record) => _notify?.Enqueue(record);
+        _analytics.EventInserted += (_, record) =>
+        {
+            if (ShouldSuppressSmartAlert(record))
+            {
+                return;
+            }
+
+            _notify?.Enqueue(record);
+        };
 
         _scheduler = new RecordingScheduler(
             _store,
@@ -1076,6 +1089,29 @@ public partial class MainWindow : Window
             Owner = this,
         };
         window.Show();
+    }
+
+    /// <summary>M54：智慧警報聚合抑制——命中 frame_minutes&gt;0 規則且窗內（含本筆）計數未達
+    /// 《min_events_in_window》的流量先行丟棄，避免警報洪泛。</summary>
+    private bool ShouldSuppressSmartAlert(AlarmEventRecord record)
+    {
+        var rule = AlertRuleMatcher.Match(_alertRules?.ListEnabled() ?? Array.Empty<AlertRule>(), record);
+        if (rule is null || rule.FrameMinutes <= 0)
+        {
+            return false;
+        }
+
+        var fromUtc = record.StartUtc.AddMinutes(-rule.FrameMinutes);
+        var windowEvents = _alarmEvents?.ListByRange(record.ChannelId, fromUtc, record.StartUtc)
+            ?? Array.Empty<AlarmEventRecord>();
+        var count = windowEvents.Count(e => SmartAlertEvaluator.Matches(rule, e));
+        if (SmartAlertEvaluator.ShouldSuppress(rule, count))
+        {
+            _smartAlertSuppressed++;
+            return true;
+        }
+
+        return false;
     }
 
     /// <summary>開啟證據完整性視窗（M53，§14.7 #5）。</summary>

@@ -399,6 +399,21 @@
                             Foreground="White" Background="#2A5C8A" BorderThickness="0"/>
                 </StackPanel>
 
+                <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
+                    <TextBox x:Name="RuleMatchTypesBox" AutomationProperties.AutomationId="RuleMatchTypesBox"
+                             Width="150" ToolTip="命中的事件類型（逗號分隔；留空＝全部）"
+                             Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="8,4"/>
+                    <TextBox x:Name="RuleFrameMinutesBox" AutomationProperties.AutomationId="RuleFrameMinutesBox"
+                             Width="56" Margin="6,0,0,0" ToolTip="聚合窗（分鐘；0＝逐筆不聚合）"
+                             Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="8,4"/>
+                    <TextBox x:Name="RuleMinEventsBox" AutomationProperties.AutomationId="RuleMinEventsBox"
+                             Width="56" Margin="6,0,0,0" ToolTip="窗內最少事件數才觸發"
+                             Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="8,4"/>
+                    <TextBlock Text="智慧警報：命中類型(留空=全部), 聚合窗(分), 窗內最少事件"
+                               VerticalAlignment="Center" Margin="10,0,0,0"
+                               Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+                </StackPanel>
+
                 <TextBlock Text="限制通道（勾選＝白名單；未勾任何且規則命中＝仍走全部啟用通道）"
                            Foreground="{StaticResource Brand.TextDim}" FontSize="11" Margin="0,0,0,6"/>
                 <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
@@ -421,6 +436,8 @@
                             <GridViewColumn Header="事件類型" Width="90" DisplayMemberBinding="{Binding EventType}"/>
                             <GridViewColumn Header="頻道" Width="90" DisplayMemberBinding="{Binding ChannelLabel}"/>
                             <GridViewColumn Header="關鍵字" Width="100" DisplayMemberBinding="{Binding Keyword}"/>
+                            <GridViewColumn Header="命中類型" Width="110" DisplayMemberBinding="{Binding MatchTypes}"/>
+                            <GridViewColumn Header="聚合" Width="180" DisplayMemberBinding="{Binding AggregateLabel}"/>
                             <GridViewColumn Header="通道" Width="150" DisplayMemberBinding="{Binding Channels}"/>
                             <GridViewColumn Header="啟用" Width="70" DisplayMemberBinding="{Binding EnabledLabel}"/>
                         </GridView>

@@ -33,7 +33,7 @@ public partial class SettingsWindow : Window
     private sealed record ChannelRow(int Id, string Name, string MainStreamUrl, string RecordingModeLabel, string MotionLabel);
 
     /// <summary>告警規則頁顯示列。</summary>
-    private sealed record RuleRow(long Id, string Name, string EventType, string ChannelLabel, string Keyword, string Channels, string EnabledLabel);
+    private sealed record RuleRow(long Id, string Name, string EventType, string ChannelLabel, string Keyword, string MatchTypes, string AggregateLabel, string Channels, string EnabledLabel);
 
     /// <summary>IO 模組頁顯示列。</summary>
     private sealed record IoDeviceRow(int Id, string Name, string Host, string EndpointLabel, string EnabledLabel, int PollMs);
@@ -271,6 +271,8 @@ public partial class SettingsWindow : Window
             r.EventType ?? "不限",
             r.ChannelId is { } cid ? $"#{cid}" : "不限",
             r.Keyword ?? "不限",
+            r.MatchEventTypes ?? "全部",
+            r.FrameMinutes > 0 ? $"{r.FrameMinutes} 分／窗內 {r.MinEventsInWindow} 筆" : "逐筆",
             FormatRuleChannels(r.Channels),
             r.Enabled ? "啟用" : "停用")).ToList();
     }
@@ -598,18 +600,29 @@ public partial class SettingsWindow : Window
         int? channelId = RuleChannelCombo.SelectedItem is ComboBoxItem { Tag: int cid } ? cid : null;
         var keyword = RuleKeywordBox.Text.Trim();
         var channels = BuildRuleChannels();
+        var matchTypesValue = string.IsNullOrWhiteSpace(RuleMatchTypesBox.Text)
+            ? null
+            : RuleMatchTypesBox.Text.Trim();
+        var frameMinutes = int.TryParse(RuleFrameMinutesBox.Text.Trim(), out var fm) ? Math.Max(0, fm) : 0;
+        var minEvents = int.TryParse(RuleMinEventsBox.Text.Trim(), out var me) ? Math.Max(1, me) : 1;
 
         _rules.Add(
             name,
             string.IsNullOrWhiteSpace(eventType) ? null : eventType,
             channelId,
             string.IsNullOrWhiteSpace(keyword) ? null : keyword,
-            channels);
+            channels,
+            matchTypesValue,
+            frameMinutes,
+            minEvents);
 
-        RuleReportText.Text = $"已新增「{name}」。";
+        RuleReportText.Text = $"已新增「{name}」（{(frameMinutes > 0 ? $"{frameMinutes} 分聚合窗≥{minEvents} 筆" : "逐筆")}）。";
         RuleNameBox.Clear();
         RuleEventTypeBox.Clear();
         RuleKeywordBox.Clear();
+        RuleMatchTypesBox.Clear();
+        RuleFrameMinutesBox.Clear();
+        RuleMinEventsBox.Clear();
         RuleChannelCombo.SelectedIndex = 0;
         RuleChannelWebhookBox.IsChecked = false;
         RuleChannelSmtpBox.IsChecked = false;
