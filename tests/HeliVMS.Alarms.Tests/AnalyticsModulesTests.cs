@@ -445,6 +445,114 @@ public class AnalyticsModulesTests : IDisposable
         Assert.Equal(0, evaluator.HeatmapTotal(zone.Id));
     }
 
+    // ---------- 評估器：尾隨/逆行 `ai_tailgating`（M59，§5.6） ----------
+
+    [Fact]
+    public void Tailgating_FollowingWithinWindow_FiresTailgating()
+    {
+        var zone = new AnalyticsZone(8, "入口", _channelId, AnalyticsModuleKinds.Tailgating, true, Poly(VerticalLine), AnalyticsDirections.Both, DwellSeconds: 2);
+        var evaluator = new AnalyticsZoneEvaluator();
+        var t0 = DateTime.UtcNow;
+
+        Assert.Empty(evaluator.Evaluate(t0, new[] { At(0.3, 0.5, track: "alice") }, new[] { zone }));
+        Assert.Empty(evaluator.Evaluate(t0.AddSeconds(1), new[] { At(0.7, 0.5, track: "alice") }, new[] { zone }));
+        Assert.Empty(evaluator.Evaluate(t0.AddSeconds(1), new[] { At(0.3, 0.5, track: "bob") }, new[] { zone }));
+
+        var fired = evaluator.Evaluate(t0.AddSeconds(2), new[] { At(0.7, 0.5, track: "bob") }, new[] { zone });
+        var ev = Assert.Single(fired);
+        Assert.Equal(AnalyticsModuleCatalog.EventTailgating, ev.EventType);
+        Assert.Contains("尾隨", ev.Detail);
+        Assert.Contains("A→B", ev.Detail);
+    }
+
+    [Fact]
+    public void Tailgating_FollowingBeyondWindow_NoEvent()
+    {
+        var zone = new AnalyticsZone(8, "入口", _channelId, AnalyticsModuleKinds.Tailgating, true, Poly(VerticalLine), AnalyticsDirections.Both, DwellSeconds: 2);
+        var evaluator = new AnalyticsZoneEvaluator();
+        var t0 = DateTime.UtcNow;
+
+        Assert.Empty(evaluator.Evaluate(t0, new[] { At(0.7, 0.5, track: "alice") }, new[] { zone }));
+        Assert.Empty(evaluator.Evaluate(t0.AddSeconds(1), new[] { At(0.3, 0.5, track: "alice") }, new[] { zone }));
+        Assert.Empty(evaluator.Evaluate(t0.AddSeconds(10), new[] { At(0.7, 0.5, track: "bob") }, new[] { zone }));
+
+        Assert.Empty(evaluator.Evaluate(t0.AddSeconds(11), new[] { At(0.3, 0.5, track: "bob") }, new[] { zone }));
+    }
+
+    [Fact]
+    public void Tailgating_TwoWayFlow_NoCounterFlowButFollowingFires()
+    {
+        var zone = new AnalyticsZone(8, "閘門", _channelId, AnalyticsModuleKinds.Tailgating, true, Poly(VerticalLine), AnalyticsDirections.Both, DwellSeconds: 2);
+        var evaluator = new AnalyticsZoneEvaluator();
+        var t0 = DateTime.UtcNow;
+
+        Assert.Empty(evaluator.Evaluate(t0, new[] { At(0.3, 0.5, track: "alice") }, new[] { zone }));
+        Assert.Empty(evaluator.Evaluate(t0.AddSeconds(1), new[] { At(0.7, 0.5, track: "alice") }, new[] { zone }));
+        Assert.Empty(evaluator.Evaluate(t0.AddSeconds(1), new[] { At(0.3, 0.5, track: "bob") }, new[] { zone }));
+
+        var fired = evaluator.Evaluate(t0.AddSeconds(2), new[] { At(0.7, 0.5, track: "bob") }, new[] { zone });
+        var ev = Assert.Single(fired);
+        Assert.Equal(AnalyticsModuleCatalog.EventTailgating, ev.EventType);
+        Assert.Contains("尾隨", ev.Detail);
+        Assert.DoesNotContain("逆行", ev.Detail);
+    }
+
+    [Fact]
+    public void Tailgating_CounterFlowAgainstConfiguredDirection_Fires()
+    {
+        var zone = new AnalyticsZone(8, "單向閘", _channelId, AnalyticsModuleKinds.Tailgating, true, Poly(VerticalLine), AnalyticsDirections.AToB);
+        var evaluator = new AnalyticsZoneEvaluator();
+        var t0 = DateTime.UtcNow;
+
+        Assert.Empty(evaluator.Evaluate(t0, new[] { At(0.7, 0.5, track: "alice") }, new[] { zone }));
+
+        var fired = evaluator.Evaluate(t0.AddSeconds(1), new[] { At(0.3, 0.5, track: "alice") }, new[] { zone });
+        var ev = Assert.Single(fired);
+        Assert.Equal(AnalyticsModuleCatalog.EventTailgating, ev.EventType);
+        Assert.Contains("逆行", ev.Detail);
+    }
+
+    [Fact]
+    public void Tailgating_ConfiguredDirection_NotCounterFlow()
+    {
+        var zone = new AnalyticsZone(8, "單向閘", _channelId, AnalyticsModuleKinds.Tailgating, true, Poly(VerticalLine), AnalyticsDirections.AToB);
+        var evaluator = new AnalyticsZoneEvaluator();
+        var t0 = DateTime.UtcNow;
+
+        Assert.Empty(evaluator.Evaluate(t0, new[] { At(0.3, 0.5, track: "alice") }, new[] { zone }));
+        Assert.Empty(evaluator.Evaluate(t0.AddSeconds(1), new[] { At(0.7, 0.5, track: "alice") }, new[] { zone }));
+    }
+
+    [Fact]
+    public void Tailgating_SameTrackDoesNotFollowItself()
+    {
+        var zone = new AnalyticsZone(8, "入口", _channelId, AnalyticsModuleKinds.Tailgating, true, Poly(VerticalLine), AnalyticsDirections.Both, DwellSeconds: 2);
+        var evaluator = new AnalyticsZoneEvaluator();
+        var t0 = DateTime.UtcNow;
+
+        Assert.Empty(evaluator.Evaluate(t0, new[] { At(0.7, 0.5, track: "alice") }, new[] { zone }));
+        Assert.Empty(evaluator.Evaluate(t0.AddSeconds(1), new[] { At(0.3, 0.5, track: "alice") }, new[] { zone }));
+        Assert.Empty(evaluator.Evaluate(t0.AddSeconds(2), new[] { At(0.7, 0.5, track: "alice") }, new[] { zone }));
+
+        Assert.Empty(evaluator.Evaluate(t0.AddSeconds(3), new[] { At(0.3, 0.5, track: "alice") }, new[] { zone }));
+    }
+
+    [Fact]
+    public void Tailgating_Reset_ClearsFollowHistory()
+    {
+        var zone = new AnalyticsZone(8, "入口", _channelId, AnalyticsModuleKinds.Tailgating, true, Poly(VerticalLine), AnalyticsDirections.Both, DwellSeconds: 2);
+        var evaluator = new AnalyticsZoneEvaluator();
+        var t0 = DateTime.UtcNow;
+
+        Assert.Empty(evaluator.Evaluate(t0, new[] { At(0.7, 0.5, track: "alice") }, new[] { zone }));
+        Assert.Empty(evaluator.Evaluate(t0.AddSeconds(1), new[] { At(0.3, 0.5, track: "alice") }, new[] { zone }));
+
+        evaluator.Reset();
+
+        Assert.Empty(evaluator.Evaluate(t0.AddSeconds(2), new[] { At(0.7, 0.5, track: "bob") }, new[] { zone }));
+        Assert.Empty(evaluator.Evaluate(t0.AddSeconds(3), new[] { At(0.3, 0.5, track: "bob") }, new[] { zone }));
+    }
+
     // ---------- 事件引擎 ----------
 
     private long CountEvents(string eventType)
@@ -538,6 +646,23 @@ public class AnalyticsModulesTests : IDisposable
         Assert.Equal(0, CountEvents(AnalyticsModuleCatalog.EventIntrusion));
     }
 
+    [Fact]
+    public void Engine_TailgatingZone_InsertsCounterFlowEvent()
+    {
+        new AnalyticsZoneRepository(_store).Add("單向閘", _channelId, AnalyticsModuleKinds.Tailgating, VerticalLine, AnalyticsDirections.AToB);
+        var engine = new AnalyticsEventEngine(_store);
+        engine.LoadZones();
+        var t0 = DateTime.UtcNow;
+
+        Assert.Empty(engine.OnDetections(_channelId, new DetectionsFrame(t0, new[] { new Detection("person", 0.9f, 0.65f, 0.45f, 0.1f, 0.1f) })));
+
+        var inserted = engine.OnDetections(_channelId, new DetectionsFrame(t0.AddSeconds(1), new[] { new Detection("person", 0.9f, 0.25f, 0.45f, 0.1f, 0.1f) }));
+        var ev = Assert.Single(inserted);
+        Assert.Equal(AnalyticsModuleCatalog.EventTailgating, ev.EventType);
+        Assert.Contains("逆行", ev.Detail);
+        Assert.Equal(1, CountEvents(AnalyticsModuleCatalog.EventTailgating));
+    }
+
     private static DetectionsFrame FrameAt(DateTime t0, int sec)
         => new(t0.AddSeconds(sec), new[] { new Detection("person", 0.9f, 0.45f, 0.45f, 0.1f, 0.1f) });
 
@@ -551,6 +676,8 @@ public class AnalyticsModulesTests : IDisposable
         Assert.Equal(AnalyticsModuleCatalog.EventTraffic, AnalyticsModuleCatalog.For(AnalyticsModuleKinds.Traffic)!.EventType);
         Assert.Equal("analytics.heatmap", AnalyticsModuleCatalog.For(AnalyticsModuleKinds.Heatmap)!.LicenseFeature);
         Assert.Null(AnalyticsModuleCatalog.For(AnalyticsModuleKinds.Heatmap)!.EventType);
+        Assert.Equal(AnalyticsModuleCatalog.EventTailgating, AnalyticsModuleCatalog.For(AnalyticsModuleKinds.Tailgating)!.EventType);
+        Assert.Equal("analytics.tailgating", AnalyticsModuleCatalog.For(AnalyticsModuleKinds.Tailgating)!.LicenseFeature);
         Assert.Null(AnalyticsModuleCatalog.For("thermal"));
     }
 }

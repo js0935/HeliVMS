@@ -36,6 +36,7 @@ public static class AnalyticsModuleCatalog
     public const string EventLoitering = "ai_loitering";
     public const string EventStationary = "ai_stationary";
     public const string EventTraffic = "ai_traffic";
+    public const string EventTailgating = "ai_tailgating";
 
     public sealed record ModuleInfo(string Module, string DisplayName, string? EventType, string LicenseFeature);
 
@@ -48,6 +49,7 @@ public static class AnalyticsModuleCatalog
         new ModuleInfo(AnalyticsModuleKinds.Stationary, "靜止物/遺留物", EventStationary, "analytics.stationary"),
         new ModuleInfo(AnalyticsModuleKinds.Traffic, "車流統計", EventTraffic, "analytics.traffic"),
         new ModuleInfo(AnalyticsModuleKinds.Heatmap, "熱區圖", null, "analytics.heatmap"),
+        new ModuleInfo(AnalyticsModuleKinds.Tailgating, "尾隨/逆行", EventTailgating, "analytics.tailgating"),
     };
 
     public static ModuleInfo? For(string module)

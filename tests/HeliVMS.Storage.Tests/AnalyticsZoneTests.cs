@@ -101,6 +101,25 @@ public class AnalyticsZoneTests : IDisposable
     }
 
     [Fact]
+    public void Add_Tailgating_AcceptsTwoPointsLikeLineCross()
+    {
+        var id = _zones.Add("尾隨線", 1, AnalyticsModuleKinds.Tailgating, "0.5,0;0.5,1", AnalyticsDirections.Both, 0, 2);
+
+        var record = _zones.Get(id)!;
+        Assert.Equal(AnalyticsModuleKinds.Tailgating, record.Module);
+        Assert.Equal(AnalyticsDirections.Both, record.Direction);
+        Assert.Equal(2, record.DwellSeconds);
+    }
+
+    [Fact]
+    public void IsLineModule_IncludesTailgating()
+    {
+        Assert.True(AnalyticsModuleKinds.IsLineModule(AnalyticsModuleKinds.Tailgating));
+        Assert.False(AnalyticsModuleKinds.IsLineModule(AnalyticsModuleKinds.Loitering));
+        Assert.False(AnalyticsModuleKinds.IsLineModule(null));
+    }
+
+    [Fact]
     public void Add_Heatmap_AcceptsPolygon()
     {
         var id = _zones.Add("熱區", 1, AnalyticsModuleKinds.Heatmap, Square, dwellSeconds: 30);
@@ -211,6 +230,7 @@ public class AnalyticsZoneTests : IDisposable
         var traffic = _zones.Add("車流", 1, AnalyticsModuleKinds.Traffic, "0.5,0;0.5,1");
         var heatmap = _zones.Add("熱區", 1, AnalyticsModuleKinds.Heatmap, Square);
         var loitering = _zones.Add("徘徊", 1, AnalyticsModuleKinds.Loitering, Square, dwellSeconds: 5);
+        var tailgating = _zones.Add("尾隨", 1, AnalyticsModuleKinds.Tailgating, "0.5,0;0.5,1", AnalyticsDirections.AToB, 0, 2);
 
         _store.Dispose();
         _store = new SqliteStore(_dbPath);
@@ -221,5 +241,7 @@ public class AnalyticsZoneTests : IDisposable
         Assert.Equal(AnalyticsModuleKinds.Traffic, repo2.Get(traffic)!.Module);
         Assert.Equal(AnalyticsModuleKinds.Heatmap, repo2.Get(heatmap)!.Module);
         Assert.Equal(5, repo2.Get(loitering)!.DwellSeconds);
+        Assert.Equal(AnalyticsModuleKinds.Tailgating, repo2.Get(tailgating)!.Module);
+        Assert.Equal(2, repo2.Get(tailgating)!.DwellSeconds);
     }
 }

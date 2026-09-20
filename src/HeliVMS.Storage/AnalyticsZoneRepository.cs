@@ -12,14 +12,15 @@ public static class AnalyticsModuleKinds
     public const string Stationary = "stationary";
     public const string Traffic = "traffic";
     public const string Heatmap = "heatmap";
+    public const string Tailgating = "tailgating";
 
     public static IReadOnlyList<string> All { get; } = new[]
-        { LineCross, Intrusion, Crowd, Loitering, Stationary, Traffic, Heatmap };
+        { LineCross, Intrusion, Crowd, Loitering, Stationary, Traffic, Heatmap, Tailgating };
 
     public static bool IsValid(string module) => All.Contains(module);
 
-    /// <summary>雙點線段模組（<see cref="LineCross"/>、<see cref="Traffic"/>）允許 2 點幾何（M58）。</summary>
-    public static bool IsLineModule(string? module) => module is LineCross or Traffic;
+    /// <summary>雙點線段模組（<see cref="LineCross"/>、<see cref="Traffic"/>、<see cref="Tailgating"/>）允許 2 點幾何。</summary>
+    public static bool IsLineModule(string? module) => module is LineCross or Traffic or Tailgating;
 }
 
 /// <summary>跨線方向（M52）。</summary>

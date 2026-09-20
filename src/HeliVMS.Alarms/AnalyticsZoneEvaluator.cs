@@ -41,6 +41,7 @@ public sealed class AnalyticsZoneEvaluator
     private readonly Dictionary<(int Zone, string Key), NormalizedPoint> _lastPos = new();
     private readonly Dictionary<(int Zone, string Direction), int> _trafficCount = new();
     private readonly Dictionary<(int Zone, int Cell), int> _heat = new();
+    private readonly Dictionary<(int Zone, string Direction), List<(DateTime Utc, string Key)>> _followRecent = new();
 
     public void Reset()
     {
@@ -52,6 +53,7 @@ public sealed class AnalyticsZoneEvaluator
         _lastPos.Clear();
         _trafficCount.Clear();
         _heat.Clear();
+        _followRecent.Clear();
     }
 
     /// <summary>回傳指定分析區之熱區單格計數（row×col＝5×5，M58）。</summary>
@@ -103,6 +105,9 @@ public sealed class AnalyticsZoneEvaluator
                     break;
                 case Storage.AnalyticsModuleKinds.Heatmap:
                     EvaluateHeatmap(zone, keyed);
+                    break;
+                case Storage.AnalyticsModuleKinds.Tailgating:
+                    EvaluateTailgating(snapshotUtc, zone, keyed, results);
                     break;
             }
         }
@@ -384,6 +389,79 @@ public sealed class AnalyticsZoneEvaluator
                     results.Add(new AnalyticsResult(
                         zone.Module, AnalyticsModuleCatalog.EventTraffic, zone.Id, zone.Name, zone.ChannelId,
                         key, cumulative, $"車流 {label} 累計 {cumulative}"));
+                }
+            }
+
+            if (side != 0)
+            {
+                _side[(zone.Id, key)] = side;
+            }
+        }
+
+        foreach (var stale in _side.Keys.Where(k => k.Zone == zone.Id && !present.Contains(k.Key)).ToList())
+        {
+            _side.Remove(stale);
+        }
+    }
+
+    /// <summary>
+    /// 尾隨/逆行（M59，§5.6）：2 點線段管制流向，`Direction`≠both 時跨線方向違反＝逆行；
+    /// `DwellSeconds` 窗內另一 key 同方向跨線＝尾隨（以 per-key 跨線狀態近似，不需 §5.7 完整追蹤）。
+    /// </summary>
+    private void EvaluateTailgating(
+        DateTime snapshotUtc,
+        AnalyticsZone zone,
+        List<(string Key, AnalyticsDetection Detection)> keyed,
+        List<AnalyticsResult> results)
+    {
+        if (zone.Polygon.Count < 2)
+        {
+            return;
+        }
+
+        var a = zone.Polygon[0];
+        var b = zone.Polygon[1];
+        var present = new HashSet<string>();
+
+        foreach (var (key, detection) in keyed)
+        {
+            var point = new NormalizedPoint(detection.X, detection.Y);
+            var side = AnalyticsGeometry.SignedSide(a, b, point);
+            present.Add(key);
+
+            if (_side.TryGetValue((zone.Id, key), out var previous) &&
+                previous != 0 && side != 0 && previous != side)
+            {
+                var direction = previous > 0 ? Storage.AnalyticsDirections.AToB : Storage.AnalyticsDirections.BToA;
+                var label = direction == Storage.AnalyticsDirections.AToB ? "A→B" : "B→A";
+
+                if (zone.Direction != Storage.AnalyticsDirections.Both && zone.Direction != direction)
+                {
+                    results.Add(new AnalyticsResult(
+                        zone.Module, AnalyticsModuleCatalog.EventTailgating, zone.Id, zone.Name, zone.ChannelId,
+                        key, 1, $"逆行 {label}（限制 {zone.Direction}）"));
+                }
+
+                if (zone.DwellSeconds > 0)
+                {
+                    if (!_followRecent.TryGetValue((zone.Id, direction), out var recent))
+                    {
+                        recent = new List<(DateTime, string)>();
+                        _followRecent[(zone.Id, direction)] = recent;
+                    }
+
+                    var windowStart = snapshotUtc.AddSeconds(-zone.DwellSeconds);
+                    recent.RemoveAll(x => x.Utc < windowStart);
+                    var prior = recent.FirstOrDefault(x => x.Key != key);
+                    if (prior != default)
+                    {
+                        var elapsed = (int)Math.Round((snapshotUtc - prior.Utc).TotalSeconds);
+                        results.Add(new AnalyticsResult(
+                            zone.Module, AnalyticsModuleCatalog.EventTailgating, zone.Id, zone.Name, zone.ChannelId,
+                            key, 1, $"尾隨 {label}（{elapsed}s 窗）"));
+                    }
+
+                    recent.Add((snapshotUtc, key));
                 }
             }
 

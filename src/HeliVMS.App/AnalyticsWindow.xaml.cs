@@ -202,28 +202,22 @@ public partial class AnalyticsWindow : Window
         var events = new List<AnalyticsResult>();
         string? heatInfo = null;
 
-        if (AnalyticsModuleKinds.IsLineModule(zone.Module) && zone.Polygon.Count >= 2)
+        if (zone.Module == AnalyticsModuleKinds.Tailgating && zone.Polygon.Count >= 2)
         {
-            var a = zone.Polygon[0];
-            var b = zone.Polygon[1];
-            var midX = (a.X + b.X) / 2;
-            var midY = (a.Y + b.Y) / 2;
-            var dx = b.X - a.X;
-            var dy = b.Y - a.Y;
-            var len = Math.Sqrt((dx * dx) + (dy * dy));
-            if (len <= 0)
+            var points = ProbePoints(zone);
+            events.AddRange(evaluator.Evaluate(now, new[] { new AnalyticsDetection("person", points.p1.X, points.p1.Y, 0.9f, "probeA") }, new[] { zone }));
+            events.AddRange(evaluator.Evaluate(now.AddSeconds(1), new[] { new AnalyticsDetection("person", points.p2.X, points.p2.Y, 0.9f, "probeA") }, new[] { zone }));
+            if (zone.DwellSeconds >= 1)
             {
-                len = 1;
+                events.AddRange(evaluator.Evaluate(now.AddSeconds(1), new[] { new AnalyticsDetection("person", points.p1.X, points.p1.Y, 0.9f, "probeB") }, new[] { zone }));
+                events.AddRange(evaluator.Evaluate(now.AddSeconds(2), new[] { new AnalyticsDetection("person", points.p2.X, points.p2.Y, 0.9f, "probeB") }, new[] { zone }));
             }
-
-            var nx = -dy / len;
-            var ny = dx / len;
-            const double off = 0.1;
-            var p1 = Clamp(midX - (nx * off), midY - (ny * off));
-            var p2 = Clamp(midX + (nx * off), midY + (ny * off));
-
-            events.AddRange(evaluator.Evaluate(now, new[] { new AnalyticsDetection("vehicle", p1.X, p1.Y, 0.9f, "probe") }, new[] { zone }));
-            events.AddRange(evaluator.Evaluate(now, new[] { new AnalyticsDetection("vehicle", p2.X, p2.Y, 0.9f, "probe") }, new[] { zone }));
+        }
+        else if (AnalyticsModuleKinds.IsLineModule(zone.Module) && zone.Polygon.Count >= 2)
+        {
+            var points = ProbePoints(zone);
+            events.AddRange(evaluator.Evaluate(now, new[] { new AnalyticsDetection("vehicle", points.p1.X, points.p1.Y, 0.9f, "probe") }, new[] { zone }));
+            events.AddRange(evaluator.Evaluate(now, new[] { new AnalyticsDetection("vehicle", points.p2.X, points.p2.Y, 0.9f, "probe") }, new[] { zone }));
         }
         else if (zone.Module == AnalyticsModuleKinds.Heatmap && zone.Polygon.Count >= 3)
         {
@@ -279,6 +273,28 @@ public partial class AnalyticsWindow : Window
         }
 
         return (cx / zone.Polygon.Count, cy / zone.Polygon.Count);
+    }
+
+    private static ((double X, double Y) p1, (double X, double Y) p2) ProbePoints(AnalyticsZone zone)
+    {
+        var a = zone.Polygon[0];
+        var b = zone.Polygon[1];
+        var midX = (a.X + b.X) / 2;
+        var midY = (a.Y + b.Y) / 2;
+        var dx = b.X - a.X;
+        var dy = b.Y - a.Y;
+        var len = Math.Sqrt((dx * dx) + (dy * dy));
+        if (len <= 0)
+        {
+            len = 1;
+        }
+
+        var nx = -dy / len;
+        var ny = dx / len;
+        const double off = 0.1;
+        return (
+            Clamp(midX - (nx * off), midY - (ny * off)),
+            Clamp(midX + (nx * off), midY + (ny * off)));
     }
 
     private static (double X, double Y) Clamp(double x, double y)
