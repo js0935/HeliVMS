@@ -347,6 +347,11 @@ public partial class MainWindow : Window
             Dispatcher.BeginInvoke(() => OpenAnalyticsWindow());
         }
 
+        if (Environment.GetCommandLineArgs().Contains("--reports", StringComparer.OrdinalIgnoreCase))
+        {
+            Dispatcher.BeginInvoke(() => OpenReportsWindow());
+        }
+
         var evArgs = Environment.GetCommandLineArgs();
         var evidenceIndex = Array.IndexOf(evArgs, "--evidence");
         if (evidenceIndex >= 0)
@@ -1582,6 +1587,23 @@ public partial class MainWindow : Window
     }
 
     private void OnMapClicked(object sender, RoutedEventArgs e) => OpenMapWindow();
+
+    /// <summary>開啟統圖報表視窗（M60，§14.7 #9 統計報表）。admin 限定。</summary>
+    private void OpenReportsWindow()
+    {
+        if (!SessionContext.IsAdmin)
+        {
+            return;
+        }
+
+        var window = new ReportsWindow(_store!, _dataRoot)
+        {
+            Owner = this,
+        };
+        window.Show();
+    }
+
+    private void OnReportsClicked(object sender, RoutedEventArgs e) => OpenReportsWindow();
 
     /// <summary>開啟電子地圖（M41；M49 補比例尺與 FOV 深度）。</summary>
     private void OpenMapWindow()

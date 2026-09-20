@@ -1,0 +1,58 @@
+<Window x:Class="HeliVMS.App.ReportsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        AutomationProperties.AutomationId="ReportsWindow"
+        Title="HeliVMS 統圖報表"
+        Width="860" Height="620"
+        WindowStartupLocation="CenterOwner"
+        Background="#0B1622" Foreground="White">
+
+    <Grid Margin="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <StackPanel Grid.Row="0">
+            <TextBlock Text="統圖報表（M60，§14.7 #9）：錄影時數／斷線次數／容量趨勢／AI 事件統計"
+                       Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+            <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                <TextBlock Text="期間" VerticalAlignment="Center" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+                <ComboBox x:Name="ReportPeriodCombo" AutomationProperties.AutomationId="ReportPeriodCombo"
+                          Width="130" Margin="8,0,0,0" Foreground="Black"/>
+                <Button x:Name="ReportRefreshButton" AutomationProperties.AutomationId="ReportRefreshButton"
+                        Content="重新整理" Click="OnRefreshClicked"
+                        Width="92" Padding="0,6" Margin="14,0,0,0"
+                        Foreground="White" Background="#2A5C8A" BorderThickness="0"/>
+                <Button x:Name="ReportExportButton" AutomationProperties.AutomationId="ReportExportButton"
+                        Content="匯出 CSV" Click="OnExportClicked"
+                        Width="92" Padding="0,6" Margin="8,0,0,0"
+                        Foreground="White" Background="#3A6A5A" BorderThickness="0"/>
+            </StackPanel>
+        </StackPanel>
+
+        <ScrollViewer Grid.Row="1" Margin="0,12,0,0" VerticalScrollBarVisibility="Auto">
+            <StackPanel>
+                <TextBlock Text="錄影時數" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+                <TextBlock x:Name="ReportRecordingText" AutomationProperties.AutomationId="ReportRecordingText"
+                           Margin="0,4,0,0" Foreground="#C9D8E8" TextWrapping="Wrap" FontSize="12"/>
+
+                <TextBlock Text="斷線次數" Foreground="{StaticResource Brand.TextDim}" FontSize="11" Margin="0,12,0,0"/>
+                <TextBlock x:Name="ReportDisconnectText" AutomationProperties.AutomationId="ReportDisconnectText"
+                           Margin="0,4,0,0" Foreground="#C9D8E8" TextWrapping="Wrap" FontSize="12"/>
+
+                <TextBlock Text="容量趨勢（逐日）" Foreground="{StaticResource Brand.TextDim}" FontSize="11" Margin="0,12,0,0"/>
+                <TextBlock x:Name="ReportTrendText" AutomationProperties.AutomationId="ReportTrendText"
+                           Margin="0,4,0,0" Foreground="#C9D8E8" TextWrapping="Wrap" FontSize="12"/>
+
+                <TextBlock Text="AI 事件統計（依事件類型）" Foreground="{StaticResource Brand.TextDim}" FontSize="11" Margin="0,12,0,0"/>
+                <TextBlock x:Name="ReportAiText" AutomationProperties.AutomationId="ReportAiText"
+                           Margin="0,4,0,0" Foreground="#C9D8E8" TextWrapping="Wrap" FontSize="12"/>
+            </StackPanel>
+        </ScrollViewer>
+
+        <TextBlock Grid.Row="2" x:Name="ReportStatusText" AutomationProperties.AutomationId="ReportStatusText"
+                   Margin="0,10,0,0" Foreground="#9FB8D8" TextWrapping="Wrap"/>
+    </Grid>
+</Window>

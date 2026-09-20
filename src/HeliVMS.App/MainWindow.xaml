@@ -129,6 +129,10 @@
                                 Content="地圖" Click="OnMapClicked"
                                 Width="50" Padding="0,8"
                                 Foreground="White" Background="#2A7F6E" BorderThickness="0" />
+                        <Button x:Name="ReportsButton" AutomationProperties.AutomationId="ReportsButton"
+                                Content="報表" Click="OnReportsClicked"
+                                Width="50" Padding="0,8" Margin="6,0,0,0"
+                                Foreground="White" Background="#5A3A7A" BorderThickness="0" />
                     </StackPanel>
 
                     <TextBlock x:Name="HintText" TextWrapping="Wrap"
