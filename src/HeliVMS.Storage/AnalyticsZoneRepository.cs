@@ -10,10 +10,16 @@ public static class AnalyticsModuleKinds
     public const string Crowd = "crowd";
     public const string Loitering = "loitering";
     public const string Stationary = "stationary";
+    public const string Traffic = "traffic";
+    public const string Heatmap = "heatmap";
 
-    public static IReadOnlyList<string> All { get; } = new[] { LineCross, Intrusion, Crowd, Loitering, Stationary };
+    public static IReadOnlyList<string> All { get; } = new[]
+        { LineCross, Intrusion, Crowd, Loitering, Stationary, Traffic, Heatmap };
 
     public static bool IsValid(string module) => All.Contains(module);
+
+    /// <summary>雙點線段模組（<see cref="LineCross"/>、<see cref="Traffic"/>）允許 2 點幾何（M58）。</summary>
+    public static bool IsLineModule(string? module) => module is LineCross or Traffic;
 }
 
 /// <summary>跨線方向（M52）。</summary>
@@ -155,7 +161,7 @@ public sealed class AnalyticsZoneRepository
             throw new ArgumentException("無效的分析模組", nameof(module));
         }
 
-        var minPoints = module == AnalyticsModuleKinds.LineCross
+        var minPoints = AnalyticsModuleKinds.IsLineModule(module)
             ? AnalyticsPolygon.MinLinePoints
             : AnalyticsPolygon.MinPoints;
         if (!AnalyticsPolygon.IsValid(polygon, minPoints))

@@ -77,6 +77,11 @@ public sealed class AnalyticsEventEngine
         var inserted = new List<AlarmEventRecord>();
         foreach (var result in results)
         {
+            if (string.IsNullOrEmpty(result.EventType))
+            {
+                continue;
+            }
+
             var detail = $"{result.ZoneName}：{result.Detail}";
             var id = _events.Insert(channelId, result.EventType, frame.SnapshotUtc, null, detail);
             var record = new AlarmEventRecord

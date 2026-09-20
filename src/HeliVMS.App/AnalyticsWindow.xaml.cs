@@ -200,8 +200,9 @@ public partial class AnalyticsWindow : Window
         var evaluator = new AnalyticsZoneEvaluator();
         var now = DateTime.UtcNow;
         var events = new List<AnalyticsResult>();
+        string? heatInfo = null;
 
-        if (zone.Module == AnalyticsModuleKinds.LineCross && zone.Polygon.Count >= 2)
+        if (AnalyticsModuleKinds.IsLineModule(zone.Module) && zone.Polygon.Count >= 2)
         {
             var a = zone.Polygon[0];
             var b = zone.Polygon[1];
@@ -221,20 +222,39 @@ public partial class AnalyticsWindow : Window
             var p1 = Clamp(midX - (nx * off), midY - (ny * off));
             var p2 = Clamp(midX + (nx * off), midY + (ny * off));
 
-            events.AddRange(evaluator.Evaluate(now, new[] { new AnalyticsDetection("person", p1.X, p1.Y, 0.9f, "probe") }, new[] { zone }));
-            events.AddRange(evaluator.Evaluate(now, new[] { new AnalyticsDetection("person", p2.X, p2.Y, 0.9f, "probe") }, new[] { zone }));
+            events.AddRange(evaluator.Evaluate(now, new[] { new AnalyticsDetection("vehicle", p1.X, p1.Y, 0.9f, "probe") }, new[] { zone }));
+            events.AddRange(evaluator.Evaluate(now, new[] { new AnalyticsDetection("vehicle", p2.X, p2.Y, 0.9f, "probe") }, new[] { zone }));
+        }
+        else if (zone.Module == AnalyticsModuleKinds.Heatmap && zone.Polygon.Count >= 3)
+        {
+            var (cx, cy) = Center(zone);
+            var center = Clamp(cx, cy);
+            for (var i = 0; i < 25; i++)
+            {
+                events.AddRange(evaluator.Evaluate(now, new[] { new AnalyticsDetection("person", center.X, center.Y, 0.9f, "probe") }, new[] { zone }));
+            }
+
+            var cells = evaluator.HeatmapCells(zone.Id)
+                .OrderByDescending(c => c.Count)
+                .Take(3);
+            heatInfo = string.Join(";", cells.Select(c => $"({c.Col},{c.Row})x{c.Count}"));
+        }
+        else if (zone.Module is AnalyticsModuleKinds.Loitering or AnalyticsModuleKinds.Stationary && zone.Polygon.Count >= 3)
+        {
+            var (cx, cy) = Center(zone);
+            var center = Clamp(cx, cy);
+            for (var i = 0; i <= zone.DwellSeconds; i++)
+            {
+                events.AddRange(evaluator.Evaluate(
+                    now.AddSeconds(i),
+                    new[] { new AnalyticsDetection("person", center.X, center.Y, 0.9f, "probe") },
+                    new[] { zone }));
+            }
         }
         else if (zone.Polygon.Count >= 3)
         {
-            var cx = 0.0;
-            var cy = 0.0;
-            foreach (var p in zone.Polygon)
-            {
-                cx += p.X;
-                cy += p.Y;
-            }
-
-            var center = Clamp(cx / zone.Polygon.Count, cy / zone.Polygon.Count);
+            var (cx, cy) = Center(zone);
+            var center = Clamp(cx, cy);
             for (var i = 0; i < AnalyticsZoneEvaluator.CrowdDebounceFrames; i++)
             {
                 events.AddRange(evaluator.Evaluate(now, new[] { new AnalyticsDetection("person", center.X, center.Y, 0.9f, "probe") }, new[] { zone }));
@@ -242,8 +262,23 @@ public partial class AnalyticsWindow : Window
         }
 
         var info = AnalyticsModuleCatalog.For(zone.Module);
+        var heatSuffix = string.IsNullOrEmpty(heatInfo) ? "" : $" 熱區：{heatInfo}";
         AnalyticsStatusText.Text = $"評估：{events.Count} 筆事件（{info?.DisplayName ?? zone.Module}）。" +
-            (events.Count > 0 ? $" 首筆：{events[0].EventType}" : " 未命中（可能門檻過高或幾何無效）");
+            (events.Count > 0 ? $" 首筆：{events[0].EventType}" : " 未命中（可能門檻過高或幾何無效）") +
+            heatSuffix;
+    }
+
+    private static (double X, double Y) Center(AnalyticsZone zone)
+    {
+        var cx = 0.0;
+        var cy = 0.0;
+        foreach (var p in zone.Polygon)
+        {
+            cx += p.X;
+            cy += p.Y;
+        }
+
+        return (cx / zone.Polygon.Count, cy / zone.Polygon.Count);
     }
 
     private static (double X, double Y) Clamp(double x, double y)

@@ -255,6 +255,196 @@ public class AnalyticsModulesTests : IDisposable
         Assert.Equal(AnalyticsModuleCatalog.EventIntrusion, afterReset[0].EventType);
     }
 
+    // ---------- 評估器：長時間徘徊（M58） ----------
+
+    [Fact]
+    public void Loitering_FiresAfterDwell_RefiresAfterExit()
+    {
+        var zone = new AnalyticsZone(4, "櫃台", _channelId, AnalyticsModuleKinds.Loitering, true, Poly(Square), DwellSeconds: 2);
+        var evaluator = new AnalyticsZoneEvaluator();
+        var t0 = DateTime.UtcNow;
+
+        Assert.Empty(evaluator.Evaluate(t0.AddSeconds(0), new[] { At(0.5, 0.5, track: "t1") }, new[] { zone }));
+        Assert.Empty(evaluator.Evaluate(t0.AddSeconds(1), new[] { At(0.5, 0.5, track: "t1") }, new[] { zone }));
+
+        var fired = evaluator.Evaluate(t0.AddSeconds(2), new[] { At(0.5, 0.5, track: "t1") }, new[] { zone });
+        Assert.Single(fired);
+        Assert.Equal(AnalyticsModuleCatalog.EventLoitering, fired[0].EventType);
+        Assert.Contains("徘徊", fired[0].Detail);
+
+        Assert.Empty(evaluator.Evaluate(t0.AddSeconds(3), new[] { At(0.5, 0.5, track: "t1") }, new[] { zone }));
+
+        evaluator.Evaluate(t0.AddSeconds(4), new[] { At(0.05, 0.05, track: "t1") }, new[] { zone });
+        evaluator.Evaluate(t0.AddSeconds(5), new[] { At(0.5, 0.5, track: "t1") }, new[] { zone });
+
+        var refired = evaluator.Evaluate(t0.AddSeconds(7), new[] { At(0.5, 0.5, track: "t1") }, new[] { zone });
+        Assert.Single(refired);
+        Assert.Equal(AnalyticsModuleCatalog.EventLoitering, refired[0].EventType);
+    }
+
+    [Fact]
+    public void Loitering_DwellZero_FiresImmediately()
+    {
+        var zone = new AnalyticsZone(4, "櫃台", _channelId, AnalyticsModuleKinds.Loitering, true, Poly(Square));
+        var evaluator = new AnalyticsZoneEvaluator();
+
+        var fired = evaluator.Evaluate(DateTime.UtcNow, new[] { At(0.5, 0.5, track: "t1") }, new[] { zone });
+
+        Assert.Single(fired);
+        Assert.Equal(AnalyticsModuleCatalog.EventLoitering, fired[0].EventType);
+    }
+
+    [Fact]
+    public void Loitering_LeavesAndReturns_ReusesInitialEntryTime()
+    {
+        var zone = new AnalyticsZone(4, "櫃台", _channelId, AnalyticsModuleKinds.Loitering, true, Poly(Square), DwellSeconds: 1);
+        var evaluator = new AnalyticsZoneEvaluator();
+        var t0 = DateTime.UtcNow;
+
+        evaluator.Evaluate(t0.AddSeconds(0), new[] { At(0.5, 0.5, track: "t1") }, new[] { zone });
+        evaluator.Evaluate(t0.AddSeconds(1), new[] { At(0.05, 0.05, track: "t1") }, new[] { zone });
+        evaluator.Evaluate(t0.AddSeconds(10), new[] { At(0.5, 0.5, track: "t1") }, new[] { zone });
+
+        Assert.Empty(evaluator.Evaluate(t0.AddSeconds(10), new[] { At(0.5, 0.5, track: "t1") }, new[] { zone }));
+        var fired = evaluator.Evaluate(t0.AddSeconds(11), new[] { At(0.5, 0.5, track: "t1") }, new[] { zone });
+        Assert.Single(fired);
+    }
+
+    // ---------- 評估器：靜止物／遺留物（M58） ----------
+
+    [Fact]
+    public void Stationary_StationaryObjectFiresThenSuppressed()
+    {
+        var zone = new AnalyticsZone(5, "遺留物", _channelId, AnalyticsModuleKinds.Stationary, true, Poly(Square), DwellSeconds: 1);
+        var evaluator = new AnalyticsZoneEvaluator();
+        var t0 = DateTime.UtcNow;
+
+        evaluator.Evaluate(t0.AddSeconds(0), new[] { At(0.5, 0.5, track: "t1") }, new[] { zone });
+
+        var fired = evaluator.Evaluate(t0.AddSeconds(1), new[] { At(0.5, 0.5, track: "t1") }, new[] { zone });
+        Assert.Single(fired);
+        Assert.Equal(AnalyticsModuleCatalog.EventStationary, fired[0].EventType);
+        Assert.Contains("靜止", fired[0].Detail);
+
+        Assert.Empty(evaluator.Evaluate(t0.AddSeconds(2), new[] { At(0.5, 0.5, track: "t1") }, new[] { zone }));
+    }
+
+    [Fact]
+    public void Stationary_MovementBeyondTolerance_ResetsDwellClock()
+    {
+        var zone = new AnalyticsZone(5, "走動", _channelId, AnalyticsModuleKinds.Stationary, true, Poly(Square), DwellSeconds: 1);
+        var evaluator = new AnalyticsZoneEvaluator();
+        var t0 = DateTime.UtcNow;
+
+        for (var i = 0; i < 5; i++)
+        {
+            var results = evaluator.Evaluate(
+                t0.AddSeconds(i),
+                new[] { At(0.3 + (i * 0.05), 0.5, track: "t1") },
+                new[] { zone });
+            Assert.Empty(results);
+        }
+    }
+
+    // ---------- 評估器：車流統計（M58） ----------
+
+    [Fact]
+    public void Traffic_CountsCumulativePerDirection()
+    {
+        var zone = new AnalyticsZone(6, "車流線", _channelId, AnalyticsModuleKinds.Traffic, true, Poly(VerticalLine));
+        var evaluator = new AnalyticsZoneEvaluator();
+        var t0 = DateTime.UtcNow;
+
+        Assert.Empty(evaluator.Evaluate(t0, new[] { At(0.3, 0.5, track: "v1") }, new[] { zone }));
+
+        var first = evaluator.Evaluate(t0, new[] { At(0.7, 0.5, track: "v1") }, new[] { zone });
+        Assert.Single(first);
+        Assert.Equal(AnalyticsModuleCatalog.EventTraffic, first[0].EventType);
+        Assert.Equal(1, first[0].Count);
+        Assert.Contains("車流", first[0].Detail);
+
+        Assert.Empty(evaluator.Evaluate(t0, new[] { At(0.7, 0.5, track: "v1") }, new[] { zone }));
+        var back = evaluator.Evaluate(t0, new[] { At(0.3, 0.5, track: "v1") }, new[] { zone });
+        Assert.Single(back);
+        Assert.Equal(1, back[0].Count);
+
+        Assert.Empty(evaluator.Evaluate(t0, new[] { At(0.3, 0.5, track: "v2") }, new[] { zone }));
+        var second = evaluator.Evaluate(t0, new[] { At(0.7, 0.5, track: "v2") }, new[] { zone });
+        Assert.Single(second);
+        Assert.Equal(2, second[0].Count);
+    }
+
+    [Fact]
+    public void Traffic_DirectionFilter_OnlyCountsConfiguredDirection()
+    {
+        var zone = new AnalyticsZone(6, "單向", _channelId, AnalyticsModuleKinds.Traffic, true, Poly(VerticalLine), AnalyticsDirections.AToB);
+        var evaluator = new AnalyticsZoneEvaluator();
+        var t0 = DateTime.UtcNow;
+
+        evaluator.Evaluate(t0, new[] { At(0.7, 0.5, track: "v1") }, new[] { zone });
+        Assert.Empty(evaluator.Evaluate(t0, new[] { At(0.3, 0.5, track: "v1") }, new[] { zone }));
+
+        Assert.Empty(evaluator.Evaluate(t0, new[] { At(0.3, 0.5, track: "v2") }, new[] { zone }));
+        Assert.Empty(evaluator.Evaluate(t0, new[] { At(0.3, 0.5, track: "v2") }, new[] { zone }));
+
+        var crossed = evaluator.Evaluate(t0, new[] { At(0.7, 0.5, track: "v2") }, new[] { zone });
+        Assert.Single(crossed);
+        Assert.Equal(AnalyticsModuleCatalog.EventTraffic, crossed[0].EventType);
+    }
+
+    // ---------- 評估器：熱區圖（M58） ----------
+
+    [Fact]
+    public void Heatmap_AccumulatesCells_AndResetClears()
+    {
+        var zone = new AnalyticsZone(7, "入口", _channelId, AnalyticsModuleKinds.Heatmap, true, Poly(Square));
+        var evaluator = new AnalyticsZoneEvaluator();
+        var t0 = DateTime.UtcNow;
+
+        for (var i = 0; i < 3; i++)
+        {
+            Assert.Empty(evaluator.Evaluate(t0, new[] { At(0.5, 0.5), At(0.7, 0.3) }, new[] { zone }));
+        }
+
+        Assert.Equal(6, evaluator.HeatmapTotal(zone.Id));
+        var cells = evaluator.HeatmapCells(zone.Id);
+        Assert.Equal(2, cells.Count);
+        Assert.All(cells, c => Assert.Equal(3, c.Count));
+        Assert.Contains(cells, c => c.Row == 2 && c.Col == 2);
+        Assert.Contains(cells, c => c.Row == 1 && c.Col == 3);
+
+        evaluator.Reset();
+        Assert.Equal(0, evaluator.HeatmapTotal(zone.Id));
+        Assert.Empty(evaluator.HeatmapCells(zone.Id));
+    }
+
+    [Theory]
+    [InlineData(0.0, 0.0, 0, 0)]
+    [InlineData(0.99, 0.99, 4, 4)]
+    [InlineData(0.51, 0.49, 2, 2)]
+    public void Heatmap_CellsClampAtEdges(double x, double y, int expectedCol, int expectedRow)
+    {
+        var zone = new AnalyticsZone(7, "全景", _channelId, AnalyticsModuleKinds.Heatmap, true, Poly("0,0;1,0;1,1;0,1"));
+        var evaluator = new AnalyticsZoneEvaluator();
+
+        evaluator.Evaluate(DateTime.UtcNow, new[] { At(x, y) }, new[] { zone });
+
+        var cell = Assert.Single(evaluator.HeatmapCells(zone.Id));
+        Assert.Equal(expectedRow, cell.Row);
+        Assert.Equal(expectedCol, cell.Col);
+    }
+
+    [Fact]
+    public void Heatmap_OutsidePolygon_NotCounted()
+    {
+        var zone = new AnalyticsZone(7, "入口", _channelId, AnalyticsModuleKinds.Heatmap, true, Poly(Square));
+        var evaluator = new AnalyticsZoneEvaluator();
+
+        evaluator.Evaluate(DateTime.UtcNow, new[] { At(0.05, 0.05) }, new[] { zone });
+
+        Assert.Equal(0, evaluator.HeatmapTotal(zone.Id));
+    }
+
     // ---------- 事件引擎 ----------
 
     private long CountEvents(string eventType)
@@ -318,10 +508,49 @@ public class AnalyticsModulesTests : IDisposable
     }
 
     [Fact]
+    public void Engine_InsertsLoiteringEvent()
+    {
+        new AnalyticsZoneRepository(_store).Add(
+            "長佇列", _channelId, AnalyticsModuleKinds.Loitering, Square, AnalyticsDirections.Both, 0, 2);
+        var engine = new AnalyticsEventEngine(_store);
+        engine.LoadZones();
+        var t0 = DateTime.UtcNow;
+
+        Assert.Empty(engine.OnDetections(_channelId, FrameAt(t0, 0)));
+        Assert.Empty(engine.OnDetections(_channelId, FrameAt(t0, 1)));
+
+        var inserted = engine.OnDetections(_channelId, FrameAt(t0, 2));
+        Assert.Single(inserted);
+        Assert.Equal(AnalyticsModuleCatalog.EventLoitering, inserted[0].EventType);
+        Assert.Equal(1, CountEvents(AnalyticsModuleCatalog.EventLoitering));
+    }
+
+    [Fact]
+    public void Engine_HeatmapZone_EmitsNoEvents()
+    {
+        new AnalyticsZoneRepository(_store).Add("熱區", _channelId, AnalyticsModuleKinds.Heatmap, Square);
+        var engine = new AnalyticsEventEngine(_store);
+        engine.LoadZones();
+
+        var inserted = engine.OnDetections(_channelId, FrameAt(DateTime.UtcNow, 0));
+
+        Assert.Empty(inserted);
+        Assert.Equal(0, CountEvents(AnalyticsModuleCatalog.EventIntrusion));
+    }
+
+    private static DetectionsFrame FrameAt(DateTime t0, int sec)
+        => new(t0.AddSeconds(sec), new[] { new Detection("person", 0.9f, 0.45f, 0.45f, 0.1f, 0.1f) });
+
+    [Fact]
     public void ModuleCatalog_MapsModulesToEvents()
     {
         Assert.Equal(AnalyticsModuleCatalog.EventLineCross, AnalyticsModuleCatalog.For(AnalyticsModuleKinds.LineCross)!.EventType);
         Assert.Equal("analytics.crowd", AnalyticsModuleCatalog.For(AnalyticsModuleKinds.Crowd)!.LicenseFeature);
+        Assert.Equal(AnalyticsModuleCatalog.EventLoitering, AnalyticsModuleCatalog.For(AnalyticsModuleKinds.Loitering)!.EventType);
+        Assert.Equal(AnalyticsModuleCatalog.EventStationary, AnalyticsModuleCatalog.For(AnalyticsModuleKinds.Stationary)!.EventType);
+        Assert.Equal(AnalyticsModuleCatalog.EventTraffic, AnalyticsModuleCatalog.For(AnalyticsModuleKinds.Traffic)!.EventType);
+        Assert.Equal("analytics.heatmap", AnalyticsModuleCatalog.For(AnalyticsModuleKinds.Heatmap)!.LicenseFeature);
+        Assert.Null(AnalyticsModuleCatalog.For(AnalyticsModuleKinds.Heatmap)!.EventType);
         Assert.Null(AnalyticsModuleCatalog.For("thermal"));
     }
 }

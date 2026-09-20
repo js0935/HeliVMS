@@ -6,7 +6,7 @@ namespace HeliVMS.Storage.Tests;
 public class AnalyticsZoneTests : IDisposable
 {
     private readonly string _dbPath;
-    private readonly SqliteStore _store;
+    private SqliteStore _store;
     private readonly AnalyticsZoneRepository _zones;
 
     public AnalyticsZoneTests()
@@ -87,6 +87,36 @@ public class AnalyticsZoneTests : IDisposable
         var id = _zones.Add("周界線", 1, AnalyticsModuleKinds.LineCross, "0.5,0;0.5,1");
 
         Assert.Equal("0.5,0;0.5,1", _zones.Get(id)!.Polygon);
+    }
+
+    [Fact]
+    public void Add_Traffic_AcceptsTwoPointsLikeLineCross()
+    {
+        var id = _zones.Add("車流線", 1, AnalyticsModuleKinds.Traffic, "0.5,0;0.5,1", AnalyticsDirections.AToB);
+
+        var record = _zones.Get(id)!;
+        Assert.Equal(AnalyticsModuleKinds.Traffic, record.Module);
+        Assert.Equal(AnalyticsDirections.AToB, record.Direction);
+        Assert.Equal(0, record.DwellSeconds);
+    }
+
+    [Fact]
+    public void Add_Heatmap_AcceptsPolygon()
+    {
+        var id = _zones.Add("熱區", 1, AnalyticsModuleKinds.Heatmap, Square, dwellSeconds: 30);
+
+        var record = _zones.Get(id)!;
+        Assert.Equal(AnalyticsModuleKinds.Heatmap, record.Module);
+        Assert.True(record.Enabled);
+        Assert.Equal(30, record.DwellSeconds);
+    }
+
+    [Fact]
+    public void Add_Loitering_PersistsDwellSeconds()
+    {
+        var id = _zones.Add("徘徊區", 1, AnalyticsModuleKinds.Loitering, Square, AnalyticsDirections.Both, 0, 12);
+
+        Assert.Equal(12, _zones.Get(id)!.DwellSeconds);
     }
 
     [Fact]
@@ -173,5 +203,23 @@ public class AnalyticsZoneTests : IDisposable
         }
 
         Assert.False(AnalyticsModuleKinds.IsValid("unknown"));
+    }
+
+    [Fact]
+    public void Reinitialize_IsIdempotent_WithNewModules()
+    {
+        var traffic = _zones.Add("車流", 1, AnalyticsModuleKinds.Traffic, "0.5,0;0.5,1");
+        var heatmap = _zones.Add("熱區", 1, AnalyticsModuleKinds.Heatmap, Square);
+        var loitering = _zones.Add("徘徊", 1, AnalyticsModuleKinds.Loitering, Square, dwellSeconds: 5);
+
+        _store.Dispose();
+        _store = new SqliteStore(_dbPath);
+        _store.Initialize();
+        _store.Initialize();
+
+        var repo2 = new AnalyticsZoneRepository(_store);
+        Assert.Equal(AnalyticsModuleKinds.Traffic, repo2.Get(traffic)!.Module);
+        Assert.Equal(AnalyticsModuleKinds.Heatmap, repo2.Get(heatmap)!.Module);
+        Assert.Equal(5, repo2.Get(loitering)!.DwellSeconds);
     }
 }

@@ -9,7 +9,7 @@ namespace HeliVMS.Storage;
 /// </summary>
 public sealed class SqliteStore : IDisposable
 {
-    private const int CurrentSchemaVersion = 21;
+    private const int CurrentSchemaVersion = 22;
     private readonly SqliteConnection _connection;
     private readonly object _gate = new();
     private bool _disposed;
@@ -157,6 +157,11 @@ public sealed class SqliteStore : IDisposable
         if (version < 21)
         {
             CreateOffsiteJobsTableV21();
+        }
+
+        if (version < 22)
+        {
+            ExpandAnalyticsModulesV22();
         }
 
         Execute("PRAGMA user_version = CURRENT_SCHEMA_VERSION;".Replace(
@@ -584,6 +589,31 @@ public sealed class SqliteStore : IDisposable
                 dwell_seconds INTEGER NOT NULL DEFAULT 0,
                 created_at    TEXT    NOT NULL
             );
+            CREATE INDEX IF NOT EXISTS idx_analytics_channel ON analytics_zones(channel_id);
+            """);
+    }
+
+    /// <summary>M58 智慧分析模組二（§5.6）：analytics_zones 模組 CHECK 擴充 traffic／heatmap（重建資料表，保留資料）。</summary>
+    private void ExpandAnalyticsModulesV22()
+    {
+        Execute(
+            """
+            CREATE TABLE analytics_zones_new (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                name          TEXT    NOT NULL,
+                channel_id    INTEGER NOT NULL,
+                module        TEXT    NOT NULL CHECK (module IN ('line_cross', 'intrusion', 'crowd', 'loitering', 'stationary', 'traffic', 'heatmap')),
+                enabled       INTEGER NOT NULL DEFAULT 1,
+                polygon       TEXT    NOT NULL,
+                direction     TEXT    NOT NULL DEFAULT 'both' CHECK (direction IN ('both', 'a_to_b', 'b_to_a')),
+                min_count     INTEGER NOT NULL DEFAULT 0,
+                dwell_seconds INTEGER NOT NULL DEFAULT 0,
+                created_at    TEXT    NOT NULL
+            );
+            INSERT INTO analytics_zones_new (id, name, channel_id, module, enabled, polygon, direction, min_count, dwell_seconds, created_at)
+                SELECT id, name, channel_id, module, enabled, polygon, direction, min_count, dwell_seconds, created_at FROM analytics_zones;
+            DROP TABLE analytics_zones;
+            ALTER TABLE analytics_zones_new RENAME TO analytics_zones;
             CREATE INDEX IF NOT EXISTS idx_analytics_channel ON analytics_zones(channel_id);
             """);
     }
