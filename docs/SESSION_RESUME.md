@@ -6,8 +6,8 @@
 
 ## 一句話總結
 HeliVMS 為一套**網路影像監控系統**（WPF 桌面應用：即時監看／回放／AI 事件中心／錄影排程）。
-里程碑 **M1 至 M58 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M58 智慧分析模組二）。
-Release build 0 error、測試 **543/543 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
+里程碑 **M1 至 M59 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M59 尾隨／逆行智慧模組）。
+Release build 0 error、測試 **553/553 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
 本地與遠端完全同步（`git diff origin/HEAD` 為空）。
 
 ## 開新 session 的接手方法
@@ -23,7 +23,8 @@ gh run list -L 3              # 預期全部 success
 新 session 會以 git 現況接手，不會靠猜測。
 
 ## 現況快照（權威來源＝git，非聊天記憶）
-- 最後 commit：`HEAD`＝**M58（`3e28bcd`）**——智慧分析模組二（長時間徘徊／靜止物／車流統計／熱區圖，§5.6，見下方 §34 定義段）；全 **543**、CI `35541102070` success
+- 最後 commit：`HEAD`＝**M59（`386faa5`）**——智慧分析模組三（尾隨／逆行 `ai_tailgating`，§5.6，見下方 §35 定義段）；全 **553**、CI `35541998741` success
+- 前一個 M58 交付＝`3e28bcd`（智慧分析模組二，見下方 §34 定義段）、全 **543**、CI `35541102070` success
 - 前一個 M57 交付＝`5225a3a`（多語言介面 i18n，見下方 §33 定義段）、全 **525**、CI `35537573067` success
 - 前一個 M56 交付＝`1309112`（事件中心搜尋／篩選／CSV 匯出，見下方 §32 定義段）、全 **518**、CI `35533344119` success
 - 前一個 M55 交付＝`9b1b37a`（異地備援自動複製 Off-Site Replication，見下方 §31 定義段）、全 **512**、CI `35526440981` success
@@ -35,8 +36,8 @@ gh run list -L 3              # 預期全部 success
 - 前一個 M47 交付＝`f3c01e1`（警報管理器 Alarm Manager，見下方 §22 M47 定義段）、全 **299**、CI `35286083642` success
 - 前一個 M46 交付＝`c7f6e8f`（錄影遮蔽 Redaction，見下方 §21 M46 定義段）、全 **293**、CI `35284550851` success
 - 前一個 M45 交付＝`ef3a8bc`（備份與異地備援，見下方 §20 M45 定義段）、全 **289**、CI `35263453271` success
-- 已驗收：**M58＝智慧分析模組二（長時間徘徊／靜止物／車流統計／熱區圖）**（§5.6，見下方 §34 定義段）；**M57＝多語言介面 i18n（繁中／簡中／English）**（§14.7 P1，見下方 §33 定義段）
-- 進行中：（下一里程碑依規劃，見下方 §35 M59 定義段）
+- 已驗收：**M59＝智慧分析模組三（尾隨／逆行 `ai_tailgating`）**（§5.6，見下方 §35 定義段）；**M58＝智慧分析模組二（長時間徘徊／靜止物／車流統計／熱區圖）**（§5.6，見下方 §34 定義段）；**M57＝多語言介面 i18n（繁中／簡中／English）**（§14.7 P1，見下方 §33 定義段）
+- 進行中：（下一里程碑依規劃，見下方 §36 M60 定義段）
 - 前一個 M38 交付＝`d09b045`（事件回應工作流，見下方 M38 定義段）、全 **172**、CI `35185639491` success
 - 前一個 M30 交付＝`24ad4c7`（MQTT 通知通道）：`NotificationSettings`＋
   `MqttEnabled/MqttHost/MqttPort(1883)/MqttTopic/MqttUser/MqttPassword`（鍵 `notify.mqtt.*`、
@@ -876,7 +877,31 @@ gh run list -L 3              # 預期全部 success
     - 驗收：App Release 0 error、全 **543**、`ANALYTICS2_OK`、回歸 **15 支全綠**（13 既有支＋i18ncheck 保持綠＋新 analytics2check）、CI 綠（`35541102070`）；
       工作目錄空白、真 DB `user_version`＝22
 
-35. **M59 ＝（待定義；依 SESSION_RESUME 規劃表下一個尚未交付之里程碑）**：
+35. **M59 已完成**（commit `386faa5`，CI `35541998741` success）：智慧分析模組三——**尾隨／逆行**（`ai_tailgating`，§5.6
+    P3、§14.7 #6 KiwiVision 方向控制對標），M52 定義段「尾隨 …（跨線追蹤）待交付」之收尾：
+    - 模組語意（沿用既有欄位）：`tailgating`＝雙點線段管制流向模組；`Direction`＝管制流向（`a_to_b`／`b_to_a`，
+      `both`＝無管制）；`DwellSeconds`＝**尾隨跟隨窗（秒）**。**逆行 counter-flow**＝`Direction != both` 且跨線方向
+      違反（`方向 != Direction`）；**尾隨 following**＝另一 track 於 `DwellSeconds` 窗內同方向跨線（detail 含
+      `尾隨 <方向>（<elapsed>s 窗）`）。以 per-key 跨線狀態近似，不需 §5.7 完整目標追蹤（track_id/Hungarian/ReID
+      留作獨立 infra 里程碑）；`both` 時無逆行、`DwellSeconds=0` 時無尾隨窗
+    - Storage：`AnalyticsModuleKinds`＋`Tailgating="tailgating"`（All 8 模組）、`IsLineModule` 納入；schema
+      **v22→v23** `ExpandAnalyticsModulesV23`（重建 analytics_zones，module CHECK 再擴充含 tailgating，保留資料＋重建索引）
+    - Alarms：catalog ＋`EventTailgating="ai_tailgating"`（授權位元 `analytics.tailgating`）；`AnalyticsZoneEvaluator`
+      ＋`_followRecent`（每分流向最近跨線清單，跨線時先 prune `DwellSeconds` 窗外再查其他 key＝尾隨、方向違反＝逆行）；
+      `Reset()` 一併清空
+    - App `AnalyticsWindow.xaml.cs`：評估分支優先處理 Tailgating（`ProbePoints(zone)` 取線段法向量兩側點，
+      `probeA` 於 t0→t+1s 跨線、`probeB` 於 t+1s→t+2s 同向跨線，`DwellSeconds>=1` 才送第二軌）＋既有 IsLineModule
+      分支改用 `ProbePoints` 重構
+    - 測試：Alarms 158→**166**（尾隨窗內命中/窗外不中/雙向無逆行有尾隨/逆行違反管制流向/順向非逆行/同軌不自我尾隨/
+      Reset 清史/catalog 對映/engine 逆行落地）、Storage 353→**355**（tailgating 雙點收受、IsLineModule、重入冪等）；
+      全 **553**（Storage 355＋Alarms 166＋Devices 24＋Licensing 8）
+    - seedtriage `--analytics` ＋「harness tailgating」（雙點、dwell=2）；harness `tailgatecheck.ps1`→**TAILGATE_OK**
+      （seed=8；DB 直查 tailgating 種子；UI 新增「尾隨/逆行」→ 評估首筆 `ai_tailgating`；
+      停用再評估→未命中；刪除→列數還原）；回歸 **16 支全綠**（15 既有＋tailgatecheck，含 analytics2check seed>=7 不受影響）
+    - 真 DB `C:\HeliVMSData\index.db` 實證 **v22→v23**（`PRAGMA user_version`=23）、analytics_zones 已淨空
+      （harness 前綴名、`--analytics-clean` 回收）
+
+36. **M60 ＝（待定義；依 SESSION_RESUME 規劃表下一個尚未交付之里程碑）**：
     - （本段佔位，接續里程碑於下個 session 依開頭「尚未完成／下一步」清單與 PCC 表選定後撰寫）
 
 ## 已知雷區（勿再犯）
