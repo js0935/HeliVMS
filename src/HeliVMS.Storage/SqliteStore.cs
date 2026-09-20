@@ -9,7 +9,7 @@ namespace HeliVMS.Storage;
 /// </summary>
 public sealed class SqliteStore : IDisposable
 {
-    private const int CurrentSchemaVersion = 20;
+    private const int CurrentSchemaVersion = 21;
     private readonly SqliteConnection _connection;
     private readonly object _gate = new();
     private bool _disposed;
@@ -152,6 +152,11 @@ public sealed class SqliteStore : IDisposable
         if (version < 20)
         {
             AddSmartAlertColumnsV20();
+        }
+
+        if (version < 21)
+        {
+            CreateOffsiteJobsTableV21();
         }
 
         Execute("PRAGMA user_version = CURRENT_SCHEMA_VERSION;".Replace(
@@ -589,6 +594,25 @@ public sealed class SqliteStore : IDisposable
         EnsureColumn("alert_rules", "match_event_types", "TEXT");
         EnsureColumn("alert_rules", "frame_minutes", "INTEGER NOT NULL DEFAULT 0");
         EnsureColumn("alert_rules", "min_events_in_window", "INTEGER NOT NULL DEFAULT 1");
+    }
+
+    private void CreateOffsiteJobsTableV21()
+    {
+        Execute(
+            """
+            CREATE TABLE IF NOT EXISTS offsite_jobs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                source_path TEXT NOT NULL,
+                destination_path TEXT NOT NULL,
+                interval_minutes INTEGER NOT NULL DEFAULT 1440,
+                enabled INTEGER NOT NULL DEFAULT 0,
+                last_run_utc TEXT,
+                last_result TEXT,
+                last_error TEXT,
+                consecutive_failures INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL
+            );
+            """);
     }
 
     private void EnsureColumn(string table, string column, string definition)

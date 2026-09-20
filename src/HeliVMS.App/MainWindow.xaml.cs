@@ -5,6 +5,7 @@ using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Shapes;
+using System.Windows.Threading;
 using HeliVMS.Alarms;
 using HeliVMS.App.Services;
 using HeliVMS.Licensing;
@@ -60,6 +61,8 @@ public partial class MainWindow : Window
     private AlertRuleRepository? _alertRules;
     private AlarmEventRepository? _alarmEvents;
     private int _smartAlertSuppressed;
+    private OffsiteReplicationRepository? _offsite;
+    private DispatcherTimer? _offsiteTimer;
     private bool _exiting;
 
     private static readonly SolidColorBrush BrOffline = new(Color.FromRgb(0x6B, 0x7B, 0x90));
@@ -367,6 +370,11 @@ public partial class MainWindow : Window
         _analytics = new AnalyticsEventEngine(_store);
         _alertRules = new AlertRuleRepository(_store);
         _alarmEvents = new AlarmEventRepository(_store);
+        _offsite = new OffsiteReplicationRepository(_store);
+        _offsiteTimer = new DispatcherTimer(TimeSpan.FromMinutes(1), DispatcherPriority.Background,
+            (_, _) => RunOffsiteDueJobs(), Dispatcher);
+        _offsiteTimer.Start();
+        RunOffsiteDueJobs();
         _analytics.LoadZones();
         _analytics.EventInserted += (_, record) =>
         {
@@ -1164,6 +1172,31 @@ public partial class MainWindow : Window
     }
 
     /// <summary>開啟管理設定中心（M19，§9）。僅 admin（M42）。</summary>
+    private void RunOffsiteDueJobs()
+    {
+        if (_offsite is null || _exiting)
+        {
+            return;
+        }
+
+        try
+        {
+            Task.Run(() =>
+            {
+                var service = new OffsiteReplicationService(_offsite);
+                var now = DateTime.UtcNow;
+                foreach (var job in service.DueJobs(now))
+                {
+                    service.RunOnce(job);
+                }
+            });
+        }
+        catch
+        {
+            // 背景定時掃描失敗不應中斷主程式。
+        }
+    }
+
     private void OpenSettingsWindow()
     {
         if (!SessionContext.IsAdmin)

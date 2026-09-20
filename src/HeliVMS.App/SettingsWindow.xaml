@@ -884,7 +884,7 @@
                              Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
                 </DockPanel>
 
-                <DockPanel Margin="0,0,0,10">
+                <DockPanel Margin="0,0,0,8">
                     <Button x:Name="BackupNowButton" AutomationProperties.AutomationId="BackupNowButton"
                             Content="立即備份" Click="OnBackupNowClicked" Padding="14,8"
                             Foreground="White" Background="#2A5C8A" BorderThickness="0"/>
@@ -893,8 +893,46 @@
                                Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
                 </DockPanel>
 
+                <TextBlock Text="異地備援複製（M55：定時將來源目錄新檔複製至 NAS／雲端掛載路徑）"
+                           Foreground="{StaticResource Brand.TextDim}" FontSize="11" Margin="0,8,0,4"/>
+                <DockPanel Margin="0,0,0,6">
+                    <Button x:Name="OffsiteSourceBrowseButton" Content="來源…" DockPanel.Dock="Right"
+                            Click="OnOffsiteBrowseClicked" Tag="source" Padding="10,3" Margin="4,0,0,0"
+                            Foreground="White" Background="#2A5C8A" BorderThickness="0"/>
+                    <TextBox x:Name="OffsiteSourceBox" AutomationProperties.AutomationId="OffsiteSourceBox"
+                             Height="24" VerticalContentAlignment="Center"
+                             Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
+                </DockPanel>
+                <DockPanel Margin="0,0,0,6">
+                    <Button x:Name="OffsiteDestBrowseButton" Content="目標…" DockPanel.Dock="Right"
+                            Click="OnOffsiteBrowseClicked" Tag="destination" Padding="10,3" Margin="4,0,0,0"
+                            Foreground="White" Background="#2A5C8A" BorderThickness="0"/>
+                    <TextBox x:Name="OffsiteDestBox" AutomationProperties.AutomationId="OffsiteDestBox"
+                             Height="24" VerticalContentAlignment="Center"
+                             Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
+                </DockPanel>
+                <DockPanel Margin="0,0,0,6">
+                    <Button x:Name="OffsiteApplyButton" Content="儲存設定" DockPanel.Dock="Right"
+                            Click="OnSaveOffsiteClicked" Padding="10,4"
+                            Foreground="White" Background="#2A5C8A" BorderThickness="0"/>
+                    <TextBox x:Name="OffsiteIntervalBox" AutomationProperties.AutomationId="OffsiteIntervalBox"
+                             Width="90" Height="24" VerticalContentAlignment="Center"
+                             Text="1440" Margin="0,0,10,0"
+                             Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
+                    <CheckBox x:Name="OffsiteEnabledBox" Content="啟用異地複製（間隔分鐘）" VerticalAlignment="Center"
+                              Foreground="White"/>
+                </DockPanel>
+                <DockPanel Margin="0,0,0,8">
+                    <Button x:Name="OffsiteRunNowButton" AutomationProperties.AutomationId="OffsiteRunNowButton"
+                            Content="立即複製" Click="OnOffsiteRunNowClicked" Padding="12,5"
+                            Foreground="White" Background="#2A5C8A" BorderThickness="0"/>
+                    <TextBlock x:Name="OffsiteStatusText" AutomationProperties.AutomationId="OffsiteStatusText"
+                               Margin="12,0,0,0" VerticalAlignment="Center" TextWrapping="Wrap"
+                               Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+                </DockPanel>
+
                 <TextBlock Text="最近備份紀錄" Foreground="{StaticResource Brand.TextDim}" FontSize="11" Margin="0,6,0,4"/>
-                <ListView x:Name="BackupLogList" Height="200" Background="#0D1B2B" BorderBrush="#1F3A5F"
+                <ListView x:Name="BackupLogList" Height="120" Background="#0D1B2B" BorderBrush="#1F3A5F"
                           Foreground="White">
                     <ListView.View>
                         <GridView>

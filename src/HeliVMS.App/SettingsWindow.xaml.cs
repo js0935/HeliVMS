@@ -81,6 +81,7 @@ public partial class SettingsWindow : Window
         _enterprise = new EnterpriseAuthService(store);
         _providers = new AuthProviderRepository(store);
         _shareHost = shareHost;
+        _offsite = new OffsiteReplicationRepository(store);
 
         InitializeComponent();
         MapPinCanvas.MouseLeftButtonUp += OnMapPinCanvasClick;
@@ -106,6 +107,7 @@ public partial class SettingsWindow : Window
         ReloadUsers();
         ReloadEnterpriseProviders();
         ReloadBackup();
+        ReloadOffsite();
         ReloadShare();
 
         SettingsNav.SelectedIndex = 0;
@@ -252,6 +254,151 @@ public partial class SettingsWindow : Window
             r.CopiedCount.ToString(CultureInfo.InvariantCulture),
             r.FailedCount.ToString(CultureInfo.InvariantCulture),
             r.CheckpointUtc.HasValue ? "是" : "否")).ToList();
+    }
+
+    // ---------- 異地備援複製（M55，§4.4 異地） ----------
+
+    private const string OffsiteEnabledKey = "offsite.enabled";
+    private const string OffsiteSourceKey = "offsite.source";
+    private const string OffsiteDestKey = "offsite.destination";
+    private const string OffsiteIntervalKey = "offsite.interval_minutes";
+    private const int DefaultOffsiteIntervalMinutes = 1440;
+    private readonly OffsiteReplicationRepository _offsite = null!;
+
+    /// <summary>載入異地複製設定（app_settings＋offsite_jobs）。</summary>
+    private void ReloadOffsite()
+    {
+        OffsiteEnabledBox.IsChecked = _settings.Get(OffsiteEnabledKey) == "1";
+        var source = _settings.Get(OffsiteSourceKey);
+        if (!string.IsNullOrWhiteSpace(source))
+        {
+            OffsiteSourceBox.Text = source;
+        }
+
+        var dest = _settings.Get(OffsiteDestKey);
+        if (!string.IsNullOrWhiteSpace(dest))
+        {
+            OffsiteDestBox.Text = dest;
+        }
+
+        var interval = (int)_settings.GetDoubleOrDefault(OffsiteIntervalKey, DefaultOffsiteIntervalMinutes);
+        OffsiteIntervalBox.Text = interval > 0 ? interval.ToString(CultureInfo.InvariantCulture) : DefaultOffsiteIntervalMinutes.ToString(CultureInfo.InvariantCulture);
+        ReloadOffsiteStatus();
+    }
+
+    /// <summary>刷新異地複製狀態列（最後執行／結果／連續失敗）。</summary>
+    private void ReloadOffsiteStatus()
+    {
+        var job = _offsite.List().FirstOrDefault();
+        if (job is null)
+        {
+            OffsiteStatusText.Text = "尚未設定異地複製工作。";
+            return;
+        }
+
+        var runAt = job.LastRunUtc.HasValue
+            ? job.LastRunUtc.Value.ToLocalTime().ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture)
+            : "從未";
+        var result = job.LastResult ?? "—";
+        var error = job.LastError is null ? "" : $"；錯誤：{job.LastError}";
+        OffsiteStatusText.Text =
+            $"狀態：{result}（{runAt}）｜連續失敗 {job.ConsecutiveFailures}{error}｜來源：{job.SourcePath} → {job.DestinationPath}";
+    }
+
+    private void OnOffsiteBrowseClicked(object sender, RoutedEventArgs e)
+    {
+        var dlg = new Microsoft.Win32.OpenFolderDialog
+        {
+            Title = (sender as Button)?.Tag as string == "destination" ? "選擇異地目標目錄" : "選擇來源目錄"
+        };
+        if (dlg.ShowDialog() != true)
+        {
+            return;
+        }
+
+        if ((sender as Button)?.Tag as string == "destination")
+        {
+            OffsiteDestBox.Text = dlg.FolderName;
+        }
+        else
+        {
+            OffsiteSourceBox.Text = dlg.FolderName;
+        }
+
+        OffsiteStatusText.Text = "";
+    }
+
+    private bool SaveOffsiteSettings()
+    {
+        if (!int.TryParse(OffsiteIntervalBox.Text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var interval) ||
+            interval <= 0)
+        {
+            OffsiteStatusText.Text = "間隔需為大於 0 的數字（分鐘）。";
+            return false;
+        }
+
+        var source = OffsiteSourceBox.Text.Trim();
+        var dest = OffsiteDestBox.Text.Trim();
+        if (string.IsNullOrWhiteSpace(source) || string.IsNullOrWhiteSpace(dest))
+        {
+            OffsiteStatusText.Text = "來源與目標目錄皆需填寫。";
+            return false;
+        }
+
+        var enabled = OffsiteEnabledBox.IsChecked == true;
+        _settings.Set(OffsiteEnabledKey, enabled ? "1" : "0");
+        _settings.Set(OffsiteSourceKey, source);
+        _settings.Set(OffsiteDestKey, dest);
+        _settings.Set(OffsiteIntervalKey, interval.ToString(CultureInfo.InvariantCulture));
+        _offsite.Upsert(source, dest, interval, enabled);
+        ReloadOffsiteStatus();
+        return true;
+    }
+
+    private void OnSaveOffsiteClicked(object sender, RoutedEventArgs e)
+    {
+        if (SaveOffsiteSettings())
+        {
+            OffsiteStatusText.Text += " 設定已儲存。";
+        }
+        else
+        {
+            ReloadOffsiteStatus();
+        }
+    }
+
+    private async void OnOffsiteRunNowClicked(object sender, RoutedEventArgs e)
+    {
+        if (!SaveOffsiteSettings())
+        {
+            return;
+        }
+
+        var job = _offsite.List().FirstOrDefault();
+        if (job is null)
+        {
+            OffsiteStatusText.Text = "尚未建立異地複製工作。";
+            return;
+        }
+
+        OffsiteRunNowButton.IsEnabled = false;
+        OffsiteStatusText.Text = "複製執行中…";
+        try
+        {
+            var ok = await Task.Run(() => new OffsiteReplicationService(_offsite).RunOnce(job.Id));
+            OffsiteStatusText.Text = ok
+                ? "異地複製完成。"
+                : $"異地複製失敗：{_offsite.List().FirstOrDefault()?.LastError}";
+        }
+        catch (Exception ex)
+        {
+            OffsiteStatusText.Text = $"異地複製失敗：{ex.Message}";
+        }
+        finally
+        {
+            OffsiteRunNowButton.IsEnabled = true;
+            ReloadOffsiteStatus();
+        }
     }
 
     private void ReloadRules()
