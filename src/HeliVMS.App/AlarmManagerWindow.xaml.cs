@@ -49,6 +49,7 @@ public partial class AlarmManagerWindow : Window
         _events = new AlarmEventRepository(store);
         _triage = new AlarmTriageRepository(store);
         InitializeComponent();
+        Title = Localizer.T("AlarmManager.Title");
 
         foreach (var ch in new ChannelRepository(store).List())
         {

@@ -74,6 +74,22 @@
                 </StackPanel>
                 <TextBlock x:Name="ShareServiceStatusText" AutomationProperties.AutomationId="ShareServiceStatusText"
                            Foreground="#9FB8D8" TextWrapping="Wrap"/>
+
+                <TextBlock x:Name="LangLabel" Text="介面語言" Foreground="{StaticResource Brand.TextDim}"
+
+                           FontSize="11" Margin="0,14,0,0"/>
+                <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                    <ComboBox x:Name="LangCombo" AutomationProperties.AutomationId="LangCombo"
+                              Width="140" SelectionChanged="OnLangChanged"
+                              Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73">
+                        <ComboBoxItem Content="繁體中文" Tag="zh-Hant"/>
+                        <ComboBoxItem Content="简体中文" Tag="zh-Hans"/>
+                        <ComboBoxItem Content="English" Tag="en"/>
+                    </ComboBox>
+                    <TextBlock x:Name="LangHintText" AutomationProperties.AutomationId="LangHintText"
+                               VerticalAlignment="Center" Margin="10,0,0,0"
+                               Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+                </StackPanel>
             </StackPanel>
 
             <!-- 儲存 -->

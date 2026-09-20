@@ -15,12 +15,12 @@
 
         <!-- 過濾列 -->
         <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
-            <TextBlock Text="頻道" Foreground="{StaticResource Brand.TextDim}" VerticalAlignment="Center"/>
+            <TextBlock x:Name="ChannelLabel" Text="頻道" Foreground="{StaticResource Brand.TextDim}" VerticalAlignment="Center"/>
             <ComboBox x:Name="ChannelCombo" Width="180" Margin="6,0,0,0"
                       Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"
                       SelectionChanged="OnChannelSelectionChanged"/>
 
-            <TextBlock Text="範圍" Foreground="{StaticResource Brand.TextDim}" VerticalAlignment="Center" Margin="20,0,0,0"/>
+            <TextBlock x:Name="RangeLabel" Text="範圍" Foreground="{StaticResource Brand.TextDim}" VerticalAlignment="Center" Margin="20,0,0,0"/>
             <ComboBox x:Name="RangeCombo" Width="110" Margin="6,0,0,0" SelectedIndex="1"
                       Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"
                       SelectionChanged="OnChannelSelectionChanged">
@@ -30,12 +30,12 @@
                 <ComboBoxItem Content="全部"/>
             </ComboBox>
 
-            <TextBlock Text="類型" Foreground="{StaticResource Brand.TextDim}" VerticalAlignment="Center" Margin="20,0,0,0"/>
+            <TextBlock x:Name="TypeLabel" Text="類型" Foreground="{StaticResource Brand.TextDim}" VerticalAlignment="Center" Margin="20,0,0,0"/>
             <ComboBox x:Name="TypeCombo" Width="130" Margin="6,0,0,0"
                       Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"
                       SelectionChanged="OnChannelSelectionChanged"/>
 
-            <TextBlock Text="關鍵字" Foreground="{StaticResource Brand.TextDim}" VerticalAlignment="Center" Margin="20,0,0,0"/>
+            <TextBlock x:Name="KeywordLabel" Text="關鍵字" Foreground="{StaticResource Brand.TextDim}" VerticalAlignment="Center" Margin="20,0,0,0"/>
             <TextBox x:Name="KeywordBox" AutomationProperties.AutomationId="KeywordBox"
                      Width="140" Margin="6,0,0,0" VerticalContentAlignment="Center"
                      Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>

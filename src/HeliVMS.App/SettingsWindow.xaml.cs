@@ -84,6 +84,7 @@ public partial class SettingsWindow : Window
         _offsite = new OffsiteReplicationRepository(store);
 
         InitializeComponent();
+        Title = Localizer.T("Settings.Title");
         MapPinCanvas.MouseLeftButtonUp += OnMapPinCanvasClick;
         MapPinList.SelectionChanged += OnMapPinSelectionChanged;
 
@@ -110,7 +111,32 @@ public partial class SettingsWindow : Window
         ReloadOffsite();
         ReloadShare();
 
+        var langIdx = Array.IndexOf(I18n.Languages, Localizer.Lang);
+        LangCombo.SelectedIndex = langIdx >= 0 ? langIdx : 0;
+        ApplyLangUi();
+
         SettingsNav.SelectedIndex = 0;
+    }
+
+    /// <summary>依現況語言套用設定視窗標題／語言群文字（M57）。</summary>
+    private void ApplyLangUi()
+    {
+        Title = Localizer.T("Settings.Title");
+        LangLabel.Text = Localizer.T("Settings.Language");
+        LangHintText.Text = Localizer.T("Settings.LangHint");
+    }
+
+    private void OnLangChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (LangCombo.SelectedItem is System.Windows.Controls.ComboBoxItem item && item.Tag is string tag)
+        {
+            Localizer.SetLang(_settings, tag);
+            ApplyLangUi();
+            if (Application.Current?.MainWindow is MainWindow mw)
+            {
+                mw.RefreshTitle();
+            }
+        }
     }
 
     private void OnNavChanged(object sender, SelectionChangedEventArgs e)

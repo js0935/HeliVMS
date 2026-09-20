@@ -89,9 +89,32 @@ public partial class EventCenterWindow : Window
 
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
+        ApplyI18n();
         RefreshChannels();
         RefreshTypes();
         DoRefresh();
+    }
+
+    /// <summary>依現況語言套用標題／過濾列文字（M57）。</summary>
+    private void ApplyI18n()
+    {
+        Title = Localizer.T("EventCenter.Title");
+        ChannelLabel.Text = Localizer.T("EventCenter.Channel");
+        RangeLabel.Text = Localizer.T("EventCenter.Range");
+        TypeLabel.Text = Localizer.T("EventCenter.Type");
+        KeywordLabel.Text = Localizer.T("EventCenter.Keyword");
+        ApplyQueryButton.Content = Localizer.T("EventCenter.Apply");
+        RefreshButton.Content = Localizer.T("EventCenter.Refresh");
+        ExportCsvButton.Content = Localizer.T("EventCenter.ExportCsv");
+
+        var ranges = new[] { "EventCenter.Today", "EventCenter.Hours24", "EventCenter.Days7", "EventCenter.All" };
+        for (var i = 0; i < ranges.Length && i < RangeCombo.Items.Count; i++)
+        {
+            if (RangeCombo.Items[i] is System.Windows.Controls.ComboBoxItem item)
+            {
+                item.Content = Localizer.T(ranges[i]);
+            }
+        }
     }
 
     private void OnClosing(object sender, System.ComponentModel.CancelEventArgs e)
@@ -101,7 +124,7 @@ public partial class EventCenterWindow : Window
     private void RefreshTypes()
     {
         TypeCombo.Items.Clear();
-        TypeCombo.Items.Add(new System.Windows.Controls.ComboBoxItem { Content = "全部類型", Tag = null });
+        TypeCombo.Items.Add(new System.Windows.Controls.ComboBoxItem { Content = Localizer.T("EventCenter.AllTypes"), Tag = null });
         foreach (var t in _events.ListEventTypes())
         {
             TypeCombo.Items.Add(new System.Windows.Controls.ComboBoxItem { Content = t, Tag = t });
@@ -116,7 +139,7 @@ public partial class EventCenterWindow : Window
             ? cid
             : (int?)null;
         ChannelCombo.Items.Clear();
-        var all = new System.Windows.Controls.ComboBoxItem { Content = "全部頻道", Tag = null };
+        var all = new System.Windows.Controls.ComboBoxItem { Content = Localizer.T("EventCenter.AllChannels"), Tag = null };
         ChannelCombo.Items.Add(all);
         foreach (var ch in _channels.List())
         {

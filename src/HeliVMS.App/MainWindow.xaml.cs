@@ -269,7 +269,6 @@ public partial class MainWindow : Window
     {
         ApplyLayoutPreference();
         ApplyRoleRestrictions();
-        Title = $"{Title} | db={Path.Combine(_dataRoot, "index.db")}";
         var icon = CreateBitmap("app.ico");
         Icon = icon;
         HeaderLogo.Source = icon;
@@ -277,6 +276,8 @@ public partial class MainWindow : Window
 
         _store = new SqliteStore(Path.Combine(_dataRoot, "index.db"));
         _store.Initialize();
+        Localizer.Init(new SettingsRepository(_store));
+        Title = $"{Localizer.T("Brand.Title")} | db={Path.Combine(_dataRoot, "index.db")}";
         _channels = new ChannelRepository(_store);
         _segRepo = new SegmentRepository(_store);
         _channels.EnsureSeedChannels();
@@ -1041,6 +1042,12 @@ public partial class MainWindow : Window
         };
         var list = events.ListByQuery(q);
         EventCenterWindow.WriteCsv(path, list, source.List());
+    }
+
+    /// <summary>依現況語言重設主視窗標題（M57 設定中心即時切換用）。</summary>
+    public void RefreshTitle()
+    {
+        Title = $"{Localizer.T("Brand.Title")} | db={Path.Combine(_dataRoot, "index.db")}";
     }
 
     private void OnDetectionClicked(object sender, RoutedEventArgs e)
