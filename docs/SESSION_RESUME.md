@@ -6,8 +6,8 @@
 
 ## 一句話總結
 HeliVMS 為一套**網路影像監控系統**（WPF 桌面應用：即時監看／回放／AI 事件中心／錄影排程）。
-里程碑 **M1 至 M53 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M53 數位證據完整性）。
-Release build 0 error、測試 **486/486 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
+里程碑 **M1 至 M54 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M54 智慧警報）。
+Release build 0 error、測試 **505/505 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
 本地與遠端完全同步（`git diff origin/HEAD` 為空）。
 
 ## 開新 session 的接手方法
@@ -23,7 +23,8 @@ gh run list -L 3              # 預期全部 success
 新 session 會以 git 現況接手，不會靠猜測。
 
 ## 現況快照（權威來源＝git，非聊天記憶）
-- 最後 commit：`HEAD`＝**M53（`6f4cccf`）**——數位證據完整性與數位簽章（Evidence Integrity ＆ Signing §14.7 #5 P1）（見下方 §29 M53 定義段）；全 **486**、CI `35524266378` success
+- 最後 commit：`HEAD`＝**M54（`d893554`）**——智慧警報（Smart Alerts §14.7 #8 P2）＋M53 數位證據完整性（§14.7 #5 P1）（見下方 §29／§30 定義段）；全 **505**、CI `35525399049` success
+- 前一個 M53 交付＝`6f4cccf`（數位證據完整性與數位簽章，見下方 §29 定義段）、全 **486**、CI `35524266378` success
 - 前一個 M52 交付＝`005649c`（模組化分析情境套件 Analytics Modules，見下方 §27 定義段）、全 **466**、CI `35522898383` success
 - 前一個 M51 交付＝`2dea00f`（外部安全共享 Share Link／無帳號分享，見下方 §26 M51 定義段）、全 **425**、CI `35294863720` success
 - 前一個 M50 交付＝`d43c058`（企業身份整合 OIDC SSO 核心＋LDAP 設定面，見下方 §25 M50 定義段）、全 **400**、CI `35293174402` success
@@ -31,8 +32,8 @@ gh run list -L 3              # 預期全部 success
 - 前一個 M47 交付＝`f3c01e1`（警報管理器 Alarm Manager，見下方 §22 M47 定義段）、全 **299**、CI `35286083642` success
 - 前一個 M46 交付＝`c7f6e8f`（錄影遮蔽 Redaction，見下方 §21 M46 定義段）、全 **293**、CI `35284550851` success
 - 前一個 M45 交付＝`ef3a8bc`（備份與異地備援，見下方 §20 M45 定義段）、全 **289**、CI `35263453271` success
-- 已驗收：**M53＝數位證據完整性與數位簽章（Evidence Integrity ＆ Signing）**（§14.7 #5 P1，見下方 §29 定義段）
-- 進行中：**M54＝智慧警報（Smart Alerts）**（§14.7 #8 P2，見下方 §30 定義段）
+- 已驗收：**M54＝智慧警報（Smart Alerts）**（§14.7 #8 P2，見下方 §30 定義段）
+- 進行中：**M55＝異地備援自動複製（Off-Site Replication）**（§4.4 P1「異地」＋§14.4 備份線，見下方 §31 定義段）
 - 前一個 M38 交付＝`d09b045`（事件回應工作流，見下方 M38 定義段）、全 **172**、CI `35185639491` success
 - 前一個 M30 交付＝`24ad4c7`（MQTT 通知通道）：`NotificationSettings`＋
   `MqttEnabled/MqttHost/MqttPort(1883)/MqttTopic/MqttUser/MqttPassword`（鍵 `notify.mqtt.*`、
@@ -765,6 +766,30 @@ gh run list -L 3              # 預期全部 success
     - harness `smartalertcheck`→**SMARTALERT_OK**（seed 產 2 頻道各 5 筆 `ai_intrusion` 事件＋規則
       frame_window 5min／min 3→開警報規則 UI 確認三欄→評估器輸出窗內 count；回歸 6 支 6 枝全綠）
     - 驗收：App Release 0 error、全約 **508**、SMARTALERT_OK、回歸綠、CI 綠
+    - **已驗收（M54 snapshot）**：App Release 0 error；測試 **505/505**（Storage 324→**329**＝
+      `SmartAlertColumnsTests` 5；Alarms 130→**144**＝`SmartAlertEvaluatorTests` 14；總 486→505）；
+      harness `smartalertcheck`→**SMARTALERT_OK:seed-rows=1;add-rows=2;report=已新增「harness ui」（2 分聚合窗≥2 筆）;eval=SMARTALERT_EVAL_OK:count=5;reached=true;rule-threshold=3**
+      （seed `--smart-alert` 清 harness* 規則＋插 5 筆窗內 ai_intrusion＋規則 frame5/min3→`--smart-alert-eval` 窗內 count=5 達標→開 `--settings` 規則頁選取 harness smart→UI 三欄新增 harness ui）；回歸 **ALARMMANAGER／DEWARP／MAPFOV／SHARE／SHAREWIN／ANALYTICS 全綠**；
+      HEAD＝`d893554`、CI `35525399049` success
+    - 實作差異：NotificationService 未改動——聚合抑制由 **MainWindow 通知橋接** `ShouldSuppressSmartAlert` 執行
+      （命中 frame_minutes&gt;0 規則且窗內含本筆計數不足 `min_events_in_window` 時丟棄）；`SmartAlertEvaluator.Matches`
+      含 Enabled 檢查
+
+31. **M55 ＝異地備援自動複製（Off-Site Replication）（§4.4 P1「異地」＋§14.4 備份線）**：
+    - 背景：M45 已做本機備份（zip＋SHA-256 manifest）；本里程碑補「**定時自動複製備份檔案至 NAS／雲端掛載路徑**」P1 承諾
+    - Storage schema **v21**：`offsite_jobs`（id, source_path, destination_path, interval_minutes, enabled,
+      last_run_utc, last_result, last_error, consecutive_failures, created_at）；
+      `OffsiteReplicationRepository`（Upsert／SetRunResult／ListEnabled／List）
+    - Storage 新檔 `OffsiteReplicationService`：`RunOnce(job)`（列舉 source 下全部檔案，遞迴複製至 destination
+      保留相對結構，僅複製「mtime ≥ last_run_utc」的新檔；完成後寫 last_run_utc；失敗記錄 last_error 且
+      consecutive_failures++，成功歸零）＋`AutoSync()`（依各 job interval_minutes 定時觸發）
+    - App：SettingsWindow 備份頁增「異地複製」群（啟用／來源備份目錄／目標路徑（UNC 或本機資料夾）／間隔(分)）＋
+      「立即複製」按鈕＋狀態（last_run／last_result／連續失敗數）；MainWindow 啟動 `OffsiteReplicationService.AutoSync`
+    - 測試：`OffsiteReplicationTests`（v21 冪等、複製新檔並跳過已存在未變更、失敗記錄與復試、consecutive_failures
+      計數與歸零、interval 未到不重跑；約 +20；總 505→約 **525**）
+    - harness `offsitecheck`→**OFFSITE_OK**（seed `--offsite <src> <dst>` 建來源樣本檔→服務複製→斷言相對結構
+      檔案存在＋job last_run 更新→刪目標→再複製成功）；回歸 **SMARTALERT＋6 支＋EVIDENCE**
+    - 驗收：App Release 0 error、全約 **525**、OFFSITE_OK、回歸綠、CI 綠
 
 ## 已知雷區（勿再犯）
 - **harness `.ps1` 必須存成 UTF-8 with BOM**：寫檔工具產出的是 UTF-8 無 BOM，含中文的 `.ps1` 會被 PowerShell 5.1 以 ANSI/Big5 誤讀而**靜默破壞解析**（症狀：`Start-Process` 看似無效、App 根本沒啟動、`Get-Process HeliVMS.App` 找不到）。修法：`[System.IO.File]::WriteAllText($p,[System.IO.File]::ReadAllText($p,[System.Text.Encoding]::UTF8),(New-Object System.Text.UTF8Encoding($true)))`（temp/opencode 有 `fix-encoding.ps1`）
