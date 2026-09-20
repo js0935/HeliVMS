@@ -6,8 +6,8 @@
 
 ## 一句話總結
 HeliVMS 為一套**網路影像監控系統**（WPF 桌面應用：即時監看／回放／AI 事件中心／錄影排程）。
-里程碑 **M1 至 M57 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M57 多語言介面 i18n）。
-Release build 0 error、測試 **525/525 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
+里程碑 **M1 至 M58 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M58 智慧分析模組二）。
+Release build 0 error、測試 **543/543 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
 本地與遠端完全同步（`git diff origin/HEAD` 為空）。
 
 ## 開新 session 的接手方法
@@ -23,7 +23,8 @@ gh run list -L 3              # 預期全部 success
 新 session 會以 git 現況接手，不會靠猜測。
 
 ## 現況快照（權威來源＝git，非聊天記憶）
-- 最後 commit：`HEAD`＝**M57（`5225a3a`）**——多語言介面 i18n（繁中／簡中／English，§14.7 P1，見下方 §33 定義段）；全 **525**、CI `35537573067` success
+- 最後 commit：`HEAD`＝**M58（`3e28bcd`）**——智慧分析模組二（長時間徘徊／靜止物／車流統計／熱區圖，§5.6，見下方 §34 定義段）；全 **543**、CI `35541102070` success
+- 前一個 M57 交付＝`5225a3a`（多語言介面 i18n，見下方 §33 定義段）、全 **525**、CI `35537573067` success
 - 前一個 M56 交付＝`1309112`（事件中心搜尋／篩選／CSV 匯出，見下方 §32 定義段）、全 **518**、CI `35533344119` success
 - 前一個 M55 交付＝`9b1b37a`（異地備援自動複製 Off-Site Replication，見下方 §31 定義段）、全 **512**、CI `35526440981` success
 - 前一個 M54 交付＝M54 智慧警報（`d893554`）、全 **505**、CI `35525399049` success
@@ -34,8 +35,8 @@ gh run list -L 3              # 預期全部 success
 - 前一個 M47 交付＝`f3c01e1`（警報管理器 Alarm Manager，見下方 §22 M47 定義段）、全 **299**、CI `35286083642` success
 - 前一個 M46 交付＝`c7f6e8f`（錄影遮蔽 Redaction，見下方 §21 M46 定義段）、全 **293**、CI `35284550851` success
 - 前一個 M45 交付＝`ef3a8bc`（備份與異地備援，見下方 §20 M45 定義段）、全 **289**、CI `35263453271` success
-- 已驗收：**M57＝多語言介面 i18n（繁中／簡中／English）**（§14.7 P1，見下方 §33 定義段）
-- 進行中：（下一里程碑依規劃，見下方 §34 M58 定義段）
+- 已驗收：**M58＝智慧分析模組二（長時間徘徊／靜止物／車流統計／熱區圖）**（§5.6，見下方 §34 定義段）；**M57＝多語言介面 i18n（繁中／簡中／English）**（§14.7 P1，見下方 §33 定義段）
+- 進行中：（下一里程碑依規劃，見下方 §35 M59 定義段）
 - 前一個 M38 交付＝`d09b045`（事件回應工作流，見下方 M38 定義段）、全 **172**、CI `35185639491` success
 - 前一個 M30 交付＝`24ad4c7`（MQTT 通知通道）：`NotificationSettings`＋
   `MqttEnabled/MqttHost/MqttPort(1883)/MqttTopic/MqttUser/MqttPassword`（鍵 `notify.mqtt.*`、
@@ -54,7 +55,7 @@ gh run list -L 3              # 預期全部 success
 - 前一個 M28 交付＝`ba95d0f`（事件中心篩選＋分頁：QueryArgs/ListByQuery/CountByQuery/
   ListEventTypes＋UI 類型 Combo＋Prev/Next 50/頁；114、evfiltercheck EVFILTERCHECK_OK）
 - 分支／遠端：`git diff origin/HEAD` 為空（完全同步）；HEAD＝origin
-- CI：`gh run list` 顯示最新 run `conclusion=success`；建置 0 error、測試 525/525
+- CI：`gh run list` 顯示最新 run `conclusion=success`；建置 0 error、測試 543/543
 
 ## 架構關鍵（確切、無漂移）
 - 解決方案：`D:\HeliVMS\HeliVMS.App\HeliVMS.App.csproj`（WPF）＋ `HeliVMS.slnx`
@@ -849,7 +850,33 @@ gh run list -L 3              # 預期全部 success
       簡體「监」U+76D1 不在 Big5 → 讀回「?」假象，實為讀取端編碼問題，App 本身無誤）；`--settings` 開窗時
       SettingsWindow ctor 設 `LangCombo.SelectedIndex`→觸發 `OnLangChanged`→會寫回 `ui.lang`（同值，無害）
 
-34. **M58 ＝（待定義；依 SESSION_RESUME 規劃表下一個尚未交付之里程碑）**：
+34. **M58 ＝智慧分析模組二（長時間徘徊 Loitering／靜止物 Stationary／車流統計 Traffic／熱區圖 Heatmap）——已驗收**：
+    - 選定理由：M52 定義段明示「跌倒/尾隨/車輪/徘徊（跨線追蹤）待交付」；ARCHITECTURE §5.6 表
+      剩下需遞交付之模組＝`ai_loitering`（P2）、`ai_stationary`（P3）、`ai_traffic`／`heatmap`（P2），
+      前置條件「需 §5.7 追蹤」；本里程碑以 **zone dwell＋cell 熱區近似**落地（不需完整目標追蹤、不改 Detection 模型）
+    - 模組語意（事件型別）：`loitering`→**ai_loitering**（目標在多邊形內連續停留≥`DwellSeconds` 觸發一次，
+      離開重新進入才再觸發）；`stationary`→**ai_stationary**（同停留判定＋移動超過 `StationaryMoveTolerance=0.02`
+      即重計停留）；`traffic`→**ai_traffic**（2 點線段跨線，依 `Direction` 篩選，每跨加計並輸出累計數）；
+      `heatmap`→**無事件**（5×5 格子依 `(row,col)=(floor(y·5),floor(x·5))` 累計，`HeatmapCells/HeatmapTotal` 呈現）
+    - `AnalyticsModuleKinds` 增 `Traffic`／`Heatmap`（All 含 7 模組）；`IsLineModule`（line_cross／traffic 允許 2 點幾何）；
+      catalog `ModuleInfo.EventType` 改可為 null（heatmap）；`AnalyticsZoneEvaluator` 增 dwell/fired/lastPos/trafficCount/heat
+      狀態＋`Reset` 全清
+    - **schema v21→v22**：`analytics_zones` 之 `module` CHECK 擴充 `traffic`／`heatmap`（SQLite 無法改 CHECK，
+      重建資料表並複製資料＋重建索引；`ExpandAnalyticsModulesV22` 於 `version<22` 執行）；真 DB 已實證遷移（`PRAGMA user_version`＝22）
+    - 測試：Alarms `AnalyticsModulesTests` 144→**158**（loitering 觸發/重觸發/0 停留、stationary 靜止觸發/移動重計、
+      traffic 累計/方向篩選、heatmap 累計/reset/格 clamp/遠離不計、Engine 寫 ai_loitering + heatmap 無事件、catalog 對映）；
+      Storage `AnalyticsZoneTests` 349→**353**（traffic 2 點、heatmap 多邊形、loitering dwell 寫回、v22 重初始化冪等）；全 **525→543**
+      （Storage 353＋Alarms 158＋Devices 24＋Licensing 8）
+    - UI：`AnalyticsWindow` 模組 Combo 現含 7 模組；「以範例偵測評估」支援新模組（traffic 用雙側 probe 計跨線、
+      loitering/stationary 依 `DwellSeconds` 餵跨秒幀、heatmap 餵 25 幀後顯示「熱區：(col,row)xN」前 3 格）
+    - harness `analytics2check`→**ANALYTICS2_OK**（seed `--analytics`（7 模組）、開窗 seed≥7、UI 依序新增並評估
+      車流統計→ai_traffic／長時間徘徊→ai_loitering／靜止物→ai_stationary／熱區圖→「熱區：」、
+      停用熱區再評估→無熱區、刪除→行數還原；雷區：UIA 選 ComboBox 項需對 `ListItem` 之 child Text 比對 DisplayName）；
+      seedtriage `--analytics` 增 4 新模組 seed；UI 新增區名採「harness ui …」以便 `--analytics-clean` 淨空
+    - 驗收：App Release 0 error、全 **543**、`ANALYTICS2_OK`、回歸 **15 支全綠**（13 既有支＋i18ncheck 保持綠＋新 analytics2check）、CI 綠（`35541102070`）；
+      工作目錄空白、真 DB `user_version`＝22
+
+35. **M59 ＝（待定義；依 SESSION_RESUME 規劃表下一個尚未交付之里程碑）**：
     - （本段佔位，接續里程碑於下個 session 依開頭「尚未完成／下一步」清單與 PCC 表選定後撰寫）
 
 ## 已知雷區（勿再犯）
