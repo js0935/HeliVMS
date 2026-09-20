@@ -6,8 +6,8 @@
 
 ## 一句話總結
 HeliVMS 為一套**網路影像監控系統**（WPF 桌面應用：即時監看／回放／AI 事件中心／錄影排程）。
-里程碑 **M1 至 M60 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M60 統圖報表）。
-Release build 0 error、測試 **559/559 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
+里程碑 **M1 至 M61 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M61 目標追蹤原語）。
+Release build 0 error、測試 **570/570 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
 本地與遠端完全同步（`git diff origin/HEAD` 為空）。
 
 ## 開新 session 的接手方法
@@ -23,8 +23,8 @@ gh run list -L 3              # 預期全部 success
 新 session 會以 git 現況接手，不會靠猜測。
 
 ## 現況快照（權威來源＝git，非聊天記憶）
-- 最後 commit：`HEAD`＝**M60（`ef567a7`）**——統圖報表／管理報表（錄影時數／斷線／容量趨勢／AI 事件統計，§14.7 #9、§11.7，見下方 §36 定義段）；全 **559**、CI `35543378978` success
-- 前一個 M59 交付＝`386faa5`（智慧分析模組三：尾隨／逆行，見下方 §35 定義段）、全 **553**、CI `35541998741` success
+- 最後 commit：`HEAD`＝**M61（`d4303b0`）**——單鏡目標追蹤原語（匈牙利 IoU 指派／track_id／EMA 平滑／生命周期，§5.7，見下方 §37 定義段）；全 **570**、CI `35544108591` success
+- 前一個 M60 交付＝`ef567a7`（統圖報表／管理報表，見下方 §36 定義段）、全 **559**、CI `35543378978` success
 - 前一個 M58 交付＝`3e28bcd`（智慧分析模組二，見下方 §34 定義段）、全 **543**、CI `35541102070` success
 - 前一個 M57 交付＝`5225a3a`（多語言介面 i18n，見下方 §33 定義段）、全 **525**、CI `35537573067` success
 - 前一個 M56 交付＝`1309112`（事件中心搜尋／篩選／CSV 匯出，見下方 §32 定義段）、全 **518**、CI `35533344119` success
@@ -37,8 +37,8 @@ gh run list -L 3              # 預期全部 success
 - 前一個 M47 交付＝`f3c01e1`（警報管理器 Alarm Manager，見下方 §22 M47 定義段）、全 **299**、CI `35286083642` success
 - 前一個 M46 交付＝`c7f6e8f`（錄影遮蔽 Redaction，見下方 §21 M46 定義段）、全 **293**、CI `35284550851` success
 - 前一個 M45 交付＝`ef3a8bc`（備份與異地備援，見下方 §20 M45 定義段）、全 **289**、CI `35263453271` success
-- 已驗收：**M60＝統圖報表／管理報表（錄影時數／斷線／容量趨勢／AI 事件統計）**（§14.7 #9、§11.7，見下方 §36 定義段）；**M59＝智慧分析模組三（尾隨／逆行 `ai_tailgating`）**（§5.6，見下方 §35 定義段）；**M58＝智慧分析模組二（長時間徘徊／靜止物／車流統計／熱區圖）**（§5.6，見下方 §34 定義段）；**M57＝多語言介面 i18n（繁中／簡中／English）**（§14.7 P1，見下方 §33 定義段）
-- 進行中：（下一里程碑依規劃，見下方 §37 M61 定義段）
+- 已驗收：**M61＝單鏡目標追蹤原語（匈牙利 IoU 指派／track_id／EMA 平滑／生命周期）**（§5.7，見下方 §37 定義段）；**M60＝統圖報表／管理報表（錄影時數／斷線／容量趨勢／AI 事件統計）**（§14.7 #9、§11.7，見下方 §36 定義段）；**M59＝智慧分析模組三（尾隨／逆行 `ai_tailgating`）**（§5.6，見下方 §35 定義段）；**M58＝智慧分析模組二（長時間徘徊／靜止物／車流統計／熱區圖）**（§5.6，見下方 §34 定義段）；**M57＝多語言介面 i18n（繁中／簡中／English）**（§14.7 P1，見下方 §33 定義段）
+- 進行中：（下一里程碑依規劃，見下方 §38 M62 定義段）
 - 前一個 M38 交付＝`d09b045`（事件回應工作流，見下方 M38 定義段）、全 **172**、CI `35185639491` success
 - 前一個 M30 交付＝`24ad4c7`（MQTT 通知通道）：`NotificationSettings`＋
   `MqttEnabled/MqttHost/MqttPort(1883)/MqttTopic/MqttUser/MqttPassword`（鍵 `notify.mqtt.*`、
@@ -922,7 +922,24 @@ gh run list -L 3              # 預期全部 success
       不受隔離頻道影響）
     - §11.7「每週排程郵寄」列為延伸（需 NotificationService 支援任意內容負載，納入後續里程碑評估）
 
-37. **M61 ＝（待定義；依 SESSION_RESUME 規劃表下一個尚未交付之里程碑）**：
+37. **M61 已完成**（commit `d4303b0`，CI `35544108591` success）：目標追蹤原語單鏡（§5.7「v2 核心差異」）——
+    以**純演算法庫**交付（無 UI、無新表、無模型），全數以單元測試驗證：
+    - `Detection`（Alarms）尾加選填 `TrackId`（positional record 第 7 元，既有 6 元呼叫不變）
+    - 新 `Tracker`（Alarms）：`Update(detections)` 逐幀以**匈牙利最小成本指派**（cost＝1‒IoU，僅同
+      Class 且 IoU ≥ 門檻允許配對；雙器材質：無效配對 INF／dummy track 列 0／dummy det 欄 1.0）
+      匹配既有 track；匹配成功→EMA 平滑 bbox＋`Misses=0`；未匹配既有 track→`Misses++`、逾
+      `maxMisses` 即汰除（本幀遞增後立即淘汰）；未匹配新偵測→建新 track（id 由 1 起不再重用）
+    - 輸出 `TrackState(TrackId, Class, X, Y, W, H, Misses)` 快照；`Reset()` 清空並重編號；可設定
+      `iouThreshold`（預設 0.3）／`maxMisses`（預設 5）／`smoothAlpha`（預設 0.3）
+    - 測試：Alarms 166→**177**（TrackerTests 11：跨幀同 id 穩定／多目標各自不互換／超出門檻發新 id 且
+      原 track 記失蹤／連續失蹤逾 maxMisses 汰除且 id 不重用／EMA 收斂位移 0.3·Δ／跨類不匹配（同位置
+      不同類→發新 id 原 track 失蹤）／Teleport 大跳→新 id＋舊適存／**無視偵測順序**（反序輸入依 IoU
+      指派回原 track）／Reset 重編號／Misses 遞增與匹配歸零）；全 **570**（Storage 361＋Alarms 177＋
+      Devices 24＋Licensing 8）
+    - 定位：為 §5.6 靜止/尾隨/徘徊與 §5.9 圖搜提供穩定追蹤地基（§5.7「事件以 track_id 去重」）；
+      UI／harness 待追蹤接入即時分析管線後之里程碑一併驗證
+
+38. **M62 ＝（待定義；依 SESSION_RESUME 規劃表下一個尚未交付之里程碑）**：
     - （本段佔位，接續里程碑於下個 session 依開頭「尚未完成／下一步」清單與 PCC 表選定後撰寫）
 
 ## 已知雷區（勿再犯）
