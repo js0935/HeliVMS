@@ -56,6 +56,7 @@ public partial class MainWindow : Window
     private TrayIconHost? _tray;
     private IoMonitorHost? _ioHost;
     private ShareHost? _shareHost;
+    private AnalyticsEventEngine? _analytics;
     private bool _exiting;
 
     private static readonly SolidColorBrush BrOffline = new(Color.FromRgb(0x6B, 0x7B, 0x90));
@@ -314,6 +315,11 @@ public partial class MainWindow : Window
             Dispatcher.BeginInvoke(() => OpenShareWindow());
         }
 
+        if (Environment.GetCommandLineArgs().Contains("--analytics", StringComparer.OrdinalIgnoreCase))
+        {
+            Dispatcher.BeginInvoke(() => OpenAnalyticsWindow());
+        }
+
         if (Environment.GetCommandLineArgs().Contains("--map", StringComparer.OrdinalIgnoreCase))
         {
             Dispatcher.BeginInvoke(() => OpenMapWindow());
@@ -346,6 +352,10 @@ public partial class MainWindow : Window
 
         _shareHost = new ShareHost(_store);
         _shareHost.ApplySettings(new SettingsRepository(_store));
+
+        _analytics = new AnalyticsEventEngine(_store);
+        _analytics.LoadZones();
+        _analytics.EventInserted += (_, record) => _notify?.Enqueue(record);
 
         _scheduler = new RecordingScheduler(
             _store,
@@ -1045,6 +1055,21 @@ public partial class MainWindow : Window
         window.Show();
     }
 
+    /// <summary>開啟分析情境視窗（M52，§14.7 #6）。viewer 與匯出同權限限制。</summary>
+    private void OpenAnalyticsWindow()
+    {
+        if (!SessionContext.IsAdmin)
+        {
+            return;
+        }
+
+        var window = new AnalyticsWindow(_store!)
+        {
+            Owner = this,
+        };
+        window.Show();
+    }
+
     /// <summary>開啟匯出中心（M44，§14.3(2)）。viewer 與匯出精靈同權限限制。</summary>
     private void OpenExportCenterWindow()
     {
@@ -1160,6 +1185,12 @@ public partial class MainWindow : Window
                 H = d.H,
                 DetectedUtc = frame.SnapshotUtc,
             }));
+        }
+
+        // M52：分析情境（跨線／侵入／聚集）以中心點評估並寫入事件
+        if (_analytics is { } analytics && _cellChannel[cell] is int analyticsCh)
+        {
+            analytics.OnDetections(analyticsCh, frame);
         }
 
         Detection? best = null;

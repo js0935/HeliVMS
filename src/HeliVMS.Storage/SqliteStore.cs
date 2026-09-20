@@ -9,7 +9,7 @@ namespace HeliVMS.Storage;
 /// </summary>
 public sealed class SqliteStore : IDisposable
 {
-    private const int CurrentSchemaVersion = 17;
+    private const int CurrentSchemaVersion = 18;
     private readonly SqliteConnection _connection;
     private readonly object _gate = new();
     private bool _disposed;
@@ -137,6 +137,11 @@ public sealed class SqliteStore : IDisposable
         if (version < 17)
         {
             CreateShareLinksTableV17();
+        }
+
+        if (version < 18)
+        {
+            CreateAnalyticsZonesTableV18();
         }
 
         Execute("PRAGMA user_version = CURRENT_SCHEMA_VERSION;".Replace(
@@ -490,10 +495,21 @@ public sealed class SqliteStore : IDisposable
             """);
     }
 
-    /// <summary>M49 智慧地圖（§14.7 #11）：地圖比例尺（每像素公尺；0＝未標定）。</summary>
+    /// <summary>M49 智慧地圖（§14.7 #11）：地圖比例尺（每像素公尺；0＝未標定）。冪等。</summary>
     private void AddMapScaleV15()
     {
-        Execute("ALTER TABLE maps ADD COLUMN scale_m_per_px REAL NOT NULL DEFAULT 0;");
+        var hasColumn = Query(
+            "SELECT COUNT(*) FROM pragma_table_info('maps') WHERE name='scale_m_per_px';",
+            static r =>
+            {
+                r.Read();
+                return r.GetInt64(0) > 0;
+            });
+
+        if (!hasColumn)
+        {
+            Execute("ALTER TABLE maps ADD COLUMN scale_m_per_px REAL NOT NULL DEFAULT 0;");
+        }
     }
 
     /// <summary>M50 企業身份整合（§14.7 #1）：OIDC／LDAP 身分提供者。</summary>
@@ -533,6 +549,27 @@ public sealed class SqliteStore : IDisposable
                 last_used_at  TEXT
             );
             CREATE INDEX IF NOT EXISTS idx_share_expires ON share_links(expires_at);
+            """);
+    }
+
+    /// <summary>M52 模組化分析情境（§14.7 #6）：分析區（多邊形／方向／門檻）。</summary>
+    private void CreateAnalyticsZonesTableV18()
+    {
+        Execute(
+            """
+            CREATE TABLE IF NOT EXISTS analytics_zones (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                name          TEXT    NOT NULL,
+                channel_id    INTEGER NOT NULL,
+                module        TEXT    NOT NULL CHECK (module IN ('line_cross', 'intrusion', 'crowd', 'loitering', 'stationary')),
+                enabled       INTEGER NOT NULL DEFAULT 1,
+                polygon       TEXT    NOT NULL,
+                direction     TEXT    NOT NULL DEFAULT 'both' CHECK (direction IN ('both', 'a_to_b', 'b_to_a')),
+                min_count     INTEGER NOT NULL DEFAULT 0,
+                dwell_seconds INTEGER NOT NULL DEFAULT 0,
+                created_at    TEXT    NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_analytics_channel ON analytics_zones(channel_id);
             """);
     }
 
