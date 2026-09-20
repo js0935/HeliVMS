@@ -6,15 +6,15 @@
 
 ## 一句話總結
 HeliVMS 為一套**網路影像監控系統**（WPF 桌面應用：即時監看／回放／AI 事件中心／錄影排程）。
-里程碑 **M1 至 M51 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M51 外部安全共享）。
-Release build 0 error、測試 **425/425 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
+里程碑 **M1 至 M52 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M52 模組化分析情境）。
+Release build 0 error、測試 **466/466 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
 本地與遠端完全同步（`git diff origin/HEAD` 為空）。
 
 ## 開新 session 的接手方法
 ```powershell
 # 在 D:\HeliVMS 開新 session 時，先對新的 agent 講：
 git status                    # 預期為 empty（乾淨）
-git log --oneline -20         # 預期見到 M1..M51，HEAD＝M51
+git log --oneline -20         # 預期見到 M1..M52，HEAD＝M52
 git diff origin/HEAD          # 預期為空（同步）
 gh run list -L 3              # 預期全部 success
 ```
@@ -23,13 +23,14 @@ gh run list -L 3              # 預期全部 success
 新 session 會以 git 現況接手，不會靠猜測。
 
 ## 現況快照（權威來源＝git，非聊天記憶）
-- 最後 commit：`HEAD`＝**M51（`2dea00f`）**——外部安全共享（Share Link／無帳號分享 §14.7 #4 P1）（見下方 §26 M51 定義段）；全 **425**、CI `35294863720` success
+- 最後 commit：`HEAD`＝**M52（`005649c`）**——模組化分析情境套件（Analytics Modules §14.7 #6 P2）（見下方 §27 M52 定義段）；全 **466**、CI `35522898383` success
+- 前一個 M51 交付＝`2dea00f`（外部安全共享 Share Link／無帳號分享，見下方 §26 M51 定義段）、全 **425**、CI `35294863720` success
 - 前一個 M50 交付＝`d43c058`（企業身份整合 OIDC SSO 核心＋LDAP 設定面，見下方 §25 M50 定義段）、全 **400**、CI `35293174402` success
 - 前一個 M48 交付＝`2f6508a`（魚眼矯正 Dewarping，見下方 §23 M48 定義段）、全 **308**、CI `35287346481` success
 - 前一個 M47 交付＝`f3c01e1`（警報管理器 Alarm Manager，見下方 §22 M47 定義段）、全 **299**、CI `35286083642` success
 - 前一個 M46 交付＝`c7f6e8f`（錄影遮蔽 Redaction，見下方 §21 M46 定義段）、全 **293**、CI `35284550851` success
 - 前一個 M45 交付＝`ef3a8bc`（備份與異地備援，見下方 §20 M45 定義段）、全 **289**、CI `35263453271` success
-- 進行中：**M52＝模組化分析情境套件（Analytics Modules）**（§14.7 #6 P2，見下方 §27 定義段）
+- 已驗收：**M52＝模組化分析情境套件（Analytics Modules）**（§14.7 #6 P2，見下方 §27 定義段）
 - 前一個 M38 交付＝`d09b045`（事件回應工作流，見下方 M38 定義段）、全 **172**、CI `35185639491` success
 - 前一個 M30 交付＝`24ad4c7`（MQTT 通知通道）：`NotificationSettings`＋
   `MqttEnabled/MqttHost/MqttPort(1883)/MqttTopic/MqttUser/MqttPassword`（鍵 `notify.mqtt.*`、
@@ -715,8 +716,9 @@ gh run list -L 3              # 預期全部 success
       - `AnalyticsEventEngine`（ctor(store, snapshotDir)；`LoadZones()`；`OnDetections(channelId, DetectionsFrame)`：以 `Detection` 中心 `(X+W/2, Y+H/2)` 評估，並以 `AlarmEventRepository.Insert` 寫 `ai_line_cross`／`ai_intrusion`／`ai_crowd`，detail 含 zone 名）
     - **App**：`AnalyticsWindow`（`--analytics`；admin 限制）：zone 清單（通道／模組／點數／啟用）、新增區（名稱／通道 Combo／模組 Combo／多邊形點文字／方向／min_count／dwell）、簡易 `AnalyticsCanvas` 點擊加點顯示、啟用停用／刪除、「測試評估」按鈕（以假偵測跑 evaluator 並輸出 `AnalyticsReportText`）；MainWindow 建立 `AnalyticsEventEngine` 並於 `OnManagerAiDetections` 轉呼叫（真實偵測到位時觸發）
     - 測試：`AnalyticsGeometryTests`、`AnalyticsZoneEvaluatorTests`、`AnalyticsZoneRepositoryTests`、`AnalyticsEventEngineTests`（約 +45；Storage／Alarms 增加；總 425→約 **470**）
-    - harness `analyticscheck`→**ANALYTICS_OK**（seed 建 zone→開 `--analytics`→列出現→UI 新增 zone→測試評估命中→DB 驗證）；回歸 **ALARMMANAGER／DEWARP／MAPFOV／SHARE**
-    - 驗收：App Release 0 error、全約 **470**、ANALYTICS_OK、回歸綠、CI 綠
+    - **已驗收**：App Release 0 error；測試 **466/466**（Storage 304＋Alarms 130＋Devices 24＋Licensing 8；Storage ＋19＝`AnalyticsZoneTests`、Alarms ＋22＝`AnalyticsModulesTests`）；harness `analyticscheck`→**ANALYTICS_OK:seed=4;add=5;eval=評估：1 筆事件（周界/跨線）。 首筆：ai_line_cross**（seed 建 3 區→開 `--analytics`→列出現→UI 新增 line_cross 區→範例偵測評估命中→停用後評估 0→刪除還原）；回歸 **ALARMMANAGER_OK／DEWARP_OK／MAPFOV_OK／SHARE_OK／SHAREWIN_OK**；HEAD＝`005649c`、CI `35522898383` success
+    - 實作與定義細微差異（已更新原文）：多邊形以**點字串文字輸入**（未做 Canvas 點擊加點）；`AnalyticsPolygon.TryParse` 支援 `minPoints`（跨線 2 點、區域 3 點），`AnalyticsZoneRepository.Validate` 依 module 決定下限（Update 仍查原 module）
+    - **附加修復**：`SqliteStore.AddMapScaleV15` 冪等化（`ALTER` 前檢查 `scale_m_per_px` 欄位是否存在）。起因：真 DB `user_version` 偵測為 4 但表結構已達 v18 → 每次啟動重跑遷移，`ALTER COLUMN` 重複即崩潰（ExitCode -532462766）；修復後升級遷移可自癒（跑過一次即 SET 18）
 28. 每里程碑節奏照舊：定義先寫入本檔→實作→App Release build 0 error→單元測試→
     （有 UI 面者）E2E harness block→commit＋push＋CI success→`git status --porcelain` 空白
 
