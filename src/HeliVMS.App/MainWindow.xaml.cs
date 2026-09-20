@@ -301,6 +301,26 @@ public partial class MainWindow : Window
             Dispatcher.BeginInvoke(() => OpenExportCenterWindow());
         }
 
+        var expIdx = -1;
+        for (var i = 1; i < Environment.GetCommandLineArgs().Length - 1; i++)
+        {
+            if (Environment.GetCommandLineArgs()[i].Equals("--events-export", StringComparison.OrdinalIgnoreCase))
+            {
+                expIdx = i + 1;
+                break;
+            }
+        }
+        if (expIdx > 0)
+        {
+            var expPath = Environment.GetCommandLineArgs()[expIdx];
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                ExportEventsCsv(expPath);
+                _exiting = true;
+                Close();
+            }));
+        }
+
         if (Environment.GetCommandLineArgs().Contains("--redaction", StringComparer.OrdinalIgnoreCase))
         {
             Dispatcher.BeginInvoke(() => OpenRedactionWindow());
@@ -1006,6 +1026,21 @@ public partial class MainWindow : Window
             Owner = this,
         };
         sched.Show();
+    }
+
+    private void ExportEventsCsv(string path)
+    {
+        var source = new ChannelRepository(_store!);
+        var events = new AlarmEventRepository(_store!);
+        var q = new AlarmEventRepository.QueryArgs
+        {
+            FromUtc = new DateTime(2000, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+            ToUtc = DateTime.UtcNow.AddDays(30),
+            Limit = 100000,
+            Offset = 0,
+        };
+        var list = events.ListByQuery(q);
+        EventCenterWindow.WriteCsv(path, list, source.List());
     }
 
     private void OnDetectionClicked(object sender, RoutedEventArgs e)

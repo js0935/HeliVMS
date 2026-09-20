@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
@@ -6,6 +7,7 @@ using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Shapes;
 using HeliVMS.Alarms;
+using HeliVMS.Shared.Models;
 using HeliVMS.Storage;
 
 namespace HeliVMS.App;
@@ -167,6 +169,97 @@ public partial class EventCenterWindow : Window
         }
     }
 
+    private void OnApplyQueryClicked(object sender, RoutedEventArgs e)
+    {
+        _page = 1;
+        DoRefresh();
+    }
+
+    /// <summary>匯出目前查詢之全部事件為 CSV（UTF-8 BOM）。</summary>
+private async void OnExportCsvClicked(object sender, RoutedEventArgs e)
+    {
+        var dlg = new Microsoft.Win32.SaveFileDialog
+        {
+            Title = "匯出事件中心 CSV",
+            Filter = "CSV 檔 (*.csv)|*.csv",
+            FileName = $"events-{DateTime.Now:yyyyMMdd-HHmmss}.csv",
+        };
+        if (dlg.ShowDialog() != true)
+        {
+            return;
+        }
+
+        var q = BuildQuery();
+        var list = await Task.Run(() => _events.ListByQuery(q));
+        await Task.Run(() => WriteCsv(dlg.FileName, list, _channels.List()));
+        CountText.Text = $"已匯出 {list.Count} 筆至 {dlg.FileName}";
+    }
+
+    /// <summary>目前過濾列的查詢條件（不限頁數）。</summary>
+    private AlarmEventRepository.QueryArgs BuildQuery()
+    {
+        var (from, to) = RangeWindow();
+        int? channelId = null;
+        if (ChannelCombo.SelectedItem is System.Windows.Controls.ComboBoxItem item && item.Tag is int cid)
+        {
+            channelId = cid;
+        }
+
+        string? eventType = null;
+        if (TypeCombo.SelectedItem is System.Windows.Controls.ComboBoxItem ti && ti.Tag is string ts)
+        {
+            eventType = ts;
+        }
+
+        return new AlarmEventRepository.QueryArgs
+        {
+            ChannelId = channelId,
+            EventType = eventType,
+            Keyword = KeywordBox.Text.Trim(),
+            FromUtc = from,
+            ToUtc = to,
+            Limit = 10000,
+        };
+    }
+
+    /// <summary>將事件寫入 CSV（UTF-8 BOM，供 UI 匯出與 --events-export 共用）。</summary>
+    public static void WriteCsv(
+        string path,
+        IReadOnlyList<AlarmEventRecord> list,
+        IReadOnlyList<ChannelInfo> channels)
+    {
+        var byId = channels.ToDictionary(x => x.Id);
+        static string Csv(string? value)
+        {
+            var v = value ?? string.Empty;
+            return v.IndexOfAny([',', '"', '\n', '\r']) >= 0
+                ? $"\"{v.Replace("\"", "\"\"", StringComparison.Ordinal)}\""
+                : v;
+        }
+
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine("時間(本地),頻道,類型,持續(秒),詳情,快照,狀態,指派,備註");
+        foreach (var ev in list)
+        {
+            var name = byId.TryGetValue(ev.ChannelId, out var c) ? c.Name : $"#{ev.ChannelId}";
+            var duration = ev.EndUtc is DateTime end ? (end - ev.StartUtc).TotalSeconds.ToString("0.#", CultureInfo.InvariantCulture) : "";
+            sb.AppendLine(string.Join(",",
+                Csv(ev.StartUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture)),
+                Csv(name),
+                Csv(ev.EventType),
+                Csv(duration),
+                Csv(ev.Detail),
+                Csv(ev.SnapshotPath),
+                Csv(AlarmEventStatus.Label(ev.Status)),
+                Csv(ev.AssignedTo),
+                Csv(ev.Note)));
+        }
+
+        var bytes = new byte[] { 0xEF, 0xBB, 0xBF }.Concat(
+            System.Text.Encoding.UTF8.GetBytes(sb.ToString())).ToArray();
+        File.WriteAllBytes(path, bytes);
+    }
+
     private void DoRefresh()
     {
         var (from, to) = RangeWindow();
@@ -186,6 +279,7 @@ public partial class EventCenterWindow : Window
         {
             ChannelId = channelId,
             EventType = eventType,
+            Keyword = KeywordBox.Text.Trim(),
             FromUtc = from,
             ToUtc = to,
             Limit = PageSize,

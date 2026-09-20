@@ -267,6 +267,9 @@ public sealed class AlarmEventRepository
         /// <summary>處置狀態篩選（M38；null／空＝不限）。</summary>
         public string? Status { get; init; }
 
+        /// <summary>關鍵字（M56；對 detail 做 LIKE，大小寫不敏感；null／空＝不限）。</summary>
+        public string? Keyword { get; init; }
+
         public DateTime FromUtc { get; init; }
 
         public DateTime ToUtc { get; init; }
@@ -295,6 +298,11 @@ public sealed class AlarmEventRepository
             where.Add("COALESCE(d.status, 'pending') = $st");
         }
 
+        if (!string.IsNullOrWhiteSpace(q.Keyword))
+        {
+            where.Add("a.detail LIKE $kw");
+        }
+
         return where;
     }
 
@@ -315,6 +323,11 @@ public sealed class AlarmEventRepository
         if (!string.IsNullOrWhiteSpace(q.Status))
         {
             cmd.Parameters.AddWithValue("$st", q.Status);
+        }
+
+        if (!string.IsNullOrWhiteSpace(q.Keyword))
+        {
+            cmd.Parameters.AddWithValue("$kw", $"%{q.Keyword}%");
         }
     }
 

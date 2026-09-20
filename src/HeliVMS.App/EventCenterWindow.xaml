@@ -35,8 +35,23 @@
                       Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"
                       SelectionChanged="OnChannelSelectionChanged"/>
 
+            <TextBlock Text="關鍵字" Foreground="{StaticResource Brand.TextDim}" VerticalAlignment="Center" Margin="20,0,0,0"/>
+            <TextBox x:Name="KeywordBox" AutomationProperties.AutomationId="KeywordBox"
+                     Width="140" Margin="6,0,0,0" VerticalContentAlignment="Center"
+                     Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
+
+            <Button x:Name="ApplyQueryButton" AutomationProperties.AutomationId="ApplyQueryButton"
+                    Content="套用" Click="OnApplyQueryClicked"
+                    Padding="10,4" Margin="8,0,0,0" VerticalAlignment="Center"
+                    Foreground="White" Background="#2A5C8A" BorderThickness="0"/>
+
             <Button x:Name="RefreshButton" Content="重新整理" Click="OnRefreshClicked"
-                    Padding="10,4" Margin="18,0,0,0" VerticalAlignment="Center"
+                    Padding="10,4" Margin="8,0,0,0" VerticalAlignment="Center"
+                    Foreground="White" Background="#2A5C8A" BorderThickness="0"/>
+
+            <Button x:Name="ExportCsvButton" AutomationProperties.AutomationId="ExportCsvButton"
+                    Content="匯出 CSV" Click="OnExportCsvClicked"
+                    Padding="10,4" Margin="8,0,0,0" VerticalAlignment="Center"
                     Foreground="White" Background="#2A5C8A" BorderThickness="0"/>
             
             <Button x:Name="ViewToggleButton" Content="卡片" Click="OnViewToggleClicked"
