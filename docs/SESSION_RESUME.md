@@ -6,8 +6,8 @@
 
 ## 一句話總結
 HeliVMS 為一套**網路影像監控系統**（WPF 桌面應用：即時監看／回放／AI 事件中心／錄影排程）。
-里程碑 **M1 至 M52 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M52 模組化分析情境）。
-Release build 0 error、測試 **466/466 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
+里程碑 **M1 至 M53 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M53 數位證據完整性）。
+Release build 0 error、測試 **486/486 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
 本地與遠端完全同步（`git diff origin/HEAD` 為空）。
 
 ## 開新 session 的接手方法
@@ -23,15 +23,16 @@ gh run list -L 3              # 預期全部 success
 新 session 會以 git 現況接手，不會靠猜測。
 
 ## 現況快照（權威來源＝git，非聊天記憶）
-- 最後 commit：`HEAD`＝**M52（`005649c`）**——模組化分析情境套件（Analytics Modules §14.7 #6 P2）（見下方 §27 M52 定義段）；全 **466**、CI `35522898383` success
+- 最後 commit：`HEAD`＝**M53（`6f4cccf`）**——數位證據完整性與數位簽章（Evidence Integrity ＆ Signing §14.7 #5 P1）（見下方 §29 M53 定義段）；全 **486**、CI `35524266378` success
+- 前一個 M52 交付＝`005649c`（模組化分析情境套件 Analytics Modules，見下方 §27 定義段）、全 **466**、CI `35522898383` success
 - 前一個 M51 交付＝`2dea00f`（外部安全共享 Share Link／無帳號分享，見下方 §26 M51 定義段）、全 **425**、CI `35294863720` success
 - 前一個 M50 交付＝`d43c058`（企業身份整合 OIDC SSO 核心＋LDAP 設定面，見下方 §25 M50 定義段）、全 **400**、CI `35293174402` success
 - 前一個 M48 交付＝`2f6508a`（魚眼矯正 Dewarping，見下方 §23 M48 定義段）、全 **308**、CI `35287346481` success
 - 前一個 M47 交付＝`f3c01e1`（警報管理器 Alarm Manager，見下方 §22 M47 定義段）、全 **299**、CI `35286083642` success
 - 前一個 M46 交付＝`c7f6e8f`（錄影遮蔽 Redaction，見下方 §21 M46 定義段）、全 **293**、CI `35284550851` success
 - 前一個 M45 交付＝`ef3a8bc`（備份與異地備援，見下方 §20 M45 定義段）、全 **289**、CI `35263453271` success
-- 已驗收：**M52＝模組化分析情境套件（Analytics Modules）**（§14.7 #6 P2，見下方 §27 定義段）
-- 進行中：**M53＝數位證據完整性與數位簽章（Evidence Integrity ＆ Signing）**（§14.7 #5 P1，見下方 §29 定義段）
+- 已驗收：**M53＝數位證據完整性與數位簽章（Evidence Integrity ＆ Signing）**（§14.7 #5 P1，見下方 §29 定義段）
+- 進行中：**M54＝智慧警報（Smart Alerts）**（§14.7 #8 P2，見下方 §30 定義段）
 - 前一個 M38 交付＝`d09b045`（事件回應工作流，見下方 M38 定義段）、全 **172**、CI `35185639491` success
 - 前一個 M30 交付＝`24ad4c7`（MQTT 通知通道）：`NotificationSettings`＋
   `MqttEnabled/MqttHost/MqttPort(1883)/MqttTopic/MqttUser/MqttPassword`（鍵 `notify.mqtt.*`、
@@ -740,6 +741,30 @@ gh run list -L 3              # 預期全部 success
     - harness `evidencecheck`→**EVIDENCE_OK**（seed 建探針證據目錄 2 檔→開 `--evidence`→建立 manifest 全 OK→
       篡改一檔→驗證出 TAMPERED→還原再驗證 OK）；回歸 **ALARMMANAGER／DEWARP／MAPFOV／SHARE／ANALYTICS**
     - 驗收：App Release 0 error、全約 **486**、EVIDENCE_OK、回歸綠、CI 綠
+    - **已驗收（M53 snapshot）**：App Release 0 error；測試 **486/486**（Storage 304→**324**＝
+      `EvidenceManifestTests` 13＋`EvidenceSignerTests` 7；總 466→486）；harness `evidencecheck`→**EVIDENCE_OK:create=2;tampered=1;restored 驗證通過**
+      （seed `--evidence` 建 `evidence\probe` 2 檔＋簽屬 manifest→開 `--evidence` 視窗→建立→篡改 clip.bin→
+      驗證出「1 篡改」＋TAMPERED→還原→「2 檔 OK … 驗證通過」）；回歸 **ALARMMANAGER／DEWARP／MAPFOV／SHARE／SHAREWIN／ANALYTICS 全綠**；
+      HEAD＝`6f4cccf`、CI `35524266378` success；定義段（`2175b55`）已 commit＋push
+
+30. **M54 ＝智慧警報（Smart Alerts）（§14.7 #8 P2：「物體感知的事件篩選」，搭配 §5.5 警報規則）**：
+    - 背景：M37 已建 `alert_rules`＋NotificationService 誤發門檻，M38/M47 回報審核；本里程碑補「**智慧化防抖＋類別篩選**」：
+      處理警報洪泛（靠偵測產生的 `ai_line_cross`／`ai_intrusion` 事件短時間大量進 alarm_events）與誤警
+    - Storage schema **v20**：`alert_rules` 增列
+      `match_event_types`（TEXT NULL；JSON 陣列，空/NULL＝全部事件）、`frame_minutes`（INTEGER DEFAULT 0；
+      大於 0 時「同頻道＋同條件」N 分鐘聚合窗）、`min_events_in_window`（INTEGER DEFAULT 1）；
+      `AlertRuleRepository` 存取擴充（Get/Add/Update 含三欄；既有 migration 補 `ALTER TABLE` 冪等）
+    - Alarms 新檔 `SmartAlertEvaluator`：`Evaluate(evalMinUtc, windowMinutes, rules, openAlarmEvents)` →
+      對窗內 `alarm_events`（按 channel_id＋event_type）計數，跨過 `min_events_in_window` 才觸發
+      `AlertTrigger`（rule 摘要＋計數＋首末時間）；`NotificationService` 改為：`NotifyEvents` 先過
+      SmartAlert 聚閤（`frame_minutes>0` 的規則只在窗滿時發送一次摘要，避免逐筆洪泛）
+    - App：SettingsWindow 警報規則頁增列「事件類型篩選」「聚合窗(分)」「窗內最少事件」三欄編輯；
+      AlarmManager 摘要列顯示「窗內 N 事件聚合」註記
+    - 測試：`SmartAlertTests`（v20 遷移冪等、兩欄 round-trip、聚合窗計數與 min 門檻、跨窗不觸發、
+      match_event_types 篩選、NotificationService 聚合發送一次；Storage＋Alarms 約 +22；總 486→約 **508**）
+    - harness `smartalertcheck`→**SMARTALERT_OK**（seed 產 2 頻道各 5 筆 `ai_intrusion` 事件＋規則
+      frame_window 5min／min 3→開警報規則 UI 確認三欄→評估器輸出窗內 count；回歸 6 支 6 枝全綠）
+    - 驗收：App Release 0 error、全約 **508**、SMARTALERT_OK、回歸綠、CI 綠
 
 ## 已知雷區（勿再犯）
 - **harness `.ps1` 必須存成 UTF-8 with BOM**：寫檔工具產出的是 UTF-8 無 BOM，含中文的 `.ps1` 會被 PowerShell 5.1 以 ANSI/Big5 誤讀而**靜默破壞解析**（症狀：`Start-Process` 看似無效、App 根本沒啟動、`Get-Process HeliVMS.App` 找不到）。修法：`[System.IO.File]::WriteAllText($p,[System.IO.File]::ReadAllText($p,[System.Text.Encoding]::UTF8),(New-Object System.Text.UTF8Encoding($true)))`（temp/opencode 有 `fix-encoding.ps1`）
