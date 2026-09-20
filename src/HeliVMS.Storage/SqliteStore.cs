@@ -9,7 +9,7 @@ namespace HeliVMS.Storage;
 /// </summary>
 public sealed class SqliteStore : IDisposable
 {
-    private const int CurrentSchemaVersion = 18;
+    private const int CurrentSchemaVersion = 19;
     private readonly SqliteConnection _connection;
     private readonly object _gate = new();
     private bool _disposed;
@@ -142,6 +142,11 @@ public sealed class SqliteStore : IDisposable
         if (version < 18)
         {
             CreateAnalyticsZonesTableV18();
+        }
+
+        if (version < 19)
+        {
+            CreateEvidenceManifestsTableV19();
         }
 
         Execute("PRAGMA user_version = CURRENT_SCHEMA_VERSION;".Replace(
@@ -570,6 +575,22 @@ public sealed class SqliteStore : IDisposable
                 created_at    TEXT    NOT NULL
             );
             CREATE INDEX IF NOT EXISTS idx_analytics_channel ON analytics_zones(channel_id);
+            """);
+    }
+
+    /// <summary>M53 數位證據完整性（§14.7 #5）：證據集的 manifest 記錄（含數位簽章）。</summary>
+    private void CreateEvidenceManifestsTableV19()
+    {
+        Execute(
+            """
+            CREATE TABLE IF NOT EXISTS evidence_manifests (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                directory_path TEXT    NOT NULL UNIQUE,
+                manifest_json   TEXT    NOT NULL,
+                status          TEXT    NOT NULL DEFAULT 'created',
+                created_at      TEXT    NOT NULL,
+                last_verified_at TEXT
+            );
             """);
     }
 

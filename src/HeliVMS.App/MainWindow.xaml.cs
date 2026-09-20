@@ -320,6 +320,14 @@ public partial class MainWindow : Window
             Dispatcher.BeginInvoke(() => OpenAnalyticsWindow());
         }
 
+        var evArgs = Environment.GetCommandLineArgs();
+        var evidenceIndex = Array.IndexOf(evArgs, "--evidence");
+        if (evidenceIndex >= 0)
+        {
+            var evidenceDir = evidenceIndex + 1 < evArgs.Length ? evArgs[evidenceIndex + 1] : null;
+            Dispatcher.BeginInvoke(() => OpenEvidenceWindow(evidenceDir));
+        }
+
         if (Environment.GetCommandLineArgs().Contains("--map", StringComparer.OrdinalIgnoreCase))
         {
             Dispatcher.BeginInvoke(() => OpenMapWindow());
@@ -1064,6 +1072,21 @@ public partial class MainWindow : Window
         }
 
         var window = new AnalyticsWindow(_store!)
+        {
+            Owner = this,
+        };
+        window.Show();
+    }
+
+    /// <summary>開啟證據完整性視窗（M53，§14.7 #5）。</summary>
+    private void OpenEvidenceWindow(string? directory)
+    {
+        if (!SessionContext.IsAdmin)
+        {
+            return;
+        }
+
+        var window = new EvidenceWindow(_store!, directory)
         {
             Owner = this,
         };

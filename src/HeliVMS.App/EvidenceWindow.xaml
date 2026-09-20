@@ -1,0 +1,55 @@
+<Window x:Class="HeliVMS.App.EvidenceWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        AutomationProperties.AutomationId="EvidenceWindow"
+        Title="HeliVMS 證據完整性"
+        Width="920" Height="620"
+        WindowStartupLocation="CenterOwner"
+        Background="#0B1622" Foreground="White">
+
+    <Grid Margin="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <TextBlock Grid.Row="0" Text="數位證據完整性（M53）：對證據目錄建立 SHA-256 清單與數位簽章，可重新驗證是否遭篡改。"
+                   Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+
+        <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,10,0,0">
+            <TextBlock Text="證據目錄" VerticalAlignment="Center" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+            <TextBox x:Name="EvidenceDirBox" AutomationProperties.AutomationId="EvidenceDirBox"
+                     Width="460" Margin="8,0,0,0" VerticalContentAlignment="Center"
+                     Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
+            <Button x:Name="EvidenceBrowseButton" AutomationProperties.AutomationId="EvidenceBrowseButton"
+                    Content="瀏覽..." Click="OnBrowseClicked"
+                    Margin="8,0,0,0" Padding="10,5"
+                    Foreground="White" Background="#2A4A73" BorderThickness="0"/>
+            <Button x:Name="EvidenceCreateButton" AutomationProperties.AutomationId="EvidenceCreateButton"
+                    Content="建立 manifest 並簽署" Click="OnCreateClicked"
+                    Margin="12,0,0,0" Padding="12,6"
+                    Foreground="White" Background="#2A5C8A" BorderThickness="0"/>
+            <Button x:Name="EvidenceVerifyButton" AutomationProperties.AutomationId="EvidenceVerifyButton"
+                    Content="驗證完整性" Click="OnVerifyClicked"
+                    Margin="8,0,0,0" Padding="12,6"
+                    Foreground="White" Background="#2A5C8A" BorderThickness="0"/>
+        </StackPanel>
+
+        <ListView Grid.Row="2" x:Name="EvidenceList" AutomationProperties.AutomationId="EvidenceList"
+                  Margin="0,12,0,0" Background="#0E1C30" BorderBrush="#2A4A73" Foreground="White">
+            <ListView.View>
+                <GridView>
+                    <GridViewColumn Header="檔案（相對路徑）" Width="250" DisplayMemberBinding="{Binding RelPath}"/>
+                    <GridViewColumn Header="SHA-256" Width="292" DisplayMemberBinding="{Binding Sha256}"/>
+                    <GridViewColumn Header="大小" Width="90" DisplayMemberBinding="{Binding SizeLabel}"/>
+                    <GridViewColumn Header="狀態" Width="110" DisplayMemberBinding="{Binding StatusLabel}"/>
+                </GridView>
+            </ListView.View>
+        </ListView>
+
+        <TextBlock Grid.Row="3" x:Name="EvidenceStatusText" AutomationProperties.AutomationId="EvidenceStatusText"
+                   Margin="0,12,0,0" Foreground="#9FB8D8" TextWrapping="Wrap"/>
+    </Grid>
+</Window>
