@@ -6,8 +6,8 @@
 
 ## 一句話總結
 HeliVMS 為一套**網路影像監控系統**（WPF 桌面應用：即時監看／回放／AI 事件中心／錄影排程）。
-里程碑 **M1 至 M56 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M56 事件中心搜尋／CSV 匯出）。
-Release build 0 error、測試 **518/518 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
+里程碑 **M1 至 M57 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M57 多語言介面 i18n）。
+Release build 0 error、測試 **525/525 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
 本地與遠端完全同步（`git diff origin/HEAD` 為空）。
 
 ## 開新 session 的接手方法
@@ -23,7 +23,8 @@ gh run list -L 3              # 預期全部 success
 新 session 會以 git 現況接手，不會靠猜測。
 
 ## 現況快照（權威來源＝git，非聊天記憶）
-- 最後 commit：`HEAD`＝**M56（`1309112`）**——事件中心搜尋／篩選／CSV 匯出（Event Center Query ＆ Export §5.2，見下方 §32 定義段）；全 **518**、CI `35533344119` success
+- 最後 commit：`HEAD`＝**M57（`5225a3a`）**——多語言介面 i18n（繁中／簡中／English，§14.7 P1，見下方 §33 定義段）；全 **525**、CI `35537573067` success
+- 前一個 M56 交付＝`1309112`（事件中心搜尋／篩選／CSV 匯出，見下方 §32 定義段）、全 **518**、CI `35533344119` success
 - 前一個 M55 交付＝`9b1b37a`（異地備援自動複製 Off-Site Replication，見下方 §31 定義段）、全 **512**、CI `35526440981` success
 - 前一個 M54 交付＝M54 智慧警報（`d893554`）、全 **505**、CI `35525399049` success
 - 前一個 M52 交付＝`005649c`（模組化分析情境套件 Analytics Modules，見下方 §27 定義段）、全 **466**、CI `35522898383` success
@@ -33,8 +34,8 @@ gh run list -L 3              # 預期全部 success
 - 前一個 M47 交付＝`f3c01e1`（警報管理器 Alarm Manager，見下方 §22 M47 定義段）、全 **299**、CI `35286083642` success
 - 前一個 M46 交付＝`c7f6e8f`（錄影遮蔽 Redaction，見下方 §21 M46 定義段）、全 **293**、CI `35284550851` success
 - 前一個 M45 交付＝`ef3a8bc`（備份與異地備援，見下方 §20 M45 定義段）、全 **289**、CI `35263453271` success
-- 已驗收：**M56＝事件中心搜尋／篩選／CSV 匯出（Event Center Query ＆ Export）**（§5.2 分析中心，見下方 §32 定義段）
-- 進行中：**M57＝多語言介面 i18n（繁中／簡中／English）**（§14.7 P1，見下方 §33 定義段）
+- 已驗收：**M57＝多語言介面 i18n（繁中／簡中／English）**（§14.7 P1，見下方 §33 定義段）
+- 進行中：（下一里程碑依規劃，見下方 §34 M58 定義段）
 - 前一個 M38 交付＝`d09b045`（事件回應工作流，見下方 M38 定義段）、全 **172**、CI `35185639491` success
 - 前一個 M30 交付＝`24ad4c7`（MQTT 通知通道）：`NotificationSettings`＋
   `MqttEnabled/MqttHost/MqttPort(1883)/MqttTopic/MqttUser/MqttPassword`（鍵 `notify.mqtt.*`、
@@ -53,7 +54,7 @@ gh run list -L 3              # 預期全部 success
 - 前一個 M28 交付＝`ba95d0f`（事件中心篩選＋分頁：QueryArgs/ListByQuery/CountByQuery/
   ListEventTypes＋UI 類型 Combo＋Prev/Next 50/頁；114、evfiltercheck EVFILTERCHECK_OK）
 - 分支／遠端：`git diff origin/HEAD` 為空（完全同步）；HEAD＝origin
-- CI：`gh run list` 顯示最新 run `conclusion=success`；建置 0 error、測試 518/518
+- CI：`gh run list` 顯示最新 run `conclusion=success`；建置 0 error、測試 525/525
 
 ## 架構關鍵（確切、無漂移）
 - 解決方案：`D:\HeliVMS\HeliVMS.App\HeliVMS.App.csproj`（WPF）＋ `HeliVMS.slnx`
@@ -827,17 +828,29 @@ gh run list -L 3              # 預期全部 success
       UTF-8 BOM 寫檔，欄位＝時間(本地)/頻道/類型/持續(秒)/詳情/快照/狀態/指派/備註）＋ CLI `--events-export <path>`
       供 E2E（該路徑關窗前設 `_exiting=true` 以避免 M26 收進系統匣而不退出）
 
-33. **M57 ＝多語言介面 i18n（繁中／簡中／English）（§14.7 P1「多國語言」承諾）**：
-    - 背景：全系統目前 UI 字串為繁中硬編碼；補「介面語言可切換」符合國際化承諾
-    - Storage：app_settings 新增 `ui.lang`（支援 `zh-Hant`／`zh-Hans`／`en`；預設 `zh-Hant`）；SettingsWindow
-      系統頁新增語言下拉（切換即寫入設定並精確重載 UI 字串）
-    - App `Localizer`：依已載入資源字典（`Strings.zh-Hant.xaml`／`Strings.zh-Hans.xaml`／`Strings.en.xaml`）
-      以 `x:Key` 查字串，缺 key 時 fallback 繁中；主視窗與各子視窗標題／控制項文字以 key 替換（範圍約
-      MainWindow＋事件中心＋設定＋警報管理器，其餘視窗標題也納入但內文逐步）
-    - 測試：`LocalizerTests`（zh-Hant 命中、en 原文、缺 key fallback、zh-Hans 對照，約 +6；總 518→約 **524**）
-    - harness `i18ncheck`→**I18N_OK**（seed `--i18n <lang>` 寫 `ui.lang`→App 該語言鍵首→主要視窗標題與
-      「重新整理」等按鈕文字切換比對；回歸 **EVENTQUERY＋8 支中關鍵 4 支**）
-    - 驗收：App Release 0 error、全約 **524**、I18N_OK、回歸綠、CI 綠
+33. **M57 ＝多語言介面 i18n（繁中／簡中／English）（§14.7 P1「多國語言」承諾）——已驗收**：
+    - 已交付 commit＋push＋CI 綠：Storage `I18n` 靜態字串表（`zhHant`／`zhHans`／`en` 三表，鍵集合一致）
+      ＋ `IsSupported/Normalize/Load/SettingsRepository.Get/ForLang/Get`（`Get(lang,key)` 缺 key fallback 繁中再回 key）；
+      app_settings 鍵＝`ui.lang`（`I18n.SettingKey`，預設 `zh-Hant`）；**實作以靜態字串表取代原 XAML 資源字典設計**
+      （避免 .xaml 資源讀取／編譯期漂移，Storage 可測、不依賴 WPF）；`Localizer`（App：`Init/T/SetLang`）
+    - 套用範圍：MainWindow 標題＝`Brand.Title`（`OnLoaded` 於 `Localizer.Init` 之後設定；`RefreshTitle()` 供即時切換）；
+      EventCenterWindow 標題＋過濾列（頻道/範圍/類型/關鍵字 label、`ApplyQueryButton`→套用、`RefreshButton`→重新整理、
+      `ExportCsvButton`→匯出 CSV、`RangeCombo` 四項、全部頻道/全部類型）於 `OnLoaded` `ApplyI18n()` 套用；
+      AlarmManagerWindow 標題＝`AlarmManager.Title`；SettingsWindow 標題＝`Settings.Title`＋PageGeneral「介面語言」群
+      （`LangCombo`：繁體中文 zh-Hant／简体中文 zh-Hans／English en；切換→`Localizer.SetLang` 寫回 `ui.lang`＋
+      刷新自身標題＋`MainWindow.RefreshTitle()`；`LangHintText` 提示）
+  - 測試：`I18nTests` **7/7**（Storage 342→**349**；缺 key fallback、三語言命中、負載預設等）；全 **518→525**
+    （Storage 349＋Alarms 144＋Devices 24＋Licensing 8）
+    - harness `i18ncheck`→**I18N_OK**（seed `--i18n <lang>` 寫 `ui.lang`（seedtriage `--i18n`／`--i18n-clean`）→
+      App `--events --settings` 啟動→比對三語言下 MainWindow 標題（HeliVMS 監控中心／监控中心／Surveillance Center）、
+      SettingsWindow 標題（設定中心／设置中心／Settings）、`LangCombo` 選項、`ExportCsvButton` 文字（匯出 CSV／导出 CSV／Export CSV））
+    - 驗收：App Release 0 error、全 **525**、`I18N_OK`、回歸 **13 支全綠**、CI 綠；工作目錄空白
+    - 雷區附註：**BIG5/ACP=950 環境下 harness 讀視窗標題必須 `EntryPoint="GetWindowTextW"`**（預設 `GetWindowText` 綁 ANSI 版，
+      簡體「监」U+76D1 不在 Big5 → 讀回「?」假象，實為讀取端編碼問題，App 本身無誤）；`--settings` 開窗時
+      SettingsWindow ctor 設 `LangCombo.SelectedIndex`→觸發 `OnLangChanged`→會寫回 `ui.lang`（同值，無害）
+
+34. **M58 ＝（待定義；依 SESSION_RESUME 規劃表下一個尚未交付之里程碑）**：
+    - （本段佔位，接續里程碑於下個 session 依開頭「尚未完成／下一步」清單與 PCC 表選定後撰寫）
 
 ## 已知雷區（勿再犯）
 - **harness `.ps1` 必須存成 UTF-8 with BOM**：寫檔工具產出的是 UTF-8 無 BOM，含中文的 `.ps1` 會被 PowerShell 5.1 以 ANSI/Big5 誤讀而**靜默破壞解析**（症狀：`Start-Process` 看似無效、App 根本沒啟動、`Get-Process HeliVMS.App` 找不到）。修法：`[System.IO.File]::WriteAllText($p,[System.IO.File]::ReadAllText($p,[System.Text.Encoding]::UTF8),(New-Object System.Text.UTF8Encoding($true)))`（temp/opencode 有 `fix-encoding.ps1`）
