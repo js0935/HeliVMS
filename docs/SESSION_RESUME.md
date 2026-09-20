@@ -31,6 +31,7 @@ gh run list -L 3              # 預期全部 success
 - 前一個 M46 交付＝`c7f6e8f`（錄影遮蔽 Redaction，見下方 §21 M46 定義段）、全 **293**、CI `35284550851` success
 - 前一個 M45 交付＝`ef3a8bc`（備份與異地備援，見下方 §20 M45 定義段）、全 **289**、CI `35263453271` success
 - 已驗收：**M52＝模組化分析情境套件（Analytics Modules）**（§14.7 #6 P2，見下方 §27 定義段）
+- 進行中：**M53＝數位證據完整性與數位簽章（Evidence Integrity ＆ Signing）**（§14.7 #5 P1，見下方 §29 定義段）
 - 前一個 M38 交付＝`d09b045`（事件回應工作流，見下方 M38 定義段）、全 **172**、CI `35185639491` success
 - 前一個 M30 交付＝`24ad4c7`（MQTT 通知通道）：`NotificationSettings`＋
   `MqttEnabled/MqttHost/MqttPort(1883)/MqttTopic/MqttUser/MqttPassword`（鍵 `notify.mqtt.*`、
@@ -721,6 +722,24 @@ gh run list -L 3              # 預期全部 success
     - **附加修復**：`SqliteStore.AddMapScaleV15` 冪等化（`ALTER` 前檢查 `scale_m_per_px` 欄位是否存在）。起因：真 DB `user_version` 偵測為 4 但表結構已達 v18 → 每次啟動重跑遷移，`ALTER COLUMN` 重複即崩潰（ExitCode -532462766）；修復後升級遷移可自癒（跑過一次即 SET 18）
 28. 每里程碑節奏照舊：定義先寫入本檔→實作→App Release build 0 error→單元測試→
     （有 UI 面者）E2E harness block→commit＋push＋CI success→`git status --porcelain` 空白
+29. **M53 ＝數位證據完整性與數位簽章（Evidence Integrity ＆ Signing）（§14.7 #5 P1，確立 §14.3 證物線）**：
+    - 背景：M45 備份已產 manifest 清單；本里程碑補足「**SHA-256 清單＋數位簽章＋驗證**」P1
+      （合規／鑑識要求：證明匯出證據集未被改動，丟給司法單位可驗證）
+    - Storage schema **v19**：`evidence_manifests`（id, directory_path UNIQUE, manifest_json, created_at, last_verified_at）；
+      `EvidenceManifestRepository`（Upsert／Get／List／Delete）
+    - Storage 新檔：
+      - `EvidenceSigner`：RSA-2048（金鑰落點 `app_settings` key `evidence.signing_key_pem`，首次自動生成）；
+        `EnsureKey`／`SignDocument(manifestJson)→(signature, fingerprint)`（SHA-256 digest 簽屬）／`VerifySignature`
+      - `EvidenceManifestService`：`Build(directory)`（遞迴掃描各檔 rel_path→sha256+size、排除 manifest.json、總檔數／位元組）→`ManifestDocument`；
+        `Save`（寫目錄內 `manifest.json`＋數位簽章＋DB upsert）；`Verify(directory)`（讀回逐檔重算：
+        OK／TAMPERED／MISSING／EXTRA，附 Overall）；`Sign`／`VerifySigned`
+    - App：`EvidenceWindow`（`--evidence`；admin）：選擇目錄→「建立 manifest」清單顯示各檔 SHA-256／大小→
+      「驗證完整性」重新掃描比對＋數位簽章，狀態列「完整性：N 檔 OK／M 篡改」；`--evidence <dir>` 初始化目錄
+    - 測試：`EvidenceManifestTests`／`EvidenceSignerTests`（建 manifest 遞迴與排除自身、round-trip、
+      篡改偵測 TAMPERED、缺檔 MISSING、新增檔 EXTRA、簽章產生／驗證、私鑰更換→簽章驗證失敗；約 +20；總 466→約 **486**）
+    - harness `evidencecheck`→**EVIDENCE_OK**（seed 建探針證據目錄 2 檔→開 `--evidence`→建立 manifest 全 OK→
+      篡改一檔→驗證出 TAMPERED→還原再驗證 OK）；回歸 **ALARMMANAGER／DEWARP／MAPFOV／SHARE／ANALYTICS**
+    - 驗收：App Release 0 error、全約 **486**、EVIDENCE_OK、回歸綠、CI 綠
 
 ## 已知雷區（勿再犯）
 - **harness `.ps1` 必須存成 UTF-8 with BOM**：寫檔工具產出的是 UTF-8 無 BOM，含中文的 `.ps1` 會被 PowerShell 5.1 以 ANSI/Big5 誤讀而**靜默破壞解析**（症狀：`Start-Process` 看似無效、App 根本沒啟動、`Get-Process HeliVMS.App` 找不到）。修法：`[System.IO.File]::WriteAllText($p,[System.IO.File]::ReadAllText($p,[System.Text.Encoding]::UTF8),(New-Object System.Text.UTF8Encoding($true)))`（temp/opencode 有 `fix-encoding.ps1`）
