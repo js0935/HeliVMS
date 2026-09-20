@@ -6,8 +6,8 @@
 
 ## 一句話總結
 HeliVMS 為一套**網路影像監控系統**（WPF 桌面應用：即時監看／回放／AI 事件中心／錄影排程）。
-里程碑 **M1 至 M54 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M54 智慧警報）。
-Release build 0 error、測試 **505/505 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
+里程碑 **M1 至 M55 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M55 異地備援自動複製）。
+Release build 0 error、測試 **512/512 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
 本地與遠端完全同步（`git diff origin/HEAD` 為空）。
 
 ## 開新 session 的接手方法
@@ -23,8 +23,8 @@ gh run list -L 3              # 預期全部 success
 新 session 會以 git 現況接手，不會靠猜測。
 
 ## 現況快照（權威來源＝git，非聊天記憶）
-- 最後 commit：`HEAD`＝**M54（`d893554`）**——智慧警報（Smart Alerts §14.7 #8 P2）＋M53 數位證據完整性（§14.7 #5 P1）（見下方 §29／§30 定義段）；全 **505**、CI `35525399049` success
-- 前一個 M53 交付＝`6f4cccf`（數位證據完整性與數位簽章，見下方 §29 定義段）、全 **486**、CI `35524266378` success
+- 最後 commit：`HEAD`＝**M55（`9b1b37a`）**——異地備援自動複製（Off-Site Replication §4.4 P1，見下方 §31 定義段）＋M54 智慧警報＋M53 數位證據完整性；全 **512**、CI `35526440981` success
+- 前一個 M54 交付＝M54 智慧警報（`d893554`）、全 **505**、CI `35525399049` success
 - 前一個 M52 交付＝`005649c`（模組化分析情境套件 Analytics Modules，見下方 §27 定義段）、全 **466**、CI `35522898383` success
 - 前一個 M51 交付＝`2dea00f`（外部安全共享 Share Link／無帳號分享，見下方 §26 M51 定義段）、全 **425**、CI `35294863720` success
 - 前一個 M50 交付＝`d43c058`（企業身份整合 OIDC SSO 核心＋LDAP 設定面，見下方 §25 M50 定義段）、全 **400**、CI `35293174402` success
@@ -32,8 +32,8 @@ gh run list -L 3              # 預期全部 success
 - 前一個 M47 交付＝`f3c01e1`（警報管理器 Alarm Manager，見下方 §22 M47 定義段）、全 **299**、CI `35286083642` success
 - 前一個 M46 交付＝`c7f6e8f`（錄影遮蔽 Redaction，見下方 §21 M46 定義段）、全 **293**、CI `35284550851` success
 - 前一個 M45 交付＝`ef3a8bc`（備份與異地備援，見下方 §20 M45 定義段）、全 **289**、CI `35263453271` success
-- 已驗收：**M54＝智慧警報（Smart Alerts）**（§14.7 #8 P2，見下方 §30 定義段）
-- 進行中：**M55＝異地備援自動複製（Off-Site Replication）**（§4.4 P1「異地」＋§14.4 備份線，見下方 §31 定義段）
+- 已驗收：**M55＝異地備援自動複製（Off-Site Replication）**（§4.4 P1，見下方 §31 定義段）
+- 進行中：**M56＝事件中心搜尋／篩選／CSV 匯出（Event Center Query ＆ Export）**（§5.2 分析中心，見下方 §32 定義段）
 - 前一個 M38 交付＝`d09b045`（事件回應工作流，見下方 M38 定義段）、全 **172**、CI `35185639491` success
 - 前一個 M30 交付＝`24ad4c7`（MQTT 通知通道）：`NotificationSettings`＋
   `MqttEnabled/MqttHost/MqttPort(1883)/MqttTopic/MqttUser/MqttPassword`（鍵 `notify.mqtt.*`、
@@ -790,6 +790,28 @@ gh run list -L 3              # 預期全部 success
     - harness `offsitecheck`→**OFFSITE_OK**（seed `--offsite <src> <dst>` 建來源樣本檔→服務複製→斷言相對結構
       檔案存在＋job last_run 更新→刪目標→再複製成功）；回歸 **SMARTALERT＋6 支＋EVIDENCE**
     - 驗收：App Release 0 error、全約 **525**、OFFSITE_OK、回歸綠、CI 綠
+    - **已驗收（M55 snapshot）**：App Release 0 error；測試 **512/512**（Storage 329→**336**＝
+      `OffsiteReplicationTests` 7；總 505→512）；harness `offsitecheck`→
+      **OFFSITE_OK:prepare=OFFSEED_PREPARE_OK:job=2;result=OK;lastRun=…;fails=0;rerun=OFFSITE_RERUN_OK:result=OK;consecutive=0;files=3**
+      （seed `--offsite-prepare` 建來源 3 樣本檔→Upsert＋RunOnce→斷言相對結構＋last_run→刪目標→`--offsite-rerun` 復原，檔名 harness 內含）；回歸 **EVIDENCE／SMARTALERT／ALARMMANAGER／DEWARP／MAPFOV／SHARE／SHAREWIN／ANALYTICS 全綠**；
+      HEAD＝`9b1b37a`、CI `35526440981` success
+    - 實作行為：主視窗每分鐘 `RunOffsiteDueJobs`（DispatcherTimer）；SettingsWindow 備份頁含
+      OffsiteSourceBox／OffsiteDestBox／OffsiteIntervalBox／OffsiteRunNowButton，狀態列顯示
+      last_result／連續失敗數（DB 權威來源為 offsite_jobs＋app_settings `offsite.*`）
+
+32. **M56 ＝事件中心搜尋／篩選／CSV 匯出（Event Center Query ＆ Export）（§5.2 分析中心）**：
+    - 背景：AlarmManager 目前僅全量列示；補「條件查詢＋匯出」讓調查人員快速收斂
+    - Storage `AlarmEventRepository` 新 `Query(channelId?, eventType?, keyword?, fromUtc?, toUtc?, limit)`：
+      WHERE 以 AND 合併、event_type 相等、keyword 對 detail LIKE（大小寫不敏感 UTF-8）、時間閉區間、
+      `ORDER BY start_utc DESC LIMIT`；原 ListAll/ListByRange 不變
+    - App AlarmManager：上方新增篩列（頻道／事件類別／關鍵字／起始-結束時間）＋「套用」「清除」＋
+      「匯出 CSV」（依目前查詢導出 UTF-8 BOM 檔，含時間序(UUID)與全欄位標題）
+    - 測試：`AlarmEventQueryTests`（頻道過濾、事件類別、關鍵字 LIKE、時間範圍、合併條件、limit＋排序，
+      約 +7；總 512→約 **519**）
+    - harness `eventquerycheck`→**EVENTQUERY_OK**（seed `--event-probe` 插 5 筆不同事件類別/頻道/時間
+      harness* 探針→`--event-query` 驗證 keyword/類別/時間篩選命中數→App AlarmManager 篩列套用後 rows 對應、
+      匯出 CSV 檔存在且行數＝命中＋1 標題）＋回歸 **OFFSITE＋8 支**
+    - 驗收：App Release 0 error、全約 **519**、EVENTQUERY_OK、回歸綠、CI 綠
 
 ## 已知雷區（勿再犯）
 - **harness `.ps1` 必須存成 UTF-8 with BOM**：寫檔工具產出的是 UTF-8 無 BOM，含中文的 `.ps1` 會被 PowerShell 5.1 以 ANSI/Big5 誤讀而**靜默破壞解析**（症狀：`Start-Process` 看似無效、App 根本沒啟動、`Get-Process HeliVMS.App` 找不到）。修法：`[System.IO.File]::WriteAllText($p,[System.IO.File]::ReadAllText($p,[System.Text.Encoding]::UTF8),(New-Object System.Text.UTF8Encoding($true)))`（temp/opencode 有 `fix-encoding.ps1`）
