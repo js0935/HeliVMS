@@ -352,6 +352,11 @@ public partial class MainWindow : Window
             Dispatcher.BeginInvoke(() => OpenReportsWindow());
         }
 
+        if (Environment.GetCommandLineArgs().Contains("--rules", StringComparer.OrdinalIgnoreCase))
+        {
+            Dispatcher.BeginInvoke(() => OpenRulesWindow());
+        }
+
         var evArgs = Environment.GetCommandLineArgs();
         var evidenceIndex = Array.IndexOf(evArgs, "--evidence");
         if (evidenceIndex >= 0)
@@ -1604,6 +1609,23 @@ public partial class MainWindow : Window
     }
 
     private void OnReportsClicked(object sender, RoutedEventArgs e) => OpenReportsWindow();
+
+    /// <summary>開啟複合事件規則視窗（M62，§5.10）。admin 限定。</summary>
+    private void OpenRulesWindow()
+    {
+        if (!SessionContext.IsAdmin)
+        {
+            return;
+        }
+
+        var window = new RulesWindow(_store!)
+        {
+            Owner = this,
+        };
+        window.Show();
+    }
+
+    private void OnRulesClicked(object sender, RoutedEventArgs e) => OpenRulesWindow();
 
     /// <summary>開啟電子地圖（M41；M49 補比例尺與 FOV 深度）。</summary>
     private void OpenMapWindow()

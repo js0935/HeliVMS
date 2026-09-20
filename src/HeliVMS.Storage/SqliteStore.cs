@@ -9,7 +9,7 @@ namespace HeliVMS.Storage;
 /// </summary>
 public sealed class SqliteStore : IDisposable
 {
-    private const int CurrentSchemaVersion = 23;
+    private const int CurrentSchemaVersion = 24;
     private readonly SqliteConnection _connection;
     private readonly object _gate = new();
     private bool _disposed;
@@ -167,6 +167,11 @@ public sealed class SqliteStore : IDisposable
         if (version < 23)
         {
             ExpandAnalyticsModulesV23();
+        }
+
+        if (version < 24)
+        {
+            CreateAiRulesTableV24();
         }
 
         Execute("PRAGMA user_version = CURRENT_SCHEMA_VERSION;".Replace(
@@ -648,7 +653,23 @@ public sealed class SqliteStore : IDisposable
             """);
     }
 
-    /// <summary>M54 智慧警報（§14.7 #8）：alert_rules 增列聚合窗／類別篩選（冪等）。</summary>
+    /// <summary>M62 複合事件規則（§5.10）：ai_rules 設定層資料表。</summary>
+    private void CreateAiRulesTableV24()
+    {
+        Execute(
+            """
+            CREATE TABLE IF NOT EXISTS ai_rules (
+                id             INTEGER PRIMARY KEY AUTOINCREMENT,
+                name           TEXT    NOT NULL,
+                expression_json TEXT   NOT NULL,
+                actions_json   TEXT    NOT NULL,
+                enabled        INTEGER NOT NULL DEFAULT 1,
+                created_at     TEXT    NOT NULL
+            );
+            """);
+    }
+
+    /// <summary>M54 智慧警報（§14.7 #8）：alert_rules 增列聚合窗／類別類別篩選（冪等）。</summary>
     private void AddSmartAlertColumnsV20()
     {
         EnsureColumn("alert_rules", "match_event_types", "TEXT");
