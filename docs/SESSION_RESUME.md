@@ -6,8 +6,8 @@
 
 ## 一句話總結
 HeliVMS 為一套**網路影像監控系統**（WPF 桌面應用：即時監看／回放／AI 事件中心／錄影排程）。
-里程碑 **M1 至 M59 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M59 尾隨／逆行智慧模組）。
-Release build 0 error、測試 **553/553 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
+里程碑 **M1 至 M60 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M60 統圖報表）。
+Release build 0 error、測試 **559/559 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
 本地與遠端完全同步（`git diff origin/HEAD` 為空）。
 
 ## 開新 session 的接手方法
@@ -23,7 +23,8 @@ gh run list -L 3              # 預期全部 success
 新 session 會以 git 現況接手，不會靠猜測。
 
 ## 現況快照（權威來源＝git，非聊天記憶）
-- 最後 commit：`HEAD`＝**M59（`386faa5`）**——智慧分析模組三（尾隨／逆行 `ai_tailgating`，§5.6，見下方 §35 定義段）；全 **553**、CI `35541998741` success
+- 最後 commit：`HEAD`＝**M60（`ef567a7`）**——統圖報表／管理報表（錄影時數／斷線／容量趨勢／AI 事件統計，§14.7 #9、§11.7，見下方 §36 定義段）；全 **559**、CI `35543378978` success
+- 前一個 M59 交付＝`386faa5`（智慧分析模組三：尾隨／逆行，見下方 §35 定義段）、全 **553**、CI `35541998741` success
 - 前一個 M58 交付＝`3e28bcd`（智慧分析模組二，見下方 §34 定義段）、全 **543**、CI `35541102070` success
 - 前一個 M57 交付＝`5225a3a`（多語言介面 i18n，見下方 §33 定義段）、全 **525**、CI `35537573067` success
 - 前一個 M56 交付＝`1309112`（事件中心搜尋／篩選／CSV 匯出，見下方 §32 定義段）、全 **518**、CI `35533344119` success
@@ -36,8 +37,8 @@ gh run list -L 3              # 預期全部 success
 - 前一個 M47 交付＝`f3c01e1`（警報管理器 Alarm Manager，見下方 §22 M47 定義段）、全 **299**、CI `35286083642` success
 - 前一個 M46 交付＝`c7f6e8f`（錄影遮蔽 Redaction，見下方 §21 M46 定義段）、全 **293**、CI `35284550851` success
 - 前一個 M45 交付＝`ef3a8bc`（備份與異地備援，見下方 §20 M45 定義段）、全 **289**、CI `35263453271` success
-- 已驗收：**M59＝智慧分析模組三（尾隨／逆行 `ai_tailgating`）**（§5.6，見下方 §35 定義段）；**M58＝智慧分析模組二（長時間徘徊／靜止物／車流統計／熱區圖）**（§5.6，見下方 §34 定義段）；**M57＝多語言介面 i18n（繁中／簡中／English）**（§14.7 P1，見下方 §33 定義段）
-- 進行中：（下一里程碑依規劃，見下方 §36 M60 定義段）
+- 已驗收：**M60＝統圖報表／管理報表（錄影時數／斷線／容量趨勢／AI 事件統計）**（§14.7 #9、§11.7，見下方 §36 定義段）；**M59＝智慧分析模組三（尾隨／逆行 `ai_tailgating`）**（§5.6，見下方 §35 定義段）；**M58＝智慧分析模組二（長時間徘徊／靜止物／車流統計／熱區圖）**（§5.6，見下方 §34 定義段）；**M57＝多語言介面 i18n（繁中／簡中／English）**（§14.7 P1，見下方 §33 定義段）
+- 進行中：（下一里程碑依規劃，見下方 §37 M61 定義段）
 - 前一個 M38 交付＝`d09b045`（事件回應工作流，見下方 M38 定義段）、全 **172**、CI `35185639491` success
 - 前一個 M30 交付＝`24ad4c7`（MQTT 通知通道）：`NotificationSettings`＋
   `MqttEnabled/MqttHost/MqttPort(1883)/MqttTopic/MqttUser/MqttPassword`（鍵 `notify.mqtt.*`、
@@ -901,7 +902,27 @@ gh run list -L 3              # 預期全部 success
     - 真 DB `C:\HeliVMSData\index.db` 實證 **v22→v23**（`PRAGMA user_version`=23）、analytics_zones 已淨空
       （harness 前綴名、`--analytics-clean` 回收）
 
-36. **M60 ＝（待定義；依 SESSION_RESUME 規劃表下一個尚未交付之里程碑）**：
+36. **M60 已完成**（commit `ef567a7`，CI `35543378978` success）：統圖報表／管理報表（§14.7 #9 P2、§11.7）——
+    錄影時數／斷線次數／容量趨勢／AI 事件統計（VIP），唯讀既有 `segments`／`alarm_events`／`channels` 不需新表：
+    - Storage 新 `ReportRepository`（ISO 文字時間字串 `>= from AND < to` 比對）：`ListRecordingSummary`
+      （各頻道 `status='final'` LEFT JOIN channels SUM duration_sec/3600 與 size_bytes，無錄影頻道列 0）；
+      `ListCapacityTrend`（`substr(start_time,1,10)` 逐日位元組＋時數分組）；`GetDisconnectCount`
+      （`event_type='offline'`）；`ListAiEventSummary`（按 `event_type` COUNT 之後依筆數降冪）
+    - App 新 `ReportsWindow`（統圖報表）：期間 Combo（近24小時／近7日／近30日／全部）＋「重新整理」
+      （四區文字：錄影時數總覽＋逐頻道、斷線次數、容量趨勢、AI 事件計數）＋「匯出 CSV」寫
+      `<dataRoot>\reports\report-<期間>-<時間戳>.csv`（UTF-8 BOM，`類別,項目,值1,值2` 列）
+    - MainWindow 第二列工具列＋「報表」按鈕（admin 限定，同分析情境）；命令列 `--reports` 直開；
+      匯出成功狀態列顯示檔案路徑
+    - 測試：Storage 355→**361**（ReportRepositoryTests 6：逐頻道聚總/窗外排除/無區段零值/逐日分組/
+      斷線只算窗內 offline/AI 事件計數排序）；全 **559**（Storage 361＋Alarms 166＋Devices 24＋Licensing 8）
+    - seedtriage ＋`--report-seed`（隔離頻道名 `harness reports`＋3 段 final＋offline×2/motion×3/ai_intrusion×1）
+      ／`--report-clean`（刪該頻道，CASCADE 清區段與事件，不影響其他 harness）；harness
+      `reportcheck.ps1`→**REPORT_OK**（seed→視窗四區相應文字→匯出→CSV 內容含類別與計數、隔離頻道
+      時數 3.00、斷線≥2、趨勢含日期）；回歸 **17 支全綠**（16 既有＋reportcheck，交叉驗證既有 harness
+      不受隔離頻道影響）
+    - §11.7「每週排程郵寄」列為延伸（需 NotificationService 支援任意內容負載，納入後續里程碑評估）
+
+37. **M61 ＝（待定義；依 SESSION_RESUME 規劃表下一個尚未交付之里程碑）**：
     - （本段佔位，接續里程碑於下個 session 依開頭「尚未完成／下一步」清單與 PCC 表選定後撰寫）
 
 ## 已知雷區（勿再犯）
