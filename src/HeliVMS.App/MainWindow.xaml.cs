@@ -387,6 +387,11 @@ public partial class MainWindow : Window
             Dispatcher.BeginInvoke(() => OpenAudioWindow());
         }
 
+        if (Environment.GetCommandLineArgs().Contains("--failover", StringComparer.OrdinalIgnoreCase))
+        {
+            Dispatcher.BeginInvoke(() => OpenFailoverWindow());
+        }
+
         var evArgs = Environment.GetCommandLineArgs();
         var evidenceIndex = Array.IndexOf(evArgs, "--evidence");
         if (evidenceIndex >= 0)
@@ -1738,6 +1743,18 @@ public partial class MainWindow : Window
     }
 
     private void OnAudioClicked(object sender, RoutedEventArgs e) => OpenAudioWindow();
+
+    /// <summary>開啟 Failover 容錯測試/監控視窗（M88，§14.7 #9）。</summary>
+    private void OpenFailoverWindow()
+    {
+        var window = new FailoverWindow(_store!)
+        {
+            Owner = this,
+        };
+        window.Show();
+    }
+
+    private void OnFailoverClicked(object sender, RoutedEventArgs e) => OpenFailoverWindow();
 
     /// <summary>開啟電子地圖（M41；M49 補比例尺與 FOV 深度）。</summary>
     private void OpenMapWindow()

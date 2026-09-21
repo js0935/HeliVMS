@@ -1,0 +1,58 @@
+<Window x:Class="HeliVMS.App.FailoverWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        AutomationProperties.AutomationId="FailoverWindow"
+        Title="HeliVMS 容錯"
+        Width="720" Height="380"
+        WindowStartupLocation="CenterOwner"
+        Background="#0B1622" Foreground="White">
+
+    <Grid Margin="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <TextBlock Grid.Row="0" Text="Failover 容錯（M88，§14.7 #9）：FailoverCoordinator 租約仲裁——空庫即 Leader、過期接管、同 server 續約；共用儲存（failover_state 單列）為仲裁者"
+                   Foreground="{StaticResource Brand.TextDim}" FontSize="11" TextWrapping="Wrap"/>
+
+        <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,12,0,0">
+            <TextBlock Text="伺服器ID" VerticalAlignment="Center" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+            <TextBox x:Name="FailoverServerText" AutomationProperties.AutomationId="FailoverServerText"
+                     Width="140" Margin="8,0,0,0" Text="primary" Foreground="Black"/>
+
+            <TextBlock Text="租約(秒)" VerticalAlignment="Center" Margin="18,0,0,0" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+            <TextBox x:Name="LeaseSecText" AutomationProperties.AutomationId="LeaseSecText"
+                     Width="60" Margin="8,0,0,0" Text="15" Foreground="Black"/>
+
+            <Button x:Name="FailoverAcquireButton" AutomationProperties.AutomationId="FailoverAcquireButton"
+                    Content="取得/續約" Click="OnAcquireClicked"
+                    Width="90" Padding="0,6" Margin="18,0,0,0"
+                    Foreground="White" Background="#2A6A9A" BorderThickness="0"/>
+            <Button x:Name="FailoverReleaseButton" AutomationProperties.AutomationId="FailoverReleaseButton"
+                    Content="讓出" Click="OnReleaseClicked"
+                    Width="70" Padding="0,6" Margin="10,0,0,0"
+                    Foreground="White" Background="#7A5A3A" BorderThickness="0"/>
+            <Button x:Name="FailoverRefreshButton" AutomationProperties.AutomationId="FailoverRefreshButton"
+                    Content="重新整理" Click="OnRefreshClicked"
+                    Width="80" Padding="0,6" Margin="10,0,0,0"
+                    Foreground="White" Background="#2A5A2A" BorderThickness="0"/>
+        </StackPanel>
+
+        <Border Grid.Row="2" Margin="0,12,0,0" Background="#0E1B2A" BorderBrush="#1F3A5F" BorderThickness="1" Padding="10">
+            <StackPanel>
+                <TextBlock Text="目前狀態（每秒自動重新整理）" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+                <TextBlock x:Name="FailoverStatusText" AutomationProperties.AutomationId="FailoverStatusText"
+                           Margin="0,6,0,0" Foreground="#9FB8D8" FontSize="13" TextWrapping="Wrap"/>
+                <TextBlock x:Name="FailoverResultText" AutomationProperties.AutomationId="FailoverResultText"
+                           Margin="0,6,0,0" Foreground="#9FB8D8" TextWrapping="Wrap"/>
+            </StackPanel>
+        </Border>
+
+        <TextBlock Grid.Row="4" Text="提示：多個 HeliVMS 實例共用同一資料庫時即為主備仲裁；「讓出」僅現任 Leader 生效。"
+                   Margin="0,10,0,0" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+    </Grid>
+</Window>
