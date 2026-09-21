@@ -6,15 +6,15 @@
 
 ## 一句話總結
 HeliVMS 為一套**網路影像監控系統**（WPF 桌面應用：即時監看／回放／AI 事件中心／錄影排程）。
-里程碑 **M1 至 M69 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M69 PTZ 巡航排程器）。
-Release build 0 error、測試 **676/676 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
+里程碑 **M1 至 M70 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M70 PatrolRunner）。
+Release build 0 error、測試 **686/686 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
 本地與遠端完全同步（`git diff origin/HEAD` 為空）。
 
 ## 開新 session 的接手方法
 ```powershell
 # 在 D:\HeliVMS 開新 session 時，先對新的 agent 講：
 git status                    # 預期為 empty（乾淨）
-git log --oneline -20         # 預期見到 M1..M69，HEAD＝M69
+git log --oneline -20         # 預期見到 M1..M70，HEAD＝M70
 git diff origin/HEAD          # 預期為空（同步）
 gh run list -L 3              # 預期全部 success
 ```
@@ -23,11 +23,12 @@ gh run list -L 3              # 預期全部 success
 新 session 會以 git 現況接手，不會靠猜測。
 
 ## 現況快照（權威來源＝git，非聊天記憶）
-- 最後 commit：`HEAD`＝**M69（`36cbb60`）**——PTZ 巡航排程器（`PatrolController` L0：每日時段＋
-  預設點序列＋停留＋Hold 凍結，`HeliVMS.Devices\Ptz`）；全 **676**、CI `35586031203` success
+- 最後 commit：`HEAD`＝**M70（`ec03350`）**——PTZ 巡航執行器（`PatrolRunner` L1：`PatrolController`
+  →`IPtzExecutor.GotoPresetAsync`，MoveTo 才觸網／例外傳出，`HeliVMS.Devices\Ptz`）；全 **686**、
+  CI `35586810793` success
+- 前一個 M69 交付＝`36cbb60`（PTZ 巡航排程器 PatrolController L0）、全 **676**、CI `35586031203` success
 - 前一個 M68 交付＝`a5015a7`（RFC 5905 SNTP 校時用戶端）、全 **663**、CI `35585248329` success
 - 前一個 M67 交付＝`32cf833`（依頻寬負載動態分配碼率 §14.7 #12）、全 **653**、CI `35550716766` success
-- 前一個 M66 交付＝`e183239`（保存鎖定 §14.1 #13 Legal Hold）、全 **641**、CI `35550100603` success
 - 前一個 M64 交付＝`3418fe5`（音訊事件偵測原語 §5.8）、全 **621**、CI `35547445399` success
 - 前一個 M61 交付＝`d4303b0`（單鏡目標追蹤原語，見下方 §37 定義段）、全 **570**、CI `35544108591` success
 - 前一個 M60 交付＝`ef567a7`（統圖報表／管理報表，見下方 §36 定義段）、全 **559**、CI `35543378978` success
@@ -1179,6 +1180,30 @@ gh run list -L 3              # 預期全部 success
       「anchor += hold 期間」實作凍結；`static () =>` lambda 在該專案編譯失敗（CS1003）→改
       `(() => ...)`；WPF/Devices 專案 TreatWarningsAsErrors 啟用——XML doc 缺 `param` 標籤即
       CS1573 失敗
+
+46. **M70 已完成＝PatrolRunner（PTZ 巡航執行器 L1：`PatrolController`→`IPtzExecutor` 動作接線）**：
+    - 背景：M69 排程器產出「MoveTo/Wait/Idle」動作；M70 把動作化為實際執行——抽象
+      `IPtzExecutor.GotoPresetAsync(presetName, ct)`，真實實作＝ONVIF `GotoPreset`（M71 接真
+      裝置與巡航視窗＋harness）；M70 以注入 fake executor 全測試驗證序列
+    - `HeliVMS.Devices\Ptz\` 新增：
+      - `IPtzExecutor { Task GotoPresetAsync(string presetName, CancellationToken ct = default) }`
+      - `PatrolRunner(PatrolController, IPtzExecutor)`；`Task<PatrolAction> TickOnceAsync(ct)`：
+        取 `controller.Tick()`；MoveTo→await `executor.GotoPresetAsync(name)` 再回 action；
+        Wait/Idle→直接回（不呼叫 executor）；executor 例外原樣傳出（App 迴圈可記錄）
+    - 測試：Devices.Tests `PatrolRunnerTests`（+10）：首動作→executor 收到 "A"；時鐘推進
+      A→B→C 依序收到；Wait 動作不呼叫 executor；停用/時段外 Idle 不呼叫；Hold 期間不呼叫、
+      Release 後 anchor 平移續走剩餘、期滿才呼叫下一點；末點→首點再呼叫 "A"；executor 拋例外
+      →由 TickOnce 傳出；同點停留中重複 TickOnce→executor 僅呼叫一次；Dwell=0→連續收到 B、C；
+      時段結束後 Idle 不再呼叫、隔日重入由首點重新呼叫；Devices 37→**47**；全 **686**
+      （Storage 398＋Alarms 233＋Devices 47＋Licensing 8）
+    - 完成狀態：全 **686/686**；Build Release 0 error；feat commit＝**`ec03350`**；CI＝
+      **`35586810793`** success；排雷已驗（見下）
+    - 排雷（已驗）：Hold 釋放後依「anchor+hold 期間」續走——測試須先算準錨點（release 當刻
+      anchor 即平移），否則等到較晚時刻才斷言會誤變 MoveTo；「乾淨樣本」與「被排程延遲樣本」
+      的斷言要分級——NtpClient E2E 受並行負載影響 rtt 可達 100ms+，改多樣本取 min-RTT、
+      RTT≤30ms 才做精確 >90ms 檢查（方向為正永遠驗）
+
+## 已知雷區（勿再犯）
 
 ## 已知雷區（勿再犯）
 - **harness `.ps1` 必須存成 UTF-8 with BOM**：寫檔工具產出的是 UTF-8 無 BOM，含中文的 `.ps1` 會被 PowerShell 5.1 以 ANSI/Big5 誤讀而**靜默破壞解析**（症狀：`Start-Process` 看似無效、App 根本沒啟動、`Get-Process HeliVMS.App` 找不到）。修法：`[System.IO.File]::WriteAllText($p,[System.IO.File]::ReadAllText($p,[System.Text.Encoding]::UTF8),(New-Object System.Text.UTF8Encoding($true)))`（temp/opencode 有 `fix-encoding.ps1`）
