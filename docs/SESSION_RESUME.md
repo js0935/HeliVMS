@@ -1244,9 +1244,12 @@ gh run list -L 3              # 預期全部 success
       可存；Delete 移步驟＋連帶；ListAll 多頻道排序；輸入驗證 4 例；空白時窗回退全天；
       Storage 398→**406**；順帶 `RuleRepositoryTests.SchemaVersion_IsV26`（v24→26）；全 **701**
       （Storage 406＋Alarms 233＋Devices 54＋Licensing 8）
-    - harness（開放準備）：seedtriage 加 `--patrol-seed/--patrol-verify`（`PATROL_SEED_OK`/
-      `PATROL_VERIFY_OK`，名稱=enabled=時窗＋3 步驟）；下一個工地（patrolcheck.ps1）將以
-      `HELIVMS_DATA` temp db 開 `--patrol` UI 驗窗內載入與儲存
+    - harness（已完成，第 21 支回歸 patrolcheck）：seedtriage `--patrol-seed/--patrol-verify`
+      （`PATROL_SEED_OK`/`PATROL_VERIFY_OK`，名稱=enabled=時窗＋3 步驟）；patrolcheck.ps1 以
+      `HELIVMS_DATA` temp db 開 `--patrol` UI：驗 `PatrolNameBox=harness patrol`、時窗 08:00、
+      `PatrolPresetList` 3 列、按 `PatrolSaveButton` 後狀態列「已儲存」、再 `--patrol-verify`
+      讀回仍在；終輸出 `PATROL_OK:id=1;steps=3;window=08:00-18:00;ui=true;save=true;
+      verify-after-save=true`
     - 完成狀態：全 **701/701**；Build Release 0 error；feat commit＝**`77ee434`**；CI＝
       **`35599188803`** success；排雷已驗（見下）
     - 排雷（已驗）：`SqliteStore.Execute` 回 void（無 affected rows）→Delete 先查 EXISTS；
