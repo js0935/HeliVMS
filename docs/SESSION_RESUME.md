@@ -6,15 +6,15 @@
 
 ## 一句話總結
 HeliVMS 為一套**網路影像監控系統**（WPF 桌面應用：即時監看／回放／AI 事件中心／錄影排程）。
-里程碑 **M1 至 M72 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M72 巡航視窗＋持久化）。
-Release build 0 error、測試 **701/701 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
+里程碑 **M1 至 M74 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M74 感測器 IO 引擎）。
+Release build 0 error、測試 **713/713 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
 本地與遠端完全同步（`git diff origin/HEAD` 為空）。
 
 ## 開新 session 的接手方法
 ```powershell
 # 在 D:\HeliVMS 開新 session 時，先對新的 agent 講：
 git status                    # 預期為 empty（乾淨）
-git log --oneline -20         # 預期見到 M1..M72，HEAD＝M72
+git log --oneline -20         # 預期見到 M1..M74，HEAD＝M74
 git diff origin/HEAD          # 預期為空（同步）
 gh run list -L 3              # 預期全部 success
 ```
@@ -23,10 +23,10 @@ gh run list -L 3              # 預期全部 success
 新 session 會以 git 現況接手，不會靠猜測。
 
 ## 現況快照（權威來源＝git，非聊天記憶）
-- 最後 commit：`HEAD`＝**M72（`77ee434`）**——巡航管理視窗＋持久化（schema v26 patrols/
-  patrol_steps；`PatrolRepository` 每通道單套整存；App `PatrolWindow`＋工具列「巡航」＋
-  `--patrol`；seedtriage `--patrol-seed/--patrol-verify`）；全 **701**、CI `35599188803`
-  success
+- 最後 commit：`HEAD`＝**M74（`5cec078`）**——感測器 IO 引擎（schema v27 io_ports/io_rules；
+  `IoPortRepository`＋`IoRuleRepository`＋`IoRuleEngine` 邏輯史上昇沿/冷卻/ToggleDo）；
+  全 **713**、CI `35600379623` success
+- 前一個 M72 交付＝`77ee434`（巡航視窗＋持久化）、全 **701**、CI `35599188803` success
 - 前一個 M71 交付＝`e63459f`（OnvifPtzExecutor ONVIF 實作）、全 **693**、CI `35587474678` success
 - 前一個 M70 交付＝`ec03350`（PatrolRunner PTZ 巡航執行器）、全 **686**、CI `35586810793` success
 - 前一個 M69 交付＝`36cbb60`（PTZ 巡航排程器 PatrolController L0）、全 **676**、CI `35586031203` success
@@ -1257,8 +1257,34 @@ gh run list -L 3              # 預期全部 success
       AiConcurrencyTests 併發時序 flake（fixed Sleep 350ms 在 xUnit 平行載入下偶發 0 µg）
       →`WaitUntil` 輪詢雙計數器（Runs 與 FramesInferred/FramesFed 須齊到位再斷言）；App env
       data root 用 `HELIVMS_DATA`（harness 以 temp db 隔離）
-
-## 已知雷區（勿再犯）
+50. **M74 已完成＝感測器 IO 引擎（§14.1 #16，L0 純 BCL）**：
+    - 背景：roadmap P1 大項「感測器乾接點 DI/DO」拆 L0 引擎（先）＋視窗/harness（M75）。
+      以常開/常閉極性轉「邏輯值」，僅在邏輯上昇沿（false→true）依該埠規則觸發
+    - 儲存層 schema **v27**（`SqliteStore`）：`io_ports(id,channel_id,kind 'DI'/'DO',
+      number,name,polarity,debounce_ms,enabled)`＋`UNIQUE(channel_id,kind,number)`；
+      `io_rules(id,input_port_id,action_kind 'alarm'/'toggle_do',output_port_id,event_type,
+      retrigger_sec,enabled)`
+    - `HeliVMS.Storage\IoPortRepository.cs`：`Add/Exists/List/ListByChannel/Get/Delete`；
+      Delete 連帶刪該埠規則；Add 對 (channel,kind,number) 重複→`ArgumentException`
+    - `HeliVMS.Storage\IoRuleRepository.cs`：`Add/List/ListByInput/Delete`；Alarm 動作須有
+      event_type、ToggleDo 動作須有 output_port_id、retrigger_sec≥0
+    - `HeliVMS.Storage\IoRuleEngine.cs`（純 BCL、時鐘注入）：
+      - `OnInput(portId, physicalOn, utcNow)`：極性轉邏輯 → 邏輯上昇沿才觸發；
+        每規則冷卻窗（retrigger_sec）內不重複觸發；找不到埠→`ArgumentOutOfRangeException`
+      - Alarm → `IoAction(Alarm, ruleId, channel, port, null, eventType)`；ToggleDo → 該 DO
+        邏輯狀態反相並回傳動作；`GetInputState/GetOutputState/Reset`
+    - 測試：Storage.Tests `SensorIoTests`（+12）：埠盤 Add/Get/List 回圈、重複(z同)＋異 kind
+      共存、Delete 連帶規則、規則 Add/List/驗證 3 例、Engine 上昇沿觸發 alarm、同值不重觸、
+      冷卻阻擋＋逾時復原、停用規則跳過、常閉極性反相（實體 false→邏輯 true）、ToggleDo 反相
+      兩次、未知埠 throw、無規則埠只記狀態；
+      順帶 `SchemaVersion_IsV26→IsV27`；Storage 406→**418**；全 **713**
+      （Storage 418＋Alarms 233＋Devices 54＋Licensing 8）
+    - 完成狀態：全 **713/713**；Build Release 0 error；feat commit＝**`5cec078`**；CI＝
+      **`35600379623`** success；排雷已驗（見下）
+    - 排雷（已驗）：極性是「實體→邏輯」映射——常閉埠實體 false＝邏輯 true，測試初稿誤反（
+      cooldown 序列須先下昇沿落底再上昇沿重觸發，且 GetInputState 要反過來斷言）；「重複埠」
+      為三元組 (channel,kind,number) 唯一，DI#1 與 DO#1 可共存（測試初稿誤撞）；schema 升版
+      照例要同步 `SchemaVersion_Is*` 斷言值
 
 ## 已知雷區（勿再犯）
 - **harness `.ps1` 必須存成 UTF-8 with BOM**：寫檔工具產出的是 UTF-8 無 BOM，含中文的 `.ps1` 會被 PowerShell 5.1 以 ANSI/Big5 誤讀而**靜默破壞解析**（症狀：`Start-Process` 看似無效、App 根本沒啟動、`Get-Process HeliVMS.App` 找不到）。修法：`[System.IO.File]::WriteAllText($p,[System.IO.File]::ReadAllText($p,[System.Text.Encoding]::UTF8),(New-Object System.Text.UTF8Encoding($true)))`（temp/opencode 有 `fix-encoding.ps1`）
