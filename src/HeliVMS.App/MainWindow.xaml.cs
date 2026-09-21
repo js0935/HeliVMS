@@ -367,6 +367,11 @@ public partial class MainWindow : Window
             Dispatcher.BeginInvoke(() => OpenLegalHoldWindow());
         }
 
+        if (Environment.GetCommandLineArgs().Contains("--patrol", StringComparer.OrdinalIgnoreCase))
+        {
+            Dispatcher.BeginInvoke(() => OpenPatrolWindow());
+        }
+
         var evArgs = Environment.GetCommandLineArgs();
         var evidenceIndex = Array.IndexOf(evArgs, "--evidence");
         if (evidenceIndex >= 0)
@@ -1670,6 +1675,18 @@ public partial class MainWindow : Window
     }
 
     private void OnLegalHoldClicked(object sender, RoutedEventArgs e) => OpenLegalHoldWindow();
+
+    /// <summary>開啟巡航排程視窗（M72，§47）。</summary>
+    private void OpenPatrolWindow()
+    {
+        var window = new PatrolWindow(_store!)
+        {
+            Owner = this,
+        };
+        window.Show();
+    }
+
+    private void OnPatrolClicked(object sender, RoutedEventArgs e) => OpenPatrolWindow();
 
     /// <summary>開啟電子地圖（M41；M49 補比例尺與 FOV 深度）。</summary>
     private void OpenMapWindow()

@@ -78,6 +78,23 @@ public class AiConcurrencyTests : IDisposable
         }
     }
 
+    /// <summary>時序斷言用輪詢等待：避免 xUnit 平行載入下固定 Sleep 偶發不足。</summary>
+    private static async Task<bool> WaitUntil(Func<bool> condition, int timeoutMs = 2000)
+    {
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        while (sw.ElapsedMilliseconds < timeoutMs)
+        {
+            if (condition())
+            {
+                return true;
+            }
+
+            await Task.Delay(25);
+        }
+
+        return condition();
+    }
+
     [Fact]
     public async Task 全域限併_同時啟動之推理不超過指定上限()
     {
@@ -123,6 +140,7 @@ public class AiConcurrencyTests : IDisposable
         await Task.Delay(350);
 
         // 1000ms 內多幀只應取樣 1 幀、推理 1 次
+        await WaitUntil(() => stub.Runs >= 1 && engine.FramesInferred >= 1);
         Assert.Equal(1, engine.FramesInferred);
         Assert.Equal(1, stub.Runs);
 
@@ -130,7 +148,7 @@ public class AiConcurrencyTests : IDisposable
         engine.MinSampleIntervalMs = 100;
         await Task.Delay(300);
         engine.OnFrame(Frame(103));
-        await Task.Delay(300);
+        await WaitUntil(() => stub.Runs >= 2 && engine.FramesInferred >= 2);
         Assert.Equal(2, engine.FramesInferred);
         Assert.Equal(2, stub.Runs);
     }
@@ -152,7 +170,7 @@ public class AiConcurrencyTests : IDisposable
 
         engine.Enabled = true;
         engine.OnFrame(Frame(103));
-        await Task.Delay(350);
+        await WaitUntil(() => stub.Runs >= 1 && engine.FramesFed >= 1);
         Assert.Equal(1, engine.FramesFed);
         Assert.Equal(1, stub.Runs);
     }

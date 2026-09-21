@@ -1,0 +1,83 @@
+<Window x:Class="HeliVMS.App.PatrolWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        AutomationProperties.AutomationId="PatrolWindow"
+        Title="HeliVMS 巡航排程"
+        Width="880" Height="640"
+        WindowStartupLocation="CenterOwner"
+        Background="#0B1622" Foreground="White">
+
+    <Grid Margin="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <StackPanel Grid.Row="0">
+            <TextBlock Text="巡航排程（M72，§47）：每通道一套巡航；於每日時窗依預設點順序巡行（PTZ 需設定 ONVIF 預設點名稱）"
+                       Foreground="{StaticResource Brand.TextDim}" FontSize="11" TextWrapping="Wrap"/>
+            <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                <TextBlock Text="頻道" VerticalAlignment="Center" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+                <ComboBox x:Name="PatrolChannelCombo" AutomationProperties.AutomationId="PatrolChannelCombo"
+                          Width="150" Margin="8,0,0,0" Foreground="Black" SelectionChanged="OnChannelChanged"/>
+                <TextBlock Text="名稱" VerticalAlignment="Center" Margin="14,0,0,0"
+                           Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+                <TextBox x:Name="PatrolNameBox" AutomationProperties.AutomationId="PatrolNameBox"
+                         Width="160" Margin="8,0,0,0" Foreground="Black"/>
+                <CheckBox x:Name="PatrolEnabledCheck" AutomationProperties.AutomationId="PatrolEnabledCheck"
+                          Content="啟用巡航" VerticalAlignment="Center" Margin="18,0,0,0"/>
+            </StackPanel>
+            <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                <TextBlock Text="每日時窗" VerticalAlignment="Center" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+                <TextBox x:Name="PatrolStartBox" AutomationProperties.AutomationId="PatrolStartBox"
+                         Width="90" Margin="8,0,0,0" Foreground="Black"/>
+                <TextBlock Text="－" VerticalAlignment="Center" Margin="6,0,6,0" Foreground="{StaticResource Brand.TextDim}"/>
+                <TextBox x:Name="PatrolEndBox" AutomationProperties.AutomationId="PatrolEndBox"
+                         Width="90" Foreground="Black"/>
+                <TextBlock Text="（HH:mm，00:00-23:59＝全天候）" VerticalAlignment="Center" Margin="10,0,0,0"
+                           Foreground="{StaticResource Brand.TextDim}" FontSize="10"/>
+            </StackPanel>
+            <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
+                <TextBlock Text="預設點名稱" VerticalAlignment="Center" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+                <TextBox x:Name="PatrolPresetNameBox" AutomationProperties.AutomationId="PatrolPresetNameBox"
+                         Width="180" Margin="8,0,0,0" Foreground="Black"/>
+                <TextBlock Text="停留（秒）" VerticalAlignment="Center" Margin="14,0,0,0"
+                           Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+                <TextBox x:Name="PatrolDwellBox" AutomationProperties.AutomationId="PatrolDwellBox"
+                         Width="70" Margin="8,0,0,0" Foreground="Black"/>
+                <Button x:Name="PatrolAddPresetButton" AutomationProperties.AutomationId="PatrolAddPresetButton"
+                        Content="新增步驟" Click="OnAddPresetClicked"
+                        Width="90" Padding="0,6" Margin="14,0,0,0"
+                        Foreground="White" Background="#2A6A9A" BorderThickness="0"/>
+                <Button x:Name="PatrolRemovePresetButton" AutomationProperties.AutomationId="PatrolRemovePresetButton"
+                        Content="移除選取" Click="OnRemovePresetClicked"
+                        Width="90" Padding="0,6" Margin="8,0,0,0"
+                        Foreground="White" Background="#8A3A2A" BorderThickness="0"/>
+            </StackPanel>
+        </StackPanel>
+
+        <ListView Grid.Row="1" x:Name="PatrolPresetList" AutomationProperties.AutomationId="PatrolPresetList"
+                  Margin="0,12,0,0" Foreground="White" Background="#0E1B2A"
+                  BorderBrush="#1F3A5F" BorderThickness="1" SelectionMode="Single">
+            <ListView.View>
+                <GridView>
+                    <GridViewColumn Header="#" Width="40" DisplayMemberBinding="{Binding Seq}"/>
+                    <GridViewColumn Header="預設點名稱" Width="200" DisplayMemberBinding="{Binding PresetName}"/>
+                    <GridViewColumn Header="停留（秒）" Width="100" DisplayMemberBinding="{Binding DwellSeconds}"/>
+                </GridView>
+            </ListView.View>
+        </ListView>
+
+        <StackPanel Grid.Row="2">
+            <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                <Button x:Name="PatrolSaveButton" AutomationProperties.AutomationId="PatrolSaveButton"
+                        Content="儲存巡航" Click="OnSaveClicked"
+                        Width="110" Padding="0,8"
+                        Foreground="White" Background="#2A8A5A" BorderThickness="0"/>
+                <TextBlock x:Name="PatrolStatusText" AutomationProperties.AutomationId="PatrolStatusText"
+                           Margin="12,8,0,0" Foreground="#9FB8D8" TextWrapping="Wrap" VerticalAlignment="Center"/>
+            </StackPanel>
+        </StackPanel>
+    </Grid>
+</Window>

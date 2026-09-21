@@ -9,7 +9,7 @@ namespace HeliVMS.Storage;
 /// </summary>
 public sealed class SqliteStore : IDisposable
 {
-    private const int CurrentSchemaVersion = 25;
+    private const int CurrentSchemaVersion = 26;
     private readonly SqliteConnection _connection;
     private readonly object _gate = new();
     private bool _disposed;
@@ -177,6 +177,11 @@ public sealed class SqliteStore : IDisposable
         if (version < 25)
         {
             CreateLegalHoldsTableV25();
+        }
+
+        if (version < 26)
+        {
+            CreatePatrolsTablesV26();
         }
 
         Execute("PRAGMA user_version = CURRENT_SCHEMA_VERSION;".Replace(
@@ -691,6 +696,32 @@ public sealed class SqliteStore : IDisposable
                 revoked_by     TEXT,
                 revoked_reason TEXT
             );
+            """);
+    }
+
+    /// <summary>M72 巡航排程（§47 計畫收尾）：每通道一套巡航 Plan + 依序預設點步驟；UI 管理、引擎取用。</summary>
+    private void CreatePatrolsTablesV26()
+    {
+        Execute(
+            """
+            CREATE TABLE IF NOT EXISTS patrols (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                name         TEXT    NOT NULL,
+                channel_id   INTEGER NOT NULL,
+                enabled      INTEGER NOT NULL DEFAULT 0,
+                window_start TEXT    NOT NULL DEFAULT '00:00',
+                window_end   TEXT    NOT NULL DEFAULT '23:59',
+                created_at   TEXT    NOT NULL,
+                updated_at   TEXT    NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS patrol_steps (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                patrol_id    INTEGER NOT NULL,
+                seq          INTEGER NOT NULL,
+                preset_name  TEXT    NOT NULL,
+                dwell_seconds INTEGER NOT NULL DEFAULT 10
+            );
+            CREATE INDEX IF NOT EXISTS idx_patrol_steps_patrol_seq ON patrol_steps (patrol_id, seq);
             """);
     }
 
