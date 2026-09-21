@@ -9,7 +9,7 @@ namespace HeliVMS.Storage;
 /// </summary>
 public sealed class SqliteStore : IDisposable
 {
-    private const int CurrentSchemaVersion = 28;
+    private const int CurrentSchemaVersion = 29;
     private readonly SqliteConnection _connection;
     private readonly object _gate = new();
     private bool _disposed;
@@ -192,6 +192,11 @@ public sealed class SqliteStore : IDisposable
         if (version < 28)
         {
             CreateFailoverTablesV28();
+        }
+
+        if (version < 29)
+        {
+            CreateFullTextSearchTablesV29();
         }
 
         Execute("PRAGMA user_version = CURRENT_SCHEMA_VERSION;".Replace(
@@ -832,6 +837,39 @@ public sealed class SqliteStore : IDisposable
                 server_id         TEXT NOT NULL,
                 lease_expires_utc TEXT NOT NULL
             );
+            """);
+    }
+
+    /// <summary>M90 法證語意搜尋 L0（§14.7 #7）：alarm_events 全文 FTS5 外部內容表＋同步 trigger
+    /// （event_type＋detail 進索引；AI/AD/AU 三向同步；既有列由 EventSearchRepository 建構時回填）。</summary>
+    private void CreateFullTextSearchTablesV29()
+    {
+        Execute(
+            """
+            CREATE VIRTUAL TABLE IF NOT EXISTS alarm_events_fts USING fts5(
+                id UNINDEXED,
+                event_type,
+                detail,
+                content='alarm_events',
+                content_rowid='id'
+            );
+
+            CREATE TRIGGER IF NOT EXISTS alarm_events_fts_ai AFTER INSERT ON alarm_events BEGIN
+                INSERT INTO alarm_events_fts(rowid, event_type, detail)
+                VALUES (new.id, new.event_type, new.detail);
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS alarm_events_fts_ad AFTER DELETE ON alarm_events BEGIN
+                INSERT INTO alarm_events_fts(alarm_events_fts, rowid, event_type, detail)
+                VALUES ('delete', old.id, old.event_type, old.detail);
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS alarm_events_fts_au AFTER UPDATE OF event_type, detail ON alarm_events BEGIN
+                INSERT INTO alarm_events_fts(alarm_events_fts, rowid, event_type, detail)
+                VALUES ('delete', old.id, old.event_type, old.detail);
+                INSERT INTO alarm_events_fts(rowid, event_type, detail)
+                VALUES (new.id, new.event_type, new.detail);
+            END;
             """);
     }
 
