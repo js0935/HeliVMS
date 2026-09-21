@@ -1,4 +1,5 @@
 using System.Windows;
+using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
@@ -31,6 +32,7 @@ public partial class PlaybackWindow : Window
     private int _lastHeight;
     private IReadOnlyList<SegmentItem> _bandSegments = [];
     private List<AlarmEventRecord> _events = [];
+    private HeliVMS.Storage.PlaybackTimeline? _timeline;
     private bool _seeking;
     private bool _pendingFramePause;
     private readonly Rectangle _cursor = new() { Width = 2, Fill = Brushes.White, IsHitTestVisible = false };
@@ -500,7 +502,7 @@ public partial class PlaybackWindow : Window
         UpdateCursor(_posInside);
     }
 
-    /// <summary>繪製當日時間軸帶：每段一個藍色區塊＋事件標記圓點，遊標在最上層不受影響。</summary>
+    /// <summary>繪製當日時間軸帶（M84）：依 PlaybackTimeline L0 的 fractions 畫每段藍色區塊＋事件標記＋覆蓋率標籤。</summary>
     private void RenderBlocks()
     {
         for (var i = BandCanvas.Children.Count - 1; i >= 0; i--)
@@ -511,25 +513,41 @@ public partial class PlaybackWindow : Window
             }
         }
 
-        if (_bandSegments.Count > 0 && BandCanvas.ActualWidth > 0)
+        var hasData = _bandSegments.Count > 0 || _events.Count > 0;
+        if (!hasData)
+        {
+            CoverageText.Text = string.Empty;
+            _timeline = null;
+            return;
+        }
+
+        var dayStart = DayStartUtc();
+        _timeline = PlaybackTimelineBuilder.Build(
+            _bandSegments.Select(i => i.Segment).ToArray(),
+            _events,
+            dayStart);
+
+        if (BandCanvas.ActualWidth > 0)
         {
             var fill = (Brush)new SolidColorBrush(Color.FromRgb(0x2A, 0x7F, 0xC9)).GetAsFrozen();
-            foreach (var item in _bandSegments)
+            foreach (var bar in _timeline.Bars)
             {
-                var seg = item.Segment;
-                var width = Math.Max(2, (seg.DurationSec ?? 10) / 86400.0 * BandCanvas.ActualWidth);
                 var rect = new Rectangle
                 {
-                    Width = width,
+                    Width = Math.Max(2, bar.WidthFraction * BandCanvas.ActualWidth),
                     Height = 26,
                     Fill = fill,
                     IsHitTestVisible = false,
                 };
-                Canvas.SetLeft(rect, Math.Max(0, FracOfDay(seg.StartUtc)) * BandCanvas.ActualWidth);
+                Canvas.SetLeft(rect, Math.Max(0, bar.LeftFraction) * BandCanvas.ActualWidth);
                 Canvas.SetTop(rect, 2);
                 BandCanvas.Children.Add(rect);
             }
         }
+
+        var coveragePct = (int)Math.Round((1 - _timeline.GapFraction) * 100);
+        CoverageText.Text = $"覆蓋 {coveragePct}% · 未涵蓋 {_timeline.GapCount} 區間";
+        AutomationProperties.SetName(CoverageText, $"COV:{coveragePct}:{_timeline.GapCount}:{_timeline.Bars.Count}");
 
         RenderMarkers();
     }
@@ -553,28 +571,30 @@ public partial class PlaybackWindow : Window
     /// <summary>一天內比例（0..1）。</summary>
     private double FracOfDay(DateTime utc) => Math.Max(0, Math.Min(1, (utc - DayStartUtc()).TotalMinutes / 1440.0));
 
-    /// <summary>繪製當日事件標記（AI/運動/離線）：「事件=向檢看」小圓點＋tooltip；點擊帶上對應時刻即跳播（OnBandClicked）。</summary>
+    /// <summary>繪製當日事件標記（M84）：以 PlaybackTimeline.Markers 的 XFraction 定位；點擊帶上對應時刻即跳播（OnBandClicked）。</summary>
     private void RenderMarkers()
     {
-        if (_events.Count == 0 || BandCanvas.ActualWidth <= 0)
+        var markers = _timeline?.Markers;
+        if (markers is null || markers.Count == 0 || BandCanvas.ActualWidth <= 0)
         {
             return;
         }
 
-        foreach (var evt in _events)
+        foreach (var marker in markers)
         {
+            var rec = _events.FirstOrDefault(e => e.Id == marker.EventId);
             var dot = new Ellipse
             {
                 Width = 10,
                 Height = 10,
-                Fill = MarkerBrush(evt.EventType),
+                Fill = MarkerBrush(marker.Kind),
                 Stroke = Brushes.Black,
                 StrokeThickness = 1,
                 IsHitTestVisible = true,
-                ToolTip = $"{TimeZoneInfo.ConvertTimeFromUtc(evt.StartUtc, TimeZoneInfo.Local):HH:mm:ss} 「{evt.EventType}」{evt.Detail}",
+                ToolTip = $"{TimeZoneInfo.ConvertTimeFromUtc(marker.Utc, TimeZoneInfo.Local):HH:mm:ss} 「{marker.Kind}」{rec?.Detail}",
                 Cursor = System.Windows.Input.Cursors.Hand,
             };
-            Canvas.SetLeft(dot, FracOfDay(evt.StartUtc) * BandCanvas.ActualWidth - 5);
+            Canvas.SetLeft(dot, marker.XFraction * BandCanvas.ActualWidth - 5);
             Canvas.SetTop(dot, 10);
             BandCanvas.Children.Add(dot);
         }

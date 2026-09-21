@@ -153,7 +153,9 @@
                 <Slider x:Name="SeekSlider" Width="150" VerticalAlignment="Center" Minimum="0" Maximum="10000"
                         Foreground="#2A5C8A" IsMoveToPointEnabled="True"
                         Thumb.DragStarted="OnSeekDragStarted" Thumb.DragCompleted="OnSeekDragCompleted"/>
-                <TextBlock Text="進度" Foreground="{StaticResource Brand.TextDim}" VerticalAlignment="Center" Margin="8,0,0,0"/>
+                <TextBlock x:Name="CoverageText" Foreground="{StaticResource Brand.TextDim}" FontSize="11"
+                           VerticalAlignment="Center" Margin="8,0,0,0"
+                           AutomationProperties.AutomationId="PlaybackCoverageText"/>
                 <Button x:Name="PlayPauseButton" Content="播放" Click="OnPlayPauseClicked"
                         Width="76" Padding="0,6" Margin="16,0,0,0" IsEnabled="False"
                         Foreground="White" Background="#2660AA" BorderThickness="0"/>
