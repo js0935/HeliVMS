@@ -45,6 +45,24 @@
                        MinHeight="14" Margin="0,6,0,0"/>
         </StackPanel>
 
+        <StackPanel x:Name="LdapPanel" Visibility="Collapsed" Margin="0,0,0,10"
+                    AutomationProperties.AutomationId="LdapPanel">
+            <Border Background="#12283D" CornerRadius="4" Padding="10,8">
+                <StackPanel>
+                    <TextBlock Text="企業登入（LDAP／Active Directory）" FontWeight="SemiBold" FontSize="12" Margin="0,0,0,6"/>
+                    <ComboBox x:Name="LdapProviderCombo" AutomationProperties.AutomationId="LdapProviderCombo"
+                              Height="28" Margin="0,0,0,6" DisplayMemberPath="Name"
+                              Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
+                    <Button x:Name="LdapLoginButton" AutomationProperties.AutomationId="LdapLoginButton"
+                            Content="以 LDAP 登入" Height="28" Click="OnLdapLoginClicked"
+                            Foreground="White" Background="#2A5C8A" BorderThickness="0"/>
+                </StackPanel>
+            </Border>
+            <TextBlock x:Name="LdapMessage" AutomationProperties.AutomationId="LdapMessage"
+                       Foreground="#FF8080" FontSize="11" TextWrapping="Wrap"
+                       MinHeight="14" Margin="0,6,0,0"/>
+        </StackPanel>
+
         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
             <Button x:Name="CancelButton" AutomationProperties.AutomationId="LoginCancelButton"
                     Content="取消" Width="86" Height="32" Margin="0,0,8,0"
