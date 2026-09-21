@@ -6,15 +6,15 @@
 
 ## 一句話總結
 HeliVMS 為一套**網路影像監控系統**（WPF 桌面應用：即時監看／回放／AI 事件中心／錄影排程）。
-里程碑 **M1 至 M75 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M75 感測器 IO 視窗）。
-Release build 0 error、測試 **713/713 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
+里程碑 **M1 至 M76 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M76 雙碼流切流決策＋NTP 測試寬鬆化）。
+Release build 0 error、測試 **724/724 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
 本地與遠端完全同步（`git diff origin/HEAD` 為空）。
 
 ## 開新 session 的接手方法
 ```powershell
 # 在 D:\HeliVMS 開新 session 時，先對新的 agent 講：
 git status                    # 預期為 empty（乾淨）
-git log --oneline -20         # 預期見到 M1..M75，HEAD＝M75
+git log --oneline -20         # 預期見到 M1..M76，HEAD＝M76
 git diff origin/HEAD          # 預期為空（同步）
 gh run list -L 3              # 預期全部 success
 ```
@@ -23,9 +23,10 @@ gh run list -L 3              # 預期全部 success
 新 session 會以 git 現況接手，不會靠猜測。
 
 ## 現況快照（權威來源＝git，非聊天記憶）
-- 最後 commit：`HEAD`＝**M75（`3f12ab4`）**——感測器 IO 測試視窗＋harness（App `IoWindow`
-  `--io`/工具列、`IoPortList`/`IoRuleList`＋閉合餵入引擎；seedtriage `--io-seed/--io-verify`；
-  iocheck 第 22 支 harness）；全 **713**、CI `35601164639` success
+- 最後 commit：`HEAD`＝**M76（`828acc5`）**——雙碼流 Smart 切流 `StreamSwitcher`（§15.2 L0：
+  honeymoon 抗抖＋事件熱度升主流＋頻寬/無收看降次流；`StreamSwitcherTests`＋11；Storage 429）
+  隨附 NTP no-reply 測試上界寬鬆 fix；全 **724**、CI `35602052735` success
+- 前一個 M75 交付＝`3f12ab4`（感測器 IO 測試視窗）、全 **713**、CI `35601164639` success
 - 前一個 M74 交付＝`5cec078`（感測器 IO 引擎 schema v27）、全 **713**、CI `35600379623` success
 - 前一個 M72 交付＝`77ee434`（巡航視窗＋持久化）、全 **701**、CI `35599188803` success
 - 前一個 M71 交付＝`e63459f`（OnvifPtzExecutor ONVIF 實作）、全 **693**、CI `35587474678` success
@@ -1304,6 +1305,26 @@ gh run list -L 3              # 預期全部 success
     - 排雷（已驗）：ListView 行數用 ControlType.DataItem 列舉（GridView 列皆為 DataItem）；
       CheckBox 用 TogglePattern.Toggle 而非 InvokePattern（WPF CheckBox 對 UIA 是 Toggle）；
       狀態列斷言須對應引擎語意（HC 閉合＋邏輯上昇沿才觸發）
+52. **M76 已完成＝雙碼流 Smart 切流決策引擎（§15.2，L0 純 BCL）**：
+    - 背景：即時監看主流/次流之「智慧切流」需先有決策引擎（第 15 章 §15.2）；純函數＋時鐘注入
+      可測，調度層（App/串流管道）採納建議後回報 ApplySwitch
+    - `HeliVMS.Storage\StreamSwitcher.cs`：`StreamKind{Main,Sub}`、`StreamSwitchDecision(Target,
+      Reason?)`（Reason null＝維持）；`Evaluate(channelId, currentMainBytesPerSec, 近窗事件帶
+      時間戳, activeViewers, utcNow)` 決策序：①honeymoon（切後 minHoldSec 內不動）②事件熱度
+      （窗內加權分，預設權重表 ai_intrusion=100/tamper=90/ai_line_cross=60/motion=40）且為
+      Sub→Main（"event-burst"）③已是 Main 且（主流總碼率≥上限"bandwidth-peak" 或 0 名收看
+      "no-viewers"）→Sub ④否則維持；`ApplySwitch` 更新現行＋切換時間
+    - 測試：Storage.Tests `StreamSwitcherTests`（+11）：honeymoon 內爆量不切；事件爆量 Sub→
+      Main；頻寬高峰 Main→Sub；0 收看→Sub；Sub 無觸發維持；已是 Main 爆量維持；ApplySwitch
+      更新現行＋時間；窗外交事件忽略；權重可客製（motion 不加權但 custom_critical 升）；未知
+      頻道預設 Main；三項建構驗證；Storage 418→**429**；全 **724**
+      （Storage 429＋Alarms 233＋Devices 54＋Licensing 8）
+    - 完成狀態：全 **724/724**；Build Release 0 error；feat commit＝**`d993122`**；CI 首跑因
+      NTP no-reply 測試 flake 紅（`NtpClientTests` 上界 2s 在 CI 負載下 300ms 計時器延遲、
+      elapsed≥2s 誤判定時）→隨附修 `828acc5`（上界改 5s hang-guard＋下限 200ms 實際等待驗證）
+      ；CI＝**`35602052735`** success；排雷已驗（見下）
+    - 排雷（已驗）：NTP no-reply timeout 測試對「絕對上界」敏感——計時器在超載 runner 會延遲，
+      上界須留超大餘裕（5s）並加下限（200ms 確保真的等了逾時），保留「返回 null」語義
 
 ## 已知雷區（勿再犯）
 - **harness `.ps1` 必須存成 UTF-8 with BOM**：寫檔工具產出的是 UTF-8 無 BOM，含中文的 `.ps1` 會被 PowerShell 5.1 以 ANSI/Big5 誤讀而**靜默破壞解析**（症狀：`Start-Process` 看似無效、App 根本沒啟動、`Get-Process HeliVMS.App` 找不到）。修法：`[System.IO.File]::WriteAllText($p,[System.IO.File]::ReadAllText($p,[System.Text.Encoding]::UTF8),(New-Object System.Text.UTF8Encoding($true)))`（temp/opencode 有 `fix-encoding.ps1`）
