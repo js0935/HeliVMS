@@ -6,15 +6,15 @@
 
 ## 一句話總結
 HeliVMS 為一套**網路影像監控系統**（WPF 桌面應用：即時監看／回放／AI 事件中心／錄影排程）。
-里程碑 **M1 至 M65 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M65 運動感度自動調校）。
-Release build 0 error、測試 **633/633 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
+里程碑 **M1 至 M66 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M66 保存鎖定）。
+Release build 0 error、測試 **641/641 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
 本地與遠端完全同步（`git diff origin/HEAD` 為空）。
 
 ## 開新 session 的接手方法
 ```powershell
 # 在 D:\HeliVMS 開新 session 時，先對新的 agent 講：
 git status                    # 預期為 empty（乾淨）
-git log --oneline -20         # 預期見到 M1..M65，HEAD＝M65
+git log --oneline -20         # 預期見到 M1..M66，HEAD＝M66
 git diff origin/HEAD          # 預期為空（同步）
 gh run list -L 3              # 預期全部 success
 ```
@@ -23,7 +23,8 @@ gh run list -L 3              # 預期全部 success
 新 session 會以 git 現況接手，不會靠猜測。
 
 ## 現況快照（權威來源＝git，非聊天記憶）
-- 最後 commit：`HEAD`＝**M65（`caa92b6`）**——運動感度自動調校（§14.7 #17 Auto-VMD：處置回饋誤報率統計與感度建議，見下方 §41 定義段）；全 **633**、CI `35547924953` success
+- 最後 commit：`HEAD`＝**M66（`e183239`）**——保存鎖定（§14.1 #13 Legal Hold：指定時段豁免配額汰除、沖銷稽核，見下方 §42 定義段）；全 **641**、CI `35550100603` success
+- 前一個 M65 交付＝`caa92b6`（運動感度自動調校 §14.7 #17）、全 **633**、CI `35547924953` success
 - 前一個 M64 交付＝`3418fe5`（音訊事件偵測原語 §5.8）、全 **621**、CI `35547445399` success
 - 前一個 M61 交付＝`d4303b0`（單鏡目標追蹤原語，見下方 §37 定義段）、全 **570**、CI `35544108591` success
 - 前一個 M60 交付＝`ef567a7`（統圖報表／管理報表，見下方 §36 定義段）、全 **559**、CI `35543378978` success
@@ -1046,6 +1047,53 @@ gh run list -L 3              # 預期全部 success
       `0.6−0.05` 非精確 0.55→斷言用 `Assert.Equal(..., 3)` 精度
     - 定位：§5.11「標記誤報/正確→統計 FP/FN→建議調感度」落地（motion 線）；「自動套用」+事件中心
       「建議感度」按鈕與 AI 模型線 FP/FN 統計留待接線/模型里程碑
+
+42. **M66 已完成＝Legal Hold 保存鎖定（§14.1 #13）**：
+    - 背景：§14.1 #13「單通道指定時段暫時封存不被配額汰除；沖銷前需高權限操作並留稽核」。錄影配額
+      汰除（`RetentionService.Apply` §9）依最舊開始刪 final 區段；M66 加「保存鎖定」讓指定時段在鎖定期間
+      **豁免汰除**，沖銷留稽核（誰/何時/原因）。潛在使用：個資法案件、爭議錄影保存（Legal Hold）
+    - **schema v24→v25**：新表 `legal_holds(id, channel_id, from_utc, to_utc, reason, created_by,
+      created_at, revoked_at, revoked_by, revoked_reason)`；rim 權限（沖銷）由 App 層 `SessionContext.IsAdmin`
+      把關
+    - Storage 新 `LegalHoldRecord`＋`LegalHoldRepository`（Storage）：`Add(ch, from, to, reason, by, at)`
+      （from<to 否則 throw）／`ListActive()`（未沖銷，按 from 升序）／`ListAll()`（含沖銷欄位，按 from 降序）
+      ／`Revoke(id, by, reason, at)`（軟刪：填 revoked_*；回傳是否影響行＝不存在或已沖銷→false）
+      ／`IsLocked(channelId, startUtc, endUtc)`＝存在未沖銷且 `from<=end && to>=start`（重疊）
+    - Recording `RetentionService`：ctor 增可選 `LegalHoldRepository? legalHolds=null`；`Apply` 由
+      `ListOldestFinal(1)` 改批次 `ListOldestFinal(64)`：由最舊掃描，鎖定區段跳過、刪第一個未鎖定；
+      全批鎖定→break（保守、不漏刪）
+    - App `LegalHoldWindow`（AutomationId：LegalHoldWindow／LegalHoldChannelCombo／LegalHoldFromBox／
+      LegalHoldToBox／LegalHoldReasonBox／LegalHoldAddButton／LegalHoldList／LegalHoldStatusText）：
+      頻道 combo＋起/訖（`yyyy-MM-dd HH:mm` local→UTC 檢查 to≥from）＋原因→加鎖；清單顯示
+      頻道/起/迄/原因/建立人/狀態（作用中/已沖銷）；選列→沖銷按鈕（需 admin）；主視窗工具列
+      「摘要」旁加「保存鎖定」按鈕＋`--hold` 直開（admin 限定）；保留迴圈 `RunRetentionLoopAsync`
+      以 `new RetentionService(_segRepo, recordings, new LegalHoldRepository(_store))` 注入
+    - seedtriage：`--hold-seed {db} {dataRoot}`（清 harness 舊資料→建 3 段真實檔案
+      recordings\hold-harness-N.mp4 於 now-4h/-3h/-2h（各 60 秒、50B）→於「首頻道（DB 中 id 最小的）
+      」加鎖 from=now-4h-30s to=now-4h+30s（覆蓋最舊段））／`--retention-run {db} {dataRoot} {quotaBytes}`
+      （`RetentionService`＋`LegalHoldRepository`．Apply→HOLD_RUN_OK:deleted=..;survivors=..）
+      ／`--hold-lock-check {ch} {from} {to}`（IsLocked→LOCK_CHECK:locked=true/false；db 迴圈 i+=3）
+      ／`--hold-clean {dataRoot}`；另 `--rec-seed {db} {dataRoot}` 以外部 ffmpeg 產真實 h264 片段並登錄
+      final 段（供 dewarp/redaction harness 環境依賴）
+      ／`--hold-clean`
+    - harness `holdcheck.ps1`（回歸第 20 支）：`--hold-seed`→`--retention-run quota=0` 驗證（最舊被鎖
+      保留、較新 hold-harness 段被汰除；deleted≥2 動態斷言，檔案存在/消失為準）→`--hold-lock-check`
+      （鎖內 true／鎖外 false，頻道取 seed 回報值）→`--hold` 開窗 UI 冒煙（AutomationId 存在、
+      填時段＋原因、Add→StatusText 含「已加鎖」）→`--hold-clean`→`HOLD_OK`
+    - 測試：Storage +8（LegalHoldRepositoryTests×6：Add→ListActive、Add 非法範圍 throw、IsLocked 重疊
+      矩陣（內/外/左/右/恰等/他頻道/沖銷後 false）、Revoke→ListActive 消失＋ListAll 含沖銷、Revoke
+      不存在/已沖銷→false、ListAll 排序與欄位；RetentionServiceTests×2：鎖定最舊→汰除其餘 2 段留 1
+      、全鎖定→不刪）；Storage 368→**376**；全 **641**（Storage 376＋Alarms 233＋Devices 24＋Licensing 8）
+    - 排雷（已驗）：`ListOldestFinal(1)` 無法跳過鎖定段（會無限刪同一段）→已批次 ListOldestFinal(64) 逐段掃
+      並 break；hold 重疊判定含端點（`from<=end && to>=start`）——harness 測試曾因 hold 訖點恰等 seg2
+      起點（含端點重疊）而多鎖一段；ISO 時間儲存僅毫秒精度（測試基準須截斷 ms）；seedtriage db 迴圈會
+      吃走未知 flag 的位置參數（`--hold-lock-check` 曾把幾可 db 誤判，需在 db 迴圈 i+=3/i+=2）；
+      `--rec-seed` 的 ffmpeg 不可 RedirectStandard*（pipe 死鎖）→改為繼承 console；
+      holdcheck 的 retention 斷言 `deleted=2` 會受共享 DB 其他 final 段干擾（如 rec-harness）→改
+      `deleted>=2`＋檔案存在/消失斷言；harness 一律自 seed（rec-seed）避免依賴測試流在跑
+    - 完成狀態：全 **641/641**（Storage 376＋Alarms 233＋Devices 24＋Licensing 8）；回歸 **20 支**
+      harness 全綠（含新 holdcheck）；feat commit＝**`e183239`**；CI＝**`35550100603`** success；
+      排雷已驗（均列於上方 排雷（已驗））
 
 ## 已知雷區（勿再犯）
 - **harness `.ps1` 必須存成 UTF-8 with BOM**：寫檔工具產出的是 UTF-8 無 BOM，含中文的 `.ps1` 會被 PowerShell 5.1 以 ANSI/Big5 誤讀而**靜默破壞解析**（症狀：`Start-Process` 看似無效、App 根本沒啟動、`Get-Process HeliVMS.App` 找不到）。修法：`[System.IO.File]::WriteAllText($p,[System.IO.File]::ReadAllText($p,[System.Text.Encoding]::UTF8),(New-Object System.Text.UTF8Encoding($true)))`（temp/opencode 有 `fix-encoding.ps1`）
