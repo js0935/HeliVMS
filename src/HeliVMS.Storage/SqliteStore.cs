@@ -9,7 +9,7 @@ namespace HeliVMS.Storage;
 /// </summary>
 public sealed class SqliteStore : IDisposable
 {
-    private const int CurrentSchemaVersion = 29;
+    private const int CurrentSchemaVersion = 30;
     private readonly SqliteConnection _connection;
     private readonly object _gate = new();
     private bool _disposed;
@@ -197,6 +197,11 @@ public sealed class SqliteStore : IDisposable
         if (version < 29)
         {
             CreateFullTextSearchTablesV29();
+        }
+
+        if (version < 30)
+        {
+            CreateDoorEventTablesV30();
         }
 
         Execute("PRAGMA user_version = CURRENT_SCHEMA_VERSION;".Replace(
@@ -870,6 +875,28 @@ public sealed class SqliteStore : IDisposable
                 INSERT INTO alarm_events_fts(rowid, event_type, detail)
                 VALUES (new.id, new.event_type, new.detail);
             END;
+            """);
+    }
+
+    /// <summary>M92 門禁（§14.7 #8）：卡片進出事件表＋時序索引（device・card・door）。</summary>
+    private void CreateDoorEventTablesV30()
+    {
+        Execute(
+            """
+            CREATE TABLE IF NOT EXISTS door_events (
+                id               INTEGER PRIMARY KEY AUTOINCREMENT,
+                device_id        INTEGER NOT NULL,
+                door_id          INTEGER NOT NULL,
+                card_id          TEXT NOT NULL,
+                direction        TEXT NOT NULL CHECK (direction IN ('In', 'Out')),
+                granted          INTEGER NOT NULL,
+                reason           TEXT NOT NULL,
+                occurred_at_utc  TEXT NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_door_events_device_time  ON door_events(device_id, occurred_at_utc);
+            CREATE INDEX IF NOT EXISTS idx_door_events_card_time    ON door_events(card_id, occurred_at_utc);
+            CREATE INDEX IF NOT EXISTS idx_door_events_door_time    ON door_events(door_id, occurred_at_utc);
             """);
     }
 
