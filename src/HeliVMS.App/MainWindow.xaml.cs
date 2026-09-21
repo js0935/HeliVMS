@@ -372,6 +372,11 @@ public partial class MainWindow : Window
             Dispatcher.BeginInvoke(() => OpenPatrolWindow());
         }
 
+        if (Environment.GetCommandLineArgs().Contains("--io", StringComparer.OrdinalIgnoreCase))
+        {
+            Dispatcher.BeginInvoke(() => OpenIoWindow());
+        }
+
         var evArgs = Environment.GetCommandLineArgs();
         var evidenceIndex = Array.IndexOf(evArgs, "--evidence");
         if (evidenceIndex >= 0)
@@ -1687,6 +1692,18 @@ public partial class MainWindow : Window
     }
 
     private void OnPatrolClicked(object sender, RoutedEventArgs e) => OpenPatrolWindow();
+
+    /// <summary>開啟感測器 IO 測試視窗（M75，§14.1 #16）。</summary>
+    private void OpenIoWindow()
+    {
+        var window = new IoWindow(_store!)
+        {
+            Owner = this,
+        };
+        window.Show();
+    }
+
+    private void OnIoClicked(object sender, RoutedEventArgs e) => OpenIoWindow();
 
     /// <summary>開啟電子地圖（M41；M49 補比例尺與 FOV 深度）。</summary>
     private void OpenMapWindow()

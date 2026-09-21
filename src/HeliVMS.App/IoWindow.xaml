@@ -1,0 +1,74 @@
+<Window x:Class="HeliVMS.App.IoWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        AutomationProperties.AutomationId="IoWindow"
+        Title="HeliVMS 感測器 IO"
+        Width="820" Height="620"
+        WindowStartupLocation="CenterOwner"
+        Background="#0B1622" Foreground="White">
+
+    <Grid Margin="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <TextBlock Grid.Row="0" Text="感測器 IO（M75，§14.1 #16）：乾接點 DI/DO 設定與動作鏈模擬；「切換閉合」餵入實體狀態，引擎在邏輯上昇沿觸發規則"
+                   Foreground="{StaticResource Brand.TextDim}" FontSize="11" TextWrapping="Wrap"/>
+
+        <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,10,0,0">
+            <TextBlock Text="DI 埠" VerticalAlignment="Center" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+            <ComboBox x:Name="IoDiCombo" AutomationProperties.AutomationId="IoDiCombo"
+                      Width="180" Margin="8,0,0,0" Foreground="Black"/>
+            <CheckBox x:Name="IoClosedCheck" AutomationProperties.AutomationId="IoClosedCheck"
+                      Content="閉合" VerticalAlignment="Center" Margin="18,0,0,0"/>
+            <Button x:Name="IoFireButton" AutomationProperties.AutomationId="IoFireButton"
+                    Content="餵入狀態" Click="OnFireClicked"
+                    Width="90" Padding="0,6" Margin="14,0,0,0"
+                    Foreground="White" Background="#2A6A9A" BorderThickness="0"/>
+            <TextBlock x:Name="IoPhysicalLabel" VerticalAlignment="Center" Margin="14,0,0,0"
+                       Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+        </StackPanel>
+
+        <Grid Grid.Row="2" Margin="0,12,0,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="12"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+
+            <ListView Grid.Column="0" x:Name="IoPortList" AutomationProperties.AutomationId="IoPortList"
+                      Foreground="White" Background="#0E1B2A" BorderBrush="#1F3A5F" BorderThickness="1"
+                      SelectionMode="Single">
+                <ListView.View>
+                    <GridView>
+                        <GridViewColumn Header="端別" Width="44" DisplayMemberBinding="{Binding KindText}"/>
+                        <GridViewColumn Header="#" Width="40" DisplayMemberBinding="{Binding Number}"/>
+                        <GridViewColumn Header="名稱" Width="110" DisplayMemberBinding="{Binding Name}"/>
+                        <GridViewColumn Header="極性" Width="90" DisplayMemberBinding="{Binding PolarityText}"/>
+                        <GridViewColumn Header="邏輯值" Width="70" DisplayMemberBinding="{Binding StateText}"/>
+                    </GridView>
+                </ListView.View>
+            </ListView>
+
+            <ListView Grid.Column="2" x:Name="IoRuleList" AutomationProperties.AutomationId="IoRuleList"
+                      Foreground="White" Background="#0E1B2A" BorderBrush="#1F3A5F" BorderThickness="1"
+                      SelectionMode="Single">
+                <ListView.View>
+                    <GridView>
+                        <GridViewColumn Header="規則" Width="50" DisplayMemberBinding="{Binding Id}"/>
+                        <GridViewColumn Header="輸入埠" Width="70" DisplayMemberBinding="{Binding InputText}"/>
+                        <GridViewColumn Header="動作" Width="110" DisplayMemberBinding="{Binding ActionText}"/>
+                        <GridViewColumn Header="冷卻(s)" Width="70" DisplayMemberBinding="{Binding RetriggerSec}"/>
+                        <GridViewColumn Header="啟用" Width="50" DisplayMemberBinding="{Binding EnabledText}"/>
+                    </GridView>
+                </ListView.View>
+            </ListView>
+        </Grid>
+
+        <TextBlock Grid.Row="3" x:Name="IoStatusText" AutomationProperties.AutomationId="IoStatusText"
+                   Margin="0,10,0,0" Foreground="#9FB8D8" TextWrapping="Wrap"/>
+    </Grid>
+</Window>

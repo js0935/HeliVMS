@@ -149,6 +149,10 @@
                                 Content="巡航" Click="OnPatrolClicked"
                                 Width="56" Padding="0,8" Margin="6,0,0,0"
                                 Foreground="White" Background="#2A6A9A" BorderThickness="0" />
+                        <Button x:Name="IoButton" AutomationProperties.AutomationId="IoButton"
+                                Content="感測IO" Click="OnIoClicked"
+                                Width="64" Padding="0,8" Margin="6,0,0,0"
+                                Foreground="White" Background="#3A5A2A" BorderThickness="0" />
                     </StackPanel>
 
                     <TextBlock x:Name="HintText" TextWrapping="Wrap"
