@@ -9,7 +9,7 @@ namespace HeliVMS.Storage;
 /// </summary>
 public sealed class SqliteStore : IDisposable
 {
-    private const int CurrentSchemaVersion = 26;
+    private const int CurrentSchemaVersion = 27;
     private readonly SqliteConnection _connection;
     private readonly object _gate = new();
     private bool _disposed;
@@ -182,6 +182,11 @@ public sealed class SqliteStore : IDisposable
         if (version < 26)
         {
             CreatePatrolsTablesV26();
+        }
+
+        if (version < 27)
+        {
+            CreateSensorIoTablesV27();
         }
 
         Execute("PRAGMA user_version = CURRENT_SCHEMA_VERSION;".Replace(
@@ -722,6 +727,34 @@ public sealed class SqliteStore : IDisposable
                 dwell_seconds INTEGER NOT NULL DEFAULT 10
             );
             CREATE INDEX IF NOT EXISTS idx_patrol_steps_patrol_seq ON patrol_steps (patrol_id, seq);
+            """);
+    }
+
+    /// <summary>M74 感測器 IO（§14.1 #16）：乾接點 DI/DO 埠設定＋動作鏈規則；狀態由 IoRuleEngine 維護。</summary>
+    private void CreateSensorIoTablesV27()
+    {
+        Execute(
+            """
+            CREATE TABLE IF NOT EXISTS io_ports (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                channel_id   INTEGER NOT NULL,
+                kind         TEXT    NOT NULL,
+                number       INTEGER NOT NULL,
+                name         TEXT    NOT NULL,
+                polarity     TEXT    NOT NULL DEFAULT 'normally_open',
+                debounce_ms  INTEGER NOT NULL DEFAULT 0,
+                enabled      INTEGER NOT NULL DEFAULT 1,
+                UNIQUE (channel_id, kind, number)
+            );
+            CREATE TABLE IF NOT EXISTS io_rules (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                input_port_id   INTEGER NOT NULL,
+                action_kind     TEXT    NOT NULL DEFAULT 'alarm',
+                output_port_id  INTEGER,
+                event_type      TEXT,
+                retrigger_sec   INTEGER NOT NULL DEFAULT 30,
+                enabled         INTEGER NOT NULL DEFAULT 1
+            );
             """);
     }
 
