@@ -6,15 +6,15 @@
 
 ## 一句話總結
 HeliVMS 為一套**網路影像監控系統**（WPF 桌面應用：即時監看／回放／AI 事件中心／錄影排程）。
-里程碑 **M1 至 M82 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M82 電子地圖事件熱點渲染）。
-Release build 0 error、測試 **757/757 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
+里程碑 **M1 至 M83 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M83 回放時間軸 L0）。
+Release build 0 error、測試 **775/775 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
 本地與遠端完全同步（`git diff origin/HEAD` 為空）。
 
 ## 開新 session 的接手方法
 ```powershell
 # 在 D:\HeliVMS 開新 session 時，先對新的 agent 講：
 git status                    # 預期為 empty（乾淨）
-git log --oneline -20         # 預期見到 M1..M82，HEAD＝M82
+git log --oneline -20         # 預期見到 M1..M83，HEAD＝M83
 git diff origin/HEAD          # 預期為空（同步）
 gh run list -L 3              # 預期全部 success
 ```
@@ -23,11 +23,10 @@ gh run list -L 3              # 預期全部 success
 新 session 會以 git 現況接手，不會靠猜測。
 
 ## 現況快照（權威來源＝git，非聊天記憶）
-- 最後 commit：`HEAD`＝**M82（`d1013a0`）**——電子地圖強化③ 事件熱點渲染：MapWindow 計數徽章＋
-  脈動圓環（MapEventAggregator 支撐，UIA `HOT:ch:count:kinds:hot`）；全 **757**、
-  CI `35611891145` success；maphotcheck 第 26 支 harness
-- 前一個 M81 交付＝`e6948bf`（電子地圖強化② 事件熱點聚合器 `MapEventAggregator`）、全 **757**、
-  CI `35609914309` success
+- 最後 commit：`HEAD`＝**M83（`f9a2ba1`）**——回放視窗強化① 回放時間軸 L0 `PlaybackTimelineBuilder`
+  （segments/events→0..1 bar/marker fraction、裁切窗含左不含右、重疊聯集算 gap）；全 **775**、
+  CI `35613154435` success
+- 前一個 M82 交付＝`d1013a0`（電子地圖強化③ 事件熱點渲染）、全 **757**、CI `35611891145` success
 - 前一個 M80 交付＝`4de75be`（LDAP/AD 登入 L0：`LdapDn`＋`LdapSettingsValidator`）、全 **746**、
   CI `35608457139` success；ldapcheck 第 25 支 harness
 - 前一個 M79 交付＝`c661f9c`（音訊感測測試視窗 `AudioWindow`）、全 **735**、CI `35605392969` success
@@ -1453,6 +1452,26 @@ gh run list -L 3              # 預期全部 success
       需等 layout（加 3s）避免 Name 未就緒
     - 全量：Storage 453（App-only，未動 Storage 測試）→ 全 **757/757**；Build Release 0 error；
       feat commit＝**`d1013a0`**；CI＝**`35611891145`** success；樹淨
+59. **M83 已完成＝回放視窗強化① 回放時間軸 L0（§回放延伸，純 BCL）**：
+    - 定位：PlaybackWindow（M3/M8）已有時間軸帶（segment 色塊＋遊標＋事件列表點擊跳轉）；本里程碑
+      補「當日時間軸模型」純計算層，供 M84 帶上事件標記渲染與以比例遊標；不碰 UI
+    - Storage 新 `PlaybackTimeline.cs`：`TimelineBar(SegmentId, LeftFraction, WidthFraction)`、
+      `TimelineMarker(EventId, ChannelId, Kind, Utc, XFraction)`、`PlaybackTimeline(Bars, Markers,
+      DayUtc, GapFraction, GapCount)`、`PlaybackTimelineBuilder.Build(segments, events, dayStartUtc)`
+      （靜態純函式）
+    - 規則（已測試）：當日窗固定 `[dayStart, dayStart+24h)` **含左不含右**（`dayStart ≤ t < dayEnd`）；
+      區段裁切至窗內、零長度略過；`EndUtc` null → `StartUtc + DurationSec`（null→回退 10s）；
+      Bar/Marker 依時間排序；重疊區段以**聯集**計算間隙；GapFraction＝全日 24h 未被涵蓋比例（0..1）、
+      GapCount＝未涵蓋區間數（空輸入＝1/1.0）；`ToFraction(utc,day)` 換算 0..1（夾 0..1）
+    - 測試：Storage `PlaybackTimelineTests` +16（空輸入全日 gap；全日段 w=1；日中段 fraction＋2 gap；
+      跨午夜裁至日末；日前段略過；跨日首裁到 0；相鄰段 gap=0；重疊裁切段合併 gap——23:00–26h 與
+      23.5–27h 裁至 [23,24] 後 GapCount=1/fraction=23/24〔0–23h 未涵蓋〕；窗內標記 fraction 6:30→
+      6.5/24；日首含、日末不含；窗外部標記濾除；EndUtc null→duration；null→10s 回退；雜亂輸入依時
+      排序；ToFraction 外夾）
+    - 修 1 測試誤判：重疊裁切段合併後「0–23h 仍為一個未涵蓋區間」，GapCount 應為 1 非 0
+    - 全量：Storage 453→**469**；全 **775**（469＋244＋54＋8）；Build Release 0 error；
+      feat commit＝**`f9a2ba1`**；CI＝**`35613154435`** success；樹淨；harness 維持 26 支
+      （純 L0；M84 UI 再上 pbcheck 第 27 支）
 
 ## 已知雷區（勿再犯）
 - **harness `.ps1` 必須存成 UTF-8 with BOM**：寫檔工具產出的是 UTF-8 無 BOM，含中文的 `.ps1` 會被 PowerShell 5.1 以 ANSI/Big5 誤讀而**靜默破壞解析**（症狀：`Start-Process` 看似無效、App 根本沒啟動、`Get-Process HeliVMS.App` 找不到）。修法：`[System.IO.File]::WriteAllText($p,[System.IO.File]::ReadAllText($p,[System.Text.Encoding]::UTF8),(New-Object System.Text.UTF8Encoding($true)))`（temp/opencode 有 `fix-encoding.ps1`）
