@@ -6,8 +6,8 @@
 
 ## 一句話總結
 HeliVMS 為一套**網路影像監控系統**（WPF 桌面應用：即時監看／回放／AI 事件中心／錄影排程）。
-里程碑 **M1 至 M88 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M88 Failover 監控視窗＋harness）。
-Release build 0 error、測試 **816/816 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
+里程碑 **M1 至 M89 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M89 Edge Storage 雙保險 L0）。
+Release build 0 error、測試 **829/829 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
 本地與遠端完全同步（`git diff origin/HEAD` 為空）。
 
 ## 開新 session 的接手方法
@@ -23,14 +23,11 @@ gh run list -L 3              # 預期全部 success
 新 session 會以 git 現況接手，不會靠猜測。
 
 ## 現況快照（權威來源＝git，非聊天記憶）
-- 最後 commit：`HEAD`＝**M88**——Failover 監控/測試視窗（§14.7 #9 收尾）：`FailoverWindow`
-  （FailoverServerText/LeaseSecText/FailoverAcquireButton/ReleaseButton/RefreshButton/
-  FailoverStatusText，1s DispatcherTimer 心跳；coordinator 依輸入 serverId 重建）；MainWindow
-  加「容錯」按鈕＋`--failover` flag；seedtriage `--failover-seed <id> <sec>`/`--failover-clean`；
-  failovercheck 第 30 支 harness→`FAILOVER_OK`（none→leader→none；standby+release-skip；
-  過期接管）；全 **816** 不變、Release build 0 error、樹淨
-- 前一個 M87 交付＝`6bd3c4d`（Failover 容錯 L0 引擎）＋`2f97a20`（docs）；全 **816**、
-  CI `35629229724` success
+- 最後 commit：`HEAD`＝**M89**——Edge Storage 雙保險 L0（§14.7 #10）：`EdgeRecoveryPlanner`
+  （純 BCL：SD manifest 段與 NVR 本機涵蓋求差→缺失補抓時窗；gap≤閾值併單、maxFetchWindow
+  分割、過期段略過；重疊正規化）；13 新測試→全 **829**、Release build 0 error、樹淨
+- 前一個 M88 交付＝`15cc208`（Failover 監控視窗）＋`f0558dc`（docs）；全 **816**、
+  CI `35655382954` success；failovercheck 第 30 支 harness→`FAILOVER_OK`
 - 前一個 M85 交付＝`54cad94`（LDAPv3 連線層 L1：`LdapClient : ILdapBinder`
   裸 BER wire（simple bind＋memberOf SearchGroups）；`LdapBer` minimal BER＋`LdapFilterEncoder`
   RFC4515→BER；24 新測試（FakeLdapServer loopback）；全 **799**、CI `35621317643` success；
@@ -1584,6 +1581,19 @@ gh run list -L 3              # 預期全部 success
       `WriteAllText(ReadAllText(…, UTF8), UTF8(BOM))`，**之後不再用 edit tool 改 harness**；
       seed 的 `2>&1` 合併 stdout+stderr 若仍為空即代表 dotnet 程序在 print 前出事
     - App Release build 0 error、全 **816** 不變（純 App/工具變更）；Commit＋CI＋樹淨
+
+65. **M89 已完成＝§14.7 #10 Edge Storage 雙保險 L0（純 BCL `EdgeRecoveryPlanner`）**：
+    - 背景：§14.7 #10「設備 SD 側錄＋NVR 雙保險，斷網期間設備自錄、重連補抓」列 P2、現況僅
+      事件層補送（M56/M29）無段層實作；L0 先以「設備 SD manifest＋NVR 既有段」做缺失區間
+      補抓排程（與 Milestone/Synology「SD 回灌」同語意），後續里程碑接 UI/調度器
+    - 落點：Storage `EdgeRecoveryPlanner`（純 BCL、時鐘注入）：輸入 `EdgeSegment`
+      （SourceId/StartUtc/EndUtc：設備 SD manifest）＋「NVR 本機已涵蓋段」，輸出
+      `EdgeRecoveryPlan`（`EdgeRecoveryTask(FetchStart/End)` 依時序、跨段 gap ≤ 閾值併為單一
+      補抓、單任務上限 maxFetchWindow 分割）；過期（manifest 末端早於 now−staleTtl）段略過
+      （SD 已被覆寫權威）；參數驗證（段長正、閾值非負、ttl/max 正）；重疊段正規化後求差
+    - 測試：純引擎假時鐘 x13 → 全 **829**（Storage 510→523）；排序時序、併段計數、StaleFloor
+      以「末端」判斷（`EndUtc < now−ttl`）
+    - Commit＋CI＋樹淨；§14.7 #10 狀態改「L0 規劃器已落地（UI/段層回灌為後續里程碑）」
 
 ## 已知雷區（勿再犯）
 - **harness `.ps1` 必須存成 UTF-8 with BOM**：寫檔工具產出的是 UTF-8 無 BOM，含中文的 `.ps1` 會被 PowerShell 5.1 以 ANSI/Big5 誤讀而**靜默破壞解析**（症狀：`Start-Process` 看似無效、App 根本沒啟動、`Get-Process HeliVMS.App` 找不到）。修法：`[System.IO.File]::WriteAllText($p,[System.IO.File]::ReadAllText($p,[System.Text.Encoding]::UTF8),(New-Object System.Text.UTF8Encoding($true)))`（temp/opencode 有 `fix-encoding.ps1`）
