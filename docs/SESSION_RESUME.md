@@ -6,8 +6,8 @@
 
 ## 一句話總結
 HeliVMS 為一套**網路影像監控系統**（WPF 桌面應用：即時監看／回放／AI 事件中心／錄影排程）。
-里程碑 **M1 至 M92 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M92 門禁事件 L0）。
-Release build 0 error、測試 **858/858 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
+里程碑 **M1 至 M93 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M93 POS 交易 Metadata 配對 L0）。
+Release build 0 error、測試 **865/865 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
 本地與遠端完全同步（`git diff origin/HEAD` 為空）。
 
 ## 開新 session 的接手方法
@@ -23,12 +23,12 @@ gh run list -L 3              # 預期全部 success
 新 session 會以 git 現況接手，不會靠猜測。
 
 ## 現況快照（權威來源＝git，非聊天記憶）
-- 最後 commit：`HEAD`＝**M92**——§14.7 #8 門禁事件 L0：SqliteStore v30 `door_events`（進出方向
-  In/Out＋granted＋時序索引 device・card・door）＋`DoorEventRepository`（Insert 回 id；Query
-  device/door/card/granted/左閉右開區間/limit；CountByCard）；7 新測試→全 **858**、Release
-  build 0 error、樹淨
-- 前一個 M91 交付＝`a63adc4`（法證語意搜尋 FTS5，v29）＋`5e4159c`（docs）；全 **851**、
-  CI `35662970681` success
+- 最後 commit：`HEAD`＝**M93**——§14.7 #8 POS 交易 Metadata 配對 L0：SqliteStore v31
+  `pos_events`（amount_cents 精確存＋設備時序/交易號索引）＋`POSEventRepository`（Insert/
+  Query device＋左閉右開區間＋limit）＋`POSEventMatcher`（|Δt|≤window 配對依 Δt 排序）；
+  7 新測試→全 **865**、Release build 0 error、樹淨
+- 前一個 M92 交付＝`e567293`（門禁事件 L0，v30）＋`c31f424`（docs）；全 **858**、
+  CI `35664014176` success
 - 前一個 M85 交付＝`54cad94`（LDAPv3 連線層 L1：`LdapClient : ILdapBinder`
   裸 BER wire（simple bind＋memberOf SearchGroups）；`LdapBer` minimal BER＋`LdapFilterEncoder`
   RFC4515→BER；24 新測試（FakeLdapServer loopback）；全 **799**、CI `35621317643` success；
@@ -1645,6 +1645,18 @@ gh run list -L 3              # 預期全部 success
       CountByCard 區間／limit／未知 card 空）；`SchemaVersion_IsV30` 改名
       ＝＋7 → 全 **858**（Storage 545→552）；CI 綠；樹淨；§14.7 #8 現況改「DO＋門禁事件
       已落地」
+
+69. **M93 已完成＝§14.7 #8 統一安全平台之 POS 交易 Metadata 配對 L0**：
+    - 背景：#8 欄「POS 接口待擴」；L0 落「POS 交易存錄」＋與同設備鏡頭/DIO/門禁事件
+      「時間窗配對」（Metadata 配對＝把交易帶回影片脈絡）
+    - 落點：SqliteStore v30→**v31**；`pos_events`（device_id/register_id/transaction_no/
+      amount_cents/occurred_at_utc＋設備時序索引＋交易號索引）；`POSEvent` record＋
+      `POSEventRepository`（Insert 回 id／Query 依 device＋左閉右開區間＋limit）；
+      `POSEventMatcher`（純函式：同設備事件集按 |Δt|≤window 配對、依 |Δt| 排序）
+    - 測試：整合 x7（Insert roundtrip／Query device＋區間／limit／未知 device 空／配對命中
+      窗內／窗外排除／無候選空）；`SchemaVersion_IsV31` 改名
+      ＝＋7 → 全 **865**（Storage 552→559）；CI 綠；樹淨；§14.7 #8 現況補「POS 交易
+      存錄＋配對 L0 已落地」
 
 ## 已知雷區（勿再犯）
 - **harness `.ps1` 必須存成 UTF-8 with BOM**：寫檔工具產出的是 UTF-8 無 BOM，含中文的 `.ps1` 會被 PowerShell 5.1 以 ANSI/Big5 誤讀而**靜默破壞解析**（症狀：`Start-Process` 看似無效、App 根本沒啟動、`Get-Process HeliVMS.App` 找不到）。修法：`[System.IO.File]::WriteAllText($p,[System.IO.File]::ReadAllText($p,[System.Text.Encoding]::UTF8),(New-Object System.Text.UTF8Encoding($true)))`（temp/opencode 有 `fix-encoding.ps1`）
