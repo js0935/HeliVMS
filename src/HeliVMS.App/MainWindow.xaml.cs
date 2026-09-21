@@ -362,6 +362,11 @@ public partial class MainWindow : Window
             Dispatcher.BeginInvoke(() => OpenSynopsisWindow());
         }
 
+        if (Environment.GetCommandLineArgs().Contains("--hold", StringComparer.OrdinalIgnoreCase))
+        {
+            Dispatcher.BeginInvoke(() => OpenLegalHoldWindow());
+        }
+
         var evArgs = Environment.GetCommandLineArgs();
         var evidenceIndex = Array.IndexOf(evArgs, "--evidence");
         if (evidenceIndex >= 0)
@@ -498,7 +503,7 @@ public partial class MainWindow : Window
     /// <summary>每小時執行一次配額清理與 tmp 隔離、快照過期清理（設定每圈重讀）。</summary>
     private async Task RunRetentionLoopAsync(CancellationToken token)
     {
-        var service = new RetentionService(_segRepo!, Path.Combine(_dataRoot, "recordings"));
+        var service = new RetentionService(_segRepo!, Path.Combine(_dataRoot, "recordings"), new LegalHoldRepository(_store!));
         while (!token.IsCancellationRequested)
         {
             try
@@ -1648,6 +1653,23 @@ public partial class MainWindow : Window
     }
 
     private void OnSynopsisClicked(object sender, RoutedEventArgs e) => OpenSynopsisWindow();
+
+    /// <summary>開啟保存鎖定視窗（M66，§14.1 #13）。admin 限定。</summary>
+    private void OpenLegalHoldWindow()
+    {
+        if (!SessionContext.IsAdmin)
+        {
+            return;
+        }
+
+        var window = new LegalHoldWindow(_store!, allowRevoke: SessionContext.IsAdmin)
+        {
+            Owner = this,
+        };
+        window.Show();
+    }
+
+    private void OnLegalHoldClicked(object sender, RoutedEventArgs e) => OpenLegalHoldWindow();
 
     /// <summary>開啟電子地圖（M41；M49 補比例尺與 FOV 深度）。</summary>
     private void OpenMapWindow()

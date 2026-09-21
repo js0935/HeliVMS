@@ -34,7 +34,7 @@ public class RuleRepositoryTests : IDisposable
                 r.Read();
                 return r.GetInt32(0);
             });
-        Assert.Equal(24, version);
+        Assert.Equal(25, version);
     }
 
     [Fact]

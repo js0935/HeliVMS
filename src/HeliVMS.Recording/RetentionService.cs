@@ -1,3 +1,4 @@
+using HeliVMS.Shared.Models;
 using HeliVMS.Storage;
 
 namespace HeliVMS.Recording;
@@ -19,14 +20,16 @@ public sealed class RetentionService
 
     private readonly SegmentRepository _repo;
     private readonly string _recordingsRoot;
+    private readonly LegalHoldRepository? _legalHolds;
 
-    public RetentionService(SegmentRepository repo, string recordingsRoot)
+    public RetentionService(SegmentRepository repo, string recordingsRoot, LegalHoldRepository? legalHolds = null)
     {
         _repo = repo;
         _recordingsRoot = recordingsRoot;
+        _legalHolds = legalHolds;
     }
 
-    /// <summary>執行一次配額清理與 tmp 隔離；回傳結果報告。</summary>
+    /// <summary>執行一次配額清理與 tmp 隔離；回傳結果報告。保存鎖定（M66）所覆蓋時段豁免汰除。</summary>
     public RetentionReport Apply(long quotaBytes, DateTime? nowUtc = null)
     {
         var now = nowUtc ?? DateTime.UtcNow;
@@ -36,16 +39,35 @@ public sealed class RetentionService
 
         while (usage > quotaBytes)
         {
-            var oldest = _repo.ListOldestFinal(1).FirstOrDefault();
-            if (oldest is null || oldest.SizeBytes <= 0)
+            var candidates = _repo.ListOldestFinal(64);
+            SegmentRecord? target = null;
+            for (var i = 0; i < candidates.Count; i++)
+            {
+                var seg = candidates[i];
+                if (seg.SizeBytes <= 0)
+                {
+                    continue;
+                }
+
+                if (_legalHolds?.IsLocked(seg.ChannelId, seg.StartUtc, seg.EndUtc ?? seg.StartUtc) == true)
+                {
+                    continue;
+                }
+
+                target = seg;
+                break;
+            }
+
+            if (target is null)
             {
                 break;
             }
 
-            TryDeleteFile(oldest.FilePath);
-            _repo.Delete(oldest.Id);
-            usage -= oldest.SizeBytes;
-            freed += oldest.SizeBytes;
+            var chosen = target!;
+            TryDeleteFile(chosen.FilePath);
+            _repo.Delete(chosen.Id);
+            usage -= chosen.SizeBytes;
+            freed += chosen.SizeBytes;
             deleted++;
         }
 

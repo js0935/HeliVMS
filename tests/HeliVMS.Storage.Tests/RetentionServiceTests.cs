@@ -151,6 +151,46 @@ public class RetentionServiceTests : IDisposable
         Assert.Equal(0L, report.FreedBytes);
     }
 
+    [Fact]
+    public void Apply_SkipsHeldOldest_DeletesOnlyNewer()
+    {
+        Seed("ch001", 0, 2_000);   // 最舊
+        Seed("ch001", 60, 2_000);
+        Seed("ch001", 120, 2_000);
+
+        var oldestStart = _repo.ListAllFinal()
+            .OrderBy(s => s.StartUtc)
+            .First().StartUtc;
+        var holds = new LegalHoldRepository(_store);
+        holds.Add(1, oldestStart.AddMinutes(-1), oldestStart.AddSeconds(30), "harness hold", "tester", DateTime.UtcNow);
+
+        var svc = new RetentionService(_repo, _root, holds);
+        var report = svc.Apply(quotaBytes: 0, nowUtc: DateTime.UtcNow);
+
+        Assert.Equal(2, report.DeletedSegments);
+        Assert.Equal(2_000L, report.UsedBytes);
+        var survivors = _repo.ListFinal(1);
+        var remained = Assert.Single(survivors);
+        Assert.Equal(oldestStart, remained.StartUtc);
+    }
+
+    [Fact]
+    public void Apply_AllHeld_DeletesNothing()
+    {
+        Seed("ch001", 0, 2_000);
+        Seed("ch001", 60, 2_000);
+
+        var all = _repo.ListAllFinal().OrderBy(s => s.StartUtc).ToList();
+        var holds = new LegalHoldRepository(_store);
+        holds.Add(1, all[0].StartUtc.AddMinutes(-1), all[^1].EndUtc!.Value.AddMinutes(1), "harness hold", "tester", DateTime.UtcNow);
+
+        var svc = new RetentionService(_repo, _root, holds);
+        var report = svc.Apply(quotaBytes: 0, nowUtc: DateTime.UtcNow);
+
+        Assert.Equal(0, report.DeletedSegments);
+        Assert.Equal(4_000L, report.UsedBytes);
+    }
+
     private void Seed(string channelDir, double offsetSeconds, long sizeBytes)
     {
         var dir = Path.Combine(_root, channelDir);

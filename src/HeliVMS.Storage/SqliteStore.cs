@@ -9,7 +9,7 @@ namespace HeliVMS.Storage;
 /// </summary>
 public sealed class SqliteStore : IDisposable
 {
-    private const int CurrentSchemaVersion = 24;
+    private const int CurrentSchemaVersion = 25;
     private readonly SqliteConnection _connection;
     private readonly object _gate = new();
     private bool _disposed;
@@ -172,6 +172,11 @@ public sealed class SqliteStore : IDisposable
         if (version < 24)
         {
             CreateAiRulesTableV24();
+        }
+
+        if (version < 25)
+        {
+            CreateLegalHoldsTableV25();
         }
 
         Execute("PRAGMA user_version = CURRENT_SCHEMA_VERSION;".Replace(
@@ -665,6 +670,26 @@ public sealed class SqliteStore : IDisposable
                 actions_json   TEXT    NOT NULL,
                 enabled        INTEGER NOT NULL DEFAULT 1,
                 created_at     TEXT    NOT NULL
+            );
+            """);
+    }
+
+    /// <summary>M66 保存鎖定（§14.1 #13）：指定通道時段豁免配額汰除；沖銷（軟刪）留稽核欄位。</summary>
+    private void CreateLegalHoldsTableV25()
+    {
+        Execute(
+            """
+            CREATE TABLE IF NOT EXISTS legal_holds (
+                id             INTEGER PRIMARY KEY AUTOINCREMENT,
+                channel_id     INTEGER NOT NULL,
+                from_utc       TEXT    NOT NULL,
+                to_utc         TEXT    NOT NULL,
+                reason         TEXT    NOT NULL,
+                created_by     TEXT    NOT NULL,
+                created_at     TEXT    NOT NULL,
+                revoked_at     TEXT,
+                revoked_by     TEXT,
+                revoked_reason TEXT
             );
             """);
     }
