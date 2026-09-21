@@ -6,15 +6,15 @@
 
 ## 一句話總結
 HeliVMS 為一套**網路影像監控系統**（WPF 桌面應用：即時監看／回放／AI 事件中心／錄影排程）。
-里程碑 **M1 至 M67 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M67 Bitrate Governor）。
-Release build 0 error、測試 **653/653 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
+里程碑 **M1 至 M68 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M68 NTP 校時用戶端）。
+Release build 0 error、測試 **663/663 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
 本地與遠端完全同步（`git diff origin/HEAD` 為空）。
 
 ## 開新 session 的接手方法
 ```powershell
 # 在 D:\HeliVMS 開新 session 時，先對新的 agent 講：
 git status                    # 預期為 empty（乾淨）
-git log --oneline -20         # 預期見到 M1..M67，HEAD＝M67
+git log --oneline -20         # 預期見到 M1..M68，HEAD＝M68
 git diff origin/HEAD          # 預期為空（同步）
 gh run list -L 3              # 預期全部 success
 ```
@@ -23,9 +23,10 @@ gh run list -L 3              # 預期全部 success
 新 session 會以 git 現況接手，不會靠猜測。
 
 ## 現況快照（權威來源＝git，非聊天記憶）
-- 最後 commit：`HEAD`＝**M67（`32cf833`）**——依頻寬負載動態分配碼率（§14.7 #12 SVR/自適應品質 L0
-  `BitrateGovernor`：事件通道 4× 權重、優先權 1..5、largest remainder 保證 Σ==預算，見下方 §43
-  定義段）；全 **653**、CI `35550716766` success
+- 最後 commit：`HEAD`＝**M68（`a5015a7`）**——NTP 校時用戶端（RFC 5905 SNTP L0：MODE3 四時間戳求
+  offset/delay/stratum，`HeliVMS.Core\Ntp`，診斷面板「NTP 即時校時」需求前置）；全 **663**、
+  CI `35585248329` success
+- 前一個 M67 交付＝`32cf833`（依頻寬負載動態分配碼率 §14.7 #12）、全 **653**、CI `35550716766` success
 - 前一個 M66 交付＝`e183239`（保存鎖定 §14.1 #13 Legal Hold）、全 **641**、CI `35550100603` success
 - 前一個 M65 交付＝`caa92b6`（運動感度自動調校 §14.7 #17）、全 **633**、CI `35547924953` success
 - 前一個 M64 交付＝`3418fe5`（音訊事件偵測原語 §5.8）、全 **621**、CI `35547445399` success
@@ -1126,7 +1127,32 @@ gh run list -L 3              # 預期全部 success
       0 error；feat commit＝**`32cf833`**；CI＝**`35550716766`** success；排雷已驗
       （BitrateGovernorTests×12 見上；無 harness——純演算法里程碑）
 
-## 已知雷區（勿再犯）
+44. **M68 已完成＝NTP 校時用戶端（RFC 5905 SNTP，診斷面板「NTP 即時校時」需求，L0 純 BCL）**：
+    - 背景：NVR 錄影時間戳為證據完整性基礎（M53 已做檔案 hash）；診斷面板（Ctrl+K「輸入
+      NTP 即時校時」）早有需求。M68 交付 SNTP 客戶端引擎 L0（`System.Net.Sockets` 純 BCL、
+      零外部套件）：向 NTP 伺服器取 4 時間戳求「時鐘偏移/往返延遲/stratum」，供後續校時接線
+      （M69 起接診斷/自動校時）
+    - `HeliVMS.Core`（原為空專案容器）新增 `Ntp\`：
+      - `NtpClient.QueryAsync(server, port=123, timeout=3s, ct)`→`NtpQuery?`（null＝逾時/網路錯/
+        伺服器未同步/樣本無效）：「48 位元組 MODE3 VN4」T1=發送 UTC；收 4 時間戳
+        T2(recv)/T3(xmit)/T4(本地收)；`offset=((T2-T1)+(T3-T4))/2`、`delay=(T4-T1)-(T3-T2)`；
+        delay<0→null；stratum=0（kiss-o'-death）→null
+      - `NtpQuery(Offset, RoundTrip, Stratum, LeapIndicator, Version)`
+      - `NtpFrames.BuildRequestUtc()`／`TryParseResponse(48B, t1, t4, out …)`（靜態可測）
+      - NTP epoch＝1900-01-01（秒 32bit＋分數 32bit），轉換以 AddTicks 保精度
+    - 測試：Storage.Tests `NtpClientTests`（+10）：request 頭位元組 0x23 且 xmit 欄=本地 T1；
+      TryParse 已知 T1..T4→offset=150ms/delay=700ms 精確值；不足 48B→null；stratum0→null；
+      delay<0→null；負偏移樣本符號保留；epoch 轉換 roundtrip（含毫秒）；E2E 本機 fake server
+      （+100ms 偏移，best-of-3 最小 RTT 樣本）→offset>90ms 且 stratum=2；E2E 不回覆→300ms
+      逾時回 null；ms 精度轉換驗證
+    - 完成狀態：全 **663/663**（Storage 398＋Alarms 233＋Devices 24＋Licensing 8）；Build Release
+      0 error；feat commit＝**`a5015a7`**；CI＝**`35585248329`** success；排雷已驗
+      （見下）
+    - 排雷（已驗）：E2E 假 server 若用 async（await ReceiveAsync）會受 xUnit 平行 threadpool
+      飽和影響——deep 負載下回應延遲可達 ~190ms，offset=100−rtt/2 跌到 <90ms 而 flaky；
+      改用**專屬 background thread 同步收發**後 RTT=純 loopback、四連跑全綠；另 NtpClient
+      `SendAsync(byte[],int,ct)` 無 ct 重載（會誤綁 IPEndPoint）→用 `SendAsync(ReadOnlyMemory)`；
+      negative-delay 樣本測試向量需 T3−T2>T4−T1 才會觸發 delay<0（先前向量算成 delay=0）
 - **harness `.ps1` 必須存成 UTF-8 with BOM**：寫檔工具產出的是 UTF-8 無 BOM，含中文的 `.ps1` 會被 PowerShell 5.1 以 ANSI/Big5 誤讀而**靜默破壞解析**（症狀：`Start-Process` 看似無效、App 根本沒啟動、`Get-Process HeliVMS.App` 找不到）。修法：`[System.IO.File]::WriteAllText($p,[System.IO.File]::ReadAllText($p,[System.Text.Encoding]::UTF8),(New-Object System.Text.UTF8Encoding($true)))`（temp/opencode 有 `fix-encoding.ps1`）
 - **PowerShell 雙引號內 `$var?xxx` 的 `?` 是合法變數字元**：`"$url/$token?password=x"` 會把 `$token?password` 當成變數名（不存在→空字串），導致 token 遺失。改用 `${token}`（M51 `sharecheck` 實證）
 - **勿以 bash 對 repo 源碼做 byte 級重寫**（曾造成 UTF-8 漂移／mojibake 污染，已 `git restore` 還原）；
