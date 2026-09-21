@@ -6,7 +6,7 @@
 
 ## 一句話總結
 HeliVMS 為一套**網路影像監控系統**（WPF 桌面應用：即時監看／回放／AI 事件中心／錄影排程）。
-里程碑 **M1 至 M81 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M81 電子地圖事件熱點聚合器）。
+里程碑 **M1 至 M82 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M82 電子地圖事件熱點渲染）。
 Release build 0 error、測試 **757/757 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
 本地與遠端完全同步（`git diff origin/HEAD` 為空）。
 
@@ -14,7 +14,7 @@ Release build 0 error、測試 **757/757 全過**、`git status --porcelain` **�
 ```powershell
 # 在 D:\HeliVMS 開新 session 時，先對新的 agent 講：
 git status                    # 預期為 empty（乾淨）
-git log --oneline -20         # 預期見到 M1..M81，HEAD＝M81
+git log --oneline -20         # 預期見到 M1..M82，HEAD＝M82
 git diff origin/HEAD          # 預期為空（同步）
 gh run list -L 3              # 預期全部 success
 ```
@@ -23,8 +23,11 @@ gh run list -L 3              # 預期全部 success
 新 session 會以 git 現況接手，不會靠猜測。
 
 ## 現況快照（權威來源＝git，非聊天記憶）
-- 最後 commit：`HEAD`＝**M81（`e6948bf`）**——電子地圖強化② 事件熱點聚合器 `MapEventAggregator`
-  （純 BCL：近窗聚合/熱度門檻/urgency 0–100/camera 圖釘優先）；全 **757**、CI `35609914309` success
+- 最後 commit：`HEAD`＝**M82（`d1013a0`）**——電子地圖強化③ 事件熱點渲染：MapWindow 計數徽章＋
+  脈動圓環（MapEventAggregator 支撐，UIA `HOT:ch:count:kinds:hot`）；全 **757**、
+  CI `35611891145` success；maphotcheck 第 26 支 harness
+- 前一個 M81 交付＝`e6948bf`（電子地圖強化② 事件熱點聚合器 `MapEventAggregator`）、全 **757**、
+  CI `35609914309` success
 - 前一個 M80 交付＝`4de75be`（LDAP/AD 登入 L0：`LdapDn`＋`LdapSettingsValidator`）、全 **746**、
   CI `35608457139` success；ldapcheck 第 25 支 harness
 - 前一個 M79 交付＝`c661f9c`（音訊感測測試視窗 `AudioWindow`）、全 **735**、CI `35605392969` success
@@ -1429,6 +1432,27 @@ gh run list -L 3              # 預期全部 success
       `OffsetMatches` 已知 flake：本里程碑全量首跑 1/453 紅、rebuild 復跑 453/453 綠——與 M81 無關）
     - 完成狀態：feat commit＝**`e6948bf`**；CI＝**`35609914309`** success；樹淨；harness 維持 25 支
       （純 L0 不加 harness；M82 UI 再上 maphotcheck 第 26 支）
+58. **M82 已完成＝電子地圖強化③ 事件熱點渲染（§16 延伸，M81 聚合器上 UI）**：
+    - App `MapWindow.xaml.cs`：`RefreshHotspots(mapId)`——依 `MapEventAggregator.Compute` 對啟用圖釘
+      的近 30 分事件聚合，於每顆有事件圖釘加：**計數徽章**（Border＋TextBlock 數字，熱點紅/冷點紫，
+      位置圖釘右上方）＋**脈動圓環**（Ellipse 28px，`_pulseTimer` 380ms 切換 Opacity 0.85/0.2）
+    - 徽章 UIA：`AutomationId=MapHotspotBadge_{channel}`、`Name=HOT:{ch}:{count}:{kinds}:{hot}`、
+      ToolTip「近 30 分 N 起事件（kinds）· 熱點/冷點」；供 harness 直接斷言（純 ASCII token）
+    - 掛點：`LoadPins` 末尾（地圖切換重建）、15s `_eventTimer` 併同 `RefreshEventColors` 重新計算
+      （DB 讀取在 UI 執行緒、L0 規模可接受）；`_currentMapId` 記錄目前樓層
+    - seedtriage 新增 `--map-hotspot`（bypass）：建「harness 熱點」地圖＋2 相機圖釘（0.3,0.4/0.7,0.6）
+      ＋第二頻道 harness hotspot-2；餵事件 hot ch＝motion×2＋tamper×1、cold ch＝offline×1；直接以
+      `MapEventAggregator` 自餵驗算（hot.3/motion,tamper、cold.1）→ `MAP_HOTSPOT_SEED_OK:map=…;
+      hot=1:3:motion/tamper;cold=2:1`
+    - harness（第 26 支）`maphotcheck`：fresh dataRoot＋seed → 開 App `--map`→「電子地圖」視窗 →
+      UIA 斷言 `MapHotspotBadge_1` Name＝`HOT:1:3:motion/tamper:True`、`MapHotspotBadge_2` Name＝
+      `HOT:2:1:offline:False` → `MAPHOT_OK:hot=1:3:True;cold=2:1:False;ui=badges=2`
+    - 排雷（已驗）：**PowerShell 雙引號內 `$var:...` 會被解析成變數限定名**——`"^HOT:$hotCh:3:…"` 中
+      `$hotCh:3:motion` 被當成 `$hotCh:3:motion` 變數而吃掉字串（pattern 前 1:3:motion 消失）→
+      以 `${hotCh}` 包夾修正；使用 `$var` 後接 `:` 的正則一律用 `${var}`；偵測到 window handle 後 badge
+      需等 layout（加 3s）避免 Name 未就緒
+    - 全量：Storage 453（App-only，未動 Storage 測試）→ 全 **757/757**；Build Release 0 error；
+      feat commit＝**`d1013a0`**；CI＝**`35611891145`** success；樹淨
 
 ## 已知雷區（勿再犯）
 - **harness `.ps1` 必須存成 UTF-8 with BOM**：寫檔工具產出的是 UTF-8 無 BOM，含中文的 `.ps1` 會被 PowerShell 5.1 以 ANSI/Big5 誤讀而**靜默破壞解析**（症狀：`Start-Process` 看似無效、App 根本沒啟動、`Get-Process HeliVMS.App` 找不到）。修法：`[System.IO.File]::WriteAllText($p,[System.IO.File]::ReadAllText($p,[System.Text.Encoding]::UTF8),(New-Object System.Text.UTF8Encoding($true)))`（temp/opencode 有 `fix-encoding.ps1`）
