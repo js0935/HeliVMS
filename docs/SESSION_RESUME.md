@@ -6,7 +6,7 @@
 
 ## 一句話總結
 HeliVMS 為一套**網路影像監控系統**（WPF 桌面應用：即時監看／回放／AI 事件中心／錄影排程）。
-里程碑 **M1 至 M83 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M83 回放時間軸 L0）。
+里程碑 **M1 至 M84 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M84 回放視窗時間軸模型驅動）。
 Release build 0 error、測試 **775/775 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
 本地與遠端完全同步（`git diff origin/HEAD` 為空）。
 
@@ -14,7 +14,7 @@ Release build 0 error、測試 **775/775 全過**、`git status --porcelain` **�
 ```powershell
 # 在 D:\HeliVMS 開新 session 時，先對新的 agent 講：
 git status                    # 預期為 empty（乾淨）
-git log --oneline -20         # 預期見到 M1..M83，HEAD＝M83
+git log --oneline -20         # 預期見到 M1..M84，HEAD＝M84
 git diff origin/HEAD          # 預期為空（同步）
 gh run list -L 3              # 預期全部 success
 ```
@@ -23,10 +23,11 @@ gh run list -L 3              # 預期全部 success
 新 session 會以 git 現況接手，不會靠猜測。
 
 ## 現況快照（權威來源＝git，非聊天記憶）
-- 最後 commit：`HEAD`＝**M83（`f9a2ba1`）**——回放視窗強化① 回放時間軸 L0 `PlaybackTimelineBuilder`
-  （segments/events→0..1 bar/marker fraction、裁切窗含左不含右、重疊聯集算 gap）；全 **775**、
+- 最後 commit：`HEAD`＝**M84（`434e275`）**——回放視窗強化② 時間軸模型驅動：band 改用
+  `PlaybackTimelineBuilder` fractions＋覆蓋率標籤 `COV:...`（UIA 第 27 支 pbcheck harness）；
+  全 **775**、CI `35614308528` success
+- 前一個 M83 交付＝`f9a2ba1`（回放視窗強化① 時間軸 L0 `PlaybackTimelineBuilder`）、全 **775**、
   CI `35613154435` success
-- 前一個 M82 交付＝`d1013a0`（電子地圖強化③ 事件熱點渲染）、全 **757**、CI `35611891145` success
 - 前一個 M80 交付＝`4de75be`（LDAP/AD 登入 L0：`LdapDn`＋`LdapSettingsValidator`）、全 **746**、
   CI `35608457139` success；ldapcheck 第 25 支 harness
 - 前一個 M79 交付＝`c661f9c`（音訊感測測試視窗 `AudioWindow`）、全 **735**、CI `35605392969` success
@@ -1472,6 +1473,24 @@ gh run list -L 3              # 預期全部 success
     - 全量：Storage 453→**469**；全 **775**（469＋244＋54＋8）；Build Release 0 error；
       feat commit＝**`f9a2ba1`**；CI＝**`35613154435`** success；樹淨；harness 維持 26 支
       （純 L0；M84 UI 再上 pbcheck 第 27 支）
+60. **M84 已完成＝回放視窗強化② 時間軸模型驅動＋覆蓋率標籤（§回放延伸，M83 L0 上 UI）**：
+    - RealApp 直接改 band：RenderBlocks 改以 `PlaybackTimelineBuilder.Build(segments, events,
+      DayStartUtc())` 產出 `_timeline`，藍色區塊改用 `bar.LeftFraction/WidthFraction` 定位與
+      縮放（裁切/聯集語意交回 L0，移除舊的 `DurationSec/86400` 宽度數學）；重繪即更新
+    - 新增 **CoverageText**（取代舊固定「進度」Label）：`覆蓋 {pct}% · 未涵蓋 {n} 區間`；
+      UIA `AutomationId=PlaybackCoverageText`、`Name=COV:{pct}:{gapCount}:{barCount}`（純 ASCII
+      token 供 harness 斷言）
+    - 事件標記 RenderMarkers 改以 `_timeline.Markers` 的 `XFraction` 定位（10px 圓點，tooltip 回查事件
+      Detail）；DayStartUtc/FracOfDay 保留（OnBandClicked/UpdateCursor 共用同一當日窗基準，語意不變）
+    - seedtriage 新增 `--pb-seed`（bypass）：今日 00:00 起 dayStart；8:00–10:00、14:00–16:00 兩段
+      （間隙＝0–8／10–14／16–24）；9:00 motion、15:00 offline 兩事件；直接以 `PlaybackTimelineBuilder`
+      自餵驗算 → `PB_SEED_OK:day=…;segs=2;events=2;coverage=17;gaps=3;bars=2`
+    - harness（第 27 支）`pbcheck`：fresh dataRoot＋`--pb-seed` → 開 App `--playback`（「回放」視窗）→
+      UIA 斷言 `PlaybackCoverageText` Name＝`COV:17:3:2` → `PB_OK:coverage=17:3:bar=2;ui=true`
+    - 排雷（已驗）：PlaybackWindow 原有 `System.Windows.Automation` 未 import（MapWindow 才有）→
+      `AutomationProperties.SetName` 報 CS0103；以往無 UIA 需求故未暴露；需補 using
+    - 全量：Storage 469（App-only）→ 全 **775/775**；Build Release 0 error；
+      feat commit＝**`434e275`**；CI＝**`35614308528`** success；樹淨
 
 ## 已知雷區（勿再犯）
 - **harness `.ps1` 必須存成 UTF-8 with BOM**：寫檔工具產出的是 UTF-8 無 BOM，含中文的 `.ps1` 會被 PowerShell 5.1 以 ANSI/Big5 誤讀而**靜默破壞解析**（症狀：`Start-Process` 看似無效、App 根本沒啟動、`Get-Process HeliVMS.App` 找不到）。修法：`[System.IO.File]::WriteAllText($p,[System.IO.File]::ReadAllText($p,[System.Text.Encoding]::UTF8),(New-Object System.Text.UTF8Encoding($true)))`（temp/opencode 有 `fix-encoding.ps1`）
