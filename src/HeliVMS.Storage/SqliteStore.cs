@@ -9,7 +9,7 @@ namespace HeliVMS.Storage;
 /// </summary>
 public sealed class SqliteStore : IDisposable
 {
-    private const int CurrentSchemaVersion = 27;
+    private const int CurrentSchemaVersion = 28;
     private readonly SqliteConnection _connection;
     private readonly object _gate = new();
     private bool _disposed;
@@ -187,6 +187,11 @@ public sealed class SqliteStore : IDisposable
         if (version < 27)
         {
             CreateSensorIoTablesV27();
+        }
+
+        if (version < 28)
+        {
+            CreateFailoverTablesV28();
         }
 
         Execute("PRAGMA user_version = CURRENT_SCHEMA_VERSION;".Replace(
@@ -813,6 +818,19 @@ public sealed class SqliteStore : IDisposable
                 status          TEXT    NOT NULL DEFAULT 'created',
                 created_at      TEXT    NOT NULL,
                 last_verified_at TEXT
+            );
+            """);
+    }
+
+    /// <summary>M87 容錯（§14.7 #9）：failover 單列租約表（id 固定 1，insert-or-replace 覆寫）。</summary>
+    private void CreateFailoverTablesV28()
+    {
+        Execute(
+            """
+            CREATE TABLE IF NOT EXISTS failover_state (
+                id                INTEGER PRIMARY KEY,
+                server_id         TEXT NOT NULL,
+                lease_expires_utc TEXT NOT NULL
             );
             """);
     }
