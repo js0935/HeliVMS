@@ -382,6 +382,11 @@ public partial class MainWindow : Window
             Dispatcher.BeginInvoke(() => OpenStreamSwitchWindow());
         }
 
+        if (Environment.GetCommandLineArgs().Contains("--audio", StringComparer.OrdinalIgnoreCase))
+        {
+            Dispatcher.BeginInvoke(() => OpenAudioWindow());
+        }
+
         var evArgs = Environment.GetCommandLineArgs();
         var evidenceIndex = Array.IndexOf(evArgs, "--evidence");
         if (evidenceIndex >= 0)
@@ -1721,6 +1726,18 @@ public partial class MainWindow : Window
     }
 
     private void OnStreamClicked(object sender, RoutedEventArgs e) => OpenStreamSwitchWindow();
+
+    /// <summary>開啟音訊感測測試視窗（M79，§5.8 L1）。</summary>
+    private void OpenAudioWindow()
+    {
+        var window = new AudioWindow(_store!)
+        {
+            Owner = this,
+        };
+        window.Show();
+    }
+
+    private void OnAudioClicked(object sender, RoutedEventArgs e) => OpenAudioWindow();
 
     /// <summary>開啟電子地圖（M41；M49 補比例尺與 FOV 深度）。</summary>
     private void OpenMapWindow()

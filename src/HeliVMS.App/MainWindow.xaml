@@ -157,6 +157,10 @@
                                 Content="切流" Click="OnStreamClicked"
                                 Width="56" Padding="0,8" Margin="6,0,0,0"
                                 Foreground="White" Background="#5A3A6A" BorderThickness="0" />
+                        <Button x:Name="AudioButton" AutomationProperties.AutomationId="AudioButton"
+                                Content="音訊" Click="OnAudioClicked"
+                                Width="56" Padding="0,8" Margin="6,0,0,0"
+                                Foreground="White" Background="#6A5A2A" BorderThickness="0" />
                     </StackPanel>
 
                     <TextBlock x:Name="HintText" TextWrapping="Wrap"

@@ -1,0 +1,55 @@
+<Window x:Class="HeliVMS.App.AudioWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        AutomationProperties.AutomationId="AudioWindow"
+        Title="HeliVMS 音訊感測"
+        Width="780" Height="520"
+        WindowStartupLocation="CenterOwner"
+        Background="#0B1622" Foreground="White">
+
+    <Grid Margin="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <TextBlock Grid.Row="0" Text="音訊感測測試（M79，§5.8 L1）：以合成方波餵入 AudioSensorCoordinator 多頻道感測；「結算」收尾寫入 alarm_events"
+                   Foreground="{StaticResource Brand.TextDim}" FontSize="11" TextWrapping="Wrap"/>
+
+        <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,10,0,0">
+            <TextBlock Text="頻道" VerticalAlignment="Center" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+            <ComboBox x:Name="AudioChannelCombo" AutomationProperties.AutomationId="AudioChannelCombo"
+                      Width="180" Margin="8,0,0,0" Foreground="Black"/>
+            <Button x:Name="AudioFeedButton" AutomationProperties.AutomationId="AudioFeedButton"
+                    Content="餵爆音" Click="OnFeedClicked"
+                    Width="90" Padding="0,6" Margin="14,0,0,0"
+                    Foreground="White" Background="#7A2A2A" BorderThickness="0"/>
+            <Button x:Name="AudioResetButton" AutomationProperties.AutomationId="AudioResetButton"
+                    Content="捨棄" Click="OnResetClicked"
+                    Width="70" Padding="0,6" Margin="10,0,0,0"
+                    Foreground="White" Background="#5A5A6A" BorderThickness="0"/>
+            <Button x:Name="AudioFlushButton" AutomationProperties.AutomationId="AudioFlushButton"
+                    Content="結算" Click="OnFlushClicked"
+                    Width="70" Padding="0,6" Margin="10,0,0,0"
+                    Foreground="White" Background="#3A5A2A" BorderThickness="0"/>
+        </StackPanel>
+
+        <ListView Grid.Row="2" x:Name="AudioStateList" AutomationProperties.AutomationId="AudioStateList"
+                  Margin="0,12,0,0" Foreground="White" Background="#0E1B2A" BorderBrush="#1F3A5F" BorderThickness="1"
+                  SelectionMode="Single">
+            <ListView.View>
+                <GridView>
+                    <GridViewColumn Header="頻道" Width="100" DisplayMemberBinding="{Binding ChannelText}"/>
+                    <GridViewColumn Header="啟用" Width="60" DisplayMemberBinding="{Binding EnabledText}"/>
+                    <GridViewColumn Header="最後判讀" Width="90" DisplayMemberBinding="{Binding LastKindText}"/>
+                    <GridViewColumn Header="本回事件" Width="80" DisplayMemberBinding="{Binding EventCountText}"/>
+                </GridView>
+            </ListView.View>
+        </ListView>
+
+        <TextBlock Grid.Row="3" x:Name="AudioStatusText" AutomationProperties.AutomationId="AudioStatusText"
+                   Margin="0,10,0,0" Foreground="#9FB8D8" TextWrapping="Wrap"/>
+    </Grid>
+</Window>
