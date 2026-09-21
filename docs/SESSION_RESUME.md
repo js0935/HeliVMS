@@ -6,15 +6,15 @@
 
 ## 一句話總結
 HeliVMS 為一套**網路影像監控系統**（WPF 桌面應用：即時監看／回放／AI 事件中心／錄影排程）。
-里程碑 **M1 至 M63 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M63 影片摘要）。
-Release build 0 error、測試 **606/606 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
+里程碑 **M1 至 M64 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M64 音訊事件偵測）。
+Release build 0 error、測試 **621/621 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
 本地與遠端完全同步（`git diff origin/HEAD` 為空）。
 
 ## 開新 session 的接手方法
 ```powershell
 # 在 D:\HeliVMS 開新 session 時，先對新的 agent 講：
 git status                    # 預期為 empty（乾淨）
-git log --oneline -20         # 預期見到 M1..M63，HEAD＝M63
+git log --oneline -20         # 預期見到 M1..M64，HEAD＝M64
 git diff origin/HEAD          # 預期為空（同步）
 gh run list -L 3              # 預期全部 success
 ```
@@ -23,8 +23,8 @@ gh run list -L 3              # 預期全部 success
 新 session 會以 git 現況接手，不會靠猜測。
 
 ## 現況快照（權威來源＝git，非聊天記憶）
-- 最後 commit：`HEAD`＝**M63（`a6dceeb`）**——影片摘要（§5.9：偵測動態幀拼貼預覽＋manifest 摘要，見下方 §39 定義段）；全 **606**、CI `35546979051` success
-- 前一個 M62 交付＝`ea512cf`（複合事件規則引擎，見下方 §38 定義段）、全 **591**、CI `35545119891` success
+- 最後 commit：`HEAD`＝**M64（`3418fe5`）**——音訊事件偵測原語（§5.8：RMS dBFS 分塊分類、爆音/持續音/斷路事件引擎，見下方 §40 定義段）；全 **621**、CI `35547445399` success
+- 前一個 M63 交付＝`a6dceeb`（影片摘要 §5.9）、全 **606**、CI `35546979051` success
 - 前一個 M61 交付＝`d4303b0`（單鏡目標追蹤原語，見下方 §37 定義段）、全 **570**、CI `35544108591` success
 - 前一個 M60 交付＝`ef567a7`（統圖報表／管理報表，見下方 §36 定義段）、全 **559**、CI `35543378978` success
 - 前一個 M58 交付＝`3e28bcd`（智慧分析模組二，見下方 §34 定義段）、全 **543**、CI `35541102070` success
@@ -39,8 +39,8 @@ gh run list -L 3              # 預期全部 success
 - 前一個 M47 交付＝`f3c01e1`（警報管理器 Alarm Manager，見下方 §22 M47 定義段）、全 **299**、CI `35286083642` success
 - 前一個 M46 交付＝`c7f6e8f`（錄影遮蔽 Redaction，見下方 §21 M46 定義段）、全 **293**、CI `35284550851` success
 - 前一個 M45 交付＝`ef3a8bc`（備份與異地備援，見下方 §20 M45 定義段）、全 **289**、CI `35263453271` success
-- 已驗收：**M63＝影片摘要（偵測動態幀拼貼預覽＋manifest 摘要）**（§5.9，見下方 §39 定義段）；**M62＝複合事件規則引擎（match/all/any/not/within/count/timeBetween、ai_rules 設定層、規則編輯器）**（§5.10，見下方 §38 定義段）；**M61＝單鏡目標追蹤原語（匈牙利 IoU 指派／track_id／EMA 平滑／生命周期）**（§5.7，見下方 §37 定義段）；**M60＝統圖報表／管理報表（錄影時數／斷線／容量趨勢／AI 事件統計）**（§14.7 #9、§11.7，見下方 §36 定義段）；**M59＝智慧分析模組三（尾隨／逆行 `ai_tailgating`）**（§5.6，見下方 §35 定義段）；**M58＝智慧分析模組二（長時間徘徊／靜止物／車流統計／熱區圖）**（§5.6，見下方 §34 定義段）；**M57＝多語言介面 i18n（繁中／簡中／English）**（§14.7 P1，見下方 §33 定義段）
-- 進行中：（下一里程碑依規劃，見下方 §40 定義段）
+- 已驗收：**M64＝音訊事件偵測原語（RMS dBFS 分塊分類、爆音/持續音/斷路事件引擎）**（§5.8 Audio L0，見下方 §40 定義段）；**M63＝影片摘要（偵測動態幀拼貼預覽＋manifest 摘要）**（§5.9，見下方 §39 定義段）；**M62＝複合事件規則引擎（match/all/any/not/within/count/timeBetween、ai_rules 設定層、規則編輯器）**（§5.10，見下方 §38 定義段）；**M61＝單鏡目標追蹤原語（匈牙利 IoU 指派／track_id／EMA 平滑／生命周期）**（§5.7，見下方 §37 定義段）；**M60＝統圖報表／管理報表（錄影時數／斷線／容量趨勢／AI 事件統計）**（§14.7 #9、§11.7，見下方 §36 定義段）；**M59＝智慧分析模組三（尾隨／逆行 `ai_tailgating`）**（§5.6，見下方 §35 定義段）；**M58＝智慧分析模組二（長時間徘徊／靜止物／車流統計／熱區圖）**（§5.6，見下方 §34 定義段）；**M57＝多語言介面 i18n（繁中／簡中／English）**（§14.7 P1，見下方 §33 定義段）
+- 進行中：（下一里程碑依規劃，見下方 §41 定義段）
 - 前一個 M38 交付＝`d09b045`（事件回應工作流，見下方 M38 定義段）、全 **172**、CI `35185639491` success
 - 前一個 M30 交付＝`24ad4c7`（MQTT 通知通道）：`NotificationSettings`＋
   `MqttEnabled/MqttHost/MqttPort(1883)/MqttTopic/MqttUser/MqttPassword`（鍵 `notify.mqtt.*`、
@@ -59,7 +59,7 @@ gh run list -L 3              # 預期全部 success
 - 前一個 M28 交付＝`ba95d0f`（事件中心篩選＋分頁：QueryArgs/ListByQuery/CountByQuery/
   ListEventTypes＋UI 類型 Combo＋Prev/Next 50/頁；114、evfiltercheck EVFILTERCHECK_OK）
 - 分支／遠端：`git diff origin/HEAD` 為空（完全同步）；HEAD＝origin
-- CI：`gh run list` 顯示最新 run `conclusion=success`；建置 0 error、測試 606/606
+- CI：`gh run list` 顯示最新 run `conclusion=success`；建置 0 error、測試 621/621
 
 ## 架構關鍵（確切、無漂移）
 - 解決方案：`D:\HeliVMS\HeliVMS.App\HeliVMS.App.csproj`（WPF）＋ `HeliVMS.slnx`
@@ -1004,6 +1004,30 @@ gh run list -L 3              # 預期全部 success
       `Start-Sleep 2` 等檔案釋放再 `--synopsis-clean`；harness 內不得有中文 literal（Big5）
     - 定位：§5.9「以事件縮圖→縮圖牆/預覽」第 0 版落地；CLIP 語意搜尋／ReID embedding／連續動畫
       短片留待 L1/v2（需模型或 ffmpeg 合成）里程碑
+
+40. **M64 已完成**（commit `3418fe5`，CI `35547445399` success）：音訊事件偵測原語（Audio Sensing L0，
+    §5.8）——**純 C# PCM 引擎**，輸入 16k mono PCM（`short[]`）：
+    - Alarms 新 `AudioTriggerEngine`：`Feed(pcm, utc)` 跨批次累積樣本、滿 `BlockSamples=512`（約 32ms）
+      切塊；每塊 RMS dBFS（`20·log10(rms/32768)`、0→−120 下限）；依絕對門檻分類
+      `Quiet/Burst/Sustained/Silent`（`BurstDb=-12`/`SustainDb=-32`/`SilenceDb=-66`）→ 爆音連續
+      `BlocksToConfirm=2` 塊開窗、持續音連續達 `SustainSeconds=2.0`s 開窗、斷路連續達 `SilenceSeconds=30`s
+      開窗；冷卻 `CooldownMs=1500` 收尾（≥`MinEventMs=120`ms 才寫）、斷路事件在音訊恢復當下立即結算；
+      寫 `alarm_events` `audio_burst`／`audio_sustained`／`audio_break`（無快照、無新表、schema v24 維持）、
+      detail=`kind={burst|sustained|silence};peak_db=..;mean_db=..;duration=..ms`（`UpdateEnd` 收尾）；
+      Feed 回傳逐塊 `(Kind, RmsDb, Utc)`；`AudioSignal`（進入作用中）＋`EventInserted`（鎖內 raise）；
+      `Flush()`（停止前結算）／`Reset()`（捨棄開窗）／`Dispose()`；跨 Feed 收不完的樣本留待下批
+    - 測試：Alarms `AudioTriggerEngineTests` +15（方波 20000→Burst 且 dB≈−4.29、方波 2000→Sustained
+      且 ≈−24.29、全零→Silent 且 −120、Burst 開窗＋冷卻寫測 events（duration=1500ms）、未足確認數→無、
+      Sustained 持續 320ms（閾 0.1s）寫測、不足閾值→無、斷路 160ms 音訊回歸→audio_break 立即結算、
+      跨 Feed 300+212 湊塊、Reset 捨棄、Flush 結算、冷卻區隔兩爆音、detail 正規式、EventInserted 帶
+      record 與庫內相符、非法參數 throw）；Alarms 206→**221**；全 **621**（Storage 368＋Alarms 221＋
+      Devices 24＋Licensing 8）
+    - 排雷（已驗）：方波 rms＝|幅度|（20000→−4.29dB 觸發 Burst、2000→−24.29dB 觸發 Sustained、
+      5→−76.3dB 觸發 Silent、200→−44.3dB 為 Quiet）；dB 常數直接寫死避免 const 無法用 Math；`Flush()` 內
+      `TryFinalize(true)` 的位置引數修復命名引數殘留；`Finalize` 於 Burst/Sustained/Silent 三路徑皆須
+      處理「斷路中音訊回歸立即結算」，避免 silence 窗口洩漏
+    - 定位：§5.8「聲響類型偵測（槍聲/尖叫/玻璃碎裂）」之 L0 泛音訊觸發落地；**真實音訊軌解碼接入
+      （AAC/G.711→PCM）＋MFCC 分類模型（L1）**留待接錄影軌之里程碑
 
 ## 已知雷區（勿再犯）
 - **harness `.ps1` 必須存成 UTF-8 with BOM**：寫檔工具產出的是 UTF-8 無 BOM，含中文的 `.ps1` 會被 PowerShell 5.1 以 ANSI/Big5 誤讀而**靜默破壞解析**（症狀：`Start-Process` 看似無效、App 根本沒啟動、`Get-Process HeliVMS.App` 找不到）。修法：`[System.IO.File]::WriteAllText($p,[System.IO.File]::ReadAllText($p,[System.Text.Encoding]::UTF8),(New-Object System.Text.UTF8Encoding($true)))`（temp/opencode 有 `fix-encoding.ps1`）
