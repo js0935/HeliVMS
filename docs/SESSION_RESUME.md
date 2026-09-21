@@ -6,15 +6,15 @@
 
 ## 一句話總結
 HeliVMS 為一套**網路影像監控系統**（WPF 桌面應用：即時監看／回放／AI 事件中心／錄影排程）。
-里程碑 **M1 至 M79 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M79 音訊感測測試視窗）。
-Release build 0 error、測試 **735/735 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
+里程碑 **M1 至 M80 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M80 LDAP/AD 登入 L0）。
+Release build 0 error、測試 **746/746 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
 本地與遠端完全同步（`git diff origin/HEAD` 為空）。
 
 ## 開新 session 的接手方法
 ```powershell
 # 在 D:\HeliVMS 開新 session 時，先對新的 agent 講：
 git status                    # 預期為 empty（乾淨）
-git log --oneline -20         # 預期見到 M1..M79，HEAD＝M79
+git log --oneline -20         # 預期見到 M1..M80，HEAD＝M80
 git diff origin/HEAD          # 預期為空（同步）
 gh run list -L 3              # 預期全部 success
 ```
@@ -23,9 +23,10 @@ gh run list -L 3              # 預期全部 success
 新 session 會以 git 現況接手，不會靠猜測。
 
 ## 現況快照（權威來源＝git，非聊天記憶）
-- 最後 commit：`HEAD`＝**M79（`c661f9c`）**——音訊感測測試視窗 `AudioWindow`（`--audio`/
-  工具列、方波餵入協調器＋捨棄/結算；audiocheck 第 24 支 harness）；全 **735**、
-  CI `35605392969` success
+- 最後 commit：`HEAD`＝**M80（`4de75be`）**——LDAP/AD 登入 L0：`LdapDn`（RFC 2253 跳脫＋
+  `BuildUserDn`，基於既有 M50 `LdapSettings`）＋`LdapSettingsValidator`（純規則）；全 **746**、
+  CI `35608457139` success；ldapcheck 第 25 支 harness
+- 前一個 M79 交付＝`c661f9c`（音訊感測測試視窗 `AudioWindow`）、全 **735**、CI `35605392969` success
 - 前一個 M78 交付＝`7c937e8`（音訊感測 L1 協調器 `AudioSensorCoordinator`）、全 **735**、
   CI `35604408658` success
 - 前一個 M77 交付＝`06b4517`（雙碼流切流視窗）、全 **724**、CI `35603258006` success
@@ -1385,6 +1386,30 @@ gh run list -L 3              # 預期全部 success
       （會誤報 no-channel），改以點「餵爆音」後讀狀態列（`fed:...last=Burst`）間接證明有頻道；
       seedtriage 建頻道須用 `--map`（建於 schemaMode return 之後），`--schema` 不會建
     - 另補：seedtriage 新增診斷模式 `--channels`（列出 id/name/audio_enabled，`CHANNELS:...`）
+56. **M80 已完成＝LDAP/AD 登入 L0（§14.7 #1：DN 對映＋設定驗證）**：
+    - 前置釐清：§14.7 #1 的 LDAP 提供者設定 L0 於 **M50** 已落地（`LdapSettings` record，存於
+      `auth_providers.config_json`，含 Host/Port/BaseDn/BindDn/BindPassword/UserFilter/AdminGroups/
+      DefaultRole；`LdapFilter` RFC4515 escape＋樣板代入）；本里程碑補「使用者 DN 對映」與
+      「設定驗證」兩塊純規則，且**不升 schema**（避免與既有 record 重名衝突＋免遷移）
+    - Storage 新 `LdapSettingsRepository.cs`（檔名沿用誤命名，實為兩個靜態類別）：
+      - `LdapDn`：RFC 2253 屬性值跳脫（`,`/`=`/`"`/`+`/`<`/`>`/`;`/`\`/`#`、前導/後導空白）＋
+        `BuildUserDn(settings, username)`＝`sAMAccountName=<escaped>,BaseDn`（BaseDn 空白僅回
+        屬性值；供 L1 bind）
+      - `LdapSettingsValidator`：純規則（Host 非空白、Port 1–65535、BaseDn 非空白、UserFilter 非
+        空白且含 {user} 或 {0} 佔位）；回傳問題清單（空＝通過）
+    - 測試：Storage `LdapDnValidatorTests` +11（用戶 DN 組裝、特殊字元跳脫（`,`/`=`/`#`/前導空白）、
+      BaseDn 空白、null 使用者、後導空白、`a+b`/`a<b`、Escape null/空、Host/BaseDn 必填、埠範圍
+      （0/65536 與 389）、UserFilter 缺失與缺佔位、完全有效無問題）；Storage 429→**440**；
+      全 **746**（Storage 440＋Alarms 244＋Devices 54＋Licensing 8）
+    - 完成狀態：全 **746/746**；Build Release 0 error；feat commit＝**`4de75be`**；CI＝
+      **`35608457139`** success；harness（第 25 支 ldapcheck）＝seedtriage `--ldap-check`（既有
+      `LdapSettings` 實例走 Validate＋BuildUserDn）→
+      `LDAP_CHECK_OK:dn=sAMAccountName=alice,DC=example,DC=com;host=idc.example.com;port=636;
+      problems=0`；`LDAP_OK:dn=alice;validate=0;json-via-store=true`
+    - 排雷（已驗）：**§14.7 #1 的 LDAP L0 早已存在（M50）**——新增同名 `LdapSettings` 撞 CS0101；
+      正確做法是補既有型別缺口而非另起 schema（經驗：新里程碑先 grep 同名型別）；RFC2253 對 `#`
+      也跳脫（`\#`），測試期望值寫成未跳脫版會失敗；意外編輯到 `AddSmartAlertColumnsV20` 文件註解
+      與方法區塊——一律 `git checkout --` 還原避免噪音 diff
 
 ## 已知雷區（勿再犯）
 - **harness `.ps1` 必須存成 UTF-8 with BOM**：寫檔工具產出的是 UTF-8 無 BOM，含中文的 `.ps1` 會被 PowerShell 5.1 以 ANSI/Big5 誤讀而**靜默破壞解析**（症狀：`Start-Process` 看似無效、App 根本沒啟動、`Get-Process HeliVMS.App` 找不到）。修法：`[System.IO.File]::WriteAllText($p,[System.IO.File]::ReadAllText($p,[System.Text.Encoding]::UTF8),(New-Object System.Text.UTF8Encoding($true)))`（temp/opencode 有 `fix-encoding.ps1`）
