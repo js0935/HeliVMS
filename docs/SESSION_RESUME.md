@@ -6,15 +6,15 @@
 
 ## 一句話總結
 HeliVMS 為一套**網路影像監控系統**（WPF 桌面應用：即時監看／回放／AI 事件中心／錄影排程）。
-里程碑 **M1 至 M86 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M86 登入視窗 LDAP 面板＋UI harness）。
-Release build 0 error、測試 **799/799 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
+里程碑 **M1 至 M87 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M87 Failover 容錯 L0）。
+Release build 0 error、測試 **816/816 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
 本地與遠端完全同步（`git diff origin/HEAD` 為空）。
 
 ## 開新 session 的接手方法
 ```powershell
 # 在 D:\HeliVMS 開新 session 時，先對新的 agent 講：
 git status                    # 預期為 empty（乾淨）
-git log --oneline -20         # 預期見到 M1..M85，HEAD＝M85
+git log --oneline -20         # 預期見到 M1..M87，HEAD＝M87
 git diff origin/HEAD          # 預期為空（同步）
 gh run list -L 3              # 預期全部 success
 ```
@@ -23,11 +23,12 @@ gh run list -L 3              # 預期全部 success
 新 session 會以 git 現況接手，不會靠猜測。
 
 ## 現況快照（權威來源＝git，非聊天記憶）
-- 最後 commit：`HEAD`＝**M86**——登入視窗 LDAP 面板（`LoginWindow` LdapPanel/LdapProviderCombo/
-  LdapLoginButton/LdapMessage＋`OnLdapLoginClicked` 走 `EnterpriseAuthService.AuthenticateLdap`
-  真實 wire `LdapClient`）；seedtriage 擴充 `--ldap-seed/--ldap-fake-server/--ldap-clean`＋
-  multi-accept `FakeLdapHarness`；ldaplogincheck 第 29 支 UIA harness→`LDAPLOGIN_OK`
-  （wrong=rejected;valid=accepted;main=true）；App Release build 0 error、樹淨、CI 綠
+- 最後 commit：`HEAD`＝**M87**——Failover 容錯 L0（§14.7 #9）：`FailoverCoordinator`（純 BCL
+  租約仲裁：AcquireOrRenew／GetStatus／Release；空庫即 Leader、過期接管、同 server 續約）
+  ＋`IFailoverLeaseStore`＋`FailoverRepository`（SqliteStore，`failover_state` 單列 v28）；
+  17 新測試（引擎＋倉儲整合）→全 **816**、Release build 0 error、樹淨
+- 前一個 M86 交付＝`e187c6c`（登入視窗 LDAP 面板）＋`5e6a079`（docs）；全 **799**、
+  CI `35627326300` success；ldaplogincheck 第 29 支 harness→`LDAPLOGIN_OK`
 - 前一個 M85 交付＝`54cad94`（LDAPv3 連線層 L1：`LdapClient : ILdapBinder`
   裸 BER wire（simple bind＋memberOf SearchGroups）；`LdapBer` minimal BER＋`LdapFilterEncoder`
   RFC4515→BER；24 新測試（FakeLdapServer loopback）；全 **799**、CI `35621317643` success；
@@ -1550,6 +1551,20 @@ gh run list -L 3              # 預期全部 success
       repo 產生 `SQLite format 3*` 垃圾檔需 `Remove-Item`；**`Select-Object -Last 1` 會遮住 build 錯誤**
       （CS0120 連環產生舊 dll，診斷全歪）——看 build 結果要抓 `error|錯誤` 列
     - App Release build 0 error；Commit＋CI 綠；樹淨
+
+63. **M87 已完成＝§14.7 #9 Failover 容錯 L0（純 BCL leader 租約仲裁引擎）**：
+    - 背景：§14.7 #9「第二錄影伺服器即時接管」為僅剩的大型 P2 infra（現僅本機看門狗）；
+      先以「共用儲存作為仲裁者」的 lease 模型落地 L0 引擎（Frigate/Milestone 同 take-over 語意），
+      後續里程碑再接 UI／實體接管（§14.7 #9 收尾）
+    - 落點：Storage `failover_state`（v28，單列 id=1：`server_id`／`lease_expires_utc`）；
+      `IFailoverLeaseStore` 介面＋`FailoverRepository(SqliteStore)` 實作（ISO 往返）；
+      `FailoverCoordinator` 純 BCL 引擎（注入 store＋utcNow）：`AcquireOrRenew(lease, utcNow)`
+      （空庫→Leader、他人有效租約→Standby、過期→接管、同 server→續約）、`GetStatus(utcNow)`
+      （Role/LeaderId/剩餘/到期）、`Release(utcNow)`（僅現任 Leader 可清除）；驗證：lease 正數、
+      serverId 非空；`now == ExpiresUtc` 視為過期可接管
+    - 測試：引擎（InMemory store 假時鐘）x11＋倉儲整合（temp DB v28 表）x6＝＋17 → 全 **816**
+      （Storage 493→510）；`RuleRepositoryTests.SchemaVersion_IsV27`→v28（v bump 隨附）
+    - Commit＋CI＋樹淨；§14.7 #9 狀態改「L0 引擎已落地（UI/接管為後續里程碑）」
 
 ## 已知雷區（勿再犯）
 - **harness `.ps1` 必須存成 UTF-8 with BOM**：寫檔工具產出的是 UTF-8 無 BOM，含中文的 `.ps1` 會被 PowerShell 5.1 以 ANSI/Big5 誤讀而**靜默破壞解析**（症狀：`Start-Process` 看似無效、App 根本沒啟動、`Get-Process HeliVMS.App` 找不到）。修法：`[System.IO.File]::WriteAllText($p,[System.IO.File]::ReadAllText($p,[System.Text.Encoding]::UTF8),(New-Object System.Text.UTF8Encoding($true)))`（temp/opencode 有 `fix-encoding.ps1`）
