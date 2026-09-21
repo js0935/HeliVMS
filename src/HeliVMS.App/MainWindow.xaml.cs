@@ -357,6 +357,11 @@ public partial class MainWindow : Window
             Dispatcher.BeginInvoke(() => OpenRulesWindow());
         }
 
+        if (Environment.GetCommandLineArgs().Contains("--synopsis", StringComparer.OrdinalIgnoreCase))
+        {
+            Dispatcher.BeginInvoke(() => OpenSynopsisWindow());
+        }
+
         var evArgs = Environment.GetCommandLineArgs();
         var evidenceIndex = Array.IndexOf(evArgs, "--evidence");
         if (evidenceIndex >= 0)
@@ -1626,6 +1631,23 @@ public partial class MainWindow : Window
     }
 
     private void OnRulesClicked(object sender, RoutedEventArgs e) => OpenRulesWindow();
+
+    /// <summary>開啟影片摘要視窗（M63，§5.9）。admin 限定。</summary>
+    private void OpenSynopsisWindow()
+    {
+        if (!SessionContext.IsAdmin)
+        {
+            return;
+        }
+
+        var window = new SynopsisWindow(_store!, _dataRoot)
+        {
+            Owner = this,
+        };
+        window.Show();
+    }
+
+    private void OnSynopsisClicked(object sender, RoutedEventArgs e) => OpenSynopsisWindow();
 
     /// <summary>開啟電子地圖（M41；M49 補比例尺與 FOV 深度）。</summary>
     private void OpenMapWindow()
