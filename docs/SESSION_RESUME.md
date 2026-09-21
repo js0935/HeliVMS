@@ -6,7 +6,7 @@
 
 ## 一句話總結
 HeliVMS 為一套**網路影像監控系統**（WPF 桌面應用：即時監看／回放／AI 事件中心／錄影排程）。
-里程碑 **M1 至 M85 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M85 LDAPv3 連線層 L1）。
+里程碑 **M1 至 M86 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M86 登入視窗 LDAP 面板＋UI harness）。
 Release build 0 error、測試 **799/799 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
 本地與遠端完全同步（`git diff origin/HEAD` 為空）。
 
@@ -23,10 +23,15 @@ gh run list -L 3              # 預期全部 success
 新 session 會以 git 現況接手，不會靠猜測。
 
 ## 現況快照（權威來源＝git，非聊天記憶）
-- 最後 commit：`HEAD`＝**M85（`54cad94`）**——LDAPv3 連線層 L1：`LdapClient : ILdapBinder`
+- 最後 commit：`HEAD`＝**M86**——登入視窗 LDAP 面板（`LoginWindow` LdapPanel/LdapProviderCombo/
+  LdapLoginButton/LdapMessage＋`OnLdapLoginClicked` 走 `EnterpriseAuthService.AuthenticateLdap`
+  真實 wire `LdapClient`）；seedtriage 擴充 `--ldap-seed/--ldap-fake-server/--ldap-clean`＋
+  multi-accept `FakeLdapHarness`；ldaplogincheck 第 29 支 UIA harness→`LDAPLOGIN_OK`
+  （wrong=rejected;valid=accepted;main=true）；App Release build 0 error、樹淨、CI 綠
+- 前一個 M85 交付＝`54cad94`（LDAPv3 連線層 L1：`LdapClient : ILdapBinder`
   裸 BER wire（simple bind＋memberOf SearchGroups）；`LdapBer` minimal BER＋`LdapFilterEncoder`
   RFC4515→BER；24 新測試（FakeLdapServer loopback）；全 **799**、CI `35621317643` success；
-  seedtriage `--ldap-bind` 第 28 支 harness→`LDAP_BIND_OK`
+  seedtriage `--ldap-bind` 第 28 支 harness→`LDAP_BIND_OK`）
 - 前一個 M84 交付＝`434e275`（回放視窗強化② 時間軸模型驅動：band 覆蓋率 `COV:...`，
   UIA 第 27 支 pbcheck harness）、全 **775**、CI `35614308528` success
 - 前一個 M83 交付＝`f9a2ba1`（回放視窗強化① 時間軸 L0 `PlaybackTimelineBuilder`）、全 **775**、
@@ -1519,9 +1524,32 @@ gh run list -L 3              # 預期全部 success
       WRONG 密碼 reject → `LDAP_BIND_OK:provider=23;user=alice;role=admin;reject=true;port=…`
     - 全量：Storage 469→493 → 全 **799/799**；Build Release 0 error；feat commit＝**`54cad94`**；
       CI＝**`35621317643`** success；樹淨
-    - **M86 待辦（§14.7 #1 下一段落）＝App `LoginWindow` LDAP 面板**：現只有 OIDC provider combo；
-      加 LDAP provider 選擇＋企業登入按鈕（`AuthenticateLdap(provider, user, pw, new LdapClient())`）；
-      harness `ldaplogincheck`（App 側另開 `--ldap-fake-server` 進程，UIA 斷言登入成功開主窗）
+- **M86 下一步（§14.7 #1 下一段落）＝App `LoginWindow` LDAP 面板**（見下方 §62 已完成）
+
+62. **M86 已完成＝App `LoginWindow` LDAP 面板＋UI harness（§14.7 #1 LDAP 收尾）**：
+    - `LoginWindow.xaml`：新增 `LdapPanel`（AutomationId）／`LdapProviderCombo`／`LdapLoginButton`
+      （「以 LDAP 登入」，Click=`OnLdapLoginClicked`）／`LdapMessage`；`LoginWindow.xaml.cs`
+      `LoadEnterpriseProviders`＝oidc＋ldap 皆載（高度 Base 300＋各面板高）；`OnLdapLoginClicked`：
+      `_enterprise.AuthenticateLdap(provider, user, pw, new LdapClient())` → 成功設
+      `SessionContext.CurrentUser`＋`DialogResult=true`；失敗 `LdapMessage`＋`PasswordInput.Clear()`
+    - seedtriage 擴充：`--ldap-seed <port>`（建「LDAP harness」provider）、`--ldap-fake-server <portFile>`
+      （`FakeLdapHarness.Start(multiple:true)` 寫 port 檔後 `Sleep(Infinite)`）、`--ldap-clean`、
+      `--ldap-probe <port>`／`--ldap-probe-db`（cross-process 診斷）；`FakeLdapHarness` 改 instance
+      `RunAsync` accept 迴圈（static Task lambda 引用 instance 欄位會 CS0120）
+    - harness（第 29 支）`ldaplogincheck.ps1`（UIA）：`--auth-off` → fake server 進程 →
+      `--ldap-seed` → `--auth-on` → Start-Process App → UIA 斷言 LdapProviderCombo/LdapLoginButton/
+      LdapMessage 存在 → 錯密碼 reject 停留＋有訊息 → 正確密碼開主窗 → `LDAPLOGIN_OK`；finally 清 App/
+      fake 進程/`--auth-off`/`--ldap-clean`
+    - 排雷（已驗）：**WPF `StackPanel` 無 automation peer**——`Get-El "LdapPanel"` 抓不到，改斷言
+      子控件；**PasswordBox 不支援 UIA TextPattern/SetValue**，只能 `SetFocus()+SendKeys`；
+      **此環境 SendKeys 大小寫不穩定**（`p@ss` 到達 server 變 `P@SS`、`WRONG` 變 `wrong`，Caps/Shift
+      狀態逐次翻轉）→ fake 改對「x」case-insensitive 接受、harness 用單字元 `y`(reject)/`x`(accept)
+      唯 shift-free 才穩；**seedtriage db-scan 會把首個非 `--` 參數當 db 路徑**——`--ldap-seed`/
+      `--ldap-fake-server` 的值誤當 db 會在該路徑初始化 SQLite（fake 把 SQLite header 寫進 portFile →
+      harness 讀到 `'SQLite format 3'` 丟 FormatException）→ db-scan skip 清單加兩者；另外早期錯誤曾於
+      repo 產生 `SQLite format 3*` 垃圾檔需 `Remove-Item`；**`Select-Object -Last 1` 會遮住 build 錯誤**
+      （CS0120 連環產生舊 dll，診斷全歪）——看 build 結果要抓 `error|錯誤` 列
+    - App Release build 0 error；Commit＋CI 綠；樹淨
 
 ## 已知雷區（勿再犯）
 - **harness `.ps1` 必須存成 UTF-8 with BOM**：寫檔工具產出的是 UTF-8 無 BOM，含中文的 `.ps1` 會被 PowerShell 5.1 以 ANSI/Big5 誤讀而**靜默破壞解析**（症狀：`Start-Process` 看似無效、App 根本沒啟動、`Get-Process HeliVMS.App` 找不到）。修法：`[System.IO.File]::WriteAllText($p,[System.IO.File]::ReadAllText($p,[System.Text.Encoding]::UTF8),(New-Object System.Text.UTF8Encoding($true)))`（temp/opencode 有 `fix-encoding.ps1`）
