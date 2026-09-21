@@ -6,7 +6,7 @@
 
 ## 一句話總結
 HeliVMS 為一套**網路影像監控系統**（WPF 桌面應用：即時監看／回放／AI 事件中心／錄影排程）。
-里程碑 **M1 至 M78 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M78 音訊感測 L1 協調器）。
+里程碑 **M1 至 M79 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M79 音訊感測測試視窗）。
 Release build 0 error、測試 **735/735 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
 本地與遠端完全同步（`git diff origin/HEAD` 為空）。
 
@@ -14,7 +14,7 @@ Release build 0 error、測試 **735/735 全過**、`git status --porcelain` **�
 ```powershell
 # 在 D:\HeliVMS 開新 session 時，先對新的 agent 講：
 git status                    # 預期為 empty（乾淨）
-git log --oneline -20         # 預期見到 M1..M78，HEAD＝M78
+git log --oneline -20         # 預期見到 M1..M79，HEAD＝M79
 git diff origin/HEAD          # 預期為空（同步）
 gh run list -L 3              # 預期全部 success
 ```
@@ -23,9 +23,11 @@ gh run list -L 3              # 預期全部 success
 新 session 會以 git 現況接手，不會靠猜測。
 
 ## 現況快照（權威來源＝git，非聊天記憶）
-- 最後 commit：`HEAD`＝**M78（`7c937e8`）**——音訊感測 L1 協調器 `AudioSensorCoordinator`
-  （§5.8 多頻道路由＋`channels.audio_enabled`＋每頻道門檻覆寫；`AudioSensorCoordinatorTests`
-  ＋11；Alarms 244）；全 **735**、CI `35604408658` success
+- 最後 commit：`HEAD`＝**M79（`c661f9c`）**——音訊感測測試視窗 `AudioWindow`（`--audio`/
+  工具列、方波餵入協調器＋捨棄/結算；audiocheck 第 24 支 harness）；全 **735**、
+  CI `35605392969` success
+- 前一個 M78 交付＝`7c937e8`（音訊感測 L1 協調器 `AudioSensorCoordinator`）、全 **735**、
+  CI `35604408658` success
 - 前一個 M77 交付＝`06b4517`（雙碼流切流視窗）、全 **724**、CI `35603258006` success
 - 前一個 M76 交付＝`d993122`（雙碼流 Smart 切流 `StreamSwitcher` §15.2 L0）、
   全 **724**、CI `35602052735` success（隨附 NTP 測試寬鬆 fix `828acc5`）
@@ -1365,6 +1367,24 @@ gh run list -L 3              # 預期全部 success
       enabled 為空、Feed 全 Noop；引擎 `Feed` 同一批塊共用單一 utc → 同批 duration＝0 會撞
       `MinEventMs=120` 驗收陷阱——測試以「每 8 塊一批、每批 256ms」進時餵入，開窗 duration 才合法；
       分類階梯：20000（-4.29）在 BurstDb=-1 覆寫下不落 Quiet 而落 **Sustained**（SustainDb=-32 仍過）
+55. **M79 已完成＝音訊感測測試視窗＋harness（§5.8 L1 收尾，可視化 M78 協調器）**：
+    - 背景：M78 完成多頻道協調器後，M79 補「可視/可操作」：App `AudioWindow` 以合成方波
+      （20000）每 8 塊一批、每批 256ms 進時餵入協調器，驗證判讀與事件寫入
+    - App `AudioWindow.xaml(.cs)`（`--audio` 直開＋主視窗工具列「音訊」）：頻道下拉（僅
+      audio_enabled）、`餵爆音`（24 塊進時多批→`fed:{id};blocks=24;last=Burst`）、`捨棄`
+      （`reset:{id}`）、`結算`（`flushed:{n}ch;events=m`）；`AudioStateList`（頻道/啟用 Y|N/
+      最後判讀/本回事件）；AutomationId 群 `Audio*`
+    - harness（第 24 支回歸 audiocheck）：seedtriage `--map`（走過建頻道路徑，`SEED_MAP_OK`；
+      `--schema` 在頻道建立前即 return 不可用）；audiocheck.ps1 以 `HELIVMS_DATA` temp db 開
+      `--audio`：餵爆音→`last=Burst`、結算→`events=1`、捨棄→`reset:`；終輸出
+      `AUDIO_OK:channels=1;last=Burst;events=1;reset=true`
+    - 測試：全 **735/735**（Storage 429＋Alarms 244＋Devices 54＋Licensing 8，無新增源碼測試；
+      App 由 harness 覆蓋）；Build Release 0 error；feat commit＝**`c661f9c`**；CI＝
+      **`35605392969`** success
+    - 排雷（已驗）：WPF ComboBox 未展開時 UIA 不列 ListItem——harness 不得以 combo 行數斷言
+      （會誤報 no-channel），改以點「餵爆音」後讀狀態列（`fed:...last=Burst`）間接證明有頻道；
+      seedtriage 建頻道須用 `--map`（建於 schemaMode return 之後），`--schema` 不會建
+    - 另補：seedtriage 新增診斷模式 `--channels`（列出 id/name/audio_enabled，`CHANNELS:...`）
 
 ## 已知雷區（勿再犯）
 - **harness `.ps1` 必須存成 UTF-8 with BOM**：寫檔工具產出的是 UTF-8 無 BOM，含中文的 `.ps1` 會被 PowerShell 5.1 以 ANSI/Big5 誤讀而**靜默破壞解析**（症狀：`Start-Process` 看似無效、App 根本沒啟動、`Get-Process HeliVMS.App` 找不到）。修法：`[System.IO.File]::WriteAllText($p,[System.IO.File]::ReadAllText($p,[System.Text.Encoding]::UTF8),(New-Object System.Text.UTF8Encoding($true)))`（temp/opencode 有 `fix-encoding.ps1`）
