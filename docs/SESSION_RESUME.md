@@ -6,15 +6,15 @@
 
 ## 一句話總結
 HeliVMS 為一套**網路影像監控系統**（WPF 桌面應用：即時監看／回放／AI 事件中心／錄影排程）。
-里程碑 **M1 至 M62 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M62 複合事件規則引擎）。
-Release build 0 error、測試 **591/591 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
+里程碑 **M1 至 M63 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M63 影片摘要）。
+Release build 0 error、測試 **606/606 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
 本地與遠端完全同步（`git diff origin/HEAD` 為空）。
 
 ## 開新 session 的接手方法
 ```powershell
 # 在 D:\HeliVMS 開新 session 時，先對新的 agent 講：
 git status                    # 預期為 empty（乾淨）
-git log --oneline -20         # 預期見到 M1..M62，HEAD＝M62
+git log --oneline -20         # 預期見到 M1..M63，HEAD＝M63
 git diff origin/HEAD          # 預期為空（同步）
 gh run list -L 3              # 預期全部 success
 ```
@@ -23,7 +23,8 @@ gh run list -L 3              # 預期全部 success
 新 session 會以 git 現況接手，不會靠猜測。
 
 ## 現況快照（權威來源＝git，非聊天記憶）
-- 最後 commit：`HEAD`＝**M62（`ea512cf`）**——複合事件規則引擎（§5.10：match/all/any/not/within/count/timeBetween、ai_rules 設定層、規則編輯器，見下方 §38 定義段）；全 **591**、CI `35545119891` success
+- 最後 commit：`HEAD`＝**M63（`a6dceeb`）**——影片摘要（§5.9：偵測動態幀拼貼預覽＋manifest 摘要，見下方 §39 定義段）；全 **606**、CI `35546979051` success
+- 前一個 M62 交付＝`ea512cf`（複合事件規則引擎，見下方 §38 定義段）、全 **591**、CI `35545119891` success
 - 前一個 M61 交付＝`d4303b0`（單鏡目標追蹤原語，見下方 §37 定義段）、全 **570**、CI `35544108591` success
 - 前一個 M60 交付＝`ef567a7`（統圖報表／管理報表，見下方 §36 定義段）、全 **559**、CI `35543378978` success
 - 前一個 M58 交付＝`3e28bcd`（智慧分析模組二，見下方 §34 定義段）、全 **543**、CI `35541102070` success
@@ -38,8 +39,8 @@ gh run list -L 3              # 預期全部 success
 - 前一個 M47 交付＝`f3c01e1`（警報管理器 Alarm Manager，見下方 §22 M47 定義段）、全 **299**、CI `35286083642` success
 - 前一個 M46 交付＝`c7f6e8f`（錄影遮蔽 Redaction，見下方 §21 M46 定義段）、全 **293**、CI `35284550851` success
 - 前一個 M45 交付＝`ef3a8bc`（備份與異地備援，見下方 §20 M45 定義段）、全 **289**、CI `35263453271` success
-- 已驗收：**M62＝複合事件規則引擎（match/all/any/not/within/count/timeBetween、ai_rules 設定層、規則編輯器）**（§5.10，見下方 §38 定義段）；**M61＝單鏡目標追蹤原語（匈牙利 IoU 指派／track_id／EMA 平滑／生命周期）**（§5.7，見下方 §37 定義段）；**M60＝統圖報表／管理報表（錄影時數／斷線／容量趨勢／AI 事件統計）**（§14.7 #9、§11.7，見下方 §36 定義段）；**M59＝智慧分析模組三（尾隨／逆行 `ai_tailgating`）**（§5.6，見下方 §35 定義段）；**M58＝智慧分析模組二（長時間徘徊／靜止物／車流統計／熱區圖）**（§5.6，見下方 §34 定義段）；**M57＝多語言介面 i18n（繁中／簡中／English）**（§14.7 P1，見下方 §33 定義段）
-- 進行中：（下一里程碑依規劃，見下方 §39 定義段）
+- 已驗收：**M63＝影片摘要（偵測動態幀拼貼預覽＋manifest 摘要）**（§5.9，見下方 §39 定義段）；**M62＝複合事件規則引擎（match/all/any/not/within/count/timeBetween、ai_rules 設定層、規則編輯器）**（§5.10，見下方 §38 定義段）；**M61＝單鏡目標追蹤原語（匈牙利 IoU 指派／track_id／EMA 平滑／生命周期）**（§5.7，見下方 §37 定義段）；**M60＝統圖報表／管理報表（錄影時數／斷線／容量趨勢／AI 事件統計）**（§14.7 #9、§11.7，見下方 §36 定義段）；**M59＝智慧分析模組三（尾隨／逆行 `ai_tailgating`）**（§5.6，見下方 §35 定義段）；**M58＝智慧分析模組二（長時間徘徊／靜止物／車流統計／熱區圖）**（§5.6，見下方 §34 定義段）；**M57＝多語言介面 i18n（繁中／簡中／English）**（§14.7 P1，見下方 §33 定義段）
+- 進行中：（下一里程碑依規劃，見下方 §40 定義段）
 - 前一個 M38 交付＝`d09b045`（事件回應工作流，見下方 M38 定義段）、全 **172**、CI `35185639491` success
 - 前一個 M30 交付＝`24ad4c7`（MQTT 通知通道）：`NotificationSettings`＋
   `MqttEnabled/MqttHost/MqttPort(1883)/MqttTopic/MqttUser/MqttPassword`（鍵 `notify.mqtt.*`、
@@ -58,7 +59,7 @@ gh run list -L 3              # 預期全部 success
 - 前一個 M28 交付＝`ba95d0f`（事件中心篩選＋分頁：QueryArgs/ListByQuery/CountByQuery/
   ListEventTypes＋UI 類型 Combo＋Prev/Next 50/頁；114、evfiltercheck EVFILTERCHECK_OK）
 - 分支／遠端：`git diff origin/HEAD` 為空（完全同步）；HEAD＝origin
-- CI：`gh run list` 顯示最新 run `conclusion=success`；建置 0 error、測試 591/591
+- CI：`gh run list` 顯示最新 run `conclusion=success`；建置 0 error、測試 606/606
 
 ## 架構關鍵（確切、無漂移）
 - 解決方案：`D:\HeliVMS\HeliVMS.App\HeliVMS.App.csproj`（WPF）＋ `HeliVMS.slnx`
@@ -965,6 +966,44 @@ gh run list -L 3              # 預期全部 success
       →`RulesStatusText` 共 3 條（啟用 2）→`--rules-clean` 回收 harness 規則；`RULES_OK`（回歸 18 支全綠）
     - 定位：規則（match/all/any/not/within/count/timeBetween）＋動作（severity/tag/notify）以 JSON 存 `ai_rules`，
       為擴充複合事件規則（§5.10）落地；事件引擎銜接（§5.4）留待 v2 即時分析管線里程碑
+
+39. **M63 已完成**（commit `a6dceeb`，CI `35546979051` success）：影片摘要（Video Synopsis，§5.9
+     「事件檢索→縮圖/動態幀預覽」落地）——把一段時間內的偵測動態幀收斂成**單張拼貼預覽＋manifest 摘要**；
+     引擎**純 C# 位圖處理**（零外部依賴、零第三方，CI 可直接單元驗證）；**無 schema 變更**（v24 維持）：
+    - Alarms 新 `BmpFile`（讀／寫 24-bit 無壓縮 BMP；讀側解析檔案＋DIB 標頭、只收 24-bit BI_RGB、
+      正向/負向高度、含 row padding；寫側與 `BmpSnapshotWriter` 同位元組格式）、`ImageOps`
+      （`ResizeNearest` 最近鄰縮放）、`SynopsisBuilder`（`Build(request, events, outputDir)`→
+      取範圍內**有快照**事件（可選 `EventTypes` 白名單）→依 `StartUtc` 升序→每張快照解 BMP→
+      縮至 320×180→row-major N 欄（預設 4）網格（空白格填黑）→輸出
+      `synopsis-ch{n}-{from}-{to}.bmp`＋同名 `.json`（manifest：channel/from/to/thumb/columns/rows/
+      first/last/frameCount/skipped/truncated/cells[{index,utc,event_type,source_snapshot}]）；
+      回 `SynopsisResult`（路徑＋`SummaryText`＝「摘要：N 幀（RxC 網格）；HH:mm–HH:mm」＋截斷/略過註記）；
+      `MaxFrames=200` 上限；無輸入→null**不產檔**；單幀損壞→黑格＋Skipped 計入）
+    - App `SynopsisWindow`（AutomationId：SynopsisWindow／SynopsisChannelCombo／SynopsisFromBox／
+      SynopsisToBox／SynopsisBuildButton／SynopsisImage／SynopsisSummaryText／SynopsisStatusText）：
+      `AlarmEventRepository.ListByQuery`（Limit 2000）→引擎產出→Image 顯示拼貼（OnLoad）＋
+      manifest 路徑於狀態列；From/To 預填近 24 時、`yyyy-MM-dd HH:mm`（local→UTC 查）；
+      產出目錄 `dataRoot\synopsis`；主視窗工具列「報表／規則」旁加「摘要」按鈕＋`--synopsis` 直開
+      （admin 限定）
+    - 測試：Alarms `SynopsisTests` +15（BmpFile round-trip 像素等值、row padding 任意尺寸、拒非 24-bit、
+      ResizeNearest 尺寸與取樣＋放大、依時排序 row-major(ai_person/tamper/motion)、無快照跳過、
+      5 幀 4 欄→2 列數學＋sheet 維度 1280×360、空白格填黑、MaxFrames 截斷含「截斷」註記、
+      EventTypes 白名單、損壞快照略過計入、空輸入→null 不產檔、manifest JSON 往返、SummaryText）；
+      Alarms 191→**206**；全 **606**（Storage 368＋Alarms 206＋Devices 24＋Licensing 8）
+    - seedtriage：`--synopsis-seed {db} {dataRoot}`（造 4 張 640×360 均色 BMP→`snapshots\synopsis-harness-{type}.bmp`
+      ＋插 4 筆事件 motion/ai_person/tamper/ai_vehicle 於近 24 時、SnapshotPath 指向；先清舊 harness 事件、
+      `INSERT OR IGNORE` 頻道 1「harness synopsis」）／`--synopsis-clean`（刪 harness 事件＋快照＋
+      `synopsis\synopsis-*` 產物＋頻道）
+    - harness `synopsischeck.ps1`（回歸第 19 支）：seed→`--synopsis` 開窗→預設選頻道 1→
+      `SynopsisBuildButton` Invoke→輪詢 `SynopsisStatusText` 含 `synopsis-ch1-`→`SynopsisSummaryText`
+      含「4」→由狀態列 regex 抽出 `.bmp`/`.json`→讀 BMP 標頭驗維度=`1280x180`（4 幀→1×4 網格）→
+      manifest `frameCount=4`＋`cells.Count=4`＋`columns=4`→`--synopsis-clean` 回收→`SYNOPSIS_OK`
+      （回歸 19 支全綠）
+    - 排雷：BMP 讀取須自行處理 row 4-byte padding 與 bottom-up 行序（寫側底部行優先）；
+      **清理階段 App 對 `synopsis*.bmp` 仍是開檔鎖**——harness finally 在 Stop-Process 後須
+      `Start-Sleep 2` 等檔案釋放再 `--synopsis-clean`；harness 內不得有中文 literal（Big5）
+    - 定位：§5.9「以事件縮圖→縮圖牆/預覽」第 0 版落地；CLIP 語意搜尋／ReID embedding／連續動畫
+      短片留待 L1/v2（需模型或 ffmpeg 合成）里程碑
 
 ## 已知雷區（勿再犯）
 - **harness `.ps1` 必須存成 UTF-8 with BOM**：寫檔工具產出的是 UTF-8 無 BOM，含中文的 `.ps1` 會被 PowerShell 5.1 以 ANSI/Big5 誤讀而**靜默破壞解析**（症狀：`Start-Process` 看似無效、App 根本沒啟動、`Get-Process HeliVMS.App` 找不到）。修法：`[System.IO.File]::WriteAllText($p,[System.IO.File]::ReadAllText($p,[System.Text.Encoding]::UTF8),(New-Object System.Text.UTF8Encoding($true)))`（temp/opencode 有 `fix-encoding.ps1`）
