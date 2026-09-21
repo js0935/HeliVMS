@@ -6,15 +6,15 @@
 
 ## 一句話總結
 HeliVMS 為一套**網路影像監控系統**（WPF 桌面應用：即時監看／回放／AI 事件中心／錄影排程）。
-里程碑 **M1 至 M80 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M80 LDAP/AD 登入 L0）。
-Release build 0 error、測試 **746/746 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
+里程碑 **M1 至 M81 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M81 電子地圖事件熱點聚合器）。
+Release build 0 error、測試 **757/757 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
 本地與遠端完全同步（`git diff origin/HEAD` 為空）。
 
 ## 開新 session 的接手方法
 ```powershell
 # 在 D:\HeliVMS 開新 session 時，先對新的 agent 講：
 git status                    # 預期為 empty（乾淨）
-git log --oneline -20         # 預期見到 M1..M80，HEAD＝M80
+git log --oneline -20         # 預期見到 M1..M81，HEAD＝M81
 git diff origin/HEAD          # 預期為空（同步）
 gh run list -L 3              # 預期全部 success
 ```
@@ -23,8 +23,9 @@ gh run list -L 3              # 預期全部 success
 新 session 會以 git 現況接手，不會靠猜測。
 
 ## 現況快照（權威來源＝git，非聊天記憶）
-- 最後 commit：`HEAD`＝**M80（`4de75be`）**——LDAP/AD 登入 L0：`LdapDn`（RFC 2253 跳脫＋
-  `BuildUserDn`，基於既有 M50 `LdapSettings`）＋`LdapSettingsValidator`（純規則）；全 **746**、
+- 最後 commit：`HEAD`＝**M81（`e6948bf`）**——電子地圖強化② 事件熱點聚合器 `MapEventAggregator`
+  （純 BCL：近窗聚合/熱度門檻/urgency 0–100/camera 圖釘優先）；全 **757**、CI `35609914309` success
+- 前一個 M80 交付＝`4de75be`（LDAP/AD 登入 L0：`LdapDn`＋`LdapSettingsValidator`）、全 **746**、
   CI `35608457139` success；ldapcheck 第 25 支 harness
 - 前一個 M79 交付＝`c661f9c`（音訊感測測試視窗 `AudioWindow`）、全 **735**、CI `35605392969` success
 - 前一個 M78 交付＝`7c937e8`（音訊感測 L1 協調器 `AudioSensorCoordinator`）、全 **735**、
@@ -1410,6 +1411,24 @@ gh run list -L 3              # 預期全部 success
       正確做法是補既有型別缺口而非另起 schema（經驗：新里程碑先 grep 同名型別）；RFC2253 對 `#`
       也跳脫（`\#`），測試期望值寫成未跳脫版會失敗；意外編輯到 `AddSmartAlertColumnsV20` 文件註解
       與方法區塊——一律 `git checkout --` 還原避免噪音 diff
+57. **M81 已完成＝電子地圖強化② 事件熱點聚合器（§16 延伸，純 BCL L0）**：
+    - 定位：M41 E-Map 已含事件色圖釘/定位/閃爍；本里程碑補「熱點聚合」純計算層，供 M82 地圖視窗
+      渲染脈動與 tooltip 計數；不碰 UI
+    - Storage 新 `MapHotspot.cs`：`MapEventSample(ChannelId, Kind, Utc)`、`MapHotspot(DeviceId,
+      ChannelId, X, Y, Count, DistinctKinds, LastUtc, Hot, Urgency)`、`MapEventAggregator.Compute
+      (pins, samples, now, window=30分, minHotThreshold=3)`（靜態純函式）
+    - 規則（已測試）：窗含兩端〔from ≤ utc ≤ now〕；未來事件未鉚定頻道忽略；僅啟用圖釘；同頻道
+      camera/io 圖釘並存以 **camera 優先**；Hot＝Count ≥ minHotThreshold（<1 throw）；Urgency＝
+      0（不熱）或 min(100, Count×20＋60 秒內 +15)；DistinctKinds 依序排序；排序 Count 降序→
+      LastUtc 降序→DeviceId 升序（平手穩定）；LastUtc 取窗內最晚事件
+    - 測試：Storage `MapHotspotTests` +13（空輸入／空樣本零計數／依圖釘聚合計數／熱門門檻與
+      urgency 60／近期事件 +15→75／caps 100／未來＋窗緣（含兩端）過濾／停用圖釘／未鉚定頻道／
+      camera 優先／排序（count 降→lastUtc 降）／門檻 0 throw／LastUtc 追蹤）
+    - 修 1 雷：`HashSet` out var 於 false 分支未指派 → CS8602；改 `set = new...` 再註冊
+    - 全量：Storage 440→**453**；全 **757**（453＋244＋54＋8）；Build Release 0 error（NTP
+      `OffsetMatches` 已知 flake：本里程碑全量首跑 1/453 紅、rebuild 復跑 453/453 綠——與 M81 無關）
+    - 完成狀態：feat commit＝**`e6948bf`**；CI＝**`35609914309`** success；樹淨；harness 維持 25 支
+      （純 L0 不加 harness；M82 UI 再上 maphotcheck 第 26 支）
 
 ## 已知雷區（勿再犯）
 - **harness `.ps1` 必須存成 UTF-8 with BOM**：寫檔工具產出的是 UTF-8 無 BOM，含中文的 `.ps1` 會被 PowerShell 5.1 以 ANSI/Big5 誤讀而**靜默破壞解析**（症狀：`Start-Process` 看似無效、App 根本沒啟動、`Get-Process HeliVMS.App` 找不到）。修法：`[System.IO.File]::WriteAllText($p,[System.IO.File]::ReadAllText($p,[System.Text.Encoding]::UTF8),(New-Object System.Text.UTF8Encoding($true)))`（temp/opencode 有 `fix-encoding.ps1`）
