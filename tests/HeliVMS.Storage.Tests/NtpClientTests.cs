@@ -123,7 +123,8 @@ public class NtpClientTests
 
         sw.Stop();
         Assert.Null(result);
-        Assert.True(sw.Elapsed < TimeSpan.FromSeconds(2));
+        Assert.True(sw.Elapsed >= TimeSpan.FromMilliseconds(200), $"過早返回：{sw.Elapsed.TotalMilliseconds}；未實際等待逾時");
+        Assert.True(sw.Elapsed < TimeSpan.FromSeconds(5), $"懸掛：{sw.Elapsed.TotalSeconds}；逾時應於 300ms 後返回 null");
     }
 
     [Fact]
