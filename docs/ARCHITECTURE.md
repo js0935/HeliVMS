@@ -1088,7 +1088,7 @@ L2 比對（人臉/車牌）置「進階·需權限」區，預設關閉（§5.1
 | 5 | 隱私 | **錄影遮蔽/模糊化（Redaction）** | Genetec Digital Evidence、Synology 快照模糊 | 沒有 | P1（個資法交付加分） |
 | 6 | AI | **模組化分析情境套件**：周界/靜止車輛/尾隨/區域防護/方向控制 | Genetec KiwiVision | 核心已規劃（§5.6 分析情境＋§5.7 追蹤＋§5.10 規則） | P2（能力開放，§19 銷售位元） |
 | 7 | 搜尋 | **法證語意搜尋**（NLP / CLIP 語意）、影片摘要 | Genetec Forensic Search、Frigate CLIP | **FTS5 全文檢索 L0（M91 `EventSearchRepository`）已落地**；語意/AI 向量待續 | P2（差異化賣點） |
-| 8 | 整合 | **統一安全平台**：門禁/入侵感測/POS(Metadata 配對) | Genetec 平台、Synology Transactions、QNAP Metadata Vault | DI/DO＋綁定鏡頭已規劃(§16.2)，POS/門禁接口待擴 | P2 |
+| 8 | 整合 | **統一安全平台**：門禁/入侵感測/POS(Metadata 配對) | Genetec 平台、Synology Transactions、QNAP Metadata Vault | DI/DO＋綁定鏡頭已規劃(§16.2)；**門禁事件 L0 已落地（M92 `DoorEventRepository` v30）**；POS 接口待擴 | P2 |
 | 9 | 可靠 | **Failover 容錯**（第二記錄伺服器） | Milestone Failover、QNAP QVR Guard | 僅本機看門狗＋**租約仲裁 L0（M87）＋監控視窗/harness（M88）**；實體接管待續 | P2 |
 | 10 | 儲存 | **Edge Storage 雙保險**（設備 SD 側錄 + NVR） | Milestone、Genetec、Synology | **L0 補抓規劃器（M89 `EdgeRecoveryPlanner` 已落地）**；實體回灌待續 | P2 |
 | 11 | 地圖 | **智慧地圖深化**：視角扇形 FOV/深度 | Milestone Smart Map | 僅基礎圖釘(§14.3) | P2 |

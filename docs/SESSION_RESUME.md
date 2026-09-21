@@ -6,8 +6,8 @@
 
 ## 一句話總結
 HeliVMS 為一套**網路影像監控系統**（WPF 桌面應用：即時監看／回放／AI 事件中心／錄影排程）。
-里程碑 **M1 至 M91 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M91 事件 FTS5 全文檢索）。
-Release build 0 error、測試 **851/851 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
+里程碑 **M1 至 M92 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M92 門禁事件 L0）。
+Release build 0 error、測試 **858/858 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
 本地與遠端完全同步（`git diff origin/HEAD` 為空）。
 
 ## 開新 session 的接手方法
@@ -23,12 +23,12 @@ gh run list -L 3              # 預期全部 success
 新 session 會以 git 現況接手，不會靠猜測。
 
 ## 現況快照（權威來源＝git，非聊天記憶）
-- 最後 commit：`HEAD`＝**M91**——法證語意搜尋 L0（§14.7 #7）：SqliteStore v29 `alarm_events_fts`
-  FTS5 外部內容表（content＋AI/AD/AU trigger 同步）＋`EventSearchRepository`（建構無條件 rebuild
-  自癒、MATCH＋bm25 排名、start_time 左閉右開範圍）；10 新測試→全 **851**、Release build
-  0 error、樹淨
-- 前一個 M90 交付＝`f87afc1`（Edge AI metadata 方向分類）＋`dcc94c6`（docs）；全 **841**、
-  CI `35657282747` success
+- 最後 commit：`HEAD`＝**M92**——§14.7 #8 門禁事件 L0：SqliteStore v30 `door_events`（進出方向
+  In/Out＋granted＋時序索引 device・card・door）＋`DoorEventRepository`（Insert 回 id；Query
+  device/door/card/granted/左閉右開區間/limit；CountByCard）；7 新測試→全 **858**、Release
+  build 0 error、樹淨
+- 前一個 M91 交付＝`a63adc4`（法證語意搜尋 FTS5，v29）＋`5e4159c`（docs）；全 **851**、
+  CI `35662970681` success
 - 前一個 M85 交付＝`54cad94`（LDAPv3 連線層 L1：`LdapClient : ILdapBinder`
   裸 BER wire（simple bind＋memberOf SearchGroups）；`LdapBer` minimal BER＋`LdapFilterEncoder`
   RFC4515→BER；24 新測試（FakeLdapServer loopback）；全 **799**、CI `35621317643` success；
@@ -1633,6 +1633,18 @@ gh run list -L 3              # 預期全部 success
       抛錯／from 左閉＋to 右開範圍／刪除不再命中／更新反映新內容／rank 最佳命中在先／limit）
       ＝＋10 → 全 **851**（Storage 535→545）；`SchemaVersion_IsV29` 改名
     - Commit＋CI；樹淨；§14.7 #7 狀態改「FTS5 全文檢索 L0 已落地（語意/AI 向量為後續）」
+
+68. **M92 已完成＝§14.7 #8 統一安全平台之門禁事件 L0**：
+    - 背景：§14.7 #8「統一安全平台（門禁/入侵/DO）」列 P2；現況 DO 已落地（M85）、入侵＝tamper/
+      motion（M39/M38）；門禁（卡片進出事件）仍無；L0 先落「卡片刷卡事件」記錄＋查詢
+    - 落點：SqliteStore v29→**v30**；`door_events`（device_id/door_id/card_id/direction
+      In|Out/granted/reason/occurred_at_utc＋時序索引 ×3＝device・card・door）；
+      `DoorEvent` record＋`DoorEventRepository`（Insert 回 id；Query 過 device/door/card/
+      granted/from-to/limit；CountByCard 區間計數）
+    - 測試：整合 x7（Insert 全欄位 roundtrip／依 card＋區間或右開／依 device＋granted／door 過濾／
+      CountByCard 區間／limit／未知 card 空）；`SchemaVersion_IsV30` 改名
+      ＝＋7 → 全 **858**（Storage 545→552）；CI 綠；樹淨；§14.7 #8 現況改「DO＋門禁事件
+      已落地」
 
 ## 已知雷區（勿再犯）
 - **harness `.ps1` 必須存成 UTF-8 with BOM**：寫檔工具產出的是 UTF-8 無 BOM，含中文的 `.ps1` 會被 PowerShell 5.1 以 ANSI/Big5 誤讀而**靜默破壞解析**（症狀：`Start-Process` 看似無效、App 根本沒啟動、`Get-Process HeliVMS.App` 找不到）。修法：`[System.IO.File]::WriteAllText($p,[System.IO.File]::ReadAllText($p,[System.Text.Encoding]::UTF8),(New-Object System.Text.UTF8Encoding($true)))`（temp/opencode 有 `fix-encoding.ps1`）
