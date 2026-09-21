@@ -6,15 +6,15 @@
 
 ## 一句話總結
 HeliVMS 為一套**網路影像監控系統**（WPF 桌面應用：即時監看／回放／AI 事件中心／錄影排程）。
-里程碑 **M1 至 M71 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M71 OnvifPtzExecutor）。
-Release build 0 error、測試 **693/693 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
+里程碑 **M1 至 M72 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M72 巡航視窗＋持久化）。
+Release build 0 error、測試 **701/701 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
 本地與遠端完全同步（`git diff origin/HEAD` 為空）。
 
 ## 開新 session 的接手方法
 ```powershell
 # 在 D:\HeliVMS 開新 session 時，先對新的 agent 講：
 git status                    # 預期為 empty（乾淨）
-git log --oneline -20         # 預期見到 M1..M71，HEAD＝M71
+git log --oneline -20         # 預期見到 M1..M72，HEAD＝M72
 git diff origin/HEAD          # 預期為空（同步）
 gh run list -L 3              # 預期全部 success
 ```
@@ -23,9 +23,11 @@ gh run list -L 3              # 預期全部 success
 新 session 會以 git 現況接手，不會靠猜測。
 
 ## 現況快照（權威來源＝git，非聊天記憶）
-- 最後 commit：`HEAD`＝**M71（`e63459f`）**——`OnvifPtzExecutor`（`IPtzExecutor` ONVIF 實作：
-  GetPresets 名→token 快取＋GotoPreset，無 PTZ 能力/未知名 throw，`HeliVMS.Devices\Ptz`）；
-  全 **693**、CI `35587474678` success
+- 最後 commit：`HEAD`＝**M72（`77ee434`）**——巡航管理視窗＋持久化（schema v26 patrols/
+  patrol_steps；`PatrolRepository` 每通道單套整存；App `PatrolWindow`＋工具列「巡航」＋
+  `--patrol`；seedtriage `--patrol-seed/--patrol-verify`）；全 **701**、CI `35599188803`
+  success
+- 前一個 M71 交付＝`e63459f`（OnvifPtzExecutor ONVIF 實作）、全 **693**、CI `35587474678` success
 - 前一個 M70 交付＝`ec03350`（PatrolRunner PTZ 巡航執行器）、全 **686**、CI `35586810793` success
 - 前一個 M69 交付＝`36cbb60`（PTZ 巡航排程器 PatrolController L0）、全 **676**、CI `35586031203` success
 - 前一個 M68 交付＝`a5015a7`（RFC 5905 SNTP 校時用戶端）、全 **663**、CI `35585248329` success
@@ -1225,6 +1227,33 @@ gh run list -L 3              # 預期全部 success
       並解構；SOAP mock 的 GetCapabilities 回應必須帶 `Capabilities/PTZ/XAddr` 且其路徑名稱
       空間任意（Descendants 找 LocalName）；GetPresets 回應 Preset 的 Name 在 `tt:Name`
       （`ElementAnyNs("Name")`）——mock 命名空間須齊備
+48. **M72 已完成＝巡航管理視窗＋持久化（§47 計畫「巡航視窗與 harness」）**：
+    - 背景：M69–M71 已有引擎（PatrolController/PatrolRunner/OnvifPtzExecutor/IPtzExecutor）
+      ，但巡航設定無從落地。M72 補上「每通道一套巡航 Plan」的持久化與 UI 管理，收 §47 尾
+    - 儲存層 schema **v26**（`SqliteStore`）：`patrols(id,name,channel_id,enabled,
+      window_start,window_end,created_at,updated_at)`＋`patrol_steps(id,patrol_id,seq,
+      preset_name,dwell_seconds)`＋`idx_patrol_steps_patrol_seq`
+    - `HeliVMS.Storage\PatrolRepository.cs`：`Save(id?)`（id null→查同頻道既有並沿用其 Id，
+      保「每通道單套」語意；否則覆寫＋重建步驟 seq 0..n-1）；`GetByChannel/ListAll/Delete`；
+      驗證：名稱非空、通道>0、預設點名非空、dwell≥0、空白時窗回退 00:00-23:59
+    - App `PatrolWindow.xaml(.cs)`（`--patrol` 直開＋主視窗工具列「巡航」）：頻道下拉、
+      名稱/啟用/每日時窗（HH:mm）、預設點步驟 ListView（新增/移除）、整存→狀態列回報儲存
+      成功含步驟數供 harness 斷言；AutomationId 群 `Patrol*`
+    - 測試：Storage.Tests `PatrolRepositoryTests`（+8）：Save→GetByChannel 全欄位＋步驟序回圈；
+      null id 同頻道覆寫不重複（Id 不變、ListAll 仍 1 筆）；顯式 id 覆寫欄位＋重建步驟；空步驟
+      可存；Delete 移步驟＋連帶；ListAll 多頻道排序；輸入驗證 4 例；空白時窗回退全天；
+      Storage 398→**406**；順帶 `RuleRepositoryTests.SchemaVersion_IsV26`（v24→26）；全 **701**
+      （Storage 406＋Alarms 233＋Devices 54＋Licensing 8）
+    - harness（開放準備）：seedtriage 加 `--patrol-seed/--patrol-verify`（`PATROL_SEED_OK`/
+      `PATROL_VERIFY_OK`，名稱=enabled=時窗＋3 步驟）；下一個工地（patrolcheck.ps1）將以
+      `HELIVMS_DATA` temp db 開 `--patrol` UI 驗窗內載入與儲存
+    - 完成狀態：全 **701/701**；Build Release 0 error；feat commit＝**`77ee434`**；CI＝
+      **`35599188803`** success；排雷已驗（見下）
+    - 排雷（已驗）：`SqliteStore.Execute` 回 void（無 affected rows）→Delete 先查 EXISTS；
+      schema 升版必須同步改 `RuleRepositoryTests.SchemaVersion_IsV*`（一時漏改造成全量 1 紅）；
+      AiConcurrencyTests 併發時序 flake（fixed Sleep 350ms 在 xUnit 平行載入下偶發 0 µg）
+      →`WaitUntil` 輪詢雙計數器（Runs 與 FramesInferred/FramesFed 須齊到位再斷言）；App env
+      data root 用 `HELIVMS_DATA`（harness 以 temp db 隔離）
 
 ## 已知雷區（勿再犯）
 
