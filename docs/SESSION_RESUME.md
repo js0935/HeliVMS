@@ -6,15 +6,15 @@
 
 ## 一句話總結
 HeliVMS 為一套**網路影像監控系統**（WPF 桌面應用：即時監看／回放／AI 事件中心／錄影排程）。
-里程碑 **M1 至 M84 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M84 回放視窗時間軸模型驅動）。
-Release build 0 error、測試 **775/775 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
+里程碑 **M1 至 M85 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M85 LDAPv3 連線層 L1）。
+Release build 0 error、測試 **799/799 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
 本地與遠端完全同步（`git diff origin/HEAD` 為空）。
 
 ## 開新 session 的接手方法
 ```powershell
 # 在 D:\HeliVMS 開新 session 時，先對新的 agent 講：
 git status                    # 預期為 empty（乾淨）
-git log --oneline -20         # 預期見到 M1..M84，HEAD＝M84
+git log --oneline -20         # 預期見到 M1..M85，HEAD＝M85
 git diff origin/HEAD          # 預期為空（同步）
 gh run list -L 3              # 預期全部 success
 ```
@@ -23,9 +23,12 @@ gh run list -L 3              # 預期全部 success
 新 session 會以 git 現況接手，不會靠猜測。
 
 ## 現況快照（權威來源＝git，非聊天記憶）
-- 最後 commit：`HEAD`＝**M84（`434e275`）**——回放視窗強化② 時間軸模型驅動：band 改用
-  `PlaybackTimelineBuilder` fractions＋覆蓋率標籤 `COV:...`（UIA 第 27 支 pbcheck harness）；
-  全 **775**、CI `35614308528` success
+- 最後 commit：`HEAD`＝**M85（`54cad94`）**——LDAPv3 連線層 L1：`LdapClient : ILdapBinder`
+  裸 BER wire（simple bind＋memberOf SearchGroups）；`LdapBer` minimal BER＋`LdapFilterEncoder`
+  RFC4515→BER；24 新測試（FakeLdapServer loopback）；全 **799**、CI `35621317643` success；
+  seedtriage `--ldap-bind` 第 28 支 harness→`LDAP_BIND_OK`
+- 前一個 M84 交付＝`434e275`（回放視窗強化② 時間軸模型驅動：band 覆蓋率 `COV:...`，
+  UIA 第 27 支 pbcheck harness）、全 **775**、CI `35614308528` success
 - 前一個 M83 交付＝`f9a2ba1`（回放視窗強化① 時間軸 L0 `PlaybackTimelineBuilder`）、全 **775**、
   CI `35613154435` success
 - 前一個 M80 交付＝`4de75be`（LDAP/AD 登入 L0：`LdapDn`＋`LdapSettingsValidator`）、全 **746**、
@@ -1491,6 +1494,34 @@ gh run list -L 3              # 預期全部 success
       `AutomationProperties.SetName` 報 CS0103；以往無 UIA 需求故未暴露；需補 using
     - 全量：Storage 469（App-only）→ 全 **775/775**；Build Release 0 error；
       feat commit＝**`434e275`**；CI＝**`35614308528`** success；樹淨
+
+61. **M85 已完成＝LDAPv3 連線層 L1（§14.7 #1 LDAP，M80 L0 之上實作 wire）**：
+    - Storage 新增 `LdapClient : ILdapBinder`（純 BCL，零第三方依賴）：TCP＋BER 講 LDAPv3 wire——
+      `LDAPMessage = SEQUENCE(INTEGER msgId, op)`；simple bind（app0 0x60）、search（app3 0x63）、
+      entry（app4 0x64）、done（app5 0x65）；`LDAP_BIND_OK` harness 原則與 `LdapClientTests` 以
+      loopback `FakeLdapServer`（TcpListener）對測
+    - bind 流程：有 `BindDn`（service account）→ 先 svc bind → subtree search 用
+      `LdapFilter.Build(UserFilter)` 找用戶 DN（sizeLimit 1，**done 未附 entry ⇒ null**）→ 用戶 bind；
+      無 BindDn → 直接 `LdapDn.BuildUserDn` bind；接著 baseObject search（用戶 DN，`(objectClass=*)`，
+      attrs `['*','+']`）蒐集 memberOf SET → 群組清單；任何 Socket/IO/Arg/Format 例外 ⇒ null
+    - `LdapBer`：minimal BER 編解碼（`Integer/Enumerated/Octet/Boolean/Tlv/Seq/Set/Concat/
+      TryReadTlv/Parse`）；**`Parse(span)` 語意＝輸入為 TLV content（無表頭）回傳直接子節點**，
+      測試必須 `Parse(x.Body())`；解出物 `BerTlv(byte Tag, byte[] Body)`
+    - `LdapFilterEncoder`：RFC4515→BER（`(attr=*)`→0x87 presence、`(attr=val)`→0xA3 equality、
+      `&`/`|`/`!`→0xA0/0xA1/0xA2、`\XX` hex 跳脫）；排雷（已驗）：`params byte[]` 無法收多個
+      byte[]（expanded form 要求 element），要組多 TLV 得用 `params byte[][]`＋`Concat`
+    - 測試：**24 新測試**（LdapBerTests 5、LdapFilterEncoderTests 6、LdapClientTests 12）；排雷：
+      responder 收到的是**請求** op tag（bind=**0x60**，search=0x63）不是回應 tag（0x61/0x65）；
+      `(objectClass=user)` 是 equality（0xA3）非 presence；`(&(a=1)b` 單子 AND＋殘字不會 throw
+      （改以 `(!(a=b)))` 測結尾殘字）；"Jo\6eh" 跳脫為 "Jonh" 非 "Joh"
+    - seedtriage `--ldap-bind`（第 28 支 harness）：in-process `FakeLdapHarness`（TcpListener）+真正的
+      `EnterpriseAuthService.AuthenticateLdap(provider, user, pw, new LdapClient())` → admin 對映＋
+      WRONG 密碼 reject → `LDAP_BIND_OK:provider=23;user=alice;role=admin;reject=true;port=…`
+    - 全量：Storage 469→493 → 全 **799/799**；Build Release 0 error；feat commit＝**`54cad94`**；
+      CI＝**`35621317643`** success；樹淨
+    - **M86 待辦（§14.7 #1 下一段落）＝App `LoginWindow` LDAP 面板**：現只有 OIDC provider combo；
+      加 LDAP provider 選擇＋企業登入按鈕（`AuthenticateLdap(provider, user, pw, new LdapClient())`）；
+      harness `ldaplogincheck`（App 側另開 `--ldap-fake-server` 進程，UIA 斷言登入成功開主窗）
 
 ## 已知雷區（勿再犯）
 - **harness `.ps1` 必須存成 UTF-8 with BOM**：寫檔工具產出的是 UTF-8 無 BOM，含中文的 `.ps1` 會被 PowerShell 5.1 以 ANSI/Big5 誤讀而**靜默破壞解析**（症狀：`Start-Process` 看似無效、App 根本沒啟動、`Get-Process HeliVMS.App` 找不到）。修法：`[System.IO.File]::WriteAllText($p,[System.IO.File]::ReadAllText($p,[System.Text.Encoding]::UTF8),(New-Object System.Text.UTF8Encoding($true)))`（temp/opencode 有 `fix-encoding.ps1`）
