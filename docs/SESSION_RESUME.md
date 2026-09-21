@@ -6,8 +6,8 @@
 
 ## 一句話總結
 HeliVMS 為一套**網路影像監控系統**（WPF 桌面應用：即時監看／回放／AI 事件中心／錄影排程）。
-里程碑 **M1 至 M89 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M89 Edge Storage 雙保險 L0）。
-Release build 0 error、測試 **829/829 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
+里程碑 **M1 至 M90 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M90 消費邊緣 AI metadata 方向分類）。
+Release build 0 error、測試 **841/841 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
 本地與遠端完全同步（`git diff origin/HEAD` 為空）。
 
 ## 開新 session 的接手方法
@@ -23,11 +23,12 @@ gh run list -L 3              # 預期全部 success
 新 session 會以 git 現況接手，不會靠猜測。
 
 ## 現況快照（權威來源＝git，非聊天記憶）
-- 最後 commit：`HEAD`＝**M89**——Edge Storage 雙保險 L0（§14.7 #10）：`EdgeRecoveryPlanner`
-  （純 BCL：SD manifest 段與 NVR 本機涵蓋求差→缺失補抓時窗；gap≤閾值併單、maxFetchWindow
-  分割、過期段略過；重疊正規化）；13 新測試→全 **829**、Release build 0 error、樹淨
-- 前一個 M88 交付＝`15cc208`（Failover 監控視窗）＋`f0558dc`（docs）；全 **816**、
-  CI `35655382954` success；failovercheck 第 30 支 harness→`FAILOVER_OK`
+- 最後 commit：`HEAD`＝**M90**——消費邊緣 AI metadata 方向分類 L0（§14.7 #13）：`EdgeAIClassifier`
+  （箱款尺度位移閾值、早期/晚期 1/3 中位數判向、四向＋Stationary）＋`EdgeAITracker`（軌跡滑動窗、
+  Disappear/timeout 收尾、maxTracks 逐最舊、亂序容忍）；12 新測試→全 **841**、Release build
+  0 error、樹淨
+- 前一個 M89 交付＝`b5db126`（Edge Storage L0）＋`5b072f1`（docs）；全 **829**、
+  CI `35656277959` success
 - 前一個 M85 交付＝`54cad94`（LDAPv3 連線層 L1：`LdapClient : ILdapBinder`
   裸 BER wire（simple bind＋memberOf SearchGroups）；`LdapBer` minimal BER＋`LdapFilterEncoder`
   RFC4515→BER；24 新測試（FakeLdapServer loopback）；全 **799**、CI `35621317643` success；
@@ -1594,6 +1595,23 @@ gh run list -L 3              # 預期全部 success
     - 測試：純引擎假時鐘 x13 → 全 **829**（Storage 510→523）；排序時序、併段計數、StaleFloor
       以「末端」判斷（`EndUtc < now−ttl`）
     - Commit＋CI＋樹淨；§14.7 #10 狀態改「L0 規劃器已落地（UI/段層回灌為後續里程碑）」
+
+66. **M90 已完成＝§14.7 #13 消費邊緣 AI 相機 metadata（D2C/方向）L0（純 BCL）**：
+    - 背景：§14.7 #13「消費邊緣 AI 相機 metadata」列 P3、現況「以 NVR 端推理為準」；L0 先做
+      「消費」層——吃相機 AI 送出的 metadata 串（ONVIF Profile M 語意：Appear/Move/Present/
+      Disappear＋bounding box），聚合成每條物件軌跡並判運動方向，後續里程碑接欄位持久化/查詢 UI
+    - 落點：Storage `EdgeAIClassifier`（`TrajectoryDirection`：Stationary/LtR/RtL/TtoB/BtoT/Other，
+      以物件箱款當「畫面尺度」做位移閾值＝箱款平均×(W+H)/2×2%：早期 1/3 中位數 vs 晚期 1/3
+      中位數之淨位移判向，抵抗零星雜訊；樣本<3 回 Stationary）；`EdgeAITracker`（依
+      DeviceId+Class+TrackId in-memory 滑動窗：Disappear 或與 utcNow 的間隔逾 trackTimeout
+      收尾；逾 maxTracks 逐「最近活躍最舊」；亂序容忍＝收尾時依時間戳排序）
+    - 測試：純假時鐘 x12（四向判別／靜止／鋸齒淨位移小→Stationary／樣本不足→Stationary／
+      Disappear 收尾／timeout 分兩條／跨 TrackId 隔離／亂序排序後判向／maxTracks 逐最舊）
+      ＝＋12 → 全 **841**（Storage 523→535）
+    - 排雷（情境編寫）：timeout 以「utcNow − 最後樣本時間」判斷，測試的 utcNow 若遠晚於樣本
+      時間會在每次 Push 即收尾（首推非空、Disappear 推回 2 條等假失敗）——近即時串流語意
+      應讓 `utcNow = 最新樣本時間`；「方向」以時間序為準，送達逆序僅排序、不反轉運動方向
+    - Commit＋CI＋樹淨；§14.7 #13 狀態改「L0 消費 metadata 軌跡/方向分類已落地（持久化/查詢為後續）」
 
 ## 已知雷區（勿再犯）
 - **harness `.ps1` 必須存成 UTF-8 with BOM**：寫檔工具產出的是 UTF-8 無 BOM，含中文的 `.ps1` 會被 PowerShell 5.1 以 ANSI/Big5 誤讀而**靜默破壞解析**（症狀：`Start-Process` 看似無效、App 根本沒啟動、`Get-Process HeliVMS.App` 找不到）。修法：`[System.IO.File]::WriteAllText($p,[System.IO.File]::ReadAllText($p,[System.Text.Encoding]::UTF8),(New-Object System.Text.UTF8Encoding($true)))`（temp/opencode 有 `fix-encoding.ps1`）
