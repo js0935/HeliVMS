@@ -377,6 +377,11 @@ public partial class MainWindow : Window
             Dispatcher.BeginInvoke(() => OpenIoWindow());
         }
 
+        if (Environment.GetCommandLineArgs().Contains("--stream", StringComparer.OrdinalIgnoreCase))
+        {
+            Dispatcher.BeginInvoke(() => OpenStreamSwitchWindow());
+        }
+
         var evArgs = Environment.GetCommandLineArgs();
         var evidenceIndex = Array.IndexOf(evArgs, "--evidence");
         if (evidenceIndex >= 0)
@@ -1704,6 +1709,18 @@ public partial class MainWindow : Window
     }
 
     private void OnIoClicked(object sender, RoutedEventArgs e) => OpenIoWindow();
+
+    /// <summary>開啟雙碼流切流調整視窗（M77，§15.2）。</summary>
+    private void OpenStreamSwitchWindow()
+    {
+        var window = new StreamSwitchWindow(_store!)
+        {
+            Owner = this,
+        };
+        window.Show();
+    }
+
+    private void OnStreamClicked(object sender, RoutedEventArgs e) => OpenStreamSwitchWindow();
 
     /// <summary>開啟電子地圖（M41；M49 補比例尺與 FOV 深度）。</summary>
     private void OpenMapWindow()
