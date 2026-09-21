@@ -1,4 +1,5 @@
 using System.Windows;
+using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
@@ -24,6 +25,12 @@ public partial class MapWindow : Window
 
     private sealed record PinView(FrameworkElement Root, Shape Shape, string Type, int? LookupChannel);
     private readonly List<PinView> _pins = new();
+
+    private readonly List<FrameworkElement> _hotspotBadges = new();
+    private readonly List<Ellipse> _hotspotRings = new();
+    private readonly DispatcherTimer _pulseTimer;
+    private bool _pulseOn;
+    private int _currentMapId;
 
     private readonly DispatcherTimer _flashTimer;
     private int _flashTicks;
@@ -71,8 +78,18 @@ public partial class MapWindow : Window
         _flashTimer.Tick += OnFlashTick;
 
         _eventTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(15) };
-        _eventTimer.Tick += (_, _) => RefreshEventColors();
+        _eventTimer.Tick += (_, _) =>
+        {
+            RefreshEventColors();
+            if (_currentMapId > 0)
+            {
+                RefreshHotspots(_currentMapId);
+            }
+        };
         _eventTimer.Start();
+
+        _pulseTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(380) };
+        _pulseTimer.Tick += OnPulseTick;
 
         MapScroll.PreviewMouseLeftButtonDown += OnPanStart;
         MapScroll.PreviewMouseMove += OnPanMove;
@@ -204,6 +221,7 @@ public partial class MapWindow : Window
         _scaleMPerPx = map.ScaleMPerPx;
         UpdateScaleText(mapId, map);
 
+        _currentMapId = mapId;
         LoadPins(mapId);
 
         Dispatcher.BeginInvoke(() =>
@@ -272,6 +290,8 @@ public partial class MapWindow : Window
             _pins.Add(pin);
             MapCanvas.Children.Add(pin.Root);
         }
+
+        RefreshHotspots(mapId);
     }
 
     private PinView CreateCameraPin(MapDeviceRecord d, string name, bool hasEvent)
@@ -382,6 +402,104 @@ public partial class MapWindow : Window
         var geo = new PathGeometry();
         geo.Figures.Add(fig);
         return geo;
+    }
+
+    /// <summary>重繪事件熱點（M82，§16 強化②）：依 MapEventAggregator 在圖釘上加計數徽章＋脈動圓環。</summary>
+    private void RefreshHotspots(int mapId)
+    {
+        foreach (var b in _hotspotBadges)
+        {
+            MapCanvas.Children.Remove(b);
+        }
+
+        foreach (var r in _hotspotRings)
+        {
+            MapCanvas.Children.Remove(r);
+        }
+
+        _hotspotBadges.Clear();
+        _hotspotRings.Clear();
+        _pulseTimer.Stop();
+        _pulseOn = false;
+
+        var nowUtc = DateTime.UtcNow;
+        var pins = _maps.ListDevices(mapId);
+        if (pins.Count == 0)
+        {
+            return;
+        }
+
+        var samples = new List<MapEventSample>();
+        foreach (var ev in _events.ListByRange(null, nowUtc.AddMinutes(-30), nowUtc))
+        {
+            samples.Add(new MapEventSample(ev.ChannelId, ev.EventType, new DateTimeOffset(ev.StartUtc, TimeSpan.Zero)));
+        }
+
+        foreach (var hs in MapEventAggregator.Compute(pins, samples, new DateTimeOffset(nowUtc, TimeSpan.Zero)))
+        {
+            if (hs.Count <= 0)
+            {
+                continue;
+            }
+
+            var cx = hs.X * MapCanvas.Width;
+            var cy = hs.Y * MapCanvas.Height;
+
+            var ring = new Ellipse
+            {
+                Width = 28,
+                Height = 28,
+                Stroke = new SolidColorBrush(hs.Hot ? Color.FromRgb(0xE5, 0x39, 0x35) : ColorOrange),
+                StrokeThickness = 2,
+                Opacity = 0.35,
+            };
+            Canvas.SetLeft(ring, cx - 14);
+            Canvas.SetTop(ring, cy - 14);
+            MapCanvas.Children.Add(ring);
+            _hotspotRings.Add(ring);
+
+            var kinds = string.Join("/", hs.DistinctKinds);
+            var countText = new TextBlock
+            {
+                Text = hs.Count.ToString(),
+                Foreground = Brushes.White,
+                FontSize = 11,
+                FontWeight = FontWeights.Bold,
+            };
+            AutomationProperties.SetAutomationId(countText, $"MapHotspotBadge_{hs.ChannelId}");
+            AutomationProperties.SetName(countText, $"HOT:{hs.ChannelId}:{hs.Count}:{kinds}:{hs.Hot}");
+
+            var label = hs.Hot ? "熱點" : "冷點";
+            var badge = new Border
+            {
+                Background = new SolidColorBrush(hs.Hot
+                    ? Color.FromRgb(0xE5, 0x39, 0x35)
+                    : Color.FromArgb(210, 0x8A, 0x2B, 0xE4)),
+                CornerRadius = new CornerRadius(9),
+                Padding = new Thickness(5, 1, 5, 2),
+                ToolTip = $"近 30 分 {hs.Count} 起事件（{kinds}）· {label}",
+                Child = countText,
+            };
+            Canvas.SetLeft(badge, cx + 10);
+            Canvas.SetTop(badge, cy - 18);
+            MapCanvas.Children.Add(badge);
+            _hotspotBadges.Add(badge);
+        }
+
+        if (_hotspotRings.Count > 0)
+        {
+            _pulseTimer.Start();
+        }
+    }
+
+    private void OnPulseTick(object? sender, EventArgs e)
+    {
+        _pulseOn = !_pulseOn;
+        var opacity = _pulseOn ? 0.85 : 0.2;
+        foreach (var ring in _hotspotRings)
+        {
+            ring.Opacity = opacity;
+        }
     }
 
     /// <summary>重新依最近事件上色（不重建圖釘）。</summary>
