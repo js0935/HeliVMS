@@ -6,15 +6,15 @@
 
 ## 一句話總結
 HeliVMS 為一套**網路影像監控系統**（WPF 桌面應用：即時監看／回放／AI 事件中心／錄影排程）。
-里程碑 **M1 至 M68 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M68 NTP 校時用戶端）。
-Release build 0 error、測試 **663/663 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
+里程碑 **M1 至 M69 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M69 PTZ 巡航排程器）。
+Release build 0 error、測試 **676/676 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
 本地與遠端完全同步（`git diff origin/HEAD` 為空）。
 
 ## 開新 session 的接手方法
 ```powershell
 # 在 D:\HeliVMS 開新 session 時，先對新的 agent 講：
 git status                    # 預期為 empty（乾淨）
-git log --oneline -20         # 預期見到 M1..M68，HEAD＝M68
+git log --oneline -20         # 預期見到 M1..M69，HEAD＝M69
 git diff origin/HEAD          # 預期為空（同步）
 gh run list -L 3              # 預期全部 success
 ```
@@ -23,12 +23,11 @@ gh run list -L 3              # 預期全部 success
 新 session 會以 git 現況接手，不會靠猜測。
 
 ## 現況快照（權威來源＝git，非聊天記憶）
-- 最後 commit：`HEAD`＝**M68（`a5015a7`）**——NTP 校時用戶端（RFC 5905 SNTP L0：MODE3 四時間戳求
-  offset/delay/stratum，`HeliVMS.Core\Ntp`，診斷面板「NTP 即時校時」需求前置）；全 **663**、
-  CI `35585248329` success
+- 最後 commit：`HEAD`＝**M69（`36cbb60`）**——PTZ 巡航排程器（`PatrolController` L0：每日時段＋
+  預設點序列＋停留＋Hold 凍結，`HeliVMS.Devices\Ptz`）；全 **676**、CI `35586031203` success
+- 前一個 M68 交付＝`a5015a7`（RFC 5905 SNTP 校時用戶端）、全 **663**、CI `35585248329` success
 - 前一個 M67 交付＝`32cf833`（依頻寬負載動態分配碼率 §14.7 #12）、全 **653**、CI `35550716766` success
 - 前一個 M66 交付＝`e183239`（保存鎖定 §14.1 #13 Legal Hold）、全 **641**、CI `35550100603` success
-- 前一個 M65 交付＝`caa92b6`（運動感度自動調校 §14.7 #17）、全 **633**、CI `35547924953` success
 - 前一個 M64 交付＝`3418fe5`（音訊事件偵測原語 §5.8）、全 **621**、CI `35547445399` success
 - 前一個 M61 交付＝`d4303b0`（單鏡目標追蹤原語，見下方 §37 定義段）、全 **570**、CI `35544108591` success
 - 前一個 M60 交付＝`ef567a7`（統圖報表／管理報表，見下方 §36 定義段）、全 **559**、CI `35543378978` success
@@ -1153,6 +1152,35 @@ gh run list -L 3              # 預期全部 success
       改用**專屬 background thread 同步收發**後 RTT=純 loopback、四連跑全綠；另 NtpClient
       `SendAsync(byte[],int,ct)` 無 ct 重載（會誤綁 IPEndPoint）→用 `SendAsync(ReadOnlyMemory)`；
       negative-delay 樣本測試向量需 T3−T2>T4−T1 才會觸發 delay<0（先前向量算成 delay=0）
+
+45. **M69 已完成＝PTZ 巡航排程器（`PatrolController`，L0 純演算法）**：
+    - 背景：PTZ 預設點 API 已備（`GetPtzPresetsAsync/GotoPtzPresetAsync`）；「巡航」＝依時間
+      排程依序巡迴預設點。M69 交付**排程器 L0**（純 C#＋注入時鐘，不碰真裝置），決定「現在該做
+      什麼」（MoveTo 預設點／Wait 停留／Idle 停擺）——M70 再接 ONVIF `GotoPreset` 與巡航視窗
+      ＋harness
+    - `HeliVMS.Devices` 新增 `Ptz\PatrolController.cs`：
+      - `PatrolStep(PresetName, Dwell)`、`PatrolPlan(Name, Enabled, WindowStart, WindowEnd,
+        Steps)`（每日時段，Start&gt;End 視為跨午夜）
+      - `PatrolController(plan, Func<DateTime>? clock=null)`；`Tick()`→`PatrolAction
+        (Kind: MoveTo/Wait/Idle, PresetName?, Remaining?)`；`HoldFor(span)`／`HoldUntil`／
+        `ReleaseHold()`（操作員/事件介入：停留凍結，release 後從剩餘續走）
+      - 語意：停用或時段外→Idle；時段起始→MoveTo 第 1 點；停留期滿→依序下一點（末點→第 1 點
+        循環）；同點停留中重複 Tick→Wait(剩餘)（不重複 MoveTo）；H標 凍結以 anchor 平移實作
+        （hold 期間停留不消耗）；Step 為空→Idle
+    - 測試：Devices.Tests `PatrolControllerTests`（+13，可變時鐘）：停用→Idle、時段未開始→Idle、
+      時段開始→MoveTo 首點、停留期滿→下點、末點→首點循環、停留中重複 Tick→Wait 不重複 MoveTo、
+      時段結束→Idle、隔日時段重入→由首點重來、Hold 凍結（anchor 平移）釋放後剩餘不變、空
+      Steps→Idle、Dwell=0 每 Tick 即進、長時鐘累積跨點、跨午夜時段；Devices 24→**37**；全
+      **676**（Storage 398＋Alarms 233＋Devices 37＋Licensing 8）
+    - 完成狀態：全 **676/676**；Build Release 0 error；feat commit＝**`36cbb60`**；CI＝
+      **`35586031203`** success；排雷已驗（見下）
+    - 排雷（已驗）：單次 Tick 只推進一個步驟（Ledger 語意）——「長跳躍」測試須多次 Tick 累積，
+      無法一跳跨多點；Hold 若只跳過不快進 anchor，dwell 會悄悄在 hold 期間流逝——需以
+      「anchor += hold 期間」實作凍結；`static () =>` lambda 在該專案編譯失敗（CS1003）→改
+      `(() => ...)`；WPF/Devices 專案 TreatWarningsAsErrors 啟用——XML doc 缺 `param` 標籤即
+      CS1573 失敗
+
+## 已知雷區（勿再犯）
 - **harness `.ps1` 必須存成 UTF-8 with BOM**：寫檔工具產出的是 UTF-8 無 BOM，含中文的 `.ps1` 會被 PowerShell 5.1 以 ANSI/Big5 誤讀而**靜默破壞解析**（症狀：`Start-Process` 看似無效、App 根本沒啟動、`Get-Process HeliVMS.App` 找不到）。修法：`[System.IO.File]::WriteAllText($p,[System.IO.File]::ReadAllText($p,[System.Text.Encoding]::UTF8),(New-Object System.Text.UTF8Encoding($true)))`（temp/opencode 有 `fix-encoding.ps1`）
 - **PowerShell 雙引號內 `$var?xxx` 的 `?` 是合法變數字元**：`"$url/$token?password=x"` 會把 `$token?password` 當成變數名（不存在→空字串），導致 token 遺失。改用 `${token}`（M51 `sharecheck` 實證）
 - **勿以 bash 對 repo 源碼做 byte 級重寫**（曾造成 UTF-8 漂移／mojibake 污染，已 `git restore` 還原）；
