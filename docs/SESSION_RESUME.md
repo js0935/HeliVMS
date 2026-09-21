@@ -6,15 +6,15 @@
 
 ## 一句話總結
 HeliVMS 為一套**網路影像監控系統**（WPF 桌面應用：即時監看／回放／AI 事件中心／錄影排程）。
-里程碑 **M1 至 M77 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M77 雙碼流切流視窗）。
-Release build 0 error、測試 **724/724 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
+里程碑 **M1 至 M78 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M78 音訊感測 L1 協調器）。
+Release build 0 error、測試 **735/735 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
 本地與遠端完全同步（`git diff origin/HEAD` 為空）。
 
 ## 開新 session 的接手方法
 ```powershell
 # 在 D:\HeliVMS 開新 session 時，先對新的 agent 講：
 git status                    # 預期為 empty（乾淨）
-git log --oneline -20         # 預期見到 M1..M77，HEAD＝M77
+git log --oneline -20         # 預期見到 M1..M78，HEAD＝M78
 git diff origin/HEAD          # 預期為空（同步）
 gh run list -L 3              # 預期全部 success
 ```
@@ -23,9 +23,10 @@ gh run list -L 3              # 預期全部 success
 新 session 會以 git 現況接手，不會靠猜測。
 
 ## 現況快照（權威來源＝git，非聊天記憶）
-- 最後 commit：`HEAD`＝**M77（`06b4517`）**——雙碼流切流視窗（`StreamSwitchWindow`
-  `--stream`/工具列、頻道級碼率/收視/爆量/維持評估＋套用更新現行串流；streamcheck 第 23 支
-  harness）；全 **724**、CI `35603258006` success
+- 最後 commit：`HEAD`＝**M78（`7c937e8`）**——音訊感測 L1 協調器 `AudioSensorCoordinator`
+  （§5.8 多頻道路由＋`channels.audio_enabled`＋每頻道門檻覆寫；`AudioSensorCoordinatorTests`
+  ＋11；Alarms 244）；全 **735**、CI `35604408658` success
+- 前一個 M77 交付＝`06b4517`（雙碼流切流視窗）、全 **724**、CI `35603258006` success
 - 前一個 M76 交付＝`d993122`（雙碼流 Smart 切流 `StreamSwitcher` §15.2 L0）、
   全 **724**、CI `35602052735` success（隨附 NTP 測試寬鬆 fix `828acc5`）
 - 前一個 M75 交付＝`3f12ab4`（感測器 IO 測試視窗）、全 **713**、CI `35601164639` success
@@ -1344,6 +1345,26 @@ gh run list -L 3              # 預期全部 success
     - 排雷（已驗）：PS5.1 console 對含中文行→cell 文字在工具捕捉時 mojibake（cp950 渲染）——
       UI 狀態/現行 token 一律用 ASCII（Main/Sub/->/hold/applied），harness 斷言純 ASCII（
       `no-viewers`/`event-burst`）；窗體中文標題仍可經 Win32Enum 找窗（FindWindowText Unicode）
+54. **M78 已完成＝音訊感測 L1 多頻道協調器（§5.8 服務層）**：
+    - 背景：M64 完成單頻道 `AudioTriggerEngine`（L0）後，L1 把「多頻道生命週期＋啟用狀態＋
+      每頻道門檻」收成一個服務層；M64 引擎原生支援 `AudioTriggerConfig` 覆寫 → 無需改引擎
+    - Alarms 新 `AudioSensorCoordinator`：`ctor(store, repo, configOverrides?)`；啟用集合來自
+      `channels.audio_enabled`（`Refresh()` 重載）；`Feed(channelId, pcm, utc)` 以鎖路由至
+      對應引擎（惰性 `GetOrCreate`），停用頻道不建引擎、不寫事件、回傳空清單；`Reset(channelId)`
+      ／`ResetAll()`／`Flush()`（停止前結算各引擎未關窗）／`Dispose()` 冪等；`EventInserted`
+      轉傳引擎事件；`Channels`／`IsEnabled` 查詢
+    - 測試：Alarms `AudioSensorCoordinatorTests` +11（停用頻道 Noop/無引擎無事件；啟用惰性建引擎
+      且分類 Burst；雙頻道隔離；每頻道 BurstDb=-1 覆寫（20000→-4.29＜-1 落至 Sustained、預設頻道
+      Burst）；Refresh 偵測新啟用；Refresh 偵測停用移除；Flush 收尾 burst─duration 768ms≥120ms
+      寫 audio_burst；ResetAll 捨棄開窗；Reset 單一頻道不影響他人；EventInserted 轉傳（audio_burst、
+      channelId=1）；Dispose 冪等＋後續 Feed 拋 ObjectDisposedException）；Alarms 233→**244**；
+      全 **735**（Storage 429＋Alarms 244＋Devices 54＋Licensing 8）
+    - 完成狀態：全 **735/735**；Build Release 0 error；feat commit＝**`7c937e8`**；CI＝
+      **`35604408658`** success
+    - 排雷（已驗）：協調器建構時 `Refresh()` 讀 channels——測試須「先建頻道、後建協調器」，否則
+      enabled 為空、Feed 全 Noop；引擎 `Feed` 同一批塊共用單一 utc → 同批 duration＝0 會撞
+      `MinEventMs=120` 驗收陷阱——測試以「每 8 塊一批、每批 256ms」進時餵入，開窗 duration 才合法；
+      分類階梯：20000（-4.29）在 BurstDb=-1 覆寫下不落 Quiet 而落 **Sustained**（SustainDb=-32 仍過）
 
 ## 已知雷區（勿再犯）
 - **harness `.ps1` 必須存成 UTF-8 with BOM**：寫檔工具產出的是 UTF-8 無 BOM，含中文的 `.ps1` 會被 PowerShell 5.1 以 ANSI/Big5 誤讀而**靜默破壞解析**（症狀：`Start-Process` 看似無效、App 根本沒啟動、`Get-Process HeliVMS.App` 找不到）。修法：`[System.IO.File]::WriteAllText($p,[System.IO.File]::ReadAllText($p,[System.Text.Encoding]::UTF8),(New-Object System.Text.UTF8Encoding($true)))`（temp/opencode 有 `fix-encoding.ps1`）
