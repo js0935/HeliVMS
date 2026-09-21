@@ -9,7 +9,7 @@ namespace HeliVMS.Storage;
 /// </summary>
 public sealed class SqliteStore : IDisposable
 {
-    private const int CurrentSchemaVersion = 30;
+    private const int CurrentSchemaVersion = 31;
     private readonly SqliteConnection _connection;
     private readonly object _gate = new();
     private bool _disposed;
@@ -202,6 +202,11 @@ public sealed class SqliteStore : IDisposable
         if (version < 30)
         {
             CreateDoorEventTablesV30();
+        }
+
+        if (version < 31)
+        {
+            CreatePosEventTablesV31();
         }
 
         Execute("PRAGMA user_version = CURRENT_SCHEMA_VERSION;".Replace(
@@ -897,6 +902,25 @@ public sealed class SqliteStore : IDisposable
             CREATE INDEX IF NOT EXISTS idx_door_events_device_time  ON door_events(device_id, occurred_at_utc);
             CREATE INDEX IF NOT EXISTS idx_door_events_card_time    ON door_events(card_id, occurred_at_utc);
             CREATE INDEX IF NOT EXISTS idx_door_events_door_time    ON door_events(door_id, occurred_at_utc);
+            """);
+    }
+
+    /// <summary>M93 POS 交易（§14.7 #8）：交易存錄＋設備時序索引＋交易號索引。</summary>
+    private void CreatePosEventTablesV31()
+    {
+        Execute(
+            """
+            CREATE TABLE IF NOT EXISTS pos_events (
+                id               INTEGER PRIMARY KEY AUTOINCREMENT,
+                device_id        INTEGER NOT NULL,
+                register_id      TEXT NOT NULL DEFAULT '',
+                transaction_no   TEXT NOT NULL,
+                amount_cents     INTEGER NOT NULL,
+                occurred_at_utc  TEXT NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_pos_events_device_time ON pos_events(device_id, occurred_at_utc);
+            CREATE INDEX IF NOT EXISTS idx_pos_events_transaction ON pos_events(transaction_no);
             """);
     }
 
