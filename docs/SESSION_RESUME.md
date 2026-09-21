@@ -6,15 +6,15 @@
 
 ## 一句話總結
 HeliVMS 為一套**網路影像監控系統**（WPF 桌面應用：即時監看／回放／AI 事件中心／錄影排程）。
-里程碑 **M1 至 M66 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M66 保存鎖定）。
-Release build 0 error、測試 **641/641 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
+里程碑 **M1 至 M67 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M67 Bitrate Governor）。
+Release build 0 error、測試 **653/653 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
 本地與遠端完全同步（`git diff origin/HEAD` 為空）。
 
 ## 開新 session 的接手方法
 ```powershell
 # 在 D:\HeliVMS 開新 session 時，先對新的 agent 講：
 git status                    # 預期為 empty（乾淨）
-git log --oneline -20         # 預期見到 M1..M66，HEAD＝M66
+git log --oneline -20         # 預期見到 M1..M67，HEAD＝M67
 git diff origin/HEAD          # 預期為空（同步）
 gh run list -L 3              # 預期全部 success
 ```
@@ -23,7 +23,10 @@ gh run list -L 3              # 預期全部 success
 新 session 會以 git 現況接手，不會靠猜測。
 
 ## 現況快照（權威來源＝git，非聊天記憶）
-- 最後 commit：`HEAD`＝**M66（`e183239`）**——保存鎖定（§14.1 #13 Legal Hold：指定時段豁免配額汰除、沖銷稽核，見下方 §42 定義段）；全 **641**、CI `35550100603` success
+- 最後 commit：`HEAD`＝**M67（`32cf833`）**——依頻寬負載動態分配碼率（§14.7 #12 SVR/自適應品質 L0
+  `BitrateGovernor`：事件通道 4× 權重、優先權 1..5、largest remainder 保證 Σ==預算，見下方 §43
+  定義段）；全 **653**、CI `35550716766` success
+- 前一個 M66 交付＝`e183239`（保存鎖定 §14.1 #13 Legal Hold）、全 **641**、CI `35550100603` success
 - 前一個 M65 交付＝`caa92b6`（運動感度自動調校 §14.7 #17）、全 **633**、CI `35547924953` success
 - 前一個 M64 交付＝`3418fe5`（音訊事件偵測原語 §5.8）、全 **621**、CI `35547445399` success
 - 前一個 M61 交付＝`d4303b0`（單鏡目標追蹤原語，見下方 §37 定義段）、全 **570**、CI `35544108591` success
@@ -41,7 +44,7 @@ gh run list -L 3              # 預期全部 success
 - 前一個 M46 交付＝`c7f6e8f`（錄影遮蔽 Redaction，見下方 §21 M46 定義段）、全 **293**、CI `35284550851` success
 - 前一個 M45 交付＝`ef3a8bc`（備份與異地備援，見下方 §20 M45 定義段）、全 **289**、CI `35263453271` success
 - 已驗收：**M65＝運動感度自動調校（處置回饋誤報率統計與感度建議）**（§14.7 #17 Auto-VMD，見下方 §41 定義段）；**M64＝音訊事件偵測原語（RMS dBFS 分塊分類、爆音/持續音/斷路事件引擎）**（§5.8 Audio L0，見下方 §40 定義段）；**M63＝影片摘要（偵測動態幀拼貼預覽＋manifest 摘要）**（§5.9，見下方 §39 定義段）；**M62＝複合事件規則引擎（match/all/any/not/within/count/timeBetween、ai_rules 設定層、規則編輯器）**（§5.10，見下方 §38 定義段）；**M61＝單鏡目標追蹤原語（匈牙利 IoU 指派／track_id／EMA 平滑／生命周期）**（§5.7，見下方 §37 定義段）；**M60＝統圖報表／管理報表（錄影時數／斷線／容量趨勢／AI 事件統計）**（§14.7 #9、§11.7，見下方 §36 定義段）；**M59＝智慧分析模組三（尾隨／逆行 `ai_tailgating`）**（§5.6，見下方 §35 定義段）；**M58＝智慧分析模組二（長時間徘徊／靜止物／車流統計／熱區圖）**（§5.6，見下方 §34 定義段）；**M57＝多語言介面 i18n（繁中／簡中／English）**（§14.7 P1，見下方 §33 定義段）
-- 進行中：（下一里程碑依規劃，見下方 §42 定義段）
+- 進行中：（下一里程碑依規劃自主選定並先寫定義；M67＝§43 已完成）
 - 前一個 M38 交付＝`d09b045`（事件回應工作流，見下方 M38 定義段）、全 **172**、CI `35185639491` success
 - 前一個 M30 交付＝`24ad4c7`（MQTT 通知通道）：`NotificationSettings`＋
   `MqttEnabled/MqttHost/MqttPort(1883)/MqttTopic/MqttUser/MqttPassword`（鍵 `notify.mqtt.*`、
@@ -1094,6 +1097,34 @@ gh run list -L 3              # 預期全部 success
     - 完成狀態：全 **641/641**（Storage 376＋Alarms 233＋Devices 24＋Licensing 8）；回歸 **20 支**
       harness 全綠（含新 holdcheck）；feat commit＝**`e183239`**；CI＝**`35550100603`** success；
       排雷已驗（均列於上方 排雷（已驗））
+
+43. **M67 已完成＝Bitrate Governor（依頻寬負載動態調整，§14.7 #12 SVR/自適應品質，L0 純演算法）**:
+    - 背景：§14.7 #12「依頻寬/負載調整」為錄影模式表中的「SVR/自適應品質」列（未來項）。落點：
+      SVR 或多鏡高清場景下，總可用頻寬跌破總碼率（擁塞/上行受限）時，逐通道動態降碼率，優先保住
+      **事件中（motion/AI）通道**與**高優先權**通道；M67 交付「分配演算法」L0（純 C# 無新依賴，
+      對齊 M64/M65 先例），App/編碼器接線留待後續接線里程碑
+    - `HeliVMS.Recording` 新 `BitrateGovernor`：
+      - `Adapt(budgetBps, IReadOnlyList<GoChannel>)`→`ReallocateResult`
+        （`GoChannel(ChannelId, CurrentBps, Priority, InEvent)`；`ReallocateResult(Targets,
+        AllocatedBps, ThrottleRatio)`）
+      - 權重：`w_i = clamp(Priority,1..5) * (InEvent ? 4 : 1)`；配額：各通道
+        `Budget * w_i / Σw`（整數）；餘額以最大餘數法分配至最高權重通道，保證 `ΣTarget == Budget`
+        （Budget>0 且有通道時）
+      - 邊界：Budget<=0→全 0＋ratio 0；Σw==0（空清單）→空 Targets；CurrentBps<0→視 0；
+        ratio = ΣCurrent>0 ? Allocated/ΣCurrent : 0
+      - 語意：事件通道相較同優先權非事件通道得 4 倍頻寬；高優先權 5 得 5 倍於優先權 1；
+        結果保證不超項預算（可用於 SVR 總頻寬閘控）
+    - 測試：Storage.Tests 新增 `BitrateGovernorTests`（+12：預算 0 全停、相同通道均分且 Σ==預算、
+      事件 4 倍、優先權倍率、隨機多通道 Σ==預算 不超、同優先權事件勝出、全 Current 0 → ratio 0、
+      負 Current 視 0、Priority 越界收斂、空清單、餘數精確分配 Σ==預算、ratio 數值）；Storage
+      376→**388**；全 **653**（Storage 388＋Alarms 233＋Devices 24＋Licensing 8）
+    - 排雷（已驗）：整數除法先 floor 再 largest remainder 補餘（不能四捨五入）——餘數以
+      「目標/權重」比值最小者補 1（迭代 ≤通道數 次即收斂）；Priority 須 clamp(1..5) 才進權重
+      （測試曾誤判 clamp 後仍均分——實為 5:1）；Σw==0／空清單／budget≤0 三極端各自回空或全 0；
+      ratio 以 3 位有效比較；remu 迴圈以 `targets[i]>=budget` 防超配
+    - 完成狀態：全 **653/653**（Storage 388＋Alarms 233＋Devices 24＋Licensing 8）；Build Release
+      0 error；feat commit＝**`32cf833`**；CI＝**`35550716766`** success；排雷已驗
+      （BitrateGovernorTests×12 見上；無 harness——純演算法里程碑）
 
 ## 已知雷區（勿再犯）
 - **harness `.ps1` 必須存成 UTF-8 with BOM**：寫檔工具產出的是 UTF-8 無 BOM，含中文的 `.ps1` 會被 PowerShell 5.1 以 ANSI/Big5 誤讀而**靜默破壞解析**（症狀：`Start-Process` 看似無效、App 根本沒啟動、`Get-Process HeliVMS.App` 找不到）。修法：`[System.IO.File]::WriteAllText($p,[System.IO.File]::ReadAllText($p,[System.Text.Encoding]::UTF8),(New-Object System.Text.UTF8Encoding($true)))`（temp/opencode 有 `fix-encoding.ps1`）
