@@ -6,15 +6,15 @@
 
 ## 一句話總結
 HeliVMS 為一套**網路影像監控系統**（WPF 桌面應用：即時監看／回放／AI 事件中心／錄影排程）。
-里程碑 **M1 至 M70 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M70 PatrolRunner）。
-Release build 0 error、測試 **686/686 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
+里程碑 **M1 至 M71 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M71 OnvifPtzExecutor）。
+Release build 0 error、測試 **693/693 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
 本地與遠端完全同步（`git diff origin/HEAD` 為空）。
 
 ## 開新 session 的接手方法
 ```powershell
 # 在 D:\HeliVMS 開新 session 時，先對新的 agent 講：
 git status                    # 預期為 empty（乾淨）
-git log --oneline -20         # 預期見到 M1..M70，HEAD＝M70
+git log --oneline -20         # 預期見到 M1..M71，HEAD＝M71
 git diff origin/HEAD          # 預期為空（同步）
 gh run list -L 3              # 預期全部 success
 ```
@@ -23,12 +23,12 @@ gh run list -L 3              # 預期全部 success
 新 session 會以 git 現況接手，不會靠猜測。
 
 ## 現況快照（權威來源＝git，非聊天記憶）
-- 最後 commit：`HEAD`＝**M70（`ec03350`）**——PTZ 巡航執行器（`PatrolRunner` L1：`PatrolController`
-  →`IPtzExecutor.GotoPresetAsync`，MoveTo 才觸網／例外傳出，`HeliVMS.Devices\Ptz`）；全 **686**、
-  CI `35586810793` success
+- 最後 commit：`HEAD`＝**M71（`e63459f`）**——`OnvifPtzExecutor`（`IPtzExecutor` ONVIF 實作：
+  GetPresets 名→token 快取＋GotoPreset，無 PTZ 能力/未知名 throw，`HeliVMS.Devices\Ptz`）；
+  全 **693**、CI `35587474678` success
+- 前一個 M70 交付＝`ec03350`（PatrolRunner PTZ 巡航執行器）、全 **686**、CI `35586810793` success
 - 前一個 M69 交付＝`36cbb60`（PTZ 巡航排程器 PatrolController L0）、全 **676**、CI `35586031203` success
 - 前一個 M68 交付＝`a5015a7`（RFC 5905 SNTP 校時用戶端）、全 **663**、CI `35585248329` success
-- 前一個 M67 交付＝`32cf833`（依頻寬負載動態分配碼率 §14.7 #12）、全 **653**、CI `35550716766` success
 - 前一個 M64 交付＝`3418fe5`（音訊事件偵測原語 §5.8）、全 **621**、CI `35547445399` success
 - 前一個 M61 交付＝`d4303b0`（單鏡目標追蹤原語，見下方 §37 定義段）、全 **570**、CI `35544108591` success
 - 前一個 M60 交付＝`ef567a7`（統圖報表／管理報表，見下方 §36 定義段）、全 **559**、CI `35543378978` success
@@ -1202,6 +1202,29 @@ gh run list -L 3              # 預期全部 success
       anchor 即平移），否則等到較晚時刻才斷言會誤變 MoveTo；「乾淨樣本」與「被排程延遲樣本」
       的斷言要分級——NtpClient E2E 受並行負載影響 rtt 可達 100ms+，改多樣本取 min-RTT、
       RTT≤30ms 才做精確 >90ms 檢查（方向為正永遠驗）
+
+47. **M71 已完成＝`OnvifPtzExecutor`（M70 `IPtzExecutor` 之 ONVIF 實作）**：
+    - 背景：M69/M70 巡航引擎已把「MoveTo 預設點」抽象成 `IPtzExecutor.GotoPresetAsync`；M71
+      提供真機實作：把「預設點名稱」解析成 ONVIF `PresetToken`（GetPresets）再 `GotoPreset`
+      （GetCapabilities Category=All→PTZ XAddr→GetPresets→GotoPreset）。巡航名稱與播放清單
+      層（App 視窗與 harness）留 M72
+    - `HeliVMS.Devices\Ptz\OnvifPtzExecutor.cs`：
+      - `OnvifPtzExecutor(OnvifDeviceService device, string profileToken)`
+      - `GotoPresetAsync(presetName, ct)`：先 `EnsurePtzCapabilityAsync` 解析 PTZ XAddr；首呼
+        `GetPtzPresetsAsync` 建 name→token 快取（惰性）；找不到名稱→throw
+        `InvalidOperationException`（App 可顯示設定缺點）；命中→`GotoPtzPresetAsync`
+      - 名→token 快取（不變假設，巡航常見；二次呼叫不再 GetPresets）
+    - 測試：Devices.Tests `OnvifPtzExecutorTests`（+7，RecordingHandler SOAP mock）：
+      name→token 解析後 GotoPreset 收到正確 token；無 PTZ 能力→throw；名稱不存在→throw；
+      快取：二次呼叫不同名稱只 GetPresets 一次；GetPresets 空→throw；GotoPreset 傳對
+      profileToken；多組 preset 選對 token；Devices 47→**54**；全 **693**
+      （Storage 398＋Alarms 233＋Devices 54＋Licensing 8）
+    - 完成狀態：全 **693/693**；Build Release 0 error；feat commit＝**`e63459f`**；CI＝
+      **`35587474678`** success；排雷已驗（見下）
+    - 排雷（已驗）：async helper 不可有 `out` 參數（CS1988）→改回傳 tuple `(Executor, Device)`
+      並解構；SOAP mock 的 GetCapabilities 回應必須帶 `Capabilities/PTZ/XAddr` 且其路徑名稱
+      空間任意（Descendants 找 LocalName）；GetPresets 回應 Preset 的 Name 在 `tt:Name`
+      （`ElementAnyNs("Name")`）——mock 命名空間須齊備
 
 ## 已知雷區（勿再犯）
 
