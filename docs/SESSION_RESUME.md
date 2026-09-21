@@ -6,7 +6,7 @@
 
 ## 一句話總結
 HeliVMS 為一套**網路影像監控系統**（WPF 桌面應用：即時監看／回放／AI 事件中心／錄影排程）。
-里程碑 **M1 至 M87 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M87 Failover 容錯 L0）。
+里程碑 **M1 至 M88 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M88 Failover 監控視窗＋harness）。
 Release build 0 error、測試 **816/816 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
 本地與遠端完全同步（`git diff origin/HEAD` 為空）。
 
@@ -14,7 +14,7 @@ Release build 0 error、測試 **816/816 全過**、`git status --porcelain` **�
 ```powershell
 # 在 D:\HeliVMS 開新 session 時，先對新的 agent 講：
 git status                    # 預期為 empty（乾淨）
-git log --oneline -20         # 預期見到 M1..M87，HEAD＝M87
+git log --oneline -20         # 預期見到 M1..M88，HEAD＝M88
 git diff origin/HEAD          # 預期為空（同步）
 gh run list -L 3              # 預期全部 success
 ```
@@ -23,12 +23,14 @@ gh run list -L 3              # 預期全部 success
 新 session 會以 git 現況接手，不會靠猜測。
 
 ## 現況快照（權威來源＝git，非聊天記憶）
-- 最後 commit：`HEAD`＝**M87**——Failover 容錯 L0（§14.7 #9）：`FailoverCoordinator`（純 BCL
-  租約仲裁：AcquireOrRenew／GetStatus／Release；空庫即 Leader、過期接管、同 server 續約）
-  ＋`IFailoverLeaseStore`＋`FailoverRepository`（SqliteStore，`failover_state` 單列 v28）；
-  17 新測試（引擎＋倉儲整合）→全 **816**、Release build 0 error、樹淨
-- 前一個 M86 交付＝`e187c6c`（登入視窗 LDAP 面板）＋`5e6a079`（docs）；全 **799**、
-  CI `35627326300` success；ldaplogincheck 第 29 支 harness→`LDAPLOGIN_OK`
+- 最後 commit：`HEAD`＝**M88**——Failover 監控/測試視窗（§14.7 #9 收尾）：`FailoverWindow`
+  （FailoverServerText/LeaseSecText/FailoverAcquireButton/ReleaseButton/RefreshButton/
+  FailoverStatusText，1s DispatcherTimer 心跳；coordinator 依輸入 serverId 重建）；MainWindow
+  加「容錯」按鈕＋`--failover` flag；seedtriage `--failover-seed <id> <sec>`/`--failover-clean`；
+  failovercheck 第 30 支 harness→`FAILOVER_OK`（none→leader→none；standby+release-skip；
+  過期接管）；全 **816** 不變、Release build 0 error、樹淨
+- 前一個 M87 交付＝`6bd3c4d`（Failover 容錯 L0 引擎）＋`2f97a20`（docs）；全 **816**、
+  CI `35629229724` success
 - 前一個 M85 交付＝`54cad94`（LDAPv3 連線層 L1：`LdapClient : ILdapBinder`
   裸 BER wire（simple bind＋memberOf SearchGroups）；`LdapBer` minimal BER＋`LdapFilterEncoder`
   RFC4515→BER；24 新測試（FakeLdapServer loopback）；全 **799**、CI `35621317643` success；
@@ -1565,6 +1567,23 @@ gh run list -L 3              # 預期全部 success
     - 測試：引擎（InMemory store 假時鐘）x11＋倉儲整合（temp DB v28 表）x6＝＋17 → 全 **816**
       （Storage 493→510）；`RuleRepositoryTests.SchemaVersion_IsV27`→v28（v bump 隨附）
     - Commit＋CI＋樹淨；§14.7 #9 狀態改「L0 引擎已落地（UI/接管為後續里程碑）」
+
+64. **M88 已完成＝Failover 監控/測試視窗＋harness（§14.7 #9 上 M87 收尾）**：
+    - `FailoverWindow.xaml(.cs)`：`FailoverServerText`（可改名，coordinator 依輸入 serverId 重建）、
+      `LeaseSecText`、`FailoverAcquireButton`（取得/續約）、`FailoverReleaseButton`（讓出）、
+      `FailoverRefreshButton`、`FailoverStatusText`（角色/Leader/本機/剩餘/到期）、`FailoverResultText`；
+      1s `DispatcherTimer` 重刷狀態＝心跳監看；`MainWindow` 加「容錯」按鈕＋`--failover` CLI flag
+    - seedtriage 擴充：`--failover-seed <serverId> <leaseSec>`（寫他人/過期租約）、`--failover-clean`
+      （清單列）；皆加入 db-scan skip 清單（`--failover-seed` 需 i+=2）
+    - harness（第 30 支）`failovercheck.ps1`：Phase A 空庫 None→Acquire=Leader→Release=None；
+      Phase B seed nodeZ 300s→Acquire=Standby、Release 不覆寫（release skipped）；Phase C seed
+      nodeZ leaseSec=0（起點即過期）→Acquire=Leader（過期接管）→ `FAILOVER_OK`
+    - 排雷（已驗）：**harness `.ps1` 用 `Get-Content -Raw`（無 BOM 時依 ANSI 讀取）會把 UTF-8
+      中文解成 Big5 亂碼且吞掉換行**——曾把註解與下一個 `$seedOut = …` 語句併成同一註解行，
+      seed 靜默不執行（診斷=seedZ 空輸出）。修法：統一用 write tool 重寫全檔＋
+      `WriteAllText(ReadAllText(…, UTF8), UTF8(BOM))`，**之後不再用 edit tool 改 harness**；
+      seed 的 `2>&1` 合併 stdout+stderr 若仍為空即代表 dotnet 程序在 print 前出事
+    - App Release build 0 error、全 **816** 不變（純 App/工具變更）；Commit＋CI＋樹淨
 
 ## 已知雷區（勿再犯）
 - **harness `.ps1` 必須存成 UTF-8 with BOM**：寫檔工具產出的是 UTF-8 無 BOM，含中文的 `.ps1` 會被 PowerShell 5.1 以 ANSI/Big5 誤讀而**靜默破壞解析**（症狀：`Start-Process` 看似無效、App 根本沒啟動、`Get-Process HeliVMS.App` 找不到）。修法：`[System.IO.File]::WriteAllText($p,[System.IO.File]::ReadAllText($p,[System.Text.Encoding]::UTF8),(New-Object System.Text.UTF8Encoding($true)))`（temp/opencode 有 `fix-encoding.ps1`）
