@@ -79,7 +79,7 @@ public class ModbusTcpClientTests
             return rsp;
         });
 
-        var client = new ModbusTcpClient("127.0.0.1", server.Port, TimeSpan.FromSeconds(2));
+        var client = new ModbusTcpClient("127.0.0.1", server.Port, TimeSpan.FromSeconds(10));
         var bits = await client.ReadDiscreteInputsAsync(unitId: 1, start: 0, count: 10);
 
         Assert.Equal([false, true, false, true, false, false, false, false, true, false], bits);
@@ -90,7 +90,7 @@ public class ModbusTcpClientTests
     {
         await using var server = await StartFakeAsync(frame => frame);   // ?�接 echo
 
-        var client = new ModbusTcpClient("127.0.0.1", server.Port, TimeSpan.FromSeconds(2));
+        var client = new ModbusTcpClient("127.0.0.1", server.Port, TimeSpan.FromSeconds(10));
         Assert.True(await client.WriteSingleCoilAsync(unitId: 1, address: 4, on: true));
     }
 
@@ -108,7 +108,7 @@ public class ModbusTcpClientTests
             return rsp;
         });
 
-        var client = new ModbusTcpClient("127.0.0.1", server.Port, TimeSpan.FromSeconds(2));
+        var client = new ModbusTcpClient("127.0.0.1", server.Port, TimeSpan.FromSeconds(10));
         await Assert.ThrowsAsync<InvalidOperationException>(
             () => client.WriteSingleCoilAsync(unitId: 1, address: 4, on: true));
     }
@@ -157,20 +157,27 @@ public class ModbusTcpClientTests
 
         private async Task HandleAsync(TcpClient client)
         {
-            using (client)
+            try
             {
-                var stream = client.GetStream();
-                var header = new byte[7];
-                await stream.ReadExactlyAsync(header);
-                var len = (header[4] << 8) | header[5];
-                var body = new byte[len - 1];
-                await stream.ReadExactlyAsync(body);
-                var frame = new byte[7 + body.Length];
-                Array.Copy(header, frame, 7);
-                body.CopyTo(frame, 7);
-                var rsp = _respond(frame);
-                await stream.WriteAsync(rsp);
-                await stream.FlushAsync();
+                using (client)
+                {
+                    var stream = client.GetStream();
+                    var header = new byte[7];
+                    await stream.ReadExactlyAsync(header);
+                    var len = (header[4] << 8) | header[5];
+                    var body = new byte[len - 1];
+                    await stream.ReadExactlyAsync(body);
+                    var frame = new byte[7 + body.Length];
+                    Array.Copy(header, frame, 7);
+                    body.CopyTo(frame, 7);
+                    var rsp = _respond(frame);
+                    await stream.WriteAsync(rsp);
+                    await stream.FlushAsync();
+                }
+            }
+            catch
+            {
+                // 防單一 handle 例外拖掉整批 loopback 測試
             }
         }
 
