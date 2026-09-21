@@ -6,15 +6,15 @@
 
 ## 一句話總結
 HeliVMS 為一套**網路影像監控系統**（WPF 桌面應用：即時監看／回放／AI 事件中心／錄影排程）。
-里程碑 **M1 至 M64 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M64 音訊事件偵測）。
-Release build 0 error、測試 **621/621 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
+里程碑 **M1 至 M65 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M65 運動感度自動調校）。
+Release build 0 error、測試 **633/633 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
 本地與遠端完全同步（`git diff origin/HEAD` 為空）。
 
 ## 開新 session 的接手方法
 ```powershell
 # 在 D:\HeliVMS 開新 session 時，先對新的 agent 講：
 git status                    # 預期為 empty（乾淨）
-git log --oneline -20         # 預期見到 M1..M64，HEAD＝M64
+git log --oneline -20         # 預期見到 M1..M65，HEAD＝M65
 git diff origin/HEAD          # 預期為空（同步）
 gh run list -L 3              # 預期全部 success
 ```
@@ -23,8 +23,8 @@ gh run list -L 3              # 預期全部 success
 新 session 會以 git 現況接手，不會靠猜測。
 
 ## 現況快照（權威來源＝git，非聊天記憶）
-- 最後 commit：`HEAD`＝**M64（`3418fe5`）**——音訊事件偵測原語（§5.8：RMS dBFS 分塊分類、爆音/持續音/斷路事件引擎，見下方 §40 定義段）；全 **621**、CI `35547445399` success
-- 前一個 M63 交付＝`a6dceeb`（影片摘要 §5.9）、全 **606**、CI `35546979051` success
+- 最後 commit：`HEAD`＝**M65（`caa92b6`）**——運動感度自動調校（§14.7 #17 Auto-VMD：處置回饋誤報率統計與感度建議，見下方 §41 定義段）；全 **633**、CI `35547924953` success
+- 前一個 M64 交付＝`3418fe5`（音訊事件偵測原語 §5.8）、全 **621**、CI `35547445399` success
 - 前一個 M61 交付＝`d4303b0`（單鏡目標追蹤原語，見下方 §37 定義段）、全 **570**、CI `35544108591` success
 - 前一個 M60 交付＝`ef567a7`（統圖報表／管理報表，見下方 §36 定義段）、全 **559**、CI `35543378978` success
 - 前一個 M58 交付＝`3e28bcd`（智慧分析模組二，見下方 §34 定義段）、全 **543**、CI `35541102070` success
@@ -39,8 +39,8 @@ gh run list -L 3              # 預期全部 success
 - 前一個 M47 交付＝`f3c01e1`（警報管理器 Alarm Manager，見下方 §22 M47 定義段）、全 **299**、CI `35286083642` success
 - 前一個 M46 交付＝`c7f6e8f`（錄影遮蔽 Redaction，見下方 §21 M46 定義段）、全 **293**、CI `35284550851` success
 - 前一個 M45 交付＝`ef3a8bc`（備份與異地備援，見下方 §20 M45 定義段）、全 **289**、CI `35263453271` success
-- 已驗收：**M64＝音訊事件偵測原語（RMS dBFS 分塊分類、爆音/持續音/斷路事件引擎）**（§5.8 Audio L0，見下方 §40 定義段）；**M63＝影片摘要（偵測動態幀拼貼預覽＋manifest 摘要）**（§5.9，見下方 §39 定義段）；**M62＝複合事件規則引擎（match/all/any/not/within/count/timeBetween、ai_rules 設定層、規則編輯器）**（§5.10，見下方 §38 定義段）；**M61＝單鏡目標追蹤原語（匈牙利 IoU 指派／track_id／EMA 平滑／生命周期）**（§5.7，見下方 §37 定義段）；**M60＝統圖報表／管理報表（錄影時數／斷線／容量趨勢／AI 事件統計）**（§14.7 #9、§11.7，見下方 §36 定義段）；**M59＝智慧分析模組三（尾隨／逆行 `ai_tailgating`）**（§5.6，見下方 §35 定義段）；**M58＝智慧分析模組二（長時間徘徊／靜止物／車流統計／熱區圖）**（§5.6，見下方 §34 定義段）；**M57＝多語言介面 i18n（繁中／簡中／English）**（§14.7 P1，見下方 §33 定義段）
-- 進行中：（下一里程碑依規劃，見下方 §41 定義段）
+- 已驗收：**M65＝運動感度自動調校（處置回饋誤報率統計與感度建議）**（§14.7 #17 Auto-VMD，見下方 §41 定義段）；**M64＝音訊事件偵測原語（RMS dBFS 分塊分類、爆音/持續音/斷路事件引擎）**（§5.8 Audio L0，見下方 §40 定義段）；**M63＝影片摘要（偵測動態幀拼貼預覽＋manifest 摘要）**（§5.9，見下方 §39 定義段）；**M62＝複合事件規則引擎（match/all/any/not/within/count/timeBetween、ai_rules 設定層、規則編輯器）**（§5.10，見下方 §38 定義段）；**M61＝單鏡目標追蹤原語（匈牙利 IoU 指派／track_id／EMA 平滑／生命周期）**（§5.7，見下方 §37 定義段）；**M60＝統圖報表／管理報表（錄影時數／斷線／容量趨勢／AI 事件統計）**（§14.7 #9、§11.7，見下方 §36 定義段）；**M59＝智慧分析模組三（尾隨／逆行 `ai_tailgating`）**（§5.6，見下方 §35 定義段）；**M58＝智慧分析模組二（長時間徘徊／靜止物／車流統計／熱區圖）**（§5.6，見下方 §34 定義段）；**M57＝多語言介面 i18n（繁中／簡中／English）**（§14.7 P1，見下方 §33 定義段）
+- 進行中：（下一里程碑依規劃，見下方 §42 定義段）
 - 前一個 M38 交付＝`d09b045`（事件回應工作流，見下方 M38 定義段）、全 **172**、CI `35185639491` success
 - 前一個 M30 交付＝`24ad4c7`（MQTT 通知通道）：`NotificationSettings`＋
   `MqttEnabled/MqttHost/MqttPort(1883)/MqttTopic/MqttUser/MqttPassword`（鍵 `notify.mqtt.*`、
@@ -59,7 +59,7 @@ gh run list -L 3              # 預期全部 success
 - 前一個 M28 交付＝`ba95d0f`（事件中心篩選＋分頁：QueryArgs/ListByQuery/CountByQuery/
   ListEventTypes＋UI 類型 Combo＋Prev/Next 50/頁；114、evfiltercheck EVFILTERCHECK_OK）
 - 分支／遠端：`git diff origin/HEAD` 為空（完全同步）；HEAD＝origin
-- CI：`gh run list` 顯示最新 run `conclusion=success`；建置 0 error、測試 621/621
+- CI：`gh run list` 顯示最新 run `conclusion=success`；建置 0 error、測試 633/633
 
 ## 架構關鍵（確切、無漂移）
 - 解決方案：`D:\HeliVMS\HeliVMS.App\HeliVMS.App.csproj`（WPF）＋ `HeliVMS.slnx`
@@ -1026,8 +1026,26 @@ gh run list -L 3              # 預期全部 success
       5→−76.3dB 觸發 Silent、200→−44.3dB 為 Quiet）；dB 常數直接寫死避免 const 無法用 Math；`Flush()` 內
       `TryFinalize(true)` 的位置引數修復命名引數殘留；`Finalize` 於 Burst/Sustained/Silent 三路徑皆須
       處理「斷路中音訊回歸立即結算」，避免 silence 窗口洩漏
-    - 定位：§5.8「聲響類型偵測（槍聲/尖叫/玻璃碎裂）」之 L0 泛音訊觸發落地；**真實音訊軌解碼接入
-      （AAC/G.711→PCM）＋MFCC 分類模型（L1）**留待接錄影軌之里程碑
+    41. **M65 已完成**（commit `caa92b6`，CI `35547924953` success）：運動感度自動調校＋信頼回饋統計
+    （§14.7 #17 Auto-VMD，承 §5.11 信頼回饋方向）——把營運者的「誤報/確認」處置回饋
+    （M38 `event_dispositions`）化為運動感度調校建議：
+    - Alarms 新 `SensitivityAutoTuner`：`Summarize(events)` 統計最近窗內某頻道 `motion` 事件處置
+      回饋（誤報 `false_alarm`→FP、已確認/已處理 `acknowledged`/`actioned`→TP、pending/無處置不計）；
+      `Suggest(channelId, current, nowUtc, windowDays=14)`＝`ListByRange` 取窗→篩 `motion`→決策：
+      1）已處置樣本 < `MinDecisionSamples=5`→不建議（Reason「樣本不足」）；2）誤報率 >
+      `MaxFpRate=20%`→調高感度門檻（`+Step=0.05`，減少誤報）；3）誤報=0 且 TP ≥ `DownshiftSamples=20`
+      →調低（`−Step`，避免過度遲鈍）；4）其餘→維持已達標；建議收斂 `[0.10, 0.90]`；回
+      `SensitivitySuggestion(現值/建議值/是否變更/誤報率/TP/FP/Reason 簡中)`；呼叫端（App 後續接線）以
+      建議套回 `channels.motion_sensitivity`；語意=「比值門檻」（誤報多→調高）
+    - 測試：Alarms `SensitivityAutoTunerTests` +12（無處置→不建議、樣本<5→不建議、誤報率 62.5%→
+      0.50→0.55、恰等 20%→不調、達標 16.7%→維持、FP=0 且 TP=25→0.60→0.55、調低收斂 0.10、調高收斂
+      0.90、已到 0.90 clamp 不再變更、Summarize 分狀態計數（pending 不計）、窗外(-15d) 事件忽略、
+      非 motion（ai_person）不計）；Alarms 221→**233**；全 **633**（Storage 368＋Alarms 233＋Devices 24＋Licensing 8）
+    - 排雷（已驗）：`ListByRange` 之 `COALESCE(status,'pending')` 無法區分無處置與明確 pending——兩者
+      皆不計為回饋樣本；**測試樣本須全數落在 14 天窗內**（用 `.AddHours(-i)` 而非跨 25 天）；浮點
+      `0.6−0.05` 非精確 0.55→斷言用 `Assert.Equal(..., 3)` 精度
+    - 定位：§5.11「標記誤報/正確→統計 FP/FN→建議調感度」落地（motion 線）；「自動套用」+事件中心
+      「建議感度」按鈕與 AI 模型線 FP/FN 統計留待接線/模型里程碑
 
 ## 已知雷區（勿再犯）
 - **harness `.ps1` 必須存成 UTF-8 with BOM**：寫檔工具產出的是 UTF-8 無 BOM，含中文的 `.ps1` 會被 PowerShell 5.1 以 ANSI/Big5 誤讀而**靜默破壞解析**（症狀：`Start-Process` 看似無效、App 根本沒啟動、`Get-Process HeliVMS.App` 找不到）。修法：`[System.IO.File]::WriteAllText($p,[System.IO.File]::ReadAllText($p,[System.Text.Encoding]::UTF8),(New-Object System.Text.UTF8Encoding($true)))`（temp/opencode 有 `fix-encoding.ps1`）
