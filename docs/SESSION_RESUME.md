@@ -6,7 +6,7 @@
 
 ## 一句話總結
 HeliVMS 為一套**網路影像監控系統**（WPF 桌面應用：即時監看／回放／AI 事件中心／錄影排程）。
-里程碑 **M1 至 M76 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M76 雙碼流切流決策＋NTP 測試寬鬆化）。
+里程碑 **M1 至 M77 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M77 雙碼流切流視窗）。
 Release build 0 error、測試 **724/724 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
 本地與遠端完全同步（`git diff origin/HEAD` 為空）。
 
@@ -14,7 +14,7 @@ Release build 0 error、測試 **724/724 全過**、`git status --porcelain` **�
 ```powershell
 # 在 D:\HeliVMS 開新 session 時，先對新的 agent 講：
 git status                    # 預期為 empty（乾淨）
-git log --oneline -20         # 預期見到 M1..M76，HEAD＝M76
+git log --oneline -20         # 預期見到 M1..M77，HEAD＝M77
 git diff origin/HEAD          # 預期為空（同步）
 gh run list -L 3              # 預期全部 success
 ```
@@ -23,9 +23,11 @@ gh run list -L 3              # 預期全部 success
 新 session 會以 git 現況接手，不會靠猜測。
 
 ## 現況快照（權威來源＝git，非聊天記憶）
-- 最後 commit：`HEAD`＝**M76（`828acc5`）**——雙碼流 Smart 切流 `StreamSwitcher`（§15.2 L0：
-  honeymoon 抗抖＋事件熱度升主流＋頻寬/無收看降次流；`StreamSwitcherTests`＋11；Storage 429）
-  隨附 NTP no-reply 測試上界寬鬆 fix；全 **724**、CI `35602052735` success
+- 最後 commit：`HEAD`＝**M77（`06b4517`）**——雙碼流切流視窗（`StreamSwitchWindow`
+  `--stream`/工具列、頻道級碼率/收視/爆量/維持評估＋套用更新現行串流；streamcheck 第 23 支
+  harness）；全 **724**、CI `35603258006` success
+- 前一個 M76 交付＝`d993122`（雙碼流 Smart 切流 `StreamSwitcher` §15.2 L0）、
+  全 **724**、CI `35602052735` success（隨附 NTP 測試寬鬆 fix `828acc5`）
 - 前一個 M75 交付＝`3f12ab4`（感測器 IO 測試視窗）、全 **713**、CI `35601164639` success
 - 前一個 M74 交付＝`5cec078`（感測器 IO 引擎 schema v27）、全 **713**、CI `35600379623` success
 - 前一個 M72 交付＝`77ee434`（巡航視窗＋持久化）、全 **701**、CI `35599188803` success
@@ -1325,6 +1327,23 @@ gh run list -L 3              # 預期全部 success
       ；CI＝**`35602052735`** success；排雷已驗（見下）
     - 排雷（已驗）：NTP no-reply timeout 測試對「絕對上界」敏感——計時器在超載 runner 會延遲，
       上界須留超大餘裕（5s）並加下限（200ms 確保真的等了逾時），保留「返回 null」語義
+53. **M77 已完成＝雙碼流切流調整視窗＋harness（§15.2 #19 收尾，串接 M76 引擎）**：
+    - 背景：M76 完成決策引擎後，M77 補「可視/可操作」：App `StreamSwitchWindow` 以單一持久
+      引擎例項做頻道級評估與套用，honeymoon/現行串流狀態跨操作連續（評估不重建引擎）
+    - App `StreamSwitchWindow.xaml(.cs)`（`--stream` 直開＋主視窗工具列「切流」）：
+      - 頻道下拉＋主碼率/收視/維持期輸入＋`事件爆量`/`評估`/`套用`按鈕
+      - `StreamStateList`（頻道/現行 Main|Sub/上次切換/最近評估）；AutomationId 群 `Stream*`
+      - 指令串流（honeymoon 5s）：無收看→Sub、套用→現行列 Sub、6s 後爆量→Main、套用→Main
+    - harness（第 23 支回歸 streamcheck）：seedtriage `--schema` 建預設頻道（seedtriage 開機即
+      建當缺頻道時）；streamcheck.ps1 以 `HELIVMS_DATA` temp db 開 `--stream`：斷言初始列
+      Main、viewers=0+碼率 60MB 評估→`no-viewers`→套用 Sub、6s 後爆量→`event-burst`→套用
+      Main；終輸出 `STREAM_OK:seed=1;rows=1;demote=no-viewers;promote=event-burst;apply=2`
+    - 測試：全 **724/724**（Storage 429＋Alarms 233＋Devices 54＋Licensing 8，無新增源碼測試；
+      App 由 harness 覆蓋）；Build Release 0 error；feat commit＝**`06b4517`**；CI＝
+      **`35603258006`** success
+    - 排雷（已驗）：PS5.1 console 對含中文行→cell 文字在工具捕捉時 mojibake（cp950 渲染）——
+      UI 狀態/現行 token 一律用 ASCII（Main/Sub/->/hold/applied），harness 斷言純 ASCII（
+      `no-viewers`/`event-burst`）；窗體中文標題仍可經 Win32Enum 找窗（FindWindowText Unicode）
 
 ## 已知雷區（勿再犯）
 - **harness `.ps1` 必須存成 UTF-8 with BOM**：寫檔工具產出的是 UTF-8 無 BOM，含中文的 `.ps1` 會被 PowerShell 5.1 以 ANSI/Big5 誤讀而**靜默破壞解析**（症狀：`Start-Process` 看似無效、App 根本沒啟動、`Get-Process HeliVMS.App` 找不到）。修法：`[System.IO.File]::WriteAllText($p,[System.IO.File]::ReadAllText($p,[System.Text.Encoding]::UTF8),(New-Object System.Text.UTF8Encoding($true)))`（temp/opencode 有 `fix-encoding.ps1`）
