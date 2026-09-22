@@ -6,8 +6,8 @@
 
 ## 一句話總結
 HeliVMS 為一套**網路影像監控系統**（WPF 桌面應用：即時監看／回放／AI 事件中心／錄影排程）。
-里程碑 **M1 至 M99 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M99 企業登入落地 LDAP+L1 session）。
-Release build 0 error、測試 **915/915 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
+里程碑 **M1 至 M100 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M100 OIDC 授權碼＋PKCE 登入流程）。
+Release build 0 error、測試 **924/924 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
 本地與遠端完全同步（`git diff origin/HEAD` 為空）。
 
 ## 開新 session 的接手方法
@@ -23,15 +23,15 @@ gh run list -L 3              # 預期全部 success
 新 session 會以 git 現況接手，不會靠猜測。
 
 ## 現況快照（權威來源＝git，非聊天記憶）
-- 最後 commit：`HEAD`＝**M99**——§14.7 #1 企業登入落地（LDAP 登入＋登入 session L1）：
-  `SqliteStore` v35→**v36**（`login_sessions` session 表＋時效/查詢索引）；`LoginSessionRecord`/
-  `LoginSessionRepository`（`Create` 32B 加密亂數 session／`IsActive` 未撤銷且未過期／`Revoke`／
-  `PurgeExpired`）；`LdapLoginBroker`（LDAP simple bind 驗證→`RoleMapper` 對映本地 RBAC、
-  同步 users 鏡像列（無效密碼記號，本機密碼無法登入鏡像）、成功清除失敗計數＋簽發 session；
-  失敗依鏡像列計入失敗鎖定，沿用 auth.lockout.*；停用/鎖定鏡像先於綁定檢查=管理端 kill-switch）；
-  10 新測試→全 **915**、Release build 0 error、樹淨
-- 前一個 M98 交付＝`456d8c9`（§14.7 #9 Failover 實體接管協調器 L1 v35 `Reconcile`＋`failover_events`）＋`4073654`（docs）；
-  全 **905**、CI `35674102609` success
+- 最後 commit：`HEAD`＝**M100**——§14.7 #1 尾段 OIDC 授權碼＋PKCE 登入流程：
+  `OidcOptions` 新增 `AuthorizeUri`/`TokenUri`/`RedirectUri`/`ClientSecret`；`OidcLoginFlow`
+  （`Begin` 產生授權 URL（response_type=code、state、S256 code_challenge）並暫存待決請求
+  （單次消費、10 min TTL）；`Complete` 以 code 交換 /token（`ITokenEndpointClient`/
+  `HttpTokenEndpointClient` RFC6749 §4.1.3 form POST）→ `EnterpriseAuthService.AuthenticateOidc`
+  驗證 id_token→鏡像 users（M99 同款不可驗證密碼記號）→簽發 session provider `oidc`；state 一次性
+  與 PKCE 防 CSRF／授權碼挾持）；9 新測試→全 **924**、Release build 0 error、樹淨
+- 前一個 M99 交付＝`3dfe612`（§14.7 #1 企業登入落地 LDAP＋session L1 v36 `LdapLoginBroker`）＋`287efc7`（docs）；
+  全 **915**、CI `35674631029` success
 - 前一個 M85 交付＝`54cad94`（LDAPv3 連線層 L1：`LdapClient : ILdapBinder`
   裸 BER wire（simple bind＋memberOf SearchGroups）；`LdapBer` minimal BER＋`LdapFilterEncoder`
   RFC4515→BER；24 新測試（FakeLdapServer loopback）；全 **799**、CI `35621317643` success；
@@ -1762,8 +1762,24 @@ gh run list -L 3              # 預期全部 success
       無鏡像不鎖／綁定失敗累計至鎖定／停用鏡像綁定前拒絕（BindCalls=0）／非 LDAP provider 拒絶／
       session 到期失活／Revoke 失效／PurgeExpired 只刪過期）；`SchemaVersion_IsV36` 改名
       ＝＋10 → 全 **915**（Storage 599→609）；CI 綠；樹淨；
-      §14.7 #1 現況改「本機帳號 RBAC（M42）＋OIDC 驗證/LDAP 設定（M50）＋LDAP 連線層（M85）＋
-      企業（LDAP）登入與 session（M99）已落地；OIDC 授權碼登入流程待續」
+§14.7 #1 現況改「本機帳號 RBAC（M42）＋OIDC 驗證/LDAP 設定（M50）＋LDAP 連線層（M85）＋
+       企業（LDAP）登入與 session（M99）已落地；OIDC 授權碼登入流程待續」
+76. **M100 已完成＝§14.7 #1 尾段 OIDC 授權碼＋PKCE 登入流程**：
+    - 背景：#1 欄「OIDC 授權碼登入流程待續」；M50 只有 `OidcValidator.Validate`＋`AuthenticateOidc`
+      （id_token 驗證＋RBAC 對映），沒有授權碼流程（Begin/Complete）與登入 session
+    - 落點：`OidcOptions` 新增 `AuthorizeUri`/`TokenUri`/`RedirectUri`/`ClientSecret`（ClientSecret 選填）；
+      `OidcLoginFlow`（`Begin`＝state（32 hex）＋PKCE verifier（32B→Base64Url）＋S256 code_challenge，
+      組授權 URL（response_type=code&client_id&redirect_uri&scope=openid profile email&state&
+      code_challenge&code_challenge_method=S256）並暫存 pending（單次消費、10 min TTL、
+      Begin/Complete 前置 PurgeExpired）；`Complete(code,state)`＝TryRemove pending（一次性，
+      重複 state 拒絶）→ `ITokenEndpointClient.Exchange`（`HttpTokenEndpointClient` RFC6749 §4.1.3
+      form POST，含 code_verifier／選填 client_secret）→ `EnterpriseAuthService.AuthenticateOidc`
+      驗證 id_token→鏡像 users（M99 同款 `NoLocalPasswordHash`；存在則 SetRole/SetDisplayName）→
+      `LoginSessionRepository.Create` provider `"oidc"`）；state 一次性＋PKCE 防 CSRF／授權碼挾持
+    - 測試：x9（Begin URL 含 state＋PKCE／成功簽 session＋鏡像／admin 群晉升／複用鏡像更新 role＋name／
+      錯誤 state 拒絶／state 單次消費第二回拒絶／pending 逾時拒絶／token 端點錯誤／id_token 無效）
+      ＝＋9 → 全 **924**（Storage 609→618）；CI 綠；樹淨；
+      §14.7 #1 現況改「OIDC 授權碼＋PKCE 登入已落地（M100 `OidcLoginFlow`）」
 
 ## 已知雷區（勿再犯）
 - **harness `.ps1` 必須存成 UTF-8 with BOM**：寫檔工具產出的是 UTF-8 無 BOM，含中文的 `.ps1` 會被 PowerShell 5.1 以 ANSI/Big5 誤讀而**靜默破壞解析**（症狀：`Start-Process` 看似無效、App 根本沒啟動、`Get-Process HeliVMS.App` 找不到）。修法：`[System.IO.File]::WriteAllText($p,[System.IO.File]::ReadAllText($p,[System.Text.Encoding]::UTF8),(New-Object System.Text.UTF8Encoding($true)))`（temp/opencode 有 `fix-encoding.ps1`）
