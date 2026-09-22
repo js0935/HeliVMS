@@ -6,7 +6,7 @@
 
 ## 一句話總結
 HeliVMS 為一套**網路影像監控系統**（WPF 桌面應用：即時監看／回放／AI 事件中心／錄影排程）。
-進度: **M1 至 M138 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M128 日報 REST/視界；M120 回放段檔 REST；M119 回放時間軸 API；M118 警報即時流；M117 HeliVMS.WebApi；M116 快照一鍵遮蔽；M115 MQTT 訂閱派送掛載；M112 訂閱數據面、M113 POS 自動關聯、M114 VMD 自動套用）。
+進度: **M1 至 M139 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M128 日報 REST/視界；M120 回放段檔 REST；M119 回放時間軸 API；M118 警報即時流；M117 HeliVMS.WebApi；M116 快照一鍵遮蔽；M115 MQTT 訂閱派送掛載；M112 訂閱數據面、M113 POS 自動關聯、M114 VMD 自動套用）。
 Release build 0 error、測試 **1123/1123（＋vitest 30） 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
 本地與遠端完全同步（`git diff origin/HEAD` 為空）。
 
@@ -2085,6 +2085,10 @@ gh run list -L 3              # 預期全部 success
 93. **M116 交付＝快照一鍵遮蔽（§14.7 #16）**：
     - `SnapshotRedactor`：解碼→逐區 `RedactionProcessor.Apply(filled=true)` 實心塗黑（範圍夾截、退化區略過、輸入不可變）→依原格式（JPEG/PNG）重編碼。`SnapshotRedactionService`：按 snapshot `RedactionRepository.QueryBySource` 取區套用。
     - Storage 加 `System.Drawing.Common`（`SupportedPlatform windows`＋`SupportedOSPlatformVersion`；CI windows-latest 合規）；測試 8（遮黑/夾截/退化跳過/多區/PNG 精確黑/輸入不變/DB refId/無區回傳）→全量 **1098**。
+117. **M139 交付＝匯出工作 REST＋SPA（§14.3(2) 閉環；原有 ExportJobRepository＋Recording 側 consumer，僅暴露未重造）**：
+    - WebApi（DI 註冊 ExportJobRepository）：`GET /api/exports`；`POST /api/exports`（ChannelId>0＋時間窗有效→Enqueue queued；窗無效 400）。
+    - SPA：匯出工作面板——表格（ID/頻道/串流/起訖/狀態/大小/結果 sha＋錯誤）＋排入表單（頻道＋datetime-local 窗）。lib `exportRows`。
+    - 測試：Api ＋1 **37**（窗逆序 400；排入→queued；清單含該 id）；vitest ＋1 **38**（exportRows 正常/空）；全量 **1136**。
 116. **M138 交付＝通知投遞日誌 REST＋SPA（M23 閉環；原有 NotificationLogRepository 僅暴露，未重造）**：
     - WebApi（DI 註冊 NotificationLogRepository）：`GET /api/notifications?limit`（ListRecent、limit clamp 1..500 缺省 50、ts UTC ISO）。
     - SPA：通知投遞面板——表格（時間/頻道/事件/路由/結果/嘗試/詳情）＋計數。lib `notifRows`。

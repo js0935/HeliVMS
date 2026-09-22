@@ -39,6 +39,8 @@ public static class ApiEndpoints
     public sealed record DetectionItem(long Id, int ChannelId, string Class, float Confidence, float X, float Y, float W, float H, string DetectedUtc);
     public sealed record DetectionSummaryItem(string Class, int Count);
     public sealed record NotificationLogItem(long Id, string TsUtc, int ChannelId, string EventType, string Route, bool Ok, int Attempts, string? Detail);
+    public sealed record ExportJobRequest(int ChannelId, string Stream, DateTime FromUtc, DateTime ToUtc);
+    public sealed record ExportJobItem(long Id, int ChannelId, string Stream, string StartUtc, string EndUtc, string Status, string? OutputPath, long? FileSizeBytes, string? Sha256, string? Error, string CreatedUtc);
     public sealed record DailyReportResponse(
         IReadOnlyList<RecordingSummaryRow> Recording,
         IReadOnlyList<CapacityTrendRow> Capacity,
@@ -574,6 +576,27 @@ public static class ApiEndpoints
             return Results.Ok(logs.ListRecent(q)
                 .Select(l => new NotificationLogItem(l.Id, SqliteStore.Iso(l.TsUtc), l.ChannelId, l.EventType, l.Route, l.Ok, l.Attempts, l.Detail))
                 .ToList());
+        });
+
+        api.MapGet("/exports", static (ExportJobRepository jobs) => Results.Ok(jobs.List()
+            .Select(j => new ExportJobItem(j.Id, j.ChannelId, j.Stream, SqliteStore.Iso(j.StartUtc), SqliteStore.Iso(j.EndUtc), j.Status, j.OutputPath, j.FileSizeBytes, j.Sha256, j.Error, SqliteStore.Iso(j.CreatedUtc)))
+            .ToList()));
+
+        api.MapPost("/exports", static (ExportJobRequest body, ExportJobRepository jobs) =>
+        {
+            if (body.ChannelId < 1)
+            {
+                return Results.BadRequest(new { error = "頻道必填" });
+            }
+
+            if (string.IsNullOrWhiteSpace(body.Stream) || body.ToUtc <= body.FromUtc)
+            {
+                return Results.BadRequest(new { error = "串流與時間窗必須有效" });
+            }
+
+            var id = jobs.Enqueue(body.ChannelId, body.Stream, body.FromUtc, body.ToUtc);
+            var job = jobs.Get(id);
+            return Results.Ok(new ExportJobItem(job!.Id, job.ChannelId, job.Stream, SqliteStore.Iso(job.StartUtc), SqliteStore.Iso(job.EndUtc), job.Status, job.OutputPath, job.FileSizeBytes, job.Sha256, job.Error, SqliteStore.Iso(job.CreatedUtc)));
         });
     }
 

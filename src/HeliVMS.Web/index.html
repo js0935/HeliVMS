@@ -237,6 +237,21 @@
         <tbody id="notif-body"></tbody>
       </table>
     </section>
+
+    <section class="panel wide">
+      <h2>匯出工作 <span id="export-count" class="muted"></span></h2>
+      <form id="export-form" class="row-form">
+        <input name="ech" type="number" min="1" placeholder="頻道" required>
+        <input name="efrom" type="datetime-local" required>
+        <input name="eto" type="datetime-local" required>
+        <button type="submit">排入匯出</button>
+        <span id="export-msg" class="muted"></span>
+      </form>
+      <table class="compact">
+        <thead><tr><th>ID</th><th>頻道</th><th>串流</th><th>起</th><th>訖</th><th>狀態</th><th>大小</th><th>結果</th></tr></thead>
+        <tbody id="export-body"></tbody>
+      </table>
+    </section>
   </main>
 
   <script type="module" src="./app.js"></script>

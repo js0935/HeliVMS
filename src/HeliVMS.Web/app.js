@@ -16,6 +16,7 @@ import {
   doorRows,
   detRows,
   notifRows,
+  exportRows,
   patrolLabel,
   scheduleInEffect,
   scheduleLabel,
@@ -513,6 +514,37 @@ async function renderNotifs() {
   $('notif-count').textContent = `（${rows.length}）`;
 }
 
+async function renderExports() {
+  const rows = exportRows(await api('/api/exports').catch(() => []));
+  $('export-body').innerHTML = rows
+    .map(
+      (j) =>
+        `<tr><td>#${j.id}</td><td>ch${j.channel}</td><td>${j.stream}</td><td>${j.start}</td><td>${j.end}</td><td>${j.status}</td><td>${j.file ? `${j.file}` : ''}</td><td class="muted">${j.sha}${j.error ? ` · ${j.error}` : ''}</td></tr>`,
+    )
+    .join('');
+  $('export-count').textContent = `（${rows.length}）`;
+}
+
+function bindExportForm() {
+  const form = $('export-form');
+  form.addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    const ch = Number(form.querySelector('input[name="ech"]').value);
+    const from = form.querySelector('input[name="efrom"]').value;
+    const to = form.querySelector('input[name="eto"]').value;
+    if (!ch || !from || !to) return;
+    const resp = await fetch('/api/exports', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ channelId: ch, stream: 'main', fromUtc: new Date(from).toISOString(), toUtc: new Date(to).toISOString() }),
+    }).catch(() => null);
+    if (!resp) return;
+    const body = await resp.json().catch(() => null);
+    $('export-msg').textContent = resp.ok ? `已排入 #${body.id}` : body?.error ?? '失敗';
+    if (resp.ok) renderExports();
+  });
+}
+
 function bindEvidenceForm() {
   const form = $('evidence-form');
   form.addEventListener('submit', async (ev) => {
@@ -650,6 +682,7 @@ function wire() {
   $('retention-run').addEventListener('click', runRetention);
   bindEvidenceForm();
   bindBackupForm();
+  bindExportForm();
   $('search-form').addEventListener('submit', (e) => {
     e.preventDefault();
     searchEvents($('q').value || '*').catch(console.error);
@@ -668,7 +701,7 @@ async function boot() {
   wire();
   updateChrome();
   await refreshHealth();
-  await Promise.allSettled([refreshChannels(), refreshBoard(), refreshTimeline(), renderMap(), renderSmartwall(), renderPos(), renderDaily(), renderSchedules(), renderPatrols(), renderDoor(), renderDetections(), renderNotifs()]);
+  await Promise.allSettled([refreshChannels(), refreshBoard(), refreshTimeline(), renderMap(), renderSmartwall(), renderPos(), renderDaily(), renderSchedules(), renderPatrols(), renderDoor(), renderDetections(), renderNotifs(), renderExports()]);
   bindScheduleForm();
   bindPatrolForm();
   connectLive();

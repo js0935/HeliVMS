@@ -745,6 +745,28 @@ public class ApiTests : IClassFixture<ApiFactory>, IDisposable
 
     private sealed record NotificationLogItem(long Id, string TsUtc, int ChannelId, string EventType, string Route, bool Ok, int Attempts, string? Detail);
 
+    [Fact]
+    public async Task Exports_EnqueueAndList()
+    {
+        using var client = Client();
+        var bad = await client.PostAsJsonAsync(
+            "/api/exports",
+            new { channelId = 1, stream = "main", fromUtc = "2026-05-01T00:00:00Z", toUtc = "2026-04-01T00:00:00Z" });
+        Assert.Equal(HttpStatusCode.BadRequest, bad.StatusCode);
+
+        var created = await client.PostAsJsonAsync(
+            "/api/exports",
+            new { channelId = 1, stream = "main", fromUtc = "2026-05-01T00:00:00Z", toUtc = "2026-05-01T01:00:00Z" });
+        Assert.Equal(HttpStatusCode.OK, created.StatusCode);
+        var job = await ReadAsync<ExportJobItem>(created);
+        Assert.Equal("queued", job.Status);
+
+        var list = await ReadAsync<List<ExportJobItem>>(await client.GetAsync("/api/exports"));
+        Assert.Contains(list, j => j.Id == job.Id && j.Status == "queued" && j.ChannelId == 1);
+    }
+
+    private sealed record ExportJobItem(long Id, int ChannelId, string Stream, string StartUtc, string EndUtc, string Status, string? OutputPath, long? FileSizeBytes, string? Sha256, string? Error, string CreatedUtc);
+
     private sealed record BackupRunRecordBody(
         long Id,
         System.DateTime RunAt,

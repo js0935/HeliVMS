@@ -313,6 +313,20 @@ export function notifRows(rows) {
   }));
 }
 
+export function exportRows(rows) {
+  return (rows ?? []).map((j) => ({
+    id: Number(j.id ?? j.Id ?? 0),
+    channel: Number(j.channelId ?? j.ChannelId ?? 0),
+    stream: j.stream ?? j.Stream ?? '',
+    start: formatTimestamp(j.startUtc ?? j.StartUtc ?? ''),
+    end: formatTimestamp(j.endUtc ?? j.EndUtc ?? ''),
+    status: j.status ?? j.Status ?? '',
+    file: j.fileSizeBytes ?? j.FileSizeBytes ?? null,
+    sha: (j.sha256 ?? j.Sha256 ?? '').slice(0, 12),
+    error: j.error ?? j.Error ?? '',
+  }));
+}
+
 export function scheduleLabel(s, { short = false } = {}) {
   const r = s ?? {};
   const mask = Number(r.daysMask ?? r.DaysMask ?? 0);

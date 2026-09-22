@@ -18,6 +18,7 @@ import {
   doorRows,
   detRows,
   notifRows,
+  exportRows,
   patrolLabel,
   scheduleInEffect,
   scheduleLabel,
@@ -411,5 +412,13 @@ describe('login gating', () => {
     const rows = notifRows([{ channelId: 2, eventType: 'motion', route: 'webhook', ok: true, attempts: 1, detail: 'ok', tsUtc: 'x' }]);
     expect(rows[0]).toMatchObject({ channel: 2, event: 'motion', route: 'webhook', ok: true, attempts: 1, detail: 'ok' });
     expect(notifRows(null)).toEqual([]);
+  });
+
+  it('renders export rows', () => {
+    const rows = exportRows([
+      { id: 3, channelId: 1, stream: 'main', startUtc: 'x', endUtc: 'y', status: 'queued', fileSizeBytes: null, sha256: 'abc', error: '' },
+    ]);
+    expect(rows[0]).toMatchObject({ id: 3, channel: 1, stream: 'main', status: 'queued', sha: 'abc' });
+    expect(exportRows(null)).toEqual([]);
   });
 });
