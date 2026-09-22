@@ -288,6 +288,63 @@ public class MqttClientTests : IDisposable
         Assert.Equal("x/y/status", MqttEventRouter.StatusTopic("x/y"));
     }
 
+    [Fact]
+    public void ReceiveMessage_GetsServerPushedPublish()
+    {
+        using var broker = new FakeMqttBroker();
+        broker.Start();
+        using var client = new MqttClient();
+        Assert.True(client.Connect("127.0.0.1", broker.Port, "c", 30).Ok);
+
+        broker.Push("helivms/events/status", Encoding.UTF8.GetBytes("{\"status\":\"online\"}"));
+        var result = client.ReceiveMessage(TimeSpan.FromSeconds(5));
+
+        Assert.True(result.Ok);
+        Assert.False(result.TimedOut);
+        Assert.Equal("helivms/events/status", result.Message!.Topic);
+        Assert.Equal("{\"status\":\"online\"}", Encoding.UTF8.GetString(result.Message.Payload));
+    }
+
+    [Fact]
+    public void ReceiveMessage_Timeout_ReturnsTimedOut()
+    {
+        using var broker = new FakeMqttBroker();
+        broker.Start();
+        using var client = new MqttClient();
+        Assert.True(client.Connect("127.0.0.1", broker.Port, "c", 30).Ok);
+
+        var result = client.ReceiveMessage(TimeSpan.FromMilliseconds(300));
+
+        Assert.False(result.Ok);
+        Assert.True(result.TimedOut);
+        Assert.Null(result.Message);
+    }
+
+    [Fact]
+    public void ReceiveMessage_WithoutConnect_ReturnsFail()
+    {
+        using var client = new MqttClient();
+        var result = client.ReceiveMessage(TimeSpan.FromSeconds(1));
+        Assert.False(result.Ok);
+        Assert.Contains("尚未連接", result.Error);
+    }
+
+    [Theory]
+    [InlineData("helivms/events/#", "helivms/events/ch3/motion", true)]
+    [InlineData("helivms/events/#", "helivms/events", true)]
+    [InlineData("#", "anything/at/all", true)]
+    [InlineData("helivms/+/status", "helivms/svc/status", true)]
+    [InlineData("helivms/+/status", "helivms/svc/cam/status", false)]
+    [InlineData("helivms/+", "helivms/a/b", false)]
+    [InlineData("helivms/events", "helivms/events/motion", false)]
+    [InlineData("other/topic", "helivms/events", false)]
+    [InlineData("a/+/c", "a/b/c", true)]
+    [InlineData("a/+/c", "a/b/d", false)]
+    public void TopicFilter_Matches(string filter, string topic, bool expected)
+    {
+        Assert.Equal(expected, MqttTopicFilter.Matches(filter, topic));
+    }
+
     public void Dispose()
     {
     }
@@ -299,6 +356,7 @@ internal sealed class FakeMqttBroker : IDisposable
     private readonly int _connackReturnCode;
     private readonly int _subackReturnCode;
     private Task? _task;
+    private NetworkStream? _clientStream;
 
     public FakeMqttBroker(int connackReturnCode = 0, int subackReturnCode = 0)
     {
@@ -322,12 +380,45 @@ internal sealed class FakeMqttBroker : IDisposable
     public bool DisconnectSeen { get; private set; }
     public string? LastError { get; private set; }
 
+    /// <summary>模擬 broker 主動推送 PUBLISH（QoS0）給已連線 client。</summary>
+    public void Push(string topic, byte[] payload)
+    {
+        var tb = Encoding.UTF8.GetBytes(topic);
+        var remaining = 2 + tb.Length + payload.Length;
+        var encoded = new List<byte>();
+        var length = remaining;
+        while (true)
+        {
+            var digit = (byte)(length % 128);
+            length /= 128;
+            if (length > 0)
+            {
+                digit |= 0x80;
+            }
+
+            encoded.Add(digit);
+            if (length == 0)
+            {
+                break;
+            }
+        }
+
+        var packet = new List<byte> { 0x30 };
+        packet.AddRange(encoded);
+        packet.AddRange([(byte)(tb.Length >> 8), (byte)(tb.Length & 0xFF)]);
+        packet.AddRange(tb);
+        packet.AddRange(payload);
+        _clientStream!.Write(packet.ToArray(), 0, packet.Count);
+        _clientStream.Flush();
+    }
+
     public void Start() => _task = Task.Run(async () =>
     {
         try
         {
             using var client = await _listener.AcceptTcpClientAsync().ConfigureAwait(false);
             using var stream = client.GetStream();
+            _clientStream = stream;
             while (true)
             {
                 var packet = await ReadPacketAsync(stream).ConfigureAwait(false);

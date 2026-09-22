@@ -38,6 +38,20 @@ public sealed class ChannelRepository
     }
 
     /// <summary>取得單一頻道。</summary>
+        /// <summary>Channel VMD sensitivity set (M114, auto-apply).</summary>
+    public void SetMotionSensitivity(int id, double sensitivity)
+    {
+        _store.Execute(
+            """
+            UPDATE channels SET motion_sensitivity = $ms WHERE id = $id;
+            """,
+            cmd =>
+            {
+                cmd.Parameters.AddWithValue("$ms", sensitivity);
+                cmd.Parameters.AddWithValue("$id", id);
+            });
+    }
+
     public ChannelInfo? Get(int id)
     {
         return _store.Query(

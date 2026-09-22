@@ -10,6 +10,70 @@ public sealed record MqttPublishResult(bool Ok, string? Error)
     public static MqttPublishResult Fail(string error) => new(false, error);
 }
 
+/// <summary>MQTT 收到的應用訊息（M112，PUBLISH→client）。</summary>
+public sealed record MqttInboundMessage(string Topic, byte[] Payload);
+
+/// <summary>
+/// 接收結果（M112）：Ok=true＝已收到訊息；TimedOut=true＝逾時；Ok=false 且 Error null＝收到
+/// 非 PUBLISH 控制封包（呼叫端可再取下一筆）；Error 非 null＝錯誤。
+/// </summary>
+public sealed record MqttReceiveResult(bool Ok, bool TimedOut, MqttInboundMessage? Message, string? Error)
+{
+    public static MqttReceiveResult FromMessage(MqttInboundMessage m) => new(true, false, m, null);
+    public static MqttReceiveResult Timeout() => new(false, true, null, null);
+    public static MqttReceiveResult Ignored() => new(false, false, null, null);
+    public static MqttReceiveResult Fail(string error) => new(false, false, null, error);
+}
+
+/// <summary>
+/// MQTT topic filter 比對（M112）：支援 MQTT 3.1.1 萬用字元 <c>+</c>（單層）與 <c>#</c>
+/// （多層至尾）；純函式，無 IO。
+/// </summary>
+public static class MqttTopicFilter
+{
+    public static bool Matches(string filter, string topic)
+    {
+        var f = filter.Split('/');
+        var t = topic.Split('/');
+        var fi = 0;
+        var ti = 0;
+        while (fi < f.Length && ti < t.Length)
+        {
+            switch (f[fi])
+            {
+                case "#":
+                    return true;
+                case "+":
+                    fi++;
+                    ti++;
+                    break;
+                default:
+                    if (!string.Equals(f[fi], t[ti], StringComparison.Ordinal))
+                    {
+                        return false;
+                    }
+
+                    fi++;
+                    ti++;
+                    break;
+            }
+        }
+
+        if (fi < f.Length)
+        {
+            var j = fi;
+            while (j < f.Length && f[j] == "#")
+            {
+                j++;
+            }
+
+            return j == f.Length;
+        }
+
+        return ti == t.Length;
+    }
+}
+
 /// <summary>MQTT 發送介面（M103）：測試注入 fake；正式為 <see cref="MqttClient"/>。</summary>
 public interface IMqttPublisher
 {
@@ -171,6 +235,80 @@ public sealed class MqttClient : IMqttPublisher, IDisposable
         }
     }
 
+    /// <summary>
+    /// 接收一筆 broker→client 訊息（M112，§14.7 #15）：阻塞式以 socket 逾時讀取單一封包；
+    /// PUBLISH（QoS0/retain）回傳訊息，其他控制封包回傳 Ignored，逾時回傳 Timeout。
+    /// 資料面與 PUBLISH 發送同連線（TCP 全雙工）；呼叫端以 <see cref="MqttTopicFilter"/>
+    /// 自行過濾訂閱語意。
+    /// </summary>
+    public MqttReceiveResult ReceiveMessage(TimeSpan timeout)
+    {
+        if (_stream is null)
+        {
+            return MqttReceiveResult.Fail("尚未連接");
+        }
+
+        var previousTimeout = _tcp!.ReceiveTimeout;
+        _tcp.ReceiveTimeout = (int)timeout.TotalMilliseconds;
+        try
+        {
+            var headerByte = ReadByte(_stream);
+            if (headerByte is null)
+            {
+                return MqttReceiveResult.Fail("對端已關閉連線");
+            }
+
+            var header = headerByte.Value;
+            var remaining = ReadRemainingLength(_stream);
+            if (remaining < 0)
+            {
+                return MqttReceiveResult.Fail("封包不完整");
+            }
+
+            var body = ReadFully(_stream, remaining);
+            if ((header & 0xF0) == 0x30 && body.Length >= 2)
+            {
+                var topicLen = (body[0] << 8) | body[1];
+                if (body.Length < 2 + topicLen)
+                {
+                    return MqttReceiveResult.Fail("PUBLISH 格式錯誤");
+                }
+
+                var topic = Encoding.UTF8.GetString(body, 2, topicLen);
+                var payload = new byte[body.Length - (2 + topicLen)];
+                Array.Copy(body, 2 + topicLen, payload, 0, payload.Length);
+                return MqttReceiveResult.FromMessage(new MqttInboundMessage(topic, payload));
+            }
+
+            return MqttReceiveResult.Ignored();
+        }
+        catch (Exception ex) when (IsSocketTimeout(ex))
+        {
+            return MqttReceiveResult.Timeout();
+        }
+        catch (Exception ex) when (ex is SocketException or IOException or ObjectDisposedException)
+        {
+            return MqttReceiveResult.Fail($"接收失敗（{ex.Message}）");
+        }
+        finally
+        {
+            _tcp.ReceiveTimeout = previousTimeout;
+        }
+    }
+
+    private static bool IsSocketTimeout(Exception ex)
+    {
+        for (var e = ex; e is not null; e = e.InnerException)
+        {
+            if (e is SocketException se && se.SocketErrorCode is SocketError.TimedOut or SocketError.WouldBlock)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     public MqttPublishResult Disconnect()
     {
         if (_stream is null)
@@ -285,6 +423,38 @@ public sealed class MqttClient : IMqttPublisher, IDisposable
     {
         stream.Write(data, 0, data.Length);
         stream.Flush();
+    }
+
+    private static byte? ReadByte(NetworkStream stream)
+    {
+        var buffer = new byte[1];
+        return stream.Read(buffer, 0, 1) == 0 ? null : buffer[0];
+    }
+
+    private static int ReadRemainingLength(NetworkStream stream)
+    {
+        var multiplier = 1;
+        var value = 0;
+        while (true)
+        {
+            var b = ReadByte(stream);
+            if (b is null)
+            {
+                return -1;
+            }
+
+            value += (b.Value & 0x7F) * multiplier;
+            if ((b.Value & 0x80) == 0)
+            {
+                return value;
+            }
+
+            multiplier *= 128;
+            if (multiplier > 128 * 128 * 128)
+            {
+                return -1;
+            }
+        }
     }
 
     private static byte[] ReadFully(NetworkStream stream, int count)
