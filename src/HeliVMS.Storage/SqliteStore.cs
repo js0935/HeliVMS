@@ -9,7 +9,7 @@ namespace HeliVMS.Storage;
 /// </summary>
 public sealed class SqliteStore : IDisposable
 {
-    private const int CurrentSchemaVersion = 35;
+    private const int CurrentSchemaVersion = 36;
     private readonly SqliteConnection _connection;
     private readonly object _gate = new();
     private bool _disposed;
@@ -227,6 +227,11 @@ public sealed class SqliteStore : IDisposable
         if (version < 35)
         {
             CreateFailoverEventTablesV35();
+        }
+
+        if (version < 36)
+        {
+            CreateLoginSessionTablesV36();
         }
 
         Execute("PRAGMA user_version = CURRENT_SCHEMA_VERSION;".Replace(
@@ -1089,6 +1094,28 @@ public sealed class SqliteStore : IDisposable
             );
 
             CREATE INDEX IF NOT EXISTS idx_failover_events_time ON failover_events(at_utc);
+            """);
+    }
+
+    /// <summary>M99 企業登入落地（§14.7 #1）：登入 session 表（LDAP/OIDC 登入後簽發）＋時效索引。</summary>
+    private void CreateLoginSessionTablesV36()
+    {
+        Execute(
+            """
+            CREATE TABLE IF NOT EXISTS login_sessions (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT    NOT NULL UNIQUE,
+                user_id    INTEGER NOT NULL,
+                username   TEXT    NOT NULL,
+                role       TEXT    NOT NULL,
+                provider   TEXT    NOT NULL DEFAULT 'local',
+                issued_at  TEXT    NOT NULL,
+                expires_at TEXT    NOT NULL,
+                revoked_at TEXT
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_login_sessions_session ON login_sessions(session_id);
+            CREATE INDEX IF NOT EXISTS idx_login_sessions_expiry  ON login_sessions(expires_at);
             """);
     }
 
