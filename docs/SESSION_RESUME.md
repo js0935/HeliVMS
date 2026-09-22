@@ -6,8 +6,8 @@
 
 ## 一句話總結
 HeliVMS 為一套**網路影像監控系統**（WPF 桌面應用：即時監看／回放／AI 事件中心／錄影排程）。
-里程碑 **M1 至 M103 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M103 MQTT 輸出 L0）。
-Release build 0 error、測試 **954/954 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
+里程碑 **M1 至 M104 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M104 POS 接口擴展 L1）。
+Release build 0 error、測試 **964/964 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
 本地與遠端完全同步（`git diff origin/HEAD` 為空）。
 
 ## 開新 session 的接手方法
@@ -23,15 +23,13 @@ gh run list -L 3              # 預期全部 success
 新 session 會以 git 現況接手，不會靠猜測。
 
 ## 現況快照（權威來源＝git，非聊天記憶）
-- 最後 commit：`HEAD`＝**M103**——§14.7 #15 MQTT／自動化平台輸出 L0：
-  `MqttClient : IMqttPublisher`（最小 MQTT 3.1.1 QoS0 發送：CONNECT（clean session＋keepalive）→
-  CONNACK 檢查→PUBLISH→DISCONNECT；剩餘長度多字節編碼 §2.2.3；TcpClient/NetworkStream 同步走
-  wire 同 M85 風格；未連線/空 topic/拒絶/連線失敗皆 Fail）；`MqttEventRouter`（topic=
-  prefix/chN/eventType 正規化＋JSON payload{channel_id,event_type,ts}）；9 新測試（含 loopback
-  FakeMqttBroker；keptalive offset 雷＝CONNECT client-id 欄位在 10..11 非 8..9）→全 **954**、
-  Release build 0 error、樹淨
-- 前一個 M102 交付＝`370356a`（§14.7 #3 警報管理器分診工作流 L1 v38 `AlarmWorkflowRepository`＋`AlarmSla`）＋`99fdfe0`（docs）；
-  全 **945**、CI `35697843688` success
+- 最後 commit：`HEAD`＝**M104**——§14.7 #8 POS 接口擴展 L1：
+  `POSEventRepository.InsertDedupe`（去重匯入：同設備＋收銀機＋交易號＋金額＋|Δt|≤keyWindow→回既有
+  id 不新增）＋`QueryByRegister`（收銀機＋左閉右開區間）；純 BCL `PosReconciliation`（M93 時間窗
+  語意逐筆對帳→{Total,Matched,Unmatched,Duplicates}，duplicates＝同收銀機+交易號+金額多筆）；10
+  新測試→全 **964**、Release build 0 error、樹淨
+- 前一個 M103 交付＝`4898394`（§14.7 #15 MQTT 輸出 L0 `MqttClient`＋`MqttEventRouter`）＋`298467a`（docs）；
+  全 **954**、CI `35699910086` success
 - 前一個 M85 交付＝`54cad94`（LDAPv3 連線層 L1：`LdapClient : ILdapBinder`
   裸 BER wire（simple bind＋memberOf SearchGroups）；`LdapBer` minimal BER＋`LdapFilterEncoder`
   RFC4515→BER；24 新測試（FakeLdapServer loopback）；全 **799**、CI `35621317643` success；
@@ -1827,6 +1825,18 @@ gh run list -L 3              # 預期全部 success
       （Storage 639→648）；CI 綠；樹淨；
       §14.7 #15 現況改「MQTT 輸出 L0（M103 `MqttClient`＋`MqttEventRouter`）已落地；事件
       驅動掛載/訂閱待續」
+80. **M104 已完成＝§14.7 #8 POS 接口擴展 L1**：（見頂部快照）
+    - 背景：#8「POS 接口待擴」「沒有」；M93 僅做 v34 pos_events＋時間窗配對，無對帳/去重/收銀機查詢
+    - 落點：`POSEventRepository.InsertDedupe`（去重匯入：同 device+register+txn+amount＋|Δt|≤keyWindow
+      視重複→列回既有 id 不新增；julianday 差≤window 天數）＋`QueryByRegister`（左閉右開）；純 BCL
+      `PosReconciliation`：`PosReconSummary(Total,Matched,Unmatched,Duplicates)`、`Compute`＝逐筆交易
+      對最近事件候選（沿用 M93 `POSEventMatcher` |Δt|≤window 語意）、duplicates＝同 register+txn+
+      amount 之重複筆數
+    - 測試：x10（首插/同窗內回插拒重複（同 id）、超窗重插、異 register/異金額不重複、QueryByRegister
+      濾 device+register+時間、全配對、部分未配對、重複計入不算二次 matched、無候選全未配、空清單
+      None）＝＋10 → 全 **964**（Storage 648→658）；CI 綠；樹淨；
+      §14.7 #8 現況改「POS 接口擴展 L1（M104 去重匯入＋收銀機區間查詢＋對帳統計）已落地；
+      POS→門禁自動核對/異常視覺化待續」
 
 ## 已知雷區（勿再犯）
 - **harness `.ps1` 必須存成 UTF-8 with BOM**：寫檔工具產出的是 UTF-8 無 BOM，含中文的 `.ps1` 會被 PowerShell 5.1 以 ANSI/Big5 誤讀而**靜默破壞解析**（症狀：`Start-Process` 看似無效、App 根本沒啟動、`Get-Process HeliVMS.App` 找不到）。修法：`[System.IO.File]::WriteAllText($p,[System.IO.File]::ReadAllText($p,[System.Text.Encoding]::UTF8),(New-Object System.Text.UTF8Encoding($true)))`（temp/opencode 有 `fix-encoding.ps1`）
