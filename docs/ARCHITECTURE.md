@@ -1033,7 +1033,7 @@ L2 比對（人臉/車牌）置「進階·需權限」區，預設關閉（§5.1
 ### 14.3 P0 建議（併入核心藍圖）
 
 **(1) 遠程存取 Web + 行動端**
-- 架構：`HeliVms.WebApi`（ASP.NET Core）提供 REST + WebSocket；`HeliVms.Web`（SPA）與桌面 App 分流。**REST P0 L0 已落地（M117 `HeliVMS.WebApi`：health、channels、events 分頁＋跨源全文、alarms board/summary、ack/disposition/triage、pos 查詢/對帳、smartwall board；Bearer API 金鑰驗證）**；WebSocket/HLS/WebRTC 待續
+- 架構：`HeliVms.WebApi`（ASP.NET Core）提供 REST + WebSocket；`HeliVms.Web`（SPA）與桌面 App 分流。**REST P0 L0 已落地（M117 `HeliVMS.WebApi`：health、channels、events 分頁＋跨源全文、alarms board/summary、ack/disposition/triage、pos 查詢/對帳、smartwall board；Bearer API 金鑰驗證）**；**WebSocket 即時警報流已落地（M118 `/api/alerts/ws`：Subscribe→Accept、ack/disposition/triage 事件廣播、離線退訂）**；WebRTC/HLS/SPA 待續
 - 串流：實時監看 = **WebRTC**（低延遲，瀏覽器免外掛）；回放 = HLS/MPEG-DASH（依索引即時生成片段）——借鏡 GoWVP（§12）與 WHEP/WARP 模式
 - 安全：TLS + JWT；與桌面端共用資料庫與稽核（誰遠端看了什麼）——呼應 §11.5
 - 權限：遠程預設更嚴（檢閱者級別起跳）

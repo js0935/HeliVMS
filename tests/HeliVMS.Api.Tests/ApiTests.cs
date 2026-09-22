@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Text;
 using System.Text.Json;
 using HeliVMS.Shared.Models;
 using HeliVMS.Storage;
@@ -259,6 +260,40 @@ public class ApiTests : IClassFixture<ApiFactory>, IDisposable
         var response = await client.GetAsync("/api/events/search");
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task AlertsWebSocket_StreamsTriageUpdate()
+    {
+        var id = InsertMotion("ws-trigger");
+        using var client = Client();
+
+        var wsClient = _factory.Server.CreateWebSocketClient();
+        wsClient.ConfigureRequest = req => req.Headers["Authorization"] = $"Bearer {Key}";
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        using var socket = await wsClient.ConnectAsync(
+            new Uri(_factory.Server.BaseAddress, "/api/alerts/ws"), cts.Token);
+
+        var response = await client.PostAsJsonAsync(
+            $"/api/events/{id}/triage", new ApiEndpoints.TriageRequest("high", null, "ops"));
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var buffer = new byte[4096];
+        var result = await socket.ReceiveAsync(buffer.AsMemory(), cts.Token);
+        var text = Encoding.UTF8.GetString(buffer, 0, result.Count);
+
+        Assert.Contains("alarm.triage", text);
+        Assert.Contains("high", text);
+    }
+
+    [Fact]
+    public async Task AlertsWebSocket_WithoutKey_IsRefused()
+    {
+        var wsClient = _factory.Server.CreateWebSocketClient();
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+
+        await Assert.ThrowsAnyAsync<Exception>(() => wsClient.ConnectAsync(
+            new Uri(_factory.Server.BaseAddress, "/api/alerts/ws"), cts.Token));
     }
 
     private static string HttpUtility(DateTime utc) =>
