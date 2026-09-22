@@ -16,6 +16,18 @@ public sealed record OidcOptions
 
     public string? ClientId { get; init; }
 
+    /// <summary>授權碼流程（M100，§14.7 #1）：授權端點 URL。</summary>
+    public string? AuthorizeUri { get; init; }
+
+    /// <summary>授權碼流程（M100）：token 端點 URL。</summary>
+    public string? TokenUri { get; init; }
+
+    /// <summary>授權碼流程（M100）：回呼 URL（須與 IdP 註冊一致）。</summary>
+    public string? RedirectUri { get; init; }
+
+    /// <summary>授權碼流程（M100）：機密型用戶端之密鑰（選填；PKCE 下可省略）。</summary>
+    public string? ClientSecret { get; init; }
+
     public string UsernameClaim { get; init; } = "preferred_username";
 
     public string RoleClaim { get; init; } = "roles";
