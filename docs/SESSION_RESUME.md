@@ -6,8 +6,8 @@
 
 ## 一句話總結
 HeliVMS 為一套**網路影像監控系統**（WPF 桌面應用：即時監看／回放／AI 事件中心／錄影排程）。
-里程碑 **M1 至 M94 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M94 補抓回灌執行器 L1）。
-Release build 0 error、測試 **874/874 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
+里程碑 **M1 至 M95 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M95 Edge AI metadata 持久化）。
+Release build 0 error、測試 **880/880 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
 本地與遠端完全同步（`git diff origin/HEAD` 為空）。
 
 ## 開新 session 的接手方法
@@ -23,13 +23,12 @@ gh run list -L 3              # 預期全部 success
 新 session 會以 git 現況接手，不會靠猜測。
 
 ## 現況快照（權威來源＝git，非聊天記憶）
-- 最後 commit：`HEAD`＝**M94**——§14.7 #10 補抓回灌執行器 L1：SqliteStore v32
-  `edge_backfill_jobs`（狀態機 Pending/Downloading/Done/Failed＋attempts＋next_attempt＋索引×2）
-  ＋`EdgeBackfillJobRepository`（重疊去重；QueryDue 含到期 Failed）＋`EdgeBackfillExecutor`
-  （有限並行／成功 Done／失敗退避重試）＋`EdgeBackfillCommandFactory`（ffmpeg -c copy pull）；
-  9 新測試→全 **874**、Release build 0 error、樹淨
-- 前一個 M93 交付＝`4a1affb`（POS 交易 Metadata 配對 L0，v31）＋`9334497`（docs）＋
-  `877f849`（Modbus loopback flake 穩定性）；全 **865**、CI `35664887187` success
+- 最後 commit：`HEAD`＝**M95**——§14.7 #13 Edge AI metadata 持久化/查詢 L1：SqliteStore v33
+  `edge_smart_events`（型別框＋direction＋時序索引×3）＋`EdgeSmartEventRepository`（Append/
+  Query 多條件/左閉右開/AggregateByDirection 分向計數）；6 新測試→全 **880**、Release
+  build 0 error、樹淨
+- 前一個 M94 交付＝`8838f71`（補抓回灌執行器 L1，v32）＋`a28deac`（docs）；全 **874**、
+  CI `35671600149` success
 - 前一個 M85 交付＝`54cad94`（LDAPv3 連線層 L1：`LdapClient : ILdapBinder`
   裸 BER wire（simple bind＋memberOf SearchGroups）；`LdapBer` minimal BER＋`LdapFilterEncoder`
   RFC4515→BER；24 新測試（FakeLdapServer loopback）；全 **799**、CI `35621317643` success；
@@ -1677,6 +1676,17 @@ gh run list -L 3              # 預期全部 success
       維持／maxConcurrent=2 時 ActiveMax=2 併行全跑完）；`SchemaVersion_IsV32` 改名
       ＝＋9 → 全 **874**（Storage 559→568）；CI 綠；樹淨；§14.7 #10 現況改「L0 規劃器
       ＋L1 回灌執行器均已落地；實際 ffmpeg 拉流為部署整合（`IEdgeBackfillRunner`）」
+
+71. **M95 已完成＝§14.7 #13 消費邊緣 AI metadata 持久化/查詢 L1**：
+    - 背景：#13 欄「持久化/查詢待續」；M90 只有分類/追蹤即時邏輯，收尾定案事件無處落
+    - 落點：SqliteStore v32→**v33**；`edge_smart_events`（device/class/track/direction/
+      型別框 x1y1x2y2/occurred＋時序索引 ×3＝device・class・direction）；`EdgeSmartEvent`
+      ＋`EdgeSmartEventRepository`（Append 回 id／Query 過 device/class/direction/左閉右開
+      區間/limit／**AggregateByDirection** 區間分向計數＝消費分析原語）
+    - 測試：整合 x6（Append roundtrip／direction 過濾／class＋device 過濾／範圍左閉右開／
+      limit／AggregateByDirection 分向計數＋設備/區間維度）；`SchemaVersion_IsV33` 改名
+      ＝＋6 → 全 **880**（Storage 568→574）；CI 綠；樹淨；§14.7 #13 現況改「L0 消費/軌跡/
+      方向分類＋L1 持久化/查詢/分向摘要均已落地」
 
 ## 已知雷區（勿再犯）
 - **harness `.ps1` 必須存成 UTF-8 with BOM**：寫檔工具產出的是 UTF-8 無 BOM，含中文的 `.ps1` 會被 PowerShell 5.1 以 ANSI/Big5 誤讀而**靜默破壞解析**（症狀：`Start-Process` 看似無效、App 根本沒啟動、`Get-Process HeliVMS.App` 找不到）。修法：`[System.IO.File]::WriteAllText($p,[System.IO.File]::ReadAllText($p,[System.Text.Encoding]::UTF8),(New-Object System.Text.UTF8Encoding($true)))`（temp/opencode 有 `fix-encoding.ps1`）

@@ -1093,7 +1093,7 @@ L2 比對（人臉/車牌）置「進階·需權限」區，預設關閉（§5.1
 | 10 | 儲存 | **Edge Storage 雙保險**（設備 SD 側錄 + NVR） | Milestone、Genetec、Synology | **L0 補抓規劃器（M89）＋L1 回灌執行器（M94 `EdgeBackfillExecutor` v32）已落地**；實際 ffmpeg 拉流＝部署整合（`IEdgeBackfillRunner`） | P2 |
 | 11 | 地圖 | **智慧地圖深化**：視角扇形 FOV/深度 | Milestone Smart Map | 僅基礎圖釘(§14.3) | P2 |
 | 12 | 錄影 | **Adaptive Streaming / SVR 品質自適應** | Milestone | 沒有 | P3 |
-| 13 | 邊緣 | **消費邊緣 AI 相機 metadata**（D2C/方向） | Genetec、Frigate | **L0 消費/軌跡/方向分類（M90 `EdgeAIClassifier`+`EdgeAITracker` 已落地）**；持久化/查詢待續 | P3 |
+| 13 | 邊緣 | **消費邊緣 AI 相機 metadata**（D2C/方向） | Genetec、Frigate | **L0 消費/軌跡/方向分類（M90）＋L1 持久化/查詢/分向摘要（M95 `EdgeSmartEventRepository` v33）已落地** | P3 |
 | 14 | 顯示 | **智慧牆（Smart Wall）多螢幕拼接控制** | Milestone Smart Wall | 僅雙螢幕(§11.3) | P3 |
 | 15 | 整合 | **MQTT / 自動化平台輸出** | Frigate（HA/MQTT） | 沒有 | P3 |
 | 16 | 分割 | **即時快照「一鍵模糊/遮蔽」** | Synology | 沒有 | P3 |
