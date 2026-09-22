@@ -1083,7 +1083,7 @@ L2 比對（人臉/車牌）置「進階·需權限」區，預設關閉（§5.1
 |---|---|---|---|---|---|
 | 1 | 身份整合 | **企業帳戶：LDAP / AD / OIDC SSO** | Milestone（Active Directory、OIDC SSO）、Synology | **本機帳號＋RBAC（PBKDF2＋失敗鎖定，M42 已實作）**＋OIDC 驗證/LDAP 設定（M50 `EnterpriseAuthService`）＋LDAP 連線層（M85 `LdapClient`）＋企業登入（M99 `LdapLoginBroker`＋`login_sessions` v36）＋**OIDC 授權碼＋PKCE 登入（M100 `OidcLoginFlow`）已落地** | **P1**（企業標案基本門檻） |
 | 2 | 影像 | **魚眼攝影機矯正（Dewarping）** | QNAP Qdewarp、Genetec、Synology | 完全沒有 | P1（魚眼/全景漸普及） |
-| 3 | 事件營運 | **警報管理器（Alarm Manager）**：分診/指派/傳遞/進度狀態大面板 | Milestone Alarm Manager | 僅事件中心 + 四態(§14.4) | P1（營運效率亮點） |
+| 3 | 事件營運 | **警報管理器（Alarm Manager）**：分診/指派/傳遞/進度狀態大面板 | Milestone Alarm Manager | 事件中心＋四態(§14.4)＋**分診面板（M47 alarm_triage）＋分診工作流 L1（M102 `alarm_notes`＋`alarm_escalations`＋`AlarmEscalationPolicy` SLA 升階，v38）已落地**；智慧牆大面板 UI 待續 | P1（營運效率亮點） |
 | 4 | 證據 | **外部安全共享**（無帳號分享錄影片段/連結） | Synology Share Link、Genetec Secure Share | 沒有 | P1 |
 | 5 | 隱私 | **錄影遮蔽/模糊化（Redaction）** | Genetec Digital Evidence、Synology 快照模糊 | **遮蔽區域倉儲＋純 BCL 處理引擎 L0（M101 `RedactionRepository`＋`RedactionProcessor`，v37）已落地**；回放/匯出串接待續 | P1（個資法交付加分） |
 | 6 | AI | **模組化分析情境套件**：周界/靜止車輛/尾隨/區域防護/方向控制 | Genetec KiwiVision | 核心已規劃（§5.6 分析情境＋§5.7 追蹤＋§5.10 規則） | P2（能力開放，§19 銷售位元） |

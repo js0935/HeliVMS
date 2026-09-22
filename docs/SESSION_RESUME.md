@@ -6,8 +6,8 @@
 
 ## 一句話總結
 HeliVMS 為一套**網路影像監控系統**（WPF 桌面應用：即時監看／回放／AI 事件中心／錄影排程）。
-里程碑 **M1 至 M101 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M101 錄影遮蔽 Redaction L0 v37）。
-Release build 0 error、測試 **934/934 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
+里程碑 **M1 至 M102 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M102 警報管理器分診工作流 L1 v38）。
+Release build 0 error、測試 **945/945 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
 本地與遠端完全同步（`git diff origin/HEAD` 為空）。
 
 ## 開新 session 的接手方法
@@ -23,14 +23,15 @@ gh run list -L 3              # 預期全部 success
 新 session 會以 git 現況接手，不會靠猜測。
 
 ## 現況快照（權威來源＝git，非聊天記憶）
-- 最後 commit：`HEAD`＝**M101**——§14.7 #5 錄影遮蔽（Redaction）L0：
-  `SqliteStore` v36→**v37**（`redaction_regions` 遮蔽區長儲存＋source/時間索引）；`RedactionSources`
-  （clip/snapshot）；`RedactionRegion`/`RedactionRepository`（Add 負寬高拒絶／QueryBySource／
-  QueryByTime 左閉右開／Remove）；`RedactionProcessor`（純 BCL，BGRA 32bpp：盒狀模糊 filled=false／
-  實心遮罩 filled=true，越界自動裁剪、緩衝區長度校驗、ArrayPool 暫存）；10 新測試→全 **934**、
-  Release build 0 error、樹淨
-- 前一個 M100 交付＝`4290b99`（§14.7 #1 OIDC 授權碼＋PKCE 登入 `OidcLoginFlow`）＋`1cbd8f3`（docs）；
-  全 **924**、CI `35675406718` success
+- 最後 commit：`HEAD`＝**M102**——§14.7 #3 警報管理器分診工作流 L1：
+  `SqliteStore` v37→**v38**（`alarm_notes` 進度註記＋`alarm_escalations` 逾時升階軌跡，event 索引）；
+  `AlarmNote`/`AlarmEscalationRecord`/`AlarmWorkflowRepository`（AddNote 拒空白／NotesByEvent 舊→新／
+  NoteCount／RemoveNote／RecordEscalation level=max+1／EscalationsByEvent）；`AlarmSla.ResponseSeconds`
+  （critical 300/high 900/normal 3600/low 7200）＋`AlarmEscalationPolicy`（純 BCL：priority→高一階
+  （normal→high、high→critical、critical 停頂）、升階後新 SLA 截止=now+新時限、僅未關案且逾時才升階）；
+  11 新測試→全 **945**、Release build 0 error、樹淨
+- 前一個 M101 交付＝`5596939`（§14.7 #5 錄影遮蔽 Redaction L0 v37 `RedactionRepository`＋`RedactionProcessor`）＋`acb6356`（docs）；
+  全 **934**、CI `35675965348` success
 - 前一個 M85 交付＝`54cad94`（LDAPv3 連線層 L1：`LdapClient : ILdapBinder`
   裸 BER wire（simple bind＋memberOf SearchGroups）；`LdapBer` minimal BER＋`LdapFilterEncoder`
   RFC4515→BER；24 新測試（FakeLdapServer loopback）；全 **799**、CI `35621317643` success；
@@ -1794,6 +1795,23 @@ gh run list -L 3              # 預期全部 success
       （Storage 618→628）；`SchemaVersion_IsV37` 改名；CI 綠；樹淨；
       §14.7 #5 現況改「錄影遮蔽 L0（M101 `RedactionRepository`＋`RedactionProcessor`）已落地；
       回放/匯出串接待續」
+78. **M102 已完成＝§14.7 #3 警報管理器分診工作流 L1**：（見頂部快照）
+    - 背景：#3 欄 M47 只有優先序/SLA 截止/負責人/面板（alarm_triage）；「指派→進度→升階」
+      工作流缺進度註記串與逾時升階軌跡
+    - 落點：SqliteStore v37→**v38**（`alarm_notes`（event_id/author/note/created_at＋event 索引）＋
+      `alarm_escalations`（event_id/level/from_priority/to_priority/due_utc/created_at＋event 索引））；
+      `AlarmWorkflowRepository`（AddNote（空白拒絶）／NotesByEvent 舊→新／NoteCountByEvent／
+      RemoveNote／RecordEscalation（level＝既有 max+1）／EscalationsByEvent）；
+      `AlarmSla.ResponseSeconds`（critical 300／high 900／normal 3600／low 7200（秒））
+      ＋`AlarmEscalationPolicy`（純 BCL：優先序高一階 normal→high、high→critical、critical→critical
+      停頂階；升階後新 SLA 截止＝now＋新優先序回應時限；僅「未關案（pending/acknowledged）
+      且已逾 due」才升階，closed/未逾期一律 None）＝大面板「指派→進度→升階」資料閉合
+    - 測試：x11（註記增列順序／空白註記抛錯／計數＋移除 true→false／跨事件隔離／升階 level
+      遞增＋Due 正確／跨事件隔離／SLA 秒數表／未逾期不升階／逾期升 decision 正確＋NewDue／
+      critical 逾期停頂階／closed 事件不升階）＝＋11 → 全 **945**（Storage 628→639）；
+      `SchemaVersion_IsV38` 改名；CI 綠；樹淨；
+      §14.7 #3 現況改「M47 分診面板＋M102 分診工作流 L1（alarm_notes＋alarm_escalations＋SLA 升階）
+      已落地；智慧牆大面板 UI 待續」
 
 ## 已知雷區（勿再犯）
 - **harness `.ps1` 必須存成 UTF-8 with BOM**：寫檔工具產出的是 UTF-8 無 BOM，含中文的 `.ps1` 會被 PowerShell 5.1 以 ANSI/Big5 誤讀而**靜默破壞解析**（症狀：`Start-Process` 看似無效、App 根本沒啟動、`Get-Process HeliVMS.App` 找不到）。修法：`[System.IO.File]::WriteAllText($p,[System.IO.File]::ReadAllText($p,[System.Text.Encoding]::UTF8),(New-Object System.Text.UTF8Encoding($true)))`（temp/opencode 有 `fix-encoding.ps1`）
