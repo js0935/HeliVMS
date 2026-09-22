@@ -6,8 +6,8 @@
 
 ## 一句話總結
 HeliVMS 為一套**網路影像監控系統**（WPF 桌面應用：即時監看／回放／AI 事件中心／錄影排程）。
-里程碑 **M1 至 M104 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M104 POS 接口擴展 L1）。
-Release build 0 error、測試 **964/964 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
+里程碑 **M1 至 M105 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M105 智慧牆 L0 v39）。
+Release build 0 error、測試 **982/982 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
 本地與遠端完全同步（`git diff origin/HEAD` 為空）。
 
 ## 開新 session 的接手方法
@@ -23,13 +23,15 @@ gh run list -L 3              # 預期全部 success
 新 session 會以 git 現況接手，不會靠猜測。
 
 ## 現況快照（權威來源＝git，非聊天記憶）
-- 最後 commit：`HEAD`＝**M104**——§14.7 #8 POS 接口擴展 L1：
-  `POSEventRepository.InsertDedupe`（去重匯入：同設備＋收銀機＋交易號＋金額＋|Δt|≤keyWindow→回既有
-  id 不新增）＋`QueryByRegister`（收銀機＋左閉右開區間）；純 BCL `PosReconciliation`（M93 時間窗
-  語意逐筆對帳→{Total,Matched,Unmatched,Duplicates}，duplicates＝同收銀機+交易號+金額多筆）；10
-  新測試→全 **964**、Release build 0 error、樹淨
-- 前一個 M103 交付＝`4898394`（§14.7 #15 MQTT 輸出 L0 `MqttClient`＋`MqttEventRouter`）＋`298467a`（docs）；
-  全 **954**、CI `35699910086` success
+- 最後 commit：`HEAD`＝**M105**——§14.7 #14 智慧牆 L0（資料模型＋版面 API）：
+  `SqliteStore` v38→**v39**（`smartwall_layouts`（name UNIQUE,rows,cols,created/updated）
+  ＋`smartwall_tiles`（layout_id,row,col,rowspan,colspan,channel_id,view 0單鏡頭/1馬賽克,position））；
+  `SmartwallLayoutRepository`（CreateLayout 名稱去重/尺寸 1..16 校驗、RenameLayout、ListLayouts、
+  AddTile 越界＋重疊校驗（矩形交集）、GetTiles、RemoveTile）；純 BCL `LayoutGrid`（IsTileInBounds／
+  FindOverlap）＋`SmartwallTimings`（AlarmHighlight=5s、MosaicKeepLast=300s §14.7 #14 常數）；18
+  新測試＋SchemaVersion_IsV39→全 **982**、Release build 0 error、樹淨
+- 前一個 M104 交付＝`3deeeab`（§14.7 #8 POS 接口擴展 L1 `InsertDedupe`＋`QueryByRegister`＋`PosReconciliation`）＋`3778c0f`（docs）；
+  全 **964**、CI `35700750149` success
 - 前一個 M85 交付＝`54cad94`（LDAPv3 連線層 L1：`LdapClient : ILdapBinder`
   裸 BER wire（simple bind＋memberOf SearchGroups）；`LdapBer` minimal BER＋`LdapFilterEncoder`
   RFC4515→BER；24 新測試（FakeLdapServer loopback）；全 **799**、CI `35621317643` success；
@@ -1966,3 +1968,23 @@ gh run list -L 3              # 預期全部 success
 - **ptzcheck 綁定頻道別硬編 id=1**：開發機 C:\HeliVMSData\index.db 的 channels id 已不含 1
   （由使用者實際使用所致）；綁「最小存在頻道 `SELECT MIN(id)`」即可（App ChannelCombo index0
   恰為最小 id）
+
+81. **M105 已完成＝§14.7 #14 智慧牆 L0（資料模型＋版面 API，v39）**：（見頂部快照）
+    - 背景：#14「智慧牆」完全沒有（P3）；智慧牆＝警報牆＋視訊牆（馬賽克/告警格），本里程碑先落
+      「版面資料模型＋幾何校驗＋看板時間常數」，不碰 UI
+    - 落點：`SqliteStore` v38→**v39** `smartwall_layouts`（name UNIQUE、rows/cols 1..16、
+      created/updated_at）＋`smartwall_tiles`（layout_id、row/col 0 起算、rowspan/colspan、
+      channel_id 可空、view 0 單鏡頭/1 馬賽克、position）＋索引；
+      `SmartwallLayoutRepository`：CreateLayout（名稱重複/空白/尺寸越界→ArgumentException）、
+      RenameLayout、ListLayouts、AddTile（越界與重疊（矩形交集）→ArgumentException）、GetTiles
+      （position 排序）、RemoveTile；純 BCL `LayoutGrid`（IsTileInBounds／FindOverlap）＋
+      `SmartwallTimings`（§14.7 #14 常數 AlarmHighlight=5s、MosaicKeepLast=300s）
+    - 雷：`_store.Query<T>` 是「single-row」非集合——要 List 回傳須用非泛型
+      `Query(sql, reader=>List<T>, bind)` 形態（誤用泛型→CS1503 集合形態不符）；UNIQUE 衝突在
+      SQLite 是 `SqliteException(19)` 非 ArgumentException——CreateLayout 需先 EXISTS 預查再插
+    - 測試：x18（SchemaVersion_IsV39、Create/Rename/List、名稱重複與空白與尺寸越界 Throws、
+      AddTile 讀回、越界/重疊/貼邊允許、RemoveTile、IsTileInBounds 邊界、FindOverlap 邊角與無重疊、
+      Timings）＋RuleRepositoryTests.SchemaVersion_IsV39 改名＝＋18 → 全 **982**（Storage 658→
+      676）；CI 綠；樹淨；
+      §14.7 #14 現況改「智慧牆版面資料模型＋幾何校驗＋看板時間常數（M105 v39）已落地；警報牆
+      派送引擎/視訊牆 UI 待續」
