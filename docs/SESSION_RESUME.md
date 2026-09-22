@@ -6,8 +6,8 @@
 
 ## 一句話總結
 HeliVMS 為一套**網路影像監控系統**（WPF 桌面應用：即時監看／回放／AI 事件中心／錄影排程）。
-里程碑 **M1 至 M100 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M100 OIDC 授權碼＋PKCE 登入流程）。
-Release build 0 error、測試 **924/924 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
+里程碑 **M1 至 M101 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M101 錄影遮蔽 Redaction L0 v37）。
+Release build 0 error、測試 **934/934 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
 本地與遠端完全同步（`git diff origin/HEAD` 為空）。
 
 ## 開新 session 的接手方法
@@ -23,15 +23,14 @@ gh run list -L 3              # 預期全部 success
 新 session 會以 git 現況接手，不會靠猜測。
 
 ## 現況快照（權威來源＝git，非聊天記憶）
-- 最後 commit：`HEAD`＝**M100**——§14.7 #1 尾段 OIDC 授權碼＋PKCE 登入流程：
-  `OidcOptions` 新增 `AuthorizeUri`/`TokenUri`/`RedirectUri`/`ClientSecret`；`OidcLoginFlow`
-  （`Begin` 產生授權 URL（response_type=code、state、S256 code_challenge）並暫存待決請求
-  （單次消費、10 min TTL）；`Complete` 以 code 交換 /token（`ITokenEndpointClient`/
-  `HttpTokenEndpointClient` RFC6749 §4.1.3 form POST）→ `EnterpriseAuthService.AuthenticateOidc`
-  驗證 id_token→鏡像 users（M99 同款不可驗證密碼記號）→簽發 session provider `oidc`；state 一次性
-  與 PKCE 防 CSRF／授權碼挾持）；9 新測試→全 **924**、Release build 0 error、樹淨
-- 前一個 M99 交付＝`3dfe612`（§14.7 #1 企業登入落地 LDAP＋session L1 v36 `LdapLoginBroker`）＋`287efc7`（docs）；
-  全 **915**、CI `35674631029` success
+- 最後 commit：`HEAD`＝**M101**——§14.7 #5 錄影遮蔽（Redaction）L0：
+  `SqliteStore` v36→**v37**（`redaction_regions` 遮蔽區長儲存＋source/時間索引）；`RedactionSources`
+  （clip/snapshot）；`RedactionRegion`/`RedactionRepository`（Add 負寬高拒絶／QueryBySource／
+  QueryByTime 左閉右開／Remove）；`RedactionProcessor`（純 BCL，BGRA 32bpp：盒狀模糊 filled=false／
+  實心遮罩 filled=true，越界自動裁剪、緩衝區長度校驗、ArrayPool 暫存）；10 新測試→全 **934**、
+  Release build 0 error、樹淨
+- 前一個 M100 交付＝`4290b99`（§14.7 #1 OIDC 授權碼＋PKCE 登入 `OidcLoginFlow`）＋`1cbd8f3`（docs）；
+  全 **924**、CI `35675406718` success
 - 前一個 M85 交付＝`54cad94`（LDAPv3 連線層 L1：`LdapClient : ILdapBinder`
   裸 BER wire（simple bind＋memberOf SearchGroups）；`LdapBer` minimal BER＋`LdapFilterEncoder`
   RFC4515→BER；24 新測試（FakeLdapServer loopback）；全 **799**、CI `35621317643` success；
@@ -1779,7 +1778,22 @@ gh run list -L 3              # 預期全部 success
     - 測試：x9（Begin URL 含 state＋PKCE／成功簽 session＋鏡像／admin 群晉升／複用鏡像更新 role＋name／
       錯誤 state 拒絶／state 單次消費第二回拒絶／pending 逾時拒絶／token 端點錯誤／id_token 無效）
       ＝＋9 → 全 **924**（Storage 609→618）；CI 綠；樹淨；
-      §14.7 #1 現況改「OIDC 授權碼＋PKCE 登入已落地（M100 `OidcLoginFlow`）」
+      §14.7 #1 現況改「OIDC 授權碼＋PKCE 登入已落地（M100 `OidcLoginFlow`）」 
+77. **M101 已完成＝§14.7 #5 隱私‧錄影遮蔽（Redaction）L0**：（見頂部快照）
+    - 背景：#5「錄影遮蔽/模糊化」完全沒有（個資法交付加分 P1）；Snapshot→Redaction 最小可落地切
+    - 落點：SqliteStore v36→**v37**（`redaction_regions`：source_type/ref_id/channel_id/
+      occurred_at_utc/x/y/width/height/filled/created_at_utc＋source/時間索引）；
+      `RedactionSources`（clip/snapshot）；`RedactionRepository`（Add 寬高≤0 抛錯／QueryBySource／
+      QueryByTime 左閉右開／Remove 回實際刪除行數）；`RedactionProcessor`（純 BCL：BGRA 32bpp
+      in-place，filled=false 以 blurRadius 盒狀模糊（ArrayPool 暫存、逐像素均值）、filled=true
+      實心→像素歸零；區域自動裁剪至影像界內、緩衝區長度校驗抛錯；提供影片全遮蔽與
+      快照一鍵模糊（§14.7 #16）共用引擎）
+    - 測試：x10（Add→QueryBySource roundtrip／跨來源與跨 ref_id 過濾／QueryByTime 左閉右開／
+      零寬高抛錯／Remove true→Empty→false／filled 區域內歸零區域外不動／blur 改變區域內像素／
+      越界 clamp 全遮且界外不動／完全在影像外無效果／緩衝區過短抛錯）＝＋10 → 全 **934**
+      （Storage 618→628）；`SchemaVersion_IsV37` 改名；CI 綠；樹淨；
+      §14.7 #5 現況改「錄影遮蔽 L0（M101 `RedactionRepository`＋`RedactionProcessor`）已落地；
+      回放/匯出串接待續」
 
 ## 已知雷區（勿再犯）
 - **harness `.ps1` 必須存成 UTF-8 with BOM**：寫檔工具產出的是 UTF-8 無 BOM，含中文的 `.ps1` 會被 PowerShell 5.1 以 ANSI/Big5 誤讀而**靜默破壞解析**（症狀：`Start-Process` 看似無效、App 根本沒啟動、`Get-Process HeliVMS.App` 找不到）。修法：`[System.IO.File]::WriteAllText($p,[System.IO.File]::ReadAllText($p,[System.Text.Encoding]::UTF8),(New-Object System.Text.UTF8Encoding($true)))`（temp/opencode 有 `fix-encoding.ps1`）

@@ -1085,7 +1085,7 @@ L2 比對（人臉/車牌）置「進階·需權限」區，預設關閉（§5.1
 | 2 | 影像 | **魚眼攝影機矯正（Dewarping）** | QNAP Qdewarp、Genetec、Synology | 完全沒有 | P1（魚眼/全景漸普及） |
 | 3 | 事件營運 | **警報管理器（Alarm Manager）**：分診/指派/傳遞/進度狀態大面板 | Milestone Alarm Manager | 僅事件中心 + 四態(§14.4) | P1（營運效率亮點） |
 | 4 | 證據 | **外部安全共享**（無帳號分享錄影片段/連結） | Synology Share Link、Genetec Secure Share | 沒有 | P1 |
-| 5 | 隱私 | **錄影遮蔽/模糊化（Redaction）** | Genetec Digital Evidence、Synology 快照模糊 | 沒有 | P1（個資法交付加分） |
+| 5 | 隱私 | **錄影遮蔽/模糊化（Redaction）** | Genetec Digital Evidence、Synology 快照模糊 | **遮蔽區域倉儲＋純 BCL 處理引擎 L0（M101 `RedactionRepository`＋`RedactionProcessor`，v37）已落地**；回放/匯出串接待續 | P1（個資法交付加分） |
 | 6 | AI | **模組化分析情境套件**：周界/靜止車輛/尾隨/區域防護/方向控制 | Genetec KiwiVision | 核心已規劃（§5.6 分析情境＋§5.7 追蹤＋§5.10 規則） | P2（能力開放，§19 銷售位元） |
 | 7 | 搜尋 | **法證語意搜尋**（NLP / CLIP 語意）、影片摘要 | Genetec Forensic Search、Frigate CLIP | **門禁/POS/Edge AI/警報多源統一檢索已落地（M91 `EventSearchRepository`＋M97 `UnifiedEventSearch`，FTS5 4 表）**；NLP / CLIP 向量語意待續 | P2（差異化賣點） |
 | 8 | 整合 | **統一安全平台**：門禁/入侵感測/POS(Metadata 配對) | Genetec 平台、Synology Transactions、QNAP Metadata Vault | DI/DO＋綁定鏡頭已規劃(§16.2)；**門禁事件 L0（M92）＋POS 交易存錄/時間窗配對 L0（M93）已落地**；POS 接口待擴 | P2 |
