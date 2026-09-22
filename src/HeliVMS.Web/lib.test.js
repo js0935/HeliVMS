@@ -13,6 +13,8 @@ import {
   eventRow,
   focusLayout,
   formatTimestamp,
+  scheduleInEffect,
+  scheduleLabel,
   gapLabel,
   gridLayout,
   parseLogin,
@@ -328,5 +330,21 @@ describe('login gating', () => {
     const layout = focusLayout([{ priority: 'critical' }, { priority: 'normal' }], 4);
     expect(layout[0]).toEqual({ left: 0, top: 0, width: 0.5, height: 0.5 });
     expect(layout[1]).toEqual({ left: 0, top: 0.5, width: 0.25, height: 0.25 });
+  });
+
+  it('labels recording schedule windows', () => {
+    expect(scheduleLabel({ daysMask: 0b0111110, startMinute: 9 * 60, endMinute: 17 * 60 })).toBe(
+      '一-五 09:00-17:00',
+    );
+    expect(scheduleLabel({ daysMask: 0, startMinute: 0, endMinute: 1439 })).toContain('無');
+    expect(
+      scheduleInEffect({ daysMask: 0b1000000, startMinute: 9 * 60, endMinute: 17 * 60 }, new Date(2026, 8, 26, 12)),
+    ).toBe(true);
+    expect(
+      scheduleInEffect({ daysMask: 0b1000000, startMinute: 9 * 60, endMinute: 17 * 60 }, new Date(2026, 8, 26, 18)),
+    ).toBe(false);
+    expect(
+      scheduleInEffect({ enabled: false, daysMask: 127, startMinute: 0, endMinute: 1439 }, new Date(2026, 8, 26, 12)),
+    ).toBe(false);
   });
 });

@@ -6,7 +6,7 @@
 
 ## 一句話總結
 HeliVMS 為一套**網路影像監控系統**（WPF 桌面應用：即時監看／回放／AI 事件中心／錄影排程）。
-進度: **M1 至 M129 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M128 日報 REST/視界；M120 回放段檔 REST；M119 回放時間軸 API；M118 警報即時流；M117 HeliVMS.WebApi；M116 快照一鍵遮蔽；M115 MQTT 訂閱派送掛載；M112 訂閱數據面、M113 POS 自動關聯、M114 VMD 自動套用）。
+進度: **M1 至 M130 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M128 日報 REST/視界；M120 回放段檔 REST；M119 回放時間軸 API；M118 警報即時流；M117 HeliVMS.WebApi；M116 快照一鍵遮蔽；M115 MQTT 訂閱派送掛載；M112 訂閱數據面、M113 POS 自動關聯、M114 VMD 自動套用）。
 Release build 0 error、測試 **1123/1123（＋vitest 30） 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
 本地與遠端完全同步（`git diff origin/HEAD` 為空）。
 
@@ -2085,6 +2085,10 @@ gh run list -L 3              # 預期全部 success
 93. **M116 交付＝快照一鍵遮蔽（§14.7 #16）**：
     - `SnapshotRedactor`：解碼→逐區 `RedactionProcessor.Apply(filled=true)` 實心塗黑（範圍夾截、退化區略過、輸入不可變）→依原格式（JPEG/PNG）重編碼。`SnapshotRedactionService`：按 snapshot `RedactionRepository.QueryBySource` 取區套用。
     - Storage 加 `System.Drawing.Common`（`SupportedPlatform windows`＋`SupportedOSPlatformVersion`；CI windows-latest 合規）；測試 8（遮黑/夾截/退化跳過/多區/PNG 精確黑/輸入不變/DB refId/無區回傳）→全量 **1098**。
+108. **M130 交付＝錄影排程 REST＋SPA（M10 排程表單封閉）**：
+    - WebApi（DI 註冊 RecordingScheduleRepository）：`GET /api/recording/schedules`、`POST`（upsert；頻道>0、mask 0..127、分鐘 0..1439、end>=start 皆 400 驗證）、`DELETE /{id:long}`（404）。
+    - SPA：錄影排程面板——列表（頻道/時段/狀態/刪除）＋新增表單（頻道、週日勾選、時/分）；lib `scheduleLabel`（遮罩→連續範圍、空 span→無）與 `scheduleInEffect`（本地日＋分鐘判定，enabled false 優先）。
+    - 測試：Api ＋1 **28**（CRUD＋400 兩分支＋404＋Empty）、vitest ＋1 **31**（label 範圍/無、inEffect 命中/越界/停用）；全量 **1126**。
 107. **M129 交付＝智慧看板自動編排（§7.7 smartwall 視界收尾）**：
     - lib `focusLayout(cells, cols=4)` 純邏輯：critical 優先佔 2×2 超格（頂端列起，每列 floor(cols/2) 格），其餘正常格墊於 critical 帶正下方；面積守恆，輸出 `{left,top,width,height}` 分數座標（供 pinStyles 轉 %）。
     - SPA `renderSmartwall`：改以 focusLayout 取代 gridLayout 平鋪（`?key=` WS `alarm.*` 重繪不變）。

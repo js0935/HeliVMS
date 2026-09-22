@@ -247,6 +247,41 @@ export function dailyCard(raw) {
   };
 }
 
+export function scheduleLabel(s, { short = false } = {}) {
+  const r = s ?? {};
+  const mask = Number(r.daysMask ?? r.DaysMask ?? 0);
+  const dayNames = ['日', '一', '二', '三', '四', '五', '六'];
+  const runs = [];
+  let runStart = -1;
+  for (let d = 0; d <= 7; d++) {
+    const on = d < 7 && (mask & (1 << d)) !== 0;
+    if (on && runStart < 0) runStart = d;
+    if (!on && runStart >= 0) {
+      runs.push([runStart, d - 1]);
+      runStart = -1;
+    }
+  }
+
+  const fmt = (m) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+  const days = runs.length
+    ? runs
+        .map(([a, b]) => (a === b ? (short ? `週${dayNames[a]}` : `週${a + 1}`) : `${dayNames[a]}-${dayNames[b]}`))
+        .join('、')
+    : '無';
+  return `${days} ${fmt(Number(r.startMinute ?? r.StartMinute ?? 0))}-${fmt(Number(r.endMinute ?? r.EndMinute ?? 0))}`;
+}
+
+export function scheduleInEffect(s, date = new Date()) {
+  const r = s ?? {};
+  const mask = Number(r.daysMask ?? r.DaysMask ?? 0);
+  const local = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  const day = local.getDay(); // 0=日 … 6=六
+  const minute = date.getHours() * 60 + date.getMinutes();
+  const start = Number(r.startMinute ?? r.StartMinute ?? 0);
+  const end = Number(r.endMinute ?? r.EndMinute ?? 0);
+  return r.enabled === false ? false : (mask & (1 << day)) !== 0 && minute >= start && minute < end;
+}
+
 export function focusLayout(cells, cols = 4) {
   const list = (cells ?? []).map((cell, index) => ({ cell, index }));
   if (list.length === 0) return [];

@@ -31,6 +31,8 @@ public static class ApiEndpoints
         IReadOnlyList<CapacityTrendRow> Capacity,
         long Disconnects,
         IReadOnlyList<AiEventCountRow> Events);
+    public sealed record ScheduleBody(long Id, int ChannelId, int DaysMask, int StartMinute, int EndMinute, bool Enabled);
+    public sealed record ScheduleUpsertRequest(int ChannelId, int DaysMask, int StartMinute, int EndMinute, bool Enabled);
 
     private static readonly TimeSpan ReconWindow = TimeSpan.FromSeconds(10);
 
@@ -89,6 +91,53 @@ public static class ApiEndpoints
         api.MapGet("/audit/export.csv", HandleAuditExport);
 
         api.MapGet("/reports/daily", HandleDailyReport);
+
+        api.MapGet("/recording/schedules", static (RecordingScheduleRepository repo) =>
+            Results.Ok(repo.List()));
+
+        api.MapPost("/recording/schedules", static (ScheduleUpsertRequest body, RecordingScheduleRepository repo) =>
+        {
+            if (body.ChannelId <= 0)
+            {
+                return Results.BadRequest(new { error = "頻道須為正整數" });
+            }
+
+            if (body.DaysMask is < 0 or > 127)
+            {
+                return Results.BadRequest(new { error = "星期遮罩須為 0..127" });
+            }
+
+            if (body.StartMinute is < 0 or > 1439 || body.EndMinute is < 0 or > 1439)
+            {
+                return Results.BadRequest(new { error = "時段須在 0..1439 分" });
+            }
+
+            if (body.EndMinute < body.StartMinute)
+            {
+                return Results.BadRequest(new { error = "結束須不早於開始" });
+            }
+
+            var saved = repo.Upsert(new RecordingScheduleRecord
+            {
+                ChannelId = body.ChannelId,
+                DaysMask = body.DaysMask,
+                StartMinute = body.StartMinute,
+                EndMinute = body.EndMinute,
+                Enabled = body.Enabled,
+            });
+            return Results.Ok(new ScheduleBody(saved.Id, saved.ChannelId, saved.DaysMask, saved.StartMinute, saved.EndMinute, saved.Enabled));
+        });
+
+        api.MapDelete("/recording/schedules/{id:long}", static (long id, RecordingScheduleRepository repo) =>
+        {
+            if (!repo.List().Any(s => s.Id == id))
+            {
+                return Results.NotFound();
+            }
+
+            repo.Delete(id);
+            return Results.Ok();
+        });
 
         api.Map("/alerts/ws", HandleAlertStream);
 

@@ -11,6 +11,8 @@ import {
   eventRow,
   focusLayout,
   formatTimestamp,
+  scheduleInEffect,
+  scheduleLabel,
   gapLabel,
   gridLayout,
   parseLogin,
@@ -308,6 +310,48 @@ async function renderDaily() {
   }
 }
 
+async function renderSchedules() {
+  const list = await api('/api/recording/schedules').catch(() => []);
+  $('sched-body').innerHTML = list
+    .map(
+      (s) =>
+        `<tr><td>${s.channelId}</td><td>${scheduleLabel(s)}</td><td>${s.enabled ? '啟用' : '停用'}</td>
+         <td><button data-sched-del="${s.id}">刪除</button></td></tr>`,
+    )
+    .join('');
+  $('sched-count').textContent = `（${list.length}）`;
+  $('sched-body').querySelectorAll('button[data-sched-del]').forEach((btn) =>
+    btn.addEventListener('click', async () => {
+      const ok = await api(`/api/recording/schedules/${btn.dataset.schedDel}`, { method: 'DELETE' }).catch(() => null);
+      if (ok) renderSchedules();
+    }),
+  );
+}
+
+function bindScheduleForm() {
+  const form = $('sched-form');
+  form.addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    const checked = [...form.querySelectorAll('input[name="sday"]:checked')].map((c) => Number(c.value));
+    const start = form.querySelector('input[name="sstart"]').value.split(':');
+    const end = form.querySelector('input[name="send"]').value.split(':');
+    if (checked.length === 0) return;
+    const body = {
+      channelId: Number(form.querySelector('input[name="schan"]').value),
+      daysMask: checked.reduce((m, d) => m | (1 << d), 0),
+      startMinute: Number(start[0]) * 60 + Number(start[1]),
+      endMinute: Number(end[0]) * 60 + Number(end[1]),
+      enabled: true,
+    };
+    const ok = await fetch('/api/recording/schedules', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }).catch(() => null);
+    if (ok?.ok) renderSchedules();
+  });
+}
+
 function renderPos() {
   const to = new Date();
   const from = new Date(to.getTime() - 3600 * 1000);
@@ -427,7 +471,8 @@ async function boot() {
   wire();
   updateChrome();
   await refreshHealth();
-  await Promise.allSettled([refreshChannels(), refreshBoard(), refreshTimeline(), renderMap(), renderSmartwall(), renderPos(), renderDaily()]);
+  await Promise.allSettled([refreshChannels(), refreshBoard(), refreshTimeline(), renderMap(), renderSmartwall(), renderPos(), renderDaily(), renderSchedules()]);
+  bindScheduleForm();
   connectLive();
 }
 

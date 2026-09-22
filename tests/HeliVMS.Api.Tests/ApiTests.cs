@@ -546,6 +546,40 @@ public class ApiTests : IClassFixture<ApiFactory>, IDisposable
         Assert.Equal(HttpStatusCode.BadRequest, bad.StatusCode);
     }
 
+    [Fact]
+    public async Task RecordingSchedules_CrudAndValidation()
+    {
+        using var client = Client();
+        var created = await client.PostAsJsonAsync(
+            "/api/recording/schedules",
+            new ApiEndpoints.ScheduleUpsertRequest(1, 0b0111110, 9 * 60, 17 * 60, true));
+        Assert.Equal(HttpStatusCode.OK, created.StatusCode);
+        var row = await ReadAsync<ScheduleBody>(created);
+        Assert.True(row.Id > 0);
+        Assert.Equal(0b0111110, row.DaysMask);
+
+        var listResp = await client.GetAsync("/api/recording/schedules");
+        var list = await ReadAsync<List<ScheduleBody>>(listResp);
+        Assert.Single(list);
+
+        var badMask = await client.PostAsJsonAsync(
+            "/api/recording/schedules",
+            new ApiEndpoints.ScheduleUpsertRequest(1, 128, 0, 60, true));
+        Assert.Equal(HttpStatusCode.BadRequest, badMask.StatusCode);
+
+        var badRange = await client.PostAsJsonAsync(
+            "/api/recording/schedules",
+            new ApiEndpoints.ScheduleUpsertRequest(1, 1, 120, 60, true));
+        Assert.Equal(HttpStatusCode.BadRequest, badRange.StatusCode);
+
+        var del = await client.DeleteAsync($"/api/recording/schedules/{row.Id}");
+        Assert.Equal(HttpStatusCode.OK, del.StatusCode);
+        var afterResp = await client.GetAsync("/api/recording/schedules");
+        var after = await ReadAsync<List<ScheduleBody>>(afterResp);
+        Assert.Empty(after);
+        Assert.Equal(HttpStatusCode.NotFound, (await client.DeleteAsync($"/api/recording/schedules/{row.Id}")).StatusCode);
+    }
+
     private sealed record DailyReportBody(
         IReadOnlyList<RecordingRow> Recording,
         IReadOnlyList<CapacityRow> Capacity,
@@ -559,6 +593,8 @@ public class ApiTests : IClassFixture<ApiFactory>, IDisposable
     private sealed record EventCountRow(string EventType, long Count);
 
     private sealed record PagedBody<T>(IReadOnlyList<T> Items, int Count);
+
+    private sealed record ScheduleBody(long Id, int ChannelId, int DaysMask, int StartMinute, int EndMinute, bool Enabled);
 
     private sealed record AuditEntry(long Id, string Actor, string Action, string Category, string? TargetType, long? TargetId, string? Detail);
 

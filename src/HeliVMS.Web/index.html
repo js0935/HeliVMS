@@ -123,6 +123,27 @@
     </section>
 
     <section class="panel wide">
+      <h2>錄影排程 <span id="sched-count" class="muted"></span></h2>
+      <table class="compact">
+        <thead><tr><th>頻道</th><th>時段</th><th>狀態</th><th></th></tr></thead>
+        <tbody id="sched-body"></tbody>
+      </table>
+      <form id="sched-form" class="row-form">
+        <input name="schan" type="number" min="1" value="1" title="頻道">
+        <label><input name="sday" type="checkbox" value="1" checked>一</label>
+        <label><input name="sday" type="checkbox" value="2" checked>二</label>
+        <label><input name="sday" type="checkbox" value="3" checked>三</label>
+        <label><input name="sday" type="checkbox" value="4" checked>四</label>
+        <label><input name="sday" type="checkbox" value="5" checked>五</label>
+        <label><input name="sday" type="checkbox" value="6">六</label>
+        <label><input name="sday" type="checkbox" value="0">日</label>
+        <input name="sstart" type="time" value="09:00">
+        <input name="send" type="time" value="17:00">
+        <button type="submit">新增</button>
+      </form>
+    </section>
+
+    <section class="panel wide">
       <h2>日報 <span id="daily-summary" class="muted"></span></h2>
       <table id="daily-events" class="compact">
         <thead><tr><th>事件類別</th><th>次數</th></tr></thead>
