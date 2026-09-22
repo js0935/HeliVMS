@@ -580,6 +580,64 @@ public class ApiTests : IClassFixture<ApiFactory>, IDisposable
         Assert.Equal(HttpStatusCode.NotFound, (await client.DeleteAsync($"/api/recording/schedules/{row.Id}")).StatusCode);
     }
 
+    [Fact]
+    public async Task Patrols_CrudAndValidation()
+    {
+        using var client = Client();
+        var bad = await client.PostAsJsonAsync(
+            "/api/patrols",
+            new ApiEndpoints.PatrolUpsertRequest("", 1, true, "09:00", "17:00",
+                [new ApiEndpoints.PatrolStepBody("P1", 5)]));
+        Assert.Equal(HttpStatusCode.BadRequest, bad.StatusCode);
+
+        var created = await client.PostAsJsonAsync(
+            "/api/patrols",
+            new ApiEndpoints.PatrolUpsertRequest("日巡", 1, true, null, null,
+                [
+                    new ApiEndpoints.PatrolStepBody("P1", 5),
+                    new ApiEndpoints.PatrolStepBody("P2", 8),
+                ]));
+        Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+        var id = (await ReadAsync<CreatedBody>(created)).Id;
+
+        var listResp = await client.GetAsync("/api/patrols");
+        var list = await ReadAsync<List<PatrolBody>>(listResp);
+        var patrol = Assert.Single(list);
+        Assert.Equal("日巡", patrol.Name);
+        Assert.Equal(2, patrol.Steps.Count);
+        Assert.Equal("00:00", patrol.WindowStart);
+
+        var updated = await client.PutAsJsonAsync(
+            $"/api/patrols/{id}",
+            new ApiEndpoints.PatrolUpsertRequest("日巡", 1, false, "08:00", "18:00",
+                [new ApiEndpoints.PatrolStepBody("P1", 5)]));
+        Assert.Equal(HttpStatusCode.OK, updated.StatusCode);
+        var afterResp = await client.GetAsync("/api/patrols");
+        var after = await ReadAsync<List<PatrolBody>>(afterResp);
+        Assert.False(after[0].Enabled);
+        Assert.Equal("08:00-18:00", $"{after[0].WindowStart}-{after[0].WindowEnd}");
+
+        Assert.Equal(HttpStatusCode.OK, (await client.DeleteAsync($"/api/patrols/{id}")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await client.DeleteAsync($"/api/patrols/{id}")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound,
+            (await client.PutAsJsonAsync(
+                $"/api/patrols/{id}",
+                new ApiEndpoints.PatrolUpsertRequest("x", 2, true, null, null, null))).StatusCode);
+    }
+
+    private sealed record CreatedBody(long Id);
+
+    private sealed record PatrolBody(
+        long? Id,
+        string Name,
+        int ChannelId,
+        bool Enabled,
+        string WindowStart,
+        string WindowEnd,
+        IReadOnlyList<PrtStepBody> Steps);
+
+    private sealed record PrtStepBody(string PresetName, int DwellSeconds);
+
     private sealed record DailyReportBody(
         IReadOnlyList<RecordingRow> Recording,
         IReadOnlyList<CapacityRow> Capacity,

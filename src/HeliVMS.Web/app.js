@@ -11,6 +11,7 @@ import {
   eventRow,
   focusLayout,
   formatTimestamp,
+  patrolLabel,
   scheduleInEffect,
   scheduleLabel,
   gapLabel,
@@ -352,6 +353,46 @@ function bindScheduleForm() {
   });
 }
 
+async function renderPatrols() {
+  const list = await api('/api/patrols').catch(() => []);
+  $('patrol-body').innerHTML = list
+    .map(
+      (p) =>
+        `<tr><td>${patrolLabel(p)}</td><td>${p.enabled ? '啟用' : '停用'}</td>
+         <td><button data-patrol-del="${p.id}">刪除</button></td></tr>`,
+    )
+    .join('');
+  $('patrol-count').textContent = `（${list.length}）`;
+  $('patrol-body').querySelectorAll('button[data-patrol-del]').forEach((btn) =>
+    btn.addEventListener('click', async () => {
+      const ok = await api(`/api/patrols/${btn.dataset.patrolDel}`, { method: 'DELETE' }).catch(() => null);
+      if (ok) renderPatrols();
+    }),
+  );
+}
+
+function bindPatrolForm() {
+  const form = $('patrol-form');
+  form.addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    const body = {
+      name: form.querySelector('input[name="pname"]').value.trim(),
+      channelId: Number(form.querySelector('input[name="pchan"]').value),
+      enabled: form.querySelector('input[name="penabled"]').checked,
+      windowStart: form.querySelector('input[name="pstart"]').value || '00:00',
+      windowEnd: form.querySelector('input[name="pend"]').value || '23:59',
+      steps: [],
+    };
+    if (!body.name) return;
+    const ok = await fetch('/api/patrols', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }).catch(() => null);
+    if (ok?.ok) renderPatrols();
+  });
+}
+
 function renderPos() {
   const to = new Date();
   const from = new Date(to.getTime() - 3600 * 1000);
@@ -471,8 +512,9 @@ async function boot() {
   wire();
   updateChrome();
   await refreshHealth();
-  await Promise.allSettled([refreshChannels(), refreshBoard(), refreshTimeline(), renderMap(), renderSmartwall(), renderPos(), renderDaily(), renderSchedules()]);
+  await Promise.allSettled([refreshChannels(), refreshBoard(), refreshTimeline(), renderMap(), renderSmartwall(), renderPos(), renderDaily(), renderSchedules(), renderPatrols()]);
   bindScheduleForm();
+  bindPatrolForm();
   connectLive();
 }
 

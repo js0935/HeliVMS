@@ -109,6 +109,8 @@ body {
 
 table.compact { width: auto; min-width: 220px; }
 
+form.row-form { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 6px; }
+
 .grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));

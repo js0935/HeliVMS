@@ -33,6 +33,8 @@ public static class ApiEndpoints
         IReadOnlyList<AiEventCountRow> Events);
     public sealed record ScheduleBody(long Id, int ChannelId, int DaysMask, int StartMinute, int EndMinute, bool Enabled);
     public sealed record ScheduleUpsertRequest(int ChannelId, int DaysMask, int StartMinute, int EndMinute, bool Enabled);
+    public sealed record PatrolStepBody(string PresetName, int DwellSeconds);
+    public sealed record PatrolUpsertRequest(string Name, int ChannelId, bool Enabled, string? WindowStart, string? WindowEnd, IReadOnlyList<PatrolStepBody>? Steps);
 
     private static readonly TimeSpan ReconWindow = TimeSpan.FromSeconds(10);
 
@@ -140,6 +142,66 @@ public static class ApiEndpoints
         });
 
         api.Map("/alerts/ws", HandleAlertStream);
+
+        api.MapGet("/patrols", static (PatrolRepository repo) => Results.Ok(repo.ListAll()));
+
+        api.MapPost("/patrols", static (PatrolUpsertRequest body, PatrolRepository repo) =>
+        {
+            try
+            {
+                var id = repo.Save(
+                    null,
+                    body.Name,
+                    body.ChannelId,
+                    body.Enabled,
+                    body.WindowStart ?? "00:00",
+                    body.WindowEnd ?? "23:59",
+                    DateTime.UtcNow,
+                    (body.Steps ?? []).Select(s => new PatrolStepRow(s.PresetName, s.DwellSeconds)).ToList());
+                return Results.Created($"/api/patrols/{id}", new { id });
+            }
+            catch (ArgumentOutOfRangeException ex)
+            {
+                return Results.BadRequest(new { error = ex.Message });
+            }
+            catch (ArgumentException ex)
+            {
+                return Results.BadRequest(new { error = ex.Message });
+            }
+        });
+
+        api.MapPut("/patrols/{id:long}", static (long id, PatrolUpsertRequest body, PatrolRepository repo) =>
+        {
+            if (!repo.ListAll().Any(p => p.Id == id))
+            {
+                return Results.NotFound();
+            }
+
+            try
+            {
+                repo.Save(
+                    id,
+                    body.Name,
+                    body.ChannelId,
+                    body.Enabled,
+                    body.WindowStart ?? "00:00",
+                    body.WindowEnd ?? "23:59",
+                    DateTime.UtcNow,
+                    (body.Steps ?? []).Select(s => new PatrolStepRow(s.PresetName, s.DwellSeconds)).ToList());
+                return Results.Ok(new { id });
+            }
+            catch (ArgumentOutOfRangeException ex)
+            {
+                return Results.BadRequest(new { error = ex.Message });
+            }
+            catch (ArgumentException ex)
+            {
+                return Results.BadRequest(new { error = ex.Message });
+            }
+        });
+
+        api.MapDelete("/patrols/{id:long}", static (long id, PatrolRepository repo) =>
+            repo.Delete(id) ? Results.Ok() : Results.NotFound());
 
         api.MapPost("/accounts/authenticate", static (LoginRequest body, AuthService auth) =>
         {

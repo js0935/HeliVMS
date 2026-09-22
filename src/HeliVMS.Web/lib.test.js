@@ -13,6 +13,7 @@ import {
   eventRow,
   focusLayout,
   formatTimestamp,
+  patrolLabel,
   scheduleInEffect,
   scheduleLabel,
   gapLabel,
@@ -346,5 +347,12 @@ describe('login gating', () => {
     expect(
       scheduleInEffect({ enabled: false, daysMask: 127, startMinute: 0, endMinute: 1439 }, new Date(2026, 8, 26, 12)),
     ).toBe(false);
+  });
+
+  it('renders patrol summaries', () => {
+    expect(patrolLabel({ name: '日巡', channelId: 3, windowStart: '08:00', windowEnd: '18:00', steps: [{}, {}] })).toBe(
+      '日巡 · 頻道3 · 08:00-18:00 · 2 步',
+    );
+    expect(patrolLabel(null)).toBe('未命名 · 頻道- · 00:00-23:59 · 0 步');
   });
 });

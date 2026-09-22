@@ -247,6 +247,12 @@ export function dailyCard(raw) {
   };
 }
 
+export function patrolLabel(p) {
+  const r = p ?? {};
+  const steps = r.steps ?? []; 
+  return `${r.name ?? '未命名'} · 頻道${r.channelId ?? '-'} · ${r.windowStart ?? '00:00'}-${r.windowEnd ?? '23:59'} · ${steps.length} 步`;
+}
+
 export function scheduleLabel(s, { short = false } = {}) {
   const r = s ?? {};
   const mask = Number(r.daysMask ?? r.DaysMask ?? 0);

@@ -144,6 +144,22 @@
     </section>
 
     <section class="panel wide">
+      <h2>巡檢 <span id="patrol-count" class="muted"></span></h2>
+      <table class="compact">
+        <thead><tr><th>巡檢</th><th>狀態</th><th></th></tr></thead>
+        <tbody id="patrol-body"></tbody>
+      </table>
+      <form id="patrol-form" class="row-form">
+        <input name="pname" type="text" placeholder="名稱" required>
+        <input name="pchan" type="number" min="1" value="1" title="頻道">
+        <label><input name="penabled" type="checkbox" checked>啟用</label>
+        <input name="pstart" type="time" value="09:00">
+        <input name="pend" type="time" value="17:00">
+        <button type="submit">新增</button>
+      </form>
+    </section>
+
+    <section class="panel wide">
       <h2>日報 <span id="daily-summary" class="muted"></span></h2>
       <table id="daily-events" class="compact">
         <thead><tr><th>事件類別</th><th>次數</th></tr></thead>
