@@ -70,6 +70,8 @@ public static class ApiEndpoints
 
         api.MapGet("/recording/timeline", HandleRecordingTimeline);
 
+        api.MapGet("/recording/segments", HandleRecordingSegments);
+
         api.Map("/alerts/ws", HandleAlertStream);
     }
 
@@ -91,6 +93,22 @@ public static class ApiEndpoints
     /// Playback timeline for a channel day window (M119, section 14.3 playback REST):
     /// normalized recording bars, event markers and gap stats for the SPA timeline band.
     /// </summary>
+    /// <summary>
+    /// Raw segment ledger for a stream/time window (M120, section 14.3 playback REST):
+    /// lets the SPA build playback/HLS-style URLs straight from recorded files.
+    /// </summary>
+    private static async Task HandleRecordingSegments(
+        HttpContext context,
+        SegmentRepository segments,
+        int channelId,
+        string stream,
+        DateTime from,
+        DateTime to)
+    {
+        var items = segments.ListByRange(channelId, stream, Utc(from), Utc(to));
+        await context.Response.WriteAsJsonAsync(new Paged<SegmentRecord>(items, items.Count));
+    }
+
     private static async Task HandleRecordingTimeline(
         HttpContext context,
         SegmentRepository segments,

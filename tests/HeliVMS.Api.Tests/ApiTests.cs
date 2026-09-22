@@ -285,6 +285,39 @@ public class ApiTests : IClassFixture<ApiFactory>, IDisposable
     }
 
     [Fact]
+    public async Task RecordingSegments_ReturnsWindowLedger()
+    {
+        var from = DateTime.UtcNow.Date.AddHours(7);
+        var repo = Service<SegmentRepository>();
+        var segId = repo.BeginSegment(1, "main", Path.Combine(Path.GetTempPath(), "seg.mp4"), from.AddMinutes(20));
+        repo.CompleteSegment(segId, from.AddMinutes(50), 2048, 1800, "deadbeef");
+        using var client = Client();
+
+        var body = await ReadAsync<ApiEndpoints.Paged<SegmentRecord>>(await client.GetAsync(
+            $"/api/recording/segments?channelId=1&stream=main&from={HttpUtility(from)}&to={HttpUtility(from.AddHours(3))}"));
+
+        var seg = body.Items.FirstOrDefault(s => s.Id == segId);
+        Assert.NotNull(seg);
+        Assert.Equal("deadbeef", seg.Sha256);
+        Assert.Equal(2048, seg.SizeBytes);
+    }
+
+    [Fact]
+    public async Task RecordingSegments_OutOfWindow_Excluded()
+    {
+        var from = DateTime.UtcNow.Date.AddHours(20);
+        using var client = Client();
+
+        var body = await ReadAsync<ApiEndpoints.Paged<SegmentRecord>>(await client.GetAsync(
+            $"/api/recording/segments?channelId=1&stream=main&from={HttpUtility(from)}&to={HttpUtility(from.AddHours(2))}"));
+        var far = await ReadAsync<ApiEndpoints.Paged<SegmentRecord>>(await client.GetAsync(
+            $"/api/recording/segments?channelId=1&stream=main&from={HttpUtility(from.AddDays(1))}&to={HttpUtility(from.AddDays(1).AddHours(2))}"));
+
+        Assert.Empty(body.Items);
+        Assert.Empty(far.Items);
+    }
+
+    [Fact]
     public async Task Events_ForensicSearchWithoutQueryReturns400()
     {
         using var client = Client();
