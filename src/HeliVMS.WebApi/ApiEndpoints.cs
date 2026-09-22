@@ -26,6 +26,11 @@ public static class ApiEndpoints
     public sealed record AccountListItem(int Id, string Username, string Role, string? DisplayName, bool Enabled, bool Locked);
     public sealed record ConfigResponse(bool AuthEnabled, int LockoutThreshold, int LockoutMinutes);
     public sealed record ConfigRequest(bool? AuthEnabled, int? LockoutThreshold, int? LockoutMinutes);
+    public sealed record DailyReportResponse(
+        IReadOnlyList<RecordingSummaryRow> Recording,
+        IReadOnlyList<CapacityTrendRow> Capacity,
+        long Disconnects,
+        IReadOnlyList<AiEventCountRow> Events);
 
     private static readonly TimeSpan ReconWindow = TimeSpan.FromSeconds(10);
 
@@ -82,6 +87,8 @@ public static class ApiEndpoints
         api.MapGet("/audit", HandleAudit);
 
         api.MapGet("/audit/export.csv", HandleAuditExport);
+
+        api.MapGet("/reports/daily", HandleDailyReport);
 
         api.Map("/alerts/ws", HandleAlertStream);
 
@@ -320,6 +327,29 @@ public static class ApiEndpoints
         return value.IndexOfAny([',', '"', '\n', '\r']) >= 0
             ? $"\"{value.Replace("\"", "\"\"")}\""
             : value;
+    }
+
+    private static async Task HandleDailyReport(
+        HttpContext context,
+        ReportRepository reports,
+        DateTime? from,
+        DateTime? to)
+    {
+        var fromUtc = from ?? DateTime.UtcNow.Date;
+        var toUtc = to ?? DateTime.UtcNow.Date.AddDays(1);
+        if (fromUtc >= toUtc)
+        {
+            context.Response.StatusCode = StatusCodes.Status400BadRequest;
+            await context.Response.WriteAsJsonAsync(new { error = "from 必須早於 to" });
+            return;
+        }
+
+        var response = new DailyReportResponse(
+            reports.ListRecordingSummary(fromUtc, toUtc),
+            reports.ListCapacityTrend(fromUtc, toUtc),
+            reports.GetDisconnectCount(fromUtc, toUtc),
+            reports.ListAiEventSummary(fromUtc, toUtc));
+        await context.Response.WriteAsJsonAsync(response);
     }
 
     /// <summary>Turns repository guard exceptions into clean 400 responses.</summary>

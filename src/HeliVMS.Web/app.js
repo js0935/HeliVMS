@@ -7,6 +7,7 @@ import {
   buildTimelineQuery,
   canAct,
   configCard,
+  dailyCard,
   eventRow,
   formatTimestamp,
   gapLabel,
@@ -289,6 +290,23 @@ function renderSmartwall() {
     .catch(() => {});
 }
 
+async function renderDaily() {
+  const dayFrom = new Date();
+  dayFrom.setUTCHours(0, 0, 0, 0);
+  const dayTo = new Date(dayFrom.getTime() + 24 * 3600 * 1000);
+  const params = new URLSearchParams({ from: dayFrom.toISOString(), to: dayTo.toISOString() });
+  try {
+    const card = dailyCard(await api(`/api/reports/daily?${params}`));
+    $('daily-summary').textContent =
+      `錄影 ${card.hours}h · ${card.gb}GiB · 中斷 ${card.disconnects}`;
+    $('daily-events').querySelector('tbody').innerHTML = card.events
+      .map((e) => `<tr><td>${e.type}</td><td>${e.count}</td></tr>`)
+      .join('');
+  } catch (err) {
+    $('daily-summary').textContent = String(err);
+  }
+}
+
 function renderPos() {
   const to = new Date();
   const from = new Date(to.getTime() - 3600 * 1000);
@@ -408,7 +426,7 @@ async function boot() {
   wire();
   updateChrome();
   await refreshHealth();
-  await Promise.allSettled([refreshChannels(), refreshBoard(), refreshTimeline(), renderMap(), renderSmartwall(), renderPos()]);
+  await Promise.allSettled([refreshChannels(), refreshBoard(), refreshTimeline(), renderMap(), renderSmartwall(), renderPos(), renderDaily()]);
   connectLive();
 }
 

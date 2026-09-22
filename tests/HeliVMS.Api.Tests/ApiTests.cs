@@ -519,6 +519,45 @@ public class ApiTests : IClassFixture<ApiFactory>, IDisposable
         Assert.Contains("\"auth.enabled=1,包含,逗號\"", text);
     }
 
+    [Fact]
+    public async Task DailyReport_AggregatesRecordingTrendAndEvents()
+    {
+        var dayFrom = new DateTime(2020, 1, 2, 0, 0, 0, DateTimeKind.Utc);
+        var dayTo = dayFrom.AddDays(1);
+        var segments = Service<SegmentRepository>();
+        var id = segments.BeginSegment(1, "main", "/tmp/a.mp4", dayFrom.AddHours(2));
+        segments.CompleteSegment(id, dayFrom.AddHours(3), 64 * 1024 * 1024, 3600, "sha");
+        Service<AlarmEventRepository>().Insert(1, "motion", dayFrom.AddHours(2).AddMinutes(10), detail: "x");
+        Service<AlarmEventRepository>().Insert(1, "offline", dayFrom.AddHours(2).AddMinutes(20), detail: "y");
+
+        using var client = Client();
+        var response = await client.GetAsync(
+            $"/api/reports/daily?from={HttpUtility(dayFrom)}&to={HttpUtility(dayTo)}");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var report = await ReadAsync<DailyReportBody>(response);
+        Assert.Equal(2, report.Recording.Count);
+        var seeded = report.Recording.First(r => r.ChannelId == 1);
+        Assert.True(seeded.Hours > 0, "seeded one-hour segment");
+        Assert.Contains(report.Events, e => e.EventType == "motion");
+        Assert.Equal(1, report.Disconnects);
+
+        var bad = await client.GetAsync(
+            $"/api/reports/daily?from={HttpUtility(dayTo)}&to={HttpUtility(dayFrom)}");
+        Assert.Equal(HttpStatusCode.BadRequest, bad.StatusCode);
+    }
+
+    private sealed record DailyReportBody(
+        IReadOnlyList<RecordingRow> Recording,
+        IReadOnlyList<CapacityRow> Capacity,
+        long Disconnects,
+        IReadOnlyList<EventCountRow> Events);
+
+    private sealed record RecordingRow(int ChannelId, string ChannelName, double Hours, long Bytes);
+
+    private sealed record CapacityRow(string Day, long Bytes, double Hours);
+
+    private sealed record EventCountRow(string EventType, long Count);
+
     private sealed record PagedBody<T>(IReadOnlyList<T> Items, int Count);
 
     private sealed record AuditEntry(long Id, string Actor, string Action, string Category, string? TargetType, long? TargetId, string? Detail);

@@ -6,8 +6,8 @@
 
 ## 一句話總結
 HeliVMS 為一套**網路影像監控系統**（WPF 桌面應用：即時監看／回放／AI 事件中心／錄影排程）。
-進度: **M1 至 M127 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M127 稽核查詢/匯出；M120 回放段檔 REST；M119 回放時間軸 API；M118 警報即時流；M117 HeliVMS.WebApi；M116 快照一鍵遮蔽；M115 MQTT 訂閱派送掛載；M112 訂閱數據面、M113 POS 自動關聯、M114 VMD 自動套用）。
-Release build 0 error、測試 **1123/1123（＋vitest 27） 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
+進度: **M1 至 M128 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M128 日報 REST/視界；M120 回放段檔 REST；M119 回放時間軸 API；M118 警報即時流；M117 HeliVMS.WebApi；M116 快照一鍵遮蔽；M115 MQTT 訂閱派送掛載；M112 訂閱數據面、M113 POS 自動關聯、M114 VMD 自動套用）。
+Release build 0 error、測試 **1123/1123（＋vitest 28） 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
 本地與遠端完全同步（`git diff origin/HEAD` 為空）。
 
 ## 開新 session 的接手方法
@@ -2078,13 +2078,17 @@ gh run list -L 3              # 預期全部 success
     - `ChannelRepository.SetMotionSensitivity`（位元組安全插接）。
     - 測試：5。
 
-    - 全量牌面（M121 收尾）：Storage 782、Alarms 254、Devices 54、Licensing 8、Api 22＝**1123**（＋vitest 27/12）。
+    - 全量牌面（M121 收尾）：Storage 782、Alarms 254、Devices 54、Licensing 8、Api 22＝**1123**（＋vitest 28/12）。
 92. **M115 交付＝MQTT 訂閱數據面掛載（§14.7 #15 完全閉合）**：
     - `MqttMessageHub`：`Register`（topic filter→處理式列表）、`SubscribeAll`（控制面逐 filter SUBSCRIBE）、`Pump`（單輪 ReceiveMessage→`MqttTopicFilter` 路由→派送）、`Run`（常駐迴圈，取消或 ConnectionLost 結束）。
     - 測試：6（路由命中/不命中、多 filter 訂閱、同 filter 多處理式、未連線 ConnectionLost、Run 迴圈派送＋取消）→全量 **1090**。
 93. **M116 交付＝快照一鍵遮蔽（§14.7 #16）**：
     - `SnapshotRedactor`：解碼→逐區 `RedactionProcessor.Apply(filled=true)` 實心塗黑（範圍夾截、退化區略過、輸入不可變）→依原格式（JPEG/PNG）重編碼。`SnapshotRedactionService`：按 snapshot `RedactionRepository.QueryBySource` 取區套用。
     - Storage 加 `System.Drawing.Common`（`SupportedPlatform windows`＋`SupportedOSPlatformVersion`；CI windows-latest 合規）；測試 8（遮黑/夾截/退化跳過/多區/PNG 精確黑/輸入不變/DB refId/無區回傳）→全量 **1098**。
+106. **M128 交付＝日報 REST＋SPA 視界（§14.1 row 7 日報自動化）**：
+    - WebApi（DI 補註冊 ReportRepository；承接 M60 統計報表）：`GET /api/reports/daily?from&to`（缺省＝今日 UTC；from≥to → 400）聚合 `{Recording（各頻道 final 時數/位元組，LEFT JOIN 全渠道列），Capacity（逐日趨勢），Disconnects（offline 筆數），Events（按 event_type 計數 DESC）}`。
+    - SPA：日報面板（全角色可見）——錄影時數/GiB/中斷摘要＋事件類別表；`dailyCard` 純邏輯（時數合計、GiB、事件排序）。
+    - 測試：Api +1 **27**（歷史固定窗口隔離：一段 1h final＋motion/offline；Recording 2 渠道、Hours>0、Events 含 motion、Disconnect 1、400 分支）＋vitest ＋1 **28**（dailyCard 彙總/GB/排序/空值）；全量 **1125**。
 105. **M127 交付＝稽核查詢＋CSV 匯出（§14.1 row 2 稽核匯出工具）**：
     - WebApi（DI 補註冊 AuditLogRepository；承接 M109 audit_log）：`GET /api/audit`（category/actor/action/from/to 多條目篩選、時序 DESC、limit≤500）；`GET /api/audit/export.csv`（同篩選全量、UTF-8 BOM、RFC4180 欄位引號跳脫、Content-Disposition 附件）。from≥to → 400。
     - SPA：admin 限定「稽核日誌」面板——類別下拉＋操作者篩選（`auditRows`/`auditFilter` 純邏輯）＋CSV 下載連結隨篩選同步、表格渲染。
@@ -2112,7 +2116,7 @@ gh run list -L 3              # 預期全部 success
 99. **M121 交付＝HeliVms.Web SPA 最小骨架（§14.3 HeliVms.Web）**：
     - `src/HeliVMS.Web/`：vanilla ES modules（無建置）：`index.html`＋`styles.css`＋`app.js`（health/channels/board/事件搜尋/時間軸渲染/WS 即時流連線）＋`lib.js`（純邏輯：eventRow/board 排序與 KPI/時間軸與段檔 query 建構/WS 訊框解析/gap 標籤）。
     - WebApi 託管：`Program.FindWebRoot` 解析 SPA 根＋UseDefaultFiles/UseStaticFiles＋`MapFallback`（非 /api 回 index.html）；`ApiKeyAuthMiddleware` 支援 WS 升級請求之 `?key=`（SPA 瀏覽器無法設 Authorization header，FixedTimeEquals 常時比較不變）。
-    - 測試：vitest 27（formatTimestamp/eventRow/排序/KPI/query/WS 訊框/gap）＋Api +3（SPA index 免鑰、lib.js 靜態、WS query-key 握手）；CI 加 Node 24＋`npm ci && npm test`。
+    - 測試：vitest 28（formatTimestamp/eventRow/排序/KPI/query/WS 訊框/gap）＋Api +3（SPA index 免鑰、lib.js 靜態、WS query-key 握手）；CI 加 Node 24＋`npm ci && npm test`。
     - 全量 **1123**（Api 22）＋vitest **12/12**。
 98. **M120 交付＝回放段檔 REST（§14.3 播放資料面）**：
     - `GET /api/recording/segments?channelId&stream&from&to`：時間窗內 `SegmentRecord` 清冊（file/sha256/size/duration/status）——SPA 可直接建構 HLS/播放 URL。

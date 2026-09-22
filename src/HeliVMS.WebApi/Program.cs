@@ -26,6 +26,7 @@ builder.Services.AddSingleton(static sp => new SegmentRepository(sp.GetRequiredS
 builder.Services.AddSingleton(static sp => new UserRepository(sp.GetRequiredService<SqliteStore>()));
 builder.Services.AddSingleton(static sp => new SettingsRepository(sp.GetRequiredService<SqliteStore>()));
 builder.Services.AddSingleton(static sp => new AuditLogRepository(sp.GetRequiredService<SqliteStore>()));
+builder.Services.AddSingleton(static sp => new ReportRepository(sp.GetRequiredService<SqliteStore>()));
 builder.Services.AddSingleton<AlertBroadcastHub>();
 builder.Services.AddSingleton<AuthService>();
 

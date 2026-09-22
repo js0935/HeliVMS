@@ -9,6 +9,7 @@ import {
   buildTimelineQuery,
   canAct,
   configCard,
+  dailyCard,
   eventRow,
   formatTimestamp,
   gapLabel,
@@ -282,5 +283,25 @@ describe('login gating', () => {
     expect(auditFilter(rows, '', 'test')).toHaveLength(2);
     expect(auditFilter(rows, 'share', 'x')).toHaveLength(0);
     expect(auditFilter(null, '')).toEqual([]);
+  });
+
+  it('rolls up daily report cards', () => {
+    const card = dailyCard({
+      recording: [
+        { ChannelId: 1, Hours: 1, Bytes: 1073741824 },
+        { Hours: 0.5, bytes: 0 },
+      ],
+      capacity: [{ day: '2026-01-01', bytes: 1, hours: 1 }],
+      disconnects: 2,
+      events: [
+        { EventType: 'motion', Count: 5 },
+        { EventType: 'offline', Count: 1 },
+      ],
+    });
+    expect(card.hours).toBe(1.5);
+    expect(card.gb).toBe(1);
+    expect(card.disconnects).toBe(2);
+    expect(card.events[0]).toEqual({ type: 'motion', count: 5 });
+    expect(dailyCard(null)).toEqual({ hours: 0, bytes: 0, gb: 0, disconnects: 0, events: [] });
   });
 });

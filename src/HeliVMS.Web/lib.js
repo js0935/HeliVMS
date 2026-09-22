@@ -229,3 +229,20 @@ export function auditFilter(rows, category, actor = '') {
       (!category || r.category === category) && (!needle || r.actor.toLowerCase().includes(needle)),
   );
 }
+
+export function dailyCard(raw) {
+  const r = raw ?? {};
+  const recording = r.recording ?? r.Recording ?? [];
+  const events = r.events ?? r.Events ?? [];
+  const hours = recording.reduce((s, x) => s + Number(x.hours ?? x.Hours ?? 0), 0);
+  const bytes = recording.reduce((s, x) => s + Number(x.bytes ?? x.Bytes ?? 0), 0);
+  return {
+    hours: Math.round(hours * 100) / 100,
+    bytes,
+    gb: Number((bytes / 1073741824).toFixed(2)),
+    disconnects: Number(r.disconnects ?? r.Disconnects ?? 0),
+    events: events
+      .map((e) => ({ type: e.eventType ?? e.EventType ?? '', count: Number(e.count ?? e.Count ?? 0) }))
+      .sort((a, b) => b.count - a.count),
+  };
+}
