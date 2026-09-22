@@ -229,6 +229,14 @@
       <h2>即時警報流</h2>
       <ul id="live-log" class="log"></ul>
     </section>
+
+    <section class="panel wide">
+      <h2>通知投遞 <span id="notif-count" class="muted"></span></h2>
+      <table class="compact">
+        <thead><tr><th>時間</th><th>頻道</th><th>事件</th><th>路由</th><th>結果</th><th>嘗試</th><th>詳情</th></tr></thead>
+        <tbody id="notif-body"></tbody>
+      </table>
+    </section>
   </main>
 
   <script type="module" src="./app.js"></script>

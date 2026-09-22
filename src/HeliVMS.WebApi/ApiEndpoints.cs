@@ -38,6 +38,7 @@ public static class ApiEndpoints
     public sealed record DoorEventItem(long Id, int DeviceId, int DoorId, string CardId, string Direction, bool Granted, string Reason, string OccurredAtUtc);
     public sealed record DetectionItem(long Id, int ChannelId, string Class, float Confidence, float X, float Y, float W, float H, string DetectedUtc);
     public sealed record DetectionSummaryItem(string Class, int Count);
+    public sealed record NotificationLogItem(long Id, string TsUtc, int ChannelId, string EventType, string Route, bool Ok, int Attempts, string? Detail);
     public sealed record DailyReportResponse(
         IReadOnlyList<RecordingSummaryRow> Recording,
         IReadOnlyList<CapacityTrendRow> Capacity,
@@ -564,6 +565,14 @@ public static class ApiEndpoints
 
             return Results.Ok(detections.CountByClass(q)
                 .Select(c => new DetectionSummaryItem(c.Class, c.Count))
+                .ToList());
+        });
+
+        api.MapGet("/notifications", static (int? limit, NotificationLogRepository logs) =>
+        {
+            var q = Math.Clamp(limit ?? 50, 1, 500);
+            return Results.Ok(logs.ListRecent(q)
+                .Select(l => new NotificationLogItem(l.Id, SqliteStore.Iso(l.TsUtc), l.ChannelId, l.EventType, l.Route, l.Ok, l.Attempts, l.Detail))
                 .ToList());
         });
     }

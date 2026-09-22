@@ -37,6 +37,7 @@ builder.Services.AddSingleton(static sp => new BackupService(sp.GetRequiredServi
 builder.Services.AddSingleton(static sp => new BackupRepository(sp.GetRequiredService<SqliteStore>()));
 builder.Services.AddSingleton(static sp => new DoorEventRepository(sp.GetRequiredService<SqliteStore>()));
 builder.Services.AddSingleton(static sp => new DetectionRepository(sp.GetRequiredService<SqliteStore>()));
+builder.Services.AddSingleton(static sp => new NotificationLogRepository(sp.GetRequiredService<SqliteStore>()));
 builder.Services.AddSingleton<AlertBroadcastHub>();
 builder.Services.AddSingleton<AuthService>();
 

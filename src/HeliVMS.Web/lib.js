@@ -301,6 +301,18 @@ export function detRows(rows) {
   }));
 }
 
+export function notifRows(rows) {
+  return (rows ?? []).map((n) => ({
+    time: formatTimestamp(n.tsUtc ?? n.TsUtc ?? ''),
+    channel: Number(n.channelId ?? n.ChannelId ?? 0),
+    event: n.eventType ?? n.EventType ?? '',
+    route: n.route ?? n.Route ?? '',
+    ok: !!(n.ok ?? n.Ok),
+    attempts: Number(n.attempts ?? n.Attempts ?? 0),
+    detail: n.detail ?? n.Detail ?? '',
+  }));
+}
+
 export function scheduleLabel(s, { short = false } = {}) {
   const r = s ?? {};
   const mask = Number(r.daysMask ?? r.DaysMask ?? 0);

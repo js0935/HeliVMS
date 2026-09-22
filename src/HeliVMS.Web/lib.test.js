@@ -17,6 +17,7 @@ import {
   backupRows,
   doorRows,
   detRows,
+  notifRows,
   patrolLabel,
   scheduleInEffect,
   scheduleLabel,
@@ -404,5 +405,11 @@ describe('login gating', () => {
     const rows = detRows([{ channelId: 1, class: 'person', confidence: 0.95, x: 0.1, y: 0.2, w: 0.3, h: 0.4, detectedUtc: 'x' }]);
     expect(rows[0]).toMatchObject({ channel: 1, cls: 'person', conf: 0.95, x: 0.1, y: 0.2, box: '0.3×0.4' });
     expect(detRows(null)).toEqual([]);
+  });
+
+  it('renders notification rows', () => {
+    const rows = notifRows([{ channelId: 2, eventType: 'motion', route: 'webhook', ok: true, attempts: 1, detail: 'ok', tsUtc: 'x' }]);
+    expect(rows[0]).toMatchObject({ channel: 2, event: 'motion', route: 'webhook', ok: true, attempts: 1, detail: 'ok' });
+    expect(notifRows(null)).toEqual([]);
   });
 });

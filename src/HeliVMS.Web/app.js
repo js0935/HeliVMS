@@ -15,6 +15,7 @@ import {
   backupRows,
   doorRows,
   detRows,
+  notifRows,
   patrolLabel,
   scheduleInEffect,
   scheduleLabel,
@@ -501,6 +502,17 @@ async function renderDetections() {
     .join(' · ');
 }
 
+async function renderNotifs() {
+  const rows = notifRows(await api('/api/notifications?limit=50').catch(() => []));
+  $('notif-body').innerHTML = rows
+    .map(
+      (n) =>
+        `<tr><td>${n.time}</td><td>ch${n.channel}</td><td>${n.event}</td><td>${n.route}</td><td class="${n.ok ? 'ok' : 'bad'}">${n.ok ? '成功' : '失敗'}</td><td>${n.attempts}</td><td class="muted">${n.detail}</td></tr>`,
+    )
+    .join('');
+  $('notif-count').textContent = `（${rows.length}）`;
+}
+
 function bindEvidenceForm() {
   const form = $('evidence-form');
   form.addEventListener('submit', async (ev) => {
@@ -656,7 +668,7 @@ async function boot() {
   wire();
   updateChrome();
   await refreshHealth();
-  await Promise.allSettled([refreshChannels(), refreshBoard(), refreshTimeline(), renderMap(), renderSmartwall(), renderPos(), renderDaily(), renderSchedules(), renderPatrols(), renderDoor(), renderDetections()]);
+  await Promise.allSettled([refreshChannels(), refreshBoard(), refreshTimeline(), renderMap(), renderSmartwall(), renderPos(), renderDaily(), renderSchedules(), renderPatrols(), renderDoor(), renderDetections(), renderNotifs()]);
   bindScheduleForm();
   bindPatrolForm();
   connectLive();

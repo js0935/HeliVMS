@@ -727,6 +727,24 @@ public class ApiTests : IClassFixture<ApiFactory>, IDisposable
     private sealed record DetectionItem(long Id, int ChannelId, string Class, float Confidence, float X, float Y, float W, float H, string DetectedUtc);
     private sealed record DetectionSummaryItem(string Class, int Count);
 
+    [Fact]
+    public async Task Notifications_ListRecent()
+    {
+        var logs = Service<NotificationLogRepository>();
+        logs.Add(1, "motion", "webhook", true, 1, "delivered");
+        logs.Add(1, "siren", "smtp", false, 3, "retry exceeded");
+
+        using var client = Client();
+        var resp = await client.GetAsync("/api/notifications?limit=500");
+        Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
+        var items = await ReadAsync<List<NotificationLogItem>>(resp);
+        Assert.Equal(2, items.Count);
+        Assert.Contains(items, n => n.EventType == "motion" && n.Route == "webhook" && n.Ok);
+        Assert.Contains(items, n => n.EventType == "siren" && n.Route == "smtp" && !n.Ok && n.Attempts == 3);
+    }
+
+    private sealed record NotificationLogItem(long Id, string TsUtc, int ChannelId, string EventType, string Route, bool Ok, int Attempts, string? Detail);
+
     private sealed record BackupRunRecordBody(
         long Id,
         System.DateTime RunAt,
