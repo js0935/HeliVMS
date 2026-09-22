@@ -172,6 +172,20 @@
       </table>
     </section>
 
+    <section class="panel wide" id="evidence-panel" hidden>
+      <h2>證據包 <span id="evidence-count" class="muted"></span></h2>
+      <table class="compact">
+        <thead><tr><th>ID</th><th>狀態</th><th>建立</th><th>檔案數</th></tr></thead>
+        <tbody id="evidence-body"></tbody>
+      </table>
+      <form id="evidence-form" class="row-form">
+        <input name="evname" type="text" placeholder="包名" required>
+        <textarea name="evfiles" rows="1" placeholder="來源絕對路徑，每行一個" required></textarea>
+        <button type="submit">打包</button>
+        <span id="evidence-msg" class="muted"></span>
+      </form>
+    </section>
+
     <section class="panel wide">
       <h2>即時警報流</h2>
       <ul id="live-log" class="log"></ul>

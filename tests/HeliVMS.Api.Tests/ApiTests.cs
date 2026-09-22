@@ -550,6 +550,62 @@ public class ApiTests : IClassFixture<ApiFactory>, IDisposable
     private sealed record ConfigBody2(bool AuthEnabled, int LockoutThreshold, int LockoutMinutes, int RecordingRetentionDays, double RecordingWatermarkGb, int AlarmRetentionDays);
 
     [Fact]
+    public async Task Evidence_PackagesVerifiesAndLists()
+    {
+        var work = Path.Combine(Path.GetTempPath(), $"helivms-ev-test-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(work);
+        var src = Path.Combine(work, "frame.jpg");
+        await File.WriteAllBytesAsync(src, new byte[] { 1, 2, 3, 4, 5 });
+        try
+        {
+            using var client = Client();
+            var bad = await client.PostAsJsonAsync(
+                "/api/evidence/package",
+                new { bundleName = "", files = new[] { src } });
+            Assert.Equal(HttpStatusCode.BadRequest, bad.StatusCode);
+
+            var packaged = await client.PostAsJsonAsync(
+                "/api/evidence/package",
+                new { bundleName = "test-bundle", files = new[] { src } });
+            Assert.Equal(HttpStatusCode.OK, packaged.StatusCode);
+            var pkg = await ReadAsync<EvidencePackageResult>(packaged);
+            Assert.True(File.Exists(pkg.BundlePath));
+            Assert.Equal(1, pkg.Items);
+            Assert.False(string.IsNullOrWhiteSpace(pkg.BundleSha256));
+
+            var missing = await client.PostAsJsonAsync(
+                "/api/evidence/package",
+                new { bundleName = "x", files = new[] { Path.Combine(work, "nope.jpg") } });
+            Assert.Equal(HttpStatusCode.BadRequest, missing.StatusCode);
+
+            var verified = await client.PostAsJsonAsync(
+                "/api/evidence/verify",
+                new { bundlePath = pkg.BundlePath });
+            Assert.Equal(HttpStatusCode.OK, verified.StatusCode);
+            var vr = await ReadAsync<EvidenceVerifyResult>(verified);
+            Assert.True(vr.Valid);
+            Assert.Empty(vr.Failures);
+            Assert.Single(vr.Items);
+
+            var listed = await client.GetAsync("/api/evidence");
+            var rows = await ReadAsync<List<EvidenceListItem>>(listed);
+            Assert.Contains(rows, r => r.Status == "packaged" && r.Items == 1);
+        }
+        finally
+        {
+            Directory.Delete(work, recursive: true);
+        }
+    }
+
+    private sealed record EvidencePackageResult(string BundlePath, string BundleSha256, int Items, string CreatedUtc);
+
+    private sealed record EvidenceVerifyResult(bool Valid, bool Expired, IReadOnlyList<string> Failures, IReadOnlyList<EvidenceItemBody> Items);
+
+    private sealed record EvidenceItemBody(string RelativePath, string Sha256, long SizeBytes, string Kind);
+
+    private sealed record EvidenceListItem(int Id, string Status, string CreatedAt, string? LastVerifiedAt, int Items);
+
+    [Fact]
     public async Task Audit_QueriesAndExportsCsv()
     {
         var ops = Service<AuditLogRepository>();

@@ -13,6 +13,7 @@ import {
   eventRow,
   focusLayout,
   formatTimestamp,
+  evRows,
   patrolLabel,
   scheduleInEffect,
   scheduleLabel,
@@ -370,5 +371,12 @@ describe('login gating', () => {
       '日巡 · 頻道3 · 08:00-18:00 · 2 步',
     );
     expect(patrolLabel(null)).toBe('未命名 · 頻道- · 00:00-23:59 · 0 步');
+  });
+
+  it('renders evidence rows', () => {
+    expect(evRows([{ id: 1, status: 'packaged', createdAt: 't', items: 3 }])).toEqual([
+      { id: 1, status: 'packaged', createdAt: 't', items: 3 },
+    ]);
+    expect(evRows(null)).toEqual([]);
   });
 });

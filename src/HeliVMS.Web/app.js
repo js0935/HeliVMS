@@ -11,6 +11,7 @@ import {
   eventRow,
   focusLayout,
   formatTimestamp,
+  evRows,
   patrolLabel,
   scheduleInEffect,
   scheduleLabel,
@@ -90,7 +91,7 @@ async function submitLogin(event) {
   if (state.ok) {
     storeSession({ role: state.role, name: state.displayName });
     if (canAct(state.role)) {
-      await Promise.allSettled([renderAccounts(), renderConfig(), renderAudit()]);
+      await Promise.allSettled([renderAccounts(), renderConfig(), renderAudit(), renderEvidence()]);
     }
   }
   await refreshBoard();
@@ -111,6 +112,7 @@ function updateChrome() {
   $('accounts-panel').hidden = !admin;
   $('config-panel').hidden = !admin;
   $('audit-panel').hidden = !admin;
+  $('evidence-panel').hidden = !admin;
   $('logout').hidden = !session;
 }
 
@@ -414,6 +416,42 @@ function bindPatrolForm() {
   });
 }
 
+async function renderEvidence() {
+  const rows = evRows(await api('/api/evidence').catch(() => []));
+  $('evidence-body').innerHTML = rows
+    .map(
+      (m) =>
+        `<tr><td>#${m.id}</td><td>${m.status}</td><td>${m.createdAt?.slice(0, 19) ?? ''}</td><td>${m.items}</td></tr>`,
+    )
+    .join('');
+  $('evidence-count').textContent = `（${rows.length}）`;
+}
+
+function bindEvidenceForm() {
+  const form = $('evidence-form');
+  form.addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    const name = form.querySelector('input[name="evname"]').value.trim();
+    const files = form
+      .querySelector('textarea[name="evfiles"]')
+      .value.split('\n')
+      .map((f) => f.trim())
+      .filter(Boolean);
+    if (!name || files.length === 0) return;
+    const resp = await fetch('/api/evidence/package', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ bundleName: name, files }),
+    }).catch(() => null);
+    if (!resp) return;
+    const body = await resp.json().catch(() => null);
+    $('evidence-msg').textContent = resp.ok
+      ? `已打包：${body.bundlePath} · sha256 ${body.bundleSha256?.slice(0, 12)}…`
+      : body?.error ?? '失敗';
+    if (resp.ok) renderEvidence();
+  });
+}
+
 function renderPos() {
   const to = new Date();
   const from = new Date(to.getTime() - 3600 * 1000);
@@ -537,6 +575,7 @@ async function boot() {
   await Promise.allSettled([refreshChannels(), refreshBoard(), refreshTimeline(), renderMap(), renderSmartwall(), renderPos(), renderDaily(), renderSchedules(), renderPatrols()]);
   bindScheduleForm();
   bindPatrolForm();
+  bindEvidenceForm();
   connectLive();
 }
 

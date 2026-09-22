@@ -256,6 +256,15 @@ export function patrolLabel(p) {
   return `${r.name ?? '未命名'} · 頻道${r.channelId ?? '-'} · ${r.windowStart ?? '00:00'}-${r.windowEnd ?? '23:59'} · ${steps.length} 步`;
 }
 
+export function evRows(rows) {
+  return (rows ?? []).map((m) => ({
+    id: m.id ?? m.Id ?? 0,
+    status: m.status ?? m.Status ?? '?',
+    createdAt: m.createdAt ?? m.CreatedAt ?? '',
+    items: Number(m.items ?? m.Items ?? 0),
+  }));
+}
+
 export function scheduleLabel(s, { short = false } = {}) {
   const r = s ?? {};
   const mask = Number(r.daysMask ?? r.DaysMask ?? 0);

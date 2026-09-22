@@ -28,6 +28,12 @@ public static class ApiEndpoints
     public sealed record ConfigRequest(bool? AuthEnabled, int? LockoutThreshold, int? LockoutMinutes, int? RecordingRetentionDays, double? RecordingWatermarkGb, int? AlarmRetentionDays);
     public sealed record UsageResponse(long Bytes, double Gb, int RetentionDays, double WatermarkGb, int AlarmRetentionDays);
     public sealed record RetentionRunResult(int AgePurged, int WatermarkPurged, long BytesFreed, long AlarmPurged);
+    public sealed record EvidencePackageRequest(string BundleName, IReadOnlyList<string> Files, string? Password);
+    public sealed record EvidenceVerifyRequest(string BundlePath, string? Password);
+    public sealed record EvidencePackageResult(string BundlePath, string BundleSha256, int Items, string CreatedUtc);
+    public sealed record EvidenceVerifyResult(bool Valid, bool Expired, IReadOnlyList<string> Failures, IReadOnlyList<EvidenceItemBody> Items);
+    public sealed record EvidenceItemBody(string RelativePath, string Sha256, long SizeBytes, string Kind);
+    public sealed record EvidenceListItem(int Id, string Status, string CreatedAt, string? LastVerifiedAt, int Items);
     public sealed record DailyReportResponse(
         IReadOnlyList<RecordingSummaryRow> Recording,
         IReadOnlyList<CapacityTrendRow> Capacity,
@@ -379,6 +385,108 @@ public static class ApiEndpoints
         {
             var result = retention.RunOnce(DateTime.UtcNow);
             return Results.Ok(new RetentionRunResult(result.AgePurged, result.WatermarkPurged, result.BytesFreed, result.AlarmPurged));
+        });
+
+        api.MapGet("/evidence", static (EvidenceManifestRepository manifests) =>
+        {
+            var items = manifests.List()
+                .Select(m =>
+                {
+                    var count = 0;
+                    try
+                    {
+                        using var doc = System.Text.Json.JsonDocument.Parse(m.ManifestJson);
+                        if (doc.RootElement.TryGetProperty("Items", out var arr))
+                        {
+                            count = arr.GetArrayLength();
+                        }
+                    }
+                    catch (System.Text.Json.JsonException)
+                    {
+                    }
+
+                    return new EvidenceListItem(m.Id, m.Status, m.CreatedAt, m.LastVerifiedAt, count);
+                })
+                .ToList();
+            return Results.Ok(items);
+        });
+
+        api.MapPost("/evidence/package", static (EvidencePackageRequest body, EvidenceManifestRepository manifests) =>
+        {
+            if (string.IsNullOrWhiteSpace(body.BundleName))
+            {
+                return Results.BadRequest(new { error = "包名必填" });
+            }
+
+            if (body.Files is null or { Count: 0 })
+            {
+                return Results.BadRequest(new { error = "至少一個來源檔案" });
+            }
+
+            var missing = body.Files.FirstOrDefault(f => !File.Exists(f));
+            if (missing is not null)
+            {
+                return Results.BadRequest(new { error = $"來源檔不存在：{missing}" });
+            }
+
+            EvidencePackager.BundleManifest manifest;
+            try
+            {
+                manifest = EvidencePackager.BuildManifest(body.BundleName, body.Files);
+            }
+            catch (Exception ex) when (ex is ArgumentException or FileNotFoundException)
+            {
+                return Results.BadRequest(new { error = ex.Message });
+            }
+
+            var outDir = Path.Combine(Path.GetTempPath(), "helivms-evidence");
+            Directory.CreateDirectory(outDir);
+            var bundlePath = Path.Combine(outDir, $"{body.BundleName}-{manifest.BundleId:N}.evp");
+            string bundleSha;
+            try
+            {
+                bundleSha = EvidencePackager.Create(bundlePath, manifest, body.Password);
+            }
+            catch (Exception ex)
+            {
+                return Results.BadRequest(new { error = ex.Message });
+            }
+
+            manifests.Upsert(
+                outDir,
+                System.Text.Json.JsonSerializer.Serialize(manifest),
+                "packaged");
+            return Results.Ok(new EvidencePackageResult(
+                bundlePath,
+                bundleSha,
+                manifest.Items.Count,
+                manifest.CreatedUtc.ToString("O")));
+        });
+
+        api.MapPost("/evidence/verify", static (EvidenceVerifyRequest body) =>
+        {
+            if (string.IsNullOrWhiteSpace(body.BundlePath) || !File.Exists(body.BundlePath))
+            {
+                return Results.BadRequest(new { error = "包檔不存在" });
+            }
+
+            EvidencePackager.VerifyResult result;
+            try
+            {
+                result = EvidencePackager.Verify(body.BundlePath, body.Password);
+            }
+            catch (Exception ex)
+            {
+                return Results.BadRequest(new { error = ex.Message });
+            }
+
+            return Results.Ok(new EvidenceVerifyResult(
+                result.Valid,
+                result.Expired,
+                result.Failures,
+                result.Items
+                    .Select(i => new EvidenceItemBody(i.RelativePath, i.Sha256, i.SizeBytes, i.Kind))
+                    .ToList()));
         });
     }
 

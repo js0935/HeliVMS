@@ -32,6 +32,7 @@ builder.Services.AddSingleton(static sp => new PatrolRepository(sp.GetRequiredSe
 
 builder.Services.AddSingleton<RetentionService>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<RetentionService>());
+builder.Services.AddSingleton(static sp => new EvidenceManifestRepository(sp.GetRequiredService<SqliteStore>()));
 builder.Services.AddSingleton<AlertBroadcastHub>();
 builder.Services.AddSingleton<AuthService>();
 
