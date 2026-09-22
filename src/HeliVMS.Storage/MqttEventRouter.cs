@@ -27,4 +27,8 @@ public static class MqttEventRouter
             ts = SqliteStore.Iso(occurredAtUtc),
         });
     }
+
+    /// <summary>狀態（presence）topic（M111）：<c>&lt;prefix&gt;/status</c>。</summary>
+    public static string StatusTopic(string? prefix)
+        => $"{((string.IsNullOrWhiteSpace(prefix) ? DefaultPrefix : prefix)).TrimEnd('/')}/status";
 }

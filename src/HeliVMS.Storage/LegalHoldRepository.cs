@@ -24,10 +24,12 @@ public sealed record LegalHoldRecord(
 public sealed class LegalHoldRepository
 {
     private readonly SqliteStore _store;
+    private readonly AuditLogRepository _audit;
 
     public LegalHoldRepository(SqliteStore store)
     {
         _store = store;
+        _audit = new AuditLogRepository(store);
     }
 
     /// <summary>建立一筆保存鎖定，回傳 ID。條件：from &lt; to。</summary>
@@ -48,7 +50,7 @@ public sealed class LegalHoldRepository
             throw new ArgumentException("原因不可為空。", nameof(reason));
         }
 
-        return _store.Query(
+        var id = _store.Query(
             """
             INSERT INTO legal_holds (channel_id, from_utc, to_utc, reason, created_by, created_at)
             VALUES ($c, $f, $t, $r, $b, $a);
@@ -68,6 +70,17 @@ public sealed class LegalHoldRepository
                 cmd.Parameters.AddWithValue("$b", createdBy);
                 cmd.Parameters.AddWithValue("$a", SqliteStore.Iso(createdAtUtc));
             });
+        AuditCreate(id, channelId, fromUtc, toUtc, createdBy, createdAtUtc);
+        return id;
+    }
+
+    /// <summary>稽核附加於建立（M110）。</summary>
+    private void AuditCreate(long id, int channelId, DateTime fromUtc, DateTime toUtc, string createdBy, DateTime createdAtUtc)
+    {
+        _audit.Record(createdBy, "legal_hold.create", AuditCategories.LegalHold,
+            targetType: "legal_hold", targetId: id,
+            detail: $"ch={channelId} {SqliteStore.Iso(fromUtc)}..{SqliteStore.Iso(toUtc)}",
+            occurredAtUtc: createdAtUtc);
     }
 
     /// <summary>全部尚在作用中（未沖銷）之鎖定，按起時升序。</summary>
@@ -126,6 +139,8 @@ public sealed class LegalHoldRepository
                 cmd.Parameters.AddWithValue("$r", reason);
                 cmd.Parameters.AddWithValue("$id", id);
             });
+        _audit.Record(by, "legal_hold.revoke", AuditCategories.LegalHold,
+            targetType: "legal_hold", targetId: id, detail: reason, occurredAtUtc: atUtc);
         return true;
     }
 

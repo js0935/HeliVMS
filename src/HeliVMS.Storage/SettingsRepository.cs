@@ -6,10 +6,12 @@ namespace HeliVMS.Storage;
 public sealed class SettingsRepository
 {
     private readonly SqliteStore _store;
+    private readonly AuditLogRepository _audit;
 
     public SettingsRepository(SqliteStore store)
     {
         _store = store;
+        _audit = new AuditLogRepository(store);
     }
 
     /// <summary>依鍵讀取設定值；不存在時回傳 null。</summary>
@@ -40,6 +42,8 @@ public sealed class SettingsRepository
                 cmd.Parameters.AddWithValue("$v", value);
                 cmd.Parameters.AddWithValue("$t", SqliteStore.Iso(DateTime.UtcNow));
             });
+        _audit.Record("system", "settings.set", AuditCategories.Config,
+            targetType: "settings", detail: key);
     }
 
     /// <summary>依鍵讀取非負數值（GB 等）；無法解析或不存在時回傳預設值。</summary>

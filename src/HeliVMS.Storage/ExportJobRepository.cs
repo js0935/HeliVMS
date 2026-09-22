@@ -22,16 +22,18 @@ public sealed record ExportJobRecord(
 public sealed class ExportJobRepository
 {
     private readonly SqliteStore _store;
+    private readonly AuditLogRepository _audit;
 
     public ExportJobRepository(SqliteStore store)
     {
         _store = store;
+        _audit = new AuditLogRepository(store);
     }
 
     /// <summary>加入匯出工作，回傳工作 ID。</summary>
     public long Enqueue(int channelId, string stream, DateTime fromUtc, DateTime toUtc)
     {
-        return _store.Query(
+        var id = _store.Query(
             """
             INSERT INTO export_jobs (channel_id, stream, start_time, end_time, status)
             VALUES ($c, $s, $f, $t, 'queued');
@@ -49,6 +51,10 @@ public sealed class ExportJobRepository
                 cmd.Parameters.AddWithValue("$f", SqliteStore.Iso(fromUtc));
                 cmd.Parameters.AddWithValue("$t", SqliteStore.Iso(toUtc));
             });
+        _audit.Record("system", "export.enqueue", AuditCategories.Export,
+            targetType: "export_job", targetId: id,
+            detail: $"ch={channelId} {SqliteStore.Iso(fromUtc)}..{SqliteStore.Iso(toUtc)}");
+        return id;
     }
 
     /// <summary>全部工作（新→舊）。</summary>
@@ -122,6 +128,8 @@ public sealed class ExportJobRepository
                 cmd.Parameters.AddWithValue("$f", SqliteStore.Iso(finishedUtc));
                 cmd.Parameters.AddWithValue("$id", id);
             });
+        _audit.Record("system", "export.done", AuditCategories.Export,
+            targetType: "export_job", targetId: id, detail: $"sha256={sha256}", occurredAtUtc: finishedUtc);
     }
 
     /// <summary>失敗：status=failed＋錯誤訊息。</summary>

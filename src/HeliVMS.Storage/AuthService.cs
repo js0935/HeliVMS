@@ -26,11 +26,13 @@ public sealed class AuthService
 
     private readonly UserRepository _users;
     private readonly SettingsRepository _settings;
+    private readonly AuditLogRepository _audit;
 
     public AuthService(SqliteStore store)
     {
         _users = new UserRepository(store);
         _settings = new SettingsRepository(store);
+        _audit = new AuditLogRepository(store);
     }
 
     /// <summary>是否啟用登入（app_settings auth.enabled == "1"）。</summary>
@@ -52,26 +54,37 @@ public sealed class AuthService
         var user = _users.GetByUsername(username);
         if (user is null)
         {
+            _audit.Record(username, "login.fail", AuditCategories.Auth,
+                targetType: "user", detail: "使用者不存在", occurredAtUtc: now);
             return AuthResult.Fail("帳號或密碼錯誤");
         }
 
         if (!user.Enabled)
         {
+            _audit.Record(username, "login.fail", AuditCategories.Auth,
+                targetType: "user", targetId: user.Id, detail: "帳號停用", occurredAtUtc: now);
             return AuthResult.Fail("帳號已停用");
         }
 
         if (user.LockedUntil is { Length: > 0 } lu && SqliteStore.FromIso(lu) > now)
         {
+            _audit.Record(username, "login.fail", AuditCategories.Auth,
+                targetType: "user", targetId: user.Id, detail: "帳號鎖定", occurredAtUtc: now);
             return AuthResult.Fail("帳號已鎖定，請稍後再試");
         }
 
         if (PasswordHasher.Verify(password, user.PasswordHash))
         {
             _users.RecordLoginSuccess(user.Id, now);
+            _audit.Record(username, "login.ok", AuditCategories.Auth,
+                targetType: "user", targetId: user.Id, detail: $"role={user.Role}", occurredAtUtc: now);
             return AuthResult.Success(user.Role, user.DisplayName);
         }
 
         var attempts = _users.RecordFailedLogin(user.Id, LockoutThreshold, LockoutMinutes, now);
+        _audit.Record(username, "login.fail", AuditCategories.Auth,
+            targetType: "user", targetId: user.Id,
+            detail: $"密碼錯誤（剩餘 {LockoutThreshold - attempts} 次機會）", occurredAtUtc: now);
         return attempts >= LockoutThreshold
             ? AuthResult.Fail($"密碼錯誤，帳號已鎖定 {LockoutMinutes} 分鐘")
             : AuthResult.Fail($"密碼錯誤（剩餘 {LockoutThreshold - attempts} 次機會）");

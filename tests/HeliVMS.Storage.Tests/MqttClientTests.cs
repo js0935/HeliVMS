@@ -190,6 +190,104 @@ public class MqttClientTests : IDisposable
         Assert.Equal(SqliteStore.Iso(T0()), doc.RootElement.GetProperty("ts").GetString());
     }
 
+    [Fact]
+    public void Subscribe_RoundTrips_ValidatesWithBroker()
+    {
+        using var broker = new FakeMqttBroker();
+        broker.Start();
+        using var client = new MqttClient();
+
+        Assert.True(client.Connect("127.0.0.1", broker.Port, "c", 30).Ok);
+        var result = client.Subscribe("helivms/events/#");
+
+        Assert.True(result.Ok);
+        WaitUntil(() => broker.LastSubscribeTopic is not null);
+        Assert.Equal("helivms/events/#", broker.LastSubscribeTopic);
+    }
+
+    [Fact]
+    public void Subscribe_WithoutConnect_ReturnsFail()
+    {
+        using var client = new MqttClient();
+        var result = client.Subscribe("helivms/events/#");
+        Assert.False(result.Ok);
+    }
+
+    [Fact]
+    public void Subscribe_RejectedByBroker_ReturnsFail()
+    {
+        using var broker = new FakeMqttBroker(subackReturnCode: 0x80);
+        broker.Start();
+        using var client = new MqttClient();
+        Assert.True(client.Connect("127.0.0.1", broker.Port, "c", 30).Ok);
+
+        var result = client.Subscribe("helivms/events/#");
+
+        Assert.False(result.Ok);
+    }
+
+    [Fact]
+    public void Subscribe_EmptyTopic_ReturnsFail()
+    {
+        using var broker = new FakeMqttBroker();
+        broker.Start();
+        using var client = new MqttClient();
+        Assert.True(client.Connect("127.0.0.1", broker.Port, "c", 30).Ok);
+
+        var result = client.Subscribe("");
+
+        Assert.False(result.Ok);
+        Assert.Null(broker.LastSubscribeTopic);
+    }
+
+    [Fact]
+    public void Presence_Online_RetainedStatusTopicAndPayload()
+    {
+        using var broker = new FakeMqttBroker();
+        broker.Start();
+        using var client = new MqttClient();
+        var reporter = new MqttPresenceReporter(client, "helivms/svc", "helivms-rec-1");
+        var t0 = new DateTime(2026, 9, 22, 13, 0, 0, DateTimeKind.Utc);
+
+        Assert.True(client.Connect("127.0.0.1", broker.Port, "helivms-rec-1", 30).Ok);
+        var result = reporter.Online(t0);
+
+        Assert.True(result.Ok);
+        WaitUntil(() => broker.LastTopic is not null);
+        Assert.Equal("helivms/svc/status", broker.LastTopic);
+        Assert.True(broker.LastRetained);
+        using var doc = JsonDocument.Parse(Encoding.UTF8.GetString(broker.LastPayload!));
+        Assert.Equal("online", doc.RootElement.GetProperty("status").GetString());
+        Assert.Equal("helivms-rec-1", doc.RootElement.GetProperty("client").GetString());
+        Assert.Equal(SqliteStore.Iso(t0), doc.RootElement.GetProperty("at").GetString());
+    }
+
+    [Fact]
+    public void Presence_Offline_FlipsStatus()
+    {
+        using var broker = new FakeMqttBroker();
+        broker.Start();
+        using var client = new MqttClient();
+        var reporter = new MqttPresenceReporter(client, null!, "rec");
+        var t0 = new DateTime(2026, 9, 22, 13, 5, 0, DateTimeKind.Utc);
+
+        Assert.True(client.Connect("127.0.0.1", broker.Port, "rec", 30).Ok);
+        Assert.True(reporter.Offline(t0).Ok);
+        WaitUntil(() => broker.LastTopic is not null);
+
+        Assert.Equal($"{MqttEventRouter.DefaultPrefix}/status", broker.LastTopic);
+        using var doc = JsonDocument.Parse(Encoding.UTF8.GetString(broker.LastPayload!));
+        Assert.Equal("offline", doc.RootElement.GetProperty("status").GetString());
+    }
+
+    [Fact]
+    public void Router_StatusTopic_NormalizesPrefix()
+    {
+        Assert.Equal("helivms/events/status", MqttEventRouter.StatusTopic(null));
+        Assert.Equal("a/b/status", MqttEventRouter.StatusTopic("a/b/"));
+        Assert.Equal("x/y/status", MqttEventRouter.StatusTopic("x/y"));
+    }
+
     public void Dispose()
     {
     }
@@ -199,11 +297,13 @@ internal sealed class FakeMqttBroker : IDisposable
 {
     private readonly TcpListener _listener;
     private readonly int _connackReturnCode;
+    private readonly int _subackReturnCode;
     private Task? _task;
 
-    public FakeMqttBroker(int connackReturnCode = 0)
+    public FakeMqttBroker(int connackReturnCode = 0, int subackReturnCode = 0)
     {
         _connackReturnCode = connackReturnCode;
+        _subackReturnCode = subackReturnCode;
         _listener = new TcpListener(IPAddress.Loopback, 0);
         _listener.Start();
         Port = ((IPEndPoint)_listener.LocalEndpoint).Port;
@@ -216,6 +316,8 @@ internal sealed class FakeMqttBroker : IDisposable
     public bool CleanSession { get; private set; }
     public string? LastTopic { get; private set; }
     public byte[]? LastPayload { get; private set; }
+    public bool LastRetained { get; private set; }
+    public string? LastSubscribeTopic { get; private set; }
     public List<byte> LastPublishedRemainingLength { get; } = new();
     public bool DisconnectSeen { get; private set; }
     public string? LastError { get; private set; }
@@ -264,11 +366,19 @@ internal sealed class FakeMqttBroker : IDisposable
                         break;
                     }
 
-                    case 0x30:   // PUBLISH QoS0
+                    case 0x30:      // PUBLISH QoS0，即時（非保留）
+                    case 0x31:      // PUBLISH 保留
                         var topicLen = (body[0] << 8) | body[1];
                         LastTopic = Encoding.UTF8.GetString(body, 2, topicLen);
                         LastPayload = body[(2 + topicLen)..];
+                        LastRetained = (header & 0x01) != 0;
                         LastPublishedRemainingLength.AddRange(lengthBytes);
+                        break;
+
+                    case 0x82:      // SUBSCRIBE
+                        var subTopicLen = (body[2] << 8) | body[3];
+                        LastSubscribeTopic = Encoding.UTF8.GetString(body, 4, subTopicLen);
+                        stream.Write(new byte[] { 0x90, 0x03, body[0], body[1], (byte)_subackReturnCode });
                         break;
 
                     case 0xE0:   // DISCONNECT

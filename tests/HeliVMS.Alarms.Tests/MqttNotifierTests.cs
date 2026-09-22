@@ -157,6 +157,9 @@ public sealed class MqttNotifierTests
             return _publishOk ? MqttPublishResult.Success() : MqttPublishResult.Fail("publish refused");
         }
 
+        public MqttPublishResult PublishRetained(string topic, byte[] payload)
+            => Publish(topic, payload);
+
         public MqttPublishResult Disconnect()
         {
             DisconnectCalled = true;

@@ -53,10 +53,12 @@ public static class ShareToken
 public sealed class ShareLinkService
 {
     private readonly ShareLinkRepository _links;
+    private readonly AuditLogRepository _audit;
 
     public ShareLinkService(SqliteStore store)
     {
         _links = new ShareLinkRepository(store);
+        _audit = new AuditLogRepository(store);
     }
 
     public ShareLinkRecord Create(
@@ -103,6 +105,9 @@ public sealed class ShareLinkService
         var token = ShareToken.Create();
         var passwordHash = string.IsNullOrEmpty(password) ? null : PasswordHasher.Hash(password);
         var id = _links.Add(token, kind, resourcePath, label, passwordHash, createdUtc, createdBy, expiresUtc, maxUses);
+        var actor = string.IsNullOrWhiteSpace(createdBy) ? "system" : createdBy;
+        _audit.Record(actor, "share.create", AuditCategories.Share,
+            targetType: "share", targetId: id, detail: $"kind={kind}", occurredAtUtc: createdUtc);
         return _links.Get(id)!;
     }
 
@@ -153,9 +158,19 @@ public sealed class ShareLinkService
 
     public void RecordUse(int id, DateTime usedUtc) => _links.IncrementUse(id, usedUtc);
 
-    public void Revoke(int id) => _links.SetRevoked(id, true);
+    public void Revoke(int id)
+    {
+        _links.SetRevoked(id, true);
+        _audit.Record("system", "share.revoke", AuditCategories.Share,
+            targetType: "share", targetId: id);
+    }
 
-    public void Delete(int id) => _links.Delete(id);
+    public void Delete(int id)
+    {
+        _links.Delete(id);
+        _audit.Record("system", "share.delete", AuditCategories.Share,
+            targetType: "share", targetId: id);
+    }
 
     public int PurgeExpired(DateTime nowUtc) => _links.PurgeExpired(nowUtc);
 }
