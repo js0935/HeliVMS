@@ -6,8 +6,8 @@
 
 ## 一句話總結
 HeliVMS 為一套**網路影像監控系統**（WPF 桌面應用：即時監看／回放／AI 事件中心／錄影排程）。
-里程碑 **M1 至 M95 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M95 Edge AI metadata 持久化）。
-Release build 0 error、測試 **880/880 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
+里程碑 **M1 至 M96 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M96 Edge ffmpeg 補抓 runner）。
+Release build 0 error、測試 **885/885 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
 本地與遠端完全同步（`git diff origin/HEAD` 為空）。
 
 ## 開新 session 的接手方法
@@ -23,12 +23,12 @@ gh run list -L 3              # 預期全部 success
 新 session 會以 git 現況接手，不會靠猜測。
 
 ## 現況快照（權威來源＝git，非聊天記憶）
-- 最後 commit：`HEAD`＝**M95**——§14.7 #13 Edge AI metadata 持久化/查詢 L1：SqliteStore v33
-  `edge_smart_events`（型別框＋direction＋時序索引×3）＋`EdgeSmartEventRepository`（Append/
-  Query 多條件/左閉右開/AggregateByDirection 分向計數）；6 新測試→全 **880**、Release
-  build 0 error、樹淨
-- 前一個 M94 交付＝`8838f71`（補抓回灌執行器 L1，v32）＋`a28deac`（docs）；全 **874**、
-  CI `35671600149` success
+- 最後 commit：`HEAD`＝**M96**——§14.7 #10 真實 ffmpeg 補抓 runner（實體整合閉合）：
+  `EdgeFfmpegBackfillRunner`（`EdgePullTarget` resolver＋`EdgeProcessExecutor` 委派抽象＋
+  Process/ArgumentList 實作、逾時 Kill、stderr 截尾、`-version` 探測）；5 新測試→全 **885**、
+  Release build 0 error、樹淨
+- 前一個 M95 交付＝`df55453`（Edge AI metadata 持久化 L1，v33）＋`82552e1`（docs）；
+  全 **880**、CI `35672111108` success
 - 前一個 M85 交付＝`54cad94`（LDAPv3 連線層 L1：`LdapClient : ILdapBinder`
   裸 BER wire（simple bind＋memberOf SearchGroups）；`LdapBer` minimal BER＋`LdapFilterEncoder`
   RFC4515→BER；24 新測試（FakeLdapServer loopback）；全 **799**、CI `35621317643` success；
@@ -1687,6 +1687,20 @@ gh run list -L 3              # 預期全部 success
       limit／AggregateByDirection 分向計數＋設備/區間維度）；`SchemaVersion_IsV33` 改名
       ＝＋6 → 全 **880**（Storage 568→574）；CI 綠；樹淨；§14.7 #13 現況改「L0 消費/軌跡/
       方向分類＋L1 持久化/查詢/分向摘要均已落地」
+
+72. **M96 已完成＝§14.7 #10 補抓回灌執行器之真實 ffmpeg runner（實體整合）**：
+    - 背景：#10 欄「實際 ffmpeg 拉流為部署整合」；本里程碑把 `IEdgeBackfillRunner` 落地為
+      真實進程 runner，閉合 Edge 補抓管線
+    - 落點：`EdgePullTarget（src URI＋落盤路徑）`；`EdgeFfmpegBackfillRunner`（注入 resolver：
+      job→拉流位址；`EdgeProcessExecutor` 委派抽象外部進程——測試注入 fake、無需真實 ffmpeg；
+      預設實作＝Process + ArgumentList、限量 30min 逾時、逾時 Kill、stderr 截尾 500 字元；
+      `IsToolAvailable()` 以 `ffmpeg -version` 探測；工具缺失/例外一律轉失敗結果）
+    - 測試：整合 x5（exit0 成功＋驗證 args 沿用 Factory（-ss/-i/-c copy/dest）／非零 exit→
+      stderr 尾＋exit 碼入錯誤訊／例外→失敗訊息／IsToolAvailable exit0 為真／不可用→false＋
+      執行失敗）；`ffmpeg -version` 探測分流 fake（args=["-version"] 才回工具版本）
+      ＝＋5 → 全 **885**（Storage 574→579）；順帶放寬 NTP loopback 乾淨樣本斷言（100ms 注入
+      的 90ms 嚴限在 CI 排程抖動下太緊→60ms）
+    - CI 綠；樹淨；§14.7 #10 現況改「L0 規劃器＋L1 執行器→真實 ffmpeg runner 已閉合」
 
 ## 已知雷區（勿再犯）
 - **harness `.ps1` 必須存成 UTF-8 with BOM**：寫檔工具產出的是 UTF-8 無 BOM，含中文的 `.ps1` 會被 PowerShell 5.1 以 ANSI/Big5 誤讀而**靜默破壞解析**（症狀：`Start-Process` 看似無效、App 根本沒啟動、`Get-Process HeliVMS.App` 找不到）。修法：`[System.IO.File]::WriteAllText($p,[System.IO.File]::ReadAllText($p,[System.Text.Encoding]::UTF8),(New-Object System.Text.UTF8Encoding($true)))`（temp/opencode 有 `fix-encoding.ps1`）
