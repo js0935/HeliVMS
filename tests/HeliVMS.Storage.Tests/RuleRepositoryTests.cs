@@ -1,4 +1,4 @@
-namespace HeliVMS.Storage.Tests;
+﻿namespace HeliVMS.Storage.Tests;
 
 /// <summary>M62（§5.10）：複合事件規則設定層 CRUD 與 schema v24。</summary>
 public class RuleRepositoryTests : IDisposable
@@ -25,7 +25,7 @@ public class RuleRepositoryTests : IDisposable
     }
 
     [Fact]
-    public void SchemaVersion_IsV39()
+    public void SchemaVersion_IsV40()
     {
         var version = _store.Query(
             "PRAGMA user_version;",
@@ -34,7 +34,7 @@ public class RuleRepositoryTests : IDisposable
                 r.Read();
                 return r.GetInt32(0);
             });
-        Assert.Equal(39, version);
+        Assert.Equal(40, version);
     }
 
     [Fact]

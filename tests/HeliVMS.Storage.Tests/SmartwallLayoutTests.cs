@@ -1,4 +1,4 @@
-namespace HeliVMS.Storage.Tests;
+﻿namespace HeliVMS.Storage.Tests;
 
 public class SmartwallLayoutTests : IDisposable
 {
@@ -24,11 +24,11 @@ public class SmartwallLayoutTests : IDisposable
     }
 
     [Fact]
-    public void SchemaVersion_IsV39()
+    public void SchemaVersion_IsV40()
     {
         var version = _store.Query<int>(
             "PRAGMA user_version;", r => r.Read() ? r.GetInt32(0) : -1);
-        Assert.Equal(39, version);
+        Assert.Equal(40, version);
     }
 
     [Fact]
@@ -73,10 +73,10 @@ public class SmartwallLayoutTests : IDisposable
     [Fact]
     public void RenameLayout_Updates()
     {
-        var id = _repo.CreateLayout("舊名", 2, 2);
-        _repo.RenameLayout(id, "新名");
+        var id = _repo.CreateLayout("門市A", 2, 2);
+        _repo.RenameLayout(id, "門市B");
 
-        Assert.Equal("新名", Assert.Single(_repo.ListLayouts()).Name);
+        Assert.Equal("門市B", Assert.Single(_repo.ListLayouts()).Name);
     }
 
     [Fact]

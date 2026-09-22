@@ -9,7 +9,7 @@ namespace HeliVMS.Storage;
 /// </summary>
 public sealed class SqliteStore : IDisposable
 {
-    private const int CurrentSchemaVersion = 39;
+    private const int CurrentSchemaVersion = 40;
     private readonly SqliteConnection _connection;
     private readonly object _gate = new();
     private bool _disposed;
@@ -247,6 +247,11 @@ public sealed class SqliteStore : IDisposable
         if (version < 39)
         {
             CreateSmartwallTablesV39();
+        }
+
+        if (version < 40)
+        {
+            CreateAuditLogTablesV40();
         }
 
         Execute("PRAGMA user_version = CURRENT_SCHEMA_VERSION;".Replace(
@@ -1211,6 +1216,25 @@ public sealed class SqliteStore : IDisposable
             );
 
             CREATE INDEX IF NOT EXISTS idx_smartwall_tile_layout ON smartwall_tiles(layout_id, position);
+            """);
+    }
+
+    private void CreateAuditLogTablesV40()
+    {
+        Execute(
+            """
+            CREATE TABLE IF NOT EXISTS audit_log (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                occurred_at TEXT    NOT NULL,
+                actor       TEXT    NOT NULL,
+                action      TEXT    NOT NULL,
+                category    TEXT    NOT NULL,
+                target_type TEXT    NULL,
+                target_id   INTEGER NULL,
+                detail      TEXT    NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_audit_log_time ON audit_log(occurred_at DESC, id DESC);
             """);
     }
 
