@@ -11,6 +11,7 @@ import {
   configCard,
   dailyCard,
   eventRow,
+  focusLayout,
   formatTimestamp,
   gapLabel,
   gridLayout,
@@ -303,5 +304,29 @@ describe('login gating', () => {
     expect(card.disconnects).toBe(2);
     expect(card.events[0]).toEqual({ type: 'motion', count: 5 });
     expect(dailyCard(null)).toEqual({ hours: 0, bytes: 0, gb: 0, disconnects: 0, events: [] });
+  });
+
+  it('focuses critical tiles double-size and pushes normals below', () => {
+    const layout = focusLayout(
+      [
+        { priority: 'critical' },
+        { priority: 'normal' },
+        { priority: 'critical' },
+        { priority: 'normal' },
+      ],
+      4,
+    );
+    expect(layout).toHaveLength(4);
+    expect(layout[0]).toEqual({ left: 0, top: 0, width: 0.5, height: 0.5 });
+    expect(layout[2]).toEqual({ left: 0.5, top: 0, width: 0.5, height: 0.5 });
+    expect(layout[1]).toEqual({ left: 0, top: 0.5, width: 0.25, height: 0.25 });
+    expect(layout[3]).toEqual({ left: 0.25, top: 0.5, width: 0.25, height: 0.25 });
+    expect(focusLayout([], 4)).toEqual([]);
+  });
+
+  it('keeps row/col alignment for odd critical counts', () => {
+    const layout = focusLayout([{ priority: 'critical' }, { priority: 'normal' }], 4);
+    expect(layout[0]).toEqual({ left: 0, top: 0, width: 0.5, height: 0.5 });
+    expect(layout[1]).toEqual({ left: 0, top: 0.5, width: 0.25, height: 0.25 });
   });
 });

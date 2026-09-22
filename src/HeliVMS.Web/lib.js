@@ -246,3 +246,32 @@ export function dailyCard(raw) {
       .sort((a, b) => b.count - a.count),
   };
 }
+
+export function focusLayout(cells, cols = 4) {
+  const list = (cells ?? []).map((cell, index) => ({ cell, index }));
+  if (list.length === 0) return [];
+  const c = Math.max(1, cols);
+  const base = 1 / c;
+  const out = new Array(list.length);
+
+  const criticals = list.filter((x) => (x.cell.priority ?? x.cell.Priority) === 'critical');
+  const normals = list.filter((x) => (x.cell.priority ?? x.cell.Priority) !== 'critical');
+
+  const perRow = Math.max(1, Math.floor(c / 2));
+  const critRows = Math.max(1, Math.ceil(criticals.length / perRow));
+  criticals.forEach((x, i) => {
+    const col = (i % perRow) * 2;
+    const row = Math.floor(i / perRow);
+    out[x.index] = { left: col * base, top: row * (2 * base), width: 2 * base, height: 2 * base };
+  });
+
+  const normalTop = critRows * (2 * base);
+  const normalRows = Math.max(1, Math.ceil(normals.length / c));
+  normals.forEach((x, i) => {
+    const col = i % c;
+    const row = Math.floor(i / c);
+    out[x.index] = { left: col * base, top: normalTop + row * base, width: base, height: base };
+  });
+
+  return out;
+}

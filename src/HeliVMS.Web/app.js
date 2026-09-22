@@ -9,6 +9,7 @@ import {
   configCard,
   dailyCard,
   eventRow,
+  focusLayout,
   formatTimestamp,
   gapLabel,
   gridLayout,
@@ -276,7 +277,7 @@ function renderSmartwall() {
       const el = $('swgrid');
       el.innerHTML = '';
       const cells = snap.cells.length ? snap.cells : [{}];
-      const pins = gridLayout(cells.length, 4);
+      const pins = focusLayout(cells, 4);
       cells.forEach((c, i) => {
         const box = document.createElement('div');
         box.className = `swtile ${tileClass(c)}`;
