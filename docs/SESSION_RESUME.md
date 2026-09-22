@@ -6,8 +6,8 @@
 
 ## 一句話總結
 HeliVMS 為一套**網路影像監控系統**（WPF 桌面應用：即時監看／回放／AI 事件中心／錄影排程）。
-里程碑 **M1 至 M105 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M105 智慧牆 L0 v39）。
-Release build 0 error、測試 **982/982 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
+里程碑 **M1 至 M106 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M106 智慧牆警報看板引擎 L0）。
+Release build 0 error、測試 **994/994 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
 本地與遠端完全同步（`git diff origin/HEAD` 為空）。
 
 ## 開新 session 的接手方法
@@ -23,15 +23,14 @@ gh run list -L 3              # 預期全部 success
 新 session 會以 git 現況接手，不會靠猜測。
 
 ## 現況快照（權威來源＝git，非聊天記憶）
-- 最後 commit：`HEAD`＝**M105**——§14.7 #14 智慧牆 L0（資料模型＋版面 API）：
-  `SqliteStore` v38→**v39**（`smartwall_layouts`（name UNIQUE,rows,cols,created/updated）
-  ＋`smartwall_tiles`（layout_id,row,col,rowspan,colspan,channel_id,view 0單鏡頭/1馬賽克,position））；
-  `SmartwallLayoutRepository`（CreateLayout 名稱去重/尺寸 1..16 校驗、RenameLayout、ListLayouts、
-  AddTile 越界＋重疊校驗（矩形交集）、GetTiles、RemoveTile）；純 BCL `LayoutGrid`（IsTileInBounds／
-  FindOverlap）＋`SmartwallTimings`（AlarmHighlight=5s、MosaicKeepLast=300s §14.7 #14 常數）；18
-  新測試＋SchemaVersion_IsV39→全 **982**、Release build 0 error、樹淨
-- 前一個 M104 交付＝`3deeeab`（§14.7 #8 POS 接口擴展 L1 `InsertDedupe`＋`QueryByRegister`＋`PosReconciliation`）＋`3778c0f`（docs）；
-  全 **964**、CI `35700750149` success
+- 最後 commit：`HEAD`＝**M106**——§14.7 #14 智慧牆警報看板引擎 L0（純 BCL）：
+  `SmartwallAlertBoard`：`Snapshot`＝保留窗（300s）內事件→每頻道最新一則→RuleOrder 升序→優先序
+  （low&lt;normal&lt;high&lt;critical）降序→發生時間新→舊→至多 maxCells 格，`BoardCell
+  (ChannelId,EventType,Priority,Rank,Highlight,Age)`（Highlight＝發生 ≤5s＝AlarmHighlight）；
+  `LatestForChannel`（頻道保留窗內最新）；`RankOf`。12 新測試→全 **994**、Release build 0 error、
+  樹淨
+- 前一個 M105 交付＝`8766691`（§14.7 #14 智慧牆版面資料模型＋幾何校驗＋看板時間常數 v39）＋`91a4306`（docs）；
+  全 **982**、CI `35701637588` success
 - 前一個 M85 交付＝`54cad94`（LDAPv3 連線層 L1：`LdapClient : ILdapBinder`
   裸 BER wire（simple bind＋memberOf SearchGroups）；`LdapBer` minimal BER＋`LdapFilterEncoder`
   RFC4515→BER；24 新測試（FakeLdapServer loopback）；全 **799**、CI `35621317643` success；
@@ -1988,3 +1987,17 @@ gh run list -L 3              # 預期全部 success
       676）；CI 綠；樹淨；
       §14.7 #14 現況改「智慧牆版面資料模型＋幾何校驗＋看板時間常數（M105 v39）已落地；警報牆
       派送引擎/視訊牆 UI 待續」
+82. **M106 已完成＝§14.7 #14 智慧牆警報看板引擎 L0（純 BCL）**：（見頂部快照）
+    - 背景：#14 續作：M105 做完資料模型，本里程碑補「警報牆派送引擎」（收到的告警依 Rule 排序、
+      每頻道保留窗內最新、≤5s 高亮、>300s 移出）——全程不碰 UI，可單測
+    - 落點：`SmartwallAlertBoard.Snapshot(events, nowUtc, maxCells)`：`SmartwallBoardEvent
+      (ChannelId,EventType,Priority,OccurredAtUtc,RuleOrder)` → 過濾保留窗（MosaicKeepLast=300s）→
+      GroupBy ChannelId 取最新 → OrderBy RuleOrder → ThenByDescending 優先序（low≥0…critical=3）
+      → ThenByDescending 發生時間 → Take(maxCells) → `BoardCell(...,Rank 1 起,Highlight
+      =now−occ≤5s,Age)`；`LatestForChannel`（保留窗內該頻道最新事件）；`RankOf`（未知優先序=
+      int.MaxValue 排後）；排序語意＝同一 Rule 內優先序高者先進
+    - 測試：x12（窗外剔除、每頻道去重新者勝、規則→優先序→新舊排序、≤5s 高亮、>5s 不高亮、
+      Age 反映差、maxCells 上限、空清單、maxCells=0 Throws、LatestForChannel 最新、無資料 null、
+      RankOf 對映）＝＋12 → 全 **994**（Storage 676→688）；CI 綠；樹淨；
+      §14.7 #14 現況改「智慧牆版面資料模型＋幾何校驗＋看板時間常數（M105 v39）＋警報看板引擎
+      L0（M106 `SmartwallAlertBoard`）已落地；視訊牆 UI/MQTT 派送掛載待續」
