@@ -42,6 +42,31 @@ body {
 }
 .badge.off { opacity: 0.5; }
 .badge.on { background: #1f7a3d; }
+.badge.hot { background: var(--crit); color: #fff; }
+
+.map {
+  position: relative;
+  height: 260px;
+  background:
+    linear-gradient(var(--line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--line) 1px, transparent 1px),
+    var(--bg);
+  background-size: 32px 32px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+}
+.map .pin {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(77, 163, 255, 0.15);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  font-size: 11px;
+  color: var(--accent);
+  overflow: hidden;
+}
 
 .grid {
   display: grid;

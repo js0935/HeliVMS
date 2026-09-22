@@ -84,3 +84,77 @@ export function gapLabel(gapFraction) {
   if (gapFraction <= 0.001) return '全日';
   return `缺 ${(gapFraction * 100).toFixed(0)}%`;
 }
+
+export function gridLayout(count, cols = 4) {
+  const n = Math.max(0, count);
+  const c = Math.max(1, cols);
+  const rows = Math.max(1, Math.ceil(n / c));
+  return Array.from({ length: n }, (_, i) => ({
+    left: (i % c) / c,
+    top: Math.floor(i / c) / rows,
+    width: 1 / c,
+    height: 1 / rows,
+  }));
+}
+
+export function pinStyles(pin, inset = 0.03) {
+  const safe = pin ?? { left: 0, top: 0, width: 1, height: 1 };
+  const left = (safe.left ?? 0) + inset;
+  const top = (safe.top ?? 0) + inset;
+  const width = Math.max((safe.width ?? 1) - inset * 2, 0);
+  const height = Math.max((safe.height ?? 1) - inset * 2, 0);
+  return {
+    left: `${(left * 100).toFixed(2)}%`,
+    top: `${(top * 100).toFixed(2)}%`,
+    width: `${(width * 100).toFixed(2)}%`,
+    height: `${(height * 100).toFixed(2)}%`,
+  };
+}
+
+export const SMARTWALL_KEEP_MS = 300_000;
+
+export function smartwallSnapshot(cells, now = Date.now()) {
+  const list = (cells ?? []).filter((c) => {
+    const t = Date.parse(c.startUtc ?? c.StartUtc);
+    return !Number.isNaN(t) && now - t <= SMARTWALL_KEEP_MS;
+  });
+  const sorted = [...list].sort(
+    (a, b) => Number(Boolean(b.highlight ?? b.Highlight)) - Number(Boolean(a.highlight ?? a.Highlight)),
+  );
+  return {
+    cells: sorted.slice(0, 64),
+    count: list.length,
+    critical: list.filter((c) => (c.priority ?? c.Priority) === 'critical').length,
+  };
+}
+
+export function ackRate(rows) {
+  const list = rows ?? [];
+  if (list.length === 0) return 0;
+  const acked = list.filter((r) => (r.status ?? r.Status) === 'acknowledged').length;
+  return Math.round((acked / list.length) * 100);
+}
+
+export function posTotals(records) {
+  const list = records ?? [];
+  const registers = {};
+  for (const r of list) {
+    const id = r.registerId ?? r.RegisterId ?? '?';
+    registers[id] = registers[id] ?? { count: 0, totalCents: 0 };
+    registers[id].count += 1;
+    registers[id].totalCents += r.amountCents ?? r.AmountCents ?? 0;
+  }
+  return {
+    count: list.length,
+    totalCents: list.reduce((s, r) => s + (r.amountCents ?? r.AmountCents ?? 0), 0),
+    registers,
+  };
+}
+
+export function ackPayload(id, acknowledged = true) {
+  return { id, body: { acknowledged } };
+}
+
+export function triagePayload(id, priority, dueUtc = null) {
+  return { id, body: { priority, dueUtc, owner: null } };
+}

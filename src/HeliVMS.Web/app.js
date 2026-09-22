@@ -1,11 +1,18 @@
 import {
+  ackPayload,
+  ackRate,
   buildTimelineQuery,
   eventRow,
   formatTimestamp,
   gapLabel,
+  gridLayout,
   parseWsMessage,
+  pinStyles,
+  posTotals,
+  smartwallSnapshot,
   sortBoard,
   summarizeBoard,
+  triagePayload,
 } from './lib.js';
 
 const $ = (id) => document.getElementById(id);
@@ -40,12 +47,83 @@ async function refreshBoard() {
   const rows = sortBoard(await api('/api/alarms/board?take=50'));
   const s = summarizeBoard(rows);
   $('board-summary').textContent = `共 ${s.total} · 嚴重 ${s.critical} · 逾期 ${s.overdue}`;
+  $('kpi').textContent = `ack ${ackRate(rows)}% · 嚴重 ${s.critical}`;
   $('board').querySelector('tbody').innerHTML = rows
     .map(
       (r) =>
-        `<tr class="${r.priority}"><td>${r.eventId}</td><td>${r.channelId}</td><td>${r.eventType ?? ''}</td><td>${r.priority}</td></tr>`,
+        `<tr class="${r.priority}"><td>${r.eventId}</td><td>${r.channelId}</td><td>${r.eventType ?? ''}</td><td>${r.priority}</td>` +
+        `<td><button data-ack="${r.eventId}" ${r.status === 'acknowledged' ? 'disabled' : ''}>ack</button>` +
+        `<button data-triage="${r.eventId}" data-p="critical">!!</button></td></tr>`,
     )
     .join('');
+
+  document.querySelectorAll('button[data-ack]').forEach((btn) => {
+    btn.addEventListener('click', () => actAck(Number(btn.dataset.ack)));
+  });
+  document.querySelectorAll('button[data-triage]').forEach((btn) => {
+    btn.addEventListener('click', () => actTriage(Number(btn.dataset.triage), btn.dataset.p));
+  });
+}
+
+async function actAck(id) {
+  const payload = ackPayload(id, true);
+  await api(`/api/events/${payload.id}/ack`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload.body),
+  });
+  await refreshBoard();
+}
+
+async function actTriage(id, priority) {
+  const payload = triagePayload(id, priority);
+  await api(`/api/events/${payload.id}/triage`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload.body),
+  });
+  await refreshBoard();
+}
+
+function renderMap() {
+  const pinCount = 16;
+  const pins = gridLayout(pinCount, 4);
+  const el = $('map');
+  el.innerHTML = '';
+  for (const [i, pin] of pins.entries()) {
+    const box = document.createElement('div');
+    box.className = 'pin';
+    Object.assign(box.style, pinStyles(pin));
+    box.textContent = 'CAM';
+    box.title = `CAM-${String(i + 1).padStart(2, '0')}`;
+    el.appendChild(box);
+  }
+}
+
+function renderSmartwall() {
+  api('/api/smartwall/board')
+    .then((body) => {
+      const snap = smartwallSnapshot(Array.isArray(body) ? body : (body?.cells ?? []));
+      const el = $('sw');
+      el.textContent = `smartwall ${snap.count} · critical ${snap.critical}`;
+      el.classList.toggle('hot', snap.critical > 0);
+    })
+    .catch(() => {});
+}
+
+function renderPos() {
+  const to = new Date();
+  const from = new Date(to.getTime() - 3600 * 1000);
+  const params = new URLSearchParams({ from: from.toISOString(), to: to.toISOString(), limit: '200' });
+  api(`/api/pos?${params}`)
+    .then((page) => {
+      const t = posTotals(page.items);
+      const regs = Object.entries(t.registers)
+        .map(([id, r]) => `${id}:${r.count}`)
+        .join(' ');
+      $('pos').textContent = `POS ${t.count} · $${(t.totalCents / 100).toFixed(2)} · ${regs}`;
+    })
+    .catch(() => {});
 }
 
 async function searchEvents(q) {
@@ -119,7 +197,7 @@ function wire() {
 async function boot() {
   wire();
   await refreshHealth();
-  await Promise.allSettled([refreshChannels(), refreshBoard(), refreshTimeline()]);
+  await Promise.allSettled([refreshChannels(), refreshBoard(), refreshTimeline(), renderMap(), renderSmartwall(), renderPos()]);
   connectLive();
 }
 

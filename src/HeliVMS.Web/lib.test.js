@@ -1,14 +1,21 @@
 import { describe, expect, it } from 'vitest';
 import {
+  ackPayload,
+  ackRate,
   buildSegmentsQuery,
   buildTimelineQuery,
   eventRow,
   formatTimestamp,
   gapLabel,
+  gridLayout,
   parseWsMessage,
+  pinStyles,
+  posTotals,
   priorityRank,
+  smartwallSnapshot,
   sortBoard,
   summarizeBoard,
+  triagePayload,
 } from './lib.js';
 
 describe('formatTimestamp', () => {
@@ -113,5 +120,91 @@ describe('gapLabel', () => {
     expect(gapLabel(1)).toBe('無錄影');
     expect(gapLabel(0)).toBe('全日');
     expect(gapLabel(0.42)).toContain('%');
+  });
+});
+
+describe('gridLayout', () => {
+  it('tiles n channels into cols x rows fractions', () => {
+    const pins = gridLayout(8, 4);
+    expect(pins).toHaveLength(8);
+    expect(pins[0]).toEqual({ left: 0, top: 0, width: 0.25, height: 0.5 });
+    expect(pins[7]).toEqual({ left: 0.75, top: 0.5, width: 0.25, height: 0.5 });
+  });
+
+  it('tolerates zero channels and bad cols', () => {
+    expect(gridLayout(0)).toHaveLength(0);
+    expect(gridLayout(2, 0)).toHaveLength(2);
+  });
+});
+
+describe('pinStyles', () => {
+  it('renders fractional pins as exact percentages with inset', () => {
+    expect(pinStyles({ left: 0, top: 0, width: 1, height: 0.5 })).toEqual({
+      left: '3.00%',
+      top: '3.00%',
+      width: '94.00%',
+      height: '44.00%',
+    });
+  });
+
+  it('clamps to non-negative sizes for oversized insets', () => {
+    expect(pinStyles({ left: 0, top: 0, width: 0.01, height: 0.01 }).width).toBe('0.00%');
+  });
+});
+
+describe('smartwallSnapshot', () => {
+  const now = Date.parse('2026-01-01T12:00:00Z');
+
+  it('keeps only fresh cells and buckets critical/highlight', () => {
+    const snap = smartwallSnapshot(
+      [
+        { startUtc: '2026-01-01T11:59:00Z', priority: 'critical', highlight: false },
+        { startUtc: '2026-01-01T11:58:30Z', priority: 'normal', highlight: true },
+        { startUtc: '2026-01-01T10:50:00Z', priority: 'high', highlight: false },
+      ],
+      now,
+    );
+    expect(snap.count).toBe(2);
+    expect(snap.cells[0].highlight).toBe(true);
+    expect(snap.critical).toBe(1);
+  });
+
+  it('caps at 64 tiles', () => {
+    const cells = Array.from({ length: 80 }, (_, i) => ({
+      startUtc: '2026-01-01T11:59:00Z',
+      priority: 'normal',
+      highlight: false,
+      id: i,
+    }));
+    expect(smartwallSnapshot(cells, now).cells).toHaveLength(64);
+  });
+});
+
+describe('ackRate', () => {
+  it('returns percentages and handles empty', () => {
+    expect(ackRate([])).toBe(0);
+    expect(ackRate([{ status: 'acknowledged' }, { status: 'open' }])).toBe(50);
+  });
+});
+
+describe('posTotals', () => {
+  it('sums amounts and groups by register', () => {
+    const t = posTotals([
+      { registerId: 'R1', amountCents: 100 },
+      { registerId: 'R1', amountCents: 250 },
+      { registerId: 'R2', amountCents: 50 },
+    ]);
+    expect(t.count).toBe(3);
+    expect(t.totalCents).toBe(400);
+    expect(t.registers.R1).toEqual({ count: 2, totalCents: 350 });
+    expect(t.registers.R2).toEqual({ count: 1, totalCents: 50 });
+  });
+});
+
+describe('action payload builders', () => {
+  it('builds ack and triage bodies', () => {
+    expect(ackPayload(7)).toEqual({ id: 7, body: { acknowledged: true } });
+    expect(ackPayload(7, false)).toEqual({ id: 7, body: { acknowledged: false } });
+    expect(triagePayload(9, 'critical')).toEqual({ id: 9, body: { priority: 'critical', dueUtc: null, owner: null } });
   });
 });

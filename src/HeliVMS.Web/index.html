@@ -10,6 +10,9 @@
   <header id="app" class="topbar">
     <h1>HeliVMS</h1>
     <span id="health" class="badge">…</span>
+    <span id="kpi" class="badge">…</span>
+    <span id="sw" class="badge">…</span>
+    <span id="pos" class="badge muted">…</span>
     <label>API 金鑰 <input id="apikey" type="password" placeholder="helivms-dev-key" /></label>
     <span id="live" class="badge off">WS</span>
   </header>
@@ -23,7 +26,7 @@
     <section class="panel">
       <h2>警報看板 <span id="board-summary" class="muted"></span></h2>
       <table id="board">
-        <thead><tr><th>#</th><th>頻道</th><th>類型</th><th>優先</th></tr></thead>
+        <thead><tr><th>#</th><th>頻道</th><th>類型</th><th>優先</th><th>動作</th></tr></thead>
         <tbody></tbody>
       </table>
     </section>
@@ -43,6 +46,11 @@
     <section class="panel wide">
       <h2>回放時間軸 <span id="gap" class="muted"></span></h2>
       <div id="timeline" class="timeline"></div>
+    </section>
+
+    <section class="panel wide">
+      <h2>地圖視界</h2>
+      <div id="map" class="map"></div>
     </section>
 
     <section class="panel wide">
