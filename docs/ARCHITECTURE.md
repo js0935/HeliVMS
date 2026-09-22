@@ -488,7 +488,7 @@ L0 運動觸發才餵 L1 物件模型；並在**次串流 (e.g. 640×360) + 抽�
 ### 7.6 安全管理
 
 - 設備憑證於管理端 DPAPI 密文儲存；可選擇 RTSP-TLS / HTTPS 傳輸
-- **稽核日誌 audit_log（M109，v40）已落地**：`AuditLogRepository` Record（actor/action/category 空白→ArgumentException、occurredAt 注入可測）／List（category/actor/action＋時間左閉右開、LIMIT/OFFSET、時序 DESC）／Count／PruneOlderThan（稽核保管期限）；類別常數 `AuditCategories`。設備管理操作掛載點待續
+- **稽核日誌 audit_log（M109，v40）已落地**：`AuditLogRepository` Record（actor/action/category 空白→ArgumentException、occurredAt 注入可測）／List（category/actor/action＋時間左閉右開、LIMIT/OFFSET、時序 DESC）／Count／PruneOlderThan（稽核保管期限）；類別常數 `AuditCategories`。設備管理操作掛載點待續（登入/參數變更/匯出/共享/法務保留已於 M110 串入 audit_log）
 - 批次密碼輪換提醒（配合 §11.5 稽核）
 
 ### 7.7 資料模型（擴充 §4）
@@ -1095,7 +1095,7 @@ L2 比對（人臉/車牌）置「進階·需權限」區，預設關閉（§5.1
 | 12 | 錄影 | **Adaptive Streaming / SVR 品質自適應** | Milestone | **`BitrateGovernor`（錄影品質/幀率自適應控流）已落地**；SVR 跨設備協調待續 | P3 |
 | 13 | 邊緣 | **消費邊緣 AI 相機 metadata**（D2C/方向） | Genetec、Frigate | **L0 消費/軌跡/方向分類（M90）＋L1 持久化/查詢/分向摘要（M95 `EdgeSmartEventRepository` v33）已落地** | P3 |
 | 14 | 顯示 | **智慧牆（Smart Wall）多螢幕拼接控制** | Milestone Smart Wall | 僅雙螢幕(§11.3)；**智慧牆版面資料模型＋幾何校驗＋看板時間常數（M105 v39 `SmartwallLayoutRepository`＋`LayoutGrid`）＋警報看板引擎 L0（M106 `SmartwallAlertBoard`）已落地**；視訊牆 UI/派送掛載待續 | P3 |
-| 15 | 整合 | **MQTT / 自動化平台輸出** | Frigate（HA/MQTT） | **MQTT 輸出 L0（M103 `MqttClient`＋`MqttEventRouter`，QoS0 CONNECT/PUBLISH/DISCONNECT）＋事件通知統一走 Storage `IMqttPublisher`（M108 含 user/password）已落地**；訂閱/狀態保留待續 | **P3** |
+| 15 | 整合 | **MQTT / 自動化平台輸出** | Frigate（HA/MQTT） | **MQTT 輸出 L0（M103 `MqttClient`＋`MqttEventRouter`，QoS0 CONNECT/PUBLISH/DISCONNECT）＋事件通知統一走 Storage `IMqttPublisher`（M108 含 user/password）已落地**；`MqttClient.Subscribe` 控制面（SUBACK 驗證）與保留狀態 `MqttPresenceReporter`（M111）已落地；訂閱數據面回傳待續 | **P3** |
 | 16 | 分割 | **即時快照「一鍵模糊/遮蔽」** | Synology | 沒有 | P3 |
 | 17 | 偵測 | **VMD 靈敏度自動調校** | Milestone Auto-VMD | **`SensitivityAutoTuner`（事件率統計→升/降靈敏度建議，Alarms）已落地**；逐場景自動套用待續 | P3 |
 

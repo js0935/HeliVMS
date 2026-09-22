@@ -6,8 +6,8 @@
 
 ## 一句話總結
 HeliVMS 為一套**網路影像監控系統**（WPF 桌面應用：即時監看／回放／AI 事件中心／錄影排程）。
-里程碑 **M1 至 M109 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M109 稽核日誌 v40）。
-Release build 0 error、測試 **1043/1043 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
+里程碑 **M1 至 M111 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M110 稽核掛載點＋M111 MQTT 訂閱/狀態保留）。
+Release build 0 error、測試 **1058/1058 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
 本地與遠端完全同步（`git diff origin/HEAD` 為空）。
 
 ## 開新 session 的接手方法
@@ -23,16 +23,21 @@ gh run list -L 3              # 預期全部 success
 新 session 會以 git 現況接手，不會靠猜測。
 
 ## 現況快照（權威來源＝git，非聊天記憶）
-- 最後 commit：`HEAD`＝**M109**——稽核日誌（Audit Log）L0（§14.1 資安治理，schema 39→**40**）：
-  `audit_log` 表＋`idx_audit_log_time` 索引；`AuditLogRepository`：Record（actor/action/category
-  空白→ArgumentException、occurredAtUtc 注入可測、target 欄位可空）、List（category/actor/action＋
-  時間左閉右開＋LIMIT/OFFSET、時序 DESC）、Count、PruneOlderThan（稽核保管期限清理，
-  `SELECT changes()` 回傳刪除數）；`AuditCategories` 常數（auth/config/export/evidence/share/
-  retention/legal_hold）。12 新測試→全 **1043**（Storage 720→732；Alarms 249、Devices 54、
-  Licensing 8 不變）、Release build 0 error、樹淨
-- 前一個 M108 交付＝`07791ef`（§14.7 #15 收尾：MQTT 統一＋憑證支援，`MqttClient.Connect`
-  username/password RFC 3.1＋`Alarms.MqttNotifier` 委派 Storage `IMqttPublisher`）＋`b5912c7`（docs）；
-  全 **1031**、CI `35720210768` success
+- 最後 commit：`HEAD`＝**M110＋M111**——稽核掛載點＋MQTT 訂閱/狀態保留：
+  - **M110 稽核掛載點（§14.1）**：`AuthService.Authenticate`（login.ok/login.fail，含 使用者
+    不存在/停用/鎖定/密碼錯誤、occurredAtUtc=now 注入可測）、`ShareLinkService`（share.create/
+    revoke/delete，採用 createdBy/「system」）、`LegalHoldRepository`（legal_hold.create/revoke）、
+    `ExportJobRepository`（export.enqueue/done）、`SettingsRepository.Set`（settings.set，
+    僅記 key 不記值以避免密鑰外洩）——共用 `AuditCategories` 常數
+  - **M111 MQTT 訂閱＋狀態保留（§14.7 #15）**：`IMqttPublisher` 增 `PublishRetained`；
+    `MqttClient.Subscribe`（控制面 SUBSCRIBE→SUBACK，QoS0，return code 0x80→拒絕）＋
+    `PublishRetained`（retain flag，部分剛性 broker 版本相容）；`MqttPresenceReporter`
+    （online/offline 發布至 `{prefix}/status` retained，broker 保留最後狀態，新訂閱者即刻收到）＋
+    `MqttEventRouter.StatusTopic`
+  - 測試：＋15（AuditMount 8＋Mqtt 7）→ 全 **1058**（Storage 732→747）、Release build 0 error、
+    樹淨
+- 前一個 M109 交付＝`594756f`（稽核日誌 L0 v40 `AuditLogRepository`）＋`b61b659d`（docs）；
+  全 **1043**、CI `35721655301` success
 - 前一個 M85 交付＝`54cad94`（LDAPv3 連線層 L1：`LdapClient : ILdapBinder`
   裸 BER wire（simple bind＋memberOf SearchGroups）；`LdapBer` minimal BER＋`LdapFilterEncoder`
   RFC4515→BER；24 新測試（FakeLdapServer loopback）；全 **799**、CI `35621317643` success；
@@ -2042,7 +2047,25 @@ gh run list -L 3              # 預期全部 success
       低位）——憑證測試一度收不到 user/pass 即此因；另 Alarms `NotificationSettings` 有 26 個
       positional 參數（前 11 個無預設）——測試建構必須全填或補 Helper
     - §14.7 #15 現況改「MQTT 輸出 L0（M103）＋事件通知統一走 Storage `IMqttPublisher`
-      （M108，含 user/password）已落地；訂閱/狀態保留待續」
+      （M108，含 user/password）＋訂閱控制面與線上狀態保留（M111）已落地；訂閱數據面回傳
+      ／常駐讀取待續」
+87. **M110 已完成＝稽核掛載點**（見頂部快照）：
+    - 把 M109 的 audit_log 串進真實動作：登入成功/失敗（AuthService，occurredAt=呼叫方注入，
+      失敗分類 detail＝使用者不存在/停用/鎖定/密碼錯誤）、分享 create/revoke/delete
+      （ShareLinkService，actor＝createdBy ?? system）、法務保留 create/revoke
+      （LegalHoldRepository）、匯出 enqueue/done（ExportJobRepository）、參數變更
+      （SettingsRepository.Set，**只記 key 不記值**——防 smtp/webhook 密鑰外洩）
+    - 測試：8 新（AuditMountTests）→ 全 **1043→1051**
+    - 排雷：export_jobs.channel_id 有 FK，seed 只給 1..2（channel 3 會 FK error 19）；
+      share.create detail＝「kind=…」前綴、export.done detail＝「sha256=…」前綴
+88. **M111 已完成＝MQTT 訂閱＋狀態保留**（§14.7 #15）：
+    - `IMqttPublisher.PublishRetained`（retain flag 0x01）；`MqttClient.Subscribe(topic)`
+      ＝控制面 SUBSCRIBE（QoS0）→ 解析 SUBACK（return code 0x80→拒絕），不常駐讀回數據面；
+      `MqttPresenceReporter` 把服務實體 online/offline 發布至 `{prefix}/status`（retained＝
+      broker 保留最後狀態，新訂閱者即刻收到）；`MqttEventRouter.StatusTopic`
+    - 測試：7 新（Subscribe roundtrip/未連線/拒絕/空 topic、Presence on/off、StatusTopic）→
+      全 **1058**、CI 綠、樹淨
+    - 已無「稽核掛載點」與「MQTT」backlog 項目；剩餘雷達全屬 UI/AI/HW（見 item 86）
 85. **M109 已完成＝稽核日誌（Audit Log）L0**（見頂部快照）：
     - 背景：LegalHold（M66）要求「保留可稽核」但其本身無變更軌跡；設備/參數/匯出/共享變更
       唯一航跡，需 append-only 事件表＋多條件查詢＋保管期限清理
