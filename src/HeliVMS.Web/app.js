@@ -18,6 +18,7 @@ import {
   notifRows,
   exportRows,
   providerRows,
+  holdRows,
   patrolLabel,
   scheduleInEffect,
   scheduleLabel,
@@ -97,7 +98,7 @@ async function submitLogin(event) {
   if (state.ok) {
     storeSession({ role: state.role, name: state.displayName });
     if (canAct(state.role)) {
-      await Promise.allSettled([renderAccounts(), renderConfig(), renderAudit(), renderEvidence(), renderBackup(), renderProviders()]);
+      await Promise.allSettled([renderAccounts(), renderConfig(), renderAudit(), renderEvidence(), renderBackup(), renderProviders(), renderHolds()]);
     }
   }
   await refreshBoard();
@@ -121,6 +122,7 @@ function updateChrome() {
   $('evidence-panel').hidden = !admin;
   $('backup-panel').hidden = !admin;
   $('provider-panel').hidden = !admin;
+  $('hold-panel').hidden = !admin;
   $('logout').hidden = !session;
 }
 
@@ -594,6 +596,56 @@ function bindProviderForm() {
   });
 }
 
+async function renderHolds() {
+  const rows = holdRows(await api('/api/legal-holds').catch(() => []));
+  $('hold-body').innerHTML = rows
+    .map(
+      (h) =>
+        `<tr><td>#${h.id}</td><td>ch${h.channel}</td><td>${h.from}</td><td>${h.to}</td><td>${h.reason}</td><td>${h.by}</td><td class="${h.active ? 'ok' : 'bad'}">${h.active ? '生效' : '已撤銷'}</td><td class="muted">${h.revokedBy}</td><td>${h.active ? `<button class="danger" data-hold-revoke="${h.id}">撤銷</button>` : ''}</td></tr>`,
+    )
+    .join('');
+  $('hold-count').textContent = `（${rows.length}）`;
+  Array.from(document.querySelectorAll('[data-hold-revoke]')).forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const reason = prompt('撤銷原因');
+      if (reason === null) return;
+      await fetch(`/api/legal-holds/${btn.dataset.holdRevoke}/revoke`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ by: readSession()?.name ?? 'operator', reason }),
+      });
+      renderHolds();
+    });
+  });
+}
+
+function bindHoldForm() {
+  const form = $('hold-form');
+  form.addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    const ch = Number(form.querySelector('input[name="hch"]').value);
+    const from = form.querySelector('input[name="hfrom"]').value;
+    const to = form.querySelector('input[name="hto"]').value;
+    const reason = form.querySelector('input[name="hreason"]').value.trim();
+    if (!ch || !from || !to || !reason) return;
+    const resp = await fetch('/api/legal-holds', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        channelId: ch,
+        fromUtc: new Date(from).toISOString(),
+        toUtc: new Date(to).toISOString(),
+        reason,
+        createdBy: readSession()?.name ?? 'operator',
+      }),
+    }).catch(() => null);
+    if (!resp) return;
+    const body = await resp.json().catch(() => null);
+    $('hold-msg').textContent = resp.ok ? `已建立 #${body.id}` : body?.error ?? '失敗';
+    if (resp.ok) renderHolds();
+  });
+}
+
 function bindEvidenceForm() {
   const form = $('evidence-form');
   form.addEventListener('submit', async (ev) => {
@@ -733,6 +785,7 @@ function wire() {
   bindBackupForm();
   bindExportForm();
   bindProviderForm();
+  bindHoldForm();
   $('search-form').addEventListener('submit', (e) => {
     e.preventDefault();
     searchEvents($('q').value || '*').catch(console.error);

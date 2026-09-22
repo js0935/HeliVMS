@@ -44,6 +44,9 @@ public static class ApiEndpoints
     public sealed record AuthProviderRequest(string Name, string Kind, string ConfigJson, bool Enabled);
     public sealed record AuthProviderItem(int Id, string Name, string Kind, bool Enabled, string ConfigJson, string CreatedAt);
     public sealed record AuthProviderToggle(bool Enabled);
+    public sealed record LegalHoldRequest(int ChannelId, DateTime FromUtc, DateTime ToUtc, string Reason, string CreatedBy);
+    public sealed record LegalHoldRevoke(string By, string Reason);
+    public sealed record LegalHoldItem(long Id, int ChannelId, string FromUtc, string ToUtc, string Reason, string CreatedBy, string CreatedAtUtc, string? RevokedAtUtc, string? RevokedBy, string? RevokedReason, bool Active);
     public sealed record DailyReportResponse(
         IReadOnlyList<RecordingSummaryRow> Recording,
         IReadOnlyList<CapacityTrendRow> Capacity,
@@ -661,7 +664,54 @@ public static class ApiEndpoints
             providers.Delete(id);
             return Results.Ok(new { ok = true });
         });
+
+        api.MapGet("/legal-holds", static (LegalHoldRepository holds) =>
+            Results.Ok(ToHolds(holds.ListAll())));
+
+        api.MapGet("/legal-holds/active", static (LegalHoldRepository holds) =>
+            Results.Ok(ToHolds(holds.ListActive())));
+
+        api.MapPost("/legal-holds", static (LegalHoldRequest body, LegalHoldRepository holds) =>
+        {
+            if (body.ChannelId < 1 || body.ToUtc <= body.FromUtc || string.IsNullOrWhiteSpace(body.Reason))
+            {
+                return Results.BadRequest(new { error = "頻道與時間窗與原因必填且需有效" });
+            }
+
+            var by = string.IsNullOrWhiteSpace(body.CreatedBy) ? "operator" : body.CreatedBy;
+            var id = holds.Add(body.ChannelId, body.FromUtc, body.ToUtc, body.Reason, by, DateTime.UtcNow);
+            var record = holds.ListAll().First(h => h.Id == id);
+            return Results.Ok(ToHolds([record])[0]);
+        });
+
+        api.MapPut("/legal-holds/{id:long}/revoke", static (long id, LegalHoldRevoke body, LegalHoldRepository holds) =>
+        {
+            var record = holds.ListAll().FirstOrDefault(h => h.Id == id);
+            if (record is null)
+            {
+                return Results.NotFound();
+            }
+
+            var ok = holds.Revoke(id, string.IsNullOrWhiteSpace(body.By) ? "operator" : body.By, body.Reason ?? "", DateTime.UtcNow);
+            return ok ? Results.Ok(new { ok = true }) : Results.BadRequest(new { error = "撤銷失敗" });
+        });
     }
+
+    private static IReadOnlyList<LegalHoldItem> ToHolds(IReadOnlyList<LegalHoldRecord> records) =>
+        records
+            .Select(h => new LegalHoldItem(
+                h.Id,
+                h.ChannelId,
+                SqliteStore.Iso(h.FromUtc),
+                SqliteStore.Iso(h.ToUtc),
+                h.Reason,
+                h.CreatedBy,
+                SqliteStore.Iso(h.CreatedAtUtc),
+                h.RevokedAtUtc is null ? null : SqliteStore.Iso(h.RevokedAtUtc.Value),
+                h.RevokedBy,
+                h.RevokedReason,
+                h.RevokedAtUtc is null))
+            .ToList();
 
     private static IReadOnlyList<AccountListItem> Accounts(UserRepository users)
     {

@@ -186,6 +186,22 @@
       </form>
     </section>
 
+    <section class="panel wide" id="hold-panel" hidden>
+      <h2>法律保留 <span id="hold-count" class="muted"></span></h2>
+      <table class="compact">
+        <thead><tr><th>ID</th><th>頻道</th><th>起</th><th>訖</th><th>原因</th><th>建立者</th><th>狀態</th><th>撤銷者</th><th></th></tr></thead>
+        <tbody id="hold-body"></tbody>
+      </table>
+      <form id="hold-form" class="row-form">
+        <input name="hch" type="number" min="1" placeholder="頻道" required>
+        <input name="hfrom" type="datetime-local" required>
+        <input name="hto" type="datetime-local" required>
+        <input name="hreason" type="text" placeholder="事由" required>
+        <button type="submit">建立保留</button>
+        <span id="hold-msg" class="muted"></span>
+      </form>
+    </section>
+
     <section class="panel wide" id="provider-panel" hidden>
       <h2>登入供應商 <span id="provider-count" class="muted"></span></h2>
       <table class="compact">

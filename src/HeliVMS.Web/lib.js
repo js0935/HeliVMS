@@ -338,6 +338,19 @@ export function providerRows(rows) {
   }));
 }
 
+export function holdRows(rows) {
+  return (rows ?? []).map((h) => ({
+    id: Number(h.id ?? h.Id ?? 0),
+    channel: Number(h.channelId ?? h.ChannelId ?? 0),
+    from: formatTimestamp(h.fromUtc ?? h.FromUtc ?? ''),
+    to: formatTimestamp(h.toUtc ?? h.ToUtc ?? ''),
+    reason: h.reason ?? h.Reason ?? '',
+    by: h.createdBy ?? h.CreatedBy ?? '',
+    active: !!(h.active ?? h.Active),
+    revokedBy: h.revokedBy ?? h.RevokedBy ?? '',
+  }));
+}
+
 export function scheduleLabel(s, { short = false } = {}) {
   const r = s ?? {};
   const mask = Number(r.daysMask ?? r.DaysMask ?? 0);

@@ -20,6 +20,7 @@ import {
   notifRows,
   exportRows,
   providerRows,
+  holdRows,
   patrolLabel,
   scheduleInEffect,
   scheduleLabel,
@@ -429,5 +430,13 @@ describe('login gating', () => {
     ]);
     expect(rows[0]).toMatchObject({ id: 2, name: 'corp-ad', kind: 'ldap', enabled: false, config: '{}' });
     expect(providerRows(null)).toEqual([]);
+  });
+
+  it('renders legal hold rows', () => {
+    const rows = holdRows([
+      { id: 5, channelId: 1, fromUtc: 'x', toUtc: 'y', reason: '案件', createdBy: 'auditor', active: true, revokedBy: null },
+    ]);
+    expect(rows[0]).toMatchObject({ id: 5, channel: 1, reason: '案件', by: 'auditor', active: true, revokedBy: '' });
+    expect(holdRows(null)).toEqual([]);
   });
 });

@@ -808,6 +808,38 @@ public class ApiTests : IClassFixture<ApiFactory>, IDisposable
 
     private sealed record AuthProviderItem(int Id, string Name, string Kind, bool Enabled, string ConfigJson, string CreatedAt);
 
+    [Fact]
+    public async Task LegalHolds_AddRevoke()
+    {
+        using var client = Client();
+        var bad = await client.PostAsJsonAsync(
+            "/api/legal-holds",
+            new { channelId = 1, fromUtc = "2026-06-01T00:00:00Z", toUtc = "2026-05-01T00:00:00Z", reason = "x", createdBy = "test" });
+        Assert.Equal(HttpStatusCode.BadRequest, bad.StatusCode);
+
+        var created = await client.PostAsJsonAsync(
+            "/api/legal-holds",
+            new { channelId = 1, fromUtc = "2026-06-01T00:00:00Z", toUtc = "2026-06-02T00:00:00Z", reason = "案件 A", createdBy = "auditor" });
+        Assert.Equal(HttpStatusCode.OK, created.StatusCode);
+        var hold = await ReadAsync<LegalHoldItem>(created);
+        Assert.True(hold.Active);
+
+        var active = await ReadAsync<List<LegalHoldItem>>(await client.GetAsync("/api/legal-holds/active"));
+        Assert.Contains(active, h => h.Id == hold.Id);
+
+        var revoke = await client.PutAsJsonAsync($"/api/legal-holds/{hold.Id}/revoke", new { by = "auditor", reason = "結案" });
+        Assert.Equal(HttpStatusCode.OK, revoke.StatusCode);
+        var gone = await ReadAsync<List<LegalHoldItem>>(await client.GetAsync("/api/legal-holds/active"));
+        Assert.DoesNotContain(gone, h => h.Id == hold.Id);
+
+        var all = await ReadAsync<List<LegalHoldItem>>(await client.GetAsync("/api/legal-holds"));
+        var after = Assert.Single(all, h => h.Id == hold.Id);
+        Assert.False(after.Active);
+        Assert.Equal("auditor", after.RevokedBy);
+    }
+
+    private sealed record LegalHoldItem(long Id, int ChannelId, string FromUtc, string ToUtc, string Reason, string CreatedBy, string CreatedAtUtc, string? RevokedAtUtc, string? RevokedBy, string? RevokedReason, bool Active);
+
     private sealed record BackupRunRecordBody(
         long Id,
         System.DateTime RunAt,
