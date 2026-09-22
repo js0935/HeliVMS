@@ -6,8 +6,8 @@
 
 ## 一句話總結
 HeliVMS 為一套**網路影像監控系統**（WPF 桌面應用：即時監看／回放／AI 事件中心／錄影排程）。
-里程碑 **M1 至 M106 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M106 智慧牆警報看板引擎 L0）。
-Release build 0 error、測試 **994/994 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
+里程碑 **M1 至 M107 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M107 NLP 查詢解析 L0＋NTP 時序硬化）。
+Release build 0 error、測試 **1022/1022 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
 本地與遠端完全同步（`git diff origin/HEAD` 為空）。
 
 ## 開新 session 的接手方法
@@ -23,14 +23,16 @@ gh run list -L 3              # 預期全部 success
 新 session 會以 git 現況接手，不會靠猜測。
 
 ## 現況快照（權威來源＝git，非聊天記憶）
-- 最後 commit：`HEAD`＝**M106**——§14.7 #14 智慧牆警報看板引擎 L0（純 BCL）：
-  `SmartwallAlertBoard`：`Snapshot`＝保留窗（300s）內事件→每頻道最新一則→RuleOrder 升序→優先序
-  （low&lt;normal&lt;high&lt;critical）降序→發生時間新→舊→至多 maxCells 格，`BoardCell
-  (ChannelId,EventType,Priority,Rank,Highlight,Age)`（Highlight＝發生 ≤5s＝AlarmHighlight）；
-  `LatestForChannel`（頻道保留窗內最新）；`RankOf`。12 新測試→全 **994**、Release build 0 error、
-  樹淨
-- 前一個 M105 交付＝`8766691`（§14.7 #14 智慧牆版面資料模型＋幾何校驗＋看板時間常數 v39）＋`91a4306`（docs）；
-  全 **982**、CI `35701637588` success
+- 最後 commit：`HEAD`＝**M107**——§14.7 #7 NLP 查詢解析 L0＋NTP 時序硬化：
+  `NlEventQueryParser`（純 BCL 規則式中文查詢→`ParsedEventQuery{ChannelId,EventTypes,From/ToUtc,
+  Limit,Unmatched}`＋`ToQueryArgs`）：頻道（x頻道/路/號 前後置＋全形數字）、時間（今天/昨天/最近
+  N 分鐘或小時/凌晨-上午-下午-晚上（錨定基準日，昨天時錨昨天）/HH:MM→10min 窗）、事件類型關鍵字
+  表（motion/ai_intrusion/line_cross/dwell/loitering/crowd/left_object/removed_object/face/lpr/
+  offline/online）、「最新 N 筆/條」上限；未辨識詞民剔除連接詞後收 Unmatched。NTP（M68）把
+  `ReceiveAsync(cts.CancelAfter)` 改為 socket `ReceiveTimeout`（OS 層計時）修高並行下逾時遲發
+  flake。28 新測試→全 **1022**（Storage 688→716）、Release build 0 error、樹淨
+- 前一個 M106 交付＝`7f50543`（§14.7 #14 智慧牆警報看板引擎 L0 `SmartwallAlertBoard`）＋`7ce8876`（docs）；
+  全 **994**、CI `35702306830` success
 - 前一個 M85 交付＝`54cad94`（LDAPv3 連線層 L1：`LdapClient : ILdapBinder`
   裸 BER wire（simple bind＋memberOf SearchGroups）；`LdapBer` minimal BER＋`LdapFilterEncoder`
   RFC4515→BER；24 新測試（FakeLdapServer loopback）；全 **799**、CI `35621317643` success；
@@ -2001,3 +2003,24 @@ gh run list -L 3              # 預期全部 success
       RankOf 對映）＝＋12 → 全 **994**（Storage 676→688）；CI 綠；樹淨；
       §14.7 #14 現況改「智慧牆版面資料模型＋幾何校驗＋看板時間常數（M105 v39）＋警報看板引擎
       L0（M106 `SmartwallAlertBoard`）已落地；視訊牆 UI/MQTT 派送掛載待續」
+83. **M107 已完成＝§14.7 #7 NLP 查詢解析 L0＋NTP 時序硬化**：（見頂部快照）
+    - 背景：#7「NLP / CLIP 語意語言」待續（P2 非核心）；規則式中文查詢解析是可測、
+      立刻對 harness/App 命令盒有用的 NLP L0（不做真 ML）
+    - 落點：`NlEventQueryParser.Parse(query, nowUtc)`→`ParsedEventQuery(ChannelId,
+      EventTypes 集合, FromUtc, ToUtc, Limit, Unmatched)`＋`ToQueryArgs()`（→
+      `AlarmEventRepository.QueryArgs`，類型多取 lexicographic 最小）；支援：頻道（頻道/路/號
+      前後置＋全形數字）、時間（今天/昨天、最近 N 分鐘/小時、凌晨-早上/上午-下午-晚上（錨定
+      基準日；配合昨天→錨昨天）、HH:MM（半/全形冒號）→10min 窗）、類型關鍵字表
+      （移動=motion、入侵=ai_intrusion、越線=line_cross、徘徊=dwell、逗留=loitering、
+      群聚/人群=crowd、遺留=left_object、移除=removed_object、人臉=face、車牌=lpr、
+      離線=offline、上線=online）、「最新 N 筆/條」；未辨識殘詞（剔除連接詞語料）→Unmatched
+      供「未解析：…」提示
+    - NTP 硬化（歸檔本里程碑）：`QueryAsync_NoReply` 在高並行全量下 flake——原
+      `ReceiveAsync(cts.CancelAfter(300ms))` 的 .NET 定時器在高載時遲發（實測 7s）；
+      改 `udp.Client.ReceiveTimeout`（socket/OS 層計時）＋ `Receive(ref remote)` ，
+      `SocketError.TimedOut/WouldBlock`→null——單獨 381ms 收斂，全量穩定
+    - 測試：x28（頻道前後置/全形、今天昨天界、最近 30 分/2 時、時段詞同基準日＋昨天錨定、
+      HH:MM 與全形冒號、11 種類型關鍵字、多類型集合、最新 N 筆、綜合句全欄位＋Unmatched 空、
+      未知殘詞進 Unmatched、空字串/空白）＝＋28 → 全 **1022**（Storage 688→716）；CI 綠；樹淨；
+      §14.7 #7 現況改「語意/POS/Edge AI/頻道多源統一搜索（M91/M97 FTS5）＋規則式 NLP 查詢
+      解析（M107 `NlEventQueryParser`）已落地；CLIP/AI 語意語言待續（需真 ML）」
