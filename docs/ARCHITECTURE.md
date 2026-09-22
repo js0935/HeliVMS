@@ -1081,7 +1081,7 @@ L2 比對（人臉/車牌）置「進階·需權限」區，預設關閉（§5.1
 
 | # | 類別 | 欠缺功能 | 市場代表 | HeliVms 現況 | 建議 |
 |---|---|---|---|---|---|
-| 1 | 身份整合 | **企業帳戶：LDAP / AD / OIDC SSO** | Milestone（Active Directory、OIDC SSO）、Synology | **本機帳號＋RBAC（PBKDF2＋失敗鎖定，M42 已實作）**；LDAP/SSO 待接 | **P1**（企業標案基本門檻） |
+| 1 | 身份整合 | **企業帳戶：LDAP / AD / OIDC SSO** | Milestone（Active Directory、OIDC SSO）、Synology | **本機帳號＋RBAC（PBKDF2＋失敗鎖定，M42 已實作）**＋OIDC 驗證/LDAP 設定（M50 `EnterpriseAuthService`）＋LDAP 連線層（M85 `LdapClient`）＋**企業 LDAP 登入與登入 session（M99 `LdapLoginBroker`＋`login_sessions` v36）已落地**；OIDC 授權碼登入流程待續 | **P1**（企業標案基本門檻） |
 | 2 | 影像 | **魚眼攝影機矯正（Dewarping）** | QNAP Qdewarp、Genetec、Synology | 完全沒有 | P1（魚眼/全景漸普及） |
 | 3 | 事件營運 | **警報管理器（Alarm Manager）**：分診/指派/傳遞/進度狀態大面板 | Milestone Alarm Manager | 僅事件中心 + 四態(§14.4) | P1（營運效率亮點） |
 | 4 | 證據 | **外部安全共享**（無帳號分享錄影片段/連結） | Synology Share Link、Genetec Secure Share | 沒有 | P1 |

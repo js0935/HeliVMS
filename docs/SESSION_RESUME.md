@@ -6,8 +6,8 @@
 
 ## 一句話總結
 HeliVMS 為一套**網路影像監控系統**（WPF 桌面應用：即時監看／回放／AI 事件中心／錄影排程）。
-里程碑 **M1 至 M98 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M98 Failover 實體接管協調器 L1）。
-Release build 0 error、測試 **905/905 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
+里程碑 **M1 至 M99 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M99 企業登入落地 LDAP+L1 session）。
+Release build 0 error、測試 **915/915 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
 本地與遠端完全同步（`git diff origin/HEAD` 為空）。
 
 ## 開新 session 的接手方法
@@ -23,15 +23,15 @@ gh run list -L 3              # 預期全部 success
 新 session 會以 git 現況接手，不會靠猜測。
 
 ## 現況快照（權威來源＝git，非聊天記憶）
-- 最後 commit：`HEAD`＝**M98**——§14.7 #9 Failover 實體接管協調器 L1：
-  `SqliteStore` v34→**v35**（`failover_events` 接管軌跡＋時序索引）；`FailoverEvent`/
-  `FailoverEventMode`(Leader/Takeover/Relinquish)/`IFailoverRoleController`(`TakeOver`/
-  `Relinquish` 實體接管抽象＋Noop)/`IFailoverEventLog`＋`FailoverEventRepository`(Append/ListAfter)；
-  `FailoverCoordinator.Reconcile(leaseDuration,missingWindow,utcNow,…)` 狀態機（空庫/自持→當選或
-  續約；他人有效→Standby；他人逾時逾窗→TakeOver+接管動作；未逾窗→寬限等待；旁落→Relinquish
-  交還；僅角色轉變才動作/寫軌跡）；10 新測試→全 **905**、Release build 0 error、樹淨
-- 前一個 M97 交付＝`3db1f47`（§14.7 #7 法證語意搜尋多源化 v34 `UnifiedEventSearch`）＋`9c4f5dc`（docs）；
-  全 **895**、CI `35673545031` success
+- 最後 commit：`HEAD`＝**M99**——§14.7 #1 企業登入落地（LDAP 登入＋登入 session L1）：
+  `SqliteStore` v35→**v36**（`login_sessions` session 表＋時效/查詢索引）；`LoginSessionRecord`/
+  `LoginSessionRepository`（`Create` 32B 加密亂數 session／`IsActive` 未撤銷且未過期／`Revoke`／
+  `PurgeExpired`）；`LdapLoginBroker`（LDAP simple bind 驗證→`RoleMapper` 對映本地 RBAC、
+  同步 users 鏡像列（無效密碼記號，本機密碼無法登入鏡像）、成功清除失敗計數＋簽發 session；
+  失敗依鏡像列計入失敗鎖定，沿用 auth.lockout.*；停用/鎖定鏡像先於綁定檢查=管理端 kill-switch）；
+  10 新測試→全 **915**、Release build 0 error、樹淨
+- 前一個 M98 交付＝`456d8c9`（§14.7 #9 Failover 實體接管協調器 L1 v35 `Reconcile`＋`failover_events`）＋`4073654`（docs）；
+  全 **905**、CI `35674102609` success
 - 前一個 M85 交付＝`54cad94`（LDAPv3 連線層 L1：`LdapClient : ILdapBinder`
   裸 BER wire（simple bind＋memberOf SearchGroups）；`LdapBer` minimal BER＋`LdapFilterEncoder`
   RFC4515→BER；24 新測試（FakeLdapServer loopback）；全 **799**、CI `35621317643` success；
@@ -1744,6 +1744,26 @@ gh run list -L 3              # 預期全部 success
       （Append roundtrip＋DESC/from 過濾、mode 字串落庫）；`SchemaVersion_IsV35` 改名
       ＝＋10 → 全 **905**（Storage 589→599）；CI 綠；樹淨；
       §14.7 #9 現況改「租約仲裁 L0＋監控視窗（M87/M88）＋實體接管協調 L1（M98）已落地」
+
+75. **M99 已完成＝§14.7 #1 企業登入落地（LDAP 登入＋登入 session L1）**：
+    - 背景：#1 欄「LDAP/SSO 待接」；M50 已做協調（AuthenticateLdap/RoleMapper/設定面）、M85 已做
+      連線層（LdapClient wire bind）——但「登入」本身未落地：無 session、無鏡像同步、無鎖定
+    - 落點：SqliteStore v35→**v36**（`login_sessions`：session_id UNIQUE/user_id/username/role/
+      provider/issued/expires/revoked＋session/expiry 索引）；`LoginSessionRepository`（Create＝
+      32 位元組加密亂數 hex；IsActive＝未撤銷且未過期；Revoke；PurgeExpired 清過期）
+    - 登入：`LdapLoginBroker.Login(provider, username, password, ILdapBinder, ttl, utcNow)`——
+      LDAP simple bind 驗證 → groups+adminGroups→`RoleMapper.Map` 得 admin/viewer；
+      成功＝users 鏡像列同步（`NoLocalPasswordHash="v1$0$!"` 不可驗證記號，PasswordHasher.Verify
+      格式不符必 false→鏡像無法以本機密碼登入；存在則更新 role/display）、RecordLoginSuccess
+      清失敗計數，簽發 session；失敗＝有鏡像列才計 failed_logins 並在 ≥threshold 鎖定
+      （沿用 auth.lockout.threshold/minutes 與 M42 同鍵）；停用/鎖定鏡像先於綁定檢查
+      （停用＝連綁定都不做，管理端即時 kill-switch）
+    - 測試：x10（成功創鏡像＋session active／admin 群晉升／複用鏡像更新 role＋重置鎖／綁定失敗
+      無鏡像不鎖／綁定失敗累計至鎖定／停用鏡像綁定前拒絕（BindCalls=0）／非 LDAP provider 拒絶／
+      session 到期失活／Revoke 失效／PurgeExpired 只刪過期）；`SchemaVersion_IsV36` 改名
+      ＝＋10 → 全 **915**（Storage 599→609）；CI 綠；樹淨；
+      §14.7 #1 現況改「本機帳號 RBAC（M42）＋OIDC 驗證/LDAP 設定（M50）＋LDAP 連線層（M85）＋
+      企業（LDAP）登入與 session（M99）已落地；OIDC 授權碼登入流程待續」
 
 ## 已知雷區（勿再犯）
 - **harness `.ps1` 必須存成 UTF-8 with BOM**：寫檔工具產出的是 UTF-8 無 BOM，含中文的 `.ps1` 會被 PowerShell 5.1 以 ANSI/Big5 誤讀而**靜默破壞解析**（症狀：`Start-Process` 看似無效、App 根本沒啟動、`Get-Process HeliVMS.App` 找不到）。修法：`[System.IO.File]::WriteAllText($p,[System.IO.File]::ReadAllText($p,[System.Text.Encoding]::UTF8),(New-Object System.Text.UTF8Encoding($true)))`（temp/opencode 有 `fix-encoding.ps1`）
