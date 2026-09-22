@@ -9,7 +9,7 @@ namespace HeliVMS.Storage;
 /// </summary>
 public sealed class SqliteStore : IDisposable
 {
-    private const int CurrentSchemaVersion = 36;
+    private const int CurrentSchemaVersion = 37;
     private readonly SqliteConnection _connection;
     private readonly object _gate = new();
     private bool _disposed;
@@ -232,6 +232,11 @@ public sealed class SqliteStore : IDisposable
         if (version < 36)
         {
             CreateLoginSessionTablesV36();
+        }
+
+        if (version < 37)
+        {
+            CreateRedactionTablesV37();
         }
 
         Execute("PRAGMA user_version = CURRENT_SCHEMA_VERSION;".Replace(
@@ -1116,6 +1121,29 @@ public sealed class SqliteStore : IDisposable
 
             CREATE INDEX IF NOT EXISTS idx_login_sessions_session ON login_sessions(session_id);
             CREATE INDEX IF NOT EXISTS idx_login_sessions_expiry  ON login_sessions(expires_at);
+            """);
+    }
+
+    private void CreateRedactionTablesV37()
+    {
+        Execute(
+            """
+            CREATE TABLE IF NOT EXISTS redaction_regions (
+                id             INTEGER PRIMARY KEY AUTOINCREMENT,
+                source_type    TEXT    NOT NULL,
+                ref_id         INTEGER NOT NULL,
+                channel_id     INTEGER NOT NULL,
+                occurred_at_utc TEXT   NOT NULL,
+                x              INTEGER NOT NULL,
+                y              INTEGER NOT NULL,
+                width          INTEGER NOT NULL,
+                height         INTEGER NOT NULL,
+                filled         INTEGER NOT NULL DEFAULT 0,
+                created_at_utc TEXT   NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_redaction_source   ON redaction_regions(source_type, ref_id);
+            CREATE INDEX IF NOT EXISTS idx_redaction_channel  ON redaction_regions(channel_id, occurred_at_utc);
             """);
     }
 
