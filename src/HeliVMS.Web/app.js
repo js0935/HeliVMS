@@ -17,6 +17,7 @@ import {
   detRows,
   notifRows,
   exportRows,
+  providerRows,
   patrolLabel,
   scheduleInEffect,
   scheduleLabel,
@@ -96,7 +97,7 @@ async function submitLogin(event) {
   if (state.ok) {
     storeSession({ role: state.role, name: state.displayName });
     if (canAct(state.role)) {
-      await Promise.allSettled([renderAccounts(), renderConfig(), renderAudit(), renderEvidence(), renderBackup()]);
+      await Promise.allSettled([renderAccounts(), renderConfig(), renderAudit(), renderEvidence(), renderBackup(), renderProviders()]);
     }
   }
   await refreshBoard();
@@ -119,6 +120,7 @@ function updateChrome() {
   $('audit-panel').hidden = !admin;
   $('evidence-panel').hidden = !admin;
   $('backup-panel').hidden = !admin;
+  $('provider-panel').hidden = !admin;
   $('logout').hidden = !session;
 }
 
@@ -545,6 +547,53 @@ function bindExportForm() {
   });
 }
 
+async function renderProviders() {
+  const rows = providerRows(await api('/api/auth/providers').catch(() => []));
+  $('provider-body').innerHTML = rows
+    .map(
+      (p) =>
+        `<tr><td>#${p.id}</td><td>${p.name}</td><td>${p.kind}</td><td><input type="checkbox" data-provider-toggle="${p.id}" ${p.enabled ? 'checked' : ''}></td><td><button class="danger" data-provider-del="${p.id}">刪除</button></td><td class="muted">${p.config.slice(0, 40)}</td></tr>`,
+    )
+    .join('');
+  $('provider-count').textContent = `（${rows.length}）`;
+  Array.from(document.querySelectorAll('[data-provider-toggle]')).forEach((cb) => {
+    cb.addEventListener('change', async () => {
+      await fetch(`/api/auth/providers/${cb.dataset.providerToggle}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: cb.checked }),
+      });
+      renderProviders();
+    });
+  });
+  Array.from(document.querySelectorAll('[data-provider-del]')).forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      await fetch(`/api/auth/providers/${btn.dataset.providerDel}`, { method: 'DELETE' });
+      renderProviders();
+    });
+  });
+}
+
+function bindProviderForm() {
+  const form = $('provider-form');
+  form.addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    const name = form.querySelector('input[name="pname"]').value.trim();
+    const kind = form.querySelector('select[name="pkind"]').value;
+    const cfg = form.querySelector('textarea[name="pcfg"]').value.trim();
+    if (!name || !cfg) return;
+    const resp = await fetch('/api/auth/providers', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, kind, configJson: cfg, enabled: true }),
+    }).catch(() => null);
+    if (!resp) return;
+    const body = await resp.json().catch(() => null);
+    $('provider-msg').textContent = resp.ok ? `已新增 #${body.id}` : body?.error ?? '失敗';
+    if (resp.ok) renderProviders();
+  });
+}
+
 function bindEvidenceForm() {
   const form = $('evidence-form');
   form.addEventListener('submit', async (ev) => {
@@ -683,6 +732,7 @@ function wire() {
   bindEvidenceForm();
   bindBackupForm();
   bindExportForm();
+  bindProviderForm();
   $('search-form').addEventListener('submit', (e) => {
     e.preventDefault();
     searchEvents($('q').value || '*').catch(console.error);

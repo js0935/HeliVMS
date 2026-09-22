@@ -41,6 +41,9 @@ public static class ApiEndpoints
     public sealed record NotificationLogItem(long Id, string TsUtc, int ChannelId, string EventType, string Route, bool Ok, int Attempts, string? Detail);
     public sealed record ExportJobRequest(int ChannelId, string Stream, DateTime FromUtc, DateTime ToUtc);
     public sealed record ExportJobItem(long Id, int ChannelId, string Stream, string StartUtc, string EndUtc, string Status, string? OutputPath, long? FileSizeBytes, string? Sha256, string? Error, string CreatedUtc);
+    public sealed record AuthProviderRequest(string Name, string Kind, string ConfigJson, bool Enabled);
+    public sealed record AuthProviderItem(int Id, string Name, string Kind, bool Enabled, string ConfigJson, string CreatedAt);
+    public sealed record AuthProviderToggle(bool Enabled);
     public sealed record DailyReportResponse(
         IReadOnlyList<RecordingSummaryRow> Recording,
         IReadOnlyList<CapacityTrendRow> Capacity,
@@ -597,6 +600,66 @@ public static class ApiEndpoints
             var id = jobs.Enqueue(body.ChannelId, body.Stream, body.FromUtc, body.ToUtc);
             var job = jobs.Get(id);
             return Results.Ok(new ExportJobItem(job!.Id, job.ChannelId, job.Stream, SqliteStore.Iso(job.StartUtc), SqliteStore.Iso(job.EndUtc), job.Status, job.OutputPath, job.FileSizeBytes, job.Sha256, job.Error, SqliteStore.Iso(job.CreatedUtc)));
+        });
+
+        api.MapGet("/auth/providers", static (AuthProviderRepository providers) =>
+            Results.Ok(providers.List()
+                .Select(p => new AuthProviderItem(p.Id, p.Name, p.Kind, p.Enabled, p.ConfigJson, p.CreatedAt))
+                .ToList()));
+
+        api.MapPost("/auth/providers", static (AuthProviderRequest body, AuthProviderRepository providers) =>
+        {
+            if (string.IsNullOrWhiteSpace(body.Name) ||
+                (body.Kind != AuthProviderRepository.KindLdap && body.Kind != AuthProviderRepository.KindOidc))
+            {
+                return Results.BadRequest(new { error = "名稱與類型（ldap/oidc）必填" });
+            }
+
+            if (string.IsNullOrWhiteSpace(body.ConfigJson))
+            {
+                return Results.BadRequest(new { error = "設定 JSON 必填" });
+            }
+
+            try
+            {
+                System.Text.Json.JsonDocument.Parse(body.ConfigJson);
+            }
+            catch (System.Text.Json.JsonException)
+            {
+                return Results.BadRequest(new { error = "設定必須是合法 JSON" });
+            }
+
+            try
+            {
+                var id = providers.Add(body.Name, body.Kind, body.ConfigJson, body.Enabled);
+                return Results.Ok(new AuthProviderItem(id, body.Name, body.Kind, body.Enabled, body.ConfigJson, ""));
+            }
+            catch (Exception ex)
+            {
+                return Results.BadRequest(new { error = $"新增失敗：{ex.Message}" });
+            }
+        });
+
+        api.MapPut("/auth/providers/{id:int}", static (int id, AuthProviderToggle body, AuthProviderRepository providers) =>
+        {
+            if (providers.Get(id) is null)
+            {
+                return Results.NotFound();
+            }
+
+            providers.SetEnabled(id, body.Enabled);
+            return Results.Ok(new { ok = true });
+        });
+
+        api.MapDelete("/auth/providers/{id:int}", static (int id, AuthProviderRepository providers) =>
+        {
+            if (providers.Get(id) is null)
+            {
+                return Results.NotFound();
+            }
+
+            providers.Delete(id);
+            return Results.Ok(new { ok = true });
         });
     }
 

@@ -186,6 +186,24 @@
       </form>
     </section>
 
+    <section class="panel wide" id="provider-panel" hidden>
+      <h2>登入供應商 <span id="provider-count" class="muted"></span></h2>
+      <table class="compact">
+        <thead><tr><th>ID</th><th>名稱</th><th>類型</th><th>啟用</th><th>操作</th><th>設定</th></tr></thead>
+        <tbody id="provider-body"></tbody>
+      </table>
+      <form id="provider-form" class="row-form">
+        <input name="pname" type="text" placeholder="名稱（唯一）" required>
+        <select name="pkind">
+          <option value="ldap">LDAP</option>
+          <option value="oidc">OIDC</option>
+        </select>
+        <textarea name="pcfg" rows="1" placeholder='設定 JSON，例：{"host":"ldap.corp","base":"dc=corp"}' required></textarea>
+        <button type="submit">新增</button>
+        <span id="provider-msg" class="muted"></span>
+      </form>
+    </section>
+
     <section class="panel wide" id="backup-panel" hidden>
       <h2>異地備援 <span id="backup-count" class="muted"></span></h2>
       <table class="compact">

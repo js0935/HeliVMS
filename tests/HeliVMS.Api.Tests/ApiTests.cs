@@ -767,6 +767,47 @@ public class ApiTests : IClassFixture<ApiFactory>, IDisposable
 
     private sealed record ExportJobItem(long Id, int ChannelId, string Stream, string StartUtc, string EndUtc, string Status, string? OutputPath, long? FileSizeBytes, string? Sha256, string? Error, string CreatedUtc);
 
+    [Fact]
+    public async Task AuthProviders_Crud()
+    {
+        using var client = Client();
+        var badKind = await client.PostAsJsonAsync(
+            "/api/auth/providers",
+            new { name = "saml", kind = "saml", configJson = "{}", enabled = true });
+        Assert.Equal(HttpStatusCode.BadRequest, badKind.StatusCode);
+
+        var badJson = await client.PostAsJsonAsync(
+            "/api/auth/providers",
+            new { name = "ad", kind = "ldap", configJson = "not json", enabled = true });
+        Assert.Equal(HttpStatusCode.BadRequest, badJson.StatusCode);
+
+        var created = await client.PostAsJsonAsync(
+            "/api/auth/providers",
+            new { name = "corp-ad", kind = "ldap", configJson = "{\"host\":\"ldap.corp\",\"base\":\"dc=corp\"}", enabled = true });
+        Assert.Equal(HttpStatusCode.OK, created.StatusCode);
+        var item = await ReadAsync<AuthProviderItem>(created);
+        Assert.Equal("corp-ad", item.Name);
+        Assert.Equal("ldap", item.Kind);
+
+        var list = await ReadAsync<List<AuthProviderItem>>(await client.GetAsync("/api/auth/providers"));
+        Assert.Contains(list, p => p.Name == "corp-ad" && p.Enabled);
+
+        var toggle = await client.PutAsJsonAsync($"/api/auth/providers/{item.Id}", new { enabled = false });
+        Assert.Equal(HttpStatusCode.OK, toggle.StatusCode);
+        var after = await ReadAsync<List<AuthProviderItem>>(await client.GetAsync("/api/auth/providers"));
+        Assert.Contains(after, p => p.Id == item.Id && !p.Enabled);
+
+        var nf = await client.DeleteAsync("/api/auth/providers/999999");
+        Assert.Equal(HttpStatusCode.NotFound, nf.StatusCode);
+
+        var del = await client.DeleteAsync($"/api/auth/providers/{item.Id}");
+        Assert.Equal(HttpStatusCode.OK, del.StatusCode);
+        var gone = await ReadAsync<List<AuthProviderItem>>(await client.GetAsync("/api/auth/providers"));
+        Assert.DoesNotContain(gone, p => p.Id == item.Id);
+    }
+
+    private sealed record AuthProviderItem(int Id, string Name, string Kind, bool Enabled, string ConfigJson, string CreatedAt);
+
     private sealed record BackupRunRecordBody(
         long Id,
         System.DateTime RunAt,

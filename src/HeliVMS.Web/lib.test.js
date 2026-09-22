@@ -19,6 +19,7 @@ import {
   detRows,
   notifRows,
   exportRows,
+  providerRows,
   patrolLabel,
   scheduleInEffect,
   scheduleLabel,
@@ -420,5 +421,13 @@ describe('login gating', () => {
     ]);
     expect(rows[0]).toMatchObject({ id: 3, channel: 1, stream: 'main', status: 'queued', sha: 'abc' });
     expect(exportRows(null)).toEqual([]);
+  });
+
+  it('renders provider rows', () => {
+    const rows = providerRows([
+      { id: 2, name: 'corp-ad', kind: 'ldap', enabled: false, configJson: '{}', createdAt: 't' },
+    ]);
+    expect(rows[0]).toMatchObject({ id: 2, name: 'corp-ad', kind: 'ldap', enabled: false, config: '{}' });
+    expect(providerRows(null)).toEqual([]);
   });
 });

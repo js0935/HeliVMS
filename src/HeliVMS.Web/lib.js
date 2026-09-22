@@ -327,6 +327,17 @@ export function exportRows(rows) {
   }));
 }
 
+export function providerRows(rows) {
+  return (rows ?? []).map((p) => ({
+    id: Number(p.id ?? p.Id ?? 0),
+    name: p.name ?? p.Name ?? '',
+    kind: p.kind ?? p.Kind ?? '',
+    enabled: !!(p.enabled ?? p.Enabled),
+    config: p.configJson ?? p.ConfigJson ?? '',
+    createdAt: p.createdAt ?? p.CreatedAt ?? '',
+  }));
+}
+
 export function scheduleLabel(s, { short = false } = {}) {
   const r = s ?? {};
   const mask = Number(r.daysMask ?? r.DaysMask ?? 0);
