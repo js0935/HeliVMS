@@ -361,6 +361,48 @@ public class ApiTests : IClassFixture<ApiFactory>, IDisposable
             new Uri(_factory.Server.BaseAddress, "/api/alerts/ws"), cts.Token));
     }
 
+    [Fact]
+    public async Task SpaIndex_IsServedWithoutApiKey()
+    {
+        using var client = Client(withKey: false);
+
+        var response = await client.GetAsync("/");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var html = await response.Content.ReadAsStringAsync();
+        Assert.Contains("id=\"app\"", html);
+        Assert.Contains("HeliVMS", html);
+    }
+
+    [Fact]
+    public async Task SpaModule_IsServedAsStaticAsset()
+    {
+        using var client = Client(withKey: false);
+
+        var response = await client.GetAsync("/lib.js");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var js = await response.Content.ReadAsStringAsync();
+        Assert.Contains("export function", js);
+    }
+
+    [Fact]
+    public async Task AlertsWebSocket_QueryKey_IsAccepted()
+    {
+        var wsClient = _factory.Server.CreateWebSocketClient();
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+
+        // Normal GET to the WS route must reach the handler (400), proving the key branch authorizes.
+        using var probe = Client();
+        var probeResponse = await probe.GetAsync($"/api/alerts/ws?key={Uri.EscapeDataString(Key)}");
+        Assert.Equal(HttpStatusCode.BadRequest, probeResponse.StatusCode);
+
+        using var socket = await wsClient.ConnectAsync(
+            new Uri(_factory.Server.BaseAddress, $"/api/alerts/ws?key={Uri.EscapeDataString(Key)}"), cts.Token);
+
+        Assert.Equal(System.Net.WebSockets.WebSocketState.Open, socket.State);
+    }
+
     private static string HttpUtility(DateTime utc) =>
         Uri.EscapeDataString(utc.ToString("o"));
 }

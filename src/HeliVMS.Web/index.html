@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>HeliVMS</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <header id="app" class="topbar">
+    <h1>HeliVMS</h1>
+    <span id="health" class="badge">…</span>
+    <label>API 金鑰 <input id="apikey" type="password" placeholder="helivms-dev-key" /></label>
+    <span id="live" class="badge off">WS</span>
+  </header>
+
+  <main class="grid">
+    <section class="panel">
+      <h2>頻道</h2>
+      <ul id="channels"></ul>
+    </section>
+
+    <section class="panel">
+      <h2>警報看板 <span id="board-summary" class="muted"></span></h2>
+      <table id="board">
+        <thead><tr><th>#</th><th>頻道</th><th>類型</th><th>優先</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </section>
+
+    <section class="panel">
+      <h2>事件搜尋</h2>
+      <form id="search-form">
+        <input id="q" placeholder="關鍵字" />
+        <button>搜尋</button>
+      </form>
+      <table id="events">
+        <thead><tr><th>ID</th><th>時間</th><th>頻道</th><th>類型</th><th>狀態</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </section>
+
+    <section class="panel wide">
+      <h2>回放時間軸 <span id="gap" class="muted"></span></h2>
+      <div id="timeline" class="timeline"></div>
+    </section>
+
+    <section class="panel wide">
+      <h2>即時警報流</h2>
+      <ul id="live-log" class="log"></ul>
+    </section>
+  </main>
+
+  <script type="module" src="./app.js"></script>
+</body>
+</html>

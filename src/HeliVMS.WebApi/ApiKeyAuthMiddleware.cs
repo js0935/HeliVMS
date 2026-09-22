@@ -31,13 +31,24 @@ public sealed class ApiKeyAuthMiddleware
         }
 
         var header = context.Request.Headers.Authorization.ToString();
-        if (!header.StartsWith(Scheme, StringComparison.Ordinal))
+        string? provided = null;
+        if (header.StartsWith(Scheme, StringComparison.Ordinal))
+        {
+            provided = header[Scheme.Length..];
+        }
+        else if (context.WebSockets.IsWebSocketRequest &&
+                 context.Request.Query.TryGetValue("key", out var queryKey))
+        {
+            provided = queryKey.ToString();
+        }
+
+        if (provided is null)
         {
             await Unauthorized(context);
             return;
         }
 
-        var candidate = System.Text.Encoding.UTF8.GetBytes(header[Scheme.Length..]);
+        var candidate = System.Text.Encoding.UTF8.GetBytes(provided);
         if (candidate.Length != _expected.Length ||
             !CryptographicOperations.FixedTimeEquals(candidate, _expected))
         {
