@@ -19,6 +19,7 @@ public static class ApiEndpoints
     public sealed record TriageRequest(string Priority, DateTime? DueUtc, string? Owner);
     public sealed record DispositionRequest(string Status, string? AssignedTo, string? Note);
     public sealed record PosReconResult(int Total, int Matched, int Unmatched, int Duplicates);
+    public sealed record LoginRequest(string Username, string Password);
 
     private static readonly TimeSpan ReconWindow = TimeSpan.FromSeconds(10);
 
@@ -73,6 +74,22 @@ public static class ApiEndpoints
         api.MapGet("/recording/segments", HandleRecordingSegments);
 
         api.Map("/alerts/ws", HandleAlertStream);
+
+        api.MapPost("/accounts/authenticate", static (LoginRequest body, AuthService auth) =>
+        {
+            if (string.IsNullOrWhiteSpace(body.Username) || string.IsNullOrEmpty(body.Password))
+            {
+                return Results.Json(new { error = "請輸入帳號與密碼" }, statusCode: StatusCodes.Status400BadRequest);
+            }
+
+            var result = auth.Authenticate(body.Username, body.Password);
+            if (!result.Succeeded)
+            {
+                return Results.Json(new { error = result.Error }, statusCode: StatusCodes.Status401Unauthorized);
+            }
+
+            return Results.Ok(new { role = result.Role, displayName = result.DisplayName });
+        });
     }
 
     /// <summary>Turns repository guard exceptions into clean 400 responses.</summary>

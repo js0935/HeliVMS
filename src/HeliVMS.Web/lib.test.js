@@ -4,10 +4,12 @@ import {
   ackRate,
   buildSegmentsQuery,
   buildTimelineQuery,
+  canAct,
   eventRow,
   formatTimestamp,
   gapLabel,
   gridLayout,
+  parseLogin,
   parseWsMessage,
   pinStyles,
   posTotals,
@@ -206,5 +208,23 @@ describe('action payload builders', () => {
     expect(ackPayload(7)).toEqual({ id: 7, body: { acknowledged: true } });
     expect(ackPayload(7, false)).toEqual({ id: 7, body: { acknowledged: false } });
     expect(triagePayload(9, 'critical')).toEqual({ id: 9, body: { priority: 'critical', dueUtc: null, owner: null } });
+  });
+});
+
+describe('login gating', () => {
+  it('gates acting on admin role', () => {
+    expect(canAct('admin')).toBe(true);
+    expect(canAct('viewer')).toBe(false);
+    expect(canAct(null)).toBe(false);
+  });
+
+  it('parses login responses', () => {
+    expect(parseLogin({ role: 'admin', displayName: '操作員' })).toEqual({
+      ok: true,
+      role: 'admin',
+      displayName: '操作員',
+    });
+    expect(parseLogin({ error: '密碼錯誤' })).toEqual({ ok: false, error: '密碼錯誤' });
+    expect(parseLogin(null)).toEqual({ ok: false, error: '回應異常' });
   });
 });

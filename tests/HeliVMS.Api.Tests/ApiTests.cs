@@ -403,6 +403,36 @@ public class ApiTests : IClassFixture<ApiFactory>, IDisposable
         Assert.Equal(System.Net.WebSockets.WebSocketState.Open, socket.State);
     }
 
+    [Fact]
+    public async Task Accounts_Authenticate_ReturnsRoleAndRejectsBadPassword()
+    {
+        var users = new UserRepository(Store);
+        users.CreateUser("op1", PasswordHasher.Hash("s3cret"), "admin", "操作員一");
+        users.CreateUser("view1", PasswordHasher.Hash("view"), "viewer", "觀看員");
+
+        using var client = Client();
+        var ok = await client.PostAsJsonAsync(
+            "/api/accounts/authenticate", new { username = "op1", password = "s3cret" });
+        Assert.Equal(HttpStatusCode.OK, ok.StatusCode);
+        var body = await ReadAsync<LoginBody>(ok);
+        Assert.Equal("admin", body.Role);
+        Assert.Equal("操作員一", body.DisplayName);
+
+        using var noKey = Client(withKey: false);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await noKey.PostAsJsonAsync(
+            "/api/accounts/authenticate", new { username = "view1", password = "view" })).StatusCode);
+
+        using var bad = Client();
+        Assert.Equal(HttpStatusCode.Unauthorized, (await bad.PostAsJsonAsync(
+            "/api/accounts/authenticate", new { username = "view1", password = "wrong" })).StatusCode);
+
+        using var none = Client();
+        Assert.Equal(HttpStatusCode.BadRequest, (await none.PostAsJsonAsync(
+            "/api/accounts/authenticate", new { username = "", password = "" })).StatusCode);
+    }
+
+    private sealed record LoginBody(string Role, string? DisplayName);
+
     private static string HttpUtility(DateTime utc) =>
         Uri.EscapeDataString(utc.ToString("o"));
 }

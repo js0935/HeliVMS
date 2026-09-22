@@ -68,6 +68,16 @@ body {
   overflow: hidden;
 }
 
+#login { display: flex; gap: 6px; align-items: center; }
+#login input { width: 120px; }
+#login .muted { font-size: 12px; max-width: 180px; }
+#login-msg:not(:empty) { color: var(--crit); }
+
+.timeline-tools { display: flex; gap: 8px; margin-bottom: 8px; align-items: center; }
+.timeline-tools input { background: var(--bg); border: 1px solid var(--line); color: var(--text); }
+
+.board.gated .act { visibility: hidden; pointer-events: none; }
+
 .grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));

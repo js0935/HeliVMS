@@ -2,10 +2,12 @@ import {
   ackPayload,
   ackRate,
   buildTimelineQuery,
+  canAct,
   eventRow,
   formatTimestamp,
   gapLabel,
   gridLayout,
+  parseLogin,
   parseWsMessage,
   pinStyles,
   posTotals,
@@ -43,6 +45,54 @@ async function refreshChannels() {
     .join('');
 }
 
+function readSession() {
+  try {
+    return JSON.parse(sessionStorage.getItem('helivms.session') || 'null');
+  } catch {
+    return null;
+  }
+}
+
+function storeSession(session) {
+  sessionStorage.setItem('helivms.session', JSON.stringify(session ?? {}));
+  updateChrome();
+}
+
+async function submitLogin(event) {
+  event.preventDefault();
+  const username = $('user').value.trim();
+  const password = $('pass').value;
+  let payload = {};
+  try {
+    const res = await fetch('/api/accounts/authenticate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key()}` },
+      body: JSON.stringify({ username, password }),
+    });
+    payload = await res.json().catch(() => ({}));
+  } catch {
+    payload = {};
+  }
+  const state = parseLogin(payload);
+  $('login-msg').textContent = state.ok ? '' : state.error;
+  if (state.ok) storeSession({ role: state.role, name: state.displayName });
+  await refreshBoard();
+}
+
+function logout() {
+  storeSession(null);
+  window.location.reload();
+}
+
+function updateChrome() {
+  const session = readSession();
+  const who = $('who');
+  who.textContent = session ? `${session.role} · ${session.name ?? ''}`.trim() : '未登入';
+  who.classList.toggle('on', Boolean(session));
+  $('board').classList.toggle('gated', !canAct(session?.role));
+  $('logout').hidden = !session;
+}
+
 async function refreshBoard() {
   const rows = sortBoard(await api('/api/alarms/board?take=50'));
   const s = summarizeBoard(rows);
@@ -52,8 +102,8 @@ async function refreshBoard() {
     .map(
       (r) =>
         `<tr class="${r.priority}"><td>${r.eventId}</td><td>${r.channelId}</td><td>${r.eventType ?? ''}</td><td>${r.priority}</td>` +
-        `<td><button data-ack="${r.eventId}" ${r.status === 'acknowledged' ? 'disabled' : ''}>ack</button>` +
-        `<button data-triage="${r.eventId}" data-p="critical">!!</button></td></tr>`,
+        `<td><button data-ack="${r.eventId}" class="act" ${r.status === 'acknowledged' ? 'disabled' : ''}>ack</button>` +
+        `<button data-triage="${r.eventId}" data-p="critical" class="act">!!</button></td></tr>`,
     )
     .join('');
 
@@ -139,9 +189,28 @@ async function searchEvents(q) {
     .join('');
 }
 
-async function refreshTimeline() {
+let timelineDay = '';
+
+function timelineDayUtc() {
   const day = new Date();
+  if (timelineDay) {
+    const [y, m, d] = timelineDay.split('-').map(Number);
+    day.setUTCFullYear(y, m - 1, d);
+  }
   day.setUTCHours(0, 0, 0, 0);
+  return day;
+}
+
+function bumpTimelineDay(delta) {
+  const base = timelineDayUtc();
+  base.setUTCDate(base.getUTCDate() + delta);
+  timelineDay = base.toISOString().slice(0, 10);
+  $('timeline-day').value = timelineDay;
+  refreshTimeline();
+}
+
+async function refreshTimeline() {
+  const day = timelineDayUtc();
   const timeline = await api(buildTimelineQuery({ channelId: 1, stream: 'main', day }));
   $('gap').textContent = gapLabel(timeline.gapFraction);
   const el = $('timeline');
@@ -182,6 +251,14 @@ function connectLive() {
 }
 
 function wire() {
+  $('login').addEventListener('submit', submitLogin);
+  $('logout').addEventListener('click', (e) => {
+    e.preventDefault();
+    logout();
+  });
+  $('timeline-day').addEventListener('change', refreshTimeline);
+  $('timeline-up').addEventListener('click', () => bumpTimelineDay(1));
+  $('timeline-down').addEventListener('click', () => bumpTimelineDay(-1));
   const saved = localStorage.getItem('helivms.apiKey');
   if (saved) $('apikey').value = saved;
   $('apikey').addEventListener('change', () => {

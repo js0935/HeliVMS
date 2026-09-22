@@ -14,6 +14,14 @@
     <span id="sw" class="badge">…</span>
     <span id="pos" class="badge muted">…</span>
     <label>API 金鑰 <input id="apikey" type="password" placeholder="helivms-dev-key" /></label>
+    <form id="login">
+      <input id="user" placeholder="帳號" autocomplete="username" />
+      <input id="pass" type="password" placeholder="密碼" autocomplete="current-password" />
+      <button type="submit">登入</button>
+      <span id="login-msg" class="muted"></span>
+    </form>
+    <span id="who" class="badge">未登入</span>
+    <button id="logout" type="button" hidden>登出</button>
     <span id="live" class="badge off">WS</span>
   </header>
 
@@ -45,6 +53,11 @@
 
     <section class="panel wide">
       <h2>回放時間軸 <span id="gap" class="muted"></span></h2>
+      <div class="timeline-tools">
+        <button id="timeline-down" type="button">‹ 前一天</button>
+        <input id="timeline-day" type="date" />
+        <button id="timeline-up" type="button">後一天 ›</button>
+      </div>
       <div id="timeline" class="timeline"></div>
     </section>
 

@@ -158,3 +158,15 @@ export function ackPayload(id, acknowledged = true) {
 export function triagePayload(id, priority, dueUtc = null) {
   return { id, body: { priority, dueUtc, owner: null } };
 }
+
+export function canAct(role) {
+  return role === 'admin';
+}
+
+export function parseLogin(payload) {
+  if (!payload || typeof payload !== 'object') return { ok: false, error: '回應異常' };
+  if (typeof payload.role === 'string' && payload.role.length > 0) {
+    return { ok: true, role: payload.role, displayName: payload.displayName ?? null };
+  }
+  return { ok: false, error: payload.error || '登入失敗' };
+}
