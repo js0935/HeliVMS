@@ -9,7 +9,7 @@ namespace HeliVMS.Storage;
 /// </summary>
 public sealed class SqliteStore : IDisposable
 {
-    private const int CurrentSchemaVersion = 32;
+    private const int CurrentSchemaVersion = 33;
     private readonly SqliteConnection _connection;
     private readonly object _gate = new();
     private bool _disposed;
@@ -212,6 +212,11 @@ public sealed class SqliteStore : IDisposable
         if (version < 32)
         {
             CreateEdgeBackfillTablesV32();
+        }
+
+        if (version < 33)
+        {
+            CreateEdgeSmartEventTablesV33();
         }
 
         Execute("PRAGMA user_version = CURRENT_SCHEMA_VERSION;".Replace(
@@ -949,6 +954,30 @@ public sealed class SqliteStore : IDisposable
 
             CREATE INDEX IF NOT EXISTS idx_edge_backfill_device ON edge_backfill_jobs(device_id, start_utc);
             CREATE INDEX IF NOT EXISTS idx_edge_backfill_status  ON edge_backfill_jobs(status, next_attempt_utc);
+            """);
+    }
+
+    /// <summary>M95 消費邊緣 AI metadata（§14.7 #13）L1：穩定類別/軌跡/方向事件的持久化＋時序索引。</summary>
+    private void CreateEdgeSmartEventTablesV33()
+    {
+        Execute(
+            """
+            CREATE TABLE IF NOT EXISTS edge_smart_events (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                device_id       INTEGER NOT NULL,
+                class_name      TEXT NOT NULL,
+                track_id        TEXT NOT NULL DEFAULT '',
+                direction       TEXT NOT NULL,
+                x1              INTEGER NOT NULL,
+                y1              INTEGER NOT NULL,
+                x2              INTEGER NOT NULL,
+                y2              INTEGER NOT NULL,
+                occurred_at_utc TEXT NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_edge_smart_device_time  ON edge_smart_events(device_id, occurred_at_utc);
+            CREATE INDEX IF NOT EXISTS idx_edge_smart_class_time   ON edge_smart_events(class_name, occurred_at_utc);
+            CREATE INDEX IF NOT EXISTS idx_edge_smart_direction    ON edge_smart_events(direction, occurred_at_utc);
             """);
     }
 
