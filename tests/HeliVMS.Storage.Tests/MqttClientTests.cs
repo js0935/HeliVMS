@@ -345,6 +345,125 @@ public class MqttClientTests : IDisposable
         Assert.Equal(expected, MqttTopicFilter.Matches(filter, topic));
     }
 
+    [Fact]
+    public void Hub_Pump_RoutesPushedMessageToMatchingHandler()
+    {
+        using var broker = new FakeMqttBroker();
+        broker.Start();
+        using var client = new MqttClient();
+        var hub = new MqttMessageHub(client);
+        var topic = default(string);
+        var payload = default(string);
+        hub.Register("helivms/events/#", m => { topic = m.Topic; payload = Encoding.UTF8.GetString(m.Payload); });
+        Assert.True(client.Connect("127.0.0.1", broker.Port, "hub", 30).Ok);
+        Assert.Equal(1, hub.SubscribeAll());
+        WaitUntil(() => broker.LastSubscribeTopic is not null);
+
+        broker.Push("helivms/events/ch3/motion", Encoding.UTF8.GetBytes("{\"x\":1}"));
+        var result = hub.Pump(TimeSpan.FromSeconds(5));
+
+        Assert.False(result.TimedOut);
+        Assert.False(result.ConnectionLost);
+        Assert.Equal(1, result.Handled);
+        Assert.Equal("helivms/events/ch3/motion", topic);
+        Assert.Equal("{\"x\":1}", payload);
+    }
+
+    [Fact]
+    public void Hub_Pump_NonMatchingTopicSkipsHandler()
+    {
+        using var broker = new FakeMqttBroker();
+        broker.Start();
+        using var client = new MqttClient();
+        var hub = new MqttMessageHub(client);
+        var called = false;
+        hub.Register("helivms/+/status", _ => called = true);
+        Assert.True(client.Connect("127.0.0.1", broker.Port, "hub", 30).Ok);
+        Assert.Equal(1, hub.SubscribeAll());
+        WaitUntil(() => broker.LastSubscribeTopic is not null);
+
+        broker.Push("helivms/svc/events", Encoding.UTF8.GetBytes("{}"));
+        var result = hub.Pump(TimeSpan.FromSeconds(5));
+
+        Assert.False(result.ConnectionLost);
+        Assert.Equal(0, result.Handled);
+        Assert.False(called);
+    }
+
+    [Fact]
+    public void Hub_SubscribeAll_SendsEveryFilter()
+    {
+        using var broker = new FakeMqttBroker();
+        broker.Start();
+        using var client = new MqttClient();
+        var hub = new MqttMessageHub(client);
+        hub.Register("helivms/events/#", _ => { });
+        hub.Register("a/+/c", _ => { });
+        Assert.True(client.Connect("127.0.0.1", broker.Port, "hub", 30).Ok);
+
+        Assert.Equal(2, hub.SubscribeAll());
+        WaitUntil(() => broker.SubscribeTopics.Count == 2);
+        Assert.Contains("helivms/events/#", broker.SubscribeTopics);
+        Assert.Contains("a/+/c", broker.SubscribeTopics);
+    }
+
+    [Fact]
+    public void Hub_Pump_MultipleHandlersForSameFilter_AllInvoked()
+    {
+        using var broker = new FakeMqttBroker();
+        broker.Start();
+        using var client = new MqttClient();
+        var hub = new MqttMessageHub(client);
+        var count = 0;
+        hub.Register("t/#", _ => count++);
+        hub.Register("t/#", _ => count++);
+        Assert.True(client.Connect("127.0.0.1", broker.Port, "hub", 30).Ok);
+        Assert.Equal(1, hub.SubscribeAll());
+        WaitUntil(() => broker.LastSubscribeTopic is not null);
+
+        broker.Push("t/x", new byte[] { 1 });
+        var result = hub.Pump(TimeSpan.FromSeconds(5));
+
+        Assert.Equal(2, result.Handled);
+        Assert.Equal(2, count);
+    }
+
+    [Fact]
+    public void Hub_Pump_WithoutConnection_ReportsConnectionLost()
+    {
+        using var client = new MqttClient();
+        var hub = new MqttMessageHub(client);
+        hub.Register("t/#", _ => { });
+
+        var result = hub.Pump(TimeSpan.FromSeconds(1));
+
+        Assert.True(result.ConnectionLost);
+        Assert.Equal(0, result.Handled);
+    }
+
+    [Fact]
+    public async Task Hub_Run_LoopsUntilCancelled_DeliveringMessages()
+    {
+        using var broker = new FakeMqttBroker();
+        broker.Start();
+        using var client = new MqttClient();
+        var hub = new MqttMessageHub(client);
+        var received = 0;
+        hub.Register("events/#", _ => received++);
+        Assert.True(client.Connect("127.0.0.1", broker.Port, "hub", 30).Ok);
+        hub.SubscribeAll();
+        WaitUntil(() => broker.LastSubscribeTopic is not null);
+
+        using var cts = new CancellationTokenSource();
+        var run = hub.Run(TimeSpan.FromMilliseconds(50), cts.Token);
+        broker.Push("events/a", new byte[] { 1 });
+        broker.Push("events/b", new byte[] { 2 });
+        WaitUntil(() => received == 2);
+
+        cts.Cancel();
+        await run.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
     public void Dispose()
     {
     }
@@ -376,6 +495,7 @@ internal sealed class FakeMqttBroker : IDisposable
     public byte[]? LastPayload { get; private set; }
     public bool LastRetained { get; private set; }
     public string? LastSubscribeTopic { get; private set; }
+    public List<string> SubscribeTopics { get; } = new();
     public List<byte> LastPublishedRemainingLength { get; } = new();
     public bool DisconnectSeen { get; private set; }
     public string? LastError { get; private set; }
@@ -469,6 +589,7 @@ internal sealed class FakeMqttBroker : IDisposable
                     case 0x82:      // SUBSCRIBE
                         var subTopicLen = (body[2] << 8) | body[3];
                         LastSubscribeTopic = Encoding.UTF8.GetString(body, 4, subTopicLen);
+                        SubscribeTopics.Add(LastSubscribeTopic);
                         stream.Write(new byte[] { 0x90, 0x03, body[0], body[1], (byte)_subackReturnCode });
                         break;
 
