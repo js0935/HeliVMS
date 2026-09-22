@@ -4,6 +4,7 @@ import {
   ackRate,
   buildTimelineQuery,
   canAct,
+  configCard,
   eventRow,
   formatTimestamp,
   gapLabel,
@@ -79,7 +80,9 @@ async function submitLogin(event) {
   $('login-msg').textContent = state.ok ? '' : state.error;
   if (state.ok) {
     storeSession({ role: state.role, name: state.displayName });
-    if (canAct(state.role)) await renderAccounts();
+    if (canAct(state.role)) {
+      await Promise.allSettled([renderAccounts(), renderConfig()]);
+    }
   }
   await refreshBoard();
 }
@@ -97,7 +100,34 @@ function updateChrome() {
   const admin = canAct(session?.role);
   $('board').classList.toggle('gated', !admin);
   $('accounts-panel').hidden = !admin;
+  $('config-panel').hidden = !admin;
   $('logout').hidden = !session;
+}
+
+async function renderConfig() {
+  const c = configCard(await api('/api/config'));
+  $('auth-enabled').checked = c.authEnabled;
+  $('lock-threshold').value = c.lockoutThreshold;
+  $('lock-minutes').value = c.lockoutMinutes;
+}
+
+async function saveConfig(event) {
+  event.preventDefault();
+  try {
+    await api('/api/config', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        authEnabled: $('auth-enabled').checked,
+        lockoutThreshold: Number($('lock-threshold').value),
+        lockoutMinutes: Number($('lock-minutes').value),
+      }),
+    });
+    await renderConfig();
+    $('config-msg').textContent = '已儲存';
+  } catch (err) {
+    $('config-msg').textContent = String(err);
+  }
 }
 
 async function renderAccounts() {
@@ -331,6 +361,7 @@ function wire() {
     location.reload();
   });
   $('account-form').addEventListener('submit', submitAccount);
+  $('config-form').addEventListener('submit', saveConfig);
   $('search-form').addEventListener('submit', (e) => {
     e.preventDefault();
     searchEvents($('q').value || '*').catch(console.error);

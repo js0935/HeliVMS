@@ -183,3 +183,12 @@ export function accountRows(list) {
     }))
     .sort((a, b) => a.username.localeCompare(b.username));
 }
+
+export function configCard(raw) {
+  const r = raw ?? {};
+  return {
+    authEnabled: Boolean(r.authEnabled ?? r.AuthEnabled ?? false),
+    lockoutThreshold: Number(r.lockoutThreshold ?? r.LockoutThreshold ?? 5),
+    lockoutMinutes: Number(r.lockoutMinutes ?? r.LockoutMinutes ?? 5),
+  };
+}

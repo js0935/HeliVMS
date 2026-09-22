@@ -470,6 +470,31 @@ public class ApiTests : IClassFixture<ApiFactory>, IDisposable
         Assert.DoesNotContain(gone, a => a.Id == target.Id);
     }
 
+    [Fact]
+    public async Task Config_ReadsDefaultsAndAppliesAuthSettings()
+    {
+        using var client = Client();
+
+        var get = await client.GetAsync("/api/config");
+        Assert.Equal(HttpStatusCode.OK, get.StatusCode);
+        var defaults = await ReadAsync<ConfigBody>(get);
+        Assert.False(defaults.AuthEnabled);
+        Assert.Equal(5, defaults.LockoutThreshold);
+
+        var put = await client.PutAsJsonAsync(
+            "/api/config", new { authEnabled = true, lockoutThreshold = 3, lockoutMinutes = 30 });
+        Assert.Equal(HttpStatusCode.OK, put.StatusCode);
+        var applied = await ReadAsync<ConfigBody>(await client.GetAsync("/api/config"));
+        Assert.True(applied.AuthEnabled);
+        Assert.Equal(3, applied.LockoutThreshold);
+        Assert.Equal(30, applied.LockoutMinutes);
+
+        var bad = await client.PutAsJsonAsync("/api/config", new { lockoutThreshold = 0 });
+        Assert.Equal(HttpStatusCode.BadRequest, bad.StatusCode);
+    }
+
+    private sealed record ConfigBody(bool AuthEnabled, int LockoutThreshold, int LockoutMinutes);
+
     private sealed record AccountItem(int Id, string Username, string Role, string? DisplayName, bool Enabled, bool Locked);
 
     private sealed record LoginBody(string Role, string? DisplayName);

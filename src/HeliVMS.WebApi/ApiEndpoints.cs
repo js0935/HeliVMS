@@ -24,6 +24,8 @@ public static class ApiEndpoints
     public sealed record AccountUpsertRequest(string Username, string Password, string Role, string? DisplayName);
     public sealed record AccountPatchRequest(string? Role, bool? Enabled, string? DisplayName);
     public sealed record AccountListItem(int Id, string Username, string Role, string? DisplayName, bool Enabled, bool Locked);
+    public sealed record ConfigResponse(bool AuthEnabled, int LockoutThreshold, int LockoutMinutes);
+    public sealed record ConfigRequest(bool? AuthEnabled, int? LockoutThreshold, int? LockoutMinutes);
 
     private static readonly TimeSpan ReconWindow = TimeSpan.FromSeconds(10);
 
@@ -164,6 +166,45 @@ public static class ApiEndpoints
 
             users.DeleteUser(id);
             return Results.Ok();
+        });
+
+        api.MapGet("/config", static (SettingsRepository settings) =>
+            Results.Ok(new ConfigResponse(
+                settings.GetOrDefault("auth.enabled", "0") == "1",
+                (int)settings.GetDoubleOrDefault("auth.lockout.threshold", 5),
+                (int)settings.GetDoubleOrDefault("auth.lockout.minutes", 5))));
+
+        api.MapPut("/config", static (ConfigRequest body, SettingsRepository settings) =>
+        {
+            if (body.AuthEnabled is not null)
+            {
+                settings.Set("auth.enabled", body.AuthEnabled.Value ? "1" : "0");
+            }
+
+            if (body.LockoutThreshold is int threshold)
+            {
+                if (threshold is < 1 or > 99)
+                {
+                    return Results.BadRequest(new { error = "鎖定次數須為 1..99" });
+                }
+
+                settings.Set("auth.lockout.threshold", threshold.ToString());
+            }
+
+            if (body.LockoutMinutes is int minutes)
+            {
+                if (minutes is < 1 or > 1440)
+                {
+                    return Results.BadRequest(new { error = "鎖定分鐘須為 1..1440" });
+                }
+
+                settings.Set("auth.lockout.minutes", minutes.ToString());
+            }
+
+            return Results.Ok(new ConfigResponse(
+                settings.GetOrDefault("auth.enabled", "0") == "1",
+                (int)settings.GetDoubleOrDefault("auth.lockout.threshold", 5),
+                (int)settings.GetDoubleOrDefault("auth.lockout.minutes", 5)));
         });
     }
 

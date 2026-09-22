@@ -6,6 +6,7 @@ import {
   buildSegmentsQuery,
   buildTimelineQuery,
   canAct,
+  configCard,
   eventRow,
   formatTimestamp,
   gapLabel,
@@ -238,5 +239,19 @@ describe('login gating', () => {
     expect(rows[1].enabled).toBe(true);
     expect(rows[1].locked).toBe(false);
     expect(accountRows(null)).toEqual([]);
+  });
+
+  it('normalizes config cards', () => {
+    expect(configCard({ authEnabled: true, lockoutThreshold: 3, lockoutMinutes: 30 })).toEqual({
+      authEnabled: true,
+      lockoutThreshold: 3,
+      lockoutMinutes: 30,
+    });
+    expect(configCard({ AuthEnabled: 1, LockoutThreshold: '4', LockoutMinutes: 15 })).toEqual({
+      authEnabled: true,
+      lockoutThreshold: 4,
+      lockoutMinutes: 15,
+    });
+    expect(configCard(null)).toEqual({ authEnabled: false, lockoutThreshold: 5, lockoutMinutes: 5 });
   });
 });

@@ -84,6 +84,17 @@
       <div id="map" class="map"></div>
     </section>
 
+    <section class="panel wide" id="config-panel" hidden>
+      <h2>登入設定</h2>
+      <form id="config-form" class="row-form">
+        <label><input id="auth-enabled" type="checkbox" /> 啟用帳號登入</label>
+        <label>鎖定次數 <input id="lock-threshold" type="number" min="1" max="99" /></label>
+        <label>鎖定分鐘 <input id="lock-minutes" type="number" min="1" max="1440" /></label>
+        <button type="submit">儲存</button>
+        <span id="config-msg" class="muted"></span>
+      </form>
+    </section>
+
     <section class="panel wide">
       <h2>即時警報流</h2>
       <ul id="live-log" class="log"></ul>
