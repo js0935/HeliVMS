@@ -9,7 +9,7 @@ namespace HeliVMS.Storage;
 /// </summary>
 public sealed class SqliteStore : IDisposable
 {
-    private const int CurrentSchemaVersion = 37;
+    private const int CurrentSchemaVersion = 38;
     private readonly SqliteConnection _connection;
     private readonly object _gate = new();
     private bool _disposed;
@@ -237,6 +237,11 @@ public sealed class SqliteStore : IDisposable
         if (version < 37)
         {
             CreateRedactionTablesV37();
+        }
+
+        if (version < 38)
+        {
+            CreateAlarmWorkflowTablesV38();
         }
 
         Execute("PRAGMA user_version = CURRENT_SCHEMA_VERSION;".Replace(
@@ -1144,6 +1149,34 @@ public sealed class SqliteStore : IDisposable
 
             CREATE INDEX IF NOT EXISTS idx_redaction_source   ON redaction_regions(source_type, ref_id);
             CREATE INDEX IF NOT EXISTS idx_redaction_channel  ON redaction_regions(channel_id, occurred_at_utc);
+            """);
+    }
+
+    private void CreateAlarmWorkflowTablesV38()
+    {
+        Execute(
+            """
+            CREATE TABLE IF NOT EXISTS alarm_notes (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                event_id   INTEGER NOT NULL,
+                author     TEXT    NOT NULL,
+                note       TEXT    NOT NULL,
+                created_at TEXT    NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_alarm_notes_event ON alarm_notes(event_id, id);
+
+            CREATE TABLE IF NOT EXISTS alarm_escalations (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                event_id      INTEGER NOT NULL,
+                level         INTEGER NOT NULL,
+                from_priority TEXT    NOT NULL,
+                to_priority   TEXT    NOT NULL,
+                due_utc       TEXT    NOT NULL,
+                created_at    TEXT    NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_alarm_escalation_event ON alarm_escalations(event_id, id);
             """);
     }
 
