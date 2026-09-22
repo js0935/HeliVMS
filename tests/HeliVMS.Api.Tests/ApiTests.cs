@@ -494,6 +494,61 @@ public class ApiTests : IClassFixture<ApiFactory>, IDisposable
     }
 
     [Fact]
+    public async Task Config_RoundTripsRetentionSettings()
+    {
+        using var client = Client();
+        var put = await client.PutAsJsonAsync(
+            "/api/config",
+            new { recordingRetentionDays = 90, recordingWatermarkGb = 200.5 });
+        Assert.Equal(HttpStatusCode.OK, put.StatusCode);
+        var got = await ReadAsync<ConfigBody2>(await client.GetAsync("/api/config"));
+        Assert.Equal(90, got.RecordingRetentionDays);
+        Assert.Equal(200.5, got.RecordingWatermarkGb);
+
+        Assert.Equal(
+            HttpStatusCode.BadRequest,
+            (await client.PutAsJsonAsync("/api/config", new { recordingRetentionDays = 0 })).StatusCode);
+        Assert.Equal(
+            HttpStatusCode.BadRequest,
+            (await client.PutAsJsonAsync("/api/config", new { recordingWatermarkGb = -1 })).StatusCode);
+
+        var usage = await ReadAsync<UsageBody>(await client.GetAsync("/api/config/usage"));
+        Assert.True(usage.Bytes >= 0);
+    }
+
+    [Fact]
+    public async Task Retention_RunPurgesByAgeAndWatermark()
+    {
+        var store = Service<SqliteStore>();
+        _ = store;
+        var segments = Service<SegmentRepository>();
+        var old = segments.BeginSegment(1, "main", "/tmp/old.mp4", new DateTime(2020, 1, 2, 0, 0, 0, DateTimeKind.Utc));
+        segments.CompleteSegment(old, new DateTime(2020, 1, 2, 1, 0, 0, DateTimeKind.Utc), 64 * 1024 * 1024, 3600, "sha-old");
+        var fresh = segments.BeginSegment(1, "main", "/tmp/new.mp4", DateTime.UtcNow.AddMinutes(-5));
+        segments.CompleteSegment(fresh, DateTime.UtcNow, 32 * 1024 * 1024, 600, "sha-new");
+
+        using var client = Client();
+        await client.PutAsJsonAsync("/api/config", new { recordingRetentionDays = 3 });
+
+        var run = await ReadAsync<RetentionRunBody>(await client.PostAsync("/api/retention/run", null));
+        Assert.True(run.AgePurged >= 1, "old segments purged");
+
+        await client.PutAsJsonAsync("/api/config", new { recordingRetentionDays = 3650, recordingWatermarkGb = 0.01 });
+        var wm = await ReadAsync<RetentionRunBody>(await client.PostAsync("/api/retention/run", null));
+        Assert.True(wm.WatermarkPurged >= 1);
+
+        var usage = await ReadAsync<UsageBody>(await client.GetAsync("/api/config/usage"));
+        Assert.True(usage.Bytes <= 0.011 * 1073741824, "usage under watermark after purge");
+        await client.PutAsJsonAsync("/api/config", new { recordingRetentionDays = 30, recordingWatermarkGb = 0 });
+    }
+
+    private sealed record RetentionRunBody(int AgePurged, int WatermarkPurged, long BytesFreed);
+
+    private sealed record UsageBody(long Bytes, double Gb, int RetentionDays, double WatermarkGb);
+
+    private sealed record ConfigBody2(bool AuthEnabled, int LockoutThreshold, int LockoutMinutes, int RecordingRetentionDays, double RecordingWatermarkGb);
+
+    [Fact]
     public async Task Audit_QueriesAndExportsCsv()
     {
         var ops = Service<AuditLogRepository>();

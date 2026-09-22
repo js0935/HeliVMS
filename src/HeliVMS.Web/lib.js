@@ -190,6 +190,8 @@ export function configCard(raw) {
     authEnabled: Boolean(r.authEnabled ?? r.AuthEnabled ?? false),
     lockoutThreshold: Number(r.lockoutThreshold ?? r.LockoutThreshold ?? 5),
     lockoutMinutes: Number(r.lockoutMinutes ?? r.LockoutMinutes ?? 5),
+    recordingRetentionDays: Number(r.recordingRetentionDays ?? r.RecordingRetentionDays ?? 30),
+    recordingWatermarkGb: Number(r.recordingWatermarkGb ?? r.RecordingWatermarkGb ?? 0),
   };
 }
 

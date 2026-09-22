@@ -135,6 +135,12 @@ async function renderConfig() {
   $('auth-enabled').checked = c.authEnabled;
   $('lock-threshold').value = c.lockoutThreshold;
   $('lock-minutes').value = c.lockoutMinutes;
+  $('retention-days').value = c.recordingRetentionDays;
+  $('retention-watermark').value = c.recordingWatermarkGb;
+  const usage = await api('/api/config/usage').catch(() => null);
+  $('storage-usage').textContent = usage
+    ? `使用 ${usage.gb.toFixed(2)}GiB · 保留 ${usage.retentionDays} 天 · 浮水印 ${usage.watermarkGb}GB`
+    : '';
 }
 
 async function saveConfig(event) {
@@ -147,10 +153,23 @@ async function saveConfig(event) {
         authEnabled: $('auth-enabled').checked,
         lockoutThreshold: Number($('lock-threshold').value),
         lockoutMinutes: Number($('lock-minutes').value),
+        recordingRetentionDays: Number($('retention-days').value),
+        recordingWatermarkGb: Number($('retention-watermark').value),
       }),
     });
     await renderConfig();
     $('config-msg').textContent = '已儲存';
+  } catch (err) {
+    $('config-msg').textContent = String(err);
+  }
+}
+
+async function runRetention() {
+  try {
+    const result = await api('/api/retention/run', { method: 'POST' });
+    $('config-msg').textContent =
+      `清理完成：保留期 ${result.agePurged} · 浮水印 ${result.watermarkPurged} · 釋放 ${(result.bytesFreed / 1073741824).toFixed(2)}GiB`;
+    await renderConfig();
   } catch (err) {
     $('config-msg').textContent = String(err);
   }
@@ -502,6 +521,7 @@ function wire() {
   $('audit-actor').addEventListener('input', renderAudit);
   $('account-form').addEventListener('submit', submitAccount);
   $('config-form').addEventListener('submit', saveConfig);
+  $('retention-run').addEventListener('click', runRetention);
   $('search-form').addEventListener('submit', (e) => {
     e.preventDefault();
     searchEvents($('q').value || '*').catch(console.error);

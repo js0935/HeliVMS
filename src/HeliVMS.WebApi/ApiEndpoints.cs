@@ -24,8 +24,10 @@ public static class ApiEndpoints
     public sealed record AccountUpsertRequest(string Username, string Password, string Role, string? DisplayName);
     public sealed record AccountPatchRequest(string? Role, bool? Enabled, string? DisplayName);
     public sealed record AccountListItem(int Id, string Username, string Role, string? DisplayName, bool Enabled, bool Locked);
-    public sealed record ConfigResponse(bool AuthEnabled, int LockoutThreshold, int LockoutMinutes);
-    public sealed record ConfigRequest(bool? AuthEnabled, int? LockoutThreshold, int? LockoutMinutes);
+    public sealed record ConfigResponse(bool AuthEnabled, int LockoutThreshold, int LockoutMinutes, int RecordingRetentionDays, double RecordingWatermarkGb);
+    public sealed record ConfigRequest(bool? AuthEnabled, int? LockoutThreshold, int? LockoutMinutes, int? RecordingRetentionDays, double? RecordingWatermarkGb);
+    public sealed record UsageResponse(long Bytes, double Gb, int RetentionDays, double WatermarkGb);
+    public sealed record RetentionRunResult(int AgePurged, int WatermarkPurged, long BytesFreed);
     public sealed record DailyReportResponse(
         IReadOnlyList<RecordingSummaryRow> Recording,
         IReadOnlyList<CapacityTrendRow> Capacity,
@@ -294,7 +296,9 @@ public static class ApiEndpoints
             Results.Ok(new ConfigResponse(
                 settings.GetOrDefault("auth.enabled", "0") == "1",
                 (int)settings.GetDoubleOrDefault("auth.lockout.threshold", 5),
-                (int)settings.GetDoubleOrDefault("auth.lockout.minutes", 5))));
+                (int)settings.GetDoubleOrDefault("auth.lockout.minutes", 5),
+                (int)settings.GetDoubleOrDefault(RetentionService.DaysKey, 30),
+                settings.GetDoubleOrDefault(RetentionService.WatermarkGbKey, 0))));
 
         api.MapPut("/config", static (ConfigRequest body, SettingsRepository settings) =>
         {
@@ -323,10 +327,45 @@ public static class ApiEndpoints
                 settings.Set("auth.lockout.minutes", minutes.ToString());
             }
 
+            if (body.RecordingRetentionDays is int days)
+            {
+                if (days is < 1 or > 3650)
+                {
+                    return Results.BadRequest(new { error = "保留天數須為 1..3650" });
+                }
+
+                settings.Set(RetentionService.DaysKey, days.ToString());
+            }
+
+            if (body.RecordingWatermarkGb is double watermark)
+            {
+                if (watermark is < 0 or > 99999)
+                {
+                    return Results.BadRequest(new { error = "浮水印須為 0..99999GB（0＝關閉）" });
+                }
+
+                settings.Set(RetentionService.WatermarkGbKey, watermark.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            }
+
             return Results.Ok(new ConfigResponse(
                 settings.GetOrDefault("auth.enabled", "0") == "1",
                 (int)settings.GetDoubleOrDefault("auth.lockout.threshold", 5),
-                (int)settings.GetDoubleOrDefault("auth.lockout.minutes", 5)));
+                (int)settings.GetDoubleOrDefault("auth.lockout.minutes", 5),
+                (int)settings.GetDoubleOrDefault(RetentionService.DaysKey, 30),
+                settings.GetDoubleOrDefault(RetentionService.WatermarkGbKey, 0)));
+        });
+
+        api.MapGet("/config/usage", static (RetentionService retention) =>
+            Results.Ok(new UsageResponse(
+                retention.UsageBytes,
+                retention.UsageBytes / 1073741824.0,
+                retention.RetentionDays,
+                retention.WatermarkGb)));
+
+        api.MapPost("/retention/run", static (RetentionService retention) =>
+        {
+            var result = retention.RunOnce(DateTime.UtcNow);
+            return Results.Ok(new RetentionRunResult(result.AgePurged, result.WatermarkPurged, result.BytesFreed));
         });
     }
 

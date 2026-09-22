@@ -134,6 +134,22 @@ public sealed class SegmentRepository
             ReadRecords);
     }
 
+    /// <summary>列出早於截止點之最舊 final 區段（保留期清理用；start_time 由舊至新）。</summary>
+    public IReadOnlyList<SegmentRecord> ListRetired(DateTime cutoffUtc, int take)
+    {
+        return _store.Query(
+            $"""
+            SELECT id, channel_id, stream, start_time, end_time, file_path,
+                   size_bytes, duration_sec, status, sha256
+            FROM segments
+            WHERE status = 'final' AND start_time < $cut
+            ORDER BY start_time
+            LIMIT {Math.Max(1, take)};
+            """,
+            ReadRecords,
+            cmd => cmd.Parameters.AddWithValue("$cut", SqliteStore.Iso(cutoffUtc)));
+    }
+
     /// <summary>刪除區段記錄（檔案移除由配額策略負責）。</summary>
     public void Delete(long id)
     {
