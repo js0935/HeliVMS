@@ -9,7 +9,7 @@ namespace HeliVMS.Storage;
 /// </summary>
 public sealed class SqliteStore : IDisposable
 {
-    private const int CurrentSchemaVersion = 31;
+    private const int CurrentSchemaVersion = 32;
     private readonly SqliteConnection _connection;
     private readonly object _gate = new();
     private bool _disposed;
@@ -207,6 +207,11 @@ public sealed class SqliteStore : IDisposable
         if (version < 31)
         {
             CreatePosEventTablesV31();
+        }
+
+        if (version < 32)
+        {
+            CreateEdgeBackfillTablesV32();
         }
 
         Execute("PRAGMA user_version = CURRENT_SCHEMA_VERSION;".Replace(
@@ -921,6 +926,29 @@ public sealed class SqliteStore : IDisposable
 
             CREATE INDEX IF NOT EXISTS idx_pos_events_device_time ON pos_events(device_id, occurred_at_utc);
             CREATE INDEX IF NOT EXISTS idx_pos_events_transaction ON pos_events(transaction_no);
+            """);
+    }
+
+    /// <summary>M94 邊緣補抓回灌（§14.7 #10）：job 狀態機＋狀態索引。</summary>
+    private void CreateEdgeBackfillTablesV32()
+    {
+        Execute(
+            """
+            CREATE TABLE IF NOT EXISTS edge_backfill_jobs (
+                id               INTEGER PRIMARY KEY AUTOINCREMENT,
+                device_id        INTEGER NOT NULL,
+                channel_id       INTEGER NOT NULL,
+                start_utc        TEXT NOT NULL,
+                end_utc          TEXT NOT NULL,
+                status           TEXT NOT NULL DEFAULT 'Pending',
+                attempts         INTEGER NOT NULL DEFAULT 0,
+                next_attempt_utc TEXT,
+                last_error       TEXT,
+                completed_utc    TEXT
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_edge_backfill_device ON edge_backfill_jobs(device_id, start_utc);
+            CREATE INDEX IF NOT EXISTS idx_edge_backfill_status  ON edge_backfill_jobs(status, next_attempt_utc);
             """);
     }
 
