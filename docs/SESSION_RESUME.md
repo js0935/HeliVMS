@@ -6,8 +6,8 @@
 
 ## 一句話總結
 HeliVMS 為一套**網路影像監控系統**（WPF 桌面應用：即時監看／回放／AI 事件中心／錄影排程）。
-里程碑 **M1 至 M107 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M107 NLP 查詢解析 L0＋NTP 時序硬化）。
-Release build 0 error、測試 **1022/1022 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
+里程碑 **M1 至 M108 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M108 MQTT 統一＋憑證支援）。
+Release build 0 error、測試 **1031/1031 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
 本地與遠端完全同步（`git diff origin/HEAD` 為空）。
 
 ## 開新 session 的接手方法
@@ -23,16 +23,16 @@ gh run list -L 3              # 預期全部 success
 新 session 會以 git 現況接手，不會靠猜測。
 
 ## 現況快照（權威來源＝git，非聊天記憶）
-- 最後 commit：`HEAD`＝**M107**——§14.7 #7 NLP 查詢解析 L0＋NTP 時序硬化：
-  `NlEventQueryParser`（純 BCL 規則式中文查詢→`ParsedEventQuery{ChannelId,EventTypes,From/ToUtc,
-  Limit,Unmatched}`＋`ToQueryArgs`）：頻道（x頻道/路/號 前後置＋全形數字）、時間（今天/昨天/最近
-  N 分鐘或小時/凌晨-上午-下午-晚上（錨定基準日，昨天時錨昨天）/HH:MM→10min 窗）、事件類型關鍵字
-  表（motion/ai_intrusion/line_cross/dwell/loitering/crowd/left_object/removed_object/face/lpr/
-  offline/online）、「最新 N 筆/條」上限；未辨識詞民剔除連接詞後收 Unmatched。NTP（M68）把
-  `ReceiveAsync(cts.CancelAfter)` 改為 socket `ReceiveTimeout`（OS 層計時）修高並行下逾時遲發
-  flake。28 新測試→全 **1022**（Storage 688→716）、Release build 0 error、樹淨
-- 前一個 M106 交付＝`7f50543`（§14.7 #14 智慧牆警報看板引擎 L0 `SmartwallAlertBoard`）＋`7ce8876`（docs）；
-  全 **994**、CI `35702306830` success
+- 最後 commit：`HEAD`＝**M108**——MQTT 統一＋憑證支援（收尾 §14.7 #15 事件派送）：
+  `MqttClient.Connect` 增可選 `username/password`（CONNECT flags 0x80/0x40＋payload，RFC 3.1；
+  password 設而 username 未設→補空 username 保持 flags 合法；空 clientId→Fail）＋
+  `IMqttPublisher` 介身同步擴充；`Alarms.MqttNotifier`（原內建裸 MQTT 協定）重構為委派
+  `IMqttPublisher`（正式＝MqttClient；注入 fake 可離線單測），payload 契約
+  {channel_id,event_type,start_utc,detail} 不變，Connect 失敗/發布失敗回 false、成功後必
+  Disconnect——兩套裸 MQTT 併一套。Storage 4 新測試＋Alarms 5 新測試→全 **1031**（Storage
+  716→720、Alarms 244→249）、Release build 0 error、樹淨
+- 前一個 M107 交付＝`19f946d`（§14.7 #7 NLP 查詢解析 L0＋NTP socket 層逾時硬化）＋`8055fb0`（docs）；
+  全 **1022**、CI `35718974514` success
 - 前一個 M85 交付＝`54cad94`（LDAPv3 連線層 L1：`LdapClient : ILdapBinder`
   裸 BER wire（simple bind＋memberOf SearchGroups）；`LdapBer` minimal BER＋`LdapFilterEncoder`
   RFC4515→BER；24 新測試（FakeLdapServer loopback）；全 **799**、CI `35621317643` success；
@@ -2024,3 +2024,22 @@ gh run list -L 3              # 預期全部 success
       未知殘詞進 Unmatched、空字串/空白）＝＋28 → 全 **1022**（Storage 688→716）；CI 綠；樹淨；
       §14.7 #7 現況改「語意/POS/Edge AI/頻道多源統一搜索（M91/M97 FTS5）＋規則式 NLP 查詢
       解析（M107 `NlEventQueryParser`）已落地；CLIP/AI 語意語言待續（需真 ML）」
+84. **M108 已完成＝MQTT 統一＋憑證支援（§14.7 #15 收尾）**：（見頂部快照）
+    - 背景：M103 建 Storage `MqttClient`，但 Alarms 另有內建裸 MQTT `MqttNotifier`（含自己一份
+      EncodeRemainingLength/連接握手）＝兩套協定實作；且 MqttClient 不支援 broker user/password
+    - 落點：`MqttClient.Connect(host,port,clientId,keepAlive,username=null,password=null)`——
+      CONNECT flags 0x80(user)/0x40(pass)＋payload 綴 user/pass（RFC 3.1）；password 設而
+      username 無→空字串補齊（flags 合法性）；空 clientId→Fail；`IMqttPublisher` 同步擴充
+      （MqttNotifierTests FakePublisher 遵守）——MqttClientTests x4（含「password only→空
+      username」「username only→無 password flag」）
+      `Alarms.MqttNotifier`：改持 `IMqttPublisher`（建構注入；正式＝MqttClient），
+      SendAsync＝Connect(user/pass)→Publish(cfg.MqttTopic,{channel_id,event_type,start_utc,
+      detail})→finally Disconnect；blank host/topic→false 不連線；Connect 失敗→false 不發；
+      發布失敗→false 且回復連線——MqttNotifierTests x5（fake 完全離線）
+    - 測試：＋9（Storage 4＋Alarms 5）→ 全 **1031**（Storage 720、Alarms 249、Devices 54、
+      Licensing 8）；CI 綠；樹淨
+    - 排雷：CONNECT 變動表頭 flags 在 body[7]（先前 fake broker 誤讀 body[9] 為 keepalive
+      低位）——憑證測試一度收不到 user/pass 即此因；另 Alarms `NotificationSettings` 有 26 個
+      positional 參數（前 11 個無預設）——測試建構必須全填或補 Helper
+    - §14.7 #15 現況改「MQTT 輸出 L0（M103）＋事件通知統一走 Storage `IMqttPublisher`
+      （M108，含 user/password）已落地；訂閱/狀態保留待續」
