@@ -6,8 +6,8 @@
 
 ## 一句話總結
 HeliVMS 為一套**網路影像監控系統**（WPF 桌面應用：即時監看／回放／AI 事件中心／錄影排程）。
-進度: **M1 至 M118 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M118 警報即時流；M117 HeliVMS.WebApi；M116 快照一鍵遮蔽；M115 MQTT 訂閱派送掛載；M112 訂閱數據面、M113 POS 自動關聯、M114 VMD 自動套用）。
-Release build 0 error、測試 **1113/1113 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
+進度: **M1 至 M119 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M119 回放時間軸 API；M118 警報即時流；M117 HeliVMS.WebApi；M116 快照一鍵遮蔽；M115 MQTT 訂閱派送掛載；M112 訂閱數據面、M113 POS 自動關聯、M114 VMD 自動套用）。
+Release build 0 error、測試 **1115/1115 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
 本地與遠端完全同步（`git diff origin/HEAD` 為空）。
 
 ## 開新 session 的接手方法
@@ -2078,18 +2078,21 @@ gh run list -L 3              # 預期全部 success
     - `ChannelRepository.SetMotionSensitivity`（位元組安全插接）。
     - 測試：5。
 
-    - 全量牌面（M118 收尾）：Storage 782、Alarms 254、Devices 54、Licensing 8、Api 15＝**1113**。
+    - 全量牌面（M119 收尾）：Storage 782、Alarms 254、Devices 54、Licensing 8、Api 17＝**1115**。
 92. **M115 交付＝MQTT 訂閱數據面掛載（§14.7 #15 完全閉合）**：
     - `MqttMessageHub`：`Register`（topic filter→處理式列表）、`SubscribeAll`（控制面逐 filter SUBSCRIBE）、`Pump`（單輪 ReceiveMessage→`MqttTopicFilter` 路由→派送）、`Run`（常駐迴圈，取消或 ConnectionLost 結束）。
     - 測試：6（路由命中/不命中、多 filter 訂閱、同 filter 多處理式、未連線 ConnectionLost、Run 迴圈派送＋取消）→全量 **1090**。
 93. **M116 交付＝快照一鍵遮蔽（§14.7 #16）**：
     - `SnapshotRedactor`：解碼→逐區 `RedactionProcessor.Apply(filled=true)` 實心塗黑（範圍夾截、退化區略過、輸入不可變）→依原格式（JPEG/PNG）重編碼。`SnapshotRedactionService`：按 snapshot `RedactionRepository.QueryBySource` 取區套用。
     - Storage 加 `System.Drawing.Common`（`SupportedPlatform windows`＋`SupportedOSPlatformVersion`；CI windows-latest 合規）；測試 8（遮黑/夾截/退化跳過/多區/PNG 精確黑/輸入不變/DB refId/無區回傳）→全量 **1098**。
+97. **M119 交付＝回放時間軸 REST（§14.3 播放 REST 真空）**：
+    - `GET /api/recording/timeline?channelId&stream&day`：取當日窗 `[day, day+24h)` 區段（`SegmentRepository`）＋事件（`AlarmEventRepository`）→ `PlaybackTimelineBuilder.Build` 正規化 bars/markers/gap（0..1 比例）。
+    - 測試 +2（有段有事件回傳 bar＋motion marker＋部分 gap；空日→bars 空／gap 1.0／count 1）＝Api 17；全量 **1115**。
 96. **修正（證據匯出範圍整合）**：M119 嘗試之 `EvidenceExporter`＋靜態 `EvidenceSigner` 與 M53 `EvidenceManifestService`/`EvidenceSigner`（RSA-2048、manifest.json＋DB 佐證、OK/TAMPERED/MISSING/EXTRA 驗證）重疊——已完全移除該重複實作並還原 M53 檔案；僅保留 MQTT Hub 測試時限 5s→10s 硬化。證據清冊＋簽章落地以 M53 為準。
-    - 回歸全量 **1113**（Storage 782/Api 15/Alarms 254/Devices 54/Licensing 8）。
+    - 回歸全量 **1113**（Storage 782/Api 17/Alarms 254/Devices 54/Licensing 8）。
 95. **M118 交付＝WebSocket 警報即時流（§14.3 P0 WebSocket＋#14 訂閱下發）**：
     - `AlertBroadcastHub`（Channel 訂閱/廣播，publish 對離線者零寫入）；`/api/alerts/ws` WebSocket 端點：透過既有 API 金鑰中介層握手，Subscribe→Accept（防 ConnectAsync 回來前漏接），`WaitToReadAsync` 推送 JSON `AlertUpdate`，客戶端離線自動退訂；ack/disposition/triage 落地即廣播 `alarm.ack/alarm.disposition/alarm.triage`。
-    - 測試 +2（WS 串流 triage 至 `alarm.triage/high`、無金鑰拒接）＝Api 15；全量 **1113**。
+    - 測試 +2（WS 串流 triage 至 `alarm.triage/high`、無金鑰拒接）＝Api 17；全量 **1113**。
 94. **M117 交付＝HeliVMS.WebApi（§14.3 P0 L0）**：
     - ASP.NET Core Minimal API：`/api/health`、channels、events（分頁＋跨源全文檢索）、alarms board/summary、ack/disposition/triage、pos 查詢/對帳、smartwall board；Bearer API 金鑰（`HELIVMS_API_KEY`，`FixedTimeEquals` 常時比較＋health 公開）；例外→400。
     - 新增 `HeliVMS.WebApi`（slnx）/`HeliVMS.Api.Tests`（`WebApplicationFactory`＋暫存 DB）；測試 13（健康/401/頻道/事件清單/全文/ack/triage/disposition 合規/POS/對帳/smartwall highlight）→全量 **1111**。

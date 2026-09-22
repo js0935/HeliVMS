@@ -68,6 +68,8 @@ public static class ApiEndpoints
 
         api.MapGet("/smartwall/board", HandleSmartwallBoard);
 
+        api.MapGet("/recording/timeline", HandleRecordingTimeline);
+
         api.Map("/alerts/ws", HandleAlertStream);
     }
 
@@ -83,6 +85,26 @@ public static class ApiEndpoints
             context.Response.StatusCode = StatusCodes.Status400BadRequest;
             await context.Response.WriteAsJsonAsync(new { error = ex.Message });
         }
+    }
+
+    /// <summary>
+    /// Playback timeline for a channel day window (M119, section 14.3 playback REST):
+    /// normalized recording bars, event markers and gap stats for the SPA timeline band.
+    /// </summary>
+    private static async Task HandleRecordingTimeline(
+        HttpContext context,
+        SegmentRepository segments,
+        AlarmEventRepository events,
+        int channelId,
+        string stream,
+        DateTime day)
+    {
+        var dayStart = Utc(day);
+        var dayEnd = dayStart.AddSeconds(PlaybackTimeline.DaySeconds);
+        var segs = segments.ListByRange(channelId, stream, dayStart, dayEnd);
+        var evs = events.ListByRange(channelId, dayStart, dayEnd);
+        var timeline = PlaybackTimelineBuilder.Build(segs, evs, dayStart);
+        await context.Response.WriteAsJsonAsync(timeline);
     }
 
     private static async Task HandleSmartwallBoard(

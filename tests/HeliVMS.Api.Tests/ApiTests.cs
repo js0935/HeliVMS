@@ -253,6 +253,38 @@ public class ApiTests : IClassFixture<ApiFactory>, IDisposable
     }
 
     [Fact]
+    public async Task RecordingTimeline_ReturnsSegmentsAndMarkers()
+    {
+        var dayStart = DateTime.UtcNow.Date;
+        var repo = Service<SegmentRepository>();
+        var segId = repo.BeginSegment(1, "main", Path.Combine(Path.GetTempPath(), "timeline.mp4"), dayStart.AddHours(9));
+        repo.CompleteSegment(segId, dayStart.AddHours(10), 1024, 3600, "abc");
+        var motionId = InsertMotion("timeline-event", dayStart.AddHours(9).AddMinutes(30));
+        using var client = Client();
+
+        var body = await ReadAsync<PlaybackTimeline>(await client.GetAsync(
+            $"/api/recording/timeline?channelId=1&stream=main&day={HttpUtility(dayStart)}"));
+
+        Assert.Single(body.Bars);
+        Assert.Contains(body.Markers, m => m.EventId == motionId && m.Kind == "motion");
+        Assert.True(body.GapFraction > 0 && body.GapFraction < 1, "day with one bar must not be fully gapped");
+    }
+
+    [Fact]
+    public async Task RecordingTimeline_EmptyDay_HasFullGap()
+    {
+        var dayStart = DateTime.UtcNow.Date.AddDays(30);
+        using var client = Client();
+
+        var body = await ReadAsync<PlaybackTimeline>(await client.GetAsync(
+            $"/api/recording/timeline?channelId=1&stream=main&day={HttpUtility(dayStart)}"));
+
+        Assert.Empty(body.Bars);
+        Assert.Equal(1.0, body.GapFraction);
+        Assert.Equal(1, body.GapCount);
+    }
+
+    [Fact]
     public async Task Events_ForensicSearchWithoutQueryReturns400()
     {
         using var client = Client();
