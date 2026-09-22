@@ -1090,7 +1090,7 @@ L2 比對（人臉/車牌）置「進階·需權限」區，預設關閉（§5.1
 | 7 | 搜尋 | **法證語意搜尋**（NLP / CLIP 語意）、影片摘要 | Genetec Forensic Search、Frigate CLIP | **FTS5 全文檢索 L0（M91 `EventSearchRepository`）已落地**；語意/AI 向量待續 | P2（差異化賣點） |
 | 8 | 整合 | **統一安全平台**：門禁/入侵感測/POS(Metadata 配對) | Genetec 平台、Synology Transactions、QNAP Metadata Vault | DI/DO＋綁定鏡頭已規劃(§16.2)；**門禁事件 L0（M92）＋POS 交易存錄/時間窗配對 L0（M93）已落地**；POS 接口待擴 | P2 |
 | 9 | 可靠 | **Failover 容錯**（第二記錄伺服器） | Milestone Failover、QNAP QVR Guard | 僅本機看門狗＋**租約仲裁 L0（M87）＋監控視窗/harness（M88）**；實體接管待續 | P2 |
-| 10 | 儲存 | **Edge Storage 雙保險**（設備 SD 側錄 + NVR） | Milestone、Genetec、Synology | **L0 補抓規劃器（M89 `EdgeRecoveryPlanner` 已落地）**；實體回灌待續 | P2 |
+| 10 | 儲存 | **Edge Storage 雙保險**（設備 SD 側錄 + NVR） | Milestone、Genetec、Synology | **L0 補抓規劃器（M89）＋L1 回灌執行器（M94 `EdgeBackfillExecutor` v32）已落地**；實際 ffmpeg 拉流＝部署整合（`IEdgeBackfillRunner`） | P2 |
 | 11 | 地圖 | **智慧地圖深化**：視角扇形 FOV/深度 | Milestone Smart Map | 僅基礎圖釘(§14.3) | P2 |
 | 12 | 錄影 | **Adaptive Streaming / SVR 品質自適應** | Milestone | 沒有 | P3 |
 | 13 | 邊緣 | **消費邊緣 AI 相機 metadata**（D2C/方向） | Genetec、Frigate | **L0 消費/軌跡/方向分類（M90 `EdgeAIClassifier`+`EdgeAITracker` 已落地）**；持久化/查詢待續 | P3 |

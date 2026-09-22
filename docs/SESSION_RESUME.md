@@ -6,8 +6,8 @@
 
 ## 一句話總結
 HeliVMS 為一套**網路影像監控系統**（WPF 桌面應用：即時監看／回放／AI 事件中心／錄影排程）。
-里程碑 **M1 至 M93 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M93 POS 交易 Metadata 配對 L0）。
-Release build 0 error、測試 **865/865 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
+里程碑 **M1 至 M94 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M94 補抓回灌執行器 L1）。
+Release build 0 error、測試 **874/874 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
 本地與遠端完全同步（`git diff origin/HEAD` 為空）。
 
 ## 開新 session 的接手方法
@@ -23,12 +23,13 @@ gh run list -L 3              # 預期全部 success
 新 session 會以 git 現況接手，不會靠猜測。
 
 ## 現況快照（權威來源＝git，非聊天記憶）
-- 最後 commit：`HEAD`＝**M93**——§14.7 #8 POS 交易 Metadata 配對 L0：SqliteStore v31
-  `pos_events`（amount_cents 精確存＋設備時序/交易號索引）＋`POSEventRepository`（Insert/
-  Query device＋左閉右開區間＋limit）＋`POSEventMatcher`（|Δt|≤window 配對依 Δt 排序）；
-  7 新測試→全 **865**、Release build 0 error、樹淨
-- 前一個 M92 交付＝`e567293`（門禁事件 L0，v30）＋`c31f424`（docs）；全 **858**、
-  CI `35664014176` success
+- 最後 commit：`HEAD`＝**M94**——§14.7 #10 補抓回灌執行器 L1：SqliteStore v32
+  `edge_backfill_jobs`（狀態機 Pending/Downloading/Done/Failed＋attempts＋next_attempt＋索引×2）
+  ＋`EdgeBackfillJobRepository`（重疊去重；QueryDue 含到期 Failed）＋`EdgeBackfillExecutor`
+  （有限並行／成功 Done／失敗退避重試）＋`EdgeBackfillCommandFactory`（ffmpeg -c copy pull）；
+  9 新測試→全 **874**、Release build 0 error、樹淨
+- 前一個 M93 交付＝`4a1affb`（POS 交易 Metadata 配對 L0，v31）＋`9334497`（docs）＋
+  `877f849`（Modbus loopback flake 穩定性）；全 **865**、CI `35664887187` success
 - 前一個 M85 交付＝`54cad94`（LDAPv3 連線層 L1：`LdapClient : ILdapBinder`
   裸 BER wire（simple bind＋memberOf SearchGroups）；`LdapBer` minimal BER＋`LdapFilterEncoder`
   RFC4515→BER；24 新測試（FakeLdapServer loopback）；全 **799**、CI `35621317643` success；
@@ -1657,6 +1658,25 @@ gh run list -L 3              # 預期全部 success
       窗內／窗外排除／無候選空）；`SchemaVersion_IsV31` 改名
       ＝＋7 → 全 **865**（Storage 552→559）；CI 綠；樹淨；§14.7 #8 現況補「POS 交易
       存錄＋配對 L0 已落地」
+
+70. **M94 已完成＝§14.7 #10 Edge Storage 雙保險之補抓回灌執行器 L1**：
+    - 背景：#10 欄「實體回灌待續」；M89 `EdgeRecoveryPlanner` 只產補抓計畫，本里程碑接上
+      「執行＋狀態」：設備重連後把 SD 側錄漏段 pull 回主庫、失敗退避重試、進度可查
+    - 落點：SqliteStore v31→**v32**；`edge_backfill_jobs`（device/channel/start/end/status
+      Pending|Downloading|Done|Failed/attempts/next_attempt/last_error/completed_utc＋設備時序
+      索引＋狀態索引）；`EdgeBackfillJobRepository`（Create **重疊去重**（Pending/Downloading/
+      Done 任一重疊即跳過）／QueryDue＝`status IN (Pending,Failed) AND (next_attempt≤now)`
+      ——**重點：Failed 且達退避時刻必須回取，否則退避永不啟動重試**／MarkDownloading・
+      MarkDone・MarkFailed（attempts+1＋退避時刻＋last_error））；`EdgeBackfillExecutor`
+      （一次 ExecuteOnce 取到期 jobs、SemaphoreSlim 有限並行、成功 Done／失敗退避）；
+      `EdgeBackfillCommandFactory`（純函式：`ffmpeg -y -nostdin -ss <start> -t <dur> -i <src>
+      -c copy <dest>`，-ss 前置快速 seek、-t 定長、免轉碼）
+    - 測試：整合 x9（CmdFactory 指令形狀／Create→QueryDue／重疊去重／MarkDone 設 completed＋
+      Done 不再取／MarkFailed attempts+1＋next_attempt、到期才回取／Executor 全部完成並記
+      completed／失敗退避（failed→now 空→now+退避可取）／失敗一次後重試成功 Done＋attempts
+      維持／maxConcurrent=2 時 ActiveMax=2 併行全跑完）；`SchemaVersion_IsV32` 改名
+      ＝＋9 → 全 **874**（Storage 559→568）；CI 綠；樹淨；§14.7 #10 現況改「L0 規劃器
+      ＋L1 回灌執行器均已落地；實際 ffmpeg 拉流為部署整合（`IEdgeBackfillRunner`）」
 
 ## 已知雷區（勿再犯）
 - **harness `.ps1` 必須存成 UTF-8 with BOM**：寫檔工具產出的是 UTF-8 無 BOM，含中文的 `.ps1` 會被 PowerShell 5.1 以 ANSI/Big5 誤讀而**靜默破壞解析**（症狀：`Start-Process` 看似無效、App 根本沒啟動、`Get-Process HeliVMS.App` 找不到）。修法：`[System.IO.File]::WriteAllText($p,[System.IO.File]::ReadAllText($p,[System.Text.Encoding]::UTF8),(New-Object System.Text.UTF8Encoding($true)))`（temp/opencode 有 `fix-encoding.ps1`）
