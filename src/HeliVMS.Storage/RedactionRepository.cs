@@ -95,6 +95,17 @@ public sealed class RedactionRepository
                 cmd.Parameters.AddWithValue("$to", SqliteStore.Iso(toUtc));
             });
 
+    /// <summary>跨頻道時間區間查詢（REST 缺省 channel 時用）。</summary>
+    public IReadOnlyList<RedactionRegion> QueryByTimeGlobal(DateTime fromUtc, DateTime toUtc)
+        => QueryCore(
+            @"WHERE occurred_at_utc >= $from AND occurred_at_utc < $to
+              ORDER BY occurred_at_utc, id",
+            cmd =>
+            {
+                cmd.Parameters.AddWithValue("$from", SqliteStore.Iso(fromUtc));
+                cmd.Parameters.AddWithValue("$to", SqliteStore.Iso(toUtc));
+            });
+
     /// <summary>移除一筆遮蔽區域（區位轉移／解除後）。回 true＝實際刪除。</summary>
     public bool Remove(long id)
     {

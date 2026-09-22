@@ -377,6 +377,18 @@ export function shareRows(rows) {
   }));
 }
 
+export function redRows(rows) {
+  return (rows ?? []).map((r) => ({
+    id: Number(r.id ?? r.Id ?? 0),
+    source: r.sourceType ?? r.SourceType ?? '',
+    ref: Number(r.refId ?? r.RefId ?? 0),
+    channel: Number(r.channelId ?? r.ChannelId ?? 0),
+    time: formatTimestamp(r.occurredAtUtc ?? r.OccurredAtUtc ?? ''),
+    rect: `${r.x ?? r.X ?? 0},${r.y ?? r.Y ?? 0} ${r.width ?? r.Width ?? 0}×${r.height ?? r.Height ?? 0}`,
+    filled: !!(r.filled ?? r.Filled),
+  }));
+}
+
 export function scheduleLabel(s, { short = false } = {}) {
   const r = s ?? {};
   const mask = Number(r.daysMask ?? r.DaysMask ?? 0);

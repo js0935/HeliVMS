@@ -21,6 +21,7 @@ import {
   holdRows,
   ruleRows,
   shareRows,
+  redRows,
   patrolLabel,
   scheduleInEffect,
   scheduleLabel,
@@ -100,7 +101,7 @@ async function submitLogin(event) {
   if (state.ok) {
     storeSession({ role: state.role, name: state.displayName });
     if (canAct(state.role)) {
-      await Promise.allSettled([renderAccounts(), renderConfig(), renderAudit(), renderEvidence(), renderBackup(), renderProviders(), renderHolds(), renderRules(), renderShares()]);
+      await Promise.allSettled([renderAccounts(), renderConfig(), renderAudit(), renderEvidence(), renderBackup(), renderProviders(), renderHolds(), renderRules(), renderShares(), renderReds()]);
     }
   }
   await refreshBoard();
@@ -127,6 +128,7 @@ function updateChrome() {
   $('hold-panel').hidden = !admin;
   $('rule-panel').hidden = !admin;
   $('share-panel').hidden = !admin;
+  $('red-panel').hidden = !admin;
   $('logout').hidden = !session;
 }
 
@@ -750,6 +752,51 @@ function bindShareForm() {
   });
 }
 
+async function renderReds() {
+  const rows = redRows(await api('/api/redactions?limit=200').catch(() => []));
+  $('red-body').innerHTML = rows
+    .map(
+      (r) =>
+        `<tr><td>#${r.id}</td><td>${r.source}</td><td>${r.ref}</td><td>CH${r.channel}</td><td>${r.time}</td><td>${r.rect}</td><td class="${r.filled ? 'ok' : ''}">${r.filled ? '塗滿' : '框選'}</td><td><button class="danger" data-red-del="${r.id}">移除</button></td></tr>`,
+    )
+    .join('');
+  $('red-count').textContent = `（${rows.length}）`;
+  Array.from(document.querySelectorAll('[data-red-del]')).forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      await fetch(`/api/redactions/${btn.dataset.redDel}`, { method: 'DELETE' });
+      renderReds();
+    });
+  });
+}
+
+function bindRedForm() {
+  const form = $('red-form');
+  form.addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    const f = form.elements;
+    const payload = {
+      sourceType: f.rsource.value,
+      refId: Number(f.rref.value || 0),
+      channelId: Number(f.rchannel.value || 1),
+      occurredAtUtc: f.rtime.value ? new Date(f.rtime.value).toISOString() : new Date().toISOString(),
+      x: Number(f.rx.value || 0),
+      y: Number(f.ry.value || 0),
+      width: Number(f.rw.value || 0),
+      height: Number(f.rh.value || 0),
+      filled: f.rfilled.checked,
+    };
+    const resp = await fetch('/api/redactions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    }).catch(() => null);
+    if (!resp) return;
+    const body = await resp.json().catch(() => null);
+    $('red-msg').textContent = resp.ok ? `已新增 #${body.id}` : body?.error ?? '失敗';
+    if (resp.ok) renderReds();
+  });
+}
+
 function bindEvidenceForm() {
   const form = $('evidence-form');
   form.addEventListener('submit', async (ev) => {
@@ -892,6 +939,7 @@ function wire() {
   bindHoldForm();
   bindRuleForm();
   bindShareForm();
+  bindRedForm();
   $('search-form').addEventListener('submit', (e) => {
     e.preventDefault();
     searchEvents($('q').value || '*').catch(console.error);

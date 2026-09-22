@@ -23,6 +23,7 @@ import {
   holdRows,
   ruleRows,
   shareRows,
+  redRows,
   patrolLabel,
   scheduleInEffect,
   scheduleLabel,
@@ -456,5 +457,13 @@ describe('login gating', () => {
     ]);
     expect(rows[0]).toMatchObject({ id: 1, token: 'abcdef123456', kind: 'segment', uses: '1/3', active: true });
     expect(shareRows(null)).toEqual([]);
+  });
+
+  it('renders redaction rows', () => {
+    const rows = redRows([
+      { id: 4, sourceType: 'clip', refId: 9, channelId: 1, occurredAtUtc: 'x', x: 10, y: 20, width: 50, height: 60, filled: true },
+    ]);
+    expect(rows[0]).toMatchObject({ id: 4, source: 'clip', ref: 9, channel: 1, rect: '10,20 50×60', filled: true });
+    expect(redRows(null)).toEqual([]);
   });
 });

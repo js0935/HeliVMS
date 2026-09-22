@@ -51,6 +51,8 @@ public static class ApiEndpoints
     public sealed record AlertRuleItem(long Id, string Name, string? EventType, int? ChannelId, string? Keyword, string? Channels, bool Enabled, string? MatchEventTypes, int FrameMinutes, int MinEventsInWindow);
     public sealed record ShareRequest(string Kind, string ResourcePath, string? Label, DateTime? ExpiresAt, int MaxUses);
     public sealed record ShareItem(int Id, string Token, string Kind, string ResourcePath, string? Label, string? CreatedBy, string? ExpiresAt, int MaxUses, int UseCount, bool Revoked, bool Active);
+    public sealed record RedactionRequest(string SourceType, long RefId, int ChannelId, DateTime OccurredAtUtc, int X, int Y, int Width, int Height, bool Filled);
+    public sealed record RedactionItem(long Id, string SourceType, long RefId, int ChannelId, string OccurredAtUtc, int X, int Y, int Width, int Height, bool Filled, string CreatedAtUtc);
     public sealed record DailyReportResponse(
         IReadOnlyList<RecordingSummaryRow> Recording,
         IReadOnlyList<CapacityTrendRow> Capacity,
@@ -789,7 +791,49 @@ public static class ApiEndpoints
             shares.Delete(id);
             return Results.Ok(new { ok = true });
         });
+
+        api.MapGet("/redactions", static (string? sourceType, long? refId, int? channelId, DateTime? from, DateTime? to, int? limit, RedactionRepository redactions) =>
+        {
+            var cap = Math.Clamp(limit ?? 200, 1, 500);
+            IReadOnlyList<RedactionRegion> rows;
+            if (!string.IsNullOrWhiteSpace(sourceType) && refId is not null)
+            {
+                rows = redactions.QueryBySource(sourceType, refId.Value);
+            }
+            else if (channelId is int ch)
+            {
+                rows = redactions.QueryByTime(ch, from ?? DateTime.MinValue, to ?? DateTime.MaxValue);
+            }
+            else
+            {
+                rows = redactions.QueryByTimeGlobal(from ?? DateTime.MinValue, to ?? DateTime.MaxValue);
+            }
+
+            return Results.Ok(rows.Take(cap).Select(ToRedaction).ToList());
+        });
+
+        api.MapPost("/redactions", static (RedactionRequest body, RedactionRepository redactions) =>
+        {
+            if (body.SourceType != RedactionSources.Clip && body.SourceType != RedactionSources.Snapshot)
+            {
+                return Results.BadRequest(new { error = "類型須為 clip/snapshot" });
+            }
+
+            if (body.Width <= 0 || body.Height <= 0 || body.X < 0 || body.Y < 0)
+            {
+                return Results.BadRequest(new { error = "遮蔽區域須為正面積" });
+            }
+
+            var id = redactions.Add(body.SourceType, body.RefId, body.ChannelId, body.OccurredAtUtc, body.X, body.Y, body.Width, body.Height, body.Filled, DateTime.UtcNow);
+            return Results.Ok(new RedactionItem(id, body.SourceType, body.RefId, body.ChannelId, SqliteStore.Iso(body.OccurredAtUtc), body.X, body.Y, body.Width, body.Height, body.Filled, SqliteStore.Iso(DateTime.UtcNow)));
+        });
+
+        api.MapDelete("/redactions/{id:long}", static (long id, RedactionRepository redactions) =>
+            redactions.Remove(id) ? Results.Ok(new { ok = true }) : Results.NotFound());
     }
+
+    private static RedactionItem ToRedaction(RedactionRegion r) =>
+        new(r.Id, r.SourceType, r.RefId, r.ChannelId, SqliteStore.Iso(r.OccurredAtUtc), r.X, r.Y, r.Width, r.Height, r.Filled, SqliteStore.Iso(r.CreatedAtUtc));
 
     private static IReadOnlyList<ShareItem> ToShares(IReadOnlyList<ShareLinkRecord> records) => records.Select(ToShare).ToList();
 

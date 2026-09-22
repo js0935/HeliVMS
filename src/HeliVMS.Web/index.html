@@ -206,6 +206,29 @@
       </form>
     </section>
 
+    <section class="panel wide" id="red-panel" hidden>
+      <h2>錄影遮蔽區域 <span id="red-count" class="muted"></span></h2>
+      <table class="compact">
+        <thead><tr><th>ID</th><th>來源</th><th>引用</th><th>頻道</th><th>發生時間</th><th>區域</th><th>類型</th><th></th></tr></thead>
+        <tbody id="red-body"></tbody>
+      </table>
+      <form id="red-form" class="row-form">
+        <select name="rsource">
+          <option value="clip">錄影</option>
+          <option value="snapshot">快照</option>
+        </select>
+        <input name="rref" type="number" min="0" placeholder="引用 ID">
+        <input name="rchannel" type="number" min="1" value="1" placeholder="頻道">
+        <input name="rx" type="number" min="0" value="0" placeholder="X">
+        <input name="ry" type="number" min="0" value="0" placeholder="Y">
+        <input name="rw" type="number" min="1" value="10" placeholder="寬">
+        <input name="rh" type="number" min="1" value="10" placeholder="高">
+        <label><input name="rfilled" type="checkbox" checked> 塗滿</label>
+        <button type="submit">新增</button>
+        <span id="red-msg" class="muted"></span>
+      </form>
+    </section>
+
     <section class="panel wide" id="rule-panel" hidden>
       <h2>警示規則 <span id="rule-count" class="muted"></span></h2>
       <table class="compact">

@@ -70,6 +70,19 @@ public class RedactionTests : IDisposable
     }
 
     [Fact]
+    public void QueryByTimeGlobal_CrossesChannels()
+    {
+        var t = T0();
+        _repo.Add(RedactionSources.Clip, 1, 1, t, 0, 0, 10, 10, true, t);
+        _repo.Add(RedactionSources.Clip, 1, 2, t.AddMinutes(1), 0, 0, 10, 10, true, t);
+        _repo.Add(RedactionSources.Clip, 1, 3, t.AddMinutes(5), 0, 0, 10, 10, true, t);
+
+        var rows = _repo.QueryByTimeGlobal(t, t.AddMinutes(3));
+
+        Assert.Equal(2, rows.Count);
+    }
+
+    [Fact]
     public void Add_ZeroSize_Throws()
     {
         var t = T0();

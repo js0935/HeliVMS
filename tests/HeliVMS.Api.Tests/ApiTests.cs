@@ -906,6 +906,42 @@ public class ApiTests : IClassFixture<ApiFactory>, IDisposable
 
     private sealed record ShareItem(int Id, string Token, string Kind, string ResourcePath, string? Label, string? CreatedBy, string? ExpiresAt, int MaxUses, int UseCount, bool Revoked, bool Active);
 
+    [Fact]
+    public async Task Redactions_AddListRemove()
+    {
+        using var client = Client();
+        var bad = await client.PostAsJsonAsync(
+            "/api/redactions",
+            new { sourceType = "video", refId = 1, channelId = 1, occurredAtUtc = "2026-07-01T00:00:00Z", x = 0, y = 0, width = -5, height = 5, filled = true });
+        Assert.Equal(HttpStatusCode.BadRequest, bad.StatusCode);
+
+        var created = await client.PostAsJsonAsync(
+            "/api/redactions",
+            new { sourceType = "clip", refId = 9, channelId = 1, occurredAtUtc = "2026-07-01T00:00:00Z", x = 10, y = 20, width = 50, height = 60, filled = true });
+        Assert.Equal(HttpStatusCode.OK, created.StatusCode);
+        var item = await ReadAsync<RedactionItem>(created);
+        Assert.Equal("clip", item.SourceType);
+
+        var bySource = await ReadAsync<List<RedactionItem>>(
+            await client.GetAsync("/api/redactions?sourceType=clip&refId=9"));
+        Assert.Contains(bySource, r => r.Id == item.Id && r.Width == 50);
+
+        var byTime = await ReadAsync<List<RedactionItem>>(
+            await client.GetAsync("/api/redactions?from=2026-07-01T00:00:00Z&to=2026-07-02T00:00:00Z"));
+        Assert.Contains(byTime, r => r.Id == item.Id);
+
+        var nf = await client.DeleteAsync("/api/redactions/999999");
+        Assert.Equal(HttpStatusCode.NotFound, nf.StatusCode);
+
+        var del = await client.DeleteAsync($"/api/redactions/{item.Id}");
+        Assert.Equal(HttpStatusCode.OK, del.StatusCode);
+        var gone = await ReadAsync<List<RedactionItem>>(
+            await client.GetAsync("/api/redactions?sourceType=clip&refId=9"));
+        Assert.DoesNotContain(gone, r => r.Id == item.Id);
+    }
+
+    private sealed record RedactionItem(long Id, string SourceType, long RefId, int ChannelId, string OccurredAtUtc, int X, int Y, int Width, int Height, bool Filled, string CreatedAtUtc);
+
     private sealed record BackupRunRecordBody(
         long Id,
         System.DateTime RunAt,
