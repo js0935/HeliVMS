@@ -29,19 +29,27 @@ public sealed class NtpClient
         CancellationToken ct = default)
     {
         using var udp = new UdpClient(server, port);
+        var budget = timeout ?? DefaultTimeout;
+        udp.Client.ReceiveTimeout = budget <= TimeSpan.FromMilliseconds(int.MaxValue)
+            ? (int)budget.TotalMilliseconds
+            : int.MaxValue;
+
         var t1 = DateTime.UtcNow;
         var request = NtpFrames.BuildRequestUtc(t1);
-        await udp.SendAsync(request.AsMemory(), ct);
+        await udp.SendAsync(request.AsMemory(), ct).ConfigureAwait(false);
 
-        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        cts.CancelAfter(timeout ?? DefaultTimeout);
-        byte[] response;
+        // socket 層 ReceiveTimeout 由 OS 計時，不受執行緒集區定時器遲發影響（M108 硬化）。
+        byte[]? response;
         try
         {
-            var result = await udp.ReceiveAsync(cts.Token);
-            response = result.Buffer;
+            IPEndPoint? remote = null;
+            response = udp.Receive(ref remote);
         }
-        catch (Exception ex) when (ex is OperationCanceledException or SocketException or ObjectDisposedException)
+        catch (SocketException ex) when (ex.SocketErrorCode is SocketError.TimedOut or SocketError.WouldBlock)
+        {
+            return null;
+        }
+        catch (SocketException)
         {
             return null;
         }
