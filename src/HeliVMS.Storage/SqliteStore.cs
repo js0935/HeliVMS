@@ -9,7 +9,7 @@ namespace HeliVMS.Storage;
 /// </summary>
 public sealed class SqliteStore : IDisposable
 {
-    private const int CurrentSchemaVersion = 33;
+    private const int CurrentSchemaVersion = 34;
     private readonly SqliteConnection _connection;
     private readonly object _gate = new();
     private bool _disposed;
@@ -217,6 +217,11 @@ public sealed class SqliteStore : IDisposable
         if (version < 33)
         {
             CreateEdgeSmartEventTablesV33();
+        }
+
+        if (version < 34)
+        {
+            CreateUnifiedSearchTablesV34();
         }
 
         Execute("PRAGMA user_version = CURRENT_SCHEMA_VERSION;".Replace(
@@ -978,6 +983,90 @@ public sealed class SqliteStore : IDisposable
             CREATE INDEX IF NOT EXISTS idx_edge_smart_device_time  ON edge_smart_events(device_id, occurred_at_utc);
             CREATE INDEX IF NOT EXISTS idx_edge_smart_class_time   ON edge_smart_events(class_name, occurred_at_utc);
             CREATE INDEX IF NOT EXISTS idx_edge_smart_direction    ON edge_smart_events(direction, occurred_at_utc);
+            """);
+    }
+
+    /// <summary>M97 法證語意搜尋多源化（§14.7 #7）L1：門禁/POS/Edge AI 各建 FTS5 外部內容表＋trigger 同步。</summary>
+    private void CreateUnifiedSearchTablesV34()
+    {
+        Execute(
+            """
+            CREATE VIRTUAL TABLE IF NOT EXISTS door_events_fts USING fts5(
+                id UNINDEXED,
+                card_id,
+                direction,
+                reason,
+                content='door_events',
+                content_rowid='id'
+            );
+
+            CREATE TRIGGER IF NOT EXISTS door_events_fts_ai AFTER INSERT ON door_events BEGIN
+                INSERT INTO door_events_fts(rowid, card_id, direction, reason)
+                VALUES (new.id, new.card_id, new.direction, new.reason);
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS door_events_fts_ad AFTER DELETE ON door_events BEGIN
+                INSERT INTO door_events_fts(door_events_fts, rowid, card_id, direction, reason)
+                VALUES ('delete', old.id, old.card_id, old.direction, old.reason);
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS door_events_fts_au AFTER UPDATE OF card_id, direction, reason ON door_events BEGIN
+                INSERT INTO door_events_fts(door_events_fts, rowid, card_id, direction, reason)
+                VALUES ('delete', old.id, old.card_id, old.direction, old.reason);
+                INSERT INTO door_events_fts(rowid, card_id, direction, reason)
+                VALUES (new.id, new.card_id, new.direction, new.reason);
+            END;
+
+            CREATE VIRTUAL TABLE IF NOT EXISTS pos_events_fts USING fts5(
+                id UNINDEXED,
+                register_id,
+                transaction_no,
+                content='pos_events',
+                content_rowid='id'
+            );
+
+            CREATE TRIGGER IF NOT EXISTS pos_events_fts_ai AFTER INSERT ON pos_events BEGIN
+                INSERT INTO pos_events_fts(rowid, register_id, transaction_no)
+                VALUES (new.id, new.register_id, new.transaction_no);
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS pos_events_fts_ad AFTER DELETE ON pos_events BEGIN
+                INSERT INTO pos_events_fts(pos_events_fts, rowid, register_id, transaction_no)
+                VALUES ('delete', old.id, old.register_id, old.transaction_no);
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS pos_events_fts_au AFTER UPDATE OF register_id, transaction_no ON pos_events BEGIN
+                INSERT INTO pos_events_fts(pos_events_fts, rowid, register_id, transaction_no)
+                VALUES ('delete', old.id, old.register_id, old.transaction_no);
+                INSERT INTO pos_events_fts(rowid, register_id, transaction_no)
+                VALUES (new.id, new.register_id, new.transaction_no);
+            END;
+
+            CREATE VIRTUAL TABLE IF NOT EXISTS edge_smart_events_fts USING fts5(
+                id UNINDEXED,
+                class_name,
+                track_id,
+                direction,
+                content='edge_smart_events',
+                content_rowid='id'
+            );
+
+            CREATE TRIGGER IF NOT EXISTS edge_smart_events_fts_ai AFTER INSERT ON edge_smart_events BEGIN
+                INSERT INTO edge_smart_events_fts(rowid, class_name, track_id, direction)
+                VALUES (new.id, new.class_name, new.track_id, new.direction);
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS edge_smart_events_fts_ad AFTER DELETE ON edge_smart_events BEGIN
+                INSERT INTO edge_smart_events_fts(edge_smart_events_fts, rowid, class_name, track_id, direction)
+                VALUES ('delete', old.id, old.class_name, old.track_id, old.direction);
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS edge_smart_events_fts_au AFTER UPDATE OF class_name, track_id, direction ON edge_smart_events BEGIN
+                INSERT INTO edge_smart_events_fts(edge_smart_events_fts, rowid, class_name, track_id, direction)
+                VALUES ('delete', old.id, old.class_name, old.track_id, old.direction);
+                INSERT INTO edge_smart_events_fts(rowid, class_name, track_id, direction)
+                VALUES (new.id, new.class_name, new.track_id, new.direction);
+            END;
             """);
     }
 

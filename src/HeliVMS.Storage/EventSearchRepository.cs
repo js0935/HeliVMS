@@ -44,6 +44,8 @@ public sealed class EventSearchRepository
             limit = DefaultLimit;
         }
 
+        query = FtsQuery.Normalize(query);
+
         var where = "alarm_events_fts MATCH $q";
         if (fromUtc is not null)
         {
