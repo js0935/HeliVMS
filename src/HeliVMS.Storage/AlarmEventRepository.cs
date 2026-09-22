@@ -441,4 +441,20 @@ public sealed class AlarmEventRepository
             "UPDATE alarm_events SET end_time = $e WHERE end_time IS NULL;",
             cmd => cmd.Parameters.AddWithValue("$e", SqliteStore.Iso(endUtc)));
     }
+
+    /// <summary>移除早於截止點之警報事件（M133 保留策略；子表 CASCADE、FTS trigger 同步）。</summary>
+    public long DeleteOlderThan(DateTime cutoffUtc)
+    {
+        return _store.Query(
+            """
+            DELETE FROM alarm_events WHERE start_time < $cut;
+            SELECT changes();
+            """,
+            static r =>
+            {
+                r.Read();
+                return r.GetInt64(0);
+            },
+            cmd => cmd.Parameters.AddWithValue("$cut", SqliteStore.Iso(cutoffUtc)));
+    }
 }

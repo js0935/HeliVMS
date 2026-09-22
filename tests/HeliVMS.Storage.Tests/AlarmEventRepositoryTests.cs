@@ -340,5 +340,22 @@ public class AlarmEventRepositoryTests : IDisposable
         Assert.False(pending.Acknowledged);
     }
 
+    [Fact]
+    public void DeleteOlderThan_RemovesOnlyRetiredEvents()
+    {
+        var retired = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        _repo.Insert(1, "motion", retired, detail: "old");
+        _repo.Insert(1, "motion", retired.AddDays(1), detail: "boundary");
+        var fresh = _repo.Insert(1, "motion", retired.AddYears(2), detail: "fresh");
+
+        var removed = _repo.DeleteOlderThan(retired.AddDays(1));
+        Assert.Equal(1, removed);
+
+        var kept = _repo.ListByRange(null, DateTime.MinValue, DateTime.MaxValue);
+        Assert.Equal(2, kept.Count);
+        Assert.All(kept, e => Assert.True(e.Id >= fresh || e.StartUtc > retired.AddHours(1)));
+        Assert.DoesNotContain(kept, e => e.StartUtc == retired);
+    }
+
     public void Dispose() => _store.Dispose();
 }

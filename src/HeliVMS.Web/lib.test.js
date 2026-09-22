@@ -257,6 +257,7 @@ describe('login gating', () => {
       lockoutMinutes: 30,
       recordingRetentionDays: 30,
       recordingWatermarkGb: 0,
+      alarmRetentionDays: 365,
     });
     expect(configCard({ AuthEnabled: 1, LockoutThreshold: '4', LockoutMinutes: 15 })).toEqual({
       authEnabled: true,
@@ -264,6 +265,7 @@ describe('login gating', () => {
       lockoutMinutes: 15,
       recordingRetentionDays: 30,
       recordingWatermarkGb: 0,
+      alarmRetentionDays: 365,
     });
     expect(configCard(null)).toEqual({
       authEnabled: false,
@@ -271,6 +273,7 @@ describe('login gating', () => {
       lockoutMinutes: 5,
       recordingRetentionDays: 30,
       recordingWatermarkGb: 0,
+      alarmRetentionDays: 365,
     });
     expect(
       configCard({ recordingRetentionDays: 90, recordingWatermarkGb: '12.5' }),

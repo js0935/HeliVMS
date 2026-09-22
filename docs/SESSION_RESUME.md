@@ -6,7 +6,7 @@
 
 ## 一句話總結
 HeliVMS 為一套**網路影像監控系統**（WPF 桌面應用：即時監看／回放／AI 事件中心／錄影排程）。
-進度: **M1 至 M132 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M128 日報 REST/視界；M120 回放段檔 REST；M119 回放時間軸 API；M118 警報即時流；M117 HeliVMS.WebApi；M116 快照一鍵遮蔽；M115 MQTT 訂閱派送掛載；M112 訂閱數據面、M113 POS 自動關聯、M114 VMD 自動套用）。
+進度: **M1 至 M133 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M128 日報 REST/視界；M120 回放段檔 REST；M119 回放時間軸 API；M118 警報即時流；M117 HeliVMS.WebApi；M116 快照一鍵遮蔽；M115 MQTT 訂閱派送掛載；M112 訂閱數據面、M113 POS 自動關聯、M114 VMD 自動套用）。
 Release build 0 error、測試 **1123/1123（＋vitest 30） 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
 本地與遠端完全同步（`git diff origin/HEAD` 為空）。
 
@@ -2085,6 +2085,11 @@ gh run list -L 3              # 預期全部 success
 93. **M116 交付＝快照一鍵遮蔽（§14.7 #16）**：
     - `SnapshotRedactor`：解碼→逐區 `RedactionProcessor.Apply(filled=true)` 實心塗黑（範圍夾截、退化區略過、輸入不可變）→依原格式（JPEG/PNG）重編碼。`SnapshotRedactionService`：按 snapshot `RedactionRepository.QueryBySource` 取區套用。
     - Storage 加 `System.Drawing.Common`（`SupportedPlatform windows`＋`SupportedOSPlatformVersion`；CI windows-latest 合規）；測試 8（遮黑/夾截/退化跳過/多區/PNG 精確黑/輸入不變/DB refId/無區回傳）→全量 **1098**。
+111. **M133 交付＝警報保留（alarm_events 清理納入 retention）**：
+    - Storage：`AlarmEventRepository.DeleteOlderThan(cutoff)`（DELETE＋`changes()`；子表 CASCADE、FTS trigger 同步）+ Storage 測試 **783**（僅清超齡、保留邊界/新件）。
+    - WebApi：`RetentionService` 增 `alarm.retention.days`（1..36500，缺省 365）；`/api/config` 增 alarmRetentionDays（PUT 400）、`/config/usage` 含 alarm 天數、`/retention/run` 回傳 AlarmPurged。
+    - SPA：設定面板警報保留輸入＋run 摘要；configCard 增 alarmRetentionDays。
+    - 測試：Api **31**（retention run 增 AlarmPurged>=1 斷言）；全量 **1130**。
 110. **M132 交付＝容量保留策略＋清理 host（配額/RPO §15 閉環）**：
     - Storage：`SegmentRepository.ListRetired(cutoff, take)`（早於截止點之最舊 final）＋既有 GetTotalUsage/ListOldestFinal/Delete。
     - WebApi：`RetentionService:BackgroundService`（30min 定時＋可手動）——保留天數 `recording.retention.days`（1..3650，缺省 30）＋浮水印 `recording.retention.watermark_gb`（0＝關）；`RunOnce` 先清超齡、再清超浮水印（改用量<目標），單輪 20 萬筆安全帽。

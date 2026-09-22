@@ -137,9 +137,10 @@ async function renderConfig() {
   $('lock-minutes').value = c.lockoutMinutes;
   $('retention-days').value = c.recordingRetentionDays;
   $('retention-watermark').value = c.recordingWatermarkGb;
+  $('alarm-retention-days').value = c.alarmRetentionDays;
   const usage = await api('/api/config/usage').catch(() => null);
   $('storage-usage').textContent = usage
-    ? `使用 ${usage.gb.toFixed(2)}GiB · 保留 ${usage.retentionDays} 天 · 浮水印 ${usage.watermarkGb}GB`
+    ? `使用 ${usage.gb.toFixed(2)}GiB · 保留 ${usage.retentionDays} 天 · 警報 ${usage.alarmRetentionDays} 天 · 浮水印 ${usage.watermarkGb}GB`
     : '';
 }
 
@@ -155,6 +156,7 @@ async function saveConfig(event) {
         lockoutMinutes: Number($('lock-minutes').value),
         recordingRetentionDays: Number($('retention-days').value),
         recordingWatermarkGb: Number($('retention-watermark').value),
+        alarmRetentionDays: Number($('alarm-retention-days').value),
       }),
     });
     await renderConfig();
@@ -168,7 +170,7 @@ async function runRetention() {
   try {
     const result = await api('/api/retention/run', { method: 'POST' });
     $('config-msg').textContent =
-      `清理完成：保留期 ${result.agePurged} · 浮水印 ${result.watermarkPurged} · 釋放 ${(result.bytesFreed / 1073741824).toFixed(2)}GiB`;
+      `清理完成：錄影保留 ${result.agePurged} · 浮水印 ${result.watermarkPurged} · 警報 ${result.alarmPurged} · 釋放 ${(result.bytesFreed / 1073741824).toFixed(2)}GiB`;
     await renderConfig();
   } catch (err) {
     $('config-msg').textContent = String(err);

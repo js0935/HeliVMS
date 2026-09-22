@@ -24,10 +24,10 @@ public static class ApiEndpoints
     public sealed record AccountUpsertRequest(string Username, string Password, string Role, string? DisplayName);
     public sealed record AccountPatchRequest(string? Role, bool? Enabled, string? DisplayName);
     public sealed record AccountListItem(int Id, string Username, string Role, string? DisplayName, bool Enabled, bool Locked);
-    public sealed record ConfigResponse(bool AuthEnabled, int LockoutThreshold, int LockoutMinutes, int RecordingRetentionDays, double RecordingWatermarkGb);
-    public sealed record ConfigRequest(bool? AuthEnabled, int? LockoutThreshold, int? LockoutMinutes, int? RecordingRetentionDays, double? RecordingWatermarkGb);
-    public sealed record UsageResponse(long Bytes, double Gb, int RetentionDays, double WatermarkGb);
-    public sealed record RetentionRunResult(int AgePurged, int WatermarkPurged, long BytesFreed);
+    public sealed record ConfigResponse(bool AuthEnabled, int LockoutThreshold, int LockoutMinutes, int RecordingRetentionDays, double RecordingWatermarkGb, int AlarmRetentionDays);
+    public sealed record ConfigRequest(bool? AuthEnabled, int? LockoutThreshold, int? LockoutMinutes, int? RecordingRetentionDays, double? RecordingWatermarkGb, int? AlarmRetentionDays);
+    public sealed record UsageResponse(long Bytes, double Gb, int RetentionDays, double WatermarkGb, int AlarmRetentionDays);
+    public sealed record RetentionRunResult(int AgePurged, int WatermarkPurged, long BytesFreed, long AlarmPurged);
     public sealed record DailyReportResponse(
         IReadOnlyList<RecordingSummaryRow> Recording,
         IReadOnlyList<CapacityTrendRow> Capacity,
@@ -298,7 +298,8 @@ public static class ApiEndpoints
                 (int)settings.GetDoubleOrDefault("auth.lockout.threshold", 5),
                 (int)settings.GetDoubleOrDefault("auth.lockout.minutes", 5),
                 (int)settings.GetDoubleOrDefault(RetentionService.DaysKey, 30),
-                settings.GetDoubleOrDefault(RetentionService.WatermarkGbKey, 0))));
+                settings.GetDoubleOrDefault(RetentionService.WatermarkGbKey, 0),
+                (int)settings.GetDoubleOrDefault(RetentionService.AlarmDaysKey, 365))));
 
         api.MapPut("/config", static (ConfigRequest body, SettingsRepository settings) =>
         {
@@ -347,12 +348,23 @@ public static class ApiEndpoints
                 settings.Set(RetentionService.WatermarkGbKey, watermark.ToString(System.Globalization.CultureInfo.InvariantCulture));
             }
 
+            if (body.AlarmRetentionDays is int alarmDays)
+            {
+                if (alarmDays is < 1 or > 36500)
+                {
+                    return Results.BadRequest(new { error = "警報保留天數須為 1..36500" });
+                }
+
+                settings.Set(RetentionService.AlarmDaysKey, alarmDays.ToString());
+            }
+
             return Results.Ok(new ConfigResponse(
                 settings.GetOrDefault("auth.enabled", "0") == "1",
                 (int)settings.GetDoubleOrDefault("auth.lockout.threshold", 5),
                 (int)settings.GetDoubleOrDefault("auth.lockout.minutes", 5),
                 (int)settings.GetDoubleOrDefault(RetentionService.DaysKey, 30),
-                settings.GetDoubleOrDefault(RetentionService.WatermarkGbKey, 0)));
+                settings.GetDoubleOrDefault(RetentionService.WatermarkGbKey, 0),
+                (int)settings.GetDoubleOrDefault(RetentionService.AlarmDaysKey, 365)));
         });
 
         api.MapGet("/config/usage", static (RetentionService retention) =>
@@ -360,12 +372,13 @@ public static class ApiEndpoints
                 retention.UsageBytes,
                 retention.UsageBytes / 1073741824.0,
                 retention.RetentionDays,
-                retention.WatermarkGb)));
+                retention.WatermarkGb,
+                retention.AlarmRetentionDays)));
 
         api.MapPost("/retention/run", static (RetentionService retention) =>
         {
             var result = retention.RunOnce(DateTime.UtcNow);
-            return Results.Ok(new RetentionRunResult(result.AgePurged, result.WatermarkPurged, result.BytesFreed));
+            return Results.Ok(new RetentionRunResult(result.AgePurged, result.WatermarkPurged, result.BytesFreed, result.AlarmPurged));
         });
     }
 

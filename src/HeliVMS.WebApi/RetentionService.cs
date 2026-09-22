@@ -7,14 +7,17 @@ public sealed class RetentionService : BackgroundService
 {
     public const string DaysKey = "recording.retention.days";
     public const string WatermarkGbKey = "recording.retention.watermark_gb";
+    public const string AlarmDaysKey = "alarm.retention.days";
 
     private readonly SegmentRepository _segments;
+    private readonly AlarmEventRepository _alarms;
     private readonly SettingsRepository _settings;
     private readonly TimeSpan _interval;
 
     public RetentionService(SqliteStore store, TimeSpan? interval = null)
     {
         _segments = new SegmentRepository(store);
+        _alarms = new AlarmEventRepository(store);
         _settings = new SettingsRepository(store);
         _interval = interval ?? TimeSpan.FromMinutes(30);
     }
@@ -23,15 +26,21 @@ public sealed class RetentionService : BackgroundService
 
     public double WatermarkGb => _settings.GetDoubleOrDefault(WatermarkGbKey, 0);
 
+    public int AlarmRetentionDays => (int)_settings.GetDoubleOrDefault(AlarmDaysKey, 365);
+
     public long UsageBytes => _segments.GetTotalUsage();
 
-    public (int AgePurged, int WatermarkPurged, long BytesFreed) RunOnce(DateTime nowUtc)
+    public (int AgePurged, int WatermarkPurged, long BytesFreed, long AlarmPurged) RunOnce(DateTime nowUtc)
     {
         var days = RetentionDays;
         var watermark = WatermarkGb;
+        var alarmDays = AlarmRetentionDays;
         int agePurged = 0;
         int wmPurged = 0;
         long freed = 0;
+        long alarmPurged = alarmDays > 0
+            ? _alarms.DeleteOlderThan(nowUtc.AddDays(-alarmDays))
+            : 0;
         var stopped = false;
         var cutoff = nowUtc.AddDays(-days);
 
@@ -69,7 +78,7 @@ public sealed class RetentionService : BackgroundService
             stopped = true;
         }
 
-        return (agePurged, wmPurged, freed);
+        return (agePurged, wmPurged, freed, alarmPurged);
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)

@@ -192,6 +192,7 @@ export function configCard(raw) {
     lockoutMinutes: Number(r.lockoutMinutes ?? r.LockoutMinutes ?? 5),
     recordingRetentionDays: Number(r.recordingRetentionDays ?? r.RecordingRetentionDays ?? 30),
     recordingWatermarkGb: Number(r.recordingWatermarkGb ?? r.RecordingWatermarkGb ?? 0),
+    alarmRetentionDays: Number(r.alarmRetentionDays ?? r.AlarmRetentionDays ?? 365),
   };
 }
 
