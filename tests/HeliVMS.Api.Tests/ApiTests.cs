@@ -606,6 +606,76 @@ public class ApiTests : IClassFixture<ApiFactory>, IDisposable
     private sealed record EvidenceListItem(int Id, string Status, string CreatedAt, string? LastVerifiedAt, int Items);
 
     [Fact]
+    public async Task Backup_RunsCopySegmentsAndAdvanceCheckpoint()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"helivms-backup-{Guid.NewGuid():N}");
+        var src = Path.Combine(root, "src");
+        Directory.CreateDirectory(src);
+        var dst = Path.Combine(root, "dst");
+        _ = dst;
+        var content = new byte[4096];
+        new Random(7).NextBytes(content);
+        var filePath = Path.Combine(src, "ch1", "2021-01-02_000000.mp4");
+        Directory.CreateDirectory(Path.GetDirectoryName(filePath)!);
+        await File.WriteAllBytesAsync(filePath, content);
+        var sha = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(content)).ToLowerInvariant();
+
+        var segments = Service<SegmentRepository>();
+        var id = segments.BeginSegment(1, "main", filePath, new DateTime(2021, 1, 2, 0, 0, 0, DateTimeKind.Utc));
+        segments.CompleteSegment(id, new DateTime(2021, 1, 2, 0, 10, 0, DateTimeKind.Utc), content.Length, 600, sha);
+
+        try
+        {
+            using var client = Client();
+            var bad = await client.PostAsJsonAsync(
+                "/api/backup/run",
+                new { sourceRoot = Path.Combine(root, "missing"), targetRoot = dst });
+            Assert.Equal(HttpStatusCode.BadRequest, bad.StatusCode);
+
+            var once = await client.PostAsJsonAsync(
+                "/api/backup/run",
+                new { sourceRoot = src, targetRoot = dst });
+            Assert.Equal(HttpStatusCode.OK, once.StatusCode);
+            var result = await ReadAsync<BackupRunResultBody>(once);
+            Assert.Equal(1, result.Scanned);
+            Assert.Equal(1, result.Copied);
+            Assert.Equal(content.Length, result.CopiedBytes);
+            Assert.True(result.Advanced);
+
+            var targetFile = Path.Combine(dst, "ch1", Path.GetFileName(filePath));
+            Assert.True(File.Exists(targetFile), "backup file on target with mirror rel path");
+            Assert.Equal(sha, Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(await File.ReadAllBytesAsync(targetFile))).ToLowerInvariant());
+
+            var two = await client.PostAsJsonAsync(
+                "/api/backup/run",
+                new { sourceRoot = src, targetRoot = dst });
+            var again = await ReadAsync<BackupRunResultBody>(two);
+            Assert.Equal(0, again.Copied);
+
+            var runsResp = await client.GetAsync("/api/backup/runs");
+            var runs = await ReadAsync<List<BackupRunRecordBody>>(runsResp);
+            Assert.True(runs.Count >= 2);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    private sealed record BackupRunResultBody(int Scanned, int Copied, long CopiedBytes, int Failed, bool Advanced);
+
+    private sealed record BackupRunRecordBody(
+        long Id,
+        System.DateTime RunAt,
+        string SourceRoot,
+        string TargetRoot,
+        System.DateTime? CheckpointUtc,
+        int CopiedCount,
+        long CopiedBytes,
+        int FailedCount,
+        string? Detail);
+
+    [Fact]
     public async Task Audit_QueriesAndExportsCsv()
     {
         var ops = Service<AuditLogRepository>();

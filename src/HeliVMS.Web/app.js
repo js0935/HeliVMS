@@ -12,6 +12,7 @@ import {
   focusLayout,
   formatTimestamp,
   evRows,
+  backupRows,
   patrolLabel,
   scheduleInEffect,
   scheduleLabel,
@@ -91,7 +92,7 @@ async function submitLogin(event) {
   if (state.ok) {
     storeSession({ role: state.role, name: state.displayName });
     if (canAct(state.role)) {
-      await Promise.allSettled([renderAccounts(), renderConfig(), renderAudit(), renderEvidence()]);
+      await Promise.allSettled([renderAccounts(), renderConfig(), renderAudit(), renderEvidence(), renderBackup()]);
     }
   }
   await refreshBoard();
@@ -113,6 +114,7 @@ function updateChrome() {
   $('config-panel').hidden = !admin;
   $('audit-panel').hidden = !admin;
   $('evidence-panel').hidden = !admin;
+  $('backup-panel').hidden = !admin;
   $('logout').hidden = !session;
 }
 
@@ -427,6 +429,38 @@ async function renderEvidence() {
   $('evidence-count').textContent = `（${rows.length}）`;
 }
 
+async function renderBackup() {
+  const rows = backupRows(await api('/api/backup/runs').catch(() => []));
+  $('backup-body').innerHTML = rows
+    .map(
+      (r) =>
+        `<tr><td>#${r.seq}</td><td>${r.runAt?.slice(0, 19) ?? ''}</td><td>${r.copied}</td><td>${r.bytes}</td><td>${r.failed}</td><td>${r.advanced ? '已推進' : '未推進'}</td><td class="muted">${r.target}</td></tr>`,
+    )
+    .join('');
+  $('backup-count').textContent = `（${rows.length}）`;
+}
+
+function bindBackupForm() {
+  const form = $('backup-form');
+  form.addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    const src = form.querySelector('input[name="bsrc"]').value.trim();
+    const dst = form.querySelector('input[name="bdst"]').value.trim();
+    if (!src || !dst) return;
+    const resp = await fetch('/api/backup/run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sourceRoot: src, targetRoot: dst }),
+    }).catch(() => null);
+    if (!resp) return;
+    const body = await resp.json().catch(() => null);
+    $('backup-msg').textContent = resp.ok
+      ? `完成：掃描 ${body.scanned} → 複製 ${body.copied}（${(body.copiedBytes / 1048576).toFixed(1)}MiB），失敗 ${body.failed}`
+      : body?.error ?? '失敗';
+    if (resp.ok) renderBackup();
+  });
+}
+
 function bindEvidenceForm() {
   const form = $('evidence-form');
   form.addEventListener('submit', async (ev) => {
@@ -562,6 +596,8 @@ function wire() {
   $('account-form').addEventListener('submit', submitAccount);
   $('config-form').addEventListener('submit', saveConfig);
   $('retention-run').addEventListener('click', runRetention);
+  bindEvidenceForm();
+  bindBackupForm();
   $('search-form').addEventListener('submit', (e) => {
     e.preventDefault();
     searchEvents($('q').value || '*').catch(console.error);
@@ -575,7 +611,6 @@ async function boot() {
   await Promise.allSettled([refreshChannels(), refreshBoard(), refreshTimeline(), renderMap(), renderSmartwall(), renderPos(), renderDaily(), renderSchedules(), renderPatrols()]);
   bindScheduleForm();
   bindPatrolForm();
-  bindEvidenceForm();
   connectLive();
 }
 

@@ -14,6 +14,7 @@ import {
   focusLayout,
   formatTimestamp,
   evRows,
+  backupRows,
   patrolLabel,
   scheduleInEffect,
   scheduleLabel,
@@ -378,5 +379,14 @@ describe('login gating', () => {
       { id: 1, status: 'packaged', createdAt: 't', items: 3 },
     ]);
     expect(evRows(null)).toEqual([]);
+  });
+
+  it('renders backup rows', () => {
+    expect(
+      backupRows([
+        { runAt: 't', copiedCount: 3, copiedBytes: 1200, failedCount: 1, checkpointUtc: null, targetRoot: '/t' },
+      ]),
+    ).toEqual([{ seq: 1, runAt: 't', copied: 3, bytes: 1200, failed: 1, advanced: false, target: '/t' }]);
+    expect(backupRows(null)).toEqual([]);
   });
 });

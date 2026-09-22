@@ -265,6 +265,18 @@ export function evRows(rows) {
   }));
 }
 
+export function backupRows(rows) {
+  return (rows ?? []).map((r, i) => ({
+    seq: i + 1,
+    runAt: r.runAt ?? r.RunAt ?? '',
+    copied: Number(r.copiedCount ?? r.CopiedCount ?? 0),
+    bytes: Number(r.copiedBytes ?? r.CopiedBytes ?? 0),
+    failed: Number(r.failedCount ?? r.FailedCount ?? 0),
+    advanced: !!(r.checkpointUtc ?? r.CheckpointUtc),
+    target: r.targetRoot ?? r.TargetRoot ?? '',
+  }));
+}
+
 export function scheduleLabel(s, { short = false } = {}) {
   const r = s ?? {};
   const mask = Number(r.daysMask ?? r.DaysMask ?? 0);

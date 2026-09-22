@@ -34,6 +34,7 @@ public static class ApiEndpoints
     public sealed record EvidenceVerifyResult(bool Valid, bool Expired, IReadOnlyList<string> Failures, IReadOnlyList<EvidenceItemBody> Items);
     public sealed record EvidenceItemBody(string RelativePath, string Sha256, long SizeBytes, string Kind);
     public sealed record EvidenceListItem(int Id, string Status, string CreatedAt, string? LastVerifiedAt, int Items);
+    public sealed record BackupRunRequest(string SourceRoot, string TargetRoot);
     public sealed record DailyReportResponse(
         IReadOnlyList<RecordingSummaryRow> Recording,
         IReadOnlyList<CapacityTrendRow> Capacity,
@@ -487,6 +488,31 @@ public static class ApiEndpoints
                 result.Items
                     .Select(i => new EvidenceItemBody(i.RelativePath, i.Sha256, i.SizeBytes, i.Kind))
                     .ToList()));
+        });
+
+        api.MapGet("/backup/runs", static (BackupRepository backups) => Results.Ok(backups.ListRuns()));
+
+        api.MapPost("/backup/run", static (BackupRunRequest body, BackupService backup) =>
+        {
+            if (string.IsNullOrWhiteSpace(body.SourceRoot) || string.IsNullOrWhiteSpace(body.TargetRoot))
+            {
+                return Results.BadRequest(new { error = "來源與目標目錄必填" });
+            }
+
+            if (!Directory.Exists(body.SourceRoot))
+            {
+                return Results.BadRequest(new { error = "來源目錄不存在" });
+            }
+
+            try
+            {
+                var result = backup.Run(body.SourceRoot, body.TargetRoot);
+                return Results.Ok(result);
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Results.BadRequest(new { error = ex.Message });
+            }
         });
     }
 

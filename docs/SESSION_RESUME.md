@@ -6,7 +6,7 @@
 
 ## 一句話總結
 HeliVMS 為一套**網路影像監控系統**（WPF 桌面應用：即時監看／回放／AI 事件中心／錄影排程）。
-進度: **M1 至 M134 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M128 日報 REST/視界；M120 回放段檔 REST；M119 回放時間軸 API；M118 警報即時流；M117 HeliVMS.WebApi；M116 快照一鍵遮蔽；M115 MQTT 訂閱派送掛載；M112 訂閱數據面、M113 POS 自動關聯、M114 VMD 自動套用）。
+進度: **M1 至 M135 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M128 日報 REST/視界；M120 回放段檔 REST；M119 回放時間軸 API；M118 警報即時流；M117 HeliVMS.WebApi；M116 快照一鍵遮蔽；M115 MQTT 訂閱派送掛載；M112 訂閱數據面、M113 POS 自動關聯、M114 VMD 自動套用）。
 Release build 0 error、測試 **1123/1123（＋vitest 30） 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
 本地與遠端完全同步（`git diff origin/HEAD` 為空）。
 
@@ -2085,6 +2085,10 @@ gh run list -L 3              # 預期全部 success
 93. **M116 交付＝快照一鍵遮蔽（§14.7 #16）**：
     - `SnapshotRedactor`：解碼→逐區 `RedactionProcessor.Apply(filled=true)` 實心塗黑（範圍夾截、退化區略過、輸入不可變）→依原格式（JPEG/PNG）重編碼。`SnapshotRedactionService`：按 snapshot `RedactionRepository.QueryBySource` 取區套用。
     - Storage 加 `System.Drawing.Common`（`SupportedPlatform windows`＋`SupportedOSPlatformVersion`；CI windows-latest 合規）；測試 8（遮黑/夾截/退化跳過/多區/PNG 精確黑/輸入不變/DB refId/無區回傳）→全量 **1098**。
+113. **M135 交付＝異地備援 REST＋SPA（M43 閉環；原有 BackupService/BackupRepository 僅暴露，未重造）**：
+    - WebApi（DI 註冊 BackupService＋BackupRepository；改用建構子注入保留 400）：`GET /api/backup/runs`（backup_log 最近 30）；`POST /api/backup/run`（SourceRoot/TargetRoot 必填、來源不存在 400、來源＝目標 400；Run 檢查點推進＋SHA-256 比對）。
+    - SPA：admin 備援面板——執行紀錄（#/時間/複製數/位元組/失敗/檢查點/目標）＋執行表單（兩路徑）＋結果訊息（scan/copy/MiB/fail）。lib `backupRows`。
+    - 測試：Api ＋1 **33**（缺源 400；種子 final 段＋實際檔→Run 複製→目標檔 SHA 相符→連跑檢查點推進 cop=0→runs ≥2）；vitest ＋1 **34**（backupRows 正常/空）；全量 **1132**。
 112. **M134 交付＝證據包 REST＋SPA（M43/M53 閉環）**：
     - WebApi（DI 註冊 EvidenceManifestRepository）：`GET /api/evidence`（manifest 清單＋檔案數）；`POST /api/evidence/package`（BundleName/Files[] 絕對路徑/Password?；檔不存在或空→400；BuildManifest＋Create .evp 至 %TEMP%\\helivms-evidence；Upsert manifest）；`POST /api/evidence/verify`（Verify 回 Valid/Expired/Failures/Items）。
     - SPA：admin 證據面板——清單、打包表單（包名＋路徑多行）、結果訊息（路徑＋sha256 前 12）。lib `evRows`。
