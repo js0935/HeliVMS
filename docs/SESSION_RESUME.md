@@ -6,8 +6,8 @@
 
 ## 一句話總結
 HeliVMS 為一套**網路影像監控系統**（WPF 桌面應用：即時監看／回放／AI 事件中心／錄影排程）。
-里程碑 **M1 至 M108 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M108 MQTT 統一＋憑證支援）。
-Release build 0 error、測試 **1031/1031 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
+里程碑 **M1 至 M109 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M109 稽核日誌 v40）。
+Release build 0 error、測試 **1043/1043 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
 本地與遠端完全同步（`git diff origin/HEAD` 為空）。
 
 ## 開新 session 的接手方法
@@ -23,16 +23,16 @@ gh run list -L 3              # 預期全部 success
 新 session 會以 git 現況接手，不會靠猜測。
 
 ## 現況快照（權威來源＝git，非聊天記憶）
-- 最後 commit：`HEAD`＝**M108**——MQTT 統一＋憑證支援（收尾 §14.7 #15 事件派送）：
-  `MqttClient.Connect` 增可選 `username/password`（CONNECT flags 0x80/0x40＋payload，RFC 3.1；
-  password 設而 username 未設→補空 username 保持 flags 合法；空 clientId→Fail）＋
-  `IMqttPublisher` 介身同步擴充；`Alarms.MqttNotifier`（原內建裸 MQTT 協定）重構為委派
-  `IMqttPublisher`（正式＝MqttClient；注入 fake 可離線單測），payload 契約
-  {channel_id,event_type,start_utc,detail} 不變，Connect 失敗/發布失敗回 false、成功後必
-  Disconnect——兩套裸 MQTT 併一套。Storage 4 新測試＋Alarms 5 新測試→全 **1031**（Storage
-  716→720、Alarms 244→249）、Release build 0 error、樹淨
-- 前一個 M107 交付＝`19f946d`（§14.7 #7 NLP 查詢解析 L0＋NTP socket 層逾時硬化）＋`8055fb0`（docs）；
-  全 **1022**、CI `35718974514` success
+- 最後 commit：`HEAD`＝**M109**——稽核日誌（Audit Log）L0（§14.1 資安治理，schema 39→**40**）：
+  `audit_log` 表＋`idx_audit_log_time` 索引；`AuditLogRepository`：Record（actor/action/category
+  空白→ArgumentException、occurredAtUtc 注入可測、target 欄位可空）、List（category/actor/action＋
+  時間左閉右開＋LIMIT/OFFSET、時序 DESC）、Count、PruneOlderThan（稽核保管期限清理，
+  `SELECT changes()` 回傳刪除數）；`AuditCategories` 常數（auth/config/export/evidence/share/
+  retention/legal_hold）。12 新測試→全 **1043**（Storage 720→732；Alarms 249、Devices 54、
+  Licensing 8 不變）、Release build 0 error、樹淨
+- 前一個 M108 交付＝`07791ef`（§14.7 #15 收尾：MQTT 統一＋憑證支援，`MqttClient.Connect`
+  username/password RFC 3.1＋`Alarms.MqttNotifier` 委派 Storage `IMqttPublisher`）＋`b5912c7`（docs）；
+  全 **1031**、CI `35720210768` success
 - 前一個 M85 交付＝`54cad94`（LDAPv3 連線層 L1：`LdapClient : ILdapBinder`
   裸 BER wire（simple bind＋memberOf SearchGroups）；`LdapBer` minimal BER＋`LdapFilterEncoder`
   RFC4515→BER；24 新測試（FakeLdapServer loopback）；全 **799**、CI `35621317643` success；
@@ -2043,3 +2043,25 @@ gh run list -L 3              # 預期全部 success
       positional 參數（前 11 個無預設）——測試建構必須全填或補 Helper
     - §14.7 #15 現況改「MQTT 輸出 L0（M103）＋事件通知統一走 Storage `IMqttPublisher`
       （M108，含 user/password）已落地；訂閱/狀態保留待續」
+85. **M109 已完成＝稽核日誌（Audit Log）L0**（見頂部快照）：
+    - 背景：LegalHold（M66）要求「保留可稽核」但其本身無變更軌跡；設備/參數/匯出/共享變更
+      唯一航跡，需 append-only 事件表＋多條件查詢＋保管期限清理
+    - 落點：schema v40 新增 `audit_log(id, occurred_at, actor, action, category, target_type,
+      target_id, detail)`＋`idx_audit_log_time(occurred_at DESC, id DESC)`；
+      `AuditLogRepository.Record(occurredAtUtc 注入可測；actor/action/category 空白→
+      ArgumentException；target 可空)`；`List(AuditLogQuery{Category,Actor,Action,FromUtc,ToUtc,
+      Limit,Offset})` 時序 DESC；`Count`；`PruneOlderThan`（`SELECT changes()` 回傳刪除數）；
+      `AuditCategories` 常數供呼叫端協作（auth/config/export/evidence/share/retention/legal_hold）
+    - 測試：12 新測試（Record 全欄位 roundtrip／最少欄位／空白→異常 Theory／多條件＋半開區間／
+      排序＋分頁 LIMIT/OFFSET／Prune）→ 全 **1043**（Storage 720→732）、CI 綠、樹淨
+    - 排雷：`ArgumentException.ThrowIfNullOrWhiteSpace(null)` 拋 **ArgumentNullException**
+      （ArgumentException 子類）→ 測試須 `ThrowsAny<ArgumentException>`；半開區間上界
+      `occurred_at < $to` 且 ISO 分鐘粒度——測試原誤設 ToUtc＝事件時刻（不含）致空集合
+    - 設施側待續：設備管理操作掛載（ARCHITECTURE 7.7）、登入成功/失敗、參數變更、匯出/共享、
+      理性行事者 UI
+    - 文件：ARCHITECTURE §7.6「所有設備管理操作寫入 audit_log」狀態欄改「稽核日誌 v40 已落地，
+      掛載點待續」
+86. **M109 之後backlog 盤點**：M103-M109 皆已完成；**剩餘雷達全屬 UI/AI/硬體層**（CLIP 向量語意、
+    視訊牆 UI 化、一鍵快照遮蔽 UI、事件錄音/語音廣播、稽核掛載點、SVR 跨設備協調等，見
+    ARCHITECTURE「待續」列），皆需畫面/真機/ML 方可驗收，超出純測試可交付範圍（§14.7 已
+    標記之 P 階即此）——故本盤點宣告：純 BCL/Storage/Alarms 可驗收里程碑已全數交付。

@@ -488,7 +488,7 @@ L0 運動觸發才餵 L1 物件模型；並在**次串流 (e.g. 640×360) + 抽�
 ### 7.6 安全管理
 
 - 設備憑證於管理端 DPAPI 密文儲存；可選擇 RTSP-TLS / HTTPS 傳輸
-- **所有設備管理動作寫入 audit_log**（誰改了哪台、什麼設定）
+- **稽核日誌 audit_log（M109，v40）已落地**：`AuditLogRepository` Record（actor/action/category 空白→ArgumentException、occurredAt 注入可測）／List（category/actor/action＋時間左閉右開、LIMIT/OFFSET、時序 DESC）／Count／PruneOlderThan（稽核保管期限）；類別常數 `AuditCategories`。設備管理操作掛載點待續
 - 批次密碼輪換提醒（配合 §11.5 稽核）
 
 ### 7.7 資料模型（擴充 §4）
