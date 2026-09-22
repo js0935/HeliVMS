@@ -201,6 +201,19 @@
     </section>
 
     <section class="panel wide">
+      <h2>門禁事件 <span id="door-count" class="muted"></span></h2>
+      <div class="row-form">
+        <input id="door-card" type="text" placeholder="卡片號過濾">
+        <label><input id="door-ok" type="checkbox"> 放行</label>
+        <label><input id="door-denied" type="checkbox"> 拒絕</label>
+      </div>
+      <table class="compact">
+        <thead><tr><th>時間</th><th>裝置</th><th>門</th><th>卡片</th><th>方向</th><th>結果</th><th>原因</th></tr></thead>
+        <tbody id="door-body"></tbody>
+      </table>
+    </section>
+
+    <section class="panel wide">
       <h2>即時警報流</h2>
       <ul id="live-log" class="log"></ul>
     </section>

@@ -35,6 +35,7 @@ public static class ApiEndpoints
     public sealed record EvidenceItemBody(string RelativePath, string Sha256, long SizeBytes, string Kind);
     public sealed record EvidenceListItem(int Id, string Status, string CreatedAt, string? LastVerifiedAt, int Items);
     public sealed record BackupRunRequest(string SourceRoot, string TargetRoot);
+    public sealed record DoorEventItem(long Id, int DeviceId, int DoorId, string CardId, string Direction, bool Granted, string Reason, string OccurredAtUtc);
     public sealed record DailyReportResponse(
         IReadOnlyList<RecordingSummaryRow> Recording,
         IReadOnlyList<CapacityTrendRow> Capacity,
@@ -513,6 +514,22 @@ public static class ApiEndpoints
             {
                 return Results.BadRequest(new { error = ex.Message });
             }
+        });
+
+        api.MapGet("/door/events", static (int? deviceId, int? doorId, string? card, bool? granted, DateTime? from, DateTime? to, int? limit, DoorEventRepository doors) =>
+        {
+            var q = new DoorEventQuery(
+                deviceId,
+                doorId,
+                card,
+                granted,
+                from ?? DateTime.UtcNow.AddDays(-1),
+                to,
+                Math.Clamp(limit ?? 100, 1, 500));
+
+            return Results.Ok(doors.Query(q)
+                .Select(d => new DoorEventItem(d.Id, d.DeviceId, d.DoorId, d.CardId, d.Direction, d.Granted, d.Reason, SqliteStore.Iso(d.OccurredAtUtc)))
+                .ToList());
         });
     }
 

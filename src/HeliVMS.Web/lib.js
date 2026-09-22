@@ -277,6 +277,18 @@ export function backupRows(rows) {
   }));
 }
 
+export function doorRows(rows) {
+  return (rows ?? []).map((e) => ({
+    time: formatTimestamp(e.occurredAtUtc ?? e.OccurredAtUtc ?? ''),
+    device: Number(e.deviceId ?? e.DeviceId ?? 0),
+    door: Number(e.doorId ?? e.DoorId ?? 0),
+    card: e.cardId ?? e.CardId ?? '',
+    direction: e.direction ?? e.Direction ?? '',
+    granted: !!(e.granted ?? e.Granted),
+    reason: e.reason ?? e.Reason ?? '',
+  }));
+}
+
 export function scheduleLabel(s, { short = false } = {}) {
   const r = s ?? {};
   const mask = Number(r.daysMask ?? r.DaysMask ?? 0);

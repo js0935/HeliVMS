@@ -13,6 +13,7 @@ import {
   formatTimestamp,
   evRows,
   backupRows,
+  doorRows,
   patrolLabel,
   scheduleInEffect,
   scheduleLabel,
@@ -461,6 +462,23 @@ function bindBackupForm() {
   });
 }
 
+async function renderDoor() {
+  const card = (document.getElementById('door-card')?.value ?? '').trim();
+  const ok = document.getElementById('door-ok')?.checked ?? false;
+  const denied = document.getElementById('door-denied')?.checked ?? false;
+  const q = new URLSearchParams();
+  if (card) q.set('card', card);
+  if (ok !== denied) q.set('granted', String(ok));
+  const rows = doorRows(await api(`/api/door/events?${q}`).catch(() => []));
+  $('door-body').innerHTML = rows
+    .map(
+      (e) =>
+        `<tr><td>${e.time}</td><td>${e.device}</td><td>${e.door}</td><td>${e.card}</td><td>${e.direction}</td><td class="${e.granted ? 'ok' : 'bad'}">${e.granted ? '放行' : '拒絕'}</td><td class="muted">${e.reason}</td></tr>`,
+    )
+    .join('');
+  $('door-count').textContent = `（${rows.length}）`;
+}
+
 function bindEvidenceForm() {
   const form = $('evidence-form');
   form.addEventListener('submit', async (ev) => {
@@ -602,13 +620,17 @@ function wire() {
     e.preventDefault();
     searchEvents($('q').value || '*').catch(console.error);
   });
+  ['door-card', 'door-ok', 'door-denied'].forEach((id) => {
+    const el = $(id);
+    if (el) el.addEventListener(el.type === 'checkbox' ? 'change' : 'input', renderDoor);
+  });
 }
 
 async function boot() {
   wire();
   updateChrome();
   await refreshHealth();
-  await Promise.allSettled([refreshChannels(), refreshBoard(), refreshTimeline(), renderMap(), renderSmartwall(), renderPos(), renderDaily(), renderSchedules(), renderPatrols()]);
+  await Promise.allSettled([refreshChannels(), refreshBoard(), refreshTimeline(), renderMap(), renderSmartwall(), renderPos(), renderDaily(), renderSchedules(), renderPatrols(), renderDoor()]);
   bindScheduleForm();
   bindPatrolForm();
   connectLive();

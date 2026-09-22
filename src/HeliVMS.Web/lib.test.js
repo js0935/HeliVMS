@@ -15,6 +15,7 @@ import {
   formatTimestamp,
   evRows,
   backupRows,
+  doorRows,
   patrolLabel,
   scheduleInEffect,
   scheduleLabel,
@@ -388,5 +389,13 @@ describe('login gating', () => {
       ]),
     ).toEqual([{ seq: 1, runAt: 't', copied: 3, bytes: 1200, failed: 1, advanced: false, target: '/t' }]);
     expect(backupRows(null)).toEqual([]);
+  });
+
+  it('renders door rows', () => {
+    const rows = doorRows([
+      { deviceId: 3, doorId: 2, cardId: 'C-1', direction: 'In', granted: true, reason: 'ok', occurredAtUtc: 'x' },
+    ]);
+    expect(rows[0]).toMatchObject({ device: 3, door: 2, card: 'C-1', direction: 'In', granted: true, reason: 'ok' });
+    expect(doorRows(null)).toEqual([]);
   });
 });

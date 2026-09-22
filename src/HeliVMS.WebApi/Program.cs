@@ -35,6 +35,7 @@ builder.Services.AddHostedService(sp => sp.GetRequiredService<RetentionService>(
 builder.Services.AddSingleton(static sp => new EvidenceManifestRepository(sp.GetRequiredService<SqliteStore>()));
 builder.Services.AddSingleton(static sp => new BackupService(sp.GetRequiredService<SqliteStore>()));
 builder.Services.AddSingleton(static sp => new BackupRepository(sp.GetRequiredService<SqliteStore>()));
+builder.Services.AddSingleton(static sp => new DoorEventRepository(sp.GetRequiredService<SqliteStore>()));
 builder.Services.AddSingleton<AlertBroadcastHub>();
 builder.Services.AddSingleton<AuthService>();
 

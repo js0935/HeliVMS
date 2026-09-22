@@ -664,6 +664,32 @@ public class ApiTests : IClassFixture<ApiFactory>, IDisposable
 
     private sealed record BackupRunResultBody(int Scanned, int Copied, long CopiedBytes, int Failed, bool Advanced);
 
+    [Fact]
+    public async Task Door_EventsQueryFilters()
+    {
+        var doors = Service<DoorEventRepository>();
+        doors.Insert(3, 1, "CARD-1", "In", true, "ok", new DateTime(2026, 1, 5, 8, 0, 0, DateTimeKind.Utc));
+        doors.Insert(3, 2, "CARD-2", "Out", false, "denied", new DateTime(2026, 1, 5, 8, 5, 0, DateTimeKind.Utc));
+
+        using var client = Client();
+        var allResp = await client.GetAsync("/api/door/events?from=2026-01-05T00:00:00Z&to=2026-01-06T00:00:00Z");
+        Assert.Equal(HttpStatusCode.OK, allResp.StatusCode);
+        var all = await ReadAsync<List<DoorEventItem>>(allResp);
+        Assert.Equal(2, all.Count);
+        Assert.Equal("CARD-2", all[0].CardId);
+
+        var denied = await ReadAsync<List<DoorEventItem>>(
+            await client.GetAsync("/api/door/events?from=2026-01-05T00:00:00Z&to=2026-01-06T00:00:00Z&granted=false"));
+        Assert.Single(denied);
+        Assert.False(denied[0].Granted);
+
+        var empty = await ReadAsync<List<DoorEventItem>>(
+            await client.GetAsync("/api/door/events?from=2026-01-05T00:00:00Z&to=2026-01-06T00:00:00Z&card=CARD-9"));
+        Assert.Empty(empty);
+    }
+
+    private sealed record DoorEventItem(long Id, int DeviceId, int DoorId, string CardId, string Direction, bool Granted, string Reason, string OccurredAtUtc);
+
     private sealed record BackupRunRecordBody(
         long Id,
         System.DateTime RunAt,
