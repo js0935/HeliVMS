@@ -53,6 +53,7 @@ public static class ApiEndpoints
     public sealed record ShareItem(int Id, string Token, string Kind, string ResourcePath, string? Label, string? CreatedBy, string? ExpiresAt, int MaxUses, int UseCount, bool Revoked, bool Active);
     public sealed record RedactionRequest(string SourceType, long RefId, int ChannelId, DateTime OccurredAtUtc, int X, int Y, int Width, int Height, bool Filled);
     public sealed record RedactionItem(long Id, string SourceType, long RefId, int ChannelId, string OccurredAtUtc, int X, int Y, int Width, int Height, bool Filled, string CreatedAtUtc);
+    public sealed record ReplicationItem(long Id, string SourcePath, string DestinationPath, int IntervalMinutes, bool Enabled, string? LastRunUtc, string? LastResult, string? LastError, int ConsecutiveFailures, bool Due);
     public sealed record DailyReportResponse(
         IReadOnlyList<RecordingSummaryRow> Recording,
         IReadOnlyList<CapacityTrendRow> Capacity,
@@ -830,6 +831,19 @@ public static class ApiEndpoints
 
         api.MapDelete("/redactions/{id:long}", static (long id, RedactionRepository redactions) =>
             redactions.Remove(id) ? Results.Ok(new { ok = true }) : Results.NotFound());
+
+        api.MapGet("/replication", static (OffsiteReplicationRepository repo) =>
+            Results.Ok(repo.List().Select(j => new ReplicationItem(
+                j.Id,
+                j.SourcePath,
+                j.DestinationPath,
+                j.IntervalMinutes,
+                j.Enabled,
+                j.LastRunUtc is null ? null : SqliteStore.Iso(j.LastRunUtc.Value),
+                j.LastResult,
+                j.LastError,
+                j.ConsecutiveFailures,
+                OffsiteReplicationService.IsDue(j, DateTime.UtcNow))).ToList()));
     }
 
     private static RedactionItem ToRedaction(RedactionRegion r) =>

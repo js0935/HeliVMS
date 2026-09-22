@@ -942,6 +942,28 @@ public class ApiTests : IClassFixture<ApiFactory>, IDisposable
 
     private sealed record RedactionItem(long Id, string SourceType, long RefId, int ChannelId, string OccurredAtUtc, int X, int Y, int Width, int Height, bool Filled, string CreatedAtUtc);
 
+    [Fact]
+    public async Task Replication_StatusListsJobs()
+    {
+        using var client = Client();
+        var repo = Service<OffsiteReplicationRepository>();
+        var src = Path.Combine(Path.GetTempPath(), "helivms-src-" + Guid.NewGuid().ToString("N"));
+        var dst = Path.Combine(Path.GetTempPath(), "helivms-dst-" + Guid.NewGuid().ToString("N"));
+        var id = repo.Upsert(src, dst, 60, true);
+        repo.SetRunResult(id, false, "複製失敗 1 檔");
+
+        var rows = await ReadAsync<List<ReplicationItem>>(await client.GetAsync("/api/replication"));
+        var job = Assert.Single(rows, j => j.Id == id);
+        Assert.Equal(60, job.IntervalMinutes);
+        Assert.True(job.Enabled);
+        Assert.Equal("FAILED", job.LastResult);
+        Assert.Equal("複製失敗 1 檔", job.LastError);
+        Assert.Equal(1, job.ConsecutiveFailures);
+        Assert.NotNull(job.LastRunUtc);
+    }
+
+    private sealed record ReplicationItem(long Id, string SourcePath, string DestinationPath, int IntervalMinutes, bool Enabled, string? LastRunUtc, string? LastResult, string? LastError, int ConsecutiveFailures, bool Due);
+
     private sealed record BackupRunRecordBody(
         long Id,
         System.DateTime RunAt,

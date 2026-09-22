@@ -22,6 +22,7 @@ import {
   ruleRows,
   shareRows,
   redRows,
+  repRows,
   patrolLabel,
   scheduleInEffect,
   scheduleLabel,
@@ -101,7 +102,7 @@ async function submitLogin(event) {
   if (state.ok) {
     storeSession({ role: state.role, name: state.displayName });
     if (canAct(state.role)) {
-      await Promise.allSettled([renderAccounts(), renderConfig(), renderAudit(), renderEvidence(), renderBackup(), renderProviders(), renderHolds(), renderRules(), renderShares(), renderReds()]);
+      await Promise.allSettled([renderAccounts(), renderConfig(), renderAudit(), renderEvidence(), renderBackup(), renderProviders(), renderHolds(), renderRules(), renderShares(), renderReds(), renderRep()]);
     }
   }
   await refreshBoard();
@@ -129,6 +130,7 @@ function updateChrome() {
   $('rule-panel').hidden = !admin;
   $('share-panel').hidden = !admin;
   $('red-panel').hidden = !admin;
+  $('rep-panel').hidden = !admin;
   $('logout').hidden = !session;
 }
 
@@ -795,6 +797,17 @@ function bindRedForm() {
     $('red-msg').textContent = resp.ok ? `已新增 #${body.id}` : body?.error ?? '失敗';
     if (resp.ok) renderReds();
   });
+}
+
+async function renderRep() {
+  const rows = repRows(await api('/api/replication').catch(() => []));
+  $('rep-body').innerHTML = rows
+    .map(
+      (j) =>
+        `<tr><td>#${j.id}</td><td class="muted">${j.src}</td><td class="muted">${j.dst}</td><td>${j.minutes} 分</td><td class="${j.enabled ? 'ok' : ''}">${j.enabled ? '啟用' : '停用'}</td><td class="${j.fails > 0 ? 'bad' : 'ok'}">${j.lastResult || '—'}${j.fails > 0 ? `（連續 ${j.fails} 次）` : ''}</td><td class="${j.due ? 'bad' : ''}">${j.due ? '到期' : '—'}</td></tr>`,
+    )
+    .join('');
+  $('rep-count').textContent = `（${rows.length}）`;
 }
 
 function bindEvidenceForm() {

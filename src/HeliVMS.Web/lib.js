@@ -389,6 +389,20 @@ export function redRows(rows) {
   }));
 }
 
+export function repRows(rows) {
+  return (rows ?? []).map((j) => ({
+    id: Number(j.id ?? j.Id ?? 0),
+    src: j.sourcePath ?? j.SourcePath ?? '',
+    dst: j.destinationPath ?? j.DestinationPath ?? '',
+    minutes: Number(j.intervalMinutes ?? j.IntervalMinutes ?? 0),
+    enabled: !!(j.enabled ?? j.Enabled),
+    lastResult: j.lastResult ?? j.LastResult ?? '',
+    lastError: j.lastError ?? j.LastError ?? '',
+    fails: Number(j.consecutiveFailures ?? j.ConsecutiveFailures ?? 0),
+    due: !!(j.due ?? j.Due),
+  }));
+}
+
 export function scheduleLabel(s, { short = false } = {}) {
   const r = s ?? {};
   const mask = Number(r.daysMask ?? r.DaysMask ?? 0);

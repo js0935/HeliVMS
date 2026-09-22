@@ -24,6 +24,7 @@ import {
   ruleRows,
   shareRows,
   redRows,
+  repRows,
   patrolLabel,
   scheduleInEffect,
   scheduleLabel,
@@ -465,5 +466,13 @@ describe('login gating', () => {
     ]);
     expect(rows[0]).toMatchObject({ id: 4, source: 'clip', ref: 9, channel: 1, rect: '10,20 50×60', filled: true });
     expect(redRows(null)).toEqual([]);
+  });
+
+  it('renders replication rows', () => {
+    const rows = repRows([
+      { id: 1, sourcePath: 'C:\\src', destinationPath: 'D:\\dst', intervalMinutes: 60, enabled: true, lastResult: 'FAILED', lastError: '複製失敗 1 檔', consecutiveFailures: 2, due: true },
+    ]);
+    expect(rows[0]).toMatchObject({ id: 1, minutes: 60, enabled: true, lastResult: 'FAILED', fails: 2, due: true });
+    expect(repRows(null)).toEqual([]);
   });
 });

@@ -44,6 +44,8 @@ builder.Services.AddSingleton(static sp => new LegalHoldRepository(sp.GetRequire
 builder.Services.AddSingleton(static sp => new AlertRuleRepository(sp.GetRequiredService<SqliteStore>()));
 builder.Services.AddSingleton(static sp => new ShareLinkRepository(sp.GetRequiredService<SqliteStore>()));
 builder.Services.AddSingleton(static sp => new RedactionRepository(sp.GetRequiredService<SqliteStore>()));
+builder.Services.AddSingleton(static sp => new OffsiteReplicationRepository(sp.GetRequiredService<SqliteStore>()));
+builder.Services.AddSingleton(static sp => new OffsiteReplicationService(sp.GetRequiredService<OffsiteReplicationRepository>()));
 builder.Services.AddSingleton<AlertBroadcastHub>();
 builder.Services.AddSingleton<AuthService>();
 
