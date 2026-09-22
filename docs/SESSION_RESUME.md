@@ -6,8 +6,8 @@
 
 ## 一句話總結
 HeliVMS 為一套**網路影像監控系統**（WPF 桌面應用：即時監看／回放／AI 事件中心／錄影排程）。
-里程碑 **M1 至 M102 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M102 警報管理器分診工作流 L1 v38）。
-Release build 0 error、測試 **945/945 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
+里程碑 **M1 至 M103 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M103 MQTT 輸出 L0）。
+Release build 0 error、測試 **954/954 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
 本地與遠端完全同步（`git diff origin/HEAD` 為空）。
 
 ## 開新 session 的接手方法
@@ -23,15 +23,15 @@ gh run list -L 3              # 預期全部 success
 新 session 會以 git 現況接手，不會靠猜測。
 
 ## 現況快照（權威來源＝git，非聊天記憶）
-- 最後 commit：`HEAD`＝**M102**——§14.7 #3 警報管理器分診工作流 L1：
-  `SqliteStore` v37→**v38**（`alarm_notes` 進度註記＋`alarm_escalations` 逾時升階軌跡，event 索引）；
-  `AlarmNote`/`AlarmEscalationRecord`/`AlarmWorkflowRepository`（AddNote 拒空白／NotesByEvent 舊→新／
-  NoteCount／RemoveNote／RecordEscalation level=max+1／EscalationsByEvent）；`AlarmSla.ResponseSeconds`
-  （critical 300/high 900/normal 3600/low 7200）＋`AlarmEscalationPolicy`（純 BCL：priority→高一階
-  （normal→high、high→critical、critical 停頂）、升階後新 SLA 截止=now+新時限、僅未關案且逾時才升階）；
-  11 新測試→全 **945**、Release build 0 error、樹淨
-- 前一個 M101 交付＝`5596939`（§14.7 #5 錄影遮蔽 Redaction L0 v37 `RedactionRepository`＋`RedactionProcessor`）＋`acb6356`（docs）；
-  全 **934**、CI `35675965348` success
+- 最後 commit：`HEAD`＝**M103**——§14.7 #15 MQTT／自動化平台輸出 L0：
+  `MqttClient : IMqttPublisher`（最小 MQTT 3.1.1 QoS0 發送：CONNECT（clean session＋keepalive）→
+  CONNACK 檢查→PUBLISH→DISCONNECT；剩餘長度多字節編碼 §2.2.3；TcpClient/NetworkStream 同步走
+  wire 同 M85 風格；未連線/空 topic/拒絶/連線失敗皆 Fail）；`MqttEventRouter`（topic=
+  prefix/chN/eventType 正規化＋JSON payload{channel_id,event_type,ts}）；9 新測試（含 loopback
+  FakeMqttBroker；keptalive offset 雷＝CONNECT client-id 欄位在 10..11 非 8..9）→全 **954**、
+  Release build 0 error、樹淨
+- 前一個 M102 交付＝`370356a`（§14.7 #3 警報管理器分診工作流 L1 v38 `AlarmWorkflowRepository`＋`AlarmSla`）＋`99fdfe0`（docs）；
+  全 **945**、CI `35697843688` success
 - 前一個 M85 交付＝`54cad94`（LDAPv3 連線層 L1：`LdapClient : ILdapBinder`
   裸 BER wire（simple bind＋memberOf SearchGroups）；`LdapBer` minimal BER＋`LdapFilterEncoder`
   RFC4515→BER；24 新測試（FakeLdapServer loopback）；全 **799**、CI `35621317643` success；
@@ -1812,6 +1812,21 @@ gh run list -L 3              # 預期全部 success
       `SchemaVersion_IsV38` 改名；CI 綠；樹淨；
       §14.7 #3 現況改「M47 分診面板＋M102 分診工作流 L1（alarm_notes＋alarm_escalations＋SLA 升階）
       已落地；智慧牆大面板 UI 待續」
+79. **M103 已完成＝§14.7 #15 MQTT／自動化平台輸出 L0**：（見頂部快照）
+    - 背景：#15「MQTT / 自動化平台輸出」完全沒有（P3，Frigate/HA MQTT 生態對照）
+    - 落點：`MqttClient : IMqttPublisher`（最小 MQTT 3.1.1 QoS0 發送器：CONNECT（protocol name
+      +level4+clean session+keepalive）→CONNACK 檢查（rc≠0 Fail）→PUBLISH（固定頭 0x30＋剩餘長度
+      多字節編碼 §2.2.3）→DISCONNECT（0xE0 0x00）；TcpClient/NetworkStream 同步走 wire、timeout 注入；
+      未連線/空 topic/連線拒絕/斷線皆 Fail；僅發送不訂閱，HA/Frigate 相容；`IDisposable`）
+      ＋`MqttEventRouter`（topic＝`prefix/ch{channelId}/{eventType}`（eventType 空白→`_`＋小寫）＋
+      JSON payload {channel_id,event_type,ts ISO}）；測試 loopback `FakeMqttBroker`
+      （解析 CONNECT/PUBLISH/DISCONNECT、可注入 CONNACK rc）
+    - 測試：x9（連線→發布→斷線 roundtrip（ClientId/clean/topic/payload 全核對）／CONNACK rc=5 拒絶
+      Fail／未連線發布 Fail／埠關閉 Fail／長 topic 多字節剩餘長度 roundtrip／剩餘長度 128 邊界
+      （0x80 0x01）／空 topic Fail／router topic 正規化／payload JSON 欄位）＝＋9 → 全 **954**
+      （Storage 639→648）；CI 綠；樹淨；
+      §14.7 #15 現況改「MQTT 輸出 L0（M103 `MqttClient`＋`MqttEventRouter`）已落地；事件
+      驅動掛載/訂閱待續」
 
 ## 已知雷區（勿再犯）
 - **harness `.ps1` 必須存成 UTF-8 with BOM**：寫檔工具產出的是 UTF-8 無 BOM，含中文的 `.ps1` 會被 PowerShell 5.1 以 ANSI/Big5 誤讀而**靜默破壞解析**（症狀：`Start-Process` 看似無效、App 根本沒啟動、`Get-Process HeliVMS.App` 找不到）。修法：`[System.IO.File]::WriteAllText($p,[System.IO.File]::ReadAllText($p,[System.Text.Encoding]::UTF8),(New-Object System.Text.UTF8Encoding($true)))`（temp/opencode 有 `fix-encoding.ps1`）

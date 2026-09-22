@@ -1095,7 +1095,7 @@ L2 比對（人臉/車牌）置「進階·需權限」區，預設關閉（§5.1
 | 12 | 錄影 | **Adaptive Streaming / SVR 品質自適應** | Milestone | 沒有 | P3 |
 | 13 | 邊緣 | **消費邊緣 AI 相機 metadata**（D2C/方向） | Genetec、Frigate | **L0 消費/軌跡/方向分類（M90）＋L1 持久化/查詢/分向摘要（M95 `EdgeSmartEventRepository` v33）已落地** | P3 |
 | 14 | 顯示 | **智慧牆（Smart Wall）多螢幕拼接控制** | Milestone Smart Wall | 僅雙螢幕(§11.3) | P3 |
-| 15 | 整合 | **MQTT / 自動化平台輸出** | Frigate（HA/MQTT） | 沒有 | P3 |
+| 15 | 整合 | **MQTT / 自動化平台輸出** | Frigate（HA/MQTT） | **MQTT 輸出 L0（M103 `MqttClient`＋`MqttEventRouter`，QoS0 CONNECT/PUBLISH/DISCONNECT）已落地**；事件驅動掛載/訂閱待續 | **P3** |
 | 16 | 分割 | **即時快照「一鍵模糊/遮蔽」** | Synology | 沒有 | P3 |
 | 17 | 偵測 | **VMD 靈敏度自動調校** | Milestone Auto-VMD | 手動 L0 閾值 | P3 |
 
