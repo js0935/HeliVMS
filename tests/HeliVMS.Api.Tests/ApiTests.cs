@@ -493,6 +493,36 @@ public class ApiTests : IClassFixture<ApiFactory>, IDisposable
         Assert.Equal(HttpStatusCode.BadRequest, bad.StatusCode);
     }
 
+    [Fact]
+    public async Task Audit_QueriesAndExportsCsv()
+    {
+        var ops = Service<AuditLogRepository>();
+        ops.Record("tester", "login.ok", "auth", "user", 1, "role=admin", DateTime.UtcNow.AddHours(-2));
+        ops.Record("admin", "settings.set", "config", "settings", null, "auth.enabled=1,包含,逗號", DateTime.UtcNow.AddMinutes(-5));
+
+        using var client = Client();
+        var list = await client.GetAsync("/api/audit?category=config");
+        Assert.Equal(HttpStatusCode.OK, list.StatusCode);
+        var page = await ReadAsync<PagedBody<AuditEntry>>(list);
+        Assert.Contains(page.Items, e => e.Category == "config" && e.Detail!.Contains(",逗號"));
+
+        var noKey = await client.GetAsync("/api/audit?category=config&from=9999-01-01T00:00:00Z&to=2000-01-01T00:00:00Z");
+        Assert.Equal(HttpStatusCode.BadRequest, noKey.StatusCode);
+
+        var csv = await client.GetAsync("/api/audit/export.csv?category=config");
+        Assert.Equal(HttpStatusCode.OK, csv.StatusCode);
+        Assert.Equal("text/csv", csv.Content.Headers.ContentType!.MediaType);
+        var bytes = await csv.Content.ReadAsByteArrayAsync();
+        Assert.True(bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF, "UTF-8 BOM leading");
+        var text = Encoding.UTF8.GetString(bytes, 3, bytes.Length - 3);
+        Assert.Contains("settings.set", text);
+        Assert.Contains("\"auth.enabled=1,包含,逗號\"", text);
+    }
+
+    private sealed record PagedBody<T>(IReadOnlyList<T> Items, int Count);
+
+    private sealed record AuditEntry(long Id, string Actor, string Action, string Category, string? TargetType, long? TargetId, string? Detail);
+
     private sealed record ConfigBody(bool AuthEnabled, int LockoutThreshold, int LockoutMinutes);
 
     private sealed record AccountItem(int Id, string Username, string Role, string? DisplayName, bool Enabled, bool Locked);

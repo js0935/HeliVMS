@@ -2,6 +2,8 @@ import {
   accountRows,
   ackPayload,
   ackRate,
+  auditRows,
+  auditFilter,
   buildTimelineQuery,
   canAct,
   configCard,
@@ -83,7 +85,7 @@ async function submitLogin(event) {
   if (state.ok) {
     storeSession({ role: state.role, name: state.displayName });
     if (canAct(state.role)) {
-      await Promise.allSettled([renderAccounts(), renderConfig()]);
+      await Promise.allSettled([renderAccounts(), renderConfig(), renderAudit()]);
     }
   }
   await refreshBoard();
@@ -103,7 +105,24 @@ function updateChrome() {
   $('board').classList.toggle('gated', !admin);
   $('accounts-panel').hidden = !admin;
   $('config-panel').hidden = !admin;
+  $('audit-panel').hidden = !admin;
   $('logout').hidden = !session;
+}
+
+async function renderAudit() {
+  const all = auditRows((await api('/api/audit?limit=200')).items);
+  const category = $('audit-category').value;
+  const actor = $('audit-actor').value;
+  const rows = auditFilter(all, category, actor);
+  $('audit').querySelector('tbody').innerHTML = rows
+    .map(
+      (r) =>
+        `<tr><td>${formatTimestamp(r.occurredAtUtc)}</td><td>${r.category}</td><td>${r.actor}</td>` +
+        `<td>${r.action}</td><td>${r.targetType ?? ''}${r.targetId ? `:${r.targetId}` : ''}</td>` +
+        `<td title="${r.detail ?? ''}">${(r.detail ?? '').slice(0, 40)}</td></tr>`,
+    )
+    .join('');
+  $('audit-csv').href = `/api/audit/export.csv?category=${encodeURIComponent(category)}&actor=${encodeURIComponent(actor)}`;
 }
 
 async function renderConfig() {
@@ -375,6 +394,8 @@ function wire() {
     localStorage.setItem('helivms.apiKey', $('apikey').value);
     location.reload();
   });
+  $('audit-category').addEventListener('change', renderAudit);
+  $('audit-actor').addEventListener('input', renderAudit);
   $('account-form').addEventListener('submit', submitAccount);
   $('config-form').addEventListener('submit', saveConfig);
   $('search-form').addEventListener('submit', (e) => {

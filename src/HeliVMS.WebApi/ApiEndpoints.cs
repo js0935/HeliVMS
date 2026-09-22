@@ -79,6 +79,10 @@ public static class ApiEndpoints
 
         api.MapGet("/recording/segments", HandleRecordingSegments);
 
+        api.MapGet("/audit", HandleAudit);
+
+        api.MapGet("/audit/export.csv", HandleAuditExport);
+
         api.Map("/alerts/ws", HandleAlertStream);
 
         api.MapPost("/accounts/authenticate", static (LoginRequest body, AuthService auth) =>
@@ -220,6 +224,102 @@ public static class ApiEndpoints
                 u.Enabled,
                 u.LockedUntil is { Length: > 0 } lu && SqliteStore.FromIso(lu) > now))
             .ToList();
+    }
+
+    private static async Task HandleAudit(
+        HttpContext context,
+        AuditLogRepository audit,
+        string? category,
+        string? actor,
+        string? action,
+        DateTime? from,
+        DateTime? to,
+        int? limit)
+    {
+        var query = new AuditLogQuery
+        {
+            Category = category,
+            Actor = actor,
+            Action = action,
+            FromUtc = from,
+            ToUtc = to,
+            Limit = Math.Clamp(limit ?? 100, 1, 500),
+            Offset = 0,
+        };
+        if (from is { } f && to is { } t && f >= t)
+        {
+            context.Response.StatusCode = StatusCodes.Status400BadRequest;
+            await context.Response.WriteAsJsonAsync(new { error = "from 必須早於 to" });
+            return;
+        }
+
+        var items = audit.List(query);
+        await context.Response.WriteAsJsonAsync(new Paged<AuditLogEntry>(items, items.Count));
+    }
+
+    private static async Task HandleAuditExport(
+        HttpContext context,
+        AuditLogRepository audit,
+        string? category,
+        string? actor,
+        string? action,
+        DateTime? from,
+        DateTime? to)
+    {
+        if (from is { } f && to is { } t && f >= t)
+        {
+            context.Response.StatusCode = StatusCodes.Status400BadRequest;
+            await context.Response.WriteAsJsonAsync(new { error = "from 必須早於 to" });
+            return;
+        }
+
+        var rows = audit.List(new AuditLogQuery
+        {
+            Category = category,
+            Actor = actor,
+            Action = action,
+            FromUtc = from,
+            ToUtc = to,
+        });
+
+        var sb = new StringBuilder();
+        sb.Append("id,occurred_at,actor,action,category,target_type,target_id,detail\n");
+        foreach (var r in rows)
+        {
+            sb.Append(r.Id);
+            sb.Append(',');
+            sb.Append(CsvCell(SqliteStore.Iso(r.OccurredAtUtc)));
+            sb.Append(',');
+            sb.Append(CsvCell(r.Actor));
+            sb.Append(',');
+            sb.Append(CsvCell(r.Action));
+            sb.Append(',');
+            sb.Append(CsvCell(r.Category));
+            sb.Append(',');
+            sb.Append(CsvCell(r.TargetType));
+            sb.Append(',');
+            sb.Append(CsvCell(r.TargetId?.ToString()));
+            sb.Append(',');
+            sb.Append(CsvCell(r.Detail));
+            sb.Append('\n');
+        }
+
+        context.Response.ContentType = "text/csv; charset=utf-8";
+        context.Response.Headers.ContentDisposition = $"attachment; filename=audit-{DateTime.UtcNow:yyyyMMdd-HHmmss}.csv";
+        await context.Response.Body.WriteAsync(Encoding.UTF8.GetPreamble());
+        await context.Response.WriteAsync(sb.ToString());
+    }
+
+    private static string CsvCell(string? value)
+    {
+        if (value is null)
+        {
+            return "";
+        }
+
+        return value.IndexOfAny([',', '"', '\n', '\r']) >= 0
+            ? $"\"{value.Replace("\"", "\"\"")}\""
+            : value;
     }
 
     /// <summary>Turns repository guard exceptions into clean 400 responses.</summary>

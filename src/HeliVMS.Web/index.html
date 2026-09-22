@@ -100,6 +100,28 @@
       <div id="swgrid" class="swgrid"></div>
     </section>
 
+    <section class="panel wide" id="audit-panel" hidden>
+      <h2>稽核日誌</h2>
+      <div class="row-form">
+        <select id="audit-category">
+          <option value="">全部類別</option>
+          <option>auth</option>
+          <option>config</option>
+          <option>export</option>
+          <option>evidence</option>
+          <option>share</option>
+          <option>retention</option>
+          <option>legal_hold</option>
+        </select>
+        <input id="audit-actor" placeholder="操作者" />
+        <a id="audit-csv" href="/api/audit/export.csv" download>下載 CSV</a>
+      </div>
+      <table id="audit">
+        <thead><tr><th>時間</th><th>類別</th><th>操作者</th><th>動作</th><th>目標</th><th>細節</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </section>
+
     <section class="panel wide">
       <h2>即時警報流</h2>
       <ul id="live-log" class="log"></ul>

@@ -208,3 +208,24 @@ export function tileLabel(cell) {
     priority: c.priority ?? c.Priority ?? 'normal',
   };
 }
+
+export function auditRows(list) {
+  return (list ?? []).map((a) => ({
+    id: a.id ?? a.Id,
+    occurredAtUtc: a.occurredAtUtc ?? a.OccurredAtUtc ?? null,
+    actor: a.actor ?? a.Actor ?? '',
+    action: a.action ?? a.Action ?? '',
+    category: a.category ?? a.Category ?? '',
+    targetType: a.targetType ?? a.TargetType ?? null,
+    targetId: a.targetId ?? a.TargetId ?? null,
+    detail: a.detail ?? a.Detail ?? null,
+  }));
+}
+
+export function auditFilter(rows, category, actor = '') {
+  const needle = actor.trim().toLowerCase();
+  return (rows ?? []).filter(
+    (r) =>
+      (!category || r.category === category) && (!needle || r.actor.toLowerCase().includes(needle)),
+  );
+}

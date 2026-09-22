@@ -3,6 +3,8 @@ import {
   ackPayload,
   ackRate,
   accountRows,
+  auditFilter,
+  auditRows,
   buildSegmentsQuery,
   buildTimelineQuery,
   canAct,
@@ -267,5 +269,18 @@ describe('login gating', () => {
       type: 'motion',
       priority: 'normal',
     });
+  });
+
+  it('normalizes audit rows and filters by category/actor', () => {
+    const rows = auditRows([
+      { Id: 1, OccurredAtUtc: '2026-01-01T00:00:00Z', Actor: 'Admin', Action: 'settings.set', Category: 'config', Detail: 'x' },
+      { id: 2, actor: 'tester', action: 'login.ok', category: 'auth' },
+      { id: 3, actor: 'tester', action: 'share.create', category: 'share' },
+    ]);
+    expect(rows[0].category).toBe('config');
+    expect(auditFilter(rows, 'auth')).toHaveLength(1);
+    expect(auditFilter(rows, '', 'test')).toHaveLength(2);
+    expect(auditFilter(rows, 'share', 'x')).toHaveLength(0);
+    expect(auditFilter(null, '')).toEqual([]);
   });
 });
