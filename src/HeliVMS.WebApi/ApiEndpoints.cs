@@ -36,6 +36,8 @@ public static class ApiEndpoints
     public sealed record EvidenceListItem(int Id, string Status, string CreatedAt, string? LastVerifiedAt, int Items);
     public sealed record BackupRunRequest(string SourceRoot, string TargetRoot);
     public sealed record DoorEventItem(long Id, int DeviceId, int DoorId, string CardId, string Direction, bool Granted, string Reason, string OccurredAtUtc);
+    public sealed record DetectionItem(long Id, int ChannelId, string Class, float Confidence, float X, float Y, float W, float H, string DetectedUtc);
+    public sealed record DetectionSummaryItem(string Class, int Count);
     public sealed record DailyReportResponse(
         IReadOnlyList<RecordingSummaryRow> Recording,
         IReadOnlyList<CapacityTrendRow> Capacity,
@@ -529,6 +531,39 @@ public static class ApiEndpoints
 
             return Results.Ok(doors.Query(q)
                 .Select(d => new DoorEventItem(d.Id, d.DeviceId, d.DoorId, d.CardId, d.Direction, d.Granted, d.Reason, SqliteStore.Iso(d.OccurredAtUtc)))
+                .ToList());
+        });
+
+        api.MapGet("/detections", static (int? channelId, string? @class, float? minConfidence, DateTime? from, DateTime? to, int? limit, DetectionRepository detections) =>
+        {
+            var q = new DetectionRepository.QueryArgs
+            {
+                ChannelId = channelId,
+                Class = string.IsNullOrWhiteSpace(@class) ? null : @class,
+                MinConfidence = minConfidence,
+                FromUtc = from ?? DateTime.UtcNow.AddDays(-1),
+                ToUtc = to ?? DateTime.UtcNow,
+                Limit = Math.Clamp(limit ?? 200, 1, 500),
+            };
+
+            return Results.Ok(detections.ListByQuery(q)
+                .Select(d => new DetectionItem(d.Id, d.ChannelId, d.Class, d.Confidence, d.X, d.Y, d.W, d.H, SqliteStore.Iso(d.DetectedUtc)))
+                .ToList());
+        });
+
+        api.MapGet("/detections/summary", static (int? channelId, string? @class, float? minConfidence, DateTime? from, DateTime? to, DetectionRepository detections) =>
+        {
+            var q = new DetectionRepository.QueryArgs
+            {
+                ChannelId = channelId,
+                Class = string.IsNullOrWhiteSpace(@class) ? null : @class,
+                MinConfidence = minConfidence,
+                FromUtc = from ?? DateTime.UtcNow.AddDays(-1),
+                ToUtc = to ?? DateTime.UtcNow,
+            };
+
+            return Results.Ok(detections.CountByClass(q)
+                .Select(c => new DetectionSummaryItem(c.Class, c.Count))
                 .ToList());
         });
     }

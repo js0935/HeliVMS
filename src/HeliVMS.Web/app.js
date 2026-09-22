@@ -14,6 +14,7 @@ import {
   evRows,
   backupRows,
   doorRows,
+  detRows,
   patrolLabel,
   scheduleInEffect,
   scheduleLabel,
@@ -479,6 +480,27 @@ async function renderDoor() {
   $('door-count').textContent = `（${rows.length}）`;
 }
 
+async function renderDetections() {
+  const conf = (document.getElementById('det-conf')?.value ?? '').trim();
+  const cls = (document.getElementById('det-class')?.value ?? '').trim();
+  const q = new URLSearchParams();
+  if (conf && Number(conf) > 0) q.set('minConfidence', conf);
+  if (cls) q.set('class', cls);
+  const rows = detRows(await api(`/api/detections?${q}`).catch(() => []));
+  $('det-body').innerHTML = rows
+    .map(
+      (d) =>
+        `<tr><td>${d.time}</td><td>ch${d.channel}</td><td>${d.cls}</td><td>${(d.conf * 100).toFixed(0)}%</td><td>${d.x.toFixed(2)},${d.y.toFixed(2)}</td><td>${d.box}</td></tr>`,
+    )
+    .join('');
+  $('det-count').textContent = `（${rows.length}）`;
+  const summaryUrl = q.toString() ? `/api/detections/summary?${q}` : '/api/detections/summary';
+  const summary = await api(summaryUrl).catch(() => []);
+  $('det-summary').textContent = (summary ?? [])
+    .map((s) => `${s.class}×${s.count}`)
+    .join(' · ');
+}
+
 function bindEvidenceForm() {
   const form = $('evidence-form');
   form.addEventListener('submit', async (ev) => {
@@ -624,13 +646,17 @@ function wire() {
     const el = $(id);
     if (el) el.addEventListener(el.type === 'checkbox' ? 'change' : 'input', renderDoor);
   });
+  ['det-conf', 'det-class'].forEach((id) => {
+    const el = $(id);
+    if (el) el.addEventListener('input', renderDetections);
+  });
 }
 
 async function boot() {
   wire();
   updateChrome();
   await refreshHealth();
-  await Promise.allSettled([refreshChannels(), refreshBoard(), refreshTimeline(), renderMap(), renderSmartwall(), renderPos(), renderDaily(), renderSchedules(), renderPatrols(), renderDoor()]);
+  await Promise.allSettled([refreshChannels(), refreshBoard(), refreshTimeline(), renderMap(), renderSmartwall(), renderPos(), renderDaily(), renderSchedules(), renderPatrols(), renderDoor(), renderDetections()]);
   bindScheduleForm();
   bindPatrolForm();
   connectLive();

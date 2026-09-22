@@ -289,6 +289,18 @@ export function doorRows(rows) {
   }));
 }
 
+export function detRows(rows) {
+  return (rows ?? []).map((d) => ({
+    time: formatTimestamp(d.detectedUtc ?? d.DetectedUtc ?? ''),
+    channel: Number(d.channelId ?? d.ChannelId ?? 0),
+    cls: d.class ?? d.Class ?? '',
+    conf: Number(d.confidence ?? d.Confidence ?? 0),
+    x: Number(d.x ?? d.X ?? 0),
+    y: Number(d.y ?? d.Y ?? 0),
+    box: `${Number(d.w ?? d.W ?? 0)}×${Number(d.h ?? d.H ?? 0)}`,
+  }));
+}
+
 export function scheduleLabel(s, { short = false } = {}) {
   const r = s ?? {};
   const mask = Number(r.daysMask ?? r.DaysMask ?? 0);

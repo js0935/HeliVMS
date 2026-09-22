@@ -690,6 +690,43 @@ public class ApiTests : IClassFixture<ApiFactory>, IDisposable
 
     private sealed record DoorEventItem(long Id, int DeviceId, int DoorId, string CardId, string Direction, bool Granted, string Reason, string OccurredAtUtc);
 
+    [Fact]
+    public async Task Detections_ListAndSummary()
+    {
+        var detects = Service<DetectionRepository>();
+        try
+        {
+            detects.AddBatch(
+            [
+                new HeliVMS.Shared.Models.DetectionRecord { ChannelId = 1, Class = "person", Confidence = 0.95f, X = 0.1f, Y = 0.2f, W = 0.3f, H = 0.4f, DetectedUtc = new DateTime(2026, 3, 4, 8, 0, 0, DateTimeKind.Utc) },
+                new HeliVMS.Shared.Models.DetectionRecord { ChannelId = 1, Class = "vehicle", Confidence = 0.4f, X = 0.5f, Y = 0.5f, W = 0.2f, H = 0.1f, DetectedUtc = new DateTime(2026, 3, 4, 8, 1, 0, DateTimeKind.Utc) },
+            ]);
+
+            using var client = Client();
+            var listResp = await client.GetAsync("/api/detections?from=2026-03-04T07:00:00Z&to=2026-03-04T09:00:00Z");
+            Assert.Equal(HttpStatusCode.OK, listResp.StatusCode);
+            var list = await ReadAsync<List<DetectionItem>>(listResp);
+            Assert.Equal(2, list.Count);
+
+            var high = await ReadAsync<List<DetectionItem>>(
+                await client.GetAsync("/api/detections?from=2026-03-04T07:00:00Z&to=2026-03-04T09:00:00Z&minConfidence=0.9"));
+            Assert.Single(high);
+            Assert.Equal("person", high[0].Class);
+
+            var summary = await ReadAsync<List<DetectionSummaryItem>>(
+                await client.GetAsync("/api/detections/summary?from=2026-03-04T07:00:00Z&to=2026-03-04T09:00:00Z"));
+            Assert.Contains(summary, s => s.Class == "person" && s.Count == 1);
+            Assert.Contains(summary, s => s.Class == "vehicle" && s.Count == 1);
+        }
+        finally
+        {
+            detects.DeleteBefore(DateTime.MaxValue);
+        }
+    }
+
+    private sealed record DetectionItem(long Id, int ChannelId, string Class, float Confidence, float X, float Y, float W, float H, string DetectedUtc);
+    private sealed record DetectionSummaryItem(string Class, int Count);
+
     private sealed record BackupRunRecordBody(
         long Id,
         System.DateTime RunAt,

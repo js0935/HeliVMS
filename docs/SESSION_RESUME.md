@@ -6,7 +6,7 @@
 
 ## 一句話總結
 HeliVMS 為一套**網路影像監控系統**（WPF 桌面應用：即時監看／回放／AI 事件中心／錄影排程）。
-進度: **M1 至 M136 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M128 日報 REST/視界；M120 回放段檔 REST；M119 回放時間軸 API；M118 警報即時流；M117 HeliVMS.WebApi；M116 快照一鍵遮蔽；M115 MQTT 訂閱派送掛載；M112 訂閱數據面、M113 POS 自動關聯、M114 VMD 自動套用）。
+進度: **M1 至 M137 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M128 日報 REST/視界；M120 回放段檔 REST；M119 回放時間軸 API；M118 警報即時流；M117 HeliVMS.WebApi；M116 快照一鍵遮蔽；M115 MQTT 訂閱派送掛載；M112 訂閱數據面、M113 POS 自動關聯、M114 VMD 自動套用）。
 Release build 0 error、測試 **1123/1123（＋vitest 30） 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
 本地與遠端完全同步（`git diff origin/HEAD` 為空）。
 
@@ -2085,6 +2085,10 @@ gh run list -L 3              # 預期全部 success
 93. **M116 交付＝快照一鍵遮蔽（§14.7 #16）**：
     - `SnapshotRedactor`：解碼→逐區 `RedactionProcessor.Apply(filled=true)` 實心塗黑（範圍夾截、退化區略過、輸入不可變）→依原格式（JPEG/PNG）重編碼。`SnapshotRedactionService`：按 snapshot `RedactionRepository.QueryBySource` 取區套用。
     - Storage 加 `System.Drawing.Common`（`SupportedPlatform windows`＋`SupportedOSPlatformVersion`；CI windows-latest 合規）；測試 8（遮黑/夾截/退化跳過/多區/PNG 精確黑/輸入不變/DB refId/無區回傳）→全量 **1098**。
+115. **M137 交付＝AI 偵測 REST＋SPA（原 DetectionRepository 僅暴露，未重造）**：
+    - WebApi（DI 註冊 DetectionRepository）：`GET /api/detections?from&to&channelId&class&minConfidence&limit`（from 缺省 24h、limit clamp 1..500）；`GET /api/detections/summary`（CountByClass 同過濾）。
+    - SPA：AI 偵測面板——最低信心＋類別過濾、表格（時間/頻道/類別/信心%/中心/框）、summary 徽章（person×1 · vehicle×1）。lib `detRows`。
+    - 測試：Api ＋1 **35**（AddBatch 2 筆→list 2；minConfidence 0.9→僅 person；summary person/vehicle 各 1；測後 DeleteBefore 清理）；vitest ＋1 **36**（detRows 正常/空）；全量 **1134**。
 114. **M136 交付＝門禁事件 REST＋SPA（M92 閉環；原有 DoorEventRepository 僅暴露，未重造）**：
     - WebApi（DI 註冊 DoorEventRepository）：`GET /api/door/events?deviceId&doorId&card&granted&from&to&limit`——from 缺省 24h、limit clamp 1..500、OccurredAtUtc ISO；排序時間 DESC。
     - SPA：門禁面板（卡片過濾＋放行/拒絕雙核取）＋表格（時間/裝置/門/卡片/方向/結果/原因）；lib `doorRows`（放行/拒絕本地化）。

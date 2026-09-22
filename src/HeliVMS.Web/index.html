@@ -214,6 +214,18 @@
     </section>
 
     <section class="panel wide">
+      <h2>AI 偵測 <span id="det-count" class="muted"></span> <span id="det-summary" class="muted"></span></h2>
+      <div class="row-form">
+        <input id="det-conf" type="number" min="0" max="1" step="0.05" placeholder="最低信心（0..1）">
+        <input id="det-class" type="text" placeholder="類別過濾">
+      </div>
+      <table class="compact">
+        <thead><tr><th>時間</th><th>頻道</th><th>類別</th><th>信心</th><th>中心(x,y)</th><th>框(w×h)</th></tr></thead>
+        <tbody id="det-body"></tbody>
+      </table>
+    </section>
+
+    <section class="panel wide">
       <h2>即時警報流</h2>
       <ul id="live-log" class="log"></ul>
     </section>

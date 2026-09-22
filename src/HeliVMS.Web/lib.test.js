@@ -16,6 +16,7 @@ import {
   evRows,
   backupRows,
   doorRows,
+  detRows,
   patrolLabel,
   scheduleInEffect,
   scheduleLabel,
@@ -397,5 +398,11 @@ describe('login gating', () => {
     ]);
     expect(rows[0]).toMatchObject({ device: 3, door: 2, card: 'C-1', direction: 'In', granted: true, reason: 'ok' });
     expect(doorRows(null)).toEqual([]);
+  });
+
+  it('renders detection rows', () => {
+    const rows = detRows([{ channelId: 1, class: 'person', confidence: 0.95, x: 0.1, y: 0.2, w: 0.3, h: 0.4, detectedUtc: 'x' }]);
+    expect(rows[0]).toMatchObject({ channel: 1, cls: 'person', conf: 0.95, x: 0.1, y: 0.2, box: '0.3×0.4' });
+    expect(detRows(null)).toEqual([]);
   });
 });
