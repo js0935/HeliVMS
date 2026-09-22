@@ -6,8 +6,8 @@
 
 ## 一句話總結
 HeliVMS 為一套**網路影像監控系統**（WPF 桌面應用：即時監看／回放／AI 事件中心／錄影排程）。
-里程碑 **M1 至 M97 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M97 法證語意搜尋多源化）。
-Release build 0 error、測試 **895/895 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
+里程碑 **M1 至 M98 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M98 Failover 實體接管協調器 L1）。
+Release build 0 error、測試 **905/905 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
 本地與遠端完全同步（`git diff origin/HEAD` 為空）。
 
 ## 開新 session 的接手方法
@@ -23,14 +23,15 @@ gh run list -L 3              # 預期全部 success
 新 session 會以 git 現況接手，不會靠猜測。
 
 ## 現況快照（權威來源＝git，非聊天記憶）
-- 最後 commit：`HEAD`＝**M97**——§14.7 #7 法證語意搜尋多源化（統一 Forensic 全文檢索）：
-  `SqliteStore` v33→**v34**（door/pos/edge 三 FTS5 外部內容表＋trigger）；`UnifiedEventSearch`
-  （`ForensicSource` Alarm/Door/Pos/EdgeSmart 旗標、跨源合併依時間 DESC＋bm25 rank、
-  左閉右開區間、`RebuildAll` 自癒）；`FtsQuery` 查詢正規化（逐 token 引號包覆防
-  `CARD-77`╱`TXN-999` 被 FTS5 誤當負項/欄位；保留 OR/AND/NOT 運算子）＋套用到 M91
-  `EventSearchRepository`（修同名潛在 bug）；10 新測試→全 **895**、Release build 0 error、樹淨
-- 前一個 M96 交付＝`6704378`（§14.7 #10 真實 ffmpeg runner 實體整合閉合）＋`1854d24`（docs）；
-  全 **885**、CI `35672710965` success
+- 最後 commit：`HEAD`＝**M98**——§14.7 #9 Failover 實體接管協調器 L1：
+  `SqliteStore` v34→**v35**（`failover_events` 接管軌跡＋時序索引）；`FailoverEvent`/
+  `FailoverEventMode`(Leader/Takeover/Relinquish)/`IFailoverRoleController`(`TakeOver`/
+  `Relinquish` 實體接管抽象＋Noop)/`IFailoverEventLog`＋`FailoverEventRepository`(Append/ListAfter)；
+  `FailoverCoordinator.Reconcile(leaseDuration,missingWindow,utcNow,…)` 狀態機（空庫/自持→當選或
+  續約；他人有效→Standby；他人逾時逾窗→TakeOver+接管動作；未逾窗→寬限等待；旁落→Relinquish
+  交還；僅角色轉變才動作/寫軌跡）；10 新測試→全 **905**、Release build 0 error、樹淨
+- 前一個 M97 交付＝`3db1f47`（§14.7 #7 法證語意搜尋多源化 v34 `UnifiedEventSearch`）＋`9c4f5dc`（docs）；
+  全 **895**、CI `35673545031` success
 - 前一個 M85 交付＝`54cad94`（LDAPv3 連線層 L1：`LdapClient : ILdapBinder`
   裸 BER wire（simple bind＋memberOf SearchGroups）；`LdapBer` minimal BER＋`LdapFilterEncoder`
   RFC4515→BER；24 新測試（FakeLdapServer loopback）；全 **799**、CI `35621317643` success；
@@ -1723,6 +1724,26 @@ gh run list -L 3              # 預期全部 success
       Range 左閉右開、空白抛錯、RebuildAll 自癒、**運算子 OR/AND 存活正規化**）；
       `SchemaVersion_IsV34` 改名＝＋10 → 全 **895**（Storage 579→589）；CI 綠；樹淨；
       §14.7 #7 現況改「FTS5 L0（alarm）＋多源統一檢索 L1 已併入」
+
+74. **M98 已完成＝§14.7 #9 Failover 實體接管協調器 L1**：
+    - 背景：#9 欄「實體接管待續」；M87 只有租約仲裁 L0，M88 監控視窗/harness——協調器仍停在
+      角色判定，無「接管/交還實體上下文＋軌跡」
+    - 落點：SqliteStore v34→**v35**（`failover_events`：server_id/mode/detail/at_utc＋時序索引）；
+      `FailoverEventMode{Leader,Takeover,Relinquish}`＋`FailoverEvent` record；
+      `IFailoverRoleController`（`TakeOver／Relinquish`——錄影/串流上下文啟停抽象，測試注入 fake、
+      正式為 WPF 整合點）＋`NoopFailoverRoleController`；`IFailoverEventLog`＋
+      `FailoverEventRepository`（Append 回 id／ListAfter 時間 DESC＋from 過濾＝稽核/監控窗原料）
+    - 引擎：`FailoverCoordinator.Reconcile(leaseDuration, missingWindow, utcNow, controller, events)`
+      心跳驅動狀態機：空庫/自身租約→當選(Leader event)或續約（不重複動作）；他人有效→Standby 零動作；
+      他人逾時且逾窗 ≥missingWindow→Upsert 競選＋`TakeOver`＋Takeover event；未逾窗→寬限等待；
+      本機上輪 Leader 而租約易主/逾窗→`Relinquish`＋Relinquish event（交還）；僅轉變才動作/寫軌跡
+      （Steady 續約不濫寫）。行為同 SQLite/WAL 單列原子競選（租約 Upsert=競選點，與 M87 一致）。
+      L0 三方法同步維護 `_lastRole` 供 Reconcile 連續觀察
+    - 測試：Reconcile 純邏輯 x8（空庫當選＋TakeOver／續約不重複／他人有效被動／寬限窗內 Standby／
+      逾窗接管+Takeover 事件／旁落 Relinquish／Release 重選 Leader×2／負窗抛錯）＋v35 軌跡 x2
+      （Append roundtrip＋DESC/from 過濾、mode 字串落庫）；`SchemaVersion_IsV35` 改名
+      ＝＋10 → 全 **905**（Storage 589→599）；CI 綠；樹淨；
+      §14.7 #9 現況改「租約仲裁 L0＋監控視窗（M87/M88）＋實體接管協調 L1（M98）已落地」
 
 ## 已知雷區（勿再犯）
 - **harness `.ps1` 必須存成 UTF-8 with BOM**：寫檔工具產出的是 UTF-8 無 BOM，含中文的 `.ps1` 會被 PowerShell 5.1 以 ANSI/Big5 誤讀而**靜默破壞解析**（症狀：`Start-Process` 看似無效、App 根本沒啟動、`Get-Process HeliVMS.App` 找不到）。修法：`[System.IO.File]::WriteAllText($p,[System.IO.File]::ReadAllText($p,[System.Text.Encoding]::UTF8),(New-Object System.Text.UTF8Encoding($true)))`（temp/opencode 有 `fix-encoding.ps1`）

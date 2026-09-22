@@ -1089,7 +1089,7 @@ L2 比對（人臉/車牌）置「進階·需權限」區，預設關閉（§5.1
 | 6 | AI | **模組化分析情境套件**：周界/靜止車輛/尾隨/區域防護/方向控制 | Genetec KiwiVision | 核心已規劃（§5.6 分析情境＋§5.7 追蹤＋§5.10 規則） | P2（能力開放，§19 銷售位元） |
 | 7 | 搜尋 | **法證語意搜尋**（NLP / CLIP 語意）、影片摘要 | Genetec Forensic Search、Frigate CLIP | **門禁/POS/Edge AI/警報多源統一檢索已落地（M91 `EventSearchRepository`＋M97 `UnifiedEventSearch`，FTS5 4 表）**；NLP / CLIP 向量語意待續 | P2（差異化賣點） |
 | 8 | 整合 | **統一安全平台**：門禁/入侵感測/POS(Metadata 配對) | Genetec 平台、Synology Transactions、QNAP Metadata Vault | DI/DO＋綁定鏡頭已規劃(§16.2)；**門禁事件 L0（M92）＋POS 交易存錄/時間窗配對 L0（M93）已落地**；POS 接口待擴 | P2 |
-| 9 | 可靠 | **Failover 容錯**（第二記錄伺服器） | Milestone Failover、QNAP QVR Guard | 僅本機看門狗＋**租約仲裁 L0（M87）＋監控視窗/harness（M88）**；實體接管待續 | P2 |
+| 9 | 可靠 | **Failover 容錯**（第二記錄伺服器） | Milestone Failover、QNAP QVR Guard | 僅本機看門狗＋**租約仲裁 L0（M87）＋監控視窗/harness（M88）＋實體接管協調 L1（M98 `FailoverCoordinator.Reconcile`＋`failover_events` v35 軌跡）已落地** | P2 |
 | 10 | 儲存 | **Edge Storage 雙保險**（設備 SD 側錄 + NVR） | Milestone、Genetec、Synology | **L0 補抓規劃器（M89）＋L1 執行器（M94）＋真實 ffmpeg runner（M96 `EdgeFfmpegBackfillRunner`）已閉合** | P2 |
 | 11 | 地圖 | **智慧地圖深化**：視角扇形 FOV/深度 | Milestone Smart Map | 僅基礎圖釘(§14.3) | P2 |
 | 12 | 錄影 | **Adaptive Streaming / SVR 品質自適應** | Milestone | 沒有 | P3 |
