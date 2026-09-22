@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   ackPayload,
   ackRate,
+  accountRows,
   buildSegmentsQuery,
   buildTimelineQuery,
   canAct,
@@ -226,5 +227,16 @@ describe('login gating', () => {
     });
     expect(parseLogin({ error: '密碼錯誤' })).toEqual({ ok: false, error: '密碼錯誤' });
     expect(parseLogin(null)).toEqual({ ok: false, error: '回應異常' });
+  });
+
+  it('normalizes account rows and sorts by username', () => {
+    const rows = accountRows([
+      { Id: 2, Username: 'bob', Role: 'viewer', Enabled: 1, Locked: 0 },
+      { id: 1, username: 'amy', role: 'admin', displayName: null, enabled: true, locked: false },
+    ]);
+    expect(rows.map((r) => r.username)).toEqual(['amy', 'bob']);
+    expect(rows[1].enabled).toBe(true);
+    expect(rows[1].locked).toBe(false);
+    expect(accountRows(null)).toEqual([]);
   });
 });

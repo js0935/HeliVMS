@@ -431,6 +431,47 @@ public class ApiTests : IClassFixture<ApiFactory>, IDisposable
             "/api/accounts/authenticate", new { username = "", password = "" })).StatusCode);
     }
 
+    [Fact]
+    public async Task Accounts_Crud_List_Create_Patch_Delete()
+    {
+        using var client = Client();
+
+        var created = await client.PostAsJsonAsync(
+            "/api/accounts", new { username = "cashier1", password = "pw1", role = "viewer", displayName = "收銀一" });
+        Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+
+        var dup = await client.PostAsJsonAsync(
+            "/api/accounts", new { username = "CASHIER1", password = "pw2", role = "viewer" });
+        Assert.Equal(HttpStatusCode.Conflict, dup.StatusCode);
+
+        var badRole = await client.PostAsJsonAsync(
+            "/api/accounts", new { username = "nope", password = "pw", role = "superuser" });
+        Assert.Equal(HttpStatusCode.BadRequest, badRole.StatusCode);
+
+        var list = await client.GetAsync("/api/accounts");
+        Assert.Equal(HttpStatusCode.OK, list.StatusCode);
+        var json = await list.Content.ReadAsStringAsync();
+        Assert.DoesNotContain("passwordHash", json, StringComparison.OrdinalIgnoreCase);
+        var accounts = await ReadAsync<List<AccountItem>>(list);
+        Assert.Contains(accounts, a => a.Username == "cashier1" && a.Role == "viewer");
+
+        var target = accounts.First(a => a.Username == "cashier1");
+        var patch = await client.PatchAsync(
+            $"/api/accounts/{target.Id}", JsonContent.Create(new { role = "admin", enabled = false }));
+        Assert.Equal(HttpStatusCode.OK, patch.StatusCode);
+        var after = await ReadAsync<List<AccountItem>>(await client.GetAsync("/api/accounts"));
+        var updated = after.First(a => a.Id == target.Id);
+        Assert.Equal("admin", updated.Role);
+        Assert.False(updated.Enabled);
+
+        Assert.Equal(HttpStatusCode.OK, (await client.DeleteAsync($"/api/accounts/{target.Id}")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await client.DeleteAsync($"/api/accounts/{target.Id}")).StatusCode);
+        var gone = await ReadAsync<List<AccountItem>>(await client.GetAsync("/api/accounts"));
+        Assert.DoesNotContain(gone, a => a.Id == target.Id);
+    }
+
+    private sealed record AccountItem(int Id, string Username, string Role, string? DisplayName, bool Enabled, bool Locked);
+
     private sealed record LoginBody(string Role, string? DisplayName);
 
     private static string HttpUtility(DateTime utc) =>

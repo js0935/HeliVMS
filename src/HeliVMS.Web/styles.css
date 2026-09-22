@@ -78,6 +78,15 @@ body {
 
 .board.gated .act { visibility: hidden; pointer-events: none; }
 
+.row-form { display: flex; gap: 8px; align-items: center; }
+.row-form input, .row-form select {
+  background: var(--bg);
+  border: 1px solid var(--line);
+  color: var(--text);
+  padding: 4px 8px;
+}
+#account-msg:not(:empty) { color: var(--crit); }
+
 .grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));

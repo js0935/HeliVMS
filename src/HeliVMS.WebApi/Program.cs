@@ -23,6 +23,7 @@ builder.Services.AddSingleton(static sp => new POSEventRepository(sp.GetRequired
 builder.Services.AddSingleton(static sp => new EventSearchRepository(sp.GetRequiredService<SqliteStore>()));
 builder.Services.AddSingleton(static sp => new UnifiedEventSearch(sp.GetRequiredService<SqliteStore>()));
 builder.Services.AddSingleton(static sp => new SegmentRepository(sp.GetRequiredService<SqliteStore>()));
+builder.Services.AddSingleton(static sp => new UserRepository(sp.GetRequiredService<SqliteStore>()));
 builder.Services.AddSingleton<AlertBroadcastHub>();
 builder.Services.AddSingleton<AuthService>();
 

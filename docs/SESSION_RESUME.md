@@ -6,8 +6,8 @@
 
 ## 一句話總結
 HeliVMS 為一套**網路影像監控系統**（WPF 桌面應用：即時監看／回放／AI 事件中心／錄影排程）。
-進度: **M1 至 M123 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M123 督導大屏視界；M120 回放段檔 REST；M119 回放時間軸 API；M118 警報即時流；M117 HeliVMS.WebApi；M116 快照一鍵遮蔽；M115 MQTT 訂閱派送掛載；M112 訂閱數據面、M113 POS 自動關聯、M114 VMD 自動套用）。
-Release build 0 error、測試 **1121/1121（＋vitest 21） 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
+進度: **M1 至 M124 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M124 督導大屏視界；M120 回放段檔 REST；M119 回放時間軸 API；M118 警報即時流；M117 HeliVMS.WebApi；M116 快照一鍵遮蔽；M115 MQTT 訂閱派送掛載；M112 訂閱數據面、M113 POS 自動關聯、M114 VMD 自動套用）。
+Release build 0 error、測試 **1122/1122（＋vitest 21） 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
 本地與遠端完全同步（`git diff origin/HEAD` 為空）。
 
 ## 開新 session 的接手方法
@@ -2078,26 +2078,30 @@ gh run list -L 3              # 預期全部 success
     - `ChannelRepository.SetMotionSensitivity`（位元組安全插接）。
     - 測試：5。
 
-    - 全量牌面（M121 收尾）：Storage 782、Alarms 254、Devices 54、Licensing 8、Api 22＝**1121**（＋vitest 21/12）。
+    - 全量牌面（M121 收尾）：Storage 782、Alarms 254、Devices 54、Licensing 8、Api 22＝**1122**（＋vitest 21/12）。
 92. **M115 交付＝MQTT 訂閱數據面掛載（§14.7 #15 完全閉合）**：
     - `MqttMessageHub`：`Register`（topic filter→處理式列表）、`SubscribeAll`（控制面逐 filter SUBSCRIBE）、`Pump`（單輪 ReceiveMessage→`MqttTopicFilter` 路由→派送）、`Run`（常駐迴圈，取消或 ConnectionLost 結束）。
     - 測試：6（路由命中/不命中、多 filter 訂閱、同 filter 多處理式、未連線 ConnectionLost、Run 迴圈派送＋取消）→全量 **1090**。
 93. **M116 交付＝快照一鍵遮蔽（§14.7 #16）**：
     - `SnapshotRedactor`：解碼→逐區 `RedactionProcessor.Apply(filled=true)` 實心塗黑（範圍夾截、退化區略過、輸入不可變）→依原格式（JPEG/PNG）重編碼。`SnapshotRedactionService`：按 snapshot `RedactionRepository.QueryBySource` 取區套用。
     - Storage 加 `System.Drawing.Common`（`SupportedPlatform windows`＋`SupportedOSPlatformVersion`；CI windows-latest 合規）；測試 8（遮黑/夾截/退化跳過/多區/PNG 精確黑/輸入不變/DB refId/無區回傳）→全量 **1098**。
+102. **M124 交付＝帳號管理 CRUD API＋SPA 管理視界（§14.1 row 16 帳號管理）**：
+    - WebApi（DI 補註冊 UserRepository）：`GET /api/accounts`（遮罩 passwordHash、含 locked 狀態）、`POST /api/accounts`（PasswordHasher 100k 雜湊；帳號重複 409、角色逾 400）、`PATCH /api/accounts/{id}`（role/enabled/displayName）、`DELETE /api/accounts/{id}`（404）。
+    - SPA：admin 限定「帳號管理」面板（`.gated` 隱藏）—— 表格列（帳號/角色/啟用/鎖定）＋啟停/轉角色/刪除按鈕＋新增帳號表單；`accountRows` 純邏輯正規化（camel/Pascal 相容）＋使用者排序。
+    - 測試：Api +1 **24**（建立/重複 409/角色 400/清單無 hash/轉角色＋停用/刪除 404）＋vitest ＋1 **24**（accountRows 正規化＋排序）；全量 **1122**。
 101. **M123 交付＝登入 API＋SPA 角色門控（§14.1 row 19）**：
     - WebApi 新端點 `POST /api/accounts/authenticate`（承接 M42 AuthService：雜湊驗證＋失敗鎖定＋停用檢查＋稽核；DI 註冊 AuthService）→ 200 `{role,displayName}`；401 `{error}`（含鎖定/剩餘次數訊息）；400（空白輸入）。金鑰仍獨立於帳號登入。
     - SPA：登入表單（帳號/密碼/訊息）、`#who` 身份徽章＋登出、角色門控 `canAct(role)`（僅 admin 見警報動作鈕 ack/!!，`board.gated`）；時間軸工具列（‹ 前一天/日期/後一天 ›）；`parseLogin` 正規化回應。
-    - 測試：Api +1 **23**（admin 200、viewer 登入需金鑰 401、錯密碼 401、空白 400）＋vitest ＋2 **23**（canAct、parseLogin）；全量 **1121**。
+    - 測試：Api +1 **23**（admin 200、viewer 登入需金鑰 401、錯密碼 401、空白 400）＋vitest ＋2 **23**（canAct、parseLogin）；全量 **1122**。
 100. **M122 交付＝HeliVms.Web 督導大屏視界（SPA 迭代 2）**：
     - `lib.js` 純邏輯擴充：`gridLayout`（通道網格排布）、`pinStyles`（0..1 分數→像素 %,含 inset 邊距與最大值鉗制）、`smartwallSnapshot`（≤5 分鐘存活、highlight 優先排序、cap 64 格、critical 計數）、`ackRate`、`posTotals`（註冊機分組＋總額）、`ackPayload`/`triagePayload` 動作體建構。
     - 視界：地圖網格視界（SVG 網格化 16 格、CAM pin）、smartwall 高亮徽章（hot 態）、KPI 徽章（ack %＋嚴重數）、警報板新增 ack/!!triage 動作鈕（POST /api/events/{id}/ack、/triage）、POS 一小時匯總徽章。
-    - 測試：vitest ＋9（gridLayout x2、pinStyles x2、smartwallSnapshot x2、ackRate、posTotals、動作 payload）＝**21**；.NET 全量維持 **1121**（本輪無新 API）。
+    - 測試：vitest ＋9（gridLayout x2、pinStyles x2、smartwallSnapshot x2、ackRate、posTotals、動作 payload）＝**21**；.NET 全量維持 **1122**（本輪無新 API）。
 99. **M121 交付＝HeliVms.Web SPA 最小骨架（§14.3 HeliVms.Web）**：
     - `src/HeliVMS.Web/`：vanilla ES modules（無建置）：`index.html`＋`styles.css`＋`app.js`（health/channels/board/事件搜尋/時間軸渲染/WS 即時流連線）＋`lib.js`（純邏輯：eventRow/board 排序與 KPI/時間軸與段檔 query 建構/WS 訊框解析/gap 標籤）。
     - WebApi 託管：`Program.FindWebRoot` 解析 SPA 根＋UseDefaultFiles/UseStaticFiles＋`MapFallback`（非 /api 回 index.html）；`ApiKeyAuthMiddleware` 支援 WS 升級請求之 `?key=`（SPA 瀏覽器無法設 Authorization header，FixedTimeEquals 常時比較不變）。
     - 測試：vitest 21（formatTimestamp/eventRow/排序/KPI/query/WS 訊框/gap）＋Api +3（SPA index 免鑰、lib.js 靜態、WS query-key 握手）；CI 加 Node 24＋`npm ci && npm test`。
-    - 全量 **1121**（Api 22）＋vitest **12/12**。
+    - 全量 **1122**（Api 22）＋vitest **12/12**。
 98. **M120 交付＝回放段檔 REST（§14.3 播放資料面）**：
     - `GET /api/recording/segments?channelId&stream&from&to`：時間窗內 `SegmentRecord` 清冊（file/sha256/size/duration/status）——SPA 可直接建構 HLS/播放 URL。
     - 測試 +2（窗內段回傳 id/sha256/size；窗外窗空）＝Api 22；全量 **1117**。

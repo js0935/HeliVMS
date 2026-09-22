@@ -1,4 +1,5 @@
 import {
+  accountRows,
   ackPayload,
   ackRate,
   buildTimelineQuery,
@@ -62,6 +63,7 @@ async function submitLogin(event) {
   event.preventDefault();
   const username = $('user').value.trim();
   const password = $('pass').value;
+  $('pass').value = '';
   let payload = {};
   try {
     const res = await fetch('/api/accounts/authenticate', {
@@ -75,7 +77,10 @@ async function submitLogin(event) {
   }
   const state = parseLogin(payload);
   $('login-msg').textContent = state.ok ? '' : state.error;
-  if (state.ok) storeSession({ role: state.role, name: state.displayName });
+  if (state.ok) {
+    storeSession({ role: state.role, name: state.displayName });
+    if (canAct(state.role)) await renderAccounts();
+  }
   await refreshBoard();
 }
 
@@ -89,8 +94,68 @@ function updateChrome() {
   const who = $('who');
   who.textContent = session ? `${session.role} · ${session.name ?? ''}`.trim() : '未登入';
   who.classList.toggle('on', Boolean(session));
-  $('board').classList.toggle('gated', !canAct(session?.role));
+  const admin = canAct(session?.role);
+  $('board').classList.toggle('gated', !admin);
+  $('accounts-panel').hidden = !admin;
   $('logout').hidden = !session;
+}
+
+async function renderAccounts() {
+  const accounts = accountRows(await api('/api/accounts'));
+  $('accounts').querySelector('tbody').innerHTML = accounts
+    .map(
+      (a) =>
+        `<tr><td>${a.username}</td><td>${a.role}</td><td>${a.enabled ? '啟用' : '停用'}${a.locked ? ' · 鎖定' : ''}</td>` +
+        `<td><button data-toggle="${a.id}" data-enable="${!a.enabled}">${a.enabled ? '停用' : '啟用'}</button>` +
+        `<button data-role="${a.id}" data-next="${a.role === 'admin' ? 'viewer' : 'admin'}">轉${a.role === 'admin' ? 'v' : 'admin'}</button>` +
+        `<button data-del="${a.id}">刪除</button></td></tr>`,
+    )
+    .join('');
+
+  document.querySelectorAll('button[data-toggle]').forEach((btn) =>
+    btn.addEventListener('click', async () => {
+      await api(`/api/accounts/${btn.dataset.toggle}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: btn.dataset.enable === 'true' }),
+      });
+      await renderAccounts();
+    }),
+  );
+  document.querySelectorAll('button[data-role]').forEach((btn) =>
+    btn.addEventListener('click', async () => {
+      await api(`/api/accounts/${btn.dataset.role}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ role: btn.dataset.next }),
+      });
+      await renderAccounts();
+    }),
+  );
+  document.querySelectorAll('button[data-del]').forEach((btn) =>
+    btn.addEventListener('click', async () => {
+      await api(`/api/accounts/${btn.dataset.del}`, { method: 'DELETE' });
+      await renderAccounts();
+    }),
+  );
+}
+
+async function submitAccount(event) {
+  event.preventDefault();
+  const payload = JSON.stringify({
+    username: $('new-user').value.trim(),
+    password: $('new-pass').value,
+    role: $('new-role').value,
+  });
+  try {
+    await api('/api/accounts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: payload });
+    $('new-user').value = '';
+    $('new-pass').value = '';
+    $('account-msg').textContent = '';
+  } catch (err) {
+    $('account-msg').textContent = String(err);
+  }
+  await renderAccounts();
 }
 
 async function refreshBoard() {
@@ -265,6 +330,7 @@ function wire() {
     localStorage.setItem('helivms.apiKey', $('apikey').value);
     location.reload();
   });
+  $('account-form').addEventListener('submit', submitAccount);
   $('search-form').addEventListener('submit', (e) => {
     e.preventDefault();
     searchEvents($('q').value || '*').catch(console.error);
@@ -273,6 +339,7 @@ function wire() {
 
 async function boot() {
   wire();
+  updateChrome();
   await refreshHealth();
   await Promise.allSettled([refreshChannels(), refreshBoard(), refreshTimeline(), renderMap(), renderSmartwall(), renderPos()]);
   connectLive();

@@ -51,6 +51,24 @@
       </table>
     </section>
 
+    <section class="panel wide" id="accounts-panel" hidden>
+      <h2>帳號管理</h2>
+      <form id="account-form" class="row-form">
+        <input id="new-user" placeholder="帳號" required />
+        <input id="new-pass" type="password" placeholder="密碼" required />
+        <select id="new-role">
+          <option value="viewer">viewer</option>
+          <option value="admin">admin</option>
+        </select>
+        <button type="submit">新增</button>
+        <span id="account-msg" class="muted"></span>
+      </form>
+      <table id="accounts">
+        <thead><tr><th>帳號</th><th>角色</th><th>狀態</th><th>操作</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </section>
+
     <section class="panel wide">
       <h2>回放時間軸 <span id="gap" class="muted"></span></h2>
       <div class="timeline-tools">

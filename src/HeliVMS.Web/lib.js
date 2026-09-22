@@ -170,3 +170,16 @@ export function parseLogin(payload) {
   }
   return { ok: false, error: payload.error || '登入失敗' };
 }
+
+export function accountRows(list) {
+  return (list ?? [])
+    .map((a) => ({
+      id: a.id ?? a.Id,
+      username: a.username ?? a.Username ?? '',
+      role: a.role ?? a.Role ?? 'viewer',
+      displayName: a.displayName ?? a.DisplayName ?? null,
+      enabled: Boolean(a.enabled ?? a.Enabled),
+      locked: Boolean(a.locked ?? a.Locked),
+    }))
+    .sort((a, b) => a.username.localeCompare(b.username));
+}

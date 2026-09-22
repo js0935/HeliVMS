@@ -3,6 +3,7 @@ using System.Text.Json;
 using System.Net.WebSockets;
 using HeliVMS.Shared.Models;
 using HeliVMS.Storage;
+using Microsoft.Data.Sqlite;
 
 namespace HeliVMS.WebApi;
 
@@ -20,6 +21,9 @@ public static class ApiEndpoints
     public sealed record DispositionRequest(string Status, string? AssignedTo, string? Note);
     public sealed record PosReconResult(int Total, int Matched, int Unmatched, int Duplicates);
     public sealed record LoginRequest(string Username, string Password);
+    public sealed record AccountUpsertRequest(string Username, string Password, string Role, string? DisplayName);
+    public sealed record AccountPatchRequest(string? Role, bool? Enabled, string? DisplayName);
+    public sealed record AccountListItem(int Id, string Username, string Role, string? DisplayName, bool Enabled, bool Locked);
 
     private static readonly TimeSpan ReconWindow = TimeSpan.FromSeconds(10);
 
@@ -90,6 +94,91 @@ public static class ApiEndpoints
 
             return Results.Ok(new { role = result.Role, displayName = result.DisplayName });
         });
+
+        api.MapGet("/accounts", static (UserRepository users) =>
+            Results.Ok(Accounts(users)));
+
+        api.MapPost("/accounts", static (AccountUpsertRequest body, UserRepository users) =>
+        {
+            if (string.IsNullOrWhiteSpace(body.Username) || string.IsNullOrEmpty(body.Password))
+            {
+                return Results.BadRequest(new { error = "帳號與密碼必填" });
+            }
+
+            int id;
+            try
+            {
+                id = users.CreateUser(body.Username.Trim(), PasswordHasher.Hash(body.Password), body.Role, body.DisplayName);
+            }
+            catch (SqliteException)
+            {
+                return Results.Conflict(new { error = "帳號重複" });
+            }
+            catch (ArgumentOutOfRangeException ex)
+            {
+                return Results.BadRequest(new { error = ex.Message });
+            }
+
+            return Results.Created($"/api/accounts/{id}", new { id });
+        });
+
+        api.MapPatch("/accounts/{id:int}", static (int id, AccountPatchRequest body, UserRepository users) =>
+        {
+            var existing = users.GetById(id);
+            if (existing is null)
+            {
+                return Results.NotFound();
+            }
+
+            if (body.Role is not null)
+            {
+                try
+                {
+                    users.SetRole(id, body.Role);
+                }
+                catch (ArgumentOutOfRangeException ex)
+                {
+                    return Results.BadRequest(new { error = ex.Message });
+                }
+            }
+
+            if (body.Enabled is not null)
+            {
+                users.SetEnabled(id, body.Enabled.Value);
+            }
+
+            if (body.DisplayName is not null)
+            {
+                users.SetDisplayName(id, string.IsNullOrWhiteSpace(body.DisplayName) ? null : body.DisplayName);
+            }
+
+            return Results.Ok(new { id });
+        });
+
+        api.MapDelete("/accounts/{id:int}", static (int id, UserRepository users) =>
+        {
+            if (users.GetById(id) is null)
+            {
+                return Results.NotFound();
+            }
+
+            users.DeleteUser(id);
+            return Results.Ok();
+        });
+    }
+
+    private static IReadOnlyList<AccountListItem> Accounts(UserRepository users)
+    {
+        var now = DateTime.UtcNow;
+        return users.ListUsers()
+            .Select(u => new AccountListItem(
+                u.Id,
+                u.Username,
+                u.Role,
+                u.DisplayName,
+                u.Enabled,
+                u.LockedUntil is { Length: > 0 } lu && SqliteStore.FromIso(lu) > now))
+            .ToList();
     }
 
     /// <summary>Turns repository guard exceptions into clean 400 responses.</summary>
