@@ -6,8 +6,8 @@
 
 ## 一句話總結
 HeliVMS 為一套**網路影像監控系統**（WPF 桌面應用：即時監看／回放／AI 事件中心／錄影排程）。
-進度: **M1 至 M114 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M114 VMD 靈敏度自動套用；M112 MQTT 訂閱數據面、M113 POS↔事件自動關聯）。
-Release build 0 error、測試 **1084/1084 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
+進度: **M1 至 M115 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M115 MQTT 訂閱派送掛載；M112 訂閱數據面、M113 POS 自動關聯、M114 VMD 自動套用）。
+Release build 0 error、測試 **1090/1090 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
 本地與遠端完全同步（`git diff origin/HEAD` 為空）。
 
 ## 開新 session 的接手方法
@@ -2078,7 +2078,10 @@ gh run list -L 3              # 預期全部 success
     - `ChannelRepository.SetMotionSensitivity`（位元組安全插接）。
     - 測試：5。
 
-    - 全量牌面：Storage 768、Alarms 254、Devices 54、Licensing 8＝**1084**。
+    - 全量牌面（M115 收尾）：Storage 774、Alarms 254、Devices 54、Licensing 8＝**1090**。
+92. **M115 交付＝MQTT 訂閱數據面掛載（§14.7 #15 完全閉合）**：
+    - `MqttMessageHub`：`Register`（topic filter→處理式列表）、`SubscribeAll`（控制面逐 filter SUBSCRIBE）、`Pump`（單輪 ReceiveMessage→`MqttTopicFilter` 路由→派送）、`Run`（常駐迴圈，取消或 ConnectionLost 結束）。
+    - 測試：6（路由命中/不命中、多 filter 訂閱、同 filter 多處理式、未連線 ConnectionLost、Run 迴圈派送＋取消）→全量 **1090**。
 85. **M109 已完成＝稽核日誌（Audit Log）L0**（見頂部快照）：
     - 背景：LegalHold（M66）要求「保留可稽核」但其本身無變更軌跡；設備/參數/匯出/共享變更
       唯一航跡，需 append-only 事件表＋多條件查詢＋保管期限清理

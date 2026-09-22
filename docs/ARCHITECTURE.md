@@ -1095,7 +1095,7 @@ L2 比對（人臉/車牌）置「進階·需權限」區，預設關閉（§5.1
 | 12 | 錄影 | **Adaptive Streaming / SVR 品質自適應** | Milestone | **`BitrateGovernor`（錄影品質/幀率自適應控流）已落地**；SVR 跨設備協調待續 | P3 |
 | 13 | 邊緣 | **消費邊緣 AI 相機 metadata**（D2C/方向） | Genetec、Frigate | **L0 消費/軌跡/方向分類（M90）＋L1 持久化/查詢/分向摘要（M95 `EdgeSmartEventRepository` v33）已落地** | P3 |
 | 14 | 顯示 | **智慧牆（Smart Wall）多螢幕拼接控制** | Milestone Smart Wall | 僅雙螢幕(§11.3)；**智慧牆版面資料模型＋幾何校驗＋看板時間常數（M105 v39 `SmartwallLayoutRepository`＋`LayoutGrid`）＋警報看板引擎 L0（M106 `SmartwallAlertBoard`）已落地**；視訊牆 UI/派送掛載待續 | P3 |
-| 15 | 整合 | **MQTT / 自動化平台輸出** | Frigate（HA/MQTT） | **MQTT 輸出 L0（M103 `MqttClient`＋`MqttEventRouter`，QoS0 CONNECT/PUBLISH/DISCONNECT）＋事件通知統一走 Storage `IMqttPublisher`（M108 含 user/password）已落地**；`MqttClient.Subscribe` 控制面（SUBACK 驗證）與保留狀態 `MqttPresenceReporter`（M111）已落地；訂閱數據面回傳（M112 `ReceiveMessage` 收 PUBLISH、`MqttTopicFilter` 比對）已落地 | **P3** |
+| 15 | 整合 | **MQTT / 自動化平台輸出** | Frigate（HA/MQTT） | **MQTT 輸出 L0（M103 `MqttClient`＋`MqttEventRouter`，QoS0 CONNECT/PUBLISH/DISCONNECT）＋事件通知統一走 Storage `IMqttPublisher`（M108 含 user/password）已落地**；`MqttClient.Subscribe` 控制面（SUBACK 驗證）與保留狀態 `MqttPresenceReporter`（M111）已落地；訂閱數據面回傳（M112 `ReceiveMessage`＋`MqttTopicFilter`）與常駐派送掛載（M115 `MqttMessageHub` Register/SubscribeAll/Pump/Run）已落地 | **P3** |
 | 16 | 分割 | **即時快照「一鍵模糊/遮蔽」** | Synology | 沒有 | P3 |
 | 17 | 偵測 | **VMD 靈敏度自動調校** | Milestone Auto-VMD | **`SensitivityAutoTuner`（事件率統計→升/降靈敏度建議，Alarms）已落地**；逐場景自動套用（M114 `SensitivityAutoApplier` clamp 寫回＋稽核）已落地 | P3 |
 
