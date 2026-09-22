@@ -6,8 +6,8 @@
 
 ## 一句話總結
 HeliVMS 為一套**網路影像監控系統**（WPF 桌面應用：即時監看／回放／AI 事件中心／錄影排程）。
-里程碑 **M1 至 M96 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M96 Edge ffmpeg 補抓 runner）。
-Release build 0 error、測試 **885/885 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
+里程碑 **M1 至 M97 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M97 法證語意搜尋多源化）。
+Release build 0 error、測試 **895/895 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
 本地與遠端完全同步（`git diff origin/HEAD` 為空）。
 
 ## 開新 session 的接手方法
@@ -23,12 +23,14 @@ gh run list -L 3              # 預期全部 success
 新 session 會以 git 現況接手，不會靠猜測。
 
 ## 現況快照（權威來源＝git，非聊天記憶）
-- 最後 commit：`HEAD`＝**M96**——§14.7 #10 真實 ffmpeg 補抓 runner（實體整合閉合）：
-  `EdgeFfmpegBackfillRunner`（`EdgePullTarget` resolver＋`EdgeProcessExecutor` 委派抽象＋
-  Process/ArgumentList 實作、逾時 Kill、stderr 截尾、`-version` 探測）；5 新測試→全 **885**、
-  Release build 0 error、樹淨
-- 前一個 M95 交付＝`df55453`（Edge AI metadata 持久化 L1，v33）＋`82552e1`（docs）；
-  全 **880**、CI `35672111108` success
+- 最後 commit：`HEAD`＝**M97**——§14.7 #7 法證語意搜尋多源化（統一 Forensic 全文檢索）：
+  `SqliteStore` v33→**v34**（door/pos/edge 三 FTS5 外部內容表＋trigger）；`UnifiedEventSearch`
+  （`ForensicSource` Alarm/Door/Pos/EdgeSmart 旗標、跨源合併依時間 DESC＋bm25 rank、
+  左閉右開區間、`RebuildAll` 自癒）；`FtsQuery` 查詢正規化（逐 token 引號包覆防
+  `CARD-77`╱`TXN-999` 被 FTS5 誤當負項/欄位；保留 OR/AND/NOT 運算子）＋套用到 M91
+  `EventSearchRepository`（修同名潛在 bug）；10 新測試→全 **895**、Release build 0 error、樹淨
+- 前一個 M96 交付＝`6704378`（§14.7 #10 真實 ffmpeg runner 實體整合閉合）＋`1854d24`（docs）；
+  全 **885**、CI `35672710965` success
 - 前一個 M85 交付＝`54cad94`（LDAPv3 連線層 L1：`LdapClient : ILdapBinder`
   裸 BER wire（simple bind＋memberOf SearchGroups）；`LdapBer` minimal BER＋`LdapFilterEncoder`
   RFC4515→BER；24 新測試（FakeLdapServer loopback）；全 **799**、CI `35621317643` success；
@@ -1701,6 +1703,26 @@ gh run list -L 3              # 預期全部 success
       ＝＋5 → 全 **885**（Storage 574→579）；順帶放寬 NTP loopback 乾淨樣本斷言（100ms 注入
       的 90ms 嚴限在 CI 排程抖動下太緊→60ms）
     - CI 綠；樹淨；§14.7 #10 現況改「L0 規劃器＋L1 執行器→真實 ffmpeg runner 已閉合」
+
+73. **M97 已完成＝§14.7 #7 法證語意搜尋多源化（Unified Forensic FTS5）**：
+    - 背景：#7 欄 M91 只有 alarm 單源 FTS5 L0；門禁/POS/Edge AI metadata 各自查詢無統一
+      法證檢索入口
+    - 落點：SqliteStore v33→**v34**（`CreateUnifiedSearchTablesV34`：door_events_fts/
+      pos_events_fts/edge_smart_events_fts 三 FTS5 外部內容表＋ai/ad/au trigger，仿 v29）；！
+      `UnifiedEventSearch`＝`[Flags] ForensicSource { Alarm=1, Door=2, Pos=4, EdgeSmart=8, All }`
+      ＋`ForensicSearchHit(Source,SourceId,Text,OccurredAtUtc,Rank)`；ctor **RebuildAll()**
+      對 4 表（含 alarm）無條件自癒；`Search(query,from,to,sourceMask,limit)` 各源 MATCH＋
+      `($from IS NULL OR time>=$from) AND ($to IS NULL OR time<$to)`＋`bm25` rank，跨源合併
+      OrderByDescending(OccurredAtUtc).ThenBy(Rank).Take(limit)；空查詢抛 ArgumentException
+    - 引擎排雷：FTS5 對 `TXN-999`（無空格連字符）把 `-999` 當負項→若為純數字 token 會被視為
+      欄位名→SQLite Error「no such column: 999」；`"CARD-77" OR "approved"` 若把 OR 也包進引號
+      會被當成含字面 OR 的詞→0 命中。→新增 **`FtsQuery.Normalize`**：逐空白 token 引號包覆
+      （除法 `"` 剝除）；`OR/AND/NOT` 保留為運算子；空輸入抛錯。並回填套用到 M91
+      `EventSearchRepository.Search`（消彌同規格潛在 bug）
+    - 測試：整合 x10（door/pos/edge/alarm 四源 trigger 可搜、跨源依時間 DESC、SourceMask 過濾、
+      Range 左閉右開、空白抛錯、RebuildAll 自癒、**運算子 OR/AND 存活正規化**）；
+      `SchemaVersion_IsV34` 改名＝＋10 → 全 **895**（Storage 579→589）；CI 綠；樹淨；
+      §14.7 #7 現況改「FTS5 L0（alarm）＋多源統一檢索 L1 已併入」
 
 ## 已知雷區（勿再犯）
 - **harness `.ps1` 必須存成 UTF-8 with BOM**：寫檔工具產出的是 UTF-8 無 BOM，含中文的 `.ps1` 會被 PowerShell 5.1 以 ANSI/Big5 誤讀而**靜默破壞解析**（症狀：`Start-Process` 看似無效、App 根本沒啟動、`Get-Process HeliVMS.App` 找不到）。修法：`[System.IO.File]::WriteAllText($p,[System.IO.File]::ReadAllText($p,[System.Text.Encoding]::UTF8),(New-Object System.Text.UTF8Encoding($true)))`（temp/opencode 有 `fix-encoding.ps1`）
