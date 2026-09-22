@@ -37,6 +37,11 @@
           "System.Numerics.Tensors": "9.0.0"
         }
       },
+      "Microsoft.Win32.SystemEvents": {
+        "type": "Transitive",
+        "resolved": "9.0.4",
+        "contentHash": "kHgtAkXhNEP8oGuAVe3Q5admxsdMlSdWE2rXcA9FfeGDZJQawPccmZgnOswgW3ugUPSJt7VH+TMQPz65mnhGSQ=="
+      },
       "SQLitePCLRaw.bundle_e_sqlite3": {
         "type": "Transitive",
         "resolved": "2.1.12",
@@ -62,6 +67,14 @@
         "contentHash": "W3oH4XIfCzFrgUSDKHhN6N+dgzA5YHOR2VxX8GB6Qy7CyrJJgxPEG8NirgYWlPQC5P2jz2knSsexWu4tDUL33g==",
         "dependencies": {
           "SQLitePCLRaw.core": "2.1.12"
+        }
+      },
+      "System.Drawing.Common": {
+        "type": "Transitive",
+        "resolved": "9.0.4",
+        "contentHash": "SbtusMUT1bCxZ14904ZPo2GZyelze0rwUni9wXrp8KX9Zlsda8idqpxra1RBvOA85WM0wW+fCI4GLrlCTYiE6A==",
+        "dependencies": {
+          "Microsoft.Win32.SystemEvents": "9.0.4"
         }
       },
       "System.Numerics.Tensors": {
@@ -96,6 +109,7 @@
           "HeliVMS.Core": "[0.1.0, )",
           "HeliVMS.Shared": "[0.1.0, )",
           "Microsoft.Data.Sqlite": "[10.0.12, )",
+          "System.Drawing.Common": "[9.0.4, )",
           "System.Security.Cryptography.ProtectedData": "[10.0.12, )"
         }
       }
