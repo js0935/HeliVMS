@@ -186,6 +186,26 @@
       </form>
     </section>
 
+    <section class="panel wide" id="share-panel" hidden>
+      <h2>分享連結 <span id="share-count" class="muted"></span></h2>
+      <table class="compact">
+        <thead><tr><th>ID</th><th>類型</th><th>標籤</th><th>資源</th><th>權杖</th><th>用量</th><th>狀態</th><th></th></tr></thead>
+        <tbody id="share-body"></tbody>
+      </table>
+      <form id="share-form" class="row-form">
+        <select name="skind">
+          <option value="segment">錄影區段</option>
+          <option value="snapshot">快照</option>
+          <option value="evidence">證據包</option>
+        </select>
+        <input name="spath" type="text" placeholder="資源絕對路徑" required>
+        <input name="slabel" type="text" placeholder="標籤（可空）">
+        <input name="smax" type="number" min="0" value="0" placeholder="最大使用次數（0=不限）">
+        <button type="submit">建立</button>
+        <span id="share-msg" class="muted"></span>
+      </form>
+    </section>
+
     <section class="panel wide" id="rule-panel" hidden>
       <h2>警示規則 <span id="rule-count" class="muted"></span></h2>
       <table class="compact">

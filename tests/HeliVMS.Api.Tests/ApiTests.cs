@@ -873,6 +873,39 @@ public class ApiTests : IClassFixture<ApiFactory>, IDisposable
 
     private sealed record AlertRuleItem(long Id, string Name, string? EventType, int? ChannelId, string? Keyword, string? Channels, bool Enabled, string? MatchEventTypes, int FrameMinutes, int MinEventsInWindow);
 
+    [Fact]
+    public async Task Shares_CreateRevoke()
+    {
+        using var client = Client();
+        var bad = await client.PostAsJsonAsync(
+            "/api/shares",
+            new { kind = "bogus", resourcePath = "/tmp/x.mp4" });
+        Assert.Equal(HttpStatusCode.BadRequest, bad.StatusCode);
+
+        var created = await client.PostAsJsonAsync(
+            "/api/shares",
+            new { kind = "segment", resourcePath = "/tmp/x.mp4", label = "深夜動態", maxUses = 3 });
+        Assert.Equal(HttpStatusCode.OK, created.StatusCode);
+        var share = await ReadAsync<ShareItem>(created);
+        Assert.True(share.Active);
+        Assert.False(string.IsNullOrWhiteSpace(share.Token));
+
+        var list = await ReadAsync<List<ShareItem>>(await client.GetAsync("/api/shares"));
+        Assert.Contains(list, s => s.Id == share.Id && s.Kind == "segment");
+
+        var revoke = await client.PutAsJsonAsync($"/api/shares/{share.Id}/revoke", new { });
+        Assert.Equal(HttpStatusCode.OK, revoke.StatusCode);
+        var after = await ReadAsync<List<ShareItem>>(await client.GetAsync("/api/shares"));
+        Assert.Contains(after, s => s.Id == share.Id && !s.Active && s.Revoked);
+
+        var del = await client.DeleteAsync($"/api/shares/{share.Id}");
+        Assert.Equal(HttpStatusCode.OK, del.StatusCode);
+        var gone = await ReadAsync<List<ShareItem>>(await client.GetAsync("/api/shares"));
+        Assert.DoesNotContain(gone, s => s.Id == share.Id);
+    }
+
+    private sealed record ShareItem(int Id, string Token, string Kind, string ResourcePath, string? Label, string? CreatedBy, string? ExpiresAt, int MaxUses, int UseCount, bool Revoked, bool Active);
+
     private sealed record BackupRunRecordBody(
         long Id,
         System.DateTime RunAt,

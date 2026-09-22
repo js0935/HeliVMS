@@ -49,6 +49,8 @@ public static class ApiEndpoints
     public sealed record LegalHoldItem(long Id, int ChannelId, string FromUtc, string ToUtc, string Reason, string CreatedBy, string CreatedAtUtc, string? RevokedAtUtc, string? RevokedBy, string? RevokedReason, bool Active);
     public sealed record AlertRuleRequest(string Name, string? EventType, int? ChannelId, string? Keyword, string? Channels, string? MatchEventTypes, int FrameMinutes, int MinEventsInWindow);
     public sealed record AlertRuleItem(long Id, string Name, string? EventType, int? ChannelId, string? Keyword, string? Channels, bool Enabled, string? MatchEventTypes, int FrameMinutes, int MinEventsInWindow);
+    public sealed record ShareRequest(string Kind, string ResourcePath, string? Label, DateTime? ExpiresAt, int MaxUses);
+    public sealed record ShareItem(int Id, string Token, string Kind, string ResourcePath, string? Label, string? CreatedBy, string? ExpiresAt, int MaxUses, int UseCount, bool Revoked, bool Active);
     public sealed record DailyReportResponse(
         IReadOnlyList<RecordingSummaryRow> Recording,
         IReadOnlyList<CapacityTrendRow> Capacity,
@@ -750,6 +752,52 @@ public static class ApiEndpoints
             rules.Delete(id);
             return Results.Ok(new { ok = true });
         });
+
+        api.MapGet("/shares", static (ShareLinkRepository shares) => Results.Ok(ToShares(shares.List())));
+
+        api.MapPost("/shares", static (ShareRequest body, ShareLinkRepository shares) =>
+        {
+            if (!ShareKind.IsValid(body.Kind) || string.IsNullOrWhiteSpace(body.ResourcePath))
+            {
+                return Results.BadRequest(new { error = "類型（segment/snapshot/evidence）與資源路徑必填" });
+            }
+
+            var maxUses = body.MaxUses < 0 ? 0 : body.MaxUses;
+            var id = shares.Add(ShareToken.Create(), body.Kind, body.ResourcePath, NullIfBlank(body.Label), null, DateTime.UtcNow, null, body.ExpiresAt, maxUses);
+            var record = shares.Get(id)!;
+            return Results.Ok(ToShare(record));
+        });
+
+        api.MapPut("/shares/{id:int}/revoke", static (int id, ShareLinkRepository shares) =>
+        {
+            if (shares.Get(id) is null)
+            {
+                return Results.NotFound();
+            }
+
+            shares.SetRevoked(id, true);
+            return Results.Ok(new { ok = true });
+        });
+
+        api.MapDelete("/shares/{id:int}", static (int id, ShareLinkRepository shares) =>
+        {
+            if (shares.Get(id) is null)
+            {
+                return Results.NotFound();
+            }
+
+            shares.Delete(id);
+            return Results.Ok(new { ok = true });
+        });
+    }
+
+    private static IReadOnlyList<ShareItem> ToShares(IReadOnlyList<ShareLinkRecord> records) => records.Select(ToShare).ToList();
+
+    private static ShareItem ToShare(ShareLinkRecord s)
+    {
+        var expired = DateTime.TryParse(s.ExpiresAt, out var expires) && expires <= DateTime.UtcNow;
+        return new(s.Id, s.Token, s.Kind, s.ResourcePath, s.Label, s.CreatedBy, s.ExpiresAt, s.MaxUses, s.UseCount, s.Revoked,
+            !s.Revoked && !expired && (s.MaxUses <= 0 || s.UseCount < s.MaxUses));
     }
 
     private static string? NullIfBlank(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();

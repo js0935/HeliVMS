@@ -364,6 +364,19 @@ export function ruleRows(rows) {
   }));
 }
 
+export function shareRows(rows) {
+  return (rows ?? []).map((s) => ({
+    id: Number(s.id ?? s.Id ?? 0),
+    kind: s.kind ?? s.Kind ?? '',
+    path: s.resourcePath ?? s.ResourcePath ?? '',
+    label: s.label ?? s.Label ?? '',
+    token: (s.token ?? s.Token ?? '').slice(0, 12),
+    createdBy: s.createdBy ?? s.CreatedBy ?? '',
+    uses: `${s.useCount ?? s.UseCount ?? 0}/${s.maxUses ?? s.MaxUses ?? 0}`,
+    active: !!(s.active ?? s.Active),
+  }));
+}
+
 export function scheduleLabel(s, { short = false } = {}) {
   const r = s ?? {};
   const mask = Number(r.daysMask ?? r.DaysMask ?? 0);

@@ -22,6 +22,7 @@ import {
   providerRows,
   holdRows,
   ruleRows,
+  shareRows,
   patrolLabel,
   scheduleInEffect,
   scheduleLabel,
@@ -447,5 +448,13 @@ describe('login gating', () => {
     ]);
     expect(rows[0]).toMatchObject({ id: 2, name: '夜間動態', event: 'motion', channel: 2, enabled: false, min: 2 });
     expect(ruleRows(null)).toEqual([]);
+  });
+
+  it('renders share rows', () => {
+    const rows = shareRows([
+      { id: 1, token: 'abcdef1234567890', kind: 'segment', resourcePath: '/tmp/x.mp4', label: '深夜', createdBy: null, useCount: 1, maxUses: 3, active: true },
+    ]);
+    expect(rows[0]).toMatchObject({ id: 1, token: 'abcdef123456', kind: 'segment', uses: '1/3', active: true });
+    expect(shareRows(null)).toEqual([]);
   });
 });

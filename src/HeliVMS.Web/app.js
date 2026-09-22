@@ -20,6 +20,7 @@ import {
   providerRows,
   holdRows,
   ruleRows,
+  shareRows,
   patrolLabel,
   scheduleInEffect,
   scheduleLabel,
@@ -99,7 +100,7 @@ async function submitLogin(event) {
   if (state.ok) {
     storeSession({ role: state.role, name: state.displayName });
     if (canAct(state.role)) {
-      await Promise.allSettled([renderAccounts(), renderConfig(), renderAudit(), renderEvidence(), renderBackup(), renderProviders(), renderHolds(), renderRules()]);
+      await Promise.allSettled([renderAccounts(), renderConfig(), renderAudit(), renderEvidence(), renderBackup(), renderProviders(), renderHolds(), renderRules(), renderShares()]);
     }
   }
   await refreshBoard();
@@ -125,6 +126,7 @@ function updateChrome() {
   $('provider-panel').hidden = !admin;
   $('hold-panel').hidden = !admin;
   $('rule-panel').hidden = !admin;
+  $('share-panel').hidden = !admin;
   $('logout').hidden = !session;
 }
 
@@ -706,6 +708,48 @@ function bindRuleForm() {
   });
 }
 
+async function renderShares() {
+  const rows = shareRows(await api('/api/shares').catch(() => []));
+  $('share-body').innerHTML = rows
+    .map(
+      (s) =>
+        `<tr><td>#${s.id}</td><td>${s.kind}</td><td>${s.label || '—'}</td><td class="muted">${s.path}</td><td>${s.token}…</td><td>${s.uses}</td><td class="${s.active ? 'ok' : 'bad'}">${s.active ? '有效' : '失效'}</td><td>${s.active ? `<button class="danger" data-share-revoke="${s.id}">撤銷</button>` : ''}</td></tr>`,
+    )
+    .join('');
+  $('share-count').textContent = `（${rows.length}）`;
+  Array.from(document.querySelectorAll('[data-share-revoke]')).forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      await fetch(`/api/shares/${btn.dataset.shareRevoke}/revoke`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{}',
+      });
+      renderShares();
+    });
+  });
+}
+
+function bindShareForm() {
+  const form = $('share-form');
+  form.addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    const kind = form.querySelector('select[name="skind"]').value;
+    const path = form.querySelector('input[name="spath"]').value.trim();
+    const label = form.querySelector('input[name="slabel"]').value.trim();
+    const maxUses = Number(form.querySelector('input[name="smax"]').value || 0);
+    if (!path) return;
+    const resp = await fetch('/api/shares', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ kind, resourcePath: path, label: label || null, maxUses }),
+    }).catch(() => null);
+    if (!resp) return;
+    const body = await resp.json().catch(() => null);
+    $('share-msg').textContent = resp.ok ? `已建立 ${body.token.slice(0, 12)}…` : body?.error ?? '失敗';
+    if (resp.ok) renderShares();
+  });
+}
+
 function bindEvidenceForm() {
   const form = $('evidence-form');
   form.addEventListener('submit', async (ev) => {
@@ -847,6 +891,7 @@ function wire() {
   bindProviderForm();
   bindHoldForm();
   bindRuleForm();
+  bindShareForm();
   $('search-form').addEventListener('submit', (e) => {
     e.preventDefault();
     searchEvents($('q').value || '*').catch(console.error);
