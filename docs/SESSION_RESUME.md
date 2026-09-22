@@ -6,8 +6,8 @@
 
 ## 一句話總結
 HeliVMS 為一套**網路影像監控系統**（WPF 桌面應用：即時監看／回放／AI 事件中心／錄影排程）。
-里程碑 **M1 至 M111 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M110 稽核掛載點＋M111 MQTT 訂閱/狀態保留）。
-Release build 0 error、測試 **1058/1058 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
+進度: **M1 至 M114 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M114 VMD 靈敏度自動套用；M112 MQTT 訂閱數據面、M113 POS↔事件自動關聯）。
+Release build 0 error、測試 **1084/1084 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
 本地與遠端完全同步（`git diff origin/HEAD` 為空）。
 
 ## 開新 session 的接手方法
@@ -2066,6 +2066,19 @@ gh run list -L 3              # 預期全部 success
     - 測試：7 新（Subscribe roundtrip/未連線/拒絕/空 topic、Presence on/off、StatusTopic）→
       全 **1058**、CI 綠、樹淨
     - 已無「稽核掛載點」與「MQTT」backlog 項目；剩餘雷達全屬 UI/AI/HW（見 item 86）
+89. **M112 交付＝MQTT 訂閱數據面（§14.7 #15 尾段）**：
+    - `MqttClient.ReceiveMessage(TimeSpan)`：阻塞式讀取 broker→client PUBLISH（含 retain），逾時→TimedOut、未連接→Fail、其餘控制封包→Ignored；socket ReceiveTimeout＋IsSocketTimeout（含 IOException 內層 SocketException）判定逾時。
+    - `MqttTopicFilter.Matches`：`+`（單層）與 `#`（多層至尾、含父層）純函式比對。
+    - 測試：3 接收場景＋10 比對理論。
+90. **M113 交付＝POS↔事件自動關聯引擎（§14.7 #8 引擎層）**：
+    - `PosEventLinker.Link(txns, events, window)`：同頻道、|Δt|≤窗取最接近事件配對；每事件至多配一筆，輸出 matched/unmatched/orphan 統計＋配對清單。
+    - 測試：8。
+91. **M114 交付＝VMD 靈敏度自動套用（§14.7 #17）**：
+    - `SensitivityAutoApplier.Apply(SensitivitySuggestion)`：檢查頻道存在/VMD 啟用/確有變動建議後，寫回 `channels.motion_sensitivity`（clamp 至 tuner 上下限）並記稽核 `config.vmd.sensitivity.apply`（detail＝before-&gt;after）。
+    - `ChannelRepository.SetMotionSensitivity`（位元組安全插接）。
+    - 測試：5。
+
+    - 全量牌面：Storage 768、Alarms 254、Devices 54、Licensing 8＝**1084**。
 85. **M109 已完成＝稽核日誌（Audit Log）L0**（見頂部快照）：
     - 背景：LegalHold（M66）要求「保留可稽核」但其本身無變更軌跡；設備/參數/匯出/共享變更
       唯一航跡，需 append-only 事件表＋多條件查詢＋保管期限清理
