@@ -13,7 +13,7 @@ public sealed record MqttPublishResult(bool Ok, string? Error)
 /// <summary>MQTT 發送介面（M103）：測試注入 fake；正式為 <see cref="MqttClient"/>。</summary>
 public interface IMqttPublisher
 {
-    MqttPublishResult Connect(string host, int port, string clientId, int keepAliveSeconds);
+    MqttPublishResult Connect(string host, int port, string clientId, int keepAliveSeconds, string? username = null, string? password = null);
     MqttPublishResult Publish(string topic, byte[] payload);
     MqttPublishResult Disconnect();
 }
@@ -22,6 +22,7 @@ public interface IMqttPublisher
 /// 最小 MQTT 3.1.1 客戶端（M103，§14.7 #15，純 BCL）：QoS0 發送（CONNECT→CONNACK 檢查→
 /// PUBLISH→DISCONNECT）。與 M85 LDAP 同風格，以 TcpClient/NetworkStream 同步走 wire；
 /// 不訂閱、不正規 MQTT broker 也相容（HA/Frigate）。剩餘長度多字節編碼符合 §2.2.3。
+/// M108 增使用者/密碼驗證（CONNECT flags 0x80/0x40＋payload，RFC 3.1）。
 /// </summary>
 public sealed class MqttClient : IMqttPublisher, IDisposable
 {
@@ -31,8 +32,19 @@ public sealed class MqttClient : IMqttPublisher, IDisposable
 
     public MqttClient(TimeSpan? timeout = null) => _timeout = timeout ?? TimeSpan.FromSeconds(10);
 
-    public MqttPublishResult Connect(string host, int port, string clientId, int keepAliveSeconds)
+    public MqttPublishResult Connect(
+        string host,
+        int port,
+        string clientId,
+        int keepAliveSeconds,
+        string? username = null,
+        string? password = null)
     {
+        if (string.IsNullOrEmpty(clientId))
+        {
+            return MqttPublishResult.Fail("clientId 不得為空白");
+        }
+
         try
         {
             var tcp = new TcpClient();
@@ -42,7 +54,7 @@ public sealed class MqttClient : IMqttPublisher, IDisposable
             tcp.Connect(host, port);
             var stream = tcp.GetStream();
 
-            var connectPacket = BuildConnect(clientId, keepAliveSeconds);
+            var connectPacket = BuildConnect(clientId, keepAliveSeconds, username, password);
             Write(stream, connectPacket);
             var connack = ReadFully(stream, 4);
             if (connack.Length < 4 || connack[0] != 0x20)
@@ -116,17 +128,46 @@ public sealed class MqttClient : IMqttPublisher, IDisposable
 
     public void Dispose() => Disconnect();
 
-    private static byte[] BuildConnect(string clientId, int keepAliveSeconds)
+    private static byte[] BuildConnect(string clientId, int keepAliveSeconds, string? username, string? password)
     {
-        var clientBytes = Encoding.UTF8.GetBytes(clientId ?? string.Empty);
-        var remaining = 10 + 2 + clientBytes.Length;   // 變動表頭 10 位元組＋client id
+        var clientBytes = Encoding.UTF8.GetBytes(clientId);
+        var userBytes = username is null ? Array.Empty<byte>() : Encoding.UTF8.GetBytes(username);
+        var passBytes = password is null ? Array.Empty<byte>() : Encoding.UTF8.GetBytes(password);
+        var hasUser = password is not null || userBytes.Length > 0;
+        var hasPass = password is not null;
+        if (hasPass && !hasUser)
+        {
+            // MQTT 3.1.1：password flag 需配合 username flag
+            hasUser = true;
+        }
+
+        var remaining = 10 + 2 + clientBytes.Length;
+        if (hasUser) remaining += 2 + userBytes.Length;
+        if (hasPass) remaining += 2 + passBytes.Length;
+
+        var flags = 0x02; // clean session
+        if (hasUser) flags |= 0x80;
+        if (hasPass) flags |= 0x40;
+
         var header = new List<byte> { 0x10 };
         header.AddRange(EncodeRemainingLength(remaining));
-        header.AddRange([0x00, 0x04, (byte)'M', (byte)'Q', (byte)'T', (byte)'T', 0x04, 0x02]);
+        header.AddRange([0x00, 0x04, (byte)'M', (byte)'Q', (byte)'T', (byte)'T', 0x04, (byte)flags]);
         header.Add((byte)(keepAliveSeconds >> 8));
         header.Add((byte)(keepAliveSeconds & 0xFF));
         header.AddRange([(byte)(clientBytes.Length >> 8), (byte)(clientBytes.Length & 0xFF)]);
         header.AddRange(clientBytes);
+        if (hasUser)
+        {
+            header.AddRange([(byte)(userBytes.Length >> 8), (byte)(userBytes.Length & 0xFF)]);
+            header.AddRange(userBytes);
+        }
+
+        if (hasPass)
+        {
+            header.AddRange([(byte)(passBytes.Length >> 8), (byte)(passBytes.Length & 0xFF)]);
+            header.AddRange(passBytes);
+        }
+
         return header.ToArray();
     }
 

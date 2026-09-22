@@ -119,7 +119,59 @@ public class MqttClientTests : IDisposable
     }
 
     [Fact]
-    public void Router_TopicFormat_NormalizesEventType()
+    public void Connect_WithCredentials_SendsUserAndPassword()
+    {
+        using var broker = new FakeMqttBroker();
+        broker.Start();
+        using var client = new MqttClient();
+
+        Assert.True(client.Connect("127.0.0.1", broker.Port, "helivms-x", 30, "alice", "s3cret").Ok);
+        Assert.True(client.Disconnect().Ok);
+        WaitUntil(() => broker.DisconnectSeen);
+
+        Assert.Equal("alice", broker.Username);
+        Assert.Equal("s3cret", broker.Password);
+        Assert.True(broker.CleanSession);
+    }
+
+    [Fact]
+    public void Connect_UsernameOnly_NoPasswordFlag()
+    {
+        using var broker = new FakeMqttBroker();
+        broker.Start();
+        using var client = new MqttClient();
+
+        Assert.True(client.Connect("127.0.0.1", broker.Port, "c", 30, "bob").Ok);
+
+        Assert.Equal("bob", broker.Username);
+        Assert.Null(broker.Password);
+    }
+
+    [Fact]
+    public void Connect_PasswordWithoutUsername_SetsBothFlags()
+    {
+        using var broker = new FakeMqttBroker();
+        broker.Start();
+        using var client = new MqttClient();
+
+        Assert.True(client.Connect("127.0.0.1", broker.Port, "c", 30, password: "pw").Ok);
+
+        Assert.Equal(string.Empty, broker.Username);
+        Assert.Equal("pw", broker.Password);
+    }
+
+    [Fact]
+    public void Connect_EmptyClientId_ReturnsFail()
+    {
+        using var client = new MqttClient();
+        var result = client.Connect("127.0.0.1", 1, "", 30);
+
+        Assert.False(result.Ok);
+        Assert.Contains("clientId", result.Error);
+    }
+
+    [Fact]
+    public void Router_TopicFormatNormalizesEventType()
     {
         Assert.Equal("helivms/events/ch3/motion_detected",
             MqttEventRouter.Topic("helivms/events", 3, "Motion Detected"));
@@ -159,6 +211,8 @@ internal sealed class FakeMqttBroker : IDisposable
 
     public int Port { get; }
     public string? ClientId { get; private set; }
+    public string? Username { get; private set; }
+    public string? Password { get; private set; }
     public bool CleanSession { get; private set; }
     public string? LastTopic { get; private set; }
     public byte[]? LastPayload { get; private set; }
@@ -187,10 +241,28 @@ internal sealed class FakeMqttBroker : IDisposable
                 {
                     case 0x10:   // CONNECT
                     case 0x12:
-                        ClientId = ReadConnectClientId(body);
-                        CleanSession = (body[7] & 0x02) != 0;
+                    {
+                        var flags = body[7];
+                        var idLen = (body[10] << 8) | body[11];
+                        ClientId = Encoding.UTF8.GetString(body, 12, idLen);
+                        var offset = 12 + idLen;
+                        if ((flags & 0x80) != 0)
+                        {
+                            var userLen = (body[offset] << 8) | body[offset + 1];
+                            Username = Encoding.UTF8.GetString(body, offset + 2, userLen);
+                            offset += 2 + userLen;
+                        }
+
+                        if ((flags & 0x40) != 0)
+                        {
+                            var passLen = (body[offset] << 8) | body[offset + 1];
+                            Password = Encoding.UTF8.GetString(body, offset + 2, passLen);
+                        }
+
+                        CleanSession = (flags & 0x02) != 0;
                         stream.Write(new byte[] { 0x20, 0x02, 0x00, (byte)_connackReturnCode });
                         break;
+                    }
 
                     case 0x30:   // PUBLISH QoS0
                         var topicLen = (body[0] << 8) | body[1];
@@ -215,13 +287,6 @@ internal sealed class FakeMqttBroker : IDisposable
     {
         _listener.Stop();
         try { _task?.GetAwaiter().GetResult(); } catch { }
-    }
-
-    private static string ReadConnectClientId(byte[] body)
-    {
-        // CONNECT variable header：長度(2)＋"MQTT"(4)＋level(1)＋flags(1)＋keepalive(2)＝10；client id 長度在 10..11
-        var idLen = (body[10] << 8) | body[11];
-        return Encoding.UTF8.GetString(body, 12, idLen);
     }
 
     private static async Task<(byte Header, byte[] Body, List<byte> RemainingLengthBytes)?> ReadPacketAsync(Stream stream)
