@@ -351,6 +351,19 @@ export function holdRows(rows) {
   }));
 }
 
+export function ruleRows(rows) {
+  return (rows ?? []).map((r) => ({
+    id: Number(r.id ?? r.Id ?? 0),
+    name: r.name ?? r.Name ?? '',
+    event: r.eventType ?? r.EventType ?? '',
+    channel: r.channelId ?? r.ChannelId ?? 0,
+    keyword: r.keyword ?? r.Keyword ?? '',
+    channels: r.channels ?? r.Channels ?? '',
+    enabled: !!(r.enabled ?? r.Enabled),
+    min: Number(r.minEventsInWindow ?? r.MinEventsInWindow ?? 1),
+  }));
+}
+
 export function scheduleLabel(s, { short = false } = {}) {
   const r = s ?? {};
   const mask = Number(r.daysMask ?? r.DaysMask ?? 0);

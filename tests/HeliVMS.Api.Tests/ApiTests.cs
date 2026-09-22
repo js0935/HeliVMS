@@ -840,6 +840,39 @@ public class ApiTests : IClassFixture<ApiFactory>, IDisposable
 
     private sealed record LegalHoldItem(long Id, int ChannelId, string FromUtc, string ToUtc, string Reason, string CreatedBy, string CreatedAtUtc, string? RevokedAtUtc, string? RevokedBy, string? RevokedReason, bool Active);
 
+    [Fact]
+    public async Task AlertRules_Crud()
+    {
+        using var client = Client();
+        var bad = await client.PostAsJsonAsync("/api/alert-rules", new { name = "" });
+        Assert.Equal(HttpStatusCode.BadRequest, bad.StatusCode);
+
+        var created = await client.PostAsJsonAsync(
+            "/api/alert-rules",
+            new { name = "夜間動態", eventType = "motion", channelId = 2, frames = 0, minEventsInWindow = 2 });
+        Assert.Equal(HttpStatusCode.OK, created.StatusCode);
+        var rule = await ReadAsync<AlertRuleItem>(created);
+        Assert.True(rule.Enabled);
+
+        var list = await ReadAsync<List<AlertRuleItem>>(await client.GetAsync("/api/alert-rules"));
+        Assert.Contains(list, r => r.Id == rule.Id && r.EventType == "motion");
+
+        var toggle = await client.PutAsJsonAsync($"/api/alert-rules/{rule.Id}/enabled", new { enabled = false });
+        Assert.Equal(HttpStatusCode.OK, toggle.StatusCode);
+        var after = await ReadAsync<List<AlertRuleItem>>(await client.GetAsync("/api/alert-rules"));
+        Assert.Contains(after, r => r.Id == rule.Id && !r.Enabled);
+
+        var nf = await client.DeleteAsync("/api/alert-rules/999999");
+        Assert.Equal(HttpStatusCode.NotFound, nf.StatusCode);
+
+        var del = await client.DeleteAsync($"/api/alert-rules/{rule.Id}");
+        Assert.Equal(HttpStatusCode.OK, del.StatusCode);
+        var gone = await ReadAsync<List<AlertRuleItem>>(await client.GetAsync("/api/alert-rules"));
+        Assert.DoesNotContain(gone, r => r.Id == rule.Id);
+    }
+
+    private sealed record AlertRuleItem(long Id, string Name, string? EventType, int? ChannelId, string? Keyword, string? Channels, bool Enabled, string? MatchEventTypes, int FrameMinutes, int MinEventsInWindow);
+
     private sealed record BackupRunRecordBody(
         long Id,
         System.DateTime RunAt,

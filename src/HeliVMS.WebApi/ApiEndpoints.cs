@@ -47,6 +47,8 @@ public static class ApiEndpoints
     public sealed record LegalHoldRequest(int ChannelId, DateTime FromUtc, DateTime ToUtc, string Reason, string CreatedBy);
     public sealed record LegalHoldRevoke(string By, string Reason);
     public sealed record LegalHoldItem(long Id, int ChannelId, string FromUtc, string ToUtc, string Reason, string CreatedBy, string CreatedAtUtc, string? RevokedAtUtc, string? RevokedBy, string? RevokedReason, bool Active);
+    public sealed record AlertRuleRequest(string Name, string? EventType, int? ChannelId, string? Keyword, string? Channels, string? MatchEventTypes, int FrameMinutes, int MinEventsInWindow);
+    public sealed record AlertRuleItem(long Id, string Name, string? EventType, int? ChannelId, string? Keyword, string? Channels, bool Enabled, string? MatchEventTypes, int FrameMinutes, int MinEventsInWindow);
     public sealed record DailyReportResponse(
         IReadOnlyList<RecordingSummaryRow> Recording,
         IReadOnlyList<CapacityTrendRow> Capacity,
@@ -695,7 +697,65 @@ public static class ApiEndpoints
             var ok = holds.Revoke(id, string.IsNullOrWhiteSpace(body.By) ? "operator" : body.By, body.Reason ?? "", DateTime.UtcNow);
             return ok ? Results.Ok(new { ok = true }) : Results.BadRequest(new { error = "撤銷失敗" });
         });
+
+        api.MapGet("/alert-rules", static (AlertRuleRepository rules) =>
+            Results.Ok(rules.ListAll().Select(ToRule).ToList()));
+
+        api.MapPost("/alert-rules", static (AlertRuleRequest body, AlertRuleRepository rules) =>
+        {
+            if (string.IsNullOrWhiteSpace(body.Name))
+            {
+                return Results.BadRequest(new { error = "規則名稱必填" });
+            }
+
+            var id = rules.Add(body.Name, NullIfBlank(body.EventType), body.ChannelId, NullIfBlank(body.Keyword), NullIfBlank(body.Channels), NullIfBlank(body.MatchEventTypes), body.FrameMinutes, body.MinEventsInWindow < 1 ? 1 : body.MinEventsInWindow);
+            return Results.Ok(new AlertRuleItem(id, body.Name, body.EventType, body.ChannelId, body.Keyword, body.Channels, true, body.MatchEventTypes, body.FrameMinutes, body.MinEventsInWindow));
+        });
+
+        api.MapPut("/alert-rules/{id:long}", static (long id, AlertRuleRequest body, AlertRuleRepository rules) =>
+        {
+            var existing = rules.ListAll().FirstOrDefault(r => r.Id == id);
+            if (existing is null)
+            {
+                return Results.NotFound();
+            }
+
+            if (string.IsNullOrWhiteSpace(body.Name))
+            {
+                return Results.BadRequest(new { error = "規則名稱必填" });
+            }
+
+            rules.Update(id, body.Name, NullIfBlank(body.EventType), body.ChannelId, NullIfBlank(body.Keyword), NullIfBlank(body.Channels), existing.Enabled, NullIfBlank(body.MatchEventTypes), body.FrameMinutes, body.MinEventsInWindow < 1 ? 1 : body.MinEventsInWindow);
+            return Results.Ok(new AlertRuleItem(id, body.Name, body.EventType, body.ChannelId, body.Keyword, body.Channels, existing.Enabled, body.MatchEventTypes, body.FrameMinutes, body.MinEventsInWindow));
+        });
+
+        api.MapPut("/alert-rules/{id:long}/enabled", static (long id, AuthProviderToggle body, AlertRuleRepository rules) =>
+        {
+            if (rules.ListAll().All(r => r.Id != id))
+            {
+                return Results.NotFound();
+            }
+
+            rules.SetEnabled(id, body.Enabled);
+            return Results.Ok(new { ok = true });
+        });
+
+        api.MapDelete("/alert-rules/{id:long}", static (long id, AlertRuleRepository rules) =>
+        {
+            if (rules.ListAll().All(r => r.Id != id))
+            {
+                return Results.NotFound();
+            }
+
+            rules.Delete(id);
+            return Results.Ok(new { ok = true });
+        });
     }
+
+    private static string? NullIfBlank(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    private static AlertRuleItem ToRule(AlertRule r) =>
+        new(r.Id, r.Name, r.EventType, r.ChannelId, r.Keyword, r.Channels, r.Enabled, r.MatchEventTypes, r.FrameMinutes, r.MinEventsInWindow);
 
     private static IReadOnlyList<LegalHoldItem> ToHolds(IReadOnlyList<LegalHoldRecord> records) =>
         records

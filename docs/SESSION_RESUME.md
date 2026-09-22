@@ -6,7 +6,7 @@
 
 ## 一句話總結
 HeliVMS 為一套**網路影像監控系統**（WPF 桌面應用：即時監看／回放／AI 事件中心／錄影排程）。
-進度: **M1 至 M141 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M128 日報 REST/視界；M120 回放段檔 REST；M119 回放時間軸 API；M118 警報即時流；M117 HeliVMS.WebApi；M116 快照一鍵遮蔽；M115 MQTT 訂閱派送掛載；M112 訂閱數據面、M113 POS 自動關聯、M114 VMD 自動套用）。
+進度: **M1 至 M142 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M128 日報 REST/視界；M120 回放段檔 REST；M119 回放時間軸 API；M118 警報即時流；M117 HeliVMS.WebApi；M116 快照一鍵遮蔽；M115 MQTT 訂閱派送掛載；M112 訂閱數據面、M113 POS 自動關聯、M114 VMD 自動套用）。
 Release build 0 error、測試 **1123/1123（＋vitest 30） 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
 本地與遠端完全同步（`git diff origin/HEAD` 為空）。
 
@@ -2085,6 +2085,10 @@ gh run list -L 3              # 預期全部 success
 93. **M116 交付＝快照一鍵遮蔽（§14.7 #16）**：
     - `SnapshotRedactor`：解碼→逐區 `RedactionProcessor.Apply(filled=true)` 實心塗黑（範圍夾截、退化區略過、輸入不可變）→依原格式（JPEG/PNG）重編碼。`SnapshotRedactionService`：按 snapshot `RedactionRepository.QueryBySource` 取區套用。
     - Storage 加 `System.Drawing.Common`（`SupportedPlatform windows`＋`SupportedOSPlatformVersion`；CI windows-latest 合規）；測試 8（遮黑/夾截/退化跳過/多區/PNG 精確黑/輸入不變/DB refId/無區回傳）→全量 **1098**。
+120. **M142 交付＝警示規則管理 REST＋SPA（M37/M54 閉環；原有 AlertRuleRepository 僅暴露，未重造）**：
+    - WebApi（DI 註冊 AlertRuleRepository）：`GET /api/alert-rules`；`POST`（名稱必填、M37 欄位）；`PUT /{id}` 更新；`PUT /{id}/enabled` 啟停；`DELETE /{id}`；404 守衛；blank→null 正規化。
+    - SPA：admin 警示規則面板——清單＋啟用核取＋刪除＋新增表單（名稱/事件/頻道/關鍵字/窗內最小數）。lib `ruleRows`。
+    - 測試：Api ＋1 **40**（空名 400；新增→enabled；toggle off→disable；缺 404；刪除→gone）；vitest ＋1 **41**（ruleRows 正常/空）；全量 **1139**。
 119. **M141 交付＝法律保留 REST＋SPA（M66 閉環；原有 LegalHoldRepository 僅暴露，未重造）**：
     - WebApi（DI 註冊 LegalHoldRepository）：`GET /api/legal-holds`、`GET /legal-holds/active`；`POST`（頻道＋窗＋事由必填→Add）；`PUT /legal-holds/{id}/revoke`（NotFound 守衛；DELETE＋body 被 minimal API 拒→改 PUT 語義）。
     - SPA：admin 法律保留面板——清單（窗/事由/建立者/狀態）＋撤銷按鈕（prompt 原因）＋建立表單。lib `holdRows`。

@@ -21,6 +21,7 @@ import {
   exportRows,
   providerRows,
   holdRows,
+  ruleRows,
   patrolLabel,
   scheduleInEffect,
   scheduleLabel,
@@ -438,5 +439,13 @@ describe('login gating', () => {
     ]);
     expect(rows[0]).toMatchObject({ id: 5, channel: 1, reason: '案件', by: 'auditor', active: true, revokedBy: '' });
     expect(holdRows(null)).toEqual([]);
+  });
+
+  it('renders alert rule rows', () => {
+    const rows = ruleRows([
+      { id: 2, name: '夜間動態', eventType: 'motion', channelId: 2, keyword: null, channels: null, enabled: false, minEventsInWindow: 2 },
+    ]);
+    expect(rows[0]).toMatchObject({ id: 2, name: '夜間動態', event: 'motion', channel: 2, enabled: false, min: 2 });
+    expect(ruleRows(null)).toEqual([]);
   });
 });

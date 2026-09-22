@@ -186,6 +186,23 @@
       </form>
     </section>
 
+    <section class="panel wide" id="rule-panel" hidden>
+      <h2>警示規則 <span id="rule-count" class="muted"></span></h2>
+      <table class="compact">
+        <thead><tr><th>ID</th><th>名稱</th><th>事件</th><th>頻道</th><th>關鍵字</th><th>頻道清單</th><th>啟用</th><th>窗內數</th><th></th></tr></thead>
+        <tbody id="rule-body"></tbody>
+      </table>
+      <form id="rule-form" class="row-form">
+        <input name="rname" type="text" placeholder="規則名稱" required>
+        <input name="revent" type="text" placeholder="事件（可空）">
+        <input name="rch" type="number" min="0" placeholder="頻道（可空）">
+        <input name="rkw" type="text" placeholder="關鍵字（可空）">
+        <input name="rmin" type="number" min="1" value="1" placeholder="窗內最小數">
+        <button type="submit">新增</button>
+        <span id="rule-msg" class="muted"></span>
+      </form>
+    </section>
+
     <section class="panel wide" id="hold-panel" hidden>
       <h2>法律保留 <span id="hold-count" class="muted"></span></h2>
       <table class="compact">

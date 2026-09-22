@@ -19,6 +19,7 @@ import {
   exportRows,
   providerRows,
   holdRows,
+  ruleRows,
   patrolLabel,
   scheduleInEffect,
   scheduleLabel,
@@ -98,7 +99,7 @@ async function submitLogin(event) {
   if (state.ok) {
     storeSession({ role: state.role, name: state.displayName });
     if (canAct(state.role)) {
-      await Promise.allSettled([renderAccounts(), renderConfig(), renderAudit(), renderEvidence(), renderBackup(), renderProviders(), renderHolds()]);
+      await Promise.allSettled([renderAccounts(), renderConfig(), renderAudit(), renderEvidence(), renderBackup(), renderProviders(), renderHolds(), renderRules()]);
     }
   }
   await refreshBoard();
@@ -123,6 +124,7 @@ function updateChrome() {
   $('backup-panel').hidden = !admin;
   $('provider-panel').hidden = !admin;
   $('hold-panel').hidden = !admin;
+  $('rule-panel').hidden = !admin;
   $('logout').hidden = !session;
 }
 
@@ -646,6 +648,64 @@ function bindHoldForm() {
   });
 }
 
+async function renderRules() {
+  const rows = ruleRows(await api('/api/alert-rules').catch(() => []));
+  $('rule-body').innerHTML = rows
+    .map(
+      (r) =>
+        `<tr><td>#${r.id}</td><td>${r.name}</td><td>${r.event || '—'}</td><td>${r.channel || '—'}</td><td>${r.keyword || '—'}</td><td>${r.channels || '—'}</td><td><input type="checkbox" data-rule-toggle="${r.id}" ${r.enabled ? 'checked' : ''}></td><td>${r.min}</td><td><button class="danger" data-rule-del="${r.id}">刪除</button></td></tr>`,
+    )
+    .join('');
+  $('rule-count').textContent = `（${rows.length}）`;
+  Array.from(document.querySelectorAll('[data-rule-toggle]')).forEach((cb) => {
+    cb.addEventListener('change', async () => {
+      await fetch(`/api/alert-rules/${cb.dataset.ruleToggle}/enabled`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: cb.checked }),
+      });
+      renderRules();
+    });
+  });
+  Array.from(document.querySelectorAll('[data-rule-del]')).forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      await fetch(`/api/alert-rules/${btn.dataset.ruleDel}`, { method: 'DELETE' });
+      renderRules();
+    });
+  });
+}
+
+function bindRuleForm() {
+  const form = $('rule-form');
+  form.addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    const name = form.querySelector('input[name="rname"]').value.trim();
+    const eventType = form.querySelector('input[name="revent"]').value.trim();
+    const channel = Number(form.querySelector('input[name="rch"]').value || 0);
+    const keyword = form.querySelector('input[name="rkw"]').value.trim();
+    const min = Number(form.querySelector('input[name="rmin"]').value || 1);
+    if (!name) return;
+    const resp = await fetch('/api/alert-rules', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name,
+        eventType: eventType || null,
+        channelId: channel || null,
+        keyword: keyword || null,
+        channels: null,
+        matchEventTypes: null,
+        frameMinutes: 0,
+        minEventsInWindow: min,
+      }),
+    }).catch(() => null);
+    if (!resp) return;
+    const body = await resp.json().catch(() => null);
+    $('rule-msg').textContent = resp.ok ? `已新增 #${body.id}` : body?.error ?? '失敗';
+    if (resp.ok) renderRules();
+  });
+}
+
 function bindEvidenceForm() {
   const form = $('evidence-form');
   form.addEventListener('submit', async (ev) => {
@@ -786,6 +846,7 @@ function wire() {
   bindExportForm();
   bindProviderForm();
   bindHoldForm();
+  bindRuleForm();
   $('search-form').addEventListener('submit', (e) => {
     e.preventDefault();
     searchEvents($('q').value || '*').catch(console.error);
