@@ -16,6 +16,8 @@ import {
   smartwallSnapshot,
   sortBoard,
   summarizeBoard,
+  tileClass,
+  tileLabel,
   triagePayload,
 } from './lib.js';
 
@@ -249,9 +251,21 @@ function renderSmartwall() {
   api('/api/smartwall/board')
     .then((body) => {
       const snap = smartwallSnapshot(Array.isArray(body) ? body : (body?.cells ?? []));
-      const el = $('sw');
-      el.textContent = `smartwall ${snap.count} · critical ${snap.critical}`;
-      el.classList.toggle('hot', snap.critical > 0);
+      $('sw').textContent = `smartwall ${snap.count} · critical ${snap.critical}`;
+      $('sw').classList.toggle('hot', snap.critical > 0);
+      const el = $('swgrid');
+      el.innerHTML = '';
+      const cells = snap.cells.length ? snap.cells : [{}];
+      const pins = gridLayout(cells.length, 4);
+      cells.forEach((c, i) => {
+        const box = document.createElement('div');
+        box.className = `swtile ${tileClass(c)}`;
+        Object.assign(box.style, pinStyles(pins[i], 0.01));
+        const t = tileLabel(c);
+        box.title = `頻道 ${t.channel} · ${t.type} (${t.priority})`;
+        box.textContent = String(t.channel);
+        el.appendChild(box);
+      });
     })
     .catch(() => {});
 }
@@ -338,6 +352,7 @@ function connectLive() {
     const li = document.createElement('li');
     li.textContent = `${formatTimestamp(new Date().toISOString())} ${msg.kind} #${msg.eventId} ${msg.priority ?? msg.status ?? ''}`;
     $('live-log').prepend(li);
+    if (msg.kind.startsWith('alarm.')) renderSmartwall();
   };
   socket.onclose = () => {
     $('live').textContent = 'WS off';

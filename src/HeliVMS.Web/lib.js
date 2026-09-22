@@ -192,3 +192,19 @@ export function configCard(raw) {
     lockoutMinutes: Number(r.lockoutMinutes ?? r.LockoutMinutes ?? 5),
   };
 }
+
+export function tileClass(cell) {
+  const c = cell ?? {};
+  const highlight = Boolean(c.highlight ?? c.Highlight);
+  if (highlight) return 'tile-hot';
+  return (c.priority ?? c.Priority ?? 'normal') === 'critical' ? 'tile-crit' : 'tile-norm';
+}
+
+export function tileLabel(cell) {
+  const c = cell ?? {};
+  return {
+    channel: c.channelId ?? c.ChannelId ?? '?',
+    type: c.eventType ?? c.EventType ?? '',
+    priority: c.priority ?? c.Priority ?? 'normal',
+  };
+}

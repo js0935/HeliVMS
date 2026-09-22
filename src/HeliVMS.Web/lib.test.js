@@ -19,6 +19,8 @@ import {
   smartwallSnapshot,
   sortBoard,
   summarizeBoard,
+  tileClass,
+  tileLabel,
   triagePayload,
 } from './lib.js';
 
@@ -253,5 +255,17 @@ describe('login gating', () => {
       lockoutMinutes: 15,
     });
     expect(configCard(null)).toEqual({ authEnabled: false, lockoutThreshold: 5, lockoutMinutes: 5 });
+  });
+
+  it('maps smartwall tiles to classes and labels', () => {
+    expect(tileClass({ priority: 'critical' })).toBe('tile-crit');
+    expect(tileClass({ priority: 'normal' })).toBe('tile-norm');
+    expect(tileClass({ priority: 'critical', highlight: true })).toBe('tile-hot');
+    expect(tileClass({ Highlight: 1 })).toBe('tile-hot');
+    expect(tileLabel({ channelId: 3, eventType: 'motion' })).toEqual({
+      channel: 3,
+      type: 'motion',
+      priority: 'normal',
+    });
   });
 });
