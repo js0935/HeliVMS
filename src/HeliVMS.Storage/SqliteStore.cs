@@ -9,7 +9,7 @@ namespace HeliVMS.Storage;
 /// </summary>
 public sealed class SqliteStore : IDisposable
 {
-    private const int CurrentSchemaVersion = 34;
+    private const int CurrentSchemaVersion = 35;
     private readonly SqliteConnection _connection;
     private readonly object _gate = new();
     private bool _disposed;
@@ -222,6 +222,11 @@ public sealed class SqliteStore : IDisposable
         if (version < 34)
         {
             CreateUnifiedSearchTablesV34();
+        }
+
+        if (version < 35)
+        {
+            CreateFailoverEventTablesV35();
         }
 
         Execute("PRAGMA user_version = CURRENT_SCHEMA_VERSION;".Replace(
@@ -1067,6 +1072,23 @@ public sealed class SqliteStore : IDisposable
                 INSERT INTO edge_smart_events_fts(rowid, class_name, track_id, direction)
                 VALUES (new.id, new.class_name, new.track_id, new.direction);
             END;
+            """);
+    }
+
+    /// <summary>M98 容錯實體接管（§14.7 #9）L1：failover 接管/交還/當選事件軌跡表＋時序索引。</summary>
+    private void CreateFailoverEventTablesV35()
+    {
+        Execute(
+            """
+            CREATE TABLE IF NOT EXISTS failover_events (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                server_id  TEXT NOT NULL,
+                mode       TEXT NOT NULL CHECK (mode IN ('Leader', 'Takeover', 'Relinquish')),
+                detail     TEXT NOT NULL,
+                at_utc     TEXT NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_failover_events_time ON failover_events(at_utc);
             """);
     }
 

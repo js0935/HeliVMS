@@ -177,6 +177,174 @@ public class FailoverTests
 
     #endregion
 
+    #region FailoverReconcile engine (M98, 實體接管)
+
+    private sealed class RecordingController : IFailoverRoleController
+    {
+        public int TakeOverCount { get; private set; }
+        public int RelinquishCount { get; private set; }
+        public DateTime LastTakeOverAt { get; private set; }
+        public DateTime LastRelinquishAt { get; private set; }
+
+        public void TakeOver(DateTime utcNow)
+        {
+            TakeOverCount++;
+            LastTakeOverAt = utcNow;
+        }
+
+        public void Relinquish(DateTime utcNow)
+        {
+            RelinquishCount++;
+            LastRelinquishAt = utcNow;
+        }
+    }
+
+    private sealed class MemoryEventLog : IFailoverEventLog
+    {
+        public List<(string ServerId, FailoverEventMode Mode, string Detail, DateTime AtUtc)> Entries { get; } = new();
+
+        public long Append(string serverId, FailoverEventMode mode, string detail, DateTime atUtc)
+        {
+            Entries.Add((serverId, mode, detail, atUtc));
+            return Entries.Count;
+        }
+    }
+
+    private static (FailoverCoordinator C, RecordingController Ctl, MemoryEventLog Log) Rig(string node)
+    {
+        var ctl = new RecordingController();
+        var log = new MemoryEventLog();
+        return (new FailoverCoordinator(new MemoryLeaseStore(), node), ctl, log);
+    }
+
+    [Fact]
+    public void Reconcile_EmptyStore_ElectsLeaderAndTakesOver()
+    {
+        var (c, ctl, log) = Rig("nodeA");
+
+        var role = c.Reconcile(TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(5), T(), ctl, log);
+
+        Assert.Equal(FailoverRole.Leader, role);
+        Assert.Equal(1, ctl.TakeOverCount);
+        Assert.Equal(0, ctl.RelinquishCount);
+        var e = Assert.Single(log.Entries);
+        Assert.Equal(FailoverEventMode.Leader, e.Mode);
+        Assert.Equal("nodeA", e.ServerId);
+    }
+
+    [Fact]
+    public void Reconcile_SteadyRenew_NoDuplicateTransition()
+    {
+        var (c, ctl, log) = Rig("nodeA");
+        c.Reconcile(TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(5), T(), ctl, log);
+
+        var role = c.Reconcile(TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(5), T(1), ctl, log);
+
+        Assert.Equal(FailoverRole.Leader, role);
+        Assert.Equal(1, ctl.TakeOverCount);   // 不重複接管
+        Assert.Single(log.Entries);            // 不濫寫事件
+    }
+
+    [Fact]
+    public void Reconcile_OtherValidLease_StaysPassive()
+    {
+        var store = new MemoryLeaseStore();
+        store.Upsert(new FailoverLease("nodeB", T(30)));
+        var ctl = new RecordingController();
+        var log = new MemoryEventLog();
+        var c = new FailoverCoordinator(store, "nodeA");
+
+        var role = c.Reconcile(TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(5), T(), ctl, log);
+
+        Assert.Equal(FailoverRole.Standby, role);
+        Assert.Equal(0, ctl.TakeOverCount);
+        Assert.Equal(0, ctl.RelinquishCount);
+        Assert.Empty(log.Entries);
+    }
+
+    [Fact]
+    public void Reconcile_OtherExpiredInsideWindow_StandsBy()
+    {
+        var store = new MemoryLeaseStore();
+        store.Upsert(new FailoverLease("nodeB", T(5)));   // 到期 T5
+        var ctl = new RecordingController();
+        var log = new MemoryEventLog();
+        var c = new FailoverCoordinator(store, "nodeA");
+
+        var role = c.Reconcile(TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(5), T(6), ctl, log); // 逾時 1s<窗 5s
+
+        Assert.Equal(FailoverRole.Standby, role);
+        Assert.Equal(0, ctl.TakeOverCount);
+        Assert.Empty(log.Entries);
+    }
+
+    [Fact]
+    public void Reconcile_OtherExpiredBeyondWindow_TakesOver()
+    {
+        var store = new MemoryLeaseStore();
+        store.Upsert(new FailoverLease("nodeB", T(5)));
+        var ctl = new RecordingController();
+        var log = new MemoryEventLog();
+        var c = new FailoverCoordinator(store, "nodeA");
+
+        Assert.Equal(FailoverRole.Standby, c.Reconcile(TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(5), T(1), ctl, log));
+        var role = c.Reconcile(TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(5), T(11), ctl, log); // 逾時 6s≥窗 5s
+
+        Assert.Equal(FailoverRole.Leader, role);
+        Assert.Equal(1, ctl.TakeOverCount);
+        var e = Assert.Single(log.Entries);
+        Assert.Equal(FailoverEventMode.Takeover, e.Mode);
+        Assert.Equal("nodeA", store.GetLease()!.ServerId);
+    }
+
+    [Fact]
+    public void Reconcile_LeaderLeaseCededToOther_Relinquishes()
+    {
+        var store = new MemoryLeaseStore();
+        var ctl = new RecordingController();
+        var log = new MemoryEventLog();
+        var c = new FailoverCoordinator(store, "nodeA");
+        c.Reconcile(TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(5), T(), ctl, log);
+        Assert.Equal(FailoverRole.Leader, c.GetStatus(T()).Role);
+
+        store.Upsert(new FailoverLease("nodeB", T(30))); // 他人取得有效租約
+
+        var role = c.Reconcile(TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(5), T(1), ctl, log);
+
+        Assert.Equal(FailoverRole.Standby, role);
+        Assert.Equal(1, ctl.RelinquishCount);
+        var e = Assert.Single(log.Entries, x => x.Mode == FailoverEventMode.Relinquish);
+        Assert.Equal("nodeA", e.ServerId);
+    }
+
+    [Fact]
+    public void Reconcile_ReleaseThenReelect_LeaderEvent()
+    {
+        var store = new MemoryLeaseStore();
+        var ctl = new RecordingController();
+        var log = new MemoryEventLog();
+        var c = new FailoverCoordinator(store, "nodeA");
+        c.Reconcile(TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(5), T(), ctl, log);
+        Assert.True(c.Release(T(1)));
+
+        var role = c.Reconcile(TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(5), T(2), ctl, log);
+
+        Assert.Equal(FailoverRole.Leader, role);
+        Assert.Equal(2, ctl.TakeOverCount);
+        Assert.Equal(2, log.Entries.Count);
+        Assert.All(log.Entries, e => Assert.Equal(FailoverEventMode.Leader, e.Mode));
+    }
+
+    [Fact]
+    public void Reconcile_NegativeWindow_Throws()
+    {
+        var (c, ctl, log) = Rig("nodeA");
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            c.Reconcile(TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(-1), T(), ctl, log));
+    }
+
+    #endregion
+
     #region FailoverRepository integration (real SqliteStore)
 
     private sealed class RepoFixture : IDisposable
@@ -270,6 +438,49 @@ public class FailoverTests
         Assert.Equal(FailoverRole.Leader, nodeB.AcquireOrRenew(TimeSpan.FromSeconds(10), T(11)));
         Assert.Equal("nodeB", fx.Repo.GetLease()!.ServerId);
     }
+
+    #region FailoverEventRepository integration (M98, v35)
+
+    [Fact]
+    public void EventRepo_AppendRoundTrip_ListAfter()
+    {
+        using var fx = new RepoFixture();
+        var events = new FailoverEventRepository(fx.Store);
+
+        var id = events.Append("nodeB", FailoverEventMode.Takeover, "acquired leader lease", T(11));
+        events.Append("nodeB", FailoverEventMode.Leader, "re-elected", T(9));
+
+        var list = events.ListAfter(T());
+        Assert.Collection(
+            list,
+            first =>
+            {
+                Assert.Equal("nodeB", first.ServerId);         // DESC：T11 在前
+                Assert.Equal(FailoverEventMode.Takeover, first.Mode);
+                Assert.Equal(T(11), first.AtUtc);
+            },
+            second => Assert.Equal(FailoverEventMode.Leader, second.Mode));
+        Assert.True(id > 0);
+        var at10 = Assert.Single(events.ListAfter(T(10)));  // from 過濾（含）
+        Assert.Equal(FailoverEventMode.Takeover, at10.Mode);
+        Assert.Empty(events.ListAfter(T(12)));
+    }
+
+    [Fact]
+    public void EventRepo_AppendSingle_StoresModeString()
+    {
+        using var fx = new RepoFixture();
+        var events = new FailoverEventRepository(fx.Store);
+        events.Append("nodeA", FailoverEventMode.Relinquish, "ceded leader to nodeB", T(3));
+
+        var mode = fx.Store.Query(
+            "SELECT mode FROM failover_events WHERE server_id = 'nodeA';",
+            static r => { r.Read(); return r.GetString(0); });
+
+        Assert.Equal("Relinquish", mode);
+    }
+
+    #endregion
 
     #endregion
 }
