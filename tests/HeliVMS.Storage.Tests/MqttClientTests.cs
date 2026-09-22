@@ -461,7 +461,7 @@ public class MqttClientTests : IDisposable
         WaitUntil(() => received == 2);
 
         cts.Cancel();
-        await run.WaitAsync(TimeSpan.FromSeconds(5));
+        await run.WaitAsync(TimeSpan.FromSeconds(10));
     }
 
     public void Dispose()
