@@ -883,6 +883,8 @@ public static class ApiEndpoints
             events.Acknowledge(eventId, body.Acknowledged);
             return Results.Ok(new { ok = true });
         });
+
+        api.MapGet("/system-metrics", static () => Results.Ok(SystemMetricsService.Capture()));
     }
 
     private sealed record InputAck(bool Acknowledged);

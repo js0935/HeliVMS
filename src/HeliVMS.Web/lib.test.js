@@ -26,6 +26,7 @@ import {
   redRows,
   repRows,
   alarmRows,
+  sysMetricsRows,
   patrolLabel,
   scheduleInEffect,
   scheduleLabel,
@@ -483,5 +484,21 @@ describe('login gating', () => {
     ]);
     expect(rows[0]).toMatchObject({ id: 7, channel: 2, event: 'motion', status: 'pending', priority: 'high', overdue: true });
     expect(alarmRows(null)).toEqual([]);
+  });
+
+  it('renders system metric rows', () => {
+    const rows = sysMetricsRows({
+      capturedAtUtc: 'x', uptimeMinutes: 3, workingSetMb: 40, managedHeapMb: 8, cpuPercent: 12.5,
+      disks: [{ name: 'C:', totalMb: 120, freeMb: 80, format: 'NTFS' }],
+    });
+    expect(rows).toMatchObject({
+      captured: formatTimestamp('x'),
+      uptimeMinutes: 3,
+      workingSetMb: 40,
+      managedHeapMb: 8,
+      cpuPercent: 12.5,
+      disks: [{ name: 'C:', totalMb: 120, freeMb: 80, format: 'NTFS' }],
+    });
+    expect(sysMetricsRows(null)).toEqual(expect.objectContaining({ disks: [] }));
   });
 });

@@ -6,7 +6,7 @@
 
 ## 一句話總結
 HeliVMS 為一套**網路影像監控系統**（WPF 桌面應用：即時監看／回放／AI 事件中心／錄影排程）。
-進度: **M1 至 M146 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M128 日報 REST/視界；M120 回放段檔 REST；M119 回放時間軸 API；M118 警報即時流；M117 HeliVMS.WebApi；M116 快照一鍵遮蔽；M115 MQTT 訂閱派送掛載；M112 訂閱數據面、M113 POS 自動關聯、M114 VMD 自動套用）。
+進度: **M1 至 M147 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M147 系統健康指標 REST＋SPA：GET /api/system-metrics＋SystemMetricsService；M146 警報看板 REST＋SPA；M120 回放段檔 REST；M119 回放時間軸 API；M118 警報即時流；M117 HeliVMS.WebApi；M116 快照一鍵遮蔽；M115 MQTT 訂閱派送掛載；M112 訂閱數據、M113 POS 自動關聯、M114 VMD 自動套用）。
 Release build 0 error、測試 **1123/1123（＋vitest 30） 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
 本地與遠端完全同步（`git diff origin/HEAD` 為空）。
 

@@ -417,6 +417,23 @@ export function alarmRows(rows) {
   }));
 }
 
+export function sysMetricsRows(metrics) {
+  const m = metrics ?? {};
+  return {
+    captured: formatTimestamp(m.capturedAtUtc ?? m.CapturedAtUtc ?? ''),
+    uptimeMinutes: Number(m.uptimeMinutes ?? m.UptimeMinutes ?? 0),
+    workingSetMb: Number(m.workingSetMb ?? m.WorkingSetMb ?? 0),
+    managedHeapMb: Number(m.managedHeapMb ?? m.ManagedHeapMb ?? 0),
+    cpuPercent: Number(m.cpuPercent ?? m.CpuPercent ?? 0),
+    disks: (m.disks ?? m.Disks ?? []).map((d) => ({
+      name: d.name ?? d.Name ?? '',
+      totalMb: Number(d.totalMb ?? d.TotalMb ?? 0),
+      freeMb: Number(d.freeMb ?? d.FreeMb ?? 0),
+      format: d.format ?? d.Format ?? '',
+    })),
+  };
+}
+
 export function scheduleLabel(s, { short = false } = {}) {
   const r = s ?? {};
   const mask = Number(r.daysMask ?? r.DaysMask ?? 0);

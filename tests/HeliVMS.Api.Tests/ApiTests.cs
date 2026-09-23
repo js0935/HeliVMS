@@ -998,6 +998,32 @@ public class ApiTests : IClassFixture<ApiFactory>, IDisposable
         Assert.True(summary1.FalseAlarm >= 1);
     }
 
+    [Fact]
+    public async Task Get_SystemMetrics_ReturnsProcessSnapshot()
+    {
+        var client = Client();
+        var resp = await client.GetAsync("/api/system-metrics");
+
+        Assert.Equal(HttpStatusCode.OK, resp.StatusCode     ); var snap = await ReadAsync<SystemMetricsItem>(resp);
+        Assert.False(string.IsNullOrWhiteSpace(snap.CapturedAtUtc));
+        Assert.True(snap.UptimeMinutes >= 0);
+        Assert.True(snap.WorkingSetMb > 0);
+        Assert.True(snap.ManagedHeapMb >= 0);
+        Assert.InRange(snap.CpuPercent, 0, 100);
+
+
+        var disks = snap.Disks ?? [];
+        Assert.NotEmpty(disks);
+        Assert.All(disks, d =>
+        {
+            Assert.False(string.IsNullOrWhiteSpace(d.Name));
+            Assert.True(d.TotalMb >= 0);
+            Assert.True(d.FreeMb >= 0);
+            Assert.False(string.IsNullOrWhiteSpace(d.Format));
+            Assert.True(d.FreeMb <= d.TotalMb, $"{d.Name} 可用不得超過總量");
+        });
+    }
+
     private sealed record AlarmBoardItem(long EventId, int ChannelId, string EventType, string StartUtc, string Status, string Priority, string? DueUtc, string? Owner, string? AssignedTo, bool Overdue);
     private sealed record AlarmBoardSummaryItem(int Pending, int Acknowledged, int Actioned, int FalseAlarm, int Overdue);
 
@@ -1180,6 +1206,16 @@ public class ApiTests : IClassFixture<ApiFactory>, IDisposable
     private sealed record AccountItem(int Id, string Username, string Role, string? DisplayName, bool Enabled, bool Locked);
 
     private sealed record LoginBody(string Role, string? DisplayName);
+
+    private sealed record SystemMetricsItem(
+        string? CapturedAtUtc,
+        int UptimeMinutes,
+        double WorkingSetMb,
+        double ManagedHeapMb,
+        double CpuPercent,
+        IReadOnlyList<SystemDiskItem> Disks);
+
+    private sealed record SystemDiskItem(string Name, string Format, long TotalMb, long FreeMb, long? UsableMb);
 
     private static string HttpUtility(DateTime utc) =>
         Uri.EscapeDataString(utc.ToString("o"));

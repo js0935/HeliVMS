@@ -103,7 +103,7 @@ async function submitLogin(event) {
   if (state.ok) {
     storeSession({ role: state.role, name: state.displayName });
     if (canAct(state.role)) {
-      await Promise.allSettled([renderAccounts(), renderConfig(), renderAudit(), renderEvidence(), renderBackup(), renderProviders(), renderHolds(), renderRules(), renderShares(), renderReds(), renderRep(), renderBoard()]);
+      await Promise.allSettled([renderAccounts(), renderConfig(), renderAudit(), renderEvidence(), renderBackup(), renderProviders(), renderHolds(), renderRules(), renderShares(), renderReds(), renderRep(), renderHealth(), renderBoard()]);
     }
   }
   await refreshBoard();
@@ -810,6 +810,26 @@ async function renderRep() {
     )
     .join('');
   $('rep-count').textContent = `（${rows.length}）`;
+}
+
+async function renderHealth() {
+  const health = await api('/api/system-metrics').catch(() => null);
+  if (!health) {
+    $('sys-msg').textContent = '無法取得系統指標';
+    return;
+  }
+  const rows = sysMetricsRows(health);
+  $('sys-count').textContent = `（${rows.disks.length} 磁碟）`;
+  $('sys-kv').textContent = 
+    `執行 ${rows.uptimeMinutes} 分鐘 · 工作集 ${rows.workingSetMb} MB · CPU ${rows.cpuPercent}%`;
+  $('sys-body').innerHTML = rows.disks
+    .map(
+      (d) =>
+        `<tr><td>${d.name}</td><td>${d.format}</td><td>${d.totalMb} MB</td>` +
+        `<td>${d.freeMb} MB</td><td>${(100 - d.usedPct).toFixed(1)}% 可用</td></tr>`,
+    )
+    .join('');
+  $('sys-msg').textContent = '';
 }
 
 async function renderBoard() {
