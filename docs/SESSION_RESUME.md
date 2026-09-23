@@ -6,7 +6,7 @@
 
 ## 一句話總結
 HeliVMS 為一套**網路影像監控系統**（WPF 桌面應用：即時監看／回放／AI 事件中心／錄影排程）。
-進度: **M1 至 M149 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M149 磁碟容量趨勢 REST＋SPA：GET /api/system-metrics/disks/history＝SystemMetricsService.CaptureDiskHistory；M148 記憶體趨勢 REST＋SPA：GET /api/system-metrics/history＝SystemMetricsService.CaptureHistory；M147 系統健康指標 REST＋SPA：GET /api/system-metrics＋SystemMetricsService；M146 警報看板 REST＋SPA；M120 回放段檔 REST；M119 回放時間軸 API；M118 警報即時流；M117 HeliVMS.WebApi；M116 快照一鍵遮蔽；M115 MQTT 訂閱派送掛載；M112 訂閱數據、M113 POS 自動關聯、M114 VMD 自動套用）。
+進度: **M1 至 M150 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M149b 本機攝影機設定讀取器：LocalCameraConfigReader 讀 git-ignored .secrets/cameras.local.yaml、不連網不回寫；M149 磁碟容量趨勢 REST＋SPA：GET /api/system-metrics/disks/history＝SystemMetricsService.CaptureDiskHistory；M148 記憶體趨勢 REST＋SPA：GET /api/system-metrics/history＝SystemMetricsService.CaptureHistory；M147 系統健康指標 REST＋SPA：GET /api/system-metrics＋SystemMetricsService；純 BCL/Storage/Api/SPA 可驗收里程碑已全數交付，剩餘皆 UI/真機/ML 阻塞）。
 Release build 0 error、測試 **1123/1123（＋vitest 30） 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
 本地與遠端完全同步（`git diff origin/HEAD` 為空）。
 
