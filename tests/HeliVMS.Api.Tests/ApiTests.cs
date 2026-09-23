@@ -1024,6 +1024,24 @@ public class ApiTests : IClassFixture<ApiFactory>, IDisposable
         });
     }
 
+    [Fact]
+    public async Task Get_SystemMetricsHistory_ReturnsTrendPoints()
+    {
+        var client = Client();
+        var resp = await client.GetAsync("/api/system-metrics/history");
+
+        Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
+        var history = await ReadAsync<List<SystemMetricsTrendItem>>(resp);
+        Assert.NotNull(history);
+        Assert.All(history, p =>
+        {
+            Assert.False(string.IsNullOrWhiteSpace(p.CapturedAtUtc));
+            Assert.True(p.WorkingSetGb > 0);
+        });
+    }
+
+    private sealed record SystemMetricsTrendItem(string CapturedAtUtc, double WorkingSetGb);
+
     private sealed record AlarmBoardItem(long EventId, int ChannelId, string EventType, string StartUtc, string Status, string Priority, string? DueUtc, string? Owner, string? AssignedTo, bool Overdue);
     private sealed record AlarmBoardSummaryItem(int Pending, int Acknowledged, int Actioned, int FalseAlarm, int Overdue);
 

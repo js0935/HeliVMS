@@ -434,6 +434,14 @@ export function sysMetricsRows(metrics) {
   };
 }
 
+export function sysTrendRows(points) {
+  const list = (points ?? []).map((p) => ({
+    captured: formatTimestamp(p.capturedAtUtc ?? p.CapturedAtUtc ?? ''),
+    workingSetGb: Number(p.workingSetGb ?? p.WorkingSetGb ?? 0),
+  }));
+  return list.sort((a, b) => (a.captured < b.captured ? -1 : a.captured > b.captured ? 1 : 0));
+}
+
 export function scheduleLabel(s, { short = false } = {}) {
   const r = s ?? {};
   const mask = Number(r.daysMask ?? r.DaysMask ?? 0);

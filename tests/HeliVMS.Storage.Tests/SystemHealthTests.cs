@@ -26,5 +26,22 @@ public sealed class SystemHealthTests
             Assert.True(d.FreeMb <= d.TotalMb, $"{d.Name} 可用({d.FreeMb}Mb)不得超過總量({d.TotalMb}Mb)");
             Assert.False(string.IsNullOrWhiteSpace(d.Format));
         });
+
+        Assert.True(
+            SystemMetricsService.CaptureHistory().Count >= 1,
+            "M148 記憶體趨勢 #1 閉環：Capture 至少已入列一筆趨勢點");
+    }
+
+    [Fact]
+    public void Capture_TrendHistory_HoldsLastSixtyInOrder()
+    {
+        SystemMetricsService.Capture();
+        SystemMetricsService.Capture();
+
+        var history = SystemMetricsService.CaptureHistory();
+
+        Assert.NotEmpty(history);
+        Assert.True(history.Count <= 60, "趨勢佇列（M148 #1）最多 60 筆");
+        Assert.All(history, p => Assert.True(p.WorkingSetGb > 0));
     }
 }

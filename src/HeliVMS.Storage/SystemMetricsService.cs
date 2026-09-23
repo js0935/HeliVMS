@@ -26,6 +26,14 @@ public static class SystemMetricsService
             ? 0
             : Math.Round(proc.TotalProcessorTime.TotalMilliseconds / uptime.TotalMilliseconds * 100.0, 1);
 
+        _history.Enqueue(new SystemMetricsTrendPoint(
+            SqliteStore.Iso(DateTime.UtcNow),
+            proc.WorkingSet64 / (1024.0 * 1024 * 1024)));
+        while (_history.Count > 60)
+        {
+            _history.TryDequeue(out _);
+        }
+
         return new SystemMetricsSnapshot(
             SqliteStore.Iso(DateTime.UtcNow),
             (long)Math.Max(0, uptime.TotalMinutes),
@@ -34,6 +42,17 @@ public static class SystemMetricsService
             Math.Min(100, cpuPercent),
             Disks());
     }
+
+    /// <summary>單一記憶體趨勢點（M148 §14.8 #1 閉環）：每分鐘一筆之工作集將被保留於歷史佇列。</summary>
+    public sealed record SystemMetricsTrendPoint(
+        string CapturedAtUtc,
+        double WorkingSetGb);
+
+    /// <summary>最近 60 分鐘之記憶體工作集趨勢（取自每次 Capture 之真實量測）。</summary>
+    public static IReadOnlyList<SystemMetricsTrendPoint> CaptureHistory() => _history.ToList();
+
+    private static readonly System.Collections.Concurrent.ConcurrentQueue<SystemMetricsTrendPoint> _history =
+        new();
 
     private static IReadOnlyList<SystemDiskMetric> Disks()
     {

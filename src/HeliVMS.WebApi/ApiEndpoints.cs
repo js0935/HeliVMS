@@ -885,6 +885,7 @@ public static class ApiEndpoints
         });
 
         api.MapGet("/system-metrics", static () => Results.Ok(SystemMetricsService.Capture()));
+        api.MapGet("/system-metrics/history", static () => Results.Ok(SystemMetricsService.CaptureHistory()));
     }
 
     private sealed record InputAck(bool Acknowledged);

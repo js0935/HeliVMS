@@ -27,6 +27,7 @@ import {
   repRows,
   alarmRows,
   sysMetricsRows,
+  sysTrendRows,
   patrolLabel,
   scheduleInEffect,
   scheduleLabel,
@@ -500,5 +501,17 @@ describe('login gating', () => {
       disks: [{ name: 'C:', totalMb: 120, freeMb: 80, format: 'NTFS' }],
     });
     expect(sysMetricsRows(null)).toEqual(expect.objectContaining({ disks: [] }));
+  });
+
+  it('renders memory trend rows sorted ascending', () => {
+    const rows = sysTrendRows([
+      { capturedAtUtc: '2026-01-01T00:02:00Z', workingSetGb: 2 },
+      { capturedAtUtc: '2026-01-01T00:01:00Z', workingSetGb: 1 },
+      { capturedAtUtc: '2026-01-01T00:03:00Z', workingSetGb: 3 },
+    ]);
+    expect(rows.map((r) => r.workingSetGb)).toEqual([1, 2, 3]);
+    expect(rows[0].captured).toBe(formatTimestamp('2026-01-01T00:01:00Z'));
+    expect(sysTrendRows(null)).toEqual([]);
+    expect(sysTrendRows(undefined)).toEqual([]);
   });
 });
