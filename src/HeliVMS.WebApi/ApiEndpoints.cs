@@ -918,6 +918,17 @@ public static class ApiEndpoints
         api.MapDelete("/clip/{sourceType}/{refId:long}", static (string sourceType, long refId, EmbeddingRepository repo) =>
             repo.Delete(sourceType, refId) ? Results.Ok(new { ok = true }) : Results.NotFound());
 
+        api.MapPost("/search/fuse", static (FuseRequest body) =>
+        {
+            if (body is null || body.Items is null || body.Items.Length == 0)
+            {
+                return Results.BadRequest();
+            }
+
+            var items = body.Items.Select(i => new FusionItem(i.Key, i.TextScore, i.VectorScore, i.TextWeight, i.VectorWeight));
+            return Results.Ok(RankFusion.Fuse(items));
+        });
+
         api.MapGet("/devices", static (DeviceRepository devices) =>
         {
             var list = devices.List();
@@ -959,6 +970,8 @@ public static class ApiEndpoints
 
     private sealed record ClipSearchRequest(float[] Vector, int TopK = 20);
     private sealed record ClipIndexRequest(string? SourceType, long RefId, string? Label, float[]? Vector);
+    private sealed record FuseRequest(FuseItemBody[] Items);
+    private sealed record FuseItemBody(string Key, double TextScore, double? VectorScore, double TextWeight = 1.0, double VectorWeight = 1.0);
 
     private sealed record InputAck(bool Acknowledged);
 

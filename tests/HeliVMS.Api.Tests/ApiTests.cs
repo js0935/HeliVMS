@@ -1150,6 +1150,27 @@ public class ApiTests : IClassFixture<ApiFactory>, IDisposable
         Assert.Equal(HttpStatusCode.NotFound, miss.StatusCode);
     }
 
+    [Fact]
+    public async Task Post_SearchFuse_ReturnsMergedRanking()
+    {
+        var client = Client();
+        var resp = await client.PostAsJsonAsync("/api/search/fuse", new
+        {
+            items = new[]
+            {
+                new { key = "alarm:1", textScore = 0.9, vectorScore = (double?)null },
+                new { key = "alarm:2", textScore = 0.0, vectorScore = (double?)0.9 },
+            },
+        });
+
+        Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
+        var fused = await ReadAsync<List<FuseResultBody>>(resp);
+        Assert.Equal(2, fused.Count);
+        Assert.Equal("alarm:2", fused[0].Key);
+    }
+
+    private sealed record FuseResultBody(string Key, double Score);
+
     private sealed record ClipVectorBody(float[] Vector);
 
     private sealed record IdBody(int Id);

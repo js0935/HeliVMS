@@ -30,6 +30,7 @@ import {
   sysTrendRows,
   sysDiskTrendRows,
   clipViewRows,
+  fuseViewRows,
   patrolLabel,
   scheduleInEffect,
   scheduleLabel,
@@ -538,5 +539,15 @@ describe('login gating', () => {
     expect(rows[0].label).toBe('motion');
     expect(clipViewRows(null)).toEqual([]);
     expect(clipViewRows(undefined)).toEqual([]);
+  });
+
+  it('renders fuse results sorted by score desc', () => {
+    const rows = fuseViewRows([
+      { key: 'alarm:1', score: 0.3 },
+      { key: 'alarm:2', score: 0.9 },
+    ]);
+    expect(rows.map((r) => r.key)).toEqual(['alarm:2', 'alarm:1']);
+    expect(fuseViewRows(null)).toEqual([]);
+    expect(fuseViewRows(undefined)).toEqual([]);
   });
 });

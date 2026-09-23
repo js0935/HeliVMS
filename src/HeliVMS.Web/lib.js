@@ -463,6 +463,15 @@ export function clipViewRows(hits) {
     .sort((a, b) => b.score - a.score);
 }
 
+export function fuseViewRows(results) {
+  return (results ?? [])
+    .map((r) => ({
+      key: r.key ?? r.Key ?? '',
+      score: Number(r.score ?? r.Score ?? 0),
+    }))
+    .sort((a, b) => b.score - a.score);
+}
+
 export function scheduleLabel(s, { short = false } = {}) {
   const r = s ?? {};
   const mask = Number(r.daysMask ?? r.DaysMask ?? 0);
