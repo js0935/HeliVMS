@@ -23,6 +23,7 @@ import {
   shareRows,
   redRows,
   repRows,
+  alarmRows,
   patrolLabel,
   scheduleInEffect,
   scheduleLabel,
@@ -102,7 +103,7 @@ async function submitLogin(event) {
   if (state.ok) {
     storeSession({ role: state.role, name: state.displayName });
     if (canAct(state.role)) {
-      await Promise.allSettled([renderAccounts(), renderConfig(), renderAudit(), renderEvidence(), renderBackup(), renderProviders(), renderHolds(), renderRules(), renderShares(), renderReds(), renderRep()]);
+      await Promise.allSettled([renderAccounts(), renderConfig(), renderAudit(), renderEvidence(), renderBackup(), renderProviders(), renderHolds(), renderRules(), renderShares(), renderReds(), renderRep(), renderBoard()]);
     }
   }
   await refreshBoard();
@@ -131,6 +132,7 @@ function updateChrome() {
   $('share-panel').hidden = !admin;
   $('red-panel').hidden = !admin;
   $('rep-panel').hidden = !admin;
+  $('alarm-panel').hidden = !admin;
   $('logout').hidden = !session;
 }
 
@@ -808,6 +810,67 @@ async function renderRep() {
     )
     .join('');
   $('rep-count').textContent = `（${rows.length}）`;
+}
+
+async function renderBoard() {
+  const [board, summary] = await Promise.all([
+    api('/api/alarm-board?take=200').catch(() => []),
+    api('/api/alarm-board/summary').catch(() => null),
+  ]);
+  const rows = alarmRows(board);
+  $('alarm-body').innerHTML = rows
+    .map(
+      (b) =>
+        `<tr class="${b.overdue ? 'overdue' : ''}"><td>#${b.id}</td><td>CH${b.channel}</td><td>${b.event}</td><td>${b.start}</td><td>${b.priority}<td>${b.status}</td><td class="${b.overdue ? 'bad' : ''}">${b.overdue ? '逾期' : '—'}</td><td><select data-pri="${b.id}"><option value="low" ${b.priority === 'low' ? 'selected' : ''}>低</option><option value="normal" ${b.priority === 'normal' ? 'selected' : ''}>一般</option><option value="high" ${b.priority === 'high' ? 'selected' : ''}>高</option><option value="critical" ${b.priority === 'critical' ? 'selected' : ''}>緊急</option></select><button data-triage="${b.id}">分診</button><button data-ack="${b.id}" class="${b.status === 'acknowledged' ? 'ok' : ''}">確認</button><button class="danger" data-fa="${b.id}">誤報</button></td></tr>`,
+    )
+    .join('');
+  const chips = [
+    ['未處理', summary?.Pending ?? 0],
+    ['已確認', summary?.Acknowledged ?? 0],
+    ['已處置', summary?.Actioned ?? 0],
+    ['誤報', summary?.FalseAlarm ?? 0],
+    ['逾期', summary?.Overdue ?? 0],
+  ];
+  $('alarm-count').textContent = `（${rows.length}）`;
+  $('alarm-badges').innerHTML = chips.map(([label, n]) => `<span class="chip">${label}：${n}</span>`).join('');
+  bindBoardActions();
+}
+
+function bindBoardActions() {
+  Array.from(document.querySelectorAll('[data-triage]')).forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const id = btn.dataset.triage;
+      const priority = document.querySelector(`[data-pri="${id}"]`).value;
+      await fetch(`/api/alarm-board/${id}/triage`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ priority, dueUtc: null, owner: null }),
+      });
+      renderBoard();
+    });
+  });
+  Array.from(document.querySelectorAll('[data-ack]')).forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const id = btn.dataset.ack;
+      await fetch(`/api/alarm-board/${id}/ack`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ acknowledged: true }),
+      });
+      renderBoard();
+    });
+  });
+  Array.from(document.querySelectorAll('[data-fa]')).forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const id = btn.dataset.fa;
+      await fetch(`/api/alarm-board/${id}/disposition`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'false_alarm', assignedTo: null, note: '管理面板標記誤報' }),
+      });
+      renderBoard();
+    });
+  });
 }
 
 function bindEvidenceForm() {

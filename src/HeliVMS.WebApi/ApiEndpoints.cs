@@ -54,6 +54,8 @@ public static class ApiEndpoints
     public sealed record RedactionRequest(string SourceType, long RefId, int ChannelId, DateTime OccurredAtUtc, int X, int Y, int Width, int Height, bool Filled);
     public sealed record RedactionItem(long Id, string SourceType, long RefId, int ChannelId, string OccurredAtUtc, int X, int Y, int Width, int Height, bool Filled, string CreatedAtUtc);
     public sealed record ReplicationItem(long Id, string SourcePath, string DestinationPath, int IntervalMinutes, bool Enabled, string? LastRunUtc, string? LastResult, string? LastError, int ConsecutiveFailures, bool Due);
+    public sealed record AlarmBoardItem(long EventId, int ChannelId, string EventType, string StartUtc, string Status, string Priority, string? DueUtc, string? Owner, string? AssignedTo, bool Overdue);
+    public sealed record AlarmBoardSummaryItem(int Pending, int Acknowledged, int Actioned, int FalseAlarm, int Overdue);
     public sealed record DailyReportResponse(
         IReadOnlyList<RecordingSummaryRow> Recording,
         IReadOnlyList<CapacityTrendRow> Capacity,
@@ -844,7 +846,50 @@ public static class ApiEndpoints
                 j.LastError,
                 j.ConsecutiveFailures,
                 OffsiteReplicationService.IsDue(j, DateTime.UtcNow))).ToList()));
+
+        api.MapGet("/alarm-board/summary", static (AlarmTriageRepository triage) =>
+        {
+            var s = triage.Summarize(DateTime.UtcNow);
+            return Results.Ok(new AlarmBoardSummaryItem(s.Pending, s.Acknowledged, s.Actioned, s.FalseAlarm, s.Overdue));
+        });
+
+        api.MapGet("/alarm-board", static (int? take, AlarmTriageRepository triage) =>
+            Results.Ok(triage.ListBoard(DateTime.UtcNow, Math.Clamp(take ?? 100, 1, 500)).Select(ToBoard).ToList()));
+
+        api.MapPut("/alarm-board/{eventId:long}/triage", static (long eventId, TriageRequest body, AlarmTriageRepository triage) =>
+        {
+            if (!AlarmPriority.IsValid(body.Priority))
+            {
+                return Results.BadRequest(new { error = "優先序須為 low/normal/high/critical" });
+            }
+
+            triage.SetTriage(eventId, body.Priority, body.DueUtc, NullIfBlank(body.Owner), DateTime.UtcNow);
+            return Results.Ok(new { ok = true });
+        });
+
+        api.MapPut("/alarm-board/{eventId:long}/disposition", static (long eventId, DispositionRequest body, AlarmEventRepository events) =>
+        {
+            if (!AlarmEventStatus.IsValid(body.Status))
+            {
+                return Results.BadRequest(new { error = "處置狀態須為 pending/acknowledged/actioned/false_alarm" });
+            }
+
+            events.SetDisposition(eventId, body.Status, NullIfBlank(body.AssignedTo), NullIfBlank(body.Note), DateTime.UtcNow);
+            return Results.Ok(new { ok = true });
+        });
+
+        api.MapPut("/alarm-board/{eventId:long}/ack", static (long eventId, InputAck body, AlarmEventRepository events) =>
+        {
+            events.Acknowledge(eventId, body.Acknowledged);
+            return Results.Ok(new { ok = true });
+        });
     }
+
+    private sealed record InputAck(bool Acknowledged);
+
+    private static AlarmBoardItem ToBoard(AlarmBoardRow r) =>
+        new(r.EventId, r.ChannelId, r.EventType, SqliteStore.Iso(r.StartUtc), r.Status, r.Priority,
+            r.DueUtc is null ? null : SqliteStore.Iso(r.DueUtc.Value), r.Owner, r.AssignedTo, r.IsOverdue);
 
     private static RedactionItem ToRedaction(RedactionRegion r) =>
         new(r.Id, r.SourceType, r.RefId, r.ChannelId, SqliteStore.Iso(r.OccurredAtUtc), r.X, r.Y, r.Width, r.Height, r.Filled, SqliteStore.Iso(r.CreatedAtUtc));

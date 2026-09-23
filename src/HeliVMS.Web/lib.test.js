@@ -25,6 +25,7 @@ import {
   shareRows,
   redRows,
   repRows,
+  alarmRows,
   patrolLabel,
   scheduleInEffect,
   scheduleLabel,
@@ -474,5 +475,13 @@ describe('login gating', () => {
     ]);
     expect(rows[0]).toMatchObject({ id: 1, minutes: 60, enabled: true, lastResult: 'FAILED', fails: 2, due: true });
     expect(repRows(null)).toEqual([]);
+  });
+
+  it('renders alarm board rows', () => {
+    const rows = alarmRows([
+      { eventId: 7, channelId: 2, eventType: 'motion', startUtc: 'x', status: 'pending', priority: 'high', owner: 'ops', overdue: true },
+    ]);
+    expect(rows[0]).toMatchObject({ id: 7, channel: 2, event: 'motion', status: 'pending', priority: 'high', overdue: true });
+    expect(alarmRows(null)).toEqual([]);
   });
 });

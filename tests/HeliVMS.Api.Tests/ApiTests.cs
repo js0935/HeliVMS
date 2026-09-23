@@ -964,6 +964,43 @@ public class ApiTests : IClassFixture<ApiFactory>, IDisposable
 
     private sealed record ReplicationItem(long Id, string SourcePath, string DestinationPath, int IntervalMinutes, bool Enabled, string? LastRunUtc, string? LastResult, string? LastError, int ConsecutiveFailures, bool Due);
 
+    [Fact]
+    public async Task AlarmBoard_TriageAndDisposition()
+    {
+        using var client = Client();
+        var events = Service<AlarmEventRepository>();
+        var triage = Service<AlarmTriageRepository>();
+        var evId = events.Insert(1, "motion", DateTime.UtcNow.AddHours(-1), null, "M146 面板測試");
+        triage.SetTriage(evId, AlarmPriority.High, DateTime.UtcNow.AddMinutes(-5), "ops", DateTime.UtcNow);
+
+        var summary0 = await ReadAsync<AlarmBoardSummaryItem>(await client.GetAsync("/api/alarm-board/summary"));
+        Assert.True(summary0.Pending >= 1);
+
+        var board = await ReadAsync<List<AlarmBoardItem>>(await client.GetAsync("/api/alarm-board?take=500"));
+        var row = Assert.Single(board, b => b.EventId == evId);
+        Assert.Equal("high", row.Priority);
+        Assert.True(row.Overdue);
+        Assert.Equal("ops", row.Owner);
+
+        var bad = await client.PutAsJsonAsync(
+            $"/api/alarm-board/{evId}/triage",
+            new { priority = "omg" });
+        Assert.Equal(HttpStatusCode.BadRequest, bad.StatusCode);
+
+        var disp = await client.PutAsJsonAsync(
+            $"/api/alarm-board/{evId}/disposition",
+            new { status = "false_alarm", assignedTo = (string?)null, note = "誤報" });
+        Assert.Equal(HttpStatusCode.OK, disp.StatusCode);
+
+        var after = await ReadAsync<List<AlarmBoardItem>>(await client.GetAsync("/api/alarm-board?take=500"));
+        Assert.DoesNotContain(after, b => b.EventId == evId);
+        var summary1 = await ReadAsync<AlarmBoardSummaryItem>(await client.GetAsync("/api/alarm-board/summary"));
+        Assert.True(summary1.FalseAlarm >= 1);
+    }
+
+    private sealed record AlarmBoardItem(long EventId, int ChannelId, string EventType, string StartUtc, string Status, string Priority, string? DueUtc, string? Owner, string? AssignedTo, bool Overdue);
+    private sealed record AlarmBoardSummaryItem(int Pending, int Acknowledged, int Actioned, int FalseAlarm, int Overdue);
+
     private sealed record BackupRunRecordBody(
         long Id,
         System.DateTime RunAt,

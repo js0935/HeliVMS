@@ -403,6 +403,20 @@ export function repRows(rows) {
   }));
 }
 
+export function alarmRows(rows) {
+  return (rows ?? []).map((b) => ({
+    id: Number(b.eventId ?? b.EventId ?? 0),
+    channel: Number(b.channelId ?? b.ChannelId ?? 0),
+    event: b.eventType ?? b.EventType ?? '',
+    start: formatTimestamp(b.startUtc ?? b.StartUtc ?? ''),
+    status: b.status ?? b.Status ?? '',
+    priority: b.priority ?? b.Priority ?? '',
+    due: b.dueUtc ?? b.DueUtc ?? null,
+    owner: b.owner ?? b.Owner ?? '',
+    overdue: !!(b.overdue ?? b.Overdue),
+  }));
+}
+
 export function scheduleLabel(s, { short = false } = {}) {
   const r = s ?? {};
   const mask = Number(r.daysMask ?? r.DaysMask ?? 0);
