@@ -28,6 +28,7 @@ import {
   alarmRows,
   sysMetricsRows,
   sysTrendRows,
+  sysDiskTrendRows,
   patrolLabel,
   scheduleInEffect,
   scheduleLabel,
@@ -513,5 +514,17 @@ describe('login gating', () => {
     expect(rows[0].captured).toBe(formatTimestamp('2026-01-01T00:01:00Z'));
     expect(sysTrendRows(null)).toEqual([]);
     expect(sysTrendRows(undefined)).toEqual([]);
+  });
+
+  it('renders disk capacity trend rows sorted ascending', () => {
+    const rows = sysDiskTrendRows([
+      { capturedAtUtc: '2026-01-01T00:02:00Z', name: 'C:', freeMb: 40, totalMb: 120 },
+      { capturedAtUtc: '2026-01-01T00:01:00Z', name: 'C:', freeMb: 80, totalMb: 120 },
+    ]);
+    expect(rows.map((r) => r.freeMb)).toEqual([80, 40]);
+    expect(rows[0].name).toBe('C:');
+    expect(rows[0].totalMb).toBe(120);
+    expect(sysDiskTrendRows(null)).toEqual([]);
+    expect(sysDiskTrendRows(undefined)).toEqual([]);
   });
 });

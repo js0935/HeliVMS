@@ -442,6 +442,16 @@ export function sysTrendRows(points) {
   return list.sort((a, b) => (a.captured < b.captured ? -1 : a.captured > b.captured ? 1 : 0));
 }
 
+export function sysDiskTrendRows(points) {
+  const list = (points ?? []).map((p) => ({
+    captured: formatTimestamp(p.capturedAtUtc ?? p.CapturedAtUtc ?? ''),
+    name: p.name ?? p.Name ?? '',
+    freeMb: Number(p.freeMb ?? p.FreeMb ?? 0),
+    totalMb: Number(p.totalMb ?? p.TotalMb ?? 0),
+  }));
+  return list.sort((a, b) => (a.captured < b.captured ? -1 : a.captured > b.captured ? 1 : 0));
+}
+
 export function scheduleLabel(s, { short = false } = {}) {
   const r = s ?? {};
   const mask = Number(r.daysMask ?? r.DaysMask ?? 0);

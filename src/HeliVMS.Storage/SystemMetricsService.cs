@@ -34,6 +34,20 @@ public static class SystemMetricsService
             _history.TryDequeue(out _);
         }
 
+        foreach (var d in Disks())
+        {
+            _diskHistory.Enqueue(new SystemDiskCapacityPoint(
+                SqliteStore.Iso(DateTime.UtcNow),
+                d.Name,
+                d.FreeMb,
+                d.TotalMb));
+        }
+
+        while (_diskHistory.Count > 60 * Disks().Count)
+        {
+            _diskHistory.TryDequeue(out _);
+        }
+
         return new SystemMetricsSnapshot(
             SqliteStore.Iso(DateTime.UtcNow),
             (long)Math.Max(0, uptime.TotalMinutes),
@@ -52,6 +66,19 @@ public static class SystemMetricsService
     public static IReadOnlyList<SystemMetricsTrendPoint> CaptureHistory() => _history.ToList();
 
     private static readonly System.Collections.Concurrent.ConcurrentQueue<SystemMetricsTrendPoint> _history =
+        new();
+
+    /// <summary>單一磁碟容量趨勢點（M149 §14.9 #1 閉環）：每分鐘一筆之可用／總容量。</summary>
+    public sealed record SystemDiskCapacityPoint(
+        string CapturedAtUtc,
+        string Name,
+        long FreeMb,
+        long TotalMb);
+
+    /// <summary>最近 60 分鐘之磁碟容量趨勢（取自每次 Capture 之真實量測）。</summary>
+    public static IReadOnlyList<SystemDiskCapacityPoint> CaptureDiskHistory() => _diskHistory.ToList();
+
+    private static readonly System.Collections.Concurrent.ConcurrentQueue<SystemDiskCapacityPoint> _diskHistory =
         new();
 
     private static IReadOnlyList<SystemDiskMetric> Disks()

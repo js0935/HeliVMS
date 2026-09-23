@@ -44,4 +44,21 @@ public sealed class SystemHealthTests
         Assert.True(history.Count <= 60, "趨勢佇列（M148 #1）最多 60 筆");
         Assert.All(history, p => Assert.True(p.WorkingSetGb > 0));
     }
+
+    [Fact]
+    public void Capture_RecordsDiskCapacityTrend()
+    {
+        SystemMetricsService.Capture();
+
+        var history = SystemMetricsService.CaptureDiskHistory();
+
+        Assert.NotEmpty(history);
+        Assert.All(history, p =>
+        {
+            Assert.False(string.IsNullOrWhiteSpace(p.Name));
+            Assert.True(p.FreeMb >= 0);
+            Assert.True(p.TotalMb >= 0);
+            Assert.True(p.FreeMb <= p.TotalMb, $"{p.Name} 可用({p.FreeMb}Mb)不得超過總量({p.TotalMb}Mb)");
+        });
+    }
 }

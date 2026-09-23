@@ -1040,7 +1040,26 @@ public class ApiTests : IClassFixture<ApiFactory>, IDisposable
         });
     }
 
+    [Fact]
+    public async Task Get_SystemMetricsDiskHistory_ReturnsDiskTrendPoints()
+    {
+        var client = Client();
+        var resp = await client.GetAsync("/api/system-metrics/disks/history");
+
+        Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
+        var history = await ReadAsync<List<SystemDiskCapacityItem>>(resp);
+        Assert.NotNull(history);
+        Assert.All(history, p =>
+        {
+            Assert.False(string.IsNullOrWhiteSpace(p.Name));
+            Assert.True(p.FreeMb >= 0);
+            Assert.True(p.TotalMb >= 0);
+            Assert.True(p.FreeMb <= p.TotalMb, $"{p.Name} 可用不得超過總量");
+        });
+    }
+
     private sealed record SystemMetricsTrendItem(string CapturedAtUtc, double WorkingSetGb);
+    private sealed record SystemDiskCapacityItem(string CapturedAtUtc, string Name, long FreeMb, long TotalMb);
 
     private sealed record AlarmBoardItem(long EventId, int ChannelId, string EventType, string StartUtc, string Status, string Priority, string? DueUtc, string? Owner, string? AssignedTo, bool Overdue);
     private sealed record AlarmBoardSummaryItem(int Pending, int Acknowledged, int Actioned, int FalseAlarm, int Overdue);
