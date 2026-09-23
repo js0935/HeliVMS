@@ -31,6 +31,7 @@ import {
   sysDiskTrendRows,
   clipViewRows,
   fuseViewRows,
+  smartwallLayout,
   patrolLabel,
   scheduleInEffect,
   scheduleLabel,
@@ -549,5 +550,26 @@ describe('login gating', () => {
     expect(rows.map((r) => r.key)).toEqual(['alarm:2', 'alarm:1']);
     expect(fuseViewRows(null)).toEqual([]);
     expect(fuseViewRows(undefined)).toEqual([]);
+  });
+
+  it('assigns smartwall tiles row-major by rank', () => {
+    const cells = [
+      { channelId: 1, rank: 3, highlight: false },
+      { channelId: 2, rank: 1, highlight: true },
+      { channelId: 3, rank: 2 },
+    ];
+    const laid = smartwallLayout(cells, { cols: 2 });
+    expect(laid.map((t) => t.channelId)).toEqual([2, 3, 1]);
+    expect(laid[0]).toMatchObject({ row: 1, col: 1 });
+    expect(laid[1]).toMatchObject({ row: 1, col: 2 });
+    expect(laid[2]).toMatchObject({ row: 2, col: 1 });
+  });
+
+  it('truncates smartwall tiles beyond capacity and guards null', () => {
+    const cells = Array.from({ length: 10 }, (_, i) => ({ channelId: i + 1, rank: i + 1 }));
+    const laid = smartwallLayout(cells, { cols: 2, rows: 2 });
+    expect(laid).toHaveLength(4);
+    expect(smartwallLayout(null, { cols: 4 })).toEqual([]);
+    expect(smartwallLayout(undefined, { cols: 4 })).toEqual([]);
   });
 });

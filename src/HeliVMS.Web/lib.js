@@ -472,6 +472,28 @@ export function fuseViewRows(results) {
     .sort((a, b) => b.score - a.score);
 }
 
+export function smartwallLayout(cells, opts = {}) {
+  const cols = Math.max(1, Number(opts.cols) || 4);
+  const rows = Math.max(1, Number(opts.rows) || 4);
+  const capacity = cols * rows;
+  const ordered = (cells ?? [])
+    .map((c) => ({
+      channelId: Number(c.channelId ?? c.ChannelId ?? 0),
+      eventType: c.eventType ?? c.EventType ?? '',
+      priority: c.priority ?? c.Priority ?? '',
+      rank: Number(c.rank ?? c.Rank ?? 0),
+      highlight: Boolean(c.highlight ?? c.Highlight ?? false),
+    }))
+    .sort((a, b) => a.rank - b.rank)
+    .slice(0, capacity);
+  return ordered.map((c, i) => ({
+    ...c,
+    col: (i % cols) + 1,
+    row: Math.floor(i / cols) + 1,
+    colSpan: 1,
+  }));
+}
+
 export function scheduleLabel(s, { short = false } = {}) {
   const r = s ?? {};
   const mask = Number(r.daysMask ?? r.DaysMask ?? 0);
