@@ -109,6 +109,15 @@ public sealed class EventAudioRepository
             });
     }
 
+    /// <summary>依事件刪除錄音；回傳是否命中。</summary>
+    public bool Delete(long eventId)
+    {
+        _store.Execute(
+            "DELETE FROM event_audio WHERE event_id = $e;",
+            cmd => cmd.Parameters.AddWithValue("$e", eventId));
+        return _store.Query<int>("SELECT changes();", static r => r.Read() ? r.GetInt32(0) : 0) > 0;
+    }
+
     /// <summary>刪除早於 cutoff 之錄音；回傳刪除筆數。</summary>
     public int PruneOlderThan(DateTime cutoffUtc)
     {

@@ -89,6 +89,20 @@ public sealed class EventAudioRepositoryTests
     }
 
     [Fact]
+    public void Delete_RemovesOnlyTarget()
+    {
+        var (_, repo) = NewFixture();
+        var when = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        repo.Save(1, 1, when, 500, "audio/ogg", Bytes(1));
+        repo.Save(2, 1, when, 500, "audio/ogg", Bytes(2));
+
+        Assert.True(repo.Delete(1));
+        Assert.False(repo.Delete(1));
+        Assert.Null(repo.GetByEvent(1));
+        Assert.NotNull(repo.GetByEvent(2));
+    }
+
+    [Fact]
     public void InvalidInput_Throws()
     {
         var (_, repo) = NewFixture();

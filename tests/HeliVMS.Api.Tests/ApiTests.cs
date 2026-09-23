@@ -1171,6 +1171,45 @@ public class ApiTests : IClassFixture<ApiFactory>, IDisposable
 
     private sealed record FuseResultBody(string Key, double Score);
 
+    [Fact]
+    public async Task Audio_RoundTrip_Delete()
+    {
+        var client = Client();
+        var payload = Convert.ToBase64String(new byte[] { 1, 2, 3, 4, 5 });
+
+        var post = await client.PostAsJsonAsync("/api/audio", new
+        {
+            eventId = 707,
+            channelId = 3,
+            startedAtUtc = DateTime.UtcNow,
+            durationMs = 2500,
+            mime = "audio/ogg",
+            bytes = payload,
+        });
+        Assert.Equal(HttpStatusCode.OK, post.StatusCode);
+
+        var get = await client.GetAsync("/api/audio/event/707");
+        Assert.Equal(HttpStatusCode.OK, get.StatusCode);
+        var body = await ReadAsync<AudioItemBody>(get);
+        Assert.Equal(707, body.EventId);
+        Assert.Equal(3, body.ChannelId);
+        Assert.Equal(2500, body.DurationMs);
+        Assert.Equal("audio/ogg", body.Mime);
+        Assert.Equal(64, body.Sha256.Length);
+
+        var list = await client.GetAsync($"/api/audio?from={DateTime.UtcNow.AddHours(-1):O}&to={DateTime.UtcNow.AddHours(1):O}");
+        Assert.Equal(HttpStatusCode.OK, list.StatusCode);
+        Assert.Contains(await ReadAsync<List<AudioItemBody>>(list), a => a.EventId == 707);
+
+        var del = await client.DeleteAsync("/api/audio/event/707");
+        Assert.Equal(HttpStatusCode.OK, del.StatusCode);
+
+        var miss = await client.GetAsync("/api/audio/event/707");
+        Assert.Equal(HttpStatusCode.NotFound, miss.StatusCode);
+    }
+
+    private sealed record AudioItemBody(long EventId, long ChannelId, DateTime StartedAtUtc, int DurationMs, string Mime, string Sha256);
+
     private sealed record ClipVectorBody(float[] Vector);
 
     private sealed record IdBody(int Id);

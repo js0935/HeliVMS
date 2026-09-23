@@ -463,6 +463,19 @@ export function clipViewRows(hits) {
     .sort((a, b) => b.score - a.score);
 }
 
+export function audioRows(items) {
+  return (items ?? [])
+    .map((a) => ({
+      eventId: Number(a.eventId ?? a.EventId ?? 0),
+      channelId: Number(a.channelId ?? a.ChannelId ?? 0),
+      startedAtUtc: a.startedAtUtc ?? a.StartedAtUtc ?? '',
+      durationMs: Number(a.durationMs ?? a.DurationMs ?? 0),
+      mime: a.mime ?? a.Mime ?? '',
+      sha256: a.sha256 ?? a.Sha256 ?? '',
+    }))
+    .sort((a, b) => a.eventId - b.eventId);
+}
+
 export function fuseViewRows(results) {
   return (results ?? [])
     .map((r) => ({

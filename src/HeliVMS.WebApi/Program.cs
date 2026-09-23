@@ -50,6 +50,7 @@ builder.Services.AddSingleton(static sp => new EmbeddingRepository(sp.GetRequire
 builder.Services.AddSingleton(static sp => new DeviceRepository(
     sp.GetRequiredService<SqliteStore>(),
     sp.GetRequiredService<AuditLogRepository>()));
+builder.Services.AddSingleton(static sp => new EventAudioRepository(sp.GetRequiredService<SqliteStore>()));
 builder.Services.AddSingleton(static sp => new AlarmTriageRepository(sp.GetRequiredService<SqliteStore>()));
 builder.Services.AddSingleton(static sp => new AlarmEventRepository(sp.GetRequiredService<SqliteStore>()));
 builder.Services.AddSingleton<AlertBroadcastHub>();

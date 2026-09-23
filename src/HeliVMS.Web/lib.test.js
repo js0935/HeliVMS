@@ -32,6 +32,7 @@ import {
   clipViewRows,
   fuseViewRows,
   smartwallLayout,
+  audioRows,
   patrolLabel,
   scheduleInEffect,
   scheduleLabel,
@@ -571,5 +572,16 @@ describe('login gating', () => {
     expect(laid).toHaveLength(4);
     expect(smartwallLayout(null, { cols: 4 })).toEqual([]);
     expect(smartwallLayout(undefined, { cols: 4 })).toEqual([]);
+  });
+
+  it('maps audio items to flat rows sorted by event id', () => {
+    const rows = audioRows([
+      { eventId: 7, channelId: 2, durationMs: 1000, mime: 'audio/ogg' },
+      { eventId: 3, channelId: 1, durationMs: 500, mime: 'audio/wav' },
+    ]);
+    expect(rows.map((r) => r.eventId)).toEqual([3, 7]);
+    expect(rows[1]).toMatchObject({ channelId: 2, durationMs: 1000, mime: 'audio/ogg' });
+    expect(audioRows(null)).toEqual([]);
+    expect(audioRows(undefined)).toEqual([]);
   });
 });

@@ -929,6 +929,30 @@ public static class ApiEndpoints
             return Results.Ok(RankFusion.Fuse(items));
         });
 
+        api.MapGet("/audio/event/{eventId:long}", static (long eventId, EventAudioRepository audio) =>
+        {
+            var rec = audio.GetByEvent(eventId);
+            return rec is null ? Results.NotFound() : Results.Ok(new AudioItem(rec.EventId, rec.ChannelId, rec.StartedAtUtc, rec.DurationMs, rec.Mime, rec.Sha256));
+        });
+
+        api.MapPost("/audio", static (AudioUpsert body, EventAudioRepository audio) =>
+        {
+            if (body is null || string.IsNullOrWhiteSpace(body.Mime) || body.Bytes is null || body.Bytes.Length == 0)
+            {
+                return Results.BadRequest();
+            }
+
+            audio.Save(body.EventId, body.ChannelId, body.StartedAtUtc ?? DateTime.UtcNow, body.DurationMs, body.Mime, Convert.FromBase64String(body.Bytes));
+            return Results.Ok(new { ok = true });
+        });
+
+        api.MapDelete("/audio/event/{eventId:long}", static (long eventId, EventAudioRepository audio) =>
+            audio.Delete(eventId) ? Results.Ok(new { ok = true }) : Results.NotFound());
+
+        api.MapGet("/audio", static (DateTime? from, DateTime? to, EventAudioRepository audio) =>
+            Results.Ok(audio.QueryByTime(from?.ToUniversalTime(), to?.ToUniversalTime()).Select(a =>
+                new AudioItem(a.EventId, a.ChannelId, a.StartedAtUtc, a.DurationMs, a.Mime, a.Sha256))));
+
         api.MapGet("/devices", static (DeviceRepository devices) =>
         {
             var list = devices.List();
@@ -972,6 +996,8 @@ public static class ApiEndpoints
     private sealed record ClipIndexRequest(string? SourceType, long RefId, string? Label, float[]? Vector);
     private sealed record FuseRequest(FuseItemBody[] Items);
     private sealed record FuseItemBody(string Key, double TextScore, double? VectorScore, double TextWeight = 1.0, double VectorWeight = 1.0);
+    private sealed record AudioItem(long EventId, long ChannelId, DateTime StartedAtUtc, int DurationMs, string Mime, string Sha256);
+    private sealed record AudioUpsert(long EventId, long ChannelId, DateTime? StartedAtUtc, int DurationMs, string? Mime, string? Bytes);
 
     private sealed record InputAck(bool Acknowledged);
 
