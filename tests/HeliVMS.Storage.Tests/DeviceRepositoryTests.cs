@@ -7,6 +7,7 @@ public class DeviceRepositoryTests : IDisposable
 {
     private readonly string _dbPath;
     private readonly SqliteStore _store;
+    private readonly AuditLogRepository _audit;
     private readonly DeviceRepository _repo;
 
     public DeviceRepositoryTests()
@@ -14,7 +15,8 @@ public class DeviceRepositoryTests : IDisposable
         _dbPath = Path.Combine(Path.GetTempPath(), $"helivms-test-{Guid.NewGuid():N}.db");
         _store = new SqliteStore(_dbPath);
         _store.Initialize();
-        _repo = new DeviceRepository(_store);
+        _audit = new AuditLogRepository(_store);
+        _repo = new DeviceRepository(_store, _audit);
     }
 
     [Fact]
@@ -36,6 +38,43 @@ public class DeviceRepositoryTests : IDisposable
         Assert.Equal("admin", record.Username);
         Assert.NotNull(record.PasswordEncrypted);
         Assert.Equal("secret-pw", DeviceRepository.Unprotect(record.PasswordEncrypted));
+    }
+
+    [Fact]
+    public void Update_ChangesFields_AndRecordsAudit()
+    {
+        var id = _repo.Add("CamA", "10.0.0.1", 8000, "admin", "pw", "VendorA", "tester");
+
+        var ok = _repo.Update(id, "CamA-Renamed", "10.0.0.2", 554, "VendorB", false, "tester");
+
+        Assert.True(ok);
+        var rec = _repo.Get(id);
+        Assert.NotNull(rec);
+        Assert.Equal("CamA-Renamed", rec.Name);
+        Assert.Equal("10.0.0.2", rec.Ip);
+        Assert.Equal(554, rec.Port);
+        Assert.False(rec.Enabled);
+
+        var logs = _audit.List(new AuditLogQuery { Category = AuditCategories.Config, Action = "device.update" });
+        Assert.Single(logs);
+        Assert.Equal("device", logs[0].TargetType);
+        Assert.Equal(id, logs[0].TargetId);
+        Assert.Equal("tester", logs[0].Actor);
+    }
+
+    [Fact]
+    public void Add_Delete_RecordAuditTrail()
+    {
+        var id = _repo.Add("CamB", "10.0.0.3", 8000, "admin", "pw", "VendorC", "tester");
+        _repo.Delete(id, "tester");
+
+        Assert.Null(_repo.Get(id));
+        var adds = _audit.List(new AuditLogQuery { Action = "device.add" });
+        var dels = _audit.List(new AuditLogQuery { Action = "device.delete" });
+        Assert.Single(adds);
+        Assert.Single(dels);
+        Assert.Equal(id, adds[0].TargetId);
+        Assert.Equal(id, dels[0].TargetId);
     }
 
     public void Dispose()

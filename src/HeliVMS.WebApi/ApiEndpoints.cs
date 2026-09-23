@@ -897,7 +897,45 @@ public static class ApiEndpoints
 
             return Results.Ok(repo.Search(body.Vector, body.TopK));
         });
+
+        api.MapGet("/devices", static (DeviceRepository devices) =>
+        {
+            var list = devices.List();
+            return Results.Ok(list.Select(d => new DeviceItem(d.Id, d.Name, d.Ip, d.Port, d.Vendor, d.Enabled)));
+        });
+
+        api.MapPost("/devices", static (DeviceUpsert body, DeviceRepository devices) =>
+        {
+            if (body is null || string.IsNullOrWhiteSpace(body.Name) || string.IsNullOrWhiteSpace(body.Ip))
+            {
+                return Results.BadRequest();
+            }
+
+            var id = devices.Add(body.Name, body.Ip, body.Port, body.Username ?? string.Empty, body.Password ?? string.Empty, body.Vendor ?? string.Empty, body.Actor ?? "system");
+            return Results.Ok(new { id });
+        });
+
+        api.MapPut("/devices/{id:int}", static (int id, DeviceUpsert body, DeviceRepository devices) =>
+        {
+            if (body is null || string.IsNullOrWhiteSpace(body.Name) || string.IsNullOrWhiteSpace(body.Ip))
+            {
+                return Results.BadRequest();
+            }
+
+            return devices.Update(id, body.Name, body.Ip, body.Port, body.Vendor ?? string.Empty, body.Enabled, body.Actor ?? "system")
+                ? Results.Ok(new { ok = true })
+                : Results.NotFound();
+        });
+
+        api.MapDelete("/devices/{id:int}", static (int id, DeviceRepository devices) =>
+        {
+            devices.Delete(id);
+            return Results.Ok(new { ok = true });
+        });
     }
+
+    private sealed record DeviceItem(int Id, string Name, string Ip, int Port, string Vendor, bool Enabled);
+    private sealed record DeviceUpsert(string Name, string Ip, int Port, string? Username, string? Password, string? Vendor, bool Enabled, string? Actor);
 
     private sealed record ClipSearchRequest(float[] Vector, int TopK = 20);
 

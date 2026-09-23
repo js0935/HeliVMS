@@ -47,6 +47,9 @@ builder.Services.AddSingleton(static sp => new RedactionRepository(sp.GetRequire
 builder.Services.AddSingleton(static sp => new OffsiteReplicationRepository(sp.GetRequiredService<SqliteStore>()));
 builder.Services.AddSingleton(static sp => new OffsiteReplicationService(sp.GetRequiredService<OffsiteReplicationRepository>()));
 builder.Services.AddSingleton(static sp => new EmbeddingRepository(sp.GetRequiredService<SqliteStore>()));
+builder.Services.AddSingleton(static sp => new DeviceRepository(
+    sp.GetRequiredService<SqliteStore>(),
+    sp.GetRequiredService<AuditLogRepository>()));
 builder.Services.AddSingleton(static sp => new AlarmTriageRepository(sp.GetRequiredService<SqliteStore>()));
 builder.Services.AddSingleton(static sp => new AlarmEventRepository(sp.GetRequiredService<SqliteStore>()));
 builder.Services.AddSingleton<AlertBroadcastHub>();

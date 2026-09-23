@@ -6,7 +6,7 @@
 
 ## 一句話總結
 HeliVMS 為一套**網路影像監控系統**（WPF 桌面應用：即時監看／回放／AI 事件中心／錄影排程）。
-進度: **M1 至 M151 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M151 CLIP 向量語意搜尋管線：EmbeddingRepository（clip_embeddings v41、BLOB float32、餘弦相似 topK）＋POST /api/clip/search＋clipViewRows；M149b 本機攝影機設定讀取器：LocalCameraConfigReader 讀 git-ignored .secrets/cameras.local.yaml、不連網不回寫；M149 磁碟容量趨勢 REST＋SPA：GET /api/system-metrics/disks/history＝SystemMetricsService.CaptureDiskHistory；M148 記憶體趨勢 REST＋SPA：GET /api/system-metrics/history＝SystemMetricsService.CaptureHistory；純 BCL/Storage/Api/SPA 可驗收里程碑已全數交付，剩餘皆 UI/真機/ML 阻塞）。
+進度: **M1 至 M152 已全數 commit＋push、CI 綠燈**。最終 commit＝HEAD（M152 設備管理稽核掛載點：DeviceRepository Add/Update/Delete 全量寫 audit_log（category=config、targetType=device、detail 摘要）＋新增 Update 方法＋GET/POST/PUT/DELETE /api/devices；M151 CLIP 向量語意搜尋管線：EmbeddingRepository（clip_embeddings v41、BLOB float32、餘弦相似 topK）＋POST /api/clip/search＋clipViewRows；M149b 本機攝影機設定讀取器：LocalCameraConfigReader 讀 git-ignored .secrets/cameras.local.yaml、不連網不回寫；M149 磁碟容量趨勢 REST＋SPA：GET /api/system-metrics/disks/history＝SystemMetricsService.CaptureDiskHistory；M148 記憶體趨勢 REST＋SPA：GET /api/system-metrics/history＝SystemMetricsService.CaptureHistory；純 BCL/Storage/Api/SPA 可驗收里程碑已全數交付，剩餘皆 UI/真機/ML 阻塞）。
 Release build 0 error、測試 **1123/1123（＋vitest 30） 全過**、`git status --porcelain` **空白（工作目錄清乾淨）**、
 本地與遠端完全同步（`git diff origin/HEAD` 為空）。
 

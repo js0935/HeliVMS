@@ -1789,7 +1789,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        var device = new DeviceRepository(store).Get(deviceId);
+        var device = new DeviceRepository(store, new AuditLogRepository(store)).Get(deviceId);
         if (device is null)
         {
             MessageBox.Show(this, "找不到綁定的 OEM 設備記錄。", "PTZ 控制",

@@ -9,10 +9,12 @@ namespace HeliVMS.Storage;
 public sealed class DeviceRepository
 {
     private readonly SqliteStore _store;
+    private readonly AuditLogRepository _audit;
 
-    public DeviceRepository(SqliteStore store)
+    public DeviceRepository(SqliteStore store, AuditLogRepository audit)
     {
         _store = store;
+        _audit = audit;
     }
 
     /// <summary>列出全部設備。</summary>
@@ -75,10 +77,10 @@ public sealed class DeviceRepository
             cmd => cmd.Parameters.AddWithValue("$id", id));
     }
 
-    /// <summary>新增設備，回傳新 ID。密碼以 DPAPI（目前使用者）加密後儲存。</summary>
-    public int Add(string name, string ip, int port, string username, string password, string vendor)
+    /// <summary>新增設備（M152 稽核掛載：device.add 寫 audit_log），回傳新 ID。密碼以 DPAPI（目前使用者）加密後儲存。</summary>
+    public int Add(string name, string ip, int port, string username, string password, string vendor, string actor = "system")
     {
-        return _store.Query(
+        var id = _store.Query(
             """
             INSERT INTO devices (name, ip, port, username, password_encrypted, vendor)
             VALUES ($n, $i, $p, $u, $pw, $v);
@@ -101,12 +103,45 @@ public sealed class DeviceRepository
                         : OperatingSystem.IsWindows() ? Protect(password) : password);
                 cmd.Parameters.AddWithValue("$v", vendor);
             });
+
+        _audit.Record(actor, "device.add", AuditCategories.Config, "device", id, $"{name}@{ip}:{port}");
+        return id;
     }
 
-    /// <summary>刪除設備（其通道連帶刪除，ON DELETE CASCADE）。</summary>
-    public void Delete(int id)
+    /// <summary>刪除設備（其通道連帶刪除，ON DELETE CASCADE；M152 稽核掛載：device.delete 寫 audit_log）。</summary>
+    public void Delete(int id, string actor = "system")
     {
+        var name = Get(id)?.Name ?? $"id:{id}";
         _store.Execute("DELETE FROM devices WHERE id = $id;", cmd => cmd.Parameters.AddWithValue("$id", id));
+        _audit.Record(actor, "device.delete", AuditCategories.Config, "device", id, name);
+    }
+
+    /// <summary>更新設備基本欄位（M152：原無 Update）；回傳是否命中。稽核掛載：device.update 寫 audit_log。</summary>
+    public bool Update(int id, string name, string ip, int port, string vendor, bool enabled, string actor = "system")
+    {
+        var affected = _store.Query<int>(
+            """
+            UPDATE devices SET name = $n, ip = $i, port = $p, vendor = $v, enabled = $en
+            WHERE id = $id;
+            SELECT changes();
+            """,
+            r => r.Read() ? r.GetInt32(0) : 0,
+            cmd =>
+            {
+                cmd.Parameters.AddWithValue("$id", id);
+                cmd.Parameters.AddWithValue("$n", name);
+                cmd.Parameters.AddWithValue("$i", ip);
+                cmd.Parameters.AddWithValue("$p", port);
+                cmd.Parameters.AddWithValue("$v", vendor);
+                cmd.Parameters.AddWithValue("$en", enabled ? 1 : 0);
+            });
+
+        if (affected > 0)
+        {
+            _audit.Record(actor, "device.update", AuditCategories.Config, "device", id, $"{name}@{ip}:{port} enabled={enabled}");
+        }
+
+        return affected > 0;
     }
 
     /// <summary>

@@ -1080,6 +1080,52 @@ public class ApiTests : IClassFixture<ApiFactory>, IDisposable
         Assert.Equal(HttpStatusCode.BadRequest, resp.StatusCode);
     }
 
+    [Fact]
+    public async Task Device_Crud_ListUpdateDelete()
+    {
+        var client = Client();
+
+        var add = await client.PostAsJsonAsync("/api/devices", new
+        {
+            name = "ApiCam",
+            ip = "192.168.9.9",
+            port = 8000,
+            username = "admin",
+            password = "pw",
+            vendor = "V",
+            enabled = true,
+            actor = "apitest",
+        });
+        Assert.Equal(HttpStatusCode.OK, add.StatusCode);
+        var added = await ReadAsync<IdBody>(add);
+
+        var list = await client.GetAsync("/api/devices");
+        Assert.Equal(HttpStatusCode.OK, list.StatusCode);
+        var rows = await ReadAsync<List<DeviceItemBody>>(list);
+        Assert.Contains(rows, r => r.Id == added.Id && r.Name == "ApiCam");
+
+        var put = await client.PutAsJsonAsync($"/api/devices/{added.Id}", new
+        {
+            name = "ApiCam2",
+            ip = "192.168.9.10",
+            port = 554,
+            vendor = "V2",
+            enabled = false,
+            actor = "apitest",
+        });
+        Assert.Equal(HttpStatusCode.OK, put.StatusCode);
+
+        var del = await client.DeleteAsync($"/api/devices/{added.Id}");
+        Assert.Equal(HttpStatusCode.OK, del.StatusCode);
+
+        var list2 = await client.GetAsync("/api/devices");
+        var rows2 = await ReadAsync<List<DeviceItemBody>>(list2);
+        Assert.DoesNotContain(rows2, r => r.Id == added.Id);
+    }
+
+    private sealed record IdBody(int Id);
+    private sealed record DeviceItemBody(int Id, string Name, string Ip, int Port, string Vendor, bool Enabled);
+
     private sealed record ClipHitItem(long RefId, string SourceType, string? Label, double Score);
 
     private sealed record SystemMetricsTrendItem(string CapturedAtUtc, double WorkingSetGb);
