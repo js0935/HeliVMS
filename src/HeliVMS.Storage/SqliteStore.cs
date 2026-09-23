@@ -9,7 +9,7 @@ namespace HeliVMS.Storage;
 /// </summary>
 public sealed class SqliteStore : IDisposable
 {
-    private const int CurrentSchemaVersion = 41;
+    private const int CurrentSchemaVersion = 42;
     private readonly SqliteConnection _connection;
     private readonly object _gate = new();
     private bool _disposed;
@@ -257,6 +257,11 @@ public sealed class SqliteStore : IDisposable
         if (version < 41)
         {
             CreateEmbeddingTablesV41();
+        }
+
+        if (version < 42)
+        {
+            CreateAudioTablesV42();
         }
 
         Execute("PRAGMA user_version = CURRENT_SCHEMA_VERSION;".Replace(
@@ -1257,6 +1262,26 @@ public sealed class SqliteStore : IDisposable
             );
 
             CREATE INDEX IF NOT EXISTS idx_clip_embeddings_type_id ON clip_embeddings(source_type, ref_id);
+            """);
+    }
+
+    private void CreateAudioTablesV42()
+    {
+        Execute(
+            """
+            CREATE TABLE IF NOT EXISTS event_audio (
+                id             INTEGER PRIMARY KEY AUTOINCREMENT,
+                event_id       INTEGER NOT NULL UNIQUE,
+                channel_id     INTEGER NOT NULL,
+                started_at_utc TEXT    NOT NULL,
+                duration_ms    INTEGER NOT NULL,
+                mime           TEXT    NOT NULL,
+                bytes          BLOB    NOT NULL,
+                sha256         TEXT    NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_event_audio_event ON event_audio(event_id);
+            CREATE INDEX IF NOT EXISTS idx_event_audio_time ON event_audio(started_at_utc);
             """);
     }
 
