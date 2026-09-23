@@ -1058,6 +1058,30 @@ public class ApiTests : IClassFixture<ApiFactory>, IDisposable
         });
     }
 
+    [Fact]
+    public async Task Post_ClipSearch_ReturnsTopKHits()
+    {
+        var client = Client();
+        var resp = await client.PostAsJsonAsync(
+            "/api/clip/search",
+            new { vector = new[] { 0.8f, 0.2f }, topK = 10 });
+
+        Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
+        var hits = await ReadAsync<List<ClipHitItem>>(resp);
+        Assert.NotNull(hits);
+    }
+
+    [Fact]
+    public async Task Post_ClipSearch_EmptyVectorRejected()
+    {
+        var client = Client();
+        var resp = await client.PostAsJsonAsync("/api/clip/search", new { vector = Array.Empty<float>() });
+
+        Assert.Equal(HttpStatusCode.BadRequest, resp.StatusCode);
+    }
+
+    private sealed record ClipHitItem(long RefId, string SourceType, string? Label, double Score);
+
     private sealed record SystemMetricsTrendItem(string CapturedAtUtc, double WorkingSetGb);
     private sealed record SystemDiskCapacityItem(string CapturedAtUtc, string Name, long FreeMb, long TotalMb);
 

@@ -9,7 +9,7 @@ namespace HeliVMS.Storage;
 /// </summary>
 public sealed class SqliteStore : IDisposable
 {
-    private const int CurrentSchemaVersion = 40;
+    private const int CurrentSchemaVersion = 41;
     private readonly SqliteConnection _connection;
     private readonly object _gate = new();
     private bool _disposed;
@@ -252,6 +252,11 @@ public sealed class SqliteStore : IDisposable
         if (version < 40)
         {
             CreateAuditLogTablesV40();
+        }
+
+        if (version < 41)
+        {
+            CreateEmbeddingTablesV41();
         }
 
         Execute("PRAGMA user_version = CURRENT_SCHEMA_VERSION;".Replace(
@@ -1235,6 +1240,23 @@ public sealed class SqliteStore : IDisposable
             );
 
             CREATE INDEX IF NOT EXISTS idx_audit_log_time ON audit_log(occurred_at DESC, id DESC);
+            """);
+    }
+
+    private void CreateEmbeddingTablesV41()
+    {
+        Execute(
+            """
+            CREATE TABLE IF NOT EXISTS clip_embeddings (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                source_type TEXT    NOT NULL,
+                ref_id      INTEGER NOT NULL,
+                label       TEXT    NULL,
+                vector      BLOB    NOT NULL,
+                norm        REAL    NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_clip_embeddings_type_id ON clip_embeddings(source_type, ref_id);
             """);
     }
 

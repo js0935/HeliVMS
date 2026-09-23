@@ -29,6 +29,7 @@ import {
   sysMetricsRows,
   sysTrendRows,
   sysDiskTrendRows,
+  clipViewRows,
   patrolLabel,
   scheduleInEffect,
   scheduleLabel,
@@ -526,5 +527,16 @@ describe('login gating', () => {
     expect(rows[0].totalMb).toBe(120);
     expect(sysDiskTrendRows(null)).toEqual([]);
     expect(sysDiskTrendRows(undefined)).toEqual([]);
+  });
+
+  it('renders clip search hits sorted by score desc', () => {
+    const rows = clipViewRows([
+      { refId: 1, sourceType: 'event', label: 'tamper', score: 0.2 },
+      { refId: 2, sourceType: 'event', label: 'motion', score: 0.9 },
+    ]);
+    expect(rows.map((r) => r.refId)).toEqual([2, 1]);
+    expect(rows[0].label).toBe('motion');
+    expect(clipViewRows(null)).toEqual([]);
+    expect(clipViewRows(undefined)).toEqual([]);
   });
 });

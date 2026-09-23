@@ -452,6 +452,17 @@ export function sysDiskTrendRows(points) {
   return list.sort((a, b) => (a.captured < b.captured ? -1 : a.captured > b.captured ? 1 : 0));
 }
 
+export function clipViewRows(hits) {
+  return (hits ?? [])
+    .map((h) => ({
+      refId: Number(h.refId ?? h.RefId ?? 0),
+      sourceType: h.sourceType ?? h.SourceType ?? '',
+      label: h.label ?? h.Label ?? '',
+      score: Number(h.score ?? h.Score ?? 0),
+    }))
+    .sort((a, b) => b.score - a.score);
+}
+
 export function scheduleLabel(s, { short = false } = {}) {
   const r = s ?? {};
   const mask = Number(r.daysMask ?? r.DaysMask ?? 0);

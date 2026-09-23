@@ -887,7 +887,19 @@ public static class ApiEndpoints
         api.MapGet("/system-metrics", static () => Results.Ok(SystemMetricsService.Capture()));
         api.MapGet("/system-metrics/history", static () => Results.Ok(SystemMetricsService.CaptureHistory()));
         api.MapGet("/system-metrics/disks/history", static () => Results.Ok(SystemMetricsService.CaptureDiskHistory()));
+
+        api.MapPost("/clip/search", static (ClipSearchRequest body, EmbeddingRepository repo) =>
+        {
+            if (body is null || body.Vector is null || body.Vector.Length == 0)
+            {
+                return Results.BadRequest();
+            }
+
+            return Results.Ok(repo.Search(body.Vector, body.TopK));
+        });
     }
+
+    private sealed record ClipSearchRequest(float[] Vector, int TopK = 20);
 
     private sealed record InputAck(bool Acknowledged);
 
