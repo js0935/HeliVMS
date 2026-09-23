@@ -898,6 +898,26 @@ public static class ApiEndpoints
             return Results.Ok(repo.Search(body.Vector, body.TopK));
         });
 
+        api.MapPost("/clip/index", static (ClipIndexRequest body, EmbeddingRepository repo) =>
+        {
+            if (body is null || string.IsNullOrWhiteSpace(body.SourceType) || body.Vector is null || body.Vector.Length == 0)
+            {
+                return Results.BadRequest();
+            }
+
+            repo.Upsert(body.SourceType, body.RefId, body.Label, body.Vector);
+            return Results.Ok(new { ok = true });
+        });
+
+        api.MapGet("/clip/{sourceType}/{refId:long}", static (string sourceType, long refId, EmbeddingRepository repo) =>
+        {
+            var vector = repo.ByRef(sourceType, refId);
+            return vector is null ? Results.NotFound() : Results.Ok(new { Vector = vector });
+        });
+
+        api.MapDelete("/clip/{sourceType}/{refId:long}", static (string sourceType, long refId, EmbeddingRepository repo) =>
+            repo.Delete(sourceType, refId) ? Results.Ok(new { ok = true }) : Results.NotFound());
+
         api.MapGet("/devices", static (DeviceRepository devices) =>
         {
             var list = devices.List();
@@ -938,6 +958,7 @@ public static class ApiEndpoints
     private sealed record DeviceUpsert(string Name, string Ip, int Port, string? Username, string? Password, string? Vendor, bool Enabled, string? Actor);
 
     private sealed record ClipSearchRequest(float[] Vector, int TopK = 20);
+    private sealed record ClipIndexRequest(string? SourceType, long RefId, string? Label, float[]? Vector);
 
     private sealed record InputAck(bool Acknowledged);
 

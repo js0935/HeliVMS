@@ -91,6 +91,48 @@ public sealed class EmbeddingRepository
             .ToList();
     }
 
+    /// <summary>依來源與 ref 讀取單筆向量（無則 null；M153 索引管理）。</summary>
+    public IReadOnlyList<float>? ByRef(string sourceType, long refId) =>
+        _store.Query(
+            """
+            SELECT vector FROM clip_embeddings WHERE source_type = $st AND ref_id = $rid;
+            """,
+            r =>
+            {
+                if (!r.Read())
+                {
+                    return null;
+                }
+
+                var bytes = (byte[])r[0];
+                var count = bytes.Length / 4;
+                var values = new float[count];
+                for (var i = 0; i < count; i++)
+                {
+                    values[i] = BitConverter.ToSingle(bytes, i * 4);
+                }
+
+                return values;
+            },
+            cmd =>
+            {
+                cmd.Parameters.AddWithValue("$st", sourceType);
+                cmd.Parameters.AddWithValue("$rid", refId);
+            });
+
+    /// <summary>依來源與 ref 刪除單筆向量；回傳是否命中（M153 索引管理）。</summary>
+    public bool Delete(string sourceType, long refId)
+    {
+        _store.Execute(
+            "DELETE FROM clip_embeddings WHERE source_type = $st AND ref_id = $rid;",
+            cmd =>
+            {
+                cmd.Parameters.AddWithValue("$st", sourceType);
+                cmd.Parameters.AddWithValue("$rid", refId);
+            });
+        return _store.Query<int>("SELECT changes();", r => r.Read() ? r.GetInt32(0) : 0) > 0;
+    }
+
     /// <summary>清除全部向量（供測試與重建索引）。</summary>
     public void Clear()
     {

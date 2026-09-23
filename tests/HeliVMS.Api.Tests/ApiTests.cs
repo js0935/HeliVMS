@@ -1123,6 +1123,35 @@ public class ApiTests : IClassFixture<ApiFactory>, IDisposable
         Assert.DoesNotContain(rows2, r => r.Id == added.Id);
     }
 
+    [Fact]
+    public async Task Clip_IndexRoundTrip_Delete()
+    {
+        var client = Client();
+
+        var index = await client.PostAsJsonAsync("/api/clip/index", new
+        {
+            sourceType = "event",
+            refId = 901,
+            label = "motion",
+            vector = new[] { 0.5f, 0.5f },
+        });
+        Assert.Equal(HttpStatusCode.OK, index.StatusCode);
+
+        var get = await client.GetAsync("/api/clip/event/901");
+        Assert.Equal(HttpStatusCode.OK, get.StatusCode);
+        var body = await ReadAsync<ClipVectorBody>(get);
+        Assert.NotNull(body.Vector);
+        Assert.Equal(2, body.Vector.Length);
+
+        var del = await client.DeleteAsync("/api/clip/event/901");
+        Assert.Equal(HttpStatusCode.OK, del.StatusCode);
+
+        var miss = await client.GetAsync("/api/clip/event/901");
+        Assert.Equal(HttpStatusCode.NotFound, miss.StatusCode);
+    }
+
+    private sealed record ClipVectorBody(float[] Vector);
+
     private sealed record IdBody(int Id);
     private sealed record DeviceItemBody(int Id, string Name, string Ip, int Port, string Vendor, bool Enabled);
 

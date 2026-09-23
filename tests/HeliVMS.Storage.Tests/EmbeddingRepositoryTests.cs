@@ -73,4 +73,21 @@ public class EmbeddingRepositoryTests : IDisposable
 
         Assert.Empty(_repo.Search(Normalized(1f, 0f)));
     }
+
+    [Fact]
+    public void ByRef_ReturnsStoredVector_AndDeleteRemoves()
+    {
+        _repo.Upsert("event", 5, "tamper", Normalized(0.2f, 0.8f));
+
+        var v = _repo.ByRef("event", 5);
+
+        Assert.NotNull(v);
+        Assert.Equal(2, v.Count);
+        Assert.Equal(Normalized(0.2f, 0.8f)[1], v[1], 4);
+
+        var hit = _repo.Delete("event", 5);
+        Assert.True(hit);
+        Assert.Null(_repo.ByRef("event", 5));
+        Assert.False(_repo.Delete("event", 5));
+    }
 }
