@@ -57,7 +57,9 @@
         <!-- 工作清單 -->
         <TextBlock Grid.Row="1" Text="歷史／佇列" Foreground="{StaticResource Brand.TextDim}" FontSize="11" Margin="0,14,0,2"/>
         <ListView Grid.Row="2" x:Name="JobList" AutomationProperties.AutomationId="JobList"
-                  Background="#0E1C30" BorderBrush="#2A4A73" Foreground="White">
+                  Background="#0E1C30" BorderBrush="#2A4A73" Foreground="White"
+                  MouseDoubleClick="OnJobDoubleClick"
+                  ToolTip="雙擊已完成工作＝開啟資料夾">
             <ListView.ItemTemplate>
                 <DataTemplate>
                     <TextBlock Text="{Binding Display}" Foreground="White"/>
@@ -80,6 +82,14 @@
             <Button x:Name="CenterDeleteButton" Content="刪除" Click="OnDeleteClicked" ToolTip="刪除所選匯出工作"
                     Width="64" Padding="0,6" Margin="8,0,0,0"
                     Foreground="White" Background="#8A3C2E" BorderThickness="0" AutomationProperties.AutomationId="CenterDeleteButton"/>
+            <Button x:Name="CenterRetryButton" AutomationProperties.AutomationId="CenterRetryButton" ToolTip="將所選失敗工作重新排入佇列"
+                    Content="重試" Click="OnRetryClicked"
+                    Width="64" Padding="0,6" Margin="8,0,0,0"
+                    Foreground="White" Background="#8A6F3A" BorderThickness="0"/>
+            <Button x:Name="CenterOpenFolderButton" AutomationProperties.AutomationId="CenterOpenFolderButton" ToolTip="在檔案總管顯示所選已完成的匯出檔"
+                    Content="開啟資料夾" Click="OnOpenFolderClicked"
+                    Width="90" Padding="0,6" Margin="8,0,0,0"
+                    Foreground="White" Background="#2A7F6E" BorderThickness="0"/>
             <Button x:Name="CenterPurgeButton" Content="清完成紀錄" Click="OnPurgeClicked" ToolTip="清除已完成的匯出紀錄"
                     Width="90" Padding="0,6" Margin="8,0,0,0"
                     Foreground="White" Background="#3A4A6A" BorderThickness="0" AutomationProperties.AutomationId="CenterPurgeButton"/>

@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Diagnostics;
 using System.IO;
 using System.Windows;
 using System.Windows.Threading;
@@ -19,6 +20,7 @@ public partial class ExportCenterWindow : Window
     private readonly ExportJobRepository _jobs;
     private readonly DispatcherTimer _timer = new() { Interval = TimeSpan.FromSeconds(2) };
     private bool _running;
+    private Window? _share;
 
     public ExportCenterWindow(SqliteStore store, string dataRoot)
     {
@@ -187,6 +189,60 @@ public partial class ExportCenterWindow : Window
         Reload();
     }
 
+    /// <summary>將所選失敗工作重新排入佇列（結合「開始處理」重跑）。</summary>
+    private void OnRetryClicked(object sender, RoutedEventArgs e)
+    {
+        if (JobList.SelectedItem is not JobItem { Job.Status: "failed" } item)
+        {
+            ExportCenterStatus.Text = "請先選擇一個失敗（failed）的工作。";
+            return;
+        }
+
+        _jobs.Retry(item.Job.Id);
+        ExportCenterStatus.Text = $"已將工作 #{item.Job.Id} 重新排入佇列，按「開始處理」重跑。";
+        Reload();
+    }
+
+    /// <summary>在檔案總管中顯示所選已完成工作的輸出檔。</summary>
+    private void OnOpenFolderClicked(object sender, RoutedEventArgs e) => OpenSelectedInExplorer();
+
+    /// <summary>雙擊已完成工作＝開啟資料夾；其他狀態給提示。</summary>
+    private void OnJobDoubleClick(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    {
+        if (JobList.SelectedItem is not JobItem item)
+        {
+            return;
+        }
+
+        if (item.Job.Status == "done" && !string.IsNullOrEmpty(item.Job.OutputPath))
+        {
+            OpenSelectedInExplorer();
+        }
+        else
+        {
+            ExportCenterStatus.Text = $"工作 #{item.Job.Id} 尚未完成（狀態：{item.Job.Status}）。";
+        }
+    }
+
+    private void OpenSelectedInExplorer()
+    {
+        if (JobList.SelectedItem is not JobItem { Job.Status: "done" } item ||
+            string.IsNullOrEmpty(item.Job.OutputPath))
+        {
+            ExportCenterStatus.Text = "請先選擇一個已完成（done）的工作。";
+            return;
+        }
+
+        try
+        {
+            Process.Start(new ProcessStartInfo("explorer.exe", $"/select,\"{item.Job.OutputPath}\""));
+        }
+        catch
+        {
+            ExportCenterStatus.Text = "無法開啟檔案總管。";
+        }
+    }
+
     private void OnPurgeClicked(object sender, RoutedEventArgs e)
     {
         var removed = _jobs.PurgeFinished(DateTime.UtcNow.AddHours(-1));
@@ -194,7 +250,7 @@ public partial class ExportCenterWindow : Window
         Reload();
     }
 
-    /// <summary>以選取工作之輸出檔建立分享連結（M51，§14.7 #4）。</summary>
+    /// <summary>以選取工作之輸出檔建立分享連結（M51，§14.7 #4）；分享窗單例重用。</summary>
     private void OnShareClicked(object sender, RoutedEventArgs e)
     {
         string? path = null;
@@ -203,10 +259,17 @@ public partial class ExportCenterWindow : Window
             path = output;
         }
 
-        var window = new ShareWindow(_store, _dataRoot, path)
+        if (_share is { IsVisible: true })
+        {
+            _share.Activate();
+            return;
+        }
+
+        _share = new ShareWindow(_store, _dataRoot, path)
         {
             Owner = this,
         };
-        window.Show();
+        _share.Closed += (_, _) => _share = null;
+        _share.Show();
     }
 }

@@ -102,6 +102,29 @@ public sealed class ExportJobRepositoryTests
     }
 
     [Fact]
+    public void Retry_OnlyRequeuesFailedJob()
+    {
+        using var store = NewStore(out var db);
+        var repo = new ExportJobRepository(store);
+        var failed = repo.Enqueue(1, "main", DateTime.UtcNow.AddHours(-2), DateTime.UtcNow);
+        var done = repo.Enqueue(2, "main", DateTime.UtcNow.AddHours(-3), DateTime.UtcNow.AddHours(-2));
+        var now = DateTime.UtcNow;
+        repo.MarkRunning(failed, now);
+        repo.SetError(failed, "boom", now);
+        repo.MarkRunning(done, now);
+        repo.SetResult(done, @"C:\tmp\ok.mp4", "ABCD", 5, now);
+
+        repo.Retry(failed);
+        repo.Retry(done);
+
+        Assert.Equal("queued", repo.Get(failed)!.Status);
+        Assert.Null(repo.Get(failed)!.Error);
+        Assert.Null(repo.Get(failed)!.StartedUtc);
+        Assert.Null(repo.Get(failed)!.FinishedUtc);
+        Assert.Equal("done", repo.Get(done)!.Status);
+    }
+
+    [Fact]
     public void PurgeFinished_RemovesOnlyOldFinished()
     {
         using var store = NewStore(out var db);

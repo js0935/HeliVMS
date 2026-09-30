@@ -149,6 +149,20 @@ public sealed class ExportJobRepository
             });
     }
 
+    /// <summary>失敗→重新排入佇列（清除錯誤與時戳），回傳原本的開始時間窗。</summary>
+    public void Retry(long id)
+    {
+        _store.Execute(
+            """
+            UPDATE export_jobs
+            SET status = 'queued', error = NULL, started_at = NULL, finished_at = NULL
+            WHERE id = $id AND status = 'failed';
+            """,
+            cmd => cmd.Parameters.AddWithValue("$id", id));
+        _audit.Record("system", "export.retry", AuditCategories.Export,
+            targetType: "export_job", targetId: id, detail: "失敗後重新排入佇列");
+    }
+
     /// <summary>刪除單一工作（含完成檔可另行移除）。</summary>
     public void Delete(long id)
     {
