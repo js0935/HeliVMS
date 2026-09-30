@@ -288,10 +288,17 @@ private async void OnExportCsvClicked(object sender, RoutedEventArgs e)
         DoRefresh();
     }
 
-    /// <summary>切到「僅未確認」視圖（供主視窗未確認徽章點擊重用同窗）。</summary>
-    public void FocusUnacknowledged()
+    /// <summary>切到「僅未確認」視圖（供主視窗未確認徽章點擊重用同窗）；
+    /// 傳入 channelId 時一併聚焦該頻道。</summary>
+    public void FocusUnacknowledged(long? channelId = null)
     {
+        if (channelId is { } id)
+        {
+            _preselect = id;
+        }
+
         PendingOnlyCheck.IsChecked = true;
+        RefreshChannels();
         _page = 1;
         DoRefresh();
     }

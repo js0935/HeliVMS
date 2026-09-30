@@ -10,17 +10,21 @@ public partial class NotificationLogWindow : Window
     private readonly SqliteStore _store;
     private readonly NotificationLogRepository _log;
     private readonly Dictionary<int, string> _channelNames;
+    private readonly Action<long>? _openEvents;
 
-    public NotificationLogWindow(SqliteStore store)
+    public NotificationLogWindow(SqliteStore store, Action<long>? openEvents = null)
     {
         InitializeComponent();
         _store = store;
         _log = new NotificationLogRepository(store);
+        _openEvents = openEvents;
         _channelNames = new ChannelRepository(store).List().ToDictionary(c => c.Id, c => c.Name);
     }
 
     private sealed class LogRow
     {
+        public long ChannelId { get; init; }
+
         public string StartLabel { get; init; } = "";
 
         public string ChannelName { get; init; } = "";
@@ -53,6 +57,7 @@ public partial class NotificationLogWindow : Window
         var rows = _log.ListRecent(200)
             .Select(l => new LogRow
             {
+                ChannelId = l.ChannelId,
                 StartLabel = l.TsUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss"),
                 ChannelName = _channelNames.TryGetValue(l.ChannelId, out var n) ? n : $"#{l.ChannelId}",
                 EventType = l.EventType,
@@ -65,5 +70,14 @@ public partial class NotificationLogWindow : Window
 
         NotificationLogList.ItemsSource = rows;
         NotificationCountText.Text = $"共 {_log.Count()} 筆（顯示最近 {rows.Count} 筆）";
+    }
+
+    /// <summary>雙擊＝開啟事件中心（該頻道、僅未確認）分診。</summary>
+    private void OnLogDoubleClick(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    {
+        if (NotificationLogList.SelectedItem is LogRow { ChannelId: > 0 } row)
+        {
+            _openEvents?.Invoke(row.ChannelId);
+        }
     }
 }

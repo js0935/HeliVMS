@@ -25,7 +25,9 @@
 
         <Border Grid.Row="1" BorderBrush="#2A4A73" BorderThickness="1" Background="#0F1D2E">
             <ListView x:Name="NotificationLogList" AutomationProperties.AutomationId="NotificationLogList"
-                      Background="Transparent" BorderThickness="0" Foreground="White">
+                      Background="Transparent" BorderThickness="0" Foreground="White"
+                      MouseDoubleClick="OnLogDoubleClick"
+                      ToolTip="雙擊列＝開啟事件中心（該頻道、僅未確認）分診">
                 <ListView.View>
                     <GridView>
                         <GridViewColumn Header="時間（本地）" Width="160">
@@ -82,7 +84,7 @@
             </ListView>
         </Border>
 
-        <TextBlock Grid.Row="2" Text="通知送達紀錄（notification_log，§16.3）：成功與最終失敗事件，靜默時段跳過不記錄。"
+        <TextBlock Grid.Row="2" Text="通知送達紀錄（notification_log，§16.3）：成功與最終失敗事件，靜默時段跳過不記錄。雙擊列開啟事件中心（該頻道未確認）分診。"
                    Foreground="{StaticResource Brand.TextDim}" FontSize="11" Margin="0,8,0,0" TextWrapping="Wrap"/>
     </Grid>
 </Window>

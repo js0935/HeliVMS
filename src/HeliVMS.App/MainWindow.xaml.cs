@@ -1260,10 +1260,11 @@ public partial class MainWindow : Window
         return false;
     }
 
-    /// <summary>開啟通知送達紀錄（M23，§16.3）。</summary>
+    /// <summary>開啟通知送達紀錄（M23，§16.3）；雙擊列＝回事件中心分診該頻道未確認。</summary>
     private void OnNotificationClicked(object sender, RoutedEventArgs e)
     {
-        OpenChild(new NotificationLogWindow(_store!));
+        OpenChild(new NotificationLogWindow(_store!, ch =>
+            OpenChild(new EventCenterWindow(_store!), w => ((EventCenterWindow)w).FocusUnacknowledged(ch))));
     }
 
     /// <summary>開啟管理設定中心（M19，§9）。僅 admin（M42）。</summary>
