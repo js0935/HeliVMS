@@ -79,7 +79,7 @@
 
         <StackPanel Grid.Row="3" Orientation="Horizontal" Margin="0,10,0,0">
             <Button x:Name="AnalyticsRefreshButton" Content="刷新" Click="OnRefreshClicked"
-                    Width="64" Padding="0,6" Foreground="White" Background="#2A4A73" BorderThickness="0"/>
+                    Width="64" Padding="0,6" Foreground="White" Background="#2A4A73" BorderThickness="0" AutomationProperties.AutomationId="AnalyticsRefreshButton"/>
             <Button x:Name="AnalyticsToggleButton" AutomationProperties.AutomationId="AnalyticsToggleButton"
                     Content="啟用/停用" Click="OnToggleClicked"
                     Width="90" Padding="0,6" Margin="8,0,0,0"

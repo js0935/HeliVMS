@@ -27,7 +27,7 @@
                          Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
                 <Button x:Name="ShareBrowseButton" Content="瀏覽" Click="OnBrowseClicked"
                         Width="60" Margin="8,0,0,0" Padding="0,6"
-                        Foreground="White" Background="#2A4A73" BorderThickness="0"/>
+                        Foreground="White" Background="#2A4A73" BorderThickness="0" AutomationProperties.AutomationId="ShareBrowseButton"/>
             </StackPanel>
 
             <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
@@ -75,7 +75,7 @@
         <!-- 動作列 -->
         <StackPanel Grid.Row="3" Orientation="Horizontal" Margin="0,10,0,0">
             <Button x:Name="ShareRefreshButton" Content="刷新" Click="OnRefreshClicked"
-                    Width="64" Padding="0,6" Foreground="White" Background="#2A4A73" BorderThickness="0"/>
+                    Width="64" Padding="0,6" Foreground="White" Background="#2A4A73" BorderThickness="0" AutomationProperties.AutomationId="ShareRefreshButton"/>
             <Button x:Name="ShareCopyButton" AutomationProperties.AutomationId="ShareCopyButton"
                     Content="複製連結" Click="OnCopyClicked"
                     Width="80" Padding="0,6" Margin="8,0,0,0"
@@ -86,10 +86,10 @@
                     Foreground="White" Background="#8A5C2E" BorderThickness="0"/>
             <Button x:Name="ShareDeleteButton" Content="刪除" Click="OnDeleteClicked"
                     Width="64" Padding="0,6" Margin="8,0,0,0"
-                    Foreground="White" Background="#8A3C2E" BorderThickness="0"/>
+                    Foreground="White" Background="#8A3C2E" BorderThickness="0" AutomationProperties.AutomationId="ShareDeleteButton"/>
             <Button x:Name="SharePurgeButton" Content="清除已過期" Click="OnPurgeClicked"
                     Width="90" Padding="0,6" Margin="8,0,0,0"
-                    Foreground="White" Background="#3A4A6A" BorderThickness="0"/>
+                    Foreground="White" Background="#3A4A6A" BorderThickness="0" AutomationProperties.AutomationId="SharePurgeButton"/>
         </StackPanel>
 
         <TextBlock Grid.Row="4" x:Name="ShareStatusText" AutomationProperties.AutomationId="ShareStatusText"

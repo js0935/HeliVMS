@@ -65,7 +65,7 @@
                     </StackPanel>
                     <StackPanel Grid.Column="5" VerticalAlignment="Bottom">
                         <Button x:Name="SearchButton" Content="查詢" Click="OnSearchClicked"
-                                Padding="18,4" Foreground="White" Background="#2A5C8A" BorderThickness="0"/>
+                                Padding="18,4" Foreground="White" Background="#2A5C8A" BorderThickness="0" AutomationProperties.AutomationId="SearchButton"/>
                     </StackPanel>
                 </Grid>
             </StackPanel>

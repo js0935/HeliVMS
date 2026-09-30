@@ -42,7 +42,7 @@
             <DockPanel Margin="0,4,0,12">
                 <Button x:Name="BrowseButton" Content="瀏覽…" Click="OnBrowseClicked"
                         DockPanel.Dock="Right" Padding="12,6" Margin="6,0,0,0"
-                        Foreground="White" Background="#2A5C8A" BorderThickness="0"/>
+                        Foreground="White" Background="#2A5C8A" BorderThickness="0" AutomationProperties.AutomationId="BrowseButton"/>
                 <TextBox x:Name="OutputFolderBox" AutomationProperties.AutomationId="OutputFolderBox"
                          Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="8,4"/>
             </DockPanel>
@@ -101,7 +101,7 @@
                         Foreground="White" Background="#2A5C8A" BorderThickness="0"/>
                 <Button x:Name="CloseButton" Content="關閉" Click="OnCloseClicked"
                         Width="80" Padding="0,8" Margin="8,0,0,0"
-                        Foreground="White" Background="#3A3A5A" BorderThickness="0"/>
+                        Foreground="White" Background="#3A3A5A" BorderThickness="0" AutomationProperties.AutomationId="CloseButton"/>
             </StackPanel>
         </StackPanel>
     </Grid>

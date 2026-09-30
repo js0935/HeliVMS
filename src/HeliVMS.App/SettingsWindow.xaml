@@ -101,7 +101,7 @@
                 <DockPanel Margin="0,6,0,14">
                     <Button x:Name="ApplyQuotaButton" Content="套用配額" Click="OnApplyQuotaClicked"
                             DockPanel.Dock="Right" Padding="12,6"
-                            Foreground="White" Background="#2A5C8A" BorderThickness="0"/>
+                            Foreground="White" Background="#2A5C8A" BorderThickness="0" AutomationProperties.AutomationId="ApplyQuotaButton"/>
                     <TextBox x:Name="QuotaTextBox" AutomationProperties.AutomationId="QuotaTextBox"
                              Width="120" Margin="0,0,10,0"
                              Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
@@ -115,7 +115,7 @@
                 <DockPanel Margin="0,6,0,14">
                     <Button x:Name="ApplySnapshotDaysButton" Content="套用天數" Click="OnApplySnapshotDaysClicked"
                             DockPanel.Dock="Right" Padding="12,6"
-                            Foreground="White" Background="#2A5C8A" BorderThickness="0"/>
+                            Foreground="White" Background="#2A5C8A" BorderThickness="0" AutomationProperties.AutomationId="ApplySnapshotDaysButton"/>
                     <TextBox x:Name="SnapshotDaysTextBox" AutomationProperties.AutomationId="SnapshotDaysTextBox"
                              Width="120" Margin="0,0,10,0"
                              Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
@@ -124,7 +124,7 @@
                 <DockPanel Margin="0,0,0,6">
                     <Button x:Name="CleanupButton" Content="立即清理" Click="OnCleanupClicked"
                             DockPanel.Dock="Left" Padding="12,6"
-                            Foreground="White" Background="#8A3C2E" BorderThickness="0"/>
+                            Foreground="White" Background="#8A3C2E" BorderThickness="0" AutomationProperties.AutomationId="CleanupButton"/>
                     <TextBlock x:Name="CleanupReportText" Margin="12,0,0,0" VerticalAlignment="Center"
                                TextWrapping="Wrap" Text=""/>
                 </DockPanel>
@@ -271,7 +271,7 @@
                 <DockPanel>
                     <Button x:Name="ApplyLicenseButton" Content="套用授權金鑰" Click="OnApplyLicenseClicked"
                             DockPanel.Dock="Left" Padding="12,6"
-                            Foreground="White" Background="#2A5C8A" BorderThickness="0"/>
+                            Foreground="White" Background="#2A5C8A" BorderThickness="0" AutomationProperties.AutomationId="ApplyLicenseButton"/>
                     <TextBlock x:Name="LicenseApplyText" Margin="12,0,0,0" VerticalAlignment="Center"
                                TextWrapping="Wrap" Text=""/>
                 </DockPanel>
@@ -287,16 +287,16 @@
                 <WrapPanel>
                     <Button x:Name="LaunchPlaybackButton" Content="回放" Click="OnLaunchPlaybackClicked"
                             Width="92" Height="40" Margin="0,0,8,8" Background="#2A5C8A" BorderThickness="0"
-                            Foreground="White"/>
+                            Foreground="White" AutomationProperties.AutomationId="LaunchPlaybackButton"/>
                     <Button x:Name="LaunchEventsButton" Content="事件中心" Click="OnLaunchEventsClicked"
                             Width="92" Height="40" Margin="0,0,8,8" Background="#6A5A2E" BorderThickness="0"
-                            Foreground="White"/>
+                            Foreground="White" AutomationProperties.AutomationId="LaunchEventsButton"/>
                     <Button x:Name="LaunchScheduleButton" Content="錄影排程" Click="OnLaunchScheduleClicked"
                             Width="92" Height="40" Margin="0,0,8,8" Background="#3A5A7A" BorderThickness="0"
-                            Foreground="White"/>
+                            Foreground="White" AutomationProperties.AutomationId="LaunchScheduleButton"/>
                     <Button x:Name="LaunchDetectionButton" Content="AI 偵測" Click="OnLaunchDetectionClicked"
                             Width="92" Height="40" Margin="0,0,8,8" Background="#4A4A7A" BorderThickness="0"
-                            Foreground="White"/>
+                            Foreground="White" AutomationProperties.AutomationId="LaunchDetectionButton"/>
                 </WrapPanel>
 
                 <TextBlock Text="遮蔽偵測（Tamper）" FontSize="15" FontWeight="Bold" Margin="0,18,0,8"/>
@@ -494,9 +494,9 @@
                     <CheckBox x:Name="RuleChannelPushBox" Content="推播" Foreground="White" Margin="18,0,0,0"/>
                     <CheckBox x:Name="RuleChannelSnmpBox" Content="SNMP" Foreground="White" Margin="18,0,0,0"/>
                     <Button x:Name="ToggleRuleButton" Content="啟用/停用" Click="OnToggleRuleClicked" Margin="24,0,0,0"
-                            Padding="8,4" Foreground="White" Background="#3A5A7A" BorderThickness="0"/>
+                            Padding="8,4" Foreground="White" Background="#3A5A7A" BorderThickness="0" AutomationProperties.AutomationId="ToggleRuleButton"/>
                     <Button x:Name="DeleteRuleButton" Content="刪除" Click="OnDeleteRuleClicked" Margin="6,0,0,0"
-                            Padding="8,4" Foreground="White" Background="#8A3C2E" BorderThickness="0"/>
+                            Padding="8,4" Foreground="White" Background="#8A3C2E" BorderThickness="0" AutomationProperties.AutomationId="DeleteRuleButton"/>
                 </StackPanel>
 
                 <ListView x:Name="RuleList" AutomationProperties.AutomationId="RuleList" SelectionMode="Single"
@@ -568,9 +568,9 @@
                 </ListView>
                 <StackPanel Orientation="Horizontal" Margin="0,4,0,10">
                     <Button x:Name="IoToggleDeviceButton" Content="啟用/停用" Click="OnIoToggleDeviceClicked"
-                            Padding="8,4" Foreground="White" Background="#3A5A7A" BorderThickness="0"/>
+                            Padding="8,4" Foreground="White" Background="#3A5A7A" BorderThickness="0" AutomationProperties.AutomationId="IoToggleDeviceButton"/>
                     <Button x:Name="IoDeleteDeviceButton" Content="刪除模組（含通道）" Click="OnIoDeleteDeviceClicked" Margin="6,0,0,0"
-                            Padding="8,4" Foreground="White" Background="#8A3C2E" BorderThickness="0"/>
+                            Padding="8,4" Foreground="White" Background="#8A3C2E" BorderThickness="0" AutomationProperties.AutomationId="IoDeleteDeviceButton"/>
                 </StackPanel>
 
                 <TextBlock Text="通道（DI／DO）" FontSize="14" FontWeight="Bold" Margin="0,4,0,6"/>
@@ -616,9 +616,9 @@
                 </ListView>
                 <StackPanel Orientation="Horizontal" Margin="0,4,0,8">
                     <Button x:Name="IoToggleChannelButton" Content="啟用/停用通道" Click="OnIoToggleChannelClicked"
-                            Padding="8,4" Foreground="White" Background="#3A5A7A" BorderThickness="0"/>
+                            Padding="8,4" Foreground="White" Background="#3A5A7A" BorderThickness="0" AutomationProperties.AutomationId="IoToggleChannelButton"/>
                     <Button x:Name="IoDeleteChannelButton" Content="刪除通道" Click="OnIoDeleteChannelClicked" Margin="6,0,0,0"
-                            Padding="8,4" Foreground="White" Background="#8A3C2E" BorderThickness="0"/>
+                            Padding="8,4" Foreground="White" Background="#8A3C2E" BorderThickness="0" AutomationProperties.AutomationId="IoDeleteChannelButton"/>
                     <TextBlock x:Name="IoReportText" AutomationProperties.AutomationId="IoReportText"
                                Margin="14,0,0,0" VerticalAlignment="Center" TextWrapping="Wrap"/>
                 </StackPanel>
@@ -688,9 +688,9 @@
                 </ListView>
                 <StackPanel Orientation="Horizontal" Margin="0,4,0,8">
                     <Button x:Name="MapToggleButton" Content="啟用/停用" Click="OnMapToggleClicked"
-                            Padding="8,4" Foreground="White" Background="#3A5A7A" BorderThickness="0"/>
+                            Padding="8,4" Foreground="White" Background="#3A5A7A" BorderThickness="0" AutomationProperties.AutomationId="MapToggleButton"/>
                     <Button x:Name="MapDeleteButton" Content="刪除地圖（含圖釘）" Click="OnMapDeleteClicked" Margin="6,0,0,0"
-                            Padding="8,4" Foreground="White" Background="#8A3C2E" BorderThickness="0"/>
+                            Padding="8,4" Foreground="White" Background="#8A3C2E" BorderThickness="0" AutomationProperties.AutomationId="MapDeleteButton"/>
                 </StackPanel>
 
                 <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
@@ -775,7 +775,7 @@
                 </ListView>
                 <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
                     <Button x:Name="MapDeletePinButton" Content="刪除圖釘" Click="OnMapDeletePinClicked"
-                            Padding="8,4" Foreground="White" Background="#8A3C2E" BorderThickness="0"/>
+                            Padding="8,4" Foreground="White" Background="#8A3C2E" BorderThickness="0" AutomationProperties.AutomationId="MapDeletePinButton"/>
                     <TextBlock x:Name="MapReportText" AutomationProperties.AutomationId="MapReportText"
                                Margin="14,0,0,0" VerticalAlignment="Center" TextWrapping="Wrap"
                                Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
@@ -846,11 +846,11 @@
                 </ListView>
                 <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
                     <Button x:Name="UserToggleButton" Content="啟用/停用" Click="OnUserToggleClicked"
-                            Padding="8,4" Foreground="White" Background="#3A5A7A" BorderThickness="0"/>
+                            Padding="8,4" Foreground="White" Background="#3A5A7A" BorderThickness="0" AutomationProperties.AutomationId="UserToggleButton"/>
                     <Button x:Name="UserUnlockButton" Content="解除鎖定" Click="OnUserUnlockClicked" Margin="6,0,0,0"
-                            Padding="8,4" Foreground="White" Background="#3A5A7A" BorderThickness="0"/>
+                            Padding="8,4" Foreground="White" Background="#3A5A7A" BorderThickness="0" AutomationProperties.AutomationId="UserUnlockButton"/>
                     <Button x:Name="UserDeleteButton" Content="刪除使用者" Click="OnUserDeleteClicked" Margin="6,0,0,0"
-                            Padding="8,4" Foreground="White" Background="#8A3C2E" BorderThickness="0"/>
+                            Padding="8,4" Foreground="White" Background="#8A3C2E" BorderThickness="0" AutomationProperties.AutomationId="UserDeleteButton"/>
                     <TextBlock x:Name="UserReportText" AutomationProperties.AutomationId="UserReportText"
                                Margin="14,0,0,0" VerticalAlignment="Center" TextWrapping="Wrap"
                                Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
@@ -903,9 +903,9 @@
                             Content="＋新增提供者" Click="OnEntAddClicked" Padding="8,4"
                             Foreground="White" Background="#2A5C8A" BorderThickness="0"/>
                     <Button x:Name="EntToggleButton" Content="啟用/停用" Click="OnEntToggleClicked" Margin="6,0,0,0"
-                            Padding="8,4" Foreground="White" Background="#3A5A7A" BorderThickness="0"/>
+                            Padding="8,4" Foreground="White" Background="#3A5A7A" BorderThickness="0" AutomationProperties.AutomationId="EntToggleButton"/>
                     <Button x:Name="EntDeleteButton" Content="刪除提供者" Click="OnEntDeleteClicked" Margin="6,0,0,0"
-                            Padding="8,4" Foreground="White" Background="#8A3C2E" BorderThickness="0"/>
+                            Padding="8,4" Foreground="White" Background="#8A3C2E" BorderThickness="0" AutomationProperties.AutomationId="EntDeleteButton"/>
                     <TextBlock x:Name="EntReportText" AutomationProperties.AutomationId="EntReportText"
                                Margin="14,0,0,0" VerticalAlignment="Center" TextWrapping="Wrap"
                                Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
@@ -938,7 +938,7 @@
                 <DockPanel Margin="0,4,0,10">
                     <Button x:Name="BackupBrowseButton" Content="瀏覽…" Click="OnBackupBrowseClicked"
                             DockPanel.Dock="Right" Padding="12,4" Margin="8,0,0,0"
-                            Foreground="White" Background="#2A5C8A" BorderThickness="0"/>
+                            Foreground="White" Background="#2A5C8A" BorderThickness="0" AutomationProperties.AutomationId="BackupBrowseButton"/>
                     <TextBox x:Name="BackupTargetBox" AutomationProperties.AutomationId="BackupTargetBox"
                              Height="28" VerticalContentAlignment="Center"
                              Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
@@ -949,7 +949,7 @@
                 <DockPanel Margin="0,4,0,14">
                     <Button x:Name="ApplyBackupButton" Content="儲存設定" Click="OnSaveBackupClicked"
                             DockPanel.Dock="Right" Padding="12,6"
-                            Foreground="White" Background="#2A5C8A" BorderThickness="0"/>
+                            Foreground="White" Background="#2A5C8A" BorderThickness="0" AutomationProperties.AutomationId="ApplyBackupButton"/>
                     <TextBox x:Name="BackupIntervalBox" AutomationProperties.AutomationId="BackupIntervalBox"
                              Width="120" Margin="0,0,10,0" Text="24"
                              Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
@@ -969,7 +969,7 @@
                 <DockPanel Margin="0,0,0,6">
                     <Button x:Name="OffsiteSourceBrowseButton" Content="來源…" DockPanel.Dock="Right"
                             Click="OnOffsiteBrowseClicked" Tag="source" Padding="10,3" Margin="4,0,0,0"
-                            Foreground="White" Background="#2A5C8A" BorderThickness="0"/>
+                            Foreground="White" Background="#2A5C8A" BorderThickness="0" AutomationProperties.AutomationId="OffsiteSourceBrowseButton"/>
                     <TextBox x:Name="OffsiteSourceBox" AutomationProperties.AutomationId="OffsiteSourceBox"
                              Height="24" VerticalContentAlignment="Center"
                              Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
@@ -977,7 +977,7 @@
                 <DockPanel Margin="0,0,0,6">
                     <Button x:Name="OffsiteDestBrowseButton" Content="目標…" DockPanel.Dock="Right"
                             Click="OnOffsiteBrowseClicked" Tag="destination" Padding="10,3" Margin="4,0,0,0"
-                            Foreground="White" Background="#2A5C8A" BorderThickness="0"/>
+                            Foreground="White" Background="#2A5C8A" BorderThickness="0" AutomationProperties.AutomationId="OffsiteDestBrowseButton"/>
                     <TextBox x:Name="OffsiteDestBox" AutomationProperties.AutomationId="OffsiteDestBox"
                              Height="24" VerticalContentAlignment="Center"
                              Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
@@ -985,7 +985,7 @@
                 <DockPanel Margin="0,0,0,6">
                     <Button x:Name="OffsiteApplyButton" Content="儲存設定" DockPanel.Dock="Right"
                             Click="OnSaveOffsiteClicked" Padding="10,4"
-                            Foreground="White" Background="#2A5C8A" BorderThickness="0"/>
+                            Foreground="White" Background="#2A5C8A" BorderThickness="0" AutomationProperties.AutomationId="OffsiteApplyButton"/>
                     <TextBox x:Name="OffsiteIntervalBox" AutomationProperties.AutomationId="OffsiteIntervalBox"
                              Width="90" Height="24" VerticalContentAlignment="Center"
                              Text="1440" Margin="0,0,10,0"

@@ -55,7 +55,7 @@
                             Foreground="White" Background="#3A6A5A" BorderThickness="0"/>
                     <Button x:Name="RulesCancelButton" Click="OnAddToggleClicked"
                             Content="取消" Width="60" Padding="0,5" Margin="8,0,0,0"
-                            Foreground="White" Background="#5A3A3A" BorderThickness="0"/>
+                            Foreground="White" Background="#5A3A3A" BorderThickness="0" AutomationProperties.AutomationId="RulesCancelButton"/>
                 </StackPanel>
             </StackPanel>
         </Border>

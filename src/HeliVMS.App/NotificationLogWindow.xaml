@@ -18,7 +18,7 @@
         <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
             <Button x:Name="NotificationRefreshButton" Content="重新整理" Click="OnRefreshClicked"
                     Padding="10,4" VerticalAlignment="Center"
-                    Foreground="White" Background="#2A5C8A" BorderThickness="0"/>
+                    Foreground="White" Background="#2A5C8A" BorderThickness="0" AutomationProperties.AutomationId="NotificationRefreshButton"/>
             <TextBlock x:Name="NotificationCountText" Foreground="{StaticResource Brand.TextDim}"
                        VerticalAlignment="Center" Margin="14,0,0,0" FontSize="11"/>
         </StackPanel>

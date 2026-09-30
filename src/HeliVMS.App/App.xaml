@@ -59,5 +59,15 @@
         <Style TargetType="TextBlock">
             <Setter Property="Foreground" Value="#EBF3FF" />
         </Style>
+
+        <Style TargetType="ToolTip">
+            <Setter Property="Background" Value="#F0F4FA" />
+            <Setter Property="Foreground" Value="#12233C" />
+            <Setter Property="BorderBrush" Value="#2660AA" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Padding" Value="8,5" />
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="HasDropShadow" Value="True" />
+        </Style>
     </Application.Resources>
 </Application>

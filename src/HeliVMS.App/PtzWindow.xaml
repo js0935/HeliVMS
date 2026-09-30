@@ -39,41 +39,41 @@
             <StackPanel>
                 <UniformGrid Columns="3" Margin="0,6,0,0">
                     <Button x:Name="PtzUpLeftButton" AutomationProperties.AutomationId="PtzUpLeftButton"
-                            Content="↖" Click="OnMoveClicked" PreviewMouseLeftButtonDown="OnMoveHeldDown" PreviewMouseLeftButtonUp="OnMoveHeldUp" MouseLeave="OnMoveMouseLeave" Tag="-0.6,-0.6,0"
+                            Content="↖" ToolTip="向左上移動（按住連動）" Click="OnMoveClicked" PreviewMouseLeftButtonDown="OnMoveHeldDown" PreviewMouseLeftButtonUp="OnMoveHeldUp" MouseLeave="OnMoveMouseLeave" Tag="-0.6,-0.6,0"
                             Padding="0,6" Margin="2" Foreground="White" Background="#2660AA" BorderThickness="0" />
                     <Button x:Name="PtzUpButton" AutomationProperties.AutomationId="PtzUpButton"
-                            Content="↑" Click="OnMoveClicked" PreviewMouseLeftButtonDown="OnMoveHeldDown" PreviewMouseLeftButtonUp="OnMoveHeldUp" MouseLeave="OnMoveMouseLeave" Tag="0,-0.8,0"
+                            Content="↑" ToolTip="向上移動（按住連動）" Click="OnMoveClicked" PreviewMouseLeftButtonDown="OnMoveHeldDown" PreviewMouseLeftButtonUp="OnMoveHeldUp" MouseLeave="OnMoveMouseLeave" Tag="0,-0.8,0"
                             Padding="0,6" Margin="2" Foreground="White" Background="#2660AA" BorderThickness="0" />
                     <Button x:Name="PtzUpRightButton" AutomationProperties.AutomationId="PtzUpRightButton"
-                            Content="↗" Click="OnMoveClicked" PreviewMouseLeftButtonDown="OnMoveHeldDown" PreviewMouseLeftButtonUp="OnMoveHeldUp" MouseLeave="OnMoveMouseLeave" Tag="0.6,-0.6,0"
+                            Content="↗" ToolTip="向右上移動（按住連動）" Click="OnMoveClicked" PreviewMouseLeftButtonDown="OnMoveHeldDown" PreviewMouseLeftButtonUp="OnMoveHeldUp" MouseLeave="OnMoveMouseLeave" Tag="0.6,-0.6,0"
                             Padding="0,6" Margin="2" Foreground="White" Background="#2660AA" BorderThickness="0" />
                     <Button x:Name="PtzLeftButton" AutomationProperties.AutomationId="PtzLeftButton"
-                            Content="←" Click="OnMoveClicked" PreviewMouseLeftButtonDown="OnMoveHeldDown" PreviewMouseLeftButtonUp="OnMoveHeldUp" MouseLeave="OnMoveMouseLeave" Tag="-0.8,0,0"
+                            Content="←" ToolTip="向左移動（按住連動）" Click="OnMoveClicked" PreviewMouseLeftButtonDown="OnMoveHeldDown" PreviewMouseLeftButtonUp="OnMoveHeldUp" MouseLeave="OnMoveMouseLeave" Tag="-0.8,0,0"
                             Padding="0,6" Margin="2" Foreground="White" Background="#2660AA" BorderThickness="0" />
                     <Button x:Name="PtzStopButton" AutomationProperties.AutomationId="PtzStopButton"
-                            Content="■" Click="OnStopClicked"
+                            Content="■" ToolTip="停止雲台移動" Click="OnStopClicked"
                             Padding="0,6" Margin="2" Foreground="White" Background="#8A3C2E" BorderThickness="0" />
                     <Button x:Name="PtzRightButton" AutomationProperties.AutomationId="PtzRightButton"
-                            Content="→" Click="OnMoveClicked" PreviewMouseLeftButtonDown="OnMoveHeldDown" PreviewMouseLeftButtonUp="OnMoveHeldUp" MouseLeave="OnMoveMouseLeave" Tag="0.8,0,0"
+                            Content="→" ToolTip="向右移動（按住連動）" Click="OnMoveClicked" PreviewMouseLeftButtonDown="OnMoveHeldDown" PreviewMouseLeftButtonUp="OnMoveHeldUp" MouseLeave="OnMoveMouseLeave" Tag="0.8,0,0"
                             Padding="0,6" Margin="2" Foreground="White" Background="#2660AA" BorderThickness="0" />
                     <Button x:Name="PtzDownLeftButton" AutomationProperties.AutomationId="PtzDownLeftButton"
-                            Content="↙" Click="OnMoveClicked" PreviewMouseLeftButtonDown="OnMoveHeldDown" PreviewMouseLeftButtonUp="OnMoveHeldUp" MouseLeave="OnMoveMouseLeave" Tag="-0.6,0.6,0"
+                            Content="↙" ToolTip="向左下移動（按住連動）" Click="OnMoveClicked" PreviewMouseLeftButtonDown="OnMoveHeldDown" PreviewMouseLeftButtonUp="OnMoveHeldUp" MouseLeave="OnMoveMouseLeave" Tag="-0.6,0.6,0"
                             Padding="0,6" Margin="2" Foreground="White" Background="#2660AA" BorderThickness="0" />
                     <Button x:Name="PtzDownButton" AutomationProperties.AutomationId="PtzDownButton"
-                            Content="↓" Click="OnMoveClicked" PreviewMouseLeftButtonDown="OnMoveHeldDown" PreviewMouseLeftButtonUp="OnMoveHeldUp" MouseLeave="OnMoveMouseLeave" Tag="0,0.8,0"
+                            Content="↓" ToolTip="向下移動（按住連動）" Click="OnMoveClicked" PreviewMouseLeftButtonDown="OnMoveHeldDown" PreviewMouseLeftButtonUp="OnMoveHeldUp" MouseLeave="OnMoveMouseLeave" Tag="0,0.8,0"
                             Padding="0,6" Margin="2" Foreground="White" Background="#2660AA" BorderThickness="0" />
                     <Button x:Name="PtzDownRightButton" AutomationProperties.AutomationId="PtzDownRightButton"
-                            Content="↘" Click="OnMoveClicked" PreviewMouseLeftButtonDown="OnMoveHeldDown" PreviewMouseLeftButtonUp="OnMoveHeldUp" MouseLeave="OnMoveMouseLeave" Tag="0.6,0.6,0"
+                            Content="↘" ToolTip="向右下移動（按住連動）" Click="OnMoveClicked" PreviewMouseLeftButtonDown="OnMoveHeldDown" PreviewMouseLeftButtonUp="OnMoveHeldUp" MouseLeave="OnMoveMouseLeave" Tag="0.6,0.6,0"
                             Padding="0,6" Margin="2" Foreground="White" Background="#2660AA" BorderThickness="0" />
                 </UniformGrid>
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,6,0,0">
                     <Button x:Name="PtzZoomInButton" AutomationProperties.AutomationId="PtzZoomInButton"
-                            Content="＋變焦" Click="OnMoveClicked" PreviewMouseLeftButtonDown="OnMoveHeldDown" PreviewMouseLeftButtonUp="OnMoveHeldUp" MouseLeave="OnMoveMouseLeave" Tag="0,0,0.8"
+                            Content="＋變焦" ToolTip="放大畫面（變焦 in）" Click="OnMoveClicked" PreviewMouseLeftButtonDown="OnMoveHeldDown" PreviewMouseLeftButtonUp="OnMoveHeldUp" MouseLeave="OnMoveMouseLeave" Tag="0,0,0.8"
                             Padding="14,6" Margin="2" Foreground="White" Background="#2A5C8A" BorderThickness="0" />
                     <Button x:Name="PtzZoomOutButton" AutomationProperties.AutomationId="PtzZoomOutButton"
-                            Content="－變焦" Click="OnMoveClicked" PreviewMouseLeftButtonDown="OnMoveHeldDown" PreviewMouseLeftButtonUp="OnMoveHeldUp" MouseLeave="OnMoveMouseLeave" Tag="0,0,-0.8"
+                            Content="－變焦" ToolTip="縮小畫面（變焦 out）" Click="OnMoveClicked" PreviewMouseLeftButtonDown="OnMoveHeldDown" PreviewMouseLeftButtonUp="OnMoveHeldUp" MouseLeave="OnMoveMouseLeave" Tag="0,0,-0.8"
                             Padding="14,6" Margin="2" Foreground="White" Background="#2A5C8A" BorderThickness="0" />
-                    <Button x:Name="PtzHomeButton" AutomationProperties.AutomationId="PtzHomeButton" Content="H" Click="OnHomeClicked" Padding="14,6" Margin="2" Foreground="White" Background="#5A6A3A" BorderThickness="0" />
+                    <Button x:Name="PtzHomeButton" AutomationProperties.AutomationId="PtzHomeButton" Content="H" ToolTip="回歸雲台原點（Home）" Click="OnHomeClicked" Padding="14,6" Margin="2" Foreground="White" Background="#5A6A3A" BorderThickness="0" />
                 </StackPanel>
             </StackPanel>
         </GroupBox>
@@ -90,11 +90,11 @@
                     <TextBox x:Name="PtzPresetNameBox" Width="140" ToolTip="預設點名稱"
                              Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="8,4" />
                     <Button x:Name="PtzSavePresetButton" AutomationProperties.AutomationId="PtzSavePresetButton"
-                            Content="儲存目前位置" Click="OnSavePresetClicked"
+                            Content="儲存目前位置" ToolTip="將目前雲台位置存為預設點" Click="OnSavePresetClicked"
                             Margin="6,0,0,0" Padding="10,6" Foreground="White" Background="#2A5C8A" BorderThickness="0" />
-                    <Button x:Name="PtzDeletePresetButton" AutomationProperties.AutomationId="PtzDeletePresetButton" Content="X" Click="OnDeletePresetClicked" Margin="6,0,0,0" Padding="10,6" Foreground="White" Background="#8A3C2E" BorderThickness="0" />
+                    <Button x:Name="PtzDeletePresetButton" AutomationProperties.AutomationId="PtzDeletePresetButton" Content="X" ToolTip="刪除選取的預設點" Click="OnDeletePresetClicked" Margin="6,0,0,0" Padding="10,6" Foreground="White" Background="#8A3C2E" BorderThickness="0" />
                     <Button x:Name="PtzRefreshButton" AutomationProperties.AutomationId="PtzRefreshButton"
-                            Content="重新整理" Click="OnRefreshClicked"
+                            Content="重新整理" ToolTip="重新載入預設點清單" Click="OnRefreshClicked"
                             Margin="6,0,0,0" Padding="10,6" Foreground="White" Background="#333F55" BorderThickness="0" />
                 </StackPanel>
 
@@ -108,12 +108,12 @@
                 </ListBox>
 
                 <Button x:Name="PtzGotoPresetButton" Grid.Row="2" AutomationProperties.AutomationId="PtzGotoPresetButton"
-                        Content="移至選取預設點" Click="OnGotoPresetClicked"
+                        Content="移至選取預設點" ToolTip="將雲台移至選取的預設點" Click="OnGotoPresetClicked"
                         Margin="0,8,0,0" Padding="0,7" Foreground="White" Background="#2660AA" BorderThickness="0" />
             </Grid>
         </GroupBox>
 
-        <Button Grid.Row="3" Content="關閉" Click="OnCloseClicked"
+        <Button Grid.Row="3" Content="關閉" ToolTip="關閉此視窗" Click="OnCloseClicked"
                 HorizontalAlignment="Right" Margin="0,14,0,0" Padding="20,8"
                 Foreground="White" Background="#333F55" BorderThickness="0" />
     </Grid>

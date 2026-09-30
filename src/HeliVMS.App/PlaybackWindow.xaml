@@ -34,9 +34,9 @@
                             SelectedDateChanged="OnDateChanged"/>
             </StackPanel>
 
-            <Button x:Name="LoadButton" Content="載入錄影" Click="OnLoadClicked"
+            <Button x:Name="LoadButton" Content="載入錄影" Click="OnLoadClicked" ToolTip="載入所選頻道與日期的錄影片段"
                     Padding="10,4" VerticalAlignment="Center"
-                    Foreground="White" Background="#2A5C8A" BorderThickness="0"/>
+                    Foreground="White" Background="#2A5C8A" BorderThickness="0" AutomationProperties.AutomationId="LoadButton"/>
             <TextBlock x:Name="LoadHint" Foreground="{StaticResource Brand.TextDim}"
                        VerticalAlignment="Center" Margin="12,0,0,0" FontSize="11"
                        AutomationProperties.AutomationId="PlaybackHint"/>
@@ -156,12 +156,12 @@
                 <TextBlock x:Name="CoverageText" Foreground="{StaticResource Brand.TextDim}" FontSize="11"
                            VerticalAlignment="Center" Margin="8,0,0,0"
                            AutomationProperties.AutomationId="PlaybackCoverageText"/>
-                <Button x:Name="PlayPauseButton" Content="播放" Click="OnPlayPauseClicked"
+                <Button x:Name="PlayPauseButton" Content="播放" Click="OnPlayPauseClicked" ToolTip="播放／暫停播放"
                         Width="76" Padding="0,6" Margin="16,0,0,0" IsEnabled="False"
-                        Foreground="White" Background="#2660AA" BorderThickness="0"/>
-                <Button x:Name="StopButton" Content="停止" Click="OnStopClicked"
+                        Foreground="White" Background="#2660AA" BorderThickness="0" AutomationProperties.AutomationId="PlayPauseButton"/>
+                <Button x:Name="StopButton" Content="停止" Click="OnStopClicked" ToolTip="停止播放並停在目前畫面"
                         Width="70" Padding="0,6" Margin="8,0,0,0" IsEnabled="False"
-                        Foreground="White" Background="#8A3C2E" BorderThickness="0"/>
+                        Foreground="White" Background="#8A3C2E" BorderThickness="0" AutomationProperties.AutomationId="StopButton"/>
                 <TextBlock Text="倍速" Foreground="{StaticResource Brand.TextDim}"
                            VerticalAlignment="Center" Margin="14,0,6,0"/>
                 <ComboBox x:Name="SpeedCombo" Width="64" SelectedIndex="0" VerticalAlignment="Center"

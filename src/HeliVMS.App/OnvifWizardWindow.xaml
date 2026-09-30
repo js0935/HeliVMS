@@ -33,16 +33,16 @@
                          Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="8,4" />
 
                 <TextBlock Text="帳號（可留空）" Foreground="{StaticResource Brand.TextDim}" FontSize="12" Margin="0,12,0,6" />
-                <TextBox x:Name="UserBox"
+                <TextBox x:Name="UserBox" ToolTip="設備管理帳號（通常為 admin）"
                          Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="8,4" />
 
                 <TextBlock Text="密碼（可留空）" Foreground="{StaticResource Brand.TextDim}" FontSize="12" Margin="0,12,0,6" />
-                <PasswordBox x:Name="PasswordBox"
+                <PasswordBox x:Name="PasswordBox" ToolTip="設備管理密碼"
                              Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="8,4" />
 
-                <Button x:Name="DiscoverButton" Content="探索 / 連線" Click="OnDiscoverClicked"
+                <Button x:Name="DiscoverButton" Content="探索 / 連線" ToolTip="探索本機網段或連線指定位址的 ONVIF 設備" Click="OnDiscoverClicked"
                         Margin="0,16,0,0" Padding="0,8"
-                        Foreground="White" Background="#2660AA" BorderThickness="0" />
+                        Foreground="White" Background="#2660AA" BorderThickness="0" AutomationProperties.AutomationId="DiscoverButton"/>
 
                 <ProgressBar x:Name="ProgressBar" Height="4" IsIndeterminate="True"
                              Visibility="Collapsed" Foreground="#4C9AFF" Background="#1A2C49"
@@ -102,14 +102,14 @@
         </Grid>
 
         <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,14,0,0">
-            <Button x:Name="CancelButton" Content="取消" Click="OnCancelClicked"
+            <Button x:Name="CancelButton" Content="取消" ToolTip="取消進行中的探索或連線" Click="OnCancelClicked"
                     Padding="16,8" Margin="0,0,10,0" IsEnabled="False"
-                    Foreground="White" Background="#8A4B2A" BorderThickness="0" />
-            <Button x:Name="AddButton" Content="加入頻道" Click="OnAddClicked"
+                    Foreground="White" Background="#8A4B2A" BorderThickness="0" AutomationProperties.AutomationId="CancelButton"/>
+            <Button x:Name="AddButton" Content="加入頻道" ToolTip="將選取的設備加入頻道清單" Click="OnAddClicked"
                     Padding="16,8" Margin="0,0,10,0" IsEnabled="False"
-                    Foreground="White" Background="#2A5C8A" BorderThickness="0" />
-            <Button Content="關閉" Click="OnCloseClicked"
-                    Padding="16,8" Foreground="White" Background="#333F55" BorderThickness="0" />
+                    Foreground="White" Background="#2A5C8A" BorderThickness="0" AutomationProperties.AutomationId="AddButton"/>
+            <Button x:Name="CloseButton" Content="關閉" ToolTip="關閉此視窗" Click="OnCloseClicked"
+                    Padding="16,8" Foreground="White" Background="#333F55" BorderThickness="0" AutomationProperties.AutomationId="CloseButton" />
         </StackPanel>
     </Grid>
 </Window>

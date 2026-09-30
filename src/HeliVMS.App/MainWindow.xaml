@@ -60,109 +60,112 @@
                              Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"
                              Padding="8,4" />
 
-                    <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                    <TextBlock Text="頻道管理" Foreground="{StaticResource Brand.TextDim}" FontSize="11" Margin="0,0,0,6" />
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,0">
                         <TextBox x:Name="NameBox" Width="80" ToolTip="頻道名稱"
                                  Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="8,4" />
-                        <Button x:Name="AddChannelButton" Content="＋加入頻道" Click="OnAddChannelClicked"
+                        <Button x:Name="AddChannelButton" Content="＋加入頻道" ToolTip="以輸入的串流位址與名稱加入頻道" Click="OnAddChannelClicked"
                                 Margin="6,0,0,0" Padding="8,4"
                                 Foreground="White" Background="#2A5C8A" BorderThickness="0" />
-                        <Button x:Name="OnvifButton" Content="ONVIF 探索" Click="OnOnvifClicked"
+                        <Button x:Name="OnvifButton" Content="ONVIF 探索" ToolTip="探索區域網路上的 ONVIF 攝影機並加入" Click="OnOnvifClicked"
                                 Margin="6,0,0,0" Padding="8,4"
                                 Foreground="White" Background="#2A5C8A" BorderThickness="0" />
                     </StackPanel>
 
-                    <StackPanel Orientation="Horizontal" Margin="0,16,0,0">
+                    <TextBlock Text="監看與錄影" Foreground="{StaticResource Brand.TextDim}" FontSize="11" Margin="0,16,0,6" />
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,0">
                         <Button x:Name="ConnectButton" AutomationProperties.AutomationId="ConnectButton"
-                                Content="連線" Click="OnConnectClicked"
+                                Content="連線" ToolTip="連線／中斷目前頻道的影像串流" Click="OnConnectClicked"
                                 Width="110" Padding="0,8" Margin="0,0,10,0"
                                 Foreground="White" Background="#2660AA" BorderThickness="0" />
-                        <Button x:Name="RecordButton" Content="錄影" Click="OnRecordClicked"
+                        <Button x:Name="RecordButton" Content="錄影" ToolTip="開始／停止目前頻道的錄影" Click="OnRecordClicked"
                                 Width="100" Padding="0,8" IsEnabled="False"
                                 Foreground="White" Background="#8A3C2E" BorderThickness="0" />
-                        <Button x:Name="PlaybackButton" Content="回放" Click="OnPlaybackClicked"
+                        <Button x:Name="PlaybackButton" Content="回放" ToolTip="開啟回放視窗（檢視錄影）" Click="OnPlaybackClicked"
                                 Width="80" Padding="0,8" Margin="10,0,0,0"
                                 Foreground="White" Background="#2A5C8A" BorderThickness="0" />
-                        <Button x:Name="EventButton" Content="事件" Click="OnEventClicked"
+                        <Button x:Name="EventButton" Content="事件" ToolTip="開啟事件中心" Click="OnEventClicked"
                                 Width="80" Padding="0,8" Margin="6,0,0,0"
                                 Foreground="White" Background="#6A5A2E" BorderThickness="0" />
-                        <Button x:Name="ExportButton" Content="匯出" Click="OnExportClicked"
+                        <Button x:Name="ExportButton" Content="匯出" ToolTip="匯出目前頻道與時間範圍的錄影" Click="OnExportClicked"
                                 Width="60" Padding="0,8" Margin="6,0,0,0"
                                 Foreground="White" Background="#5A4A2E" BorderThickness="0" />
                         <Button x:Name="ExportCenterButton" AutomationProperties.AutomationId="ExportCenterButton"
-                                Content="匯出中心" Click="OnExportCenterClicked"
+                                Content="匯出中心" ToolTip="開啟匯出中心（批次匯出與進度管理）" Click="OnExportCenterClicked"
                                 Width="80" Padding="0,8" Margin="6,0,0,0"
                                 Foreground="White" Background="#3A6A5A" BorderThickness="0" />
                         <Button x:Name="NotificationButton" AutomationProperties.AutomationId="NotificationButton"
-                                Content="通知" Click="OnNotificationClicked"
+                                Content="通知" ToolTip="開啟通知日誌（含未確認事件）" Click="OnNotificationClicked"
                                 Width="60" Padding="0,8" Margin="6,0,0,0"
                                 Foreground="White" Background="#2A7F6E" BorderThickness="0" />
-                        <Button x:Name="ScheduleButton" Content="排程" Click="OnScheduleClicked"
+                        <Button x:Name="ScheduleButton" Content="排程" ToolTip="設定錄影排程" Click="OnScheduleClicked"
                                 Width="60" Padding="0,8" Margin="6,0,0,0"
                                 Foreground="White" Background="#3A5A7A" BorderThickness="0" />
-                        <Button x:Name="DetectionButton" Content="偵測" Click="OnDetectionClicked"
+                        <Button x:Name="DetectionButton" Content="偵測" ToolTip="開啟 AI 偵測設定" Click="OnDetectionClicked"
                                 Width="60" Padding="0,8" Margin="6,0,0,0"
                                 Foreground="White" Background="#4A4A7A" BorderThickness="0" />
                         <Button x:Name="SettingsButton" AutomationProperties.AutomationId="SettingsButton"
-                                Content="設定" Click="OnSettingsClicked"
+                                Content="設定" ToolTip="開啟系統設定中心" Click="OnSettingsClicked"
                                 Width="60" Padding="0,8" Margin="6,0,0,0"
                                 Foreground="White" Background="#3A3A5A" BorderThickness="0" />
                     </StackPanel>
 
-                    <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                    <TextBlock Text="工具與整合" Foreground="{StaticResource Brand.TextDim}" FontSize="11" Margin="0,16,0,6" />
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,0">
                         <Button x:Name="AlarmButton" AutomationProperties.AutomationId="AlarmButton"
-                                Content="警報" Click="OnAlarmManagerClicked"
+                                Content="警報" ToolTip="開啟警報管理器" Click="OnAlarmManagerClicked"
                                 Width="50" Padding="0,8" Margin="0,0,6,0"
                                 Foreground="White" Background="#7A3A5A" BorderThickness="0" />
                         <Button x:Name="RedactionButton" AutomationProperties.AutomationId="RedactionButton"
-                                Content="遮蔽" Click="OnRedactionClicked"
+                                Content="遮蔽" ToolTip="影片遮蔽（隱私遮罩）" Click="OnRedactionClicked"
                                 Width="50" Padding="0,8" Margin="0,0,6,0"
                                 Foreground="White" Background="#6A4A2A" BorderThickness="0" />
                         <Button x:Name="DewarpButton" AutomationProperties.AutomationId="DewarpButton"
-                                Content="矯正" Click="OnDewarpClicked"
+                                Content="矯正" ToolTip="魚眼鏡頭影片矯正" Click="OnDewarpClicked"
                                 Width="50" Padding="0,8" Margin="0,0,6,0"
                                 Foreground="White" Background="#2A5C8A" BorderThickness="0" />
                         <Button x:Name="PtzButton" AutomationProperties.AutomationId="PtzButton"
-                                Content="PTZ" Click="OnPtzClicked"
+                                Content="PTZ" ToolTip="開啟雲台控制（方向／變焦／預設點）" Click="OnPtzClicked"
                                 Width="50" Padding="0,8" Margin="0,0,6,0"
                                 Foreground="White" Background="#5A4A8A" BorderThickness="0" />
                         <Button x:Name="MapButton" AutomationProperties.AutomationId="MapButton"
-                                Content="地圖" Click="OnMapClicked"
+                                Content="地圖" ToolTip="開啟電子地圖（攝影機定位）" Click="OnMapClicked"
                                 Width="50" Padding="0,8"
                                 Foreground="White" Background="#2A7F6E" BorderThickness="0" />
                         <Button x:Name="ReportsButton" AutomationProperties.AutomationId="ReportsButton"
-                                Content="報表" Click="OnReportsClicked"
+                                Content="報表" ToolTip="開啟統計報表" Click="OnReportsClicked"
                                 Width="50" Padding="0,8" Margin="6,0,0,0"
                                 Foreground="White" Background="#5A3A7A" BorderThickness="0" />
                         <Button x:Name="RulesButton" AutomationProperties.AutomationId="RulesButton"
-                                Content="規則" Click="OnRulesClicked"
+                                Content="規則" ToolTip="編輯事件規則（觸發條件與動作）" Click="OnRulesClicked"
                                 Width="50" Padding="0,8" Margin="6,0,0,0"
                                 Foreground="White" Background="#3A5A7A" BorderThickness="0" />
                         <Button x:Name="SynopsisButton" AutomationProperties.AutomationId="SynopsisButton"
-                                Content="摘要" Click="OnSynopsisClicked"
+                                Content="摘要" ToolTip="影像摘要（依事件快速剪輯片段）" Click="OnSynopsisClicked"
                                 Width="50" Padding="0,8" Margin="6,0,0,0"
                                 Foreground="White" Background="#3A5A7A" BorderThickness="0" />
                         <Button x:Name="LegalHoldButton" AutomationProperties.AutomationId="LegalHoldButton"
-                                Content="保存鎖定" Click="OnLegalHoldClicked"
+                                Content="保存鎖定" ToolTip="保護錄影免於到期清除" Click="OnLegalHoldClicked"
                                 Width="70" Padding="0,8" Margin="6,0,0,0"
                                 Foreground="White" Background="#7A5A3A" BorderThickness="0" />
                         <Button x:Name="PatrolButton" AutomationProperties.AutomationId="PatrolButton"
-                                Content="巡航" Click="OnPatrolClicked"
+                                Content="巡航" ToolTip="設定雲台巡航排程" Click="OnPatrolClicked"
                                 Width="56" Padding="0,8" Margin="6,0,0,0"
                                 Foreground="White" Background="#2A6A9A" BorderThickness="0" />
                         <Button x:Name="IoButton" AutomationProperties.AutomationId="IoButton"
-                                Content="感測IO" Click="OnIoClicked"
+                                Content="感測IO" ToolTip="設定感測器／輸出點並即時操作" Click="OnIoClicked"
                                 Width="64" Padding="0,8" Margin="6,0,0,0"
                                 Foreground="White" Background="#3A5A2A" BorderThickness="0" />
                         <Button x:Name="StreamButton" AutomationProperties.AutomationId="StreamButton"
-                                Content="切流" Click="OnStreamClicked"
+                                Content="切流" ToolTip="主／副碼流切換" Click="OnStreamClicked"
                                 Width="56" Padding="0,8" Margin="6,0,0,0"
                                 Foreground="White" Background="#5A3A6A" BorderThickness="0" />
                         <Button x:Name="AudioButton" AutomationProperties.AutomationId="AudioButton"
-                                Content="音訊" Click="OnAudioClicked"
+                                Content="音訊" ToolTip="音訊測試與音訊感測設定" Click="OnAudioClicked"
                                 Width="56" Padding="0,8" Margin="6,0,0,0"
                                 Foreground="White" Background="#6A5A2A" BorderThickness="0" />
                         <Button x:Name="FailoverButton" AutomationProperties.AutomationId="FailoverButton"
-                                Content="容錯" Click="OnFailoverClicked"
+                                Content="容錯" ToolTip="叢集容錯備援設定" Click="OnFailoverClicked"
                                 Width="56" Padding="0,8" Margin="6,0,0,0"
                                 Foreground="White" Background="#3A3A6A" BorderThickness="0" />
                     </StackPanel>

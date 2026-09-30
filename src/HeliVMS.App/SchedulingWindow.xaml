@@ -57,14 +57,14 @@
                 <CheckBox x:Name="EnabledBox" Content="啟用此排程" Foreground="White" IsChecked="True" Margin="0,10,0,0"/>
 
                 <StackPanel Orientation="Horizontal" Margin="0,16,0,0">
-                    <Button x:Name="AddButton" Content="新增排程" Click="OnAddClicked"
-                            Padding="14,6" Foreground="White" Background="#2A5C8A" BorderThickness="0" Width="120"/>
-                    <Button x:Name="UpdateButton" Content="更新" Click="OnUpdateClicked"
+                    <Button x:Name="AddButton" Content="新增排程" Click="OnAddClicked" ToolTip="新增一筆錄影排程"
+                            Padding="14,6" Foreground="White" Background="#2A5C8A" BorderThickness="0" Width="120" AutomationProperties.AutomationId="AddButton"/>
+                    <Button x:Name="UpdateButton" Content="更新" Click="OnUpdateClicked" ToolTip="以目前輸入更新選取的排程"
                             Padding="14,6" Margin="8,0,0,0" IsEnabled="False"
-                            Foreground="White" Background="#5A7A4A" BorderThickness="0" Width="90"/>
-                    <Button x:Name="ClearButton" Content="清除" Click="OnClearClicked"
+                            Foreground="White" Background="#5A7A4A" BorderThickness="0" Width="90" AutomationProperties.AutomationId="UpdateButton"/>
+                    <Button x:Name="ClearButton" Content="清除" Click="OnClearClicked" ToolTip="清除輸入欄位"
                             Padding="14,6" Margin="8,0,0,0"
-                            Foreground="White" Background="#3A3A4A" BorderThickness="0" Width="70"/>
+                            Foreground="White" Background="#3A3A4A" BorderThickness="0" Width="70" AutomationProperties.AutomationId="ClearButton"/>
                 </StackPanel>
 
                 <TextBlock x:Name="HintText" Foreground="{StaticResource Brand.TextDim}" FontSize="11"
@@ -120,10 +120,10 @@
                     </ListView.View>
                 </ListView>
                 <StackPanel Orientation="Horizontal" Grid.Row="2" Margin="8">
-                    <Button x:Name="ToggleButton" Content="切換啟用" Click="OnToggleClicked" IsEnabled="False"
-                            Padding="10,4" Foreground="White" Background="#5A4A2A" BorderThickness="0"/>
-                    <Button x:Name="DeleteButton" Content="刪除排程" Click="OnDeleteClicked" IsEnabled="False"
-                            Padding="10,4" Margin="8,0,0,0" Foreground="White" Background="#8A3C2E" BorderThickness="0"/>
+                    <Button x:Name="ToggleButton" Content="切換啟用" Click="OnToggleClicked" ToolTip="啟用／停用選取的排程" IsEnabled="False"
+                            Padding="10,4" Foreground="White" Background="#5A4A2A" BorderThickness="0" AutomationProperties.AutomationId="ToggleButton"/>
+                    <Button x:Name="DeleteButton" Content="刪除排程" Click="OnDeleteClicked" ToolTip="刪除選取的排程" IsEnabled="False"
+                            Padding="10,4" Margin="8,0,0,0" Foreground="White" Background="#8A3C2E" BorderThickness="0" AutomationProperties.AutomationId="DeleteButton"/>
                 </StackPanel>
             </Grid>
         </Border>

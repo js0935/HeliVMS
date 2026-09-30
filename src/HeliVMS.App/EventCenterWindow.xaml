@@ -47,7 +47,7 @@
 
             <Button x:Name="RefreshButton" Content="重新整理" Click="OnRefreshClicked"
                     Padding="10,4" Margin="8,0,0,0" VerticalAlignment="Center"
-                    Foreground="White" Background="#2A5C8A" BorderThickness="0"/>
+                    Foreground="White" Background="#2A5C8A" BorderThickness="0" AutomationProperties.AutomationId="RefreshButton"/>
 
             <Button x:Name="ExportCsvButton" AutomationProperties.AutomationId="ExportCsvButton"
                     Content="匯出 CSV" Click="OnExportCsvClicked"
@@ -56,7 +56,7 @@
             
             <Button x:Name="ViewToggleButton" Content="卡片" Click="OnViewToggleClicked"
                     Padding="10,4" Margin="8,0,0,0" VerticalAlignment="Center"
-                    Foreground="White" Background="#2A7F6E" BorderThickness="0"/>
+                    Foreground="White" Background="#2A7F6E" BorderThickness="0" AutomationProperties.AutomationId="ViewToggleButton"/>
             
             <TextBlock x:Name="CountText" Foreground="{StaticResource Brand.TextDim}"
                        VerticalAlignment="Center" Margin="14,0,0,0" FontSize="11"/>
@@ -212,11 +212,11 @@
 
                     <StackPanel Orientation="Horizontal" Grid.Row="4" Margin="8">
                         <Button x:Name="AckButton" Content="標記為已確認" Click="OnAckClicked" IsEnabled="False"
-                                Padding="10,4" Foreground="White" Background="#2A5C8A" BorderThickness="0"/>
+                                Padding="10,4" Foreground="White" Background="#2A5C8A" BorderThickness="0" AutomationProperties.AutomationId="AckButton"/>
                         <Button x:Name="UnackButton" Content="標記為未確認" Click="OnUnackClicked" IsEnabled="False"
-                                Padding="10,4" Margin="8,0,0,0" Foreground="White" Background="#5A4A2A" BorderThickness="0"/>
+                                Padding="10,4" Margin="8,0,0,0" Foreground="White" Background="#5A4A2A" BorderThickness="0" AutomationProperties.AutomationId="UnackButton"/>
                         <Button x:Name="PlaybackButton" Content="回放此事件" Click="OnPlaybackClicked" IsEnabled="False"
-                                Padding="10,4" Margin="8,0,0,0" Foreground="White" Background="#2A7F6E" BorderThickness="0"/>
+                                Padding="10,4" Margin="8,0,0,0" Foreground="White" Background="#2A7F6E" BorderThickness="0" AutomationProperties.AutomationId="PlaybackButton"/>
                         <Button x:Name="MapLocateButton" AutomationProperties.AutomationId="MapLocateButton"
                                 Content="在地圖定位" Click="OnMapLocateClicked" IsEnabled="False"
                                 Padding="10,4" Margin="8,0,0,0" Foreground="White" Background="#3A7A6E" BorderThickness="0"/>
