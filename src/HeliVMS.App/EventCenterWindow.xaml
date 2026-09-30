@@ -40,21 +40,21 @@
                      Width="140" Margin="6,0,0,0" VerticalContentAlignment="Center"
                      Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
 
-            <Button x:Name="ApplyQueryButton" AutomationProperties.AutomationId="ApplyQueryButton"
+            <Button x:Name="ApplyQueryButton" AutomationProperties.AutomationId="ApplyQueryButton" ToolTip="依頻道／範圍／類型／關鍵字重新查詢事件"
                     Content="套用" Click="OnApplyQueryClicked"
                     Padding="10,4" Margin="8,0,0,0" VerticalAlignment="Center"
                     Foreground="White" Background="#2A5C8A" BorderThickness="0"/>
 
-            <Button x:Name="RefreshButton" Content="重新整理" Click="OnRefreshClicked"
+            <Button x:Name="RefreshButton" Content="重新整理" Click="OnRefreshClicked" ToolTip="重新載入事件清單"
                     Padding="10,4" Margin="8,0,0,0" VerticalAlignment="Center"
                     Foreground="White" Background="#2A5C8A" BorderThickness="0" AutomationProperties.AutomationId="RefreshButton"/>
 
-            <Button x:Name="ExportCsvButton" AutomationProperties.AutomationId="ExportCsvButton"
+            <Button x:Name="ExportCsvButton" AutomationProperties.AutomationId="ExportCsvButton" ToolTip="將目前篩選結果匯出為 CSV 檔"
                     Content="匯出 CSV" Click="OnExportCsvClicked"
                     Padding="10,4" Margin="8,0,0,0" VerticalAlignment="Center"
                     Foreground="White" Background="#2A5C8A" BorderThickness="0"/>
             
-            <Button x:Name="ViewToggleButton" Content="卡片" Click="OnViewToggleClicked"
+            <Button x:Name="ViewToggleButton" Content="卡片" Click="OnViewToggleClicked" ToolTip="切換卡片／清單檢視"
                     Padding="10,4" Margin="8,0,0,0" VerticalAlignment="Center"
                     Foreground="White" Background="#2A7F6E" BorderThickness="0" AutomationProperties.AutomationId="ViewToggleButton"/>
             
@@ -201,7 +201,7 @@
                         <TextBox x:Name="NoteBox" AutomationProperties.AutomationId="NoteBox"
                                  Width="180" Margin="4,0,0,0" VerticalAlignment="Center"
                                  Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
-                        <Button x:Name="ApplyDispositionButton" AutomationProperties.AutomationId="ApplyDispositionButton"
+                        <Button x:Name="ApplyDispositionButton" AutomationProperties.AutomationId="ApplyDispositionButton" ToolTip="將所選事件的處置／指派／備註寫入"
                                 Content="套用處置" Click="OnApplyDispositionClicked" IsEnabled="False"
                                 Padding="10,4" Margin="10,0,0,0" Foreground="White" Background="#2A5C8A" BorderThickness="0"/>
                     </StackPanel>
@@ -211,22 +211,22 @@
                                TextTrimming="CharacterEllipsis" Text="軌跡：—"/>
 
                     <StackPanel Orientation="Horizontal" Grid.Row="4" Margin="8">
-                        <Button x:Name="AckButton" Content="標記為已確認" Click="OnAckClicked" IsEnabled="False"
+                        <Button x:Name="AckButton" Content="標記為已確認" Click="OnAckClicked" IsEnabled="False" ToolTip="將所選事件標記為已確認"
                                 Padding="10,4" Foreground="White" Background="#2A5C8A" BorderThickness="0" AutomationProperties.AutomationId="AckButton"/>
-                        <Button x:Name="UnackButton" Content="標記為未確認" Click="OnUnackClicked" IsEnabled="False"
+                        <Button x:Name="UnackButton" Content="標記為未確認" Click="OnUnackClicked" IsEnabled="False" ToolTip="將所選事件改回未確認"
                                 Padding="10,4" Margin="8,0,0,0" Foreground="White" Background="#5A4A2A" BorderThickness="0" AutomationProperties.AutomationId="UnackButton"/>
-                        <Button x:Name="PlaybackButton" Content="回放此事件" Click="OnPlaybackClicked" IsEnabled="False"
+                        <Button x:Name="PlaybackButton" Content="回放此事件" Click="OnPlaybackClicked" IsEnabled="False" ToolTip="開啟該事件的回放視窗"
                                 Padding="10,4" Margin="8,0,0,0" Foreground="White" Background="#2A7F6E" BorderThickness="0" AutomationProperties.AutomationId="PlaybackButton"/>
-                        <Button x:Name="MapLocateButton" AutomationProperties.AutomationId="MapLocateButton"
+                        <Button x:Name="MapLocateButton" AutomationProperties.AutomationId="MapLocateButton" ToolTip="在地圖上定位該事件的攝影機"
                                 Content="在地圖定位" Click="OnMapLocateClicked" IsEnabled="False"
                                 Padding="10,4" Margin="8,0,0,0" Foreground="White" Background="#3A7A6E" BorderThickness="0"/>
-                        <Button x:Name="PrevPageButton" AutomationProperties.AutomationId="PrevPageButton"
+                        <Button x:Name="PrevPageButton" AutomationProperties.AutomationId="PrevPageButton" ToolTip="上一頁"
                                 Content="◀ 上一頁" Click="OnPrevPageClicked" IsEnabled="False"
                                 Padding="10,4" Margin="22,0,0,0" Foreground="White"
                                 Background="#33506E" BorderThickness="0"/>
                         <TextBlock x:Name="PageText" VerticalAlignment="Center" Margin="10,0"
                                    Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
-                        <Button x:Name="NextPageButton" AutomationProperties.AutomationId="NextPageButton"
+                        <Button x:Name="NextPageButton" AutomationProperties.AutomationId="NextPageButton" ToolTip="下一頁"
                                 Content="下一頁 ▶" Click="OnNextPageClicked" IsEnabled="False"
                                 Padding="10,4" Foreground="White" Background="#33506E" BorderThickness="0"/>
                     </StackPanel>

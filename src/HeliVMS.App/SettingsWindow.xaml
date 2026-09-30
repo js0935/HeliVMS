@@ -69,7 +69,7 @@
                     <TextBox x:Name="ShareBaseUrlBox" AutomationProperties.AutomationId="ShareBaseUrlBox"
                              Width="200" Margin="8,0,0,0" VerticalContentAlignment="Center"
                              Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
-                    <Button x:Name="ShareApplyButton" AutomationProperties.AutomationId="ShareApplyButton"
+                    <Button x:Name="ShareApplyButton" AutomationProperties.AutomationId="ShareApplyButton" ToolTip="套用分享服務設定（啟用、連接埠、對外網址）"
                             Content="套用" Click="OnApplyShareClicked" Margin="12,0,0,0" Padding="12,6"
                             Foreground="White" Background="#2A5C8A" BorderThickness="0"/>
                 </StackPanel>
@@ -104,7 +104,7 @@
                 <TextBlock Text="錄影保留上限（GB；每小時依此配額自動清除最舊錄影段）"
                            Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
                 <DockPanel Margin="0,6,0,14">
-                    <Button x:Name="ApplyQuotaButton" Content="套用配額" Click="OnApplyQuotaClicked"
+                    <Button x:Name="ApplyQuotaButton" Content="套用配額" Click="OnApplyQuotaClicked" ToolTip="以輸入的 GB 上限套用錄影保留配額"
                             DockPanel.Dock="Right" Padding="12,6"
                             Foreground="White" Background="#2A5C8A" BorderThickness="0" AutomationProperties.AutomationId="ApplyQuotaButton"/>
                     <TextBox x:Name="QuotaTextBox" AutomationProperties.AutomationId="QuotaTextBox"
@@ -118,7 +118,7 @@
                 <TextBlock Text="快照保留（天；每小時依此刪除更舊的快照檔 jpg/bmp）"
                            Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
                 <DockPanel Margin="0,6,0,14">
-                    <Button x:Name="ApplySnapshotDaysButton" Content="套用天數" Click="OnApplySnapshotDaysClicked"
+                    <Button x:Name="ApplySnapshotDaysButton" Content="套用天數" Click="OnApplySnapshotDaysClicked" ToolTip="以輸入的天數套用快照保留期限"
                             DockPanel.Dock="Right" Padding="12,6"
                             Foreground="White" Background="#2A5C8A" BorderThickness="0" AutomationProperties.AutomationId="ApplySnapshotDaysButton"/>
                     <TextBox x:Name="SnapshotDaysTextBox" AutomationProperties.AutomationId="SnapshotDaysTextBox"
@@ -127,7 +127,7 @@
                 </DockPanel>
 
                 <DockPanel Margin="0,0,0,6">
-                    <Button x:Name="CleanupButton" Content="立即清理" Click="OnCleanupClicked"
+                    <Button x:Name="CleanupButton" Content="立即清理" Click="OnCleanupClicked" ToolTip="立即依配額與保留天數清理錄影與快照"
                             DockPanel.Dock="Left" Padding="12,6"
                             Foreground="White" Background="#8A3C2E" BorderThickness="0" AutomationProperties.AutomationId="CleanupButton"/>
                     <TextBlock x:Name="CleanupReportText" Margin="12,0,0,0" VerticalAlignment="Center"
@@ -149,13 +149,13 @@
                     <TextBox x:Name="AddChannelNameBox" AutomationProperties.AutomationId="AddChannelNameBox"
                              Width="120" Margin="6,0,0,0" ToolTip="頻道名稱"
                              Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="8,4"/>
-                    <Button x:Name="AddChannelButton" AutomationProperties.AutomationId="AddChannelButton"
+                    <Button x:Name="AddChannelButton" AutomationProperties.AutomationId="AddChannelButton" ToolTip="以網址與名稱新增頻道"
                             Content="＋加入頻道" Click="OnAddChannelClicked" Margin="6,0,0,0" Padding="8,4"
                             Foreground="White" Background="#2A5C8A" BorderThickness="0"/>
-                    <Button x:Name="OnvifWizardButton" AutomationProperties.AutomationId="OnvifWizardButton"
+                    <Button x:Name="OnvifWizardButton" AutomationProperties.AutomationId="OnvifWizardButton" ToolTip="以 ONVIF 探索區域網路上的攝影機並加入"
                             Content="ONVIF 探索" Click="OnOnvifWizardClicked" Margin="6,0,0,0" Padding="8,4"
                             Foreground="White" Background="#2A5C8A" BorderThickness="0"/>
-                    <Button x:Name="RefreshChannelsButton" AutomationProperties.AutomationId="RefreshChannelsButton"
+                    <Button x:Name="RefreshChannelsButton" AutomationProperties.AutomationId="RefreshChannelsButton" ToolTip="重新載入頻道清單"
                             Content="重新整理" Click="OnRefreshChannelsClicked" Margin="6,0,0,0" Padding="8,4"
                             Foreground="White" Background="#3A5A7A" BorderThickness="0"/>
                 </StackPanel>
@@ -252,10 +252,10 @@
                         <PasswordBox x:Name="DeviceCredPasswordBox" AutomationProperties.AutomationId="SettingsDeviceCredPasswordBox"
                                      Width="140" Margin="6,0,0,0" ToolTip="留空則保留原密碼"
                                      Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="6,3"/>
-                        <Button x:Name="DeviceCredApplyButton" AutomationProperties.AutomationId="SettingsDeviceCredApplyButton"
+                        <Button x:Name="DeviceCredApplyButton" AutomationProperties.AutomationId="SettingsDeviceCredApplyButton" ToolTip="以輸入的帳號密碼更新所選設備憑證"
                                 Content="套用" Click="OnDeviceCredApplyClicked" Margin="12,0,0,0" Padding="12,4" IsEnabled="False"
                                 Foreground="White" Background="#2A5C8A" BorderThickness="0"/>
-                        <Button x:Name="DeviceCredClearButton" AutomationProperties.AutomationId="SettingsDeviceCredClearButton"
+                        <Button x:Name="DeviceCredClearButton" AutomationProperties.AutomationId="SettingsDeviceCredClearButton" ToolTip="移除所選設備的加密憑證"
                                 Content="移除憑證" Click="OnDeviceCredClearClicked" Margin="6,0,0,0" Padding="12,4" IsEnabled="False"
                                 Foreground="White" Background="#8A4B2A" BorderThickness="0"/>
                         <TextBlock x:Name="DeviceCredHintText" AutomationProperties.AutomationId="SettingsDeviceCredHint"
@@ -280,7 +280,7 @@
                          VerticalScrollBarVisibility="Auto"
                          Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
                 <DockPanel>
-                    <Button x:Name="ApplyLicenseButton" Content="套用授權金鑰" Click="OnApplyLicenseClicked"
+                    <Button x:Name="ApplyLicenseButton" Content="套用授權金鑰" Click="OnApplyLicenseClicked" ToolTip="驗證並套用貼入的授權金鑰"
                             DockPanel.Dock="Left" Padding="12,6"
                             Foreground="White" Background="#2A5C8A" BorderThickness="0" AutomationProperties.AutomationId="ApplyLicenseButton"/>
                     <TextBlock x:Name="LicenseApplyText" Margin="12,0,0,0" VerticalAlignment="Center"
@@ -296,16 +296,16 @@
                            Foreground="{StaticResource Brand.TextDim}" FontSize="11" Margin="0,0,0,12"
                            TextWrapping="Wrap"/>
                 <WrapPanel>
-                    <Button x:Name="LaunchPlaybackButton" Content="回放" Click="OnLaunchPlaybackClicked"
+                    <Button x:Name="LaunchPlaybackButton" Content="回放" Click="OnLaunchPlaybackClicked" ToolTip="開啟回放視窗"
                             Width="92" Height="40" Margin="0,0,8,8" Background="#2A5C8A" BorderThickness="0"
                             Foreground="White" AutomationProperties.AutomationId="LaunchPlaybackButton"/>
-                    <Button x:Name="LaunchEventsButton" Content="事件中心" Click="OnLaunchEventsClicked"
+                    <Button x:Name="LaunchEventsButton" Content="事件中心" Click="OnLaunchEventsClicked" ToolTip="開啟事件中心"
                             Width="92" Height="40" Margin="0,0,8,8" Background="#6A5A2E" BorderThickness="0"
                             Foreground="White" AutomationProperties.AutomationId="LaunchEventsButton"/>
-                    <Button x:Name="LaunchScheduleButton" Content="錄影排程" Click="OnLaunchScheduleClicked"
+                    <Button x:Name="LaunchScheduleButton" Content="錄影排程" Click="OnLaunchScheduleClicked" ToolTip="開啟錄影排程視窗"
                             Width="92" Height="40" Margin="0,0,8,8" Background="#3A5A7A" BorderThickness="0"
                             Foreground="White" AutomationProperties.AutomationId="LaunchScheduleButton"/>
-                    <Button x:Name="LaunchDetectionButton" Content="AI 偵測" Click="OnLaunchDetectionClicked"
+                    <Button x:Name="LaunchDetectionButton" Content="AI 偵測" Click="OnLaunchDetectionClicked" ToolTip="開啟 AI 偵測視窗"
                             Width="92" Height="40" Margin="0,0,8,8" Background="#4A4A7A" BorderThickness="0"
                             Foreground="White" AutomationProperties.AutomationId="LaunchDetectionButton"/>
                 </WrapPanel>
@@ -447,7 +447,7 @@
                 </StackPanel>
 
                 <DockPanel>
-                    <Button x:Name="NotifyApplyButton" AutomationProperties.AutomationId="NotifyApplyButton"
+                    <Button x:Name="NotifyApplyButton" AutomationProperties.AutomationId="NotifyApplyButton" ToolTip="套用通知設定（Webhook／SMTP／MQTT／推播／SNMP）"
                             Content="套用通知設定" Click="OnApplyNotifyClicked"
                             DockPanel.Dock="Left" Padding="12,6"
                             Foreground="White" Background="#2A5C8A" BorderThickness="0"/>
@@ -476,7 +476,7 @@
                     <TextBox x:Name="RuleKeywordBox" AutomationProperties.AutomationId="RuleKeywordBox"
                              Width="110" Margin="6,0,0,0" ToolTip="事件類型或細節含此字串（留空＝不限）"
                              Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="8,4"/>
-                    <Button x:Name="AddRuleButton" AutomationProperties.AutomationId="AddRuleButton"
+                    <Button x:Name="AddRuleButton" AutomationProperties.AutomationId="AddRuleButton" ToolTip="以輸入條件新增告警規則"
                             Content="＋新增規則" Click="OnAddRuleClicked" Margin="6,0,0,0" Padding="8,4"
                             Foreground="White" Background="#2A5C8A" BorderThickness="0"/>
                 </StackPanel>
@@ -504,9 +504,9 @@
                     <CheckBox x:Name="RuleChannelMqttBox" Content="MQTT" Foreground="White" Margin="18,0,0,0"/>
                     <CheckBox x:Name="RuleChannelPushBox" Content="推播" Foreground="White" Margin="18,0,0,0"/>
                     <CheckBox x:Name="RuleChannelSnmpBox" Content="SNMP" Foreground="White" Margin="18,0,0,0"/>
-                    <Button x:Name="ToggleRuleButton" Content="啟用/停用" Click="OnToggleRuleClicked" Margin="24,0,0,0"
+                    <Button x:Name="ToggleRuleButton" Content="啟用/停用" Click="OnToggleRuleClicked" ToolTip="切換所選規則的啟用狀態" Margin="24,0,0,0"
                             Padding="8,4" Foreground="White" Background="#3A5A7A" BorderThickness="0" AutomationProperties.AutomationId="ToggleRuleButton"/>
-                    <Button x:Name="DeleteRuleButton" Content="刪除" Click="OnDeleteRuleClicked" Margin="6,0,0,0"
+                    <Button x:Name="DeleteRuleButton" Content="刪除" Click="OnDeleteRuleClicked" ToolTip="刪除所選規則" Margin="6,0,0,0"
                             Padding="8,4" Foreground="White" Background="#8A3C2E" BorderThickness="0" AutomationProperties.AutomationId="DeleteRuleButton"/>
                 </StackPanel>
 
@@ -555,10 +555,10 @@
                     <TextBox x:Name="IoPollBox" AutomationProperties.AutomationId="IoPollBox"
                              Text="500" Width="70" Margin="6,0,0,0" ToolTip="輪詢間隔 ms"
                              Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="8,4"/>
-                    <Button x:Name="IoAddDeviceButton" AutomationProperties.AutomationId="IoAddDeviceButton"
+                    <Button x:Name="IoAddDeviceButton" AutomationProperties.AutomationId="IoAddDeviceButton" ToolTip="以主機／埠／Unit 新增 IO 模組"
                             Content="＋新增模組" Click="OnIoAddDeviceClicked" Margin="6,0,0,0" Padding="8,4"
                             Foreground="White" Background="#2A5C8A" BorderThickness="0"/>
-                    <Button x:Name="IoRefreshButton" AutomationProperties.AutomationId="IoRefreshButton"
+                    <Button x:Name="IoRefreshButton" AutomationProperties.AutomationId="IoRefreshButton" ToolTip="重新載入 IO 模組清單"
                             Content="重新整理" Click="OnIoRefreshClicked" Margin="6,0,0,0" Padding="8,4"
                             Foreground="White" Background="#3A5A7A" BorderThickness="0"/>
                 </StackPanel>
@@ -578,9 +578,9 @@
                     </ListView.View>
                 </ListView>
                 <StackPanel Orientation="Horizontal" Margin="0,4,0,10">
-                    <Button x:Name="IoToggleDeviceButton" Content="啟用/停用" Click="OnIoToggleDeviceClicked"
+                    <Button x:Name="IoToggleDeviceButton" Content="啟用/停用" Click="OnIoToggleDeviceClicked" ToolTip="切換所選 IO 模組的啟用狀態"
                             Padding="8,4" Foreground="White" Background="#3A5A7A" BorderThickness="0" AutomationProperties.AutomationId="IoToggleDeviceButton"/>
-                    <Button x:Name="IoDeleteDeviceButton" Content="刪除模組（含通道）" Click="OnIoDeleteDeviceClicked" Margin="6,0,0,0"
+                    <Button x:Name="IoDeleteDeviceButton" Content="刪除模組（含通道）" Click="OnIoDeleteDeviceClicked" ToolTip="刪除所選 IO 模組及其全部通道" Margin="6,0,0,0"
                             Padding="8,4" Foreground="White" Background="#8A3C2E" BorderThickness="0" AutomationProperties.AutomationId="IoDeleteDeviceButton"/>
                 </StackPanel>
 
@@ -605,7 +605,7 @@
                     <ComboBox x:Name="IoCameraCombo" AutomationProperties.AutomationId="IoCameraCombo"
                               Width="150" Margin="10,0,0,0" ToolTip="DI 綁定相機"
                               Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="2,4"/>
-                    <Button x:Name="IoAddChannelButton" AutomationProperties.AutomationId="IoAddChannelButton"
+                    <Button x:Name="IoAddChannelButton" AutomationProperties.AutomationId="IoAddChannelButton" ToolTip="以方向／Index／相機綁定新增 IO 通道"
                             Content="＋新增通道" Click="OnIoAddChannelClicked" Margin="10,0,0,0" Padding="8,4"
                             Foreground="White" Background="#2A5C8A" BorderThickness="0"/>
                 </StackPanel>
@@ -626,9 +626,9 @@
                     </ListView.View>
                 </ListView>
                 <StackPanel Orientation="Horizontal" Margin="0,4,0,8">
-                    <Button x:Name="IoToggleChannelButton" Content="啟用/停用通道" Click="OnIoToggleChannelClicked"
+                    <Button x:Name="IoToggleChannelButton" Content="啟用/停用通道" Click="OnIoToggleChannelClicked" ToolTip="切換所選 IO 通道的啟用狀態"
                             Padding="8,4" Foreground="White" Background="#3A5A7A" BorderThickness="0" AutomationProperties.AutomationId="IoToggleChannelButton"/>
-                    <Button x:Name="IoDeleteChannelButton" Content="刪除通道" Click="OnIoDeleteChannelClicked" Margin="6,0,0,0"
+                    <Button x:Name="IoDeleteChannelButton" Content="刪除通道" Click="OnIoDeleteChannelClicked" ToolTip="刪除所選 IO 通道" Margin="6,0,0,0"
                             Padding="8,4" Foreground="White" Background="#8A3C2E" BorderThickness="0" AutomationProperties.AutomationId="IoDeleteChannelButton"/>
                     <TextBlock x:Name="IoReportText" AutomationProperties.AutomationId="IoReportText"
                                Margin="14,0,0,0" VerticalAlignment="Center" TextWrapping="Wrap"/>
@@ -642,10 +642,10 @@
                     <ComboBox x:Name="IoDoChannelCombo" AutomationProperties.AutomationId="IoDoChannelCombo"
                               Width="170" Margin="6,0,0,0"
                               Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="2,4"/>
-                    <Button x:Name="DoOnButton" AutomationProperties.AutomationId="DoOnButton"
+                    <Button x:Name="DoOnButton" AutomationProperties.AutomationId="DoOnButton" ToolTip="將所選通道 DO 輸出設為 ON"
                             Content="ON" Click="OnIoDoWriteClicked" Tag="true" Margin="10,0,0,0" Padding="12,4"
                             Foreground="White" Background="#2A7F6E" BorderThickness="0"/>
-                    <Button x:Name="DoOffButton" AutomationProperties.AutomationId="DoOffButton"
+                    <Button x:Name="DoOffButton" AutomationProperties.AutomationId="DoOffButton" ToolTip="將所選通道 DO 輸出設為 OFF"
                             Content="OFF" Click="OnIoDoWriteClicked" Tag="false" Margin="6,0,0,0" Padding="12,4"
                             Foreground="White" Background="#8A3C2E" BorderThickness="0"/>
                     <TextBlock x:Name="IoDoStatusText" AutomationProperties.AutomationId="IoDoStatusText"
@@ -672,13 +672,13 @@
                     <TextBox x:Name="MapImageBox" AutomationProperties.AutomationId="MapImageBox"
                              Width="300" Margin="6,0,0,0" ToolTip="平面圖檔路徑（PNG/JPG/BMP）"
                              Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="8,4"/>
-                    <Button x:Name="MapBrowseButton" AutomationProperties.AutomationId="MapBrowseButton"
+                    <Button x:Name="MapBrowseButton" AutomationProperties.AutomationId="MapBrowseButton" ToolTip="以檔案對話方塊選擇平面圖檔"
                             Content="瀏覽" Click="OnMapBrowseClicked" Margin="6,0,0,0" Padding="8,4"
                             Foreground="White" Background="#3A5A7A" BorderThickness="0"/>
-                    <Button x:Name="MapAddButton" AutomationProperties.AutomationId="MapAddButton"
+                    <Button x:Name="MapAddButton" AutomationProperties.AutomationId="MapAddButton" ToolTip="將輸入名稱與圖檔新增為地圖"
                             Content="＋新增地圖" Click="OnMapAddClicked" Margin="6,0,0,0" Padding="8,4"
                             Foreground="White" Background="#2A5C8A" BorderThickness="0"/>
-                    <Button x:Name="MapRefreshButton" AutomationProperties.AutomationId="MapRefreshButton"
+                    <Button x:Name="MapRefreshButton" AutomationProperties.AutomationId="MapRefreshButton" ToolTip="重新載入地圖清單"
                             Content="重新整理" Click="OnMapRefreshClicked" Margin="6,0,0,0" Padding="8,4"
                             Foreground="White" Background="#3A5A7A" BorderThickness="0"/>
                 </StackPanel>
@@ -698,9 +698,9 @@
                     </ListView.View>
                 </ListView>
                 <StackPanel Orientation="Horizontal" Margin="0,4,0,8">
-                    <Button x:Name="MapToggleButton" Content="啟用/停用" Click="OnMapToggleClicked"
+                    <Button x:Name="MapToggleButton" Content="啟用/停用" Click="OnMapToggleClicked" ToolTip="切換所選地圖的啟用狀態"
                             Padding="8,4" Foreground="White" Background="#3A5A7A" BorderThickness="0" AutomationProperties.AutomationId="MapToggleButton"/>
-                    <Button x:Name="MapDeleteButton" Content="刪除地圖（含圖釘）" Click="OnMapDeleteClicked" Margin="6,0,0,0"
+                    <Button x:Name="MapDeleteButton" Content="刪除地圖（含圖釘）" Click="OnMapDeleteClicked" ToolTip="刪除所選地圖及其全部圖釘" Margin="6,0,0,0"
                             Padding="8,4" Foreground="White" Background="#8A3C2E" BorderThickness="0" AutomationProperties.AutomationId="MapDeleteButton"/>
                 </StackPanel>
 
@@ -712,7 +712,7 @@
                              Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
                     <TextBlock Text="m/px" Foreground="{StaticResource Brand.TextDim}" FontSize="11"
                                Margin="6,0,0,0" VerticalAlignment="Center"/>
-                    <Button x:Name="MapApplyScaleButton" AutomationProperties.AutomationId="MapApplyScaleButton"
+                    <Button x:Name="MapApplyScaleButton" AutomationProperties.AutomationId="MapApplyScaleButton" ToolTip="以輸入的每像素公尺套用地圖比例"
                             Content="套用比例" Click="OnMapApplyScaleClicked" Margin="10,0,0,0" Padding="8,4"
                             Foreground="White" Background="#3A5A7A" BorderThickness="0"/>
                     <TextBlock Text="（依深度換算扇形半徑；未標定時以固定半徑顯示）"
@@ -751,7 +751,7 @@
                     <TextBox x:Name="MapPinDepthBox" AutomationProperties.AutomationId="MapPinDepthBox" Width="52"
                              Margin="6,0,0,0" Padding="6,3" ToolTip="覆蓋深度（0–1000 公尺）"
                              Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
-                    <Button x:Name="MapApplyGeometryButton" AutomationProperties.AutomationId="MapApplyGeometryButton"
+                    <Button x:Name="MapApplyGeometryButton" AutomationProperties.AutomationId="MapApplyGeometryButton" ToolTip="套用角度／FOV／深度至所選圖釘（新圖釘亦採用）"
                             Content="套用幾何" Click="OnMapApplyGeometryClicked" Margin="10,0,0,0" Padding="8,4"
                             Foreground="White" Background="#3A5A7A" BorderThickness="0"/>
                     <TextBlock Text="（套用至上方清單選取的圖釘；放置新圖釘時亦採用）"
@@ -785,7 +785,7 @@
                     </ListView.View>
                 </ListView>
                 <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
-                    <Button x:Name="MapDeletePinButton" Content="刪除圖釘" Click="OnMapDeletePinClicked"
+                    <Button x:Name="MapDeletePinButton" Content="刪除圖釘" Click="OnMapDeletePinClicked" ToolTip="刪除所選圖釘"
                             Padding="8,4" Foreground="White" Background="#8A3C2E" BorderThickness="0" AutomationProperties.AutomationId="MapDeletePinButton"/>
                     <TextBlock x:Name="MapReportText" AutomationProperties.AutomationId="MapReportText"
                                Margin="14,0,0,0" VerticalAlignment="Center" TextWrapping="Wrap"
@@ -818,7 +818,7 @@
                              Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
                     <TextBlock Text="分鐘" Foreground="{StaticResource Brand.TextDim}" FontSize="11"
                                Margin="6,0,0,0" VerticalAlignment="Center"/>
-                    <Button x:Name="AuthApplyButton" AutomationProperties.AutomationId="AuthApplyButton"
+                    <Button x:Name="AuthApplyButton" AutomationProperties.AutomationId="AuthApplyButton" ToolTip="套用登入鎖定設定（失敗次數閾值與鎖定分鐘）"
                             Content="套用鎖定設定" Click="OnAuthApplyClicked" Margin="12,0,0,0" Padding="8,4"
                             Foreground="White" Background="#3A5A7A" BorderThickness="0"/>
                 </StackPanel>
@@ -836,7 +836,7 @@
                         <ComboBoxItem Content="admin"/>
                         <ComboBoxItem Content="viewer"/>
                     </ComboBox>
-                    <Button x:Name="UserAddButton" AutomationProperties.AutomationId="UserAddButton"
+                    <Button x:Name="UserAddButton" AutomationProperties.AutomationId="UserAddButton" ToolTip="以輸入名稱、密碼、角色新增使用者"
                             Content="＋新增使用者" Click="OnUserAddClicked" Margin="6,0,0,0" Padding="8,4"
                             Foreground="White" Background="#2A5C8A" BorderThickness="0"/>
                 </StackPanel>
@@ -856,11 +856,11 @@
                     </ListView.View>
                 </ListView>
                 <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
-                    <Button x:Name="UserToggleButton" Content="啟用/停用" Click="OnUserToggleClicked"
+                    <Button x:Name="UserToggleButton" Content="啟用/停用" Click="OnUserToggleClicked" ToolTip="切換所選使用者的啟用狀態"
                             Padding="8,4" Foreground="White" Background="#3A5A7A" BorderThickness="0" AutomationProperties.AutomationId="UserToggleButton"/>
-                    <Button x:Name="UserUnlockButton" Content="解除鎖定" Click="OnUserUnlockClicked" Margin="6,0,0,0"
+                    <Button x:Name="UserUnlockButton" Content="解除鎖定" Click="OnUserUnlockClicked" ToolTip="重設所選使用者的失敗計數並解除鎖定" Margin="6,0,0,0"
                             Padding="8,4" Foreground="White" Background="#3A5A7A" BorderThickness="0" AutomationProperties.AutomationId="UserUnlockButton"/>
-                    <Button x:Name="UserDeleteButton" Content="刪除使用者" Click="OnUserDeleteClicked" Margin="6,0,0,0"
+                    <Button x:Name="UserDeleteButton" Content="刪除使用者" Click="OnUserDeleteClicked" ToolTip="刪除所選使用者" Margin="6,0,0,0"
                             Padding="8,4" Foreground="White" Background="#8A3C2E" BorderThickness="0" AutomationProperties.AutomationId="UserDeleteButton"/>
                     <TextBlock x:Name="UserReportText" AutomationProperties.AutomationId="UserReportText"
                                Margin="14,0,0,0" VerticalAlignment="Center" TextWrapping="Wrap"
@@ -910,12 +910,12 @@
                          VerticalScrollBarVisibility="Auto"
                          Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="6,4"/>
                 <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
-                    <Button x:Name="EntAddButton" AutomationProperties.AutomationId="EntAddButton"
+                    <Button x:Name="EntAddButton" AutomationProperties.AutomationId="EntAddButton" ToolTip="以輸入設定新增企業身份提供者"
                             Content="＋新增提供者" Click="OnEntAddClicked" Padding="8,4"
                             Foreground="White" Background="#2A5C8A" BorderThickness="0"/>
-                    <Button x:Name="EntToggleButton" Content="啟用/停用" Click="OnEntToggleClicked" Margin="6,0,0,0"
+                    <Button x:Name="EntToggleButton" Content="啟用/停用" Click="OnEntToggleClicked" ToolTip="切換所選提供者的啟用狀態" Margin="6,0,0,0"
                             Padding="8,4" Foreground="White" Background="#3A5A7A" BorderThickness="0" AutomationProperties.AutomationId="EntToggleButton"/>
-                    <Button x:Name="EntDeleteButton" Content="刪除提供者" Click="OnEntDeleteClicked" Margin="6,0,0,0"
+                    <Button x:Name="EntDeleteButton" Content="刪除提供者" Click="OnEntDeleteClicked" ToolTip="刪除所選企業身份提供者" Margin="6,0,0,0"
                             Padding="8,4" Foreground="White" Background="#8A3C2E" BorderThickness="0" AutomationProperties.AutomationId="EntDeleteButton"/>
                     <TextBlock x:Name="EntReportText" AutomationProperties.AutomationId="EntReportText"
                                Margin="14,0,0,0" VerticalAlignment="Center" TextWrapping="Wrap"
@@ -947,7 +947,7 @@
 
                 <TextBlock Text="目標目錄" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
                 <DockPanel Margin="0,4,0,10">
-                    <Button x:Name="BackupBrowseButton" Content="瀏覽…" Click="OnBackupBrowseClicked"
+                    <Button x:Name="BackupBrowseButton" Content="瀏覽…" Click="OnBackupBrowseClicked" ToolTip="選擇備份目標目錄"
                             DockPanel.Dock="Right" Padding="12,4" Margin="8,0,0,0"
                             Foreground="White" Background="#2A5C8A" BorderThickness="0" AutomationProperties.AutomationId="BackupBrowseButton"/>
                     <TextBox x:Name="BackupTargetBox" AutomationProperties.AutomationId="BackupTargetBox"
@@ -958,7 +958,7 @@
                 <TextBlock Text="備份間隔（小時；到達間隔後於每小時例行檢查時執行）"
                            Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
                 <DockPanel Margin="0,4,0,14">
-                    <Button x:Name="ApplyBackupButton" Content="儲存設定" Click="OnSaveBackupClicked"
+                    <Button x:Name="ApplyBackupButton" Content="儲存設定" Click="OnSaveBackupClicked" ToolTip="儲存備份目標與間隔設定"
                             DockPanel.Dock="Right" Padding="12,6"
                             Foreground="White" Background="#2A5C8A" BorderThickness="0" AutomationProperties.AutomationId="ApplyBackupButton"/>
                     <TextBox x:Name="BackupIntervalBox" AutomationProperties.AutomationId="BackupIntervalBox"
@@ -967,7 +967,7 @@
                 </DockPanel>
 
                 <DockPanel Margin="0,0,0,8">
-                    <Button x:Name="BackupNowButton" AutomationProperties.AutomationId="BackupNowButton"
+                    <Button x:Name="BackupNowButton" AutomationProperties.AutomationId="BackupNowButton" ToolTip="立即執行一次備份"
                             Content="立即備份" Click="OnBackupNowClicked" Padding="14,8"
                             Foreground="White" Background="#2A5C8A" BorderThickness="0"/>
                     <TextBlock x:Name="BackupStatusText" AutomationProperties.AutomationId="BackupStatusText"
@@ -978,7 +978,7 @@
                 <TextBlock Text="異地備援複製（M55：定時將來源目錄新檔複製至 NAS／雲端掛載路徑）"
                            Foreground="{StaticResource Brand.TextDim}" FontSize="11" Margin="0,8,0,4"/>
                 <DockPanel Margin="0,0,0,6">
-                    <Button x:Name="OffsiteSourceBrowseButton" Content="來源…" DockPanel.Dock="Right"
+                    <Button x:Name="OffsiteSourceBrowseButton" Content="來源…" DockPanel.Dock="Right" ToolTip="選擇異地複製來源目錄"
                             Click="OnOffsiteBrowseClicked" Tag="source" Padding="10,3" Margin="4,0,0,0"
                             Foreground="White" Background="#2A5C8A" BorderThickness="0" AutomationProperties.AutomationId="OffsiteSourceBrowseButton"/>
                     <TextBox x:Name="OffsiteSourceBox" AutomationProperties.AutomationId="OffsiteSourceBox"
@@ -986,7 +986,7 @@
                              Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
                 </DockPanel>
                 <DockPanel Margin="0,0,0,6">
-                    <Button x:Name="OffsiteDestBrowseButton" Content="目標…" DockPanel.Dock="Right"
+                    <Button x:Name="OffsiteDestBrowseButton" Content="目標…" DockPanel.Dock="Right" ToolTip="選擇異地複製目標目錄"
                             Click="OnOffsiteBrowseClicked" Tag="destination" Padding="10,3" Margin="4,0,0,0"
                             Foreground="White" Background="#2A5C8A" BorderThickness="0" AutomationProperties.AutomationId="OffsiteDestBrowseButton"/>
                     <TextBox x:Name="OffsiteDestBox" AutomationProperties.AutomationId="OffsiteDestBox"
@@ -994,7 +994,7 @@
                              Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
                 </DockPanel>
                 <DockPanel Margin="0,0,0,6">
-                    <Button x:Name="OffsiteApplyButton" Content="儲存設定" DockPanel.Dock="Right"
+                    <Button x:Name="OffsiteApplyButton" Content="儲存設定" DockPanel.Dock="Right" ToolTip="儲存異地複製設定（來源／目標／間隔）"
                             Click="OnSaveOffsiteClicked" Padding="10,4"
                             Foreground="White" Background="#2A5C8A" BorderThickness="0" AutomationProperties.AutomationId="OffsiteApplyButton"/>
                     <TextBox x:Name="OffsiteIntervalBox" AutomationProperties.AutomationId="OffsiteIntervalBox"
@@ -1005,7 +1005,7 @@
                               Foreground="White"/>
                 </DockPanel>
                 <DockPanel Margin="0,0,0,8">
-                    <Button x:Name="OffsiteRunNowButton" AutomationProperties.AutomationId="OffsiteRunNowButton"
+                    <Button x:Name="OffsiteRunNowButton" AutomationProperties.AutomationId="OffsiteRunNowButton" ToolTip="立即執行一次異地複製"
                             Content="立即複製" Click="OnOffsiteRunNowClicked" Padding="12,5"
                             Foreground="White" Background="#2A5C8A" BorderThickness="0"/>
                     <TextBlock x:Name="OffsiteStatusText" AutomationProperties.AutomationId="OffsiteStatusText"
