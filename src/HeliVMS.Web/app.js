@@ -146,7 +146,6 @@ function updateChrome() {
   $('share-panel').hidden = !admin;
   $('red-panel').hidden = !admin;
   $('rep-panel').hidden = !admin;
-  $('alarm-panel').hidden = !admin;
   $('health-panel').hidden = !admin;
   $('logout').hidden = !session;
 }
@@ -308,7 +307,7 @@ async function refreshBoard() {
       (r) =>
         `<tr class="${esc(r.priority)}"><td>${esc(r.eventId)}</td><td>${esc(r.channelId)}</td><td>${esc(r.eventType ?? '')}</td><td>${esc(r.priority)}</td>` +
         `<td><button data-ack="${esc(r.eventId)}" class="act" ${esc(r.status === 'acknowledged' ? 'disabled' : '')}>ack</button>` +
-        `<button data-triage="${esc(r.eventId)}" data-p="critical" class="act">!!</button></td></tr>`,
+        `<button data-triage="${esc(r.eventId)}" data-p="critical" class="act" title="升級為緊急" aria-label="升級為緊急">!!</button></td></tr>`,
     )
     .join('');
 
@@ -361,6 +360,11 @@ function renderSmartwall() {
       const snap = smartwallSnapshot(Array.isArray(body) ? body : (body?.cells ?? []));
       $('sw').textContent = `smartwall ${snap.count} · critical ${snap.critical}`;
       $('sw').classList.toggle('hot', snap.critical > 0);
+      const swPanel = $('sw-panel');
+      if (swPanel) {
+        swPanel.textContent = `smartwall ${snap.count} · critical ${snap.critical}`;
+        swPanel.classList.toggle('hot', snap.critical > 0);
+      }
       const el = $('swgrid');
       el.innerHTML = '';
       const cells = snap.cells.length ? snap.cells : [{}];

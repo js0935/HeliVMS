@@ -11,6 +11,7 @@
   <link rel="stylesheet" href="./styles.css" />
 </head>
 <body>
+  <a class="skip" href="#content">略過至內容</a>
   <header id="app" class="topbar">
     <h1>HeliVMS</h1>
     <span id="health" class="badge">…</span>
@@ -19,17 +20,17 @@
     <span id="pos" class="badge muted">…</span>
     <label>API 金鑰 <input id="apikey" type="password" placeholder="輸入 API 金鑰" autocomplete="off" /></label>
     <form id="login">
-      <input id="user" placeholder="帳號" autocomplete="username" />
-      <input id="pass" type="password" placeholder="密碼" autocomplete="current-password" />
+      <input id="user" placeholder="帳號" autocomplete="username" aria-label="帳號" autofocus />
+      <input id="pass" type="password" placeholder="密碼" autocomplete="current-password" aria-label="密碼" />
       <button type="submit">登入</button>
-      <span id="login-msg" class="muted"></span>
+      <span id="login-msg" class="muted" aria-live="polite"></span>
     </form>
     <span id="who" class="badge">未登入</span>
     <button id="logout" type="button" hidden>登出</button>
     <span id="live" class="badge off">WS</span>
   </header>
 
-  <main class="grid">
+  <main class="grid" id="content">
     <section class="panel">
       <h2>頻道</h2>
       <ul id="channels"></ul>
@@ -38,7 +39,7 @@
     <section class="panel">
       <h2>警報看板 <span id="board-summary" class="muted"></span></h2>
       <table id="board">
-        <thead><tr><th>ID</th><th>頻道</th><th>類型</th><th>優先</th><th>狀態</th><th>動作</th></tr></thead>
+        <thead><tr><th scope="col">ID</th><th scope="col">頻道</th><th scope="col">類型</th><th scope="col">優先</th><th scope="col">狀態</th><th scope="col">動作</th></tr></thead>
         <tbody id="alarm-body"></tbody>
       </table>
       <div><span id="alarm-count" class="muted"></span> <span id="alarm-badges" class="muted"></span></div>
@@ -47,11 +48,11 @@
     <section class="panel">
       <h2>事件搜尋</h2>
       <form id="search-form">
-        <input id="q" placeholder="關鍵字" />
+        <input id="q" placeholder="關鍵字" aria-label="事件搜尋關鍵字" />
         <button>搜尋</button>
       </form>
       <table id="events">
-        <thead><tr><th>ID</th><th>時間</th><th>頻道</th><th>類型</th><th>狀態</th></tr></thead>
+        <thead><tr><th scope="col">ID</th><th scope="col">時間</th><th scope="col">頻道</th><th scope="col">類型</th><th scope="col">狀態</th></tr></thead>
         <tbody></tbody>
       </table>
     </section>
@@ -59,17 +60,17 @@
     <section class="panel wide" id="accounts-panel" hidden>
       <h2>帳號管理</h2>
       <form id="account-form" class="row-form">
-        <input id="new-user" placeholder="帳號" required />
-        <input id="new-pass" type="password" placeholder="密碼" required />
+        <input id="new-user" placeholder="帳號" required aria-label="新帳號" />
+        <input id="new-pass" type="password" placeholder="密碼" required aria-label="新密碼" />
         <select id="new-role">
           <option value="viewer">viewer</option>
           <option value="admin">admin</option>
         </select>
         <button type="submit">新增</button>
-        <span id="account-msg" class="muted"></span>
+        <span id="account-msg" class="muted" aria-live="polite"></span>
       </form>
       <table id="accounts">
-        <thead><tr><th>帳號</th><th>角色</th><th>狀態</th><th>操作</th></tr></thead>
+        <thead><tr><th scope="col">帳號</th><th scope="col">角色</th><th scope="col">狀態</th><th scope="col">操作</th></tr></thead>
         <tbody></tbody>
       </table>
     </section>
@@ -78,7 +79,7 @@
       <h2>回放時間軸 <span id="gap" class="muted"></span></h2>
       <div class="timeline-tools">
         <button id="timeline-down" type="button">‹ 前一天</button>
-        <input id="timeline-day" type="date" />
+        <input id="timeline-day" type="date" aria-label="回放日期" />
         <button id="timeline-up" type="button">後一天 ›</button>
       </div>
       <div id="timeline" class="timeline"></div>
@@ -100,13 +101,13 @@
         <label>警報保留 <input id="alarm-retention-days" type="number" min="1" max="36500" /></label>
         <button type="submit">儲存</button>
         <button type="button" id="retention-run">立刻清理</button>
-        <span id="config-msg" class="muted"></span>
-        <span id="storage-usage" class="muted"></span>
+        <span id="config-msg" class="muted" aria-live="polite"></span>
+        <span id="storage-usage" class="muted" aria-live="polite"></span>
       </form>
     </section>
 
     <section class="panel wide">
-      <h2>智慧看板視界 <span id="sw" class="badge">…</span></h2>
+      <h2>智慧看板視界 <span id="sw-panel" class="badge">…</span></h2>
       <div id="swgrid" class="swgrid"></div>
     </section>
 
@@ -123,11 +124,11 @@
           <option>retention</option>
           <option>legal_hold</option>
         </select>
-        <input id="audit-actor" placeholder="操作者" />
-        <a id="audit-csv" download>下載 CSV</a>
+        <input id="audit-actor" placeholder="操作者" aria-label="操作者過濾" />
+        <a id="audit-csv" download aria-live="polite">下載 CSV</a>
       </div>
       <table id="audit">
-        <thead><tr><th>時間</th><th>類別</th><th>操作者</th><th>動作</th><th>目標</th><th>細節</th></tr></thead>
+        <thead><tr><th scope="col">時間</th><th scope="col">類別</th><th scope="col">操作者</th><th scope="col">動作</th><th scope="col">目標</th><th scope="col">細節</th></tr></thead>
         <tbody></tbody>
       </table>
     </section>
@@ -135,7 +136,7 @@
     <section class="panel wide">
       <h2>錄影排程 <span id="sched-count" class="muted"></span></h2>
       <table class="compact">
-        <thead><tr><th>頻道</th><th>時段</th><th>狀態</th><th></th></tr></thead>
+        <thead><tr><th scope="col">頻道</th><th scope="col">時段</th><th scope="col">狀態</th><th scope="col"></th></tr></thead>
         <tbody id="sched-body"></tbody>
       </table>
       <form id="sched-form" class="row-form">
@@ -156,7 +157,7 @@
     <section class="panel wide">
       <h2>巡檢 <span id="patrol-count" class="muted"></span></h2>
       <table class="compact">
-        <thead><tr><th>巡檢</th><th>狀態</th><th></th></tr></thead>
+        <thead><tr><th scope="col">巡檢</th><th scope="col">狀態</th><th scope="col"></th></tr></thead>
         <tbody id="patrol-body"></tbody>
       </table>
       <form id="patrol-form" class="row-form">
@@ -172,7 +173,7 @@
     <section class="panel wide">
       <h2>日報 <span id="daily-summary" class="muted"></span></h2>
       <table id="daily-events" class="compact">
-        <thead><tr><th>事件類別</th><th>次數</th></tr></thead>
+        <thead><tr><th scope="col">事件類別</th><th scope="col">次數</th></tr></thead>
         <tbody></tbody>
       </table>
     </section>
@@ -180,21 +181,21 @@
     <section class="panel wide" id="evidence-panel" hidden>
       <h2>證據包 <span id="evidence-count" class="muted"></span></h2>
       <table class="compact">
-        <thead><tr><th>ID</th><th>狀態</th><th>建立</th><th>檔案數</th></tr></thead>
+        <thead><tr><th scope="col">ID</th><th scope="col">狀態</th><th scope="col">建立</th><th scope="col">檔案數</th></tr></thead>
         <tbody id="evidence-body"></tbody>
       </table>
       <form id="evidence-form" class="row-form">
         <input name="evname" type="text" placeholder="包名" required>
         <textarea name="evfiles" rows="1" placeholder="來源絕對路徑，每行一個" required></textarea>
         <button type="submit">打包</button>
-        <span id="evidence-msg" class="muted"></span>
+        <span id="evidence-msg" class="muted" aria-live="polite"></span>
       </form>
     </section>
 
     <section class="panel wide" id="share-panel" hidden>
       <h2>分享連結 <span id="share-count" class="muted"></span></h2>
       <table class="compact">
-        <thead><tr><th>ID</th><th>類型</th><th>標籤</th><th>資源</th><th>權杖</th><th>用量</th><th>狀態</th><th></th></tr></thead>
+        <thead><tr><th scope="col">ID</th><th scope="col">類型</th><th scope="col">標籤</th><th scope="col">資源</th><th scope="col">權杖</th><th scope="col">用量</th><th scope="col">狀態</th><th scope="col"></th></tr></thead>
         <tbody id="share-body"></tbody>
       </table>
       <form id="share-form" class="row-form">
@@ -207,14 +208,14 @@
         <input name="slabel" type="text" placeholder="標籤（可空）">
         <input name="smax" type="number" min="0" value="0" placeholder="最大使用次數（0=不限）">
         <button type="submit">建立</button>
-        <span id="share-msg" class="muted"></span>
+        <span id="share-msg" class="muted" aria-live="polite"></span>
       </form>
     </section>
 
     <section class="panel wide" id="red-panel" hidden>
       <h2>錄影遮蔽區域 <span id="red-count" class="muted"></span></h2>
       <table class="compact">
-        <thead><tr><th>ID</th><th>來源</th><th>引用</th><th>頻道</th><th>發生時間</th><th>區域</th><th>類型</th><th></th></tr></thead>
+        <thead><tr><th scope="col">ID</th><th scope="col">來源</th><th scope="col">引用</th><th scope="col">頻道</th><th scope="col">發生時間</th><th scope="col">區域</th><th scope="col">類型</th><th scope="col"></th></tr></thead>
         <tbody id="red-body"></tbody>
       </table>
       <form id="red-form" class="row-form">
@@ -230,14 +231,14 @@
         <input name="rh" type="number" min="1" value="10" placeholder="高">
         <label><input name="rfilled" type="checkbox" checked> 塗滿</label>
         <button type="submit">新增</button>
-        <span id="red-msg" class="muted"></span>
+        <span id="red-msg" class="muted" aria-live="polite"></span>
       </form>
     </section>
 
     <section class="panel wide" id="rep-panel" hidden>
       <h2>異地備援狀態 <span id="rep-count" class="muted"></span></h2>
       <table class="compact">
-        <thead><tr><th>ID</th><th>來源</th><th>目標</th><th>間隔</th><th>狀態</th><th>最近結果</th><th>到期</th></tr></thead>
+        <thead><tr><th scope="col">ID</th><th scope="col">來源</th><th scope="col">目標</th><th scope="col">間隔</th><th scope="col">狀態</th><th scope="col">最近結果</th><th scope="col">到期</th></tr></thead>
         <tbody id="rep-body"></tbody>
       </table>
     </section>
@@ -249,16 +250,16 @@
         <button type="button" id="sys-refresh">重新整理</button>
       </div>
       <table class="compact">
-        <thead><tr><th>磁碟</th><th>格式</th><th>總量</th><th>可用</th><th>使用率</th></tr></thead>
+        <thead><tr><th scope="col">磁碟</th><th scope="col">格式</th><th scope="col">總量</th><th scope="col">可用</th><th scope="col">使用率</th></tr></thead>
         <tbody id="sys-body"></tbody>
       </table>
-      <span id="sys-msg" class="muted"></span>
+      <span id="sys-msg" class="muted" aria-live="polite"></span>
     </section>
 
     <section class="panel wide" id="rule-panel" hidden>
       <h2>警示規則 <span id="rule-count" class="muted"></span></h2>
       <table class="compact">
-        <thead><tr><th>ID</th><th>名稱</th><th>事件</th><th>頻道</th><th>關鍵字</th><th>頻道清單</th><th>啟用</th><th>窗內數</th><th></th></tr></thead>
+        <thead><tr><th scope="col">ID</th><th scope="col">名稱</th><th scope="col">事件</th><th scope="col">頻道</th><th scope="col">關鍵字</th><th scope="col">頻道清單</th><th scope="col">啟用</th><th scope="col">窗內數</th><th scope="col"></th></tr></thead>
         <tbody id="rule-body"></tbody>
       </table>
       <form id="rule-form" class="row-form">
@@ -268,14 +269,14 @@
         <input name="rkw" type="text" placeholder="關鍵字（可空）">
         <input name="rmin" type="number" min="1" value="1" placeholder="窗內最小數">
         <button type="submit">新增</button>
-        <span id="rule-msg" class="muted"></span>
+        <span id="rule-msg" class="muted" aria-live="polite"></span>
       </form>
     </section>
 
     <section class="panel wide" id="hold-panel" hidden>
       <h2>法律保留 <span id="hold-count" class="muted"></span></h2>
       <table class="compact">
-        <thead><tr><th>ID</th><th>頻道</th><th>起</th><th>訖</th><th>原因</th><th>建立者</th><th>狀態</th><th>撤銷者</th><th></th></tr></thead>
+        <thead><tr><th scope="col">ID</th><th scope="col">頻道</th><th scope="col">起</th><th scope="col">訖</th><th scope="col">原因</th><th scope="col">建立者</th><th scope="col">狀態</th><th scope="col">撤銷者</th><th scope="col"></th></tr></thead>
         <tbody id="hold-body"></tbody>
       </table>
       <form id="hold-form" class="row-form">
@@ -284,14 +285,14 @@
         <input name="hto" type="datetime-local" required>
         <input name="hreason" type="text" placeholder="事由" required>
         <button type="submit">建立保留</button>
-        <span id="hold-msg" class="muted"></span>
+        <span id="hold-msg" class="muted" aria-live="polite"></span>
       </form>
     </section>
 
     <section class="panel wide" id="provider-panel" hidden>
       <h2>登入供應商 <span id="provider-count" class="muted"></span></h2>
       <table class="compact">
-        <thead><tr><th>ID</th><th>名稱</th><th>類型</th><th>啟用</th><th>操作</th><th>設定</th></tr></thead>
+        <thead><tr><th scope="col">ID</th><th scope="col">名稱</th><th scope="col">類型</th><th scope="col">啟用</th><th scope="col">操作</th><th scope="col">設定</th></tr></thead>
         <tbody id="provider-body"></tbody>
       </table>
       <form id="provider-form" class="row-form">
@@ -302,33 +303,33 @@
         </select>
         <textarea name="pcfg" rows="1" placeholder='設定 JSON，例：{"host":"ldap.corp","base":"dc=corp"}' required></textarea>
         <button type="submit">新增</button>
-        <span id="provider-msg" class="muted"></span>
+        <span id="provider-msg" class="muted" aria-live="polite"></span>
       </form>
     </section>
 
     <section class="panel wide" id="backup-panel" hidden>
       <h2>異地備援 <span id="backup-count" class="muted"></span></h2>
       <table class="compact">
-        <thead><tr><th>#</th><th>執行時間</th><th>複製</th><th>位元組</th><th>失敗</th><th>檢查點</th><th>目標</th></tr></thead>
+        <thead><tr><th scope="col">#</th><th scope="col">執行時間</th><th scope="col">複製</th><th scope="col">位元組</th><th scope="col">失敗</th><th scope="col">檢查點</th><th scope="col">目標</th></tr></thead>
         <tbody id="backup-body"></tbody>
       </table>
       <form id="backup-form" class="row-form">
         <input name="bsrc" type="text" placeholder="來源目錄（絕對路徑）" required>
         <input name="bdst" type="text" placeholder="目標目錄（絕對路徑）" required>
         <button type="submit">執行備份</button>
-        <span id="backup-msg" class="muted"></span>
+        <span id="backup-msg" class="muted" aria-live="polite"></span>
       </form>
     </section>
 
     <section class="panel wide">
       <h2>門禁事件 <span id="door-count" class="muted"></span></h2>
       <div class="row-form">
-        <input id="door-card" type="text" placeholder="卡片號過濾">
+        <input id="door-card" type="text" placeholder="卡片號過濾" aria-label="卡片號過濾">
         <label><input id="door-ok" type="checkbox"> 放行</label>
         <label><input id="door-denied" type="checkbox"> 拒絕</label>
       </div>
       <table class="compact">
-        <thead><tr><th>時間</th><th>裝置</th><th>門</th><th>卡片</th><th>方向</th><th>結果</th><th>原因</th></tr></thead>
+        <thead><tr><th scope="col">時間</th><th scope="col">裝置</th><th scope="col">門</th><th scope="col">卡片</th><th scope="col">方向</th><th scope="col">結果</th><th scope="col">原因</th></tr></thead>
         <tbody id="door-body"></tbody>
       </table>
     </section>
@@ -336,24 +337,24 @@
     <section class="panel wide">
       <h2>AI 偵測 <span id="det-count" class="muted"></span> <span id="det-summary" class="muted"></span></h2>
       <div class="row-form">
-        <input id="det-conf" type="number" min="0" max="1" step="0.05" placeholder="最低信心（0..1）">
-        <input id="det-class" type="text" placeholder="類別過濾">
+        <input id="det-conf" type="number" min="0" max="1" step="0.05" placeholder="最低信心（0..1）" aria-label="最低信心門檻">
+        <input id="det-class" type="text" placeholder="類別過濾" aria-label="類別過濾">
       </div>
       <table class="compact">
-        <thead><tr><th>時間</th><th>頻道</th><th>類別</th><th>信心</th><th>中心(x,y)</th><th>框(w×h)</th></tr></thead>
+        <thead><tr><th scope="col">時間</th><th scope="col">頻道</th><th scope="col">類別</th><th scope="col">信心</th><th scope="col">中心(x,y)</th><th scope="col">框(w×h)</th></tr></thead>
         <tbody id="det-body"></tbody>
       </table>
     </section>
 
     <section class="panel wide">
       <h2>即時警報流</h2>
-      <ul id="live-log" class="log"></ul>
+      <ul id="live-log" class="log" role="log" aria-live="polite"></ul>
     </section>
 
     <section class="panel wide">
       <h2>通知投遞 <span id="notif-count" class="muted"></span></h2>
       <table class="compact">
-        <thead><tr><th>時間</th><th>頻道</th><th>事件</th><th>路由</th><th>結果</th><th>嘗試</th><th>詳情</th></tr></thead>
+        <thead><tr><th scope="col">時間</th><th scope="col">頻道</th><th scope="col">事件</th><th scope="col">路由</th><th scope="col">結果</th><th scope="col">嘗試</th><th scope="col">詳情</th></tr></thead>
         <tbody id="notif-body"></tbody>
       </table>
     </section>
@@ -365,10 +366,10 @@
         <input name="efrom" type="datetime-local" required>
         <input name="eto" type="datetime-local" required>
         <button type="submit">排入匯出</button>
-        <span id="export-msg" class="muted"></span>
+        <span id="export-msg" class="muted" aria-live="polite"></span>
       </form>
       <table class="compact">
-        <thead><tr><th>ID</th><th>頻道</th><th>串流</th><th>起</th><th>訖</th><th>狀態</th><th>大小</th><th>結果</th></tr></thead>
+        <thead><tr><th scope="col">ID</th><th scope="col">頻道</th><th scope="col">串流</th><th scope="col">起</th><th scope="col">訖</th><th scope="col">狀態</th><th scope="col">大小</th><th scope="col">結果</th></tr></thead>
         <tbody id="export-body"></tbody>
       </table>
     </section>
