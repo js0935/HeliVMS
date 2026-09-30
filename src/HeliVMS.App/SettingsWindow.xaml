@@ -75,6 +75,10 @@
                 <TextBlock x:Name="ShareServiceStatusText" AutomationProperties.AutomationId="ShareServiceStatusText"
                            Foreground="#9FB8D8" TextWrapping="Wrap"/>
 
+                <CheckBox x:Name="OskToggleCheck" AutomationProperties.AutomationId="OskToggleCheck"
+                          Content="輸入框側顯示&#x2328;呼叫鍵（螢幕虛擬鍵盤）" Foreground="#EBF3FF"
+                          Margin="0,14,0,0" Checked="OnOskToggleChanged" Unchecked="OnOskToggleChanged"
+                          ToolTip="啟用後每個輸入框右側會出現鍵盤圖示，點擊即呼出螢幕虛擬鍵盤（僅 ASCII／數字）。"/>
                 <TextBlock x:Name="LangLabel" Text="介面語言" Foreground="{StaticResource Brand.TextDim}"
 
                            FontSize="11" Margin="0,14,0,0"/>

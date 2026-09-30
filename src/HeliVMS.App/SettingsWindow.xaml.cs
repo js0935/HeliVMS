@@ -121,6 +121,7 @@ public partial class SettingsWindow : Window
 
         var langIdx = Array.IndexOf(I18n.Languages, Localizer.Lang);
         LangCombo.SelectedIndex = langIdx >= 0 ? langIdx : 0;
+        OskToggleCheck.IsChecked = Osk.Enabled;
         ApplyLangUi();
 
         SettingsNav.SelectedIndex = 0;
@@ -145,6 +146,15 @@ public partial class SettingsWindow : Window
                 mw.RefreshTitle();
             }
         }
+    }
+
+    private void OnOskToggleChanged(object sender, RoutedEventArgs e)
+    {
+        if (OskToggleCheck is null)
+        {
+            return;
+        }
+        Osk.Enabled = OskToggleCheck.IsChecked == true;
     }
 
     private void OnNavChanged(object sender, SelectionChangedEventArgs e)

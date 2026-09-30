@@ -60,6 +60,74 @@
             <Setter Property="Foreground" Value="#EBF3FF" />
         </Style>
 
+        <!-- 全域輸入框深色樣式：統一 TextBox/PasswordBox 深色，並於右側內嵌「⌨」螢幕虛擬鍵盤呼叫按鈕。
+             呼叫按鈕不隨焦點自動彈出；點擊後以 Osk 於視窗底部顯示 ASCII 鍵盤。 -->
+        <Style TargetType="TextBox">
+            <Setter Property="Foreground" Value="#EBF3FF" />
+            <Setter Property="Background" Value="#1A2C49" />
+            <Setter Property="BorderBrush" Value="#2A4A73" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CaretBrush" Value="#EBF3FF" />
+            <Setter Property="SelectionBrush" Value="#2660AA" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TextBox">
+                        <Border Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="4">
+                            <Grid>
+                                <ScrollViewer x:Name="PART_ContentHost"
+                                              Margin="8,4,40,4" VerticalAlignment="Center"
+                                              Foreground="{TemplateBinding Foreground}" />
+                                <Button x:Name="PART_OskCall" Content="&#x2328;" Width="24" Height="24"
+                                        HorizontalAlignment="Right" Margin="0,0,6,0" VerticalAlignment="Center"
+                                        Focusable="False" IsTabStop="False" Cursor="Hand"
+                                        FontSize="12" Padding="0" Visibility="{x:Static local:Osk.CallVisibility}"
+                                        ToolTip="螢幕虛擬鍵盤" Foreground="#EBF3FF" Background="#1A2C49"
+                                        BorderThickness="0" />
+                            </Grid>
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+            <EventSetter Event="Loaded" Handler="OnInputLoaded" />
+            <EventSetter Event="Unloaded" Handler="OnInputUnloaded" />
+        </Style>
+
+        <Style TargetType="PasswordBox">
+            <Setter Property="Foreground" Value="#EBF3FF" />
+            <Setter Property="Background" Value="#1A2C49" />
+            <Setter Property="BorderBrush" Value="#2A4A73" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CaretBrush" Value="#EBF3FF" />
+            <Setter Property="SelectionBrush" Value="#2660AA" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="PasswordBox">
+                        <Border Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="4">
+                            <Grid>
+                                <ScrollViewer x:Name="PART_ContentHost"
+                                              Margin="8,4,40,4" VerticalAlignment="Center"
+                                              Foreground="{TemplateBinding Foreground}" />
+                                <Button x:Name="PART_OskCall" Content="&#x2328;" Width="24" Height="24"
+                                        HorizontalAlignment="Right" Margin="0,0,6,0" VerticalAlignment="Center"
+                                        Focusable="False" IsTabStop="False" Cursor="Hand"
+                                        FontSize="12" Padding="0" Visibility="{x:Static local:Osk.CallVisibility}"
+                                        ToolTip="螢幕虛擬鍵盤" Foreground="#EBF3FF" Background="#1A2C49"
+                                        BorderThickness="0" />
+                            </Grid>
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+            <EventSetter Event="Loaded" Handler="OnInputLoaded" />
+            <EventSetter Event="Unloaded" Handler="OnInputUnloaded" />
+        </Style>
+
         <Style TargetType="ToolTip">
             <Setter Property="Background" Value="#F0F4FA" />
             <Setter Property="Foreground" Value="#12233C" />

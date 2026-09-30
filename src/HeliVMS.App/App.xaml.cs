@@ -1,6 +1,7 @@
 ﻿using System.IO;
 using System.Threading.Tasks;
 using System.Windows;
+using System.Windows.Controls;
 using HeliVMS.Storage;
 
 namespace HeliVMS.App;
@@ -57,5 +58,43 @@ public partial class App : Application
         }
 
         return new LoginWindow(auth, store).ShowDialog() == true;
+    }
+
+    /// <summary>全域輸入框載入：掛接右側「螢幕虛擬鍵盤」呼叫按鈕（M163）。</summary>
+    private void OnInputLoaded(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Control c || c.Template?.FindName("PART_OskCall", c) is not Button call)
+        {
+            return;
+        }
+
+        call.Tag = c;
+        call.Click += OnOskCallClicked;
+        Osk.RegisterCallButton(call);
+    }
+
+    private void OnInputUnloaded(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Control c || c.Template?.FindName("PART_OskCall", c) is not Button call)
+        {
+            return;
+        }
+
+        call.Click -= OnOskCallClicked;
+        Osk.UnregisterCallButton(call);
+    }
+
+    private void OnOskCallClicked(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { Tag: Control target })
+        {
+            return;
+        }
+
+        switch (target)
+        {
+            case TextBox tb: Osk.Toggle(tb); break;
+            case PasswordBox pb: Osk.Toggle(pb); break;
+        }
     }
 }
