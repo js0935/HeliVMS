@@ -90,6 +90,11 @@ describe('search-to-action', () => {
     expect(appSource).toMatch(/bindSearchActions\(\(\) => searchEvents\(q\)\)/);
   });
 
+  it('re-syncs the board counts after a search-row action', () => {
+    const actions = appSource.match(/refresh\(\);\s*renderBoard\(\);/g) ?? [];
+    expect(actions.length).toBe(2);
+  });
+
   it('reuses the alarm-board disposition endpoints through the authenticated transport', () => {
     expect(appSource).toMatch(/\/api\/alarm-board\/\$\{btn\.dataset\.sack\}\/ack/);
     expect(appSource).toMatch(/\/api\/alarm-board\/\$\{btn\.dataset\.sfa\}\/disposition/);

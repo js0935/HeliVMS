@@ -1023,6 +1023,7 @@ function bindSearchActions(refresh) {
         body: JSON.stringify({ acknowledged: true }),
       });
       refresh();
+      renderBoard();
     });
   });
   Array.from(document.querySelectorAll('[data-sfa]')).forEach((btn) => {
@@ -1033,6 +1034,7 @@ function bindSearchActions(refresh) {
         body: JSON.stringify({ status: 'false_alarm', assignedTo: null, note: '搜尋命中標記誤報' }),
       });
       refresh();
+      renderBoard();
     });
   });
 }
