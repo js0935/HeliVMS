@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
+using HeliVMS.Shared;
 using HeliVMS.Shared.Models;
 using HeliVMS.Storage;
 
@@ -138,7 +139,7 @@ public sealed class ExportService
 
             if (exitCode != 0)
             {
-                throw new InvalidOperationException($"ffmpeg 匯出失敗（exit={exitCode}）：{stderr.Trim()}");
+                throw new InvalidOperationException($"ffmpeg 匯出失敗（exit={exitCode}）：{RtspUri.RedactText(stderr.Trim())}");
             }
 
             progress?.Report(new ExportProgress(85, "匯出完成，計算 SHA-256…"));

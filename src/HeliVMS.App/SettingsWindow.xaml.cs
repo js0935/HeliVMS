@@ -32,6 +32,9 @@ public partial class SettingsWindow : Window
     /// <summary>頻道頁顯示列。</summary>
     private sealed record ChannelRow(int Id, string Name, string MainStreamUrl, string RecordingModeLabel, string MotionLabel);
 
+    /// <summary>頻道頁設備憑證顯示列。</summary>
+    private sealed record DeviceRow(int Id, string Name, string IpPort, string CredentialLabel);
+
     /// <summary>告警規則頁顯示列。</summary>
     private sealed record RuleRow(long Id, string Name, string EventType, string ChannelLabel, string Keyword, string MatchTypes, string AggregateLabel, string Channels, string EnabledLabel);
 
@@ -64,6 +67,9 @@ public partial class SettingsWindow : Window
     private readonly EnterpriseAuthService _enterprise;
     private readonly AuthProviderRepository _providers;
     private readonly ShareHost? _shareHost;
+    private readonly DeviceRepository _devices;
+    private int? _deviceCredId;
+    private bool _deviceCredArm;
 
     public SettingsWindow(SqliteStore store, string dataRoot, IoMonitorHost? ioHost = null, ShareHost? shareHost = null)
     {
@@ -82,6 +88,7 @@ public partial class SettingsWindow : Window
         _providers = new AuthProviderRepository(store);
         _shareHost = shareHost;
         _offsite = new OffsiteReplicationRepository(store);
+        _devices = new DeviceRepository(store, new AuditLogRepository(store));
 
         InitializeComponent();
         Title = Localizer.T("Settings.Title");
@@ -98,6 +105,7 @@ public partial class SettingsWindow : Window
         ReloadUsage();
         ReloadLicense();
         ReloadLaunchAvailability();
+        ReloadDevices();
         ReloadChannels();
         ReloadNotify();
         ReloadRules();
@@ -1105,7 +1113,14 @@ public partial class SettingsWindow : Window
         {
             try
             {
-                new ChannelRepository(_store).Add(wizard.ChannelName, wizard.StreamUrl);
+                ChannelEnrollment.Enroll(
+                    _store,
+                    wizard.ChannelName,
+                    wizard.StreamUrl,
+                    wizard.DeviceIp,
+                    wizard.DevicePort,
+                    wizard.DeviceUsername,
+                    wizard.DevicePassword);
                 ReloadChannels();
             }
             catch (Exception ex)
@@ -1116,6 +1131,117 @@ public partial class SettingsWindow : Window
     }
 
     private void OnRefreshChannelsClicked(object sender, RoutedEventArgs e) => ReloadChannels();
+
+    private void ReloadDevices()
+    {
+        var rows = _devices.List()
+            .Select(d =>
+            {
+                var cred = _devices.GetRtspCredentials(d.Id);
+                var label = string.IsNullOrWhiteSpace(cred.Username)
+                    ? "未設定帳密"
+                    : cred.Username + (string.IsNullOrEmpty(cred.Password) ? "（無密碼）" : "（已設密碼）");
+                return new DeviceRow(d.Id, d.Name, $"{d.Ip}:{d.Port}", label);
+            })
+            .ToList();
+
+        DeviceCredList.ItemsSource = rows;
+        _deviceCredId = null;
+        _deviceCredArm = false;
+        DeviceCredUsernameBox.Text = string.Empty;
+        DeviceCredPasswordBox.Password = string.Empty;
+        DeviceCredApplyButton.IsEnabled = false;
+        DeviceCredClearButton.IsEnabled = false;
+        DeviceCredClearButton.Content = "移除憑證";
+        DeviceCredHintText.Text = "選取設備後即可修改其 RTSP 帳號密碼。";
+    }
+
+    private void OnDeviceCredSelected(object sender, SelectionChangedEventArgs e)
+    {
+        _deviceCredArm = false;
+        DeviceCredClearButton.Content = "移除憑證";
+
+        if (DeviceCredList.SelectedItem is not DeviceRow row)
+        {
+            _deviceCredId = null;
+            DeviceCredUsernameBox.Text = string.Empty;
+            DeviceCredPasswordBox.Password = string.Empty;
+            DeviceCredApplyButton.IsEnabled = false;
+            DeviceCredClearButton.IsEnabled = false;
+            DeviceCredHintText.Text = "選取設備後即可修改其 RTSP 帳號密碼。";
+            return;
+        }
+
+        _deviceCredId = row.Id;
+        var cred = _devices.GetRtspCredentials(row.Id);
+        DeviceCredUsernameBox.Text = cred.Username;
+        DeviceCredPasswordBox.Password = string.Empty;
+        DeviceCredHintText.Text = $"將更新「{row.Name}」的憑證；欄位留空表示保留原值。";
+        DeviceCredApplyButton.IsEnabled = true;
+        DeviceCredClearButton.IsEnabled = true;
+    }
+
+    private void OnDeviceCredApplyClicked(object sender, RoutedEventArgs e)
+    {
+        if (_deviceCredId is not int id || DeviceCredList.SelectedItem is not DeviceRow row)
+        {
+            return;
+        }
+
+        var username = DeviceCredUsernameBox.Text.Trim();
+        var password = DeviceCredPasswordBox.Password;
+        if (username.Length == 0 && password.Length == 0)
+        {
+            DeviceCredHintText.Text = "未變更：請輸入帳號或密碼。";
+            return;
+        }
+
+        // 與 API「僅覆寫有提供的欄位」一致：留空的欄位保留既有值，避免手誤清空憑證。
+        var current = _devices.GetRtspCredentials(id);
+        username = username.Length == 0 ? current.Username : username;
+        password = password.Length == 0 ? current.Password : password;
+
+        try
+        {
+            _devices.SetRtspCredentials(id, username, password, "manual");
+            DeviceCredPasswordBox.Password = string.Empty;
+            ReloadDevices();
+            DeviceCredHintText.Text = $"已更新「{row.Name}」的 RTSP 憑證（新連線生效）。";
+        }
+        catch (Exception ex)
+        {
+            DeviceCredHintText.Text = $"更新失敗：{ex.Message}";
+        }
+    }
+
+    private void OnDeviceCredClearClicked(object sender, RoutedEventArgs e)
+    {
+        if (_deviceCredId is not int id || DeviceCredList.SelectedItem is not DeviceRow row)
+        {
+            return;
+        }
+
+        if (!_deviceCredArm)
+        {
+            _deviceCredArm = true;
+            DeviceCredClearButton.Content = "確認移除？";
+            DeviceCredHintText.Text = $"再按一次「確認移除？」以清除「{row.Name}」的 RTSP 憑證。";
+            return;
+        }
+
+        try
+        {
+            _devices.SetRtspCredentials(id, string.Empty, string.Empty, "manual");
+            _deviceCredArm = false;
+            DeviceCredClearButton.Content = "移除憑證";
+            ReloadDevices();
+            DeviceCredHintText.Text = $"已清除「{row.Name}」的 RTSP 憑證（新連線將不再帶帳密）。";
+        }
+        catch (Exception ex)
+        {
+            DeviceCredHintText.Text = $"清除失敗：{ex.Message}";
+        }
+    }
 
     private static long QuotaBytesFromGb(double gb) => (long)(gb * 1024 * 1024 * 1024);
 

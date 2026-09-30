@@ -198,9 +198,15 @@ public partial class EventCenterWindow : Window
         DoRefresh();
     }
 
-    /// <summary>匯出目前查詢之全部事件為 CSV（UTF-8 BOM）。</summary>
+    /// <summary>匯出目前查詢之全部事件為 CSV（UTF-8 BOM）。僅 admin（與匯出中心同權限，M42）。</summary>
 private async void OnExportCsvClicked(object sender, RoutedEventArgs e)
     {
+        if (!SessionContext.IsAdmin)
+        {
+            CountText.Text = "匯出僅限管理員。";
+            return;
+        }
+
         var dlg = new Microsoft.Win32.SaveFileDialog
         {
             Title = "匯出事件中心 CSV",

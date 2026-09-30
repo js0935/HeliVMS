@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Diagnostics;
+using HeliVMS.Shared;
 
 namespace HeliVMS.Storage;
 
@@ -56,11 +57,14 @@ public sealed class EdgeFfmpegBackfillRunner : IEdgeBackfillRunner
             var result = await Task.Run(() => _execute(_ffmpeg, args, _timeout, ct), ct);
             return result.ExitCode == 0
                 ? new EdgeBackfillResult(true)
-                : new EdgeBackfillResult(false, $"exit={result.ExitCode}: {Tail(result.StdErr)}");
+
+                // SourceUri 為邊緣設備的 RTSP 來源（含帳密），ffmpeg 失敗時 stderr 會回顯該網址，
+                // 寫入結果（可能持久化或顯示）前必須移除 userinfo。
+                : new EdgeBackfillResult(false, $"exit={result.ExitCode}: {Tail(RtspUri.RedactText(result.StdErr))}");
         }
         catch (Exception ex)
         {
-            return new EdgeBackfillResult(false, ex.Message);
+            return new EdgeBackfillResult(false, RtspUri.RedactText(ex.Message));
         }
     }
 

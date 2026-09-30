@@ -4,6 +4,7 @@
         Title="ONVIF 設備探索"
         Width="760" Height="560"
         WindowStartupLocation="CenterOwner"
+        Closed="OnWindowClosed"
         Background="{StaticResource Brand.BgDeep}">
 
     <Grid Margin="16">
@@ -42,6 +43,10 @@
                 <Button x:Name="DiscoverButton" Content="探索 / 連線" Click="OnDiscoverClicked"
                         Margin="0,16,0,0" Padding="0,8"
                         Foreground="White" Background="#2660AA" BorderThickness="0" />
+
+                <ProgressBar x:Name="ProgressBar" Height="4" IsIndeterminate="True"
+                             Visibility="Collapsed" Foreground="#4C9AFF" Background="#1A2C49"
+                             Margin="0,14,0,0" />
 
                 <TextBlock x:Name="WizardHint" TextWrapping="Wrap"
                            Foreground="{StaticResource Brand.TextDim}" FontSize="11" Margin="0,12,0,0"
@@ -86,8 +91,8 @@
                         <ListBox.ItemTemplate>
                             <DataTemplate>
                                 <StackPanel Margin="2">
-                                    <TextBlock Text="{Binding Name}" FontSize="13" Foreground="White" />
-                                    <TextBlock Text="{Binding StreamUri}" FontSize="11" Foreground="{StaticResource Brand.TextDim}" />
+                                    <TextBlock Text="{Binding DisplayLabel}" FontSize="13" Foreground="White" />
+                                    <TextBlock Text="{Binding StreamUri}" FontSize="11" Foreground="{StaticResource Brand.TextDim}" TextWrapping="Wrap" />
                                 </StackPanel>
                             </DataTemplate>
                         </ListBox.ItemTemplate>
@@ -97,6 +102,9 @@
         </Grid>
 
         <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,14,0,0">
+            <Button x:Name="CancelButton" Content="取消" Click="OnCancelClicked"
+                    Padding="16,8" Margin="0,0,10,0" IsEnabled="False"
+                    Foreground="White" Background="#8A4B2A" BorderThickness="0" />
             <Button x:Name="AddButton" Content="加入頻道" Click="OnAddClicked"
                     Padding="16,8" Margin="0,0,10,0" IsEnabled="False"
                     Foreground="White" Background="#2A5C8A" BorderThickness="0" />

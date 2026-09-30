@@ -1,4 +1,4 @@
-﻿using System.IO;
+using System.IO;
 using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
@@ -148,6 +148,11 @@ public partial class MainWindow : Window
 
     private void OnTrayExit()
     {
+        if (!RequireAdmin())
+        {
+            return;
+        }
+
         _exiting = true;
         _tray?.Dispose();
         _tray = null;
@@ -277,7 +282,7 @@ public partial class MainWindow : Window
         _store = new SqliteStore(Path.Combine(_dataRoot, "index.db"));
         _store.Initialize();
         Localizer.Init(new SettingsRepository(_store));
-        Title = $"{Localizer.T("Brand.Title")} | db={Path.Combine(_dataRoot, "index.db")}";
+        Title = Localizer.T("Brand.Title");
         _channels = new ChannelRepository(_store);
         _segRepo = new SegmentRepository(_store);
         _channels.EnsureSeedChannels();
@@ -867,7 +872,7 @@ public partial class MainWindow : Window
         if (_manager.HasActiveSessions)
         {
             ConnectButton.Content = "中斷";
-            RecordButton.IsEnabled = true;
+            RecordButton.IsEnabled = SessionContext.IsAdmin;
             HintText.Text = $"連線中：{_channelList[start].MainStreamUrl}";
         }
         else
@@ -1012,7 +1017,7 @@ public partial class MainWindow : Window
 
     private async void OnRecordClicked(object sender, RoutedEventArgs e)
     {
-        if (_manager is null || ChannelCombo.SelectedItem is not ChannelInfo channel)
+        if (!RequireAdmin() || _manager is null || ChannelCombo.SelectedItem is not ChannelInfo channel)
         {
             return;
         }
@@ -1028,13 +1033,25 @@ public partial class MainWindow : Window
 
     private void OnOnvifClicked(object sender, RoutedEventArgs e)
     {
+        if (!RequireAdmin())
+        {
+            return;
+        }
+
         var wizard = new OnvifWizardWindow
         {
             Owner = this,
         };
         if (wizard.ShowDialog() == true && wizard.StreamUrl.Length > 0)
         {
-            _channels!.Add(wizard.ChannelName, wizard.StreamUrl);
+            ChannelEnrollment.Enroll(
+                _store!,
+                wizard.ChannelName,
+                wizard.StreamUrl,
+                wizard.DeviceIp,
+                wizard.DevicePort,
+                wizard.DeviceUsername,
+                wizard.DevicePassword);
             RefreshChannelCombo();
             HintText.Text = $"已經由 ONVIF 加入頻道「{wizard.ChannelName}」。";
         }
@@ -1067,6 +1084,11 @@ public partial class MainWindow : Window
 
     private void OnScheduleClicked(object sender, RoutedEventArgs e)
     {
+        if (!RequireAdmin())
+        {
+            return;
+        }
+
         var sched = new SchedulingWindow(_store!)
         {
             Owner = this,
@@ -1076,6 +1098,11 @@ public partial class MainWindow : Window
 
     private void ExportEventsCsv(string path)
     {
+        if (!RequireAdmin())
+        {
+            return;
+        }
+
         var source = new ChannelRepository(_store!);
         var events = new AlarmEventRepository(_store!);
         var q = new AlarmEventRepository.QueryArgs
@@ -1092,7 +1119,7 @@ public partial class MainWindow : Window
     /// <summary>依現況語言重設主視窗標題（M57 設定中心即時切換用）。</summary>
     public void RefreshTitle()
     {
-        Title = $"{Localizer.T("Brand.Title")} | db={Path.Combine(_dataRoot, "index.db")}";
+        Title = Localizer.T("Brand.Title");
     }
 
     private void OnDetectionClicked(object sender, RoutedEventArgs e)
@@ -1246,6 +1273,32 @@ public partial class MainWindow : Window
         SettingsButton.IsEnabled = isAdmin;
         ExportButton.IsEnabled = isAdmin;
         ExportCenterButton.IsEnabled = isAdmin;
+        RedactionButton.IsEnabled = isAdmin;
+        DewarpButton.IsEnabled = isAdmin;
+        ReportsButton.IsEnabled = isAdmin;
+        RulesButton.IsEnabled = isAdmin;
+        SynopsisButton.IsEnabled = isAdmin;
+        LegalHoldButton.IsEnabled = isAdmin;
+        AddChannelButton.IsEnabled = isAdmin;
+        OnvifButton.IsEnabled = isAdmin;
+        ScheduleButton.IsEnabled = isAdmin;
+        PatrolButton.IsEnabled = isAdmin;
+        PtzButton.IsEnabled = isAdmin;
+        RecordButton.IsEnabled = isAdmin && _manager is not null;
+        FailoverButton.IsEnabled = isAdmin;
+        AudioButton.IsEnabled = isAdmin;
+    }
+
+    /// <summary>viewer 身分嘗試執行管理動作時擋下（M42 RBAC，§18.6）。</summary>
+    private bool RequireAdmin()
+    {
+        if (SessionContext.IsAdmin)
+        {
+            return true;
+        }
+
+        HintText.Text = "此功能僅限管理員。";
+        return false;
     }
 
     /// <summary>開啟通知送達紀錄（M23，§16.3）。</summary>
@@ -1315,6 +1368,11 @@ public partial class MainWindow : Window
 
     private void OnAddChannelClicked(object sender, RoutedEventArgs e)
     {
+        if (!RequireAdmin())
+        {
+            return;
+        }
+
         var url = UrlBox.Text.Trim();
         if (url.Length == 0)
         {
@@ -1561,7 +1619,7 @@ public partial class MainWindow : Window
         var start = goSingle ? cell : 0;
         await _manager.ConnectAsync(_channelList, start, count);
         ConnectButton.Content = "中斷";
-        RecordButton.IsEnabled = true;
+        RecordButton.IsEnabled = SessionContext.IsAdmin;
         UpdateFooter();
     }
 
@@ -1699,6 +1757,11 @@ public partial class MainWindow : Window
     /// <summary>開啟巡航排程視窗（M72，§47）。</summary>
     private void OpenPatrolWindow()
     {
+        if (!RequireAdmin())
+        {
+            return;
+        }
+
         var window = new PatrolWindow(_store!)
         {
             Owner = this,
@@ -1735,6 +1798,11 @@ public partial class MainWindow : Window
     /// <summary>開啟音訊感測測試視窗（M79，§5.8 L1）。</summary>
     private void OpenAudioWindow()
     {
+        if (!RequireAdmin())
+        {
+            return;
+        }
+
         var window = new AudioWindow(_store!)
         {
             Owner = this,
@@ -1747,6 +1815,11 @@ public partial class MainWindow : Window
     /// <summary>開啟 Failover 容錯測試/監控視窗（M88，§14.7 #9）。</summary>
     private void OpenFailoverWindow()
     {
+        if (!RequireAdmin())
+        {
+            return;
+        }
+
         var window = new FailoverWindow(_store!)
         {
             Owner = this,
@@ -1771,6 +1844,11 @@ public partial class MainWindow : Window
 
     private void OpenPtz(int channelId)
     {
+        if (!RequireAdmin())
+        {
+            return;
+        }
+
         if (_store is not SqliteStore store)
         {
             return;

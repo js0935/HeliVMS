@@ -5,11 +5,14 @@ import {
   accountRows,
   auditFilter,
   auditRows,
+  bearerHeader,
   buildSegmentsQuery,
   buildTimelineQuery,
   canAct,
   configCard,
   dailyCard,
+  esc,
+  escPct,
   eventRow,
   focusLayout,
   formatTimestamp,
@@ -59,6 +62,73 @@ describe('formatTimestamp', () => {
   it('returns empty for invalid input', () => {
     expect(formatTimestamp('not-a-date')).toBe('');
     expect(formatTimestamp(undefined)).toBe('');
+  });
+});
+
+describe('esc', () => {
+  it('escapes every markup-significant character', () => {
+    expect(esc('&<>"\'')).toBe('&amp;&lt;&gt;&quot;&#39;');
+  });
+
+  it('renders nullish as empty text', () => {
+    expect(esc(null)).toBe('');
+    expect(esc(undefined)).toBe('');
+  });
+
+  it('passes numbers and booleans through as text', () => {
+    expect(esc(0)).toBe('0');
+    expect(esc(false)).toBe('false');
+  });
+
+  it('leaves CJK and path text readable', () => {
+    expect(esc('深夜動態 C:\\HeliVMSData\\a.mp4')).toBe('深夜動態 C:\\HeliVMSData\\a.mp4');
+  });
+
+  it('neutralizes a script payload', () => {
+    const out = esc('<img src=x onerror=alert(1)>');
+    expect(out).not.toContain('<');
+    expect(out).toBe('&lt;img src=x onerror=alert(1)&gt;');
+  });
+
+  it('neutralizes attribute breakouts', () => {
+    expect(esc('" onmouseover="steal()')).not.toContain('"');
+  });
+
+  it('does not double-encode existing entities twice', () => {
+    expect(esc('&amp;')).toBe('&amp;amp;');
+  });
+});
+
+describe('escPct', () => {
+  it('keeps chart geometry numeric', () => {
+    expect(escPct(12.3456)).toBe('12.3456');
+    expect(escPct(0)).toBe('0');
+  });
+
+  it('falls back to zero for non-finite values', () => {
+    expect(escPct(Number.NaN)).toBe('0');
+    expect(escPct(undefined)).toBe('0');
+  });
+
+  it('escapes injected css', () => {
+    expect(escPct(1)).not.toContain('<');
+  });
+});
+
+describe('bearerHeader', () => {
+  it('builds the bearer header for a key', () => {
+    expect(bearerHeader('secret-key')).toEqual({ Authorization: 'Bearer secret-key' });
+  });
+
+  it('trims surrounding whitespace', () => {
+    expect(bearerHeader('  secret-key  ')).toEqual({ Authorization: 'Bearer secret-key' });
+  });
+
+  it('omits the header entirely for a blank key', () => {
+    expect(bearerHeader('')).toEqual({});
+    expect(bearerHeader('   ')).toEqual({});
+    expect(bearerHeader(null)).toEqual({});
+    expect(bearerHeader(undefined)).toEqual({});
   });
 });
 
@@ -267,6 +337,8 @@ describe('login gating', () => {
     expect(rows.map((r) => r.username)).toEqual(['amy', 'bob']);
     expect(rows[1].enabled).toBe(true);
     expect(rows[1].locked).toBe(false);
+    expect(rows.map((r) => r.id)).toEqual([1, 2]);
+    expect(rows.every((r) => typeof r.id === 'number')).toBe(true);
     expect(accountRows(null)).toEqual([]);
   });
 

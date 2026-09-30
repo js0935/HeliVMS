@@ -77,6 +77,89 @@ public class DeviceRepositoryTests : IDisposable
         Assert.Equal(id, dels[0].TargetId);
     }
 
+    [Fact]
+    public void FindByIp_ReturnsExistingDevice_WithCredentials()
+    {
+        var id = _repo.Add("CamIp", "10.0.0.9", 80, "admin", "pw-ip", "onvif");
+
+        var found = _repo.FindByIp("10.0.0.9");
+
+        Assert.NotNull(found);
+        Assert.Equal(id, found.Id);
+        Assert.Equal("admin", found.Username);
+        Assert.NotNull(found.PasswordEncrypted);
+        Assert.Null(_repo.FindByIp("10.0.0.999"));
+    }
+
+    [Fact]
+    public void GetRtspCredentials_DecryptsPassword_ForStreamConnection()
+    {
+        var id = _repo.Add("CamRtsp", "10.0.0.10", 80, "admin", "rtsp-pw", "onvif");
+
+        var (username, password) = _repo.GetRtspCredentials(id);
+
+        Assert.Equal("admin", username);
+        Assert.Equal("rtsp-pw", password);
+    }
+
+    [Fact]
+    public void GetRtspCredentials_UnknownDevice_ReturnsEmpty_WithoutThrowing()
+    {
+        var (username, password) = _repo.GetRtspCredentials(9999);
+
+        Assert.Equal(string.Empty, username);
+        Assert.Equal(string.Empty, password);
+    }
+
+    [Fact]
+    public void GetRtspCredentials_NoUsername_ReturnsEmptyPassword()
+    {
+        var id = _repo.Add("CamAnon", "10.0.0.11", 80, string.Empty, string.Empty, "onvif");
+
+        var (username, password) = _repo.GetRtspCredentials(id);
+
+        Assert.Equal(string.Empty, username);
+        Assert.Equal(string.Empty, password);
+    }
+
+    [Fact]
+    public void GetRtspCredentials_UndecryptableValue_ReturnsStoredValueInsteadOfThrowing()
+    {
+        // 舊資料可能為明文或由其他機器／帳戶加密，解密失敗時應原樣回傳，不讓拉流中斷。
+        var id = _repo.Add("CamLegacy", "10.0.0.12", 80, "admin", "pw", "onvif");
+        _store.Execute(
+            "UPDATE devices SET password_encrypted = $p WHERE id = $id;",
+            cmd =>
+            {
+                cmd.Parameters.AddWithValue("$p", "plaintext-not-dpapi");
+                cmd.Parameters.AddWithValue("$id", id);
+            });
+
+        var (username, password) = _repo.GetRtspCredentials(id);
+
+        Assert.Equal("admin", username);
+        Assert.Equal("plaintext-not-dpapi", password);
+    }
+
+    [Fact]
+    public void SetRtspCredentials_ReplacesStoredSecret_AndKeepsItDecryptable()
+    {
+        // 重新加入同一台攝影機時要能就地修正手誤／缺漏的憑證，否則會沿用壞掉的密碼。
+        var id = _repo.Add("cam", "10.0.0.9", 80, "root", "old-pass", "onvif");
+
+        Assert.True(_repo.SetRtspCredentials(id, "admin", "new-pass"));
+
+        var (username, password) = _repo.GetRtspCredentials(id);
+        Assert.Equal("admin", username);
+        Assert.Equal("new-pass", password);
+    }
+
+    [Fact]
+    public void SetRtspCredentials_MissingDevice_ReturnsFalse()
+    {
+        Assert.False(_repo.SetRtspCredentials(4242, "root", "pass"));
+    }
+
     public void Dispose()
     {
         _store.Dispose();

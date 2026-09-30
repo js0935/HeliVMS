@@ -28,9 +28,12 @@ public partial class PtzWindow : Window
         Title = $"PTZ 控制（{channel.Name}）";
 
         var host = $"http://{device.Ip}:{device.Port}/onvif/device_service";
+
+        // 以 SafeUnprotect 而非 Unprotect：舊資料可能為明文或由其他機器／帳戶加密，
+        // 直接解密會擲出例外而讓視窗開不起來（建構子無 try/catch）。
         var password = string.IsNullOrWhiteSpace(device.PasswordEncrypted)
             ? null
-            : DeviceRepository.Unprotect(device.PasswordEncrypted);
+            : DeviceRepository.SafeUnprotect(device.PasswordEncrypted);
         _service = new OnvifDeviceService(host, device.Username, password);
         Loaded += async (_, _) => await InitializeAsync();
     }

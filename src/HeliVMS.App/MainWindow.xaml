@@ -1,4 +1,4 @@
-﻿<Window x:Class="HeliVMS.App.MainWindow"
+<Window x:Class="HeliVMS.App.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
@@ -169,7 +169,7 @@
 
                     <TextBlock x:Name="HintText" TextWrapping="Wrap"
                                Foreground="{StaticResource Brand.TextDim}" FontSize="11" Margin="0,18,0,0"
-                               Text="提示：請先以 Tools\TestStream\Start-TestStream.ps1 啟動虛擬 RTSP 測試流。" />
+                               Text="尚未加入頻道。可按「ONVIF 探索」自動搜尋設備，或輸入串流位址與名稱後按「＋加入頻道」；連線後即可監看與錄影。" />
                 </StackPanel>
             </Border>
 

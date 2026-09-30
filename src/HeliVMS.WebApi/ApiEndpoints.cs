@@ -27,7 +27,7 @@ public static class ApiEndpoints
     public sealed record ConfigResponse(bool AuthEnabled, int LockoutThreshold, int LockoutMinutes, int RecordingRetentionDays, double RecordingWatermarkGb, int AlarmRetentionDays);
     public sealed record ConfigRequest(bool? AuthEnabled, int? LockoutThreshold, int? LockoutMinutes, int? RecordingRetentionDays, double? RecordingWatermarkGb, int? AlarmRetentionDays);
     public sealed record UsageResponse(long Bytes, double Gb, int RetentionDays, double WatermarkGb, int AlarmRetentionDays);
-    public sealed record RetentionRunResult(int AgePurged, int WatermarkPurged, long BytesFreed, long AlarmPurged);
+    public sealed record RetentionRunResult(int AgePurged, int WatermarkPurged, long BytesFreed, long AlarmPurged, int Skipped = 0);
     public sealed record EvidencePackageRequest(string BundleName, IReadOnlyList<string> Files, string? Password);
     public sealed record EvidenceVerifyRequest(string BundlePath, string? Password);
     public sealed record EvidencePackageResult(string BundlePath, string BundleSha256, int Items, string CreatedUtc);
@@ -406,7 +406,8 @@ public static class ApiEndpoints
         api.MapPost("/retention/run", static (RetentionService retention) =>
         {
             var result = retention.RunOnce(DateTime.UtcNow);
-            return Results.Ok(new RetentionRunResult(result.AgePurged, result.WatermarkPurged, result.BytesFreed, result.AlarmPurged));
+            return Results.Ok(new RetentionRunResult(
+                result.AgePurged, result.WatermarkPurged, result.BytesFreed, result.AlarmPurged, result.Skipped));
         });
 
         api.MapGet("/evidence", static (EvidenceManifestRepository manifests) =>
@@ -433,11 +434,16 @@ public static class ApiEndpoints
             return Results.Ok(items);
         });
 
-        api.MapPost("/evidence/package", static (EvidencePackageRequest body, EvidenceManifestRepository manifests) =>
+        api.MapPost("/evidence/package", static (EvidencePackageRequest body, EvidenceManifestRepository manifests, PathAccessPolicy paths) =>
         {
-            if (string.IsNullOrWhiteSpace(body.BundleName))
+            string bundleName;
+            try
             {
-                return Results.BadRequest(new { error = "包名必填" });
+                bundleName = PathAccessPolicy.ValidateBundleName(body.BundleName);
+            }
+            catch (ArgumentException ex)
+            {
+                return Results.BadRequest(new { error = ex.Message });
             }
 
             if (body.Files is null or { Count: 0 })
@@ -445,25 +451,37 @@ public static class ApiEndpoints
                 return Results.BadRequest(new { error = "至少一個來源檔案" });
             }
 
-            var missing = body.Files.FirstOrDefault(f => !File.Exists(f));
-            if (missing is not null)
+            foreach (var file in body.Files)
             {
-                return Results.BadRequest(new { error = $"來源檔不存在：{missing}" });
+                if (string.IsNullOrWhiteSpace(file))
+                {
+                    return Results.BadRequest(new { error = "來源檔不可為空" });
+                }
+
+                if (!File.Exists(file))
+                {
+                    return Results.BadRequest(new { error = $"來源檔不存在：{file}" });
+                }
+
+                if (!paths.IsAllowed(file))
+                {
+                    return Results.Json(new { error = paths.DenyMessage(file) }, statusCode: StatusCodes.Status403Forbidden);
+                }
             }
 
             EvidencePackager.BundleManifest manifest;
             try
             {
-                manifest = EvidencePackager.BuildManifest(body.BundleName, body.Files);
+                manifest = EvidencePackager.BuildManifest(bundleName, body.Files);
             }
             catch (Exception ex) when (ex is ArgumentException or FileNotFoundException)
             {
                 return Results.BadRequest(new { error = ex.Message });
             }
 
-            var outDir = Path.Combine(Path.GetTempPath(), "helivms-evidence");
+            var outDir = paths.EvidenceDir;
             Directory.CreateDirectory(outDir);
-            var bundlePath = Path.Combine(outDir, $"{body.BundleName}-{manifest.BundleId:N}.evp");
+            var bundlePath = Path.Combine(outDir, $"{bundleName}-{manifest.BundleId:N}.evp");
             string bundleSha;
             try
             {
@@ -485,11 +503,16 @@ public static class ApiEndpoints
                 manifest.CreatedUtc.ToString("O")));
         });
 
-        api.MapPost("/evidence/verify", static (EvidenceVerifyRequest body) =>
+        api.MapPost("/evidence/verify", static (EvidenceVerifyRequest body, PathAccessPolicy paths) =>
         {
             if (string.IsNullOrWhiteSpace(body.BundlePath) || !File.Exists(body.BundlePath))
             {
                 return Results.BadRequest(new { error = "包檔不存在" });
+            }
+
+            if (!paths.IsEvidencePath(body.BundlePath))
+            {
+                return Results.Json(new { error = paths.DenyMessage(body.BundlePath) }, statusCode: StatusCodes.Status403Forbidden);
             }
 
             EvidencePackager.VerifyResult result;
@@ -513,7 +536,7 @@ public static class ApiEndpoints
 
         api.MapGet("/backup/runs", static (BackupRepository backups) => Results.Ok(backups.ListRuns()));
 
-        api.MapPost("/backup/run", static (BackupRunRequest body, BackupService backup) =>
+        api.MapPost("/backup/run", static (BackupRunRequest body, BackupService backup, PathAccessPolicy paths) =>
         {
             if (string.IsNullOrWhiteSpace(body.SourceRoot) || string.IsNullOrWhiteSpace(body.TargetRoot))
             {
@@ -523,6 +546,16 @@ public static class ApiEndpoints
             if (!Directory.Exists(body.SourceRoot))
             {
                 return Results.BadRequest(new { error = "來源目錄不存在" });
+            }
+
+            if (!paths.IsAllowed(body.SourceRoot))
+            {
+                return Results.Json(new { error = paths.DenyMessage(body.SourceRoot) }, statusCode: StatusCodes.Status403Forbidden);
+            }
+
+            if (!paths.IsAllowed(body.TargetRoot))
+            {
+                return Results.Json(new { error = paths.DenyMessage(body.TargetRoot) }, statusCode: StatusCodes.Status403Forbidden);
             }
 
             try
@@ -760,38 +793,64 @@ public static class ApiEndpoints
 
         api.MapGet("/shares", static (ShareLinkRepository shares) => Results.Ok(ToShares(shares.List())));
 
-        api.MapPost("/shares", static (ShareRequest body, ShareLinkRepository shares) =>
+        api.MapPost("/shares", static (ShareRequest body, ShareLinkRepository shares, ShareLinkService links, PathAccessPolicy paths) =>
         {
             if (!ShareKind.IsValid(body.Kind) || string.IsNullOrWhiteSpace(body.ResourcePath))
             {
                 return Results.BadRequest(new { error = "類型（segment/snapshot/evidence）與資源路徑必填" });
             }
 
-            var maxUses = body.MaxUses < 0 ? 0 : body.MaxUses;
-            var id = shares.Add(ShareToken.Create(), body.Kind, body.ResourcePath, NullIfBlank(body.Label), null, DateTime.UtcNow, null, body.ExpiresAt, maxUses);
-            var record = shares.Get(id)!;
-            return Results.Ok(ToShare(record));
+            if (!paths.IsAllowed(body.ResourcePath))
+            {
+                return Results.Json(new { error = paths.DenyMessage(body.ResourcePath) }, statusCode: StatusCodes.Status403Forbidden);
+            }
+
+            try
+            {
+                var record = links.Create(
+                    body.Kind,
+                    body.ResourcePath,
+                    paths.Roots,
+                    DateTime.UtcNow,
+                    NullIfBlank(body.Label),
+                    null,
+                    body.ExpiresAt,
+                    body.MaxUses < 0 ? 0 : body.MaxUses);
+                return Results.Ok(ToShare(record));
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return Results.Json(new { error = ex.Message }, statusCode: StatusCodes.Status403Forbidden);
+            }
+            catch (FileNotFoundException ex)
+            {
+                return Results.BadRequest(new { error = ex.Message });
+            }
+            catch (ArgumentException ex)
+            {
+                return Results.BadRequest(new { error = ex.Message });
+            }
         });
 
-        api.MapPut("/shares/{id:int}/revoke", static (int id, ShareLinkRepository shares) =>
+        api.MapPut("/shares/{id:int}/revoke", static (int id, ShareLinkRepository shares, ShareLinkService links) =>
         {
             if (shares.Get(id) is null)
             {
                 return Results.NotFound();
             }
 
-            shares.SetRevoked(id, true);
+            links.Revoke(id);
             return Results.Ok(new { ok = true });
         });
 
-        api.MapDelete("/shares/{id:int}", static (int id, ShareLinkRepository shares) =>
+        api.MapDelete("/shares/{id:int}", static (int id, ShareLinkRepository shares, ShareLinkService links) =>
         {
             if (shares.Get(id) is null)
             {
                 return Results.NotFound();
             }
 
-            shares.Delete(id);
+            links.Delete(id);
             return Results.Ok(new { ok = true });
         });
 
@@ -977,9 +1036,22 @@ public static class ApiEndpoints
                 return Results.BadRequest();
             }
 
-            return devices.Update(id, body.Name, body.Ip, body.Port, body.Vendor ?? string.Empty, body.Enabled, body.Actor ?? "system")
-                ? Results.Ok(new { ok = true })
-                : Results.NotFound();
+            if (!devices.Update(id, body.Name, body.Ip, body.Port, body.Vendor ?? string.Empty, body.Enabled, body.Actor ?? "system"))
+            {
+                return Results.NotFound();
+            }
+
+            // 只有在請求明確帶入帳密時才覆寫，否則局部更新（例如只改名稱）會把既有憑證清成空值，
+            // 導致頻道之後完全無法連線。
+            if (!string.IsNullOrEmpty(body.Username) || !string.IsNullOrEmpty(body.Password))
+            {
+                var current = devices.GetRtspCredentials(id);
+                var username = string.IsNullOrEmpty(body.Username) ? current.Username : body.Username;
+                var password = string.IsNullOrEmpty(body.Password) ? current.Password : body.Password;
+                devices.SetRtspCredentials(id, username, password, body.Actor ?? "system");
+            }
+
+            return Results.Ok(new { ok = true });
         });
 
         api.MapDelete("/devices/{id:int}", static (int id, DeviceRepository devices) =>

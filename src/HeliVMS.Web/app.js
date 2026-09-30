@@ -5,9 +5,12 @@ import {
   auditRows,
   auditFilter,
   buildTimelineQuery,
+  bearerHeader,
   canAct,
   configCard,
   dailyCard,
+  esc,
+  escPct,
   eventRow,
   focusLayout,
   formatTimestamp,
@@ -42,12 +45,19 @@ import {
 } from './lib.js';
 
 const $ = (id) => document.getElementById(id);
-const key = () => localStorage.getItem('helivms.apiKey') ?? $('apikey').value ?? '';
+const key = () => (localStorage.getItem('helivms.apiKey') || $('apikey')?.value || '').trim();
+
+/** Single authenticated transport: every API call must go through here so the bearer key is always sent. */
+async function apiRaw(path, init = {}) {
+  const headers = new Headers(init.headers);
+  for (const [name, value] of Object.entries(bearerHeader(key()))) {
+    headers.set(name, value);
+  }
+  return fetch(path, { ...init, headers });
+}
 
 async function api(path, init = {}) {
-  const headers = new Headers(init.headers);
-  headers.set('Authorization', `Bearer ${key()}`);
-  const response = await fetch(path, { ...init, headers });
+  const response = await apiRaw(path, init);
   if (!response.ok) throw new Error(`${path} -> ${response.status}`);
   return response.json();
 }
@@ -65,7 +75,7 @@ async function refreshHealth() {
 async function refreshChannels() {
   const channels = await api('/api/channels');
   $('channels').innerHTML = channels
-    .map((c) => `<li>${c.id} · ${c.name ?? c.location ?? ''}</li>`)
+    .map((c) => `<li>${esc(c.id)} · ${esc(c.name ?? c.location ?? '')}</li>`)
     .join('');
 }
 
@@ -78,7 +88,11 @@ function readSession() {
 }
 
 function storeSession(session) {
-  sessionStorage.setItem('helivms.session', JSON.stringify(session ?? {}));
+  if (session) {
+    sessionStorage.setItem('helivms.session', JSON.stringify(session));
+  } else {
+    sessionStorage.removeItem('helivms.session');
+  }
   updateChrome();
 }
 
@@ -89,9 +103,9 @@ async function submitLogin(event) {
   $('pass').value = '';
   let payload = {};
   try {
-    const res = await fetch('/api/accounts/authenticate', {
+    const res = await apiRaw('/api/accounts/authenticate', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key()}` },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username, password }),
     });
     payload = await res.json().catch(() => ({}));
@@ -133,8 +147,11 @@ function updateChrome() {
   $('red-panel').hidden = !admin;
   $('rep-panel').hidden = !admin;
   $('alarm-panel').hidden = !admin;
+  $('health-panel').hidden = !admin;
   $('logout').hidden = !session;
 }
+
+let csvUrl = '';
 
 async function renderAudit() {
   const all = auditRows((await api('/api/audit?limit=200')).items);
@@ -144,12 +161,35 @@ async function renderAudit() {
   $('audit').querySelector('tbody').innerHTML = rows
     .map(
       (r) =>
-        `<tr><td>${formatTimestamp(r.occurredAtUtc)}</td><td>${r.category}</td><td>${r.actor}</td>` +
-        `<td>${r.action}</td><td>${r.targetType ?? ''}${r.targetId ? `:${r.targetId}` : ''}</td>` +
-        `<td title="${r.detail ?? ''}">${(r.detail ?? '').slice(0, 40)}</td></tr>`,
+        `<tr><td>${esc(formatTimestamp(r.occurredAtUtc))}</td><td>${esc(r.category)}</td><td>${esc(r.actor)}</td>` +
+        `<td>${esc(r.action)}</td><td>${esc(r.targetType ?? '')}${esc(r.targetId ? `${r.targetId}` : '')}</td>` +
+        `<td title="${esc(r.detail ?? '')}">${esc((r.detail ?? '').slice(0, 40))}</td></tr>`,
     )
     .join('');
-  $('audit-csv').href = `/api/audit/export.csv?category=${encodeURIComponent(category)}&actor=${encodeURIComponent(actor)}`;
+  await refreshAuditCsv(category, actor);
+}
+
+/** The export route is API-key protected, so download it through fetch + blob instead of a bare link. */
+async function refreshAuditCsv(category, actor) {
+  const link = $('audit-csv');
+  if (csvUrl) {
+    URL.revokeObjectURL(csvUrl);
+    csvUrl = '';
+  }
+  link.removeAttribute('href');
+  try {
+    const params = new URLSearchParams();
+    if (category) params.set('category', category);
+    if (actor) params.set('actor', actor);
+    const query = params.toString();
+    const response = await apiRaw(`/api/audit/export.csv${query ? `?${query}` : ''}`);
+    if (!response.ok) return;
+    const blob = await response.blob();
+    csvUrl = URL.createObjectURL(blob);
+    link.href = csvUrl;
+  } catch {
+    link.textContent = 'CSV 無法下載';
+  }
 }
 
 async function renderConfig() {
@@ -192,7 +232,8 @@ async function runRetention() {
   try {
     const result = await api('/api/retention/run', { method: 'POST' });
     $('config-msg').textContent =
-      `清理完成：錄影保留 ${result.agePurged} · 浮水印 ${result.watermarkPurged} · 警報 ${result.alarmPurged} · 釋放 ${(result.bytesFreed / 1073741824).toFixed(2)}GiB`;
+      `清理完成：錄影保留 ${result.agePurged} · 浮水印 ${result.watermarkPurged} · 警報 ${result.alarmPurged} · 釋放 ${(result.bytesFreed / 1073741824).toFixed(2)}GiB` +
+      (result.skipped ? ` · 保留 ${result.skipped}（檔案使用中或未設定錄影根目錄）` : '');
     await renderConfig();
   } catch (err) {
     $('config-msg').textContent = String(err);
@@ -204,10 +245,10 @@ async function renderAccounts() {
   $('accounts').querySelector('tbody').innerHTML = accounts
     .map(
       (a) =>
-        `<tr><td>${a.username}</td><td>${a.role}</td><td>${a.enabled ? '啟用' : '停用'}${a.locked ? ' · 鎖定' : ''}</td>` +
-        `<td><button data-toggle="${a.id}" data-enable="${!a.enabled}">${a.enabled ? '停用' : '啟用'}</button>` +
-        `<button data-role="${a.id}" data-next="${a.role === 'admin' ? 'viewer' : 'admin'}">轉${a.role === 'admin' ? 'v' : 'admin'}</button>` +
-        `<button data-del="${a.id}">刪除</button></td></tr>`,
+        `<tr><td>${esc(a.username)}</td><td>${esc(a.role)}</td><td>${esc(a.enabled ? '啟用' : '停用')}${esc(a.locked ? ' · 鎖定' : '')}</td>` +
+        `<td><button data-toggle="${Number(a.id)}" data-enable="${esc(!a.enabled)}">${esc(a.enabled ? '停用' : '啟用')}</button>` +
+        `<button data-role="${Number(a.id)}" data-next="${esc(a.role === 'admin' ? 'viewer' : 'admin')}">轉${esc(a.role === 'admin' ? 'v' : 'admin')}</button>` +
+        `<button data-del="${Number(a.id)}">刪除</button></td></tr>`,
     )
     .join('');
 
@@ -265,9 +306,9 @@ async function refreshBoard() {
   $('board').querySelector('tbody').innerHTML = rows
     .map(
       (r) =>
-        `<tr class="${r.priority}"><td>${r.eventId}</td><td>${r.channelId}</td><td>${r.eventType ?? ''}</td><td>${r.priority}</td>` +
-        `<td><button data-ack="${r.eventId}" class="act" ${r.status === 'acknowledged' ? 'disabled' : ''}>ack</button>` +
-        `<button data-triage="${r.eventId}" data-p="critical" class="act">!!</button></td></tr>`,
+        `<tr class="${esc(r.priority)}"><td>${esc(r.eventId)}</td><td>${esc(r.channelId)}</td><td>${esc(r.eventType ?? '')}</td><td>${esc(r.priority)}</td>` +
+        `<td><button data-ack="${esc(r.eventId)}" class="act" ${esc(r.status === 'acknowledged' ? 'disabled' : '')}>ack</button>` +
+        `<button data-triage="${esc(r.eventId)}" data-p="critical" class="act">!!</button></td></tr>`,
     )
     .join('');
 
@@ -347,7 +388,7 @@ async function renderDaily() {
     $('daily-summary').textContent =
       `錄影 ${card.hours}h · ${card.gb}GiB · 中斷 ${card.disconnects}`;
     $('daily-events').querySelector('tbody').innerHTML = card.events
-      .map((e) => `<tr><td>${e.type}</td><td>${e.count}</td></tr>`)
+      .map((e) => `<tr><td>${esc(e.type)}</td><td>${esc(e.count)}</td></tr>`)
       .join('');
   } catch (err) {
     $('daily-summary').textContent = String(err);
@@ -359,8 +400,8 @@ async function renderSchedules() {
   $('sched-body').innerHTML = list
     .map(
       (s) =>
-        `<tr><td>${s.channelId}</td><td>${scheduleLabel(s)}</td><td>${s.enabled ? '啟用' : '停用'}</td>
-         <td><button data-sched-del="${s.id}">刪除</button></td></tr>`,
+        `<tr><td>${esc(s.channelId)}</td><td>${esc(scheduleLabel(s))}</td><td>${esc(s.enabled ? '啟用' : '停用')}</td>
+         <td><button data-sched-del="${Number(s.id)}">刪除</button></td></tr>`,
     )
     .join('');
   $('sched-count').textContent = `（${list.length}）`;
@@ -387,7 +428,7 @@ function bindScheduleForm() {
       endMinute: Number(end[0]) * 60 + Number(end[1]),
       enabled: true,
     };
-    const ok = await fetch('/api/recording/schedules', {
+    const ok = await apiRaw('/api/recording/schedules', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
@@ -401,8 +442,8 @@ async function renderPatrols() {
   $('patrol-body').innerHTML = list
     .map(
       (p) =>
-        `<tr><td>${patrolLabel(p)}</td><td>${p.enabled ? '啟用' : '停用'}</td>
-         <td><button data-patrol-del="${p.id}">刪除</button></td></tr>`,
+        `<tr><td>${esc(patrolLabel(p))}</td><td>${esc(p.enabled ? '啟用' : '停用')}</td>
+         <td><button data-patrol-del="${Number(p.id)}">刪除</button></td></tr>`,
     )
     .join('');
   $('patrol-count').textContent = `（${list.length}）`;
@@ -427,7 +468,7 @@ function bindPatrolForm() {
       steps: [],
     };
     if (!body.name) return;
-    const ok = await fetch('/api/patrols', {
+    const ok = await apiRaw('/api/patrols', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
@@ -441,7 +482,7 @@ async function renderEvidence() {
   $('evidence-body').innerHTML = rows
     .map(
       (m) =>
-        `<tr><td>#${m.id}</td><td>${m.status}</td><td>${m.createdAt?.slice(0, 19) ?? ''}</td><td>${m.items}</td></tr>`,
+        `<tr><td>#${esc(m.id)}</td><td>${esc(m.status)}</td><td>${esc(m.createdAt?.slice(0, 19) ?? '')}</td><td>${esc(m.items)}</td></tr>`,
     )
     .join('');
   $('evidence-count').textContent = `（${rows.length}）`;
@@ -452,7 +493,7 @@ async function renderBackup() {
   $('backup-body').innerHTML = rows
     .map(
       (r) =>
-        `<tr><td>#${r.seq}</td><td>${r.runAt?.slice(0, 19) ?? ''}</td><td>${r.copied}</td><td>${r.bytes}</td><td>${r.failed}</td><td>${r.advanced ? '已推進' : '未推進'}</td><td class="muted">${r.target}</td></tr>`,
+        `<tr><td>#${esc(r.seq)}</td><td>${esc(r.runAt?.slice(0, 19) ?? '')}</td><td>${esc(r.copied)}</td><td>${esc(r.bytes)}</td><td>${esc(r.failed)}</td><td>${esc(r.advanced ? '已推進' : '未推進')}</td><td class="muted">${esc(r.target)}</td></tr>`,
     )
     .join('');
   $('backup-count').textContent = `（${rows.length}）`;
@@ -465,7 +506,7 @@ function bindBackupForm() {
     const src = form.querySelector('input[name="bsrc"]').value.trim();
     const dst = form.querySelector('input[name="bdst"]').value.trim();
     if (!src || !dst) return;
-    const resp = await fetch('/api/backup/run', {
+    const resp = await apiRaw('/api/backup/run', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ sourceRoot: src, targetRoot: dst }),
@@ -490,7 +531,7 @@ async function renderDoor() {
   $('door-body').innerHTML = rows
     .map(
       (e) =>
-        `<tr><td>${e.time}</td><td>${e.device}</td><td>${e.door}</td><td>${e.card}</td><td>${e.direction}</td><td class="${e.granted ? 'ok' : 'bad'}">${e.granted ? '放行' : '拒絕'}</td><td class="muted">${e.reason}</td></tr>`,
+        `<tr><td>${esc(e.time)}</td><td>${esc(e.device)}</td><td>${esc(e.door)}</td><td>${esc(e.card)}</td><td>${esc(e.direction)}</td><td class="${esc(e.granted ? 'ok' : 'bad')}">${esc(e.granted ? '放行' : '拒絕')}</td><td class="muted">${esc(e.reason)}</td></tr>`,
     )
     .join('');
   $('door-count').textContent = `（${rows.length}）`;
@@ -506,7 +547,7 @@ async function renderDetections() {
   $('det-body').innerHTML = rows
     .map(
       (d) =>
-        `<tr><td>${d.time}</td><td>ch${d.channel}</td><td>${d.cls}</td><td>${(d.conf * 100).toFixed(0)}%</td><td>${d.x.toFixed(2)},${d.y.toFixed(2)}</td><td>${d.box}</td></tr>`,
+        `<tr><td>${esc(d.time)}</td><td>ch${esc(d.channel)}</td><td>${esc(d.cls)}</td><td>${esc((d.conf * 100).toFixed(0))}%</td><td>${esc(d.x.toFixed(2))},${esc(d.y.toFixed(2))}</td><td>${esc(d.box)}</td></tr>`,
     )
     .join('');
   $('det-count').textContent = `（${rows.length}）`;
@@ -522,7 +563,7 @@ async function renderNotifs() {
   $('notif-body').innerHTML = rows
     .map(
       (n) =>
-        `<tr><td>${n.time}</td><td>ch${n.channel}</td><td>${n.event}</td><td>${n.route}</td><td class="${n.ok ? 'ok' : 'bad'}">${n.ok ? '成功' : '失敗'}</td><td>${n.attempts}</td><td class="muted">${n.detail}</td></tr>`,
+        `<tr><td>${esc(n.time)}</td><td>ch${esc(n.channel)}</td><td>${esc(n.event)}</td><td>${esc(n.route)}</td><td class="${esc(n.ok ? 'ok' : 'bad')}">${esc(n.ok ? '成功' : '失敗')}</td><td>${esc(n.attempts)}</td><td class="muted">${esc(n.detail)}</td></tr>`,
     )
     .join('');
   $('notif-count').textContent = `（${rows.length}）`;
@@ -533,7 +574,7 @@ async function renderExports() {
   $('export-body').innerHTML = rows
     .map(
       (j) =>
-        `<tr><td>#${j.id}</td><td>ch${j.channel}</td><td>${j.stream}</td><td>${j.start}</td><td>${j.end}</td><td>${j.status}</td><td>${j.file ? `${j.file}` : ''}</td><td class="muted">${j.sha}${j.error ? ` · ${j.error}` : ''}</td></tr>`,
+        `<tr><td>#${esc(j.id)}</td><td>ch${esc(j.channel)}</td><td>${esc(j.stream)}</td><td>${esc(j.start)}</td><td>${esc(j.end)}</td><td>${esc(j.status)}</td><td>${esc(j.file ?? '')}</td><td class="muted">${esc(j.sha)}${esc(j.error ? ` · ${j.error}` : '')}</td></tr>`,
     )
     .join('');
   $('export-count').textContent = `（${rows.length}）`;
@@ -547,7 +588,7 @@ function bindExportForm() {
     const from = form.querySelector('input[name="efrom"]').value;
     const to = form.querySelector('input[name="eto"]').value;
     if (!ch || !from || !to) return;
-    const resp = await fetch('/api/exports', {
+    const resp = await apiRaw('/api/exports', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ channelId: ch, stream: 'main', fromUtc: new Date(from).toISOString(), toUtc: new Date(to).toISOString() }),
@@ -564,13 +605,13 @@ async function renderProviders() {
   $('provider-body').innerHTML = rows
     .map(
       (p) =>
-        `<tr><td>#${p.id}</td><td>${p.name}</td><td>${p.kind}</td><td><input type="checkbox" data-provider-toggle="${p.id}" ${p.enabled ? 'checked' : ''}></td><td><button class="danger" data-provider-del="${p.id}">刪除</button></td><td class="muted">${p.config.slice(0, 40)}</td></tr>`,
+        `<tr><td>#${esc(p.id)}</td><td>${esc(p.name)}</td><td>${esc(p.kind)}</td><td><input type="checkbox" data-provider-toggle="${Number(p.id)}" ${esc(p.enabled ? 'checked' : '')}></td><td><button class="danger" data-provider-del="${Number(p.id)}">刪除</button></td><td class="muted">${esc(p.config.slice(0, 40))}</td></tr>`,
     )
     .join('');
   $('provider-count').textContent = `（${rows.length}）`;
   Array.from(document.querySelectorAll('[data-provider-toggle]')).forEach((cb) => {
     cb.addEventListener('change', async () => {
-      await fetch(`/api/auth/providers/${cb.dataset.providerToggle}`, {
+      await apiRaw(`/api/auth/providers/${cb.dataset.providerToggle}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ enabled: cb.checked }),
@@ -580,7 +621,7 @@ async function renderProviders() {
   });
   Array.from(document.querySelectorAll('[data-provider-del]')).forEach((btn) => {
     btn.addEventListener('click', async () => {
-      await fetch(`/api/auth/providers/${btn.dataset.providerDel}`, { method: 'DELETE' });
+      await apiRaw(`/api/auth/providers/${btn.dataset.providerDel}`, { method: 'DELETE' });
       renderProviders();
     });
   });
@@ -594,7 +635,7 @@ function bindProviderForm() {
     const kind = form.querySelector('select[name="pkind"]').value;
     const cfg = form.querySelector('textarea[name="pcfg"]').value.trim();
     if (!name || !cfg) return;
-    const resp = await fetch('/api/auth/providers', {
+    const resp = await apiRaw('/api/auth/providers', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name, kind, configJson: cfg, enabled: true }),
@@ -611,7 +652,7 @@ async function renderHolds() {
   $('hold-body').innerHTML = rows
     .map(
       (h) =>
-        `<tr><td>#${h.id}</td><td>ch${h.channel}</td><td>${h.from}</td><td>${h.to}</td><td>${h.reason}</td><td>${h.by}</td><td class="${h.active ? 'ok' : 'bad'}">${h.active ? '生效' : '已撤銷'}</td><td class="muted">${h.revokedBy}</td><td>${h.active ? `<button class="danger" data-hold-revoke="${h.id}">撤銷</button>` : ''}</td></tr>`,
+        `<tr><td>#${esc(h.id)}</td><td>ch${esc(h.channel)}</td><td>${esc(h.from)}</td><td>${esc(h.to)}</td><td>${esc(h.reason)}</td><td>${esc(h.by)}</td><td class="${esc(h.active ? 'ok' : 'bad')}">${esc(h.active ? '生效' : '已撤銷')}</td><td class="muted">${esc(h.revokedBy)}</td><td>${esc(h.active ? `<button class="danger" data-hold-revoke="${Number(h.id)}">撤銷</button>` : '')}</td></tr>`,
     )
     .join('');
   $('hold-count').textContent = `（${rows.length}）`;
@@ -619,7 +660,7 @@ async function renderHolds() {
     btn.addEventListener('click', async () => {
       const reason = prompt('撤銷原因');
       if (reason === null) return;
-      await fetch(`/api/legal-holds/${btn.dataset.holdRevoke}/revoke`, {
+      await apiRaw(`/api/legal-holds/${btn.dataset.holdRevoke}/revoke`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ by: readSession()?.name ?? 'operator', reason }),
@@ -638,7 +679,7 @@ function bindHoldForm() {
     const to = form.querySelector('input[name="hto"]').value;
     const reason = form.querySelector('input[name="hreason"]').value.trim();
     if (!ch || !from || !to || !reason) return;
-    const resp = await fetch('/api/legal-holds', {
+    const resp = await apiRaw('/api/legal-holds', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -661,13 +702,13 @@ async function renderRules() {
   $('rule-body').innerHTML = rows
     .map(
       (r) =>
-        `<tr><td>#${r.id}</td><td>${r.name}</td><td>${r.event || '—'}</td><td>${r.channel || '—'}</td><td>${r.keyword || '—'}</td><td>${r.channels || '—'}</td><td><input type="checkbox" data-rule-toggle="${r.id}" ${r.enabled ? 'checked' : ''}></td><td>${r.min}</td><td><button class="danger" data-rule-del="${r.id}">刪除</button></td></tr>`,
+        `<tr><td>#${esc(r.id)}</td><td>${esc(r.name)}</td><td>${esc(r.event || '—')}</td><td>${esc(r.channel || '—')}</td><td>${esc(r.keyword || '—')}</td><td>${esc(r.channels || '—')}</td><td><input type="checkbox" data-rule-toggle="${Number(r.id)}" ${esc(r.enabled ? 'checked' : '')}></td><td>${esc(r.min)}</td><td><button class="danger" data-rule-del="${Number(r.id)}">刪除</button></td></tr>`,
     )
     .join('');
   $('rule-count').textContent = `（${rows.length}）`;
   Array.from(document.querySelectorAll('[data-rule-toggle]')).forEach((cb) => {
     cb.addEventListener('change', async () => {
-      await fetch(`/api/alert-rules/${cb.dataset.ruleToggle}/enabled`, {
+      await apiRaw(`/api/alert-rules/${cb.dataset.ruleToggle}/enabled`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ enabled: cb.checked }),
@@ -677,7 +718,7 @@ async function renderRules() {
   });
   Array.from(document.querySelectorAll('[data-rule-del]')).forEach((btn) => {
     btn.addEventListener('click', async () => {
-      await fetch(`/api/alert-rules/${btn.dataset.ruleDel}`, { method: 'DELETE' });
+      await apiRaw(`/api/alert-rules/${btn.dataset.ruleDel}`, { method: 'DELETE' });
       renderRules();
     });
   });
@@ -693,7 +734,7 @@ function bindRuleForm() {
     const keyword = form.querySelector('input[name="rkw"]').value.trim();
     const min = Number(form.querySelector('input[name="rmin"]').value || 1);
     if (!name) return;
-    const resp = await fetch('/api/alert-rules', {
+    const resp = await apiRaw('/api/alert-rules', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -719,13 +760,13 @@ async function renderShares() {
   $('share-body').innerHTML = rows
     .map(
       (s) =>
-        `<tr><td>#${s.id}</td><td>${s.kind}</td><td>${s.label || '—'}</td><td class="muted">${s.path}</td><td>${s.token}…</td><td>${s.uses}</td><td class="${s.active ? 'ok' : 'bad'}">${s.active ? '有效' : '失效'}</td><td>${s.active ? `<button class="danger" data-share-revoke="${s.id}">撤銷</button>` : ''}</td></tr>`,
+        `<tr><td>#${esc(s.id)}</td><td>${esc(s.kind)}</td><td>${esc(s.label || '—')}</td><td class="muted">${esc(s.path)}</td><td>${esc(s.token)}…</td><td>${esc(s.uses)}</td><td class="${esc(s.active ? 'ok' : 'bad')}">${esc(s.active ? '有效' : '失效')}</td><td>${esc(s.active ? `<button class="danger" data-share-revoke="${Number(s.id)}">撤銷</button>` : '')}</td></tr>`,
     )
     .join('');
   $('share-count').textContent = `（${rows.length}）`;
   Array.from(document.querySelectorAll('[data-share-revoke]')).forEach((btn) => {
     btn.addEventListener('click', async () => {
-      await fetch(`/api/shares/${btn.dataset.shareRevoke}/revoke`, {
+      await apiRaw(`/api/shares/${btn.dataset.shareRevoke}/revoke`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: '{}',
@@ -744,7 +785,7 @@ function bindShareForm() {
     const label = form.querySelector('input[name="slabel"]').value.trim();
     const maxUses = Number(form.querySelector('input[name="smax"]').value || 0);
     if (!path) return;
-    const resp = await fetch('/api/shares', {
+    const resp = await apiRaw('/api/shares', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ kind, resourcePath: path, label: label || null, maxUses }),
@@ -761,13 +802,13 @@ async function renderReds() {
   $('red-body').innerHTML = rows
     .map(
       (r) =>
-        `<tr><td>#${r.id}</td><td>${r.source}</td><td>${r.ref}</td><td>CH${r.channel}</td><td>${r.time}</td><td>${r.rect}</td><td class="${r.filled ? 'ok' : ''}">${r.filled ? '塗滿' : '框選'}</td><td><button class="danger" data-red-del="${r.id}">移除</button></td></tr>`,
+        `<tr><td>#${esc(r.id)}</td><td>${esc(r.source)}</td><td>${esc(r.ref)}</td><td>CH${esc(r.channel)}</td><td>${esc(r.time)}</td><td>${esc(r.rect)}</td><td class="${esc(r.filled ? 'ok' : '')}">${esc(r.filled ? '塗滿' : '框選')}</td><td><button class="danger" data-red-del="${Number(r.id)}">移除</button></td></tr>`,
     )
     .join('');
   $('red-count').textContent = `（${rows.length}）`;
   Array.from(document.querySelectorAll('[data-red-del]')).forEach((btn) => {
     btn.addEventListener('click', async () => {
-      await fetch(`/api/redactions/${btn.dataset.redDel}`, { method: 'DELETE' });
+      await apiRaw(`/api/redactions/${btn.dataset.redDel}`, { method: 'DELETE' });
       renderReds();
     });
   });
@@ -789,7 +830,7 @@ function bindRedForm() {
       height: Number(f.rh.value || 0),
       filled: f.rfilled.checked,
     };
-    const resp = await fetch('/api/redactions', {
+    const resp = await apiRaw('/api/redactions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
@@ -806,7 +847,7 @@ async function renderRep() {
   $('rep-body').innerHTML = rows
     .map(
       (j) =>
-        `<tr><td>#${j.id}</td><td class="muted">${j.src}</td><td class="muted">${j.dst}</td><td>${j.minutes} 分</td><td class="${j.enabled ? 'ok' : ''}">${j.enabled ? '啟用' : '停用'}</td><td class="${j.fails > 0 ? 'bad' : 'ok'}">${j.lastResult || '—'}${j.fails > 0 ? `（連續 ${j.fails} 次）` : ''}</td><td class="${j.due ? 'bad' : ''}">${j.due ? '到期' : '—'}</td></tr>`,
+        `<tr><td>#${esc(j.id)}</td><td class="muted">${esc(j.src)}</td><td class="muted">${esc(j.dst)}</td><td>${esc(j.minutes)} 分</td><td class="${esc(j.enabled ? 'ok' : '')}">${esc(j.enabled ? '啟用' : '停用')}</td><td class="${esc(j.fails > 0 ? 'bad' : 'ok')}">${esc(j.lastResult || '—')}${esc(j.fails > 0 ? `（連續 ${j.fails} 次）` : '')}</td><td class="${esc(j.due ? 'bad' : '')}">${esc(j.due ? '到期' : '—')}</td></tr>`,
     )
     .join('');
   $('rep-count').textContent = `（${rows.length}）`;
@@ -825,14 +866,15 @@ async function renderHealth() {
   $('sys-body').innerHTML = rows.disks
     .map(
       (d) =>
-        `<tr><td>${d.name}</td><td>${d.format}</td><td>${d.totalMb} MB</td>` +
-        `<td>${d.freeMb} MB</td><td>${(100 - d.usedPct).toFixed(1)}% 可用</td></tr>`,
+        `<tr><td>${esc(d.name)}</td><td>${esc(d.format)}</td><td>${esc(d.totalMb)} MB</td>` +
+        `<td>${esc(d.freeMb)} MB</td><td>${esc((100 - d.usedPct).toFixed(1))}% 可用</td></tr>`,
     )
     .join('');
   $('sys-msg').textContent = '';
 }
 
 async function renderBoard() {
+  if (!canAct(readSession()?.role)) return;
   const [board, summary] = await Promise.all([
     api('/api/alarm-board?take=200').catch(() => []),
     api('/api/alarm-board/summary').catch(() => null),
@@ -841,7 +883,9 @@ async function renderBoard() {
   $('alarm-body').innerHTML = rows
     .map(
       (b) =>
-        `<tr class="${b.overdue ? 'overdue' : ''}"><td>#${b.id}</td><td>CH${b.channel}</td><td>${b.event}</td><td>${b.start}</td><td>${b.priority}<td>${b.status}</td><td class="${b.overdue ? 'bad' : ''}">${b.overdue ? '逾期' : '—'}</td><td><select data-pri="${b.id}"><option value="low" ${b.priority === 'low' ? 'selected' : ''}>低</option><option value="normal" ${b.priority === 'normal' ? 'selected' : ''}>一般</option><option value="high" ${b.priority === 'high' ? 'selected' : ''}>高</option><option value="critical" ${b.priority === 'critical' ? 'selected' : ''}>緊急</option></select><button data-triage="${b.id}">分診</button><button data-ack="${b.id}" class="${b.status === 'acknowledged' ? 'ok' : ''}">確認</button><button class="danger" data-fa="${b.id}">誤報</button></td></tr>`,
+        `<tr class="${esc(b.overdue ? 'overdue' : '')}"><td>#${esc(b.id)}</td><td>CH${esc(b.channel)}</td><td>${esc(b.event)}</td><td>${esc(b.start)}</td>` +
+        `<td>${esc(b.priority)}</td><td>${esc(b.status)}</td><td class="${esc(b.overdue ? 'bad' : '')}">${esc(b.overdue ? '逾期' : '—')}</td>` +
+        `<td><select data-pri="${Number(b.id)}"><option value="low" ${esc(b.priority === 'low' ? 'selected' : '')}>低</option><option value="normal" ${esc(b.priority === 'normal' ? 'selected' : '')}>一般</option><option value="high" ${esc(b.priority === 'high' ? 'selected' : '')}>高</option><option value="critical" ${esc(b.priority === 'critical' ? 'selected' : '')}>緊急</option></select><button data-triage="${Number(b.id)}">分診</button><button data-ack="${Number(b.id)}" class="${esc(b.status === 'acknowledged' ? 'ok' : '')}">確認</button><button class="danger" data-fa="${Number(b.id)}">誤報</button></td></tr>`,
     )
     .join('');
   const chips = [
@@ -852,7 +896,9 @@ async function renderBoard() {
     ['逾期', summary?.Overdue ?? 0],
   ];
   $('alarm-count').textContent = `（${rows.length}）`;
-  $('alarm-badges').innerHTML = chips.map(([label, n]) => `<span class="chip">${label}：${n}</span>`).join('');
+  $('alarm-badges').innerHTML = chips
+    .map(([label, n]) => `<span class="chip">${esc(label)}：${esc(n)}</span>`)
+    .join('');
   bindBoardActions();
 }
 
@@ -861,7 +907,7 @@ function bindBoardActions() {
     btn.addEventListener('click', async () => {
       const id = btn.dataset.triage;
       const priority = document.querySelector(`[data-pri="${id}"]`).value;
-      await fetch(`/api/alarm-board/${id}/triage`, {
+      await apiRaw(`/api/alarm-board/${id}/triage`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ priority, dueUtc: null, owner: null }),
@@ -872,7 +918,7 @@ function bindBoardActions() {
   Array.from(document.querySelectorAll('[data-ack]')).forEach((btn) => {
     btn.addEventListener('click', async () => {
       const id = btn.dataset.ack;
-      await fetch(`/api/alarm-board/${id}/ack`, {
+      await apiRaw(`/api/alarm-board/${id}/ack`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ acknowledged: true }),
@@ -883,7 +929,7 @@ function bindBoardActions() {
   Array.from(document.querySelectorAll('[data-fa]')).forEach((btn) => {
     btn.addEventListener('click', async () => {
       const id = btn.dataset.fa;
-      await fetch(`/api/alarm-board/${id}/disposition`, {
+      await apiRaw(`/api/alarm-board/${id}/disposition`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: 'false_alarm', assignedTo: null, note: '管理面板標記誤報' }),
@@ -904,7 +950,7 @@ function bindEvidenceForm() {
       .map((f) => f.trim())
       .filter(Boolean);
     if (!name || files.length === 0) return;
-    const resp = await fetch('/api/evidence/package', {
+    const resp = await apiRaw('/api/evidence/package', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ bundleName: name, files }),
@@ -941,7 +987,7 @@ async function searchEvents(q) {
   $('events').querySelector('tbody').innerHTML = page.items
     .map((e) => {
       const row = eventRow(e);
-      return `<tr><td>${row.id}</td><td>${row.time}</td><td>${row.channel}</td><td>${row.type}</td><td>${row.status ?? ''}</td></tr>`;
+      return `<tr><td>${esc(row.id)}</td><td>${esc(row.time)}</td><td>${esc(row.channel)}</td><td>${esc(row.type)}</td><td>${esc(row.status ?? '')}</td></tr>`;
     })
     .join('');
 }
@@ -975,14 +1021,14 @@ async function refreshTimeline() {
   for (const bar of timeline.bars) {
     const div = document.createElement('div');
     div.className = 'bar';
-    div.style.left = `${bar.leftFraction * 100}%`;
-    div.style.width = `${Math.max(bar.widthFraction * 100, 0.2)}%`;
+    div.style.left = `${escPct(bar.leftFraction * 100)}%`;
+    div.style.width = `${escPct(Math.max(bar.widthFraction * 100, 0.2))}%`;
     el.appendChild(div);
   }
   for (const marker of timeline.markers) {
     const div = document.createElement('div');
     div.className = 'marker';
-    div.style.left = `${marker.xFraction * 100}%`;
+    div.style.left = `${escPct(marker.xFraction * 100)}%`;
     el.appendChild(div);
   }
 }
@@ -1020,7 +1066,12 @@ function wire() {
   const saved = localStorage.getItem('helivms.apiKey');
   if (saved) $('apikey').value = saved;
   $('apikey').addEventListener('change', () => {
-    localStorage.setItem('helivms.apiKey', $('apikey').value);
+    const value = $('apikey').value.trim();
+    if (value) {
+      localStorage.setItem('helivms.apiKey', value);
+    } else {
+      localStorage.removeItem('helivms.apiKey');
+    }
     location.reload();
   });
   $('audit-category').addEventListener('change', renderAudit);
@@ -1028,6 +1079,7 @@ function wire() {
   $('account-form').addEventListener('submit', submitAccount);
   $('config-form').addEventListener('submit', saveConfig);
   $('retention-run').addEventListener('click', runRetention);
+  $('sys-refresh')?.addEventListener('click', renderHealth);
   bindEvidenceForm();
   bindBackupForm();
   bindExportForm();

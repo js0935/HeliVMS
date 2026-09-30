@@ -19,9 +19,18 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
 {
     public string DbPath { get; } = Path.Combine(Path.GetTempPath(), $"helivms-api-{Guid.NewGuid():N}.db");
 
+    /// <summary>檔案存取政策（evidence／shares／backup）唯一允許的根目錄。</summary>
+    public string RootDir { get; } = Path.Combine(Path.GetTempPath(), $"helivms-api-root-{Guid.NewGuid():N}");
+
+    /// <summary>允許根目錄之外的暫存目錄，用於驗證路徑政策會拒絕。</summary>
+    public string OutsideDir { get; } = Path.Combine(Path.GetTempPath(), $"helivms-api-outside-{Guid.NewGuid():N}");
+
     protected override void ConfigureWebHost(Microsoft.AspNetCore.Hosting.IWebHostBuilder builder)
     {
         builder.UseSetting("HELIVMS_DB", DbPath);
+        Directory.CreateDirectory(RootDir);
+        Directory.CreateDirectory(OutsideDir);
+        builder.UseSetting(PathAccessPolicy.RootsConfigKey, RootDir);
     }
 
     protected override void Dispose(bool disposing)
@@ -29,13 +38,34 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
         base.Dispose(disposing);
         if (disposing)
         {
-            try
+            TryDeleteFile(DbPath);
+            TryDeleteDir(RootDir);
+            TryDeleteDir(OutsideDir);
+        }
+    }
+
+    private static void TryDeleteFile(string path)
+    {
+        try
+        {
+            File.Delete(path);
+        }
+        catch (IOException)
+        {
+        }
+    }
+
+    private static void TryDeleteDir(string path)
+    {
+        try
+        {
+            if (Directory.Exists(path))
             {
-                File.Delete(DbPath);
+                Directory.Delete(path, recursive: true);
             }
-            catch (IOException)
-            {
-            }
+        }
+        catch (IOException)
+        {
         }
     }
 }
@@ -552,7 +582,7 @@ public class ApiTests : IClassFixture<ApiFactory>, IDisposable
     [Fact]
     public async Task Evidence_PackagesVerifiesAndLists()
     {
-        var work = Path.Combine(Path.GetTempPath(), $"helivms-ev-test-{Guid.NewGuid():N}");
+        var work = Path.Combine(_factory.RootDir, "evidence");
         Directory.CreateDirectory(work);
         var src = Path.Combine(work, "frame.jpg");
         await File.WriteAllBytesAsync(src, new byte[] { 1, 2, 3, 4, 5 });
@@ -597,6 +627,49 @@ public class ApiTests : IClassFixture<ApiFactory>, IDisposable
         }
     }
 
+    [Fact]
+    public async Task Evidence_RejectsBundleNameTraversalAndPathsOutsideAllowedRoots()
+    {
+        var work = Path.Combine(_factory.RootDir, "evidence-guard");
+        Directory.CreateDirectory(work);
+        var inside = Path.Combine(work, "inside.jpg");
+        await File.WriteAllBytesAsync(inside, new byte[] { 9 });
+        var outside = Path.Combine(_factory.OutsideDir, "outside.jpg");
+        await File.WriteAllBytesAsync(outside, new byte[] { 9 });
+        var traversal = Path.Combine(work, "..", "..", Path.GetFileName(_factory.OutsideDir), Path.GetFileName(outside));
+        try
+        {
+            using var client = Client();
+
+            foreach (var badName in new[] { "../evil", "a/b", "..", "C:\\evil" })
+            {
+                var named = await client.PostAsJsonAsync(
+                    "/api/evidence/package",
+                    new { bundleName = badName, files = new[] { inside } });
+                Assert.Equal(HttpStatusCode.BadRequest, named.StatusCode);
+            }
+
+            var rejected = await client.PostAsJsonAsync(
+                "/api/evidence/package",
+                new { bundleName = "outside", files = new[] { outside } });
+            Assert.Equal(HttpStatusCode.Forbidden, rejected.StatusCode);
+
+            var escaped = await client.PostAsJsonAsync(
+                "/api/evidence/package",
+                new { bundleName = "traversal", files = new[] { traversal } });
+            Assert.Equal(HttpStatusCode.Forbidden, escaped.StatusCode);
+
+            var verifyDenied = await client.PostAsJsonAsync(
+                "/api/evidence/verify",
+                new { bundlePath = outside });
+            Assert.Equal(HttpStatusCode.Forbidden, verifyDenied.StatusCode);
+        }
+        finally
+        {
+            Directory.Delete(work, recursive: true);
+        }
+    }
+
     private sealed record EvidencePackageResult(string BundlePath, string BundleSha256, int Items, string CreatedUtc);
 
     private sealed record EvidenceVerifyResult(bool Valid, bool Expired, IReadOnlyList<string> Failures, IReadOnlyList<EvidenceItemBody> Items);
@@ -608,11 +681,10 @@ public class ApiTests : IClassFixture<ApiFactory>, IDisposable
     [Fact]
     public async Task Backup_RunsCopySegmentsAndAdvanceCheckpoint()
     {
-        var root = Path.Combine(Path.GetTempPath(), $"helivms-backup-{Guid.NewGuid():N}");
+        var root = Path.Combine(_factory.RootDir, "backup");
         var src = Path.Combine(root, "src");
         Directory.CreateDirectory(src);
         var dst = Path.Combine(root, "dst");
-        _ = dst;
         var content = new byte[4096];
         new Random(7).NextBytes(content);
         var filePath = Path.Combine(src, "ch1", "2021-01-02_000000.mp4");
@@ -659,6 +731,36 @@ public class ApiTests : IClassFixture<ApiFactory>, IDisposable
         finally
         {
             Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Backup_RejectsRootsOutsideAllowedRoots()
+    {
+        var outsideSrc = Path.Combine(_factory.OutsideDir, "src");
+        Directory.CreateDirectory(outsideSrc);
+        var outsideDst = Path.Combine(_factory.OutsideDir, "dst");
+        var insideSrc = Path.Combine(_factory.RootDir, "guard-src");
+        Directory.CreateDirectory(insideSrc);
+        var insideDst = Path.Combine(_factory.RootDir, "guard-dst");
+        try
+        {
+            using var client = Client();
+
+            var badSource = await client.PostAsJsonAsync(
+                "/api/backup/run",
+                new { sourceRoot = outsideSrc, targetRoot = insideDst });
+            Assert.Equal(HttpStatusCode.Forbidden, badSource.StatusCode);
+
+            var badTarget = await client.PostAsJsonAsync(
+                "/api/backup/run",
+                new { sourceRoot = insideSrc, targetRoot = outsideDst });
+            Assert.Equal(HttpStatusCode.Forbidden, badTarget.StatusCode);
+        }
+        finally
+        {
+            Directory.Delete(outsideSrc, recursive: true);
+            Directory.Delete(insideSrc, recursive: true);
         }
     }
 
@@ -876,32 +978,75 @@ public class ApiTests : IClassFixture<ApiFactory>, IDisposable
     [Fact]
     public async Task Shares_CreateRevoke()
     {
-        using var client = Client();
-        var bad = await client.PostAsJsonAsync(
-            "/api/shares",
-            new { kind = "bogus", resourcePath = "/tmp/x.mp4" });
-        Assert.Equal(HttpStatusCode.BadRequest, bad.StatusCode);
+        var resource = Path.Combine(_factory.RootDir, "share-source.mp4");
+        await File.WriteAllBytesAsync(resource, new byte[] { 1, 2, 3 });
+        try
+        {
+            using var client = Client();
+            var bad = await client.PostAsJsonAsync(
+                "/api/shares",
+                new { kind = "bogus", resourcePath = resource });
+            Assert.Equal(HttpStatusCode.BadRequest, bad.StatusCode);
 
-        var created = await client.PostAsJsonAsync(
-            "/api/shares",
-            new { kind = "segment", resourcePath = "/tmp/x.mp4", label = "深夜動態", maxUses = 3 });
-        Assert.Equal(HttpStatusCode.OK, created.StatusCode);
-        var share = await ReadAsync<ShareItem>(created);
-        Assert.True(share.Active);
-        Assert.False(string.IsNullOrWhiteSpace(share.Token));
+            var missing = await client.PostAsJsonAsync(
+                "/api/shares",
+                new { kind = "segment", resourcePath = Path.Combine(_factory.RootDir, "nope.mp4") });
+            Assert.Equal(HttpStatusCode.BadRequest, missing.StatusCode);
 
-        var list = await ReadAsync<List<ShareItem>>(await client.GetAsync("/api/shares"));
-        Assert.Contains(list, s => s.Id == share.Id && s.Kind == "segment");
+            var created = await client.PostAsJsonAsync(
+                "/api/shares",
+                new { kind = "segment", resourcePath = resource, label = "深夜動態", maxUses = 3 });
+            Assert.Equal(HttpStatusCode.OK, created.StatusCode);
+            var share = await ReadAsync<ShareItem>(created);
+            Assert.True(share.Active);
+            Assert.False(string.IsNullOrWhiteSpace(share.Token));
 
-        var revoke = await client.PutAsJsonAsync($"/api/shares/{share.Id}/revoke", new { });
-        Assert.Equal(HttpStatusCode.OK, revoke.StatusCode);
-        var after = await ReadAsync<List<ShareItem>>(await client.GetAsync("/api/shares"));
-        Assert.Contains(after, s => s.Id == share.Id && !s.Active && s.Revoked);
+            var list = await ReadAsync<List<ShareItem>>(await client.GetAsync("/api/shares"));
+            Assert.Contains(list, s => s.Id == share.Id && s.Kind == "segment");
 
-        var del = await client.DeleteAsync($"/api/shares/{share.Id}");
-        Assert.Equal(HttpStatusCode.OK, del.StatusCode);
-        var gone = await ReadAsync<List<ShareItem>>(await client.GetAsync("/api/shares"));
-        Assert.DoesNotContain(gone, s => s.Id == share.Id);
+            var revoke = await client.PutAsJsonAsync($"/api/shares/{share.Id}/revoke", new { });
+            Assert.Equal(HttpStatusCode.OK, revoke.StatusCode);
+            var after = await ReadAsync<List<ShareItem>>(await client.GetAsync("/api/shares"));
+            Assert.Contains(after, s => s.Id == share.Id && !s.Active && s.Revoked);
+
+            var del = await client.DeleteAsync($"/api/shares/{share.Id}");
+            Assert.Equal(HttpStatusCode.OK, del.StatusCode);
+            var gone = await ReadAsync<List<ShareItem>>(await client.GetAsync("/api/shares"));
+            Assert.DoesNotContain(gone, s => s.Id == share.Id);
+        }
+        finally
+        {
+            File.Delete(resource);
+        }
+    }
+
+    [Fact]
+    public async Task Shares_RejectsResourceOutsideAllowedRoots()
+    {
+        var outside = Path.Combine(_factory.OutsideDir, "share.mp4");
+        var traversal = Path.Combine(_factory.RootDir, "..", Path.GetFileName(_factory.OutsideDir), "share.mp4");
+        await File.WriteAllBytesAsync(outside, new byte[] { 1, 2, 3 });
+        try
+        {
+            using var client = Client();
+
+            var denied = await client.PostAsJsonAsync(
+                "/api/shares",
+                new { kind = "segment", resourcePath = outside });
+            Assert.Equal(HttpStatusCode.Forbidden, denied.StatusCode);
+
+            var escaped = await client.PostAsJsonAsync(
+                "/api/shares",
+                new { kind = "segment", resourcePath = traversal });
+            Assert.Equal(HttpStatusCode.Forbidden, escaped.StatusCode);
+
+            var stored = Service<ShareLinkRepository>().List();
+            Assert.DoesNotContain(stored, s => s.ResourcePath == outside || s.ResourcePath == traversal);
+        }
+        finally
+        {
+            File.Delete(outside);
+        }
     }
 
     private sealed record ShareItem(int Id, string Token, string Kind, string ResourcePath, string? Label, string? CreatedBy, string? ExpiresAt, int MaxUses, int UseCount, bool Revoked, bool Active);
@@ -1121,6 +1266,88 @@ public class ApiTests : IClassFixture<ApiFactory>, IDisposable
         var list2 = await client.GetAsync("/api/devices");
         var rows2 = await ReadAsync<List<DeviceItemBody>>(list2);
         Assert.DoesNotContain(rows2, r => r.Id == added.Id);
+    }
+
+    [Fact]
+    public async Task Put_Device_UpdatesCredentials_ButPartialUpdateKeepsThem()
+    {
+        var client = Client();
+
+        var add = await client.PostAsJsonAsync("/api/devices", new
+        {
+            name = "CredCam",
+            ip = "192.168.7.77",
+            port = 554,
+            username = "olduser",
+            password = "oldpass",
+            vendor = "V",
+            enabled = true,
+            actor = "apitest",
+        });
+        Assert.Equal(HttpStatusCode.OK, add.StatusCode);
+        var added = await ReadAsync<IdBody>(add);
+        var devices = Service<DeviceRepository>();
+
+        // 1) 只改名稱（不帶帳密）→ 既有憑證必須保留。
+        //    若此處被清空，使用者單純改個名稱就會讓該頻道之後再也連不上。
+        var rename = await client.PutAsJsonAsync($"/api/devices/{added.Id}", new
+        {
+            name = "CredCamRenamed",
+            ip = "192.168.7.77",
+            port = 554,
+            vendor = "V",
+            enabled = true,
+            actor = "apitest",
+        });
+        Assert.Equal(HttpStatusCode.OK, rename.StatusCode);
+
+        var kept = devices.GetRtspCredentials(added.Id);
+        Assert.Equal("olduser", kept.Username);
+        Assert.Equal("oldpass", kept.Password);
+
+        // 2) 明確帶入新帳密 → 應該真的更新。
+        var withCreds = await client.PutAsJsonAsync($"/api/devices/{added.Id}", new
+        {
+            name = "CredCamRenamed",
+            ip = "192.168.7.77",
+            port = 554,
+            username = "newuser",
+            password = "newpass",
+            vendor = "V",
+            enabled = true,
+            actor = "apitest",
+        });
+        Assert.Equal(HttpStatusCode.OK, withCreds.StatusCode);
+
+        var updated = devices.GetRtspCredentials(added.Id);
+        Assert.Equal("newuser", updated.Username);
+        Assert.Equal("newpass", updated.Password);
+
+        // 3) 只改密碼 → 使用者名稱應保留，不被清成空字串。
+        var pwOnly = await client.PutAsJsonAsync($"/api/devices/{added.Id}", new
+        {
+            name = "CredCamRenamed",
+            ip = "192.168.7.77",
+            port = 554,
+            password = "pw2",
+            vendor = "V",
+            enabled = true,
+            actor = "apitest",
+        });
+        Assert.Equal(HttpStatusCode.OK, pwOnly.StatusCode);
+
+        var pwOnlyCreds = devices.GetRtspCredentials(added.Id);
+        Assert.Equal("newuser", pwOnlyCreds.Username);
+        Assert.Equal("pw2", pwOnlyCreds.Password);
+
+        // 4) 密碼不可出現在任何 API 回應中（清單回應不得洩漏憑證）。
+        var list = await client.GetAsync("/api/devices");
+        var raw = await list.Content.ReadAsStringAsync();
+        Assert.DoesNotContain("newpass", raw, StringComparison.Ordinal);
+        Assert.DoesNotContain("pw2", raw, StringComparison.Ordinal);
+        Assert.DoesNotContain("oldpass", raw, StringComparison.Ordinal);
+
+        await client.DeleteAsync($"/api/devices/{added.Id}");
     }
 
     [Fact]

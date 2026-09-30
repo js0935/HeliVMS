@@ -30,7 +30,10 @@ builder.Services.AddSingleton(static sp => new ReportRepository(sp.GetRequiredSe
 builder.Services.AddSingleton(static sp => new RecordingScheduleRepository(sp.GetRequiredService<SqliteStore>()));
 builder.Services.AddSingleton(static sp => new PatrolRepository(sp.GetRequiredService<SqliteStore>()));
 
-builder.Services.AddSingleton<RetentionService>();
+builder.Services.AddSingleton(sp => new RetentionService(
+    sp.GetRequiredService<SqliteStore>(),
+    sp.GetRequiredService<LegalHoldRepository>(),
+    sp.GetRequiredService<IConfiguration>()[RetentionService.RecordingsRootKey]));
 builder.Services.AddHostedService(sp => sp.GetRequiredService<RetentionService>());
 builder.Services.AddSingleton(static sp => new EvidenceManifestRepository(sp.GetRequiredService<SqliteStore>()));
 builder.Services.AddSingleton(static sp => new BackupService(sp.GetRequiredService<SqliteStore>()));
@@ -43,6 +46,8 @@ builder.Services.AddSingleton(static sp => new AuthProviderRepository(sp.GetRequ
 builder.Services.AddSingleton(static sp => new LegalHoldRepository(sp.GetRequiredService<SqliteStore>()));
 builder.Services.AddSingleton(static sp => new AlertRuleRepository(sp.GetRequiredService<SqliteStore>()));
 builder.Services.AddSingleton(static sp => new ShareLinkRepository(sp.GetRequiredService<SqliteStore>()));
+builder.Services.AddSingleton(static sp => new ShareLinkService(sp.GetRequiredService<SqliteStore>()));
+builder.Services.AddSingleton(static sp => new PathAccessPolicy(sp.GetRequiredService<IConfiguration>()));
 builder.Services.AddSingleton(static sp => new RedactionRepository(sp.GetRequiredService<SqliteStore>()));
 builder.Services.AddSingleton(static sp => new OffsiteReplicationRepository(sp.GetRequiredService<SqliteStore>()));
 builder.Services.AddSingleton(static sp => new OffsiteReplicationService(sp.GetRequiredService<OffsiteReplicationRepository>()));

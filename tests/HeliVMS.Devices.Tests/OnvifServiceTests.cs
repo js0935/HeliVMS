@@ -1,5 +1,3 @@
-using System.Net;
-using System.Text;
 using System.Xml.Linq;
 using HeliVMS.Devices.Onvif;
 
@@ -202,6 +200,83 @@ public class OnvifServiceTests
         Assert.Contains("x=\"0.1\"", request.Body);
     }
 
+    /// <summary>GetProfiles 應解析 PTZConfiguration/NodeToken，且經分類後仍保留。</summary>
+    [Fact]
+    public async Task GetProfiles_ParsesPtzNodeToken_AndSurvivesClassification()
+    {
+        var handler = new RecordingHandler((_, body) =>
+            body.Contains("GetCapabilities", StringComparison.Ordinal)
+                ? CapsAllWithPtzResponse
+                : body.Contains("GetProfiles", StringComparison.Ordinal)
+                    ? OnvifTestHttp.ProfilesWithPtzNode("MainProfile", "camctrl_c1")
+                    : OnvifTestHttp.StreamUri("rtsp://192.168.1.5/onvif/Media"));
+
+        using var service = new OnvifDeviceService("http://192.168.1.5/onvif/device_service", null, null, handler);
+        var profiles = await service.GetProfilesAsync();
+
+        var profile = Assert.Single(profiles);
+        Assert.Equal("camctrl_c1", profile.PtzNodeToken);
+
+        // WithStreamUri / WithRole 都必須保留，否則分類後 node token 會被遺失。
+        Assert.Equal("camctrl_c1", profile.WithRole(OnvifStreamRole.Main).PtzNodeToken);
+        Assert.Equal("camctrl_c1", profile.WithStreamUri("rtsp://x/y").PtzNodeToken);
+    }
+
+    /// <summary>PTZ 動作應帶入先前由 GetProfiles 取得的 NodeToken（多節點設備必需）。</summary>
+    [Fact]
+    public async Task PtzActions_IncludeNodeToken_AfterProfileToken()
+    {
+        var handler = new RecordingHandler((_, body) =>
+            body.Contains("GetCapabilities", StringComparison.Ordinal)
+                ? CapsAllWithPtzResponse
+                : body.Contains("GetProfiles", StringComparison.Ordinal)
+                    ? OnvifTestHttp.ProfilesWithPtzNode("MainProfile", "camctrl_c1")
+                    : body.Contains("GetPresets", StringComparison.Ordinal)
+                        ? PresetsResponse
+                        : EmptyBodyResponse);
+
+        using var service = new OnvifDeviceService("http://192.168.1.5/onvif/device_service", null, null, handler);
+        await service.GetProfilesAsync();
+
+        await service.GetPtzStatusAsync("MainProfile");
+        await service.ContinuousMoveAsync("MainProfile", 0.5, 0, 0);
+        await service.StopPtzAsync("MainProfile");
+        await service.HomeAsync("MainProfile");
+        await service.AbsoluteMoveAsync("MainProfile", 0.1, 0.1, 0.1);
+        await service.GetPtzPresetsAsync("MainProfile");
+        await service.GotoPtzPresetAsync("MainProfile", "p_main_preset");
+        await service.SetPtzPresetAsync("MainProfile", "入口");
+        await service.RemovePtzPresetAsync("MainProfile", "p_main_preset");
+
+        var actions = new[] { "GetStatus", "ContinuousMove", "Stop", "Home", "AbsoluteMove", "GetPresets", "GotoPreset", "SetPreset", "RemovePreset" };
+        foreach (var action in actions)
+        {
+            var request = handler.Requests.Single(r => r.Body.Contains(action, StringComparison.Ordinal));
+
+            // 元素順序：ProfileToken 之後才是 NodeToken（符合 ptz.wsdl）。
+            var profileIndex = request.Body.IndexOf("MainProfile", StringComparison.Ordinal);
+            var nodeIndex = request.Body.IndexOf("NodeToken", StringComparison.Ordinal);
+            var nodeValueIndex = request.Body.IndexOf("camctrl_c1", StringComparison.Ordinal);
+
+            Assert.True(nodeIndex > profileIndex, $"{action} 的 NodeToken 應置於 ProfileToken 之後");
+            Assert.True(nodeValueIndex > nodeIndex, $"{action} 應送出 camctrl_c1");
+        }
+    }
+
+    /// <summary>未取得 profile（無 NodeToken）時應省略該元素，交由設備套用預設節點。</summary>
+    [Fact]
+    public async Task PtzActions_WithoutKnownNodeToken_OmitNodeToken()
+    {
+        var handler = new RecordingHandler((_, body) =>
+            body.Contains("GetCapabilities", StringComparison.Ordinal) ? CapsAllWithPtzResponse : EmptyBodyResponse);
+        using var service = new OnvifDeviceService("http://192.168.1.5/onvif/device_service", null, null, handler);
+
+        await service.StopPtzAsync("MainProfile");
+
+        var request = handler.Requests.Single(r => r.Body.Contains("Stop", StringComparison.Ordinal));
+        Assert.DoesNotContain("NodeToken", request.Body, StringComparison.Ordinal);
+    }
+
     /// <summary>GetPtzPresets 應解析 Preset token 與名稱。</summary>
     [Fact]
     public async Task GetPtzPresets_ParsesPresets()
@@ -283,31 +358,5 @@ public class OnvifServiceTests
         Assert.Equal("http://192.168.1.5/onvif/ptz_service", request.Url);
         Assert.Contains("MainProfile", request.Body);
         Assert.Contains("p_main", request.Body);
-    }
-
-    public sealed record RequestSnapshot(string Url, string Body);
-
-    private sealed class RecordingHandler : HttpMessageHandler
-    {
-        private readonly Func<string, string, string> _resolve;
-
-        public RecordingHandler(Func<string, string, string> resolve) => _resolve = resolve;
-
-        public List<RequestSnapshot> Requests { get; } = [];
-
-        protected override async Task<HttpResponseMessage> SendAsync(
-            HttpRequestMessage request,
-            CancellationToken cancellationToken)
-        {
-            var body = request.Content is null
-                ? string.Empty
-                : await request.Content.ReadAsStringAsync(cancellationToken);
-            Requests.Add(new RequestSnapshot(request.RequestUri!.ToString(), body));
-
-            return new HttpResponseMessage(HttpStatusCode.OK)
-            {
-                Content = new StringContent(_resolve(request.RequestUri.ToString(), body), Encoding.UTF8, "application/soap+xml"),
-            };
-        }
     }
 }

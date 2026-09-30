@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Security.Cryptography;
 using HeliVMS.Media;
+using HeliVMS.Shared;
 using HeliVMS.Shared.Models;
 using HeliVMS.Storage;
 
@@ -233,7 +234,10 @@ public sealed class SegmentRecorder : IAsyncDisposable
         {
             await proc.WaitForExitAsync(token);
             _lastExitCode = proc.ExitCode;
-            var stderr = await proc.StandardError.ReadToEndAsync(token);
+
+            // ffmpeg 的 stderr 會以 "Input #0, rtsp, from 'rtsp://user:pass@host/...'" 回顯輸入網址；
+            // 整段不是合法 URI，必須用 RedactText 逐段移除 userinfo，Redact 對此無效。
+            var stderr = RtspUri.RedactText(await proc.StandardError.ReadToEndAsync(token));
             lock (LastUtfError)
             {
                 LastUtfError.Append(stderr);

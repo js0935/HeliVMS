@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.IO;
 using HeliVMS.Alarms;
 using HeliVMS.Media;
+using HeliVMS.Shared;
 using HeliVMS.Shared.Models;
 using HeliVMS.Storage;
 
@@ -17,6 +18,7 @@ public sealed class ChannelManager : IDisposable
     private readonly ConcurrentDictionary<int, ChannelSession> _sessions = new();
     private readonly SqliteStore _store;
     private readonly ChannelRepository _channels;
+    private readonly DeviceRepository _devices;
     private readonly string _recordingsRoot;
     private readonly string _snapshotsRoot;
     private readonly System.Threading.Timer _health;
@@ -28,6 +30,7 @@ public sealed class ChannelManager : IDisposable
     {
         _store = store;
         _channels = new ChannelRepository(store);
+        _devices = new DeviceRepository(store, new AuditLogRepository(store));
         _recordingsRoot = recordingsRoot;
         _snapshotsRoot = snapshotsRoot;
         _offline = new OfflineEventTracker(new AlarmEventRepository(store));
@@ -82,7 +85,7 @@ public sealed class ChannelManager : IDisposable
         {
             var ch = channels[(startIndex + i) % channels.Count];
 
-            var session = new ChannelSession(ch.Id, ch.Name, ch.MainStreamUrl, _store, _recordingsRoot, _snapshotsRoot, ch.MotionEnabled, _detection, IsTamperEnabled());
+            var session = new ChannelSession(ch.Id, ch.Name, ResolveStreamUrl(ch), _store, _recordingsRoot, _snapshotsRoot, ch.MotionEnabled, _detection, IsTamperEnabled());
             var cell = i;
             session.FrameArrived += (_, f) => FrameArrived?.Invoke(this, (cell, f));
             session.StateChanged += (_, st) =>
@@ -114,6 +117,21 @@ public sealed class ChannelManager : IDisposable
         {
             _ = _health.Change(Timeout.Infinite, Timeout.Infinite);
         }
+    }
+
+    /// <summary>
+    /// 取得頻道實際要拉流的位址。ONVIF GetStreamUri 回傳的位址不含帳密，故依綁定的設備憑證
+    /// 於「連線時」才嵌入帳密：devices.password_encrypted 為 DPAPI 加密，channels.main_rtsp
+    /// 維持裸位址，避免明文密碼落到 sqlite、設定頁與連線提示文字。
+    /// 未綁定設備或無帳號者原樣使用儲存的位址（相容手動輸入的 RTSP 網址）。
+    /// </summary>
+    private string ResolveStreamUrl(ChannelInfo channel)
+    {
+        return RtspStreamResolver.Resolve(
+            channel.MainStreamUrl,
+            channel.DeviceId,
+            host => _devices.FindByIp(host)?.Id,
+            _devices.GetRtspCredentials);
     }
 
     /// <summary>M39：是否啟用遮蔽偵測（app_settings `detect.tamper.enabled`；重新連線時讀取）。</summary>

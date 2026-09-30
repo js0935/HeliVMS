@@ -1,10 +1,11 @@
-﻿namespace HeliVMS.Storage.Tests;
+namespace HeliVMS.Storage.Tests;
 
 /// <summary>M62（§5.10）：複合事件規則設定層 CRUD 與 schema v24。</summary>
 public class RuleRepositoryTests : IDisposable
 {
     private readonly string _dbPath;
     private readonly SqliteStore _store;
+    private readonly AuditLogRepository _audit;
     private readonly RuleRepository _rules;
 
     public RuleRepositoryTests()
@@ -12,6 +13,7 @@ public class RuleRepositoryTests : IDisposable
         _dbPath = Path.Combine(Path.GetTempPath(), $"helivms-rules-{Guid.NewGuid():N}.db");
         _store = new SqliteStore(_dbPath);
         _store.Initialize();
+        _audit = new AuditLogRepository(_store);
         _rules = new RuleRepository(_store);
     }
 
@@ -53,6 +55,43 @@ public class RuleRepositoryTests : IDisposable
         Assert.Contains("\"severity\"", rule.ActionsJson);
         Assert.True(rule.Enabled);
         Assert.False(string.IsNullOrEmpty(rule.CreatedAt));
+    }
+
+    [Fact]
+    public void Crud_RecordAudit()
+    {
+        var id = _rules.Add("audited", "{}", "{}", actor: "tester");
+
+        var added = Assert.Single(_audit.List(new AuditLogQuery
+        {
+            Category = AuditCategories.Config,
+            Action = "rule.add",
+        }));
+        Assert.Equal("tester", added.Actor);
+        Assert.Equal("ai_rule", added.TargetType);
+        Assert.Equal(id, added.TargetId);
+        Assert.Equal("name=audited", added.Detail);
+
+        _rules.SetEnabled(id, false, "editor");
+
+        var toggled = Assert.Single(_audit.List(new AuditLogQuery
+        {
+            Category = AuditCategories.Config,
+            Action = "rule.toggle",
+        }));
+        Assert.Equal("editor", toggled.Actor);
+        Assert.Equal(id, toggled.TargetId);
+        Assert.Equal("enabled=False", toggled.Detail);
+
+        _rules.Delete(id, "admin");
+
+        var deleted = Assert.Single(_audit.List(new AuditLogQuery
+        {
+            Category = AuditCategories.Config,
+            Action = "rule.delete",
+        }));
+        Assert.Equal("admin", deleted.Actor);
+        Assert.Equal(id, deleted.TargetId);
     }
 
     [Fact]

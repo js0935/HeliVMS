@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text;
+using HeliVMS.Shared;
 using HeliVMS.Shared.Models;
 using HeliVMS.Storage;
 
@@ -137,7 +138,7 @@ public sealed class DewarpService
 
             if (exitCode != 0)
             {
-                throw new InvalidOperationException($"ffmpeg 矯正失敗（exit={exitCode}）：{stderr.Trim()}");
+                throw new InvalidOperationException($"ffmpeg 矯正失敗（exit={exitCode}）：{RtspUri.RedactText(stderr.Trim())}");
             }
 
             progress?.Report(new ExportProgress(85, "矯正完成，計算 SHA-256…"));
@@ -197,7 +198,7 @@ public sealed class DewarpService
 
         if (proc.ExitCode != 0)
         {
-            throw new InvalidOperationException($"ffmpeg 預覽失敗（exit={proc.ExitCode}）：{stderr.Trim()}");
+            throw new InvalidOperationException($"ffmpeg 預覽失敗（exit={proc.ExitCode}）：{RtspUri.RedactText(stderr.Trim())}");
         }
     }
 

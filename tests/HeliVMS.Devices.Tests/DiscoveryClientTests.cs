@@ -252,4 +252,62 @@ public class DiscoveryClientTests
 
         Assert.Null(device);
     }
+
+    // ---- 多廠牌相容：單播 Probe 與多播群組 ----
+
+    [Fact]
+    public async Task ProbeUnicastAsync_ReceivesProbeMatch_FromKnownHost()
+    {
+        using var peer = new UdpClient(new IPEndPoint(IPAddress.Loopback, 0));
+        var peerEndpoint = (IPEndPoint)peer.Client.LocalEndPoint!;
+        var payload = Encoding.UTF8.GetBytes(ProbeMatchXml);
+
+        var replyTask = Task.Run(async () =>
+        {
+            var rx = await peer.ReceiveAsync();
+            var request = XDocument.Parse(Encoding.UTF8.GetString(rx.Buffer));
+            // wsa:To 應指向單播目標而非多播群組
+            var to = request.Descendants().FirstOrDefault(e => e.Name.LocalName == "To")?.Value
+                ?? throw new InvalidOperationException($"missing wsa:To in {request}");
+            Assert.Equal("127.0.0.1", to.Split(':')[0]);
+            await peer.SendAsync(payload, rx.RemoteEndPoint);
+        });
+
+        var devices = await DiscoveryClient.ProbeUnicastAsync(
+            "127.0.0.1", peerEndpoint.Port, TimeSpan.FromSeconds(3));
+        await replyTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        var device = Assert.Single(devices);
+        Assert.Equal("http://192.168.1.64/onvif/device_service", device.HttpXAddr);
+    }
+
+    [Fact]
+    public async Task ProbeUnicastAsync_NoResponse_ReturnsEmpty()
+    {
+        using var peer = new UdpClient(new IPEndPoint(IPAddress.Loopback, 0));
+        var peerEndpoint = (IPEndPoint)peer.Client.LocalEndPoint!;
+
+        var devices = await DiscoveryClient.ProbeUnicastAsync(
+            "127.0.0.1", peerEndpoint.Port, TimeSpan.FromSeconds(1));
+
+        Assert.Empty(devices);
+    }
+
+    [Fact]
+    public async Task ProbeUnicastAsync_UnknownHostName_ReturnsEmpty()
+    {
+        var devices = await DiscoveryClient.ProbeUnicastAsync(
+            "host.invalid.", 3702, TimeSpan.FromMilliseconds(300));
+
+        Assert.Empty(devices);
+    }
+
+    [Fact]
+    public async Task DiscoverAsync_CompletesWithoutMulticastSupport()
+    {
+        // 所在網路無多播時不應拋出例外（CI／隔離網段常見）
+        var devices = await DiscoveryClient.DiscoverAsync(TimeSpan.FromMilliseconds(200));
+
+        Assert.NotNull(devices);
+    }
 }

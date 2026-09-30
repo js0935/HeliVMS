@@ -7,6 +7,7 @@ public class RecordingScheduleTests : IDisposable
 {
     private readonly string _dbPath;
     private readonly SqliteStore _store;
+    private readonly AuditLogRepository _audit;
     private readonly RecordingScheduleRepository _repo;
 
     public RecordingScheduleTests()
@@ -14,6 +15,7 @@ public class RecordingScheduleTests : IDisposable
         _dbPath = Path.Combine(Path.GetTempPath(), $"helivms-sched-{Guid.NewGuid():N}.db");
         _store = new SqliteStore(_dbPath);
         _store.Initialize();
+        _audit = new AuditLogRepository(_store);
         _repo = new RecordingScheduleRepository(_store);
         SeedChannels();
     }
@@ -66,6 +68,58 @@ public class RecordingScheduleTests : IDisposable
     }
 
     [Fact]
+    public void UpsertAndDelete_RecordAudit()
+    {
+        var row = _repo.Upsert(new RecordingScheduleRecord
+        {
+            ChannelId = 1,
+            DaysMask = 2,
+            StartMinute = 60,
+            EndMinute = 120,
+            Enabled = true,
+        }, "scheduler");
+
+        var added = Assert.Single(_audit.List(new AuditLogQuery
+        {
+            Category = AuditCategories.Config,
+            Action = "schedule.add",
+        }));
+        Assert.Equal("scheduler", added.Actor);
+        Assert.Equal("recording_schedule", added.TargetType);
+        Assert.Equal(row.Id, added.TargetId);
+        Assert.Contains("channel=1", added.Detail);
+
+        _repo.Upsert(new RecordingScheduleRecord
+        {
+            Id = row.Id,
+            ChannelId = 1,
+            DaysMask = 4,
+            StartMinute = 300,
+            EndMinute = 400,
+            Enabled = false,
+        }, "editor");
+
+        var updated = Assert.Single(_audit.List(new AuditLogQuery
+        {
+            Category = AuditCategories.Config,
+            Action = "schedule.update",
+        }));
+        Assert.Equal("editor", updated.Actor);
+        Assert.Equal(row.Id, updated.TargetId);
+        Assert.Contains("mask=4", updated.Detail);
+
+        _repo.Delete(row.Id, "editor");
+
+        var deleted = Assert.Single(_audit.List(new AuditLogQuery
+        {
+            Category = AuditCategories.Config,
+            Action = "schedule.delete",
+        }));
+        Assert.Equal("editor", deleted.Actor);
+        Assert.Equal(row.Id, deleted.TargetId);
+    }
+
+    [Fact]
     public void Delete_RemovesRow()
     {
         var row = _repo.Upsert(new RecordingScheduleRecord
@@ -85,9 +139,16 @@ public class RecordingScheduleTests : IDisposable
     {
         var channelId = new ChannelRepository(_store).Add("ToDelete", "rtsp://x/y");
         _repo.Upsert(new RecordingScheduleRecord { ChannelId = channelId, DaysMask = 127, StartMinute = 0, EndMinute = 60 });
+        _repo.DeleteByChannel(channelId, "admin");
 
-        _repo.DeleteByChannel(channelId);
         Assert.Empty(_repo.ListByChannel(channelId));
+        var deleted = Assert.Single(_audit.List(new AuditLogQuery
+        {
+            Category = AuditCategories.Config,
+            Action = "schedule.delete_by_channel",
+        }));
+        Assert.Equal("admin", deleted.Actor);
+        Assert.Contains($"channel={channelId}", deleted.Detail);
     }
 
     [Theory]

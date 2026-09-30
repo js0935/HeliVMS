@@ -76,7 +76,7 @@ body {
 .timeline-tools { display: flex; gap: 8px; margin-bottom: 8px; align-items: center; }
 .timeline-tools input { background: var(--bg); border: 1px solid var(--line); color: var(--text); }
 
-.board.gated .act { visibility: hidden; pointer-events: none; }
+#board.gated .act { visibility: hidden; pointer-events: none; }
 
 .row-form { display: flex; gap: 8px; align-items: center; }
 .row-form input, .row-form select {

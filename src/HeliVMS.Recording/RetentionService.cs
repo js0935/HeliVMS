@@ -25,7 +25,7 @@ public sealed class RetentionService
     public RetentionService(SegmentRepository repo, string recordingsRoot, LegalHoldRepository? legalHolds = null)
     {
         _repo = repo;
-        _recordingsRoot = recordingsRoot;
+        _recordingsRoot = Path.GetFullPath(recordingsRoot);
         _legalHolds = legalHolds;
     }
 
@@ -64,7 +64,12 @@ public sealed class RetentionService
             }
 
             var chosen = target!;
-            TryDeleteFile(chosen.FilePath);
+            if (!TryDeleteSegmentFile(chosen.FilePath))
+            {
+                // 檔案仍在（遭占用或路徑不在錄影根目錄內）：保留索引列，待下一輪重試。
+                break;
+            }
+
             _repo.Delete(chosen.Id);
             usage -= chosen.SizeBytes;
             freed += chosen.SizeBytes;
@@ -78,13 +83,8 @@ public sealed class RetentionService
     /// <summary>清除逾時未收尾之 *.tmp 錄影暫存檔；回傳清除數。</summary>
     public int PurgeStaleTmp(DateTime nowUtc)
     {
-        if (!Directory.Exists(_recordingsRoot))
-        {
-            return 0;
-        }
-
         var purged = 0;
-        foreach (var file in Directory.EnumerateFiles(_recordingsRoot, "*.tmp", SearchOption.AllDirectories))
+        foreach (var file in EnumerateFilesSafe(_recordingsRoot, "*.tmp"))
         {
             try
             {
@@ -107,36 +107,54 @@ public sealed class RetentionService
         return purged;
     }
 
-    private static void TryDeleteFile(string path)
+    /// <summary>
+    /// 刪除單一區段檔；回傳是否已不存在於磁碟。
+    /// 檔案不存在時視為成功；路徑不在錄影根目錄內時拒絕刪除（避免資料庫遭污染時刪到任意檔案）。
+    /// </summary>
+    private bool TryDeleteSegmentFile(string path)
     {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return true;
+        }
+
+        var full = Path.IsPathRooted(path)
+            ? Path.GetFullPath(path)
+            : Path.GetFullPath(Path.Combine(_recordingsRoot, path));
+        if (!File.Exists(full))
+        {
+            return true;
+        }
+
+        if (!SharePath.IsWithinRoot(_recordingsRoot, full))
+        {
+            return false;
+        }
+
         try
         {
-            if (File.Exists(path))
-            {
-                File.Delete(path);
-            }
+            File.Delete(full);
         }
         catch (IOException)
         {
-            // 檔案被占用或不存在，略過（DB 列仍刪除）
+            // 檔案被占用，下一輪重試
+            return false;
         }
         catch (UnauthorizedAccessException)
         {
-            // 無權限，略過
+            return false;
         }
+
+        return !File.Exists(full);
     }
 
     /// <summary>依檔案時間清理過期快照（snapshots/ 下所有檔案）；回傳清理報告。</summary>
     public SnapshotReport PurgeSnapshots(string snapshotsRoot, DateTime olderThanUtc)
     {
-        if (!Directory.Exists(snapshotsRoot))
-        {
-            return new SnapshotReport(0, 0);
-        }
-
+        var root = Path.GetFullPath(snapshotsRoot);
         long freed = 0;
         var deleted = 0;
-        foreach (var file in Directory.EnumerateFiles(snapshotsRoot, "*.*", SearchOption.AllDirectories))
+        foreach (var file in EnumerateFilesSafe(root, "*.*"))
         {
             try
             {
@@ -158,5 +176,64 @@ public sealed class RetentionService
         }
 
         return new SnapshotReport(freed, deleted);
+    }
+
+    /// <summary>
+    /// 安全列舉檔案：目錄不存在時回傳空集合，逐層跳過無權限目錄與 reparse point（避免沿連結離開根目錄）。
+    /// </summary>
+    private static IEnumerable<string> EnumerateFilesSafe(string root, string pattern)
+    {
+        if (!Directory.Exists(root))
+        {
+            yield break;
+        }
+
+        var pending = new Stack<string>();
+        pending.Push(root);
+        while (pending.Count > 0)
+        {
+            var dir = pending.Pop();
+            string[] files;
+            string[] subdirs;
+            try
+            {
+                files = Directory.GetFiles(dir, pattern);
+                subdirs = Directory.GetDirectories(dir);
+            }
+            catch (UnauthorizedAccessException)
+            {
+                continue;
+            }
+            catch (IOException)
+            {
+                continue;
+            }
+
+            foreach (var file in files)
+            {
+                yield return file;
+            }
+
+            foreach (var sub in subdirs)
+            {
+                try
+                {
+                    if ((new DirectoryInfo(sub).Attributes & FileAttributes.ReparsePoint) != 0)
+                    {
+                        continue;
+                    }
+                }
+                catch (IOException)
+                {
+                    continue;
+                }
+                catch (UnauthorizedAccessException)
+                {
+                    continue;
+                }
+
+                pending.Push(sub);
+            }
+        }
     }
 }

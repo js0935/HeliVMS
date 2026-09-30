@@ -11,19 +11,21 @@ public sealed record AiRuleRecord(
     bool Enabled,
     string CreatedAt);
 
-/// <summary>複合事件規則存取（M62，§5.10：規則編輯器與複合事件——設定層）。</summary>
+/// <summary>複合事件規則存取（M62，§5.10：規則編輯器與複合事件——設定層）。M159：CRUD 寫稽核。</summary>
 public sealed class RuleRepository
 {
     private const string Columns = "id, name, expression_json, actions_json, enabled, created_at";
 
     private readonly SqliteStore _store;
+    private readonly AuditLogRepository _audit;
 
     public RuleRepository(SqliteStore store)
     {
         _store = store;
+        _audit = new AuditLogRepository(store);
     }
 
-    public int Add(string name, string expressionJson, string actionsJson, bool enabled = true, DateTime? createdUtc = null)
+    public int Add(string name, string expressionJson, string actionsJson, bool enabled = true, DateTime? createdUtc = null, string actor = "system")
     {
         if (string.IsNullOrWhiteSpace(name))
         {
@@ -35,7 +37,7 @@ public sealed class RuleRepository
             throw new ArgumentException("規則條件不可為空", nameof(expressionJson));
         }
 
-        return _store.Query(
+        var id = _store.Query(
             $"""
             INSERT INTO ai_rules (name, expression_json, actions_json, enabled, created_at)
             VALUES ($n, $e, $a, $en, $t);
@@ -54,6 +56,8 @@ public sealed class RuleRepository
                 cmd.Parameters.AddWithValue("$en", enabled ? 1 : 0);
                 cmd.Parameters.AddWithValue("$t", SqliteStore.Iso(createdUtc ?? DateTime.UtcNow));
             });
+        _audit.Record(actor, "rule.add", AuditCategories.Config, targetType: "ai_rule", targetId: id, detail: $"name={name}");
+        return id;
     }
 
     public IReadOnlyList<AiRuleRecord> List()
@@ -72,19 +76,39 @@ public sealed class RuleRepository
             static r => r.Read() ? Read(r) : null,
             cmd => cmd.Parameters.AddWithValue("$id", id));
 
-    public void SetEnabled(int id, bool enabled)
-        => _store.Execute(
-            "UPDATE ai_rules SET enabled = $e WHERE id = $id;",
+    public void SetEnabled(int id, bool enabled, string actor = "system")
+    {
+        var affected = _store.Query<int>(
+            """
+            UPDATE ai_rules SET enabled = $e WHERE id = $id;
+            SELECT changes();
+            """,
+            static r => r.Read() ? r.GetInt32(0) : 0,
             cmd =>
             {
                 cmd.Parameters.AddWithValue("$e", enabled ? 1 : 0);
                 cmd.Parameters.AddWithValue("$id", id);
             });
+        if (affected > 0)
+        {
+            _audit.Record(actor, "rule.toggle", AuditCategories.Config, targetType: "ai_rule", targetId: id, detail: $"enabled={enabled}");
+        }
+    }
 
-    public void Delete(int id)
-        => _store.Execute(
-            "DELETE FROM ai_rules WHERE id = $id;",
+    public void Delete(int id, string actor = "system")
+    {
+        var affected = _store.Query<int>(
+            """
+            DELETE FROM ai_rules WHERE id = $id;
+            SELECT changes();
+            """,
+            static r => r.Read() ? r.GetInt32(0) : 0,
             cmd => cmd.Parameters.AddWithValue("$id", id));
+        if (affected > 0)
+        {
+            _audit.Record(actor, "rule.delete", AuditCategories.Config, targetType: "ai_rule", targetId: id);
+        }
+    }
 
     private static IReadOnlyList<AiRuleRecord> ReadAll(SqliteDataReader r)
     {

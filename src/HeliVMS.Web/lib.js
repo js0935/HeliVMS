@@ -1,5 +1,25 @@
 export const PRIORITY_RANK = { critical: 4, high: 3, normal: 2, low: 1 };
 
+const HTML_ESCAPES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+
+/** Escape untrusted text for interpolation into an innerHTML template (text and attribute context). */
+export function esc(value) {
+  if (value === null || value === undefined) return '';
+  return String(value).replace(/[&<>"']/g, (c) => HTML_ESCAPES[c]);
+}
+
+/** Escape for double-quoted attribute values, keeping decimals and negative signs of chart geometry. */
+export function escPct(value) {
+  if (!Number.isFinite(value)) return '0';
+  return esc(String(value));
+}
+
+/** Build the API authorization header from the stored key; empty key means no header at all. */
+export function bearerHeader(apiKey) {
+  const k = (apiKey ?? '').trim();
+  return k ? { Authorization: `Bearer ${k}` } : {};
+}
+
 export function formatTimestamp(iso) {
   if (!iso) return '';
   const d = new Date(iso);
@@ -174,7 +194,7 @@ export function parseLogin(payload) {
 export function accountRows(list) {
   return (list ?? [])
     .map((a) => ({
-      id: a.id ?? a.Id,
+      id: Number(a.id ?? a.Id ?? 0),
       username: a.username ?? a.Username ?? '',
       role: a.role ?? a.Role ?? 'viewer',
       displayName: a.displayName ?? a.DisplayName ?? null,

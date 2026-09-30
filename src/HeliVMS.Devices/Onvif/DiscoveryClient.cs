@@ -29,14 +29,200 @@ public static class DiscoveryClient
         CancellationToken cancellationToken = default)
     {
         using var udp = new UdpClient();
-        udp.Client.SetSocketOption(
-            SocketOptionLevel.Socket,
-            SocketOptionName.MulticastTimeToLive,
-            1);
         udp.EnableBroadcast = true;
 
-        var endpoint = new IPEndPoint(IPAddress.Parse(DiscoveryAddress), DiscoveryPort);
+        // 部分環境（VPN、受限 CI、已停用 IPv4 多播）不允許設定多播 socket 選項，
+        // 此時仍可送出探測並等待回應，故僅忽略設定失敗。
+        try
+        {
+            udp.Client.SetSocketOption(
+                SocketOptionLevel.Socket,
+                SocketOptionName.MulticastTimeToLive,
+                1);
+        }
+        catch (SocketException)
+        {
+        }
+
+        var address = IPAddress.Parse(DiscoveryAddress);
+        try
+        {
+            // 加入多播群組可提升 ProbeMatch 接收率（部分網路/VLAN 未加入仍可收到單播回應）
+            udp.Client.SetSocketOption(
+                SocketOptionLevel.IP,
+                SocketOptionName.AddMembership,
+                new MulticastOption(address, IPAddress.Any));
+        }
+        catch (SocketException)
+        {
+        }
+
+        var endpoint = new IPEndPoint(address, DiscoveryPort);
         return await ProbeAsync(udp, endpoint, timeout, cancellationToken);
+    }
+
+    /// <summary>
+    /// 單播 WS-Discovery 探測：多播被封鎖（VLAN／VPN／企業 Wi-Fi）時之主要路徑。
+    /// 對指定主機與埠送出 〈Probe〉並收集 〈ProbeMatch〉。
+    /// </summary>
+    /// <param name="host">設備 IP 位址或主機名稱（主機名稱會先解析）。</param>
+    /// <param name="port">WS-Discovery 埠（慣例 3702；部分 NVR 使用 80/8080/2020 等）。</param>
+    /// <param name="timeout">等待回應時間。</param>
+    /// <param name="cancellationToken">取消權杖。</param>
+    public static async Task<IReadOnlyList<DiscoveredDevice>> ProbeUnicastAsync(
+        string host,
+        int port,
+        TimeSpan timeout,
+        CancellationToken cancellationToken = default)
+    {
+        var address = await ResolveAsync(host, cancellationToken);
+        if (address is null)
+        {
+            return [];
+        }
+
+        using var udp = new UdpClient(address.AddressFamily);
+        var endpoint = new IPEndPoint(address, port);
+
+        // 保持未連線（unconnected）狀態，ProbeAsync 才可對任意端點重複送出探測。
+        return await ProbeAsync(udp, endpoint, $"{host}:{port.ToString(System.Globalization.CultureInfo.InvariantCulture)}", timeout, cancellationToken);
+    }
+
+    /// <summary>
+    /// 依手動輸入之位址（IP／主機名／完整 URL）尋找可用的 ONVIF device service 端點：
+    /// 逐一試探各廠牌常見路徑與埠並以 <c>GetDeviceInformation</c> 驗證；
+    /// 全部失敗時再以單播 WS-Discovery 探測。成功回傳設備 XAddr。
+    /// </summary>
+    public static async Task<string?> DiscoverByIpAsync(
+        string address,
+        string? username = null,
+        string? password = null,
+        OnvifClientOptions? options = null,
+        CancellationToken cancellationToken = default)
+    {
+        var candidates = OnvifEndpointResolver.BuildDeviceServiceCandidates(address);
+        if (candidates.Count == 0)
+        {
+            return null;
+        }
+
+        string? unauthorizedCandidate = null;
+        foreach (var candidate in candidates)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            using var service = new OnvifDeviceService(candidate, username, password, options);
+            try
+            {
+                _ = await service.GetInfoAsync(cancellationToken);
+                return candidate;
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (OnvifException ex) when (ex.Code == OnvifErrorCode.Unauthorized)
+            {
+                // 端點存在但需要認證：保留為最終回報候選（讓 UI 顯示認證錯誤而非找不到設備）
+                unauthorizedCandidate ??= candidate;
+            }
+            catch (OnvifException)
+            {
+                // 其餘錯誤（連線、逾時、格式）視為此路徑無效，繼續下一候選
+            }
+        }
+
+        if (TryUnicastProbeTargets(candidates[0], out var probeHost, out var probePorts))
+        {
+            var deadline = DateTime.UtcNow + UnicastProbeBudget;
+            foreach (var port in probePorts)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (DateTime.UtcNow >= deadline)
+                {
+                    break;
+                }
+
+                IReadOnlyList<DiscoveredDevice> matches;
+                try
+                {
+                    matches = await ProbeUnicastAsync(probeHost, port, UnicastProbeTimeout, cancellationToken);
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (SocketException)
+                {
+                    continue;
+                }
+
+                foreach (var xAddr in matches.Select(m => m.HttpXAddr).OfType<string>())
+                {
+                    using var service = new OnvifDeviceService(xAddr, username, password, options);
+                    try
+                    {
+                        _ = await service.GetInfoAsync(cancellationToken);
+                        return xAddr;
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        throw;
+                    }
+                    catch (OnvifException)
+                    {
+                    }
+                }
+            }
+        }
+
+        return unauthorizedCandidate;
+    }
+
+    private static readonly TimeSpan UnicastProbeTimeout = TimeSpan.FromSeconds(1);
+    private static readonly TimeSpan UnicastProbeBudget = TimeSpan.FromSeconds(8);
+
+    private static bool TryUnicastProbeTargets(
+        string deviceXAddr,
+        out string host,
+        out IReadOnlyList<int> ports)
+    {
+        ports = [];
+        if (!OnvifEndpointResolver.TryParseHostInput(deviceXAddr, out host, out var port, out _, out _))
+        {
+            return false;
+        }
+
+        var ordered = new List<int> { DiscoveryPort };
+        foreach (var candidate in OnvifEndpointResolver.CommonPorts)
+        {
+            if (candidate != port && candidate != DiscoveryPort)
+            {
+                ordered.Add(candidate);
+            }
+        }
+
+        ports = ordered;
+        return true;
+    }
+
+    private static async Task<IPAddress?> ResolveAsync(string host, CancellationToken cancellationToken)
+    {
+        if (IPAddress.TryParse(host.Trim('[', ']'), out var parsed))
+        {
+            return parsed;
+        }
+
+        try
+        {
+            var addresses = await Dns.GetHostAddressesAsync(host, cancellationToken);
+            return addresses.FirstOrDefault(a =>
+                a.AddressFamily is AddressFamily.InterNetwork or AddressFamily.InterNetworkV6);
+        }
+        catch (SocketException)
+        {
+            return null;
+        }
     }
 
     /// <summary>
@@ -107,10 +293,21 @@ public static class DiscoveryClient
         UdpClient udp,
         IPEndPoint endpoint,
         TimeSpan timeout,
+        CancellationToken cancellationToken = default) =>
+        await ProbeAsync(udp, endpoint, $"{DiscoveryAddress}:{DiscoveryPort}", timeout, cancellationToken);
+
+    /// <summary>
+    /// 對指定端位址執行 WS-Discovery 探測（可指定 wsa:To；多播與單播共用）。
+    /// </summary>
+    internal static async Task<IReadOnlyList<DiscoveredDevice>> ProbeAsync(
+        UdpClient udp,
+        IPEndPoint endpoint,
+        string to,
+        TimeSpan timeout,
         CancellationToken cancellationToken = default)
     {
         var results = new Dictionary<string, DiscoveredDevice>(StringComparer.OrdinalIgnoreCase);
-        var envelope = BuildProbe(Guid.NewGuid().ToString("D"));
+        var envelope = BuildProbe(Guid.NewGuid().ToString("D"), to);
 
         var deadline = DateTime.UtcNow + timeout;
         while (DateTime.UtcNow < deadline)
@@ -314,11 +511,11 @@ public static class DiscoveryClient
         return null;
     }
 
-    private static string BuildProbe(string messageId)
+    private static string BuildProbe(string messageId, string to)
     {
         var doc = new XDocument(
             new XElement(WsdNs + "Probe",
-                new XElement(WsaNs + "To", $"{DiscoveryAddress}:{DiscoveryPort}"),
+                new XElement(WsaNs + "To", to),
                 new XElement(WsaNs + "Action", "http://schemas.xmlsoap.org/ws/2005/04/discovery/Probe"),
                 new XElement(WsaNs + "MessageID", $"urn:uuid:{messageId}"),
                 new XElement(WsdNs + "Types", "tdn:NetworkVideoTransmitter")));

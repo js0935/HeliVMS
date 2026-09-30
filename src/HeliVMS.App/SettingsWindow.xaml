@@ -155,7 +155,7 @@
                             Foreground="White" Background="#3A5A7A" BorderThickness="0"/>
                 </StackPanel>
                 <ListView x:Name="ChannelList" AutomationProperties.AutomationId="ChannelList"
-                          Background="#0E1D33" Foreground="White" BorderBrush="#1F3A5F">
+                          MaxHeight="200" Background="#0E1D33" Foreground="White" BorderBrush="#1F3A5F">
                     <ListView.View>
                         <GridView>
                             <GridViewColumn Header="ID" Width="46">
@@ -197,6 +197,61 @@
                         </GridView>
                     </ListView.View>
                 </ListView>
+
+                <!-- 設備 RTSP 憑證 -->
+                <StackPanel Margin="0,16,0,0">
+                    <TextBlock Text="設備 RTSP 憑證" FontSize="15" FontWeight="Bold" Margin="0,0,0,6"/>
+                    <TextBlock Text="由 ONVIF 探索建立的設備共用同一份加密封存憑證（RTSP 拉流與 PTZ 共通）。修改後新連線生效；已開啟的影像需重新開啟。"
+                               Foreground="{StaticResource Brand.TextDim}" FontSize="11" Margin="0,0,0,8"
+                               TextWrapping="Wrap"/>
+                    <ListView x:Name="DeviceCredList" AutomationProperties.AutomationId="SettingsDeviceList"
+                              MaxHeight="110" Background="#0E1D33" Foreground="White" BorderBrush="#1F3A5F"
+                              SelectionChanged="OnDeviceCredSelected">
+                        <ListView.View>
+                            <GridView>
+                                <GridViewColumn Header="設備" Width="200">
+                                    <GridViewColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <TextBlock FontSize="12">
+                                                <Run Text="{Binding Name, Mode=OneWay}"/>
+                                                <Run Text="  "/>
+                                                <Run Text="{Binding IpPort, Mode=OneWay}" Foreground="{StaticResource Brand.TextDim}"/>
+                                            </TextBlock>
+                                        </DataTemplate>
+                                    </GridViewColumn.CellTemplate>
+                                </GridViewColumn>
+                                <GridViewColumn Header="憑證" Width="220">
+                                    <GridViewColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <TextBlock Text="{Binding CredentialLabel}" FontSize="11"/>
+                                        </DataTemplate>
+                                    </GridViewColumn.CellTemplate>
+                                </GridViewColumn>
+                            </GridView>
+                        </ListView.View>
+                    </ListView>
+                    <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                        <TextBlock Text="帳號" Foreground="{StaticResource Brand.TextDim}" FontSize="11"
+                                   VerticalAlignment="Center"/>
+                        <TextBox x:Name="DeviceCredUsernameBox" AutomationProperties.AutomationId="SettingsDeviceCredUsernameBox"
+                                 Width="140" Margin="6,0,0,0" ToolTip="留空則保留原帳號"
+                                 Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="6,3"/>
+                        <TextBlock Text="密碼" Foreground="{StaticResource Brand.TextDim}" FontSize="11"
+                                   VerticalAlignment="Center" Margin="12,0,0,0"/>
+                        <PasswordBox x:Name="DeviceCredPasswordBox" AutomationProperties.AutomationId="SettingsDeviceCredPasswordBox"
+                                     Width="140" Margin="6,0,0,0" ToolTip="留空則保留原密碼"
+                                     Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="6,3"/>
+                        <Button x:Name="DeviceCredApplyButton" AutomationProperties.AutomationId="SettingsDeviceCredApplyButton"
+                                Content="套用" Click="OnDeviceCredApplyClicked" Margin="12,0,0,0" Padding="12,4" IsEnabled="False"
+                                Foreground="White" Background="#2A5C8A" BorderThickness="0"/>
+                        <Button x:Name="DeviceCredClearButton" AutomationProperties.AutomationId="SettingsDeviceCredClearButton"
+                                Content="移除憑證" Click="OnDeviceCredClearClicked" Margin="6,0,0,0" Padding="12,4" IsEnabled="False"
+                                Foreground="White" Background="#8A4B2A" BorderThickness="0"/>
+                        <TextBlock x:Name="DeviceCredHintText" AutomationProperties.AutomationId="SettingsDeviceCredHint"
+                                   Text="選取設備後即可修改其 RTSP 帳號密碼。" Foreground="{StaticResource Brand.TextDim}"
+                                   FontSize="11" VerticalAlignment="Center" Margin="12,0,0,0" MaxWidth="180" TextWrapping="Wrap"/>
+                    </StackPanel>
+                </StackPanel>
             </StackPanel>
 
             <!-- 授權 -->

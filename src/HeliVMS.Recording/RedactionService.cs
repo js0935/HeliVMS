@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text;
+using HeliVMS.Shared;
 using HeliVMS.Shared.Models;
 using HeliVMS.Storage;
 
@@ -144,7 +145,7 @@ public sealed class RedactionService
 
             if (exitCode != 0)
             {
-                throw new InvalidOperationException($"ffmpeg 遮蔽失敗（exit={exitCode}）：{stderr.Trim()}");
+                throw new InvalidOperationException($"ffmpeg 遮蔽失敗（exit={exitCode}）：{RtspUri.RedactText(stderr.Trim())}");
             }
 
             progress?.Report(new ExportProgress(85, "遮蔽完成，計算 SHA-256…"));
