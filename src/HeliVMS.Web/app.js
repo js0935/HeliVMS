@@ -1,6 +1,5 @@
 import {
   accountRows,
-  ackPayload,
   ackRate,
   auditRows,
   auditFilter,
@@ -37,11 +36,8 @@ import {
   pinStyles,
   posTotals,
   smartwallSnapshot,
-  sortBoard,
-  summarizeBoard,
   tileClass,
   tileLabel,
-  triagePayload,
 } from './lib.js';
 
 const $ = (id) => document.getElementById(id);
@@ -117,10 +113,10 @@ async function submitLogin(event) {
   if (state.ok) {
     storeSession({ role: state.role, name: state.displayName });
     if (canAct(state.role)) {
-      await Promise.allSettled([renderAccounts(), renderConfig(), renderAudit(), renderEvidence(), renderBackup(), renderProviders(), renderHolds(), renderRules(), renderShares(), renderReds(), renderRep(), renderHealth(), renderBoard()]);
+      await Promise.allSettled([renderAccounts(), renderConfig(), renderAudit(), renderEvidence(), renderBackup(), renderProviders(), renderHolds(), renderRules(), renderShares(), renderReds(), renderRep(), renderHealth()]);
     }
   }
-  await refreshBoard();
+  await renderBoard();
 }
 
 function logout() {
@@ -295,48 +291,6 @@ async function submitAccount(event) {
     $('account-msg').textContent = String(err);
   }
   await renderAccounts();
-}
-
-async function refreshBoard() {
-  const rows = sortBoard(await api('/api/alarms/board?take=50'));
-  const s = summarizeBoard(rows);
-  $('board-summary').textContent = `共 ${s.total} · 嚴重 ${s.critical} · 逾期 ${s.overdue}`;
-  $('kpi').textContent = `ack ${ackRate(rows)}% · 嚴重 ${s.critical}`;
-  $('board').querySelector('tbody').innerHTML = rows
-    .map(
-      (r) =>
-        `<tr class="${esc(r.priority)}"><td>${esc(r.eventId)}</td><td>${esc(r.channelId)}</td><td>${esc(r.eventType ?? '')}</td><td>${esc(r.priority)}</td>` +
-        `<td><button data-ack="${esc(r.eventId)}" class="act" ${esc(r.status === 'acknowledged' ? 'disabled' : '')}>ack</button>` +
-        `<button data-triage="${esc(r.eventId)}" data-p="critical" class="act" title="升級為緊急" aria-label="升級為緊急">!!</button></td></tr>`,
-    )
-    .join('');
-
-  document.querySelectorAll('button[data-ack]').forEach((btn) => {
-    btn.addEventListener('click', () => actAck(Number(btn.dataset.ack)));
-  });
-  document.querySelectorAll('button[data-triage]').forEach((btn) => {
-    btn.addEventListener('click', () => actTriage(Number(btn.dataset.triage), btn.dataset.p));
-  });
-}
-
-async function actAck(id) {
-  const payload = ackPayload(id, true);
-  await api(`/api/events/${payload.id}/ack`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload.body),
-  });
-  await refreshBoard();
-}
-
-async function actTriage(id, priority) {
-  const payload = triagePayload(id, priority);
-  await api(`/api/events/${payload.id}/triage`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload.body),
-  });
-  await refreshBoard();
 }
 
 function renderMap() {
@@ -878,18 +832,21 @@ async function renderHealth() {
 }
 
 async function renderBoard() {
-  if (!canAct(readSession()?.role)) return;
   const [board, summary] = await Promise.all([
     api('/api/alarm-board?take=200').catch(() => []),
     api('/api/alarm-board/summary').catch(() => null),
   ]);
   const rows = alarmRows(board);
+  const can = canAct(readSession()?.role);
+  $('kpi').textContent = `確認 ${ackRate(rows)}% · 緊急 ${rows.filter((r) => r.priority === 'critical').length}`;
   $('alarm-body').innerHTML = rows
     .map(
       (b) =>
         `<tr class="${esc(b.overdue ? 'overdue' : '')}"><td>#${esc(b.id)}</td><td>CH${esc(b.channel)}</td><td>${esc(b.event)}</td><td>${esc(b.start)}</td>` +
         `<td>${esc(b.priority)}</td><td>${esc(b.status)}</td><td class="${esc(b.overdue ? 'bad' : '')}">${esc(b.overdue ? '逾期' : '—')}</td>` +
-        `<td><select data-pri="${Number(b.id)}"><option value="low" ${esc(b.priority === 'low' ? 'selected' : '')}>低</option><option value="normal" ${esc(b.priority === 'normal' ? 'selected' : '')}>一般</option><option value="high" ${esc(b.priority === 'high' ? 'selected' : '')}>高</option><option value="critical" ${esc(b.priority === 'critical' ? 'selected' : '')}>緊急</option></select><button data-triage="${Number(b.id)}">分診</button><button data-ack="${Number(b.id)}" class="${esc(b.status === 'acknowledged' ? 'ok' : '')}">確認</button><button class="danger" data-fa="${Number(b.id)}">誤報</button></td></tr>`,
+        (can
+          ? `<td><select data-pri="${Number(b.id)}"><option value="low" ${esc(b.priority === 'low' ? 'selected' : '')}>低</option><option value="normal" ${esc(b.priority === 'normal' ? 'selected' : '')}>一般</option><option value="high" ${esc(b.priority === 'high' ? 'selected' : '')}>高</option><option value="critical" ${esc(b.priority === 'critical' ? 'selected' : '')}>緊急</option></select><button data-triage="${Number(b.id)}">分診</button><button data-ack="${Number(b.id)}" class="${esc(b.status === 'acknowledged' ? 'ok' : '')}">確認</button><button class="danger" data-fa="${Number(b.id)}">誤報</button></td>`
+          : ''),
     )
     .join('');
   const chips = [
@@ -903,7 +860,7 @@ async function renderBoard() {
   $('alarm-badges').innerHTML = chips
     .map(([label, n]) => `<span class="chip">${esc(label)}：${esc(n)}</span>`)
     .join('');
-  bindBoardActions();
+  if (can) bindBoardActions();
 }
 
 function bindBoardActions() {
@@ -1110,7 +1067,7 @@ async function boot() {
   wire();
   updateChrome();
   await refreshHealth();
-  await Promise.allSettled([refreshChannels(), refreshBoard(), refreshTimeline(), renderMap(), renderSmartwall(), renderPos(), renderDaily(), renderSchedules(), renderPatrols(), renderDoor(), renderDetections(), renderNotifs(), renderExports()]);
+  await Promise.allSettled([refreshChannels(), renderBoard(), refreshTimeline(), renderMap(), renderSmartwall(), renderPos(), renderDaily(), renderSchedules(), renderPatrols(), renderDoor(), renderDetections(), renderNotifs(), renderExports()]);
   bindScheduleForm();
   bindPatrolForm();
   connectLive();

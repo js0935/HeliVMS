@@ -69,8 +69,11 @@ describe('screen readers', () => {
     expect(indexSource).toMatch(/id="live-log"[^>]*role="log"[^>]*aria-live="polite"/);
   });
 
-  it('gives the cryptic alarm-escalation button a readable name', () => {
-    expect(appSource).toMatch(/data-p="critical"[^>]*title="升級為緊急" aria-label="升級為緊急"/);
+  it('gives the alarm-board action buttons readable labels (no cryptic glyphs)', () => {
+    expect(appSource).toMatch(/>分診</);
+    expect(appSource).toMatch(/>確認</);
+    expect(appSource).toMatch(/>誤報</);
+    expect(appSource).not.toMatch(/>!!</);
   });
 });
 

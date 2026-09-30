@@ -915,7 +915,7 @@ public static class ApiEndpoints
         api.MapGet("/alarm-board", static (int? take, AlarmTriageRepository triage) =>
             Results.Ok(triage.ListBoard(DateTime.UtcNow, Math.Clamp(take ?? 100, 1, 500)).Select(ToBoard).ToList()));
 
-        api.MapPut("/alarm-board/{eventId:long}/triage", static (long eventId, TriageRequest body, AlarmTriageRepository triage) =>
+        api.MapPut("/alarm-board/{eventId:long}/triage", static (long eventId, TriageRequest body, AlarmTriageRepository triage, AlertBroadcastHub hub) =>
         {
             if (!AlarmPriority.IsValid(body.Priority))
             {
@@ -923,10 +923,11 @@ public static class ApiEndpoints
             }
 
             triage.SetTriage(eventId, body.Priority, body.DueUtc, NullIfBlank(body.Owner), DateTime.UtcNow);
+            hub.Publish(new AlertUpdate("alarm.triage", eventId, null, body.Priority));
             return Results.Ok(new { ok = true });
         });
 
-        api.MapPut("/alarm-board/{eventId:long}/disposition", static (long eventId, DispositionRequest body, AlarmEventRepository events) =>
+        api.MapPut("/alarm-board/{eventId:long}/disposition", static (long eventId, DispositionRequest body, AlarmEventRepository events, AlertBroadcastHub hub) =>
         {
             if (!AlarmEventStatus.IsValid(body.Status))
             {
@@ -934,12 +935,14 @@ public static class ApiEndpoints
             }
 
             events.SetDisposition(eventId, body.Status, NullIfBlank(body.AssignedTo), NullIfBlank(body.Note), DateTime.UtcNow);
+            hub.Publish(new AlertUpdate("alarm.disposition", eventId, body.Status, null));
             return Results.Ok(new { ok = true });
         });
 
-        api.MapPut("/alarm-board/{eventId:long}/ack", static (long eventId, InputAck body, AlarmEventRepository events) =>
+        api.MapPut("/alarm-board/{eventId:long}/ack", static (long eventId, InputAck body, AlarmEventRepository events, AlertBroadcastHub hub) =>
         {
             events.Acknowledge(eventId, body.Acknowledged);
+            hub.Publish(new AlertUpdate("alarm.ack", eventId, body.Acknowledged ? "acknowledged" : "pending", null));
             return Results.Ok(new { ok = true });
         });
 
