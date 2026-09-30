@@ -11,6 +11,7 @@ import {
   esc,
   escPct,
   eventRow,
+  filterBoardRows,
   focusLayout,
   formatTimestamp,
   evRows,
@@ -44,6 +45,7 @@ import {
 const $ = (id) => document.getElementById(id);
 const key = () => (localStorage.getItem('helivms.apiKey') || $('apikey')?.value || '').trim();
 const POLL_MS = 12000; // REST 面板輪詢（門禁/偵測/通知/匯出/排程…）——分頁隱藏或焦點在輸入框時暫停
+let boardFilter = ''; // 警報看板過濾：'' | pending | acknowledged | actioned | false_alarm | overdue
 
 /** Single authenticated transport: every API call must go through here so the bearer key is always sent. */
 async function apiRaw(path, init = {}) {
@@ -839,9 +841,10 @@ async function renderBoard() {
     api('/api/alarm-board/summary').catch(() => null),
   ]);
   const rows = alarmRows(board);
+  const shown = filterBoardRows(rows, boardFilter);
   const can = canAct(readSession()?.role);
   $('kpi').textContent = `確認 ${ackRate(rows)}% · 緊急 ${rows.filter((r) => r.priority === 'critical').length}`;
-  $('alarm-body').innerHTML = rows
+  $('alarm-body').innerHTML = shown
     .map(
       (b) =>
         `<tr class="${esc(b.overdue ? 'overdue' : '')}"><td>#${esc(b.id)}</td><td>CH${esc(b.channel)}</td><td>${esc(b.event)}</td><td>${esc(b.start)}</td>` +
@@ -851,17 +854,35 @@ async function renderBoard() {
           : ''),
     )
     .join('');
+  const counts = {
+    '': rows.length,
+    pending: summary?.Pending ?? 0,
+    acknowledged: summary?.Acknowledged ?? 0,
+    actioned: summary?.Actioned ?? 0,
+    false_alarm: summary?.FalseAlarm ?? 0,
+    overdue: summary?.Overdue ?? 0,
+  };
   const chips = [
-    ['未處理', summary?.Pending ?? 0],
-    ['已確認', summary?.Acknowledged ?? 0],
-    ['已處置', summary?.Actioned ?? 0],
-    ['誤報', summary?.FalseAlarm ?? 0],
-    ['逾期', summary?.Overdue ?? 0],
+    ['全部', ''],
+    ['未處理', 'pending'],
+    ['已確認', 'acknowledged'],
+    ['已處置', 'actioned'],
+    ['誤報', 'false_alarm'],
+    ['逾期', 'overdue'],
   ];
-  $('alarm-count').textContent = `（${rows.length}）`;
+  $('alarm-count').textContent = boardFilter ? `（${shown.length}/${rows.length}）` : `（${rows.length}）`;
   $('alarm-badges').innerHTML = chips
-    .map(([label, n]) => `<span class="chip">${esc(label)}：${esc(n)}</span>`)
+    .map(
+      ([label, key]) =>
+        `<button class="chip-btn${esc(boardFilter === key ? ' on' : '')}" data-board-filter="${esc(key)}" aria-pressed="${esc(boardFilter === key)}">${esc(label)}：${esc(counts[key])}</button>`,
+    )
     .join('');
+  Array.from(document.querySelectorAll('[data-board-filter]')).forEach((btn) => {
+    btn.addEventListener('click', () => {
+      boardFilter = btn.dataset.boardFilter;
+      renderBoard();
+    });
+  });
   if (can) bindBoardActions();
 }
 

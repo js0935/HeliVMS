@@ -37,6 +37,14 @@ export function eventRow(e) {
   };
 }
 
+export function filterBoardRows(rows, filter) {
+  const list = Array.isArray(rows) ? rows : [];
+  if (!filter) return list;
+  return filter === 'overdue'
+    ? list.filter((r) => r.overdue)
+    : list.filter((r) => r.status === filter);
+}
+
 export function priorityRank(priority) {
   return PRIORITY_RANK[priority] ?? 0;
 }

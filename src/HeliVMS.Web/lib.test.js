@@ -14,6 +14,7 @@ import {
   esc,
   escPct,
   eventRow,
+  filterBoardRows,
   focusLayout,
   formatTimestamp,
   evRows,
@@ -310,6 +311,36 @@ describe('action payload builders', () => {
     expect(ackPayload(7)).toEqual({ id: 7, body: { acknowledged: true } });
     expect(ackPayload(7, false)).toEqual({ id: 7, body: { acknowledged: false } });
     expect(triagePayload(9, 'critical')).toEqual({ id: 9, body: { priority: 'critical', dueUtc: null, owner: null } });
+  });
+});
+
+describe('filterBoardRows', () => {
+  const rows = [
+    { id: 1, status: 'pending' },
+    { id: 2, status: 'acknowledged' },
+    { id: 3, status: 'actioned', overdue: true },
+    { id: 4, status: 'false_alarm' },
+  ];
+
+  it('returns everything without a filter', () => {
+    expect(filterBoardRows(rows, '')).toHaveLength(4);
+    expect(filterBoardRows(rows, undefined)).toHaveLength(4);
+    expect(filterBoardRows(rows, null)).toHaveLength(4);
+  });
+
+  it('filters by status', () => {
+    expect(filterBoardRows(rows, 'pending').map((r) => r.id)).toEqual([1]);
+    expect(filterBoardRows(rows, 'acknowledged').map((r) => r.id)).toEqual([2]);
+    expect(filterBoardRows(rows, 'false_alarm').map((r) => r.id)).toEqual([4]);
+  });
+
+  it('filters overdue by flag', () => {
+    expect(filterBoardRows(rows, 'overdue').map((r) => r.id)).toEqual([3]);
+  });
+
+  it('tolerates non-array input and unknown filters', () => {
+    expect(filterBoardRows(null, 'pending')).toEqual([]);
+    expect(filterBoardRows(rows, 'nonsense')).toEqual([]);
   });
 });
 

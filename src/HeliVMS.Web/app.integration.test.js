@@ -13,6 +13,11 @@ describe('alarm board consolidation', () => {
     expect(appSource).toMatch(/\/api\/alarm-board\/summary/);
   });
 
+  it('filters the board rows through the chip filter state', () => {
+    expect(appSource).toMatch(/filterBoardRows\(rows, boardFilter\)/);
+    expect(appSource).toMatch(/data-board-filter/);
+  });
+
   it('has no legacy alarms/board path, renderer, or escalation glyph', () => {
     expect(appSource).not.toMatch(/\/api\/alarms\/board/);
     expect(appSource).not.toMatch(/refreshBoard/);
