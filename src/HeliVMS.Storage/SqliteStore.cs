@@ -9,7 +9,7 @@ namespace HeliVMS.Storage;
 /// </summary>
 public sealed class SqliteStore : IDisposable
 {
-    private const int CurrentSchemaVersion = 42;
+    private const int CurrentSchemaVersion = 43;
     private readonly SqliteConnection _connection;
     private readonly object _gate = new();
     private bool _disposed;
@@ -262,6 +262,11 @@ public sealed class SqliteStore : IDisposable
         if (version < 42)
         {
             CreateAudioTablesV42();
+        }
+
+        if (version < 43)
+        {
+            CreateLicenseTableV43();
         }
 
         Execute("PRAGMA user_version = CURRENT_SCHEMA_VERSION;".Replace(
@@ -1282,6 +1287,36 @@ public sealed class SqliteStore : IDisposable
 
             CREATE INDEX IF NOT EXISTS idx_event_audio_event ON event_audio(event_id);
             CREATE INDEX IF NOT EXISTS idx_event_audio_time ON event_audio(started_at_utc);
+            """);
+    }
+
+    /// <summary>
+    /// 授權表（§19.7）：product 端保存已匯入的授權與其驗證歷程。
+    /// <c>device_code</c> 唯一（同一台機器只認一張授權，換發即覆寫並重新計 first_seen 以外的欄位）。
+    /// <c>tier</c>／<c>max_cameras</c>／<c>expired_at</c> 為快取欄，避免 UI 與稽核查詢時還要解簽 payload。
+    /// </summary>
+    private void CreateLicenseTableV43()
+    {
+        Execute(
+            """
+            CREATE TABLE IF NOT EXISTS license (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                key_text      TEXT    NOT NULL,
+                device_code   TEXT    NOT NULL UNIQUE,
+                license_id    TEXT,
+                tier          TEXT,
+                max_cameras   INTEGER NOT NULL,
+                features      TEXT    NOT NULL,
+                issuer        TEXT,
+                expired_at    TEXT    NULL,
+                first_seen    TEXT    NOT NULL,
+                last_verified TEXT    NULL,
+                status        TEXT    NOT NULL,
+                created_by    TEXT
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_license_status ON license(status);
+            CREATE INDEX IF NOT EXISTS idx_license_verified ON license(last_verified DESC);
             """);
     }
 

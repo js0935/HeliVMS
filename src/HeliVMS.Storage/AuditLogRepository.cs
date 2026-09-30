@@ -1,6 +1,6 @@
 namespace HeliVMS.Storage;
 
-/// <summary>稽核日誌事件類別（M109，§14.1 資安治理）。</summary>
+/// <summary>稽核日誌事件類別（M109，§14.1 資安治理；M205/M206 加入授權類別）。</summary>
 public static class AuditCategories
 {
     public const string Auth = "auth";
@@ -10,6 +10,9 @@ public static class AuditCategories
     public const string Share = "share";
     public const string Retention = "retention";
     public const string LegalHold = "legal_hold";
+
+    /// <summary>授權啟用／到期／改版／時鐘回流（§19.4、§19.8）。</summary>
+    public const string License = "license";
 }
 
 /// <summary>稽核日誌項目（M109，v40 `audit_log`）。</summary>
