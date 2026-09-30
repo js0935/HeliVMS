@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Diagnostics;
 using System.IO;
 using System.Windows;
 using HeliVMS.Recording;
@@ -16,6 +17,7 @@ public partial class ExportWindow : Window
     private readonly string _dataRoot;
     private IReadOnlyList<ChannelInfo> _channels = [];
     private CancellationTokenSource? _cts;
+    private string? _lastOutputPath;
 
     public ExportWindow(SqliteStore store, string dataRoot, long? focusChannelId = null)
     {
@@ -134,6 +136,8 @@ public partial class ExportWindow : Window
                               (result.Sha256Hash is not null
                                   ? $"\nSHA-256：{result.Sha256Hash}"
                                   : string.Empty);
+            _lastOutputPath = result.OutputPath;
+            OpenFolderButton.IsEnabled = true;
 
             if (BundleCheckBox.IsChecked == true)
             {
@@ -161,7 +165,7 @@ public partial class ExportWindow : Window
                         manifest,
                         string.IsNullOrEmpty(bundlePassword) ? null : bundlePassword);
 
-                    ResultText.Text += $"\\n證據包：{Path.GetFileName(bundlePath)}（SHA-256：{bundleSha}）";
+                    ResultText.Text += $"\n證據包：{Path.GetFileName(bundlePath)}（SHA-256：{bundleSha}）";
                     StatusText.Text = "匯出成功，證據包已建立。";
                 }
                 catch (Exception bEx)
@@ -187,6 +191,24 @@ public partial class ExportWindow : Window
     }
 
     private void OnCloseClicked(object sender, RoutedEventArgs e) => Close();
+
+    /// <summary>在檔案總管中顯示上次成功匯出的檔案。</summary>
+    private void OnOpenFolderClicked(object sender, RoutedEventArgs e)
+    {
+        if (string.IsNullOrEmpty(_lastOutputPath))
+        {
+            return;
+        }
+
+        try
+        {
+            Process.Start(new ProcessStartInfo("explorer.exe", $"/select,\"{_lastOutputPath}\""));
+        }
+        catch
+        {
+            StatusText.Text = "無法開啟檔案總管。";
+        }
+    }
 
     private void OnClosing(object? sender, System.ComponentModel.CancelEventArgs e)
     {

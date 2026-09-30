@@ -99,6 +99,10 @@
                         Content="匯出" Click="OnExportClicked" IsDefault="True"
                         Width="100" Padding="0,8"
                         Foreground="White" Background="#2A5C8A" BorderThickness="0"/>
+                <Button x:Name="OpenFolderButton" AutomationProperties.AutomationId="OpenFolderButton"
+                        Content="開啟資料夾" Click="OnOpenFolderClicked" ToolTip="在檔案總管中顯示上次匯出的檔案"
+                        Width="100" Padding="0,8" Margin="8,0,0,0" IsEnabled="False"
+                        Foreground="White" Background="#2A7F6E" BorderThickness="0"/>
                 <Button x:Name="CloseButton" Content="關閉" Click="OnCloseClicked" ToolTip="關閉此視窗" IsCancel="True"
                         Width="80" Padding="0,8" Margin="8,0,0,0"
                         Foreground="White" Background="#3A3A5A" BorderThickness="0" AutomationProperties.AutomationId="CloseButton"/>
