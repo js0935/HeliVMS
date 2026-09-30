@@ -25,6 +25,32 @@ public static class RsaPem
         return rsa;
     }
 
+    /// <summary>由金鑰匯出 SPKI 公鑰 PEM（<c>BEGIN PUBLIC KEY</c>）。</summary>
+    public static string ToPublicPem(RSA key)
+    {
+        return ToPem("PUBLIC KEY", key.ExportSubjectPublicKeyInfo());
+    }
+
+    /// <summary>由金鑰匯出 PKCS#8 私鑰 PEM（<c>BEGIN PRIVATE KEY</c>）。</summary>
+    public static string ToPrivatePem(RSA key)
+    {
+        return ToPem("PRIVATE KEY", key.ExportPkcs8PrivateKey());
+    }
+
+    private static string ToPem(string label, byte[] der)
+    {
+        var base64 = Convert.ToBase64String(der);
+        var sb = new StringBuilder();
+        sb.Append("-----BEGIN ").Append(label).Append("-----\n");
+        for (var i = 0; i < base64.Length; i += 64)
+        {
+            sb.Append(base64, i, Math.Min(64, base64.Length - i)).Append('\n');
+        }
+
+        sb.Append("-----END ").Append(label).Append("-----\n");
+        return sb.ToString();
+    }
+
     private static byte[] DecodePemBody(string pem, string label)
     {
         var body = new StringBuilder();

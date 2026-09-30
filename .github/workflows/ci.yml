@@ -52,6 +52,7 @@ jobs:
             'tests/HeliVMS.Alarms.Tests/HeliVMS.Alarms.Tests.csproj',
             'tests/HeliVMS.Devices.Tests/HeliVMS.Devices.Tests.csproj',
             'tests/HeliVMS.Licensing.Tests/HeliVMS.Licensing.Tests.csproj',
+            'tests/HeliVMS.LicenseProducer.Tests/HeliVMS.LicenseProducer.Tests.csproj',
             'tests/HeliVMS.Media.Tests/HeliVMS.Media.Tests.csproj',
             'tests/HeliVMS.Storage.Tests/HeliVMS.Storage.Tests.csproj'
           )

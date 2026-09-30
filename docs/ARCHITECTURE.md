@@ -83,7 +83,7 @@ HeliVms/
 ├─ HeliVms.Licensing/           # 授權驗證核心（公鑰內嵌、設備碼、等級矩陣、導入）— §19
 ├─ HeliVms.Shared/              # 事件聚合、擴充方法、Logging(Serilog)
 ├─ Tools/                       # 廠商側工具（不入客戶安裝包）
-│  ├─ HeliVMS.LicenseProducer/  # 授權生成器 CLI（RSA-2048 簽章）— §19.6
+│  ├─ HeliVMS.LicenseProducer/  # 授權生成器 CLI（RSA 簽章、金鑰對產生、私鑰加密、簽發稽核）— §19.6
 │  ├─ LicenseKeyGenUI/          # 授權生成器 GUI（金鑰對＋簽署）— §19.5
 │  └─ _deprecated/              # 已停用工具（LicenseKeyGen：舊 HMAC 對稱版）— §19.5
 └─ docs/                        # 本規劃、資料庫結構、營運手冊
@@ -1565,7 +1565,7 @@ payload 由 `LicensePayload` 序列化（`JsonNamingPolicy.CamelCase`），欄�
 | 工具 | 現況 | 處置 |
 |---|---|---|
 | `Tools/LicenseKeyGenUI` | RSA 金鑰對＋簽章；原 payload 欄位與產品端不符（`HELVMS-` 兩段式） | **已修正**：改為引用 `HeliVMS.Licensing`，直接呼叫 `LicenseSerializer.Sign` 與 `MachineIdProvider.GetDeviceCode()`，並納入 `HeliVMS.slnx` 由 CI 建置 |
-| `Tools/HeliVMS.LicenseProducer` | CLI 簽發，引用 `HeliVMS.Licensing` | **正式簽發工具**；新增 `--tier`（展開 §19.3 矩陣）、`--list-tiers`、`--issuer`，並驗證通道數與設備碼格式 |
+| `Tools/HeliVMS.LicenseProducer` | CLI 簽發，引用 `HeliVMS.Licensing` | **正式簽發工具**；`--tier`（展開 §19.3 矩陣）、`--list-tiers`、`--issuer`，並驗證通道數與設備碼格式；M205 另加入 `--gen-key`（金鑰對產生）、`--passphrase-env/--passphrase-file/--prompt-passphrase`（私鑰加密靜置）、`--operator/--audit-log/--audit-verify`（簽發稽核） |
 | `Tools/LicenseKeyGen`（HMAC） | secret 同時存在兩端、HMAC 僅 1 byte、device 綁定前 4 碼、預設密碼明文；其註解所指的 `HeliVMS.Services.LicenseService` 從未實作 | **已移入 `Tools/_deprecated/LicenseKeyGen/`**，檔頭加註 DEPRECATED 說明改用 LicenseProducer；`error*.log`、`output*.log` 遺殼一併清除。不在解決方案內，不建置、不維護 |
 | `Password.dat` 登入 | SHA-256 無鹽、預設密碼 `hr22619219` 明文於程式碼 | 隨工具一併停用；密碼改由 DB／環境管理 |
 
@@ -1579,6 +1579,60 @@ payload 由 `LicensePayload` 序列化（`JsonNamingPolicy.CamelCase`），欄�
 - 登入與稽核：管理員操作全部留痕（誰簽了哪張）
 - 密碼與金鑰安全：私鑰可選加密靜置（DPAPI/口令）；與程式碼分開存放
 - 與 §19.4 對應：產生公鑰張貼於產品版的 `EmbeddedPublicKey`
+
+> **實作狀態**：金鑰對產生、批次簽發（除 CSV 輸入）、稽核、私鑰加密靜置**已落地**
+> （M205／M212）。實作如下。
+
+#### 19.6.1 金鑰對產生（`--gen-key`）
+
+```
+dotnet run -c Release -- --gen-key .secrets\prod --key-size 3072 \
+    --protection passphrase --prompt-passphrase
+```
+
+- 產出 `private.pem`（依保護模式）、`public.key`（SPKI PEM）、
+  `EmbeddedPublicKey.cs.txt`（可直接貼入 `src/HeliVMS.Licensing/Crypto/EmbeddedPublicKey.cs` 的
+  `Value` 之 C# 片段）。
+- `--key-size` 僅接受 2048／3072／4096；正式出貨建議 3072 以上，2048 僅供相容既有金鑰與教學。
+- `private.pem` **已存在即中止**，不覆寫——避免誤蓋唯一簽發金鑰。
+
+#### 19.6.2 私鑰加密靜置（`PrivateKeyVault`）
+
+自描述二進位容器（base64 包裹）：
+
+```
+magic "HELVMSKEY"(9B) │ mode(1B) │ iterations(4B,BE) │ salt(16B) │ nonce(12B) │ 密文(含 GCM tag 16B)
+```
+
+| 模式 | `--protection` | 演算法 | 適用 |
+|------|---------------|--------|------|
+| 明文 | `plain` | PKCS#8 PEM | 僅限隔離簽發機；相容既有流程 |
+| 口令 | `passphrase` | PBKDF2-HMAC-SHA256（≥50,000，預設 210,000）→ AES-256-GCM，AAD＝`HELVMSKEY` | 可攜、可離線 |
+| DPAPI | `dpapi` | `ProtectedData` CurrentUser ＋ 專屬 entropy | 同一 Windows 帳號免口令 |
+
+- 載入時自動判別容器／明文，無需額外旗標；**口令錯誤與檔案損毀都會被 GCM tag 驗證擋下**，
+  錯誤訊息與退出碼（4）明確區分於其他失敗。
+- 口令來源三擇一：`--passphrase-env <變數名>`／`--passphrase-file <檔>`／
+  `--prompt-passphrase`（遮罩輸入）。**不提供 `--passphrase <明文>`** 以免口令留在
+  shell 歷史或行程指令列。
+
+#### 19.6.3 簽發稽核（`IssuanceAuditTrail`）
+
+- 每次簽發（`license.issue`）與每次產生金鑰（`keypair.generate`）都寫入 append-only
+  JSON Lines 稽核軌跡，預設與私鑰同目錄 `issuance-audit.jsonl`（`--audit-log` 可覆寫）。
+- 每列記錄：時間、操作者、授權 ID、等級、通道數、功能旗標、綁定設備碼、到期、發行者、
+  **授權碼的 SHA-256**（不落明文授權碼）、公鑰指紋（金鑰輪替可追）。
+- **不可竄改**：每列以「簽發私鑰」對該列正規化文字簽章（RSA-2048／SHA-256／PKCS#1），
+  並以 `prev`＝前一列全文之 SHA-256 串成雜湊鏈。竄改者沒有私鑰即無法重簽，
+  刪除或重排任一列都會使序號或鏈斷裂。
+- **fail-closed**：稽核寫入失敗即中止，**不輸出授權碼**（避免留下無紀錄的授權）。
+- 操作者識別：`--operator` > `HELIVMS_ISSUANCE_OPERATOR` > `{機器}\{帳戶}`。
+  真實簽發者登入／雲端帳號列 §19.4 離線優先之外的 P3 強化。
+- `--audit-verify <稽核檔> (--public <公鑰PEM> | --private <私鑰路徑>)` 逐列驗簽並檢查鏈條；
+  有問題時退出碼 5。
+- **操作限制**：刪除「最後一列」在無外部錨點下無法察覺。實務上應定期將稽核檔隨簽發作業
+  封存／匯出至線下（此時可保存當時的 `seq` 與最後一列雜湊作為錨點）。
+
 
 ### 19.7 資料表（追加至 §4）
 

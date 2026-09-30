@@ -6,7 +6,7 @@ namespace HeliVMS.Licensing;
 /// <summary>
 /// Base64URL 編碼（RFC 4648 §5，無填充），用於 HELVMS-v2 授權字串。
 /// </summary>
-internal static class Base64Url
+public static class Base64Url
 {
     public static string Encode(byte[] data)
         => Convert.ToBase64String(data)
