@@ -58,6 +58,19 @@ internal static class Program
             return VerifyAudit(opts, auditPath, passphraseResult.Value);
         }
 
+        // 批次簽發（§19.6.3）：--batch <CSV> 一次簽發多張。整份檔案全有或全無，
+        // 解析與簽章刻意分開——先檢核再簽，避免簽到一半才發現壞列。
+        if (opts.TryGetValue("batch", out var batchCsvPath))
+        {
+            if (!opts.TryGetValue("private", out var batchPem) || !File.Exists(batchPem))
+            {
+                Console.Error.WriteLine("缺少參數 --private <私鑰路徑>");
+                return 2;
+            }
+
+            return RunBatch(opts, batchCsvPath, batchPem, passphraseResult.Value);
+        }
+
         if (!opts.TryGetValue("private", out var privatePemPath) || !File.Exists(privatePemPath))
         {
             Console.Error.WriteLine("缺少參數 --private <私鑰路徑>");
@@ -178,6 +191,115 @@ internal static class Program
             Console.Error.WriteLine("產生失敗：" + ex.Message);
             return 3;
         }
+    }
+
+    /// <summary>
+    /// 批次簽發（§19.6.3）：讀入 CSV，逐列簽章並各寫一張授權檔。
+    /// </summary>
+    /// <remarks>
+    /// 先整份檢核再動私鑰：CSV 有任何問題就完全不簽，一次列出所有錯誤列號——
+    /// 逐列簽到壞列才停的話，廠商手上會有半套已發出去的授權，稽核軌跡也難以對帳。
+    /// 每張都寫稽核（與單張簽發同一條路徑），中途中斷已簽的那些仍留痕。
+    /// </remarks>
+    private static int RunBatch(
+        Dictionary<string, string> opts,
+        string csvPath,
+        string privatePemPath,
+        string? passphrase)
+    {
+        if (!File.Exists(csvPath))
+        {
+            Console.Error.WriteLine($"CSV 不存在：{csvPath}");
+            return 2;
+        }
+
+        var parsed = BatchLicenseCsv.Parse(File.ReadAllText(csvPath), DateTime.UtcNow);
+        if (!parsed.Success)
+        {
+            Console.Error.WriteLine($"CSV 檢核失敗（{parsed.Errors.Count} 項），未簽發任何授權：");
+            foreach (var error in parsed.Errors)
+            {
+                Console.Error.WriteLine("  " + error);
+            }
+
+            return 2;
+        }
+
+        var outDir = opts.TryGetValue("out-dir", out var dirText) && dirText.Length > 0
+            ? dirText
+            : Path.Combine(Path.GetDirectoryName(Path.GetFullPath(csvPath)) ?? ".", "licenses");
+        Directory.CreateDirectory(outDir);
+
+        var auditFile = ResolveAuditPath(opts, privatePemPath);
+        var operatorName = ResolveOperator(opts);
+        var issued = 0;
+        var failed = 0;
+
+        try
+        {
+            using var privateKey = PrivateKeyVault.Open(File.ReadAllText(privatePemPath), passphrase);
+
+            foreach (var row in parsed.Rows)
+            {
+                var payload = new LicensePayload
+                {
+                    Id = row.LicenseId ?? Guid.NewGuid().ToString("N"),
+                    Machine = row.Machine,
+                    IssuedUtc = DateTime.UtcNow,
+                    ExpiresUtc = row.ExpiresUtc,
+                    Cameras = row.Cameras,
+                    Features = row.Features ?? row.Tier?.Features ?? [LicenseTiers.FeatureCore],
+                    Issuer = row.Issuer ?? (opts.TryGetValue("issuer", out var issuer) && issuer.Length > 0
+                        ? issuer
+                        : "禾秝軟體開發團隊"),
+                };
+
+                try
+                {
+                    var token = LicenseSerializer.Sign(payload, privateKey);
+                    var entry = IssuanceAuditTrail.Append(
+                        auditFile,
+                        new IssuanceAuditDraft(
+                            IssuanceActions.Issue,
+                            operatorName,
+                            LicenseId: payload.Id,
+                            Tier: row.TierName ?? "自訂",
+                            Cameras: payload.Cameras,
+                            Features: payload.Features,
+                            Machine: payload.Machine.Length > 0 ? payload.Machine : null,
+                            ExpiresUtc: payload.ExpiresUtc,
+                            Issuer: payload.Issuer,
+                            TokenSha256: IssuanceAuditTrail.Fingerprint(
+                                System.Text.Encoding.UTF8.GetBytes(token))),
+                        privateKey);
+
+                    var file = Path.Combine(outDir, $"{row.FileStem}.lic");
+                    File.WriteAllText(file, token);
+                    issued++;
+                    Console.Error.WriteLine(
+                        $"第 {row.Line} 行 ✓ {(row.Customer.Length > 0 ? row.Customer + " " : string.Empty)}" +
+                        $"{payload.Id} / {payload.Cameras} 路 / " +
+                        $"到期 {(payload.ExpiresUtc is null ? "永久" : payload.ExpiresUtc.Value.ToString("u"))}" +
+                        $"（稽核 seq={entry.Seq}）→ {file}");
+                }
+                catch (Exception ex)
+                {
+                    // 續簽：其餘列仍要處理並留痕，最後以非零碼回報，避免廠商以為整批都好了。
+                    failed++;
+                    Console.Error.WriteLine($"第 {row.Line} 行 ✗ {(row.Customer.Length > 0 ? row.Customer : row.Machine)}：{ex.Message}");
+                }
+            }
+        }
+        catch (PrivateKeyAccessException ex)
+        {
+            Console.Error.WriteLine("私鑰載入失敗：" + ex.Message);
+            return 4;
+        }
+
+        Console.Error.WriteLine(
+            $"完成：簽發 {issued} 張，失敗 {failed} 張；輸出於 {Path.GetFullPath(outDir)}；" +
+            $"稽核：{Path.GetFullPath(auditFile)}");
+        return failed == 0 ? 0 : 3;
     }
 
     private static int GenerateKeyPair(Dictionary<string, string> opts, string directory, string? passphrase)
@@ -541,6 +663,9 @@ internal static class Program
 
               dotnet run -c Release -- --audit-verify <稽核檔> (--public <公鑰PEM> | --private <私鑰路徑>)
 
+              dotnet run -c Release -- --private <私鑰路徑> --batch <CSV路徑> [--out-dir <輸出目錄>]
+                  [--operator <操作者>] [--audit-log <稽核檔>] [口令來源]
+
             等級（--list-tiers 可列出矩陣）：
               基本版 / 標準版 / 專業版 / 進階版 / 企業版 / 客製版
               等級會帶出建議通道數與功能旗標；--cameras、--features 可覆寫。
@@ -554,9 +679,27 @@ internal static class Program
               - 口令來源僅可擇一；--passphrase-env／--prompt-passphrase 不會把口令留在
                 命令列歷史
 
+            批次簽發（--batch，§19.6.3）：
+              CSV 欄位（machine 與 id 為必要欄，tier 與 cameras 至少給一個）：
+                machine  32 碼設備碼；填 * 表示不綁定機器（留空視為錯誤）
+                tier     等級名稱，如 進階版
+                cameras  通道數上限（1～1024）；不填則沿用等級建議值
+                features 功能旗標，逗號／分號／空白分隔；不填則沿用等級
+                expires  到期日 yyyy-MM-dd 或 ISO 8601；留空為永久；已過期會拒簽
+                id       授權 ID；不填則自動產生
+                issuer   發行者；不填則採預設
+                customer 客戶／案場名稱（用於輸出檔名，不進授權碼）
+                note     備註（僅記錄，不進授權碼）
+
+              整份檔案全有或全無：任一列有問題就一張都不簽，並一次列出所有問題的行號。
+              可用 # 開頭的單欄列當註解。
+
             範例：
               dotnet run -c Release -- --private .secrets\test-private.pem
                   --tier 進階版 --expire 2027-09-13 --out .secrets\license.lic
+
+              dotnet run -c Release -- --private .secrets\test-private.pem
+                  --batch orders.csv --out-dir .secrets\batch-2026Q1
 
               dotnet run -c Release -- --private .secrets\test-private.pem
                   --tier 客製版 --cameras 512 --features core,ai,gis,remote

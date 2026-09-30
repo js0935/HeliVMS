@@ -1593,7 +1593,7 @@ payload 由 `LicensePayload` 序列化（`JsonNamingPolicy.CamelCase`），欄�
 | 工具 | 現況 | 處置 |
 |---|---|---|
 | `Tools/LicenseKeyGenUI` | RSA 金鑰對＋簽章；原 payload 欄位與產品端不符（`HELVMS-` 兩段式） | **已修正**：改為引用 `HeliVMS.Licensing`，直接呼叫 `LicenseSerializer.Sign` 與 `MachineIdProvider.GetDeviceCode()`，並納入 `HeliVMS.slnx` 由 CI 建置 |
-| `Tools/HeliVMS.LicenseProducer` | CLI 簽發，引用 `HeliVMS.Licensing` | **正式簽發工具**；`--tier`（展開 §19.3 矩陣）、`--list-tiers`、`--issuer`，並驗證通道數與設備碼格式；M205 另加入 `--gen-key`（金鑰對產生）、`--passphrase-env/--passphrase-file/--prompt-passphrase`（私鑰加密靜置）、`--operator/--audit-log/--audit-verify`（簽發稽核） |
+| `Tools/HeliVMS.LicenseProducer` | CLI 簽發，引用 `HeliVMS.Licensing` | **正式簽發工具**；`--tier`（展開 §19.3 矩陣）、`--list-tiers`、`--issuer`，並驗證通道數與設備碼格式；M205 另加入 `--gen-key`（金鑰對產生）、`--passphrase-env/--passphrase-file/--prompt-passphrase`（私鑰加密靜置）、`--operator/--audit-log/--audit-verify`（簽發稽核）；M212 加入 `--batch`（CSV 批次簽發，見 §19.6.4） |
 | `Tools/LicenseKeyGen`（HMAC） | secret 同時存在兩端、HMAC 僅 1 byte、device 綁定前 4 碼、預設密碼明文；其註解所指的 `HeliVMS.Services.LicenseService` 從未實作 | **已移入 `Tools/_deprecated/LicenseKeyGen/`**，檔頭加註 DEPRECATED 說明改用 LicenseProducer；`error*.log`、`output*.log` 遺殼一併清除。不在解決方案內，不建置、不維護 |
 | `Password.dat` 登入 | SHA-256 無鹽、預設密碼 `hr22619219` 明文於程式碼 | 隨工具一併停用；密碼改由 DB／環境管理 |
 
@@ -1608,7 +1608,7 @@ payload 由 `LicensePayload` 序列化（`JsonNamingPolicy.CamelCase`），欄�
 - 密碼與金鑰安全：私鑰可選加密靜置（DPAPI/口令）；與程式碼分開存放
 - 與 §19.4 對應：產生公鑰張貼於產品版的 `EmbeddedPublicKey`
 
-> **實作狀態**：金鑰對產生、批次簽發（除 CSV 輸入）、稽核、私鑰加密靜置**已落地**
+> **實作狀態**：金鑰對產生、批次簽發（含 CSV 輸入）、稽核、私鑰加密靜置**已全數落地**
 > （M205／M212）。實作如下。
 
 #### 19.6.1 金鑰對產生（`--gen-key`）
@@ -1661,6 +1661,44 @@ magic "HELVMSKEY"(9B) │ mode(1B) │ iterations(4B,BE) │ salt(16B) │ nonce
 - **操作限制**：刪除「最後一列」在無外部錨點下無法察覺。實務上應定期將稽核檔隨簽發作業
   封存／匯出至線下（此時可保存當時的 `seq` 與最後一列雜湊作為錨點）。
 
+#### 19.6.4 批次簽發（`--batch`，`BatchLicenseCsv`）
+
+```
+dotnet run -c Release -- --private .secrets\prod\private.pem \
+    --batch orders.csv --out-dir .secrets\2026Q1 --operator <操作者>
+```
+
+CSV 欄位（`machine` 必要；`tier` 與 `cameras` 至少給一個）：
+
+| 欄位 | 說明 |
+|---|---|
+| `machine` | 32 碼設備碼（§19.1）；填 `*` 表示明確不綁定，**留空視為錯誤** |
+| `tier` | 等級名稱（`--list-tiers` 可列） |
+| `cameras` | 通道數 1～1024；不填沿用等級建議值 |
+| `features` | 功能旗標，逗號／分號／空白分隔；不填沿用等級 |
+| `expires` | `yyyy-MM-dd` 或 ISO 8601（UTC）；留空為永久 |
+| `id` | 授權 ID；不填自動產生 |
+| `issuer` | 發行者；不填採預設 |
+| `customer` / `note` | 僅記錄與輸出檔名，**不進授權碼** |
+
+- **整份檔案全有或全無**：任一列有問題就一張都不簽，且一次列出**所有**問題的行號與欄名。
+  批次常是數百列，若逐列簽到壞列才停，廠商手上會是半套已發出去的授權，稽核軌跡也難以對帳。
+- **解析與簽章分開**：`BatchLicenseCsv` 完全不碰金鑰，輸出 `BatchCsvParseResult`，
+  故可在測試裡窮舉畸形輸入；`Program.RunBatch` 才負責開私鑰、逐列簽章與寫檔。
+- **拒絕的輸入**（皆為「默默簽錯比不簽更貴」）：
+  - `machine` 留空或非 32 碼十六進位——留空會發出一張任何機器都能用的卡；
+  - 未知欄名（如 `camaers`）——被默默忽略的話就會照等級預設值簽 4 路出去，且**沒有任何錯誤訊息**；
+  - 欄數多於表頭——多出的內容會被忽略，資料會錯位到別的欄位去簽；
+  - 到期日已過——簽出去的卡一裝就失效，多半是年份打錯；
+  - 設備碼或授權 ID 在同一檔內重複——同一台機器掛兩張只會讓使用者搞不清楚哪張有效。
+  - 日期以 `TryParseExact` 為主：`DateTime.TryParse` 的寬鬆剖析會把 `2027-13-45` 當成
+    合法（擲回當月最後一天），簽出去就是一張立刻到期的卡。
+- **容錯**：Excel 匯出的 BOM、CRLF、空行，以及單欄位 `#` 開頭的註解列皆略過。
+  BOM 要在判斷註解**之前**剝除——`\uFEFF` 不是空白字元，`TrimStart()` 不會處理它，
+  否則第一行註解會被當成表頭，整份檔案解析錯位。
+- **輸出**：每列寫一張 `<customer>.lic`（檔名先過濾路徑分隔符與控制字元，沒有可用字樣則
+  退回 `license-{行號}`）；稽核仍逐列寫入，與單張簽發同一條路徑，故 `--audit-verify` 照樣驗得。
+- 中途個別列失敗會續簽其餘列，最後以非零碼（3）回報，避免廠商誤以為整批都完成。
 
 ### 19.7 資料表（追加至 §4）
 
