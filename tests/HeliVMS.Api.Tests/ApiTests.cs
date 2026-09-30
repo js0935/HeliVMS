@@ -180,6 +180,22 @@ public class ApiTests : IClassFixture<ApiFactory>, IDisposable
     }
 
     [Fact]
+    public async Task Events_ForensicSearchHitCarriesTriageStatus()
+    {
+        var id = InsertMotion("shelf-crash-78");
+        using var client = Client();
+        var ack = await client.PostAsJsonAsync($"/api/events/{id}/ack", new ApiEndpoints.AckRequest(true));
+        Assert.Equal(HttpStatusCode.OK, ack.StatusCode);
+
+        var response = await client.GetAsync("/api/events/search?q=shelf-crash-78&limit=20");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = await ReadAsync<ApiEndpoints.Paged<ForensicSearchHit>>(response);
+
+        var hit = Assert.Single(body.Items);
+        Assert.Equal("acknowledged", hit.Status);
+    }
+
+    [Fact]
     public async Task Events_AcknowledgeFlipsFlag()
     {
         var id = InsertMotion("ack-me");

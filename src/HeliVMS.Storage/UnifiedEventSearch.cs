@@ -13,8 +13,8 @@ public enum ForensicSource
     All = Alarm | Door | Pos | EdgeSmart,
 }
 
-/// <summary>跨來源語意搜尋命中（M97）：來源＋原文片段＋時間＋bm25 rank。</summary>
-public sealed record ForensicSearchHit(ForensicSource Source, long SourceId, string Text, DateTime OccurredAtUtc, double Rank);
+/// <summary>跨來源語意搜尋命中（M97）：來源＋原文片段＋時間＋bm25 rank＋（僅警報）分診狀態。</summary>
+public sealed record ForensicSearchHit(ForensicSource Source, long SourceId, string Text, DateTime OccurredAtUtc, double Rank, string? Status = null);
 
 /// <summary>法證語意搜尋多源（M97）：alarm 以外把門禁/POS/Edge AI metadata 併入同一全文檢索介面。</summary>
 public sealed class UnifiedEventSearch
@@ -74,7 +74,8 @@ public sealed class UnifiedEventSearch
                     r.GetInt64(1),
                     r.GetString(2),
                     SqliteStore.FromIso(r.GetString(3)),
-                    r.IsDBNull(4) ? 0.0 : r.GetDouble(4)));
+                    r.IsDBNull(4) ? 0.0 : r.GetDouble(4),
+                    r.IsDBNull(5) ? null : r.GetString(5)));
             }
 
             return rows;
@@ -85,8 +86,9 @@ public sealed class UnifiedEventSearch
     {
         return Search(
             """
-            SELECT 1, e.id, e.detail, e.start_time, bm25(alarm_events_fts)
+            SELECT 1, e.id, e.detail, e.start_time, bm25(alarm_events_fts), COALESCE(d.status, 'pending')
             FROM alarm_events_fts JOIN alarm_events e ON e.id = alarm_events_fts.rowid
+            LEFT JOIN event_dispositions d ON d.event_id = e.id
             WHERE alarm_events_fts MATCH $q AND ($from IS NULL OR e.start_time >= $from) AND ($to IS NULL OR e.start_time < $to)
             LIMIT $lim;
             """,
@@ -97,7 +99,7 @@ public sealed class UnifiedEventSearch
     {
         return Search(
             """
-            SELECT 2, e.id, (e.card_id || ' ' || e.direction || ' ' || e.reason), e.occurred_at_utc, bm25(door_events_fts)
+            SELECT 2, e.id, (e.card_id || ' ' || e.direction || ' ' || e.reason), e.occurred_at_utc, bm25(door_events_fts), CAST(NULL AS TEXT)
             FROM door_events_fts JOIN door_events e ON e.id = door_events_fts.rowid
             WHERE door_events_fts MATCH $q AND ($from IS NULL OR e.occurred_at_utc >= $from) AND ($to IS NULL OR e.occurred_at_utc < $to)
             LIMIT $lim;
@@ -109,7 +111,7 @@ public sealed class UnifiedEventSearch
     {
         return Search(
             """
-            SELECT 4, e.id, (e.transaction_no || ' ' || e.register_id || ' ' || CAST(e.amount_cents AS TEXT)), e.occurred_at_utc, bm25(pos_events_fts)
+            SELECT 4, e.id, (e.transaction_no || ' ' || e.register_id || ' ' || CAST(e.amount_cents AS TEXT)), e.occurred_at_utc, bm25(pos_events_fts), CAST(NULL AS TEXT)
             FROM pos_events_fts JOIN pos_events e ON e.id = pos_events_fts.rowid
             WHERE pos_events_fts MATCH $q AND ($from IS NULL OR e.occurred_at_utc >= $from) AND ($to IS NULL OR e.occurred_at_utc < $to)
             LIMIT $lim;
@@ -121,7 +123,7 @@ public sealed class UnifiedEventSearch
     {
         return Search(
             """
-            SELECT 8, e.id, (e.class_name || ' ' || e.track_id || ' ' || e.direction), e.occurred_at_utc, bm25(edge_smart_events_fts)
+            SELECT 8, e.id, (e.class_name || ' ' || e.track_id || ' ' || e.direction), e.occurred_at_utc, bm25(edge_smart_events_fts), CAST(NULL AS TEXT)
             FROM edge_smart_events_fts JOIN edge_smart_events e ON e.id = edge_smart_events_fts.rowid
             WHERE edge_smart_events_fts MATCH $q AND ($from IS NULL OR e.occurred_at_utc >= $from) AND ($to IS NULL OR e.occurred_at_utc < $to)
             LIMIT $lim;

@@ -963,6 +963,8 @@ function renderPos() {
     .catch(() => {});
 }
 
+const FORENSIC_SOURCE_NAMES = { 1: '警報', 2: '門禁', 4: 'POS', 8: '邊緣AI' };
+
 async function searchEvents(q) {
   if (!q) {
     $('events-msg').textContent = '請輸入關鍵字';
@@ -973,12 +975,21 @@ async function searchEvents(q) {
   const params = new URLSearchParams({ q, from: from.toISOString(), to: to.toISOString(), limit: '50' });
   const page = await api(`/api/events/search?${params}`);
   const items = page.items ?? [];
+  const can = canAct(readSession()?.role);
   $('events').querySelector('tbody').innerHTML = items
     .map((e) => {
       const row = eventRow(e);
-      return `<tr><td>${esc(row.id)}</td><td>${esc(row.time)}</td><td>${esc(row.channel)}</td><td>${esc(row.type)}</td><td>${esc(row.status ?? '')}</td></tr>`;
+      const sid = Number(e.SourceId ?? e.sourceId ?? 0);
+      const source = Number(e.Source ?? e.source ?? 0);
+      return (
+        `<tr><td>${esc(sid ? '#' + sid : '')}</td><td>${esc(row.time)}</td><td>${esc(FORENSIC_SOURCE_NAMES[source] ?? '—')}</td><td>${esc(row.type)}</td><td>${esc(row.status || '—')}</td>` +
+        (can && source === 1
+          ? `<td><button data-sack="${Number(sid)}">確認</button><button class="danger" data-sfa="${Number(sid)}">誤報</button></td></tr>`
+          : '<td></td></tr>')
+      );
     })
     .join('');
+  if (can) bindSearchActions(() => searchEvents(q));
   if (items.length === 0) {
     $('events-msg').textContent = '沒有符合的結果';
   } else if (items.length < page.total) {
@@ -986,6 +997,29 @@ async function searchEvents(q) {
   } else {
     $('events-msg').textContent = `找到 ${page.total} 筆`;
   }
+}
+
+function bindSearchActions(refresh) {
+  Array.from(document.querySelectorAll('[data-sack]')).forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      await apiRaw(`/api/alarm-board/${btn.dataset.sack}/ack`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ acknowledged: true }),
+      });
+      refresh();
+    });
+  });
+  Array.from(document.querySelectorAll('[data-sfa]')).forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      await apiRaw(`/api/alarm-board/${btn.dataset.sfa}/disposition`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'false_alarm', assignedTo: null, note: '搜尋命中標記誤報' }),
+      });
+      refresh();
+    });
+  });
 }
 
 let timelineDay = '';

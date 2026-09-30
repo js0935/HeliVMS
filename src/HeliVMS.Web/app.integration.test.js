@@ -67,3 +67,31 @@ describe('search feedback', () => {
     expect(indexSource).toMatch(/id="events-msg"[^>]*aria-live="polite"/);
   });
 });
+
+describe('search-to-action', () => {
+  it('labels the search source column and action header', () => {
+    expect(indexSource).toMatch(/<th scope="col">來源<\/th>/);
+    expect(indexSource).toMatch(/<th scope="col">操作<\/th>/);
+  });
+
+  it('renders per-hit source names', () => {
+    expect(appSource).toMatch(/FORENSIC_SOURCE_NAMES = \{ 1: '警報', 2: '門禁', 4: 'POS', 8: '邊緣AI' \}/);
+    expect(appSource).toMatch(/FORENSIC_SOURCE_NAMES\[source\]/);
+  });
+
+  it('shows alarm hit id and status, and gates 確認/誤報 actions to alarm hits for actors', () => {
+    expect(appSource).toMatch(/data-sack="\$\{Number\(sid\)\}"/);
+    expect(appSource).toMatch(/data-sfa="\$\{Number\(sid\)\}"/);
+    expect(appSource).toMatch(/can && source === 1/);
+    expect(appSource).toMatch(/esc\(row\.status \|\| '—'\)/);
+  });
+
+  it('refreshes the same search after acting on a hit', () => {
+    expect(appSource).toMatch(/bindSearchActions\(\(\) => searchEvents\(q\)\)/);
+  });
+
+  it('reuses the alarm-board disposition endpoints through the authenticated transport', () => {
+    expect(appSource).toMatch(/\/api\/alarm-board\/\$\{btn\.dataset\.sack\}\/ack/);
+    expect(appSource).toMatch(/\/api\/alarm-board\/\$\{btn\.dataset\.sfa\}\/disposition/);
+  });
+});

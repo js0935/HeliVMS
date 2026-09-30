@@ -81,6 +81,31 @@ public class UnifiedEventSearchTests : IDisposable
         var hits = _search.Search("alpha", null, null, ForensicSource.Alarm);
         var hit = Assert.Single(hits);
         Assert.Equal(ForensicSource.Alarm, hit.Source);
+        Assert.Equal("pending", hit.Status); // 未處置 alarm 自 event_dispositions 帶入
+    }
+
+    [Fact]
+    public void AlarmSource_StatusFollowsDisposition()
+    {
+        _alarm.Insert(1, "motion", T(8), null, "gamma");
+        _alarm.SetDisposition(1, AlarmEventStatus.FalseAlarm, null, null, T(9));
+
+        var hit = Assert.Single(_search.Search("gamma", null, null, ForensicSource.Alarm));
+
+        Assert.Equal("false_alarm", hit.Status);
+    }
+
+    [Fact]
+    public void NonAlarmSources_CarryNoTriageStatus()
+    {
+        _door.Insert(1, 1, "CARD-90", "In", true, "approved", T(8));
+        _pos.Insert(1, "R1", "TXN-90", 100, T(9));
+        _edge.Append(1, "person", "TRK-90", "RtL", 0, 0, 1, 1, T(10));
+
+        var hits = _search.Search("90", null, null);
+
+        Assert.Equal(3, hits.Count);
+        Assert.All(hits, h => Assert.Null(h.Status));
     }
 
     [Fact]
