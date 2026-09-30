@@ -9,7 +9,8 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="System.Management" Version="9.0.4" />
+    <!-- 簽章與設備碼直接沿用產品端實作，避免格式再次漂移（§19.1／§19.2）。 -->
+    <ProjectReference Include="..\..\src\HeliVMS.Licensing\HeliVMS.Licensing.csproj" />
   </ItemGroup>
 
 </Project>

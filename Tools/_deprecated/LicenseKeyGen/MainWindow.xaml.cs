@@ -1,3 +1,18 @@
+// ============================================================================
+// [已停用 / DEPRECATED — 見 docs/ARCHITECTURE.md §19.5]
+//
+// 本工具產出的是舊版 HMAC 對稱授權碼（Aaaa-Bbbb-Cccc-Dddd），僅供歷史參考，
+// 產品端 HeliVMS.Licensing 已不支援此格式，套用必然驗證失敗。
+//
+// 原因：HMAC 為對稱加密，驗證端必須持有同一把 secret（見下方 HmacSecret），
+// 代表任何取得產品檔案的人都能自簽授權金鑰，無法防止偽造。
+//
+// 請改用 Tools/HeliVMS.LicenseProducer 簽發 RSA-2048 非對稱授權：
+//     dotnet run --project Tools/HeliVMS.LicenseProducer -- --help
+// GUI 版則為 Tools/LicenseKeyGenUI（輸出格式為 HELVMS-v2.{payload}.{sig}）。
+//
+// 原始檔案自 c10bd25 起即為此狀態，未修改其邏輯以保留歷史可追溯性。
+// ============================================================================
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
@@ -13,6 +28,7 @@ namespace LicenseKeyGen;
 public partial class MainWindow : Window
 {
     // HMAC secret MUST match HeliVMS.Services.LicenseService — keep in sync
+    // 注意：HeliVMS.Services.LicenseService 在本 repo 並不存在，該對稱驗證路徑從未實作。
     private static readonly byte[] HmacSecret =
         [0x1A, 0x2B, 0x3C, 0x4D, 0x5E, 0x6F, 0x70, 0x81,
          0x92, 0xA3, 0xB4, 0xC5, 0xD6, 0xE7, 0xF8, 0x09];

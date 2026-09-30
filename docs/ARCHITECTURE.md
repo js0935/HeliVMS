@@ -83,8 +83,9 @@ HeliVms/
 ├─ HeliVms.Licensing/           # 授權驗證核心（公鑰內嵌、設備碼、等級矩陣、導入）— §19
 ├─ HeliVms.Shared/              # 事件聚合、擴充方法、Logging(Serilog)
 ├─ Tools/                       # 廠商側工具（不入客戶安裝包）
-│  ├─ LicenseProducer/          # 授權生成器（RSA-2048 簽章；源自 Tools/LicenseKeyGenUI）— §19
-│  └─ (LicenseKeyGen/           # ⚠ 舊 HMAC 對稱版，安全弱，全面停用 — §19.5）
+│  ├─ HeliVMS.LicenseProducer/  # 授權生成器 CLI（RSA-2048 簽章）— §19.6
+│  ├─ LicenseKeyGenUI/          # 授權生成器 GUI（金鑰對＋簽署）— §19.5
+│  └─ _deprecated/              # 已停用工具（LicenseKeyGen：舊 HMAC 對稱版）— §19.5
 └─ docs/                        # 本規劃、資料庫結構、營運手冊
 ```
 
@@ -1480,31 +1481,48 @@ L2 比對（人臉/車牌）置「進階·需權限」區，預設關閉（§5.1
 
 ## 19. 授權與許可管理（整合 Tools/ 授權系統）
 
-> 整合既有 `Tools/LicenseKeyGen`（HMAC 對稱版）與 `Tools/LicenseKeyGenUI`（RSA-2048 版）兩套工具，
+> 既有 `Tools/LicenseKeyGen`（HMAC 對稱版）與 `Tools/LicenseKeyGenUI`（RSA-2048 版）兩套工具，
 > 正式定案為一套 **非對稱簽章授權** 並接入 HeliVms 全產品。
+>
+> **單一真相來源**：`src/HeliVMS.Licensing` 為授權格式的唯一權威實作。
+> 兩個簽發工具（`Tools/HeliVMS.LicenseProducer`、`Tools/LicenseKeyGenUI`）皆直接引用該專案，
+> 不自行實作序列化、簽章或設備碼計算，避免格式漂移。
 
 ### 19.1 方案定案：RSA-2048 非對稱簽章
 
 | 項目 | HeliVms 採行 | 說明 |
 |---|---|---|
 | 簽章 | **RSA-2048 / SHA-256 (PKCS#1)** | 驗證只需公鑰；私鑰僅存廠商側，出貨產品無法偽造金鑰 |
-| 授權碼格式 | `HELVMS-v2.{Base64URL(payload)}.{Base64URL(signature)}` | 承 LicenseKeyGenUI；payload 為 UTF-8 JSON |
-| 公鑰嵌入 | 產品端 `HeliVms.Licensing` 編譯期內嵌 `EmbeddedPublicKey` | 授權碼獨立字串，可傳真/Email 交付，免隨身碟 |
-| 設備碼 | **WMI（CPU ProcessorId + MainBoard SerialNumber）→ SHA-256 → 前 32 碼 HEX** | 兩工具同邏輯；**綁定全 32 碼，不接受前 4 碼子集** |
-| 到期授權 | payload 含到期日；`永久` 以「無 exp 欄位」表示 | 勿再用「年份偏移+月日」的低精度編碼 |
+| 授權碼格式 | `HELVMS-v2.{Base64URL(payload)}.{Base64URL(signature)}` | 由 `LicenseSerializer` 唯一實作；payload 為 UTF-8 JSON |
+| 公鑰嵌入 | 產品端 `HeliVMS.Licensing` 編譯期內嵌 `EmbeddedPublicKey` | 授權碼獨立字串，可傳真/Email 交付，免隨身碟 |
+| 設備碼 | **WMI（CPU ProcessorId + MainBoard SerialNumber）→ SHA-256 → 前 32 碼 HEX** | 由 `MachineIdProvider.GetDeviceCode()` 唯一實作；**綁定全 32 碼，不接受前 4 碼子集** |
+| 到期授權 | payload 含到期日；`永久` 以 `expiresUtc` 為 null 表示 | 勿再用「年份偏移+月日」的低精度編碼 |
+
+> **設備碼補充**：CPU `ProcessorId` 在同型號機器上可能完全相同（常見於虛擬機），
+> 故 `GetDeviceCode()` 要求至少兩項來源（CPU + 主機板序號），不足時補固定磁碟機雜湊與主機名稱。
+> 早期版本曾以 MAC 位址雜湊出 64 hex 指紋，已改為 `GetLegacyFingerprint()`，
+> 僅由 `LicenseManager` 在驗證時比對，確保既有授權不因演算法統一而失效。
 
 ### 19.2 授權碼 Payload 定義（v2）
 
+payload 由 `LicensePayload` 序列化（`JsonNamingPolicy.CamelCase`），欄位如下：
+
 ```json
 {
-  "mid":  "設備碼32碼HEX",          // 必填
-  "max":  64,                       // 最大通道數 1~1024
-  "tip":  "企業版",                 // 等級：基本/標準/專業/進階/企業/客製
-  "exp":  "2027-12-31",             // 選填；缺省=永久
-  "iss":  "2026-09-13",             // 簽發日（用於回流時鐘防護）
-  "lic":  "禾秝公司"                // 授權對象（公司/案場名）
+  "ver": 2,                          // 格式版本
+  "id": "c30db29f392b41c3b626e3c4e41d2776", // 授權唯一識別碼
+  "machine": "",                     // 設備碼 32 碼 HEX；空字串 = 不綁定機器
+  "issuedUtc": "2026-09-12T17:16:33.5279514Z", // 簽發時間（UTC）
+  "expiresUtc": "2027-09-30T00:00:00Z",       // 到期時間（UTC）；null = 永久
+  "cameras": 32,                     // 最大通道數 1~1024
+  "features": ["core","ai","gis"],   // 功能旗標，等級由此推導（§19.3）
+  "issuer": "禾秝軟體開發團隊"        // 發行者／授權對象
 }
 ```
+
+> 等級**不**單獨寫入 payload。同一組 `cameras` + `features` 即代表一個等級，
+> 另存 `tip` 欄位只會造成「功能相同但等級不同」的雙重真相，產品端也無從據此拒絕功能。
+> 簽發端的 `--tier` 僅為輸入便利，由 `LicenseTiers` 展開為上述兩項。
 
 ### 19.3 等級 → 功能矩陣
 
@@ -1517,7 +1535,18 @@ L2 比對（人臉/車牌）置「進階·需權限」區，預設關閉（§5.1
 | 企業版 | 64 | ✅ | ✅ | ✅ | ✅ | ✅(選購) | ✅ | ✅ | ✅ |
 | 客製版 | ≤1024 | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 
-> 載入授權後，UI 依等級**隱藏未授權功能**（非僅停用按鈕），避免誤導。
+> 上表為程式碼的鏡像：矩陣定義於 `src/HeliVMS.Licensing/LicenseTier.cs` 的 `LicenseTiers.All`，
+> 兩個簽發工具皆由此展開 `cameras` 與 `features`，修改等級請改該檔（附 `LicenseTierTests` 保護）。
+
+功能旗對照：`core` 核心、`schedule` 排程錄影、`ai` 事件 AI、`ai.l1` L1 人/車、
+`ai.l2` L2 車牌/人臉、`gis` 地圖/IO、`remote` 遠程存取、`ad` 企業 AD/SSO。
+
+> **等級顯示**：產品端由 `LicenseTiers.Match(features, cameras)` 反推等級，且旗標須
+> **完整等於**某一等級的功能組合才認定。多一項或少一項即視為客製授權而不標示等級名稱，
+> 避免「只有 core+ai 的 32 路授權」被標成「基本版」而誤導客戶以為上限 4 路。
+> 企業版與客製版旗標相同（§19.3），由通道數區分。
+
+> 載入授權後，UI 依 `features` **隱藏未授權功能**（非僅停用按鈕），避免誤導。
 
 ### 19.4 產品端整合點（HeliVms.Licensing）
 
@@ -1535,9 +1564,13 @@ L2 比對（人臉/車牌）置「進階·需權限」區，預設關閉（§5.1
 
 | 工具 | 現況 | 處置 |
 |---|---|---|
-| `Tools/LicenseKeyGenUI` | RSA 金鑰對＋簽章，功能正確 | **升級為正式 `Tools/LicenseProducer`** |
-| `Tools/LicenseKeyGen`（HMAC） | secret 同時存在兩端、HMAC 僅 1 byte、device 綁定前 4 碼、預設密碼明文 | **標記停用**，移動至 `Tools/_deprecated/LicenseKeyGen/`（或刪除）；註解註明「請改以 LicenseProducer 簽發」 |
-| `Password.dat` 登入 | SHA-256 無鹽、預設密碼 `hr22619219` 明文於程式碼 | 升級：bcrypt/PBKDF2＋首次登入強制改密碼；密碼不進程式碼（環境/由授權表 DB 管理） |
+| `Tools/LicenseKeyGenUI` | RSA 金鑰對＋簽章；原 payload 欄位與產品端不符（`HELVMS-` 兩段式） | **已修正**：改為引用 `HeliVMS.Licensing`，直接呼叫 `LicenseSerializer.Sign` 與 `MachineIdProvider.GetDeviceCode()`，並納入 `HeliVMS.slnx` 由 CI 建置 |
+| `Tools/HeliVMS.LicenseProducer` | CLI 簽發，引用 `HeliVMS.Licensing` | **正式簽發工具**；新增 `--tier`（展開 §19.3 矩陣）、`--list-tiers`、`--issuer`，並驗證通道數與設備碼格式 |
+| `Tools/LicenseKeyGen`（HMAC） | secret 同時存在兩端、HMAC 僅 1 byte、device 綁定前 4 碼、預設密碼明文；其註解所指的 `HeliVMS.Services.LicenseService` 從未實作 | **已移入 `Tools/_deprecated/LicenseKeyGen/`**，檔頭加註 DEPRECATED 說明改用 LicenseProducer；`error*.log`、`output*.log` 遺殼一併清除。不在解決方案內，不建置、不維護 |
+| `Password.dat` 登入 | SHA-256 無鹽、預設密碼 `hr22619219` 明文於程式碼 | 隨工具一併停用；密碼改由 DB／環境管理 |
+
+> 教學與驗收一律使用 `LicenseProducer` / `LicenseKeyGenUI`。
+> 舊 HMAC 格式**不得**再對外簽發：其驗證路徑從未實作，且對稱 secret 存在產品端即可自簽金鑰。
 
 ### 19.6 LicenseProducer（廠商側）功能
 
@@ -1694,7 +1727,7 @@ HeliVms.Decoder  ⇄ 主進程（命名管道，JSON 協定，獨立崩潰域）
 
 - `D:\HeliVms` 尚未 git init → 先初始化，再做首次 commit（含 docs/＋Tools/）
 - `.gitignore`：`**/bin/` `**/obj/` `*.log` `password.dat` `private.key` `*.tmp`
-- 清理工具殘留：`LicenseKeyGen` 的 `error*.log` `output*.log`；標記停用（§19.5）
+- 清理工具殘留：`LicenseKeyGen` 的 `error*.log` `output*.log`；標記停用（§19.5） — **已完成**（已移入 `Tools/_deprecated/`，遺殼日誌已刪除）
 - 命名統一：Tools 使用 `HeliVMS.*`、藍圖使用 `HeliVms.*` → 新專案一律 `HeliVms.*`；舊工具遷移時改名
 - 加入 `.editorconfig`＋.NET 內建 analyzers，CI 將警告視為錯誤，範式（nullable、ImplicitUsings）在 `Directory.Build.props` 全 repo 統一
 

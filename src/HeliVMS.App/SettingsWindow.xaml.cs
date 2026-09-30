@@ -1290,14 +1290,16 @@ public partial class SettingsWindow : Window
             var expire = state.Payload.ExpiresUtc.HasValue
                 ? $"，到期 {state.Payload.ExpiresUtc.Value:u}"
                 : string.Empty;
-            LicenseStatusText.Text = $"已授權（{state.Payload.Cameras} 路{expire}）";
+            var tier = LicenseTiers.Match(state.Payload.Features, state.Payload.Cameras);
+            var tierText = tier is null ? string.Empty : $"{tier.Name}／";
+            LicenseStatusText.Text = $"已授權（{tierText}{state.Payload.Cameras} 路{expire}）";
         }
         else
         {
             LicenseStatusText.Text = $"未授權：{state.Message ?? state.Status.ToString()}";
         }
 
-        MachineText.Text = MachineIdProvider.GetFingerprint();
+        MachineText.Text = MachineIdProvider.GetDeviceCode();
     }
 
     private void OnApplyLicenseClicked(object sender, RoutedEventArgs e)

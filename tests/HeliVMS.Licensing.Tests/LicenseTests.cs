@@ -117,4 +117,56 @@ public class LicenseTests
         Assert.Contains("HeliVMS", path);
         Assert.DoesNotContain("Program Files", path);
     }
+
+    [Fact]
+    public void DeviceCode_Is32Hex_AndMatchesFingerprint()
+    {
+        var code = MachineIdProvider.GetDeviceCode();
+
+        Assert.NotEqual("UNKNOWN", code);
+        Assert.Equal(32, code.Length);
+        Assert.All(code, c => Assert.True(Uri.IsHexDigit(c)));
+        Assert.Equal(code, MachineIdProvider.GetFingerprint());
+    }
+
+    [Fact]
+    public void DeviceCode_IsStable_AcrossCalls()
+    {
+        Assert.Equal(MachineIdProvider.GetDeviceCode(), MachineIdProvider.GetDeviceCode());
+    }
+
+    [Fact]
+    public void AcceptedCodes_IncludeDeviceCodeAndLegacyFingerprint()
+    {
+        var codes = MachineIdProvider.GetAcceptedCodes();
+
+        Assert.Equal(MachineIdProvider.GetDeviceCode(), codes[0]);
+        Assert.Contains(MachineIdProvider.GetLegacyFingerprint(), codes);
+        Assert.Equal(64, MachineIdProvider.GetLegacyFingerprint().Length);
+    }
+
+    [Fact]
+    public void Validate_LegacyMacBoundLicense_IsStillAccepted()
+    {
+        // §19.1 設備碼統一為 WMI 後，先前以舊 MAC 指紋簽發的授權不得失效。
+        var token = SignValidLicense(machine: MachineIdProvider.GetLegacyFingerprint());
+        var manager = new LicenseManager();
+
+        var state = manager.Validate(token);
+
+        Assert.Equal(LicenseStatus.Valid, state.Status);
+        Assert.True(state.IsValid);
+    }
+
+    [Fact]
+    public void Validate_WmiDeviceCodeBoundLicense_IsAccepted()
+    {
+        var token = SignValidLicense(machine: MachineIdProvider.GetDeviceCode());
+        var manager = new LicenseManager();
+
+        var state = manager.Validate(token);
+
+        Assert.Equal(LicenseStatus.Valid, state.Status);
+        Assert.True(state.IsValid);
+    }
 }

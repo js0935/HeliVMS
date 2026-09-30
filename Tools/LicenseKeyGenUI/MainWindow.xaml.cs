@@ -1,11 +1,10 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.IO;
 using System.Linq;
-using System.Management;
 using System.Security.Cryptography;
-using System.Text;
-using System.Text.Json;
 using System.Windows;
+using HeliVMS.Licensing;
+using HeliVMS.Licensing.Crypto;
 
 namespace LicenseKeyGenUI;
 
@@ -48,7 +47,7 @@ public partial class MainWindow : Window
 
     private void RefreshDeviceCode()
     {
-        DeviceCodeBox.Text = ComputeDeviceCode();
+        DeviceCodeBox.Text = MachineIdProvider.GetDeviceCode();
     }
 
     private void RefreshDeviceCode_Click(object sender, RoutedEventArgs e)
@@ -123,14 +122,19 @@ public partial class MainWindow : Window
                 return;
             }
 
-            var maxCameras = int.TryParse(SignMaxBox.Text.Trim(), out var m) ? m : 64;
+            var tierName = SignTypeBox.Text.Trim();
+            var tier = LicenseTiers.Find(tierName) ?? LicenseTiers.All[3];
+
+            var maxCameras = int.TryParse(SignMaxBox.Text.Trim(), out var m) ? m : tier.DefaultCameras;
+            if (maxCameras is < 1 or > LicenseTiers.MaxCameras)
+            {
+                MessageBox.Show($"通道數必須介於 1～{LicenseTiers.MaxCameras}", "錯誤", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
 
             var expiry = SignExpiryBox.Text.Trim();
             if (string.IsNullOrEmpty(expiry) || expiry == "yyyy-MM-dd 或留空=永久")
                 expiry = null;
-
-            var licenseType = SignTypeBox.Text.Trim();
-            if (string.IsNullOrEmpty(licenseType)) licenseType = "進階版";
 
             var licensee = SignLicenseeBox.Text.Trim();
             if (string.IsNullOrEmpty(licensee)) licensee = "禾秝軟體";
@@ -142,34 +146,28 @@ public partial class MainWindow : Window
             }
 
             var privateKeyBlob = File.ReadAllBytes(PrivKeyPath);
-            using var rsa = RSA.Create(2048);
+            using var rsa = RSA.Create();
             rsa.ImportPkcs8PrivateKey(privateKeyBlob, out _);
 
-            var payloadObj = new Dictionary<string, object?>
+            // 交由產品端授權庫組裝 payload 與簽章，格式不會與產品端漂移（§19.1／§19.2）。
+            var payload = new LicensePayload
             {
-                ["mid"] = machineId,
-                ["max"] = maxCameras,
-                ["exp"] = expiry,
-                ["type"] = licenseType,
-                ["lic"] = licensee
+                Machine = machineId.ToUpperInvariant(),
+                IssuedUtc = DateTime.UtcNow,
+                ExpiresUtc = string.IsNullOrEmpty(expiry)
+                    ? null
+                    : DateTime.SpecifyKind(DateTime.Parse(expiry), DateTimeKind.Utc),
+                Cameras = maxCameras,
+                Features = tier.Features,
+                Issuer = licensee,
             };
 
-            var payloadJson = JsonSerializer.Serialize(payloadObj, new JsonSerializerOptions
-            {
-                DictionaryKeyPolicy = null,
-                WriteIndented = false
-            });
-
-            var payloadBytes = Encoding.UTF8.GetBytes(payloadJson);
-            var signature = rsa.SignData(payloadBytes, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
-
-            var payloadB64 = Base64UrlEncode(payloadBytes);
-            var sigB64 = Base64UrlEncode(signature);
-            var licenseKey = $"HELVMS-{payloadB64}.{sigB64}";
+            var licenseKey = LicenseSerializer.Sign(payload, rsa);
 
             LicenseKeyBox.Text = licenseKey;
-            SignStatusText.Text = $"✓ 授權碼已產生（{licenseType} / {maxCameras} 台 / {(expiry ?? "永久")}）";
-            Log($"授權碼已產生：{licenseType} / {maxCameras} 台");
+            SignStatusText.Text =
+                $"✓ 授權碼已產生（{tier.Name} / {maxCameras} 台 / {(expiry ?? "永久")}）";
+            Log($"授權碼已產生：{tier.Name} / {maxCameras} 台");
         }
         catch (Exception ex)
         {
@@ -207,75 +205,4 @@ public partial class MainWindow : Window
         Debug.WriteLine($"[LicenseKeyGen] {message}");
     }
 
-    private static string ComputeDeviceCode()
-    {
-        try
-        {
-            var parts = new List<string>();
-
-            try
-            {
-                using var searcher = new ManagementObjectSearcher(
-                    "SELECT ProcessorId FROM Win32_Processor");
-                foreach (var obj in searcher.Get())
-                {
-                    var val = obj["ProcessorId"]?.ToString()?.Trim();
-                    if (!string.IsNullOrEmpty(val))
-                        parts.Add(val);
-                }
-            }
-            catch { }
-
-            try
-            {
-                using var searcher = new ManagementObjectSearcher(
-                    "SELECT SerialNumber FROM Win32_BaseBoard");
-                foreach (var obj in searcher.Get())
-                {
-                    var val = obj["SerialNumber"]?.ToString()?.Trim();
-                    if (!string.IsNullOrEmpty(val) &&
-                        !val.Equals("To be filled by O.E.M.", StringComparison.OrdinalIgnoreCase) &&
-                        !val.Equals("Default string", StringComparison.OrdinalIgnoreCase))
-                        parts.Add(val);
-                }
-            }
-            catch { }
-
-            if (parts.Count < 2)
-            {
-                try
-                {
-                    var drive = DriveInfo.GetDrives()
-                        .FirstOrDefault(d => d.IsReady && d.DriveType == DriveType.Fixed);
-                    if (drive != null)
-                    {
-                        var volumeId = drive.RootDirectory.FullName;
-                        var hash = Convert.ToHexString(
-                            SHA256.HashData(Encoding.UTF8.GetBytes(volumeId)));
-                        parts.Add(hash[..16]);
-                    }
-                }
-                catch { }
-            }
-
-            if (parts.Count == 0)
-                return "UNKNOWN";
-
-            var raw = string.Join("|", parts);
-            var finalHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(raw)));
-            return finalHash[..32];
-        }
-        catch
-        {
-            return "UNKNOWN";
-        }
-    }
-
-    private static string Base64UrlEncode(byte[] data)
-    {
-        return Convert.ToBase64String(data)
-            .TrimEnd('=')
-            .Replace('+', '-')
-            .Replace('/', '_');
-    }
 }

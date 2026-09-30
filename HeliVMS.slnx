@@ -22,5 +22,6 @@
   </Folder>
   <Folder Name="/Tools/">
     <Project Path="Tools/HeliVMS.LicenseProducer/HeliVMS.LicenseProducer.csproj" />
+    <Project Path="Tools/LicenseKeyGenUI/LicenseKeyGenUI.csproj" />
   </Folder>
 </Solution>

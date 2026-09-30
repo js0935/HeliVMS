@@ -63,6 +63,11 @@
           "SQLitePCLRaw.core": "2.1.12"
         }
       },
+      "System.Management": {
+        "type": "Transitive",
+        "resolved": "10.0.12",
+        "contentHash": "ApUsYmsNG8aPiMxsO6ROGZnqJwSZY8zeMlAQcuQg+ilPFUcIyBUC0BL8qA6wmPLNVsvL4nyhUrhhxh6qn0cx0Q=="
+      },
       "System.Numerics.Tensors": {
         "type": "Transitive",
         "resolved": "9.0.0",
@@ -101,7 +106,8 @@
       "helivms.licensing": {
         "type": "Project",
         "dependencies": {
-          "HeliVMS.Shared": "[0.1.0, )"
+          "HeliVMS.Shared": "[0.1.0, )",
+          "System.Management": "[10.0.12, )"
         }
       },
       "helivms.media": {

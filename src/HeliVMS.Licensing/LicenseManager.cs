@@ -48,13 +48,12 @@ public sealed class LicenseManager
                 $"授權已於 {payload.ExpiresUtc.Value:u} 到期");
         }
 
-        if (!string.IsNullOrWhiteSpace(payload.Machine) &&
-            !string.Equals(payload.Machine, MachineIdProvider.GetFingerprint(), StringComparison.OrdinalIgnoreCase))
+        if (!string.IsNullOrWhiteSpace(payload.Machine) && !IsThisMachine(payload.Machine))
         {
             return new LicenseState(
                 LicenseStatus.MachineMismatch,
                 payload,
-                $"機器綁定不符（授權：{payload.Machine}，本機：{MachineIdProvider.GetFingerprint()}）");
+                $"機器綁定不符（授權：{payload.Machine}，本機：{MachineIdProvider.GetDeviceCode()}）");
         }
 
         return new LicenseState(LicenseStatus.Valid, payload, null);
@@ -66,4 +65,21 @@ public sealed class LicenseManager
 
     /// <summary>驗證預設授權檔（%LOCALAPPDATA%\HeliVMS\license.lic）。</summary>
     public LicenseState ValidateDefault() => ValidateFile(DefaultPath);
+
+    /// <summary>
+    /// 比對授權綁定的機器碼。接受規範設備碼與舊版 MAC 派生指紋，
+    /// 避免先前已簽發的授權因設備碼演算法統一而失效（§19.1）。
+    /// </summary>
+    private static bool IsThisMachine(string machine)
+    {
+        foreach (var code in MachineIdProvider.GetAcceptedCodes())
+        {
+            if (string.Equals(machine, code, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
 }
