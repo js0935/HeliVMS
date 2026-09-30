@@ -41,3 +41,9 @@ describe('accounts area', () => {
     expect(indexSource).not.toMatch(/id="alarm-panel"/);
   });
 });
+
+describe('api-key flow', () => {
+  it('refreshes the dashboard immediately when the API key is committed with Enter', () => {
+    expect(appSource).toMatch(/apikey'\)\.addEventListener\('keydown'[\s\S]*Enter[\s\S]*refreshAll\(\)/);
+  });
+});

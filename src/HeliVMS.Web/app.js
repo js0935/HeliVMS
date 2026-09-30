@@ -1055,6 +1055,12 @@ function wire() {
     e.preventDefault();
     searchEvents($('q').value || '*').catch(console.error);
   });
+  $('apikey').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      refreshAll();
+    }
+  });
   ['door-card', 'door-ok', 'door-denied'].forEach((id) => {
     const el = $(id);
     if (el) el.addEventListener(el.type === 'checkbox' ? 'change' : 'input', renderDoor);
