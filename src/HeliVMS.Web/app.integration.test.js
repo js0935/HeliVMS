@@ -95,3 +95,19 @@ describe('search-to-action', () => {
     expect(appSource).toMatch(/\/api\/alarm-board\/\$\{btn\.dataset\.sfa\}\/disposition/);
   });
 });
+
+describe('connection banner', () => {
+  it('adds a live status element in the top bar', () => {
+    expect(indexSource).toMatch(/id="conn"[^>]*role="status"[^>]*aria-live="polite"/);
+  });
+
+  it('flips the banner inside the single transport around fetch', () => {
+    expect(appSource).toMatch(/const response = await fetch\(path, \{ \.\.\.init, headers \}\);\s*setConn\(true\);/);
+    expect(appSource).toMatch(/catch \(err\) \{\s*setConn\(false\);\s*throw err;\s*\}/);
+  });
+
+  it('renders a disconnect label and hides empty state', () => {
+    expect(appSource).toMatch(/連線中斷/);
+    expect(appSource).toMatch(/el\.textContent = ok \? '' : '連線中斷';/);
+  });
+});

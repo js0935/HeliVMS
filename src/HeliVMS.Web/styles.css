@@ -81,6 +81,8 @@ button:disabled {
 .badge.off { opacity: 0.5; }
 .badge.on { background: #1f7a3d; }
 .badge.hot { background: var(--crit); color: #fff; }
+#conn:empty { display: none; }
+#conn.off { opacity: 1; background: var(--crit); color: #fff; }
 
 .chip-btn {
   background: var(--panel);

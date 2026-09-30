@@ -58,7 +58,7 @@ function htmlAssignments(source) {
 describe('single authenticated transport', () => {
   it('calls fetch exactly once, inside apiRaw', () => {
     expect(appSource.match(/\bfetch\(/g) ?? []).toHaveLength(1);
-    expect(appSource).toMatch(/async function apiRaw\([\s\S]*?return fetch\(/);
+    expect(appSource).toMatch(/async function apiRaw\([\s\S]*?await fetch\(/);
   });
 
   it('sends the bearer header from apiRaw', () => {

@@ -53,7 +53,22 @@ async function apiRaw(path, init = {}) {
   for (const [name, value] of Object.entries(bearerHeader(key()))) {
     headers.set(name, value);
   }
-  return fetch(path, { ...init, headers });
+  try {
+    const response = await fetch(path, { ...init, headers });
+    setConn(true);
+    return response;
+  } catch (err) {
+    setConn(false);
+    throw err;
+  }
+}
+
+/** 連線旗標：任何 fetch 成功即可正常;網路層失敗時在頂列顯示「連線中斷」。（HTTP 錯誤狀態不算斷線） */
+function setConn(ok) {
+  const el = $('conn');
+  if (!el) return;
+  el.textContent = ok ? '' : '連線中斷';
+  el.classList.toggle('off', !ok);
 }
 
 async function api(path, init = {}) {
