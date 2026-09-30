@@ -29,7 +29,7 @@
                     Foreground="White" Background="#2A4A73" BorderThickness="0"/>
             <Button x:Name="EvidenceCreateButton" AutomationProperties.AutomationId="EvidenceCreateButton" ToolTip="建立證據 manifest 並以高權限簽署"
                     Content="建立 manifest 並簽署" Click="OnCreateClicked"
-                    Margin="12,0,0,0" Padding="12,6"
+                    Margin="12,0,0,0" Padding="12,6" IsDefault="True"
                     Foreground="White" Background="#2A5C8A" BorderThickness="0"/>
             <Button x:Name="EvidenceVerifyButton" AutomationProperties.AutomationId="EvidenceVerifyButton" ToolTip="驗證 manifest 內容完整性與簽章"
                     Content="驗證完整性" Click="OnVerifyClicked"

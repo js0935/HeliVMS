@@ -120,7 +120,7 @@
         <DockPanel Grid.Row="5" Margin="0,12,0,0">
             <Button x:Name="DewarpButton" AutomationProperties.AutomationId="DewarpButton" ToolTip="開始執行影像矯正處理"
                     Content="開始矯正" Click="OnDewarpClicked"
-                    DockPanel.Dock="Right" Padding="14,8"
+                    DockPanel.Dock="Right" Padding="14,8" IsDefault="True"
                     Foreground="White" Background="#2A5C8A" BorderThickness="0"/>
             <ProgressBar x:Name="DewarpProgress" AutomationProperties.AutomationId="DewarpProgress"
                          Height="4" Margin="0,12,12,0" Value="0"/>
