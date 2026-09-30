@@ -153,13 +153,15 @@ public sealed class ChannelManager : IDisposable
         _health.Change(Timeout.Infinite, Timeout.Infinite);
     }
 
-    /// <summary>開啟／關閉指定頻道錄影。</summary>
-    public async Task SetRecordingAsync(int channelId, bool recording)
+    /// <summary>開啟／關閉指定頻道錄影；被授權閘門拒絕時回傳阻擋結果。</summary>
+    public async Task<RecordingGateResult?> SetRecordingAsync(int channelId, bool recording)
     {
         if (_sessions.TryGetValue(channelId, out var session))
         {
-            await session.SetRecordingAsync(recording);
+            return await session.SetRecordingAsync(recording);
         }
+
+        return null;
     }
 
     /// <summary>是否有任何頻道正在錄影。</summary>

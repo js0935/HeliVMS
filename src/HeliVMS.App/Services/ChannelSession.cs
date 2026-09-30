@@ -12,6 +12,7 @@ public sealed class ChannelSession : IDisposable
 {
     private readonly SqliteStore _store;
     private readonly string _recordingsRoot;
+    private readonly LicenseService _license;
     private MotionEventEngine? _motion;
     private AiEventEngine? _ai;
     private TamperEventEngine? _tamper;
@@ -21,13 +22,14 @@ public sealed class ChannelSession : IDisposable
     private SegmentRecorder? _recorder;
     private bool _disposed;
 
-    public ChannelSession(int channelId, string name, string url, SqliteStore store, string recordingsRoot, string snapshotsRoot, bool motionEnabled, IDetectionEngine? detection, bool tamperEnabled = false)
+    public ChannelSession(int channelId, string name, string url, SqliteStore store, string recordingsRoot, string snapshotsRoot, bool motionEnabled, IDetectionEngine? detection, bool tamperEnabled = false, LicenseService? license = null)
     {
         ChannelId = channelId;
         Name = name;
         Url = url;
         _store = store;
         _recordingsRoot = recordingsRoot;
+        _license = license ?? new LicenseService(store);
         Client = new RtspClient(url) { MaxFramesPerSecond = 15 };
         Client.FrameDecoded += OnClientFrame;
         Client.StateChanged += (_, s) => StateChanged?.Invoke(this, s);
@@ -77,8 +79,14 @@ public sealed class ChannelSession : IDisposable
 
     public event EventHandler<RtspState>? StateChanged;
 
+    /// <summary>最近一次被授權閘門拒絕的原因（null 表示未被拒絕過）。</summary>
+    public string? RecordingBlockedReason { get; private set; }
+
     /// <summary>該頻道事件已寫入 alarm_events（通知中心訂閱用）。</summary>
     public event EventHandler<AlarmEventRecord>? EventInserted;
+
+    /// <summary>新增錄影被授權閘門拒絕（UI 以此提示使用者）。</summary>
+    public event EventHandler<RecordingGateResult>? RecordingBlocked;
 
     /// <summary>該頻道每幀完整 AI 偵測（即時監看疊加用）。</summary>
     public event EventHandler<DetectionsFrame>? AiDetections;
@@ -107,10 +115,28 @@ public sealed class ChannelSession : IDisposable
         }
     }
 
-    public async Task SetRecordingAsync(bool recording)
+    /// <summary>
+    /// 開啟／關閉本頻道錄影。
+    /// </summary>
+    /// <returns>
+    /// 被授權閘門拒絕時回傳阻擋結果（UI 據此提示）；其餘情況回傳 null。
+    /// 停止錄影與已在錄影中的情況永不回傳阻擋結果——授權失效不中斷既有錄影。
+    /// </returns>
+    public async Task<RecordingGateResult?> SetRecordingAsync(bool recording)
     {
         if (recording && _recorder is null)
         {
+            // 授權閘門（§19.4）：到期／時鐘回流／未匯入授權／超出通道上限皆拒絕新增錄影。
+            // 既有錄影不受影響（不停止、不刪除）——不可勒索客戶。
+            var gate = _license.CheckRecording(ChannelId, DateTime.UtcNow, RecordingGateSources.Manual);
+            if (!gate.Allowed)
+            {
+                RecordingBlockedReason = gate.Reason;
+                RecordingBlocked?.Invoke(this, gate);
+                return gate;
+            }
+
+            RecordingBlockedReason = null;
             var recorder = new SegmentRecorder(new SegmentRepository(_store));
             await recorder.StartAsync(ChannelId, Url, _recordingsRoot, "main", segmentSeconds: 15);
             _recorder = recorder;
@@ -121,12 +147,13 @@ public sealed class ChannelSession : IDisposable
             _recorder = null;
             await recorder.StopAsync();
         }
+
+        return null;
     }
 
     public async Task StopAsync()
     {
-        await SetRecordingAsync(recording: false);
-        _motion?.Flush();
+        await SetRecordingAsync(recording: false);        _motion?.Flush();
         _ai?.Flush();
         _tamper?.Flush();
         if (IsMonitoring)

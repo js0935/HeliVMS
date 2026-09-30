@@ -1560,6 +1560,13 @@ payload 由 `LicensePayload` 序列化（`JsonNamingPolicy.CamelCase`），欄�
 - **回流時鐘防護**：本機記 `license_max_seen_dt`（設定鍵 `license.max_seen_dt`），只在**驗證成功**時推進（首次啟用與每次成功驗證），且只增不減。若 `now < 該時間 − 7 天` 判定時間被改回 → 該列 `status='time_rollback'`、停止新增錄影並提示重新校時。
   > 實作校正：原敘述的 `exp < 該時間-7 天` 條件不可達——高水位只在驗證成功時推進，故到期日恆大於高水位。且若照字面實作，任何「已到期超過 7 天」的舊授權都會被誤判成時鐘被改回而鎖死。改以直接比較現在時間與高水位，回流時鐘（含永久授權在未來時間驗證後被調回）皆可攔下，長期到期則正常顯示為到期。
 - **離線優先**：驗證全在本機（無需網路）；線上啟用/綁定帳號列 P3 雲端強化
+- **錄影閘門（M208）**：`LicenseService.CheckRecording(channelId, nowUtc, source)` 是唯一的「能否新增錄影」判斷，回傳 `RecordingGateResult(Allowed, Decision, MaxCameras, Reason, ChannelId)`。它走 `Evaluate()`——**唯讀**讀 `license` 快取列（該列是某次 `Apply()` 驗過簽章與機器綁定後留下的），不重驗 RSA、不寫表、不記稽核；竄改嘗試會在下次啟動的 `RefreshDefault` 被驗簽擋下。改為每次開錄都呼叫 `Apply()` 會讓排程器每 30 秒灌一次稽核。
+  - 閘門插在**僅有的兩個 `SegmentRecorder` 呼叫點**：`ChannelSession.SetRecordingAsync`（人工）與 `RecordingScheduler.ReconcileAsync`（排程）。後者同時封住遠端 `POST /api/recording/schedules` 這條繞過路徑（§18.4）。
+  - **超限**：以 `channelId > max_cameras` 判定，而非計算「目前有幾個在錄」。`channels.id` 是 AUTOINCREMENT 且刪除後不回收，故此判定不受已刪除頻道與 `EnsureSeedChannels()` 預建的 2 個測試頻道影響，結果只取決於授權本身。
+  - **到期／回流／未匯入／已作廢**：拒絕新增錄影，既有錄影**不停止、不刪除**（不可勒索客戶）。
+  - **稽核**：拒絕記 `license.recording_blocked`（targetType=`channel`），但同一「頻道＋原因＋來源」在程序執行期間只記一次——排程器每 30 秒調和一次，逐次寫入只會讓真正的授權事件被埋掉。
+  - **事件中心**：超限（`Decision == Valid`，即額度用完而非授權失效）另寫一筆 `alarm_events`（`event_type='license_limit'`），使用者事後查得到。
+- **未匯入授權＝不錄影**：依 §19.4「錄影核心啟動：失敗 → 拒絕錄影」採 fail-closed，未匯入授權時所有頻道不可新增錄影。理由是授權即為錄影權的來源；若產品日後要提供試用期，調整點只有 `LicenseService.NotPresentMessage` 對應的分支一處。
 
 ### 19.5 既有工具處置
 

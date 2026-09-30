@@ -1026,12 +1026,37 @@ public partial class MainWindow : Window
         }
 
         var next = !_manager.IsRecording(channel.Id);
-        await _manager.SetRecordingAsync(channel.Id, next);
+        var blocked = await _manager.SetRecordingAsync(channel.Id, next);
+        if (blocked is not null)
+        {
+            ReportRecordingBlocked(blocked);
+            return;
+        }
+
         RecordButton.Content = next ? "停止錄影" : "錄影";
         RecBadge.Visibility = next ? Visibility.Visible : Visibility.Collapsed;
         HintText.Text = next
             ? $"錄影中：{Path.Combine(_dataRoot, "recordings", $"ch{channel.Id:000}")}"
             : "錄影已停止。";
+    }
+
+    /// <summary>
+    /// 錄影被授權閘門拒絕時的使用者回饋（§19.4「於事件中心提示『已達授權上限』」）。
+    /// 狀態列與即時警報列給即時訊息；通道上限另寫一筆事件到事件中心，使用者事後仍查得到。
+    /// </summary>
+    private void ReportRecordingBlocked(RecordingGateResult blocked)
+    {
+        var reason = blocked.Reason ?? "授權狀態不允許新增錄影。";
+        HintText.Text = reason;
+        PushAlert(reason);
+        UpdateFooter();
+
+        if (blocked.Decision == LicenseDecision.Valid)
+        {
+            // Decision 為 Valid 代表不是授權本身失效，而是超出通道上限（§19.4 超限行為）。
+            new AlarmEventRepository(_store!)
+                .Insert(blocked.ChannelId, "license_limit", DateTime.UtcNow, null, reason);
+        }
     }
 
     private void OnOnvifClicked(object sender, RoutedEventArgs e)
@@ -1654,7 +1679,13 @@ public partial class MainWindow : Window
         }
 
         var next = !_manager.IsRecording(channelId);
-        await _manager.SetRecordingAsync(channelId, next);
+        var blocked = await _manager.SetRecordingAsync(channelId, next);
+        if (blocked is not null)
+        {
+            ReportRecordingBlocked(blocked);
+            return;
+        }
+
         RecordButton.Content = next ? "停止錄影" : "錄影";
         RecBadge.Visibility = _manager.AnyRecording() ? Visibility.Visible : Visibility.Collapsed;
         HintText.Text = next

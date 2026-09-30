@@ -29,10 +29,10 @@ public enum LicenseDecision
 
 /// <summary>授權套用／驗證結果。</summary>
 /// <param name="Decision">結論。</param>
-/// <param name="State">底層驗證結果（<c>NotPresent</c> 時為 null）。</param>
+/// <param name="State">底層驗證結果（<c>NotPresent</c> 或唯讀 <c>Evaluate</c> 時為 null）。</param>
 /// <param name="Message">可顯示給使用者的訊息；無問題時為 null。</param>
 /// <param name="LicenseRowId"><c>license</c> 表列 ID；未寫入時為 null。</param>
-/// <param name="Record">寫入之授權列；未寫入時為 null。</param>
+/// <param name="Record">授權列；未寫入時為 null。</param>
 public sealed record LicenseApplyResult(
     LicenseDecision Decision,
     LicenseState? State,
@@ -60,6 +60,19 @@ public sealed record LicenseApplyResult(
             && Record.Features.Contains(feature, StringComparer.Ordinal);
 }
 
+/// <summary>單一頻道的錄影閘門結論（§19.4）。</summary>
+/// <param name="Allowed">是否可**新增**錄影。</param>
+/// <param name="Decision">造成阻擋的授權結論（<c>Valid</c> 表示無阻擋）。</param>
+/// <param name="MaxCameras">授權通道上限；未匯入授權時為 0。</param>
+/// <param name="Reason">可顯示給使用者的阻擋原因；允許時為 null。</param>
+/// <param name="ChannelId">被判定的頻道 ID。</param>
+public sealed record RecordingGateResult(
+    bool Allowed,
+    LicenseDecision Decision,
+    int MaxCameras,
+    string? Reason,
+    int ChannelId);
+
 /// <summary>
 /// 產品端授權整合點（§19.4）：把 <see cref="LicenseManager"/> 的驗證結果落到
 /// <c>license</c> 表與稽核日誌，並維護回流時鐘防護的高水位 <c>license.max_seen_dt</c>。
@@ -78,6 +91,15 @@ public sealed class LicenseService
     private readonly LicenseRepository _licenses;
     private readonly AuditLogRepository _audit;
     private readonly LicenseManager _manager;
+    private readonly HashSet<string> _auditedGateRejections = new(StringComparer.Ordinal);
+    private readonly Lock _gateAuditLock = new();
+
+    /// <summary>未匯入授權時的統一說明（§19.4 錄影核心啟動失敗 → 拒絕錄影）。</summary>
+    public const string NotPresentMessage =
+        "未匯入授權，已停止新增錄影；既有錄影仍可回放。請於設定中心匯入授權碼。";
+
+    /// <summary>授權已作廢時的統一說明。</summary>
+    public const string RevokedMessage = "此授權已作廢，請聯絡原廠重新核發。";
 
     public LicenseService(SqliteStore store)
         : this(store, new LicenseManager())
@@ -132,7 +154,7 @@ public sealed class LicenseService
             return new LicenseApplyResult(
                 LicenseDecision.Revoked,
                 state,
-                "此授權已作廢，請聯絡原廠重新核發。",
+                RevokedMessage,
                 existing.Id,
                 existing);
         }
@@ -200,11 +222,142 @@ public sealed class LicenseService
     public LicenseApplyResult RefreshDefault(string actor, DateTime nowUtc)
         => Apply(ReadDefaultToken(), actor, nowUtc);
 
+    /// <summary>
+    /// 唯讀評估目前授權狀態：<b>不寫 <c>license</c> 表、不記稽核、不做 RSA 驗證</b>。
+    ///
+    /// 供錄影閘門等高频路徑使用（M208）。授權列本身是某次 <see cref="Apply"/>（已驗簽章與機器
+    /// 綁定）留下的快取，故此處信任該列；真正的竄改嘗試會在下次啟動的 <see cref="RefreshDefault"/>
+    /// 被驗簽擋下並改寫此列。若改為每次閘門都呼叫 <see cref="Apply"/>，排程器每 30 秒一次就會
+    /// 灌爆稽核日誌。
+    /// </summary>
+    public LicenseApplyResult Evaluate(DateTime nowUtc)
+    {
+        var record = Current();
+
+        if (record is null)
+        {
+            return new LicenseApplyResult(LicenseDecision.NotPresent, null, NotPresentMessage);
+        }
+
+        if (record.Status == LicenseStatuses.Revoked)
+        {
+            return new LicenseApplyResult(
+                LicenseDecision.Revoked, null, RevokedMessage, record.Id, record);        }
+
+        if (TryDetectRollback(ReadMaxSeenUtc(), nowUtc, out var rollbackReason))
+        {
+            return new LicenseApplyResult(
+                LicenseDecision.TimeRollback,
+                null,
+                $"系統時鐘疑似被改回（{rollbackReason}），已停止新增錄影。請校正系統時間後重新驗證。",
+                record.Id,
+                record);
+        }
+
+        // 已標記 time_rollback 者只有重新驗證（Apply）才會解除，Evaluate 不得自行放行。
+        if (record.Status == LicenseStatuses.TimeRollback)
+        {
+            return new LicenseApplyResult(
+                LicenseDecision.TimeRollback,
+                null,
+                "系統時鐘疑似被改回，授權已停用。請校正系統時間後重新驗證授權。",
+                record.Id,
+                record);
+        }
+
+        if (record.ExpiresUtc is { } expires && expires <= nowUtc)
+        {
+            return new LicenseApplyResult(
+                LicenseDecision.Expired,
+                null,
+                $"授權已於 {SqliteStore.Iso(expires)} 到期，已停止新增錄影；既有錄影仍可回放。",
+                record.Id,
+                record);
+        }
+
+        return new LicenseApplyResult(LicenseDecision.Valid, null, null, record.Id, record);
+    }
+
+    /// <summary>
+    /// 錄影閘門（§19.4「超限行為」「到期行為」）：判斷某頻道此刻能否**新增**錄影。
+    /// 到期與時鐘回流只停新增，既有錄影檔仍可回放（不可勒索客戶）。
+    /// </summary>
+    /// <param name="channelId">欲錄影的頻道 ID。</param>
+    /// <param name="nowUtc">判斷時點。</param>
+    /// <param name="source">觸發來源（<c>manual</c>／<c>schedule</c>），寫入稽核供追查。</param>
+    public RecordingGateResult CheckRecording(int channelId, DateTime nowUtc, string source)
+    {
+        if (channelId <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(channelId), "頻道 ID 須為正整數。");
+        }
+
+        var license = Evaluate(nowUtc);
+        var allowed = true;
+        string? reason = null;
+
+        if (!license.AllowsNewRecording)
+        {
+            allowed = false;
+            reason = license.Decision switch
+            {
+                LicenseDecision.NotPresent => NotPresentMessage,
+                LicenseDecision.Revoked => RevokedMessage,
+                _ => license.Message,
+            };
+        }
+        else if (channelId > license.MaxCameras)
+        {
+            // 以頻道 ID 與上限比對而非計算「目前有幾個在錄」：ID 為 AUTOINCREMENT 且不會因
+            // 刪除而回收，用它判定不受已刪除頻道與種子頻道（EnsureSeedChannels 預建 2 個）
+            // 影響，判定結果只取決於授權本身。
+            allowed = false;
+            reason = $"已達授權上限（{license.MaxCameras} 路）：頻道 {channelId} 超出授權範圍，" +
+                "可瀏覽設備但無法錄影。請升級授權以解鎖更多頻道。";
+        }
+
+        if (allowed)
+        {
+            return new RecordingGateResult(true, LicenseDecision.Valid, license.MaxCameras, null, channelId);
+        }
+
+        AuditGateRejection(channelId, reason!, source, nowUtc);
+        return new RecordingGateResult(
+            false, license.Decision, license.MaxCameras, reason, channelId);
+    }
+
     /// <summary>目前資料庫中的授權列（無則 null）。</summary>
     public LicenseRecord? Current() => _licenses.GetByDeviceCode(DeviceCode);
 
     /// <summary>曾見過的最大時間（<c>license.max_seen_dt</c>；無則 null）。</summary>
     public DateTime? MaxSeenUtc() => ReadMaxSeenUtc();
+
+    /// <summary>
+    /// 同一「頻道＋原因＋來源」在本次程序執行期間只記一次。
+    ///
+    /// §19.4 要求被拒時登入稽核，但排程器每 30 秒調和一次；若每次都寫，使用者只看得到
+    /// 幾萬筆同樣的拒絕紀錄，真正的授權事件反而被埋掉。
+    /// </summary>
+    private void AuditGateRejection(int channelId, string reason, string source, DateTime nowUtc)
+    {
+        var key = $"{channelId}|{reason}|{source}";
+        lock (_gateAuditLock)
+        {
+            if (!_auditedGateRejections.Add(key))
+            {
+                return;
+            }
+        }
+
+        _audit.Record(
+            source,
+            "license.recording_blocked",
+            AuditCategories.License,
+            targetType: "channel",
+            targetId: channelId,
+            detail: reason,
+            occurredAtUtc: nowUtc);
+    }
 
     private static string ReadDefaultToken()
     {

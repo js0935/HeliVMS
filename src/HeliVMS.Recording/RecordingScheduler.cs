@@ -13,6 +13,7 @@ public sealed class RecordingScheduler : IDisposable
     private readonly SqliteStore _store;
     private readonly RecordingScheduleRepository _repo;
     private readonly ChannelRepository _channels;
+    private readonly LicenseService _license;
     private readonly string _recordingsRoot;
     private readonly Func<int, bool>? _isCellRecording;
     private readonly ConcurrentDictionary<int, SegmentRecorder> _active = new();
@@ -23,13 +24,15 @@ public sealed class RecordingScheduler : IDisposable
         SqliteStore store,
         string recordingsRoot,
         Func<int, bool>? isCellRecording = null,
-        TimeSpan? reconcileInterval = null)
+        TimeSpan? reconcileInterval = null,
+        LicenseService? license = null)
     {
         _store = store;
         _recordingsRoot = recordingsRoot;
         _isCellRecording = isCellRecording;
         _repo = new RecordingScheduleRepository(store);
         _channels = new ChannelRepository(store);
+        _license = license ?? new LicenseService(store);
         ReconcileInterval = reconcileInterval ?? TimeSpan.FromSeconds(30);
         _timer = new System.Threading.Timer(OnTick, null, ReconcileInterval, ReconcileInterval);
     }
@@ -87,6 +90,14 @@ public sealed class RecordingScheduler : IDisposable
             }
 
             if (!channelById.TryGetValue(sched.ChannelId, out var ch))
+            {
+                continue;
+            }
+
+            // 授權閘門（§19.4）。排程是遠端可寫入的路徑（POST /api/recording/schedules），
+            // 閘門放在此同時封住「遠端繞過本地端授權狀態」這條路（§18.4）。
+            var gate = _license.CheckRecording(sched.ChannelId, DateTime.UtcNow, RecordingGateSources.Schedule);
+            if (!gate.Allowed)
             {
                 continue;
             }
