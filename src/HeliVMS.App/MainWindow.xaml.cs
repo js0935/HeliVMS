@@ -1624,7 +1624,8 @@ public partial class MainWindow : Window
     }
 
     private static readonly System.Windows.Input.Key[] HandledPreviewKeys =
-        [System.Windows.Input.Key.F11, System.Windows.Input.Key.Escape];
+        [System.Windows.Input.Key.F11, System.Windows.Input.Key.Escape,
+         System.Windows.Input.Key.F2, System.Windows.Input.Key.F4];
 
     /// <summary>F11＝單格展開/還原（ESC 退出展開）。</summary>
     private async void OnPreviewKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
@@ -1638,6 +1639,14 @@ public partial class MainWindow : Window
         if (e.Key == System.Windows.Input.Key.F11)
         {
             await ToggleExpandCellAsync(_selectedCell >= 0 ? _selectedCell : 0);
+        }
+        else if (e.Key == System.Windows.Input.Key.F2)
+        {
+            OpenSettingsWindow();
+        }
+        else if (e.Key == System.Windows.Input.Key.F4)
+        {
+            OnPlaybackClicked(this, new RoutedEventArgs());
         }
         else if (e.Key == System.Windows.Input.Key.Escape &&
                  _expandInProgress &&

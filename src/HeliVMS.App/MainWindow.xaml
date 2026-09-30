@@ -36,7 +36,7 @@
                 <CheckBox x:Name="AiToggle" Grid.Column="2" Content="AI 疊加" Foreground="White" VerticalAlignment="Center"
                           Margin="28,0,0,0" Checked="OnAiToggleChanged" Unchecked="OnAiToggleChanged"/>
                 <Button Grid.Column="4" x:Name="HeaderSettingsButton" AutomationProperties.AutomationId="HeaderSettingsButton"
-                        Content="設定" ToolTip="設定中心（存檔路徑、裝置憑證、AI、錄影、全域選項）" Click="OnSettingsClicked"
+                        Content="設定" ToolTip="設定中心（存檔路徑、裝置憑證、AI、錄影、全域選項）[F2]" Click="OnSettingsClicked"
                         HorizontalAlignment="Right" VerticalAlignment="Center" Padding="12,4"
                         Foreground="White" Background="#2660AA" BorderThickness="0" />
             </Grid>
@@ -94,7 +94,7 @@
                         <Button x:Name="RecordButton" Content="錄影" ToolTip="開始／停止目前頻道的錄影" Click="OnRecordClicked"
                                 Width="100" Padding="0,8" IsEnabled="False"
                                 Foreground="White" Background="#8A3C2E" BorderThickness="0" />
-                        <Button x:Name="PlaybackButton" Content="回放" ToolTip="開啟回放視窗（檢視錄影）" Click="OnPlaybackClicked"
+                        <Button x:Name="PlaybackButton" Content="回放" ToolTip="開啟回放視窗（檢視錄影）[F4]" Click="OnPlaybackClicked"
                                 Width="80" Padding="0,8" Margin="10,0,0,0"
                                 Foreground="White" Background="#2A5C8A" BorderThickness="0" />
                         <Button x:Name="EventButton" Content="事件" ToolTip="開啟事件中心" Click="OnEventClicked"
