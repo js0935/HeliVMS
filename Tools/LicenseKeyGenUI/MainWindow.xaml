@@ -67,7 +67,7 @@
                                  Grid.Column="1" FontSize="11"/>
                     </Grid>
 
-                    <TextBlock Text="EmbeddedPublicKey（貼入 LicenseService.cs）" Style="{StaticResource FieldLabel}"
+                    <TextBlock Text="EmbeddedPublicKey.Value（貼入 src\HeliVMS.Licensing\Crypto\EmbeddedPublicKey.cs）" Style="{StaticResource FieldLabel}"
                                Margin="0,8,0,4"/>
                     <Grid HorizontalAlignment="Stretch">
                         <Grid.ColumnDefinitions>

@@ -92,6 +92,22 @@ public partial class EventCenterWindow : Window
 
         public string StatusLabel => AlarmEventStatus.Label(Status);
 
+        /// <summary>事件類型的中文顯示名；未列的類型原樣顯示（上游新增類型不會炸掉視窗）。</summary>
+        public string TypeLabel =>
+            EventType switch
+            {
+                "motion" => "動態",
+                "ai_person" => "AI 人員",
+                "ai_vehicle" => "AI 車輛",
+                "offline" => "離線",
+                "tamper" => "破壞",
+                "io_input" => "IO 輸入",
+                "line_cross" => "越線",
+                "intrusion" => "入侵",
+                "license_limit" => "授權上限",
+                _ => EventType,
+            };
+
         public string AssignedLabel => string.IsNullOrWhiteSpace(AssignedTo) ? "" : AssignedTo!;
 
         public Brush StatusBrush => Status switch
@@ -113,6 +129,7 @@ public partial class EventCenterWindow : Window
                 "tamper" => Brushes.MediumPurple,
                 "io_input" => Brushes.Orange,
                 "line_cross" or "intrusion" => Brushes.Gold,
+                "license_limit" => Brushes.OrangeRed,
                 _ => Brushes.LightSteelBlue,
             };
         

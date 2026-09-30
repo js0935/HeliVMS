@@ -1565,7 +1565,7 @@ payload 由 `LicensePayload` 序列化（`JsonNamingPolicy.CamelCase`），欄�
   - **超限**：以 `channelId > max_cameras` 判定，而非計算「目前有幾個在錄」。`channels.id` 是 AUTOINCREMENT 且刪除後不回收，故此判定不受已刪除頻道與 `EnsureSeedChannels()` 預建的 2 個測試頻道影響，結果只取決於授權本身。
   - **到期／回流／未匯入／已作廢**：拒絕新增錄影，既有錄影**不停止、不刪除**（不可勒索客戶）。
   - **稽核**：拒絕記 `license.recording_blocked`（targetType=`channel`），但同一「頻道＋原因＋來源」在程序執行期間只記一次——排程器每 30 秒調和一次，逐次寫入只會讓真正的授權事件被埋掉。
-  - **事件中心**：超限（`Decision == Valid`，即額度用完而非授權失效）另寫一筆 `alarm_events`（`event_type='license_limit'`），使用者事後查得到。人工與排程兩條路徑共用 `LicenseLimitNotifier`（M215）：同一「頻道＋原因」在持續超限期間只寫一次——排程器每 30 秒調和一次，逐次寫入會把事件中心灌滿；頻道恢復可錄影後（`Clear`）才允許下一次通知。非超限（未匯入／到期／作廢／回流）不寫事件中心，由各閘門與 UI 浮條回饋，避免同一件事在兩處重複。
+  - **事件中心**：超限（`Decision == Valid`，即額度用完而非授權失效）另寫一筆 `alarm_events`（`event_type='license_limit'`），使用者事後查得到；事件中心以「授權上限」中文標籤（`EventCenterWindow` 的 `TypeLabel`）與橘紅色圓標（`TypeBrush`）呈現，未列的類型原樣顯示、不會炸掉視窗。人工與排程兩條路徑共用 `LicenseLimitNotifier`（M215）：同一「頻道＋原因」在持續超限期間只寫一次——排程器每 30 秒調和一次，逐次寫入會把事件中心灌滿；頻道恢復可錄影後（`Clear`）才允許下一次通知。非超限（未匯入／到期／作廢／回流）不寫事件中心，由各閘門與 UI 浮條回饋，避免同一件事在兩處重複。
 - **未匯入授權＝不錄影**：依 §19.4「錄影核心啟動：失敗 → 拒絕錄影」採 fail-closed，未匯入授權時所有頻道不可新增錄影。理由是授權即為錄影權的來源；若產品日後要提供試用期，調整點只有 `LicenseService.NotPresentMessage` 對應的分支一處。
 - **功能旗標閘門（M209）**：`LicenseApplyResult.AllowsFeature(flag)` 是唯一的「某旗標能不能用」判斷——授權有效**且**旗標字面存在於 `license.features` 才為 true，採嚴格比對（少一項就是沒有；不會因為買了 L1 就連帶開通 L2，也不會因為缺 `core` 而默認放行）。`FeatureDenialMessage(flag)` 給出可直接顯示的句子，未匯入／已作廢／旗標缺失三種情況文案不同。
   - `LicenseFeatures`（Storage）集中八個旗標常數與中文顯示名；旗標字串本身以 `HeliVMS.Licensing.LicenseTiers` 為權威，Storage 這份只是補顯示名與 `IsKnown()`，讓桌面端、CLI、WebApi 三邊講同一句話。未知旗標原樣顯示、不丟例外——上游新增旗標時不會讓整個視窗炸掉。

@@ -108,7 +108,7 @@
                                 <GridViewColumn Header="類型" Width="80">
                                     <GridViewColumn.CellTemplate>
                                         <DataTemplate>
-                                            <TextBlock Text="{Binding EventType}" FontSize="12" Foreground="{Binding TypeBrush}"/>
+                                            <TextBlock Text="{Binding TypeLabel}" FontSize="12" Foreground="{Binding TypeBrush}"/>
                                         </DataTemplate>
                                     </GridViewColumn.CellTemplate>
                                 </GridViewColumn>
@@ -170,7 +170,7 @@
                                             <StackPanel Orientation="Horizontal">
                                                 <Border Background="{Binding TypeBrush}" CornerRadius="3" 
                                                         Padding="4,1" VerticalAlignment="Center">
-                                                    <TextBlock Text="{Binding EventType}" FontSize="9" Foreground="White"/>
+                                                    <TextBlock Text="{Binding TypeLabel}" FontSize="9" Foreground="White"/>
                                                 </Border>
                                                 <Border Background="{Binding StatusBrush}" CornerRadius="3" 
                                                         Padding="4,1" Margin="4,0,0,0" VerticalAlignment="Center">

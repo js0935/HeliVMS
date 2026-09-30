@@ -78,11 +78,11 @@ public partial class MainWindow : Window
             PrivateKeyPathBox.Text = PrivKeyPath;
             PublicKeyPathBox.Text = PubKeyPath;
 
-            var publicKeyB64 = Convert.ToBase64String(publicKey);
-            PublicKeyCodeBox.Text = $"""
-                private static readonly byte[] EmbeddedPublicKey = Convert.FromBase64String(
-                    "{publicKeyB64}");
-                """;
+            var publicKeyPem = RsaPem.ToPublicPem(rsa);
+            PublicKeyCodeBox.Text =
+                "public const string Value =\n    \"\"\"\n" +
+                string.Concat(publicKeyPem.TrimEnd().Split('\n').Select(l => "    " + l.Trim() + "\n")) +
+                "    \"\"\";";
 
             KeyStatusText.Text = "✓ 金鑰對產生成功";
             GenerateKeyBtn.Content = "重新產生金鑰對";
