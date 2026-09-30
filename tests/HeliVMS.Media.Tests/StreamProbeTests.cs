@@ -97,24 +97,33 @@ public class StreamProbeTests
     {
         // 模擬視窗關閉／頻道停止：取消必須立刻殺掉 ffprobe，不能等 45～60 秒的探測逾時，
         // 否則孤兒進程會一直佔住攝影機的 RTSP session。
+        //
+        // stub 全以 cmd 內建實作（無 powershell）：一出現 `marker` 表示 stub 已啟動（測試端
+        // 才開始量測取消即時性），之後持續每 ~1 秒往 `hb.txt` 追加一行（heartbeat）。若取消
+        // 未把進程樹殺乾淨，hb.txt 會持續增長——以此代替「讀取 PID 再 WaitForExit」，
+        // 免除對進程身份／冷啟動的一切依賴（CI 並行負載下偶發 <60s 仍拉不起 powershell）。
         var markerDir = Path.Combine(Path.GetTempPath(), $"helivms-probe-cancel-{Guid.NewGuid():N}");
         Directory.CreateDirectory(markerDir);
-        var marker = Path.Combine(markerDir, "pid.txt");
+        var marker = Path.Combine(markerDir, "started.marker");
+        var heartbeat = Path.Combine(markerDir, "hb.txt");
         var stub = Path.Combine(markerDir, "ffprobe.cmd");
         File.WriteAllText(
             stub,
             $$"""
             @echo off
-            powershell -NoProfile -Command "Set-Content -LiteralPath '{{marker}}' -Value $PID"
-            ping -n 60 127.0.0.1 >nul
+            @echo ok> "{{marker}}"
+            :loop
+            @echo tick>> "{{heartbeat}}"
+            ping -n 2 127.0.0.1 >nul
+            goto loop
             """,
             Encoding.ASCII);
 
         try
         {
-            // 由測試端控制取消時機：先等 stub 寫出 PID（powershell 冷啟動在 CI 並行負載下
-            // 可能需數秒，這裡寬容等 60s），寫出後才取消——如此「取消→立刻殺樹」的測量
-            // 與 stub 啟動速度快慢完全解耦（M167 的固定 5s 窗在 CI 下仍偶發不足）。
+            // 由測試端控制取消時機：先等 marker（stub 已啟動），出現後才取消——如此
+            // 「取消→立刻殺樹」的測量與 stub 啟動速度快慢完全解耦（M167 固定 5s 窗在
+            // CI 負載下仍偶發不足；舊版另依賴 powershell 寫 PID，故這裡連 marker 都不靠 powershell）。
             using var cts = new CancellationTokenSource();
             Exception? outcome = null;
             var probeTask = Task.Run(
@@ -137,7 +146,7 @@ public class StreamProbeTests
             }
 
             Assert.True(File.Exists(marker),
-                $"stub 未在 {markerWait.Elapsed.TotalSeconds:F1}s 內寫出 PID（marker 階段）");
+                $"stub 未在 {markerWait.Elapsed.TotalSeconds:F1}s 內寫出 marker（啟動階段）");
 
             var cancelSw = Stopwatch.StartNew();
             cts.Cancel();
@@ -149,35 +158,19 @@ public class StreamProbeTests
             Assert.True(cancelSw.Elapsed < TimeSpan.FromSeconds(10),
                 $"取消應近即時生效（取消至擲回），實際 {cancelSw.Elapsed.TotalSeconds:F1}s");
 
-            // 探測進程樹必須已被終止，不能殘留孤兒進程。
-            var pid = int.Parse(File.ReadAllText(marker).Trim(), System.Globalization.CultureInfo.InvariantCulture);
-            Assert.True(WaitForExit(pid, TimeSpan.FromSeconds(5)), $"探測進程 {pid} 仍存活");
+            // 探測進程樹必須已被終止：預留在途寫入時間後，heartbeat 應停止增長（否則有孤兒進程殘留）。
+            Thread.Sleep(2500);
+            var lenBefore = File.Exists(heartbeat) ? new FileInfo(heartbeat).Length : 0;
+            Thread.Sleep(2000);
+            var lenAfter = File.Exists(heartbeat) ? new FileInfo(heartbeat).Length : 0;
+            Assert.True(lenAfter == lenBefore,
+                $"探測進程樹仍存活（heartbeat 持續增長 {lenBefore}→{lenAfter} bytes）");
         }
         finally
         {
             try { Directory.Delete(markerDir, recursive: true); }
             catch { /* 清理失敗不影響測試結果 */ }
         }
-    }
-
-    private static bool WaitForExit(int pid, TimeSpan timeout)
-    {
-        var wait = Stopwatch.StartNew();
-        while (wait.Elapsed < timeout)
-        {
-            try
-            {
-                _ = Process.GetProcessById(pid);
-            }
-            catch (ArgumentException)
-            {
-                return true;
-            }
-
-            Thread.Sleep(100);
-        }
-
-        return false;
     }
 
     private static string CreateStub(string body, string extension)

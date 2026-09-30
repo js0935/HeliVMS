@@ -301,8 +301,12 @@ public sealed class RtspClient : IAsyncDisposable
                     offset += read;
                 }
 
-                var nowMs = sw.ElapsedMilliseconds;
-                if (nowMs - lastEmitMs < emitIntervalMs)
+var nowMs = sw.ElapsedMilliseconds;
+                // 首幀不做幀率節流：若 ffmpeg 啟動後 <1 幀間隔（e.g. MaxFramesPerSecond=30 時 <33ms）
+                // 就完成了首幀讀取，`nowMs - lastEmitMs(0) < emitIntervalMs` 會誤把第一幀 skip，
+                // 而 firstFrame 又尚未轉 false，導致對「單一瞬間輸出」的來源（及測試 stub）
+                // 永遠收不到首幀、反覆重連（lastEmitMs 只在非 skip 時更新）。
+                if (!firstFrame && nowMs - lastEmitMs < emitIntervalMs)
                 {
                     continue;
                 }

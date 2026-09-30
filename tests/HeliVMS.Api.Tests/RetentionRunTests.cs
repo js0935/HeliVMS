@@ -89,7 +89,7 @@ public sealed class RetentionRunTests : IDisposable
     {
         _settings.Set(RetentionService.DaysKey, "1");
         var (present, _, _) = SeedSegment(daysOld: 10, sizeBytes: 1_000, channelDir: "ch001");
-        var (gone, _, _) = SeedSegment(daysOld: 10, sizeBytes: 1_000, channelDir: "ch002");
+        var (gone, _, _) = SeedSegment(daysOld: 10, sizeBytes: 1_000, channelDir: "ch002", offsetSeconds: 2);
         File.Delete(gone);
 
         var run = new RetentionService(_store, _holds, recordingsRoot: null).RunOnce(DateTime.UtcNow);
@@ -118,14 +118,16 @@ public sealed class RetentionRunTests : IDisposable
         Assert.Single(_segments.ListFinal(1));
     }
 
-    private (string File, DateTime Start, DateTime End) SeedSegment(int daysOld, long sizeBytes, string channelDir = "ch001")
+    private (string File, DateTime Start, DateTime End) SeedSegment(int daysOld, long sizeBytes, string channelDir = "ch001", double offsetSeconds = 0)
     {
         var dir = Path.Combine(_root, channelDir);
         Directory.CreateDirectory(dir);
         var path = Path.Combine(dir, $"seg-{Guid.NewGuid():N}.mp4");
         File.WriteAllBytes(path, new byte[sizeBytes]);
 
-        var start = DateTime.UtcNow.AddDays(-daysOld);
+        // start_time 以毫秒精度寫入且 (channel_id, stream, start_time) 有 UNIQUE 索引；
+        // 同一測試內多筆 seed 若在同一毫秒內取 UtcNow 會撞唯一鍵，故用 offsetSeconds 確保相接 seed 不同秒。
+        var start = DateTime.UtcNow.AddDays(-daysOld).AddSeconds(offsetSeconds);
         var end = start.AddSeconds(60);
         var id = _segments.BeginSegment(1, "main", path, start);
         _segments.CompleteSegment(id, end, sizeBytes, 60, new string('c', 64));

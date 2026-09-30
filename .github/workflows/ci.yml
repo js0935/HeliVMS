@@ -42,7 +42,23 @@ jobs:
         run: dotnet build HeliVMS.slnx -c Release --no-restore
 
       - name: Test
-        run: dotnet test HeliVMS.slnx -c Release --no-build --logger "trx;LogFileName=results.trx"
+        shell: pwsh
+        # Media／Storage 測試會以 stub 啟動外部進程（cmd 模擬 ffprobe／ffmpeg）。
+        # 讓測試專案並行執行會在低規格 runner 上造成 CreateProcess 節流，
+        # 使這些以「啟動後立刻產出」為前提的測試偶發逾時。改為依序執行，從根本消除 flaky。
+        run: |
+          $projects = @(
+            'tests/HeliVMS.Api.Tests/HeliVMS.Api.Tests.csproj',
+            'tests/HeliVMS.Alarms.Tests/HeliVMS.Alarms.Tests.csproj',
+            'tests/HeliVMS.Devices.Tests/HeliVMS.Devices.Tests.csproj',
+            'tests/HeliVMS.Licensing.Tests/HeliVMS.Licensing.Tests.csproj',
+            'tests/HeliVMS.Media.Tests/HeliVMS.Media.Tests.csproj',
+            'tests/HeliVMS.Storage.Tests/HeliVMS.Storage.Tests.csproj'
+          )
+          foreach ($p in $projects) {
+            dotnet test $p -c Release --no-build --logger "trx;LogFileName=$([IO.Path]::GetFileNameWithoutExtension($p)).trx"
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
 
       - name: Upload test results
         uses: actions/upload-artifact@v4
