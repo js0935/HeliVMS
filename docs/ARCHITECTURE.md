@@ -1592,6 +1592,9 @@ payload 由 `LicensePayload` 序列化（`JsonNamingPolicy.CamelCase`），欄�
   - **兩來源取較新**：同時看 `license.lic` 檔與 `license` 列（僅當兩者 token 不同），各自用 `LicenseManager.Validate` 驗章與綁定，取 `Payload.IssuedUtc` 最新的一張走 `Apply`。換發後廠商常只更新其中一個來源，取較新者才能讓換發在下次啟動生效。
   - **fail-closed**：任一來源可驗證即以其為準；**皆不可驗證**時走 `FailRefresh`——把該列 `status='invalid'`（新增狀態）並記 `license.reject`。`Evaluate()` 對 `invalid` 回 `LicenseDecision.Invalid`，錄影與旗標一併拒絕。已 `revoked` 的列不受影響（作廢是廠商意志，不能被一次檔案取代蓋掉），`invalid` 列再次啟動不重複寫稽核，重新匯入有效授權即恢復 `active`。
   - **頁尾單一來源**：主視窗頁尾改走與閘門相同的 `LicenseService.Evaluate`（`RefreshLicenseFooter()`），不再另開 `new LicenseManager().ValidateDefault()` 直接讀檔——否則會出現「頁尾說已授權、閘門卻拒絕」的矛盾。設定中心關閉後同步刷新頁尾（使用者可能剛匯入或升級授權）。
+- **設定中心授權頁（M216）**：導入流程改成明確的三步（① 複製設備碼 → ② 貼上授權金鑰 → ③ 套用並驗證），並補兩項規格要求：
+  - **剩餘通道**：`LicenseSeatsText` 顯示「已設定 N／上限 M」與剩餘可新增數。已設定數取自與錄影閘門同源的 `ChannelRepository`，不另寫一套「在錄數」算法——兩個數字不一致比不顯示更糟。未授權時顯示 0。
+  - **複製設備碼**：設備碼是 32 碼 hex，手抄必錯；`CopyMachineButton` 一鍵複製到剪貼簿。少了它，導入流程的第一步就是最容易出錯的一步。
 
 ### 19.5 既有工具處置
 

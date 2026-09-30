@@ -274,15 +274,24 @@
                 <TextBlock x:Name="LicenseExpiryText" Visibility="Collapsed" Margin="0,0,0,14" TextWrapping="Wrap"
                            Foreground="#F5D78E" AutomationProperties.AutomationId="LicenseExpiryText"
                            Text=""/>
-                <TextBlock Text="本機機器指紋（授權綁定用）" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
-                <TextBlock x:Name="MachineText" Margin="0,2,0,14" TextWrapping="Wrap"/>
-                <TextBlock Text="貼入授權金鑰後套用（驗證成功會存到 %LOCALAPPDATA%\HeliVMS\license.lic）"
-                           Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+                <TextBlock Text="① 複製本機設備碼，提供給廠商核發授權" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+                <DockPanel Margin="0,2,0,6">
+                    <Button x:Name="CopyMachineButton" Content="複製" Click="OnCopyMachineClicked" DockPanel.Dock="Right"
+                            Padding="10,4" Margin="8,0,0,0" Foreground="White" Background="#2A5C8A" BorderThickness="0"
+                            ToolTip="複製設備碼到剪貼簿" AutomationProperties.AutomationId="CopyMachineButton"/>
+                    <TextBlock x:Name="MachineText" TextWrapping="Wrap" VerticalAlignment="Center"/>
+                </DockPanel>
+                <TextBlock x:Name="LicenseSeatsText" Margin="0,0,0,14" TextWrapping="Wrap"
+                           Foreground="{StaticResource Brand.TextDim}" FontSize="11"
+                           AutomationProperties.AutomationId="LicenseSeatsText" Text=""/>
+                <TextBlock Text="② 貼上廠商核發的授權金鑰" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
                 <TextBox x:Name="LicenseKeyBox" AutomationProperties.AutomationId="LicenseKeyBox"
                          Height="64" Margin="0,6,0,8" AcceptsReturn="True" TextWrapping="Wrap"
                          VerticalScrollBarVisibility="Auto"
                          Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
-                <DockPanel>
+                <TextBlock Text="③ 套用並驗證（成功會存到 %LOCALAPPDATA%\HeliVMS\license.lic）"
+                           Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+                <DockPanel Margin="0,6,0,0">
                     <Button x:Name="ApplyLicenseButton" Content="套用授權金鑰" Click="OnApplyLicenseClicked" ToolTip="驗證並套用貼入的授權金鑰"
                             DockPanel.Dock="Left" Padding="12,6"
                             Foreground="White" Background="#2A5C8A" BorderThickness="0" AutomationProperties.AutomationId="ApplyLicenseButton"/>

@@ -1303,14 +1303,35 @@ public partial class SettingsWindow : Window
                 : "，永久授權";
             var tierText = string.IsNullOrEmpty(record.Tier) ? string.Empty : $"{record.Tier}／";
             LicenseStatusText.Text = $"已授權（{tierText}{record.MaxCameras} 路{expire}）";
+
+            // 剩餘通道＝授權上限 − 已設定頻道數（§19.4「等級／到期／剩餘通道」）。
+            // 與錄影閘門同源的 ChannelRepository，避免另一套「在錄數」算法造成兩個數字。
+            var used = new ChannelRepository(_store).List().Count;
+            var seats = Math.Max(0, record.MaxCameras - used);
+            LicenseSeatsText.Text = $"剩餘可新增通道：{seats}（已設定 {used}／上限 {record.MaxCameras}）";
         }
         else
         {
             LicenseStatusText.Text = $"未授權：{license.Message ?? license.Decision.ToString()}";
+            LicenseSeatsText.Text = "剩餘可新增通道：0（未授權）";
         }
 
         MachineText.Text = MachineIdProvider.GetDeviceCode();
         ApplyLicenseVisibility(gate);
+    }
+
+    /// <summary>把設備碼複製到剪貼簿，省去使用者手抄 32 碼 hex 的錯誤（§19.4 導入流程）。</summary>
+    private void OnCopyMachineClicked(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            Clipboard.SetText(MachineText.Text);
+            LicenseApplyText.Text = "已複製設備碼，請提供給廠商核發授權。";
+        }
+        catch (Exception ex)
+        {
+            LicenseApplyText.Text = $"複製失敗：{ex.Message}";
+        }
     }
 
     /// <summary>依授權隱藏設定中心裡的受限功能（M209），並補上到期提醒（M211）。</summary>
