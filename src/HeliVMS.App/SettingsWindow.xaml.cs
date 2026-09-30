@@ -124,7 +124,22 @@ public partial class SettingsWindow : Window
         OskToggleCheck.IsChecked = Osk.Enabled;
         ApplyLangUi();
 
+        FillAbout();
+
         SettingsNav.SelectedIndex = 0;
+    }
+
+    /// <summary>填入「關於」頁的版本與儲存路徑資訊。</summary>
+    private void FillAbout()
+    {
+        var version = Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "0.0.0";
+        var informational = Assembly.GetExecutingAssembly()
+            .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
+        AboutVersionText.Text = $"HeliVMS {informational ?? version}";
+        AboutDataText.Text = $"資料目錄：{_dataRoot}";
+        AboutRecordingText.Text = $"錄影目錄：{_recordingsRoot}";
+        AboutSnapshotText.Text = $"快照目錄：{_snapshotsRoot}";
+        AboutMapText.Text = $"地圖目錄：{_mapsRoot}";
     }
 
     /// <summary>依現況語言套用設定視窗標題／語言群文字（M57）。</summary>
@@ -176,6 +191,7 @@ public partial class SettingsWindow : Window
         PageMap.Visibility = visible == "地圖" ? Visibility.Visible : Visibility.Collapsed;
         PageUsers.Visibility = visible == "身份" ? Visibility.Visible : Visibility.Collapsed;
         PageBackup.Visibility = visible == "備份" ? Visibility.Visible : Visibility.Collapsed;
+        PageAbout.Visibility = visible == "關於" ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private void ReloadBackup()
@@ -1141,6 +1157,8 @@ public partial class SettingsWindow : Window
     }
 
     private void OnRefreshChannelsClicked(object sender, RoutedEventArgs e) => ReloadChannels();
+
+    private void OnRefreshDevicesClicked(object sender, RoutedEventArgs e) => ReloadDevices();
 
     private void ReloadDevices(DeviceRow? reselect = null)
     {

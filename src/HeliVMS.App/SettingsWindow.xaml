@@ -30,8 +30,9 @@
                     <ListBoxItem Content="規則"/>
                     <ListBoxItem Content="IO"/>
                     <ListBoxItem Content="地圖"/>
-                    <ListBoxItem Content="身份"/>
-                    <ListBoxItem Content="備份"/>
+<ListBoxItem Content="身份"/>
+                <ListBoxItem Content="備份"/>
+                <ListBoxItem Content="關於"/>
                 </ListBox>
             </DockPanel>
         </Border>
@@ -208,6 +209,12 @@
                     <TextBlock Text="由 ONVIF 探索建立的設備共用同一份加密封存憑證（RTSP 拉流與 PTZ 共通）。修改後新連線生效；已開啟的影像需重新開啟。"
                                Foreground="{StaticResource Brand.TextDim}" FontSize="11" Margin="0,0,0,8"
                                TextWrapping="Wrap"/>
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                        <Button x:Name="RefreshDevicesButton" AutomationProperties.AutomationId="RefreshDevicesButton"
+                                Content="重新整理" Click="OnRefreshDevicesClicked" Padding="8,4"
+                                Foreground="White" Background="#2660AA" BorderThickness="0"
+                                ToolTip="重新載入設備清單與其 RTSP 憑證狀態"/>
+                    </StackPanel>
                     <ListView x:Name="DeviceCredList" AutomationProperties.AutomationId="SettingsDeviceList"
                               MaxHeight="110" Background="#0E1D33" Foreground="White" BorderBrush="#1F3A5F"
                               SelectionChanged="OnDeviceCredSelected">
@@ -1019,6 +1026,26 @@
                         </GridView>
                     </ListView.View>
                 </ListView>
+            </StackPanel>
+
+            <!-- 關於 -->
+            <StackPanel x:Name="PageAbout" Visibility="Collapsed">
+                <TextBlock Text="關於" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,6"/>
+                <TextBlock x:Name="AboutVersionText" TextWrapping="Wrap"
+                           Foreground="#EBF3FF" FontSize="12" Margin="0,0,0,2"/>
+                <TextBlock Text="儲存位置（供除錯／移機參考）：" Foreground="{StaticResource Brand.TextDim}"
+                           FontSize="11" Margin="0,12,0,4"/>
+                <TextBlock x:Name="AboutDataText" TextWrapping="Wrap"
+                           Foreground="{StaticResource Brand.TextDim}" FontSize="11" Margin="0,0,0,2"/>
+                <TextBlock x:Name="AboutRecordingText" TextWrapping="Wrap"
+                           Foreground="{StaticResource Brand.TextDim}" FontSize="11" Margin="0,0,0,2"/>
+                <TextBlock x:Name="AboutSnapshotText" TextWrapping="Wrap"
+                           Foreground="{StaticResource Brand.TextDim}" FontSize="11" Margin="0,0,0,2"/>
+                <TextBlock x:Name="AboutMapText" TextWrapping="Wrap"
+                           Foreground="{StaticResource Brand.TextDim}" FontSize="11" Margin="0,0,0,2"/>
+                <TextBlock Text="版本與桌面應用及網頁主控台應一致；路徑依環境組態不同。"
+                           Foreground="{StaticResource Brand.TextDim}" FontSize="11" Margin="0,14,0,0"
+                           TextWrapping="Wrap"/>
             </StackPanel>
         </Grid>
     </Grid>
