@@ -274,7 +274,8 @@
                            MouseLeftButtonUp="OnAlertTextClicked" Cursor="Hand"
                            Text="（即時警報：AI 偵測／離線／重連）"/>
                 <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
-                    <Border x:Name="UnackBadge" Background="#6A2E2E" CornerRadius="3" Padding="8,2" Visibility="Collapsed">
+                    <Border x:Name="UnackBadge" Background="#6A2E2E" CornerRadius="3" Padding="8,2" Visibility="Collapsed"
+                        Cursor="Hand" MouseLeftButtonUp="OnUnackBadgeClicked" ToolTip="點擊開啟事件中心（僅未確認）">
                         <TextBlock x:Name="UnackText" Foreground="White" FontSize="11" Text=""/>
                     </Border>
                     <TextBlock x:Name="StatusText" Text="正在驗證授權…" Foreground="{StaticResource Brand.TextDim}"

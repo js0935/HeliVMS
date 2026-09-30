@@ -257,11 +257,26 @@ private async void OnExportCsvClicked(object sender, RoutedEventArgs e)
         {
             ChannelId = channelId,
             EventType = eventType,
+            Status = PendingOnlyCheck.IsChecked == true ? AlarmEventStatus.Pending : null,
             Keyword = KeywordBox.Text.Trim(),
             FromUtc = from,
             ToUtc = to,
             Limit = 10000,
         };
+    }
+
+    private void OnPendingOnlyChanged(object sender, RoutedEventArgs e)
+    {
+        _page = 1;
+        DoRefresh();
+    }
+
+    /// <summary>切到「僅未確認」視圖（供主視窗未確認徽章點擊重用同窗）。</summary>
+    public void FocusUnacknowledged()
+    {
+        PendingOnlyCheck.IsChecked = true;
+        _page = 1;
+        DoRefresh();
     }
 
     /// <summary>將事件寫入 CSV（UTF-8 BOM，供 UI 匯出與 --events-export 共用）。</summary>

@@ -40,6 +40,11 @@
                      Width="140" Margin="6,0,0,0" VerticalContentAlignment="Center"
                      Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
 
+            <CheckBox x:Name="PendingOnlyCheck" Content="僅未確認" AutomationProperties.AutomationId="PendingOnlyCheck"
+                      Foreground="White" VerticalAlignment="Center" Margin="20,0,0,0"
+                      Checked="OnPendingOnlyChanged" Unchecked="OnPendingOnlyChanged"
+                      ToolTip="只顯示尚未確認（pending）的事件"/>
+
             <Button x:Name="ApplyQueryButton" AutomationProperties.AutomationId="ApplyQueryButton" ToolTip="依頻道／範圍／類型／關鍵字重新查詢事件"
                     Content="套用" Click="OnApplyQueryClicked"
                     Padding="10,4" Margin="8,0,0,0" VerticalAlignment="Center" IsDefault="True"

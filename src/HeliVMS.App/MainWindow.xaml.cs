@@ -1544,6 +1544,12 @@ public partial class MainWindow : Window
         UnackText.Text = count > 0 ? $"未確認 {count}" : "";
     }
 
+    /// <summary>未確認徽章點擊＝直達事件中心並只顯示未確認事件（分診入口）。</summary>
+    private void OnUnackBadgeClicked(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    {
+        OpenChild(new EventCenterWindow(_store!), w => ((EventCenterWindow)w).FocusUnacknowledged());
+    }
+
     private async void OnCtxFullScreen(object sender, RoutedEventArgs e)
     {
         if (_manager is null)
