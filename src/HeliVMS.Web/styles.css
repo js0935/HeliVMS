@@ -84,6 +84,28 @@ button:disabled {
 #conn:empty { display: none; }
 #conn.off { opacity: 1; background: var(--crit); color: #fff; }
 
+.nav-inline {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line);
+}
+.nav-inline a {
+  color: var(--muted);
+  text-decoration: none;
+  padding: 2px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  font-size: 12px;
+}
+.nav-inline a:hover,
+.nav-inline a:focus-visible {
+  color: var(--text);
+  border-color: var(--accent);
+}
+section.panel[id] { scroll-margin-top: 12px; }
+
 .chip-btn {
   background: var(--panel);
   border: 1px solid var(--line);

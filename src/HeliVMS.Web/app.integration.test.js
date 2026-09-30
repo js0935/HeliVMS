@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 const root = join(dirname(fileURLToPath(import.meta.url)));
 const appSource = readFileSync(join(root, 'app.js'), 'utf8');
 const indexSource = readFileSync(join(root, 'index.html'), 'utf8');
+const stylesSource = readFileSync(join(root, 'styles.css'), 'utf8');
 
 describe('alarm board consolidation', () => {
   it('renders the board from the validated alarm-board API', () => {
@@ -130,5 +131,21 @@ describe('board freshness', () => {
   it('stamps the render time and wires the refresh button', () => {
     expect(appSource).toMatch(/更新於 \$\{new Date\(\)\.toLocaleTimeString\(\)\}/);
     expect(appSource).toMatch(/\$\(['"]board-refresh['"]\)\?\.addEventListener\(['"]click['"], \(\) => renderBoard\(\)\)/);
+  });
+});
+
+describe('admin quick nav', () => {
+  it('lists admin section jump links below the topbar', () => {
+    expect(indexSource).toMatch(/id="admin-nav"[^>]*hidden[^>]*aria-label="管理區段"/);
+    expect(indexSource).toMatch(/<a href="#accounts-panel">帳號<\/a>/);
+    expect(indexSource).toMatch(/<a href="#health-panel">健康<\/a>/);
+  });
+
+  it('shows the nav only for actors in chrome', () => {
+    expect(appSource).toMatch(/\$\(['"]admin-nav['"]\)\.hidden = !admin;/);
+  });
+
+  it('reserves scroll space for anchored sections', () => {
+    expect(stylesSource).toMatch(/section\.panel\[id\] \{ scroll-margin-top: 12px; \}/);
   });
 });

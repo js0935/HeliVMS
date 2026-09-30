@@ -162,6 +162,7 @@ function updateChrome() {
   $('red-panel').hidden = !admin;
   $('rep-panel').hidden = !admin;
   $('health-panel').hidden = !admin;
+  $('admin-nav').hidden = !admin;
   $('logout').hidden = !session;
 }
 
