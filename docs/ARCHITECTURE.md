@@ -1575,6 +1575,13 @@ payload 由 `LicensePayload` 序列化（`JsonNamingPolicy.CamelCase`），欄�
   - **ShareHost 是服務不是按鈕**：`remote` 未授權時 `ShareHost.ApplySettings(settings, licenseAllowed: false)` 會強制 `Stop()` 並回報未授權。分享主機是 loopback HTTP socket，只藏按鈕擋不住一個已經在聽的連接埠。
   - **匯入授權即時生效**：`SettingsWindow` 匯入金鑰後除了寫檔，還呼叫 `LicenseService.Apply()` 落 `license` 表並留稽核，授權狀態列也改讀同一列。少這一步會出現「設定頁寫著已授權、錄影閘門卻認為未匯入」的矛盾。
   - **AI 疊加狀態要跟著清**：未授權時不只藏 `AiToggle`，還要把 `_aiVisible` 歸 false 並取消勾選；只藏控制項會留下「沒有開關卻一直在畫 AI 方框」的幽靈行為。
+- **遠端 API 合併檢查（M210）**：`LicenseGateMiddleware`（WebApi）讓遠端與本機**共用同一個** `LicenseService` 結論——同一張授權、同一套旗標規則、同一句拒絕理由，遠端沒有比較寬鬆的分支（§18.4）。這正是「合併」二字：判斷邏輯不重寫一份，只把同一個收斂點接到 API 邊界。
+  - 狀態碼用 **403 Forbidden**（非 402，本系統沒有金流語意），body 帶 `feature`／`featureName`／`decision`／`maxCameras`／`features`，讓呼叫端能分辨自己缺哪一級。讀與寫端點同樣受檢——只擋讀等於留一個寫入後門。
+  - 規則表由**路徑前綴 → 旗標**構成（`/api/recording/schedules`、`/api/patrols`→`schedule`；`/api/detections`、`/api/clip`、`/api/audio`→`ai`；`/api/shares`→`remote`；`/api/auth/providers`→`ad`），讀取端點也列在內：「看得到自己排了哪些排程」不該比「排得到」更寬鬆。`/api/health` 與 `/api/license` 一律放行。
+  - **刻意不**對整個 `/api/*` 掛 `remote`：§19.3 的 `remote` 是「遠程存取（分享、網頁主控台）」，但同一支 WebApi 也把 `HeliVMS.Web` 當成本機網頁主控台伺服器；若整個 API 都要求 `remote`，基本版（core+ai）客戶連自己機器上的網頁主控台都開不了。要改成全面封鎖只需在規則表加一條 `/api` 前綴。
+  - **`GET /api/license`** 回傳 `decision`／`maxCameras`／`allowsNewRecording`／`features`／逐旗標 `featureStatus`，且不受旗標閘門限制——前端要先問自己被擋在哪才畫得出畫面。
+  - WebApi 端 `LicenseService` 支援 `HELIVMS_LICENSE_PUBLIC_KEY` 覆寫公鑰（金鑰輪替），測試即以此注入對應公鑰，不需動 `EmbeddedPublicKey`。
+  - **SPA 端**：旗標閘門回 403，而 `apiRaw` 只在**網路層**失敗時才 `setConn(false)`，故 HTTP 403 不會觸發面板的 `.catch`——未裝示時使用者只會看到一片空面板。因此 `refreshLicense()` 在 boot 與 12 秒輪詢中並取狀態，於頂列 `#lic` 徽章以 `textContent` 說明未授權與缺哪幾項（授權訊息不得以 `innerHTML` 插入）。
 
 ### 19.5 既有工具處置
 

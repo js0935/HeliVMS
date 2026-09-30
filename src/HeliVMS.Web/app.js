@@ -1162,15 +1162,47 @@ async function boot() {
   wire();
   updateChrome();
   await refreshHealth();
+  await refreshLicense();
   await refreshAll();
   bindScheduleForm();
   bindPatrolForm();
   connectLive();
   setInterval(() => {
     if (pollGate(document.activeElement?.tagName, document.hidden)) {
+      refreshLicense();
       refreshAll();
     }
   }, POLL_MS);
+}
+
+/**
+ * 授權狀態徽章（M210）。旗標閘門對未授權端點回 403，而 HTTP 錯誤不會觸發面板的 .catch，
+ * 未裝示的話使用者只會看到一片空面板。改由這裡主動取一次狀態並說明缺哪幾項。
+ * 一律用 textContent，授權訊息不得以 innerHTML 插入。
+ */
+async function refreshLicense() {
+  const el = $('lic');
+  try {
+    const res = await apiRaw('/api/license');
+    if (!res.ok) {
+      if (el) el.textContent = '';
+      return;
+    }
+    const status = await res.json();
+    if (!el) return;
+    if (status.decision === 'Valid') {
+      el.textContent = `授權 ${status.maxCameras} 路`;
+      el.classList.remove('off');
+      return;
+    }
+    const missing = (status.featureStatus || [])
+      .filter((f) => !f.allowed)
+      .map((f) => f.name);
+    el.textContent = `未授權：${status.message || status.decision}${missing.length ? `（缺 ${missing.join('、')}）` : ''}`;
+    el.classList.add('off');
+  } catch (err) {
+    if (el) el.textContent = '';
+  }
 }
 
 async function refreshAll() {

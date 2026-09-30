@@ -118,6 +118,32 @@ describe('connection banner', () => {
   });
 });
 
+describe('license banner', () => {
+  it('adds a live status element beside the connection badge', () => {
+    expect(indexSource).toMatch(/id="lic"[^>]*role="status"[^>]*aria-live="polite"/);
+  });
+
+  it('polls license state alongside the rest of the dashboard', () => {
+    // 只在 boot 取一次不夠：授權可能在執行中被匯入或到期。
+    expect(appSource).toMatch(/await refreshLicense\(\);\s*await refreshAll\(\);/);
+    expect(appSource).toMatch(/refreshLicense\(\);\s*refreshAll\(\);/);
+  });
+
+  it('names the missing features instead of leaving an empty panel', () => {
+    expect(appSource).toMatch(/apiRaw\('\/api\/license'\)/);
+    expect(appSource).toMatch(/未授權：/);
+    expect(appSource).toMatch(/\.filter\(\(f\) => !f\.allowed\)/);
+  });
+
+  it('never inserts license text as HTML', () => {
+    const fn = appSource.slice(
+      appSource.indexOf('async function refreshLicense'),
+      appSource.indexOf('async function refreshAll'),
+    );
+    expect(fn).not.toMatch(/innerHTML/);
+  });
+});
+
 describe('board freshness', () => {
   it('labels the overdue column it already renders', () => {
     expect(indexSource).toMatch(/<th scope="col">逾期<\/th>/);

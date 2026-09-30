@@ -31,6 +31,24 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
         Directory.CreateDirectory(RootDir);
         Directory.CreateDirectory(OutsideDir);
         builder.UseSetting(PathAccessPolicy.RootsConfigKey, RootDir);
+        builder.UseSetting("HELIVMS_LICENSE_PUBLIC_KEY", TestLicenseSeeder.PublicPem);
+        SeedFullLicense();
+    }
+
+    /// <summary>
+    /// 這個 factory 測的是端點行為，不是授權拒絕；要授權的測試請用
+    /// <see cref="LicensedApiFactory"/>。故預設給一張全旗標、4 路、永久的測試授權，
+    /// 否則旗標閘門（M210）會把 shares／schedules／detections 等端點全部擋成 403。
+    /// </summary>
+    private void SeedFullLicense()
+    {
+        using var store = new SqliteStore(DbPath);
+        store.Initialize();
+        TestLicenseSeeder.Apply(
+            store,
+            LicenseFeatures.All.ToArray(),
+            new DateTime(2026, 9, 30, 12, 0, 0, DateTimeKind.Utc),
+            expiresUtc: null);
     }
 
     protected override void Dispose(bool disposing)

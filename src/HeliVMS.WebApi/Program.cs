@@ -1,3 +1,4 @@
+using HeliVMS.Licensing;
 using HeliVMS.Storage;
 using HeliVMS.WebApi;
 using Microsoft.Extensions.FileProviders;
@@ -61,6 +62,18 @@ builder.Services.AddSingleton(static sp => new AlarmEventRepository(sp.GetRequir
 builder.Services.AddSingleton<AlertBroadcastHub>();
 builder.Services.AddSingleton<AuthService>();
 
+// 遠程與本機共用同一份授權結論（M210／§19.4「合併檢查」）。公鑰可由
+// HELIVMS_LICENSE_PUBLIC_KEY 覆寫以支援金鑰輪替；未設定時用內嵌公鑰。
+builder.Services.AddSingleton(sp =>
+{
+    var publicKeyPem = sp.GetRequiredService<IConfiguration>()["HELIVMS_LICENSE_PUBLIC_KEY"];
+    var manager = string.IsNullOrWhiteSpace(publicKeyPem)
+        ? new LicenseManager()
+        : new LicenseManager(publicKeyPem);
+    return new LicenseService(sp.GetRequiredService<SqliteStore>(), manager);
+});
+builder.Services.AddSingleton(TimeProvider.System);
+
 var app = builder.Build();
 
 var webRoot = Program.FindWebRoot(builder.Configuration["HELIVMS_WEB"]);
@@ -75,6 +88,7 @@ if (webRoot is not null)
 
 app.UseWebSockets();
 app.UseMiddleware<ApiKeyAuthMiddleware>();
+app.UseMiddleware<LicenseGateMiddleware>();
 ApiEndpoints.MapAll(app);
 
 app.MapFallback(async context =>

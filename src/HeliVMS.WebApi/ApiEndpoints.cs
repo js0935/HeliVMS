@@ -64,6 +64,16 @@ public static class ApiEndpoints
     public sealed record ScheduleBody(long Id, int ChannelId, int DaysMask, int StartMinute, int EndMinute, bool Enabled);
     public sealed record ScheduleUpsertRequest(int ChannelId, int DaysMask, int StartMinute, int EndMinute, bool Enabled);
     public sealed record PatrolStepBody(string PresetName, int DwellSeconds);
+    public sealed record LicenseStatusResponse(
+        string Decision,
+        string? Message,
+        int MaxCameras,
+        bool AllowsNewRecording,
+        string[] Features,
+        LicenseFeatureStatus[] FeatureStatus,
+        DateTime EvaluatedUtc);
+
+    public sealed record LicenseFeatureStatus(string Feature, string Name, bool Allowed);
     public sealed record PatrolUpsertRequest(string Name, int ChannelId, bool Enabled, string? WindowStart, string? WindowEnd, IReadOnlyList<PatrolStepBody>? Steps);
 
     private static readonly TimeSpan ReconWindow = TimeSpan.FromSeconds(10);
@@ -76,6 +86,25 @@ public static class ApiEndpoints
             Results.Ok(new HealthResponse("ok", "ok", channels.List().Count)));
 
         api.MapGet("/channels", static (ChannelRepository r) => Results.Ok(r.List()));
+
+        // 授權狀態（M210）。刻意不放進 LicenseGateMiddleware 的規則表：前端要先問
+        // 「我被擋在哪一個旗標」才畫得出畫面，狀態查詢本身不該被授權擋住。
+        api.MapGet("/license", static (LicenseService license, TimeProvider clock) =>
+        {
+            var nowUtc = clock.GetUtcNow().UtcDateTime;
+            var result = license.Evaluate(nowUtc);
+            return Results.Ok(new LicenseStatusResponse(
+                result.Decision.ToString(),
+                result.Message,
+                result.MaxCameras,
+                result.AllowsNewRecording,
+                [.. result.Features],
+                [.. LicenseFeatures.All.Select(f => new LicenseFeatureStatus(
+                    f,
+                    LicenseFeatures.DisplayName(f),
+                    result.AllowsFeature(f)))],
+                nowUtc));
+        });
 
         api.MapGet("/events", HandleEvents);
 
