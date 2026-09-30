@@ -112,9 +112,9 @@ public class StreamProbeTests
 
         try
         {
-            // 取消窗口給 stub 足夠時間先寫出 PID（powershell -NoProfile 啟動需數百 ms），
-        // 但仍遠短於 30s 與探測逾時，確保「取消→立刻殺樹」是受測行為。
-        using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(2500));
+            // 取消窗口需給 stub 足夠時間先寫出 PID（powershell -NoProfile 啟動在並行負載下可能需數秒），
+            // 但仍遠短於 30s 探測逾時，確保「取消→立刻殺樹」是受測行為。
+            using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(5000));
             var sw = Stopwatch.StartNew();
 
             var ex = Assert.Throws<OperationCanceledException>(
