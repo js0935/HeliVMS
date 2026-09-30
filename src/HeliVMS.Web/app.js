@@ -886,6 +886,7 @@ async function renderBoard() {
     ['逾期', 'overdue'],
   ];
   $('alarm-count').textContent = boardFilter ? `（${shown.length}/${rows.length}）` : `（${rows.length}）`;
+  $('alarm-meta').textContent = `更新於 ${new Date().toLocaleTimeString()}`;
   $('alarm-badges').innerHTML = chips
     .map(
       ([label, key]) =>
@@ -1127,6 +1128,7 @@ function wire() {
   $('config-form').addEventListener('submit', saveConfig);
   $('retention-run').addEventListener('click', runRetention);
   $('sys-refresh')?.addEventListener('click', renderHealth);
+  $('board-refresh')?.addEventListener('click', () => renderBoard());
   bindEvidenceForm();
   bindBackupForm();
   bindExportForm();

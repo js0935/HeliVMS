@@ -116,3 +116,19 @@ describe('connection banner', () => {
     expect(appSource).toMatch(/el\.textContent = ok \? '' : '連線中斷';/);
   });
 });
+
+describe('board freshness', () => {
+  it('labels the overdue column it already renders', () => {
+    expect(indexSource).toMatch(/<th scope="col">逾期<\/th>/);
+  });
+
+  it('adds a last-updated meta line plus manual refresh', () => {
+    expect(indexSource).toMatch(/id="alarm-meta"/);
+    expect(indexSource).toMatch(/id="board-refresh"[^>]*>立即更新/);
+  });
+
+  it('stamps the render time and wires the refresh button', () => {
+    expect(appSource).toMatch(/更新於 \$\{new Date\(\)\.toLocaleTimeString\(\)\}/);
+    expect(appSource).toMatch(/\$\(['"]board-refresh['"]\)\?\.addEventListener\(['"]click['"], \(\) => renderBoard\(\)\)/);
+  });
+});
