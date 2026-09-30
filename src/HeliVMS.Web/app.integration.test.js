@@ -52,3 +52,18 @@ describe('api-key flow', () => {
     expect(appSource).toMatch(/apikey'\)\.addEventListener\('keydown'[\s\S]*Enter[\s\S]*refreshAll\(\)/);
   });
 });
+
+describe('search feedback', () => {
+  it('reports empty result sets and truncation', () => {
+    expect(appSource).toMatch(/沒有符合的結果/);
+    expect(appSource).toMatch(/page\.total/);
+  });
+
+  it('guards empty queries with a hint', () => {
+    expect(appSource).toMatch(/if \(!q\)[\s\S]*請輸入關鍵字/);
+  });
+
+  it('adds a live region under the search table', () => {
+    expect(indexSource).toMatch(/id="events-msg"[^>]*aria-live="polite"/);
+  });
+});

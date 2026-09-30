@@ -964,16 +964,28 @@ function renderPos() {
 }
 
 async function searchEvents(q) {
+  if (!q) {
+    $('events-msg').textContent = '請輸入關鍵字';
+    return;
+  }
   const to = new Date();
   const from = new Date(to.getTime() - 24 * 3600 * 1000);
   const params = new URLSearchParams({ q, from: from.toISOString(), to: to.toISOString(), limit: '50' });
   const page = await api(`/api/events/search?${params}`);
-  $('events').querySelector('tbody').innerHTML = page.items
+  const items = page.items ?? [];
+  $('events').querySelector('tbody').innerHTML = items
     .map((e) => {
       const row = eventRow(e);
       return `<tr><td>${esc(row.id)}</td><td>${esc(row.time)}</td><td>${esc(row.channel)}</td><td>${esc(row.type)}</td><td>${esc(row.status ?? '')}</td></tr>`;
     })
     .join('');
+  if (items.length === 0) {
+    $('events-msg').textContent = '沒有符合的結果';
+  } else if (items.length < page.total) {
+    $('events-msg').textContent = `找到 ${page.total} 筆，顯示前 ${items.length} 筆（結果過多請縮小關鍵字）`;
+  } else {
+    $('events-msg').textContent = `找到 ${page.total} 筆`;
+  }
 }
 
 let timelineDay = '';
