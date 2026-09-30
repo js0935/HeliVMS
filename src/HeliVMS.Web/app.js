@@ -1191,8 +1191,11 @@ async function refreshLicense() {
     const status = await res.json();
     if (!el) return;
     if (status.decision === 'Valid') {
-      el.textContent = `授權 ${status.maxCameras} 路`;
-      el.classList.remove('off');
+      // 續期提醒（§19.4 到期前 14 天）由伺服端算好文案，前端不重寫一份。
+      el.textContent = status.expiryMessage
+        ? `授權 ${status.maxCameras} 路｜${status.expiryMessage}`
+        : `授權 ${status.maxCameras} 路`;
+      el.classList.toggle('off', Boolean(status.expiryMessage));
       return;
     }
     const missing = (status.featureStatus || [])

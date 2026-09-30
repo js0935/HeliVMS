@@ -71,6 +71,8 @@ public static class ApiEndpoints
         bool AllowsNewRecording,
         string[] Features,
         LicenseFeatureStatus[] FeatureStatus,
+        DateTime? ExpiresUtc,
+        string? ExpiryMessage,
         DateTime EvaluatedUtc);
 
     public sealed record LicenseFeatureStatus(string Feature, string Name, bool Allowed);
@@ -93,6 +95,7 @@ public static class ApiEndpoints
         {
             var nowUtc = clock.GetUtcNow().UtcDateTime;
             var result = license.Evaluate(nowUtc);
+            var expiry = result.Expiry(nowUtc);
             return Results.Ok(new LicenseStatusResponse(
                 result.Decision.ToString(),
                 result.Message,
@@ -103,6 +106,8 @@ public static class ApiEndpoints
                     f,
                     LicenseFeatures.DisplayName(f),
                     result.AllowsFeature(f)))],
+                expiry.ExpiresUtc,
+                expiry.Message,
                 nowUtc));
         });
 

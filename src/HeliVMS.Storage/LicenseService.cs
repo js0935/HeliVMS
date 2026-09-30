@@ -49,6 +49,20 @@ public sealed record LicenseApplyResult(
     /// <summary>授權的功能旗標；無有效授權時為空集合。</summary>
     public IReadOnlyList<string> Features => Record?.Features ?? [];
 
+    /// <summary>到期提醒（M211／§19.4「到期前 14 天 UI 浮條提醒」）。</summary>
+    /// <remarks>
+    /// 已到期（<see cref="LicenseDecision.Expired"/>）**要**提醒——續期訊息正是到期後才最需要的；
+    /// 未匯入／作廢／時鐘回流／簽章無效則不提醒，那四種是「授權無效」而非「快到期」。
+    /// </remarks>
+    public LicenseExpiryNotice Expiry(DateTime nowUtc)
+        => LicenseExpiry.Evaluate(
+            Record?.ExpiresUtc,
+            nowUtc,
+            Decision is LicenseDecision.Valid or LicenseDecision.Expired);
+
+    /// <summary>到期時刻；永久授權或無授權列時為 null。</summary>
+    public DateTime? ExpiresUtc => Record?.ExpiresUtc;
+
     /// <summary>
     /// 是否允許使用某功能旗標。授權有效且旗標在授權清單內才為 true；
     /// 未匯入／到期／回流／作廢一律 false（§19.9）。

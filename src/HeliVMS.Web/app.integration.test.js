@@ -142,6 +142,15 @@ describe('license banner', () => {
     );
     expect(fn).not.toMatch(/innerHTML/);
   });
+
+  it('reuses the server-side expiry wording instead of rewriting it', () => {
+    const fn = appSource.slice(
+      appSource.indexOf('async function refreshLicense'),
+      appSource.indexOf('async function refreshAll'),
+    );
+    expect(fn).toMatch(/status\.expiryMessage/);
+    expect(fn).not.toMatch(/剩 \$\{/);
+  });
 });
 
 describe('board freshness', () => {

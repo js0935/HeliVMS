@@ -1582,6 +1582,11 @@ payload 由 `LicensePayload` 序列化（`JsonNamingPolicy.CamelCase`），欄�
   - **`GET /api/license`** 回傳 `decision`／`maxCameras`／`allowsNewRecording`／`features`／逐旗標 `featureStatus`，且不受旗標閘門限制——前端要先問自己被擋在哪才畫得出畫面。
   - WebApi 端 `LicenseService` 支援 `HELIVMS_LICENSE_PUBLIC_KEY` 覆寫公鑰（金鑰輪替），測試即以此注入對應公鑰，不需動 `EmbeddedPublicKey`。
   - **SPA 端**：旗標閘門回 403，而 `apiRaw` 只在**網路層**失敗時才 `setConn(false)`，故 HTTP 403 不會觸發面板的 `.catch`——未裝示時使用者只會看到一片空面板。因此 `refreshLicense()` 在 boot 與 12 秒輪詢中並取狀態，於頂列 `#lic` 徽章以 `textContent` 說明未授權與缺哪幾項（授權訊息不得以 `innerHTML` 插入）。
+- **到期提醒（M211）**：`LicenseExpiry.Evaluate(expiresUtc, nowUtc, valid)` 是「14 天窗口」的唯一實作，回傳 `LicenseExpiryNotice(Stage, DaysRemaining, ExpiresUtc)` 與 `Message`。`WarnDays = 14`／`UrgentDays = 3` 兩個門檻寫成常數並由測試鎖住——寫死在 XAML 或各視窗裡就會有第二份真相。
+  - **邊界用總時數而非天數判斷**：只剩 5 小時若被算成「13 天」會完全失去緊迫感，故分級看 `remaining.TotalDays`，只有顯示用的 `DaysRemaining` 才 `Math.Floor`。
+  - **`valid` 要傳「有效或已到期」**：已到期仍然要提醒（續期訊息正是那時候最需要的），文案明說「新增錄影已停止；既有錄影仍可回放」；未匯入／已作廢／時鐘回流／簽章無效則不提醒——那四種是「授權無效」而非「快到期」，由設定中心與各閘門回饋即可，不該混在同一條黃色浮條裡。
+  - **呈現**：主視窗頂欄下方浮條 `LicenseBanner`（預設 `Collapsed`），已到期時底色與文字轉紅；`LicenseBannerAction` 直接開設定中心——續期動作就在那頁，不該讓使用者自己猜。設定中心授權頁另有 `LicenseExpiryText`，因為使用者未必從主視窗就看得到。
+  - `GET /api/license` 一併回傳 `expiresUtc` 與伺服端算好的 `expiryMessage`，SPA 直接採用，**前端不重寫一份文案**。
 
 ### 19.5 既有工具處置
 

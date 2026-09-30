@@ -1313,7 +1313,7 @@ public partial class SettingsWindow : Window
         ApplyLicenseVisibility(gate);
     }
 
-    /// <summary>依授權隱藏設定中心裡的受限功能（M209）。</summary>
+    /// <summary>依授權隱藏設定中心裡的受限功能（M209），並補上到期提醒（M211）。</summary>
     private void ApplyLicenseVisibility(LicenseUiGate gate)
     {
         gate.Apply(ShareEnabledBox, LicenseFeatures.Remote);
@@ -1324,6 +1324,11 @@ public partial class SettingsWindow : Window
         gate.Apply(LaunchScheduleButton, LicenseFeatures.Schedule, "開啟錄影排程視窗");
         gate.Apply(LaunchDetectionButton, LicenseFeatures.AiL1, "開啟 AI 偵測視窗");
         gate.Apply(TamperEnabledBox, LicenseFeatures.Ai);
+
+        // 續期動作就在這個頁面，提醒也得在這裡再說一次（§19.4 到期前 14 天提醒）。
+        var notice = gate.Current.Expiry(DateTime.UtcNow);
+        LicenseExpiryText.Text = notice.ShouldWarn ? notice.Message ?? string.Empty : string.Empty;
+        LicenseExpiryText.Visibility = notice.ShouldWarn ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private void OnApplyLicenseClicked(object sender, RoutedEventArgs e)

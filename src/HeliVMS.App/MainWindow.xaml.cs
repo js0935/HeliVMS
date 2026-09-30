@@ -1070,7 +1070,39 @@ public partial class MainWindow : Window
             _aiVisible = false;
             _licenseGate.Apply(AiToggle, LicenseFeatures.AiL1, "切換 AI 疊加顯示");
         }
+
+        ApplyLicenseExpiryBanner(_licenseGate);
     }
+
+    /// <summary>
+    /// 到期提醒浮條（M211／§19.4「到期前 14 天 UI 浮條提醒」）。
+    ///
+    /// 只在 <c>LicenseExpiry.ShouldWarn</c> 時顯示。未匯入／已作廢／時鐘回流不在此提示——
+    /// 那三種是「授權無效」，設定中心與各閘門已經說明，不必再混一條黃色浮條。
+    /// </summary>
+    private void ApplyLicenseExpiryBanner(LicenseUiGate gate)
+    {
+        var notice = gate.Current.Expiry(DateTime.UtcNow);
+        if (notice.ShouldWarn && notice.Message is { } message)
+        {
+            LicenseBanner.Visibility = Visibility.Visible;
+            LicenseBannerText.Text = message;
+
+            // 已到期是「現在就沒在錄」的事態，底色加深；即將到期仍有機會走流程。
+            LicenseBanner.Background = notice.Stage == LicenseExpiryStage.Expired
+                ? (Brush)FindResource("Brand.BgDeep")
+                : (Brush)new SolidColorBrush(Color.FromRgb(0x4A, 0x3A, 0x10));
+            LicenseBannerText.Foreground = notice.Stage == LicenseExpiryStage.Expired
+                ? (Brush)new SolidColorBrush(Color.FromRgb(0xF0, 0x9A, 0x9A))
+                : (Brush)new SolidColorBrush(Color.FromRgb(0xF5, 0xD7, 0x8E));
+            return;
+        }
+
+        LicenseBanner.Visibility = Visibility.Collapsed;
+    }
+
+    /// <summary>浮條上的「前往設定中心」：續期動作就在那裡，不該讓使用者自己去猜。</summary>
+    private void OnLicenseBannerActionClicked(object sender, RoutedEventArgs e) => OpenSettingsWindow();
 
     /// <summary>
     /// 未授權功能的第二道擋：事件處理器與 CLI 都必須呼叫（鍵盤與命令列繞得過隱藏）。

@@ -271,6 +271,9 @@
                 <TextBlock Text="授權" FontSize="17" FontWeight="Bold" Margin="0,0,0,14"/>
                 <TextBlock Text="授權狀態" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
                 <TextBlock x:Name="LicenseStatusText" Margin="0,2,0,14" TextWrapping="Wrap"/>
+                <TextBlock x:Name="LicenseExpiryText" Visibility="Collapsed" Margin="0,0,0,14" TextWrapping="Wrap"
+                           Foreground="#F5D78E" AutomationProperties.AutomationId="LicenseExpiryText"
+                           Text=""/>
                 <TextBlock Text="本機機器指紋（授權綁定用）" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
                 <TextBlock x:Name="MachineText" Margin="0,2,0,14" TextWrapping="Wrap"/>
                 <TextBlock Text="貼入授權金鑰後套用（驗證成功會存到 %LOCALAPPDATA%\HeliVMS\license.lic）"

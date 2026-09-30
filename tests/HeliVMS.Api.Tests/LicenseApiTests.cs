@@ -288,6 +288,35 @@ public class LicenseApiTests
     }
 
     [Fact]
+    public async Task LicenseStatus_ExpiringSoonCarriesServerSideNotice()
+    {
+        // 續期提醒的文案由 Storage 端算（M211），前端不重寫一份。
+        using var factory = new LicensedApiFactory
+        {
+            Features = ["core", "gis"],
+            ExpiresUtc = new DateTime(2026, 10, 5, 0, 0, 0, DateTimeKind.Utc),
+        };
+
+        var (status, body) = await Get(factory, "/api/license");
+
+        Assert.Equal(HttpStatusCode.OK, status);
+        Assert.Equal("Valid", body.GetProperty("decision").GetString());
+        Assert.Equal("2026-10-05T00:00:00Z", body.GetProperty("expiresUtc").GetString());
+        Assert.Contains("到期", body.GetProperty("expiryMessage").GetString()!);
+    }
+
+    [Fact]
+    public async Task LicenseStatus_PerpetualHasNoExpiryNotice()
+    {
+        using var factory = new LicensedApiFactory { Features = ["core"] };
+
+        var (_, body) = await Get(factory, "/api/license");
+
+        Assert.Equal(JsonValueKind.Null, body.GetProperty("expiresUtc").ValueKind);
+        Assert.Equal(JsonValueKind.Null, body.GetProperty("expiryMessage").ValueKind);
+    }
+
+    [Fact]
     public async Task ExpiredLicense_BlocksFlagGatedEndpoint()
     {
         using var factory = new LicensedApiFactory
