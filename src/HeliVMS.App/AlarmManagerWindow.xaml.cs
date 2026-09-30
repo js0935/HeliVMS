@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Threading;
 using HeliVMS.Shared.Models;
 using HeliVMS.Storage;
 
@@ -15,6 +16,7 @@ public partial class AlarmManagerWindow : Window
     private readonly AlarmEventRepository _events;
     private readonly AlarmTriageRepository _triage;
     private readonly Dictionary<int, string> _channelNames = new();
+    private readonly DispatcherTimer _autoTimer;
 
     private sealed record Option(string Value, string Label);
 
@@ -64,6 +66,25 @@ public partial class AlarmManagerWindow : Window
             .ToList();
 
         Refresh();
+
+        // 每 15 秒自動刷新（與主視窗未確認徽章同節奏）；刷新後維持目前選取。
+        _autoTimer = new DispatcherTimer(TimeSpan.FromSeconds(15), DispatcherPriority.Background, (_, _) =>
+        {
+            var selected = (BoardList.SelectedItem as BoardRow)?.EventId;
+            Refresh();
+            if (selected is { } id &&
+                BoardList.Items.OfType<BoardRow>().FirstOrDefault(r => r.EventId == id) is { } match)
+            {
+                BoardList.SelectedItem = match;
+            }
+        }, Dispatcher);
+        _autoTimer.Start();
+    }
+
+    protected override void OnClosed(EventArgs e)
+    {
+        _autoTimer.Stop();
+        base.OnClosed(e);
     }
 
     private void OnRefreshClicked(object sender, RoutedEventArgs e)
@@ -77,7 +98,9 @@ public partial class AlarmManagerWindow : Window
         var now = DateTime.UtcNow;
         var summary = _triage.Summarize(now);
         SummaryText.Text = $"待處理 {summary.Pending}／已確認 {summary.Acknowledged}／" +
-                           $"已處理 {summary.Actioned}／誤報 {summary.FalseAlarm}／逾期 {summary.Overdue}";
+                           $"已處理 {summary.Actioned}／誤報 {summary.FalseAlarm}／逾期 {summary.Overdue}" +
+                           $"　（自動更新 {now.ToLocalTime():HH:mm:ss}）";
+        Title = $"HeliVMS 警報管理器（未確認 {summary.Pending}）";
 
         var rows = _triage.ListBoard(now).Select(r => new BoardRow
         {
