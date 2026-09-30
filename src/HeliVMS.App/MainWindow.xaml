@@ -97,7 +97,7 @@
                         <Button x:Name="PlaybackButton" AutomationProperties.AutomationId="PlaybackButton" Content="回放" ToolTip="開啟回放視窗（檢視錄影）[F4]" Click="OnPlaybackClicked"
                                 Width="80" Padding="0,8" Margin="10,0,0,0"
                                 Foreground="White" Background="#2A5C8A" BorderThickness="0" />
-                        <Button x:Name="EventButton" AutomationProperties.AutomationId="EventButton" Content="事件" ToolTip="開啟事件中心" Click="OnEventClicked"
+                        <Button x:Name="EventButton" AutomationProperties.AutomationId="EventButton" Content="事件" ToolTip="開啟事件中心 [F5]" Click="OnEventClicked"
                                 Width="80" Padding="0,8" Margin="6,0,0,0"
                                 Foreground="White" Background="#6A5A2E" BorderThickness="0" />
                         <Button x:Name="ExportButton" AutomationProperties.AutomationId="ExportButton" Content="匯出" ToolTip="匯出目前頻道與時間範圍的錄影" Click="OnExportClicked"
@@ -126,7 +126,7 @@
                     <TextBlock Text="工具與整合" Foreground="{StaticResource Brand.TextDim}" FontSize="11" Margin="0,16,0,6" />
                     <StackPanel Orientation="Horizontal" Margin="0,0,0,0">
                         <Button x:Name="AlarmButton" AutomationProperties.AutomationId="AlarmButton"
-                                Content="警報" ToolTip="開啟警報管理器" Click="OnAlarmManagerClicked"
+                                Content="警報" ToolTip="開啟警報管理器 [F6]" Click="OnAlarmManagerClicked"
                                 Width="50" Padding="0,8" Margin="0,0,6,0"
                                 Foreground="White" Background="#7A3A5A" BorderThickness="0" />
                         <Button x:Name="RedactionButton" AutomationProperties.AutomationId="RedactionButton"

@@ -1587,9 +1587,11 @@ public partial class MainWindow : Window
 
     private static readonly System.Windows.Input.Key[] HandledPreviewKeys =
         [System.Windows.Input.Key.F11, System.Windows.Input.Key.Escape,
-         System.Windows.Input.Key.F2, System.Windows.Input.Key.F4];
+         System.Windows.Input.Key.F2, System.Windows.Input.Key.F4,
+         System.Windows.Input.Key.F5, System.Windows.Input.Key.F6];
 
-    /// <summary>F11＝單格展開/還原（ESC 退出展開）。</summary>
+    /// <summary>F11＝單格展開/還原（ESC 退出展開）；F2＝設定、F4＝回放、
+    /// F5＝事件中心、F6＝警報管理器（配合 M194 單例重用，連按不重複開窗）。</summary>
     private async void OnPreviewKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
     {
         if (!HandledPreviewKeys.Contains(e.Key))
@@ -1609,6 +1611,14 @@ public partial class MainWindow : Window
         else if (e.Key == System.Windows.Input.Key.F4)
         {
             OnPlaybackClicked(this, new RoutedEventArgs());
+        }
+        else if (e.Key == System.Windows.Input.Key.F5)
+        {
+            OpenEventCenter();
+        }
+        else if (e.Key == System.Windows.Input.Key.F6)
+        {
+            OpenAlarmManagerWindow();
         }
         else if (e.Key == System.Windows.Input.Key.Escape &&
                  _expandInProgress &&
