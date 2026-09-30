@@ -141,6 +141,7 @@ namespace HeliVMS.App
             host.LocationChanged += (_, _) => Realign();
             host.SizeChanged += (_, _) => Realign();
             host.StateChanged += OnHostState;
+            host.Deactivated += (_, _) => Hide();
             ContentRendered += (_, _) => Realign();
             Focusable = false;
         }

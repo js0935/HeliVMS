@@ -23,12 +23,23 @@
 
         <!-- 頂欄 -->
         <Border Grid.Row="0" Background="{StaticResource Brand.BgPanel}" Padding="12,8" BorderBrush="#1F3A5F" BorderThickness="0,0,0,1">
-            <StackPanel Orientation="Horizontal">
-                <Image x:Name="HeaderLogo" Width="20" Height="20" VerticalAlignment="Center" Margin="0,0,8,0" />
-                <TextBlock Text="HeliVMS" Foreground="{StaticResource Brand.TextPrimary}" FontSize="15" FontWeight="SemiBold" VerticalAlignment="Center" />
-                <CheckBox x:Name="AiToggle" Content="AI 疊加" Foreground="White" VerticalAlignment="Center"
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <Image x:Name="HeaderLogo" Grid.Column="0" Width="20" Height="20" VerticalAlignment="Center" Margin="0,0,8,0" />
+                <TextBlock Grid.Column="1" Text="HeliVMS" Foreground="{StaticResource Brand.TextPrimary}" FontSize="15" FontWeight="SemiBold" VerticalAlignment="Center" />
+                <CheckBox x:Name="AiToggle" Grid.Column="2" Content="AI 疊加" Foreground="White" VerticalAlignment="Center"
                           Margin="28,0,0,0" Checked="OnAiToggleChanged" Unchecked="OnAiToggleChanged"/>
-            </StackPanel>
+                <Button Grid.Column="4" x:Name="HeaderSettingsButton" AutomationProperties.AutomationId="HeaderSettingsButton"
+                        Content="設定" ToolTip="設定中心（存檔路徑、裝置憑證、AI、錄影、全域選項）" Click="OnSettingsClicked"
+                        HorizontalAlignment="Right" VerticalAlignment="Center" Padding="12,4"
+                        Foreground="White" Background="#2660AA" BorderThickness="0" />
+            </Grid>
         </Border>
 
         <!-- 主區 -->
