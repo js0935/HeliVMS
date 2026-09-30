@@ -62,6 +62,7 @@ public partial class MainWindow : Window
     private AnalyticsEventEngine? _analytics;
     private AlertRuleRepository? _alertRules;
     private AlarmEventRepository? _alarmEvents;
+    private LicenseLimitNotifier? _licenseLimits;
     private int _smartAlertSuppressed;
     private OffsiteReplicationRepository? _offsite;
     private DispatcherTimer? _offsiteTimer;
@@ -457,6 +458,7 @@ public partial class MainWindow : Window
         _analytics = new AnalyticsEventEngine(_store);
         _alertRules = new AlertRuleRepository(_store);
         _alarmEvents = new AlarmEventRepository(_store);
+        _licenseLimits = new LicenseLimitNotifier(_store);
         _offsite = new OffsiteReplicationRepository(_store);
         _offsiteTimer = new DispatcherTimer(TimeSpan.FromMinutes(1), DispatcherPriority.Background,
             (_, _) => RunOffsiteDueJobs(), Dispatcher);
@@ -1068,6 +1070,7 @@ public partial class MainWindow : Window
             return;
         }
 
+        _licenseLimits?.Clear(channel.Id);
         RecordButton.Content = next ? "停止錄影" : "錄影";
         RecBadge.Visibility = next ? Visibility.Visible : Visibility.Collapsed;
         HintText.Text = next
@@ -1162,12 +1165,7 @@ public partial class MainWindow : Window
         PushAlert(reason);
         UpdateFooter();
 
-        if (blocked.Decision == LicenseDecision.Valid)
-        {
-            // Decision 為 Valid 代表不是授權本身失效，而是超出通道上限（§19.4 超限行為）。
-            new AlarmEventRepository(_store!)
-                .Insert(blocked.ChannelId, "license_limit", DateTime.UtcNow, null, reason);
-        }
+        _ = _licenseLimits?.Report(blocked, DateTime.UtcNow);
     }
 
     private void OnOnvifClicked(object sender, RoutedEventArgs e)
@@ -1819,6 +1817,7 @@ public partial class MainWindow : Window
             return;
         }
 
+        _licenseLimits?.Clear(channelId);
         RecordButton.Content = next ? "停止錄影" : "錄影";
         RecBadge.Visibility = _manager.AnyRecording() ? Visibility.Visible : Visibility.Collapsed;
         HintText.Text = next

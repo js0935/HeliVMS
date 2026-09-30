@@ -14,6 +14,7 @@ public sealed class RecordingScheduler : IDisposable
     private readonly RecordingScheduleRepository _repo;
     private readonly ChannelRepository _channels;
     private readonly LicenseService _license;
+    private readonly LicenseLimitNotifier _limitNotifier;
     private readonly string _recordingsRoot;
     private readonly Func<int, bool>? _isCellRecording;
     private readonly ConcurrentDictionary<int, SegmentRecorder> _active = new();
@@ -25,7 +26,8 @@ public sealed class RecordingScheduler : IDisposable
         string recordingsRoot,
         Func<int, bool>? isCellRecording = null,
         TimeSpan? reconcileInterval = null,
-        LicenseService? license = null)
+        LicenseService? license = null,
+        LicenseLimitNotifier? limitNotifier = null)
     {
         _store = store;
         _recordingsRoot = recordingsRoot;
@@ -33,6 +35,7 @@ public sealed class RecordingScheduler : IDisposable
         _repo = new RecordingScheduleRepository(store);
         _channels = new ChannelRepository(store);
         _license = license ?? new LicenseService(store);
+        _limitNotifier = limitNotifier ?? new LicenseLimitNotifier(store);
         ReconcileInterval = reconcileInterval ?? TimeSpan.FromSeconds(30);
         _timer = new System.Threading.Timer(OnTick, null, ReconcileInterval, ReconcileInterval);
     }
@@ -99,8 +102,13 @@ public sealed class RecordingScheduler : IDisposable
             var gate = _license.CheckRecording(sched.ChannelId, DateTime.UtcNow, RecordingGateSources.Schedule);
             if (!gate.Allowed)
             {
+                // 超限（額度用完）另寫一筆事件中心，讓排程被擋也留得下痕跡；
+                // 非超限（未匯入／到期／作廢）由各閘門與 UI 浮條回饋，不重複灌事件。
+                _limitNotifier.Report(gate, DateTime.UtcNow);
                 continue;
             }
+
+            _limitNotifier.Clear(sched.ChannelId);
 
             var recorder = new SegmentRecorder(new SegmentRepository(_store));
             await recorder.StartAsync(ch.Id, ch.MainStreamUrl, _recordingsRoot, "main", segmentSeconds: 15);
