@@ -26,6 +26,15 @@ internal static class Program
             return 0;
         }
 
+        // 印出本機設備碼：簽發給自己、或交付客戶前的自我檢查用（§19.1）。
+        if (opts.ContainsKey("device-code"))
+        {
+            Console.WriteLine(MachineIdProvider.GetDeviceCode());
+            Console.Error.WriteLine(
+                $"（舊版 MAC 指紋：{MachineIdProvider.GetLegacyFingerprint()}，僅供相容既有授權）");
+            return 0;
+        }
+
         if (!opts.TryGetValue("private", out var privatePemPath) || !File.Exists(privatePemPath))
         {
             Console.Error.WriteLine("缺少參數 --private <私鑰 PEM 路徑>");
@@ -189,7 +198,7 @@ internal static class Program
                   [--cameras <通道數>] [--features core,ai,gis]
                   [--expire <到期日，UTC>] [--machine <32碼設備碼>]
                   [--id <授權ID>] [--issuer <發行者>] [--out <輸出檔>]
-                  [--list-tiers]
+                  [--list-tiers] [--device-code]
 
             等級（--list-tiers 可列出矩陣）：
               基本版 / 標準版 / 專業版 / 進階版 / 企業版 / 客製版
@@ -205,8 +214,10 @@ internal static class Program
             注意：
               - 私鑰永不進入 git（.secrets/ 已排除）
               - 授權碼格式為 HELVMS-v2.{payload}.{signature}（§19.1）
-              - 機器指紋可於產品端以 MachineIdProvider.GetDeviceCode() 取得；
-                留空 --machine 代表不綁定機器
+              - 綁定機器的授權需帶 --machine <32碼設備碼>；
+                客戶端設備碼見其「設定 → 授權 → 本機機器指紋」，
+                或用 --device-code 取得本機設備碼
+              - --machine 留空代表不綁定機器（可在任一機器使用）
             """);
     }
 }
