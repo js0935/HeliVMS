@@ -121,6 +121,7 @@
         "type": "Project",
         "dependencies": {
           "HeliVMS.Core": "[0.1.0, )",
+          "HeliVMS.Licensing": "[0.1.0, )",
           "HeliVMS.Shared": "[0.1.0, )",
           "Microsoft.Data.Sqlite": "[10.0.12, )",
           "System.Drawing.Common": "[9.0.4, )",

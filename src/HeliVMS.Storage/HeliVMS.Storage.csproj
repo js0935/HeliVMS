@@ -2,6 +2,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\HeliVMS.Core\HeliVMS.Core.csproj" />
+    <ProjectReference Include="..\HeliVMS.Licensing\HeliVMS.Licensing.csproj" />
     <ProjectReference Include="..\HeliVMS.Shared\HeliVMS.Shared.csproj" />
   </ItemGroup>
 

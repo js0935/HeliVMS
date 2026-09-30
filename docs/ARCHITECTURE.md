@@ -1557,7 +1557,8 @@ payload 由 `LicensePayload` 序列化（`JsonNamingPolicy.CamelCase`），欄�
 - **導入流程**：貼上授權碼 → 收集本機設備碼（UI 顯示給使用者複製）→ 會員/客服工具核發 → 驗證簽章＋綁定設備碼一致 → 生效
 - **超限行為**：新增第 N+1 通道時軟性阻擋（可瀏覽設備但不可錄影），並於事件中心提示「已達授權上限」
 - **到期行為**：到期前 14 天 UI 浮條提醒；到期後停止**新增**錄影，既有錄影檔仍可回放（不可勒索客戶）
-- **回流時鐘防護**：本機記 `license_max_seen_dt`（首次啟用與每次成功驗證），若 `exp < 該時間-7 天` 判定時間被改回 → 停用並提示重新校時
+- **回流時鐘防護**：本機記 `license_max_seen_dt`（設定鍵 `license.max_seen_dt`），只在**驗證成功**時推進（首次啟用與每次成功驗證），且只增不減。若 `now < 該時間 − 7 天` 判定時間被改回 → 該列 `status='time_rollback'`、停止新增錄影並提示重新校時。
+  > 實作校正：原敘述的 `exp < 該時間-7 天` 條件不可達——高水位只在驗證成功時推進，故到期日恆大於高水位。且若照字面實作，任何「已到期超過 7 天」的舊授權都會被誤判成時鐘被改回而鎖死。改以直接比較現在時間與高水位，回流時鐘（含永久授權在未來時間驗證後被調回）皆可攔下，長期到期則正常顯示為到期。
 - **離線優先**：驗證全在本機（無需網路）；線上啟用/綁定帳號列 P3 雲端強化
 
 ### 19.5 既有工具處置
@@ -1636,22 +1637,34 @@ magic "HELVMSKEY"(9B) │ mode(1B) │ iterations(4B,BE) │ salt(16B) │ nonce
 
 ### 19.7 資料表（追加至 §4）
 
+`license` 表於 schema **v43** 建立（`SqliteStore.CreateLicenseTableV43`）：
+
 ```sql
 license(id INTEGER PK,
         key_text TEXT NOT NULL,            -- 完整授權碼
-        device_code TEXT NOT NULL,         -- 綁定設備碼
-        tier TEXT, max_cameras INT, expired_at TEXT,  -- 快取欄（提升查詢）
-        first_seen TEXT, last_verified TEXT,
-        status TEXT,                       -- active / expired / time_rollback / revoked
+        device_code TEXT NOT NULL,         -- 綁定設備碼（存大寫 32 碼）
+        license_id TEXT,                   -- payload.Id，續發對帳用
+        tier TEXT,                         -- 顯示用等級名（null = 客製授權）
+        max_cameras INT NOT NULL,          -- 通道上限，一律取 payload.Cameras
+        features TEXT NOT NULL,            -- 逗號分隔功能旗標，功能判定以此為準
+        issuer TEXT,                       -- 簽發者
+        expired_at TEXT,                   -- NULL = 永久授權
+        first_seen TEXT NOT NULL,          -- 首次啟用，換發不覆寫
+        last_verified TEXT,                -- 最近一次驗證通過
+        status TEXT NOT NULL,              -- active / expired / time_rollback / revoked
         created_by TEXT, UNIQUE(device_code));
+CREATE INDEX ix_license_status      ON license(status);
+CREATE INDEX ix_license_last_verify ON license(last_verified);
 ```
+
+存取一律經 `LicenseRepository`（upsert by `device_code`）：換發覆寫快取欄並保留 `first_seen`。稽核（`AuditCategories.License = 'license'`）只記真正的變更——`license.activate`（首次）、`license.upgrade`（金鑰更換）、`license.update`（等級／通道／到期變更）、`license.expire`、`license.status`、`license.revoke`，另有資安事件 `license.reject`、`license.mismatch`。**重新驗證本身不寫稽核**（每次啟動都會發生，會淹沒上述事件）；驗證時點由 `last_verified` 表達。
 
 ### 19.8 驗收標準
 
-- [ ] 產生授權 → 於另一台機導入，綁定不相符時明確拒絕並提示查詢正確設備碼
+- [ ] 產生授權 → 於另一台機導入，綁定不相相符時明確拒絕並提示查詢正確設備碼
 - [ ] 未授權之等級功能於 UI 隱藏；超限通道無法啟動錄影
-- [ ] 改回系統時鐘 → 7 天內偵測並停用，提示校時
-- [ ] 授權啟用/到期/改版事件完整寫入稽核日誌
+- [x] 改回系統時鐘 → 7 天內偵測並停用，提示校時（M207：`LicenseService.Apply`＋`license.max_seen_dt` 高水位，測試覆蓋 7 天內不誤判、超出即停用、永久授權跳轉後調回亦攔下）
+- [x] 授權啟用/到期/改版事件完整寫入稽核日誌（M206：`license.activate`／`upgrade`／`update`／`expire`／`status`／`revoke`，資安事件另有 `reject`／`mismatch`）
 
 ---
 

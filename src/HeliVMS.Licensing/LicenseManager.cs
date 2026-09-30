@@ -11,8 +11,17 @@ public sealed class LicenseManager
     private readonly RSA _publicKey;
 
     public LicenseManager()
+        : this(EmbeddedPublicKey.Value)
     {
-        _publicKey = RsaPem.ParsePublicKey(EmbeddedPublicKey.Value);
+    }
+
+    /// <summary>
+    /// 以指定公鑰建立驗證服務。正式出貨與測試金鑰輪替用同一條驗證路徑——
+    /// 換金鑰時只需換這支公鑰，不需改任何驗證邏輯（§19.1）。
+    /// </summary>
+    public LicenseManager(string publicKeyPem)
+    {
+        _publicKey = RsaPem.ParsePublicKey(publicKeyPem);
     }
 
     /// <summary>預設授權檔路徑（使用者設定區，非 Program Files）。</summary>
@@ -23,7 +32,13 @@ public sealed class LicenseManager
             "license.lic");
 
     /// <summary>驗證授權字串。</summary>
-    public LicenseState Validate(string token)
+    /// <param name="token">完整授權碼。</param>
+    /// <param name="nowUtc">
+    /// 以此時間判斷到期（預設 <see cref="DateTime.UtcNow"/>）。
+    /// 匯入時間戳記（可測）是必要的：時鐘回流防護要拿同一個「現在」去比對，
+    /// 否則測試與實際判斷會各取一次時間而無法重現。
+    /// </param>
+    public LicenseState Validate(string token, DateTime? nowUtc = null)
     {
         if (string.IsNullOrWhiteSpace(token))
         {
@@ -40,7 +55,8 @@ public sealed class LicenseManager
             return new LicenseState(LicenseStatus.Invalid, null, "授權內容為空");
         }
 
-        if (payload.ExpiresUtc.HasValue && DateTime.UtcNow > payload.ExpiresUtc.Value)
+        var now = nowUtc ?? DateTime.UtcNow;
+        if (payload.ExpiresUtc.HasValue && now > payload.ExpiresUtc.Value)
         {
             return new LicenseState(
                 LicenseStatus.Expired,
@@ -60,11 +76,11 @@ public sealed class LicenseManager
     }
 
     /// <summary>驗證授權檔。</summary>
-    public LicenseState ValidateFile(string path)
-        => Validate(File.Exists(path) ? File.ReadAllText(path).Trim() : string.Empty);
+    public LicenseState ValidateFile(string path, DateTime? nowUtc = null)
+        => Validate(File.Exists(path) ? File.ReadAllText(path).Trim() : string.Empty, nowUtc);
 
     /// <summary>驗證預設授權檔（%LOCALAPPDATA%\HeliVMS\license.lic）。</summary>
-    public LicenseState ValidateDefault() => ValidateFile(DefaultPath);
+    public LicenseState ValidateDefault(DateTime? nowUtc = null) => ValidateFile(DefaultPath, nowUtc);
 
     /// <summary>
     /// 比對授權綁定的機器碼。接受規範設備碼與舊版 MAC 派生指紋，
