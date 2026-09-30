@@ -152,10 +152,11 @@ namespace HeliVMS.App
                 BorderBrush = new SolidColorBrush(Color.FromRgb(0x2A, 0x4A, 0x73)),
                 BorderThickness = new Thickness(1),
                 CornerRadius = new CornerRadius(8),
-                Padding = new Thickness(10),
+                Padding = new Thickness(8),
                 Margin = new Thickness(4),
-                Effect = new DropShadowEffect { BlurRadius = 12, ShadowDepth = 2, Opacity = 0.55 }
+                Effect = new DropShadowEffect { BlurRadius = 10, ShadowDepth = 2, Opacity = 0.5 }
             };
+            shell.PreviewMouseLeftButtonDown += OnShellDragStart;
 
             var grid = new Grid();
             for (var i = 0; i < 5; i++)
@@ -174,12 +175,27 @@ namespace HeliVMS.App
             Place(grid, MakeKey("退格"), 2, 9, 1, 1);
             for (var i = 0; i < 9; i++) Place(grid, MakeKey(row3[i]), 3, i);
             Place(grid, MakeKey("_"), 3, 9, 1, 1);
-            Place(grid, MakeKey("空格"), 4, 0, 3, 1);
-            Place(grid, MakeKey("清空"), 4, 3, 3, 1);
-            Place(grid, MakeKey("收起"), 4, 6, 3, 1);
+            Place(grid, MakeKey("空格"), 4, 0, 4, 1);
+            Place(grid, MakeKey("清空"), 4, 4, 3, 1);
+            Place(grid, MakeKey("收起"), 4, 7, 3, 1);
 
             shell.Child = grid;
             return shell;
+        }
+
+        private void OnShellDragStart(object sender, MouseButtonEventArgs e)
+        {
+            if (e.OriginalSource is Button)
+            {
+                return;
+            }
+            try
+            {
+                DragMove();
+            }
+            catch (InvalidOperationException)
+            {
+            }
         }
 
         private static void Place(Grid grid, Button b, int r, int c, int span = 1, int _ = 1)
@@ -201,9 +217,9 @@ namespace HeliVMS.App
             var b = new Button
             {
                 Content = label,
-                Width = key == 2 ? 170 : (key == 1 ? 78 : 78),
-                Height = 40,
-                Margin = new Thickness(2),
+                Width = key == 2 ? 150 : (key == 1 ? 72 : 78),
+                Height = 34,
+                Margin = new Thickness(1.5),
                 Padding = new Thickness(0),
                 Foreground = new SolidColorBrush(Color.FromRgb(0xEB, 0xF3, 0xFF)),
                 Background = new SolidColorBrush(key == 3
@@ -213,7 +229,7 @@ namespace HeliVMS.App
                 Focusable = false,
                 IsTabStop = false,
                 Cursor = Cursors.Hand,
-                FontSize = 15
+                FontSize = 14
             };
             b.Style = null;
             b.Click += OnKeyClicked;
@@ -253,8 +269,12 @@ namespace HeliVMS.App
                 var w = ActualWidth;
                 var h = ActualHeight;
                 if (w <= 0 || h <= 0) return;
-                Left = _host.Left + (_host.ActualWidth - w) / 2;
-                Top = _host.Top + _host.ActualHeight - h - 6;
+                var work = SystemParameters.WorkArea;
+                Left = Math.Max(work.Left, Math.Min(_host.Left + (_host.ActualWidth - w) / 2, work.Right - w));
+                var altBelow = _host.Top + _host.ActualHeight + 2;
+                Top = altBelow + h <= work.Bottom
+                    ? altBelow
+                    : Math.Max(work.Top, _host.Top + _host.ActualHeight - h - 6);
             }));
         }
 
