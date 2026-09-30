@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Windows;
+using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
@@ -158,28 +159,27 @@ namespace HeliVMS.App
             };
             shell.PreviewMouseLeftButtonDown += OnShellDragStart;
 
-            var grid = new Grid();
-            for (var i = 0; i < 5; i++)
+            var rows = new List<string[]>
             {
-                grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+                new[] { "1", "2", "3", "4", "5", "6", "7", "8", "9", "0" },
+                new[] { "Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P" },
+                new[] { "A", "S", "D", "F", "G", "H", "J", "K", "L", "退格" },
+                new[] { "Z", "X", "C", "V", "B", "N", "M", ".", "@", "_" },
+                new[] { "空格", "清空", "收起" }
+            };
+
+            var board = new StackPanel();
+            for (var r = 0; r < rows.Count; r++)
+            {
+                var line = new StackPanel { Orientation = Orientation.Horizontal };
+                foreach (var label in rows[r])
+                {
+                    line.Children.Add(MakeKey(label));
+                }
+                board.Children.Add(line);
             }
 
-            var digits = new[] { "1", "2", "3", "4", "5", "6", "7", "8", "9", "0" };
-            var row1 = new[] { "Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P" };
-            var row2 = new[] { "A", "S", "D", "F", "G", "H", "J", "K", "L" };
-            var row3 = new[] { "Z", "X", "C", "V", "B", "N", "M", ".", "@", "-" };
-
-            for (var i = 0; i < 10; i++) Place(grid, MakeKey(digits[i]), 0, i);
-            for (var i = 0; i < 10; i++) Place(grid, MakeKey(row1[i]), 1, i);
-            for (var i = 0; i < 9; i++) Place(grid, MakeKey(row2[i]), 2, i);
-            Place(grid, MakeKey("退格"), 2, 9, 1, 1);
-            for (var i = 0; i < 9; i++) Place(grid, MakeKey(row3[i]), 3, i);
-            Place(grid, MakeKey("_"), 3, 9, 1, 1);
-            Place(grid, MakeKey("空格"), 4, 0, 4, 1);
-            Place(grid, MakeKey("清空"), 4, 4, 3, 1);
-            Place(grid, MakeKey("收起"), 4, 7, 3, 1);
-
-            shell.Child = grid;
+            shell.Child = board;
             return shell;
         }
 
@@ -202,27 +202,22 @@ namespace HeliVMS.App
         {
             Grid.SetRow(b, r);
             Grid.SetColumn(b, c);
+            Grid.SetColumnSpan(b, span);
             grid.Children.Add(b);
         }
 
         private Button MakeKey(string label)
         {
-            var key = label switch
-            {
-                "退格" or "清空" => 1,
-                "空格" => 2,
-                "收起" => 3,
-                _ => 0
-            };
+            var accent = label == "收起";
             var b = new Button
             {
                 Content = label,
-                Width = key == 2 ? 150 : (key == 1 ? 72 : 78),
+                Width = label == "空格" ? 152 : label is "退格" or "清空" or "收起" ? 76 : 38,
                 Height = 34,
                 Margin = new Thickness(1.5),
                 Padding = new Thickness(0),
                 Foreground = new SolidColorBrush(Color.FromRgb(0xEB, 0xF3, 0xFF)),
-                Background = new SolidColorBrush(key == 3
+                Background = new SolidColorBrush(accent
                     ? Color.FromRgb(0x7A, 0x3E, 0x2E)
                     : Color.FromRgb(0x1A, 0x2C, 0x49)),
                 BorderBrush = new SolidColorBrush(Color.FromRgb(0x2A, 0x4A, 0x73)),
@@ -231,6 +226,7 @@ namespace HeliVMS.App
                 Cursor = Cursors.Hand,
                 FontSize = 14
             };
+            AutomationProperties.SetAutomationId(b, "OskKey_" + label);
             b.Style = null;
             b.Click += OnKeyClicked;
             return b;
