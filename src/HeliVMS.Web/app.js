@@ -35,6 +35,7 @@ import {
   parseWsMessage,
   pinStyles,
   posTotals,
+  pollGate,
   smartwallSnapshot,
   tileClass,
   tileLabel,
@@ -42,6 +43,7 @@ import {
 
 const $ = (id) => document.getElementById(id);
 const key = () => (localStorage.getItem('helivms.apiKey') || $('apikey')?.value || '').trim();
+const POLL_MS = 12000; // REST 面板輪詢（門禁/偵測/通知/匯出/排程…）——分頁隱藏或焦點在輸入框時暫停
 
 /** Single authenticated transport: every API call must go through here so the bearer key is always sent. */
 async function apiRaw(path, init = {}) {
@@ -1067,10 +1069,19 @@ async function boot() {
   wire();
   updateChrome();
   await refreshHealth();
-  await Promise.allSettled([refreshChannels(), renderBoard(), refreshTimeline(), renderMap(), renderSmartwall(), renderPos(), renderDaily(), renderSchedules(), renderPatrols(), renderDoor(), renderDetections(), renderNotifs(), renderExports()]);
+  await refreshAll();
   bindScheduleForm();
   bindPatrolForm();
   connectLive();
+  setInterval(() => {
+    if (pollGate(document.activeElement?.tagName, document.hidden)) {
+      refreshAll();
+    }
+  }, POLL_MS);
+}
+
+async function refreshAll() {
+  await Promise.allSettled([refreshChannels(), renderBoard(), refreshTimeline(), renderMap(), renderSmartwall(), renderPos(), renderDaily(), renderSchedules(), renderPatrols(), renderDoor(), renderDetections(), renderNotifs(), renderExports()]);
 }
 
 boot();

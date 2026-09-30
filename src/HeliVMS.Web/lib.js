@@ -183,6 +183,14 @@ export function canAct(role) {
   return role === 'admin';
 }
 
+export function pollGate(activeTagName, docHidden) {
+  if (docHidden) return false;
+  if (typeof activeTagName === 'string' && /^(INPUT|SELECT|TEXTAREA|BUTTON)$/.test(activeTagName.toUpperCase())) {
+    return false;
+  }
+  return true;
+}
+
 export function parseLogin(payload) {
   if (!payload || typeof payload !== 'object') return { ok: false, error: '回應異常' };
   if (typeof payload.role === 'string' && payload.role.length > 0) {

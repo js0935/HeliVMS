@@ -45,6 +45,7 @@ import {
   parseWsMessage,
   pinStyles,
   posTotals,
+  pollGate,
   priorityRank,
   smartwallSnapshot,
   sortBoard,
@@ -317,6 +318,19 @@ describe('login gating', () => {
     expect(canAct('admin')).toBe(true);
     expect(canAct('viewer')).toBe(false);
     expect(canAct(null)).toBe(false);
+  });
+
+  it('allows polling only when visible and not typing or pressing', () => {
+    expect(pollGate(undefined, false)).toBe(true);
+    expect(pollGate('BODY', false)).toBe(true);
+    expect(pollGate('body', false)).toBe(true);
+    expect(pollGate('input', false)).toBe(false);
+    expect(pollGate('INPUT', false)).toBe(false);
+    expect(pollGate('SELECT', false)).toBe(false);
+    expect(pollGate('textarea', false)).toBe(false);
+    expect(pollGate('BUTTON', false)).toBe(false);
+    expect(pollGate('INPUT', true)).toBe(false);
+    expect(pollGate('BODY', true)).toBe(false);
   });
 
   it('parses login responses', () => {
