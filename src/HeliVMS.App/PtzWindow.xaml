@@ -1,4 +1,4 @@
-﻿<Window x:Class="HeliVMS.App.PtzWindow"
+﻿<Window x:Class="HeliVMS.App.PtzWindow" FocusManager.FocusedElement="{Binding ElementName=PtzProfileCombo}"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="PTZ 控制"
@@ -87,7 +87,7 @@
                 </Grid.RowDefinitions>
 
                 <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,6">
-                    <TextBox x:Name="PtzPresetNameBox" Width="140" ToolTip="預設點名稱"
+                    <TextBox x:Name="PtzPresetNameBox" AutomationProperties.AutomationId="PtzPresetNameBox" Width="140" ToolTip="預設點名稱"
                              Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="8,4" />
                     <Button x:Name="PtzSavePresetButton" AutomationProperties.AutomationId="PtzSavePresetButton"
                             Content="儲存目前位置" ToolTip="將目前雲台位置存為預設點" Click="OnSavePresetClicked"

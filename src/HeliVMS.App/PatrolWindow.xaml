@@ -1,4 +1,4 @@
-<Window x:Class="HeliVMS.App.PatrolWindow"
+<Window x:Class="HeliVMS.App.PatrolWindow" FocusManager.FocusedElement="{Binding ElementName=PatrolNameBox}"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         AutomationProperties.AutomationId="PatrolWindow"

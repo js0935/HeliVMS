@@ -1,4 +1,4 @@
-<Window x:Class="HeliVMS.App.AudioWindow"
+<Window x:Class="HeliVMS.App.AudioWindow" FocusManager.FocusedElement="{Binding ElementName=AudioChannelCombo}"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         AutomationProperties.AutomationId="AudioWindow"

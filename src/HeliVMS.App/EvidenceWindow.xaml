@@ -1,4 +1,4 @@
-<Window x:Class="HeliVMS.App.EvidenceWindow"
+<Window x:Class="HeliVMS.App.EvidenceWindow" FocusManager.FocusedElement="{Binding ElementName=EvidenceDirBox}"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         AutomationProperties.AutomationId="EvidenceWindow"

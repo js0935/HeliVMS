@@ -1,4 +1,4 @@
-<Window x:Class="HeliVMS.App.IoWindow"
+<Window x:Class="HeliVMS.App.IoWindow" FocusManager.FocusedElement="{Binding ElementName=IoDiCombo}"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         AutomationProperties.AutomationId="IoWindow"

@@ -1,4 +1,4 @@
-<Window x:Class="HeliVMS.App.ShareWindow"
+<Window x:Class="HeliVMS.App.ShareWindow" FocusManager.FocusedElement="{Binding ElementName=SharePathBox}"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         AutomationProperties.AutomationId="ShareWindow"
@@ -36,7 +36,7 @@
                           Width="110" Margin="8,0,0,0" Foreground="Black"/>
                 <TextBlock Text="標籤" VerticalAlignment="Center" Margin="12,0,0,0"
                            Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
-                <TextBox x:Name="ShareLabelBox" Width="140" Margin="8,0,0,0" VerticalContentAlignment="Center"
+                <TextBox x:Name="ShareLabelBox" AutomationProperties.AutomationId="ShareLabelBox" Width="140" Margin="8,0,0,0" VerticalContentAlignment="Center"
                          Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
                 <TextBlock Text="到期(時;0=不限)" VerticalAlignment="Center" Margin="12,0,0,0"
                            Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
@@ -45,11 +45,11 @@
                          Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
                 <TextBlock Text="次數(0=不限)" VerticalAlignment="Center" Margin="12,0,0,0"
                            Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
-                <TextBox x:Name="ShareMaxUsesBox" Width="60" Margin="8,0,0,0" VerticalContentAlignment="Center"
+                <TextBox x:Name="ShareMaxUsesBox" AutomationProperties.AutomationId="ShareMaxUsesBox" Width="60" Margin="8,0,0,0" VerticalContentAlignment="Center"
                          Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
                 <TextBlock Text="密碼" VerticalAlignment="Center" Margin="12,0,0,0"
                            Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
-                <PasswordBox x:Name="SharePasswordBox" Width="110" Margin="8,0,0,0" VerticalContentAlignment="Center"
+                <PasswordBox x:Name="SharePasswordBox" AutomationProperties.AutomationId="SharePasswordBox" Width="110" Margin="8,0,0,0" VerticalContentAlignment="Center"
                              Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
                 <Button x:Name="ShareCreateButton" AutomationProperties.AutomationId="ShareCreateButton" ToolTip="建立分享並將連結複製到剪貼簿"
                         Content="建立並複製連結" Click="OnCreateClicked"

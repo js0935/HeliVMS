@@ -499,11 +499,11 @@
                 <TextBlock Text="限制通道（勾選＝白名單；未勾任何且規則命中＝仍走全部啟用通道）"
                            Foreground="{StaticResource Brand.TextDim}" FontSize="11" Margin="0,0,0,6"/>
                 <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
-                    <CheckBox x:Name="RuleChannelWebhookBox" Content="Webhook" Foreground="White"/>
-                    <CheckBox x:Name="RuleChannelSmtpBox" Content="SMTP" Foreground="White" Margin="18,0,0,0"/>
-                    <CheckBox x:Name="RuleChannelMqttBox" Content="MQTT" Foreground="White" Margin="18,0,0,0"/>
-                    <CheckBox x:Name="RuleChannelPushBox" Content="推播" Foreground="White" Margin="18,0,0,0"/>
-                    <CheckBox x:Name="RuleChannelSnmpBox" Content="SNMP" Foreground="White" Margin="18,0,0,0"/>
+                    <CheckBox x:Name="RuleChannelWebhookBox" Content="Webhook" Foreground="White" AutomationProperties.AutomationId="RuleChannelWebhookBox" ToolTip="透過 Webhook 送達規則通知"/>
+                    <CheckBox x:Name="RuleChannelSmtpBox" Content="SMTP" Foreground="White" Margin="18,0,0,0" AutomationProperties.AutomationId="RuleChannelSmtpBox" ToolTip="以電子郵件送達規則通知"/>
+                    <CheckBox x:Name="RuleChannelMqttBox" Content="MQTT" Foreground="White" Margin="18,0,0,0" AutomationProperties.AutomationId="RuleChannelMqttBox" ToolTip="以 MQTT 送達規則通知"/>
+                    <CheckBox x:Name="RuleChannelPushBox" Content="推播" Foreground="White" Margin="18,0,0,0" AutomationProperties.AutomationId="RuleChannelPushBox" ToolTip="以推播送達規則通知"/>
+                    <CheckBox x:Name="RuleChannelSnmpBox" Content="SNMP" Foreground="White" Margin="18,0,0,0" AutomationProperties.AutomationId="RuleChannelSnmpBox" ToolTip="以 SNMP Trap 送達規則通知"/>
                     <Button x:Name="ToggleRuleButton" Content="啟用/停用" Click="OnToggleRuleClicked" ToolTip="切換所選規則的啟用狀態" Margin="24,0,0,0"
                             Padding="8,4" Foreground="White" Background="#3A5A7A" BorderThickness="0" AutomationProperties.AutomationId="ToggleRuleButton"/>
                     <Button x:Name="DeleteRuleButton" Content="刪除" Click="OnDeleteRuleClicked" ToolTip="刪除所選規則" Margin="6,0,0,0"
@@ -942,7 +942,7 @@
                 <TextBlock Text="備份與異地備援" FontSize="17" FontWeight="Bold" Margin="0,0,0,14"/>
                 <TextBlock Text="將完成之錄影區段增量複製至目標目錄（第二磁碟／異地掛載），複製後以 SHA-256 驗證完整性。"
                            Foreground="{StaticResource Brand.TextDim}" FontSize="11" TextWrapping="Wrap"/>
-                <CheckBox x:Name="BackupEnabledBox" Content="啟用自動備份（每小時檢查）" Margin="0,10,0,8"
+                <CheckBox x:Name="BackupEnabledBox" Content="啟用自動備份（每小時檢查）" Margin="0,10,0,8" AutomationProperties.AutomationId="BackupEnabledBox" ToolTip="啟用每小時自動備份檢查"
                           HorizontalAlignment="Left"/>
 
                 <TextBlock Text="目標目錄" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
@@ -1001,7 +1001,7 @@
                              Width="90" Height="24" VerticalContentAlignment="Center"
                              Text="1440" Margin="0,0,10,0"
                              Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
-                    <CheckBox x:Name="OffsiteEnabledBox" Content="啟用異地複製（間隔分鐘）" VerticalAlignment="Center"
+                    <CheckBox x:Name="OffsiteEnabledBox" Content="啟用異地複製（間隔分鐘）" VerticalAlignment="Center" AutomationProperties.AutomationId="OffsiteEnabledBox" ToolTip="啟用異地複製（間隔分鐘間距）"
                               Foreground="White"/>
                 </DockPanel>
                 <DockPanel Margin="0,0,0,8">
@@ -1014,7 +1014,7 @@
                 </DockPanel>
 
                 <TextBlock Text="最近備份紀錄" Foreground="{StaticResource Brand.TextDim}" FontSize="11" Margin="0,6,0,4"/>
-                <ListView x:Name="BackupLogList" Height="120" Background="#0D1B2B" BorderBrush="#1F3A5F"
+                <ListView x:Name="BackupLogList" AutomationProperties.AutomationId="BackupLogList" Height="120" Background="#0D1B2B" BorderBrush="#1F3A5F"
                           Foreground="White">
                     <ListView.View>
                         <GridView>

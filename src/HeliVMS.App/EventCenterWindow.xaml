@@ -1,4 +1,4 @@
-<Window x:Class="HeliVMS.App.EventCenterWindow"
+<Window x:Class="HeliVMS.App.EventCenterWindow" FocusManager.FocusedElement="{Binding ElementName=KeywordBox}"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="HeliVMS 事件中心"
@@ -16,12 +16,12 @@
         <!-- 過濾列 -->
         <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
             <TextBlock x:Name="ChannelLabel" Text="頻道" Foreground="{StaticResource Brand.TextDim}" VerticalAlignment="Center"/>
-            <ComboBox x:Name="ChannelCombo" Width="180" Margin="6,0,0,0"
+            <ComboBox x:Name="ChannelCombo" AutomationProperties.AutomationId="ChannelCombo" Width="180" Margin="6,0,0,0"
                       Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"
                       SelectionChanged="OnChannelSelectionChanged"/>
 
             <TextBlock x:Name="RangeLabel" Text="範圍" Foreground="{StaticResource Brand.TextDim}" VerticalAlignment="Center" Margin="20,0,0,0"/>
-            <ComboBox x:Name="RangeCombo" Width="110" Margin="6,0,0,0" SelectedIndex="1"
+            <ComboBox x:Name="RangeCombo" AutomationProperties.AutomationId="RangeCombo" Width="110" Margin="6,0,0,0" SelectedIndex="1"
                       Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"
                       SelectionChanged="OnChannelSelectionChanged">
                 <ComboBoxItem Content="今天"/>
@@ -31,7 +31,7 @@
             </ComboBox>
 
             <TextBlock x:Name="TypeLabel" Text="類型" Foreground="{StaticResource Brand.TextDim}" VerticalAlignment="Center" Margin="20,0,0,0"/>
-            <ComboBox x:Name="TypeCombo" Width="130" Margin="6,0,0,0"
+            <ComboBox x:Name="TypeCombo" AutomationProperties.AutomationId="TypeCombo" Width="130" Margin="6,0,0,0"
                       Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"
                       SelectionChanged="OnChannelSelectionChanged"/>
 
@@ -80,7 +80,7 @@
                     <TextBlock Text="事件清單（motion / offline / ai_person / ai_vehicle…）" Foreground="{StaticResource Brand.TextDim}" Margin="8,6" FontSize="11"/>
                     
                     <!-- 網格檢視（既有） -->
-                    <ListView x:Name="EventList" Grid.Row="1"
+                    <ListView x:Name="EventList" AutomationProperties.AutomationId="EventList" Grid.Row="1"
                               SelectionChanged="OnEventSelected"
                               MouseDoubleClick="OnEventDoubleClick"
                               Background="Transparent" BorderThickness="0" Foreground="White">

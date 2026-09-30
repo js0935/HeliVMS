@@ -1,4 +1,4 @@
-<Window x:Class="HeliVMS.App.RulesWindow"
+<Window x:Class="HeliVMS.App.RulesWindow" FocusManager.FocusedElement="{Binding ElementName=RulesNameBox}"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         AutomationProperties.AutomationId="RulesWindow"
@@ -39,7 +39,7 @@
                     <TextBlock Text="名稱" VerticalAlignment="Center" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
                     <TextBox x:Name="RulesNameBox" AutomationProperties.AutomationId="RulesNameBox"
                              Width="180" Margin="8,0,0,0" Foreground="Black"/>
-                    <CheckBox x:Name="RulesEnabledBox" Content="啟用" IsChecked="True"
+                    <CheckBox x:Name="RulesEnabledBox" Content="啟用" IsChecked="True" AutomationProperties.AutomationId="RulesEnabledBox" ToolTip="啟用此規則（預設勾選）"
                               Margin="16,0,0,0" Foreground="White" VerticalAlignment="Center"/>
                 </StackPanel>
                 <TextBlock Text="條件 JSON（expression_json）" Foreground="{StaticResource Brand.TextDim}" FontSize="11" Margin="0,8,0,0"/>

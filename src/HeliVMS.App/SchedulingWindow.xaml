@@ -1,4 +1,4 @@
-<Window x:Class="HeliVMS.App.SchedulingWindow"
+<Window x:Class="HeliVMS.App.SchedulingWindow" FocusManager.FocusedElement="{Binding ElementName=ChannelCombo}"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="HeliVMS 錄影排程"
@@ -20,19 +20,19 @@
                            Margin="0,0,0,10"/>
 
                 <TextBlock Text="頻道" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
-                <ComboBox x:Name="ChannelCombo" Margin="0,4,0,10"
+                <ComboBox x:Name="ChannelCombo" AutomationProperties.AutomationId="SchedulingChannelCombo" Margin="0,4,0,10"
                           Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="6,4"/>
 
                 <TextBlock Text="星期" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
                 <StackPanel Margin="0,4,0,10">
                     <UniformGrid Columns="4">
-                        <CheckBox x:Name="SunBox" Content="日" Foreground="White" Margin="0,2"/>
-                        <CheckBox x:Name="MonBox" Content="一" Foreground="White" Margin="0,2"/>
-                        <CheckBox x:Name="TueBox" Content="二" Foreground="White" Margin="0,2"/>
-                        <CheckBox x:Name="WedBox" Content="三" Foreground="White" Margin="0,2"/>
-                        <CheckBox x:Name="ThuBox" Content="四" Foreground="White" Margin="0,2"/>
-                        <CheckBox x:Name="FriBox" Content="五" Foreground="White" Margin="0,2"/>
-                        <CheckBox x:Name="SatBox" Content="六" Foreground="White" Margin="0,2"/>
+                        <CheckBox x:Name="SunBox" Content="日" Foreground="White" Margin="0,2" AutomationProperties.AutomationId="SunBox" ToolTip="排入星期日"/>
+                        <CheckBox x:Name="MonBox" Content="一" Foreground="White" Margin="0,2" AutomationProperties.AutomationId="MonBox" ToolTip="排入星期一"/>
+                        <CheckBox x:Name="TueBox" Content="二" Foreground="White" Margin="0,2" AutomationProperties.AutomationId="TueBox" ToolTip="排入星期二"/>
+                        <CheckBox x:Name="WedBox" Content="三" Foreground="White" Margin="0,2" AutomationProperties.AutomationId="WedBox" ToolTip="排入星期三"/>
+                        <CheckBox x:Name="ThuBox" Content="四" Foreground="White" Margin="0,2" AutomationProperties.AutomationId="ThuBox" ToolTip="排入星期四"/>
+                        <CheckBox x:Name="FriBox" Content="五" Foreground="White" Margin="0,2" AutomationProperties.AutomationId="FriBox" ToolTip="排入星期五"/>
+                        <CheckBox x:Name="SatBox" Content="六" Foreground="White" Margin="0,2" AutomationProperties.AutomationId="SatBox" ToolTip="排入星期六"/>
                     </UniformGrid>
                 </StackPanel>
 
@@ -44,17 +44,17 @@
                     </Grid.ColumnDefinitions>
                     <StackPanel>
                         <TextBlock Text="開始（HH:mm）" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
-                        <TextBox x:Name="StartBox" Text="00:00" Margin="0,4,0,0"
+                        <TextBox x:Name="StartBox" AutomationProperties.AutomationId="StartBox" Text="00:00" Margin="0,4,0,0"
                                  Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="6,4"/>
                     </StackPanel>
                     <StackPanel Grid.Column="2">
                         <TextBlock Text="結束（HH:mm）" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
-                        <TextBox x:Name="EndBox" Text="00:00" Margin="0,4,0,0"
+                        <TextBox x:Name="EndBox" AutomationProperties.AutomationId="EndBox" Text="00:00" Margin="0,4,0,0"
                                  Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="6,4"/>
                     </StackPanel>
                 </Grid>
 
-                <CheckBox x:Name="EnabledBox" Content="啟用此排程" Foreground="White" IsChecked="True" Margin="0,10,0,0"/>
+                <CheckBox x:Name="EnabledBox" Content="啟用此排程" Foreground="White" IsChecked="True" Margin="0,10,0,0" AutomationProperties.AutomationId="EnabledBox" ToolTip="啟用此排程設定"/>
 
                 <StackPanel Orientation="Horizontal" Margin="0,16,0,0">
                     <Button x:Name="AddButton" Content="新增排程" Click="OnAddClicked" ToolTip="新增一筆錄影排程"
@@ -83,7 +83,7 @@
                 </Grid.RowDefinitions>
                 <TextBlock Text="排程清單（服務每 30 秒檢查一次）" Foreground="{StaticResource Brand.TextDim}"
                            Margin="8,6" FontSize="11"/>
-                <ListView x:Name="ScheduleList" Grid.Row="1" SelectionChanged="OnSelectionChanged"
+                <ListView x:Name="ScheduleList" AutomationProperties.AutomationId="ScheduleList" Grid.Row="1" SelectionChanged="OnSelectionChanged"
                           Background="Transparent" BorderThickness="0" Foreground="White">
                     <ListView.View>
                         <GridView>

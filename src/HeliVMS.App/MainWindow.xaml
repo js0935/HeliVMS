@@ -33,7 +33,7 @@
                 </Grid.ColumnDefinitions>
                 <Image x:Name="HeaderLogo" Grid.Column="0" Width="20" Height="20" VerticalAlignment="Center" Margin="0,0,8,0" />
                 <TextBlock Grid.Column="1" Text="HeliVMS" Foreground="{StaticResource Brand.TextPrimary}" FontSize="15" FontWeight="SemiBold" VerticalAlignment="Center" />
-                <CheckBox x:Name="AiToggle" Grid.Column="2" Content="AI 疊加" Foreground="White" VerticalAlignment="Center"
+                <CheckBox x:Name="AiToggle" Grid.Column="2" Content="AI 疊加" Foreground="White" VerticalAlignment="Center" AutomationProperties.AutomationId="AiToggle" ToolTip="切換 AI 疊加顯示"
                           Margin="28,0,0,0" Checked="OnAiToggleChanged" Unchecked="OnAiToggleChanged"/>
                 <Button Grid.Column="4" x:Name="HeaderSettingsButton" AutomationProperties.AutomationId="HeaderSettingsButton"
                         Content="設定" ToolTip="設定中心（存檔路徑、裝置憑證、AI、錄影、全域選項）[F2]" Click="OnSettingsClicked"
@@ -65,22 +65,22 @@
                     </ComboBox>
 
                     <TextBlock Text="頻道" Foreground="{StaticResource Brand.TextDim}" FontSize="12" Margin="0,14,0,6" />
-                    <ComboBox x:Name="ChannelCombo" SelectedIndex="0"
+                    <ComboBox x:Name="ChannelCombo" AutomationProperties.AutomationId="ChannelCombo" SelectedIndex="0"
                               Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="8,4" />
 
                     <TextBlock Text="串流位址" Foreground="{StaticResource Brand.TextDim}" FontSize="12" Margin="0,14,0,6" />
-                    <TextBox x:Name="UrlBox"
+                    <TextBox x:Name="UrlBox" AutomationProperties.AutomationId="UrlBox"
                              Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"
                              Padding="8,4" />
 
                     <TextBlock Text="頻道管理" Foreground="{StaticResource Brand.TextDim}" FontSize="11" Margin="0,0,0,6" />
                     <StackPanel Orientation="Horizontal" Margin="0,0,0,0">
-                        <TextBox x:Name="NameBox" Width="80" ToolTip="頻道名稱"
+                        <TextBox x:Name="NameBox" AutomationProperties.AutomationId="NameBox" Width="80" ToolTip="頻道名稱"
                                  Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="8,4" />
-                        <Button x:Name="AddChannelButton" Content="＋加入頻道" ToolTip="以輸入的串流位址與名稱加入頻道" Click="OnAddChannelClicked"
+                        <Button x:Name="AddChannelButton" AutomationProperties.AutomationId="AddChannelButton" Content="＋加入頻道" ToolTip="以輸入的串流位址與名稱加入頻道" Click="OnAddChannelClicked"
                                 Margin="6,0,0,0" Padding="8,4"
                                 Foreground="White" Background="#2A5C8A" BorderThickness="0" />
-                        <Button x:Name="OnvifButton" Content="ONVIF 探索" ToolTip="探索區域網路上的 ONVIF 攝影機並加入" Click="OnOnvifClicked"
+                        <Button x:Name="OnvifButton" AutomationProperties.AutomationId="OnvifButton" Content="ONVIF 探索" ToolTip="探索區域網路上的 ONVIF 攝影機並加入" Click="OnOnvifClicked"
                                 Margin="6,0,0,0" Padding="8,4"
                                 Foreground="White" Background="#2A5C8A" BorderThickness="0" />
                     </StackPanel>
@@ -91,16 +91,16 @@
                                 Content="連線" ToolTip="連線／中斷目前頻道的影像串流" Click="OnConnectClicked"
                                 Width="110" Padding="0,8" Margin="0,0,10,0"
                                 Foreground="White" Background="#2660AA" BorderThickness="0" />
-                        <Button x:Name="RecordButton" Content="錄影" ToolTip="開始／停止目前頻道的錄影" Click="OnRecordClicked"
+                        <Button x:Name="RecordButton" AutomationProperties.AutomationId="RecordButton" Content="錄影" ToolTip="開始／停止目前頻道的錄影" Click="OnRecordClicked"
                                 Width="100" Padding="0,8" IsEnabled="False"
                                 Foreground="White" Background="#8A3C2E" BorderThickness="0" />
-                        <Button x:Name="PlaybackButton" Content="回放" ToolTip="開啟回放視窗（檢視錄影）[F4]" Click="OnPlaybackClicked"
+                        <Button x:Name="PlaybackButton" AutomationProperties.AutomationId="PlaybackButton" Content="回放" ToolTip="開啟回放視窗（檢視錄影）[F4]" Click="OnPlaybackClicked"
                                 Width="80" Padding="0,8" Margin="10,0,0,0"
                                 Foreground="White" Background="#2A5C8A" BorderThickness="0" />
-                        <Button x:Name="EventButton" Content="事件" ToolTip="開啟事件中心" Click="OnEventClicked"
+                        <Button x:Name="EventButton" AutomationProperties.AutomationId="EventButton" Content="事件" ToolTip="開啟事件中心" Click="OnEventClicked"
                                 Width="80" Padding="0,8" Margin="6,0,0,0"
                                 Foreground="White" Background="#6A5A2E" BorderThickness="0" />
-                        <Button x:Name="ExportButton" Content="匯出" ToolTip="匯出目前頻道與時間範圍的錄影" Click="OnExportClicked"
+                        <Button x:Name="ExportButton" AutomationProperties.AutomationId="ExportButton" Content="匯出" ToolTip="匯出目前頻道與時間範圍的錄影" Click="OnExportClicked"
                                 Width="60" Padding="0,8" Margin="6,0,0,0"
                                 Foreground="White" Background="#5A4A2E" BorderThickness="0" />
                         <Button x:Name="ExportCenterButton" AutomationProperties.AutomationId="ExportCenterButton"
@@ -111,10 +111,10 @@
                                 Content="通知" ToolTip="開啟通知日誌（含未確認事件）" Click="OnNotificationClicked"
                                 Width="60" Padding="0,8" Margin="6,0,0,0"
                                 Foreground="White" Background="#2A7F6E" BorderThickness="0" />
-                        <Button x:Name="ScheduleButton" Content="排程" ToolTip="設定錄影排程" Click="OnScheduleClicked"
+                        <Button x:Name="ScheduleButton" AutomationProperties.AutomationId="ScheduleButton" Content="排程" ToolTip="設定錄影排程" Click="OnScheduleClicked"
                                 Width="60" Padding="0,8" Margin="6,0,0,0"
                                 Foreground="White" Background="#3A5A7A" BorderThickness="0" />
-                        <Button x:Name="DetectionButton" Content="偵測" ToolTip="開啟 AI 偵測設定" Click="OnDetectionClicked"
+                        <Button x:Name="DetectionButton" AutomationProperties.AutomationId="DetectionButton" Content="偵測" ToolTip="開啟 AI 偵測設定" Click="OnDetectionClicked"
                                 Width="60" Padding="0,8" Margin="6,0,0,0"
                                 Foreground="White" Background="#4A4A7A" BorderThickness="0" />
                         <Button x:Name="SettingsButton" AutomationProperties.AutomationId="SettingsButton"

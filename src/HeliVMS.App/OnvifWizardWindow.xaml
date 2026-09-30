@@ -1,4 +1,4 @@
-<Window x:Class="HeliVMS.App.OnvifWizardWindow"
+<Window x:Class="HeliVMS.App.OnvifWizardWindow" FocusManager.FocusedElement="{Binding ElementName=AddressBox}"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="ONVIF 設備探索"
@@ -29,15 +29,15 @@
             <!-- 左：探索參數 -->
             <StackPanel Grid.Column="0" Margin="0,0,16,0">
                 <TextBlock Text="指定位址（可留空）" Foreground="{StaticResource Brand.TextDim}" FontSize="12" Margin="0,0,0,6" />
-                <TextBox x:Name="AddressBox" ToolTip="設備 IP（如 192.168.1.64）；留空則自動探索"
+                <TextBox x:Name="AddressBox" AutomationProperties.AutomationId="AddressBox" ToolTip="設備 IP（如 192.168.1.64）；留空則自動探索"
                          Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="8,4" />
 
                 <TextBlock Text="帳號（可留空）" Foreground="{StaticResource Brand.TextDim}" FontSize="12" Margin="0,12,0,6" />
-                <TextBox x:Name="UserBox" ToolTip="設備管理帳號（通常為 admin）"
+                <TextBox x:Name="UserBox" AutomationProperties.AutomationId="UserBox" ToolTip="設備管理帳號（通常為 admin）"
                          Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="8,4" />
 
                 <TextBlock Text="密碼（可留空）" Foreground="{StaticResource Brand.TextDim}" FontSize="12" Margin="0,12,0,6" />
-                <PasswordBox x:Name="PasswordBox" ToolTip="設備管理密碼"
+                <PasswordBox x:Name="PasswordBox" AutomationProperties.AutomationId="PasswordBox" ToolTip="設備管理密碼"
                              Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="8,4" />
 
                 <Button x:Name="DiscoverButton" Content="探索 / 連線" ToolTip="探索本機網段或連線指定位址的 ONVIF 設備" Click="OnDiscoverClicked"

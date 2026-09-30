@@ -1,4 +1,4 @@
-<Window x:Class="HeliVMS.App.DetectionWindow"
+<Window x:Class="HeliVMS.App.DetectionWindow" FocusManager.FocusedElement="{Binding ElementName=FromDateBox}"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="HeliVMS AI 偵測記錄"
@@ -30,37 +30,37 @@
                     </Grid.ColumnDefinitions>
                     <StackPanel Margin="0,0,8,0">
                         <TextBlock Text="頻道" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
-                        <ComboBox x:Name="ChannelFilter" Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"
+                        <ComboBox x:Name="ChannelFilter" AutomationProperties.AutomationId="ChannelFilter" Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"
                                   Padding="6,3" Margin="0,4,0,0"/>
                     </StackPanel>
                     <StackPanel Grid.Column="1" Margin="0,0,8,0">
                         <TextBlock Text="開始（本地）" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
                         <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
-                            <TextBox x:Name="FromDateBox" Width="130" Foreground="White" Background="#1A2C49"
+                            <TextBox x:Name="FromDateBox" AutomationProperties.AutomationId="FromDateBox" Width="130" Foreground="White" Background="#1A2C49"
                                      BorderBrush="#2A4A73" Padding="6,3"/>
                             <TextBlock Text="　" Margin="4,0" VerticalAlignment="Center" FontSize="13" Foreground="#334"/>
-                            <TextBox x:Name="FromTimeBox" Width="70" Foreground="White" Background="#1A2C49"
+                            <TextBox x:Name="FromTimeBox" AutomationProperties.AutomationId="FromTimeBox" Width="70" Foreground="White" Background="#1A2C49"
                                      BorderBrush="#2A4A73" Padding="6,3"/>
                         </StackPanel>
                     </StackPanel>
                     <StackPanel Grid.Column="2" Margin="0,0,8,0">
                         <TextBlock Text="結束（本地）" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
                         <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
-                            <TextBox x:Name="ToDateBox" Width="130" Foreground="White" Background="#1A2C49"
+                            <TextBox x:Name="ToDateBox" AutomationProperties.AutomationId="ToDateBox" Width="130" Foreground="White" Background="#1A2C49"
                                      BorderBrush="#2A4A73" Padding="6,3"/>
                             <TextBlock Text="　" Margin="4,0" VerticalAlignment="Center" FontSize="13" Foreground="#334"/>
-                            <TextBox x:Name="ToTimeBox" Width="70" Foreground="White" Background="#1A2C49"
+                            <TextBox x:Name="ToTimeBox" AutomationProperties.AutomationId="ToTimeBox" Width="70" Foreground="White" Background="#1A2C49"
                                      BorderBrush="#2A4A73" Padding="6,3"/>
                         </StackPanel>
                     </StackPanel>
                     <StackPanel Grid.Column="3" Margin="0,0,8,0">
                         <TextBlock Text="類別" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
-                        <ComboBox x:Name="ClassFilter" Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"
+                        <ComboBox x:Name="ClassFilter" AutomationProperties.AutomationId="ClassFilter" Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"
                                   Padding="6,3" Margin="0,4,0,0"/>
                     </StackPanel>
                     <StackPanel Grid.Column="4" Margin="0,0,8,0">
                         <TextBlock Text="信心 ≥" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
-                        <TextBox x:Name="MinConfBox" Width="60" Text="" Foreground="White" Background="#1A2C49"
+                        <TextBox x:Name="MinConfBox" Width="60" Text="" AutomationProperties.AutomationId="MinConfBox" Foreground="White" Background="#1A2C49"
                                  BorderBrush="#2A4A73" Padding="6,3" Margin="0,4,0,0"/>
                     </StackPanel>
                     <StackPanel Grid.Column="5" VerticalAlignment="Bottom">
@@ -95,7 +95,7 @@
                 </Grid.RowDefinitions>
                 <TextBlock x:Name="CountText" Text="0 筆" Foreground="{StaticResource Brand.TextDim}"
                            Margin="8,6" FontSize="11"/>
-                <ListView x:Name="DetailList" Grid.Row="1" Background="Transparent" BorderThickness="0" Foreground="White">
+                <ListView x:Name="DetailList" AutomationProperties.AutomationId="DetailList" Grid.Row="1" Background="Transparent" BorderThickness="0" Foreground="White">
                     <ListView.View>
                         <GridView>
                             <GridViewColumn Header="時間（本地）" Width="170">

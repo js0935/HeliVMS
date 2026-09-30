@@ -1,4 +1,4 @@
-<Window x:Class="HeliVMS.App.LegalHoldWindow"
+<Window x:Class="HeliVMS.App.LegalHoldWindow" FocusManager.FocusedElement="{Binding ElementName=LegalHoldReasonBox}"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         AutomationProperties.AutomationId="LegalHoldWindow"

@@ -1,4 +1,4 @@
-<Window x:Class="HeliVMS.App.LoginWindow"
+<Window x:Class="HeliVMS.App.LoginWindow" FocusManager.FocusedElement="{Binding ElementName=UsernameInput}"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         AutomationProperties.AutomationId="LoginWindow"
