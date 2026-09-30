@@ -16,6 +16,14 @@ public partial class App : Application
     {
         base.OnStartup(e);
 
+        DispatcherUnhandledException += (_, args) =>
+        {
+            WriteCrash(args.Exception);
+            args.Handled = true;
+        };
+        AppDomain.CurrentDomain.UnhandledException += (_, args) =>
+            WriteCrash(args.ExceptionObject as Exception);
+
         try
         {
             var splash = new SplashWindow();
@@ -45,6 +53,19 @@ public partial class App : Application
     /// <summary>
     /// 依 <c>auth.enabled</c> 決定是否要求登入（M42）。未啟用時視為 admin、直接放行。
     /// </summary>
+    /// <summary>執行期中未處理例外寫入 %TEMP%\helivms-crash.log（已處理，避免整份應用閃退）。</summary>
+    private static void WriteCrash(Exception? ex)
+    {
+        if (ex is null)
+        {
+            return;
+        }
+
+        File.AppendAllText(
+            Path.Combine(Path.GetTempPath(), "helivms-crash.log"),
+            $"{DateTime.UtcNow:O}\n{ex}\n");
+    }
+
     private static bool PerformLogin()
     {
         var dbPath = Path.Combine(HeliVMS.App.MainWindow.ResolveDataRoot(), "index.db");

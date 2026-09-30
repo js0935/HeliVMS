@@ -304,8 +304,51 @@
             <Setter Property="HasDropShadow" Value="True" />
         </Style>
 
+        <Style x:Key="DarkThumbVertical" TargetType="Thumb">
+            <Setter Property="Width" Value="8" />
+            <Setter Property="MinWidth" Value="8" />
+            <Setter Property="Margin" Value="2,2" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Thumb">
+                        <Border x:Name="bd" Background="#2A4A73" CornerRadius="4" />
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="bd" Property="Background" Value="#3A5A85" />
+                            </Trigger>
+                            <Trigger Property="IsDragging" Value="True">
+                                <Setter TargetName="bd" Property="Background" Value="#2660AA" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="DarkThumbHorizontal" TargetType="Thumb">
+            <Setter Property="Height" Value="8" />
+            <Setter Property="MinHeight" Value="8" />
+            <Setter Property="Margin" Value="2,2" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Thumb">
+                        <Border x:Name="bd" Background="#2A4A73" CornerRadius="4" />
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="bd" Property="Background" Value="#3A5A85" />
+                            </Trigger>
+                            <Trigger Property="IsDragging" Value="True">
+                                <Setter TargetName="bd" Property="Background" Value="#2660AA" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
         <!-- 深色卷軸：取代 ListView/ListBox/ScrollViewer 隱性出現的系統淺灰卷軸樣式。
-             保留 Track 頁面點按（PageUp/Down、PageLeft/Right），Thumb 圓角＋hover/拖曳狀態降溫。 -->
+             保留 Track 頁面點按（PageUp/Down、PageLeft/Right），Thumb 圓角＋hover/拖曳狀態降溫。
+             注意：Thumb 樣式必須定義於卷軸樣式之前，StaticResource 不支援同字典向前引用。 -->
         <Style TargetType="ScrollBar">
             <Setter Property="Background" Value="#0A1624" />
             <Setter Property="Width" Value="12" />
@@ -356,48 +399,6 @@
                     </Setter>
                 </Trigger>
             </Style.Triggers>
-        </Style>
-
-        <Style x:Key="DarkThumbVertical" TargetType="Thumb">
-            <Setter Property="Width" Value="8" />
-            <Setter Property="MinWidth" Value="8" />
-            <Setter Property="Margin" Value="2,2" />
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="Thumb">
-                        <Border x:Name="bd" Background="#2A4A73" CornerRadius="4" />
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="bd" Property="Background" Value="#3A5A85" />
-                            </Trigger>
-                            <Trigger Property="IsDragging" Value="True">
-                                <Setter TargetName="bd" Property="Background" Value="#2660AA" />
-                            </Trigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
-
-        <Style x:Key="DarkThumbHorizontal" TargetType="Thumb">
-            <Setter Property="Height" Value="8" />
-            <Setter Property="MinHeight" Value="8" />
-            <Setter Property="Margin" Value="2,2" />
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="Thumb">
-                        <Border x:Name="bd" Background="#2A4A73" CornerRadius="4" />
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="bd" Property="Background" Value="#3A5A85" />
-                            </Trigger>
-                            <Trigger Property="IsDragging" Value="True">
-                                <Setter TargetName="bd" Property="Background" Value="#2660AA" />
-                            </Trigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
         </Style>
 
         <!-- 深色進度條：僅兜底未自訂色的視窗（Dewarp/Redaction）；Export/OnvifWizard 本機色優先。
