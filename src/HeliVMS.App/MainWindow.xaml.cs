@@ -64,6 +64,7 @@ public partial class MainWindow : Window
     private OffsiteReplicationRepository? _offsite;
     private DispatcherTimer? _offsiteTimer;
     private bool _exiting;
+    private readonly Dictionary<string, Window> _children = new();
 
     private static readonly SolidColorBrush BrOffline = new(Color.FromRgb(0x6B, 0x7B, 0x90));
     private static readonly SolidColorBrush BrConnecting = new(Color.FromRgb(0xD8, 0xA1, 0x2C));
@@ -289,7 +290,7 @@ public partial class MainWindow : Window
 
         if (Environment.GetCommandLineArgs().Contains("--playback", StringComparer.OrdinalIgnoreCase))
         {
-            Dispatcher.BeginInvoke(() => new PlaybackWindow(_store) { Owner = this }.Show());
+            Dispatcher.BeginInvoke(() => OpenChild(new PlaybackWindow(_store)));
         }
 
         if (Environment.GetCommandLineArgs().Contains("--settings", StringComparer.OrdinalIgnoreCase))
@@ -1059,11 +1060,7 @@ public partial class MainWindow : Window
 
     private void OnPlaybackClicked(object sender, RoutedEventArgs e)
     {
-        var playback = new PlaybackWindow(_store!)
-        {
-            Owner = this,
-        };
-        playback.Show();
+        OpenChild(new PlaybackWindow(_store!));
     }
 
     private void OnEventClicked(object sender, RoutedEventArgs e)
@@ -1075,11 +1072,7 @@ public partial class MainWindow : Window
     /// <summary>開啟事件中心（M38 供 harness 以 --events 自動開啟）。</summary>
     private void OpenEventCenter()
     {
-        var events = new EventCenterWindow(_store!)
-        {
-            Owner = this,
-        };
-        events.Show();
+        OpenChild(new EventCenterWindow(_store!));
     }
 
     private void OnScheduleClicked(object sender, RoutedEventArgs e)
@@ -1089,11 +1082,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        var sched = new SchedulingWindow(_store!)
-        {
-            Owner = this,
-        };
-        sched.Show();
+        OpenChild(new SchedulingWindow(_store!));
     }
 
     private void ExportEventsCsv(string path)
@@ -1124,11 +1113,7 @@ public partial class MainWindow : Window
 
     private void OnDetectionClicked(object sender, RoutedEventArgs e)
     {
-        var det = new DetectionWindow(_store!)
-        {
-            Owner = this,
-        };
-        det.Show();
+        OpenChild(new DetectionWindow(_store!));
     }
 
     private void OnSettingsClicked(object sender, RoutedEventArgs e) => OpenSettingsWindow();
@@ -1146,11 +1131,7 @@ public partial class MainWindow : Window
     /// <summary>開啟警報管理器（M47，§14.7 #3）：分診面板，與事件中心同權限（不另限 admin）。</summary>
     private void OpenAlarmManagerWindow()
     {
-        var window = new AlarmManagerWindow(_store!)
-        {
-            Owner = this,
-        };
-        window.Show();
+        OpenChild(new AlarmManagerWindow(_store!));
     }
 
     /// <summary>開啟錄影遮蔽窗（M46，§14.7 #5）。viewer 與匯出同權限限制。</summary>
@@ -1161,11 +1142,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        var window = new RedactionWindow(_store!, _dataRoot)
-        {
-            Owner = this,
-        };
-        window.Show();
+        OpenChild(new RedactionWindow(_store!, _dataRoot));
     }
 
     /// <summary>開啟魚眼矯正窗（M48，§14.7 #2）。viewer 與匯出同權限限制。</summary>
@@ -1176,11 +1153,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        var window = new DewarpWindow(_store!, _dataRoot)
-        {
-            Owner = this,
-        };
-        window.Show();
+        OpenChild(new DewarpWindow(_store!, _dataRoot));
     }
 
     /// <summary>開啟外部安全共享視窗（M51，§14.7 #4）。viewer 與匯出同權限限制。</summary>
@@ -1191,11 +1164,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        var window = new ShareWindow(_store!, _dataRoot)
-        {
-            Owner = this,
-        };
-        window.Show();
+        OpenChild(new ShareWindow(_store!, _dataRoot));
     }
 
     /// <summary>開啟分析情境視窗（M52，§14.7 #6）。viewer 與匯出同權限限制。</summary>
@@ -1206,11 +1175,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        var window = new AnalyticsWindow(_store!)
-        {
-            Owner = this,
-        };
-        window.Show();
+        OpenChild(new AnalyticsWindow(_store!));
     }
 
     /// <summary>M54：智慧警報聚合抑制——命中 frame_minutes&gt;0 規則且窗內（含本筆）計數未達
@@ -1244,11 +1209,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        var window = new EvidenceWindow(_store!, directory)
-        {
-            Owner = this,
-        };
-        window.Show();
+        OpenChild(new EvidenceWindow(_store!, directory));
     }
 
     /// <summary>開啟匯出中心（M44，§14.3(2)）。viewer 與匯出精靈同權限限制。</summary>
@@ -1259,11 +1220,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        var center = new ExportCenterWindow(_store!, _dataRoot)
-        {
-            Owner = this,
-        };
-        center.Show();
+        OpenChild(new ExportCenterWindow(_store!, _dataRoot));
     }
 
     /// <summary>依登入角色限制管理功能（M42）：viewer 不能開設定中心／匯出精靈。</summary>
@@ -1304,11 +1261,7 @@ public partial class MainWindow : Window
     /// <summary>開啟通知送達紀錄（M23，§16.3）。</summary>
     private void OnNotificationClicked(object sender, RoutedEventArgs e)
     {
-        var logWin = new NotificationLogWindow(_store!)
-        {
-            Owner = this,
-        };
-        logWin.Show();
+        OpenChild(new NotificationLogWindow(_store!));
     }
 
     /// <summary>開啟管理設定中心（M19，§9）。僅 admin（M42）。</summary>
@@ -1337,6 +1290,23 @@ public partial class MainWindow : Window
         }
     }
 
+    /// <summary>單一子視窗重用：同型（或同鍵）視窗已開啟時僅置前，避免重複開啟/
+    /// 連按快捷鍵堆疊多份視窗；關閉時自動釋放參考，下次開啟即重新建立。</summary>
+    private void OpenChild(Window window, string? key = null)
+    {
+        var k = key ?? window.GetType().Name;
+        if (_children.TryGetValue(k, out var existing) && existing is { IsVisible: true })
+        {
+            existing.Activate();
+            return;
+        }
+
+        _children[k] = window;
+        window.Owner = this;
+        window.Closed += (_, _) => _children.Remove(k);
+        window.Show();
+    }
+
     private void OpenSettingsWindow()
     {
         if (!SessionContext.IsAdmin)
@@ -1344,11 +1314,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        var settings = new SettingsWindow(_store!, _dataRoot, _ioHost, _shareHost)
-        {
-            Owner = this,
-        };
-        settings.Show();
+        OpenChild(new SettingsWindow(_store!, _dataRoot, _ioHost, _shareHost));
     }
 
     /// <summary>開啟匯出精靈（M21，§8.5/§14）。僅 admin（M42）。</summary>
@@ -1359,11 +1325,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        var export = new ExportWindow(_store!, _dataRoot)
-        {
-            Owner = this,
-        };
-        export.Show();
+        OpenChild(new ExportWindow(_store!, _dataRoot));
     }
 
     private void OnAddChannelClicked(object sender, RoutedEventArgs e)
@@ -1703,11 +1665,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        var window = new ReportsWindow(_store!, _dataRoot)
-        {
-            Owner = this,
-        };
-        window.Show();
+        OpenChild(new ReportsWindow(_store!, _dataRoot));
     }
 
     private void OnReportsClicked(object sender, RoutedEventArgs e) => OpenReportsWindow();
@@ -1720,11 +1678,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        var window = new RulesWindow(_store!)
-        {
-            Owner = this,
-        };
-        window.Show();
+        OpenChild(new RulesWindow(_store!));
     }
 
     private void OnRulesClicked(object sender, RoutedEventArgs e) => OpenRulesWindow();
@@ -1737,11 +1691,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        var window = new SynopsisWindow(_store!, _dataRoot)
-        {
-            Owner = this,
-        };
-        window.Show();
+        OpenChild(new SynopsisWindow(_store!, _dataRoot));
     }
 
     private void OnSynopsisClicked(object sender, RoutedEventArgs e) => OpenSynopsisWindow();
@@ -1754,11 +1704,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        var window = new LegalHoldWindow(_store!, allowRevoke: SessionContext.IsAdmin)
-        {
-            Owner = this,
-        };
-        window.Show();
+        OpenChild(new LegalHoldWindow(_store!, allowRevoke: SessionContext.IsAdmin));
     }
 
     private void OnLegalHoldClicked(object sender, RoutedEventArgs e) => OpenLegalHoldWindow();
@@ -1771,11 +1717,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        var window = new PatrolWindow(_store!)
-        {
-            Owner = this,
-        };
-        window.Show();
+        OpenChild(new PatrolWindow(_store!));
     }
 
     private void OnPatrolClicked(object sender, RoutedEventArgs e) => OpenPatrolWindow();
@@ -1783,11 +1725,7 @@ public partial class MainWindow : Window
     /// <summary>開啟感測器 IO 測試視窗（M75，§14.1 #16）。</summary>
     private void OpenIoWindow()
     {
-        var window = new IoWindow(_store!)
-        {
-            Owner = this,
-        };
-        window.Show();
+        OpenChild(new IoWindow(_store!));
     }
 
     private void OnIoClicked(object sender, RoutedEventArgs e) => OpenIoWindow();
@@ -1795,11 +1733,7 @@ public partial class MainWindow : Window
     /// <summary>開啟雙碼流切流調整視窗（M77，§15.2）。</summary>
     private void OpenStreamSwitchWindow()
     {
-        var window = new StreamSwitchWindow(_store!)
-        {
-            Owner = this,
-        };
-        window.Show();
+        OpenChild(new StreamSwitchWindow(_store!));
     }
 
     private void OnStreamClicked(object sender, RoutedEventArgs e) => OpenStreamSwitchWindow();
@@ -1812,11 +1746,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        var window = new AudioWindow(_store!)
-        {
-            Owner = this,
-        };
-        window.Show();
+        OpenChild(new AudioWindow(_store!));
     }
 
     private void OnAudioClicked(object sender, RoutedEventArgs e) => OpenAudioWindow();
@@ -1829,18 +1759,13 @@ public partial class MainWindow : Window
             return;
         }
 
-        var window = new FailoverWindow(_store!)
-        {
-            Owner = this,
-        };
-        window.Show();
+        OpenChild(new FailoverWindow(_store!));
     }
 
     private void OnFailoverClicked(object sender, RoutedEventArgs e) => OpenFailoverWindow();
 
     /// <summary>開啟電子地圖（M41；M49 補比例尺與 FOV 深度）。</summary>
-    private void OpenMapWindow()
-        => new MapWindow(_store!) { Owner = this }.Show();
+    private void OpenMapWindow() => OpenChild(new MapWindow(_store!));
 
     private void OnPtzClicked(object sender, RoutedEventArgs e)
     {
@@ -1884,7 +1809,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        new PtzWindow(store, channel, device) { Owner = this }.Show();
+        OpenChild(new PtzWindow(store, channel, device), $"ptz-{channelId}");
     }
 
     private static bool IsTargetClass(string cls) =>
