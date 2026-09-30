@@ -40,7 +40,7 @@
             <!-- 輸出路徑 -->
             <TextBlock Text="輸出資料夾" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
             <DockPanel Margin="0,4,0,12">
-                <Button x:Name="BrowseButton" Content="瀏覽…" Click="OnBrowseClicked"
+                <Button x:Name="BrowseButton" Content="瀏覽…" Click="OnBrowseClicked" ToolTip="選擇匯出目標目錄"
                         DockPanel.Dock="Right" Padding="12,6" Margin="6,0,0,0"
                         Foreground="White" Background="#2A5C8A" BorderThickness="0" AutomationProperties.AutomationId="BrowseButton"/>
                 <TextBox x:Name="OutputFolderBox" AutomationProperties.AutomationId="OutputFolderBox"
@@ -95,11 +95,11 @@
                          Height="18" Minimum="0" Maximum="100" Value="0"
                          Foreground="#2660AA" Background="#12233C" Margin="0,0,0,8"/>
             <StackPanel Orientation="Horizontal">
-                <Button x:Name="ExportButton" AutomationProperties.AutomationId="ExportButton"
+                <Button x:Name="ExportButton" AutomationProperties.AutomationId="ExportButton" ToolTip="開始匯出影像範圍"
                         Content="匯出" Click="OnExportClicked"
                         Width="100" Padding="0,8"
                         Foreground="White" Background="#2A5C8A" BorderThickness="0"/>
-                <Button x:Name="CloseButton" Content="關閉" Click="OnCloseClicked"
+                <Button x:Name="CloseButton" Content="關閉" Click="OnCloseClicked" ToolTip="關閉此視窗"
                         Width="80" Padding="0,8" Margin="8,0,0,0"
                         Foreground="White" Background="#3A3A5A" BorderThickness="0" AutomationProperties.AutomationId="CloseButton"/>
             </StackPanel>

@@ -22,15 +22,15 @@
             <TextBlock Text="頻道" VerticalAlignment="Center" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
             <ComboBox x:Name="AudioChannelCombo" AutomationProperties.AutomationId="AudioChannelCombo"
                       Width="180" Margin="8,0,0,0" Foreground="Black"/>
-            <Button x:Name="AudioFeedButton" AutomationProperties.AutomationId="AudioFeedButton"
+            <Button x:Name="AudioFeedButton" AutomationProperties.AutomationId="AudioFeedButton" ToolTip="餵入一筆爆音（音訊異常測試）"
                     Content="餵爆音" Click="OnFeedClicked"
                     Width="90" Padding="0,6" Margin="14,0,0,0"
                     Foreground="White" Background="#7A2A2A" BorderThickness="0"/>
-            <Button x:Name="AudioResetButton" AutomationProperties.AutomationId="AudioResetButton"
+            <Button x:Name="AudioResetButton" AutomationProperties.AutomationId="AudioResetButton" ToolTip="捨棄尚未結算的音訊資料"
                     Content="捨棄" Click="OnResetClicked"
                     Width="70" Padding="0,6" Margin="10,0,0,0"
                     Foreground="White" Background="#5A5A6A" BorderThickness="0"/>
-            <Button x:Name="AudioFlushButton" AutomationProperties.AutomationId="AudioFlushButton"
+            <Button x:Name="AudioFlushButton" AutomationProperties.AutomationId="AudioFlushButton" ToolTip="結算目前的音訊累積資料"
                     Content="結算" Click="OnFlushClicked"
                     Width="70" Padding="0,6" Margin="10,0,0,0"
                     Foreground="White" Background="#3A5A2A" BorderThickness="0"/>

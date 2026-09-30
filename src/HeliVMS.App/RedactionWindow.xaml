@@ -66,9 +66,9 @@
                 <TextBox x:Name="RoiH" AutomationProperties.AutomationId="RedactRoiH" Width="56"
                          Text="80" Margin="4,0" VerticalContentAlignment="Center"
                          Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
-                <Button x:Name="AddRoiButton" Content="加入遮罩" Click="OnAddRoiClicked" Margin="10,0,0,0"
+                <Button x:Name="AddRoiButton" Content="加入遮罩" Click="OnAddRoiClicked" ToolTip="在目前畫面加入遮蔽區域" Margin="10,0,0,0"
                         Padding="10,4" Foreground="White" Background="#2A5C8A" BorderThickness="0" AutomationProperties.AutomationId="AddRoiButton"/>
-                <Button x:Name="RemoveRoiButton" Content="移除所選" Click="OnRemoveRoiClicked" Margin="6,0,0,0"
+                <Button x:Name="RemoveRoiButton" Content="移除所選" Click="OnRemoveRoiClicked" ToolTip="移除所選的遮蔽區域" Margin="6,0,0,0"
                         Padding="10,4" Foreground="White" Background="#8A3C2E" BorderThickness="0" AutomationProperties.AutomationId="RemoveRoiButton"/>
             </StackPanel>
 
@@ -87,7 +87,7 @@
         </Grid>
 
         <DockPanel Grid.Row="3" Margin="0,12,0,0">
-            <Button x:Name="RedactButton" AutomationProperties.AutomationId="RedactButton"
+            <Button x:Name="RedactButton" AutomationProperties.AutomationId="RedactButton" ToolTip="開始對畫面套用遮蔽處理"
                     Content="開始遮蔽" Click="OnRedactClicked"
                     DockPanel.Dock="Right" Padding="14,8"
                     Foreground="White" Background="#A04A2A" BorderThickness="0"/>

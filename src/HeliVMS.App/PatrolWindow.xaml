@@ -46,11 +46,11 @@
                            Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
                 <TextBox x:Name="PatrolDwellBox" AutomationProperties.AutomationId="PatrolDwellBox"
                          Width="70" Margin="8,0,0,0" Foreground="Black"/>
-                <Button x:Name="PatrolAddPresetButton" AutomationProperties.AutomationId="PatrolAddPresetButton"
+                <Button x:Name="PatrolAddPresetButton" AutomationProperties.AutomationId="PatrolAddPresetButton" ToolTip="以目前 PTZ 位置新增巡航步驟"
                         Content="新增步驟" Click="OnAddPresetClicked"
                         Width="90" Padding="0,6" Margin="14,0,0,0"
                         Foreground="White" Background="#2A6A9A" BorderThickness="0"/>
-                <Button x:Name="PatrolRemovePresetButton" AutomationProperties.AutomationId="PatrolRemovePresetButton"
+                <Button x:Name="PatrolRemovePresetButton" AutomationProperties.AutomationId="PatrolRemovePresetButton" ToolTip="移除所選的巡航步驟"
                         Content="移除選取" Click="OnRemovePresetClicked"
                         Width="90" Padding="0,6" Margin="8,0,0,0"
                         Foreground="White" Background="#8A3A2A" BorderThickness="0"/>
@@ -71,7 +71,7 @@
 
         <StackPanel Grid.Row="2">
             <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
-                <Button x:Name="PatrolSaveButton" AutomationProperties.AutomationId="PatrolSaveButton"
+                <Button x:Name="PatrolSaveButton" AutomationProperties.AutomationId="PatrolSaveButton" ToolTip="儲存巡航路線"
                         Content="儲存巡航" Click="OnSaveClicked"
                         Width="110" Padding="0,8"
                         Foreground="White" Background="#2A8A5A" BorderThickness="0"/>

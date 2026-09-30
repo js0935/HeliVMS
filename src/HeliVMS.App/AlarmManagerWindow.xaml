@@ -19,7 +19,7 @@
         <TextBlock Text="警報管理器（分診／指派／優先序／處理時限）" FontSize="17" FontWeight="Bold"/>
 
         <DockPanel Grid.Row="1" Margin="0,8,0,0">
-            <Button x:Name="RefreshButton" AutomationProperties.AutomationId="RefreshButton"
+            <Button x:Name="RefreshButton" AutomationProperties.AutomationId="RefreshButton" ToolTip="重新載入警報清單"
                     Content="重新整理" Click="OnRefreshClicked" DockPanel.Dock="Right"
                     Padding="12,4" Foreground="White" Background="#2A5C8A" BorderThickness="0"/>
             <TextBlock x:Name="SummaryText" AutomationProperties.AutomationId="SummaryText"
@@ -68,7 +68,7 @@
             <TextBox x:Name="NoteBox" AutomationProperties.AutomationId="NoteBox"
                      Width="150" Margin="0,0,12,0" VerticalContentAlignment="Center"
                      Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
-            <Button x:Name="ApplyButton" AutomationProperties.AutomationId="ApplyButton"
+            <Button x:Name="ApplyButton" AutomationProperties.AutomationId="ApplyButton" ToolTip="套用目前的警報設定"
                     Content="套用" Click="OnApplyClicked" Padding="14,4"
                     Foreground="White" Background="#A04A2A" BorderThickness="0"/>
         </WrapPanel>

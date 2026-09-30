@@ -35,15 +35,15 @@
             <TextBox x:Name="StreamHoldText" AutomationProperties.AutomationId="StreamHoldText"
                      Width="50" Margin="6,0,0,0" Text="5" Foreground="Black"/>
 
-            <Button x:Name="StreamBurstButton" AutomationProperties.AutomationId="StreamBurstButton"
+            <Button x:Name="StreamBurstButton" AutomationProperties.AutomationId="StreamBurstButton" ToolTip="模擬事件爆量（壓力測試）"
                     Content="事件爆量" Click="OnBurstClicked"
                     Width="90" Padding="0,6" Margin="14,0,0,0"
                     Foreground="White" Background="#7A2A2A" BorderThickness="0"/>
-            <Button x:Name="StreamEvalButton" AutomationProperties.AutomationId="StreamEvalButton"
+            <Button x:Name="StreamEvalButton" AutomationProperties.AutomationId="StreamEvalButton" ToolTip="以目前參數評估分流決策"
                     Content="評估" Click="OnEvalClicked"
                     Width="70" Padding="0,6" Margin="10,0,0,0"
                     Foreground="White" Background="#2A6A9A" BorderThickness="0"/>
-            <Button x:Name="StreamApplyButton" AutomationProperties.AutomationId="StreamApplyButton"
+            <Button x:Name="StreamApplyButton" AutomationProperties.AutomationId="StreamApplyButton" ToolTip="套用目前的分流設定"
                     Content="套用" Click="OnApplyClicked"
                     Width="70" Padding="0,6" Margin="10,0,0,0"
                     Foreground="White" Background="#3A5A2A" BorderThickness="0"/>

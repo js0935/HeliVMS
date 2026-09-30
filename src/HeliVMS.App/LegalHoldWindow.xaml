@@ -29,11 +29,11 @@
                            Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
                 <TextBox x:Name="LegalHoldToBox" AutomationProperties.AutomationId="LegalHoldToBox"
                          Width="140" Margin="8,0,0,0" Foreground="Black"/>
-                <Button x:Name="LegalHoldAddButton" AutomationProperties.AutomationId="LegalHoldAddButton"
+                <Button x:Name="LegalHoldAddButton" AutomationProperties.AutomationId="LegalHoldAddButton" ToolTip="加入指定頻道與區間的證據鎖定"
                         Content="加入鎖定" Click="OnAddClicked"
                         Width="80" Padding="0,6" Margin="14,0,0,0"
                         Foreground="White" Background="#2A8A5A" BorderThickness="0"/>
-                <Button x:Name="LegalHoldRevokeButton" AutomationProperties.AutomationId="LegalHoldRevokeButton"
+                <Button x:Name="LegalHoldRevokeButton" AutomationProperties.AutomationId="LegalHoldRevokeButton" ToolTip="沖銷所選的證據鎖定"
                         Content="沖銷選取" Click="OnRevokeClicked"
                         Width="80" Padding="0,6" Margin="8,0,0,0"
                         Foreground="White" Background="#8A3A2A" BorderThickness="0"/>

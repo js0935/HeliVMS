@@ -107,7 +107,7 @@
                 <TextBox x:Name="HeightBox" AutomationProperties.AutomationId="DewarpHeight" Width="64"
                          Text="720" Margin="6,0" VerticalContentAlignment="Center"
                          Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
-                <Button x:Name="PreviewButton" AutomationProperties.AutomationId="DewarpPreviewButton"
+                <Button x:Name="PreviewButton" AutomationProperties.AutomationId="DewarpPreviewButton" ToolTip="預覽載入的影像"
                         Content="預覽" Click="OnPreviewClicked" Margin="14,0,0,0"
                         Padding="10,4" Foreground="White" Background="#2A5C8A" BorderThickness="0"/>
             </StackPanel>
@@ -118,7 +118,7 @@
         </Border>
 
         <DockPanel Grid.Row="5" Margin="0,12,0,0">
-            <Button x:Name="DewarpButton" AutomationProperties.AutomationId="DewarpButton"
+            <Button x:Name="DewarpButton" AutomationProperties.AutomationId="DewarpButton" ToolTip="開始執行影像矯正處理"
                     Content="開始矯正" Click="OnDewarpClicked"
                     DockPanel.Dock="Right" Padding="14,8"
                     Foreground="White" Background="#2A5C8A" BorderThickness="0"/>

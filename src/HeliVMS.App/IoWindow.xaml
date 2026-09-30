@@ -24,7 +24,7 @@
                       Width="180" Margin="8,0,0,0" Foreground="Black"/>
             <CheckBox x:Name="IoClosedCheck" AutomationProperties.AutomationId="IoClosedCheck"
                       Content="閉合" VerticalAlignment="Center" Margin="18,0,0,0"/>
-            <Button x:Name="IoFireButton" AutomationProperties.AutomationId="IoFireButton"
+            <Button x:Name="IoFireButton" AutomationProperties.AutomationId="IoFireButton" ToolTip="以輸入狀態觸發 IO 事件（測試）"
                     Content="餵入狀態" Click="OnFireClicked"
                     Width="90" Padding="0,6" Margin="14,0,0,0"
                     Foreground="White" Background="#2A6A9A" BorderThickness="0"/>

@@ -18,7 +18,7 @@
             <ComboBox x:Name="MapCombo" AutomationProperties.AutomationId="MapCombo" Width="260"
                       Margin="8,0,10,0" SelectionChanged="OnMapComboChanged"
                       Foreground="White" Background="#14243F" BorderBrush="#2A4A73" Padding="6,3" />
-            <Button x:Name="MapRefreshButton" Content="重新整理" Click="OnRefreshClicked" Padding="10,4"
+            <Button x:Name="MapRefreshButton" Content="重新整理" Click="OnRefreshClicked" ToolTip="重新載入地圖內容" Padding="10,4"
                     Foreground="White" Background="#2A5C8A" BorderThickness="0" AutomationProperties.AutomationId="MapRefreshButton"/>
             <TextBlock x:Name="MapScaleText" AutomationProperties.AutomationId="MapScaleText"
                        VerticalAlignment="Center" Margin="16,0,0,0"

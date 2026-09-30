@@ -55,7 +55,7 @@
                 <TextBox x:Name="AnalyticsDwellBox" AutomationProperties.AutomationId="AnalyticsDwellBox"
                          Width="56" Margin="8,0,0,0" VerticalContentAlignment="Center"
                          Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
-                <Button x:Name="AnalyticsAddButton" AutomationProperties.AutomationId="AnalyticsAddButton"
+                <Button x:Name="AnalyticsAddButton" AutomationProperties.AutomationId="AnalyticsAddButton" ToolTip="新增分析區"
                         Content="新增分析區" Click="OnAddClicked"
                         Margin="12,0,0,0" Padding="12,6"
                         Foreground="White" Background="#2A5C8A" BorderThickness="0"/>
@@ -78,17 +78,17 @@
         </ListView>
 
         <StackPanel Grid.Row="3" Orientation="Horizontal" Margin="0,10,0,0">
-            <Button x:Name="AnalyticsRefreshButton" Content="刷新" Click="OnRefreshClicked"
+            <Button x:Name="AnalyticsRefreshButton" Content="刷新" Click="OnRefreshClicked" ToolTip="重新載入分析區清單"
                     Width="64" Padding="0,6" Foreground="White" Background="#2A4A73" BorderThickness="0" AutomationProperties.AutomationId="AnalyticsRefreshButton"/>
-            <Button x:Name="AnalyticsToggleButton" AutomationProperties.AutomationId="AnalyticsToggleButton"
+            <Button x:Name="AnalyticsToggleButton" AutomationProperties.AutomationId="AnalyticsToggleButton" ToolTip="切換所選分析區的啟用狀態"
                     Content="啟用/停用" Click="OnToggleClicked"
                     Width="90" Padding="0,6" Margin="8,0,0,0"
                     Foreground="White" Background="#2A4A73" BorderThickness="0"/>
-            <Button x:Name="AnalyticsEvaluateButton" AutomationProperties.AutomationId="AnalyticsEvaluateButton"
+            <Button x:Name="AnalyticsEvaluateButton" AutomationProperties.AutomationId="AnalyticsEvaluateButton" ToolTip="以範例影像偵測評估該分析區效果"
                     Content="以範例偵測評估" Click="OnEvaluateClicked"
                     Width="120" Padding="0,6" Margin="8,0,0,0"
                     Foreground="White" Background="#2A5C8A" BorderThickness="0"/>
-            <Button x:Name="AnalyticsDeleteButton" AutomationProperties.AutomationId="AnalyticsDeleteButton"
+            <Button x:Name="AnalyticsDeleteButton" AutomationProperties.AutomationId="AnalyticsDeleteButton" ToolTip="刪除所選分析區"
                     Content="刪除" Click="OnDeleteClicked"
                     Width="64" Padding="0,6" Margin="8,0,0,0"
                     Foreground="White" Background="#8A3C2E" BorderThickness="0"/>

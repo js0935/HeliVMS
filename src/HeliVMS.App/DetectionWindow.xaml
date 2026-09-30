@@ -64,7 +64,7 @@
                                  BorderBrush="#2A4A73" Padding="6,3" Margin="0,4,0,0"/>
                     </StackPanel>
                     <StackPanel Grid.Column="5" VerticalAlignment="Bottom">
-                        <Button x:Name="SearchButton" Content="查詢" Click="OnSearchClicked"
+                        <Button x:Name="SearchButton" Content="查詢" Click="OnSearchClicked" ToolTip="依條件查詢偵測事件"
                                 Padding="18,4" Foreground="White" Background="#2A5C8A" BorderThickness="0" AutomationProperties.AutomationId="SearchButton"/>
                     </StackPanel>
                 </Grid>

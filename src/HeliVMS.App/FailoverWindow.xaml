@@ -28,15 +28,15 @@
             <TextBox x:Name="LeaseSecText" AutomationProperties.AutomationId="LeaseSecText"
                      Width="60" Margin="8,0,0,0" Text="15" Foreground="Black"/>
 
-            <Button x:Name="FailoverAcquireButton" AutomationProperties.AutomationId="FailoverAcquireButton"
+            <Button x:Name="FailoverAcquireButton" AutomationProperties.AutomationId="FailoverAcquireButton" ToolTip="取得（或續約）故障接管鎖"
                     Content="取得/續約" Click="OnAcquireClicked"
                     Width="90" Padding="0,6" Margin="18,0,0,0"
                     Foreground="White" Background="#2A6A9A" BorderThickness="0"/>
-            <Button x:Name="FailoverReleaseButton" AutomationProperties.AutomationId="FailoverReleaseButton"
+            <Button x:Name="FailoverReleaseButton" AutomationProperties.AutomationId="FailoverReleaseButton" ToolTip="讓出故障接管鎖"
                     Content="讓出" Click="OnReleaseClicked"
                     Width="70" Padding="0,6" Margin="10,0,0,0"
                     Foreground="White" Background="#7A5A3A" BorderThickness="0"/>
-            <Button x:Name="FailoverRefreshButton" AutomationProperties.AutomationId="FailoverRefreshButton"
+            <Button x:Name="FailoverRefreshButton" AutomationProperties.AutomationId="FailoverRefreshButton" ToolTip="重新整理接管狀態"
                     Content="重新整理" Click="OnRefreshClicked"
                     Width="80" Padding="0,6" Margin="10,0,0,0"
                     Foreground="White" Background="#2A5A2A" BorderThickness="0"/>

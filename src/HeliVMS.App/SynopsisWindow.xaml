@@ -29,7 +29,7 @@
                            Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
                 <TextBox x:Name="SynopsisToBox" AutomationProperties.AutomationId="SynopsisToBox"
                          Width="150" Margin="8,0,0,0" Foreground="Black"/>
-                <Button x:Name="SynopsisBuildButton" AutomationProperties.AutomationId="SynopsisBuildButton"
+                <Button x:Name="SynopsisBuildButton" AutomationProperties.AutomationId="SynopsisBuildButton" ToolTip="產生所選時間範圍的事件摘要"
                         Content="產生摘要" Click="OnBuildClicked"
                         Width="92" Padding="0,6" Margin="14,0,0,0"
                         Foreground="White" Background="#2A5C8A" BorderThickness="0"/>

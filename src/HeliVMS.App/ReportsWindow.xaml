@@ -21,11 +21,11 @@
                 <TextBlock Text="期間" VerticalAlignment="Center" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
                 <ComboBox x:Name="ReportPeriodCombo" AutomationProperties.AutomationId="ReportPeriodCombo"
                           Width="130" Margin="8,0,0,0" Foreground="Black"/>
-                <Button x:Name="ReportRefreshButton" AutomationProperties.AutomationId="ReportRefreshButton"
+                <Button x:Name="ReportRefreshButton" AutomationProperties.AutomationId="ReportRefreshButton" ToolTip="重新載入報表資料"
                         Content="重新整理" Click="OnRefreshClicked"
                         Width="92" Padding="0,6" Margin="14,0,0,0"
                         Foreground="White" Background="#2A5C8A" BorderThickness="0"/>
-                <Button x:Name="ReportExportButton" AutomationProperties.AutomationId="ReportExportButton"
+                <Button x:Name="ReportExportButton" AutomationProperties.AutomationId="ReportExportButton" ToolTip="將目前報表匯出為 CSV"
                         Content="匯出 CSV" Click="OnExportClicked"
                         Width="92" Padding="0,6" Margin="8,0,0,0"
                         Foreground="White" Background="#3A6A5A" BorderThickness="0"/>
