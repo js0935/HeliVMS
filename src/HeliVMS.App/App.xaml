@@ -118,7 +118,42 @@
         </Style>
 
         <Style TargetType="DatePicker">
+            <Setter Property="Foreground" Value="#EBF3FF" />
+            <Setter Property="Background" Value="#1A2C49" />
+            <Setter Property="BorderBrush" Value="#2A4A73" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="MinHeight" Value="32" />
             <Setter Property="FocusVisualStyle" Value="{StaticResource FocusVisualAccent}" />
+        </Style>
+
+        <!-- 深色月曆：以隱含樣式直擊 Calendar 內層元件（預設模板產生的元件同樣套用隱含樣式，
+             不覆寫模板以保全月曆標題/選取/黑日期邏輯）。IsSelected/IsMouseOver 仍由預設模板
+             以強調色呈現，深底上保持可讀。 -->
+        <Style TargetType="Calendar">
+            <Setter Property="Background" Value="#12233C" />
+            <Setter Property="BorderBrush" Value="#2A4A73" />
+            <Setter Property="Foreground" Value="#EBF3FF" />
+        </Style>
+
+        <Style TargetType="CalendarItem">
+            <Setter Property="Background" Value="#0F1D2E" />
+            <Setter Property="BorderBrush" Value="#2A4A73" />
+            <Setter Property="Foreground" Value="#EBF3FF" />
+        </Style>
+
+        <Style TargetType="CalendarButton">
+            <Setter Property="Background" Value="#1A2C49" />
+            <Setter Property="Foreground" Value="#EBF3FF" />
+            <Setter Property="BorderBrush" Value="#2A4A73" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Padding" Value="4,2" />
+        </Style>
+
+        <Style TargetType="CalendarDayButton">
+            <Setter Property="Background" Value="#12233C" />
+            <Setter Property="Foreground" Value="#EBF3FF" />
+            <Setter Property="BorderBrush" Value="#1D3A5F" />
+            <Setter Property="BorderThickness" Value="1" />
         </Style>
 
         <Style TargetType="ListBoxItem">
