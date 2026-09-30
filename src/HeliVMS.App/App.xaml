@@ -115,6 +115,17 @@
 
         <Style TargetType="Slider">
             <Setter Property="FocusVisualStyle" Value="{StaticResource FocusVisualAccent}" />
+            <Setter Property="Background" Value="#12233C" />
+            <Setter Property="Foreground" Value="#2660AA" />
+            <Setter Property="BorderBrush" Value="#2A4A73" />
+        </Style>
+
+        <!-- 深色 GroupBox：僅 PtzWindow（雲台移動／預設點）使用；表頭本機色優先，
+             未自訂時以品牌顏色呈現外框與標題文字。 -->
+        <Style TargetType="GroupBox">
+            <Setter Property="Foreground" Value="#EBF3FF" />
+            <Setter Property="BorderBrush" Value="#2A4A73" />
+            <Setter Property="BorderThickness" Value="1" />
         </Style>
 
         <Style TargetType="DatePicker">
