@@ -51,13 +51,14 @@ public class RtspClientTests
         await client.StopAsync();
     }
 
-    [Fact]
+[Fact]
     public async Task Start_WhenStreamProducesFrames_EmitsFrameAndStreams()
     {
         // 正常情形：ffprobe 回 2x2 解析度，ffmpeg 持續輸出剛好一幀（2*2*3 bytes）。
         var dir = NewDir();
         var probe = WriteStub(dir, "ffprobe.cmd", EchoResolution);
-        var ffmpeg = WriteStub(dir, "ffmpeg.cmd", EmitOneFrame);
+        var frame = WriteFrame(dir);
+        var ffmpeg = WriteStub(dir, "ffmpeg.cmd", EmitOneFrame(frame));
 
         await using var client = new RtspClient("rtsp://10.0.0.1/live.sdp", ffmpeg, probe)
         {
@@ -72,24 +73,25 @@ public class RtspClientTests
 
         await client.StartAsync();
 
-        var done = await Task.WhenAny(got.Task, Task.Delay(TimeSpan.FromSeconds(15)));
+        var done = await Task.WhenAny(got.Task, Task.Delay(TimeSpan.FromSeconds(30)));
         Assert.True(done == got.Task, "應收到解碼後的影格");
 
-        var frame = await got.Task;
-        Assert.Equal(2, frame.Width);
-        Assert.Equal(2, frame.Height);
-        Assert.Equal(2 * 2 * 3, frame.Bytes);
+        var frameResult = await got.Task;
+        Assert.Equal(2, frameResult.Width);
+        Assert.Equal(2, frameResult.Height);
+        Assert.Equal(2 * 2 * 3, frameResult.Bytes);
         Assert.Equal(RtspState.Streaming, client.State);
 
         await client.StopAsync();
     }
 
-    [Fact]
+[Fact]
     public async Task Dispose_StopsLoop_AndLeavesStateStopped()
     {
         var dir = NewDir();
         var probe = WriteStub(dir, "ffprobe.cmd", EchoResolution);
-        var ffmpeg = WriteStub(dir, "ffmpeg.cmd", EmitOneFrame);
+        var frame = WriteFrame(dir);
+        var ffmpeg = WriteStub(dir, "ffmpeg.cmd", EmitOneFrame(frame));
 
         var client = new RtspClient("rtsp://10.0.0.1/live.sdp", ffmpeg, probe)
         {
@@ -113,7 +115,8 @@ public class RtspClientTests
         // 本 stub 先寫 320KB stderr（緩衝的 5 倍）再寫一幀，模擬該情境。
         var dir = NewDir();
         var probe = WriteStub(dir, "ffprobe.cmd", EchoResolution);
-        var ffmpeg = WriteStub(dir, "ffmpeg.cmd", FloodStderrThenEmitFrame);
+        var frame = WriteFrame(dir);
+        var ffmpeg = WriteStub(dir, "ffmpeg.cmd", FloodStderrThenEmitFrame(frame));
 
         await using var client = new RtspClient("rtsp://10.0.0.1/live.sdp", ffmpeg, probe)
         {
@@ -128,11 +131,11 @@ public class RtspClientTests
 
         await client.StartAsync();
 
-        var done = await Task.WhenAny(got.Task, Task.Delay(TimeSpan.FromSeconds(20)));
+        var done = await Task.WhenAny(got.Task, Task.Delay(TimeSpan.FromSeconds(30)));
         Assert.True(done == got.Task, "stderr 被塞滿時仍應送出影格（stderr 必須被排乾）");
 
-        var frame = await got.Task;
-        Assert.Equal(2 * 2 * 3, frame.Bytes);
+        var frameResult = await got.Task;
+        Assert.Equal(2 * 2 * 3, frameResult.Bytes);
     }
 
     [Fact]
@@ -173,7 +176,8 @@ public class RtspClientTests
         // 且 health timer 會誤標為上線，之後 State 已非 Streaming 而永不再重試。
         var dir = NewDir();
         var probe = WriteStub(dir, "ffprobe.cmd", EchoResolution);
-        var ffmpeg = WriteStub(dir, "ffmpeg.cmd", EmitFramesContinuously);
+        var frame = WriteFrame(dir);
+        var ffmpeg = WriteStub(dir, "ffmpeg.cmd", EmitFramesContinuously(frame));
 
         await using var client = new RtspClient("rtsp://10.0.0.1/live.sdp", ffmpeg, probe)
         {
@@ -235,17 +239,39 @@ public class RtspClientTests
         }
     }
 
-    // 持續輸出多幀，讓「可重啟」與「Streaming 狀態」可被觀察。
-    private const string EmitFramesContinuously =
-        """
+    // 單一影格的原始位元組（2*2*3 RGB）。以 cmd `type` 輸出預先寫好的 frame.bin，產位元組精確
+    // 且不需 powershell 冷啟動（CI 並行負載下 powershell 可能數秒～數十秒才起來）。
+    private static readonly byte[] FrameBytes = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+
+    private static string WriteFrame(string dir)
+    {
+        var path = Path.Combine(dir, "frame.bin");
+        File.WriteAllBytes(path, FrameBytes);
+        return path;
+    }
+
+    // 一次送出剛好 12 bytes（2*2*3），之後靜默等待，讓 RtspClient 成功湊滿一幀。
+    private static string EmitOneFrame(string framePath) =>
+        $$"""
         @echo off
-        powershell -NoProfile -Command "for($i=0;$i -lt 400;$i++){ [Console]::Out.Write([byte[]](1,2,3,4,5,6,7,8,9,10,11,12)); Start-Sleep -Milliseconds 50 }"
+        type "{{framePath}}"
+        ping -n 30 127.0.0.1 >nul
         """;
 
-    private const string FloodStderrThenEmitFrame =
-        """
+    // 持續輸出多幀，讓「可重啟」與「Streaming 狀態」可被觀察。
+    private static string EmitFramesContinuously(string framePath) =>
+        $$"""
         @echo off
-        powershell -NoProfile -Command "$e=[Console]::Error; $b=New-Object System.Text.StringBuilder; 1..4000 | ForEach-Object { [void]$b.Append('x'*80) }; $e.Write($b.ToString()); [Console]::Out.Write([byte[]](1,2,3,4,5,6,7,8,9,10,11,12))"
+        for /l %%i in (1,1,300) do @type "{{framePath}}"
+        ping -n 30 127.0.0.1 >nul
+        """;
+
+    // 先寫 320KB stderr（緩衝的 5 倍）再寫一幀，模擬 stderr 填滿阻塞。
+    private static string FloodStderrThenEmitFrame(string framePath) =>
+        $$"""
+        @echo off
+        for /l %%i in (1,1,4000) do @echo xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx 1>&2
+        type "{{framePath}}"
         ping -n 30 127.0.0.1 >nul
         """;
 
@@ -268,19 +294,10 @@ public class RtspClientTests
         echo {"streams":[{"codec_type":"video","codec_name":"h264","width":2,"height":2,"r_frame_rate":"1/1"}]}
         """;
 
-    private const string Silent =
+private const string Silent =
         """
         @echo off
         ping -n 60 127.0.0.1 >nul
-        """;
-
-    // 一次送出剛好 12 bytes（2*2*3），之後靜默等待，讓 RtspClient 成功湊滿一幀。
-    // 用 PowerShell 寫出精確位元組：cmd 的 echo／set /p 會附加換行或 BOM，長度不可靠。
-    private const string EmitOneFrame =
-        """
-        @echo off
-        powershell -NoProfile -Command "[Console]::Out.Write([byte[]](1,2,3,4,5,6,7,8,9,10,11,12))"
-        ping -n 30 127.0.0.1 >nul
         """;
 
     private static string NewDir()

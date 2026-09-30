@@ -93,7 +93,7 @@ public class StreamProbeTests
     }
 
     [Fact]
-    public void Probe_Cancellation_TerminatesProcessPromptly()
+    public async Task Probe_Cancellation_TerminatesProcessPromptly()
     {
         // 模擬視窗關閉／頻道停止：取消必須立刻殺掉 ffprobe，不能等 45～60 秒的探測逾時，
         // 否則孤兒進程會一直佔住攝影機的 RTSP session。
@@ -112,20 +112,44 @@ public class StreamProbeTests
 
         try
         {
-            // 取消窗口需給 stub 足夠時間先寫出 PID（powershell -NoProfile 啟動在並行負載下可能需數秒），
-            // 但仍遠短於 30s 探測逾時，確保「取消→立刻殺樹」是受測行為。
-            using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(5000));
-            var sw = Stopwatch.StartNew();
+            // 由測試端控制取消時機：先等 stub 寫出 PID（powershell 冷啟動在 CI 並行負載下
+            // 可能需數秒，這裡寬容等 60s），寫出後才取消——如此「取消→立刻殺樹」的測量
+            // 與 stub 啟動速度快慢完全解耦（M167 的固定 5s 窗在 CI 下仍偶發不足）。
+            using var cts = new CancellationTokenSource();
+            Exception? outcome = null;
+            var probeTask = Task.Run(
+                () =>
+                {
+                    try
+                    {
+                        StreamProbe.Probe("rtsp://10.0.0.1/live.sdp", stub, TimeSpan.FromSeconds(60), cts.Token);
+                    }
+                    catch (Exception ex)
+                    {
+                        outcome = ex;
+                    }
+                });
 
-            var ex = Assert.Throws<OperationCanceledException>(
-                () => StreamProbe.Probe("rtsp://10.0.0.1/live.sdp", stub, TimeSpan.FromSeconds(30), cts.Token));
+            var markerWait = Stopwatch.StartNew();
+            while (!File.Exists(marker) && markerWait.Elapsed < TimeSpan.FromSeconds(60) && !probeTask.IsCompleted)
+            {
+                Thread.Sleep(100);
+            }
 
-            sw.Stop();
-            Assert.Equal(cts.Token, ex.CancellationToken);
-            Assert.True(sw.Elapsed < TimeSpan.FromSeconds(10), $"取消應近即時生效，實際 {sw.Elapsed.TotalSeconds:F1}s");
+            Assert.True(File.Exists(marker),
+                $"stub 未在 {markerWait.Elapsed.TotalSeconds:F1}s 內寫出 PID（marker 階段）");
+
+            var cancelSw = Stopwatch.StartNew();
+            cts.Cancel();
+            await probeTask;
+            cancelSw.Stop();
+
+            var opEx = Assert.IsType<OperationCanceledException>(outcome);
+            Assert.Equal(cts.Token, opEx.CancellationToken);
+            Assert.True(cancelSw.Elapsed < TimeSpan.FromSeconds(10),
+                $"取消應近即時生效（取消至擲回），實際 {cancelSw.Elapsed.TotalSeconds:F1}s");
 
             // 探測進程樹必須已被終止，不能殘留孤兒進程。
-            Assert.True(File.Exists(marker), "stub 未執行到寫 PID 階段");
             var pid = int.Parse(File.ReadAllText(marker).Trim(), System.Globalization.CultureInfo.InvariantCulture);
             Assert.True(WaitForExit(pid, TimeSpan.FromSeconds(5)), $"探測進程 {pid} 仍存活");
         }
