@@ -1132,7 +1132,7 @@ public partial class SettingsWindow : Window
 
     private void OnRefreshChannelsClicked(object sender, RoutedEventArgs e) => ReloadChannels();
 
-    private void ReloadDevices()
+    private void ReloadDevices(DeviceRow? reselect = null)
     {
         var rows = _devices.List()
             .Select(d =>
@@ -1154,6 +1154,15 @@ public partial class SettingsWindow : Window
         DeviceCredClearButton.IsEnabled = false;
         DeviceCredClearButton.Content = "移除憑證";
         DeviceCredHintText.Text = "選取設備後即可修改其 RTSP 帳號密碼。";
+
+        if (reselect != null)
+        {
+            var target = rows.FirstOrDefault(r => r.Id == reselect.Id);
+            if (target != null)
+            {
+                DeviceCredList.SelectedItem = target;
+            }
+        }
     }
 
     private void OnDeviceCredSelected(object sender, SelectionChangedEventArgs e)
@@ -1205,7 +1214,7 @@ public partial class SettingsWindow : Window
         {
             _devices.SetRtspCredentials(id, username, password, "manual");
             DeviceCredPasswordBox.Password = string.Empty;
-            ReloadDevices();
+            ReloadDevices(row);
             DeviceCredHintText.Text = $"已更新「{row.Name}」的 RTSP 憑證（新連線生效）。";
         }
         catch (Exception ex)
@@ -1234,7 +1243,7 @@ public partial class SettingsWindow : Window
             _devices.SetRtspCredentials(id, string.Empty, string.Empty, "manual");
             _deviceCredArm = false;
             DeviceCredClearButton.Content = "移除憑證";
-            ReloadDevices();
+            ReloadDevices(row);
             DeviceCredHintText.Text = $"已清除「{row.Name}」的 RTSP 憑證（新連線將不再帶帳密）。";
         }
         catch (Exception ex)
