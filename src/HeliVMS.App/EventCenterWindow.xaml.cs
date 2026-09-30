@@ -21,6 +21,7 @@ public partial class EventCenterWindow : Window
     private Size _snapSource;
     private IReadOnlyList<Detection> _snapDetections = [];
     private long? _preselect;
+    private readonly Dictionary<(string Kind, long Id), Window> _child = new();
     private const int PageSize = 50;
     private int _page = 1;
     private long? _selectedId;
@@ -41,6 +42,22 @@ public partial class EventCenterWindow : Window
         RefreshChannels();
         _page = 1;
         DoRefresh();
+    }
+
+    /// <summary>子視窗單例重用（依 eventId／channelId 分鍵）：同鍵已開時僅置前，
+    /// 避免「回放此事件／地圖定位」連點堆疊多份視窗；關閉即釋放。</summary>
+    private void OpenChild((string Kind, long Id) key, Window window)
+    {
+        if (_child.TryGetValue(key, out var existing) && existing is { IsVisible: true })
+        {
+            existing.Activate();
+            return;
+        }
+
+        _child[key] = window;
+        window.Owner = this;
+        window.Closed += (_, _) => _child.Remove(key);
+        window.Show();
     }
 
     private sealed class EventRow
@@ -561,8 +578,7 @@ private async void OnExportCsvClicked(object sender, RoutedEventArgs e)
             return;
         }
 
-        var playback = new PlaybackWindow(_store, row.ChannelId, row.StartUtc) { Owner = this };
-        playback.Show();
+        OpenChild(("playback", row.Id), new PlaybackWindow(_store, row.ChannelId, row.StartUtc));
     }
 
     private void OnMapLocateClicked(object sender, RoutedEventArgs e)
@@ -572,26 +588,15 @@ private async void OnExportCsvClicked(object sender, RoutedEventArgs e)
             return;
         }
 
-        var map = new MapWindow(_store, (int)row.ChannelId, "camera") { Owner = this };
-        map.Show();
+        OpenChild(("map", row.ChannelId), new MapWindow(_store, (int)row.ChannelId, "camera"));
     }
 
     /// <summary>目前檢視中被選取的事件列。</summary>
     private EventRow? SelectedRow =>
         (CardList.Visibility == Visibility.Visible ? CardList.SelectedItem : EventList.SelectedItem) as EventRow;
 
-    private void OnEventDoubleClick(object sender, MouseButtonEventArgs e)
-    {
-        var row = EventList.SelectedItem as EventRow;
-        if (row is null)
-        {
-            return;
-        }
-
-        var date = row.StartLabel.Split(' ')[0];
-        Clipboard.SetText(date);
-        SnapshotHint.Text = $"已複製開始日期（本地）「{date}」－可切到回放視窗查詢。";
-    }
+    /// <summary>雙擊（清單／卡片）＝直接回放該事件（單例重用，不堆疊視窗）。</summary>
+    private void OnEventDoubleClick(object sender, MouseButtonEventArgs e) => OnPlaybackClicked(this, new RoutedEventArgs());
 
     private void OnAckClicked(object sender, RoutedEventArgs e) => SetAck(true);
 

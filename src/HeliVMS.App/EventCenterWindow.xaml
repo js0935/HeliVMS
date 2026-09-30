@@ -147,7 +147,7 @@
                     <!-- 卡片檢視（新增） -->
                     <ListBox x:Name="CardList" Grid.Row="1" Visibility="Collapsed"
                              Background="Transparent" BorderThickness="0" Foreground="White"
-                             SelectionChanged="OnCardSelected">
+                             SelectionChanged="OnCardSelected" MouseDoubleClick="OnEventDoubleClick">
                         <ListBox.ItemTemplate>
                             <DataTemplate>
                                 <Border Background="#1A2C49" BorderBrush="#2A4A73" BorderThickness="1" 
