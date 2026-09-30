@@ -773,7 +773,9 @@ public partial class MainWindow : Window
             menu.Items.Add(new Separator());
             AddMenuItem(menu, "切換錄影", OnCtxRecord, i);
             AddMenuItem(menu, "PTZ 控制", OnCtxPtz, i);
-            AddMenuItem(menu, "開啟事件中心", OnCtxOpenEvents, i);
+            AddMenuItem(menu, "回放此頻道", OnCtxPlaybackChannel, i);
+            AddMenuItem(menu, "匯出此頻道", OnCtxExportChannel, i);
+            AddMenuItem(menu, "事件中心（此頻道）", OnCtxEventsChannel, i);
             border.ContextMenu = menu;
 
             _cellImages[i] = img;
@@ -1290,14 +1292,16 @@ public partial class MainWindow : Window
         }
     }
 
-    /// <summary>單一子視窗重用：同型（或同鍵）視窗已開啟時僅置前，避免重複開啟/
-    /// 連按快捷鍵堆疊多份視窗；關閉時自動釋放參考，下次開啟即重新建立。</summary>
-    private void OpenChild(Window window, string? key = null)
+    /// <summary>單一子視窗重用：同型視窗已開啟時僅置前並可重定向（focus），避免重複開啟/
+    /// 連按快捷鍵堆疊多份視窗；關閉時自動釋放參考，下次開啟即重新建立。
+    /// 特殊鍵（如 PTZ）可依 key 分隔多份實例。</summary>
+    private void OpenChild(Window window, Action<Window>? focus = null, string? key = null)
     {
         var k = key ?? window.GetType().Name;
         if (_children.TryGetValue(k, out var existing) && existing is { IsVisible: true })
         {
             existing.Activate();
+            focus?.Invoke(existing);
             return;
         }
 
@@ -1654,6 +1658,51 @@ public partial class MainWindow : Window
 
     private void OnCtxOpenEvents(object sender, RoutedEventArgs e) => OnEventClicked(sender, e);
 
+    private int CtxChannelId(object sender)
+    {
+        var cell = Convert.ToInt32(((MenuItem)sender).Tag);
+        return cell >= 0 && cell < MaxCells && _cellChannel[cell] is int channelId ? channelId : -1;
+    }
+
+    private void OnCtxPlaybackChannel(object sender, RoutedEventArgs e)
+    {
+        var channelId = CtxChannelId(sender);
+        if (channelId < 0)
+        {
+            return;
+        }
+
+        OpenChild(new PlaybackWindow(_store!, channelId), w => ((PlaybackWindow)w).FocusChannel(channelId));
+    }
+
+    private void OnCtxExportChannel(object sender, RoutedEventArgs e)
+    {
+        if (!SessionContext.IsAdmin)
+        {
+            HintText.Text = "此功能僅限管理員。";
+            return;
+        }
+
+        var channelId = CtxChannelId(sender);
+        if (channelId < 0)
+        {
+            return;
+        }
+
+        OpenChild(new ExportWindow(_store!, _dataRoot, channelId), w => ((ExportWindow)w).FocusChannel(channelId));
+    }
+
+    private void OnCtxEventsChannel(object sender, RoutedEventArgs e)
+    {
+        var channelId = CtxChannelId(sender);
+        if (channelId < 0)
+        {
+            return;
+        }
+
+        OpenChild(new EventCenterWindow(_store!, channelId), w => ((EventCenterWindow)w).FocusChannel(channelId));
+    }
+
     private void OnCtxPtz(object sender, RoutedEventArgs e)
     {
         var cell = Convert.ToInt32(((MenuItem)sender).Tag);
@@ -1819,7 +1868,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        OpenChild(new PtzWindow(store, channel, device), $"ptz-{channelId}");
+        OpenChild(new PtzWindow(store, channel, device), null, $"ptz-{channelId}");
     }
 
     private static bool IsTargetClass(string cls) =>

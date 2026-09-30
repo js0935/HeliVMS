@@ -17,7 +17,7 @@ public partial class ExportWindow : Window
     private IReadOnlyList<ChannelInfo> _channels = [];
     private CancellationTokenSource? _cts;
 
-    public ExportWindow(SqliteStore store, string dataRoot)
+    public ExportWindow(SqliteStore store, string dataRoot, long? focusChannelId = null)
     {
         _store = store;
         _dataRoot = dataRoot;
@@ -26,15 +26,30 @@ public partial class ExportWindow : Window
         _channels = new ChannelRepository(store).List();
         ChannelCombo.ItemsSource = _channels;
         ChannelCombo.DisplayMemberPath = nameof(ChannelInfo.Name);
-        if (_channels.Count > 0)
-        {
-            ChannelCombo.SelectedIndex = 0;
-        }
+        FocusChannel(focusChannelId);
 
         StartDate.SelectedDate = DateTime.Now.Date;
         EndDate.SelectedDate = DateTime.Now.Date;
 
         OutputFolderBox.Text = Path.Combine(_dataRoot, "exports");
+    }
+
+    /// <summary>重定向本窗到指定頻道（null 或找不到時回到首筆；供主視窗右鍵「此頻道」重用同窗）。</summary>
+    public void FocusChannel(long? channelId)
+    {
+        for (var i = 0; i < _channels.Count; i++)
+        {
+            if (channelId is { } id && _channels[i].Id == id)
+            {
+                ChannelCombo.SelectedIndex = i;
+                return;
+            }
+        }
+
+        if (_channels.Count > 0)
+        {
+            ChannelCombo.SelectedIndex = 0;
+        }
     }
 
     private void OnBrowseClicked(object sender, RoutedEventArgs e)

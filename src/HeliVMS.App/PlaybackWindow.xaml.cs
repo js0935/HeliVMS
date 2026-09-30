@@ -18,7 +18,7 @@ public partial class PlaybackWindow : Window
     private readonly SqliteStore _store;
     private readonly ChannelRepository _channels;
     private readonly SegmentRepository _segments;
-    private readonly long? _focusChannelId;
+    private long? _focusChannelId;
     private readonly DateTime? _focusUtc;
 
     private PlaybackSession? _session;
@@ -70,6 +70,14 @@ public partial class PlaybackWindow : Window
                 ChannelCombo.SelectedIndex = 0;
             }
         }
+    }
+
+    /// <summary>重定向本窗到指定頻道（供主視窗右鍵「此頻道」重用同窗）。</summary>
+    public void FocusChannel(long channelId)
+    {
+        _focusChannelId = channelId;
+        LoadChannels();
+        LoadSegments();
     }
 
     private void OnLoaded(object sender, RoutedEventArgs e)

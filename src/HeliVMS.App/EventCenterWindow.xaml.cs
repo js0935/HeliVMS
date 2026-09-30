@@ -20,16 +20,27 @@ public partial class EventCenterWindow : Window
     private readonly AlarmEventRepository _events;
     private Size _snapSource;
     private IReadOnlyList<Detection> _snapDetections = [];
+    private long? _preselect;
     private const int PageSize = 50;
     private int _page = 1;
     private long? _selectedId;
 
-    public EventCenterWindow(SqliteStore store)
+    public EventCenterWindow(SqliteStore store, long? preselectChannelId = null)
     {
         InitializeComponent();
         _store = store;
         _channels = new ChannelRepository(store);
         _events = new AlarmEventRepository(store);
+        _preselect = preselectChannelId;
+    }
+
+    /// <summary>重定向本窗到指定頻道（供主視窗右鍵「此頻道」快速查詢重用同窗）。</summary>
+    public void FocusChannel(long channelId)
+    {
+        _preselect = channelId;
+        RefreshChannels();
+        _page = 1;
+        DoRefresh();
     }
 
     private sealed class EventRow
@@ -135,9 +146,11 @@ public partial class EventCenterWindow : Window
 
     private void RefreshChannels()
     {
-        var current = ChannelCombo.SelectedItem is System.Windows.Controls.ComboBoxItem c && c.Tag is int cid
+        var preset = _preselect;
+        _preselect = null;
+        var current = preset ?? (ChannelCombo.SelectedItem is System.Windows.Controls.ComboBoxItem c && c.Tag is long cid
             ? cid
-            : (int?)null;
+            : (long?)null);
         ChannelCombo.Items.Clear();
         var all = new System.Windows.Controls.ComboBoxItem { Content = Localizer.T("EventCenter.AllChannels"), Tag = null };
         ChannelCombo.Items.Add(all);
@@ -146,11 +159,11 @@ public partial class EventCenterWindow : Window
             ChannelCombo.Items.Add(new System.Windows.Controls.ComboBoxItem { Content = ch.Name, Tag = ch.Id });
         }
 
-        if (current is int id)
+        if (current is long id)
         {
             foreach (var item in ChannelCombo.Items.OfType<System.Windows.Controls.ComboBoxItem>())
             {
-                if (item.Tag is int tid && tid == id)
+                if (item.Tag is long tid && tid == id)
                 {
                     ChannelCombo.SelectedItem = item;
                     break;
