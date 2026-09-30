@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Windows;
 using System.Windows.Threading;
+using HeliVMS.App.Services;
 using HeliVMS.Recording;
 using HeliVMS.Shared.Models;
 using HeliVMS.Storage;
@@ -29,6 +30,9 @@ public partial class ExportCenterWindow : Window
         InitializeComponent();
 
         _jobs = new ExportJobRepository(store);
+
+        // remote 旗標限定（M209）：未授權時連按鈕都不留下。
+        new LicenseUiGate(store).Apply(ShareFromExportButton, LicenseFeatures.Remote);
 
         var channels = new ChannelRepository(store).List();
         ChannelList.ItemsSource = channels;
@@ -253,6 +257,14 @@ public partial class ExportCenterWindow : Window
     /// <summary>以選取工作之輸出檔建立分享連結（M51，§14.7 #4）；分享窗單例重用。</summary>
     private void OnShareClicked(object sender, RoutedEventArgs e)
     {
+        // remote 旗標限定（M209）：分享是 remote 唯一的主視窗外入口，藏了按鈕還得擋 handler。
+        var gate = new LicenseUiGate(_store);
+        if (!gate.Allows(LicenseFeatures.Remote))
+        {
+            ExportCenterStatus.Text = gate.DenialMessage(LicenseFeatures.Remote);
+            return;
+        }
+
         string? path = null;
         if (JobList.SelectedItem is JobItem { Job.OutputPath: { Length: > 0 } output })
         {

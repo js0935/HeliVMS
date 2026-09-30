@@ -32,6 +32,7 @@ public partial class MainWindow : Window
     private SqliteStore? _store;
     private ChannelRepository? _channels;
     private SegmentRepository? _segRepo;
+    private LicenseUiGate? _licenseGate;
     private ChannelManager? _manager;
     private CancellationTokenSource? _bgCts;
     private WriteableBitmap?[] _bitmap = new WriteableBitmap?[MaxCells];
@@ -282,6 +283,8 @@ public partial class MainWindow : Window
 
         _store = new SqliteStore(Path.Combine(_dataRoot, "index.db"));
         _store.Initialize();
+        _licenseGate = new LicenseUiGate(_store);
+        ApplyLicenseVisibility();
         Localizer.Init(new SettingsRepository(_store));
         Title = Localizer.T("Brand.Title");
         _channels = new ChannelRepository(_store);
@@ -437,7 +440,9 @@ public partial class MainWindow : Window
         _ioHost.EventInserted += (_, record) => _notify?.Enqueue(record);
 
         _shareHost = new ShareHost(_store);
-        _shareHost.ApplySettings(new SettingsRepository(_store));
+        _shareHost.ApplySettings(
+            new SettingsRepository(_store),
+            licenseAllowed: _licenseGate?.Allows(LicenseFeatures.Remote) == true);
 
         _analytics = new AnalyticsEventEngine(_store);
         _alertRules = new AlertRuleRepository(_store);
@@ -1041,6 +1046,50 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
+    /// 依授權隱藏未授權功能的入口（M209／§19.4）。
+    ///
+    /// 隱藏只是體面，事件處理器與 CLI 另有 <see cref="RequireFeature"/> 硬擋；
+    /// 此處同時把 <c>AiToggle</c> 的 <c>_aiVisible</c> 關掉——只藏控制項而不清狀態，
+    /// 疊加仍會照繪，會出現「沒有開關卻一直在畫 AI 方框」的幽靈行為。
+    /// </summary>
+    private void ApplyLicenseVisibility()
+    {
+        if (_licenseGate is null)
+        {
+            return;
+        }
+
+        _licenseGate.Apply(ScheduleButton, LicenseFeatures.Schedule, "設定錄影排程");
+        _licenseGate.Apply(DetectionButton, LicenseFeatures.AiL1, "開啟 AI 偵測設定");
+        _licenseGate.Apply(MapButton, LicenseFeatures.Gis, "開啟電子地圖（攝影機定位）");
+        _licenseGate.Apply(IoButton, LicenseFeatures.Gis, "設定感測器／輸出點並即時操作");
+
+        if (!_licenseGate.Allows(LicenseFeatures.AiL1))
+        {
+            AiToggle.IsChecked = false;
+            _aiVisible = false;
+            _licenseGate.Apply(AiToggle, LicenseFeatures.AiL1, "切換 AI 疊加顯示");
+        }
+    }
+
+    /// <summary>
+    /// 未授權功能的第二道擋：事件處理器與 CLI 都必須呼叫（鍵盤與命令列繞得過隱藏）。
+    /// 回傳 false 時已寫入 <see cref="HintText"/>，呼叫端直接 return。
+    /// </summary>
+    private bool RequireFeature(string feature)
+    {
+        if (_licenseGate?.Allows(feature) != false)
+        {
+            return true;
+        }
+
+        var reason = _licenseGate.DenialMessage(feature) ?? "目前授權未包含此功能。";
+        HintText.Text = reason;
+        PushAlert(reason);
+        return false;
+    }
+
+    /// <summary>
     /// 錄影被授權閘門拒絕時的使用者回饋（§19.4「於事件中心提示『已達授權上限』」）。
     /// 狀態列與即時警報列給即時訊息；通道上限另寫一筆事件到事件中心，使用者事後仍查得到。
     /// </summary>
@@ -1104,7 +1153,7 @@ public partial class MainWindow : Window
 
     private void OnScheduleClicked(object sender, RoutedEventArgs e)
     {
-        if (!RequireAdmin())
+        if (!RequireAdmin() || !RequireFeature(LicenseFeatures.Schedule))
         {
             return;
         }
@@ -1140,6 +1189,11 @@ public partial class MainWindow : Window
 
     private void OnDetectionClicked(object sender, RoutedEventArgs e)
     {
+        if (!RequireFeature(LicenseFeatures.AiL1))
+        {
+            return;
+        }
+
         OpenChild(new DetectionWindow(_store!));
     }
 
@@ -1197,7 +1251,7 @@ public partial class MainWindow : Window
     /// <summary>開啟分析情境視窗（M52，§14.7 #6）。viewer 與匯出同權限限制。</summary>
     private void OpenAnalyticsWindow()
     {
-        if (!SessionContext.IsAdmin)
+        if (!SessionContext.IsAdmin || !RequireFeature(LicenseFeatures.AiL1))
         {
             return;
         }
@@ -1333,7 +1387,13 @@ public partial class MainWindow : Window
 
         _children[k] = window;
         window.Owner = this;
-        window.Closed += (_, _) => _children.Remove(k);
+        window.Closed += (_, _) =>
+        {
+            _children.Remove(k);
+
+            // 子視窗可能剛匯入／升級授權（設定中心），關閉後重跑一次隱藏判斷。
+            ApplyLicenseVisibility();
+        };
         window.Show();
     }
 
@@ -1442,7 +1502,17 @@ public partial class MainWindow : Window
         }
     }
 
-    private void OnAiToggleChanged(object sender, RoutedEventArgs e) => _aiVisible = AiToggle.IsChecked == true;
+    private void OnAiToggleChanged(object sender, RoutedEventArgs e)
+    {
+        // ai 旗標限定（M209）。手動切回關閉在未授權時是合法的降級行為，不需擋。
+        if (AiToggle.IsChecked == true && !RequireFeature(LicenseFeatures.Ai))
+        {
+            AiToggle.IsChecked = false;
+            return;
+        }
+
+        _aiVisible = AiToggle.IsChecked == true;
+    }
 
     /// <summary>於該格畫面上繪製最後一次 AI 偵測框（單格附標籤；多格只畫框，規格 §2）。</summary>
     private void DrawLiveOverlay(int cell)
@@ -1754,6 +1824,17 @@ public partial class MainWindow : Window
 
     private void OnMapClicked(object sender, RoutedEventArgs e) => OpenMapWindow();
 
+    /// <summary>開啟電子地圖視窗。gis 旗標限定（M209）。</summary>
+    private void OpenMapWindow()
+    {
+        if (!RequireFeature(LicenseFeatures.Gis))
+        {
+            return;
+        }
+
+        OpenChild(new MapWindow(_store!));
+    }
+
     /// <summary>開啟統圖報表視窗（M60，§14.7 #9 統計報表）。admin 限定。</summary>
     private void OpenReportsWindow()
     {
@@ -1820,8 +1901,14 @@ public partial class MainWindow : Window
     private void OnPatrolClicked(object sender, RoutedEventArgs e) => OpenPatrolWindow();
 
     /// <summary>開啟感測器 IO 測試視窗（M75，§14.1 #16）。</summary>
+    /// <summary>開啟感測 IO 視窗。gis 旗標限定（M209）。</summary>
     private void OpenIoWindow()
     {
+        if (!RequireFeature(LicenseFeatures.Gis))
+        {
+            return;
+        }
+
         OpenChild(new IoWindow(_store!));
     }
 
@@ -1862,8 +1949,6 @@ public partial class MainWindow : Window
     private void OnFailoverClicked(object sender, RoutedEventArgs e) => OpenFailoverWindow();
 
     /// <summary>開啟電子地圖（M41；M49 補比例尺與 FOV 深度）。</summary>
-    private void OpenMapWindow() => OpenChild(new MapWindow(_store!));
-
     private void OnPtzClicked(object sender, RoutedEventArgs e)
     {
         var idx = ChannelCombo.SelectedIndex;

@@ -246,6 +246,13 @@ public partial class SettingsWindow : Window
     /// <summary>儲存並即時套用分享服務設定（M51，§14.7 #4）。</summary>
     private void OnApplyShareClicked(object sender, RoutedEventArgs e)
     {
+        var gate = new LicenseUiGate(_store);
+        if (!gate.Allows(LicenseFeatures.Remote))
+        {
+            ShareServiceStatusText.Text = gate.DenialMessage(LicenseFeatures.Remote);
+            return;
+        }
+
         if (!int.TryParse(SharePortBox.Text, out var port) || port is <= 0 or > 65535)
         {
             ShareServiceStatusText.Text = "連接埠需為 1～65535。";
@@ -1284,22 +1291,39 @@ public partial class SettingsWindow : Window
 
     private void ReloadLicense()
     {
-        var state = new LicenseManager().ValidateDefault();
-        if (state.IsValid && state.Payload is not null)
+        // 顯示與判斷共用同一份 DB 授權列（LicenseService），不再另外讀授權檔。
+        // 兩邊各讀一份會出現「設定頁寫著已授權、錄影閘門卻認為未匯入」的矛盾。
+        var gate = new LicenseUiGate(_store);
+        var license = gate.Current;
+        if (license.Decision == LicenseDecision.Valid && license.Record is not null)
         {
-            var expire = state.Payload.ExpiresUtc.HasValue
-                ? $"，到期 {state.Payload.ExpiresUtc.Value:u}"
-                : string.Empty;
-            var tier = LicenseTiers.Match(state.Payload.Features, state.Payload.Cameras);
-            var tierText = tier is null ? string.Empty : $"{tier.Name}／";
-            LicenseStatusText.Text = $"已授權（{tierText}{state.Payload.Cameras} 路{expire}）";
+            var record = license.Record;
+            var expire = record.ExpiresUtc.HasValue
+                ? $"，到期 {record.ExpiresUtc.Value:u}"
+                : "，永久授權";
+            var tierText = string.IsNullOrEmpty(record.Tier) ? string.Empty : $"{record.Tier}／";
+            LicenseStatusText.Text = $"已授權（{tierText}{record.MaxCameras} 路{expire}）";
         }
         else
         {
-            LicenseStatusText.Text = $"未授權：{state.Message ?? state.Status.ToString()}";
+            LicenseStatusText.Text = $"未授權：{license.Message ?? license.Decision.ToString()}";
         }
 
         MachineText.Text = MachineIdProvider.GetDeviceCode();
+        ApplyLicenseVisibility(gate);
+    }
+
+    /// <summary>依授權隱藏設定中心裡的受限功能（M209）。</summary>
+    private void ApplyLicenseVisibility(LicenseUiGate gate)
+    {
+        gate.Apply(ShareEnabledBox, LicenseFeatures.Remote);
+        gate.Apply(SharePortBox, LicenseFeatures.Remote);
+        gate.Apply(ShareBaseUrlBox, LicenseFeatures.Remote);
+        gate.Apply(ShareApplyButton, LicenseFeatures.Remote);
+        gate.Apply(ShareServiceStatusText, LicenseFeatures.Remote);
+        gate.Apply(LaunchScheduleButton, LicenseFeatures.Schedule, "開啟錄影排程視窗");
+        gate.Apply(LaunchDetectionButton, LicenseFeatures.AiL1, "開啟 AI 偵測視窗");
+        gate.Apply(TamperEnabledBox, LicenseFeatures.Ai);
     }
 
     private void OnApplyLicenseClicked(object sender, RoutedEventArgs e)
@@ -1323,7 +1347,14 @@ public partial class SettingsWindow : Window
             }
 
             File.WriteAllText(file, token);
-            LicenseApplyText.Text = $"已套用：授權 {state.Payload!.Cameras} 路。";
+
+            // 同步寫入 license 表並留稽核（§19.7／§19.8）。少了這一步，
+            // 錄影閘門與功能隱藏讀不到授權，使用者會看到「已匯入卻不能錄影」。
+            var actor = SessionContext.CurrentUser?.Username ?? "system";
+            var applied = new LicenseService(_store).Apply(token, actor, DateTime.UtcNow);
+            LicenseApplyText.Text = applied.Decision == LicenseDecision.Valid
+                ? $"已套用：授權 {applied.MaxCameras} 路。"
+                : $"已寫入授權檔但未啟用：{applied.Message ?? applied.Decision.ToString()}";
         }
         catch (Exception ex)
         {
@@ -1345,10 +1376,27 @@ public partial class SettingsWindow : Window
         => new EventCenterWindow(_store) { Owner = this }.Show();
 
     private void OnLaunchScheduleClicked(object sender, RoutedEventArgs e)
-        => new SchedulingWindow(_store) { Owner = this }.Show();
+    {
+        if (!new LicenseUiGate(_store).Allows(LicenseFeatures.Schedule))
+        {
+            LicenseApplyText.Text = new LicenseUiGate(_store).DenialMessage(LicenseFeatures.Schedule);
+            return;
+        }
+
+        new SchedulingWindow(_store) { Owner = this }.Show();
+    }
 
     private void OnLaunchDetectionClicked(object sender, RoutedEventArgs e)
-        => new DetectionWindow(_store) { Owner = this }.Show();
+    {
+        var gate = new LicenseUiGate(_store);
+        if (!gate.Allows(LicenseFeatures.AiL1))
+        {
+            LicenseApplyText.Text = gate.DenialMessage(LicenseFeatures.AiL1);
+            return;
+        }
+
+        new DetectionWindow(_store) { Owner = this }.Show();
+    }
 
     // ── 電子地圖（M41，§16.1）──────────────────────────────────────────
 

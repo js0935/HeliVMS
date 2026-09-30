@@ -51,13 +51,33 @@ public sealed record LicenseApplyResult(
 
     /// <summary>
     /// 是否允許使用某功能旗標。授權有效且旗標在授權清單內才為 true；
-    /// 僅在已驗證的授權列上判斷，未匯入授權一律 false（§19.9）。
+    /// 未匯入／到期／回流／作廢一律 false（§19.9）。
     /// </summary>
     public bool AllowsFeature(string feature)
         => Decision == LicenseDecision.Valid
             && !string.IsNullOrWhiteSpace(feature)
             && Record is not null
             && Record.Features.Contains(feature, StringComparer.Ordinal);
+
+    /// <summary>
+    /// 某功能不可用時的使用者可讀說明（桌面端提示、CLI 訊息、WebApi 錯誤共用）。
+    /// 可用時回傳 null。
+    /// </summary>
+    public string? FeatureDenialMessage(string feature)
+    {
+        if (AllowsFeature(feature))
+        {
+            return null;
+        }
+
+        var name = LicenseFeatures.DisplayName(feature);
+        return Decision switch
+        {
+            LicenseDecision.NotPresent => $"{LicenseService.NotPresentMessage}（缺少功能：{name}）",
+            LicenseDecision.Revoked => $"{LicenseService.RevokedMessage}（缺少功能：{name}）",
+            _ => $"目前授權未包含「{name}」，此功能已停用。{Message}",
+        };
+    }
 }
 
 /// <summary>單一頻道的錄影閘門結論（§19.4）。</summary>

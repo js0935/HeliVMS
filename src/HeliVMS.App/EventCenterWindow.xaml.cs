@@ -6,6 +6,7 @@ using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Shapes;
+using HeliVMS.App.Services;
 using HeliVMS.Alarms;
 using HeliVMS.Shared.Models;
 using HeliVMS.Storage;
@@ -33,6 +34,9 @@ public partial class EventCenterWindow : Window
         _channels = new ChannelRepository(store);
         _events = new AlarmEventRepository(store);
         _preselect = preselectChannelId;
+
+        // gis 旗標限定（M209）：「在地圖定位」是地圖功能，事件中心本身不藏。
+        new LicenseUiGate(store).Apply(MapLocateButton, LicenseFeatures.Gis, "在地圖上定位該事件的攝影機");
     }
 
     /// <summary>重定向本窗到指定頻道（供主視窗右鍵「此頻道」快速查詢重用同窗）。</summary>
@@ -590,6 +594,12 @@ private async void OnExportCsvClicked(object sender, RoutedEventArgs e)
 
     private void OnMapLocateClicked(object sender, RoutedEventArgs e)
     {
+        var gate = new LicenseUiGate(_store);
+        if (!gate.Allows(LicenseFeatures.Gis))
+        {
+            return;
+        }
+
         if (SelectedRow is not EventRow row)
         {
             return;

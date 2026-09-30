@@ -15,6 +15,7 @@ public partial class LoginWindow : Window
     private const int LdapPanelHeight = 140;
     private readonly AuthService _auth;
     private readonly EnterpriseAuthService? _enterprise;
+    private readonly SqliteStore? _enterpriseStore;
 
     public LoginWindow(AuthService auth)
         : this(auth, null)
@@ -24,6 +25,7 @@ public partial class LoginWindow : Window
     public LoginWindow(AuthService auth, SqliteStore? store)
     {
         _auth = auth;
+        _enterpriseStore = store;
         InitializeComponent();
 
         if (store is not null)
@@ -39,6 +41,13 @@ public partial class LoginWindow : Window
     private void LoadEnterpriseProviders()
     {
         if (_enterprise is null)
+        {
+            return;
+        }
+
+        // ad 旗標限定（M209）：未授權時完全不顯示企業 SSO 面板。
+        // 高度計算一併跳過，否則會留下一塊空白。
+        if (!new LicenseService(_enterpriseStore!).Evaluate(DateTime.UtcNow).AllowsFeature(LicenseFeatures.AdSso))
         {
             return;
         }

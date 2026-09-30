@@ -57,8 +57,15 @@ public sealed class ShareHost : IDisposable
 
     public string LinkFor(string token) => $"{ResolvedBaseUrl}/share/{token}";
 
-    /// <summary>依設定啟用／停用分享服務，回傳狀態訊息。</summary>
-    public string ApplySettings(SettingsRepository settings)
+    /// <summary>
+    /// 依設定啟用／停用分享服務，回傳狀態訊息。
+    /// </summary>
+    /// <param name="settings">設定來源。</param>
+    /// <param name="licenseAllowed">
+    /// 授權是否含 <c>remote</c> 旗標（M209）。分享服務是 loopback HTTP 主機，未授權時
+    /// 即使設定為啟用也不得啟動——只藏 UI 擋不住一個已經在聽的 socket。
+    /// </param>
+    public string ApplySettings(SettingsRepository settings, bool licenseAllowed = true)
     {
         _settings = settings;
         var enabled = settings.Get(EnabledKey) == "1";
@@ -66,6 +73,12 @@ public sealed class ShareHost : IDisposable
         {
             Stop();
             return "分享服務：已停用";
+        }
+
+        if (!licenseAllowed)
+        {
+            Stop();
+            return "分享服務：目前授權未包含「遠程存取」，已強制停用";
         }
 
         var port = ReadPort();
