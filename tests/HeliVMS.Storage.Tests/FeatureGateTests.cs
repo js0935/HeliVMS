@@ -95,7 +95,7 @@ public class FeatureGateTests : IDisposable
 
         Assert.Equal(LicenseDecision.NotPresent, license.Decision);
 
-        // 沒有授權時連 core 都不開：§19.9「未匯入一律 false」是 fail-closed，
+        // 沒有授權時連 core 都不開：§19.4「未匯入一律 false」是 fail-closed，
         // 不是「至少讓你看得到畫面」。整個 UI 這時只留匯入授權的路。
         foreach (var feature in LicenseFeatures.All)
         {

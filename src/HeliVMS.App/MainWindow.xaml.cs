@@ -33,6 +33,7 @@ public partial class MainWindow : Window
     private ChannelRepository? _channels;
     private SegmentRepository? _segRepo;
     private LicenseUiGate? _licenseGate;
+    private LicenseService? _licenseService;
     private ChannelManager? _manager;
     private CancellationTokenSource? _bgCts;
     private WriteableBitmap?[] _bitmap = new WriteableBitmap?[MaxCells];
@@ -283,8 +284,17 @@ public partial class MainWindow : Window
 
         _store = new SqliteStore(Path.Combine(_dataRoot, "index.db"));
         _store.Initialize();
-        _licenseGate = new LicenseUiGate(_store);
+
+        // 啟動時重新驗證授權（M213，§19.4）：license 列的 features／max_cameras 是閘門唯一
+        // 的判斷依據，若只在匯入時寫一次，使用者手改資料庫就能無痛放大授權。這裡以授權檔與
+        // 資料庫列兩者中「可驗證且較新」的一張重新套用，兩者都驗不過就把列標記失效。
+        _licenseService = new LicenseService(_store);
+        _licenseService.RefreshDefault("startup", DateTime.UtcNow);
+
+        _licenseGate = new LicenseUiGate(_licenseService);
         ApplyLicenseVisibility();
+        RefreshLicenseFooter();
+
         Localizer.Init(new SettingsRepository(_store));
         Title = Localizer.T("Brand.Title");
         _channels = new ChannelRepository(_store);
@@ -474,12 +484,6 @@ public partial class MainWindow : Window
 
         ChannelCombo.SelectionChanged += OnChannelSelectionChanged;
         RefreshChannelCombo();
-
-        var state = new LicenseManager().ValidateDefault();
-        _footerBase = state.IsValid
-            ? $"禾秝軟體開發團隊 · 已授權（{state.Payload!.Cameras} 路）"
-            : $"未授權：{state.Message ?? state.Status.ToString()}";
-        UpdateFooter();
 
         // 未確認事件計數：即時一筆，之後每 15 秒（規格 §1.4）
         RefreshUnackBadge();
@@ -947,6 +951,32 @@ public partial class MainWindow : Window
     {
         var live = _manager?.CountStreaming() ?? 0;
         StatusText.Text = _footerBase.Length > 0 ? $"{_footerBase} · 已連線 {live} 路" : string.Empty;
+    }
+
+    /// <summary>
+    /// 以資料庫授權列（單一來源）重算頁尾授權摘要。
+    /// </summary>
+    /// <remarks>
+    /// 頁尾原本直接讀 <c>license.lic</c> 檔，而錄影閘門與功能隱藏讀 <c>license</c> 列；
+    /// 匯入後兩者可能不同步（例如列被標記失效、或檔案被換掉），畫面就會出現
+    /// 「頁尾說已授權、閘門卻拒絕」的矛盾。改走與閘門相同的 <see cref="LicenseService"/>。
+    /// </remarks>
+    private void RefreshLicenseFooter()
+    {
+        if (_licenseService is null)
+        {
+            return;
+        }
+
+        var license = _licenseService.Evaluate(DateTime.UtcNow);
+        _footerBase = license.Decision switch
+        {
+            LicenseDecision.Valid => license.ExpiresUtc is { } expires
+                ? $"禾秝軟體開發團隊 · 已授權（{license.MaxCameras} 路，{expires:yyyy-MM-dd} 到期）"
+                : $"禾秝軟體開發團隊 · 已授權（{license.MaxCameras} 路）",
+            _ => $"未授權：{license.Message ?? license.Decision.ToString()}",
+        };
+        UpdateFooter();
     }
 
     private void OnCellFrame(int cell, VideoFrame frame)
@@ -1423,8 +1453,9 @@ public partial class MainWindow : Window
         {
             _children.Remove(k);
 
-            // 子視窗可能剛匯入／升級授權（設定中心），關閉後重跑一次隱藏判斷。
+            // 子視窗可能剛匯入／升級授權（設定中心），關閉後重跑一次隱藏判斷與頁尾摘要。
             ApplyLicenseVisibility();
+            RefreshLicenseFooter();
         };
         window.Show();
     }

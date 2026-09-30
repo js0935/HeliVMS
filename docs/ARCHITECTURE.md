@@ -1587,6 +1587,11 @@ payload 由 `LicensePayload` 序列化（`JsonNamingPolicy.CamelCase`），欄�
   - **`valid` 要傳「有效或已到期」**：已到期仍然要提醒（續期訊息正是那時候最需要的），文案明說「新增錄影已停止；既有錄影仍可回放」；未匯入／已作廢／時鐘回流／簽章無效則不提醒——那四種是「授權無效」而非「快到期」，由設定中心與各閘門回饋即可，不該混在同一條黃色浮條裡。
   - **呈現**：主視窗頂欄下方浮條 `LicenseBanner`（預設 `Collapsed`），已到期時底色與文字轉紅；`LicenseBannerAction` 直接開設定中心——續期動作就在那頁，不該讓使用者自己猜。設定中心授權頁另有 `LicenseExpiryText`，因為使用者未必從主視窗就看得到。
   - `GET /api/license` 一併回傳 `expiresUtc` 與伺服端算好的 `expiryMessage`，SPA 直接採用，**前端不重寫一份文案**。
+- **啟動重新驗證（M213）**：`LicenseService.RefreshDefault(actor, nowUtc)` 是「開機把快取列重新對簽章驗一次」的唯一入口，桌面端（`MainWindow` 啟動）與遠端服務（WebApi `Program` 啟動）都呼叫它，兩邊共用同一條路徑。`Refresh(fileToken, actor, nowUtc)` 為其可測核心：檔案內容由參數帶入，測試才不必碰使用者實際的 `%LOCALAPPDATA%\HeliVMS\license.lic`。
+  - **為什麼需要**：`CheckRecording`／`AllowsFeature` 是唯讀，只信任 `license` 快取列；若沒有人重新驗簽，直接手改資料庫（把 `max_cameras` 從 4 改成 1024、或塞一段假金鑰）就能永久放大授權——稽核留了記錄，權限卻照樣放行。
+  - **兩來源取較新**：同時看 `license.lic` 檔與 `license` 列（僅當兩者 token 不同），各自用 `LicenseManager.Validate` 驗章與綁定，取 `Payload.IssuedUtc` 最新的一張走 `Apply`。換發後廠商常只更新其中一個來源，取較新者才能讓換發在下次啟動生效。
+  - **fail-closed**：任一來源可驗證即以其為準；**皆不可驗證**時走 `FailRefresh`——把該列 `status='invalid'`（新增狀態）並記 `license.reject`。`Evaluate()` 對 `invalid` 回 `LicenseDecision.Invalid`，錄影與旗標一併拒絕。已 `revoked` 的列不受影響（作廢是廠商意志，不能被一次檔案取代蓋掉），`invalid` 列再次啟動不重複寫稽核，重新匯入有效授權即恢復 `active`。
+  - **頁尾單一來源**：主視窗頁尾改走與閘門相同的 `LicenseService.Evaluate`（`RefreshLicenseFooter()`），不再另開 `new LicenseManager().ValidateDefault()` 直接讀檔——否則會出現「頁尾說已授權、閘門卻拒絕」的矛盾。設定中心關閉後同步刷新頁尾（使用者可能剛匯入或升級授權）。
 
 ### 19.5 既有工具處置
 
@@ -1730,6 +1735,7 @@ CREATE INDEX ix_license_last_verify ON license(last_verified);
 - [x] 未授權之等級功能於 UI 隱藏；超限通道無法啟動錄影（M208：人工＋排程兩個 `SegmentRecorder` 呼叫點都過 `CheckRecording`；M209：`LicenseFeatures` 八旗標＋`LicenseUiGate` 隱藏＋`RequireFeature` 二次把關）
 - [x] 改回系統時鐘 → 7 天內偵測並停用，提示校時（M207：`LicenseService.Apply`＋`license.max_seen_dt` 高水位，測試覆蓋 7 天內不誤判、超出即停用、永久授權跳轉後調回亦攔下）
 - [x] 授權啟用/到期/改版事件完整寫入稽核日誌（M206：`license.activate`／`upgrade`／`update`／`expire`／`status`／`revoke`，資安事件另有 `reject`／`mismatch`）
+- [x] 手改快取列放大授權（通道數／旗標／假金鑰）於下次啟動被重新驗簽擋下並停用（M213：桌面端與 WebApi 啟動皆呼叫 `RefreshDefault`，兩來源取較新、皆不可驗證則標 `invalid`＋`license.reject`，fail-closed）
 
 ---
 

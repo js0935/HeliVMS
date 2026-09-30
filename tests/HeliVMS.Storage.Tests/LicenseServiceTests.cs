@@ -293,6 +293,148 @@ public class LicenseServiceTests : IDisposable
         Assert.Equal(SqliteStore.Iso(_now), raw);
     }
 
+    // ── M213：啟動時重新驗證（RefreshDefault／Refresh）────────────────────────────
+
+    [Fact]
+    public void Refresh_NoRowNoFile_IsNotPresentWithoutAudit()
+    {
+        // 未匯入授權是正常安裝狀態，不該在每次啟動留下稽核雜訊。
+        var result = _service.Refresh(string.Empty, "startup", _now);
+
+        Assert.Equal(LicenseDecision.NotPresent, result.Decision);
+        Assert.Empty(_audit.List(new AuditLogQuery { Category = AuditCategories.License }));
+    }
+
+    [Fact]
+    public void Refresh_ValidRow_RestoresAndAdvancesLastVerified()
+    {
+        _service.Apply(Token(cameras: 32, features: ["core", "ai"]), "admin", _now);
+        var verifiedAt = _now.AddDays(1);
+
+        var result = _service.Refresh(string.Empty, "startup", verifiedAt);
+
+        Assert.Equal(LicenseDecision.Valid, result.Decision);
+        Assert.Equal(verifiedAt, _service.Current()!.LastVerifiedUtc);
+    }
+
+    [Fact]
+    public void Refresh_RowFeaturesTampered_RestoresFromSignedToken()
+    {
+        // license 列的 features／max_cameras 是閘門唯一依據；手改資料庫放大授權後，
+        // 重新啟動必須以「已簽章的金鑰」覆寫回原始內容。
+        _service.Apply(Token(cameras: 4, features: ["core"]), "admin", _now);
+        _store.Execute(
+            "UPDATE license SET max_cameras = 1024, features = 'core,schedule,ai,ai.l1,ai.l2,gis,remote,ad', tier = '客製版';");
+
+        var result = _service.Refresh(string.Empty, "startup", _now.AddDays(1));
+
+        Assert.Equal(LicenseDecision.Valid, result.Decision);
+        Assert.Equal(4, _service.Current()!.MaxCameras);
+        Assert.Equal(["core"], _service.Current()!.Features);
+    }
+
+    [Fact]
+    public void Refresh_RowTokenTamperedAndNoFile_MarksInvalidAndDeniesRecording()
+    {
+        // 兩個來源（資料庫列、授權檔）都驗不過時，不能只記稽核就把列留著——
+        // 否則手改資料庫的人下一次開機照樣能錄影。
+        _service.Apply(Token(cameras: 32, features: ["core", "ai"]), "admin", _now);
+        _store.Execute("UPDATE license SET key_text = 'HELVMS-v2.tampered.tampered';");
+
+        var result = _service.Refresh(string.Empty, "startup", _now.AddDays(1));
+
+        Assert.Equal(LicenseDecision.Invalid, result.Decision);
+        Assert.Equal(LicenseStatuses.Invalid, _service.Current()!.Status);
+        Assert.False(_service.Evaluate(_now.AddDays(1)).AllowsNewRecording);
+        Assert.False(_service.CheckRecording(1, _now.AddDays(1), "manual").Allowed);
+        Assert.Contains("license.reject", Actions());
+    }
+
+    [Fact]
+    public void Refresh_InvalidRow_DoesNotSpamRejectAudit()
+    {
+        _service.Apply(Token(), "admin", _now);
+        _store.Execute("UPDATE license SET key_text = 'garbage';");
+        _service.Refresh(string.Empty, "startup", _now);
+
+        _service.Refresh(string.Empty, "startup", _now.AddMinutes(1));
+        _service.Refresh(string.Empty, "startup", _now.AddMinutes(2));
+
+        Assert.Single(_audit.List(new AuditLogQuery { Action = "license.reject" }));
+    }
+
+    [Fact]
+    public void Refresh_InvalidRow_RecoversAfterValidLicenseReimported()
+    {
+        _service.Apply(Token(), "admin", _now);
+        _store.Execute("UPDATE license SET key_text = 'garbage';");
+        _service.Refresh(string.Empty, "startup", _now);
+        Assert.Equal(LicenseDecision.Invalid, _service.Evaluate(_now).Decision);
+
+        var fresh = Token(cameras: 32, features: ["core", "ai"]);
+        var result = _service.Apply(fresh, "admin", _now.AddDays(1));
+
+        Assert.Equal(LicenseDecision.Valid, result.Decision);
+        Assert.Equal(LicenseStatuses.Active, _service.Current()!.Status);
+    }
+
+    [Fact]
+    public void Refresh_FileInvalidButRowValid_KeepsRow()
+    {
+        _service.Apply(Token(cameras: 32, features: ["core", "ai"]), "admin", _now);
+
+        var result = _service.Refresh("not-a-valid-token", "startup", _now.AddDays(1));
+
+        Assert.Equal(LicenseDecision.Valid, result.Decision);
+        Assert.Equal(32, _service.Current()!.MaxCameras);
+    }
+
+    [Fact]
+    public void Refresh_FileHasNewerIssue_AppliesFile()
+    {
+        // 廠商換發後只更新了 license.lic，資料庫還是舊的；取較新者才讓換發在下一次啟動生效。
+        var older = Token(cameras: 4, features: ["core"], issued: new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc));
+        _service.Apply(older, "admin", _now);
+
+        var newer = Token(
+            cameras: 64,
+            features: ["core", "ai", "schedule", "ai.l1", "ai.l2", "gis", "remote", "ad"],
+            issued: new DateTime(2026, 6, 1, 0, 0, 0, DateTimeKind.Utc));
+
+        var result = _service.Refresh(newer, "startup", _now.AddDays(1));
+
+        Assert.Equal(LicenseDecision.Valid, result.Decision);
+        Assert.Equal(64, _service.Current()!.MaxCameras);
+        Assert.Contains("license.upgrade", Actions());
+    }
+
+    [Fact]
+    public void Refresh_RowNewerThanFile_KeepsRow()
+    {
+        var newer = Token(cameras: 64, features: ["core", "ai"], issued: new DateTime(2026, 6, 1, 0, 0, 0, DateTimeKind.Utc));
+        _service.Apply(newer, "admin", _now);
+
+        var older = Token(cameras: 4, features: ["core"], issued: new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc));
+
+        var result = _service.Refresh(older, "startup", _now.AddDays(1));
+
+        Assert.Equal(64, _service.Current()!.MaxCameras);
+        Assert.Equal(LicenseDecision.Valid, result.Decision);
+    }
+
+    [Fact]
+    public void Refresh_RevokedRow_NotResurrectedByValidFile()
+    {
+        // 作廢是廠商意志，不能被一次檔案取代就蓋掉。
+        _service.Apply(Token(cameras: 32, features: ["core", "ai"]), "admin", _now);
+        new LicenseRepository(_store).Revoke(_service.Current()!.Id, "admin", "退貨", _now.AddDays(1));
+
+        var result = _service.Refresh(Token(cameras: 32, features: ["core", "ai"]), "startup", _now.AddDays(2));
+
+        Assert.Equal(LicenseDecision.Revoked, result.Decision);
+        Assert.Equal(LicenseStatuses.Revoked, _service.Current()!.Status);
+    }
+
     private List<string> Actions()
         => _audit.List(new AuditLogQuery { Category = AuditCategories.License })
             .Select(e => e.Action)
@@ -303,13 +445,14 @@ public class LicenseServiceTests : IDisposable
         int cameras = 32,
         string[]? features = null,
         DateTime? expires = null,
-        string? machine = null)
+        string? machine = null,
+        DateTime? issued = null)
         => LicenseSerializer.Sign(
             new LicensePayload
             {
                 Id = Guid.NewGuid().ToString("N"),
                 Machine = machine ?? string.Empty,
-                IssuedUtc = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+                IssuedUtc = issued ?? new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc),
                 ExpiresUtc = expires,
                 Cameras = cameras,
                 Features = features ?? ["core", "ai"],

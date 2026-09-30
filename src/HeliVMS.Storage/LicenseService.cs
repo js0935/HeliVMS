@@ -65,7 +65,7 @@ public sealed record LicenseApplyResult(
 
     /// <summary>
     /// 是否允許使用某功能旗標。授權有效且旗標在授權清單內才為 true；
-    /// 未匯入／到期／回流／作廢一律 false（§19.9）。
+    /// 未匯入／到期／回流／作廢一律 false（§19.4 fail-closed）。
     /// </summary>
     public bool AllowsFeature(string feature)
         => Decision == LicenseDecision.Valid
@@ -252,9 +252,104 @@ public sealed class LicenseService
             _licenses.Get(rowId));
     }
 
-    /// <summary>啟動時驗證既有授權檔（<see cref="LicenseManager.DefaultPath"/>）。</summary>
+    /// <summary>
+    /// 啟動時重新驗證既有授權（M213，§19.4「錄影核心啟動：失敗 → 拒絕錄影」）。
+    /// </summary>
+    /// <remarks>
+    /// <para><b>兩個來源都要看</b>：<c>license.lic</c> 檔與 <c>license</c> 列各自都是
+    /// 可能的竄改目標，而列的 <c>features</c>／<c>max_cameras</c> 正是錄影閘門唯一的判斷依據。
+    /// 因此以 <see cref="LicenseManager.Validate"/> 逐一驗證兩者，取可驗證且較新的一張套用；
+    /// 若**兩個來源都無法驗證**，把授權列標記為 <see cref="LicenseStatuses.Invalid"/>——
+    /// 只記稽核卻留著有效的列，等於沒有任何防護。</para>
+    /// <para>套用走的是與手動匯入完全相同的 <see cref="Apply"/> 路徑，故稽核（啟用／改版／
+    /// 到期／時鐘回流）與 <c>last_verified</c> 自動一致，不會出現兩套行為。</para>
+    /// <para>未匯入授權的機器不會產生任何稽核雜訊（<see cref="LicenseApplyResult"/> 回
+    /// <see cref="LicenseDecision.NotPresent"/>），這是正常安裝狀態而非錯誤。</para>
+    /// </remarks>
+    /// <param name="actor">稽核操作者（一般為 <c>startup</c>）。</param>
+    /// <param name="nowUtc">判斷時點。</param>
     public LicenseApplyResult RefreshDefault(string actor, DateTime nowUtc)
-        => Apply(ReadDefaultToken(), actor, nowUtc);
+        => Refresh(ReadDefaultToken(), actor, nowUtc);
+
+    /// <summary>
+    /// <see cref="RefreshDefault"/> 的核心：以明確提供的「授權檔內容」重新驗證。
+    /// 抽出來是為了讓測試不必碰使用者實際的 <c>%LOCALAPPDATA%\HeliVMS\license.lic</c>——
+    /// 讀真檔的測試會在開發者機器上時靈時不靈，而且可能蓋掉人家的授權檔。
+    /// </summary>
+    /// <param name="fileToken">授權檔內容（可為空字串表示沒有檔案）。</param>
+    /// <param name="actor">稽核操作者。</param>
+    /// <param name="nowUtc">判斷時點。</param>
+    public LicenseApplyResult Refresh(string fileToken, string actor, DateTime nowUtc)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(actor);
+        fileToken ??= string.Empty;
+
+        var row = Current();
+
+        var candidates = new List<(LicenseState State, string Token)>();
+        var fileState = _manager.Validate(fileToken, nowUtc);
+        if (IsTrustworthy(fileState))
+        {
+            candidates.Add((fileState, fileToken));
+        }
+
+        if (row is { KeyText.Length: > 0 } && !string.Equals(row.KeyText, fileToken, StringComparison.Ordinal))
+        {
+            var rowState = _manager.Validate(row.KeyText, nowUtc);
+            if (IsTrustworthy(rowState))
+            {
+                candidates.Add((rowState, row.KeyText));
+            }
+        }
+
+        if (candidates.Count == 0)
+        {
+            return FailRefresh(row, fileToken, actor, nowUtc);
+        }
+
+        // 取較新的一張：實務上廠商換發授權後只會更新其中一個來源，
+        // 取最新才能讓「換發」在下一次啟動就生效。
+        var winner = candidates.MaxBy(c => c.State.Payload!.IssuedUtc);
+        return Apply(winner.Token, actor, nowUtc);
+    }
+
+    /// <summary>驗證結果是否可作為信任來源（簽章與機器綁定都過）。</summary>
+    private static bool IsTrustworthy(LicenseState state)
+        => state.Status is LicenseStatus.Valid or LicenseStatus.Expired;
+
+    /// <summary>
+    /// 兩個來源都無法驗證：把授權列標記失效並回報原因。
+    /// 已作廢者維持原狀——作廢是廠商意志，不能被一次檔案遺失蓋掉。
+    /// </summary>
+    private LicenseApplyResult FailRefresh(
+        LicenseRecord? row,
+        string fileToken,
+        string actor,
+        DateTime nowUtc)
+    {
+        var reason = row is null
+            ? (fileToken.Length > 0 ? "授權檔內容無法驗證" : NotPresentMessage)
+            : "授權列與授權檔皆無法通過簽章或機器綁定驗證";
+        var rejected = new LicenseState(LicenseStatus.Invalid, null, reason);
+
+        if (row is not null && row.Status is not (LicenseStatuses.Revoked or LicenseStatuses.Invalid))
+        {
+            _licenses.SetStatus(row.Id, LicenseStatuses.Invalid, actor, nowUtc, reason);
+            AuditSecurity("license.reject", actor, row, rejected, nowUtc);
+        }
+
+        if (row is null && fileToken.Length > 0)
+        {
+            AuditSecurity("license.reject", actor, null, rejected, nowUtc);
+        }
+
+        return new LicenseApplyResult(
+            row is null && fileToken.Length == 0 ? LicenseDecision.NotPresent : LicenseDecision.Invalid,
+            null,
+            reason,
+            row?.Id,
+            _licenses.Get(row?.Id ?? 0));
+    }
 
     /// <summary>
     /// 唯讀評估目前授權狀態：<b>不寫 <c>license</c> 表、不記稽核、不做 RSA 驗證</b>。
@@ -276,7 +371,20 @@ public sealed class LicenseService
         if (record.Status == LicenseStatuses.Revoked)
         {
             return new LicenseApplyResult(
-                LicenseDecision.Revoked, null, RevokedMessage, record.Id, record);        }
+                LicenseDecision.Revoked, null, RevokedMessage, record.Id, record);
+        }
+
+        // 已標記 invalid 者（啟動時重新驗證發現竄改）只有重新匯入合法授權才會恢復；
+        // Evaluate 絕不自行放行——放行等於讓手改資料庫的人拿到錄影權。
+        if (record.Status == LicenseStatuses.Invalid)
+        {
+            return new LicenseApplyResult(
+                LicenseDecision.Invalid,
+                null,
+                "授權資料已被竄改或毀損，已停止新增錄影。請向原廠重新索取授權金鑰並重新匯入。",
+                record.Id,
+                record);
+        }
 
         if (TryDetectRollback(ReadMaxSeenUtc(), nowUtc, out var rollbackReason))
         {

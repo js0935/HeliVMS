@@ -14,6 +14,16 @@ public static class LicenseStatuses
 
     /// <summary>已作廢。</summary>
     public const string Revoked = "revoked";
+
+    /// <summary>
+    /// 已失效：啟動時重新驗證發現授權碼簽章或機器綁定不符（M213）。
+    /// </summary>
+    /// <remarks>
+    /// 必須有這個狀態：<c>license</c> 列的 <c>features</c>／<c>max_cameras</c> 是
+    /// <c>Evaluate()</c> 唯一的判斷依據，若只是記一筆稽核就放著不動，使用者手改資料庫
+    /// 就能把 4 路基本版改成 1024 路客製版。標記失效後錄影閘門一律拒絕，重新匯入合法授權才恢復。
+    /// </remarks>
+    public const string Invalid = "invalid";
 }
 
 /// <summary>已匯入之授權（§19.7 <c>license</c> 表，v43）。</summary>

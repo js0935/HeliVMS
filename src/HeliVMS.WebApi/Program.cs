@@ -76,6 +76,11 @@ builder.Services.AddSingleton(TimeProvider.System);
 
 var app = builder.Build();
 
+// 啟動時重新驗證授權列（M213，§19.4「合併檢查」）：桌面端與遠端服務共用同一條 RefreshDefault，
+// 兩邊都做才不會出現「UI 端驗過、API 端信任舊列」的缺口。
+app.Services.GetRequiredService<LicenseService>()
+    .RefreshDefault("startup", app.Services.GetRequiredService<TimeProvider>().GetUtcNow().UtcDateTime);
+
 var webRoot = Program.FindWebRoot(builder.Configuration["HELIVMS_WEB"]);
 
 app.Use(ApiEndpoints.ErrorFilter);
