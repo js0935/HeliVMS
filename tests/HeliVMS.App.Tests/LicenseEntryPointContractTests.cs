@@ -128,6 +128,15 @@ public sealed class LicenseEntryPointContractTests
         "PlaybackWindow",
     ];
 
+    /// <summary>
+    /// 不掛在可見性元素上的程式化守衛：入口方法必須實際呼叫守衛方法，而守衛方法要擋對旗標。
+    /// 這類「面板靠程式判斷決定要不要填」最容易只剩註解在講，補進契約才逼得出來。
+    /// </summary>
+    private static readonly (string Window, string Guard, string Caller, string Feature)[] ProgrammaticGuards =
+    [
+        ("LoginWindow", "EnterpriseDenial", "LoadEnterpriseProviders", nameof(LicenseFeatures.AdSso)),
+    ];
+
     /// <summary>旗標蘊含：較嚴的旗標必須同時開通較鬆的旗標。</summary>
     private static readonly (string Stronger, string Weaker)[] Implications =
     [
@@ -185,6 +194,17 @@ public sealed class LicenseEntryPointContractTests
         foreach (var (window, method, feature) in CrossWindowOpens)
         {
             data.Add(window, method, feature);
+        }
+
+        return data;
+    }
+
+    public static TheoryData<string, string, string, string> ProgrammaticGuardSites()
+    {
+        var data = new TheoryData<string, string, string, string>();
+        foreach (var (window, guard, caller, feature) in ProgrammaticGuards)
+        {
+            data.Add(window, guard, caller, feature);
         }
 
         return data;
@@ -395,6 +415,19 @@ public sealed class LicenseEntryPointContractTests
             GuardedFeatures(window, method));
     }
 
+    [Theory]
+    [MemberData(nameof(ProgrammaticGuardSites))]
+    public void 程式化守衛要擋旗標且入口要實際呼叫它(string window, string guard, string caller, string feature)
+    {
+        Assert.Contains(
+            FeatureValue(feature),
+            GuardedFeatures(window, guard));
+
+        Assert.Contains(
+            guard,
+            BodyOf(Read($"src/HeliVMS.App/{window}.xaml.cs"), caller));
+    }
+
     [Fact]
     public void 等級矩陣裡桌面旗標蘊含遠端旗標()
     {
@@ -479,7 +512,7 @@ public sealed class LicenseEntryPointContractTests
             return [];
         }
 
-        var guards = Regex.Matches(body, @"(?:RequireFeature|Allows)\s*\(\s*LicenseFeatures\.(\w+)")
+        var guards = Regex.Matches(body, @"(?:RequireFeature|AllowsFeature|Allows)\s*\(\s*LicenseFeatures\.(\w+)")
             .Select(m => FeatureValue(m.Groups[1].Value))
             .Distinct(StringComparer.Ordinal)
             .ToList();
