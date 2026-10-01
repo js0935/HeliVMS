@@ -585,64 +585,11 @@ public sealed class LicenseEntryPointContractTests
         return [.. guards];
     }
 
-    private static string BodyOf(string source, string method)
-    {
-        var signature = Regex.Match(
-            source,
-            $@"(?:private|public|internal|protected|static)[\s\w<>\[\],\.\?]*\b{Regex.Escape(method)}\s*\(");
+    private static string BodyOf(string source, string method) => SourceContract.BodyOf(source, method);
 
-        if (!signature.Success)
-        {
-            return string.Empty;
-        }
+    private static string Read(string relativePath) => SourceContract.Read(relativePath);
 
-        var i = signature.Index + signature.Length - 1;
-        var depth = 0;
-        for (; i < source.Length; i++)
-        {
-            if (source[i] == '(')
-            {
-                depth++;
-            }
-            else if (source[i] == ')' && --depth == 0)
-            {
-                i++;
-                break;
-            }
-        }
-
-        while (i < source.Length && char.IsWhiteSpace(source[i]))
-        {
-            i++;
-        }
-
-        if (i + 1 < source.Length && source[i] == '=' && source[i + 1] == '>')
-        {
-            var end = source.IndexOf(';', i);
-            return end < 0 ? string.Empty : source[i..end];
-        }
-
-        if (i >= source.Length || source[i] != '{')
-        {
-            return string.Empty;
-        }
-
-        var open = i;
-        depth = 0;
-        for (; i < source.Length; i++)
-        {
-            if (source[i] == '{')
-            {
-                depth++;
-            }
-            else if (source[i] == '}' && --depth == 0)
-            {
-                return source[open..(i + 1)];
-            }
-        }
-
-        return string.Empty;
-    }
+    private static string RepoRoot() => SourceContract.RepoRoot();
 
     /// <summary>WebApi 端 <c>LicenseGateMiddleware</c> 的路徑前綴 → 旗標值（遠端那一側的真相）。</summary>
     private static Dictionary<string, string> RemoteGateRules()
@@ -667,30 +614,8 @@ public sealed class LicenseEntryPointContractTests
 
     private static string AppDirectory => Path.Combine(RepoRoot(), "src", "HeliVMS.App");
 
-    private static readonly ConcurrentDictionary<string, string> FileCache = new(StringComparer.Ordinal);
-
     private static readonly ConcurrentDictionary<string, Dictionary<string, string>> AppSourceCache =
         new(StringComparer.Ordinal);
-
-    private static string Read(string relativePath) =>
-        FileCache.GetOrAdd(relativePath, path => File.ReadAllText(Path.Combine(RepoRoot(), path)));
-
-    /// <summary>
-    /// 往上找解決方案檔當作 repo 根目錄；找不到就丟出——寧可測試紅，
-    /// 也不要靜默跳過整份契約（跳過等於測試看起來有跑、實際什麼都沒驗）。
-    /// </summary>
-    private static string RepoRoot()
-    {
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "HeliVMS.slnx")))
-        {
-            dir = dir.Parent;
-        }
-
-        return dir?.FullName
-            ?? throw new InvalidOperationException(
-                $"自 {AppContext.BaseDirectory} 往上找不到 HeliVMS.slnx，無法驗證授權入口契約。");
-    }
 
     private sealed record Gate(string Window, string Element, string Feature, string Handler = "");
 
