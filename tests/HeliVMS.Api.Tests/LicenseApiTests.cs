@@ -3,6 +3,7 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Security.Cryptography;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using HeliVMS.Licensing;
 using HeliVMS.Licensing.Crypto;
 using HeliVMS.Storage;
@@ -146,6 +147,8 @@ public class LicenseApiTests
     [InlineData("/api/recording/schedules", "schedule")]
     [InlineData("/api/patrols", "schedule")]
     [InlineData("/api/detections", "ai")]
+    [InlineData("/api/clip", "ai")]
+    [InlineData("/api/audio", "ai")]
     [InlineData("/api/auth/providers", "ad")]
     public async Task NoLicense_BlocksFlagGatedEndpoint(string url, string feature)
     {
@@ -157,6 +160,30 @@ public class LicenseApiTests
         Assert.Equal(feature, DenialFeature(body));
         Assert.Equal("NotPresent", body.GetProperty("decision").GetString());
         Assert.False(string.IsNullOrWhiteSpace(body.GetProperty("error").GetString()));
+    }
+
+    [Fact]
+    public void GateRules_AreAllExercisedByTheBlockedTheory()
+    {
+        // 中介軟體加一條規則、行為測試卻沒跟上，等於新端點沒人驗它真的被擋。
+        // 直接從兩邊的來源拉出規則表對帳：Rules 裡的每個前綴都要在 NoLicense 測試有 InlineData。
+        var middleware = File.ReadAllText(Path.Combine(RepoRoot(), "src", "HeliVMS.WebApi", "LicenseGateMiddleware.cs"));
+        var testSource = File.ReadAllText(Path.Combine(RepoRoot(), "tests", "HeliVMS.Api.Tests", nameof(LicenseApiTests) + ".cs"));
+
+        var prefixes = Regex.Matches(middleware, @"""(/api/[\w/]+)"",\s*LicenseFeatures\.")
+            .Select(m => m.Groups[1].Value)
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+
+        Assert.NotEmpty(prefixes);
+
+        var missing = prefixes
+            .Where(p => !testSource.Contains($"[InlineData(\"{p}\"", StringComparison.Ordinal))
+            .ToList();
+
+        Assert.True(
+            missing.Count == 0,
+            "LicenseGateMiddleware 有規則但 NoLicense 行為測試沒涵蓋：" + string.Join("、", missing));
     }
 
     [Theory]
@@ -214,7 +241,9 @@ public class LicenseApiTests
     [Theory]
     [InlineData("/api/shares", "remote")]
     [InlineData("/api/recording/schedules", "schedule")]
+    [InlineData("/api/patrols", "schedule")]
     [InlineData("/api/detections", "ai")]
+    [InlineData("/api/audio", "ai")]
     [InlineData("/api/auth/providers", "ad")]
     public async Task Licensed_AllowsGrantedFeature(string url, string feature)
     {
@@ -345,5 +374,17 @@ public class LicenseApiTests
         var (status, _) = await Get(factory, "/api/channels");
 
         Assert.Equal(HttpStatusCode.OK, status);
+    }
+
+    /// <summary>往上找到含 <c>HeliVMS.slnx</c> 的目錄，讓契約測試能讀來源檔。</summary>
+    private static string RepoRoot()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "HeliVMS.slnx")))
+        {
+            dir = dir.Parent;
+        }
+
+        return dir?.FullName ?? throw new InvalidOperationException("找不到 HeliVMS.slnx，無法定位儲存庫根目錄");
     }
 }
