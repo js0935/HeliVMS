@@ -14,8 +14,9 @@ namespace HeliVmsVerify;
 public static class VerifyCli
 {
     public const string Usage =
-        "用法：HeliVmsVerify <匯出檔路徑> [--signer <64 位金鑰指紋>]\n"
-        + "  驗證匯出檔旁的 .receipt.json：重算 SHA-256、驗簽、比對選用的簽署者指紋。\n"
+        "用法：HeliVmsVerify <匯出檔路徑> [--signer <64 位金鑰指紋>]...\n"
+        + "  驗證匯出檔旁的 .receipt.json：重算 SHA-256、驗簽、比對簽署者指紋。\n"
+        + "  --signer 可重複，以驗證跨越多次金鑰換發（M241）的歷史收據。\n"
         + "  不帶 --signer 只能證明「收據由收據內那把金鑰簽署」；金鑰身分須另行比對。\n"
         + "  結束碼：0=有效、1=驗證失敗、2=用法錯誤。";
 
@@ -28,7 +29,7 @@ public static class VerifyCli
             return args.Length == 0 ? 2 : 0;
         }
 
-        string? expectedSigner = null;
+        var signers = new List<string>();
         for (var i = 1; i < args.Length; i++)
         {
             switch (args[i])
@@ -41,7 +42,7 @@ public static class VerifyCli
                         return 2;
                     }
 
-                    expectedSigner = args[++i];
+                    signers.Add(args[++i]);
                     break;
                 default:
                     error.WriteLine($"不明的參數：{args[i]}");
@@ -50,12 +51,13 @@ public static class VerifyCli
             }
         }
 
-        var report = ExportReceiptCodec.Verify(args[0], expectedSigner);
-        Write(output, report);
+        var trusted = new TrustedSignerSet(signers);
+        var report = ExportReceiptCodec.Verify(args[0], trusted);
+        Write(output, report, signers.Count);
         return report.Valid ? 0 : 1;
     }
 
-    private static void Write(TextWriter output, ExportReceiptReport report)
+    private static void Write(TextWriter output, ExportReceiptReport report, int trustedCount)
     {
         output.WriteLine($"匯出檔：{report.ClipPath}");
         output.WriteLine($"收據　：{(report.ReceiptPath ?? "-")}");
@@ -63,7 +65,9 @@ public static class VerifyCli
         output.WriteLine($"雜湊相符：{YesNo(report.HashMatches)}");
         output.WriteLine($"簽章有效：{YesNo(report.SignatureValid)}");
         output.WriteLine($"簽署者　：{report.Signer ?? "-"}");
-        output.WriteLine($"金鑰已比對：{(report.SelfAssertedKey ? "否（金鑰由收據自行宣稱）" : "是")}");
+        output.WriteLine(report.SelfAssertedKey
+            ? "金鑰已比對：否（金鑰由收據自行宣稱）"
+            : $"金鑰已比對：是（{trustedCount} 個信任指紋）");
         output.WriteLine($"結論　：{(report.Valid ? "有效" : "無效")}（{report.Detail ?? "-"}）");
     }
 

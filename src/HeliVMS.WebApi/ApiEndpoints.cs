@@ -50,6 +50,10 @@ public static class ApiEndpoints
     public sealed record ExportJobRequest(int ChannelId, string Stream, DateTime FromUtc, DateTime ToUtc);
     public sealed record ExportJobItem(long Id, int ChannelId, string Stream, string StartUtc, string EndUtc, string Status, string? OutputPath, long? FileSizeBytes, string? Sha256, string? Error, string CreatedUtc);
     public sealed record ExportVerifyItem(long Id, bool ReceiptExists, bool HashMatches, bool SignatureValid, bool SignerMatched, bool SelfAssertedKey, string? Signer, bool Valid, string? Detail);
+    public sealed record SigningKeyHistoryItem(string Fingerprint, string PublicKeyPem, string RetiredUtc);
+    public sealed record SigningKeyStatusItem(string CurrentFingerprint, string CurrentPublicKeyPem, IReadOnlyList<string> TrustedFingerprints, IReadOnlyList<SigningKeyHistoryItem> History);
+    public sealed record SigningKeyRotateRequest(string Actor);
+    public sealed record SigningKeyRotateResult(string PreviousFingerprint, string NewFingerprint, string RotatedUtc);
     public sealed record AuthProviderRequest(string Name, string Kind, string ConfigJson, bool Enabled);
     public sealed record AuthProviderItem(int Id, string Name, string Kind, bool Enabled, string ConfigJson, string CreatedAt);
     public sealed record AuthProviderToggle(bool Enabled);
@@ -696,8 +700,8 @@ public static class ApiEndpoints
             return Results.Ok(new ExportJobItem(job!.Id, job.ChannelId, job.Stream, SqliteStore.Iso(job.StartUtc), SqliteStore.Iso(job.EndUtc), job.Status, job.OutputPath, job.FileSizeBytes, job.Sha256, job.Error, SqliteStore.Iso(job.CreatedUtc)));
         });
 
-        // M240：遠端取走匯出檔後要能自己確認出處——重算雜湊、驗簽、比對（選用的）預期簽署者指紋。
-        api.MapGet("/exports/{id:long}/verify", static (long id, string? signer, ExportJobRepository jobs) =>
+        // M240/M241：遠端取走匯出檔後要能自己確認出處——重算雜湊、驗簽、比對簽署者指紋。
+        api.MapGet("/exports/{id:long}/verify", static (long id, string? signer, ExportJobRepository jobs, ExportReceiptService receipts) =>
         {
             var job = jobs.Get(id);
             if (job is null)
@@ -710,8 +714,14 @@ public static class ApiEndpoints
                 return Results.BadRequest(new { error = "此工作尚未產生匯出檔" });
             }
 
+            // 未指定 signer 時信任本機全部指紋（現行＋M241 換發保留的歷史金鑰），
+            // 否則換發後正當的舊收據會被誤判為無效。
+            var trusted = string.IsNullOrWhiteSpace(signer)
+                ? receipts.TrustedSigners()
+                : new TrustedSignerSet(new[] { signer });
+
             // 只輸出驗證結果，不回傳本機絕對路徑（與 M239 遮蔽 file_path 同一個理由）。
-            var report = ExportReceiptCodec.Verify(job.OutputPath, string.IsNullOrWhiteSpace(signer) ? null : signer);
+            var report = ExportReceiptCodec.Verify(job.OutputPath, trusted);
             return Results.Ok(new ExportVerifyItem(
                 job.Id,
                 report.ReceiptExists,
@@ -722,6 +732,34 @@ public static class ApiEndpoints
                 report.Signer,
                 report.Valid,
                 report.Detail));
+        });
+
+        // M241：簽章金鑰現況。公鑰可以公開（就是要交給驗證方），私鑰永不離開本機。
+        api.MapGet("/evidence/signing-keys", static (ExportReceiptService receipts) =>
+        {
+            var history = receipts.SigningKeyHistory();
+            return Results.Ok(new SigningKeyStatusItem(
+                CurrentFingerprint: receipts.SignerFingerprint(),
+                CurrentPublicKeyPem: receipts.SignerPublicKeyPem(),
+                TrustedFingerprints: receipts.TrustedSigners().Fingerprints,
+                History: history
+                    .Select(k => new SigningKeyHistoryItem(k.Fingerprint, k.PublicKeyPem, SqliteStore.Iso(k.RetiredUtc)))
+                    .ToList()));
+        });
+
+        // M241：換發簽章金鑰。新收據改用新金鑰，舊公鑰保留以維持歷史收據可驗證。
+        api.MapPost("/evidence/signing-keys/rotate", static (SigningKeyRotateRequest body, ExportReceiptService receipts) =>
+        {
+            if (string.IsNullOrWhiteSpace(body.Actor))
+            {
+                return Results.BadRequest(new { error = "操作者必填（換發簽章金鑰必須可歸責）" });
+            }
+
+            var rotation = receipts.RotateSigningKey(body.Actor.Trim());
+            return Results.Ok(new SigningKeyRotateResult(
+                rotation.PreviousFingerprint,
+                rotation.NewFingerprint,
+                SqliteStore.Iso(rotation.RotatedUtc)));
         });
 
         api.MapGet("/auth/providers", static (AuthProviderRepository providers) =>

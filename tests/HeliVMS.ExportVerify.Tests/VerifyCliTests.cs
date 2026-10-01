@@ -36,9 +36,10 @@ public sealed class VerifyCliTests : IDisposable
         return path;
     }
 
-    private string WriteReceipt(string clipPath, string? signerPem = null)
+    private string WriteReceipt(string clipPath, string? signerPem = null, RSA? signer = null)
     {
-        var pem = signerPem ?? _key.ExportSubjectPublicKeyInfoPem();
+        var key = signer ?? _key;
+        var pem = signerPem ?? key.ExportSubjectPublicKeyInfoPem();
         var payload = new ExportReceiptPayload(
             Path.GetFileName(clipPath),
             ExportReceiptCodec.ComputeSha256(clipPath)!,
@@ -53,7 +54,7 @@ public sealed class VerifyCliTests : IDisposable
             payload,
             ExportReceiptCodec.Fingerprint(pem),
             pem,
-            ExportReceiptCodec.EncodeSignature(_key.SignHash(
+            ExportReceiptCodec.EncodeSignature(key.SignHash(
                 SHA256.HashData(Encoding.UTF8.GetBytes(ExportReceiptCodec.Canonical(payload))),
                 HashAlgorithmName.SHA256,
                 RSASignaturePadding.Pkcs1)));
@@ -122,6 +123,46 @@ public sealed class VerifyCliTests : IDisposable
 
         Assert.Equal(1, code);
         Assert.Contains("結論　：無效", output);
+    }
+
+    [Fact]
+    public void RepeatedSigner_TrustsReceiptsAcrossKeyRotations()
+    {
+        var clip = NewClip();
+        WriteReceipt(clip);
+        var oldFingerprint = ExportReceiptCodec.Fingerprint(_key.ExportSubjectPublicKeyInfoPem());
+
+        // 換發後新金鑰簽的收據，舊指紋對不上。
+        var rotated = RSA.Create(2048);
+        try
+        {
+            var newFingerprint = ExportReceiptCodec.Fingerprint(rotated.ExportSubjectPublicKeyInfoPem());
+            WriteReceipt(clip, rotated.ExportSubjectPublicKeyInfoPem(), rotated);
+
+            var single = Run(clip, "--signer", newFingerprint);
+            Assert.Equal(0, single.Code);
+
+            var both = Run(clip, "--signer", newFingerprint, "--signer", oldFingerprint);
+            Assert.Equal(0, both.Code);
+            Assert.Contains("金鑰已比對：是（2 個信任指紋）", both.Out);
+        }
+        finally
+        {
+            rotated.Dispose();
+        }
+    }
+
+    [Fact]
+    public void SignerIsCaseInsensitive_SoOperatorsCanPasteAFingerprint()
+    {
+        var clip = NewClip();
+        WriteReceipt(clip);
+        var fingerprint = ExportReceiptCodec.Fingerprint(_key.ExportSubjectPublicKeyInfoPem()).ToUpperInvariant();
+
+        var (code, output, _) = Run(clip, "--signer", fingerprint);
+
+        Assert.Equal(0, code);
+        Assert.Contains("金鑰已比對：是", output);
     }
 
     [Fact]

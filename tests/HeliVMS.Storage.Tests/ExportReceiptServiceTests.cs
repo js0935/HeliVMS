@@ -84,7 +84,7 @@ public class ExportReceiptServiceTests : IDisposable
         var clip = NewClip();
         WriteReceipt(clip);
 
-        var report = _receipts.Verify(clip);
+        var report = _receipts.Verify(clip, expectedSigner: null);
         Assert.True(report.Valid);
         Assert.True(report.SelfAssertedKey);
         Assert.Contains("未經外部比對", report.Detail);
@@ -111,7 +111,7 @@ public class ExportReceiptServiceTests : IDisposable
         var text = File.ReadAllText(receipt).Replace("\"channel_id\": 3", "\"channel_id\": 4");
         File.WriteAllText(receipt, text);
 
-        var report = _receipts.Verify(clip);
+        var report = _receipts.Verify(clip, expectedSigner: null);
         Assert.False(report.SignatureValid);
         Assert.False(report.Valid);
     }
@@ -168,13 +168,73 @@ public class ExportReceiptServiceTests : IDisposable
                 RSASignaturePadding.Pkcs1)));
         File.WriteAllText(receipt, ExportReceiptCodec.Serialize(foreign));
 
-        var selfAsserted = _receipts.Verify(clip);
+        var selfAsserted = _receipts.Verify(clip, expectedSigner: null);
         Assert.True(selfAsserted.SignatureValid);
         Assert.True(selfAsserted.SelfAssertedKey);
 
         var compared = _receipts.Verify(clip, _receipts.SignerFingerprint());
         Assert.False(compared.SignerMatched);
         Assert.False(compared.Valid);
+    }
+
+    [Fact]
+    public void KeyStatus_ExposesOnlyPublicMaterial()
+    {
+        // 遠端要拿得到公鑰（那是給驗證方的），但私鑰絕不能離開本機。
+        var pem = _receipts.SignerPublicKeyPem();
+        Assert.Contains("PUBLIC KEY", pem);
+        Assert.DoesNotContain("PRIVATE KEY", pem);
+        Assert.Equal(64, _receipts.SignerFingerprint().Length);
+
+        _receipts.RotateSigningKey("admin");
+        var history = _receipts.SigningKeyHistory();
+        Assert.Single(history);
+        Assert.Contains("PUBLIC KEY", history[0].PublicKeyPem);
+    }
+
+    [Fact]
+    public void ReceiptsFromBeforeRotation_StayVerifiableViaRetainedPublicKeys()
+    {
+        // M241 的核心保證：換發金鑰不能讓已交付出去的收據變成「無法驗證」。
+        var oldClip = NewClip();
+        WriteReceipt(oldClip);
+        var oldFingerprint = _receipts.SignerFingerprint();
+
+        _receipts.RotateSigningKey("admin");
+        var newFingerprint = _receipts.SignerFingerprint();
+        Assert.NotEqual(oldFingerprint, newFingerprint);
+
+        var newClip = Path.Combine(_dir, "new.mp4");
+        File.WriteAllText(newClip, ClipBody);
+        WriteReceipt(newClip, issued: DateTime.UtcNow);
+
+        // 只認現行金鑰 → 舊收據被判無效（這就是 M241 要修的陷阱）。
+        var strict = _receipts.Verify(oldClip, new TrustedSignerSet(new[] { newFingerprint }));
+        Assert.False(strict.SignerMatched);
+        Assert.False(strict.Valid);
+
+        // 信任現行＋歷史 → 舊收據與新收據都有效。
+        var trusted = _receipts.TrustedSigners();
+        Assert.Equal(2, trusted.Fingerprints.Count);
+        Assert.True(_receipts.Verify(oldClip, trusted).Valid);
+        Assert.True(_receipts.Verify(newClip, trusted).Valid);
+        Assert.False(_receipts.Verify(oldClip, trusted).SelfAssertedKey);
+
+        // 預設驗證就走信任清單，呼叫端不必自己拼。
+        Assert.True(_receipts.Verify(oldClip).Valid);
+    }
+
+    [Fact]
+    public void RotateSigningKey_IsRecordedInTheAuditLog()
+    {
+        var before = _receipts.SignerFingerprint();
+        _receipts.RotateSigningKey("operator-jane");
+
+        var entry = new AuditLogRepository(_store).List(new AuditLogQuery { Action = "evidence.signing_key.rotate" })
+            .Single();
+        Assert.Equal("operator-jane", entry.Actor);
+        Assert.Contains(before, entry.Detail);
+        Assert.Contains(_receipts.SignerFingerprint(), entry.Detail);
     }
 
     [Fact]
@@ -187,19 +247,19 @@ public class ExportReceiptServiceTests : IDisposable
         Assert.True(report.SignatureValid);
         Assert.False(report.SignerMatched);
         Assert.False(report.Valid);
-        Assert.Contains("指紋不符", report.Detail);
+        Assert.Contains("不在信任清單", report.Detail);
     }
 
     [Fact]
     public void MissingClip_OrMissingReceipt_FailsClosedWithoutThrowing()
     {
         var missingClip = Path.Combine(_dir, "nope.mp4");
-        var noReceipt = _receipts.Verify(missingClip);
+        var noReceipt = _receipts.Verify(missingClip, expectedSigner: null);
         Assert.False(noReceipt.Valid);
         Assert.Contains("匯出檔不存在", noReceipt.Detail);
 
         var clip = NewClip();
-        var orphan = _receipts.Verify(clip);
+        var orphan = _receipts.Verify(clip, expectedSigner: null);
         Assert.False(orphan.Valid);
         Assert.Contains("找不到簽章收據", orphan.Detail);
     }
@@ -214,7 +274,7 @@ public class ExportReceiptServiceTests : IDisposable
         var clip = NewClip();
         File.WriteAllText(clip + ".receipt.json", json);
 
-        var report = _receipts.Verify(clip);
+        var report = _receipts.Verify(clip, expectedSigner: null);
         Assert.False(report.Valid);
         Assert.False(report.SignatureValid);
     }
@@ -228,7 +288,7 @@ public class ExportReceiptServiceTests : IDisposable
             "-----BEGIN PUBLIC KEY-----",
             "-----BEGIN NOT A KEY-----"));
 
-        var report = _receipts.Verify(clip);
+        var report = _receipts.Verify(clip, expectedSigner: null);
         Assert.False(report.SignatureValid);
         Assert.False(report.Valid);
     }
@@ -286,6 +346,6 @@ public class ExportReceiptServiceTests : IDisposable
 
         var clip = NewClip();
         WriteReceipt(clip);
-        Assert.Equal(evidence.Fingerprint(), _receipts.Verify(clip).Signer);
+        Assert.Equal(evidence.Fingerprint(), _receipts.Verify(clip, expectedSigner: null).Signer);
     }
 }

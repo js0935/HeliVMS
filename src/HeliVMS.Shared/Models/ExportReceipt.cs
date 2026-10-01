@@ -54,6 +54,19 @@ public sealed record ExportReceiptReport(
 }
 
 /// <summary>
+/// 一組被信任的簽署者指紋（M241 換發後要同時涵蓋現行與歷史金鑰）。
+/// </summary>
+public sealed record TrustedSignerSet(IReadOnlyList<string> Fingerprints)
+{
+    public static readonly TrustedSignerSet Empty = new(Array.Empty<string>());
+
+    /// <summary>是否信任此指紋（不區分大小寫）。</summary>
+    public bool Contains(string? fingerprint)
+        => fingerprint is not null
+        && Fingerprints.Any(f => string.Equals(f, fingerprint, StringComparison.OrdinalIgnoreCase));
+}
+
+/// <summary>
 /// 匯出簽章收據的格式、正規化與離線驗證（§14.3(2)）。
 /// 這裡刻意只依賴 BCL：第三方或警方在多年後離線驗證時只需要這支程式，不需要資料庫或私鑰。
 /// </summary>
@@ -231,20 +244,29 @@ public static class ExportReceiptCodec
     }
 
     /// <summary>
-    /// 離線驗證匯出檔：重新計算雜湊、驗簽、比對（選用的）預期簽署者指紋。
-    /// <paramref name="expectedSigner"/> 為 null 時只證明「這份收據由收據內那把金鑰簽的」。
+    /// 離線驗證匯出檔：重新計算雜湊、驗簽、比對被信任的簽署者指紋。
     /// </summary>
+    /// <remarks>
+    /// <paramref name="expectedSigner"/> 為 null 時只證明「這份收據由收據內那把金鑰簽的」。
+    /// M241 起換發金鑰會讓歷史收據帶著舊指紋，所以此處只認單一指紋會把正當的舊收據判成無效——
+    /// 需要驗證跨多次換發的收據時，請用 <see cref="Verify(string, TrustedSignerSet)"/> 帶入整組信任指紋。
+    /// </remarks>
     public static ExportReceiptReport Verify(string clipPath, string? expectedSigner = null)
+        => Verify(clipPath, expectedSigner is null ? TrustedSignerSet.Empty : new TrustedSignerSet(new[] { expectedSigner }));
+
+    /// <summary>以一組被信任的指紋驗證匯出檔（M241 換發後的正式用法）。</summary>
+    public static ExportReceiptReport Verify(string clipPath, TrustedSignerSet trusted)
     {
         var receiptPath = ReceiptPath(clipPath);
         var fileExists = File.Exists(clipPath);
         var receiptExists = File.Exists(receiptPath);
+        var selfAsserted = trusted.Fingerprints.Count == 0;
 
         if (!fileExists)
         {
             return new ExportReceiptReport(clipPath, receiptPath, false, receiptExists,
                 HashMatches: false, SignatureValid: false, SignerMatched: false,
-                SelfAssertedKey: expectedSigner is null, Signer: null,
+                SelfAssertedKey: selfAsserted, Signer: null,
                 Detail: "匯出檔不存在");
         }
 
@@ -252,7 +274,7 @@ public static class ExportReceiptCodec
         {
             return new ExportReceiptReport(clipPath, receiptPath, true, false,
                 HashMatches: false, SignatureValid: false, SignerMatched: false,
-                SelfAssertedKey: expectedSigner is null, Signer: null,
+                SelfAssertedKey: selfAsserted, Signer: null,
                 Detail: "找不到簽章收據（.receipt.json）");
         }
 
@@ -261,7 +283,7 @@ public static class ExportReceiptCodec
         {
             return new ExportReceiptReport(clipPath, receiptPath, true, true,
                 HashMatches: false, SignatureValid: false, SignerMatched: false,
-                SelfAssertedKey: expectedSigner is null, Signer: null,
+                SelfAssertedKey: selfAsserted, Signer: null,
                 Detail: "簽章收據格式不符或已損毀");
         }
 
@@ -269,20 +291,19 @@ public static class ExportReceiptCodec
         var actual = ComputeSha256(clipPath);
         var hashMatches = actual is not null
             && string.Equals(actual, doc.Payload.Sha256, StringComparison.OrdinalIgnoreCase);
-        var signerMatched = expectedSigner is null
-            || string.Equals(expectedSigner, doc.Signer, StringComparison.OrdinalIgnoreCase);
+        var signerMatched = selfAsserted || trusted.Contains(doc.Signer);
 
         var detail = (hashMatches, signatureValid, signerMatched) switch
         {
             (false, _, _) => "匯出檔雜湊與收據不符（檔案已被修改）",
             (_, false, _) => "簽章驗證失敗（收據遭竄改或金鑰不符）",
-            (_, _, false) => $"簽署者指紋不符（收據={doc.Signer}，預期={expectedSigner}）",
-            _ => expectedSigner is null ? "有效（金鑰未經外部比對）" : "有效",
+            (_, _, false) => $"簽署者指紋不在信任清單（收據={doc.Signer}）",
+            _ => selfAsserted ? "有效（金鑰未經外部比對）" : "有效",
         };
 
         return new ExportReceiptReport(clipPath, receiptPath, true, true,
             hashMatches, signatureValid, signerMatched,
-            SelfAssertedKey: expectedSigner is null, Signer: doc.Signer, Detail: detail);
+            SelfAssertedKey: selfAsserted, Signer: doc.Signer, Detail: detail);
     }
 
     /// <summary>收據檔名（與匯出檔同目錄）。</summary>

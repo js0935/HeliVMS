@@ -10,7 +10,7 @@ namespace HeliVMS.Storage;
 /// <remarks>
 /// 為什麼需要簽章：原本只寫 <c>.sha256</c> 文字檔，任何人都能在改完影片後重算一份看起來一樣的雜湊，
 /// 那只能證明「檔案沒變」，不能證明「檔案來自這套系統」。簽章才是後者的證據。
-/// 驗證一律走 <see cref="ExportReceiptCodec.Verify"/>（只依賴 BCL），所以第三方能離線驗證。
+/// 驗證一律走 <see cref="ExportReceiptCodec"/>（只依賴 BCL），所以第三方能離線驗證。
 /// </remarks>
 public sealed class ExportReceiptService
 {
@@ -73,7 +73,21 @@ public sealed class ExportReceiptService
     /// <summary>目前簽署金鑰的公鑰 PEM。</summary>
     public string SignerPublicKeyPem() => _signer.PublicKeyPem();
 
-    /// <summary>離線驗證匯出檔（見 <see cref="ExportReceiptCodec.Verify"/>）。</summary>
-    public ExportReceiptReport Verify(string clipPath, string? expectedSigner = null)
+    /// <summary>全部仍被信任的簽署者指紋（現行＋M241 換發後保留的歷史金鑰）。</summary>
+    public TrustedSignerSet TrustedSigners() => new(_signer.TrustedFingerprints());
+
+    /// <summary>離線驗證匯出檔，信任單一指紋（見 <c>ExportReceiptCodec.Verify</c>）。</summary>
+    public ExportReceiptReport Verify(string clipPath, string? expectedSigner)
         => ExportReceiptCodec.Verify(clipPath, expectedSigner);
+
+    /// <summary>以本機信任的整組指紋驗證，涵蓋換發前的歷史收據（M241 正式用法）。</summary>
+    public ExportReceiptReport Verify(string clipPath, TrustedSignerSet? trusted = null)
+        => ExportReceiptCodec.Verify(clipPath, trusted ?? TrustedSigners());
+
+    /// <summary>換發簽章金鑰（M241）：新收據改用新金鑰，舊公鑰保留供驗證歷史收據，並寫入稽核日誌。</summary>
+    public SigningKeyRotation RotateSigningKey(string actor, DateTime? nowUtc = null)
+        => _signer.RotateKey(actor, nowUtc);
+
+    /// <summary>歷史簽章金鑰（已換發，公鑰仍可驗證舊收據）。</summary>
+    public IReadOnlyList<SigningKeyRecord> SigningKeyHistory() => _signer.KeyHistory();
 }
