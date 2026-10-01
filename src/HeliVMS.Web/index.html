@@ -104,6 +104,19 @@
     </section>
 
     <section class="panel wide">
+      <h2>遠程回放 <span class="muted">HLS／已錄影</span></h2>
+      <form id="play-form" class="row-form">
+        <input id="play-channel" type="number" min="1" step="1" value="1" aria-label="頻道編號" required />
+        <input id="play-from" type="datetime-local" aria-label="起始時間" required />
+        <input id="play-to" type="datetime-local" aria-label="結束時間" required />
+        <button type="submit">載入回放</button>
+        <span id="play-msg" class="muted" aria-live="polite"></span>
+      </form>
+      <video id="play-video" class="player" controls playsinline preload="metadata"></video>
+      <div id="play-meta" class="muted"></div>
+    </section>
+
+    <section class="panel wide">
       <h2>地圖視界</h2>
       <div id="map" class="map"></div>
     </section>

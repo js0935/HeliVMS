@@ -1011,7 +1011,7 @@ L2 比對（人臉/車牌）置「進階·需權限」區，預設關閉（§5.1
 
 | # | 功能缺口 | 現況 | 影響 | 建議 |
 |---|---|---|---|---|
-| 1 | **遠程影像串流（WebRTC/HLS）** | 遠程 API 與 SPA 主控台已落地（M117 REST、M118 `/api/alerts/ws`），**但遠程看不到畫面**：沒有串流端點 | P0 唯一未閉合項，缺=遠程只有事件沒有影像 | **P0** |
+| 1 | **遠程即時監看（WebRTC）** | 遠程 API、SPA 主控台、警報 WebSocket（M117/M118）與**已錄影的 HLS 遠程回放（M239 `/api/stream/{id}/playlist.m3u8`＋`init.mp4`／`media.m4s`，SPA 以 MediaSource 播放）已落地**；**即時串流仍未做** | 遠程已能回放但看不到當下畫面 | **P0**（剩餘項） |
 | 1b | **行動端 App** | 無（僅網頁主控台） | 巡檢/報警第一線 | P1（網頁主控台可先擋） |
 | 2 | 匯出證據工作流 | 已落地：匯出精靈＋匯出中心＋證據包 `manifest.json`＋SHA-256＋匯出即驗證（`evidence_manifests`、`EvidenceWindow`）；**缺非對稱簽章**（見 #5） | 司法效力 | P0（主體已完成） |
 | 3 | 地圖/平面圖檢視（Map View） | 已落地：`MapWindow`（樓層切換、圖釘含 camera 扇形 FOV、事件閃爍、雙向定位）、`maps`/`map_devices`（M41）；深度/設備自動布局未做 | 專業賣點 | P0′（主體已完成） |
@@ -1042,7 +1042,8 @@ L2 比對（人臉/車牌）置「進階·需權限」區，預設關閉（§5.1
 
 **(1) 遠程存取 Web + 行動端**
 - 架構：`HeliVms.WebApi`（ASP.NET Core）提供 REST + WebSocket；`HeliVms.Web`（SPA）與桌面 App 分流。**REST P0 L0 已落地（M117 `HeliVMS.WebApi`：health、channels、events 分頁＋跨源全文、alarms board/summary、ack/disposition/triage、pos 查詢/對帳、smartwall board；Bearer API 金鑰驗證）**；**WebSocket 即時警報流已落地（M118 `/api/alerts/ws`：Subscribe→Accept、ack/disposition/triage 事件廣播、離線退訂）**；**網頁主控台 SPA 已落地（`HeliVMS.Web`：警報看板、門禁/POS/偵測/排程/巡視/分享/企業身份面板、授權徽章與未授權回饋、單一認證傳輸層）**
-- **仍未落地：串流本身**。遠程看得到事件、看不到畫面——這是本節 P0 唯一未閉合項（M238 盤點確認）。實時監看 = **WebRTC**（低延遲）；回放 = HLS/MPEG-DASH（依 `segments`＋`segment_keyframes` 索引即時生成片段）
+- **已錄影遠程回放已落地（M239，HLS VOD）**：`GET /api/stream/{channelId}/playlist.m3u8?stream&from&to` 由 `segments` 索引產生 VOD 清單（EXT-X-MAP＋EXTINF＋EXT-X-PROGRAM-DATE-TIME，單次上限 24 小時），`GET /api/stream/segment/{id}/init.mp4`／`media.m4s` 提供片段。關鍵在 `Fmp4Splitter`：錄影檔是 `empty_moov`（每檔自帶 ftyp＋moov），HLS 只能有一個初始化段，所以要把每檔的 ftyp/moov 抽掉、只留 moof/mdat，並且**只讀檔頭前綴**（不必把整個錄影檔讀進記憶體）。路徑政策 `RecordedSegmentPolicy`：呼叫端只給分段編號，路徑一律取自索引，且必須落在 `HELIVMS_RECORDINGS_ROOT`（未設定時退回 `HELIVMS_DATA`／`C:\HeliVMSData` + `recordings`）之內，解析不出根目錄就整個拒絕；只服務 status=final 的分段。SPA 以 `parseM3u8`＋`MediaSource` 逐段 append 播放（無外部相依）。順帶修掉一個洩漏：`/api/recording/segments` 原本會把主機絕對路徑 `file_path` 回給遠程呼叫者，現已改為不回傳
+- **仍未落地：即時串流**。已錄影可遠程回放（M239 HLS VOD），但「現在這一刻」的畫面遠程看不到——實時監看 = **WebRTC**（低延遲），需要拉流＋轉碼／SFU（WHEP），屬於另一個量級的基礎設施
 - 安全：TLS + JWT；與桌面端共用資料庫與稽核（誰遠端看了什麼）——呼應 §11.5
   - **現況**：已用 Bearer 金鑰（`ApiKeyAuthMiddleware`，非常時外 fail-closed、常時比較、每來源 429、WebSocket 僅 `?key=`）＋授權旗標閘門（`LicenseGateMiddleware`，403 帶 `feature`）；JWT／逐請求授權（檢閱者級別起跳）尚未做
 - 權限：遠程預設更嚴（檢閱者級別起跳）

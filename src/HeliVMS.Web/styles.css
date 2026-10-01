@@ -152,6 +152,15 @@ section.panel[id] { scroll-margin-top: 12px; }
 #login .muted { font-size: 12px; max-width: 180px; }
 #login-msg:not(:empty) { color: var(--crit); }
 
+.player {
+  display: block;
+  width: 100%;
+  max-width: 720px;
+  aspect-ratio: 16 / 9;
+  background: #000;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+}
 .timeline-tools { display: flex; gap: 8px; margin-bottom: 8px; align-items: center; }
 .timeline-tools input { background: var(--bg); border: 1px solid var(--line); color: var(--text); }
 

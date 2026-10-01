@@ -158,6 +158,20 @@ public sealed class SegmentRepository
             cmd => cmd.Parameters.AddWithValue("$id", id));
     }
 
+    /// <summary>依編號取得單一區段（§14.3 串流：遠程只給編號，路徑一律取自索引）。</summary>
+    public SegmentRecord? Get(long id)
+    {
+        return _store.Query(
+            """
+            SELECT id, channel_id, stream, start_time, end_time, file_path,
+                   size_bytes, duration_sec, status, sha256
+            FROM segments
+            WHERE id = $id;
+            """,
+            ReadRecords,
+            cmd => cmd.Parameters.AddWithValue("$id", id)).FirstOrDefault();
+    }
+
     /// <summary>依時長計算統計（供 §15 配額/RPO 報告）。</summary>
     public IReadOnlyList<SegmentRecord> ListFinal(int channelId)
     {

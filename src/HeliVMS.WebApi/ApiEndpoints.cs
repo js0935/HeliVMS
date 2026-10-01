@@ -1,4 +1,4 @@
-using System.Text;
+﻿using System.Text;
 using System.Text.Json;
 using System.Net.WebSockets;
 using HeliVMS.Shared.Models;
@@ -14,8 +14,16 @@ namespace HeliVMS.WebApi;
 /// </summary>
 public static class ApiEndpoints
 {
+    /// <summary>單次播放清單的時段上限（§14.3 串流）：避免一個請求產生無上限的清單。</summary>
+    public static readonly TimeSpan MaxPlaylistWindow = TimeSpan.FromHours(24);
+
+    /// <summary>讀取錄影檔前綴以切出初始化段的上限；ftyp＋moov 通常只有幾 KB。</summary>
+    private const int InitPrefixBytes = 4 * 1024 * 1024;
+
     public sealed record Paged<T>(IReadOnlyList<T> Items, int Count);
+
     public sealed record HealthResponse(string Status, string Database, int Channels);
+    public sealed record SegmentListItem(long Id, int ChannelId, string Stream, DateTime StartUtc, DateTime? EndUtc, long SizeBytes, double? DurationSec, string Format, SegmentStatus Status, string? Sha256);
     public sealed record AckRequest(bool Acknowledged);
     public sealed record TriageRequest(string Priority, DateTime? DueUtc, string? Owner);
     public sealed record DispositionRequest(string Status, string? AssignedTo, string? Note);
@@ -151,6 +159,12 @@ public static class ApiEndpoints
         api.MapGet("/recording/timeline", HandleRecordingTimeline);
 
         api.MapGet("/recording/segments", HandleRecordingSegments);
+
+        api.MapGet("/stream/{channelId:int}/playlist.m3u8", HandleStreamPlaylist);
+
+        api.MapGet("/stream/segment/{id:long}/init.mp4", HandleSegmentInit);
+
+        api.MapGet("/stream/segment/{id:long}/media.m4s", HandleSegmentMedia);
 
         api.MapGet("/audit", HandleAudit);
 
@@ -1302,6 +1316,11 @@ public static class ApiEndpoints
     /// Raw segment ledger for a stream/time window (M120, section 14.3 playback REST):
     /// lets the SPA build playback/HLS-style URLs straight from recorded files.
     /// </summary>
+    /// <remarks>
+    /// M239：<c>file_path</c> 是主機上的絕對路徑，遠程端沒有任何用途（主控台不會顯示它），
+    /// 只會洩漏資料目錄配置，所以回應刻意不帶這個欄位——要取影片請走
+    /// <c>/api/stream/segment/{id}/…</c>，由伺服器自己用索引裡的路徑讀檔。
+    /// </remarks>
     private static async Task HandleRecordingSegments(
         HttpContext context,
         SegmentRepository segments,
@@ -1311,7 +1330,142 @@ public static class ApiEndpoints
         DateTime to)
     {
         var items = segments.ListByRange(channelId, stream, Utc(from), Utc(to));
-        await context.Response.WriteAsJsonAsync(new Paged<SegmentRecord>(items, items.Count));
+        var publicItems = items.Select(static s => new SegmentListItem(
+            s.Id, s.ChannelId, s.Stream, s.StartUtc, s.EndUtc, s.SizeBytes, s.DurationSec, s.Format, s.Status, s.Sha256)).ToArray();
+        await context.Response.WriteAsJsonAsync(new Paged<SegmentListItem>(publicItems, publicItems.Length));
+    }
+
+    /// <summary>HLS VOD 播放清單（§14.3 串流 P0）：遠程回放的唯一入口。</summary>
+    private static async Task HandleStreamPlaylist(
+        HttpContext context,
+        SegmentRepository segments,
+        int channelId,
+        string stream,
+        DateTime from,
+        DateTime to)
+    {
+        var fromUtc = Utc(from);
+        var toUtc = Utc(to);
+        if (toUtc <= fromUtc)
+        {
+            await WriteError(context, StatusCodes.Status400BadRequest, "時段上限不可早於下限");
+            return;
+        }
+
+        if (toUtc - fromUtc > MaxPlaylistWindow)
+        {
+            await WriteError(context, StatusCodes.Status400BadRequest, "單次播放清單最多 24 小時，請縮小時段");
+            return;
+        }
+
+        var items = segments.ListByRange(channelId, stream, fromUtc, toUtc);
+        if (items.Count == 0)
+        {
+            await WriteError(context, StatusCodes.Status404NotFound, "此時段沒有錄影");
+            return;
+        }
+
+        context.Response.ContentType = HlsPlaylist.ContentType;
+        context.Response.Headers.CacheControl = "private, no-cache";
+        await context.Response.WriteAsync(HlsPlaylist.Build(items));
+    }
+
+    /// <summary>EXT-X-MAP 初始化段（ftyp＋moov）。</summary>
+    private static async Task HandleSegmentInit(
+        HttpContext context,
+        SegmentRepository segments,
+        RecordedSegmentPolicy policy,
+        long id)
+    {
+        if (!TryResolveSegment(context, segments, policy, id, out var segment, out var failure))
+        {
+            await failure!();
+            return;
+        }
+
+        var bytes = await ReadPrefixAsync(segment!.FilePath, InitPrefixBytes);
+        context.Response.ContentType = HlsPlaylist.InitContentType;
+        context.Response.Headers.CacheControl = "private, no-cache";
+        await context.Response.Body.WriteAsync(bytes.AsMemory(0, Fmp4Splitter.Split(bytes).InitLength));
+    }
+
+    /// <summary>EXTINF 媒體段（moof/mdat）；HLS 的 seek 是片段層級，不需要片段內的 byte range。</summary>
+    private static async Task HandleSegmentMedia(
+        HttpContext context,
+        SegmentRepository segments,
+        RecordedSegmentPolicy policy,
+        long id)
+    {
+        if (!TryResolveSegment(context, segments, policy, id, out var segment, out var failure))
+        {
+            await failure!();
+            return;
+        }
+
+        var parts = Fmp4Splitter.Split(await ReadPrefixAsync(segment!.FilePath, InitPrefixBytes));
+        var info = new FileInfo(segment.FilePath);
+        if (info.Length <= parts.InitLength)
+        {
+            await WriteError(context, StatusCodes.Status404NotFound, "錄影分段沒有媒體內容");
+            return;
+        }
+
+        context.Response.ContentType = HlsPlaylist.MediaContentType;
+        context.Response.Headers.CacheControl = "private, no-cache";
+        await using var stream = info.OpenRead();
+        stream.Seek(parts.InitLength, SeekOrigin.Begin);
+        await stream.CopyToAsync(context.Response.Body, context.RequestAborted);
+    }
+
+    /// <summary>
+    /// 分段解析的共同防線：必須是已完成的區段、路徑必須在錄影根目錄內、檔案必須還在。
+    /// 呼叫端只給編號，路徑一律取自索引。
+    /// </summary>
+    private static bool TryResolveSegment(
+        HttpContext context,
+        SegmentRepository segments,
+        RecordedSegmentPolicy policy,
+        long id,
+        out SegmentRecord? segment,
+        out Func<Task>? failure)
+    {
+        segment = segments.Get(id);
+        if (segment is null || segment.Status != SegmentStatus.Final)
+        {
+            failure = () => WriteError(context, StatusCodes.Status404NotFound, "找不到該錄影分段");
+            return false;
+        }
+
+        if (!policy.IsRecordedSegmentPath(segment.FilePath))
+        {
+            var path = segment.FilePath;
+            failure = () => WriteError(context, StatusCodes.Status403Forbidden, policy.DenyMessage(path));
+            return false;
+        }
+
+        if (!File.Exists(segment.FilePath))
+        {
+            failure = () => WriteError(context, StatusCodes.Status404NotFound, "錄影檔已不存在");
+            return false;
+        }
+
+        failure = null;
+        return true;
+    }
+
+    private static async Task<byte[]> ReadPrefixAsync(string path, int maxBytes)
+    {
+        var length = (int)Math.Min(new FileInfo(path).Length, maxBytes);
+        var buffer = new byte[length];
+        await using var stream = File.OpenRead(path);
+        await stream.ReadExactlyAsync(buffer);
+        return buffer;
+    }
+
+    private static async Task WriteError(HttpContext context, int statusCode, string message)
+    {
+        context.Response.StatusCode = statusCode;
+        await context.Response.WriteAsJsonAsync(new { error = message });
     }
 
     private static async Task HandleRecordingTimeline(

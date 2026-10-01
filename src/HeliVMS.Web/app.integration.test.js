@@ -311,3 +311,40 @@ describe('admin quick nav', () => {
     expect(stylesSource).toMatch(/section\.panel\[id\] \{ scroll-margin-top: 12px; \}/);
   });
 });
+describe('remote playback (M239 HLS)', () => {
+  it('exposes a playback panel with an accessible form and a video element', () => {
+    expect(indexSource).toMatch(/<h2>遠程回放/);
+    expect(indexSource).toMatch(/<video id="play-video"[^>]*controls[^>]*playsinline/);
+    expect(indexSource).toMatch(/id="play-channel"[^>]*aria-label="頻道編號"/);
+    expect(indexSource).toMatch(/id="play-from"[^>]*aria-label="起始時間"/);
+    expect(indexSource).toMatch(/id="play-to"[^>]*aria-label="結束時間"/);
+    expect(indexSource).toMatch(/id="play-msg"[^>]*aria-live="polite"/);
+  });
+
+  it('fetches the playlist through the single authenticated transport', () => {
+    expect(appSource).toMatch(/apiRaw\(buildPlaylistQuery\(\{ channelId, stream: 'main', from, to \}\)\)/);
+    expect(appSource).toMatch(/const playlist = parseM3u8\(await response\.text\(\)\)/);
+  });
+
+  it('pushes the init segment and every media segment through the authenticated transport', () => {
+    expect(appSource).toMatch(/if \(playlist\.initUri\) await push\(playlist\.initUri\)/);
+    expect(appSource).toMatch(/for \(const segment of playlist\.segments\) await push\(segment\.uri\)/);
+    expect(appSource).toMatch(/const response = await apiRaw\(uri\)/);
+    expect(appSource).toMatch(/media\.endOfStream\(\)/);
+  });
+
+  it('never plays a segment with a bare fetch that would skip the API key', () => {
+    const playerBody = appSource.slice(appSource.indexOf('async function attachPlaylist'));
+    expect(playerBody).not.toMatch(/[^.\w]fetch\(/);
+  });
+
+  it('reports unsupported browsers instead of failing silently', () => {
+    expect(appSource).toMatch(/'MediaSource' in window/);
+    expect(appSource).toMatch(/msg\.textContent = err\.message/);
+  });
+
+  it('wires the form and seeds a one-hour default window', () => {
+    expect(appSource).toMatch(/\$\(['"]play-form['"]\)\.addEventListener\(['"]submit['"], playRemote\)/);
+    expect(appSource).toMatch(/defaultPlayWindow\(\)/);
+  });
+});

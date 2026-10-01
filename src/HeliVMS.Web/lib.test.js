@@ -7,6 +7,10 @@ import {
   auditRows,
   bearerHeader,
   buildSegmentsQuery,
+  buildPlaylistQuery,
+  mseMimeType,
+  parseM3u8,
+  PLAYLIST_WINDOW_LIMIT_S,
   buildTimelineQuery,
   canAct,
   configCard,
@@ -700,5 +704,80 @@ describe('login gating', () => {
     expect(rows[1]).toMatchObject({ channelId: 2, durationMs: 1000, mime: 'audio/ogg' });
     expect(audioRows(null)).toEqual([]);
     expect(audioRows(undefined)).toEqual([]);
+  });
+});
+describe('parseM3u8', () => {
+  const playlist = [
+    '#EXTM3U',
+    '#EXT-X-VERSION:7',
+    '#EXT-X-PLAYLIST-TYPE:VOD',
+    '#EXT-X-TARGETDURATION:15',
+    '#EXT-X-MAP:URI="/api/stream/segment/12/init.mp4"',
+    '#EXT-X-PROGRAM-DATE-TIME:2026-09-30T12:00:00.000Z',
+    '#EXTINF:15.000,',
+    '/api/stream/segment/12/media.m4s',
+    '#EXT-X-PROGRAM-DATE-TIME:2026-09-30T12:00:15.000Z',
+    '#EXTINF:10.500,',
+    '/api/stream/segment/13/media.m4s',
+    '#EXT-X-ENDLIST',
+  ].join('\n');
+
+  it('reads the init segment, durations and program date times', () => {
+    const parsed = parseM3u8(playlist);
+    expect(parsed.initUri).toBe('/api/stream/segment/12/init.mp4');
+    expect(parsed.targetDuration).toBe(15);
+    expect(parsed.segments).toHaveLength(2);
+    expect(parsed.segments[0]).toMatchObject({ uri: '/api/stream/segment/12/media.m4s', duration: 15 });
+    expect(parsed.segments[1]).toMatchObject({ uri: '/api/stream/segment/13/media.m4s', duration: 10.5 });
+    expect(parsed.duration).toBeCloseTo(25.5, 5);
+    expect(parsed.segments[1].start).toBe(Date.parse('2026-09-30T12:00:15.000Z'));
+  });
+
+  it('returns null for anything that is not a playlist', () => {
+    expect(parseM3u8('')).toBeNull();
+    expect(parseM3u8('<html>404</html>')).toBeNull();
+    expect(parseM3u8(undefined)).toBeNull();
+  });
+
+  it('tolerates CRLF and a playlist with no segments', () => {
+    const crlf = '#EXTM3U\r\n#EXT-X-PLAYLIST-TYPE:VOD\r\n#EXT-X-ENDLIST\r\n';
+    const parsed = parseM3u8(crlf);
+    expect(parsed.initUri).toBeNull();
+    expect(parsed.segments).toEqual([]);
+    expect(parsed.duration).toBe(0);
+  });
+
+  it('never invents a duration for malformed EXTINF values', () => {
+    const parsed = parseM3u8('#EXTM3U\n#EXTINF:not-a-number,\n/a.m4s');
+    expect(parsed.segments[0].duration).toBe(0);
+    expect(parsed.targetDuration).toBe(0);
+  });
+});
+
+describe('buildPlaylistQuery', () => {
+  it('builds the channel/stream/window playlist URL', () => {
+    const url = buildPlaylistQuery({
+      channelId: 3,
+      stream: 'main',
+      from: '2026-09-30T12:00:00Z',
+      to: '2026-09-30T13:00:00Z',
+    });
+    expect(url.startsWith('/api/stream/3/playlist.m3u8?')).toBe(true);
+    const params = new URLSearchParams(url.split('?')[1]);
+    expect(params.get('stream')).toBe('main');
+    expect(params.get('from')).toBe('2026-09-30T12:00:00.000Z');
+    expect(params.get('to')).toBe('2026-09-30T13:00:00.000Z');
+  });
+
+  it('keeps the advertised window limit in sync with the server side 24 hours', () => {
+    expect(PLAYLIST_WINDOW_LIMIT_S).toBe(86400);
+  });
+});
+
+describe('mseMimeType', () => {
+  it('prefers the highest quality codec the browser claims to play', () => {
+    expect(mseMimeType(true, true)).toContain('avc1.64001f');
+    expect(mseMimeType(false, true)).toContain('avc1.42E01E');
+    expect(mseMimeType(false, false)).toBe('video/mp4');
   });
 });

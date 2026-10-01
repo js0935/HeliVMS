@@ -83,6 +83,28 @@ public class SegmentRepositoryTests : IDisposable
     }
 
     [Fact]
+    public void Get_ReturnsSingleSegmentById()
+    {
+        var t = DateTime.UtcNow;
+        var id = _repo.BeginSegment(3, "main", @"D:\tmp\get-me.mp4", t);
+        _repo.CompleteSegment(id, t.AddSeconds(30), 900, 30, "sha-get");
+
+        var seg = _repo.Get(id);
+
+        Assert.NotNull(seg);
+        Assert.Equal(id, seg!.Id);
+        Assert.Equal(@"D:\tmp\get-me.mp4", seg.FilePath);
+        Assert.Equal("sha-get", seg.Sha256);
+        Assert.Equal(SegmentStatus.Final, seg.Status);
+    }
+
+    [Fact]
+    public void Get_UnknownIdReturnsNull()
+    {
+        Assert.Null(_repo.Get(987654321));
+    }
+
+    [Fact]
     public void MarkCorrupt_UpdatesStatus()
     {
         var t = DateTime.UtcNow;

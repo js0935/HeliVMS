@@ -4,6 +4,7 @@ import {
   auditRows,
   auditFilter,
   buildTimelineQuery,
+  buildPlaylistQuery,
   bearerHeader,
   canAct,
   configCard,
@@ -14,6 +15,8 @@ import {
   filterBoardRows,
   focusLayout,
   formatTimestamp,
+  mseMimeType,
+  parseM3u8,
   evRows,
   backupRows,
   doorRows,
@@ -1142,6 +1145,94 @@ async function refreshTimeline() {
   }
 }
 
+/**
+ * 遠程回放（M239，§14.3 串流 P0）：HLS VOD → MediaSource。
+ * 伺服器每個錄影檔自帶 ftyp＋moov，所以初始化段只送第一段的那一份，
+ * 之後把每段的 moof/mdat 依序 append 就能在瀏覽器裡播。
+ */
+async function attachPlaylist(video, playlist) {
+  if (!('MediaSource' in window)) {
+    throw new Error('此瀏覽器不支援 MediaSource，請改用 Safari 或桌面版回放');
+  }
+
+  const type = mseMimeType(
+    video.canPlayType('video/mp4; codecs="avc1.64001f,mp4a.40.2"'),
+    video.canPlayType('video/mp4; codecs="avc1.42E01E"'),
+  );
+
+  const media = new MediaSource();
+  video.src = URL.createObjectURL(media);
+  try {
+    await new Promise((resolve) => media.addEventListener('sourceopen', resolve, { once: true }));
+    const buffer = media.addSourceBuffer(type);
+    const push = async (uri) => {
+      const response = await apiRaw(uri);
+      if (!response.ok) throw new Error(`${uri} -> ${response.status}`);
+      const bytes = await response.arrayBuffer();
+      await new Promise((resolve, reject) => {
+        buffer.addEventListener('updateend', resolve, { once: true });
+        buffer.addEventListener('error', reject, { once: true });
+        buffer.appendBuffer(bytes);
+      });
+    };
+
+    if (playlist.initUri) await push(playlist.initUri);
+    for (const segment of playlist.segments) await push(segment.uri);
+    media.endOfStream();
+  } finally {
+    URL.revokeObjectURL(video.src);
+  }
+}
+
+async function playRemote(event) {
+  event.preventDefault();
+  const msg = $('play-msg');
+  const channelId = Number.parseInt($('play-channel').value, 10);
+  const from = new Date($('play-from').value);
+  const to = new Date($('play-to').value);
+  if (!Number.isFinite(channelId) || channelId <= 0) {
+    msg.textContent = '頻道須為正整數';
+    return;
+  }
+
+  if (!Number.isFinite(from.getTime()) || !Number.isFinite(to.getTime()) || to <= from) {
+    msg.textContent = '請填有效的起訖時間（結束須晚於開始）';
+    return;
+  }
+
+  msg.textContent = '載入中…';
+  try {
+    const response = await apiRaw(buildPlaylistQuery({ channelId, stream: 'main', from, to }));
+    if (!response.ok) {
+      const info = await response.json().catch(() => null);
+      msg.textContent = info?.error ?? `播放清單載入失敗（${response.status}）`;
+      return;
+    }
+
+    const playlist = parseM3u8(await response.text());
+    if (!playlist || playlist.segments.length === 0) {
+      msg.textContent = '沒有可播放的片段';
+      return;
+    }
+
+    await attachPlaylist($('play-video'), playlist);
+    $('play-meta').textContent = `${playlist.segments.length} 段／${Math.round(playlist.duration)} 秒`;
+    msg.textContent = '就緒';
+  } catch (err) {
+    msg.textContent = err.message;
+  }
+}
+
+function defaultPlayWindow() {
+  const now = new Date();
+  const from = new Date(now);
+  from.setUTCHours(Math.max(0, now.getUTCHours() - 1), 0, 0, 0);
+  const to = new Date(from.getTime() + 60 * 60 * 1000);
+  const local = (d) => new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+  $('play-from').value = local(from);
+  $('play-to').value = local(to);
+}
+
 function connectLive() {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
   const socket = new WebSocket(`${proto}://${location.host}/api/alerts/ws?key=${encodeURIComponent(key())}`);
@@ -1172,6 +1263,8 @@ function wire() {
   $('timeline-day').addEventListener('change', refreshTimeline);
   $('timeline-up').addEventListener('click', () => bumpTimelineDay(1));
   $('timeline-down').addEventListener('click', () => bumpTimelineDay(-1));
+  $('play-form').addEventListener('submit', playRemote);
+  defaultPlayWindow();
   const saved = localStorage.getItem('helivms.apiKey');
   if (saved) $('apikey').value = saved;
   $('apikey').addEventListener('change', () => {

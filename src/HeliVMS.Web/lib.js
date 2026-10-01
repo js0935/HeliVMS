@@ -88,6 +88,73 @@ export function buildSegmentsQuery({ channelId, stream, from, to }) {
   return `/api/recording/segments?${params.toString()}`;
 }
 
+/** HLS VOD 播放清單網址（§14.3 串流）：遠程回放的單一入口。 */
+export function buildPlaylistQuery({ channelId, stream, from, to }) {
+  const params = new URLSearchParams({
+    stream,
+    from: new Date(from).toISOString(),
+    to: new Date(to).toISOString(),
+  });
+  return `/api/stream/${channelId}/playlist.m3u8?${params.toString()}`;
+}
+
+/** MSE 播放 fMP4 需要的 MIME（依瀏覽器支援度挑，Safari 不走這條路）。 */
+export function mseMimeType(canPlayMp4 = false, canPlayAvc1 = false) {
+  if (canPlayMp4) return 'video/mp4; codecs="avc1.64001f,mp4a.40.2"';
+  if (canPlayAvc1) return 'video/mp4; codecs="avc1.42E01E"';
+  return 'video/mp4';
+}
+
+/**
+ * 解析伺服器產生的 HLS VOD 清單（§14.3 串流）。
+ * 只認得本系統會寫出的標籤；EXT-X-MAP 與 EXTINF 之外的一律忽略。
+ */
+export function parseM3u8(text) {
+  const lines = String(text ?? '')
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  if (!lines.includes('#EXTM3U')) return null;
+
+  const playlist = { initUri: null, targetDuration: 0, duration: 0, segments: [] };
+  let pendingDuration = null;
+  let pendingStart = null;
+
+  for (const line of lines) {
+    if (line.startsWith('#EXT-X-MAP:')) {
+      const uri = line.match(/URI="([^"]+)"/);
+      if (uri) playlist.initUri = uri[1];
+      continue;
+    }
+    if (line.startsWith('#EXT-X-TARGETDURATION:')) {
+      const value = Number.parseInt(line.slice('#EXT-X-TARGETDURATION:'.length), 10);
+      if (Number.isFinite(value)) playlist.targetDuration = value;
+      continue;
+    }
+    if (line.startsWith('#EXT-X-PROGRAM-DATE-TIME:')) {
+      const parsed = Date.parse(line.slice('#EXT-X-PROGRAM-DATE-TIME:'.length));
+      pendingStart = Number.isFinite(parsed) ? parsed : null;
+      continue;
+    }
+    if (line.startsWith('#EXTINF:')) {
+      const value = Number.parseFloat(line.slice('#EXTINF:'.length));
+      pendingDuration = Number.isFinite(value) && value > 0 ? value : 0;
+      continue;
+    }
+    if (line.startsWith('#')) continue;
+    playlist.segments.push({ uri: line, duration: pendingDuration ?? 0, start: pendingStart });
+    playlist.duration += pendingDuration ?? 0;
+    pendingDuration = null;
+    pendingStart = null;
+  }
+
+  return playlist;
+}
+
+/** 播放清單的時段秒數上限；伺服端 24 小時上限的對應值，用於介面提示。 */
+export const PLAYLIST_WINDOW_LIMIT_S = 24 * 60 * 60;
+
 export function parseWsMessage(raw) {
   let message;
   try {
