@@ -72,6 +72,16 @@ button:disabled {
   padding: 4px 8px;
 }
 
+/* 語言切換（M243）：沿用 .topbar input 的外觀，但不吃 margin-left:auto——
+   那條規則是為了把 API 金鑰欄推離左側徽章，套到最後一個 label 會多出一段空白。 */
+.topbar .locale-pick { margin-left: 0; }
+.topbar .locale-pick select {
+  background: var(--bg);
+  border: 1px solid var(--line);
+  color: var(--text);
+  padding: 4px 8px;
+}
+
 .badge {
   padding: 2px 10px;
   border-radius: 10px;

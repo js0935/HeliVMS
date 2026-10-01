@@ -79,7 +79,9 @@ describe('escaped rendering', () => {
   it('has no innerHTML sink built from unchecked values', () => {
     const unsafe = htmlAssignments(appSource).filter((block) => {
       if (block.includes(".innerHTML = ''")) return false;
-      return interpolations(block).some((expr) => !/^(esc|escPct|Number)\(/.test(expr));
+      // tx() 是「譯文並跳脫」，與 esc() 同級：M243 起 UI 字串一律經由它進入 HTML，
+      // 它的跳脫行為另有一條測試釘住（tx_escapesInterpolatedParams）。
+      return interpolations(block).some((expr) => !/^(esc|escPct|tx|Number)\(/.test(expr));
     });
     expect(unsafe).toEqual([]);
   });

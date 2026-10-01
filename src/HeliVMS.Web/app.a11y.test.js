@@ -27,7 +27,7 @@ describe('document structure', () => {
 
 describe('keyboard accessibility', () => {
   it('renders a visible-on-focus skip link targeting the main content', () => {
-    expect(indexSource).toMatch(/<a class="skip" href="#content">/);
+    expect(indexSource).toMatch(/<a class="skip" href="#content"[^>]*data-i18n="a11y\.skipToContent"/);
     expect(indexSource).toMatch(/<main class="grid" id="content">/);
     expect(cssSource).toMatch(/\.skip:focus-visible/);
   });
@@ -70,9 +70,11 @@ describe('screen readers', () => {
   });
 
   it('gives the alarm-board action buttons readable labels (no cryptic glyphs)', () => {
-    expect(appSource).toMatch(/>分診</);
-    expect(appSource).toMatch(/>確認</);
-    expect(appSource).toMatch(/>誤報</);
+    // M243：標籤文字改由目錄提供，這裡要驗的是「按鈕有可讀標籤」這件事，
+    // 而不是標籤剛好是哪一種語言的字。
+    expect(appSource).toMatch(/\$\{tx\('action\.triage'\)\}/);
+    expect(appSource).toMatch(/\$\{tx\('action\.confirm'\)\}/);
+    expect(appSource).toMatch(/\$\{tx\('common\.falseAlarm'\)\}/);
     expect(appSource).not.toMatch(/>!!</);
   });
 });

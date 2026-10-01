@@ -1,3 +1,15 @@
+import { t } from './i18n.js';
+
+/**
+ * 可直接放進 HTML 的譯文（M243）。
+ * t() 的輸出**不能**直接插進 innerHTML：它會把 {params} 原樣內插，
+ * 而參數可能來自伺服器回應（例如授權缺項清單），等同把未跳脫資料塞進 DOM。
+ * tx() 負責跳脫，讓「譯文」與「資料」在安全規則裡維持同一個標準。
+ */
+export function tx(key, params) {
+  return esc(t(key, params));
+}
+
 export const PRIORITY_RANK = { critical: 4, high: 3, normal: 2, low: 1 };
 
 const HTML_ESCAPES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
@@ -175,9 +187,9 @@ export function parseWsMessage(raw) {
 }
 
 export function gapLabel(gapFraction) {
-  if (gapFraction >= 0.999) return '無錄影';
-  if (gapFraction <= 0.001) return '全日';
-  return `缺 ${(gapFraction * 100).toFixed(0)}%`;
+  if (gapFraction >= 0.999) return t('gap.noRecording');
+  if (gapFraction <= 0.001) return t('gap.fullDay');
+  return t('gap.missing', { pct: (gapFraction * 100).toFixed(0) });
 }
 
 export function gridLayout(count, cols = 4) {
@@ -267,11 +279,11 @@ export function pollGate(activeTagName, docHidden) {
 }
 
 export function parseLogin(payload) {
-  if (!payload || typeof payload !== 'object') return { ok: false, error: '回應異常' };
+  if (!payload || typeof payload !== 'object') return { ok: false, error: t('state.badResponse') };
   if (typeof payload.role === 'string' && payload.role.length > 0) {
     return { ok: true, role: payload.role, displayName: payload.displayName ?? null };
   }
-  return { ok: false, error: payload.error || '登入失敗' };
+  return { ok: false, error: payload.error || t('state.loginFailed') };
 }
 
 export function accountRows(list) {
@@ -356,7 +368,13 @@ export function dailyCard(raw) {
 export function patrolLabel(p) {
   const r = p ?? {};
   const steps = r.steps ?? []; 
-  return `${r.name ?? '未命名'} · 頻道${r.channelId ?? '-'} · ${r.windowStart ?? '00:00'}-${r.windowEnd ?? '23:59'} · ${steps.length} 步`;
+  return t('plan.summary', {
+    name: r.name ?? t('common.unnamed'),
+    channel: r.channelId ?? '-',
+    start: r.windowStart ?? '00:00',
+    end: r.windowEnd ?? '23:59',
+    steps: steps.length,
+  });
 }
 
 export function evRows(rows) {
@@ -613,7 +631,7 @@ export function smartwallLayout(cells, opts = {}) {
 export function scheduleLabel(s, { short = false } = {}) {
   const r = s ?? {};
   const mask = Number(r.daysMask ?? r.DaysMask ?? 0);
-  const dayNames = ['日', '一', '二', '三', '四', '五', '六'];
+  const dayNames = [0, 1, 2, 3, 4, 5, 6].map((d) => t(`day.${d}`));
   const runs = [];
   let runStart = -1;
   for (let d = 0; d <= 7; d++) {
@@ -628,9 +646,15 @@ export function scheduleLabel(s, { short = false } = {}) {
   const fmt = (m) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
   const days = runs.length
     ? runs
-        .map(([a, b]) => (a === b ? (short ? `週${dayNames[a]}` : `週${a + 1}`) : `${dayNames[a]}-${dayNames[b]}`))
-        .join('、')
-    : '無';
+        .map(([a, b]) =>
+          a === b
+            ? short
+              ? t('week.day', { day: dayNames[a] })
+              : t('week.number', { n: a + 1 })
+            : `${dayNames[a]}-${dayNames[b]}`,
+        )
+        .join(t('list.separator'))
+    : t('value.none');
   return `${days} ${fmt(Number(r.startMinute ?? r.StartMinute ?? 0))}-${fmt(Number(r.endMinute ?? r.EndMinute ?? 0))}`;
 }
 

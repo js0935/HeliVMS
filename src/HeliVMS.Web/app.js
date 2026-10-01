@@ -1,3 +1,4 @@
+import { applyDom, DEFAULT_LOCALE, locale, setLocale, t } from './i18n.js';
 import {
   accountRows,
   ackRate,
@@ -33,6 +34,7 @@ import {
   patrolLabel,
   scheduleInEffect,
   scheduleLabel,
+  tx,
   gapLabel,
   gridLayout,
   parseLogin,
@@ -70,7 +72,7 @@ async function apiRaw(path, init = {}) {
 function setConn(ok) {
   const el = $('conn');
   if (!el) return;
-  el.textContent = ok ? '' : '連線中斷';
+  el.textContent = ok ? '' : t('state.disconnected');
   el.classList.toggle('off', !ok);
 }
 
@@ -87,11 +89,11 @@ async function api(path, init = {}) {
  */
 async function feedback(msgId, resp, okText = () => '') {
   if (!resp) {
-    $(msgId).textContent = '連線中斷';
+    $(msgId).textContent = t('state.disconnected');
     return false;
   }
   const info = await resp.json().catch(() => null);
-  $(msgId).textContent = resp.ok ? okText(info) : info?.error ?? '失敗';
+  $(msgId).textContent = resp.ok ? okText(info) : info?.error ?? t('state.failed');
   return resp.ok;
 }
 
@@ -178,7 +180,7 @@ function logout() {
 function updateChrome() {
   const session = readSession();
   const who = $('who');
-  who.textContent = session ? `${session.role} · ${session.name ?? ''}`.trim() : '未登入';
+  who.textContent = session ? `${session.role} · ${session.name ?? ''}`.trim() : t('state.notSignedIn');
   who.classList.toggle('on', Boolean(session));
   const admin = canAct(session?.role);
   $('board').classList.toggle('gated', !admin);
@@ -235,7 +237,7 @@ async function refreshAuditCsv(category, actor) {
     csvUrl = URL.createObjectURL(blob);
     link.href = csvUrl;
   } catch {
-    link.textContent = 'CSV 無法下載';
+    link.textContent = t('state.csvFailed');
   }
 }
 
@@ -249,7 +251,7 @@ async function renderConfig() {
   $('alarm-retention-days').value = c.alarmRetentionDays;
   const usage = await api('/api/config/usage').catch(() => null);
   $('storage-usage').textContent = usage
-    ? `使用 ${usage.gb.toFixed(2)}GiB · 保留 ${usage.retentionDays} 天 · 警報 ${usage.alarmRetentionDays} 天 · 浮水印 ${usage.watermarkGb}GB`
+    ? t('retention.summary', { gb: usage.gb.toFixed(2), days: usage.retentionDays, alarmDays: usage.alarmRetentionDays, watermark: usage.watermarkGb })
     : '';
 }
 
@@ -269,7 +271,7 @@ async function saveConfig(event) {
       }),
     });
     await renderConfig();
-    $('config-msg').textContent = '已儲存';
+    $('config-msg').textContent = t('state.saved');
   } catch (err) {
     $('config-msg').textContent = String(err);
   }
@@ -279,8 +281,8 @@ async function runRetention() {
   try {
     const result = await api('/api/retention/run', { method: 'POST' });
     $('config-msg').textContent =
-      `清理完成：錄影保留 ${result.agePurged} · 浮水印 ${result.watermarkPurged} · 警報 ${result.alarmPurged} · 釋放 ${(result.bytesFreed / 1073741824).toFixed(2)}GiB` +
-      (result.skipped ? ` · 保留 ${result.skipped}（檔案使用中或未設定錄影根目錄）` : '');
+      t('retention.purgeDone', { age: result.agePurged, watermark: result.watermarkPurged, alarm: result.alarmPurged, freed: (result.bytesFreed / 1073741824).toFixed(2) }) +
+      (result.skipped ? t('retention.purgeSkipped', { count: result.skipped }) : '');
     await renderConfig();
   } catch (err) {
     $('config-msg').textContent = String(err);
@@ -292,10 +294,10 @@ async function renderAccounts() {
   $('accounts').querySelector('tbody').innerHTML = accounts
     .map(
       (a) =>
-        `<tr><td>${esc(a.username)}</td><td>${esc(a.role)}</td><td>${esc(a.enabled ? '啟用' : '停用')}${esc(a.locked ? ' · 鎖定' : '')}</td>` +
-        `<td><button data-toggle="${Number(a.id)}" data-enable="${esc(!a.enabled)}">${esc(a.enabled ? '停用' : '啟用')}</button>` +
-        `<button data-role="${Number(a.id)}" data-next="${esc(a.role === 'admin' ? 'viewer' : 'admin')}">轉${esc(a.role === 'admin' ? 'v' : 'admin')}</button>` +
-        `<button data-del="${Number(a.id)}">刪除</button></td></tr>`,
+        `<tr><td>${esc(a.username)}</td><td>${esc(a.role)}</td><td>${esc(a.enabled ? t('common.enabled') : t('common.disabled'))}${esc(a.locked ? t('common.lockedSuffix') : '')}</td>` +
+        `<td><button data-toggle="${Number(a.id)}" data-enable="${esc(!a.enabled)}">${esc(a.enabled ? t('common.disabled') : t('common.enabled'))}</button>` +
+        `<button data-role="${Number(a.id)}" data-next="${esc(a.role === 'admin' ? 'viewer' : 'admin')}">${tx('role.switchTo', { role: t(a.role === 'admin' ? 'role.viewer' : 'role.admin') })}</button>` +
+        `<button data-del="${Number(a.id)}">${tx('action.delete')}</button></td></tr>`,
     )
     .join('');
 
@@ -379,9 +381,9 @@ function renderSmartwall() {
         const box = document.createElement('div');
         box.className = `swtile ${tileClass(c)}`;
         Object.assign(box.style, pinStyles(pins[i], 0.01));
-        const t = tileLabel(c);
-        box.title = `頻道 ${t.channel} · ${t.type} (${t.priority})`;
-        box.textContent = String(t.channel);
+        const tile = tileLabel(c);
+        box.title = t('tile.title', { channel: tile.channel, type: tile.type, priority: tile.priority });
+        box.textContent = String(tile.channel);
         el.appendChild(box);
       });
     })
@@ -396,7 +398,7 @@ async function renderDaily() {
   try {
     const card = dailyCard(await api(`/api/reports/daily?${params}`));
     $('daily-summary').textContent =
-      `錄影 ${card.hours}h · ${card.gb}GiB · 中斷 ${card.disconnects}`;
+      t('recording.card', { hours: card.hours, gb: card.gb, disconnects: card.disconnects });
     $('daily-events').querySelector('tbody').innerHTML = card.events
       .map((e) => `<tr><td>${esc(e.type)}</td><td>${esc(e.count)}</td></tr>`)
       .join('');
@@ -415,11 +417,11 @@ async function renderSchedules() {
   $('sched-body').innerHTML = list
     .map(
       (s) =>
-        `<tr><td>${esc(s.channelId)}</td><td>${esc(scheduleLabel(s))}</td><td>${esc(s.enabled ? '啟用' : '停用')}</td>
-         <td><button data-sched-del="${Number(s.id)}">刪除</button></td></tr>`,
+        `<tr><td>${esc(s.channelId)}</td><td>${esc(scheduleLabel(s))}</td><td>${esc(s.enabled ? t('common.enabled') : t('common.disabled'))}</td>
+         <td><button data-sched-del="${Number(s.id)}">${tx('action.delete')}</button></td></tr>`,
     )
     .join('');
-  $('sched-count').textContent = `（${list.length}）`;
+  $('sched-count').textContent = t('count.parenthesized', { n: list.length });
   $('sched-body').querySelectorAll('button[data-sched-del]').forEach((btn) =>
     btn.addEventListener('click', async () => {
       const resp = await apiRaw(`/api/recording/schedules/${btn.dataset.schedDel}`, { method: 'DELETE' }).catch(
@@ -464,11 +466,11 @@ async function renderPatrols() {
   $('patrol-body').innerHTML = list
     .map(
       (p) =>
-        `<tr><td>${esc(patrolLabel(p))}</td><td>${esc(p.enabled ? '啟用' : '停用')}</td>
-         <td><button data-patrol-del="${Number(p.id)}">刪除</button></td></tr>`,
+        `<tr><td>${esc(patrolLabel(p))}</td><td>${esc(p.enabled ? t('common.enabled') : t('common.disabled'))}</td>
+         <td><button data-patrol-del="${Number(p.id)}">${tx('action.delete')}</button></td></tr>`,
     )
     .join('');
-  $('patrol-count').textContent = `（${list.length}）`;
+  $('patrol-count').textContent = t('count.parenthesized', { n: list.length });
   $('patrol-body').querySelectorAll('button[data-patrol-del]').forEach((btn) =>
     btn.addEventListener('click', async () => {
       const resp = await apiRaw(`/api/patrols/${btn.dataset.patrolDel}`, { method: 'DELETE' }).catch(() => null);
@@ -507,7 +509,7 @@ async function renderEvidence() {
         `<tr><td>#${esc(m.id)}</td><td>${esc(m.status)}</td><td>${esc(m.createdAt?.slice(0, 19) ?? '')}</td><td>${esc(m.items)}</td></tr>`,
     )
     .join('');
-  $('evidence-count').textContent = `（${rows.length}）`;
+  $('evidence-count').textContent = t('count.parenthesized', { n: rows.length });
 }
 
 async function renderBackup() {
@@ -515,10 +517,10 @@ async function renderBackup() {
   $('backup-body').innerHTML = rows
     .map(
       (r) =>
-        `<tr><td>#${esc(r.seq)}</td><td>${esc(r.runAt?.slice(0, 19) ?? '')}</td><td>${esc(r.copied)}</td><td>${esc(r.bytes)}</td><td>${esc(r.failed)}</td><td>${esc(r.advanced ? '已推進' : '未推進')}</td><td class="muted">${esc(r.target)}</td></tr>`,
+        `<tr><td>#${esc(r.seq)}</td><td>${esc(r.runAt?.slice(0, 19) ?? '')}</td><td>${esc(r.copied)}</td><td>${esc(r.bytes)}</td><td>${esc(r.failed)}</td><td>${esc(r.advanced ? t('common.advanced') : t('common.notAdvanced'))}</td><td class="muted">${esc(r.target)}</td></tr>`,
     )
     .join('');
-  $('backup-count').textContent = `（${rows.length}）`;
+  $('backup-count').textContent = t('count.parenthesized', { n: rows.length });
 }
 
 function bindBackupForm() {
@@ -536,8 +538,8 @@ function bindBackupForm() {
     if (!resp) return;
     const body = await resp.json().catch(() => null);
     $('backup-msg').textContent = resp.ok
-      ? `完成：掃描 ${body.scanned} → 複製 ${body.copied}（${(body.copiedBytes / 1048576).toFixed(1)}MiB），失敗 ${body.failed}`
-      : body?.error ?? '失敗';
+      ? t('backup.done', { scanned: body.scanned, copied: body.copied, size: (body.copiedBytes / 1048576).toFixed(1), failed: body.failed })
+      : body?.error ?? t('state.failed');
     if (resp.ok) renderBackup();
   });
 }
@@ -553,10 +555,10 @@ async function renderDoor() {
   $('door-body').innerHTML = rows
     .map(
       (e) =>
-        `<tr><td>${esc(e.time)}</td><td>${esc(e.device)}</td><td>${esc(e.door)}</td><td>${esc(e.card)}</td><td>${esc(e.direction)}</td><td class="${esc(e.granted ? 'ok' : 'bad')}">${esc(e.granted ? '放行' : '拒絕')}</td><td class="muted">${esc(e.reason)}</td></tr>`,
+        `<tr><td>${esc(e.time)}</td><td>${esc(e.device)}</td><td>${esc(e.door)}</td><td>${esc(e.card)}</td><td>${esc(e.direction)}</td><td class="${esc(e.granted ? 'ok' : 'bad')}">${esc(e.granted ? t('common.granted') : t('common.denied'))}</td><td class="muted">${esc(e.reason)}</td></tr>`,
     )
     .join('');
-  $('door-count').textContent = `（${rows.length}）`;
+  $('door-count').textContent = t('count.parenthesized', { n: rows.length });
 }
 
 async function renderDetections() {
@@ -580,7 +582,7 @@ async function renderDetections() {
         `<tr><td>${esc(d.time)}</td><td>ch${esc(d.channel)}</td><td>${esc(d.cls)}</td><td>${esc((d.conf * 100).toFixed(0))}%</td><td>${esc(d.x.toFixed(2))},${esc(d.y.toFixed(2))}</td><td>${esc(d.box)}</td></tr>`,
     )
     .join('');
-  $('det-count').textContent = `（${rows.length}）`;
+  $('det-count').textContent = t('count.parenthesized', { n: rows.length });
   const summaryUrl = q.toString() ? `/api/detections/summary?${q}` : '/api/detections/summary';
   const summary = await api(summaryUrl).catch(() => []);
   $('det-summary').textContent = (summary ?? [])
@@ -593,10 +595,10 @@ async function renderNotifs() {
   $('notif-body').innerHTML = rows
     .map(
       (n) =>
-        `<tr><td>${esc(n.time)}</td><td>ch${esc(n.channel)}</td><td>${esc(n.event)}</td><td>${esc(n.route)}</td><td class="${esc(n.ok ? 'ok' : 'bad')}">${esc(n.ok ? '成功' : '失敗')}</td><td>${esc(n.attempts)}</td><td class="muted">${esc(n.detail)}</td></tr>`,
+        `<tr><td>${esc(n.time)}</td><td>ch${esc(n.channel)}</td><td>${esc(n.event)}</td><td>${esc(n.route)}</td><td class="${esc(n.ok ? 'ok' : 'bad')}">${esc(n.ok ? t('state.ok') : t('state.failed'))}</td><td>${esc(n.attempts)}</td><td class="muted">${esc(n.detail)}</td></tr>`,
     )
     .join('');
-  $('notif-count').textContent = `（${rows.length}）`;
+  $('notif-count').textContent = t('count.parenthesized', { n: rows.length });
 }
 
 async function renderExports() {
@@ -607,7 +609,7 @@ async function renderExports() {
         `<tr><td>#${esc(j.id)}</td><td>ch${esc(j.channel)}</td><td>${esc(j.stream)}</td><td>${esc(j.start)}</td><td>${esc(j.end)}</td><td>${esc(j.status)}</td><td>${esc(j.file ?? '')}</td><td class="muted">${esc(j.sha)}${esc(j.error ? ` · ${j.error}` : '')}</td></tr>`,
     )
     .join('');
-  $('export-count').textContent = `（${rows.length}）`;
+  $('export-count').textContent = t('count.parenthesized', { n: rows.length });
 }
 
 function bindExportForm() {
@@ -625,7 +627,7 @@ function bindExportForm() {
     }).catch(() => null);
     if (!resp) return;
     const body = await resp.json().catch(() => null);
-    $('export-msg').textContent = resp.ok ? `已排入 #${body.id}` : body?.error ?? '失敗';
+    $('export-msg').textContent = resp.ok ? t('export.queued', { id: body.id }) : body?.error ?? t('state.failed');
     if (resp.ok) renderExports();
   });
 }
@@ -641,10 +643,10 @@ async function renderProviders() {
   $('provider-body').innerHTML = rows
     .map(
       (p) =>
-        `<tr><td>#${esc(p.id)}</td><td>${esc(p.name)}</td><td>${esc(p.kind)}</td><td><input type="checkbox" data-provider-toggle="${Number(p.id)}" ${esc(p.enabled ? 'checked' : '')}></td><td><button class="danger" data-provider-del="${Number(p.id)}">刪除</button></td><td class="muted">${esc(p.config.slice(0, 40))}</td></tr>`,
+        `<tr><td>#${esc(p.id)}</td><td>${esc(p.name)}</td><td>${esc(p.kind)}</td><td><input type="checkbox" data-provider-toggle="${Number(p.id)}" ${esc(p.enabled ? 'checked' : '')}></td><td><button class="danger" data-provider-del="${Number(p.id)}">${tx('action.delete')}</button></td><td class="muted">${esc(p.config.slice(0, 40))}</td></tr>`,
     )
     .join('');
-  $('provider-count').textContent = `（${rows.length}）`;
+  $('provider-count').textContent = t('count.parenthesized', { n: rows.length });
   Array.from(document.querySelectorAll('[data-provider-toggle]')).forEach((cb) => {
     cb.addEventListener('change', async () => {
       const resp = await apiRaw(`/api/auth/providers/${cb.dataset.providerToggle}`, {
@@ -681,7 +683,7 @@ function bindProviderForm() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name, kind, configJson: cfg, enabled: true }),
     }).catch(() => null);
-    if (await feedback('provider-msg', resp, (b) => `已新增 #${b.id}`)) renderProviders();
+    if (await feedback('provider-msg', resp, (b) => t('common.added', { id: b.id }))) renderProviders();
   });
 }
 
@@ -690,13 +692,13 @@ async function renderHolds() {
   $('hold-body').innerHTML = rows
     .map(
       (h) =>
-        `<tr><td>#${esc(h.id)}</td><td>ch${esc(h.channel)}</td><td>${esc(h.from)}</td><td>${esc(h.to)}</td><td>${esc(h.reason)}</td><td>${esc(h.by)}</td><td class="${esc(h.active ? 'ok' : 'bad')}">${esc(h.active ? '生效' : '已撤銷')}</td><td class="muted">${esc(h.revokedBy)}</td><td>${esc(h.active ? `<button class="danger" data-hold-revoke="${Number(h.id)}">撤銷</button>` : '')}</td></tr>`,
+        `<tr><td>#${esc(h.id)}</td><td>ch${esc(h.channel)}</td><td>${esc(h.from)}</td><td>${esc(h.to)}</td><td>${esc(h.reason)}</td><td>${esc(h.by)}</td><td class="${esc(h.active ? 'ok' : 'bad')}">${esc(h.active ? t('common.active') : t('common.revoked'))}</td><td class="muted">${esc(h.revokedBy)}</td><td>${esc(h.active ? `<button class="danger" data-hold-revoke="${Number(h.id)}">${tx('action.revoke')}</button>` : '')}</td></tr>`,
     )
     .join('');
-  $('hold-count').textContent = `（${rows.length}）`;
+  $('hold-count').textContent = t('count.parenthesized', { n: rows.length });
   Array.from(document.querySelectorAll('[data-hold-revoke]')).forEach((btn) => {
     btn.addEventListener('click', async () => {
-      const reason = prompt('撤銷原因');
+      const reason = prompt(t('state.revokeReason'));
       if (reason === null) return;
       await apiRaw(`/api/legal-holds/${btn.dataset.holdRevoke}/revoke`, {
         method: 'PUT',
@@ -730,7 +732,7 @@ function bindHoldForm() {
     }).catch(() => null);
     if (!resp) return;
     const body = await resp.json().catch(() => null);
-    $('hold-msg').textContent = resp.ok ? `已建立 #${body.id}` : body?.error ?? '失敗';
+    $('hold-msg').textContent = resp.ok ? t('hold.created', { id: body.id }) : body?.error ?? t('state.failed');
     if (resp.ok) renderHolds();
   });
 }
@@ -740,10 +742,10 @@ async function renderRules() {
   $('rule-body').innerHTML = rows
     .map(
       (r) =>
-        `<tr><td>#${esc(r.id)}</td><td>${esc(r.name)}</td><td>${esc(r.event || '—')}</td><td>${esc(r.channel || '—')}</td><td>${esc(r.keyword || '—')}</td><td>${esc(r.channels || '—')}</td><td><input type="checkbox" data-rule-toggle="${Number(r.id)}" ${esc(r.enabled ? 'checked' : '')}></td><td>${esc(r.min)}</td><td><button class="danger" data-rule-del="${Number(r.id)}">刪除</button></td></tr>`,
+        `<tr><td>#${esc(r.id)}</td><td>${esc(r.name)}</td><td>${esc(r.event || '—')}</td><td>${esc(r.channel || '—')}</td><td>${esc(r.keyword || '—')}</td><td>${esc(r.channels || '—')}</td><td><input type="checkbox" data-rule-toggle="${Number(r.id)}" ${esc(r.enabled ? 'checked' : '')}></td><td>${esc(r.min)}</td><td><button class="danger" data-rule-del="${Number(r.id)}">${tx('action.delete')}</button></td></tr>`,
     )
     .join('');
-  $('rule-count').textContent = `（${rows.length}）`;
+  $('rule-count').textContent = t('count.parenthesized', { n: rows.length });
   Array.from(document.querySelectorAll('[data-rule-toggle]')).forEach((cb) => {
     cb.addEventListener('change', async () => {
       await apiRaw(`/api/alert-rules/${cb.dataset.ruleToggle}/enabled`, {
@@ -788,7 +790,7 @@ function bindRuleForm() {
     }).catch(() => null);
     if (!resp) return;
     const body = await resp.json().catch(() => null);
-    $('rule-msg').textContent = resp.ok ? `已新增 #${body.id}` : body?.error ?? '失敗';
+    $('rule-msg').textContent = resp.ok ? t('common.added', { id: body.id }) : body?.error ?? t('state.failed');
     if (resp.ok) renderRules();
   });
 }
@@ -804,10 +806,10 @@ async function renderShares() {
   $('share-body').innerHTML = rows
     .map(
       (s) =>
-        `<tr><td>#${esc(s.id)}</td><td>${esc(s.kind)}</td><td>${esc(s.label || '—')}</td><td class="muted">${esc(s.path)}</td><td>${esc(s.token)}…</td><td>${esc(s.uses)}</td><td class="${esc(s.active ? 'ok' : 'bad')}">${esc(s.active ? '有效' : '失效')}</td><td>${esc(s.active ? `<button class="danger" data-share-revoke="${Number(s.id)}">撤銷</button>` : '')}</td></tr>`,
+        `<tr><td>#${esc(s.id)}</td><td>${esc(s.kind)}</td><td>${esc(s.label || '—')}</td><td class="muted">${esc(s.path)}</td><td>${esc(s.token)}…</td><td>${esc(s.uses)}</td><td class="${esc(s.active ? 'ok' : 'bad')}">${esc(s.active ? t('common.valid') : t('common.invalid'))}</td><td>${esc(s.active ? `<button class="danger" data-share-revoke="${Number(s.id)}">${tx('action.revoke')}</button>` : '')}</td></tr>`,
     )
     .join('');
-  $('share-count').textContent = `（${rows.length}）`;
+  $('share-count').textContent = t('count.parenthesized', { n: rows.length });
   Array.from(document.querySelectorAll('[data-share-revoke]')).forEach((btn) => {
     btn.addEventListener('click', async () => {
       const resp = await apiRaw(`/api/shares/${btn.dataset.shareRevoke}/revoke`, {
@@ -834,7 +836,7 @@ function bindShareForm() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ kind, resourcePath: path, label: label || null, maxUses }),
     }).catch(() => null);
-    if (await feedback('share-msg', resp, (b) => `已建立 ${b.token.slice(0, 12)}…`)) renderShares();
+    if (await feedback('share-msg', resp, (b) => t('share.created', { token: b.token.slice(0, 12) }))) renderShares();
   });
 }
 
@@ -843,10 +845,10 @@ async function renderReds() {
   $('red-body').innerHTML = rows
     .map(
       (r) =>
-        `<tr><td>#${esc(r.id)}</td><td>${esc(r.source)}</td><td>${esc(r.ref)}</td><td>CH${esc(r.channel)}</td><td>${esc(r.time)}</td><td>${esc(r.rect)}</td><td class="${esc(r.filled ? 'ok' : '')}">${esc(r.filled ? '塗滿' : '框選')}</td><td><button class="danger" data-red-del="${Number(r.id)}">移除</button></td></tr>`,
+        `<tr><td>#${esc(r.id)}</td><td>${esc(r.source)}</td><td>${esc(r.ref)}</td><td>CH${esc(r.channel)}</td><td>${esc(r.time)}</td><td>${esc(r.rect)}</td><td class="${esc(r.filled ? 'ok' : '')}">${esc(r.filled ? t('common.filled') : t('common.boxed'))}</td><td><button class="danger" data-red-del="${Number(r.id)}">${tx('action.remove')}</button></td></tr>`,
     )
     .join('');
-  $('red-count').textContent = `（${rows.length}）`;
+  $('red-count').textContent = t('count.parenthesized', { n: rows.length });
   Array.from(document.querySelectorAll('[data-red-del]')).forEach((btn) => {
     btn.addEventListener('click', async () => {
       await apiRaw(`/api/redactions/${btn.dataset.redDel}`, { method: 'DELETE' });
@@ -878,7 +880,7 @@ function bindRedForm() {
     }).catch(() => null);
     if (!resp) return;
     const body = await resp.json().catch(() => null);
-    $('red-msg').textContent = resp.ok ? `已新增 #${body.id}` : body?.error ?? '失敗';
+    $('red-msg').textContent = resp.ok ? t('common.added', { id: body.id }) : body?.error ?? t('state.failed');
     if (resp.ok) renderReds();
   });
 }
@@ -888,27 +890,27 @@ async function renderRep() {
   $('rep-body').innerHTML = rows
     .map(
       (j) =>
-        `<tr><td>#${esc(j.id)}</td><td class="muted">${esc(j.src)}</td><td class="muted">${esc(j.dst)}</td><td>${esc(j.minutes)} 分</td><td class="${esc(j.enabled ? 'ok' : '')}">${esc(j.enabled ? '啟用' : '停用')}</td><td class="${esc(j.fails > 0 ? 'bad' : 'ok')}">${esc(j.lastResult || '—')}${esc(j.fails > 0 ? `（連續 ${j.fails} 次）` : '')}</td><td class="${esc(j.due ? 'bad' : '')}">${esc(j.due ? '到期' : '—')}</td></tr>`,
+        `<tr><td>#${esc(j.id)}</td><td class="muted">${esc(j.src)}</td><td class="muted">${esc(j.dst)}</td><td>${esc(j.minutes)} ${tx('col.minutes')}</td><td class="${esc(j.enabled ? 'ok' : '')}">${esc(j.enabled ? t('common.enabled') : t('common.disabled'))}</td><td class="${esc(j.fails > 0 ? 'bad' : 'ok')}">${esc(j.lastResult || '—')}${esc(j.fails > 0 ? `（連續 ${j.fails} 次）` : '')}</td><td class="${esc(j.due ? 'bad' : '')}">${esc(j.due ? t('common.due') : '—')}</td></tr>`,
     )
     .join('');
-  $('rep-count').textContent = `（${rows.length}）`;
+  $('rep-count').textContent = t('count.parenthesized', { n: rows.length });
 }
 
 async function renderHealth() {
   const health = await api('/api/system-metrics').catch(() => null);
   if (!health) {
-    $('sys-msg').textContent = '無法取得系統指標';
+    $('sys-msg').textContent = t('state.metricsUnavailable');
     return;
   }
   const rows = sysMetricsRows(health);
-  $('sys-count').textContent = `（${rows.disks.length} 磁碟）`;
+  $('sys-count').textContent = t('metrics.disks', { count: rows.disks.length });
   $('sys-kv').textContent = 
-    `執行 ${rows.uptimeMinutes} 分鐘 · 工作集 ${rows.workingSetMb} MB · CPU ${rows.cpuPercent}%`;
+    t('metrics.exec', { minutes: rows.uptimeMinutes, workingSet: rows.workingSetMb, cpu: rows.cpuPercent });
   $('sys-body').innerHTML = rows.disks
     .map(
       (d) =>
         `<tr><td>${esc(d.name)}</td><td>${esc(d.format)}</td><td>${esc(d.totalMb)} MB</td>` +
-        `<td>${esc(d.freeMb)} MB</td><td>${esc((100 - d.usedPct).toFixed(1))}% 可用</td></tr>`,
+        `<td>${esc(d.freeMb)} MB</td><td>${tx('metrics.freePct', { pct: (100 - d.usedPct).toFixed(1) })}</td></tr>`,
     )
     .join('');
   $('sys-msg').textContent = '';
@@ -922,14 +924,14 @@ async function renderBoard() {
   const rows = alarmRows(board);
   const shown = filterBoardRows(rows, boardFilter);
   const can = canAct(readSession()?.role);
-  $('kpi').textContent = `確認 ${ackRate(rows)}% · 緊急 ${rows.filter((r) => r.priority === 'critical').length}`;
+  $('kpi').textContent = t('board.ackRate', { pct: ackRate(rows), count: rows.filter((r) => r.priority === 'critical').length });
   $('alarm-body').innerHTML = shown
     .map(
       (b) =>
         `<tr class="${esc(b.overdue ? 'overdue' : '')}"><td>#${esc(b.id)}</td><td>CH${esc(b.channel)}</td><td>${esc(b.event)}</td><td>${esc(b.start)}</td>` +
-        `<td>${esc(b.priority)}</td><td>${esc(b.status)}</td><td class="${esc(b.overdue ? 'bad' : '')}">${esc(b.overdue ? '逾期' : '—')}</td>` +
+        `<td>${esc(b.priority)}</td><td>${esc(b.status)}</td><td class="${esc(b.overdue ? 'bad' : '')}">${esc(b.overdue ? t('common.overdue') : '—')}</td>` +
         (can
-          ? `<td><select data-pri="${Number(b.id)}"><option value="low" ${esc(b.priority === 'low' ? 'selected' : '')}>低</option><option value="normal" ${esc(b.priority === 'normal' ? 'selected' : '')}>一般</option><option value="high" ${esc(b.priority === 'high' ? 'selected' : '')}>高</option><option value="critical" ${esc(b.priority === 'critical' ? 'selected' : '')}>緊急</option></select><button data-triage="${Number(b.id)}">分診</button><button data-ack="${Number(b.id)}" class="${esc(b.status === 'acknowledged' ? 'ok' : '')}">確認</button><button class="danger" data-fa="${Number(b.id)}">誤報</button></td>`
+          ? `<td><select data-pri="${Number(b.id)}"><option value="low" ${esc(b.priority === 'low' ? 'selected' : '')}>${tx('priority.low')}</option><option value="normal" ${esc(b.priority === 'normal' ? 'selected' : '')}>${tx('priority.normal')}</option><option value="high" ${esc(b.priority === 'high' ? 'selected' : '')}>${tx('priority.high')}</option><option value="critical" ${esc(b.priority === 'critical' ? 'selected' : '')}>${tx('priority.critical')}</option></select><button data-triage="${Number(b.id)}">${tx('action.triage')}</button><button data-ack="${Number(b.id)}" class="${esc(b.status === 'acknowledged' ? 'ok' : '')}">${tx('action.confirm')}</button><button class="danger" data-fa="${Number(b.id)}">${tx('common.falseAlarm')}</button></td>`
           : ''),
     )
     .join('');
@@ -942,19 +944,21 @@ async function renderBoard() {
     overdue: summary?.Overdue ?? 0,
   };
   const chips = [
-    ['全部', ''],
-    ['未處理', 'pending'],
-    ['已確認', 'acknowledged'],
-    ['已處置', 'actioned'],
-    ['誤報', 'false_alarm'],
-    ['逾期', 'overdue'],
+    [t('common.all'), ''],
+    [t('common.pending'), 'pending'],
+    [t('common.acknowledged'), 'acknowledged'],
+    [t('common.actioned'), 'actioned'],
+    [t('common.falseAlarm'), 'false_alarm'],
+    [t('common.overdue'), 'overdue'],
   ];
-  $('alarm-count').textContent = boardFilter ? `（${shown.length}/${rows.length}）` : `（${rows.length}）`;
-  $('alarm-meta').textContent = `更新於 ${new Date().toLocaleTimeString()}`;
+  $('alarm-count').textContent = boardFilter
+    ? t('count.filteredOfTotal', { shown: shown.length, total: rows.length })
+    : t('count.parenthesized', { n: rows.length });
+  $('alarm-meta').textContent = t('board.updatedAt', { time: new Date().toLocaleTimeString(locale()) });
   $('alarm-badges').innerHTML = chips
     .map(
       ([label, key]) =>
-        `<button class="chip-btn${esc(boardFilter === key ? ' on' : '')}" data-board-filter="${esc(key)}" aria-pressed="${esc(boardFilter === key)}">${esc(label)}：${esc(counts[key])}</button>`,
+        `<button class="chip-btn${esc(boardFilter === key ? ' on' : '')}" data-board-filter="${esc(key)}" aria-pressed="${esc(boardFilter === key)}">${tx('board.chip', { label, count: counts[key] })}</button>`,
     )
     .join('');
   Array.from(document.querySelectorAll('[data-board-filter]')).forEach((btn) => {
@@ -996,7 +1000,7 @@ function bindBoardActions() {
       await apiRaw(`/api/alarm-board/${id}/disposition`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: 'false_alarm', assignedTo: null, note: '管理面板標記誤報' }),
+        body: JSON.stringify({ status: 'false_alarm', assignedTo: null, note: t('board.manageFalseAlarm') }),
       });
       renderBoard();
     });
@@ -1022,8 +1026,8 @@ function bindEvidenceForm() {
     if (!resp) return;
     const body = await resp.json().catch(() => null);
     $('evidence-msg').textContent = resp.ok
-      ? `已打包：${body.bundlePath} · sha256 ${body.bundleSha256?.slice(0, 12)}…`
-      : body?.error ?? '失敗';
+      ? t('evidence.bundleCreated', { path: body.bundlePath, sha: body.bundleSha256?.slice(0, 12) })
+      : body?.error ?? t('state.failed');
     if (resp.ok) renderEvidence();
   });
 }
@@ -1043,11 +1047,12 @@ function renderPos() {
     .catch(() => {});
 }
 
-const FORENSIC_SOURCE_NAMES = { 1: '警報', 2: '門禁', 4: 'POS', 8: '邊緣AI' };
+// 必須是函式而不是模組層級常數：常數會在 import 時就把譯文定死，切換語言後這張表不會更新。
+const FORENSIC_SOURCE_NAMES = { 1: () => t('replay.sourceAlarm'), 2: () => t('replay.source'), 4: () => 'POS', 8: () => t('replay.sourceEdgeAi') };
 
 async function searchEvents(q) {
   if (!q) {
-    $('events-msg').textContent = '請輸入關鍵字';
+    $('events-msg').textContent = t('state.needKeyword');
     return;
   }
   const to = new Date();
@@ -1062,20 +1067,20 @@ async function searchEvents(q) {
       const sid = Number(e.SourceId ?? e.sourceId ?? 0);
       const source = Number(e.Source ?? e.source ?? 0);
       return (
-        `<tr><td>${esc(sid ? '#' + sid : '')}</td><td>${esc(row.time)}</td><td>${esc(FORENSIC_SOURCE_NAMES[source] ?? '—')}</td><td>${esc(row.type)}</td><td>${esc(row.status || '—')}</td>` +
+        `<tr><td>${esc(sid ? '#' + sid : '')}</td><td>${esc(row.time)}</td><td>${esc(FORENSIC_SOURCE_NAMES[source]?.() ?? '—')}</td><td>${esc(row.type)}</td><td>${esc(row.status || '—')}</td>` +
         (can && source === 1
-          ? `<td><button data-sack="${Number(sid)}">確認</button><button class="danger" data-sfa="${Number(sid)}">誤報</button></td></tr>`
+          ? `<td><button data-sack="${Number(sid)}">${tx('action.confirm')}</button><button class="danger" data-sfa="${Number(sid)}">${tx('common.falseAlarm')}</button></td></tr>`
           : '<td></td></tr>')
       );
     })
     .join('');
   if (can) bindSearchActions(() => searchEvents(q));
   if (items.length === 0) {
-    $('events-msg').textContent = '沒有符合的結果';
+    $('events-msg').textContent = t('state.noResults');
   } else if (items.length < page.total) {
-    $('events-msg').textContent = `找到 ${page.total} 筆，顯示前 ${items.length} 筆（結果過多請縮小關鍵字）`;
+    $('events-msg').textContent = t('search.foundTruncated', { total: page.total, shown: items.length });
   } else {
-    $('events-msg').textContent = `找到 ${page.total} 筆`;
+    $('events-msg').textContent = t('search.found', { total: page.total });
   }
 }
 
@@ -1096,7 +1101,7 @@ function bindSearchActions(refresh) {
       await apiRaw(`/api/alarm-board/${btn.dataset.sfa}/disposition`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: 'false_alarm', assignedTo: null, note: '搜尋命中標記誤報' }),
+        body: JSON.stringify({ status: 'false_alarm', assignedTo: null, note: t('board.searchFalseAlarm') }),
       });
       refresh();
       renderBoard();
@@ -1152,7 +1157,7 @@ async function refreshTimeline() {
  */
 async function attachPlaylist(video, playlist) {
   if (!('MediaSource' in window)) {
-    throw new Error('此瀏覽器不支援 MediaSource，請改用 Safari 或桌面版回放');
+    throw new Error(t('state.mseUnsupported'));
   }
 
   const type = mseMimeType(
@@ -1191,33 +1196,33 @@ async function playRemote(event) {
   const from = new Date($('play-from').value);
   const to = new Date($('play-to').value);
   if (!Number.isFinite(channelId) || channelId <= 0) {
-    msg.textContent = '頻道須為正整數';
+    msg.textContent = t('state.channelPositive');
     return;
   }
 
   if (!Number.isFinite(from.getTime()) || !Number.isFinite(to.getTime()) || to <= from) {
-    msg.textContent = '請填有效的起訖時間（結束須晚於開始）';
+    msg.textContent = t('state.needRange');
     return;
   }
 
-  msg.textContent = '載入中…';
+  msg.textContent = t('state.loading');
   try {
     const response = await apiRaw(buildPlaylistQuery({ channelId, stream: 'main', from, to }));
     if (!response.ok) {
       const info = await response.json().catch(() => null);
-      msg.textContent = info?.error ?? `播放清單載入失敗（${response.status}）`;
+      msg.textContent = info?.error ?? t('state.playlistFailed', { status: response.status });
       return;
     }
 
     const playlist = parseM3u8(await response.text());
     if (!playlist || playlist.segments.length === 0) {
-      msg.textContent = '沒有可播放的片段';
+      msg.textContent = t('state.noSegments');
       return;
     }
 
     await attachPlaylist($('play-video'), playlist);
-    $('play-meta').textContent = `${playlist.segments.length} 段／${Math.round(playlist.duration)} 秒`;
-    msg.textContent = '就緒';
+    $('play-meta').textContent = t('replay.playlistMeta', { segments: playlist.segments.length, seconds: Math.round(playlist.duration) });
+    msg.textContent = t('state.ready');
   } catch (err) {
     msg.textContent = err.message;
   }
@@ -1311,7 +1316,58 @@ function wire() {
   });
 }
 
+/** 語系切換（M243）。選擇記在 localStorage，重載後沿用。 */
+const LOCALE_KEY = 'helivms.locale';
+
+function storedLocale() {
+  try {
+    return window.localStorage.getItem(LOCALE_KEY) ?? DEFAULT_LOCALE;
+  } catch {
+    // 隱私模式或被停用儲存時仍要能正常操作，只是每次重載回到預設語系。
+    return DEFAULT_LOCALE;
+  }
+}
+
+/**
+ * 套用語系。除了靜態標記（applyDom），表格與訊息列也必須重繪——
+ * 它們是執行時用 t()/tx() 產生的，不會因為 applyDom 而改變。
+ * 直接呼叫各 render 而不整頁重載，是因為重載會清掉已輸入的篩選條件與分頁狀態。
+ */
+async function applyLocale(next, { persist = true } = {}) {
+  const applied = setLocale(next);
+  if (persist) {
+    try {
+      window.localStorage.setItem(LOCALE_KEY, applied);
+    } catch {
+      /* 儲存不可用時忽略：語系仍然生效，只是不會被記住 */
+    }
+  }
+
+  applyDom(document);
+  const pick = $('locale');
+  if (pick) pick.value = applied;
+
+  updateChrome();
+  await refreshLicense();
+  await refreshAll();
+  return applied;
+}
+
+function bindLocalePicker() {
+  const pick = $('locale');
+  if (!pick) return;
+  pick.value = locale();
+  pick.addEventListener('change', () => {
+    void applyLocale(pick.value);
+  });
+}
+
 async function boot() {
+  setLocale(storedLocale());
+  applyDom(document);
+  const pick = $('locale');
+  if (pick) pick.value = locale();
+
   wire();
   updateChrome();
   await refreshHealth();
@@ -1319,6 +1375,7 @@ async function boot() {
   await refreshAll();
   bindScheduleForm();
   bindPatrolForm();
+  bindLocalePicker();
   connectLive();
   setInterval(() => {
     if (pollGate(document.activeElement?.tagName, document.hidden)) {
@@ -1346,15 +1403,20 @@ async function refreshLicense() {
     if (status.decision === 'Valid') {
       // 續期提醒（§19.4 到期前 14 天）由伺服端算好文案，前端不重寫一份。
       el.textContent = status.expiryMessage
-        ? `授權 ${status.maxCameras} 路｜${status.expiryMessage}`
-        : `授權 ${status.maxCameras} 路`;
+        ? t('lic.channelsExpiry', { count: status.maxCameras, expiry: status.expiryMessage })
+        : t('lic.channels', { count: status.maxCameras });
       el.classList.toggle('off', Boolean(status.expiryMessage));
       return;
     }
     const missing = (status.featureStatus || [])
       .filter((f) => !f.allowed)
       .map((f) => f.name);
-    el.textContent = `未授權：${status.message || status.decision}${missing.length ? `（缺 ${missing.join('、')}）` : ''}`;
+    // 功能名稱來自伺服器，前端不自行翻譯；缺的清單與句型則走目錄，
+    // 否則切到英文介面時會出現「Not authorized: 影片 (缺 錄影、剪輯)」這種混雜畫面。
+    const reason = missing.length
+      ? `${status.message || status.decision} ${tx('state.missingFeatures', { features: missing.join(t('list.separator')) })}`
+      : status.message || status.decision;
+    el.textContent = t('state.unauthorized', { reason });
     el.classList.add('off');
   } catch (err) {
     if (el) el.textContent = '';

@@ -1019,7 +1019,7 @@ L2 比對（人臉/車牌）置「進階·需權限」區，預設關閉（§5.1
 | 4 | 備份與異地備援 | 已落地：`BackupService`＋checkpoint、`offsite_jobs`/`OffsiteReplicationService`、設備 SD 斷線補錄（`edge_backfill_jobs`＋`EdgeFfmpegBackfillRunner`，M89/M94/M96） | 資料安全 | P1（主體已完成） |
 | 5 | 數位簽章與證據包 | **已落地（M240＋M241）**：匯出檔旁自動產生 `.receipt.json` 簽章收據（RSA-2048／PKCS#1 v1.5，私鑰沿用 M53 `EvidenceSigner`），附公鑰與金鑰指紋；私鑰以 DPAPI 保護落庫（M241）、可稽核換發且保留歷史公鑰；離線驗證工具 `Tools/HeliVmsVerify` ＋ 遠端 `GET /api/exports/{id}/verify`；證據包 `manifest.json` 另有簽章 | 證據鏈完整性／司法效力 | **P1**（已完成） |
 | 6 | 事件回應工作流 | 已落地：四態＋`event_dispositions`/`event_disposition_trail`（M38）、分診面板與工作流 L1（`alarm_triage`/`alarm_notes`/`alarm_escalations`＋`AlarmEscalationPolicy` SLA 升階，M47/M102） | 營運 | P1（已完成） |
-| 7 | 多語言 i18n | **完全沒有**：全 repo 0 個 `.resx`，介面字串硬編繁中 | 出口與外文通路 | **P1**（未來市場才啟動） |
+| 7 | 多語言 i18n | **Web 已落地（M243）**：`src/HeliVMS.Web/i18n.js` 提供 `t()`／`tx()`／`setLocale()`／`applyDom()`，`zh-TW`＋`en` 逐 key 對齊，`index.html` 全數掛 `data-i18n`／`data-i18n-attr`，並有棘輪測試擋中文回流；**WPF 桌面與 .NET 層仍全 repo 0 個 `.resx`、介面字串硬編繁中** | 出口與外文通路 | **P1**（Web 垂直切片已完成） |
 | 8 | 智慧搜尋（向量語意） | 已落地：四表 FTS5 統一檢索（`EventSearchRepository`/`UnifiedEventSearch`，M91/M97）＋規則式中文 NLP 查詢解析（M107）＋`clip_embeddings` 資料層與 `/api/clip/*` 端點（M242 修正維度／位元組序，索引維度不符時回 409）；**缺真正的向量檢索與影片摘要** | 現代 VMS 賣點 | **P2** |
 | 9 | 統計報表 | 僅 `/api/reports/daily`＋`ReportsWindow`（每日）；容量趨勢/斷線統計/週期郵寄未做 | 管理與驗收 | **P2** |
 | 10 | 中央/多機集群管理 | 沒有上層 NVR；僅第二記錄伺服器 Failover（租約仲裁＋實體接管，`failover_state`/`failover_events`，M87/M88/M98） | 大型案/連鎖場域 | **P2** |
@@ -1044,6 +1044,14 @@ L2 比對（人臉/車牌）置「進階·需權限」區，預設關閉（§5.1
 **(1) 遠程存取 Web + 行動端**
 - 架構：`HeliVms.WebApi`（ASP.NET Core）提供 REST + WebSocket；`HeliVms.Web`（SPA）與桌面 App 分流。**REST P0 L0 已落地（M117 `HeliVMS.WebApi`：health、channels、events 分頁＋跨源全文、alarms board/summary、ack/disposition/triage、pos 查詢/對帳、smartwall board；Bearer API 金鑰驗證）**；**WebSocket 即時警報流已落地（M118 `/api/alerts/ws`：Subscribe→Accept、ack/disposition/triage 事件廣播、離線退訂）**；**網頁主控台 SPA 已落地（`HeliVMS.Web`：警報看板、門禁/POS/偵測/排程/巡視/分享/企業身份面板、授權徽章與未授權回饋、單一認證傳輸層）**
 - **已錄影遠程回放已落地（M239，HLS VOD）**：`GET /api/stream/{channelId}/playlist.m3u8?stream&from&to` 由 `segments` 索引產生 VOD 清單（EXT-X-MAP＋EXTINF＋EXT-X-PROGRAM-DATE-TIME，單次上限 24 小時），`GET /api/stream/segment/{id}/init.mp4`／`media.m4s` 提供片段。關鍵在 `Fmp4Splitter`：錄影檔是 `empty_moov`（每檔自帶 ftyp＋moov），HLS 只能有一個初始化段，所以要把每檔的 ftyp/moov 抽掉、只留 moof/mdat，並且**只讀檔頭前綴**（不必把整個錄影檔讀進記憶體）。路徑政策 `RecordedSegmentPolicy`：呼叫端只給分段編號，路徑一律取自索引，且必須落在 `HELIVMS_RECORDINGS_ROOT`（未設定時退回 `HELIVMS_DATA`／`C:\HeliVMSData` + `recordings`）之內，解析不出根目錄就整個拒絕；只服務 status=final 的分段。SPA 以 `parseM3u8`＋`MediaSource` 逐段 append 播放（無外部相依）。順帶修掉一個洩漏：`/api/recording/segments` 原本會把主機絕對路徑 `file_path` 回給遠程呼叫者，現已改為不回傳
+- **Web 主控台已完整 i18n（M243）**：`src/HeliVMS.Web/i18n.js` 提供 `t()`／`tx()`／`setLocale()`／`applyDom()`，語系目錄 `zh-TW`（預設）與 `en` 以 key 對齊。三個必須講清楚的邊界：
+  - **資料與翻譯不能爭用同一個節點**。`index.html` 的 `#who`（登入身分）與 `#audit-csv`（CSV 下載）由 `app.js` 在執行期改寫。`#who` 因此**不掛** `data-i18n`，否則切換語言會把「admin · 王小明」蓋回「未登入」。`#audit-csv` 是刻意保留的例外：它的失敗訊息是暫時狀態，切回語言時回到預設標籤才是預期畫面。`i18n.test.js` 會掃描所有同時有 `id` 與 `data-i18n` 的元素，若該 id 在 `app.js` 中被 `textContent`／`innerHTML`／`value` 指派就讓測試紅。
+  - **只有 `tx()` 能進 `innerHTML`**。`t()` 會原樣內插參數，所以伺服器來的功能名稱或人名若直接進模板就是 XSS；`tx()` 先翻譯再 `esc()`。`app.security.test.js` 的 innerHTML allowlist 只放行 `tx(`，不放行 `t(`。
+  - **`data-i18n` 不得放在還有子元素的元素上**。`applyDom` 用 `textContent` 覆寫整個節點，所以 `<label>文字 <input></label>` 或 `<h2>標題 <span id="…-count"></span></h2>` 若把標記掛在外層，切換語言就會把輸入框與計數徽章整個刪掉（自動注入時實際產生 25 個這種元素）。混合內容必須把 `data-i18n` 下移到只包文字的內層 `<span>`；`i18n.test.js` 有對應守衛。
+  - **`i18n` 元素的「無子元素」與「執行期所有權」是兩條不同的約束**。前者管 DOM 結構（會被刪掉），後者管資料語意（會被蓋回預設值）；兩者都靠掃描 `index.html` 與 `app.js` 的對帳來守護，因為它們都不會讓任何既有斷言變紅。
+  - **棘輪擋住中文回流**。`i18n.test.js` 掃 `app.js`／`lib.js` 的字串與樣板字面值，命中 CJK 就紅；範圍含 `U+3000–303F` 與 `U+FF00–FFEF`，因為先前只掃漢字時漏掉了 `join('、')` 與 `（${rows.length}）` 這類全形標點——英文畫面會出現全形逗號與全形括號。`index.html` 端另外驗證：所有可見文字節點與 `placeholder`／`aria-label`／`title` 不得有未標記的中文（以「文字／標籤交替」切分掃描，**不可**用 `>([^<>]*CJK[^<>]*)<` 這種重疊正則，其 `lastIndex` 會吃掉下一個 `<` 而漏掉巢狀文字），且所有 `data-i18n`／`data-i18n-attr` 引用的 key 必須存在。刻意留下的例外僅兩個（以明示清單記錄原因）：`#who` 的 `未登入` 由執行期改寫、語言選單的 `繁體中文` 維持母語（endonym）讓使用者認得出切到哪一種語言。
+  - 切換語言走 `applyLocale()`：`applyDom(document)` 更新靜態標記與 `<html lang>`，再 `await refreshLicense()`＋`await refreshAll()` 重繪執行期產生的表格與訊息列（`applyDom` 管不到它們）；選擇存 `localStorage`，讀寫都包 try/catch（隱私模式不可用時仍能操作，只是重載回到預設）。刻意**不整頁重載**——那會清掉使用者已輸入的篩選條件與分頁狀態。
+  - 已知未涵蓋：WPF 桌面程式與 .NET 層訊息仍是硬編繁中，M243 只處理 Web。
 - **仍未落地：即時串流**。已錄影可遠程回放（M239 HLS VOD），但「現在這一刻」的畫面遠程看不到——實時監看 = **WebRTC**（低延遲），需要拉流＋轉碼／SFU（WHEP），屬於另一個量級的基礎設施
 - 安全：TLS + JWT；與桌面端共用資料庫與稽核（誰遠端看了什麼）——呼應 §11.5
   - **現況**：已用 Bearer 金鑰（`ApiKeyAuthMiddleware`，非常時外 fail-closed、常時比較、每來源 429、WebSocket 僅 `?key=`）＋授權旗標閘門（`LicenseGateMiddleware`，403 帶 `feature`）；JWT／逐請求授權（檢閱者級別起跳）尚未做
@@ -1071,7 +1079,7 @@ L2 比對（人臉/車牌）置「進階·需權限」區，預設關閉（§5.1
 | 數位簽章 | 匯出影片以私鑰簽署，`HeliVmsVerify` 工具可驗證（司法效力）（**已實作 M240**：`ExportReceiptService` 寫出 `<匯出檔>.receipt.json`（檔名、SHA-256、大小、秒數、通道、起訖時間窗、簽發時間、金鑰指紋、公鑰 PEM、base64url 簽章）；驗證鏈只依賴 BCL，`Tools/HeliVmsVerify <匯出檔> [--signer <指紋>]` 可離線重算雜湊＋驗簽，遠端另有 `GET /api/exports/{id}/verify?signer=`） |
 | 事件回應工作流 | 確認/未決/誤報/已處理四態 + 指派 + 附註 + 時間戳軌跡（**已實作 M38**：`event_dispositions`/`event_disposition_trail`、`AlarmEventRepository.SetDisposition`/`ListDispositionTrail`、事件中心處置列） |
 | 遮蔽偵測（Tamper） | L0 即可實作：幀亮度突變 / 邊緣能量急降 / 全黑全白偵測 → 「鏡頭被遮、被移、被噴漆」警報（附快照）（**已實作 M39**：`TamperDetector`（16×16 灰階網格／亮暗閾值／邊緣能量基準 EMA）＋`TamperEventEngine`（連續 N 幀開窗、冷卻收尾、寫入 `alarm_events` `event_type='tamper'` 附 BMP 快照）；設定鍵 `detect.tamper.enabled`，設定中心「功能」頁開關） |
-| 多語言 i18n | RESX 資源庫 + 語言切換（繁中/簡中/EN/日本語）；字型與格式全面參數化（**未實作**：全 repo 0 個 `.resx`，介面字串硬編繁中） |
+| 多語言 i18n | RESX 資源庫 + 語言切換（繁中/簡中/EN/日本語）；字型與格式全面參數化（**Web 已於 M243 落地**：`i18n.js` ＋ `data-i18n` ＋ 棘輪測試，僅 `zh-TW`／`en`；**WPF 與 .NET 層仍未實作**：全 repo 0 個 `.resx`，介面字串硬編繁中） |
 
 ### 14.5 P2 建議（差異化 / 擴展）
 

@@ -7,6 +7,15 @@ const root = join(dirname(fileURLToPath(import.meta.url)));
 const appSource = readFileSync(join(root, 'app.js'), 'utf8');
 const indexSource = readFileSync(join(root, 'index.html'), 'utf8');
 const stylesSource = readFileSync(join(root, 'styles.css'), 'utf8');
+// M243：介面文字搬到 i18n.js 後，原始碼斷言不能只看 app.js，
+// 否則「字串還在不在」會被誤判成翻譯被刪掉。這裡同時確認 key 有被使用、且目錄裡真的有譯文。
+const i18nSource = readFileSync(join(root, 'i18n.js'), 'utf8');
+
+/** 斷言某個 key 被 app.js 引用，且目錄中確實有對應譯文。 */
+function expectLocalized(source, key, zhTW) {
+  expect(source).toContain(`t('${key}')`);
+  expect(i18nSource).toContain(`'${key}': '${zhTW}'`);
+}
 
 describe('alarm board consolidation', () => {
   it('renders the board from the validated alarm-board API', () => {
@@ -56,12 +65,13 @@ describe('api-key flow', () => {
 
 describe('search feedback', () => {
   it('reports empty result sets and truncation', () => {
-    expect(appSource).toMatch(/沒有符合的結果/);
+    expectLocalized(appSource, 'state.noResults', '沒有符合的結果');
     expect(appSource).toMatch(/page\.total/);
   });
 
   it('guards empty queries with a hint', () => {
-    expect(appSource).toMatch(/if \(!q\)[\s\S]*請輸入關鍵字/);
+    expect(appSource).toMatch(/if \(!q\)[\s\S]*t\('state\.needKeyword'\)/);
+    expect(i18nSource).toContain("'state.needKeyword': '請輸入關鍵字'");
   });
 
   it('adds a live region under the search table', () => {
@@ -71,13 +81,14 @@ describe('search feedback', () => {
 
 describe('search-to-action', () => {
   it('labels the search source column and action header', () => {
-    expect(indexSource).toMatch(/<th scope="col">來源<\/th>/);
-    expect(indexSource).toMatch(/<th scope="col">操作<\/th>/);
+    expect(indexSource).toMatch(/<th scope="col"[^>]*data-i18n="col\.source"/);
+    expect(indexSource).toMatch(/<th scope="col"[^>]*data-i18n="col\.operation"/);
   });
 
-  it('renders per-hit source names', () => {
-    expect(appSource).toMatch(/FORENSIC_SOURCE_NAMES = \{ 1: '警報', 2: '門禁', 4: 'POS', 8: '邊緣AI' \}/);
-    expect(appSource).toMatch(/FORENSIC_SOURCE_NAMES\[source\]/);
+it('renders per-hit source names', () => {
+    // 翻譯必須在呼叫時求值，否則切換語言後這張來源表會停在舊語言。
+    expect(appSource).toMatch(/FORENSIC_SOURCE_NAMES = \{ 1: \(\) => t\('replay\.sourceAlarm'\), 2: \(\) => t\('replay\.source'\), 4: \(\) => 'POS', 8: \(\) => t\('replay\.sourceEdgeAi'\) \}/);
+    expect(appSource).toMatch(/FORENSIC_SOURCE_NAMES\[source\]\?\.\(\)/);
   });
 
   it('shows alarm hit id and status, and gates 確認/誤報 actions to alarm hits for actors', () => {
@@ -112,9 +123,9 @@ describe('connection banner', () => {
     expect(appSource).toMatch(/catch \(err\) \{\s*setConn\(false\);\s*throw err;\s*\}/);
   });
 
-  it('renders a disconnect label and hides empty state', () => {
-    expect(appSource).toMatch(/連線中斷/);
-    expect(appSource).toMatch(/el\.textContent = ok \? '' : '連線中斷';/);
+it('renders a disconnect label and hides empty state', () => {
+    expect(appSource).toMatch(/el\.textContent = ok \? '' : t\('state\.disconnected'\);/);
+    expect(i18nSource).toContain("'state.disconnected': '連線中斷'");
   });
 });
 
@@ -129,9 +140,10 @@ describe('license banner', () => {
     expect(appSource).toMatch(/refreshLicense\(\);\s*refreshAll\(\);/);
   });
 
-  it('names the missing features instead of leaving an empty panel', () => {
+it('names the missing features instead of leaving an empty panel', () => {
     expect(appSource).toMatch(/apiRaw\('\/api\/license'\)/);
-    expect(appSource).toMatch(/未授權：/);
+    expect(appSource).toMatch(/tx?\('state\.unauthorized'/);
+    expect(i18nSource).toContain("'state.unauthorized': '未授權：{reason}'");
     expect(appSource).toMatch(/\.filter\(\(f\) => !f\.allowed\)/);
   });
 
@@ -245,12 +257,15 @@ describe('license denial feedback on gated panels', () => {
     }
   });
 
-  it('shows the server denial text instead of a generic failure', () => {
+it('shows the server denial text instead of a generic failure', () => {
     const body = functionBody('feedback');
-    expect(body).toMatch(/info\?\.error \?\? '失敗'/);
-    expect(body).toMatch(/'連線中斷'/);
+    expect(body).toMatch(/info\?\.error \?\? t\('state\.failed'\)/);
+    expect(body).toMatch(/t\('state\.disconnected'\)/);
     expect(body).toMatch(/resp\.ok \? okText\(info\)/);
     expect(body).toMatch(/return resp\.ok;/);
+    // fallback 訊息必須真的有譯文，否則閘門擋下時會顯示 ‼state.failed。
+    expect(i18nSource).toContain("'state.failed': '失敗'");
+    expect(i18nSource).toContain("'state.disconnected': '連線中斷'");
   });
 
   it('adds a live region to every gated panel', () => {
@@ -282,7 +297,7 @@ describe('license denial feedback on gated panels', () => {
 
 describe('board freshness', () => {
   it('labels the overdue column it already renders', () => {
-    expect(indexSource).toMatch(/<th scope="col">逾期<\/th>/);
+    expect(indexSource).toMatch(/<th scope="col"[^>]*data-i18n="col\.overdue"/);
   });
 
   it('adds a last-updated meta line plus manual refresh', () => {
@@ -290,8 +305,9 @@ describe('board freshness', () => {
     expect(indexSource).toMatch(/id="board-refresh"[^>]*>立即更新/);
   });
 
-  it('stamps the render time and wires the refresh button', () => {
-    expect(appSource).toMatch(/更新於 \$\{new Date\(\)\.toLocaleTimeString\(\)\}/);
+it('stamps the render time and wires the refresh button', () => {
+    // 時間戳必須跟著語系走（en 走 12 小時制），否則英文介面會出現 24 小時制的時間。
+    expect(appSource).toMatch(/t\('board\.updatedAt', \{ time: new Date\(\)\.toLocaleTimeString\(locale\(\)\) \}\)/);
     expect(appSource).toMatch(/\$\(['"]board-refresh['"]\)\?\.addEventListener\(['"]click['"], \(\) => renderBoard\(\)\)/);
   });
 });
@@ -299,8 +315,8 @@ describe('board freshness', () => {
 describe('admin quick nav', () => {
   it('lists admin section jump links below the topbar', () => {
     expect(indexSource).toMatch(/id="admin-nav"[^>]*hidden[^>]*aria-label="管理區段"/);
-    expect(indexSource).toMatch(/<a href="#accounts-panel">帳號<\/a>/);
-    expect(indexSource).toMatch(/<a href="#health-panel">健康<\/a>/);
+    expect(indexSource).toMatch(/<a href="#accounts-panel"[^>]*data-i18n="col\.account"/);
+    expect(indexSource).toMatch(/<a href="#health-panel"[^>]*data-i18n="nav\.health"/);
   });
 
   it('shows the nav only for actors in chrome', () => {
@@ -312,8 +328,11 @@ describe('admin quick nav', () => {
   });
 });
 describe('remote playback (M239 HLS)', () => {
-  it('exposes a playback panel with an accessible form and a video element', () => {
-    expect(indexSource).toMatch(/<h2>遠程回放/);
+it('exposes a playback panel with an accessible form and a video element', () => {
+    // M243：標題文字帶 data-i18n，斷言改看結構與 data-i18n，避免綁死某一種語言。
+    // data-i18n 必須在只包文字的 span 上，不能在含 <video>／計數 span 的 <h2> 上，
+    // 否則 applyDom 的 textContent 會刪掉那些子節點。
+    expect(indexSource).toMatch(/<h2[^>]*>\s*<span data-i18n="nav\.remotePlayback">/);
     expect(indexSource).toMatch(/<video id="play-video"[^>]*controls[^>]*playsinline/);
     expect(indexSource).toMatch(/id="play-channel"[^>]*aria-label="頻道編號"/);
     expect(indexSource).toMatch(/id="play-from"[^>]*aria-label="起始時間"/);
