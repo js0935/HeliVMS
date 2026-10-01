@@ -9,6 +9,8 @@ using HeliVMS.Licensing.Crypto;
 using HeliVMS.Storage;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.Routing;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace HeliVMS.Api.Tests;
 
@@ -184,6 +186,55 @@ public class LicenseApiTests
         Assert.True(
             missing.Count == 0,
             "LicenseGateMiddleware 有規則但 NoLicense 行為測試沒涵蓋：" + string.Join("、", missing));
+    }
+
+    [Fact]
+    public void GatePrefixes_MatchRealRoutes()
+    {
+        // M231 對的是「規則 → 測試」，這裡反過來對「規則 → 真實路由」。
+        // 前綴打錯一個字（/api/share 對 /api/shares）規則永遠不命中，等於那一區端點裸奔，
+        // 而規則表與行為測試都還「看起來」有涵蓋到——只有拿真的路由表來對才抓得到。
+        using var factory = new LicensedApiFactory { Features = null };
+        using var _ = factory.CreateClient();
+
+        var routes = factory.Services.GetRequiredService<EndpointDataSource>()
+            .Endpoints.OfType<RouteEndpoint>()
+            .Select(e => e.RoutePattern.RawText)
+            .OfType<string>()
+            .ToList();
+        Assert.NotEmpty(routes);
+
+        var source = File.ReadAllText(Path.Combine(RepoRoot(), "src", "HeliVMS.WebApi", "LicenseGateMiddleware.cs"));
+        var prefixes = GatePrefixes(source);
+        Assert.NotEmpty(prefixes);
+
+        var dead = prefixes
+            .Where(p => !routes.Any(r =>
+                r.Equals(p, StringComparison.OrdinalIgnoreCase) ||
+                r.StartsWith(p + "/", StringComparison.OrdinalIgnoreCase)))
+            .ToList();
+
+        Assert.True(
+            dead.Count == 0,
+            "LicenseGateMiddleware 的前綴比對不到任何真實路由（多半打錯字，規則永不生效或擋錯一區）："
+            + string.Join("、", dead));
+    }
+
+    /// <summary>取出 <c>AlwaysAllowed</c> 與 <c>Rules</c> 兩個陣列裡宣告的 <c>/api/...</c> 前綴。</summary>
+    private static List<string> GatePrefixes(string middlewareSource)
+    {
+        var prefixes = new List<string>();
+        foreach (var marker in new[] { "AlwaysAllowed =", "Rules =" })
+        {
+            var start = middlewareSource.IndexOf(marker, StringComparison.Ordinal);
+            Assert.True(start > 0, $"LicenseGateMiddleware 找不到 {marker}");
+            var end = middlewareSource.IndexOf("];", start, StringComparison.Ordinal);
+            Assert.True(end > start, $"LicenseGateMiddleware 的 {marker} 陣列沒收斂");
+            prefixes.AddRange(Regex.Matches(middlewareSource[start..end], @"""(/api/[\w/]+)""")
+                .Select(m => m.Groups[1].Value));
+        }
+
+        return prefixes;
     }
 
     [Theory]

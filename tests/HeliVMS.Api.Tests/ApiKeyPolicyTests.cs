@@ -91,6 +91,23 @@ public class ApiKeyPolicyTests
     }
 
     [Fact]
+    public async Task ApiKeyCheck_RunsBeforeLicenseGate()
+    {
+        // 順序有意義（Program.cs 是 ApiKeyAuth → LicenseGate）：
+        // 未通過金鑰驗證的呼叫者不該從狀態碼分得出「這台買了什麼」，403 等於洩漏授權狀態。
+        // 反過來，金鑰正確但沒買遠端，就必須是 403；若是 401，前端會一直要人重試登入而不是
+        // 去畫「請升級」畫面。
+        using var factory = new ProductionApiFactory { ApiKey = "order-check-key" };
+
+        using var anonymous = factory.CreateClient();
+        Assert.Equal(HttpStatusCode.Unauthorized, (await anonymous.GetAsync("/api/shares")).StatusCode);
+
+        using var keyed = factory.CreateClient();
+        keyed.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", "order-check-key");
+        Assert.Equal(HttpStatusCode.Forbidden, (await keyed.GetAsync("/api/shares")).StatusCode);
+    }
+
+    [Fact]
     public async Task RepeatedFailuresFromOneAddress_AreRateLimited()
     {
         var config = new ConfigurationBuilder()
