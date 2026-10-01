@@ -37,7 +37,7 @@ public class LdapClientTests
         });
         server.Start();
 
-        var groups = new LdapClient(TimeSpan.FromSeconds(5)).Bind(Settings(server.Port), "alice", "p@ss");
+        var groups = new LdapClient(TimeSpan.FromSeconds(30)).Bind(Settings(server.Port), "alice", "p@ss");
 
         Assert.NotNull(groups);
         Assert.Equal(new[] { groupA, groupB }, groups!);
@@ -61,7 +61,7 @@ public class LdapClientTests
         });
         server.Start();
 
-        new LdapClient(TimeSpan.FromSeconds(5)).Bind(Settings(server.Port), "alice", "p@ss");
+        new LdapClient(TimeSpan.FromSeconds(30)).Bind(Settings(server.Port), "alice", "p@ss");
 
         Assert.NotNull(captured);
         var ops = Messages.ParseMessage(captured!);
@@ -99,7 +99,7 @@ public class LdapClientTests
         });
         server.Start();
 
-        new LdapClient(TimeSpan.FromSeconds(5)).Bind(Settings(server.Port), "alice", "p@ss");
+        new LdapClient(TimeSpan.FromSeconds(30)).Bind(Settings(server.Port), "alice", "p@ss");
 
         Assert.NotNull(searchMsg);
         var ops2 = Messages.ParseMessage(searchMsg!);
@@ -119,7 +119,7 @@ public class LdapClientTests
         using var server = new FakeLdapServer(_ => Messages.BindResponse(0x01, 49, "invalidCredentials"));
         server.Start();
 
-        var result = new LdapClient(TimeSpan.FromSeconds(5)).Bind(Settings(server.Port), "alice", "bad");
+        var result = new LdapClient(TimeSpan.FromSeconds(30)).Bind(Settings(server.Port), "alice", "bad");
         Assert.Null(result);
     }
 
@@ -141,7 +141,7 @@ public class LdapClientTests
         using var server = new FakeLdapServer(_ => new byte[] { 0x30, 0x81 });
         server.Start();
 
-        var result = new LdapClient(TimeSpan.FromSeconds(5)).Bind(Settings(server.Port), "alice", "p@ss");
+        var result = new LdapClient(TimeSpan.FromSeconds(30)).Bind(Settings(server.Port), "alice", "p@ss");
         Assert.Null(result);
     }
 
@@ -177,7 +177,7 @@ public class LdapClientTests
         });
         server.Start();
 
-        var groups = new LdapClient(TimeSpan.FromSeconds(5)).Bind(Settings(server.Port, serviceAccount: true), "alice", "p@ss");
+        var groups = new LdapClient(TimeSpan.FromSeconds(30)).Bind(Settings(server.Port, serviceAccount: true), "alice", "p@ss");
 
         Assert.NotNull(groups);
         Assert.Equal(new[] { "CN=G2,DC=corp,DC=com" }, groups!);
@@ -200,7 +200,7 @@ public class LdapClientTests
         });
         server.Start();
 
-        var result = new LdapClient(TimeSpan.FromSeconds(5)).Bind(Settings(server.Port), "alice", "p@ss");
+        var result = new LdapClient(TimeSpan.FromSeconds(30)).Bind(Settings(server.Port), "alice", "p@ss");
         Assert.NotNull(result);
         Assert.Empty(result!);
     }
@@ -221,7 +221,7 @@ public class LdapClientTests
         });
         server.Start();
 
-        var result = new LdapClient(TimeSpan.FromSeconds(5)).Bind(Settings(server.Port), "alice", "p@ss");
+        var result = new LdapClient(TimeSpan.FromSeconds(30)).Bind(Settings(server.Port), "alice", "p@ss");
         Assert.NotNull(result);
         Assert.Empty(result!);
     }
@@ -246,7 +246,7 @@ public class LdapClientTests
         server.Start();
 
         var settings = Settings(server.Port) with { AdminGroups = new[] { adminGroup } };
-        var groups = new LdapClient(TimeSpan.FromSeconds(5)).Bind(settings, "alice", "p@ss");
+        var groups = new LdapClient(TimeSpan.FromSeconds(30)).Bind(settings, "alice", "p@ss");
         Assert.NotNull(groups);
         Assert.Equal("admin", RoleMapper.Map(groups!, settings.AdminGroups, settings.DefaultRole));
     }
@@ -269,7 +269,7 @@ public class LdapClientTests
         });
         server.Start();
 
-        var result = new LdapClient(TimeSpan.FromSeconds(5)).Bind(Settings(server.Port), "alice", "p@ss");
+        var result = new LdapClient(TimeSpan.FromSeconds(30)).Bind(Settings(server.Port), "alice", "p@ss");
         Assert.Equal("viewer", RoleMapper.Map(result!, Settings(server.Port).AdminGroups, "viewer"));
     }
 }
@@ -320,27 +320,35 @@ internal sealed class FakeLdapServer : IDisposable
 
     public void Start()
     {
-        _task = Task.Run(async () =>
+        // 專屬執行緒＋同步 IO（M221）：測試並行時 thread pool 可能飽和，
+        // 用 Task.Run 的續體會延遲回應，讓 client 逾時偶發失敗。
+        _task = Task.Factory.StartNew(
+            Run,
+            CancellationToken.None,
+            TaskCreationOptions.LongRunning,
+            TaskScheduler.Default);
+    }
+
+    private void Run()
+    {
+        using var client = _listener.AcceptTcpClient();
+        using var stream = client.GetStream();
+        while (true)
         {
-            var client = await _listener.AcceptTcpClientAsync().ConfigureAwait(false);
-            using var stream = client.GetStream();
-            while (true)
+            var msg = ReadMessage(stream);
+            if (msg is null)
             {
-                var msg = await ReadMessageAsync(stream).ConfigureAwait(false);
-                if (msg is null)
-                {
-                    return;
-                }
-
-                var response = _respond(msg);
-                if (response is null || !stream.CanWrite)
-                {
-                    return;
-                }
-
-                await stream.WriteAsync(response).ConfigureAwait(false);
+                return;
             }
-        });
+
+            var response = _respond(msg);
+            if (response is null || !stream.CanWrite)
+            {
+                return;
+            }
+
+            stream.Write(response, 0, response.Length);
+        }
     }
 
     public void Dispose()
@@ -349,26 +357,26 @@ internal sealed class FakeLdapServer : IDisposable
         _task?.GetAwaiter().GetResult();
     }
 
-    private static async Task<byte[]?> ReadMessageAsync(Stream stream)
+    private static byte[]? ReadMessage(Stream stream)
     {
-        var first = await stream.ReadAsync(new byte[1]).ConfigureAwait(false);
-        if (first == 0)
+        var first = stream.ReadByte();
+        if (first < 0)
         {
             return null;
         }
 
-        var len = await ReadByteAsync(stream).ConfigureAwait(false);
-        if (len is null)
+        var len = stream.ReadByte();
+        if (len < 0)
         {
             return null;
         }
 
         var length = 0;
-        if ((len.Value & 0x80) != 0)
+        if ((len & 0x80) != 0)
         {
-            var count = len.Value & 0x7F;
+            var count = len & 0x7F;
             var raw = new byte[count];
-            await ReadFullyAsync(stream, raw).ConfigureAwait(false);
+            ReadFully(stream, raw);
             foreach (var b in raw)
             {
                 length = (length << 8) | b;
@@ -376,31 +384,24 @@ internal sealed class FakeLdapServer : IDisposable
         }
         else
         {
-            length = len.Value;
+            length = len;
         }
 
         var body = new byte[length];
-        await ReadFullyAsync(stream, body).ConfigureAwait(false);
+        ReadFully(stream, body);
         var full = new byte[2 + body.Length];
         full[0] = (byte)first;
-        full[1] = len.Value;
+        full[1] = (byte)len;
         body.CopyTo(full, 2);
         return full;
     }
 
-    private static async Task<byte?> ReadByteAsync(Stream stream)
-    {
-        var buf = new byte[1];
-        var n = await stream.ReadAsync(buf).ConfigureAwait(false);
-        return n == 0 ? null : buf[0];
-    }
-
-    private static async Task ReadFullyAsync(Stream stream, byte[] buffer)
+    private static void ReadFully(Stream stream, byte[] buffer)
     {
         var read = 0;
         while (read < buffer.Length)
         {
-            var n = await stream.ReadAsync(buffer.AsMemory(read)).ConfigureAwait(false);
+            var n = stream.Read(buffer, read, buffer.Length - read);
             if (n == 0)
             {
                 throw new IOException("假伺服器連線中斷");
