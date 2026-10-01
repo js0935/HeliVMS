@@ -1300,10 +1300,10 @@ public partial class MainWindow : Window
         OpenChild(new DewarpWindow(_store!, _dataRoot));
     }
 
-    /// <summary>開啟外部安全共享視窗（M51，§14.7 #4）。viewer 與匯出同權限限制。</summary>
+    /// <summary>開啟外部安全共享視窗（M51，§14.7 #4）。viewer 與匯出同權限限制；remote 旗標限定（M220）。</summary>
     private void OpenShareWindow()
     {
-        if (!SessionContext.IsAdmin)
+        if (!SessionContext.IsAdmin || !RequireFeature(LicenseFeatures.Remote))
         {
             return;
         }

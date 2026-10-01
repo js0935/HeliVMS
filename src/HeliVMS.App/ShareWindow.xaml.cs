@@ -26,6 +26,9 @@ public partial class ShareWindow : Window
 
         InitializeComponent();
 
+        // remote 旗標限定（M220）：分享是對外的唯一外洩面，未授權時連建立鈕都不留。
+        new LicenseUiGate(store).Apply(ShareCreateButton, LicenseFeatures.Remote);
+
         ShareKindCombo.ItemsSource = new[] { ShareKind.Segment, ShareKind.Snapshot, ShareKind.Evidence };
         ShareKindCombo.SelectedIndex = 0;
         ShareExpireBox.Text = "24";
@@ -93,6 +96,14 @@ public partial class ShareWindow : Window
 
     private void OnCreateClicked(object sender, RoutedEventArgs e)
     {
+        // remote 旗標限定（M220）：鈕藏了還得擋 handler。
+        var gate = new LicenseUiGate(_store);
+        if (!gate.Allows(LicenseFeatures.Remote))
+        {
+            ShareStatusText.Text = gate.DenialMessage(LicenseFeatures.Remote);
+            return;
+        }
+
         try
         {
             var kind = ShareKindCombo.SelectedItem as string ?? ShareKind.Segment;
