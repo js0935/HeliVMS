@@ -1573,7 +1573,7 @@ payload 由 `LicensePayload` 序列化（`JsonNamingPolicy.CamelCase`），欄�
   - **入口對應**：`schedule`→錄影排程與巡航排程（`PatrolButton`／`--patrol` 與 `/api/patrols` 同閘門）；`ai`→AI 疊加與事件 AI 開關；`ai.l1`→偵測設定與分析視窗；`gis`→電子地圖與 IO（兩者共用一個旗標）；`remote`→分享與遠程主控台（`OpenShareWindow`／`--share`、`ShareWindow` 建立鈕與 `/api/shares` 同閘門）；`ad`→OIDC／LDAP 企業登入（登入視窗面板、設定中心企業身份區與 `/api/auth/providers` 同閘門）。`core` 旗標沒有對應隱藏項目（隱藏「基本即時監看」等於把產品藏掉）。
   - **`ai.l2` 沒有 WPF 入口**：車牌／人臉辨識目前只在旗標與授權層生效，等有對應視窗再接 UI。
   - **ShareHost 是服務不是按鈕**：`remote` 未授權時 `ShareHost.ApplySettings(settings, licenseAllowed: false)` 會強制 `Stop()` 並回報未授權。分享主機是 loopback HTTP socket，只藏按鈕擋不住一個已經在聽的連接埠。
-  - **匯入授權即時生效**：`SettingsWindow` 匯入金鑰後除了寫檔，還呼叫 `LicenseService.Apply()` 落 `license` 表並留稽核，授權狀態列也改讀同一列。少這一步會出現「設定頁寫著已授權、錄影閘門卻認為未匯入」的矛盾。
+  - **匯入授權即時生效（單一來源）**：`SettingsWindow` 匯入金鑰只呼叫一次 `LicenseService.Apply()`（驗簽＋機器綁定＋落 `license` 表＋稽核，§19.7／§19.8），**只有結果為 `Valid`／`Expired` 時才寫 `license.lic`**；先寫檔再驗會讓作廢／時鐘回流／簽章錯的金鑰被下次 `RefreshDefault` 從檔裡讀回來，等於繞過拒絕。授權狀態列也讀同一列，少這一步會出現「設定頁寫著已授權、錄影閘門卻認為未匯入」的矛盾。
   - **AI 疊加狀態要跟著清**：未授權時不只藏 `AiToggle`，還要把 `_aiVisible` 歸 false 並取消勾選；只藏控制項會留下「沒有開關卻一直在畫 AI 方框」的幽靈行為。
 - **遠端 API 合併檢查（M210）**：`LicenseGateMiddleware`（WebApi）讓遠端與本機**共用同一個** `LicenseService` 結論——同一張授權、同一套旗標規則、同一句拒絕理由，遠端沒有比較寬鬆的分支（§18.4）。這正是「合併」二字：判斷邏輯不重寫一份，只把同一個收斂點接到 API 邊界。
   - 狀態碼用 **403 Forbidden**（非 402，本系統沒有金流語意），body 帶 `feature`／`featureName`／`decision`／`maxCameras`／`features`，讓呼叫端能分辨自己缺哪一級。讀與寫端點同樣受檢——只擋讀等於留一個寫入後門。

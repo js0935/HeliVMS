@@ -1368,11 +1368,18 @@ public partial class SettingsWindow : Window
     private void OnApplyLicenseClicked(object sender, RoutedEventArgs e)
     {
         var token = LicenseKeyBox.Text?.Trim() ?? string.Empty;
-        var manager = new LicenseManager();
-        var state = manager.Validate(token);
-        if (!state.IsValid)
+        var actor = SessionContext.CurrentUser?.Username ?? "system";
+
+        // 單一來源（M222）：驗簽／機器綁定／落表／稽核一律走 LicenseService.Apply（§19.7／§19.8）。
+        // 不再先用 raw LicenseManager 驗一次——兩套判斷會出現「設定頁說無效、閘門卻說有效」。
+        var applied = new LicenseService(_store).Apply(token, actor, DateTime.UtcNow);
+
+        // 只有可信任的結果才落授權檔；若先寫檔再驗，作廢／回流／簽章錯的金鑰會被
+        // 下一次啟動的 RefreshDefault 從檔裡讀回來，等於繞過了拒絕。
+        if (applied.Decision is not (LicenseDecision.Valid or LicenseDecision.Expired))
         {
-            LicenseApplyText.Text = $"金鑰無效：{state.Message ?? state.Status.ToString()}";
+            LicenseApplyText.Text = $"金鑰未套用：{applied.Message ?? applied.Decision.ToString()}";
+            ReloadLicense();
             return;
         }
 
@@ -1386,18 +1393,14 @@ public partial class SettingsWindow : Window
             }
 
             File.WriteAllText(file, token);
-
-            // 同步寫入 license 表並留稽核（§19.7／§19.8）。少了這一步，
-            // 錄影閘門與功能隱藏讀不到授權，使用者會看到「已匯入卻不能錄影」。
-            var actor = SessionContext.CurrentUser?.Username ?? "system";
-            var applied = new LicenseService(_store).Apply(token, actor, DateTime.UtcNow);
+            var expiryNote = applied.Message ?? "請盡速續期";
             LicenseApplyText.Text = applied.Decision == LicenseDecision.Valid
                 ? $"已套用：授權 {applied.MaxCameras} 路。"
-                : $"已寫入授權檔但未啟用：{applied.Message ?? applied.Decision.ToString()}";
+                : $"已套用（已到期）：{expiryNote}";
         }
         catch (Exception ex)
         {
-            LicenseApplyText.Text = $"寫入授權檔失敗：{ex.Message}";
+            LicenseApplyText.Text = $"已套用於本機資料庫，但寫入授權檔失敗：{ex.Message}";
         }
 
         ReloadLicense();
