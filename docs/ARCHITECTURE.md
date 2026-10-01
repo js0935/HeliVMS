@@ -1581,7 +1581,9 @@ payload 由 `LicensePayload` 序列化（`JsonNamingPolicy.CamelCase`），欄�
   - **刻意不**對整個 `/api/*` 掛 `remote`：§19.3 的 `remote` 是「遠程存取（分享、網頁主控台）」，但同一支 WebApi 也把 `HeliVMS.Web` 當成本機網頁主控台伺服器；若整個 API 都要求 `remote`，基本版（core+ai）客戶連自己機器上的網頁主控台都開不了。要改成全面封鎖只需在規則表加一條 `/api` 前綴。
   - **`GET /api/license`** 回傳 `decision`／`maxCameras`／`allowsNewRecording`／`features`／逐旗標 `featureStatus`，且不受旗標閘門限制——前端要先問自己被擋在哪才畫得出畫面。
   - WebApi 端 `LicenseService` 支援 `HELIVMS_LICENSE_PUBLIC_KEY` 覆寫公鑰（金鑰輪替），測試即以此注入對應公鑰，不需動 `EmbeddedPublicKey`。
-  - **SPA 端**：旗標閘門回 403，而 `apiRaw` 只在**網路層**失敗時才 `setConn(false)`，故 HTTP 403 不會觸發面板的 `.catch`——未裝示時使用者只會看到一片空面板。因此 `refreshLicense()` 在 boot 與 12 秒輪詢中並取狀態，於頂列 `#lic` 徽章以 `textContent` 說明未授權與缺哪幾項（授權訊息不得以 `innerHTML` 插入）。徽章只解釋「面板為何是空的」；**建立表單**另需即時回饋——否則按下新增卻被 403 擋下時畫面毫無動靜。排程與巡檢兩個建立表單原本只以 `if (ok?.ok)` 判斷而靜默丟棄回應（M224），現改讀取 403 body 的 `error` 文案寫入各自的 live region `<span id="sched-msg">`／`<span id="patrol-msg">`，與備份／匯出／供應商／法務保留／告警規則等既有表單一致。
+  - **SPA 端**：旗標閘門回 403，而 `apiRaw` 只在**網路層**失敗時才 `setConn(false)`，故 HTTP 403 不會觸發面板的 `.catch`——未裝示時使用者只會看到一片空面板。因此 `refreshLicense()` 在 boot 與 12 秒輪詢中並取狀態，於頂列 `#lic` 徽章以 `textContent` 說明未授權與缺哪幾項（授權訊息不得以 `innerHTML` 插入）。排程與巡檢兩個建立表單原本只以 `if (ok?.ok)` 判斷而靜默丟棄回應（M224），現改讀取 403 body 的 `error` 文案寫入各自的 live region `<span id="sched-msg">`／`<span id="patrol-msg">`，與備份／匯出／供應商／法務保留／告警規則等既有表單一致。
+  - **受閘門保護的面板必須自己解釋空白（M227）**：徽章是全域的，讀者未必看得到；被 403 擋下的讀取若被 `.catch(() => [])` 吞成空清單，「沒授權」與「這個頻道沒資料」在畫面上完全一樣。因此讀取一律走 `gatedFetch(msgId, url)`：被擋下就回 `null` 並寫入 live region，呼叫端收到 `null` 要**清空表格並留白字數**（`textContent = ''`）而不是畫成 `（0）`；列內動作（刪除／撤銷／切換）原本一律丟棄 `apiRaw` 的回應，撤銷與切換會變成按了沒反應甚至勾選狀態與伺服器不一致，現同樣以 `feedback(msgId, resp)` 回報 `error`。供應商啟用切換在失敗時額外把 checkbox 翻回去——顯示錯誤卻留下一個伺服器沒接受的狀態，比不顯示更糟。AI 偵測面板原本完全沒有回饋位置（`#det-count`、`#det-summary` 空著就只像沒資料），補上 live region `<span id="det-msg">`。
+  - **SPA 端不自行判斷旗標**：閘門留在伺服器，前端不複製一份旗標判斷——兩份真相必然漂移，而 SPA 目前的呈現是「進得去就畫、畫不出來就說明為什麼」。`#lic` 徽章說明缺哪幾項，各面板的 live region 說明自己為什麼是空的。
 - **到期提醒（M211）**：`LicenseExpiry.Evaluate(expiresUtc, nowUtc, valid)` 是「14 天窗口」的唯一實作，回傳 `LicenseExpiryNotice(Stage, DaysRemaining, ExpiresUtc)` 與 `Message`。`WarnDays = 14`／`UrgentDays = 3` 兩個門檻寫成常數並由測試鎖住——寫死在 XAML 或各視窗裡就會有第二份真相。
   - **邊界用總時數而非天數判斷**：只剩 5 小時若被算成「13 天」會完全失去緊迫感，故分級看 `remaining.TotalDays`，只有顯示用的 `DaysRemaining` 才 `Math.Floor`。
   - **`valid` 要傳「有效或已到期」**：已到期仍然要提醒（續期訊息正是那時候最需要的），文案明說「新增錄影已停止；既有錄影仍可回放」；未匯入／已作廢／時鐘回流／簽章無效則不提醒——那四種是「授權無效」而非「快到期」，由設定中心與各閘門回饋即可，不該混在同一條黃色浮條裡。
@@ -1741,6 +1743,7 @@ CREATE INDEX idx_license_verified ON license(last_verified DESC);
 - [x] 改回系統時鐘 → 7 天內偵測並停用，提示校時（M207：`LicenseService.Apply`＋`license.max_seen_dt` 高水位，測試覆蓋 7 天內不誤判、超出即停用、永久授權跳轉後調回亦攔下）
 - [x] 授權啟用/到期/改版事件完整寫入稽核日誌（M206：`license.activate`／`upgrade`／`update`／`expire`／`status`／`revoke`，資安事件另有 `reject`／`mismatch`）
 - [x] 手改快取列放大授權（通道數／旗標／假金鑰）於下次啟動被重新驗簽擋下並停用（M213：桌面端與 WebApi 啟動皆呼叫 `RefreshDefault`，兩來源取較新、皆不可驗證則標 `invalid`＋`license.reject`，fail-closed）
+- [x] 受閘門保護的入口必須自己解釋「為什麼不能用」（M226：桌面端 48 個契約測試鎖住 XAML 可見性＝handler 守衛；M227：SPA 讀取回 `null` 而非空清單，動作端與勾選狀態不留假象）
 
 ---
 

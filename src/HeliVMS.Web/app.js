@@ -77,6 +77,35 @@ async function api(path, init = {}) {
   return response.json();
 }
 
+/**
+ * 把一次授權閘門的回應寫進面板的 live region，回傳是否成功。
+ * 閘門是整條路徑一起擋的，所以同一面板的每個動作都可能拿到 403 與同一句 error；
+ * 動作層若不顯示出來，使用者只會看到畫面原封不動地回來，像是按了沒反應。
+ */
+async function feedback(msgId, resp, okText = () => '') {
+  if (!resp) {
+    $(msgId).textContent = '連線中斷';
+    return false;
+  }
+  const info = await resp.json().catch(() => null);
+  $(msgId).textContent = resp.ok ? okText(info) : info?.error ?? '失敗';
+  return resp.ok;
+}
+
+/**
+ * 受授權閘門保護的讀取。回 null 代表「被擋下或連不上」，呼叫端要清空表格而不是畫成 0 筆——
+ * 空表與沒授權是兩件事，混在一起會讓人以為這個頻道真的沒有資料。
+ */
+async function gatedFetch(msgId, url) {
+  const resp = await apiRaw(url).catch(() => null);
+  if (!resp || !resp.ok) {
+    await feedback(msgId, resp);
+    return null;
+  }
+  $(msgId).textContent = '';
+  return resp.json().catch(() => []);
+}
+
 async function refreshHealth() {
   try {
     const h = await api('/api/health');
@@ -374,7 +403,12 @@ async function renderDaily() {
 }
 
 async function renderSchedules() {
-  const list = await api('/api/recording/schedules').catch(() => []);
+  const list = await gatedFetch('sched-msg', '/api/recording/schedules');
+  if (!list) {
+    $('sched-body').innerHTML = '';
+    $('sched-count').textContent = '';
+    return;
+  }
   $('sched-body').innerHTML = list
     .map(
       (s) =>
@@ -385,8 +419,10 @@ async function renderSchedules() {
   $('sched-count').textContent = `（${list.length}）`;
   $('sched-body').querySelectorAll('button[data-sched-del]').forEach((btn) =>
     btn.addEventListener('click', async () => {
-      const ok = await api(`/api/recording/schedules/${btn.dataset.schedDel}`, { method: 'DELETE' }).catch(() => null);
-      if (ok) renderSchedules();
+      const resp = await apiRaw(`/api/recording/schedules/${btn.dataset.schedDel}`, { method: 'DELETE' }).catch(
+        () => null,
+      );
+      if (await feedback('sched-msg', resp)) renderSchedules();
     }),
   );
 }
@@ -411,19 +447,17 @@ function bindScheduleForm() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     }).catch(() => null);
-    if (!resp) {
-      $('sched-msg').textContent = '連線中斷';
-      return;
-    }
-    const info = await resp.json().catch(() => null);
-    // 未授權時閘門回 403 並帶 error 文案；不顯示的話按下新增會毫無反應。
-    $('sched-msg').textContent = resp.ok ? '' : info?.error ?? '失敗';
-    if (resp.ok) renderSchedules();
+    if (await feedback('sched-msg', resp)) renderSchedules();
   });
 }
 
 async function renderPatrols() {
-  const list = await api('/api/patrols').catch(() => []);
+  const list = await gatedFetch('patrol-msg', '/api/patrols');
+  if (!list) {
+    $('patrol-body').innerHTML = '';
+    $('patrol-count').textContent = '';
+    return;
+  }
   $('patrol-body').innerHTML = list
     .map(
       (p) =>
@@ -434,8 +468,8 @@ async function renderPatrols() {
   $('patrol-count').textContent = `（${list.length}）`;
   $('patrol-body').querySelectorAll('button[data-patrol-del]').forEach((btn) =>
     btn.addEventListener('click', async () => {
-      const ok = await api(`/api/patrols/${btn.dataset.patrolDel}`, { method: 'DELETE' }).catch(() => null);
-      if (ok) renderPatrols();
+      const resp = await apiRaw(`/api/patrols/${btn.dataset.patrolDel}`, { method: 'DELETE' }).catch(() => null);
+      if (await feedback('patrol-msg', resp)) renderPatrols();
     }),
   );
 }
@@ -458,14 +492,7 @@ function bindPatrolForm() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     }).catch(() => null);
-    if (!resp) {
-      $('patrol-msg').textContent = '連線中斷';
-      return;
-    }
-    const info = await resp.json().catch(() => null);
-    // 未授權時閘門回 403 並帶 error 文案；不顯示的話按下新增會毫無反應。
-    $('patrol-msg').textContent = resp.ok ? '' : info?.error ?? '失敗';
-    if (resp.ok) renderPatrols();
+    if (await feedback('patrol-msg', resp)) renderPatrols();
   });
 }
 
@@ -535,7 +562,15 @@ async function renderDetections() {
   const q = new URLSearchParams();
   if (conf && Number(conf) > 0) q.set('minConfidence', conf);
   if (cls) q.set('class', cls);
-  const rows = detRows(await api(`/api/detections?${q}`).catch(() => []));
+  // 被閘門擋下時要清空並留白字數，而不是畫成 0 筆——「沒偵測到」與「沒授權」講法不同。
+  const list = await gatedFetch('det-msg', `/api/detections?${q}`);
+  if (!list) {
+    $('det-body').innerHTML = '';
+    $('det-count').textContent = '';
+    $('det-summary').textContent = '';
+    return;
+  }
+  const rows = detRows(list);
   $('det-body').innerHTML = rows
     .map(
       (d) =>
@@ -593,7 +628,13 @@ function bindExportForm() {
 }
 
 async function renderProviders() {
-  const rows = providerRows(await api('/api/auth/providers').catch(() => []));
+  const list = await gatedFetch('provider-msg', '/api/auth/providers');
+  if (!list) {
+    $('provider-body').innerHTML = '';
+    $('provider-count').textContent = '';
+    return;
+  }
+  const rows = providerRows(list);
   $('provider-body').innerHTML = rows
     .map(
       (p) =>
@@ -603,18 +644,23 @@ async function renderProviders() {
   $('provider-count').textContent = `（${rows.length}）`;
   Array.from(document.querySelectorAll('[data-provider-toggle]')).forEach((cb) => {
     cb.addEventListener('change', async () => {
-      await apiRaw(`/api/auth/providers/${cb.dataset.providerToggle}`, {
+      const resp = await apiRaw(`/api/auth/providers/${cb.dataset.providerToggle}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ enabled: cb.checked }),
-      });
+      }).catch(() => null);
+      // 被擋下就把勾選還原；否則畫面會停在一個伺服器根本沒接受的狀態。
+      if (!(await feedback('provider-msg', resp))) {
+        cb.checked = !cb.checked;
+        return;
+      }
       renderProviders();
     });
   });
   Array.from(document.querySelectorAll('[data-provider-del]')).forEach((btn) => {
     btn.addEventListener('click', async () => {
-      await apiRaw(`/api/auth/providers/${btn.dataset.providerDel}`, { method: 'DELETE' });
-      renderProviders();
+      const resp = await apiRaw(`/api/auth/providers/${btn.dataset.providerDel}`, { method: 'DELETE' }).catch(() => null);
+      if (await feedback('provider-msg', resp)) renderProviders();
     });
   });
 }
@@ -632,10 +678,7 @@ function bindProviderForm() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name, kind, configJson: cfg, enabled: true }),
     }).catch(() => null);
-    if (!resp) return;
-    const body = await resp.json().catch(() => null);
-    $('provider-msg').textContent = resp.ok ? `已新增 #${body.id}` : body?.error ?? '失敗';
-    if (resp.ok) renderProviders();
+    if (await feedback('provider-msg', resp, (b) => `已新增 #${b.id}`)) renderProviders();
   });
 }
 
@@ -748,7 +791,13 @@ function bindRuleForm() {
 }
 
 async function renderShares() {
-  const rows = shareRows(await api('/api/shares').catch(() => []));
+  const list = await gatedFetch('share-msg', '/api/shares');
+  if (!list) {
+    $('share-body').innerHTML = '';
+    $('share-count').textContent = '';
+    return;
+  }
+  const rows = shareRows(list);
   $('share-body').innerHTML = rows
     .map(
       (s) =>
@@ -758,12 +807,12 @@ async function renderShares() {
   $('share-count').textContent = `（${rows.length}）`;
   Array.from(document.querySelectorAll('[data-share-revoke]')).forEach((btn) => {
     btn.addEventListener('click', async () => {
-      await apiRaw(`/api/shares/${btn.dataset.shareRevoke}/revoke`, {
+      const resp = await apiRaw(`/api/shares/${btn.dataset.shareRevoke}/revoke`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: '{}',
-      });
-      renderShares();
+      }).catch(() => null);
+      if (await feedback('share-msg', resp)) renderShares();
     });
   });
 }
@@ -782,10 +831,7 @@ function bindShareForm() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ kind, resourcePath: path, label: label || null, maxUses }),
     }).catch(() => null);
-    if (!resp) return;
-    const body = await resp.json().catch(() => null);
-    $('share-msg').textContent = resp.ok ? `已建立 ${body.token.slice(0, 12)}…` : body?.error ?? '失敗';
-    if (resp.ok) renderShares();
+    if (await feedback('share-msg', resp, (b) => `已建立 ${b.token.slice(0, 12)}…`)) renderShares();
   });
 }
 

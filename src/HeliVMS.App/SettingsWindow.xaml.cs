@@ -104,7 +104,6 @@ public partial class SettingsWindow : Window
         ReloadSnapshotDays();
         ReloadUsage();
         ReloadLicense();
-        ReloadLaunchAvailability();
         ReloadDevices();
         ReloadChannels();
         ReloadNotify();
@@ -1404,11 +1403,6 @@ public partial class SettingsWindow : Window
         }
 
         ReloadLicense();
-    }
-
-    private void ReloadLaunchAvailability()
-    {
-        // 功能入口一律可用（視窗開啟由各 ctor 自行處理空資料庫情境）。
     }
 
     private void OnLaunchPlaybackClicked(object sender, RoutedEventArgs e)
