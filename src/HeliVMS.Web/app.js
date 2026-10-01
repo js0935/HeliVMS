@@ -406,12 +406,19 @@ function bindScheduleForm() {
       endMinute: Number(end[0]) * 60 + Number(end[1]),
       enabled: true,
     };
-    const ok = await apiRaw('/api/recording/schedules', {
+    const resp = await apiRaw('/api/recording/schedules', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     }).catch(() => null);
-    if (ok?.ok) renderSchedules();
+    if (!resp) {
+      $('sched-msg').textContent = '連線中斷';
+      return;
+    }
+    const info = await resp.json().catch(() => null);
+    // 未授權時閘門回 403 並帶 error 文案；不顯示的話按下新增會毫無反應。
+    $('sched-msg').textContent = resp.ok ? '' : info?.error ?? '失敗';
+    if (resp.ok) renderSchedules();
   });
 }
 
@@ -446,12 +453,19 @@ function bindPatrolForm() {
       steps: [],
     };
     if (!body.name) return;
-    const ok = await apiRaw('/api/patrols', {
+    const resp = await apiRaw('/api/patrols', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     }).catch(() => null);
-    if (ok?.ok) renderPatrols();
+    if (!resp) {
+      $('patrol-msg').textContent = '連線中斷';
+      return;
+    }
+    const info = await resp.json().catch(() => null);
+    // 未授權時閘門回 403 並帶 error 文案；不顯示的話按下新增會毫無反應。
+    $('patrol-msg').textContent = resp.ok ? '' : info?.error ?? '失敗';
+    if (resp.ok) renderPatrols();
   });
 }
 

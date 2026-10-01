@@ -1581,7 +1581,7 @@ payload 由 `LicensePayload` 序列化（`JsonNamingPolicy.CamelCase`），欄�
   - **刻意不**對整個 `/api/*` 掛 `remote`：§19.3 的 `remote` 是「遠程存取（分享、網頁主控台）」，但同一支 WebApi 也把 `HeliVMS.Web` 當成本機網頁主控台伺服器；若整個 API 都要求 `remote`，基本版（core+ai）客戶連自己機器上的網頁主控台都開不了。要改成全面封鎖只需在規則表加一條 `/api` 前綴。
   - **`GET /api/license`** 回傳 `decision`／`maxCameras`／`allowsNewRecording`／`features`／逐旗標 `featureStatus`，且不受旗標閘門限制——前端要先問自己被擋在哪才畫得出畫面。
   - WebApi 端 `LicenseService` 支援 `HELIVMS_LICENSE_PUBLIC_KEY` 覆寫公鑰（金鑰輪替），測試即以此注入對應公鑰，不需動 `EmbeddedPublicKey`。
-  - **SPA 端**：旗標閘門回 403，而 `apiRaw` 只在**網路層**失敗時才 `setConn(false)`，故 HTTP 403 不會觸發面板的 `.catch`——未裝示時使用者只會看到一片空面板。因此 `refreshLicense()` 在 boot 與 12 秒輪詢中並取狀態，於頂列 `#lic` 徽章以 `textContent` 說明未授權與缺哪幾項（授權訊息不得以 `innerHTML` 插入）。
+  - **SPA 端**：旗標閘門回 403，而 `apiRaw` 只在**網路層**失敗時才 `setConn(false)`，故 HTTP 403 不會觸發面板的 `.catch`——未裝示時使用者只會看到一片空面板。因此 `refreshLicense()` 在 boot 與 12 秒輪詢中並取狀態，於頂列 `#lic` 徽章以 `textContent` 說明未授權與缺哪幾項（授權訊息不得以 `innerHTML` 插入）。徽章只解釋「面板為何是空的」；**建立表單**另需即時回饋——否則按下新增卻被 403 擋下時畫面毫無動靜。排程與巡檢兩個建立表單原本只以 `if (ok?.ok)` 判斷而靜默丟棄回應（M224），現改讀取 403 body 的 `error` 文案寫入各自的 live region `<span id="sched-msg">`／`<span id="patrol-msg">`，與備份／匯出／供應商／法務保留／告警規則等既有表單一致。
 - **到期提醒（M211）**：`LicenseExpiry.Evaluate(expiresUtc, nowUtc, valid)` 是「14 天窗口」的唯一實作，回傳 `LicenseExpiryNotice(Stage, DaysRemaining, ExpiresUtc)` 與 `Message`。`WarnDays = 14`／`UrgentDays = 3` 兩個門檻寫成常數並由測試鎖住——寫死在 XAML 或各視窗裡就會有第二份真相。
   - **邊界用總時數而非天數判斷**：只剩 5 小時若被算成「13 天」會完全失去緊迫感，故分級看 `remaining.TotalDays`，只有顯示用的 `DaysRemaining` 才 `Math.Floor`。
   - **`valid` 要傳「有效或已到期」**：已到期仍然要提醒（續期訊息正是那時候最需要的），文案明說「新增錄影已停止；既有錄影仍可回放」；未匯入／已作廢／時鐘回流／簽章無效則不提醒——那四種是「授權無效」而非「快到期」，由設定中心與各閘門回饋即可，不該混在同一條黃色浮條裡。

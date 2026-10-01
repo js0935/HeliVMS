@@ -153,6 +153,27 @@ describe('license banner', () => {
   });
 });
 
+describe('license denial feedback on create forms', () => {
+  it('adds live regions to the schedule and patrol create forms', () => {
+    expect(indexSource).toMatch(/id="sched-msg"[^>]*aria-live="polite"/);
+    expect(indexSource).toMatch(/id="patrol-msg"[^>]*aria-live="polite"/);
+  });
+
+  it('surfaces the 403 denial message instead of silently doing nothing', () => {
+    expect(appSource).toMatch(
+      /apiRaw\('\/api\/recording\/schedules'[\s\S]*?\$\('sched-msg'\)\.textContent = resp\.ok \? '' : info\?\.error \?\? '失敗';/,
+    );
+    expect(appSource).toMatch(
+      /apiRaw\('\/api\/patrols'[\s\S]*?\$\('patrol-msg'\)\.textContent = resp\.ok \? '' : info\?\.error \?\? '失敗';/,
+    );
+  });
+
+  it('no longer swallows the create response with ok?.ok', () => {
+    expect(appSource).not.toMatch(/if \(ok\?\.ok\) renderSchedules\(\);/);
+    expect(appSource).not.toMatch(/if \(ok\?\.ok\) renderPatrols\(\);/);
+  });
+});
+
 describe('board freshness', () => {
   it('labels the overdue column it already renders', () => {
     expect(indexSource).toMatch(/<th scope="col">逾期<\/th>/);
