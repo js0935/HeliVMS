@@ -1093,15 +1093,18 @@ public partial class MainWindow : Window
         }
 
         _licenseGate.Apply(ScheduleButton, LicenseFeatures.Schedule, "設定錄影排程");
+        _licenseGate.Apply(PatrolButton, LicenseFeatures.Schedule, "設定巡航排程");
         _licenseGate.Apply(DetectionButton, LicenseFeatures.AiL1, "開啟 AI 偵測設定");
         _licenseGate.Apply(MapButton, LicenseFeatures.Gis, "開啟電子地圖（攝影機定位）");
         _licenseGate.Apply(IoButton, LicenseFeatures.Gis, "設定感測器／輸出點並即時操作");
 
-        if (!_licenseGate.Allows(LicenseFeatures.AiL1))
+        // AI 疊加開關對應 ai；偵測設定／分析視窗才是 ai.l1（§19.4 入口對應）。
+        // 先前把開關綁在 ai.l1，只帶 ai 的授權會出現「看得到開關、一切就失敗」。
+        _licenseGate.Apply(AiToggle, LicenseFeatures.Ai, "切換 AI 疊加顯示");
+        if (!_licenseGate.Allows(LicenseFeatures.Ai))
         {
             AiToggle.IsChecked = false;
             _aiVisible = false;
-            _licenseGate.Apply(AiToggle, LicenseFeatures.AiL1, "切換 AI 疊加顯示");
         }
 
         ApplyLicenseExpiryBanner(_licenseGate);
@@ -1949,10 +1952,10 @@ public partial class MainWindow : Window
 
     private void OnLegalHoldClicked(object sender, RoutedEventArgs e) => OpenLegalHoldWindow();
 
-    /// <summary>開啟巡航排程視窗（M72，§47）。</summary>
+    /// <summary>開啟巡航排程視窗（M72，§47）。schedule 旗標限定（M218，與 /api/patrols 閘門一致）。</summary>
     private void OpenPatrolWindow()
     {
-        if (!RequireAdmin())
+        if (!RequireAdmin() || !RequireFeature(LicenseFeatures.Schedule))
         {
             return;
         }

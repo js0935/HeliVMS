@@ -497,9 +497,21 @@ public partial class SettingsWindow : Window
         TamperEnabledBox.IsChecked = string.Equals(_settings.Get(TamperKey), "true", StringComparison.OrdinalIgnoreCase);
     }
 
-    /// <summary>M39：切換即寫入 app_settings（重新連線頻道後生效）。</summary>
+    /// <summary>M39：切換即寫入 app_settings（重新連線頻道後生效）。ai 旗標限定（M218）。</summary>
     private void OnTamperToggled(object sender, RoutedEventArgs e)
     {
+        // TamperEnabledBox 以 ai 旗標隱藏（M209／§19.4）；藏了還得擋 handler。
+        // 未授權時只把勾選復原、不覆寫既有設定，避免連設定頁都會改壞已存的設定值。
+        if (!new LicenseUiGate(_store).Allows(LicenseFeatures.Ai))
+        {
+            if (TamperEnabledBox.IsChecked == true)
+            {
+                TamperEnabledBox.IsChecked = false;
+            }
+
+            return;
+        }
+
         _settings.Set(TamperKey, TamperEnabledBox.IsChecked == true ? "true" : "false");
     }
 
