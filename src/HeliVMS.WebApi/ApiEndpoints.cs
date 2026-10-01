@@ -1072,6 +1072,16 @@ public static class ApiEndpoints
                 return Results.BadRequest();
             }
 
+            // M242：索引與查詢維度不同時，明確回 409 讓呼叫端去重建索引。
+            // 靜默回傳空結果會讓人誤以為「沒有相似影片」，實際上是模型換版後索引過期。
+            var stored = repo.StoredDimension();
+            if (stored is not null && stored != body.Vector.Length)
+            {
+                return Results.Json(
+                    new { error = "查詢向量維度與既有索引不符，需重建索引。", storedDimension = stored, queryDimension = body.Vector.Length },
+                    statusCode: StatusCodes.Status409Conflict);
+            }
+
             return Results.Ok(repo.Search(body.Vector, body.TopK));
         });
 

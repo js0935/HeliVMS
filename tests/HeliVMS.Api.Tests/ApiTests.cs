@@ -1433,6 +1433,20 @@ public class ApiTests : IClassFixture<ApiFactory>, IDisposable
     }
 
     [Fact]
+    public async Task Post_ClipSearch_DimensionMismatchReportsConflictInsteadOfEmptyResults()
+    {
+        // M242：模型換版後索引會停在舊維度。若這裡靜默回空陣列，
+        // 使用者會誤判成「沒有相似影片」，而不是「索引需要重建」。
+        var client = Client();
+        var indexed = await client.PostAsJsonAsync("/api/clip/index", new { sourceType = "event", refId = 1, vector = new[] { 0.9f, 0.1f } });
+        Assert.Equal(HttpStatusCode.OK, indexed.StatusCode);
+
+        var resp = await client.PostAsJsonAsync("/api/clip/search", new { vector = new[] { 0.8f, 0.2f, 0.3f, 0.4f } });
+
+        Assert.Equal(HttpStatusCode.Conflict, resp.StatusCode);
+    }
+
+    [Fact]
     public async Task Device_Crud_ListUpdateDelete()
     {
         var client = Client();

@@ -4,9 +4,9 @@ namespace HeliVMS.Storage;
 public sealed record ClipSearchHit(long RefId, string SourceType, string? Label, double Score);
 
 /// <summary>
-/// CLIP 向量語意編碼索引（M151，§14.7 #8）：`clip_embeddings` 表持久化向量（BLOB，
-/// IEEE754 float32 LE）與其一階範數；Search 以餘弦相似排序回傳 topK。生成 embedding
-/// 之模型屬外部縫（真機/AI 阻塞項），本管線僅負責索引與檢索，純數學、可閉環測試。
+/// CLIP 向量語意編碼索引（M151，M242 修正維度與位元組序，§14.7 #8 管線）：`clip_embeddings` 表持久化向量
+/// （BLOB，IEEE754 float32 **小端**，與讀取端約定一致）與其一階範數；Search 以餘弦相似排序回傳 topK。
+/// 生成 embedding 之模型屬外部縫（真機/AI 阻塞項），本管線僅負責索引與檢索，純數學、可閉環測試。
 /// </summary>
 public sealed class EmbeddingRepository
 {
@@ -49,6 +49,11 @@ public sealed class EmbeddingRepository
     }
 
     /// <summary>以餘弦相似度回傳與目標最相近之 topK 筆（Score＝餘弦相似，愈高愈相關）。</summary>
+    /// <remarks>
+    /// M242：維度不一致時必須跳過而非越界。若放任查詢維度大於資料庫向量長度，
+    /// <see cref="Score"/> 會在讀 BLOB 時拋出與呼叫端無關的例外——模型換版（512→768）
+    /// 這種日常事件不該變成一個看不懂的崩潰。
+    /// </remarks>
     public IReadOnlyList<ClipSearchHit> Search(IReadOnlyList<float> query, int topK = DefaultTopK)
     {
         if (query is null || query.Count == 0)
@@ -64,7 +69,7 @@ public sealed class EmbeddingRepository
         var dim = query.Count;
         var qNorm = L2Norm(query);
 
-        var hits = _store.Query(
+        var rows = _store.Query(
             """
             SELECT ref_id, source_type, label, vector, norm FROM clip_embeddings;
             """,
@@ -84,11 +89,44 @@ public sealed class EmbeddingRepository
                 return list;
             });
 
-        return hits
-            .Select(h => new ClipSearchHit(h.RefId, h.SourceType, h.Label, Score(h.Vector, h.Norm, query, qNorm, dim)))
+        // 不同維度的向量本來就不可比（內積的長度都不同），跳過它們。
+        var mismatched = 0;
+        var scored = new List<ClipSearchHit>(rows.Count);
+        foreach (var row in rows)
+        {
+            if (row.Vector.Length != dim * sizeof(float))
+            {
+                mismatched++;
+                continue;
+            }
+
+            scored.Add(new ClipSearchHit(row.RefId, row.SourceType, row.Label, Score(row.Vector, row.Norm, query, qNorm)));
+        }
+
+        if (mismatched > 0)
+        {
+            LastMismatchedCount = mismatched;
+        }
+
+        return scored
             .OrderByDescending(h => h.Score)
             .Take(topK)
             .ToList();
+    }
+
+    /// <summary>最近一次 <see cref="Search"/> 因維度不符而略過的向量筆數（M242，換版時用來判斷需重建索引）。</summary>
+    public int LastMismatchedCount { get; private set; }
+
+    /// <summary>
+    /// 資料庫中已索引向量的維度（M242）。模型換版後可據此判定舊向量需要重建，
+    /// 也讓呼叫端不必靠猜測查詢向量的長度。
+    /// </summary>
+    public int? StoredDimension()
+    {
+        var length = _store.Query(
+            "SELECT length(vector) FROM clip_embeddings LIMIT 1;",
+            r => r.Read() ? r.GetInt32(0) : 0);
+        return length > 0 ? length / sizeof(float) : null;
     }
 
     /// <summary>依來源與 ref 讀取單筆向量（無則 null；M153 索引管理）。</summary>
@@ -139,15 +177,12 @@ public sealed class EmbeddingRepository
         _store.Execute("DELETE FROM clip_embeddings;");
     }
 
-    private static double Score(byte[] bytes, double rowNorm, IReadOnlyList<float> query, double qNorm, int dim)
+    private static double Score(byte[] bytes, double rowNorm, IReadOnlyList<float> query, double qNorm)
     {
         var dot = 0.0;
-        for (var i = 0; i < dim; i++)
+        for (var i = 0; i < query.Count; i++)
         {
-            dot += BitConverter.IsLittleEndian
-                ? BitConverter.ToSingle(bytes, i * 4) * query[i]
-                : BitConverter.ToSingle(BitConverter.GetBytes(
-                      BitConverter.ToSingle(bytes, i * 4)).Reverse().ToArray()) * query[i];
+            dot += BitConverter.ToSingle(bytes, i * sizeof(float)) * query[i];
         }
 
         var denom = rowNorm * qNorm;
@@ -167,10 +202,19 @@ public sealed class EmbeddingRepository
 
     private static byte[] ToBytes(IReadOnlyList<float> v)
     {
-        var bytes = new byte[v.Count * 4];
+        var bytes = new byte[v.Count * sizeof(float)];
+        Span<byte> slot = stackalloc byte[sizeof(float)];
         for (var i = 0; i < v.Count; i++)
         {
-            Buffer.BlockCopy(BitConverter.GetBytes(v[i]), 0, bytes, i * 4, 4);
+            // 明確以小端寫入：舊實作依賴 BitConverter 的主機位元組序，
+            // 但 ByRef／Search 一律以小端解讀，換台大端機器寫的資料就會全錯。
+            BitConverter.TryWriteBytes(slot, v[i]);
+            if (!BitConverter.IsLittleEndian)
+            {
+                slot.Reverse();
+            }
+
+            slot.CopyTo(bytes.AsSpan(i * sizeof(float)));
         }
 
         return bytes;

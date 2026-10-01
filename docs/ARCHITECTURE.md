@@ -1020,7 +1020,7 @@ L2 比對（人臉/車牌）置「進階·需權限」區，預設關閉（§5.1
 | 5 | 數位簽章與證據包 | **已落地（M240＋M241）**：匯出檔旁自動產生 `.receipt.json` 簽章收據（RSA-2048／PKCS#1 v1.5，私鑰沿用 M53 `EvidenceSigner`），附公鑰與金鑰指紋；私鑰以 DPAPI 保護落庫（M241）、可稽核換發且保留歷史公鑰；離線驗證工具 `Tools/HeliVmsVerify` ＋ 遠端 `GET /api/exports/{id}/verify`；證據包 `manifest.json` 另有簽章 | 證據鏈完整性／司法效力 | **P1**（已完成） |
 | 6 | 事件回應工作流 | 已落地：四態＋`event_dispositions`/`event_disposition_trail`（M38）、分診面板與工作流 L1（`alarm_triage`/`alarm_notes`/`alarm_escalations`＋`AlarmEscalationPolicy` SLA 升階，M47/M102） | 營運 | P1（已完成） |
 | 7 | 多語言 i18n | **完全沒有**：全 repo 0 個 `.resx`，介面字串硬編繁中 | 出口與外文通路 | **P1**（未來市場才啟動） |
-| 8 | 智慧搜尋（向量語意） | 已落地：四表 FTS5 統一檢索（`EventSearchRepository`/`UnifiedEventSearch`，M91/M97）＋規則式中文 NLP 查詢解析（M107）＋`clip_embeddings` 資料層與 `/api/clip/*` 端點；**缺真正的向量檢索與影片摘要** | 現代 VMS 賣點 | **P2** |
+| 8 | 智慧搜尋（向量語意） | 已落地：四表 FTS5 統一檢索（`EventSearchRepository`/`UnifiedEventSearch`，M91/M97）＋規則式中文 NLP 查詢解析（M107）＋`clip_embeddings` 資料層與 `/api/clip/*` 端點（M242 修正維度／位元組序，索引維度不符時回 409）；**缺真正的向量檢索與影片摘要** | 現代 VMS 賣點 | **P2** |
 | 9 | 統計報表 | 僅 `/api/reports/daily`＋`ReportsWindow`（每日）；容量趨勢/斷線統計/週期郵寄未做 | 管理與驗收 | **P2** |
 | 10 | 中央/多機集群管理 | 沒有上層 NVR；僅第二記錄伺服器 Failover（租約仲裁＋實體接管，`failover_state`/`failover_events`，M87/M88/M98） | 大型案/連鎖場域 | **P2** |
 | 11 | 雙向對講 | **沒有**：`ITalkProvider` 只在藍圖，程式碼零引用 | 門禁/收費場景 | **P2** |
@@ -1076,7 +1076,7 @@ L2 比對（人臉/車牌）置「進階·需權限」區，預設關閉（§5.1
 ### 14.5 P2 建議（差異化 / 擴展）
 
 - **智慧搜尋**：於 AI 事件上延伸——依人/車/時間區間/指定 ROI 篩出縮圖牆→單擊直達該段錄影
-  - 現況：FTS5 多源統一檢索（M91/M97）＋中文 NLP 查詢解析（M107）＋`clip_embeddings` 資料層已落地；**向量檢索本身未做**
+  - 現況：FTS5 多源統一檢索（M91/M97）＋中文 NLP 查詢解析（M107）＋`clip_embeddings` 資料層已落地；**向量檢索本身未做**（M242 先修掉檢索層自身的維度越界與主機位元組序問題，並在維度不符時回 409 要求重建索引，但仍缺模型產生 embedding）
 - **統計報表**：錄影時數、斷線次數、容量趨勢、AI 事件統計（VIP）— 每週排程郵寄
   - 現況：僅 `/api/reports/daily`＋`ReportsWindow`；趨勢圖與排程郵寄未做
 - **中央管理（上部 NVR 集群）**：一台上層 NVR 看多台 NVR 的狀態與跨機回放（XML/XMPP 或自訂協議）
