@@ -1095,6 +1095,7 @@ public partial class MainWindow : Window
         _licenseGate.Apply(ScheduleButton, LicenseFeatures.Schedule, "設定錄影排程");
         _licenseGate.Apply(PatrolButton, LicenseFeatures.Schedule, "設定巡航排程");
         _licenseGate.Apply(DetectionButton, LicenseFeatures.AiL1, "開啟 AI 偵測設定");
+        _licenseGate.Apply(AudioButton, LicenseFeatures.Ai, "音訊感測測試與設定");
         _licenseGate.Apply(MapButton, LicenseFeatures.Gis, "開啟電子地圖（攝影機定位）");
         _licenseGate.Apply(IoButton, LicenseFeatures.Gis, "設定感測器／輸出點並即時操作");
 
@@ -1987,10 +1988,15 @@ public partial class MainWindow : Window
 
     private void OnStreamClicked(object sender, RoutedEventArgs e) => OpenStreamSwitchWindow();
 
-    /// <summary>開啟音訊感測測試視窗（M79，§5.8 L1）。</summary>
+    /// <summary>
+    /// 開啟音訊感測測試視窗（M79，§5.8 L1）。
+    ///
+    /// 音訊事件屬事件 AI（§19.4 入口對應），遠端 <c>/api/audio</c> 由閘門擋 <c>ai</c>；
+    /// 只擋管理員會讓遠端被擋、本機可繞，等於沒有合併檢查。
+    /// </summary>
     private void OpenAudioWindow()
     {
-        if (!RequireAdmin())
+        if (!RequireAdmin() || !RequireFeature(LicenseFeatures.Ai))
         {
             return;
         }

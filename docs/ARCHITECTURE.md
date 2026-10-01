@@ -1570,7 +1570,8 @@ payload 由 `LicensePayload` 序列化（`JsonNamingPolicy.CamelCase`），欄�
 - **功能旗標閘門（M209）**：`LicenseApplyResult.AllowsFeature(flag)` 是唯一的「某旗標能不能用」判斷——授權有效**且**旗標字面存在於 `license.features` 才為 true，採嚴格比對（少一項就是沒有；不會因為買了 L1 就連帶開通 L2，也不會因為缺 `core` 而默認放行）。`FeatureDenialMessage(flag)` 給出可直接顯示的句子，未匯入／已作廢／旗標缺失三種情況文案不同。
   - `LicenseFeatures`（Storage）集中八個旗標常數與中文顯示名；旗標字串本身以 `HeliVMS.Licensing.LicenseTiers` 為權威，Storage 這份只是補顯示名與 `IsKnown()`，讓桌面端、CLI、WebApi 三邊講同一句話。未知旗標原樣顯示、不丟例外——上游新增旗標時不會讓整個視窗炸掉。
   - **兩層防護**：隱藏只是體面。`LicenseUiGate.Apply(element, flag)` 設 `Visibility.Collapsed`，事件處理器仍以 `RequireFeature(flag)` 再擋一次，因為鍵盤、程式化點擊與 CLI `--map`／`--analytics`／`--patrol`／`--share` 之類的旗標繞得過 `Collapsed`。
-  - **入口對應**：`schedule`→錄影排程與巡航排程（`PatrolButton`／`--patrol` 與 `/api/patrols` 同閘門）；`ai`→AI 疊加與事件 AI 開關；`ai.l1`→偵測設定與分析視窗；`gis`→電子地圖與 IO（兩者共用一個旗標）；`remote`→分享與遠程主控台（`OpenShareWindow`／`--share`、`ShareWindow` 建立鈕與 `/api/shares` 同閘門）；`ad`→OIDC／LDAP 企業登入（登入視窗面板、設定中心企業身份區與 `/api/auth/providers` 同閘門）。`core` 旗標沒有對應隱藏項目（隱藏「基本即時監看」等於把產品藏掉）。
+  - **入口對應**：`schedule`→錄影排程與巡航排程（`PatrolButton`／`--patrol` 與 `/api/patrols` 同閘門）；`ai`→AI 疊加、事件 AI 開關與音訊感測（`AudioButton`／`--audio` 與 `/api/audio` 同閘門）；`ai.l1`→偵測設定與分析視窗；`gis`→電子地圖與 IO（兩者共用一個旗標）；`remote`→分享與遠程主控台（`OpenShareWindow`／`--share`、`ShareWindow` 建立鈕與 `/api/shares` 同閘門）；`ad`→OIDC／LDAP 企業登入（登入視窗面板、設定中心企業身份區與 `/api/auth/providers` 同閘門）。`core` 旗標沒有對應隱藏項目（隱藏「基本即時監看」等於把產品藏掉）。
+  - **音訊感測算 `ai` 不算 `core`（M228）**：`AudioWindow` 走 `AudioSensorCoordinator`→`AudioTriggerEngine`，會實際寫出事件（§5.8），本質就是事件 AI，因此與遠端 `/api/audio` 收同一顆旗標。先前只擋管理員，遠端被擋而本機可繞，等於沒有合併檢查。
   - **`ai.l2` 沒有 WPF 入口**：車牌／人臉辨識目前只在旗標與授權層生效，等有對應視窗再接 UI。
   - **ShareHost 是服務不是按鈕**：`remote` 未授權時 `ShareHost.ApplySettings(settings, licenseAllowed: false)` 會強制 `Stop()` 並回報未授權。分享主機是 loopback HTTP socket，只藏按鈕擋不住一個已經在聽的連接埠。
   - **匯入授權即時生效（單一來源）**：`SettingsWindow` 匯入金鑰只呼叫一次 `LicenseService.Apply()`（驗簽＋機器綁定＋落 `license` 表＋稽核，§19.7／§19.8），**只有結果為 `Valid`／`Expired` 時才寫 `license.lic`**；先寫檔再驗會讓作廢／時鐘回流／簽章錯的金鑰被下次 `RefreshDefault` 從檔裡讀回來，等於繞過拒絕。授權狀態列也讀同一列，少這一步會出現「設定頁寫著已授權、錄影閘門卻認為未匯入」的矛盾。
@@ -1584,6 +1585,7 @@ payload 由 `LicensePayload` 序列化（`JsonNamingPolicy.CamelCase`），欄�
   - **SPA 端**：旗標閘門回 403，而 `apiRaw` 只在**網路層**失敗時才 `setConn(false)`，故 HTTP 403 不會觸發面板的 `.catch`——未裝示時使用者只會看到一片空面板。因此 `refreshLicense()` 在 boot 與 12 秒輪詢中並取狀態，於頂列 `#lic` 徽章以 `textContent` 說明未授權與缺哪幾項（授權訊息不得以 `innerHTML` 插入）。排程與巡檢兩個建立表單原本只以 `if (ok?.ok)` 判斷而靜默丟棄回應（M224），現改讀取 403 body 的 `error` 文案寫入各自的 live region `<span id="sched-msg">`／`<span id="patrol-msg">`，與備份／匯出／供應商／法務保留／告警規則等既有表單一致。
   - **受閘門保護的面板必須自己解釋空白（M227）**：徽章是全域的，讀者未必看得到；被 403 擋下的讀取若被 `.catch(() => [])` 吞成空清單，「沒授權」與「這個頻道沒資料」在畫面上完全一樣。因此讀取一律走 `gatedFetch(msgId, url)`：被擋下就回 `null` 並寫入 live region，呼叫端收到 `null` 要**清空表格並留白字數**（`textContent = ''`）而不是畫成 `（0）`；列內動作（刪除／撤銷／切換）原本一律丟棄 `apiRaw` 的回應，撤銷與切換會變成按了沒反應甚至勾選狀態與伺服器不一致，現同樣以 `feedback(msgId, resp)` 回報 `error`。供應商啟用切換在失敗時額外把 checkbox 翻回去——顯示錯誤卻留下一個伺服器沒接受的狀態，比不顯示更糟。AI 偵測面板原本完全沒有回饋位置（`#det-count`、`#det-summary` 空著就只像沒資料），補上 live region `<span id="det-msg">`。
   - **SPA 端不自行判斷旗標**：閘門留在伺服器，前端不複製一份旗標判斷——兩份真相必然漂移，而 SPA 目前的呈現是「進得去就畫、畫不出來就說明為什麼」。`#lic` 徽章說明缺哪幾項，各面板的 live region 說明自己為什麼是空的。
+  - **規則表要雙向對帳（M228）**：`桌面入口不得比遠端API寬鬆` 只從桌面契約往下比閘門規則，閘門新增一條規則而桌面忘了接時不會有人發現，因此補上反向斷言：每一條規則必須在桌面有對應入口，或明確列進 `NoDesktopEntry` 並寫明為何沒有入口（目前只有 `/api/clip`——向量／文字檢索僅有 API 與 lib.js 的純函式 renderer，WPF 尚無對應視窗）。豁免清單另有一條斷言只准引用**真的存在**的規則，否則就等於開了一個永遠不會被驗的後門。兩條都經 mutation 驗證會失敗。
 - **到期提醒（M211）**：`LicenseExpiry.Evaluate(expiresUtc, nowUtc, valid)` 是「14 天窗口」的唯一實作，回傳 `LicenseExpiryNotice(Stage, DaysRemaining, ExpiresUtc)` 與 `Message`。`WarnDays = 14`／`UrgentDays = 3` 兩個門檻寫成常數並由測試鎖住——寫死在 XAML 或各視窗裡就會有第二份真相。
   - **邊界用總時數而非天數判斷**：只剩 5 小時若被算成「13 天」會完全失去緊迫感，故分級看 `remaining.TotalDays`，只有顯示用的 `DaysRemaining` 才 `Math.Floor`。
   - **`valid` 要傳「有效或已到期」**：已到期仍然要提醒（續期訊息正是那時候最需要的），文案明說「新增錄影已停止；既有錄影仍可回放」；未匯入／已作廢／時鐘回流／簽章無效則不提醒——那四種是「授權無效」而非「快到期」，由設定中心與各閘門回饋即可，不該混在同一條黃色浮條裡。
@@ -1744,6 +1746,7 @@ CREATE INDEX idx_license_verified ON license(last_verified DESC);
 - [x] 授權啟用/到期/改版事件完整寫入稽核日誌（M206：`license.activate`／`upgrade`／`update`／`expire`／`status`／`revoke`，資安事件另有 `reject`／`mismatch`）
 - [x] 手改快取列放大授權（通道數／旗標／假金鑰）於下次啟動被重新驗簽擋下並停用（M213：桌面端與 WebApi 啟動皆呼叫 `RefreshDefault`，兩來源取較新、皆不可驗證則標 `invalid`＋`license.reject`，fail-closed）
 - [x] 受閘門保護的入口必須自己解釋「為什麼不能用」（M226：桌面端 48 個契約測試鎖住 XAML 可見性＝handler 守衛；M227：SPA 讀取回 `null` 而非空清單，動作端與勾選狀態不留假象）
+- [x] 遠端與桌面的旗標規則要雙向對帳（M228：`音訊感測` 改依 `ai` 閘門與 `/api/audio` 對齊；規則表新增前綴時必須有桌面入口或明確豁免，豁免不得引用不存在的規則）
 
 ---
 

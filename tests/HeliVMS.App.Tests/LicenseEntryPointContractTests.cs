@@ -40,6 +40,7 @@ public sealed class LicenseEntryPointContractTests
         new("MainWindow", "ScheduleButton", nameof(LicenseFeatures.Schedule), "OnScheduleClicked"),
         new("MainWindow", "PatrolButton", nameof(LicenseFeatures.Schedule), "OnPatrolClicked"),
         new("MainWindow", "DetectionButton", nameof(LicenseFeatures.AiL1), "OnDetectionClicked"),
+        new("MainWindow", "AudioButton", nameof(LicenseFeatures.Ai), "OnAudioClicked"),
         new("MainWindow", "MapButton", nameof(LicenseFeatures.Gis), "OnMapClicked"),
         new("MainWindow", "IoButton", nameof(LicenseFeatures.Gis), "OnIoClicked"),
         new("MainWindow", "AiToggle", nameof(LicenseFeatures.Ai), "OnAiToggleChanged"),
@@ -81,6 +82,17 @@ public sealed class LicenseEntryPointContractTests
         new("/api/shares", "ShareCreateButton", nameof(LicenseFeatures.Remote)),
         new("/api/auth/providers", "EnterpriseSection", nameof(LicenseFeatures.AdSso)),
         new("/api/detections", "DetectionButton", nameof(LicenseFeatures.AiL1)),
+        new("/api/audio", "AudioButton", nameof(LicenseFeatures.Ai)),
+    ];
+
+    /// <summary>
+    /// 遠端有擋、但 WPF 端確實沒有對應入口的前綴。列在此處是為了讓反向涵蓋率檢查
+    /// 知道它們是「查過了、確定沒有桌面入口」而不是漏比——新增一個沒有桌面入口的
+    /// 能力時要補一列說明理由，而不是讓斷言默默失效。
+    /// </summary>
+    private static readonly (string Prefix, string Reason)[] NoDesktopEntry =
+    [
+        ("/api/clip", "向量／文字檢索只有 API 與 lib.js 的純函式 renderer，WPF 尚無對應視窗"),
     ];
 
     /// <summary>旗標蘊含：較嚴的旗標必須同時開通較鬆的旗標。</summary>
@@ -246,6 +258,44 @@ public sealed class LicenseEntryPointContractTests
                 remoteFlag == localFlag || Implies(localFlag, remoteFlag),
                 $"{capability.Element} 在本機要 {localFlag}，但 {capability.Prefix} 在遠端只要 {remoteFlag}"
                 + "——遠端被擋、本機可繞，等於沒有合併檢查");
+        }
+    }
+
+    /// <summary>
+    /// 反向涵蓋率：<see cref="Capabilities"/> 只往下比，遠端多擋一條規則時不會有人發現。
+    /// 閘門新增前綴而桌面忘了接（或忘了說明為何沒有入口），都要在這裡被逼出來。
+    /// </summary>
+    [Fact]
+    public void 遠端閘門的每條規則都要有桌面對應或明確豁免()
+    {
+        var rules = RemoteGateRules();
+        var accounted = Capabilities.Select(c => c.Prefix)
+            .Concat(NoDesktopEntry.Select(e => e.Prefix))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        var missing = rules.Keys
+            .Where(prefix => !accounted.Contains(prefix))
+            .OrderBy(prefix => prefix, StringComparer.Ordinal)
+            .ToList();
+
+        Assert.True(
+            missing.Count == 0,
+            $"LicenseGateMiddleware 新增了 {string.Join("、", missing)}，但桌面端沒有對應入口，"
+            + $"也未在 NoDesktopEntry 說明原因——請補上桌面契約或明確豁免");
+    }
+
+    /// <summary>
+    /// 豁免清單本身要準確：寫了不存在的規則等於給自己開了一個永遠不會被驗的後門。
+    /// </summary>
+    [Fact]
+    public void 桌面豁免清單只列真正存在的遠端規則()
+    {
+        var rules = RemoteGateRules();
+
+        foreach (var (prefix, reason) in NoDesktopEntry)
+        {
+            Assert.True(rules.ContainsKey(prefix), $"NoDesktopEntry 的 {prefix} 已不在閘門規則表，請移除");
+            Assert.False(string.IsNullOrWhiteSpace(reason), $"{prefix} 必須寫明為何沒有桌面入口");
         }
     }
 
