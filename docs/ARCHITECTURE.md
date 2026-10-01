@@ -1724,11 +1724,13 @@ license(id INTEGER PK,
         expired_at TEXT,                   -- NULL = 永久授權
         first_seen TEXT NOT NULL,          -- 首次啟用，換發不覆寫
         last_verified TEXT,                -- 最近一次驗證通過
-        status TEXT NOT NULL,              -- active / expired / time_rollback / revoked
+        status TEXT NOT NULL,              -- active / expired / time_rollback / revoked / invalid
         created_by TEXT, UNIQUE(device_code));
-CREATE INDEX ix_license_status      ON license(status);
-CREATE INDEX ix_license_last_verify ON license(last_verified);
+CREATE INDEX idx_license_status   ON license(status);
+CREATE INDEX idx_license_verified ON license(last_verified DESC);
 ```
+
+`status` 的五個值與 `LicenseStatuses` 常數一一對應；`invalid` 是 M213 起新增的（M213：啟動重新驗證無法驗證任何一筆時的 fail-closed 標記，連同 `time_rollback` 都要重新匯入合法授權才會恢復——見 §19.4）。索引名以 `SqliteStore.CreateLicenseTableV43` 為準。
 
 存取一律經 `LicenseRepository`（upsert by `device_code`）：換發覆寫快取欄並保留 `first_seen`。稽核（`AuditCategories.License = 'license'`）只記真正的變更——`license.activate`（首次）、`license.upgrade`（金鑰更換）、`license.update`（等級／通道／到期變更）、`license.expire`、`license.status`、`license.revoke`，另有資安事件 `license.reject`、`license.mismatch`。**重新驗證本身不寫稽核**（每次啟動都會發生，會淹沒上述事件）；驗證時點由 `last_verified` 表達。
 

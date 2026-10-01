@@ -64,18 +64,4 @@ public sealed class LicenseUiGate
 
         element.ToolTip = DenialMessage(feature);
     }
-
-    /// <summary>
-    /// 設定工具列／面板的顯示（<see cref="Apply"/> 的批次版），並回傳是否顯示。
-    /// </summary>
-    public bool ApplyAll(params (FrameworkElement Element, string Feature)[] entries)
-    {
-        ArgumentNullException.ThrowIfNull(entries);
-        foreach (var (element, feature) in entries)
-        {
-            Apply(element, feature);
-        }
-
-        return entries.Length > 0 && entries[0].Element.Visibility == Visibility.Visible;
-    }
 }

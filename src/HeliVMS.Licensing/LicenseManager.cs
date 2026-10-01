@@ -75,13 +75,6 @@ public sealed class LicenseManager
         return new LicenseState(LicenseStatus.Valid, payload, null);
     }
 
-    /// <summary>驗證授權檔。</summary>
-    public LicenseState ValidateFile(string path, DateTime? nowUtc = null)
-        => Validate(File.Exists(path) ? File.ReadAllText(path).Trim() : string.Empty, nowUtc);
-
-    /// <summary>驗證預設授權檔（%LOCALAPPDATA%\HeliVMS\license.lic）。</summary>
-    public LicenseState ValidateDefault(DateTime? nowUtc = null) => ValidateFile(DefaultPath, nowUtc);
-
     /// <summary>
     /// 比對授權綁定的機器碼。接受規範設備碼與舊版 MAC 派生指紋，
     /// 避免先前已簽發的授權因設備碼演算法統一而失效（§19.1）。
