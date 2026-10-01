@@ -1576,6 +1576,7 @@ payload 由 `LicensePayload` 序列化（`JsonNamingPolicy.CamelCase`），欄�
   - **跨視窗開門要重新確認（M229）**：別的視窗直接 `new` 受閘門視窗時，所在方法自己必須再問一次旗標——主視窗的按鈕擋不掉 `EventCenterWindow` 開 `MapWindow`（要 `gis`）、`ExportCenterWindow` 開 `ShareWindow`（要 `remote`）、`SettingsWindow` 開排程／偵測視窗（要 `schedule`／`ai.l1`）。這四條同樣列入契約，改壞會被測試擋下。
   - **程式化守衛也要進契約（M230）**：有些面板不是用 `Collapsed` 控制，而是載入時判斷旗標決定要不要填內容——`LoginWindow` 的企業 SSO 面板就是這樣：`LoadEnterpriseProviders` 先問 `EnterpriseDenial()`（擋 `ad`），未授權直接不載入、連高度都不算。這種「只剩註解在講」的守衛最容易被漏，因此契約新增 `ProgrammaticGuards` 表，一邊驗守衛方法擋對旗標、一邊驗入口方法真的呼叫了守衛。順帶修正測試的守衛掃描只認 `Allows(`／`RequireFeature(` 而漏掉 `AllowsFeature(` 的問題——`LoginWindow` 用的正是後者，先前整條不會被掃到。
   - **遠端閘門的每個前綴都要有行為測試（M231）**：桌面契約驗的是「本機不比遠端寬鬆」，但遠端本身若多一條規則卻沒人打過，仍可能是紙上規則。`LicenseApiTests.NoLicense_BlocksFlagGatedEndpoint` 補齊漏掉的 `/api/clip`、`/api/audio`（皆 `ai`），`Licensed_AllowsGrantedFeature` 補上 `/api/patrols`、`/api/audio`；並新增 `GateRules_AreAllExercisedByTheBlockedTheory`，直接從 `LicenseGateMiddleware.Rules` 與測試來源對帳，規則表新增前綴卻沒進行為測試就紅。兩個方向（移除測試列、新增中介軟體規則）都以 mutation 驗證。
+  - **服務型能力要在呼叫處重新確認（M232）**：`ShareHost` 一被 `ApplySettings` 就會在 loopback 監聽，藏按鈕擋不住一個已在聽的連接埠——這正是它被稱作「service 不是 button」的原因。但「未授權時傳 `licenseAllowed: false` 讓它強制 `Stop()`」這件事先前只寫在註解裡，沒有任何測試：`MainWindow.OnLoaded` 少傳一個引數、或 `SettingsWindow.OnApplyShareClicked` 的 `Allows(remote)` 早退被拿掉，都會讓分享服務在未授權下繼續跑而不被發現。契約新增 `RuntimeEnforcementSites`：呼叫處所在的方法必須先問過 `remote`，另有一條涵蓋率檢查，任何視窗呼叫 `_shareHost.ApplySettings(` 都必須進表。兩個呼叫點都以 mutation 驗證。
   - **`ai.l2` 沒有 WPF 入口**：車牌／人臉辨識目前只在旗標與授權層生效，等有對應視窗再接 UI。
   - **ShareHost 是服務不是按鈕**：`remote` 未授權時 `ShareHost.ApplySettings(settings, licenseAllowed: false)` 會強制 `Stop()` 並回報未授權。分享主機是 loopback HTTP socket，只藏按鈕擋不住一個已經在聽的連接埠。
   - **匯入授權即時生效（單一來源）**：`SettingsWindow` 匯入金鑰只呼叫一次 `LicenseService.Apply()`（驗簽＋機器綁定＋落 `license` 表＋稽核，§19.7／§19.8），**只有結果為 `Valid`／`Expired` 時才寫 `license.lic`**；先寫檔再驗會讓作廢／時鐘回流／簽章錯的金鑰被下次 `RefreshDefault` 從檔裡讀回來，等於繞過拒絕。授權狀態列也讀同一列，少這一步會出現「設定頁寫著已授權、錄影閘門卻認為未匯入」的矛盾。
@@ -1754,6 +1755,7 @@ CREATE INDEX idx_license_verified ON license(last_verified DESC);
 - [x] 繞得過 `Collapsed` 的開窗路徑要各自把旗標擋住（M229：CLI `--share`／`--analytics`／`--patrol`／`--map`／`--io`／`--audio` 走 `Open*Window` 並逐個鎖旗標；CLI dispatch 不得直接 `new` 受閘門視窗；跨視窗開門要重新確認旗標）
 - [x] 不靠 `Collapsed` 的程式化守衛也要有契約（M230：`LoginWindow` 企業 SSO 面板由 `EnterpriseDenial()` 擋 `ad`、`LoadEnterpriseProviders` 必須呼叫它；守衛掃描補上 `AllowsFeature(`）
 - [x] 遠端閘門的每個前綴都要有行為測試（M231：`NoLicense` 補 `/api/clip`、`/api/audio`，`Licensed` 補 `/api/patrols`、`/api/audio`；`GateRules_AreAllExercisedByTheBlockedTheory` 從 `Rules` 對帳測試來源，加規則沒加測試即紅）
+- [x] 服務型能力的呼叫處要重新確認旗標（M232：`_shareHost.ApplySettings` 兩處都必須問 `remote`，涵蓋率檢查任何視窗呼叫都要進 `RuntimeEnforcementSites`）
 
 ---
 

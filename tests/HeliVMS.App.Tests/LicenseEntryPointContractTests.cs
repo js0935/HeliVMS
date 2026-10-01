@@ -137,6 +137,17 @@ public sealed class LicenseEntryPointContractTests
         ("LoginWindow", "EnterpriseDenial", "LoadEnterpriseProviders", nameof(LicenseFeatures.AdSso)),
     ];
 
+    /// <summary>
+    /// 服務型 enforcement（M232）：有些能力不是「畫出來」而是「真的開始作用」——分享主機一開
+    /// 就在 loopback 監聽，藏按鈕擋不住一個已在聽的連接埠。這類呼叫所在的方法必須先問過旗標，
+    /// 未授權時才能把已在跑的服務停掉；否則「service 不是 button」只是註解裡的一句話。
+    /// </summary>
+    private static readonly (string Window, string Method, string Callee, string Feature)[] RuntimeEnforcementSites =
+    [
+        ("MainWindow", "OnLoaded", "_shareHost.ApplySettings(", nameof(LicenseFeatures.Remote)),
+        ("SettingsWindow", "OnApplyShareClicked", "_shareHost.ApplySettings(", nameof(LicenseFeatures.Remote)),
+    ];
+
     /// <summary>旗標蘊含：較嚴的旗標必須同時開通較鬆的旗標。</summary>
     private static readonly (string Stronger, string Weaker)[] Implications =
     [
@@ -205,6 +216,17 @@ public sealed class LicenseEntryPointContractTests
         foreach (var (window, guard, caller, feature) in ProgrammaticGuards)
         {
             data.Add(window, guard, caller, feature);
+        }
+
+        return data;
+    }
+
+    public static TheoryData<string, string, string, string> RuntimeEnforcementGuards()
+    {
+        var data = new TheoryData<string, string, string, string>();
+        foreach (var (window, method, callee, feature) in RuntimeEnforcementSites)
+        {
+            data.Add(window, method, callee, feature);
         }
 
         return data;
@@ -426,6 +448,38 @@ public sealed class LicenseEntryPointContractTests
         Assert.Contains(
             guard,
             BodyOf(Read($"src/HeliVMS.App/{window}.xaml.cs"), caller));
+    }
+
+    [Theory]
+    [MemberData(nameof(RuntimeEnforcementGuards))]
+    public void 服務型能力要在呼叫處重新確認旗標(string window, string method, string callee, string feature)
+    {
+        var body = BodyOf(Read($"src/HeliVMS.App/{window}.xaml.cs"), method);
+        Assert.NotEqual(string.Empty, body);
+        Assert.Contains(callee, body);
+        Assert.Contains(FeatureValue(feature), GuardedFeatures(window, method));
+    }
+
+    [Fact]
+    public void 服務型呼叫都要列入契約()
+    {
+        // 新增一個會啟動服務的呼叫卻沒進契約，等於這個 enforcement 沒人驗。
+        var declared = RuntimeEnforcementSites
+            .Select(site => site.Window)
+            .ToHashSet(StringComparer.Ordinal);
+
+        var undeclared = AppSources()
+            .Where(pair => pair.Value.Contains("_shareHost.ApplySettings(", StringComparison.Ordinal))
+            .Select(pair => WindowOf(pair.Key))
+            .Where(window => !declared.Contains(window))
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(window => window, StringComparer.Ordinal)
+            .ToList();
+
+        Assert.True(
+            undeclared.Count == 0,
+            $"這些視窗呼叫了 _shareHost.ApplySettings 但未列入 RuntimeEnforcementSites："
+            + string.Join("、", undeclared));
     }
 
     [Fact]
