@@ -144,7 +144,8 @@ public class RtspClientTests
         // ffmpeg 會回顯含帳密的輸入網址；診斷內容對外可用，但不得含明文密碼。
         var dir = NewDir();
         var probe = WriteStub(dir, "ffprobe.cmd", EchoResolution);
-        var ffmpeg = WriteStub(dir, "ffmpeg.cmd", EchoCredentialInStderr);
+        var marker = Path.Combine(dir, "stderr-done.txt");
+        var ffmpeg = WriteStub(dir, "ffmpeg.cmd", EchoCredentialInStderr(marker));
 
         await using var client = new RtspClient("rtsp://root:sup3rsecret@10.0.0.1/live.sdp", ffmpeg, probe)
         {
@@ -158,8 +159,9 @@ public class RtspClientTests
         await WaitUntilAsync(() => client.IsRunning);
         Assert.True(client.IsRunning, "ffmpeg 應已啟動");
 
-        // 讓 stub 有時間把錯誤寫進 stderr（排乾任務需讀到）。
-        await Task.Delay(TimeSpan.FromSeconds(2));
+        // 等 stub 寫完 stderr 再停；固定延遲在 CI 並行負載下不足，改等 marker 檔。
+        await WaitUntilAsync(() => File.Exists(marker));
+        Assert.True(File.Exists(marker), "ffmpeg stub 應已輸出 stderr");
 
         await client.StopAsync();
 
@@ -277,14 +279,16 @@ public class RtspClientTests
 
     // 輸出 5 行錯誤，其中一行回顯含帳密的輸入網址（ffmpeg 的真實行為）。
     // cmd 的 echo 預設寫 stdout，必須用 1>&2 導向 stderr。
-    private const string EchoCredentialInStderr =
-        """
+    // 寫完後建立 marker 檔：測試改以此判斷「stderr 已寫入」，避免 CI 並行負載下固定延遲不足。
+    private static string EchoCredentialInStderr(string marker) =>
+        $"""
         @echo off
         echo [rtsp @ 0] method DESCRIBE failed: 401 Unauthorized 1>&2
         echo Error opening input file rtsp://root:sup3rsecret@10.0.0.1:554/live.sdp 1>&2
         echo Error opening input file rtsp://root:sup3rsecret@10.0.0.1:554/live.sdp 1>&2
         echo [in#0 @ 0] Error opening input: Server returned 401 Unauthorized 1>&2
         echo Error opening input files: Server returned 401 Unauthorized 1>&2
+        echo done > "{marker}"
         ping -n 30 127.0.0.1 >nul
         """;
 
