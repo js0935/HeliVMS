@@ -153,7 +153,8 @@ public sealed class ChannelSession : IDisposable
 
     public async Task StopAsync()
     {
-        await SetRecordingAsync(recording: false);        _motion?.Flush();
+        await SetRecordingAsync(recording: false);
+        _motion?.Flush();
         _ai?.Flush();
         _tamper?.Flush();
         if (IsMonitoring)
