@@ -1004,25 +1004,32 @@ L2 比對（人臉/車牌）置「進階·需權限」區，預設關閉（§5.1
 
 ### 14.1 缺口總表
 
+> 本表於 M238 逐列對照實作重寫。原表停留在藍圖階段，寫著「完全沒有／沒有」的項目
+> 多數已落地（遠程 API、Legal Hold、備份、事件工作流、DI/DO、斷線補錄），
+> 拿舊版估工時會嚴重誤判。**「缺口」一欄現在指的是仍然沒做的事**，
+> 已落地者標在「現況」並附里程碑編號。
+
 | # | 功能缺口 | 現況 | 影響 | 建議 |
 |---|---|---|---|---|
-| 1 | **遠程存取（Web / 行動端）** | 完全沒有（僅本機桌面） | NVR 基本構成，缺=半殘 | **P0** |
-| 2 | **匯出證據工作流** | 有匯出精靈，缺批量/驗證/證據包 | 司法效力與營運效率 | **P0** |
-| 3 | **地圖/平面圖檢視（Map View）** | 只有基礎概念 | 專業賣點與空間直覺 | P0′（§16.1 完整設計） |
-| 4 | 備份與異地備援 | 沒有（僅本地錄影 + ROI） | 資料安全（災後） | P1 |
-| 5 | 數位簽章與證據包 | 僅 SHA-256 | 證據鏈完整性 | P1 |
-| 6 | 事件回應工作流 | 僅 `acknowledged` 位元 | 營運（確認/指派/留言） | P1（**已實作 M38**） |
-| 7 | 多語言 i18n | 僅繁體中文 | 市場（出口與外文通路） | P1 |
-| 8 | 智慧搜尋（物體/區域/色） | 僅時間與事件篩選 | 現代 VMS 賣點 | P2 |
-| 9 | 統計報表 | 僅提及（§11.7）未深化 | 管理與驗收 | P2 |
-| 10 | 中央/多機集群管理 | 沒有（單機 NVR） | 大型案/連鎖場域 | P2 |
-| 11 | 雙向對講 | 僅預留 `ITalkProvider` | 門禁/收費場景 | P2 |
-| 12 | 雲整合 / 訂閱 | 沒有 | 商業模式（訂閱營收） | P3 |
-| 13 | Legal Hold（保存鎖定/沖銷） | 沒有 | 個資法合規用的「暫停汰除」 | P3 |
-| 14 | GPS 時鐘/高精度時間源 | 僅 NTP | 證據時間可信度（法庭） | P3 |
-| 15 | **遮蔽偵測（Tamper）** | L0 已實作（M39） | 專業 NVR 基本警報（鏡頭被遮/被移/被噴漆） | P1（**已實作 M39**） |
-| 16 | **感測器/乾接點 IO（DI/DO）** | 沒有 | 門磁/煙霧/紅外警報主機整合 | P1（§16.2 完整設計） |
-| 17 | **斷線補錄（Gap 補抓）** | 沒有 | 斷網期間設備 SD 自錄，重連後補抓 | P3 |
+| 1 | **遠程影像串流（WebRTC/HLS）** | 遠程 API 與 SPA 主控台已落地（M117 REST、M118 `/api/alerts/ws`），**但遠程看不到畫面**：沒有串流端點 | P0 唯一未閉合項，缺=遠程只有事件沒有影像 | **P0** |
+| 1b | **行動端 App** | 無（僅網頁主控台） | 巡檢/報警第一線 | P1（網頁主控台可先擋） |
+| 2 | 匯出證據工作流 | 已落地：匯出精靈＋匯出中心＋證據包 `manifest.json`＋SHA-256＋匯出即驗證（`evidence_manifests`、`EvidenceWindow`）；**缺非對稱簽章**（見 #5） | 司法效力 | P0（主體已完成） |
+| 3 | 地圖/平面圖檢視（Map View） | 已落地：`MapWindow`（樓層切換、圖釘含 camera 扇形 FOV、事件閃爍、雙向定位）、`maps`/`map_devices`（M41）；深度/設備自動布局未做 | 專業賣點 | P0′（主體已完成） |
+| 4 | 備份與異地備援 | 已落地：`BackupService`＋checkpoint、`offsite_jobs`/`OffsiteReplicationService`、設備 SD 斷線補錄（`edge_backfill_jobs`＋`EdgeFfmpegBackfillRunner`，M89/M94/M96） | 資料安全 | P1（主體已完成） |
+| 5 | 數位簽章與證據包 | 證據包與 SHA-256 清單已有；**匯出影片仍無私鑰簽章與外部驗證工具** | 證據鏈完整性／司法效力 | **P1**（唯一剩餘項） |
+| 6 | 事件回應工作流 | 已落地：四態＋`event_dispositions`/`event_disposition_trail`（M38）、分診面板與工作流 L1（`alarm_triage`/`alarm_notes`/`alarm_escalations`＋`AlarmEscalationPolicy` SLA 升階，M47/M102） | 營運 | P1（已完成） |
+| 7 | 多語言 i18n | **完全沒有**：全 repo 0 個 `.resx`，介面字串硬編繁中 | 出口與外文通路 | **P1**（未來市場才啟動） |
+| 8 | 智慧搜尋（向量語意） | 已落地：四表 FTS5 統一檢索（`EventSearchRepository`/`UnifiedEventSearch`，M91/M97）＋規則式中文 NLP 查詢解析（M107）＋`clip_embeddings` 資料層與 `/api/clip/*` 端點；**缺真正的向量檢索與影片摘要** | 現代 VMS 賣點 | **P2** |
+| 9 | 統計報表 | 僅 `/api/reports/daily`＋`ReportsWindow`（每日）；容量趨勢/斷線統計/週期郵寄未做 | 管理與驗收 | **P2** |
+| 10 | 中央/多機集群管理 | 沒有上層 NVR；僅第二記錄伺服器 Failover（租約仲裁＋實體接管，`failover_state`/`failover_events`，M87/M88/M98） | 大型案/連鎖場域 | **P2** |
+| 11 | 雙向對講 | **沒有**：`ITalkProvider` 只在藍圖，程式碼零引用 | 門禁/收費場景 | **P2** |
+| 12 | 雲整合 / 訂閱 | 沒有 | 商業模式 | **P3** |
+| 13 | Legal Hold（保存鎖定/沖銷） | 已落地：`legal_holds`＋`LegalHoldRepository`＋`LegalHoldWindow`、沖銷需權限並留稽核 | 個資法合規 | P3（已完成） |
+| 14 | GPS 時鐘/高精度時間源 | 僅 NTP | 證據時間可信度 | **P3** |
+| 15 | 遮蔽偵測（Tamper） | 已落地：`TamperDetector`（16×16 灰階網格／亮暗閾值／邊緣能量 EMA）＋`TamperEventEngine` 寫 `alarm_events`（M39） | 專業 NVR 基本警報 | P1（已完成） |
+| 16 | 感測器/乾接點 IO（DI/DO） | 已落地：`io_devices`/`io_channels`/`io_ports`/`io_rules`＋`ModbusTcpClient`＋門禁事件 `door_events`（M92） | 門磁/煙霧/紅外主機整合 | P1（已完成） |
+| 17 | 斷線補錄（Gap 補抓） | 已落地：補抓規劃器（L0）＋執行器（L1）＋真實 ffmpeg runner（L2，M89/M94/M96） | 斷網期間自錄補抓 | P3（已完成） |
+
 
 ### 14.2 優先級定義
 
@@ -1034,11 +1041,13 @@ L2 比對（人臉/車牌）置「進階·需權限」區，預設關閉（§5.1
 ### 14.3 P0 建議（併入核心藍圖）
 
 **(1) 遠程存取 Web + 行動端**
-- 架構：`HeliVms.WebApi`（ASP.NET Core）提供 REST + WebSocket；`HeliVms.Web`（SPA）與桌面 App 分流。**REST P0 L0 已落地（M117 `HeliVMS.WebApi`：health、channels、events 分頁＋跨源全文、alarms board/summary、ack/disposition/triage、pos 查詢/對帳、smartwall board；Bearer API 金鑰驗證）**；**WebSocket 即時警報流已落地（M118 `/api/alerts/ws`：Subscribe→Accept、ack/disposition/triage 事件廣播、離線退訂）**；WebRTC/HLS/SPA 待續
-- 串流：實時監看 = **WebRTC**（低延遲，瀏覽器免外掛）；回放 = HLS/MPEG-DASH（依索引即時生成片段）——借鏡 GoWVP（§12）與 WHEP/WARP 模式
+- 架構：`HeliVms.WebApi`（ASP.NET Core）提供 REST + WebSocket；`HeliVms.Web`（SPA）與桌面 App 分流。**REST P0 L0 已落地（M117 `HeliVMS.WebApi`：health、channels、events 分頁＋跨源全文、alarms board/summary、ack/disposition/triage、pos 查詢/對帳、smartwall board；Bearer API 金鑰驗證）**；**WebSocket 即時警報流已落地（M118 `/api/alerts/ws`：Subscribe→Accept、ack/disposition/triage 事件廣播、離線退訂）**；**網頁主控台 SPA 已落地（`HeliVMS.Web`：警報看板、門禁/POS/偵測/排程/巡視/分享/企業身份面板、授權徽章與未授權回饋、單一認證傳輸層）**
+- **仍未落地：串流本身**。遠程看得到事件、看不到畫面——這是本節 P0 唯一未閉合項（M238 盤點確認）。實時監看 = **WebRTC**（低延遲）；回放 = HLS/MPEG-DASH（依 `segments`＋`segment_keyframes` 索引即時生成片段）
 - 安全：TLS + JWT；與桌面端共用資料庫與稽核（誰遠端看了什麼）——呼應 §11.5
+  - **現況**：已用 Bearer 金鑰（`ApiKeyAuthMiddleware`，非常時外 fail-closed、常時比較、每來源 429、WebSocket 僅 `?key=`）＋授權旗標閘門（`LicenseGateMiddleware`，403 帶 `feature`）；JWT／逐請求授權（檢閱者級別起跳）尚未做
 - 權限：遠程預設更嚴（檢閱者級別起跳）
 - 影響：新增 2 專案入目錄；里程碑 M4 之後並行
+
 
 **(2) 匯出證據工作流（強化現有匯出精靈）**
 - 批量匯出（多通道/多時段一次）、進度與續傳、匯出中心（歷史清單與狀態）
@@ -1054,39 +1063,53 @@ L2 比對（人臉/車牌）置「進階·需權限」區，預設關閉（§5.1
 
 | 功能 | 設計要點 |
 |---|---|
-| 備份與異地備援 | 可排程批次複製錄影區段至第二磁碟/NAS/雲端；事件級錄影可雙寫 |
-| 數位簽章 | 匯出影片以私鑰簽署，`HeliVmsVerify` 工具可驗證（司法效力） |
+| 備份與異地備援 | 可排程批次複製錄影區段至第二磁碟/NAS/雲端；事件級錄影可雙寫（**已實作**：`BackupService`＋checkpoint M89/M94、`offsite_jobs`＋`OffsiteReplicationService` M96、設備 SD 斷線補錄 `EdgeFfmpegBackfillRunner`） |
+| 數位簽章 | 匯出影片以私鑰簽署，`HeliVmsVerify` 工具可驗證（司法效力）（**部分實作**：證據包 `manifest.json`＋SHA-256 清單＋匯出即驗證已完成；**非對稱私鑰簽章與外部驗證工具未做**） |
 | 事件回應工作流 | 確認/未決/誤報/已處理四態 + 指派 + 附註 + 時間戳軌跡（**已實作 M38**：`event_dispositions`/`event_disposition_trail`、`AlarmEventRepository.SetDisposition`/`ListDispositionTrail`、事件中心處置列） |
 | 遮蔽偵測（Tamper） | L0 即可實作：幀亮度突變 / 邊緣能量急降 / 全黑全白偵測 → 「鏡頭被遮、被移、被噴漆」警報（附快照）（**已實作 M39**：`TamperDetector`（16×16 灰階網格／亮暗閾值／邊緣能量基準 EMA）＋`TamperEventEngine`（連續 N 幀開窗、冷卻收尾、寫入 `alarm_events` `event_type='tamper'` 附 BMP 快照）；設定鍵 `detect.tamper.enabled`，設定中心「功能」頁開關） |
-| 多語言 i18n | RESX 資源庫 + 語言切換（繁中/簡中/EN/日本語）；字型與格式全面參數化 |
+| 多語言 i18n | RESX 資源庫 + 語言切換（繁中/簡中/EN/日本語）；字型與格式全面參數化（**未實作**：全 repo 0 個 `.resx`，介面字串硬編繁中） |
 
 ### 14.5 P2 建議（差異化 / 擴展）
 
 - **智慧搜尋**：於 AI 事件上延伸——依人/車/時間區間/指定 ROI 篩出縮圖牆→單擊直達該段錄影
+  - 現況：FTS5 多源統一檢索（M91/M97）＋中文 NLP 查詢解析（M107）＋`clip_embeddings` 資料層已落地；**向量檢索本身未做**
 - **統計報表**：錄影時數、斷線次數、容量趨勢、AI 事件統計（VIP）— 每週排程郵寄
-- **中央管理（上部 NVR 集群）**：一台上層 VMS 看多台 NVR 的狀態與跨機回放（XML/XMPP 或自訂協議）
+  - 現況：僅 `/api/reports/daily`＋`ReportsWindow`；趨勢圖與排程郵寄未做
+- **中央管理（上部 NVR 集群）**：一台上層 NVR 看多台 NVR 的狀態與跨機回放（XML/XMPP 或自訂協議）
+  - 現況：無。第二記錄伺服器 Failover（租約仲裁＋實體接管，M87/M88/M98）是可用性機制，**不等於中央管理**
 - **雙向對講**：完成 `ITalkProvider`（海康/大華對講），搭配門禁呼叫燈
+  - 現況：無（`ITalkProvider` 僅存在於藍圖，程式碼零引用）
 - **感測器/乾接點 IO**：隊列通訊（MODBUS/TCP 或 IO 模組）讀門磁/煙霧/紅外主機乾接點 → 寫入 `alarm_events` 並可觸發錄影策略
+  - 現況：**已落地**（`io_devices`/`io_channels`/`io_ports`/`io_rules`＋`ModbusTcpClient`＋`door_events`，M92）；情境套件（周界/靜止車輛/尾隨）未做
 
 ### 14.6 P3 建議（法遵 / 商業）
 
 - **Legal Hold**：單通道指定時段「暫時封存」不被配額汰除；沖銷前需高權限操作並留稽核
+  - 現況：**已落地**（`legal_holds`＋`LegalHoldRepository`＋`LegalHoldWindow`）
 - **GPS 時鐘**：選配接收器校正 NTP 偏移，提供「時間可信度」等級標示於回放 OSD
+  - 現況：無，僅 NTP
 - **雲整合**：雲訂閱（備份/遠程/通知）— 商業化階段
+  - 現況：無
 - **斷線補錄**：重連後透過 Profile T 或 SDK 讀設備 SD 卡在斷網期間的自錄段，補抓到本地索引並標記 `source='sdcard'`
+  - 現況：**已落地**（規劃器 M89／執行器 M94／真實 ffmpeg runner M96）
+
 
 ### 14.7 現今 VMS 市場對標：HeliVms 缺口補遺
 
 > 以 Milestone XProtect 2026 R1、Genetec Security Center、QNAP QVR、Synology Surveillance Station、
 > Frigate 0.16+、Blue Iris 為對照基準，盤點我方尚未涵蓋或需深化的能力。
+>
+> **現況欄於 M238 逐列核對實作後修正**：第 3 與第 8 列原寫「已規劃」，實際已落地
+> （`io_*` 四表＋`ModbusTcpClient`＋`door_events` M92；POS 匯入/對帳/門禁連結 M93/M104/M113）。
+> 缺口的權威清單請以 §14.1 為準，本表為對標補充。
 
 | # | 類別 | 欠缺功能 | 市場代表 | HeliVms 現況 | 建議 |
 |---|---|---|---|---|---|
 | 1 | 身份整合 | **企業帳戶：LDAP / AD / OIDC SSO** | Milestone（Active Directory、OIDC SSO）、Synology | **本機帳號＋RBAC（PBKDF2＋失敗鎖定，M42 已實作）**＋OIDC 驗證/LDAP 設定（M50 `EnterpriseAuthService`）＋LDAP 連線層（M85 `LdapClient`）＋企業登入（M99 `LdapLoginBroker`＋`login_sessions` v36）＋**OIDC 授權碼＋PKCE 登入（M100 `OidcLoginFlow`）已落地** | **P1**（企業標案基本門檻） |
 | 2 | 影像 | **魚眼攝影機矯正（Dewarping）** | QNAP Qdewarp、Genetec、Synology | **魚眼矯正服務＋ffmpeg v360 filter（`DewarpService`/`DewarpFilter`/`DewarpWindow`）已落地** | P1（魚眼/全景漸普及） |
 | 3 | 事件營運 | **警報管理器（Alarm Manager）**：分診/指派/傳遞/進度狀態大面板 | Milestone Alarm Manager | 事件中心＋四態(§14.4)＋**分診面板（M47 alarm_triage）＋分診工作流 L1（M102 `alarm_notes`＋`alarm_escalations`＋`AlarmEscalationPolicy` SLA 升階，v38）已落地**；智慧牆大面板 UI 待續 | P1（營運效率亮點） |
-| 5 | 影像 | **遮蔽回放/匯出（Redaction）** | Genetec Digital Evidence、Synology 遮蔽格式 | **遮蔽資料層＋BCL 處理引擎 L0（M101 `RedactionRepository`＋`RedactionProcessor`，v37）已落地**；**快照一鍵遮蔽已落地（M116 `SnapshotRedactor`＋`SnapshotRedactionService`）**；回放/匯出影像遮罩待續 | P1（個資法合規優先） |
-| 5 | 隱私 | **錄影遮蔽/模糊化（Redaction）** | Genetec Digital Evidence、Synology 快照模糊 | **遮蔽區域倉儲＋純 BCL 處理引擎 L0（M101 `RedactionRepository`＋`RedactionProcessor`，v37）已落地**；回放/匯出串接待續 | P1（個資法交付加分） |
+| 4 | 影像 | **遮蔽回放/匯出（Redaction）** | Genetec Digital Evidence、Synology 遮蔽格式 | **遮蔽資料層＋BCL 處理引擎 L0（M101 `RedactionRepository`＋`RedactionProcessor`，v37）已落地**；**快照一鍵遮蔽已落地（M116 `SnapshotRedactor`＋`SnapshotRedactionService`）**；回放/匯出影像遮罩待續 | P1（個資法合規優先） |
+| 5 | 隱私 | **錄影遮蔽/模糊化（Redaction）** | Genetec Digital Evidence、Synology 快照模糊 | **遮蔽區域倉儲＋純 BCL 處理引擎 L0（M101 `RedactionRepository`＋`RedactionProcessor`，v37）已落地**；**快照一鍵遮蔽已落地（M116）**；**回放/匯出串接遮罩待續（M238 確認為唯一剩餘遮蔽缺口）** | P1（個資法交付加分） |
 | 6 | AI | **模組化分析情境套件**：周界/靜止車輛/尾隨/區域防護/方向控制 | Genetec KiwiVision | 核心已規劃（§5.6 分析情境＋§5.7 追蹤＋§5.10 規則） | P2（能力開放，§19 銷售位元） |
 | 7 | 搜尋 | **法證語意搜尋**（NLP / CLIP 語意）、影片摘要 | Genetec Forensic Search、Frigate CLIP | **門禁/POS/Edge AI/警報多源統一檢索已落地（M91 `EventSearchRepository`＋M97 `UnifiedEventSearch`，FTS5 4 表）＋規則式中文 NLP 查詢解析（M107 `NlEventQueryParser`）已落地**；CLIP/AI 向量語意待續 | P2（差異化賣點） |
 | 8 | 整合 | **統一安全平台**：門禁/入侵感測/POS(Metadata 配對) | Genetec 平台、Synology Transactions、QNAP Metadata Vault | DI/DO＋綁定鏡頭已規劃(§16.2)；**門禁事件 L0（M92）＋POS 交易存錄/時間窗配對 L0（M93）已落地**；**POS 接口擴展 L1（M104 去重匯入＋`QueryByRegister`＋`PosReconciliation` 對帳統計）已落地**；**POS→門禁自動核對（M113 `PosEventLinker` 同頻窗關聯）已落地**；異常視覺化待續 | P2 |
@@ -1846,16 +1869,16 @@ HeliVms.Decoder  ⇄ 主進程（命名管道，JSON 協定，獨立崩潰域）
 
 > 對整份藍圖的事後檢討（post-mortem），聚焦**「會實際踩到的坑」**，不以功能多寡為焦點。
 
-### 21.1 工程流程治理缺口（現況完全沒有，最優先補）
+### 21.1 工程流程治理缺口（M238 核對實作後更新）
 
 | 缺口 | 現況 | 立即動作 |
 |---|---|---|
-| 版本控管 | `D:\HeliVms` 非 git repo | `git init` + `.gitignore`（排除 `bin/` `obj/` `*.log`） |
-| CI | 無 | GitHub Actions：每次 push 跑 build + 單元測試 |
-| 自動化測試 | 全部只有手動驗收清單 | 三層：單元（授權/排程/配額/`Storage` repository）＋整合（Media 管道、SQLite、WAL）＋ E2E（真實 RTSP 分流） |
-| 性能基準 | 有計算無工具 | benchmark 儀表：32 路 CPU/記憶體/磁碟 IOPS 基線；每里程碑量測一次 |
-| NuGet 固定 | 未鎖 | `packages.lock.json`＋版本固定；**Sdcb.FFmpeg / Mpv.NET 綁定版本與本機 FFmpeg 8.0.1 對照表** |
-| 發布流程 | 無 | semver＋CHANGELOG＋簽章安裝包＋升級路徑測試 |
+| 版本控管 | **已補**：repo 已是 git，M1–M238 逐里程碑 commit＋push，`.gitignore` 排除 `bin/` `obj/` `*.log` | 已閉合 |
+| CI | **已補**：`.github/workflows/ci.yml`，每次 push 跑 build + 全專案測試（逐專案執行避免 Media/Storage 平行 flaky） | 已閉合 |
+| 自動化測試 | **已補**：**.NET 1788 ＋ vitest 134**，涵蓋授權/排程/配額/Storage repository/授權簽章重驗/閘門契約/中介軟體順序；Media 管道、SQLite WAL 亦有測試 | 已閉合；**E2E 真實 RTSP 分流仍未做** |
+| 性能基準 | 有計算無工具（全 repo 無 BenchmarkDotNet 等基準工程） | benchmark 儀表：32 路 CPU/記憶體/磁碟 IOPS 基線；每里程碑量測一次 |
+| NuGet 固定 | **已補**：21 個 `packages.lock.json`；**Sdcb.FFmpeg / Mpv.NET 綁定版本與本機 FFmpeg 8.0.1 對照表仍待建** | 已閉合（對照表待補） |
+| 發布流程 | 無（**仍缺 `CHANGELOG.md`**、semver、簽章安裝包、升級路徑測試） | semver＋CHANGELOG＋簽章安裝包＋升級路徑測試 |
 
 ### 21.2 現在就要避免的工程錯誤（技術陷阱）
 
