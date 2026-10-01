@@ -95,6 +95,39 @@ public sealed class LicenseEntryPointContractTests
         ("/api/clip", "向量／文字檢索只有 API 與 lib.js 的純函式 renderer，WPF 尚無對應視窗"),
     ];
 
+    /// <summary>
+    /// 程式化／CLI 開窗的第二層防護（M229）。XAML 的 <c>Collapsed</c> 擋得住滑鼠，擋不住
+    /// <c>--share</c> 這類命令列旗標，也擋不住其他視窗直接呼叫開窗方法——真正負責收斂的
+    /// 是 <c>Open*Window</c> 方法本身的 <c>RequireFeature</c>，這裡把它逐個釘死。
+    /// </summary>
+    private static readonly (string Method, string Feature)[] WindowOpeners =
+    [
+        ("OpenShareWindow", nameof(LicenseFeatures.Remote)),
+        ("OpenAnalyticsWindow", nameof(LicenseFeatures.AiL1)),
+        ("OpenPatrolWindow", nameof(LicenseFeatures.Schedule)),
+        ("OpenMapWindow", nameof(LicenseFeatures.Gis)),
+        ("OpenIoWindow", nameof(LicenseFeatures.Gis)),
+        ("OpenAudioWindow", nameof(LicenseFeatures.Ai)),
+    ];
+
+    /// <summary>
+    /// 別的視窗直接 <c>new</c> 受閘門視窗時，所在方法必須自己重新確認旗標。
+    /// 主視窗的按鈕擋得掉從自己視窗開的門，擋不掉別的視窗直接開。
+    /// </summary>
+    private static readonly (string Window, string Method, string Feature)[] CrossWindowOpens =
+    [
+        ("EventCenterWindow", "OnMapLocateClicked", nameof(LicenseFeatures.Gis)),
+        ("ExportCenterWindow", "OnShareClicked", nameof(LicenseFeatures.Remote)),
+        ("SettingsWindow", "OnLaunchScheduleClicked", nameof(LicenseFeatures.Schedule)),
+        ("SettingsWindow", "OnLaunchDetectionClicked", nameof(LicenseFeatures.AiL1)),
+    ];
+
+    /// <summary>CLI 可以直接 <c>new</c> 出來的視窗：全屬 core 能力，本來就沒有旗標閘門。</summary>
+    private static readonly string[] CoreWindowsOpenedInline =
+    [
+        "PlaybackWindow",
+    ];
+
     /// <summary>旗標蘊含：較嚴的旗標必須同時開通較鬆的旗標。</summary>
     private static readonly (string Stronger, string Weaker)[] Implications =
     [
@@ -130,6 +163,28 @@ public sealed class LicenseEntryPointContractTests
         foreach (var (gate, _) in Sections)
         {
             data.Add(gate.Window, gate.Element);
+        }
+
+        return data;
+    }
+
+    public static TheoryData<string, string> GatedWindowOpeners()
+    {
+        var data = new TheoryData<string, string>();
+        foreach (var (method, feature) in WindowOpeners)
+        {
+            data.Add(method, feature);
+        }
+
+        return data;
+    }
+
+    public static TheoryData<string, string, string> CrossWindowOpeners()
+    {
+        var data = new TheoryData<string, string, string>();
+        foreach (var (window, method, feature) in CrossWindowOpens)
+        {
+            data.Add(window, method, feature);
         }
 
         return data;
@@ -297,6 +352,47 @@ public sealed class LicenseEntryPointContractTests
             Assert.True(rules.ContainsKey(prefix), $"NoDesktopEntry 的 {prefix} 已不在閘門規則表，請移除");
             Assert.False(string.IsNullOrWhiteSpace(reason), $"{prefix} 必須寫明為何沒有桌面入口");
         }
+    }
+
+    /// <summary>
+    /// CLI 旗標繞得過 <c>Collapsed</c>：開窗一律經過 <c>Open*Window</c>，由那裡擋旗標。
+    /// 直接在 dispatch 裡 <c>new</c> 視窗等於跳過第二層守衛，是最容易漏掉的那種繞過。
+    /// </summary>
+    [Fact]
+    public void CLI開窗不能直接new視窗()
+    {
+        var body = BodyOf(Read("src/HeliVMS.App/MainWindow.xaml.cs"), "OnLoaded");
+        Assert.NotEqual(string.Empty, body);
+
+        foreach (var inline in Regex.Matches(body, @"new\s+(\w+Window)\s*\(")
+                     .Select(m => m.Groups[1].Value)
+                     .Distinct(StringComparer.Ordinal)
+                     .OrderBy(n => n, StringComparer.Ordinal))
+        {
+            Assert.True(
+                CoreWindowsOpenedInline.Contains(inline, StringComparer.Ordinal),
+                $"CLI dispatch 直接 new {inline} 會跳過開窗方法的 RequireFeature——"
+                + $"請改成呼叫 Open*Window() 並把該視窗列入 WindowOpeners，"
+                + $"或確認它確實是 core 能力後加進 CoreWindowsOpenedInline");
+        }
+    }
+
+    [Theory]
+    [MemberData(nameof(GatedWindowOpeners))]
+    public void 程式化開窗方法必須自己擋旗標(string method, string feature)
+    {
+        Assert.Contains(
+            FeatureValue(feature),
+            GuardedFeatures("MainWindow", method));
+    }
+
+    [Theory]
+    [MemberData(nameof(CrossWindowOpeners))]
+    public void 跨視窗開啟受閘門視窗要重新確認旗標(string window, string method, string feature)
+    {
+        Assert.Contains(
+            FeatureValue(feature),
+            GuardedFeatures(window, method));
     }
 
     [Fact]
