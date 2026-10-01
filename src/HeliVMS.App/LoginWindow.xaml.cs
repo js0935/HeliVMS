@@ -38,6 +38,20 @@ public partial class LoginWindow : Window
         Loaded += (_, _) => UsernameInput.Focus();
     }
 
+    /// <summary>ad 旗標的拒絕訊息；null 表示可放行（含未提供 store 的純本機登入模式）。</summary>
+    private string? EnterpriseDenial()
+    {
+        if (_enterpriseStore is null)
+        {
+            return null;
+        }
+
+        var state = new LicenseService(_enterpriseStore).Evaluate(DateTime.UtcNow);
+        return state.AllowsFeature(LicenseFeatures.AdSso)
+            ? null
+            : state.FeatureDenialMessage(LicenseFeatures.AdSso) ?? "目前授權未包含企業登入。";
+    }
+
     private void LoadEnterpriseProviders()
     {
         if (_enterprise is null)
@@ -47,7 +61,7 @@ public partial class LoginWindow : Window
 
         // ad 旗標限定（M209）：未授權時完全不顯示企業 SSO 面板。
         // 高度計算一併跳過，否則會留下一塊空白。
-        if (!new LicenseService(_enterpriseStore!).Evaluate(DateTime.UtcNow).AllowsFeature(LicenseFeatures.AdSso))
+        if (EnterpriseDenial() is not null)
         {
             return;
         }
@@ -95,6 +109,13 @@ public partial class LoginWindow : Window
 
     private void OnOidcLoginClicked(object sender, RoutedEventArgs e)
     {
+        // ad 旗標限定（M219）：面板藏了還得擋 handler（鍵盤／程式化點擊繞得過）。
+        if (EnterpriseDenial() is { } oidcDenial)
+        {
+            OidcMessage.Text = oidcDenial;
+            return;
+        }
+
         if (_enterprise is null || OidcProviderCombo.SelectedItem is not AuthProviderRecord provider)
         {
             OidcMessage.Text = "未選擇企業身份提供者";
@@ -123,6 +144,13 @@ public partial class LoginWindow : Window
 
     private void OnLdapLoginClicked(object sender, RoutedEventArgs e)
     {
+        // ad 旗標限定（M219）：面板藏了還得擋 handler（鍵盤／程式化點擊繞得過）。
+        if (EnterpriseDenial() is { } ldapDenial)
+        {
+            LdapMessage.Text = ldapDenial;
+            return;
+        }
+
         if (_enterprise is null || LdapProviderCombo.SelectedItem is not AuthProviderRecord provider)
         {
             LdapMessage.Text = "未選擇 LDAP 提供者";

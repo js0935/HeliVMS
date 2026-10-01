@@ -1570,7 +1570,7 @@ payload 由 `LicensePayload` 序列化（`JsonNamingPolicy.CamelCase`），欄�
 - **功能旗標閘門（M209）**：`LicenseApplyResult.AllowsFeature(flag)` 是唯一的「某旗標能不能用」判斷——授權有效**且**旗標字面存在於 `license.features` 才為 true，採嚴格比對（少一項就是沒有；不會因為買了 L1 就連帶開通 L2，也不會因為缺 `core` 而默認放行）。`FeatureDenialMessage(flag)` 給出可直接顯示的句子，未匯入／已作廢／旗標缺失三種情況文案不同。
   - `LicenseFeatures`（Storage）集中八個旗標常數與中文顯示名；旗標字串本身以 `HeliVMS.Licensing.LicenseTiers` 為權威，Storage 這份只是補顯示名與 `IsKnown()`，讓桌面端、CLI、WebApi 三邊講同一句話。未知旗標原樣顯示、不丟例外——上游新增旗標時不會讓整個視窗炸掉。
   - **兩層防護**：隱藏只是體面。`LicenseUiGate.Apply(element, flag)` 設 `Visibility.Collapsed`，事件處理器仍以 `RequireFeature(flag)` 再擋一次，因為鍵盤、程式化點擊與 CLI `--map`／`--analytics` 之類的旗標繞得過 `Collapsed`。
-  - **入口對應**：`schedule`→錄影排程與巡航排程（`PatrolButton`／`--patrol` 與 `/api/patrols` 同閘門）；`ai`→AI 疊加與事件 AI 開關；`ai.l1`→偵測設定與分析視窗；`gis`→電子地圖與 IO（兩者共用一個旗標）；`remote`→分享與遠程主控台；`ad`→OIDC／LDAP 企業登入。`core` 旗標沒有對應隱藏項目（隱藏「基本即時監看」等於把產品藏掉）。
+  - **入口對應**：`schedule`→錄影排程與巡航排程（`PatrolButton`／`--patrol` 與 `/api/patrols` 同閘門）；`ai`→AI 疊加與事件 AI 開關；`ai.l1`→偵測設定與分析視窗；`gis`→電子地圖與 IO（兩者共用一個旗標）；`remote`→分享與遠程主控台；`ad`→OIDC／LDAP 企業登入（登入視窗面板、設定中心企業身份區與 `/api/auth/providers` 同閘門）。`core` 旗標沒有對應隱藏項目（隱藏「基本即時監看」等於把產品藏掉）。
   - **`ai.l2` 沒有 WPF 入口**：車牌／人臉辨識目前只在旗標與授權層生效，等有對應視窗再接 UI。
   - **ShareHost 是服務不是按鈕**：`remote` 未授權時 `ShareHost.ApplySettings(settings, licenseAllowed: false)` 會強制 `Stop()` 並回報未授權。分享主機是 loopback HTTP socket，只藏按鈕擋不住一個已經在聽的連接埠。
   - **匯入授權即時生效**：`SettingsWindow` 匯入金鑰後除了寫檔，還呼叫 `LicenseService.Apply()` 落 `license` 表並留稽核，授權狀態列也改讀同一列。少這一步會出現「設定頁寫著已授權、錄影閘門卻認為未匯入」的矛盾。

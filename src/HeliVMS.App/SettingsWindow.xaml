@@ -879,6 +879,7 @@
                                Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
                 </StackPanel>
 
+                <StackPanel x:Name="EnterpriseSection" AutomationProperties.AutomationId="EnterpriseSection">
                 <TextBlock Text="企業身份（OIDC／LDAP SSO）" FontSize="14" FontWeight="Bold" Margin="0,16,0,6"/>
                 <TextBlock Text="供企業沿用 AD／OIDC 登入。OIDC 需填入 Issuer／Audience 與 JWKS（可貼入 JSON）；LDAP 供目錄綁定擴充。"
                            Foreground="{StaticResource Brand.TextDim}" FontSize="11" Margin="0,0,0,6" TextWrapping="Wrap"/>
@@ -946,6 +947,7 @@
                         </GridView>
                     </ListView.View>
                 </ListView>
+                </StackPanel>
             </StackPanel>
 
             <!-- 備份 -->

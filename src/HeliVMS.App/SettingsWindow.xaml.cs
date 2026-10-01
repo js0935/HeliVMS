@@ -1357,6 +1357,7 @@ public partial class SettingsWindow : Window
         gate.Apply(LaunchScheduleButton, LicenseFeatures.Schedule, "開啟錄影排程視窗");
         gate.Apply(LaunchDetectionButton, LicenseFeatures.AiL1, "開啟 AI 偵測視窗");
         gate.Apply(TamperEnabledBox, LicenseFeatures.Ai);
+        gate.Apply(EnterpriseSection, LicenseFeatures.AdSso);
 
         // 續期動作就在這個頁面，提醒也得在這裡再說一次（§19.4 到期前 14 天提醒）。
         var notice = gate.Current.Expiry(DateTime.UtcNow);
@@ -1935,6 +1936,14 @@ public partial class SettingsWindow : Window
 
     private void OnEntAddClicked(object sender, RoutedEventArgs e)
     {
+        // ad 旗標限定（M219）：整區已隱藏，處理器仍要再擋一次。
+        var gate = new LicenseUiGate(_store);
+        if (!gate.Allows(LicenseFeatures.AdSso))
+        {
+            EntReportText.Text = gate.DenialMessage(LicenseFeatures.AdSso);
+            return;
+        }
+
         var name = EntNameBox.Text.Trim();
         if (name.Length == 0)
         {
@@ -1995,6 +2004,14 @@ public partial class SettingsWindow : Window
 
     private void OnEntToggleClicked(object sender, RoutedEventArgs e)
     {
+        // ad 旗標限定（M219）：整區已隱藏，處理器仍要再擋一次。
+        var gate = new LicenseUiGate(_store);
+        if (!gate.Allows(LicenseFeatures.AdSso))
+        {
+            EntReportText.Text = gate.DenialMessage(LicenseFeatures.AdSso);
+            return;
+        }
+
         if (EnterpriseProviderList.SelectedItem is not EnterpriseProviderRow row)
         {
             EntReportText.Text = "請先選擇提供者";
@@ -2016,6 +2033,14 @@ public partial class SettingsWindow : Window
 
     private void OnEntDeleteClicked(object sender, RoutedEventArgs e)
     {
+        // ad 旗標限定（M219）：整區已隱藏，處理器仍要再擋一次。
+        var gate = new LicenseUiGate(_store);
+        if (!gate.Allows(LicenseFeatures.AdSso))
+        {
+            EntReportText.Text = gate.DenialMessage(LicenseFeatures.AdSso);
+            return;
+        }
+
         if (EnterpriseProviderList.SelectedItem is not EnterpriseProviderRow row)
         {
             EntReportText.Text = "請先選擇提供者";
