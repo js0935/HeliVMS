@@ -39,6 +39,16 @@ public sealed class EvidenceSigner
         return Convert.ToHexString(SHA256.HashData(_keys!.ExportRSAPublicKey())).ToLowerInvariant();
     }
 
+    /// <summary>
+    /// 公鑰 PEM（SubjectPublicKeyInfo）。簽章產物要能離線驗證，就必須把公鑰一併輸出——
+    /// 驗證方不需要資料庫，也不需要這台 VMS 的私鑰。
+    /// </summary>
+    public string PublicKeyPem()
+    {
+        LoadKeys();
+        return _keys!.ExportSubjectPublicKeyInfoPem();
+    }
+
     /// <summary>對字串內容簽屬（SHA-256 digest，PKCS#1 v1.5），回傳 base64 簽章。</summary>
     public string SignDocument(string content)
     {

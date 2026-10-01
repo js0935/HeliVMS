@@ -1,4 +1,4 @@
-using System.Net;
+﻿using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text;
@@ -902,6 +902,77 @@ public class ApiTests : IClassFixture<ApiFactory>, IDisposable
     }
 
     private sealed record ExportJobItem(long Id, int ChannelId, string Stream, string StartUtc, string EndUtc, string Status, string? OutputPath, long? FileSizeBytes, string? Sha256, string? Error, string CreatedUtc);
+
+    private sealed record ExportVerifyItem(bool ReceiptExists, bool HashMatches, bool SignatureValid, bool SignerMatched, bool SelfAssertedKey, string? Signer, bool Valid, string? Detail);
+
+    [Fact]
+    public async Task ExportVerify_ReportsReceiptState_WithoutLeakingTheHostPath()
+    {
+        using var client = Client();
+
+        var missing = await client.GetAsync("/api/exports/999999/verify");
+        Assert.Equal(HttpStatusCode.NotFound, missing.StatusCode);
+
+        var queued = await client.PostAsJsonAsync(
+            "/api/exports",
+            new { channelId = 1, stream = "main", fromUtc = "2026-05-01T00:00:00Z", toUtc = "2026-05-01T01:00:00Z" });
+        var job = await ReadAsync<ExportJobItem>(queued);
+
+        // 尚未完成、沒有輸出檔：明確拒絕，而不是回一份看起來像有效的報告。
+        var notReady = await client.GetAsync($"/api/exports/{job.Id}/verify");
+        Assert.Equal(HttpStatusCode.BadRequest, notReady.StatusCode);
+        Assert.Contains("尚未產生匯出檔", await notReady.Content.ReadAsStringAsync());
+
+        var clip = Path.Combine(Path.GetTempPath(), $"helivms-export-verify-{Guid.NewGuid():N}.mp4");
+        await File.WriteAllTextAsync(clip, "clip-bytes");
+        try
+        {
+            var sha = ExportReceiptCodec.ComputeSha256(clip)!;
+            new ExportReceiptService(Store).Write(
+                clip, sha, new FileInfo(clip).Length, 1, 1, "main",
+                new DateTime(2026, 5, 1, 0, 0, 0, DateTimeKind.Utc),
+                new DateTime(2026, 5, 1, 1, 0, 0, DateTimeKind.Utc),
+                DateTime.UtcNow);
+            Store.Execute(
+                "UPDATE export_jobs SET status = 'done', output_path = $o WHERE id = $id;",
+                cmd =>
+                {
+                    cmd.Parameters.AddWithValue("$o", clip);
+                    cmd.Parameters.AddWithValue("$id", job.Id);
+                });
+
+            var verified = await ReadAsync<ExportVerifyItem>(await client.GetAsync($"/api/exports/{job.Id}/verify"));
+            Assert.True(verified.ReceiptExists);
+            Assert.True(verified.HashMatches);
+            Assert.True(verified.SignatureValid);
+            Assert.True(verified.Valid);
+
+            // 沒有帶 --signer 就只能證明「這把金鑰簽的」，回應必須誠實標示出來。
+            Assert.True(verified.SelfAssertedKey);
+            Assert.Equal(64, verified.Signer!.Length);
+
+            var signer = new ExportReceiptService(Store).SignerFingerprint();
+            var matched = await client.GetAsync($"/api/exports/{job.Id}/verify?signer={signer}");
+            Assert.False((await ReadAsync<ExportVerifyItem>(matched)).SelfAssertedKey);
+
+            var wrong = await client.GetAsync($"/api/exports/{job.Id}/verify?signer={new string('a', 64)}");
+            Assert.False((await ReadAsync<ExportVerifyItem>(wrong)).Valid);
+
+            // 回應不得帶出主機絕對路徑。
+            var raw = await (await client.GetAsync($"/api/exports/{job.Id}/verify")).Content.ReadAsStringAsync();
+            Assert.DoesNotContain(clip, raw);
+
+            File.WriteAllText(clip, "clip-bytes-tampered");
+            var tampered = await ReadAsync<ExportVerifyItem>(await client.GetAsync($"/api/exports/{job.Id}/verify"));
+            Assert.False(tampered.HashMatches);
+            Assert.False(tampered.Valid);
+        }
+        finally
+        {
+            File.Delete(clip);
+            File.Delete(ExportReceiptCodec.ReceiptPath(clip));
+        }
+    }
 
     [Fact]
     public async Task AuthProviders_Crud()

@@ -34,10 +34,12 @@ public sealed record ExportResult(
 public sealed class ExportService
 {
     private readonly SegmentRepository _segRepo;
+    private readonly ExportReceiptService _receipts;
 
     public ExportService(SqliteStore store)
     {
         _segRepo = new SegmentRepository(store);
+        _receipts = new ExportReceiptService(store);
     }
 
     public async Task<ExportResult> ExportAsync(
@@ -152,7 +154,19 @@ public sealed class ExportService
                 await File.WriteAllTextAsync(hashPath,
                     $"{sha256}  {Path.GetFileName(request.OutputPath)}{Environment.NewLine}",
                     ct);
-                progress?.Report(new ExportProgress(95, "SHA-256 附檔已建立。"));
+
+                // M240：雜湊只能證明「沒變」，簽章才證明「來自這套系統」（§14.3(2)）。
+                _receipts.Write(
+                    request.OutputPath,
+                    sha256,
+                    new FileInfo(request.OutputPath).Length,
+                    segments.Sum(s => s.DurationSec ?? 0),
+                    request.ChannelId,
+                    "main",
+                    request.StartUtc,
+                    request.EndUtc,
+                    DateTime.UtcNow);
+                progress?.Report(new ExportProgress(95, "SHA-256 附檔與簽章收據已建立。"));
             }
 
             var fi = new FileInfo(request.OutputPath);

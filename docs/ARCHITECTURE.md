@@ -85,6 +85,7 @@ HeliVms/
 ├─ Tools/                       # 廠商側工具（不入客戶安裝包）
 │  ├─ HeliVMS.LicenseProducer/  # 授權生成器 CLI（RSA 簽章、金鑰對產生、私鑰加密、簽發稽核）— §19.6
 │  ├─ LicenseKeyGenUI/          # 授權生成器 GUI（金鑰對＋簽署）— §19.5
+│  ├─ HeliVmsVerify/            # 匯出簽章收據離線驗證 CLI（交給警方／律師的工具，只需收據自帶公鑰）— §14.4
 │  └─ _deprecated/              # 已停用工具（LicenseKeyGen：舊 HMAC 對稱版）— §19.5
 └─ docs/                        # 本規劃、資料庫結構、營運手冊
 ```
@@ -1013,10 +1014,10 @@ L2 比對（人臉/車牌）置「進階·需權限」區，預設關閉（§5.1
 |---|---|---|---|---|
 | 1 | **遠程即時監看（WebRTC）** | 遠程 API、SPA 主控台、警報 WebSocket（M117/M118）與**已錄影的 HLS 遠程回放（M239 `/api/stream/{id}/playlist.m3u8`＋`init.mp4`／`media.m4s`，SPA 以 MediaSource 播放）已落地**；**即時串流仍未做** | 遠程已能回放但看不到當下畫面 | **P0**（剩餘項） |
 | 1b | **行動端 App** | 無（僅網頁主控台） | 巡檢/報警第一線 | P1（網頁主控台可先擋） |
-| 2 | 匯出證據工作流 | 已落地：匯出精靈＋匯出中心＋證據包 `manifest.json`＋SHA-256＋匯出即驗證（`evidence_manifests`、`EvidenceWindow`）；**缺非對稱簽章**（見 #5） | 司法效力 | P0（主體已完成） |
+| 2 | 匯出證據工作流 | 已落地：匯出精靈＋匯出中心＋證據包 `manifest.json`＋SHA-256＋匯出即驗證（`evidence_manifests`、`EvidenceWindow`）＋**匯出簽章收據與離線驗證（M240）** | 司法效力 | P0（已完成） |
 | 3 | 地圖/平面圖檢視（Map View） | 已落地：`MapWindow`（樓層切換、圖釘含 camera 扇形 FOV、事件閃爍、雙向定位）、`maps`/`map_devices`（M41）；深度/設備自動布局未做 | 專業賣點 | P0′（主體已完成） |
 | 4 | 備份與異地備援 | 已落地：`BackupService`＋checkpoint、`offsite_jobs`/`OffsiteReplicationService`、設備 SD 斷線補錄（`edge_backfill_jobs`＋`EdgeFfmpegBackfillRunner`，M89/M94/M96） | 資料安全 | P1（主體已完成） |
-| 5 | 數位簽章與證據包 | 證據包與 SHA-256 清單已有；**匯出影片仍無私鑰簽章與外部驗證工具** | 證據鏈完整性／司法效力 | **P1**（唯一剩餘項） |
+| 5 | 數位簽章與證據包 | **已落地（M240）**：匯出檔旁自動產生 `.receipt.json` 簽章收據（RSA-2048／PKCS#1 v1.5，私鑰沿用 M53 `EvidenceSigner`），附公鑰與金鑰指紋；離線驗證工具 `Tools/HeliVmsVerify` ＋ 遠端 `GET /api/exports/{id}/verify`；證據包 `manifest.json` 另有簽章 | 證據鏈完整性／司法效力 | **P1**（已完成；剩餘僅金鑰託管／換發流程） |
 | 6 | 事件回應工作流 | 已落地：四態＋`event_dispositions`/`event_disposition_trail`（M38）、分診面板與工作流 L1（`alarm_triage`/`alarm_notes`/`alarm_escalations`＋`AlarmEscalationPolicy` SLA 升階，M47/M102） | 營運 | P1（已完成） |
 | 7 | 多語言 i18n | **完全沒有**：全 repo 0 個 `.resx`，介面字串硬編繁中 | 出口與外文通路 | **P1**（未來市場才啟動） |
 | 8 | 智慧搜尋（向量語意） | 已落地：四表 FTS5 統一檢索（`EventSearchRepository`/`UnifiedEventSearch`，M91/M97）＋規則式中文 NLP 查詢解析（M107）＋`clip_embeddings` 資料層與 `/api/clip/*` 端點；**缺真正的向量檢索與影片摘要** | 現代 VMS 賣點 | **P2** |
@@ -1052,8 +1053,9 @@ L2 比對（人臉/車牌）置「進階·需權限」區，預設關閉（§5.1
 
 **(2) 匯出證據工作流（強化現有匯出精靈）**
 - 批量匯出（多通道/多時段一次）、進度與續傳、匯出中心（歷史清單與狀態）
-- **證據包**：影片 + `manifest.json`（通道/時間/AI 結果/操作者）+ SHA-256 清單 + 數位簽章（P1）
+- **證據包**：影片 + `manifest.json`（通道/時間/AI 結果/操作者）+ SHA-256 清單 + 數位簽章（M53 簽章、M240 匯出簽章收據）
 - 匯出即驗證：`ffprobe` 完整性檢查，產出《完整性報告》（可供司法敘用）
+- **匯出簽章收據（M240）**：雜湊只能證明「檔案沒變」，證明不了「檔案來自這套系統」——任何人都能在改完影片後重算一份看起來一樣的 `.sha256`。所以匯出完成時另外簽出 `.receipt.json`（RSA-2048，沿用 M53 的金鑰與指紋算法，讓同一把金鑰在證據清單與匯出收據顯示同一個指紋）。驗證刻意**不依賴資料庫與私鑰**：收據自帶公鑰，離線工具 `HeliVmsVerify` 與遠端 `/api/exports/{id}/verify` 都只做「重算雜湊＋驗簽＋（選用）比對預期指紋」。誠實回報這一點很重要：**不帶預期指紋時，只能證明「這把金鑰簽的」**（回應與工具都會標示 `self-asserted`），金鑰身分要由外部（§11.5 稽核或當事人）另行比對。簽章用 base64url：標準 base64 的 `/` 會被 JSON 編碼器轉義成 `\/`，收據檔就沒法直接複製貼上比對
 
 **(3) 地圖/平面圖檢視（Map View）**
 - 上傳場域平面圖（DXF/PNG/背景圖）→ 拖放攝影機圖釘（含視角扇形）
@@ -1065,7 +1067,7 @@ L2 比對（人臉/車牌）置「進階·需權限」區，預設關閉（§5.1
 | 功能 | 設計要點 |
 |---|---|
 | 備份與異地備援 | 可排程批次複製錄影區段至第二磁碟/NAS/雲端；事件級錄影可雙寫（**已實作**：`BackupService`＋checkpoint M89/M94、`offsite_jobs`＋`OffsiteReplicationService` M96、設備 SD 斷線補錄 `EdgeFfmpegBackfillRunner`） |
-| 數位簽章 | 匯出影片以私鑰簽署，`HeliVmsVerify` 工具可驗證（司法效力）（**部分實作**：證據包 `manifest.json`＋SHA-256 清單＋匯出即驗證已完成；**非對稱私鑰簽章與外部驗證工具未做**） |
+| 數位簽章 | 匯出影片以私鑰簽署，`HeliVmsVerify` 工具可驗證（司法效力）（**已實作 M240**：`ExportReceiptService` 寫出 `<匯出檔>.receipt.json`（檔名、SHA-256、大小、秒數、通道、起訖時間窗、簽發時間、金鑰指紋、公鑰 PEM、base64url 簽章）；驗證鏈只依賴 BCL，`Tools/HeliVmsVerify <匯出檔> [--signer <指紋>]` 可離線重算雜湊＋驗簽，遠端另有 `GET /api/exports/{id}/verify?signer=`） |
 | 事件回應工作流 | 確認/未決/誤報/已處理四態 + 指派 + 附註 + 時間戳軌跡（**已實作 M38**：`event_dispositions`/`event_disposition_trail`、`AlarmEventRepository.SetDisposition`/`ListDispositionTrail`、事件中心處置列） |
 | 遮蔽偵測（Tamper） | L0 即可實作：幀亮度突變 / 邊緣能量急降 / 全黑全白偵測 → 「鏡頭被遮、被移、被噴漆」警報（附快照）（**已實作 M39**：`TamperDetector`（16×16 灰階網格／亮暗閾值／邊緣能量基準 EMA）＋`TamperEventEngine`（連續 N 幀開窗、冷卻收尾、寫入 `alarm_events` `event_type='tamper'` 附 BMP 快照）；設定鍵 `detect.tamper.enabled`，設定中心「功能」頁開關） |
 | 多語言 i18n | RESX 資源庫 + 語言切換（繁中/簡中/EN/日本語）；字型與格式全面參數化（**未實作**：全 repo 0 個 `.resx`，介面字串硬編繁中） |
@@ -1641,6 +1643,7 @@ payload 由 `LicensePayload` 序列化（`JsonNamingPolicy.CamelCase`），欄�
 | `Tools/HeliVMS.LicenseProducer` | CLI 簽發，引用 `HeliVMS.Licensing` | **正式簽發工具**；`--tier`（展開 §19.3 矩陣）、`--list-tiers`、`--issuer`，並驗證通道數與設備碼格式；M205 另加入 `--gen-key`（金鑰對產生）、`--passphrase-env/--passphrase-file/--prompt-passphrase`（私鑰加密靜置）、`--operator/--audit-log/--audit-verify`（簽發稽核）；M212 加入 `--batch`（CSV 批次簽發，見 §19.6.4） |
 | `Tools/LicenseKeyGen`（HMAC） | secret 同時存在兩端、HMAC 僅 1 byte、device 綁定前 4 碼、預設密碼明文；其註解所指的 `HeliVMS.Services.LicenseService` 從未實作 | **已移入 `Tools/_deprecated/LicenseKeyGen/`**，檔頭加註 DEPRECATED 說明改用 LicenseProducer；`error*.log`、`output*.log` 遺殼一併清除。不在解決方案內，不建置、不維護 |
 | `Password.dat` 登入 | SHA-256 無鹽、預設密碼 `hr22619219` 明文於程式碼 | 隨工具一併停用；密碼改由 DB／環境管理 |
+| `Tools/HeliVmsVerify` | 匯出只附 `.sha256`，任何人都能改完影片再重算一份一樣的雜湊；外部無法確認出處 | **M240 新增**：匯出時簽出 `.receipt.json`（RSA-2048、公鑰自帶），此 CLI 離線重算雜湊＋驗簽＋比對預期指紋；只引用 `HeliVMS.Shared`（不碰資料庫與私鑰），已納入 `HeliVMS.slnx` 與 CI（`tests/HeliVMS.ExportVerify.Tests`） |
 
 > 教學與驗收一律使用 `LicenseProducer` / `LicenseKeyGenUI`。
 > 舊 HMAC 格式**不得**再對外簽發：其驗證路徑從未實作，且對稱 secret 存在產品端即可自簽金鑰。

@@ -49,6 +49,7 @@ public static class ApiEndpoints
     public sealed record NotificationLogItem(long Id, string TsUtc, int ChannelId, string EventType, string Route, bool Ok, int Attempts, string? Detail);
     public sealed record ExportJobRequest(int ChannelId, string Stream, DateTime FromUtc, DateTime ToUtc);
     public sealed record ExportJobItem(long Id, int ChannelId, string Stream, string StartUtc, string EndUtc, string Status, string? OutputPath, long? FileSizeBytes, string? Sha256, string? Error, string CreatedUtc);
+    public sealed record ExportVerifyItem(long Id, bool ReceiptExists, bool HashMatches, bool SignatureValid, bool SignerMatched, bool SelfAssertedKey, string? Signer, bool Valid, string? Detail);
     public sealed record AuthProviderRequest(string Name, string Kind, string ConfigJson, bool Enabled);
     public sealed record AuthProviderItem(int Id, string Name, string Kind, bool Enabled, string ConfigJson, string CreatedAt);
     public sealed record AuthProviderToggle(bool Enabled);
@@ -693,6 +694,34 @@ public static class ApiEndpoints
             var id = jobs.Enqueue(body.ChannelId, body.Stream, body.FromUtc, body.ToUtc);
             var job = jobs.Get(id);
             return Results.Ok(new ExportJobItem(job!.Id, job.ChannelId, job.Stream, SqliteStore.Iso(job.StartUtc), SqliteStore.Iso(job.EndUtc), job.Status, job.OutputPath, job.FileSizeBytes, job.Sha256, job.Error, SqliteStore.Iso(job.CreatedUtc)));
+        });
+
+        // M240：遠端取走匯出檔後要能自己確認出處——重算雜湊、驗簽、比對（選用的）預期簽署者指紋。
+        api.MapGet("/exports/{id:long}/verify", static (long id, string? signer, ExportJobRepository jobs) =>
+        {
+            var job = jobs.Get(id);
+            if (job is null)
+            {
+                return Results.NotFound(new { error = "找不到匯出工作" });
+            }
+
+            if (string.IsNullOrWhiteSpace(job.OutputPath))
+            {
+                return Results.BadRequest(new { error = "此工作尚未產生匯出檔" });
+            }
+
+            // 只輸出驗證結果，不回傳本機絕對路徑（與 M239 遮蔽 file_path 同一個理由）。
+            var report = ExportReceiptCodec.Verify(job.OutputPath, string.IsNullOrWhiteSpace(signer) ? null : signer);
+            return Results.Ok(new ExportVerifyItem(
+                job.Id,
+                report.ReceiptExists,
+                report.HashMatches,
+                report.SignatureValid,
+                report.SignerMatched,
+                report.SelfAssertedKey,
+                report.Signer,
+                report.Valid,
+                report.Detail));
         });
 
         api.MapGet("/auth/providers", static (AuthProviderRepository providers) =>
