@@ -35,6 +35,19 @@ jobs:
           npm ci
           npm test
 
+      # M244 的 PublishPipelineTests 會真的啟動 ffmpeg 驗證 RTP 管線。
+      # runner 預設沒有 ffmpeg，測試會「略過」——那等於沒有防護：M244 首次實作
+      # 把 muxer 拼成不存在的 "rte"，正是這類「純函式測試全綠、實際功能全壞」的錯誤。
+      # 這裡顯式安裝，讓那兩支測試在 CI 上真的執行（SkippableFact 仍保留給
+      # 無 ffmpeg 的開發機）。
+      - name: Setup ffmpeg
+        run: choco install ffmpeg --no-progress -y --limit-output
+
+      - name: Verify ffmpeg
+        run: |
+          ffmpeg -hide_banner -loglevel error -version
+          ffmpeg -hide_banner -encoders | Select-String libx264
+
       - name: Restore (locked)
         run: dotnet restore HeliVMS.slnx --locked-mode
 
