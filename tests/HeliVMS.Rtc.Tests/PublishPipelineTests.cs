@@ -35,48 +35,11 @@ public sealed class PublishPipelineTests
     }
 
     private static Process StartProbe(params string[] probeArgs)
-    {
-        var info = new ProcessStartInfo
-        {
-            FileName = "ffmpeg",
-            UseShellExecute = false,
-            CreateNoWindow = true,
-            RedirectStandardError = true,
-            RedirectStandardOutput = true,
-        };
+        => PublishPipelineProbe.StartProbe(probeArgs);
 
-        foreach (var arg in probeArgs) info.ArgumentList.Add(arg);
-        return Process.Start(info)!;
-    }
+    private static bool FfmpegAvailable() => PublishPipelineProbe.FfmpegAvailable;
 
-    private static bool FfmpegAvailable()
-    {
-        try
-        {
-            using var probe = StartProbe("-hide_banner", "-loglevel", "error", "-version");
-            probe.WaitForExit(20_000);
-            return probe.ExitCode == 0;
-        }
-        catch (Win32Exception)
-        {
-            return false;
-        }
-    }
-
-    private static bool Libx264Available()
-    {
-        try
-        {
-            using var probe = StartProbe("-hide_banner", "-loglevel", "error", "-encoders");
-            var encoders = probe.StandardOutput.ReadToEnd();
-            probe.WaitForExit(20_000);
-            return encoders.Contains("libx264", StringComparison.Ordinal);
-        }
-        catch (Win32Exception)
-        {
-            return false;
-        }
-    }
+    private static bool Libx264Available() => PublishPipelineProbe.Libx264Available;
 
     /// <summary>
     /// ffmpeg 接受的 muxer 名稱必須真的存在於這台機器的 ffmpeg。

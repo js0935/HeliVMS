@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Net;
 using System.Text;
@@ -34,7 +35,10 @@ public sealed class LivePublisher : IAsyncDisposable
     private readonly LiveEncodeOptions _encode;
     private readonly RedactingErrorBuffer _stderr = new();
     private Process? _process;
-    private int _exitCode;
+
+    // 預設就是「沒有結束碼」：publisher 從未啟動過時若回傳 0，
+    // 上層的錯誤訊息會說「ffmpeg 已結束（代碼 0）」，把「還沒跑」講成「正常結束」。
+    private int _exitCode = int.MinValue;
 
     public LivePublisher(WhepOptions options, LiveEncodeOptions encode)
     {
@@ -83,8 +87,26 @@ public sealed class LivePublisher : IAsyncDisposable
             psi.ArgumentList.Add(arg);
         }
 
-        var process = Process.Start(psi)
-            ?? throw new PublisherStartException($"無法啟動 {_options.FfmpegPath}：找不到執行檔。");
+        // 「找不到執行檔」是這一整套功能最常見的部署失敗，而 Process.Start 丟出來的是
+        // Win32Exception（訊息只有「系統找不到指定的檔案」），對維運毫無意義：看不出該動
+        // 哪個設定。轉成帶環境變數名的 PublisherStartException，端點才回得出可行動的
+        // 502。訊息只帶 ffmpeg 路徑，不帶 RTSP 帳密。
+        Process? process;
+        try
+        {
+            process = Process.Start(psi);
+        }
+        catch (Win32Exception ex)
+        {
+            throw new PublisherStartException(
+                $"無法啟動 ffmpeg（{WhepOptions.Prefix}FFMPEG={_options.FfmpegPath}）：{ex.Message}");
+        }
+
+        if (process is null)
+        {
+            throw new PublisherStartException(
+                $"無法啟動 ffmpeg（{WhepOptions.Prefix}FFMPEG={_options.FfmpegPath}）：找不到執行檔。");
+        }
 
         _process = process;
         _exitCode = int.MinValue;

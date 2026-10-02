@@ -214,8 +214,12 @@ internal sealed class ChannelRuntime : IAsyncDisposable
                 throw new PublisherStartException($"ffmpeg 無法從此攝影機串流：{reason}");
             }
 
+            // 逾時時 ffmpeg 通常「還活著、而且什麼都沒印」：它對連不上或認證失敗的 RTSP 會
+            // 無聲地無限重連（連 -loglevel info 都沒有輸出，實測確認）。所以這裡不能只說
+            // 「沒收到封包」——那等於叫維運自己去猜；直接列出這個形狀最常見的三個原因。
             throw new PublisherStartException(
-                $"超過 {_options.PublisherStartTimeout.TotalSeconds:0} 秒仍未收到 RTP 封包。");
+                $"超過 {_options.PublisherStartTimeout.TotalSeconds:0} 秒仍未收到 RTP 封包"
+                + "（ffmpeg 仍在重試連線）。常見原因：RTSP 位址不可達、連接埠被防火牆擋下，或帳密錯誤。");
         }
         catch (OperationCanceledException) when (!token.IsCancellationRequested)
         {
