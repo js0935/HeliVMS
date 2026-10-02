@@ -199,6 +199,65 @@ public sealed class PublisherIntegrationTests
         Assert.Contains($"{WhepOptions.Prefix}FFMPEG", again.Message, StringComparison.Ordinal);
     }
 
+/// <summary>
+    /// 錄 RTP 時必須全程持有接收 socket，不能「挑一個 port 再放掉」。
+    /// </summary>
+    /// <remarks>
+    /// 舊順序是綁 probe socket 讀出 port → 關掉 → 啟動 ffmpeg → 才綁接收 socket。
+    /// probe 一關，port 就空出來了；xunit 會平行執行測試類別，另一個測試的
+    /// RtpIngest 可能正好拿到同一個 port，ffmpeg 的封包就被別人收走。症狀是
+    /// LiveStreamServiceTests.第一個RTP封包到達前不會回應 在自己送封包之前就完成，
+    /// 而且只在 CI 上間歇發生——那種「難以重現」正是最該用測試釘住的失敗。
+    ///
+    /// 這裡不掃原始碼，而是直接驗證行為：ffmpeg 啟動的那一刻，這個 port 必須已經
+    /// 被獨占住，別人綁不上去——那正是「不會被搶走」的實際定義。
+    /// </remarks>
+    [SkippableFact]
+    public async Task 錄RTP時ffmpeg使用的port必須已被獨占()
+    {
+        Skip.IfNot(PublishPipelineProbe.FfmpegAvailable, "ffmpeg 不在 PATH 上。");
+        Skip.IfNot(PublishPipelineProbe.Libx264Available, "這個 ffmpeg 沒有 libx264。");
+
+        var directory = Directory.CreateTempSubdirectory("helivms-port-hold");
+        try
+        {
+            var stream = CreateCameraStream(directory.FullName);
+            var stealablePort = -1;
+            var rebound = false;
+
+            // 在 ffmpeg 啟動、還沒收到任何封包之前就去搶那個 port。
+            var recording = FakeRtspCamera.RecordRtpAsync(
+                stream,
+                seconds: 2,
+                onRecorderBound: port =>
+                {
+                    stealablePort = port;
+                    try
+                    {
+                        using var thief = new System.Net.Sockets.UdpClient(
+                            new System.Net.IPEndPoint(System.Net.IPAddress.Loopback, port));
+                        rebound = true;
+                    }
+                    catch (System.Net.Sockets.SocketException)
+                    {
+                        // 搶不到才是預期結果：port 仍屬於錄製中的接收 socket。
+                    }
+                });
+
+            var result = await recording;
+
+            Assert.NotEmpty(result.RtpPackets);
+            Assert.True(stealablePort > 0, "沒有觀察到錄製端綁定的 port。");
+            Assert.False(
+                rebound,
+                $"port {stealablePort} 在 ffmpeg 啟動前可以被別人綁走——這正是平行測試互相搶到封包的原因。");
+        }
+        finally
+        {
+            directory.Delete(recursive: true);
+        }
+    }
+
     private static async Task<bool> WaitForAsync(Func<bool> condition, TimeSpan timeout)
     {
         var deadline = DateTime.UtcNow + timeout;

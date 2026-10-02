@@ -392,7 +392,8 @@ internal sealed class FakeRtspCamera : IAsyncDisposable
     /// </remarks>
     public static async Task<(List<byte[]> RtpPackets, string SpropParameterSets)> RecordRtpAsync(
         byte[] annexB,
-        double seconds)
+        double seconds,
+        Action<int>? onRecorderBound = null)
     {
         if (annexB is null || annexB.Length == 0) throw new ArgumentException("需要 Annex-B 串流。", nameof(annexB));
 
@@ -403,12 +404,22 @@ internal sealed class FakeRtspCamera : IAsyncDisposable
         var (sps, pps) = ExtractParameterSets(annexB);
         var sprop = $"{Convert.ToBase64String(sps)},{Convert.ToBase64String(pps)}";
 
-        // 先挑一個空 port，再讓 ffmpeg 綁。
-        int udpPort;
-        using (var probeSocket = new UdpClient(new IPEndPoint(IPAddress.Loopback, 0)))
-        {
-            udpPort = ((IPEndPoint)probeSocket.Client.LocalEndPoint!).Port;
-        }
+        /*
+         * 先把接收 socket 綁在 loopback 的 port 0 讓 OS 挑一個 port，並在整個錄製
+         * 期間持有它，再把實際 port 交給 ffmpeg。
+         *
+         * 舊順序是「綁一個 probe socket 讀出 port → 關掉 → 啟動 ffmpeg → 才綁接收
+         * socket」。probe 一關，那個 port 就變成空閒：xunit 會平行執行測試類別，
+         * 另一個測試的 RtpIngest 可能正好拿到同一個 port，於是 ffmpeg 的封包被別人的
+         * ingest 收走。這會讓 LiveStreamServiceTests.第一個RTP封包到達前不會回應
+         * 在自己送封包之前就完成，且只在 CI 上間歇發生——那正是難以重現的那種失敗。
+         * 持有 socket 就沒有這個空窗。
+         */
+        using var udp = new UdpClient(new IPEndPoint(IPAddress.Loopback, 0));
+        var udpPort = ((IPEndPoint)udp.Client.LocalEndPoint!).Port;
+
+        // 測試可以在此時驗證這個 port 已被獨占（見 PublisherIntegrationTests）。
+        onRecorderBound?.Invoke(udpPort);
 
         var args = new List<string>
         {
@@ -434,7 +445,6 @@ internal sealed class FakeRtspCamera : IAsyncDisposable
         var senderErr = sender.StandardError.ReadToEndAsync();
 
         var packets = new List<byte[]>();
-        using var udp = new UdpClient(new IPEndPoint(IPAddress.Loopback, udpPort));
         udp.Client.ReceiveTimeout = 500;
 
         var deadline = DateTime.UtcNow.AddSeconds(seconds);
