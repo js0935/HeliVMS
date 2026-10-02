@@ -213,7 +213,7 @@ async function renderAudit() {
       (r) =>
         `<tr><td>${esc(formatTimestamp(r.occurredAtUtc))}</td><td>${esc(r.category)}</td><td>${esc(r.actor)}</td>` +
         `<td>${esc(r.action)}</td><td>${esc(r.targetType ?? '')}${esc(r.targetId ? `${r.targetId}` : '')}</td>` +
-        `<td title="${esc(r.detail ?? '')}">${esc((r.detail ?? '').slice(0, 40))}</td></tr>`,
+        `<td class="wrap" title="${esc(r.detail ?? '')}">${esc(r.detail ?? '')}</td></tr>`,
     )
     .join('');
   await refreshAuditCsv(category, actor);
@@ -644,7 +644,7 @@ async function renderProviders() {
   $('provider-body').innerHTML = rows
     .map(
       (p) =>
-        `<tr><td>#${esc(p.id)}</td><td>${esc(p.name)}</td><td>${esc(p.kind)}</td><td><input type="checkbox" data-provider-toggle="${Number(p.id)}" ${esc(p.enabled ? 'checked' : '')}></td><td><button class="danger" data-provider-del="${Number(p.id)}">${tx('action.delete')}</button></td><td class="muted">${esc(p.config.slice(0, 40))}</td></tr>`,
+        `<tr><td>#${esc(p.id)}</td><td>${esc(p.name)}</td><td>${esc(p.kind)}</td><td><input type="checkbox" data-provider-toggle="${Number(p.id)}" ${esc(p.enabled ? 'checked' : '')}></td><td><button class="danger" data-provider-del="${Number(p.id)}">${tx('action.delete')}</button></td><td class="muted wrap" title="${esc(p.config)}">${esc(p.config)}</td></tr>`,
     )
     .join('');
   $('provider-count').textContent = t('count.parenthesized', { n: rows.length });

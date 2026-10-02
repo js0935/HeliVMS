@@ -57,7 +57,8 @@ button:disabled {
 
 .topbar {
   display: flex;
-  gap: 16px;
+  flex-wrap: wrap;
+  gap: 8px 16px;
   align-items: center;
   padding: 10px 16px;
   background: var(--panel);
@@ -87,6 +88,12 @@ button:disabled {
   border-radius: 10px;
   background: var(--line);
   font-size: 12px;
+  /*
+   * badge 文字長度不可控（授權訊息含到期時間、通道名稱含日期中繼資料）。
+   * 讓它摺行會把 topbar 撐高並把右側的登出／語言選單擠出畫面；
+   * 因此 badge 本身不換行，topbar 在窄螢幕改為可換行的多列版面。
+   */
+  white-space: nowrap;
 }
 .badge.off { opacity: 0.5; }
 .badge.on { background: #1f7a3d; }
@@ -144,6 +151,11 @@ section.panel[id] { scroll-margin-top: 12px; }
   border: 1px solid var(--line);
   border-radius: 4px;
 }
+/*
+ * 通道名稱可能比格線格子長，`overflow:hidden` 會把它硬切掉且沒有任何方式
+ * 看到全文。加上 title 屬性讓滑鼠停留可讀完整名稱，並讓文字在格內
+ * 垂直置中（原本的 align-items:center 會被 overflow 裁切邊緣）。
+ */
 .map .pin {
   position: absolute;
   display: flex;
@@ -155,6 +167,12 @@ section.panel[id] { scroll-margin-top: 12px; }
   font-size: 11px;
   color: var(--accent);
   overflow: hidden;
+  /* 名字中間被切開比從頭截斷更难讀，橫向捲動可看完整文字。 */
+  overflow-x: auto;
+  overflow-y: hidden;
+  white-space: nowrap;
+  padding: 0 4px;
+  box-sizing: border-box;
 }
 
 #login { display: flex; gap: 6px; align-items: center; }
@@ -162,6 +180,11 @@ section.panel[id] { scroll-margin-top: 12px; }
 #login .muted { font-size: 12px; max-width: 180px; }
 #login-msg:not(:empty) { color: var(--crit); }
 
+/*
+ * 影片容器：先給一個 16:9 的版面尺寸當預設（串流比例未知時畫面不會塌成 0 高），
+ * 再讓 video 元素用 `contain` 保留原始比例——真正的「被裁掉」發生在這裡：
+ * 一個 4:3 的攝影機餵進固定 16:9 的框，畫面會被上下切掉。
+ */
 .player {
   display: block;
   width: 100%;
@@ -170,19 +193,22 @@ section.panel[id] { scroll-margin-top: 12px; }
   background: #000;
   border: 1px solid var(--line);
   border-radius: 4px;
+  object-fit: contain;
 }
 .timeline-tools { display: flex; gap: 8px; margin-bottom: 8px; align-items: center; }
 .timeline-tools input { background: var(--bg); border: 1px solid var(--line); color: var(--text); }
 
 #board.gated .act { visibility: hidden; pointer-events: none; }
 
-.row-form { display: flex; gap: 8px; align-items: center; }
+.row-form { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 6px; }
 .row-form input, .row-form select {
   background: var(--bg);
   border: 1px solid var(--line);
   color: var(--text);
   padding: 4px 8px;
+  min-width: 0;
 }
+.row-form select { max-width: 100%; }
 #account-msg:not(:empty) { color: var(--crit); }
 
 .swgrid {
@@ -199,15 +225,19 @@ section.panel[id] { scroll-margin-top: 12px; }
   justify-content: center;
   border-radius: 4px;
   font-size: 12px;
-  overflow: hidden;
+  /* 同 map .pin：格線大小固定，通道名稱可能塞不進去。
+     橫向捲動讓文字可完整檢視，而不是被無聲截斷。 */
+  overflow-x: auto;
+  overflow-y: hidden;
+  white-space: nowrap;
+  padding: 0 4px;
+  box-sizing: border-box;
 }
 .swtile.tile-norm { background: rgba(77, 163, 255, 0.12); border: 1px solid var(--line); color: var(--muted); }
 .swtile.tile-crit { background: rgba(255, 93, 93, 0.22); border: 1px solid var(--crit); color: var(--crit); }
 .swtile.tile-hot { background: rgba(255, 200, 60, 0.2); border: 1px solid #ffc83c; color: #ffc83c; }
 
 table.compact { width: auto; min-width: 220px; }
-
-form.row-form { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 6px; }
 
 .grid {
   display: grid;
@@ -220,6 +250,13 @@ form.row-form { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; m
   border: 1px solid var(--line);
   border-radius: 8px;
   padding: 12px 14px;
+  /*
+   * 表格欄位一多（警報 7 欄、搜尋結果 6 欄），`width:100%` 會讓內容撐破面板右緣；
+   * 面板本身沒有捲動容器，多出來的部分就被 viewport 裁掉，使用者永遠看不到
+   * 右側的「動作」欄，也沒有任何橫向捲動可以救。讓面板自己捲動，而不是讓整頁
+   * 出現橫向捲軸——那會讓 admin-nav 的錨點跳轉與 scroll-margin 全部失效。
+   */
+  overflow-x: auto;
 }
 .panel.wide { grid-column: 1 / -1; }
 .panel h2 { font-size: 14px; margin: 0 0 10px; }
@@ -227,23 +264,60 @@ form.row-form { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; m
 
 ul { margin: 0; padding-left: 18px; }
 table { width: 100%; border-collapse: collapse; }
-th, td { text-align: left; padding: 4px 6px; border-bottom: 1px solid var(--line); }
-tr.critical td { color: var(--crit); }
 
-form { display: flex; gap: 8px; margin-bottom: 8px; }
+th, td {
+  text-align: left;
+  padding: 4px 6px;
+  border-bottom: 1px solid var(--line);
+  /* 表頭與儲存格都不換行：中文欄名短，但「優先級」「逾期」等在英文介面
+     會變成 "Priority"/"Overdue"，一換行整列高就會跳動。 */
+  white-space: nowrap;
+}
+/* 唯一該換行的是長內容欄，讓它在捲動容器裡換行而不是撐寬表格。 */
+td.wrap, th.wrap { white-space: normal; }
+
+form { display: flex; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; }
 form input {
   flex: 1;
+  min-width: 0;
   background: var(--bg);
   border: 1px solid var(--line);
   color: var(--text);
   padding: 4px 8px;
 }
+/*
+ * checkbox／radio 不可拉伸：`flex:1` 會讓每個勾選框吃掉等分的一整列寬度
+ * (#sched-form 的週一至週日就有 7 個)，勾選框本身被拉寬後會和它右側的
+ * label 文字拉開距離，看起來像控制項跑到別的欄位。
+ */
+form input[type="checkbox"],
+form input[type="radio"] { flex: 0 0 auto; }
+/* 日期／時間／數字欄位天生就窄，被 `flex:1` 拉成等寬只會擠掉旁邊的按鈕。
+   `field-sizing` 讓它跟著內容寬度走，並給一個下限避免被壓到看不見。 */
+input[type="date"],
+input[type="time"],
+input[type="datetime-local"],
+input[type="number"],
+input[type="month"],
+input[type="week"] {
+  flex: 0 1 auto;
+  field-sizing: content;
+  min-width: 8ch;
+  max-width: 100%;
+}
+/* 密碼／一般文字欄位保留可拉寬，但給一個合理下限。 */
+input[type="password"] { min-width: 10ch; }
+
 button {
   background: var(--accent);
   border: 0;
   color: #06121f;
   padding: 4px 14px;
   cursor: pointer;
+  /* 按鈕文字在中文與英文下都可能偏長，摺行會讓同一列的按鈕高度不一致，
+     看起來像被裁掉半截。 */
+  white-space: nowrap;
+  flex: 0 0 auto;
 }
 
 .timeline {
