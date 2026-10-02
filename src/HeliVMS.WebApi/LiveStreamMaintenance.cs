@@ -48,33 +48,3 @@ public sealed class LiveStreamMaintenance : BackgroundService
         }
     }
 }
-
-/// <summary>正式環境的 publisher 啟動器：真的呼叫 ffmpeg。</summary>
-public static class LivePublishers
-{
-    /// <summary>
-    /// 啟動 ffmpeg；失敗時回傳帶原因（已遮蔽憑證）的例外物件。
-    /// </summary>
-    public static Task<PublisherStartException?> StartFfmpeg(
-        LivePublisher publisher,
-        System.Net.IPEndPoint rtpTarget,
-        ChannelSource source,
-        CancellationToken token)
-    {
-        try
-        {
-            publisher.Start(source.RtspUrl, rtpTarget);
-            return Task.FromResult<PublisherStartException?>(null);
-        }
-        catch (PublisherStartException ex)
-        {
-            return Task.FromResult<PublisherStartException?>(ex);
-        }
-        catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException)
-        {
-            // Win32Exception：找不到 ffmpeg 可執行檔（最常見的部署問題）。
-            return Task.FromResult<PublisherStartException?>(
-                new PublisherStartException($"無法啟動 ffmpeg（{HeliVMS.Rtc.WhepOptions.Prefix}FFMPEG）：{ex.Message}"));
-        }
-    }
-}

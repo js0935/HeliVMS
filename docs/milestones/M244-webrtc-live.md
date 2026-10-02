@@ -100,7 +100,18 @@ HeliVMS.Rtc（新增專案）
     （`lavfi testsrc` → libx264 → RTP → `RtpIngest`），確認 muxer 名稱真的存在。
     純函式測試抓不到拼錯的 muxer 這類錯誤——症狀會是「所有攝影機都連不上」，
     而測試全綠。
-  - 授權閘門與 API 金鑰路徑比照既有 API 測試寫法。
+  - 授權閕門與 API 金鑰路徑比照既有 API 測試寫法。
+- **端到端整合測試**（`PublisherIntegrationTests`）：`PublisherStarters.StartFfmpeg` →
+  `LivePublisher.Start` → `ChannelRuntime` 等首包 → `RtpIngest` → 觀看者，整條走正式的
+  `LiveEncodeOptions` 參數（含 `-rtsp_transport tcp`）。這一段此前完全沒有被執行過，而
+  參數拼錯正是發生在中間那一段。
+  - 「攝影機」是測試內自建的 `FakeRtspCamera`：只實作 interleaved TCP 的 OPTIONS／
+    DESCRIBE／SETUP／PLAY／TEARDOWN。ffmpeg 的 `rtsp` muxer 沒有 listen 模式，
+    所以「用第二個 ffmpeg 假裝攝影機」不可行。
+  - 串流內容是 **ffmpeg 自己產生的 RTP 封包**（先用 `-f rtp` 錄進 UDP，再以 interleaved
+    TCP 重播）。自己實作 H.264 over RTP（FU-A 分片、marker bit、SSRC）出錯時症狀是
+    「ffmpeg 認得串流卻永遠不吐影格」，極難診斷；交給 ffmpeg 產生後這層就消失了。
+  - 已用 mutation 驗證：把 `-f rtp` 改回 `-f rte`，此測試會如實失敗。
 - **契約測試**：掃描 `src`，確保每個 WHEP 端點都過授權閘門（呼應 §19.4 既有做法）。
 - mutation 驗證至少四個方向：上限失效（回 200 而非 429）、逾時不回收、
   會話帳本不記錄（等於沒有上限）、憑證寫進錯誤訊息。

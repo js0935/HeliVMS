@@ -74,7 +74,7 @@ builder.Services.AddSingleton<WhepSessionStore>();
 builder.Services.AddSingleton<LiveStreamService>(sp => new LiveStreamService(
     sp.GetRequiredService<WhepOptions>(),
     sp.GetRequiredService<WhepSessionStore>(),
-    LivePublishers.StartFfmpeg));
+    PublisherStarters.StartFfmpeg));
 builder.Services.AddHostedService<LiveStreamMaintenance>();
 
 // 遠程與本機共用同一份授權結論（M210／§19.4「合併檢查」）。公鑰可由

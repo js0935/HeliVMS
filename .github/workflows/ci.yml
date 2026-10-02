@@ -35,11 +35,11 @@ jobs:
           npm ci
           npm test
 
-      # M244 的 PublishPipelineTests 會真的啟動 ffmpeg 驗證 RTP 管線。
-      # runner 預設沒有 ffmpeg，測試會「略過」——那等於沒有防護：M244 首次實作
-      # 把 muxer 拼成不存在的 "rte"，正是這類「純函式測試全綠、實際功能全壞」的錯誤。
-      # 這裡顯式安裝，讓那兩支測試在 CI 上真的執行（SkippableFact 仍保留給
-      # 無 ffmpeg 的開發機）。
+      # M244 的 PublishPipelineTests 與 PublisherIntegrationTests 會真的啟動 ffmpeg
+      # 驗證 RTP 管線與 RTSP 握手。runner 預設沒有 ffmpeg，測試會「略過」——那等於沒有
+      # 防護：M244 首次實作把 muxer 拼成不存在的 "rte"，正是這類「純函式測試全綠、
+      # 實際功能全壞」的錯誤。這裡顯式安裝，讓它們在 CI 上真的執行
+      #（SkippableFact 仍保留給無 ffmpeg 的開發機）。
       - name: Setup ffmpeg
         run: choco install ffmpeg --no-progress -y --limit-output
 
@@ -69,8 +69,8 @@ jobs:
             'tests/HeliVMS.Licensing.Tests/HeliVMS.Licensing.Tests.csproj',
             'tests/HeliVMS.LicenseProducer.Tests/HeliVMS.LicenseProducer.Tests.csproj',
             'tests/HeliVMS.Media.Tests/HeliVMS.Media.Tests.csproj',
-            # Rtc（M244）：PublishPipelineTests 會真的執行 ffmpeg；runner 上沒有 ffmpeg 時
-            # 依設計略過（SkippableFact），不會讓 CI 變紅。
+            # Rtc（M244）：PublishPipelineTests 與 PublisherIntegrationTests 會真的執行 ffmpeg；
+            # runner 上沒有 ffmpeg 時依設計略過（SkippableFact），不會讓 CI 變紅。
             'tests/HeliVMS.Rtc.Tests/HeliVMS.Rtc.Tests.csproj',
             'tests/HeliVMS.Storage.Tests/HeliVMS.Storage.Tests.csproj'
           )
