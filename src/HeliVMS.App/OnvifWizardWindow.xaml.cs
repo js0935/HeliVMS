@@ -13,7 +13,7 @@ namespace HeliVMS.App;
 /// </summary>
 public partial class OnvifWizardWindow : Window
 {
-private IReadOnlyList<DiscoveredDevice> _devices = [];
+    private IReadOnlyList<DiscoveredDevice> _devices = [];
     private readonly List<OnvifProfile> _profiles = [];
     private string _deviceLabel = string.Empty;
     private string? _deviceXAddr;
@@ -59,7 +59,7 @@ private IReadOnlyList<DiscoveredDevice> _devices = [];
 
     private string? Password => PasswordBox.Password.Length == 0 ? null : PasswordBox.Password;
 
-private async void OnDiscoverClicked(object sender, RoutedEventArgs e)
+    private async void OnDiscoverClicked(object sender, RoutedEventArgs e)
     {
         if (_busy)
         {
@@ -115,7 +115,7 @@ private async void OnDiscoverClicked(object sender, RoutedEventArgs e)
         {
             WizardHint.Text = "操作已取消。";
         }
-catch (Exception ex)
+        catch (Exception ex)
         {
             WizardHint.Text = $"探索失敗：{Describe(ex)}";
         }
@@ -129,7 +129,7 @@ catch (Exception ex)
         }
     }
 
-private async void OnDeviceSelected(object sender, SelectionChangedEventArgs e)
+    private async void OnDeviceSelected(object sender, SelectionChangedEventArgs e)
     {
         SetProfiles([]);
         AddButton.IsEnabled = false;
@@ -194,7 +194,7 @@ private async void OnDeviceSelected(object sender, SelectionChangedEventArgs e)
         {
             SetBusyHint("操作已取消。");
         }
-catch (Exception ex)
+        catch (Exception ex)
         {
             SetBusyHint($"探測失敗：{Describe(ex)}");
         }
@@ -274,7 +274,7 @@ private async Task<IReadOnlyList<OnvifProfile>> ProbeResolutionsAsync(
         return OnvifProfileSelection.Order(corrected);
     }
 
-private async void OnProfileSelected(object sender, SelectionChangedEventArgs e)
+    private async void OnProfileSelected(object sender, SelectionChangedEventArgs e)
     {
         var profile = ProfileList.SelectedItem as OnvifProfile;
         _selectedProfile = profile;
@@ -318,7 +318,7 @@ private async void OnProfileSelected(object sender, SelectionChangedEventArgs e)
         {
             SetBusyHint("操作已取消。");
         }
-catch (Exception ex)
+        catch (Exception ex)
         {
             SetBusyHint($"取得串流位址失敗：{Describe(ex)}");
         }
@@ -380,7 +380,7 @@ catch (Exception ex)
         return (host, port);
     }
 
-private void OnCloseClicked(object sender, RoutedEventArgs e)
+    private void OnCloseClicked(object sender, RoutedEventArgs e)
     {
         DialogResult = false;
         Close();

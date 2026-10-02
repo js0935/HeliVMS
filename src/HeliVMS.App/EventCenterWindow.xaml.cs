@@ -250,7 +250,7 @@ public partial class EventCenterWindow : Window
     }
 
     /// <summary>匯出目前查詢之全部事件為 CSV（UTF-8 BOM）。僅 admin（與匯出中心同權限，M42）。</summary>
-private async void OnExportCsvClicked(object sender, RoutedEventArgs e)
+    private async void OnExportCsvClicked(object sender, RoutedEventArgs e)
     {
         if (!SessionContext.IsAdmin)
         {

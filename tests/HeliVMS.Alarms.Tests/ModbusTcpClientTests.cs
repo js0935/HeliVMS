@@ -39,7 +39,7 @@ public class ModbusTcpClientTests
     [Fact]
     public void ParseReadResponse_ExceptionFrame_Throws()
     {
-        var pdu = new byte[] { 0x82, 0x01 }; // fc02 | 0x80?�ILLEGAL FUNCTION
+        var pdu = new byte[] { 0x82, 0x01 }; // fc02 | 0x80|ILLEGAL FUNCTION
 
         var ex = Assert.Throws<InvalidOperationException>(() => ModbusTcpClient.ParseReadResponse(pdu, fc: 0x02, count: 1));
         Assert.Contains("code=", ex.Message);
@@ -88,7 +88,7 @@ public class ModbusTcpClientTests
     [Fact]
     public async Task Loopback_WriteSingleCoil_GetsEchoTrue()
     {
-        await using var server = await StartFakeAsync(frame => frame);   // ?�接 echo
+        await using var server = await StartFakeAsync(frame => frame);   // 直接 echo
 
         var client = new ModbusTcpClient("127.0.0.1", server.Port, TimeSpan.FromSeconds(10));
         Assert.True(await client.WriteSingleCoilAsync(unitId: 1, address: 4, on: true));

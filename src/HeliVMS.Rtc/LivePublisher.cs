@@ -30,7 +30,7 @@ public enum PublisherState
 /// </summary>
 public sealed class LivePublisher : IAsyncDisposable
 {
-private readonly WhepOptions _options;
+    private readonly WhepOptions _options;
     private readonly LiveEncodeOptions _encode;
     private readonly RedactingErrorBuffer _stderr = new();
     private Process? _process;
@@ -48,7 +48,7 @@ private readonly WhepOptions _options;
     /// <summary>ffmpeg 的結束碼；仍在執行時為 <c>null</c>。</summary>
     public int? ExitCode => _exitCode == int.MinValue ? null : _exitCode;
 
-/// <summary>最近一次 ffmpeg 輸出；已做憑證遮蔽。</summary>
+    /// <summary>最近一次 ffmpeg 輸出；已做憑證遮蔽。</summary>
     public string LastError => _stderr.Text;
 
     /// <summary>
@@ -95,7 +95,7 @@ private readonly WhepOptions _options;
         // 逐行讀並即時遮蔽，絕不讓明文帳密進到記錄或 API 回應裡。
         _ = Task.Run(async () =>
         {
-try
+            try
             {
                 while (await process.StandardError.ReadLineAsync().ConfigureAwait(false) is { } line)
                 {

@@ -147,7 +147,7 @@ public class NtpClientTests
         return resp;
     }
 
-private sealed class FakeNtpServer : IDisposable
+    private sealed class FakeNtpServer : IDisposable
     {
         private readonly UdpClient _udp;
         private readonly bool _reply;
