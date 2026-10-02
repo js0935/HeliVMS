@@ -203,6 +203,38 @@ public async Task 關到不存在的會話回傳null()
         Assert.False(live.Describe(7).Active, "回收後 publisher 不該還處於啟用狀態");
     }
 
+[Fact]
+    public async Task 閒置回收必須用注入的時鐘而不是系統時間()
+    {
+        // 把注入時鐘設在「未來的現在」：離開時間基準足夠久，publisher 應該被關掉。
+        // 這裡若寫死 DateTimeOffset.UtcNow，runtime 算出的區間會是負的（未來 − 現在 < 0），
+        // 閒置條件永遠不成立，publisher 也就永遠關不掉——而且測試會全綠，因為
+        // 「不該關」和「剛好沒關」看起來一模一樣。
+        long now = DateTimeOffset.UtcNow.UtcTicks + TimeSpan.FromDays(10).Ticks;
+        var store = new WhepSessionStore(() => now);
+        await using var live = new LiveStreamService(
+            new WhepOptions
+            {
+                SessionIdleTimeout = TimeSpan.FromHours(1),
+                PublisherIdleTimeout = TimeSpan.FromSeconds(30),
+            },
+            store,
+            (_, target, _, _) => SendAsync(target, 1, 1000),
+            () => now);
+
+        var (session, _) = await live.OpenAsync(Source(), Offer(), () => new FakePeer(), default);
+        Assert.True(live.Describe(7).Active);
+
+        // 最後一位觀看者離開，publisher 進入 PublisherIdleTimeout 的保留期（這是刻意的：
+        // 讓人重新點回去時不用等 ffmpeg 重新連線）。
+        Assert.NotNull(live.Close(session.Id));
+
+        now += TimeSpan.FromSeconds(31).Ticks;
+
+        Assert.Equal(0, await live.MaintainAsync(default));
+        Assert.False(live.Describe(7).Active, "注入時鐘已遠離最後一位觀看者，publisher 必須被關掉");
+    }
+
     [Fact]
     public async Task 第一次觀看會啟動publisher並回傳答案()
     {

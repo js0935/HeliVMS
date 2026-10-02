@@ -28,6 +28,7 @@ internal sealed class ChannelRuntime : IAsyncDisposable
     private readonly SemaphoreSlim _startGate = new(1, 1);
     private readonly HashSet<string> _attached = [];
     private readonly Action<int, RtpHeader, ReadOnlyMemory<byte>> _sink;
+    private readonly Func<long> _clock;
     private RtpIngest? _ingest;
     private LivePublisher? _publisher;
     private TaskCompletionSource<bool>? _firstPacket;
@@ -38,11 +39,21 @@ internal sealed class ChannelRuntime : IAsyncDisposable
     /// <param name="channelId">通道 ID。</param>
     /// <param name="options">設定。</param>
     /// <param name="sink">收到 RTP 封包時的回呼（轉發給觀看者）。</param>
-    public ChannelRuntime(int channelId, WhepOptions options, Action<int, RtpHeader, ReadOnlyMemory<byte>> sink)
+    /// <param name="clock">
+    /// 取「現在」的 UTC ticks。<b>必須與呼叫 <see cref="Attach"/>／<see cref="Detach"/> 時用的是同一個時鐘</b>：
+    /// 閒置判斷是拿「現在」減去 <c>_lastViewerTicks</c>，若這裡偷偷用系統時間而那邊用注入時鐘，
+    /// 測試會得到一個差了好幾十年的區間，於是閒置回收的行為變成無法驗證。
+    /// </param>
+    public ChannelRuntime(
+        int channelId,
+        WhepOptions options,
+        Action<int, RtpHeader, ReadOnlyMemory<byte>> sink,
+        Func<long>? clock = null)
     {
         _channelId = channelId;
         _options = options;
         _sink = sink;
+        _clock = clock ?? (static () => DateTimeOffset.UtcNow.UtcTicks);
     }
 
     /// <summary>
@@ -93,14 +104,22 @@ internal sealed class ChannelRuntime : IAsyncDisposable
     }
 
     /// <summary>移除一位觀看者。</summary>
+    /// <remarks>
+    /// <b>最後一位離開時刻意不把 <c>_lastViewerTicks</c> 推回現在</b>：閒置計時要量的是
+    /// 「距離上一次真的有人在看多久」，不是「距離我們處理到這筆移除多久」。
+    /// 逾時回收正是反例——會話是在超過 <c>SessionIdleTimeout</c> 之後才被撿走的，
+    /// 若 Detach 把時鐘設成回收當下，publisher 的閒置倒數就被重啟，得多等一個
+    /// <c>PublisherIdleTimeout</c> 才關得掉。
+    /// </remarks>
     public void Detach(string sessionId, long nowTicks)
     {
         lock (_attached)
         {
             _attached.Remove(sessionId);
-        }
 
-        Interlocked.Exchange(ref _lastViewerTicks, nowTicks);
+            // 還有別人在看就重新起算；沒人看就保留「最後一次有人在看」的時間。
+            if (_attached.Count > 0) Interlocked.Exchange(ref _lastViewerTicks, nowTicks);
+        }
     }
 
     /// <summary>
@@ -214,7 +233,7 @@ internal sealed class ChannelRuntime : IAsyncDisposable
             if (_attached.Count > 0) return;
         }
 
-        if (DateTimeOffset.UtcNow.UtcTicks - Interlocked.Read(ref _lastViewerTicks) < idle.Ticks) return;
+        if (_clock() - Interlocked.Read(ref _lastViewerTicks) < idle.Ticks) return;
 
         await _startGate.WaitAsync(token).ConfigureAwait(false);
         try
@@ -224,7 +243,7 @@ internal sealed class ChannelRuntime : IAsyncDisposable
                 if (_attached.Count > 0) return;
             }
 
-            if (DateTimeOffset.UtcNow.UtcTicks - Interlocked.Read(ref _lastViewerTicks) < idle.Ticks) return;
+            if (_clock() - Interlocked.Read(ref _lastViewerTicks) < idle.Ticks) return;
             await TeardownAsync().ConfigureAwait(false);
         }
         finally

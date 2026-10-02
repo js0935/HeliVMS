@@ -1012,7 +1012,7 @@ L2 比對（人臉/車牌）置「進階·需權限」區，預設關閉（§5.1
 
 | # | 功能缺口 | 現況 | 影響 | 建議 |
 |---|---|---|---|---|
-| 1 | **遠程即時監看（WebRTC）** | **已落地（M244）**：WHEP SFU（`/api/stream/{id}/whep`，ffmpeg → loopback RTP → SIPSorcery → 瀏覽器 DTLS-SRTP）＋SPA 原生 `RTCPeerConnection` 播放器，與既有的 M239 HLS 遠程回放、M117/M118 警報 WebSocket 並行 | 對稱 NAT 跨網段仍需 TURN | **P0**（剩 TURN） |
+| 1 | **遠程即時監看（WebRTC）** | **已落地（M244）**：WHEP SFU（`/api/stream/{id}/whep`，ffmpeg → loopback RTP → SIPSorcery → 瀏覽器 DTLS-SRTP）＋SPA 原生 `RTCPeerConnection` 播放器，與既有的 M239 HLS 遠程回放、M117/M118 警報 WebSocket 並行 | TURN／`PUBLIC_HOST` 可設定但伺服器端需自行部署 TURN | **P0**（剩 TURN 部署） |
 | 1b | **行動端 App** | 無（僅網頁主控台） | 巡檢/報警第一線 | P1（網頁主控台可先擋） |
 | 2 | 匯出證據工作流 | 已落地：匯出精靈＋匯出中心＋證據包 `manifest.json`＋SHA-256＋匯出即驗證（`evidence_manifests`、`EvidenceWindow`）＋**匯出簽章收據與離線驗證（M240）** | 司法效力 | P0（已完成） |
 | 3 | 地圖/平面圖檢視（Map View） | 已落地：`MapWindow`（樓層切換、圖釘含 camera 扇形 FOV、事件閃爍、雙向定位）、`maps`/`map_devices`（M41）；深度/設備自動布局未做 | 專業賣點 | P0′（主體已完成） |
@@ -1061,7 +1061,8 @@ L2 比對（人臉/車牌）置「進階·需權限」區，預設關閉（§5.1
   - **憑證**：RTSP 帳密在拉流的當下才用 `RtspStreamResolver.Resolve` 組合，不進資料庫、日誌或稽核；ffmpeg stderr 逐行經 `RtspUri.RedactText` 遮蔽（`RedactingErrorBuffer`）。
   - **授權**：`/api/stream` → `LicenseFeatures.Remote`，順帶補上 M239 HLS 回放原本漏掉的閘門；金鑰仍只認 `Authorization` 標頭（WHEP 是普通 POST，不是 WebSocket 升級，`?key=` 會進 access log）。
   - **SPA**：`src/HeliVMS.Web/live.js` 用原生 `RTCPeerConnection` ＋兩次 fetch，**不引入任何 WHEP 播放器函式庫**，延續 M239/M243「零外部 JS 相依」的原則。伺服器不做 trickle ICE（無 `PATCH` 端點），所以客戶端必須自己等 `iceGatheringState === 'complete'` 才送 offer。
-  - **已知限制**：單一 STUN 設定、無 TURN，因此**對稱 NAT 下的跨網段連線會失敗**；`PublicHost`／`PublicPort` 已解析但尚未套用；不支援音軌、不支援 H.265。
+  - **NAT 穿透**：`HELIVMS_WHEP_TURN`（`url[;user;cred]`，可另給 `TURN_USERNAME`／`TURN_CREDENTIAL`，支援 TURN REST 動態密碼）讓瀏覽器取得 relay 候選，解決對稱 NAT；`HELIVMS_WHEP_PUBLIC_HOST`（**必須是 IP**）與 `PUBLIC_PORT` 則由 `IceCandidateRewriter` 把 answer 裡的 host 候選換成 1:1 NAT 背後的對外位址，srflx／relay 候選不動。M244 **不架設** TURN 伺服器，只負責能被指到。
+  - **已知限制**：不支援音軌、不支援 H.265；`PUBLIC_HOST` 只接受 IP（DNS 名稱在設定解析時就被拒並記錄）；沒有 TURN 也沒有 `PUBLIC_HOST` 時，對稱 NAT 的跨網段連線會失敗。
 - 安全：TLS + JWT；與桌面端共用資料庫與稽核（誰遠端看了什麼）——呼應 §11.5
   - **現況**：已用 Bearer 金鑰（`ApiKeyAuthMiddleware`，非常時外 fail-closed、常時比較、每來源 429、WebSocket 僅 `?key=`）＋授權旗標閘門（`LicenseGateMiddleware`，403 帶 `feature`）；JWT／逐請求授權（檢閱者級別起跳）尚未做
 - 權限：遠程預設更嚴（檢閱者級別起跳）

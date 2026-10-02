@@ -50,8 +50,14 @@ public readonly record struct LiveEncodeOptions(int FrameRate, int BitrateKbps, 
             "-g", gopFrames.ToString(CultureInfo.InvariantCulture),
             "-keyint_min", gopFrames.ToString(CultureInfo.InvariantCulture),
             "-sc_threshold", "0",
-            // rte 輸出 Annex-B 位元流（H.264 over RTP 必要格式）。
-            "-f", "rte",
+            // ffmpeg 的 RTP 輸出 muxer 名字就叫 "rtp"（ffmpeg -muxers 顯示 "rtp  RTP output"）。
+            //
+            // 這裡曾經寫成 "rte"，而那個 muxer 根本不存在：ffmpeg 會以
+            // "Requested output format 'rte' is not known" 拒絕啟動，於是每一路
+            // publisher 都立刻掛掉，整個即時串流功能 100% 不能用——而且症狀看起來
+            // 只是「攝影機連不上」。參見 tests/HeliVMS.Rtc.Tests/PublishPipelineTests.cs。
+            "-f", "rtp",
+            // H.264 over RTP 的負載型別；必須與 WhepPeer 宣告的 PT 一致。
             "-payload_type", PayloadType.ToString(CultureInfo.InvariantCulture),
             rtpTarget,
         ];

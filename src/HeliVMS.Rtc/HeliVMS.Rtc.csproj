@@ -12,6 +12,12 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- SIPSorcery 依賴要從測試端觀察（WhepPeer.BuildIceServers 的 ICE 伺服器展開），
+         ChannelRuntime 這類刻意不公開的協調狀態也一樣。與 Devices／Alarms 的既有慣例一致。 -->
+    <InternalsVisibleTo Include="HeliVMS.Rtc.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <!--
       SIPSorcery：純託管 WebRTC 堆疊（BSD 3-Clause，與本 repo 的 MIT 相容），
       有明確 net10.0 target。M244 用它在同一個行程內做 SFU（轉送不解碼）。

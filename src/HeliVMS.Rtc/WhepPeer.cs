@@ -41,16 +41,17 @@ public interface IWhepPeer : IDisposable
 /// </summary>
 public sealed class WhepPeer : IWhepPeer
 {
+    private readonly WhepOptions _options;
     private readonly RTCPeerConnection _pc;
     private bool _disposed;
 
     public WhepPeer(WhepOptions options)
     {
+        _options = options;
+
         var configuration = new RTCConfiguration
         {
-            iceServers = options.StunServers
-                .Select(url => new RTCIceServer { urls = url })
-                .ToList(),
+            iceServers = BuildIceServers(options),
             // 純託管 SharpSRTP 預設走 EMS（RFC 7627 的擴充 master secret）。
             // 部分舊版 Safari 仍只認 RFC 5764 的預設 master secret，故保留可關閉。
             X_DisableExtendedMasterSecretKey = true,
@@ -61,6 +62,36 @@ public sealed class WhepPeer : IWhepPeer
         var track = new MediaStreamTrack(SDPMediaTypesEnum.video, false, [new SDPAudioVideoMediaFormat(WhepCodec.H264)]);
         _pc.addTrack(track);
         _pc.SetMediaStreamStatus(SDPMediaTypesEnum.video, MediaStreamStatusEnum.SendOnly);
+    }
+
+    /// <summary>
+    /// 把設定展開成 SIPSorcery 的 ICE 伺服器清單。
+    /// <para>
+    /// 順序有意義：STUN 在前、TURN 在後，讓瀏覽器優先走直連路徑，把 TURN 當最後手段——
+    /// relay 的流量與延遲成本都高得多。
+    /// </para>
+    /// </summary>
+    internal static List<RTCIceServer> BuildIceServers(WhepOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+
+        var servers = new List<RTCIceServer>(options.StunServers.Length + options.TurnServers.Count);
+        foreach (var url in options.StunServers)
+        {
+            servers.Add(new RTCIceServer { urls = url });
+        }
+
+        foreach (var turn in options.TurnServers)
+        {
+            servers.Add(new RTCIceServer
+            {
+                urls = turn.Url,
+                username = turn.Username,
+                credential = turn.Credential,
+            });
+        }
+
+        return servers;
     }
 
     /// <summary>
@@ -118,7 +149,22 @@ public sealed class WhepPeer : IWhepPeer
             throw new WhepNegotiationException("ICE 候選收集為空：請檢查 HELIVMS_WHEP_STUN 與網路防火牆設定。");
         }
 
-        return new WhepAnswer(local.ToString());
+        var answerSdp = local.ToString();
+
+        // 有設定對外位址就改寫 host 候選。改寫不到時要明確報錯：靜默回一個仍然只有內網位址的
+        // answer，維運只會看到「設定了還是不行」，而真正的原因是設定值沒被套用。
+        if (_options.PublicHost is { } publicHost)
+        {
+            if (!IceCandidateRewriter.HasHostCandidate(answerSdp))
+            {
+                throw new WhepNegotiationException(
+                    "已設定 HELIVMS_WHEP_PUBLIC_HOST，但這台機器的 ICE 候選裡沒有 host 候選可替換。");
+            }
+
+            answerSdp = IceCandidateRewriter.Rewrite(answerSdp, publicHost, _options.PublicPort);
+        }
+
+        return new WhepAnswer(answerSdp);
     }
 
     /// <summary>

@@ -18,8 +18,17 @@ public sealed class WhepOptions
     public string[] StunServers { get; init; } = [];
 
     /// <summary>
-    /// 對外廣告的 ICE 候選主機名稱。NAT 後的主機若不設定，瀏覽器拿到的是
-    /// 內網位址而連不上——這是「WebRTC 在對稱 NAT 下連不上」最常見的原因。
+    /// TURN 伺服器清單。NAT 對稱時瀏覽器無法用 srflx 連回主機，只能靠 TURN relay，
+    /// 這是唯一能讓跨網段監看成立的設定。
+    /// </summary>
+    public IReadOnlyList<WhepIceServer> TurnServers { get; init; } = [];
+
+    /// <summary>
+    /// 對外廣告的 ICE 候選位址。NAT 後的主機若不設定，瀏覽器拿到的是內網位址而連不上。
+    /// <para>
+    /// 必須是<b>IPv4 或 IPv6 的純 IP 值</b>：ICE 候選欄位放的是位址，不能放 DNS 名稱，
+    /// 放了也無法在解析階段替換——這裡寧可在啟動時回報設定錯誤，也不要給一個不會生效的值。
+    /// </para>
     /// </summary>
     public string? PublicHost { get; init; }
 
@@ -45,7 +54,7 @@ public sealed class WhepOptions
     /// 由「以 key 查值的委派」建立設定，容忍格式錯誤並退回預設。
     /// </summary>
     /// <remarks>
-    /// 一律「退回預���」而非「啟動失敗」：這是監看功能，不該因為一個上限值打錯
+    /// 一律「退回預設」而非「啟動失敗」：這是監看功能，不該因為一個上限值打錯
     /// 就讓整套 NVR 開不起機。但<b>格式錯誤必須記錄</b>，否則維運會以為自己設了
     /// 100 個觀看者上限——由呼叫端（WebApi）負責記錄。
     /// </remarks>
@@ -56,12 +65,14 @@ public sealed class WhepOptions
         string? Read(string key) => NullIfBlank(lookup(Prefix + key));
 
         var stun = Read("STUN");
+        var turnUser = Read("TURN_USERNAME");
         return new WhepOptions
         {
             StunServers = stun is null
                 ? []
                 : stun.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries),
-            PublicHost = Read("PUBLIC_HOST"),
+            TurnServers = ParseTurn(Read("TURN"), turnUser, Read("TURN_CREDENTIAL"), onInvalid),
+            PublicHost = ParseHost(Read("PUBLIC_HOST"), onInvalid),
             PublicPort = ParsePort(Read("PUBLIC_PORT"), onInvalid),
             MaxViewersPerChannel = ParseInt(Read("MAX_VIEWERS"), 8, min: 1, max: 64, name: "MAX_VIEWERS", onInvalid: onInvalid),
             PublisherIdleTimeout = ParseSeconds(Read("PUBLISHER_IDLE_SECONDS"), 30, name: "PUBLISHER_IDLE_SECONDS", onInvalid: onInvalid),
@@ -73,6 +84,66 @@ public sealed class WhepOptions
 
     private static string? NullIfBlank(string? value)
         => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    /// <summary>
+    /// 解析 TURN 清單：<c>url[;username;credential]</c>，多個以逗號分隔。
+    /// <para>
+    /// 沒寫在項目裡的認證會套用 <c>TURN_USERNAME</c>／<c>TURN_CREDENTIAL</c>——
+    /// 單一 TURN 伺服器是最常見的部署，用全域變數省得每個項目重複一遍。
+    /// </para>
+    /// </summary>
+    private static IReadOnlyList<WhepIceServer> ParseTurn(
+        string? value,
+        string? fallbackUser,
+        string? fallbackCredential,
+        Action<string, string>? onInvalid)
+    {
+        if (value is null) return [];
+
+        var servers = new List<WhepIceServer>();
+        foreach (var entry in value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            var parts = entry.Split(';', StringSplitOptions.TrimEntries);
+            var url = parts[0];
+
+            if (!url.StartsWith("turn:", StringComparison.OrdinalIgnoreCase)
+                && !url.StartsWith("turns:", StringComparison.OrdinalIgnoreCase))
+            {
+                // STUN 放進 TURN 清單通常是打錯字；照樣丟給瀏覽器只會得到一個「有 STUN 卻沒有 relay」
+                // 的錯誤設定，比直接回報清楚。
+                Report<int>($"HELIVMS_WHEP_TURN「{url}」不是 turn:／turns: 開頭，已忽略", onInvalid);
+                continue;
+            }
+
+            var user = parts.Length > 1 && parts[1].Length > 0 ? parts[1] : fallbackUser;
+            var credential = parts.Length > 2 && parts[2].Length > 0 ? parts[2] : fallbackCredential;
+
+            if (user is not null && credential is null)
+            {
+                Report<int>($"HELIVMS_WHEP_TURN「{url}」有帳號但沒有密碼（請補 TURN_CREDENTIAL），已忽略", onInvalid);
+                continue;
+            }
+
+            servers.Add(new WhepIceServer(url, user, credential));
+        }
+
+        return servers;
+    }
+
+    private static string? ParseHost(string? value, Action<string, string>? onInvalid)
+    {
+        if (value is null) return null;
+
+        // 刻意不做 DNS 解析：設定檔解析不該有網路副作用，否則啟動順序會影響成敗。
+        if (!System.Net.IPAddress.TryParse(value, out _))
+        {
+            Report<int?>(
+                $"HELIVMS_WHEP_PUBLIC_HOST「{value}」不是 IP 位址（ICE 候選不能放 DNS 名稱），已忽略", onInvalid);
+            return null;
+        }
+
+        return value;
+    }
 
     private static int? ParsePort(string? value, Action<string, string>? onInvalid)
     {

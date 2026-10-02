@@ -67,7 +67,7 @@ public class LiveEncodeOptionsTests
         var args = LiveEncodeOptions.Default.BuildArguments(Rtsp[0], Target[0]);
 
         Assert.Contains("-f", args);
-        Assert.Equal("rte", ValueOf(args, "-f"));
+        Assert.Equal("rtp", ValueOf(args, "-f"));
     }
 
     [Fact]
@@ -242,6 +242,100 @@ public class WhepOptionsTests
         var options = Bind(new() { ["HELIVMS_WHEP_FFMPEG"] = @"C:\tools\ffmpeg.exe" });
 
         Assert.Equal(@"C:\tools\ffmpeg.exe", options.FfmpegPath);
+    }
+
+[Fact]
+    public void Turn清單支援逗號切分與內嵌認證()
+    {
+        var options = Bind(new()
+        {
+            ["HELIVMS_WHEP_TURN"] = "turn:a.example:3478;user1;pass1, turns:b.example:5349",
+        });
+
+        Assert.Equal(2, options.TurnServers.Count);
+        Assert.Equal(new WhepIceServer("turn:a.example:3478", "user1", "pass1"), options.TurnServers[0]);
+        Assert.Equal(new WhepIceServer("turns:b.example:5349", null, null), options.TurnServers[1]);
+    }
+
+    [Fact]
+    public void Turn沒寫認證時套用全域帳密()
+    {
+        // 單一 TURN 是最常見的部署，讓維運只設一次帳密就好。
+        var options = Bind(new()
+        {
+            ["HELIVMS_WHEP_TURN"] = "turn:turn.example.com:3478",
+            ["HELIVMS_WHEP_TURN_USERNAME"] = "helivms",
+            ["HELIVMS_WHEP_TURN_CREDENTIAL"] = "secret",
+        });
+
+        var turn = Assert.Single(options.TurnServers);
+        Assert.Equal("helivms", turn.Username);
+        Assert.Equal("secret", turn.Credential);
+    }
+
+    [Fact]
+    public void Turn項目自帶的認證優先於全域值()
+    {
+        // TURN REST API 會動態產生短期密碼，這時必須以項目上的為準。
+        var options = Bind(new()
+        {
+            ["HELIVMS_WHEP_TURN"] = "turn:a:3478;rotating;ephemeral",
+            ["HELIVMS_WHEP_TURN_USERNAME"] = "static",
+            ["HELIVMS_WHEP_TURN_CREDENTIAL"] = "static-secret",
+        });
+
+        var turn = Assert.Single(options.TurnServers);
+        Assert.Equal("rotating", turn.Username);
+        Assert.Equal("ephemeral", turn.Credential);
+    }
+
+    [Theory]
+    [InlineData("stun:notaturn.example:3478")]
+    [InlineData("http:notaturn.example")]
+    public void Turn清單裡的非TURN項目被忽略並留下記錄(string value)
+    {
+        // 把 STUN 網址放進 TURN 清單是常見手誤；照樣送出只會得到「有 STUN 沒 relay」的
+        // 半套設定，比直接回報清楚得多。
+        var log = new List<string>();
+        var options = Bind(new() { ["HELIVMS_WHEP_TURN"] = value }, log);
+
+        Assert.Empty(options.TurnServers);
+        Assert.Single(log);
+        Assert.Contains("TURN", log[0], StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Turn有帳號卻沒有密碼時被忽略()
+    {
+        // 沒有密碼的 TURN 會在 allocating 時被拒，症狀是「連不上 relay」而不是「設定錯了」。
+        var log = new List<string>();
+        var options = Bind(new()
+        {
+            ["HELIVMS_WHEP_TURN"] = "turn:turn.example.com:3478;user1",
+        }, log);
+
+        Assert.Empty(options.TurnServers);
+        Assert.Single(log);
+    }
+
+    [Fact]
+    public void PublicHost接受IP位址()
+    {
+        Assert.Equal("203.0.113.50", Bind(new() { ["HELIVMS_WHEP_PUBLIC_HOST"] = "203.0.113.50" }).PublicHost);
+        Assert.Equal("2001:db8::1", Bind(new() { ["HELIVMS_WHEP_PUBLIC_HOST"] = "2001:db8::1" }).PublicHost);
+    }
+
+    [Fact]
+    public void PublicHost不是IP時忽略並留下記錄()
+    {
+        // ICE 候選欄位只能放位址：接受 DNS 名稱等於設定一個不會生效的值，
+        // 維運會得到「明明有設定卻還是不行」且沒有任何錯誤。
+        var log = new List<string>();
+        var options = Bind(new() { ["HELIVMS_WHEP_PUBLIC_HOST"] = "vms.example.com" }, log);
+
+        Assert.Null(options.PublicHost);
+        Assert.Single(log);
+        Assert.Contains("PUBLIC_HOST", log[0], StringComparison.Ordinal);
     }
 
     [Fact]

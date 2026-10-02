@@ -56,6 +56,9 @@ jobs:
             'tests/HeliVMS.Licensing.Tests/HeliVMS.Licensing.Tests.csproj',
             'tests/HeliVMS.LicenseProducer.Tests/HeliVMS.LicenseProducer.Tests.csproj',
             'tests/HeliVMS.Media.Tests/HeliVMS.Media.Tests.csproj',
+            # Rtc（M244）：PublishPipelineTests 會真的執行 ffmpeg；runner 上沒有 ffmpeg 時
+            # 依設計略過（SkippableFact），不會讓 CI 變紅。
+            'tests/HeliVMS.Rtc.Tests/HeliVMS.Rtc.Tests.csproj',
             'tests/HeliVMS.Storage.Tests/HeliVMS.Storage.Tests.csproj'
           )
           foreach ($p in $projects) {

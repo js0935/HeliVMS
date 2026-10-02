@@ -111,7 +111,8 @@ public sealed class LiveStreamService : IAsyncDisposable
 
             var runtime = _channels.GetOrAdd(
                 source.ChannelId,
-                id => new ChannelRuntime(id, _options, Forward));
+                // 傳入同一個 clock：runtime 的閒置回收要能和 Attach/Detach 記下的時間基準比較。
+                id => new ChannelRuntime(id, _options, Forward, _clock));
 
             await runtime.EnsurePublisherAsync(source, _publisherStarter, token).ConfigureAwait(false);
 
