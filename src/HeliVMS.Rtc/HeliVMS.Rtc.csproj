@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- RtspUri.RedactText：ffmpeg 的 stderr 會回顯含帳密的 RTSP 位址。 -->
+    <ProjectReference Include="..\HeliVMS.Shared\HeliVMS.Shared.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!--
+      SIPSorcery：純託管 WebRTC 堆疊（BSD 3-Clause，與本 repo 的 MIT 相容），
+      有明確 net10.0 target。M244 用它在同一個行程內做 SFU（轉送不解碼）。
+      刻意不選 libwebrtc 原生綁定（需 C++ 建置鏈），也不選外部媒體閘道
+      （多一個必須部署與版本綁定的常駐服務）。
+      詳見 docs/milestones/M244-webrtc-live.md §2。
+    -->
+    <PackageReference Include="SIPSorcery" Version="10.0.16" />
+  </ItemGroup>
+
+</Project>

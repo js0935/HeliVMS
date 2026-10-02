@@ -93,6 +93,7 @@ public sealed class LicenseEntryPointContractTests
     private static readonly (string Prefix, string Reason)[] NoDesktopEntry =
     [
         ("/api/clip", "向量／文字檢索只有 API 與 lib.js 的純函式 renderer，WPF 尚無對應視窗"),
+        ("/api/stream", "遠端串流（WHEP 即時＋HLS 回放）只服務瀏覽器，桌面端監看走 D4 硬體解碼管線"),
     ];
 
     /// <summary>

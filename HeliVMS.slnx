@@ -8,6 +8,7 @@
     <Project Path="src/HeliVMS.Licensing/HeliVMS.Licensing.csproj" />
     <Project Path="src/HeliVMS.Media/HeliVMS.Media.csproj" />
     <Project Path="src/HeliVMS.Recording/HeliVMS.Recording.csproj" />
+    <Project Path="src/HeliVMS.Rtc/HeliVMS.Rtc.csproj" />
     <Project Path="src/HeliVMS.Shared/HeliVMS.Shared.csproj" />
     <Project Path="src/HeliVMS.Storage/HeliVMS.Storage.csproj" />
     <Project Path="src/HeliVMS.WebApi/HeliVMS.WebApi.csproj" />
@@ -20,6 +21,7 @@
     <Project Path="tests/HeliVMS.Licensing.Tests/HeliVMS.Licensing.Tests.csproj" />
     <Project Path="tests/HeliVMS.LicenseProducer.Tests/HeliVMS.LicenseProducer.Tests.csproj" />
     <Project Path="tests/HeliVMS.Media.Tests/HeliVMS.Media.Tests.csproj" />
+    <Project Path="tests/HeliVMS.Rtc.Tests/HeliVMS.Rtc.Tests.csproj" />
     <Project Path="tests/HeliVMS.Storage.Tests/HeliVMS.Storage.Tests.csproj" />
     <Project Path="tests/HeliVMS.Api.Tests/HeliVMS.Api.Tests.csproj" />
   </Folder>

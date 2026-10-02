@@ -1,4 +1,4 @@
-// M243 使用者介面多語系（M243）：UI 字串一律從目錄取，不在程式碼裡硬編中文。
+﻿// M243 使用者介面多語系（M243）：UI 字串一律從目錄取，不在程式碼裡硬編中文。
 //
 // 為什麼要先有這個檔：介面文字散落在三個地方（index.html 靜態標記、lib.js 的資料列組裝、
 // app.js 的訊息與按鈕），沒有共同的來源就沒有辦法保證「切換語言後整頁一致」。
@@ -24,6 +24,8 @@ const CATALOGS = {
     'action.refresh': '立即更新',
     'action.runNow': '立刻清理',
     'action.load': '載入回放',
+    'action.openLive': '開啟即時畫面',
+    'action.stopLive': '停止',
     'action.delete': '刪除',
     'action.remove': '移除',
     'action.confirm': '確認',
@@ -38,6 +40,7 @@ const CATALOGS = {
     'nav.accounts': '帳號管理',
     'nav.timeline': '回放時間軸',
     'nav.remotePlayback': '遠程回放',
+    'nav.liveWatch': '即時監看',
     'nav.map': '地圖視界',
     'nav.authSettings': '登入設定',
     'nav.smartwall': '智慧看板視界',
@@ -83,6 +86,8 @@ const CATALOGS = {
     'list.separator': '、',
     'count.parenthesized': '（{n}）',
     'play.hlsHint': 'HLS／已錄影',
+    'live.webrtcHint': 'WebRTC／低延遲',
+    'live.viewerCount': '通道 {channel}：{viewers} 人觀看',
     'count.filteredOfTotal': '（{shown}/{total}）',
     'board.chip': '{label}：{count}',
     'state.noResults': '沒有符合的結果',
@@ -94,6 +99,12 @@ const CATALOGS = {
     'state.channelPositive': '頻道須為正整數',
     'state.playlistFailed': '播放清單載入失敗（{status}）',
     'state.noSegments': '沒有可播放的片段',
+    'state.webrtcUnsupported': '此瀏覽器不支援 WebRTC，請改用新版 Chrome、Edge 或 Safari',
+    'state.liveConnecting': '正在建立即時連線…',
+    'state.liveReady': '即時畫面已就緒',
+    'state.liveStopped': '已停止觀看',
+    'state.liveFailed': '即時連線中斷',
+    'state.liveBusy': '此通道已達觀看上限，請稍後再試',
 
     'common.enabled': '啟用',
     'common.disabled': '停用',
@@ -317,6 +328,8 @@ const CATALOGS = {
     'action.refresh': 'Refresh now',
     'action.runNow': 'Run cleanup',
     'action.load': 'Load playback',
+    'action.openLive': 'Open live feed',
+    'action.stopLive': 'Stop',
     'action.delete': 'Delete',
     'action.remove': 'Remove',
     'action.confirm': 'Acknowledge',
@@ -331,6 +344,7 @@ const CATALOGS = {
     'nav.accounts': 'Accounts',
     'nav.timeline': 'Playback timeline',
     'nav.remotePlayback': 'Remote playback',
+    'nav.liveWatch': 'Live watch',
     'nav.map': 'Map view',
     'nav.authSettings': 'Sign-in settings',
     'nav.smartwall': 'Smart wall',
@@ -376,6 +390,8 @@ const CATALOGS = {
     'list.separator': ', ',
     'count.parenthesized': '({n})',
     'play.hlsHint': 'HLS / recorded',
+    'live.webrtcHint': 'WebRTC / low latency',
+    'live.viewerCount': 'Channel {channel}: {viewers} watching',
     'count.filteredOfTotal': '({shown}/{total})',
     'board.chip': '{label}: {count}',
     'state.noResults': 'No matching results',
@@ -388,6 +404,12 @@ const CATALOGS = {
     'state.playlistFailed': 'Failed to load playlist ({status})',
 
     'state.noSegments': 'No playable segments',
+    'state.webrtcUnsupported': 'This browser has no WebRTC support; use a recent Chrome, Edge or Safari',
+    'state.liveConnecting': 'Establishing live connection...',
+    'state.liveReady': 'Live feed ready',
+    'state.liveStopped': 'Stopped watching',
+    'state.liveFailed': 'Live connection dropped',
+    'state.liveBusy': 'This channel is at its viewer limit; try again later',
 
     'common.enabled': 'Enabled',
     'common.disabled': 'Disabled',
@@ -664,3 +686,6 @@ export function applyDom(root = document) {
     root.documentElement.lang = current;
   }
 }
+
+
+

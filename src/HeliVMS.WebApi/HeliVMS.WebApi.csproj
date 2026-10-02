@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk.Web">
+﻿<Project Sdk="Microsoft.NET.Sdk.Web">
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
@@ -7,6 +7,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\HeliVMS.Rtc\HeliVMS.Rtc.csproj" />
     <ProjectReference Include="..\HeliVMS.Shared\HeliVMS.Shared.csproj" />
     <ProjectReference Include="..\HeliVMS.Storage\HeliVMS.Storage.csproj" />
   </ItemGroup>

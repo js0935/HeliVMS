@@ -1012,7 +1012,7 @@ L2 比對（人臉/車牌）置「進階·需權限」區，預設關閉（§5.1
 
 | # | 功能缺口 | 現況 | 影響 | 建議 |
 |---|---|---|---|---|
-| 1 | **遠程即時監看（WebRTC）** | 遠程 API、SPA 主控台、警報 WebSocket（M117/M118）與**已錄影的 HLS 遠程回放（M239 `/api/stream/{id}/playlist.m3u8`＋`init.mp4`／`media.m4s`，SPA 以 MediaSource 播放）已落地**；**即時串流仍未做** | 遠程已能回放但看不到當下畫面 | **P0**（剩餘項） |
+| 1 | **遠程即時監看（WebRTC）** | **已落地（M244）**：WHEP SFU（`/api/stream/{id}/whep`，ffmpeg → loopback RTP → SIPSorcery → 瀏覽器 DTLS-SRTP）＋SPA 原生 `RTCPeerConnection` 播放器，與既有的 M239 HLS 遠程回放、M117/M118 警報 WebSocket 並行 | 對稱 NAT 跨網段仍需 TURN | **P0**（剩 TURN） |
 | 1b | **行動端 App** | 無（僅網頁主控台） | 巡檢/報警第一線 | P1（網頁主控台可先擋） |
 | 2 | 匯出證據工作流 | 已落地：匯出精靈＋匯出中心＋證據包 `manifest.json`＋SHA-256＋匯出即驗證（`evidence_manifests`、`EvidenceWindow`）＋**匯出簽章收據與離線驗證（M240）** | 司法效力 | P0（已完成） |
 | 3 | 地圖/平面圖檢視（Map View） | 已落地：`MapWindow`（樓層切換、圖釘含 camera 扇形 FOV、事件閃爍、雙向定位）、`maps`/`map_devices`（M41）；深度/設備自動布局未做 | 專業賣點 | P0′（主體已完成） |
@@ -1052,7 +1052,16 @@ L2 比對（人臉/車牌）置「進階·需權限」區，預設關閉（§5.1
   - **棘輪擋住中文回流**。`i18n.test.js` 掃 `app.js`／`lib.js` 的字串與樣板字面值，命中 CJK 就紅；範圍含 `U+3000–303F` 與 `U+FF00–FFEF`，因為先前只掃漢字時漏掉了 `join('、')` 與 `（${rows.length}）` 這類全形標點——英文畫面會出現全形逗號與全形括號。`index.html` 端另外驗證：所有可見文字節點與 `placeholder`／`aria-label`／`title` 不得有未標記的中文（以「文字／標籤交替」切分掃描，**不可**用 `>([^<>]*CJK[^<>]*)<` 這種重疊正則，其 `lastIndex` 會吃掉下一個 `<` 而漏掉巢狀文字），且所有 `data-i18n`／`data-i18n-attr` 引用的 key 必須存在。刻意留下的例外僅兩個（以明示清單記錄原因）：`#who` 的 `未登入` 由執行期改寫、語言選單的 `繁體中文` 維持母語（endonym）讓使用者認得出切到哪一種語言。
   - 切換語言走 `applyLocale()`：`applyDom(document)` 更新靜態標記與 `<html lang>`，再 `await refreshLicense()`＋`await refreshAll()` 重繪執行期產生的表格與訊息列（`applyDom` 管不到它們）；選擇存 `localStorage`，讀寫都包 try/catch（隱私模式不可用時仍能操作，只是重載回到預設）。刻意**不整頁重載**——那會清掉使用者已輸入的篩選條件與分頁狀態。
   - 已知未涵蓋：WPF 桌面程式與 .NET 層訊息仍是硬編繁中，M243 只處理 Web。
-- **仍未落地：即時串流**。已錄影可遠程回放（M239 HLS VOD），但「現在這一刻」的畫面遠程看不到——實時監看 = **WebRTC**（低延遲），需要拉流＋轉碼／SFU（WHEP），屬於另一個量級的基礎設施
+- **即時串流已落地（M244，WebRTC／WHEP）**：`POST /api/stream/{channelId}/whep` 收 `application/sdp` offer、回 `201`＋`application/sdp` answer 與 `Location`；`DELETE /api/stream/whep/{sessionId}` 冪等關閉；`GET /api/stream/{channelId}/whep` 回發佈狀態與觀看人數。
+  - **技術選型**：SIPSorcery `10.0.16`（BSD-3-Clause、純託管、`net10.0`）。Pion（原生 AOT 限制）與 Optical Tone UWP `WebRTC` 都排除；SIPSorcery 的授權與本 repo 的 MIT 相容，且是唯一能真正跑在 .NET 10 上的選擇。
+  - **管線**：每通道一個 ffmpeg（RTSP → H.264 baseline PT 96、1 秒 GOP、`-g 1 -keyint_min 1 -sc_threshold 0 -tune zerolatency -an`）→ loopback UDP RTP（**不加密，因為只在同一台主機的 loopback 上**）→ `RtpHeader` 純函式解析出 payload → SIPSorcery `SendRtpRaw` 原封不動轉給每個觀看者（**不解碼**，成本隨人數線性但每位都很便宜）。瀏覽器端 DTLS-SRTP。
+  - **為什麼不解碼**：解 H.264 再重編會讓 CPU 隨人數平方成長，還要處理 SPS/PPS 與編號丟失。直接把 ffmpeg 產生的 payload 餵給 SRTP 層，編碼器只跑一次。
+  - **就緒保證**：`ChannelRuntime.EnsurePublisherAsync` 會等到**真的收到第一個 RTP 封包**才回應。少了這一步，瀏覽器會拿到一個看起來成功、卻永遠沒有畫面的連線，而且沒有任何錯誤可查。
+  - **短 GOP 的原因**：SIPSorcery 的 answer 只可靠地廣告 `a=rtcp-fb:96 transport-cc`，瀏覽器不會送 PLI，所以不能用 RTCP 要求關鍵幀。1 秒 GOP 是讓「丢包造成的花屏」最多只持續 1 秒的替代方案。
+  - **憑證**：RTSP 帳密在拉流的當下才用 `RtspStreamResolver.Resolve` 組合，不進資料庫、日誌或稽核；ffmpeg stderr 逐行經 `RtspUri.RedactText` 遮蔽（`RedactingErrorBuffer`）。
+  - **授權**：`/api/stream` → `LicenseFeatures.Remote`，順帶補上 M239 HLS 回放原本漏掉的閘門；金鑰仍只認 `Authorization` 標頭（WHEP 是普通 POST，不是 WebSocket 升級，`?key=` 會進 access log）。
+  - **SPA**：`src/HeliVMS.Web/live.js` 用原生 `RTCPeerConnection` ＋兩次 fetch，**不引入任何 WHEP 播放器函式庫**，延續 M239/M243「零外部 JS 相依」的原則。伺服器不做 trickle ICE（無 `PATCH` 端點），所以客戶端必須自己等 `iceGatheringState === 'complete'` 才送 offer。
+  - **已知限制**：單一 STUN 設定、無 TURN，因此**對稱 NAT 下的跨網段連線會失敗**；`PublicHost`／`PublicPort` 已解析但尚未套用；不支援音軌、不支援 H.265。
 - 安全：TLS + JWT；與桌面端共用資料庫與稽核（誰遠端看了什麼）——呼應 §11.5
   - **現況**：已用 Bearer 金鑰（`ApiKeyAuthMiddleware`，非常時外 fail-closed、常時比較、每來源 429、WebSocket 僅 `?key=`）＋授權旗標閘門（`LicenseGateMiddleware`，403 帶 `feature`）；JWT／逐請求授權（檢閱者級別起跳）尚未做
 - 權限：遠程預設更嚴（檢閱者級別起跳）

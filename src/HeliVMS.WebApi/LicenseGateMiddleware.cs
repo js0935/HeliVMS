@@ -37,6 +37,9 @@ public sealed class LicenseGateMiddleware
     /// </summary>
     private static readonly (string Prefix, string Feature)[] Rules =
     [
+        // M244：即時串流與遠端回放（/api/stream/*）都屬於「遠程存取」。
+        // 這條規則同時補上 M239 遠端 HLS 回放一直沒有被閘門保護的缺口。
+        ("/api/stream", LicenseFeatures.Remote),
         ("/api/recording/schedules", LicenseFeatures.Schedule),
         ("/api/patrols", LicenseFeatures.Schedule),
         ("/api/detections", LicenseFeatures.Ai),

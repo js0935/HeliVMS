@@ -1,4 +1,5 @@
 using HeliVMS.Licensing;
+using HeliVMS.Rtc;
 using HeliVMS.Storage;
 using HeliVMS.WebApi;
 using Microsoft.Extensions.FileProviders;
@@ -64,6 +65,18 @@ builder.Services.AddSingleton(static sp => new AlarmEventRepository(sp.GetRequir
 builder.Services.AddSingleton<AlertBroadcastHub>();
 builder.Services.AddSingleton<AuthService>();
 
+// M244 WebRTC 即時監看。設定解析放在這裡（WhepOptions 刻意不依賴
+// IConfiguration），讓領域層維持純粹且設定解析仍可單元測試。
+builder.Services.AddSingleton(sp => WhepOptions.FromLookup(
+    key => sp.GetRequiredService<IConfiguration>()[key],
+    (category, message) => Console.Error.WriteLine($"[{category}] {message}")));
+builder.Services.AddSingleton<WhepSessionStore>();
+builder.Services.AddSingleton<LiveStreamService>(sp => new LiveStreamService(
+    sp.GetRequiredService<WhepOptions>(),
+    sp.GetRequiredService<WhepSessionStore>(),
+    LivePublishers.StartFfmpeg));
+builder.Services.AddHostedService<LiveStreamMaintenance>();
+
 // 遠程與本機共用同一份授權結論（M210／§19.4「合併檢查」）。公鑰可由
 // HELIVMS_LICENSE_PUBLIC_KEY 覆寫以支援金鑰輪替；未設定時用內嵌公鑰。
 builder.Services.AddSingleton(sp =>
@@ -97,6 +110,7 @@ app.UseWebSockets();
 app.UseMiddleware<ApiKeyAuthMiddleware>();
 app.UseMiddleware<LicenseGateMiddleware>();
 ApiEndpoints.MapAll(app);
+WhepEndpoints.Map(app);
 
 app.MapFallback(async context =>
 {

@@ -111,6 +111,18 @@
     </section>
 
     <section class="panel wide">
+      <h2><span data-i18n="nav.liveWatch">即時監看</span> <span class="muted" data-i18n="live.webrtcHint">WebRTC／低延遲</span></h2>
+      <form id="live-form" class="row-form">
+        <input id="live-channel" type="number" min="1" step="1" value="1" aria-label="頻道編號" data-i18n-attr="aria-label:ph.channelNumber" required />
+        <button type="submit" data-i18n="action.openLive">開啟即時畫面</button>
+        <button type="button" id="live-stop" data-i18n="action.stopLive">停止</button>
+        <span id="live-msg" class="muted" aria-live="polite"></span>
+      </form>
+      <video id="live-video" class="player" autoplay muted playsinline></video>
+      <div id="live-meta" class="muted"></div>
+    </section>
+
+    <section class="panel wide">
       <h2><span data-i18n="nav.remotePlayback">遠程回放</span> <span class="muted" data-i18n="play.hlsHint">HLS／已錄影</span></h2>
       <form id="play-form" class="row-form">
         <input id="play-channel" type="number" min="1" step="1" value="1" aria-label="頻道編號" data-i18n-attr="aria-label:ph.channelNumber" required />

@@ -1,4 +1,5 @@
 import { applyDom, DEFAULT_LOCALE, locale, setLocale, t } from './i18n.js';
+import { createLiveViewer } from './live.js';
 import {
   accountRows,
   ackRate,
@@ -1151,6 +1152,33 @@ async function refreshTimeline() {
 }
 
 /**
+ * 即時監看（M244，§14.3 串流 P0）：WHEP → 原生 RTCPeerConnection。
+ * 與遠程回放共用同一塊「單一認證傳輸層」apiRaw，API key 只從 Authorization 標頭送出。
+ */
+const liveViewer = createLiveViewer({ apiRaw, t });
+
+async function openLiveView(event) {
+  event.preventDefault();
+  const channelId = Number($('live-channel').value);
+  const msg = $('live-msg');
+  const started = await liveViewer.open(channelId, $('live-video'), (text) => {
+    msg.textContent = text;
+  });
+
+  $('live-meta').textContent = started
+    ? t('live.viewerCount', { channel: channelId, viewers: 1 })
+    : '';
+}
+
+async function stopLiveView() {
+  const stopped = await liveViewer.stop();
+  if (stopped) {
+    $('live-msg').textContent = t('state.liveStopped');
+    $('live-meta').textContent = '';
+  }
+}
+
+/**
  * 遠程回放（M239，§14.3 串流 P0）：HLS VOD → MediaSource。
  * 伺服器每個錄影檔自帶 ftyp＋moov，所以初始化段只送第一段的那一份，
  * 之後把每段的 moof/mdat 依序 append 就能在瀏覽器裡播。
@@ -1269,6 +1297,8 @@ function wire() {
   $('timeline-up').addEventListener('click', () => bumpTimelineDay(1));
   $('timeline-down').addEventListener('click', () => bumpTimelineDay(-1));
   $('play-form').addEventListener('submit', playRemote);
+  $('live-form').addEventListener('submit', openLiveView);
+  $('live-stop').addEventListener('click', stopLiveView);
   defaultPlayWindow();
   const saved = localStorage.getItem('helivms.apiKey');
   if (saved) $('apikey').value = saved;
