@@ -66,6 +66,7 @@ public partial class MainWindow : Window
     private int _smartAlertSuppressed;
     private OffsiteReplicationRepository? _offsite;
     private DispatcherTimer? _offsiteTimer;
+    private DispatcherTimer? _reportMailTimer;
     private bool _exiting;
     private readonly Dictionary<string, Window> _children = new();
 
@@ -464,6 +465,12 @@ public partial class MainWindow : Window
             (_, _) => RunOffsiteDueJobs(), Dispatcher);
         _offsiteTimer.Start();
         RunOffsiteDueJobs();
+
+        // 排程報表寄送（§14.1 #9）：每 5 分鐘檢查一次，實際是否寄出交由 ReportSchedule.IsDue。
+        _reportMailTimer = new DispatcherTimer(TimeSpan.FromMinutes(5), DispatcherPriority.Background,
+            (_, _) => RunReportMailDue(), Dispatcher);
+        _reportMailTimer.Start();
+        RunReportMailDue();
         _analytics.LoadZones();
         _analytics.EventInserted += (_, record) =>
         {
@@ -1437,6 +1444,24 @@ public partial class MainWindow : Window
         }
     }
 
+    /// <summary>排程報表寄送（§14.1 #9）：每 5 分鐘檢查一次是否到達設定時點並寄出。</summary>
+    private async void RunReportMailDue()
+    {
+        if (_store is null || _exiting)
+        {
+            return;
+        }
+
+        try
+        {
+            await new ReportMailer(_store, _dataRoot).RunIfDueAsync(DateTime.UtcNow);
+        }
+        catch
+        {
+            // 背景排程失敗（含 SMTP 例外）不應中斷主程式。
+        }
+    }
+
     /// <summary>單一子視窗重用：同型視窗已開啟時僅置前並可重定向（focus），避免重複開啟/
     /// 連按快捷鍵堆疊多份視窗；關閉時自動釋放參考，下次開啟即重新建立。
     /// 特殊鍵（如 PTZ）可依 key 分隔多份實例。</summary>
@@ -2258,6 +2283,7 @@ public partial class MainWindow : Window
     {
         _unackTimer?.Dispose();
         _uiTimer?.Dispose();
+        _reportMailTimer?.Stop();
         var scheduler = _scheduler;
         _scheduler = null;
         if (scheduler is not null)

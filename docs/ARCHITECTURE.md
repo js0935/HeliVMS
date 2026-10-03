@@ -1054,7 +1054,7 @@ WebRTC/WHEP 即時監看與 MSE 回放（M244）。
 | 6 | 事件回應工作流 | 已落地：四態＋`event_dispositions`/`event_disposition_trail`（M38）、分診面板與工作流 L1（`alarm_triage`/`alarm_notes`/`alarm_escalations`＋`AlarmEscalationPolicy` SLA 升階，M47/M102） | 營運 | P1（已完成） |
 | 7 | 多語言 i18n | **Web 已落地（M243）**：`src/HeliVMS.Web/i18n.js` 提供 `t()`／`tx()`／`setLocale()`／`applyDom()`，`zh-TW`＋`en` 逐 key 對齊，`index.html` 全數掛 `data-i18n`／`data-i18n-attr`，並有棘輪測試擋中文回流；**WPF 桌面與 .NET 層仍全 repo 0 個 `.resx`、介面字串硬編繁中** | 出口與外文通路 | **P1**（Web 垂直切片已完成） |
 | 8 | 智慧搜尋（向量語意） | 已落地：四表 FTS5 統一檢索（`EventSearchRepository`/`UnifiedEventSearch`，M91/M97）＋規則式中文 NLP 查詢解析（M107）＋`clip_embeddings` 資料層與 `/api/clip/*` 端點（M242 修正維度／位元組序，索引維度不符時回 409）；**缺真正的向量檢索與影片摘要** | 現代 VMS 賣點 | **P2** |
-| 9 | 統計報表 | 已落地：`/api/reports/daily`＋`ReportsWindow`（錄影時數／斷線次數／容量趨勢／AI 事件統計，可匯出 CSV）；**新增「寄送報表」以既有 `notify.smtp.*` 設定寄出 CSV 附件**；**週期自動郵寄（排程）仍未做** | 管理與驗收 | **P2** |
+| 9 | 統計報表 | 已落地：`/api/reports/daily`＋`ReportsWindow`（錄影時數／斷線次數／容量趨勢＋逐日長條圖／AI 事件統計，可匯出 CSV、手動「寄送報表」）；**週期自動郵寄（每日／每週本地時刻，`report.mail.*`＋`ReportMailer`＋桌面 5 分鐘輪詢）已落地** | 管理與驗收 | **P2** |
 | 10 | 中央/多機集群管理 | 沒有上層 NVR；僅第二記錄伺服器 Failover（租約仲裁＋實體接管，`failover_state`/`failover_events`，M87/M88/M98） | 大型案/連鎖場域 | **P2** |
 | 11 | 雙向對講 | **沒有**：`ITalkProvider` 只在藍圖，程式碼零引用 | 門禁/收費場景 | **P2** |
 | 12 | 雲整合 / 訂閱 | 沒有 | 商業模式 | **P3** |
@@ -1129,7 +1129,7 @@ WebRTC/WHEP 即時監看與 MSE 回放（M244）。
 - **智慧搜尋**：於 AI 事件上延伸——依人/車/時間區間/指定 ROI 篩出縮圖牆→單擊直達該段錄影
   - 現況：FTS5 多源統一檢索（M91/M97）＋中文 NLP 查詢解析（M107）＋`clip_embeddings` 資料層已落地；**向量檢索本身未做**（M242 先修掉檢索層自身的維度越界與主機位元組序問題，並在維度不符時回 409 要求重建索引，但仍缺模型產生 embedding）
 - **統計報表**：錄影時數、斷線次數、容量趨勢、AI 事件統計（VIP）— 每週排程郵寄
-  - 現況：`/api/reports/daily`＋`ReportsWindow`（含錄影時數／斷線次數／容量趨勢／AI 事件統計，可匯出 CSV）；**新增「寄送報表」**以既有 `notify.smtp.*` 設定寄出 CSV 附件（手動）；**排程自動郵寄與趨勢圖仍待續**
+  - 現況：`/api/reports/daily`＋`ReportsWindow`（含錄影時數／斷線次數／容量趨勢＋逐日長條圖／AI 事件統計，可匯出 CSV、手動「寄送報表」）；**每週（或每日）排程自動郵寄已落地**（`report.mail.*` 設定＋`ReportMailer`＋桌面計時器，CSV 附件走既有 `notify.smtp.*`）
 - **中央管理（上部 NVR 集群）**：一台上層 NVR 看多台 NVR 的狀態與跨機回放（XML/XMPP 或自訂協議）
   - 現況：無。第二記錄伺服器 Failover（租約仲裁＋實體接管，M87/M88/M98）是可用性機制，**不等於中央管理**
 - **雙向對講**：完成 `ITalkProvider`（海康/大華對講），搭配門禁呼叫燈

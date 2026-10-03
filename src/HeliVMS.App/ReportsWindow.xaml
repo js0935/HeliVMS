@@ -34,6 +34,24 @@
                         Width="92" Padding="0,6" Margin="8,0,0,0"
                         Foreground="White" Background="#6A5A3A" BorderThickness="0"/>
             </StackPanel>
+            <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                <CheckBox x:Name="ReportScheduleCheck" AutomationProperties.AutomationId="ReportScheduleCheck"
+                          Content="啟用排程寄送" Foreground="#C9D8E8" VerticalAlignment="Center"/>
+                <ComboBox x:Name="ReportCadenceCombo" AutomationProperties.AutomationId="ReportCadenceCombo"
+                          ToolTip="每日或每週" Width="90" Margin="12,0,0,0" Foreground="Black"/>
+                <TextBlock Text="星期" VerticalAlignment="Center" Margin="12,0,4,0" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+                <ComboBox x:Name="ReportWeeklyDayCombo" AutomationProperties.AutomationId="ReportWeeklyDayCombo"
+                          Width="90" Foreground="Black"/>
+                <TextBlock Text="時間" VerticalAlignment="Center" Margin="12,0,4,0" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+                <TextBox x:Name="ReportScheduleTimeBox" AutomationProperties.AutomationId="ReportScheduleTimeBox"
+                         ToolTip="本地時間 24 小時制，例如 08:00" Width="60" Foreground="Black" Text="08:00"/>
+                <Button x:Name="ReportScheduleSaveButton" AutomationProperties.AutomationId="ReportScheduleSaveButton"
+                        ToolTip="儲存排程（使用設定中心的 SMTP 設定寄送）" Content="儲存排程"
+                        Click="OnSaveScheduleClicked" Padding="10,6" Margin="12,0,0,0"
+                        Foreground="White" Background="#3A5A7A" BorderThickness="0"/>
+            </StackPanel>
+            <TextBlock x:Name="ReportScheduleStatusText" AutomationProperties.AutomationId="ReportScheduleStatusText"
+                       Margin="0,6,0,0" Foreground="#9FB8D8" FontSize="11" TextWrapping="Wrap"/>
         </StackPanel>
 
         <ScrollViewer Grid.Row="1" Margin="0,12,0,0" VerticalScrollBarVisibility="Auto">
@@ -47,6 +65,8 @@
                            Margin="0,4,0,0" Foreground="#C9D8E8" TextWrapping="Wrap" FontSize="12"/>
 
                 <TextBlock Text="容量趨勢（逐日）" Foreground="{StaticResource Brand.TextDim}" FontSize="11" Margin="0,12,0,0"/>
+                <Canvas x:Name="ReportTrendCanvas" AutomationProperties.AutomationId="ReportTrendCanvas"
+                        Height="140" Margin="0,6,0,0" Background="#0E1B29"/>
                 <TextBlock x:Name="ReportTrendText" AutomationProperties.AutomationId="ReportTrendText"
                            Margin="0,4,0,0" Foreground="#C9D8E8" TextWrapping="Wrap" FontSize="12"/>
 
