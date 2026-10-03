@@ -22,6 +22,7 @@ public sealed class SegmentRecorder : ISegmentRecorder
     private IProcess? _testProcess;
     private long _activeSegmentId = -1;
     private Task? _loop;
+    private bool _disposed;
 
     public SegmentRecorder(
         SegmentRepository repo,
@@ -67,6 +68,11 @@ public sealed class SegmentRecorder : ISegmentRecorder
     /// <summary>停止錄影：終止目前區段並標記異常（未收尾）。</summary>
     public async Task StopAsync()
     {
+        if (_disposed)
+        {
+            return;
+        }
+
         _cts.Cancel();
         KillProcess();
 
@@ -357,7 +363,13 @@ public sealed class SegmentRecorder : ISegmentRecorder
 
     public async ValueTask DisposeAsync()
     {
+        if (_disposed)
+        {
+            return;
+        }
+
         await StopAsync();
+        _disposed = true;
         _cts.Dispose();
         GC.SuppressFinalize(this);
     }

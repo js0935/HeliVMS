@@ -276,6 +276,90 @@ public sealed class SegmentRecorderTests : IDisposable
         await recorder.DisposeAsync();
     }
 
+    /// <summary>
+    /// ffmpeg 的 stderr 會回顯輸入網址，其中含攝影機帳密；診斷緩衝（<see cref="SegmentRecorder.LastFfError"/>）
+    /// 可能被顯示在 UI 或寫進日誌，因此必須先遮蔽。同時保留退出碼，否則「連線被拒」與
+    /// 「格式錯誤」在診斷上無法區分。
+    /// </summary>
+    [Fact]
+    public async Task ffmpeg的stderr診斷會遮蔽帳密且保留退出碼()
+    {
+        // 第一段立刻以退出碼 1 結束；之後的行程停住，避免下一段把診斷緩衝清掉而產生競態。
+        var gate = new ManualResetEventSlim(false);
+        var factory = new FakeProcessFactory((index, psi) =>
+        {
+            if (index == 0)
+            {
+                var failed = new FakeProcess(
+                    psi,
+                    exitCode: 1,
+                    stderr: "Input #0, rtsp, from 'rtsp://admin:s3cret@10.0.0.5/live':\n");
+                failed.ProduceAndExit();
+                return failed;
+            }
+
+            gate.Wait(TimeSpan.FromSeconds(15));
+            return new FakeProcess(psi, exitCode: 0);
+        });
+
+        await using var recorder = new SegmentRecorder(_segments, factory, _ => string.Empty);
+        await recorder.StartAsync(_channelId, RtspUrl, _recordingsRoot, "main", SegmentSeconds);
+
+        try
+        {
+            await WaitUntilAsync(() => recorder.LastExitCode is not null);
+
+            Assert.Equal(1, recorder.LastExitCode);
+            Assert.DoesNotContain("s3cret", recorder.LastFfError);
+            Assert.DoesNotContain("admin", recorder.LastFfError);
+            Assert.Contains("rtsp://10.0.0.5/live", recorder.LastFfError);
+        }
+        finally
+        {
+            gate.Set();
+        }
+    }
+
+    /// <summary>
+    /// 音訊探測（ffprobe）失敗時，錄影迴圈必須活下來、把原因記進 <see cref="SegmentRecorder.LastFailure"/>，
+    /// 且不得啟動 ffmpeg。若這裡讓例外逃逸，整台頻道的錄影會永久停擺而沒有任何提示。
+    /// </summary>
+    [Fact]
+    public async Task 音訊探測失敗會記錄原因且不啟動ffmpeg()
+    {
+        var factory = new FakeProcessFactory((_, psi) => new FakeProcess(psi, exitCode: 0));
+        await using var recorder = new SegmentRecorder(
+            _segments,
+            factory,
+            _ => throw new InvalidOperationException("ffprobe 爆炸"));
+
+        await recorder.StartAsync(_channelId, RtspUrl, _recordingsRoot, "main", SegmentSeconds);
+        await WaitUntilAsync(() => recorder.LastFailure is not null);
+
+        Assert.Contains("ffprobe 爆炸", recorder.LastFailure);
+        Assert.Empty(factory.Processes);
+    }
+
+    /// <summary>
+    /// 停止與釋放都可能被重複觸發（DI 容器與 using 各釋放一次）。第二次不得因為已釋放的
+    /// <see cref="CancellationTokenSource"/> 而丟出 <see cref="ObjectDisposedException"/>，
+    /// 否則應用程式關閉時會被非預期例外打斷。
+    /// </summary>
+    [Fact]
+    public async Task 重複停止與重複釋放不會丟出例外()
+    {
+        var (recorder, factory, first) = BeginFirstSegment(FirstCompletesThenPending);
+        await first.WaitAsync(TimeSpan.FromSeconds(10));
+        await WaitUntilAsync(() => factory.Processes.Count >= 2);
+
+        await recorder.StopAsync();
+        await recorder.StopAsync();
+        await recorder.DisposeAsync();
+        await recorder.DisposeAsync();
+
+        Assert.False(recorder.IsRecording);
+    }
+
     private (SegmentRecorder Recorder, FakeProcessFactory Factory, Task<SegmentRecord> First) BeginFirstSegment(
         Func<int, ProcessStartInfo, FakeProcess> make,
         Func<string, string>? audioProbe = null)
