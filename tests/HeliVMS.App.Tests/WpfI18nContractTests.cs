@@ -13,6 +13,7 @@ public sealed class WpfI18nContractTests
     public static IEnumerable<object[]> Windows =>
     [
         ["SigningKeysWindow", "src/HeliVMS.App/SigningKeysWindow.xaml", "src/HeliVMS.App/SigningKeysWindow.xaml.cs", new[] { "Signing" }],
+        ["MapWindow", "src/HeliVMS.App/MapWindow.xaml", "src/HeliVMS.App/MapWindow.xaml.cs", new[] { "Map" }],
         ["SynopsisWindow", "src/HeliVMS.App/SynopsisWindow.xaml", "src/HeliVMS.App/SynopsisWindow.xaml.cs", new[] { "Synopsis" }],
         ["SnapshotRedactWindow", "src/HeliVMS.App/SnapshotRedactWindow.xaml", "src/HeliVMS.App/SnapshotRedactWindow.xaml.cs", new[] { "SnapRedact" }],
     ];

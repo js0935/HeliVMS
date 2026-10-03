@@ -48,6 +48,14 @@ public class MapGeometryTests
     public void Bearing_ReturnsEightWayName(double angle, string expected)
         => Assert.Equal(expected, MapGeometry.Bearing(angle));
 
+    [Theory]
+    [InlineData(0, "en", "E")]
+    [InlineData(90, "en", "S")]
+    [InlineData(180, "zh-Hans", "西")]
+    [InlineData(270, "zh-Hant", "北")]
+    public void Bearing_LanguageOverload_ReturnsLocalizedName(double angle, string lang, string expected)
+        => Assert.Equal(expected, MapGeometry.Bearing(angle, lang));
+
     [Fact]
     public void SectorRadiusPixels_UsesDepthOverScale()
     {
@@ -76,6 +84,13 @@ public class MapGeometryTests
         Assert.Equal("0.05 m/px", MapGeometry.ScaleLabel(0.05));
         Assert.Equal("未標定", MapGeometry.ScaleLabel(0));
         Assert.Equal("未標定", MapGeometry.ScaleLabel(-1));
+    }
+
+    [Fact]
+    public void ScaleLabel_LanguageOverload_LocalizesUncalibrated()
+    {
+        Assert.Equal("Not calibrated", MapGeometry.ScaleLabel(0, "en"));
+        Assert.Equal("未标定", MapGeometry.ScaleLabel(0, "zh-Hans"));
     }
 
     [Fact]

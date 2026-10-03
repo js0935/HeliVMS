@@ -16,9 +16,10 @@ public static class MapGeometry
     public const double MinSectorRadiusPixels = 8;
     public const double MaxSectorRadiusPixels = 100000;
 
-    private static readonly string[] Bearings =
+    private static readonly string[] BearingKeys =
     {
-        "東", "東南", "南", "西南", "西", "西北", "北", "東北",
+        "Bearing.E", "Bearing.SE", "Bearing.S", "Bearing.SW",
+        "Bearing.W", "Bearing.NW", "Bearing.N", "Bearing.NE",
     };
 
     /// <summary>將角度正規化至 [0, 360)。</summary>
@@ -39,12 +40,15 @@ public static class MapGeometry
     /// <summary>將覆蓋深度（公尺）夾在 [0, 1000]。</summary>
     public static double ClampDepth(double meters) => Math.Clamp(meters, 0, MaxDepthMeters);
 
-    /// <summary>依畫面角度取得八方位名稱（0°＝東、順時針）。</summary>
-    public static string Bearing(double angleDeg)
+    /// <summary>依畫面角度取得八方位名稱（0°＝東、順時針），以指定語言輸出。</summary>
+    public static string Bearing(double angleDeg, string lang)
     {
         var index = (int)((NormalizeAngle(angleDeg) + 22.5) / 45) % 8;
-        return Bearings[index];
+        return I18n.Get(lang, BearingKeys[index]);
     }
+
+    /// <summary>依畫面角度取得八方位名稱（預設繁中，保留舊呼叫端）。</summary>
+    public static string Bearing(double angleDeg) => Bearing(angleDeg, I18n.DefaultLang);
 
     /// <summary>
     /// 覆蓋深度換算為扇形像素半徑：比例尺（每像素公尺）與深度皆為正時，
@@ -65,10 +69,13 @@ public static class MapGeometry
         return fallbackPixels;
     }
 
-    /// <summary>格式比例尺文字（0 或負＝未標定）。</summary>
-    public static string ScaleLabel(double scaleMPerPx) => scaleMPerPx > 0
+    /// <summary>格式比例尺文字（0 或負＝未標定），以指定語言輸出。</summary>
+    public static string ScaleLabel(double scaleMPerPx, string lang) => scaleMPerPx > 0
         ? $"{scaleMPerPx.ToString("0.###", CultureInfo.InvariantCulture)} m/px"
-        : "未標定";
+        : I18n.Get(lang, "Map.ScaleUncalibrated");
+
+    /// <summary>格式比例尺文字（0 或負＝未標定），預設繁中。</summary>
+    public static string ScaleLabel(double scaleMPerPx) => ScaleLabel(scaleMPerPx, I18n.DefaultLang);
 
     /// <summary>驗證圖釘幾何並回傳正規化角度（FOV/深度超界時 throw）。</summary>
     public static double ValidateGeometry(double angleDeg, double fovDeg, double fovDepth)

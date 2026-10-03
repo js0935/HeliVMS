@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
@@ -73,6 +74,7 @@ public partial class MapWindow : Window
         }
 
         InitializeComponent();
+        ApplyI18n();
 
         _flashTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(160) };
         _flashTimer.Tick += OnFlashTick;
@@ -98,6 +100,16 @@ public partial class MapWindow : Window
         ReloadMaps();
     }
 
+    /// <summary>依現況語言套用標題、欄位與按鈕文字（M57）。</summary>
+    private void ApplyI18n()
+    {
+        Title = Localizer.T("Map.Title");
+        MapFloorLabel.Text = Localizer.T("Map.Floor");
+        MapRefreshButton.Content = Localizer.T("Map.Refresh");
+        MapRefreshButton.ToolTip = Localizer.T("Map.RefreshTip");
+        MapHintText.Text = Localizer.T("Map.Hint");
+    }
+
     /// <summary>事件中心定位：切換至該通道所在樓層並閃爍圖釘。</summary>
     public void LocateChannel(int channelId, string deviceType)
     {
@@ -110,8 +122,8 @@ public partial class MapWindow : Window
         {
             _locateChannelId = null;
             MapStatusText.Text = deviceType == "io"
-                ? $"IO 通道 #{channelId} 未放置於任何地圖。"
-                : $"頻道 #{channelId} 未放置於任何地圖。";
+                ? string.Format(CultureInfo.InvariantCulture, Localizer.T("Map.IoNotPlaced"), channelId)
+                : string.Format(CultureInfo.InvariantCulture, Localizer.T("Map.ChannelNotPlaced"), channelId);
             return;
         }
 
@@ -162,7 +174,7 @@ public partial class MapWindow : Window
         }
         else
         {
-            MapStatusText.Text = "尚未建立任何地圖（設定中心 → 地圖）。";
+            MapStatusText.Text = Localizer.T("Map.NoMaps");
         }
     }
 
@@ -186,7 +198,7 @@ public partial class MapWindow : Window
         var map = _maps.GetMap(mapId);
         if (map is null)
         {
-            MapStatusText.Text = "地圖不存在（可能已被刪除）。";
+            MapStatusText.Text = Localizer.T("Map.Gone");
             return;
         }
 
@@ -201,7 +213,8 @@ public partial class MapWindow : Window
         }
         catch (Exception ex)
         {
-            MapStatusText.Text = $"無法載入圖檔：{map.ImagePath}（{ex.Message}）";
+            MapStatusText.Text = string.Format(
+                CultureInfo.InvariantCulture, Localizer.T("Map.LoadFailed"), map.ImagePath, ex.Message);
             return;
         }
 
@@ -246,7 +259,11 @@ public partial class MapWindow : Window
         var radius = cam is null
             ? MapGeometry.DefaultSectorRadiusPixels
             : MapGeometry.SectorRadiusPixels(cam.FovDepth, map.ScaleMPerPx);
-        MapScaleText.Text = $"比例：{MapGeometry.ScaleLabel(map.ScaleMPerPx)}｜扇形半徑：{radius:0.#} px";
+        MapScaleText.Text = string.Format(
+            CultureInfo.InvariantCulture,
+            Localizer.T("Map.Scale"),
+            MapGeometry.ScaleLabel(map.ScaleMPerPx, Localizer.Lang),
+            radius.ToString("0.#", CultureInfo.InvariantCulture));
     }
 
     private void LoadPins(int mapId)
@@ -276,14 +293,16 @@ public partial class MapWindow : Window
             if (d.DeviceType == "camera")
             {
                 _cameraNames.TryGetValue(d.ChannelId, out var cn);
-                name = cn ?? $"頻道 #{d.ChannelId}";
+                name = cn ?? string.Format(CultureInfo.InvariantCulture, Localizer.T("Map.ChannelFallback"), d.ChannelId);
                 pin = CreateCameraPin(d, name, recent.Contains(d.ChannelId));
             }
             else
             {
                 _ioNames.TryGetValue(d.ChannelId, out var io);
                 var camId = io.CameraId;
-                name = string.IsNullOrEmpty(io.Name) ? $"IO #{d.ChannelId}" : io.Name;
+                name = string.IsNullOrEmpty(io.Name)
+                    ? string.Format(CultureInfo.InvariantCulture, Localizer.T("Map.IoFallback"), d.ChannelId)
+                    : io.Name;
                 pin = CreateIoPin(d, name, camId is int cc && recent.Contains(cc), camId);
             }
 
@@ -324,7 +343,14 @@ public partial class MapWindow : Window
         var root = new Grid { Width = 14, Height = 14 };
         Canvas.SetLeft(root, cx - 7);
         Canvas.SetTop(root, cy - 7);
-        root.ToolTip = $"{name} · {MapGeometry.Bearing(d.Angle)} {d.Angle:0.#}°／FOV {d.FovDeg:0.#}°／深度 {d.FovDepth:0.#} m";
+        root.ToolTip = string.Format(
+            CultureInfo.InvariantCulture,
+            Localizer.T("Map.CameraTip"),
+            name,
+            MapGeometry.Bearing(d.Angle, Localizer.Lang),
+            d.Angle,
+            d.FovDeg,
+            d.FovDepth);
         root.Tag = $"camera:{d.ChannelId}";
         root.MouseLeftButtonUp += OnPinClick;
         root.Children.Add(sector);
@@ -354,7 +380,7 @@ public partial class MapWindow : Window
         var root = new Grid { Width = 14, Height = 14 };
         Canvas.SetLeft(root, cx - 7);
         Canvas.SetTop(root, cy - 7);
-        root.ToolTip = $"[IO] {name}";
+        root.ToolTip = string.Format(CultureInfo.InvariantCulture, Localizer.T("Map.IoTip"), name);
         root.Tag = $"io:{d.ChannelId}";
         root.MouseLeftButtonUp += OnPinClick;
         root.Children.Add(box);
@@ -469,7 +495,7 @@ public partial class MapWindow : Window
             AutomationProperties.SetAutomationId(countText, $"MapHotspotBadge_{hs.ChannelId}");
             AutomationProperties.SetName(countText, $"HOT:{hs.ChannelId}:{hs.Count}:{kinds}:{hs.Hot}");
 
-            var label = hs.Hot ? "熱點" : "冷點";
+            var label = hs.Hot ? Localizer.T("Map.Hotspot") : Localizer.T("Map.Coldspot");
             var badge = new Border
             {
                 Background = new SolidColorBrush(hs.Hot
@@ -477,7 +503,8 @@ public partial class MapWindow : Window
                     : Color.FromArgb(210, 0x8A, 0x2B, 0xE4)),
                 CornerRadius = new CornerRadius(9),
                 Padding = new Thickness(5, 1, 5, 2),
-                ToolTip = $"近 30 分 {hs.Count} 起事件（{kinds}）· {label}",
+                ToolTip = string.Format(
+                    CultureInfo.InvariantCulture, Localizer.T("Map.HotspotTip"), hs.Count, kinds, label),
                 Child = countText,
             };
             Canvas.SetLeft(badge, cx + 10);
@@ -542,7 +569,7 @@ public partial class MapWindow : Window
 
         if (_flashPin is null)
         {
-            MapStatusText.Text = "此裝置未放置於目前地圖或樓層。";
+            MapStatusText.Text = Localizer.T("Map.NotOnMap");
             return;
         }
 
