@@ -15,14 +15,17 @@ public sealed class SegmentRecorder : ISegmentRecorder
 {
     public const int DefaultSegmentSeconds = 600;
     private readonly SegmentRepository _repo;
+    private readonly IProcessFactory _processFactory;
     private readonly CancellationTokenSource _cts = new();
     private Process? _process;
+    private IProcess? _testProcess;
     private long _activeSegmentId = -1;
     private Task? _loop;
 
-    public SegmentRecorder(SegmentRepository repo)
+    public SegmentRecorder(SegmentRepository repo, IProcessFactory? processFactory = null)
     {
         _repo = repo;
+        _processFactory = processFactory ?? new DefaultProcessFactory();
     }
 
     public int ChannelId { get; private set; }
@@ -225,8 +228,9 @@ public sealed class SegmentRecorder : ISegmentRecorder
         psi.ArgumentList.Add("-y");
         psi.ArgumentList.Add(tmpPath);
 
-        using var proc = Process.Start(psi) ?? throw new InvalidOperationException("無法啟動 ffmpeg 錄影進程");
-        _process = proc;
+        var proc = _processFactory.Start(psi);
+        _process = proc as Process;
+        _testProcess = proc as IProcess;
         LastUtfError.Clear();
         _lastExitCode = null;
 
@@ -284,6 +288,23 @@ public sealed class SegmentRecorder : ISegmentRecorder
 
     private void KillProcess()
     {
+        var tp = _testProcess;
+        if (tp is not null)
+        {
+            try
+            {
+                if (!tp.HasExited)
+                {
+                    tp.Kill();
+                }
+            }
+            catch
+            {
+            }
+
+            return;
+        }
+
         var p = _process;
         if (p is null)
         {
