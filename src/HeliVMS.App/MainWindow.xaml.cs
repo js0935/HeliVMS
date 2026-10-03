@@ -1928,6 +1928,11 @@ public partial class MainWindow : Window
 
     private void OnAuditClicked(object sender, RoutedEventArgs e) => OpenAuditWindow();
 
+    /// <summary>開啟跨來源法證檢索視窗（M97，§14.7 #7）。唯讀檢索，不限 admin。</summary>
+    private void OpenSearchWindow() => OpenChild(new SearchWindow(_store!));
+
+    private void OnSearchClicked(object sender, RoutedEventArgs e) => OpenSearchWindow();
+
     /// <summary>開啟複合事件規則視窗（M62，§5.10）。admin 限定。</summary>
     private void OpenRulesWindow()
     {

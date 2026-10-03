@@ -6,6 +6,7 @@ namespace HeliVMS.Storage;
 [Flags]
 public enum ForensicSource
 {
+    None = 0,
     Alarm = 1,
     Door = 2,
     Pos = 4,

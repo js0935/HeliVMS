@@ -1,0 +1,91 @@
+<Window x:Class="HeliVMS.App.SearchWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        AutomationProperties.AutomationId="SearchWindow"
+        Title="HeliVMS 法證檢索"
+        Width="1040" Height="640"
+        WindowStartupLocation="CenterOwner"
+        Background="#0B1622" Foreground="White">
+
+    <Grid Margin="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <StackPanel Grid.Row="0">
+            <TextBlock Text="跨來源全文檢索（M97，§14.7 #7）：警報、門禁、POS、邊緣 AI 事件合併於同一查詢。"
+                       Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+            <WrapPanel Orientation="Horizontal" Margin="0,10,0,0">
+                <TextBlock Text="關鍵字" VerticalAlignment="Center" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+                <TextBox x:Name="SearchQueryBox" AutomationProperties.AutomationId="SearchQueryBox"
+                         Width="240" Margin="6,0,10,0" ToolTip="全文查詢；支援 FTS5 語法（片語、前綴 *）"
+                         Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="6,4"/>
+                <TextBlock Text="起" VerticalAlignment="Center" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+                <DatePicker x:Name="SearchFromDate" AutomationProperties.AutomationId="SearchFromDate"
+                            Width="110" Margin="6,0,10,0"/>
+                <TextBlock Text="迄" VerticalAlignment="Center" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+                <DatePicker x:Name="SearchToDate" AutomationProperties.AutomationId="SearchToDate"
+                            Width="110" Margin="6,0,10,0"/>
+                <Button x:Name="SearchButton" AutomationProperties.AutomationId="SearchButton"
+                        Content="檢索" Click="OnSearchClicked" Width="72" Padding="0,6" Margin="0,0,8,0"
+                        Foreground="White" Background="#2A5C8A" BorderThickness="0" ToolTip="依條件跨來源檢索"/>
+                <Button x:Name="SearchRebuildButton" AutomationProperties.AutomationId="SearchRebuildButton"
+                        Content="重建索引" Click="OnRebuildClicked" Width="84" Padding="0,6"
+                        Foreground="White" Background="#3A5A7A" BorderThickness="0"
+                        ToolTip="重建四個全文檢索索引（資料匯入後搜尋不到時使用）"/>
+            </WrapPanel>
+            <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                <CheckBox x:Name="SearchAlarmCheck" AutomationProperties.AutomationId="SearchAlarmCheck"
+                          Content="警報" IsChecked="True" Foreground="White" Margin="0,0,12,0"/>
+                <CheckBox x:Name="SearchDoorCheck" AutomationProperties.AutomationId="SearchDoorCheck"
+                          Content="門禁" IsChecked="True" Foreground="White" Margin="0,0,12,0"/>
+                <CheckBox x:Name="SearchPosCheck" AutomationProperties.AutomationId="SearchPosCheck"
+                          Content="POS" IsChecked="True" Foreground="White" Margin="0,0,12,0"/>
+                <CheckBox x:Name="SearchEdgeCheck" AutomationProperties.AutomationId="SearchEdgeCheck"
+                          Content="邊緣 AI" IsChecked="True" Foreground="White"/>
+            </StackPanel>
+        </StackPanel>
+
+        <ListView x:Name="SearchList" AutomationProperties.AutomationId="SearchList"
+                  Grid.Row="1" Margin="0,12,0,0"
+                  Background="#0E1D33" Foreground="White" BorderBrush="#1F3A5F">
+            <ListView.View>
+                <GridView>
+                    <GridViewColumn Header="來源" Width="90">
+                        <GridViewColumn.CellTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding Source}" FontSize="12"/>
+                            </DataTemplate>
+                        </GridViewColumn.CellTemplate>
+                    </GridViewColumn>
+                    <GridViewColumn Header="時間" Width="150">
+                        <GridViewColumn.CellTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding Time}" FontSize="12"/>
+                            </DataTemplate>
+                        </GridViewColumn.CellTemplate>
+                    </GridViewColumn>
+                    <GridViewColumn Header="內容" Width="600">
+                        <GridViewColumn.CellTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding Text}" FontSize="12" TextTrimming="CharacterEllipsis"/>
+                            </DataTemplate>
+                        </GridViewColumn.CellTemplate>
+                    </GridViewColumn>
+                    <GridViewColumn Header="狀態" Width="90">
+                        <GridViewColumn.CellTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding Status}" FontSize="12"/>
+                            </DataTemplate>
+                        </GridViewColumn.CellTemplate>
+                    </GridViewColumn>
+                </GridView>
+            </ListView.View>
+        </ListView>
+
+        <TextBlock Grid.Row="2" x:Name="SearchStatusText" AutomationProperties.AutomationId="SearchStatusText"
+                   Margin="0,10,0,0" Foreground="#9FB8D8" TextWrapping="Wrap"/>
+    </Grid>
+</Window>

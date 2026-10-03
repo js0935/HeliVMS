@@ -186,6 +186,10 @@
                                 Content="稽核" ToolTip="檢視稽核日誌（誰在何時對什麼做了什麼）" Click="OnAuditClicked"
                                 Width="50" Padding="0,8" Margin="6,0,0,0"
                                 Foreground="White" Background="#5A3A5A" BorderThickness="0" />
+                        <Button x:Name="SearchButton" AutomationProperties.AutomationId="SearchButton"
+                                Content="檢索" ToolTip="跨來源法證檢索（警報／門禁／POS／邊緣 AI）" Click="OnSearchClicked"
+                                Width="50" Padding="0,8" Margin="6,0,0,0"
+                                Foreground="White" Background="#2A5C7A" BorderThickness="0" />
                         <Button x:Name="PatrolButton" AutomationProperties.AutomationId="PatrolButton"
                                 Content="巡航" ToolTip="設定雲台巡航排程" Click="OnPatrolClicked"
                                 Width="56" Padding="0,8" Margin="6,0,0,0"
