@@ -1933,6 +1933,11 @@ public partial class MainWindow : Window
 
     private void OnSearchClicked(object sender, RoutedEventArgs e) => OpenSearchWindow();
 
+    /// <summary>開啟系統健康視窗（M147，§14.7 #2）。唯讀量測，不限 admin。</summary>
+    private void OpenSystemHealthWindow() => OpenChild(new SystemHealthWindow());
+
+    private void OnSystemHealthClicked(object sender, RoutedEventArgs e) => OpenSystemHealthWindow();
+
     /// <summary>開啟複合事件規則視窗（M62，§5.10）。admin 限定。</summary>
     private void OpenRulesWindow()
     {
