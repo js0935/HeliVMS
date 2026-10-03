@@ -131,4 +131,36 @@ public class StreamSwitcherTests
         Assert.Throws<ArgumentOutOfRangeException>(() => new StreamSwitcher(eventWindowSec: 0));
         Assert.Throws<ArgumentOutOfRangeException>(() => new StreamSwitcher(mainBandwidthLimitBytesPerSec: 0));
     }
+
+    [Fact]
+    public void Prime會恢復目前碼流與切換時間()
+    {
+        var sw = Make();
+        sw.Prime(1, StreamKind.Sub, T0);
+
+        Assert.Equal(StreamKind.Sub, sw.GetCurrent(1));
+        Assert.Equal(T0, sw.GetLastSwitch(1));
+    }
+
+    [Fact]
+    public void Prime恢復後維持期內不會再切流()
+    {
+        // 重開切流視窗若把狀態歸零，這裡會立刻從 Main 再切一次；Prime 就是要擋掉這種抖動。
+        var sw = Make(minHold: 30);
+        sw.Prime(1, StreamKind.Main, T0);
+
+        var decision = sw.Evaluate(1, 0, new[] { Ev("ai_intrusion", T0.AddSeconds(1)) }, 0, T0.AddSeconds(10));
+        Assert.True(decision.NoChange);
+        Assert.Equal(StreamKind.Main, decision.Target);
+    }
+
+    [Fact]
+    public void Prime未給切換時間視為從未切換()
+    {
+        var sw = Make();
+        sw.Prime(1, StreamKind.Sub);
+
+        Assert.Equal(StreamKind.Sub, sw.GetCurrent(1));
+        Assert.Null(sw.GetLastSwitch(1));
+    }
 }

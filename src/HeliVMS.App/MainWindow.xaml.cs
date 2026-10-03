@@ -1997,7 +1997,7 @@ public partial class MainWindow : Window
     /// <summary>開啟雙碼流切流調整視窗（M77，§15.2）。</summary>
     private void OpenStreamSwitchWindow()
     {
-        OpenChild(new StreamSwitchWindow(_store!));
+        OpenChild(new StreamSwitchWindow(_store!, _manager));
     }
 
     private void OnStreamClicked(object sender, RoutedEventArgs e) => OpenStreamSwitchWindow();

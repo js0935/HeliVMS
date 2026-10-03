@@ -76,6 +76,20 @@ public sealed class StreamSwitcher
     public DateTime? GetLastSwitch(long channelId) => _lastSwitch.TryGetValue(channelId, out var t) ? t : null;
 
     /// <summary>
+    /// 以持久化狀態初始化（跨重啟恢復目前碼流與維持期起點）。不先 Prime 的話，
+    /// 新引擎會把每個頻道都當成「Main、從未切換」，重開視窗就能立刻再切一次。
+    /// <paramref name="lastSwitchUtc"/> 為 null 時視為從未切換。
+    /// </summary>
+    public void Prime(long channelId, StreamKind current, DateTime? lastSwitchUtc = null)
+    {
+        _current[channelId] = current;
+        if (lastSwitchUtc is { } t)
+        {
+            _lastSwitch[channelId] = t;
+        }
+    }
+
+    /// <summary>
     /// 評価一次切流建議。事件串列為「近《eventWindowSec》秒內事件」，時間戳用於窗口；呼叫前不排序。
     /// 找不到頻道 id 僅視為新頻道（預設 Main）。
     /// </summary>

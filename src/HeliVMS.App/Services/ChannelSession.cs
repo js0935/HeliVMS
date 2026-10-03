@@ -22,18 +22,17 @@ public sealed class ChannelSession : IDisposable
     private SegmentRecorder? _recorder;
     private bool _disposed;
 
-    public ChannelSession(int channelId, string name, string url, SqliteStore store, string recordingsRoot, string snapshotsRoot, bool motionEnabled, IDetectionEngine? detection, bool tamperEnabled = false, LicenseService? license = null)
+    public ChannelSession(int channelId, string name, string displayUrl, SqliteStore store, string recordingsRoot, string snapshotsRoot, bool motionEnabled, IDetectionEngine? detection, bool tamperEnabled = false, string? recordingUrl = null, LicenseService? license = null)
     {
         ChannelId = channelId;
         Name = name;
-        Url = url;
+        Url = displayUrl;
+        RecordingUrl = recordingUrl ?? displayUrl;
         _store = store;
         _recordingsRoot = recordingsRoot;
         _license = license ?? new LicenseService(store);
-        Client = new RtspClient(url) { MaxFramesPerSecond = 15 };
-        Client.FrameDecoded += OnClientFrame;
-        Client.StateChanged += (_, s) => StateChanged?.Invoke(this, s);
-        Client.Reconnecting += (_, _) => StateChanged?.Invoke(this, RtspState.Reconnecting);
+        Client = new RtspClient(displayUrl) { MaxFramesPerSecond = 15 };
+        AttachClient(Client);
 
         if (motionEnabled)
         {
@@ -64,9 +63,13 @@ public sealed class ChannelSession : IDisposable
 
     public string Name { get; }
 
-    public string Url { get; }
+    /// <summary>顯示用 RTSP 位址（隨顯示碼流切換而變）。</summary>
+    public string Url { get; private set; }
 
-    public RtspClient Client { get; }
+    /// <summary>錄影用 RTSP 位址（固定主流，不隨顯示切流改變）。</summary>
+    public string RecordingUrl { get; } = string.Empty;
+
+    public RtspClient Client { get; private set; }
 
     public bool IsMonitoring { get; private set; }
 
@@ -115,6 +118,56 @@ public sealed class ChannelSession : IDisposable
         }
     }
 
+    /// <summary>把事件重新接到（可能是重新建立的）顯示連線。</summary>
+    private void AttachClient(RtspClient client)
+    {
+        client.FrameDecoded += OnClientFrame;
+        client.StateChanged += (_, s) => StateChanged?.Invoke(this, s);
+        client.Reconnecting += (_, _) => StateChanged?.Invoke(this, RtspState.Reconnecting);
+    }
+
+    /// <summary>
+    /// 切換顯示碼流：以新位址重建 <see cref="Client"/>，錄影（<see cref="RecordingUrl"/>）不受影響。
+    /// 顯示與錄影是兩條獨立連線（錄影由 SegmentRecorder 另起 ffmpeg 行程），
+    /// 故只換顯示位址即可；若連錄影位址一起換，segment 會記到次流畫質卻仍標記為 main。
+    /// </summary>
+    public async Task SwitchDisplayStreamAsync(string displayUrl)
+    {
+        if (_disposed || string.Equals(Url, displayUrl, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        var wasMonitoring = IsMonitoring;
+        var old = Client;
+        Client = new RtspClient(displayUrl) { MaxFramesPerSecond = 15 };
+        AttachClient(Client);
+        Url = displayUrl;
+
+        try
+        {
+            if (wasMonitoring)
+            {
+                await Client.StartAsync();
+            }
+        }
+        finally
+        {
+            try
+            {
+                await old.StopAsync();
+            }
+            catch (Exception)
+            {
+                // 舊連線停止失敗不影響新連線；其資源仍由 Dispose 回收。
+            }
+
+            old.DisposeAsync().AsTask().GetAwaiter().GetResult();
+        }
+
+        ResetDetection();
+    }
+
     /// <summary>
     /// 開啟／關閉本頻道錄影。
     /// </summary>
@@ -138,7 +191,7 @@ public sealed class ChannelSession : IDisposable
 
             RecordingBlockedReason = null;
             var recorder = new SegmentRecorder(new SegmentRepository(_store));
-            await recorder.StartAsync(ChannelId, Url, _recordingsRoot, "main", segmentSeconds: 15);
+            await recorder.StartAsync(ChannelId, RecordingUrl, _recordingsRoot, "main", segmentSeconds: 15);
             _recorder = recorder;
         }
         else if (!recording && _recorder is not null)

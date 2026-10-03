@@ -5,6 +5,7 @@ using HeliVMS.Media;
 using HeliVMS.Shared;
 using HeliVMS.Shared.Models;
 using HeliVMS.Storage;
+using StreamKind = HeliVMS.Storage.StreamKind;
 
 namespace HeliVMS.App.Services;
 
@@ -23,6 +24,7 @@ public sealed class ChannelManager : IDisposable
     private readonly string _snapshotsRoot;
     private readonly System.Threading.Timer _health;
     private readonly OfflineEventTracker _offline;
+    private readonly StreamPreferenceRepository _streamPrefs;
     private IDetectionEngine? _detection;
     private bool _disposed;
 
@@ -35,6 +37,13 @@ public sealed class ChannelManager : IDisposable
         _snapshotsRoot = snapshotsRoot;
         _offline = new OfflineEventTracker(new AlarmEventRepository(store));
         _offline.CloseOpenAtStartup();
+        _streamPrefs = new StreamPreferenceRepository(store);
+
+        // 以資料庫恢復每頻道目前碼流與上次切換時間，否則重開後一律顯示 Main、維持期歸零。
+        foreach (var ch in _channels.List())
+        {
+            Switcher.Prime(ch.Id, _streamPrefs.GetKind(ch.Id), _streamPrefs.GetLastSwitchUtc(ch.Id));
+        }
         if (!string.IsNullOrEmpty(modelPath))
         {
             try
@@ -74,6 +83,12 @@ public sealed class ChannelManager : IDisposable
     /// </summary>
     public AlertBroadcastHub Alerts { get; } = new();
 
+    /// <summary>
+    /// 每頻道目前碼流與切換史的權威來源（M76）。由管理器持有（而非各視窗自建），
+    /// 狀態才不會每開一次切流視窗就被當成全新的、可以立刻再切一次。
+    /// </summary>
+    public StreamSwitcher Switcher { get; } = new();
+
     public bool HasActiveSessions { get; private set; }
 
     /// <summary>依頻道清單連線到前 <paramref name="count"/> 路（自 <paramref name="startIndex"/> 起循環）。</summary>
@@ -90,29 +105,7 @@ public sealed class ChannelManager : IDisposable
         for (var i = 0; i < count && channels.Count > 0; i++)
         {
             var ch = channels[(startIndex + i) % channels.Count];
-
-            var session = new ChannelSession(ch.Id, ch.Name, ResolveStreamUrl(ch), _store, _recordingsRoot, _snapshotsRoot, ch.MotionEnabled, _detection, IsTamperEnabled());
-            var cell = i;
-            session.FrameArrived += (_, f) => FrameArrived?.Invoke(this, (cell, f));
-            session.StateChanged += (_, st) =>
-            {
-                if (st == RtspState.Reconnecting)
-                {
-                    _offline.MarkOffline(ch.Id);
-                }
-                else if (st == RtspState.Streaming)
-                {
-                    _offline.MarkOnline(ch.Id);
-                }
-
-                StateChanged?.Invoke(this, (cell, ch, st));
-            };
-            session.AiDetections += (_, d) => AiDetections?.Invoke(this, (cell, d));
-            session.EventInserted += (_, r) =>
-            {
-                AlarmEvent?.Invoke(this, (cell, r));
-                Alerts.Publish(new AlertUpdate("alarm.created", r.Id));
-            };
+            var session = CreateSession(ch, i);
             _sessions[ch.Id] = session;
 
             await session.StartMonitoringAsync();
@@ -130,15 +123,88 @@ public sealed class ChannelManager : IDisposable
     }
 
     /// <summary>
+    /// 建立單一頻道工作階段並接好事件（cell 於建立時固定）。連線與後續切流共用，
+    /// 避免兩條路徑各自接線而漏掉事件或 cell 對應。
+    /// </summary>
+    private ChannelSession CreateSession(ChannelInfo ch, int cell)
+    {
+        var session = new ChannelSession(
+            ch.Id,
+            ch.Name,
+            ResolveStreamUrl(ch, Switcher.GetCurrent(ch.Id)),
+            _store,
+            _recordingsRoot,
+            _snapshotsRoot,
+            ch.MotionEnabled,
+            _detection,
+            IsTamperEnabled(),
+            ResolveRecordingUrl(ch));
+
+        session.FrameArrived += (_, f) => FrameArrived?.Invoke(this, (cell, f));
+        session.StateChanged += (_, st) =>
+        {
+            if (st == RtspState.Reconnecting)
+            {
+                _offline.MarkOffline(ch.Id);
+            }
+            else if (st == RtspState.Streaming)
+            {
+                _offline.MarkOnline(ch.Id);
+            }
+
+            StateChanged?.Invoke(this, (cell, ch, st));
+        };
+        session.AiDetections += (_, d) => AiDetections?.Invoke(this, (cell, d));
+        session.EventInserted += (_, r) =>
+        {
+            AlarmEvent?.Invoke(this, (cell, r));
+            Alerts.Publish(new AlertUpdate("alarm.created", r.Id));
+        };
+        return session;
+    }
+
+    /// <summary>目前採用的顯示碼流（供切流視窗顯示）。</summary>
+    public StreamKind GetStreamKind(long channelId) => Switcher.GetCurrent(channelId);
+
+    /// <summary>
+    /// 採納切流決策：更新引擎狀態並持久化，若該頻道正在監看就即時換顯示位址。
+    /// 錄影位址不受影響（見 <see cref="ChannelSession.SwitchDisplayStreamAsync"/>）。
+    /// </summary>
+    public async Task ApplyStreamKindAsync(int channelId, StreamKind kind)
+    {
+        var ch = _channels.Get(channelId);
+        if (ch is null)
+        {
+            return;
+        }
+
+        var now = DateTime.UtcNow;
+        Switcher.ApplySwitch(channelId, kind, now);
+        _streamPrefs.Save(channelId, kind, now);
+
+        if (_sessions.TryGetValue(channelId, out var session))
+        {
+            await session.SwitchDisplayStreamAsync(ResolveStreamUrl(ch, kind));
+        }
+    }
+
+    /// <summary>
     /// 取得頻道實際要拉流的位址。ONVIF GetStreamUri 回傳的位址不含帳密，故依綁定的設備憑證
     /// 於「連線時」才嵌入帳密：devices.password_encrypted 為 DPAPI 加密，channels.main_rtsp
     /// 維持裸位址，避免明文密碼落到 sqlite、設定頁與連線提示文字。
     /// 未綁定設備或無帳號者原樣使用儲存的位址（相容手動輸入的 RTSP 網址）。
     /// </summary>
-    private string ResolveStreamUrl(ChannelInfo channel)
+    private string ResolveStreamUrl(ChannelInfo channel, StreamKind kind)
+        => ResolveUrl(StreamRouting.DisplayUrl(channel.MainStreamUrl, channel.SubStreamUrl, kind), channel);
+
+    /// <summary>錄影固定用主流，不隨顯示切流改變。</summary>
+    private string ResolveRecordingUrl(ChannelInfo channel)
+        => ResolveUrl(StreamRouting.RecordingUrl(channel.MainStreamUrl), channel);
+
+    private string ResolveUrl(string rawUrl, ChannelInfo channel)
     {
         return RtspStreamResolver.Resolve(
-            channel.MainStreamUrl,
+            rawUrl,
             channel.DeviceId,
             host => _devices.FindByIp(host)?.Id,
             _devices.GetRtspCredentials);

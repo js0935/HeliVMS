@@ -24,7 +24,8 @@ public sealed class AlertFeedContractTests
         var code = SourceContract.Read(ChannelManager);
         Assert.Contains("public AlertBroadcastHub Alerts", code);
 
-        var body = SourceContract.BodyOf(code, "ConnectAsync");
+        // 事件接線已抽到 CreateSession（連線與切流共用），發布必須跟著在那裡。
+        var body = SourceContract.BodyOf(code, "CreateSession");
         Assert.NotEqual(string.Empty, body);
         // 事件寫進 alarm_events 後就要發布，否則訂閱端永遠不會被叫醒。
         Assert.Contains("Alerts.Publish(new AlertUpdate(\"alarm.created\"", body);
