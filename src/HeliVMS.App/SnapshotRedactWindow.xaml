@@ -1,0 +1,64 @@
+<Window x:Class="HeliVMS.App.SnapshotRedactWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        AutomationProperties.AutomationId="SnapshotRedactWindow"
+        Title="HeliVMS 快照遮蔽"
+        Width="900" Height="600"
+        WindowStartupLocation="CenterOwner"
+        Background="#0B1622" Foreground="White">
+
+    <Grid Margin="16">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*"/>
+            <ColumnDefinition Width="330"/>
+        </Grid.ColumnDefinitions>
+
+        <Border Grid.Column="0" Background="#05090E" BorderBrush="#2A4A73" BorderThickness="1">
+            <Grid>
+                <Image x:Name="SnapPreview" Stretch="Uniform" RenderOptions.BitmapScalingMode="Linear"/>
+                <TextBlock x:Name="SnapRedactHint" Text="載入快照中…"
+                           HorizontalAlignment="Center" VerticalAlignment="Center"
+                           Foreground="{StaticResource Brand.TextDim}" FontSize="12"/>
+            </Grid>
+        </Border>
+
+        <DockPanel Grid.Column="1" Margin="12,0,0,0">
+            <TextBlock DockPanel.Dock="Top" Text="遮蔽區域（像素座標，相對快照左上角）"
+                       Foreground="{StaticResource Brand.TextDim}" FontSize="11" TextWrapping="Wrap"/>
+            <ListBox x:Name="RegionList" AutomationProperties.AutomationId="RegionList"
+                     DockPanel.Dock="Top" Height="180" Margin="0,8,0,8"
+                     Background="#0E1D33" Foreground="White" BorderBrush="#1F3A5F"/>
+
+            <WrapPanel DockPanel.Dock="Top">
+                <TextBlock Text="X" VerticalAlignment="Center" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+                <TextBox x:Name="RegionX" AutomationProperties.AutomationId="RegionX" Text="0" Width="46"
+                         Margin="4,0,8,4" Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="4,3"/>
+                <TextBlock Text="Y" VerticalAlignment="Center" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+                <TextBox x:Name="RegionY" AutomationProperties.AutomationId="RegionY" Text="0" Width="46"
+                         Margin="4,0,8,4" Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="4,3"/>
+                <TextBlock Text="寬" VerticalAlignment="Center" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+                <TextBox x:Name="RegionW" AutomationProperties.AutomationId="RegionW" Text="80" Width="46"
+                         Margin="4,0,8,4" Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="4,3"/>
+                <TextBlock Text="高" VerticalAlignment="Center" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+                <TextBox x:Name="RegionH" AutomationProperties.AutomationId="RegionH" Text="80" Width="46"
+                         Margin="4,0,0,4" Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="4,3"/>
+            </WrapPanel>
+
+            <Button x:Name="AddRegionButton" AutomationProperties.AutomationId="AddRegionButton"
+                    DockPanel.Dock="Top" Content="新增區域" Click="OnAddRegionClicked" Margin="0,0,0,6"
+                    Foreground="White" Background="#2A5C8A" BorderThickness="0" Padding="0,6"/>
+
+            <Button x:Name="RemoveRegionButton" AutomationProperties.AutomationId="RemoveRegionButton"
+                    DockPanel.Dock="Top" Content="移除選取區域" Click="OnRemoveRegionClicked" Margin="0,0,0,6"
+                    Foreground="White" Background="#3A5A7A" BorderThickness="0" Padding="0,6"/>
+
+            <Button x:Name="ApplyRedactButton" AutomationProperties.AutomationId="ApplyRedactButton"
+                    DockPanel.Dock="Top" Content="一鍵套用遮蔽" Click="OnApplyRedactClicked" Margin="0,0,0,8"
+                    Foreground="White" Background="#5A3A5A" BorderThickness="0" Padding="0,8"
+                    ToolTip="把已記錄的所有區域燒錄進快照，另存為 …-redacted 檔"/>
+
+            <TextBlock x:Name="SnapRedactStatusText" AutomationProperties.AutomationId="SnapRedactStatusText"
+                       DockPanel.Dock="Bottom" Foreground="#9FB8D8" TextWrapping="Wrap" Margin="0,8,0,0"/>
+        </DockPanel>
+    </Grid>
+</Window>

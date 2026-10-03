@@ -262,6 +262,10 @@
                                    TextTrimming="CharacterEllipsis"/>
                         <TextBlock x:Name="SnapshotPathText" Foreground="{StaticResource Brand.TextDim}"
                                    FontSize="10" TextTrimming="CharacterEllipsis"/>
+                        <Button x:Name="SnapshotRedactButton" AutomationProperties.AutomationId="SnapshotRedactButton"
+                                Content="快照遮蔽" Click="OnRedactSnapshotClicked" Margin="0,4,0,0"
+                                Foreground="White" Background="#5A3A5A" BorderThickness="0" Padding="0,4"
+                                ToolTip="對選取事件的快照記錄遮蔽區域並一鍵套用、另存 -redacted 檔"/>
                     </StackPanel>
                 </Grid>
             </Border>

@@ -647,6 +647,26 @@ public partial class EventCenterWindow : Window
     private EventRow? SelectedRow =>
         (CardList.Visibility == Visibility.Visible ? CardList.SelectedItem : EventList.SelectedItem) as EventRow;
 
+    /// <summary>對選取事件的快照開啟遮蔽窗（M116，單例重用）。</summary>
+    private void OnRedactSnapshotClicked(object sender, RoutedEventArgs e)
+    {
+        if (SelectedRow is not EventRow row)
+        {
+            return;
+        }
+
+        if (string.IsNullOrEmpty(row.SnapshotPath) || !File.Exists(row.SnapshotPath))
+        {
+            SnapshotHint.Text = "此事件無快照或快照檔已不在。";
+            SnapshotHint.Visibility = Visibility.Visible;
+            return;
+        }
+
+        OpenChild(
+            ("snapredact", row.Id),
+            new SnapshotRedactWindow(_store, row.SnapshotPath, row.Id, (int)row.ChannelId, row.StartUtc));
+    }
+
     /// <summary>雙擊（清單／卡片）＝直接回放該事件（單例重用，不堆疊視窗）。</summary>
     private void OnEventDoubleClick(object sender, MouseButtonEventArgs e) => OnPlaybackClicked(this, new RoutedEventArgs());
 
