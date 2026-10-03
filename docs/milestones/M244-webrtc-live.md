@@ -33,9 +33,25 @@ ffmpeg 對每路通道做**一次** RTSP → H.264 RTP 轉碼，SFU 只把同一
 - 延遲由 ffmpeg 的 GOP／關鍵幀間距決定，實測目標 < 1 秒（對比 HLS 的 2–6 秒）。
 
 代價是**所有觀看者必須支援同一編碼**。選 H.264 而非 VP8，因為 Safari／iOS 的
-WebRTC 只認 H.264；Chrome／Edge／Firefox 皆支援。若伺服器端 ffmpeg 沒有
-`libx264`（H.264 RTP 需要 Annex-B 位元流），啟動時要明確失敗並說明原因，
-不能靜默退成沒有畫面。
+WebRTC 只認 H.264；Chrome／Edge／Firefox 皆支援。
+
+#### 編碼器可用性檢查
+
+若伺服器端 ffmpeg 沒有 `libx264`（H.264 RTP 需要 Annex-B 位元流），啟動時要明確失敗
+並說明原因，不能靜默退成沒有畫面。`FfmpegEncoderProbe` 在啟動 publisher **之前**先問一次
+`ffmpeg -encoders`：
+
+- 探測結果依 ffmpeg 路徑快取（每次都開行程會讓第一位觀看者多等一次）。
+- 比較的是**名稱欄整欄相等**，不是 `Contains`：`libx264` 是 `libx264rgb` 的前綴，
+  而 RGB 變體輸出 4:4:4，SFU 端與瀏覽器都解不出來——症狀又是「連上了沒有畫面」。
+- **「缺少」與「問不到」是兩件事，不能合併。** `Unavailable`（ffmpeg 不存在、路徑打錯、
+  探測逾時）刻意**不**擋下 publisher：該由 `Process.Start` 回出帶
+  `HELIVMS_WHEP_FFMPEG` 的診斷。若把它說成「沒有 libx264」，維運會在正確的主機上
+  去換 ffmpeg build，而真正要做的只是改一個環境變數。
+
+沒有這道檢查時的症狀值得記錄：ffmpeg 照樣被啟動、讀完 RTSP、然後才以
+`Unknown encoder 'libx264'` 退出，使用者等滿 `PublisherStartTimeout` 才看到一整段
+ffmpeg stderr——而「遠端看不到畫面」與「ffmpeg 沒裝 libx264」之間沒有任何可見的連結。
 
 ## 3. 元件
 
@@ -46,6 +62,7 @@ HeliVMS.Rtc（新增專案）
 ├─ WebRtcSfu          每個 WHEP 會話一個 PeerConnection；轉送不解碼
 ├─ WhepSessionStore   會話帳本（建立／查找／計數／逾時回收）
 ├─ IceCandidateRewriter  把 answer 裡的 host 候選換成對外位址（NAT 1:1 映射）
+├─ FfmpegEncoderProbe  啟動前確認這台 ffmpeg 有 H.264 編碼器（見 §2）
 └─ WhepOptions        STUN／TURN／公開位址／逾時等設定
 ```
 
@@ -74,6 +91,12 @@ HeliVMS.Rtc（新增專案）
 | `POST` | `/api/stream/{channelId}/whep` | 請求主控 `application/sdp`，回 `201` ＋ `Location` ＋ `application/sdp`（answer） |
 | `DELETE` | `/api/stream/whep/{sessionId}` | 關閉會話，回 `204` |
 | `GET` | `/api/stream/{channelId}/whep` | 該通道目前的觀看狀態（subscriber 數、publisher 是否就緒），供 UI 顯示 |
+
+`GET` 另外回報 `turnConfigured` / `publicHostConfigured`。理由見 §7：這兩個值是環境變數，
+操作員在畫面上看不到自己沒設定，而「遠端偶爾連不上」正是它們最常見的症狀。前端若只能
+猜，會犯兩種錯之一——對已配好 TURN 的主機說「沒有 TURN」（操作員去重設一個已生效的
+設定），或對沒 TURN 的主機什麼都不說。因此由伺服器據實回答。舊版伺服器沒有這兩個欄位時
+前端**不顯示**任何提示：寧可少一句提醒，也不要在沒有證據時給出一個可能是錯的結論。
 
 不實作 trickle ICE（PATCH）：本機／同網段情境非必要，且 SDP 一次交換更少出錯。
 此取捨要在架構文件寫明。
@@ -131,6 +154,10 @@ HeliVMS.Rtc（新增專案）
     為了收包在測試裡重建瀏覽器，等於在測第三方函式庫的正確性且測試極易腐化。
 - mutation 驗證至少四個方向：上限失效（回 200 而非 429）、逾時不回收、
   會話帳本不記錄（等於沒有上限）、憑證寫進錯誤訊息。
+- **編碼器缺失的啟動閘門**（`LivePublisherEncoderGuardTests`）：缺 `libx264` 必須在碰攝影機之前
+  就失敗，且訊息要點名編碼器與解法（裝 `ffmpeg-full`）；「ffmpeg 不存在」則必須繼續走
+  原路徑並保留 `HELIVMS_WHEP_FFMPEG` 的診斷。已用 mutation 驗證：把
+  `Missing` 判斷反向，整個 Rtc 專案有 8 條測試會紅，含真實 publisher 整合測試。
 - SPA 側：來源契約斷言（走單一認證傳輸層、不用裸 fetch 帶 key、
   不引入外部 JS CDN），以及版面回歸斷言（`app.layout.test.js`）。
   現場回報過「按鈕被遮蔽／欄位看不到」，症狀全在 CSS 而當時沒有任何測試會紅，
@@ -144,6 +171,12 @@ HeliVMS.Rtc（新增專案）
 - **不架設 TURN 伺服器**，但支援設定它（見 §3.1）：M244 交付的是「能不能指到 TURN」，
   伺服器本身屬於部署項目（coturn 等），不進這個 repo。沒有 TURN 且沒有 `PUBLIC_HOST`
   時，對稱 NAT 環境會連不上，此限制須在 UI 與文件明說。
+  - **UI 已明說**：即時監看面板在 `turnConfigured` 為 `false` 時顯示一則提示，說明
+    對稱／多層 NAT 下遠端瀏覽器連不上、要設 `HELIVMS_WHEP_TURN` 才有 relay 候選。
+    值來自 `GET`（§4），不是前端推測；問不到就不顯示（見 §4 說明）。
+  - 這個提示的價值在於**症狀本身完全沒有錯誤**：`PeerConnection` 會停在 `connecting`
+    然後 `failed`，沒有例外、沒有 4xx、伺服器端日誌乾乾淨淨。少了這句話，使用者只能
+    得出「壞了」，維運則只能逐一排除設定。
 - 閒置計時一律走注入的 clock（`WhepSessionStore`、`LiveStreamService`、`ChannelRuntime`
   共用同一個時間基準）：最後一位觀看者離開時**不**重設計時基準，否則逾時回收會把
   publisher 的倒數重啟，讓「回收後立刻關掉 ffmpeg」變成要多等一個週期。

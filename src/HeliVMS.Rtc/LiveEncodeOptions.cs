@@ -15,6 +15,16 @@ public readonly record struct LiveEncodeOptions(int FrameRate, int BitrateKbps, 
     public const byte PayloadType = 96;
 
     /// <summary>
+    /// 視訊編碼器名稱。
+    /// <para>
+    /// 刻意做成常數：啟動前的可用性探測（<see cref="FfmpegEncoderProbe"/>）要問的是
+    /// <b>同一個</b>編碼器。兩邊各寫一次字串，就會在某次修改後變成「探測 libx265、
+    /// 實際用 libx264」，症狀是缺 libx264 的部署照樣通過檢查。
+    /// </para>
+    /// </summary>
+    public const string VideoEncoder = "libx264";
+
+    /// <summary>
     /// 組出 ffmpeg 參數。
     /// <para>刻意做成純函式：這串參數決定了「低延遲」是否真的成立，屬於可驗證的契約，
     /// 不該埋在 <c>ProcessStartInfo</c> 裡靠人工 review。實測延遲與相容性都取決於它。</para>
@@ -38,7 +48,7 @@ public readonly record struct LiveEncodeOptions(int FrameRate, int BitrateKbps, 
             "-i", rtspUrl,
             // 本里程碑純視訊：攝影機音軌編碼多樣，帶上會讓 Safari 相容性變複雜。
             "-an",
-            "-c:v", "libx264",
+            "-c:v", VideoEncoder,
             "-preset", "veryfast",
             "-tune", "zerolatency",
             // baseline profile 不含 B 影格，這是「不做重排」的前提。

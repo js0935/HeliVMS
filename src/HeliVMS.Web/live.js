@@ -140,7 +140,7 @@ export function createLiveViewer({ apiRaw, t }) {
       notify(err.status === 429 ? t('state.liveBusy') : (err.message ?? t('state.failed')));
       return false;
     }
-  }
+}
 
   return {
     open,
@@ -152,6 +152,44 @@ export function createLiveViewer({ apiRaw, t }) {
       return session?.location ?? null;
     },
   };
+}
+
+/**
+ * 問伺服器這台主機的 ICE 佈署狀態。
+ *
+ * TURN 與 PUBLIC_HOST 都是環境變數，操作員在畫面上看不到，卻是「遠端連不上」
+ * 最常見的原因：沒有 TURN 時，對稱 NAT 一定連不回來，而症狀只是播放器卡住，
+ * 沒有任何錯誤。M244 §7 要求這個限制在 UI 明說，所以要由伺服器據實回答。
+ *
+ * 回 `null` 表示問不到（舊版伺服器、網路失敗）。此時**不**顯示任何警告：
+ * 寧可少一句提醒，也不要在沒有證據時對操作員講一個可能是錯的結論。
+ *
+ * @param {number} channelId 通道編號；狀態端點掛在通道上。
+ * @returns {Promise<{turnConfigured: boolean, publicHostConfigured: boolean}|null>}
+ */
+export async function fetchDeployment(channelId, apiRaw) {
+  if (!Number.isFinite(channelId) || channelId <= 0) return null;
+
+  try {
+    const response = await apiRaw(`/api/stream/${channelId}/whep`);
+    if (!response.ok) return null;
+
+    const info = await response.json().catch(() => null);
+
+    // 兩個欄位缺一個就當作問不到：舊版伺服器沒有這兩個值，
+    // 用 undefined 當 false 會讓 UI 對著有 TURN 的主機說「沒有 TURN」。
+    if (typeof info?.turnConfigured !== 'boolean'
+      || typeof info?.publicHostConfigured !== 'boolean') {
+      return null;
+    }
+
+    return {
+      turnConfigured: info.turnConfigured,
+      publicHostConfigured: info.publicHostConfigured,
+    };
+  } catch (err) {
+    return null;
+  }
 }
 
 /** 等 ICE 收集完成，最多等 {@link ICE_GATHER_TIMEOUT_MS}；已完成時立即返回。 */

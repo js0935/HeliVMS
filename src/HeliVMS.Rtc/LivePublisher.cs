@@ -33,6 +33,7 @@ public sealed class LivePublisher : IAsyncDisposable
 {
     private readonly WhepOptions _options;
     private readonly LiveEncodeOptions _encode;
+    private readonly Func<string, CancellationToken, Task<FfmpegEncoderStatus>>? _probeEncoder;
     private readonly RedactingErrorBuffer _stderr = new();
     private Process? _process;
 
@@ -40,10 +41,20 @@ public sealed class LivePublisher : IAsyncDisposable
     // 上層的錯誤訊息會說「ffmpeg 已結束（代碼 0）」，把「還沒跑」講成「正常結束」。
     private int _exitCode = int.MinValue;
 
-    public LivePublisher(WhepOptions options, LiveEncodeOptions encode)
+    /// <param name="options">M244 設定；主要用 <see cref="WhepOptions.FfmpegPath"/>。</param>
+    /// <param name="encode">ffmpeg 參數來源。</param>
+    /// <param name="probeEncoder">
+    /// 編碼器探測；傳 <c>null</c> 時走預設的 <see cref="FfmpegEncoderProbe"/>。
+    /// 測試注入假探測，以免結果取決於 runner 上的 ffmpeg 建置。
+    /// </param>
+    public LivePublisher(
+        WhepOptions options,
+        LiveEncodeOptions encode,
+        Func<string, CancellationToken, Task<FfmpegEncoderStatus>>? probeEncoder = null)
     {
         _options = options;
         _encode = encode;
+        _probeEncoder = probeEncoder;
     }
 
     /// <summary>目前狀態。</summary>
@@ -71,6 +82,11 @@ public sealed class LivePublisher : IAsyncDisposable
         {
             throw new InvalidOperationException("publisher 已在執行中");
         }
+
+        // 先確認這台 ffmpeg 真的編得出 H.264，再去碰攝影機。少了這一步，缺 libx264 的
+        // 部署會走完整條路：連 RTSP、開始讀串流、然後才因為「Unknown encoder」退出——
+        // 使用者等滿 PublisherStartTimeout 才看到一段 ffmpeg stderr。
+        EnsureEncoder(_options.FfmpegPath);
 
         var target = $"rtp://{rtpTarget.Address}:{rtpTarget.Port}";
 
@@ -151,6 +167,40 @@ public sealed class LivePublisher : IAsyncDisposable
     public void MarkStreaming()
     {
         if (State == PublisherState.Starting) State = PublisherState.Streaming;
+    }
+
+    /// <summary>
+    /// 缺視訊編碼器時立刻失敗，並說明該動哪裡。
+    /// <para>
+    /// 只有 <see cref="FfmpegEncoderStatus.Missing"/> 會擋：那是「ffmpeg 跑得起來但沒有
+    /// libx264」，也就是換一個 ffmpeg build 就會好的情況，講清楚最省事。
+    /// <see cref="FfmpegEncoderStatus.Unavailable"/>（問不到，例如
+    /// <c>HELIVMS_WHEP_FFMPEG</c> 指向不存在的檔案）<b>不</b>擋，刻意讓
+    /// <see cref="Process.Start(ProcessStartInfo)"/> 丟出原本那則帶環境變數名的訊息——
+    /// 那才是對的診斷。
+    /// </para>
+    /// <para>
+    /// 這裡是同步等待：探測結果依路徑快取，只有第一次真的開行程，而第一次必然發生在
+    /// 有人按「開啟即時畫面」的當下——此時已經在等 ffmpeg 啟動了，多等一次探測不會讓
+    /// 使用者感覺到差別。
+    /// </para>
+    /// </summary>
+    private void EnsureEncoder(string ffmpegPath)
+    {
+        var probe = _probeEncoder
+            ?? new FfmpegEncoderProbe(ffmpegPath).ProbeAsync;
+
+        var status = probe(LiveEncodeOptions.VideoEncoder, CancellationToken.None)
+            .ConfigureAwait(false)
+            .GetAwaiter()
+            .GetResult();
+
+        if (status != FfmpegEncoderStatus.Missing) return;
+
+        throw new PublisherStartException(
+            $"{ffmpegPath} 沒有 {LiveEncodeOptions.VideoEncoder} 編碼器，無法產生 H.264："
+            + "請改用含 libx264 的 ffmpeg（Debian／Ubuntu 可安裝 ffmpeg-full），"
+            + $"或用 {WhepOptions.Prefix}FFMPEG 指向另一個完整版 ffmpeg。");
     }
 
     /// <summary>

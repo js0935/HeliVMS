@@ -41,6 +41,18 @@ public sealed class LivePublisherTests
 
     private static IPEndPoint LoopbackTarget() => new(IPAddress.Loopback, 5004);
 
+    /// <summary>
+    /// 宣告「編碼器可用」的假探測。
+    /// <para>
+    /// 這個檔案刻意不用真 ffmpeg，publisher 位置放的是 <c>cmd.exe</c>／<c>findstr.exe</c>——
+    /// 它們沒有編碼器清單，若讓真探測去問，每一條測試都會先撞上「沒有 libx264」。
+    /// 那些測試守的是重複啟動擋截與 stderr 回收，探測本身由
+    /// <see cref="FfmpegEncoderProbeTests"/> 獨立驗證。
+    /// </para>
+    /// </summary>
+    private static readonly Func<string, CancellationToken, Task<FfmpegEncoderStatus>> HasEncoder =
+        (_, _) => Task.FromResult(FfmpegEncoderStatus.Available);
+
     private static async Task<bool> WaitForAsync(Func<bool> condition, TimeSpan timeout)
     {
         var deadline = DateTime.UtcNow + timeout;
@@ -88,7 +100,8 @@ public sealed class LivePublisherTests
     {
         await using var publisher = new LivePublisher(
             new WhepOptions { FfmpegPath = CommandInterpreter },
-            LiveEncodeOptions.Default);
+            LiveEncodeOptions.Default,
+            HasEncoder);
 
         _ = publisher.Start("rtsp://cam:secret@192.0.2.1/live", LoopbackTarget());
 
@@ -109,7 +122,8 @@ public sealed class LivePublisherTests
     {
         await using var publisher = new LivePublisher(
             new WhepOptions { FfmpegPath = NoisyStub },
-            LiveEncodeOptions.Default);
+            LiveEncodeOptions.Default,
+            HasEncoder);
 
         // 啟動前必然沒有結束碼：把「null 與 0」混為一談會讓 UI 顯示成「以 0 結束」。
         Assert.Null(publisher.ExitCode);
@@ -144,7 +158,8 @@ public sealed class LivePublisherTests
     {
         await using var publisher = new LivePublisher(
             new WhepOptions { FfmpegPath = CommandInterpreter },
-            LiveEncodeOptions.Default);
+            LiveEncodeOptions.Default,
+            HasEncoder);
 
         Assert.Throws<ArgumentException>(() => publisher.Start("   ", LoopbackTarget()));
         Assert.Throws<ArgumentNullException>(() => publisher.Start("rtsp://192.0.2.1/live", null!));
@@ -163,6 +178,10 @@ public sealed class LivePublisherTests
     public async Task 停止必須真的結束行程並清掉狀態()
     {
         Skip.IfNot(PublishPipelineProbe.FfmpegAvailable, "ffmpeg 不在 PATH 上。");
+
+        // 這條會真的走正式啟動器，因此編碼器檢查會擋下缺 libx264 的 ffmpeg——
+        // 那正是它該做的，但對這條測試而言是「環境不具備」，不是失敗。
+        Skip.IfNot(PublishPipelineProbe.Libx264Available, "這個 ffmpeg 沒有 libx264。");
 
         var publisher = new LivePublisher(new WhepOptions { FfmpegPath = "ffmpeg" }, LiveEncodeOptions.Default);
 
@@ -224,6 +243,9 @@ public sealed class LivePublisherTests
     public async Task Ffmpeg失敗時的錯誤訊息必須遮蔽Rtsp帳密()
     {
         Skip.IfNot(PublishPipelineProbe.FfmpegAvailable, "ffmpeg 不在 PATH 上。");
+
+        // 同上：會走正式啟動器，缺 libx264 時編碼器檢查會先擋，那是環境限制不是缺陷。
+        Skip.IfNot(PublishPipelineProbe.Libx264Available, "這個 ffmpeg 沒有 libx264。");
 
         await using var camera = new FakeRtspServer();
         await using var publisher = new LivePublisher(

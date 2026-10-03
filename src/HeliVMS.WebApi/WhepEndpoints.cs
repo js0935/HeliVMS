@@ -156,9 +156,16 @@ public static class WhepEndpoints
     }
 
     /// <summary>查詢某通道的即時狀態；供 UI 顯示「有幾人在看」與是否在發佈。</summary>
+    /// <remarks>
+    /// 一併回報 ICE 佈署狀態：<see cref="WhepOptions.TurnServers"/> 與
+    /// <see cref="WhepOptions.PublicHost"/> 是<b>環境變數</b>，操作員在 UI 上看不到，
+    /// 卻是「遠端連不上」最常見的原因（見 M244 §7）。瀏覽器端要能據此說明限制，
+    /// 就得由伺服器據實回答，不能讓前端猜。
+    /// </remarks>
     private static async Task HandleStatus(HttpContext context, int channelId, LiveStreamService live)
     {
         var view = live.Describe(channelId);
+        var options = live.Options;
         context.Response.Headers.CacheControl = "no-store";
         await context.Response.WriteAsJsonAsync(new
         {
@@ -168,6 +175,10 @@ public static class WhepEndpoints
             limit = view.Limit,
             codec = "H264",
             transport = "WHEP",
+
+            // 兩個都沒有時，對稱 NAT 環境一定連不上；這是部署限制而非程式錯誤。
+            turnConfigured = options.TurnServers.Count > 0,
+            publicHostConfigured = !string.IsNullOrWhiteSpace(options.PublicHost),
         });
     }
 

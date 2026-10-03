@@ -24,9 +24,18 @@ public sealed class WhepApiFactory : WebApplicationFactory<Program>
 {
     public const string Key = "helivms-whep-key";
 
-    public string DbPath { get; } = Path.Combine(Path.GetTempPath(), $"helivms-whep-{Guid.NewGuid():N}.db");
+public string DbPath { get; } = Path.Combine(Path.GetTempPath(), $"helivms-whep-{Guid.NewGuid():N}.db");
 
     public static string PlaceholderRtsp => "rtsp://192.0.2.10:554/stream";
+
+    /// <summary>
+    /// 覆寫 <c>HELIVMS_WHEP_TURN</c>；必須在第一次 <c>CreateClient()</c> 之前設定，
+    /// 因為主機在那一刻才建置。
+    /// </summary>
+    public string? TurnSetting { get; set; }
+
+    /// <summary>覆寫 <c>HELIVMS_WHEP_PUBLIC_HOST</c>；同樣須在第一次 <c>CreateClient()</c> 之前設定。</summary>
+    public string? PublicHostSetting { get; set; }
 
     protected override void ConfigureWebHost(Microsoft.AspNetCore.Hosting.IWebHostBuilder builder)
     {
@@ -36,6 +45,9 @@ public sealed class WhepApiFactory : WebApplicationFactory<Program>
 
         // ffmpeg 不存在也要讓伺服器啟得起來：端點層的測試不該被外部相依綁住。
         builder.UseSetting("HELIVMS_WHEP_FFMPEG", "ffmpeg-does-not-exist-for-tests");
+
+        if (TurnSetting is not null) builder.UseSetting("HELIVMS_WHEP_TURN", TurnSetting);
+        if (PublicHostSetting is not null) builder.UseSetting("HELIVMS_WHEP_PUBLIC_HOST", PublicHostSetting);
 
         using var store = new SqliteStore(DbPath);
         store.Initialize();

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createLiveViewer, waitForIceGathering } from './live.js';
+import { createLiveViewer, fetchDeployment, waitForIceGathering } from './live.js';
 
 /**
  * M244 WHEP 客戶端測試。
@@ -308,5 +308,63 @@ describe('createLiveViewer.stop', () => {
     expect(FakePeer.instances).toHaveLength(2);
     expect(FakePeer.instances[0].closed).toBe(true);
     expect(FakePeer.instances[1].closed).toBe(false);
+  });
+});
+
+/**
+ * 部署限制提示（M244 §7）。
+ *
+ * 沒有 TURN 時，對稱 NAT／多層 NAT 的遠端瀏覽器一定連不上，而症狀只是播放器卡住、
+ * 沒有任何錯誤。這裡守的是三件事：值要照實回報、問不到時不亂講、以及 TURN 有設定時
+ * 不要多嘴。
+ */
+describe('部署狀態查詢', () => {
+  const statusResponse = (body, ok = true) => ({
+    ok,
+    status: ok ? 200 : 500,
+    json: async () => body,
+  });
+
+  it('照實回報伺服器說有沒有 TURN', async () => {
+    const apiRaw = vi.fn(async () => statusResponse({
+      turnConfigured: true,
+      publicHostConfigured: false,
+    }));
+
+    await expect(fetchDeployment(1, apiRaw)).resolves.toEqual({
+      turnConfigured: true,
+      publicHostConfigured: false,
+    });
+    expect(apiRaw).toHaveBeenCalledWith('/api/stream/1/whep');
+  });
+
+  it('舊版伺服器沒有這兩個欄位時不猜', async () => {
+    // 缺欄位時若當成 false，UI 就會對著已配好 TURN 的主機說「沒有 TURN」，
+    // 操作員會去重設一個已經生效的設定。
+    const apiRaw = vi.fn(async () => statusResponse({ viewers: 1 }));
+
+    await expect(fetchDeployment(1, apiRaw)).resolves.toBeNull();
+  });
+
+  it('非 2xx 時不顯示任何限制提示', async () => {
+    const apiRaw = vi.fn(async () => statusResponse({}, false));
+
+    await expect(fetchDeployment(1, apiRaw)).resolves.toBeNull();
+  });
+
+  it('網路失敗時不顯示任何限制提示', async () => {
+    const apiRaw = vi.fn(async () => {
+      throw new Error('offline');
+    });
+
+    await expect(fetchDeployment(1, apiRaw)).resolves.toBeNull();
+  });
+
+  it('通道編號不合法時不去打伺服器', async () => {
+    const apiRaw = vi.fn();
+
+    await expect(fetchDeployment(0, apiRaw)).resolves.toBeNull();
+    await expect(fetchDeployment(Number.NaN, apiRaw)).resolves.toBeNull();
+    expect(apiRaw).not.toHaveBeenCalled();
   });
 });

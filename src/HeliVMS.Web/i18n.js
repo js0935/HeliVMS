@@ -1,4 +1,4 @@
-﻿// M243 使用者介面多語系（M243）：UI 字串一律從目錄取，不在程式碼裡硬編中文。
+// M243 使用者介面多語系（M243）：UI 字串一律從目錄取，不在程式碼裡硬編中文。
 //
 // 為什麼要先有這個檔：介面文字散落在三個地方（index.html 靜態標記、lib.js 的資料列組裝、
 // app.js 的訊息與按鈕），沒有共同的來源就沒有辦法保證「切換語言後整頁一致」。
@@ -86,8 +86,9 @@ const CATALOGS = {
     'list.separator': '、',
     'count.parenthesized': '（{n}）',
     'play.hlsHint': 'HLS／已錄影',
-    'live.webrtcHint': 'WebRTC／低延遲',
-    'live.viewerCount': '通道 {channel}：{viewers} 人觀看',
+'live.webrtcHint': 'WebRTC／低延遲',
+  'live.viewerCount': '通道 {channel}：{viewers} 人觀看',
+  'live.natWarning': '本機未設定 TURN 伺服器：在對稱 NAT 或多層 NAT 之下，遠端的瀏覽器會連不上。設定 HELIVMS_WHEP_TURN 後才會有 relay 候選可用。',
     'count.filteredOfTotal': '（{shown}/{total}）',
     'board.chip': '{label}：{count}',
     'state.noResults': '沒有符合的結果',
@@ -390,8 +391,9 @@ const CATALOGS = {
     'list.separator': ', ',
     'count.parenthesized': '({n})',
     'play.hlsHint': 'HLS / recorded',
-    'live.webrtcHint': 'WebRTC / low latency',
-    'live.viewerCount': 'Channel {channel}: {viewers} watching',
+'live.webrtcHint': 'WebRTC / low latency',
+  'live.viewerCount': 'Channel {channel}: {viewers} watching',
+  'live.natWarning': 'No TURN server is configured on this host: behind symmetric or multi-level NAT a remote browser will not be able to connect. Set HELIVMS_WHEP_TURN to provide relay candidates.',
     'count.filteredOfTotal': '({shown}/{total})',
     'board.chip': '{label}: {count}',
     'state.noResults': 'No matching results',

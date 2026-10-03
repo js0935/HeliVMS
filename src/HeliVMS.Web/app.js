@@ -1,5 +1,5 @@
 import { applyDom, DEFAULT_LOCALE, locale, setLocale, t } from './i18n.js';
-import { createLiveViewer } from './live.js';
+import { createLiveViewer, fetchDeployment } from './live.js';
 import {
   accountRows,
   ackRate,
@@ -1157,6 +1157,29 @@ async function refreshTimeline() {
  */
 const liveViewer = createLiveViewer({ apiRaw, t });
 
+/**
+ * 顯示部署限制提示（M244 §7）。
+ *
+ * 沒有 TURN 時，對稱 NAT／多層 NAT 環境的遠端瀏覽器一定連不上，而症狀只是播放器
+ * 卡住、沒有任何錯誤訊息。TURN 是環境變數，操作員在畫面上看不到自己沒設定，
+ * 所以這裡據實告訴他，而不是等到有人回報「遠端看不到畫面」才去猜。
+ */
+async function showLiveDeploymentNotice() {
+  const el = $('live-nat-warning');
+  const channelId = Number($('live-channel').value);
+  const info = await fetchDeployment(channelId, apiRaw);
+
+  // 問不到就不顯示：寧可少一句提醒，也不要在沒有證據時講一個可能是錯的結論。
+  if (!info || info.turnConfigured) {
+    el.hidden = true;
+    el.textContent = '';
+    return;
+  }
+
+  el.textContent = t('live.natWarning');
+  el.hidden = false;
+}
+
 async function openLiveView(event) {
   event.preventDefault();
   const channelId = Number($('live-channel').value);
@@ -1299,6 +1322,9 @@ function wire() {
   $('play-form').addEventListener('submit', playRemote);
   $('live-form').addEventListener('submit', openLiveView);
   $('live-stop').addEventListener('click', stopLiveView);
+
+  // 狀態端點掛在通道上，改通道就重問一次部署狀態。
+  $('live-channel').addEventListener('change', showLiveDeploymentNotice);
   defaultPlayWindow();
   const saved = localStorage.getItem('helivms.apiKey');
   if (saved) $('apikey').value = saved;
@@ -1407,6 +1433,7 @@ async function boot() {
   bindPatrolForm();
   bindLocalePicker();
   connectLive();
+  await showLiveDeploymentNotice();
   setInterval(() => {
     if (pollGate(document.activeElement?.tagName, document.hidden)) {
       refreshLicense();
