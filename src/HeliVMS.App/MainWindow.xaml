@@ -198,6 +198,10 @@
                                 Content="智慧牆" ToolTip="智慧牆版面編輯與警報牆" Click="OnSmartwallClicked"
                                 Width="62" Padding="0,8" Margin="6,0,0,0"
                                 Foreground="White" Background="#4A3A6A" BorderThickness="0" />
+                        <Button x:Name="PosButton" AutomationProperties.AutomationId="PosButton"
+                                Content="POS" ToolTip="POS 交易匯入／查詢／對帳" Click="OnPosClicked"
+                                Width="46" Padding="0,8" Margin="6,0,0,0"
+                                Foreground="White" Background="#6A4A2A" BorderThickness="0" />
                         <Button x:Name="PatrolButton" AutomationProperties.AutomationId="PatrolButton"
                                 Content="巡航" ToolTip="設定雲台巡航排程" Click="OnPatrolClicked"
                                 Width="56" Padding="0,8" Margin="6,0,0,0"

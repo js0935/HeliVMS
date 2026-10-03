@@ -1943,6 +1943,11 @@ public partial class MainWindow : Window
 
     private void OnSmartwallClicked(object sender, RoutedEventArgs e) => OpenSmartwallWindow();
 
+    /// <summary>開啟 POS 交易視窗（M93/M104/M113，§14.7 #8）：匯入、查詢與對帳。</summary>
+    private void OpenPosWindow() => OpenChild(new PosWindow(_store!));
+
+    private void OnPosClicked(object sender, RoutedEventArgs e) => OpenPosWindow();
+
     /// <summary>開啟複合事件規則視窗（M62，§5.10）。admin 限定。</summary>
     private void OpenRulesWindow()
     {
