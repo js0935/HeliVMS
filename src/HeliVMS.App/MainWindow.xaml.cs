@@ -1381,6 +1381,7 @@ public partial class MainWindow : Window
         RulesButton.IsEnabled = isAdmin;
         SynopsisButton.IsEnabled = isAdmin;
         LegalHoldButton.IsEnabled = isAdmin;
+        AuditButton.IsEnabled = isAdmin;
         AddChannelButton.IsEnabled = isAdmin;
         OnvifButton.IsEnabled = isAdmin;
         ScheduleButton.IsEnabled = isAdmin;
@@ -1913,6 +1914,19 @@ public partial class MainWindow : Window
     }
 
     private void OnReportsClicked(object sender, RoutedEventArgs e) => OpenReportsWindow();
+
+    /// <summary>開啟稽核日誌視窗（M109，§14.1 資安治理）。admin 限定。</summary>
+    private void OpenAuditWindow()
+    {
+        if (!SessionContext.IsAdmin)
+        {
+            return;
+        }
+
+        OpenChild(new AuditLogWindow(_store!, _dataRoot));
+    }
+
+    private void OnAuditClicked(object sender, RoutedEventArgs e) => OpenAuditWindow();
 
     /// <summary>開啟複合事件規則視窗（M62，§5.10）。admin 限定。</summary>
     private void OpenRulesWindow()

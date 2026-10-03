@@ -1308,44 +1308,10 @@ public static class ApiEndpoints
             ToUtc = to,
         });
 
-        var sb = new StringBuilder();
-        sb.Append("id,occurred_at,actor,action,category,target_type,target_id,detail\n");
-        foreach (var r in rows)
-        {
-            sb.Append(r.Id);
-            sb.Append(',');
-            sb.Append(CsvCell(SqliteStore.Iso(r.OccurredAtUtc)));
-            sb.Append(',');
-            sb.Append(CsvCell(r.Actor));
-            sb.Append(',');
-            sb.Append(CsvCell(r.Action));
-            sb.Append(',');
-            sb.Append(CsvCell(r.Category));
-            sb.Append(',');
-            sb.Append(CsvCell(r.TargetType));
-            sb.Append(',');
-            sb.Append(CsvCell(r.TargetId?.ToString()));
-            sb.Append(',');
-            sb.Append(CsvCell(r.Detail));
-            sb.Append('\n');
-        }
-
         context.Response.ContentType = "text/csv; charset=utf-8";
         context.Response.Headers.ContentDisposition = $"attachment; filename=audit-{DateTime.UtcNow:yyyyMMdd-HHmmss}.csv";
         await context.Response.Body.WriteAsync(Encoding.UTF8.GetPreamble());
-        await context.Response.WriteAsync(sb.ToString());
-    }
-
-    private static string CsvCell(string? value)
-    {
-        if (value is null)
-        {
-            return "";
-        }
-
-        return value.IndexOfAny([',', '"', '\n', '\r']) >= 0
-            ? $"\"{value.Replace("\"", "\"\"")}\""
-            : value;
+        await context.Response.WriteAsync(AuditLogCsv.Render(rows));
     }
 
     private static async Task HandleDailyReport(

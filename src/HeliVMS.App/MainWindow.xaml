@@ -182,6 +182,10 @@
                                 Content="保存鎖定" ToolTip="保護錄影免於到期清除" Click="OnLegalHoldClicked"
                                 Width="70" Padding="0,8" Margin="6,0,0,0"
                                 Foreground="White" Background="#7A5A3A" BorderThickness="0" />
+                        <Button x:Name="AuditButton" AutomationProperties.AutomationId="AuditButton"
+                                Content="稽核" ToolTip="檢視稽核日誌（誰在何時對什麼做了什麼）" Click="OnAuditClicked"
+                                Width="50" Padding="0,8" Margin="6,0,0,0"
+                                Foreground="White" Background="#5A3A5A" BorderThickness="0" />
                         <Button x:Name="PatrolButton" AutomationProperties.AutomationId="PatrolButton"
                                 Content="巡航" ToolTip="設定雲台巡航排程" Click="OnPatrolClicked"
                                 Width="56" Padding="0,8" Margin="6,0,0,0"

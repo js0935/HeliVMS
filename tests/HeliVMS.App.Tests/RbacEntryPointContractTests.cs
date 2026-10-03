@@ -35,6 +35,7 @@ public sealed class RbacEntryPointContractTests
         ("MainWindow", "RulesButton", "OnRulesClicked"),
         ("MainWindow", "SynopsisButton", "OnSynopsisClicked"),
         ("MainWindow", "LegalHoldButton", "OnLegalHoldClicked"),
+        ("MainWindow", "AuditButton", "OnAuditClicked"),
         ("MainWindow", "AddChannelButton", "OnAddChannelClicked"),
         ("MainWindow", "OnvifButton", "OnOnvifClicked"),
         ("MainWindow", "ScheduleButton", "OnScheduleClicked"),
