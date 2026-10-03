@@ -63,6 +63,10 @@ Notes that will save you time:
   is brittle and usually a sign the real seam is missing.
 - Verify a new guard actually guards: mutate the code it protects, confirm the test
   fails, then revert. A test that passes against broken code is worse than no test.
+- Check coverage before claiming a module is under-tested. Raw test counts are not
+  evidence — `HeliVMS.Media` has 52 tests to `HeliVMS.Storage`'s 997, and measured
+  with coverlet it is 92% versus 95%. The module that actually had no coverage was
+  `HeliVMS.Recording` at 26%, and the reason was that it had no test project at all.
 
 ## Known landmines
 

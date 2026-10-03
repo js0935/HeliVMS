@@ -72,6 +72,8 @@ jobs:
             # Rtc（M244）：PublishPipelineTests 與 PublisherIntegrationTests 會真的執行 ffmpeg；
             # runner 上沒有 ffmpeg 時依設計略過（SkippableFact），不會讓 CI 變紅。
             'tests/HeliVMS.Rtc.Tests/HeliVMS.Rtc.Tests.csproj',
+            # Recording：排程啟停決策（假的錄影工作單元，不需要 ffmpeg）。
+            'tests/HeliVMS.Recording.Tests/HeliVMS.Recording.Tests.csproj',
             'tests/HeliVMS.Storage.Tests/HeliVMS.Storage.Tests.csproj'
           )
           foreach ($p in $projects) {

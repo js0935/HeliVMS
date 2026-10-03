@@ -1931,7 +1931,8 @@ HeliVms.Decoder  ⇄ 主進程（命名管道，JSON 協定，獨立崩潰域）
 |---|---|---|
 | 版本控管 | **已補**：repo 已是 git，M1–M238 逐里程碑 commit＋push，`.gitignore` 排除 `bin/` `obj/` `*.log` | 已閉合 |
 | CI | **已補**：`.github/workflows/ci.yml`，每次 push 跑 build + 全專案測試（逐專案執行避免 Media/Storage 平行 flaky） | 已閉合 |
-| 自動化測試 | **已補**：**.NET 2027 ＋ vitest 216**（10 個 .NET 測試專案），涵蓋授權/排程/配額/Storage repository/授權簽章重驗/閘門契約/中介軟體順序；Media 管道、SQLite WAL、WHEP 真實 SDP/ICE/DTLS 皆有測試 | 已閉合；**E2E 真實 RTSP 分流仍未做** |
+| 自動化測試 | **已補**：**.NET 2036 ＋ vitest 216**（11 個 .NET 測試專案），涵蓋授權/排程/配額/Storage repository/授權簽章重驗/閘門契約/中介軟體順序；Media 管道、SQLite WAL、WHEP 真實 SDP/ICE/DTLS、排程錄影啟停決策皆有測試 | 已閉合；**E2E 真實 RTSP 分流仍未做** |
+| 錄影模組測試 | **已補**：新增 `tests/HeliVMS.Recording.Tests`（`HeliVMS.Recording` 原本**完全沒有測試專案**，量測行覆蓋率僅 26%）。`RecordingScheduler` 加了 `ISegmentRecorder` 接縫，排程的啟停決策（無授權不錄、額度用盡不錄、時段外不錄、監看中不重複開錄）得以用假錄影機驗證，不需 ffmpeg | 部分閉合；`SegmentRecorder`／`PlaybackSession` 的 ffmpeg 行程封裝仍無 integration 測試 |
 | 性能基準 | 有計算無工具（全 repo 無 BenchmarkDotNet 等基準工程） | benchmark 儀表：32 路 CPU/記憶體/磁碟 IOPS 基線；每里程碑量測一次 |
 | NuGet 固定 | **已補**：slnx 內 25 個專案全數具備 `packages.lock.json`，CI 以 `dotnet restore --locked-mode` 把關（`RestorePackagesWithLockFile=true` 為全 repo 設定）。原列的「Sdcb.FFmpeg / Mpv.NET 綁定版本對照表」**已無意義**——兩者最終未採用，改列實際存在的外部 ffmpeg 版本相依 | 已閉合 |
 | 建置覆蓋 | ⚠ **原缺口已修**：`src/HeliVMS.Decoder` 是無任何原始碼的空殼專案，卻被 `App`/`Media` 參照；真正有碼的 `Tools/HeliVMS.Decoder` 不在 slnx，壞掉也沒人知道（CS1587）。空殼已刪、真實工具已納入 slnx 與 CI | 已閉合 |

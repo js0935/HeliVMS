@@ -21,6 +21,7 @@
     <Project Path="tests/HeliVMS.LicenseProducer.Tests/HeliVMS.LicenseProducer.Tests.csproj" />
     <Project Path="tests/HeliVMS.Media.Tests/HeliVMS.Media.Tests.csproj" />
     <Project Path="tests/HeliVMS.Rtc.Tests/HeliVMS.Rtc.Tests.csproj" />
+    <Project Path="tests/HeliVMS.Recording.Tests/HeliVMS.Recording.Tests.csproj" />
     <Project Path="tests/HeliVMS.Storage.Tests/HeliVMS.Storage.Tests.csproj" />
     <Project Path="tests/HeliVMS.Api.Tests/HeliVMS.Api.Tests.csproj" />
   </Folder>

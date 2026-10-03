@@ -11,7 +11,7 @@ namespace HeliVMS.Recording;
 /// 錄影服務（§3.2 錄影管道：fMP4、`-c copy`、AAC 轉碼規則）。
 /// ffmpeg 直拉 RTSP 主流寫烘時暫存檔，區段收尾後改成正式檔並計算 SHA-256。
 /// </summary>
-public sealed class SegmentRecorder : IAsyncDisposable
+public sealed class SegmentRecorder : ISegmentRecorder
 {
     public const int DefaultSegmentSeconds = 600;
     private readonly SegmentRepository _repo;

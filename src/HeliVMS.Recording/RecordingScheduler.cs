@@ -17,7 +17,8 @@ public sealed class RecordingScheduler : IDisposable
     private readonly LicenseLimitNotifier _limitNotifier;
     private readonly string _recordingsRoot;
     private readonly Func<int, bool>? _isCellRecording;
-    private readonly ConcurrentDictionary<int, SegmentRecorder> _active = new();
+    private readonly Func<ISegmentRecorder> _recorderFactory;
+    private readonly ConcurrentDictionary<int, ISegmentRecorder> _active = new();
     private readonly System.Threading.Timer _timer;
     private bool _disposed;
 
@@ -27,7 +28,8 @@ public sealed class RecordingScheduler : IDisposable
         Func<int, bool>? isCellRecording = null,
         TimeSpan? reconcileInterval = null,
         LicenseService? license = null,
-        LicenseLimitNotifier? limitNotifier = null)
+        LicenseLimitNotifier? limitNotifier = null,
+        Func<ISegmentRecorder>? recorderFactory = null)
     {
         _store = store;
         _recordingsRoot = recordingsRoot;
@@ -36,9 +38,17 @@ public sealed class RecordingScheduler : IDisposable
         _channels = new ChannelRepository(store);
         _license = license ?? new LicenseService(store);
         _limitNotifier = limitNotifier ?? new LicenseLimitNotifier(store);
+        _recorderFactory = recorderFactory ?? DefaultRecorderFactory;
         ReconcileInterval = reconcileInterval ?? TimeSpan.FromSeconds(30);
         _timer = new System.Threading.Timer(OnTick, null, ReconcileInterval, ReconcileInterval);
     }
+
+    /// <summary>
+    /// 預設的錄影機工廠。生產環境走這裡；測試注入假工廠以驗證啟停決策，
+    /// 不必真的啟動 ffmpeg（見 <c>HeliVMS.Recording.Tests/RecordingSchedulerTests</c>）。
+    /// </summary>
+    private ISegmentRecorder DefaultRecorderFactory()
+        => new SegmentRecorder(new SegmentRepository(_store));
 
     public TimeSpan ReconcileInterval { get; }
 
@@ -110,7 +120,7 @@ public sealed class RecordingScheduler : IDisposable
 
             _limitNotifier.Clear(sched.ChannelId);
 
-            var recorder = new SegmentRecorder(new SegmentRepository(_store));
+            var recorder = _recorderFactory();
             await recorder.StartAsync(ch.Id, ch.MainStreamUrl, _recordingsRoot, "main", segmentSeconds: 15);
             if (_active.TryAdd(sched.ChannelId, recorder))
             {
