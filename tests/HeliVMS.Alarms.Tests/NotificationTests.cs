@@ -375,6 +375,49 @@ public sealed class NotificationTests : IDisposable
     }
 
     [Fact]
+    public async Task SmtpNotifier_SendReport_AttachesCsv()
+    {
+        Settings.Set("notify.smtp.enabled", "true");
+        Settings.Set("notify.smtp.from", "sender@helivms.local");
+        Settings.Set("notify.smtp.to", "ops@helivms.local");
+
+        var csvPath = Path.Combine(Path.GetTempPath(), $"helivms-report-{Guid.NewGuid():N}.csv");
+        try
+        {
+            await File.WriteAllTextAsync(csvPath, "類別,項目,值1,值2\r\n斷線次數,offline,2,\r\n");
+            using var smtp = new FakeSmtpServer();
+            var cfg = NotificationSettings.Load(Settings).WithHostPort(smtp.Host, smtp.Port);
+
+            var ok = await new SmtpNotifier().SendReportAsync(
+                cfg, "HeliVMS 報表（近7日）", "附件為 CSV。", csvPath);
+            Assert.True(ok);
+
+            var msg = await WaitForSmtpAsync(smtp, TimeSpan.FromSeconds(5));
+            Assert.NotNull(msg);
+            // 附件存在即可：.csv 的 MIME 由 Attachment 依副檔名推斷（BCL 未必給 text/csv），
+            // 真正要釘住的是檔名有進 MIME part。
+            Assert.Contains(Path.GetFileName(csvPath), msg.Payload);
+        }
+        finally
+        {
+            File.Delete(csvPath);
+        }
+    }
+
+    [Fact]
+    public async Task SmtpNotifier_SendReport_WithoutSmtp_ReturnsFalse()
+    {
+        using var smtp = new FakeSmtpServer();
+        var cfg = NotificationSettings.Load(Settings).WithHostPort(smtp.Host, smtp.Port)
+            with { SmtpEnabled = false };
+
+        var ok = await new SmtpNotifier().SendReportAsync(cfg, "主旨", "內文", null);
+
+        Assert.False(ok);
+        Assert.False(smtp.TryDequeueMessage(out _));
+    }
+
+    [Fact]
     public async Task Service_PureSmtp_MergesIntoSingleMail()
     {
         Settings.Set("notify.smtp.enabled", "true");

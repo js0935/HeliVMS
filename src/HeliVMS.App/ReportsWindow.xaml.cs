@@ -1,6 +1,7 @@
 using System.IO;
 using System.Text;
 using System.Windows;
+using HeliVMS.Alarms;
 using HeliVMS.Storage;
 
 namespace HeliVMS.App;
@@ -71,42 +72,83 @@ public partial class ReportsWindow : Window
     {
         try
         {
-            var (from, to) = Range();
-            var recording = _reports.ListRecordingSummary(from, to);
-            var disconnect = _reports.GetDisconnectCount(from, to);
-            var trend = _reports.ListCapacityTrend(from, to);
-            var ai = _reports.ListAiEventSummary(from, to);
-
-            var sb = new StringBuilder();
-            sb.AppendLine("類別,項目,值1,值2");
-            foreach (var r in recording)
-            {
-                sb.AppendLine($"錄影時數,{Csv(r.ChannelName)},{r.Hours:F2}小時,{r.Bytes}位元組");
-            }
-
-            sb.AppendLine($"斷線次數,offline,{disconnect},");
-
-            foreach (var r in trend)
-            {
-                sb.AppendLine($"容量趨勢,{r.Day},{r.Hours:F2}小時,{r.Bytes}位元組");
-            }
-
-            foreach (var r in ai)
-            {
-                sb.AppendLine($"AI事件統計,{Csv(r.EventType)},{r.Count},");
-            }
-
-            var dir = Path.Combine(_dataRoot, "reports");
-            Directory.CreateDirectory(dir);
-            var name = $"report-{_period}-{DateTime.UtcNow:yyyyMMddHHmmss}.csv";
-            var path = Path.Combine(dir, name);
-            File.WriteAllText(path, sb.ToString(), new UTF8Encoding(true)); // UTF-8 BOM（Excel 相容）
-
+            var path = WriteReportCsv();
             ReportStatusText.Text = $"已匯出：{path}";
         }
         catch (Exception ex)
         {
             ReportStatusText.Text = $"匯出失敗：{ex.Message}";
+        }
+    }
+
+    /// <summary>
+    /// 以目前的期間產生 CSV 並回傳落地路徑（匯出與寄送共用，避免兩份欄位順序漂移）。
+    /// </summary>
+    private string WriteReportCsv()
+    {
+        var (from, to) = Range();
+        var recording = _reports.ListRecordingSummary(from, to);
+        var disconnect = _reports.GetDisconnectCount(from, to);
+        var trend = _reports.ListCapacityTrend(from, to);
+        var ai = _reports.ListAiEventSummary(from, to);
+
+        var sb = new StringBuilder();
+        sb.AppendLine("類別,項目,值1,值2");
+        foreach (var r in recording)
+        {
+            sb.AppendLine($"錄影時數,{Csv(r.ChannelName)},{r.Hours:F2}小時,{r.Bytes}位元組");
+        }
+
+        sb.AppendLine($"斷線次數,offline,{disconnect},");
+
+        foreach (var r in trend)
+        {
+            sb.AppendLine($"容量趨勢,{r.Day},{r.Hours:F2}小時,{r.Bytes}位元組");
+        }
+
+        foreach (var r in ai)
+        {
+            sb.AppendLine($"AI事件統計,{Csv(r.EventType)},{r.Count},");
+        }
+
+        var dir = Path.Combine(_dataRoot, "reports");
+        Directory.CreateDirectory(dir);
+        var name = $"report-{_period}-{DateTime.UtcNow:yyyyMMddHHmmss}.csv";
+        var path = Path.Combine(dir, name);
+        File.WriteAllText(path, sb.ToString(), new UTF8Encoding(true)); // UTF-8 BOM（Excel 相容）
+        return path;
+    }
+
+    /// <summary>
+    /// 以設定中心的 SMTP 組態（notify.smtp.*）寄送目前報表（§14.1 #9 週期郵寄的手動版）。
+    /// 沿用事件通知的帳密與收件者；未設定或寄送失敗都只更新狀態列，不讓 UI 崩潰。
+    /// </summary>
+    private async void OnEmailClicked(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var cfg = NotificationSettings.Load(new SettingsRepository(_store));
+            if (!cfg.SmtpEnabled)
+            {
+                ReportStatusText.Text = "未啟用 SMTP（設定中心 → 通知）。";
+                return;
+            }
+
+            var (from, to) = Range();
+            var path = WriteReportCsv();
+            var subject = $"HeliVMS 報表（{_period}，{from:yyyy-MM-dd} ~ {to:yyyy-MM-dd}）";
+            var body = $"HeliVMS 統圖報表（{_period}）\n" +
+                $"期間：{from:yyyy-MM-dd HH:mm:ss} ~ {to:yyyy-MM-dd HH:mm:ss} UTC\n" +
+                "附件為 CSV。\n";
+
+            var ok = await new SmtpNotifier().SendReportAsync(cfg, subject, body, path);
+            ReportStatusText.Text = ok
+                ? $"已寄送報表至 {string.Join(", ", cfg.SmtpTo)}"
+                : "寄送失敗（請檢查 設定中心 → 通知 的 SMTP 設定）。";
+        }
+        catch (Exception ex)
+        {
+            ReportStatusText.Text = $"寄送失敗：{ex.Message}";
         }
     }
 

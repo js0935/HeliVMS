@@ -101,4 +101,49 @@ public sealed class SmtpNotifier
             return false;
         }
     }
+
+    /// <summary>
+    /// 寄送既有報表檔（§14.1 #9）：主旨與內文由呼叫端決定，附件為完整檔案路徑（例如 CSV）。
+    /// 沿用事件通知的 SMTP 組態（<c>notify.smtp.*</c>），因此報表寄送與警報共用同一組帳密與收件者，
+    /// 不需要第二套設定。任何未設定（未啟用／無主機／無寄件者／無收件者／無主旨）一律回 false，
+    /// 由呼叫端顯示訊息，不丟例外（寄信失敗不該讓 UI 崩潰）。
+    /// </summary>
+    public async Task<bool> SendReportAsync(NotificationSettings cfg, string subject, string body, string? attachmentPath)
+    {
+        if (!cfg.SmtpEnabled ||
+            string.IsNullOrWhiteSpace(cfg.SmtpHost) ||
+            string.IsNullOrWhiteSpace(cfg.SmtpFrom) ||
+            cfg.SmtpTo.Count == 0 ||
+            string.IsNullOrWhiteSpace(subject))
+        {
+            return false;
+        }
+
+        try
+        {
+            using var client = new SmtpClient(cfg.SmtpHost, cfg.SmtpPort)
+            {
+                EnableSsl = cfg.SmtpPort == 465,
+                Timeout = 10_000,
+            };
+
+            if (!string.IsNullOrWhiteSpace(cfg.SmtpUser))
+            {
+                client.Credentials = new NetworkCredential(cfg.SmtpUser, cfg.SmtpPassword ?? string.Empty);
+            }
+
+            using var msg = new MailMessage(cfg.SmtpFrom, string.Join(",", cfg.SmtpTo), subject, body);
+            if (!string.IsNullOrWhiteSpace(attachmentPath) && File.Exists(attachmentPath))
+            {
+                msg.Attachments.Add(new Attachment(attachmentPath));
+            }
+
+            await client.SendMailAsync(msg);
+            return true;
+        }
+        catch (Exception)
+        {
+            return false;
+        }
+    }
 }
