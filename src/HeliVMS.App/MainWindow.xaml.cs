@@ -1948,6 +1948,11 @@ public partial class MainWindow : Window
 
     private void OnPosClicked(object sender, RoutedEventArgs e) => OpenPosWindow();
 
+    /// <summary>開啟邊緣補抓視窗（M94，§14.7 #10）：SD 網址、建立與執行補抓、回灌為區段。</summary>
+    private void OpenEdgeBackfillWindow() => OpenChild(new EdgeBackfillWindow(_store!, ResolveDataRoot()));
+
+    private void OnEdgeBackfillClicked(object sender, RoutedEventArgs e) => OpenEdgeBackfillWindow();
+
     /// <summary>開啟複合事件規則視窗（M62，§5.10）。admin 限定。</summary>
     private void OpenRulesWindow()
     {

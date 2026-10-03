@@ -23,6 +23,9 @@ public sealed class DeviceRecord
     public bool Enabled { get; init; } = true;
 
     public DateTime CreatedAt { get; init; }
+
+    /// <summary>設備端 SD 側錄／回放串流位址（M94 邊緣補抓）；未設定為 null。</summary>
+    public string? SdUrl { get; init; }
 }
 
 /// <summary>

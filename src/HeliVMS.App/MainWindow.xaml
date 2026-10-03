@@ -202,6 +202,10 @@
                                 Content="POS" ToolTip="POS 交易匯入／查詢／對帳" Click="OnPosClicked"
                                 Width="46" Padding="0,8" Margin="6,0,0,0"
                                 Foreground="White" Background="#6A4A2A" BorderThickness="0" />
+                        <Button x:Name="EdgeBackfillButton" AutomationProperties.AutomationId="EdgeBackfillButton"
+                                Content="補抓" ToolTip="邊緣 SD 側錄回補抓與回灌" Click="OnEdgeBackfillClicked"
+                                Width="46" Padding="0,8" Margin="6,0,0,0"
+                                Foreground="White" Background="#2A6A5A" BorderThickness="0" />
                         <Button x:Name="PatrolButton" AutomationProperties.AutomationId="PatrolButton"
                                 Content="巡航" ToolTip="設定雲台巡航排程" Click="OnPatrolClicked"
                                 Width="56" Padding="0,8" Margin="6,0,0,0"

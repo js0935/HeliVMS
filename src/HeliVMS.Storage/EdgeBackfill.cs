@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Security.Cryptography;
 
 namespace HeliVMS.Storage;
 
@@ -237,3 +238,64 @@ public sealed record EdgeBackfillRunItem(long JobId, bool Success, string? Error
 
 /// <summary>單次執行摘要（M94）。</summary>
 public sealed record EdgeBackfillRun(IReadOnlyList<EdgeBackfillRunItem> Items);
+
+/// <summary>
+/// 邊緣補抓回灌 runner（M94，§14.7 #10）：先交由內層 runner 下載，成功後把落盤檔以
+/// <see cref="SegmentRepository.BeginSegment"/>／<see cref="SegmentRepository.CompleteSegment"/>
+/// 登記為 final 區段。否則補抓回來的檔案不會出現在時間軸／回放——<see cref="EdgeBackfillExecutor"/>
+/// 先前只下載、不登記，等於「抓了但看不到」。
+/// </summary>
+public sealed class SegmentRegisteringEdgeBackfillRunner : IEdgeBackfillRunner
+{
+    private readonly IEdgeBackfillRunner _inner;
+    private readonly Func<EdgeBackfillJob, EdgePullTarget> _resolver;
+    private readonly SegmentRepository _segments;
+
+    public SegmentRegisteringEdgeBackfillRunner(
+        IEdgeBackfillRunner inner,
+        Func<EdgeBackfillJob, EdgePullTarget> resolver,
+        SegmentRepository segments)
+    {
+        _inner = inner;
+        _resolver = resolver;
+        _segments = segments;
+    }
+
+    public async ValueTask<EdgeBackfillResult> RunAsync(EdgeBackfillJob job, CancellationToken ct)
+    {
+        var result = await _inner.RunAsync(job, ct);
+        if (!result.Success)
+        {
+            return result;
+        }
+
+        try
+        {
+            var target = _resolver(job);
+            var info = new FileInfo(target.DestinationPath);
+            var size = info.Exists ? info.Length : 0;
+            var sha = info.Exists ? Sha256(target.DestinationPath) : string.Empty;
+
+            var segmentId = _segments.BeginSegment(job.ChannelId, "main", target.DestinationPath, job.StartUtc);
+            _segments.CompleteSegment(
+                segmentId,
+                job.EndUtc,
+                size,
+                (job.EndUtc - job.StartUtc).TotalSeconds,
+                sha);
+        }
+        catch (Exception ex)
+        {
+            // 下載成功但索引失敗：回報失敗讓 executor 退避重試（會重新下載，換取最終可見的區段）。
+            return new EdgeBackfillResult(false, $"回灌索引失敗：{ex.Message}");
+        }
+
+        return result;
+    }
+
+    private static string Sha256(string path)
+    {
+        using var stream = File.OpenRead(path);
+        return Convert.ToHexString(SHA256.HashData(stream)).ToLowerInvariant();
+    }
+}

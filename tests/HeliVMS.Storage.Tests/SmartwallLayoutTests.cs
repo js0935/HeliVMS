@@ -24,11 +24,11 @@ public class SmartwallLayoutTests : IDisposable
     }
 
     [Fact]
-    public void SchemaVersion_IsV43()
+    public void SchemaVersion_IsV44()
     {
         var version = _store.Query<int>(
             "PRAGMA user_version;", r => r.Read() ? r.GetInt32(0) : -1);
-        Assert.Equal(43, version);
+        Assert.Equal(44, version);
     }
 
     [Fact]

@@ -9,7 +9,7 @@ namespace HeliVMS.Storage;
 /// </summary>
 public sealed class SqliteStore : IDisposable
 {
-    private const int CurrentSchemaVersion = 43;
+    private const int CurrentSchemaVersion = 44;
     private readonly SqliteConnection _connection;
     private readonly object _gate = new();
     private bool _disposed;
@@ -269,6 +269,11 @@ public sealed class SqliteStore : IDisposable
             CreateLicenseTableV43();
         }
 
+        if (version < 44)
+        {
+            AddDeviceSdUrlV44();
+        }
+
         Execute("PRAGMA user_version = CURRENT_SCHEMA_VERSION;".Replace(
             "CURRENT_SCHEMA_VERSION", CurrentSchemaVersion.ToString(CultureInfo.InvariantCulture)));
     }
@@ -506,7 +511,8 @@ public sealed class SqliteStore : IDisposable
                 password_encrypted  TEXT,
                 vendor              TEXT    NOT NULL DEFAULT 'generic',
                 enabled             INTEGER NOT NULL DEFAULT 1,
-                created_at          TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+                created_at          TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+                sd_url              TEXT
             );
 
             CREATE TABLE IF NOT EXISTS channels (
@@ -863,6 +869,12 @@ public sealed class SqliteStore : IDisposable
                 created_at TEXT NOT NULL
             );
             """);
+    }
+
+    /// <summary>M94 邊緣補抓（§14.7 #10）：devices 增列 sd_url（設備端 SD 側錄／回放串流位址）。</summary>
+    private void AddDeviceSdUrlV44()
+    {
+        EnsureColumn("devices", "sd_url", "TEXT");
     }
 
     private void EnsureColumn(string table, string column, string definition)

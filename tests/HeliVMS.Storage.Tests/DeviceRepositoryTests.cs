@@ -160,6 +160,33 @@ public class DeviceRepositoryTests : IDisposable
         Assert.False(_repo.SetRtspCredentials(4242, "root", "pass"));
     }
 
+    [Fact]
+    public void SetSdUrl_RoundTripsThroughGetAndList_AndClears()
+    {
+        // M94 邊緣補抓需要設備端 SD 串流位址；此欄位原不存在，補抓 resolver 因而無從取值。
+        var id = _repo.Add("cam", "10.0.0.20", 80, "root", "pw", "onvif");
+
+        Assert.True(_repo.SetSdUrl(id, "rtsp://10.0.0.20:554/streaming/playback", "tester"));
+
+        Assert.Equal("rtsp://10.0.0.20:554/streaming/playback", _repo.Get(id)!.SdUrl);
+        Assert.Equal("rtsp://10.0.0.20:554/streaming/playback", Assert.Single(_repo.List(), d => d.Id == id).SdUrl);
+
+        Assert.True(_repo.SetSdUrl(id, "   ", "tester"));
+        Assert.Null(_repo.Get(id)!.SdUrl);
+    }
+
+    [Fact]
+    public void SetSdUrl_RecordsAudit()
+    {
+        var id = _repo.Add("cam", "10.0.0.21", 80, "root", "pw", "onvif");
+
+        _repo.SetSdUrl(id, "rtsp://x/playback", "tester");
+
+        var logs = _audit.List(new AuditLogQuery { Category = AuditCategories.Config, Action = "device.sd_url" });
+        Assert.Single(logs);
+        Assert.Equal("device", logs[0].TargetType);
+    }
+
     public void Dispose()
     {
         _store.Dispose();

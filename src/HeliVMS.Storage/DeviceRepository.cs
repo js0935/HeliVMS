@@ -22,7 +22,7 @@ public sealed class DeviceRepository
     {
         return _store.Query(
             """
-            SELECT id, name, ip, port, vendor, enabled, created_at
+            SELECT id, name, ip, port, vendor, enabled, created_at, sd_url
             FROM devices ORDER BY id;
             """,
             static r =>
@@ -39,6 +39,7 @@ public sealed class DeviceRepository
                         Vendor = r.GetString(4),
                         Enabled = r.GetInt32(5) != 0,
                         CreatedAt = SqliteStore.FromIso(r.GetString(6)),
+                        SdUrl = r.IsDBNull(7) ? null : r.GetString(7),
                     });
                 }
 
@@ -51,7 +52,7 @@ public sealed class DeviceRepository
     {
         return _store.Query(
             """
-            SELECT id, name, ip, port, username, password_encrypted, vendor, enabled, created_at
+            SELECT id, name, ip, port, username, password_encrypted, vendor, enabled, created_at, sd_url
             FROM devices WHERE id = $id;
             """,
             static r => r.Read() ? ReadFull(r) : null,
@@ -68,7 +69,7 @@ public sealed class DeviceRepository
 
         return _store.Query(
             """
-            SELECT id, name, ip, port, username, password_encrypted, vendor, enabled, created_at
+            SELECT id, name, ip, port, username, password_encrypted, vendor, enabled, created_at, sd_url
             FROM devices WHERE ip = $ip;
             """,
             static r => r.Read() ? ReadFull(r) : null,
@@ -122,6 +123,7 @@ public sealed class DeviceRepository
             Vendor = r.GetString(6),
             Enabled = r.GetInt32(7) != 0,
             CreatedAt = SqliteStore.FromIso(r.GetString(8)),
+            SdUrl = r.IsDBNull(9) ? null : r.GetString(9),
         };
 
     /// <summary>新增設備（M152 稽核掛載：device.add 寫 audit_log），回傳新 ID。密碼以 DPAPI（目前使用者）加密後儲存。</summary>
@@ -221,6 +223,32 @@ public sealed class DeviceRepository
         if (affected > 0)
         {
             _audit.Record(actor, "device.update", AuditCategories.Config, "device", id, $"{name}@{ip}:{port} enabled={enabled}");
+        }
+
+        return affected > 0;
+    }
+
+    /// <summary>
+    /// 設定設備的 SD 側錄／回放串流位址（M94 邊緣補抓）；空白視為清除。稽核掛載：device.sd_url。
+    /// </summary>
+    public bool SetSdUrl(int id, string? sdUrl, string actor = "system")
+    {
+        var cleared = string.IsNullOrWhiteSpace(sdUrl);
+        var affected = _store.Query<int>(
+            """
+            UPDATE devices SET sd_url = $u WHERE id = $id;
+            SELECT changes();
+            """,
+            r => r.Read() ? r.GetInt32(0) : 0,
+            cmd =>
+            {
+                cmd.Parameters.AddWithValue("$id", id);
+                cmd.Parameters.AddWithValue("$u", cleared ? DBNull.Value : sdUrl);
+            });
+
+        if (affected > 0)
+        {
+            _audit.Record(actor, "device.sd_url", AuditCategories.Config, "device", id, cleared ? "(cleared)" : "set");
         }
 
         return affected > 0;

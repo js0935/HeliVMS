@@ -1,0 +1,103 @@
+<Window x:Class="HeliVMS.App.EdgeBackfillWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        AutomationProperties.AutomationId="EdgeBackfillWindow"
+        Title="HeliVMS 邊緣補抓"
+        Width="1000" Height="640"
+        WindowStartupLocation="CenterOwner"
+        Background="#0B1622" Foreground="White">
+
+    <Grid Margin="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <StackPanel Grid.Row="0">
+            <TextBlock Text="邊緣補抓（M94，§14.7 #10）：把設備端 SD 側錄時段拉回主庫並登記為可回放區段。"
+                       Foreground="{StaticResource Brand.TextDim}" FontSize="11" TextWrapping="Wrap"/>
+            <WrapPanel Orientation="Horizontal" Margin="0,8,0,0">
+                <TextBlock Text="設備" VerticalAlignment="Center" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+                <ComboBox x:Name="EdgeDeviceCombo" AutomationProperties.AutomationId="EdgeDeviceCombo"
+                          Width="180" Margin="6,0,12,4" SelectionChanged="OnDeviceChanged"/>
+                <TextBlock Text="頻道" VerticalAlignment="Center" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+                <ComboBox x:Name="EdgeChannelCombo" AutomationProperties.AutomationId="EdgeChannelCombo"
+                          Width="180" Margin="6,0,12,4"/>
+            </WrapPanel>
+            <WrapPanel Orientation="Horizontal" Margin="0,4,0,0">
+                <TextBlock Text="SD 串流網址" VerticalAlignment="Center" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+                <TextBox x:Name="EdgeSdUrlBox" AutomationProperties.AutomationId="EdgeSdUrlBox"
+                         Width="520" Margin="6,0,8,4" Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="6,4"/>
+                <Button x:Name="EdgeSaveSdUrlButton" AutomationProperties.AutomationId="EdgeSaveSdUrlButton"
+                        Content="儲存 SD 網址" Click="OnSaveSdUrlClicked" Width="100" Padding="0,6" Margin="0,0,0,4"
+                        Foreground="White" Background="#2A5C8A" BorderThickness="0"/>
+            </WrapPanel>
+        </StackPanel>
+
+        <WrapPanel Grid.Row="1" Orientation="Horizontal" Margin="0,8,0,8">
+            <TextBlock Text="起" VerticalAlignment="Center" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+            <DatePicker x:Name="EdgeStartDate" AutomationProperties.AutomationId="EdgeStartDate" Width="110" Margin="6,0,6,4"/>
+            <TextBox x:Name="EdgeStartTime" AutomationProperties.AutomationId="EdgeStartTime" Text="00:00:00" Width="72"
+                     Margin="0,0,12,4" Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="6,4"/>
+            <TextBlock Text="迄" VerticalAlignment="Center" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+            <DatePicker x:Name="EdgeEndDate" AutomationProperties.AutomationId="EdgeEndDate" Width="110" Margin="6,0,6,4"/>
+            <TextBox x:Name="EdgeEndTime" AutomationProperties.AutomationId="EdgeEndTime" Text="01:00:00" Width="72"
+                     Margin="0,0,12,4" Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="6,4"/>
+            <Button x:Name="EdgeCreateJobButton" AutomationProperties.AutomationId="EdgeCreateJobButton"
+                    Content="建立補抓" Click="OnCreateJobClicked" Width="90" Padding="0,6" Margin="0,0,8,4"
+                    Foreground="White" Background="#3A5A7A" BorderThickness="0"/>
+            <Button x:Name="EdgeRunDueButton" AutomationProperties.AutomationId="EdgeRunDueButton"
+                    Content="執行到期補抓" Click="OnRunDueClicked" Width="110" Padding="0,6" Margin="0,0,0,4"
+                    Foreground="White" Background="#6A4A2A" BorderThickness="0"
+                    ToolTip="以 ffmpeg 拉回到期工作，成功後登記為 final 區段"/>
+        </WrapPanel>
+
+        <ListView x:Name="EdgeJobList" AutomationProperties.AutomationId="EdgeJobList"
+                  Grid.Row="2" Background="#0E1D33" Foreground="White" BorderBrush="#1F3A5F">
+            <ListView.View>
+                <GridView>
+                    <GridViewColumn Header="編號" Width="64">
+                        <GridViewColumn.CellTemplate>
+                            <DataTemplate><TextBlock Text="{Binding Id}" FontSize="12"/></DataTemplate>
+                        </GridViewColumn.CellTemplate>
+                    </GridViewColumn>
+                    <GridViewColumn Header="設備" Width="140">
+                        <GridViewColumn.CellTemplate>
+                            <DataTemplate><TextBlock Text="{Binding Device}" FontSize="12"/></DataTemplate>
+                        </GridViewColumn.CellTemplate>
+                    </GridViewColumn>
+                    <GridViewColumn Header="頻道" Width="140">
+                        <GridViewColumn.CellTemplate>
+                            <DataTemplate><TextBlock Text="{Binding Channel}" FontSize="12"/></DataTemplate>
+                        </GridViewColumn.CellTemplate>
+                    </GridViewColumn>
+                    <GridViewColumn Header="時段" Width="320">
+                        <GridViewColumn.CellTemplate>
+                            <DataTemplate><TextBlock Text="{Binding Range}" FontSize="12"/></DataTemplate>
+                        </GridViewColumn.CellTemplate>
+                    </GridViewColumn>
+                    <GridViewColumn Header="狀態" Width="90">
+                        <GridViewColumn.CellTemplate>
+                            <DataTemplate><TextBlock Text="{Binding Status}" FontSize="12"/></DataTemplate>
+                        </GridViewColumn.CellTemplate>
+                    </GridViewColumn>
+                    <GridViewColumn Header="嘗試" Width="56">
+                        <GridViewColumn.CellTemplate>
+                            <DataTemplate><TextBlock Text="{Binding Attempts}" FontSize="12"/></DataTemplate>
+                        </GridViewColumn.CellTemplate>
+                    </GridViewColumn>
+                    <GridViewColumn Header="錯誤" Width="160">
+                        <GridViewColumn.CellTemplate>
+                            <DataTemplate><TextBlock Text="{Binding Error}" FontSize="12"/></DataTemplate>
+                        </GridViewColumn.CellTemplate>
+                    </GridViewColumn>
+                </GridView>
+            </ListView.View>
+        </ListView>
+
+        <TextBlock x:Name="EdgeStatusText" AutomationProperties.AutomationId="EdgeStatusText"
+                   Grid.Row="3" Margin="0,10,0,0" Foreground="#9FB8D8" TextWrapping="Wrap"/>
+    </Grid>
+</Window>
