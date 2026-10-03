@@ -70,6 +70,8 @@ public partial class SettingsWindow : Window
     private readonly DeviceRepository _devices;
     private int? _deviceCredId;
     private bool _deviceCredArm;
+    private int? _channelEditId;
+    private bool _channelDeleteArm;
     private bool _suppressAuthToggle;
 
     public SettingsWindow(SqliteStore store, string dataRoot, IoMonitorHost? ioHost = null, ShareHost? shareHost = null)
@@ -1112,7 +1114,7 @@ public partial class SettingsWindow : Window
         ReloadUsage();
     }
 
-    private void ReloadChannels()
+    private void ReloadChannels(int? reselect = null)
     {
         var rows = new ChannelRepository(_store).List()
             .Select(c => new ChannelRow(
@@ -1123,6 +1125,148 @@ public partial class SettingsWindow : Window
                 c.MotionEnabled ? "開" : "關"))
             .ToList();
         ChannelList.ItemsSource = rows;
+
+        // 重新載入等於捨棄目前選取；編輯欄位若不清空，會讓人以為改的是清單第一列。
+        _channelEditId = null;
+        _channelDeleteArm = false;
+        DeleteChannelButton.Content = "刪除頻道";
+        ChannelEditNameBox.Text = string.Empty;
+        ChannelEditMainUrlBox.Text = string.Empty;
+        ChannelEditSubUrlBox.Text = string.Empty;
+        ChannelEditModeCombo.SelectedIndex = 0;
+        ChannelEditMotionCheck.IsChecked = false;
+        ChannelEditSensitivityBox.Text = string.Empty;
+        ChannelEditHintText.Text = "從上方清單選取一個頻道後即可修改；刪除會一併清除該頻道的排程、偵測、區段與事件。";
+
+        if (reselect is int target)
+        {
+            var match = rows.FirstOrDefault(r => r.Id == target);
+            if (match is not null)
+            {
+                ChannelList.SelectedItem = match;
+            }
+        }
+    }
+
+    private void OnChannelSelected(object sender, SelectionChangedEventArgs e)
+    {
+        _channelDeleteArm = false;
+        DeleteChannelButton.Content = "刪除頻道";
+
+        if (ChannelList.SelectedItem is not ChannelRow row)
+        {
+            _channelEditId = null;
+            return;
+        }
+
+        var channel = new ChannelRepository(_store).Get(row.Id);
+        if (channel is null)
+        {
+            _channelEditId = null;
+            return;
+        }
+
+        _channelEditId = channel.Id;
+        ChannelEditNameBox.Text = channel.Name;
+        ChannelEditMainUrlBox.Text = channel.MainStreamUrl;
+        ChannelEditSubUrlBox.Text = channel.SubStreamUrl;
+        ChannelEditModeCombo.SelectedIndex = (int)channel.RecordingMode;
+        ChannelEditMotionCheck.IsChecked = channel.MotionEnabled;
+        ChannelEditSensitivityBox.Text = channel.MotionSensitivity.ToString("0.##", CultureInfo.InvariantCulture);
+        ChannelEditHintText.Text = $"編輯「{channel.Name}」（#{channel.Id}）；按「套用變更」儲存。";
+    }
+
+    private void OnApplyChannelEditClicked(object sender, RoutedEventArgs e)
+    {
+        if (_channelEditId is not int id)
+        {
+            ChannelEditHintText.Text = "請先從上方清單選取頻道。";
+            return;
+        }
+
+        var name = ChannelEditNameBox.Text.Trim();
+        var main = ChannelEditMainUrlBox.Text.Trim();
+        if (name.Length == 0 || main.Length == 0)
+        {
+            ChannelEditHintText.Text = "名稱與主流位址不可空白。";
+            return;
+        }
+
+        var sensitivity = 0.5;
+        var sensitivityText = ChannelEditSensitivityBox.Text.Trim();
+        if (sensitivityText.Length > 0
+            && !double.TryParse(sensitivityText, NumberStyles.Float, CultureInfo.InvariantCulture, out sensitivity))
+        {
+            ChannelEditHintText.Text = "靈敏度需為 0 到 1 之間的數字。";
+            return;
+        }
+
+        var repo = new ChannelRepository(_store);
+        var current = repo.Get(id);
+        if (current is null)
+        {
+            ChannelEditHintText.Text = "頻道已不存在，請重新整理。";
+            return;
+        }
+
+        try
+        {
+            // Update 覆寫整列，未編輯的欄位（編碼／音訊／裝置綁定）必須原值帶回，否則會被清成預設。
+            repo.Update(new ChannelInfo
+            {
+                Id = id,
+                DeviceId = current.DeviceId,
+                Name = name,
+                MainStreamUrl = main,
+                SubStreamUrl = ChannelEditSubUrlBox.Text.Trim(),
+                Codec = current.Codec,
+                AudioEnabled = current.AudioEnabled,
+                AudioEncoder = current.AudioEncoder,
+                MotionEnabled = ChannelEditMotionCheck.IsChecked == true,
+                MotionSensitivity = Math.Clamp(sensitivity, 0, 1),
+                RecordingMode = (RecordingMode)Math.Clamp(ChannelEditModeCombo.SelectedIndex, 0, 3),
+                Enabled = current.Enabled,
+            });
+
+            ChannelEditHintText.Text = $"已更新「{name}」。已開啟的影像需重新開啟才會套用新設定。";
+            ReloadChannels(id);
+        }
+        catch (Exception ex)
+        {
+            ChannelEditHintText.Text = $"更新失敗：{ex.Message}";
+        }
+    }
+
+    private void OnDeleteChannelClicked(object sender, RoutedEventArgs e)
+    {
+        if (_channelEditId is not int id || ChannelList.SelectedItem is not ChannelRow row)
+        {
+            ChannelEditHintText.Text = "請先從上方清單選取頻道。";
+            return;
+        }
+
+        if (!_channelDeleteArm)
+        {
+            _channelDeleteArm = true;
+            DeleteChannelButton.Content = "確認刪除？";
+            ChannelEditHintText.Text =
+                $"再按一次「確認刪除？」將刪除「{row.Name}」（#{id}），"
+                + "並一併清除其錄影排程、偵測、區段索引與事件。此動作無法復原。";
+            return;
+        }
+
+        try
+        {
+            new ChannelRepository(_store).Delete(id);
+            _channelDeleteArm = false;
+            DeleteChannelButton.Content = "刪除頻道";
+            ChannelEditHintText.Text = $"已刪除「{row.Name}」（#{id}）及其子資料。";
+            ReloadChannels();
+        }
+        catch (Exception ex)
+        {
+            ChannelEditHintText.Text = $"刪除失敗：{ex.Message}";
+        }
     }
 
     private void OnAddChannelClicked(object sender, RoutedEventArgs e)
