@@ -2,7 +2,7 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         AutomationProperties.AutomationId="ReportsWindow"
-        Title="HeliVMS 統圖報表"
+        Title=""
         Width="860" Height="620"
         WindowStartupLocation="CenterOwner"
         Background="#0B1622" Foreground="White">
@@ -15,38 +15,38 @@
         </Grid.RowDefinitions>
 
         <StackPanel Grid.Row="0">
-            <TextBlock Text="統圖報表（M60，§14.7 #9）：錄影時數／斷線次數／容量趨勢／AI 事件統計"
+            <TextBlock x:Name="HeadingText" Text=""
                        Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
             <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
-                <TextBlock Text="期間" VerticalAlignment="Center" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+                <TextBlock x:Name="PeriodLabel" Text="" VerticalAlignment="Center" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
                 <ComboBox x:Name="ReportPeriodCombo" AutomationProperties.AutomationId="ReportPeriodCombo"
-                          Width="130" Margin="8,0,0,0" Foreground="Black"/>
-                <Button x:Name="ReportRefreshButton" AutomationProperties.AutomationId="ReportRefreshButton" ToolTip="重新載入報表資料"
-                        Content="重新整理" Click="OnRefreshClicked"
+                          Width="130" Margin="8,0,0,0" Foreground="Black" DisplayMemberPath="Label"/>
+                <Button x:Name="ReportRefreshButton" AutomationProperties.AutomationId="ReportRefreshButton" ToolTip=""
+                        Content="" Click="OnRefreshClicked"
                         Width="92" Padding="0,6" Margin="14,0,0,0"
                         Foreground="White" Background="#2A5C8A" BorderThickness="0"/>
-                <Button x:Name="ReportExportButton" AutomationProperties.AutomationId="ReportExportButton" ToolTip="將目前報表匯出為 CSV"
-                        Content="匯出 CSV" Click="OnExportClicked"
+                <Button x:Name="ReportExportButton" AutomationProperties.AutomationId="ReportExportButton" ToolTip=""
+                        Content="" Click="OnExportClicked"
                         Width="92" Padding="0,6" Margin="8,0,0,0"
                         Foreground="White" Background="#3A6A5A" BorderThickness="0"/>
-                <Button x:Name="ReportEmailButton" AutomationProperties.AutomationId="ReportEmailButton" ToolTip="以設定中心的 SMTP 設定寄送目前報表（CSV 附件）"
-                        Content="寄送報表" Click="OnEmailClicked"
+                <Button x:Name="ReportEmailButton" AutomationProperties.AutomationId="ReportEmailButton" ToolTip=""
+                        Content="" Click="OnEmailClicked"
                         Width="92" Padding="0,6" Margin="8,0,0,0"
                         Foreground="White" Background="#6A5A3A" BorderThickness="0"/>
             </StackPanel>
             <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
                 <CheckBox x:Name="ReportScheduleCheck" AutomationProperties.AutomationId="ReportScheduleCheck"
-                          Content="啟用排程寄送" Foreground="#C9D8E8" VerticalAlignment="Center"/>
+                          Content="" Foreground="#C9D8E8" VerticalAlignment="Center"/>
                 <ComboBox x:Name="ReportCadenceCombo" AutomationProperties.AutomationId="ReportCadenceCombo"
-                          ToolTip="每日或每週" Width="90" Margin="12,0,0,0" Foreground="Black"/>
-                <TextBlock Text="星期" VerticalAlignment="Center" Margin="12,0,4,0" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+                          ToolTip="" Width="90" Margin="12,0,0,0" Foreground="Black" DisplayMemberPath="Label"/>
+                <TextBlock x:Name="WeekdayLabel" Text="" VerticalAlignment="Center" Margin="12,0,4,0" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
                 <ComboBox x:Name="ReportWeeklyDayCombo" AutomationProperties.AutomationId="ReportWeeklyDayCombo"
-                          Width="90" Foreground="Black"/>
-                <TextBlock Text="時間" VerticalAlignment="Center" Margin="12,0,4,0" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+                          Width="90" Foreground="Black" DisplayMemberPath="Label"/>
+                <TextBlock x:Name="TimeLabel" Text="" VerticalAlignment="Center" Margin="12,0,4,0" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
                 <TextBox x:Name="ReportScheduleTimeBox" AutomationProperties.AutomationId="ReportScheduleTimeBox"
-                         ToolTip="本地時間 24 小時制，例如 08:00" Width="60" Foreground="Black" Text="08:00"/>
+                         ToolTip="" Width="60" Foreground="Black" Text="08:00"/>
                 <Button x:Name="ReportScheduleSaveButton" AutomationProperties.AutomationId="ReportScheduleSaveButton"
-                        ToolTip="儲存排程（使用設定中心的 SMTP 設定寄送）" Content="儲存排程"
+                        ToolTip="" Content=""
                         Click="OnSaveScheduleClicked" Padding="10,6" Margin="12,0,0,0"
                         Foreground="White" Background="#3A5A7A" BorderThickness="0"/>
             </StackPanel>
@@ -56,21 +56,21 @@
 
         <ScrollViewer Grid.Row="1" Margin="0,12,0,0" VerticalScrollBarVisibility="Auto">
             <StackPanel>
-                <TextBlock Text="錄影時數" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+                <TextBlock x:Name="RecordingLabel" Text="" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
                 <TextBlock x:Name="ReportRecordingText" AutomationProperties.AutomationId="ReportRecordingText"
                            Margin="0,4,0,0" Foreground="#C9D8E8" TextWrapping="Wrap" FontSize="12"/>
 
-                <TextBlock Text="斷線次數" Foreground="{StaticResource Brand.TextDim}" FontSize="11" Margin="0,12,0,0"/>
+                <TextBlock x:Name="DisconnectLabel" Text="" Foreground="{StaticResource Brand.TextDim}" FontSize="11" Margin="0,12,0,0"/>
                 <TextBlock x:Name="ReportDisconnectText" AutomationProperties.AutomationId="ReportDisconnectText"
                            Margin="0,4,0,0" Foreground="#C9D8E8" TextWrapping="Wrap" FontSize="12"/>
 
-                <TextBlock Text="容量趨勢（逐日）" Foreground="{StaticResource Brand.TextDim}" FontSize="11" Margin="0,12,0,0"/>
+                <TextBlock x:Name="TrendLabel" Text="" Foreground="{StaticResource Brand.TextDim}" FontSize="11" Margin="0,12,0,0"/>
                 <Canvas x:Name="ReportTrendCanvas" AutomationProperties.AutomationId="ReportTrendCanvas"
                         Height="140" Margin="0,6,0,0" Background="#0E1B29"/>
                 <TextBlock x:Name="ReportTrendText" AutomationProperties.AutomationId="ReportTrendText"
                            Margin="0,4,0,0" Foreground="#C9D8E8" TextWrapping="Wrap" FontSize="12"/>
 
-                <TextBlock Text="AI 事件統計（依事件類型）" Foreground="{StaticResource Brand.TextDim}" FontSize="11" Margin="0,12,0,0"/>
+                <TextBlock x:Name="AiLabel" Text="" Foreground="{StaticResource Brand.TextDim}" FontSize="11" Margin="0,12,0,0"/>
                 <TextBlock x:Name="ReportAiText" AutomationProperties.AutomationId="ReportAiText"
                            Margin="0,4,0,0" Foreground="#C9D8E8" TextWrapping="Wrap" FontSize="12"/>
             </StackPanel>

@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.IO;
 using System.Text;
 using System.Windows;
@@ -13,20 +14,18 @@ namespace HeliVMS.App;
 /// <summary>統圖報表視窗（M60，§14.7 #9）：錄影時數／斷線次數／容量趨勢／AI 事件統計，可匯出或寄送 CSV（含排程）。</summary>
 public partial class ReportsWindow : Window
 {
-    private static readonly string[] Periods = { "近24小時", "近7日", "近30日", "全部" };
-    private static readonly ReportCadence[] Cadences = { ReportCadence.Daily, ReportCadence.Weekly };
-    private static readonly DayOfWeek[] WeekDays =
-    {
-        DayOfWeek.Monday, DayOfWeek.Tuesday, DayOfWeek.Wednesday, DayOfWeek.Thursday,
-        DayOfWeek.Friday, DayOfWeek.Saturday, DayOfWeek.Sunday,
-    };
-
     private readonly SqliteStore _store;
     private readonly string _dataRoot;
     private readonly ReportRepository _reports;
     private readonly SettingsRepository _settings;
-    private string _period = "近7日";
+    private string _periodKey = "7d";
     private IReadOnlyList<CapacityTrendRow> _lastTrend = [];
+
+    private sealed record PeriodOption(string Key, string Label);
+
+    private sealed record CadenceOption(ReportCadence Value, string Label);
+
+    private sealed record DayOption(DayOfWeek Day, string Label);
 
     public ReportsWindow(SqliteStore store, string dataRoot)
     {
@@ -35,18 +34,38 @@ public partial class ReportsWindow : Window
         _reports = new ReportRepository(store);
         _settings = new SettingsRepository(store);
         InitializeComponent();
+        ApplyI18n();
 
-        ReportPeriodCombo.ItemsSource = Periods;
+        ReportPeriodCombo.ItemsSource = new[]
+        {
+            new PeriodOption("24h", PeriodText("24h")),
+            new PeriodOption("7d", PeriodText("7d")),
+            new PeriodOption("30d", PeriodText("30d")),
+            new PeriodOption("all", PeriodText("all")),
+        };
         ReportPeriodCombo.SelectedIndex = 1;
         ReportPeriodCombo.SelectionChanged += (_, _) =>
         {
-            _period = ReportPeriodCombo.SelectedItem?.ToString() ?? _period;
+            _periodKey = (ReportPeriodCombo.SelectedItem as PeriodOption)?.Key ?? _periodKey;
             Refresh();
         };
 
-        ReportCadenceCombo.ItemsSource = Cadences;
+        ReportCadenceCombo.ItemsSource = new[]
+        {
+            new CadenceOption(ReportCadence.Daily, Localizer.T("Report.CadenceDaily")),
+            new CadenceOption(ReportCadence.Weekly, Localizer.T("Report.CadenceWeekly")),
+        };
         ReportCadenceCombo.SelectedIndex = 0;
-        ReportWeeklyDayCombo.ItemsSource = WeekDays;
+        ReportWeeklyDayCombo.ItemsSource = new[]
+        {
+            new DayOption(DayOfWeek.Monday, Localizer.T("Report.WeekdayMon")),
+            new DayOption(DayOfWeek.Tuesday, Localizer.T("Report.WeekdayTue")),
+            new DayOption(DayOfWeek.Wednesday, Localizer.T("Report.WeekdayWed")),
+            new DayOption(DayOfWeek.Thursday, Localizer.T("Report.WeekdayThu")),
+            new DayOption(DayOfWeek.Friday, Localizer.T("Report.WeekdayFri")),
+            new DayOption(DayOfWeek.Saturday, Localizer.T("Report.WeekdaySat")),
+            new DayOption(DayOfWeek.Sunday, Localizer.T("Report.WeekdaySun")),
+        };
         ReportScheduleCheck.Checked += (_, _) => UpdateScheduleStatus();
         ReportScheduleCheck.Unchecked += (_, _) => UpdateScheduleStatus();
         ReportCadenceCombo.SelectionChanged += (_, _) => UpdateScheduleStatus();
@@ -59,14 +78,52 @@ public partial class ReportsWindow : Window
         Refresh();
     }
 
+    /// <summary>依現況語言套用標題與靜態欄位文字（M57）。新開視窗以新語言顯示。</summary>
+    private void ApplyI18n()
+    {
+        Title = Localizer.T("Report.Title");
+        HeadingText.Text = Localizer.T("Report.Heading");
+        PeriodLabel.Text = Localizer.T("Report.Period");
+        ReportRefreshButton.Content = Localizer.T("Report.Refresh");
+        ReportRefreshButton.ToolTip = Localizer.T("Report.RefreshTip");
+        ReportExportButton.Content = Localizer.T("Report.Export");
+        ReportExportButton.ToolTip = Localizer.T("Report.ExportTip");
+        ReportEmailButton.Content = Localizer.T("Report.Email");
+        ReportEmailButton.ToolTip = Localizer.T("Report.EmailTip");
+        ReportScheduleCheck.Content = Localizer.T("Report.ScheduleEnable");
+        ReportCadenceCombo.ToolTip = Localizer.T("Report.CadenceTip");
+        WeekdayLabel.Text = Localizer.T("Report.Weekday");
+        TimeLabel.Text = Localizer.T("Report.TimeLabel");
+        ReportScheduleTimeBox.ToolTip = Localizer.T("Report.TimeTip");
+        ReportScheduleSaveButton.Content = Localizer.T("Report.SaveSchedule");
+        ReportScheduleSaveButton.ToolTip = Localizer.T("Report.SaveTip");
+        RecordingLabel.Text = Localizer.T("Report.Recording");
+        DisconnectLabel.Text = Localizer.T("Report.Disconnect");
+        TrendLabel.Text = Localizer.T("Report.Trend");
+        AiLabel.Text = Localizer.T("Report.Ai");
+    }
+
+    private static string PeriodKeyToI18n(string key) => key switch
+    {
+        "24h" => "Report.Period24h",
+        "30d" => "Report.Period30d",
+        "all" => "Report.PeriodAll",
+        _ => "Report.Period7d",
+    };
+
+    private static string PeriodText(string key) => Localizer.T(PeriodKeyToI18n(key));
+
+    private static string CadenceLabel(ReportCadence cadence) =>
+        Localizer.T(cadence == ReportCadence.Weekly ? "Report.CadenceWeekly" : "Report.CadenceDaily");
+
     private (DateTime From, DateTime To) Range()
     {
         var to = DateTime.UtcNow;
-        return _period switch
+        return _periodKey switch
         {
-            "近24小時" => (to.AddHours(-24), to),
-            "近30日" => (to.AddDays(-30), to),
-            "全部" => (new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc), DateTime.MaxValue),
+            "24h" => (to.AddHours(-24), to),
+            "30d" => (to.AddDays(-30), to),
+            "all" => (new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc), DateTime.MaxValue),
             _ => (to.AddDays(-7), to),
         };
     }
@@ -81,16 +138,34 @@ public partial class ReportsWindow : Window
 
         var totalHours = recording.Sum(r => r.Hours);
         var totalBytes = recording.Sum(r => r.Bytes);
-        ReportRecordingText.Text = $"總計：{totalHours:F2} 小時 / {FormatBytes(totalBytes)}（{recording.Count} 頻道）\n" +
-            string.Join("\n", recording.Select(r => $"{r.ChannelName}: {r.Hours:F2} 小時 / {FormatBytes(r.Bytes)}"));
-        ReportDisconnectText.Text = $"{disconnect} 次斷線";
+        var lines = string.Join(
+            "\n",
+            recording.Select(r => string.Format(
+                CultureInfo.InvariantCulture, Localizer.T("Report.RecordingLine"), r.ChannelName, r.Hours, FormatBytes(r.Bytes))));
+        ReportRecordingText.Text =
+            string.Format(
+                CultureInfo.InvariantCulture,
+                Localizer.T("Report.RecordingSummary"),
+                totalHours,
+                FormatBytes(totalBytes),
+                recording.Count)
+            + (lines.Length == 0 ? string.Empty : "\n" + lines);
+        ReportDisconnectText.Text = string.Format(
+            CultureInfo.InvariantCulture, Localizer.T("Report.DisconnectCount"), disconnect);
         ReportTrendText.Text = trend.Count == 0
-            ? "（無數據）"
-            : string.Join("\n", trend.Select(r => $"{r.Day}: {FormatBytes(r.Bytes)} / {r.Hours:F2} 小時"));
+            ? Localizer.T("Report.NoData")
+            : string.Join(
+                "\n",
+                trend.Select(r => string.Format(
+                    CultureInfo.InvariantCulture, Localizer.T("Report.TrendLine"), r.Day, FormatBytes(r.Bytes), r.Hours)));
         ReportAiText.Text = ai.Count == 0
-            ? "（無事件）"
-            : string.Join("\n", ai.Select(r => $"{r.EventType}: {r.Count} 次"));
-        ReportStatusText.Text = $"已產生報表（{_period}）。";
+            ? Localizer.T("Report.NoEvents")
+            : string.Join(
+                "\n",
+                ai.Select(r => string.Format(
+                    CultureInfo.InvariantCulture, Localizer.T("Report.AiLine"), r.EventType, r.Count)));
+        ReportStatusText.Text = string.Format(
+            CultureInfo.InvariantCulture, Localizer.T("Report.Generated"), PeriodText(_periodKey));
 
         _lastTrend = trend;
         DrawTrendChart();
@@ -127,7 +202,8 @@ public partial class ReportsWindow : Window
                 Width = barWidth,
                 Height = barHeight,
                 Fill = new SolidColorBrush(Color.FromRgb(0x4F, 0xC3, 0xF7)),
-                ToolTip = $"{row.Day}: {FormatBytes(row.Bytes)} / {row.Hours:F2} 小時",
+                ToolTip = string.Format(
+                    CultureInfo.InvariantCulture, Localizer.T("Report.TrendLine"), row.Day, FormatBytes(row.Bytes), row.Hours),
             };
             Canvas.SetLeft(bar, padding + slot * i + (slot - barWidth) / 2);
             Canvas.SetTop(bar, height - padding - barHeight);
@@ -142,11 +218,13 @@ public partial class ReportsWindow : Window
         try
         {
             var path = WriteReportCsv();
-            ReportStatusText.Text = $"已匯出：{path}";
+            ReportStatusText.Text = string.Format(
+                CultureInfo.InvariantCulture, Localizer.T("Report.Exported"), path);
         }
         catch (Exception ex)
         {
-            ReportStatusText.Text = $"匯出失敗：{ex.Message}";
+            ReportStatusText.Text = string.Format(
+                CultureInfo.InvariantCulture, Localizer.T("Report.ExportFailed"), ex.Message);
         }
     }
 
@@ -164,7 +242,7 @@ public partial class ReportsWindow : Window
 
         var dir = Path.Combine(_dataRoot, "reports");
         Directory.CreateDirectory(dir);
-        var name = $"report-{_period}-{DateTime.UtcNow:yyyyMMddHHmmss}.csv";
+        var name = $"report-{_periodKey}-{DateTime.UtcNow:yyyyMMddHHmmss}.csv";
         var path = Path.Combine(dir, name);
         File.WriteAllText(path, csv, new UTF8Encoding(true)); // UTF-8 BOM（Excel 相容）
         return path;
@@ -181,25 +259,34 @@ public partial class ReportsWindow : Window
             var cfg = NotificationSettings.Load(_settings);
             if (!cfg.SmtpEnabled)
             {
-                ReportStatusText.Text = "未啟用 SMTP（設定中心 → 通知）。";
+                ReportStatusText.Text = Localizer.T("Report.SmtpNotEnabled");
                 return;
             }
 
             var (from, to) = Range();
             var path = WriteReportCsv();
-            var subject = $"HeliVMS 報表（{_period}，{from:yyyy-MM-dd} ~ {to:yyyy-MM-dd}）";
-            var body = $"HeliVMS 統圖報表（{_period}）\n" +
-                $"期間：{from:yyyy-MM-dd HH:mm:ss} ~ {to:yyyy-MM-dd HH:mm:ss} UTC\n" +
-                "附件為 CSV。\n";
+            var subject = string.Format(
+                CultureInfo.InvariantCulture,
+                Localizer.T("Report.EmailSubject"),
+                PeriodText(_periodKey),
+                from.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+                to.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
+            var body = string.Format(
+                CultureInfo.InvariantCulture,
+                Localizer.T("Report.EmailBody"),
+                PeriodText(_periodKey),
+                from.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture),
+                to.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture));
 
             var ok = await new SmtpNotifier().SendReportAsync(cfg, subject, body, path);
             ReportStatusText.Text = ok
-                ? $"已寄送報表至 {string.Join(", ", cfg.SmtpTo)}"
-                : "寄送失敗（請檢查 設定中心 → 通知 的 SMTP 設定）。";
+                ? string.Format(CultureInfo.InvariantCulture, Localizer.T("Report.EmailSent"), string.Join(", ", cfg.SmtpTo))
+                : Localizer.T("Report.EmailFailed");
         }
         catch (Exception ex)
         {
-            ReportStatusText.Text = $"寄送失敗：{ex.Message}";
+            ReportStatusText.Text = string.Format(
+                CultureInfo.InvariantCulture, Localizer.T("Report.EmailFailedDetail"), ex.Message);
         }
     }
 
@@ -209,36 +296,63 @@ public partial class ReportsWindow : Window
         var enabledRaw = _settings.GetOrDefault(ReportSchedule.EnabledKey, "0");
         ReportScheduleCheck.IsChecked = enabledRaw == "1" || (bool.TryParse(enabledRaw, out var b) && b);
         var cadence = ReportSchedule.ParseCadence(_settings.Get(ReportSchedule.CadenceKey), ReportCadence.Daily);
-        ReportCadenceCombo.SelectedItem = cadence == ReportCadence.Weekly ? ReportCadence.Weekly : ReportCadence.Daily;
-        ReportWeeklyDayCombo.SelectedItem =
-            ReportSchedule.TryParseDay(_settings.Get(ReportSchedule.WeeklyDayKey), out var day) ? day : DayOfWeek.Monday;
+        SelectCadence(cadence == ReportCadence.Weekly ? ReportCadence.Weekly : ReportCadence.Daily);
+        SelectDay(ReportSchedule.TryParseDay(_settings.Get(ReportSchedule.WeeklyDayKey), out var day) ? day : DayOfWeek.Monday);
         ReportScheduleTimeBox.Text =
             ReportSchedule.TryParseTime(_settings.Get(ReportSchedule.TimeKey), out var at)
-                ? at.ToString("HH\\:mm")
+                ? at.ToString("HH\\:mm", CultureInfo.InvariantCulture)
                 : ReportSchedule.DefaultTime;
         UpdateScheduleStatus();
+    }
+
+    private void SelectCadence(ReportCadence cadence)
+    {
+        foreach (var item in ReportCadenceCombo.Items)
+        {
+            if (item is CadenceOption option && option.Value == cadence)
+            {
+                ReportCadenceCombo.SelectedItem = option;
+                return;
+            }
+        }
+
+        ReportCadenceCombo.SelectedIndex = 0;
+    }
+
+    private void SelectDay(DayOfWeek day)
+    {
+        foreach (var item in ReportWeeklyDayCombo.Items)
+        {
+            if (item is DayOption option && option.Day == day)
+            {
+                ReportWeeklyDayCombo.SelectedItem = option;
+                return;
+            }
+        }
+
+        ReportWeeklyDayCombo.SelectedIndex = 0;
     }
 
     private void OnSaveScheduleClicked(object sender, RoutedEventArgs e)
     {
         if (!ReportSchedule.TryParseTime(ReportScheduleTimeBox.Text, out var at))
         {
-            ReportScheduleStatusText.Text = "時間格式須為 HH:mm（例如 08:00）。";
+            ReportScheduleStatusText.Text = Localizer.T("Report.TimeFormatError");
             return;
         }
 
         var enabled = ReportScheduleCheck.IsChecked == true;
-        var cadence = ReportCadenceCombo.SelectedItem is ReportCadence c ? c : ReportCadence.Daily;
-        var day = ReportWeeklyDayCombo.SelectedItem is DayOfWeek d ? d : DayOfWeek.Monday;
+        var cadence = ReportCadenceCombo.SelectedItem is CadenceOption c ? c.Value : ReportCadence.Daily;
+        var day = ReportWeeklyDayCombo.SelectedItem is DayOption d ? d.Day : DayOfWeek.Monday;
 
         _settings.Set(ReportSchedule.EnabledKey, enabled ? "1" : "0");
         _settings.Set(ReportSchedule.CadenceKey, ReportSchedule.ToKey(enabled ? cadence : ReportCadence.Off));
-        _settings.Set(ReportSchedule.TimeKey, at.ToString("HH\\:mm"));
+        _settings.Set(ReportSchedule.TimeKey, at.ToString("HH\\:mm", CultureInfo.InvariantCulture));
         _settings.Set(ReportSchedule.WeeklyDayKey, day.ToString());
 
         if (enabled && !NotificationSettings.Load(_settings).SmtpEnabled)
         {
-            ReportScheduleStatusText.Text = "已儲存；但 SMTP 尚未設定（設定中心 → 通知），排程不會寄出。";
+            ReportScheduleStatusText.Text = Localizer.T("Report.ScheduleSavedNoSmtp");
             return;
         }
 
@@ -249,17 +363,22 @@ public partial class ReportsWindow : Window
     {
         if (ReportScheduleCheck.IsChecked != true)
         {
-            ReportScheduleStatusText.Text = "排程未啟用。";
+            ReportScheduleStatusText.Text = Localizer.T("Report.ScheduleOff");
             return;
         }
 
-        var cadence = ReportCadenceCombo.SelectedItem is ReportCadence c ? c : ReportCadence.Daily;
-        var day = ReportWeeklyDayCombo.SelectedItem is DayOfWeek d ? d : DayOfWeek.Monday;
+        var cadence = ReportCadenceCombo.SelectedItem is CadenceOption c ? c.Value : ReportCadence.Daily;
+        var day = ReportWeeklyDayCombo.SelectedItem is DayOption d ? d.Day : DayOfWeek.Monday;
         var at = ReportSchedule.TryParseTime(ReportScheduleTimeBox.Text, out var t) ? t : new TimeOnly(8, 0);
         var next = ReportSchedule.NextDueLocal(DateTime.Now, cadence, at, day);
         ReportScheduleStatusText.Text = next is { } n
-            ? $"排程：{ReportSchedule.ToKey(cadence)} {at:HH\\:mm}；下次寄送 {n:yyyy-MM-dd HH:mm}"
-            : "排程未啟用。";
+            ? string.Format(
+                CultureInfo.InvariantCulture,
+                Localizer.T("Report.ScheduleNext"),
+                CadenceLabel(cadence),
+                at.ToString("HH\\:mm", CultureInfo.InvariantCulture),
+                n.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture))
+            : Localizer.T("Report.ScheduleOff");
     }
 
     private static string FormatBytes(long bytes)

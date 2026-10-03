@@ -55,7 +55,7 @@ public partial class AlarmManagerWindow : Window
         _triage = new AlarmTriageRepository(store);
         InitializeComponent();
         _feed = alerts is null ? null : new AlertFeed(alerts, Dispatcher, Refresh);
-        Title = Localizer.T("AlarmManager.Title");
+        ApplyI18n();
 
         foreach (var ch in new ChannelRepository(store).List())
         {
@@ -63,10 +63,10 @@ public partial class AlarmManagerWindow : Window
         }
 
         DispositionCombo.ItemsSource = AlarmEventStatus.All
-            .Select(s => new Option(s, AlarmEventStatus.Label(s)))
+            .Select(s => new Option(s, LocalizedStatus(s)))
             .ToList();
         PriorityCombo.ItemsSource = AlarmPriority.All
-            .Select(p => new Option(p, AlarmPriority.Label(p)))
+            .Select(p => new Option(p, LocalizedPriority(p)))
             .ToList();
 
         Refresh();
@@ -92,20 +92,63 @@ public partial class AlarmManagerWindow : Window
         base.OnClosed(e);
     }
 
+    /// <summary>依現況語言套用標題／欄位與按鈕文字（M57）。新開視窗以新語言顯示。</summary>
+    private void ApplyI18n()
+    {
+        Title = Localizer.T("AlarmManager.Title");
+        HeadingText.Text = Localizer.T("AlarmManager.Heading");
+        RefreshButton.Content = Localizer.T("AlarmManager.Refresh");
+        RefreshButton.ToolTip = Localizer.T("AlarmManager.RefreshTip");
+        StatusFieldLabel.Text = Localizer.T("AlarmManager.FieldStatus");
+        PriorityFieldLabel.Text = Localizer.T("AlarmManager.FieldPriority");
+        OwnerFieldLabel.Text = Localizer.T("AlarmManager.FieldOwner");
+        DueFieldLabel.Text = Localizer.T("AlarmManager.FieldDue");
+        NoteFieldLabel.Text = Localizer.T("AlarmManager.FieldNote");
+        ApplyButton.Content = Localizer.T("AlarmManager.Apply");
+        ApplyButton.ToolTip = Localizer.T("AlarmManager.ApplyTip");
+
+        if (BoardList.View is GridView grid && grid.Columns.Count >= 8)
+        {
+            grid.Columns[0].Header = Localizer.T("AlarmManager.ColTime");
+            grid.Columns[1].Header = Localizer.T("AlarmManager.ColChannel");
+            grid.Columns[2].Header = Localizer.T("AlarmManager.ColType");
+            grid.Columns[3].Header = Localizer.T("AlarmManager.ColStatus");
+            grid.Columns[4].Header = Localizer.T("AlarmManager.ColPriority");
+            grid.Columns[5].Header = Localizer.T("AlarmManager.ColOwner");
+            grid.Columns[6].Header = Localizer.T("AlarmManager.ColDue");
+            grid.Columns[7].Header = Localizer.T("AlarmManager.ColOverdue");
+        }
+    }
+
+    /// <summary>狀態代碼轉現況語言標籤；非已知代碼原樣顯示（與 AlarmEventStatus.Label 同語意但可多語）。</summary>
+    private static string LocalizedStatus(string status)
+        => AlarmEventStatus.IsValid(status) ? Localizer.T("AlarmStatus." + status) : status;
+
+    /// <summary>優先序代碼轉現況語言標籤；非已知代碼原樣顯示。</summary>
+    private static string LocalizedPriority(string priority)
+        => AlarmPriority.IsValid(priority) ? Localizer.T("AlarmPriority." + priority) : priority;
+
     private void OnRefreshClicked(object sender, RoutedEventArgs e)
     {
         Refresh();
-        ManagerStatusText.Text = "已重新整理。";
+        ManagerStatusText.Text = Localizer.T("AlarmManager.Refreshed");
     }
 
     private void Refresh()
     {
         var now = DateTime.UtcNow;
         var summary = _triage.Summarize(now);
-        SummaryText.Text = $"待處理 {summary.Pending}／已確認 {summary.Acknowledged}／" +
-                           $"已處理 {summary.Actioned}／誤報 {summary.FalseAlarm}／逾期 {summary.Overdue}" +
-                           $"　（自動更新 {now.ToLocalTime():HH:mm:ss}）";
-        Title = $"HeliVMS 警報管理器（未確認 {summary.Pending}）";
+        SummaryText.Text = string.Format(
+            CultureInfo.InvariantCulture,
+            Localizer.T("AlarmManager.Summary"),
+            summary.Pending,
+            summary.Acknowledged,
+            summary.Actioned,
+            summary.FalseAlarm,
+            summary.Overdue,
+            now.ToLocalTime().ToString("HH:mm:ss", CultureInfo.InvariantCulture));
+        Title = string.Format(
+            CultureInfo.InvariantCulture, Localizer.T("AlarmManager.TitleWithPending"), summary.Pending);
 
         var rows = _triage.ListBoard(now).Select(r => new BoardRow
         {
@@ -115,13 +158,13 @@ public partial class AlarmManagerWindow : Window
             StartLabel = r.StartUtc.ToLocalTime().ToString("MM-dd HH:mm:ss", CultureInfo.InvariantCulture),
             ChannelLabel = _channelNames.TryGetValue(r.ChannelId, out var name) ? name : $"#{r.ChannelId}",
             TypeLabel = r.EventType,
-            StatusLabel = AlarmEventStatus.Label(r.Status),
-            PriorityLabel = AlarmPriority.Label(r.Priority),
+            StatusLabel = LocalizedStatus(r.Status),
+            PriorityLabel = LocalizedPriority(r.Priority),
             OwnerLabel = r.Owner ?? r.AssignedTo ?? string.Empty,
             DueLabel = r.DueUtc is { } due
                 ? due.ToLocalTime().ToString("MM-dd HH:mm", CultureInfo.InvariantCulture)
                 : string.Empty,
-            OverdueLabel = r.IsOverdue ? "是" : string.Empty,
+            OverdueLabel = r.IsOverdue ? Localizer.T("AlarmManager.OverdueYes") : string.Empty,
         }).ToList();
 
         BoardList.ItemsSource = rows;
@@ -160,7 +203,7 @@ public partial class AlarmManagerWindow : Window
     {
         if (BoardList.SelectedItem is not BoardRow row)
         {
-            ManagerStatusText.Text = "請先於清單選取事件。";
+            ManagerStatusText.Text = Localizer.T("AlarmManager.NeedSelection");
             return;
         }
 
@@ -184,8 +227,12 @@ public partial class AlarmManagerWindow : Window
         _events.SetDisposition(row.EventId, status, owner, note, now);
         _triage.SetTriage(row.EventId, priority, dueUtc, owner, now);
 
-        ManagerStatusText.Text =
-            $"已更新事件 #{row.EventId}（狀態={AlarmEventStatus.Label(status)}、優先序={AlarmPriority.Label(priority)}）。";
+        ManagerStatusText.Text = string.Format(
+            CultureInfo.InvariantCulture,
+            Localizer.T("AlarmManager.Updated"),
+            row.EventId,
+            LocalizedStatus(status),
+            LocalizedPriority(priority));
         Refresh();
     }
 }
