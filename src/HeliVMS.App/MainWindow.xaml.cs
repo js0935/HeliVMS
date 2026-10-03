@@ -1938,6 +1938,11 @@ public partial class MainWindow : Window
 
     private void OnSystemHealthClicked(object sender, RoutedEventArgs e) => OpenSystemHealthWindow();
 
+    /// <summary>開啟智慧牆視窗（M105/M106，§14.7 #14）：版面編輯與警報牆快照。</summary>
+    private void OpenSmartwallWindow() => OpenChild(new SmartwallWindow(_store!));
+
+    private void OnSmartwallClicked(object sender, RoutedEventArgs e) => OpenSmartwallWindow();
+
     /// <summary>開啟複合事件規則視窗（M62，§5.10）。admin 限定。</summary>
     private void OpenRulesWindow()
     {
