@@ -1,4 +1,6 @@
+using System.Globalization;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Shapes;
 using System.Windows.Threading;
@@ -17,6 +19,7 @@ public partial class SystemHealthWindow : Window
     public SystemHealthWindow()
     {
         InitializeComponent();
+        ApplyI18n();
         Refresh();
         _timer.Tick += (_, _) => Refresh();
         _timer.Start();
@@ -24,6 +27,24 @@ public partial class SystemHealthWindow : Window
     }
 
     private void OnRefreshClicked(object sender, RoutedEventArgs e) => Refresh();
+
+    /// <summary>依現況語言套用標題、欄位與按鈕文字（M57）。</summary>
+    private void ApplyI18n()
+    {
+        Title = Localizer.T("Health.Title");
+        HeadingText.Text = Localizer.T("Health.Heading");
+        HealthRefreshButton.Content = Localizer.T("Health.Refresh");
+        TrendLabel.Text = Localizer.T("Health.Trend");
+
+        if (HealthDiskList.View is GridView grid && grid.Columns.Count >= 5)
+        {
+            grid.Columns[0].Header = Localizer.T("Health.ColDisk");
+            grid.Columns[1].Header = Localizer.T("Health.ColTotal");
+            grid.Columns[2].Header = Localizer.T("Health.ColFree");
+            grid.Columns[3].Header = Localizer.T("Health.ColFreePercent");
+            grid.Columns[4].Header = Localizer.T("Health.ColFormat");
+        }
+    }
 
     /// <summary>
     /// 每次 Capture() 也會把量測點推進趨勢佇列，所以定時呼叫本身就是在累積 60 分鐘歷史；
@@ -34,11 +55,14 @@ public partial class SystemHealthWindow : Window
         try
         {
             var s = SystemMetricsService.Capture();
-            HealthSummaryText.Text =
-                $"擷取時間：{s.CapturedAtUtc}\n" +
-                $"運行時間：{s.UptimeMinutes} 分鐘\n" +
-                $"工作集：{s.WorkingSetMb} MB　　受控堆積：{s.ManagedHeapMb} MB\n" +
-                $"CPU：{s.CpuPercent:0.#}%";
+            HealthSummaryText.Text = string.Format(
+                CultureInfo.InvariantCulture,
+                Localizer.T("Health.Summary"),
+                s.CapturedAtUtc,
+                s.UptimeMinutes,
+                s.WorkingSetMb,
+                s.ManagedHeapMb,
+                s.CpuPercent.ToString("0.#", CultureInfo.InvariantCulture));
 
             HealthDiskList.ItemsSource = s.Disks
                 .Select(d => new
@@ -52,11 +76,15 @@ public partial class SystemHealthWindow : Window
                 .ToList();
 
             RenderTrend(SystemMetricsService.CaptureHistory());
-            HealthStatusText.Text = $"已更新（{DateTime.Now:HH:mm:ss}），每 5 秒自動更新。";
+            HealthStatusText.Text = string.Format(
+                CultureInfo.InvariantCulture,
+                Localizer.T("Health.Updated"),
+                DateTime.Now.ToString("HH:mm:ss", CultureInfo.InvariantCulture));
         }
         catch (Exception ex)
         {
-            HealthStatusText.Text = $"讀取失敗：{ex.Message}";
+            HealthStatusText.Text = string.Format(
+                CultureInfo.InvariantCulture, Localizer.T("Health.Failed"), ex.Message);
         }
     }
 

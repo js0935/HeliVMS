@@ -147,6 +147,18 @@ public static class I18n
         ["Pos.ImportFailed"] = "匯入失敗：{0}",
         ["Pos.ImportDone"] = "匯入完成：新增 {0}、重複 {1}、略過 {2}。",
         ["Pos.Recon"] = "對帳：總計 {0}、相符 {1}、未符 {2}、重複 {3}（候選事件 {4}）。",
+        ["Health.Title"] = "HeliVMS 系統健康",
+        ["Health.Heading"] = "系統健康：本機計數器的記憶體／CPU／磁碟與 60 分鐘趨勢。",
+        ["Health.Refresh"] = "立即更新",
+        ["Health.Trend"] = "工作集記憶體趨勢（最近 60 點）",
+        ["Health.ColDisk"] = "磁碟",
+        ["Health.ColTotal"] = "總容量",
+        ["Health.ColFree"] = "可用",
+        ["Health.ColFreePercent"] = "可用率",
+        ["Health.ColFormat"] = "格式",
+        ["Health.Summary"] = "擷取時間：{0}\n運行時間：{1} 分鐘\n工作集：{2} MB　　受控堆積：{3} MB\nCPU：{4}%",
+        ["Health.Updated"] = "已更新（{0}），每 5 秒自動更新。",
+        ["Health.Failed"] = "讀取失敗：{0}",
     };
 
     private static readonly IReadOnlyDictionary<string, string> zhHans = new Dictionary<string, string>(StringComparer.Ordinal)
@@ -284,6 +296,18 @@ public static class I18n
         ["Pos.ImportFailed"] = "导入失败：{0}",
         ["Pos.ImportDone"] = "导入完成：新增 {0}、重复 {1}、跳过 {2}。",
         ["Pos.Recon"] = "对账：总计 {0}、相符 {1}、未符 {2}、重复 {3}（候选事件 {4}）。",
+        ["Health.Title"] = "HeliVMS 系统健康",
+        ["Health.Heading"] = "系统健康：本机计数器的内存／CPU／磁盘与 60 分钟趋势。",
+        ["Health.Refresh"] = "立即刷新",
+        ["Health.Trend"] = "工作集内存趋势（最近 60 点）",
+        ["Health.ColDisk"] = "磁盘",
+        ["Health.ColTotal"] = "总容量",
+        ["Health.ColFree"] = "可用",
+        ["Health.ColFreePercent"] = "可用率",
+        ["Health.ColFormat"] = "格式",
+        ["Health.Summary"] = "采集时间：{0}\n运行时间：{1} 分钟\n工作集：{2} MB　　受控堆：{3} MB\nCPU：{4}%",
+        ["Health.Updated"] = "已更新（{0}），每 5 秒自动刷新。",
+        ["Health.Failed"] = "读取失败：{0}",
     };
 
     private static readonly IReadOnlyDictionary<string, string> en = new Dictionary<string, string>(StringComparer.Ordinal)
@@ -421,6 +445,18 @@ public static class I18n
         ["Pos.ImportFailed"] = "Import failed: {0}",
         ["Pos.ImportDone"] = "Import complete: added {0}, duplicate {1}, skipped {2}.",
         ["Pos.Recon"] = "Reconcile: total {0}, matched {1}, unmatched {2}, duplicates {3} (candidate events {4}).",
+        ["Health.Title"] = "HeliVMS System Health",
+        ["Health.Heading"] = "System health: local memory / CPU / disk and a 60-minute trend.",
+        ["Health.Refresh"] = "Refresh now",
+        ["Health.Trend"] = "Working set memory trend (last 60 points)",
+        ["Health.ColDisk"] = "Disk",
+        ["Health.ColTotal"] = "Total",
+        ["Health.ColFree"] = "Free",
+        ["Health.ColFreePercent"] = "Free %",
+        ["Health.ColFormat"] = "Format",
+        ["Health.Summary"] = "Captured: {0}\nUptime: {1} min\nWorking set: {2} MB    Managed heap: {3} MB\nCPU: {4}%",
+        ["Health.Updated"] = "Updated ({0}); auto-refreshes every 5 seconds.",
+        ["Health.Failed"] = "Read failed: {0}",
     };
 
     private static readonly Dictionary<string, IReadOnlyDictionary<string, string>> Tables = new(StringComparer.Ordinal)
