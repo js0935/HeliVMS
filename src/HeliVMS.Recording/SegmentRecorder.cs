@@ -16,16 +16,21 @@ public sealed class SegmentRecorder : ISegmentRecorder
     public const int DefaultSegmentSeconds = 600;
     private readonly SegmentRepository _repo;
     private readonly IProcessFactory _processFactory;
+    private readonly Func<string, string> _audioEncoderArgsFor;
     private readonly CancellationTokenSource _cts = new();
     private Process? _process;
     private IProcess? _testProcess;
     private long _activeSegmentId = -1;
     private Task? _loop;
 
-    public SegmentRecorder(SegmentRepository repo, IProcessFactory? processFactory = null)
+    public SegmentRecorder(
+        SegmentRepository repo,
+        IProcessFactory? processFactory = null,
+        Func<string, string>? audioEncoderArgsFor = null)
     {
         _repo = repo;
         _processFactory = processFactory ?? new DefaultProcessFactory();
+        _audioEncoderArgsFor = audioEncoderArgsFor ?? DefaultAudioEncoderArgsFor;
     }
 
     public int ChannelId { get; private set; }
@@ -87,7 +92,7 @@ public sealed class SegmentRecorder : ISegmentRecorder
         {
             try
             {
-                audioEncoderArgs ??= ProbeAudioEncoderArgs();
+                audioEncoderArgs ??= _audioEncoderArgsFor(RtspUrl!);
                 await RecordOneSegmentAsync(recordingsRoot, audioEncoderArgs, token);
             }
             catch (OperationCanceledException)
@@ -171,9 +176,14 @@ public sealed class SegmentRecorder : ISegmentRecorder
         }
     }
 
-    private string ProbeAudioEncoderArgs()
+    /// <summary>
+    /// 預設音訊參數決策：以 ffprobe 探測一次，依結果決定 copy／aac 轉碼／不錄音。
+    /// 抽成可注入的委派，是為了讓 <see cref="SegmentRecorder"/> 的錄影收尾行為能在
+    /// 不連攝影機、不跑 ffprobe 的情況下被測（見 `SegmentRecorderTests`）。
+    /// </summary>
+    private static string DefaultAudioEncoderArgsFor(string rtspUrl)
     {
-        var info = StreamProbe.Probe(RtspUrl!);
+        var info = StreamProbe.Probe(rtspUrl);
         return info.AudioCodec switch
         {
             null => string.Empty,
