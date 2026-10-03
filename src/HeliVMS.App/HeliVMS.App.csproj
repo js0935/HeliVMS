@@ -5,7 +5,6 @@
     <ProjectReference Include="..\HeliVMS.Core\HeliVMS.Core.csproj" />
     <ProjectReference Include="..\HeliVMS.Licensing\HeliVMS.Licensing.csproj" />
     <ProjectReference Include="..\HeliVMS.Media\HeliVMS.Media.csproj" />
-    <ProjectReference Include="..\HeliVMS.Decoder\HeliVMS.Decoder.csproj" />
     <ProjectReference Include="..\HeliVMS.Recording\HeliVMS.Recording.csproj" />
     <ProjectReference Include="..\HeliVMS.Alarms\HeliVMS.Alarms.csproj" />
     <ProjectReference Include="..\HeliVMS.Devices\HeliVMS.Devices.csproj" />

@@ -1,0 +1,51 @@
+{
+  "version": 1,
+  "dependencies": {
+    "net10.0-windows7.0": {
+      "FFmpeg.AutoGen.Abstractions": {
+        "type": "Direct",
+        "requested": "[8.0.0.1, )",
+        "resolved": "8.0.0.1",
+        "contentHash": "QfwLthmifVAqgbghnlHbgaHEUPI3LUhMTeu1saQf525K6qZtX40G20QidX5KcvTxd/eTG0cBbjTGHh5uaQX0XQ=="
+      },
+      "FFmpeg.AutoGen.Bindings.DynamicallyLoaded": {
+        "type": "Direct",
+        "requested": "[8.0.0.1, )",
+        "resolved": "8.0.0.1",
+        "contentHash": "/LYBhxyBV74O+UrSkZ7xPQCL63f4gGw45q3VQnsMNHCw6MA5tsX+pgHzmMK4SOpBfiTZ/FY2/2z1XKCk0skHqw==",
+        "dependencies": {
+          "FFmpeg.AutoGen.Abstractions": "8.0.0.1"
+        }
+      },
+      "Serilog": {
+        "type": "Direct",
+        "requested": "[4.2.0, )",
+        "resolved": "4.2.0",
+        "contentHash": "gmoWVOvKgbME8TYR+gwMf7osROiWAURterc6Rt2dQyX7wtjZYpqFiA/pY6ztjGQKKV62GGCyOcmtP1UKMHgSmA=="
+      },
+      "Serilog.Sinks.File": {
+        "type": "Direct",
+        "requested": "[6.0.0, )",
+        "resolved": "6.0.0",
+        "contentHash": "lxjg89Y8gJMmFxVkbZ+qDgjl+T4yC5F7WSLTvA+5q0R04tfKVLRL/EHpYoJ/MEQd2EeCKDuylBIVnAYMotmh2A==",
+        "dependencies": {
+          "Serilog": "4.0.0"
+        }
+      },
+      "System.Drawing.Common": {
+        "type": "Direct",
+        "requested": "[9.0.4, )",
+        "resolved": "9.0.4",
+        "contentHash": "SbtusMUT1bCxZ14904ZPo2GZyelze0rwUni9wXrp8KX9Zlsda8idqpxra1RBvOA85WM0wW+fCI4GLrlCTYiE6A==",
+        "dependencies": {
+          "Microsoft.Win32.SystemEvents": "9.0.4"
+        }
+      },
+      "Microsoft.Win32.SystemEvents": {
+        "type": "Transitive",
+        "resolved": "9.0.4",
+        "contentHash": "kHgtAkXhNEP8oGuAVe3Q5admxsdMlSdWE2rXcA9FfeGDZJQawPccmZgnOswgW3ugUPSJt7VH+TMQPz65mnhGSQ=="
+      }
+    }
+  }
+}

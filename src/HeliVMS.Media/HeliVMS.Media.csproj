@@ -2,7 +2,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\HeliVMS.Core\HeliVMS.Core.csproj" />
-    <ProjectReference Include="..\HeliVMS.Decoder\HeliVMS.Decoder.csproj" />
     <ProjectReference Include="..\HeliVMS.Shared\HeliVMS.Shared.csproj" />
   </ItemGroup>
 

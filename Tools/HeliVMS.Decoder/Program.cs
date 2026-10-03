@@ -349,7 +349,8 @@ static AVHWDeviceType ParseHwAccel(string? value) => (value?.ToLowerInvariant())
     _ => AVHWDeviceType.AV_HWDEVICE_TYPE_NONE,
 };
 
-/// <summary>Auto-detect best available HW decoder: D3D11VA &gt; CUDA &gt; QSV &gt; DXVA2 &gt; software fallback</summary>
+// 依序嘗試 D3D11VA > CUDA > QSV > DXVA2，都拿不到就退回軟體解碼。
+// 這是 top-level statements 檔案裡的 local function，不能掛 XML doc comment（CS1587）。
 static AVHWDeviceType AutoDetectHwAccel()
 {
     // Collect available HW device types from FFmpeg
