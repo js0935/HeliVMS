@@ -21,9 +21,13 @@ public partial class SynopsisWindow : Window
         _synopsisRoot = Path.Combine(dataRoot, "synopsis");
         _events = new AlarmEventRepository(store);
         InitializeComponent();
+        ApplyI18n();
 
         var channels = new ChannelRepository(store).List();
-        SynopsisChannelCombo.ItemsSource = channels.Select(c => new ChannelItem(c.Id, $"頻道 {c.Id}（{c.Name}）")).ToList();
+        SynopsisChannelCombo.ItemsSource = channels
+            .Select(c => new ChannelItem(c.Id, string.Format(
+                CultureInfo.InvariantCulture, Localizer.T("Synopsis.ChannelItem"), c.Id, c.Name)))
+            .ToList();
         SynopsisChannelCombo.DisplayMemberPath = "Label";
         SynopsisChannelCombo.SelectedIndex = channels.Count > 0 ? 0 : -1;
 
@@ -34,20 +38,33 @@ public partial class SynopsisWindow : Window
 
     private sealed record ChannelItem(int Id, string Label);
 
+    /// <summary>依現況語言套用標題、欄位與按鈕文字（M57）。</summary>
+    private void ApplyI18n()
+    {
+        Title = Localizer.T("Synopsis.Title");
+        SynopsisHeadingText.Text = Localizer.T("Synopsis.Heading");
+        SynopsisChannelLabel.Text = Localizer.T("Synopsis.Channel");
+        SynopsisFromLabel.Text = Localizer.T("Synopsis.From");
+        SynopsisToLabel.Text = Localizer.T("Synopsis.To");
+        SynopsisBuildButton.Content = Localizer.T("Synopsis.Build");
+        SynopsisBuildButton.ToolTip = Localizer.T("Synopsis.BuildTip");
+        SynopsisTimeHintText.Text = Localizer.T("Synopsis.TimeHint");
+    }
+
     private void OnBuildClicked(object sender, RoutedEventArgs e)
     {
         try
         {
             if (SynopsisChannelCombo.SelectedItem is not ChannelItem channel)
             {
-                SynopsisStatusText.Text = "尚未選擇頻道。";
+                SynopsisStatusText.Text = Localizer.T("Synopsis.NoChannel");
                 return;
             }
 
             if (!TryParseTime(SynopsisFromBox.Text, out var fromLocal) ||
                 !TryParseTime(SynopsisToBox.Text, out var toLocal))
             {
-                SynopsisStatusText.Text = "時間格式應為 yyyy-MM-dd HH:mm。";
+                SynopsisStatusText.Text = Localizer.T("Synopsis.BadTime");
                 return;
             }
 
@@ -55,7 +72,7 @@ public partial class SynopsisWindow : Window
             var toUtc = toLocal.ToUniversalTime();
             if (toUtc < fromUtc)
             {
-                SynopsisStatusText.Text = "訖時間早於起時間。";
+                SynopsisStatusText.Text = Localizer.T("Synopsis.ToBeforeFrom");
                 return;
             }
 
@@ -74,9 +91,9 @@ public partial class SynopsisWindow : Window
 
             if (result is null)
             {
-                SynopsisSummaryText.Text = "此時間範圍內沒有可摘要的偵測事件（需要快照）。";
+                SynopsisSummaryText.Text = Localizer.T("Synopsis.NoEvents");
                 SynopsisImage.Source = null;
-                SynopsisStatusText.Text = "未產生摘要。";
+                SynopsisStatusText.Text = Localizer.T("Synopsis.NotBuilt");
                 return;
             }
 
@@ -85,11 +102,14 @@ public partial class SynopsisWindow : Window
             {
                 CacheOption = BitmapCacheOption.OnLoad,
             };
-            SynopsisStatusText.Text = $"拼貼：{result.SheetPath}\nmanifest：{result.ManifestPath}";
+            SynopsisStatusText.Text = string.Format(
+                CultureInfo.InvariantCulture,
+                Localizer.T("Synopsis.Built"), result.SheetPath, result.ManifestPath);
         }
         catch (Exception ex)
         {
-            SynopsisStatusText.Text = $"產生失敗：{ex.Message}";
+            SynopsisStatusText.Text = string.Format(
+                CultureInfo.InvariantCulture, Localizer.T("Synopsis.Failed"), ex.Message);
         }
     }
 

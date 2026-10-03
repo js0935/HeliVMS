@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.IO;
 using System.Windows;
 using System.Windows.Media.Imaging;
@@ -32,17 +33,30 @@ public partial class SnapshotRedactWindow : Window
         _channelId = channelId;
         _occurredAtUtc = occurredAtUtc;
         InitializeComponent();
-
-        Title = $"快照遮蔽 · 事件 #{eventId}";
+        ApplyI18n();
         LoadPreview(snapshotPath);
         ReloadRegions();
+    }
+
+    /// <summary>依現況語言套用標題、欄位與按鈕文字（M57）。事件編號為動態，故於此組字。</summary>
+    private void ApplyI18n()
+    {
+        Title = string.Format(CultureInfo.InvariantCulture, Localizer.T("SnapRedact.Title"), _eventId);
+        SnapRedactHint.Text = Localizer.T("SnapRedact.Loading");
+        SnapRedactHeadingText.Text = Localizer.T("SnapRedact.Heading");
+        RegionWidthLabel.Text = Localizer.T("SnapRedact.Width");
+        RegionHeightLabel.Text = Localizer.T("SnapRedact.Height");
+        AddRegionButton.Content = Localizer.T("SnapRedact.Add");
+        RemoveRegionButton.Content = Localizer.T("SnapRedact.Remove");
+        ApplyRedactButton.Content = Localizer.T("SnapRedact.Apply");
+        ApplyRedactButton.ToolTip = Localizer.T("SnapRedact.ApplyTip");
     }
 
     private void LoadPreview(string path)
     {
         if (!File.Exists(path))
         {
-            SnapRedactHint.Text = "快照檔已不在（可能已清理）。";
+            SnapRedactHint.Text = Localizer.T("SnapRedact.Gone");
             return;
         }
 
@@ -60,7 +74,8 @@ public partial class SnapshotRedactWindow : Window
         }
         catch (Exception ex) when (ex is IOException or NotSupportedException or System.Runtime.InteropServices.COMException)
         {
-            SnapRedactHint.Text = "無法開啟快照：" + ex.Message;
+            SnapRedactHint.Text = string.Format(
+                CultureInfo.InvariantCulture, Localizer.T("SnapRedact.OpenFailed"), ex.Message);
             SnapRedactHint.Visibility = Visibility.Visible;
         }
     }
@@ -69,7 +84,14 @@ public partial class SnapshotRedactWindow : Window
     {
         _regions = _redactions.QueryBySource(RedactionSources.Snapshot, _eventId).ToList();
         RegionList.ItemsSource = _regions
-            .Select(r => new RegionRow(r, $"({r.X}, {r.Y}) {r.Width}×{r.Height} {(r.Filled ? "實心" : "模糊")}"))
+            .Select(r => new RegionRow(r, string.Format(
+                CultureInfo.InvariantCulture,
+                Localizer.T("SnapRedact.RegionItem"),
+                r.X,
+                r.Y,
+                r.Width,
+                r.Height,
+                Localizer.T(r.Filled ? "SnapRedact.Filled" : "SnapRedact.Blur"))))
             .ToList();
         RegionList.DisplayMemberPath = nameof(RegionRow.Label);
     }
@@ -80,7 +102,7 @@ public partial class SnapshotRedactWindow : Window
             !int.TryParse(RegionW.Text, out var w) || !int.TryParse(RegionH.Text, out var h) ||
             w <= 0 || h <= 0)
         {
-            SnapRedactStatusText.Text = "遮蔽區域需為正整數（寬高大於 0）。";
+            SnapRedactStatusText.Text = Localizer.T("SnapRedact.NeedPositive");
             return;
         }
 
@@ -88,7 +110,8 @@ public partial class SnapshotRedactWindow : Window
             RedactionSources.Snapshot, _eventId, _channelId, _occurredAtUtc,
             x, y, w, h, filled: true, DateTime.UtcNow);
         ReloadRegions();
-        SnapRedactStatusText.Text = $"已記錄遮蔽區域：({x}, {y}) {w}×{h}。";
+        SnapRedactStatusText.Text = string.Format(
+            CultureInfo.InvariantCulture, Localizer.T("SnapRedact.Added"), x, y, w, h);
     }
 
     private void OnRemoveRegionClicked(object sender, RoutedEventArgs e)
@@ -96,26 +119,26 @@ public partial class SnapshotRedactWindow : Window
         // DisplayMemberPath 之下 SelectedItem 仍是 RegionRow。
         if (RegionList.SelectedItem is not RegionRow row)
         {
-            SnapRedactStatusText.Text = "請先於清單選取要移除的遮蔽區域。";
+            SnapRedactStatusText.Text = Localizer.T("SnapRedact.PickToRemove");
             return;
         }
 
         _redactions.Remove(row.Region.Id);
         ReloadRegions();
-        SnapRedactStatusText.Text = "已移除遮蔽區域。";
+        SnapRedactStatusText.Text = Localizer.T("SnapRedact.Removed");
     }
 
     private void OnApplyRedactClicked(object sender, RoutedEventArgs e)
     {
         if (_regions.Count == 0)
         {
-            SnapRedactStatusText.Text = "尚無遮蔽區域，請先新增。";
+            SnapRedactStatusText.Text = Localizer.T("SnapRedact.NoRegions");
             return;
         }
 
         if (!File.Exists(_snapshotPath))
         {
-            SnapRedactStatusText.Text = "快照檔已不在，無法套用。";
+            SnapRedactStatusText.Text = Localizer.T("SnapRedact.GoneApply");
             return;
         }
 
@@ -137,11 +160,17 @@ public partial class SnapshotRedactWindow : Window
             ShowBitmap(result.Image);
 
             SnapRedactHint.Visibility = Visibility.Collapsed;
-            SnapRedactStatusText.Text = $"已套用 {result.AppliedRegions}/{_regions.Count} 個區域 → {outputPath}";
+            SnapRedactStatusText.Text = string.Format(
+                CultureInfo.InvariantCulture,
+                Localizer.T("SnapRedact.Applied"),
+                result.AppliedRegions,
+                _regions.Count,
+                outputPath);
         }
         catch (Exception ex)
         {
-            SnapRedactStatusText.Text = "遮蔽失敗：" + ex.Message;
+            SnapRedactStatusText.Text = string.Format(
+                CultureInfo.InvariantCulture, Localizer.T("SnapRedact.Failed"), ex.Message);
         }
     }
 

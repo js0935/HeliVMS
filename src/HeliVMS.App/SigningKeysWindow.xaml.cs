@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Windows;
+using System.Windows.Controls;
 using HeliVMS.Shared.Models;
 using HeliVMS.Storage;
 
@@ -19,8 +20,26 @@ public partial class SigningKeysWindow : Window
     {
         _receipts = new ExportReceiptService(store);
         InitializeComponent();
-        Title = "HeliVMS 匯出簽章金鑰";
+        ApplyI18n();
         Reload();
+    }
+
+    /// <summary>依現況語言套用標題、欄位與按鈕文字（M57）。</summary>
+    private void ApplyI18n()
+    {
+        Title = Localizer.T("Signing.Title");
+        CurrentHeadingText.Text = Localizer.T("Signing.CurrentHeading");
+        HistoryHeadingText.Text = Localizer.T("Signing.HistoryHeading");
+        RefreshKeysButton.Content = Localizer.T("Signing.Refresh");
+        RefreshKeysButton.ToolTip = Localizer.T("Signing.RefreshTip");
+        RotateKeyButton.Content = Localizer.T("Signing.Rotate");
+        RotateKeyButton.ToolTip = Localizer.T("Signing.RotateTip");
+
+        if (KeyHistoryList.View is GridView grid && grid.Columns.Count >= 2)
+        {
+            grid.Columns[0].Header = Localizer.T("Signing.ColFingerprint");
+            grid.Columns[1].Header = Localizer.T("Signing.ColRetired");
+        }
     }
 
     private sealed record KeyRow(string Fingerprint, string RetiredLabel);
@@ -38,7 +57,7 @@ public partial class SigningKeysWindow : Window
     private void OnRefreshClicked(object sender, RoutedEventArgs e)
     {
         Reload();
-        SigningStatusText.Text = "已重新載入簽章金鑰。";
+        SigningStatusText.Text = Localizer.T("Signing.Refreshed");
     }
 
     private void OnRotateClicked(object sender, RoutedEventArgs e)
@@ -47,18 +66,21 @@ public partial class SigningKeysWindow : Window
         if (!_rotateArm)
         {
             _rotateArm = true;
-            RotateKeyButton.Content = "確認換發？";
-            SigningStatusText.Text = "換發後現行金鑰會進入歷史，舊收據仍可用歷史指紋驗證。再按一次確認。";
+            RotateKeyButton.Content = Localizer.T("Signing.RotateConfirm");
+            SigningStatusText.Text = Localizer.T("Signing.ConfirmHint");
             return;
         }
 
         _rotateArm = false;
-        RotateKeyButton.Content = "換發金鑰";
+        RotateKeyButton.Content = Localizer.T("Signing.Rotate");
         var actor = SessionContext.CurrentUser?.Username ?? "system";
         var rotation = _receipts.RotateSigningKey(actor);
-        SigningStatusText.Text =
-            $"已換發：{rotation.PreviousFingerprint} → {rotation.NewFingerprint}" +
-            $"（{rotation.RotatedUtc.ToLocalTime():yyyy-MM-dd HH:mm:ss}）";
+        SigningStatusText.Text = string.Format(
+            CultureInfo.InvariantCulture,
+            Localizer.T("Signing.Rotated"),
+            rotation.PreviousFingerprint,
+            rotation.NewFingerprint,
+            rotation.RotatedUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture));
         Reload();
     }
 }
