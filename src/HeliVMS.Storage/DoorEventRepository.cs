@@ -99,6 +99,49 @@ public sealed class DoorEventRepository
         });
     }
 
+    /// <summary>
+    /// 去重匯入（M92／§14.7 #8 門禁接口）：同設備＋同門＋同卡＋同方向＋同放行結果＋同原因，
+    /// 且時間落在 <paramref name="keyWindow"/> 內視為重複（回傳既有 id，不新增）。回 (Id, Inserted)。
+    /// 門禁控制器常對同一刷卡重送；不去重會讓出入統計與 FTS 檢索多報。
+    /// </summary>
+    public (long Id, bool Inserted) InsertDedupe(
+        int deviceId,
+        int doorId,
+        string cardId,
+        string direction,
+        bool granted,
+        string reason,
+        DateTime occurredAtUtc,
+        TimeSpan keyWindow)
+    {
+        var existing = _store.Query<long?>(
+            @"SELECT id FROM door_events
+              WHERE device_id = $d AND door_id = $door AND card_id = $card AND direction = $dir
+                AND granted = $g AND reason = $r
+                AND ABS(julianday(occurred_at_utc) - julianday($t)) <= $win
+              ORDER BY id
+              LIMIT 1;",
+            static r => r.Read() ? r.GetInt64(0) : null,
+            cmd =>
+            {
+                cmd.Parameters.AddWithValue("$d", deviceId);
+                cmd.Parameters.AddWithValue("$door", doorId);
+                cmd.Parameters.AddWithValue("$card", cardId);
+                cmd.Parameters.AddWithValue("$dir", direction);
+                cmd.Parameters.AddWithValue("$g", granted ? 1 : 0);
+                cmd.Parameters.AddWithValue("$r", reason);
+                cmd.Parameters.AddWithValue("$t", SqliteStore.Iso(occurredAtUtc));
+                cmd.Parameters.AddWithValue("$win", keyWindow.TotalDays);
+            });
+
+        if (existing is not null)
+        {
+            return (existing.Value, false);
+        }
+
+        return (Insert(deviceId, doorId, cardId, direction, granted, reason, occurredAtUtc), true);
+    }
+
     public long CountByCard(string cardId, DateTime? fromUtc, DateTime? toUtc)
     {
         var where = "card_id = $card";

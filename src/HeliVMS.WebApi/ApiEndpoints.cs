@@ -35,6 +35,12 @@ public static class ApiEndpoints
 
     /// <summary>POS 匯入結果：<c>Inserted=false</c> 代表同一交易在去重窗內已存在，回傳既有 Id。</summary>
     public sealed record PosIngestResult(long Id, bool Inserted);
+
+    /// <summary>門禁刷卡事件匯入（M92／§14.7 #8）：direction 為 In／Out（大小寫不拘）。</summary>
+    public sealed record DoorEventRequest(int DeviceId, int DoorId, string CardId, string Direction, bool Granted, string? Reason, DateTime OccurredAtUtc);
+
+    /// <summary>門禁匯入結果：<c>Inserted=false</c> 代表同一刷卡在去重窗內已存在，回傳既有 Id。</summary>
+    public sealed record DoorEventIngestResult(long Id, bool Inserted);
     public sealed record LoginRequest(string Username, string Password);
     public sealed record AccountUpsertRequest(string Username, string Password, string Role, string? DisplayName);
     public sealed record AccountPatchRequest(string? Role, bool? Enabled, string? DisplayName);
@@ -99,6 +105,9 @@ public static class ApiEndpoints
     public sealed record PatrolUpsertRequest(string Name, int ChannelId, bool Enabled, string? WindowStart, string? WindowEnd, IReadOnlyList<PatrolStepBody>? Steps);
 
     private static readonly TimeSpan ReconWindow = TimeSpan.FromSeconds(10);
+
+    /// <summary>門禁匯入去重窗：僅吸收控制器短時間內的重送，不吞掉正常重複刷卡。</summary>
+    private static readonly TimeSpan DoorDedupeWindow = TimeSpan.FromSeconds(5);
 
     public static void MapAll(WebApplication app)
     {
@@ -648,6 +657,9 @@ public static class ApiEndpoints
                 .Select(d => new DoorEventItem(d.Id, d.DeviceId, d.DoorId, d.CardId, d.Direction, d.Granted, d.Reason, SqliteStore.Iso(d.OccurredAtUtc)))
                 .ToList());
         });
+
+        // 門禁事件匯入端點：門禁控制器／中介服務可直接推送刷卡事件；以去重窗吸收重送。
+        api.MapPost("/door/events", HandleDoorIngest);
 
         api.MapGet("/detections", static (int? channelId, string? @class, float? minConfidence, DateTime? from, DateTime? to, int? limit, DetectionRepository detections) =>
         {
@@ -1603,6 +1615,38 @@ public static class ApiEndpoints
 
         context.Response.StatusCode = inserted ? StatusCodes.Status201Created : StatusCodes.Status200OK;
         await context.Response.WriteAsJsonAsync(new PosIngestResult(id, inserted));
+    }
+
+    /// <summary>
+    /// 匯入單筆門禁刷卡事件（M92／§14.7 #8）。direction 正規化為 In／Out；同一刷卡於
+    /// <see cref="DoorDedupeWindow"/> 內重送回既有 Id 且 <c>Inserted=false</c>。
+    /// </summary>
+    private static async Task HandleDoorIngest(HttpContext context, DoorEventRepository doors, DoorEventRequest body)
+    {
+        var direction = body.Direction?.Trim();
+        var normalized = direction is not null && direction.Equals("in", StringComparison.OrdinalIgnoreCase) ? "In"
+            : direction is not null && direction.Equals("out", StringComparison.OrdinalIgnoreCase) ? "Out"
+            : null;
+
+        if (body.DeviceId <= 0 || body.DoorId <= 0 || string.IsNullOrWhiteSpace(body.CardId) || normalized is null)
+        {
+            context.Response.StatusCode = StatusCodes.Status400BadRequest;
+            await context.Response.WriteAsJsonAsync(new { error = "deviceId > 0, doorId > 0, cardId and direction (In/Out) are required" });
+            return;
+        }
+
+        var (id, inserted) = doors.InsertDedupe(
+            body.DeviceId,
+            body.DoorId,
+            body.CardId.Trim(),
+            normalized,
+            body.Granted,
+            body.Reason?.Trim() ?? string.Empty,
+            Utc(body.OccurredAtUtc),
+            DoorDedupeWindow);
+
+        context.Response.StatusCode = inserted ? StatusCodes.Status201Created : StatusCodes.Status200OK;
+        await context.Response.WriteAsJsonAsync(new DoorEventIngestResult(id, inserted));
     }
 
     private static async Task HandlePosRecon(

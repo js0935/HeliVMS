@@ -111,4 +111,45 @@ public class DoorEventRepositoryTests : IDisposable
 
         Assert.Empty(_repo.Query(new DoorEventQuery(CardId: "NOPE")));
     }
+
+    [Fact]
+    public void InsertDedupe_重複刷卡去重且回既有Id()
+    {
+        var window = TimeSpan.FromSeconds(5);
+        var at = T(8);
+
+        var first = _repo.InsertDedupe(1, 1, "C1", "In", true, "ok", at, window);
+        var second = _repo.InsertDedupe(1, 1, "C1", "In", true, "ok", at.AddSeconds(3), window);
+
+        Assert.True(first.Inserted);
+        Assert.False(second.Inserted);
+        Assert.Equal(first.Id, second.Id);
+        Assert.Single(_repo.Query(new DoorEventQuery(CardId: "C1")));
+    }
+
+    [Fact]
+    public void InsertDedupe_超過去重窗則視為新事件()
+    {
+        var window = TimeSpan.FromSeconds(5);
+        var at = T(8);
+
+        _repo.InsertDedupe(1, 1, "C1", "In", true, "ok", at, window);
+        var later = _repo.InsertDedupe(1, 1, "C1", "In", true, "ok", at.AddSeconds(30), window);
+
+        Assert.True(later.Inserted);
+        Assert.Equal(2, _repo.Query(new DoorEventQuery(CardId: "C1")).Count);
+    }
+
+    [Fact]
+    public void InsertDedupe_方向或卡號不同則各自保留()
+    {
+        var window = TimeSpan.FromSeconds(5);
+        var at = T(8);
+
+        _repo.InsertDedupe(1, 1, "C1", "In", true, "ok", at, window);
+        _repo.InsertDedupe(1, 1, "C1", "Out", true, "ok", at, window);
+        _repo.InsertDedupe(1, 1, "C2", "In", true, "ok", at, window);
+
+        Assert.Equal(3, _repo.Query(new DoorEventQuery(DeviceId: 1)).Count);
+    }
 }

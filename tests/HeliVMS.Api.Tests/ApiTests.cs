@@ -339,6 +339,42 @@ public class ApiTests : IClassFixture<ApiFactory>, IDisposable
     }
 
     [Fact]
+    public async Task Door_Ingest_InsertsThenDeduplicates()
+    {
+        using var client = Client();
+        var now = DateTime.UtcNow;
+        var body = new ApiEndpoints.DoorEventRequest(1, 1, "CARD-ING", "in", true, "ok", now);
+
+        var created = await client.PostAsJsonAsync("/api/door/events", body);
+        Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+        var first = await ReadAsync<ApiEndpoints.DoorEventIngestResult>(created);
+        Assert.True(first.Inserted);
+
+        // 控制器重送同一刷卡：不得新增，回既有 Id。
+        var dup = await client.PostAsJsonAsync("/api/door/events", body);
+        Assert.Equal(HttpStatusCode.OK, dup.StatusCode);
+        var second = await ReadAsync<ApiEndpoints.DoorEventIngestResult>(dup);
+        Assert.False(second.Inserted);
+        Assert.Equal(first.Id, second.Id);
+
+        // 方向須正規化為 "In"，否則查詢／FTS 的方向比對會落空。
+        var repo = Service<DoorEventRepository>();
+        var row = repo.Query(new DoorEventQuery(CardId: "CARD-ING")).Single();
+        Assert.Equal("In", row.Direction);
+    }
+
+    [Fact]
+    public async Task Door_Ingest_InvalidDirectionReturns400()
+    {
+        using var client = Client();
+
+        var bad = await client.PostAsJsonAsync(
+            "/api/door/events", new ApiEndpoints.DoorEventRequest(1, 1, "CARD-X", "sideways", true, null, DateTime.UtcNow));
+
+        Assert.Equal(HttpStatusCode.BadRequest, bad.StatusCode);
+    }
+
+    [Fact]
     public async Task Smartwall_Board_ReturnsCriticalHighlightCell()
     {
         InsertMotion("wall-event", DateTime.UtcNow.AddSeconds(-2));
