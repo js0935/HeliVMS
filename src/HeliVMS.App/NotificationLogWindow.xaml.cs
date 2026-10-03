@@ -1,4 +1,6 @@
+using System.Globalization;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Media;
 using HeliVMS.Storage;
 
@@ -15,10 +17,32 @@ public partial class NotificationLogWindow : Window
     public NotificationLogWindow(SqliteStore store, Action<long>? openEvents = null)
     {
         InitializeComponent();
+        ApplyI18n();
         _store = store;
         _log = new NotificationLogRepository(store);
         _openEvents = openEvents;
         _channelNames = new ChannelRepository(store).List().ToDictionary(c => c.Id, c => c.Name);
+    }
+
+    /// <summary>依現況語言套用標題、欄位與按鈕文字（M57）。</summary>
+    private void ApplyI18n()
+    {
+        Title = Localizer.T("NotifyLog.Title");
+        NotificationRefreshButton.Content = Localizer.T("NotifyLog.Refresh");
+        NotificationRefreshButton.ToolTip = Localizer.T("NotifyLog.RefreshTip");
+        NotificationLogList.ToolTip = Localizer.T("NotifyLog.ListTip");
+        NotificationLogFootnote.Text = Localizer.T("NotifyLog.Footnote");
+
+        if (NotificationLogList.View is GridView grid && grid.Columns.Count >= 7)
+        {
+            grid.Columns[0].Header = Localizer.T("NotifyLog.ColTime");
+            grid.Columns[1].Header = Localizer.T("NotifyLog.ColChannel");
+            grid.Columns[2].Header = Localizer.T("NotifyLog.ColEvent");
+            grid.Columns[3].Header = Localizer.T("NotifyLog.ColRoute");
+            grid.Columns[4].Header = Localizer.T("NotifyLog.ColResult");
+            grid.Columns[5].Header = Localizer.T("NotifyLog.ColAttempts");
+            grid.Columns[6].Header = Localizer.T("NotifyLog.ColDetail");
+        }
     }
 
     private sealed class LogRow
@@ -37,9 +61,9 @@ public partial class NotificationLogWindow : Window
 
         public int Attempts { get; init; }
 
-        public string ResultLabel => Ok ? "成功" : "失敗";
+        public string ResultLabel => Ok ? Localizer.T("NotifyLog.Ok") : Localizer.T("NotifyLog.Fail");
 
-        public string AttemptsLabel => $"{Attempts} 次";
+        public string AttemptsLabel => string.Format(CultureInfo.InvariantCulture, Localizer.T("NotifyLog.Attempts"), Attempts);
 
         public string? Detail { get; init; }
 
@@ -69,7 +93,8 @@ public partial class NotificationLogWindow : Window
             .ToList();
 
         NotificationLogList.ItemsSource = rows;
-        NotificationCountText.Text = $"共 {_log.Count()} 筆（顯示最近 {rows.Count} 筆）";
+        NotificationCountText.Text = string.Format(
+            CultureInfo.InvariantCulture, Localizer.T("NotifyLog.Count"), _log.Count(), rows.Count);
     }
 
     /// <summary>雙擊＝開啟事件中心（該頻道、僅未確認）分診。</summary>

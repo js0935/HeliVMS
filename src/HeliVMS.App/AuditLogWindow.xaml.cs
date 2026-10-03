@@ -23,17 +23,17 @@ public partial class AuditLogWindow : Window
     private IReadOnlyList<AuditLogEntry> _rows = [];
 
     /// <summary>類別選單：第一項「全部」對應 null，其餘為 <see cref="AuditCategories"/> 的常數值。</summary>
-    private static readonly (string Label, string? Value)[] Categories =
+    private static readonly (string LabelKey, string? Value)[] Categories =
     [
-        ("全部", null),
-        ("認證", AuditCategories.Auth),
-        ("設定", AuditCategories.Config),
-        ("匯出", AuditCategories.Export),
-        ("證據", AuditCategories.Evidence),
-        ("共享", AuditCategories.Share),
-        ("保留", AuditCategories.Retention),
-        ("合法保存", AuditCategories.LegalHold),
-        ("授權", AuditCategories.License),
+        ("Audit.CatAll", null),
+        ("Audit.CatAuth", AuditCategories.Auth),
+        ("Audit.CatConfig", AuditCategories.Config),
+        ("Audit.CatExport", AuditCategories.Export),
+        ("Audit.CatEvidence", AuditCategories.Evidence),
+        ("Audit.CatShare", AuditCategories.Share),
+        ("Audit.CatRetention", AuditCategories.Retention),
+        ("Audit.CatLegalHold", AuditCategories.LegalHold),
+        ("Audit.CatLicense", AuditCategories.License),
     ];
 
     /// <summary>稽核清單顯示列（時間已轉本地時區）。</summary>
@@ -44,15 +44,45 @@ public partial class AuditLogWindow : Window
         _dataRoot = dataRoot;
         _audit = new AuditLogRepository(store);
         InitializeComponent();
+        ApplyI18n();
 
         AuditCategoryCombo.ItemsSource = Categories
-            .Select(c => new ComboBoxItem { Content = c.Label, Tag = c.Value })
+            .Select(c => new ComboBoxItem { Content = Localizer.T(c.LabelKey), Tag = c.Value })
             .ToArray();
         AuditCategoryCombo.SelectedIndex = 0;
         AuditLimitCombo.ItemsSource = new[] { 100, 200, 500 };
         AuditLimitCombo.SelectedIndex = 0;
 
         Query();
+    }
+
+    /// <summary>依現況語言套用標題、篩選標籤與欄位文字。</summary>
+    private void ApplyI18n()
+    {
+        Title = Localizer.T("Audit.Title");
+        AuditHeadingText.Text = Localizer.T("Audit.Heading");
+        AuditCategoryLabel.Text = Localizer.T("Audit.Category");
+        AuditActorLabel.Text = Localizer.T("Audit.Actor");
+        AuditActorBox.ToolTip = Localizer.T("Audit.ActorTip");
+        AuditActionLabel.Text = Localizer.T("Audit.Action");
+        AuditActionBox.ToolTip = Localizer.T("Audit.ActionTip");
+        AuditFromLabel.Text = Localizer.T("Audit.From");
+        AuditToLabel.Text = Localizer.T("Audit.To");
+        AuditLimitLabel.Text = Localizer.T("Audit.Limit");
+        AuditQueryButton.Content = Localizer.T("Audit.Query");
+        AuditQueryButton.ToolTip = Localizer.T("Audit.QueryTip");
+        AuditExportButton.Content = Localizer.T("Audit.Export");
+        AuditExportButton.ToolTip = Localizer.T("Audit.ExportTip");
+
+        if (AuditList.View is GridView grid && grid.Columns.Count >= 6)
+        {
+            grid.Columns[0].Header = Localizer.T("Audit.ColTime");
+            grid.Columns[1].Header = Localizer.T("Audit.ColCategory");
+            grid.Columns[2].Header = Localizer.T("Audit.ColAction");
+            grid.Columns[3].Header = Localizer.T("Audit.ColActor");
+            grid.Columns[4].Header = Localizer.T("Audit.ColTarget");
+            grid.Columns[5].Header = Localizer.T("Audit.ColDetail");
+        }
     }
 
     private void OnQueryClicked(object sender, RoutedEventArgs e) => Query();
@@ -65,7 +95,7 @@ public partial class AuditLogWindow : Window
             var to = ToUtc();
             if (from is { } f && to is { } t && f >= t)
             {
-                AuditStatusText.Text = "「起」必須早於「迄」。";
+                AuditStatusText.Text = Localizer.T("Audit.RangeInvalid");
                 return;
             }
 
@@ -75,11 +105,13 @@ public partial class AuditLogWindow : Window
             _rows = _audit.List(q);
             var total = _audit.Count(q);
             AuditList.ItemsSource = _rows.Select(ToRow).ToList();
-            AuditStatusText.Text = $"顯示 {_rows.Count} 筆 / 符合 {total} 筆。";
+            AuditStatusText.Text = string.Format(
+                CultureInfo.InvariantCulture, Localizer.T("Audit.Shown"), _rows.Count, total);
         }
         catch (Exception ex)
         {
-            AuditStatusText.Text = $"查詢失敗：{ex.Message}";
+            AuditStatusText.Text = string.Format(
+                CultureInfo.InvariantCulture, Localizer.T("Audit.QueryFailed"), ex.Message);
         }
     }
 
@@ -91,7 +123,7 @@ public partial class AuditLogWindow : Window
             var to = ToUtc();
             if (from is { } f && to is { } t && f >= t)
             {
-                AuditStatusText.Text = "「起」必須早於「迄」。";
+                AuditStatusText.Text = Localizer.T("Audit.RangeInvalid");
                 return;
             }
 
@@ -99,7 +131,7 @@ public partial class AuditLogWindow : Window
             var rows = _audit.List(BuildQuery(limit: 0));
             if (rows.Count == 0)
             {
-                AuditStatusText.Text = "沒有符合條件的資料可匯出。";
+                AuditStatusText.Text = Localizer.T("Audit.NoData");
                 return;
             }
 
@@ -108,11 +140,13 @@ public partial class AuditLogWindow : Window
             var path = Path.Combine(dir, $"audit-{DateTime.UtcNow:yyyyMMddHHmmss}.csv");
             File.WriteAllText(path, AuditLogCsv.Render(rows), new UTF8Encoding(true)); // UTF-8 BOM（Excel 相容）
 
-            AuditStatusText.Text = $"已匯出 {rows.Count} 筆：{path}";
+            AuditStatusText.Text = string.Format(
+                CultureInfo.InvariantCulture, Localizer.T("Audit.Exported"), rows.Count, path);
         }
         catch (Exception ex)
         {
-            AuditStatusText.Text = $"匯出失敗：{ex.Message}";
+            AuditStatusText.Text = string.Format(
+                CultureInfo.InvariantCulture, Localizer.T("Audit.ExportFailed"), ex.Message);
         }
     }
 
