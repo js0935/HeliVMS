@@ -29,6 +29,12 @@ public static class ApiEndpoints
     public sealed record TriageRequest(string Priority, DateTime? DueUtc, string? Owner);
     public sealed record DispositionRequest(string Status, string? AssignedTo, string? Note);
     public sealed record PosReconResult(int Total, int Matched, int Unmatched, int Duplicates);
+
+    /// <summary>POS 交易匯入（M93／§14.7 #8）：金額以分（cents）傳入，避免浮點誤差。</summary>
+    public sealed record PosEventRequest(int DeviceId, string RegisterId, string TransactionNo, long AmountCents, DateTime OccurredAtUtc);
+
+    /// <summary>POS 匯入結果：<c>Inserted=false</c> 代表同一交易在去重窗內已存在，回傳既有 Id。</summary>
+    public sealed record PosIngestResult(long Id, bool Inserted);
     public sealed record LoginRequest(string Username, string Password);
     public sealed record AccountUpsertRequest(string Username, string Password, string Role, string? DisplayName);
     public sealed record AccountPatchRequest(string? Role, bool? Enabled, string? DisplayName);
@@ -157,6 +163,10 @@ public static class ApiEndpoints
         });
 
         api.MapGet("/pos", HandlePos);
+
+        // POS 交易匯入端點：桌面端先前只能以 CSV 手動匯入；此端點讓收銀機／中介服務
+        // 直接把交易推進 VMS，與桌面匯入共用同一去重視窗語意（PosReconciliation）。
+        api.MapPost("/pos", HandlePosIngest);
 
         api.MapGet("/pos/recon", HandlePosRecon);
 
@@ -1565,6 +1575,34 @@ public static class ApiEndpoints
 
         var items = pos.Query(deviceId, Utc(from.Value), Utc(to.Value), Math.Clamp(limit ?? 200, 1, 1000));
         await context.Response.WriteAsJsonAsync(new Paged<POSEvent>(items, items.Count));
+    }
+
+    /// <summary>
+    /// 匯入單筆 POS 交易（M93／§14.7 #8）。以 <see cref="POSEventRepository.InsertDedupe"/>
+    /// 在 <see cref="ReconWindow"/> 內去重：重複交易回既有 Id 且 <c>Inserted=false</c>。
+    /// 收銀機重送不應產生重複交易，否則對帳（recon）會多報 Unmatched／Duplicates。
+    /// </summary>
+    private static async Task HandlePosIngest(HttpContext context, POSEventRepository pos, PosEventRequest body)
+    {
+        if (body.DeviceId <= 0 ||
+            string.IsNullOrWhiteSpace(body.RegisterId) ||
+            string.IsNullOrWhiteSpace(body.TransactionNo))
+        {
+            context.Response.StatusCode = StatusCodes.Status400BadRequest;
+            await context.Response.WriteAsJsonAsync(new { error = "deviceId > 0, registerId and transactionNo are required" });
+            return;
+        }
+
+        var (id, inserted) = pos.InsertDedupe(
+            body.DeviceId,
+            body.RegisterId.Trim(),
+            body.TransactionNo.Trim(),
+            body.AmountCents,
+            Utc(body.OccurredAtUtc),
+            ReconWindow);
+
+        context.Response.StatusCode = inserted ? StatusCodes.Status201Created : StatusCodes.Status200OK;
+        await context.Response.WriteAsJsonAsync(new PosIngestResult(id, inserted));
     }
 
     private static async Task HandlePosRecon(

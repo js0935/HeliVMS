@@ -302,6 +302,43 @@ public class ApiTests : IClassFixture<ApiFactory>, IDisposable
     }
 
     [Fact]
+    public async Task Pos_Ingest_InsertsThenDeduplicates()
+    {
+        using var client = Client();
+        var now = DateTime.UtcNow;
+        var body = new ApiEndpoints.PosEventRequest(1, "REG-ING", "TXN-ING-1", 4200, now);
+
+        var created = await client.PostAsJsonAsync("/api/pos", body);
+        Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+        var first = await ReadAsync<ApiEndpoints.PosIngestResult>(created);
+        Assert.True(first.Inserted);
+        Assert.True(first.Id > 0);
+
+        // 收銀機重送同一筆交易：不得新增，回既有 Id。
+        var dup = await client.PostAsJsonAsync("/api/pos", body);
+        Assert.Equal(HttpStatusCode.OK, dup.StatusCode);
+        var second = await ReadAsync<ApiEndpoints.PosIngestResult>(dup);
+        Assert.False(second.Inserted);
+        Assert.Equal(first.Id, second.Id);
+
+        var query = await client.GetAsync(
+            $"/api/pos?deviceId=1&from={HttpUtility(now.AddMinutes(-1))}&to={HttpUtility(now.AddMinutes(1))}&limit=100");
+        var page = await ReadAsync<ApiEndpoints.Paged<POSEvent>>(query);
+        Assert.Equal(1, page.Items.Count(p => p.TransactionNo == "TXN-ING-1"));
+    }
+
+    [Fact]
+    public async Task Pos_Ingest_MissingFieldsReturns400()
+    {
+        using var client = Client();
+
+        var bad = await client.PostAsJsonAsync(
+            "/api/pos", new ApiEndpoints.PosEventRequest(0, "  ", "", 0, DateTime.UtcNow));
+
+        Assert.Equal(HttpStatusCode.BadRequest, bad.StatusCode);
+    }
+
+    [Fact]
     public async Task Smartwall_Board_ReturnsCriticalHighlightCell()
     {
         InsertMotion("wall-event", DateTime.UtcNow.AddSeconds(-2));
