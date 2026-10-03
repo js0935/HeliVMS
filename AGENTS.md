@@ -83,3 +83,14 @@ Notes that will save you time:
   `packetization-mode=1`, `profile-level-id=42e01f`. Any mismatch means "connects,
   no picture" with a clean log. `WhepLoopbackTests` asserts the negotiated SDP and
   that ICE + DTLS really complete against it.
+- **A `.csproj` outside `HeliVMS.slnx` is never compiled by anything.** No build,
+  no CI, no error — the source can rot indefinitely. This is not hypothetical:
+  `Tools/HeliVMS.Decoder` sat outside the solution from the initial commit with a
+  CS1587 in it, while `src/HeliVMS.Decoder` (a project with zero source files) was
+  the one the solution actually built. `SolutionCoverageTests` now fails the build if
+  a project is undeclared; add new projects to the slnx, or move them under
+  `Tools/_deprecated/` to state that you meant to drop them.
+- **`packages.lock.json` must be committed.** CI restores with `--locked-mode`, so a
+  missing lock file is green locally and red on CI (NU1004) — which reads like a
+  runner or network problem and isn't. `dotnet restore HeliVMS.slnx` then commit the
+  generated file. Also asserted by `SolutionCoverageTests`.

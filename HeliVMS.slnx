@@ -25,6 +25,7 @@
     <Project Path="tests/HeliVMS.Api.Tests/HeliVMS.Api.Tests.csproj" />
   </Folder>
   <Folder Name="/Tools/">
+    <Project Path="Tools/BrandGen/BrandGen.csproj" />
     <Project Path="Tools/HeliVmsVerify/HeliVmsVerify.csproj" />
     <Project Path="Tools/HeliVMS.Decoder/HeliVMS.Decoder.csproj" />
     <Project Path="Tools/HeliVMS.LicenseProducer/HeliVMS.LicenseProducer.csproj" />

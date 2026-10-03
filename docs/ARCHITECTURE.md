@@ -19,7 +19,8 @@
 2. **錄影與回放** — 區段錄影不間斷、時間軸順滑拖拽、跨區段無縫回放、倍速/逐幀
 
 **第二優先（基礎支撐，核心路徑必須具備的底層）：**
-- 每路獨立拉流/解碼管道、RTSP 斷線重連、硬體解碼、SQLite 索引
+- 每路獨立拉流/解碼管道（現行實作為每路一個 ffmpeg 行程，見 §1）、RTSP 斷線重連、SQLite 索引
+- ⚠ **硬體解碼尚未接上產品路徑**（見 §1 落差說明）
 
 **後期擴充（模組化導入，不影響第一版核心閉環）：**
 - **AI 辨識（§5）**：L0 運動偵測（預設）、L1 物件偵測（ONNX CPU，漏斗 32 路）、
@@ -33,15 +34,29 @@
 
 ## 1. 技術棧總覽
 
-| 層級 | 技術 | 選用理由 |
-|---|---|---|
-| 語言/平台 | C# / .NET 8 + WPF | 介面易做出專業監控調度台、多執行緒成熟 |
-| UI 框架 | WPF + CommunityToolkit.Mvvm | 資料繫結、`Image`/自訂控制項渲染影片 |
-| 多媒體核心 | **FFmpeg 6.x (Sdcb.FFmpeg 綁定)** | 解碼/封裝/協定支援最完整，C# 友好 |
-| 即時播放渲染 | **libmpv (Mpv.NET-lib-)** | 內建硬體解碼、低延遲、seek 支援 |
-| 索引資料庫 | SQLite + Microsoft.Data.Sqlite | 零部署、單檔、適合錄影索引 |
-| 設備通訊 | onvif / onvif-go 模式（C# 端用 `onvif` NuGet） | 自動探索、Profile S 取流 |
-| 運動偵測 | 自訂 .NET 積分圖/幀差比較（在次串流上運算） | 避免 32 路全分析消耗 CPU |
+| 層級 | 技術 | 現況（對照程式碼，2026-10） | 選用理由 |
+|---|---|---|---|
+| 語言/平台 | C# / **.NET 10** | ✅ 已實作。`net10.0` 為主，`net10.0-windows` 僅 WPF App 與部分工具 | 平台原生、多執行緒成熟 |
+| 主要 UI | **Web SPA**（`src/HeliVMS.Web`，零 runtime npm 相依的 ES modules） | ✅ 已實作。由 `HeliVMS.WebApi` 提供，CSP `default-src 'self'` | 免安裝、跨平台、免外掛 |
+| 桌面 UI | WPF（`HeliVMS.App`，30 個視窗） | ✅ 已實作。**未使用 MVVM 套件**，是 code-behind + `WriteableBitmap` | 現場調校/除錯用 |
+| 多媒體核心 | **外部 ffmpeg 行程**（`Process.Start` + 管線） | ✅ 已實作。`RtspClient`、`LivePublisher`、`SegmentRecorder`、`StreamProbe` 全部 spawn 行程 | 不綁 ffmpeg ABI，ffmpeg 可獨立升級 |
+| 桌面即時渲染 | ffmpeg `-f rawvideo -pix_fmt bgr24` → WPF `WriteableBitmap` | ✅ 已實作。**非 libmpv**（專案從未引用 Mpv.NET/libmpv） | 不引入第二套播放核心 |
+| 瀏覽器即時播放 | **WebRTC / WHEP**（SIPSorcery `RtpIngest` + `WhepPeer`） | ✅ 已實作（M244）。H.264 RTP 轉發瀏覽器，低延遲、可同時多 viewer | 免外掛、免 plugin |
+| 瀏覽器回放 | **MSE**（`playlist.m3u8` + fmp4 區段） | ✅ 已實作 | 純前端、零外掛 |
+| 索引資料庫 | SQLite + `Microsoft.Data.Sqlite` 10.0.12 | ✅ 已實作（47 張表） | 零部署、單檔、適合錄影索引 |
+| 設備通訊 | **自寫 ONVIF**（`HeliVMS.Devices/OnvifDeviceService.cs` 等） | ✅ 已實作。**非 `onvif` NuGet**（該套件從未引用） | 只需 WS-Discovery＋Profile S，不引入整包相依 |
+| 運動偵測 | 自訂幀差比較（`Alarms/FrameDifferenceMotionDetector.cs`） | ✅ 已實作。在已降頻的串流上運算 | 避免 32 路全解析度分析 |
+| AI 推論 | `Microsoft.ML.OnnxRuntime` 1.30.0（CPU） | ✅ 已實作（`OnnxRuntimeCpuEngine`） | CPU 即可跑，不綁 GPU |
+
+> **⚠ 本表與程式碼的落差，別照舊設計文件做決策：**
+>
+> - **硬體解碼尚未接上產品路徑。** `RtspClient` 啟動 ffmpeg 時**沒有 `-hwaccel`**（`RtspClient.cs:213-227`）。
+>   硬體加速自動偵測（`D3D11VA > CUDA > QSV > DXVA2`）只存在於 `Tools/HeliVMS.Decoder`，
+>   而該工具**沒有任何產品端程式碼啟動它**，也沒有程式連它的命名管線——它是獨立工具。
+> - 因此「每路獨立解碼管道」目前的實際做法是「每路一個 ffmpeg 行程」，32 路 = 32 個 ffmpeg。
+>   這在 CPU 上可行但吃資源，是後續效能优化的主要目標。
+> - 曾列於本表的 `Sdcb.FFmpeg` bindings、`libmpv`/`Mpv.NET`、`onvif` NuGet、
+>   `CommunityToolkit.Mvvm` **皆未採用**，請勿當成既有資產引用。
 
 ### 1.1 關鍵設計決策（借鏡已驗證專案）
 
@@ -59,8 +74,10 @@
 > 單路故障（斷流/重新連線/解碼錯誤）不得影響其他 31 路。
 > 每路 = 獨立的 `ChannelSession`（拉流 + 錄影 + 可選解碼巡迴）。
 
-**D4 — 硬體解碼給「即時監看與回放」**
-> 以 NVDEC (CUDA) 或 Intel QSV 解碼。Sdcb.FFmpeg 官方範例即以 `h264_qsv`/`cuda` 解碼器示範。
+**D4 — 硬體解碼給「即時監看與回放」**（⚠ 設計目標，尚未實作）
+> 目標為 NVDEC (CUDA) 或 Intel QSV 解碼。**現況：`RtspClient` 未傳 `-hwaccel`，
+> 產品路徑全走 CPU 軟體解碼。** 硬體加速自動偵測只存在於 `Tools/HeliVMS.Decoder`，
+> 且該工具未被任何產品端程式碼啟動（見 §1 落差說明）。
 
 **D5 — 時間索引資料庫 vs 影像檔案分離**
 > 影像位元流存磁碟區段，中繼資料（區段時間、事件、警報）存 SQLite —— Moonfire NVR 的混合架構，
@@ -192,9 +209,10 @@ ChannelSession (每路 1 個，可並行 32 個)
 - **關鍵幀精準 seek**：時間軸拖到 `T` 秒 → 由 `segment_keyframes` 定位 ≤T 的最近 I-frame
   → 以該關鍵幀為播放起點（解碼原點），誤差只在 GOP 內（≤2 秒，見 §3.2）。
   不仰賴 mpv 盲目掃描、不逐幀數位掃檔案，即時響應拖拽。
-- 串接播放：以 libmpv 依序載入多檔（mpv 原生支援多檔序列、跨檔無頓挫 seek）。
-  - `--demuxer-seekable-cache` 平滑跨段
-  - `--force-seekable=yes` 保證 MP4/TS 都可拖動
+- 串接播放：**瀏覽器走 MSE**（`playlist.m3u8` + fmp4 區段，由 `HeliVMS.WebApi` 提供，
+  見 `ApiEndpoints` 的 `playlist.m3u8`/`init.mp4`/`media.m4s` 端點）。
+  - ⚠ 原設計寫的是「以 libmpv 依序載入多檔」，該套件**從未被引用**。
+  - 桌面版（`HeliVMS.App/PlaybackWindow`）則以 ffmpeg 行程解碼成 BGR24 影格逐幀繪製。
 - 播放控制：0.5×/1×/2×/4×/8×/16×（mpv `speed`）、逐幀、暫停/步進、畫面快照存檔。
 - 時間軸 UI（自訂控制項）：
   - 橫軸 = 時間；區段色塊依 `segments` 繪製；事件標記（若開啟擴充）疊加
@@ -986,17 +1004,32 @@ L2 比對（人臉/車牌）置「進階·需權限」區，預設關閉（§5.1
 | FFmpegView.Wpf | NuGet: FFmpegView.Wpf | FFmpeg→WPF 顯示控制項參考 |
 | GoWVP (owl) | github.com/gowvp/owl | ONVIF 設備接入、多協定、雲端播放模型 |
 
-**授權提醒**：FFmpeg 為 LGPL/GPL（依編譯組態），自有代碼採 LGPL 相容授權（或使用 LGPL build）
-並將 UI/Core 與 FFmpeg 介面分目錄拆分，確保授權乾淨；libmpv/Mpv.NET 為 MIT。
+> 上表是**評估過的參考專案**，不代表已採用。實際採用的第三方相依只有 9 個：
+> `Microsoft.Data.Sqlite`、`Microsoft.ML.OnnxRuntime`、`SIPSorcery`、`Serilog`(+File)、
+> `System.Drawing.Common`、`System.Management`、`System.Security.Cryptography.ProtectedData`，
+> 以及僅限 `Tools/HeliVMS.Decoder` 用的 `FFmpeg.AutoGen.*`。
+> `Sdcb.FFmpeg`、`Mpv.NET`、`FFMediaToolkit`、`FFmpegView.Wpf`、`onvif` NuGet **皆未採用**。
+
+**授權提醒**：FFmpeg 為 LGPL/GPL（依編譯組態），自有代碼採 LGPL 相容授權（或使用 LGPL build）。
+現行實作把 FFmpeg 隔離在**外部行程**邊界之外（只以 stdin/stdout 管線與檔案交換），
+產品程式碼不連結 ffmpeg 函式庫，授權邊界最乾淨。
 
 ---
 
 ## 13. 立即行動（建議下一步）
 
-1. `dotnet new` 建立解決方案與三個核心專案（App/Core/Media）。
-2. 安裝 Sdcb.FFmpeg 並驗證本機 FFmpeg 二進位載入（含 NVDEC/QSV 支援）。
-3. 完成 M1：單路 RTSP「監看 + 錄影」閉環並跑通。
-4. 依里程碑逐步推進，每步有可運行版本。
+> ⚠ 本節原為方案建立期的行動清單（`dotnet new` 建立專案、安裝 Sdcb.FFmpeg…），
+> 該階段已於 M1 完成，且 Sdcb.FFmpeg 最終未採用。現況與真正待辦如下。
+
+**已完成**：解決方案 13 個產品專案 + 3 個工具、單路 RTSP 監看＋錄影閉環（M1）、
+WebRTC/WHEP 即時監看與 MSE 回放（M244）。
+
+**待辦（依優先序）**：
+1. **硬體解碼接上產品路徑** — `RtspClient` 加 `-hwaccel`，或讓 `Tools/HeliVMS.Decoder`
+   的命名管線真的被 `HeliVMS.App` 使用。32 路 = 32 個 CPU 軟體解碼行程是效能主因。
+2. **ffmpeg 行程治理** — 現行每路一個常駐行程，缺统一的行程池、重啟退避與健康度告警。
+3. **ONVIF 與 RTSP 測試覆蓋** — 兩者是「攝影機接不進來」時最先出錯的地方，
+   覆蓋率卻低於其他模組（`Media` 52 測試／`Devices` 147 測試）。
 
 ## 14. 功能缺口分析與後續路線圖
 
@@ -1898,9 +1931,10 @@ HeliVms.Decoder  ⇄ 主進程（命名管道，JSON 協定，獨立崩潰域）
 |---|---|---|
 | 版本控管 | **已補**：repo 已是 git，M1–M238 逐里程碑 commit＋push，`.gitignore` 排除 `bin/` `obj/` `*.log` | 已閉合 |
 | CI | **已補**：`.github/workflows/ci.yml`，每次 push 跑 build + 全專案測試（逐專案執行避免 Media/Storage 平行 flaky） | 已閉合 |
-| 自動化測試 | **已補**：**.NET 1788 ＋ vitest 134**，涵蓋授權/排程/配額/Storage repository/授權簽章重驗/閘門契約/中介軟體順序；Media 管道、SQLite WAL 亦有測試 | 已閉合；**E2E 真實 RTSP 分流仍未做** |
+| 自動化測試 | **已補**：**.NET 2027 ＋ vitest 216**（10 個 .NET 測試專案），涵蓋授權/排程/配額/Storage repository/授權簽章重驗/閘門契約/中介軟體順序；Media 管道、SQLite WAL、WHEP 真實 SDP/ICE/DTLS 皆有測試 | 已閉合；**E2E 真實 RTSP 分流仍未做** |
 | 性能基準 | 有計算無工具（全 repo 無 BenchmarkDotNet 等基準工程） | benchmark 儀表：32 路 CPU/記憶體/磁碟 IOPS 基線；每里程碑量測一次 |
-| NuGet 固定 | **已補**：21 個 `packages.lock.json`；**Sdcb.FFmpeg / Mpv.NET 綁定版本與本機 FFmpeg 8.0.1 對照表仍待建** | 已閉合（對照表待補） |
+| NuGet 固定 | **已補**：slnx 內 25 個專案全數具備 `packages.lock.json`，CI 以 `dotnet restore --locked-mode` 把關（`RestorePackagesWithLockFile=true` 為全 repo 設定）。原列的「Sdcb.FFmpeg / Mpv.NET 綁定版本對照表」**已無意義**——兩者最終未採用，改列實際存在的外部 ffmpeg 版本相依 | 已閉合 |
+| 建置覆蓋 | ⚠ **原缺口已修**：`src/HeliVMS.Decoder` 是無任何原始碼的空殼專案，卻被 `App`/`Media` 參照；真正有碼的 `Tools/HeliVMS.Decoder` 不在 slnx，壞掉也沒人知道（CS1587）。空殼已刪、真實工具已納入 slnx 與 CI | 已閉合 |
 | 發布流程 | 無（**仍缺 `CHANGELOG.md`**、semver、簽章安裝包、升級路徑測試） | semver＋CHANGELOG＋簽章安裝包＋升級路徑測試 |
 
 ### 21.2 現在就要避免的工程錯誤（技術陷阱）
