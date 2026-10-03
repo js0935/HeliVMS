@@ -121,6 +121,19 @@ describe('fixed-size tiles do not silently truncate text', () => {
   });
 });
 
+describe('page never overflows the viewport horizontally', () => {
+  it('lets the panel grid shrink below its 320px track minimum', () => {
+    // minmax(320px, 1fr) 在 320px 寬的手機上會讓格線維持 320px，加上 .grid 自身的
+    // padding 就超出畫面，整頁出現橫向捲動，錨點跳轉與 scroll-margin 全部失效。
+    expect(rule('.grid')).toMatch(/minmax\(min\(320px, 100%\), 1fr\)/);
+  });
+
+  it('does not pin the inline nav to a single row', () => {
+    // admin 區段連結一多，單列會被擠爆。
+    expect(rule('.nav-inline')).toMatch(/flex-wrap:\s*wrap/);
+  });
+});
+
 describe('video is never cropped', () => {
   it('letterboxes the stream rather than cutting off the top and bottom', () => {
     // 固定 16:9 的框配 4:3 的攝影機會把畫面上下切掉，這是「看不到畫面」

@@ -113,10 +113,28 @@ HeliVMS.Rtc（新增專案）
     「ffmpeg 認得串流卻永遠不吐影格」，極難診斷；交給 ffmpeg 產生後這層就消失了。
   - 已用 mutation 驗證：把 `-f rtp` 改回 `-f rte`，此測試會如實失敗。
 - **契約測試**：掃描 `src`，確保每個 WHEP 端點都過授權閘門（呼應 §19.4 既有做法）。
+- **真實 WebRTC 堆疊的協商測試**（`WhepLoopbackTests`）：在此之前，整個 repo 沒有任何
+  測試讓**真的** `RTCPeerConnection` 走完一次 SDP 協商——不是注入假的 `IWhepPeer`，就是
+  餵壞掉的 SDP 換一個 400。而 payload type、profile-level-id、packetization-mode、
+  方向（sendonly／recvonly）任一項寫錯，症狀都是「連得上但沒有畫面」，log 乾乾淨淨。
+  這條測試用真的 `RTCPeerConnection` 當訂閱端，驗證：
+  - answer 確實宣告 `sendonly`、`H264/90000`、PT 96、`packetization-mode=1`、
+    `profile-level-id=42e01f`；
+  - answer 自帶 ICE ufrag／pwd／候選與 DTLS fingerprint（不做 trickle，缺了就沒路）；
+  - 對端 `setRemoteDescription` 回 `OK` 且連線狀態真的走到 `connected`，也就是
+    **ICE 選到路徑且 DTLS 握手完成**；
+  - `HELIVMS_WHEP_PUBLIC_HOST` 設定時 host 候選真的被改寫成對外位址（NAT 部署情境）。
+  - 已用 mutation 驗證：把 `WhepPeer` 的 `SendOnly` 改回 `RecvOnly`，此測試會如實失敗。
+  - **邊界（刻意不做）**：不驗證 DTLS-SRTP 收到的媒體內容。SIPSorcery 10 沒有公開的
+    per-receiver 收包事件（無 `ontrack`、無 `RTCRtpReceiver`，收包掛在
+    `MediaStream.OnRtpPacketReceivedByIndex` 而 `PeerConnection` 不公開那些 MediaStream）。
+    為了收包在測試裡重建瀏覽器，等於在測第三方函式庫的正確性且測試極易腐化。
 - mutation 驗證至少四個方向：上限失效（回 200 而非 429）、逾時不回收、
   會話帳本不記錄（等於沒有上限）、憑證寫進錯誤訊息。
 - SPA 側：來源契約斷言（走單一認證傳輸層、不用裸 fetch 帶 key、
-  不引入外部 JS CDN）。
+  不引入外部 JS CDN），以及版面回歸斷言（`app.layout.test.js`）。
+  現場回報過「按鈕被遮蔽／欄位看不到」，症狀全在 CSS 而當時沒有任何測試會紅，
+  因此面板捲動、topbar 換行、表單不拉伸、影片不被裁切等都逐條釘住。
 
 ## 7. 明知不做（要寫進架構文件的取捨）
 

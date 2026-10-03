@@ -241,7 +241,13 @@ table.compact { width: auto; min-width: 220px; }
 
 .grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  /*
+   * `minmax(320px, 1fr)` 在 viewport 比 320px 窄時（很多手機是 320／360px）會讓
+   * 格線維持 320px，加上 .grid 自身的左右 padding 就超出畫面，於是整頁出現橫向捲動
+   * ——錨點跳轉與 scroll-margin 全部失效。
+   * `min(320px, 100%)` 讓下限跟著容器實際寬度走：寬螢幕仍是 320px，窄螢幕退化成 100%。
+   */
+  grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr));
   gap: 12px;
   padding: 12px;
 }
