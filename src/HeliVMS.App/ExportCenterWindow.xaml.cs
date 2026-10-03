@@ -22,6 +22,7 @@ public partial class ExportCenterWindow : Window
     private readonly DispatcherTimer _timer = new() { Interval = TimeSpan.FromSeconds(2) };
     private bool _running;
     private Window? _share;
+    private Window? _keys;
 
     public ExportCenterWindow(SqliteStore store, string dataRoot)
     {
@@ -174,10 +175,57 @@ public partial class ExportCenterWindow : Window
 
         var report = ExportVerifier.Verify(job.OutputPath, job.Sha256);
         var verdict = report.HashMatches ? "OK" : "不符";
-        ExportCenterStatus.Text = $"工作 #{job.Id} 完整性：{verdict}（SHA-256 比對）" +
-                                  (report.FfprobeSummary is null
-                                      ? string.Empty
-                                      : $"; {report.FfprobeSummary}");
+        var parts = new List<string>
+        {
+            $"工作 #{job.Id} 完整性：{verdict}（SHA-256 比對）",
+            DescribeReceipt(new ExportReceiptService(_store).Verify(job.OutputPath)),
+        };
+
+        if (report.FfprobeSummary is not null)
+        {
+            parts.Add(report.FfprobeSummary);
+        }
+
+        ExportCenterStatus.Text = string.Join("；", parts);
+    }
+
+    /// <summary>
+    /// 收據／簽章驗證結果的一行摘要。與 SHA-256 比對分開呈現：雜湊相符只證明檔案沒變，
+    /// 還要收據與簽章有效、且簽署者指紋可被信任，才構成「匯出即驗證」。
+    /// </summary>
+    private static string DescribeReceipt(ExportReceiptReport receipt)
+    {
+        if (!receipt.ReceiptExists)
+        {
+            return $"收據：{receipt.Detail}";
+        }
+
+        var signature = receipt.SignatureValid ? "簽章有效" : "簽章無效";
+        var hash = receipt.HashMatches ? "雜湊相符" : "雜湊不符";
+        var signer = receipt.SelfAssertedKey
+            ? "簽署者未經外部比對"
+            : receipt.SignerMatched ? "簽署者受信任" : "簽署者不在信任清單";
+        return $"收據：{signature}、{hash}、{signer}（{receipt.Detail}）";
+    }
+
+    /// <summary>開啟簽章金鑰視窗（僅管理員）；視窗單例重用。</summary>
+    private void OnSigningKeysClicked(object sender, RoutedEventArgs e)
+    {
+        if (!SessionContext.IsAdmin)
+        {
+            ExportCenterStatus.Text = "只有系統管理員可以檢視或換發簽章金鑰。";
+            return;
+        }
+
+        if (_keys is { IsVisible: true })
+        {
+            _keys.Activate();
+            return;
+        }
+
+        _keys = new SigningKeysWindow(_store) { Owner = this };
+        _keys.Closed += (_, _) => _keys = null;
+        _keys.Show();
     }
 
     private void OnDeleteClicked(object sender, RoutedEventArgs e)
