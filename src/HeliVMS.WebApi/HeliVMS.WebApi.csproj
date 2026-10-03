@@ -12,4 +12,10 @@
     <ProjectReference Include="..\HeliVMS.Storage\HeliVMS.Storage.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- LiveStreamMaintenance.MaintainOnceAsync：讓「維護迴圈單次例外不致」可被直接測試， -->
+    <!-- 不需啟動真正的 10 秒 PeriodicTimer，也不需要連上攝影機。 -->
+    <InternalsVisibleTo Include="HeliVMS.Api.Tests" />
+  </ItemGroup>
+
 </Project>
