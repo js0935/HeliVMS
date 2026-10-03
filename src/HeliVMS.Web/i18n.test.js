@@ -9,6 +9,7 @@ import { gapLabel, patrolLabel, scheduleLabel, tx } from './lib.js';
 const root = dirname(fileURLToPath(import.meta.url));
 const appSource = readFileSync(join(root, 'app.js'), 'utf8');
 const libSource = readFileSync(join(root, 'lib.js'), 'utf8');
+const liveSource = readFileSync(join(root, 'live.js'), 'utf8');
 const indexSource = readFileSync(join(root, 'index.html'), 'utf8');
 
 /** 剝掉註解後的程式碼，避免文件說明被誤判成硬編字串。 */
@@ -248,11 +249,12 @@ describe('static markup is wired to the catalog', () => {
 });
 
 describe('ratchet: no hardcoded UI strings in JavaScript', () => {
-  it('keeps Chinese out of app.js and lib.js string literals', () => {
+  it('keeps Chinese out of app.js, lib.js and live.js string literals', () => {
     // 這是棘輪：介面文字一旦又寫回程式碼，切換語言就會出現混雜畫面。
     const offenders = [
       ...stringLiterals(appSource).map((s) => `app.js: ${s}`),
       ...stringLiterals(libSource).map((s) => `lib.js: ${s}`),
+      ...stringLiterals(liveSource).map((s) => `live.js: ${s}`),
     ].filter((s) => CJK_IN_UI.test(s));
     expect(offenders, `介面字串被硬編回去：${offenders.join(' / ')}`).toEqual([]);
   });

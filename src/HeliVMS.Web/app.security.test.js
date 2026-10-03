@@ -3,6 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 const appSource = readFileSync(fileURLToPath(new URL('./app.js', import.meta.url)), 'utf8');
+const liveSource = readFileSync(fileURLToPath(new URL('./live.js', import.meta.url)), 'utf8');
 const indexSource = readFileSync(fileURLToPath(new URL('./index.html', import.meta.url)), 'utf8');
 
 /** Balanced scan of `${...}` interpolations; nested templates and braces are tracked. */
@@ -72,6 +73,13 @@ describe('single authenticated transport', () => {
   it('downloads the audit CSV through the authenticated transport', () => {
     expect(appSource).not.toMatch(/href = `\/api\/audit\/export\.csv/);
     expect(appSource).toMatch(/apiRaw\(`\/api\/audit\/export\.csv/);
+  });
+
+  it('keeps the live-stream viewer on the injected transport', () => {
+    // live.js 的 WHEP 是唯一帶 method 與 DELETE 的請求。它必須使用 app.js 注入的 apiRaw
+    // （唯一 fetch 出口），否則會繞過 bearer header 而 401，也讓「只有一個 fetch」失效。
+    expect(liveSource).not.toMatch(/\bfetch\(/);
+    expect(liveSource).toMatch(/createLiveViewer\(\{\s*apiRaw/);
   });
 });
 
