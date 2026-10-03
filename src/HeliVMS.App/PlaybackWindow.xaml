@@ -37,6 +37,9 @@
             <Button x:Name="LoadButton" Content="載入錄影" Click="OnLoadClicked" ToolTip="載入所選頻道與日期的錄影片段"
                     Padding="10,4" VerticalAlignment="Center"
                     Foreground="White" Background="#2A5C8A" BorderThickness="0" AutomationProperties.AutomationId="PlaybackLoadButton"/>
+            <Button x:Name="RedactExportButton" Content="遮蔽匯出" Click="OnRedactFromPlaybackClicked" ToolTip="以目前選取的頻道與區段預先帶入遮蔽匯出視窗"
+                    Padding="10,4" VerticalAlignment="Center" Margin="8,0,0,0"
+                    Foreground="White" Background="#2A5C8A" BorderThickness="0" AutomationProperties.AutomationId="PlaybackRedactButton"/>
             <TextBlock x:Name="LoadHint" Foreground="{StaticResource Brand.TextDim}"
                        VerticalAlignment="Center" Margin="12,0,0,0" FontSize="11"
                        AutomationProperties.AutomationId="PlaybackHint"/>

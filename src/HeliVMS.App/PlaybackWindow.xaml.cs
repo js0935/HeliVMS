@@ -105,6 +105,30 @@ public partial class PlaybackWindow : Window
 
     private void OnLoadClicked(object sender, RoutedEventArgs e) => LoadSegments();
 
+    /// <summary>
+    /// 以目前選取的頻道／區段預先帶入遮蔽匯出視窗（§14.7 #5）。
+    /// 以前這裡只能先在回放記下時間、再自己到遮蔽窗重挑一次，很容易挑錯段；
+    /// 帶入選取的區段範圍後，操作員看到的與正在回放的是同一段。
+    /// </summary>
+    private void OnRedactFromPlaybackClicked(object sender, RoutedEventArgs e)
+    {
+        if (ChannelCombo.SelectedItem is not ChannelInfo ch)
+        {
+            StatusText.Text = "請先選擇頻道。";
+            return;
+        }
+
+        DateTime? fromUtc = null;
+        DateTime? toUtc = null;
+        if (SegmentList.SelectedItem is SegmentItem item)
+        {
+            fromUtc = item.Segment.StartUtc;
+            toUtc = item.Segment.EndUtc ?? item.Segment.StartUtc.AddSeconds(item.Segment.DurationSec ?? 0);
+        }
+
+        new RedactionWindow(_store, MainWindow.ResolveDataRoot(), ch.Id, fromUtc, toUtc) { Owner = this }.ShowDialog();
+    }
+
     /// <summary>依頻道與日期載入當日錄影片段（Final 限定）。</summary>
     private void LoadSegments()
     {
