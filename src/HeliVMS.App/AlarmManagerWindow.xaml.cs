@@ -2,6 +2,8 @@ using System.Globalization;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Threading;
+using HeliVMS.App.Services;
+using HeliVMS.Shared;
 using HeliVMS.Shared.Models;
 using HeliVMS.Storage;
 
@@ -17,6 +19,7 @@ public partial class AlarmManagerWindow : Window
     private readonly AlarmTriageRepository _triage;
     private readonly Dictionary<int, string> _channelNames = new();
     private readonly DispatcherTimer _autoTimer;
+    private readonly AlertFeed? _feed;
 
     private sealed record Option(string Value, string Label);
 
@@ -45,12 +48,13 @@ public partial class AlarmManagerWindow : Window
         public string OverdueLabel { get; init; } = string.Empty;
     }
 
-    public AlarmManagerWindow(SqliteStore store)
+    public AlarmManagerWindow(SqliteStore store, AlertBroadcastHub? alerts = null)
     {
         _store = store;
         _events = new AlarmEventRepository(store);
         _triage = new AlarmTriageRepository(store);
         InitializeComponent();
+        _feed = alerts is null ? null : new AlertFeed(alerts, Dispatcher, Refresh);
         Title = Localizer.T("AlarmManager.Title");
 
         foreach (var ch in new ChannelRepository(store).List())
@@ -67,7 +71,7 @@ public partial class AlarmManagerWindow : Window
 
         Refresh();
 
-        // 每 15 秒自動刷新（與主視窗未確認徽章同節奏）；刷新後維持目前選取。
+        // 15 秒輪詢退為漏接推播時的保險（與主視窗未確認徽章同節奏）；刷新後維持目前選取。
         _autoTimer = new DispatcherTimer(TimeSpan.FromSeconds(15), DispatcherPriority.Background, (_, _) =>
         {
             var selected = (BoardList.SelectedItem as BoardRow)?.EventId;
@@ -84,6 +88,7 @@ public partial class AlarmManagerWindow : Window
     protected override void OnClosed(EventArgs e)
     {
         _autoTimer.Stop();
+        _feed?.Dispose();
         base.OnClosed(e);
     }
 

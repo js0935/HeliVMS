@@ -1212,7 +1212,7 @@ public partial class MainWindow : Window
     /// <summary>開啟事件中心（M38 供 harness 以 --events 自動開啟）。</summary>
     private void OpenEventCenter()
     {
-        OpenChild(new EventCenterWindow(_store!));
+        OpenChild(new EventCenterWindow(_store!, alerts: _manager?.Alerts));
     }
 
     private void OnScheduleClicked(object sender, RoutedEventArgs e)
@@ -1276,7 +1276,7 @@ public partial class MainWindow : Window
     /// <summary>開啟警報管理器（M47，§14.7 #3）：分診面板，與事件中心同權限（不另限 admin）。</summary>
     private void OpenAlarmManagerWindow()
     {
-        OpenChild(new AlarmManagerWindow(_store!));
+        OpenChild(new AlarmManagerWindow(_store!, _manager?.Alerts));
     }
 
     /// <summary>開啟錄影遮蔽窗（M46，§14.7 #5）。viewer 與匯出同權限限制。</summary>
@@ -1408,7 +1408,7 @@ public partial class MainWindow : Window
     private void OnNotificationClicked(object sender, RoutedEventArgs e)
     {
         OpenChild(new NotificationLogWindow(_store!, ch =>
-            OpenChild(new EventCenterWindow(_store!), w => ((EventCenterWindow)w).FocusUnacknowledged(ch))));
+            OpenChild(new EventCenterWindow(_store!, alerts: _manager?.Alerts), w => ((EventCenterWindow)w).FocusUnacknowledged(ch))));
     }
 
     /// <summary>開啟管理設定中心（M19，§9）。僅 admin（M42）。</summary>
@@ -1709,7 +1709,7 @@ public partial class MainWindow : Window
     /// <summary>未確認徽章點擊＝直達事件中心並只顯示未確認事件（分診入口）。</summary>
     private void OnUnackBadgeClicked(object sender, System.Windows.Input.MouseButtonEventArgs e)
     {
-        OpenChild(new EventCenterWindow(_store!), w => ((EventCenterWindow)w).FocusUnacknowledged());
+        OpenChild(new EventCenterWindow(_store!, alerts: _manager?.Alerts), w => ((EventCenterWindow)w).FocusUnacknowledged());
     }
 
     private async void OnCtxFullScreen(object sender, RoutedEventArgs e)
@@ -1875,7 +1875,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        OpenChild(new EventCenterWindow(_store!, channelId), w => ((EventCenterWindow)w).FocusChannel(channelId));
+        OpenChild(new EventCenterWindow(_store!, channelId, _manager?.Alerts), w => ((EventCenterWindow)w).FocusChannel(channelId));
     }
 
     private void OnCtxPtz(object sender, RoutedEventArgs e)

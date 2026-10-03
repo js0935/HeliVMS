@@ -8,6 +8,7 @@ using System.Windows.Media.Imaging;
 using System.Windows.Shapes;
 using HeliVMS.App.Services;
 using HeliVMS.Alarms;
+using HeliVMS.Shared;
 using HeliVMS.Shared.Models;
 using HeliVMS.Storage;
 
@@ -26,14 +27,16 @@ public partial class EventCenterWindow : Window
     private const int PageSize = 50;
     private int _page = 1;
     private long? _selectedId;
+    private readonly AlertFeed? _feed;
 
-    public EventCenterWindow(SqliteStore store, long? preselectChannelId = null)
+    public EventCenterWindow(SqliteStore store, long? preselectChannelId = null, AlertBroadcastHub? alerts = null)
     {
         InitializeComponent();
         _store = store;
         _channels = new ChannelRepository(store);
         _events = new AlarmEventRepository(store);
         _preselect = preselectChannelId;
+        _feed = alerts is null ? null : new AlertFeed(alerts, Dispatcher, OnAlertsChanged);
 
         // gis 旗標限定（M209）：「在地圖定位」是地圖功能，事件中心本身不藏。
         new LicenseUiGate(store).Apply(MapLocateButton, LicenseFeatures.Gis, "在地圖上定位該事件的攝影機");
@@ -142,6 +145,21 @@ public partial class EventCenterWindow : Window
         RefreshChannels();
         RefreshTypes();
         DoRefresh();
+    }
+
+    /// <summary>推播進來的新警報立即重查，不必等 15 秒輪詢；保留目前頁碼以免操作中被跳頁。</summary>
+    private void OnAlertsChanged()
+    {
+        if (IsLoaded)
+        {
+            DoRefresh();
+        }
+    }
+
+    protected override void OnClosed(EventArgs e)
+    {
+        _feed?.Dispose();
+        base.OnClosed(e);
     }
 
     /// <summary>依現況語言套用標題／過濾列文字（M57）。</summary>

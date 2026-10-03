@@ -1,5 +1,5 @@
 using System.Threading.Channels;
-using HeliVMS.WebApi;
+using HeliVMS.Shared;
 
 namespace HeliVMS.Api.Tests;
 

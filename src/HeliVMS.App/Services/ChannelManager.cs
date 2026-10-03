@@ -68,6 +68,12 @@ public sealed class ChannelManager : IDisposable
     /// <summary>單一頻道事件已寫入 alarm_events（通知中心訂閱用）。</summary>
     public event EventHandler<(int Cell, AlarmEventRecord Record)>? AlarmEvent;
 
+    /// <summary>
+    /// 本地警報推播中樞：事件寫入 alarm_events 後在此發布，事件中心／警報管理器即時刷新，
+    /// 不必等 15 秒輪詢。與 WebApi 的 <c>/api/alerts/ws</c> 共用同一個型別。
+    /// </summary>
+    public AlertBroadcastHub Alerts { get; } = new();
+
     public bool HasActiveSessions { get; private set; }
 
     /// <summary>依頻道清單連線到前 <paramref name="count"/> 路（自 <paramref name="startIndex"/> 起循環）。</summary>
@@ -102,7 +108,11 @@ public sealed class ChannelManager : IDisposable
                 StateChanged?.Invoke(this, (cell, ch, st));
             };
             session.AiDetections += (_, d) => AiDetections?.Invoke(this, (cell, d));
-            session.EventInserted += (_, r) => AlarmEvent?.Invoke(this, (cell, r));
+            session.EventInserted += (_, r) =>
+            {
+                AlarmEvent?.Invoke(this, (cell, r));
+                Alerts.Publish(new AlertUpdate("alarm.created", r.Id));
+            };
             _sessions[ch.Id] = session;
 
             await session.StartMonitoringAsync();

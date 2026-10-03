@@ -1,13 +1,17 @@
 using System.Threading.Channels;
 
-namespace HeliVMS.WebApi;
+namespace HeliVMS.Shared;
 
-/// <summary>Fan-out for live alert/board updates consumed over /api/alerts/ws (M118, section 14.3).</summary>
+/// <summary>
+/// Fan-out for live alert/board updates (M118, section 14.3).
+/// WebApi serves it over <c>/api/alerts/ws</c>; the desktop app uses the same type
+/// in-process so the alarm windows refresh on push instead of waiting for a poll.
+/// </summary>
 public sealed record AlertUpdate(string Kind, long EventId, string? Status = null, string? Priority = null);
 
 /// <summary>
-/// Pub/sub relay between alarm mutations and subscribed WebSocket clients.
-/// Publishers call <see cref="Publish"/>; clients opt in through <see cref="Subscribe"/>.
+/// Pub/sub relay between alarm mutations and subscribed consumers.
+/// Publishers call <see cref="Publish"/>; consumers opt in through <see cref="Subscribe"/>.
 /// </summary>
 public sealed class AlertBroadcastHub
 {

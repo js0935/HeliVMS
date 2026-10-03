@@ -1,5 +1,6 @@
 using HeliVMS.Licensing;
 using HeliVMS.Rtc;
+using HeliVMS.Shared;
 using HeliVMS.Storage;
 using HeliVMS.WebApi;
 using Microsoft.Extensions.FileProviders;

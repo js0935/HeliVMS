@@ -1,6 +1,7 @@
 ﻿using System.Text;
 using System.Text.Json;
 using System.Net.WebSockets;
+using HeliVMS.Shared;
 using HeliVMS.Shared.Models;
 using HeliVMS.Storage;
 using Microsoft.Data.Sqlite;
