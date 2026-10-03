@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Windows;
+using System.Windows.Controls;
 using HeliVMS.Storage;
 
 namespace HeliVMS.App;
@@ -13,9 +14,12 @@ public partial class LegalHoldWindow : Window
     {
         _holds = new LegalHoldRepository(store);
         InitializeComponent();
+        ApplyI18n();
 
         var channels = new ChannelRepository(store).List();
-        LegalHoldChannelCombo.ItemsSource = channels.Select(c => new ChannelItem(c.Id, $"頻道 {c.Id}（{c.Name}）")).ToList();
+        LegalHoldChannelCombo.ItemsSource = channels
+            .Select(c => new ChannelItem(c.Id, string.Format(CultureInfo.InvariantCulture, Localizer.T("LegalHold.ChannelItem"), c.Id, c.Name)))
+            .ToList();
         LegalHoldChannelCombo.DisplayMemberPath = "Label";
         LegalHoldChannelCombo.SelectedIndex = channels.Count > 0 ? 0 : -1;
 
@@ -26,10 +30,36 @@ public partial class LegalHoldWindow : Window
         LegalHoldRevokeButton.IsEnabled = allowRevoke;
         if (!allowRevoke)
         {
-            LegalHoldStatusText.Text = "目前登入非管理員：僅可檢視，沖銷需管理員權限。";
+            LegalHoldStatusText.Text = Localizer.T("LegalHold.NonAdmin");
         }
 
         RefreshList();
+    }
+
+    /// <summary>依現況語言套用標題、篩選標籤、按鈕與欄位文字。</summary>
+    private void ApplyI18n()
+    {
+        Title = Localizer.T("LegalHold.Title");
+        LegalHoldHeadingText.Text = Localizer.T("LegalHold.Heading");
+        LegalHoldChannelLabel.Text = Localizer.T("LegalHold.Channel");
+        LegalHoldFromLabel.Text = Localizer.T("LegalHold.From");
+        LegalHoldToLabel.Text = Localizer.T("LegalHold.To");
+        LegalHoldReasonLabel.Text = Localizer.T("LegalHold.Reason");
+        LegalHoldTimeFormatText.Text = Localizer.T("LegalHold.TimeFormat");
+        LegalHoldAddButton.Content = Localizer.T("LegalHold.Add");
+        LegalHoldAddButton.ToolTip = Localizer.T("LegalHold.AddTip");
+        LegalHoldRevokeButton.Content = Localizer.T("LegalHold.Revoke");
+        LegalHoldRevokeButton.ToolTip = Localizer.T("LegalHold.RevokeTip");
+
+        if (LegalHoldList.View is GridView grid && grid.Columns.Count >= 7)
+        {
+            grid.Columns[1].Header = Localizer.T("LegalHold.ColChannel");
+            grid.Columns[2].Header = Localizer.T("LegalHold.ColFrom");
+            grid.Columns[3].Header = Localizer.T("LegalHold.ColTo");
+            grid.Columns[4].Header = Localizer.T("LegalHold.ColReason");
+            grid.Columns[5].Header = Localizer.T("LegalHold.ColCreatedBy");
+            grid.Columns[6].Header = Localizer.T("LegalHold.ColStatus");
+        }
     }
 
     private sealed record ChannelItem(int Id, string Label);
@@ -42,14 +72,14 @@ public partial class LegalHoldWindow : Window
         {
             if (LegalHoldChannelCombo.SelectedItem is not ChannelItem channel)
             {
-                LegalHoldStatusText.Text = "尚未選擇頻道。";
+                LegalHoldStatusText.Text = Localizer.T("LegalHold.NoChannel");
                 return;
             }
 
             if (!TryParseTime(LegalHoldFromBox.Text, out var fromLocal) ||
                 !TryParseTime(LegalHoldToBox.Text, out var toLocal))
             {
-                LegalHoldStatusText.Text = "時間格式應為 yyyy-MM-dd HH:mm。";
+                LegalHoldStatusText.Text = Localizer.T("LegalHold.TimeFormatError");
                 return;
             }
 
@@ -57,24 +87,26 @@ public partial class LegalHoldWindow : Window
             var toUtc = toLocal.ToUniversalTime();
             if (toUtc <= fromUtc)
             {
-                LegalHoldStatusText.Text = "訖時間須晚於起時間。";
+                LegalHoldStatusText.Text = Localizer.T("LegalHold.RangeError");
                 return;
             }
 
             var reason = LegalHoldReasonBox.Text.Trim();
             if (reason.Length == 0)
             {
-                LegalHoldStatusText.Text = "原因不可為空。";
+                LegalHoldStatusText.Text = Localizer.T("LegalHold.ReasonRequired");
                 return;
             }
 
             var id = _holds.Add(channel.Id, fromUtc, toUtc, reason, SessionContext.CurrentUser?.Username ?? "?", DateTime.UtcNow);
             RefreshList();
-            LegalHoldStatusText.Text = $"已加鎖 id={id}（頻道 {channel.Id}）。";
+            LegalHoldStatusText.Text = string.Format(
+                CultureInfo.InvariantCulture, Localizer.T("LegalHold.Added"), id, channel.Id);
         }
         catch (Exception ex)
         {
-            LegalHoldStatusText.Text = $"加鎖失敗：{ex.Message}";
+            LegalHoldStatusText.Text = string.Format(
+                CultureInfo.InvariantCulture, Localizer.T("LegalHold.AddFailed"), ex.Message);
         }
     }
 
@@ -84,22 +116,25 @@ public partial class LegalHoldWindow : Window
         {
             if (LegalHoldList.SelectedItem is not HoldRow row)
             {
-                LegalHoldStatusText.Text = "請先在清單選取要沖銷的鎖定。";
+                LegalHoldStatusText.Text = Localizer.T("LegalHold.SelectToRevoke");
                 return;
             }
 
-            if (!_holds.Revoke(row.Id, SessionContext.CurrentUser?.Username ?? "?", "使用者在 UI 沖銷", DateTime.UtcNow))
+            if (!_holds.Revoke(row.Id, SessionContext.CurrentUser?.Username ?? "?", Localizer.T("LegalHold.RevokeReason"), DateTime.UtcNow))
             {
-                LegalHoldStatusText.Text = $"沖銷失敗：鎖定 {row.Id} 不存在或已沖銷。";
+                LegalHoldStatusText.Text = string.Format(
+                    CultureInfo.InvariantCulture, Localizer.T("LegalHold.RevokeGone"), row.Id);
                 return;
             }
 
             RefreshList();
-            LegalHoldStatusText.Text = $"已沖銷鎖定 id={row.Id}。";
+            LegalHoldStatusText.Text = string.Format(
+                CultureInfo.InvariantCulture, Localizer.T("LegalHold.Revoked"), row.Id);
         }
         catch (Exception ex)
         {
-            LegalHoldStatusText.Text = $"沖銷失敗：{ex.Message}";
+            LegalHoldStatusText.Text = string.Format(
+                CultureInfo.InvariantCulture, Localizer.T("LegalHold.RevokeFailed"), ex.Message);
         }
     }
 
@@ -115,7 +150,7 @@ public partial class LegalHoldWindow : Window
                 SqliteStore.Iso(h.ToUtc),
                 h.Reason,
                 h.CreatedBy,
-                h.IsActive ? "作用中" : "已沖銷"))
+                h.IsActive ? Localizer.T("LegalHold.Active") : Localizer.T("LegalHold.RevokedState")))
             .ToList();
     }
 
