@@ -98,3 +98,10 @@ Notes that will save you time:
   missing lock file is green locally and red on CI (NU1004) — which reads like a
   runner or network problem and isn't. `dotnet restore HeliVMS.slnx` then commit the
   generated file. Also asserted by `SolutionCoverageTests`.
+- **Enabling local auth must not lock you out.** `auth.enabled=1` with no enabled
+  admin parks the desktop app on `LoginWindow` with no account that can pass, and
+  the only recovery is editing `index.db` by hand. `SettingsWindow` refuses to enable
+  without an enabled admin and refuses to disable/delete the last one; `App.PerformLogin`
+  fail-opens (logging `%TEMP%\helivms-auth-bootstrap.log`) if that state is reached
+  another way. Policy is `AuthService.HasEnabledAdmin` / `WouldRemoveLastEnabledAdmin`,
+  behavior-tested by `AuthBootstrapLockoutTests` and wired by `AuthBootstrapContractTests`.

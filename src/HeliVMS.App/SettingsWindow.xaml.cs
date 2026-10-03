@@ -70,6 +70,7 @@ public partial class SettingsWindow : Window
     private readonly DeviceRepository _devices;
     private int? _deviceCredId;
     private bool _deviceCredArm;
+    private bool _suppressAuthToggle;
 
     public SettingsWindow(SqliteStore store, string dataRoot, IoMonitorHost? ioHost = null, ShareHost? shareHost = null)
     {
@@ -2051,12 +2052,24 @@ public partial class SettingsWindow : Window
 
     private void OnAuthEnabledChanged(object sender, RoutedEventArgs e)
     {
-        if (!IsLoaded)
+        if (!IsLoaded || _suppressAuthToggle)
         {
             return;
         }
 
         var enabled = AuthEnabledBox.IsChecked == true;
+
+        // 啟用前必須至少有一個啟用中的 admin。否則下次啟動會卡在 LoginWindow，
+        // 沒有帳號能登入，等於把操作者鎖在門外（只能改 DB 救援）。
+        if (enabled && !new AuthService(_store).HasEnabledAdmin())
+        {
+            _suppressAuthToggle = true;
+            AuthEnabledBox.IsChecked = false;
+            _suppressAuthToggle = false;
+            UserReportText.Text = "無法啟用：請先在下方新增一個啟用中的 admin 帳號，否則啟用後將無人可登入。";
+            return;
+        }
+
         _settings.Set("auth.enabled", enabled ? "1" : "0");
         UserReportText.Text = enabled ? "已啟用登入驗證（下次啟動生效）。" : "已停用登入驗證。";
     }
@@ -2124,6 +2137,13 @@ public partial class SettingsWindow : Window
             return;
         }
 
+        // 停用最後一個啟用中的 admin（且登入驗證已開）＝把自己鎖在門外。
+        if (user.Enabled && new AuthService(_store).WouldRemoveLastEnabledAdmin(row.Id))
+        {
+            UserReportText.Text = $"無法停用「{row.Username}」：這是唯一啟用中的管理員，停用後將無人可登入。";
+            return;
+        }
+
         _users.SetEnabled(row.Id, !user.Enabled);
         UserReportText.Text = $"使用者「{row.Username}」已{(user.Enabled ? "停用" : "啟用")}。";
         ReloadUsers();
@@ -2147,6 +2167,13 @@ public partial class SettingsWindow : Window
         if (UserList.SelectedItem is not UserRow row)
         {
             UserReportText.Text = "請先選擇使用者。";
+            return;
+        }
+
+        // 刪除最後一個啟用中的 admin（且登入驗證已開）＝把自己鎖在門外。
+        if (new AuthService(_store).WouldRemoveLastEnabledAdmin(row.Id))
+        {
+            UserReportText.Text = $"無法刪除「{row.Username}」：這是唯一啟用中的管理員，刪除後將無人可登入。";
             return;
         }
 

@@ -45,6 +45,34 @@ public sealed class AuthService
     public int LockoutMinutes => (int)_settings.GetDoubleOrDefault(MinutesKey, 5);
 
     /// <summary>
+    /// 是否至少有一個啟用中的 admin。啟用登入驗證前必須先滿足：
+    /// 若一個都沒有就打開驗證，下次啟動會卡在 <c>LoginWindow</c>，而沒有任何帳號能登入，
+    /// 使用者只能手動改 DB 才救得回來。
+    /// </summary>
+    public bool HasEnabledAdmin()
+        => _users.ListUsers().Any(static u => u.Enabled && u.Role == "admin");
+
+    /// <summary>
+    /// 停用或刪除 <paramref name="userId"/> 是否會讓「已啟用登入驗證」的系統失去最後一個可登入的
+    /// admin（＝把自己鎖在門外）。驗證未啟用時不構成鎖死，回傳 false。
+    /// </summary>
+    public bool WouldRemoveLastEnabledAdmin(int userId)
+    {
+        if (!IsAuthEnabled)
+        {
+            return false;
+        }
+
+        var target = _users.GetById(userId);
+        if (target is null || !target.Enabled || target.Role != "admin")
+        {
+            return false;
+        }
+
+        return _users.ListUsers().Count(static u => u.Enabled && u.Role == "admin") <= 1;
+    }
+
+    /// <summary>
     /// 驗證登入（utcNow 供測試注入）。成功時清除失敗計數並寫 last_login。
     /// 失敗超過 threshold 自動鎖定。
     /// </summary>

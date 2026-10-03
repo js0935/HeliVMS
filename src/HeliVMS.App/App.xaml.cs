@@ -66,6 +66,18 @@ public partial class App : Application
             $"{DateTime.UtcNow:O}\n{ex}\n");
     }
 
+    /// <summary>
+    /// 登入驗證已開但找不到任何啟用中的 admin 時，寫下警告再安全開機。
+    /// 與 crash log 分開，避免營運人員誤以為程式崩潰。
+    /// </summary>
+    private static void WriteAuthBootstrapWarning()
+    {
+        File.AppendAllText(
+            Path.Combine(Path.GetTempPath(), "helivms-auth-bootstrap.log"),
+            $"{DateTime.UtcNow:O} auth.enabled=1 但沒有任何啟用中的 admin；"
+            + "已略過登入以允許復原，請進設定新增 admin 或停用登入驗證。\n");
+    }
+
     private static bool PerformLogin()
     {
         var dbPath = Path.Combine(HeliVMS.App.MainWindow.ResolveDataRoot(), "index.db");
@@ -75,6 +87,16 @@ public partial class App : Application
         var auth = new AuthService(store);
         if (!auth.IsAuthEnabled)
         {
+            return true;
+        }
+
+        // 登入驗證已開，卻沒有任何啟用中的 admin（例如舊資料、或繞過 UI 直接改 DB）：
+        // 若照常開 LoginWindow，畫面會卡在無法登入的登入框，使用者永遠進不了程式。
+        // 這裡安全開機（bootstrap fail-open，以未登入＝admin 放行）並留下警告，
+        // 讓操作者能進去補一個 admin；正常 UI 路徑已被 SettingsWindow 的守衛擋住。
+        if (!auth.HasEnabledAdmin())
+        {
+            WriteAuthBootstrapWarning();
             return true;
         }
 
