@@ -17,6 +17,7 @@ public sealed class WpfI18nContractTests
         ["NotificationLogWindow", "src/HeliVMS.App/NotificationLogWindow.xaml", "src/HeliVMS.App/NotificationLogWindow.xaml.cs", new[] { "NotifyLog" }],
         ["AuditLogWindow", "src/HeliVMS.App/AuditLogWindow.xaml", "src/HeliVMS.App/AuditLogWindow.xaml.cs", new[] { "Audit" }],
         ["LegalHoldWindow", "src/HeliVMS.App/LegalHoldWindow.xaml", "src/HeliVMS.App/LegalHoldWindow.xaml.cs", new[] { "LegalHold" }],
+        ["EvidenceWindow", "src/HeliVMS.App/EvidenceWindow.xaml", "src/HeliVMS.App/EvidenceWindow.xaml.cs", new[] { "Evidence" }],
         ["SynopsisWindow", "src/HeliVMS.App/SynopsisWindow.xaml", "src/HeliVMS.App/SynopsisWindow.xaml.cs", new[] { "Synopsis" }],
         ["SnapshotRedactWindow", "src/HeliVMS.App/SnapshotRedactWindow.xaml", "src/HeliVMS.App/SnapshotRedactWindow.xaml.cs", new[] { "SnapRedact" }],
     ];
