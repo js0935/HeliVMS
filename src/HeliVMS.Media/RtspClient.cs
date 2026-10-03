@@ -30,17 +30,72 @@ public sealed class RtspClient : IAsyncDisposable
     private const int RetryDelayMs = 5_000;
     private readonly string _ffmpeg;
     private readonly string _ffprobe;
+    private readonly string? _hwAccel;
     private readonly object _gate = new();
     private CancellationTokenSource? _cts;
     private Task? _loop;
     private Process? _process;
     private bool _disposed;
 
-    public RtspClient(string rtspUrl, string? ffmpegPath = null, string? ffprobePath = null)
+    public RtspClient(string rtspUrl, string? ffmpegPath = null, string? ffprobePath = null, string? hwAccel = null)
     {
         RtspUrl = rtspUrl;
         _ffmpeg = ffmpegPath ?? "ffmpeg";
         _ffprobe = ffprobePath ?? "ffprobe";
+        _hwAccel = NormalizeHwAccel(hwAccel);
+    }
+
+    /// <summary>
+    /// 硬體加速解碼設定（§3.3 決策 D4：opt-in）：空／off／none／false／0 代表停用並回 <c>null</c>，
+    /// 其餘值原樣帶入 ffmpeg 的 <c>-hwaccel</c>。預設停用，因為在沒有對應 GPU/DLL 的機器上，
+    /// 硬體解碼會「連得上卻沒畫面」且日誌乾淨——比純軟解更難診斷。
+    /// </summary>
+    public static string? NormalizeHwAccel(string? value)
+    {
+        var v = value?.Trim();
+        if (string.IsNullOrEmpty(v) ||
+            v.Equals("off", StringComparison.OrdinalIgnoreCase) ||
+            v.Equals("none", StringComparison.OrdinalIgnoreCase) ||
+            v.Equals("false", StringComparison.OrdinalIgnoreCase) ||
+            v.Equals("0", StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        return v;
+    }
+
+    /// <summary>
+    /// 即時監看 ffmpeg 解碼參數（純函式，測試釘住順序）。未啟用硬體加速時與既有行為完全相同，
+    /// 啟用時僅在 <c>-i</c> 前插入一組 <c>-hwaccel &lt;value&gt;</c>；編碼參數（rawvideo/bgr24）不變，
+    /// 故輸出仍是去交錯前的 BGR24 原始影格。
+    /// </summary>
+    public static IReadOnlyList<string> BuildDecodeArguments(string rtspUrl, string? hwAccel = null)
+    {
+        var args = new List<string>
+        {
+            "-hide_banner", "-loglevel", "error",
+            "-rtsp_transport", "tcp",
+        };
+
+        var accel = NormalizeHwAccel(hwAccel);
+        if (accel is not null)
+        {
+            args.Add("-hwaccel");
+            args.Add(accel);
+        }
+
+        args.Add("-i");
+        args.Add(rtspUrl);
+        args.Add("-an");
+        args.Add("-f");
+        args.Add("rawvideo");
+        args.Add("-pix_fmt");
+        args.Add("bgr24");
+        args.Add("-vsync");
+        args.Add("0");
+        args.Add("pipe:1");
+        return args;
     }
 
     public string RtspUrl { get; }
@@ -210,21 +265,10 @@ public sealed class RtspClient : IAsyncDisposable
             UseShellExecute = false,
             CreateNoWindow = true,
         };
-        psi.ArgumentList.Add("-hide_banner");
-        psi.ArgumentList.Add("-loglevel");
-        psi.ArgumentList.Add("error");
-        psi.ArgumentList.Add("-rtsp_transport");
-        psi.ArgumentList.Add("tcp");
-        psi.ArgumentList.Add("-i");
-        psi.ArgumentList.Add(RtspUrl);
-        psi.ArgumentList.Add("-an");
-        psi.ArgumentList.Add("-f");
-        psi.ArgumentList.Add("rawvideo");
-        psi.ArgumentList.Add("-pix_fmt");
-        psi.ArgumentList.Add("bgr24");
-        psi.ArgumentList.Add("-vsync");
-        psi.ArgumentList.Add("0");
-        psi.ArgumentList.Add("pipe:1");
+        foreach (var arg in BuildDecodeArguments(RtspUrl, _hwAccel))
+        {
+            psi.ArgumentList.Add(arg);
+        }
 
         using var proc = Process.Start(psi) ?? throw new InvalidOperationException("無法啟動 ffmpeg");
         _process = proc;

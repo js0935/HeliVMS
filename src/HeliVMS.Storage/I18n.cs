@@ -33,6 +33,8 @@ public static class I18n
         ["EventCenter.AllTypes"] = "全部類型",
         ["Settings.Language"] = "介面語言",
         ["Settings.LangHint"] = "切換即寫入，新開視窗以新語言顯示。",
+        ["Settings.HwAccel"] = "監看硬體解碼",
+        ["Settings.HwAccelHint"] = "opt-in：變更後切換頻道生效；無對應 GPU／驅動時可能導致頻道有畫面中斷，建議保持 off。",
     };
 
     private static readonly IReadOnlyDictionary<string, string> zhHans = new Dictionary<string, string>(StringComparer.Ordinal)
@@ -56,6 +58,8 @@ public static class I18n
         ["EventCenter.AllTypes"] = "全部类型",
         ["Settings.Language"] = "界面语言",
         ["Settings.LangHint"] = "切换即写入，新开窗口以新语言显示。",
+        ["Settings.HwAccel"] = "监控硬件解码",
+        ["Settings.HwAccelHint"] = "opt-in：变更后切换频道生效；无对应 GPU／驱动时可能导致频道画面中断，建议保持 off。",
     };
 
     private static readonly IReadOnlyDictionary<string, string> en = new Dictionary<string, string>(StringComparer.Ordinal)
@@ -79,6 +83,8 @@ public static class I18n
         ["EventCenter.AllTypes"] = "All types",
         ["Settings.Language"] = "Language",
         ["Settings.LangHint"] = "Saved; newly opened windows use the new language.",
+        ["Settings.HwAccel"] = "Live hardware decode",
+        ["Settings.HwAccelHint"] = "opt-in: applies when you switch a channel; an unsupported GPU/driver can break video, so keep it off unless verified.",
     };
 
     private static readonly Dictionary<string, IReadOnlyDictionary<string, string>> Tables = new(StringComparer.Ordinal)

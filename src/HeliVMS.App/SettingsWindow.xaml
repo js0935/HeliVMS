@@ -95,6 +95,22 @@
                                VerticalAlignment="Center" Margin="10,0,0,0"
                                Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
                 </StackPanel>
+
+                <TextBlock x:Name="HwAccelLabel" Text="監看硬體解碼" Foreground="{StaticResource Brand.TextDim}"
+                           FontSize="11" Margin="0,14,0,0"/>
+                <ComboBox x:Name="HwAccelCombo" AutomationProperties.AutomationId="HwAccelCombo"
+                          Width="180" HorizontalAlignment="Left" Margin="0,6,0,0"
+                          SelectionChanged="OnHwAccelChanged"
+                          Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73">
+                    <ComboBoxItem Content="off" Tag="off"/>
+                    <ComboBoxItem Content="auto" Tag="auto"/>
+                    <ComboBoxItem Content="d3d11va" Tag="d3d11va"/>
+                    <ComboBoxItem Content="cuda" Tag="cuda"/>
+                    <ComboBoxItem Content="dxva2" Tag="dxva2"/>
+                </ComboBox>
+                <TextBlock x:Name="HwAccelHintText" AutomationProperties.AutomationId="HwAccelHintText"
+                           Foreground="{StaticResource Brand.TextDim}" FontSize="11" TextWrapping="Wrap"
+                           Text="opt-in；無對應 GPU／驅動時保持 off。"/>
             </StackPanel>
 
             <!-- 儲存 -->

@@ -10,6 +10,7 @@ using System.Windows.Shapes;
 using HeliVMS.Alarms;
 using HeliVMS.App.Services;
 using HeliVMS.Licensing;
+using HeliVMS.Media;
 using HeliVMS.Recording;
 using HeliVMS.Shared.Models;
 using HeliVMS.Storage;
@@ -28,6 +29,7 @@ public partial class SettingsWindow : Window
     private const string SnapshotDaysKey = "snapshots.retention_days";
     private const int DefaultSnapshotDays = 30;
     private const string TamperKey = "detect.tamper.enabled";
+    private const string HwAccelKey = "decode.hwaccel";
 
     /// <summary>頻道頁顯示列。</summary>
     private sealed record ChannelRow(int Id, string Name, string MainStreamUrl, string RecordingModeLabel, string MotionLabel);
@@ -124,6 +126,7 @@ public partial class SettingsWindow : Window
         var langIdx = Array.IndexOf(I18n.Languages, Localizer.Lang);
         LangCombo.SelectedIndex = langIdx >= 0 ? langIdx : 0;
         OskToggleCheck.IsChecked = Osk.Enabled;
+        ReloadHwAccel();
         ApplyLangUi();
 
         FillAbout();
@@ -150,6 +153,32 @@ public partial class SettingsWindow : Window
         Title = Localizer.T("Settings.Title");
         LangLabel.Text = Localizer.T("Settings.Language");
         LangHintText.Text = Localizer.T("Settings.LangHint");
+        HwAccelLabel.Text = Localizer.T("Settings.HwAccel");
+        HwAccelHintText.Text = Localizer.T("Settings.HwAccelHint");
+    }
+
+    /// <summary>載入監看硬體解碼設定（<c>decode.hwaccel</c>）：空／off 選「off」項。</summary>
+    private void ReloadHwAccel()
+    {
+        var tag = RtspClient.NormalizeHwAccel(_settings.Get(HwAccelKey)) ?? "off";
+        foreach (var obj in HwAccelCombo.Items)
+        {
+            if (obj is ComboBoxItem item && (item.Tag as string) == tag)
+            {
+                HwAccelCombo.SelectedItem = item;
+                return;
+            }
+        }
+
+        HwAccelCombo.SelectedIndex = 0;
+    }
+
+    private void OnHwAccelChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (HwAccelCombo.SelectedItem is ComboBoxItem item && item.Tag is string tag)
+        {
+            _settings.Set(HwAccelKey, tag);
+        }
     }
 
     private void OnLangChanged(object sender, SelectionChangedEventArgs e)

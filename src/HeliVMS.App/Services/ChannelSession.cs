@@ -31,7 +31,7 @@ public sealed class ChannelSession : IDisposable
         _store = store;
         _recordingsRoot = recordingsRoot;
         _license = license ?? new LicenseService(store);
-        Client = new RtspClient(displayUrl) { MaxFramesPerSecond = 15 };
+        Client = new RtspClient(displayUrl, hwAccel: ReadHwAccel()) { MaxFramesPerSecond = 15 };
         AttachClient(Client);
 
         if (motionEnabled)
@@ -127,6 +127,12 @@ public sealed class ChannelSession : IDisposable
     }
 
     /// <summary>
+    /// 讀取監看硬體解碼設定（<c>decode.hwaccel</c>，§3.3 D4：opt-in）。每次建立/切換顯示連線時重讀，
+    /// 讓操作員改設定後切流即生效、免重啟；未設定時為 <c>null</c>（純軟解，與既有行為一致）。
+    /// </summary>
+    private string? ReadHwAccel() => new SettingsRepository(_store).Get("decode.hwaccel");
+
+    /// <summary>
     /// 切換顯示碼流：以新位址重建 <see cref="Client"/>，錄影（<see cref="RecordingUrl"/>）不受影響。
     /// 顯示與錄影是兩條獨立連線（錄影由 SegmentRecorder 另起 ffmpeg 行程），
     /// 故只換顯示位址即可；若連錄影位址一起換，segment 會記到次流畫質卻仍標記為 main。
@@ -140,7 +146,7 @@ public sealed class ChannelSession : IDisposable
 
         var wasMonitoring = IsMonitoring;
         var old = Client;
-        Client = new RtspClient(displayUrl) { MaxFramesPerSecond = 15 };
+        Client = new RtspClient(displayUrl, hwAccel: ReadHwAccel()) { MaxFramesPerSecond = 15 };
         AttachClient(Client);
         Url = displayUrl;
 

@@ -227,6 +227,53 @@ public class RtspClientTests
             $"FirstFrameTimeout 至少需 45 秒（實測最慢首幀 43 秒），目前為 {client.FirstFrameTimeout}");
     }
 
+    [Fact]
+    public void 預設不啟用硬體解碼時解碼參數不含hwaccel()
+    {
+        // 未設定 decode.hwaccel（rtspClient.hwAccel=null）＝純軟解。若預設就帶 -hwaccel，
+        // 沒有對應 GPU/DLL 的機器會「連得上卻沒畫面」且日誌乾淨——故必須完全不含此參數。
+        var args = RtspClient.BuildDecodeArguments("rtsp://host/live");
+        var list = args.ToList();
+
+        Assert.DoesNotContain("-hwaccel", args);
+        Assert.Equal("rawvideo", list[list.IndexOf("-f") + 1]);
+        Assert.Equal("bgr24", list[list.IndexOf("-pix_fmt") + 1]);
+        Assert.Equal("rtsp://host/live", list[list.IndexOf("-i") + 1]);
+        Assert.Equal("pipe:1", args[args.Count - 1]);
+    }
+
+    [Theory]
+    [InlineData("auto")]
+    [InlineData("d3d11va")]
+    public void 啟用硬體解碼時hwaccel置於輸入之前(string accel)
+    {
+        var args = RtspClient.BuildDecodeArguments("rtsp://host/live", accel).ToList();
+
+        var hw = args.IndexOf("-hwaccel");
+        Assert.True(hw >= 0, "啟用硬體解碼應帶入 -hwaccel");
+        Assert.Equal(accel, args[hw + 1]);
+        Assert.True(hw < args.IndexOf("-i"), "-hwaccel 是輸入選項，必須在 -i 之前");
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("off")]
+    [InlineData("None")]
+    [InlineData("false")]
+    [InlineData("0")]
+    public void 硬體解碼停用值一律正規化為null(string? value)
+    {
+        Assert.Null(RtspClient.NormalizeHwAccel(value));
+    }
+
+    [Fact]
+    public void 硬體解碼啟用值去除空白後保留原字串()
+    {
+        Assert.Equal("d3d11va", RtspClient.NormalizeHwAccel("  d3d11va "));
+    }
+
     private static async Task WaitUntilAsync(Func<bool> condition, int timeoutSeconds = 20)
     {
         var deadline = DateTime.UtcNow.AddSeconds(timeoutSeconds);
