@@ -22,9 +22,35 @@ public partial class PosWindow : Window
         _pos = new POSEventRepository(store);
         _events = new AlarmEventRepository(store);
         InitializeComponent();
+        ApplyI18n();
         PosFromDate.SelectedDate = DateTime.Today;
         PosToDate.SelectedDate = DateTime.Today;
         Refresh();
+    }
+
+    /// <summary>依現況語言套用標題、欄位與按鈕文字（M57）。新開視窗以新語言顯示。</summary>
+    private void ApplyI18n()
+    {
+        Title = Localizer.T("Pos.Title");
+        HeadingText.Text = Localizer.T("Pos.Heading");
+        DeviceIdLabel.Text = Localizer.T("Pos.DeviceId");
+        RegisterLabel.Text = Localizer.T("Pos.Register");
+        FromLabel.Text = Localizer.T("Pos.From");
+        ToLabel.Text = Localizer.T("Pos.To");
+        PosQueryButton.Content = Localizer.T("Pos.Query");
+        PosImportButton.Content = Localizer.T("Pos.Import");
+        PosImportButton.ToolTip = Localizer.T("Pos.ImportTip");
+        PosReconcileButton.Content = Localizer.T("Pos.Reconcile");
+        PosReconcileButton.ToolTip = Localizer.T("Pos.ReconcileTip");
+
+        if (PosList.View is GridView grid && grid.Columns.Count >= 5)
+        {
+            grid.Columns[0].Header = Localizer.T("Pos.ColTime");
+            grid.Columns[1].Header = Localizer.T("Pos.ColDevice");
+            grid.Columns[2].Header = Localizer.T("Pos.ColRegister");
+            grid.Columns[3].Header = Localizer.T("Pos.ColTransaction");
+            grid.Columns[4].Header = Localizer.T("Pos.ColAmount");
+        }
     }
 
     private bool TryReadRange(out int? deviceId, out DateTime fromUtc, out DateTime toUtc)
@@ -38,7 +64,7 @@ public partial class PosWindow : Window
         {
             if (!int.TryParse(deviceText, out var d))
             {
-                PosStatusText.Text = "設備 ID 必須是整數（留空表示不限）。";
+                PosStatusText.Text = Localizer.T("Pos.DeviceIdInvalid");
                 return false;
             }
 
@@ -47,7 +73,7 @@ public partial class PosWindow : Window
 
         if (PosFromDate.SelectedDate is not { } from || PosToDate.SelectedDate is not { } to)
         {
-            PosStatusText.Text = "請選擇起迄日期。";
+            PosStatusText.Text = Localizer.T("Pos.PickDates");
             return false;
         }
 
@@ -71,7 +97,7 @@ public partial class PosWindow : Window
         {
             if (deviceId is null)
             {
-                PosStatusText.Text = "依收銀機查詢時必須指定設備 ID。";
+                PosStatusText.Text = Localizer.T("Pos.RegisterNeedsDevice");
                 return;
             }
 
@@ -93,7 +119,8 @@ public partial class PosWindow : Window
                 Amount = (x.AmountCents / 100m).ToString("0.00", CultureInfo.InvariantCulture),
             })
             .ToList();
-        PosStatusText.Text = $"查到 {items.Count} 筆交易";
+        PosStatusText.Text = string.Format(
+            CultureInfo.InvariantCulture, Localizer.T("Pos.Found"), items.Count);
         PosReconText.Text = string.Empty;
     }
 
@@ -101,8 +128,8 @@ public partial class PosWindow : Window
     {
         var dialog = new Microsoft.Win32.OpenFileDialog
         {
-            Title = "匯入 POS 交易 CSV",
-            Filter = "CSV (*.csv)|*.csv|所有檔案 (*.*)|*.*",
+            Title = Localizer.T("Pos.ImportTitle"),
+            Filter = Localizer.T("Pos.ImportFilter"),
         };
         if (dialog.ShowDialog(this) != true)
         {
@@ -111,7 +138,7 @@ public partial class PosWindow : Window
 
         if (!int.TryParse(PosDeviceBox.Text.Trim(), out var deviceId) || deviceId <= 0)
         {
-            PosStatusText.Text = "匯入前請輸入正的設備 ID。";
+            PosStatusText.Text = Localizer.T("Pos.ImportDeviceRequired");
             return;
         }
 
@@ -158,11 +185,13 @@ public partial class PosWindow : Window
         }
         catch (Exception ex)
         {
-            PosStatusText.Text = $"匯入失敗：{ex.Message}";
+            PosStatusText.Text = string.Format(
+                CultureInfo.InvariantCulture, Localizer.T("Pos.ImportFailed"), ex.Message);
             return;
         }
 
-        PosStatusText.Text = $"匯入完成：新增 {inserted}、重複 {duplicate}、略過 {skipped}。";
+        PosStatusText.Text = string.Format(
+            CultureInfo.InvariantCulture, Localizer.T("Pos.ImportDone"), inserted, duplicate, skipped);
         Refresh();
     }
 
@@ -179,7 +208,7 @@ public partial class PosWindow : Window
         {
             if (deviceId is null)
             {
-                PosStatusText.Text = "對帳指定收銀機時必須指定設備 ID。";
+                PosStatusText.Text = Localizer.T("Pos.ReconcileNeedsDevice");
                 return;
             }
 
@@ -192,7 +221,13 @@ public partial class PosWindow : Window
 
         var candidates = _events.ListByRange(null, fromUtc, toUtc);
         var summary = PosReconciliation.Compute(txns, candidates, static ev => ev.StartUtc, KeyWindow);
-        PosReconText.Text = $"對帳：總計 {summary.Total}、相符 {summary.Matched}、" +
-                            $"未符 {summary.Unmatched}、重複 {summary.Duplicates}（候選事件 {candidates.Count}）。";
+        PosReconText.Text = string.Format(
+            CultureInfo.InvariantCulture,
+            Localizer.T("Pos.Recon"),
+            summary.Total,
+            summary.Matched,
+            summary.Unmatched,
+            summary.Duplicates,
+            candidates.Count);
     }
 }
