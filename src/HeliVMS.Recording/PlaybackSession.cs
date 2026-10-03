@@ -27,15 +27,24 @@ public sealed class PlaybackSession : IAsyncDisposable
 {
     private readonly string _ffmpeg;
     private readonly string _ffprobe;
+    private readonly IProcessFactory _processFactory;
+    private readonly Func<string, StreamProbeInfo> _probe;
     private CancellationTokenSource? _cts;
-    private Process? _process;
+    private IProcess? _process;
     private bool _disposed;
 
-    public PlaybackSession(SegmentRecord segment, string? ffmpegPath = null, string? ffprobePath = null)
+    public PlaybackSession(
+        SegmentRecord segment,
+        string? ffmpegPath = null,
+        string? ffprobePath = null,
+        IProcessFactory? processFactory = null,
+        Func<string, StreamProbeInfo>? probe = null)
     {
         Segment = segment;
         _ffmpeg = ffmpegPath ?? "ffmpeg";
         _ffprobe = ffprobePath ?? "ffprobe";
+        _processFactory = processFactory ?? new DefaultProcessFactory();
+        _probe = probe ?? (path => StreamProbe.Probe(path, _ffprobe));
     }
 
     public SegmentRecord Segment { get; }
@@ -82,7 +91,7 @@ public sealed class PlaybackSession : IAsyncDisposable
 
         try
         {
-            var info = await Task.Run(() => StreamProbe.Probe(Segment.FilePath, _ffprobe), cancellationToken);
+            var info = await Task.Run(() => _probe(Segment.FilePath), cancellationToken);
             await StreamFramesAsync(info, seekSeconds, _cts.Token);
         }
         catch (OperationCanceledException)
@@ -142,7 +151,7 @@ public sealed class PlaybackSession : IAsyncDisposable
         psi.ArgumentList.Add("0");
         psi.ArgumentList.Add("pipe:1");
 
-        using var proc = Process.Start(psi) ?? throw new InvalidOperationException("無法啟動 ffmpeg");
+        using var proc = _processFactory.Start(psi);
         _process = proc;
         IsPlaying = true;
 
@@ -212,7 +221,7 @@ public sealed class PlaybackSession : IAsyncDisposable
             {
                 if (!proc.HasExited)
                 {
-                    proc.Kill(entireProcessTree: true);
+                    proc.Kill();
                 }
             }
             catch (InvalidOperationException)
@@ -236,7 +245,7 @@ public sealed class PlaybackSession : IAsyncDisposable
                 {
                     if (!_process.HasExited)
                     {
-                        _process.Kill(entireProcessTree: true);
+                        _process.Kill();
                     }
                 }
                 catch (InvalidOperationException)
