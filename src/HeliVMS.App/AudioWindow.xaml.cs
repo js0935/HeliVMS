@@ -1,5 +1,7 @@
 using System.Collections.ObjectModel;
+using System.Globalization;
 using System.Windows;
+using System.Windows.Controls;
 using HeliVMS.Alarms;
 using HeliVMS.Storage;
 
@@ -26,6 +28,7 @@ public partial class AudioWindow : Window
         _store = store;
         _coordinator = new AudioSensorCoordinator(_store);
         InitializeComponent();
+        ApplyI18n();
 
         AudioStateList.ItemsSource = _rows;
 
@@ -40,6 +43,28 @@ public partial class AudioWindow : Window
         }
 
         RefreshViews();
+    }
+
+    /// <summary>依現況語言套用說明、標籤、按鈕、工具提示與清單欄位標題。</summary>
+    private void ApplyI18n()
+    {
+        Title = Localizer.T("Audio.Title");
+        AudioDescriptionText.Text = Localizer.T("Audio.Description");
+        AudioChannelLabel.Text = Localizer.T("Audio.Channel");
+        AudioFeedButton.Content = Localizer.T("Audio.Feed");
+        AudioFeedButton.ToolTip = Localizer.T("Audio.FeedTip");
+        AudioResetButton.Content = Localizer.T("Audio.Reset");
+        AudioResetButton.ToolTip = Localizer.T("Audio.ResetTip");
+        AudioFlushButton.Content = Localizer.T("Audio.Flush");
+        AudioFlushButton.ToolTip = Localizer.T("Audio.FlushTip");
+
+        if (AudioStateList.View is GridView grid && grid.Columns.Count >= 4)
+        {
+            grid.Columns[0].Header = Localizer.T("Audio.ColChannel");
+            grid.Columns[1].Header = Localizer.T("Audio.ColEnabled");
+            grid.Columns[2].Header = Localizer.T("Audio.ColLastKind");
+            grid.Columns[3].Header = Localizer.T("Audio.ColEvents");
+        }
     }
 
     private sealed record ChannelRow(string ChannelText, string EnabledText, string LastKindText, string EventCountText);
@@ -58,7 +83,10 @@ public partial class AudioWindow : Window
     }
 
     private string ChannelName(int id)
-        => new ChannelRepository(_store).Get(id)?.Name ?? $"頻道{id}";
+    {
+        var name = new ChannelRepository(_store).Get(id)?.Name;
+        return name ?? string.Format(CultureInfo.InvariantCulture, Localizer.T("Audio.ChannelFallback"), id);
+    }
 
     private int SelectedId()
         => AudioChannelCombo.SelectedIndex >= 0 && AudioChannelCombo.SelectedIndex < _coordinator.Channels.Count
@@ -70,7 +98,7 @@ public partial class AudioWindow : Window
         var id = SelectedId();
         if (id == 0)
         {
-            AudioStatusText.Text = "無可用頻道（需 audio_enabled=1）。";
+            AudioStatusText.Text = Localizer.T("Audio.NoChannel");
             return;
         }
 
