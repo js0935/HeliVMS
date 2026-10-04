@@ -13,6 +13,7 @@ namespace HeliVMS.Rtc.Tests;
 /// 一整段 ffmpeg stderr，而不是「這台 ffmpeg 沒有 H.264 編碼器」。
 /// </para>
 /// </summary>
+[Collection(RtcIoCollection.Name)]
 public sealed class FfmpegEncoderProbeTests
 {
     private const string MissingExecutable = @"C:\helivms-not-a-real-dir\ffmpeg-missing.exe";

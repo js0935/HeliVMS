@@ -22,6 +22,7 @@ namespace HeliVMS.Rtc.Tests;
 /// 東西。需要真實 ffmpeg 行為的測試在 <see cref="PublishPipelineTests"/>。
 /// </para>
 /// </summary>
+[Collection(RtcIoCollection.Name)]
 public sealed class LivePublisherTests
 {
     /// <summary>

@@ -24,6 +24,7 @@ namespace HeliVMS.Rtc.Tests;
 /// 環境沒有 ffmpeg（或沒有 libx264）時略過。
 /// </para>
 /// </summary>
+[Collection(RtcIoCollection.Name)]
 public sealed class PublisherIntegrationTests
 {
     private static readonly TimeSpan StartTimeout = TimeSpan.FromSeconds(30);

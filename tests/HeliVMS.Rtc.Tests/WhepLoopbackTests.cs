@@ -26,6 +26,7 @@ namespace HeliVMS.Rtc.Tests;
 /// 正確性，代價是測試本身極易腐化。本檔改驗證我們<b>自己</b>擁有的部分：產生的 SDP
 /// 是否正確，以及 ICE 與 DTLS 是否真的能依它完成握手——這兩件事都可重現且穩定。
 /// </para>
+[Collection(RtcIoCollection.Name)]
 public sealed class WhepLoopbackTests
 {
     private static readonly TimeSpan NegotiationTimeout = TimeSpan.FromSeconds(30);

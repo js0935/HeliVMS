@@ -11,6 +11,7 @@ namespace HeliVMS.Rtc.Tests;
 /// 關閉後釋放名額。這些都是「看得見畫面」與「看得到但沒畫面」的差別。
 /// </para>
 /// </summary>
+[Collection(RtcIoCollection.Name)]
 public class LiveStreamServiceTests
 {
     private sealed class FakePeer : IWhepPeer
@@ -484,7 +485,18 @@ public async Task 關到不存在的會話回傳null()
 
         // 啟動後仍不該完成：因為還沒有任何 RTP 封包。
         var completed = await Task.WhenAny(opening, Task.Delay(300));
-        Assert.NotSame(opening, completed);
+
+        // 這裡若失敗，必須讓 CI 日誌直接講出原因是什麼，否則只會看到
+        // 「Values are the same instance」而無從分辨：成功＝產品真的提前回 201
+        // （要修產品），擲出＝協商或 ingest 路徑壞了（要修別處）。兩者修法完全不同。
+        if (ReferenceEquals(opening, completed))
+        {
+            Assert.Fail(
+                $"沒有 RTP 封包就結束了：狀態={opening.Status}"
+                + $" 例外={opening.Exception?.GetType().Name ?? "無"}"
+                + $" 訊息={opening.Exception?.Message ?? "無"}");
+        }
+
         Assert.False(opening.IsCompleted);
 
         // 封包到達後才應該完成。

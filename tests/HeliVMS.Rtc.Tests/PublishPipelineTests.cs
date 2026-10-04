@@ -23,6 +23,7 @@ namespace HeliVMS.Rtc.Tests;
 /// 不是產品契約，但也不能假設每台機器都裝了 ffmpeg。
 /// </para>
 /// </summary>
+[Collection(RtcIoCollection.Name)]
 public sealed class PublishPipelineTests
 {
     private static readonly TimeSpan ReceiveTimeout = TimeSpan.FromSeconds(45);

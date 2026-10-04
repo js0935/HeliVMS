@@ -140,6 +140,8 @@ internal sealed class ChannelRuntime : IAsyncDisposable
         // 快速路徑：已經在串流就不要再搶鎖。
         if (_publisher is not null && PublisherState == PublisherState.Streaming) return;
 
+        TaskCompletionSource<bool> firstPacket;
+
         await _startGate.WaitAsync(token).ConfigureAwait(false);
         try
         {
@@ -154,7 +156,12 @@ internal sealed class ChannelRuntime : IAsyncDisposable
             _ingest.OnPacket = OnPacket;
             _ingest.Start();
 
-            _firstPacket = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            // 這次啟動自己的首包訊號。等待發生在鎖外（見下方），而 TeardownAsync 會把
+            // _firstPacket 清成 null——若那時才去讀欄位，拆除動作會被誤讀成「已經有畫面」，
+            // 讓 OpenAsync 成功回應，瀏覽器拿到 201 卻永遠沒畫面而且 log 乾淨。
+            // 帶著自己這份快照進去等，別人的拆除就取消不到它。
+            _firstPacket = firstPacket =
+                new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
 
             var publisher = new LivePublisher(_options, LiveEncodeOptions.Default);
 
@@ -174,7 +181,7 @@ internal sealed class ChannelRuntime : IAsyncDisposable
         }
 
         // 等第一個封包（含逾時）。放在鎖外，避免 30 秒的等待卡住其他觀看者。
-        await WaitForFirstPacketAsync(token).ConfigureAwait(false);
+        await WaitForFirstPacketAsync(firstPacket, token).ConfigureAwait(false);
     }
 
     private void OnPacket(RtpHeader header, ReadOnlyMemory<byte> payload)
@@ -185,21 +192,20 @@ internal sealed class ChannelRuntime : IAsyncDisposable
         _sink(_channelId, header, payload);
     }
 
-    private async Task WaitForFirstPacketAsync(CancellationToken token)
+    private async Task WaitForFirstPacketAsync(
+        TaskCompletionSource<bool> firstPacket,
+        CancellationToken token)
     {
-        var first = _firstPacket;
-        if (first is null) return;
-
         try
         {
             // 逾時有兩種後果要分清楚：ffpeg 自己退出（該回 502 並附上遮蔽過的 stderr），
             // 或只是還沒出畫面（回 504，讓 UI 有機會重試）。
-            var completed = await Task.WhenAny(first.Task, Task.Delay(_options.PublisherStartTimeout, token))
+            var completed = await Task.WhenAny(firstPacket.Task, Task.Delay(_options.PublisherStartTimeout, token))
                 .ConfigureAwait(false);
 
-            if (completed == first.Task)
+            if (completed == firstPacket.Task)
             {
-                await first.Task.ConfigureAwait(false);
+                await firstPacket.Task.ConfigureAwait(false);
                 return;
             }
 
@@ -256,7 +262,16 @@ internal sealed class ChannelRuntime : IAsyncDisposable
         }
     }
 
-    private async Task TeardownAsync()
+    /// <summary>
+    /// 收掉 publisher 與 ingest，並清掉首包訊號。
+    /// <para>
+    /// 對測試開放（internal 而非 private）是為了讓「等待首包期間被拆除」這個競態
+    /// 能被確定性地驗證：<see cref="DisposeAsync"/> 走這條路時不會經過 <c>_startGate</c>，
+    /// 所以它是唯一能在 <see cref="EnsurePublisherAsync"/> 等封包的同時清掉首包訊號的入口。
+    /// 靠時序去撞這個交錯會得到一個偶發綠的測試，那等於沒有測試。
+    /// </para>
+    /// </summary>
+    internal async Task TeardownAsync()
     {
         if (_ingest is not null)
         {
