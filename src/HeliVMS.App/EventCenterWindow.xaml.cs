@@ -39,7 +39,8 @@ public partial class EventCenterWindow : Window
         _feed = alerts is null ? null : new AlertFeed(alerts, Dispatcher, OnAlertsChanged);
 
         // gis 旗標限定（M209）：「在地圖定位」是地圖功能，事件中心本身不藏。
-        new LicenseUiGate(store).Apply(MapLocateButton, LicenseFeatures.Gis, "在地圖上定位該事件的攝影機");
+        new LicenseUiGate(store).Apply(
+            MapLocateButton, LicenseFeatures.Gis, Localizer.T("EventCenter.MapLocateTip"));
     }
 
     /// <summary>重定向本窗到指定頻道（供主視窗右鍵「此頻道」快速查詢重用同窗）。</summary>
@@ -95,19 +96,19 @@ public partial class EventCenterWindow : Window
 
         public string StatusLabel => AlarmEventStatus.Label(Status);
 
-        /// <summary>事件類型的中文顯示名；未列的類型原樣顯示（上游新增類型不會炸掉視窗）。</summary>
+        /// <summary>事件類型的顯示名；未列的類型原樣顯示（上游新增類型不會炸掉視窗）。</summary>
         public string TypeLabel =>
             EventType switch
             {
-                "motion" => "動態",
-                "ai_person" => "AI 人員",
-                "ai_vehicle" => "AI 車輛",
-                "offline" => "離線",
-                "tamper" => "破壞",
-                "io_input" => "IO 輸入",
-                "line_cross" => "越線",
-                "intrusion" => "入侵",
-                "license_limit" => "授權上限",
+                "motion" => Localizer.T("EventCenter.TypeMotion"),
+                "ai_person" => Localizer.T("EventCenter.TypeAiPerson"),
+                "ai_vehicle" => Localizer.T("EventCenter.TypeAiVehicle"),
+                "offline" => Localizer.T("EventCenter.TypeOffline"),
+                "tamper" => Localizer.T("EventCenter.TypeTamper"),
+                "io_input" => Localizer.T("EventCenter.TypeIoInput"),
+                "line_cross" => Localizer.T("EventCenter.TypeLineCross"),
+                "intrusion" => Localizer.T("EventCenter.TypeIntrusion"),
+                "license_limit" => Localizer.T("EventCenter.TypeLicenseLimit"),
                 _ => EventType,
             };
 
@@ -162,7 +163,7 @@ public partial class EventCenterWindow : Window
         base.OnClosed(e);
     }
 
-    /// <summary>依現況語言套用標題／過濾列文字（M57）。</summary>
+    /// <summary>依現況語言套用標題／過濾列／清單欄位／處置列／分頁／快照區文字（M57）。</summary>
     private void ApplyI18n()
     {
         Title = Localizer.T("EventCenter.Title");
@@ -171,8 +172,43 @@ public partial class EventCenterWindow : Window
         TypeLabel.Text = Localizer.T("EventCenter.Type");
         KeywordLabel.Text = Localizer.T("EventCenter.Keyword");
         ApplyQueryButton.Content = Localizer.T("EventCenter.Apply");
+        ApplyQueryButton.ToolTip = Localizer.T("EventCenter.ApplyTip");
         RefreshButton.Content = Localizer.T("EventCenter.Refresh");
+        RefreshButton.ToolTip = Localizer.T("EventCenter.RefreshTip");
         ExportCsvButton.Content = Localizer.T("EventCenter.ExportCsv");
+        ExportCsvButton.ToolTip = Localizer.T("EventCenter.ExportCsvTip");
+        PendingOnlyCheck.Content = Localizer.T("EventCenter.PendingOnly");
+        PendingOnlyCheck.ToolTip = Localizer.T("EventCenter.PendingOnlyTip");
+
+        // 檢視切換鈕顯示的是「切過去以後」的樣式，與目前樣式相反。
+        ViewToggleButton.Content = Localizer.T(
+            EventList.Visibility == Visibility.Visible ? "EventCenter.ViewCards" : "EventCenter.ViewList");
+        ViewToggleButton.ToolTip = Localizer.T("EventCenter.ViewToggleTip");
+
+        EventListHeadingText.Text = Localizer.T("EventCenter.ListHeading");
+        DispositionLabel.Text = Localizer.T("EventCenter.Disposition");
+        AssignLabelText.Text = Localizer.T("EventCenter.AssignLabel");
+        NoteLabelText.Text = Localizer.T("EventCenter.NoteLabel");
+        ApplyDispositionButton.Content = Localizer.T("EventCenter.ApplyDisposition");
+        ApplyDispositionButton.ToolTip = Localizer.T("EventCenter.ApplyDispositionTip");
+        TrailText.Text = Localizer.T("EventCenter.TrailEmpty");
+        SnapshotHeadingText.Text = Localizer.T("EventCenter.SnapshotHeading");
+        SnapshotHint.Text = Localizer.T("EventCenter.SnapshotPick");
+        SnapshotRedactButton.Content = Localizer.T("EventCenter.SnapshotRedact");
+        SnapshotRedactButton.ToolTip = Localizer.T("EventCenter.SnapshotRedactTip");
+
+        AckButton.Content = Localizer.T("EventCenter.Ack");
+        AckButton.ToolTip = Localizer.T("EventCenter.AckTip");
+        UnackButton.Content = Localizer.T("EventCenter.Unack");
+        UnackButton.ToolTip = Localizer.T("EventCenter.UnackTip");
+        PlaybackButton.Content = Localizer.T("EventCenter.Playback");
+        PlaybackButton.ToolTip = Localizer.T("EventCenter.PlaybackTip");
+        MapLocateButton.Content = Localizer.T("EventCenter.MapLocate");
+        MapLocateButton.ToolTip = Localizer.T("EventCenter.MapLocateTip");
+        PrevPageButton.Content = Localizer.T("EventCenter.PrevPage");
+        PrevPageButton.ToolTip = Localizer.T("EventCenter.PrevPageTip");
+        NextPageButton.Content = Localizer.T("EventCenter.NextPage");
+        NextPageButton.ToolTip = Localizer.T("EventCenter.NextPageTip");
 
         var ranges = new[] { "EventCenter.Today", "EventCenter.Hours24", "EventCenter.Days7", "EventCenter.All" };
         for (var i = 0; i < ranges.Length && i < RangeCombo.Items.Count; i++)
@@ -181,6 +217,31 @@ public partial class EventCenterWindow : Window
             {
                 item.Content = Localizer.T(ranges[i]);
             }
+        }
+
+        // 處置選單以 Tag（pending/acknowledged/...）作為資料，顯示文字可獨立翻譯。
+        var dispositions = new[]
+        {
+            "EventCenter.DispPending", "EventCenter.DispAcknowledged",
+            "EventCenter.DispActioned", "EventCenter.DispFalseAlarm",
+        };
+        for (var i = 0; i < dispositions.Length && i < DispositionCombo.Items.Count; i++)
+        {
+            if (DispositionCombo.Items[i] is ComboBoxItem item)
+            {
+                item.Content = Localizer.T(dispositions[i]);
+            }
+        }
+
+        if (EventList.View is GridView grid && grid.Columns.Count >= 7)
+        {
+            grid.Columns[0].Header = Localizer.T("EventCenter.ColTime");
+            grid.Columns[1].Header = Localizer.T("EventCenter.ColChannel");
+            grid.Columns[2].Header = Localizer.T("EventCenter.ColType");
+            grid.Columns[3].Header = Localizer.T("EventCenter.ColDuration");
+            grid.Columns[4].Header = Localizer.T("EventCenter.ColDetail");
+            grid.Columns[5].Header = Localizer.T("EventCenter.ColStatus");
+            grid.Columns[6].Header = Localizer.T("EventCenter.ColAssigned");
         }
     }
 
@@ -251,13 +312,13 @@ public partial class EventCenterWindow : Window
         {
             EventList.Visibility = Visibility.Collapsed;
             CardList.Visibility = Visibility.Visible;
-            ViewToggleButton.Content = "清單";
+            ViewToggleButton.Content = Localizer.T("EventCenter.ViewList");
         }
         else
         {
             EventList.Visibility = Visibility.Visible;
             CardList.Visibility = Visibility.Collapsed;
-            ViewToggleButton.Content = "卡片";
+            ViewToggleButton.Content = Localizer.T("EventCenter.ViewCards");
         }
     }
 
@@ -272,14 +333,14 @@ public partial class EventCenterWindow : Window
     {
         if (!SessionContext.IsAdmin)
         {
-            CountText.Text = "匯出僅限管理員。";
+            CountText.Text = Localizer.T("EventCenter.ExportAdminOnly");
             return;
         }
 
         var dlg = new Microsoft.Win32.SaveFileDialog
         {
-            Title = "匯出事件中心 CSV",
-            Filter = "CSV 檔 (*.csv)|*.csv",
+            Title = Localizer.T("EventCenter.ExportDialogTitle"),
+            Filter = Localizer.T("EventCenter.ExportDialogFilter"),
             FileName = $"events-{DateTime.Now:yyyyMMdd-HHmmss}.csv",
         };
         if (dlg.ShowDialog() != true)
@@ -290,7 +351,8 @@ public partial class EventCenterWindow : Window
         var q = BuildQuery();
         var list = await Task.Run(() => _events.ListByQuery(q));
         await Task.Run(() => WriteCsv(dlg.FileName, list, _channels.List()));
-        CountText.Text = $"已匯出 {list.Count} 筆至 {dlg.FileName}";
+        CountText.Text = string.Format(
+            CultureInfo.InvariantCulture, Localizer.T("EventCenter.Exported"), list.Count, dlg.FileName);
     }
 
     /// <summary>目前過濾列的查詢條件（不限頁數）。</summary>
@@ -358,7 +420,7 @@ public partial class EventCenterWindow : Window
         }
 
         var sb = new System.Text.StringBuilder();
-        sb.AppendLine("時間(本地),頻道,類型,持續(秒),詳情,快照,狀態,指派,備註");
+        sb.AppendLine(Localizer.T("EventCenter.CsvHeader"));
         foreach (var ev in list)
         {
             var name = byId.TryGetValue(ev.ChannelId, out var c) ? c.Name : $"#{ev.ChannelId}";
@@ -457,8 +519,10 @@ public partial class EventCenterWindow : Window
         CardList.ItemsSource = eventRows;
 
         var pages = Math.Max(1, (total + PageSize - 1) / PageSize);
-        CountText.Text = $"共 {total} 筆事件（第 {_page}/{pages} 頁）";
-        PageText.Text = $"第 {_page} / {pages} 頁";
+        CountText.Text = string.Format(
+            CultureInfo.InvariantCulture, Localizer.T("EventCenter.CountSummary"), total, _page, pages);
+        PageText.Text = string.Format(
+            CultureInfo.InvariantCulture, Localizer.T("EventCenter.PageOf"), _page, pages);
         PrevPageButton.IsEnabled = _page > 1;
         NextPageButton.IsEnabled = _page * PageSize < total;
         var keepId = _selectedId;
@@ -554,7 +618,7 @@ public partial class EventCenterWindow : Window
         if (row is null)
         {
             DisposeDispositionEditor();
-            TrailText.Text = "軌跡：—";
+            TrailText.Text = Localizer.T("EventCenter.TrailEmpty");
             return;
         }
 
@@ -591,15 +655,19 @@ public partial class EventCenterWindow : Window
         var trail = _events.ListDispositionTrail(eventId);
         if (trail.Count == 0)
         {
-            TrailText.Text = "軌跡：尚無處置紀錄。";
+            TrailText.Text = Localizer.T("EventCenter.TrailNone");
             return;
         }
 
         var last = trail[^1];
-        var at = last.ChangedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm");
-        var who = string.IsNullOrWhiteSpace(last.AssignedTo) ? "" : $" by {last.AssignedTo}";
-        var note = string.IsNullOrWhiteSpace(last.Note) ? "" : $" － {last.Note}";
-        TrailText.Text = $"軌跡：共 {trail.Count} 筆｜最近 {at} {AlarmEventStatus.Label(last.Status)}{who}{note}";
+        var at = last.ChangedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture);
+        var who = string.IsNullOrWhiteSpace(last.AssignedTo) ? "" : string.Format(
+            CultureInfo.InvariantCulture, Localizer.T("EventCenter.TrailBy"), last.AssignedTo);
+        var note = string.IsNullOrWhiteSpace(last.Note) ? "" : string.Format(
+            CultureInfo.InvariantCulture, Localizer.T("EventCenter.TrailNote"), last.Note);
+        TrailText.Text = string.Format(
+            CultureInfo.InvariantCulture, Localizer.T("EventCenter.TrailSummary"),
+            trail.Count, at, AlarmEventStatus.Label(last.Status)) + who + note;
     }
 
     private void OnApplyDispositionClicked(object sender, RoutedEventArgs e)
@@ -657,7 +725,7 @@ public partial class EventCenterWindow : Window
 
         if (string.IsNullOrEmpty(row.SnapshotPath) || !File.Exists(row.SnapshotPath))
         {
-            SnapshotHint.Text = "此事件無快照或快照檔已不在。";
+            SnapshotHint.Text = Localizer.T("EventCenter.SnapshotNoFile");
             SnapshotHint.Visibility = Visibility.Visible;
             return;
         }
@@ -689,12 +757,15 @@ public partial class EventCenterWindow : Window
     {
         ClearSnapshot();
         SnapshotDetailText.Text = string.IsNullOrEmpty(detail)
-            ? "此事件無明細。"
-            : $"明細：{detail}";
+            ? Localizer.T("EventCenter.SnapshotNoDetail")
+            : string.Format(CultureInfo.InvariantCulture, Localizer.T("EventCenter.SnapshotDetail"), detail);
 
         if (string.IsNullOrEmpty(path) || !File.Exists(path))
         {
-            SnapshotHint.Text = string.IsNullOrEmpty(path) ? "此事件無快照。" : "快照檔已不在（可能已清理）。";
+            SnapshotHint.Text = Localizer.T(
+                string.IsNullOrEmpty(path)
+                    ? "EventCenter.SnapshotMissing"
+                    : "EventCenter.SnapshotMissingCleaned");
             return;
         }
 
@@ -720,7 +791,8 @@ public partial class EventCenterWindow : Window
         }
         catch (Exception ex) when (ex is IOException or System.Runtime.InteropServices.COMException or NotSupportedException)
         {
-            SnapshotHint.Text = "無法開啟快照：" + ex.Message;
+            SnapshotHint.Text = string.Format(
+                CultureInfo.InvariantCulture, Localizer.T("EventCenter.SnapshotOpenFailed"), ex.Message);
             SnapshotHint.Visibility = Visibility.Visible;
         }
 

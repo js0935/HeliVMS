@@ -22,6 +22,7 @@ public sealed class WpfI18nContractTests
         ["RedactionWindow", "src/HeliVMS.App/RedactionWindow.xaml", "src/HeliVMS.App/RedactionWindow.xaml.cs", new[] { "Redact" }],
         ["DewarpWindow", "src/HeliVMS.App/DewarpWindow.xaml", "src/HeliVMS.App/DewarpWindow.xaml.cs", new[] { "Dewarp" }],
         ["AudioWindow", "src/HeliVMS.App/AudioWindow.xaml", "src/HeliVMS.App/AudioWindow.xaml.cs", new[] { "Audio" }],
+        ["EventCenterWindow", "src/HeliVMS.App/EventCenterWindow.xaml", "src/HeliVMS.App/EventCenterWindow.xaml.cs", new[] { "EventCenter" }],
         ["SynopsisWindow", "src/HeliVMS.App/SynopsisWindow.xaml", "src/HeliVMS.App/SynopsisWindow.xaml.cs", new[] { "Synopsis" }],
         ["SnapshotRedactWindow", "src/HeliVMS.App/SnapshotRedactWindow.xaml", "src/HeliVMS.App/SnapshotRedactWindow.xaml.cs", new[] { "SnapRedact" }],
     ];
