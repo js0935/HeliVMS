@@ -19,6 +19,7 @@ public sealed class WpfI18nContractTests
         ["LegalHoldWindow", "src/HeliVMS.App/LegalHoldWindow.xaml", "src/HeliVMS.App/LegalHoldWindow.xaml.cs", new[] { "LegalHold" }],
         ["EvidenceWindow", "src/HeliVMS.App/EvidenceWindow.xaml", "src/HeliVMS.App/EvidenceWindow.xaml.cs", new[] { "Evidence" }],
         ["IoWindow", "src/HeliVMS.App/IoWindow.xaml", "src/HeliVMS.App/IoWindow.xaml.cs", new[] { "Io" }],
+        ["RedactionWindow", "src/HeliVMS.App/RedactionWindow.xaml", "src/HeliVMS.App/RedactionWindow.xaml.cs", new[] { "Redact" }],
         ["SynopsisWindow", "src/HeliVMS.App/SynopsisWindow.xaml", "src/HeliVMS.App/SynopsisWindow.xaml.cs", new[] { "Synopsis" }],
         ["SnapshotRedactWindow", "src/HeliVMS.App/SnapshotRedactWindow.xaml", "src/HeliVMS.App/SnapshotRedactWindow.xaml.cs", new[] { "SnapRedact" }],
     ];

@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.IO;
 using System.Windows;
+using System.Windows.Controls;
 using HeliVMS.Recording;
 using HeliVMS.Shared.Models;
 using HeliVMS.Storage;
@@ -28,6 +29,7 @@ public partial class RedactionWindow : Window
         _store = store;
         _dataRoot = dataRoot;
         InitializeComponent();
+        ApplyI18n();
 
         var channels = new ChannelRepository(store).List().ToList();
         ChannelCombo.ItemsSource = channels;
@@ -71,45 +73,74 @@ public partial class RedactionWindow : Window
         }
     }
 
+    /// <summary>依現況語言套用標題、說明、標籤、按鈕與欄位文字。</summary>
+    private void ApplyI18n()
+    {
+        Title = Localizer.T("Redact.Title");
+        RedactHeadingText.Text = Localizer.T("Redact.Heading");
+        RedactDescriptionText.Text = Localizer.T("Redact.Description");
+        RedactChannelLabel.Text = Localizer.T("Redact.Channel");
+        RedactToLabel.Text = Localizer.T("Redact.To");
+        RedactRoiLabel.Text = Localizer.T("Redact.RoiLabel");
+        RedactWidthLabel.Text = Localizer.T("Redact.Width");
+        RedactHeightLabel.Text = Localizer.T("Redact.Height");
+        AddRoiButton.Content = Localizer.T("Redact.AddRoi");
+        AddRoiButton.ToolTip = Localizer.T("Redact.AddRoiTip");
+        RemoveRoiButton.Content = Localizer.T("Redact.RemoveRoi");
+        RemoveRoiButton.ToolTip = Localizer.T("Redact.RemoveRoiTip");
+        RedactButton.Content = Localizer.T("Redact.Start");
+        RedactButton.ToolTip = Localizer.T("Redact.StartTip");
+
+        if (RoiList.View is GridView grid && grid.Columns.Count >= 5)
+        {
+            grid.Columns[2].Header = Localizer.T("Redact.ColWidth");
+            grid.Columns[3].Header = Localizer.T("Redact.ColHeight");
+            grid.Columns[4].Header = Localizer.T("Redact.ColMask");
+        }
+    }
+
     private void OnAddRoiClicked(object sender, RoutedEventArgs e)
     {
         if (!int.TryParse(RoiX.Text, out var x) || !int.TryParse(RoiY.Text, out var y) ||
             !int.TryParse(RoiW.Text, out var w) || !int.TryParse(RoiH.Text, out var h) ||
             w <= 0 || h <= 0)
         {
-            RedactStatusText.Text = "遮蔽區域需為正整數（寬高大於 0）。";
+            RedactStatusText.Text = Localizer.T("Redact.BadRoi");
             return;
         }
 
-        _rois.Add(new RedactionRoiRow(x, y, w, h, $"區域 {_rois.Count + 1}"));
+        _rois.Add(new RedactionRoiRow(x, y, w, h, string.Format(
+            CultureInfo.InvariantCulture, Localizer.T("Redact.RoiName"), _rois.Count + 1)));
         RoiList.ItemsSource = _rois.ToList();
-        RedactStatusText.Text = $"已加入遮蔽區域：({x}, {y}) {w}×{h}。";
+        RedactStatusText.Text = string.Format(
+            CultureInfo.InvariantCulture, Localizer.T("Redact.RoiAdded"), x, y, w, h);
     }
 
     private void OnRemoveRoiClicked(object sender, RoutedEventArgs e)
     {
         if (RoiList.SelectedItem is not RedactionRoiRow row)
         {
-            RedactStatusText.Text = "請先於清單選取要移除的遮蔽區域。";
+            RedactStatusText.Text = Localizer.T("Redact.SelectRoiToRemove");
             return;
         }
 
         _rois.Remove(row);
         RoiList.ItemsSource = _rois.ToList();
-        RedactStatusText.Text = $"已移除遮蔽區域 ({row.X}, {row.Y})。";
+        RedactStatusText.Text = string.Format(
+            CultureInfo.InvariantCulture, Localizer.T("Redact.RoiRemoved"), row.X, row.Y);
     }
 
     private async void OnRedactClicked(object sender, RoutedEventArgs e)
     {
         if (ChannelCombo.SelectedItem is not ChannelInfo ch)
         {
-            RedactStatusText.Text = "請先選擇頻道。";
+            RedactStatusText.Text = Localizer.T("Redact.SelectChannel");
             return;
         }
 
         if (!StartDate.SelectedDate.HasValue || !EndDate.SelectedDate.HasValue)
         {
-            RedactStatusText.Text = "請選擇起迄日期。";
+            RedactStatusText.Text = Localizer.T("Redact.SelectDates");
             return;
         }
 
@@ -127,13 +158,13 @@ public partial class RedactionWindow : Window
         var endUtc = EndDate.SelectedDate.Value.Add(endTime).ToUniversalTime();
         if (endUtc <= startUtc)
         {
-            RedactStatusText.Text = "結束時間必須大於開始時間。";
+            RedactStatusText.Text = Localizer.T("Redact.BadRange");
             return;
         }
 
         if (_rois.Count == 0)
         {
-            RedactStatusText.Text = "請先加入至少一個遮蔽區域。";
+            RedactStatusText.Text = Localizer.T("Redact.NeedRoi");
             return;
         }
 
@@ -161,13 +192,18 @@ public partial class RedactionWindow : Window
                     _rois.Select(r => r.ToRoi()).ToList()),
                 progress);
 
-            RedactStatusText.Text = $"遮蔽完成：{Path.GetFileName(result.OutputPath)}" +
-                                    $"（{FormatBytes(result.FileSizeBytes)}、{result.DurationSeconds:0.#} 秒）" +
-                                    (result.Sha256 is null ? string.Empty : $"\nSHA-256：{result.Sha256}");
+            RedactStatusText.Text = string.Format(
+                CultureInfo.InvariantCulture, Localizer.T("Redact.Done"),
+                Path.GetFileName(result.OutputPath),
+                FormatBytes(result.FileSizeBytes),
+                result.DurationSeconds.ToString("0.#", CultureInfo.InvariantCulture)) +
+                (result.Sha256 is null ? string.Empty : string.Format(
+                    CultureInfo.InvariantCulture, Localizer.T("Redact.Sha"), result.Sha256));
         }
         catch (Exception ex)
         {
-            RedactStatusText.Text = $"遮蔽失敗：{ex.Message}";
+            RedactStatusText.Text = string.Format(
+                CultureInfo.InvariantCulture, Localizer.T("Redact.Failed"), ex.Message);
         }
         finally
         {
