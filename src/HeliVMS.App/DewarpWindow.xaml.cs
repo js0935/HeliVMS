@@ -22,6 +22,7 @@ public partial class DewarpWindow : Window
         _store = store;
         _dataRoot = dataRoot;
         InitializeComponent();
+        ApplyI18n();
 
         InputCombo.ItemsSource = new[] { "fisheye", "dfisheye", "equirect" };
         OutputCombo.ItemsSource = new[] { "flat", "equirect", "c3x2" };
@@ -70,11 +71,31 @@ public partial class DewarpWindow : Window
         }
     }
 
+    /// <summary>依現況語言套用標題、說明、投影與視角標籤、按鈕與工具提示。</summary>
+    private void ApplyI18n()
+    {
+        Title = Localizer.T("Dewarp.Title");
+        DewarpHeadingText.Text = Localizer.T("Dewarp.Heading");
+        DewarpDescriptionText.Text = Localizer.T("Dewarp.Description");
+        DewarpChannelLabel.Text = Localizer.T("Dewarp.Channel");
+        DewarpToLabel.Text = Localizer.T("Dewarp.To");
+        DewarpInputProjectionLabel.Text = Localizer.T("Dewarp.InputProjection");
+        DewarpOutputProjectionLabel.Text = Localizer.T("Dewarp.OutputProjection");
+        DewarpInputFovLabel.Text = Localizer.T("Dewarp.InputFov");
+        DewarpOutputFovLabel.Text = Localizer.T("Dewarp.OutputFov");
+        DewarpOutputWidthLabel.Text = Localizer.T("Dewarp.OutputWidth");
+        DewarpHeightLabel.Text = Localizer.T("Dewarp.Height");
+        PreviewButton.Content = Localizer.T("Dewarp.Preview");
+        PreviewButton.ToolTip = Localizer.T("Dewarp.PreviewTip");
+        DewarpButton.Content = Localizer.T("Dewarp.Start");
+        DewarpButton.ToolTip = Localizer.T("Dewarp.StartTip");
+    }
+
     private void OnPreviewClicked(object sender, RoutedEventArgs e)
     {
         if (ChannelCombo.SelectedItem is not ChannelInfo ch)
         {
-            DewarpStatusText.Text = "請先選擇頻道。";
+            DewarpStatusText.Text = Localizer.T("Dewarp.SelectChannel");
             return;
         }
 
@@ -89,7 +110,7 @@ public partial class DewarpWindow : Window
             .ToList();
         if (segments.Count == 0)
         {
-            DewarpStatusText.Text = "所選範圍無錄影段落可供矯正。";
+            DewarpStatusText.Text = Localizer.T("Dewarp.NoSegments");
             return;
         }
 
@@ -106,11 +127,14 @@ public partial class DewarpWindow : Window
             bmp.EndInit();
             PreviewImage.Source = bmp;
 
-            DewarpStatusText.Text = $"預覽完成：{settings.Input} → {settings.Output}。";
+            DewarpStatusText.Text = string.Format(
+                CultureInfo.InvariantCulture, Localizer.T("Dewarp.PreviewDone"),
+                settings.Input, settings.Output);
         }
         catch (Exception ex)
         {
-            DewarpStatusText.Text = $"預覽失敗：{ex.Message}";
+            DewarpStatusText.Text = string.Format(
+                CultureInfo.InvariantCulture, Localizer.T("Dewarp.PreviewFailed"), ex.Message);
         }
     }
 
@@ -118,7 +142,7 @@ public partial class DewarpWindow : Window
     {
         if (ChannelCombo.SelectedItem is not ChannelInfo ch)
         {
-            DewarpStatusText.Text = "請先選擇頻道。";
+            DewarpStatusText.Text = Localizer.T("Dewarp.SelectChannel");
             return;
         }
 
@@ -134,7 +158,8 @@ public partial class DewarpWindow : Window
         }
         catch (Exception ex)
         {
-            DewarpStatusText.Text = $"參數無效：{ex.Message}";
+            DewarpStatusText.Text = string.Format(
+                CultureInfo.InvariantCulture, Localizer.T("Dewarp.BadParams"), ex.Message);
             return;
         }
 
@@ -161,13 +186,18 @@ public partial class DewarpWindow : Window
                 new DewarpRequest(ch.Id, startUtc, endUtc, outputPath, settings),
                 progress);
 
-            DewarpStatusText.Text = $"矯正完成：{Path.GetFileName(result.OutputPath)}" +
-                                    $"（{FormatBytes(result.FileSizeBytes)}、{result.DurationSeconds:0.#} 秒）" +
-                                    (result.Sha256 is null ? string.Empty : $"\nSHA-256：{result.Sha256}");
+            DewarpStatusText.Text = string.Format(
+                CultureInfo.InvariantCulture, Localizer.T("Dewarp.Done"),
+                Path.GetFileName(result.OutputPath),
+                FormatBytes(result.FileSizeBytes),
+                result.DurationSeconds.ToString("0.#", CultureInfo.InvariantCulture)) +
+                (result.Sha256 is null ? string.Empty : string.Format(
+                    CultureInfo.InvariantCulture, Localizer.T("Dewarp.Sha"), result.Sha256));
         }
         catch (Exception ex)
         {
-            DewarpStatusText.Text = $"矯正失敗：{ex.Message}";
+            DewarpStatusText.Text = string.Format(
+                CultureInfo.InvariantCulture, Localizer.T("Dewarp.Failed"), ex.Message);
         }
         finally
         {
@@ -182,7 +212,7 @@ public partial class DewarpWindow : Window
 
         if (!StartDate.SelectedDate.HasValue || !EndDate.SelectedDate.HasValue)
         {
-            DewarpStatusText.Text = "請選擇起迄日期。";
+            DewarpStatusText.Text = Localizer.T("Dewarp.SelectDates");
             return false;
         }
 
@@ -200,7 +230,7 @@ public partial class DewarpWindow : Window
         endUtc = EndDate.SelectedDate.Value.Add(endTime).ToUniversalTime();
         if (endUtc <= startUtc)
         {
-            DewarpStatusText.Text = "結束時間必須大於開始時間。";
+            DewarpStatusText.Text = Localizer.T("Dewarp.BadRange");
             return false;
         }
 
