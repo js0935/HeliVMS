@@ -73,12 +73,22 @@ Notes that will save you time:
 - **UDP port selection in tests.** Never pick a port by binding a probe socket and
   disposing it — xunit runs test classes in parallel, so another class can take that
   port. Bind the real socket first and hold it. This caused
-  `第一個RTP封包到達前不會回應` to fail only on CI.
+  `第一個RTP封包到達前不會回應` to fail only on CI. Holding your own socket does not
+  stop someone else's packets from arriving on a recycled port, so every test class
+  that binds a loopback RTP port or starts real ffmpeg is now in the `rtc-io`
+  collection (`RtcIoCollection`), which does not run in parallel with anything else.
+  Adding a socket- or process-touching test class means adding it to that collection.
 - **ffmpeg RTP output must stay `-f rtp`.** `-f rte` (RTCP only) produces no media.
   `PublisherIntegrationTests` fails if this regresses.
 - **`OpenAsync` must not complete before the first RTP packet.** Returning 201
   immediately gives the browser a connection that looks successful and never shows
   video, with nothing in the logs. Guarded by `第一個RTP封包到達前不會回應`.
+  The wait deliberately happens *outside* `_startGate` so a 30s start does not block
+  other viewers, which means it must wait on the `TaskCompletionSource` it captured
+  inside the gate — never on the nullable `_firstPacket` field, which `TeardownAsync`
+  nulls. Reading the field let a concurrent teardown pass for "media has arrived".
+  Guarded by `等待首包期間被拆除不會回報成功`, which calls `TeardownAsync` directly
+  (hence `internal`) instead of racing timing.
 - **`X_DisableExtendedMasterSecretKey = true`** is deliberate: pure-managed SharpSRTP
   uses EMS by default (RFC 7627) but some older Safari only accepts RFC 5764.
 - **Do not add trickle ICE.** There is no `PATCH` endpoint; the answer must carry
