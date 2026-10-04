@@ -1,5 +1,7 @@
 using System.Collections.ObjectModel;
+using System.Globalization;
 using System.Windows;
+using System.Windows.Controls;
 using HeliVMS.Storage;
 
 namespace HeliVMS.App;
@@ -24,13 +26,15 @@ public partial class IoWindow : Window
         _rules = new IoRuleRepository(store);
         _engine = new IoRuleEngine(_ports.List(), _rules.List());
         InitializeComponent();
+        ApplyI18n();
 
         IoPortList.ItemsSource = _portRows;
         IoRuleList.ItemsSource = _ruleRows;
 
         foreach (var di in _ports.List().Where(p => p.Kind == IoPortKind.Di))
         {
-            IoDiCombo.Items.Add($"DI#{di.Number}（{di.Name}）");
+            IoDiCombo.Items.Add(string.Format(
+                CultureInfo.InvariantCulture, Localizer.T("Io.DiComboItem"), di.Number, di.Name));
             _physical[di.Id] = false;
         }
 
@@ -40,6 +44,34 @@ public partial class IoWindow : Window
         }
 
         RefreshViews();
+    }
+
+    /// <summary>依現況語言套用標題、標籤、按鈕與兩份清單的欄位文字。</summary>
+    private void ApplyI18n()
+    {
+        Title = Localizer.T("Io.Title");
+        IoHeadingText.Text = Localizer.T("Io.Heading");
+        IoDiLabel.Text = Localizer.T("Io.DiPort");
+        IoClosedCheck.Content = Localizer.T("Io.Closed");
+        IoFireButton.Content = Localizer.T("Io.Fire");
+        IoFireButton.ToolTip = Localizer.T("Io.FireTip");
+
+        if (IoPortList.View is GridView portGrid && portGrid.Columns.Count >= 5)
+        {
+            portGrid.Columns[0].Header = Localizer.T("Io.ColKind");
+            portGrid.Columns[2].Header = Localizer.T("Io.ColName");
+            portGrid.Columns[3].Header = Localizer.T("Io.ColPolarity");
+            portGrid.Columns[4].Header = Localizer.T("Io.ColState");
+        }
+
+        if (IoRuleList.View is GridView ruleGrid && ruleGrid.Columns.Count >= 5)
+        {
+            ruleGrid.Columns[0].Header = Localizer.T("Io.ColRule");
+            ruleGrid.Columns[1].Header = Localizer.T("Io.ColInputPort");
+            ruleGrid.Columns[2].Header = Localizer.T("Io.ColAction");
+            ruleGrid.Columns[3].Header = Localizer.T("Io.ColRetrigger");
+            ruleGrid.Columns[4].Header = Localizer.T("Io.ColEnabled");
+        }
     }
 
     private sealed record PortRow(long Id, string KindText, int Number, string Name, string PolarityText, string StateText);
@@ -61,8 +93,8 @@ public partial class IoWindow : Window
                 p.Kind == IoPortKind.Di ? "DI" : "DO",
                 p.Number,
                 p.Name,
-                p.Polarity == IoPolarity.NormallyClosed ? "常閉" : "常開",
-                value is null ? "－" : (value.Value ? "開" : "關")));
+                p.Polarity == IoPolarity.NormallyClosed ? Localizer.T("Io.NormallyClosed") : Localizer.T("Io.NormallyOpen"),
+                value is null ? Localizer.T("Io.Unknown") : (value.Value ? Localizer.T("Io.Open") : Localizer.T("Io.Close"))));
         }
 
         _ruleRows.Clear();
@@ -71,15 +103,15 @@ public partial class IoWindow : Window
             var input = _ports.Get(r.InputPortId);
             var actionText = r.ActionKind switch
             {
-                IoActionKind.Alarm => $"警報→{r.EventType}",
-                _ => $"切換 DO#{_ports.Get(r.OutputPortId ?? 0)?.Number ?? 0}",
+                IoActionKind.Alarm => string.Format(CultureInfo.InvariantCulture, Localizer.T("Io.ActionAlarm"), r.EventType),
+                _ => string.Format(CultureInfo.InvariantCulture, Localizer.T("Io.ActionSwitchDo"), _ports.Get(r.OutputPortId ?? 0)?.Number ?? 0),
             };
             _ruleRows.Add(new RuleRow(
                 r.Id,
                 input is null ? $"#{r.InputPortId}" : $"DI#{input.Number}",
                 actionText,
                 r.RetriggerSec,
-                r.Enabled ? "啟用" : "停用"));
+                r.Enabled ? Localizer.T("Io.Enabled") : Localizer.T("Io.Disabled")));
         }
     }
 
@@ -88,26 +120,32 @@ public partial class IoWindow : Window
         var di = SelectedDi();
         if (di is null)
         {
-            IoStatusText.Text = "請先選擇 DI 埠。";
+            IoStatusText.Text = Localizer.T("Io.SelectDi");
             return;
         }
 
         var closed = IoClosedCheck.IsChecked == true;
         _physical[di.Id] = closed;
-        IoPhysicalLabel.Text = $"實體:{(_physical[di.Id] ? "閉合" : "斷開")}";
+        IoPhysicalLabel.Text = string.Format(
+            CultureInfo.InvariantCulture, Localizer.T("Io.Physical"),
+            _physical[di.Id] ? Localizer.T("Io.ClosedState") : Localizer.T("Io.OpenState"));
         var actions = _engine.OnInput(di.Id, closed, DateTime.UtcNow);
         if (actions.Count == 0)
         {
-            IoStatusText.Text = $"未有觸發（DI#{di.Number} 邏輯:{(_engine.GetInputState(di.Id) == true ? "開" : "關")}）。";
+            IoStatusText.Text = string.Format(
+                CultureInfo.InvariantCulture, Localizer.T("Io.NoTrigger"), di.Number,
+                _engine.GetInputState(di.Id) == true ? Localizer.T("Io.Open") : Localizer.T("Io.Close"));
         }
         else
         {
             _triggerCount++;
-            var summary = string.Join("；", actions.Select(a =>
+            var summary = string.Join(Localizer.T("Io.Separator"), actions.Select(a =>
                 a.Kind == IoActionKind.Alarm
-                    ? $"警報[{a.EventType}]"
-                    : $"DO→{(_engine.GetOutputState(a.OutputPortId ?? 0) == true ? "開" : "關")}"));
-            IoStatusText.Text = $"觸發 #{_triggerCount}：{summary}";
+                    ? string.Format(CultureInfo.InvariantCulture, Localizer.T("Io.SummaryAlarm"), a.EventType)
+                    : string.Format(CultureInfo.InvariantCulture, Localizer.T("Io.SummaryDo"),
+                        _engine.GetOutputState(a.OutputPortId ?? 0) == true ? Localizer.T("Io.Open") : Localizer.T("Io.Close"))));
+            IoStatusText.Text = string.Format(
+                CultureInfo.InvariantCulture, Localizer.T("Io.Triggered"), _triggerCount, summary);
         }
 
         RefreshViews();
