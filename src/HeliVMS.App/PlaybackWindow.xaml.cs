@@ -19,6 +19,7 @@ public partial class PlaybackWindow : Window
     private readonly SqliteStore _store;
     private readonly ChannelRepository _channels;
     private readonly SegmentRepository _segments;
+    private readonly RedactionRepository _redactions;
     private long? _focusChannelId;
     private readonly DateTime? _focusUtc;
 
@@ -37,6 +38,12 @@ public partial class PlaybackWindow : Window
     private bool _seeking;
     private bool _pendingFramePause;
     private readonly Rectangle _cursor = new() { Width = 2, Fill = Brushes.White, IsHitTestVisible = false };
+    private IReadOnlyList<RedactionRegion> _activeRegions = [];
+
+    private static readonly Brush s_redactFilledStroke = Frozen(Color.FromRgb(0xE5, 0x53, 0x3C));
+    private static readonly Brush s_redactBlurStroke = Frozen(Color.FromRgb(0xE5, 0xC8, 0x3C));
+    private static readonly Brush s_redactFilledFill = Frozen(Color.FromArgb(0x59, 0xE5, 0x53, 0x3C));
+    private static readonly Brush s_redactBlurFill = Frozen(Color.FromArgb(0x33, 0xE5, 0xC8, 0x3C));
 
     private sealed record SegmentItem(SegmentRecord Segment, string StartLabel, string DurationLabel, string SizeLabel);
 
@@ -49,6 +56,7 @@ public partial class PlaybackWindow : Window
         _focusUtc = focusUtc;
         _channels = new ChannelRepository(_store);
         _segments = new SegmentRepository(_store);
+        _redactions = new RedactionRepository(_store);
         InitializeComponent();
         ApplyI18n();
         DatePick.SelectedDate = DateTime.Today;
@@ -83,6 +91,8 @@ public partial class PlaybackWindow : Window
         PlaybackSpeedLabel.Text = Localizer.T("Playback.Speed");
         AutoAdvanceCheck.Content = Localizer.T("Playback.AutoAdvance");
         AutoAdvanceCheck.ToolTip = Localizer.T("Playback.AutoAdvanceTip");
+        RedactionOverlayCheck.Content = Localizer.T("Playback.ShowRedaction");
+        RedactionOverlayCheck.ToolTip = Localizer.T("Playback.ShowRedactionTip");
     }
 
     private void LoadChannels()
@@ -163,6 +173,8 @@ public partial class PlaybackWindow : Window
     private void LoadSegments()
     {
         StopPlayback();
+        _activeRegions = [];
+        RedactOverlay.Children.Clear();
         if (ChannelCombo.SelectedItem is not ChannelInfo ch)
         {
             SegmentList.ItemsSource = null;
@@ -415,6 +427,7 @@ public partial class PlaybackWindow : Window
         _basePos = seekSeconds;
         _posInside = seekSeconds;
         _stopping = false;
+        LoadRedactionRegions(seg);
         var version = ++_sessionVersion;
         SetPlayingUi();
 
@@ -582,6 +595,85 @@ public partial class PlaybackWindow : Window
             PlayerFrame.Width = double.NaN;
             PlayerFrame.Height = double.NaN;
         }
+
+        LayoutRedactionOverlay();
+    }
+
+    /// <summary>
+    /// 載入目前片段時窗內的已登錄遮蔽區域（M279，§14.7 #5）：與匯出共用「頻道＋時間窗」語意
+    /// （<see cref="RedactionRepository.QueryByTime"/>），只差在查詢用整段範圍、回放沿用整段。
+    /// 查詢失敗不應中斷回放，故查詢例外一律視為無區域。
+    /// </summary>
+    private void LoadRedactionRegions(SegmentRecord seg)
+    {
+        _activeRegions = [];
+        if (ChannelCombo.SelectedItem is not ChannelInfo ch)
+        {
+            return;
+        }
+
+        try
+        {
+            var end = seg.EndUtc ?? seg.StartUtc.AddSeconds(seg.DurationSec ?? 0);
+            _activeRegions = _redactions.QueryByTime((int)ch.Id, seg.StartUtc, end);
+        }
+        catch (Exception)
+        {
+            _activeRegions = [];
+        }
+
+        LayoutRedactionOverlay();
+    }
+
+    /// <summary>
+    /// 在播放畫面上以半透明色框標示已登錄的遮蔽區域（M279，§14.7 #5）：原始畫面仍可見，
+    /// 供操作員預覽匯出時會遮住哪裡（實心＝紅、模糊＝黃）。投影用
+    /// <see cref="RedactionOverlay.Project"/>，與解碼畫面尺寸及目前顯示框尺寸同步。
+    /// </summary>
+    private void LayoutRedactionOverlay()
+    {
+        RedactOverlay.Children.Clear();
+        if (RedactionOverlayCheck.IsChecked != true || _activeRegions.Count == 0)
+        {
+            return;
+        }
+
+        var targetWidth = PlayerFrame.ActualWidth;
+        var targetHeight = PlayerFrame.ActualHeight;
+        if (_lastWidth <= 0 || _lastHeight <= 0 || targetWidth <= 0 || targetHeight <= 0)
+        {
+            return;
+        }
+
+        RedactOverlay.Width = targetWidth;
+        RedactOverlay.Height = targetHeight;
+
+        foreach (var box in RedactionOverlay.Project(_activeRegions, _lastWidth, _lastHeight, targetWidth, targetHeight))
+        {
+            var rect = new Rectangle
+            {
+                Width = box.Width,
+                Height = box.Height,
+                StrokeThickness = 2,
+                Stroke = box.Filled ? s_redactFilledStroke : s_redactBlurStroke,
+                Fill = box.Filled ? s_redactFilledFill : s_redactBlurFill,
+                ToolTip = box.Filled
+                    ? Localizer.T("Playback.RedactionFilled")
+                    : Localizer.T("Playback.RedactionBlurred"),
+            };
+            Canvas.SetLeft(rect, box.X);
+            Canvas.SetTop(rect, box.Y);
+            RedactOverlay.Children.Add(rect);
+        }
+    }
+
+    private void OnRedactionOverlayToggled(object sender, RoutedEventArgs e) => LayoutRedactionOverlay();
+
+    private static Brush Frozen(Color color)
+    {
+        var brush = new SolidColorBrush(color);
+        brush.Freeze();
+        return brush;
     }
 
     private void StopPlayback(bool keepSelection = false)

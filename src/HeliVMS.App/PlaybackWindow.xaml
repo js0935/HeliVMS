@@ -144,6 +144,8 @@
                         <TextBlock x:Name="EmptyHint" Text=""
                                    HorizontalAlignment="Center" VerticalAlignment="Center"
                                    Foreground="{StaticResource Brand.TextDim}" FontSize="13"/>
+                        <Canvas x:Name="RedactOverlay" IsHitTestVisible="False" ClipToBounds="True"
+                                AutomationProperties.AutomationId="PlaybackRedactOverlay"/>
                     </Grid>
                 </Border>
             </Grid>
@@ -184,6 +186,10 @@
                            AutomationProperties.AutomationId="PlaybackTime"/>
                 <CheckBox x:Name="AutoAdvanceCheck" Content="" Foreground="{StaticResource Brand.TextDim}" AutomationProperties.AutomationId="AutoAdvanceCheck" ToolTip=""
                           IsChecked="True" VerticalAlignment="Center" Margin="14,0,0,0"/>
+                <CheckBox x:Name="RedactionOverlayCheck" Content="" Foreground="{StaticResource Brand.TextDim}"
+                          AutomationProperties.AutomationId="RedactionOverlayCheck" ToolTip=""
+                          IsChecked="True" VerticalAlignment="Center" Margin="14,0,0,0"
+                          Checked="OnRedactionOverlayToggled" Unchecked="OnRedactionOverlayToggled"/>
                 <TextBlock x:Name="StatusText" Foreground="{StaticResource Brand.TextDim}" FontSize="11"
                            VerticalAlignment="Center" Margin="14,0,0,0"/>
             </StackPanel>

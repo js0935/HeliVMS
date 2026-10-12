@@ -31,7 +31,40 @@ public sealed class PlaybackRedactionContractTests
         Assert.Contains("SegmentList.SelectedItem", handler);
     }
 
-    private static string WiredHandler(string relativePath, string element)
+    [Fact]
+    public void 回放視窗有遮蔽疊圖畫布與預設開啟的開關()
+    {
+        var canvas = TagOf(Xaml, "RedactOverlay");
+        Assert.Contains("Canvas", canvas);
+        Assert.Contains("IsHitTestVisible=\"False\"", canvas);
+
+        var checkbox = TagOf(Xaml, "RedactionOverlayCheck");
+        Assert.Contains("CheckBox", checkbox);
+        Assert.Contains("IsChecked=\"True\"", checkbox);
+        Assert.Contains("Checked=\"OnRedactionOverlayToggled\"", checkbox);
+    }
+
+    [Fact]
+    public void 回放載入目前片段時窗內的已登錄遮蔽區域()
+    {
+        var source = SourceContract.Read(Code);
+        Assert.Contains("LoadRedactionRegions(seg);", SourceContract.BodyOf(source, "PlayFrom"));
+
+        var loader = SourceContract.BodyOf(source, "LoadRedactionRegions");
+        Assert.Contains("QueryByTime", loader);
+        Assert.Contains("_redactions", loader);
+    }
+
+    [Fact]
+    public void 疊圖以來源與顯示尺寸投影並受開關控制()
+    {
+        var layout = SourceContract.BodyOf(SourceContract.Read(Code), "LayoutRedactionOverlay");
+        Assert.Contains("RedactionOverlay.Project(", layout);
+        Assert.Contains("RedactionOverlayCheck.IsChecked", layout);
+        Assert.Contains("PlayerFrame.ActualWidth", layout);
+    }
+
+    private static string TagOf(string relativePath, string element)
     {
         var xaml = SourceContract.Read(relativePath);
         var tag = Regex.Match(
@@ -40,6 +73,12 @@ public sealed class PlaybackRedactionContractTests
             RegexOptions.Singleline).Value;
 
         Assert.NotEqual(string.Empty, tag);
+        return tag;
+    }
+
+    private static string WiredHandler(string relativePath, string element)
+    {
+        var tag = TagOf(relativePath, element);
         var handler = Regex.Match(tag, @"\bClick=""(\w+)""");
         return handler.Success ? handler.Groups[1].Value : string.Empty;
     }
