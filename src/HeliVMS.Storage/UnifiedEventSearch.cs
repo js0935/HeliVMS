@@ -63,6 +63,58 @@ public sealed class UnifiedEventSearch
             .ToList();
     }
 
+    /// <summary>
+    /// 依來源與 id 補回命中列（§14.7 #7 語意融合）：CLIP 向量命中常落在文字查詢之外，
+    /// 顯示時仍需要中文片段與時間，故以主鍵回查來源表。此處非 bm25 語境，rank 一律給 0。
+    /// </summary>
+    public IReadOnlyList<ForensicSearchHit> ByIds(ForensicSource source, IReadOnlyList<long> ids)
+    {
+        if (ids is null || ids.Count == 0)
+        {
+            return [];
+        }
+
+        var placeholders = string.Join(",", Enumerable.Range(0, ids.Count).Select(i => $"$id{i}"));
+        var sql = source switch
+        {
+            ForensicSource.Alarm =>
+                $"""
+                SELECT 1, e.id, e.detail, e.start_time, CAST(0 AS REAL), COALESCE(d.status, 'pending')
+                FROM alarm_events e LEFT JOIN event_dispositions d ON d.event_id = e.id
+                WHERE e.id IN ({placeholders});
+                """,
+            ForensicSource.Door =>
+                $"""
+                SELECT 2, e.id, (e.card_id || ' ' || e.direction || ' ' || e.reason), e.occurred_at_utc, CAST(0 AS REAL), CAST(NULL AS TEXT)
+                FROM door_events e WHERE e.id IN ({placeholders});
+                """,
+            ForensicSource.Pos =>
+                $"""
+                SELECT 4, e.id, (e.transaction_no || ' ' || e.register_id || ' ' || CAST(e.amount_cents AS TEXT)), e.occurred_at_utc, CAST(0 AS REAL), CAST(NULL AS TEXT)
+                FROM pos_events e WHERE e.id IN ({placeholders});
+                """,
+            ForensicSource.EdgeSmart =>
+                $"""
+                SELECT 8, e.id, (e.class_name || ' ' || e.track_id || ' ' || e.direction), e.occurred_at_utc, CAST(0 AS REAL), CAST(NULL AS TEXT)
+                FROM edge_smart_events e WHERE e.id IN ({placeholders});
+                """,
+            _ => string.Empty,
+        };
+
+        if (sql.Length == 0)
+        {
+            return [];
+        }
+
+        return Search(sql, cmd =>
+        {
+            for (var i = 0; i < ids.Count; i++)
+            {
+                cmd.Parameters.AddWithValue($"$id{i}", ids[i]);
+            }
+        });
+    }
+
     private IReadOnlyList<ForensicSearchHit> Search(string sql, Action<Microsoft.Data.Sqlite.SqliteCommand> bind)
     {
         return _store.Query(sql, r =>

@@ -44,6 +44,7 @@ public sealed class LicenseGateMiddleware
         ("/api/patrols", LicenseFeatures.Schedule),
         ("/api/detections", LicenseFeatures.Ai),
         ("/api/clip", LicenseFeatures.Ai),
+        ("/api/events/search/semantic", LicenseFeatures.Ai),
         ("/api/audio", LicenseFeatures.Ai),
         ("/api/shares", LicenseFeatures.Remote),
         ("/api/auth/providers", LicenseFeatures.AdSso),

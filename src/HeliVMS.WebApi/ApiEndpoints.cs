@@ -144,6 +144,8 @@ public static class ApiEndpoints
 
         api.MapGet("/events/search", HandleForensicSearch);
 
+        api.MapPost("/events/search/semantic", HandleSemanticSearch);
+
         api.MapGet("/alarms/summary", static (AlarmTriageRepository r) =>
             Results.Ok(r.Summarize(DateTime.UtcNow)));
 
@@ -1219,6 +1221,7 @@ public static class ApiEndpoints
     private sealed record ClipIndexRequest(string? SourceType, long RefId, string? Label, float[]? Vector);
     private sealed record FuseRequest(FuseItemBody[] Items);
     private sealed record FuseItemBody(string Key, double TextScore, double? VectorScore, double TextWeight = 1.0, double VectorWeight = 1.0);
+    private sealed record SemanticSearchRequest(string? Q, float[]? Vector, DateTime? From, DateTime? To, int? Limit = 20);
     private sealed record AudioItem(long EventId, long ChannelId, DateTime StartedAtUtc, int DurationMs, string Mime, string Sha256);
     private sealed record AudioUpsert(long EventId, long ChannelId, DateTime? StartedAtUtc, int DurationMs, string? Mime, string? Bytes);
 
@@ -1701,6 +1704,33 @@ public static class ApiEndpoints
         var hits = search.Search(q, from is { } f ? Utc(f) : null, to is { } t ? Utc(t) : null,
             ForensicSource.All, Math.Clamp(limit ?? 20, 1, 200));
         await context.Response.WriteAsJsonAsync(new Paged<ForensicSearchHit>(hits, hits.Count));
+    }
+
+    /// <summary>
+    /// 法證語意融合搜尋（§14.7 #7）：文字查詢與／或查詢向量兩路命中以 <see cref="RankFusion"/> 合併後回傳。
+    /// 查詢向量由外部模型產生（外部縫），未帶向量時退化為全文檢索。
+    /// </summary>
+    private static async Task HandleSemanticSearch(
+        HttpContext context,
+        ForensicSemanticSearch search,
+        SemanticSearchRequest? body)
+    {
+        if (body is null ||
+            (string.IsNullOrWhiteSpace(body.Q) && (body.Vector is null || body.Vector.Length == 0)))
+        {
+            context.Response.StatusCode = StatusCodes.Status400BadRequest;
+            await context.Response.WriteAsJsonAsync(new { error = "q or vector is required" });
+            return;
+        }
+
+        var hits = search.Search(
+            body.Q ?? string.Empty,
+            body.Vector,
+            body.From is { } f ? Utc(f) : null,
+            body.To is { } t ? Utc(t) : null,
+            ForensicSource.All,
+            Math.Clamp(body.Limit ?? 20, 1, 200));
+        await context.Response.WriteAsJsonAsync(new Paged<SemanticSearchHit>(hits, hits.Count));
     }
 
     private static async Task HandleEvents(

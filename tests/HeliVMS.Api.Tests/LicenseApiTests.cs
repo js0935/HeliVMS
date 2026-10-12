@@ -163,6 +163,7 @@ public class LicenseApiTests
     [InlineData("/api/patrols", "schedule")]
     [InlineData("/api/detections", "ai")]
     [InlineData("/api/clip", "ai")]
+    [InlineData("/api/events/search/semantic", "ai")]
     [InlineData("/api/audio", "ai")]
     [InlineData("/api/auth/providers", "ad")]
     public async Task NoLicense_BlocksFlagGatedEndpoint(string url, string feature)

@@ -1729,6 +1729,32 @@ public class ApiTests : IClassFixture<ApiFactory>, IDisposable
     private sealed record FuseResultBody(string Key, double Score);
 
     [Fact]
+    public async Task Post_SemanticSearch_RequiresTextOrVector()
+    {
+        var client = Client();
+        var resp = await client.PostAsJsonAsync("/api/events/search/semantic", new { });
+
+        Assert.Equal(HttpStatusCode.BadRequest, resp.StatusCode);
+    }
+
+    [Fact]
+    public async Task Post_SemanticSearch_VectorOnly_ResolvesIndexedDoorEvent()
+    {
+        // §14.7 #7：向量命中落在文字查詢之外，端點仍要回查出中文片段與來源。
+        var client = Client();
+        var doorId = Service<DoorEventRepository>().Insert(
+            1, 1, "CARD-SEM", "In", true, "approved", new DateTime(2026, 9, 22, 8, 0, 0, DateTimeKind.Utc));
+        Service<EmbeddingRepository>().Upsert("door", doorId, "snapshot", new[] { 1f, 0f });
+
+        var resp = await client.PostAsJsonAsync(
+            "/api/events/search/semantic", new { vector = new[] { 1f, 0f } });
+
+        Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
+        var page = await ReadAsync<ApiEndpoints.Paged<SemanticSearchHit>>(resp);
+        Assert.Contains(page.Items, h => h.Source == ForensicSource.Door && h.SourceId == doorId && h.Text.Contains("CARD-SEM"));
+    }
+
+    [Fact]
     public async Task Audio_RoundTrip_Delete()
     {
         var client = Client();
