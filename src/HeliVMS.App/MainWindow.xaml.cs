@@ -12,6 +12,7 @@ using HeliVMS.App.Services;
 using HeliVMS.Licensing;
 using HeliVMS.Media;
 using HeliVMS.Recording;
+using HeliVMS.Recording.Talk;
 using HeliVMS.Shared;
 using HeliVMS.Shared.Models;
 using HeliVMS.Storage;
@@ -1471,6 +1472,7 @@ public partial class MainWindow : Window
             AddMenuItem(menu, Localizer.T("Main.CtxPlayback"), OnCtxPlaybackChannel, i);
             AddMenuItem(menu, Localizer.T("Main.CtxExport"), OnCtxExportChannel, i);
             AddMenuItem(menu, Localizer.T("Main.CtxEvents"), OnCtxEventsChannel, i);
+            AddMenuItem(menu, Localizer.T("Talk.Menu"), OnCtxTalk, i);
             menu.Items.Add(new Separator());
             var statusItem = AddMenuItem(menu, Localizer.T("Monitor.ShowStatus"), OnToggleCellStatus, i);
             statusItem.IsCheckable = true;
@@ -3164,6 +3166,59 @@ public partial class MainWindow : Window
         }
 
         OpenChild(new EventCenterWindow(_store!, channelId, _manager?.Alerts), w => ((EventCenterWindow)w).FocusChannel(channelId));
+    }
+
+    /// <summary>
+    /// 對講：把一個音訊檔送到這一格攝影機的喇叭（§14.1 #11）。
+    /// </summary>
+    /// <remarks>
+    /// 對講的實體在 <see cref="TalkService"/>：這裡只負責取得該頻道的 RTSP 位址、挑檔案、
+    /// 啟動後等待播完，並把結果寫回 <see cref="HintText"/>。對講特別需要一個看得到的結果——
+    /// 送出去卻沒聲音時，畫面上若毫無反應，操作員只會以為是自己按錯。
+    /// </remarks>
+    private async void OnCtxTalk(object sender, RoutedEventArgs e)
+    {
+        var cell = Convert.ToInt32(((MenuItem)sender).Tag);
+        var channelId = CtxChannelId(sender);
+        if (channelId < 0)
+        {
+            return;
+        }
+
+        var url = _manager?.ChannelSessionFor(channelId)?.Url;
+        if (string.IsNullOrWhiteSpace(url))
+        {
+            HintText.Text = Localizer.T("Talk.NoStream");
+            return;
+        }
+
+        var dialog = new Microsoft.Win32.OpenFileDialog
+        {
+            Title = Localizer.T("Talk.PickTitle"),
+            Filter = Localizer.T("Talk.FileFilter"),
+            CheckFileExists = true,
+        };
+        if (dialog.ShowDialog(this) != true)
+        {
+            return;
+        }
+
+        try
+        {
+            var talkSession = new TalkService().Start(new TalkRequest(channelId, url, dialog.FileName));
+            HintText.Text = string.Format(Localizer.T("Talk.Sending"), Path.GetFileName(dialog.FileName));
+            var code = await talkSession.WaitAsync();
+            HintText.Text = code == 0
+                ? Localizer.T("Talk.Done")
+                : string.Format(
+                    Localizer.T("Talk.Failed"),
+                    code.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        }
+        catch (Exception ex)
+        {
+            // 找不到供應商、ffmpeg 不在 PATH、裝置拒收都會走到這裡；不吞掉，讓操作員看得到原因。
+            PushAlert(string.Format(Localizer.T("Talk.Failed"), ex.Message), cell);
+        }
     }
 
     private void OnCtxPtz(object sender, RoutedEventArgs e)

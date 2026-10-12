@@ -269,7 +269,7 @@ ChannelSession (每路 1 個，可並行 32 個)
 
 > 舊資料的 `recording_mode` 預設是 `Always`，所以第一次啟動新版本時所有既有頻道會
 > 立刻開始全時錄影。部署前務必先確認磁碟額度與保留清理設得上。
-- 雙向對講（talk，後期擴充）：ONVIF Audio 上傳通道，模組化 `ITalkProvider` 介面
+- 雙向對講（talk，§14.1 #11）：**後端縫已落地（M289）**——`ITalkProvider` ＋ `TalkProviderRegistry`（優先序：操作者指定網址 → 頻道 RTSP 回傳通道）、`TalkCommandBuilder`（ONVIF G.711 A-law／8 kHz／單聲道、RTSP over TCP）、`TalkService`（注入式 `IProcessFactory`、登錄 `FfmpegProcessRegistry`）；監看格右鍵「對講（送出音訊檔）」接線完成。實機廠牌推測位址與 ONVIF 音訊輸出探測仍待外部驗證
 
 ### 3.4 錄影回放管道（核心功能）
 
@@ -1170,7 +1170,7 @@ WebRTC/WHEP 即時監看與 MSE 回放（M244）。
 | 8 | 智慧搜尋（向量語意） | 已落地：四表 FTS5 統一檢索（`EventSearchRepository`/`UnifiedEventSearch`，M91/M97）＋規則式中文 NLP 查詢解析（M107）＋`clip_embeddings` 資料層與 `/api/clip/*` 端點（M242 修正維度／位元組序，索引維度不符時回 409）＋**FTS×CLIP 向量融合檢索（M281：`ForensicSemanticSearch` 以 `RankFusion` 合併 bm25 與餘弦，向量命中回查來源表補齊片段；端點 `POST /api/events/search/semantic`，受 `ai` 授權閘門）已落地**；**模型產生 embedding 與影片摘要仍待外部縫** | 現代 VMS 賣點 | **P2** |
 | 9 | 統計報表 | 已落地：`/api/reports/daily`＋`ReportsWindow`（錄影時數／斷線次數／容量趨勢＋逐日長條圖／AI 事件統計，可匯出 CSV、手動「寄送報表」）；**週期自動郵寄（每日／每週本地時刻，`report.mail.*`＋`ReportMailer`＋桌面 5 分鐘輪詢）已落地** | 管理與驗收 | **P2** |
 | 10 | 中央/多機集群管理 | 沒有上層 NVR；僅第二記錄伺服器 Failover（租約仲裁＋實體接管，`failover_state`/`failover_events`，M87/M88/M98） | 大型案/連鎖場域 | **P2** |
-| 11 | 雙向對講 | **沒有**：`ITalkProvider` 只在藍圖，程式碼零引用 | 門禁/收費場景 | **P2** |
+| 11 | 雙向對講 | **後端縫已落地（M289）**：`ITalkProvider` ＋ `TalkProviderRegistry`（優先序：操作者指定網址 → 頻道自身 RTSP 回傳通道）＋ `TalkCommandBuilder`（ONVIF G.711 A-law／8 kHz／單聲道、RTSP over TCP、`-re`）＋ `TalkService`（可注入 `IProcessFactory`、登錄 `FfmpegProcessRegistry`）；監看格右鍵「對講（送出音訊檔）」已接線。實機廠牌推測位址與 ONVIF 音訊輸出探測仍待外部驗證 | 門禁/收費場景 | **P2** |
 | 12 | 雲整合 / 訂閱 | 沒有 | 商業模式 | **P3** |
 | 13 | Legal Hold（保存鎖定/沖銷） | 已落地：`legal_holds`＋`LegalHoldRepository`＋`LegalHoldWindow`、沖銷需權限並留稽核 | 個資法合規 | P3（已完成） |
 | 14 | GPS 時鐘/高精度時間源 | 僅 NTP | 證據時間可信度 | **P3** |
