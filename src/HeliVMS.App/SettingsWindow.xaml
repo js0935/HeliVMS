@@ -760,6 +760,8 @@
                 <StackPanel Orientation="Horizontal" Margin="0,4,0,8">
                     <Button x:Name="MapToggleButton" Content="" Click="OnMapToggleClicked" ToolTip=""
                             Padding="8,4" Foreground="White" Background="#3A5A7A" BorderThickness="0" AutomationProperties.AutomationId="MapToggleButton"/>
+                    <Button x:Name="MapAutoLayoutButton" Content="" Click="OnMapAutoLayoutClicked" ToolTip="" Margin="6,0,0,0"
+                            Padding="8,4" Foreground="White" Background="#3A5A7A" BorderThickness="0" AutomationProperties.AutomationId="MapAutoLayoutButton"/>
                     <Button x:Name="MapDeleteButton" Content="" Click="OnMapDeleteClicked" ToolTip="" Margin="6,0,0,0"
                             Padding="8,4" Foreground="White" Background="#8A3C2E" BorderThickness="0" AutomationProperties.AutomationId="MapDeleteButton"/>
                 </StackPanel>

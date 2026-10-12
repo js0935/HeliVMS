@@ -511,6 +511,8 @@ public partial class SettingsWindow : Window
         MapColScale.Header = Localizer.T("Settings.MapColScale");
         MapToggleButton.Content = Localizer.T("Settings.Toggle");
         MapToggleButton.ToolTip = Localizer.T("Settings.MapToggleTip");
+        MapAutoLayoutButton.Content = Localizer.T("Settings.MapAutoLayout");
+        MapAutoLayoutButton.ToolTip = Localizer.T("Settings.MapAutoLayoutTip");
         MapDeleteButton.Content = Localizer.T("Settings.MapDelete");
         MapDeleteButton.ToolTip = Localizer.T("Settings.MapDeleteTip");
         MapScaleLabel.Text = Localizer.T("Settings.MapScaleLabel");
@@ -2701,6 +2703,42 @@ public partial class SettingsWindow : Window
         _maps.DeleteDevice(row.Id);
         MapReportText.Text = string.Format(Localizer.T("Settings.MapPinDeleted"), row.DeviceType, row.ChannelId);
         ReloadMapPins();
+    }
+
+    /// <summary>
+    /// 自動布局選取地圖的圖釘：把重疊的圖釘推開後逐一寫回（M284，§14.7 #11）。
+    ///
+    /// 平面圖上落點接近的鏡頭會完全疊住，畫面上只看得到最上面那一個，操作員還以為其他
+    /// 鏡頭沒設定；這裡用純函式 <see cref="MapLayout.Resolve"/> 重排並持久化，讓批次上版
+    /// 或重畫平面圖之後圖釘仍不會疊在一起。
+    /// </summary>
+    private void OnMapAutoLayoutClicked(object sender, RoutedEventArgs e)
+    {
+        var map = SelectedMap;
+        if (map is null)
+        {
+            MapReportText.Text = Localizer.T("Settings.SelectMapFirst");
+            return;
+        }
+
+        var pins = _maps.ListDevices(map.Id).Where(d => d.Enabled).ToList();
+        if (pins.Count == 0)
+        {
+            MapReportText.Text = Localizer.T("Settings.MapLayoutNone");
+            return;
+        }
+
+        var placements = MapLayout.Resolve(
+            pins.Select(d => new MapLayout.Pin(d.Id, d.X, d.Y)).ToList());
+        var byId = placements.ToDictionary(p => p.Id);
+        foreach (var d in pins)
+        {
+            var placed = byId[d.Id];
+            _maps.SetDevicePosition(d.Id, placed.X, placed.Y);
+        }
+
+        ReloadMapPins();
+        MapReportText.Text = string.Format(Localizer.T("Settings.MapLayoutDone"), placements.Count);
     }
 
     private static BitmapImage LoadBitmap(string path)

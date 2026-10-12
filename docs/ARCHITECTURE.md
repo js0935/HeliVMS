@@ -1140,7 +1140,7 @@ WebRTC/WHEP 即時監看與 MSE 回放（M244）。
 | 1 | **遠程即時監看（WebRTC）** | **已落地（M244）**：WHEP SFU（`/api/stream/{id}/whep`，ffmpeg → loopback RTP → SIPSorcery → 瀏覽器 DTLS-SRTP）＋SPA 原生 `RTCPeerConnection` 播放器，與既有的 M239 HLS 遠程回放、M117/M118 警報 WebSocket 並行 | TURN／`PUBLIC_HOST` 可設定但伺服器端需自行部署 TURN | **P0**（剩 TURN 部署） |
 | 1b | **行動端 App** | 無（僅網頁主控台） | 巡檢/報警第一線 | P1（網頁主控台可先擋） |
 | 2 | 匯出證據工作流 | 已落地：匯出精靈＋匯出中心＋證據包 `manifest.json`＋SHA-256＋匯出即驗證（`evidence_manifests`、`EvidenceWindow`）＋**匯出簽章收據與離線驗證（M240）** | 司法效力 | P0（已完成） |
-| 3 | 地圖/平面圖檢視（Map View） | 已落地：`MapWindow`（樓層切換、圖釘含 camera 扇形 FOV、事件閃爍、雙向定位）、`maps`/`map_devices`（M41）；深度/設備自動布局未做 | 專業賣點 | P0′（主體已完成） |
+| 3 | 地圖/平面圖檢視（Map View） | 已落地：`MapWindow`（樓層切換、圖釘含 camera 扇形 FOV、事件閃爍、雙向定位）、`maps`/`map_devices`（M41）；FOV 深度／比例尺（M49）與圖釘自動布局（M284 `MapLayout.Resolve`）已完成 | 專業賣點 | P0′（主體已完成） |
 | 4 | 備份與異地備援 | 已落地：`BackupService`＋checkpoint、`offsite_jobs`/`OffsiteReplicationService`、設備 SD 斷線補錄（`edge_backfill_jobs`＋`EdgeFfmpegBackfillRunner`，M89/M94/M96） | 資料安全 | P1（主體已完成） |
 | 5 | 數位簽章與證據包 | **已落地（M240＋M241）**：匯出檔旁自動產生 `.receipt.json` 簽章收據（RSA-2048／PKCS#1 v1.5，私鑰沿用 M53 `EvidenceSigner`），附公鑰與金鑰指紋；私鑰以 DPAPI 保護落庫（M241）、可稽核換發且保留歷史公鑰；離線驗證工具 `Tools/HeliVmsVerify` ＋ 遠端 `GET /api/exports/{id}/verify`；證據包 `manifest.json` 另有簽章 | 證據鏈完整性／司法效力 | **P1**（已完成） |
 | 6 | 事件回應工作流 | 已落地：四態＋`event_dispositions`/`event_disposition_trail`（M38）、分診面板與工作流 L1（`alarm_triage`/`alarm_notes`/`alarm_escalations`＋`AlarmEscalationPolicy` SLA 升階，M47/M102） | 營運 | P1（已完成） |
@@ -1262,7 +1262,7 @@ WebRTC/WHEP 即時監看與 MSE 回放（M244）。
 | 8 | 整合 | **統一安全平台**：門禁/入侵感測/POS(Metadata 配對) | Genetec 平台、Synology Transactions、QNAP Metadata Vault | DI/DO＋綁定鏡頭已規劃(§16.2)；**門禁事件 L0（M92）＋POS 交易存錄/時間窗配對 L0（M93）已落地**；**門禁 HTTP 匯入端點（`POST /api/door/events`，In/Out 正規化＋`DoorEventRepository.InsertDedupe` 去重窗）已落地**；**POS 接口擴展 L1（M104 去重匯入＋`QueryByRegister`＋`PosReconciliation` 對帳統計）已落地**；**POS HTTP 匯入端點（`POST /api/pos`，重用 `InsertDedupe` 去重窗，收銀機／中介服務可直接推送交易）已落地**；**POS→門禁自動核對（M113 `PosEventLinker` 同頻窗關聯）已落地**；**POS 異常視覺化已落地（M282 `PosAnomalyDetector` 金額離群／短時連發＋`GET /api/pos/anomalies`＋`PosWindow` 異常清單）** | P2 |
 | 9 | 可靠 | **Failover 容錯**（第二記錄伺服器） | Milestone Failover、QNAP QVR Guard | 僅本機看門狗＋**租約仲裁 L0（M87）＋監控視窗/harness（M88）＋實體接管協調 L1（M98 `FailoverCoordinator.Reconcile`＋`failover_events` v35 軌跡）已落地** | P2 |
 | 10 | 儲存 | **Edge Storage 雙保險**（設備 SD 側錄 + NVR） | Milestone、Genetec、Synology | **L0 補抓規劃器（M89）＋L1 執行器（M94）＋真實 ffmpeg runner（M96 `EdgeFfmpegBackfillRunner`）已閉合** | P2 |
-| 11 | 地圖 | **智慧地圖深化**：視角扇形 FOV/深度 | Milestone Smart Map | **電子地圖（M41 `MapWindow`：樓層切換、圖釘含 camera 扇形視角 FOV、事件閃爍、雙向定位）已落地**；深度/設備自動布局待續 | P2 |
+| 11 | 地圖 | **智慧地圖深化**：視角扇形 FOV/深度 | Milestone Smart Map | **電子地圖（M41 `MapWindow`：樓層切換、圖釘含 camera 扇形視角 FOV、事件閃爍、雙向定位）已落地**；**FOV 深度／比例尺已落地（M49 `MapGeometry.SectorRadiusPixels`＋`scale_m_per_px`）**；**圖釘自動布局已落地（M284 `MapLayout.Resolve`＋設定中心「自動布局」寫回座標）** | P2 |
 | 12 | 錄影 | **Adaptive Streaming / SVR 品質自適應** | Milestone | **`BitrateGovernor`（錄影品質/幀率自適應控流）已落地**；SVR 跨設備協調待續 | P3 |
 | 13 | 邊緣 | **消費邊緣 AI 相機 metadata**（D2C/方向） | Genetec、Frigate | **L0 消費/軌跡/方向分類（M90）＋L1 持久化/查詢/分向摘要（M95 `EdgeSmartEventRepository` v33）已落地** | P3 |
 | 14 | 顯示 | **智慧牆（Smart Wall）多螢幕拼接控制** | Milestone Smart Wall | 僅雙螢幕(§11.3)；**智慧牆版面資料模型＋幾何校驗＋看板時間常數（M105 v39 `SmartwallLayoutRepository`＋`LayoutGrid`）＋警報看板引擎 L0（M106 `SmartwallAlertBoard`）已落地**；**桌面智慧牆視窗（版面編輯／方塊增刪／看板高亮）已落地（M105/M106 `SmartwallWindow`）**；**看板告警 MQTT 派送掛載（M280 `SmartwallBoardDispatcher`：相對前次快照新進入高亮的頻道，經既有 notify.mqtt.* 主機／帳密派送至每頻道 topic）已落地** | P3 |
@@ -1420,7 +1420,7 @@ WebRTC/WHEP 即時監看與 MSE 回放（M244）。
 - **M41 實作摘要**：`MapRepository`（Storage）＋主視窗「地圖」`MapWindow`（樓層頁籤、Image 背景＋Canvas
   圖釘、滾輪縮放/拖曳平移、camera 視角扇形、io 狀態點、事件觸發橙色閃爍、雙擊→回放）；設定中心「地圖」
   頁（nav 第 9 項）管理地圖與圖釘；事件中心「在地圖定位」雙向聯動；事件閃爍依 `alarm_events` 對應 channel
-- 佈設：圖釘拖放、批次上版、可複製背景圖層（承接未來 §14.7 #11 智慧地圖）
+- 佈設：圖釘拖放、批次上版、可複製背景圖層（承接未來 §14.7 #11 智慧地圖）；圖釘自動布局（M284 `MapLayout.Resolve`：重疊者沿黃金角螺旋推開，設定中心「自動布局」按鈕寫回座標）
 
 ### 16.2 警報 IO（Alarm Input / Output）
 
