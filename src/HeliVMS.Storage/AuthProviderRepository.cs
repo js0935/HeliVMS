@@ -21,17 +21,23 @@ public sealed class AuthProviderRepository
     public const string KindLdap = "ldap";
 
     private readonly SqliteStore _store;
+    private readonly AuditLogRepository _audit;
 
-    public AuthProviderRepository(SqliteStore store)
+    /// <summary>
+    /// 預設自建 <see cref="AuditLogRepository"/>（同 <c>ChannelRepository</c>）：企業身份來源
+    /// 的新增／啟停／刪除會改變誰能登入，屬安全相關管理動作，一律留稽核軌跡（僅記名稱/類型，不記密鑰 JSON）。
+    /// </summary>
+    public AuthProviderRepository(SqliteStore store, AuditLogRepository? audit = null)
     {
         _store = store;
+        _audit = audit ?? new AuditLogRepository(store);
     }
 
-    /// <summary>新增提供者（name 唯一；重複拋 SqliteException）。回傳新 ID。</summary>
-    public int Add(string name, string kind, string configJson, bool enabled = true)
+    /// <summary>新增提供者（name 唯一；重複拋 SqliteException）。回傳新 ID。稽核：provider.add。</summary>
+    public int Add(string name, string kind, string configJson, bool enabled = true, string actor = "system")
     {
         ValidateKind(kind);
-        return _store.Query(
+        var id = _store.Query(
             """
             INSERT INTO auth_providers (name, kind, enabled, config_json, created_at)
             VALUES ($n, $k, $e, $c, $t);
@@ -50,6 +56,9 @@ public sealed class AuthProviderRepository
                 cmd.Parameters.AddWithValue("$c", configJson);
                 cmd.Parameters.AddWithValue("$t", SqliteStore.Iso(DateTime.UtcNow));
             });
+
+        _audit.Record(actor, "provider.add", AuditCategories.Config, "auth_provider", id, $"kind={kind} name={name}");
+        return id;
     }
 
     /// <summary>列出全部提供者（依 name）。</summary>
@@ -116,22 +125,38 @@ public sealed class AuthProviderRepository
             cmd => cmd.Parameters.AddWithValue("$n", name));
     }
 
-    public void SetEnabled(int id, bool enabled)
+    /// <summary>啟用/停用提供者。稽核：provider.enable／provider.disable。</summary>
+    public void SetEnabled(int id, bool enabled, string actor = "system")
     {
-        _store.Execute(
-            "UPDATE auth_providers SET enabled = $e WHERE id = $id;",
+        var affected = _store.Query<int>(
+            "UPDATE auth_providers SET enabled = $e WHERE id = $id; SELECT changes();",
+            r => r.Read() ? r.GetInt32(0) : 0,
             cmd =>
             {
                 cmd.Parameters.AddWithValue("$e", enabled ? 1 : 0);
                 cmd.Parameters.AddWithValue("$id", id);
             });
+
+        if (affected > 0)
+        {
+            _audit.Record(actor, enabled ? "provider.enable" : "provider.disable",
+                AuditCategories.Config, "auth_provider", id, enabled ? "enabled" : "disabled");
+        }
     }
 
-    public void Delete(int id)
+    /// <summary>刪除提供者。稽核：provider.delete。</summary>
+    public void Delete(int id, string actor = "system")
     {
-        _store.Execute(
-            "DELETE FROM auth_providers WHERE id = $id;",
+        var name = Get(id)?.Name ?? $"id:{id}";
+        var affected = _store.Query<int>(
+            "DELETE FROM auth_providers WHERE id = $id; SELECT changes();",
+            r => r.Read() ? r.GetInt32(0) : 0,
             cmd => cmd.Parameters.AddWithValue("$id", id));
+
+        if (affected > 0)
+        {
+            _audit.Record(actor, "provider.delete", AuditCategories.Config, "auth_provider", id, name);
+        }
     }
 
     private static void ValidateKind(string kind)

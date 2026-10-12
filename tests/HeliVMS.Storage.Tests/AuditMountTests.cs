@@ -1,3 +1,5 @@
+using HeliVMS.Shared.Models;
+
 namespace HeliVMS.Storage.Tests;
 
 /// <summary>M110：稽核掛載點——登入/參數變更/匯出/共享/法務保留寫入 audit_log。</summary>
@@ -166,5 +168,113 @@ public class AuditMountTests : IDisposable
         var revoked = Assert.Single(_audit.List(new AuditLogQuery { Action = "legal_hold.revoke" }));
         Assert.Equal("admin", revoked.Actor);
         Assert.Equal("結案", revoked.Detail);
+    }
+
+    [Fact]
+    public void Channel_AddUpdateDelete_RecordsAudit()
+    {
+        var channels = new ChannelRepository(_store);
+
+        var id = channels.Add("前門", "rtsp://cam/main", actor: "admin");
+        channels.Update(
+            new ChannelInfo
+            {
+                Id = id,
+                Name = "前門（整併）",
+                MainStreamUrl = "rtsp://cam/main",
+                Enabled = false,
+            },
+            actor: "admin");
+        channels.Delete(id, actor: "admin");
+
+        var add = Assert.Single(_audit.List(new AuditLogQuery { Action = "channel.add" }));
+        Assert.Equal(AuditCategories.Config, add.Category);
+        Assert.Equal("channel", add.TargetType);
+        Assert.Equal(id, add.TargetId);
+        Assert.Equal("admin", add.Actor);
+        Assert.Equal("前門", add.Detail);
+
+        var update = Assert.Single(_audit.List(new AuditLogQuery { Action = "channel.update" }));
+        Assert.Equal(id, update.TargetId);
+        Assert.Equal("admin", update.Actor);
+        Assert.Contains("前門（整併）", update.Detail);
+        Assert.Contains("enabled=False", update.Detail);
+
+        var delete = Assert.Single(_audit.List(new AuditLogQuery { Action = "channel.delete" }));
+        Assert.Equal(id, delete.TargetId);
+        Assert.Equal("前門（整併）", delete.Detail);
+    }
+
+    [Fact]
+    public void Channel_EnsureSeedChannels_DoesNotAudit()
+    {
+        var seeded = new ChannelRepository(_store).EnsureSeedChannels();
+
+        Assert.Equal(2, seeded);
+        Assert.Equal(0, _audit.Count(new AuditLogQuery { Category = AuditCategories.Config }));
+    }
+
+    [Fact]
+    public void Account_CreateEnableRoleDelete_RecordsAudit()
+    {
+        var users = new UserRepository(_store);
+
+        var id = users.CreateUser("dave", PasswordHasher.Hash("pw"), "viewer", actor: "admin");
+        users.SetEnabled(id, false, actor: "admin");
+        users.SetRole(id, "admin", actor: "admin");
+        users.DeleteUser(id, actor: "admin");
+
+        var create = Assert.Single(_audit.List(new AuditLogQuery { Action = "account.create" }));
+        Assert.Equal(AuditCategories.Config, create.Category);
+        Assert.Equal("user", create.TargetType);
+        Assert.Equal(id, create.TargetId);
+        Assert.Equal("admin", create.Actor);
+        Assert.Equal("role=viewer", create.Detail);
+        Assert.DoesNotContain("pw", create.Detail);
+
+        var disabled = Assert.Single(_audit.List(new AuditLogQuery { Action = "account.disable" }));
+        Assert.Equal(id, disabled.TargetId);
+
+        var role = Assert.Single(_audit.List(new AuditLogQuery { Action = "account.role" }));
+        Assert.Equal("role=admin", role.Detail);
+
+        var deleted = Assert.Single(_audit.List(new AuditLogQuery { Action = "account.delete" }));
+        Assert.Equal(id, deleted.TargetId);
+        Assert.Equal("dave", deleted.Detail);
+    }
+
+    [Fact]
+    public void Account_NoOpUpdate_DoesNotAudit()
+    {
+        var users = new UserRepository(_store);
+
+        users.SetEnabled(999, false);
+        users.SetRole(999, "admin");
+
+        Assert.Equal(0, _audit.Count(new AuditLogQuery { Category = AuditCategories.Config }));
+    }
+
+    [Fact]
+    public void Provider_AddEnableDelete_RecordsAudit()
+    {
+        var providers = new AuthProviderRepository(_store);
+
+        var id = providers.Add("corp-ldap", AuthProviderRepository.KindLdap, "{\"host\":\"x\"}", actor: "admin");
+        providers.SetEnabled(id, false, actor: "admin");
+        providers.Delete(id, actor: "admin");
+
+        var add = Assert.Single(_audit.List(new AuditLogQuery { Action = "provider.add" }));
+        Assert.Equal(AuditCategories.Config, add.Category);
+        Assert.Equal("auth_provider", add.TargetType);
+        Assert.Equal(id, add.TargetId);
+        Assert.Equal("admin", add.Actor);
+        Assert.Contains("kind=ldap", add.Detail);
+        Assert.DoesNotContain("{\"host\"", add.Detail);
+
+        var disabled = Assert.Single(_audit.List(new AuditLogQuery { Action = "provider.disable" }));
+        Assert.Equal(id, disabled.TargetId);
+
+        var deleted = Assert.Single(_audit.List(new AuditLogQuery { Action = "provider.delete" }));
+        Assert.Equal("corp-ldap", deleted.Detail);
     }
 }

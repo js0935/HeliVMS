@@ -9,10 +9,16 @@ namespace HeliVMS.Storage;
 public sealed class ChannelRepository
 {
     private readonly SqliteStore _store;
+    private readonly AuditLogRepository _audit;
 
-    public ChannelRepository(SqliteStore store)
+    /// <summary>
+    /// 預設自建 <see cref="AuditLogRepository"/>（同 <c>RecordingScheduleRepository</c> 作法）：
+    /// 頻道新增/修改/刪除是管理動作，一律留稽核軌跡；測試若要檢視稽核可用 <paramref name="audit"/> 注入。
+    /// </summary>
+    public ChannelRepository(SqliteStore store, AuditLogRepository? audit = null)
     {
         _store = store;
+        _audit = audit ?? new AuditLogRepository(store);
     }
 
     /// <summary>列出全部頻道（含停用）。</summary>
@@ -82,7 +88,7 @@ public sealed class ChannelRepository
             cmd => cmd.Parameters.AddWithValue("$id", id));
     }
 
-    /// <summary>新增頻道，回傳新 ID。</summary>
+    /// <summary>新增頻道，回傳新 ID（稽核掛載：channel.add 寫 audit_log）。</summary>
     public int Add(
         string name,
         string mainRtsp,
@@ -92,7 +98,25 @@ public sealed class ChannelRepository
         bool audioEnabled = true,
         string audioEncoder = "copy",
         RecordingMode recordingMode = RecordingMode.Always,
-        int? displayCell = null)
+        int? displayCell = null,
+        string actor = "system")
+    {
+        var id = InsertChannel(name, mainRtsp, subRtsp, deviceId, codec, audioEnabled, audioEncoder, recordingMode, displayCell);
+        _audit.Record(actor, "channel.add", AuditCategories.Config, "channel", id, name);
+        return id;
+    }
+
+    /// <summary>實際寫入頻道列（不含稽核）；供 <see cref="EnsureSeedChannels"/> 等非使用者動作使用。</summary>
+    private int InsertChannel(
+        string name,
+        string mainRtsp,
+        string? subRtsp,
+        int? deviceId,
+        string codec,
+        bool audioEnabled,
+        string audioEncoder,
+        RecordingMode recordingMode,
+        int? displayCell)
     {
         return _store.Query(
             """
@@ -119,10 +143,10 @@ public sealed class ChannelRepository
             });
     }
 
-    /// <summary>更新頻道設定。</summary>
-    public void Update(ChannelInfo channel)
+    /// <summary>更新頻道設定（稽核掛載：channel.update 寫 audit_log）。</summary>
+    public void Update(ChannelInfo channel, string actor = "system")
     {
-        _store.Execute(
+        var affected = _store.Query<int>(
             """
             UPDATE channels
             SET name = $n, main_rtsp = $m, sub_rtsp = $s, codec = $c,
@@ -130,7 +154,9 @@ public sealed class ChannelRepository
                 motion_enabled = $me, motion_sensitivity = $ms, enabled = $en,
                 display_cell = $dc
             WHERE id = $id;
+            SELECT changes();
             """,
+            r => r.Read() ? r.GetInt32(0) : 0,
             cmd =>
             {
                 cmd.Parameters.AddWithValue("$id", channel.Id);
@@ -148,15 +174,23 @@ public sealed class ChannelRepository
                 cmd.Parameters.AddWithValue("$en", channel.Enabled ? 1 : 0);
                 cmd.Parameters.AddWithValue("$dc", (object?)channel.DisplayCell ?? DBNull.Value);
             });
+
+        if (affected > 0)
+        {
+            _audit.Record(actor, "channel.update", AuditCategories.Config, "channel", channel.Id,
+                $"{channel.Name} enabled={channel.Enabled} cell={channel.DisplayCell?.ToString() ?? "auto"}");
+        }
     }
 
-    /// <summary>刪除頻道（其區段索引連帶刪除）。</summary>
-    public void Delete(int id)
+    /// <summary>刪除頻道（其區段索引連帶刪除）。稽核掛載：channel.delete 寫 audit_log。</summary>
+    public void Delete(int id, string actor = "system")
     {
+        var name = Get(id)?.Name ?? $"id:{id}";
         _store.Execute("DELETE FROM channels WHERE id = $id;", cmd => cmd.Parameters.AddWithValue("$id", id));
+        _audit.Record(actor, "channel.delete", AuditCategories.Config, "channel", id, name);
     }
 
-    /// <summary>若無任何頻道，植入測試流兩個頻道（開發／示範用途）。</summary>
+    /// <summary>若無任何頻道，植入測試流兩個頻道（開發／示範用途；非使用者動作，故不寫稽核）。</summary>
     public int EnsureSeedChannels()
     {
         var existing = List();
@@ -165,8 +199,10 @@ public sealed class ChannelRepository
             return existing.Count;
         }
 
-        Add("虛擬測試流 · 主流", "rtsp://127.0.0.1:8554/main", "rtsp://127.0.0.1:8554/sub", audioEnabled: true);
-        Add("虛擬測試流 · 次流", "rtsp://127.0.0.1:8554/sub", null, codec: "h264", audioEnabled: false);
+        InsertChannel("虛擬測試流 · 主流", "rtsp://127.0.0.1:8554/main", "rtsp://127.0.0.1:8554/sub",
+            null, "h264", true, "copy", RecordingMode.Always, null);
+        InsertChannel("虛擬測試流 · 次流", "rtsp://127.0.0.1:8554/sub", null,
+            null, "h264", false, "copy", RecordingMode.Always, null);
         return 2;
     }
 

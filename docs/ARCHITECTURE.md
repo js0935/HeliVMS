@@ -569,7 +569,7 @@ L0 運動觸發才餵 L1 物件模型；並在**次串流 (e.g. 640×360) + 抽�
 ### 7.6 安全管理
 
 - 設備憑證於管理端 DPAPI 密文儲存；可選擇 RTSP-TLS / HTTPS 傳輸
-- **稽核日誌 audit_log（M109，v40）已落地**：`AuditLogRepository` Record（actor/action/category 空白→ArgumentException、occurredAt 注入可測）／List（category/actor/action＋時間左閉右開、LIMIT/OFFSET、時序 DESC）／Count／PruneOlderThan（稽核保管期限）；類別常數 `AuditCategories`。設備管理操作掛載點待續（登入/參數變更/匯出/共享/法務保留已於 M110 串入 audit_log）
+- **稽核日誌 audit_log（M109，v40）已落地**：`AuditLogRepository` Record（actor/action/category 空白→ArgumentException、occurredAt 注入可測）／List（category/actor/action＋時間左閉右開、LIMIT/OFFSET、時序 DESC）／Count／PruneOlderThan（稽核保管期限）；類別常數 `AuditCategories`。管理動作掛載點已補齊：登入/參數變更/匯出/共享/法務保留（M110）、設備（M152，`Config`）之外，頻道／帳號／企業身份來源的新增·修改·啟停·刪除亦於 M274 串入 `audit_log`（一律歸 `Config`，僅記名稱/類型等非敏感細節，密碼雜湊與密鑰 JSON 不落稽核）；`EnsureSeedChannels` 等非使用者動作不寫稽核
 - 批次密碼輪換提醒（配合 §11.5 稽核）
 
 ### 7.7 資料模型（擴充 §4）

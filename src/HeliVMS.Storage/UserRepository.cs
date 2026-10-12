@@ -20,14 +20,20 @@ public sealed record UserRecord(
 public sealed class UserRepository
 {
     private readonly SqliteStore _store;
+    private readonly AuditLogRepository _audit;
 
-    public UserRepository(SqliteStore store)
+    /// <summary>
+    /// 預設自建 <see cref="AuditLogRepository"/>（同 <c>ChannelRepository</c>／<c>RecordingScheduleRepository</c>）：
+    /// 帳號建立／停用／改角色／刪除是管理動作，一律留稽核軌跡（密碼僅存雜湊，細節不落稽核）。
+    /// </summary>
+    public UserRepository(SqliteStore store, AuditLogRepository? audit = null)
     {
         _store = store;
+        _audit = audit ?? new AuditLogRepository(store);
     }
 
-    /// <summary>建立使用者（username 大小寫不敏感唯一；重複拋 SqliteException）。回傳新 ID。</summary>
-    public int CreateUser(string username, string passwordHash, string role, string? displayName = null)
+    /// <summary>建立使用者（username 大小寫不敏感唯一；重複拋 SqliteException）。回傳新 ID。稽核：account.create。</summary>
+    public int CreateUser(string username, string passwordHash, string role, string? displayName = null, string actor = "system")
     {
         if (!string.Equals(role, "admin", StringComparison.Ordinal) &&
             !string.Equals(role, "viewer", StringComparison.Ordinal))
@@ -35,7 +41,7 @@ public sealed class UserRepository
             throw new ArgumentOutOfRangeException(nameof(role), "角色僅允許 admin/viewer");
         }
 
-        return _store.Query(
+        var id = _store.Query(
             """
             INSERT INTO users (username, password_hash, role, display_name, enabled, failed_logins, created_at)
             VALUES ($u, $p, $r, $d, 1, 0, $t);
@@ -54,6 +60,9 @@ public sealed class UserRepository
                 cmd.Parameters.AddWithValue("$d", (object?)displayName ?? DBNull.Value);
                 cmd.Parameters.AddWithValue("$t", SqliteStore.Iso(DateTime.UtcNow));
             });
+
+        _audit.Record(actor, "account.create", AuditCategories.Config, "user", id, $"role={role}");
+        return id;
     }
 
     /// <summary>依使用者名稱查詢（大小寫不敏感）。</summary>
@@ -103,20 +112,27 @@ public sealed class UserRepository
             });
     }
 
-    /// <summary>啟用/停用使用者（停用＝無法登入）。</summary>
-    public void SetEnabled(int id, bool enabled)
+    /// <summary>啟用/停用使用者（停用＝無法登入）。稽核：account.enable／account.disable。</summary>
+    public void SetEnabled(int id, bool enabled, string actor = "system")
     {
-        _store.Execute(
-            "UPDATE users SET enabled = $e WHERE id = $id;",
+        var affected = _store.Query<int>(
+            "UPDATE users SET enabled = $e WHERE id = $id; SELECT changes();",
+            r => r.Read() ? r.GetInt32(0) : 0,
             cmd =>
             {
                 cmd.Parameters.AddWithValue("$e", enabled ? 1 : 0);
                 cmd.Parameters.AddWithValue("$id", id);
             });
+
+        if (affected > 0)
+        {
+            _audit.Record(actor, enabled ? "account.enable" : "account.disable",
+                AuditCategories.Config, "user", id, enabled ? "enabled" : "disabled");
+        }
     }
 
-    /// <summary>設定角色（admin/viewer）。</summary>
-    public void SetRole(int id, string role)
+    /// <summary>設定角色（admin/viewer）。稽核：account.role。</summary>
+    public void SetRole(int id, string role, string actor = "system")
     {
         if (!string.Equals(role, "admin", StringComparison.Ordinal) &&
             !string.Equals(role, "viewer", StringComparison.Ordinal))
@@ -124,13 +140,19 @@ public sealed class UserRepository
             throw new ArgumentOutOfRangeException(nameof(role), "角色僅允許 admin/viewer");
         }
 
-        _store.Execute(
-            "UPDATE users SET role = $r WHERE id = $id;",
+        var affected = _store.Query<int>(
+            "UPDATE users SET role = $r WHERE id = $id; SELECT changes();",
+            r => r.Read() ? r.GetInt32(0) : 0,
             cmd =>
             {
                 cmd.Parameters.AddWithValue("$r", role);
                 cmd.Parameters.AddWithValue("$id", id);
             });
+
+        if (affected > 0)
+        {
+            _audit.Record(actor, "account.role", AuditCategories.Config, "user", id, $"role={role}");
+        }
     }
 
     /// <summary>設定顯示名稱（null 清除）。</summary>
@@ -145,12 +167,19 @@ public sealed class UserRepository
             });
     }
 
-    /// <summary>刪除使用者。</summary>
-    public void DeleteUser(int id)
+    /// <summary>刪除使用者。稽核：account.delete。</summary>
+    public void DeleteUser(int id, string actor = "system")
     {
-        _store.Execute(
-            "DELETE FROM users WHERE id = $id;",
+        var username = GetById(id)?.Username ?? $"id:{id}";
+        var affected = _store.Query<int>(
+            "DELETE FROM users WHERE id = $id; SELECT changes();",
+            r => r.Read() ? r.GetInt32(0) : 0,
             cmd => cmd.Parameters.AddWithValue("$id", id));
+
+        if (affected > 0)
+        {
+            _audit.Record(actor, "account.delete", AuditCategories.Config, "user", id, username);
+        }
     }
 
     /// <summary>
