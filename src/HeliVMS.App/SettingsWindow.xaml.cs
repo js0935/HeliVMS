@@ -131,6 +131,7 @@ public partial class SettingsWindow : Window
         ReloadSnapshotDays();
         ReloadUsage();
         ReloadRecordingsDisk();
+        ReloadBandwidthBudget();
         ReloadLicense();
         ReloadNotify();
         ReloadRules();
@@ -282,6 +283,10 @@ public partial class SettingsWindow : Window
         RemoveRecordingsDiskButton.ToolTip = Localizer.T("Settings.RemoveDiskTip");
         RecordingsDiskHintText.Text = Localizer.T("Settings.RecordingsDiskHint");
         RefreshRecordingsDiskList();
+        BandwidthBudgetLabel.Text = Localizer.T("Settings.BandwidthBudgetLabel");
+        ApplyBandwidthBudgetButton.Content = Localizer.T("Settings.Apply");
+        ApplyBandwidthBudgetButton.ToolTip = Localizer.T("Settings.ApplyBandwidthBudgetTip");
+        BandwidthBudgetHintText.Text = Localizer.T("Settings.BandwidthBudgetHint");
         QuotaLabel.Text = Localizer.T("Settings.QuotaLabel");
         ApplyQuotaButton.Content = Localizer.T("Settings.Apply");
         ApplyQuotaButton.ToolTip = Localizer.T("Settings.ApplyQuotaTip");
@@ -1431,6 +1436,16 @@ public partial class SettingsWindow : Window
         QuotaTextBox.Text = quotaGb.ToString("0.#", CultureInfo.InvariantCulture);
     }
 
+    /// <summary>
+    /// 顯示目前的錄影總頻寬上限（換算為 Mbps）。設定以 bps 儲存（與協調器一致），
+    /// 這裡只在顯示與輸入時換算，避免兩處各存一份而分歧。
+    /// </summary>
+    private void ReloadBandwidthBudget()
+    {
+        var bps = RecordingQualityCoordinator.ReadBudget(_store);
+        BandwidthBudgetTextBox.Text = (bps / 1_000_000d).ToString("0.#", CultureInfo.InvariantCulture);
+    }
+
     private double QuotaGbFromStore()
     {
         var fromDb = _settings.GetDoubleOrDefault(QuotaKey, -1);
@@ -1800,6 +1815,30 @@ public partial class SettingsWindow : Window
         _settings.Set(QuotaKey, gb.ToString("0.#", CultureInfo.InvariantCulture));
         CleanupReportText.Text = string.Format(Localizer.T("Settings.QuotaApplied"), gb);
         ReloadUsage();
+    }
+
+    /// <summary>
+    /// 套用錄影總頻寬上限（使用者輸入 Mbps；0＝不限制）。以 bps 寫入共用設定，
+    /// 排程器每 30 秒讀一次，據此在超載時把最吃頻寬的頻道降到子碼流錄影。
+    /// </summary>
+    private void OnApplyBandwidthBudgetClicked(object sender, RoutedEventArgs e)
+    {
+        // 允許 0 代表「不限制」（恢復一律主碼流）；其餘必須是正數。負數或文字一律退件，
+        // 因為「0.0 誤打成 -0.1」若被當成不限制，操作員會以為上限生效了而事實沒有。
+        if (!double.TryParse(BandwidthBudgetTextBox.Text, NumberStyles.Float, CultureInfo.InvariantCulture, out var mbps)
+            || mbps < 0)
+        {
+            BandwidthBudgetStatusText.Text = Localizer.T("Settings.BandwidthBudgetInvalid");
+            return;
+        }
+
+        var bps = (long)Math.Round(mbps * 1_000_000d);
+        _settings.Set(RecordingQualityCoordinator.BudgetSettingKey, bps.ToString(CultureInfo.InvariantCulture));
+        ReloadBandwidthBudget();
+
+        BandwidthBudgetStatusText.Text = mbps <= 0
+            ? Localizer.T("Settings.BandwidthBudgetUnlimited")
+            : string.Format(Localizer.T("Settings.BandwidthBudgetApplied"), mbps);
     }
 
     private void OnCleanupClicked(object sender, RoutedEventArgs e)

@@ -157,6 +157,22 @@
                            Foreground="{StaticResource Brand.TextDim}" FontSize="11" TextWrapping="Wrap"/>
                 <TextBlock x:Name="RecordingsDiskStatusText" Text="" TextWrapping="Wrap" Margin="0,4,0,14"
                            AutomationProperties.AutomationId="RecordingsDiskStatusText"/>
+                <TextBlock x:Name="BandwidthBudgetLabel" Text=""
+                           Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+                <DockPanel Margin="0,6,0,4">
+                    <Button x:Name="ApplyBandwidthBudgetButton" Content="" Click="OnApplyBandwidthBudgetClicked" ToolTip=""
+                            DockPanel.Dock="Right" Padding="12,6"
+                            Foreground="White" Background="#2A5C8A" BorderThickness="0"
+                            AutomationProperties.AutomationId="ApplyBandwidthBudgetButton"/>
+                    <TextBox x:Name="BandwidthBudgetTextBox" AutomationProperties.AutomationId="BandwidthBudgetTextBox"
+                             Width="120" Margin="0,0,10,0"
+                             Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
+                </DockPanel>
+                <TextBlock x:Name="BandwidthBudgetHintText" Text=""
+                           Foreground="{StaticResource Brand.TextDim}" FontSize="11" TextWrapping="Wrap"
+                           Margin="0,0,0,4"/>
+                <TextBlock x:Name="BandwidthBudgetStatusText" Text="" TextWrapping="Wrap" Margin="0,0,0,14"
+                           AutomationProperties.AutomationId="BandwidthBudgetStatusText"/>
                 <TextBlock x:Name="QuotaLabel" Text=""
                            Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
                 <DockPanel Margin="0,6,0,14">

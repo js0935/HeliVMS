@@ -1263,7 +1263,7 @@ WebRTC/WHEP 即時監看與 MSE 回放（M244）。
 | 9 | 可靠 | **Failover 容錯**（第二記錄伺服器） | Milestone Failover、QNAP QVR Guard | 僅本機看門狗＋**租約仲裁 L0（M87）＋監控視窗/harness（M88）＋實體接管協調 L1（M98 `FailoverCoordinator.Reconcile`＋`failover_events` v35 軌跡）已落地** | P2 |
 | 10 | 儲存 | **Edge Storage 雙保險**（設備 SD 側錄 + NVR） | Milestone、Genetec、Synology | **L0 補抓規劃器（M89）＋L1 執行器（M94）＋真實 ffmpeg runner（M96 `EdgeFfmpegBackfillRunner`）已閉合** | P2 |
 | 11 | 地圖 | **智慧地圖深化**：視角扇形 FOV/深度 | Milestone Smart Map | **電子地圖（M41 `MapWindow`：樓層切換、圖釘含 camera 扇形視角 FOV、事件閃爍、雙向定位）已落地**；**FOV 深度／比例尺已落地（M49 `MapGeometry.SectorRadiusPixels`＋`scale_m_per_px`）**；**圖釘自動布局已落地（M284 `MapLayout.Resolve`＋設定中心「自動布局」寫回座標）** | P2 |
-| 12 | 錄影 | **Adaptive Streaming / SVR 品質自適應** | Milestone | **`BitrateGovernor`（錄影品質/幀率自適應控流）已落地**；SVR 跨設備協調待續 | P3 |
+| 12 | 錄影 | **Adaptive Streaming / SVR 品質自適應** | Milestone | **`BitrateGovernor`／`ObservedBitrateEstimator`（純演算法）＋跨設備協調已落地（M285 `RecordingQualityCoordinator`：總頻寬上限下依實測碼率與優先權決定各頻道用主／子碼流，`RecordingScheduler` 逐次調和並在超載時切換串流；設定中心可設上限，0＝不限制）**；執行中改碼率需重編碼，故以切換主／子碼流實現（`-c:v copy`） | P3 |
 | 13 | 邊緣 | **消費邊緣 AI 相機 metadata**（D2C/方向） | Genetec、Frigate | **L0 消費/軌跡/方向分類（M90）＋L1 持久化/查詢/分向摘要（M95 `EdgeSmartEventRepository` v33）已落地** | P3 |
 | 14 | 顯示 | **智慧牆（Smart Wall）多螢幕拼接控制** | Milestone Smart Wall | 僅雙螢幕(§11.3)；**智慧牆版面資料模型＋幾何校驗＋看板時間常數（M105 v39 `SmartwallLayoutRepository`＋`LayoutGrid`）＋警報看板引擎 L0（M106 `SmartwallAlertBoard`）已落地**；**桌面智慧牆視窗（版面編輯／方塊增刪／看板高亮）已落地（M105/M106 `SmartwallWindow`）**；**看板告警 MQTT 派送掛載（M280 `SmartwallBoardDispatcher`：相對前次快照新進入高亮的頻道，經既有 notify.mqtt.* 主機／帳密派送至每頻道 topic）已落地** | P3 |
 | 16 | 影像 | **快照一鍵遮蔽（快照隱私）** | Synology | **已落地（M116 `SnapshotRedactionService` 按 snapshot 區套用＋`RedactionRepository` 區位資料層）** | **P3** |
@@ -1314,7 +1314,17 @@ WebRTC/WHEP 即時監看與 MSE 回放（M244）。
 | 純次碼流 | 次流全時 | 容量/頻寬受限（§10.2 估算） |
 | 雙碼流同時 | main + sub 兩系列檔 | 證據 + 檢索（§3.2） |
 | Smart 切流 | 次流常態，事件瞬間切主流 | 商場/廠房大範圍（推薦） |
-| SVR/自適應品質 | 依頻寬/負載調整 | 未來（§14.7 #12） |
+| SVR/自適應品質 | 依頻寬/負載調整 | 已落地（M285：設 `recording.bandwidth_budget_bps` 上限後，超載頻道自動降為次碼流錄影；未設＝不限制） |
+
+### 15.2.1 跨設備品質協調（M285，§14.7 #12）
+
+設定鍵 `recording.bandwidth_budget_bps`（0＝不限制）為全域錄影總頻寬上限。`RecordingScheduler`
+每 30 秒調和一次：以各頻道近 30 分鐘已完成區段的「主碼流實測碼率」（`ObservedBitrateEstimator`）
+為負載，交由 `BitrateGovernor` 依優先權與事件狀態分配配額，再由 `RecordingQualityCoordinator`
+把配額翻譯成主／子碼流決策——配額低於主碼流需求的 60%（`MainRetentionRatio`）即降到子碼流。
+因為錄影管線是 `ffmpeg … -c:v copy`（不重編碼），執行中唯一能少佔頻寬的手段就是換成攝影機
+自帶的低碼率子碼流；既有錄影會在下次調和被停掉並以子碼流位址重開。以主碼流（而非現行串流）
+實測碼率為負載基準，是為了避免「降級→碼率下降→升回主流→碼率上升」的來回切換。
 
 ### 15.3 依「儲存位置」類型
 

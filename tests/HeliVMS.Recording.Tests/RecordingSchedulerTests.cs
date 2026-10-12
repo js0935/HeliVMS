@@ -499,7 +499,120 @@ public sealed class RecordingSchedulerTests : IDisposable
         Assert.Contains(channelId, scheduler.ActiveChannelIds);
     }
 
-    private RecordingScheduler NewScheduler(Func<int, bool>? isCellRecording = null)
+    /// <summary>
+    /// 設了總頻寬上限且主碼流需求超載時，排程要改用子碼流錄影並指向子碼流位址。
+    ///
+    /// 這是 §14.7 #12「跨設備協調」在排程端唯一可見的效果：錄影管線是 -c:v copy，
+    /// 執行中改不了碼率，唯一能少佔頻寬的手段就是換成攝影機的低碼率子碼流。
+    /// 只算了配額卻沒有換串流，等於整個治理沒有出口。
+    /// </summary>
+    [Fact]
+    public async Task 設定頻寬上限後超載頻道會改用子碼流錄影()
+    {
+        ApplyLicense(cameras: 32);
+        var channelId = _channels.Add(
+            "車道 1",
+            "rtsp://example.invalid/main",
+            subRtsp: "rtsp://example.invalid/sub",
+            recordingMode: RecordingMode.Always);
+        new SettingsRepository(_store).Set(RecordingQualityCoordinator.BudgetSettingKey, "1000000");
+
+        using var scheduler = NewScheduler(observedBps: _ => 5_000_000);
+        await scheduler.ReconcileAsync();
+
+        var recorder = Assert.Single(_started);
+        Assert.Equal("sub", recorder.Stream);
+        Assert.Equal("rtsp://example.invalid/sub", recorder.RtspUrl);
+        Assert.Contains(channelId, scheduler.ActiveChannelIds);
+    }
+
+    /// <summary>
+    /// 沒設上限時一律主碼流——這是預設路徑，治理功能必須是 opt-in，不得改變既有站台行為。
+    /// </summary>
+    [Fact]
+    public async Task 未設頻寬上限時維持主碼流()
+    {
+        ApplyLicense(cameras: 32);
+        _channels.Add(
+            "車道 1",
+            "rtsp://example.invalid/main",
+            subRtsp: "rtsp://example.invalid/sub",
+            recordingMode: RecordingMode.Always);
+
+        using var scheduler = NewScheduler(observedBps: _ => 5_000_000);
+        await scheduler.ReconcileAsync();
+
+        var recorder = Assert.Single(_started);
+        Assert.Equal("main", recorder.Stream);
+        Assert.Equal("rtsp://example.invalid/main", recorder.RtspUrl);
+    }
+
+    /// <summary>設了上限但配額充足時仍用主碼流，不會無條件降級。</summary>
+    [Fact]
+    public async Task 上限充足時維持主碼流()
+    {
+        ApplyLicense(cameras: 32);
+        _channels.Add(
+            "車道 1",
+            "rtsp://example.invalid/main",
+            subRtsp: "rtsp://example.invalid/sub",
+            recordingMode: RecordingMode.Always);
+        new SettingsRepository(_store).Set(RecordingQualityCoordinator.BudgetSettingKey, "100000000");
+
+        using var scheduler = NewScheduler(observedBps: _ => 5_000_000);
+        await scheduler.ReconcileAsync();
+
+        Assert.Equal("main", Assert.Single(_started).Stream);
+    }
+
+    /// <summary>沒有子碼流的頻道即使超載也不降級，維持主碼流位址。</summary>
+    [Fact]
+    public async Task 沒有子碼流的頻道即使超載仍用主碼流()
+    {
+        ApplyLicense(cameras: 32);
+        _channels.Add("車道 1", "rtsp://example.invalid/main", recordingMode: RecordingMode.Always);
+        new SettingsRepository(_store).Set(RecordingQualityCoordinator.BudgetSettingKey, "1000000");
+
+        using var scheduler = NewScheduler(observedBps: _ => 5_000_000);
+        await scheduler.ReconcileAsync();
+
+        var recorder = Assert.Single(_started);
+        Assert.Equal("main", recorder.Stream);
+        Assert.Equal("rtsp://example.invalid/main", recorder.RtspUrl);
+    }
+
+    /// <summary>
+    /// 上限是在錄影途中才設定的：既有錄影必須被切換到子碼流，而不是等它自然停掉才生效。
+    ///
+    /// 切換＝停掉舊錄影機、用子碼流位址重開一台（會少一小段），這是 -c:v copy 下
+    /// 換串流的必然代價；不切的話操作員設了上限卻看不到任何效果。
+    /// </summary>
+    [Fact]
+    public async Task 設定上限後既有錄影會被切換到子碼流()
+    {
+        ApplyLicense(cameras: 32);
+        var channelId = _channels.Add(
+            "車道 1",
+            "rtsp://example.invalid/main",
+            subRtsp: "rtsp://example.invalid/sub",
+            recordingMode: RecordingMode.Always);
+
+        using var scheduler = NewScheduler(observedBps: _ => 5_000_000);
+        await scheduler.ReconcileAsync();
+        Assert.Equal("main", Assert.Single(_started).Stream);
+
+        new SettingsRepository(_store).Set(RecordingQualityCoordinator.BudgetSettingKey, "1000000");
+        await scheduler.ReconcileAsync();
+
+        Assert.True(_started[0].Stopped);
+        Assert.True(_started[0].Disposed);
+        var switched = _started[1];
+        Assert.Equal(channelId, switched.ChannelId);
+        Assert.Equal("sub", switched.Stream);
+        Assert.Contains(channelId, scheduler.ActiveChannelIds);
+    }
+
+    private RecordingScheduler NewScheduler(Func<int, bool>? isCellRecording = null, Func<int, long>? observedBps = null)
         => new(
             _store,
             _recordingsRoot,
@@ -511,7 +624,8 @@ public sealed class RecordingSchedulerTests : IDisposable
                 var fake = new FakeSegmentRecorder();
                 _started.Add(fake);
                 return fake;
-            });
+            },
+            observedBps: observedBps);
 
     private int AddChannel(string name, RecordingMode mode = RecordingMode.Scheduled)
         => _channels.Add(name, "rtsp://example.invalid/live", recordingMode: mode);
@@ -596,6 +710,9 @@ public sealed class RecordingSchedulerTests : IDisposable
 
         public string RtspUrl { get; private set; } = string.Empty;
 
+        /// <summary>排程實際要求使用的串流（<c>main</c>／<c>sub</c>）。</summary>
+        public string Stream { get; private set; } = string.Empty;
+
         public bool Stopped { get; private set; }
 
         public bool Disposed { get; private set; }
@@ -623,6 +740,7 @@ public sealed class RecordingSchedulerTests : IDisposable
         {
             ChannelId = channelId;
             RtspUrl = rtspUrl;
+            Stream = stream;
             return Task.CompletedTask;
         }
 

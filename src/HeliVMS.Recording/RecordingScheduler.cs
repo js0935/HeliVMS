@@ -25,10 +25,19 @@ public sealed class RecordingScheduler : IDisposable
     private readonly string _recordingsRoot;
     private readonly Func<int, bool>? _isCellRecording;
     private readonly Func<ISegmentRecorder> _recorderFactory;
+    private readonly SegmentRepository _segments;
+    private readonly Func<int, long> _observedBps;
     private readonly ConcurrentDictionary<int, ISegmentRecorder> _active = new();
+
+    /// <summary>目前在錄的各頻道所使用的串流名稱（<c>main</c>／<c>sub</c>）。</summary>
+    private readonly ConcurrentDictionary<int, string> _activeStreams = new();
+
     private readonly ConcurrentDictionary<int, RecordingBlockReason> _blockReasons = new();
     private readonly System.Threading.Timer _timer;
     private bool _disposed;
+
+    /// <summary>推估主碼流實測碼率時納入的近期區段區間。</summary>
+    private static readonly TimeSpan QualityWindow = TimeSpan.FromMinutes(30);
 
     public RecordingScheduler(
         SqliteStore store,
@@ -37,7 +46,8 @@ public sealed class RecordingScheduler : IDisposable
         TimeSpan? reconcileInterval = null,
         LicenseService? license = null,
         LicenseLimitNotifier? limitNotifier = null,
-        Func<ISegmentRecorder>? recorderFactory = null)
+        Func<ISegmentRecorder>? recorderFactory = null,
+        Func<int, long>? observedBps = null)
     {
         _store = store;
         _recordingsRoot = recordingsRoot;
@@ -49,6 +59,8 @@ public sealed class RecordingScheduler : IDisposable
         _audit = new AuditLogRepository(store);
         _devices = new DeviceRepository(store, _audit);
         _recorderFactory = recorderFactory ?? DefaultRecorderFactory;
+        _segments = new SegmentRepository(store);
+        _observedBps = observedBps ?? DefaultObservedBps;
         ReconcileInterval = reconcileInterval ?? TimeSpan.FromSeconds(30);
         _timer = new System.Threading.Timer(OnTick, null, ReconcileInterval, ReconcileInterval);
     }
@@ -63,19 +75,73 @@ public sealed class RecordingScheduler : IDisposable
             rootSelector: RecordingStorage.CreateRootSelector(_store, _recordingsRoot));
 
     /// <summary>
+    /// 主碼流實測碼率的預設來源：近 <see cref="QualityWindow"/> 內已完成的區段。
+    /// 用磁碟上實際寫出的檔案推估，與磁碟容量告警同一個數字；測試注入假函式避免碰磁碟。
+    /// </summary>
+    private long DefaultObservedBps(int channelId)
+    {
+        var now = DateTime.UtcNow;
+        var segments = _segments.ListByRange(channelId, "main", now - QualityWindow, now);
+        return ObservedBitrateEstimator.ForChannel(channelId, segments).ObservedBps;
+    }
+
+    /// <summary>
+    /// 依 <see cref="RecordingQualityCoordinator.BudgetSettingKey"/> 算出跨設備品質計畫。
+    /// 未設預算（0＝不限制）時回 null，排程維持原本「一律主碼流」的行為。
+    /// </summary>
+    private QualityPlan? BudgetPlan(IEnumerable<ChannelInfo> wanted)
+    {
+        var budget = RecordingQualityCoordinator.ReadBudget(_store);
+        if (budget <= 0)
+        {
+            return null;
+        }
+
+        var channels = wanted
+            .Select(ch => new QualityChannel(
+                ch.Id,
+                _observedBps(ch.Id),
+                RecordingQualityCoordinator.DefaultPriority,
+                // 事件狀態尚無來源可查（排程不持有事件倉儲），先一律視為非事件。
+                // 事件加權的分配本身已在協調器層被測過，等有來源再接上即可。
+                InEvent: false,
+                HasSubStream: HasSubStream(ch)))
+            .ToList();
+
+        return RecordingQualityCoordinator.Coordinate(budget, channels);
+    }
+
+    private static bool HasSubStream(ChannelInfo channel)
+        => !string.IsNullOrWhiteSpace(channel.SubStreamUrl);
+
+    private static string StreamName(RecordingStream stream)
+        => stream == RecordingStream.Sub ? "sub" : "main";
+
+    /// <summary>
     /// 解析實際用來啟動錄影的 RTSP 位址——把資料庫中未含帳密的 <c>channels.main_rtsp</c>
     /// 補上對應 <c>devices</c> 的憑證。
     ///
     /// 排程錄影以前直接使用 <c>ch.MainStreamUrl</c>，相機要求驗證時就一直回 401，
     /// 連續三段寫不出檔而發出停滯事件；即時監看畫面卻正常，因為它早就透過
     /// <c>ChannelManager</c> 走同一條解析路徑。這裡補上相同處理，消除這個落差。
+    ///
+    /// <paramref name="stream"/> 為 <see cref="RecordingStream.Sub"/> 時改解析子碼流位址；
+    /// 頻道沒設子碼流時退回主碼流，避免降級決策意外把錄影指向空位址。
     /// </summary>
-    private string ResolveRecordingUrl(ChannelInfo channel)
-        => RtspStreamResolver.Resolve(
-            channel.MainStreamUrl,
+    private string ResolveRecordingUrl(ChannelInfo channel, RecordingStream stream = RecordingStream.Main)
+    {
+        var raw = stream == RecordingStream.Sub ? channel.SubStreamUrl : channel.MainStreamUrl;
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            raw = channel.MainStreamUrl;
+        }
+
+        return RtspStreamResolver.Resolve(
+            raw,
             channel.DeviceId,
             host => _devices.FindByIp(host)?.Id,
             _devices.GetRtspCredentials);
+    }
 
     public TimeSpan ReconcileInterval { get; }
 
@@ -150,6 +216,33 @@ public sealed class RecordingScheduler : IDisposable
             }
         }
 
+        // 跨設備品質協調（M285，§14.7 #12）。未設總頻寬上限時 plan 為 null，
+        // 以下所有分支都會退回「一律主碼流」的既有行為。
+        var plan = BudgetPlan(wanted.Values);
+
+        // 已經在錄、但新計畫要求換串流的頻道：先收掉，讓下面的啟動迴圈用新串流重開。
+        // 只在設了預算時才會走到這裡（plan 非 null），所以未設定的站台不會有這個中斷。
+        if (plan is not null && !_disposed)
+        {
+            foreach (var ch in wanted.Values)
+            {
+                var wantedStream = StreamName(RecordingQualityCoordinator.StreamFor(plan, ch.Id));
+                if (!_activeStreams.TryGetValue(ch.Id, out var current) || current == wantedStream)
+                {
+                    continue;
+                }
+
+                if (_active.TryRemove(ch.Id, out var stale))
+                {
+                    stale.RecordingStalled -= OnRecordingStalled;
+                    await stale.StopAsync();
+                    await stale.DisposeAsync();
+                    _activeStreams.TryRemove(ch.Id, out _);
+                    Activity?.Invoke(this, $"錄影品質調整：ch{ch.Id:000} {current}→{wantedStream}");
+                }
+            }
+        }
+
         foreach (var ch in wanted.Values)
         {
             if (_disposed)
@@ -188,9 +281,12 @@ public sealed class RecordingScheduler : IDisposable
             // 訂閱要在 StartAsync 之前：錄影機一開就可能失敗，訂閱晚一步就漏掉第一次停滯。
             recorder.RecordingStalled += OnRecordingStalled;
         recorder.RecordingResumed += (_, channelId) => RecordingResumed?.Invoke(this, channelId);
-            await recorder.StartAsync(ch.Id, ResolveRecordingUrl(ch), _recordingsRoot, "main", segmentSeconds: 15);
+            var stream = RecordingQualityCoordinator.StreamFor(plan, ch.Id);
+            var streamName = StreamName(stream);
+            await recorder.StartAsync(ch.Id, ResolveRecordingUrl(ch, stream), _recordingsRoot, streamName, segmentSeconds: 15);
             if (_active.TryAdd(ch.Id, recorder))
             {
+                _activeStreams[ch.Id] = streamName;
                 Activity?.Invoke(this, $"錄影開始：ch{ch.Id:000} {ch.Name}");
                 _audit.Record(
                     "system",
@@ -200,7 +296,7 @@ public sealed class RecordingScheduler : IDisposable
                     targetId: ch.Id,
                     // 位址必須遮蔽帳密：稽核記錄會顯示在稽核視窗、也能經 API 讀取與匯出，
                 // 明文密碼進去之後就等於把憑證散播到每一份稽核備份裡。
-                detail: $"source={gateSource} mode={ch.RecordingMode} url={RtspUri.Redact(ch.MainStreamUrl)}");
+                detail: $"source={gateSource} mode={ch.RecordingMode} stream={streamName} url={RtspUri.Redact(stream == RecordingStream.Sub ? ch.SubStreamUrl : ch.MainStreamUrl)}");
             }
             else
             {
@@ -221,6 +317,7 @@ public sealed class RecordingScheduler : IDisposable
                 recorder.RecordingStalled -= OnRecordingStalled;
                 await recorder.StopAsync();
                 await recorder.DisposeAsync();
+                _activeStreams.TryRemove(id, out _);
                 Activity?.Invoke(this, $"錄影結束：ch{id:000}");
                 // 頻道可能已被刪除，所以來源標不下就老實記 unknown，
                 // 不要因為拿不到就跳過稽核——「發生了卻沒留下紀錄」正是最難查的那種。
@@ -288,6 +385,8 @@ public sealed class RecordingScheduler : IDisposable
                 await recorder.DisposeAsync();
             }
         }
+
+        _activeStreams.Clear();
     }
 
     public void Dispose()
