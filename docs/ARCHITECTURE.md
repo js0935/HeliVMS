@@ -478,6 +478,15 @@ L0 運動觸發才餵 L1 物件模型；並在**次串流 (e.g. 640×360) + 抽�
 - 實作：`IAnalyticsModule` 介面掛在 §5.2 引擎抽象之後，共用事件引擎
 - 每個模組單獨販售位元（對應 §19 功能矩陣），未授權模組不顯示
 
+> **落地（M290）**：表列情境全部已是獨立 `IAnalyticsModule`——每個情境自帶跨幀狀態、可獨立測試，
+> 由 `AnalyticsModuleRegistry.CreateDefault` 註冊、`AnalyticsZoneEvaluator` 依模組分派，事件仍共用
+> `AnalyticsEventEngine` 寫入 `alarm_events`。原本是一個對模組字串做 `switch` 的巨型評估器，
+> 新增情境必須改共用類別並共用狀態；介面化後每個模組帶自己的 `analytics.<module>` 授權旗標
+> （`IAnalyticsModule.LicenseFeature`），`AnalyticsModuleRegistry.Filter` 可依授權關閉未授權模組
+> （未註冊的模組不會評估，也就不會產生事件——§5.6「未授權模組不顯示」）。呼叫端亦可自訂
+> `AnalyticsZoneEvaluator(modules)` 注入模組集。已實作模組：M52 周界/跨線、區域侵入、人群聚集；
+> M58 長時間徘徊、靜止物／遺留物、車流統計、熱區圖；M59 尾隨／逆行。
+
 ### 5.7 目標追蹤與跨鏡頭（追踪，v2 核心差異）
 
 - **單鏡追蹤**：L1 偵測後以 IoU/運動模型串「物件 ID」（Hungarian 匹配），跨幀穩定輸出
@@ -1279,7 +1288,7 @@ WebRTC/WHEP 即時監看與 MSE 回放（M244）。
 | 3 | 事件營運 | **警報管理器（Alarm Manager）**：分診/指派/傳遞/進度狀態大面板 | Milestone Alarm Manager | 事件中心＋四態(§14.4)＋**分診面板（M47 alarm_triage）＋分診工作流 L1（M102 `alarm_notes`＋`alarm_escalations`＋`AlarmEscalationPolicy` SLA 升階，v38）已落地**；**智慧牆大面板（M105/M106 `SmartwallWindow` 版面編輯＋警報看板，M280 MQTT 派送掛載）已落地** | P1（營運效率亮點） |
 | 4 | 影像 | **遮蔽回放/匯出（Redaction）** | Genetec Digital Evidence、Synology 遮蔽格式 | **遮蔽資料層＋BCL 處理引擎 L0（M101 `RedactionRepository`＋`RedactionProcessor`，v37）已落地**；**快照一鍵遮蔽已落地（M116 `SnapshotRedactor`＋`SnapshotRedactionService`）**；**錄影遮蔽匯出（`RedactionService` boxblur 重編碼）＋匯出自動套用已登錄區域（M275 `ExportService` filter_complex、`RedactionFilter` 實心遮罩、`ExportWindow` 勾選自動套用）已落地**；**回放即時遮蔽疊圖已落地（M279：`RedactionOverlay.Project` 由倉儲取回區域、`PlaybackWindow` 疊框標示、可切換）** | P1（個資法合規優先） |
 | 5 | 隱私 | **錄影遮蔽/模糊化（Redaction）** | Genetec Digital Evidence、Synology 快照模糊 | **遮蔽區域倉儲＋純 BCL 處理引擎 L0（M101 `RedactionRepository`＋`RedactionProcessor`，v37）已落地**；**快照一鍵遮蔽已落地（M116）**；**回放/匯出串接遮罩已落地（M275：`RedactionFilter` 支援實心/模糊、`ExportService.BuildFilterComplex` 合併浮水印、`ExportService.LoadStoredRois` 由倉儲取回、`ExportWindow` 勾選「自動套用已登錄遮蔽區域」；M276：`ExportJobService` 佇列匯出亦自動套用）**；**回放即時遮蔽疊圖已落地（M279：`PlaybackWindow` 以 `RedactionOverlay.Project` 疊框，紅＝實心、黃＝模糊，開關可切換）** | P1（個資法交付加分） |
-| 6 | AI | **模組化分析情境套件**：周界/靜止車輛/尾隨/區域防護/方向控制 | Genetec KiwiVision | 核心已規劃（§5.6 分析情境＋§5.7 追蹤＋§5.10 規則） | P2（能力開放，§19 銷售位元） |
+| 6 | AI | **模組化分析情境套件**：周界/靜止車輛/尾隨/區域防護/方向控制 | Genetec KiwiVision | **外掛縫已落地（M290 `IAnalyticsModule`＋`AnalyticsModuleRegistry`＋逐模組獨立類別，評估器改為分派器）**；情境本身早已運作（M52 周界/侵入/聚集、M58 徘徊/靜止/車流/熱區、M59 尾隨，寫入 `alarm_events`）；每模組帶 `analytics.*` 授權位元可依授權過濾（`AnalyticsModuleRegistry.Filter`）；§5.7 追蹤（`Tracker`）與 §5.10 規則（`RuleEngine`）各自獨立 | P2（能力開放，§19 銷售位元） |
 | 7 | 搜尋 | **法證語意搜尋**（NLP / CLIP 語意）、影片摘要 | Genetec Forensic Search、Frigate CLIP | **門禁/POS/Edge AI/警報多源統一檢索已落地（M91 `EventSearchRepository`＋M97 `UnifiedEventSearch`，FTS5 4 表）＋規則式中文 NLP 查詢解析（M107 `NlEventQueryParser`）已落地**；**FTS×CLIP 向量融合已落地（M281 `ForensicSemanticSearch`＋`POST /api/events/search/semantic`，`ai` 閘門）**；模型產生 embedding 與影片摘要待外部縫 | P2（差異化賣點） |
 | 8 | 整合 | **統一安全平台**：門禁/入侵感測/POS(Metadata 配對) | Genetec 平台、Synology Transactions、QNAP Metadata Vault | DI/DO＋綁定鏡頭已規劃(§16.2)；**門禁事件 L0（M92）＋POS 交易存錄/時間窗配對 L0（M93）已落地**；**門禁 HTTP 匯入端點（`POST /api/door/events`，In/Out 正規化＋`DoorEventRepository.InsertDedupe` 去重窗）已落地**；**POS 接口擴展 L1（M104 去重匯入＋`QueryByRegister`＋`PosReconciliation` 對帳統計）已落地**；**POS HTTP 匯入端點（`POST /api/pos`，重用 `InsertDedupe` 去重窗，收銀機／中介服務可直接推送交易）已落地**；**POS→門禁自動核對（M113 `PosEventLinker` 同頻窗關聯）已落地**；**POS 異常視覺化已落地（M282 `PosAnomalyDetector` 金額離群／短時連發＋`GET /api/pos/anomalies`＋`PosWindow` 異常清單）** | P2 |
 | 9 | 可靠 | **Failover 容錯**（第二記錄伺服器） | Milestone Failover、QNAP QVR Guard | 僅本機看門狗＋**租約仲裁 L0（M87）＋監控視窗/harness（M88）＋實體接管協調 L1（M98 `FailoverCoordinator.Reconcile`＋`failover_events` v35 軌跡）已落地** | P2 |
