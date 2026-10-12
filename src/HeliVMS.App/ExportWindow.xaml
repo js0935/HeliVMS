@@ -58,6 +58,11 @@
                       Content=""
                       IsChecked="True" Foreground="White" Margin="0,0,0,8"/>
 
+            <!-- Apply stored redaction regions -->
+            <CheckBox x:Name="ApplyRedactionCheckBox" AutomationProperties.AutomationId="ApplyRedactionCheckBox"
+                      Content=""
+                      IsChecked="False" Foreground="White" Margin="0,0,0,8"/>
+
             <!-- Evidence bundle -->
             <CheckBox x:Name="BundleCheckBox" AutomationProperties.AutomationId="BundleCheckBox"
                       Content=""

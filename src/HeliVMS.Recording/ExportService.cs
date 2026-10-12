@@ -11,14 +11,20 @@ namespace HeliVMS.Recording;
 /// <summary>匯出進度回報。</summary>
 public sealed record ExportProgress(double Percent, string Status);
 
-/// <summary>匯出請求參數。</summary>
+/// <summary>
+/// 匯出請求參數。<paramref name="RedactionRois"/>（選填）為要套用的遮蔽區域（§14.7 #4/#5）；
+/// 非空時匯出改用 <c>-filter_complex</c> 串接遮罩並與浮水印合併，空／null 維持原本無遮罩路徑。
+/// 可用 <see cref="ExportService.LoadStoredRois"/> 取回該頻道/範圍已登錄的遮蔽區域後傳入，
+/// 達成「匯出自動套用遮蔽」。
+/// </summary>
 public sealed record ExportRequest(
     int ChannelId,
     DateTime StartUtc,
     DateTime EndUtc,
     string OutputPath,
     string? WatermarkText,
-    bool GenerateHash);
+    bool GenerateHash,
+    IReadOnlyList<RedactionRoi>? RedactionRois = null);
 
 /// <summary>匯出結果。</summary>
 public sealed record ExportResult(
@@ -29,17 +35,44 @@ public sealed record ExportResult(
 
 /// <summary>
 /// 匯出服務（§8.5/§14）：ffmpeg concat demuxer + re-encode 輸出標準 MP4；
-/// 可選浮水印（drawtext）、SHA-256 雜湊附檔。
+/// 可選浮水印（drawtext）、遮蔽區域遮罩（§14.7 #4/#5）、SHA-256 雜湊附檔。
 /// </summary>
 public sealed class ExportService
 {
     private readonly SegmentRepository _segRepo;
+    private readonly RedactionRepository _redactions;
     private readonly ExportReceiptService _receipts;
 
     public ExportService(SqliteStore store)
     {
         _segRepo = new SegmentRepository(store);
+        _redactions = new RedactionRepository(store);
         _receipts = new ExportReceiptService(store);
+    }
+
+    /// <summary>取回該頻道/時間範圍已登錄的遮蔽區域（M101 倉儲）並轉為 filter 用 ROI。</summary>
+    public IReadOnlyList<RedactionRoi> LoadStoredRois(int channelId, DateTime fromUtc, DateTime toUtc)
+        => RedactionFilter.FromRegions(_redactions.QueryByTime(channelId, fromUtc, toUtc));
+
+    /// <summary>
+    /// 組出匯出用的 ffmpeg filter（末端必為 <c>[vout]</c>，已 <c>-map [vout]</c>）。
+    /// 遮蔽區域先套、浮水印後疊；純字串建構，測試不需 ffmpeg。
+    /// </summary>
+    public static string BuildFilterComplex(string? watermarkText, IReadOnlyList<RedactionRoi> redactionRois)
+    {
+        ArgumentNullException.ThrowIfNull(redactionRois);
+        if (redactionRois.Count == 0)
+        {
+            throw new InvalidOperationException("至少需一個遮蔽區域。");
+        }
+
+        var drawtext = BuildDrawtext(watermarkText);
+        if (drawtext is null)
+        {
+            return RedactionFilter.Build(redactionRois);
+        }
+
+        return RedactionFilter.Build(redactionRois, "[redact]") + $";[redact]{drawtext}[vout]";
     }
 
     public async Task<ExportResult> ExportAsync(
@@ -86,15 +119,22 @@ public sealed class ExportService
             psi.ArgumentList.Add("-i");
             psi.ArgumentList.Add(concatFile);
 
-            if (!string.IsNullOrWhiteSpace(request.WatermarkText))
+            var hasRedaction = request.RedactionRois is { Count: > 0 };
+            if (hasRedaction)
             {
-                var escapedText = request.WatermarkText.Replace("'", "\\'").Replace(":", "\\:");
-                var fontPart = File.Exists(@"C:\Windows\Fonts\arial.ttf")
-                    ? ":fontfile='C\\:/Windows/Fonts/arial.ttf'"
-                    : string.Empty;
+                // §14.7 #4/#5：有遮蔽區域時走 filter_complex；浮水印若有則接在遮蔽之後。
+                psi.ArgumentList.Add("-filter_complex");
+                psi.ArgumentList.Add(BuildFilterComplex(request.WatermarkText, request.RedactionRois!));
+                psi.ArgumentList.Add("-map");
+                psi.ArgumentList.Add("[vout]");
+                // 有遮蔽時只 map 了視訊，音軌需另行 map；'?' 讓無音軌的來源不致命。
+                psi.ArgumentList.Add("-map");
+                psi.ArgumentList.Add("0:a?");
+            }
+            else if (BuildDrawtext(request.WatermarkText) is { } drawtext)
+            {
                 psi.ArgumentList.Add("-vf");
-                psi.ArgumentList.Add(
-                    $"drawtext=text='{escapedText}'{fontPart}:fontsize=20:fontcolor=white:x=10:y=10:box=1:boxcolor=black@0.5");
+                psi.ArgumentList.Add(drawtext);
             }
 
             psi.ArgumentList.Add("-c:v");
@@ -181,6 +221,21 @@ public sealed class ExportService
             try { Directory.Delete(tmpDir, recursive: true); }
             catch { }
         }
+    }
+
+    /// <summary>組出 drawtext 浮水印運算式；無浮水印回 null。</summary>
+    private static string? BuildDrawtext(string? watermarkText)
+    {
+        if (string.IsNullOrWhiteSpace(watermarkText))
+        {
+            return null;
+        }
+
+        var escapedText = watermarkText.Replace("'", "\\'").Replace(":", "\\:");
+        var fontPart = File.Exists(@"C:\Windows\Fonts\arial.ttf")
+            ? ":fontfile='C\\:/Windows/Fonts/arial.ttf'"
+            : string.Empty;
+        return $"drawtext=text='{escapedText}'{fontPart}:fontsize=20:fontcolor=white:x=10:y=10:box=1:boxcolor=black@0.5";
     }
 
     private static void WriteConcatFile(string path, IReadOnlyList<SegmentRecord> segments)

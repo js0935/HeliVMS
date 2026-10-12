@@ -48,4 +48,67 @@ public sealed class RedactionFilterTests
         Assert.Throws<ArgumentOutOfRangeException>(() => RedactionFilter.Build(new[] { new RedactionRoi(0, 0, 0, 10) }));
         Assert.Throws<ArgumentOutOfRangeException>(() => RedactionFilter.Build(new[] { new RedactionRoi(0, 0, 10, 0) }));
     }
+
+    [Fact]
+    public void Build_FilledRoi_UsesSolidDrawboxNotBlur()
+    {
+        var filter = RedactionFilter.Build(new[] { new RedactionRoi(10, 20, 30, 40, Filled: true) });
+
+        Assert.Contains(
+            "[s1]crop=30:40:10:20,drawbox=x=0:y=0:w=30:h=40:color=black@1.0:t=fill,scale=30:40[r1]",
+            filter);
+        Assert.DoesNotContain("boxblur", filter);
+        Assert.EndsWith("[s0][r1]overlay=10:20[vout]", filter);
+    }
+
+    [Fact]
+    public void Build_MixedFilledAndBlur_PerRoiMask()
+    {
+        var filter = RedactionFilter.Build(new[]
+        {
+            new RedactionRoi(0, 0, 10, 10),
+            new RedactionRoi(100, 20, 30, 40, Filled: true),
+        });
+
+        Assert.Contains("boxblur=2:2:2:2", filter);
+        Assert.Contains("drawbox=x=0:y=0:w=30:h=40:color=black@1.0:t=fill", filter);
+    }
+
+    [Fact]
+    public void Build_CustomOutputLabel_EndsWithLabel()
+    {
+        var filter = RedactionFilter.Build(new[] { new RedactionRoi(0, 0, 10, 10) }, "[redact]");
+
+        Assert.EndsWith("[redact]", filter);
+        Assert.DoesNotContain("[vout]", filter);
+    }
+
+    [Fact]
+    public void Build_BlankOutputLabel_Throws()
+    {
+        Assert.Throws<ArgumentException>(() => RedactionFilter.Build(new[] { new RedactionRoi(0, 0, 10, 10) }, " "));
+    }
+
+    [Fact]
+    public void FromRegions_PreservesGeometryAndFilled()
+    {
+        var t = new DateTime(2026, 9, 22, 10, 0, 0, DateTimeKind.Utc);
+        var regions = new[]
+        {
+            new RedactionRegion(1, RedactionSources.Clip, 5, 2, t, 10, 20, 30, 40, Filled: true, t),
+            new RedactionRegion(2, RedactionSources.Clip, 5, 2, t, 0, 0, 8, 8, Filled: false, t),
+        };
+
+        var rois = RedactionFilter.FromRegions(regions);
+
+        Assert.Equal(2, rois.Count);
+        Assert.Equal(new RedactionRoi(10, 20, 30, 40, true), rois[0]);
+        Assert.Equal(new RedactionRoi(0, 0, 8, 8, false), rois[1]);
+    }
+
+    [Fact]
+    public void FromRegions_Null_Throws()
+    {
+        Assert.Throws<ArgumentNullException>(() => RedactionFilter.FromRegions(null!));
+    }
 }

@@ -47,6 +47,7 @@ public partial class ExportWindow : Window
         BrowseButton.ToolTip = Localizer.T("Export.BrowseTip");
         ExportWatermarkLabel.Text = Localizer.T("Export.Watermark");
         HashCheckBox.Content = Localizer.T("Export.Hash");
+        ApplyRedactionCheckBox.Content = Localizer.T("Export.ApplyRedaction");
         BundleCheckBox.Content = Localizer.T("Export.Bundle");
         ExportBundlePasswordLabel.Text = Localizer.T("Export.BundlePassword");
         ExportBundleExpiryLabel.Text = Localizer.T("Export.BundleExpiry");
@@ -142,6 +143,10 @@ public partial class ExportWindow : Window
         try
         {
             var service = new ExportService(_store);
+            // §14.7 #4/#5：勾選時自動取回此頻道／範圍已登錄的遮蔽區域並套用（無登錄則等同不遮蔽）。
+            var redactionRois = ApplyRedactionCheckBox.IsChecked == true
+                ? service.LoadStoredRois(ch.Id, startUtc, endUtc)
+                : null;
             var progress = new Progress<ExportProgress>(p =>
             {
                 ExportProgress.Value = p.Percent;
@@ -149,7 +154,7 @@ public partial class ExportWindow : Window
             });
 
             var result = await service.ExportAsync(
-                new ExportRequest(ch.Id, startUtc, endUtc, outputPath, watermark, generateHash),
+                new ExportRequest(ch.Id, startUtc, endUtc, outputPath, watermark, generateHash, redactionRois),
                 progress,
                 _cts.Token);
 
