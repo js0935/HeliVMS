@@ -23,11 +23,11 @@ public sealed class TrayIconHost : IDisposable
         _icon.DoubleClick += (_, _) => _showMain();
 
         var menu = new System.Windows.Forms.ContextMenuStrip();
-        var showItem = new System.Windows.Forms.ToolStripMenuItem("顯示主視窗");
+        var showItem = new System.Windows.Forms.ToolStripMenuItem(Localizer.T("Main.TrayShow"));
         showItem.Click += (_, _) => _showMain();
         menu.Items.Add(showItem);
         menu.Items.Add(new System.Windows.Forms.ToolStripSeparator());
-        var exitItem = new System.Windows.Forms.ToolStripMenuItem("結束 HeliVMS");
+        var exitItem = new System.Windows.Forms.ToolStripMenuItem(Localizer.T("Main.TrayExit"));
         exitItem.Click += (_, _) => ExitRequested?.Invoke();
         menu.Items.Add(exitItem);
         _icon.ContextMenuStrip = menu;

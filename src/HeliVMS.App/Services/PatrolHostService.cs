@@ -83,17 +83,17 @@ public sealed class PatrolHostService : IDisposable
 
             if (e.ConsecutiveFailures > 0)
             {
-                return $"巡邏失敗 ×{e.ConsecutiveFailures}：{e.LastError}";
+                return string.Format(Localizer.T("Patrol.StatusFailed"), e.ConsecutiveFailures, e.LastError);
             }
 
             if (e.Runner is null)
             {
-                return e.Plan.Enabled ? "巡邏待命" : "巡邏未啟用";
+                return e.Plan.Enabled ? Localizer.T("Patrol.StatusStandby") : Localizer.T("Patrol.StatusDisabled");
             }
 
             return e.Runner.Controller.CurrentIndex < 0
-                ? "巡邏待命"
-                : $"巡邏中：{e.Runner.Controller.Plan.Steps[e.Runner.Controller.CurrentIndex].PresetName}";
+                ? Localizer.T("Patrol.StatusStandby")
+                : string.Format(Localizer.T("Patrol.StatusRunning"), e.Runner.Controller.Plan.Steps[e.Runner.Controller.CurrentIndex].PresetName);
         }
     }
 
@@ -135,7 +135,7 @@ public sealed class PatrolHostService : IDisposable
             }
             catch (Exception ex)
             {
-                Activity?.Invoke(this, $"巡邏心跳異常：{ex.Message}");
+                Activity?.Invoke(this, string.Format(Localizer.T("Patrol.HeartbeatFail"), ex.Message));
             }
 
             try
@@ -181,7 +181,7 @@ public sealed class PatrolHostService : IDisposable
         }
         catch (Exception ex)
         {
-            Activity?.Invoke(this, $"巡邏排程讀取失敗：{ex.Message}");
+            Activity?.Invoke(this, string.Format(Localizer.T("Patrol.ScheduleReadFail"), ex.Message));
             return;
         }
 
@@ -213,7 +213,7 @@ public sealed class PatrolHostService : IDisposable
                 }
 
                 _entries[channelId] = new Entry(row);
-                Activity?.Invoke(this, $"巡邏已啟動：{row.Name}（ch{channelId:000}，{row.Steps.Count} 個預設點）");
+                Activity?.Invoke(this, string.Format(Localizer.T("Patrol.Started"), row.Name, channelId, row.Steps.Count));
             }
         }
     }
@@ -258,13 +258,13 @@ public sealed class PatrolHostService : IDisposable
         var channel = new ChannelRepository(_store).Get(entry.Plan.ChannelId);
         if (channel?.DeviceId is not int deviceId)
         {
-            throw new InvalidOperationException("頻道未綁定 ONVIF 裝置，無法巡邏。");
+            throw new InvalidOperationException(Localizer.T("Patrol.NoOnvif"));
         }
 
         // 巡邏是排程行為，不是操作員手動操作；audit 記「巡航觸發」而不是每個心跳都記一筆。
         var devices = new DeviceRepository(_store, new AuditLogRepository(_store));
         var device = devices.Get(deviceId)
-            ?? throw new InvalidOperationException($"找不到裝置 #{deviceId}。");
+            ?? throw new InvalidOperationException(string.Format(Localizer.T("Patrol.DeviceMissing"), deviceId));
 
         // SafeUnprotect 而非 Unprotect：舊資料可能是明文，解密失敗不該讓整條巡邏死掉。
         var password = string.IsNullOrWhiteSpace(device.PasswordEncrypted)
@@ -279,7 +279,7 @@ public sealed class PatrolHostService : IDisposable
         var profiles = await service.GetProfilesAsync(ct);
         if (profiles.Count == 0)
         {
-            throw new InvalidOperationException("裝置未提供可操控的 Profile。");
+            throw new InvalidOperationException(Localizer.T("Patrol.NoProfile"));
         }
 
         entry.Device = service;
@@ -296,7 +296,7 @@ public sealed class PatrolHostService : IDisposable
         // 離線的攝影機不可能靠更頻繁重試就连上线；沿用錄影迴圈同一套退避，避免把 ONVIF 打爆。
         entry.RetryAfterUtc = DateTime.UtcNow + SegmentRecorder.RetryDelayFor(entry.ConsecutiveFailures);
 
-        Activity?.Invoke(this, $"巡邏失敗：ch{channelId:000} {entry.LastError}");
+        Activity?.Invoke(this, string.Format(Localizer.T("Patrol.Failed"), channelId, entry.LastError));
         if (!wasFailing)
         {
             PatrolFailed?.Invoke(this, channelId);
@@ -320,7 +320,7 @@ public sealed class PatrolHostService : IDisposable
     {
         if (string.IsNullOrWhiteSpace(text))
         {
-            return "未知錯誤";
+            return Localizer.T("Patrol.UnknownError");
         }
 
         var trimmed = text.Trim();

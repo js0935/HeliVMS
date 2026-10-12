@@ -211,9 +211,9 @@ namespace HeliVMS.App
             {
                 new[] { "1", "2", "3", "4", "5", "6", "7", "8", "9", "0" },
                 new[] { "Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P" },
-                new[] { "A", "S", "D", "F", "G", "H", "J", "K", "L", "退格" },
+                new[] { "A", "S", "D", "F", "G", "H", "J", "K", "L", Localizer.T("Osk.Backspace") },
                 new[] { "Z", "X", "C", "V", "B", "N", "M", ".", "@", "_" },
-                new[] { "空格", "清空", "收起" }
+                new[] { Localizer.T("Osk.Space"), Localizer.T("Osk.Clear"), Localizer.T("Osk.Collapse") }
             };
 
             var board = new StackPanel();
@@ -256,11 +256,19 @@ namespace HeliVMS.App
 
         private Button MakeKey(string label)
         {
-            var accent = label == "收起";
+            var id = label switch
+            {
+                _ when label == Localizer.T("Osk.Backspace") => "backspace",
+                _ when label == Localizer.T("Osk.Space") => "space",
+                _ when label == Localizer.T("Osk.Clear") => "clear",
+                _ when label == Localizer.T("Osk.Collapse") => "collapse",
+                _ => label,
+            };
+            var accent = id == "collapse";
             var b = new Button
             {
                 Content = label,
-                Width = label == "空格" ? 152 : label is "退格" or "清空" or "收起" ? 76 : 38,
+                Width = id == "space" ? 152 : id is "backspace" or "clear" or "collapse" ? 76 : 38,
                 Height = 34,
                 Margin = new Thickness(1.5),
                 Padding = new Thickness(0),
@@ -274,7 +282,8 @@ namespace HeliVMS.App
                 Cursor = Cursors.Hand,
                 FontSize = 14
             };
-            AutomationProperties.SetAutomationId(b, "OskKey_" + label);
+            AutomationProperties.SetAutomationId(b, "OskKey_" + id);
+            b.Tag = id;
             b.Style = null;
             b.Click += OnKeyClicked;
             return b;
@@ -287,13 +296,12 @@ namespace HeliVMS.App
                 return;
             }
 
-            switch (b.Content as string)
+            switch (b.Tag)
             {
-                case "空格":
+                case "space":
                     Osk.AppendInput(Target, " ");
                     break;
-                case "清空":
-                case "清除":
+                case "clear":
                     if (Target is TextBox t)
                     {
                         t.Clear();
@@ -304,15 +312,14 @@ namespace HeliVMS.App
                     }
 
                     break;
-                case "退格":
+                case "backspace":
                     Osk.AppendInput(Target, "\b");
                     break;
-                case "收起":
-                case "關閉":
+                case "collapse":
                     Hide();
                     break;
                 default:
-                    if (b.Content is string s && s.Length == 1)
+                    if (b.Tag is string s && s.Length == 1)
                     {
                         Osk.AppendInput(Target, s);
                     }

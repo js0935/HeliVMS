@@ -1093,7 +1093,7 @@ public partial class MainWindow : Window
         manager.HealthRestart += (_, e) =>
             // 來自健康檢查 timer 執行緒，不能直接寫 UI。
             Dispatcher.BeginInvoke(
-                new Action(() => HintText.Text = $"頻道「{e.Channel.Name}」畫面逾時，已自動重連。"),
+                new Action(() => HintText.Text = string.Format(Localizer.T("Main.LiveTimeoutReconnect"), e.Channel.Name)),
                 DispatcherPriority.Background);
         manager.AlarmEvent += (_, e) => RouteAlarm(e.Record);
         return manager;
@@ -1166,12 +1166,12 @@ public partial class MainWindow : Window
                 var hintParts = new List<string>();
                 if (report.DeletedSegments > 0)
                 {
-                    hintParts.Add($"移除 {report.DeletedSegments} 段（釋放 {FormatBytes(report.FreedBytes)}）");
+                    hintParts.Add(string.Format(Localizer.T("Main.CleanupRemovedSegments"), report.DeletedSegments, FormatBytes(report.FreedBytes)));
                 }
 
                 if (report.PurgedTmp > 0)
                 {
-                    hintParts.Add($"清除 {report.PurgedTmp} 個錄影暫存檔");
+                    hintParts.Add(string.Format(Localizer.T("Main.CleanupPurgedTmp"), report.PurgedTmp));
                 }
 
                 var snapDays = ReadSnapshotDays();
@@ -1179,12 +1179,12 @@ public partial class MainWindow : Window
                 var snapReport = service.PurgeSnapshots(snapRoot, DateTime.UtcNow.AddDays(-snapDays));
                 if (snapReport.DeletedFiles > 0)
                 {
-                    hintParts.Add($"清除 {snapReport.DeletedFiles} 個過期快照（{FormatBytes(snapReport.FreedBytes)}）");
+                    hintParts.Add(string.Format(Localizer.T("Main.CleanupPurgedSnapshots"), snapReport.DeletedFiles, FormatBytes(snapReport.FreedBytes)));
                 }
 
                 if (hintParts.Count > 0)
                 {
-                    HintText.Text = $"配額清理：{string.Join("、", hintParts)}。";
+                    HintText.Text = string.Format(Localizer.T("Main.QuotaCleanup"), string.Join("、", hintParts));
                 }
             }
             catch (Exception)
@@ -1246,13 +1246,13 @@ public partial class MainWindow : Window
             {
                 var result = new BackupService(_store).Run(source, target);
                 var text = result.Failed == 0
-                    ? $"備份：複製 {result.Copied} 段（{FormatBytes(result.CopiedBytes)}），檢查點已推進。"
-                    : $"備份：複製 {result.Copied} 段、失敗 {result.Failed}，下次重試。";
+                    ? string.Format(Localizer.T("Main.BackupDoneOk"), result.Copied, FormatBytes(result.CopiedBytes))
+                    : string.Format(Localizer.T("Main.BackupDoneRetry"), result.Copied, result.Failed);
                 Dispatcher.BeginInvoke(() => HintText.Text = text);
             }
             catch (Exception ex)
             {
-                Dispatcher.BeginInvoke(() => HintText.Text = $"備份失敗：{ex.Message}");
+                Dispatcher.BeginInvoke(() => HintText.Text = string.Format(Localizer.T("Main.BackupFailed"), ex.Message));
             }
         });
     }
@@ -1353,7 +1353,7 @@ public partial class MainWindow : Window
                 var created = await mgr.ReconcileAsync(_channelList, startIndex < 0 ? 0 : startIndex, CurrentCellCount());
                 if (created > 0)
                 {
-                    HintText.Text = $"佈局已套用，新增連線 {created} 路。";
+                    HintText.Text = string.Format(Localizer.T("Main.LayoutApplied"), created);
                 }
             }
             finally
@@ -1801,7 +1801,7 @@ public partial class MainWindow : Window
             // 但重連退避重試期間若改為每次都推，會把警報洗成雜訊。
             if (isNew)
             {
-                PushAlert($"錄影異常：ch{stall.ChannelId:000} 連續 {stall.ConsecutiveFailures} 段未寫入檔案", GetCell(stall.ChannelId));
+                PushAlert(string.Format(Localizer.T("Main.CellStalledAlert"), stall.ChannelId, stall.ConsecutiveFailures), GetCell(stall.ChannelId));
             }
         }), DispatcherPriority.Background);
     }
@@ -1885,7 +1885,7 @@ public partial class MainWindow : Window
                 // 帶上原因：401、逾時、位址錯誤的處置完全不同，只寫「重連中」等於沒有資訊。
                 var reason = _cellChannel[cell] is int rc ? _manager?.ReconnectReason(rc) : null;
                 SetCellStatus(cell, reason is null ? Localizer.T("Main.CellReconnecting") : $"{Localizer.T("Main.CellReconnecting")} · {reason}", BrConnecting);
-                PushAlert($"頻道 #{cell + 1} 重連中{(reason is null ? string.Empty : $"：{reason}")}", cell);
+                PushAlert(string.Format(Localizer.T("Main.CellReconnectingAlert"), cell + 1, reason is null ? string.Empty : $"：{reason}"), cell);
                 break;
             default:
                 SetCellStatus(cell, Localizer.T("Main.CellOffline"), BrOffline);
@@ -1896,7 +1896,7 @@ public partial class MainWindow : Window
     private void UpdateFooter()
     {
         var live = _manager?.CountStreaming() ?? 0;
-        StatusText.Text = _footerBase.Length > 0 ? $"{_footerBase} · 已連線 {live} 路" : string.Empty;
+        StatusText.Text = _footerBase.Length > 0 ? string.Format(Localizer.T("Main.FooterConnected"), _footerBase, live) : string.Empty;
     }
 
     /// <summary>
@@ -1918,9 +1918,9 @@ public partial class MainWindow : Window
         _footerBase = license.Decision switch
         {
             LicenseDecision.Valid => license.ExpiresUtc is { } expires
-                ? $"禾秝軟體開發團隊 · 已授權（{license.MaxCameras} 路，{expires:yyyy-MM-dd} 到期）"
-                : $"禾秝軟體開發團隊 · 已授權（{license.MaxCameras} 路）",
-            _ => $"未授權：{license.Message ?? license.Decision.ToString()}",
+                ? string.Format(Localizer.T("Main.FooterAuthorizedExpiring"), license.MaxCameras, expires)
+                : string.Format(Localizer.T("Main.FooterAuthorized"), license.MaxCameras),
+            _ => string.Format(Localizer.T("Main.FooterNotLicensed"), license.Message ?? license.Decision.ToString()),
         };
         UpdateFooter();
     }
@@ -1945,7 +1945,7 @@ public partial class MainWindow : Window
         catch (Exception ex)
         {
             Dispatcher.BeginInvoke(
-                new Action(() => HintText.Text = $"智慧警報聚合判定失敗，已照常通知：{ex.Message}"),
+                new Action(() => HintText.Text = string.Format(Localizer.T("Main.SmartAggregateFail"), ex.Message)),
                 DispatcherPriority.Background);
             _notify?.Enqueue(record);
             return;
@@ -1967,7 +1967,7 @@ public partial class MainWindow : Window
                 EventType = SmartAlertHost.SmartAlertEventType,
                 StartUtc = record.StartUtc,
                 SnapshotPath = record.SnapshotPath,
-                Detail = $"智慧警報「{trigger.RuleName}」：窗內 {trigger.WindowCount} 次",
+                Detail = string.Format(Localizer.T("Main.SmartAggregateFired"), trigger.RuleName, trigger.WindowCount),
             });
         }
     }
@@ -2136,7 +2136,7 @@ public partial class MainWindow : Window
 
         _monitoring = false;
         RecBadge.Visibility = Visibility.Collapsed;
-        HintText.Text = "已中斷。";
+        HintText.Text = Localizer.T("Main.Disconnected");
         UpdateFooter();
     }
 
@@ -2156,11 +2156,11 @@ public partial class MainWindow : Window
 
         // 受旗標控制的功能入口（排程／偵測／音訊／感測 IO／巡航）已移入設定中心，
         // 只在「地圖」留在監控中心頂欄（見 LicenseEntryPointContractTests ★SettingsWindow 契約）。
-        _licenseGate.Apply(MapButton, LicenseFeatures.Gis, "開啟電子地圖（攝影機定位）");
+        _licenseGate.Apply(MapButton, LicenseFeatures.Gis, Localizer.T("Main.MapTip"));
 
         // AI 疊加開關對應 ai；偵測設定／分析視窗才是 ai.l1（§19.4 入口對應）。
         // 先前把開關綁在 ai.l1，只帶 ai 的授權會出現「看得到開關、一切就失敗」。
-        _licenseGate.Apply(AiToggle, LicenseFeatures.Ai, "切換 AI 疊加顯示");
+        _licenseGate.Apply(AiToggle, LicenseFeatures.Ai, Localizer.T("Main.AiOverlayTip"));
         if (!_licenseGate.Allows(LicenseFeatures.Ai))
         {
             AiToggle.IsChecked = false;
@@ -2211,7 +2211,7 @@ public partial class MainWindow : Window
             return true;
         }
 
-        var reason = _licenseGate.DenialMessage(feature) ?? "目前授權未包含此功能。";
+        var reason = _licenseGate.DenialMessage(feature) ?? Localizer.T("Main.FeatureNotLicensed");
         HintText.Text = reason;
         PushAlert(reason);
         return false;
@@ -2223,7 +2223,7 @@ public partial class MainWindow : Window
     /// </summary>
     private void ReportRecordingBlocked(RecordingGateResult blocked)
     {
-        var reason = blocked.Reason ?? "授權狀態不允許新增錄影。";
+        var reason = blocked.Reason ?? Localizer.T("Main.RecordingNotLicensed");
         HintText.Text = reason;
         PushAlert(reason);
         UpdateFooter();
@@ -2485,7 +2485,7 @@ public partial class MainWindow : Window
             return true;
         }
 
-        HintText.Text = "此功能僅限管理員。";
+        HintText.Text = Localizer.T("Main.AdminOnly");
         return false;
     }
 
@@ -2669,7 +2669,7 @@ public partial class MainWindow : Window
         if (best is not null)
         {
             Dispatcher.BeginInvoke(
-                new Action(() => PushAlert($"頻道 #{cell + 1} AI {best.Class} conf={best.Confidence:0.00}", cell)),
+                new Action(() => PushAlert(string.Format(Localizer.T("Main.AiAlert"), cell + 1, best.Class, best.Confidence), cell)),
                 DispatcherPriority.Background);
         }
     }
@@ -2845,7 +2845,7 @@ public partial class MainWindow : Window
         if (cell is int target && target < CurrentCellCount())
         {
             SelectCell(target);
-            HintText.Text = $"已由警報跳至格 {target + 1}。";
+            HintText.Text = string.Format(Localizer.T("Main.JumpedToCell"), target + 1);
         }
     }
 
@@ -2887,10 +2887,10 @@ public partial class MainWindow : Window
                 ? Visibility.Visible
                 : Visibility.Collapsed;
             NotifyBacklogBadge.ToolTip =
-                $"通知待送 {pending} 則；累計送達 {notify.DeliveredCount}、失敗 {failed}、靜默跳過 {notify.SkippedDuringQuietCount}。點擊立即嘗試送出。";
+                string.Format(Localizer.T("Main.NotifyTooltipFull"), pending, notify.DeliveredCount, failed, notify.SkippedDuringQuietCount);
             NotifyBacklogText.Text = planeProblem ?? (pending > 0
-                ? $"通知待送 {pending}"
-                : failed > 0 ? $"通知失敗 {failed}" : string.Empty);
+                ? string.Format(Localizer.T("Main.NotifyPending"), pending)
+                : failed > 0 ? string.Format(Localizer.T("Main.NotifyFailed"), failed) : string.Empty);
         }), DispatcherPriority.Background);
     }
 
@@ -2960,10 +2960,10 @@ public partial class MainWindow : Window
 
         if (!cfg.Enabled)
         {
-            return "通知平面已停用";
+            return Localizer.T("Main.NotifyDisabled");
         }
 
-        return cfg.AnyChannelConfigured ? null : "未設定任何通知通道";
+        return cfg.AnyChannelConfigured ? null : Localizer.T("Main.NotifyNoChannel");
     }
 
     /// <summary>未確認徽章點擊＝直達事件中心並只顯示未確認事件（分診入口）。</summary>
@@ -3114,8 +3114,8 @@ public partial class MainWindow : Window
         _licenseLimits?.Clear(channelId);
         RecBadge.Visibility = _manager.AnyRecording() ? Visibility.Visible : Visibility.Collapsed;
         HintText.Text = next
-            ? $"錄影中：{Path.Combine(_recordingsRoot, $"ch{channelId:000}")}"
-            : "錄影已停止。";
+            ? string.Format(Localizer.T("Main.RecordingNow"), Path.Combine(_recordingsRoot, $"ch{channelId:000}"))
+            : Localizer.T("Main.RecordingStopped");
         UpdateFooter();
     }
 
@@ -3142,7 +3142,7 @@ public partial class MainWindow : Window
     {
         if (!SessionContext.IsAdmin)
         {
-            HintText.Text = "此功能僅限管理員。";
+            HintText.Text = Localizer.T("Main.AdminOnly");
             return;
         }
 
@@ -3372,7 +3372,7 @@ public partial class MainWindow : Window
             var cell = GetCell(channelId);
             if (cell >= 0)
             {
-                PushAlert($"{ChannelName(channelId)} 巡邏失敗，請檢查攝影機連線與 ONVIF 設定。", cell);
+                PushAlert(string.Format(Localizer.T("Main.PatrolFailed"), ChannelName(channelId)), cell);
             }
         }));
     }
@@ -3450,7 +3450,7 @@ public partial class MainWindow : Window
 
         if (channel.DeviceId is not int deviceId)
         {
-            MessageBox.Show(this, "此頻道未綁定 ONVIF 設備，無法使用 PTZ。", "PTZ 控制",
+            MessageBox.Show(this, Localizer.T("Main.PtzNotBound"), Localizer.T("Main.PtzTitle"),
                 MessageBoxButton.OK, MessageBoxImage.Information);
             return;
         }
@@ -3458,7 +3458,7 @@ public partial class MainWindow : Window
         var device = new DeviceRepository(store, new AuditLogRepository(store)).Get(deviceId);
         if (device is null)
         {
-            MessageBox.Show(this, "找不到綁定的 OEM 設備記錄。", "PTZ 控制",
+            MessageBox.Show(this, Localizer.T("Main.PtzDeviceMissing"), Localizer.T("Main.PtzTitle"),
                 MessageBoxButton.OK, MessageBoxImage.Information);
             return;
         }
@@ -3605,11 +3605,11 @@ public partial class MainWindow : Window
     private static string? BlockLabel(RecordingBlockReason? block) => block switch
     {
         null => null,
-        RecordingBlockReason.ChannelDisabled => "頻道已停用",
-        RecordingBlockReason.NoStreamUrl => "未設定位址",
-        RecordingBlockReason.ManualOnly => "僅手動錄影",
-        RecordingBlockReason.EventOnly => "僅事件錄影",
-        RecordingBlockReason.OutsideSchedule => "排程外",
+        RecordingBlockReason.ChannelDisabled => Localizer.T("Main.BlockChannelDisabled"),
+        RecordingBlockReason.NoStreamUrl => Localizer.T("Main.BlockNoStreamUrl"),
+        RecordingBlockReason.ManualOnly => Localizer.T("Main.BlockManualOnly"),
+        RecordingBlockReason.EventOnly => Localizer.T("Main.BlockEventOnly"),
+        RecordingBlockReason.OutsideSchedule => Localizer.T("Main.BlockOutsideSchedule"),
         _ => null,
     };
 

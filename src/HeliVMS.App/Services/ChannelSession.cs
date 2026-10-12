@@ -213,7 +213,7 @@ public sealed class ChannelSession : IDisposable
     {
         if (ex is null)
         {
-            return "連線中斷";
+            return Localizer.T("Main.ConnectionLost");
         }
 
         var text = ex.Message.Trim();

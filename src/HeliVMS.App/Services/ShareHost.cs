@@ -72,30 +72,30 @@ public sealed class ShareHost : IDisposable
         if (!enabled)
         {
             Stop();
-            return "分享服務：已停用";
+            return Localizer.T("Share.ServiceStopped");
         }
 
         if (!licenseAllowed)
         {
             Stop();
-            return "分享服務：目前授權未包含「遠程存取」，已強制停用";
+            return Localizer.T("Share.ServiceDenied");
         }
 
         var port = ReadPort();
         if (IsRunning && Port == port)
         {
-            return $"分享服務：執行中（連接埠 {Port}）";
+            return string.Format(Localizer.T("Share.ServiceRunning"), Port);
         }
 
         Stop();
         try
         {
             Start(port);
-            return $"分享服務：執行中（連接埠 {Port}）";
+            return string.Format(Localizer.T("Share.ServiceRunning"), Port);
         }
         catch (Exception ex)
         {
-            return $"分享服務：啟動失敗（{ex.Message}）";
+            return string.Format(Localizer.T("Share.ServiceStartFailed"), ex.Message);
         }
     }
 
@@ -202,20 +202,20 @@ public sealed class ShareHost : IDisposable
         const string prefix = "/share/";
         if (!path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
         {
-            return Error(404, "找不到資源", ShareDeny.NotFound);
+            return Error(404, Localizer.T("Share.NotFound"), ShareDeny.NotFound);
         }
 
         var segments = path[prefix.Length..].Split('/', StringSplitOptions.RemoveEmptyEntries);
         if (segments.Length is 0 or > 2)
         {
-            return Error(404, "找不到資源", ShareDeny.NotFound);
+            return Error(404, Localizer.T("Share.NotFound"), ShareDeny.NotFound);
         }
 
         var token = Uri.UnescapeDataString(segments[0]);
         var wantsInfo = segments.Length == 2 && segments[1].Equals("info", StringComparison.OrdinalIgnoreCase);
         if (segments.Length == 2 && !wantsInfo)
         {
-            return Error(404, "找不到資源", ShareDeny.NotFound);
+            return Error(404, Localizer.T("Share.NotFound"), ShareDeny.NotFound);
         }
 
         var password = ParseForm(query, "password");
@@ -246,7 +246,7 @@ public sealed class ShareHost : IDisposable
 
         if (method is not "GET" and not "HEAD")
         {
-            return Error(405, "方法不允許", ShareDeny.NotFound);
+            return Error(405, Localizer.T("Share.MethodNotAllowed"), ShareDeny.NotFound);
         }
 
         var bytes = File.ReadAllBytes(result.ResourcePath);
