@@ -77,7 +77,27 @@ builder.Services.AddSingleton(static sp => new AlertRuleRepository(sp.GetRequire
 builder.Services.AddSingleton(static sp => new ShareLinkRepository(sp.GetRequiredService<SqliteStore>()));
 builder.Services.AddSingleton(static sp => new ShareLinkService(sp.GetRequiredService<SqliteStore>()));
 builder.Services.AddSingleton(static sp => new PathAccessPolicy(sp.GetRequiredService<IConfiguration>()));
-builder.Services.AddSingleton(static sp => new RecordedSegmentPolicy(sp.GetRequiredService<IConfiguration>()));
+builder.Services.AddSingleton(sp =>
+{
+    // 遠端回放路徑政策要涵蓋「所有」錄影磁碟：桌面在設定中心新增多顆碟後，影像可能落在
+    // 主要碟以外的磁碟；政策若只看設定的單一根目錄，Web 端播放次要碟上的片段會被判成
+    // 不在允許範圍而 404。與 RetentionService 一樣於啟動時讀一次。
+    var config = sp.GetRequiredService<IConfiguration>();
+    var store = sp.GetRequiredService<SqliteStore>();
+    var dataRoot = DataRootLayout.ResolveRoot(name => config[name]);
+    string? configured = null;
+    try
+    {
+        configured = sp.GetRequiredService<SettingsRepository>().Get(RecordingStorage.RootSettingKey);
+    }
+    catch (Exception)
+    {
+        // 資料庫尚未初始化時退回推導值，不讓 Web 服務因讀不到設定而啟動失敗。
+    }
+
+    var fallback = RecordingStorage.ResolveConfiguredRoot(dataRoot, configured, name => config[name]);
+    return new RecordedSegmentPolicy(RecordingStorage.ConfiguredRoots(store, fallback));
+});
 builder.Services.AddSingleton(static sp => new RedactionRepository(sp.GetRequiredService<SqliteStore>()));
 builder.Services.AddSingleton(static sp => new OffsiteReplicationRepository(sp.GetRequiredService<SqliteStore>()));
 builder.Services.AddSingleton(static sp => new OffsiteReplicationService(sp.GetRequiredService<OffsiteReplicationRepository>()));

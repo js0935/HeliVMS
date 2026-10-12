@@ -323,7 +323,9 @@ public sealed class ChannelSession : IDisposable
             }
 
             RecordingBlockedReason = null;
-            var recorder = new SegmentRecorder(new SegmentRepository(_store));
+            var recorder = new SegmentRecorder(
+                new SegmentRepository(_store),
+                rootSelector: RecordingStorage.CreateRootSelector(_store, _recordingsRoot));
             await recorder.StartAsync(ChannelId, RecordingUrl, _recordingsRoot, "main", segmentSeconds: 15);
             _recorder = recorder;
         }

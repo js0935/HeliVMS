@@ -50,11 +50,17 @@ public partial class SettingsWindow : Window
     /// <summary>備份紀錄頁顯示列。</summary>
     private sealed record BackupRow(string TimeLabel, string TargetLabel, string CopiedLabel, string FailedLabel, string AdvancedLabel);
 
+    /// <summary>多磁碟錄影清單顯示列（角色與空間文字在語言切換時會重畫）。</summary>
+    private sealed record DiskRow(string Root, string RoleLabel, string SpaceLabel);
+
     private readonly SqliteStore _store;
     private readonly string _dataRoot;
     private string _recordingsRoot;
     private readonly string _snapshotsRoot;
     private readonly SettingsRepository _settings;
+
+    /// <summary>設定中心正在編輯的錄影磁碟清單（順序即優先序，第 0 筆為主要碟）。</summary>
+    private List<RecordingStorage.RecordingDiskDto> _diskConfig = [];
     private readonly AlertRuleRepository _rules;
     private readonly IoRepository _io;
     private readonly IoMonitorHost? _ioHost;
@@ -268,7 +274,14 @@ public partial class SettingsWindow : Window
         RecordingsDiskLabel.Text = Localizer.T("Settings.RecordingsDiskLabel");
         ApplyRecordingsDiskButton.Content = Localizer.T("Settings.Apply");
         ApplyRecordingsDiskButton.ToolTip = Localizer.T("Settings.RecordingsDiskApplyTip");
+        AddRecordingsDiskButton.Content = Localizer.T("Settings.AddDisk");
+        AddRecordingsDiskButton.ToolTip = Localizer.T("Settings.AddDiskTip");
+        SetPrimaryRecordingsDiskButton.Content = Localizer.T("Settings.SetPrimaryDisk");
+        SetPrimaryRecordingsDiskButton.ToolTip = Localizer.T("Settings.SetPrimaryDiskTip");
+        RemoveRecordingsDiskButton.Content = Localizer.T("Settings.RemoveDisk");
+        RemoveRecordingsDiskButton.ToolTip = Localizer.T("Settings.RemoveDiskTip");
         RecordingsDiskHintText.Text = Localizer.T("Settings.RecordingsDiskHint");
+        RefreshRecordingsDiskList();
         QuotaLabel.Text = Localizer.T("Settings.QuotaLabel");
         ApplyQuotaButton.Content = Localizer.T("Settings.Apply");
         ApplyQuotaButton.ToolTip = Localizer.T("Settings.ApplyQuotaTip");
@@ -1587,7 +1600,14 @@ public partial class SettingsWindow : Window
         UsageText.Text = string.Format(Localizer.T("Settings.UsageText"), FormatBytes(total), count, QuotaGbFromStore());
     }
 
-    /// <summary>設定中心「儲存」頁的錄影磁碟下拉：列出本機固定磁碟與其可用空間，預選目前磁碟。</summary>
+    /// <summary>
+    /// 設定中心「儲存」頁的錄影磁碟：下拉列出本機固定磁碟與其可用空間，清單列出目前已設定、
+    /// 會輪流寫入的磁碟（第 0 筆為主要碟）。
+    ///
+    /// 多磁碟是為了「一顆滿了自動續錄下一顆」：只設定單一根目錄時，錄滿就是整台停止，
+    /// 而且畫面上沒有任何錯誤訊息，操作員要等到想回放才發現好幾天沒錄。清單順序即優先序，
+    /// 套用後寫入端每個區段都依序挑還有空間的碟。
+    /// </summary>
     private void ReloadRecordingsDisk()
     {
         var drives = RecordingStorage.ListFixedDrives();
@@ -1620,14 +1640,50 @@ public partial class SettingsWindow : Window
             RecordingsDiskCombo.SelectedIndex = 0;
         }
 
+        // 讀回已設定的磁碟清單（主要碟排首位）；未設定時以目前錄影磁碟起頭，
+        // 讓既有單碟使用者看到自己的現況，而不是空白清單。
+        _diskConfig = RecordingStorage
+            .ParseDisks(_settings.Get(RecordingStorage.DisksSettingKey))
+            .Where(d => !string.IsNullOrWhiteSpace(d.Root))
+            .OrderByDescending(d => d.Primary)
+            .ToList();
+        if (_diskConfig.Count == 0 && !string.IsNullOrEmpty(currentRoot))
+        {
+            _diskConfig.Add(new RecordingStorage.RecordingDiskDto { Root = currentRoot, Primary = true });
+        }
+
+        RefreshRecordingsDiskList();
         RecordingsDiskStatusText.Text = string.Format(Localizer.T("Settings.RecordingsDiskCurrent"), _recordingsRoot);
     }
 
-    /// <summary>
-    /// 套用所選錄影磁碟：寫入共用設定（桌面、WebApi、Agent 都讀同一把鍵），保留舊根供配額清理，
-    /// 再通知主視窗立即切換（重建錄影工作階段）。舊錄影以絕對路徑留在舊磁碟，仍可回放。
-    /// </summary>
-    private void OnApplyRecordingsDiskClicked(object sender, RoutedEventArgs e)
+    /// <summary>把目前編輯中的磁碟清單畫到清單檢視，並依目前語言設定欄位標題與角色文字。</summary>
+    private void RefreshRecordingsDiskList()
+    {
+        DiskColDrive.Header = Localizer.T("Settings.DiskColDrive");
+        DiskColRole.Header = Localizer.T("Settings.DiskColRole");
+        DiskColSpace.Header = Localizer.T("Settings.DiskColSpace");
+
+        var byRoot = RecordingStorage.ListFixedDrives()
+            .ToDictionary(d => d.Root, StringComparer.OrdinalIgnoreCase);
+
+        var rows = new List<DiskRow>(_diskConfig.Count);
+        for (var i = 0; i < _diskConfig.Count; i++)
+        {
+            var root = _diskConfig[i].Root;
+            var role = i == 0
+                ? Localizer.T("Settings.DiskPrimary")
+                : Localizer.T("Settings.DiskSecondary");
+            var space = byRoot.TryGetValue(root, out var drive)
+                ? string.Format(Localizer.T("Settings.DiskSpace"), FormatBytes(drive.FreeBytes), FormatBytes(drive.TotalBytes))
+                : Localizer.T("Settings.DiskUnavailable");
+            rows.Add(new DiskRow(root, role, space));
+        }
+
+        RecordingsDiskList.ItemsSource = rows;
+    }
+
+    /// <summary>把下拉選到的磁碟加入清單（清單本來是空的時候成為主要碟）；已在清單中則不重複。</summary>
+    private void OnAddRecordingsDiskClicked(object sender, RoutedEventArgs e)
     {
         if (RecordingsDiskCombo.SelectedItem is not ComboBoxItem { Tag: string driveRoot })
         {
@@ -1635,24 +1691,100 @@ public partial class SettingsWindow : Window
             return;
         }
 
-        var folder = RecordingStorage.FolderForDrive(driveRoot);
-        if (string.Equals(folder, _recordingsRoot, StringComparison.OrdinalIgnoreCase))
+        if (_diskConfig.Any(d => string.Equals(d.Root, driveRoot, StringComparison.OrdinalIgnoreCase)))
         {
-            RecordingsDiskStatusText.Text = string.Format(Localizer.T("Settings.RecordingsDiskSame"), folder);
+            RecordingsDiskStatusText.Text = string.Format(Localizer.T("Settings.DiskAlready"), driveRoot);
             return;
         }
 
+        _diskConfig.Add(new RecordingStorage.RecordingDiskDto
+        {
+            Root = driveRoot,
+            Primary = _diskConfig.Count == 0,
+        });
+        RefreshRecordingsDiskList();
+        RecordingsDiskList.SelectedIndex = _diskConfig.Count - 1;
+        RecordingsDiskStatusText.Text = string.Format(Localizer.T("Settings.DiskAdded"), driveRoot);
+    }
+
+    /// <summary>從清單移除選取的磁碟（不會立即生效，仍要按「套用」）。</summary>
+    private void OnRemoveRecordingsDiskClicked(object sender, RoutedEventArgs e)
+    {
+        var index = RecordingsDiskList.SelectedIndex;
+        if (index < 0 || index >= _diskConfig.Count)
+        {
+            RecordingsDiskStatusText.Text = Localizer.T("Settings.DiskPick");
+            return;
+        }
+
+        var root = _diskConfig[index].Root;
+        _diskConfig.RemoveAt(index);
+        RefreshRecordingsDiskList();
+        RecordingsDiskStatusText.Text = string.Format(Localizer.T("Settings.DiskRemoved"), root);
+    }
+
+    /// <summary>把選取的磁碟移到清單首位（成為主要碟）：主要碟是溢流前的第一順位。</summary>
+    private void OnSetPrimaryRecordingsDiskClicked(object sender, RoutedEventArgs e)
+    {
+        var index = RecordingsDiskList.SelectedIndex;
+        if (index < 0 || index >= _diskConfig.Count)
+        {
+            RecordingsDiskStatusText.Text = Localizer.T("Settings.DiskPick");
+            return;
+        }
+
+        if (index == 0)
+        {
+            RecordingsDiskStatusText.Text = string.Format(Localizer.T("Settings.DiskAlreadyPrimary"), _diskConfig[0].Root);
+            return;
+        }
+
+        var chosen = _diskConfig[index];
+        _diskConfig.RemoveAt(index);
+        _diskConfig.Insert(0, chosen);
+        RefreshRecordingsDiskList();
+        RecordingsDiskList.SelectedIndex = 0;
+        RecordingsDiskStatusText.Text = string.Format(Localizer.T("Settings.DiskPrimarySet"), chosen.Root);
+    }
+
+    /// <summary>
+    /// 套用錄影磁碟清單：<c>recording.disks</c> 是真正來源，<c>recording.root</c> 記主要碟，
+    /// <c>recording.known_roots</c> 聯集所有目錄，再通知主視窗立即套用。
+    ///
+    /// 寫入端每個區段都即時重讀 <c>recording.disks</c>，因此主要碟寫滿會自動溢流到下一顆；
+    /// known_roots 讓「清理舊錄影」與遠端回放看得到每一顆碟，而不是只認最後一次切換的那一顆。
+    /// </summary>
+    private void OnApplyRecordingsDiskClicked(object sender, RoutedEventArgs e)
+    {
+        if (_diskConfig.Count == 0)
+        {
+            RecordingsDiskStatusText.Text = Localizer.T("Settings.DiskNone");
+            return;
+        }
+
+        var ordered = _diskConfig
+            .Select((d, i) => new RecordingStorage.RecordingDiskDto { Root = d.Root, Primary = i == 0 })
+            .ToList();
+        var folders = RecordingStorage.DiskRoots(ordered);
+        var primaryFolder = folders[0];
+
         var known = RecordingStorage.MergeKnownRoot(
             _settings.Get(RecordingStorage.KnownRootsSettingKey), _recordingsRoot);
-        known = RecordingStorage.MergeKnownRoot(known, folder);
+        foreach (var folder in folders)
+        {
+            known = RecordingStorage.MergeKnownRoot(known, folder);
+        }
 
         _settings.Set(RecordingStorage.KnownRootsSettingKey, known);
-        _settings.Set(RecordingStorage.RootSettingKey, folder);
-        _recordingsRoot = folder;
+        _settings.Set(RecordingStorage.DisksSettingKey, RecordingStorage.SerializeDisks(ordered));
+        _settings.Set(RecordingStorage.RootSettingKey, primaryFolder);
+
+        _recordingsRoot = primaryFolder;
         RecordingsRootText.Text = _recordingsRoot;
 
-        _recordingsRootChanged?.Invoke(folder);
-        RecordingsDiskStatusText.Text = string.Format(Localizer.T("Settings.RecordingsDiskApplied"), folder);
+        _recordingsRootChanged?.Invoke(primaryFolder);
+        RecordingsDiskStatusText.Text = string.Format(
+            Localizer.T("Settings.DisksApplied"), folders.Count, primaryFolder);
     }
 
     private void OnApplyQuotaClicked(object sender, RoutedEventArgs e)

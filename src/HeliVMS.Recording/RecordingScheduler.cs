@@ -58,7 +58,9 @@ public sealed class RecordingScheduler : IDisposable
     /// 不必真的啟動 ffmpeg（見 <c>HeliVMS.Recording.Tests/RecordingSchedulerTests</c>）。
     /// </summary>
     private ISegmentRecorder DefaultRecorderFactory()
-        => new SegmentRecorder(new SegmentRepository(_store));
+        => new SegmentRecorder(
+            new SegmentRepository(_store),
+            rootSelector: RecordingStorage.CreateRootSelector(_store, _recordingsRoot));
 
     /// <summary>
     /// 解析實際用來啟動錄影的 RTSP 位址——把資料庫中未含帳密的 <c>channels.main_rtsp</c>

@@ -404,6 +404,74 @@ public sealed class SegmentRecorderTests : IDisposable
         Assert.True(SegmentRecorder.RetryDelayFor(int.MaxValue) > TimeSpan.Zero);
     }
 
+    /// <summary>
+    /// 多磁碟錄影的核心：每個區段都要重新問一次「這一段寫哪一顆碟」。
+    ///
+    /// 若只在啟動時決定一次根目錄，主要碟寫滿之後仍會一直往同一顆寫，每次 ffmpeg 都失敗、
+    /// 退避到 5 分鐘一次，而畫面照常——這正是「磁碟滿了自動續錄下一顆」要修掉的無聲失效。
+    /// 這裡用會依序回兩個目錄的選擇器，確認兩個連續區段真的落在不同磁碟。
+    /// </summary>
+    [Fact]
+    public async Task 多磁碟選擇器會讓連續區段寫到不同磁碟()
+    {
+        var rootA = Path.Combine(Path.GetTempPath(), $"helivms-rec-a-{Guid.NewGuid():N}");
+        var rootB = Path.Combine(Path.GetTempPath(), $"helivms-rec-b-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(rootA);
+        Directory.CreateDirectory(rootB);
+        try
+        {
+            var factory = new FakeProcessFactory(FirstTwoCompleteThenPending);
+            var completed = new List<SegmentRecord>();
+            var bothDone = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var picked = 0;
+
+            var recorder = new SegmentRecorder(
+                _segments,
+                factory,
+                _ => string.Empty,
+                rootSelector: () => picked++ == 0 ? rootA : rootB);
+            recorder.SegmentCompleted += (_, segment) =>
+            {
+                lock (completed)
+                {
+                    completed.Add(segment);
+                    if (completed.Count == 2)
+                    {
+                        bothDone.TrySetResult();
+                    }
+                }
+            };
+
+            _ = recorder.StartAsync(_channelId, RtspUrl, _recordingsRoot, "main", SegmentSeconds);
+            await bothDone.Task.WaitAsync(TimeSpan.FromSeconds(10));
+
+            lock (completed)
+            {
+                Assert.StartsWith(rootA, completed[0].FilePath, StringComparison.OrdinalIgnoreCase);
+                Assert.StartsWith(rootB, completed[1].FilePath, StringComparison.OrdinalIgnoreCase);
+            }
+
+            await recorder.DisposeAsync();
+        }
+        finally
+        {
+            Directory.Delete(rootA, recursive: true);
+            Directory.Delete(rootB, recursive: true);
+        }
+    }
+
+    /// <summary>第一、第二段立即成功收尾；之後的行程停住，直到被停止或取消。</summary>
+    private static FakeProcess FirstTwoCompleteThenPending(int index, ProcessStartInfo psi)
+    {
+        var process = new FakeProcess(psi, exitCode: 0);
+        if (index < 2)
+        {
+            process.ProduceAndExit();
+        }
+
+        return process;
+    }
+
     private (SegmentRecorder Recorder, FakeProcessFactory Factory, Task<SegmentRecord> First) BeginFirstSegment(
         Func<int, ProcessStartInfo, FakeProcess> make,
         Func<string, string>? audioProbe = null)

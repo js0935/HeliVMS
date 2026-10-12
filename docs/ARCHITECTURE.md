@@ -153,15 +153,20 @@ C:\HeliVmsData\
 | `<其他固定碟>\HeliVMSRecordings` | 資料根目錄在系統碟時，改存容量最大的非系統固定碟 |
 | `<資料根>\recordings` | 找不到其他固定碟時退回（寧可錄在系統碟，也不要完全不錄） |
 
-設定中心「儲存」頁提供錄影磁碟下拉（`RecordingStorage.ListFixedDrives`），選定後寫入共用的
-`recording.root`，桌面、Agent（`HeliVMS.Agent`）與 Web 服務皆經由
-`RecordingStorage.ResolveConfiguredRoot` 讀同一把鍵（未設定才退回環境變數與避開系統碟推導），
-因此三個程序永遠指向同一個目錄；切換時把舊根併入 `recording.known_roots`（`MergeKnownRoot`／
-`ParseKnownRoots`），讓配額清理仍能汰除舊磁碟上的既有錄影（舊片段以絕對路徑留在原磁碟，仍可回放）。
-首度啟動尚未設定時，桌面主視窗以 `ResolveRootFromEnvironment` 得到推導值。任何一端自行解析都會
-重現「錄到 A 目錄、回放去 B 目錄找」的失效（Agent 曾直接拿資料根目錄當錄影根目錄，錄出來的
-檔案桌面與回放都找不到）。資料庫、快照仍留在資料根目錄，不受影響。
-`RecordedSegmentPolicy` 會擋下不在錄影根目錄內的路徑。
+設定中心「儲存」頁提供多磁碟清單（新增／移除／設為主要），寫入共用的 `recording.disks`
+（`RecordingStorage.RecordingDiskDto`／`ParseDisks`／`SerializeDisks`），主要碟排首位；
+`recording.root` 記主要碟。寫入端（`SegmentRecorder`，由桌面 `ChannelSession` 與 Agent
+`RecordingScheduler` 注入 `RecordingStorage.CreateRootSelector`）**每個區段都重挑一次碟**：
+依清單順序取第一個可用空間 ≥ `recording.min_free_bytes`（預設 2 GiB）的磁碟，主要碟寫滿即
+自動續錄下一顆；全部低於門檻時取剩餘空間最大者——寧可寫滿一顆，也不要因滿碟而無聲停錄
+（見 `ChooseRoot`）。設定每次區段都重讀，故改磁碟後立即生效、不必重啟。切換時所有目錄併入
+`recording.known_roots`（`MergeKnownRoot`／`ParseKnownRoots`），讓配額清理與遠端回放仍能看到
+每一顆碟上的既有錄影；`RecordedSegmentPolicy` 由 `RecordingStorage.ConfiguredRoots` 涵蓋所有
+錄影根目錄，否則遠端播放次要碟上的片段會被判成超範圍而 404（舊片段以絕對路徑留在原磁碟，
+仍可回放）。首度啟動尚未設定時，桌面主視窗以 `ResolveRootFromEnvironment` 得到推導值。任何一端
+自行解析都會重現「錄到 A 目錄、回放去 B 目錄找」的失效（Agent 曾直接拿資料根目錄當錄影根目錄，
+錄出來的檔案桌面與回放都找不到）。資料庫、快照仍留在資料根目錄，不受影響。
+`RecordedSegmentPolicy` 只放行位於任一錄影根目錄內的路徑。
 
 ---
 

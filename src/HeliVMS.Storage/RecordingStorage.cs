@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
@@ -54,6 +55,18 @@ public static class RecordingStorage
 
     /// <summary>主要錄影磁碟設定鍵（保留）。</summary>
     public const string PrimaryRootSettingKey = "recording.primary_root";
+
+    /// <summary>錄影磁碟保留的最小可用空間設定鍵（位元組）；低於此值就不再往該碟寫新段。</summary>
+    public const string MinFreeSettingKey = "recording.min_free_bytes";
+
+    /// <summary>
+    /// 錄影磁碟保留的最小可用空間預設值（2 GiB）。
+    ///
+    /// 磁碟完全寫滿的後果不是「這段沒錄到」而是「整台錄影停住」：ffmpeg 寫不出暫存檔、
+    /// 每段都失敗、退避到 5 分鐘一次，而畫面照常，操作員要等到想回放才發現好幾天沒錄。
+    /// 留一段安全邊界讓排程有時間把新段挪到下一顆碟，代價只是一小塊空間。
+    /// </summary>
+    public const long DefaultMinFreeBytes = 2L * 1024 * 1024 * 1024;
 
     /// <summary>
     /// 解析錄影根目錄。
@@ -238,6 +251,140 @@ public static class RecordingStorage
         }
 
         return disks;
+    }
+
+    /// <summary>
+    /// 由磁碟清單（<see cref="RecordingDiskDto"/>）推出實際錄影目錄，<b>主要碟排首位</b>，
+    /// 其餘依清單順序。同一目錄去重（不分大小寫）。
+    ///
+    /// 這是多磁碟錄影的優先序來源：寫入端每個區段都依此順序挑第一個還有空間的碟，
+    /// 主要碟滿了才依序遞補。桌面、Agent、WebApi 三個程序都必須看到同一份順序，否則
+    /// 會出現「寫在 A 碟、保留清單卻去 B 碟找」的落差。
+    /// </summary>
+    public static IReadOnlyList<string> DiskRoots(IEnumerable<RecordingDiskDto>? disks)
+    {
+        var list = (disks ?? Array.Empty<RecordingDiskDto>()).Where(static d => d is not null).ToList();
+        var ordered = list.Where(static d => d.Primary).Concat(list.Where(static d => !d.Primary));
+
+        return ordered
+            .Where(static d => !string.IsNullOrWhiteSpace(d.Root))
+            .Select(static d => FolderForDrive(d.Root))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+    }
+
+    /// <summary>資料夾所在磁碟的可用空間（位元組）；無法取得時回 0（視為不可用）。</summary>
+    public static long FreeBytesFor(string folder)
+    {
+        if (string.IsNullOrWhiteSpace(folder))
+        {
+            return 0;
+        }
+
+        try
+        {
+            var root = Path.GetPathRoot(Path.GetFullPath(folder));
+            if (string.IsNullOrEmpty(root))
+            {
+                return 0;
+            }
+
+            var drive = new DriveInfo(root);
+            return drive.IsReady ? drive.AvailableFreeSpace : 0;
+        }
+        catch (Exception ex) when (
+            ex is ArgumentException or IOException or UnauthorizedAccessException or NotSupportedException or PathTooLongException)
+        {
+            // 磁碟在列舉後才退出（例如拔除）是常態；回 0 讓挑碟邏輯跳過它即可。
+            return 0;
+        }
+    }
+
+    /// <summary>
+    /// 選出下一段要寫入哪個錄影目錄：依 <paramref name="roots"/> 順序取第一個可用空間
+    /// ≥ <paramref name="minFreeBytes"/> 者；全部都低於門檻時取可用空間最大者——寧可繼續
+    /// 錄（可能寫滿某一顆），也不要因為全部踩到門檻而停止錄影。清單為空時回 null。
+    /// </summary>
+    public static string? ChooseRoot(
+        IReadOnlyList<string> roots,
+        long minFreeBytes,
+        Func<string, long> freeBytes)
+    {
+        ArgumentNullException.ThrowIfNull(roots);
+        ArgumentNullException.ThrowIfNull(freeBytes);
+
+        string? fallback = null;
+        long fallbackFree = -1;
+        foreach (var root in roots)
+        {
+            if (string.IsNullOrWhiteSpace(root))
+            {
+                continue;
+            }
+
+            var free = freeBytes(root);
+            if (free >= minFreeBytes)
+            {
+                return root;
+            }
+
+            if (free > fallbackFree)
+            {
+                fallbackFree = free;
+                fallback = root;
+            }
+        }
+
+        return fallback;
+    }
+
+    /// <summary>解析設定的最小可用空間；未設定或無法解析時用 <see cref="DefaultMinFreeBytes"/>。</summary>
+    public static long ParseMinFreeBytes(string? value)
+        => long.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var bytes) && bytes >= 0
+            ? bytes
+            : DefaultMinFreeBytes;
+
+    /// <summary>
+    /// 由設定建立「下一段寫哪」的選擇器：每次呼叫都重讀 <see cref="DisksSettingKey"/>，故
+    /// 設定中心改磁碟後立即生效（不必重啟）。未設定磁碟清單、或挑不到任何目錄時，回
+    /// <paramref name="fallbackRoot"/>（維持單碟行為）。
+    /// </summary>
+    public static Func<string> CreateRootSelector(
+        SqliteStore store,
+        string fallbackRoot,
+        Func<string, long>? freeBytes = null)
+    {
+        ArgumentNullException.ThrowIfNull(store);
+        var settings = new SettingsRepository(store);
+        var probe = freeBytes ?? FreeBytesFor;
+        return () =>
+        {
+            var roots = DiskRoots(ParseDisks(settings.Get(DisksSettingKey)));
+            if (roots.Count == 0)
+            {
+                return fallbackRoot;
+            }
+
+            var minFree = ParseMinFreeBytes(settings.Get(MinFreeSettingKey));
+            return ChooseRoot(roots, minFree, probe) ?? fallbackRoot;
+        };
+    }
+
+    /// <summary>
+    /// 由設定讀出「所有」錄影根目錄（磁碟清單＋退回根去重），供讀取端（遠端串流路徑政策、
+    /// 配額清理）一次涵蓋多顆磁碟。寫入端只看主要碟起算的優先序，讀取端必須看全部。
+    /// </summary>
+    public static IReadOnlyList<string> ConfiguredRoots(SqliteStore store, string? fallbackRoot)
+    {
+        ArgumentNullException.ThrowIfNull(store);
+        var settings = new SettingsRepository(store);
+        var roots = new List<string>(DiskRoots(ParseDisks(settings.Get(DisksSettingKey))));
+        if (!string.IsNullOrWhiteSpace(fallbackRoot))
+        {
+            roots.Add(fallbackRoot);
+        }
+
+        return roots.Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
     }
 
     private static Drive? ChooseAlternativeDrive(IReadOnlyList<Drive> drives, string systemRoot)

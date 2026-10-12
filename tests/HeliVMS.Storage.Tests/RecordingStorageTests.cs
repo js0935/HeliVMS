@@ -167,4 +167,185 @@ public sealed class RecordingStorageTests
 
         Assert.Equal(@"D:\HeliVMSData\recordings", root);
     }
+
+    /// <summary>
+    /// 磁碟清單要讓主要碟排在首位，且把磁碟代號換成實際錄影目錄。
+    ///
+    /// 順序即優先序：寫入端每段都從清單頭開始挑第一個還有空間的碟，主要碟必須先於其他碟，
+    /// 否則「主要碟」就只是個沒有作用的標記，操作員會發現錄影一開始就跑在次要碟上。
+    /// </summary>
+    [Fact]
+    public void 磁碟清單會把主要碟排到最前面()
+    {
+        var roots = RecordingStorage.DiskRoots(
+        [
+            new RecordingStorage.RecordingDiskDto { Root = @"D:\", Primary = false },
+            new RecordingStorage.RecordingDiskDto { Root = @"E:\", Primary = true },
+            new RecordingStorage.RecordingDiskDto { Root = @"F:\", Primary = false },
+        ]);
+
+        Assert.Equal(
+            [@"E:\HeliVMSRecordings", @"D:\HeliVMSRecordings", @"F:\HeliVMSRecordings"],
+            roots);
+    }
+
+    /// <summary>挑碟取第一個達到可用空間門檻的碟：主要碟還有空間就先用它，不會無故溢流。</summary>
+    [Fact]
+    public void 主要碟還有空間時不會溢流到下一顆()
+    {
+        var free = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase)
+        {
+            [@"D:"] = 5000,
+            [@"E:"] = 9000,
+        };
+
+        Assert.Equal(@"D:", RecordingStorage.ChooseRoot([@"D:", @"E:"], minFreeBytes: 1000, root => free[root]));
+    }
+
+    /// <summary>主要碟低於門檻時，改挑下一顆還有足夠空間的碟——這是「滿了自動續錄」的核心。</summary>
+    [Fact]
+    public void 主要碟低於門檻時挑下一顆還有空間的碟()
+    {
+        var free = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase)
+        {
+            [@"D:"] = 100,
+            [@"E:"] = 5000,
+            [@"F:"] = 9000,
+        };
+
+        Assert.Equal(@"E:", RecordingStorage.ChooseRoot([@"D:", @"E:", @"F:"], minFreeBytes: 1000, root => free[root]));
+    }
+
+    /// <summary>
+    /// 全部磁碟都低於門檻時，退回可用空間最大的那一顆，而不是停止錄影。
+    ///
+    /// 停錄是無聲失效：畫面照常、日誌乾淨，操作員要等到想回放才發現好幾天沒錄。寧可寫滿
+    /// 剩下最多的那顆，也要讓錄影繼續並讓畫面顯示空間不足。
+    /// </summary>
+    [Fact]
+    public void 全部磁碟都低於門檻時取空間最大者()
+    {
+        var free = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase)
+        {
+            [@"D:"] = 100,
+            [@"E:"] = 900,
+            [@"F:"] = 400,
+        };
+
+        Assert.Equal(@"E:", RecordingStorage.ChooseRoot([@"D:", @"E:", @"F:"], minFreeBytes: 1000, root => free[root]));
+    }
+
+    /// <summary>可用空間剛好等於門檻時仍可寫入（門檻是「≥」，否則邊界值會反覆換碟）。</summary>
+    [Fact]
+    public void 可用空間剛好等於門檻時仍選該碟()
+    {
+        Assert.Equal(@"D:", RecordingStorage.ChooseRoot([@"D:"], minFreeBytes: 1000, _ => 1000));
+    }
+
+    /// <summary>沒有可挑的磁碟時回空值，由呼叫端退回單一根本目錄。</summary>
+    [Fact]
+    public void 沒有可挑的磁碟時回空值()
+    {
+        Assert.Null(RecordingStorage.ChooseRoot([], minFreeBytes: 1000, _ => 0));
+    }
+
+    /// <summary>最小可用空間設定的解析：合法值照用，未設定或壞值退回預設。</summary>
+    [Fact]
+    public void 最小可用空間未設定或壞值時退回預設()
+    {
+        Assert.Equal(RecordingStorage.DefaultMinFreeBytes, RecordingStorage.ParseMinFreeBytes(null));
+        Assert.Equal(RecordingStorage.DefaultMinFreeBytes, RecordingStorage.ParseMinFreeBytes("not-a-number"));
+        Assert.Equal(123L, RecordingStorage.ParseMinFreeBytes("123"));
+    }
+
+    /// <summary>
+    /// 讀取端要看到「所有」磁碟（磁碟清單＋退回根，去重），寫入端只看優先序。
+    ///
+    /// 若讀取端只認單一根目錄，次要碟上的片段會被配額清理漏掉、遠端回放也會被判成超範圍，
+    /// 症狀是「明明有錄，回放清單卻空一半」。
+    /// </summary>
+    [Fact]
+    public void 讀取端根目錄涵蓋所有設定磁碟與退回根()
+    {
+        WithTempStore(store =>
+        {
+            new SettingsRepository(store).Set(
+                RecordingStorage.DisksSettingKey,
+                RecordingStorage.SerializeDisks(
+                [
+                    new RecordingStorage.RecordingDiskDto { Root = @"D:\", Primary = true },
+                    new RecordingStorage.RecordingDiskDto { Root = @"E:\", Primary = false },
+                ]));
+
+            var roots = RecordingStorage.ConfiguredRoots(store, @"C:\fallback\recordings");
+
+            Assert.Equal(
+                [@"D:\HeliVMSRecordings", @"E:\HeliVMSRecordings", @"C:\fallback\recordings"],
+                roots);
+        });
+    }
+
+    /// <summary>選擇器在主要碟還有空間時挑主要碟，主要碟滿了就改挑下一顆——設定讀取即時生效。</summary>
+    [Fact]
+    public void 選擇器在主要碟寫滿後改挑下一顆()
+    {
+        WithTempStore(store =>
+        {
+            new SettingsRepository(store).Set(
+                RecordingStorage.DisksSettingKey,
+                RecordingStorage.SerializeDisks(
+                [
+                    new RecordingStorage.RecordingDiskDto { Root = @"D:\", Primary = true },
+                    new RecordingStorage.RecordingDiskDto { Root = @"E:\", Primary = false },
+                ]));
+
+            const long enough = 5L * 1024 * 1024 * 1024;
+            var free = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase)
+            {
+                [@"D:\HeliVMSRecordings"] = enough,
+                [@"E:\HeliVMSRecordings"] = enough,
+            };
+            var selector = RecordingStorage.CreateRootSelector(store, @"C:\fallback", root => free[root]);
+
+            Assert.Equal(@"D:\HeliVMSRecordings", selector());
+
+            // 主要碟掉到預設門檻（2 GiB）以下之後，下一個區段就該換到次要碟。
+            free[@"D:\HeliVMSRecordings"] = 1L * 1024 * 1024 * 1024;
+            Assert.Equal(@"E:\HeliVMSRecordings", selector());
+        });
+    }
+
+    /// <summary>尚未設定磁碟清單時選擇器退回單一根目錄，維持既有單碟行為。</summary>
+    [Fact]
+    public void 未設定磁碟清單時選擇器退回根目錄()
+    {
+        WithTempStore(store =>
+        {
+            var selector = RecordingStorage.CreateRootSelector(store, @"C:\HeliVMSData\recordings", _ => 0);
+            Assert.Equal(@"C:\HeliVMSData\recordings", selector());
+        });
+    }
+
+    private static void WithTempStore(Action<SqliteStore> body)
+    {
+        var path = System.IO.Path.Combine(
+            System.IO.Path.GetTempPath(), $"helivms-disks-{Guid.NewGuid():N}.db");
+        try
+        {
+            using var store = new SqliteStore(path);
+            store.Initialize();
+            body(store);
+        }
+        finally
+        {
+            foreach (var suffix in new[] { string.Empty, "-wal", "-shm" })
+            {
+                var file = path + suffix;
+                if (System.IO.File.Exists(file))
+                {
+                    System.IO.File.Delete(file);
+                }
+            }
+        }
+    }
 }

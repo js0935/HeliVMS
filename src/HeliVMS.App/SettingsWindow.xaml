@@ -119,10 +119,35 @@
                 <TextBlock x:Name="StorageTitle" Text="" FontSize="17" FontWeight="Bold" Margin="0,0,0,14"/>
                 <TextBlock x:Name="RecordingsDiskLabel" Text=""
                            Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
-                <StackPanel Orientation="Horizontal" Margin="0,6,0,14">
+                <StackPanel Orientation="Horizontal" Margin="0,6,0,8">
                     <ComboBox x:Name="RecordingsDiskCombo" AutomationProperties.AutomationId="RecordingsDiskCombo"
-                              Width="260" VerticalContentAlignment="Center"
+                              Width="300" VerticalContentAlignment="Center"
                               Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
+                    <Button x:Name="AddRecordingsDiskButton" Content="" Click="OnAddRecordingsDiskClicked" ToolTip=""
+                            Padding="12,6" Margin="10,0,0,0"
+                            Foreground="White" Background="#2A5C8A" BorderThickness="0"
+                            AutomationProperties.AutomationId="AddRecordingsDiskButton"/>
+                </StackPanel>
+                <ListView x:Name="RecordingsDiskList" Height="120" Margin="0,0,0,8"
+                          AutomationProperties.AutomationId="RecordingsDiskList"
+                          Foreground="White" Background="#12233D" BorderBrush="#2A4A73">
+                    <ListView.View>
+                        <GridView>
+                            <GridViewColumn x:Name="DiskColDrive" DisplayMemberBinding="{Binding Root}" Width="110"/>
+                            <GridViewColumn x:Name="DiskColRole" DisplayMemberBinding="{Binding RoleLabel}" Width="90"/>
+                            <GridViewColumn x:Name="DiskColSpace" DisplayMemberBinding="{Binding SpaceLabel}" Width="280"/>
+                        </GridView>
+                    </ListView.View>
+                </ListView>
+                <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
+                    <Button x:Name="SetPrimaryRecordingsDiskButton" Content="" Click="OnSetPrimaryRecordingsDiskClicked" ToolTip=""
+                            Padding="12,6"
+                            Foreground="White" Background="#2A5C8A" BorderThickness="0"
+                            AutomationProperties.AutomationId="SetPrimaryRecordingsDiskButton"/>
+                    <Button x:Name="RemoveRecordingsDiskButton" Content="" Click="OnRemoveRecordingsDiskClicked" ToolTip=""
+                            Padding="12,6" Margin="10,0,0,0"
+                            Foreground="White" Background="#8A3C2E" BorderThickness="0"
+                            AutomationProperties.AutomationId="RemoveRecordingsDiskButton"/>
                     <Button x:Name="ApplyRecordingsDiskButton" Content="" Click="OnApplyRecordingsDiskClicked" ToolTip=""
                             Padding="12,6" Margin="10,0,0,0"
                             Foreground="White" Background="#2A5C8A" BorderThickness="0"

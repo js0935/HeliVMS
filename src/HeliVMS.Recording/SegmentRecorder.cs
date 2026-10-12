@@ -17,6 +17,7 @@ public sealed class SegmentRecorder : ISegmentRecorder
     private readonly SegmentRepository _repo;
     private readonly IProcessFactory _processFactory;
     private readonly Func<string, string> _audioEncoderArgsFor;
+    private readonly Func<string>? _rootSelector;
     private readonly CancellationTokenSource _cts = new();
     private Process? _process;
     private IProcess? _testProcess;
@@ -27,11 +28,13 @@ public sealed class SegmentRecorder : ISegmentRecorder
     public SegmentRecorder(
         SegmentRepository repo,
         IProcessFactory? processFactory = null,
-        Func<string, string>? audioEncoderArgsFor = null)
+        Func<string, string>? audioEncoderArgsFor = null,
+        Func<string>? rootSelector = null)
     {
         _repo = repo;
         _processFactory = processFactory ?? new DefaultProcessFactory();
         _audioEncoderArgsFor = audioEncoderArgsFor ?? DefaultAudioEncoderArgsFor;
+        _rootSelector = rootSelector;
     }
 
     public int ChannelId { get; private set; }
@@ -156,7 +159,16 @@ public sealed class SegmentRecorder : ISegmentRecorder
             try
             {
                 audioEncoderArgs ??= _audioEncoderArgsFor(RtspUrl!);
-                succeeded = await RecordOneSegmentAsync(recordingsRoot, audioEncoderArgs, token);
+
+                // 每個區段都重新挑碟（多磁碟溢出）：主要碟滿了自然換下一顆；沒有選擇器時
+                // 沿用啟動時給的單一根目錄。選擇器回空字串視為「挑不到」，同樣退回原根目錄。
+                var root = _rootSelector?.Invoke();
+                if (string.IsNullOrWhiteSpace(root))
+                {
+                    root = recordingsRoot;
+                }
+
+                succeeded = await RecordOneSegmentAsync(root, audioEncoderArgs, token);
             }
             catch (OperationCanceledException)
             {
