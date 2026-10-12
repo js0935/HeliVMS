@@ -27,12 +27,19 @@ public sealed record RedactionRegion(
 public sealed class RedactionRepository
 {
     private readonly SqliteStore _store;
+    private readonly AuditLogRepository _audit;
 
-    public RedactionRepository(SqliteStore store) => _store = store;
+    /// <summary>預設自建 <see cref="AuditLogRepository"/>（同 <c>ChannelRepository</c>）：遮蔽區域登錄／移除寫入稽核
+    /// （<see cref="AuditCategories.Evidence"/>，個資法隱私操作）。</summary>
+    public RedactionRepository(SqliteStore store, AuditLogRepository? audit = null)
+    {
+        _store = store;
+        _audit = audit ?? new AuditLogRepository(store);
+    }
 
-    public long Add(RedactionRegion region)
+    public long Add(RedactionRegion region, string actor = "system")
         => Add(region.SourceType, region.RefId, region.ChannelId, region.OccurredAtUtc,
-            region.X, region.Y, region.Width, region.Height, region.Filled, region.CreatedAtUtc);
+            region.X, region.Y, region.Width, region.Height, region.Filled, region.CreatedAtUtc, actor);
 
     public long Add(
         string sourceType,
@@ -44,7 +51,8 @@ public sealed class RedactionRepository
         int width,
         int height,
         bool filled,
-        DateTime createdAtUtc)
+        DateTime createdAtUtc,
+        string actor = "system")
     {
         if (width <= 0 || height <= 0)
         {
@@ -70,7 +78,10 @@ public sealed class RedactionRepository
                 cmd.Parameters.AddWithValue("$f", filled ? 1 : 0);
                 cmd.Parameters.AddWithValue("$created", SqliteStore.Iso(createdAtUtc));
             });
-        return _store.Query<long>("SELECT last_insert_rowid();", r => r.Read() ? r.GetInt64(0) : 0);
+        var id = _store.Query<long>("SELECT last_insert_rowid();", r => r.Read() ? r.GetInt64(0) : 0);
+        _audit.Record(actor, "redaction.add", AuditCategories.Evidence, "redaction", id,
+            $"channel={channelId} source={sourceType}");
+        return id;
     }
 
     /// <summary>列出某來源（影片/快照）的全部遮蔽區域（M101 輸出側讀取）。</summary>
@@ -107,11 +118,17 @@ public sealed class RedactionRepository
             });
 
     /// <summary>移除一筆遮蔽區域（區位轉移／解除後）。回 true＝實際刪除。</summary>
-    public bool Remove(long id)
+    public bool Remove(long id, string actor = "system")
     {
         _store.Execute("DELETE FROM redaction_regions WHERE id = $id;",
             cmd => cmd.Parameters.AddWithValue("$id", id));
-        return _store.Query("SELECT changes();", r => r.Read() && r.GetInt32(0) > 0);
+        var removed = _store.Query("SELECT changes();", r => r.Read() && r.GetInt32(0) > 0);
+        if (removed)
+        {
+            _audit.Record(actor, "redaction.remove", AuditCategories.Evidence, "redaction", id);
+        }
+
+        return removed;
     }
 
     private IReadOnlyList<RedactionRegion> QueryCore(string tail, Action<SqliteCommand> bind)

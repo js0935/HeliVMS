@@ -7,10 +7,13 @@ namespace HeliVMS.Storage;
 public sealed class AlertRuleRepository
 {
     private readonly SqliteStore _store;
+    private readonly AuditLogRepository _audit;
 
-    public AlertRuleRepository(SqliteStore store)
+    /// <summary>預設自建 <see cref="AuditLogRepository"/>（同 <c>ChannelRepository</c>）：告警規則異動寫入稽核。</summary>
+    public AlertRuleRepository(SqliteStore store, AuditLogRepository? audit = null)
     {
         _store = store;
+        _audit = audit ?? new AuditLogRepository(store);
     }
 
     /// <summary>新增一筆規則，回傳新 ID。</summary>
@@ -22,7 +25,8 @@ public sealed class AlertRuleRepository
         string? channels,
         string? matchEventTypes = null,
         int frameMinutes = 0,
-        int minEventsInWindow = 1)
+        int minEventsInWindow = 1,
+        string actor = "system")
     {
         _store.Execute(
             """
@@ -41,13 +45,15 @@ public sealed class AlertRuleRepository
                 cmd.Parameters.AddWithValue("$mi", minEventsInWindow);
             });
 
-        return _store.Query(
+        var id = _store.Query(
             "SELECT last_insert_rowid();",
             static r =>
             {
                 r.Read();
                 return r.GetInt64(0);
             });
+        _audit.Record(actor, "alert_rule.add", AuditCategories.Config, "alert_rule", id, $"name={name}");
+        return id;
     }
 
     /// <summary>更新一筆規則（含 M54 三欄）。</summary>
@@ -61,7 +67,8 @@ public sealed class AlertRuleRepository
         bool enabled,
         string? matchEventTypes = null,
         int frameMinutes = 0,
-        int minEventsInWindow = 1)
+        int minEventsInWindow = 1,
+        string actor = "system")
     {
         _store.Execute(
             """
@@ -83,6 +90,11 @@ public sealed class AlertRuleRepository
                 cmd.Parameters.AddWithValue("$fm", frameMinutes);
                 cmd.Parameters.AddWithValue("$mi", minEventsInWindow);
             });
+
+        if (Changes() > 0)
+        {
+            _audit.Record(actor, "alert_rule.update", AuditCategories.Config, "alert_rule", id, $"name={name}");
+        }
     }
 
     /// <summary>全部規則（id 遞增＝優先序）。</summary>
@@ -135,7 +147,7 @@ public sealed class AlertRuleRepository
     }
 
     /// <summary>停用／啟用一筆規則。</summary>
-    public void SetEnabled(long id, bool enabled)
+    public void SetEnabled(long id, bool enabled, string actor = "system")
     {
         _store.Execute(
             "UPDATE alert_rules SET enabled = $e WHERE id = $id;",
@@ -144,13 +156,27 @@ public sealed class AlertRuleRepository
                 cmd.Parameters.AddWithValue("$e", enabled ? 1 : 0);
                 cmd.Parameters.AddWithValue("$id", id);
             });
+
+        if (Changes() > 0)
+        {
+            _audit.Record(actor, enabled ? "alert_rule.enable" : "alert_rule.disable",
+                AuditCategories.Config, "alert_rule", id, $"enabled={enabled}");
+        }
     }
 
     /// <summary>刪除一筆規則。</summary>
-    public void Delete(long id)
+    public void Delete(long id, string actor = "system")
     {
         _store.Execute(
             "DELETE FROM alert_rules WHERE id = $id;",
             cmd => cmd.Parameters.AddWithValue("$id", id));
+
+        if (Changes() > 0)
+        {
+            _audit.Record(actor, "alert_rule.delete", AuditCategories.Config, "alert_rule", id);
+        }
     }
+
+    private int Changes()
+        => _store.Query("SELECT changes();", static r => r.Read() ? r.GetInt32(0) : 0);
 }

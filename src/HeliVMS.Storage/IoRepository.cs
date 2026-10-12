@@ -32,16 +32,19 @@ public sealed record IoChannel(
 public sealed class IoRepository
 {
     private readonly SqliteStore _store;
+    private readonly AuditLogRepository _audit;
 
-    public IoRepository(SqliteStore store)
+    /// <summary>預設自建 <see cref="AuditLogRepository"/>（同 <c>ChannelRepository</c>）：IO 模組／通道異動寫入稽核。</summary>
+    public IoRepository(SqliteStore store, AuditLogRepository? audit = null)
     {
         _store = store;
+        _audit = audit ?? new AuditLogRepository(store);
     }
 
     /// <summary>新增模組，回傳新 ID。</summary>
-    public int AddDevice(string name, string host, int port = 502, int unitId = 1, int pollMs = 500)
+    public int AddDevice(string name, string host, int port = 502, int unitId = 1, int pollMs = 500, string actor = "system")
     {
-        return _store.Query(
+        var id = _store.Query(
             """
             INSERT INTO io_devices (name, protocol, host, port, unit_id, enabled, poll_ms)
             VALUES ($n, 'modbus_tcp', $h, $p, $u, 1, $pm);
@@ -60,6 +63,8 @@ public sealed class IoRepository
                 cmd.Parameters.AddWithValue("$u", unitId);
                 cmd.Parameters.AddWithValue("$pm", pollMs);
             });
+        _audit.Record(actor, "io.device.add", AuditCategories.Config, "io_device", id, $"{name}@{host}:{port}");
+        return id;
     }
 
     /// <summary>列出全部模組（按 id）。</summary>
@@ -95,7 +100,7 @@ public sealed class IoRepository
     }
 
     /// <summary>啟用/停用模組（停用＝停止輪詢）。</summary>
-    public void SetDeviceEnabled(int id, bool enabled)
+    public void SetDeviceEnabled(int id, bool enabled, string actor = "system")
     {
         _store.Execute(
             "UPDATE io_devices SET enabled = $e WHERE id = $id;",
@@ -104,14 +109,25 @@ public sealed class IoRepository
                 cmd.Parameters.AddWithValue("$e", enabled ? 1 : 0);
                 cmd.Parameters.AddWithValue("$id", id);
             });
+
+        if (Changes() > 0)
+        {
+            _audit.Record(actor, enabled ? "io.device.enable" : "io.device.disable",
+                AuditCategories.Config, "io_device", id, $"enabled={enabled}");
+        }
     }
 
     /// <summary>刪除模組（CASCADE 移除其通道）。</summary>
-    public void DeleteDevice(int id)
+    public void DeleteDevice(int id, string actor = "system")
     {
         _store.Execute(
             "DELETE FROM io_devices WHERE id = $id;",
             cmd => cmd.Parameters.AddWithValue("$id", id));
+
+        if (Changes() > 0)
+        {
+            _audit.Record(actor, "io.device.delete", AuditCategories.Config, "io_device", id);
+        }
     }
 
     /// <summary>新增通道，回傳新 ID。</summary>
@@ -123,9 +139,10 @@ public sealed class IoRepository
         int debounceMs = 200,
         bool polarity = false,
         int? cameraId = null,
-        string alarmPriority = "normal")
+        string alarmPriority = "normal",
+        string actor = "system")
     {
-        return _store.Query(
+        var id = _store.Query(
             """
             INSERT INTO io_channels (device_id, direction, io_index, name, enabled, debounce_ms, polarity, camera_id, alarm_priority)
             VALUES ($d, $dir, $i, $n, 1, $db, $pol, $cam, $prio);
@@ -147,6 +164,9 @@ public sealed class IoRepository
                 cmd.Parameters.AddWithValue("$cam", (object?)cameraId ?? DBNull.Value);
                 cmd.Parameters.AddWithValue("$prio", alarmPriority);
             });
+        _audit.Record(actor, "io.channel.add", AuditCategories.Config, "io_channel", id,
+            $"device={deviceId} dir={direction} name={name}");
+        return id;
     }
 
     /// <summary>列出通道（依模組、方向、啟用過濾可選；未指定則全部）。</summary>
@@ -205,7 +225,7 @@ public sealed class IoRepository
     }
 
     /// <summary>啟用/停用通道。</summary>
-    public void SetChannelEnabled(int id, bool enabled)
+    public void SetChannelEnabled(int id, bool enabled, string actor = "system")
     {
         _store.Execute(
             "UPDATE io_channels SET enabled = $e WHERE id = $id;",
@@ -214,15 +234,29 @@ public sealed class IoRepository
                 cmd.Parameters.AddWithValue("$e", enabled ? 1 : 0);
                 cmd.Parameters.AddWithValue("$id", id);
             });
+
+        if (Changes() > 0)
+        {
+            _audit.Record(actor, enabled ? "io.channel.enable" : "io.channel.disable",
+                AuditCategories.Config, "io_channel", id, $"enabled={enabled}");
+        }
     }
 
     /// <summary>刪除通道。</summary>
-    public void DeleteChannel(int id)
+    public void DeleteChannel(int id, string actor = "system")
     {
         _store.Execute(
             "DELETE FROM io_channels WHERE id = $id;",
             cmd => cmd.Parameters.AddWithValue("$id", id));
+
+        if (Changes() > 0)
+        {
+            _audit.Record(actor, "io.channel.delete", AuditCategories.Config, "io_channel", id);
+        }
     }
+
+    private int Changes()
+        => _store.Query("SELECT changes();", static r => r.Read() ? r.GetInt32(0) : 0);
 
     private static IoDevice ReadDevice(SqliteDataReader r)
         => new(

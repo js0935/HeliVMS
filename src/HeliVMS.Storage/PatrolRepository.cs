@@ -21,10 +21,13 @@ public sealed record StoredPatrol(
 public sealed class PatrolRepository
 {
     private readonly SqliteStore _store;
+    private readonly AuditLogRepository _audit;
 
-    public PatrolRepository(SqliteStore store)
+    /// <summary>預設自建 <see cref="AuditLogRepository"/>（同 <c>ChannelRepository</c>）：巡航排程異動寫入稽核。</summary>
+    public PatrolRepository(SqliteStore store, AuditLogRepository? audit = null)
     {
         _store = store;
+        _audit = audit ?? new AuditLogRepository(store);
     }
 
     /// <summary>
@@ -39,7 +42,8 @@ public sealed class PatrolRepository
         string windowStart,
         string windowEnd,
         DateTime updatedAtUtc,
-        IReadOnlyList<PatrolStepRow> steps)
+        IReadOnlyList<PatrolStepRow> steps,
+        string actor = "system")
     {
         if (id is not null && id.Value <= 0)
         {
@@ -136,6 +140,9 @@ public sealed class PatrolRepository
                 });
         }
 
+        _audit.Record(actor, "patrol.save", AuditCategories.Config, "patrol", actualId,
+            $"name={name} channel={channelId} enabled={enabled} steps={normalizedSteps.Count}");
+
         return actualId;
     }
 
@@ -167,7 +174,7 @@ public sealed class PatrolRepository
     }
 
     /// <summary>刪除巡航與其步驟；回傳是否實際存在。</summary>
-    public bool Delete(long id)
+    public bool Delete(long id, string actor = "system")
     {
         var exists = _store.Query(
             "SELECT EXISTS(SELECT 1 FROM patrols WHERE id = $id);",
@@ -184,6 +191,7 @@ public sealed class PatrolRepository
 
         _store.Execute("DELETE FROM patrol_steps WHERE patrol_id = $id;", cmd => cmd.Parameters.AddWithValue("$id", id));
         _store.Execute("DELETE FROM patrols WHERE id = $id;", cmd => cmd.Parameters.AddWithValue("$id", id));
+        _audit.Record(actor, "patrol.delete", AuditCategories.Config, "patrol", id);
         return true;
     }
 

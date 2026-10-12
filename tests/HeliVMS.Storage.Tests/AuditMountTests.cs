@@ -277,4 +277,130 @@ public class AuditMountTests : IDisposable
         var deleted = Assert.Single(_audit.List(new AuditLogQuery { Action = "provider.delete" }));
         Assert.Equal("corp-ldap", deleted.Detail);
     }
+
+    [Fact]
+    public void Patrol_SaveAndDelete_RecordsAudit()
+    {
+        var patrols = new PatrolRepository(_store);
+        var t0 = new DateTime(2026, 9, 22, 9, 0, 0, DateTimeKind.Utc);
+
+        var id = patrols.Save(
+            null, "夜巡", 3, true, "22:00", "06:00", t0,
+            new[] { new PatrolStepRow("大門", 5) },
+            actor: "admin");
+        Assert.True(patrols.Delete(id, actor: "admin"));
+
+        var save = Assert.Single(_audit.List(new AuditLogQuery { Action = "patrol.save" }));
+        Assert.Equal(AuditCategories.Config, save.Category);
+        Assert.Equal("patrol", save.TargetType);
+        Assert.Equal(id, save.TargetId);
+        Assert.Equal("admin", save.Actor);
+        Assert.Contains("name=夜巡", save.Detail);
+        Assert.Contains("channel=3", save.Detail);
+
+        var delete = Assert.Single(_audit.List(new AuditLogQuery { Action = "patrol.delete" }));
+        Assert.Equal(id, delete.TargetId);
+        Assert.Equal("admin", delete.Actor);
+    }
+
+    [Fact]
+    public void Patrol_DeleteMissing_DoesNotAudit()
+    {
+        var patrols = new PatrolRepository(_store);
+
+        Assert.False(patrols.Delete(999));
+
+        Assert.Equal(0, _audit.Count(new AuditLogQuery { Category = AuditCategories.Config }));
+    }
+
+    [Fact]
+    public void AlertRule_AddUpdateToggleDelete_RecordsAudit()
+    {
+        var rules = new AlertRuleRepository(_store);
+
+        var id = rules.Add("motion", "motion", 1, null, null, actor: "admin");
+        rules.Update(id, "motion2", "motion", 1, null, null, false, actor: "admin");
+        rules.SetEnabled(id, true, actor: "admin");
+        rules.Delete(id, actor: "admin");
+
+        var add = Assert.Single(_audit.List(new AuditLogQuery { Action = "alert_rule.add" }));
+        Assert.Equal(AuditCategories.Config, add.Category);
+        Assert.Equal("alert_rule", add.TargetType);
+        Assert.Equal(id, add.TargetId);
+        Assert.Equal("admin", add.Actor);
+        Assert.Contains("name=motion", add.Detail);
+
+        var update = Assert.Single(_audit.List(new AuditLogQuery { Action = "alert_rule.update" }));
+        Assert.Equal(id, update.TargetId);
+        Assert.Contains("name=motion2", update.Detail);
+
+        var enable = Assert.Single(_audit.List(new AuditLogQuery { Action = "alert_rule.enable" }));
+        Assert.Equal(id, enable.TargetId);
+
+        var delete = Assert.Single(_audit.List(new AuditLogQuery { Action = "alert_rule.delete" }));
+        Assert.Equal(id, delete.TargetId);
+    }
+
+    [Fact]
+    public void AlertRule_NoOpToggle_DoesNotAudit()
+    {
+        var rules = new AlertRuleRepository(_store);
+
+        rules.SetEnabled(999, true);
+        rules.Delete(999);
+
+        Assert.Equal(0, _audit.Count(new AuditLogQuery { Category = AuditCategories.Config }));
+    }
+
+    [Fact]
+    public void Io_DeviceAndChannel_RecordsAudit()
+    {
+        var io = new IoRepository(_store);
+
+        var device = io.AddDevice("門禁模組", "10.0.0.9", 502, 1, 500, actor: "admin");
+        io.SetDeviceEnabled(device, false, actor: "admin");
+        var channel = io.AddChannel(device, "DI", 0, "大門開關", actor: "admin");
+        io.SetChannelEnabled(channel, false, actor: "admin");
+        io.DeleteChannel(channel, actor: "admin");
+        io.DeleteDevice(device, actor: "admin");
+
+        var deviceAdd = Assert.Single(_audit.List(new AuditLogQuery { Action = "io.device.add" }));
+        Assert.Equal(AuditCategories.Config, deviceAdd.Category);
+        Assert.Equal("io_device", deviceAdd.TargetType);
+        Assert.Equal(device, deviceAdd.TargetId);
+        Assert.Contains("10.0.0.9:502", deviceAdd.Detail);
+        Assert.Single(_audit.List(new AuditLogQuery { Action = "io.device.disable" }));
+        Assert.Single(_audit.List(new AuditLogQuery { Action = "io.device.delete" }));
+
+        var channelAdd = Assert.Single(_audit.List(new AuditLogQuery { Action = "io.channel.add" }));
+        Assert.Equal("io_channel", channelAdd.TargetType);
+        Assert.Equal(channel, channelAdd.TargetId);
+        Assert.Contains("dir=DI", channelAdd.Detail);
+        Assert.Single(_audit.List(new AuditLogQuery { Action = "io.channel.disable" }));
+        Assert.Single(_audit.List(new AuditLogQuery { Action = "io.channel.delete" }));
+    }
+
+    [Fact]
+    public void Redaction_AddAndRemove_RecordsAudit()
+    {
+        var redactions = new RedactionRepository(_store);
+        var t0 = new DateTime(2026, 9, 22, 10, 0, 0, DateTimeKind.Utc);
+
+        var id = redactions.Add(
+            RedactionSources.Clip, 42, 1, t0, 10, 20, 30, 40, filled: true,
+            createdAtUtc: t0, actor: "admin");
+        Assert.True(redactions.Remove(id, actor: "admin"));
+
+        var add = Assert.Single(_audit.List(new AuditLogQuery { Action = "redaction.add" }));
+        Assert.Equal(AuditCategories.Evidence, add.Category);
+        Assert.Equal("redaction", add.TargetType);
+        Assert.Equal(id, add.TargetId);
+        Assert.Equal("admin", add.Actor);
+        Assert.Contains("channel=1", add.Detail);
+        Assert.Contains("source=clip", add.Detail);
+
+        var remove = Assert.Single(_audit.List(new AuditLogQuery { Action = "redaction.remove" }));
+        Assert.Equal(AuditCategories.Evidence, remove.Category);
+        Assert.Equal(id, remove.TargetId);
+    }
 }
