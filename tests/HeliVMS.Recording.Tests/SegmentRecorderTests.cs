@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text;
 using HeliVMS.Recording;
+using HeliVMS.Shared;
 using HeliVMS.Shared.Models;
 using HeliVMS.Storage;
 
@@ -313,6 +314,51 @@ public sealed class SegmentRecorderTests : IDisposable
             Assert.DoesNotContain("s3cret", recorder.LastFfError);
             Assert.DoesNotContain("admin", recorder.LastFfError);
             Assert.Contains("rtsp://10.0.0.5/live", recorder.LastFfError);
+        }
+        finally
+        {
+            gate.Set();
+        }
+    }
+
+    /// <summary>
+    /// 錄影用的 ffmpeg 啟動時必須登錄到全域行程登錄表，非零退出要標記為失敗（§13-2）。
+    ///
+    /// 現場症狀：機器變慢時，維運沒有任何單一地方看得出「此刻開著幾條錄影 ffmpeg」，
+    /// 只能逐頻道點開。少了這個登錄，健康度面板的 ffmpeg 總數會永遠偏低，
+    /// 真正失控的來源就被掩蓋。
+    /// </summary>
+    [Fact]
+    public async Task 錄影行程會登錄到全域登錄表且失敗會被標記()
+    {
+        var registry = new FfmpegProcessRegistry();
+
+        // 第一段立刻以退出碼 1 結束；之後的行程停住，避免競態。
+        var gate = new ManualResetEventSlim(false);
+        var factory = new FakeProcessFactory((index, psi) =>
+        {
+            if (index == 0)
+            {
+                var failed = new FakeProcess(psi, exitCode: 1, stderr: "boom");
+                failed.ProduceAndExit();
+                return failed;
+            }
+
+            gate.Wait(TimeSpan.FromSeconds(15));
+            return new FakeProcess(psi, exitCode: 0);
+        });
+
+        await using var recorder = new SegmentRecorder(_segments, factory, _ => string.Empty, registry: registry);
+        await recorder.StartAsync(_channelId, RtspUrl, _recordingsRoot, "main", SegmentSeconds);
+
+        try
+        {
+            await WaitUntilAsync(() => registry.Snapshot().TotalFailed == 1);
+
+            var snapshot = registry.Snapshot();
+            Assert.True(snapshot.TotalStarted >= 1, "啟動錄影 ffmpeg 時必須登錄");
+            Assert.Equal(1, snapshot.TotalFailed);
+            Assert.Equal($"ch{_channelId:000}/main", snapshot.LastFailureKey);
         }
         finally
         {

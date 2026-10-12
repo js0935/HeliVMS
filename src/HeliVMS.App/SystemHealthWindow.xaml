@@ -12,6 +12,7 @@
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
@@ -29,16 +30,19 @@
                     VerticalAlignment="Top" Foreground="White" Background="#2A5C8A" BorderThickness="0"/>
         </StackPanel>
 
-        <TextBlock Grid.Row="2" x:Name="TrendLabel" Text=""
+        <TextBlock Grid.Row="2" x:Name="HealthFfmpegText" AutomationProperties.AutomationId="HealthFfmpegText"
+                   Margin="0,10,0,0" Foreground="#9FB8D8" FontSize="12" TextWrapping="Wrap"/>
+
+        <TextBlock Grid.Row="3" x:Name="TrendLabel" Text=""
                    Foreground="{StaticResource Brand.TextDim}" FontSize="11" Margin="0,14,0,4"/>
-        <Border Grid.Row="2" BorderBrush="#1F3A5F" BorderThickness="1" Background="#0E1D33"
+        <Border Grid.Row="3" BorderBrush="#1F3A5F" BorderThickness="1" Background="#0E1D33"
                 Height="90" VerticalAlignment="Bottom" Margin="0,34,0,0">
             <Canvas x:Name="HealthTrendCanvas" AutomationProperties.AutomationId="HealthTrendCanvas"
                     Background="Transparent"/>
         </Border>
 
         <ListView x:Name="HealthDiskList" AutomationProperties.AutomationId="HealthDiskList"
-                  Grid.Row="3" Margin="0,14,0,0"
+                  Grid.Row="4" Margin="0,14,0,0"
                   Background="#0E1D33" Foreground="White" BorderBrush="#1F3A5F">
             <ListView.View>
                 <GridView>
@@ -81,7 +85,7 @@
             </ListView.View>
         </ListView>
 
-        <TextBlock Grid.Row="4" x:Name="HealthStatusText" AutomationProperties.AutomationId="HealthStatusText"
+        <TextBlock Grid.Row="5" x:Name="HealthStatusText" AutomationProperties.AutomationId="HealthStatusText"
                    Margin="0,10,0,0" Foreground="#9FB8D8" TextWrapping="Wrap"/>
     </Grid>
 </Window>

@@ -1,3 +1,4 @@
+using HeliVMS.Shared;
 using HeliVMS.Storage;
 using Xunit;
 
@@ -6,6 +7,31 @@ namespace HeliVMS.Storage.Tests;
 /// <summary>M147 系統健康快照：驗證以本機真實計數器產生之快照欄位（不依賴外部硬體、可閉環）。</summary>
 public sealed class SystemHealthTests
 {
+    [Fact]
+    public void Capture_ReflectsFfmpegProcessRegistry()
+    {
+        // §13-2：健康度快照必須把全域 ffmpeg 子行程登錄表曝光，否則「這台開著幾條
+        // ffmpeg、有沒有失控」就沒有單一出處。用 TotalStarted（單調遞增）斷言，
+        // 以免與其他並行測試類別共用 Shared 登錄表時互相干擾。
+        var before = SystemMetricsService.Capture().FfmpegTotalStarted;
+
+        using (FfmpegProcessRegistry.Shared.Register(FfmpegJobKind.Probe, "system-health-test"))
+        {
+            var during = SystemMetricsService.Capture();
+            Assert.True(
+                during.FfmpegTotalStarted >= before + 1,
+                "註冊一個 ffmpeg 子行程後，TotalStarted 必須增加");
+            Assert.True(during.FfmpegRunning >= 1);
+        }
+
+        // 欄位為真實計數，不應為負。
+        var snap = SystemMetricsService.Capture();
+        Assert.True(snap.FfmpegDecode >= 0);
+        Assert.True(snap.FfmpegRecord >= 0);
+        Assert.True(snap.FfmpegPublish >= 0);
+        Assert.True(snap.FfmpegPeakConcurrent >= 0);
+    }
+
     [Fact]
     public void Capture_ProducesRealProcessAndDiskSnapshot()
     {

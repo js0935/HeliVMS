@@ -1119,9 +1119,13 @@ WebRTC/WHEP 即時監看與 MSE 回放（M244）。
 **待辦（依優先序）**：
 1. **硬體解碼接上產品路徑** — `RtspClient` 加 `-hwaccel`，或讓 `Tools/HeliVMS.Decoder`
    的命名管線真的被 `HeliVMS.App` 使用。32 路 = 32 個 CPU 軟體解碼行程是效能主因。
-2. **ffmpeg 行程治理** — 現行每路一個常駐行程，缺统一的行程池、重啟退避與健康度告警。
-3. **ONVIF 與 RTSP 測試覆蓋** — 兩者是「攝影機接不進來」時最先出錯的地方，
-   覆蓋率卻低於其他模組（`Media` 52 測試／`Devices` 147 測試）。
+2. **ONVIF 與 RTSP 測試覆蓋** — 兩者是「攝影機接不進來」時最先出錯的地方，
+   覆蓋率卻低於其他模組（`Media` 68 測試／`Devices` 152 測試）。
+
+> **ffmpeg 行程治理** 已於 M286 落地：全域 `FfmpegProcessRegistry`（解碼／錄影／發佈
+> 統一登錄、`FfmpegPoolSnapshot` 彙總、軟性容量逾量告警、最近失敗）＋共用
+> `FfmpegBackoff`（指數退避，解碼／錄影同一組數字；解碼端由固定 5 秒改為退避），
+> 並曝光於 `SystemHealthWindow` 與 `/api/system-metrics`。刻意只記錄、不強制終止行程。
 
 ## 14. 功能缺口分析與後續路線圖
 

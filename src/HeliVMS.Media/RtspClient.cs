@@ -27,22 +27,29 @@ public enum RtspState
 /// </summary>
 public sealed class RtspClient : IAsyncDisposable
 {
-    private const int RetryDelayMs = 5_000;
     private readonly string _ffmpeg;
     private readonly string _ffprobe;
     private readonly string? _hwAccel;
+    private readonly FfmpegProcessRegistry _registry;
     private readonly object _gate = new();
     private CancellationTokenSource? _cts;
     private Task? _loop;
     private Process? _process;
     private bool _disposed;
+    private int _consecutiveFailures;
 
-    public RtspClient(string rtspUrl, string? ffmpegPath = null, string? ffprobePath = null, string? hwAccel = null)
+    public RtspClient(
+        string rtspUrl,
+        string? ffmpegPath = null,
+        string? ffprobePath = null,
+        string? hwAccel = null,
+        FfmpegProcessRegistry? registry = null)
     {
         RtspUrl = rtspUrl;
         _ffmpeg = ffmpegPath ?? FfmpegLocator.Ffmpeg;
         _ffprobe = ffprobePath ?? FfmpegLocator.Ffprobe;
         _hwAccel = NormalizeHwAccel(hwAccel);
+        _registry = registry ?? FfmpegProcessRegistry.Shared;
     }
 
     /// <summary>
@@ -219,9 +226,14 @@ public sealed class RtspClient : IAsyncDisposable
                 IsRunning = false;
                 SetState(RtspState.Reconnecting);
                 Reconnecting?.Invoke(this, ex);
+
+                // 指數退避：離線的攝影機固定每 5 秒重試，只是在製造無用的交握與行程。
+                // 每次成功收到影格時 _consecutiveFailures 會歸零，故正常來源的短暫斷線
+                // 仍只等 5 秒。
+                _consecutiveFailures++;
                 try
                 {
-                    await Task.Delay(RetryDelayMs, token);
+                    await Task.Delay(FfmpegBackoff.DelayFor(_consecutiveFailures), token);
                 }
                 catch (OperationCanceledException)
                 {
@@ -273,6 +285,9 @@ public sealed class RtspClient : IAsyncDisposable
         using var proc = Process.Start(psi) ?? throw new InvalidOperationException("無法啟動 ffmpeg");
         _process = proc;
         IsRunning = true;
+
+        // 登錄到全域行程表：監看解碼 ffmpeg 是每顯示頻道一個的常駐子行程。
+        using var job = _registry.Register(FfmpegJobKind.Decode, RtspUri.Redact(RtspUrl));
 
         // 必須持續排乾 stderr：ffmpeg 遇連線異常會反覆輸出錯誤，若無人讀取，管線填滿
         // （Windows 約 64KB）後 ffmpeg 會阻塞在寫入而不再產出影格，導致正常的串流
@@ -370,6 +385,7 @@ var nowMs = sw.ElapsedMilliseconds;
                     PtsMs = nowMs,
                 };
                 firstFrame = false;
+                _consecutiveFailures = 0;
                 FrameDecoded?.Invoke(this, frame);
             }
         }
@@ -407,6 +423,19 @@ var nowMs = sw.ElapsedMilliseconds;
             LastDiagnostic = RtspUri.RedactText(string.Join(Environment.NewLine, tail));
 
             IsRunning = false;
+
+            // 非零退出＝ffmpeg 真的失敗（帳密錯、串流不合等），計入行程失敗統計。
+            try
+            {
+                if (proc.HasExited && proc.ExitCode != 0)
+                {
+                    job.Fail(LastDiagnostic);
+                }
+            }
+            catch (InvalidOperationException)
+            {
+                // 進程已被釋放；不影響診斷。
+            }
         }
     }
 

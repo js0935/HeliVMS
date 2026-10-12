@@ -18,6 +18,7 @@ public sealed class SegmentRecorder : ISegmentRecorder
     private readonly IProcessFactory _processFactory;
     private readonly Func<string, string> _audioEncoderArgsFor;
     private readonly Func<string>? _rootSelector;
+    private readonly FfmpegProcessRegistry _registry;
     private readonly CancellationTokenSource _cts = new();
     private Process? _process;
     private IProcess? _testProcess;
@@ -29,12 +30,14 @@ public sealed class SegmentRecorder : ISegmentRecorder
         SegmentRepository repo,
         IProcessFactory? processFactory = null,
         Func<string, string>? audioEncoderArgsFor = null,
-        Func<string>? rootSelector = null)
+        Func<string>? rootSelector = null,
+        FfmpegProcessRegistry? registry = null)
     {
         _repo = repo;
         _processFactory = processFactory ?? new DefaultProcessFactory();
         _audioEncoderArgsFor = audioEncoderArgsFor ?? DefaultAudioEncoderArgsFor;
         _rootSelector = rootSelector;
+        _registry = registry ?? FfmpegProcessRegistry.Shared;
     }
 
     public int ChannelId { get; private set; }
@@ -92,17 +95,7 @@ public sealed class SegmentRecorder : ISegmentRecorder
     /// 每天每頻道 288 筆以內，重連的反應時間最多只犧牲到 5 分鐘。
     /// </summary>
     public static TimeSpan RetryDelayFor(int consecutiveFailures)
-    {
-        if (consecutiveFailures <= 1)
-        {
-            return BaseRetryDelay;
-        }
-
-        // 位元位移在失敗次數很大時會溢出，所以先夾住再算。
-        var shift = Math.Min(consecutiveFailures - 1, 20);
-        var scaled = BaseRetryDelay.TotalMilliseconds * Math.Pow(2, shift);
-        return TimeSpan.FromMilliseconds(Math.Min(scaled, MaxRetryDelay.TotalMilliseconds));
-    }
+        => FfmpegBackoff.DelayFor(consecutiveFailures, BaseRetryDelay, MaxRetryDelay);
 
     private int _consecutiveFailures;
     private bool _stallReported;
@@ -345,6 +338,10 @@ public sealed class SegmentRecorder : ISegmentRecorder
         LastUtfError.Clear();
         _lastExitCode = null;
 
+        // 登錄到全域行程表：錄影 ffmpeg 是每頻道一個的常駐子行程，健康視窗要能一眼看到總量。
+        // 處置即代表此行程結束；非零退出另計為失敗。
+        using var job = _registry.Register(FfmpegJobKind.Record, $"ch{ChannelId:000}/{Stream}");
+
         try
         {
             await proc.WaitForExitAsync(token);
@@ -359,10 +356,16 @@ public sealed class SegmentRecorder : ISegmentRecorder
             }
 
             _process = null;
+            if (proc.ExitCode != 0)
+            {
+                job.Fail(stderr);
+            }
+
             return proc.ExitCode == 0;
         }
         catch (OperationCanceledException)
         {
+            job.Fail("錄影已取消");
             KillProcess();
             return false;
         }

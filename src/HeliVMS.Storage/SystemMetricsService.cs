@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using HeliVMS.Shared;
 
 namespace HeliVMS.Storage;
 
@@ -9,7 +10,15 @@ public sealed record SystemMetricsSnapshot(
     long WorkingSetMb,
     long ManagedHeapMb,
     double CpuPercent,
-    IReadOnlyList<SystemDiskMetric> Disks);
+    IReadOnlyList<SystemDiskMetric> Disks,
+    int FfmpegRunning,
+    int FfmpegDecode,
+    int FfmpegRecord,
+    int FfmpegPublish,
+    long FfmpegTotalStarted,
+    long FfmpegTotalFailed,
+    int FfmpegPeakConcurrent,
+    bool FfmpegOverCapacity);
 
 /// <summary>單一就緒磁碟之容量／可用／格式。</summary>
 public sealed record SystemDiskMetric(string Name, long TotalMb, long FreeMb, string Format);
@@ -48,13 +57,25 @@ public static class SystemMetricsService
             _diskHistory.TryDequeue(out _);
         }
 
+        // §13-2 行程治理：把全域 ffmpeg 子行程登錄表的彙總一併曝光，讓桌面／API 一眼看到
+        // 「這台現在開了幾條 ffmpeg、有沒有失控」——不必再逐視窗拼湊。
+        var ffmpeg = FfmpegProcessRegistry.Shared.Snapshot();
+
         return new SystemMetricsSnapshot(
             SqliteStore.Iso(DateTime.UtcNow),
             (long)Math.Max(0, uptime.TotalMinutes),
             proc.WorkingSet64 / (1024 * 1024),
             GC.GetTotalMemory(forceFullCollection: false) / (1024 * 1024),
             Math.Min(100, cpuPercent),
-            Disks());
+            Disks(),
+            ffmpeg.Running,
+            ffmpeg.Decode,
+            ffmpeg.Record,
+            ffmpeg.Publish,
+            ffmpeg.TotalStarted,
+            ffmpeg.TotalFailed,
+            ffmpeg.PeakConcurrent,
+            ffmpeg.OverCapacity);
     }
 
     /// <summary>單一記憶體趨勢點（M148 §14.8 #1 閉環）：每分鐘一筆之工作集將被保留於歷史佇列。</summary>

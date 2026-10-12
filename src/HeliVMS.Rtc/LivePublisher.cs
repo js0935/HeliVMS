@@ -35,7 +35,9 @@ public sealed class LivePublisher : IAsyncDisposable
     private readonly LiveEncodeOptions _encode;
     private readonly Func<string, CancellationToken, Task<FfmpegEncoderStatus>>? _probeEncoder;
     private readonly RedactingErrorBuffer _stderr = new();
+    private readonly FfmpegProcessRegistry _registry;
     private Process? _process;
+    private FfmpegProcessRegistry.FfmpegJob? _job;
 
     // 預設就是「沒有結束碼」：publisher 從未啟動過時若回傳 0，
     // 上層的錯誤訊息會說「ffmpeg 已結束（代碼 0）」，把「還沒跑」講成「正常結束」。
@@ -47,14 +49,19 @@ public sealed class LivePublisher : IAsyncDisposable
     /// 編碼器探測；傳 <c>null</c> 時走預設的 <see cref="FfmpegEncoderProbe"/>。
     /// 測試注入假探測，以免結果取決於 runner 上的 ffmpeg 建置。
     /// </param>
+    /// <param name="registry">
+    /// 行程登錄表（§13-2）；傳 <c>null</c> 時使用全域 <see cref="FfmpegProcessRegistry.Shared"/>。
+    /// </param>
     public LivePublisher(
         WhepOptions options,
         LiveEncodeOptions encode,
-        Func<string, CancellationToken, Task<FfmpegEncoderStatus>>? probeEncoder = null)
+        Func<string, CancellationToken, Task<FfmpegEncoderStatus>>? probeEncoder = null,
+        FfmpegProcessRegistry? registry = null)
     {
         _options = options;
         _encode = encode;
         _probeEncoder = probeEncoder;
+        _registry = registry ?? FfmpegProcessRegistry.Shared;
     }
 
     /// <summary>目前狀態。</summary>
@@ -129,6 +136,9 @@ public sealed class LivePublisher : IAsyncDisposable
         State = PublisherState.Starting;
         _stderr.Clear();
 
+        // 登錄到全域行程表：發佈 ffmpeg 是每個被觀看通道一個的常駐子行程。
+        _job = _registry.Register(FfmpegJobKind.Publish, "publish");
+
         // ffmpeg 的 stderr 會回顯 "Input #0, rtsp, from 'rtsp://user:pass@host/...'"。
         // 逐行讀並即時遮蔽，絕不讓明文帳密進到記錄或 API 回應裡。
         _ = Task.Run(async () =>
@@ -154,6 +164,7 @@ public sealed class LivePublisher : IAsyncDisposable
                 await process.WaitForExitAsync().ConfigureAwait(false);
                 _exitCode = process.ExitCode;
                 State = PublisherState.Faulted;
+                FinishJob(process.ExitCode != 0 ? _stderr.Text : null);
             }
             catch (Exception ex) when (ex is InvalidOperationException or ObjectDisposedException)
             {
@@ -231,7 +242,29 @@ public sealed class LivePublisher : IAsyncDisposable
         finally
         {
             process.Dispose();
+            FinishJob(null);
         }
+    }
+
+    /// <summary>
+    /// 結束目前的工作租約（若仍持有）。<paramref name="failureDetail"/> 非 null 時計為失敗。
+    /// 以 <see cref="Interlocked.Exchange{T}(ref T, T)"/> 交換，確保行程退出任務與
+    /// <see cref="StopAsync"/> 只會各自結束一次。
+    /// </summary>
+    private void FinishJob(string? failureDetail)
+    {
+        var job = Interlocked.Exchange(ref _job, null);
+        if (job is null)
+        {
+            return;
+        }
+
+        if (failureDetail is not null)
+        {
+            job.Fail(failureDetail);
+        }
+
+        job.Dispose();
     }
 
     public async ValueTask DisposeAsync()

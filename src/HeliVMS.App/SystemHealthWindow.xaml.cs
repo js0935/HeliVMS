@@ -64,6 +64,19 @@ public partial class SystemHealthWindow : Window
                 s.ManagedHeapMb,
                 s.CpuPercent.ToString("0.#", CultureInfo.InvariantCulture));
 
+            // §13-2 行程治理：彙總所有 ffmpeg 子行程（解碼／錄影／發佈），逾量時加註警語。
+            HealthFfmpegText.Text = string.Format(
+                CultureInfo.InvariantCulture,
+                Localizer.T("Health.Ffmpeg"),
+                s.FfmpegRunning,
+                s.FfmpegDecode,
+                s.FfmpegRecord,
+                s.FfmpegPublish,
+                s.FfmpegPeakConcurrent,
+                s.FfmpegTotalStarted,
+                s.FfmpegTotalFailed)
+                + (s.FfmpegOverCapacity ? Localizer.T("Health.FfmpegOver") : string.Empty);
+
             HealthDiskList.ItemsSource = s.Disks
                 .Select(d => new
                 {

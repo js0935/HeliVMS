@@ -36,6 +36,22 @@ public sealed class SystemHealthContractTests
         Assert.Contains("CaptureHistory()", code);
     }
 
+    /// <summary>
+    /// §13-2 行程治理：健康窗必須顯示 ffmpeg 子行程的彙總（數量、分類、逾量告警）。
+    /// 缺了這一塊，維運仍只能逐視窗拼湊「這台開著幾條 ffmpeg」，治理等於沒做。
+    /// </summary>
+    [Fact]
+    public void 健康窗顯示ffmpeg子行程彙總()
+    {
+        var xaml = SourceContract.Read("src/HeliVMS.App/SystemHealthWindow.xaml");
+        Assert.Contains("HealthFfmpegText", xaml);
+
+        var refresh = SourceContract.BodyOf(SourceContract.Read(HealthCode), "Refresh");
+        Assert.Contains("HealthFfmpegText.Text", refresh);
+        Assert.Contains("FfmpegRunning", refresh);
+        Assert.Contains("FfmpegOverCapacity", refresh);
+    }
+
     private static string WiredHandler(string relativePath, string element)
     {
         var xaml = SourceContract.Read(relativePath);
