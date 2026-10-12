@@ -5,7 +5,7 @@
 > 所有里程碑均已 commit＋push、CI 全綠、工作目錄乾淨（下方數據皆為驗證過的真實值）。
 
 > **【整合更新 2026-10-12】M245–M272 及「設定中心選定錄影磁碟」等本機工作集已整理並提交**
-> （見最新 commit）：`RecordingStorage.cs` 曾於先前工作階段被寫檔工具弄壞——整檔塌成一行、
+> （commit `dc8dae7`，CI run 38186739092 全綠）：`RecordingStorage.cs` 曾於先前工作階段被寫檔工具弄壞——整檔塌成一行、
 > 轉義字元被吃掉、所有方法遺失——已依 `RecordingStorageTests` 與全部呼叫端（`Agent`、`WebApi`
 > `Program`／`RecordedSegmentPolicy`／`RetentionService`、`MainWindow`、`SettingsWindow`）重建
 > `ResolveRoot`／`ResolveRootFromEnvironment`／`ResolveConfiguredRoot`／`ListFixedDrives`／
@@ -13,7 +13,11 @@
 > --locked-mode` 成功、Release build 0/0、12 個測試專案逐一套跑全綠（含新增
 > `HeliVMS.Shared.Tests` 143）、Web vitest 231 綠。同時把 `HeliVMS.Shared.Tests` 補進 CI 測試清單
 > （先前在 slnx 內卻不在 CI 執行）、`*.lic`（單機機器綁定授權）列入 `.gitignore`、清掉工作區
-> 的暫存殘骸。**以下凡標「尚未 commit、CI 未跑」的本輪條目，狀態一律以本次提交與 CI 為準。**
+> 的暫存殘骸。同一個寫檔工具也在 `HeliVMS.slnx` 末端留下字面 `` `r`n ``（`</Solution>` 前）並吃掉結尾換行，
+> 一併重寫乾淨。另外 `Tools/LicenseKeyGen`（授權金鑰簽發工具）原本把登入密碼寫死在
+> `LoginWindow.xaml.cs`，本 repo 為公開 repository，已改為首次啟動讀環境變數
+> `HELIVMS_KEYGEN_PASSWORD`，缺檔且未設定時 fail-closed（既有 `password.dat` 不受影響）。
+> **以下凡標「尚未 commit、CI 未跑」的本輪條目，狀態一律以本次提交與 CI 為準。**
 
 ## 一句話總結
 HeliVMS 為一套**網路影像監控系統**（WPF 桌面應用：即時監看／回放／AI 事件中心／錄影排程）。
