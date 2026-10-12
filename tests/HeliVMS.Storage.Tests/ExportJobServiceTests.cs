@@ -118,4 +118,47 @@ public sealed class ExportJobServiceTests : IDisposable
         var done = jobs.Get(j1)!;
         Assert.Contains($"export-job{j1}", done.OutputPath);
     }
+
+    [Fact]
+    public async Task ProcessQueued_AutoAppliesStoredRedactionRegions()
+    {
+        new RedactionRepository(_store).Add(
+            RedactionSources.Clip, 100, 1, Base, 10, 20, 30, 40, filled: true, Base);
+        var jobs = new ExportJobRepository(_store);
+        jobs.Enqueue(1, "main", Base.AddMinutes(-2), Base.AddMinutes(2));
+
+        ExportRequest? captured = null;
+        var svc = new ExportJobService(_store, (request, ct) =>
+        {
+            captured = request;
+            File.WriteAllBytes(request.OutputPath, new byte[] { 9 });
+            return Task.FromResult(new ExportResult(request.OutputPath, "abc", 1, 1.0));
+        });
+
+        await svc.ProcessQueuedAsync(_dir);
+
+        Assert.NotNull(captured);
+        var roi = Assert.Single(captured!.RedactionRois!);
+        Assert.Equal(new RedactionRoi(10, 20, 30, 40, true), roi);
+    }
+
+    [Fact]
+    public async Task ProcessQueued_NoStoredRegions_LeavesRedactionNull()
+    {
+        var jobs = new ExportJobRepository(_store);
+        jobs.Enqueue(1, "main", Base.AddMinutes(-2), Base.AddMinutes(2));
+
+        ExportRequest? captured = null;
+        var svc = new ExportJobService(_store, (request, ct) =>
+        {
+            captured = request;
+            File.WriteAllBytes(request.OutputPath, new byte[] { 9 });
+            return Task.FromResult(new ExportResult(request.OutputPath, "abc", 1, 1.0));
+        });
+
+        await svc.ProcessQueuedAsync(_dir);
+
+        Assert.NotNull(captured);
+        Assert.Empty(captured!.RedactionRois!);
+    }
 }

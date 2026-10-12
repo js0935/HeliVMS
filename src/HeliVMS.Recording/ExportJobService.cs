@@ -54,17 +54,20 @@ public sealed class ExportJobService
             try
             {
                 ExportResult result;
+                var exporter = new ExportService(_store);
+                // §14.7 #4/#5：佇列匯出無逐筆 UI 可選，一律自動套用此頻道/範圍已登錄的遮蔽區域；
+                // 無登錄時 LoadStoredRois 回空集合，等同維持原本不遮蔽行為。
+                var redactionRois = exporter.LoadStoredRois(job.ChannelId, job.StartUtc, job.EndUtc);
                 if (_executor is not null)
                 {
                     result = await _executor(
-                        new ExportRequest(job.ChannelId, job.StartUtc, job.EndUtc, outputPath, null, true),
+                        new ExportRequest(job.ChannelId, job.StartUtc, job.EndUtc, outputPath, null, true, redactionRois),
                         ct);
                 }
                 else
                 {
-                    var exporter = new ExportService(_store);
                     result = await exporter.ExportAsync(
-                        new ExportRequest(job.ChannelId, job.StartUtc, job.EndUtc, outputPath, null, true),
+                        new ExportRequest(job.ChannelId, job.StartUtc, job.EndUtc, outputPath, null, true, redactionRois),
                         progress,
                         ct);
                 }
