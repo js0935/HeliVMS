@@ -2,6 +2,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Threading;
+using HeliVMS.Alarms;
 using HeliVMS.Shared.Models;
 using HeliVMS.Storage;
 
@@ -17,8 +18,14 @@ public partial class SmartwallWindow : Window
     private readonly AlarmEventRepository _events;
     private readonly AlarmTriageRepository _triage;
     private readonly ChannelRepository _channels;
+    private readonly SettingsRepository _settings;
     private readonly DispatcherTimer _timer = new() { Interval = TimeSpan.FromSeconds(3) };
     private readonly List<(long? ChannelId, Border Border)> _tileBorders = [];
+
+    // 看板告警 MQTT 派送（§14.7 #14）：沿用既有 notify.mqtt.* 主機／帳密，主題前綴固定。
+    private readonly MqttClient _mqtt = new();
+    private readonly SemaphoreSlim _mqttGate = new(1, 1);
+    private HashSet<long> _highlighted = [];
 
     private IReadOnlyList<BoardCell> _board = [];
     private long? _selectedTileId;
@@ -29,6 +36,7 @@ public partial class SmartwallWindow : Window
         _events = new AlarmEventRepository(store);
         _triage = new AlarmTriageRepository(store);
         _channels = new ChannelRepository(store);
+        _settings = new SettingsRepository(store);
         InitializeComponent();
         ApplyI18n();
 
@@ -38,7 +46,15 @@ public partial class SmartwallWindow : Window
         RefreshBoard();
         _timer.Tick += (_, _) => RefreshBoard();
         _timer.Start();
-        Closed += (_, _) => _timer.Stop();
+        Closed += (_, _) =>
+        {
+            _timer.Stop();
+            if (_mqttGate.Wait(TimeSpan.FromSeconds(2)))
+            {
+                try { _mqtt.Dispose(); }
+                finally { _mqttGate.Release(); }
+            }
+        };
     }
 
     private void ApplyI18n()
@@ -299,6 +315,56 @@ public partial class SmartwallWindow : Window
             ? Localizer.T("Smartwall.BoardEmpty")
             : string.Format(Localizer.T("Smartwall.BoardActive"), _board.Count);
         ApplyBoardHighlight();
+        DispatchBoardAlerts(events, now);
+    }
+
+    /// <summary>
+    /// 對「相對前次快照新進入高亮」的頻道做 MQTT 派送（§14.7 #14）。未設定 MQTT 時仍更新
+    /// 高亮集合（僅不送出），避免設定後把先前已高亮的頻道誤判為新事件。
+    /// </summary>
+    private void DispatchBoardAlerts(IReadOnlyList<SmartwallBoardEvent> events, DateTime nowUtc)
+    {
+        var entering = SmartwallBoardDispatcher.EnteringHighlight(_highlighted, _board, events, nowUtc);
+        _highlighted = SmartwallBoardDispatcher.HighlightedChannels(_board);
+
+        if (entering.Count == 0)
+        {
+            return;
+        }
+
+        var notify = NotificationSettings.Load(_settings);
+        if (!notify.MqttEnabled || string.IsNullOrWhiteSpace(notify.MqttHost))
+        {
+            return;
+        }
+
+        DispatchBatch(entering, notify.MqttHost!, notify.MqttPort, notify.MqttUser, notify.MqttPassword);
+    }
+
+    /// <summary>背景序號化派送（單一連線循序送，避免並行共用 <see cref="MqttClient"/>）；盡力而為不拋例外。</summary>
+    private void DispatchBatch(
+        IReadOnlyList<SmartwallBoardEvent> events, string host, int port, string? user, string? password)
+    {
+        _ = Task.Run(async () =>
+        {
+            await _mqttGate.WaitAsync().ConfigureAwait(false);
+            try
+            {
+                foreach (var e in events)
+                {
+                    SmartwallBoardDispatcher.Dispatch(
+                        _mqtt, e, host, port, SmartwallBoardDispatcher.DefaultTopicPrefix, user, password, e.OccurredAtUtc);
+                }
+            }
+            catch
+            {
+                // 派送為盡力而為：MQTT 不可用或已關窗不應影響看板。
+            }
+            finally
+            {
+                _mqttGate.Release();
+            }
+        });
     }
 
     private void ApplyBoardHighlight()

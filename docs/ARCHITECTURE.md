@@ -1249,7 +1249,7 @@ WebRTC/WHEP 即時監看與 MSE 回放（M244）。
 |---|---|---|---|---|---|
 | 1 | 身份整合 | **企業帳戶：LDAP / AD / OIDC SSO** | Milestone（Active Directory、OIDC SSO）、Synology | **本機帳號＋RBAC（PBKDF2＋失敗鎖定，M42 已實作）**＋OIDC 驗證/LDAP 設定（M50 `EnterpriseAuthService`）＋LDAP 連線層（M85 `LdapClient`）＋企業登入（M99 `LdapLoginBroker`＋`login_sessions` v36）＋**OIDC 授權碼＋PKCE 登入（M100 `OidcLoginFlow`）已落地** | **P1**（企業標案基本門檻） |
 | 2 | 影像 | **魚眼攝影機矯正（Dewarping）** | QNAP Qdewarp、Genetec、Synology | **魚眼矯正服務＋ffmpeg v360 filter（`DewarpService`/`DewarpFilter`/`DewarpWindow`）已落地** | P1（魚眼/全景漸普及） |
-| 3 | 事件營運 | **警報管理器（Alarm Manager）**：分診/指派/傳遞/進度狀態大面板 | Milestone Alarm Manager | 事件中心＋四態(§14.4)＋**分診面板（M47 alarm_triage）＋分診工作流 L1（M102 `alarm_notes`＋`alarm_escalations`＋`AlarmEscalationPolicy` SLA 升階，v38）已落地**；智慧牆大面板 UI 待續 | P1（營運效率亮點） |
+| 3 | 事件營運 | **警報管理器（Alarm Manager）**：分診/指派/傳遞/進度狀態大面板 | Milestone Alarm Manager | 事件中心＋四態(§14.4)＋**分診面板（M47 alarm_triage）＋分診工作流 L1（M102 `alarm_notes`＋`alarm_escalations`＋`AlarmEscalationPolicy` SLA 升階，v38）已落地**；**智慧牆大面板（M105/M106 `SmartwallWindow` 版面編輯＋警報看板，M280 MQTT 派送掛載）已落地** | P1（營運效率亮點） |
 | 4 | 影像 | **遮蔽回放/匯出（Redaction）** | Genetec Digital Evidence、Synology 遮蔽格式 | **遮蔽資料層＋BCL 處理引擎 L0（M101 `RedactionRepository`＋`RedactionProcessor`，v37）已落地**；**快照一鍵遮蔽已落地（M116 `SnapshotRedactor`＋`SnapshotRedactionService`）**；**錄影遮蔽匯出（`RedactionService` boxblur 重編碼）＋匯出自動套用已登錄區域（M275 `ExportService` filter_complex、`RedactionFilter` 實心遮罩、`ExportWindow` 勾選自動套用）已落地**；**回放即時遮蔽疊圖已落地（M279：`RedactionOverlay.Project` 由倉儲取回區域、`PlaybackWindow` 疊框標示、可切換）** | P1（個資法合規優先） |
 | 5 | 隱私 | **錄影遮蔽/模糊化（Redaction）** | Genetec Digital Evidence、Synology 快照模糊 | **遮蔽區域倉儲＋純 BCL 處理引擎 L0（M101 `RedactionRepository`＋`RedactionProcessor`，v37）已落地**；**快照一鍵遮蔽已落地（M116）**；**回放/匯出串接遮罩已落地（M275：`RedactionFilter` 支援實心/模糊、`ExportService.BuildFilterComplex` 合併浮水印、`ExportService.LoadStoredRois` 由倉儲取回、`ExportWindow` 勾選「自動套用已登錄遮蔽區域」；M276：`ExportJobService` 佇列匯出亦自動套用）**；**回放即時遮蔽疊圖已落地（M279：`PlaybackWindow` 以 `RedactionOverlay.Project` 疊框，紅＝實心、黃＝模糊，開關可切換）** | P1（個資法交付加分） |
 | 6 | AI | **模組化分析情境套件**：周界/靜止車輛/尾隨/區域防護/方向控制 | Genetec KiwiVision | 核心已規劃（§5.6 分析情境＋§5.7 追蹤＋§5.10 規則） | P2（能力開放，§19 銷售位元） |
@@ -1260,7 +1260,7 @@ WebRTC/WHEP 即時監看與 MSE 回放（M244）。
 | 11 | 地圖 | **智慧地圖深化**：視角扇形 FOV/深度 | Milestone Smart Map | **電子地圖（M41 `MapWindow`：樓層切換、圖釘含 camera 扇形視角 FOV、事件閃爍、雙向定位）已落地**；深度/設備自動布局待續 | P2 |
 | 12 | 錄影 | **Adaptive Streaming / SVR 品質自適應** | Milestone | **`BitrateGovernor`（錄影品質/幀率自適應控流）已落地**；SVR 跨設備協調待續 | P3 |
 | 13 | 邊緣 | **消費邊緣 AI 相機 metadata**（D2C/方向） | Genetec、Frigate | **L0 消費/軌跡/方向分類（M90）＋L1 持久化/查詢/分向摘要（M95 `EdgeSmartEventRepository` v33）已落地** | P3 |
-| 14 | 顯示 | **智慧牆（Smart Wall）多螢幕拼接控制** | Milestone Smart Wall | 僅雙螢幕(§11.3)；**智慧牆版面資料模型＋幾何校驗＋看板時間常數（M105 v39 `SmartwallLayoutRepository`＋`LayoutGrid`）＋警報看板引擎 L0（M106 `SmartwallAlertBoard`）已落地**；視訊牆 UI/派送掛載待續 | P3 |
+| 14 | 顯示 | **智慧牆（Smart Wall）多螢幕拼接控制** | Milestone Smart Wall | 僅雙螢幕(§11.3)；**智慧牆版面資料模型＋幾何校驗＋看板時間常數（M105 v39 `SmartwallLayoutRepository`＋`LayoutGrid`）＋警報看板引擎 L0（M106 `SmartwallAlertBoard`）已落地**；**桌面智慧牆視窗（版面編輯／方塊增刪／看板高亮）已落地（M105/M106 `SmartwallWindow`）**；**看板告警 MQTT 派送掛載（M280 `SmartwallBoardDispatcher`：相對前次快照新進入高亮的頻道，經既有 notify.mqtt.* 主機／帳密派送至每頻道 topic）已落地** | P3 |
 | 16 | 影像 | **快照一鍵遮蔽（快照隱私）** | Synology | **已落地（M116 `SnapshotRedactionService` 按 snapshot 區套用＋`RedactionRepository` 區位資料層）** | **P3** |
 | 17 | 偵測 | **VMD 靈敏度自動調校** | Milestone Auto-VMD | **`SensitivityAutoTuner`（事件率統計→升/降靈敏度建議，Alarms）已落地**；逐場景自動套用（M114 `SensitivityAutoApplier` clamp 寫回＋稽核）已落地 | P3 |
 

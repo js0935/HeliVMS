@@ -96,4 +96,98 @@ public sealed class SmartwallBoardDispatcherTests
         Assert.False(result.Ok);
         Assert.Equal(0, fake.PublishCalls);
     }
+
+    private static readonly System.DateTime Now =
+        new(2026, 1, 1, 0, 0, 10, System.DateTimeKind.Utc);
+
+    [Fact]
+    public void HighlightedChannels_只含高亮()
+    {
+        var board = new System.Collections.Generic.List<BoardCell>
+        {
+            new(1, "motion", "low", 1, true, System.TimeSpan.Zero),
+            new(2, "motion", "low", 2, false, System.TimeSpan.FromSeconds(30)),
+            new(3, "tamper", "high", 3, true, System.TimeSpan.Zero),
+        };
+
+        var highlighted = SmartwallBoardDispatcher.HighlightedChannels(board);
+
+        Assert.Equal(new long[] { 1, 3 }, highlighted.OrderBy(x => x).ToArray());
+    }
+
+    [Fact]
+    public void EnteringHighlight_新進入高亮只送一次()
+    {
+        var events = new System.Collections.Generic.List<SmartwallBoardEvent>
+        {
+            new(7, "motion", "high", Now, 2),
+        };
+        var board = new System.Collections.Generic.List<BoardCell>
+        {
+            new(7, "motion", "high", 1, true, System.TimeSpan.Zero),
+        };
+
+        var first = SmartwallBoardDispatcher.EnteringHighlight(new System.Collections.Generic.HashSet<long>(), board, events, Now);
+        Assert.Single(first);
+        Assert.Equal(7, first[0].ChannelId);
+        Assert.Equal(2, first[0].RuleOrder);
+
+        var highlighted = SmartwallBoardDispatcher.HighlightedChannels(board);
+        var second = SmartwallBoardDispatcher.EnteringHighlight(highlighted, board, events, Now);
+        Assert.Empty(second);
+    }
+
+    [Fact]
+    public void EnteringHighlight_依看板Rank排序()
+    {
+        var events = new System.Collections.Generic.List<SmartwallBoardEvent>
+        {
+            new(5, "tamper", "critical", Now, 1),
+            new(3, "motion", "low", Now, 5),
+        };
+        var board = new System.Collections.Generic.List<BoardCell>
+        {
+            new(5, "tamper", "critical", 1, true, System.TimeSpan.Zero),
+            new(3, "motion", "low", 2, true, System.TimeSpan.Zero),
+        };
+
+        var entering = SmartwallBoardDispatcher.EnteringHighlight(new System.Collections.Generic.HashSet<long>(), board, events, Now);
+
+        Assert.Equal(new long[] { 5, 3 }, entering.Select(e => e.ChannelId).ToArray());
+    }
+
+    [Fact]
+    public void EnteringHighlight_高亮消失後再現會再送()
+    {
+        var events = new System.Collections.Generic.List<SmartwallBoardEvent>
+        {
+            new(7, "motion", "high", Now, 2),
+        };
+        var highlightedBoard = new System.Collections.Generic.List<BoardCell>
+        {
+            new(7, "motion", "high", 1, true, System.TimeSpan.Zero),
+        };
+        var expiredBoard = new System.Collections.Generic.List<BoardCell>
+        {
+            new(7, "motion", "high", 1, false, System.TimeSpan.FromSeconds(30)),
+        };
+
+        // 高亮已過（仍留看板）→ 不派送，且高亮集合清空。
+        Assert.Empty(SmartwallBoardDispatcher.EnteringHighlight(new System.Collections.Generic.HashSet<long> { 7 }, expiredBoard, events, Now));
+        var afterExpiry = SmartwallBoardDispatcher.HighlightedChannels(expiredBoard);
+        Assert.Empty(afterExpiry);
+
+        // 再次高亮（新事件）→ 視為新進入。
+        Assert.Single(SmartwallBoardDispatcher.EnteringHighlight(afterExpiry, highlightedBoard, events, Now));
+    }
+
+    [Fact]
+    public void EnteringHighlight_空看板不回傳()
+    {
+        Assert.Empty(SmartwallBoardDispatcher.EnteringHighlight(
+            new System.Collections.Generic.HashSet<long>(),
+            new System.Collections.Generic.List<BoardCell>(),
+            new System.Collections.Generic.List<SmartwallBoardEvent>(),
+            Now));
+    }
 }

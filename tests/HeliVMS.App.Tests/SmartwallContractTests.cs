@@ -54,6 +54,19 @@ public sealed class SmartwallContractTests
         }
     }
 
+    [Fact]
+    public void 智慧牆窗把看板高亮經MQTT派送()
+    {
+        var code = SourceContract.Read(WallCode);
+        Assert.Contains("new SettingsRepository(", code);
+        Assert.Contains("NotificationSettings.Load(", code);
+        Assert.Contains("SmartwallBoardDispatcher.EnteringHighlight(", code);
+        Assert.Contains("SmartwallBoardDispatcher.Dispatch(", code);
+
+        // 派送必須由看板輪詢觸發，否則等於沒接線。
+        Assert.Contains("DispatchBoardAlerts(", SourceContract.BodyOf(code, "RefreshBoard"));
+    }
+
     private static string WiredHandler(string relativePath, string element)
     {
         var xaml = SourceContract.Read(relativePath);

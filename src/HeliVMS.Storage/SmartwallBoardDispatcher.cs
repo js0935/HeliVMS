@@ -31,6 +31,42 @@ public static class SmartwallBoardDispatcher
             rule_order = e.RuleOrder,
         }));
 
+    /// <summary>看板中處於高亮（發生於 <see cref="SmartwallTimings.AlarmHighlight"/> 內）的頻道集合。</summary>
+    public static HashSet<long> HighlightedChannels(IEnumerable<BoardCell> cells)
+        => cells.Where(c => c.Highlight).Select(c => c.ChannelId).ToHashSet();
+
+    /// <summary>
+    /// 相對前一次快照「新進入高亮」的頻道事件（前次未高亮、這次高亮），依看板 Rank 排序；
+    /// 每頻道取保留窗內最新事件以保留 RuleOrder。高亮持續期間不重複，故智慧牆只在告警首次
+    /// 發生時派送一次，不會每次輪詢都重送。
+    /// </summary>
+    public static IReadOnlyList<SmartwallBoardEvent> EnteringHighlight(
+        IReadOnlySet<long> previouslyHighlighted,
+        IReadOnlyList<BoardCell> current,
+        IReadOnlyList<SmartwallBoardEvent> events,
+        DateTime nowUtc)
+    {
+        ArgumentNullException.ThrowIfNull(previouslyHighlighted);
+        ArgumentNullException.ThrowIfNull(current);
+        ArgumentNullException.ThrowIfNull(events);
+
+        var entering = new List<SmartwallBoardEvent>();
+        foreach (var cell in current.OrderBy(c => c.Rank))
+        {
+            if (!cell.Highlight || previouslyHighlighted.Contains(cell.ChannelId))
+            {
+                continue;
+            }
+
+            if (SmartwallAlertBoard.LatestForChannel(events, cell.ChannelId, nowUtc) is { } e)
+            {
+                entering.Add(e);
+            }
+        }
+
+        return entering;
+    }
+
     /// <summary>
     /// 以單一別名埠連線（未連時）並 PUBLISH；回 <see cref="MqttPublishResult"/>。
     /// 失敗（host 空白／連線失敗／發布失敗）回 Fail 並附原因（不拋例外）。
