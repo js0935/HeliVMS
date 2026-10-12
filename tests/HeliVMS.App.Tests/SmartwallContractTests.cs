@@ -8,25 +8,25 @@ namespace HeliVMS.App.Tests;
 /// <para>
 /// 版面倉儲、網格校驗與警報牆快照引擎都已完成，Web 也已有 /api/smartwall/board，
 /// 但桌面端先前完全沒有入口——「視訊牆 UI/派送掛載待續」指的就是這個。
-/// 這份契約把主視窗入口與智慧牆窗對倉儲、看板引擎的接線釘住。
+/// 這份契約把設定中心（工具頁）入口與智慧牆窗對倉儲、看板引擎的接線釘住。
 /// </para>
 /// </summary>
 public sealed class SmartwallContractTests
 {
-    private const string MainCode = "src/HeliVMS.App/MainWindow.xaml.cs";
-    private const string MainXaml = "src/HeliVMS.App/MainWindow.xaml";
+    private const string SettingsCode = "src/HeliVMS.App/SettingsWindow.xaml.cs";
+    private const string SettingsXaml = "src/HeliVMS.App/SettingsWindow.xaml";
     private const string WallCode = "src/HeliVMS.App/SmartwallWindow.xaml.cs";
     private const string WallXaml = "src/HeliVMS.App/SmartwallWindow.xaml";
 
     [Fact]
-    public void 主視窗有智慧牆入口且接線()
+    public void 設定中心有智慧牆入口且接線()
     {
-        Assert.Equal("OnSmartwallClicked", WiredHandler(MainXaml, "SmartwallButton"));
+        Assert.Equal("OnSmartwallClicked", WiredHandler(SettingsXaml, "SmartwallButton"));
 
-        var handler = SourceContract.BodyOf(SourceContract.Read(MainCode), "OnSmartwallClicked");
+        var handler = SourceContract.BodyOf(SourceContract.Read(SettingsCode), "OnSmartwallClicked");
         Assert.Contains("OpenSmartwallWindow", handler);
 
-        var open = SourceContract.BodyOf(SourceContract.Read(MainCode), "OpenSmartwallWindow");
+        var open = SourceContract.BodyOf(SourceContract.Read(SettingsCode), "OpenSmartwallWindow");
         Assert.Contains("new SmartwallWindow(", open);
     }
 

@@ -63,6 +63,20 @@ public sealed class RecordingGateContractTests
     /// <summary>經接縫取得錄影機的呼叫點，與 <see cref="Creation"/> 同義。</summary>
     private const string FactoryCall = "_recorderFactory(";
 
+    /// <summary>
+    /// 「這次開錄帶了來源標籤」的兩種寫法。
+    ///
+    /// 排程器不再直接寫 <c>RecordingGateSources.X</c>，而是經
+    /// <c>RecordingIntent.GateSourceFor(mode)</c> 取得——「全時」與「排程」是兩個
+    /// 不同的來源，映射規則屬於「該不該錄」的一部分，該跟決策放在一起，
+    /// 不該散落在呼叫端。保證沒變。
+    /// </summary>
+    private static readonly string[] SourceTags =
+    [
+        "RecordingIntent.GateSourceFor(",
+        "RecordingGateSources.",
+    ];
+
     [Theory]
     [MemberData(nameof(RecordingStartSites))]
     public void 錄影起點必須先問錄影閘門(string file, string method)
@@ -97,8 +111,17 @@ public sealed class RecordingGateContractTests
     {
         // CheckRecording 的稽核以「頻道＋理由＋來源」去重；不帶來源就會被混算成同一筆。
         var body = SourceContract.BodyOf(SourceContract.Read(file), method);
+        var gate = body.IndexOf(GateCall + "(", StringComparison.Ordinal);
+        Assert.True(gate >= 0, $"{file} 的 {method} 沒有問錄影閘門（{GateCall}）");
 
-        Assert.Matches(@"RecordingGateSources\.\w+", body);
+        // 必須在閘門呼叫「之前」就把來源備好。只在方法後面某處提到來源不算數：
+        // 排序反過來時，同樣的原始碼會看起來通過，實際上傳進閘門的仍是空來源。
+        // 這個坑真的踩過一輪——放寬成「方法體內出現來源字樣」之後，
+        // 排程器停止錄影時記稽核用的 GateSourceFor 讓這個檢查變成永遠通過。
+        var beforeGate = body[..gate];
+        Assert.True(
+            SourceTags.Any(tag => beforeGate.Contains(tag, StringComparison.Ordinal)),
+            $"{file} 的 {method} 問閘門時沒有帶來源：稽核會把人工、排程與全時混算成同一筆");
     }
 
     [Fact]

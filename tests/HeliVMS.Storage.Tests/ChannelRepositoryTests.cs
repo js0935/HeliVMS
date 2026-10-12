@@ -76,6 +76,88 @@ public sealed class ChannelRepositoryTests : IDisposable
         Assert.Equal(RecordingMode.Event, got.RecordingMode);
     }
 
+    /// <summary>
+    /// 停用頻道必須真的存得住、讀得回來。
+    ///
+    /// <c>enabled</c> 之前只存在於 C# 的 <c>ChannelInfo</c>，資料庫沒有對應欄位，
+    /// SELECT 與 UPDATE 兩端都沒接上——讀回來永遠是 true。所以操作員在設定頁關掉
+    /// 一台故障攝影機，關閉「成功」，重新開啟設定頁它又是啟用的，錄影排程也照樣
+    /// 往它開錄。沒有錯誤、沒有警告，只是那台壞掉的攝影機整天在寫壞掉的片段。
+    /// </summary>
+    [Fact]
+    public void 停用頻道會存得住且讀得回來()
+    {
+        var id = _channels.Add("Cam1", "rtsp://10.0.0.5/1");
+
+        var before = _channels.Get(id);
+        Assert.NotNull(before);
+        Assert.True(before.Enabled);
+
+        _channels.Update(new ChannelInfo
+        {
+            Id = id,
+            Name = "Cam1",
+            MainStreamUrl = "rtsp://10.0.0.5/1",
+            Enabled = false,
+        });
+
+        var got = _channels.Get(id);
+        Assert.NotNull(got);
+        Assert.False(got.Enabled);
+
+        // List 是排程器讀頻道的路徑；只在 Get 生效等於排程還是會看到停用的頻道。
+        Assert.False(_channels.List().Single(c => c.Id == id).Enabled);
+    }
+
+    /// <summary>
+    /// 新增頻道時要能直接指定錄影模式。
+    ///
+    /// 這個參數以前不存在，新頻道只能落成資料庫預設值；設定頁要設「排程」，
+    /// 得先新增、再編輯、再存一次，中間那一步使用者以為沒生效就關掉了。
+    /// </summary>
+    [Fact]
+    public void 新增頻道可以指定錄影模式()
+    {
+        var id = _channels.Add("Cam2", "rtsp://10.0.0.5/2", recordingMode: RecordingMode.Scheduled);
+
+        var got = _channels.Get(id);
+        Assert.NotNull(got);
+        Assert.Equal(RecordingMode.Scheduled, got.RecordingMode);
+    }
+
+    /// <summary>
+    /// 指定的監看格位必須真的存得住、讀得回來，並且能清回「自動」。
+    /// 這個欄位若只留在 UI 記憶體、沒進資料庫，重開設定頁或重啟後格位就會跳回自動排列，
+    /// 使用者只會覺得「設定沒生效」而找不到原因。
+    /// </summary>
+    [Fact]
+    public void 指定監看格位會存得住且可清回自動()
+    {
+        var id = _channels.Add("Cam1", "rtsp://10.0.0.5/1");
+
+        Assert.Null(_channels.Get(id)!.DisplayCell);
+
+        _channels.Update(new ChannelInfo
+        {
+            Id = id,
+            Name = "Cam1",
+            MainStreamUrl = "rtsp://10.0.0.5/1",
+            DisplayCell = 3,
+        });
+        Assert.Equal(3, _channels.Get(id)!.DisplayCell);
+        // 清單是監看格位重排的來源路徑，只在 Get 生效等於畫面還是不會變。
+        Assert.Equal(3, _channels.List().Single(c => c.Id == id).DisplayCell);
+
+        _channels.Update(new ChannelInfo
+        {
+            Id = id,
+            Name = "Cam1",
+            MainStreamUrl = "rtsp://10.0.0.5/1",
+            DisplayCell = null,
+        });
+        Assert.Null(_channels.Get(id)!.DisplayCell);
+    }
+
     [Fact]
     public void 更新不存在的頻道不會新增資料列()
     {

@@ -1395,7 +1395,25 @@ public static class ApiEndpoints
         DateTime from,
         DateTime to)
     {
-        var items = segments.ListByRange(channelId, stream, Utc(from), Utc(to));
+        var fromUtc = Utc(from);
+        var toUtc = Utc(to);
+        if (toUtc <= fromUtc)
+        {
+            await WriteError(context, StatusCodes.Status400BadRequest, "時段上限不可早於下限");
+            return;
+        }
+
+        // 上限與播放清單一致。分段是 15 秒一檔，24 小時就是 5,760 筆；
+        // 沒有這個上限時一個「查最近一個月」的請求會撈出 17 萬筆，
+        // 整包序列化成 JSON 會吃掉幾百 MB——遠端主控台一個查詢就能讓服務記憶體暴增，
+        // 而且使用者其實只會用到最後幾筆。
+        if (toUtc - fromUtc > MaxPlaylistWindow)
+        {
+            await WriteError(context, StatusCodes.Status400BadRequest, "單次查詢區段最多 24 小時，請縮小時段");
+            return;
+        }
+
+        var items = segments.ListByRange(channelId, stream, fromUtc, toUtc);
         var publicItems = items.Select(static s => new SegmentListItem(
             s.Id, s.ChannelId, s.Stream, s.StartUtc, s.EndUtc, s.SizeBytes, s.DurationSec, s.Format, s.Status, s.Sha256)).ToArray();
         await context.Response.WriteAsJsonAsync(new Paged<SegmentListItem>(publicItems, publicItems.Length));

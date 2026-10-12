@@ -1,3 +1,5 @@
+using HeliVMS.Shared;
+
 namespace HeliVMS.Rtc;
 
 /// <summary>
@@ -47,8 +49,8 @@ public sealed class WhepOptions
     /// <summary>publisher 啟動後等待第一個 RTP 封包的逾時；逾時視為啟動失敗。</summary>
     public TimeSpan PublisherStartTimeout { get; init; } = TimeSpan.FromSeconds(30);
 
-    /// <summary>ffmpeg 執行檔路徑。</summary>
-    public string FfmpegPath { get; init; } = "ffmpeg";
+    /// <summary>ffmpeg 執行檔路徑（預設：安裝目錄內建 → HELIVMS_FFMPEG → PATH）。</summary>
+    public string FfmpegPath { get; init; } = FfmpegLocator.Ffmpeg;
 
     /// <summary>
     /// 由「以 key 查值的委派」建立設定，容忍格式錯誤並退回預設。
@@ -78,7 +80,7 @@ public sealed class WhepOptions
             PublisherIdleTimeout = ParseSeconds(Read("PUBLISHER_IDLE_SECONDS"), 30, name: "PUBLISHER_IDLE_SECONDS", onInvalid: onInvalid),
             SessionIdleTimeout = ParseSeconds(Read("SESSION_IDLE_SECONDS"), 30, name: "SESSION_IDLE_SECONDS", onInvalid: onInvalid),
             PublisherStartTimeout = ParseSeconds(Read("PUBLISHER_START_SECONDS"), 30, name: "PUBLISHER_START_SECONDS", onInvalid: onInvalid),
-            FfmpegPath = Read("FFMPEG") ?? "ffmpeg",
+            FfmpegPath = Read("FFMPEG") ?? FfmpegLocator.Ffmpeg,
         };
     }
 

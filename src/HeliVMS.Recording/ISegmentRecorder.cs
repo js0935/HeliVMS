@@ -16,6 +16,26 @@ namespace HeliVMS.Recording;
 /// </summary>
 public interface ISegmentRecorder : IAsyncDisposable
 {
+    /// <summary>
+    /// 連續多段都沒錄成時觸發一次（恢復成功後才會再觸發下一次）。
+    ///
+    /// 放在契約裡而不是只有 <see cref="SegmentRecorder"/>，是因為唯一該在意的
+    /// 消費者是 <see cref="RecordingScheduler"/>：它要把這個事件寫成稽核，
+    /// 而它只能看到介面。少了這裡，「錄影機啟動了卻沒在錄」就永遠沒有記錄。
+    /// </summary>
+    event EventHandler<RecordingStallInfo>? RecordingStalled;
+
+    /// <summary>
+    /// 曾停滯而如今成功錄回檔（參數為頻道 ID）。
+    /// </summary>
+    /// <remarks>
+    /// 同樣必須在契約裡：排程與 UI 都要靠它把「錄影異常」清掉。若只有
+    /// <see cref="SegmentRecorder"/> 有，訂閱介面的一方（排程）就收不到，
+    /// 警示只能靠逾時猜測——而顯示串流與錄影串流是兩條獨立連線，
+    /// 停滯時畫面照常有幀，任何「畫面有動就算好了」的判斷都會立刻誤清警示。
+    /// </remarks>
+    event EventHandler<int>? RecordingResumed;
+
     /// <summary>開始錄影。<paramref name="rtspUrl"/> 來自頻道設定，<paramref name="recordingsRoot"/> 為錄影根目錄。</summary>
     Task StartAsync(
         int channelId,

@@ -20,6 +20,49 @@ public partial class SchedulingWindow : Window
         _store = store;
         _channels = new ChannelRepository(store);
         _repo = new RecordingScheduleRepository(store);
+        ApplyI18n();
+    }
+
+    private void ApplyI18n()
+    {
+        Title = Localizer.T("Schedule.Title");
+        ScheduleFormHeader.Text = Localizer.T("Schedule.FormHeader");
+        ScheduleChannelLabel.Text = Localizer.T("Schedule.Channel");
+        ScheduleWeekdayLabel.Text = Localizer.T("Schedule.Weekday");
+        ScheduleStartLabel.Text = Localizer.T("Schedule.StartLabel");
+        ScheduleEndLabel.Text = Localizer.T("Schedule.EndLabel");
+        SunBox.Content = Localizer.T("Schedule.DaySun");
+        SunBox.ToolTip = Localizer.T("Schedule.DaySunTip");
+        MonBox.Content = Localizer.T("Schedule.DayMon");
+        MonBox.ToolTip = Localizer.T("Schedule.DayMonTip");
+        TueBox.Content = Localizer.T("Schedule.DayTue");
+        TueBox.ToolTip = Localizer.T("Schedule.DayTueTip");
+        WedBox.Content = Localizer.T("Schedule.DayWed");
+        WedBox.ToolTip = Localizer.T("Schedule.DayWedTip");
+        ThuBox.Content = Localizer.T("Schedule.DayThu");
+        ThuBox.ToolTip = Localizer.T("Schedule.DayThuTip");
+        FriBox.Content = Localizer.T("Schedule.DayFri");
+        FriBox.ToolTip = Localizer.T("Schedule.DayFriTip");
+        SatBox.Content = Localizer.T("Schedule.DaySat");
+        SatBox.ToolTip = Localizer.T("Schedule.DaySatTip");
+        EnabledBox.Content = Localizer.T("Schedule.Enable");
+        EnabledBox.ToolTip = Localizer.T("Schedule.EnableTip");
+        AddButton.Content = Localizer.T("Schedule.Add");
+        AddButton.ToolTip = Localizer.T("Schedule.AddTip");
+        UpdateButton.Content = Localizer.T("Schedule.Update");
+        UpdateButton.ToolTip = Localizer.T("Schedule.UpdateTip");
+        ClearButton.Content = Localizer.T("Schedule.Clear");
+        ClearButton.ToolTip = Localizer.T("Schedule.ClearTip");
+        HintText.Text = Localizer.T("Schedule.Hint");
+        ScheduleListHeader.Text = Localizer.T("Schedule.ListHeader");
+        ScheduleColChannel.Header = Localizer.T("Schedule.ColChannel");
+        ScheduleColDays.Header = Localizer.T("Schedule.ColWeekday");
+        ScheduleColTime.Header = Localizer.T("Schedule.ColTime");
+        ScheduleColState.Header = Localizer.T("Schedule.ColState");
+        ToggleButton.Content = Localizer.T("Schedule.Toggle");
+        ToggleButton.ToolTip = Localizer.T("Schedule.ToggleTip");
+        DeleteButton.Content = Localizer.T("Schedule.Delete");
+        DeleteButton.ToolTip = Localizer.T("Schedule.DeleteTip");
     }
 
     private sealed class ScheduleRow
@@ -34,7 +77,7 @@ public partial class SchedulingWindow : Window
 
         public bool Enabled { get; init; }
 
-        public string StateLabel => Enabled ? "啟用" : "停用";
+        public string StateLabel => Enabled ? Localizer.T("Schedule.Enabled") : Localizer.T("Schedule.Disabled");
 
         public Brush StateBrush => Enabled ? Brushes.LightGreen : Brushes.Gray;
     }
@@ -46,10 +89,6 @@ public partial class SchedulingWindow : Window
         ChannelCombo.DisplayMemberPath = nameof(ChannelInfo.Name);
         ChannelCombo.SelectedIndex = list.Count > 0 ? 0 : -1;
         RefreshList();
-    }
-
-    private void OnClosing(object sender, System.ComponentModel.CancelEventArgs e)
-    {
     }
 
     private void RefreshList()
@@ -71,12 +110,22 @@ public partial class SchedulingWindow : Window
     {
         if (mask == 127)
         {
-            return "每天";
+            return Localizer.T("Schedule.Everyday");
         }
 
-        var days = new[] { "日", "一", "二", "三", "四", "五", "六" };
+        var days = new[]
+        {
+            Localizer.T("Schedule.DaySun"),
+            Localizer.T("Schedule.DayMon"),
+            Localizer.T("Schedule.DayTue"),
+            Localizer.T("Schedule.DayWed"),
+            Localizer.T("Schedule.DayThu"),
+            Localizer.T("Schedule.DayFri"),
+            Localizer.T("Schedule.DaySat"),
+        };
+        var sep = Localizer.T("Schedule.DaySep");
         var parts = new List<string>();
-        for (var i = 0; i < 7; i++)
+        for (var i = 0; i < days.Length; i++)
         {
             if ((mask & (1 << i)) != 0)
             {
@@ -84,7 +133,7 @@ public partial class SchedulingWindow : Window
             }
         }
 
-        return parts.Count > 0 ? string.Join("", parts) : "（無）";
+        return parts.Count > 0 ? string.Join(sep, parts) : Localizer.T("Schedule.NoneDay");
     }
 
     private static string FormatMinute(int minute) => $"{minute / 60:00}:{minute % 60:00}";
@@ -129,14 +178,14 @@ public partial class SchedulingWindow : Window
     {
         if (ChannelCombo.SelectedItem is not ChannelInfo ch)
         {
-            HintText.Text = "請先選擇頻道。";
+            HintText.Text = Localizer.T("Schedule.PickChannel");
             return null;
         }
 
         if (!TryParseTime(StartBox.Text, out var start) ||
             !TryParseTime(EndBox.Text, out var end))
         {
-            HintText.Text = "開始／結束時間格式須為 HH:mm。";
+            HintText.Text = Localizer.T("Schedule.TimeFormat");
             return null;
         }
 
@@ -161,7 +210,7 @@ public partial class SchedulingWindow : Window
 
         _editingId = 0;
         _repo.Upsert(rec with { Id = 0 });
-        HintText.Text = "已新增排程（服務將於下個檢查週期套用）。";
+        HintText.Text = Localizer.T("Schedule.Added");
         RefreshList();
         ClearForm();
     }
@@ -180,7 +229,7 @@ public partial class SchedulingWindow : Window
         }
 
         _repo.Upsert(rec with { Id = _editingId });
-        HintText.Text = "已更新排程。";
+        HintText.Text = Localizer.T("Schedule.Updated");
         ClearForm();
         RefreshList();
     }
@@ -232,7 +281,7 @@ public partial class SchedulingWindow : Window
         EnabledBox.IsChecked = rec.Enabled;
         AddButton.IsEnabled = false;
         UpdateButton.IsEnabled = true;
-        HintText.Text = "編輯中：修改後按「更新」。";
+        HintText.Text = Localizer.T("Schedule.Editing");
     }
 
     private void OnToggleClicked(object sender, RoutedEventArgs e)
@@ -264,7 +313,7 @@ public partial class SchedulingWindow : Window
             ClearForm();
         }
 
-        HintText.Text = "已刪除排程。";
+        HintText.Text = Localizer.T("Schedule.Deleted");
         RefreshList();
     }
 }

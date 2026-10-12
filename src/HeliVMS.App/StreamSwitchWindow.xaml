@@ -2,7 +2,7 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         AutomationProperties.AutomationId="StreamWindow"
-        Title="HeliVMS 雙碼流切流"
+        Title=""
         Width="900" Height="560"
         WindowStartupLocation="CenterOwner"
         Background="#0B1622" Foreground="White">
@@ -15,36 +15,36 @@
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
-        <TextBlock Grid.Row="0" Text="雙碼流 Smart 切流（M77，§15.2）：以 StreamSwitcher 評估事件熱度/頻寬水準/收視需求，採納建議後更新各頻道現行串流"
+        <TextBlock x:Name="DescriptionText" Grid.Row="0" Text=""
                    Foreground="{StaticResource Brand.TextDim}" FontSize="11" TextWrapping="Wrap"/>
 
         <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,10,0,0">
-            <TextBlock Text="頻道" VerticalAlignment="Center" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+            <TextBlock x:Name="ChannelLabelText" Text="" VerticalAlignment="Center" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
             <ComboBox x:Name="StreamChannelCombo" AutomationProperties.AutomationId="StreamChannelCombo"
                       Width="180" Margin="8,0,0,0" Foreground="Black"/>
 
-            <TextBlock Text="主碼率/秒" VerticalAlignment="Center" Margin="18,0,0,0" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+            <TextBlock x:Name="BitrateLabelText" Text="" VerticalAlignment="Center" Margin="18,0,0,0" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
             <TextBox x:Name="StreamBitrateText" AutomationProperties.AutomationId="StreamBitrateText"
                      Width="90" Margin="6,0,0,0" Text="10000000" Foreground="Black"/>
 
-            <TextBlock Text="收視" VerticalAlignment="Center" Margin="18,0,0,0" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+            <TextBlock x:Name="ViewersLabelText" Text="" VerticalAlignment="Center" Margin="18,0,0,0" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
             <TextBox x:Name="StreamViewersText" AutomationProperties.AutomationId="StreamViewersText"
                      Width="50" Margin="6,0,0,0" Text="2" Foreground="Black"/>
 
-            <TextBlock Text="維持(s)" VerticalAlignment="Center" Margin="18,0,0,0" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+            <TextBlock x:Name="HoldLabelText" Text="" VerticalAlignment="Center" Margin="18,0,0,0" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
             <TextBox x:Name="StreamHoldText" AutomationProperties.AutomationId="StreamHoldText"
                      Width="50" Margin="6,0,0,0" Text="5" Foreground="Black"/>
 
-            <Button x:Name="StreamBurstButton" AutomationProperties.AutomationId="StreamBurstButton" ToolTip="模擬事件爆量（壓力測試）"
-                    Content="事件爆量" Click="OnBurstClicked"
+            <Button x:Name="StreamBurstButton" AutomationProperties.AutomationId="StreamBurstButton" ToolTip=""
+                    Content="" Click="OnBurstClicked"
                     Width="90" Padding="0,6" Margin="14,0,0,0"
                     Foreground="White" Background="#7A2A2A" BorderThickness="0"/>
-            <Button x:Name="StreamEvalButton" AutomationProperties.AutomationId="StreamEvalButton" ToolTip="以目前參數評估分流決策"
-                    Content="評估" Click="OnEvalClicked"
+            <Button x:Name="StreamEvalButton" AutomationProperties.AutomationId="StreamEvalButton" ToolTip=""
+                    Content="" Click="OnEvalClicked"
                     Width="70" Padding="0,6" Margin="10,0,0,0"
                     Foreground="White" Background="#2A6A9A" BorderThickness="0"/>
-            <Button x:Name="StreamApplyButton" AutomationProperties.AutomationId="StreamApplyButton" ToolTip="套用目前的分流設定"
-                    Content="套用" Click="OnApplyClicked"
+            <Button x:Name="StreamApplyButton" AutomationProperties.AutomationId="StreamApplyButton" ToolTip=""
+                    Content="" Click="OnApplyClicked"
                     Width="70" Padding="0,6" Margin="10,0,0,0"
                     Foreground="White" Background="#3A5A2A" BorderThickness="0"/>
         </StackPanel>
@@ -54,10 +54,10 @@
                   SelectionMode="Single">
             <ListView.View>
                 <GridView>
-                    <GridViewColumn Header="頻道" Width="80" DisplayMemberBinding="{Binding ChannelText}"/>
-                    <GridViewColumn Header="現行" Width="70" DisplayMemberBinding="{Binding CurrentText}"/>
-                    <GridViewColumn Header="上次切換" Width="140" DisplayMemberBinding="{Binding LastSwitchText}"/>
-                    <GridViewColumn Header="最近評估" Width="220" DisplayMemberBinding="{Binding DecisionText}"/>
+                    <GridViewColumn x:Name="StreamColChannel" Header="" Width="80" DisplayMemberBinding="{Binding ChannelText}"/>
+                    <GridViewColumn x:Name="StreamColCurrent" Header="" Width="70" DisplayMemberBinding="{Binding CurrentText}"/>
+                    <GridViewColumn x:Name="StreamColLastSwitch" Header="" Width="140" DisplayMemberBinding="{Binding LastSwitchText}"/>
+                    <GridViewColumn x:Name="StreamColDecision" Header="" Width="220" DisplayMemberBinding="{Binding DecisionText}"/>
                 </GridView>
             </ListView.View>
         </ListView>

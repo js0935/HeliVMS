@@ -7,9 +7,10 @@ namespace HeliVMS.App.Tests;
 ///
 /// <para>
 /// 授權契約（<see cref="LicenseEntryPointContractTests"/>）防的是「藏了按鈕但 handler 沒擋旗標」，
-/// 角色限制有一模一樣的形狀：<c>MainWindow.ApplyRoleRestrictions</c> 會把管理功能對 viewer 設成
-/// <c>IsEnabled = false</c>，但那只是關掉滑鼠——真正負責硬擋的是 handler 裡的
+/// 角色限制有一模一樣的形狀：<c>MainWindow.ApplyRoleRestrictions</c>（過去）會把管理功能對 viewer
+/// 設成 <c>IsEnabled = false</c>，但那只是關掉滑鼠——真正負責硬擋的是 handler 裡的
 /// <c>RequireAdmin()</c>／<c>SessionContext.IsAdmin</c>。少了它，viewer 用鍵盤或程式化呼叫照樣進得去。
+/// 主視窗已無需停用的入口，故停用表格留空；<see cref="HandlerOnly"/> 才是現在的守備重點。
 /// </para>
 ///
 /// <para>
@@ -23,48 +24,35 @@ public sealed class RbacEntryPointContractTests
     /// <summary>
     /// <c>ApplyRoleRestrictions</c> 對 viewer 停用的按鈕：接線到的 handler（必要時追一層轉呼叫）
     /// 必須擋管理員。表格與 <c>ApplyRoleRestrictions</c> 雙向對帳。
+    ///
+    /// 監控中心的手動連線／錄影按鈕已移除，改為開機自動連線與全時錄影，因此目前沒有需要對
+    /// viewer 停用的入口，表格刻意留空；<c>ApplyRoleRestrictions</c> 也隨之變成空方法。
+    /// 一旦重新加入需要停用的按鈕，兩邊都必須補回來，否則會計數不符而紅燈。
     /// </summary>
-    private static readonly (string Window, string Element, string Handler)[] ViewerDisabled =
-    [
-        ("MainWindow", "SettingsButton", "OnSettingsClicked"),
-        ("MainWindow", "ExportButton", "OnExportClicked"),
-        ("MainWindow", "ExportCenterButton", "OnExportCenterClicked"),
-        ("MainWindow", "RedactionButton", "OnRedactionClicked"),
-        ("MainWindow", "DewarpButton", "OnDewarpClicked"),
-        ("MainWindow", "ReportsButton", "OnReportsClicked"),
-        ("MainWindow", "RulesButton", "OnRulesClicked"),
-        ("MainWindow", "SynopsisButton", "OnSynopsisClicked"),
-        ("MainWindow", "LegalHoldButton", "OnLegalHoldClicked"),
-        ("MainWindow", "AuditButton", "OnAuditClicked"),
-        ("MainWindow", "AddChannelButton", "OnAddChannelClicked"),
-        ("MainWindow", "OnvifButton", "OnOnvifClicked"),
-        ("MainWindow", "ScheduleButton", "OnScheduleClicked"),
-        ("MainWindow", "PatrolButton", "OnPatrolClicked"),
-        ("MainWindow", "PtzButton", "OnPtzClicked"),
-        ("MainWindow", "RecordButton", "OnRecordClicked"),
-        ("MainWindow", "FailoverButton", "OnFailoverClicked"),
-        ("MainWindow", "AudioButton", "OnAudioClicked"),
-    ];
+    private static readonly (string Window, string Element, string Handler)[] ViewerDisabled = [];
 
     /// <summary>
     /// 沒有對 viewer 停用、但動作本身限管理員的入口（例如事件中心 CSV 匯出與匯出中心同權限）。
     /// 這種「看得到、按下去才被擋」的入口，handler 是唯一的防線，同樣要進契約。
+    /// 監控中心的管理工具已於「功能整合」搬進設定中心的工具頁，因此改以 SettingsWindow 對帳。
     /// </summary>
     private static readonly (string Window, string Element, string Handler)[] HandlerOnly =
     [
         ("EventCenterWindow", "ExportCsvButton", "OnExportCsvClicked"),
+        ("SettingsWindow", "ExportButton", "OnExportClicked"),
+        ("SettingsWindow", "ExportCenterButton", "OnExportCenterClicked"),
+        ("SettingsWindow", "RedactionButton", "OnRedactionClicked"),
+        ("SettingsWindow", "DewarpButton", "OnDewarpClicked"),
+        ("SettingsWindow", "ReportsButton", "OnReportsClicked"),
+        ("SettingsWindow", "RulesButton", "OnRulesClicked"),
+        ("SettingsWindow", "SynopsisButton", "OnSynopsisClicked"),
+        ("SettingsWindow", "LegalHoldButton", "OnLegalHoldClicked"),
+        ("SettingsWindow", "AuditButton", "OnAuditClicked"),
+        ("SettingsWindow", "PtzButton", "OnPtzClicked"),
+        ("SettingsWindow", "PatrolButton", "OnPatrolClicked"),
+        ("SettingsWindow", "AudioButton", "OnAudioClicked"),
+        ("SettingsWindow", "FailoverButton", "OnFailoverClicked"),
     ];
-
-    public static TheoryData<string, string, string> ViewerDisabledButtons()
-    {
-        var data = new TheoryData<string, string, string>();
-        foreach (var (window, element, handler) in ViewerDisabled)
-        {
-            data.Add(window, element, handler);
-        }
-
-        return data;
-    }
 
     public static TheoryData<string, string, string> HandlerOnlyButtons()
     {
@@ -78,16 +66,6 @@ public sealed class RbacEntryPointContractTests
     }
 
     [Theory]
-    [MemberData(nameof(ViewerDisabledButtons))]
-    public void 停用給viewer的按鈕_handler要擋管理員(string window, string element, string handler)
-    {
-        Assert.True(
-            EnforcesAdmin(window, handler),
-            $"{window}.{element} 對 viewer 停用，但 {handler} 沒有 RequireAdmin()／SessionContext.IsAdmin："
-            + "viewer 用鍵盤或程式化呼叫照樣進得去");
-    }
-
-    [Theory]
     [MemberData(nameof(HandlerOnlyButtons))]
     public void 只在handler擋管理員的入口_仍要擋(string window, string element, string handler)
     {
@@ -97,7 +75,6 @@ public sealed class RbacEntryPointContractTests
     }
 
     [Theory]
-    [MemberData(nameof(ViewerDisabledButtons))]
     [MemberData(nameof(HandlerOnlyButtons))]
     public void 契約表的按鈕與XAML接線一致(string window, string element, string handler)
     {

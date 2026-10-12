@@ -45,6 +45,26 @@ public class OnvifServiceCompatibilityTests
     }
 
     [Fact]
+    public async Task GetInfo_DigestDevice_Authorization不帶algorithm參數()
+    {
+        // 廠牌差異（實測 HOEM 白牌 IPC）：挑戰宣告 algorithm=MD5，但 Authorization 帶上
+        // algorithm=MD5 反而一直回 401；省略該參數（RFC 7616 預設即 MD5）才通過。
+        var handler = new ScriptedHandler((request, _) =>
+            request.Headers.Authorization is null
+                ? OnvifTestHttp.Status(HttpStatusCode.Unauthorized, wwwAuthenticate: DigestChallenge)
+                : request.Headers.Authorization.ToString().Contains("algorithm=", StringComparison.Ordinal)
+                    ? OnvifTestHttp.Status(HttpStatusCode.Unauthorized, wwwAuthenticate: DigestChallenge)
+                    : OnvifTestHttp.Soap(OnvifTestHttp.DeviceInfoXml));
+
+        using var service = new OnvifDeviceService(DeviceXAddr, "admin", "secret", handler, NoRetry);
+        var info = await service.GetInfoAsync();
+
+        Assert.Equal("HIKVISION", info.Manufacturer);
+        Assert.NotNull(handler.Requests[1].Authorization);
+        Assert.DoesNotContain("algorithm=", handler.Requests[1].Authorization!, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task GetInfo_WithHttpBasicChallenge_SendsBasicHeader()
     {
         var handler = new ScriptedHandler((request, _) =>
@@ -117,16 +137,71 @@ public class OnvifServiceCompatibilityTests
         var info = await service.GetInfoAsync();
 
         Assert.Equal("HIKVISION", info.Manufacturer);
-        Assert.Equal(3, handler.CallCount);
+
+        // GetDeviceInformation(Digest→Fault) + 匿名時鐘探測(→Fault) + GetDeviceInformation(Text→OK)
+        // + GetSystemDateAndTime(Text→OK)
+        Assert.Equal(4, handler.CallCount);
         Assert.Contains(
             "http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-username-token-profile-1.0#PasswordDigest",
             handler.Requests[0].Body,
             StringComparison.Ordinal);
         Assert.Contains(
             "http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-username-token-profile-1.0#PasswordText",
-            handler.Requests[1].Body,
+            handler.Requests[2].Body,
             StringComparison.Ordinal);
-        Assert.Contains(">secret<", handler.Requests[1].Body, StringComparison.Ordinal);
+        Assert.Contains(">secret<", handler.Requests[2].Body, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// 實測海康：設備時鐘慢主機 30 分鐘時，正確帳密的 PasswordDigest 被回「sender not authorized」。
+    /// 應先匿名查詢設備時間量測偏差，校正 UsernameToken 的 Created 後以同一（Digest）模式重試成功，
+    /// 而非誤判為帳密錯誤或降級為明碼。
+    /// </summary>
+    [Fact]
+    public async Task GetInfo_設備時鐘偏差過大_匿名查詢設備時間校正時間戳後成功()
+    {
+        var handler = ClockSkewedDevice(TimeSpan.FromMinutes(-30));
+
+        using var service = new OnvifDeviceService(DeviceXAddr, "admin", "secret", handler, NoRetry);
+        var info = await service.GetInfoAsync();
+
+        Assert.Equal("HIKVISION", info.Manufacturer);
+
+        // [0] 初次以本機時間送出的 GetDeviceInformation（未校正）→ 遭拒
+        var initial = ReadCreatedUtc(handler.Requests[0].Body);
+        Assert.NotNull(initial);
+        Assert.True((initial!.Value - DateTimeOffset.UtcNow).Duration() < TimeSpan.FromMinutes(5));
+
+        // [1] 匿名查詢設備時間（不帶 WS-Security 時間戳）
+        Assert.Null(ReadCreatedUtc(handler.Requests[1].Body));
+
+        // [2] 重試的 GetDeviceInformation，Created 已校正至設備時鐘（慢 30 分鐘）
+        Assert.Contains("GetDeviceInformation", handler.Requests[2].Body, StringComparison.Ordinal);
+        var corrected = ReadCreatedUtc(handler.Requests[2].Body);
+        Assert.NotNull(corrected);
+        Assert.True(corrected!.Value < DateTimeOffset.UtcNow - TimeSpan.FromMinutes(20));
+
+        // 時鐘校正成功即不應再降級為明碼
+        Assert.DoesNotContain(handler.Requests, r => r.Body.Contains("#PasswordText", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task GetInfo_設備時鐘偏差但關閉自動校正_仍回報未授權()
+    {
+        var handler = ClockSkewedDevice(TimeSpan.FromMinutes(-30));
+
+        using var service = new OnvifDeviceService(
+            DeviceXAddr,
+            "admin",
+            "secret",
+            handler,
+            NoRetry with { AutoClockSkew = false });
+
+        var error = await Assert.ThrowsAsync<OnvifException>(() => service.GetInfoAsync());
+        Assert.Equal(OnvifErrorCode.Unauthorized, error.Code);
+
+        // 停用後不應匿名查詢設備時間：每個請求都應帶 WS-Security 時間戳
+        Assert.All(handler.Requests, r => Assert.NotNull(ReadCreatedUtc(r.Body)));
     }
 
     [Fact]
@@ -265,6 +340,48 @@ public class OnvifServiceCompatibilityTests
 
         var error = await Assert.ThrowsAsync<OnvifException>(() => service.GetProfilesAsync());
         Assert.Equal(OnvifErrorCode.NotSupported, error.Code);
+    }
+
+    [Fact]
+    public async Task GetProfiles_Capabilities缺少Media_改用GetServices解析()
+    {
+        // 部分 ONVIF 2.x 設備的 GetCapabilities 回應不含 Media 節點，但 GetServices 完整列出
+        var handler = new ScriptedHandler((_, body) =>
+            body.Contains("GetCapabilities", StringComparison.Ordinal)
+                ? OnvifTestHttp.Soap(OnvifTestHttp.Capabilities(("Device", "http://192.168.1.64/onvif/device_service")))
+                : body.Contains("GetServices", StringComparison.Ordinal)
+                    ? OnvifTestHttp.Soap(OnvifTestHttp.Services(
+                        ("http://www.onvif.org/ver10/media/wsdl", "http://192.168.1.64/onvif/Media")))
+                    : body.Contains("GetProfiles", StringComparison.Ordinal)
+                        ? OnvifTestHttp.Soap(ProfilesFixture())
+                        : OnvifTestHttp.Soap(OnvifTestHttp.StreamUri("rtsp://192.168.1.64/stream")));
+
+        using var service = new OnvifDeviceService(DeviceXAddr, null, null, handler, NoRetry);
+        await service.GetProfilesAsync();
+
+        Assert.Equal("http://192.168.1.64/onvif/Media", service.MediaXAddr);
+        Assert.Contains(handler.Requests, r => r.Body.Contains("GetServices", StringComparison.Ordinal));
+
+        // 已由 GetServices 取得端點，不應再退回路徑探測
+        Assert.DoesNotContain(handler.Requests, r => r.Url.Contains("/onvif/media_service", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task EnsurePtzCapability_Capabilities缺少Ptz_改用GetServices解析()
+    {
+        var handler = new ScriptedHandler((_, body) =>
+            body.Contains("GetCapabilities", StringComparison.Ordinal)
+                ? OnvifTestHttp.Soap(OnvifTestHttp.Capabilities(("Device", "http://192.168.1.64/onvif/device_service")))
+                : body.Contains("GetServices", StringComparison.Ordinal)
+                    ? OnvifTestHttp.Soap(OnvifTestHttp.Services(
+                        ("http://www.onvif.org/ver10/ptz/wsdl", "http://192.168.1.64/onvif/ptz_service")))
+                    : OnvifTestHttp.Soap(OnvifTestHttp.StreamUri("rtsp://192.168.1.64/stream")));
+
+        using var service = new OnvifDeviceService(DeviceXAddr, null, null, handler, NoRetry);
+        await service.EnsurePtzCapabilityAsync();
+
+        Assert.True(service.HasPtz);
+        Assert.Equal("http://192.168.1.64/onvif/ptz_service", service.PtzXAddr);
     }
 
     [Fact]
@@ -571,4 +688,53 @@ public class OnvifServiceCompatibilityTests
 
     private static string ProfilesFixture() => OnvifTestHttp.Profiles(
         [("MainProfile", "主碼流", 1920, 1080, "H264", "VideoSource0")]);
+
+    /// <summary>
+    /// 模擬時鐘偏差的 ONVIF 設備：具 WS-Security 時間戳的請求，若 Created 未落在設備時間
+    /// ±5 分鐘內即回 ter:NotAuthorized；匿名請求則回報設備目前時間。
+    /// </summary>
+    private static ScriptedHandler ClockSkewedDevice(TimeSpan deviceOffset) =>
+        new((_, body) =>
+        {
+            var created = ReadCreatedUtc(body);
+            if (created is not null &&
+                (created.Value - (DateTimeOffset.UtcNow + deviceOffset)).Duration() > TimeSpan.FromMinutes(5))
+            {
+                // 實測海康以泛用 fault code 回報，真正線索在 Reason 文字；藉此覆蓋文字判斷路徑
+                return OnvifTestHttp.Soap(OnvifTestHttp.Fault("soap:Sender", "sender not authorized"));
+            }
+
+            return body.Contains("GetSystemDateAndTime", StringComparison.Ordinal)
+                ? OnvifTestHttp.Soap(OnvifTestHttp.SystemDateAndTime(DateTimeOffset.UtcNow + deviceOffset))
+                : OnvifTestHttp.Soap(OnvifTestHttp.DeviceInfoXml);
+        });
+
+    /// <summary>取出請求封包中 WS-Security 的 Created 時間戳（UTC）；無則回 null。</summary>
+    private static DateTimeOffset? ReadCreatedUtc(string body)
+    {
+        if (string.IsNullOrWhiteSpace(body))
+        {
+            return null;
+        }
+
+        XDocument document;
+        try
+        {
+            document = XDocument.Parse(body);
+        }
+        catch (System.Xml.XmlException)
+        {
+            return null;
+        }
+
+        var created = document.Descendants().FirstOrDefault(e => e.Name.LocalName == "Created");
+        return created is not null &&
+               DateTimeOffset.TryParse(
+                   created.Value,
+                   System.Globalization.CultureInfo.InvariantCulture,
+                   System.Globalization.DateTimeStyles.AssumeUniversal | System.Globalization.DateTimeStyles.AdjustToUniversal,
+                   out var value)
+            ? value
+            : null;
+    }
 }

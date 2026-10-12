@@ -13,6 +13,15 @@ public static class AuditCategories
 
     /// <summary>授權啟用／到期／改版／時鐘回流（§19.4、§19.8）。</summary>
     public const string License = "license";
+
+    /// <summary>
+    /// 錄影機啟停。
+    ///
+    /// 獨立在 config 之外，因為要回答的問題不同：config 回答「誰改了設定」，
+    /// 這裡回答「誰在錄、從哪條路徑開的」。使用者設了全時而系統照錄，和排程把
+    /// 沒有排程的頻道拉起來，兩者該走的處理完全不同，混在 config 裡就分不出來。
+    /// </summary>
+    public const string Recording = "recording";
 }
 
 /// <summary>稽核日誌項目（M109，v40 `audit_log`）。</summary>

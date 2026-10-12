@@ -25,6 +25,7 @@ public partial class ShareWindow : Window
         _links = new ShareLinkService(store);
 
         InitializeComponent();
+        ApplyI18n();
 
         // remote 旗標限定（M220）：分享是對外的唯一外洩面，未授權時連建立鈕都不留。
         new LicenseUiGate(store).Apply(ShareCreateButton, LicenseFeatures.Remote);
@@ -39,6 +40,39 @@ public partial class ShareWindow : Window
         }
 
         Reload();
+    }
+
+    /// <summary>
+    /// 套用目前語系到共享視窗的固定文字（M57 §14.7）。XAML 已無硬編中文，文字集中於此，
+    /// 由 WpfI18nContractTests 的棘輪釘住三語齊備。
+    /// </summary>
+    private void ApplyI18n()
+    {
+        Title = Localizer.T("Share.Title");
+        DescriptionText.Text = Localizer.T("Share.Description");
+        PathLabelText.Text = Localizer.T("Share.Path");
+        ShareBrowseButton.Content = Localizer.T("Share.Browse");
+        ShareBrowseButton.ToolTip = Localizer.T("Share.BrowseTip");
+        KindLabelText.Text = Localizer.T("Share.Kind");
+        LabelLabelText.Text = Localizer.T("Share.Label");
+        ExpireLabelText.Text = Localizer.T("Share.Expire");
+        MaxUsesLabelText.Text = Localizer.T("Share.MaxUses");
+        PasswordLabelText.Text = Localizer.T("Share.Password");
+        ShareCreateButton.Content = Localizer.T("Share.Create");
+        ShareCreateButton.ToolTip = Localizer.T("Share.CreateTip");
+        ShareColTitle.Header = Localizer.T("Share.ColTitle");
+        ShareColStatus.Header = Localizer.T("Share.ColStatus");
+        ShareColUser.Header = Localizer.T("Share.ColUser");
+        ShareRefreshButton.Content = Localizer.T("Share.Refresh");
+        ShareRefreshButton.ToolTip = Localizer.T("Share.RefreshTip");
+        ShareCopyButton.Content = Localizer.T("Share.CopyLink");
+        ShareCopyButton.ToolTip = Localizer.T("Share.CopyLinkTip");
+        ShareRevokeButton.Content = Localizer.T("Share.Revoke");
+        ShareRevokeButton.ToolTip = Localizer.T("Share.RevokeTip");
+        ShareDeleteButton.Content = Localizer.T("Share.Delete");
+        ShareDeleteButton.ToolTip = Localizer.T("Share.DeleteTip");
+        SharePurgeButton.Content = Localizer.T("Share.Purge");
+        SharePurgeButton.ToolTip = Localizer.T("Share.PurgeTip");
     }
 
     private sealed record ShareRow(long Id, string Token, string Title, string Detail, string CreatedBy);
@@ -56,24 +90,31 @@ public partial class ShareWindow : Window
         foreach (var record in _links.List())
         {
             var status = record.Revoked
-                ? "已撤銷"
+                ? Localizer.T("Share.StatusRevoked")
                 : record.ExpiresAt is { Length: > 0 } exp && SqliteStore.FromIso(exp) <= now
-                    ? "已過期"
+                    ? Localizer.T("Share.StatusExpired")
                     : record.MaxUses > 0 && record.UseCount >= record.MaxUses
-                        ? "次數用盡"
-                        : "有效";
+                        ? Localizer.T("Share.StatusExhausted")
+                        : Localizer.T("Share.StatusActive");
 
             var expiry = record.ExpiresAt is { Length: > 0 } e
                 ? $"{SqliteStore.FromIso(e):MM-dd HH:mm}"
-                : "不限";
+                : Localizer.T("Share.ExpiryNone");
             var uses = record.MaxUses > 0 ? $"{record.UseCount}/{record.MaxUses}" : $"{record.UseCount}/∞";
-            var lockLabel = record.HasPassword ? "加密" : "公開";
+            var lockLabel = record.HasPassword ? Localizer.T("Share.LockEncrypted") : Localizer.T("Share.LockPublic");
+
+            var title = string.Format(
+                Localizer.T("Share.RowTitle"),
+                record.Id,
+                record.Kind,
+                record.Label ?? Localizer.T("Share.NoLabel"),
+                record.Token[..Math.Min(10, record.Token.Length)]);
 
             rows.Add(new ShareRow(
                 record.Id,
                 record.Token,
-                $"#{record.Id} {record.Kind} {record.Label ?? "(無標籤)"} {record.Token[..Math.Min(10, record.Token.Length)]}…",
-                $"{status}｜到期 {expiry}｜用 {uses}｜{lockLabel}",
+                title,
+                string.Format(Localizer.T("Share.RowDetail"), status, expiry, uses, lockLabel),
                 record.CreatedBy ?? "—"));
         }
 
@@ -84,7 +125,7 @@ public partial class ShareWindow : Window
     {
         var dlg = new Microsoft.Win32.OpenFileDialog
         {
-            Title = "選擇要分享的檔案",
+            Title = Localizer.T("Share.PickTitle"),
             InitialDirectory = Directory.Exists(_dataRoot) ? _dataRoot : null,
         };
 
@@ -130,11 +171,11 @@ public partial class ShareWindow : Window
                 password);
 
             var link = BuildLink(record.Token);
-            ShareStatusText.Text = $"已建立分享連結：{link}";
+            ShareStatusText.Text = string.Format(Localizer.T("Share.Created"), link);
             try
             {
                 Clipboard.SetText(link);
-                ShareStatusText.Text += "（已複製到剪貼簿）";
+                ShareStatusText.Text += Localizer.T("Share.CopiedSuffix");
             }
             catch (Exception)
             {
@@ -145,7 +186,7 @@ public partial class ShareWindow : Window
         }
         catch (Exception ex)
         {
-            ShareStatusText.Text = $"建立失敗：{ex.Message}";
+            ShareStatusText.Text = string.Format(Localizer.T("Share.CreateFailed"), ex.Message);
         }
     }
 
@@ -157,7 +198,7 @@ public partial class ShareWindow : Window
     {
         if (Selected is not { } row)
         {
-            ShareStatusText.Text = "請先選擇一個分享連結。";
+            ShareStatusText.Text = Localizer.T("Share.NeedSelect");
             return;
         }
 
@@ -165,11 +206,11 @@ public partial class ShareWindow : Window
         try
         {
             Clipboard.SetText(link);
-            ShareStatusText.Text = $"已複製：{link}";
+            ShareStatusText.Text = string.Format(Localizer.T("Share.Copied"), link);
         }
         catch (Exception ex)
         {
-            ShareStatusText.Text = $"複製失敗（{ex.Message}）：{link}";
+            ShareStatusText.Text = string.Format(Localizer.T("Share.CopyFailed"), ex.Message, link);
         }
     }
 
@@ -177,12 +218,12 @@ public partial class ShareWindow : Window
     {
         if (Selected is not { } row)
         {
-            ShareStatusText.Text = "請先選擇一個分享連結。";
+            ShareStatusText.Text = Localizer.T("Share.NeedSelect");
             return;
         }
 
         _links.Revoke((int)row.Id);
-        ShareStatusText.Text = $"已撤銷分享連結 #{row.Id}。";
+        ShareStatusText.Text = string.Format(Localizer.T("Share.Revoked"), row.Id);
         Reload();
     }
 
@@ -190,19 +231,19 @@ public partial class ShareWindow : Window
     {
         if (Selected is not { } row)
         {
-            ShareStatusText.Text = "請先選擇一個分享連結。";
+            ShareStatusText.Text = Localizer.T("Share.NeedSelect");
             return;
         }
 
         _links.Delete((int)row.Id);
-        ShareStatusText.Text = $"已刪除分享連結 #{row.Id}。";
+        ShareStatusText.Text = string.Format(Localizer.T("Share.Deleted"), row.Id);
         Reload();
     }
 
     private void OnPurgeClicked(object sender, RoutedEventArgs e)
     {
         var removed = _links.PurgeExpired(DateTime.UtcNow);
-        ShareStatusText.Text = $"已清除 {removed} 筆過期分享連結。";
+        ShareStatusText.Text = string.Format(Localizer.T("Share.Purged"), removed);
         Reload();
     }
 }

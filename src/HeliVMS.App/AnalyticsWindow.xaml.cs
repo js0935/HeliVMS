@@ -19,6 +19,7 @@ public partial class AnalyticsWindow : Window
         _store = store;
 
         InitializeComponent();
+        ApplyI18n();
 
         var channels = LoadChannels();
         AnalyticsChannelCombo.ItemsSource = channels;
@@ -27,9 +28,9 @@ public partial class AnalyticsWindow : Window
             AnalyticsChannelCombo.SelectedIndex = 0;
         }
 
-        AnalyticsModuleCombo.ItemsSource = AnalyticsModuleCatalog.All;
+        AnalyticsModuleCombo.ItemsSource = BuildModules();
         AnalyticsModuleCombo.SelectedIndex = 0;
-        AnalyticsDirectionCombo.ItemsSource = new[] { AnalyticsDirections.Both, AnalyticsDirections.AToB, AnalyticsDirections.BToA };
+        AnalyticsDirectionCombo.ItemsSource = BuildDirections();
         AnalyticsDirectionCombo.SelectedIndex = 0;
         AnalyticsPolygonBox.Text = "0.2,0.2;0.8,0.2;0.8,0.8;0.2,0.8";
         AnalyticsMinCountBox.Text = "0";
@@ -37,6 +38,72 @@ public partial class AnalyticsWindow : Window
 
         Reload();
     }
+
+    private void ApplyI18n()
+    {
+        Title = Localizer.T("Analytics.Title");
+        AnalyticsDescText.Text = Localizer.T("Analytics.FormDesc");
+        AnalyticsNameLabel.Text = Localizer.T("Analytics.Name");
+        AnalyticsChannelLabel.Text = Localizer.T("Analytics.Channel");
+        AnalyticsModuleLabel.Text = Localizer.T("Analytics.Module");
+        AnalyticsDirectionLabel.Text = Localizer.T("Analytics.Direction");
+        AnalyticsPolygonLabel.Text = Localizer.T("Analytics.Polygon");
+        AnalyticsMinCountLabel.Text = Localizer.T("Analytics.MinCount");
+        AnalyticsDwellLabel.Text = Localizer.T("Analytics.DwellSec");
+        AnalyticsAddButton.Content = Localizer.T("Analytics.Add");
+        AnalyticsAddButton.ToolTip = Localizer.T("Analytics.AddTip");
+        AnalyticsListHeaderText.Text = Localizer.T("Analytics.ListHeader");
+        AnalyticsColName.Header = Localizer.T("Analytics.ColName");
+        AnalyticsColModule.Header = Localizer.T("Analytics.Module");
+        AnalyticsColChannel.Header = Localizer.T("Analytics.Channel");
+        AnalyticsColState.Header = Localizer.T("Analytics.ColState");
+        AnalyticsColGeometry.Header = Localizer.T("Analytics.ColGeometry");
+        AnalyticsRefreshButton.Content = Localizer.T("Analytics.Refresh");
+        AnalyticsRefreshButton.ToolTip = Localizer.T("Analytics.RefreshTip");
+        AnalyticsToggleButton.Content = Localizer.T("Analytics.Toggle");
+        AnalyticsToggleButton.ToolTip = Localizer.T("Analytics.ToggleTip");
+        AnalyticsEvaluateButton.Content = Localizer.T("Analytics.Evaluate");
+        AnalyticsEvaluateButton.ToolTip = Localizer.T("Analytics.EvaluateTip");
+        AnalyticsDeleteButton.Content = Localizer.T("Analytics.Delete");
+        AnalyticsDeleteButton.ToolTip = Localizer.T("Analytics.DeleteTip");
+    }
+
+    private static readonly Dictionary<string, string> ModuleKeyMap = new()
+    {
+        [AnalyticsModuleKinds.LineCross] = "Analytics.ModLineCross",
+        [AnalyticsModuleKinds.Intrusion] = "Analytics.ModIntrusion",
+        [AnalyticsModuleKinds.Crowd] = "Analytics.ModCrowd",
+        [AnalyticsModuleKinds.Loitering] = "Analytics.ModLoitering",
+        [AnalyticsModuleKinds.Stationary] = "Analytics.ModStationary",
+        [AnalyticsModuleKinds.Traffic] = "Analytics.ModTraffic",
+        [AnalyticsModuleKinds.Heatmap] = "Analytics.ModHeatmap",
+        [AnalyticsModuleKinds.Tailgating] = "Analytics.ModTailgating",
+    };
+
+    private static readonly Dictionary<string, string> DirectionKeyMap = new()
+    {
+        [AnalyticsDirections.Both] = "Analytics.DirBoth",
+        [AnalyticsDirections.AToB] = "Analytics.DirAToB",
+        [AnalyticsDirections.BToA] = "Analytics.DirBToA",
+    };
+
+    private sealed record ModuleOption(string Module, string Label);
+
+    private sealed record DirectionOption(string Direction, string Label);
+
+    private static string ModuleLabel(string module)
+        => ModuleKeyMap.TryGetValue(module, out var key) ? Localizer.T(key) : module;
+
+    private static string DirectionLabel(string direction)
+        => DirectionKeyMap.TryGetValue(direction, out var key) ? Localizer.T(key) : direction;
+
+    private static List<ModuleOption> BuildModules()
+        => AnalyticsModuleCatalog.All.Select(m => new ModuleOption(m.Module, ModuleLabel(m.Module))).ToList();
+
+    private static List<DirectionOption> BuildDirections()
+        => new[] { AnalyticsDirections.Both, AnalyticsDirections.AToB, AnalyticsDirections.BToA }
+            .Select(d => new DirectionOption(d, DirectionLabel(d)))
+            .ToList();
 
     private readonly SqliteStore _store;
 
@@ -84,7 +151,6 @@ public partial class AnalyticsWindow : Window
         var rows = new List<ZoneRow>();
         foreach (var record in _zones.List())
         {
-            var info = AnalyticsModuleCatalog.For(record.Module);
             var points = AnalyticsGeometry.ParsePoints(record.Polygon);
             var channel = names.TryGetValue(record.ChannelId, out var n)
                 ? $"#{record.ChannelId} {n}"
@@ -93,10 +159,10 @@ public partial class AnalyticsWindow : Window
             rows.Add(new ZoneRow(
                 record.Id,
                 record.Name,
-                info?.DisplayName ?? record.Module,
+                ModuleLabel(record.Module),
                 channel,
-                record.Enabled ? "啟用" : "停用",
-                $"{points.Count} 點｜{record.Direction}｜min={record.MinCount}｜dwell={record.DwellSeconds}s"));
+                record.Enabled ? Localizer.T("Analytics.Enabled") : Localizer.T("Analytics.Disabled"),
+                string.Format(Localizer.T("Analytics.GeometryCell"), points.Count, DirectionLabel(record.Direction), record.MinCount, record.DwellSeconds)));
         }
 
         AnalyticsList.ItemsSource = rows;
@@ -107,20 +173,20 @@ public partial class AnalyticsWindow : Window
     private void OnRefreshClicked(object sender, RoutedEventArgs e)
     {
         Reload();
-        AnalyticsStatusText.Text = "已刷新分析區清單。";
+        AnalyticsStatusText.Text = Localizer.T("Analytics.Refreshed");
     }
 
     private void OnAddClicked(object sender, RoutedEventArgs e)
     {
         if (AnalyticsChannelCombo.SelectedItem is not ChannelRow channel)
         {
-            AnalyticsStatusText.Text = "新增失敗：請先建立頻道。";
+            AnalyticsStatusText.Text = Localizer.T("Analytics.NeedChannel");
             return;
         }
 
-        if (AnalyticsModuleCombo.SelectedItem is not AnalyticsModuleCatalog.ModuleInfo module)
+        if (AnalyticsModuleCombo.SelectedItem is not ModuleOption module)
         {
-            AnalyticsStatusText.Text = "新增失敗：請選擇模組。";
+            AnalyticsStatusText.Text = Localizer.T("Analytics.NeedModule");
             return;
         }
 
@@ -128,20 +194,20 @@ public partial class AnalyticsWindow : Window
         {
             var minCount = int.TryParse(AnalyticsMinCountBox.Text, out var mc) ? mc : 0;
             var dwell = int.TryParse(AnalyticsDwellBox.Text, out var dw) ? dw : 0;
-            var direction = AnalyticsDirectionCombo.SelectedItem as string ?? AnalyticsDirections.Both;
+            var direction = AnalyticsDirectionCombo.SelectedItem is DirectionOption dir ? dir.Direction : AnalyticsDirections.Both;
 
             var name = string.IsNullOrWhiteSpace(AnalyticsNameBox.Text)
-                ? $"{module.DisplayName} @{channel.Id}"
+                ? $"{module.Label} @{channel.Id}"
                 : AnalyticsNameBox.Text.Trim();
 
             var id = _zones.Add(name, channel.Id, module.Module, AnalyticsPolygonBox.Text.Trim(), direction, minCount, dwell);
 
             Reload();
-            AnalyticsStatusText.Text = $"已新增分析區 #{id}（{module.DisplayName}）。";
+            AnalyticsStatusText.Text = string.Format(Localizer.T("Analytics.Added"), id, module.Label);
         }
         catch (Exception ex)
         {
-            AnalyticsStatusText.Text = $"新增失敗：{ex.Message}";
+            AnalyticsStatusText.Text = string.Format(Localizer.T("Analytics.AddFailed"), ex.Message);
         }
     }
 
@@ -149,35 +215,35 @@ public partial class AnalyticsWindow : Window
     {
         if (Selected is not { } row)
         {
-            AnalyticsStatusText.Text = "請先選擇一個分析區。";
+            AnalyticsStatusText.Text = Localizer.T("Analytics.NeedSelect");
             return;
         }
 
         var record = _zones.Get(row.Id);
         if (record is null)
         {
-            AnalyticsStatusText.Text = $"找不到分析區 #{row.Id}。";
+            AnalyticsStatusText.Text = string.Format(Localizer.T("Analytics.NotFound"), row.Id);
             return;
         }
 
         _zones.SetEnabled(row.Id, !record.Enabled);
         Reload();
         AnalyticsStatusText.Text = record.Enabled
-            ? $"已停用分析區 #{row.Id}。"
-            : $"已啟用分析區 #{row.Id}。";
+            ? string.Format(Localizer.T("Analytics.NowDisabled"), row.Id)
+            : string.Format(Localizer.T("Analytics.NowEnabled"), row.Id);
     }
 
     private void OnDeleteClicked(object sender, RoutedEventArgs e)
     {
         if (Selected is not { } row)
         {
-            AnalyticsStatusText.Text = "請先選擇一個分析區。";
+            AnalyticsStatusText.Text = Localizer.T("Analytics.NeedSelect");
             return;
         }
 
         _zones.Delete(row.Id);
         Reload();
-        AnalyticsStatusText.Text = $"已刪除分析區 #{row.Id}。";
+        AnalyticsStatusText.Text = string.Format(Localizer.T("Analytics.Deleted"), row.Id);
     }
 
     /// <summary>以位於幾何內部（跨線為兩側）的範例偵測連續評估，回報命中事件數。</summary>
@@ -185,14 +251,14 @@ public partial class AnalyticsWindow : Window
     {
         if (Selected is not { } row)
         {
-            AnalyticsStatusText.Text = "請先選擇一個分析區。";
+            AnalyticsStatusText.Text = Localizer.T("Analytics.NeedSelect");
             return;
         }
 
         var record = _zones.Get(row.Id);
         if (record is null)
         {
-            AnalyticsStatusText.Text = $"找不到分析區 #{row.Id}。";
+            AnalyticsStatusText.Text = string.Format(Localizer.T("Analytics.NotFound"), row.Id);
             return;
         }
 
@@ -255,10 +321,13 @@ public partial class AnalyticsWindow : Window
             }
         }
 
-        var info = AnalyticsModuleCatalog.For(zone.Module);
-        var heatSuffix = string.IsNullOrEmpty(heatInfo) ? "" : $" 熱區：{heatInfo}";
-        AnalyticsStatusText.Text = $"評估：{events.Count} 筆事件（{info?.DisplayName ?? zone.Module}）。" +
-            (events.Count > 0 ? $" 首筆：{events[0].EventType}" : " 未命中（可能門檻過高或幾何無效）") +
+        var moduleLabel = ModuleLabel(zone.Module);
+        var heatSuffix = string.IsNullOrEmpty(heatInfo) ? "" : string.Format(Localizer.T("Analytics.HeatSuffix"), heatInfo);
+        AnalyticsStatusText.Text =
+            string.Format(Localizer.T("Analytics.EvalResult"), events.Count, moduleLabel) +
+            (events.Count > 0
+                ? string.Format(Localizer.T("Analytics.EvalFirst"), events[0].EventType)
+                : Localizer.T("Analytics.EvalNone")) +
             heatSuffix;
     }
 

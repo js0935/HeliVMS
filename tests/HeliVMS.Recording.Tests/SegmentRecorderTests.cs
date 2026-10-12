@@ -360,6 +360,50 @@ public sealed class SegmentRecorderTests : IDisposable
         Assert.False(recorder.IsRecording);
     }
 
+    /// <summary>
+    /// 失敗重試的退避要指數成長並且有上限。
+    ///
+    /// 固定 5 秒重試的後果不是「比較勤勞」，而是每次失敗都往 segments 表寫一筆
+    /// corrupt：一台拔掉網路線的攝影機一天 17,280 筆，16 台就是 27 萬筆，
+    /// 而 segments 同時是回放時間軸與用量統計會掃的表。這裡釘住成長與上限，
+    /// 順便確保上限之後不再繼續長（否則長時間離線會把退避推到小時級）。
+    /// </summary>
+    [Fact]
+    public void 失敗重試的退避會指數成長並停在上限()
+    {
+        Assert.Equal(SegmentRecorder.BaseRetryDelay, SegmentRecorder.RetryDelayFor(1));
+        Assert.Equal(
+            SegmentRecorder.BaseRetryDelay * 2,
+            SegmentRecorder.RetryDelayFor(2));
+        Assert.Equal(
+            SegmentRecorder.BaseRetryDelay * 4,
+            SegmentRecorder.RetryDelayFor(3));
+
+        // 超過上限後維持不變。
+        Assert.Equal(SegmentRecorder.MaxRetryDelay, SegmentRecorder.RetryDelayFor(20));
+        Assert.Equal(SegmentRecorder.MaxRetryDelay, SegmentRecorder.RetryDelayFor(500));
+    }
+
+    /// <summary>
+    /// 退避要讓「壞掉的攝影機一天寫幾筆 corrupt 記錄」降到可接受範圍。
+    ///
+    /// 一天 288 筆是上限退避（5 分鐘一次）下的量級；原本的固定 5 秒是 17,280 筆。
+    /// 這個測試把改善幅度寫成陳述句，因為「大概有變少」不足以阻止有人改回固定間隔。
+    /// </summary>
+    [Fact]
+    public void 退避上限讓離線攝影機每天的失敗記錄降到五百筆以內()
+    {
+        var perDay = TimeSpan.FromDays(1).Ticks / SegmentRecorder.MaxRetryDelay.Ticks;
+        Assert.True(perDay <= 500, $"每天 {perDay} 筆 corrupt 記錄，超出可接受範圍。");
+    }
+
+    /// <summary>失敗次數很大時不能因為位元位移溢出而算出負的間隔。</summary>
+    [Fact]
+    public void 失敗次數極大時退避不會溢出成負值()
+    {
+        Assert.True(SegmentRecorder.RetryDelayFor(int.MaxValue) > TimeSpan.Zero);
+    }
+
     private (SegmentRecorder Recorder, FakeProcessFactory Factory, Task<SegmentRecord> First) BeginFirstSegment(
         Func<int, ProcessStartInfo, FakeProcess> make,
         Func<string, string>? audioProbe = null)

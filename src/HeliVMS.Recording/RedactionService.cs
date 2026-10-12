@@ -81,7 +81,7 @@ public sealed class RedactionService
 
             var psi = new ProcessStartInfo
             {
-                FileName = "ffmpeg",
+                FileName = FfmpegLocator.Ffmpeg,
                 RedirectStandardError = true,
                 RedirectStandardOutput = true,
                 UseShellExecute = false,

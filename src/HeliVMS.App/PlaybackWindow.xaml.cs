@@ -7,6 +7,7 @@ using System.Windows.Media.Imaging;
 using System.Windows.Shapes;
 using HeliVMS.Media;
 using HeliVMS.Recording;
+using HeliVMS.Shared;
 using HeliVMS.Shared.Models;
 using HeliVMS.Storage;
 
@@ -49,10 +50,39 @@ public partial class PlaybackWindow : Window
         _channels = new ChannelRepository(_store);
         _segments = new SegmentRepository(_store);
         InitializeComponent();
+        ApplyI18n();
         DatePick.SelectedDate = DateTime.Today;
         LoadChannels();
         BandCanvas.Children.Add(_cursor);
         Canvas.SetZIndex(_cursor, 10);
+    }
+
+    private void ApplyI18n()
+    {
+        Title = Localizer.T("Playback.Title");
+        PlaybackChannelLabel.Text = Localizer.T("Playback.Channel");
+        PlaybackDateLabel.Text = Localizer.T("Playback.Date");
+        LoadButton.Content = Localizer.T("Playback.Load");
+        LoadButton.ToolTip = Localizer.T("Playback.LoadTip");
+        RedactExportButton.Content = Localizer.T("Playback.RedactExport");
+        RedactExportButton.ToolTip = Localizer.T("Playback.RedactTip");
+        PlaybackSegmentsLabel.Text = Localizer.T("Playback.Segments");
+        PlaybackDayEventsLabel.Text = Localizer.T("Playback.DayEvents");
+        PlaybackDayEventsLabel2.Text = Localizer.T("Playback.DayEvents");
+        SegColStart.Header = Localizer.T("Playback.ColStart");
+        SegColDuration.Header = Localizer.T("Playback.ColDuration");
+        SegColSize.Header = Localizer.T("Playback.ColSize");
+        EvtColStart.Header = Localizer.T("Playback.ColStart");
+        EvtColType.Header = Localizer.T("Playback.ColType");
+        EvtColDetail.Header = Localizer.T("Playback.ColDetail");
+        EmptyHint.Text = Localizer.T("Playback.EmptyHint");
+        PlayPauseButton.Content = Localizer.T("Playback.Play");
+        PlayPauseButton.ToolTip = Localizer.T("Playback.PlayPauseTip");
+        StopButton.Content = Localizer.T("Playback.Stop");
+        StopButton.ToolTip = Localizer.T("Playback.StopTip");
+        PlaybackSpeedLabel.Text = Localizer.T("Playback.Speed");
+        AutoAdvanceCheck.Content = Localizer.T("Playback.AutoAdvance");
+        AutoAdvanceCheck.ToolTip = Localizer.T("Playback.AutoAdvanceTip");
     }
 
     private void LoadChannels()
@@ -114,7 +144,7 @@ public partial class PlaybackWindow : Window
     {
         if (ChannelCombo.SelectedItem is not ChannelInfo ch)
         {
-            StatusText.Text = "請先選擇頻道。";
+            StatusText.Text = Localizer.T("Playback.NeedChannel");
             return;
         }
 
@@ -138,7 +168,7 @@ public partial class PlaybackWindow : Window
             SegmentList.ItemsSource = null;
             _bandSegments = [];
             RenderBlocks();
-            LoadHint.Text = "沒有頻道，請先在上層視窗加入。";
+            LoadHint.Text = Localizer.T("Playback.NoChannel");
             return;
         }
 
@@ -158,7 +188,7 @@ public partial class PlaybackWindow : Window
                 .Select(s => new SegmentItem(
                     s,
                     TimeZoneInfo.ConvertTimeFromUtc(s.StartUtc, TimeZoneInfo.Local).ToString("HH:mm:ss"),
-                    s.DurationSec is double d ? $"{d:0.#}秒" : "-",
+                    s.DurationSec is double d ? string.Format(Localizer.T("Playback.SecondsShort"), d.ToString("0.#")) : "-",
                     s.SizeBytes > 0 ? $"{s.SizeBytes / 1024d:0}KB" : "-"))
                 .ToList();
             _bandSegments = segs;
@@ -184,16 +214,16 @@ public partial class PlaybackWindow : Window
                         camNames.TryGetValue(e.ChannelId, out var cn) ? cn : $"ch {e.ChannelId}");
                 })
                 .ToList();
-            EventCountText.Text = _events.Count > 0 ? $" 共 {_events.Count} 條" : "";
+            EventCountText.Text = _events.Count > 0 ? string.Format(Localizer.T("Playback.EventCount"), _events.Count) : "";
 
             RenderBlocks();
             LoadHint.Text = _events.Count > 0
-                ? $"當日 {segs.Count} 段、{_events.Count} 事件。"
-                : $"當日 {segs.Count} 段。";
+                ? string.Format(Localizer.T("Playback.SummaryBoth"), segs.Count, _events.Count)
+                : string.Format(Localizer.T("Playback.SummarySegments"), segs.Count);
         }
         catch (Exception ex)
         {
-            LoadHint.Text = $"載入失敗：{ex.Message}";
+            LoadHint.Text = string.Format(Localizer.T("Playback.LoadFailed"), ex.Message);
         }
     }
 
@@ -234,7 +264,7 @@ public partial class PlaybackWindow : Window
             return;
         }
 
-        if (PlayPauseButton.Content.ToString() == "播放")
+        if (PlayPauseButton.Content.ToString() == Localizer.T("Playback.Play"))
         {
             var pos = _posInside;
             StopPlayback(keepSelection: true);
@@ -247,8 +277,8 @@ public partial class PlaybackWindow : Window
         {
             _session.Stop();
             StopButton.IsEnabled = true;
-            PlayPauseButton.Content = "播放";
-            StatusText.Text = "已暫停";
+            PlayPauseButton.Content = Localizer.T("Playback.Play");
+            StatusText.Text = Localizer.T("Playback.Paused");
         }
     }
 
@@ -351,7 +381,7 @@ public partial class PlaybackWindow : Window
             return;
         }
 
-        if (_session is not null && !_stopping && PlayPauseButton.Content.ToString() == "暫停")
+        if (_session is not null && !_stopping && PlayPauseButton.Content.ToString() == Localizer.T("Playback.Pause"))
         {
             OnPlayPauseClicked(this, new RoutedEventArgs());
         }
@@ -404,7 +434,7 @@ public partial class PlaybackWindow : Window
                 return;
             }
 
-            StatusText.Text = $"解碼錯誤：{ex.Message}";
+            StatusText.Text = string.Format(Localizer.T("Playback.DecodeError"), ex.Message);
         });
 
         _ = session.PlayAsync(seekSeconds);
@@ -433,7 +463,7 @@ public partial class PlaybackWindow : Window
 
             _posInside = _basePos + frame.PtsMs / 1000.0;
             TimeText.Text = $"{FormatTime(_posInside)} / {FormatTime(seg.DurationSec ?? 0)}";
-            StatusText.Text = $"播放中（{GetSpeed():0.##}×）";
+            StatusText.Text = string.Format(Localizer.T("Playback.Playing"), GetSpeed().ToString("0.##"));
             if (!_seeking && (seg.DurationSec ?? 0) > 0)
             {
                 SeekSlider.Value = Math.Min(_posInside / (seg.DurationSec ?? 1), 1) * 10000;
@@ -445,7 +475,7 @@ public partial class PlaybackWindow : Window
             {
                 _pendingFramePause = false;
                 StopPlayback(keepSelection: true);
-                StatusText.Text = "已暫停";
+                StatusText.Text = Localizer.T("Playback.Paused");
             }
         });
     }
@@ -475,8 +505,8 @@ public partial class PlaybackWindow : Window
             SetIdleUi();
             TimeText.Text = $"{FormatTime(_posInside)} / {FormatTime(seg.DurationSec ?? 0)}";
             StatusText.Text = completed
-                ? (AutoAdvanceCheck.IsChecked == true ? "播放完畢（無後續片段）" : "已停止播放")
-                : "播放失敗";
+                ? (AutoAdvanceCheck.IsChecked == true ? Localizer.T("Playback.EndedNoNext") : Localizer.T("Playback.EndedStopped"))
+                : Localizer.T("Playback.PlayFailed");
         });
     }
 
@@ -514,6 +544,44 @@ public partial class PlaybackWindow : Window
         _bitmap = new WriteableBitmap(frame.Width, frame.Height, 96, 96, PixelFormats.Bgr24, null);
         PlayerImage.Source = _bitmap;
         EmptyHint.Visibility = Visibility.Collapsed;
+        ApplyPlayerFrameGeometry();
+    }
+
+    /// <summary>中央區域尺寸變動時，重算播放框的比例與置中位置。</summary>
+    private void OnPlayerAreaSizeChanged(object sender, SizeChangedEventArgs e) => ApplyPlayerFrameGeometry();
+
+    /// <summary>
+    /// 讓播放框貼合來源畫面比例並置中（沿用即時監看同一套 <see cref="MonitorGrid.Fit"/>）。
+    /// </summary>
+    /// <remarks>
+    /// 原本播放框固定撐滿整個中央區域，來源比例與框不同時就在框內留黑邊。
+    /// 改成框本身依畫面比例縮放後，藍框會緊貼影像、外圈留白一致；
+    /// 尚未解碼出畫面前先以區域比例計算（等於填滿，維持原本的提示畫面）。
+    /// </remarks>
+    private void ApplyPlayerFrameGeometry()
+    {
+        if (PlayerArea is null || PlayerFrame is null)
+        {
+            return;
+        }
+
+        var w = PlayerArea.ActualWidth;
+        var h = PlayerArea.ActualHeight;
+        var aspect = _lastWidth > 0 && _lastHeight > 0
+            ? (double)_lastWidth / _lastHeight
+            : w > 0 && h > 0 ? w / h : 16.0 / 9.0;
+
+        var fit = MonitorGrid.Fit(1, w, h, aspect);
+        if (fit.Width > 0 && fit.Height > 0)
+        {
+            PlayerFrame.Width = fit.Width;
+            PlayerFrame.Height = fit.Height;
+        }
+        else
+        {
+            PlayerFrame.Width = double.NaN;
+            PlayerFrame.Height = double.NaN;
+        }
     }
 
     private void StopPlayback(bool keepSelection = false)
@@ -578,7 +646,7 @@ public partial class PlaybackWindow : Window
         }
 
         var coveragePct = (int)Math.Round((1 - _timeline.GapFraction) * 100);
-        CoverageText.Text = $"覆蓋 {coveragePct}% · 未涵蓋 {_timeline.GapCount} 區間";
+        CoverageText.Text = string.Format(Localizer.T("Playback.Coverage"), coveragePct, _timeline.GapCount);
         AutomationProperties.SetName(CoverageText, $"COV:{coveragePct}:{_timeline.GapCount}:{_timeline.Bars.Count}");
 
         RenderMarkers();
@@ -623,7 +691,11 @@ public partial class PlaybackWindow : Window
                 Stroke = Brushes.Black,
                 StrokeThickness = 1,
                 IsHitTestVisible = true,
-                ToolTip = $"{TimeZoneInfo.ConvertTimeFromUtc(marker.Utc, TimeZoneInfo.Local):HH:mm:ss} 「{marker.Kind}」{rec?.Detail}",
+                ToolTip = string.Format(
+                    Localizer.T("Playback.MarkerTip"),
+                    TimeZoneInfo.ConvertTimeFromUtc(marker.Utc, TimeZoneInfo.Local).ToString("HH:mm:ss"),
+                    marker.Kind,
+                    rec?.Detail),
                 Cursor = System.Windows.Input.Cursors.Hand,
             };
             Canvas.SetLeft(dot, marker.XFraction * BandCanvas.ActualWidth - 5);
@@ -717,14 +789,14 @@ public partial class PlaybackWindow : Window
 
     private void SetPlayingUi()
     {
-        PlayPauseButton.Content = "暫停";
+        PlayPauseButton.Content = Localizer.T("Playback.Pause");
         PlayPauseButton.IsEnabled = true;
         StopButton.IsEnabled = true;
     }
 
     private void SetIdleUi()
     {
-        PlayPauseButton.Content = "播放";
+        PlayPauseButton.Content = Localizer.T("Playback.Play");
         PlayPauseButton.IsEnabled = _current is not null;
         StopButton.IsEnabled = false;
     }

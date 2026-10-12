@@ -29,6 +29,7 @@ public partial class ExportCenterWindow : Window
         _store = store;
         _dataRoot = dataRoot;
         InitializeComponent();
+        ApplyI18n();
 
         _jobs = new ExportJobRepository(store);
 
@@ -46,10 +47,45 @@ public partial class ExportCenterWindow : Window
         _timer.Tick += (_, _) => Reload();
         _timer.Start();
         Reload();
+
+        // 關閉後停掉計時器。這個 lambda 捕獲了 this，不停止的話每開一次匯出中心
+        // 就永久留一個視窗實體，並且每兩秒在 UI 執行緒上刷新一個已關閉的視窗。
+        Closed += (_, _) => _timer.Stop();
     }
 
-    private sealed record JobItem(string Display, ExportJobRecord Job);
+        private sealed record JobItem(string Display, ExportJobRecord Job);
 
+    private void ApplyI18n()
+    {
+        Title = Localizer.T("ExportCenter.Title");
+        ExportCenterAddHeader.Text = Localizer.T("ExportCenter.AddHeader");
+        ExportCenterChannelLabel.Text = Localizer.T("ExportCenter.Channel");
+        ExportCenterOutputLabel.Text = Localizer.T("ExportCenter.OutputFolder");
+        ExportCenterListLabel.Text = Localizer.T("ExportCenter.ListHeader");
+        JobList.ToolTip = Localizer.T("ExportCenter.ListTip");
+        CenterBrowseButton.Content = Localizer.T("ExportCenter.Browse");
+        CenterBrowseButton.ToolTip = Localizer.T("ExportCenter.BrowseTip");
+        AddExportButton.Content = Localizer.T("ExportCenter.Add");
+        AddExportButton.ToolTip = Localizer.T("ExportCenter.AddTip");
+        CenterRefreshButton.Content = Localizer.T("ExportCenter.Refresh");
+        CenterRefreshButton.ToolTip = Localizer.T("ExportCenter.RefreshTip");
+        CenterRunButton.Content = Localizer.T("ExportCenter.Run");
+        CenterRunButton.ToolTip = Localizer.T("ExportCenter.RunTip");
+        CenterVerifyButton.Content = Localizer.T("ExportCenter.Verify");
+        CenterVerifyButton.ToolTip = Localizer.T("ExportCenter.VerifyTip");
+        CenterSigningKeysButton.Content = Localizer.T("ExportCenter.SigningKeys");
+        CenterSigningKeysButton.ToolTip = Localizer.T("ExportCenter.SigningKeysTip");
+        CenterDeleteButton.Content = Localizer.T("ExportCenter.Delete");
+        CenterDeleteButton.ToolTip = Localizer.T("ExportCenter.DeleteTip");
+        CenterRetryButton.Content = Localizer.T("ExportCenter.Retry");
+        CenterRetryButton.ToolTip = Localizer.T("ExportCenter.RetryTip");
+        CenterOpenFolderButton.Content = Localizer.T("ExportCenter.OpenFolder");
+        CenterOpenFolderButton.ToolTip = Localizer.T("ExportCenter.OpenFolderTip");
+        CenterPurgeButton.Content = Localizer.T("ExportCenter.Purge");
+        CenterPurgeButton.ToolTip = Localizer.T("ExportCenter.PurgeTip");
+        ShareFromExportButton.Content = Localizer.T("ExportCenter.Share");
+        ShareFromExportButton.ToolTip = Localizer.T("ExportCenter.ShareTip");
+    }
     private void Reload()
     {
         try
@@ -78,7 +114,7 @@ public partial class ExportCenterWindow : Window
     {
         var dlg = new Microsoft.Win32.OpenFolderDialog
         {
-            Title = "選擇匯出資料夾",
+            Title = Localizer.T("ExportCenter.BrowseTitle"),
             InitialDirectory = CenterOutputBox.Text,
         };
 
@@ -93,13 +129,13 @@ public partial class ExportCenterWindow : Window
         var channels = ChannelList.SelectedItems.Cast<ChannelInfo>().ToList();
         if (channels.Count == 0)
         {
-            ExportCenterStatus.Text = "請先選擇至少一個頻道。";
+            ExportCenterStatus.Text = Localizer.T("ExportCenter.PickChannel");
             return;
         }
 
         if (!StartDate.SelectedDate.HasValue || !EndDate.SelectedDate.HasValue)
         {
-            ExportCenterStatus.Text = "請選擇起迄日期。";
+            ExportCenterStatus.Text = Localizer.T("ExportCenter.PickDates");
             return;
         }
 
@@ -123,7 +159,7 @@ public partial class ExportCenterWindow : Window
             count++;
         }
 
-        ExportCenterStatus.Text = $"已加入 {count} 筆匯出工作。";
+        ExportCenterStatus.Text = string.Format(Localizer.T("ExportCenter.Added"), count);
         Reload();
     }
 
@@ -138,18 +174,18 @@ public partial class ExportCenterWindow : Window
 
         _running = true;
         CenterRunButton.IsEnabled = false;
-        ExportCenterStatus.Text = "開始處理佇列…";
+        ExportCenterStatus.Text = Localizer.T("ExportCenter.Running");
         try
         {
             var svc = new ExportJobService(_store);
-            var progress = new Progress<ExportProgress>(p => ExportCenterStatus.Text = $"處理中：{p.Status}");
+            var progress = new Progress<ExportProgress>(p => ExportCenterStatus.Text = string.Format(Localizer.T("ExportCenter.Progress"), p.Status));
             var result = await svc.ProcessQueuedAsync(CenterOutputBox.Text, progress);
-            ExportCenterStatus.Text = $"處理完成：成功 {result.Succeeded}／失敗 {result.Failed}（共 {result.Processed} 筆）";
+            ExportCenterStatus.Text = string.Format(Localizer.T("ExportCenter.Done"), result.Succeeded, result.Failed, result.Processed);
             Reload();
         }
         catch (Exception ex)
         {
-            ExportCenterStatus.Text = $"處理失敗：{ex.Message}";
+            ExportCenterStatus.Text = string.Format(Localizer.T("ExportCenter.RunFailed"), ex.Message);
         }
         finally
         {
@@ -162,22 +198,22 @@ public partial class ExportCenterWindow : Window
     {
         if (JobList.SelectedItem is not JobItem item)
         {
-            ExportCenterStatus.Text = "請先選擇一個工作。";
+            ExportCenterStatus.Text = Localizer.T("ExportCenter.PickJob");
             return;
         }
 
         var job = item.Job;
         if (job.Status != "done" || job.OutputPath is null)
         {
-            ExportCenterStatus.Text = $"工作 #{job.Id} 尚未完成，無法驗證（狀態：{job.Status}）。";
+            ExportCenterStatus.Text = string.Format(Localizer.T("ExportCenter.NotDoneVerify"), job.Id, job.Status);
             return;
         }
 
         var report = ExportVerifier.Verify(job.OutputPath, job.Sha256);
-        var verdict = report.HashMatches ? "OK" : "不符";
+        var verdict = report.HashMatches ? "OK" : Localizer.T("ExportCenter.Mismatch");
         var parts = new List<string>
         {
-            $"工作 #{job.Id} 完整性：{verdict}（SHA-256 比對）",
+            string.Format(Localizer.T("ExportCenter.Integrity"), job.Id, verdict),
             DescribeReceipt(new ExportReceiptService(_store).Verify(job.OutputPath)),
         };
 
@@ -197,15 +233,15 @@ public partial class ExportCenterWindow : Window
     {
         if (!receipt.ReceiptExists)
         {
-            return $"收據：{receipt.Detail}";
+            return string.Format(Localizer.T("ExportCenter.ReceiptDetail"), receipt.Detail);
         }
 
-        var signature = receipt.SignatureValid ? "簽章有效" : "簽章無效";
-        var hash = receipt.HashMatches ? "雜湊相符" : "雜湊不符";
+        var signature = receipt.SignatureValid ? Localizer.T("ExportCenter.ReceiptValid") : Localizer.T("ExportCenter.ReceiptInvalid");
+        var hash = receipt.HashMatches ? Localizer.T("ExportCenter.ReceiptHashMatch") : Localizer.T("ExportCenter.ReceiptHashMismatch");
         var signer = receipt.SelfAssertedKey
-            ? "簽署者未經外部比對"
-            : receipt.SignerMatched ? "簽署者受信任" : "簽署者不在信任清單";
-        return $"收據：{signature}、{hash}、{signer}（{receipt.Detail}）";
+            ? Localizer.T("ExportCenter.ReceiptSelfAsserted")
+            : receipt.SignerMatched ? Localizer.T("ExportCenter.ReceiptTrusted") : Localizer.T("ExportCenter.ReceiptUntrusted");
+        return string.Format(Localizer.T("ExportCenter.ReceiptSummary"), signature, hash, signer, receipt.Detail);
     }
 
     /// <summary>開啟簽章金鑰視窗（僅管理員）；視窗單例重用。</summary>
@@ -213,7 +249,7 @@ public partial class ExportCenterWindow : Window
     {
         if (!SessionContext.IsAdmin)
         {
-            ExportCenterStatus.Text = "只有系統管理員可以檢視或換發簽章金鑰。";
+            ExportCenterStatus.Text = Localizer.T("ExportCenter.AdminOnly");
             return;
         }
 
@@ -232,12 +268,12 @@ public partial class ExportCenterWindow : Window
     {
         if (JobList.SelectedItem is not JobItem item)
         {
-            ExportCenterStatus.Text = "請先選擇一個工作。";
+            ExportCenterStatus.Text = Localizer.T("ExportCenter.PickJob");
             return;
         }
 
         _jobs.Delete(item.Job.Id);
-        ExportCenterStatus.Text = $"已刪除工作 #{item.Job.Id}。";
+        ExportCenterStatus.Text = string.Format(Localizer.T("ExportCenter.Deleted"), item.Job.Id);
         Reload();
     }
 
@@ -246,12 +282,12 @@ public partial class ExportCenterWindow : Window
     {
         if (JobList.SelectedItem is not JobItem { Job.Status: "failed" } item)
         {
-            ExportCenterStatus.Text = "請先選擇一個失敗（failed）的工作。";
+            ExportCenterStatus.Text = Localizer.T("ExportCenter.RetryPick");
             return;
         }
 
         _jobs.Retry(item.Job.Id);
-        ExportCenterStatus.Text = $"已將工作 #{item.Job.Id} 重新排入佇列，按「開始處理」重跑。";
+        ExportCenterStatus.Text = string.Format(Localizer.T("ExportCenter.Retried"), item.Job.Id);
         Reload();
     }
 
@@ -272,7 +308,7 @@ public partial class ExportCenterWindow : Window
         }
         else
         {
-            ExportCenterStatus.Text = $"工作 #{item.Job.Id} 尚未完成（狀態：{item.Job.Status}）。";
+            ExportCenterStatus.Text = string.Format(Localizer.T("ExportCenter.NotDone"), item.Job.Id, item.Job.Status);
         }
     }
 
@@ -281,7 +317,7 @@ public partial class ExportCenterWindow : Window
         if (JobList.SelectedItem is not JobItem { Job.Status: "done" } item ||
             string.IsNullOrEmpty(item.Job.OutputPath))
         {
-            ExportCenterStatus.Text = "請先選擇一個已完成（done）的工作。";
+            ExportCenterStatus.Text = Localizer.T("ExportCenter.PickDone");
             return;
         }
 
@@ -291,14 +327,14 @@ public partial class ExportCenterWindow : Window
         }
         catch
         {
-            ExportCenterStatus.Text = "無法開啟檔案總管。";
+            ExportCenterStatus.Text = Localizer.T("ExportCenter.ExplorerFailed");
         }
     }
 
     private void OnPurgeClicked(object sender, RoutedEventArgs e)
     {
         var removed = _jobs.PurgeFinished(DateTime.UtcNow.AddHours(-1));
-        ExportCenterStatus.Text = $"已清除 {removed} 筆完成（done／failed）紀錄。";
+        ExportCenterStatus.Text = string.Format(Localizer.T("ExportCenter.Purged"), removed);
         Reload();
     }
 

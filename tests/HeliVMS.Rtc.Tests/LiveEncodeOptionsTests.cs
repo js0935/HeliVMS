@@ -1,4 +1,5 @@
 using HeliVMS.Rtc;
+using HeliVMS.Shared;
 
 namespace HeliVMS.Rtc.Tests;
 
@@ -158,7 +159,9 @@ public class WhepOptionsTests
         Assert.Equal(8, options.MaxViewersPerChannel);
         Assert.Empty(options.StunServers);
         Assert.Equal(TimeSpan.FromSeconds(30), options.SessionIdleTimeout);
-        Assert.Equal("ffmpeg", options.FfmpegPath);
+        // 未設定 FFMPEG 時走 FfmpegLocator（內建 → HELIVMS_FFMPEG → PATH）；
+        // 直接比對定位器結果，避免測試機器剛好設了環境變數時誤紅。
+        Assert.Equal(FfmpegLocator.Ffmpeg, options.FfmpegPath);
         Assert.Null(options.PublicHost);
         Assert.Null(options.PublicPort);
     }

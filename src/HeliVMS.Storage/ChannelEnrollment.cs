@@ -24,17 +24,41 @@ public static class ChannelEnrollment
     {
         ArgumentNullException.ThrowIfNull(store);
 
-        var deviceId = ResolveDeviceId(store, channelName, deviceIp, devicePort, deviceUsername, devicePassword);
+        var deviceId = ResolveDeviceId(
+            store, channelName, deviceIp, devicePort, deviceUsername, devicePassword, streamUrl, subStreamUrl);
         return new ChannelRepository(store).Add(channelName, streamUrl, subStreamUrl, deviceId);
+    }
+
+    /// <summary>
+    /// 只加入攝影機（設備）並保存其主／子碼流位址，不建立頻道。
+    /// 「攝影機管理」用：加入後由「頻道管理」再決定要用哪台攝影機的碼流開哪些頻道。
+    /// 回傳設備 ID；無效 IP 或帳號時回傳 0（表示未建立設備）。
+    /// </summary>
+    public static int EnrollDevice(
+        SqliteStore store,
+        string deviceName,
+        string? deviceIp,
+        int devicePort,
+        string? deviceUsername,
+        string? devicePassword,
+        string? mainRtsp,
+        string? subRtsp)
+    {
+        ArgumentNullException.ThrowIfNull(store);
+
+        return ResolveDeviceId(
+            store, deviceName, deviceIp, devicePort, deviceUsername, devicePassword, mainRtsp, subRtsp) ?? 0;
     }
 
     private static int? ResolveDeviceId(
         SqliteStore store,
-        string channelName,
+        string deviceName,
         string? deviceIp,
         int devicePort,
         string? deviceUsername,
-        string? devicePassword)
+        string? devicePassword,
+        string? mainRtsp,
+        string? subRtsp)
     {
         if (string.IsNullOrWhiteSpace(deviceIp) || string.IsNullOrWhiteSpace(deviceUsername))
         {
@@ -53,17 +77,25 @@ public static class ChannelEnrollment
                 devices.SetRtspCredentials(existing.Id, deviceUsername, devicePassword ?? string.Empty);
             }
 
+            // 重新探索時一併刷新碼流位址（ONVIF 探測可能因韌體更新而改變 profile 編號）。
+            if (!string.IsNullOrWhiteSpace(mainRtsp))
+            {
+                devices.SetStreamUrls(existing.Id, mainRtsp, subRtsp);
+            }
+
             return existing.Id;
         }
 
         var port = devicePort > 0 ? devicePort : 80;
         return devices.Add(
-            channelName,
+            deviceName,
             deviceIp,
             port,
             deviceUsername,
             devicePassword ?? string.Empty,
-            vendor: "onvif");
+            vendor: "onvif",
+            mainRtsp: mainRtsp,
+            subRtsp: subRtsp);
     }
 
     private static bool CredentialsDiffer(DeviceRepository devices, int deviceId, string username, string? password)

@@ -39,6 +39,12 @@ public sealed class OnvifDeviceService : IDisposable
     /// <summary>設備曾以 ter:Namespace 拒絕 NodeToken，之後一律不帶（多節點設備才需要該元素）。</summary>
     private bool _ptzNodeTokenRejected;
 
+    /// <summary>量測所得之設備時鐘偏差（device − local）；套用於 WS-Security 的 Created 時間戳。</summary>
+    private TimeSpan _clockSkew = TimeSpan.Zero;
+
+    /// <summary>時鐘偏差是否已嘗試量測；避免認證持續失敗時反覆查詢設備時間。</summary>
+    private bool _clockSkewResolved;
+
     /// <summary>以設備 XAddr（慣例 http://ip/onvif/device_service）建立服務端點。</summary>
     public OnvifDeviceService(string deviceXAddr, string? username = null, string? password = null)
         : this(deviceXAddr, username, password, new HttpClientHandler())
@@ -121,24 +127,44 @@ public sealed class OnvifDeviceService : IDisposable
                 new XElement(Td + "GetSystemDateAndTime"), null,
                 TdAction("GetSystemDateAndTime"), cancellationToken);
 
-            var utc = DescendantAnyNs(body, "UTCDateTime");
-            if (utc is null)
-            {
-                return null;
-            }
-
-            var date = utc.ElementAnyNs("Date")!;
-            var time = utc.ElementAnyNs("Time")!;
-            return new DateTimeOffset(
-                (int)date.ElementAnyNs("Year")!,
-                (int)date.ElementAnyNs("Month")!,
-                (int)date.ElementAnyNs("Day")!,
-                (int)time.ElementAnyNs("Hour")!,
-                (int)time.ElementAnyNs("Minute")!,
-                (int)time.ElementAnyNs("Second")!,
-                TimeSpan.Zero);
+            return TryReadUtcDateTime(body);
         }
         catch (OnvifException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// 由 GetSystemDateAndTimeResponse 取出設備 UTC 時間；缺少欄位或格式異常時回傳 null。
+    /// 內部走 PostAsync 的時鐘校正路徑時不可拋例外，故在此容忍缺漏欄位。
+    /// </summary>
+    internal static DateTimeOffset? TryReadUtcDateTime(XElement body)
+    {
+        var utc = DescendantAnyNs(body, "UTCDateTime");
+        var date = utc?.ElementAnyNs("Date");
+        var time = utc?.ElementAnyNs("Time");
+        if (date is null || time is null)
+        {
+            return null;
+        }
+
+        var year = ParseInt32((string?)date.ElementAnyNs("Year"));
+        var month = ParseInt32((string?)date.ElementAnyNs("Month"));
+        var day = ParseInt32((string?)date.ElementAnyNs("Day"));
+        var hour = ParseInt32((string?)time.ElementAnyNs("Hour"));
+        var minute = ParseInt32((string?)time.ElementAnyNs("Minute"));
+        var second = ParseInt32((string?)time.ElementAnyNs("Second"));
+        if (month is < 1 or > 12 || day is < 1 or > 31 || hour > 23 || minute > 59 || second > 60)
+        {
+            return null;
+        }
+
+        try
+        {
+            return new DateTimeOffset(year, month, day, hour, minute, Math.Min(second, 59), TimeSpan.Zero);
+        }
+        catch (ArgumentOutOfRangeException)
         {
             return null;
         }
@@ -257,9 +283,10 @@ public sealed class OnvifDeviceService : IDisposable
             }
 
             var xAddr = await TryResolveCapabilityAsync("PTZ", ["All", "PTZ"], cancellationToken);
+            xAddr ??= await TryResolveServiceAsync("ver10/ptz/wsdl", cancellationToken);
             if (string.IsNullOrEmpty(xAddr))
             {
-                // 不支援 GetCapabilities 之設備：探測常見 PTZ 路徑
+                // 不支援 GetCapabilities／GetServices 之設備：探測常見 PTZ 路徑
                 xAddr = await ProbeServicePathAsync(
                     OnvifEndpointResolver.PtzServicePaths,
                     new XElement(Tptz + "GetPresets", new XElement(Tptz + "ProfileToken", string.Empty)),
@@ -654,9 +681,10 @@ public sealed class OnvifDeviceService : IDisposable
             }
 
             var xAddr = await TryResolveCapabilityAsync("Media", ["Media", "All"], cancellationToken);
+            xAddr ??= await TryResolveServiceAsync("ver10/media/wsdl", cancellationToken);
             if (string.IsNullOrEmpty(xAddr))
             {
-                // 不支援（或回應不含）GetCapabilities 之設備：實際探測常見 Media 路徑
+                // 不支援（或回應不含）GetCapabilities／GetServices 之設備：實際探測常見 Media 路徑
                 xAddr = await ProbeServicePathAsync(
                     OnvifEndpointResolver.MediaServicePaths,
                     new XElement(Trt + "GetProfiles"),
@@ -702,6 +730,47 @@ public sealed class OnvifDeviceService : IDisposable
 
             var xAddr = ReadCapabilityXAddr(body, category);
             if (!string.IsNullOrWhiteSpace(xAddr))
+            {
+                return OnvifEndpointResolver.NormalizeServiceXAddr(xAddr, DeviceXAddr);
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// 以 GetServices（ONVIF 2.x）查詢指定命名空間之服務 XAddr。部分設備的 GetCapabilities
+    /// 回應不含 Media／PTZ 節點，卻仍完整支援 GetServices，可作為路徑探測前更可靠的來源。
+    /// </summary>
+    private async Task<string?> TryResolveServiceAsync(string namespaceFragment, CancellationToken cancellationToken)
+    {
+        XElement body;
+        try
+        {
+            body = await PostAsync(
+                new XElement(Td + "GetServices", new XElement(Td + "IncludeCapability", false)),
+                null,
+                TdAction("GetServices"),
+                cancellationToken);
+        }
+        catch (OnvifException ex) when (ex.Code is OnvifErrorCode.NotSupported
+            or OnvifErrorCode.DeviceFault
+            or OnvifErrorCode.BadResponse)
+        {
+            // 舊固件不支援 GetServices：交由呼叫端回退至路徑探測
+            return null;
+        }
+
+        foreach (var service in DescendantsAnyNs(body, "Service"))
+        {
+            var ns = ((string?)service.ElementAnyNs("Namespace") ?? string.Empty).Trim();
+            if (!ns.Contains(namespaceFragment, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            var xAddr = ((string?)service.ElementAnyNs("XAddr") ?? string.Empty).Trim();
+            if (xAddr.Length > 0)
             {
                 return OnvifEndpointResolver.NormalizeServiceXAddr(xAddr, DeviceXAddr);
             }
@@ -769,17 +838,21 @@ public sealed class OnvifDeviceService : IDisposable
         string? actionXAddr,
         string actionUri,
         CancellationToken cancellationToken,
-        bool retryable = true)
+        bool retryable = true,
+        OnvifWsSecurityMode? authOverride = null,
+        bool allowAuthRecovery = true)
     {
         var url = ResolveUrl(actionXAddr);
         var budget = new RetryBudget(retryable ? Math.Max(_options.RetryCount, 0) : 0);
         var authSwitched = false;
+        var skewCorrected = false;
+        var downgraded = false;
 
         while (true)
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            var envelope = BuildEnvelope(action, actionUri).ToString(SaveOptions.DisableFormatting);
+            var envelope = BuildEnvelope(action, actionUri, authOverride).ToString(SaveOptions.DisableFormatting);
             using var response = await SendAsync(
                 () =>
                 {
@@ -817,14 +890,24 @@ public sealed class OnvifDeviceService : IDisposable
 
             var parsed = ParseSoapResponse(text, response.StatusCode);
 
-            // 廠牌差異：部分設備僅接受 WS-Security PasswordText（Digest 會回認證失敗 Fault）
-            if (!authSwitched &&
-                _wsSecurityMode == OnvifWsSecurityMode.PasswordDigest &&
-                IsWsAuthenticationFault(parsed.Fault) &&
-                TryDowngradeToPasswordText())
+            if (allowAuthRecovery && IsWsAuthenticationFault(parsed.Fault))
             {
-                authSwitched = true;
-                continue;
+                // 廠牌差異（實測海康）：設備時鐘與主機偏差過大時，正確帳密的 PasswordDigest
+                // 也會被判為未授權。先匿名查詢設備時間量測偏差，校正時間戳後重試。
+                if (!skewCorrected && await TryMeasureClockSkewAsync(cancellationToken))
+                {
+                    skewCorrected = true;
+                    continue;
+                }
+
+                // 廠牌差異：部分設備僅接受 WS-Security PasswordText（Digest 會回認證失敗 Fault）
+                if (!downgraded &&
+                    _wsSecurityMode == OnvifWsSecurityMode.PasswordDigest &&
+                    TryDowngradeToPasswordText())
+                {
+                    downgraded = true;
+                    continue;
+                }
             }
 
             if (parsed.Fault is not null)
@@ -947,6 +1030,65 @@ public sealed class OnvifDeviceService : IDisposable
         return true;
     }
 
+    /// <summary>
+    /// 匿名查詢設備系統時間（GetSystemDateAndTime）以量測時鐘偏差（device − local），
+    /// 供 WS-Security UsernameToken 的 Created 時間戳校正。
+    /// <para>
+    /// 不論成敗皆僅嘗試一次：偏差不顯著通常代表問題不是時鐘（例如帳密錯誤），
+    /// 再重試無益且會拖慢錯誤回報，故偏差不顯著或查詢失敗時回傳 false 交由既有流程處理。
+    /// 查詢本身刻意匿名（<see cref="OnvifWsSecurityMode.None"/>）：若帶上偏差的認證資訊，
+    /// 設備會連時間查詢一起拒絕，偵測迴圈無從進行。
+    /// </para>
+    /// </summary>
+    private async Task<bool> TryMeasureClockSkewAsync(CancellationToken cancellationToken)
+    {
+        if (!_options.AutoClockSkew || _clockSkewResolved)
+        {
+            return false;
+        }
+
+        // 不論成敗皆只嘗試一次，避免設備持續認證失敗時反覆查詢設備時間
+        _clockSkewResolved = true;
+
+        var startedAt = DateTimeOffset.UtcNow;
+        try
+        {
+            var body = await PostAsync(
+                new XElement(Td + "GetSystemDateAndTime"), null,
+                TdAction("GetSystemDateAndTime"),
+                cancellationToken,
+                retryable: false,
+                authOverride: OnvifWsSecurityMode.None,
+                allowAuthRecovery: false);
+
+            var deviceUtc = TryReadUtcDateTime(body);
+            if (deviceUtc is null)
+            {
+                return false;
+            }
+
+            // 以請求往返的中點估算設備時間對應之本機時間，去除單程網路延遲
+            var localMidpoint = startedAt + ((DateTimeOffset.UtcNow - startedAt) / 2);
+            var skew = deviceUtc.Value - localMidpoint;
+            if (skew.Duration() < TimeSpan.FromMinutes(1))
+            {
+                // 偏差不顯著：問題不是時鐘，交由後續（明碼回退或回報認證失敗）處理，避免無謂重試
+                return false;
+            }
+
+            _clockSkew = skew;
+            return true;
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (OnvifException)
+        {
+            return false;
+        }
+    }
+
     /// <summary>解析 SOAP 回應（容忍 SOAP 1.1／1.2 與 Fault 位於 Envelope 層之實作）。</summary>
     internal static (XElement Body, XElement? Fault) ParseSoapResponse(string text, HttpStatusCode statusCode)
     {
@@ -1005,11 +1147,27 @@ public sealed class OnvifDeviceService : IDisposable
         return (body, fault);
     }
 
-    private static bool IsWsAuthenticationFault(XElement? fault) =>
-        fault is not null && TryGetFaultCode(fault, out var code) &&
-        (code.Contains("NotAuthorized", StringComparison.OrdinalIgnoreCase) ||
-         code.Contains("FailedAuthentication", StringComparison.OrdinalIgnoreCase) ||
-         code.Contains("InvalidToken", StringComparison.OrdinalIgnoreCase));
+    private static bool IsWsAuthenticationFault(XElement? fault)
+    {
+        if (fault is null)
+        {
+            return false;
+        }
+
+        if (TryGetFaultCode(fault, out var code) &&
+            (code.Contains("NotAuthorized", StringComparison.OrdinalIgnoreCase) ||
+             code.Contains("FailedAuthentication", StringComparison.OrdinalIgnoreCase) ||
+             code.Contains("InvalidToken", StringComparison.OrdinalIgnoreCase)))
+        {
+            return true;
+        }
+
+        // 部分廠牌（實測海康）以泛用 fault code（Sender/Client）回「sender not authorized」，
+        // 真正可辨識的線索在 Reason 文字，須一併檢查才能觸發時鐘校正／明碼回退。
+        return fault.Descendants()
+            .Where(e => e.Name.LocalName == "Text")
+            .Any(e => e.Value.Contains("not authorized", StringComparison.OrdinalIgnoreCase));
+    }
 
     private static bool IsSuccess(HttpStatusCode statusCode) => (int)statusCode is >= 200 and < 300;
 
@@ -1056,7 +1214,8 @@ public sealed class OnvifDeviceService : IDisposable
 
         if (code.Contains("NotAuthorized", StringComparison.OrdinalIgnoreCase) ||
             code.Contains("FailedAuthentication", StringComparison.OrdinalIgnoreCase) ||
-            code.Contains("InvalidToken", StringComparison.OrdinalIgnoreCase))
+            code.Contains("InvalidToken", StringComparison.OrdinalIgnoreCase) ||
+            text.Contains("not authorized", StringComparison.OrdinalIgnoreCase))
         {
             return OnvifException.Unauthorized($"設備拒絕認證：{detail}", code);
         }
@@ -1103,14 +1262,19 @@ public sealed class OnvifDeviceService : IDisposable
         return code.Length > 0;
     }
 
-    private XDocument BuildEnvelope(XElement action, string actionUri)
+    private XDocument BuildEnvelope(XElement action, string actionUri, OnvifWsSecurityMode? modeOverride = null)
     {
         var header = new XElement(Env + "Header",
             new XElement(Wsa + "Action", actionUri));
 
         header.Add(new XElement(Wsa + "To", DeviceXAddr));
 
-        var security = OnvifWsSecurity.Build(_username, _password, _wsSecurityMode);
+        // Created 時間戳套用已量測之設備時鐘偏差，避免海康等廠牌因時鐘偏差拒絕正確帳密
+        var security = OnvifWsSecurity.Build(
+            _username,
+            _password,
+            modeOverride ?? _wsSecurityMode,
+            DateTime.UtcNow + _clockSkew);
         if (security is not null)
         {
             header.Add(security);

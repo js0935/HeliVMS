@@ -124,6 +124,7 @@ public sealed class LicenseService
     private readonly SettingsRepository _settings;
     private readonly LicenseRepository _licenses;
     private readonly AuditLogRepository _audit;
+    private readonly ChannelRepository _channels;
     private readonly LicenseManager _manager;
     private readonly HashSet<string> _auditedGateRejections = new(StringComparer.Ordinal);
     private readonly Lock _gateAuditLock = new();
@@ -146,6 +147,7 @@ public sealed class LicenseService
         _settings = new SettingsRepository(store);
         _licenses = new LicenseRepository(store);
         _audit = new AuditLogRepository(store);
+        _channels = new ChannelRepository(store);
         _manager = manager;
     }
 
@@ -269,7 +271,7 @@ public sealed class LicenseService
     /// <param name="actor">稽核操作者（一般為 <c>startup</c>）。</param>
     /// <param name="nowUtc">判斷時點。</param>
     public LicenseApplyResult RefreshDefault(string actor, DateTime nowUtc)
-        => Refresh(ReadDefaultToken(), actor, nowUtc);
+        => Refresh(_manager.ReadDefaultToken(), actor, nowUtc);
 
     /// <summary>
     /// <see cref="RefreshDefault"/> 的核心：以明確提供的「授權檔內容」重新驗證。
@@ -448,11 +450,13 @@ public sealed class LicenseService
                 _ => license.Message,
             };
         }
-        else if (channelId > license.MaxCameras)
+        else if (_channels.RankOf(channelId) >= license.MaxCameras)
         {
-            // 以頻道 ID 與上限比對而非計算「目前有幾個在錄」：ID 為 AUTOINCREMENT 且不會因
-            // 刪除而回收，用它判定不受已刪除頻道與種子頻道（EnsureSeedChannels 預建 2 個）
-            // 影響，判定結果只取決於授權本身。
+            // 以「建立順序排名」與上限比對，而非原始 channelId 比大小：id 是 AUTOINCREMENT
+            // 且刪除不回收，反覆新增／刪除會把 id 推到遠超過實際頻道數，直接比 id 會讓
+            // 合法頻道被誤擋。排名＝目前還有幾個頻道比它早建立，等同「前 N 路可錄影」；
+            // 刪除前面的頻道時後面的會自動遞補，且新增一律配到更大的 id，不會把已可錄的
+            // 頻道踢出額度，判定穩定。
             allowed = false;
             reason = $"已達授權上限（{license.MaxCameras} 路）：頻道 {channelId} 超出授權範圍，" +
                 "可瀏覽設備但無法錄影。請升級授權以解鎖更多頻道。";
@@ -499,12 +503,6 @@ public sealed class LicenseService
             targetId: channelId,
             detail: reason,
             occurredAtUtc: nowUtc);
-    }
-
-    private static string ReadDefaultToken()
-    {
-        var path = LicenseManager.DefaultPath;
-        return File.Exists(path) ? File.ReadAllText(path).Trim() : string.Empty;
     }
 
     private static bool TryDetectRollback(DateTime? maxSeenUtc, DateTime nowUtc, out string reason)

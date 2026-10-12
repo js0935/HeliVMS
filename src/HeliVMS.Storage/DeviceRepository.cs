@@ -22,7 +22,7 @@ public sealed class DeviceRepository
     {
         return _store.Query(
             """
-            SELECT id, name, ip, port, vendor, enabled, created_at, sd_url
+            SELECT id, name, ip, port, vendor, enabled, created_at, sd_url, main_rtsp, sub_rtsp
             FROM devices ORDER BY id;
             """,
             static r =>
@@ -40,6 +40,8 @@ public sealed class DeviceRepository
                         Enabled = r.GetInt32(5) != 0,
                         CreatedAt = SqliteStore.FromIso(r.GetString(6)),
                         SdUrl = r.IsDBNull(7) ? null : r.GetString(7),
+                        MainStreamUrl = r.IsDBNull(8) ? null : r.GetString(8),
+                        SubStreamUrl = r.IsDBNull(9) ? null : r.GetString(9),
                     });
                 }
 
@@ -52,7 +54,7 @@ public sealed class DeviceRepository
     {
         return _store.Query(
             """
-            SELECT id, name, ip, port, username, password_encrypted, vendor, enabled, created_at, sd_url
+            SELECT id, name, ip, port, username, password_encrypted, vendor, enabled, created_at, sd_url, main_rtsp, sub_rtsp
             FROM devices WHERE id = $id;
             """,
             static r => r.Read() ? ReadFull(r) : null,
@@ -69,7 +71,7 @@ public sealed class DeviceRepository
 
         return _store.Query(
             """
-            SELECT id, name, ip, port, username, password_encrypted, vendor, enabled, created_at, sd_url
+            SELECT id, name, ip, port, username, password_encrypted, vendor, enabled, created_at, sd_url, main_rtsp, sub_rtsp
             FROM devices WHERE ip = $ip;
             """,
             static r => r.Read() ? ReadFull(r) : null,
@@ -124,15 +126,26 @@ public sealed class DeviceRepository
             Enabled = r.GetInt32(7) != 0,
             CreatedAt = SqliteStore.FromIso(r.GetString(8)),
             SdUrl = r.IsDBNull(9) ? null : r.GetString(9),
+            MainStreamUrl = r.IsDBNull(10) ? null : r.GetString(10),
+            SubStreamUrl = r.IsDBNull(11) ? null : r.GetString(11),
         };
 
     /// <summary>新增設備（M152 稽核掛載：device.add 寫 audit_log），回傳新 ID。密碼以 DPAPI（目前使用者）加密後儲存。</summary>
-    public int Add(string name, string ip, int port, string username, string password, string vendor, string actor = "system")
+    public int Add(
+        string name,
+        string ip,
+        int port,
+        string username,
+        string password,
+        string vendor,
+        string actor = "system",
+        string? mainRtsp = null,
+        string? subRtsp = null)
     {
         var id = _store.Query(
             """
-            INSERT INTO devices (name, ip, port, username, password_encrypted, vendor)
-            VALUES ($n, $i, $p, $u, $pw, $v);
+            INSERT INTO devices (name, ip, port, username, password_encrypted, vendor, main_rtsp, sub_rtsp)
+            VALUES ($n, $i, $p, $u, $pw, $v, $m, $s);
             SELECT last_insert_rowid();
             """,
             static r =>
@@ -152,10 +165,40 @@ public sealed class DeviceRepository
                         ? DBNull.Value
                         : OperatingSystem.IsWindows() ? Protect(password) : password);
                 cmd.Parameters.AddWithValue("$v", vendor);
+                cmd.Parameters.AddWithValue("$m", (object?)mainRtsp ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("$s", (object?)subRtsp ?? DBNull.Value);
             });
 
         _audit.Record(actor, "device.add", AuditCategories.Config, "device", id, $"{name}@{ip}:{port}");
         return id;
+    }
+
+    /// <summary>
+    /// 設定設備的主／子碼流 RTSP 位址（ONVIF 加入或重新探索時寫入）；空白視為清除。
+    /// 供「頻道管理」離線以設備碼流建立頻道，不必重新連線探測。
+    /// </summary>
+    public bool SetStreamUrls(int id, string? mainRtsp, string? subRtsp, string actor = "system")
+    {
+        var affected = _store.Query<int>(
+            """
+            UPDATE devices SET main_rtsp = $m, sub_rtsp = $s
+            WHERE id = $id;
+            SELECT changes();
+            """,
+            r => r.Read() ? r.GetInt32(0) : 0,
+            cmd =>
+            {
+                cmd.Parameters.AddWithValue("$id", id);
+                cmd.Parameters.AddWithValue("$m", string.IsNullOrWhiteSpace(mainRtsp) ? DBNull.Value : mainRtsp);
+                cmd.Parameters.AddWithValue("$s", string.IsNullOrWhiteSpace(subRtsp) ? DBNull.Value : subRtsp);
+            });
+
+        if (affected > 0)
+        {
+            _audit.Record(actor, "device.streams", AuditCategories.Config, "device", id, "set");
+        }
+
+        return affected > 0;
     }
 
     /// <summary>

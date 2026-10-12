@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <ApplicationIcon>app.ico</ApplicationIcon>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!--
+      授權金鑰的位元組格式、HMAC 密鑰與機器碼計算一律取自 HeliVMS.Licensing。
+      簽發端與驗證端共用同一份程式碼，才不會像過去那樣兩邊各藏一份密鑰而默默漂移。
+    -->
+    <ProjectReference Include="..\..\src\HeliVMS.Licensing\HeliVMS.Licensing.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="app.ico">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
+</Project>

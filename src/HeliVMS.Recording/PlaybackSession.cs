@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using HeliVMS.Media;
+using HeliVMS.Shared;
 using HeliVMS.Shared.Models;
 
 namespace HeliVMS.Recording;
@@ -41,8 +42,8 @@ public sealed class PlaybackSession : IAsyncDisposable
         Func<string, StreamProbeInfo>? probe = null)
     {
         Segment = segment;
-        _ffmpeg = ffmpegPath ?? "ffmpeg";
-        _ffprobe = ffprobePath ?? "ffprobe";
+        _ffmpeg = ffmpegPath ?? FfmpegLocator.Ffmpeg;
+        _ffprobe = ffprobePath ?? FfmpegLocator.Ffprobe;
         _processFactory = processFactory ?? new DefaultProcessFactory();
         _probe = probe ?? (path => StreamProbe.Probe(path, _ffprobe));
     }

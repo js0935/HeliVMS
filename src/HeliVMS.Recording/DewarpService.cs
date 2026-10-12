@@ -76,7 +76,7 @@ public sealed class DewarpService
 
             var psi = new ProcessStartInfo
             {
-                FileName = "ffmpeg",
+                FileName = FfmpegLocator.Ffmpeg,
                 RedirectStandardError = true,
                 RedirectStandardOutput = true,
                 UseShellExecute = false,
@@ -170,7 +170,7 @@ public sealed class DewarpService
 
         var psi = new ProcessStartInfo
         {
-            FileName = "ffmpeg",
+            FileName = FfmpegLocator.Ffmpeg,
             RedirectStandardError = true,
             RedirectStandardOutput = true,
             UseShellExecute = false,

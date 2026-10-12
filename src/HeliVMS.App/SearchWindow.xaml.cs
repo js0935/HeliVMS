@@ -18,7 +18,33 @@ public partial class SearchWindow : Window
     {
         _search = new UnifiedEventSearch(store);
         InitializeComponent();
-        Title = "HeliVMS 法證檢索";
+        ApplyI18n();
+    }
+
+    /// <summary>
+    /// 套用目前語系到檢索視窗的固定文字（M57 §14.7）。XAML 已無硬編中文，文字集中於此，
+    /// 由 WpfI18nContractTests 的棘輪釘住三語齊備。
+    /// </summary>
+    private void ApplyI18n()
+    {
+        Title = Localizer.T("Search.Title");
+        DescriptionText.Text = Localizer.T("Search.Description");
+        KeywordLabelText.Text = Localizer.T("Search.Keyword");
+        SearchQueryBox.ToolTip = Localizer.T("Search.QueryTip");
+        FromLabelText.Text = Localizer.T("Search.From");
+        ToLabelText.Text = Localizer.T("Search.To");
+        SearchButton.Content = Localizer.T("Search.Search");
+        SearchButton.ToolTip = Localizer.T("Search.SearchTip");
+        SearchRebuildButton.Content = Localizer.T("Search.Rebuild");
+        SearchRebuildButton.ToolTip = Localizer.T("Search.RebuildTip");
+        SearchAlarmCheck.Content = Localizer.T("Search.Alarm");
+        SearchDoorCheck.Content = Localizer.T("Search.Door");
+        SearchPosCheck.Content = Localizer.T("Search.Pos");
+        SearchEdgeCheck.Content = Localizer.T("Search.Edge");
+        SearchColSource.Header = Localizer.T("Search.ColSource");
+        SearchColTime.Header = Localizer.T("Search.ColTime");
+        SearchColText.Header = Localizer.T("Search.ColText");
+        SearchColStatus.Header = Localizer.T("Search.ColStatus");
     }
 
     private sealed record SearchRow(string Source, string Time, string Text, string Status);
@@ -28,14 +54,14 @@ public partial class SearchWindow : Window
         var query = SearchQueryBox.Text.Trim();
         if (query.Length == 0)
         {
-            SearchStatusText.Text = "請輸入檢索關鍵字。";
+            SearchStatusText.Text = Localizer.T("Search.NeedQuery");
             return;
         }
 
         var mask = BuildSourceMask();
         if (mask == ForensicSource.None)
         {
-            SearchStatusText.Text = "請至少勾選一個來源。";
+            SearchStatusText.Text = Localizer.T("Search.NeedSource");
             return;
         }
 
@@ -51,13 +77,13 @@ public partial class SearchWindow : Window
                 h.Status ?? string.Empty)).ToList();
 
             SearchStatusText.Text = hits.Count == 0
-                ? "沒有符合的事件。"
-                : $"共 {hits.Count} 筆命中（最多顯示 {ResultLimit} 筆）。";
+                ? Localizer.T("Search.NoHits")
+                : string.Format(Localizer.T("Search.Hits"), hits.Count, ResultLimit);
         }
         catch (Exception ex)
         {
             SearchList.ItemsSource = null;
-            SearchStatusText.Text = $"檢索失敗：{ex.Message}";
+            SearchStatusText.Text = string.Format(Localizer.T("Search.Failed"), ex.Message);
         }
     }
 
@@ -66,11 +92,11 @@ public partial class SearchWindow : Window
         try
         {
             _search.RebuildAll();
-            SearchStatusText.Text = "已重建全文檢索索引。";
+            SearchStatusText.Text = Localizer.T("Search.Rebuilt");
         }
         catch (Exception ex)
         {
-            SearchStatusText.Text = $"重建索引失敗：{ex.Message}";
+            SearchStatusText.Text = string.Format(Localizer.T("Search.RebuildFailed"), ex.Message);
         }
     }
 
@@ -93,10 +119,10 @@ public partial class SearchWindow : Window
 
     private static string SourceLabel(ForensicSource source) => source switch
     {
-        ForensicSource.Alarm => "警報",
-        ForensicSource.Door => "門禁",
-        ForensicSource.Pos => "POS",
-        ForensicSource.EdgeSmart => "邊緣 AI",
+        ForensicSource.Alarm => Localizer.T("Search.Alarm"),
+        ForensicSource.Door => Localizer.T("Search.Door"),
+        ForensicSource.Pos => Localizer.T("Search.Pos"),
+        ForensicSource.EdgeSmart => Localizer.T("Search.Edge"),
         _ => source.ToString(),
     };
 }

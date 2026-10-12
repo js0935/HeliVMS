@@ -3,6 +3,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using HeliVMS.Devices.Onvif;
+using HeliVMS.Shared;
 using HeliVMS.Shared.Models;
 using HeliVMS.Storage;
 
@@ -25,7 +26,8 @@ public partial class PtzWindow : Window
     public PtzWindow(SqliteStore store, ChannelInfo channel, DeviceRecord device)
     {
         InitializeComponent();
-        Title = $"PTZ 控制（{channel.Name}）";
+        ApplyI18n();
+        Title = string.Format(Localizer.T("Ptz.TitleWindow"), channel.Name);
 
         var host = $"http://{device.Ip}:{device.Port}/onvif/device_service";
 
@@ -38,6 +40,39 @@ public partial class PtzWindow : Window
         Loaded += async (_, _) => await InitializeAsync();
     }
 
+    private void ApplyI18n()
+    {
+        Title = Localizer.T("Ptz.Title");
+        PtzStatusText.Text = Localizer.T("Ptz.StatusConnecting");
+        PtzProfileLabel.Text = Localizer.T("Ptz.ProfileLabel");
+        PtzMoveGroup.Header = Localizer.T("Ptz.MoveGroup");
+        PtzUpLeftButton.ToolTip = Localizer.T("Ptz.MoveUpLeftTip");
+        PtzUpButton.ToolTip = Localizer.T("Ptz.MoveUpTip");
+        PtzUpRightButton.ToolTip = Localizer.T("Ptz.MoveUpRightTip");
+        PtzLeftButton.ToolTip = Localizer.T("Ptz.MoveLeftTip");
+        PtzStopButton.ToolTip = Localizer.T("Ptz.StopTip");
+        PtzRightButton.ToolTip = Localizer.T("Ptz.MoveRightTip");
+        PtzDownLeftButton.ToolTip = Localizer.T("Ptz.MoveDownLeftTip");
+        PtzDownButton.ToolTip = Localizer.T("Ptz.MoveDownTip");
+        PtzDownRightButton.ToolTip = Localizer.T("Ptz.MoveDownRightTip");
+        PtzZoomInButton.Content = Localizer.T("Ptz.ZoomIn");
+        PtzZoomInButton.ToolTip = Localizer.T("Ptz.ZoomInTip");
+        PtzZoomOutButton.Content = Localizer.T("Ptz.ZoomOut");
+        PtzZoomOutButton.ToolTip = Localizer.T("Ptz.ZoomOutTip");
+        PtzHomeButton.ToolTip = Localizer.T("Ptz.HomeTip");
+        PtzPresetGroup.Header = Localizer.T("Ptz.PresetGroup");
+        PtzPresetNameBox.ToolTip = Localizer.T("Ptz.PresetNameTip");
+        PtzSavePresetButton.Content = Localizer.T("Ptz.SavePreset");
+        PtzSavePresetButton.ToolTip = Localizer.T("Ptz.SavePresetTip");
+        PtzDeletePresetButton.ToolTip = Localizer.T("Ptz.DeletePresetTip");
+        PtzRefreshButton.Content = Localizer.T("Ptz.Refresh");
+        PtzRefreshButton.ToolTip = Localizer.T("Ptz.RefreshTip");
+        PtzGotoPresetButton.Content = Localizer.T("Ptz.GotoPreset");
+        PtzGotoPresetButton.ToolTip = Localizer.T("Ptz.GotoPresetTip");
+        PtzCloseButton.Content = Localizer.T("Ptz.Close");
+        PtzCloseButton.ToolTip = Localizer.T("Ptz.CloseTip");
+    }
+
     private async Task InitializeAsync()
     {
         try
@@ -45,7 +80,7 @@ public partial class PtzWindow : Window
             await _service.EnsurePtzCapabilityAsync();
             if (!_service.HasPtz)
             {
-                PtzStatusText.Text = "此設備不支援 PTZ。";
+                PtzStatusText.Text = Localizer.T("Ptz.NoPtz");
                 SetControlsEnabled(false);
                 return;
             }
@@ -53,7 +88,7 @@ public partial class PtzWindow : Window
             var profiles = await _service.GetProfilesAsync();
             if (profiles.Count == 0)
             {
-                PtzStatusText.Text = "已連線，但設備未提供可操控的 Profile。";
+                PtzStatusText.Text = Localizer.T("Ptz.NoProfile");
                 SetControlsEnabled(false);
                 return;
             }
@@ -64,12 +99,12 @@ public partial class PtzWindow : Window
             _profileToken = _profiles[0].Token;
 
             _ready = true;
-            PtzStatusText.Text = $"已連線（{_service.DeviceXAddr}）· PTZ 支援。";
+            PtzStatusText.Text = string.Format(Localizer.T("Ptz.Connected"), _service.DeviceXAddr);
             await RefreshPresetsAsync();
         }
         catch (Exception ex)
         {
-            PtzStatusText.Text = $"連線失敗：{ex.Message}";
+            PtzStatusText.Text = string.Format(Localizer.T("Ptz.ConnectFailed"), ex.Message);
             SetControlsEnabled(false);
         }
     }
@@ -95,7 +130,7 @@ public partial class PtzWindow : Window
         }
 
         _profileToken = profile.Token;
-        PtzStatusText.Text = $"已切換 Profile：{profile.Token}";
+        PtzStatusText.Text = string.Format(Localizer.T("Ptz.ProfileSwitched"), profile.Token);
         await RefreshPresetsAsync();
     }
 
@@ -123,7 +158,7 @@ public partial class PtzWindow : Window
         }
         catch (Exception ex)
         {
-            PtzStatusText.Text = $"移動失敗：{ex.Message}";
+            PtzStatusText.Text = string.Format(Localizer.T("Ptz.MoveFailed"), ex.Message);
             _ptzHeld = false;
         }
     }
@@ -146,7 +181,7 @@ public partial class PtzWindow : Window
         }
         catch (Exception ex)
         {
-            PtzStatusText.Text = $"停止失敗：{ex.Message}";
+            PtzStatusText.Text = string.Format(Localizer.T("Ptz.StopFailed"), ex.Message);
         }
     }
 
@@ -171,7 +206,7 @@ public partial class PtzWindow : Window
         }
         catch (Exception ex)
         {
-            PtzStatusText.Text = $"移動失敗：{ex.Message}";
+            PtzStatusText.Text = string.Format(Localizer.T("Ptz.MoveFailed"), ex.Message);
         }
     }
 
@@ -188,7 +223,7 @@ public partial class PtzWindow : Window
         }
         catch (Exception ex)
         {
-            PtzStatusText.Text = $"停止失敗：{ex.Message}";
+            PtzStatusText.Text = string.Format(Localizer.T("Ptz.StopFailed"), ex.Message);
         }
     }
 
@@ -211,7 +246,7 @@ public partial class PtzWindow : Window
         }
         catch (Exception ex)
         {
-            PtzStatusText.Text = $"讀取預設點失敗：{ex.Message}";
+            PtzStatusText.Text = string.Format(Localizer.T("Ptz.PresetReadFailed"), ex.Message);
         }
     }
 
@@ -222,16 +257,20 @@ public partial class PtzWindow : Window
             return;
         }
 
-        var name = string.IsNullOrWhiteSpace(PtzPresetNameBox.Text) ? $"預設點 {DateTime.Now:HH:mm:ss}" : PtzPresetNameBox.Text;
+        var name = string.IsNullOrWhiteSpace(PtzPresetNameBox.Text)
+            ? string.Format(Localizer.T("Ptz.DefaultPresetName"), DateTime.Now.ToString("HH:mm:ss"))
+            : PtzPresetNameBox.Text;
         try
         {
             var token = await _service.SetPtzPresetAsync(_profileToken, name);
-            PtzStatusText.Text = string.IsNullOrEmpty(token) ? "已送出儲存要求。" : $"已儲存預設點（{token}）。";
+            PtzStatusText.Text = string.IsNullOrEmpty(token)
+                ? Localizer.T("Ptz.PresetSaveSent")
+                : string.Format(Localizer.T("Ptz.PresetSaved"), token);
             await RefreshPresetsAsync();
         }
         catch (Exception ex)
         {
-            PtzStatusText.Text = $"儲存失敗：{ex.Message}";
+            PtzStatusText.Text = string.Format(Localizer.T("Ptz.SaveFailed"), ex.Message);
         }
     }
 
@@ -245,11 +284,11 @@ public partial class PtzWindow : Window
         try
         {
             await _service.GotoPtzPresetAsync(_profileToken, preset.Token);
-            PtzStatusText.Text = $"已移至預設點：{preset.Name}";
+            PtzStatusText.Text = string.Format(Localizer.T("Ptz.GoneToPreset"), preset.Name);
         }
         catch (Exception ex)
         {
-            PtzStatusText.Text = $"移轉失敗：{ex.Message}";
+            PtzStatusText.Text = string.Format(Localizer.T("Ptz.GotoFailed"), ex.Message);
         }
     }
 
@@ -263,11 +302,11 @@ public partial class PtzWindow : Window
         try
         {
             await _service.HomeAsync(_profileToken);
-            PtzStatusText.Text = "已回歸 Home。";
+            PtzStatusText.Text = Localizer.T("Ptz.HomeDone");
         }
         catch (Exception ex)
         {
-            PtzStatusText.Text = $"Home 失敗：{ex.Message}";
+            PtzStatusText.Text = string.Format(Localizer.T("Ptz.HomeFailed"), ex.Message);
         }
     }
 
@@ -281,12 +320,12 @@ public partial class PtzWindow : Window
         try
         {
             await _service.RemovePtzPresetAsync(_profileToken, preset.Token);
-            PtzStatusText.Text = $"已刪除預設點：{preset.Name}";
+            PtzStatusText.Text = string.Format(Localizer.T("Ptz.PresetDeleted"), preset.Name);
             await RefreshPresetsAsync();
         }
         catch (Exception ex)
         {
-            PtzStatusText.Text = $"刪除失敗：{ex.Message}";
+            PtzStatusText.Text = string.Format(Localizer.T("Ptz.DeleteFailed"), ex.Message);
         }
     }
 

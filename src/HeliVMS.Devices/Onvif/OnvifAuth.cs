@@ -192,7 +192,14 @@ internal sealed class OnvifHttpChallenge
             parts.Add($"opaque=\"{Escape(Opaque)}\"");
         }
 
-        parts.Add($"algorithm={Algorithm}");
+        // 廠牌差異（實測 HOEM／部分白牌 IPC）：設備雖在挑戰宣告 algorithm=MD5，但 Authorization
+        // 只要帶上 algorithm=MD5 就被判為認證失敗（HTTP 401）。RFC 7616 規定未帶 algorithm 即
+        // 視為 MD5，故預設演算法省略此參數，僅在非預設（SHA-256／MD5-sess 等）時送出。
+        if (!string.Equals(Algorithm, "MD5", StringComparison.OrdinalIgnoreCase))
+        {
+            parts.Add($"algorithm={Algorithm}");
+        }
+
         return $"{DigestScheme} {string.Join(", ", parts)}";
     }
 
@@ -325,18 +332,24 @@ internal static class OnvifWsSecurity
     internal const string PasswordTextType = "http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-username-token-profile-1.0#PasswordText";
     internal const string Base64EncodingType = "http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-soap-message-security-1.0#Base64Binary";
 
-    /// <summary>依模式產生 <c>wse:Security</c> 元素；未提供帳密時回傳 null（空密碼仍會送出封包）。</summary>
+    /// <summary>
+    /// 依模式產生 <c>wse:Security</c> 元素；未提供帳密時回傳 null（空密碼仍會送出封包）。
+    /// <para><paramref name="createdUtc"/> 為 UsernameToken 時間戳基準（UTC）：預設本機現在時間，
+    /// 呼叫端可傳入先前量測之設備時鐘偏差校正值，避免海康等廠牌因時鐘偏差拒絕正確的 PasswordDigest。
+    /// 實際寫入的 Created 會再往前推 2 分鐘作為寬容值。</para>
+    /// </summary>
     public static XElement? Build(
         string? username,
         string? password,
-        OnvifWsSecurityMode mode)
+        OnvifWsSecurityMode mode,
+        DateTime? createdUtc = null)
     {
         if (string.IsNullOrEmpty(username) || password is null || mode == OnvifWsSecurityMode.None)
         {
             return null;
         }
 
-        var created = DateTime.UtcNow.AddMinutes(-2);
+        var created = (createdUtc ?? DateTime.UtcNow).AddMinutes(-2);
         var createdText = created.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture);
         var nonceText = Convert.ToBase64String(RandomNumberGenerator.GetBytes(8));
 

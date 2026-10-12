@@ -2,7 +2,7 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         AutomationProperties.AutomationId="AnalyticsWindow"
-        Title="HeliVMS 分析情境"
+        Title=""
         Width="900" Height="660"
         WindowStartupLocation="CenterOwner"
         Background="#0B1622" Foreground="White">
@@ -16,80 +16,82 @@
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
-        <!-- 建立分析區 -->
+        <!-- Create analytics zone -->
         <StackPanel Grid.Row="0">
-            <TextBlock Text="建立分析情境區（幾何 0..1 正規化；跨線需 2 點、區域／聚集需 3 點以上）"
+            <TextBlock x:Name="AnalyticsDescText" Text=""
                        Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
 
             <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
-                <TextBlock Text="名稱" VerticalAlignment="Center" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+                <TextBlock x:Name="AnalyticsNameLabel" Text="" VerticalAlignment="Center" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
                 <TextBox x:Name="AnalyticsNameBox" AutomationProperties.AutomationId="AnalyticsNameBox"
                          Width="130" Margin="8,0,0,0" VerticalContentAlignment="Center"
                          Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
-                <TextBlock Text="頻道" VerticalAlignment="Center" Margin="12,0,0,0"
+                <TextBlock x:Name="AnalyticsChannelLabel" Text="" VerticalAlignment="Center" Margin="12,0,0,0"
                            Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
                 <ComboBox x:Name="AnalyticsChannelCombo" AutomationProperties.AutomationId="AnalyticsChannelCombo"
                           Width="180" Margin="8,0,0,0" Foreground="Black" DisplayMemberPath="Display"/>
-                <TextBlock Text="模組" VerticalAlignment="Center" Margin="12,0,0,0"
+                <TextBlock x:Name="AnalyticsModuleLabel" Text="" VerticalAlignment="Center" Margin="12,0,0,0"
                            Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
                 <ComboBox x:Name="AnalyticsModuleCombo" AutomationProperties.AutomationId="AnalyticsModuleCombo"
-                          Width="120" Margin="8,0,0,0" Foreground="Black" DisplayMemberPath="DisplayName"/>
-                <TextBlock Text="方向" VerticalAlignment="Center" Margin="12,0,0,0"
+                          Width="120" Margin="8,0,0,0" Foreground="Black" DisplayMemberPath="Label"/>
+                <TextBlock x:Name="AnalyticsDirectionLabel" Text="" VerticalAlignment="Center" Margin="12,0,0,0"
                            Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
                 <ComboBox x:Name="AnalyticsDirectionCombo" AutomationProperties.AutomationId="AnalyticsDirectionCombo"
-                          Width="90" Margin="8,0,0,0" Foreground="Black"/>
+                          Width="90" Margin="8,0,0,0" Foreground="Black" DisplayMemberPath="Label"/>
             </StackPanel>
 
             <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
-                <TextBlock Text="多邊形" VerticalAlignment="Center" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+                <TextBlock x:Name="AnalyticsPolygonLabel" Text="" VerticalAlignment="Center" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
                 <TextBox x:Name="AnalyticsPolygonBox" AutomationProperties.AutomationId="AnalyticsPolygonBox"
                          Width="360" Margin="8,0,0,0" VerticalContentAlignment="Center"
                          Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
-                <TextBlock Text="門檻" VerticalAlignment="Center" Margin="12,0,0,0"
+                <TextBlock x:Name="AnalyticsMinCountLabel" Text="" VerticalAlignment="Center" Margin="12,0,0,0"
                            Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
                 <TextBox x:Name="AnalyticsMinCountBox" AutomationProperties.AutomationId="AnalyticsMinCountBox"
                          Width="56" Margin="8,0,0,0" VerticalContentAlignment="Center"
                          Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
-                <TextBlock Text="停留秒" VerticalAlignment="Center" Margin="12,0,0,0"
+                <TextBlock x:Name="AnalyticsDwellLabel" Text="" VerticalAlignment="Center" Margin="12,0,0,0"
                            Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
                 <TextBox x:Name="AnalyticsDwellBox" AutomationProperties.AutomationId="AnalyticsDwellBox"
                          Width="56" Margin="8,0,0,0" VerticalContentAlignment="Center"
                          Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
-                <Button x:Name="AnalyticsAddButton" AutomationProperties.AutomationId="AnalyticsAddButton" ToolTip="新增分析區"
-                        Content="新增分析區" Click="OnAddClicked"
+                <Button x:Name="AnalyticsAddButton" AutomationProperties.AutomationId="AnalyticsAddButton" ToolTip=""
+                        Content="" Click="OnAddClicked"
                         Margin="12,0,0,0" Padding="12,6"
                         Foreground="White" Background="#2A5C8A" BorderThickness="0"/>
             </StackPanel>
         </StackPanel>
 
-        <TextBlock Grid.Row="1" Text="現有分析區" Foreground="{StaticResource Brand.TextDim}" FontSize="11" Margin="0,14,0,2"/>
+        <TextBlock Grid.Row="1" x:Name="AnalyticsListHeaderText" Text="" Foreground="{StaticResource Brand.TextDim}" FontSize="11" Margin="0,14,0,2"/>
         <ListView Grid.Row="2" x:Name="AnalyticsList" AutomationProperties.AutomationId="AnalyticsList"
                   Background="#0E1C30" BorderBrush="#2A4A73" Foreground="White">
             <ListView.View>
                 <GridView>
-                    <GridViewColumn Header="ID" Width="44" DisplayMemberBinding="{Binding Id}"/>
-                    <GridViewColumn Header="名稱" Width="150" DisplayMemberBinding="{Binding Name}"/>
-                    <GridViewColumn Header="模組" Width="110" DisplayMemberBinding="{Binding ModuleLabel}"/>
-                    <GridViewColumn Header="頻道" Width="150" DisplayMemberBinding="{Binding ChannelLabel}"/>
-                    <GridViewColumn Header="狀態" Width="70" DisplayMemberBinding="{Binding StateLabel}"/>
-                    <GridViewColumn Header="幾何" Width="230" DisplayMemberBinding="{Binding GeometryLabel}"/>
+                    <GridViewColumn x:Name="AnalyticsColId" Header="ID"/>
+                    <GridViewColumn x:Name="AnalyticsColName" Header=""/>
+                    <GridViewColumn x:Name="AnalyticsColModule" Header=""/>
+                    <GridViewColumn x:Name="AnalyticsColChannel" Header=""/>
+                    <GridViewColumn x:Name="AnalyticsColState" Header=""/>
+                    <GridViewColumn x:Name="AnalyticsColGeometry" Header=""/>
                 </GridView>
             </ListView.View>
         </ListView>
 
-        <StackPanel Grid.Row="3" Orientation="Horizontal" Margin="0,10,0,0">
-            <Button x:Name="AnalyticsRefreshButton" Content="刷新" Click="OnRefreshClicked" ToolTip="重新載入分析區清單"
-                    Width="64" Padding="0,6" Foreground="White" Background="#2A4A73" BorderThickness="0" AutomationProperties.AutomationId="AnalyticsRefreshButton"/>
-            <Button x:Name="AnalyticsToggleButton" AutomationProperties.AutomationId="AnalyticsToggleButton" ToolTip="切換所選分析區的啟用狀態"
-                    Content="啟用/停用" Click="OnToggleClicked"
+        <StackPanel Grid.Row="3" Orientation="Horizontal">
+            <Button x:Name="AnalyticsRefreshButton" AutomationProperties.AutomationId="AnalyticsRefreshButton" ToolTip=""
+                    Content="" Click="OnRefreshClicked"
+                    Width="64" Padding="0,6"
+                    Foreground="White" Background="#2A4A73" BorderThickness="0"/>
+            <Button x:Name="AnalyticsToggleButton" AutomationProperties.AutomationId="AnalyticsToggleButton" ToolTip=""
+                    Content="" Click="OnToggleClicked"
                     Width="90" Padding="0,6" Margin="8,0,0,0"
                     Foreground="White" Background="#2A4A73" BorderThickness="0"/>
-            <Button x:Name="AnalyticsEvaluateButton" AutomationProperties.AutomationId="AnalyticsEvaluateButton" ToolTip="以範例影像偵測評估該分析區效果"
-                    Content="以範例偵測評估" Click="OnEvaluateClicked"
+            <Button x:Name="AnalyticsEvaluateButton" AutomationProperties.AutomationId="AnalyticsEvaluateButton" ToolTip=""
+                    Content="" Click="OnEvaluateClicked"
                     Width="120" Padding="0,6" Margin="8,0,0,0"
                     Foreground="White" Background="#2A5C8A" BorderThickness="0"/>
-            <Button x:Name="AnalyticsDeleteButton" AutomationProperties.AutomationId="AnalyticsDeleteButton" ToolTip="刪除所選分析區"
-                    Content="刪除" Click="OnDeleteClicked"
+            <Button x:Name="AnalyticsDeleteButton" AutomationProperties.AutomationId="AnalyticsDeleteButton" ToolTip=""
+                    Content="" Click="OnDeleteClicked"
                     Width="64" Padding="0,6" Margin="8,0,0,0"
                     Foreground="White" Background="#8A3C2E" BorderThickness="0"/>
         </StackPanel>

@@ -21,6 +21,9 @@ namespace HeliVMS.Recording.Tests;
 /// 因此同一組 arrange/act 必須用同一個排程實例走完，不能每次呼叫
 /// <c>ReconcileAsync</c> 都新建一個——否則第二個實例的 <c>_active</c> 是空的，
 /// 測試會測到一個不存在於正式程式的情境。
+///
+/// 決策規則本身在 <c>RecordingIntentTests</c>，這裡只驗「規則有沒有真的被執行」。
+/// 兩邊都要有：規則寫對但沒接上，跟規則沒寫，是同樣嚴重的失效。
 /// </summary>
 public sealed class RecordingSchedulerTests : IDisposable
 {
@@ -86,6 +89,233 @@ public sealed class RecordingSchedulerTests : IDisposable
 
         Assert.Empty(_started);
     }
+
+    /// <summary>
+    /// 全時模式的頻道必須真的被開錄，就算完全沒有排程。
+    ///
+    /// 這是「長期監控錄影」最直接的失效：<c>recording_mode</c> 的預設值是 Always，
+    /// 設定頁預設也顯示「全時」，但排程器從來不讀這個欄位。
+    /// 現場症狀是操作員看著畫面上的「全時」以為在錄影，實際上一段都沒有——
+    /// 沒有錯誤、沒有警告、log 乾淨，等到他要調閱影像時才發現。
+    /// 這裡守的是「規則有沒有真的接上執行」，規則本身的細節在 RecordingIntentTests。
+    /// </summary>
+    [Fact]
+    public async Task 全時模式的頻道不需要排程就會被排程器開錄()
+    {
+        ApplyLicense(cameras: 32);
+        var channel = AddChannel("車道 1", RecordingMode.Always);
+
+        using var scheduler = NewScheduler();
+        await scheduler.ReconcileAsync();
+
+        var recorder = Assert.Single(_started);
+        Assert.Equal(channel, recorder.ChannelId);
+        Assert.Contains(channel, scheduler.ActiveChannelIds);
+    }
+
+    /// <summary>
+    /// 全時頻道被停用後，排程要真的把錄影機收掉。
+    ///
+    /// 只驗證「會開」不夠：開了卻停不掉，操作員按了停用，磁碟照樣被吃滿，
+    /// 而且畫面顯示已經停用、實際上沒有——比不開更難查。
+    /// </summary>
+    [Fact]
+    public async Task 全時頻道被停用後排程會停止錄影()
+    {
+        ApplyLicense(cameras: 32);
+        var channel = AddChannel("車道 1", RecordingMode.Always);
+
+        using var scheduler = NewScheduler();
+        await scheduler.ReconcileAsync();
+        var recorder = Assert.Single(_started);
+        Assert.False(recorder.Stopped);
+
+        DisableChannel(channel);
+        await scheduler.ReconcileAsync();
+
+        Assert.True(recorder.Stopped);
+        Assert.True(recorder.Disposed);
+        Assert.Empty(scheduler.ActiveChannelIds);
+    }
+
+    /// <summary>
+    /// 全時模式的開錄要寫下 always 這個來源，不能混在 schedule 裡。
+    ///
+    /// 出事要追的是「誰開的」：使用者自己設的全時，和排程把它拉起來的，
+    /// 該走的處理完全不同。混成同一個標籤，這個問題就永遠查不出來。
+    /// </summary>
+    [Fact]
+    public async Task 全時模式開錄寫下always而非schedule來源()
+    {
+        ApplyLicense(cameras: 32);
+        AddChannel("車道 1", RecordingMode.Always);
+
+        using var scheduler = NewScheduler();
+        await scheduler.ReconcileAsync();
+
+        var starts = RecordingAudits("recording.start");
+        var entry = Assert.Single(starts);
+        Assert.Contains($"source={RecordingGateSources.Always}", entry.Detail ?? string.Empty);
+    }
+
+    /// <summary>排程模式的開錄要寫下 schedule，與全時區隔開。</summary>
+    [Fact]
+    public async Task 排程模式開錄寫下schedule來源()
+    {
+        ApplyLicense(cameras: 32);
+        AddSchedule(AddChannel("車道 1"), ActiveNow());
+
+        using var scheduler = NewScheduler();
+        await scheduler.ReconcileAsync();
+
+        var entry = Assert.Single(RecordingAudits("recording.start"));
+        Assert.Contains($"source={RecordingGateSources.Schedule}", entry.Detail ?? string.Empty);
+    }
+
+    /// <summary>停錄也要留下紀錄，否則查不到「這台攝影機最後一次有錄影是什麼時候」。</summary>
+    [Fact]
+    public async Task 停止錄影會寫下稽核()
+    {
+        ApplyLicense(cameras: 32);
+        var channel = AddChannel("車道 1", RecordingMode.Always);
+
+        using var scheduler = NewScheduler();
+        await scheduler.ReconcileAsync();
+        DisableChannel(channel);
+        await scheduler.ReconcileAsync();
+
+        Assert.Single(RecordingAudits("recording.stop"));
+    }
+
+    /// <summary>
+    /// 稽核記錄不得含 RTSP 帳密。
+    ///
+    /// 稽核查詢會顯示在稽核視窗、也能經 API 讀取與匯出，所以寫進去等於把憑證散播到
+    /// 每一份稽核備份。診斷上只需要知道「連的是哪一台」，主機與路徑足以回推問題，
+    /// 帳密沒有任何診斷價值。
+    /// </summary>
+    [Fact]
+    public async Task 稽核記錄不會寫出串流帳密()
+    {
+        ApplyLicense(cameras: 32);
+        var channelId = _channels.Add(
+            "車道 1",
+            "rtsp://operator:s3cr3t@cam-7.example.invalid:554/live",
+            recordingMode: RecordingMode.Always);
+
+        using var scheduler = NewScheduler();
+        await scheduler.ReconcileAsync();
+
+        var detail = Assert.Single(RecordingAudits("recording.start")).Detail ?? string.Empty;
+        Assert.DoesNotContain("s3cr3t", detail, StringComparison.Ordinal);
+        Assert.DoesNotContain("operator", detail, StringComparison.Ordinal);
+        // 遮罩之後仍要留得住足以回推問題的主機。
+        Assert.Contains("cam-7.example.invalid", detail, StringComparison.Ordinal);
+        Assert.Equal(channelId, Assert.Single(RecordingAudits("recording.start")).TargetId);
+    }
+
+    /// <summary>
+    /// 錄影機連續錄不成時要留下稽核。
+    ///
+    /// 這是「攝影機離線但系統看起來正常」的唯一出路：ffmpeg 連不上時錄影迴圈
+    /// 仍在跑（IsRecording 為 true）、稽核也已寫過 recording.start，
+    /// 磁碟上卻沒有檔案。沒有這筆紀錄，無人值守的現場可以離線好幾天沒人發現。
+    /// </summary>
+    [Fact]
+    public async Task 錄影連續失敗會寫下停滯稽核()
+    {
+        ApplyLicense(cameras: 32);
+        AddChannel("車道 1", RecordingMode.Always);
+
+        using var scheduler = NewScheduler();
+        await scheduler.ReconcileAsync();
+        _started[0].SimulateStall(failures: 3);
+
+        var entry = Assert.Single(RecordingAudits("recording.stalled"));
+        Assert.Contains("failures=3", entry.Detail ?? string.Empty, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// 停滯稽核不得帶出串流帳密。
+    ///
+    /// ffmpeg 的 stderr 幾乎一定包含
+    /// <c>Input #0, rtsp, from 'rtsp://user:pass@host/...'</c>，
+    /// 那是整段文字而不是合法 URI，只能用 RedactText 逐段取代。
+    /// 稽核會被匯出，所以這裡漏一次就是憑證外洩一次。
+    /// </summary>
+    [Fact]
+    public async Task 停滯稽核會遮蔽ffmpeg輸出裡的帳密()
+    {
+        ApplyLicense(cameras: 32);
+        _channels.Add(
+            "車道 1",
+            "rtsp://operator:s3cr3t@cam-7.example.invalid/live",
+            recordingMode: RecordingMode.Always);
+
+        using var scheduler = NewScheduler();
+        await scheduler.ReconcileAsync();
+        _started[0].SimulateStall(
+            failures: 3,
+            ffError: "Input #0, rtsp, from 'rtsp://operator:s3cr3t@cam-7.example.invalid/live': Invalid data");
+
+        var detail = Assert.Single(RecordingAudits("recording.stalled")).Detail ?? string.Empty;
+        Assert.DoesNotContain("s3cr3t", detail, StringComparison.Ordinal);
+        Assert.DoesNotContain("operator", detail, StringComparison.Ordinal);
+        Assert.Contains("cam-7.example.invalid", detail, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// 啟動 ffmpeg 失敗時的例外訊息裡會帶著完整命令行參數，其中就有含帳密的 RTSP URL。
+    /// 稽核會被匯出，所以這裡漏一次就是憑證外洩一次。
+    /// </summary>
+    [Fact]
+    public async Task 停滯稽核會遮蔽啟動例外裡的帳密()
+    {
+        ApplyLicense(cameras: 32);
+        _channels.Add(
+            "車道 1",
+            "rtsp://operator:s3cr3t@cam-7.example.invalid/live",
+            recordingMode: RecordingMode.Always);
+
+        using var scheduler = NewScheduler();
+        await scheduler.ReconcileAsync();
+        _started[0].SimulateStall(
+            failures: 3,
+            failure: "System.ComponentModel.Win32Exception: 找不到指定的檔案"
+                + "\n命令列: ffmpeg -rtsp_transport tcp -i rtsp://operator:s3cr3t@cam-7.example.invalid/live ...");
+
+        var detail = Assert.Single(RecordingAudits("recording.stalled")).Detail ?? string.Empty;
+        Assert.DoesNotContain("s3cr3t", detail, StringComparison.Ordinal);
+        Assert.DoesNotContain("operator", detail, StringComparison.Ordinal);
+        Assert.Contains("cam-7.example.invalid", detail, StringComparison.Ordinal);
+    }
+
+    /// <summary>停止錄影後就不能再收到事件，否則已釋放的錄影機會被排程器一直引用。</summary>
+    [Fact]
+    public async Task 停止錄影後不再收到停滯事件()
+    {
+        ApplyLicense(cameras: 32);
+        var channel = AddChannel("車道 1", RecordingMode.Always);
+
+        using var scheduler = NewScheduler();
+        await scheduler.ReconcileAsync();
+        DisableChannel(channel);
+        await scheduler.ReconcileAsync();
+
+        var recorder = _started[0];
+        recorder.SimulateStall(failures: 5);
+
+        Assert.Empty(RecordingAudits("recording.stalled"));
+    }
+
+    private IReadOnlyList<AuditLogEntry> RecordingAudits(string action)
+        => new AuditLogRepository(_store).List(new AuditLogQuery
+        {
+            Category = AuditCategories.Recording,
+            Action = action,
+            FromUtc = DateTime.UtcNow.AddHours(-1),
+            ToUtc = DateTime.UtcNow.AddHours(1),
+        });
 
     /// <summary>時段命中且沒有別人正在錄，就該開錄。</summary>
     [Fact]
@@ -245,6 +475,30 @@ public sealed class RecordingSchedulerTests : IDisposable
         Assert.Empty(scheduler.ActiveChannelIds);
     }
 
+    /// <summary>
+    /// 排程開錄必須帶入設備憑證。
+    ///
+    /// 現場症狀：攝影機憑證存成 DPAPI 加密的設備欄位、頻道只存裸位址；
+    /// 全時錄影若對裸位址的 ffprobe 收到 401，會連續三次失敗後發出「錄影異常」，
+    /// 但同一台機器拖進方格的手動監看（走 ChannelManager 已解析的位址）畫面完全正常。
+    /// 使用者看到的是「一拖進來就說錄影壞了、畫面卻好好的」。
+    /// </summary>
+    [Fact]
+    public async Task 排程開錄會帶入設備憑證()
+    {
+        ApplyLicense(cameras: 8);
+        var devices = new DeviceRepository(_store, new AuditLogRepository(_store));
+        var deviceId = devices.Add("大門", "10.0.0.9", 554, "admin", "s3cret", "generic");
+        var channelId = _channels.Add("大門", "rtsp://10.0.0.9:554/live", deviceId: deviceId);
+
+        using var scheduler = NewScheduler();
+        await scheduler.ReconcileAsync();
+
+        var recorder = Assert.Single(_started);
+        Assert.Contains("admin:s3cret@10.0.0.9", recorder.RtspUrl);
+        Assert.Contains(channelId, scheduler.ActiveChannelIds);
+    }
+
     private RecordingScheduler NewScheduler(Func<int, bool>? isCellRecording = null)
         => new(
             _store,
@@ -259,7 +513,30 @@ public sealed class RecordingSchedulerTests : IDisposable
                 return fake;
             });
 
-    private int AddChannel(string name) => _channels.Add(name, "rtsp://example.invalid/live");
+    private int AddChannel(string name, RecordingMode mode = RecordingMode.Scheduled)
+        => _channels.Add(name, "rtsp://example.invalid/live", recordingMode: mode);
+
+    /// <summary>停用頻道。停用是操作員在設定頁關閉錄影的手段，必須真的生效。</summary>
+    private void DisableChannel(int channelId)
+    {
+        var current = _channels.Get(channelId);
+        Assert.NotNull(current);
+        _channels.Update(new ChannelInfo
+        {
+            Id = current.Id,
+            DeviceId = current.DeviceId,
+            Name = current.Name,
+            MainStreamUrl = current.MainStreamUrl,
+            SubStreamUrl = current.SubStreamUrl,
+            Codec = current.Codec,
+            AudioEnabled = current.AudioEnabled,
+            AudioEncoder = current.AudioEncoder,
+            MotionEnabled = current.MotionEnabled,
+            MotionSensitivity = current.MotionSensitivity,
+            RecordingMode = current.RecordingMode,
+            Enabled = false,
+        });
+    }
 
     private RecordingScheduleRecord AddSchedule(int channelId, (int Start, int End) window, bool enabled = true)
         => _schedules.Upsert(new RecordingScheduleRecord
@@ -322,6 +599,20 @@ public sealed class RecordingSchedulerTests : IDisposable
         public bool Stopped { get; private set; }
 
         public bool Disposed { get; private set; }
+
+        public event EventHandler<RecordingStallInfo>? RecordingStalled;
+
+        public event EventHandler<int>? RecordingResumed;
+
+        /// <summary>模擬這台錄影機一直錄不成（攝影機離線）。</summary>
+        public void SimulateStall(int failures = 3, string ffError = "", string failure = "")
+            => RecordingStalled?.Invoke(
+                this,
+                new RecordingStallInfo(ChannelId, failures, failure, ffError));
+
+        /// <summary>模擬壞掉之後又真的寫出片段了。</summary>
+        public void SimulateResume()
+            => RecordingResumed?.Invoke(this, ChannelId);
 
         public Task StartAsync(
             int channelId,

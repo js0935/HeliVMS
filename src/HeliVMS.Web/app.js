@@ -1,4 +1,5 @@
 import { applyDom, DEFAULT_LOCALE, locale, setLocale, t } from './i18n.js';
+import { createAlertSocket } from './alerts.js';
 import { createLiveViewer, fetchDeployment } from './live.js';
 import {
   accountRows,
@@ -1240,8 +1241,11 @@ async function attachPlaylist(video, playlist) {
   }
 }
 
+let playInFlight = false;
+
 async function playRemote(event) {
   event.preventDefault();
+  if (playInFlight) return;
   const msg = $('play-msg');
   const channelId = Number.parseInt($('play-channel').value, 10);
   const from = new Date($('play-from').value);
@@ -1289,25 +1293,36 @@ function defaultPlayWindow() {
   $('play-to').value = local(to);
 }
 
+let alertSocket = null;
+
 function connectLive() {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-  const socket = new WebSocket(`${proto}://${location.host}/api/alerts/ws?key=${encodeURIComponent(key())}`);
-  socket.onopen = () => {
-    $('live').textContent = 'WS on';
-    $('live').classList.replace('off', 'on');
-  };
-  socket.onmessage = (ev) => {
-    const msg = parseWsMessage(ev.data);
-    if (!msg) return;
-    const li = document.createElement('li');
-    li.textContent = `${formatTimestamp(new Date().toISOString())} ${msg.kind} #${msg.eventId} ${msg.priority ?? msg.status ?? ''}`;
-    $('live-log').prepend(li);
-    if (msg.kind.startsWith('alarm.')) renderSmartwall();
-  };
-  socket.onclose = () => {
-    $('live').textContent = 'WS off';
-    $('live').classList.remove('on');
-  };
+  // 走 createAlertSocket 而不是直接 new WebSocket：斷線要自己接回來。
+  // 現場症狀是「伺服器重開機之後主控台再也不跳告警」，畫面上只有一個
+  // "WS off" 的小字、沒有錯誤訊息，而復原方式是使用者剛好注意到並手動重新整理。
+  alertSocket = createAlertSocket({
+    url: () => `${proto}://${location.host}/api/alerts/ws?key=${encodeURIComponent(key())}`,
+    onMessage: (data) => {
+      const msg = parseWsMessage(data);
+      if (!msg) return;
+      const li = document.createElement('li');
+      li.textContent = `${formatTimestamp(new Date().toISOString())} ${msg.kind} #${msg.eventId} ${msg.priority ?? msg.status ?? ''}`;
+      $('live-log').prepend(li);
+      if (msg.kind.startsWith('alarm.')) renderSmartwall();
+    },
+    onStatus: ({ online }) => {
+      $('live').textContent = online ? 'WS on' : 'WS off';
+      $('live').classList.toggle('off', !online);
+      $('live').classList.toggle('on', online);
+    },
+  });
+  alertSocket.connect();
+}
+
+/** 登出或離開頁面時停掉重連，否則會在背景繼續嘗試。 */
+function disconnectLive() {
+  alertSocket?.close();
+  alertSocket = null;
 }
 
 function wire() {
@@ -1433,6 +1448,9 @@ async function boot() {
   bindPatrolForm();
   bindLocalePicker();
   connectLive();
+  // 離開頁面時明確停掉重連。沒有這行的話 pagehide 之後重連計時器還在跑，
+  // 會在背景不斷嘗試連線直到分頁被回收。
+  window.addEventListener('pagehide', disconnectLive);
   await showLiveDeploymentNotice();
   setInterval(() => {
     if (pollGate(document.activeElement?.tagName, document.hidden)) {

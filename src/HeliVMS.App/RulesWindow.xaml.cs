@@ -18,7 +18,7 @@ public partial class RulesWindow : Window
 
         public string Name => Rule.Name;
 
-        public string EnabledText => Rule.Enabled ? "啟用" : "停用";
+        public string EnabledText => Rule.Enabled ? Localizer.T("Rules.Enabled") : Localizer.T("Rules.Disabled");
 
         public string EnabledColor => Rule.Enabled ? "#8AE08A" : "#E0B0B0";
 
@@ -26,7 +26,9 @@ public partial class RulesWindow : Window
 
         public string ActionsSummary => Shorten(Rule.ActionsJson, 40);
 
-        public string ToggleText => Rule.Enabled ? "停用" : "啟用";
+        public string ToggleText => Rule.Enabled ? Localizer.T("Rules.Disabled") : Localizer.T("Rules.Enabled");
+
+        public string DeleteText => Localizer.T("Rules.Delete");
     }
 
     public RulesWindow(SqliteStore store)
@@ -34,6 +36,31 @@ public partial class RulesWindow : Window
         _store = store;
         _rules = new RuleRepository(store);
         InitializeComponent();
+        ApplyI18n();
+    }
+
+    private void ApplyI18n()
+    {
+        Title = Localizer.T("Rules.Title");
+        RulesDescText.Text = Localizer.T("Rules.Desc");
+        RulesAddToggleButton.Content = Localizer.T("Rules.AddToggle");
+        RulesAddToggleButton.ToolTip = Localizer.T("Rules.AddToggleTip");
+        RulesRefreshButton.Content = Localizer.T("Rules.Refresh");
+        RulesRefreshButton.ToolTip = Localizer.T("Rules.RefreshTip");
+        RulesNameLabel.Text = Localizer.T("Rules.Name");
+        RulesEnabledBox.Content = Localizer.T("Rules.Enable");
+        RulesEnabledBox.ToolTip = Localizer.T("Rules.EnableTip");
+        RulesExprLabel.Text = Localizer.T("Rules.ExprLabel");
+        RulesActionsLabel.Text = Localizer.T("Rules.ActionsLabel");
+        RulesConfirmButton.Content = Localizer.T("Rules.Confirm");
+        RulesConfirmButton.ToolTip = Localizer.T("Rules.ConfirmTip");
+        RulesCancelButton.Content = Localizer.T("Rules.Cancel");
+        RulesCancelButton.ToolTip = Localizer.T("Rules.CancelTip");
+        RulesColName.Header = Localizer.T("Rules.ColName");
+        RulesColState.Header = Localizer.T("Rules.ColState");
+        RulesColExpr.Header = Localizer.T("Rules.ColExpr");
+        RulesColActions.Header = Localizer.T("Rules.ColActions");
+        RulesEvalHeaderText.Text = Localizer.T("Rules.EvalHeader");
     }
 
     private void OnLoaded(object sender, RoutedEventArgs e)
@@ -45,7 +72,7 @@ public partial class RulesWindow : Window
     {
         var rows = _rules.List().Select(r => new RuleRowViewModel { Rule = r }).ToList();
         RulesList.ItemsSource = rows;
-        RulesStatusText.Text = $"共 {rows.Count} 條規則（啟用 {rows.Count(x => x.Rule.Enabled)}）。";
+        RulesStatusText.Text = string.Format(Localizer.T("Rules.StatusCount"), rows.Count, rows.Count(x => x.Rule.Enabled));
         Eval();
     }
 
@@ -79,7 +106,7 @@ public partial class RulesWindow : Window
             }
         }
 
-        RulesEvalText.Text = lines.Count == 0 ? "（無命中）" : string.Join("\n", lines);
+        RulesEvalText.Text = lines.Count == 0 ? Localizer.T("Rules.EvalNone") : string.Join("\n", lines);
     }
 
     private void OnAddToggleClicked(object sender, RoutedEventArgs e)
@@ -96,13 +123,13 @@ public partial class RulesWindow : Window
             var actions = RulesActionsBox.Text.Trim();
             if (string.IsNullOrWhiteSpace(name) || string.IsNullOrWhiteSpace(expr))
             {
-                RulesStatusText.Text = "名稱與條件 JSON 不可為空。";
+                RulesStatusText.Text = Localizer.T("Rules.NeedNameExpr");
                 return;
             }
 
             if (RuleExpressionNode.Parse(expr) is null)
             {
-                RulesStatusText.Text = "條件 JSON 無法解析。";
+                RulesStatusText.Text = Localizer.T("Rules.BadExpr");
                 return;
             }
 
@@ -114,11 +141,11 @@ public partial class RulesWindow : Window
             RulesEnabledBox.IsChecked = true;
             RulesEditPanel.Visibility = Visibility.Collapsed;
             Refresh();
-            RulesStatusText.Text = $"已新增規則 #{id}。";
+            RulesStatusText.Text = string.Format(Localizer.T("Rules.Added"), id);
         }
         catch (Exception ex)
         {
-            RulesStatusText.Text = $"新增失敗：{ex.Message}";
+            RulesStatusText.Text = string.Format(Localizer.T("Rules.AddFailed"), ex.Message);
         }
     }
 

@@ -2,6 +2,7 @@
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
+using HeliVMS.Shared;
 using HeliVMS.Storage;
 
 namespace HeliVMS.App;
@@ -12,6 +13,14 @@ namespace HeliVMS.App;
 /// </summary>
 public partial class App : Application
 {
+    /// <summary>
+    /// 診斷日誌大小上限。
+    ///
+    /// 崩潰記錄是無條件附加的，而有兩種狀況會讓它每秒寫一次：啟動失敗的迴圈、
+    /// 或某個計時器不斷丟出同一個例外。沒有上限時 %TEMP% 會被一個純文字檔灌滿，
+    /// 連帶影響錄影（磁碟寫滿時 ffmpeg 寫不出分段）。5 MB 足夠看完最近幾次崩潰。
+    /// </summary>
+    private const long MaxDiagnosticLogBytes = 5 * 1024 * 1024;
     protected override async void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
@@ -61,9 +70,10 @@ public partial class App : Application
             return;
         }
 
-        File.AppendAllText(
+        BoundedFileLog.Append(
             Path.Combine(Path.GetTempPath(), "helivms-crash.log"),
-            $"{DateTime.UtcNow:O}\n{ex}\n");
+            $"{DateTime.UtcNow:O}\n{ex}\n",
+            MaxDiagnosticLogBytes);
     }
 
     /// <summary>
@@ -72,10 +82,11 @@ public partial class App : Application
     /// </summary>
     private static void WriteAuthBootstrapWarning()
     {
-        File.AppendAllText(
+        BoundedFileLog.Append(
             Path.Combine(Path.GetTempPath(), "helivms-auth-bootstrap.log"),
             $"{DateTime.UtcNow:O} auth.enabled=1 但沒有任何啟用中的 admin；"
-            + "已略過登入以允許復原，請進設定新增 admin 或停用登入驗證。\n");
+            + "已略過登入以允許復原，請進設定新增 admin 或停用登入驗證。\n",
+            MaxDiagnosticLogBytes);
     }
 
     private static bool PerformLogin()

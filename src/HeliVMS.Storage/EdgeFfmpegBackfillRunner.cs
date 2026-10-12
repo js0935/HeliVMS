@@ -26,7 +26,7 @@ public sealed class EdgeFfmpegBackfillRunner : IEdgeBackfillRunner
         TimeSpan? timeout = null)
     {
         _resolver = resolver;
-        _ffmpeg = ffmpegPath ?? "ffmpeg";
+        _ffmpeg = ffmpegPath ?? FfmpegLocator.Ffmpeg;
         _execute = execute ?? RunProcess;
         _timeout = timeout ?? TimeSpan.FromMinutes(30);
     }

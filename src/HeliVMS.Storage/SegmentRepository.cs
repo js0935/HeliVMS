@@ -119,6 +119,28 @@ public sealed class SegmentRepository
             });
     }
 
+    /// <summary>
+    /// 全部頻道的 final 區段用量與段數。
+    ///
+    /// 刻意與 <see cref="GetTotalUsage"/> 用同一個口徑（DB 索引裡的 final 段）：
+    /// 設定畫面顯示的用量若與配額清理實際使用的數字不同，使用者會看到
+    /// 「畫面寫 5GB，清理卻在 20GB 才動」，然後認為系統壞了。
+    /// 一致比精確重要——真的要知道磁碟實際佔了多少，該看磁碟，不是這個畫面。
+    /// </summary>
+    public (long Bytes, int Count) GetTotalUsageSummary()
+    {
+        return _store.Query(
+            """
+            SELECT COALESCE(SUM(size_bytes), 0), COUNT(*)
+            FROM segments WHERE status = 'final';
+            """,
+            static r =>
+            {
+                r.Read();
+                return (r.GetInt64(0), r.GetInt32(1));
+            });
+    }
+
     /// <summary>依開始時間取出最舊之 final 區段（配額清理用）。</summary>
     public IReadOnlyList<SegmentRecord> ListOldestFinal(int take)
     {

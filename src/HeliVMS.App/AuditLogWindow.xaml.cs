@@ -34,6 +34,7 @@ public partial class AuditLogWindow : Window
         ("Audit.CatRetention", AuditCategories.Retention),
         ("Audit.CatLegalHold", AuditCategories.LegalHold),
         ("Audit.CatLicense", AuditCategories.License),
+        ("Audit.CatRecording", AuditCategories.Recording),
     ];
 
     /// <summary>稽核清單顯示列（時間已轉本地時區）。</summary>

@@ -24,6 +24,7 @@ public partial class ExportWindow : Window
         _store = store;
         _dataRoot = dataRoot;
         InitializeComponent();
+        ApplyI18n();
 
         _channels = new ChannelRepository(store).List();
         ChannelCombo.ItemsSource = _channels;
@@ -34,6 +35,27 @@ public partial class ExportWindow : Window
         EndDate.SelectedDate = DateTime.Now.Date;
 
         OutputFolderBox.Text = Path.Combine(_dataRoot, "exports");
+    }
+
+    private void ApplyI18n()
+    {
+        Title = Localizer.T("Export.Title");
+        ExportChannelLabel.Text = Localizer.T("Export.Channel");
+        ExportRangeLabel.Text = Localizer.T("Export.Range");
+        ExportOutputFolderLabel.Text = Localizer.T("Export.OutputFolder");
+        BrowseButton.Content = Localizer.T("Export.Browse");
+        BrowseButton.ToolTip = Localizer.T("Export.BrowseTip");
+        ExportWatermarkLabel.Text = Localizer.T("Export.Watermark");
+        HashCheckBox.Content = Localizer.T("Export.Hash");
+        BundleCheckBox.Content = Localizer.T("Export.Bundle");
+        ExportBundlePasswordLabel.Text = Localizer.T("Export.BundlePassword");
+        ExportBundleExpiryLabel.Text = Localizer.T("Export.BundleExpiry");
+        ExportButton.Content = Localizer.T("Export.Export");
+        ExportButton.ToolTip = Localizer.T("Export.ExportTip");
+        OpenFolderButton.Content = Localizer.T("Export.OpenFolder");
+        OpenFolderButton.ToolTip = Localizer.T("Export.OpenFolderTip");
+        CloseButton.Content = Localizer.T("Export.Close");
+        CloseButton.ToolTip = Localizer.T("Export.CloseTip");
     }
 
     /// <summary>重定向本窗到指定頻道（null 或找不到時回到首筆；供主視窗右鍵「此頻道」重用同窗）。</summary>
@@ -58,7 +80,7 @@ public partial class ExportWindow : Window
     {
         var dlg = new Microsoft.Win32.OpenFolderDialog
         {
-            Title = "選擇匯出資料夾",
+            Title = Localizer.T("Export.BrowseTitle"),
             InitialDirectory = OutputFolderBox.Text,
         };
 
@@ -72,13 +94,13 @@ public partial class ExportWindow : Window
     {
         if (ChannelCombo.SelectedItem is not ChannelInfo ch)
         {
-            StatusText.Text = "請先選擇頻道。";
+            StatusText.Text = Localizer.T("Export.PickChannel");
             return;
         }
 
         if (!StartDate.SelectedDate.HasValue || !EndDate.SelectedDate.HasValue)
         {
-            StatusText.Text = "請選擇起迄日期。";
+            StatusText.Text = Localizer.T("Export.PickDates");
             return;
         }
 
@@ -96,14 +118,14 @@ public partial class ExportWindow : Window
         var endUtc = EndDate.SelectedDate.Value.Add(endTime).ToUniversalTime();
         if (endUtc <= startUtc)
         {
-            StatusText.Text = "結束時間必須大於開始時間。";
+            StatusText.Text = Localizer.T("Export.EndAfterStart");
             return;
         }
 
         var outputDir = OutputFolderBox.Text.Trim();
         if (string.IsNullOrEmpty(outputDir))
         {
-            StatusText.Text = "請選擇輸出資料夾。";
+            StatusText.Text = Localizer.T("Export.PickOutput");
             return;
         }
 
@@ -131,10 +153,13 @@ public partial class ExportWindow : Window
                 progress,
                 _cts.Token);
 
-            ResultText.Text = $"匯出成功：{Path.GetFileName(result.OutputPath)}" +
-                              $"（{FormatBytes(result.FileSizeBytes)}、{result.DurationSeconds:0.#} 秒）" +
+            ResultText.Text = string.Format(
+                                  Localizer.T("Export.Success"),
+                                  Path.GetFileName(result.OutputPath),
+                                  FormatBytes(result.FileSizeBytes),
+                                  result.DurationSeconds.ToString("0.#")) +
                               (result.Sha256Hash is not null
-                                  ? $"\nSHA-256：{result.Sha256Hash}"
+                                  ? "\n" + string.Format(Localizer.T("Export.ShaLine"), result.Sha256Hash)
                                   : string.Empty);
             _lastOutputPath = result.OutputPath;
             OpenFolderButton.IsEnabled = true;
@@ -165,22 +190,23 @@ public partial class ExportWindow : Window
                         manifest,
                         string.IsNullOrEmpty(bundlePassword) ? null : bundlePassword);
 
-                    ResultText.Text += $"\n證據包：{Path.GetFileName(bundlePath)}（SHA-256：{bundleSha}）";
-                    StatusText.Text = "匯出成功，證據包已建立。";
+                    ResultText.Text += "\n" + string.Format(Localizer.T("Export.BundleLine"),
+                        Path.GetFileName(bundlePath), bundleSha);
+                    StatusText.Text = Localizer.T("Export.BundleOk");
                 }
                 catch (Exception bEx)
                 {
-                    StatusText.Text = $"匯出成功，但證據包失敗：{bEx.Message}";
+                    StatusText.Text = string.Format(Localizer.T("Export.BundleFailed"), bEx.Message);
                 }
             }
         }
         catch (OperationCanceledException)
         {
-            StatusText.Text = "匯出已取消。";
+            StatusText.Text = Localizer.T("Export.Canceled");
         }
         catch (Exception ex)
         {
-            StatusText.Text = $"匯出失敗：{ex.Message}";
+            StatusText.Text = string.Format(Localizer.T("Export.Failed"), ex.Message);
         }
         finally
         {
@@ -206,7 +232,7 @@ public partial class ExportWindow : Window
         }
         catch
         {
-            StatusText.Text = "無法開啟檔案總管。";
+            StatusText.Text = Localizer.T("Export.ExplorerFailed");
         }
     }
 
@@ -232,7 +258,7 @@ public partial class ExportWindow : Window
 
         if (!DateTime.TryParseExact(t, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var day))
         {
-            throw new FormatException("到期日格式須為 yyyy-MM-dd。");
+            throw new FormatException(Localizer.T("Export.ExpiryFormat"));
         }
 
         return day.Date.AddDays(1).ToUniversalTime().AddSeconds(-1);

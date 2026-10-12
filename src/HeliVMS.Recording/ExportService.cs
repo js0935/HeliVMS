@@ -69,7 +69,7 @@ public sealed class ExportService
 
             var psi = new ProcessStartInfo
             {
-                FileName = "ffmpeg",
+                FileName = FfmpegLocator.Ffmpeg,
                 RedirectStandardError = true,
                 RedirectStandardOutput = true,
                 UseShellExecute = false,

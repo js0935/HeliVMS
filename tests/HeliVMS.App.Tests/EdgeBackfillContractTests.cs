@@ -8,25 +8,25 @@ namespace HeliVMS.App.Tests;
 /// <para>
 /// <c>EdgeBackfillJobRepository</c>／<c>EdgeBackfillExecutor</c>／<c>EdgeFfmpegBackfillRunner</c>
 /// 全無產品呼叫端，且 <c>DeviceRecord</c> 沒有 SD 網址欄位，runner 根本無從解析來源。
-/// 這份契約把主視窗入口、SD 網址設定、建立工作與「下載＋回灌登記」的執行鏈釘住。
+/// 這份契約把設定中心（工具頁）入口、SD 網址設定、建立工作與「下載＋回灌登記」的執行鏈釘住。
 /// </para>
 /// </summary>
 public sealed class EdgeBackfillContractTests
 {
-    private const string MainCode = "src/HeliVMS.App/MainWindow.xaml.cs";
-    private const string MainXaml = "src/HeliVMS.App/MainWindow.xaml";
+    private const string SettingsCode = "src/HeliVMS.App/SettingsWindow.xaml.cs";
+    private const string SettingsXaml = "src/HeliVMS.App/SettingsWindow.xaml";
     private const string EdgeCode = "src/HeliVMS.App/EdgeBackfillWindow.xaml.cs";
     private const string EdgeXaml = "src/HeliVMS.App/EdgeBackfillWindow.xaml";
 
     [Fact]
-    public void 主視窗有邊緣補抓入口且接線()
+    public void 設定中心有邊緣補抓入口且接線()
     {
-        Assert.Equal("OnEdgeBackfillClicked", WiredHandler(MainXaml, "EdgeBackfillButton"));
+        Assert.Equal("OnEdgeBackfillClicked", WiredHandler(SettingsXaml, "EdgeBackfillButton"));
 
-        var handler = SourceContract.BodyOf(SourceContract.Read(MainCode), "OnEdgeBackfillClicked");
+        var handler = SourceContract.BodyOf(SourceContract.Read(SettingsCode), "OnEdgeBackfillClicked");
         Assert.Contains("OpenEdgeBackfillWindow", handler);
 
-        var open = SourceContract.BodyOf(SourceContract.Read(MainCode), "OpenEdgeBackfillWindow");
+        var open = SourceContract.BodyOf(SourceContract.Read(SettingsCode), "OpenEdgeBackfillWindow");
         Assert.Contains("new EdgeBackfillWindow(", open);
     }
 

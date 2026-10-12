@@ -454,6 +454,42 @@ public class ApiTests : IClassFixture<ApiFactory>, IDisposable
         Assert.Empty(far.Items);
     }
 
+    /// <summary>
+    /// 查詢區段的時段不得超過 24 小時。
+    ///
+    /// 分段是 15 秒一檔，一個月就是 17 萬筆。沒有上限時遠端主控台一個
+    /// 「查最近一個月」會讓服務端把整包序列化成 JSON，記憶體直接暴增——
+    /// 而且回應慢到使用者以為是當機。
+    /// 剛好 24 小時是要允許的（播放清單也用同一個窗口），所以這裡查 25 小時。
+    /// </summary>
+    [Fact]
+    public async Task RecordingSegments_超過一天就拒絕()
+    {
+        var from = DateTime.UtcNow.Date;
+        using var client = Client();
+
+        var tooWide = await client.GetAsync(
+            $"/api/recording/segments?channelId=1&stream=main&from={HttpUtility(from)}&to={HttpUtility(from.AddHours(25))}");
+        var exactlyOneDay = await client.GetAsync(
+            $"/api/recording/segments?channelId=1&stream=main&from={HttpUtility(from)}&to={HttpUtility(from.AddDays(1))}");
+
+        Assert.Equal(HttpStatusCode.BadRequest, tooWide.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, exactlyOneDay.StatusCode);
+    }
+
+    /// <summary>下限晚於上限時要拒絕，而不是照資料庫查完回一包空的。</summary>
+    [Fact]
+    public async Task RecordingSegments_時段上下限相反就拒絕()
+    {
+        var from = DateTime.UtcNow.Date.AddHours(10);
+        using var client = Client();
+
+        var response = await client.GetAsync(
+            $"/api/recording/segments?channelId=1&stream=main&from={HttpUtility(from.AddHours(2))}&to={HttpUtility(from)}");
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
     [Fact]
     public async Task Events_ForensicSearchWithoutQueryReturns400()
     {

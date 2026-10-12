@@ -12,6 +12,7 @@ using HeliVMS.App.Services;
 using HeliVMS.Licensing;
 using HeliVMS.Media;
 using HeliVMS.Recording;
+using HeliVMS.Shared;
 using HeliVMS.Shared.Models;
 using HeliVMS.Storage;
 using Path = System.IO.Path;
@@ -30,12 +31,6 @@ public partial class SettingsWindow : Window
     private const int DefaultSnapshotDays = 30;
     private const string TamperKey = "detect.tamper.enabled";
     private const string HwAccelKey = "decode.hwaccel";
-
-    /// <summary>頻道頁顯示列。</summary>
-    private sealed record ChannelRow(int Id, string Name, string MainStreamUrl, string RecordingModeLabel, string MotionLabel);
-
-    /// <summary>頻道頁設備憑證顯示列。</summary>
-    private sealed record DeviceRow(int Id, string Name, string IpPort, string CredentialLabel);
 
     /// <summary>告警規則頁顯示列。</summary>
     private sealed record RuleRow(long Id, string Name, string EventType, string ChannelLabel, string Keyword, string MatchTypes, string AggregateLabel, string Channels, string EnabledLabel);
@@ -57,7 +52,7 @@ public partial class SettingsWindow : Window
 
     private readonly SqliteStore _store;
     private readonly string _dataRoot;
-    private readonly string _recordingsRoot;
+    private string _recordingsRoot;
     private readonly string _snapshotsRoot;
     private readonly SettingsRepository _settings;
     private readonly AlertRuleRepository _rules;
@@ -69,20 +64,32 @@ public partial class SettingsWindow : Window
     private readonly EnterpriseAuthService _enterprise;
     private readonly AuthProviderRepository _providers;
     private readonly ShareHost? _shareHost;
-    private readonly DeviceRepository _devices;
-    private int? _deviceCredId;
-    private bool _deviceCredArm;
-    private int? _channelEditId;
-    private bool _channelDeleteArm;
+    private readonly ChannelManager? _manager;
+    private readonly PatrolHostService? _patrolHost;
+    private readonly Action? _channelsChanged;
+
+    /// <summary>切換錄影磁碟時通知主視窗立即套用（重建錄影工作階段）。</summary>
+    private readonly Action<string>? _recordingsRootChanged;
+
     private bool _suppressAuthToggle;
 
-    public SettingsWindow(SqliteStore store, string dataRoot, IoMonitorHost? ioHost = null, ShareHost? shareHost = null)
+    public SettingsWindow(
+        SqliteStore store,
+        string dataRoot,
+        IoMonitorHost? ioHost = null,
+        ShareHost? shareHost = null,
+        ChannelManager? manager = null,
+        PatrolHostService? patrolHost = null,
+        Action? channelsChanged = null,
+        Action<string>? recordingsRootChanged = null)
     {
         _store = store;
         _dataRoot = dataRoot;
-        _recordingsRoot = Path.Combine(dataRoot, "recordings");
-        _snapshotsRoot = Path.Combine(dataRoot, "snapshots");
         _settings = new SettingsRepository(store);
+        _recordingsRoot = RecordingStorage.ResolveConfiguredRoot(
+            dataRoot,
+            _settings.Get(RecordingStorage.RootSettingKey));
+        _snapshotsRoot = Path.Combine(dataRoot, "snapshots");
         _rules = new AlertRuleRepository(store);
         _io = new IoRepository(store);
         _ioHost = ioHost;
@@ -92,13 +99,22 @@ public partial class SettingsWindow : Window
         _enterprise = new EnterpriseAuthService(store);
         _providers = new AuthProviderRepository(store);
         _shareHost = shareHost;
+        _manager = manager;
+        _patrolHost = patrolHost;
+        // 由主視窗傳入：攝影機／頻道管理異動後立即請主視窗重載監看區。
+        _channelsChanged = channelsChanged;
+        _recordingsRootChanged = recordingsRootChanged;
         _offsite = new OffsiteReplicationRepository(store);
-        _devices = new DeviceRepository(store, new AuditLogRepository(store));
 
         InitializeComponent();
         Title = Localizer.T("Settings.Title");
         MapPinCanvas.MouseLeftButtonUp += OnMapPinCanvasClick;
         MapPinList.SelectionChanged += OnMapPinSelectionChanged;
+
+        // 裝置／頻道管理限 admin（與主視窗一致）；viewer 仍看得到入口，但按鈕停用。
+        var isAdmin = SessionContext.IsAdmin;
+        OpenCameraManagerButton.IsEnabled = isAdmin;
+        OpenChannelManagerButton.IsEnabled = isAdmin;
 
         VersionText.Text = $"HeliVMS {Assembly.GetExecutingAssembly().GetName().Version}";
         DataRootText.Text = _dataRoot;
@@ -108,9 +124,8 @@ public partial class SettingsWindow : Window
         ReloadQuota();
         ReloadSnapshotDays();
         ReloadUsage();
+        ReloadRecordingsDisk();
         ReloadLicense();
-        ReloadDevices();
-        ReloadChannels();
         ReloadNotify();
         ReloadRules();
         ReloadTamper();
@@ -127,7 +142,8 @@ public partial class SettingsWindow : Window
         LangCombo.SelectedIndex = langIdx >= 0 ? langIdx : 0;
         OskToggleCheck.IsChecked = Osk.Enabled;
         ReloadHwAccel();
-        ApplyLangUi();
+        ApplyI18n();
+        ReloadTools();
 
         FillAbout();
 
@@ -141,20 +157,458 @@ public partial class SettingsWindow : Window
         var informational = Assembly.GetExecutingAssembly()
             .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
         AboutVersionText.Text = $"HeliVMS {informational ?? version}";
-        AboutDataText.Text = $"資料目錄：{_dataRoot}";
-        AboutRecordingText.Text = $"錄影目錄：{_recordingsRoot}";
-        AboutSnapshotText.Text = $"快照目錄：{_snapshotsRoot}";
-        AboutMapText.Text = $"地圖目錄：{_mapsRoot}";
+        AboutDataText.Text = string.Format(Localizer.T("Settings.AboutData"), _dataRoot);
+        AboutRecordingText.Text = string.Format(Localizer.T("Settings.AboutRecording"), _recordingsRoot);
+        AboutSnapshotText.Text = string.Format(Localizer.T("Settings.AboutSnapshot"), _snapshotsRoot);
+        AboutMapText.Text = string.Format(Localizer.T("Settings.AboutMap"), _mapsRoot);
+
+        FillAutoStart();
     }
 
-    /// <summary>依現況語言套用設定視窗標題／語言群文字（M57）。</summary>
-    private void ApplyLangUi()
+    /// <summary>
+    /// 呈現登入自啟的目前狀態。
+    ///
+    /// 勾選框在讀不到登錄檔時直接停用並說明原因，而不是讓使用者勾了之後
+    /// 重開機發現沒生效——那種故障完全沒有其他線索可循。
+    /// </summary>
+    private void FillAutoStart()
+    {
+        AutoStartBox.Content = Localizer.T("Settings.AutoStart");
+        AutoStartBox.ToolTip = Localizer.T("Settings.AutoStartHint");
+
+        if (!RegistryAutoStartStore.IsInteractiveSession() || RegistryAutoStartStore.IsBlockedByPolicy())
+        {
+            AutoStartBox.IsEnabled = false;
+            AutoStartBox.IsChecked = false;
+            AutoStartStatusText.Text = Localizer.T("Settings.AutoStartUnavailable");
+            return;
+        }
+
+        try
+        {
+            AutoStartBox.IsChecked = NewAutoStart().IsEnabled();
+            AutoStartStatusText.Text = AutoStartBox.IsChecked == true
+                ? Localizer.T("Settings.AutoStartOn")
+                : Localizer.T("Settings.AutoStartOff");
+        }
+        catch (Exception ex) when (ex is System.Security.SecurityException or UnauthorizedAccessException)
+        {
+            AutoStartBox.IsEnabled = false;
+            AutoStartStatusText.Text = string.Format(
+                Localizer.T("Settings.AutoStartFailed"), ex.Message);
+        }
+    }
+
+    private AutoStartService NewAutoStart() =>
+        new(new RegistryAutoStartStore(), AutoStartService.CurrentExecutablePath());
+
+    private void OnAutoStartChanged(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            NewAutoStart().SetEnabled(AutoStartBox.IsChecked == true);
+            AutoStartStatusText.Text = AutoStartBox.IsChecked == true
+                ? Localizer.T("Settings.AutoStartOn")
+                : Localizer.T("Settings.AutoStartOff");
+        }
+        catch (Exception ex) when (ex is System.Security.SecurityException or UnauthorizedAccessException)
+        {
+            // 回復勾選狀態：畫面顯示的必須是實際生效的設定，否則使用者會以為已啟用。
+            AutoStartBox.IsChecked = !AutoStartBox.IsChecked;
+            AutoStartStatusText.Text = string.Format(
+                Localizer.T("Settings.AutoStartFailed"), ex.Message);
+        }
+    }
+
+    /// <summary>依現況語言套用設定視窗的全部靜態文字（M57）。</summary>
+    private void ApplyI18n()
     {
         Title = Localizer.T("Settings.Title");
+
+        // 導航
+        NavHeading.Text = Localizer.T("Settings.NavHeading");
+        NavGeneral.Content = Localizer.T("Settings.NavGeneral");
+        NavDevices.Content = Localizer.T("Settings.NavDevices");
+        NavStorage.Content = Localizer.T("Settings.NavStorage");
+        NavLicense.Content = Localizer.T("Settings.NavLicense");
+        NavLaunch.Content = Localizer.T("Settings.NavLaunch");
+        NavNotify.Content = Localizer.T("Settings.NavNotify");
+        NavRules.Content = Localizer.T("Settings.NavRules");
+        NavIo.Content = Localizer.T("Settings.NavIo");
+        NavMap.Content = Localizer.T("Settings.NavMap");
+        NavUsers.Content = Localizer.T("Settings.NavUsers");
+        NavBackup.Content = Localizer.T("Settings.NavBackup");
+        NavAbout.Content = Localizer.T("Settings.NavAbout");
+
+        // 一般
+        GeneralTitle.Text = Localizer.T("Settings.GeneralTitle");
+        VersionLabel.Text = Localizer.T("Settings.VersionLabel");
+        DataRootLabel.Text = Localizer.T("Settings.DataRootLabel");
+        RecordingsRootLabel.Text = Localizer.T("Settings.RecordingsRootLabel");
+        SnapshotsRootLabel.Text = Localizer.T("Settings.SnapshotsRootLabel");
+        DataRootHintText.Text = Localizer.T("Settings.DataRootHint");
+        ShareIntroText.Text = Localizer.T("Settings.ShareIntroText");
+        ShareEnabledBox.Content = Localizer.T("Settings.ShareEnabled");
+        SharePortLabel.Text = Localizer.T("Settings.SharePortLabel");
+        ShareBaseUrlLabel.Text = Localizer.T("Settings.ShareBaseUrlLabel");
+        ShareApplyButton.Content = Localizer.T("Settings.Apply");
+        ShareApplyButton.ToolTip = Localizer.T("Settings.ShareApplyTip");
+        OskToggleCheck.Content = Localizer.T("Settings.OskToggle");
+        OskToggleCheck.ToolTip = Localizer.T("Settings.OskToggleTip");
         LangLabel.Text = Localizer.T("Settings.Language");
         LangHintText.Text = Localizer.T("Settings.LangHint");
+        ((ComboBoxItem)LangCombo.Items[0]).Content = Localizer.T("Settings.LangZhHant");
+        ((ComboBoxItem)LangCombo.Items[1]).Content = Localizer.T("Settings.LangZhHans");
+        ((ComboBoxItem)LangCombo.Items[2]).Content = Localizer.T("Settings.LangEn");
         HwAccelLabel.Text = Localizer.T("Settings.HwAccel");
         HwAccelHintText.Text = Localizer.T("Settings.HwAccelHint");
+
+        // 儲存
+        StorageTitle.Text = Localizer.T("Settings.StorageTitle");
+        RecordingsDiskLabel.Text = Localizer.T("Settings.RecordingsDiskLabel");
+        ApplyRecordingsDiskButton.Content = Localizer.T("Settings.Apply");
+        ApplyRecordingsDiskButton.ToolTip = Localizer.T("Settings.RecordingsDiskApplyTip");
+        RecordingsDiskHintText.Text = Localizer.T("Settings.RecordingsDiskHint");
+        QuotaLabel.Text = Localizer.T("Settings.QuotaLabel");
+        ApplyQuotaButton.Content = Localizer.T("Settings.Apply");
+        ApplyQuotaButton.ToolTip = Localizer.T("Settings.ApplyQuotaTip");
+        UsageLabel.Text = Localizer.T("Settings.UsageLabel");
+        SnapshotDaysLabel.Text = Localizer.T("Settings.SnapshotDaysLabel");
+        ApplySnapshotDaysButton.Content = Localizer.T("Settings.Apply");
+        ApplySnapshotDaysButton.ToolTip = Localizer.T("Settings.ApplySnapshotDaysTip");
+        CleanupButton.Content = Localizer.T("Settings.Cleanup");
+        CleanupButton.ToolTip = Localizer.T("Settings.CleanupTip");
+
+        // 裝置與頻道
+        DevicesTitle.Text = Localizer.T("Settings.DevicesTitle");
+        DevicesDesc.Text = Localizer.T("Settings.DevicesDesc");
+        OpenCameraManagerButton.Content = Localizer.T("Settings.OpenCameras");
+        OpenCameraManagerButton.ToolTip = Localizer.T("Settings.OpenCameraTip");
+        OpenChannelManagerButton.Content = Localizer.T("Settings.OpenChannels");
+        OpenChannelManagerButton.ToolTip = Localizer.T("Settings.OpenChannelTip");
+
+        // 授權
+        LicenseTitle.Text = Localizer.T("Settings.LicenseTitle");
+        LicenseStatusLabel.Text = Localizer.T("Settings.LicenseStatusLabel");
+        LicenseStep1.Text = Localizer.T("Settings.LicenseStep1");
+        CopyMachineButton.Content = Localizer.T("Settings.CopyMachine");
+        CopyMachineButton.ToolTip = Localizer.T("Settings.CopyMachineTip");
+        LicenseFeaturesLabel.Text = Localizer.T("Settings.LicenseFeaturesLabel");
+        LicenseStep2.Text = Localizer.T("Settings.LicenseStep2");
+        LicenseStep3.Text = Localizer.T("Settings.LicenseStep3");
+        ApplyLicenseButton.Content = Localizer.T("Settings.ApplyLicense");
+        ApplyLicenseButton.ToolTip = Localizer.T("Settings.ApplyLicenseTip");
+
+        // 功能
+        LaunchTitle.Text = Localizer.T("Settings.LaunchTitle");
+        LaunchDesc.Text = Localizer.T("Settings.LaunchDesc");
+        LaunchPlaybackButton.Content = Localizer.T("Settings.LaunchPlayback");
+        LaunchPlaybackButton.ToolTip = Localizer.T("Settings.LaunchPlaybackTip");
+        LaunchEventsButton.Content = Localizer.T("Settings.LaunchEvents");
+        LaunchEventsButton.ToolTip = Localizer.T("Settings.LaunchEventsTip");
+        LaunchScheduleButton.Content = Localizer.T("Settings.LaunchSchedule");
+        LaunchScheduleButton.ToolTip = Localizer.T("Settings.LaunchScheduleTip");
+        LaunchDetectionButton.Content = Localizer.T("Settings.LaunchDetection");
+        LaunchDetectionButton.ToolTip = Localizer.T("Settings.LaunchDetectionTip");
+        TamperHeading.Text = Localizer.T("Settings.TamperHeading");
+        TamperEnabledBox.Content = Localizer.T("Settings.TamperEnabled");
+        TamperDesc.Text = Localizer.T("Settings.TamperDesc");
+
+        // 工具（原監控中心「更多工具」入口，整合進「功能」頁）
+        ToolsRecordingHeader.Text = Localizer.T("Main.SecRecordingNotify");
+        ToolsImageHeader.Text = Localizer.T("Main.SecImagePtz");
+        ToolsAnalyticsHeader.Text = Localizer.T("Main.SecAnalytics");
+        ToolsSystemHeader.Text = Localizer.T("Main.SecSystem");
+        ExportButton.Content = Localizer.T("Main.Export");
+        ExportButton.ToolTip = Localizer.T("Main.ExportTip");
+        ExportCenterButton.Content = Localizer.T("Main.ExportCenter");
+        ExportCenterButton.ToolTip = Localizer.T("Main.ExportCenterTip");
+        NotificationButton.Content = Localizer.T("Main.Notification");
+        NotificationButton.ToolTip = Localizer.T("Main.NotificationTip");
+        RedactionButton.Content = Localizer.T("Main.Redaction");
+        RedactionButton.ToolTip = Localizer.T("Main.RedactionTip");
+        DewarpButton.Content = Localizer.T("Main.Dewarp");
+        DewarpButton.ToolTip = Localizer.T("Main.DewarpTip");
+        PtzButton.Content = Localizer.T("Main.Ptz");
+        PtzButton.ToolTip = Localizer.T("Main.PtzTip");
+        PtzChannelCombo.ToolTip = Localizer.T("Main.PtzTip");
+        StreamButton.Content = Localizer.T("Main.Stream");
+        StreamButton.ToolTip = Localizer.T("Main.StreamTip");
+        AudioButton.Content = Localizer.T("Main.Audio");
+        AudioButton.ToolTip = Localizer.T("Main.AudioTip");
+        PatrolButton.Content = Localizer.T("Main.Patrol");
+        PatrolButton.ToolTip = Localizer.T("Main.PatrolTip");
+        ReportsButton.Content = Localizer.T("Main.Reports");
+        ReportsButton.ToolTip = Localizer.T("Main.ReportsTip");
+        SynopsisButton.Content = Localizer.T("Main.Synopsis");
+        SynopsisButton.ToolTip = Localizer.T("Main.SynopsisTip");
+        SearchButton.Content = Localizer.T("Main.Search");
+        SearchButton.ToolTip = Localizer.T("Main.SearchTip");
+        SystemHealthButton.Content = Localizer.T("Main.SystemHealth");
+        SystemHealthButton.ToolTip = Localizer.T("Main.SystemHealthTip");
+        AlarmButton.Content = Localizer.T("Main.Alarm");
+        AlarmButton.ToolTip = Localizer.T("Main.AlarmTip");
+        RulesButton.Content = Localizer.T("Main.Rules");
+        RulesButton.ToolTip = Localizer.T("Main.RulesTip");
+        IoButton.Content = Localizer.T("Main.Io");
+        IoButton.ToolTip = Localizer.T("Main.IoTip");
+        AuditButton.Content = Localizer.T("Main.Audit");
+        AuditButton.ToolTip = Localizer.T("Main.AuditTip");
+        LegalHoldButton.Content = Localizer.T("Main.LegalHold");
+        LegalHoldButton.ToolTip = Localizer.T("Main.LegalHoldTip");
+        SmartwallButton.Content = Localizer.T("Main.Smartwall");
+        SmartwallButton.ToolTip = Localizer.T("Main.SmartwallTip");
+        PosButton.Content = Localizer.T("Main.Pos");
+        PosButton.ToolTip = Localizer.T("Main.PosTip");
+        EdgeBackfillButton.Content = Localizer.T("Main.EdgeBackfill");
+        EdgeBackfillButton.ToolTip = Localizer.T("Main.EdgeBackfillTip");
+        FailoverButton.Content = Localizer.T("Main.Failover");
+        FailoverButton.ToolTip = Localizer.T("Main.FailoverTip");
+
+        // 通知
+        NotifyTitle.Text = Localizer.T("Settings.NotifyTitle");
+        NotifyDesc.Text = Localizer.T("Settings.NotifyDesc");
+        NotifyEnabledBox.Content = Localizer.T("Settings.NotifyEnabled");
+        NotifyWebhookLabel.Text = Localizer.T("Settings.NotifyWebhookLabel");
+        NotifySmtpEnabledBox.Content = Localizer.T("Settings.NotifySmtpEnabled");
+        NotifySmtpHostLabel.Text = Localizer.T("Settings.NotifySmtpHostLabel");
+        NotifySmtpPortLabel.Text = Localizer.T("Settings.NotifySmtpPortLabel");
+        NotifySmtpFromLabel.Text = Localizer.T("Settings.NotifySmtpFromLabel");
+        NotifySmtpToLabel.Text = Localizer.T("Settings.NotifySmtpToLabel");
+        NotifySmtpUserLabel.Text = Localizer.T("Settings.NotifySmtpUserLabel");
+        NotifySmtpPasswordLabel.Text = Localizer.T("Settings.NotifySmtpPasswordLabel");
+        NotifyQuietLabel.Text = Localizer.T("Settings.NotifyQuietLabel");
+        NotifyQuietStartLabel.Text = Localizer.T("Settings.NotifyQuietStartLabel");
+        NotifyQuietEndLabel.Text = Localizer.T("Settings.NotifyQuietEndLabel");
+        NotifyQuietRetransmitBox.Content = Localizer.T("Settings.NotifyQuietRetransmit");
+        NotifyMqttEnabledBox.Content = Localizer.T("Settings.Mqtt");
+        NotifyMqttHostLabel.Text = Localizer.T("Settings.HostLabel");
+        NotifyMqttPortLabel.Text = Localizer.T("Settings.PortLabel");
+        NotifyMqttTopicLabel.Text = Localizer.T("Settings.NotifyMqttTopicLabel");
+        NotifyMqttUserLabel.Text = Localizer.T("Settings.UserLabel");
+        NotifyMqttPasswordLabel.Text = Localizer.T("Settings.PasswordLabel");
+        NotifyPushHeading.Text = Localizer.T("Settings.NotifyPushHeading");
+        NotifyPushEnabledBox.Content = Localizer.T("Settings.NotifyPushSend");
+        NotifyPushEndpointLabel.Text = Localizer.T("Settings.NotifyPushEndpointLabel");
+        NotifyPushVapidHint.Text = Localizer.T("Settings.NotifyPushVapidHint");
+        NotifySnmpHeading.Text = Localizer.T("Settings.NotifySnmpHeading");
+        NotifySnmpEnabledBox.Content = Localizer.T("Settings.NotifySnmpSend");
+        NotifySnmpHostLabel.Text = Localizer.T("Settings.HostLabel");
+        NotifySnmpPortLabel.Text = Localizer.T("Settings.PortLabel");
+        NotifyApplyButton.Content = Localizer.T("Settings.ApplyNotify");
+        NotifyApplyButton.ToolTip = Localizer.T("Settings.ApplyNotifyTip");
+
+        // 規則
+        RulesTitle.Text = Localizer.T("Settings.RulesTitle");
+        RulesDesc.Text = Localizer.T("Settings.RulesDesc");
+        RuleNameBox.ToolTip = Localizer.T("Settings.RuleNameTip");
+        RuleEventTypeBox.ToolTip = Localizer.T("Settings.RuleEventTypeTip");
+        RuleKeywordBox.ToolTip = Localizer.T("Settings.RuleKeywordTip");
+        AddRuleButton.Content = Localizer.T("Settings.AddRule");
+        AddRuleButton.ToolTip = Localizer.T("Settings.AddRuleTip");
+        RuleMatchTypesBox.ToolTip = Localizer.T("Settings.RuleMatchTypesTip");
+        RuleFrameMinutesBox.ToolTip = Localizer.T("Settings.RuleFrameMinutesTip");
+        RuleMinEventsBox.ToolTip = Localizer.T("Settings.RuleMinEventsTip");
+        RuleSmartLabel.Text = Localizer.T("Settings.RuleSmartLabel");
+        RuleChannelLabel.Text = Localizer.T("Settings.RuleChannelLabel");
+        RuleChannelWebhookBox.Content = Localizer.T("Settings.Webhook");
+        RuleChannelWebhookBox.ToolTip = Localizer.T("Settings.WebhookTip");
+        RuleChannelSmtpBox.Content = Localizer.T("Settings.Smtp");
+        RuleChannelSmtpBox.ToolTip = Localizer.T("Settings.SmtpTip");
+        RuleChannelMqttBox.Content = Localizer.T("Settings.Mqtt");
+        RuleChannelMqttBox.ToolTip = Localizer.T("Settings.MqttTip");
+        RuleChannelPushBox.Content = Localizer.T("Settings.Push");
+        RuleChannelPushBox.ToolTip = Localizer.T("Settings.PushTip");
+        RuleChannelSnmpBox.Content = Localizer.T("Settings.Snmp");
+        RuleChannelSnmpBox.ToolTip = Localizer.T("Settings.SnmpTip");
+        ToggleRuleButton.Content = Localizer.T("Settings.Toggle");
+        ToggleRuleButton.ToolTip = Localizer.T("Settings.ToggleRuleTip");
+        DeleteRuleButton.Content = Localizer.T("Settings.DeleteRule");
+        DeleteRuleButton.ToolTip = Localizer.T("Settings.DeleteRuleTip");
+        RuleColName.Header = Localizer.T("Settings.RuleColName");
+        RuleColEventType.Header = Localizer.T("Settings.RuleColEventType");
+        RuleColChannel.Header = Localizer.T("Settings.RuleColChannel");
+        RuleColKeyword.Header = Localizer.T("Settings.RuleColKeyword");
+        RuleColMatchTypes.Header = Localizer.T("Settings.RuleColMatchTypes");
+        RuleColAggregate.Header = Localizer.T("Settings.RuleColAggregate");
+        RuleColChannels.Header = Localizer.T("Settings.RuleColChannels");
+        RuleColEnabled.Header = Localizer.T("Settings.RuleColEnabled");
+
+        // IO
+        IoTitles.Text = Localizer.T("Settings.IoTitles");
+        IoDesc.Text = Localizer.T("Settings.IoDesc");
+        IoDesc2.Text = Localizer.T("Settings.IoDesc2");
+        IoModuleHeading.Text = Localizer.T("Settings.IoModuleHeading");
+        IoNameBox.ToolTip = Localizer.T("Settings.IoNameTip");
+        IoHostBox.ToolTip = Localizer.T("Settings.IoHostTip");
+        IoPortBox.ToolTip = Localizer.T("Settings.IoPortTip");
+        IoPollBox.ToolTip = Localizer.T("Settings.IoPollTip");
+        IoAddDeviceButton.Content = Localizer.T("Settings.IoAddDevice");
+        IoAddDeviceButton.ToolTip = Localizer.T("Settings.IoAddDeviceTip");
+        IoRefreshButton.Content = Localizer.T("Settings.Refresh");
+        IoRefreshButton.ToolTip = Localizer.T("Settings.IoRefreshTip");
+        IoColName.Header = Localizer.T("Settings.IoColName");
+        IoColHost.Header = Localizer.T("Settings.IoColHost");
+        IoColEndpoint.Header = Localizer.T("Settings.IoColEndpoint");
+        IoColEnabled.Header = Localizer.T("Settings.IoColEnabled");
+        IoColPoll.Header = Localizer.T("Settings.IoColPoll");
+        IoToggleDeviceButton.Content = Localizer.T("Settings.Toggle");
+        IoToggleDeviceButton.ToolTip = Localizer.T("Settings.IoToggleDeviceTip");
+        IoDeleteDeviceButton.Content = Localizer.T("Settings.IoDeleteModule");
+        IoDeleteDeviceButton.ToolTip = Localizer.T("Settings.IoDeleteModuleTip");
+        IoChannelHeading.Text = Localizer.T("Settings.IoChannelHeading");
+        IoIndexBox.ToolTip = Localizer.T("Settings.IoIndexTip");
+        IoChannelNameBox.ToolTip = Localizer.T("Settings.IoChannelNameTip");
+        IoDebounceBox.ToolTip = Localizer.T("Settings.IoDebounceTip");
+        IoNcBox.Content = Localizer.T("Settings.IoNc");
+        IoCameraCombo.ToolTip = Localizer.T("Settings.IoCameraTip");
+        IoAddChannelButton.Content = Localizer.T("Settings.IoAddChannel");
+        IoAddChannelButton.ToolTip = Localizer.T("Settings.IoAddChannelTip");
+        IoColDirection.Header = Localizer.T("Settings.IoColDirection");
+        IoColChannelName.Header = Localizer.T("Settings.IoColChannelName");
+        IoColChannelEnabled.Header = Localizer.T("Settings.IoColChannelEnabled");
+        IoColDebounce.Header = Localizer.T("Settings.IoColDebounce");
+        IoColCamera.Header = Localizer.T("Settings.IoColCamera");
+        IoToggleChannelButton.Content = Localizer.T("Settings.IoToggleChannel");
+        IoToggleChannelButton.ToolTip = Localizer.T("Settings.IoToggleChannelTip");
+        IoDeleteChannelButton.Content = Localizer.T("Settings.IoDeleteChannel");
+        IoDeleteChannelButton.ToolTip = Localizer.T("Settings.IoDeleteChannelTip");
+        IoDoTestHeading.Text = Localizer.T("Settings.IoDoTestHeading");
+        DoOnButton.ToolTip = Localizer.T("Settings.DoOnTip");
+        DoOffButton.ToolTip = Localizer.T("Settings.DoOffTip");
+        IoDoHint.Text = Localizer.T("Settings.IoDoHint");
+
+        // 地圖
+        MapTitle.Text = Localizer.T("Settings.MapTitle");
+        MapDesc.Text = Localizer.T("Settings.MapDesc");
+        MapDesc2.Text = Localizer.T("Settings.MapDesc2");
+        MapSectionHeading.Text = Localizer.T("Settings.MapSectionHeading");
+        MapNameBox.ToolTip = Localizer.T("Settings.MapNameTip");
+        MapImageBox.ToolTip = Localizer.T("Settings.MapImageTip");
+        MapBrowseButton.Content = Localizer.T("Settings.Browse");
+        MapBrowseButton.ToolTip = Localizer.T("Settings.MapBrowseTip");
+        MapAddButton.Content = Localizer.T("Settings.MapAdd");
+        MapAddButton.ToolTip = Localizer.T("Settings.MapAddTip");
+        MapRefreshButton.Content = Localizer.T("Settings.Refresh");
+        MapRefreshButton.ToolTip = Localizer.T("Settings.MapRefreshTip");
+        MapColName.Header = Localizer.T("Settings.MapColName");
+        MapColSize.Header = Localizer.T("Settings.MapColSize");
+        MapColEnabled.Header = Localizer.T("Settings.MapColEnabled");
+        MapColOrder.Header = Localizer.T("Settings.MapColOrder");
+        MapColScale.Header = Localizer.T("Settings.MapColScale");
+        MapToggleButton.Content = Localizer.T("Settings.Toggle");
+        MapToggleButton.ToolTip = Localizer.T("Settings.MapToggleTip");
+        MapDeleteButton.Content = Localizer.T("Settings.MapDelete");
+        MapDeleteButton.ToolTip = Localizer.T("Settings.MapDeleteTip");
+        MapScaleLabel.Text = Localizer.T("Settings.MapScaleLabel");
+        MapScaleBox.ToolTip = Localizer.T("Settings.MapScaleTip");
+        MapApplyScaleButton.Content = Localizer.T("Settings.MapApplyScale");
+        MapApplyScaleButton.ToolTip = Localizer.T("Settings.MapApplyScaleTip");
+        MapScaleHint.Text = Localizer.T("Settings.MapScaleHint");
+        MapPinHeading.Text = Localizer.T("Settings.MapPinHeading");
+        MapPinChannelCombo.ToolTip = Localizer.T("Settings.MapPinChannelTip");
+        MapPinHint.Text = Localizer.T("Settings.MapPinHint");
+        MapPinAngleLabel.Text = Localizer.T("Settings.MapPinAngleLabel");
+        MapPinAngleBox.ToolTip = Localizer.T("Settings.MapPinAngleTip");
+        MapPinFovBox.ToolTip = Localizer.T("Settings.MapPinFovTip");
+        MapPinDepthLabel.Text = Localizer.T("Settings.MapPinDepthLabel");
+        MapPinDepthBox.ToolTip = Localizer.T("Settings.MapPinDepthTip");
+        MapApplyGeometryButton.Content = Localizer.T("Settings.MapApplyGeometry");
+        MapApplyGeometryButton.ToolTip = Localizer.T("Settings.MapApplyGeometryTip");
+        MapApplyGeometryHint.Text = Localizer.T("Settings.MapApplyGeometryHint");
+        MapPinColType.Header = Localizer.T("Settings.MapPinColType");
+        MapPinColChannel.Header = Localizer.T("Settings.MapPinColChannel");
+        MapPinColPosition.Header = Localizer.T("Settings.MapPinColPosition");
+        MapPinColAngle.Header = Localizer.T("Settings.MapPinColAngle");
+        MapPinColDepth.Header = Localizer.T("Settings.MapPinColDepth");
+        MapPinColBearing.Header = Localizer.T("Settings.MapPinColBearing");
+        MapPinColEnabled.Header = Localizer.T("Settings.MapPinColEnabled");
+        MapPinColName.Header = Localizer.T("Settings.MapPinColName");
+        MapDeletePinButton.Content = Localizer.T("Settings.MapDeletePin");
+        MapDeletePinButton.ToolTip = Localizer.T("Settings.MapDeletePinTip");
+
+        // 身份與權限
+        UsersTitle.Text = Localizer.T("Settings.UsersTitle");
+        UsersDesc.Text = Localizer.T("Settings.UsersDesc");
+        AuthEnabledBox.Content = Localizer.T("Settings.AuthEnabled");
+        AuthThresholdLabel.Text = Localizer.T("Settings.AuthThresholdLabel");
+        AuthLockLabel.Text = Localizer.T("Settings.AuthLockLabel");
+        AuthMinutesLabel.Text = Localizer.T("Settings.AuthMinutesLabel");
+        AuthApplyButton.Content = Localizer.T("Settings.AuthApply");
+        AuthApplyButton.ToolTip = Localizer.T("Settings.AuthApplyTip");
+        UsersHeading.Text = Localizer.T("Settings.UsersHeading");
+        UserAddNameBox.ToolTip = Localizer.T("Settings.UserNameTip");
+        UserAddPasswordBox.ToolTip = Localizer.T("Settings.PasswordLabel");
+        UserAddButton.Content = Localizer.T("Settings.UserAdd");
+        UserAddButton.ToolTip = Localizer.T("Settings.UserAddTip");
+        UserColName.Header = Localizer.T("Settings.UserColName");
+        UserColRole.Header = Localizer.T("Settings.UserColRole");
+        UserColEnabled.Header = Localizer.T("Settings.UserColEnabled");
+        UserColFailed.Header = Localizer.T("Settings.UserColFailed");
+        UserColLastLogin.Header = Localizer.T("Settings.UserColLastLogin");
+        UserToggleButton.Content = Localizer.T("Settings.Toggle");
+        UserToggleButton.ToolTip = Localizer.T("Settings.UserToggleTip");
+        UserUnlockButton.Content = Localizer.T("Settings.UserUnlock");
+        UserUnlockButton.ToolTip = Localizer.T("Settings.UserUnlockTip");
+        UserDeleteButton.Content = Localizer.T("Settings.UserDelete");
+        UserDeleteButton.ToolTip = Localizer.T("Settings.UserDeleteTip");
+        EntHeading.Text = Localizer.T("Settings.EntHeading");
+        EntDesc.Text = Localizer.T("Settings.EntDesc");
+        EntNameBox.ToolTip = Localizer.T("Settings.EntNameTip");
+        EntIssuerBox.ToolTip = Localizer.T("Settings.EntIssuerTip");
+        EntAudienceBox.ToolTip = Localizer.T("Settings.EntAudienceTip");
+        EntRoleClaimLabel.Text = Localizer.T("Settings.EntRoleClaimLabel");
+        EntAdminGroupsLabel.Text = Localizer.T("Settings.EntAdminGroupsLabel");
+        EntJwksLabel.Text = Localizer.T("Settings.EntJwksLabel");
+        EntAddButton.Content = Localizer.T("Settings.EntAdd");
+        EntAddButton.ToolTip = Localizer.T("Settings.EntAddTip");
+        EntToggleButton.Content = Localizer.T("Settings.Toggle");
+        EntToggleButton.ToolTip = Localizer.T("Settings.EntToggleTip");
+        EntDeleteButton.Content = Localizer.T("Settings.EntDelete");
+        EntDeleteButton.ToolTip = Localizer.T("Settings.EntDeleteTip");
+        EntColName.Header = Localizer.T("Settings.EntColName");
+        EntColKind.Header = Localizer.T("Settings.EntColKind");
+        EntColEnabled.Header = Localizer.T("Settings.EntColEnabled");
+        EntColSummary.Header = Localizer.T("Settings.EntColSummary");
+
+        // 備份與異地
+        BackupTitle.Text = Localizer.T("Settings.BackupTitle");
+        BackupDesc.Text = Localizer.T("Settings.BackupDesc");
+        BackupEnabledBox.Content = Localizer.T("Settings.BackupEnabled");
+        BackupEnabledBox.ToolTip = Localizer.T("Settings.BackupEnabledTip");
+        BackupTargetLabel.Text = Localizer.T("Settings.BackupTargetLabel");
+        BackupBrowseButton.Content = Localizer.T("Settings.BrowseEllipsis");
+        BackupBrowseButton.ToolTip = Localizer.T("Settings.BackupBrowseTip");
+        BackupIntervalLabel.Text = Localizer.T("Settings.BackupIntervalLabel");
+        ApplyBackupButton.Content = Localizer.T("Settings.SaveConfig");
+        ApplyBackupButton.ToolTip = Localizer.T("Settings.BackupSaveTip");
+        BackupNowButton.Content = Localizer.T("Settings.BackupNow");
+        BackupNowButton.ToolTip = Localizer.T("Settings.BackupNowTip");
+        OffsiteHeading.Text = Localizer.T("Settings.OffsiteHeading");
+        OffsiteSourceBrowseButton.Content = Localizer.T("Settings.SourceEllipsis");
+        OffsiteSourceBrowseButton.ToolTip = Localizer.T("Settings.OffsiteSourceTip");
+        OffsiteDestBrowseButton.Content = Localizer.T("Settings.TargetEllipsis");
+        OffsiteDestBrowseButton.ToolTip = Localizer.T("Settings.OffsiteDestTip");
+        OffsiteApplyButton.Content = Localizer.T("Settings.SaveConfig");
+        OffsiteApplyButton.ToolTip = Localizer.T("Settings.OffsiteSaveTip");
+        OffsiteEnabledBox.Content = Localizer.T("Settings.OffsiteEnabled");
+        OffsiteEnabledBox.ToolTip = Localizer.T("Settings.OffsiteEnabledTip");
+        OffsiteRunNowButton.Content = Localizer.T("Settings.OffsiteRunNow");
+        OffsiteRunNowButton.ToolTip = Localizer.T("Settings.OffsiteRunNowTip");
+        BackupLogLabel.Text = Localizer.T("Settings.BackupLogLabel");
+        BackupColTime.Header = Localizer.T("Settings.BackupColTime");
+        BackupColTarget.Header = Localizer.T("Settings.BackupColTarget");
+        BackupColCopied.Header = Localizer.T("Settings.BackupColCopied");
+        BackupColFailed.Header = Localizer.T("Settings.BackupColFailed");
+        BackupColAdvanced.Header = Localizer.T("Settings.BackupColAdvanced");
+
+        // 關於
+        AboutTitle.Text = Localizer.T("Settings.AboutTitle");
+        AboutStorageLabel.Text = Localizer.T("Settings.AboutStorageLabel");
+        AboutVersionNote.Text = Localizer.T("Settings.AboutVersionNote");
+
+        // 授權閘門的說明文字會依語言改寫，須最後重套（否則停留在上一種語言）。
+        ApplyLicenseVisibility(new LicenseUiGate(_store));
     }
 
     /// <summary>載入監看硬體解碼設定（<c>decode.hwaccel</c>）：空／off 選「off」項。</summary>
@@ -183,10 +637,20 @@ public partial class SettingsWindow : Window
 
     private void OnLangChanged(object sender, SelectionChangedEventArgs e)
     {
+        // InitializeComponent 期間 SelectedIndex 變更也會走到這裡，此時具名欄位尚未
+        // 全部指派；建構子稍後會自己呼叫一次 ApplyI18n，所以載入前直接略過。
+        if (!IsLoaded)
+        {
+            return;
+        }
+
         if (LangCombo.SelectedItem is System.Windows.Controls.ComboBoxItem item && item.Tag is string tag)
         {
             Localizer.SetLang(_settings, tag);
-            ApplyLangUi();
+            ApplyI18n();
+            // 「關於」頁的文字不屬於 ApplyI18n 的範圍，切換語言時要自己重畫，
+            // 否則自啟勾選框與狀態會留在上一種語言。
+            FillAbout();
             if (Application.Current?.MainWindow is MainWindow mw)
             {
                 mw.RefreshTitle();
@@ -211,18 +675,42 @@ public partial class SettingsWindow : Window
         }
 
         var visible = item.Content as string ?? string.Empty;
-        PageGeneral.Visibility = visible == "一般" ? Visibility.Visible : Visibility.Collapsed;
-        PageStorage.Visibility = visible == "儲存" ? Visibility.Visible : Visibility.Collapsed;
-        PageChannels.Visibility = visible == "頻道" ? Visibility.Visible : Visibility.Collapsed;
-        PageLicense.Visibility = visible == "授權" ? Visibility.Visible : Visibility.Collapsed;
-        PageLaunch.Visibility = visible == "功能" ? Visibility.Visible : Visibility.Collapsed;
-        PageNotify.Visibility = visible == "通知" ? Visibility.Visible : Visibility.Collapsed;
-        PageRules.Visibility = visible == "規則" ? Visibility.Visible : Visibility.Collapsed;
-        PageIo.Visibility = visible == "IO" ? Visibility.Visible : Visibility.Collapsed;
-        PageMap.Visibility = visible == "地圖" ? Visibility.Visible : Visibility.Collapsed;
-        PageUsers.Visibility = visible == "身份" ? Visibility.Visible : Visibility.Collapsed;
-        PageBackup.Visibility = visible == "備份" ? Visibility.Visible : Visibility.Collapsed;
-        PageAbout.Visibility = visible == "關於" ? Visibility.Visible : Visibility.Collapsed;
+        PageGeneral.Visibility = visible == Localizer.T("Settings.NavGeneral") ? Visibility.Visible : Visibility.Collapsed;
+        PageDevices.Visibility = visible == Localizer.T("Settings.NavDevices") ? Visibility.Visible : Visibility.Collapsed;
+        PageStorage.Visibility = visible == Localizer.T("Settings.NavStorage") ? Visibility.Visible : Visibility.Collapsed;
+        PageLicense.Visibility = visible == Localizer.T("Settings.NavLicense") ? Visibility.Visible : Visibility.Collapsed;
+        PageLaunch.Visibility = visible == Localizer.T("Settings.NavLaunch") ? Visibility.Visible : Visibility.Collapsed;
+        PageNotify.Visibility = visible == Localizer.T("Settings.NavNotify") ? Visibility.Visible : Visibility.Collapsed;
+        PageRules.Visibility = visible == Localizer.T("Settings.NavRules") ? Visibility.Visible : Visibility.Collapsed;
+        PageIo.Visibility = visible == Localizer.T("Settings.NavIo") ? Visibility.Visible : Visibility.Collapsed;
+        PageMap.Visibility = visible == Localizer.T("Settings.NavMap") ? Visibility.Visible : Visibility.Collapsed;
+        PageUsers.Visibility = visible == Localizer.T("Settings.NavUsers") ? Visibility.Visible : Visibility.Collapsed;
+        PageBackup.Visibility = visible == Localizer.T("Settings.NavBackup") ? Visibility.Visible : Visibility.Collapsed;
+        PageAbout.Visibility = visible == Localizer.T("Settings.NavAbout") ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    /// <summary>從設定中心開啟攝影機管理（與主視窗共用同一顆視窗；僅 admin）。</summary>
+    private void OnOpenCameraManagerClicked(object sender, RoutedEventArgs e)
+    {
+        if (!SessionContext.IsAdmin)
+        {
+            return;
+        }
+
+        // 傳入 ChannelManager 讓「狀態」欄能顯示各攝影機底下頻道的即時連線狀態；
+        // 刪除設備會 CASCADE 刪掉其頻道，故一併把頻道異動通知帶進去。
+        new CameraManagerWindow(_store, _manager, _channelsChanged) { Owner = this }.Show();
+    }
+
+    /// <summary>從設定中心開啟頻道管理（與主視窗共用同一顆視窗；僅 admin）。</summary>
+    private void OnOpenChannelManagerClicked(object sender, RoutedEventArgs e)
+    {
+        if (!SessionContext.IsAdmin)
+        {
+            return;
+        }
+
+        new ChannelManagerWindow(_store, _channelsChanged) { Owner = this }.Show();
     }
 
     private void ReloadBackup()
@@ -247,7 +735,7 @@ public partial class SettingsWindow : Window
         if (!double.TryParse(BackupIntervalBox.Text, NumberStyles.Float, CultureInfo.InvariantCulture, out var interval) ||
             interval <= 0)
         {
-            BackupStatusText.Text = "間隔需為大於 0 的數字。";
+            BackupStatusText.Text = Localizer.T("Settings.BackupIntervalInvalid");
             return false;
         }
 
@@ -259,7 +747,7 @@ public partial class SettingsWindow : Window
     {
         if (SaveBackupSettings())
         {
-            BackupStatusText.Text = "設定已儲存。";
+            BackupStatusText.Text = Localizer.T("Settings.SettingsSaved");
         }
     }
 
@@ -270,8 +758,8 @@ public partial class SettingsWindow : Window
         SharePortBox.Text = _settings.Get(ShareHost.PortKey) ?? ShareHost.DefaultPort.ToString(CultureInfo.InvariantCulture);
         ShareBaseUrlBox.Text = _settings.Get(ShareHost.BaseUrlKey) ?? string.Empty;
         ShareServiceStatusText.Text = _shareHost?.IsRunning == true
-            ? $"分享服務：執行中（連接埠 {_shareHost.Port}）"
-            : "分享服務：未啟動";
+            ? string.Format(Localizer.T("Settings.ShareRunning"), _shareHost.Port)
+            : Localizer.T("Settings.ShareStopped");
     }
 
     /// <summary>儲存並即時套用分享服務設定（M51，§14.7 #4）。</summary>
@@ -286,7 +774,7 @@ public partial class SettingsWindow : Window
 
         if (!int.TryParse(SharePortBox.Text, out var port) || port is <= 0 or > 65535)
         {
-            ShareServiceStatusText.Text = "連接埠需為 1～65535。";
+            ShareServiceStatusText.Text = Localizer.T("Settings.SharePortInvalid");
             return;
         }
 
@@ -295,13 +783,13 @@ public partial class SettingsWindow : Window
         _settings.Set(ShareHost.BaseUrlKey, ShareBaseUrlBox.Text.Trim());
 
         ShareServiceStatusText.Text = _shareHost is null
-            ? "設定已儲存（分享服務將於下次啟動應用程式時生效）。"
+            ? Localizer.T("Settings.ShareSavedNextStart")
             : _shareHost.ApplySettings(_settings);
     }
 
     private void OnBackupBrowseClicked(object sender, RoutedEventArgs e)
     {
-        var dlg = new Microsoft.Win32.OpenFolderDialog { Title = "選擇備份目標目錄" };
+        var dlg = new Microsoft.Win32.OpenFolderDialog { Title = Localizer.T("Settings.ChooseBackupTarget") };
         if (dlg.ShowDialog() == true)
         {
             BackupTargetBox.Text = dlg.FolderName;
@@ -319,22 +807,22 @@ public partial class SettingsWindow : Window
         var target = BackupTargetBox.Text.Trim();
         if (string.IsNullOrWhiteSpace(target))
         {
-            BackupStatusText.Text = "請先指定目標目錄。";
+            BackupStatusText.Text = Localizer.T("Settings.BackupTargetRequired");
             return;
         }
 
         BackupNowButton.IsEnabled = false;
-        BackupStatusText.Text = "備份執行中…";
+        BackupStatusText.Text = Localizer.T("Settings.BackupRunning");
         try
         {
             var result = await Task.Run(() => new BackupService(_store).Run(_recordingsRoot, target));
             BackupStatusText.Text = result.Failed == 0
-                ? $"備份完成：掃描 {result.Scanned} 段、複製 {result.Copied} 段（{FormatBytes(result.CopiedBytes)}）、檢查點已推進。"
-                : $"備份完成：掃描 {result.Scanned} 段、複製 {result.Copied} 段、失敗 {result.Failed}（未推進，下次重試）。";
+                ? string.Format(Localizer.T("Settings.BackupDoneOk"), result.Scanned, result.Copied, FormatBytes(result.CopiedBytes))
+                : string.Format(Localizer.T("Settings.BackupDoneFail"), result.Scanned, result.Copied, result.Failed);
         }
         catch (Exception ex)
         {
-            BackupStatusText.Text = $"備份失敗：{ex.Message}";
+            BackupStatusText.Text = string.Format(Localizer.T("Settings.BackupFailed"), ex.Message);
         }
         finally
         {
@@ -351,7 +839,7 @@ public partial class SettingsWindow : Window
             r.TargetRoot,
             r.CopiedCount.ToString(CultureInfo.InvariantCulture),
             r.FailedCount.ToString(CultureInfo.InvariantCulture),
-            r.CheckpointUtc.HasValue ? "是" : "否")).ToList();
+            r.CheckpointUtc.HasValue ? Localizer.T("Settings.Yes") : Localizer.T("Settings.No"))).ToList();
     }
 
     // ---------- 異地備援複製（M55，§4.4 異地） ----------
@@ -390,24 +878,30 @@ public partial class SettingsWindow : Window
         var job = _offsite.List().FirstOrDefault();
         if (job is null)
         {
-            OffsiteStatusText.Text = "尚未設定異地複製工作。";
+            OffsiteStatusText.Text = Localizer.T("Settings.OffsiteNone");
             return;
         }
 
         var runAt = job.LastRunUtc.HasValue
             ? job.LastRunUtc.Value.ToLocalTime().ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture)
-            : "從未";
+            : Localizer.T("Settings.OffsiteNever");
         var result = job.LastResult ?? "—";
-        var error = job.LastError is null ? "" : $"；錯誤：{job.LastError}";
-        OffsiteStatusText.Text =
-            $"狀態：{result}（{runAt}）｜連續失敗 {job.ConsecutiveFailures}{error}｜來源：{job.SourcePath} → {job.DestinationPath}";
+        var error = job.LastError is null ? "" : string.Format(Localizer.T("Settings.OffsiteErrorSuffix"), job.LastError);
+        OffsiteStatusText.Text = string.Format(
+            Localizer.T("Settings.OffsiteStatus"),
+            result,
+            runAt,
+            job.ConsecutiveFailures,
+            error,
+            job.SourcePath,
+            job.DestinationPath);
     }
 
     private void OnOffsiteBrowseClicked(object sender, RoutedEventArgs e)
     {
         var dlg = new Microsoft.Win32.OpenFolderDialog
         {
-            Title = (sender as Button)?.Tag as string == "destination" ? "選擇異地目標目錄" : "選擇來源目錄"
+            Title = (sender as Button)?.Tag as string == "destination" ? Localizer.T("Settings.ChooseOffsiteTarget") : Localizer.T("Settings.ChooseOffsiteSource")
         };
         if (dlg.ShowDialog() != true)
         {
@@ -431,7 +925,7 @@ public partial class SettingsWindow : Window
         if (!int.TryParse(OffsiteIntervalBox.Text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var interval) ||
             interval <= 0)
         {
-            OffsiteStatusText.Text = "間隔需為大於 0 的數字（分鐘）。";
+            OffsiteStatusText.Text = Localizer.T("Settings.OffsiteIntervalInvalid");
             return false;
         }
 
@@ -439,7 +933,7 @@ public partial class SettingsWindow : Window
         var dest = OffsiteDestBox.Text.Trim();
         if (string.IsNullOrWhiteSpace(source) || string.IsNullOrWhiteSpace(dest))
         {
-            OffsiteStatusText.Text = "來源與目標目錄皆需填寫。";
+            OffsiteStatusText.Text = Localizer.T("Settings.OffsiteBothRequired");
             return false;
         }
 
@@ -457,7 +951,7 @@ public partial class SettingsWindow : Window
     {
         if (SaveOffsiteSettings())
         {
-            OffsiteStatusText.Text += " 設定已儲存。";
+            OffsiteStatusText.Text += " " + Localizer.T("Settings.SettingsSaved");
         }
         else
         {
@@ -475,22 +969,22 @@ public partial class SettingsWindow : Window
         var job = _offsite.List().FirstOrDefault();
         if (job is null)
         {
-            OffsiteStatusText.Text = "尚未建立異地複製工作。";
+            OffsiteStatusText.Text = Localizer.T("Settings.OffsiteJobMissing");
             return;
         }
 
         OffsiteRunNowButton.IsEnabled = false;
-        OffsiteStatusText.Text = "複製執行中…";
+        OffsiteStatusText.Text = Localizer.T("Settings.OffsiteRunning");
         try
         {
             var ok = await Task.Run(() => new OffsiteReplicationService(_offsite).RunOnce(job.Id));
             OffsiteStatusText.Text = ok
-                ? "異地複製完成。"
-                : $"異地複製失敗：{_offsite.List().FirstOrDefault()?.LastError}";
+                ? Localizer.T("Settings.OffsiteDone")
+                : string.Format(Localizer.T("Settings.OffsiteFailed"), _offsite.List().FirstOrDefault()?.LastError);
         }
         catch (Exception ex)
         {
-            OffsiteStatusText.Text = $"異地複製失敗：{ex.Message}";
+            OffsiteStatusText.Text = string.Format(Localizer.T("Settings.OffsiteFailed"), ex.Message);
         }
         finally
         {
@@ -502,7 +996,7 @@ public partial class SettingsWindow : Window
     private void ReloadRules()
     {
         RuleChannelCombo.Items.Clear();
-        RuleChannelCombo.Items.Add(new ComboBoxItem { Content = "不限", Tag = null });
+        RuleChannelCombo.Items.Add(new ComboBoxItem { Content = Localizer.T("Settings.RuleAny"), Tag = null });
         foreach (var c in new ChannelRepository(_store).List())
         {
             RuleChannelCombo.Items.Add(new ComboBoxItem { Content = $"{c.Name}（#{c.Id}）", Tag = c.Id });
@@ -513,13 +1007,13 @@ public partial class SettingsWindow : Window
         RuleList.ItemsSource = _rules.ListAll().Select(r => new RuleRow(
             r.Id,
             r.Name,
-            r.EventType ?? "不限",
-            r.ChannelId is { } cid ? $"#{cid}" : "不限",
-            r.Keyword ?? "不限",
-            r.MatchEventTypes ?? "全部",
-            r.FrameMinutes > 0 ? $"{r.FrameMinutes} 分／窗內 {r.MinEventsInWindow} 筆" : "逐筆",
+            r.EventType ?? Localizer.T("Settings.RuleAny"),
+            r.ChannelId is { } cid ? $"#{cid}" : Localizer.T("Settings.RuleAny"),
+            r.Keyword ?? Localizer.T("Settings.RuleAny"),
+            r.MatchEventTypes ?? Localizer.T("Settings.All"),
+            r.FrameMinutes > 0 ? string.Format(Localizer.T("Settings.RuleAggWindow"), r.FrameMinutes, r.MinEventsInWindow) : Localizer.T("Settings.RulePerItem"),
             FormatRuleChannels(r.Channels),
-            r.Enabled ? "啟用" : "停用")).ToList();
+            r.Enabled ? Localizer.T("Settings.Enabled") : Localizer.T("Settings.Disabled"))).ToList();
     }
 
     /// <summary>M39：載入遮蔽偵測開關（app_settings `detect.tamper.enabled`）。</summary>
@@ -557,7 +1051,7 @@ public partial class SettingsWindow : Window
             d.Name,
             d.Host,
             $"{d.Port}/{d.UnitId}",
-            d.Enabled ? "啟用" : "停用",
+            d.Enabled ? Localizer.T("Settings.Enabled") : Localizer.T("Settings.Disabled"),
             d.PollMs)).ToList();
 
         IoDoDeviceCombo.Items.Clear();
@@ -583,7 +1077,7 @@ public partial class SettingsWindow : Window
     private void ReloadIoCameraCombo()
     {
         IoCameraCombo.Items.Clear();
-        IoCameraCombo.Items.Add(new ComboBoxItem { Content = "（不綁定）", Tag = null });
+        IoCameraCombo.Items.Add(new ComboBoxItem { Content = Localizer.T("Settings.Unbound"), Tag = null });
         foreach (var c in new ChannelRepository(_store).List())
         {
             IoCameraCombo.Items.Add(new ComboBoxItem { Content = $"{c.Name}（#{c.Id}）", Tag = c.Id });
@@ -604,12 +1098,12 @@ public partial class SettingsWindow : Window
                 ch.Direction,
                 ch.IoIndex,
                 ch.Name,
-                ch.Enabled ? "啟用" : "停用",
+                ch.Enabled ? Localizer.T("Settings.Enabled") : Localizer.T("Settings.Disabled"),
                 ch.Polarity ? "NC" : "",
                 ch.DebounceMs,
                 ch.CameraId is { } cam && cameras.TryGetValue(cam, out var n) ? n : "—")).ToList();
         IoChannelList.ItemsSource = rows;
-        IoReportText.Text = devId is not null && rows.Count == 0 ? "此模組尚無通道。" : " ";
+        IoReportText.Text = devId is not null && rows.Count == 0 ? Localizer.T("Settings.NoChannelsForModule") : " ";
     }
 
     private void OnIoAddDeviceClicked(object sender, RoutedEventArgs e)
@@ -618,32 +1112,32 @@ public partial class SettingsWindow : Window
         var host = IoHostBox.Text.Trim();
         if (name.Length == 0 || host.Length == 0)
         {
-            IoReportText.Text = "請填模組名稱與主機。";
+            IoReportText.Text = Localizer.T("Settings.ModuleNameHostRequired");
             return;
         }
 
         if (!int.TryParse(IoPortBox.Text, out var port) || port is <= 0 or > 65535)
         {
-            IoReportText.Text = "連接埠無效（1–65535）。";
+            IoReportText.Text = Localizer.T("Settings.PortInvalid");
             return;
         }
 
         if (!int.TryParse(IoUnitBox.Text, out var unit) || unit is < 0 or > 247)
         {
-            IoReportText.Text = "Unit ID 需為 0–247。";
+            IoReportText.Text = Localizer.T("Settings.UnitIdInvalid");
             return;
         }
 
         if (!int.TryParse(IoPollBox.Text, out var pollMs) || pollMs < 50)
         {
-            IoReportText.Text = "輪詢間隔需 ≥50 ms。";
+            IoReportText.Text = Localizer.T("Settings.PollIntervalTooSmall");
             return;
         }
 
         _io.AddDevice(name, host, port, unit, pollMs);
         IoNameBox.Clear();
         IoHostBox.Clear();
-        IoReportText.Text = $"已新增模組「{name}」。";
+        IoReportText.Text = string.Format(Localizer.T("Settings.ModuleAdded"), name);
         ReloadIo();
         _ioHost?.RefreshAndStart();
     }
@@ -660,7 +1154,7 @@ public partial class SettingsWindow : Window
     {
         if (SelectedIoDevice is not { } dev)
         {
-            IoReportText.Text = "請先選取模組。";
+            IoReportText.Text = Localizer.T("Settings.SelectModuleFirst");
             return;
         }
 
@@ -680,12 +1174,12 @@ public partial class SettingsWindow : Window
     {
         if (SelectedIoDevice is not { } dev)
         {
-            IoReportText.Text = "請先選取模組。";
+            IoReportText.Text = Localizer.T("Settings.SelectModuleFirst");
             return;
         }
 
         _io.DeleteDevice(dev.Id);
-        IoReportText.Text = $"已刪除模組 #{dev.Id}。";
+        IoReportText.Text = string.Format(Localizer.T("Settings.ModuleDeleted"), dev.Id);
         ReloadIo();
         _ioHost?.RefreshAndStart();
     }
@@ -694,40 +1188,40 @@ public partial class SettingsWindow : Window
     {
         if (SelectedIoDevice is not { } dev)
         {
-            IoReportText.Text = "請先選取要新增通道的模組。";
+            IoReportText.Text = Localizer.T("Settings.SelectModuleAddChannel");
             return;
         }
 
         if (IoDirCombo.SelectedItem is not ComboBoxItem dirItem)
         {
-            IoReportText.Text = "請選擇方向（DI／DO）。";
+            IoReportText.Text = Localizer.T("Settings.DirectionRequired");
             return;
         }
 
         var direction = dirItem.Content as string ?? "DI";
         if (!int.TryParse(IoIndexBox.Text, out var idx) || idx is < 0 or > 65535)
         {
-            IoReportText.Text = "IO index 需為 0–65535。";
+            IoReportText.Text = Localizer.T("Settings.IoIndexInvalid");
             return;
         }
 
         var name = IoChannelNameBox.Text.Trim();
         if (name.Length == 0)
         {
-            IoReportText.Text = "請填通道名稱。";
+            IoReportText.Text = Localizer.T("Settings.ChannelNameRequired");
             return;
         }
 
         if (!int.TryParse(IoDebounceBox.Text, out var debounce) || debounce < 0)
         {
-            IoReportText.Text = "去抖需 ≥0 ms。";
+            IoReportText.Text = Localizer.T("Settings.DebounceInvalid");
             return;
         }
 
         int? cameraId = IoCameraCombo.SelectedItem is ComboBoxItem { Tag: int cam } ? cam : null;
         if (direction == "DI" && cameraId is null)
         {
-            IoReportText.Text = "DI 通道必須綁定相機（io_input 事件才能寫入事件中心）。";
+            IoReportText.Text = Localizer.T("Settings.DiNeedsCamera");
             return;
         }
 
@@ -737,14 +1231,14 @@ public partial class SettingsWindow : Window
         }
         catch (Exception ex)
         {
-            IoReportText.Text = $"新增失敗：{ex.Message}";
+            IoReportText.Text = string.Format(Localizer.T("Settings.AddChannelFailed"), ex.Message);
             return;
         }
 
         IoIndexBox.Clear();
         IoChannelNameBox.Clear();
         IoNcBox.IsChecked = false;
-        IoReportText.Text = $"已新增通道「{name}」（{direction} #{idx}）。";
+        IoReportText.Text = string.Format(Localizer.T("Settings.ChannelAdded"), name, direction, idx);
         ReloadIoChannels();
         ReloadIoDoChannels();
         _ioHost?.RefreshAndStart();
@@ -754,7 +1248,7 @@ public partial class SettingsWindow : Window
     {
         if (IoChannelList.SelectedItem is not IoChannelRow row)
         {
-            IoReportText.Text = "請先選取通道。";
+            IoReportText.Text = Localizer.T("Settings.SelectChannelFirst");
             return;
         }
 
@@ -775,7 +1269,7 @@ public partial class SettingsWindow : Window
     {
         if (IoChannelList.SelectedItem is not IoChannelRow row)
         {
-            IoReportText.Text = "請先選取通道。";
+            IoReportText.Text = Localizer.T("Settings.SelectChannelFirst");
             return;
         }
 
@@ -810,7 +1304,7 @@ public partial class SettingsWindow : Window
     {
         if (_ioHost is null)
         {
-            IoDoStatusText.Text = "主視窗尚未接線監視器（IoMonitorHost）。";
+            IoDoStatusText.Text = Localizer.T("Settings.IoHostNotWired");
             return;
         }
 
@@ -818,19 +1312,19 @@ public partial class SettingsWindow : Window
             IoDoChannelCombo.SelectedItem is not ComboBoxItem { Tag: int chId } ||
             sender is not Button btn)
         {
-            IoDoStatusText.Text = "請先選取模組與 DO 通道。";
+            IoDoStatusText.Text = Localizer.T("Settings.SelectModuleDoChannel");
             return;
         }
 
         var on = string.Equals(btn.Tag?.ToString(), "true", StringComparison.OrdinalIgnoreCase);
         var ok = await _ioHost.WriteOutputAsync(devId, chId, on);
         IoDoStatusText.Text = ok
-            ? $"DO #{chId} 已設 {(on ? "ON" : "OFF")}（FC05 完成）。"
-            : "寫出失敗（裝置離線或非 DO 通道）。";
+            ? string.Format(Localizer.T("Settings.DoSet"), chId, on ? "ON" : "OFF")
+            : Localizer.T("Settings.DoWriteFailed");
     }
 
     private static string FormatRuleChannels(string? channels)
-        => string.IsNullOrWhiteSpace(channels) ? "全部通道" : string.Join("＋",
+        => string.IsNullOrWhiteSpace(channels) ? Localizer.T("Settings.AllChannels") : string.Join("＋",
             channels.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
 
     private string? BuildRuleChannels()
@@ -849,7 +1343,7 @@ public partial class SettingsWindow : Window
         var name = RuleNameBox.Text.Trim();
         if (name.Length == 0)
         {
-            RuleReportText.Text = "請填規則名稱。";
+            RuleReportText.Text = Localizer.T("Settings.RuleNameRequired");
             return;
         }
 
@@ -873,7 +1367,7 @@ public partial class SettingsWindow : Window
             frameMinutes,
             minEvents);
 
-        RuleReportText.Text = $"已新增「{name}」（{(frameMinutes > 0 ? $"{frameMinutes} 分聚合窗≥{minEvents} 筆" : "逐筆")}）。";
+        RuleReportText.Text = string.Format(Localizer.T("Settings.RuleAdded"), name, frameMinutes > 0 ? string.Format(Localizer.T("Settings.RuleAggFrame"), frameMinutes, minEvents) : Localizer.T("Settings.RulePerItem"));
         RuleNameBox.Clear();
         RuleEventTypeBox.Clear();
         RuleKeywordBox.Clear();
@@ -893,13 +1387,13 @@ public partial class SettingsWindow : Window
     {
         if (RuleList.SelectedItem is not RuleRow row)
         {
-            RuleReportText.Text = "請先選取規則。";
+            RuleReportText.Text = Localizer.T("Settings.SelectRuleFirst");
             return;
         }
 
         var rule = _rules.ListAll().First(r => r.Id == row.Id);
         _rules.SetEnabled(rule.Id, !rule.Enabled);
-        RuleReportText.Text = $"「{rule.Name}」已{(rule.Enabled ? "停用" : "啟用")}。";
+        RuleReportText.Text = string.Format(Localizer.T("Settings.RuleToggled"), rule.Name, rule.Enabled ? Localizer.T("Settings.Disabled") : Localizer.T("Settings.Enabled"));
         ReloadRules();
     }
 
@@ -907,12 +1401,12 @@ public partial class SettingsWindow : Window
     {
         if (RuleList.SelectedItem is not RuleRow row)
         {
-            RuleReportText.Text = "請先選取規則。";
+            RuleReportText.Text = Localizer.T("Settings.SelectRuleFirst");
             return;
         }
 
         _rules.Delete(row.Id);
-        RuleReportText.Text = $"已刪除規則。";
+        RuleReportText.Text = Localizer.T("Settings.RuleDeleted");
         ReloadRules();
     }
 
@@ -997,7 +1491,7 @@ public partial class SettingsWindow : Window
         if (!int.TryParse(NotifySmtpPortBox.Text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var port) ||
             port <= 0)
         {
-            NotifyReportText.Text = "SMTP 埠必須是大於 0 的整數。";
+            NotifyReportText.Text = Localizer.T("Settings.SmtpPortInvalid");
             return;
         }
 
@@ -1054,7 +1548,7 @@ public partial class SettingsWindow : Window
         _settings.Set(NotificationSettings.SnmpPortKey, snmpPort.ToString(CultureInfo.InvariantCulture));
         _settings.Set(NotificationSettings.SnmpCommunityKey, NotifySnmpCommunityBox.Text.Trim());
 
-        NotifyReportText.Text = "通知設定已套用（密碼以 DPAPI 加密保存）。";
+        NotifyReportText.Text = Localizer.T("Settings.NotifyApplied");
     }
 
     private void OnApplySnapshotDaysClicked(object sender, RoutedEventArgs e)
@@ -1062,53 +1556,115 @@ public partial class SettingsWindow : Window
         if (!int.TryParse(SnapshotDaysTextBox.Text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var days) ||
             days <= 0)
         {
-            CleanupReportText.Text = "請輸入大於 0 的天數。";
+            CleanupReportText.Text = Localizer.T("Settings.DaysPositive");
             return;
         }
 
         _settings.Set(SnapshotDaysKey, days.ToString(CultureInfo.InvariantCulture));
-        CleanupReportText.Text = $"已套用：快照保留 {days} 天（每小時例行清理讀取此值生效）";
+        CleanupReportText.Text = string.Format(Localizer.T("Settings.SnapshotDaysApplied"), days);
     }
 
     private static string FormatBytes(long bytes) => bytes >= 1024d * 1024 * 1024
         ? $"{bytes / 1024d / 1024 / 1024:0.#}GB"
         : $"{bytes / 1024d / 1024:0.#}MB";
 
+    /// <summary>
+    /// 重新計算錄影用量。
+    ///
+    /// 這裡以前是 <c>Directory.EnumerateFiles(recordingsRoot, "*.mp4",
+    /// SearchOption.TopDirectoryOnly)</c>，而錄影檔實際寫在
+    /// <c>recordings/chXXX/yyyyMMdd/seg-HHmmss.mp4</c>（兩層底下）。
+    /// 根層一個 mp4 都掃不到，所以用量恆為 0，畫面長期顯示「0B（0 段）」——
+    /// 使用者無從知道磁碟快滿了，而配額清理正在背後默默吃掉舊錄影。
+    ///
+    /// 現在改用區段索引的 SUM：跟配額清理用的是同一個數字，所以畫面寫 5GB
+    /// 的時候清理也確實在 5GB 就會動。順帶解決原本在 UI 執行緒同步列舉整棵目錄
+    /// 的問題——30 天 × 16 路 × 15 秒一段是幾十萬個檔案，那會讓視窗直接凍結。
+    /// </summary>
     private void ReloadUsage()
     {
-        long total = 0;
-        var count = 0;
-        if (Directory.Exists(_recordingsRoot))
-        {
-            foreach (var file in Directory.EnumerateFiles(_recordingsRoot, "*.mp4", SearchOption.TopDirectoryOnly))
+        var (total, count) = new SegmentRepository(_store).GetTotalUsageSummary();
+        UsageText.Text = string.Format(Localizer.T("Settings.UsageText"), FormatBytes(total), count, QuotaGbFromStore());
+    }
+
+    /// <summary>設定中心「儲存」頁的錄影磁碟下拉：列出本機固定磁碟與其可用空間，預選目前磁碟。</summary>
+    private void ReloadRecordingsDisk()
+    {
+        var drives = RecordingStorage.ListFixedDrives();
+        RecordingsDiskCombo.ItemsSource = drives
+            .Select(d => new ComboBoxItem
             {
-                try
-                {
-                    total += new FileInfo(file).Length;
-                    count++;
-                }
-                catch (IOException)
-                {
-                }
-                catch (UnauthorizedAccessException)
-                {
-                }
+                Content = string.Format(
+                    Localizer.T("Settings.RecordingsDiskItem"),
+                    d.Root,
+                    FormatBytes(d.FreeBytes),
+                    FormatBytes(d.TotalBytes)),
+                Tag = d.Root,
+            })
+            .ToList();
+
+        // 預選目前錄影根目錄所在的磁碟（跨磁碟切換後再開設定中心時要顯示實況）。
+        var currentRoot = Path.GetPathRoot(_recordingsRoot);
+        for (var i = 0; i < RecordingsDiskCombo.Items.Count; i++)
+        {
+            if (RecordingsDiskCombo.Items[i] is ComboBoxItem item &&
+                string.Equals(item.Tag as string, currentRoot, StringComparison.OrdinalIgnoreCase))
+            {
+                RecordingsDiskCombo.SelectedIndex = i;
+                break;
             }
         }
 
-        UsageText.Text = $"{FormatBytes(total)}（{count} 段）；上限 {QuotaGbFromStore():0.#}GB";
+        if (RecordingsDiskCombo.SelectedIndex < 0 && RecordingsDiskCombo.Items.Count > 0)
+        {
+            RecordingsDiskCombo.SelectedIndex = 0;
+        }
+
+        RecordingsDiskStatusText.Text = string.Format(Localizer.T("Settings.RecordingsDiskCurrent"), _recordingsRoot);
+    }
+
+    /// <summary>
+    /// 套用所選錄影磁碟：寫入共用設定（桌面、WebApi、Agent 都讀同一把鍵），保留舊根供配額清理，
+    /// 再通知主視窗立即切換（重建錄影工作階段）。舊錄影以絕對路徑留在舊磁碟，仍可回放。
+    /// </summary>
+    private void OnApplyRecordingsDiskClicked(object sender, RoutedEventArgs e)
+    {
+        if (RecordingsDiskCombo.SelectedItem is not ComboBoxItem { Tag: string driveRoot })
+        {
+            RecordingsDiskStatusText.Text = Localizer.T("Settings.RecordingsDiskPick");
+            return;
+        }
+
+        var folder = RecordingStorage.FolderForDrive(driveRoot);
+        if (string.Equals(folder, _recordingsRoot, StringComparison.OrdinalIgnoreCase))
+        {
+            RecordingsDiskStatusText.Text = string.Format(Localizer.T("Settings.RecordingsDiskSame"), folder);
+            return;
+        }
+
+        var known = RecordingStorage.MergeKnownRoot(
+            _settings.Get(RecordingStorage.KnownRootsSettingKey), _recordingsRoot);
+        known = RecordingStorage.MergeKnownRoot(known, folder);
+
+        _settings.Set(RecordingStorage.KnownRootsSettingKey, known);
+        _settings.Set(RecordingStorage.RootSettingKey, folder);
+        _recordingsRoot = folder;
+        RecordingsRootText.Text = _recordingsRoot;
+
+        _recordingsRootChanged?.Invoke(folder);
+        RecordingsDiskStatusText.Text = string.Format(Localizer.T("Settings.RecordingsDiskApplied"), folder);
     }
 
     private void OnApplyQuotaClicked(object sender, RoutedEventArgs e)
     {
         if (!double.TryParse(QuotaTextBox.Text, NumberStyles.Float, CultureInfo.InvariantCulture, out var gb) || gb <= 0)
         {
-            CleanupReportText.Text = "請輸入大於 0 的 GB 數值。";
+            CleanupReportText.Text = Localizer.T("Settings.GbPositive");
             return;
         }
 
         _settings.Set(QuotaKey, gb.ToString("0.#", CultureInfo.InvariantCulture));
-        CleanupReportText.Text = $"已套用：錄影保留上限 {gb:0.#}GB（每小時例行清理讀取此值生效）";
+        CleanupReportText.Text = string.Format(Localizer.T("Settings.QuotaApplied"), gb);
         ReloadUsage();
     }
 
@@ -1117,359 +1673,33 @@ public partial class SettingsWindow : Window
         try
         {
             var repo = new SegmentRepository(_store);
-            var service = new RetentionService(repo, _recordingsRoot);
+            var service = new RetentionService(
+                repo,
+                _recordingsRoot,
+                additionalRoots: RecordingStorage.ParseKnownRoots(_settings.Get(RecordingStorage.KnownRootsSettingKey)));
             var report = service.Apply(QuotaBytesFromGb(QuotaGbFromStore()), DateTime.UtcNow);
-            var text = $"清理完成：錄影移除 {report.DeletedSegments} 段（釋放 {FormatBytes(report.FreedBytes)}）" +
-                       (report.PurgedTmp > 0 ? $"，清除 {report.PurgedTmp} 個暫存檔" : string.Empty);
+            var text = string.Format(Localizer.T("Settings.CleanupDone"), report.DeletedSegments, FormatBytes(report.FreedBytes)) +
+                       (report.PurgedTmp > 0 ? string.Format(Localizer.T("Settings.CleanupTmp"), report.PurgedTmp) : string.Empty);
 
             var snapDays = SnapDaysFromStore();
             var snapReport = service.PurgeSnapshots(_snapshotsRoot, DateTime.UtcNow.AddDays(-snapDays));
             if (snapReport.DeletedFiles > 0)
             {
-                text += $"，快照移除 {snapReport.DeletedFiles} 個（{FormatBytes(snapReport.FreedBytes)}）";
+                text += string.Format(Localizer.T("Settings.CleanupSnapshots"), snapReport.DeletedFiles, FormatBytes(snapReport.FreedBytes));
             }
             else
             {
-                text += "，無過期快照";
+                text += Localizer.T("Settings.CleanupNoSnapshots");
             }
 
             CleanupReportText.Text = text;
         }
         catch (Exception ex)
         {
-            CleanupReportText.Text = $"清理失敗：{ex.Message}";
+            CleanupReportText.Text = string.Format(Localizer.T("Settings.CleanupFailed"), ex.Message);
         }
 
         ReloadUsage();
-    }
-
-    private void ReloadChannels(int? reselect = null)
-    {
-        var rows = new ChannelRepository(_store).List()
-            .Select(c => new ChannelRow(
-                c.Id,
-                c.Name,
-                c.MainStreamUrl,
-                c.RecordingMode.ToString(),
-                c.MotionEnabled ? "開" : "關"))
-            .ToList();
-        ChannelList.ItemsSource = rows;
-
-        // 重新載入等於捨棄目前選取；編輯欄位若不清空，會讓人以為改的是清單第一列。
-        _channelEditId = null;
-        _channelDeleteArm = false;
-        DeleteChannelButton.Content = "刪除頻道";
-        ChannelEditNameBox.Text = string.Empty;
-        ChannelEditMainUrlBox.Text = string.Empty;
-        ChannelEditSubUrlBox.Text = string.Empty;
-        ChannelEditModeCombo.SelectedIndex = 0;
-        ChannelEditMotionCheck.IsChecked = false;
-        ChannelEditSensitivityBox.Text = string.Empty;
-        ChannelEditHintText.Text = "從上方清單選取一個頻道後即可修改；刪除會一併清除該頻道的排程、偵測、區段與事件。";
-
-        if (reselect is int target)
-        {
-            var match = rows.FirstOrDefault(r => r.Id == target);
-            if (match is not null)
-            {
-                ChannelList.SelectedItem = match;
-            }
-        }
-    }
-
-    private void OnChannelSelected(object sender, SelectionChangedEventArgs e)
-    {
-        _channelDeleteArm = false;
-        DeleteChannelButton.Content = "刪除頻道";
-
-        if (ChannelList.SelectedItem is not ChannelRow row)
-        {
-            _channelEditId = null;
-            return;
-        }
-
-        var channel = new ChannelRepository(_store).Get(row.Id);
-        if (channel is null)
-        {
-            _channelEditId = null;
-            return;
-        }
-
-        _channelEditId = channel.Id;
-        ChannelEditNameBox.Text = channel.Name;
-        ChannelEditMainUrlBox.Text = channel.MainStreamUrl;
-        ChannelEditSubUrlBox.Text = channel.SubStreamUrl;
-        ChannelEditModeCombo.SelectedIndex = (int)channel.RecordingMode;
-        ChannelEditMotionCheck.IsChecked = channel.MotionEnabled;
-        ChannelEditSensitivityBox.Text = channel.MotionSensitivity.ToString("0.##", CultureInfo.InvariantCulture);
-        ChannelEditHintText.Text = $"編輯「{channel.Name}」（#{channel.Id}）；按「套用變更」儲存。";
-    }
-
-    private void OnApplyChannelEditClicked(object sender, RoutedEventArgs e)
-    {
-        if (_channelEditId is not int id)
-        {
-            ChannelEditHintText.Text = "請先從上方清單選取頻道。";
-            return;
-        }
-
-        var name = ChannelEditNameBox.Text.Trim();
-        var main = ChannelEditMainUrlBox.Text.Trim();
-        if (name.Length == 0 || main.Length == 0)
-        {
-            ChannelEditHintText.Text = "名稱與主流位址不可空白。";
-            return;
-        }
-
-        var sensitivity = 0.5;
-        var sensitivityText = ChannelEditSensitivityBox.Text.Trim();
-        if (sensitivityText.Length > 0
-            && !double.TryParse(sensitivityText, NumberStyles.Float, CultureInfo.InvariantCulture, out sensitivity))
-        {
-            ChannelEditHintText.Text = "靈敏度需為 0 到 1 之間的數字。";
-            return;
-        }
-
-        var repo = new ChannelRepository(_store);
-        var current = repo.Get(id);
-        if (current is null)
-        {
-            ChannelEditHintText.Text = "頻道已不存在，請重新整理。";
-            return;
-        }
-
-        try
-        {
-            // Update 覆寫整列，未編輯的欄位（編碼／音訊／裝置綁定）必須原值帶回，否則會被清成預設。
-            repo.Update(new ChannelInfo
-            {
-                Id = id,
-                DeviceId = current.DeviceId,
-                Name = name,
-                MainStreamUrl = main,
-                SubStreamUrl = ChannelEditSubUrlBox.Text.Trim(),
-                Codec = current.Codec,
-                AudioEnabled = current.AudioEnabled,
-                AudioEncoder = current.AudioEncoder,
-                MotionEnabled = ChannelEditMotionCheck.IsChecked == true,
-                MotionSensitivity = Math.Clamp(sensitivity, 0, 1),
-                RecordingMode = (RecordingMode)Math.Clamp(ChannelEditModeCombo.SelectedIndex, 0, 3),
-                Enabled = current.Enabled,
-            });
-
-            ChannelEditHintText.Text = $"已更新「{name}」。已開啟的影像需重新開啟才會套用新設定。";
-            ReloadChannels(id);
-        }
-        catch (Exception ex)
-        {
-            ChannelEditHintText.Text = $"更新失敗：{ex.Message}";
-        }
-    }
-
-    private void OnDeleteChannelClicked(object sender, RoutedEventArgs e)
-    {
-        if (_channelEditId is not int id || ChannelList.SelectedItem is not ChannelRow row)
-        {
-            ChannelEditHintText.Text = "請先從上方清單選取頻道。";
-            return;
-        }
-
-        if (!_channelDeleteArm)
-        {
-            _channelDeleteArm = true;
-            DeleteChannelButton.Content = "確認刪除？";
-            ChannelEditHintText.Text =
-                $"再按一次「確認刪除？」將刪除「{row.Name}」（#{id}），"
-                + "並一併清除其錄影排程、偵測、區段索引與事件。此動作無法復原。";
-            return;
-        }
-
-        try
-        {
-            new ChannelRepository(_store).Delete(id);
-            _channelDeleteArm = false;
-            DeleteChannelButton.Content = "刪除頻道";
-            ChannelEditHintText.Text = $"已刪除「{row.Name}」（#{id}）及其子資料。";
-            ReloadChannels();
-        }
-        catch (Exception ex)
-        {
-            ChannelEditHintText.Text = $"刪除失敗：{ex.Message}";
-        }
-    }
-
-    private void OnAddChannelClicked(object sender, RoutedEventArgs e)
-    {
-        var url = AddChannelUrlBox.Text.Trim();
-        if (url.Length == 0)
-        {
-            return;
-        }
-
-        try
-        {
-            new ChannelRepository(_store).Add(
-                AddChannelNameBox.Text.Trim().Length > 0 ? AddChannelNameBox.Text.Trim() : "新頻道",
-                url);
-            CleanupReportText.Text = "已加入頻道。";
-            AddChannelUrlBox.Text = string.Empty;
-            ReloadChannels();
-        }
-        catch (Exception ex)
-        {
-            CleanupReportText.Text = $"加入失敗：{ex.Message}";
-        }
-    }
-
-    private void OnOnvifWizardClicked(object sender, RoutedEventArgs e)
-    {
-        var wizard = new OnvifWizardWindow
-        {
-            Owner = this,
-        };
-        if (wizard.ShowDialog() == true && wizard.StreamUrl.Length > 0)
-        {
-            try
-            {
-                ChannelEnrollment.Enroll(
-                    _store,
-                    wizard.ChannelName,
-                    wizard.StreamUrl,
-                    wizard.DeviceIp,
-                    wizard.DevicePort,
-                    wizard.DeviceUsername,
-                    wizard.DevicePassword);
-                ReloadChannels();
-            }
-            catch (Exception ex)
-            {
-                CleanupReportText.Text = $"加入失敗：{ex.Message}";
-            }
-        }
-    }
-
-    private void OnRefreshChannelsClicked(object sender, RoutedEventArgs e) => ReloadChannels();
-
-    private void OnRefreshDevicesClicked(object sender, RoutedEventArgs e) => ReloadDevices();
-
-    private void ReloadDevices(DeviceRow? reselect = null)
-    {
-        var rows = _devices.List()
-            .Select(d =>
-            {
-                var cred = _devices.GetRtspCredentials(d.Id);
-                var label = string.IsNullOrWhiteSpace(cred.Username)
-                    ? "未設定帳密"
-                    : cred.Username + (string.IsNullOrEmpty(cred.Password) ? "（無密碼）" : "（已設密碼）");
-                return new DeviceRow(d.Id, d.Name, $"{d.Ip}:{d.Port}", label);
-            })
-            .ToList();
-
-        DeviceCredList.ItemsSource = rows;
-        _deviceCredId = null;
-        _deviceCredArm = false;
-        DeviceCredUsernameBox.Text = string.Empty;
-        DeviceCredPasswordBox.Password = string.Empty;
-        DeviceCredApplyButton.IsEnabled = false;
-        DeviceCredClearButton.IsEnabled = false;
-        DeviceCredClearButton.Content = "移除憑證";
-        DeviceCredHintText.Text = "選取設備後即可修改其 RTSP 帳號密碼。";
-
-        if (reselect != null)
-        {
-            var target = rows.FirstOrDefault(r => r.Id == reselect.Id);
-            if (target != null)
-            {
-                DeviceCredList.SelectedItem = target;
-            }
-        }
-    }
-
-    private void OnDeviceCredSelected(object sender, SelectionChangedEventArgs e)
-    {
-        _deviceCredArm = false;
-        DeviceCredClearButton.Content = "移除憑證";
-
-        if (DeviceCredList.SelectedItem is not DeviceRow row)
-        {
-            _deviceCredId = null;
-            DeviceCredUsernameBox.Text = string.Empty;
-            DeviceCredPasswordBox.Password = string.Empty;
-            DeviceCredApplyButton.IsEnabled = false;
-            DeviceCredClearButton.IsEnabled = false;
-            DeviceCredHintText.Text = "選取設備後即可修改其 RTSP 帳號密碼。";
-            return;
-        }
-
-        _deviceCredId = row.Id;
-        var cred = _devices.GetRtspCredentials(row.Id);
-        DeviceCredUsernameBox.Text = cred.Username;
-        DeviceCredPasswordBox.Password = string.Empty;
-        DeviceCredHintText.Text = $"將更新「{row.Name}」的憑證；欄位留空表示保留原值。";
-        DeviceCredApplyButton.IsEnabled = true;
-        DeviceCredClearButton.IsEnabled = true;
-    }
-
-    private void OnDeviceCredApplyClicked(object sender, RoutedEventArgs e)
-    {
-        if (_deviceCredId is not int id || DeviceCredList.SelectedItem is not DeviceRow row)
-        {
-            return;
-        }
-
-        var username = DeviceCredUsernameBox.Text.Trim();
-        var password = DeviceCredPasswordBox.Password;
-        if (username.Length == 0 && password.Length == 0)
-        {
-            DeviceCredHintText.Text = "未變更：請輸入帳號或密碼。";
-            return;
-        }
-
-        // 與 API「僅覆寫有提供的欄位」一致：留空的欄位保留既有值，避免手誤清空憑證。
-        var current = _devices.GetRtspCredentials(id);
-        username = username.Length == 0 ? current.Username : username;
-        password = password.Length == 0 ? current.Password : password;
-
-        try
-        {
-            _devices.SetRtspCredentials(id, username, password, "manual");
-            DeviceCredPasswordBox.Password = string.Empty;
-            ReloadDevices(row);
-            DeviceCredHintText.Text = $"已更新「{row.Name}」的 RTSP 憑證（新連線生效）。";
-        }
-        catch (Exception ex)
-        {
-            DeviceCredHintText.Text = $"更新失敗：{ex.Message}";
-        }
-    }
-
-    private void OnDeviceCredClearClicked(object sender, RoutedEventArgs e)
-    {
-        if (_deviceCredId is not int id || DeviceCredList.SelectedItem is not DeviceRow row)
-        {
-            return;
-        }
-
-        if (!_deviceCredArm)
-        {
-            _deviceCredArm = true;
-            DeviceCredClearButton.Content = "確認移除？";
-            DeviceCredHintText.Text = $"再按一次「確認移除？」以清除「{row.Name}」的 RTSP 憑證。";
-            return;
-        }
-
-        try
-        {
-            _devices.SetRtspCredentials(id, string.Empty, string.Empty, "manual");
-            _deviceCredArm = false;
-            DeviceCredClearButton.Content = "移除憑證";
-            ReloadDevices(row);
-            DeviceCredHintText.Text = $"已清除「{row.Name}」的 RTSP 憑證（新連線將不再帶帳密）。";
-        }
-        catch (Exception ex)
-        {
-            DeviceCredHintText.Text = $"清除失敗：{ex.Message}";
-        }
     }
 
     private static long QuotaBytesFromGb(double gb) => (long)(gb * 1024 * 1024 * 1024);
@@ -1484,25 +1714,66 @@ public partial class SettingsWindow : Window
         {
             var record = license.Record;
             var expire = record.ExpiresUtc.HasValue
-                ? $"，到期 {record.ExpiresUtc.Value:u}"
-                : "，永久授權";
+                ? string.Format(Localizer.T("Settings.LicenseExpire"), record.ExpiresUtc.Value)
+                : Localizer.T("Settings.LicensePerpetual");
             var tierText = string.IsNullOrEmpty(record.Tier) ? string.Empty : $"{record.Tier}／";
-            LicenseStatusText.Text = $"已授權（{tierText}{record.MaxCameras} 路{expire}）";
+            LicenseStatusText.Text = string.Format(Localizer.T("Settings.LicenseStatusValid"), tierText, record.MaxCameras, expire);
 
             // 剩餘通道＝授權上限 − 已設定頻道數（§19.4「等級／到期／剩餘通道」）。
             // 與錄影閘門同源的 ChannelRepository，避免另一套「在錄數」算法造成兩個數字。
             var used = new ChannelRepository(_store).List().Count;
             var seats = Math.Max(0, record.MaxCameras - used);
-            LicenseSeatsText.Text = $"剩餘可新增通道：{seats}（已設定 {used}／上限 {record.MaxCameras}）";
+            LicenseSeatsText.Text = string.Format(Localizer.T("Settings.LicenseSeats"), seats, used, record.MaxCameras);
         }
         else
         {
-            LicenseStatusText.Text = $"未授權：{license.Message ?? license.Decision.ToString()}";
-            LicenseSeatsText.Text = "剩餘可新增通道：0（未授權）";
+            LicenseStatusText.Text = string.Format(Localizer.T("Settings.LicenseStatusInvalid"), license.Message ?? license.Decision.ToString());
+            LicenseSeatsText.Text = Localizer.T("Settings.LicenseSeatsNone");
         }
 
         MachineText.Text = MachineIdProvider.GetDeviceCode();
+        LicenseFeatureList.ItemsSource = BuildFeatureChips(license.Features);
         ApplyLicenseVisibility(gate);
+    }
+
+    /// <summary>已授權功能清單的一列。</summary>
+    private sealed record FeatureChip(string Label);
+
+    /// <summary>
+    /// 列出<b>全部</b>已知旗標，沒有的那幾項標成未授權。
+    /// </summary>
+    /// <remarks>
+    /// 為什麼連未授權的也要列出：未授權功能是直接從介面上隱藏的（§19.4），
+    /// 所以操作員看到的是「排程按鈕不見了」，畫面上沒有任何線索說明原因，
+    /// 也不�得要怎麼才能開。如果只顯示已授權的清單，他看到的就是一個空集合，
+    /// 頂多以為自己買了什麼都沒有的版本。把缺什麼寫出來，他才知道該問廠商加哪一項。
+    /// </remarks>
+    /// <remarks>
+    /// 授權檔裡出現我們不認識的旗標時也要顯示：<see cref="LicenseFeatures.IsKnown"/>
+    /// 存在的理由就是上游會新增旗標，把不認識的當成「未授權」會讓操作員
+    /// 對一個已經付款的功能產生錯誤印象。
+    /// </remarks>
+    private static IReadOnlyList<FeatureChip> BuildFeatureChips(IReadOnlyList<string> grantedFeatures)
+    {
+        var granted = new HashSet<string>(grantedFeatures, StringComparer.Ordinal);
+
+        var chips = LicenseFeatures.All
+            .Select(feature => new
+            {
+                Label = LicenseFeatures.DisplayName(feature),
+                Granted = granted.Contains(feature),
+            })
+            .ToList();
+
+        foreach (var feature in granted.Where(f => !LicenseFeatures.IsKnown(f)).OrderBy(f => f, StringComparer.Ordinal))
+        {
+            chips.Add(new { Label = feature, Granted = true });
+        }
+
+        var missing = Localizer.T("License.FeatureMissing");
+        return chips
+            .Select(c => new FeatureChip(c.Granted ? c.Label : $"{c.Label} {missing}"))
+            .ToList();
     }
 
     /// <summary>把設備碼複製到剪貼簿，省去使用者手抄 32 碼 hex 的錯誤（§19.4 導入流程）。</summary>
@@ -1511,11 +1782,11 @@ public partial class SettingsWindow : Window
         try
         {
             Clipboard.SetText(MachineText.Text);
-            LicenseApplyText.Text = "已複製設備碼，請提供給廠商核發授權。";
+            LicenseApplyText.Text = Localizer.T("Settings.LicenseCopied");
         }
         catch (Exception ex)
         {
-            LicenseApplyText.Text = $"複製失敗：{ex.Message}";
+            LicenseApplyText.Text = string.Format(Localizer.T("Settings.LicenseCopyFailed"), ex.Message);
         }
     }
 
@@ -1527,8 +1798,11 @@ public partial class SettingsWindow : Window
         gate.Apply(ShareBaseUrlBox, LicenseFeatures.Remote);
         gate.Apply(ShareApplyButton, LicenseFeatures.Remote);
         gate.Apply(ShareServiceStatusText, LicenseFeatures.Remote);
-        gate.Apply(LaunchScheduleButton, LicenseFeatures.Schedule, "開啟錄影排程視窗");
-        gate.Apply(LaunchDetectionButton, LicenseFeatures.AiL1, "開啟 AI 偵測視窗");
+        gate.Apply(LaunchScheduleButton, LicenseFeatures.Schedule, Localizer.T("Settings.LaunchScheduleTip"));
+        gate.Apply(LaunchDetectionButton, LicenseFeatures.AiL1, Localizer.T("Settings.LaunchDetectionTip"));
+        gate.Apply(PatrolButton, LicenseFeatures.Schedule, Localizer.T("Main.PatrolTip"));
+        gate.Apply(AudioButton, LicenseFeatures.Ai, Localizer.T("Main.AudioTip"));
+        gate.Apply(IoButton, LicenseFeatures.Gis, Localizer.T("Main.IoTip"));
         gate.Apply(TamperEnabledBox, LicenseFeatures.Ai);
         gate.Apply(EnterpriseSection, LicenseFeatures.AdSso);
 
@@ -1551,7 +1825,7 @@ public partial class SettingsWindow : Window
         // 下一次啟動的 RefreshDefault 從檔裡讀回來，等於繞過了拒絕。
         if (applied.Decision is not (LicenseDecision.Valid or LicenseDecision.Expired))
         {
-            LicenseApplyText.Text = $"金鑰未套用：{applied.Message ?? applied.Decision.ToString()}";
+            LicenseApplyText.Text = string.Format(Localizer.T("Settings.LicenseNotApplied"), applied.Message ?? applied.Decision.ToString());
             ReloadLicense();
             return;
         }
@@ -1566,14 +1840,14 @@ public partial class SettingsWindow : Window
             }
 
             File.WriteAllText(file, token);
-            var expiryNote = applied.Message ?? "請盡速續期";
+            var expiryNote = applied.Message ?? Localizer.T("Settings.LicenseRenewSoon");
             LicenseApplyText.Text = applied.Decision == LicenseDecision.Valid
-                ? $"已套用：授權 {applied.MaxCameras} 路。"
-                : $"已套用（已到期）：{expiryNote}";
+                ? string.Format(Localizer.T("Settings.LicenseApplied"), applied.MaxCameras)
+                : string.Format(Localizer.T("Settings.LicenseAppliedExpired"), expiryNote);
         }
         catch (Exception ex)
         {
-            LicenseApplyText.Text = $"已套用於本機資料庫，但寫入授權檔失敗：{ex.Message}";
+            LicenseApplyText.Text = string.Format(Localizer.T("Settings.LicenseAppliedFileFailed"), ex.Message);
         }
 
         ReloadLicense();
@@ -1608,6 +1882,254 @@ public partial class SettingsWindow : Window
         new DetectionWindow(_store) { Owner = this }.Show();
     }
 
+    // ── 工具（原監控中心「更多工具」，整合進設定中心）─────────────────────
+
+    /// <summary>填入工具頁的 PTZ 頻道下拉（來源＝channels 清單）。</summary>
+    private void ReloadTools()
+    {
+        var previous = PtzChannelCombo.SelectedItem is ChannelInfo c ? c.Id : (int?)null;
+        var channels = new ChannelRepository(_store).List();
+        PtzChannelCombo.ItemsSource = channels;
+        if (previous is int id)
+        {
+            PtzChannelCombo.SelectedItem = channels.FirstOrDefault(c => c.Id == id);
+        }
+
+        if (PtzChannelCombo.SelectedItem is null && channels.Count > 0)
+        {
+            PtzChannelCombo.SelectedIndex = 0;
+        }
+    }
+
+    private void OpenTool(Window window)
+    {
+        window.Owner = this;
+        window.Show();
+    }
+
+    /// <summary>管理動作的身分檢查：viewer 一律擋下並說明原因。</summary>
+    private bool RequireAdmin()
+    {
+        if (SessionContext.IsAdmin)
+        {
+            return true;
+        }
+
+        ToolsStatusText.Text = Localizer.T("Settings.AdminOnly");
+        return false;
+    }
+
+    private void OnExportClicked(object sender, RoutedEventArgs e)
+    {
+        if (!RequireAdmin())
+        {
+            return;
+        }
+
+        OpenTool(new ExportWindow(_store, _dataRoot));
+    }
+
+    private void OnExportCenterClicked(object sender, RoutedEventArgs e)
+    {
+        if (!RequireAdmin())
+        {
+            return;
+        }
+
+        OpenTool(new ExportCenterWindow(_store, _dataRoot));
+    }
+
+    private void OnNotificationClicked(object sender, RoutedEventArgs e)
+    {
+        OpenTool(new NotificationLogWindow(_store, ch =>
+        {
+            var center = new EventCenterWindow(_store, alerts: _manager?.Alerts) { Owner = this };
+            center.Show();
+            center.FocusUnacknowledged(ch);
+        }));
+    }
+
+    private void OnRedactionClicked(object sender, RoutedEventArgs e)
+    {
+        if (!RequireAdmin())
+        {
+            return;
+        }
+
+        OpenTool(new RedactionWindow(_store, _dataRoot));
+    }
+
+    private void OnDewarpClicked(object sender, RoutedEventArgs e)
+    {
+        if (!RequireAdmin())
+        {
+            return;
+        }
+
+        OpenTool(new DewarpWindow(_store, _dataRoot));
+    }
+
+    private void OnPtzClicked(object sender, RoutedEventArgs e)
+    {
+        if (!RequireAdmin())
+        {
+            return;
+        }
+
+        if (PtzChannelCombo.SelectedItem is not ChannelInfo channel)
+        {
+            ToolsStatusText.Text = Localizer.T("Settings.PtzPickChannel");
+            return;
+        }
+
+        if (channel.DeviceId is not int deviceId)
+        {
+            ToolsStatusText.Text = Localizer.T("Settings.PtzNoDevice");
+            return;
+        }
+
+        var device = new DeviceRepository(_store, new AuditLogRepository(_store)).Get(deviceId);
+        if (device is null)
+        {
+            ToolsStatusText.Text = Localizer.T("Settings.PtzNoDevice");
+            return;
+        }
+
+        OpenTool(new PtzWindow(_store, channel, device));
+    }
+
+    private void OnStreamClicked(object sender, RoutedEventArgs e)
+        => OpenTool(new StreamSwitchWindow(_store, _manager));
+
+    private void OnAudioClicked(object sender, RoutedEventArgs e)
+    {
+        if (!RequireAdmin())
+        {
+            return;
+        }
+
+        var gate = new LicenseUiGate(_store);
+        if (!gate.Allows(LicenseFeatures.Ai))
+        {
+            ToolsStatusText.Text = gate.DenialMessage(LicenseFeatures.Ai);
+            return;
+        }
+
+        OpenTool(new AudioWindow(_store));
+    }
+
+    private void OnPatrolClicked(object sender, RoutedEventArgs e)
+    {
+        if (!RequireAdmin())
+        {
+            return;
+        }
+
+        var gate = new LicenseUiGate(_store);
+        if (!gate.Allows(LicenseFeatures.Schedule))
+        {
+            ToolsStatusText.Text = gate.DenialMessage(LicenseFeatures.Schedule);
+            return;
+        }
+
+        OpenTool(new PatrolWindow(_store, _patrolHost));
+    }
+
+    private void OnReportsClicked(object sender, RoutedEventArgs e)
+    {
+        if (!RequireAdmin())
+        {
+            return;
+        }
+
+        OpenTool(new ReportsWindow(_store, _dataRoot));
+    }
+
+    private void OnSynopsisClicked(object sender, RoutedEventArgs e)
+    {
+        if (!RequireAdmin())
+        {
+            return;
+        }
+
+        OpenTool(new SynopsisWindow(_store, _dataRoot));
+    }
+
+    private void OnSearchClicked(object sender, RoutedEventArgs e) => OpenSearchWindow();
+
+    private void OpenSearchWindow() => OpenTool(new SearchWindow(_store));
+
+    private void OnSystemHealthClicked(object sender, RoutedEventArgs e) => OpenSystemHealthWindow();
+
+    private void OpenSystemHealthWindow() => OpenTool(new SystemHealthWindow());
+
+    private void OnAlarmManagerClicked(object sender, RoutedEventArgs e)
+        => OpenTool(new AlarmManagerWindow(_store, _manager?.Alerts));
+
+    private void OnRulesClicked(object sender, RoutedEventArgs e)
+    {
+        if (!RequireAdmin())
+        {
+            return;
+        }
+
+        OpenTool(new RulesWindow(_store));
+    }
+
+    private void OnIoClicked(object sender, RoutedEventArgs e)
+    {
+        var gate = new LicenseUiGate(_store);
+        if (!gate.Allows(LicenseFeatures.Gis))
+        {
+            ToolsStatusText.Text = gate.DenialMessage(LicenseFeatures.Gis);
+            return;
+        }
+
+        OpenTool(new IoWindow(_store));
+    }
+
+    private void OnAuditClicked(object sender, RoutedEventArgs e)
+    {
+        if (!RequireAdmin())
+        {
+            return;
+        }
+
+        OpenTool(new AuditLogWindow(_store, _dataRoot));
+    }
+
+    private void OnLegalHoldClicked(object sender, RoutedEventArgs e)
+    {
+        if (!RequireAdmin())
+        {
+            return;
+        }
+
+        OpenTool(new LegalHoldWindow(_store, allowRevoke: true));
+    }
+
+    private void OnSmartwallClicked(object sender, RoutedEventArgs e) => OpenSmartwallWindow();
+
+    private void OpenSmartwallWindow() => OpenTool(new SmartwallWindow(_store));
+
+    private void OnPosClicked(object sender, RoutedEventArgs e) => OpenPosWindow();
+
+    private void OpenPosWindow() => OpenTool(new PosWindow(_store));
+
+    private void OnEdgeBackfillClicked(object sender, RoutedEventArgs e) => OpenEdgeBackfillWindow();
+
+    private void OpenEdgeBackfillWindow() => OpenTool(new EdgeBackfillWindow(_store, _dataRoot));
+
+    private void OnFailoverClicked(object sender, RoutedEventArgs e)
+    {
+        if (!RequireAdmin())
+        {
+            return;
+        }
+
+        OpenTool(new FailoverWindow(_store));
+    }
+
     // ── 電子地圖（M41，§16.1）──────────────────────────────────────────
 
     private MapRecord? SelectedMap =>
@@ -1621,7 +2143,7 @@ public partial class SettingsWindow : Window
                 m.Id,
                 m.Name,
                 $"{m.Width}×{m.Height}",
-                m.Enabled ? "啟用" : "停用",
+                m.Enabled ? Localizer.T("Settings.Enabled") : Localizer.T("Settings.Disabled"),
                 m.SortOrder,
                 MapGeometry.ScaleLabel(m.ScaleMPerPx)))
             .ToList();
@@ -1659,7 +2181,7 @@ public partial class SettingsWindow : Window
         }
         catch (Exception ex)
         {
-            MapReportText.Text = $"無法載入地圖圖檔：{ex.Message}";
+            MapReportText.Text = string.Format(Localizer.T("Settings.MapLoadFailed"), ex.Message);
             return;
         }
 
@@ -1685,9 +2207,9 @@ public partial class SettingsWindow : Window
                 $"{p.FovDeg:0.#}°",
                 $"{p.FovDepth:0.#}m",
                 MapGeometry.Bearing(p.Angle),
-                p.Enabled ? "啟用" : "停用",
+                p.Enabled ? Localizer.T("Settings.Enabled") : Localizer.T("Settings.Disabled"),
                 p.DeviceType == "camera"
-                    ? (cameras.TryGetValue(p.ChannelId, out var cn) ? cn : $"頻道 #{p.ChannelId}")
+                    ? (cameras.TryGetValue(p.ChannelId, out var cn) ? cn : string.Format(Localizer.T("Settings.MapChannelFallback"), p.ChannelId))
                     : (ios.TryGetValue(p.ChannelId, out var ioName) ? ioName : $"IO #{p.ChannelId}"))
             ).ToList();
 
@@ -1753,8 +2275,8 @@ public partial class SettingsWindow : Window
     {
         var dlg = new Microsoft.Win32.OpenFileDialog
         {
-            Filter = "平面圖（PNG/JPG/BMP）|*.png;*.jpg;*.jpeg;*.bmp|所有檔案|*.*",
-            Title = "選擇平面圖",
+            Filter = Localizer.T("Settings.MapFileFilter"),
+            Title = Localizer.T("Settings.MapFileDialogTitle"),
         };
         if (dlg.ShowDialog(this) == true)
         {
@@ -1768,13 +2290,13 @@ public partial class SettingsWindow : Window
         var source = MapImageBox.Text.Trim();
         if (name.Length == 0 || source.Length == 0)
         {
-            MapReportText.Text = "請填地圖名稱與圖檔路徑。";
+            MapReportText.Text = Localizer.T("Settings.MapNameImageRequired");
             return;
         }
 
         if (!File.Exists(source))
         {
-            MapReportText.Text = $"圖檔不存在：{source}";
+            MapReportText.Text = string.Format(Localizer.T("Settings.MapImageMissing"), source);
             return;
         }
 
@@ -1785,7 +2307,7 @@ public partial class SettingsWindow : Window
         }
         catch (Exception ex)
         {
-            MapReportText.Text = $"無法讀取圖檔：{ex.Message}";
+            MapReportText.Text = string.Format(Localizer.T("Settings.MapImageUnreadable"), ex.Message);
             return;
         }
 
@@ -1802,7 +2324,7 @@ public partial class SettingsWindow : Window
         _maps.AddMap(name, target, bitmap.PixelWidth, bitmap.PixelHeight, sortOrder: _maps.ListMaps().Count);
         MapNameBox.Clear();
         MapImageBox.Clear();
-        MapReportText.Text = $"已新增地圖「{name}」（{bitmap.PixelWidth}×{bitmap.PixelHeight}）。";
+        MapReportText.Text = string.Format(Localizer.T("Settings.MapAdded"), name, bitmap.PixelWidth, bitmap.PixelHeight);
         ReloadMaps();
     }
 
@@ -1814,7 +2336,7 @@ public partial class SettingsWindow : Window
     {
         if (SelectedMap is not { } map)
         {
-            MapReportText.Text = "請先選擇地圖。";
+            MapReportText.Text = Localizer.T("Settings.SelectMapFirst");
             return;
         }
 
@@ -1826,12 +2348,12 @@ public partial class SettingsWindow : Window
     {
         if (SelectedMap is not { } map)
         {
-            MapReportText.Text = "請先選擇地圖。";
+            MapReportText.Text = Localizer.T("Settings.SelectMapFirst");
             return;
         }
 
         _maps.DeleteMap(map.Id);
-        MapReportText.Text = $"已刪除地圖「{map.Name}」。";
+        MapReportText.Text = string.Format(Localizer.T("Settings.MapDeleted"), map.Name);
         ReloadMaps();
     }
 
@@ -1860,14 +2382,14 @@ public partial class SettingsWindow : Window
     {
         if (SelectedMap is not { } map)
         {
-            MapReportText.Text = "請先選擇地圖。";
+            MapReportText.Text = Localizer.T("Settings.SelectMapFirst");
             return;
         }
 
         if (!double.TryParse(MapScaleBox.Text?.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out var scale) ||
             scale < 0)
         {
-            MapReportText.Text = "比例尺需為非負數字（0＝未標定）。";
+            MapReportText.Text = Localizer.T("Settings.MapScaleInvalid");
             return;
         }
 
@@ -1875,8 +2397,8 @@ public partial class SettingsWindow : Window
         {
             _maps.SetMapScale(map.Id, scale);
             MapReportText.Text = scale > 0
-                ? $"已設定地圖「{map.Name}」比例尺：{MapGeometry.ScaleLabel(scale)}。"
-                : $"已清除地圖「{map.Name}」比例尺（未標定）。";
+                ? string.Format(Localizer.T("Settings.MapScaleSet"), map.Name, MapGeometry.ScaleLabel(scale))
+                : string.Format(Localizer.T("Settings.MapScaleCleared"), map.Name);
         }
         catch (ArgumentOutOfRangeException ex)
         {
@@ -1890,7 +2412,7 @@ public partial class SettingsWindow : Window
     {
         if (MapPinList.SelectedItem is not MapPinRow row)
         {
-            MapReportText.Text = "請先選擇圖釘。";
+            MapReportText.Text = Localizer.T("Settings.SelectPinFirst");
             return;
         }
 
@@ -1902,7 +2424,7 @@ public partial class SettingsWindow : Window
         try
         {
             _maps.UpdateDeviceGeometry(row.Id, angle, fovDeg, fovDepth);
-            MapReportText.Text = $"已更新幾何：{row.DeviceType} #{row.ChannelId} 角度 {angle:0.#}°／FOV {fovDeg:0.#}°／深度 {fovDepth:0.#} m（{MapGeometry.Bearing(angle)}）。";
+            MapReportText.Text = string.Format(Localizer.T("Settings.MapGeometryUpdated"), row.DeviceType, row.ChannelId, angle, fovDeg, fovDepth, MapGeometry.Bearing(angle));
         }
         catch (ArgumentOutOfRangeException ex)
         {
@@ -1921,7 +2443,7 @@ public partial class SettingsWindow : Window
             !TryParseBox(MapPinFovBox, out fovDeg) ||
             !TryParseBox(MapPinDepthBox, out fovDepth))
         {
-            MapReportText.Text = "角度／FOV／深度需為數字。";
+            MapReportText.Text = Localizer.T("Settings.MapGeometryNumeric");
             return false;
         }
 
@@ -1951,13 +2473,13 @@ public partial class SettingsWindow : Window
         var map = SelectedMap;
         if (map is null)
         {
-            MapReportText.Text = "請先選擇地圖。";
+            MapReportText.Text = Localizer.T("Settings.SelectMapFirst");
             return;
         }
 
         if (MapPinChannelCombo.SelectedItem is not ComboBoxItem ci || ci.Tag is not int channelId)
         {
-            MapReportText.Text = "尚無可放置的頻道／IO 通道。";
+            MapReportText.Text = Localizer.T("Settings.MapNoChannel");
             return;
         }
 
@@ -1974,11 +2496,11 @@ public partial class SettingsWindow : Window
         try
         {
             _maps.AddDevice(map.Id, kind, channelId, x, y, angle, fovDeg, fovDepth);
-            MapReportText.Text = $"已放置 {kind} #{channelId}（{x:0.00}, {y:0.00}）";
+            MapReportText.Text = string.Format(Localizer.T("Settings.MapPinPlaced"), kind, channelId, x, y);
         }
         catch (Exception ex)
         {
-            MapReportText.Text = $"放置失敗：{ex.Message}";
+            MapReportText.Text = string.Format(Localizer.T("Settings.MapPinPlaceFailed"), ex.Message);
         }
 
         ReloadMapPins();
@@ -2032,7 +2554,7 @@ public partial class SettingsWindow : Window
         var id = int.Parse(tag.AsSpan("md:".Length));
         var pos = e.GetPosition(MapPinCanvas);
         _maps.SetDevicePosition(id, Math.Clamp(pos.X / MapPinCanvas.Width, 0, 1), Math.Clamp(pos.Y / MapPinCanvas.Height, 0, 1));
-        MapReportText.Text = $"已更新圖釘位置（{pos.X / MapPinCanvas.Width:0.00}, {pos.Y / MapPinCanvas.Height:0.00}）。";
+        MapReportText.Text = string.Format(Localizer.T("Settings.MapPinMoved"), pos.X / MapPinCanvas.Width, pos.Y / MapPinCanvas.Height);
         ReloadMapPins();
     }
 
@@ -2040,12 +2562,12 @@ public partial class SettingsWindow : Window
     {
         if (MapPinList.SelectedItem is not MapPinRow row)
         {
-            MapReportText.Text = "請先選擇圖釘。";
+            MapReportText.Text = Localizer.T("Settings.SelectPinFirst");
             return;
         }
 
         _maps.DeleteDevice(row.Id);
-        MapReportText.Text = $"已刪除圖釘 {row.DeviceType} #{row.ChannelId}。";
+        MapReportText.Text = string.Format(Localizer.T("Settings.MapPinDeleted"), row.DeviceType, row.ChannelId);
         ReloadMapPins();
     }
 
@@ -2075,8 +2597,8 @@ public partial class SettingsWindow : Window
             u.Id,
             u.Username,
             u.Role,
-            u.Enabled ? "啟用" : "停用",
-            u.FailedLogins > 0 ? $"{u.FailedLogins}{(u.LockedUntil is { Length: > 0 } ? "（鎖）" : string.Empty)}" : "0",
+            u.Enabled ? Localizer.T("Settings.Enabled") : Localizer.T("Settings.Disabled"),
+            u.FailedLogins > 0 ? $"{u.FailedLogins}{(u.LockedUntil is { Length: > 0 } ? Localizer.T("Settings.LockedSuffix") : string.Empty)}" : "0",
             u.LastLogin is { Length: > 0 } ll
                 ? SqliteStore.FromIso(ll).ToLocalTime().ToString("MM-dd HH:mm", CultureInfo.InvariantCulture)
                 : "—")).ToList();
@@ -2095,7 +2617,7 @@ public partial class SettingsWindow : Window
                 p.Id,
                 p.Name,
                 p.Kind.ToUpperInvariant(),
-                p.Enabled ? "啟用" : "停用",
+                p.Enabled ? Localizer.T("Settings.Enabled") : Localizer.T("Settings.Disabled"),
                 SummarizeProvider(p)))
             .ToList();
     }
@@ -2118,7 +2640,7 @@ public partial class SettingsWindow : Window
         var name = EntNameBox.Text.Trim();
         if (name.Length == 0)
         {
-            EntReportText.Text = "請輸入提供者名稱";
+            EntReportText.Text = Localizer.T("Settings.ProviderNameRequired");
             return;
         }
 
@@ -2134,7 +2656,7 @@ public partial class SettingsWindow : Window
         {
             if (issuer.Length == 0)
             {
-                EntReportText.Text = "OIDC 需填入 Issuer";
+                EntReportText.Text = Localizer.T("Settings.ProviderIssuerRequired");
                 return;
             }
 
@@ -2164,12 +2686,12 @@ public partial class SettingsWindow : Window
         try
         {
             _providers.Add(name, kind, configJson);
-            EntReportText.Text = $"已新增提供者「{name}」（{kind}）。";
+            EntReportText.Text = string.Format(Localizer.T("Settings.ProviderAdded"), name, kind);
             ReloadEnterpriseProviders();
         }
         catch (Microsoft.Data.Sqlite.SqliteException)
         {
-            EntReportText.Text = $"名稱「{name}」已存在。";
+            EntReportText.Text = string.Format(Localizer.T("Settings.ProviderNameExists"), name);
         }
     }
 
@@ -2185,20 +2707,20 @@ public partial class SettingsWindow : Window
 
         if (EnterpriseProviderList.SelectedItem is not EnterpriseProviderRow row)
         {
-            EntReportText.Text = "請先選擇提供者";
+            EntReportText.Text = Localizer.T("Settings.SelectProviderFirst");
             return;
         }
 
         var record = _providers.Get(row.Id);
         if (record is null)
         {
-            EntReportText.Text = "提供者已不存在";
+            EntReportText.Text = Localizer.T("Settings.ProviderMissing");
             ReloadEnterpriseProviders();
             return;
         }
 
         _providers.SetEnabled(row.Id, !record.Enabled);
-        EntReportText.Text = $"提供者「{row.Name}」已{(record.Enabled ? "停用" : "啟用")}。";
+        EntReportText.Text = string.Format(Localizer.T("Settings.ProviderToggled"), row.Name, record.Enabled ? Localizer.T("Settings.Disabled") : Localizer.T("Settings.Enabled"));
         ReloadEnterpriseProviders();
     }
 
@@ -2214,12 +2736,12 @@ public partial class SettingsWindow : Window
 
         if (EnterpriseProviderList.SelectedItem is not EnterpriseProviderRow row)
         {
-            EntReportText.Text = "請先選擇提供者";
+            EntReportText.Text = Localizer.T("Settings.SelectProviderFirst");
             return;
         }
 
         _providers.Delete(row.Id);
-        EntReportText.Text = $"已刪除提供者「{row.Name}」。";
+        EntReportText.Text = string.Format(Localizer.T("Settings.ProviderDeleted"), row.Name);
         ReloadEnterpriseProviders();
     }
 
@@ -2239,12 +2761,12 @@ public partial class SettingsWindow : Window
             _suppressAuthToggle = true;
             AuthEnabledBox.IsChecked = false;
             _suppressAuthToggle = false;
-            UserReportText.Text = "無法啟用：請先在下方新增一個啟用中的 admin 帳號，否則啟用後將無人可登入。";
+            UserReportText.Text = Localizer.T("Settings.AuthNoAdmin");
             return;
         }
 
         _settings.Set("auth.enabled", enabled ? "1" : "0");
-        UserReportText.Text = enabled ? "已啟用登入驗證（下次啟動生效）。" : "已停用登入驗證。";
+        UserReportText.Text = enabled ? Localizer.T("Settings.AuthEnabledNotice") : Localizer.T("Settings.AuthDisabledNotice");
     }
 
     private void OnAuthApplyClicked(object sender, RoutedEventArgs e)
@@ -2252,13 +2774,13 @@ public partial class SettingsWindow : Window
         if (!int.TryParse(AuthThresholdBox.Text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var threshold) || threshold < 1 ||
             !int.TryParse(AuthMinutesBox.Text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var minutes) || minutes < 1)
         {
-            UserReportText.Text = "鎖定門檻與分鐘需為正整數。";
+            UserReportText.Text = Localizer.T("Settings.LoginLockoutPositive");
             return;
         }
 
         _settings.Set("auth.lockout.threshold", threshold.ToString(CultureInfo.InvariantCulture));
         _settings.Set("auth.lockout.minutes", minutes.ToString(CultureInfo.InvariantCulture));
-        UserReportText.Text = $"已套用：連續失敗 {threshold} 次鎖定 {minutes} 分鐘。";
+        UserReportText.Text = string.Format(Localizer.T("Settings.LoginLockoutApplied"), threshold, minutes);
     }
 
     private void OnUserAddClicked(object sender, RoutedEventArgs e)
@@ -2267,7 +2789,7 @@ public partial class SettingsWindow : Window
         var password = UserAddPasswordBox.Password;
         if (name.Length == 0 || password.Length == 0)
         {
-            UserReportText.Text = "請輸入使用者名稱與密碼。";
+            UserReportText.Text = Localizer.T("Settings.UserNamePasswordRequired");
             return;
         }
 
@@ -2275,11 +2797,11 @@ public partial class SettingsWindow : Window
         try
         {
             _users.CreateUser(name, PasswordHasher.Hash(password), role);
-            UserReportText.Text = $"已新增使用者「{name}」（{role}）。";
+            UserReportText.Text = string.Format(Localizer.T("Settings.UserAdded"), name, role);
         }
         catch (Microsoft.Data.Sqlite.SqliteException)
         {
-            UserReportText.Text = $"使用者名稱「{name}」已存在。";
+            UserReportText.Text = string.Format(Localizer.T("Settings.UserNameExists"), name);
             return;
         }
 
@@ -2300,7 +2822,7 @@ public partial class SettingsWindow : Window
     {
         if (UserList.SelectedItem is not UserRow row)
         {
-            UserReportText.Text = "請先選擇使用者。";
+            UserReportText.Text = Localizer.T("Settings.SelectUserFirst");
             return;
         }
 
@@ -2313,12 +2835,12 @@ public partial class SettingsWindow : Window
         // 停用最後一個啟用中的 admin（且登入驗證已開）＝把自己鎖在門外。
         if (user.Enabled && new AuthService(_store).WouldRemoveLastEnabledAdmin(row.Id))
         {
-            UserReportText.Text = $"無法停用「{row.Username}」：這是唯一啟用中的管理員，停用後將無人可登入。";
+            UserReportText.Text = string.Format(Localizer.T("Settings.CannotDisableLastAdmin"), row.Username);
             return;
         }
 
         _users.SetEnabled(row.Id, !user.Enabled);
-        UserReportText.Text = $"使用者「{row.Username}」已{(user.Enabled ? "停用" : "啟用")}。";
+        UserReportText.Text = string.Format(Localizer.T("Settings.UserToggled"), row.Username, user.Enabled ? Localizer.T("Settings.Disabled") : Localizer.T("Settings.Enabled"));
         ReloadUsers();
     }
 
@@ -2326,12 +2848,12 @@ public partial class SettingsWindow : Window
     {
         if (UserList.SelectedItem is not UserRow row)
         {
-            UserReportText.Text = "請先選擇使用者。";
+            UserReportText.Text = Localizer.T("Settings.SelectUserFirst");
             return;
         }
 
         _users.ClearLock(row.Id);
-        UserReportText.Text = $"使用者「{row.Username}」已解除鎖定。";
+        UserReportText.Text = string.Format(Localizer.T("Settings.UserUnlocked"), row.Username);
         ReloadUsers();
     }
 
@@ -2339,19 +2861,19 @@ public partial class SettingsWindow : Window
     {
         if (UserList.SelectedItem is not UserRow row)
         {
-            UserReportText.Text = "請先選擇使用者。";
+            UserReportText.Text = Localizer.T("Settings.SelectUserFirst");
             return;
         }
 
         // 刪除最後一個啟用中的 admin（且登入驗證已開）＝把自己鎖在門外。
         if (new AuthService(_store).WouldRemoveLastEnabledAdmin(row.Id))
         {
-            UserReportText.Text = $"無法刪除「{row.Username}」：這是唯一啟用中的管理員，刪除後將無人可登入。";
+            UserReportText.Text = string.Format(Localizer.T("Settings.CannotDeleteLastAdmin"), row.Username);
             return;
         }
 
         _users.DeleteUser(row.Id);
-        UserReportText.Text = $"已刪除使用者「{row.Username}」。";
+        UserReportText.Text = string.Format(Localizer.T("Settings.UserDeleted"), row.Username);
         ReloadUsers();
     }
 }

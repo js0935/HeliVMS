@@ -1,9 +1,11 @@
 using System;
 using System.Collections.Generic;
+using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Effects;
 using System.Windows.Threading;
@@ -126,6 +128,43 @@ namespace HeliVMS.App
 
         private readonly Window _host;
 
+        /// <summary>
+        /// 讓 OSK 視窗永不取得啟動（activation）。只靠 <see cref="Window.ShowActivated"/>＝false
+        /// 不夠：那僅影響第一次 Show，之後點按鍵仍會把 OSK 設為作用中視窗，宿主隨即
+        /// Deactivated 而把鍵盤收起來——症狀就是「按一個字母鍵盤就消失」。
+        /// WS_EX_NOACTIVATE 讓點擊只送滑鼠輸入、不轉移焦點。
+        /// </summary>
+        private const int GwlExStyle = -20;
+        private const int WsExNoActivate = 0x08000000;
+        private const int WsExToolWindow = 0x00000080;
+
+        [DllImport("user32.dll", EntryPoint = "GetWindowLong")]
+        private static extern int GetWindowLong32(IntPtr hWnd, int nIndex);
+
+        [DllImport("user32.dll", EntryPoint = "GetWindowLongPtr")]
+        private static extern IntPtr GetWindowLongPtr64(IntPtr hWnd, int nIndex);
+
+        [DllImport("user32.dll", EntryPoint = "SetWindowLong")]
+        private static extern int SetWindowLong32(IntPtr hWnd, int nIndex, int dwNewLong);
+
+        [DllImport("user32.dll", EntryPoint = "SetWindowLongPtr")]
+        private static extern IntPtr SetWindowLongPtr64(IntPtr hWnd, int nIndex, IntPtr dwNewLong);
+
+        private static IntPtr GetWindowLongPtr(IntPtr hWnd, int nIndex)
+            => IntPtr.Size == 8 ? GetWindowLongPtr64(hWnd, nIndex) : new IntPtr(GetWindowLong32(hWnd, nIndex));
+
+        private static void SetWindowLongPtr(IntPtr hWnd, int nIndex, IntPtr value)
+        {
+            if (IntPtr.Size == 8)
+            {
+                SetWindowLongPtr64(hWnd, nIndex, value);
+            }
+            else
+            {
+                SetWindowLong32(hWnd, nIndex, value.ToInt32());
+            }
+        }
+
         public OskPanel(Window host)
         {
             _host = host;
@@ -144,6 +183,14 @@ namespace HeliVMS.App
             host.Deactivated += (_, _) => Hide();
             ContentRendered += (_, _) => Realign();
             Focusable = false;
+        }
+
+        protected override void OnSourceInitialized(EventArgs e)
+        {
+            base.OnSourceInitialized(e);
+            var handle = new WindowInteropHelper(this).Handle;
+            var exStyle = GetWindowLongPtr(handle, GwlExStyle).ToInt64();
+            SetWindowLongPtr(handle, GwlExStyle, new IntPtr(exStyle | WsExNoActivate | WsExToolWindow));
         }
 
         private Border BuildContent()
@@ -235,18 +282,41 @@ namespace HeliVMS.App
 
         private void OnKeyClicked(object sender, RoutedEventArgs e)
         {
-            if (sender is not Button b || Target is null) return;
+            if (sender is not Button b || Target is null)
+            {
+                return;
+            }
+
             switch (b.Content as string)
             {
-                case "空格": Osk.AppendInput(Target, " "); break;
-                case "清空":
-                    if (Target is TextBox t) t.Clear();
-                    else if (Target is PasswordBox p) p.Clear();
+                case "空格":
+                    Osk.AppendInput(Target, " ");
                     break;
-                case "退格": Osk.AppendInput(Target, "\b"); break;
-                case "收起": Hide(); break;
+                case "清空":
+                case "清除":
+                    if (Target is TextBox t)
+                    {
+                        t.Clear();
+                    }
+                    else if (Target is PasswordBox p)
+                    {
+                        p.Clear();
+                    }
+
+                    break;
+                case "退格":
+                    Osk.AppendInput(Target, "\b");
+                    break;
+                case "收起":
+                case "關閉":
+                    Hide();
+                    break;
                 default:
-                    if (b.Content is string s && s.Length == 1) Osk.AppendInput(Target, s);
+                    if (b.Content is string s && s.Length == 1)
+                    {
+                        Osk.AppendInput(Target, s);
+                    }
+
                     break;
             }
         }

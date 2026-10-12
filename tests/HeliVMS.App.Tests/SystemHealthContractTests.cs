@@ -7,24 +7,24 @@ namespace HeliVMS.App.Tests;
 ///
 /// <para>
 /// <c>SystemMetricsService</c> 早已由 Web API（/api/system-metrics）曝光，桌面卻沒有任何
-/// 入口——維運在機器上只能看工作管理員。這份契約把主視窗入口與對量測服務的呼叫釘住。
+/// 入口——維運在機器上只能看工作管理員。這份契約把設定中心（工具頁）入口與對量測服務的呼叫釘住。
 /// </para>
 /// </summary>
 public sealed class SystemHealthContractTests
 {
-    private const string MainCode = "src/HeliVMS.App/MainWindow.xaml.cs";
-    private const string MainXaml = "src/HeliVMS.App/MainWindow.xaml";
+    private const string SettingsCode = "src/HeliVMS.App/SettingsWindow.xaml.cs";
+    private const string SettingsXaml = "src/HeliVMS.App/SettingsWindow.xaml";
     private const string HealthCode = "src/HeliVMS.App/SystemHealthWindow.xaml.cs";
 
     [Fact]
-    public void 主視窗有系統健康入口且接線()
+    public void 設定中心有系統健康入口且接線()
     {
-        Assert.Equal("OnSystemHealthClicked", WiredHandler(MainXaml, "SystemHealthButton"));
+        Assert.Equal("OnSystemHealthClicked", WiredHandler(SettingsXaml, "SystemHealthButton"));
 
-        var handler = SourceContract.BodyOf(SourceContract.Read(MainCode), "OnSystemHealthClicked");
+        var handler = SourceContract.BodyOf(SourceContract.Read(SettingsCode), "OnSystemHealthClicked");
         Assert.Contains("OpenSystemHealthWindow", handler);
 
-        var open = SourceContract.BodyOf(SourceContract.Read(MainCode), "OpenSystemHealthWindow");
+        var open = SourceContract.BodyOf(SourceContract.Read(SettingsCode), "OpenSystemHealthWindow");
         Assert.Contains("new SystemHealthWindow(", open);
     }
 

@@ -8,20 +8,48 @@ namespace HeliVMS.App;
 /// <summary>AI 偵測記錄查詢（M11）：日期/頻道/類別/信心過濾＋統計。</summary>
 public partial class DetectionWindow : Window
 {
-    private static readonly string[] KnownClasses =
+    private static readonly string[] DetectorClasses =
     {
-        "（全部）", "person", "car", "motorcycle", "bus", "truck", "dog", "cat",
+        "person", "car", "motorcycle", "bus", "truck", "dog", "cat",
     };
 
     private readonly SqliteStore _store;
     private readonly DetectionRepository _repo;
     private readonly Dictionary<int, string> _channelNames = new();
+    private string _allLabel = string.Empty;
 
     public DetectionWindow(SqliteStore store)
     {
         InitializeComponent();
         _store = store;
         _repo = new DetectionRepository(store);
+        ApplyI18n();
+    }
+
+    /// <summary>
+    /// 套用目前語系到偵測記錄視窗的所有靜態文字（M57 §14.7）。XAML 刻意全部留空，
+    /// 文字一律經此指派，由 WpfI18nContractTests 的棘輪釘住三語齊備。
+    /// </summary>
+    private void ApplyI18n()
+    {
+        Title = Localizer.T("Detection.Title");
+        FilterHintText.Text = Localizer.T("Detection.FilterHint");
+        ChannelLabel.Text = Localizer.T("Detection.Channel");
+        FromLabel.Text = Localizer.T("Detection.From");
+        ToLabel.Text = Localizer.T("Detection.To");
+        ClassLabel.Text = Localizer.T("Detection.Class");
+        MinConfLabel.Text = Localizer.T("Detection.MinConf");
+        SearchButton.Content = Localizer.T("Detection.Search");
+        SearchButton.ToolTip = Localizer.T("Detection.SearchTip");
+        StatsLabelText.Text = Localizer.T("Detection.StatsLabel");
+        StatText.Text = Localizer.T("Detection.NotQueried");
+        CountText.Text = string.Format(Localizer.T("Detection.Count"), 0);
+        ColTime.Header = Localizer.T("Detection.ColTime");
+        ColChannel.Header = Localizer.T("Detection.Channel");
+        ColClass.Header = Localizer.T("Detection.Class");
+        ColConfidence.Header = Localizer.T("Detection.ColConfidence");
+        ColBbox.Header = Localizer.T("Detection.ColBbox");
+        _allLabel = Localizer.T("Detection.AllItems");
     }
 
     private sealed record Row(string TimeLabel, string ChannelName, string Class, string ConfidenceLabel, string BboxLabel);
@@ -34,7 +62,7 @@ public partial class DetectionWindow : Window
         ToDateBox.Text = now.ToString("yyyy-MM-dd");
         ToTimeBox.Text = now.ToString("HH:mm");
 
-        var items = new List<object> { new ChannelOption(0, "（全部）") };
+        var items = new List<object> { new ChannelOption(0, _allLabel) };
         foreach (var c in new ChannelRepository(_store).List())
         {
             items.Add(new ChannelOption(c.Id, c.Name));
@@ -44,12 +72,10 @@ public partial class DetectionWindow : Window
         ChannelFilter.ItemsSource = items;
         ChannelFilter.DisplayMemberPath = nameof(ChannelOption.Label);
         ChannelFilter.SelectedIndex = 0;
-        ClassFilter.ItemsSource = KnownClasses;
+        var classes = new List<string> { _allLabel };
+        classes.AddRange(DetectorClasses);
+        ClassFilter.ItemsSource = classes;
         ClassFilter.SelectedIndex = 0;
-    }
-
-    private void OnClosing(object sender, System.ComponentModel.CancelEventArgs e)
-    {
     }
 
     private sealed record ChannelOption(int Id, string Label);
@@ -72,14 +98,14 @@ public partial class DetectionWindow : Window
         if (!TryParseLocal(FromDateBox.Text, FromTimeBox.Text, out var fromLocal) ||
             !TryParseLocal(ToDateBox.Text, ToTimeBox.Text, out var toLocal))
         {
-            StatText.Text = "日期/時間格式錯誤（如 2026-09-13 與 14:30）。";
+            StatText.Text = Localizer.T("Detection.BadRange");
             return;
         }
 
         var args = new DetectionRepository.QueryArgs
         {
             ChannelId = ChannelFilter.SelectedItem is ChannelOption c && c.Id != 0 ? c.Id : null,
-            Class = ClassFilter.SelectedItem is string s && s != "（全部）" ? s : null,
+            Class = ClassFilter.SelectedItem is string s && s != _allLabel ? s : null,
             FromUtc = DateTime.SpecifyKind(fromLocal, DateTimeKind.Local).ToUniversalTime(),
             ToUtc = DateTime.SpecifyKind(toLocal, DateTimeKind.Local).ToUniversalTime(),
             MinConfidence = ParseConfidence(),
@@ -95,10 +121,10 @@ public partial class DetectionWindow : Window
             $"{r.X:0.00}, {r.Y:0.00}, {r.W:0.00}, {r.H:0.00}"))
             .ToList();
 
-        CountText.Text = $"{rows.Count} 筆（限 2000）";
+        CountText.Text = string.Format(Localizer.T("Detection.Count"), rows.Count);
         var stats = _repo.CountByClass(args);
         StatText.Text = stats.Count == 0
-            ? "（無記錄）"
+            ? Localizer.T("Detection.NoRecords")
             : string.Join("　·　", stats.Select(x => $"{x.Class} × {x.Count}"));
     }
 

@@ -16,14 +16,23 @@ public sealed class RecordedSegmentPolicy
     /// <summary>錄影根目錄設定鍵，與 <see cref="RetentionService"/> 共用同一個。</summary>
     public const string RecordingsRootConfigKey = RetentionService.RecordingsRootKey;
 
-    public const string DataRootConfigKey = "HELIVMS_DATA";
-    public const string RecordingsDirName = "recordings";
-    public const string DefaultDataRoot = @"C:\HeliVMSData";
+    public const string DataRootConfigKey = DataRootLayout.DataRootVariable;
+    public const string RecordingsDirName = DataRootLayout.RecordingsDirName;
+    public const string DefaultDataRoot = DataRootLayout.DefaultRoot;
 
     private readonly string[] _roots;
 
     public RecordedSegmentPolicy(IConfiguration config)
         : this(Resolve(config))
+    {
+    }
+
+    /// <summary>可注入磁碟組態的建構式，讓測試能固定「有沒有其他固定磁碟」而不受開發機影響。</summary>
+    public RecordedSegmentPolicy(
+        IConfiguration config,
+        Func<IReadOnlyList<RecordingStorage.Drive>>? listDrives,
+        string? systemDrive)
+        : this(Resolve(config, listDrives, systemDrive))
     {
     }
 
@@ -72,20 +81,26 @@ public sealed class RecordedSegmentPolicy
 
     /// <summary>依設定解析錄影根目錄；無設定時回傳空集合（呼叫端一律拒絕）。</summary>
     public static IReadOnlyList<string> Resolve(IConfiguration config)
+        => Resolve(config, null, null);
+
+    /// <summary>依設定解析錄影根目錄，並套用與桌面／Agent 相同的避開系統碟規則。</summary>
+    public static IReadOnlyList<string> Resolve(
+        IConfiguration config,
+        Func<IReadOnlyList<RecordingStorage.Drive>>? listDrives,
+        string? systemDrive)
     {
         var explicitRoot = config[RetentionService.RecordingsRootKey];
-        if (!string.IsNullOrWhiteSpace(explicitRoot))
-        {
-            return [explicitRoot];
-        }
-
         var dataRoot = config[DataRootConfigKey];
-        if (string.IsNullOrWhiteSpace(dataRoot))
-        {
-            return [Path.Combine(DefaultDataRoot, RecordingsDirName)];
-        }
 
-        return [Path.Combine(dataRoot, RecordingsDirName)];
+        // 與桌面端、Agent 共用同一條「錄影避開系統碟」規則（見 RecordingStorage）。
+        // 不一致的話，保留清單會對 A 目錄下手、串流政策卻只認 B 目錄。
+        var resolved = RecordingStorage.ResolveRoot(
+            string.IsNullOrWhiteSpace(dataRoot) ? DefaultDataRoot : dataRoot,
+            explicitRoot,
+            listDrives,
+            systemDrive);
+
+        return [resolved];
     }
 
     private static string? Normalize(string root)

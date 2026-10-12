@@ -1,7 +1,7 @@
 <Window x:Class="HeliVMS.App.OnvifWizardWindow" FocusManager.FocusedElement="{Binding ElementName=AddressBox}"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="ONVIF 設備探索"
+        Title=""
         Width="760" Height="560"
         WindowStartupLocation="CenterOwner"
         Closed="OnWindowClosed"
@@ -15,8 +15,8 @@
         </Grid.RowDefinitions>
 
         <StackPanel Grid.Row="0" Margin="0,0,0,12">
-            <TextBlock Text="ONVIF 設備探索" Foreground="{StaticResource Brand.TextPrimary}" FontSize="18" FontWeight="SemiBold" />
-            <TextBlock Text="自動探索本機網段的 ONVIF 攝影機；或指定 IP 直接連線。取得的 RTSP 串流可加入頻道清單。"
+            <TextBlock x:Name="OnvifHeader" Text="" Foreground="{StaticResource Brand.TextPrimary}" FontSize="18" FontWeight="SemiBold" />
+                <TextBlock x:Name="OnvifDesc" Text=""
                        Foreground="{StaticResource Brand.TextDim}" FontSize="12" TextWrapping="Wrap" Margin="0,4,0,0" />
         </StackPanel>
 
@@ -26,21 +26,21 @@
                 <ColumnDefinition Width="*" />
             </Grid.ColumnDefinitions>
 
-            <!-- 左：探索參數 -->
+            <!-- Left: discovery parameters -->
             <StackPanel Grid.Column="0" Margin="0,0,16,0">
-                <TextBlock Text="指定位址（可留空）" Foreground="{StaticResource Brand.TextDim}" FontSize="12" Margin="0,0,0,6" />
-                <TextBox x:Name="AddressBox" AutomationProperties.AutomationId="AddressBox" ToolTip="設備 IP（如 192.168.1.64）；留空則自動探索"
+                <TextBlock x:Name="OnvifAddressLabel" Text="" Foreground="{StaticResource Brand.TextDim}" FontSize="12" Margin="0,0,0,6" />
+                <TextBox x:Name="AddressBox" AutomationProperties.AutomationId="AddressBox" ToolTip=""
                          Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="8,4" />
 
-                <TextBlock Text="帳號（可留空）" Foreground="{StaticResource Brand.TextDim}" FontSize="12" Margin="0,12,0,6" />
-                <TextBox x:Name="UserBox" AutomationProperties.AutomationId="UserBox" ToolTip="設備管理帳號（通常為 admin）"
+                <TextBlock x:Name="OnvifUserLabel" Text="" Foreground="{StaticResource Brand.TextDim}" FontSize="12" Margin="0,12,0,6" />
+                <TextBox x:Name="UserBox" AutomationProperties.AutomationId="UserBox" ToolTip=""
                          Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="8,4" />
 
-                <TextBlock Text="密碼（可留空）" Foreground="{StaticResource Brand.TextDim}" FontSize="12" Margin="0,12,0,6" />
-                <PasswordBox x:Name="PasswordBox" AutomationProperties.AutomationId="PasswordBox" ToolTip="設備管理密碼"
+                <TextBlock x:Name="OnvifPasswordLabel" Text="" Foreground="{StaticResource Brand.TextDim}" FontSize="12" Margin="0,12,0,6" />
+                <PasswordBox x:Name="PasswordBox" AutomationProperties.AutomationId="PasswordBox" ToolTip=""
                              Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="8,4" />
 
-                <Button x:Name="DiscoverButton" Content="探索 / 連線" ToolTip="探索本機網段或連線指定位址的 ONVIF 設備" Click="OnDiscoverClicked"
+                <Button x:Name="DiscoverButton" Content="" ToolTip="" Click="OnDiscoverClicked"
                         Margin="0,16,0,0" Padding="0,8"
                         Foreground="White" Background="#2660AA" BorderThickness="0" AutomationProperties.AutomationId="DiscoverButton"/>
 
@@ -50,10 +50,10 @@
 
                 <TextBlock x:Name="WizardHint" TextWrapping="Wrap"
                            Foreground="{StaticResource Brand.TextDim}" FontSize="11" Margin="0,12,0,0"
-                           Text="選取設備後自動擷取其影像串流設定。" />
+                           Text="" />
             </StackPanel>
 
-            <!-- 右：設備與 Profile -->
+            <!-- Right: devices and profiles -->
             <Grid Grid.Column="1">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="2*" />
@@ -66,7 +66,7 @@
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="*" />
                     </Grid.RowDefinitions>
-                    <TextBlock Text="設備" Foreground="{StaticResource Brand.TextDim}" FontSize="12" Margin="0,0,0,6" />
+                    <TextBlock x:Name="OnvifDeviceLabel" Text="" Foreground="{StaticResource Brand.TextDim}" FontSize="12" Margin="0,0,0,6" />
                     <ListBox x:Name="DeviceList" Grid.Row="1" SelectionChanged="OnDeviceSelected"
                              Foreground="White" Background="#0B1626" BorderBrush="#2A4A73">
                         <ListBox.ItemTemplate>
@@ -85,7 +85,7 @@
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="*" />
                     </Grid.RowDefinitions>
-                    <TextBlock Text="影像 Profile（選取後加入）" Foreground="{StaticResource Brand.TextDim}" FontSize="12" Margin="0,0,0,6" />
+                    <TextBlock x:Name="OnvifProfilesLabel" Text="" Foreground="{StaticResource Brand.TextDim}" FontSize="12" Margin="0,0,0,6" />
                     <ListBox x:Name="ProfileList" Grid.Row="1" SelectionChanged="OnProfileSelected"
                              Foreground="White" Background="#0B1626" BorderBrush="#2A4A73">
                         <ListBox.ItemTemplate>
@@ -102,13 +102,13 @@
         </Grid>
 
         <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,14,0,0">
-            <Button x:Name="CancelButton" Content="取消" ToolTip="取消進行中的探索或連線" Click="OnCancelClicked"
+            <Button x:Name="CancelButton" Content="" ToolTip="" Click="OnCancelClicked"
                     Padding="16,8" Margin="0,0,10,0" IsEnabled="False"
                     Foreground="White" Background="#8A4B2A" BorderThickness="0" AutomationProperties.AutomationId="CancelButton"/>
-            <Button x:Name="AddButton" Content="加入頻道" ToolTip="將選取的設備加入頻道清單" Click="OnAddClicked"
+            <Button x:Name="AddButton" Content="" ToolTip="" Click="OnAddClicked"
                     Padding="16,8" Margin="0,0,10,0" IsEnabled="False"
                     Foreground="White" Background="#2A5C8A" BorderThickness="0" AutomationProperties.AutomationId="AddButton"/>
-            <Button x:Name="CloseButton" Content="關閉" ToolTip="關閉此視窗" Click="OnCloseClicked"
+            <Button x:Name="CloseButton" Content="" ToolTip="" Click="OnCloseClicked"
                     Padding="16,8" Foreground="White" Background="#333F55" BorderThickness="0" AutomationProperties.AutomationId="CloseButton" />
         </StackPanel>
     </Grid>

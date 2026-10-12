@@ -34,6 +34,8 @@ private.pem
 *.jks
 auto.crt
 auto.key
+# 授權檔：與單機機器碼綁定（見 HmacLicenseKey／LicenseManager），只在本機有效
+*.lic
 # 自動簽章憑證，不可外流
 Tools/media-server/
 

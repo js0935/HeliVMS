@@ -17,7 +17,7 @@ public sealed class RetentionService : BackgroundService
     public const string AlarmDaysKey = "alarm.retention.days";
 
     /// <summary>錄影根目錄；未設定時不刪檔，僅清除檔案已不存在之段，避免產生孤兒檔。</summary>
-    public const string RecordingsRootKey = "HELIVMS_RECORDINGS_ROOT";
+    public const string RecordingsRootKey = RecordingStorage.RootVariable;
 
     private const int MaxSweep = 200_000;
     private const int BatchSize = 16;
@@ -53,6 +53,7 @@ public sealed class RetentionService : BackgroundService
 
     public RetentionRun RunOnce(DateTime nowUtc)
     {
+        _allowedRoots = BuildAllowedRoots();
         var days = RetentionDays;
         var watermark = WatermarkGb;
         var alarmDays = AlarmRetentionDays;
@@ -143,8 +144,40 @@ public sealed class RetentionService : BackgroundService
     private bool IsLocked(SegmentRecord segment)
         => _legalHolds?.IsLocked(segment.ChannelId, segment.StartUtc, segment.EndUtc ?? segment.StartUtc) == true;
 
+    /// <summary>目前允許刪除檔案的錄影根目錄集合（本次 RunOnce 期間固定）。</summary>
+    private IReadOnlyList<string> _allowedRoots = [];
+
     /// <summary>
-    /// 清除單一段：檔案不存在則直接刪列；檔案存在時必須能確認路徑位於錄影根目錄下且刪除成功，
+    /// 允許刪除的錄影根目錄：目前根目錄＋設定中心切換磁碟後保留的舊根。
+    /// 區段檔以絕對路徑存在資料庫，少了舊根會讓切換磁碟後的舊錄影無法汰除。
+    /// </summary>
+    private IReadOnlyList<string> BuildAllowedRoots()
+    {
+        var roots = new List<string>();
+        if (_recordingsRoot is not null)
+        {
+            roots.Add(_recordingsRoot);
+        }
+
+        foreach (var root in RecordingStorage.ParseKnownRoots(_settings.Get(RecordingStorage.KnownRootsSettingKey)))
+        {
+            if (string.IsNullOrWhiteSpace(root))
+            {
+                continue;
+            }
+
+            var full = Path.GetFullPath(root);
+            if (!roots.Contains(full, StringComparer.OrdinalIgnoreCase))
+            {
+                roots.Add(full);
+            }
+        }
+
+        return roots;
+    }
+
+    /// <summary>
+    /// 清除單一段：檔案不存在則直接刪列；檔案存在時必須能確認路徑位於已知錄影根目錄下且刪除成功，
     /// 否則保留索引列（檔案遭占用時重試），避免資料遺失與孤兒檔。
     /// </summary>
     private bool Purge(SegmentRecord segment)
@@ -155,7 +188,7 @@ public sealed class RetentionService : BackgroundService
             var full = Path.GetFullPath(path);
             if (File.Exists(full))
             {
-                if (_recordingsRoot is null || !SharePath.IsWithinRoot(_recordingsRoot, full))
+                if (_allowedRoots.Count == 0 || !_allowedRoots.Any(root => SharePath.IsWithinRoot(root, full)))
                 {
                     return false;
                 }

@@ -72,6 +72,14 @@ public sealed class ChannelInfo
     public RecordingMode RecordingMode { get; init; } = RecordingMode.Always;
 
     public bool Enabled { get; init; } = true;
+
+    /// <summary>
+    /// 指定此頻道固定顯示在監看區第幾格（0 基；null＝未指定，依建立順序自動排）。
+    /// </summary>
+    /// <remarks>
+    /// 只影響監看格位，不影響錄影或查詢。使用者介面以 1 基顯示（第 1 格＝0）。
+    /// </remarks>
+    public int? DisplayCell { get; init; }
 }
 
 /// <summary>錄影區段索引記錄（§4 segments 表）。</summary>

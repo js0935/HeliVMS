@@ -4,6 +4,7 @@ using HeliVMS.Media;
 using HeliVMS.Recording;
 using HeliVMS.Shared.Models;
 using HeliVMS.Storage;
+using StreamKind = HeliVMS.Storage.StreamKind;
 
 namespace HeliVMS.App.Services;
 
@@ -22,22 +23,42 @@ public sealed class ChannelSession : IDisposable
     private SegmentRecorder? _recorder;
     private bool _disposed;
 
-    public ChannelSession(int channelId, string name, string displayUrl, SqliteStore store, string recordingsRoot, string snapshotsRoot, bool motionEnabled, IDetectionEngine? detection, bool tamperEnabled = false, string? recordingUrl = null, LicenseService? license = null)
+    /// <summary>常駐次流以外的選用主流連線（單畫面才建立）。</summary>
+    private RtspClient? _mainClient;
+
+    /// <summary>解析後的主流顯示位址（已嵌設備憑證）。</summary>
+    private readonly string _mainUrl;
+
+    /// <summary>主／次流位址是否真的不同；相同時不需為「升級畫質」多拉一條連線。</summary>
+    private readonly bool _hasMainStream;
+
+    /// <summary>目前是否要求顯示主流（次流仍常駐）。</summary>
+    private bool _wantMain;
+
+    /// <summary>主流是否已出畫；未出畫前顯示來源仍為次流。</summary>
+    private bool _mainReady;
+
+    public ChannelSession(int channelId, string name, string mainDisplayUrl, string subDisplayUrl, SqliteStore store, string recordingsRoot, string snapshotsRoot, bool motionEnabled, IDetectionEngine? detection, bool tamperEnabled = false, LicenseService? license = null)
     {
         ChannelId = channelId;
         Name = name;
-        Url = displayUrl;
-        RecordingUrl = recordingUrl ?? displayUrl;
+        _mainUrl = mainDisplayUrl;
+        _hasMainStream = !string.Equals(mainDisplayUrl, subDisplayUrl, StringComparison.Ordinal);
+        RecordingUrl = mainDisplayUrl;
         _store = store;
         _recordingsRoot = recordingsRoot;
         _license = license ?? new LicenseService(store);
-        Client = new RtspClient(displayUrl, hwAccel: ReadHwAccel()) { MaxFramesPerSecond = 15 };
-        AttachClient(Client);
+
+        // 次流常駐：多分割直接取用；切到單畫面時，主流尚未出畫前也先用次流頂著，
+        // 故切換佈局不會出現「連線中」，也不會黑畫面。
+        Client = new RtspClient(subDisplayUrl, hwAccel: ReadHwAccel()) { MaxFramesPerSecond = 15 };
+        AttachSubClient(Client);
 
         if (motionEnabled)
         {
             _motion = new MotionEventEngine(channelId, new AlarmEventRepository(_store), snapshotsRoot);
             _motion.EventInserted += (_, r) => EventInserted?.Invoke(this, r);
+            _motion.MotionSignal += (_, ratio) => MotionSignal?.Invoke(this, ratio);
             if (detection is not null)
             {
                 _ai = new AiEventEngine(channelId, new AlarmEventRepository(_store), snapshotsRoot, detection);
@@ -61,10 +82,16 @@ public sealed class ChannelSession : IDisposable
 
     public int ChannelId { get; }
 
+    /// <summary>
+    /// 此工作階段目前對應的監看格。佈局切換時可原地改派（<see cref="ChannelManager.ReconcileAsync"/>），
+    /// 不必拆掉 RTSP 連線與 ffmpeg 行程——這是 F11 展開不再全黑數十秒的關鍵。
+    /// </summary>
+    public int Cell { get; internal set; }
+
     public string Name { get; }
 
-    /// <summary>顯示用 RTSP 位址（隨顯示碼流切換而變）。</summary>
-    public string Url { get; private set; }
+    /// <summary>目前實際顯示的 RTSP 位址（主流已接手時為主流，否則為常駐次流）。</summary>
+    public string Url => EffectiveClient.RtspUrl;
 
     /// <summary>錄影用 RTSP 位址（固定主流，不隨顯示切流改變）。</summary>
     public string RecordingUrl { get; } = string.Empty;
@@ -78,6 +105,25 @@ public sealed class ChannelSession : IDisposable
     /// <summary>最後收到畫面之時間（健康監控用）。</summary>
     public DateTime LastFrameUtc { get; private set; } = DateTime.MinValue;
 
+    /// <summary>
+    /// 最近一次重連的原因（null 表示尚未重連過）。
+    /// </summary>
+    /// <remarks>
+    /// 原本 <see cref="RtspClient.Reconnecting"/> 帶著 <see cref="Exception"/> 事件上來卻被
+    /// 直接丟棄，只轉成 <c>Reconnecting</c> 狀態。操作員看到的就是一個不動的「重連中…」，
+    /// 無從判斷是 401、逾時還是位址寫錯——而這三種的處置完全不同。診斷字串必須留著。
+    /// </remarks>
+    public string? ReconnectReason { get; private set; }
+
+    /// <summary>
+    /// ffmpeg 最近的輸出（已遮蔽帳密），用來回答「為何這個頻道連不上」。
+    /// </summary>
+    /// <remarks>
+    /// <see cref="RtspClient.LastDiagnostic"/> 的文件註解就寫著「供 UI 診斷顯示」，
+    /// 但從來沒有任何 UI 讀過它——資訊已經算好了卻沒人看。
+    /// </remarks>
+    public string LastDiagnostic => EffectiveClient.LastDiagnostic;
+
     public event EventHandler<VideoFrame>? FrameArrived;
 
     public event EventHandler<RtspState>? StateChanged;
@@ -87,6 +133,9 @@ public sealed class ChannelSession : IDisposable
 
     /// <summary>該頻道事件已寫入 alarm_events（通知中心訂閱用）。</summary>
     public event EventHandler<AlarmEventRecord>? EventInserted;
+
+    /// <summary>運動觸發（rising edge），參數為當下變動比例；在解碼執行緒引發。</summary>
+    public event EventHandler<double>? MotionSignal;
 
     /// <summary>新增錄影被授權閘門拒絕（UI 以此提示使用者）。</summary>
     public event EventHandler<RecordingGateResult>? RecordingBlocked;
@@ -111,19 +160,75 @@ public sealed class ChannelSession : IDisposable
 
     public async Task StartMonitoringAsync()
     {
-        if (!IsMonitoring && !_disposed)
+        if (IsMonitoring || _disposed)
         {
-            await Client.StartAsync();
-            IsMonitoring = !_disposed;
+            return;
         }
+
+        await Client.StartAsync();
+        IsMonitoring = true;
+
+        // 若在開始監看前就被指派為單畫面，這裡補上主流連線（次流已在跑）。
+        await EnsureMainAsync();
     }
 
-    /// <summary>把事件重新接到（可能是重新建立的）顯示連線。</summary>
-    private void AttachClient(RtspClient client)
+    /// <summary>接上次流連線事件。次流常駐，是唯一對外發布 <see cref="StateChanged"/> 的來源，
+    /// 這樣單畫面為升級畫質而建立的主流，其暫時的 Connecting／Reconnecting 就不會讓 UI 閃「連線中」。</summary>
+    private void AttachSubClient(RtspClient client)
     {
-        client.FrameDecoded += OnClientFrame;
+        client.FrameDecoded += OnSubFrame;
         client.StateChanged += (_, s) => StateChanged?.Invoke(this, s);
-        client.Reconnecting += (_, _) => StateChanged?.Invoke(this, RtspState.Reconnecting);
+        client.Reconnecting += (_, ex) =>
+        {
+            ReconnectReason = Summarize(ex);
+            StateChanged?.Invoke(this, RtspState.Reconnecting);
+        };
+    }
+
+    /// <summary>
+    /// 接上主流連線事件。主流只負責在單畫面時升級畫質：尚未出畫或失效時靜默退回次流，
+    /// 不發布狀態、不影響 UI；<see cref="_mainReady"/> 是顯示來源是否交付給主流的唯一開關。
+    /// </summary>
+    private void AttachMainClient(RtspClient client)
+    {
+        client.FrameDecoded += OnMainFrame;
+        client.StateChanged += (_, s) =>
+        {
+            if (s != RtspState.Streaming)
+            {
+                _mainReady = false;
+            }
+        };
+        client.Reconnecting += (_, _) => _mainReady = false;
+    }
+
+    /// <summary>
+    /// 把連線失敗的例外壓成一句可顯示的原因。
+    /// </summary>
+    /// <remarks>
+    /// 直接顯示例外訊息會把 ffmpeg 整段 stderr 丟進格內文字，那會讓版面爆掉；
+    /// 但只顯示「重連中」又等於什麼都沒說。取第一行非空訊息並限長，兩者之間取平衡。
+    /// </remarks>
+    private static string Summarize(Exception? ex)
+    {
+        if (ex is null)
+        {
+            return "連線中斷";
+        }
+
+        var text = ex.Message.Trim();
+        if (text.Length == 0)
+        {
+            text = ex.GetType().Name;
+        }
+
+        var newline = text.IndexOfAny(['\r', '\n']);
+        if (newline >= 0)
+        {
+            text = text[..newline];
+        }
+
+        return text.Length <= 120 ? text : text[..120] + "…";
     }
 
     /// <summary>
@@ -133,45 +238,62 @@ public sealed class ChannelSession : IDisposable
     private string? ReadHwAccel() => new SettingsRepository(_store).Get("decode.hwaccel");
 
     /// <summary>
-    /// 切換顯示碼流：以新位址重建 <see cref="Client"/>，錄影（<see cref="RecordingUrl"/>）不受影響。
-    /// 顯示與錄影是兩條獨立連線（錄影由 SegmentRecorder 另起 ffmpeg 行程），
-    /// 故只換顯示位址即可；若連錄影位址一起換，segment 會記到次流畫質卻仍標記為 main。
+    /// 切換顯示碼流（<see cref="StreamKind.Main"/>＝高清單畫面，<see cref="StreamKind.Sub"/>＝多分割）。
+    /// 次流永遠常駐，切換只是決定要不要「加開」一條主流：主流連上並出畫前，畫面仍由次流供應，
+    /// 故切換佈局不會閃「連線中」或黑畫面；切回次流時關閉主流以省資源。
+    /// 錄影（<see cref="RecordingUrl"/>，固定主流）不受影響。
     /// </summary>
-    public async Task SwitchDisplayStreamAsync(string displayUrl)
+    public async Task SwitchDisplayStreamAsync(StreamKind kind)
     {
-        if (_disposed || string.Equals(Url, displayUrl, StringComparison.Ordinal))
+        var wantMain = kind == StreamKind.Main && _hasMainStream;
+        if (_wantMain == wantMain)
         {
             return;
         }
 
-        var wasMonitoring = IsMonitoring;
-        var old = Client;
-        Client = new RtspClient(displayUrl, hwAccel: ReadHwAccel()) { MaxFramesPerSecond = 15 };
-        AttachClient(Client);
-        Url = displayUrl;
-
-        try
+        _wantMain = wantMain;
+        if (wantMain)
         {
-            if (wasMonitoring)
-            {
-                await Client.StartAsync();
-            }
+            await EnsureMainAsync();
         }
-        finally
+        else
         {
-            try
-            {
-                await old.StopAsync();
-            }
-            catch (Exception)
-            {
-                // 舊連線停止失敗不影響新連線；其資源仍由 Dispose 回收。
-            }
+            await StopMainAsync();
+        }
+    }
 
-            old.DisposeAsync().AsTask().GetAwaiter().GetResult();
+    /// <summary>目前實際顯示的連線：主流已接手時為主流，否則為常駐次流。</summary>
+    private RtspClient EffectiveClient =>
+        _wantMain && _mainReady && _mainClient is not null ? _mainClient : Client;
+
+    /// <summary>必要時建立並啟動主流顯示連線（次流已在跑；等首幀抵達才接手顯示）。</summary>
+    private async Task EnsureMainAsync()
+    {
+        if (_disposed || !IsMonitoring || !_wantMain || !_hasMainStream || _mainClient is not null)
+        {
+            return;
         }
 
-        ResetDetection();
+        var main = new RtspClient(_mainUrl, hwAccel: ReadHwAccel()) { MaxFramesPerSecond = 15 };
+        AttachMainClient(main);
+        _mainClient = main;
+        _mainReady = false;
+        await main.StartAsync();
+    }
+
+    /// <summary>關閉主流顯示連線；顯示來源即刻退回常駐次流（次流從未中斷）。</summary>
+    private async Task StopMainAsync()
+    {
+        var main = _mainClient;
+        if (main is null)
+        {
+            return;
+        }
+
+        _mainClient = null;
+        _mainReady = false;
+        await main.StopAsync();
+        await main.DisposeAsync();
     }
 
     /// <summary>
@@ -187,7 +309,12 @@ public sealed class ChannelSession : IDisposable
         {
             // 授權閘門（§19.4）：到期／時鐘回流／未匯入授權／超出通道上限皆拒絕新增錄影。
             // 既有錄影不受影響（不停止、不刪除）——不可勒索客戶。
-            var gate = _license.CheckRecording(ChannelId, DateTime.UtcNow, RecordingGateSources.Manual);
+            //
+            // 來源先存成變數再開閘門：RecordingGateContractTests 要求每個開錄點
+            // 在問閘門之前就把來源備好，這樣「有帶來源」是可以結構上確認的，
+            // 而不是靠人工檢查引數裡剛好有沒有字樣。
+            var source = RecordingGateSources.Manual;
+            var gate = _license.CheckRecording(ChannelId, DateTime.UtcNow, source);
             if (!gate.Allowed)
             {
                 RecordingBlockedReason = gate.Reason;
@@ -216,6 +343,7 @@ public sealed class ChannelSession : IDisposable
         _motion?.Flush();
         _ai?.Flush();
         _tamper?.Flush();
+        await StopMainAsync();
         if (IsMonitoring)
         {
             await Client.StopAsync();
@@ -231,7 +359,27 @@ public sealed class ChannelSession : IDisposable
         _tamper?.Reset();
     }
 
-    private void OnClientFrame(object? sender, VideoFrame frame)
+    /// <summary>次流影格：只要目前顯示來源仍是次流（含主流尚未出畫的過渡期）就對外輸出。</summary>
+    private void OnSubFrame(object? sender, VideoFrame frame)
+    {
+        if (ReferenceEquals(EffectiveClient, Client))
+        {
+            EmitFrame(frame);
+        }
+    }
+
+    /// <summary>主流影格：標記已出畫並接手顯示。主流失效時退回次流（由 <see cref="AttachMainClient"/> 清除旗標）。</summary>
+    private void OnMainFrame(object? sender, VideoFrame frame)
+    {
+        _mainReady = true;
+        if (ReferenceEquals(EffectiveClient, _mainClient))
+        {
+            EmitFrame(frame);
+        }
+    }
+
+    /// <summary>送出實際顯示的影格，並餵給偵測引擎（只有顯示中的來源會被處理，避免重複事件）。</summary>
+    private void EmitFrame(VideoFrame frame)
     {
         LastFrameUtc = DateTime.UtcNow;
         FrameArrived?.Invoke(this, frame);
@@ -264,17 +412,30 @@ public sealed class ChannelSession : IDisposable
         _disposed = true;
         try
         {
-            Client.FrameDecoded -= OnClientFrame;
+            Client.FrameDecoded -= OnSubFrame;
         }
         catch (InvalidOperationException)
         {
             // 事件解除失敗時忽略
         }
 
+        if (_mainClient is not null)
+        {
+            try
+            {
+                _mainClient.FrameDecoded -= OnMainFrame;
+            }
+            catch (InvalidOperationException)
+            {
+                // 事件解除失敗時忽略
+            }
+        }
+
         _motion?.Dispose();
         _ai?.Dispose();
         _tamper?.Dispose();
         _recorder?.DisposeAsync().AsTask().GetAwaiter().GetResult();
+        _mainClient?.DisposeAsync().AsTask().GetAwaiter().GetResult();
         Client.DisposeAsync().AsTask().GetAwaiter().GetResult();
         GC.SuppressFinalize(this);
     }

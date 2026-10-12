@@ -72,6 +72,10 @@ public class OnvifAuthTests
         var ha2 = Md5("POST:/onvif/device_service");
         var expected = Md5($"{ha1}:dcd98b7102dd2f0e:{header.Parameter["nc"]}:{header.Parameter["cnonce"]}:auth:{ha2}");
         Assert.Equal(expected, header.Parameter["response"]);
+
+        // 廠牌差異（實測 HOEM 白牌 IPC）：Authorization 帶 algorithm=MD5 會被判為認證失敗；
+        // RFC 7616 規定省略即視為 MD5，故預設演算法不送出此參數。
+        Assert.False(header.Parameter.ContainsKey("algorithm"));
     }
 
     [Fact]
@@ -112,6 +116,9 @@ public class OnvifAuthTests
         var ha2 = Sha256("POST:/x");
         var expected = Sha256($"{ha1}:n:{header.Parameter["nc"]}:{header.Parameter["cnonce"]}:auth:{ha2}");
         Assert.Equal(expected, header.Parameter["response"]);
+
+        // 非預設演算法必須明示，否則設備會以 MD5 解讀而驗證失敗
+        Assert.Equal("SHA-256", header.Parameter["algorithm"]);
     }
 
     [Fact]
@@ -126,6 +133,9 @@ public class OnvifAuthTests
         var ha2 = Md5("POST:/x");
         var expected = Md5($"{ha1}:n:{header.Parameter["nc"]}:{header.Parameter["cnonce"]}:auth:{ha2}");
         Assert.Equal(expected, header.Parameter["response"]);
+
+        // MD5-sess 亦非預設，必須明示
+        Assert.Equal("MD5-sess", header.Parameter["algorithm"]);
     }
 
     [Fact]
@@ -181,6 +191,26 @@ public class OnvifAuthTests
         Assert.Null(OnvifWsSecurity.Build(null, "secret", OnvifWsSecurityMode.PasswordDigest));
         Assert.Null(OnvifWsSecurity.Build("admin", null, OnvifWsSecurityMode.PasswordDigest));
         Assert.Null(OnvifWsSecurity.Build("admin", "secret", OnvifWsSecurityMode.None));
+    }
+
+    [Fact]
+    public void WsSecurity_Digest_UsesProvidedCreatedTimestamp()
+    {
+        // 呼叫端可傳入已校正設備時鐘偏差的基準時間（海康等廠牌時鐘偏差容忍度測試的基礎）
+        var baseline = new DateTime(2026, 1, 2, 3, 4, 5, DateTimeKind.Utc);
+
+        var element = OnvifWsSecurity.Build("admin", "secret", OnvifWsSecurityMode.PasswordDigest, baseline);
+
+        Assert.NotNull(element);
+        var document = XDocument.Parse(element!.ToString());
+        var created = document.Descendants().Single(e => e.Name.LocalName == "Created").Value;
+        Assert.Equal("2026-01-02T03:02:05Z", created);
+
+        var nonce = document.Descendants().Single(e => e.Name.LocalName == "Nonce").Value;
+        var password = document.Descendants().Single(e => e.Name.LocalName == "Password").Value;
+        var expected = Convert.ToBase64String(
+            SHA1.HashData(Encoding.UTF8.GetBytes($"{nonce}{created}secret")));
+        Assert.Equal(expected, password);
     }
 
     private static ParsedDigest Parse(string value)

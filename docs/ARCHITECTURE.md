@@ -103,9 +103,10 @@ HeliVms/
 ├─ HeliVms.Shared/              # 事件聚合、擴充方法、Logging(Serilog)
 ├─ Tools/                       # 廠商側工具（不入客戶安裝包）
 │  ├─ HeliVMS.LicenseProducer/  # 授權生成器 CLI（RSA 簽章、金鑰對產生、私鑰加密、簽發稽核）— §19.6
-│  ├─ LicenseKeyGenUI/          # 授權生成器 GUI（金鑰對＋簽署）— §19.5
-│  ├─ HeliVmsVerify/            # 匯出簽章收據離線驗證 CLI（交給警方／律師的工具，只需收據自帶公鑰）— §14.4
-│  └─ _deprecated/              # 已停用工具（LicenseKeyGen：舊 HMAC 對稱版）— §19.5
+│  ├─ LicenseKeyGen/             # 授權生成器 GUI（HMAC，19 字元金鑰，主要簽發工具）— §19.5.1
+│  ├─ LicenseKeyGenUI/           # 授權生成器 GUI（RSA 金鑰對＋簽署）— §19.5
+│  ├─ HeliVmsVerify/             # 匯出簽章收據離線驗證 CLI（交給警方／律師的工具，只需收據自帶公鑰）— §14.4
+│  └─ _deprecated/                # 已停用工具（LicenseKeyGen 舊複本）— §19.5
 └─ docs/                        # 本規劃、資料庫結構、營運手冊
 ```
 
@@ -125,6 +126,42 @@ C:\HeliVmsData\
 └─ snapshots\                  # 警報觸發快照
     └─ <channelId>-yyyymmddHHMMSS.jpg
 ```
+
+**桌面程式與 Web 服務必須指向同一個資料根目錄與同一個 `index.db`。** 路徑解析的單一
+來源是 `DataRootLayout`（`src/HeliVMS.Storage`），兩個專案都委派給它，不要各自推導：
+
+| 解析結果 | 條件 |
+|---|---|
+| `HELIVMS_DB` 指定的路徑 | 有設定時直接採用（測試與進階部署靠這個鍵） |
+| `HELIVMS_DATA` 下的 `index.db` | 有設定資料根目錄 |
+| `C:\HeliVMSData\index.db` | 預設；不可寫時降級至 `%LOCALAPPDATA%\HeliVMS` |
+
+桌面（`MainWindow.ResolveDataRoot`）與 Web（`Program.cs` 的 `DataRootLayout.ResolveDatabasePath`）
+以前各算各的，Web 落到 `%TEMP%\helivms-webapi.db`。分開時不會有任何錯誤：Web 寫的錄影
+排程進不了桌面排程器的資料庫（設定顯示儲存成功但一台都沒錄），兩邊的保留清理也各拿
+一份區段索引卻對同一個 `recordings` 目錄下手。
+
+錄影根目錄的解析（`RecordingStorage`，`src/HeliVMS.Storage`）與資料根目錄分開，且**錄影一律
+不得落在系統碟**——系統碟被錄影填滿會讓 Windows 本身、事件記錄與所有暫存檔一起失效，這是
+錄影主機最常見的「錄到一半整台當掉」成因：
+
+| 解析結果 | 條件 |
+|---|---|
+| `recording.root`（設定中心「儲存」頁選定的磁碟） | 有設定時優先於下列全部推導 |
+| `HELIVMS_RECORDINGS_ROOT` 指定的路徑 | 有設定時一律照用（即使位於系統碟；那是刻意的覆寫） |
+| `<資料根>\recordings` | 資料根目錄本身不在系統碟 |
+| `<其他固定碟>\HeliVMSRecordings` | 資料根目錄在系統碟時，改存容量最大的非系統固定碟 |
+| `<資料根>\recordings` | 找不到其他固定碟時退回（寧可錄在系統碟，也不要完全不錄） |
+
+設定中心「儲存」頁提供錄影磁碟下拉（`RecordingStorage.ListFixedDrives`），選定後寫入共用的
+`recording.root`，桌面、Agent（`HeliVMS.Agent`）與 Web 服務皆經由
+`RecordingStorage.ResolveConfiguredRoot` 讀同一把鍵（未設定才退回環境變數與避開系統碟推導），
+因此三個程序永遠指向同一個目錄；切換時把舊根併入 `recording.known_roots`（`MergeKnownRoot`／
+`ParseKnownRoots`），讓配額清理仍能汰除舊磁碟上的既有錄影（舊片段以絕對路徑留在原磁碟，仍可回放）。
+首度啟動尚未設定時，桌面主視窗以 `ResolveRootFromEnvironment` 得到推導值。任何一端自行解析都會
+重現「錄到 A 目錄、回放去 B 目錄找」的失效（Agent 曾直接拿資料根目錄當錄影根目錄，錄出來的
+檔案桌面與回放都找不到）。資料庫、快照仍留在資料根目錄，不受影響。
+`RecordedSegmentPolicy` 會擋下不在錄影根目錄內的路徑。
 
 ---
 
@@ -201,6 +238,28 @@ ChannelSession (每路 1 個，可並行 32 個)
 - 狀態角標：離線(灰)/連線(綠)/錄影中(紅點+時間)/警報(黃)，由 HealthTimer 驅動
 - 畫質策略：監看做低延遲保證，可選次串流當監看源以省頻寬
 - 即時語音監聽：點格面揚聲器圖示啟用**單路**即時聲音（一次只出聲一路，避免 32 路同時開聲）；32 路同時只解影像不解音訊
+
+#### 3.4.1 錄影模式的實際驅動邏輯
+
+「該不該錄」不在排程器裡，而在 `RecordingIntent.ShouldRecord()`（`src/HeliVMS.Recording`），
+`RecordingScheduler` 只執行它的結果。這條分界是刻意的：模式判斷原本散在排程器內，
+後來加入 `Always`／停用／人工三種狀態時，啟動與停止各自算一次、兩份依據必然分岔。
+
+| `recording_mode` | 自動錄影 | 說明 |
+|---|---|---|
+| `Always` | 是，不需要任何排程 | 預設值 |
+| `Scheduled` | 依 `recording_schedules` 任一時段命中（`IsActiveAt`） | |
+| `Event` | 否 | 尚無移動／警報觸發管線，UI 應明示未實作，不要讓人以為已啟用 |
+| `Manual` | 否 | 人工錄影不受排程覆蓋 |
+
+另外兩個必要條件：頻道 `enabled = 1`（v45 起才有此欄，舊庫以 `EnsureColumn` 遷移）、
+`main_rtsp` 非空白。停用是操作員在設定頁關閉錄影的手段，必須真的生效。
+
+啟動與停止都經過同一個 `wanted` 集合；已由即時監看畫面（cell）錄製的頻道不重複開錄
+（同一台攝影機兩個 ffmpeg 會互相搶區段檔，磁碟用量翻倍而 log 乾淨）。
+
+> 舊資料的 `recording_mode` 預設是 `Always`，所以第一次啟動新版本時所有既有頻道會
+> 立刻開始全時錄影。部署前務必先確認磁碟額度與保留清理設得上。
 - 雙向對講（talk，後期擴充）：ONVIF Audio 上傳通道，模組化 `ITalkProvider` 介面
 
 ### 3.4 錄影回放管道（核心功能）
@@ -251,7 +310,7 @@ CREATE TABLE channels (
   codec TEXT DEFAULT 'h264',     -- h264 / h265
   audio_enabled INTEGER DEFAULT 1,      -- 是否錄音
   audio_encoder TEXT DEFAULT 'aac',     -- aac(轉碼) / copy / none
-  recording_mode TEXT DEFAULT 'always', -- always / schedule / motion / off
+  recording_mode INTEGER NOT NULL DEFAULT 0, -- 0=Always 1=Scheduled 2=Event 3=Manual
   motion_enabled INTEGER DEFAULT 0,
   motion_sensitivity REAL DEFAULT 0.5,
   created_at TEXT DEFAULT (datetime('now'))
@@ -706,6 +765,17 @@ public class MyCustomAdapter : IDeviceAdapter { ... }
 ```
 此為產品化階段的長期策略，不影響核心交付。
 
+#### 7.9.10 多廠牌實機容錯（已實作）
+
+L1 ONVIF 走 Profile S 標準並對非標準實作容錯，不倚賴單一廠牌；核心落在 `HeliVMS.Devices/Onvif/`。
+
+- **端點解析多路徑**（`OnvifEndpointResolver`）：候選埠 80/8000/8080/2020/8899/34567/5000，device_service／Media／PTZ 多路徑候選，並以回應 XAddr 反向校正；GetCapabilities 缺席時退回 `GetServices`（ONVIF 2.x）再退回實地路徑探測（`OnvifDeviceService.TryResolveServiceAsync`／`ProbeServicePathAsync`）。部分設備的 `GetCapabilities` 不含 Media／PTZ 節點卻完整支援 `GetServices`。
+- **認證自動降級**（`OnvifAuth`）：WS-Security PasswordDigest ↔ PasswordText，HTTP Digest ↔ Basic；依 `401`／SOAP Fault 逐級重試。部分海康於 WS-Security 被拒時僅接受明碼 UsernameToken。
+- **WS-Security 時鐘偏差自動校正**（`OnvifClientOptions.AutoClockSkew`，預設開）：設備時鐘與伺服器偏差過大時，PasswordDigest 的 Created 時間戳會落在設備容忍窗（常見 ±5 分鐘）之外，Fault 為 `sender not authorized`；此時以**匿名** `GetSystemDateAndTime` 量測偏差（偏差 < 1 分鐘不採用），後續請求以 `DateTime.UtcNow + skew` 產生時間戳。由 `GetInfo_設備時鐘偏差過大_匿名查詢設備時間校正時間戳後成功` 與 `GetInfo_設備時鐘偏差但關閉自動校正_仍回報未授權` 行為測試守護。
+- **Fault 分級**：`IsWsAuthenticationFault`／`MapFault` 同時檢視 Fault Code 與 Fault Reason Text 的 `not authorized`，避免廠牌把授權失敗包裝成泛用 DeviceFault。
+
+> 尚未實作（列為後續）：Media2／Events／Imaging／Analytics 服務、廠牌專有 API（Hikvision ISAPI、Dahua CGI）、`vendor_capabilities` 離線型號庫。
+
 ---
 
 ## 8. UI / UX 設計（專業美觀）
@@ -928,6 +998,21 @@ L2 比對（人臉/車牌）置「進階·需權限」區，預設關閉（§5.1
 | 時間可信 | 設備/伺服器 NTP 校時；錄影時間以伺服器牆鐘為準並記錄偏移 |
 | 連續運行 | 目標 99.9% 可用；零「單路故障拖垮全系統」 |
 
+#### 11.1.1 現況與目標的差距（別把這張表當現況）
+
+上表是**目標**，不是現況。目前錄影核心跑在 `HeliVMS.App` 程序內（`RecordingScheduler` +
+`SegmentRecorder`），不是獨立服務。差距如下，避免後續有人以為已經服務化：
+
+| 項目 | 目標 | 現況 |
+|---|---|---|
+| 進程分離 | 錄影核心為 Windows Service | **未做**。錄影在 WPF 程序內；關視窗會先跳「最小化／離開」選擇（`OnClosing` → `ExitChoiceWindow`），選最小化才收進匣（`Hide()`）；但登出／重開機／程序崩潰都會停錄 |
+| 開機恢復 | 開機自啟 | **已做登入自啟**。設定頁「關於」有勾選框，寫入 `HKCU\...\CurrentVersion\Run`，命令為 `"<exe>" --tray`，開機後縮匣不跳視窗。決策邏輯在 `AutoStartService`，Registry 存取在 `RegistryAutoStartStore` |
+| 看門狗 | 崩潰自動重啟並恢復錄影 | **未做**。崩潰只寫 `%TEMP%\helivms-crash.log`（上限 5 MB，由 `BoundedFileLog` 裁切） |
+| 停滯可見 | 錄影失敗要告警 | **已做**。`SegmentRecorder` 連續 3 段失敗時觸發 `RecordingStalled`，`RecordingScheduler` 寫 `recording.stalled` 稽核。這條是必要的：ffmpeg 連不上時 `IsRecording` 仍為 true、稽核也已寫過 `recording.start`，沒有它則「攝影機離線」與「正常錄影」長得一模一樣 |
+| 失敗退避 | — | 指數退避 5s→上限 5 分鐘。固定 5 秒重試會讓一台離線攝影機每天寫 17,280 筆 `corrupt`，16 台就是 27 萬筆，而 `segments` 同時是回放時間軸與用量統計會掃的表 |
+| 磁碟滿策略 | 三階段 | **未做**。現況是 WPF 每小時、Web 每 30 分鐘各自跑 `RetentionService`；兩邊必須指向同一個資料庫（`DataRootLayout`），否則會各自刪檔而索引互不同步 |
+| 磁碟用量顯示 | — | 設定頁用量改讀 `SegmentRepository.GetTotalUsageSummary()`。原本是 `EnumerateFiles(recordingsRoot, "*.mp4", TopDirectoryOnly)`，而檔案在 `chXXX/yyyyMMdd/` 兩層底下，所以長期顯示 0B |
+
 ### 11.2 性能與容量規劃（先算再寫，落地依據）
 
 ```
@@ -1054,7 +1139,7 @@ WebRTC/WHEP 即時監看與 MSE 回放（M244）。
 | 4 | 備份與異地備援 | 已落地：`BackupService`＋checkpoint、`offsite_jobs`/`OffsiteReplicationService`、設備 SD 斷線補錄（`edge_backfill_jobs`＋`EdgeFfmpegBackfillRunner`，M89/M94/M96） | 資料安全 | P1（主體已完成） |
 | 5 | 數位簽章與證據包 | **已落地（M240＋M241）**：匯出檔旁自動產生 `.receipt.json` 簽章收據（RSA-2048／PKCS#1 v1.5，私鑰沿用 M53 `EvidenceSigner`），附公鑰與金鑰指紋；私鑰以 DPAPI 保護落庫（M241）、可稽核換發且保留歷史公鑰；離線驗證工具 `Tools/HeliVmsVerify` ＋ 遠端 `GET /api/exports/{id}/verify`；證據包 `manifest.json` 另有簽章 | 證據鏈完整性／司法效力 | **P1**（已完成） |
 | 6 | 事件回應工作流 | 已落地：四態＋`event_dispositions`/`event_disposition_trail`（M38）、分診面板與工作流 L1（`alarm_triage`/`alarm_notes`/`alarm_escalations`＋`AlarmEscalationPolicy` SLA 升階，M47/M102） | 營運 | P1（已完成） |
-| 7 | 多語言 i18n | **Web 已落地（M243）**：`src/HeliVMS.Web/i18n.js` 提供 `t()`／`tx()`／`setLocale()`／`applyDom()`，`zh-TW`＋`en` 逐 key 對齊，`index.html` 全數掛 `data-i18n`／`data-i18n-attr`，並有棘輪測試擋中文回流；**WPF 桌面垂直切片已落地**：`AlarmManagerWindow`、`ReportsWindow`、`PosWindow`、`SystemHealthWindow`、`SigningKeysWindow`、`SynopsisWindow`、`SnapshotRedactWindow`、`MapWindow`、`NotificationLogWindow`、`AuditLogWindow`、`LegalHoldWindow`、`EvidenceWindow`、`IoWindow`、`RedactionWindow`、`DewarpWindow`、`AudioWindow` 與 `EventCenterWindow` 全部文字（含狀態／優先序／動態彙總與排程訊息）改走 `Localizer.T`，`I18n` 三語齊備，並有 `AlarmManagerI18nContractTests`／`ReportsI18nContractTests`／`PosI18nContractTests`／`SystemHealthI18nContractTests`／`WpfI18nContractTests` 棘輪（XAML 禁硬編中文、程式碼引用的鍵須三語齊備）；**其餘 20 個視窗與 `AlarmEventStatus.Label`／`AlarmPriority.Label` 等共用標籤仍硬編繁中，全 repo 0 個 `.resx`** | 出口與外文通路 | **P1**（Web＋WPF 垂直切片已完成，其餘待續） |
+| 7 | 多語言 i18n | **Web 已落地（M243）**：`src/HeliVMS.Web/i18n.js` 提供 `t()`／`tx()`／`setLocale()`／`applyDom()`，`zh-TW`＋`en` 逐 key 對齊，`index.html` 全數掛 `data-i18n`／`data-i18n-attr`，並有棘輪測試擋中文回流；**WPF 桌面已全面落地（所有 `*Window.xaml` 皆零硬編中文）**：`AlarmManagerWindow`、`ReportsWindow`、`PosWindow`、`SystemHealthWindow`、`SigningKeysWindow`、`SynopsisWindow`、`SnapshotRedactWindow`、`MapWindow`、`NotificationLogWindow`、`AuditLogWindow`、`LegalHoldWindow`、`EvidenceWindow`、`IoWindow`、`RedactionWindow`、`DewarpWindow`、`AudioWindow`、`EventCenterWindow` 與 `MainWindow` 全部文字（含狀態／優先序／動態彙總與排程訊息）改走 `Localizer.T`，`I18n` 三語齊備，並有 `AlarmManagerI18nContractTests`／`ReportsI18nContractTests`／`PosI18nContractTests`／`SystemHealthI18nContractTests`／`WpfI18nContractTests` 棘輪（XAML 禁硬編中文、程式碼引用的鍵須三語齊備）；**其餘 19 個視窗與 `AlarmEventStatus.Label`／`AlarmPriority.Label` 等共用標籤仍硬編繁中，全 repo 0 個 `.resx`** | 出口與外文通路 | **P1**（Web＋WPF 垂直切片已完成，其餘待續） |
 | 8 | 智慧搜尋（向量語意） | 已落地：四表 FTS5 統一檢索（`EventSearchRepository`/`UnifiedEventSearch`，M91/M97）＋規則式中文 NLP 查詢解析（M107）＋`clip_embeddings` 資料層與 `/api/clip/*` 端點（M242 修正維度／位元組序，索引維度不符時回 409）；**缺真正的向量檢索與影片摘要** | 現代 VMS 賣點 | **P2** |
 | 9 | 統計報表 | 已落地：`/api/reports/daily`＋`ReportsWindow`（錄影時數／斷線次數／容量趨勢＋逐日長條圖／AI 事件統計，可匯出 CSV、手動「寄送報表」）；**週期自動郵寄（每日／每週本地時刻，`report.mail.*`＋`ReportMailer`＋桌面 5 分鐘輪詢）已落地** | 管理與驗收 | **P2** |
 | 10 | 中央/多機集群管理 | 沒有上層 NVR；僅第二記錄伺服器 Failover（租約仲裁＋實體接管，`failover_state`/`failover_events`，M87/M88/M98） | 大型案/連鎖場域 | **P2** |
@@ -1122,9 +1207,9 @@ WebRTC/WHEP 即時監看與 MSE 回放（M244）。
 |---|---|
 | 備份與異地備援 | 可排程批次複製錄影區段至第二磁碟/NAS/雲端；事件級錄影可雙寫（**已實作**：`BackupService`＋checkpoint M89/M94、`offsite_jobs`＋`OffsiteReplicationService` M96、設備 SD 斷線補錄 `EdgeFfmpegBackfillRunner`） |
 | 數位簽章 | 匯出影片以私鑰簽署，`HeliVmsVerify` 工具可驗證（司法效力）（**已實作 M240**：`ExportReceiptService` 寫出 `<匯出檔>.receipt.json`（檔名、SHA-256、大小、秒數、通道、起訖時間窗、簽發時間、金鑰指紋、公鑰 PEM、base64url 簽章）；驗證鏈只依賴 BCL，`Tools/HeliVmsVerify <匯出檔> [--signer <指紋>]` 可離線重算雜湊＋驗簽，遠端另有 `GET /api/exports/{id}/verify?signer=`） |
-| 事件回應工作流 | 確認/未決/誤報/已處理四態 + 指派 + 附註 + 時間戳軌跡（**已實作 M38**：`event_dispositions`/`event_disposition_trail`、`AlarmEventRepository.SetDisposition`/`ListDispositionTrail`、事件中心處置列） |
+| 事件回應工作流 | 確認/未決/誤報/已處理四態 + 指派 + 附註 + 時間戳軌跡（**已實作 M38**：`event_dispositions`/`event_disposition_trail`、`AlarmEventRepository.SetDisposition`/`ListDispositionTrail`、事件中心處置列；**M248**：事件中心清單／卡片改 `SelectionMode=Extended`，提供「全選／取消全選」與多選批次確認、批次處置（狀態／指派／備註一次套用到所有選取列），重整後保留同頁選取） |
 | 遮蔽偵測（Tamper） | L0 即可實作：幀亮度突變 / 邊緣能量急降 / 全黑全白偵測 → 「鏡頭被遮、被移、被噴漆」警報（附快照）（**已實作 M39**：`TamperDetector`（16×16 灰階網格／亮暗閾值／邊緣能量基準 EMA）＋`TamperEventEngine`（連續 N 幀開窗、冷卻收尾、寫入 `alarm_events` `event_type='tamper'` 附 BMP 快照）；設定鍵 `detect.tamper.enabled`，設定中心「功能」頁開關） |
-| 多語言 i18n | RESX 資源庫 + 語言切換（繁中/簡中/EN/日本語）；字型與格式全面參數化（**Web 已於 M243 落地**：`i18n.js` ＋ `data-i18n` ＋ 棘輪測試，僅 `zh-TW`／`en`；**WPF 與 .NET 層仍未實作**：全 repo 0 個 `.resx`，介面字串硬編繁中） |
+| 多語言 i18n | RESX 資源庫 + 語言切換（繁中/簡中/EN/日本語）；字型與格式全面參數化（**Web 已於 M243 落地**：`i18n.js` ＋ `data-i18n` ＋ 棘輪測試，僅 `zh-TW`／`en`；**WPF 桌面已全面落地**：字串集中於 `I18n.cs`（三語）並走 `Localizer.T`，`WpfI18nContractTests` 逐窗棘輪，所有 `*Window.xaml` 已零硬編中文（含 `SettingsWindow`／`ChannelManagerWindow`／`CameraManagerWindow`／`PtzWindow`／`ExportCenterWindow`／`OnvifWizardWindow` 等）；**其餘 .NET 層未全面 i18n**：全 repo 0 個 `.resx`） |
 
 ### 14.5 P2 建議（差異化 / 擴展）
 
@@ -1213,9 +1298,9 @@ WebRTC/WHEP 即時監看與 MSE 回放（M244）。
 |---|---|---|---|
 | **全時錄影** | 24/7 不間斷 | 預設 `always`；配額汰除保底 | `channels.recording_mode` |
 | **排程錄影** | 依週計劃起停 | 7×24 矩陣編輯（§6）；30s 檢查 | `schedules`（day_mask/start/end） |
-| **事件錄影** | 觸發才錄（含前後預錄） | L0/L1 或 IO 觸發；預錄 I 幀掃描 | `recording_mode=motion` + `alarm_events` |
+| **事件錄影** | 觸發才錄（含前後預錄） | L0/L1 或 IO 觸發；預錄 I 幀掃描 | `recording_mode=Event` + `alarm_events` |
 | **混合/Smart** | 平時次流，事件切主流（含往後 N 秒） | 事件級最高畫質保證，省空間主力（§11.2） | 事件設定檔 + `segments.stream` |
-| **手動錄影** | 使用者臨時開關 | 頂欄/格面工具列即時啟停 | `recording_mode=manual` 暫存 |
+| **手動錄影** | 使用者臨時開關 | 頂欄/格面工具列即時啟停 | `recording_mode=Manual` 暫存 |
 
 ### 15.2 依「影像品質 / 碼流」類型
 
@@ -1565,12 +1650,15 @@ WebRTC/WHEP 即時監看與 MSE 回放（M244）。
 
 ## 19. 授權與許可管理（整合 Tools/ 授權系統）
 
-> 既有 `Tools/LicenseKeyGen`（HMAC 對稱版）與 `Tools/LicenseKeyGenUI`（RSA-2048 版）兩套工具，
-> 正式定案為一套 **非對稱簽章授權** 並接入 HeliVms 全產品。
+> 授權有兩種格式：**HMAC 對稱版**（`Tools/LicenseKeyGen`，`AAAA-BBBB-CCCC-DDDD`）
+> 與 **RSA-2048 非對稱版**（`Tools/HeliVMS.LicenseProducer` / `Tools/LicenseKeyGenUI`，
+> `HELVMS-v2.{payload}.{sig}`）。`LicenseManager.Validate` 先判 HMAC 格式、非 HMAC 才走
+> RSA，兩者並存；新簽發一律走 HMAC（見 §19.5.1 的取捨說明）。
 >
-> **單一真相來源**：`src/HeliVMS.Licensing` 為授權格式的唯一權威實作。
-> 兩個簽發工具（`Tools/HeliVMS.LicenseProducer`、`Tools/LicenseKeyGenUI`）皆直接引用該專案，
-> 不自行實作序列化、簽章或設備碼計算，避免格式漂移。
+> **單一真相來源**：`src/HeliVMS.Licensing` 為兩種授權格式的唯一權威實作。
+> 三個簽發工具（`Tools/LicenseKeyGen`、`Tools/HeliVMS.LicenseProducer`、
+> `Tools/LicenseKeyGenUI`）皆直接引用該專案，不自行實作 MAC／簽章、序列化或設備碼計算，
+> 避免格式漂移。
 
 ### 19.1 方案定案：RSA-2048 非對稱簽章
 
@@ -1695,12 +1783,46 @@ payload 由 `LicensePayload` 序列化（`JsonNamingPolicy.CamelCase`），欄�
 |---|---|---|
 | `Tools/LicenseKeyGenUI` | RSA 金鑰對＋簽章；原 payload 欄位與產品端不符（`HELVMS-` 兩段式） | **已修正**：改為引用 `HeliVMS.Licensing`，直接呼叫 `LicenseSerializer.Sign` 與 `MachineIdProvider.GetDeviceCode()`，並納入 `HeliVMS.slnx` 由 CI 建置 |
 | `Tools/HeliVMS.LicenseProducer` | CLI 簽發，引用 `HeliVMS.Licensing` | **正式簽發工具**；`--tier`（展開 §19.3 矩陣）、`--list-tiers`、`--issuer`，並驗證通道數與設備碼格式；M205 另加入 `--gen-key`（金鑰對產生）、`--passphrase-env/--passphrase-file/--prompt-passphrase`（私鑰加密靜置）、`--operator/--audit-log/--audit-verify`（簽發稽核）；M212 加入 `--batch`（CSV 批次簽發，見 §19.6.4） |
-| `Tools/LicenseKeyGen`（HMAC） | secret 同時存在兩端、HMAC 僅 1 byte、device 綁定前 4 碼、預設密碼明文；其註解所指的 `HeliVMS.Services.LicenseService` 從未實作 | **已移入 `Tools/_deprecated/LicenseKeyGen/`**，檔頭加註 DEPRECATED 說明改用 LicenseProducer；`error*.log`、`output*.log` 遺殼一併清除。不在解決方案內，不建置、不維護 |
+| `Tools/LicenseKeyGen`（HMAC） | 曾經**兩端各自 hardcode 同一份 HMAC secret**，靠 `// MUST keep in sync` 註解同步；註解所指的 `HeliVMS.Services.LicenseService` 從未實作，產品端因此**沒有 HMAC 驗證路徑**，所有此工具簽出的金鑰在產品端都落到 RSA 驗證而顯示「簽章驗證失敗」 | **已復用為主要簽發工具（2026-10-05）**：位元組格式、HMAC 計算與機器碼全部改為引用 `HeliVMS.Licensing.HmacLicenseKey`／`MachineIdProvider`，簽發端與驗證端共用同一份程式碼；已納入 `HeliVMS.slnx` 由 CI 建置。舊 `Tools/_deprecated/LicenseKeyGen/` 為同一份工具的舊複本，僅保留歷史 |
 | `Password.dat` 登入 | SHA-256 無鹽、預設密碼 `hr22619219` 明文於程式碼 | 隨工具一併停用；密碼改由 DB／環境管理 |
 | `Tools/HeliVmsVerify` | 匯出只附 `.sha256`，任何人都能改完影片再重算一份一樣的雜湊；外部無法確認出處 | **M240 新增**：匯出時簽出 `.receipt.json`（RSA-2048、公鑰自帶），此 CLI 離線重算雜湊＋驗簽＋比對預期指紋（`--signer` 可重複以涵蓋 M241 換發前的歷史金鑰）；只引用 `HeliVMS.Shared`（不碰資料庫與私鑰），已納入 `HeliVMS.slnx` 與 CI（`tests/HeliVMS.ExportVerify.Tests`） |
 
-> 教學與驗收一律使用 `LicenseProducer` / `LicenseKeyGenUI`。
-> 舊 HMAC 格式**不得**再對外簽發：其驗證路徑從未實作，且對稱 secret 存在產品端即可自簽金鑰。
+> 教學與驗收一律使用 `Tools/LicenseKeyGen`（HMAC，19 字元金鑰，離線、零相依）。
+> RSA 的 `HELVMS-v2` 格式仍可驗證（`LicenseManager.Validate` 先判 HMAC 格式、非 HMAC 才走 RSA），
+> 已簽發的 RSA 授權不會失效，但新簽發一律走 HMAC。
+
+### 19.5.1 HMAC 授權金鑰格式
+
+8 bytes → 16 進位 16 字元 → 以 `AAAA-BBBB-CCCC-DDDD` 顯示：
+
+| 位元組 | 內容 |
+|---|---|
+| `[0]` | `maxCameras`（1-255；0 無效） |
+| `[1]` | `typeId`（高 4 bit，索引 `LicenseTiers.All`）｜`licenseeId`（低 4 bit） |
+| `[2]` | `yearsSince2025`（0 = 永久） |
+| `[3]` | `month`（1-12；`[2]`=0 時忽略） |
+| `[4]` | `day`（1-31；`[2]`=0 時忽略） |
+| `[5]` | `HMAC-SHA256([0..4] ‖ ASCII(devicePrefix[0..4]))[0]` |
+| `[6..7]` | 機器碼前 4 個 16 進位字元 |
+
+權威實作在 `src/HeliVMS.Licensing/HmacLicenseKey.cs`；`Tools/LicenseKeyGen` 透過
+`ProjectReference` 呼叫同一份程式碼，因此**沒有**「簽發端與驗證端密鑰不同步」這個失效模式。
+`HmacLicenseKeyTests.簽發結果維持不變` 以 golden vector 釘住簽發結果，讓 HMAC secret
+被更動時立刻紅燈——共用程式碼的代價是改密鑰不會造成兩邊不一致，而是安靜地讓所有
+已簽發金鑰同時失效。
+
+驗證順序刻意是「機器綁定 → MAC → 內容」：未驗 MAC 的位元組不能拿來決定權限；
+機器碼取不到（如 WMI 被停用時回 `"UNKNOWN"`）一律 fail-closed。
+
+> **安全性質（刻意的取捨，勿當成意外）**
+>
+> 驗證端與簽發端共用對稱密鑰，而產品端必須內嵌這個密鑰才能離線驗證。取得
+> `HeliVMS.Licensing.dll` 的人（反編譯即可）能取出 `HmacLicenseKey.Secret` 並自製
+> 任意金鑰。相較之下 `HELVMS-v2` 的 RSA 公鑰驗證無法 forging。
+>
+> 選 HMAC 的理由：離線、零相依、金鑰只有 19 個字元好口頭傳遞，且現場客服只靠
+> 「念金鑰」就能開通。若要回復不可偽造性，必須改回非對稱簽章，且已發出的 HMAC
+> 金鑰需要一條遷移路徑（例如驗證端同時保留舊 secret 一段時間）。
 
 ### 19.6 LicenseProducer（廠商側）功能
 

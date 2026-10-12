@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
@@ -48,6 +49,16 @@ public sealed class LicensedApiFactory : WebApplicationFactory<Program>
 {
     public string DbPath { get; } = Path.Combine(Path.GetTempPath(), $"helivms-api-lic-{Guid.NewGuid():N}.db");
 
+    /// <summary>
+    /// 指向一個不存在的授權檔，確保測試不會讀到開發機上真正的授權。
+    /// </summary>
+    /// <remarks>
+    /// 少了這行，「未匯入授權」的情境會讀 <c>%LOCALAPPDATA%\HeliVMS\license.lic</c>。
+    /// CI 上沒有該檔所以綠，匯入過授權的開發機會紅，而失敗訊息（<c>Valid</c> 對
+    /// <c>NotPresent</c>）看起來像授權邏輯壞掉，實際上只是測試不自足。
+    /// </remarks>
+    public string LicensePath { get; } = Path.Combine(Path.GetTempPath(), $"helivms-api-lic-absent-{Guid.NewGuid():N}.lic");
+
     /// <summary>啟動前要匯入的授權功能旗標；null 表示不匯入任何授權。</summary>
     public string[]? Features { get; set; }
 
@@ -61,6 +72,7 @@ public sealed class LicensedApiFactory : WebApplicationFactory<Program>
     {
         builder.UseSetting("HELIVMS_DB", DbPath);
         builder.UseSetting("HELIVMS_LICENSE_PUBLIC_KEY", TestLicenseSeeder.PublicPem);
+        builder.UseSetting("HELIVMS_LICENSE", LicensePath);
         Seed();
     }
 
@@ -372,17 +384,28 @@ public class LicenseApiTests
     public async Task LicenseStatus_ExpiringSoonCarriesServerSideNotice()
     {
         // 續期提醒的文案由 Storage 端算（M211），前端不重寫一份。
+        //
+        // 到期日必須相對真實時間算：/api/license 是用 UtcNow 判斷的，LicensedApiFactory
+        // 的 NowUtc 只影響種子資料（first_seen／max_seen）。這裡先前寫死 2026-10-05，
+        // 日子一過就變成 Expired 而紅燈，而且與任何程式碼改動都無關——只會讓人誤以為
+        // 剛剛弄壞了授權驗證。寫死「未來的日期」在測試裡就是定時炸彈。
+        var now = DateTime.UtcNow;
+        var expires = new DateTime(now.Year, now.Month, now.Day, 0, 0, 0, DateTimeKind.Utc).AddDays(5);
+
         using var factory = new LicensedApiFactory
         {
             Features = ["core", "gis"],
-            ExpiresUtc = new DateTime(2026, 10, 5, 0, 0, 0, DateTimeKind.Utc),
+            NowUtc = now,
+            ExpiresUtc = expires,
         };
 
         var (status, body) = await Get(factory, "/api/license");
 
         Assert.Equal(HttpStatusCode.OK, status);
         Assert.Equal("Valid", body.GetProperty("decision").GetString());
-        Assert.Equal("2026-10-05T00:00:00Z", body.GetProperty("expiresUtc").GetString());
+        Assert.Equal(
+            expires.ToString("yyyy-MM-ddTHH:mm:ssZ", CultureInfo.InvariantCulture),
+            body.GetProperty("expiresUtc").GetString());
         Assert.Contains("到期", body.GetProperty("expiryMessage").GetString()!);
     }
 

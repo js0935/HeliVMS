@@ -44,6 +44,20 @@ public class RecordingGateTests : IDisposable
         }
     }
 
+    /// <summary>建立 <paramref name="count"/> 個頻道，回傳其 id（由 1 起遞增）。</summary>
+    /// <remarks>授權改以「建立順序排名」判定後，超限測試必須先讓頻道真的存在於 DB，否則排名一律是 0。</remarks>
+    private int[] AddChannels(int count)
+    {
+        var repo = new ChannelRepository(_store);
+        var ids = new int[count];
+        for (var i = 0; i < count; i++)
+        {
+            ids[i] = repo.Add($"頻道{i + 1}", $"rtsp://127.0.0.1:8554/ch{i + 1}");
+        }
+
+        return ids;
+    }
+
     [Fact]
     public void NoLicense_BlocksRecording()
     {
@@ -71,6 +85,7 @@ public class RecordingGateTests : IDisposable
     public void BeyondCameraLimit_BlocksWithMessageAndEventAudit()
     {
         Apply(cameras: 4, features: ["core", "ai"]);
+        AddChannels(5);
 
         var gate = _service.CheckRecording(5, _now, RecordingGateSources.Manual);
 
@@ -89,13 +104,40 @@ public class RecordingGateTests : IDisposable
     }
 
     [Fact]
-    public void CameraLimit_UsesChannelIdNotRecordingCount()
+    public void CameraLimit_UsesCreationRankNotRawChannelId()
     {
-        // 刪掉中間的頻道不應讓後面的頻道獲得資格：判定只看 channelId 與上限。
+        // 授權以「建立順序排名」判定，不是原始 channelId 比大小。
         Apply(cameras: 4, features: ["core", "ai"]);
+        AddChannels(5); // id 1..5
 
         Assert.True(_service.CheckRecording(4, _now, RecordingGateSources.Schedule).Allowed);
-        Assert.False(_service.CheckRecording(6, _now, RecordingGateSources.Schedule).Allowed);
+        Assert.False(_service.CheckRecording(5, _now, RecordingGateSources.Schedule).Allowed);
+    }
+
+    [Fact]
+    public void CameraLimit_AllowsNewChannelWhoseAutoIncrementIdExceedsMaxCameras()
+    {
+        // 迴歸（實際症狀）：反覆新增／刪除會讓 AUTOINCREMENT 的 id 衝到遠超過授權路數，
+        // 例如只剩 2 台攝影機、id 卻是 70、71。舊判定直接比 id，把合法的第 70 號頻道
+        // 誤擋成「超出授權範圍」。以排名判定時，兩台都應可錄影。
+        Apply(cameras: 4, features: ["core", "ai"]);
+        var repo = new ChannelRepository(_store);
+        for (var i = 0; i < 69; i++)
+        {
+            repo.Add($"暫存{i + 1}", $"rtsp://127.0.0.1:8554/tmp{i + 1}");
+        }
+
+        foreach (var ch in repo.List())
+        {
+            repo.Delete(ch.Id);
+        }
+
+        var ch70 = repo.Add("車道 1", "rtsp://127.0.0.1:8554/ch70");
+        var ch71 = repo.Add("車道 2", "rtsp://127.0.0.1:8554/ch71");
+
+        Assert.Equal(70, ch70);
+        Assert.True(_service.CheckRecording(ch70, _now, RecordingGateSources.Schedule).Allowed);
+        Assert.True(_service.CheckRecording(ch71, _now, RecordingGateSources.Schedule).Allowed);
     }
 
     [Fact]
@@ -196,9 +238,10 @@ public class RecordingGateTests : IDisposable
     public void Rejection_DifferentChannelsAuditedSeparately()
     {
         Apply(cameras: 4, features: ["core", "ai"]);
+        AddChannels(6); // id 1..6：第 5、6 號排名 4、5，皆超出上限
 
         _service.CheckRecording(5, _now, RecordingGateSources.Schedule);
-        _service.CheckRecording(ExpiredChannel, _now, RecordingGateSources.Schedule);
+        _service.CheckRecording(6, _now, RecordingGateSources.Schedule);
 
         Assert.Equal(2, _audit.List(new AuditLogQuery { Action = "license.recording_blocked" }).Count);
     }

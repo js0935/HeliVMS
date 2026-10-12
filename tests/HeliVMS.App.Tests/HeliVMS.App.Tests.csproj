@@ -23,6 +23,7 @@
          契約以原始碼斷言（比照 Web 端 app.security/a11y.test.js 的既有做法），
          這樣測試不需要 WPF 執行期，也不必真的開視窗。 -->
     <ProjectReference Include="..\..\src\HeliVMS.Licensing\HeliVMS.Licensing.csproj" />
+    <ProjectReference Include="..\..\src\HeliVMS.Shared\HeliVMS.Shared.csproj" />
     <ProjectReference Include="..\..\src\HeliVMS.Storage\HeliVMS.Storage.csproj" />
   </ItemGroup>
 

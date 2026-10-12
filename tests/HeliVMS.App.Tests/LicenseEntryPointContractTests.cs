@@ -37,15 +37,13 @@ public sealed class LicenseEntryPointContractTests
     /// <summary>受旗標控制的按鈕／開關：可見性綁的旗標必須等於 XAML 接線到的 handler 所擋的旗標。</summary>
     private static readonly Gate[] Buttons =
     [
-        new("MainWindow", "ScheduleButton", nameof(LicenseFeatures.Schedule), "OnScheduleClicked"),
-        new("MainWindow", "PatrolButton", nameof(LicenseFeatures.Schedule), "OnPatrolClicked"),
-        new("MainWindow", "DetectionButton", nameof(LicenseFeatures.AiL1), "OnDetectionClicked"),
-        new("MainWindow", "AudioButton", nameof(LicenseFeatures.Ai), "OnAudioClicked"),
         new("MainWindow", "MapButton", nameof(LicenseFeatures.Gis), "OnMapClicked"),
-        new("MainWindow", "IoButton", nameof(LicenseFeatures.Gis), "OnIoClicked"),
         new("MainWindow", "AiToggle", nameof(LicenseFeatures.Ai), "OnAiToggleChanged"),
         new("SettingsWindow", "LaunchScheduleButton", nameof(LicenseFeatures.Schedule), "OnLaunchScheduleClicked"),
         new("SettingsWindow", "LaunchDetectionButton", nameof(LicenseFeatures.AiL1), "OnLaunchDetectionClicked"),
+        new("SettingsWindow", "PatrolButton", nameof(LicenseFeatures.Schedule), "OnPatrolClicked"),
+        new("SettingsWindow", "AudioButton", nameof(LicenseFeatures.Ai), "OnAudioClicked"),
+        new("SettingsWindow", "IoButton", nameof(LicenseFeatures.Gis), "OnIoClicked"),
         new("SettingsWindow", "TamperEnabledBox", nameof(LicenseFeatures.Ai), "OnTamperToggled"),
         new("SettingsWindow", "ShareApplyButton", nameof(LicenseFeatures.Remote), "OnApplyShareClicked"),
         new("ShareWindow", "ShareCreateButton", nameof(LicenseFeatures.Remote), "OnCreateClicked"),
@@ -77,11 +75,11 @@ public sealed class LicenseEntryPointContractTests
     /// <summary>能力 →（遠端路徑前綴、桌面入口旗標）。桌面旗標可為遠端旗標的「更嚴版本」。</summary>
     private static readonly Capability[] Capabilities =
     [
-        new("/api/recording/schedules", "ScheduleButton", nameof(LicenseFeatures.Schedule)),
+        new("/api/recording/schedules", "LaunchScheduleButton", nameof(LicenseFeatures.Schedule)),
         new("/api/patrols", "PatrolButton", nameof(LicenseFeatures.Schedule)),
         new("/api/shares", "ShareCreateButton", nameof(LicenseFeatures.Remote)),
         new("/api/auth/providers", "EnterpriseSection", nameof(LicenseFeatures.AdSso)),
-        new("/api/detections", "DetectionButton", nameof(LicenseFeatures.AiL1)),
+        new("/api/detections", "LaunchDetectionButton", nameof(LicenseFeatures.AiL1)),
         new("/api/audio", "AudioButton", nameof(LicenseFeatures.Ai)),
     ];
 

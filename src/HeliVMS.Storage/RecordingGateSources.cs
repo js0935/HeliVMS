@@ -8,4 +8,7 @@ public static class RecordingGateSources
 
     /// <summary>排程器依 recording_schedule 啟動。</summary>
     public const string Schedule = "schedule";
+
+    /// <summary>頻道設為全時錄影（recording_mode=0），不需要任何排程。</summary>
+    public const string Always = "always";
 }

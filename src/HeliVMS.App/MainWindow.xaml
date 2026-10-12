@@ -1,18 +1,54 @@
-﻿<Window x:Class="HeliVMS.App.MainWindow"
+<Window x:Class="HeliVMS.App.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:local="clr-namespace:HeliVMS.App"
         mc:Ignorable="d"
-        Title="HeliVMS"
+        Title=""
         Width="1280" Height="800"
         MinWidth="1024" MinHeight="640"
+        WindowState="Maximized"
+        WindowStyle="None"
+        ResizeMode="NoResize"
         WindowStartupLocation="CenterScreen"
         Background="{StaticResource Brand.BgDeep}"
         d:DesignHeight="800" d:DesignWidth="1280"
         PreviewKeyDown="OnPreviewKeyDown"
         Closed="OnWindowClosed">
+
+    <Window.Resources>
+        <!-- Consistent styles for the left rail of the main screen: section headers,
+             field labels and tool buttons. Previously each button had its own inline
+             background, which looked like a paint palette; they are now collapsed into
+             local styles, and only primary / dangerous actions keep color emphasis. -->
+        <Style x:Key="SectionHeader" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{StaticResource Brand.TextDim}" />
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Margin" Value="0,16,0,6" />
+        </Style>
+        <Style x:Key="FieldLabel" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{StaticResource Brand.TextDim}" />
+            <Setter Property="FontSize" Value="11" />
+            <Setter Property="Margin" Value="0,8,0,4" />
+        </Style>
+        <Style x:Key="ToolButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+            <Setter Property="Padding" Value="8,4" />
+            <Setter Property="Margin" Value="0,0,6,6" />
+            <Setter Property="MinWidth" Value="64" />
+            <Setter Property="FontSize" Value="12" />
+        </Style>
+        <Style x:Key="DangerButton" TargetType="Button" BasedOn="{StaticResource ToolButton}">
+            <Setter Property="Background" Value="#8A3C2E" />
+            <Setter Property="BorderBrush" Value="#6A2E24" />
+        </Style>
+        <Style x:Key="SubHeader" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{StaticResource Brand.TextDim}" />
+            <Setter Property="FontSize" Value="11" />
+            <Setter Property="Margin" Value="0,10,0,4" />
+        </Style>
+    </Window.Resources>
 
     <Grid>
         <Grid.RowDefinitions>
@@ -22,7 +58,7 @@
         <RowDefinition Height="Auto" />
     </Grid.RowDefinitions>
 
-        <!-- 頂欄 -->
+        <!-- Top bar -->
         <Border Grid.Row="0" Background="{StaticResource Brand.BgPanel}" Padding="12,8" BorderBrush="#1F3A5F" BorderThickness="0,0,0,1">
             <Grid>
                 <Grid.ColumnDefinitions>
@@ -34,17 +70,78 @@
                 </Grid.ColumnDefinitions>
                 <Image x:Name="HeaderLogo" Grid.Column="0" Width="20" Height="20" VerticalAlignment="Center" Margin="0,0,8,0" />
                 <TextBlock Grid.Column="1" Text="HeliVMS" Foreground="{StaticResource Brand.TextPrimary}" FontSize="15" FontWeight="SemiBold" VerticalAlignment="Center" />
-                <CheckBox x:Name="AiToggle" Grid.Column="2" Content="AI 疊加" Foreground="White" VerticalAlignment="Center" AutomationProperties.AutomationId="AiToggle" ToolTip="切換 AI 疊加顯示"
+                <CheckBox x:Name="AiToggle" Grid.Column="2" Content="" Foreground="White" VerticalAlignment="Center" AutomationProperties.AutomationId="AiToggle" ToolTip=""
                           Margin="28,0,0,0" Checked="OnAiToggleChanged" Unchecked="OnAiToggleChanged"/>
-                <Button Grid.Column="4" x:Name="HeaderSettingsButton" AutomationProperties.AutomationId="HeaderSettingsButton"
-                        Content="設定" ToolTip="設定中心（存檔路徑、裝置憑證、AI、錄影、全域選項）[F2]" Click="OnSettingsClicked"
-                        HorizontalAlignment="Right" VerticalAlignment="Center" Padding="12,4"
-                        Foreground="White" Background="#2660AA" BorderThickness="0" />
+                <!-- Split-layout selector lives in the top bar so the monitor wall gets the full
+                     height of the content row; the status/hint line shares the same line. -->
+                <Grid Grid.Column="3" Margin="28,0,24,0" VerticalAlignment="Center">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                        <TextBlock x:Name="LayoutHeader" Style="{StaticResource SectionHeader}" Text=""
+                                   Margin="0,0,8,0" VerticalAlignment="Center" />
+                        <ComboBox x:Name="LayoutCombo" AutomationProperties.AutomationId="LayoutCombo"
+                                  SelectedIndex="0" SelectionChanged="OnLayoutChanged"
+                                  Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="8,4">
+                            <ComboBoxItem x:Name="LayoutItemSingle" Content="" />
+                            <ComboBoxItem x:Name="LayoutItem4" Content="" />
+                            <ComboBoxItem x:Name="LayoutItem6" Content="" />
+                            <ComboBoxItem x:Name="LayoutItem9" Content="" />
+                            <ComboBoxItem x:Name="LayoutItem12" Content="" />
+                            <ComboBoxItem x:Name="LayoutItem16" Content="" />
+                            <ComboBoxItem x:Name="LayoutItem20" Content="" />
+                            <ComboBoxItem x:Name="LayoutItem25" Content="" />
+                            <ComboBoxItem x:Name="LayoutItem30" Content="" />
+                            <ComboBoxItem x:Name="LayoutItem36" Content="" />
+                            <ComboBoxItem x:Name="LayoutItem42" Content="" />
+                            <ComboBoxItem x:Name="LayoutItem56" Content="" />
+                            <ComboBoxItem x:Name="LayoutItem64" Content="" />
+                            <!-- Undo the last camera reorder. Lives in the layout menu so "restore the
+                                 order" sits with the control that changes the wall; disabled when there
+                                 is nothing to restore (see UpdateUndoCellOrderButton). -->
+                            <ComboBoxItem x:Name="LayoutItemUndo" AutomationProperties.AutomationId="LayoutItemUndo"
+                                          Content="" IsEnabled="False" />
+                        </ComboBox>
+                    </StackPanel>
+                    <TextBlock x:Name="HintText" Grid.Column="1" Margin="16,0,0,0" VerticalAlignment="Center"
+                               HorizontalAlignment="Right" TextTrimming="CharacterEllipsis"
+                               Foreground="{StaticResource Brand.TextDim}" FontSize="11" Text="" />
+                </Grid>
+                <StackPanel Grid.Column="4" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                    <!-- Monitor entry points (events / playback / map) live up here; every other feature button is in the settings center. -->
+                    <Button x:Name="HeaderEventButton" AutomationProperties.AutomationId="HeaderEventButton"
+                            Content="" ToolTip="" Click="OnEventClicked"
+                            VerticalAlignment="Center" Padding="12,4" Margin="0,0,8,0"
+                            Foreground="White" Background="#6A5A2E" BorderThickness="0" />
+                    <Button x:Name="HeaderPlaybackButton" AutomationProperties.AutomationId="HeaderPlaybackButton"
+                            Content="" ToolTip="" Click="OnPlaybackClicked"
+                            VerticalAlignment="Center" Padding="12,4" Margin="0,0,8,0"
+                            Foreground="White" Background="#2A5C8A" BorderThickness="0" />
+                    <Button x:Name="MapButton" AutomationProperties.AutomationId="MapButton"
+                            Content="" ToolTip="" Click="OnMapClicked"
+                            VerticalAlignment="Center" Padding="12,4" Margin="0,0,8,0"
+                            Foreground="White" Background="#2F6E5A" BorderThickness="0" />
+                    <Button x:Name="HeaderFullScreenButton" AutomationProperties.AutomationId="HeaderFullScreenButton"
+                            Content="" ToolTip="" Click="OnToggleFullScreenClicked"
+                            VerticalAlignment="Center" Padding="12,4" Margin="0,0,8,0"
+                            Foreground="White" Background="#2A4A73" BorderThickness="0" />
+                    <Button x:Name="HeaderSettingsButton" AutomationProperties.AutomationId="HeaderSettingsButton"
+                            Content="" ToolTip="" Click="OnSettingsClicked"
+                            VerticalAlignment="Center" Padding="12,4"
+                            Foreground="White" Background="#2660AA" BorderThickness="0" />
+                    <Button x:Name="HeaderExitButton" AutomationProperties.AutomationId="HeaderExitButton"
+                            Content="" ToolTip="" Click="OnExitClicked"
+                            VerticalAlignment="Center" Padding="12,4" Margin="8,0,0,0"
+                            Foreground="White" Background="#8A3C2E" BorderThickness="0" />
+                </StackPanel>
             </Grid>
         </Border>
 
-        <!-- 授權到期提醒浮條（M211／§19.4「到期前 14 天 UI 浮條提醒」）。預設 collapsed，
-             只在 Evaluate() 判定需要提醒時才顯示；未匯入授權不在此提示（設定中心已說明）。 -->
+        <!-- License expiry banner (M211 / section 19.4 "UI banner reminder 14 days before expiry").
+             Collapsed by default; only shown when Evaluate() decides a reminder is due. An
+             unimported license is not shown here (the settings center already explains it). -->
         <Border x:Name="LicenseBanner" Grid.Row="1" Visibility="Collapsed"
                 Background="#4A3A10" BorderBrush="#C89B3C" BorderThickness="0,0,0,1" Padding="12,6">
             <Grid>
@@ -53,261 +150,38 @@
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
                 <TextBlock x:Name="LicenseBannerText" Grid.Column="0" VerticalAlignment="Center"
-                           Foreground="#F5D78E" TextWrapping="Wrap" Text="授權即將到期"
+                           Foreground="#F5D78E" TextWrapping="Wrap" Text=""
                            AutomationProperties.AutomationId="LicenseBannerText" />
-                <Button Grid.Column="1" x:Name="LicenseBannerAction" Content="前往設定中心"
+                <Button Grid.Column="1" x:Name="LicenseBannerAction" Content=""
                         Click="OnLicenseBannerActionClicked" VerticalAlignment="Center" Margin="12,0,0,0"
                         Foreground="#F5D78E" Background="#6B5418" BorderThickness="0" Padding="12,4"
                         AutomationProperties.AutomationId="LicenseBannerAction"
-                        ToolTip="開啟設定中心匯入新授權" />
+                        ToolTip="" />
             </Grid>
         </Border>
 
-        <!-- 主區 -->
-        <Grid Grid.Row="2">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="260" />
-                <ColumnDefinition Width="*" />
-            </Grid.ColumnDefinitions>
+        <!-- Main area: the monitor wall fills the whole row. The split-layout selector and the
+             status/hint line now live in the top bar, leaving as much height as possible for the
+             video wall; the channel list and connect/record controls are gone (auto start). -->
+        <Grid Grid.Row="2" Margin="12">
+            <Border x:Name="MonitorArea" Background="#06090F" BorderBrush="#1F3A5F" BorderThickness="1"
+                    ClipToBounds="True" SizeChanged="OnMonitorAreaSizeChanged">
+                <Grid>
+                    <UniformGrid x:Name="CellGrid" HorizontalAlignment="Center" VerticalAlignment="Center">
+                    </UniformGrid>
 
-            <!-- 控制面板 -->
-            <Border Grid.Column="0" Background="{StaticResource Brand.BgPanel}" BorderBrush="#1F3A5F" BorderThickness="0,0,1,0">
-                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
-                              Padding="0">
-                    <StackPanel Margin="16" VerticalAlignment="Top">
-                    <TextBlock Text="佈局" Foreground="{StaticResource Brand.TextDim}" FontSize="12" Margin="0,0,0,6" />
-                    <ComboBox x:Name="LayoutCombo" AutomationProperties.AutomationId="LayoutCombo"
-                              SelectedIndex="0" SelectionChanged="OnLayoutChanged"
-                              Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="8,4">
-                        <ComboBoxItem Content="單一畫面" />
-                        <ComboBoxItem Content="2 × 2 四路" />
-                        <ComboBoxItem Content="3 × 3 九路" />
-                        <ComboBoxItem Content="4 × 4 十六路" />
-                    </ComboBox>
-
-                    <TextBlock Text="頻道" Foreground="{StaticResource Brand.TextDim}" FontSize="12" Margin="0,14,0,6" />
-                    <ComboBox x:Name="ChannelCombo" AutomationProperties.AutomationId="ChannelCombo" SelectedIndex="0"
-                              Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="8,4" />
-
-                    <TextBlock Text="串流位址" Foreground="{StaticResource Brand.TextDim}" FontSize="12" Margin="0,14,0,6" />
-                    <TextBox x:Name="UrlBox" AutomationProperties.AutomationId="UrlBox"
-                             Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"
-                             Padding="8,4" />
-
-                    <TextBlock Text="頻道管理" Foreground="{StaticResource Brand.TextDim}" FontSize="11" Margin="0,0,0,6" />
-                    <StackPanel Orientation="Horizontal" Margin="0,0,0,0">
-                        <TextBox x:Name="NameBox" AutomationProperties.AutomationId="NameBox" Width="80" ToolTip="頻道名稱"
-                                 Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="8,4" />
-                        <Button x:Name="AddChannelButton" AutomationProperties.AutomationId="AddChannelButton" Content="＋加入頻道" ToolTip="以輸入的串流位址與名稱加入頻道" Click="OnAddChannelClicked"
-                                Margin="6,0,0,0" Padding="8,4"
-                                Foreground="White" Background="#2A5C8A" BorderThickness="0" />
-                        <Button x:Name="OnvifButton" AutomationProperties.AutomationId="OnvifButton" Content="ONVIF 探索" ToolTip="探索區域網路上的 ONVIF 攝影機並加入" Click="OnOnvifClicked"
-                                Margin="6,0,0,0" Padding="8,4"
-                                Foreground="White" Background="#2A5C8A" BorderThickness="0" />
-                    </StackPanel>
-
-                    <TextBlock Text="監看與錄影" Foreground="{StaticResource Brand.TextDim}" FontSize="11" Margin="0,16,0,6" />
-                    <StackPanel Orientation="Horizontal" Margin="0,0,0,0">
-                        <Button x:Name="ConnectButton" AutomationProperties.AutomationId="ConnectButton"
-                                Content="連線" ToolTip="連線／中斷目前頻道的影像串流" Click="OnConnectClicked"
-                                Width="110" Padding="0,8" Margin="0,0,10,0"
-                                Foreground="White" Background="#2660AA" BorderThickness="0" />
-                        <Button x:Name="RecordButton" AutomationProperties.AutomationId="RecordButton" Content="錄影" ToolTip="開始／停止目前頻道的錄影" Click="OnRecordClicked"
-                                Width="100" Padding="0,8" IsEnabled="False"
-                                Foreground="White" Background="#8A3C2E" BorderThickness="0" />
-                        <Button x:Name="PlaybackButton" AutomationProperties.AutomationId="PlaybackButton" Content="回放" ToolTip="開啟回放視窗（檢視錄影）[F4]" Click="OnPlaybackClicked"
-                                Width="80" Padding="0,8" Margin="10,0,0,0"
-                                Foreground="White" Background="#2A5C8A" BorderThickness="0" />
-                        <Button x:Name="EventButton" AutomationProperties.AutomationId="EventButton" Content="事件" ToolTip="開啟事件中心 [F5]" Click="OnEventClicked"
-                                Width="80" Padding="0,8" Margin="6,0,0,0"
-                                Foreground="White" Background="#6A5A2E" BorderThickness="0" />
-                        <Button x:Name="ExportButton" AutomationProperties.AutomationId="ExportButton" Content="匯出" ToolTip="匯出目前頻道與時間範圍的錄影" Click="OnExportClicked"
-                                Width="60" Padding="0,8" Margin="6,0,0,0"
-                                Foreground="White" Background="#5A4A2E" BorderThickness="0" />
-                        <Button x:Name="ExportCenterButton" AutomationProperties.AutomationId="ExportCenterButton"
-                                Content="匯出中心" ToolTip="開啟匯出中心（批次匯出與進度管理）" Click="OnExportCenterClicked"
-                                Width="80" Padding="0,8" Margin="6,0,0,0"
-                                Foreground="White" Background="#3A6A5A" BorderThickness="0" />
-                        <Button x:Name="NotificationButton" AutomationProperties.AutomationId="NotificationButton"
-                                Content="通知" ToolTip="開啟通知日誌（含未確認事件）" Click="OnNotificationClicked"
-                                Width="60" Padding="0,8" Margin="6,0,0,0"
-                                Foreground="White" Background="#2A7F6E" BorderThickness="0" />
-                        <Button x:Name="ScheduleButton" AutomationProperties.AutomationId="ScheduleButton" Content="排程" ToolTip="設定錄影排程" Click="OnScheduleClicked"
-                                Width="60" Padding="0,8" Margin="6,0,0,0"
-                                Foreground="White" Background="#3A5A7A" BorderThickness="0" />
-                        <Button x:Name="DetectionButton" AutomationProperties.AutomationId="DetectionButton" Content="偵測" ToolTip="開啟 AI 偵測設定" Click="OnDetectionClicked"
-                                Width="60" Padding="0,8" Margin="6,0,0,0"
-                                Foreground="White" Background="#4A4A7A" BorderThickness="0" />
-                        <Button x:Name="SettingsButton" AutomationProperties.AutomationId="SettingsButton"
-                                Content="設定" ToolTip="開啟系統設定中心" Click="OnSettingsClicked"
-                                Width="60" Padding="0,8" Margin="6,0,0,0"
-                                Foreground="White" Background="#3A3A5A" BorderThickness="0" />
-                    </StackPanel>
-
-                    <TextBlock Text="工具與整合" Foreground="{StaticResource Brand.TextDim}" FontSize="11" Margin="0,16,0,6" />
-                    <StackPanel Orientation="Horizontal" Margin="0,0,0,0">
-                        <Button x:Name="AlarmButton" AutomationProperties.AutomationId="AlarmButton"
-                                Content="警報" ToolTip="開啟警報管理器 [F6]" Click="OnAlarmManagerClicked"
-                                Width="50" Padding="0,8" Margin="0,0,6,0"
-                                Foreground="White" Background="#7A3A5A" BorderThickness="0" />
-                        <Button x:Name="RedactionButton" AutomationProperties.AutomationId="RedactionButton"
-                                Content="遮蔽" ToolTip="影片遮蔽（隱私遮罩）" Click="OnRedactionClicked"
-                                Width="50" Padding="0,8" Margin="0,0,6,0"
-                                Foreground="White" Background="#6A4A2A" BorderThickness="0" />
-                        <Button x:Name="DewarpButton" AutomationProperties.AutomationId="DewarpButton"
-                                Content="矯正" ToolTip="魚眼鏡頭影片矯正" Click="OnDewarpClicked"
-                                Width="50" Padding="0,8" Margin="0,0,6,0"
-                                Foreground="White" Background="#2A5C8A" BorderThickness="0" />
-                        <Button x:Name="PtzButton" AutomationProperties.AutomationId="PtzButton"
-                                Content="PTZ" ToolTip="開啟雲台控制（方向／變焦／預設點）" Click="OnPtzClicked"
-                                Width="50" Padding="0,8" Margin="0,0,6,0"
-                                Foreground="White" Background="#5A4A8A" BorderThickness="0" />
-                        <Button x:Name="MapButton" AutomationProperties.AutomationId="MapButton"
-                                Content="地圖" ToolTip="開啟電子地圖（攝影機定位）" Click="OnMapClicked"
-                                Width="50" Padding="0,8"
-                                Foreground="White" Background="#2A7F6E" BorderThickness="0" />
-                        <Button x:Name="ReportsButton" AutomationProperties.AutomationId="ReportsButton"
-                                Content="報表" ToolTip="開啟統計報表" Click="OnReportsClicked"
-                                Width="50" Padding="0,8" Margin="6,0,0,0"
-                                Foreground="White" Background="#5A3A7A" BorderThickness="0" />
-                        <Button x:Name="RulesButton" AutomationProperties.AutomationId="RulesButton"
-                                Content="規則" ToolTip="編輯事件規則（觸發條件與動作）" Click="OnRulesClicked"
-                                Width="50" Padding="0,8" Margin="6,0,0,0"
-                                Foreground="White" Background="#3A5A7A" BorderThickness="0" />
-                        <Button x:Name="SynopsisButton" AutomationProperties.AutomationId="SynopsisButton"
-                                Content="摘要" ToolTip="影像摘要（依事件快速剪輯片段）" Click="OnSynopsisClicked"
-                                Width="50" Padding="0,8" Margin="6,0,0,0"
-                                Foreground="White" Background="#3A5A7A" BorderThickness="0" />
-                        <Button x:Name="LegalHoldButton" AutomationProperties.AutomationId="LegalHoldButton"
-                                Content="保存鎖定" ToolTip="保護錄影免於到期清除" Click="OnLegalHoldClicked"
-                                Width="70" Padding="0,8" Margin="6,0,0,0"
-                                Foreground="White" Background="#7A5A3A" BorderThickness="0" />
-                        <Button x:Name="AuditButton" AutomationProperties.AutomationId="AuditButton"
-                                Content="稽核" ToolTip="檢視稽核日誌（誰在何時對什麼做了什麼）" Click="OnAuditClicked"
-                                Width="50" Padding="0,8" Margin="6,0,0,0"
-                                Foreground="White" Background="#5A3A5A" BorderThickness="0" />
-                        <Button x:Name="SearchButton" AutomationProperties.AutomationId="SearchButton"
-                                Content="檢索" ToolTip="跨來源法證檢索（警報／門禁／POS／邊緣 AI）" Click="OnSearchClicked"
-                                Width="50" Padding="0,8" Margin="6,0,0,0"
-                                Foreground="White" Background="#2A5C7A" BorderThickness="0" />
-                        <Button x:Name="SystemHealthButton" AutomationProperties.AutomationId="SystemHealthButton"
-                                Content="健康" ToolTip="系統健康（記憶體／CPU／磁碟）" Click="OnSystemHealthClicked"
-                                Width="50" Padding="0,8" Margin="6,0,0,0"
-                                Foreground="White" Background="#2A5C5A" BorderThickness="0" />
-                        <Button x:Name="SmartwallButton" AutomationProperties.AutomationId="SmartwallButton"
-                                Content="智慧牆" ToolTip="智慧牆版面編輯與警報牆" Click="OnSmartwallClicked"
-                                Width="62" Padding="0,8" Margin="6,0,0,0"
-                                Foreground="White" Background="#4A3A6A" BorderThickness="0" />
-                        <Button x:Name="PosButton" AutomationProperties.AutomationId="PosButton"
-                                Content="POS" ToolTip="POS 交易匯入／查詢／對帳" Click="OnPosClicked"
-                                Width="46" Padding="0,8" Margin="6,0,0,0"
-                                Foreground="White" Background="#6A4A2A" BorderThickness="0" />
-                        <Button x:Name="EdgeBackfillButton" AutomationProperties.AutomationId="EdgeBackfillButton"
-                                Content="補抓" ToolTip="邊緣 SD 側錄回補抓與回灌" Click="OnEdgeBackfillClicked"
-                                Width="46" Padding="0,8" Margin="6,0,0,0"
-                                Foreground="White" Background="#2A6A5A" BorderThickness="0" />
-                        <Button x:Name="PatrolButton" AutomationProperties.AutomationId="PatrolButton"
-                                Content="巡航" ToolTip="設定雲台巡航排程" Click="OnPatrolClicked"
-                                Width="56" Padding="0,8" Margin="6,0,0,0"
-                                Foreground="White" Background="#2A6A9A" BorderThickness="0" />
-                        <Button x:Name="IoButton" AutomationProperties.AutomationId="IoButton"
-                                Content="感測IO" ToolTip="設定感測器／輸出點並即時操作" Click="OnIoClicked"
-                                Width="64" Padding="0,8" Margin="6,0,0,0"
-                                Foreground="White" Background="#3A5A2A" BorderThickness="0" />
-                        <Button x:Name="StreamButton" AutomationProperties.AutomationId="StreamButton"
-                                Content="切流" ToolTip="主／副碼流切換" Click="OnStreamClicked"
-                                Width="56" Padding="0,8" Margin="6,0,0,0"
-                                Foreground="White" Background="#5A3A6A" BorderThickness="0" />
-                        <Button x:Name="AudioButton" AutomationProperties.AutomationId="AudioButton"
-                                Content="音訊" ToolTip="音訊測試與音訊感測設定" Click="OnAudioClicked"
-                                Width="56" Padding="0,8" Margin="6,0,0,0"
-                                Foreground="White" Background="#6A5A2A" BorderThickness="0" />
-                        <Button x:Name="FailoverButton" AutomationProperties.AutomationId="FailoverButton"
-                                Content="容錯" ToolTip="叢集容錯備援設定" Click="OnFailoverClicked"
-                                Width="56" Padding="0,8" Margin="6,0,0,0"
-                                Foreground="White" Background="#3A3A6A" BorderThickness="0" />
-                    </StackPanel>
-
-                    <TextBlock x:Name="HintText" TextWrapping="Wrap"
-                               Foreground="{StaticResource Brand.TextDim}" FontSize="11" Margin="0,18,0,0"
-                               Text="尚未加入頻道。可按「ONVIF 探索」自動搜尋設備，或輸入串流位址與名稱後按「＋加入頻道」；連線後即可監看與錄影。" />
-                    </StackPanel>
-                </ScrollViewer>
+                    <Border x:Name="RecBadge" HorizontalAlignment="Right" VerticalAlignment="Top"
+                            Margin="10" Padding="10,4" CornerRadius="3" Background="#B0352A" Visibility="Collapsed">
+                        <StackPanel Orientation="Horizontal">
+                            <Ellipse Width="10" Height="10" Fill="White" Margin="0,0,6,0" VerticalAlignment="Center" />
+                            <TextBlock Text="REC" Foreground="White" FontSize="12" FontWeight="Bold" />
+                        </StackPanel>
+                    </Border>
+                </Grid>
             </Border>
-
-            <!-- 監看區 -->
-            <Grid Grid.Column="1" Margin="12">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="300"/>
-                </Grid.ColumnDefinitions>
-                <Border Background="#06090F" BorderBrush="#1F3A5F" BorderThickness="1">
-                    <Grid>
-                        <UniformGrid x:Name="CellGrid">
-                        </UniformGrid>
-
-                        <Border x:Name="RecBadge" HorizontalAlignment="Right" VerticalAlignment="Top"
-                                Margin="10" Padding="10,4" CornerRadius="3" Background="#B0352A" Visibility="Collapsed">
-                            <StackPanel Orientation="Horizontal">
-                                <Ellipse Width="10" Height="10" Fill="White" Margin="0,0,6,0" VerticalAlignment="Center" />
-                                <TextBlock Text="REC" Foreground="White" FontSize="12" FontWeight="Bold" />
-                            </StackPanel>
-                        </Border>
-                    </Grid>
-                </Border>
-
-                <!-- 頻道總覽側欄 -->
-                <Border Grid.Column="1" Background="#0F1D2E" BorderBrush="#1F3A5F" BorderThickness="1,1,0,1" Margin="12,0,0,0">
-                    <DockPanel Margin="8">
-                        <TextBlock DockPanel.Dock="Top" Text="頻道總覽" AutomationProperties.Name="頻道總覽"
-                                   Foreground="{StaticResource Brand.TextDim}"
-                                   FontSize="11" Margin="2,0,0,6"/>
-                        <TextBlock x:Name="OverviewHint" DockPanel.Dock="Bottom" Text="點選格子定位頻道 · 點列反選畫面格"
-                                   Foreground="{StaticResource Brand.TextDim}" FontSize="10" Margin="2,6,0,0"
-                                   TextWrapping="Wrap"/>
-                        <ListView x:Name="OverviewList" AutomationProperties.AutomationId="OverviewList"
-                                  SelectionChanged="OnOverviewSelection"
-                                  Background="Transparent" BorderThickness="0" Foreground="White">
-                            <ListView.View>
-                                <GridView>
-                                    <GridViewColumn Header="頻道" Width="100">
-                                        <GridViewColumn.CellTemplate>
-                                            <DataTemplate>
-                                                <TextBlock Text="{Binding CellLabel}" FontSize="12"/>
-                                            </DataTemplate>
-                                        </GridViewColumn.CellTemplate>
-                                    </GridViewColumn>
-                                    <GridViewColumn Header="狀態" Width="86">
-                                        <GridViewColumn.CellTemplate>
-                                            <DataTemplate>
-                                                <TextBlock Text="{Binding StateLabel}" FontSize="11"
-                                                           Foreground="{Binding StateBrush}"/>
-                                            </DataTemplate>
-                                        </GridViewColumn.CellTemplate>
-                                    </GridViewColumn>
-                                    <GridViewColumn Header="REC" Width="38">
-                                        <GridViewColumn.CellTemplate>
-                                            <DataTemplate>
-                                                <TextBlock Text="{Binding RecLabel}" FontSize="11" Foreground="#FF6A5A"/>
-                                            </DataTemplate>
-                                        </GridViewColumn.CellTemplate>
-                                    </GridViewColumn>
-                                    <GridViewColumn Header="AI">
-                                        <GridViewColumn.CellTemplate>
-                                            <DataTemplate>
-                                                <TextBlock Text="{Binding AiLabel}" FontSize="11" Foreground="#AAB8C8"/>
-                                            </DataTemplate>
-                                        </GridViewColumn.CellTemplate>
-                                    </GridViewColumn>
-                                </GridView>
-                            </ListView.View>
-                        </ListView>
-                    </DockPanel>
-                </Border>
-            </Grid>
         </Grid>
 
-        <!-- 底欄：即時警報列＋狀態＋未確認徽章 -->
+        <!-- Bottom bar: live alert line + status + unacknowledged badge -->
         <Border Grid.Row="3" Background="{StaticResource Brand.BgPanel}" Padding="12,6" BorderBrush="#1F3A5F" BorderThickness="0,1,0,0">
             <Grid>
                 <Grid.ColumnDefinitions>
@@ -317,14 +191,29 @@
                 <TextBlock x:Name="AlertText" Foreground="{StaticResource Brand.TextDim}" FontSize="12"
                            VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
                            MouseLeftButtonUp="OnAlertTextClicked" Cursor="Hand"
-                           Text="（即時警報：AI 偵測／離線／重連）"/>
+                           Text="" />
                 <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                    <!-- Notification backlog: hidden normally, shown persistently when the outbound
+                         channel backs up. Without this indicator a dead webhook just silently piles
+                         notifications up in memory, and the operator cannot tell "it never sent". -->
+                    <Border x:Name="NotifyBacklogBadge" Background="#7A5A1E" CornerRadius="3"
+                            Padding="8,2" Margin="0,0,8,0" Visibility="Collapsed"
+                            Cursor="Hand" MouseLeftButtonUp="OnNotifyBacklogClicked"
+                            ToolTip="">
+                        <TextBlock x:Name="NotifyBacklogText" Foreground="White" FontSize="11" Text=""/>
+                    </Border>
                     <Border x:Name="UnackBadge" Background="#6A2E2E" CornerRadius="3" Padding="8,2" Visibility="Collapsed"
-                        Cursor="Hand" MouseLeftButtonUp="OnUnackBadgeClicked" ToolTip="點擊開啟事件中心（僅未確認）">
+                        Cursor="Hand" MouseLeftButtonUp="OnUnackBadgeClicked" ToolTip="">
                         <TextBlock x:Name="UnackText" Foreground="White" FontSize="11" Text=""/>
                     </Border>
-                    <TextBlock x:Name="StatusText" Text="正在驗證授權…" Foreground="{StaticResource Brand.TextDim}"
+                    <TextBlock x:Name="StatusText" Text="" Foreground="{StaticResource Brand.TextDim}"
                                FontSize="12" Margin="10,0,0,0"/>
+                    <!-- Current date/time: updated by _uiTimer (every second); monospace avoids the
+                         whole row shifting when the seconds tick. -->
+                    <TextBlock x:Name="ClockText" AutomationProperties.AutomationId="ClockText"
+                               Foreground="{StaticResource Brand.TextPrimary}"
+                               FontFamily="Consolas" FontSize="12" VerticalAlignment="Center"
+                               Margin="12,0,0,0" Text=""/>
                 </StackPanel>
             </Grid>
         </Border>

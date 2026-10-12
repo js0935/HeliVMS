@@ -31,12 +31,13 @@ public partial class StreamSwitchWindow : Window
         // 有管理器就共用它的切流狀態與實際連線；否則退化成視窗內自建，但至少從資料庫恢復。
         _switcher = manager?.Switcher ?? CreateStandaloneSwitcher();
         InitializeComponent();
+        ApplyI18n();
 
         StreamStateList.ItemsSource = _rows;
 
         foreach (var c in _channels.List())
         {
-            StreamChannelCombo.Items.Add($"#{c.Id}（{c.Name}）");
+            StreamChannelCombo.Items.Add(string.Format(Localizer.T("Stream.ChannelLabel"), c.Id, c.Name));
             _bitrate[c.Id] = 10_000_000;
             _viewers[c.Id] = 2;
         }
@@ -47,6 +48,30 @@ public partial class StreamSwitchWindow : Window
         }
 
         RefreshViews();
+    }
+
+    /// <summary>
+    /// 套用目前語系到切流視窗的固定文字（M57 §14.7）。XAML 已無硬編中文，文字集中於此，
+    /// 由 WpfI18nContractTests 的棘輪釘住三語齊備。
+    /// </summary>
+    private void ApplyI18n()
+    {
+        Title = Localizer.T("Stream.Title");
+        DescriptionText.Text = Localizer.T("Stream.Description");
+        ChannelLabelText.Text = Localizer.T("Stream.Channel");
+        BitrateLabelText.Text = Localizer.T("Stream.Bitrate");
+        ViewersLabelText.Text = Localizer.T("Stream.Viewers");
+        HoldLabelText.Text = Localizer.T("Stream.Hold");
+        StreamBurstButton.Content = Localizer.T("Stream.Burst");
+        StreamBurstButton.ToolTip = Localizer.T("Stream.BurstTip");
+        StreamEvalButton.Content = Localizer.T("Stream.Eval");
+        StreamEvalButton.ToolTip = Localizer.T("Stream.EvalTip");
+        StreamApplyButton.Content = Localizer.T("Stream.Apply");
+        StreamApplyButton.ToolTip = Localizer.T("Stream.ApplyTip");
+        StreamColChannel.Header = Localizer.T("Stream.ColChannel");
+        StreamColCurrent.Header = Localizer.T("Stream.ColCurrent");
+        StreamColLastSwitch.Header = Localizer.T("Stream.ColLastSwitch");
+        StreamColDecision.Header = Localizer.T("Stream.ColDecision");
     }
 
     private StreamSwitcher CreateStandaloneSwitcher()
@@ -84,10 +109,10 @@ public partial class StreamSwitchWindow : Window
             var decision = _lastDecision.GetValueOrDefault(c.Id);
             var currentText = current == StreamKind.Main
                 ? "Main"
-                : string.IsNullOrWhiteSpace(c.SubStreamUrl) ? "Sub（無次碼流，實際用 Main）" : "Sub";
+                : string.IsNullOrWhiteSpace(c.SubStreamUrl) ? Localizer.T("Stream.SubNoSub") : "Sub";
             _rows.Add(new ChannelRow(
                 c.Id,
-                $"#{c.Id}（{c.Name}）",
+                string.Format(Localizer.T("Stream.ChannelLabel"), c.Id, c.Name),
                 currentText,
                 last is null ? "-" : last.Value.ToLocalTime().ToString("HH:mm:ss"),
                 decision?.NoChange == true ? "hold" : decision is null ? "-" : $"->{(decision.Target == StreamKind.Main ? "Main" : "Sub")}（{decision.Reason}）"));
@@ -99,7 +124,7 @@ public partial class StreamSwitchWindow : Window
         var id = SelectedId();
         if (id == 0)
         {
-            StreamDecisionText.Text = "請先選擇頻道。";
+            StreamDecisionText.Text = Localizer.T("Stream.SelectChannel");
             return;
         }
 
@@ -107,7 +132,7 @@ public partial class StreamSwitchWindow : Window
         var now = DateTime.UtcNow;
         var decision = _switcher.Evaluate(id, _bitrate[id], new[] { ("ai_intrusion", now) }, _viewers[id], now);
         _lastDecision[id] = decision;
-        StreamDecisionText.Text = $"已注入事件（次數 {_eventCount[id]}）。建議：{Describe(decision)}";
+        StreamDecisionText.Text = string.Format(Localizer.T("Stream.BurstResult"), _eventCount[id], Describe(decision));
         RefreshViews();
     }
 
@@ -116,7 +141,7 @@ public partial class StreamSwitchWindow : Window
         var id = SelectedId();
         if (id == 0)
         {
-            StreamDecisionText.Text = "請先選擇頻道。";
+            StreamDecisionText.Text = Localizer.T("Stream.SelectChannel");
             return;
         }
 
@@ -125,7 +150,7 @@ public partial class StreamSwitchWindow : Window
 
         var now = DateTime.UtcNow;
         _lastDecision[id] = _switcher.Evaluate(id, _bitrate[id], Array.Empty<(string, DateTime)>(), _viewers[id], now);
-        StreamDecisionText.Text = $"評估（主碼率 {_bitrate[id]}、收視 {_viewers[id]}）。建議：{Describe(_lastDecision[id])}";
+        StreamDecisionText.Text = string.Format(Localizer.T("Stream.EvalResult"), _bitrate[id], _viewers[id], Describe(_lastDecision[id]));
         RefreshViews();
     }
 
@@ -134,13 +159,13 @@ public partial class StreamSwitchWindow : Window
         var id = SelectedId();
         if (id == 0 || !_lastDecision.TryGetValue(id, out var decision) || decision.NoChange)
         {
-            StreamDecisionText.Text = "無可套用之建議（先「評估」且非維持）。";
+            StreamDecisionText.Text = Localizer.T("Stream.NoApply");
             return;
         }
 
         if (decision.Target == StreamKind.Sub && string.IsNullOrWhiteSpace(_channels.Get((int)id)?.SubStreamUrl))
         {
-            StreamDecisionText.Text = "此頻道未設定次碼流，無法切至 Sub。";
+            StreamDecisionText.Text = Localizer.T("Stream.NoSubStream");
             return;
         }
 
@@ -159,7 +184,7 @@ public partial class StreamSwitchWindow : Window
         }
         catch (Exception ex)
         {
-            StreamDecisionText.Text = $"切流失敗：{ex.Message}";
+            StreamDecisionText.Text = string.Format(Localizer.T("Stream.ApplyFailed"), ex.Message);
             return;
         }
 

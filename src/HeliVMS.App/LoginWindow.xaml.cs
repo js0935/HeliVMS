@@ -36,6 +36,27 @@ public partial class LoginWindow : Window
 
         Height = BaseHeight;
         Loaded += (_, _) => UsernameInput.Focus();
+        ApplyI18n();
+    }
+
+    /// <summary>
+    /// 套用目前語系到登入視窗的所有靜態文字（M57 §14.7）。XAML 刻意全部留空，文字一律經此指派，
+    /// 由 WpfI18nContractTests 的棘輪釘住三語齊備。
+    /// </summary>
+    private void ApplyI18n()
+    {
+        Title = Localizer.T("Login.Title");
+        HeadingText.Text = Localizer.T("Login.Heading");
+        SubtitleText.Text = Localizer.T("Login.Subtitle");
+        UsernameLabel.Text = Localizer.T("Login.Username");
+        PasswordLabel.Text = Localizer.T("Login.Password");
+        OidcHeadingText.Text = Localizer.T("Login.OidcHeading");
+        OidcTokenBox.ToolTip = Localizer.T("Login.OidcTokenTip");
+        OidcLoginButton.Content = Localizer.T("Login.OidcLogin");
+        LdapHeadingText.Text = Localizer.T("Login.LdapHeading");
+        LdapLoginButton.Content = Localizer.T("Login.LdapLogin");
+        CancelButton.Content = Localizer.T("Login.Cancel");
+        LoginButton.Content = Localizer.T("Login.Login");
     }
 
     /// <summary>ad 旗標的拒絕訊息；null 表示可放行（含未提供 store 的純本機登入模式）。</summary>
@@ -49,7 +70,7 @@ public partial class LoginWindow : Window
         var state = new LicenseService(_enterpriseStore).Evaluate(DateTime.UtcNow);
         return state.AllowsFeature(LicenseFeatures.AdSso)
             ? null
-            : state.FeatureDenialMessage(LicenseFeatures.AdSso) ?? "目前授權未包含企業登入。";
+            : state.FeatureDenialMessage(LicenseFeatures.AdSso) ?? Localizer.T("Login.AdNotLicensed");
     }
 
     private void LoadEnterpriseProviders()
@@ -90,7 +111,7 @@ public partial class LoginWindow : Window
         var username = UsernameInput.Text.Trim();
         if (username.Length == 0)
         {
-            LoginMessage.Text = "請輸入使用者名稱";
+            LoginMessage.Text = Localizer.T("Login.NeedUsername");
             return;
         }
 
@@ -118,14 +139,14 @@ public partial class LoginWindow : Window
 
         if (_enterprise is null || OidcProviderCombo.SelectedItem is not AuthProviderRecord provider)
         {
-            OidcMessage.Text = "未選擇企業身份提供者";
+            OidcMessage.Text = Localizer.T("Login.NoOidcProvider");
             return;
         }
 
         var token = OidcTokenBox.Text.Trim();
         if (token.Length == 0)
         {
-            OidcMessage.Text = "請貼上 ID Token";
+            OidcMessage.Text = Localizer.T("Login.NeedToken");
             return;
         }
 
@@ -153,21 +174,21 @@ public partial class LoginWindow : Window
 
         if (_enterprise is null || LdapProviderCombo.SelectedItem is not AuthProviderRecord provider)
         {
-            LdapMessage.Text = "未選擇 LDAP 提供者";
+            LdapMessage.Text = Localizer.T("Login.NoLdapProvider");
             return;
         }
 
         var username = UsernameInput.Text.Trim();
         if (username.Length == 0)
         {
-            LdapMessage.Text = "請輸入使用者名稱";
+            LdapMessage.Text = Localizer.T("Login.NeedUsername");
             return;
         }
 
         var password = PasswordInput.Password;
         if (password.Length == 0)
         {
-            LdapMessage.Text = "請輸入密碼";
+            LdapMessage.Text = Localizer.T("Login.NeedPassword");
             return;
         }
 

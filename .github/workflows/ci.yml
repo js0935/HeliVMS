@@ -74,6 +74,8 @@ jobs:
             'tests/HeliVMS.Rtc.Tests/HeliVMS.Rtc.Tests.csproj',
             # Recording：排程啟停決策（假的錄影工作單元，不需要 ffmpeg）。
             'tests/HeliVMS.Recording.Tests/HeliVMS.Recording.Tests.csproj',
+            # Shared：純函式（頻道排序／命名、格線配置、自啟動政策等），不碰 IO。
+            'tests/HeliVMS.Shared.Tests/HeliVMS.Shared.Tests.csproj',
             'tests/HeliVMS.Storage.Tests/HeliVMS.Storage.Tests.csproj'
           )
           foreach ($p in $projects) {

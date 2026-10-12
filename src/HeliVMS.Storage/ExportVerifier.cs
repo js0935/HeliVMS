@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Globalization;
 using System.Security.Cryptography;
+using HeliVMS.Shared;
 
 namespace HeliVMS.Storage;
 
@@ -51,7 +52,7 @@ public static class ExportVerifier
         {
             var psi = new ProcessStartInfo
             {
-                FileName = "ffprobe",
+                FileName = FfmpegLocator.Ffprobe,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
                 UseShellExecute = false,

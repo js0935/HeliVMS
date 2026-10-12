@@ -2,7 +2,7 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         AutomationProperties.AutomationId="ShareWindow"
-        Title="HeliVMS 外部安全共享"
+        Title=""
         Width="800" Height="640"
         WindowStartupLocation="CenterOwner"
         Background="#0B1622" Foreground="White">
@@ -16,78 +16,78 @@
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
-        <!-- 建立分享 -->
+        <!-- Create share -->
         <StackPanel Grid.Row="0">
-            <TextBlock Text="建立分享連結（到期／次數／密碼皆可選；連結供無帳號第三方下載）"
+            <TextBlock x:Name="DescriptionText" Text=""
                        Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
             <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
-                <TextBlock Text="資源路徑" VerticalAlignment="Center" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+                <TextBlock x:Name="PathLabelText" Text="" VerticalAlignment="Center" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
                 <TextBox x:Name="SharePathBox" AutomationProperties.AutomationId="SharePathBox"
                          Width="520" Margin="8,0,0,0" VerticalContentAlignment="Center"
                          Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
-                <Button x:Name="ShareBrowseButton" Content="瀏覽" Click="OnBrowseClicked" ToolTip="選擇分享工作目錄"
+                <Button x:Name="ShareBrowseButton" Content="" Click="OnBrowseClicked" ToolTip=""
                         Width="60" Margin="8,0,0,0" Padding="0,6"
                         Foreground="White" Background="#2A4A73" BorderThickness="0" AutomationProperties.AutomationId="ShareBrowseButton"/>
             </StackPanel>
 
             <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
-                <TextBlock Text="種類" VerticalAlignment="Center" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+                <TextBlock x:Name="KindLabelText" Text="" VerticalAlignment="Center" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
                 <ComboBox x:Name="ShareKindCombo" AutomationProperties.AutomationId="ShareKindCombo"
                           Width="110" Margin="8,0,0,0" Foreground="Black"/>
-                <TextBlock Text="標籤" VerticalAlignment="Center" Margin="12,0,0,0"
+                <TextBlock x:Name="LabelLabelText" Text="" VerticalAlignment="Center" Margin="12,0,0,0"
                            Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
                 <TextBox x:Name="ShareLabelBox" AutomationProperties.AutomationId="ShareLabelBox" Width="140" Margin="8,0,0,0" VerticalContentAlignment="Center"
                          Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
-                <TextBlock Text="到期(時;0=不限)" VerticalAlignment="Center" Margin="12,0,0,0"
+                <TextBlock x:Name="ExpireLabelText" Text="" VerticalAlignment="Center" Margin="12,0,0,0"
                            Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
                 <TextBox x:Name="ShareExpireBox" AutomationProperties.AutomationId="ShareExpireBox"
                          Width="70" Margin="8,0,0,0" VerticalContentAlignment="Center"
                          Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
-                <TextBlock Text="次數(0=不限)" VerticalAlignment="Center" Margin="12,0,0,0"
+                <TextBlock x:Name="MaxUsesLabelText" Text="" VerticalAlignment="Center" Margin="12,0,0,0"
                            Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
                 <TextBox x:Name="ShareMaxUsesBox" AutomationProperties.AutomationId="ShareMaxUsesBox" Width="60" Margin="8,0,0,0" VerticalContentAlignment="Center"
                          Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
-                <TextBlock Text="密碼" VerticalAlignment="Center" Margin="12,0,0,0"
+                <TextBlock x:Name="PasswordLabelText" Text="" VerticalAlignment="Center" Margin="12,0,0,0"
                            Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
                 <PasswordBox x:Name="SharePasswordBox" AutomationProperties.AutomationId="SharePasswordBox" Width="110" Margin="8,0,0,0" VerticalContentAlignment="Center"
-                             Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
-                <Button x:Name="ShareCreateButton" AutomationProperties.AutomationId="ShareCreateButton" ToolTip="建立分享並將連結複製到剪貼簿"
-                        Content="建立並複製連結" Click="OnCreateClicked"
-                        Margin="12,0,0,0" Padding="12,6" IsDefault="True"
+                         Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
+                <Button x:Name="ShareCreateButton" AutomationProperties.AutomationId="ShareCreateButton" ToolTip=""
+                        Content="" Click="OnCreateClicked"
+                        Width="110" Padding="0,6" Margin="12,0,0,0"
                         Foreground="White" Background="#2A5C8A" BorderThickness="0"/>
             </StackPanel>
         </StackPanel>
 
-        <!-- 連結清單 -->
-        <TextBlock Grid.Row="1" Text="現有分享連結" Foreground="{StaticResource Brand.TextDim}" FontSize="11" Margin="0,14,0,2"/>
+        <TextBlock x:Name="ListHeaderText" Grid.Row="1" Text="" Margin="0,10,0,0"
+                   Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
         <ListView Grid.Row="2" x:Name="ShareList" AutomationProperties.AutomationId="ShareList"
-                  Background="#0E1C30" BorderBrush="#2A4A73" Foreground="White">
+                  Margin="0,6,0,0" Background="#0E1D33" Foreground="White" BorderBrush="#1F3A5F">
             <ListView.View>
                 <GridView>
                     <GridViewColumn Header="ID" Width="44" DisplayMemberBinding="{Binding Id}"/>
-                    <GridViewColumn Header="摘要" Width="250" DisplayMemberBinding="{Binding Title}"/>
-                    <GridViewColumn Header="狀態" Width="150" DisplayMemberBinding="{Binding Detail}"/>
-                    <GridViewColumn Header="使用者" Width="110" DisplayMemberBinding="{Binding CreatedBy}"/>
+                    <GridViewColumn x:Name="ShareColTitle" Header="" Width="250" DisplayMemberBinding="{Binding Title}"/>
+                    <GridViewColumn x:Name="ShareColStatus" Header="" Width="150" DisplayMemberBinding="{Binding Detail}"/>
+                    <GridViewColumn x:Name="ShareColUser" Header="" Width="110" DisplayMemberBinding="{Binding CreatedBy}"/>
                 </GridView>
             </ListView.View>
         </ListView>
 
-        <!-- 動作列 -->
+        <!-- Action row -->
         <StackPanel Grid.Row="3" Orientation="Horizontal" Margin="0,10,0,0">
-            <Button x:Name="ShareRefreshButton" Content="刷新" Click="OnRefreshClicked" ToolTip="重新載入分享清單"
+            <Button x:Name="ShareRefreshButton" Content="" Click="OnRefreshClicked" ToolTip=""
                     Width="64" Padding="0,6" Foreground="White" Background="#2A4A73" BorderThickness="0" AutomationProperties.AutomationId="ShareRefreshButton"/>
-            <Button x:Name="ShareCopyButton" AutomationProperties.AutomationId="ShareCopyButton" ToolTip="複製所選分享的連結"
-                    Content="複製連結" Click="OnCopyClicked"
+            <Button x:Name="ShareCopyButton" AutomationProperties.AutomationId="ShareCopyButton" ToolTip=""
+                    Content="" Click="OnCopyClicked"
                     Width="80" Padding="0,6" Margin="8,0,0,0"
                     Foreground="White" Background="#2A5C8A" BorderThickness="0"/>
-            <Button x:Name="ShareRevokeButton" AutomationProperties.AutomationId="ShareRevokeButton" ToolTip="撤銷所選分享"
-                    Content="撤銷" Click="OnRevokeClicked"
+            <Button x:Name="ShareRevokeButton" AutomationProperties.AutomationId="ShareRevokeButton" ToolTip=""
+                    Content="" Click="OnRevokeClicked"
                     Width="64" Padding="0,6" Margin="8,0,0,0"
                     Foreground="White" Background="#8A5C2E" BorderThickness="0"/>
-            <Button x:Name="ShareDeleteButton" Content="刪除" Click="OnDeleteClicked" ToolTip="刪除所選分享"
+            <Button x:Name="ShareDeleteButton" Content="" Click="OnDeleteClicked" ToolTip=""
                     Width="64" Padding="0,6" Margin="8,0,0,0"
                     Foreground="White" Background="#8A3C2E" BorderThickness="0" AutomationProperties.AutomationId="ShareDeleteButton"/>
-            <Button x:Name="SharePurgeButton" Content="清除已過期" Click="OnPurgeClicked" ToolTip="清除已過期的分享"
+            <Button x:Name="SharePurgeButton" Content="" Click="OnPurgeClicked" ToolTip=""
                     Width="90" Padding="0,6" Margin="8,0,0,0"
                     Foreground="White" Background="#3A4A6A" BorderThickness="0" AutomationProperties.AutomationId="SharePurgeButton"/>
         </StackPanel>

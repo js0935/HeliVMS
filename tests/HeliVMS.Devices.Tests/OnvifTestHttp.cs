@@ -88,6 +88,43 @@ internal static class OnvifTestHttp
         return Wrap(XName.Get("Body", "http://www.w3.org/2003/05/soap-envelope"), body);
     }
 
+    /// <summary>GetServicesResponse（ONVIF 2.x）：列出各服務命名空間與 XAddr。</summary>
+    internal static string Services(params (string Namespace, string XAddr)[] services) => Wrap(
+        XName.Get("Body", "http://www.w3.org/2003/05/soap-envelope"),
+        new XElement(
+            XName.Get("GetServicesResponse", "http://www.onvif.org/ver10/device/wsdl"),
+            services.Select(s => new XElement(
+                XName.Get("Service", "http://www.onvif.org/ver10/device/wsdl"),
+                new XElement(XName.Get("Namespace", "http://www.onvif.org/ver10/device/wsdl"), s.Namespace),
+                new XElement(XName.Get("XAddr", "http://www.onvif.org/ver10/device/wsdl"), s.XAddr)))));
+
+    /// <summary>GetSystemDateAndTimeResponse（UTC）；用於 WS-Security 時鐘偏差校正測試。</summary>
+    internal static string SystemDateAndTime(DateTimeOffset utc)
+    {
+        const string schema = "http://www.onvif.org/ver10/schema";
+        XElement Element(string name, params object[] values) => new(XName.Get(name, schema), values);
+
+        var body = new XElement(
+            XName.Get("GetSystemDateAndTimeResponse", "http://www.onvif.org/ver10/device/wsdl"),
+            Element(
+                "SystemDateAndTime",
+                Element("DateTimeType", "Manual"),
+                Element(
+                    "UTCDateTime",
+                    Element(
+                        "Time",
+                        Element("Hour", utc.Hour),
+                        Element("Minute", utc.Minute),
+                        Element("Second", utc.Second)),
+                    Element(
+                        "Date",
+                        Element("Year", utc.Year),
+                        Element("Month", utc.Month),
+                        Element("Day", utc.Day)))));
+
+        return Wrap(XName.Get("Body", "http://www.w3.org/2003/05/soap-envelope"), body);
+    }
+
     internal static string Profiles(params (string Token, string Name, int Width, int Height, string Encoding, string SourceToken)[] profiles) => Wrap(
         XName.Get("Body", "http://www.w3.org/2003/05/soap-envelope"),
         new XElement(

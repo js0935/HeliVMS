@@ -14,6 +14,14 @@ public sealed record OnvifClientOptions
     /// <summary>認證模式；<see cref="OnvifAuthMode.Auto"/> 依設備回應自動切換（相容性最佳）。</summary>
     public OnvifAuthMode AuthMode { get; init; } = OnvifAuthMode.Auto;
 
+    /// <summary>
+    /// WS-Security 時間戳自動校正。部分廠牌（實測海康）在設備時鐘與主機相差過大時，
+    /// 會把正確帳密的 PasswordDigest 判為未授權（sender not authorized）。
+    /// 啟用後於首次 WS-Security 認證失敗時，先匿名查詢設備時間（GetSystemDateAndTime）
+    /// 量測偏差，偏差顯著時據以校正 UsernameToken 的 Created 時間戳再重試一次。
+    /// </summary>
+    public bool AutoClockSkew { get; init; } = true;
+
     /// <summary>可重試請求（Get 系列）之暫時性錯誤重試次數；PTZ 等動作預設不重試。</summary>
     public int RetryCount { get; init; } = 1;
 

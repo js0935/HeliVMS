@@ -5,7 +5,7 @@
         Width="1100" Height="640"
         WindowStartupLocation="CenterOwner"
         Background="#0B1622" Foreground="White"
-        Loaded="OnLoaded" Closing="OnClosing">
+        Loaded="OnLoaded">
 
     <Grid Margin="12">
         <Grid.RowDefinitions>
@@ -86,6 +86,7 @@
                     
                     <!-- grid view -->
                     <ListView x:Name="EventList" AutomationProperties.AutomationId="EventList" Grid.Row="1"
+                              SelectionMode="Extended"
                               SelectionChanged="OnEventSelected"
                               MouseDoubleClick="OnEventDoubleClick"
                               Background="Transparent" BorderThickness="0" Foreground="White">
@@ -146,6 +147,7 @@
                     
                     <!-- card view -->
                     <ListBox x:Name="CardList" Grid.Row="1" Visibility="Collapsed"
+                             SelectionMode="Extended"
                              Background="Transparent" BorderThickness="0" Foreground="White"
                              SelectionChanged="OnCardSelected" MouseDoubleClick="OnEventDoubleClick">
                         <ListBox.ItemTemplate>
@@ -216,8 +218,11 @@
                                TextTrimming="CharacterEllipsis" Text=""/>
 
                     <StackPanel Orientation="Horizontal" Grid.Row="4" Margin="8">
+                        <Button x:Name="SelectAllButton" AutomationProperties.AutomationId="SelectAllButton" ToolTip=""
+                                Content="" Click="OnSelectAllClicked" IsEnabled="False"
+                                Padding="10,4" Foreground="White" Background="#33506E" BorderThickness="0"/>
                         <Button x:Name="AckButton" Content="" Click="OnAckClicked" IsEnabled="False" ToolTip=""
-                                Padding="10,4" Foreground="White" Background="#2A5C8A" BorderThickness="0" AutomationProperties.AutomationId="AckButton"/>
+                                Padding="10,4" Margin="8,0,0,0" Foreground="White" Background="#2A5C8A" BorderThickness="0" AutomationProperties.AutomationId="AckButton"/>
                         <Button x:Name="UnackButton" Content="" Click="OnUnackClicked" IsEnabled="False" ToolTip=""
                                 Padding="10,4" Margin="8,0,0,0" Foreground="White" Background="#5A4A2A" BorderThickness="0" AutomationProperties.AutomationId="UnackButton"/>
                         <Button x:Name="PlaybackButton" Content="" Click="OnPlaybackClicked" IsEnabled="False" ToolTip=""

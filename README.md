@@ -42,7 +42,7 @@ HeliVMS.slnx
 │  ├─ HeliVMS.Decoder          回放解碼示範
 │  ├─ LicenseKeyGen(停用)      舊 HMAC 版，勿用
 │  └─ LicenseKeyGenUI(停用)    舊 RSA 版雛形
-└─ docs/  ARCHITECTURE.md（21 章藍圖）· BRAND.md（品牌規範）
+└─ docs/  ARCHITECTURE.md（21 章藍圖）· BRAND.md（品牌規範）· WEB.md（Web 主控台操作）
 ```
 
 ## 建置

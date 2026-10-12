@@ -48,6 +48,62 @@ public sealed class SegmentRecorder : ISegmentRecorder
     /// <summary>區段完成時觸發（已改名為正式檔且索引已回寫）。</summary>
     public event EventHandler<SegmentRecord>? SegmentCompleted;
 
+    /// <summary>
+    /// 連續失敗達 <see cref="FailureReportThreshold"/> 次時觸發一次。
+    ///
+    /// 存在的理由是「離線的攝影機看起來跟正常的一模一樣」：ffmpeg 連不上時
+    /// <see cref="IsRecording"/> 仍然是 true（背景迴圈在跑，只是每段都失敗），
+    /// 稽核裡也已經寫過 recording.start。使用者從稽核看是「有在錄」，
+    /// 磁碟上卻沒有檔案，沒有任何地方會說話。這種失效在無人值守的現場
+    /// 可以持續幾天沒人發現，所以它必須自己開口。
+    /// </summary>
+    public event EventHandler<RecordingStallInfo>? RecordingStalled;
+
+    /// <summary>
+    /// 曾經停滯、如今又成功錄回檔（參數為頻道 ID）。
+    /// </summary>
+    /// <remarks>
+    /// 沒有這條訊號，UI 上的「錄影異常」只能靠逾時猜測要不要清掉。但不能用逾時判斷：
+    /// 顯示串流（<c>ChannelSession.Client</c>）與錄影串流（<c>SegmentRecorder</c>）是兩條
+    /// 獨立連線，停滯時顯示畫面照常有幀、<see cref="IsRecording"/> 也仍是 true，
+    /// 任何「畫面有在動就算好了」的判斷都會立刻把警示清掉——正好在最該警示的時候。
+    /// 唯一可信的恢復證據是這裡真的寫出了一段。
+    /// </remarks>
+    public event EventHandler<int>? RecordingResumed;
+
+    /// <summary>連續失敗幾次後發出一次停滯通知。</summary>
+    public const int FailureReportThreshold = 3;
+
+    /// <summary>退避上限：離線的攝影機不可能靠更频繁重試就连上线。</summary>
+    public static readonly TimeSpan MaxRetryDelay = TimeSpan.FromMinutes(5);
+
+    /// <summary>首次失敗後的退避基準。</summary>
+    public static readonly TimeSpan BaseRetryDelay = TimeSpan.FromSeconds(5);
+
+    /// <summary>
+    /// 連續失敗的退避時間，指數成長到 <see cref="MaxRetryDelay"/> 為止。
+    ///
+    /// 固定 5 秒重試看起來很勤勞，實際後果是每次失敗都往 segments 表寫一筆
+    /// corrupt：一台拔掉網路線的攝影機一天 17,280 筆，16 台就是 27 萬筆，
+    /// 而 segments 是回放時間軸與用量統計都會掃的表。指數退避把它降到
+    /// 每天每頻道 288 筆以內，重連的反應時間最多只犧牲到 5 分鐘。
+    /// </summary>
+    public static TimeSpan RetryDelayFor(int consecutiveFailures)
+    {
+        if (consecutiveFailures <= 1)
+        {
+            return BaseRetryDelay;
+        }
+
+        // 位元位移在失敗次數很大時會溢出，所以先夾住再算。
+        var shift = Math.Min(consecutiveFailures - 1, 20);
+        var scaled = BaseRetryDelay.TotalMilliseconds * Math.Pow(2, shift);
+        return TimeSpan.FromMilliseconds(Math.Min(scaled, MaxRetryDelay.TotalMilliseconds));
+    }
+
+    private int _consecutiveFailures;
+    private bool _stallReported;
+
     /// <summary>開始錄影（背景分段迴圈）。</summary>
     public Task StartAsync(
         int channelId,
@@ -96,10 +152,11 @@ public sealed class SegmentRecorder : ISegmentRecorder
         string? audioEncoderArgs = null;
         while (!token.IsCancellationRequested)
         {
+            bool succeeded;
             try
             {
                 audioEncoderArgs ??= _audioEncoderArgsFor(RtspUrl!);
-                await RecordOneSegmentAsync(recordingsRoot, audioEncoderArgs, token);
+                succeeded = await RecordOneSegmentAsync(recordingsRoot, audioEncoderArgs, token);
             }
             catch (OperationCanceledException)
             {
@@ -107,25 +164,48 @@ public sealed class SegmentRecorder : ISegmentRecorder
             }
             catch (Exception ex)
             {
+                // 連目錄都開不出來、索引寫不進去這種層級的失敗：不會有區段記錄可標記。
                 LastFailure = ex.ToString();
-                if (_activeSegmentId >= 0)
+                succeeded = false;
+            }
+
+            if (succeeded)
+            {
+                // 重連成功後歸零，否則一次早年的斷線會讓之後每次失敗都重新「通知」一次。
+                _consecutiveFailures = 0;
+                if (_stallReported)
                 {
-                    _repo.MarkCorrupt(_activeSegmentId);
+                    _stallReported = false;
+                    RecordingResumed?.Invoke(this, ChannelId);
                 }
 
-                try
-                {
-                    await Task.Delay(5_000, token);
-                }
-                catch (OperationCanceledException)
-                {
-                    break;
-                }
+                continue;
+            }
+
+            _consecutiveFailures++;
+            if (!_stallReported && _consecutiveFailures >= FailureReportThreshold)
+            {
+                _stallReported = true;
+                RecordingStalled?.Invoke(this, new RecordingStallInfo(
+                    ChannelId,
+                    _consecutiveFailures,
+                    LastFailure ?? string.Empty,
+                    LastFfError));
+            }
+
+            try
+            {
+                await Task.Delay(RetryDelayFor(_consecutiveFailures), token);
+            }
+            catch (OperationCanceledException)
+            {
+                break;
             }
         }
     }
 
-    private async Task RecordOneSegmentAsync(string recordingsRoot, string audioEncoderArgs, CancellationToken token)
+    /// <summary>本段是否真的錄成正式檔。</summary>
+    private async Task<bool> RecordOneSegmentAsync(string recordingsRoot, string audioEncoderArgs, CancellationToken token)
     {
         var startUtc = DateTime.UtcNow;
         var dir = Path.Combine(recordingsRoot, $"ch{ChannelId:000}", startUtc.ToString("yyyyMMdd"));
@@ -163,18 +243,21 @@ public sealed class SegmentRecorder : ISegmentRecorder
                         Status = SegmentStatus.Final,
                         Sha256 = sha256,
                     });
+                return true;
             }
-            else
-            {
-                TryDeleteTmp(tmpPath);
-                _repo.MarkCorrupt(_activeSegmentId);
-            }
+
+            // ffmpeg 收工但沒有可用輸出（連不上、無資料流、容器不合）：不能算成功，
+            // 否則上層會以為這台攝影機一切正常。
+            TryDeleteTmp(tmpPath);
+            _repo.MarkCorrupt(_activeSegmentId);
+            return false;
         }
         catch (Exception ex)
         {
             LastFailure = ex.ToString();
             TryDeleteTmp(tmpPath);
             _repo.MarkCorrupt(_activeSegmentId);
+            return false;
         }
         finally
         {
@@ -203,7 +286,7 @@ public sealed class SegmentRecorder : ISegmentRecorder
     {
         var psi = new ProcessStartInfo
         {
-            FileName = "ffmpeg",
+            FileName = FfmpegLocator.Ffmpeg,
             RedirectStandardError = true,
             RedirectStandardOutput = true,
             UseShellExecute = false,

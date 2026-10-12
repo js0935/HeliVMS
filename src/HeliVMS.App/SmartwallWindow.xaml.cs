@@ -30,6 +30,7 @@ public partial class SmartwallWindow : Window
         _triage = new AlarmTriageRepository(store);
         _channels = new ChannelRepository(store);
         InitializeComponent();
+        ApplyI18n();
 
         ChannelCombo.DisplayMemberPath = nameof(ChannelInfo.Name);
         ChannelCombo.ItemsSource = _channels.List();
@@ -38,6 +39,32 @@ public partial class SmartwallWindow : Window
         _timer.Tick += (_, _) => RefreshBoard();
         _timer.Start();
         Closed += (_, _) => _timer.Stop();
+    }
+
+    private void ApplyI18n()
+    {
+        Title = Localizer.T("Smartwall.Title");
+        SmartwallDescText.Text = Localizer.T("Smartwall.Desc");
+        SmartwallLayoutsLabel.Text = Localizer.T("Smartwall.Layouts");
+        SmartwallNameLabel.Text = Localizer.T("Smartwall.Name");
+        SmartwallRowsLabel.Text = Localizer.T("Smartwall.Rows");
+        SmartwallColsLabel.Text = Localizer.T("Smartwall.Cols");
+        CreateLayoutButton.Content = Localizer.T("Smartwall.CreateLayout");
+        RenameLayoutButton.Content = Localizer.T("Smartwall.Rename");
+        SmartwallTileRowLabel.Text = Localizer.T("Smartwall.Rows");
+        SmartwallTileColLabel.Text = Localizer.T("Smartwall.Cols");
+        SmartwallRowSpanLabel.Text = Localizer.T("Smartwall.RowSpan");
+        SmartwallColSpanLabel.Text = Localizer.T("Smartwall.ColSpan");
+        TileViewSingleItem.Content = Localizer.T("Smartwall.ViewSingle");
+        TileViewMosaicItem.Content = Localizer.T("Smartwall.ViewMosaic");
+        AddTileButton.Content = Localizer.T("Smartwall.AddTile");
+        RemoveTileButton.Content = Localizer.T("Smartwall.RemoveTile");
+        SmartwallBoardHeaderText.Text = Localizer.T("Smartwall.BoardHeader");
+        SmartwallColRank.Header = Localizer.T("Smartwall.ColRank");
+        SmartwallColChannel.Header = Localizer.T("Smartwall.ColChannel");
+        SmartwallColEventType.Header = Localizer.T("Smartwall.ColEventType");
+        SmartwallColPriority.Header = Localizer.T("Smartwall.ColPriority");
+        SmartwallColAge.Header = Localizer.T("Smartwall.ColAge");
     }
 
     private void RefreshLayouts()
@@ -77,11 +104,11 @@ public partial class SmartwallWindow : Window
         {
             _layouts.CreateLayout(name, rows, cols);
             RefreshLayouts();
-            TileStatusText.Text = $"已建立版面「{name}」{rows}x{cols}。";
+            TileStatusText.Text = string.Format(Localizer.T("Smartwall.LayoutCreated"), name, rows, cols);
         }
         catch (Exception ex) when (ex is ArgumentException or ArgumentOutOfRangeException)
         {
-            TileStatusText.Text = $"建立失敗：{ex.Message}";
+            TileStatusText.Text = string.Format(Localizer.T("Smartwall.CreateFailed"), ex.Message);
         }
     }
 
@@ -89,14 +116,14 @@ public partial class SmartwallWindow : Window
     {
         if (LayoutList.SelectedItem is not SmartwallLayout layout)
         {
-            TileStatusText.Text = "請先選取要更名的版面。";
+            TileStatusText.Text = Localizer.T("Smartwall.NeedLayoutToRename");
             return;
         }
 
         var name = LayoutNameBox.Text.Trim();
         if (string.IsNullOrWhiteSpace(name))
         {
-            TileStatusText.Text = "請輸入版面名稱。";
+            TileStatusText.Text = Localizer.T("Smartwall.NeedName");
             return;
         }
 
@@ -104,11 +131,11 @@ public partial class SmartwallWindow : Window
         {
             _layouts.RenameLayout(layout.Id, name);
             RefreshLayouts();
-            TileStatusText.Text = $"版面已更名為「{name}」。";
+            TileStatusText.Text = string.Format(Localizer.T("Smartwall.Renamed"), name);
         }
         catch (ArgumentException ex)
         {
-            TileStatusText.Text = $"更名失敗：{ex.Message}";
+            TileStatusText.Text = string.Format(Localizer.T("Smartwall.RenameFailed"), ex.Message);
         }
     }
 
@@ -119,13 +146,13 @@ public partial class SmartwallWindow : Window
         cols = 0;
         if (string.IsNullOrWhiteSpace(name))
         {
-            TileStatusText.Text = "請輸入版面名稱。";
+            TileStatusText.Text = Localizer.T("Smartwall.NeedName");
             return false;
         }
 
         if (!int.TryParse(LayoutRowsBox.Text, out rows) || !int.TryParse(LayoutColsBox.Text, out cols))
         {
-            TileStatusText.Text = "列與欄必須是整數（1..16）。";
+            TileStatusText.Text = Localizer.T("Smartwall.BadRowsCols");
             return false;
         }
 
@@ -136,21 +163,21 @@ public partial class SmartwallWindow : Window
     {
         if (LayoutList.SelectedItem is not SmartwallLayout layout)
         {
-            TileStatusText.Text = "請先選取版面。";
+            TileStatusText.Text = Localizer.T("Smartwall.NeedLayout");
             return;
         }
 
         if (!int.TryParse(TileRowBox.Text, out var row) || !int.TryParse(TileColBox.Text, out var col) ||
             !int.TryParse(TileRowSpanBox.Text, out var rowSpan) || !int.TryParse(TileColSpanBox.Text, out var colSpan))
         {
-            TileStatusText.Text = "列／欄／跨距必須是整數。";
+            TileStatusText.Text = Localizer.T("Smartwall.BadTileNumbers");
             return;
         }
 
         var channelId = (ChannelCombo.SelectedItem as ChannelInfo)?.Id;
         if (channelId is null && TileViewCombo.SelectedIndex != 1)
         {
-            TileStatusText.Text = "單鏡頭方塊必須選擇頻道（或改用馬賽克）。";
+            TileStatusText.Text = Localizer.T("Smartwall.NeedChannelForSingle");
             return;
         }
 
@@ -160,11 +187,11 @@ public partial class SmartwallWindow : Window
         {
             var id = _layouts.AddTile(layout.Id, row, col, rowSpan, colSpan, channelId, view, position);
             RenderLayout();
-            TileStatusText.Text = $"已加入方塊 #{id}（{row},{col}＋{rowSpan}x{colSpan}）。";
+            TileStatusText.Text = string.Format(Localizer.T("Smartwall.TileAdded"), id, row, col, rowSpan, colSpan);
         }
         catch (ArgumentException ex)
         {
-            TileStatusText.Text = $"加入失敗：{ex.Message}";
+            TileStatusText.Text = string.Format(Localizer.T("Smartwall.AddTileFailed"), ex.Message);
         }
     }
 
@@ -172,21 +199,21 @@ public partial class SmartwallWindow : Window
     {
         if (_selectedTileId is not { } id)
         {
-            TileStatusText.Text = "請先在網格中點選要移除的方塊。";
+            TileStatusText.Text = Localizer.T("Smartwall.NeedTile");
             return;
         }
 
         _layouts.RemoveTile(id);
         _selectedTileId = null;
         RenderLayout();
-        TileStatusText.Text = $"已移除方塊 #{id}。";
+        TileStatusText.Text = string.Format(Localizer.T("Smartwall.TileRemoved"), id);
     }
 
     private void SelectTile(long id)
     {
         _selectedTileId = id;
         RenderLayout();
-        TileStatusText.Text = $"已選取方塊 #{id}，可按「移除選取方塊」。";
+        TileStatusText.Text = string.Format(Localizer.T("Smartwall.TileSelected"), id);
     }
 
     /// <summary>依目前版面重建網格：每個方塊一個可點選 Border，點選後可由「移除」刪除。</summary>
@@ -216,8 +243,8 @@ public partial class SmartwallWindow : Window
         foreach (var tile in _layouts.GetTiles(layout.Id))
         {
             var label = tile.View == 1
-                ? "馬賽克"
-                : tile.ChannelId is { } cid && channels.TryGetValue(cid, out var name) ? name : "（未指派）";
+                ? Localizer.T("Smartwall.ViewMosaic")
+                : tile.ChannelId is { } cid && channels.TryGetValue(cid, out var name) ? name : Localizer.T("Smartwall.Unassigned");
             var border = new Border
             {
                 BorderBrush = new SolidColorBrush(Color.FromRgb(0x2A, 0x4A, 0x73)),
@@ -269,8 +296,8 @@ public partial class SmartwallWindow : Window
             })
             .ToList();
         BoardStatusText.Text = _board.Count == 0
-            ? "目前保留窗內無事件。"
-            : $"保留窗內 {_board.Count} 個頻道有事件；紅底為 ≤5 秒。";
+            ? Localizer.T("Smartwall.BoardEmpty")
+            : string.Format(Localizer.T("Smartwall.BoardActive"), _board.Count);
         ApplyBoardHighlight();
     }
 

@@ -8,25 +8,25 @@ namespace HeliVMS.App.Tests;
 /// <para>
 /// 後端已有去重匯入（<c>InsertDedupe</c>）、收銀機查詢（<c>QueryByRegister</c>）與對帳
 /// （<c>PosReconciliation</c>），但全 repo 沒有任何產品呼叫端——POS 能力在桌面等於不存在。
-/// 這份契約把主視窗入口與 POS 窗對這些後端 API 的接線釘住。
+/// 這份契約把設定中心（工具頁）入口與 POS 窗對這些後端 API 的接線釘住。
 /// </para>
 /// </summary>
 public sealed class PosContractTests
 {
-    private const string MainCode = "src/HeliVMS.App/MainWindow.xaml.cs";
-    private const string MainXaml = "src/HeliVMS.App/MainWindow.xaml";
+    private const string SettingsCode = "src/HeliVMS.App/SettingsWindow.xaml.cs";
+    private const string SettingsXaml = "src/HeliVMS.App/SettingsWindow.xaml";
     private const string PosCode = "src/HeliVMS.App/PosWindow.xaml.cs";
     private const string PosXaml = "src/HeliVMS.App/PosWindow.xaml";
 
     [Fact]
-    public void 主視窗有POS入口且接線()
+    public void 設定中心有POS入口且接線()
     {
-        Assert.Equal("OnPosClicked", WiredHandler(MainXaml, "PosButton"));
+        Assert.Equal("OnPosClicked", WiredHandler(SettingsXaml, "PosButton"));
 
-        var handler = SourceContract.BodyOf(SourceContract.Read(MainCode), "OnPosClicked");
+        var handler = SourceContract.BodyOf(SourceContract.Read(SettingsCode), "OnPosClicked");
         Assert.Contains("OpenPosWindow", handler);
 
-        var open = SourceContract.BodyOf(SourceContract.Read(MainCode), "OpenPosWindow");
+        var open = SourceContract.BodyOf(SourceContract.Read(SettingsCode), "OpenPosWindow");
         Assert.Contains("new PosWindow(", open);
     }
 

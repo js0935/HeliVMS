@@ -40,8 +40,8 @@ public sealed class RtspClient : IAsyncDisposable
     public RtspClient(string rtspUrl, string? ffmpegPath = null, string? ffprobePath = null, string? hwAccel = null)
     {
         RtspUrl = rtspUrl;
-        _ffmpeg = ffmpegPath ?? "ffmpeg";
-        _ffprobe = ffprobePath ?? "ffprobe";
+        _ffmpeg = ffmpegPath ?? FfmpegLocator.Ffmpeg;
+        _ffprobe = ffprobePath ?? FfmpegLocator.Ffprobe;
         _hwAccel = NormalizeHwAccel(hwAccel);
     }
 

@@ -26,6 +26,12 @@ public sealed class DeviceRecord
 
     /// <summary>設備端 SD 側錄／回放串流位址（M94 邊緣補抓）；未設定為 null。</summary>
     public string? SdUrl { get; init; }
+
+    /// <summary>ONVIF 取得的主碼流 RTSP 位址（不含帳密）；未設定為 null。</summary>
+    public string? MainStreamUrl { get; init; }
+
+    /// <summary>ONVIF 取得的子碼流 RTSP 位址（不含帳密）；未設定為 null。</summary>
+    public string? SubStreamUrl { get; init; }
 }
 
 /// <summary>

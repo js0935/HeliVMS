@@ -28,11 +28,34 @@ public partial class EdgeBackfillWindow : Window
         _channels = new ChannelRepository(store);
         _jobs = new EdgeBackfillJobRepository(store);
         InitializeComponent();
+        ApplyI18n();
 
         EdgeStartDate.SelectedDate = DateTime.Today;
         EdgeEndDate.SelectedDate = DateTime.Today;
         RefreshDevices();
         RefreshJobs();
+    }
+
+    private void ApplyI18n()
+    {
+        Title = Localizer.T("Edge.Title");
+        EdgeDescText.Text = Localizer.T("Edge.Desc");
+        EdgeDeviceLabel.Text = Localizer.T("Edge.Device");
+        EdgeChannelLabel.Text = Localizer.T("Edge.Channel");
+        EdgeSdUrlLabel.Text = Localizer.T("Edge.SdUrl");
+        EdgeSaveSdUrlButton.Content = Localizer.T("Edge.SaveSdUrl");
+        EdgeStartLabel.Text = Localizer.T("Edge.Start");
+        EdgeEndLabel.Text = Localizer.T("Edge.End");
+        EdgeCreateJobButton.Content = Localizer.T("Edge.CreateJob");
+        EdgeRunDueButton.Content = Localizer.T("Edge.RunDue");
+        EdgeRunDueButton.ToolTip = Localizer.T("Edge.RunDueTip");
+        EdgeColId.Header = Localizer.T("Edge.ColId");
+        EdgeColDevice.Header = Localizer.T("Edge.ColDevice");
+        EdgeColChannel.Header = Localizer.T("Edge.ColChannel");
+        EdgeColRange.Header = Localizer.T("Edge.ColRange");
+        EdgeColStatus.Header = Localizer.T("Edge.ColStatus");
+        EdgeColAttempts.Header = Localizer.T("Edge.ColAttempts");
+        EdgeColError.Header = Localizer.T("Edge.ColError");
     }
 
     private void RefreshDevices(int? selectId = null)
@@ -67,12 +90,12 @@ public partial class EdgeBackfillWindow : Window
     {
         if (EdgeDeviceCombo.SelectedItem is not DeviceRecord device)
         {
-            EdgeStatusText.Text = "請先選擇設備。";
+            EdgeStatusText.Text = Localizer.T("Edge.NeedDevice");
             return;
         }
 
         _devices.SetSdUrl(device.Id, EdgeSdUrlBox.Text.Trim());
-        EdgeStatusText.Text = $"已儲存設備「{device.Name}」的 SD 串流網址。";
+        EdgeStatusText.Text = string.Format(Localizer.T("Edge.SavedSdUrl"), device.Name);
         RefreshDevices(device.Id);
     }
 
@@ -83,7 +106,7 @@ public partial class EdgeBackfillWindow : Window
 
         if (EdgeStartDate.SelectedDate is not { } startDate || EdgeEndDate.SelectedDate is not { } endDate)
         {
-            EdgeStatusText.Text = "請選擇起迄日期。";
+            EdgeStatusText.Text = Localizer.T("Edge.NeedRange");
             return false;
         }
 
@@ -101,7 +124,7 @@ public partial class EdgeBackfillWindow : Window
         endUtc = endDate.Add(endTime).ToUniversalTime();
         if (endUtc <= startUtc)
         {
-            EdgeStatusText.Text = "結束時間必須大於開始時間。";
+            EdgeStatusText.Text = Localizer.T("Edge.BadRange");
             return false;
         }
 
@@ -113,7 +136,7 @@ public partial class EdgeBackfillWindow : Window
         if (EdgeDeviceCombo.SelectedItem is not DeviceRecord device ||
             EdgeChannelCombo.SelectedItem is not ChannelInfo channel)
         {
-            EdgeStatusText.Text = "請先選擇設備與頻道。";
+            EdgeStatusText.Text = Localizer.T("Edge.NeedDeviceChannel");
             return;
         }
 
@@ -124,8 +147,8 @@ public partial class EdgeBackfillWindow : Window
 
         var id = _jobs.Create(device.Id, channel.Id, startUtc, endUtc);
         EdgeStatusText.Text = id < 0
-            ? "此時段與既有補抓重疊，已略過。"
-            : $"已建立補抓工作 #{id}。";
+            ? Localizer.T("Edge.Overlap")
+            : string.Format(Localizer.T("Edge.Created"), id);
         RefreshJobs();
     }
 
@@ -159,13 +182,13 @@ public partial class EdgeBackfillWindow : Window
             var ok = run.Items.Count(i => i.Success);
             var failed = run.Items.Count - ok;
             EdgeStatusText.Text = run.Items.Count == 0
-                ? "目前沒有到期的補抓工作。"
-                : $"執行完成：成功 {ok}、失敗 {failed}。";
+                ? Localizer.T("Edge.NoneDue")
+                : string.Format(Localizer.T("Edge.Done"), ok, failed);
             RefreshJobs();
         }
         catch (Exception ex)
         {
-            EdgeStatusText.Text = "執行失敗：" + ex.Message;
+            EdgeStatusText.Text = string.Format(Localizer.T("Edge.RunFailed"), ex.Message);
         }
         finally
         {

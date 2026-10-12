@@ -1,4 +1,4 @@
-﻿namespace HeliVMS.Storage.Tests;
+namespace HeliVMS.Storage.Tests;
 
 public class AuditLogRepositoryTests : IDisposable
 {
@@ -24,11 +24,11 @@ public class AuditLogRepositoryTests : IDisposable
     }
 
     [Fact]
-    public void SchemaVersion_IsV44()
+    public void SchemaVersion_IsV47()
     {
         var version = _store.Query<int>(
             "PRAGMA user_version;", r => r.Read() ? r.GetInt32(0) : -1);
-        Assert.Equal(44, version);
+        Assert.Equal(47, version);
     }
 
     [Fact]

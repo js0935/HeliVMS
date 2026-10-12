@@ -22,7 +22,7 @@ public sealed class ChannelRepository
             """
             SELECT id, device_id, name, main_rtsp, sub_rtsp, codec,
                    audio_enabled, audio_encoder, recording_mode,
-                   motion_enabled, motion_sensitivity
+                   motion_enabled, motion_sensitivity, enabled, display_cell
             FROM channels ORDER BY id;
             """,
             static r =>
@@ -35,6 +35,23 @@ public sealed class ChannelRepository
 
                 return list;
             });
+    }
+
+    /// <summary>
+    /// 此頻道在目前頻道中的建立順序排名（0 基）：比它更早建立（id 更小）的頻道數。
+    /// </summary>
+    /// <remarks>
+    /// 授權路數上限必須以此排名判定，不能直接拿 <c>channels.id</c> 比大小。
+    /// id 是 <c>AUTOINCREMENT</c> 且刪除後不回收，反覆新增／刪除（設定精靈、測試）會把
+    /// id 推到遠超過實際頻道數；直接比 id 會讓合法頻道被誤擋成「超出授權範圍」。
+    /// 排名只取決於「目前還有幾個頻道比它早」，刪除前面的頻道時後面的會自動遞補。
+    /// </remarks>
+    public int RankOf(int channelId)
+    {
+        return _store.Query(
+            "SELECT COUNT(*) FROM channels WHERE id < $id;",
+            static r => r.Read() ? (int)r.GetInt64(0) : 0,
+            cmd => cmd.Parameters.AddWithValue("$id", channelId));
     }
 
     /// <summary>取得單一頻道。</summary>
@@ -58,7 +75,7 @@ public sealed class ChannelRepository
             """
             SELECT id, device_id, name, main_rtsp, sub_rtsp, codec,
                    audio_enabled, audio_encoder, recording_mode,
-                   motion_enabled, motion_sensitivity
+                   motion_enabled, motion_sensitivity, enabled, display_cell
             FROM channels WHERE id = $id;
             """,
             static r => r.Read() ? ReadChannel(r) : null,
@@ -73,12 +90,14 @@ public sealed class ChannelRepository
         int? deviceId = null,
         string codec = "h264",
         bool audioEnabled = true,
-        string audioEncoder = "copy")
+        string audioEncoder = "copy",
+        RecordingMode recordingMode = RecordingMode.Always,
+        int? displayCell = null)
     {
         return _store.Query(
             """
-            INSERT INTO channels (device_id, name, main_rtsp, sub_rtsp, codec, audio_enabled, audio_encoder)
-            VALUES ($d, $n, $m, $s, $c, $a, $ae);
+            INSERT INTO channels (device_id, name, main_rtsp, sub_rtsp, codec, audio_enabled, audio_encoder, recording_mode, display_cell)
+            VALUES ($d, $n, $m, $s, $c, $a, $ae, $rm, $dc);
             SELECT last_insert_rowid();
             """,
             static r =>
@@ -95,6 +114,8 @@ public sealed class ChannelRepository
                 cmd.Parameters.AddWithValue("$c", codec);
                 cmd.Parameters.AddWithValue("$a", audioEnabled ? 1 : 0);
                 cmd.Parameters.AddWithValue("$ae", audioEncoder);
+                cmd.Parameters.AddWithValue("$rm", (int)recordingMode);
+                cmd.Parameters.AddWithValue("$dc", (object?)displayCell ?? DBNull.Value);
             });
     }
 
@@ -106,7 +127,8 @@ public sealed class ChannelRepository
             UPDATE channels
             SET name = $n, main_rtsp = $m, sub_rtsp = $s, codec = $c,
                 audio_enabled = $a, audio_encoder = $ae, recording_mode = $rm,
-                motion_enabled = $me, motion_sensitivity = $ms
+                motion_enabled = $me, motion_sensitivity = $ms, enabled = $en,
+                display_cell = $dc
             WHERE id = $id;
             """,
             cmd =>
@@ -123,6 +145,8 @@ public sealed class ChannelRepository
                 cmd.Parameters.AddWithValue("$rm", (int)channel.RecordingMode);
                 cmd.Parameters.AddWithValue("$me", channel.MotionEnabled ? 1 : 0);
                 cmd.Parameters.AddWithValue("$ms", channel.MotionSensitivity);
+                cmd.Parameters.AddWithValue("$en", channel.Enabled ? 1 : 0);
+                cmd.Parameters.AddWithValue("$dc", (object?)channel.DisplayCell ?? DBNull.Value);
             });
     }
 
@@ -161,6 +185,10 @@ public sealed class ChannelRepository
             RecordingMode = (RecordingMode)r.GetInt32(8),
             MotionEnabled = r.GetInt32(9) != 0,
             MotionSensitivity = r.GetDouble(10),
+            // 漏掉這一欄的話 ChannelInfo.Enabled 會永遠是預設值 true，
+            // 於是「停用某台攝影機」讀回來仍是啟用，停用功能等於不存在。
+            Enabled = r.GetInt32(11) != 0,
+            DisplayCell = r.IsDBNull(12) ? null : r.GetInt32(12),
         };
     }
 }

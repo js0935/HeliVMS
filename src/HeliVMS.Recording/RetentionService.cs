@@ -19,13 +19,44 @@ public sealed class RetentionService
     private const double StaleTmpMinutes = 10;
 
     private readonly SegmentRepository _repo;
+    private readonly IReadOnlyList<string> _recordingsRoots;
     private readonly string _recordingsRoot;
     private readonly LegalHoldRepository? _legalHolds;
 
-    public RetentionService(SegmentRepository repo, string recordingsRoot, LegalHoldRepository? legalHolds = null)
+    /// <param name="repo">區段索引。</param>
+    /// <param name="recordingsRoot">目前使用的錄影根目錄。</param>
+    /// <param name="legalHolds">保存鎖定查詢；null 表示不套用保存鎖定。</param>
+    /// <param name="additionalRoots">
+    /// 以前用過的錄影根目錄（切換磁碟後保留）。區段檔以絕對路徑存在資料庫中，若只認目前的根目錄，
+    /// 切換磁碟後舊根上的錄影會被視為「不在根目錄內」而拒絕刪除，配額清理就永遠卡在超額。
+    /// </param>
+    public RetentionService(
+        SegmentRepository repo,
+        string recordingsRoot,
+        LegalHoldRepository? legalHolds = null,
+        IReadOnlyList<string>? additionalRoots = null)
     {
         _repo = repo;
         _recordingsRoot = Path.GetFullPath(recordingsRoot);
+        var roots = new List<string> { _recordingsRoot };
+        if (additionalRoots is not null)
+        {
+            foreach (var root in additionalRoots)
+            {
+                if (string.IsNullOrWhiteSpace(root))
+                {
+                    continue;
+                }
+
+                var full = Path.GetFullPath(root);
+                if (!roots.Contains(full, StringComparer.OrdinalIgnoreCase))
+                {
+                    roots.Add(full);
+                }
+            }
+        }
+
+        _recordingsRoots = roots;
         _legalHolds = legalHolds;
     }
 
@@ -126,7 +157,9 @@ public sealed class RetentionService
             return true;
         }
 
-        if (!SharePath.IsWithinRoot(_recordingsRoot, full))
+        // 只要檔案落在「目前或曾用過」的任何錄影根目錄底下就允許刪除；切換磁碟後
+        // 舊根的絕對路徑仍必須能汰除，否則配額清理會卡住（見建構子說明）。
+        if (!_recordingsRoots.Any(root => SharePath.IsWithinRoot(root, full)))
         {
             return false;
         }

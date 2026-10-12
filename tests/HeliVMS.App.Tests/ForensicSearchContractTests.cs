@@ -8,25 +8,25 @@ namespace HeliVMS.App.Tests;
 /// <para>
 /// 後端 <c>UnifiedEventSearch</c> 早就把警報、門禁、POS、邊緣 AI 四個 FTS 索引併成
 /// 一次查詢，桌面端卻只有事件中心（僅 <c>alarm_events</c>）——「一個關鍵字找遍全系統」
-/// 這個能力在 WPF 完全沒有入口。這份契約把主視窗入口與檢索窗對後端的接線釘住。
+/// 這個能力在 WPF 完全沒有入口。這份契約把設定中心（工具頁）入口與檢索窗對後端的接線釘住。
 /// </para>
 /// </summary>
 public sealed class ForensicSearchContractTests
 {
-    private const string MainCode = "src/HeliVMS.App/MainWindow.xaml.cs";
-    private const string MainXaml = "src/HeliVMS.App/MainWindow.xaml";
+    private const string SettingsCode = "src/HeliVMS.App/SettingsWindow.xaml.cs";
+    private const string SettingsXaml = "src/HeliVMS.App/SettingsWindow.xaml";
     private const string SearchCode = "src/HeliVMS.App/SearchWindow.xaml.cs";
     private const string SearchXaml = "src/HeliVMS.App/SearchWindow.xaml";
 
     [Fact]
-    public void 主視窗有法證檢索入口且接線()
+    public void 設定中心有法證檢索入口且接線()
     {
-        Assert.Equal("OnSearchClicked", WiredHandler(MainXaml, "SearchButton"));
+        Assert.Equal("OnSearchClicked", WiredHandler(SettingsXaml, "SearchButton"));
 
-        var handler = SourceContract.BodyOf(SourceContract.Read(MainCode), "OnSearchClicked");
+        var handler = SourceContract.BodyOf(SourceContract.Read(SettingsCode), "OnSearchClicked");
         Assert.Contains("OpenSearchWindow", handler);
 
-        var open = SourceContract.BodyOf(SourceContract.Read(MainCode), "OpenSearchWindow");
+        var open = SourceContract.BodyOf(SourceContract.Read(SettingsCode), "OpenSearchWindow");
         Assert.Contains("new SearchWindow(", open);
     }
 

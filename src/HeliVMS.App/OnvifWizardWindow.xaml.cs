@@ -16,9 +16,11 @@ public partial class OnvifWizardWindow : Window
     private IReadOnlyList<DiscoveredDevice> _devices = [];
     private readonly List<OnvifProfile> _profiles = [];
     private string _deviceLabel = string.Empty;
+    private string _deviceName = string.Empty;
     private string? _deviceXAddr;
     private OnvifDeviceService? _service;
-    private OnvifProfile? _selectedProfile;
+    private OnvifProfile? _mainProfile;
+    private OnvifProfile? _subProfile;
     private bool _busy;
     private CancellationTokenSource? _cts;
 
@@ -35,13 +37,41 @@ public partial class OnvifWizardWindow : Window
     public OnvifWizardWindow()
     {
         InitializeComponent();
+        ApplyI18n();
+    }
+
+    private void ApplyI18n()
+    {
+        Title = Localizer.T("Onvif.Title");
+        OnvifHeader.Text = Localizer.T("Onvif.Header");
+        OnvifDesc.Text = Localizer.T("Onvif.Desc");
+        OnvifAddressLabel.Text = Localizer.T("Onvif.AddressLabel");
+        AddressBox.ToolTip = Localizer.T("Onvif.AddressTip");
+        OnvifUserLabel.Text = Localizer.T("Onvif.UserLabel");
+        UserBox.ToolTip = Localizer.T("Onvif.UserTip");
+        OnvifPasswordLabel.Text = Localizer.T("Onvif.PasswordLabel");
+        PasswordBox.ToolTip = Localizer.T("Onvif.PasswordTip");
+        DiscoverButton.Content = Localizer.T("Onvif.Discover");
+        DiscoverButton.ToolTip = Localizer.T("Onvif.DiscoverTip");
+        CancelButton.Content = Localizer.T("Onvif.Cancel");
+        CancelButton.ToolTip = Localizer.T("Onvif.CancelTip");
+        AddButton.Content = Localizer.T("Onvif.Add");
+        AddButton.ToolTip = Localizer.T("Onvif.AddTip");
+        CloseButton.Content = Localizer.T("Onvif.Close");
+        CloseButton.ToolTip = Localizer.T("Onvif.CloseTip");
+        OnvifDeviceLabel.Text = Localizer.T("Onvif.DeviceLabel");
+        OnvifProfilesLabel.Text = Localizer.T("Onvif.ProfilesLabel");
+        WizardHint.Text = Localizer.T("Onvif.Hint");
     }
 
     /// <summary>加入之頻道名稱（空白表示取消）。</summary>
     public string ChannelName { get; private set; } = string.Empty;
 
-    /// <summary>加入之 RTSP 串流位址（不含帳密，維持乾淨的裸位址）。</summary>
+    /// <summary>加入之 RTSP 主碼流位址（錄影與單畫面監控使用）。</summary>
     public string StreamUrl { get; private set; } = string.Empty;
+
+    /// <summary>加入之 RTSP 子碼流位址（多分割監控使用）；設備無子碼流時為空字串。</summary>
+    public string? SubStreamUrl { get; private set; }
 
     /// <summary>加入之攝影機 IP；無法解析時為空字串（呼叫端須略過建立設備記錄）。</summary>
     public string DeviceIp { get; private set; } = string.Empty;
@@ -78,20 +108,20 @@ public partial class OnvifWizardWindow : Window
         {
             if (string.IsNullOrWhiteSpace(AddressBox.Text))
             {
-                SetBusyHint("多播探索中…（若所在網路封鎖多播，請改填設備 IP）");
+                SetBusyHint(Localizer.T("Onvif.Discovering"));
                 _devices = await DiscoveryClient.DiscoverAsync(TimeSpan.FromSeconds(5)).WaitAsync(token);
             }
             else
             {
                 // 手動位址：多廠牌路徑/埠候選探測，失敗時以單播 WS-Discovery 回退
                 var address = AddressBox.Text.Trim();
-                SetBusyHint($"連線 {address} 探測 ONVIF 服務…");
+                SetBusyHint(string.Format(Localizer.T("Onvif.ConnectingTarget"), address));
                 var xAddr = await DiscoveryClient.DiscoverByIpAsync(address, Username, Password).WaitAsync(token);
                 if (xAddr is null)
                 {
                     _devices = [];
                     DeviceList.ItemsSource = null;
-                    WizardHint.Text = $"找不到 {address} 的 ONVIF 服務（請確認位址、埠與帳密）。";
+                    WizardHint.Text = string.Format(Localizer.T("Onvif.ServiceNotFound"), address);
                     return;
                 }
 
@@ -108,16 +138,16 @@ public partial class OnvifWizardWindow : Window
 
             DeviceList.ItemsSource = _devices;
             WizardHint.Text = _devices.Count > 0
-                ? $"發現 {_devices.Count} 台設備，請選取以取得串流 Profile。"
-                : "未發現任何 ONVIF 設備（多播可能被網路封鎖，請改填設備 IP）。";
+                ? string.Format(Localizer.T("Onvif.FoundDevices"), _devices.Count)
+                : Localizer.T("Onvif.NotFound");
         }
         catch (OperationCanceledException)
         {
-            WizardHint.Text = "操作已取消。";
+            WizardHint.Text = Localizer.T("Onvif.Canceled");
         }
         catch (Exception ex)
         {
-            WizardHint.Text = $"探索失敗：{Describe(ex)}";
+            WizardHint.Text = string.Format(Localizer.T("Onvif.DiscoverFailed"), Describe(ex));
         }
         finally
         {
@@ -151,31 +181,34 @@ public partial class OnvifWizardWindow : Window
         _service = service;
         _deviceXAddr = device.HttpXAddr;
 
-        SetBusyHint($"連線 {device.HttpXAddr}…");
+        SetBusyHint(string.Format(Localizer.T("Onvif.Connecting"), device.HttpXAddr));
         try
         {
             var info = await service.GetInfoAsync(token);
+            _deviceName = info.DisplayName;
             _deviceLabel = info.DisplayName;
 
             var profiles = await service.GetProfilesAsync(token);
             token.ThrowIfCancellationRequested();
-            _deviceLabel = profiles.Count > 0 ? $"{_deviceLabel}（{profiles.Count} 流）" : _deviceLabel;
+            _deviceLabel = profiles.Count > 0
+                ? string.Format(Localizer.T("Onvif.StreamsSuffix"), _deviceLabel, profiles.Count)
+                : _deviceLabel;
 
             try
             {
                 await service.EnsurePtzCapabilityAsync(token);
-                _deviceLabel += service.HasPtz ? " · PTZ：支援" : " · PTZ：不支援";
+                _deviceLabel += service.HasPtz ? Localizer.T("Onvif.PtzYes") : Localizer.T("Onvif.PtzNo");
             }
             catch (OnvifException)
             {
-                _deviceLabel += " · PTZ：未知";
+                _deviceLabel += Localizer.T("Onvif.PtzUnknown");
             }
 
             profiles = await ProbeResolutionsAsync(profiles, token, (done, total) =>
             {
                 if (ReferenceEquals(_cts, cts))
                 {
-                    SetBusyHint($"探測 Profile 解析度 {done}/{total}…");
+                    SetBusyHint(string.Format(Localizer.T("Onvif.ProbingRes"), done, total));
                 }
             });
 
@@ -183,20 +216,26 @@ public partial class OnvifWizardWindow : Window
             SetProfiles(profiles);
             SetBusyHint(_deviceLabel);
 
-            // 預選主碼流（多 profile／NVR 多機箱時取最佳影像 profile）
-            var main = OnvifProfileSelection.SelectMain(profiles);
-            if (main is not null)
+            // 使用者不需挑碼流：自動選用最佳主碼流與子碼流（錄影／單畫面用主碼流、多分割用子碼流）。
+            _mainProfile = OnvifProfileSelection.SelectMain(profiles);
+            var sub = OnvifProfileSelection.SelectSub(profiles);
+            _subProfile = sub is not null && _mainProfile is not null && sub.Token != _mainProfile.Token
+                ? sub
+                : null;
+
+            if (_mainProfile is not null)
             {
-                ProfileList.SelectedItem = _profiles.FirstOrDefault(p => p.Token == main.Token);
+                // 於清單顯示目前選用之主碼流；OnProfileSelected 會補齊尚未解析的位址。
+                ProfileList.SelectedItem = _profiles.FirstOrDefault(p => p.Token == _mainProfile.Token);
             }
         }
         catch (OperationCanceledException)
         {
-            SetBusyHint("操作已取消。");
+            SetBusyHint(Localizer.T("Onvif.Canceled"));
         }
         catch (Exception ex)
         {
-            SetBusyHint($"探測失敗：{Describe(ex)}");
+            SetBusyHint(string.Format(Localizer.T("Onvif.ProbeFailed"), Describe(ex)));
         }
         finally
         {
@@ -277,7 +316,6 @@ private async Task<IReadOnlyList<OnvifProfile>> ProbeResolutionsAsync(
     private async void OnProfileSelected(object sender, SelectionChangedEventArgs e)
     {
         var profile = ProfileList.SelectedItem as OnvifProfile;
-        _selectedProfile = profile;
         AddButton.IsEnabled = profile is not null;
         if (profile is null || profile.StreamUri.Length > 0 || _service is null)
         {
@@ -291,14 +329,14 @@ private async Task<IReadOnlyList<OnvifProfile>> ProbeResolutionsAsync(
         _cts = cts;
         var token = cts.Token;
         SetBusy(true);
-        SetBusyHint($"取得 {profile.DisplayLabel} 串流位址…");
+        SetBusyHint(string.Format(Localizer.T("Onvif.GettingStream"), profile.DisplayLabel));
         try
         {
             var uri = await _service.GetStreamUriAsync(profile.Token);
             token.ThrowIfCancellationRequested();
             if (uri is null)
             {
-                SetBusyHint("此 Profile 未取得串流位址（設備可能不支援 RTSP 或 profile 已停用）。");
+                SetBusyHint(Localizer.T("Onvif.NoStreamUri"));
                 return;
             }
 
@@ -316,11 +354,11 @@ private async Task<IReadOnlyList<OnvifProfile>> ProbeResolutionsAsync(
         }
         catch (OperationCanceledException)
         {
-            SetBusyHint("操作已取消。");
+            SetBusyHint(Localizer.T("Onvif.Canceled"));
         }
         catch (Exception ex)
         {
-            SetBusyHint($"取得串流位址失敗：{Describe(ex)}");
+            SetBusyHint(string.Format(Localizer.T("Onvif.GetStreamFailed"), Describe(ex)));
         }
         finally
         {
@@ -332,33 +370,93 @@ private async Task<IReadOnlyList<OnvifProfile>> ProbeResolutionsAsync(
         }
     }
 
-    private void OnAddClicked(object sender, RoutedEventArgs e)
+    /// <summary>
+    /// 加入頻道：不需使用者挑選碼流，自動帶入主碼流（錄影／單畫面）與子碼流（多分割）。
+    /// 多 profile 設備的位址可能是延後解析的，故在此補齊後才回傳。
+    /// </summary>
+    private async void OnAddClicked(object sender, RoutedEventArgs e)
     {
-        var profile = _selectedProfile;
-        if (profile is null)
+        var main = _mainProfile ?? OnvifProfileSelection.SelectMain(_profiles);
+        if (main is null)
         {
-            WizardHint.Text = "請先選取 Profile。";
+            WizardHint.Text = Localizer.T("Onvif.NoUsableStream");
             return;
         }
 
-        if (profile.StreamUri.Length == 0)
+        SetBusy(true);
+        SetBusyHint(Localizer.T("Onvif.GettingStreamUri"));
+        try
         {
-            WizardHint.Text = "此 Profile 未取得串流位址，請重新探索後再試。";
-            return;
+            var mainUri = await ResolveStreamUriAsync(main, CancellationToken.None);
+            if (mainUri.Length == 0)
+            {
+                WizardHint.Text = Localizer.T("Onvif.NoMainUri");
+                return;
+            }
+
+            var sub = _subProfile;
+            var subUri = sub is null ? string.Empty : await ResolveStreamUriAsync(sub, CancellationToken.None);
+            if (string.Equals(subUri, mainUri, StringComparison.Ordinal))
+            {
+                subUri = string.Empty;
+            }
+
+            StreamUrl = mainUri;
+            SubStreamUrl = subUri.Length > 0 ? subUri : null;
+            ChannelName = string.IsNullOrWhiteSpace(_deviceName)
+                ? main.DisplayLabel
+                : _deviceName;
+
+            // 供呼叫端建立／連結 devices 記錄，讓 RTSP 與 PTZ 共用同一份加密憑證。
+            (DeviceIp, DevicePort) = ParseHostPort(_deviceXAddr);
+            DeviceUsername = Username;
+            DevicePassword = Password;
+
+            DialogResult = true;
+            Close();
+        }
+        finally
+        {
+            SetBusy(false);
+        }
+    }
+
+    /// <summary>取得 profile 的 RTSP 位址；尚未解析者即時向設備查詢（失敗回傳空字串）。</summary>
+    private async Task<string> ResolveStreamUriAsync(OnvifProfile profile, CancellationToken token)
+    {
+        if (profile.StreamUri.Length > 0)
+        {
+            return profile.StreamUri;
         }
 
-        StreamUrl = profile.StreamUri;
-        ChannelName = string.IsNullOrWhiteSpace(_deviceLabel)
-            ? profile.DisplayLabel
-            : $"{_deviceLabel} ・ {profile.DisplayLabel}";
+        if (_service is null)
+        {
+            return string.Empty;
+        }
 
-        // 供呼叫端建立／連結 devices 記錄，讓 RTSP 與 PTZ 共用同一份加密憑證。
-        (DeviceIp, DevicePort) = ParseHostPort(_deviceXAddr);
-        DeviceUsername = Username;
-        DevicePassword = Password;
+        try
+        {
+            var uri = await _service.GetStreamUriAsync(profile.Token);
+            token.ThrowIfCancellationRequested();
+            if (uri is null)
+            {
+                return string.Empty;
+            }
 
-        DialogResult = true;
-        Close();
+            var index = _profiles.FindIndex(p => p.Token == profile.Token);
+            if (index >= 0)
+            {
+                _profiles[index] = _profiles[index].WithStreamUri(uri);
+                ProfileList.ItemsSource = null;
+                ProfileList.ItemsSource = _profiles;
+            }
+
+            return uri;
+        }
+        catch (OperationCanceledException)
+        {
+            return string.Empty;
+        }
     }
 
     /// <summary>自 ONVIF XAddr 取出主機與埠；無法解析時回傳空字串與 0。</summary>
@@ -421,7 +519,8 @@ private async Task<IReadOnlyList<OnvifProfile>> ProbeResolutionsAsync(
     {
         _profiles.Clear();
         _profiles.AddRange(profiles);
-        _selectedProfile = null;
+        _mainProfile = null;
+        _subProfile = null;
         ProfileList.ItemsSource = null;
         ProfileList.ItemsSource = _profiles;
     }
@@ -429,7 +528,7 @@ private async Task<IReadOnlyList<OnvifProfile>> ProbeResolutionsAsync(
     private static string Describe(Exception exception) => exception switch
     {
         OnvifException onvif => onvif.Message,
-        OperationCanceledException => "操作已取消。",
+        OperationCanceledException => Localizer.T("Onvif.Canceled"),
         _ => exception.Message,
     };
 }

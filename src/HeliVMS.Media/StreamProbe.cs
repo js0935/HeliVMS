@@ -23,7 +23,7 @@ public static class StreamProbe
 
 /// <summary>探測主流視訊解析度與音訊編碼。</summary>
     /// <param name="rtspUrl">RTSP 位址；錯誤訊息會先遮蔽帳密。</param>
-    /// <param name="ffprobePath">ffprobe 執行檔路徑（預設自 PATH 取得）。</param>
+    /// <param name="ffprobePath">ffprobe 執行檔路徑（預設由 <see cref="FfmpegLocator.Ffprobe"/> 解析）。</param>
     /// <param name="timeout">逾時上限；逾時會終止進程並擲出 <see cref="TimeoutException"/>。</param>
     /// <param name="cancellationToken">
     /// 取消時立刻終止 ffprobe 進程並擲出 <see cref="OperationCanceledException"/>；
@@ -40,7 +40,7 @@ public static class StreamProbe
 
         var psi = new ProcessStartInfo
         {
-            FileName = ffprobePath ?? "ffprobe",
+            FileName = ffprobePath ?? FfmpegLocator.Ffprobe,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             UseShellExecute = false,

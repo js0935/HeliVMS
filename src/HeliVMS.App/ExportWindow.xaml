@@ -2,7 +2,7 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         AutomationProperties.AutomationId="ExportWindow"
-        Title="HeliVMS 匯出精靈"
+        Title=""
         Width="640" Height="560"
         WindowStartupLocation="CenterOwner"
         Background="#0B1622" Foreground="White"
@@ -15,14 +15,14 @@
         </Grid.RowDefinitions>
 
         <StackPanel>
-            <!-- 頻道 -->
-            <TextBlock Text="頻道" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+            <!-- Channel -->
+            <TextBlock x:Name="ExportChannelLabel" Text="" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
             <ComboBox x:Name="ChannelCombo" AutomationProperties.AutomationId="ChannelCombo"
                       Width="280" Margin="0,4,0,12"
                       Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
 
-            <!-- 時間範圍 -->
-            <TextBlock Text="匯出範圍" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+            <!-- Time range -->
+            <TextBlock x:Name="ExportRangeLabel" Text="" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
             <StackPanel Orientation="Horizontal" Margin="0,4,0,12">
                 <DatePicker x:Name="StartDate" AutomationProperties.AutomationId="StartDate"
                             Width="140" Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
@@ -37,42 +37,42 @@
                          Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
             </StackPanel>
 
-            <!-- 輸出路徑 -->
-            <TextBlock Text="輸出資料夾" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+            <!-- Output folder -->
+            <TextBlock x:Name="ExportOutputFolderLabel" Text="" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
             <DockPanel Margin="0,4,0,12">
-                <Button x:Name="BrowseButton" Content="瀏覽…" Click="OnBrowseClicked" ToolTip="選擇匯出目標目錄"
+                <Button x:Name="BrowseButton" Content="" Click="OnBrowseClicked" ToolTip=""
                         DockPanel.Dock="Right" Padding="12,6" Margin="6,0,0,0"
                         Foreground="White" Background="#2A5C8A" BorderThickness="0" AutomationProperties.AutomationId="BrowseButton"/>
                 <TextBox x:Name="OutputFolderBox" AutomationProperties.AutomationId="OutputFolderBox"
                          Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="8,4"/>
             </DockPanel>
 
-            <!-- 浮水印 -->
-            <TextBlock Text="浮水印文字（選填；留空則不加浮水印）" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+            <!-- Watermark -->
+            <TextBlock x:Name="ExportWatermarkLabel" Text="" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
             <TextBox x:Name="WatermarkBox" AutomationProperties.AutomationId="WatermarkBox"
                      Width="320" Margin="0,4,0,12"
                      Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="8,4"/>
 
             <!-- SHA-256 -->
             <CheckBox x:Name="HashCheckBox" AutomationProperties.AutomationId="HashCheckBox"
-                      Content="匯出後產生 SHA-256 驗證檔（.sha256）"
+                      Content=""
                       IsChecked="True" Foreground="White" Margin="0,0,0,8"/>
 
-            <!-- 證據包 -->
+            <!-- Evidence bundle -->
             <CheckBox x:Name="BundleCheckBox" AutomationProperties.AutomationId="BundleCheckBox"
-                      Content="匯出後打包數位證據包（.evp）"
+                      Content=""
                       IsChecked="False" Foreground="White" Margin="0,0,0,4"/>
             <StackPanel Margin="22,0,0,8"
                         IsEnabled="{Binding ElementName=BundleCheckBox, Path=IsChecked}">
                 <DockPanel Margin="0,0,0,4">
-                    <TextBlock Text="包密碼（留空＝開放包）" DockPanel.Dock="Left"
+                    <TextBlock x:Name="ExportBundlePasswordLabel" Text="" DockPanel.Dock="Left"
                                Foreground="{StaticResource Brand.TextDim}" FontSize="11" VerticalAlignment="Center"/>
                     <PasswordBox x:Name="BundlePasswordBox" AutomationProperties.AutomationId="BundlePasswordBox"
                                  Width="180" HorizontalAlignment="Right"
                                  Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
                 </DockPanel>
                 <DockPanel>
-                    <TextBlock Text="到期日（yyyy-MM-dd，選填）" DockPanel.Dock="Left"
+                    <TextBlock x:Name="ExportBundleExpiryLabel" Text="" DockPanel.Dock="Left"
                                Foreground="{StaticResource Brand.TextDim}" FontSize="11" VerticalAlignment="Center"/>
                     <TextBox x:Name="BundleExpiryBox" AutomationProperties.AutomationId="BundleExpiryBox"
                              Width="120" HorizontalAlignment="Right"
@@ -80,7 +80,7 @@
                 </DockPanel>
             </StackPanel>
 
-            <!-- 狀態 -->
+            <!-- Status -->
             <TextBlock x:Name="StatusText" AutomationProperties.AutomationId="StatusText"
                        Foreground="{StaticResource Brand.TextDim}" FontSize="11"
                        TextWrapping="Wrap" Margin="0,0,0,4"/>
@@ -89,21 +89,21 @@
                        TextWrapping="Wrap"/>
         </StackPanel>
 
-        <!-- 底部 -->
+        <!-- Footer -->
         <StackPanel Grid.Row="1" Margin="0,12,0,0">
             <ProgressBar x:Name="ExportProgress" AutomationProperties.AutomationId="ExportProgress"
                          Height="18" Minimum="0" Maximum="100" Value="0"
                          Foreground="#2660AA" Background="#12233C" Margin="0,0,0,8"/>
             <StackPanel Orientation="Horizontal">
-                <Button x:Name="ExportButton" AutomationProperties.AutomationId="ExportButton" ToolTip="開始匯出影像範圍"
-                        Content="匯出" Click="OnExportClicked" IsDefault="True"
+                <Button x:Name="ExportButton" AutomationProperties.AutomationId="ExportButton" ToolTip=""
+                        Content="" Click="OnExportClicked" IsDefault="True"
                         Width="100" Padding="0,8"
                         Foreground="White" Background="#2A5C8A" BorderThickness="0"/>
                 <Button x:Name="OpenFolderButton" AutomationProperties.AutomationId="OpenFolderButton"
-                        Content="開啟資料夾" Click="OnOpenFolderClicked" ToolTip="在檔案總管中顯示上次匯出的檔案"
+                        Content="" Click="OnOpenFolderClicked" ToolTip=""
                         Width="100" Padding="0,8" Margin="8,0,0,0" IsEnabled="False"
                         Foreground="White" Background="#2A7F6E" BorderThickness="0"/>
-                <Button x:Name="CloseButton" Content="關閉" Click="OnCloseClicked" ToolTip="關閉此視窗" IsCancel="True"
+                <Button x:Name="CloseButton" Content="" Click="OnCloseClicked" ToolTip="" IsCancel="True"
                         Width="80" Padding="0,8" Margin="8,0,0,0"
                         Foreground="White" Background="#3A3A5A" BorderThickness="0" AutomationProperties.AutomationId="CloseButton"/>
             </StackPanel>

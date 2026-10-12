@@ -9,7 +9,7 @@ namespace HeliVMS.Storage;
 /// </summary>
 public sealed class SqliteStore : IDisposable
 {
-    private const int CurrentSchemaVersion = 44;
+    private const int CurrentSchemaVersion = 47;
     private readonly SqliteConnection _connection;
     private readonly object _gate = new();
     private bool _disposed;
@@ -274,6 +274,21 @@ public sealed class SqliteStore : IDisposable
             AddDeviceSdUrlV44();
         }
 
+        if (version < 45)
+        {
+            AddChannelEnabledV45();
+        }
+
+        if (version < 46)
+        {
+            AddDeviceStreamUrlsV46();
+        }
+
+        if (version < 47)
+        {
+            AddChannelDisplayCellV47();
+        }
+
         Execute("PRAGMA user_version = CURRENT_SCHEMA_VERSION;".Replace(
             "CURRENT_SCHEMA_VERSION", CurrentSchemaVersion.ToString(CultureInfo.InvariantCulture)));
     }
@@ -512,7 +527,9 @@ public sealed class SqliteStore : IDisposable
                 vendor              TEXT    NOT NULL DEFAULT 'generic',
                 enabled             INTEGER NOT NULL DEFAULT 1,
                 created_at          TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
-                sd_url              TEXT
+                sd_url              TEXT,
+                main_rtsp           TEXT,
+                sub_rtsp            TEXT
             );
 
             CREATE TABLE IF NOT EXISTS channels (
@@ -527,6 +544,7 @@ public sealed class SqliteStore : IDisposable
                 recording_mode       INTEGER NOT NULL DEFAULT 0,
                 motion_enabled       INTEGER NOT NULL DEFAULT 0,
                 motion_sensitivity   REAL    NOT NULL DEFAULT 0.5,
+                enabled              INTEGER NOT NULL DEFAULT 1,
                 created_at           TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
             );
 
@@ -875,6 +893,46 @@ public sealed class SqliteStore : IDisposable
     private void AddDeviceSdUrlV44()
     {
         EnsureColumn("devices", "sd_url", "TEXT");
+    }
+
+    /// <summary>
+    /// channels 增列 enabled。
+    ///
+    /// 這個欄位之前只存在於 C# 的 <c>ChannelInfo.Enabled</c>，資料庫裡沒有對應欄位，
+    /// 所以「停用某台攝影機」在 repository 的 SELECT 與 UPDATE 兩端都沒有接上：
+    /// 讀回來永遠是預設值 true，寫回去也不會生效。操作於是無法排除故障或暫停的攝影機，
+    /// 而錄影排程照樣往它開錄——現場看到的還是「錄影正常，沒有錯誤」，
+    /// 只是多一台壞掉的攝影機在整天寫著壞掉的片段。
+    ///
+    /// 預設 1（啟用），既有安裝的行為不變。
+    /// </summary>
+    private void AddChannelEnabledV45()
+    {
+        EnsureColumn("channels", "enabled", "INTEGER NOT NULL DEFAULT 1");
+    }
+
+    /// <summary>
+    /// devices 增列 main_rtsp／sub_rtsp。
+    ///
+    /// 攝影機（device）與頻道（channel）分離管理後，ONVIF 加入攝影機時就取得其主／子碼流位址，
+    /// 需先存回設備。之後「頻道管理」才能離線把某台攝影機的碼流分配成頻道，
+    /// 不必每次重新連線探測。既有安裝的設備兩欄為 NULL，行為不變。
+    /// </summary>
+    private void AddDeviceStreamUrlsV46()
+    {
+        EnsureColumn("devices", "main_rtsp", "TEXT");
+        EnsureColumn("devices", "sub_rtsp", "TEXT");
+    }
+
+    /// <summary>
+    /// channels 增列 display_cell：操作員可指定某台攝影機固定在監看區第幾格。
+    ///
+    /// 預設 NULL（未指定）＝沿用建立順序自動排，既有安裝行為不變。
+    /// 只影響監看格位，不影響錄影、查詢或事件。
+    /// </summary>
+    private void AddChannelDisplayCellV47()
+    {
+        EnsureColumn("channels", "display_cell", "INTEGER");
     }
 
     private void EnsureColumn(string table, string column, string definition)

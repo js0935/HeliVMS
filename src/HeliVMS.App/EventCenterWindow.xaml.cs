@@ -25,8 +25,17 @@ public partial class EventCenterWindow : Window
     private long? _preselect;
     private readonly Dictionary<(string Kind, long Id), Window> _child = new();
     private const int PageSize = 50;
+
+    /// <summary>RangeCombo 中「全部」的索引（與 <see cref="RangeWindow"/> 的判定共用）。</summary>
+    private const int AllRangeIndex = 3;
     private int _page = 1;
     private long? _selectedId;
+
+    /// <summary>本頁已選取的事件 Id（多選批次處置用）。重整後據此保留同頁選取。</summary>
+    private readonly HashSet<long> _selectedIds = [];
+
+    /// <summary>程式化設定選取時抑制 SelectionChanged 遞迴，避免兩清單互相同步時打轉。</summary>
+    private bool _restoringSelection;
     private readonly AlertFeed? _feed;
 
     public EventCenterWindow(SqliteStore store, long? preselectChannelId = null, AlertBroadcastHub? alerts = null)
@@ -201,6 +210,7 @@ public partial class EventCenterWindow : Window
         AckButton.ToolTip = Localizer.T("EventCenter.AckTip");
         UnackButton.Content = Localizer.T("EventCenter.Unack");
         UnackButton.ToolTip = Localizer.T("EventCenter.UnackTip");
+        UpdateSelectAllButton();
         PlaybackButton.Content = Localizer.T("EventCenter.Playback");
         PlaybackButton.ToolTip = Localizer.T("EventCenter.PlaybackTip");
         MapLocateButton.Content = Localizer.T("EventCenter.MapLocate");
@@ -243,10 +253,6 @@ public partial class EventCenterWindow : Window
             grid.Columns[5].Header = Localizer.T("EventCenter.ColStatus");
             grid.Columns[6].Header = Localizer.T("EventCenter.ColAssigned");
         }
-    }
-
-    private void OnClosing(object sender, System.ComponentModel.CancelEventArgs e)
-    {
     }
 
     private void RefreshTypes()
@@ -391,6 +397,11 @@ public partial class EventCenterWindow : Window
 
     /// <summary>切到「僅未確認」視圖（供主視窗未確認徽章點擊重用同窗）；
     /// 傳入 channelId 時一併聚焦該頻道。</summary>
+    /// <remarks>
+    /// 時間範圍必須放寬到「全部」。未確認徽章是<b>全庫</b>的未確認總數，但清單預設只查近 24 小時，
+    /// 兩者不一致時舊的未確認事件不會出現在清單裡，使用者「全選確認」也清不掉——實際症狀就是
+    /// 徽章永遠卡在同樣的筆數。分診入口一律讓「所見＝徽章所計」。
+    /// </remarks>
     public void FocusUnacknowledged(long? channelId = null)
     {
         if (channelId is { } id)
@@ -398,6 +409,7 @@ public partial class EventCenterWindow : Window
             _preselect = id;
         }
 
+        RangeCombo.SelectedIndex = AllRangeIndex;
         PendingOnlyCheck.IsChecked = true;
         RefreshChannels();
         _page = 1;
@@ -461,6 +473,9 @@ public partial class EventCenterWindow : Window
         {
             ChannelId = channelId,
             EventType = eventType,
+            // 「僅未確認」必須進查詢，否則清單照樣列出已確認事件，徽章指涉的未確認事件反而找不到、
+            // 也因為分頁被推到後面而「全選」不到（實際症狀：徽章卡住、清不掉）。與 BuildQuery 一致。
+            Status = PendingOnlyCheck.IsChecked == true ? AlarmEventStatus.Pending : null,
             Keyword = KeywordBox.Text.Trim(),
             FromUtc = from,
             ToUtc = to,
@@ -515,8 +530,21 @@ public partial class EventCenterWindow : Window
             }
         }
 
+        // 保留同頁已選取的列：以 Id 集合保存，重整（含推播／輪詢）後重新勾回，操作不被打斷。
+        // 必須在換 ItemsSource 前就舉起抑制旗標，否則換源觸發的 SelectionChanged 會把集合清空。
+        _restoringSelection = true;
         EventList.ItemsSource = eventRows;
         CardList.ItemsSource = eventRows;
+
+        var pageIds = eventRows.Select(r => r.Id).ToHashSet();
+        _selectedIds.RemoveWhere(id => !pageIds.Contains(id));
+        foreach (var r in eventRows.Where(r => _selectedIds.Contains(r.Id)))
+        {
+            EventList.SelectedItems.Add(r);
+            CardList.SelectedItems.Add(r);
+        }
+
+        _restoringSelection = false;
 
         var pages = Math.Max(1, (total + PageSize - 1) / PageSize);
         CountText.Text = string.Format(
@@ -525,29 +553,14 @@ public partial class EventCenterWindow : Window
             CultureInfo.InvariantCulture, Localizer.T("EventCenter.PageOf"), _page, pages);
         PrevPageButton.IsEnabled = _page > 1;
         NextPageButton.IsEnabled = _page * PageSize < total;
-        var keepId = _selectedId;
-        EventList.SelectedItem = null;
-        CardList.SelectedItem = null;
-        _selectedId = keepId;
-        ClearSnapshot();
 
-        if (keepId is long keep)
+        // 主要列（快照／軌跡）若已不在選取集合（例如被批次確認後從「僅未確認」視圖消失）就改指第一列。
+        if (_selectedId is long keep && !_selectedIds.Contains(keep))
         {
-            var again = eventRows.FirstOrDefault(r => r.Id == keep);
-            if (again is not null)
-            {
-                EventList.SelectedItem = again;
-            }
-            else
-            {
-                _selectedId = null;
-                ApplySelection(null);
-            }
+            _selectedId = eventRows.FirstOrDefault(r => _selectedIds.Contains(r.Id))?.Id;
         }
-        else
-        {
-            ApplySelection(null);
-        }
+
+        ApplySelection();
     }
 
     private void OnPrevPageClicked(object sender, RoutedEventArgs e)
@@ -571,61 +584,155 @@ public partial class EventCenterWindow : Window
     {
         var now = DateTime.UtcNow;
         var idx = RangeCombo.SelectedIndex;
-        return idx switch
-        {
-            0 => (now.Date, now.Date.AddDays(1).AddTicks(-1)),
-            2 => (now.AddDays(-7), now),
-            3 => (DateTime.MinValue, now),
-            _ => (now.AddHours(-24), now),
-        };
+            return idx switch
+            {
+                0 => (now.Date, now.Date.AddDays(1).AddTicks(-1)),
+                2 => (now.AddDays(-7), now),
+                AllRangeIndex => (DateTime.MinValue, now),
+                _ => (now.AddHours(-24), now),
+            };
     }
 
     private void OnEventSelected(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
     {
-        var row = EventList.SelectedItem as EventRow;
-        ApplySelection(row);
-
-        // 同步卡片檢視的選中狀態
-        if (row != null && CardList.Visibility == Visibility.Visible)
+        if (_restoringSelection)
         {
-            CardList.SelectedItem = row;
+            return;
         }
+
+        MirrorSelection(EventList, CardList, e);
     }
 
     private void OnCardSelected(object sender, SelectionChangedEventArgs e)
     {
-        var row = CardList.SelectedItem as EventRow;
-        ApplySelection(row);
-
-        // 同步網格檢視的選中狀態
-        if (row != null && EventList.Visibility == Visibility.Visible)
+        if (_restoringSelection)
         {
-            EventList.SelectedItem = row;
-        }
-    }
-
-    /// <summary>套用選取：按鈕狀態、快照、處置控制項與軌跡。</summary>
-    private void ApplySelection(EventRow? row)
-    {
-        _selectedId = row?.Id;
-        AckButton.IsEnabled = row != null && !row.Acknowledged;
-        UnackButton.IsEnabled = row != null && row.Acknowledged;
-        PlaybackButton.IsEnabled = row != null;
-        MapLocateButton.IsEnabled = row != null;
-        ApplyDispositionButton.IsEnabled = row != null;
-        ShowSnapshot(row?.SnapshotPath, row?.Detail);
-
-        if (row is null)
-        {
-            DisposeDispositionEditor();
-            TrailText.Text = Localizer.T("EventCenter.TrailEmpty");
             return;
         }
 
-        SelectDisposition(row.Status);
-        AssignBox.Text = row.AssignedTo ?? "";
-        NoteBox.Text = row.Note ?? "";
-        ShowTrail(row.Id);
+        MirrorSelection(CardList, EventList, e);
+    }
+
+    /// <summary>把來源清單的選取鏡射到另一份檢視，並更新選取集合與主要列。
+    /// 兩個檢視共用同一批 <see cref="EventRow"/> 物件，鏡射期間抑制對方的事件避免互相觸發。</summary>
+    private void MirrorSelection(
+        ListBox source,
+        ListBox other,
+        SelectionChangedEventArgs e)
+    {
+        _selectedIds.Clear();
+        foreach (var r in source.SelectedItems.OfType<EventRow>())
+        {
+            _selectedIds.Add(r.Id);
+        }
+
+        // 主要列＝最後加入的列（快照／軌跡跟著最後點的那筆）；被移除時退回第一列。
+        if (e.AddedItems.Count > 0 && e.AddedItems[e.AddedItems.Count - 1] is EventRow added)
+        {
+            _selectedId = added.Id;
+        }
+        else if (_selectedId is long id && !_selectedIds.Contains(id))
+        {
+            _selectedId = null;
+        }
+
+        _restoringSelection = true;
+        other.SelectedItems.Clear();
+        foreach (var r in source.SelectedItems.OfType<EventRow>())
+        {
+            other.SelectedItems.Add(r);
+        }
+
+        _restoringSelection = false;
+
+        ApplySelection();
+    }
+
+    /// <summary>套用選取：按鈕狀態、快照、處置控制項與軌跡。多選時回放／地圖／遮蔽僅限單列，
+    /// 確認與處置則一次套用到所有選取列。</summary>
+    private void ApplySelection()
+    {
+        var rows = SelectedRows;
+        var count = rows.Count;
+        var row = SelectedRow;
+        _selectedId = row?.Id;
+
+        AckButton.IsEnabled = count > 0;
+        UnackButton.IsEnabled = count > 0;
+        PlaybackButton.IsEnabled = count == 1;
+        MapLocateButton.IsEnabled = count == 1;
+        SnapshotRedactButton.IsEnabled = count == 1;
+        ApplyDispositionButton.IsEnabled = count > 0;
+
+        if (count == 0)
+        {
+            DisposeDispositionEditor();
+            TrailText.Text = Localizer.T("EventCenter.TrailEmpty");
+            ShowSnapshot(null, null);
+            UpdateSelectAllButton();
+            return;
+        }
+
+        if (count == 1 && row is not null)
+        {
+            SelectDisposition(row.Status);
+            AssignBox.Text = row.AssignedTo ?? "";
+            NoteBox.Text = row.Note ?? "";
+            ShowTrail(row.Id);
+            ShowSnapshot(row.SnapshotPath, row.Detail);
+        }
+        else
+        {
+            // 多選：處置欄位保持可用（一次套用到全部），但不預填單列值，避免誤以為只改一列。
+            DisposeDispositionEditor();
+            ShowSnapshot(null, null);
+            TrailText.Text = string.Format(
+                CultureInfo.InvariantCulture, Localizer.T("EventCenter.SelectedCount"), count);
+        }
+
+        UpdateSelectAllButton();
+    }
+
+    /// <summary>「全選／取消全選」在兩份檢視間切換：頁面全部已選時清空，否則選取整頁。</summary>
+    private void OnSelectAllClicked(object sender, RoutedEventArgs e)
+    {
+        var rows = (EventList.ItemsSource as IEnumerable<EventRow>)?.ToList() ?? [];
+        if (rows.Count == 0)
+        {
+            return;
+        }
+
+        var allSelected = _selectedIds.Count >= rows.Count;
+        _restoringSelection = true;
+        EventList.SelectedItems.Clear();
+        CardList.SelectedItems.Clear();
+        _selectedIds.Clear();
+        if (!allSelected)
+        {
+            foreach (var r in rows)
+            {
+                EventList.SelectedItems.Add(r);
+                CardList.SelectedItems.Add(r);
+                _selectedIds.Add(r.Id);
+            }
+        }
+
+        _restoringSelection = false;
+
+        _selectedId = allSelected ? null : rows[0].Id;
+        ApplySelection();
+    }
+
+    /// <summary>更新「全選／取消全選」按鈕的文字、提示與可用狀態（頁面無列即停用）。</summary>
+    private void UpdateSelectAllButton()
+    {
+        var pageCount = (EventList.ItemsSource as System.Collections.ICollection)?.Count ?? 0;
+        var allSelected = pageCount > 0 && _selectedIds.Count >= pageCount;
+        SelectAllButton.Content = Localizer.T(
+            allSelected ? "EventCenter.ClearSelection" : "EventCenter.SelectAll");
+        SelectAllButton.ToolTip = Localizer.T(
+            allSelected ? "EventCenter.ClearSelectionTip" : "EventCenter.SelectAllTip");
+        SelectAllButton.IsEnabled = pageCount > 0;
     }
 
     private void DisposeDispositionEditor()
@@ -672,7 +779,8 @@ public partial class EventCenterWindow : Window
 
     private void OnApplyDispositionClicked(object sender, RoutedEventArgs e)
     {
-        if (SelectedRow is not EventRow row)
+        var ids = SelectedIdsForBatch();
+        if (ids.Count == 0)
         {
             return;
         }
@@ -681,7 +789,12 @@ public partial class EventCenterWindow : Window
             ?? AlarmEventStatus.Pending;
         var assign = string.IsNullOrWhiteSpace(AssignBox.Text) ? null : AssignBox.Text.Trim();
         var note = string.IsNullOrWhiteSpace(NoteBox.Text) ? null : NoteBox.Text.Trim();
-        _events.SetDisposition(row.Id, status, assign, note, DateTime.UtcNow);
+        var at = DateTime.UtcNow;
+        foreach (var id in ids)
+        {
+            _events.SetDisposition(id, status, assign, note, at);
+        }
+
         DoRefresh();
     }
 
@@ -711,9 +824,35 @@ public partial class EventCenterWindow : Window
         OpenChild(("map", row.ChannelId), new MapWindow(_store, (int)row.ChannelId, "camera"));
     }
 
-    /// <summary>目前檢視中被選取的事件列。</summary>
-    private EventRow? SelectedRow =>
-        (CardList.Visibility == Visibility.Visible ? CardList.SelectedItem : EventList.SelectedItem) as EventRow;
+    /// <summary>目前檢視中被選取的列（多選時為全部選取列）。</summary>
+    private IReadOnlyList<EventRow> SelectedRows =>
+        (CardList.Visibility == Visibility.Visible ? (ListBox)CardList : EventList)
+            .SelectedItems.OfType<EventRow>()
+            .ToList();
+
+    /// <summary>主要選取列：主要列 Id 命中時用它（快照／軌跡跟隨最後點選），否則取第一列。</summary>
+    private EventRow? SelectedRow
+    {
+        get
+        {
+            var rows = SelectedRows;
+            if (rows.Count == 0)
+            {
+                return null;
+            }
+
+            if (_selectedId is long id)
+            {
+                var match = rows.FirstOrDefault(r => r.Id == id);
+                if (match is not null)
+                {
+                    return match;
+                }
+            }
+
+            return rows[0];
+        }
+    }
 
     /// <summary>對選取事件的快照開啟遮蔽窗（M116，單例重用）。</summary>
     private void OnRedactSnapshotClicked(object sender, RoutedEventArgs e)
@@ -744,13 +883,30 @@ public partial class EventCenterWindow : Window
 
     private void SetAck(bool acknowledged)
     {
-        if (SelectedRow is not EventRow row)
+        var ids = SelectedIdsForBatch();
+        if (ids.Count == 0)
         {
             return;
         }
 
-        _events.Acknowledge(row.Id, acknowledged);
+        foreach (var id in ids)
+        {
+            _events.Acknowledge(id, acknowledged);
+        }
+
         DoRefresh();
+    }
+
+    /// <summary>批次操作要處理的事件 Id：優先取多選集合，退回單一主要列。
+    /// 順序依 Id 排序，確保處置軌跡與稽核的寫入次序可重現。</summary>
+    private IReadOnlyList<long> SelectedIdsForBatch()
+    {
+        if (_selectedIds.Count > 0)
+        {
+            return _selectedIds.OrderBy(x => x).ToList();
+        }
+
+        return SelectedRow is EventRow row ? [row.Id] : [];
     }
 
     private void ShowSnapshot(string? path, string? detail)
