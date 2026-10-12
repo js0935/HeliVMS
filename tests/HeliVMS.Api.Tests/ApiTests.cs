@@ -302,6 +302,26 @@ public class ApiTests : IClassFixture<ApiFactory>, IDisposable
     }
 
     [Fact]
+    public async Task Pos_Anomalies_ReportAmountOutlier()
+    {
+        var t0 = new DateTime(2026, 9, 22, 9, 0, 0, DateTimeKind.Utc);
+        long[] amounts = [1000, 1100, 1200, 1300, 1400, 50000];
+        for (var i = 0; i < amounts.Length; i++)
+        {
+            await InsertPos("REG-ANOM", $"ANOM-{i}", amounts[i], t0.AddHours(i));
+        }
+
+        using var client = Client();
+        var response = await client.GetAsync("/api/pos/anomalies?deviceId=1");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var report = await ReadAsync<PosAnomalyReport>(response);
+
+        Assert.Contains(
+            report.Anomalies,
+            a => a.Kind == PosAnomalyKind.AmountOutlier && a.AmountCents == 50000 && a.RegisterId == "REG-ANOM");
+    }
+
+    [Fact]
     public async Task Pos_Ingest_InsertsThenDeduplicates()
     {
         using var client = Client();

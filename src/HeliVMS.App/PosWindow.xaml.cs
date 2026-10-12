@@ -42,6 +42,9 @@ public partial class PosWindow : Window
         PosImportButton.ToolTip = Localizer.T("Pos.ImportTip");
         PosReconcileButton.Content = Localizer.T("Pos.Reconcile");
         PosReconcileButton.ToolTip = Localizer.T("Pos.ReconcileTip");
+        PosAnomalyButton.Content = Localizer.T("Pos.Anomalies");
+        PosAnomalyButton.ToolTip = Localizer.T("Pos.AnomalyTip");
+        PosAnomalyText.Text = Localizer.T("Pos.AnomalyHeading");
 
         if (PosList.View is GridView grid && grid.Columns.Count >= 5)
         {
@@ -50,6 +53,14 @@ public partial class PosWindow : Window
             grid.Columns[2].Header = Localizer.T("Pos.ColRegister");
             grid.Columns[3].Header = Localizer.T("Pos.ColTransaction");
             grid.Columns[4].Header = Localizer.T("Pos.ColAmount");
+        }
+
+        if (PosAnomalyList.View is GridView anomalyGrid && anomalyGrid.Columns.Count >= 4)
+        {
+            anomalyGrid.Columns[0].Header = Localizer.T("Pos.AnomalyColKind");
+            anomalyGrid.Columns[1].Header = Localizer.T("Pos.AnomalyColTime");
+            anomalyGrid.Columns[2].Header = Localizer.T("Pos.AnomalyColRegister");
+            anomalyGrid.Columns[3].Header = Localizer.T("Pos.AnomalyColAmount");
         }
     }
 
@@ -193,6 +204,57 @@ public partial class PosWindow : Window
         PosStatusText.Text = string.Format(
             CultureInfo.InvariantCulture, Localizer.T("Pos.ImportDone"), inserted, duplicate, skipped);
         Refresh();
+    }
+
+    /// <summary>
+    /// 以交易後設資料偵測異常（M282）：金額離群與短時連發，列出供操作員追查。
+    /// </summary>
+    private void OnAnomalyClicked(object sender, RoutedEventArgs e)
+    {
+        if (!TryReadRange(out var deviceId, out var fromUtc, out var toUtc))
+        {
+            return;
+        }
+
+        var register = PosRegisterBox.Text.Trim();
+        IReadOnlyList<POSEvent> txns;
+        if (register.Length > 0)
+        {
+            if (deviceId is null)
+            {
+                PosStatusText.Text = Localizer.T("Pos.RegisterNeedsDevice");
+                return;
+            }
+
+            txns = _pos.QueryByRegister(deviceId.Value, register, fromUtc, toUtc);
+        }
+        else
+        {
+            txns = _pos.Query(deviceId, fromUtc, toUtc);
+        }
+
+        var report = PosAnomalyDetector.Analyze(txns);
+        PosAnomalyList.ItemsSource = report.Anomalies
+            .Select(a => new
+            {
+                Kind = Localizer.T(a.Kind == PosAnomalyKind.AmountOutlier
+                    ? "Pos.AnomalyKindAmountOutlier"
+                    : "Pos.AnomalyKindRapidRepeat"),
+                Time = TimeZoneInfo.ConvertTimeFromUtc(a.OccurredAtUtc, TimeZoneInfo.Local)
+                    .ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture),
+                Register = a.RegisterId,
+                Amount = (a.AmountCents / 100m).ToString("0.00", CultureInfo.InvariantCulture),
+            })
+            .ToList();
+
+        PosAnomalyText.Text = report.Total == 0
+            ? Localizer.T("Pos.AnomalyNone")
+            : string.Format(
+                CultureInfo.InvariantCulture,
+                Localizer.T("Pos.AnomalyFound"),
+                report.Total,
+                report.AmountOutliers,
+                report.RapidRepeats);
     }
 
     private void OnReconcileClicked(object sender, RoutedEventArgs e)

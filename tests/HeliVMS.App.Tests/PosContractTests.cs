@@ -44,10 +44,21 @@ public sealed class PosContractTests
     public void POS窗有查詢匯入對帳控制項()
     {
         var xaml = SourceContract.Read(PosXaml);
-        foreach (var element in new[] { "PosList", "PosQueryButton", "PosImportButton", "PosReconcileButton" })
+        foreach (var element in new[] { "PosList", "PosQueryButton", "PosImportButton", "PosReconcileButton", "PosAnomalyButton", "PosAnomalyList" })
         {
             Assert.Contains($"x:Name=\"{element}\"", xaml);
         }
+    }
+
+    [Fact]
+    public void POS窗把異常偵測接到畫面()
+    {
+        // M282：PosEventLinker／離群偵測是純引擎，若窗（唯一產品呼叫端）沒接，異常視覺化就不存在。
+        Assert.Equal("OnAnomalyClicked", WiredHandler(PosXaml, "PosAnomalyButton"));
+
+        var handler = SourceContract.BodyOf(SourceContract.Read(PosCode), "OnAnomalyClicked");
+        Assert.Contains("PosAnomalyDetector.Analyze(", handler);
+        Assert.Contains("PosAnomalyList.ItemsSource", handler);
     }
 
     private static string WiredHandler(string relativePath, string element)

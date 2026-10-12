@@ -12,6 +12,8 @@
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
             <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
         <StackPanel Grid.Row="0">
@@ -36,8 +38,12 @@
                         Foreground="White" Background="#3A5A7A" BorderThickness="0"
                         ToolTip=""/>
                 <Button x:Name="PosReconcileButton" AutomationProperties.AutomationId="PosReconcileButton"
-                        Content="" Click="OnReconcileClicked" Width="64" Padding="0,6" Margin="0,0,0,4"
+                        Content="" Click="OnReconcileClicked" Width="64" Padding="0,6" Margin="0,0,8,4"
                         Foreground="White" Background="#5A3A5A" BorderThickness="0"
+                        ToolTip=""/>
+                <Button x:Name="PosAnomalyButton" AutomationProperties.AutomationId="PosAnomalyButton"
+                        Content="" Click="OnAnomalyClicked" Width="84" Padding="0,6" Margin="0,0,0,4"
+                        Foreground="White" Background="#7A4A2A" BorderThickness="0"
                         ToolTip=""/>
             </WrapPanel>
         </StackPanel>
@@ -77,6 +83,39 @@
         </ListView>
 
         <StackPanel Grid.Row="2" Margin="0,10,0,0">
+            <TextBlock x:Name="PosAnomalyText" AutomationProperties.AutomationId="PosAnomalyText"
+                       Foreground="#E0B080" TextWrapping="Wrap"/>
+            <ListView x:Name="PosAnomalyList" AutomationProperties.AutomationId="PosAnomalyList"
+                      Height="150" Margin="0,6,0,0"
+                      Background="#1A1220" Foreground="White" BorderBrush="#5A3A2A">
+                <ListView.View>
+                    <GridView>
+                        <GridViewColumn Header="" Width="120">
+                            <GridViewColumn.CellTemplate>
+                                <DataTemplate><TextBlock Text="{Binding Kind}" FontSize="12"/></DataTemplate>
+                            </GridViewColumn.CellTemplate>
+                        </GridViewColumn>
+                        <GridViewColumn Header="" Width="180">
+                            <GridViewColumn.CellTemplate>
+                                <DataTemplate><TextBlock Text="{Binding Time}" FontSize="12"/></DataTemplate>
+                            </GridViewColumn.CellTemplate>
+                        </GridViewColumn>
+                        <GridViewColumn Header="" Width="130">
+                            <GridViewColumn.CellTemplate>
+                                <DataTemplate><TextBlock Text="{Binding Register}" FontSize="12"/></DataTemplate>
+                            </GridViewColumn.CellTemplate>
+                        </GridViewColumn>
+                        <GridViewColumn Header="" Width="120">
+                            <GridViewColumn.CellTemplate>
+                                <DataTemplate><TextBlock Text="{Binding Amount}" FontSize="12"/></DataTemplate>
+                            </GridViewColumn.CellTemplate>
+                        </GridViewColumn>
+                    </GridView>
+                </ListView.View>
+            </ListView>
+        </StackPanel>
+
+        <StackPanel Grid.Row="4" Margin="0,10,0,0">
             <TextBlock x:Name="PosStatusText" AutomationProperties.AutomationId="PosStatusText"
                        Foreground="#9FB8D8" TextWrapping="Wrap"/>
             <TextBlock x:Name="PosReconText" AutomationProperties.AutomationId="PosReconText"

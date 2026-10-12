@@ -181,6 +181,8 @@ public static class ApiEndpoints
 
         api.MapGet("/pos/recon", HandlePosRecon);
 
+        api.MapGet("/pos/anomalies", HandlePosAnomalies);
+
         api.MapGet("/smartwall/board", HandleSmartwallBoard);
 
         api.MapGet("/recording/timeline", HandleRecordingTimeline);
@@ -1668,6 +1670,24 @@ public static class ApiEndpoints
 
         context.Response.StatusCode = inserted ? StatusCodes.Status201Created : StatusCodes.Status200OK;
         await context.Response.WriteAsJsonAsync(new DoorEventIngestResult(id, inserted));
+    }
+
+    /// <summary>
+    /// POS 異常彙總（§14.7 #8，M282）：由交易後設資料（金額離群／短時連發）推得異常清單。
+    /// 純統計、不需影像；供桌面與瀏覽器視覺化「哪裡不太對」。
+    /// </summary>
+    private static async Task HandlePosAnomalies(
+        HttpContext context,
+        POSEventRepository pos,
+        int? deviceId,
+        DateTime? from,
+        DateTime? to)
+    {
+        var txns = pos.Query(
+            deviceId,
+            from is { } f ? Utc(f) : null,
+            to is { } t ? Utc(t) : null);
+        await context.Response.WriteAsJsonAsync(PosAnomalyDetector.Analyze(txns));
     }
 
     private static async Task HandlePosRecon(
