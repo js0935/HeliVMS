@@ -65,6 +65,70 @@ public class StreamProbeTests
     }
 
     [Fact]
+    public void Probe_ParsesNtscFractionalFrameRate_AsQuotientNotNumerator()
+    {
+        // NTSC 常見 "30000/1001"：必須得到 29.97 而非 30000。播放端據此推算每格間隔，
+        // 若誤取分子，整個時間軸會以千倍速漂移（畫面時間軸錯亂，但沒有任何錯誤訊息）。
+        var stub = CreateStub(
+            """
+            @echo off
+            echo {"streams":[{"codec_type":"video","codec_name":"h264","width":1920,"height":1080,"r_frame_rate":"30000/1001"}]}
+            """,
+            ".cmd");
+
+        var info = StreamProbe.Probe("rtsp://10.0.0.1/live.sdp", stub, TimeSpan.FromSeconds(10));
+
+        Assert.Equal(29.97, info.Fps, 2);
+    }
+
+    [Fact]
+    public void Probe_ReportsAudioCodec_WhenAudioStreamPresent()
+    {
+        var stub = CreateStub(
+            """
+            @echo off
+            echo {"streams":[{"codec_type":"video","codec_name":"h264","width":1280,"height":720,"r_frame_rate":"25/1"},{"codec_type":"audio","codec_name":"aac"}]}
+            """,
+            ".cmd");
+
+        var info = StreamProbe.Probe("rtsp://10.0.0.1/live.sdp", stub, TimeSpan.FromSeconds(10));
+
+        Assert.Equal("aac", info.AudioCodec);
+    }
+
+    [Fact]
+    public void Probe_VideoStreamWithoutResolution_Throws()
+    {
+        // 有影像流但缺 width/height 時無從建立解碼緩衝；必須明確失敗而非回傳 0×0。
+        var stub = CreateStub(
+            """
+            @echo off
+            echo {"streams":[{"codec_type":"video","codec_name":"h264","r_frame_rate":"25/1"}]}
+            """,
+            ".cmd");
+
+        var ex = Assert.Throws<InvalidOperationException>(
+            () => StreamProbe.Probe("rtsp://10.0.0.1/live.sdp", stub, TimeSpan.FromSeconds(10)));
+
+        Assert.Contains("解析度", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Probe_VideoStreamWithoutCodecName_LeavesVideoCodecEmpty()
+    {
+        var stub = CreateStub(
+            """
+            @echo off
+            echo {"streams":[{"codec_type":"video","width":640,"height":480,"r_frame_rate":"25/1"}]}
+            """,
+            ".cmd");
+
+        var info = StreamProbe.Probe("rtsp://10.0.0.1/live.sdp", stub, TimeSpan.FromSeconds(10));
+
+        Assert.Equal(string.Empty, info.VideoCodec);
+    }
+
+    [Fact]
     public void Probe_PassesRwTimeout_SoHungEndpointFailsPredictably()
     {
         // 沒有 -rw_timeout 時，ffprobe 對「TCP 可連線但不再回應」的端點會反覆重試，

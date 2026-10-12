@@ -1122,7 +1122,8 @@ WebRTC/WHEP 即時監看與 MSE 回放（M244）。
 
 **待辦（依優先序）**：
 1. **ONVIF 與 RTSP 測試覆蓋** — 兩者是「攝影機接不進來」時最先出錯的地方，
-   覆蓋率卻低於其他模組（`Media` 81 測試／`Devices` 152 測試）。
+   覆蓋率卻低於其他模組（`Media` 85 測試／`Devices` 156 測試）。
+   M288 已強化 `StreamProbe` 分支與 `DiscoverByIpAsync`（見下）。
 
 > **硬體解碼接上產品路徑** 已於 M287 落地：`RtspClient` 早在設定鍵 `decode.hwaccel` 之下
 > 支援 `-hwaccel`，M287 補上安全網——啟用前以 `FfmpegHwAccel` 探測本機支援清單
@@ -1134,6 +1135,15 @@ WebRTC/WHEP 即時監看與 MSE 回放（M244）。
 > 統一登錄、`FfmpegPoolSnapshot` 彙總、軟性容量逾量告警、最近失敗）＋共用
 > `FfmpegBackoff`（指數退避，解碼／錄影同一組數字；解碼端由固定 5 秒改為退避），
 > 並曝光於 `SystemHealthWindow` 與 `/api/system-metrics`。刻意只記錄、不強制終止行程。
+
+> **ONVIF／RTSP 測試覆蓋** 已部分於 M288 落地。`StreamProbe` 補上音訊編碼、缺
+> `width`/`height`、缺 `codec_name` 等分支，並修正 `ParseFrameRate` 只取分子的缺陷——
+> NTSC 的 `30000/1001` 曾被回報成 30000fps，回放端（`PlaybackSession`）據此推算每格
+> 間隔，時間軸以千倍速漂移卻無任何錯誤訊息。`DiscoverByIpAsync`（手動輸入 IP 時逐一
+> 驗證各廠牌常見端點）原為 0% 覆蓋，抽出 `serviceFactory` 測試縫（預設仍走真實
+> `OnvifDeviceService`）後以假 `HttpMessageHandler` 納入測試，無需真實設備。
+> `Media` 封裝行覆蓋 91.1%→92.8%、分支 84.1%→87.5%；`Devices` 86.7%→88.0%、
+> 分支 79.1%→79.9%。
 
 ## 14. 功能缺口分析與後續路線圖
 

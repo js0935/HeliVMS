@@ -93,13 +93,25 @@ public static class DiscoveryClient
     /// 逐一試探各廠牌常見路徑與埠並以 <c>GetDeviceInformation</c> 驗證；
     /// 全部失敗時再以單播 WS-Discovery 探測。成功回傳設備 XAddr。
     /// </summary>
+    /// <param name="address">使用者輸入之位址（IP／主機名／完整 URL）。</param>
+    /// <param name="username">ONVIF 帳號；未提供時以匿名探測。</param>
+    /// <param name="password">ONVIF 密碼。</param>
+    /// <param name="options">連線選項；未提供時使用預設值。</param>
+    /// <param name="cancellationToken">取消權杖。</param>
+    /// <param name="serviceFactory">
+    /// 建立候選端點服務之工廠；預設使用真實 <see cref="OnvifDeviceService"/>。
+    /// 測試可注入以假 HttpMessageHandler 建構的服務，無需真實設備。
+    /// </param>
     public static async Task<string?> DiscoverByIpAsync(
         string address,
         string? username = null,
         string? password = null,
         OnvifClientOptions? options = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        Func<string, OnvifDeviceService>? serviceFactory = null)
     {
+        serviceFactory ??= xAddr => new OnvifDeviceService(xAddr, username, password, options);
+
         var candidates = OnvifEndpointResolver.BuildDeviceServiceCandidates(address);
         if (candidates.Count == 0)
         {
@@ -111,7 +123,7 @@ public static class DiscoveryClient
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            using var service = new OnvifDeviceService(candidate, username, password, options);
+            using var service = serviceFactory(candidate);
             try
             {
                 _ = await service.GetInfoAsync(cancellationToken);
@@ -159,7 +171,7 @@ public static class DiscoveryClient
 
                 foreach (var xAddr in matches.Select(m => m.HttpXAddr).OfType<string>())
                 {
-                    using var service = new OnvifDeviceService(xAddr, username, password, options);
+                    using var service = serviceFactory(xAddr);
                     try
                     {
                         _ = await service.GetInfoAsync(cancellationToken);

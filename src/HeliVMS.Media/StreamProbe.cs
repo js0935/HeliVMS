@@ -165,7 +165,11 @@ using var proc = Process.Start(psi)
         }
     }
 
-    /// <summary>解析 ffprobe 之 "15/1"、「30/1」等幀率字串。</summary>
+    /// <summary>
+    /// 解析 ffprobe 之 "15/1"、"30000/1001" 等幀率分數字串。
+    /// 必須取分子除以分母：早期版本只回傳分子，使 NTSC 的 "30000/1001"（29.97fps）
+    /// 被當成 30000fps，播放端依此推算每格間隔，畫面時間軸完全錯亂。
+    /// </summary>
     private static double ParseFrameRate(string? value)
     {
         if (string.IsNullOrEmpty(value))
@@ -174,11 +178,15 @@ using var proc = Process.Start(psi)
         }
 
         var parts = value.Split('/');
-        if (parts.Length != 2 || !int.TryParse(parts[0], out var num))
+        if (parts.Length != 2
+            || !double.TryParse(parts[0], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var numerator)
+            || !double.TryParse(parts[1], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var denominator)
+            || denominator == 0)
         {
             return 25;
         }
 
-        return num;
+        var fps = numerator / denominator;
+        return fps > 0 ? fps : 25;
     }
 }

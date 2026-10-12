@@ -303,11 +303,60 @@ public class DiscoveryClientTests
     }
 
     [Fact]
+    public async Task ProbeUnicastAsync_HostNameNotIp_ResolvesViaDns()
+    {
+        // 手動輸入可為主機名而非 IP：必須先解析 DNS 再探測，無人回應也應正常結束而非例外。
+        var devices = await DiscoveryClient.ProbeUnicastAsync(
+            "localhost", 3702, TimeSpan.FromMilliseconds(200));
+
+        Assert.NotNull(devices);
+    }
+
+    [Fact]
     public async Task DiscoverAsync_CompletesWithoutMulticastSupport()
     {
         // 所在網路無多播時不應拋出例外（CI／隔離網段常見）
         var devices = await DiscoveryClient.DiscoverAsync(TimeSpan.FromMilliseconds(200));
 
         Assert.NotNull(devices);
+    }
+
+    // ---- 手動輸入位址：候選端點探測（DiscoverByIpAsync） ----
+
+    [Fact]
+    public async Task DiscoverByIpAsync_FirstCandidateResponds_ReturnsItsXAddr()
+    {
+        // 手動輸入 IP 時，逐一以 GetDeviceInformation 驗證各廠牌常見路徑；
+        // 第一個回應成功者即為可用端點——這是「找不到攝影機」最常見的來源路徑。
+        var candidates = OnvifEndpointResolver.BuildDeviceServiceCandidates("192.168.1.50");
+        Assert.NotEmpty(candidates);
+
+        var resolved = await DiscoveryClient.DiscoverByIpAsync(
+            "192.168.1.50",
+            serviceFactory: _ => new OnvifDeviceService(
+                candidates[0],
+                null,
+                null,
+                new RecordingHandler((_, _) => OnvifTestHttp.DeviceInfoXml),
+                new OnvifClientOptions { RetryCount = 0 }));
+
+        Assert.Equal(candidates[0], resolved);
+        Assert.Contains("/onvif/device_service", resolved!, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task DiscoverByIpAsync_UnparseableAddress_ReturnsNullWithoutProbing()
+    {
+        var factoryCalls = 0;
+        var resolved = await DiscoveryClient.DiscoverByIpAsync(
+            string.Empty,
+            serviceFactory: _ =>
+            {
+                factoryCalls++;
+                throw new InvalidOperationException("位址無法解析時不應建立任何候選服務");
+            });
+
+        Assert.Null(resolved);
+        Assert.Equal(0, factoryCalls);
     }
 }
