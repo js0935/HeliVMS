@@ -99,7 +99,7 @@ public sealed class ChannelRepository
         string audioEncoder = "copy",
         RecordingMode recordingMode = RecordingMode.Always,
         int? displayCell = null,
-        string actor = "system")
+        string? actor = null)
     {
         var id = InsertChannel(name, mainRtsp, subRtsp, deviceId, codec, audioEnabled, audioEncoder, recordingMode, displayCell);
         _audit.Record(actor, "channel.add", AuditCategories.Config, "channel", id, name);
@@ -144,7 +144,7 @@ public sealed class ChannelRepository
     }
 
     /// <summary>更新頻道設定（稽核掛載：channel.update 寫 audit_log）。</summary>
-    public void Update(ChannelInfo channel, string actor = "system")
+    public void Update(ChannelInfo channel, string? actor = null)
     {
         var affected = _store.Query<int>(
             """
@@ -183,7 +183,7 @@ public sealed class ChannelRepository
     }
 
     /// <summary>刪除頻道（其區段索引連帶刪除）。稽核掛載：channel.delete 寫 audit_log。</summary>
-    public void Delete(int id, string actor = "system")
+    public void Delete(int id, string? actor = null)
     {
         var name = Get(id)?.Name ?? $"id:{id}";
         _store.Execute("DELETE FROM channels WHERE id = $id;", cmd => cmd.Parameters.AddWithValue("$id", id));

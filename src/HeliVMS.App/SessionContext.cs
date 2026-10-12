@@ -1,3 +1,5 @@
+using HeliVMS.Storage;
+
 namespace HeliVMS.App;
 
 /// <summary>目前登入的使用者（M42，§18.6）。</summary>
@@ -8,7 +10,21 @@ public sealed record SessionUser(string Username, string Role, string? DisplayNa
 /// </summary>
 public static class SessionContext
 {
-    public static SessionUser? CurrentUser { get; set; }
+    private static SessionUser? _currentUser;
+
+    /// <summary>
+    /// 目前登入者。設定時同步 <see cref="AuditActor"/>（M278）：登入後管理動作的稽核即記上帳號，
+    /// 未登入或登出後回到 <c>"system"</c>。集中在此，任何登入路徑（本機/LDAP/OIDC）都不會漏。
+    /// </summary>
+    public static SessionUser? CurrentUser
+    {
+        get => _currentUser;
+        set
+        {
+            _currentUser = value;
+            AuditActor.Set(value?.Username);
+        }
+    }
 
     /// <summary>是否已登入（auth.enabled=1 且登入成功）。</summary>
     public static bool IsSignedIn => CurrentUser is not null;

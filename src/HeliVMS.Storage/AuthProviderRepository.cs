@@ -34,7 +34,7 @@ public sealed class AuthProviderRepository
     }
 
     /// <summary>新增提供者（name 唯一；重複拋 SqliteException）。回傳新 ID。稽核：provider.add。</summary>
-    public int Add(string name, string kind, string configJson, bool enabled = true, string actor = "system")
+    public int Add(string name, string kind, string configJson, bool enabled = true, string? actor = null)
     {
         ValidateKind(kind);
         var id = _store.Query(
@@ -126,7 +126,7 @@ public sealed class AuthProviderRepository
     }
 
     /// <summary>啟用/停用提供者。稽核：provider.enable／provider.disable。</summary>
-    public void SetEnabled(int id, bool enabled, string actor = "system")
+    public void SetEnabled(int id, bool enabled, string? actor = null)
     {
         var affected = _store.Query<int>(
             "UPDATE auth_providers SET enabled = $e WHERE id = $id; SELECT changes();",
@@ -145,7 +145,7 @@ public sealed class AuthProviderRepository
     }
 
     /// <summary>刪除提供者。稽核：provider.delete。</summary>
-    public void Delete(int id, string actor = "system")
+    public void Delete(int id, string? actor = null)
     {
         var name = Get(id)?.Name ?? $"id:{id}";
         var affected = _store.Query<int>(

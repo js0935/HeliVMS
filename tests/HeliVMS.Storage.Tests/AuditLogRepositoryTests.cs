@@ -1,5 +1,7 @@
 namespace HeliVMS.Storage.Tests;
 
+/// <summary>與 <see cref="AuditActorTests"/> 同集合（見該類說明）：避免並行改動全域 <see cref="AuditActor"/>。</summary>
+[Collection("audit-actor")]
 public class AuditLogRepositoryTests : IDisposable
 {
     private readonly string _dbPath;
@@ -67,7 +69,7 @@ public class AuditLogRepositoryTests : IDisposable
 
     [Theory]
     [InlineData("", "action", "cat")]
-    [InlineData(null, "action", "cat")]
+    [InlineData("   ", "action", "cat")]
     [InlineData("actor", "", "cat")]
     [InlineData("actor", null, "cat")]
     [InlineData("actor", "action", "")]
@@ -75,6 +77,23 @@ public class AuditLogRepositoryTests : IDisposable
     public void Record_BlankRequiredFields_Throws(string? actor, string? action, string category)
     {
         Assert.ThrowsAny<ArgumentException>(() => _audit.Record(actor!, action!, category));
+    }
+
+    [Fact]
+    public void Record_NullActor_UsesAmbientActor()
+    {
+        AuditActor.Set("alice");
+        try
+        {
+            _audit.Record(null, "settings.update", AuditCategories.Config);
+
+            var row = Assert.Single(_audit.List(new AuditLogQuery()));
+            Assert.Equal("alice", row.Actor);
+        }
+        finally
+        {
+            AuditActor.Reset();
+        }
     }
 
     [Fact]

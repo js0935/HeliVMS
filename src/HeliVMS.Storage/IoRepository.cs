@@ -42,7 +42,7 @@ public sealed class IoRepository
     }
 
     /// <summary>新增模組，回傳新 ID。</summary>
-    public int AddDevice(string name, string host, int port = 502, int unitId = 1, int pollMs = 500, string actor = "system")
+    public int AddDevice(string name, string host, int port = 502, int unitId = 1, int pollMs = 500, string? actor = null)
     {
         var id = _store.Query(
             """
@@ -100,7 +100,7 @@ public sealed class IoRepository
     }
 
     /// <summary>啟用/停用模組（停用＝停止輪詢）。</summary>
-    public void SetDeviceEnabled(int id, bool enabled, string actor = "system")
+    public void SetDeviceEnabled(int id, bool enabled, string? actor = null)
     {
         _store.Execute(
             "UPDATE io_devices SET enabled = $e WHERE id = $id;",
@@ -118,7 +118,7 @@ public sealed class IoRepository
     }
 
     /// <summary>刪除模組（CASCADE 移除其通道）。</summary>
-    public void DeleteDevice(int id, string actor = "system")
+    public void DeleteDevice(int id, string? actor = null)
     {
         _store.Execute(
             "DELETE FROM io_devices WHERE id = $id;",
@@ -140,7 +140,7 @@ public sealed class IoRepository
         bool polarity = false,
         int? cameraId = null,
         string alarmPriority = "normal",
-        string actor = "system")
+        string? actor = null)
     {
         var id = _store.Query(
             """
@@ -225,7 +225,7 @@ public sealed class IoRepository
     }
 
     /// <summary>啟用/停用通道。</summary>
-    public void SetChannelEnabled(int id, bool enabled, string actor = "system")
+    public void SetChannelEnabled(int id, bool enabled, string? actor = null)
     {
         _store.Execute(
             "UPDATE io_channels SET enabled = $e WHERE id = $id;",
@@ -243,7 +243,7 @@ public sealed class IoRepository
     }
 
     /// <summary>刪除通道。</summary>
-    public void DeleteChannel(int id, string actor = "system")
+    public void DeleteChannel(int id, string? actor = null)
     {
         _store.Execute(
             "DELETE FROM io_channels WHERE id = $id;",

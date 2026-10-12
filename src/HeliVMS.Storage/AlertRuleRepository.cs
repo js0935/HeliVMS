@@ -26,7 +26,7 @@ public sealed class AlertRuleRepository
         string? matchEventTypes = null,
         int frameMinutes = 0,
         int minEventsInWindow = 1,
-        string actor = "system")
+        string? actor = null)
     {
         _store.Execute(
             """
@@ -68,7 +68,7 @@ public sealed class AlertRuleRepository
         string? matchEventTypes = null,
         int frameMinutes = 0,
         int minEventsInWindow = 1,
-        string actor = "system")
+        string? actor = null)
     {
         _store.Execute(
             """
@@ -147,7 +147,7 @@ public sealed class AlertRuleRepository
     }
 
     /// <summary>停用／啟用一筆規則。</summary>
-    public void SetEnabled(long id, bool enabled, string actor = "system")
+    public void SetEnabled(long id, bool enabled, string? actor = null)
     {
         _store.Execute(
             "UPDATE alert_rules SET enabled = $e WHERE id = $id;",
@@ -165,7 +165,7 @@ public sealed class AlertRuleRepository
     }
 
     /// <summary>刪除一筆規則。</summary>
-    public void Delete(long id, string actor = "system")
+    public void Delete(long id, string? actor = null)
     {
         _store.Execute(
             "DELETE FROM alert_rules WHERE id = $id;",

@@ -43,7 +43,7 @@ public sealed class PatrolRepository
         string windowEnd,
         DateTime updatedAtUtc,
         IReadOnlyList<PatrolStepRow> steps,
-        string actor = "system")
+        string? actor = null)
     {
         if (id is not null && id.Value <= 0)
         {
@@ -174,7 +174,7 @@ public sealed class PatrolRepository
     }
 
     /// <summary>刪除巡航與其步驟；回傳是否實際存在。</summary>
-    public bool Delete(long id, string actor = "system")
+    public bool Delete(long id, string? actor = null)
     {
         var exists = _store.Query(
             "SELECT EXISTS(SELECT 1 FROM patrols WHERE id = $id);",

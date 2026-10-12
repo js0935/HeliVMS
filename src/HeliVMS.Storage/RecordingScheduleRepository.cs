@@ -20,7 +20,7 @@ public sealed class RecordingScheduleRepository
     }
 
     /// <summary>新增（Id＝0）或更新既有排程（Id＞0）。</summary>
-    public RecordingScheduleRecord Upsert(RecordingScheduleRecord schedule, string actor = "system")
+    public RecordingScheduleRecord Upsert(RecordingScheduleRecord schedule, string? actor = null)
     {
         if (schedule.Id > 0)
         {
@@ -85,7 +85,7 @@ public sealed class RecordingScheduleRepository
     }
 
     /// <summary>刪除排程。</summary>
-    public void Delete(long id, string actor = "system")
+    public void Delete(long id, string? actor = null)
     {
         var affected = _store.Query<int>(
             """
@@ -127,7 +127,7 @@ public sealed class RecordingScheduleRepository
     }
 
     /// <summary>移除某頻道的全部排程（頻道刪除時）。</summary>
-    public void DeleteByChannel(int channelId, string actor = "system")
+    public void DeleteByChannel(int channelId, string? actor = null)
     {
         var affected = _store.Query<int>(
             """

@@ -25,7 +25,7 @@ public sealed class RuleRepository
         _audit = new AuditLogRepository(store);
     }
 
-    public int Add(string name, string expressionJson, string actionsJson, bool enabled = true, DateTime? createdUtc = null, string actor = "system")
+    public int Add(string name, string expressionJson, string actionsJson, bool enabled = true, DateTime? createdUtc = null, string? actor = null)
     {
         if (string.IsNullOrWhiteSpace(name))
         {
@@ -76,7 +76,7 @@ public sealed class RuleRepository
             static r => r.Read() ? Read(r) : null,
             cmd => cmd.Parameters.AddWithValue("$id", id));
 
-    public void SetEnabled(int id, bool enabled, string actor = "system")
+    public void SetEnabled(int id, bool enabled, string? actor = null)
     {
         var affected = _store.Query<int>(
             """
@@ -95,7 +95,7 @@ public sealed class RuleRepository
         }
     }
 
-    public void Delete(int id, string actor = "system")
+    public void Delete(int id, string? actor = null)
     {
         var affected = _store.Query<int>(
             """

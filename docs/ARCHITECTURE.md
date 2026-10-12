@@ -569,7 +569,7 @@ L0 運動觸發才餵 L1 物件模型；並在**次串流 (e.g. 640×360) + 抽�
 ### 7.6 安全管理
 
 - 設備憑證於管理端 DPAPI 密文儲存；可選擇 RTSP-TLS / HTTPS 傳輸
-- **稽核日誌 audit_log（M109，v40）已落地**：`AuditLogRepository` Record（actor/action/category 空白→ArgumentException、occurredAt 注入可測）／List（category/actor/action＋時間左閉右開、LIMIT/OFFSET、時序 DESC）／Count／PruneOlderThan（稽核保管期限）；類別常數 `AuditCategories`。管理動作掛載點已補齊：登入/參數變更/匯出/共享/法務保留（M110）、設備（M152，`Config`）之外，頻道／帳號／企業身份來源的新增·修改·啟停·刪除亦於 M274 串入 `audit_log`（一律歸 `Config`，僅記名稱/類型等非敏感細節，密碼雜湊與密鑰 JSON 不落稽核）；巡航排程、告警規則、IO 模組/通道亦於 M277 比照串入（皆歸 `Config`）；遮蔽區域的登錄·移除歸 `Evidence`（個資法隱私操作）。`EnsureSeedChannels` 等非使用者動作不寫稽核；以 `SELECT changes()` 確認確有異動才記錄，避免無效的 no-op 稽核項
+- **稽核日誌 audit_log（M109，v40）已落地**：`AuditLogRepository` Record（actor/action/category 空白→ArgumentException、occurredAt 注入可測）／List（category/actor/action＋時間左閉右開、LIMIT/OFFSET、時序 DESC）／Count／PruneOlderThan（稽核保管期限）；類別常數 `AuditCategories`。管理動作掛載點已補齊：登入/參數變更/匯出/共享/法務保留（M110）、設備（M152，`Config`）之外，頻道／帳號／企業身份來源的新增·修改·啟停·刪除亦於 M274 串入 `audit_log`（一律歸 `Config`，僅記名稱/類型等非敏感細節，密碼雜湊與密鑰 JSON 不落稽核）；巡航排程、告警規則、IO 模組/通道亦於 M277 比照串入（皆歸 `Config`）；遮蔽區域的登錄·移除歸 `Evidence`（個資法隱私操作）。`EnsureSeedChannels` 等非使用者動作不寫稽核；以 `SELECT changes()` 確認確有異動才記錄，避免無效的 no-op 稽核項。**管理動作的操作者（M278）**：管理面倉儲的 `actor` 參數改為可空（`string? actor = null`），未指定時由 `AuditLogRepository.Record` 以 `actor ??= AuditActor.Current` 補上目前登入者；`AuditActor`（Storage）持有環境操作者，由 `SessionContext.CurrentUser` 的 setter 在登入/登出時同步（未登入或 auth 未啟用時維持 `"system"`）。背景/系統動作（匯出排程、備份、法務保留、設定寫入等）仍明確傳 `"system"`，因此不會被登入者冒名；這使稽核從「有人改了」進一步記到「哪個帳號改的」
 - 批次密碼輪換提醒（配合 §11.5 稽核）
 
 ### 7.7 資料模型（擴充 §4）

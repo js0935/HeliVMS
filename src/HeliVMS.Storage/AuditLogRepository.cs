@@ -59,9 +59,13 @@ public sealed class AuditLogRepository
 
     public AuditLogRepository(SqliteStore store) => _store = store;
 
-    /// <summary>追加稽核項目；回 Id。</summary>
+    /// <summary>
+    /// 追加稽核項目；回 Id。<paramref name="actor"/> 為 <c>null</c> 時補上
+    /// <see cref="AuditActor.Current"/>（登入者）；呼叫端明確傳值（如背景工作的
+    /// <c>"system"</c>）則以明確值為準。
+    /// </summary>
     public long Record(
-        string actor,
+        string? actor,
         string action,
         string category,
         string? targetType = null,
@@ -69,6 +73,7 @@ public sealed class AuditLogRepository
         string? detail = null,
         DateTime? occurredAtUtc = null)
     {
+        actor ??= AuditActor.Current;
         ArgumentException.ThrowIfNullOrWhiteSpace(actor);
         ArgumentException.ThrowIfNullOrWhiteSpace(action);
         ArgumentException.ThrowIfNullOrWhiteSpace(category);

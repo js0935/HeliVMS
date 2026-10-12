@@ -33,7 +33,7 @@ public sealed class UserRepository
     }
 
     /// <summary>建立使用者（username 大小寫不敏感唯一；重複拋 SqliteException）。回傳新 ID。稽核：account.create。</summary>
-    public int CreateUser(string username, string passwordHash, string role, string? displayName = null, string actor = "system")
+    public int CreateUser(string username, string passwordHash, string role, string? displayName = null, string? actor = null)
     {
         if (!string.Equals(role, "admin", StringComparison.Ordinal) &&
             !string.Equals(role, "viewer", StringComparison.Ordinal))
@@ -113,7 +113,7 @@ public sealed class UserRepository
     }
 
     /// <summary>啟用/停用使用者（停用＝無法登入）。稽核：account.enable／account.disable。</summary>
-    public void SetEnabled(int id, bool enabled, string actor = "system")
+    public void SetEnabled(int id, bool enabled, string? actor = null)
     {
         var affected = _store.Query<int>(
             "UPDATE users SET enabled = $e WHERE id = $id; SELECT changes();",
@@ -132,7 +132,7 @@ public sealed class UserRepository
     }
 
     /// <summary>設定角色（admin/viewer）。稽核：account.role。</summary>
-    public void SetRole(int id, string role, string actor = "system")
+    public void SetRole(int id, string role, string? actor = null)
     {
         if (!string.Equals(role, "admin", StringComparison.Ordinal) &&
             !string.Equals(role, "viewer", StringComparison.Ordinal))
@@ -168,7 +168,7 @@ public sealed class UserRepository
     }
 
     /// <summary>刪除使用者。稽核：account.delete。</summary>
-    public void DeleteUser(int id, string actor = "system")
+    public void DeleteUser(int id, string? actor = null)
     {
         var username = GetById(id)?.Username ?? $"id:{id}";
         var affected = _store.Query<int>(

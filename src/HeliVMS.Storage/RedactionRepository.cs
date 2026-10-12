@@ -37,7 +37,7 @@ public sealed class RedactionRepository
         _audit = audit ?? new AuditLogRepository(store);
     }
 
-    public long Add(RedactionRegion region, string actor = "system")
+    public long Add(RedactionRegion region, string? actor = null)
         => Add(region.SourceType, region.RefId, region.ChannelId, region.OccurredAtUtc,
             region.X, region.Y, region.Width, region.Height, region.Filled, region.CreatedAtUtc, actor);
 
@@ -52,7 +52,7 @@ public sealed class RedactionRepository
         int height,
         bool filled,
         DateTime createdAtUtc,
-        string actor = "system")
+        string? actor = null)
     {
         if (width <= 0 || height <= 0)
         {
@@ -118,7 +118,7 @@ public sealed class RedactionRepository
             });
 
     /// <summary>移除一筆遮蔽區域（區位轉移／解除後）。回 true＝實際刪除。</summary>
-    public bool Remove(long id, string actor = "system")
+    public bool Remove(long id, string? actor = null)
     {
         _store.Execute("DELETE FROM redaction_regions WHERE id = $id;",
             cmd => cmd.Parameters.AddWithValue("$id", id));

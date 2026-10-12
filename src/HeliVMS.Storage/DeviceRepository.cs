@@ -138,7 +138,7 @@ public sealed class DeviceRepository
         string username,
         string password,
         string vendor,
-        string actor = "system",
+        string? actor = null,
         string? mainRtsp = null,
         string? subRtsp = null)
     {
@@ -177,7 +177,7 @@ public sealed class DeviceRepository
     /// 設定設備的主／子碼流 RTSP 位址（ONVIF 加入或重新探索時寫入）；空白視為清除。
     /// 供「頻道管理」離線以設備碼流建立頻道，不必重新連線探測。
     /// </summary>
-    public bool SetStreamUrls(int id, string? mainRtsp, string? subRtsp, string actor = "system")
+    public bool SetStreamUrls(int id, string? mainRtsp, string? subRtsp, string? actor = null)
     {
         var affected = _store.Query<int>(
             """
@@ -206,7 +206,7 @@ public sealed class DeviceRepository
     /// 重新以精靈加入同一台攝影機時需能就地修正，否則會沿用壞掉的憑證而無法出畫面。
     /// 密碼以 DPAPI（目前使用者）加密後儲存；回傳是否命中。
     /// </summary>
-    public bool SetRtspCredentials(int id, string username, string password, string actor = "system")
+    public bool SetRtspCredentials(int id, string username, string password, string? actor = null)
     {
         var affected = _store.Query<int>(
             """
@@ -236,7 +236,7 @@ public sealed class DeviceRepository
     }
 
     /// <summary>刪除設備（其通道連帶刪除，ON DELETE CASCADE；M152 稽核掛載：device.delete 寫 audit_log）。</summary>
-    public void Delete(int id, string actor = "system")
+    public void Delete(int id, string? actor = null)
     {
         var name = Get(id)?.Name ?? $"id:{id}";
         _store.Execute("DELETE FROM devices WHERE id = $id;", cmd => cmd.Parameters.AddWithValue("$id", id));
@@ -244,7 +244,7 @@ public sealed class DeviceRepository
     }
 
     /// <summary>更新設備基本欄位（M152：原無 Update）；回傳是否命中。稽核掛載：device.update 寫 audit_log。</summary>
-    public bool Update(int id, string name, string ip, int port, string vendor, bool enabled, string actor = "system")
+    public bool Update(int id, string name, string ip, int port, string vendor, bool enabled, string? actor = null)
     {
         var affected = _store.Query<int>(
             """
@@ -274,7 +274,7 @@ public sealed class DeviceRepository
     /// <summary>
     /// 設定設備的 SD 側錄／回放串流位址（M94 邊緣補抓）；空白視為清除。稽核掛載：device.sd_url。
     /// </summary>
-    public bool SetSdUrl(int id, string? sdUrl, string actor = "system")
+    public bool SetSdUrl(int id, string? sdUrl, string? actor = null)
     {
         var cleared = string.IsNullOrWhiteSpace(sdUrl);
         var affected = _store.Query<int>(
