@@ -274,6 +274,102 @@ public class RtspClientTests
         Assert.Equal("d3d11va", RtspClient.NormalizeHwAccel("  d3d11va "));
     }
 
+    [Fact]
+    public async Task 設定不支援的硬體解碼時解碼參數不含hwaccel()
+    {
+        // 設定了本機 ffmpeg 不支援的加速方式（cuda），啟動前探測就會發現並剝除，
+        // 讓頻道以軟解出畫，而不是「連得上卻沒畫面」。
+        var dir = NewDir();
+        var probe = WriteStub(dir, "ffprobe.cmd", EchoResolution);
+        WriteFrame(dir);
+        var ffmpeg = WriteStub(dir, "ffmpeg.cmd", HwAccelCapableStub);
+
+        await using var client = new RtspClient("rtsp://10.0.0.1/live.sdp", ffmpeg, probe, hwAccel: "cuda")
+        {
+            ProbeTimeout = TimeSpan.FromSeconds(5),
+            FirstFrameTimeout = TimeSpan.FromSeconds(10),
+            FrameTimeout = TimeSpan.FromSeconds(10),
+            MaxFramesPerSecond = 30,
+        };
+
+        var got = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        client.FrameDecoded += (_, _) => got.TrySetResult();
+
+        await client.StartAsync();
+        var done = await Task.WhenAny(got.Task, Task.Delay(TimeSpan.FromSeconds(30)));
+        Assert.True(done == got.Task, "不支援的硬體解碼應剝除後以軟解出畫");
+
+        var args = await File.ReadAllTextAsync(Path.Combine(dir, "args.txt"));
+        Assert.DoesNotContain("-hwaccel", args);
+        Assert.False(client.HwAccelSupported, "本機不支援 cuda，HwAccelSupported 應為 false");
+
+        await client.StopAsync();
+    }
+
+    [Fact]
+    public async Task 設定支援的硬體解碼時解碼參數帶hwaccel()
+    {
+        var dir = NewDir();
+        var probe = WriteStub(dir, "ffprobe.cmd", EchoResolution);
+        WriteFrame(dir);
+        var ffmpeg = WriteStub(dir, "ffmpeg.cmd", HwAccelCapableStub);
+
+        await using var client = new RtspClient("rtsp://10.0.0.1/live.sdp", ffmpeg, probe, hwAccel: "d3d11va")
+        {
+            ProbeTimeout = TimeSpan.FromSeconds(5),
+            FirstFrameTimeout = TimeSpan.FromSeconds(10),
+            FrameTimeout = TimeSpan.FromSeconds(10),
+            MaxFramesPerSecond = 30,
+        };
+
+        var got = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        client.FrameDecoded += (_, _) => got.TrySetResult();
+
+        await client.StartAsync();
+        var done = await Task.WhenAny(got.Task, Task.Delay(TimeSpan.FromSeconds(30)));
+        Assert.True(done == got.Task, "支援的硬體解碼應正常出畫");
+
+        var args = await File.ReadAllTextAsync(Path.Combine(dir, "args.txt"));
+        Assert.Contains("-hwaccel", args);
+        Assert.Contains("d3d11va", args);
+        Assert.True(client.HwAccelSupported, "本機支援 d3d11va，HwAccelSupported 應為 true");
+
+        await client.StopAsync();
+    }
+
+    [Fact]
+    public async Task 硬體解碼一幀都沒出時自動退回軟解()
+    {
+        // 探測說 d3d11va 可用，但真的帶上去就失敗（有 GPU 卻裝置被佔用／驅動壞）。
+        // 一幀都沒出後必須自動退回軟解，否則頻道就永遠黑畫面；這正是 opt-in 硬解的
+        // 最大風險，也是「自動依序嘗試與軟解 fallback」（§13-1）要解的問題。
+        var dir = NewDir();
+        var probe = WriteStub(dir, "ffprobe.cmd", EchoResolution);
+        WriteFrame(dir);
+        var ffmpeg = WriteStub(dir, "ffmpeg.cmd", HwAccelRejectsStub);
+
+        await using var client = new RtspClient("rtsp://10.0.0.1/live.sdp", ffmpeg, probe, hwAccel: "d3d11va")
+        {
+            ProbeTimeout = TimeSpan.FromSeconds(5),
+            FirstFrameTimeout = TimeSpan.FromSeconds(5),
+            FrameTimeout = TimeSpan.FromSeconds(5),
+            MaxFramesPerSecond = 30,
+        };
+
+        var got = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        client.FrameDecoded += (_, _) => got.TrySetResult();
+
+        await client.StartAsync();
+        var done = await Task.WhenAny(got.Task, Task.Delay(TimeSpan.FromSeconds(40)));
+        Assert.True(done == got.Task, "硬體解碼失敗後應自動以軟解出畫");
+
+        var args = await File.ReadAllTextAsync(Path.Combine(dir, "args.txt"));
+        Assert.DoesNotContain("-hwaccel", args);
+        Assert.True(client.HwAccelSupported, "偵測上本機支援 d3d11va，是執行期才失敗故退回軟解");
+
+        await client.StopAsync();
+    }
+
     private static async Task WaitUntilAsync(Func<bool> condition, int timeoutSeconds = 20)
     {
         var deadline = DateTime.UtcNow.AddSeconds(timeoutSeconds);
@@ -349,6 +445,42 @@ private const string Silent =
         """
         @echo off
         ping -n 60 127.0.0.1 >nul
+        """;
+
+    // 支援 d3d11va/dxva2 的探測回應；解碼呼叫一律輸出影格（不論是否帶 -hwaccel），
+    // 並把實際命令列寫入 args.txt 供測試檢視。第一參數固定 -hide_banner，故探測呼叫的 %2 為 -hwaccels。
+    private const string HwAccelCapableStub =
+        """
+        @echo off
+        if "%2"=="-hwaccels" (
+          echo Hardware acceleration methods:
+          echo d3d11va
+          echo dxva2
+          exit /b 0
+        )
+        echo %* > "%~dp0args.txt"
+        type "%~dp0frame.bin"
+        ping -n 30 127.0.0.1 >nul
+        """;
+
+    // 探測回應說支援 d3d11va，但真的帶 -hwaccel 解碼時失敗（裝置被佔用／驅動壞）；
+    // 不帶 -hwaccel 才輸出影格。用來驗證「一幀都沒出 → 自動退回軟解」。
+    private const string HwAccelRejectsStub =
+        """
+        @echo off
+        if "%2"=="-hwaccels" (
+          echo Hardware acceleration methods:
+          echo d3d11va
+          exit /b 0
+        )
+        echo %* > "%~dp0args.txt"
+        echo %* | findstr /C:"-hwaccel" >nul
+        if not errorlevel 1 (
+          echo Device creation failed 1>&2
+          exit /b 1
+        )
+        type "%~dp0frame.bin"
+        ping -n 30 127.0.0.1 >nul
         """;
 
     private static string NewDir()

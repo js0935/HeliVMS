@@ -37,6 +37,11 @@ public sealed class RtspClient : IAsyncDisposable
     private Process? _process;
     private bool _disposed;
     private int _consecutiveFailures;
+    private bool _hwAccelProbed;
+    private bool _hwAccelSupported;
+    private bool _lastAttemptUsedHwAccel;
+    private bool _lastAttemptProducedFrame;
+    private DateTime _hwAccelDisabledUntil = DateTime.MinValue;
 
     public RtspClient(
         string rtspUrl,
@@ -130,6 +135,19 @@ public sealed class RtspClient : IAsyncDisposable
     /// <summary>已出過畫面後，串流停滯的容忍上限。</summary>
     public TimeSpan FrameTimeout { get; set; } = TimeSpan.FromSeconds(20);
 
+    /// <summary>
+    /// 硬體解碼嘗試失敗（有帶 <c>-hwaccel</c> 卻一幀都沒出）後，改用軟解的冷卻時間（預設 5 分鐘）。
+    /// 冷卻期過後會再試一次硬體解碼，避免「裝置忙碌／暫時不可用」被永久降級成軟解；
+    /// 冷卻期本身則確保不會在一次崩潰後每一輪重連都重蹈覆轍（拖長黑畫面）。
+    /// </summary>
+    public TimeSpan HardwareFallbackCooldown { get; set; } = TimeSpan.FromMinutes(5);
+
+    /// <summary>
+    /// 本機 ffmpeg 是否支援目前設定的硬體加速：<c>null</c>＝未設定硬體加速、
+    /// <c>true/false</c>＝已探測且（不）支援。供診斷／測試觀察，探測前為 <c>null</c>。
+    /// </summary>
+    public bool? HwAccelSupported => _hwAccel is null ? null : (_hwAccelProbed ? _hwAccelSupported : null);
+
     /// <summary>目前連線狀態。</summary>
     public RtspState State { get; private set; } = RtspState.Stopped;
 
@@ -215,7 +233,14 @@ public sealed class RtspClient : IAsyncDisposable
             {
                 SetState(RtspState.Connecting);
                 var (width, height) = await ProbeResolutionAsync(token);
-                await StreamFramesAsync(width, height, token);
+
+                // 只在「設定了硬體加速、本機支援、且不在失敗冷卻期內」時才帶 -hwaccel。
+                // 一幀都沒出的失敗會進入冷卻期，下一輪即退回軟解（見 catch）。
+                var hwAccel = EffectiveHwAccel();
+                _lastAttemptUsedHwAccel = hwAccel is not null;
+                _lastAttemptProducedFrame = false;
+
+                await StreamFramesAsync(width, height, hwAccel, token);
             }
             catch (OperationCanceledException)
             {
@@ -226,6 +251,13 @@ public sealed class RtspClient : IAsyncDisposable
                 IsRunning = false;
                 SetState(RtspState.Reconnecting);
                 Reconnecting?.Invoke(this, ex);
+
+                // 硬體解碼試過卻一幀都沒出：極可能是加速方式在本機不可用（有對應 GPU/DLL 才有畫面，
+                // 否則連得上卻沒畫面、日誌乾淨）。退回軟解一段冷卻時間，讓頻道能出畫而非卡死。
+                if (_lastAttemptUsedHwAccel && !_lastAttemptProducedFrame)
+                {
+                    _hwAccelDisabledUntil = DateTime.UtcNow + HardwareFallbackCooldown;
+                }
 
                 // 指數退避：離線的攝影機固定每 5 秒重試，只是在製造無用的交握與行程。
                 // 每次成功收到影格時 _consecutiveFailures 會歸零，故正常來源的短暫斷線
@@ -243,6 +275,32 @@ public sealed class RtspClient : IAsyncDisposable
         }
 
         SetState(RtspState.Stopped);
+    }
+
+    /// <summary>
+    /// 決定這一輪連線要用的硬體加速值（<c>null</c>＝軟解）：未設定、本機不支援，
+    /// 或處於前次失敗的冷卻期內時皆為 <c>null</c>。首次呼叫會探測本機 ffmpeg 支援的加速方式。
+    /// </summary>
+    private string? EffectiveHwAccel()
+    {
+        if (_hwAccel is null)
+        {
+            return null;
+        }
+
+        if (DateTime.UtcNow < _hwAccelDisabledUntil)
+        {
+            return null;
+        }
+
+        if (!_hwAccelProbed)
+        {
+            _hwAccelProbed = true;
+            var available = FfmpegHwAccel.ProbeCached(_ffmpeg, TimeSpan.FromSeconds(5));
+            _hwAccelSupported = FfmpegHwAccel.ShouldUse(_hwAccel, available);
+        }
+
+        return _hwAccelSupported ? _hwAccel : null;
     }
 
     private void SetState(RtspState state)
@@ -267,7 +325,7 @@ public sealed class RtspClient : IAsyncDisposable
         }
     }
 
-    private async Task StreamFramesAsync(int width, int height, CancellationToken token)
+    private async Task StreamFramesAsync(int width, int height, string? hwAccel, CancellationToken token)
     {
         var psi = new ProcessStartInfo
         {
@@ -277,7 +335,7 @@ public sealed class RtspClient : IAsyncDisposable
             UseShellExecute = false,
             CreateNoWindow = true,
         };
-        foreach (var arg in BuildDecodeArguments(RtspUrl, _hwAccel))
+        foreach (var arg in BuildDecodeArguments(RtspUrl, hwAccel))
         {
             psi.ArgumentList.Add(arg);
         }
@@ -386,6 +444,7 @@ var nowMs = sw.ElapsedMilliseconds;
                 };
                 firstFrame = false;
                 _consecutiveFailures = 0;
+                _lastAttemptProducedFrame = true;
                 FrameDecoded?.Invoke(this, frame);
             }
         }

@@ -20,7 +20,7 @@
 
 **第二優先（基礎支撐，核心路徑必須具備的底層）：**
 - 每路獨立拉流/解碼管道（現行實作為每路一個 ffmpeg 行程，見 §1）、RTSP 斷線重連、SQLite 索引
-- ⚠ **硬體解碼尚未接上產品路徑**（見 §1 落差說明）
+- ✅ **硬體解碼已接上產品路徑（opt-in；含自動偵測與軟解退回，M287，見 §1／§13）**
 
 **後期擴充（模組化導入，不影響第一版核心閉環）：**
 - **AI 辨識（§5）**：L0 運動偵測（預設）、L1 物件偵測（ONNX CPU，漏斗 32 路）、
@@ -52,8 +52,10 @@
 >
 > - **硬體解碼為 opt-in、預設關閉。** `RtspClient` 可帶 `-hwaccel`，值來自設定鍵 `decode.hwaccel`
 >   （空／`off`／`none`／`false`／`0` 表停用；見 §3.3 D4）。預設停用是因為在沒有對應 GPU/DLL 的機器上
->   硬解會「連得上卻沒畫面」且日誌乾淨。自動偵測（`D3D11VA > CUDA > QSV > DXVA2`）仍只存在於
->   `Tools/HeliVMS.Decoder`，該工具**沒有任何產品端程式碼啟動它**，也沒有程式連它的命名管線——它是獨立工具。
+>   硬解會「連得上卻沒畫面」且日誌乾淨。**現已加上安全網（M287）**：啟用前先用
+>   `FfmpegHwAccel.ProbeCached` 跑一次 `ffmpeg -hwaccels`，本機不支援該加速方式就自動剝除；
+>   真的帶上去卻一幀都沒出，也會自動退回軟解一段冷卻時間（見 §3.3 D4）。`Tools/HeliVMS.Decoder`
+>   的 D3D11VA/CUDA/QSV/DXVA2 自動偵測仍是獨立工具，其命名管線仍未被產品端啟動。
 > - 因此「每路獨立解碼管道」目前的實際做法是「每路一個 ffmpeg 行程」，32 路 = 32 個 ffmpeg。
 >   這在 CPU 上可行但吃資源，是後續效能优化的主要目標。
 > - 曾列於本表的 `Sdcb.FFmpeg` bindings、`libmpv`/`Mpv.NET`、`onvif` NuGet、
@@ -75,11 +77,13 @@
 > 單路故障（斷流/重新連線/解碼錯誤）不得影響其他 31 路。
 > 每路 = 獨立的 `ChannelSession`（拉流 + 錄影 + 可選解碼巡迴）。
 
-**D4 — 硬體解碼給「即時監看與回放」**（✅ 已可 opt-in，預設關閉）
+**D4 — 硬體解碼給「即時監看與回放」**（✅ opt-in、預設關閉，含自動偵測與軟解退回）
 > 目標為 NVDEC (CUDA) 或 Intel QSV 解碼。**現況：`RtspClient` 支援在 `-i` 前插入
 > `-hwaccel <值>`；值由設定鍵 `decode.hwaccel`（設定中心「監看硬體解碼」下拉）決定，
-> 預設／`off` 為 CPU 軟體解碼。** 未做自動偵測與逐路降級；`Tools/HeliVMS.Decoder`
-> 的自動偵測仍未被任何產品端程式碼啟動（見 §1 落差說明）。
+> 預設／`off` 為 CPU 軟體解碼。** 啟用前以 `FfmpegHwAccel` 探測本機支援的加速方式
+> （`ffmpeg -hwaccels`，依路徑快取），不支援即剝除；執行期若帶了硬解卻一幀都沒出，
+> 自動退回軟解一段冷卻時間（`RtspClient.HardwareFallbackCooldown`，預設 5 分鐘），
+> 冷卻過後再試。`Tools/HeliVMS.Decoder` 的自動偵測仍未被產品端啟動（見 §1 落差說明）。
 
 **D5 — 時間索引資料庫 vs 影像檔案分離**
 > 影像位元流存磁碟區段，中繼資料（區段時間、事件、警報）存 SQLite —— Moonfire NVR 的混合架構，
@@ -233,7 +237,7 @@ ChannelSession (每路 1 個，可並行 32 個)
 
 - 監看畫面渲染：WPF `WriteableBitmap` for 硬解 YUV→BGRA（參考 FFMediaToolkit 直接把解碼幀寫入 WriteableBitmap 的範例）。
 - 每路監看幀上限（例如 12–15 fps，抽幀），避免 UI 被 32 路塞爆。
-- 硬體解碼（opt-in，預設軟解）：設定鍵 `decode.hwaccel` 帶入 ffmpeg `-hwaccel`（如 `auto`／`d3d11va`／`cuda`／`dxva2`），未設定即純軟解。自動依序嘗試與軟解 fallback 尚未實作（見 §1 / D4）。
+- 硬體解碼（opt-in，預設軟解）：設定鍵 `decode.hwaccel` 帶入 ffmpeg `-hwaccel`（如 `auto`／`d3d11va`／`cuda`／`dxva2`），未設定即純軟解。**啟用前先以 `FfmpegHwAccel` 探測本機支援清單（`ffmpeg -hwaccels`，不支援即剝除），執行期硬解一幀都沒出則自動退回軟解一段冷卻時間**（M287；見 §1 / D4）。
 - 低延遲策略：
   - `rtsp_transport=tcp`、`buffer_size` 調小、`max_delay` 限制，不預載大緩衝（回放才需要快取）
   - 解碼→渲染的幀佇列固定深度（如 2–3 幀），滿則丟棄最舊，維持即時性
@@ -1117,10 +1121,14 @@ L2 比對（人臉/車牌）置「進階·需權限」區，預設關閉（§5.1
 WebRTC/WHEP 即時監看與 MSE 回放（M244）。
 
 **待辦（依優先序）**：
-1. **硬體解碼接上產品路徑** — `RtspClient` 加 `-hwaccel`，或讓 `Tools/HeliVMS.Decoder`
-   的命名管線真的被 `HeliVMS.App` 使用。32 路 = 32 個 CPU 軟體解碼行程是效能主因。
-2. **ONVIF 與 RTSP 測試覆蓋** — 兩者是「攝影機接不進來」時最先出錯的地方，
-   覆蓋率卻低於其他模組（`Media` 68 測試／`Devices` 152 測試）。
+1. **ONVIF 與 RTSP 測試覆蓋** — 兩者是「攝影機接不進來」時最先出錯的地方，
+   覆蓋率卻低於其他模組（`Media` 81 測試／`Devices` 152 測試）。
+
+> **硬體解碼接上產品路徑** 已於 M287 落地：`RtspClient` 早在設定鍵 `decode.hwaccel` 之下
+> 支援 `-hwaccel`，M287 補上安全網——啟用前以 `FfmpegHwAccel` 探測本機支援清單
+> （`ffmpeg -hwaccels`，依路徑快取；不支援即剝除），執行期硬解一幀都沒出則自動退回軟解
+> 一段冷卻時間（`HardwareFallbackCooldown`，預設 5 分鐘）。`Tools/HeliVMS.Decoder`
+> 的命名管線仍未接上產品端（`RtspClient` 的 `-hwaccel` 路線即為 §13-1 的「或」）。
 
 > **ffmpeg 行程治理** 已於 M286 落地：全域 `FfmpegProcessRegistry`（解碼／錄影／發佈
 > 統一登錄、`FfmpegPoolSnapshot` 彙總、軟性容量逾量告警、最近失敗）＋共用
