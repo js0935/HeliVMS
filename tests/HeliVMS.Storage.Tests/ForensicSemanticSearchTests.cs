@@ -5,8 +5,8 @@ namespace HeliVMS.Storage.Tests;
 
 /// <summary>
 /// 法證語意融合搜尋（§14.7 #7）：FTS bm25 與 CLIP 向量餘弦經 RankFusion 合併。
-/// 這裡刻意把兩路都當成可由資料庫製造的輸入，驗證融合與「向量命中補後設資料」的接線，
-/// 不涉及外部模型（embedding 生成仍是外部縫）。
+/// 這裡刻意把兩路都當成可由資料庫製造的輸入，驗證融合與「向量命中補後設資料」的接線。
+/// 另驗證 §14.1 #8：未帶查詢向量時，委由選配的 <see cref="IEmbeddingProvider"/> 就地編碼文字查詢。
 /// </summary>
 public sealed class ForensicSemanticSearchTests : IDisposable
 {
@@ -129,5 +129,29 @@ public sealed class ForensicSemanticSearchTests : IDisposable
     {
         Assert.Empty(Search().Search(string.Empty));
         Assert.Empty(Search().Search("   "));
+    }
+
+    [Fact]
+    public void 未帶向量的文字查詢由嵌入供應商就地編碼()
+    {
+        // §14.1 #8：索引端以同一供應商編碼；查詢文字與事件內文不同，只有向量路徑能命中。
+        var embedder = new HashingEmbeddingProvider();
+        _alarm.Insert(1, "motion", T(8), null, "gamma zzz");
+        _vectors.Upsert("alarm", 1, null, embedder.Embed("前門強行開啟"));
+
+        var hits = new ForensicSemanticSearch(_store, embedder).Search("前門強行開啟");
+
+        Assert.Contains(hits, h => h.SourceId == 1);
+    }
+
+    [Fact]
+    public void 未接供應商時_只有文字的查詢不走向量路徑()
+    {
+        // 回歸：既有建構子（無供應商）行為不變，沒有向量就只做全文檢索。
+        var embedder = new HashingEmbeddingProvider();
+        _alarm.Insert(1, "motion", T(8), null, "gamma zzz");
+        _vectors.Upsert("alarm", 1, null, embedder.Embed("前門強行開啟"));
+
+        Assert.Empty(Search().Search("前門強行開啟"));
     }
 }

@@ -102,7 +102,13 @@ builder.Services.AddSingleton(static sp => new RedactionRepository(sp.GetRequire
 builder.Services.AddSingleton(static sp => new OffsiteReplicationRepository(sp.GetRequiredService<SqliteStore>()));
 builder.Services.AddSingleton(static sp => new OffsiteReplicationService(sp.GetRequiredService<OffsiteReplicationRepository>()));
 builder.Services.AddSingleton(static sp => new EmbeddingRepository(sp.GetRequiredService<SqliteStore>()));
-builder.Services.AddSingleton(static sp => new ForensicSemanticSearch(sp.GetRequiredService<SqliteStore>()));
+
+// §14.1 #8：伺服器端就地產生嵌入。真機可換成 CLIP/ONNX 實作（同一介面），
+// 預設用決定性雜湊嵌入器，讓只帶文字的查詢／索引也能走向量路徑而無需外部模型。
+builder.Services.AddSingleton<IEmbeddingProvider>(static _ => HashingEmbeddingProvider.Default);
+builder.Services.AddSingleton(static sp => new ForensicSemanticSearch(
+    sp.GetRequiredService<SqliteStore>(),
+    sp.GetRequiredService<IEmbeddingProvider>()));
 builder.Services.AddSingleton(static sp => new DeviceRepository(
     sp.GetRequiredService<SqliteStore>(),
     sp.GetRequiredService<AuditLogRepository>()));

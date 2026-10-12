@@ -1092,9 +1092,10 @@ public static class ApiEndpoints
         api.MapGet("/system-metrics/history", static () => Results.Ok(SystemMetricsService.CaptureHistory()));
         api.MapGet("/system-metrics/disks/history", static () => Results.Ok(SystemMetricsService.CaptureDiskHistory()));
 
-        api.MapPost("/clip/search", static (ClipSearchRequest body, EmbeddingRepository repo) =>
+        api.MapPost("/clip/search", static (ClipSearchRequest body, EmbeddingRepository repo, IEmbeddingProvider embedder) =>
         {
-            if (body is null || body.Vector is null || body.Vector.Length == 0)
+            var vector = body is null ? null : ResolveVector(body.Vector, body.Text, embedder);
+            if (vector is null || vector.Length == 0)
             {
                 return Results.BadRequest();
             }
@@ -1102,24 +1103,25 @@ public static class ApiEndpoints
             // M242：索引與查詢維度不同時，明確回 409 讓呼叫端去重建索引。
             // 靜默回傳空結果會讓人誤以為「沒有相似影片」，實際上是模型換版後索引過期。
             var stored = repo.StoredDimension();
-            if (stored is not null && stored != body.Vector.Length)
+            if (stored is not null && stored != vector.Length)
             {
                 return Results.Json(
-                    new { error = "查詢向量維度與既有索引不符，需重建索引。", storedDimension = stored, queryDimension = body.Vector.Length },
+                    new { error = "查詢向量維度與既有索引不符，需重建索引。", storedDimension = stored, queryDimension = vector.Length },
                     statusCode: StatusCodes.Status409Conflict);
             }
 
-            return Results.Ok(repo.Search(body.Vector, body.TopK));
+            return Results.Ok(repo.Search(vector, body!.TopK));
         });
 
-        api.MapPost("/clip/index", static (ClipIndexRequest body, EmbeddingRepository repo) =>
+        api.MapPost("/clip/index", static (ClipIndexRequest body, EmbeddingRepository repo, IEmbeddingProvider embedder) =>
         {
-            if (body is null || string.IsNullOrWhiteSpace(body.SourceType) || body.Vector is null || body.Vector.Length == 0)
+            var vector = body is null ? null : ResolveVector(body.Vector, body.Text, embedder);
+            if (body is null || string.IsNullOrWhiteSpace(body.SourceType) || vector is null || vector.Length == 0)
             {
                 return Results.BadRequest();
             }
 
-            repo.Upsert(body.SourceType, body.RefId, body.Label, body.Vector);
+            repo.Upsert(body.SourceType, body.RefId, body.Label, vector);
             return Results.Ok(new { ok = true });
         });
 
@@ -1219,8 +1221,29 @@ public static class ApiEndpoints
     private sealed record DeviceItem(int Id, string Name, string Ip, int Port, string Vendor, bool Enabled);
     private sealed record DeviceUpsert(string Name, string Ip, int Port, string? Username, string? Password, string? Vendor, bool Enabled, string? Actor);
 
-    private sealed record ClipSearchRequest(float[] Vector, int TopK = 20);
-    private sealed record ClipIndexRequest(string? SourceType, long RefId, string? Label, float[]? Vector);
+    private sealed record ClipSearchRequest(float[]? Vector, string? Text, int TopK = 20);
+    private sealed record ClipIndexRequest(string? SourceType, long RefId, string? Label, float[]? Vector, string? Text);
+
+    /// <summary>
+    /// 解析要用的向量（§14.1 #8）：優先採用呼叫端帶來的向量；未帶向量但給了文字時，交由
+    /// <see cref="IEmbeddingProvider"/> 就地編碼。兩者皆無（或編碼結果為零向量）回 null。
+    /// </summary>
+    private static float[]? ResolveVector(float[]? vector, string? text, IEmbeddingProvider embedder)
+    {
+        if (vector is { Length: > 0 })
+        {
+            return vector;
+        }
+
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return null;
+        }
+
+        var embedded = embedder.Embed(text);
+        return embedded.Any(static x => x != 0f) ? embedded.ToArray() : null;
+    }
+
     private sealed record FuseRequest(FuseItemBody[] Items);
     private sealed record FuseItemBody(string Key, double TextScore, double? VectorScore, double TextWeight = 1.0, double VectorWeight = 1.0);
     private sealed record SemanticSearchRequest(string? Q, float[]? Vector, DateTime? From, DateTime? To, int? Limit = 20);
@@ -1728,7 +1751,8 @@ public static class ApiEndpoints
 
     /// <summary>
     /// 法證語意融合搜尋（§14.7 #7）：文字查詢與／或查詢向量兩路命中以 <see cref="RankFusion"/> 合併後回傳。
-    /// 查詢向量由外部模型產生（外部縫），未帶向量時退化為全文檢索。
+    /// 查詢向量由外部模型提供；未帶向量但已接上 <see cref="IEmbeddingProvider"/> 時就地編碼（§14.1 #8），
+    /// 否則退化為全文檢索。
     /// </summary>
     private static async Task HandleSemanticSearch(
         HttpContext context,

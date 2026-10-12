@@ -1576,6 +1576,59 @@ public class ApiTests : IClassFixture<ApiFactory>, IDisposable
     }
 
     [Fact]
+    public async Task Post_ClipIndex_TextIsEmbeddedOnServerAndSearchable()
+    {
+        // §14.1 #8：呼叫端沒有模型時，帶文字即可索引／檢索，伺服器端就地編碼。
+        // 共用測試資料庫：先清空向量，免得與其他測試（2/4 維）的 StoredDimension 互相干擾。
+        var client = Client();
+        var vectors = Service<EmbeddingRepository>();
+        vectors.Clear();
+        try
+        {
+            var index = await client.PostAsJsonAsync(
+                "/api/clip/index", new { sourceType = "event", refId = 55, text = "後門強行開啟" });
+            Assert.Equal(HttpStatusCode.OK, index.StatusCode);
+
+            var resp = await client.PostAsJsonAsync("/api/clip/search", new { text = "後門強行開啟" });
+
+            Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
+            var hits = await ReadAsync<List<ClipHitItem>>(resp);
+            Assert.Contains(hits, h => h.RefId == 55 && h.SourceType == "event");
+        }
+        finally
+        {
+            vectors.Clear();
+        }
+    }
+
+    [Fact]
+    public async Task Post_SemanticSearch_TextQueryEmbedsOnServer()
+    {
+        // §14.7 #7＋§14.1 #8：語意端點只給文字時，伺服器端編碼查詢，向量命中仍要回查來源後設資料。
+        var client = Client();
+        var vectors = Service<EmbeddingRepository>();
+        vectors.Clear();
+        try
+        {
+            var doorId = Service<DoorEventRepository>().Insert(
+                1, 1, "CARD-EMB", "In", true, "approved", new DateTime(2026, 9, 22, 8, 0, 0, DateTimeKind.Utc));
+            var index = await client.PostAsJsonAsync(
+                "/api/clip/index", new { sourceType = "door", refId = doorId, text = "後門強行開啟" });
+            Assert.Equal(HttpStatusCode.OK, index.StatusCode);
+
+            var resp = await client.PostAsJsonAsync("/api/events/search/semantic", new { q = "後門強行開啟" });
+
+            Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
+            var page = await ReadAsync<ApiEndpoints.Paged<SemanticSearchHit>>(resp);
+            Assert.Contains(page.Items, h => h.Source == ForensicSource.Door && h.SourceId == doorId);
+        }
+        finally
+        {
+            vectors.Clear();
+        }
+    }
+
+    [Fact]
     public async Task Device_Crud_ListUpdateDelete()
     {
         var client = Client();

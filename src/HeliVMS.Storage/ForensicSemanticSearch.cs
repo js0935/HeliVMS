@@ -15,7 +15,8 @@ public sealed record SemanticSearchHit(
 ///
 /// <para>
 /// 向量檢索本身早已可用，但先前只是一個孤立的 <c>/api/clip/*</c> 端點，從未與文字檢索同框排序——
-/// 「缺真正的向量檢索」指的就是這個接線。查詢向量由外部模型產生（外部縫），本協調器只負責融合：
+/// 「缺真正的向量檢索」指的就是這個接線。查詢向量可由外部模型提供，或經由選配的
+/// <see cref="IEmbeddingProvider"/> 就地編碼（§14.1 #8）；本協調器負責融合：
 /// 向量命中若不在文字命中內，會回查來源表補齊顯示所需的中文片段與時間。
 /// </para>
 /// </summary>
@@ -43,16 +44,18 @@ public sealed class ForensicSemanticSearch
 
     private readonly UnifiedEventSearch _text;
     private readonly EmbeddingRepository _vectors;
+    private readonly IEmbeddingProvider? _embedder;
 
-    public ForensicSemanticSearch(SqliteStore store)
-        : this(new UnifiedEventSearch(store), new EmbeddingRepository(store))
+    public ForensicSemanticSearch(SqliteStore store, IEmbeddingProvider? embedder = null)
+        : this(new UnifiedEventSearch(store), new EmbeddingRepository(store), embedder)
     {
     }
 
-    public ForensicSemanticSearch(UnifiedEventSearch text, EmbeddingRepository vectors)
+    public ForensicSemanticSearch(UnifiedEventSearch text, EmbeddingRepository vectors, IEmbeddingProvider? embedder = null)
     {
         _text = text;
         _vectors = vectors;
+        _embedder = embedder;
     }
 
     /// <summary>
@@ -73,6 +76,19 @@ public sealed class ForensicSemanticSearch
         }
 
         var hasText = !string.IsNullOrWhiteSpace(query);
+
+        // §14.1 #8：未帶查詢向量時，若已接上嵌入供應商，就地由伺服器端把文字查詢編碼成向量，
+        // 讓「只給文字」也能走上向量檢索（先前必須由外部模型產生查詢向量，否則只有全文檢索）。
+        // 空字串或全零向量（例如查詢只有標點）視為沒有向量，維持純全文檢索語意。
+        if ((queryVector is null || queryVector.Count == 0) && hasText && _embedder is not null)
+        {
+            var embedded = _embedder.Embed(query);
+            if (embedded.Any(static x => x != 0f))
+            {
+                queryVector = embedded;
+            }
+        }
+
         var hasVector = queryVector is { Count: > 0 };
         if (!hasText && !hasVector)
         {
