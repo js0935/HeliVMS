@@ -124,6 +124,7 @@ public partial class App : Application
 
         call.Tag = c;
         call.Click += OnOskCallClicked;
+        call.ToolTip = Localizer.T("Osk.CallTip");
         Osk.RegisterCallButton(call);
     }
 

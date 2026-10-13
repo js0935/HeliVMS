@@ -413,7 +413,7 @@
                                         HorizontalAlignment="Right" Margin="0,0,6,0" VerticalAlignment="Center"
                                         Focusable="False" IsTabStop="False" Cursor="Hand"
                                         FontSize="12" Padding="0" Visibility="{x:Static local:Osk.CallVisibility}"
-                                        ToolTip="螢幕虛擬鍵盤" Foreground="#EBF3FF" Background="#1A2C49"
+                                        Foreground="#EBF3FF" Background="#1A2C49"
                                         BorderThickness="0" />
                             </Grid>
                         </Border>
@@ -448,7 +448,7 @@
                                         HorizontalAlignment="Right" Margin="0,0,6,0" VerticalAlignment="Center"
                                         Focusable="False" IsTabStop="False" Cursor="Hand"
                                         FontSize="12" Padding="0" Visibility="{x:Static local:Osk.CallVisibility}"
-                                        ToolTip="螢幕虛擬鍵盤" Foreground="#EBF3FF" Background="#1A2C49"
+                                        Foreground="#EBF3FF" Background="#1A2C49"
                                         BorderThickness="0" />
                             </Grid>
                         </Border>

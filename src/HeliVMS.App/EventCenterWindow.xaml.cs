@@ -103,7 +103,7 @@ public partial class EventCenterWindow : Window
 
         public string? Note { get; init; }
 
-        public string StatusLabel => AlarmEventStatus.Label(Status);
+        public string StatusLabel => LocalizedStatus(Status);
 
         /// <summary>事件類型的顯示名；未列的類型原樣顯示（上游新增類型不會炸掉視窗）。</summary>
         public string TypeLabel =>
@@ -444,7 +444,7 @@ public partial class EventCenterWindow : Window
                 Csv(duration),
                 Csv(ev.Detail),
                 Csv(ev.SnapshotPath),
-                Csv(AlarmEventStatus.Label(ev.Status)),
+                Csv(LocalizedStatus(ev.Status)),
                 Csv(ev.AssignedTo),
                 Csv(ev.Note)));
         }
@@ -774,8 +774,14 @@ public partial class EventCenterWindow : Window
             CultureInfo.InvariantCulture, Localizer.T("EventCenter.TrailNote"), last.Note);
         TrailText.Text = string.Format(
             CultureInfo.InvariantCulture, Localizer.T("EventCenter.TrailSummary"),
-            trail.Count, at, AlarmEventStatus.Label(last.Status)) + who + note;
+            trail.Count, at, LocalizedStatus(last.Status)) + who + note;
     }
+
+    /// <summary>狀態代碼轉現況語言標籤；未知代碼原樣顯示。
+    /// 走 <c>AlarmStatus.&lt;status&gt;</c> 鍵而非 <see cref="AlarmEventStatus.Label"/>——
+    /// 後者固定中文，切換語系時事件中心會殘留中文（M293 收尾）。</summary>
+    private static string LocalizedStatus(string status)
+        => AlarmEventStatus.IsValid(status) ? Localizer.T("AlarmStatus." + status) : status;
 
     private void OnApplyDispositionClicked(object sender, RoutedEventArgs e)
     {
