@@ -159,6 +159,7 @@ public class LicenseApiTests
     [Theory]
     [InlineData("/api/shares", "remote")]
     [InlineData("/api/stream", "remote")]
+    [InlineData("/api/central/playback", "remote")]
     [InlineData("/api/recording/schedules", "schedule")]
     [InlineData("/api/patrols", "schedule")]
     [InlineData("/api/detections", "ai")]

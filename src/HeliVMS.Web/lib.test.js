@@ -8,6 +8,7 @@ import {
   bearerHeader,
   buildSegmentsQuery,
   buildPlaylistQuery,
+  buildCentralPlaylistQuery,
   mseMimeType,
   parseM3u8,
   PLAYLIST_WINDOW_LIMIT_S,
@@ -782,6 +783,24 @@ describe('buildPlaylistQuery', () => {
 
   it('keeps the advertised window limit in sync with the server side 24 hours', () => {
     expect(PLAYLIST_WINDOW_LIMIT_S).toBe(86400);
+  });
+});
+
+describe('buildCentralPlaylistQuery', () => {
+  it('routes the playlist through the upper NVR proxy for the chosen child node', () => {
+    const url = buildCentralPlaylistQuery({
+      nodeId: 7,
+      channelId: 3,
+      stream: 'main',
+      from: '2026-09-30T12:00:00Z',
+      to: '2026-09-30T13:00:00Z',
+    });
+    expect(url.startsWith('/api/central/playback/7/playlist.m3u8?')).toBe(true);
+    const params = new URLSearchParams(url.split('?')[1]);
+    expect(params.get('channelId')).toBe('3');
+    expect(params.get('stream')).toBe('main');
+    expect(params.get('from')).toBe('2026-09-30T12:00:00.000Z');
+    expect(params.get('to')).toBe('2026-09-30T13:00:00.000Z');
   });
 });
 

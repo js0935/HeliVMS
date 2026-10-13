@@ -28,7 +28,7 @@ public sealed class HttpCentralNodeClient : ICentralNodeClient, IDisposable
 
     public async Task<NodeStatus> FetchAsync(string baseUrl, string apiKey, CancellationToken cancellationToken = default)
     {
-        using var request = new HttpRequestMessage(HttpMethod.Get, BuildUri(baseUrl));
+        using var request = new HttpRequestMessage(HttpMethod.Get, BuildUri(baseUrl, "api/node"));
         if (!string.IsNullOrEmpty(apiKey))
         {
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
@@ -44,12 +44,33 @@ public sealed class HttpCentralNodeClient : ICentralNodeClient, IDisposable
             ?? throw new JsonException("節點回應為空或格式不符。");
     }
 
-    private static Uri BuildUri(string baseUrl)
+    public async Task<CentralNodeResource> FetchResourceAsync(
+        string baseUrl, string apiKey, string relativePath, CancellationToken cancellationToken = default)
     {
-        // 相容「有無尾端斜線」兩種設定：先把 base 統一成目錄，再相對組出 api/node，
+        using var request = new HttpRequestMessage(HttpMethod.Get, BuildUri(baseUrl, relativePath));
+        if (!string.IsNullOrEmpty(apiKey))
+        {
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
+        }
+
+        using var response = await _http
+            .SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
+            .ConfigureAwait(false);
+
+        // 刻意不呼叫 EnsureSuccessStatusCode：代理要自己分辨 404 與其他失敗。
+        var body = await response.Content.ReadAsByteArrayAsync(cancellationToken).ConfigureAwait(false);
+        return new CentralNodeResource(
+            (int)response.StatusCode,
+            response.Content.Headers.ContentType?.MediaType,
+            body);
+    }
+
+    private static Uri BuildUri(string baseUrl, string relativePath)
+    {
+        // 相容「有無尾端斜線」兩種設定：先把 base 統一成目錄，再相對組出路徑，
         // 否則 new Uri("http://host:80", "api/node") 會把最後一段當檔名而吃掉。
         var normalized = baseUrl.TrimEnd('/') + "/";
-        return new Uri(new Uri(normalized), "api/node");
+        return new Uri(new Uri(normalized), relativePath);
     }
 
     public void Dispose() => _http.Dispose();

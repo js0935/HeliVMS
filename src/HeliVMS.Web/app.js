@@ -8,6 +8,7 @@ import {
   auditFilter,
   buildTimelineQuery,
   buildPlaylistQuery,
+  buildCentralPlaylistQuery,
   bearerHeader,
   canAct,
   configCard,
@@ -527,8 +528,24 @@ async function renderBackup() {
   $('backup-count').textContent = t('count.parenthesized', { n: rows.length });
 }
 
+/**
+ * 回放來源選單（M301）：本機 + 每個已註冊的子節點。
+ * 選子節點時 playRemote 改打跨機代理，回放體驗與本機相同（伺服器已改寫片段網址）。
+ */
+function fillPlayNodes(rows) {
+  const sel = $('play-node');
+  if (!sel) return;
+  const current = sel.value;
+  const options = [`<option value="">${esc(t('replay.nodeLocal'))}</option>`].concat(
+    rows.map((n) => `<option value="${Number(n.id)}">${esc(n.name)}</option>`),
+  );
+  $('play-node').innerHTML = options.join('');
+  $('play-node').value = current;
+}
+
 async function renderCentral() {
   const rows = centralRows(await api('/api/central/nodes').catch(() => []));
+  fillPlayNodes(rows);
   $('central-body').innerHTML = rows
     .map(
       (n) =>
@@ -1308,7 +1325,12 @@ async function playRemote(event) {
 
   msg.textContent = t('state.loading');
   try {
-    const response = await apiRaw(buildPlaylistQuery({ channelId, stream: 'main', from, to }));
+    const nodeId = $('play-node')?.value ?? '';
+    const response = await apiRaw(
+      nodeId
+        ? buildCentralPlaylistQuery({ nodeId, channelId, stream: 'main', from, to })
+        : buildPlaylistQuery({ channelId, stream: 'main', from, to }),
+    );
     if (!response.ok) {
       const info = await response.json().catch(() => null);
       msg.textContent = info?.error ?? t('state.playlistFailed', { status: response.status });

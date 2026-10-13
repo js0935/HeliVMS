@@ -94,15 +94,36 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
 }
 
 /// <summary>M295：可控制成功／失敗的假子節點用戶端，供中央聚合端點測試使用。</summary>
-public sealed class StubCentralClient : ICentralNodeClient
-{
-    public NodeStatus Result { get; set; } = new("N1", "child", "0.1.0", 8);
+/// <remarks>M301（跨機回放代理）另加 <see cref="Resource"/>，讓代理端點不必真的連子節點。</remarks>
+    public sealed class StubCentralClient : ICentralNodeClient
+    {
+        /// <summary>由 <see cref="FetchAsync"/>（探測）回傳的節點狀態。</summary>
+        public NodeStatus Result { get; set; } = new("N1", "child", "0.1.0", 8);
 
-    public Exception? Failure { get; set; }
+        /// <summary>非 null 時，探測擲出此例外。</summary>
+        public Exception? Failure { get; set; }
 
-    public Task<NodeStatus> FetchAsync(string baseUrl, string apiKey, CancellationToken cancellationToken = default)
-        => Failure is null ? Task.FromResult(Result) : Task.FromException<NodeStatus>(Failure);
-}
+        /// <summary>跨機回放代理測試用：以相對路徑產生子節點回應；未設定則拋錯，避免靜默通過。</summary>
+        public Func<string, CentralNodeResource>? Resource { get; set; }
+
+        /// <summary>最近一次代理請求的相對路徑（驗證上層把正確路徑轉給子節點）。</summary>
+        public string? LastResourcePath { get; private set; }
+
+        public Task<NodeStatus> FetchAsync(string baseUrl, string apiKey, CancellationToken cancellationToken = default)
+            => Failure is null ? Task.FromResult(Result) : Task.FromException<NodeStatus>(Failure);
+
+        public Task<CentralNodeResource> FetchResourceAsync(
+            string baseUrl, string apiKey, string relativePath, CancellationToken cancellationToken = default)
+        {
+            LastResourcePath = relativePath;
+            if (Resource is null)
+            {
+                throw new InvalidOperationException("測試未設定 StubCentralClient.Resource。");
+            }
+
+            return Task.FromResult(Resource(relativePath));
+        }
+    }
 
 public class ApiTests : IClassFixture<ApiFactory>, IDisposable
 {
@@ -320,6 +341,127 @@ public class ApiTests : IClassFixture<ApiFactory>, IDisposable
         {
             Service<CentralNodeRepository>().Delete(id);
             _factory.CentralClient.Failure = null;
+        }
+    }
+
+    // ---------- M301 跨機回放代理（§14.1 #10） ----------
+
+    [Fact]
+    public async Task CentralPlayback_RewritesSegmentUrisToProxy()
+    {
+        var childPlaylist = string.Join('\n', new[]
+        {
+            "#EXTM3U",
+            "#EXT-X-VERSION:7",
+            "#EXT-X-MAP:URI=\"/api/stream/segment/41/init.mp4\"",
+            "#EXTINF:15.000,",
+            "/api/stream/segment/41/media.m4s",
+            "#EXTINF:15.000,",
+            "/api/stream/segment/42/media.m4s",
+            "#EXT-X-ENDLIST",
+            "",
+        });
+        _factory.CentralClient.Resource = _ => new CentralNodeResource(
+            200, "application/vnd.apple.mpegurl", Encoding.UTF8.GetBytes(childPlaylist));
+        var id = Service<CentralNodeRepository>().Add("child", "http://child:5080", "super-secret");
+        try
+        {
+            using var client = Client();
+            var now = DateTime.UtcNow;
+
+            var response = await client.GetAsync(
+                $"/api/central/playback/{id}/playlist.m3u8?channelId=1&stream=main"
+                + $"&from={HttpUtility(now.AddHours(-1))}&to={HttpUtility(now)}");
+
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            Assert.Equal("application/vnd.apple.mpegurl", response.Content.Headers.ContentType?.MediaType);
+            var body = await response.Content.ReadAsStringAsync();
+
+            // 片段網址必須改指向上層代理，瀏覽器才不會打到上層不存在的錄影。
+            Assert.Contains($"/api/central/playback/{id}/segment/41/init.mp4", body, StringComparison.Ordinal);
+            Assert.Contains($"/api/central/playback/{id}/segment/42/media.m4s", body, StringComparison.Ordinal);
+            Assert.DoesNotContain("/api/stream/segment/", body, StringComparison.Ordinal);
+
+            // 上層把頻道／串流／時段原樣轉給子節點；金鑰只留在伺服器端。
+            Assert.StartsWith("api/stream/1/playlist.m3u8?stream=main", _factory.CentralClient.LastResourcePath, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Service<CentralNodeRepository>().Delete(id);
+            _factory.CentralClient.Resource = null;
+        }
+    }
+
+    [Fact]
+    public async Task CentralPlayback_ForwardsSegmentBytesAndContentType()
+    {
+        var bytes = new byte[] { 1, 2, 3, 4, 5 };
+        _factory.CentralClient.Resource = path => path.Contains("media.m4s", StringComparison.Ordinal)
+            ? new CentralNodeResource(200, "video/iso.segment", bytes)
+            : new CentralNodeResource(200, "video/mp4", new byte[] { 9, 9 });
+        var id = Service<CentralNodeRepository>().Add("child", "http://child:5080", "k");
+        try
+        {
+            using var client = Client();
+
+            var response = await client.GetAsync($"/api/central/playback/{id}/segment/41/media.m4s");
+
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            Assert.Equal("video/iso.segment", response.Content.Headers.ContentType?.MediaType);
+            Assert.Equal(bytes, await response.Content.ReadAsByteArrayAsync());
+            Assert.Equal("api/stream/segment/41/media.m4s", _factory.CentralClient.LastResourcePath);
+        }
+        finally
+        {
+            Service<CentralNodeRepository>().Delete(id);
+        }
+    }
+
+    [Fact]
+    public async Task CentralPlayback_MapsChildNotFoundTo404AndFailureTo502()
+    {
+        _factory.CentralClient.Resource = _ => new CentralNodeResource(404, null, Array.Empty<byte>());
+        var id = Service<CentralNodeRepository>().Add("child", "http://child:5080", "k");
+        try
+        {
+            using var client = Client();
+            var now = DateTime.UtcNow;
+
+            var missing = await client.GetAsync(
+                $"/api/central/playback/{id}/playlist.m3u8?channelId=1&stream=main"
+                + $"&from={HttpUtility(now.AddHours(-1))}&to={HttpUtility(now)}");
+            Assert.Equal(HttpStatusCode.NotFound, missing.StatusCode);
+
+            _factory.CentralClient.Resource = _ => throw new HttpRequestException("boom");
+            var down = await client.GetAsync($"/api/central/playback/{id}/segment/41/init.mp4");
+            Assert.Equal(HttpStatusCode.BadGateway, down.StatusCode);
+        }
+        finally
+        {
+            Service<CentralNodeRepository>().Delete(id);
+        }
+    }
+
+    [Fact]
+    public async Task CentralPlayback_UnknownNodeOrMissingParamsIsRejected()
+    {
+        using var client = Client();
+
+        Assert.Equal(
+            HttpStatusCode.NotFound,
+            (await client.GetAsync("/api/central/playback/999999/segment/1/init.mp4")).StatusCode);
+
+        var id = Service<CentralNodeRepository>().Add("child", "http://child:5080", "k");
+        try
+        {
+            // 有節點但缺 channelId：在連子節點之前就要擋掉，別讓子節點替上層做參數驗證。
+            Assert.Equal(
+                HttpStatusCode.BadRequest,
+                (await client.GetAsync($"/api/central/playback/{id}/playlist.m3u8?stream=main")).StatusCode);
+        }
+        finally
+        {
+            Service<CentralNodeRepository>().Delete(id);
         }
     }
 

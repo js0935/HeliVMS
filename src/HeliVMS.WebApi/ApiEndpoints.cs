@@ -225,6 +225,13 @@ public static class ApiEndpoints
             return Results.Ok(ToCentralNodeStatus(probed));
         });
 
+        // 跨機回放代理（§14.1 #10，M301）：上層 NVR 轉發子節點的 HLS VOD。
+        // 瀏覽器只跟上層說話，子節點金鑰留在伺服器；清單中的片段網址回傳前改寫為代理路徑。
+        // 屬 remote 能力（與 /api/stream 同理由）：這是「遠端存取」而非本機播放。
+        api.MapGet("/central/playback/{nodeId:long}/playlist.m3u8", HandleCentralPlaylist);
+        api.MapGet("/central/playback/{nodeId:long}/segment/{segmentId:long}/init.mp4", HandleCentralSegmentInit);
+        api.MapGet("/central/playback/{nodeId:long}/segment/{segmentId:long}/media.m4s", HandleCentralSegmentMedia);
+
         api.MapGet("/channels", static (ChannelRepository r) => Results.Ok(r.List()));
 
         // 授權狀態（M210）。刻意不放進 LicenseGateMiddleware 的規則表：前端要先問
@@ -1573,6 +1580,159 @@ public static class ApiEndpoints
             s.Id, s.ChannelId, s.Stream, s.StartUtc, s.EndUtc, s.SizeBytes, s.DurationSec, s.Format, s.Status, s.Sha256)).ToArray();
         await context.Response.WriteAsJsonAsync(new Paged<SegmentListItem>(publicItems, publicItems.Length));
     }
+
+    /// <summary>跨機回放代理：向子節點取播放清單並改寫片段網址（§14.1 #10，M301）。</summary>
+    private static async Task HandleCentralPlaylist(
+        HttpContext context,
+        CentralNodeRepository repo,
+        ICentralNodeClient client,
+        long nodeId,
+        int channelId,
+        string? stream,
+        DateTime from,
+        DateTime to,
+        CancellationToken cancellation)
+    {
+        var node = repo.List().FirstOrDefault(n => n.Id == nodeId);
+        if (node is null)
+        {
+            await WriteError(context, StatusCodes.Status404NotFound, "找不到節點");
+            return;
+        }
+
+        if (channelId <= 0 || string.IsNullOrWhiteSpace(stream))
+        {
+            await WriteError(context, StatusCodes.Status400BadRequest, "頻道與串流必填");
+            return;
+        }
+
+        var fromUtc = Utc(from);
+        var toUtc = Utc(to);
+        if (toUtc <= fromUtc)
+        {
+            await WriteError(context, StatusCodes.Status400BadRequest, "時段上限不可早於下限");
+            return;
+        }
+
+        if (toUtc - fromUtc > MaxPlaylistWindow)
+        {
+            await WriteError(context, StatusCodes.Status400BadRequest, "單次播放清單最多 24 小時，請縮小時段");
+            return;
+        }
+
+        var path = $"api/stream/{channelId}/playlist.m3u8?stream={Uri.EscapeDataString(stream)}"
+            + $"&from={Uri.EscapeDataString(fromUtc.ToString("O"))}&to={Uri.EscapeDataString(toUtc.ToString("O"))}";
+
+        var resource = await FetchFromChild(context, client, node, path, cancellation).ConfigureAwait(false);
+        if (resource is null)
+        {
+            return;
+        }
+
+        if (resource.StatusCode != StatusCodes.Status200OK)
+        {
+            await WriteChildFailure(context, resource);
+            return;
+        }
+
+        context.Response.ContentType = HlsPlaylist.ContentType;
+        context.Response.Headers.CacheControl = "no-store";
+        await context.Response.WriteAsync(
+            CentralPlayback.Rewrite(Encoding.UTF8.GetString(resource.Body), nodeId), cancellation);
+    }
+
+    /// <summary>跨機回放代理：轉發子節點的初始化段（§14.1 #10，M301）。</summary>
+    private static Task HandleCentralSegmentInit(
+        HttpContext context,
+        CentralNodeRepository repo,
+        ICentralNodeClient client,
+        long nodeId,
+        long segmentId,
+        CancellationToken cancellation) =>
+        ProxyCentralSegment(context, repo, client, nodeId, segmentId, init: true, cancellation);
+
+    /// <summary>跨機回放代理：轉發子節點的媒體段（§14.1 #10，M301）。</summary>
+    private static Task HandleCentralSegmentMedia(
+        HttpContext context,
+        CentralNodeRepository repo,
+        ICentralNodeClient client,
+        long nodeId,
+        long segmentId,
+        CancellationToken cancellation) =>
+        ProxyCentralSegment(context, repo, client, nodeId, segmentId, init: false, cancellation);
+
+    private static async Task ProxyCentralSegment(
+        HttpContext context,
+        CentralNodeRepository repo,
+        ICentralNodeClient client,
+        long nodeId,
+        long segmentId,
+        bool init,
+        CancellationToken cancellation)
+    {
+        var node = repo.List().FirstOrDefault(n => n.Id == nodeId);
+        if (node is null)
+        {
+            await WriteError(context, StatusCodes.Status404NotFound, "找不到節點");
+            return;
+        }
+
+        var leaf = init ? "init.mp4" : "media.m4s";
+        var resource = await FetchFromChild(
+            context, client, node, $"api/stream/segment/{segmentId}/{leaf}", cancellation).ConfigureAwait(false);
+        if (resource is null)
+        {
+            return;
+        }
+
+        if (resource.StatusCode != StatusCodes.Status200OK)
+        {
+            await WriteChildFailure(context, resource);
+            return;
+        }
+
+        context.Response.ContentType = init ? HlsPlaylist.InitContentType : HlsPlaylist.MediaContentType;
+        context.Response.Headers.CacheControl = "no-store";
+        await context.Response.Body.WriteAsync(resource.Body, cancellation);
+    }
+
+    /// <summary>代理由子節點取資源；連線層失敗一律轉 502，讓上層錯誤與子節點狀態碼分開。</summary>
+    private static async Task<CentralNodeResource?> FetchFromChild(
+        HttpContext context,
+        ICentralNodeClient client,
+        CentralNode node,
+        string relativePath,
+        CancellationToken cancellation)
+    {
+        if (string.IsNullOrWhiteSpace(node.BaseUrl))
+        {
+            await WriteError(context, StatusCodes.Status400BadRequest, "節點尚未設定位址");
+            return null;
+        }
+
+        try
+        {
+            return await client
+                .FetchResourceAsync(node.BaseUrl, node.ApiKey, relativePath, cancellation)
+                .ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            // 使用者取消（關掉播放器）不是子節點壞掉，不該記成 502。
+            throw;
+        }
+        catch (Exception)
+        {
+            await WriteError(context, StatusCodes.Status502BadGateway, "無法連線子節點");
+            return null;
+        }
+    }
+
+    /// <summary>子節點非 200 時轉譯：404 原樣傳（此時段沒錄影），其餘視為上游錯誤回 502。</summary>
+    private static Task WriteChildFailure(HttpContext context, CentralNodeResource resource) =>
+        resource.StatusCode == StatusCodes.Status404NotFound
+            ? WriteError(context, StatusCodes.Status404NotFound, "子節點此時段沒有錄影")
+            : WriteError(context, StatusCodes.Status502BadGateway, $"子節點回應 {resource.StatusCode}");
 
     /// <summary>HLS VOD 播放清單（§14.3 串流 P0）：遠程回放的唯一入口。</summary>
     private static async Task HandleStreamPlaylist(

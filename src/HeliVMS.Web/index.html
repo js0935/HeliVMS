@@ -127,6 +127,7 @@
     <section class="panel wide">
       <h2><span data-i18n="nav.remotePlayback">遠程回放</span> <span class="muted" data-i18n="play.hlsHint">HLS／已錄影</span></h2>
       <form id="play-form" class="row-form">
+        <select id="play-node" aria-label="來源節點" data-i18n-attr="aria-label:replay.node"></select>
         <input id="play-channel" type="number" min="1" step="1" value="1" aria-label="頻道編號" data-i18n-attr="aria-label:ph.channelNumber" required />
         <input id="play-from" type="datetime-local" aria-label="起始時間" data-i18n-attr="aria-label:ph.startTime" required />
         <input id="play-to" type="datetime-local" aria-label="結束時間" data-i18n-attr="aria-label:ph.endTime" required />

@@ -40,6 +40,9 @@ public sealed class LicenseGateMiddleware
         // M244：即時串流與遠端回放（/api/stream/*）都屬於「遠程存取」。
         // 這條規則同時補上 M239 遠端 HLS 回放一直沒有被閘門保護的缺口。
         ("/api/stream", LicenseFeatures.Remote),
+        // M301：跨機回放代理（上層 NVR 轉發子節點錄影）同樣是遠端存取。
+        // 只掛在代理路徑，不動 /api/central 的節點管理端點（那些刻意維持開放）。
+        ("/api/central/playback", LicenseFeatures.Remote),
         ("/api/recording/schedules", LicenseFeatures.Schedule),
         ("/api/patrols", LicenseFeatures.Schedule),
         ("/api/detections", LicenseFeatures.Ai),

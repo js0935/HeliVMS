@@ -110,6 +110,21 @@ export function buildPlaylistQuery({ channelId, stream, from, to }) {
   return `/api/stream/${channelId}/playlist.m3u8?${params.toString()}`;
 }
 
+/**
+ * 跨機回放的 HLS VOD 播放清單網址（§14.1 #10，M301）。
+ * 上層 NVR 代為向子節點取片，瀏覽器只跟上層說話（子節點金鑰不出現在前端）。
+ * 回傳清單中的片段網址已被伺服器改寫為同一代理前綴，故 attachPlaylist 不必改。
+ */
+export function buildCentralPlaylistQuery({ nodeId, channelId, stream, from, to }) {
+  const params = new URLSearchParams({
+    channelId: String(channelId),
+    stream,
+    from: new Date(from).toISOString(),
+    to: new Date(to).toISOString(),
+  });
+  return `/api/central/playback/${nodeId}/playlist.m3u8?${params.toString()}`;
+}
+
 /** MSE 播放 fMP4 需要的 MIME（依瀏覽器支援度挑，Safari 不走這條路）。 */
 export function mseMimeType(canPlayMp4 = false, canPlayAvc1 = false) {
   if (canPlayMp4) return 'video/mp4; codecs="avc1.64001f,mp4a.40.2"';

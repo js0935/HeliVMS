@@ -343,13 +343,17 @@ it('exposes a playback panel with an accessible form and a video element', () =>
     expect(indexSource).toMatch(/<h2[^>]*>\s*<span data-i18n="nav\.remotePlayback">/);
     expect(indexSource).toMatch(/<video id="play-video"[^>]*controls[^>]*playsinline/);
     expect(indexSource).toMatch(/id="play-channel"[^>]*aria-label="頻道編號"/);
+    expect(indexSource).toMatch(/id="play-node"[^>]*data-i18n-attr="aria-label:replay\.node"/);
     expect(indexSource).toMatch(/id="play-from"[^>]*aria-label="起始時間"/);
     expect(indexSource).toMatch(/id="play-to"[^>]*aria-label="結束時間"/);
     expect(indexSource).toMatch(/id="play-msg"[^>]*aria-live="polite"/);
   });
 
   it('fetches the playlist through the single authenticated transport', () => {
-    expect(appSource).toMatch(/apiRaw\(buildPlaylistQuery\(\{ channelId, stream: 'main', from, to \}\)\)/);
+    // M301：來源節點選「本機」走本機清單，選子節點走跨機代理；兩者都經 apiRaw。
+    expect(appSource).toMatch(/buildPlaylistQuery\(\{ channelId, stream: 'main', from, to \}\)/);
+    expect(appSource).toMatch(/buildCentralPlaylistQuery\(\{ nodeId, channelId, stream: 'main', from, to \}\)/);
+    expect(appSource).toMatch(/await apiRaw\(/);
     expect(appSource).toMatch(/const playlist = parseM3u8\(await response\.text\(\)\)/);
   });
 

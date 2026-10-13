@@ -166,6 +166,59 @@ public class CentralNodeTests : IDisposable
     }
 
     [Fact]
+    public async Task 代理以_Bearer_金鑰取回指定路徑且非_2xx_不擲例外()
+    {
+        var handler = new FakeHandler(_ => new HttpResponseMessage(HttpStatusCode.NotFound)
+        {
+            Content = new ByteArrayContent(new byte[] { 9, 8, 7 }),
+        });
+        using var client = new HttpCentralNodeClient(handler);
+
+        var resource = await client.FetchResourceAsync(
+            "http://10.0.0.5:5080/", "key-a",
+            "api/stream/1/playlist.m3u8?stream=main&from=2026-01-01T00:00:00.0000000Z");
+
+        // 非 2xx 不得擲例外：代理要靠狀態碼分辨「此時段沒錄影」與真的連線失敗。
+        Assert.Equal(404, resource.StatusCode);
+        Assert.Equal(new byte[] { 9, 8, 7 }, resource.Body);
+        Assert.Equal(HttpMethod.Get, handler.LastMethod);
+        Assert.Equal(
+            new Uri("http://10.0.0.5:5080/api/stream/1/playlist.m3u8?stream=main&from=2026-01-01T00:00:00.0000000Z"),
+            handler.LastUri);
+        Assert.Equal("Bearer", handler.LastAuth?.Scheme);
+        Assert.Equal("key-a", handler.LastAuth?.Parameter);
+    }
+
+    [Fact]
+    public async Task 代理成功時回傳內容型別與主體()
+    {
+        var content = new ByteArrayContent(new byte[] { 1, 2, 3, 4 });
+        content.Headers.ContentType = new MediaTypeHeaderValue("video/iso.segment");
+        var handler = new FakeHandler(_ => new HttpResponseMessage(HttpStatusCode.OK) { Content = content });
+        using var client = new HttpCentralNodeClient(handler);
+
+        var resource = await client.FetchResourceAsync("http://host:1", "k", "api/stream/segment/7/media.m4s");
+
+        Assert.Equal(200, resource.StatusCode);
+        Assert.Equal("video/iso.segment", resource.ContentType);
+        Assert.Equal(new byte[] { 1, 2, 3, 4 }, resource.Body);
+    }
+
+    [Fact]
+    public async Task 代理相容含路徑與尾端斜線的_base_url()
+    {
+        var handler = new FakeHandler(_ => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new ByteArrayContent(Array.Empty<byte>()),
+        });
+        using var client = new HttpCentralNodeClient(handler);
+
+        await client.FetchResourceAsync("http://host:5080/vms", "k", "api/stream/1/playlist.m3u8");
+
+        Assert.Equal(new Uri("http://host:5080/vms/api/stream/1/playlist.m3u8"), handler.LastUri);
+    }
+
+    [Fact]
     public async Task 非成功狀態碼會擲例外()
     {
         var handler = new FakeHandler(_ => new HttpResponseMessage(HttpStatusCode.Unauthorized));
@@ -301,6 +354,10 @@ public class CentralNodeTests : IDisposable
             Urls.Add(baseUrl);
             return Task.FromResult(_respond(baseUrl));
         }
+
+        public Task<CentralNodeResource> FetchResourceAsync(
+            string baseUrl, string apiKey, string relativePath, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException("聚合探測測試替身不處理跨機回放代理。");
     }
 
     private sealed class FixedClock : TimeProvider

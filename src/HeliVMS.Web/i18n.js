@@ -70,6 +70,8 @@ const CATALOGS = {
     'replay.source': '門禁',
     'replay.sourceAlarm': '警報',
     'replay.sourceEdgeAi': '邊緣AI',
+    'replay.node': '來源節點',
+    'replay.nodeLocal': '本機',
 
     'state.disconnected': '連線中斷',
     'state.failed': '失敗',
@@ -389,6 +391,8 @@ const CATALOGS = {
     'replay.source': 'Access control',
     'replay.sourceAlarm': 'Alarm',
     'replay.sourceEdgeAi': 'Edge AI',
+    'replay.node': 'Source node',
+    'replay.nodeLocal': 'This machine',
 
     'state.disconnected': 'Connection lost',
     'state.failed': 'Failed',
