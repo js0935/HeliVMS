@@ -311,20 +311,23 @@ public sealed class OnvifDeviceService : IDisposable
     }
 
     /// <summary>
-    /// 以 GetServiceCapabilities 驗證 PTZ 端點真的接受 PTZ 動作（無參數，最小化相依）。
+    /// 以 GetNodes 驗證 PTZ 端點真的接受 PTZ 動作（無參數，最小化相依）。
     /// 暫時性錯誤（逾時／連線）不視為不支援，保留端點讓實際操作回報真實錯誤，避免誤記為無 PTZ。
     /// </summary>
     private async Task<bool> VerifyPtzEndpointAsync(string ptzXAddr, CancellationToken cancellationToken)
     {
         try
         {
+            // 以 GetNodes 驗證：它是 ver10 PTZ WSDL 定義的必要動作（無參數），任何 PTZ 服務都應回應。
+            // 不可改用 GetServiceCapabilities——該動作只存在於 ver20 WSDL，本用戶端一律以 ver10
+            // 命名空間送出，會讓僅支援 ver10 的設備（含 VIVOTEK 快速球）回 ter:Namespace（元素命名
+            // 空間不符）而被誤判為不支援 PTZ，導致明明可操控的雲台在 UI 上被關閉。
             _ = await PostAsync(
-                new XElement(Tptz + "GetServiceCapabilities"),
+                new XElement(Tptz + "GetNodes"),
                 ptzXAddr,
-                TptzAction("GetServiceCapabilities"),
+                TptzAction("GetNodes"),
                 cancellationToken,
                 retryable: false);
-
             return true;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)

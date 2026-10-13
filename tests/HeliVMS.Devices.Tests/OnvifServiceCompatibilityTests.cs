@@ -617,7 +617,7 @@ public class OnvifServiceCompatibilityTests
         var error = await Assert.ThrowsAsync<OnvifException>(() => service.StopPtzAsync("MainProfile"));
         Assert.Equal(OnvifErrorCode.Connection, error.Code);
 
-        // GetCapabilities + PTZ 可用性驗證（GetServiceCapabilities）+ Stop。
+        // GetCapabilities + PTZ 可用性驗證（GetNodes）+ Stop。
         Assert.Equal(3, handler.CallCount);
     }
 
@@ -644,6 +644,39 @@ public class OnvifServiceCompatibilityTests
 
         var error = await Assert.ThrowsAsync<OnvifException>(() => service.StopPtzAsync("MainProfile"));
         Assert.Equal(OnvifErrorCode.NotSupported, error.Code);
+    }
+
+    /// <summary>
+    /// 僅支援 ver10 PTZ 的設備（實測 VIVOTEK 快速球）只認 ver10 WSDL 定義的動作；對 ver20 才有的
+    /// GetServiceCapabilities 會回 ter:Namespace。可用性驗證必須用 ver10 的 GetNodes，否則會把這類
+    /// 明明可操控的雲台誤判為「不支援 PTZ」，UI 直接關閉 PTZ 而無任何線索。
+    /// </summary>
+    [Fact]
+    public async Task EnsurePtzCapability_Ver10DeviceRejectingGetServiceCapabilities_StillPtz()
+    {
+        var handler = new ScriptedHandler((_, body) =>
+            body.Contains("GetCapabilities", StringComparison.Ordinal)
+                ? OnvifTestHttp.Soap(OnvifTestHttp.Capabilities(("PTZ", "http://192.168.1.64/onvif/ptz_service")))
+                : body.Contains("GetServiceCapabilities", StringComparison.Ordinal)
+                    ? OnvifTestHttp.Soap(
+                        "<s:Envelope xmlns:s=\"http://www.w3.org/2003/05/soap-envelope\"><s:Body><s:Fault>" +
+                        "<faultcode>soap:Sender</faultcode><faultstring>Namespace Error</faultstring>" +
+                        "<detail><ter:Namespace xmlns:ter=\"http://www.onvif.org/ver10/error\"/></detail>" +
+                        "</s:Fault></s:Body></s:Envelope>")
+                    : OnvifTestHttp.Soap(
+                        "<s:Envelope xmlns:s=\"http://www.w3.org/2003/05/soap-envelope\"><s:Body>" +
+                        "<tptz:GetNodesResponse xmlns:tptz=\"http://www.onvif.org/ver10/ptz/wsdl\" /></s:Body></s:Envelope>"));
+
+        using var service = new OnvifDeviceService(DeviceXAddr, null, null, handler, NoRetry);
+
+        await service.EnsurePtzCapabilityAsync();
+
+        Assert.True(service.HasPtz);
+        Assert.Equal("http://192.168.1.64/onvif/ptz_service", service.PtzXAddr);
+
+        // 驗證動作必須是 ver10 的 GetNodes；不可送出 ver20 才定義的 GetServiceCapabilities。
+        Assert.Contains(handler.Requests, r => r.Body.Contains("GetNodes", StringComparison.Ordinal));
+        Assert.DoesNotContain(handler.Requests, r => r.Body.Contains("GetServiceCapabilities", StringComparison.Ordinal));
     }
 
     [Fact]
