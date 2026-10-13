@@ -9,6 +9,7 @@ using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Effects;
 using System.Windows.Threading;
+using HeliVMS.Shared;
 
 namespace HeliVMS.App
 {
@@ -128,6 +129,8 @@ namespace HeliVMS.App
 
         private readonly Window _host;
 
+        private bool _shift;
+
         /// <summary>
         /// 讓 OSK 視窗永不取得啟動（activation）。只靠 <see cref="Window.ShowActivated"/>＝false
         /// 不夠：那僅影響第一次 Show，之後點按鍵仍會把 OSK 設為作用中視窗，宿主隨即
@@ -205,24 +208,26 @@ namespace HeliVMS.App
                 Margin = new Thickness(4),
                 Effect = new DropShadowEffect { BlurRadius = 10, ShadowDepth = 2, Opacity = 0.5 }
             };
-            shell.PreviewMouseLeftButtonDown += OnShellDragStart;
-
-            var rows = new List<string[]>
+            // 拖曳只認外框本身。原本在 PreviewMouseLeftButtonDown 裡用型別判斷原始來源
+            // 是不是 Button，這是錯的：點按鈕時原始來源是範本內的 Border／AccessText，
+            // 永遠不會是 Button，於是每個按鍵都誤觸 DragMove 的模態迴圈並吃掉 Click——
+            // 症狀就是「叫得出來卻打不出字」。改用氣泡階段的 MouseLeftButtonDown：按鈕會把它
+            // 標記為已處理、不冒泡到外框，剩下的空隙才由外框接手，並以參照相等確認點在外框上。
+            shell.MouseLeftButtonDown += (_, e) =>
             {
-                new[] { "1", "2", "3", "4", "5", "6", "7", "8", "9", "0" },
-                new[] { "Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P" },
-                new[] { "A", "S", "D", "F", "G", "H", "J", "K", "L", Localizer.T("Osk.Backspace") },
-                new[] { "Z", "X", "C", "V", "B", "N", "M", ".", "@", "_" },
-                new[] { Localizer.T("Osk.Space"), Localizer.T("Osk.Clear"), Localizer.T("Osk.Collapse") }
+                if (ReferenceEquals(e.OriginalSource, shell))
+                {
+                    TryDragMove();
+                }
             };
 
             var board = new StackPanel();
-            for (var r = 0; r < rows.Count; r++)
+            foreach (var row in OnScreenKeyboardLayout.Rows(_shift))
             {
                 var line = new StackPanel { Orientation = Orientation.Horizontal };
-                foreach (var label in rows[r])
+                foreach (var key in row)
                 {
-                    line.Children.Add(MakeKey(label));
+                    line.Children.Add(MakeKey(key));
                 }
                 board.Children.Add(line);
             }
@@ -231,12 +236,13 @@ namespace HeliVMS.App
             return shell;
         }
 
-        private void OnShellDragStart(object sender, MouseButtonEventArgs e)
+        private void TryDragMove()
         {
-            if (e.OriginalSource is Button)
+            if (Mouse.LeftButton != MouseButtonState.Pressed)
             {
                 return;
             }
+
             try
             {
                 DragMove();
@@ -254,33 +260,38 @@ namespace HeliVMS.App
             grid.Children.Add(b);
         }
 
-        private Button MakeKey(string label)
+        private Button MakeKey(string id)
         {
-            var id = label switch
+            var fill = id switch
             {
-                _ when label == Localizer.T("Osk.Backspace") => "backspace",
-                _ when label == Localizer.T("Osk.Space") => "space",
-                _ when label == Localizer.T("Osk.Clear") => "clear",
-                _ when label == Localizer.T("Osk.Collapse") => "collapse",
-                _ => label,
+                OnScreenKeyboardLayout.CollapseKey => Color.FromRgb(0x7A, 0x3E, 0x2E),
+                OnScreenKeyboardLayout.ShiftKey when _shift => Color.FromRgb(0x26, 0x60, 0xAA),
+                _ => Color.FromRgb(0x1A, 0x2C, 0x49),
             };
-            var accent = id == "collapse";
+
             var b = new Button
             {
-                Content = label,
-                Width = id == "space" ? 152 : id is "backspace" or "clear" or "collapse" ? 76 : 38,
+                Content = LabelFor(id),
+                Width = id switch
+                {
+                    OnScreenKeyboardLayout.SpaceKey => 152,
+                    OnScreenKeyboardLayout.ShiftKey => 44,
+                    OnScreenKeyboardLayout.BackspaceKey
+                        or OnScreenKeyboardLayout.ClearKey
+                        or OnScreenKeyboardLayout.CollapseKey => 76,
+                    _ => 38,
+                },
                 Height = 34,
                 Margin = new Thickness(1.5),
                 Padding = new Thickness(0),
                 Foreground = new SolidColorBrush(Color.FromRgb(0xEB, 0xF3, 0xFF)),
-                Background = new SolidColorBrush(accent
-                    ? Color.FromRgb(0x7A, 0x3E, 0x2E)
-                    : Color.FromRgb(0x1A, 0x2C, 0x49)),
+                Background = new SolidColorBrush(fill),
                 BorderBrush = new SolidColorBrush(Color.FromRgb(0x2A, 0x4A, 0x73)),
                 Focusable = false,
                 IsTabStop = false,
                 Cursor = Cursors.Hand,
-                FontSize = 14
+                FontSize = 14,
+                ToolTip = id == OnScreenKeyboardLayout.ShiftKey ? Localizer.T("Osk.Shift") : null
             };
             AutomationProperties.SetAutomationId(b, "OskKey_" + id);
             b.Tag = id;
@@ -289,41 +300,70 @@ namespace HeliVMS.App
             return b;
         }
 
+        private static string LabelFor(string id) => id switch
+        {
+            OnScreenKeyboardLayout.SpaceKey => Localizer.T("Osk.Space"),
+            OnScreenKeyboardLayout.ClearKey => Localizer.T("Osk.Clear"),
+            OnScreenKeyboardLayout.CollapseKey => Localizer.T("Osk.Collapse"),
+            OnScreenKeyboardLayout.BackspaceKey => Localizer.T("Osk.Backspace"),
+            OnScreenKeyboardLayout.ShiftKey => "⇧",
+            _ => id,
+        };
+
         private void OnKeyClicked(object sender, RoutedEventArgs e)
         {
-            if (sender is not Button b || Target is null)
+            if (sender is not Button { Tag: string id })
             {
                 return;
             }
 
-            switch (b.Tag)
+            // 大小寫與收起不依賴 Target：即使沒有目標輸入框（理論上不會發生）也應正常反應。
+            switch (id)
             {
-                case "space":
+                case OnScreenKeyboardLayout.ShiftKey:
+                    _shift = !_shift;
+                    Content = BuildContent();
+                    return;
+                case OnScreenKeyboardLayout.CollapseKey:
+                    Hide();
+                    return;
+            }
+
+            if (Target is null)
+            {
+                return;
+            }
+
+            switch (id)
+            {
+                case OnScreenKeyboardLayout.SpaceKey:
                     Osk.AppendInput(Target, " ");
                     break;
-                case "clear":
-                    if (Target is TextBox t)
-                    {
-                        t.Clear();
-                    }
-                    else if (Target is PasswordBox p)
-                    {
-                        p.Clear();
-                    }
-
+                case OnScreenKeyboardLayout.ClearKey:
+                    ClearTarget();
                     break;
-                case "backspace":
+                case OnScreenKeyboardLayout.BackspaceKey:
                     Osk.AppendInput(Target, "\b");
                     break;
-                case "collapse":
-                    Hide();
-                    break;
                 default:
-                    if (b.Tag is string s && s.Length == 1)
+                    if (id.Length == 1)
                     {
-                        Osk.AppendInput(Target, s);
+                        Osk.AppendInput(Target, id);
                     }
 
+                    break;
+            }
+        }
+
+        private void ClearTarget()
+        {
+            switch (Target)
+            {
+                case TextBox t:
+                    t.Clear();
+                    break;
+                case PasswordBox p:
+                    p.Clear();
                     break;
             }
         }
