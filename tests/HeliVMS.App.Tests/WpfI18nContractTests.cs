@@ -47,6 +47,7 @@ public sealed class WpfI18nContractTests
         ["CameraManagerWindow", "src/HeliVMS.App/CameraManagerWindow.xaml", "src/HeliVMS.App/CameraManagerWindow.xaml.cs", new[] { "Camera" }],
         ["PtzWindow", "src/HeliVMS.App/PtzWindow.xaml", "src/HeliVMS.App/PtzWindow.xaml.cs", new[] { "Ptz" }],
         ["ChannelManagerWindow", "src/HeliVMS.App/ChannelManagerWindow.xaml", "src/HeliVMS.App/ChannelManagerWindow.xaml.cs", new[] { "Channels" }],
+        ["TalkWindow", "src/HeliVMS.App/TalkWindow.xaml", "src/HeliVMS.App/TalkWindow.xaml.cs", new[] { "Talk" }],
         ["SettingsWindow", "src/HeliVMS.App/SettingsWindow.xaml", "src/HeliVMS.App/SettingsWindow.xaml.cs", new[] { "Settings" }],
     ];
 

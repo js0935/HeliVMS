@@ -51,6 +51,7 @@ public sealed class RbacEntryPointContractTests
         ("SettingsWindow", "PtzButton", "OnPtzClicked"),
         ("SettingsWindow", "PatrolButton", "OnPatrolClicked"),
         ("SettingsWindow", "AudioButton", "OnAudioClicked"),
+        ("SettingsWindow", "TalkButton", "OnTalkClicked"),
         ("SettingsWindow", "FailoverButton", "OnFailoverClicked"),
     ];
 

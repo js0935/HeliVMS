@@ -381,6 +381,9 @@
                     <Button x:Name="FailoverButton" Content="" ToolTip="" Click="OnFailoverClicked"
                             Width="92" Height="40" Margin="0,0,8,8" Background="#8A3C2E" BorderThickness="0"
                             Foreground="White" AutomationProperties.AutomationId="FailoverButton"/>
+                    <Button x:Name="TalkButton" Content="" ToolTip="" Click="OnTalkClicked"
+                            Width="92" Height="40" Margin="0,0,8,8" Background="#3A5A7A" BorderThickness="0"
+                            Foreground="White" AutomationProperties.AutomationId="TalkButton"/>
                 </WrapPanel>
                 <TextBlock x:Name="ToolsStatusText" Text="" Foreground="#F5D78E" FontSize="12"
                            Margin="0,8,0,0" TextWrapping="Wrap"

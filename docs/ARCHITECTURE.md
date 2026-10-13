@@ -1179,7 +1179,7 @@ WebRTC/WHEP 即時監看與 MSE 回放（M244）。
 | 8 | 智慧搜尋（向量語意） | 已落地：四表 FTS5 統一檢索（`EventSearchRepository`/`UnifiedEventSearch`，M91/M97）＋規則式中文 NLP 查詢解析（M107）＋`clip_embeddings` 資料層與 `/api/clip/*` 端點（M242 修正維度／位元組序，索引維度不符時回 409）＋**FTS×CLIP 向量融合檢索（M281：`ForensicSemanticSearch` 以 `RankFusion` 合併 bm25 與餘弦，向量命中回查來源表補齊片段；端點 `POST /api/events/search/semantic`，受 `ai` 授權閘門）已落地**；**embedding 產生縫已落地（M291：`IEmbeddingProvider` 介面＋決定性 `HashingEmbeddingProvider` 後備，`ForensicSemanticSearch` 與 `/api/clip/*` 皆可就地編碼文字查詢／索引，無須外部模型；真機改接 CLIP/ONNX 只需換實作）**；**影片摘要外部縫已落地（M294：`IVideoSummaryProvider`＋決定性 `CollageVideoSummaryProvider` 後備，`SynopsisWindow` 只依賴抽象；真機換 CLIP/ONNX 級模型或 ffmpeg 合成短片只需換實作）** | 現代 VMS 賣點 | **P2** |
 | 9 | 統計報表 | 已落地：`/api/reports/daily`＋`ReportsWindow`（錄影時數／斷線次數／容量趨勢＋逐日長條圖／AI 事件統計，可匯出 CSV、手動「寄送報表」）；**週期自動郵寄（每日／每週本地時刻，`report.mail.*`＋`ReportMailer`＋桌面 5 分鐘輪詢）已落地** | 管理與驗收 | **P2** |
 | 10 | 中央/多機集群管理 | 沒有上層 NVR；僅第二記錄伺服器 Failover（租約仲裁＋實體接管，`failover_state`/`failover_events`，M87/M88/M98）；M295 已落地 L0 後端：`central_nodes`（schema v48）＋可注入 `ICentralNodeClient` 探測子節點 `GET /api/node`，中央站 `GET /api/central/nodes` 聚合狀態；**M299 補上 L1 上層 UI**：中央節點 CRUD API（`POST/PUT/DELETE /api/central/nodes`、`POST /api/central/nodes/{id}/probe`，金鑰不外洩）與 Web 管理面板（導覽、節點表格、新增／探測／刪除，i18n 雙語），尚無跨機回放 | 大型案/連鎖場域 | **P2** |
-| 11 | 雙向對講 | **後端縫已落地（M289）**：`ITalkProvider` ＋ `TalkProviderRegistry`（優先序：操作者指定網址 → 頻道自身 RTSP 回傳通道）＋ `TalkCommandBuilder`（ONVIF G.711 A-law／8 kHz／單聲道、RTSP over TCP、`-re`）＋ `TalkService`（可注入 `IProcessFactory`、登錄 `FfmpegProcessRegistry`）；監看格右鍵「對講（送出音訊檔）」已接線。實機廠牌推測位址與 ONVIF 音訊輸出探測仍待外部驗證 | 門禁/收費場景 | **P2** |
+| 11 | 雙向對講 | **後端縫已落地（M289）**：`ITalkProvider` ＋ `TalkProviderRegistry`（優先序：操作者指定網址 → 頻道自身 RTSP 回傳通道）＋ `TalkCommandBuilder`（ONVIF G.711 A-law／8 kHz／單聲道、RTSP over TCP、`-re`）＋ `TalkService`（可注入 `IProcessFactory`、登錄 `FfmpegProcessRegistry`）；監看格右鍵「對講（送出音訊檔）」已接線。**獨立對講主控台已落地（M300）**：`TalkWindow` 可挑頻道／音訊檔、可輸入「對講位址」（讓原本無 UI 可達的 `ExplicitTalkUrlProvider` 可用）、顯示進行中狀態並可中止。實機廠牌推測位址與 ONVIF 音訊輸出探測仍待外部驗證 | 門禁/收費場景 | **P2** |
 | 12 | 雲整合 / 訂閱 | 沒有 | 商業模式 | **P3** |
 | 13 | Legal Hold（保存鎖定/沖銷） | 已落地：`legal_holds`＋`LegalHoldRepository`＋`LegalHoldWindow`、沖銷需權限並留稽核 | 個資法合規 | P3（已完成） |
 | 14 | GPS 時鐘/高精度時間源 | 僅 NTP | 證據時間可信度 | **P3** |
@@ -1256,7 +1256,7 @@ WebRTC/WHEP 即時監看與 MSE 回放（M244）。
 - **中央管理（上部 NVR 集群）**：一台上層 NVR 看多台 NVR 的狀態與跨機回放（XML/XMPP 或自訂協議）
   - 現況：**L0 後端已落地（M295）**：中央站以 `central_nodes`（schema v48）登錄子節點，經可注入 `ICentralNodeClient` 探測子節點 `GET /api/node`（Bearer 金鑰），`GET /api/central/nodes` 回傳聚合狀態（連線失敗記為離線、保留上次已知機型與金鑰不外洩）。**L1 上層 UI 已落地（M299）**：新增中央節點 CRUD API（`POST/PUT/DELETE /api/central/nodes`、`POST /api/central/nodes/{id}/probe`，建立／更新後立即探測、金鑰不外洩）與 Web 管理面板（管理導覽、節點表格、新增／探測／刪除，i18n 雙語）。尚無跨機回放。第二記錄伺服器 Failover（租約仲裁＋實體接管，M87/M88/M98）是可用性機制，**不等於中央管理**
 - **雙向對講**：完成 `ITalkProvider`（海康/大華對講），搭配門禁呼叫燈
-  - 現況：無（`ITalkProvider` 僅存在於藍圖，程式碼零引用）
+  - 現況：**後端縫已落地（M289）**：`ITalkProvider`／`TalkProviderRegistry`（操作者指定網址 → 頻道自身 RTSP 回傳通道）／`TalkCommandBuilder`／`TalkService`，監看格右鍵「對講（送出音訊檔）」已接線。**專用主控台已落地（M300）**：設定中心「對講」開啟 `TalkWindow`，可選頻道與音訊檔、指定對講位址（讓 `ExplicitTalkUrlProvider` 可用）、顯示進行中狀態並可中止。各廠牌推測位址與 ONVIF 音訊輸出探測仍待外部驗證
 - **感測器/乾接點 IO**：隊列通訊（MODBUS/TCP 或 IO 模組）讀門磁/煙霧/紅外主機乾接點 → 寫入 `alarm_events` 並可觸發錄影策略
   - 現況：**已落地**（`io_devices`/`io_channels`/`io_ports`/`io_rules`＋`ModbusTcpClient`＋`door_events`，M92）；情境套件（周界/靜止車輛/尾隨）未做
 

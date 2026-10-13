@@ -1,0 +1,56 @@
+<Window x:Class="HeliVMS.App.TalkWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="" Width="580" Height="300"
+        WindowStartupLocation="CenterOwner"
+        Background="#1E1E1E" Foreground="White">
+    <Grid Margin="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <TextBlock x:Name="TalkDescriptionText" Grid.Row="0" TextWrapping="Wrap"
+                   Foreground="#B0B0B0" FontSize="11" Margin="0,0,0,12"/>
+
+        <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,0,0,8">
+            <TextBlock x:Name="TalkChannelLabel" Width="90" VerticalAlignment="Center"/>
+            <ComboBox x:Name="TalkChannelCombo" Width="360"
+                      AutomationProperties.AutomationId="TalkChannelCombo"/>
+        </StackPanel>
+
+        <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,0,0,8">
+            <TextBlock x:Name="TalkAudioLabel" Width="90" VerticalAlignment="Center"/>
+            <TextBox x:Name="TalkAudioBox" Width="300" VerticalContentAlignment="Center"
+                     AutomationProperties.AutomationId="TalkAudioBox"/>
+            <Button x:Name="TalkBrowseButton" Content="" Click="OnBrowseClicked"
+                    Margin="8,0,0,0" Padding="12,4"
+                    Foreground="White" Background="#3A5A7A" BorderThickness="0"
+                    AutomationProperties.AutomationId="TalkBrowseButton"/>
+        </StackPanel>
+
+        <StackPanel Grid.Row="3" Orientation="Horizontal" Margin="0,0,0,8">
+            <TextBlock x:Name="TalkPreferredLabel" Width="90" VerticalAlignment="Center"/>
+            <TextBox x:Name="TalkPreferredBox" Width="300" VerticalContentAlignment="Center"
+                     AutomationProperties.AutomationId="TalkPreferredBox"/>
+        </StackPanel>
+
+        <StackPanel Grid.Row="4" Orientation="Horizontal">
+            <Button x:Name="TalkStartButton" Content="" Click="OnStartClicked"
+                    Padding="16,6" Foreground="White" Background="#2A5C8A" BorderThickness="0"
+                    AutomationProperties.AutomationId="TalkStartButton"/>
+            <Button x:Name="TalkStopButton" Content="" Click="OnStopClicked"
+                    Margin="8,0,0,0" Padding="16,6"
+                    Foreground="White" Background="#7A2A2A" BorderThickness="0"
+                    AutomationProperties.AutomationId="TalkStopButton"/>
+        </StackPanel>
+
+        <TextBlock x:Name="TalkStatusText" Grid.Row="5" Margin="0,12,0,0" TextWrapping="Wrap"
+                   VerticalAlignment="Top" Foreground="#90C0FF"
+                   AutomationProperties.AutomationId="TalkStatusText"/>
+    </Grid>
+</Window>

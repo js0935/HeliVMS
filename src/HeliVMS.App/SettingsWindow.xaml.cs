@@ -382,6 +382,8 @@ public partial class SettingsWindow : Window
         EdgeBackfillButton.ToolTip = Localizer.T("Main.EdgeBackfillTip");
         FailoverButton.Content = Localizer.T("Main.Failover");
         FailoverButton.ToolTip = Localizer.T("Main.FailoverTip");
+        TalkButton.Content = Localizer.T("Main.Talk");
+        TalkButton.ToolTip = Localizer.T("Main.TalkTip");
 
         // 通知
         NotifyTitle.Text = Localizer.T("Settings.NotifyTitle");
@@ -2301,6 +2303,16 @@ public partial class SettingsWindow : Window
         }
 
         OpenTool(new FailoverWindow(_store));
+    }
+
+    private void OnTalkClicked(object sender, RoutedEventArgs e)
+    {
+        if (!RequireAdmin())
+        {
+            return;
+        }
+
+        OpenTool(new TalkWindow(_store));
     }
 
     // ── 電子地圖（M41，§16.1）──────────────────────────────────────────
