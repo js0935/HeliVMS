@@ -438,6 +438,23 @@ export function centralChannelRows(channels) {
   }));
 }
 
+export function centralAlarmRows(rows) {
+  return (rows ?? []).map((a) => ({
+    nodeId: Number(a.nodeId ?? a.NodeId ?? 0),
+    nodeName: a.nodeName ?? a.NodeName ?? '',
+    eventId: Number(a.eventId ?? a.EventId ?? 0),
+    channelId: Number(a.channelId ?? a.ChannelId ?? 0),
+    eventType: a.eventType ?? a.EventType ?? '',
+    start: formatTimestamp(a.startUtc ?? a.StartUtc ?? ''),
+    status: a.status ?? a.Status ?? '',
+    priority: a.priority ?? a.Priority ?? '',
+    due: a.dueUtc ?? a.DueUtc ?? null,
+    owner: a.owner ?? a.Owner ?? '',
+    assignedTo: a.assignedTo ?? a.AssignedTo ?? '',
+    overdue: !!(a.overdue ?? a.Overdue),
+  }));
+}
+
 export function doorRows(rows) {
   return (rows ?? []).map((e) => ({
     time: formatTimestamp(e.occurredAtUtc ?? e.OccurredAtUtc ?? ''),

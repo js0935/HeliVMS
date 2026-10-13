@@ -334,7 +334,20 @@ describe('admin quick nav', () => {
     expect(indexSource).toMatch(/<datalist id="play-channel-options">/);
     expect(appSource).toMatch(/\$\('central-channels-panel'\)\.hidden = !admin;/);
     expect(appSource).toMatch(/centralChannelRows\(await api\('\/api\/central\/channels'\)/);
+    // 函式必須真的 import 進來：M302 曾漏了 centralChannelRows 的 import，因為呼叫包在
+    // Promise.allSettled 裡，ReferenceError 被吞掉，面板永遠空白又沒有錯誤訊息。
+    expect(appSource).toMatch(/^\s*centralChannelRows,\s*$/m);
     expect(appSource).toMatch(/\$\('play-node'\)\?\.addEventListener\('change', fillPlayChannels\)/);
+  });
+
+  it('aggregates child alarm boards into a central panel', () => {
+    expect(indexSource).toMatch(/<a href="#central-alarms-panel"[^>]*data-i18n="panel\.centralAlarms"/);
+    expect(indexSource).toMatch(/id="central-alarms-body"/);
+    expect(indexSource).toMatch(/id="central-alarms-refresh"[^>]*data-i18n="action\.refresh"/);
+    expect(appSource).toMatch(/\$\('central-alarms-panel'\)\.hidden = !admin;/);
+    expect(appSource).toMatch(/^\s*centralAlarmRows,\s*$/m);
+    expect(appSource).toMatch(/centralAlarmRows\(await api\('\/api\/central\/alarms'\)/);
+    expect(appSource).toMatch(/\$\('central-alarms-refresh'\)\?\.addEventListener\('click', \(\) => renderCentralAlarms\(\)\)/);
   });
 
   it('shows the nav only for actors in chrome', () => {

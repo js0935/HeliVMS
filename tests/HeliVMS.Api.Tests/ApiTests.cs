@@ -526,6 +526,65 @@ public class ApiTests : IClassFixture<ApiFactory>, IDisposable
     }
 
     [Fact]
+    public async Task CentralAlarms_AggregatesChildBoardAndHidesKey()
+    {
+        _factory.CentralClient.Resource = _ => new CentralNodeResource(
+            200,
+            "application/json",
+            Encoding.UTF8.GetBytes(
+                "[{\"eventId\":41,\"channelId\":2,\"eventType\":\"motion\",\"startUtc\":\"2026-03-01T02:03:04Z\",\"status\":\"pending\",\"priority\":\"high\",\"dueUtc\":null,\"owner\":null,\"assignedTo\":null,\"overdue\":true}]"));
+        var id = Service<CentralNodeRepository>().Add("機房 A", "http://10.0.0.5:5080", "super-secret");
+        try
+        {
+            using var client = Client();
+
+            var response = await client.GetAsync("/api/central/alarms");
+
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            var raw = await response.Content.ReadAsStringAsync();
+            var alarm = Assert.Single(await ReadAsync<List<CentralAlarm>>(response));
+            Assert.Equal(id, alarm.NodeId);
+            Assert.Equal("機房 A", alarm.NodeName);
+            Assert.Equal(41, alarm.EventId);
+            Assert.Equal(2, alarm.ChannelId);
+            Assert.Equal("motion", alarm.EventType);
+            Assert.Equal("high", alarm.Priority);
+            Assert.True(alarm.Overdue);
+            // 金鑰只留在伺服器端，聚合視圖不得外洩。
+            Assert.DoesNotContain("super-secret", raw, StringComparison.Ordinal);
+            Assert.DoesNotContain("apiKey", raw, StringComparison.Ordinal);
+            // 子節點以自身看板提供資料，且帶入中央請求的上限。
+            Assert.Equal("api/alarm-board?take=100", _factory.CentralClient.LastResourcePath);
+        }
+        finally
+        {
+            Service<CentralNodeRepository>().Delete(id);
+            _factory.CentralClient.Resource = null;
+        }
+    }
+
+    [Fact]
+    public async Task CentralAlarms_SkipsUnreachableNode()
+    {
+        _factory.CentralClient.Resource = _ => throw new HttpRequestException("連線逾時");
+        var id = Service<CentralNodeRepository>().Add("down", "http://down:5080", "k");
+        try
+        {
+            using var client = Client();
+
+            var response = await client.GetAsync("/api/central/alarms");
+
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            Assert.Empty(await ReadAsync<List<CentralAlarm>>(response));
+        }
+        finally
+        {
+            Service<CentralNodeRepository>().Delete(id);
+            _factory.CentralClient.Resource = null;
+        }
+    }
+
+    [Fact]
     public async Task Events_ListReturnsInsertedMotionEvent()
     {
         var id = InsertMotion("robot-detected-117");

@@ -407,6 +407,111 @@ public class CentralNodeTests : IDisposable
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => service.ListChannelsAsync(cts.Token));
     }
 
+    // ---------- ListAlarmsAsync（M303 警報聚合） ----------
+
+    [Fact]
+    public async Task 警報聚合會帶來源節點並依逾期與時間排序()
+    {
+        _repo.Add("機房 A", "http://a:5080", "k");
+        _repo.Add("機房 B", "http://b:5080", "k");
+        var client = new FakeClient(
+            _ => new NodeStatus("N", "n", "1", 1),
+            (url, _) => url.Contains("a:", StringComparison.Ordinal)
+                ? Resource("[{\"eventId\":1,\"channelId\":1,\"eventType\":\"motion\",\"startUtc\":\"2026-03-01T00:00:00Z\",\"overdue\":false},{\"eventId\":2,\"channelId\":3,\"eventType\":\"line_cross\",\"startUtc\":\"2026-03-02T00:00:00Z\",\"overdue\":false}]")
+                : Resource("[{\"eventId\":9,\"channelId\":2,\"eventType\":\"intrusion\",\"startUtc\":\"2026-03-01T12:00:00Z\",\"overdue\":true}]"));
+        var service = new CentralNodeService(_repo, client);
+
+        var alarms = await service.ListAlarmsAsync();
+
+        // 逾期一律排最前（跨機看板最在意處理時限），其餘依事件時間新到舊。
+        Assert.Equal(new long[] { 9, 2, 1 }, alarms.Select(a => a.EventId).ToArray());
+        var first = alarms[0];
+        Assert.Equal("機房 B", first.NodeName);
+        Assert.Equal(2, first.ChannelId);
+        Assert.Equal("intrusion", first.EventType);
+        Assert.Equal(new DateTime(2026, 3, 1, 12, 0, 0, DateTimeKind.Utc), first.StartUtc);
+        Assert.True(first.Overdue);
+        // 兩台都只查子節點看板，且帶入上限。
+        Assert.All(client.ResourcePaths, p => Assert.Equal("api/alarm-board?take=100", p));
+    }
+
+    [Fact]
+    public async Task 警報聚合遇到失敗節點只跳過該節點()
+    {
+        var ok = _repo.Add("ok", "http://ok:1", "k");
+        _repo.Add("boom", "http://boom:1", "k");
+        _repo.Add("bad", "http://bad:1", "k");
+        _repo.Add("weird", "http://weird:1", "k");
+        var client = new FakeClient(
+            _ => new NodeStatus("N", "n", "1", 1),
+            (url, _) => url switch
+            {
+                var u when u.Contains("boom", StringComparison.Ordinal) => throw new HttpRequestException("連線逾時"),
+                var u when u.Contains("bad", StringComparison.Ordinal) => Resource("", status: 500),
+                var u when u.Contains("weird", StringComparison.Ordinal) => Resource("{ not json"),
+                _ => Resource("[{\"eventId\":7,\"channelId\":1,\"eventType\":\"motion\"}]"),
+            });
+        var service = new CentralNodeService(_repo, client);
+
+        var alarms = await service.ListAlarmsAsync();
+
+        var only = Assert.Single(alarms);
+        Assert.Equal(ok, only.NodeId);
+        Assert.Equal(7, only.EventId);
+    }
+
+    [Fact]
+    public async Task 警報聚合不查停用或未設位址的節點且套用取用上限()
+    {
+        _repo.Add("on", "http://on:1", "k");
+        _repo.Add("off", "http://off:1", "k", enabled: false);
+        _repo.Add("empty", "", "k");
+        var client = new FakeClient(_ => new NodeStatus("N", "n", "1", 1), (_, _) => Resource("[]"));
+        var service = new CentralNodeService(_repo, client);
+
+        await service.ListAlarmsAsync(take: 25);
+
+        Assert.Equal("http://on:1", Assert.Single(client.ResourceUrls));
+        Assert.Equal("api/alarm-board?take=25", Assert.Single(client.ResourcePaths));
+    }
+
+    [Fact]
+    public async Task 警報聚合忽略無效條目並補上預設值()
+    {
+        _repo.Add("a", "http://a:1", "k");
+        var client = new FakeClient(
+            _ => new NodeStatus("N", "n", "1", 1),
+            (_, _) => Resource("[{\"eventId\":5},{\"eventId\":0},{\"eventId\":\"x\"},{\"channelId\":1},\"junk\"]"));
+        var service = new CentralNodeService(_repo, client);
+
+        var alarms = await service.ListAlarmsAsync();
+
+        var only = Assert.Single(alarms);
+        Assert.Equal(5, only.EventId);
+        Assert.Equal(0, only.ChannelId);
+        Assert.Equal(string.Empty, only.EventType);
+        // 缺 status/priority 一律補預設，避免跨機看板出現空白格。
+        Assert.Equal("pending", only.Status);
+        Assert.Equal(AlarmPriority.Normal, only.Priority);
+        Assert.False(only.Overdue);
+        Assert.Null(only.DueUtc);
+    }
+
+    [Fact]
+    public async Task 警報聚合的外部取消會往外拋()
+    {
+        _repo.Add("x", "http://x:1", "k");
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+        var client = new FakeClient(
+            _ => new NodeStatus("N", "n", "1", 1),
+            (_, _) => throw new OperationCanceledException(cts.Token));
+        var service = new CentralNodeService(_repo, client);
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => service.ListAlarmsAsync(cancellationToken: cts.Token));
+    }
+
     // ---------- 測試替身 ----------
 
     private static HttpResponseMessage Json(string body, HttpStatusCode code = HttpStatusCode.OK)

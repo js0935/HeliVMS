@@ -54,6 +54,7 @@
     <a href="#health-panel" data-i18n="nav.health">健康</a>
     <a href="#central-panel" data-i18n="nav.central">中央管理</a>
     <a href="#central-channels-panel" data-i18n="panel.centralChannels">中央頻道</a>
+    <a href="#central-alarms-panel" data-i18n="panel.centralAlarms">中央警報</a>
   </nav>
 
   <main class="grid" id="content">
@@ -398,6 +399,14 @@
       <table class="compact">
         <thead><tr><th scope="col">ID</th><th scope="col" data-i18n="col.nodeName">節點名稱</th><th scope="col" data-i18n="col.channel">頻道</th><th scope="col" data-i18n="col.name">名稱</th><th scope="col" data-i18n="col.status">狀態</th></tr></thead>
         <tbody id="central-channels-body"></tbody>
+      </table>
+    </section>
+
+    <section class="panel wide" id="central-alarms-panel" hidden>
+      <h2><span data-i18n="panel.centralAlarms">中央警報</span> <span id="central-alarms-count" class="muted"></span> <button id="central-alarms-refresh" type="button" data-i18n="action.refresh">立即更新</button></h2>
+      <table class="compact">
+        <thead><tr><th scope="col" data-i18n="col.nodeName">節點名稱</th><th scope="col" data-i18n="col.event">事件</th><th scope="col" data-i18n="col.channel">頻道</th><th scope="col" data-i18n="col.type">類型</th><th scope="col" data-i18n="col.time">時間</th><th scope="col" data-i18n="col.priority">優先</th><th scope="col" data-i18n="col.status">狀態</th><th scope="col" data-i18n="col.overdue">逾期</th></tr></thead>
+        <tbody id="central-alarms-body"></tbody>
       </table>
     </section>
 

@@ -24,6 +24,8 @@ import {
   evRows,
   backupRows,
   centralRows,
+  centralChannelRows,
+  centralAlarmRows,
   doorRows,
   detRows,
   notifRows,
@@ -170,7 +172,7 @@ async function submitLogin(event) {
   if (state.ok) {
     storeSession({ role: state.role, name: state.displayName });
     if (canAct(state.role)) {
-      await Promise.allSettled([renderAccounts(), renderConfig(), renderAudit(), renderEvidence(), renderBackup(), renderCentral(), renderCentralChannels(), renderProviders(), renderHolds(), renderRules(), renderShares(), renderReds(), renderRep(), renderHealth()]);
+      await Promise.allSettled([renderAccounts(), renderConfig(), renderAudit(), renderEvidence(), renderBackup(), renderCentral(), renderCentralChannels(), renderCentralAlarms(), renderProviders(), renderHolds(), renderRules(), renderShares(), renderReds(), renderRep(), renderHealth()]);
     }
   }
   await renderBoard();
@@ -195,6 +197,7 @@ function updateChrome() {
   $('backup-panel').hidden = !admin;
   $('central-panel').hidden = !admin;
   $('central-channels-panel').hidden = !admin;
+  $('central-alarms-panel').hidden = !admin;
   $('provider-panel').hidden = !admin;
   $('hold-panel').hidden = !admin;
   $('rule-panel').hidden = !admin;
@@ -590,6 +593,25 @@ async function renderCentralChannels() {
   const count = $('central-channels-count');
   if (count) count.textContent = t('count.parenthesized', { n: centralChannelCache.length });
   fillPlayChannels();
+}
+
+/**
+ * 中央站彙整子節點警報看板（M303）：管理員一眼看到跨機有哪些未處理／逾期事件。
+ * 後端已把最急的排前面並在單台離線時跳過，這裡照單呈現即可，最多整份為空。
+ */
+async function renderCentralAlarms() {
+  const rows = centralAlarmRows(await api('/api/central/alarms').catch(() => []));
+  const body = $('central-alarms-body');
+  if (body) {
+    body.innerHTML = rows
+      .map(
+        (a) =>
+          `<tr class="${esc(a.overdue ? 'overdue' : '')}"><td>${esc(a.nodeName)}</td><td>#${esc(a.eventId)}</td><td>CH${esc(a.channelId)}</td><td>${esc(a.eventType)}</td><td>${esc(a.start)}</td><td>${esc(a.priority)}</td><td>${esc(a.status)}</td><td class="${esc(a.overdue ? 'bad' : '')}">${esc(a.overdue ? t('common.overdue') : '—')}</td></tr>`,
+      )
+      .join('');
+  }
+  const count = $('central-alarms-count');
+  if (count) count.textContent = t('count.parenthesized', { n: rows.length });
 }
 
 /**
@@ -1467,6 +1489,7 @@ function wire() {
   $('retention-run').addEventListener('click', runRetention);
   $('sys-refresh')?.addEventListener('click', renderHealth);
   $('board-refresh')?.addEventListener('click', () => renderBoard());
+  $('central-alarms-refresh')?.addEventListener('click', () => renderCentralAlarms());
   bindEvidenceForm();
   bindBackupForm();
   bindCentralForm();

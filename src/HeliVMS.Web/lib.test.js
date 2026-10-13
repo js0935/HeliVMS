@@ -26,6 +26,7 @@ import {
   backupRows,
   centralRows,
   centralChannelRows,
+  centralAlarmRows,
   doorRows,
   detRows,
   notifRows,
@@ -552,6 +553,18 @@ describe('login gating', () => {
     expect(rows[1]).toMatchObject({ nodeId: 5, channelId: 2, enabled: true });
     expect(rows[2].enabled).toBe(false);
     expect(centralChannelRows(null)).toEqual([]);
+  });
+
+  it('renders central alarm rows with node identity and overdue state', () => {
+    const rows = centralAlarmRows([
+      { nodeId: 4, nodeName: '機房 A', eventId: 41, channelId: 2, eventType: 'motion', startUtc: 'x', priority: 'high', status: 'pending', overdue: true },
+      { nodeId: 5, nodeName: '機房 B', eventId: 42, channelId: 1, eventType: 'intrusion', startUtc: 'y' },
+    ]);
+    expect(rows[0]).toMatchObject({ nodeId: 4, nodeName: '機房 A', eventId: 41, channelId: 2, eventType: 'motion', priority: 'high', status: 'pending', overdue: true });
+    // 缺 overdue/priority 一律視為未逾期、空字串，避免整格顯示 undefined。
+    expect(rows[1]).toMatchObject({ nodeId: 5, eventId: 42, overdue: false, priority: '' });
+    expect(centralAlarmRows(null)).toEqual([]);
+    expect(centralAlarmRows(undefined)).toEqual([]);
   });
 
   it('renders door rows', () => {

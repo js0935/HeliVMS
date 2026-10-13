@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 
 namespace HeliVMS.Storage;
@@ -104,6 +105,115 @@ public sealed class CentralNodeService
     }
 
     /// <summary>
+    /// 逐台取回啟用中子節點的近期警報並彙整（§14.1 #10，M303）。
+    ///
+    /// 每台子節點各取最多 <paramref name="take"/> 筆，合併後以「逾期優先、再依起始時間新到舊」
+    /// 排序，最後截到 <paramref name="take"/> 筆——跨機看板最關心「現在正在燒的那幾筆」，
+    /// 而不是把所有節點的歷史全倒出來。單台節點失敗（連不上、逾時、非 200、JSON 壞掉）
+    /// 只跳過該台，與 <see cref="ListChannelsAsync"/> 同語意；呼叫端主動取消才往上拋。
+    /// </summary>
+    public async Task<IReadOnlyList<CentralAlarm>> ListAlarmsAsync(
+        int take = 100, CancellationToken cancellationToken = default)
+    {
+        var limit = Math.Clamp(take, 1, 500);
+        var result = new List<CentralAlarm>();
+        foreach (var node in _repository.ListEnabled())
+        {
+            if (string.IsNullOrWhiteSpace(node.BaseUrl))
+            {
+                continue;
+            }
+
+            CentralNodeResource resource;
+            try
+            {
+                resource = await _client
+                    .FetchResourceAsync(node.BaseUrl, node.ApiKey, $"api/alarm-board?take={limit}", cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception)
+            {
+                continue;
+            }
+
+            if (resource.StatusCode != 200)
+            {
+                continue;
+            }
+
+            result.AddRange(ParseAlarms(resource.Body, node));
+        }
+
+        return result
+            .OrderByDescending(a => a.Overdue)
+            .ThenByDescending(a => a.StartUtc)
+            .ThenBy(a => a.NodeId)
+            .ThenByDescending(a => a.EventId)
+            .Take(limit)
+            .ToArray();
+    }
+
+    /// <summary>
+    /// 解析子節點 <c>/api/alarm-board</c> 的 JSON 陣列。與 <see cref="ParseChannels"/> 同樣寬容：
+    /// 非物件、缺 <c>eventId</c> 或識別非正的條目一律跳過，絕不讓一台子節點的回應拖垮整輪聚合。
+    /// </summary>
+    private static IReadOnlyList<CentralAlarm> ParseAlarms(byte[] body, CentralNode node)
+    {
+        if (body.Length == 0)
+        {
+            return Array.Empty<CentralAlarm>();
+        }
+
+        try
+        {
+            using var doc = JsonDocument.Parse(body);
+            if (doc.RootElement.ValueKind != JsonValueKind.Array)
+            {
+                return Array.Empty<CentralAlarm>();
+            }
+
+            var list = new List<CentralAlarm>();
+            foreach (var element in doc.RootElement.EnumerateArray())
+            {
+                if (element.ValueKind != JsonValueKind.Object)
+                {
+                    continue;
+                }
+
+                var eventId = ReadLong(element, "eventId");
+                if (eventId is null or <= 0)
+                {
+                    continue;
+                }
+
+                list.Add(new CentralAlarm(
+                    node.Id,
+                    node.Name,
+                    eventId.Value,
+                    ReadInt(element, "channelId") ?? 0,
+                    ReadString(element, "eventType") ?? string.Empty,
+                    ReadDate(element, "startUtc") ?? DateTime.MinValue,
+                    ReadString(element, "status") ?? "pending",
+                    ReadString(element, "priority") ?? AlarmPriority.Normal,
+                    ReadDate(element, "dueUtc"),
+                    ReadString(element, "owner"),
+                    ReadString(element, "assignedTo"),
+                    ReadBool(element, "overdue") ?? false));
+            }
+
+            return list;
+        }
+        catch (JsonException)
+        {
+            return Array.Empty<CentralAlarm>();
+        }
+    }
+
+    /// <summary>
     /// 解析子節點 <c>/api/channels</c> 的 JSON 陣列。任何非陣列、缺 <c>id</c>、型別不對或壞字串
     /// 都跳過/回空，絕不讓一台子節點的回應把整輪聚合拖垮。
     /// </summary>
@@ -170,6 +280,29 @@ public sealed class CentralNodeService
     {
         var value = Property(element, name);
         return value is { ValueKind: JsonValueKind.Number } v && v.TryGetInt32(out var n) ? n : null;
+    }
+
+    private static long? ReadLong(JsonElement element, string name)
+    {
+        var value = Property(element, name);
+        return value is { ValueKind: JsonValueKind.Number } v && v.TryGetInt64(out var n) ? n : null;
+    }
+
+    /// <summary>
+    /// 解析子節點序列化的時間字串（ISO 8601）。子節點以 UTC 輸出，但為容忍帶位移的格式，
+    /// 一律調整回 UTC；無法解析時回 <c>null</c>，由呼叫端決定預設值。
+    /// </summary>
+    private static DateTime? ReadDate(JsonElement element, string name)
+    {
+        var value = Property(element, name);
+        return value is { ValueKind: JsonValueKind.String } v
+            && DateTime.TryParse(
+                v.GetString(),
+                CultureInfo.InvariantCulture,
+                DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal,
+                out var parsed)
+            ? parsed
+            : null;
     }
 
     private static string? ReadString(JsonElement element, string name)

@@ -180,6 +180,12 @@ public static class ApiEndpoints
         api.MapGet("/central/channels", static async (CentralNodeService service, CancellationToken cancellation) =>
             Results.Ok(await service.ListChannelsAsync(cancellation).ConfigureAwait(false)));
 
+        // 中央站彙整各子節點最近的警報看板（§14.1 #10，M303）：跨機值班要能一眼看到「哪台機器
+        // 現在有未處理／逾期的事件」。與 /central/channels 同為管理視圖，沿用 M295 決策不加
+        // 旗標閘門；只帶節點識別與名稱，子節點金鑰不進回應。
+        api.MapGet("/central/alarms", static async (int? take, CentralNodeService service, CancellationToken cancellation) =>
+            Results.Ok(await service.ListAlarmsAsync(take ?? 100, cancellation).ConfigureAwait(false)));
+
         api.MapPut("/central/nodes/{id:long}", static async (
             long id,
             CentralNodeUpdateRequest body,
