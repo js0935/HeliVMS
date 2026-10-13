@@ -1,0 +1,314 @@
+using System.Net;
+using System.Net.Http.Headers;
+using System.Text;
+using HeliVMS.Shared.Models;
+
+namespace HeliVMS.Storage.Tests;
+
+/// <summary>
+/// M295（§14.1 #10 中央/多機集群管理）：節點清單存取、出站用戶端與聚合探測。
+///
+/// 這些測試刻意不碰真實網路：出站改成注入假 <see cref="HttpMessageHandler"/>／假
+/// <see cref="ICentralNodeClient"/>，因此「有沒有帶 Bearer、打哪個路徑、單台失敗會不會拖垮整輪」
+/// 都能在 CI 上穩定驗證。
+/// </summary>
+public class CentralNodeTests : IDisposable
+{
+    private readonly string _dbPath;
+    private readonly SqliteStore _store;
+    private readonly CentralNodeRepository _repo;
+
+    public CentralNodeTests()
+    {
+        _dbPath = Path.Combine(Path.GetTempPath(), $"helivms-central-{Guid.NewGuid():N}.db");
+        _store = new SqliteStore(_dbPath);
+        _store.Initialize();
+        _repo = new CentralNodeRepository(_store);
+    }
+
+    public void Dispose()
+    {
+        _store.Dispose();
+        if (File.Exists(_dbPath))
+        {
+            File.Delete(_dbPath);
+        }
+
+        GC.SuppressFinalize(this);
+    }
+
+    // ---------- repository ----------
+
+    [Fact]
+    public void 新增節點後可完整列出設定值()
+    {
+        var id = _repo.Add("機房 A", "http://10.0.0.5:5080", "key-a");
+
+        var node = Assert.Single(_repo.List());
+        Assert.Equal(id, node.Id);
+        Assert.Equal("機房 A", node.Name);
+        Assert.Equal("http://10.0.0.5:5080", node.BaseUrl);
+        Assert.Equal("key-a", node.ApiKey);
+        Assert.True(node.Enabled);
+        Assert.Null(node.Online);
+        Assert.Null(node.LastSeenUtc);
+    }
+
+    [Fact]
+    public void 更新只改指定欄位不影響其他欄位()
+    {
+        var id = _repo.Add("舊名", "http://10.0.0.5:5080", "key-a");
+
+        _repo.Update(id, name: "新名", enabled: false);
+
+        var node = Assert.Single(_repo.List());
+        Assert.Equal("新名", node.Name);
+        Assert.Equal("http://10.0.0.5:5080", node.BaseUrl);
+        Assert.Equal("key-a", node.ApiKey);
+        Assert.False(node.Enabled);
+    }
+
+    [Fact]
+    public void 啟用清單只含啟用中的節點()
+    {
+        _repo.Add("開", "http://a:1", "k");
+        _repo.Add("關", "http://b:1", "k", enabled: false);
+
+        var enabled = Assert.Single(_repo.ListEnabled());
+        Assert.Equal("開", enabled.Name);
+        Assert.Equal(2, _repo.List().Count);
+    }
+
+    [Fact]
+    public void 刪除節點後不再列出()
+    {
+        var id = _repo.Add("x", "http://a:1", "k");
+
+        _repo.Delete(id);
+
+        Assert.Empty(_repo.List());
+    }
+
+    [Fact]
+    public void 探測成功會更新上線狀態與機型資訊()
+    {
+        var id = _repo.Add("x", "http://a:1", "k");
+        var at = new DateTime(2026, 3, 1, 2, 3, 4, DateTimeKind.Utc);
+
+        _repo.RecordProbe(id, online: true, at, new NodeStatus("N1", "child", "0.1.0", 8), error: null);
+
+        var node = Assert.Single(_repo.List());
+        Assert.True(node.Online);
+        Assert.Equal("N1", node.NodeId);
+        Assert.Equal("0.1.0", node.Version);
+        Assert.Equal(8, node.Channels);
+        Assert.Equal(at, node.LastSeenUtc);
+        Assert.Null(node.LastError);
+    }
+
+    [Fact]
+    public void 探測失敗保留上次機型並記錄錯誤()
+    {
+        var id = _repo.Add("x", "http://a:1", "k");
+        _repo.RecordProbe(id, online: true, DateTime.UtcNow, new NodeStatus("N1", "child", "0.1.0", 4), error: null);
+
+        _repo.RecordProbe(id, online: false, DateTime.UtcNow, result: null, error: "連線逾時");
+
+        var node = Assert.Single(_repo.List());
+        Assert.False(node.Online);
+        Assert.Equal("N1", node.NodeId);
+        Assert.Equal(4, node.Channels);
+        Assert.Equal("連線逾時", node.LastError);
+    }
+
+    // ---------- HttpCentralNodeClient ----------
+
+    [Fact]
+    public async Task 用戶端以_Bearer_金鑰呼叫_api_node()
+    {
+        var handler = new FakeHandler(_ => Json("{\"nodeId\":\"N1\",\"name\":\"child\",\"version\":\"0.1.0\",\"channels\":8}"));
+        using var client = new HttpCentralNodeClient(handler);
+
+        var status = await client.FetchAsync("http://10.0.0.5:5080/", "key-a");
+
+        Assert.Equal("N1", status.NodeId);
+        Assert.Equal("child", status.Name);
+        Assert.Equal(8, status.Channels);
+        Assert.Equal(HttpMethod.Get, handler.LastMethod);
+        Assert.Equal(new Uri("http://10.0.0.5:5080/api/node"), handler.LastUri);
+        Assert.Equal("Bearer", handler.LastAuth?.Scheme);
+        Assert.Equal("key-a", handler.LastAuth?.Parameter);
+    }
+
+    [Fact]
+    public async Task 用戶端相容含路徑與尾端斜線的_base_url()
+    {
+        var handler = new FakeHandler(_ => Json("{\"nodeId\":\"N1\",\"name\":\"c\",\"version\":\"1\",\"channels\":1}"));
+        using var client = new HttpCentralNodeClient(handler);
+
+        // 子節點可能掛在反向代理的子路徑下，且尾端斜線可有可無；兩者都必須指向同一個 api/node。
+        await client.FetchAsync("http://host:5080/vms", "k");
+        Assert.Equal(new Uri("http://host:5080/vms/api/node"), handler.LastUri);
+
+        await client.FetchAsync("http://host:5080/vms/", "k");
+        Assert.Equal(new Uri("http://host:5080/vms/api/node"), handler.LastUri);
+    }
+
+    [Fact]
+    public async Task 空金鑰時不帶授權標頭()
+    {
+        var handler = new FakeHandler(_ => Json("{\"nodeId\":\"N1\",\"name\":\"c\",\"version\":\"1\",\"channels\":1}"));
+        using var client = new HttpCentralNodeClient(handler);
+
+        await client.FetchAsync("http://host:1", string.Empty);
+
+        Assert.Null(handler.LastAuth);
+    }
+
+    [Fact]
+    public async Task 非成功狀態碼會擲例外()
+    {
+        var handler = new FakeHandler(_ => new HttpResponseMessage(HttpStatusCode.Unauthorized));
+        using var client = new HttpCentralNodeClient(handler);
+
+        await Assert.ThrowsAsync<HttpRequestException>(() => client.FetchAsync("http://host:1", "bad"));
+    }
+
+    // ---------- CentralNodeService ----------
+
+    [Fact]
+    public async Task 探測成功會把節點標為上線並記錄時間()
+    {
+        var id = _repo.Add("child", "http://child:5080", "k");
+        var clock = new FixedClock(new DateTimeOffset(2026, 3, 1, 0, 0, 0, TimeSpan.Zero));
+        var service = new CentralNodeService(
+            _repo, new FakeClient(_ => new NodeStatus("N1", "child", "0.1.0", 8)), clock);
+
+        var node = await service.ProbeAsync(_repo.List()[0]);
+
+        Assert.Equal(id, node.Id);
+        Assert.True(node.Online);
+        Assert.Equal("N1", node.NodeId);
+        Assert.Equal(8, node.Channels);
+        Assert.Equal(clock.GetUtcNow().UtcDateTime, node.LastSeenUtc);
+        Assert.Null(node.LastError);
+    }
+
+    [Fact]
+    public async Task 聚合只探測啟用中的節點()
+    {
+        _repo.Add("on", "http://on:1", "k");
+        _repo.Add("off", "http://off:1", "k", enabled: false);
+        var client = new FakeClient(_ => new NodeStatus("N", "n", "1", 1));
+        var service = new CentralNodeService(_repo, client);
+
+        var nodes = await service.ProbeAllAsync();
+
+        Assert.Equal(1, client.Calls);
+        Assert.Equal("http://on:1", Assert.Single(client.Urls));
+        Assert.Equal(2, nodes.Count);
+    }
+
+    [Fact]
+    public async Task 單一節點失敗不影響其他節點()
+    {
+        var goodId = _repo.Add("good", "http://good:1", "k");
+        var badId = _repo.Add("bad", "http://bad:1", "k");
+        var client = new FakeClient(url => url.Contains("bad", StringComparison.Ordinal)
+            ? throw new HttpRequestException("連線逾時")
+            : new NodeStatus("G", "good", "1", 4));
+        var service = new CentralNodeService(_repo, client);
+
+        var nodes = await service.ProbeAllAsync();
+
+        var good = nodes.Single(n => n.Id == goodId);
+        var bad = nodes.Single(n => n.Id == badId);
+        Assert.True(good.Online);
+        Assert.Equal(4, good.Channels);
+        Assert.False(bad.Online);
+        Assert.Equal("連線逾時", bad.LastError);
+    }
+
+    [Fact]
+    public async Task 逾時視為離線而非外部取消()
+    {
+        _repo.Add("x", "http://x:1", "k");
+        // HttpClient 逾時會擲 TaskCanceledException，但呼叫端的權杖並未取消。
+        var client = new FakeClient(_ => throw new TaskCanceledException("timeout"));
+        var service = new CentralNodeService(_repo, client);
+
+        var node = Assert.Single(await service.ProbeAllAsync());
+
+        Assert.False(node.Online);
+        Assert.NotNull(node.LastError);
+    }
+
+    [Fact]
+    public async Task 外部取消會往外拋且不記為離線()
+    {
+        _repo.Add("x", "http://x:1", "k");
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+        var client = new FakeClient(_ => throw new OperationCanceledException(cts.Token));
+        var service = new CentralNodeService(_repo, client);
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => service.ProbeAllAsync(cts.Token));
+
+        Assert.Null(_repo.List()[0].Online);
+    }
+
+    // ---------- 測試替身 ----------
+
+    private static HttpResponseMessage Json(string body, HttpStatusCode code = HttpStatusCode.OK)
+        => new(code) { Content = new StringContent(body, Encoding.UTF8, "application/json") };
+
+    private sealed class FakeHandler : HttpMessageHandler
+    {
+        private readonly Func<HttpRequestMessage, HttpResponseMessage> _respond;
+
+        public FakeHandler(Func<HttpRequestMessage, HttpResponseMessage> respond) => _respond = respond;
+
+        public Uri? LastUri { get; private set; }
+
+        public HttpMethod? LastMethod { get; private set; }
+
+        public AuthenticationHeaderValue? LastAuth { get; private set; }
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            // 請求在用戶端 method 結束時會被釋放，先把要斷言的欄位抄下來。
+            LastUri = request.RequestUri;
+            LastMethod = request.Method;
+            LastAuth = request.Headers.Authorization;
+            return Task.FromResult(_respond(request));
+        }
+    }
+
+    private sealed class FakeClient : ICentralNodeClient
+    {
+        private readonly Func<string, NodeStatus> _respond;
+
+        public FakeClient(Func<string, NodeStatus> respond) => _respond = respond;
+
+        public int Calls { get; private set; }
+
+        public List<string> Urls { get; } = new();
+
+        public Task<NodeStatus> FetchAsync(string baseUrl, string apiKey, CancellationToken cancellationToken = default)
+        {
+            Calls++;
+            Urls.Add(baseUrl);
+            return Task.FromResult(_respond(baseUrl));
+        }
+    }
+
+    private sealed class FixedClock : TimeProvider
+    {
+        private readonly DateTimeOffset _now;
+
+        public FixedClock(DateTimeOffset now) => _now = now;
+
+        public override DateTimeOffset GetUtcNow() => _now;
+    }
+}

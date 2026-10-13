@@ -101,6 +101,16 @@ builder.Services.AddSingleton(sp =>
 builder.Services.AddSingleton(static sp => new RedactionRepository(sp.GetRequiredService<SqliteStore>()));
 builder.Services.AddSingleton(static sp => new OffsiteReplicationRepository(sp.GetRequiredService<SqliteStore>()));
 builder.Services.AddSingleton(static sp => new OffsiteReplicationService(sp.GetRequiredService<OffsiteReplicationRepository>()));
+
+// §14.1 #10 中央/多機集群管理（M295）。真實 HTTP 用戶端以 SocketsHttpHandler 為底，
+// 逾時 5 秒；測試改注入假 ICentralNodeClient，因此不需真的連上子節點。
+builder.Services.AddSingleton(static sp => new CentralNodeRepository(sp.GetRequiredService<SqliteStore>()));
+builder.Services.AddSingleton<ICentralNodeClient>(
+    static _ => new HttpCentralNodeClient(new SocketsHttpHandler(), TimeSpan.FromSeconds(5)));
+builder.Services.AddSingleton(static sp => new CentralNodeService(
+    sp.GetRequiredService<CentralNodeRepository>(),
+    sp.GetRequiredService<ICentralNodeClient>(),
+    sp.GetRequiredService<TimeProvider>()));
 builder.Services.AddSingleton(static sp => new EmbeddingRepository(sp.GetRequiredService<SqliteStore>()));
 
 // §14.1 #8：伺服器端就地產生嵌入。真機可換成 CLIP/ONNX 實作（同一介面），

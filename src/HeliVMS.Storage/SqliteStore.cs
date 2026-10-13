@@ -9,7 +9,7 @@ namespace HeliVMS.Storage;
 /// </summary>
 public sealed class SqliteStore : IDisposable
 {
-    private const int CurrentSchemaVersion = 47;
+    private const int CurrentSchemaVersion = 48;
     private readonly SqliteConnection _connection;
     private readonly object _gate = new();
     private bool _disposed;
@@ -287,6 +287,11 @@ public sealed class SqliteStore : IDisposable
         if (version < 47)
         {
             AddChannelDisplayCellV47();
+        }
+
+        if (version < 48)
+        {
+            CreateCentralNodesTableV48();
         }
 
         Execute("PRAGMA user_version = CURRENT_SCHEMA_VERSION;".Replace(
@@ -1387,6 +1392,36 @@ public sealed class SqliteStore : IDisposable
 
             CREATE INDEX IF NOT EXISTS idx_license_status ON license(status);
             CREATE INDEX IF NOT EXISTS idx_license_verified ON license(last_verified DESC);
+            """);
+    }
+
+    /// <summary>
+    /// 中央節點清單（§14.1 #10 中央/多機集群管理，M295）。
+    /// 中央站以此登記要監控的子節點；<c>base_url</c> 唯一，避免同一台被重複探測。
+    /// <c>api_key</c> 以明文保存，與同庫的授權 <c>key_text</c> 一致——資料庫本身即安全邊界。
+    /// <c>online</c>／<c>version</c>／<c>channels</c>／<c>last_seen</c> 是最近一次探測的快取，
+    /// 供 UI 不必逐台連線即可顯示狀態。
+    /// </summary>
+    private void CreateCentralNodesTableV48()
+    {
+        Execute(
+            """
+            CREATE TABLE IF NOT EXISTS central_nodes (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                name        TEXT    NOT NULL,
+                base_url    TEXT    NOT NULL UNIQUE,
+                api_key     TEXT    NOT NULL,
+                enabled     INTEGER NOT NULL,
+                node_id     TEXT    NULL,
+                version     TEXT    NULL,
+                channels    INTEGER NULL,
+                online      INTEGER NULL,
+                last_seen   TEXT    NULL,
+                last_error  TEXT    NULL,
+                created_at  TEXT    NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_central_nodes_enabled ON central_nodes(enabled);
             """);
     }
 

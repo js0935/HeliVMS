@@ -6,6 +6,7 @@ using System.Text.Json;
 using HeliVMS.Shared.Models;
 using HeliVMS.Storage;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using HeliVMS.WebApi;
 
@@ -18,6 +19,9 @@ namespace HeliVMS.Api.Tests;
 public sealed class ApiFactory : WebApplicationFactory<Program>
 {
     public string DbPath { get; } = Path.Combine(Path.GetTempPath(), $"helivms-api-{Guid.NewGuid():N}.db");
+
+    /// <summary>M295：中央聚合端點的假子節點用戶端，讓測試不必真的連線。</summary>
+    public StubCentralClient CentralClient { get; } = new();
 
     /// <summary>檔案存取政策（evidence／shares／backup）唯一允許的根目錄。</summary>
     public string RootDir { get; } = Path.Combine(Path.GetTempPath(), $"helivms-api-root-{Guid.NewGuid():N}");
@@ -32,6 +36,7 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
         Directory.CreateDirectory(OutsideDir);
         builder.UseSetting(PathAccessPolicy.RootsConfigKey, RootDir);
         builder.UseSetting("HELIVMS_LICENSE_PUBLIC_KEY", TestLicenseSeeder.PublicPem);
+        builder.ConfigureTestServices(services => services.AddSingleton<ICentralNodeClient>(CentralClient));
         SeedFullLicense();
     }
 
@@ -86,6 +91,17 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
         {
         }
     }
+}
+
+/// <summary>M295：可控制成功／失敗的假子節點用戶端，供中央聚合端點測試使用。</summary>
+public sealed class StubCentralClient : ICentralNodeClient
+{
+    public NodeStatus Result { get; set; } = new("N1", "child", "0.1.0", 8);
+
+    public Exception? Failure { get; set; }
+
+    public Task<NodeStatus> FetchAsync(string baseUrl, string apiKey, CancellationToken cancellationToken = default)
+        => Failure is null ? Task.FromResult(Result) : Task.FromException<NodeStatus>(Failure);
 }
 
 public class ApiTests : IClassFixture<ApiFactory>, IDisposable
@@ -166,6 +182,81 @@ public class ApiTests : IClassFixture<ApiFactory>, IDisposable
 
         Assert.True(items.Count >= 2);
         Assert.Contains(items, c => c.Id == 1 && !string.IsNullOrWhiteSpace(c.MainStreamUrl));
+    }
+
+    [Fact]
+    public async Task Node_ReportsIdentityAndChannelCount()
+    {
+        using var client = Client();
+
+        var response = await client.GetAsync("/api/node");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = await ReadAsync<NodeStatus>(response);
+
+        Assert.False(string.IsNullOrWhiteSpace(body.NodeId));
+        Assert.Equal(Environment.MachineName, body.Name);
+        Assert.True(body.Channels >= 2, "seeded channels expected");
+    }
+
+    [Fact]
+    public async Task Node_RequiresApiKey()
+    {
+        using var client = Client(withKey: false);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync("/api/node")).StatusCode);
+    }
+
+    [Fact]
+    public async Task CentralNodes_ProbesRegisteredChildAndHidesKey()
+    {
+        _factory.CentralClient.Failure = null;
+        _factory.CentralClient.Result = new NodeStatus("CHILD-1", "child", "0.1.0", 12);
+        var id = Service<CentralNodeRepository>().Add("child", "http://child:5080", "super-secret");
+        try
+        {
+            using var client = Client();
+
+            var response = await client.GetAsync("/api/central/nodes");
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            var raw = await response.Content.ReadAsStringAsync();
+
+            var node = JsonSerializer
+                .Deserialize<List<ApiEndpoints.CentralNodeStatusResponse>>(
+                    raw, new JsonSerializerOptions(JsonSerializerDefaults.Web))!
+                .Single(n => n.Id == id);
+            Assert.True(node.Online);
+            Assert.Equal("CHILD-1", node.NodeId);
+            Assert.Equal(12, node.Channels);
+            Assert.DoesNotContain("super-secret", raw, StringComparison.Ordinal);
+            Assert.DoesNotContain("apiKey", raw, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Service<CentralNodeRepository>().Delete(id);
+        }
+    }
+
+    [Fact]
+    public async Task CentralNodes_ReportsOfflineWhenProbeFails()
+    {
+        _factory.CentralClient.Result = new NodeStatus("CHILD-1", "child", "0.1.0", 12);
+        _factory.CentralClient.Failure = new HttpRequestException("連線逾時");
+        var id = Service<CentralNodeRepository>().Add("down", "http://down:5080", "k");
+        try
+        {
+            using var client = Client();
+
+            var response = await client.GetAsync("/api/central/nodes");
+            var body = await ReadAsync<List<ApiEndpoints.CentralNodeStatusResponse>>(response);
+
+            var node = body.Single(n => n.Id == id);
+            Assert.False(node.Online);
+            Assert.Equal("連線逾時", node.LastError);
+        }
+        finally
+        {
+            Service<CentralNodeRepository>().Delete(id);
+            _factory.CentralClient.Failure = null;
+        }
     }
 
     [Fact]

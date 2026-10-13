@@ -24,6 +24,22 @@ public static class ApiEndpoints
     public sealed record Paged<T>(IReadOnlyList<T> Items, int Count);
 
     public sealed record HealthResponse(string Status, string Database, int Channels);
+
+    /// <summary>
+    /// 中央站回傳的節點狀態（§14.1 #10，M295）。
+    /// 刻意不含 <c>ApiKey</c>：列出節點不該把各子節點的金鑰再回吐給呼叫端。
+    /// </summary>
+    public sealed record CentralNodeStatusResponse(
+        long Id,
+        string Name,
+        string BaseUrl,
+        bool Enabled,
+        string? NodeId,
+        string? Version,
+        int? Channels,
+        bool? Online,
+        string? LastSeenUtc,
+        string? LastError);
     public sealed record SegmentListItem(long Id, int ChannelId, string Stream, DateTime StartUtc, DateTime? EndUtc, long SizeBytes, double? DurationSec, string Format, SegmentStatus Status, string? Sha256);
     public sealed record AckRequest(bool Acknowledged);
     public sealed record TriageRequest(string Priority, DateTime? DueUtc, string? Owner);
@@ -115,6 +131,22 @@ public static class ApiEndpoints
 
         api.MapGet("/health", static (SqliteStore store, ChannelRepository channels) =>
             Results.Ok(new HealthResponse("ok", "ok", channels.List().Count)));
+
+        // 節點自我身分（§14.1 #10，M295）：中央站以 GET /api/node 探測子節點。
+        // 需金鑰（不在 /api/health 那條永遠開放的白名單內），因為它會揭露版本與路數。
+        api.MapGet("/node", static (ChannelRepository channels) =>
+            Results.Ok(new NodeStatus(
+                HeliVMS.Licensing.MachineIdProvider.GetDeviceCode(),
+                Environment.MachineName,
+                ApiVersion(),
+                channels.List().Count)));
+
+        // 中央站聚合視圖（M295）：探測所有啟用中的子節點後回傳狀態快照（不含各子節點金鑰）。
+        api.MapGet("/central/nodes", static async (CentralNodeService central, CancellationToken cancellation) =>
+        {
+            var nodes = await central.ProbeAllAsync(cancellation).ConfigureAwait(false);
+            return Results.Ok(nodes.Select(ToCentralNodeStatus).ToArray());
+        });
 
         api.MapGet("/channels", static (ChannelRepository r) => Results.Ok(r.List()));
 
@@ -1258,6 +1290,24 @@ public static class ApiEndpoints
 
     private static RedactionItem ToRedaction(RedactionRegion r) =>
         new(r.Id, r.SourceType, r.RefId, r.ChannelId, SqliteStore.Iso(r.OccurredAtUtc), r.X, r.Y, r.Width, r.Height, r.Filled, SqliteStore.Iso(r.CreatedAtUtc));
+
+    /// <summary>本 Web API 的版本（與桌面 App 同一條 Directory.Build.props 版本；M295）。</summary>
+    private static string ApiVersion() =>
+        typeof(ApiEndpoints).Assembly.GetName().Version?.ToString(3) ?? "0.0.0";
+
+    /// <summary>把 <see cref="CentralNode"/> 轉成不含金鑰的 API 檢視（M295）。</summary>
+    private static CentralNodeStatusResponse ToCentralNodeStatus(CentralNode n) =>
+        new(
+            n.Id,
+            n.Name,
+            n.BaseUrl,
+            n.Enabled,
+            n.NodeId,
+            n.Version,
+            n.Channels,
+            n.Online,
+            n.LastSeenUtc is null ? null : SqliteStore.Iso(n.LastSeenUtc.Value),
+            n.LastError);
 
     private static IReadOnlyList<ShareItem> ToShares(IReadOnlyList<ShareLinkRecord> records) => records.Select(ToShare).ToList();
 
