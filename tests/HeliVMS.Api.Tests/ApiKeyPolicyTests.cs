@@ -191,6 +191,40 @@ public class ApiKeyPolicyTests
     }
 
     [Fact]
+    public async Task DisableSwitch_WithProductionAndNoKey_AllowsAnonymousCallers()
+    {
+        // HELIVMS_API_KEY_DISABLED=1 是完全關閉驗證的逃生門：即使 Production、沒設金鑰，管理端點也要放行。
+        // 供受信任的本機環境用；預設不開啟，否則部署設定一打錯就等於門戶洞開。
+        var config = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                [ApiKeyAuthMiddleware.DisabledConfigKey] = "1",
+            })
+            .Build();
+        var middleware = new ApiKeyAuthMiddleware(
+            _ => Task.CompletedTask,
+            config,
+            new StubEnvironment { EnvironmentName = Environments.Production },
+            NullLogger<ApiKeyAuthMiddleware>.Instance);
+
+        Assert.Equal(StatusCodes.Status200OK, await InvokeAsync(middleware, IPAddress.Loopback, key: null));
+        Assert.Equal(StatusCodes.Status200OK, await InvokeAsync(middleware, IPAddress.Loopback, "any-wrong-key"));
+    }
+
+    [Fact]
+    public async Task DisableSwitch_Unset_KeepsApiProtected()
+    {
+        // 沒設定開關時不得放行——這是預設 fail-closed 的迴歸，避免有人把「關閉」誤寫成預設值。
+        var middleware = new ApiKeyAuthMiddleware(
+            _ => Task.CompletedTask,
+            new ConfigurationBuilder().Build(),
+            new StubEnvironment { EnvironmentName = Environments.Production },
+            NullLogger<ApiKeyAuthMiddleware>.Instance);
+
+        Assert.Equal(StatusCodes.Status401Unauthorized, await InvokeAsync(middleware, IPAddress.Loopback, key: null));
+    }
+
+    [Fact]
     public async Task QueryStringKey_IsOnlyAcceptedForWebSockets()
     {
         // 一般請求把金鑰放 query string 不得通過：秘密會進 URL、瀏覽器歷史與 access log。

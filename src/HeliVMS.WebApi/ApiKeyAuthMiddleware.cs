@@ -7,11 +7,13 @@ namespace HeliVMS.WebApi;
 /// Protects every /api/* route (M117): a bearer key configured through
 /// HELIVMS_API_KEY, compared in constant time. /api/health stays open.
 /// 未設定 HELIVMS_API_KEY 時僅 Development 環境沿用 dev 金鑰；其餘環境一律拒絕（fail-closed）。
+/// 設 HELIVMS_API_KEY_DISABLED=1 可完全關閉驗證（見該常數），僅供受信任且未對外開放的本機環境。
 /// </summary>
 public sealed class ApiKeyAuthMiddleware
 {
     public const string DefaultDevKey = "helivms-dev-key";
     public const string ApiKeyConfigKey = "HELIVMS_API_KEY";
+    public const string DisabledConfigKey = "HELIVMS_API_KEY_DISABLED";
     private const string Scheme = "Bearer ";
 
     private const int MaxFailuresPerWindow = 20;
@@ -20,6 +22,7 @@ public sealed class ApiKeyAuthMiddleware
 
     private readonly RequestDelegate _next;
     private readonly byte[]? _expected;
+    private readonly bool _disabled;
     private readonly ILogger<ApiKeyAuthMiddleware> _logger;
     private readonly ConcurrentDictionary<string, FailureBucket> _failures = new(StringComparer.Ordinal);
 
@@ -27,6 +30,17 @@ public sealed class ApiKeyAuthMiddleware
     {
         _next = next;
         _logger = logger;
+
+        // 完全關閉驗證的逃生門（HELIVMS_API_KEY_DISABLED=1）。刻意做成顯式開關而非預設行為：
+        // 預設仍 fail-closed，否則一個部署設定打錯就等於把管理介面裸露給任何能連到埠的人。
+        if (IsTruthy(config[DisabledConfigKey]))
+        {
+            _disabled = true;
+            _logger.LogWarning(
+                "{ConfigKey} 已設定：/api/* 完全不驗證 Bearer 金鑰。僅應在受信任且未對外開放的本機環境使用。",
+                DisabledConfigKey);
+            return;
+        }
 
         var configured = config[ApiKeyConfigKey];
         if (!string.IsNullOrWhiteSpace(configured))
@@ -52,7 +66,7 @@ public sealed class ApiKeyAuthMiddleware
     {
         var path = context.Request.Path.Value ?? string.Empty;
         var isApi = path.StartsWith("/api/", StringComparison.OrdinalIgnoreCase);
-        if (!isApi || path.Equals("/api/health", StringComparison.OrdinalIgnoreCase))
+        if (_disabled || !isApi || path.Equals("/api/health", StringComparison.OrdinalIgnoreCase))
         {
             await _next(context);
             return;
@@ -96,6 +110,21 @@ public sealed class ApiKeyAuthMiddleware
         var candidate = System.Text.Encoding.UTF8.GetBytes(provided.Trim());
         return candidate.Length == _expected!.Length &&
                CryptographicOperations.FixedTimeEquals(candidate, _expected);
+    }
+
+    /// <summary>認可 1/true/yes/on（不分大小寫、可含空白），其餘（含空值）視為未設定。</summary>
+    private static bool IsTruthy(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return false;
+        }
+
+        var trimmed = value.Trim();
+        return trimmed == "1"
+            || trimmed.Equals("true", StringComparison.OrdinalIgnoreCase)
+            || trimmed.Equals("yes", StringComparison.OrdinalIgnoreCase)
+            || trimmed.Equals("on", StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>同一來源於時窗內失敗過多時直接回 429；無來源位址（如測試）不計入。</summary>
