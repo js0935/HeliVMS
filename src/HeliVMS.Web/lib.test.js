@@ -25,6 +25,7 @@ import {
   evRows,
   backupRows,
   centralRows,
+  centralChannelRows,
   doorRows,
   detRows,
   notifRows,
@@ -539,6 +540,18 @@ describe('login gating', () => {
     expect(rows[0]).toMatchObject({ id: 4, enabled: false, online: true, channels: 8 });
     expect(rows[1]).toMatchObject({ id: 5, enabled: true, online: false, channels: 0, lastSeenUtc: '' });
     expect(centralRows(null)).toEqual([]);
+  });
+
+  it('renders central channel rows and treats a missing enabled flag as enabled', () => {
+    const rows = centralChannelRows([
+      { nodeId: 4, nodeName: '機房 A', channelId: 1, channelName: '大門', enabled: true },
+      { nodeId: 5, nodeName: '機房 B', channelId: 2, channelName: '車道' },
+      { nodeId: 5, nodeName: '機房 B', channelId: 3, channelName: '後門', enabled: false },
+    ]);
+    expect(rows[0]).toEqual({ nodeId: 4, nodeName: '機房 A', channelId: 1, channelName: '大門', enabled: true });
+    expect(rows[1]).toMatchObject({ nodeId: 5, channelId: 2, enabled: true });
+    expect(rows[2].enabled).toBe(false);
+    expect(centralChannelRows(null)).toEqual([]);
   });
 
   it('renders door rows', () => {

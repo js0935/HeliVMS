@@ -174,6 +174,12 @@ public static class ApiEndpoints
             return Results.Created($"/api/central/nodes/{id}", ToCentralNodeStatus(probed));
         });
 
+        // 中央站聚合各子節點的頻道清單（§14.1 #10，M302）：讓上層看得到跨機頻道，
+        // 回放面板也能列出「某節點的第幾路」而不必使用者自己猜編號。與 /central/nodes 同為
+        // 管理視圖，沿用 M295 決策不加旗標閘門；子節點金鑰不進回應。
+        api.MapGet("/central/channels", static async (CentralNodeService service, CancellationToken cancellation) =>
+            Results.Ok(await service.ListChannelsAsync(cancellation).ConfigureAwait(false)));
+
         api.MapPut("/central/nodes/{id:long}", static async (
             long id,
             CentralNodeUpdateRequest body,

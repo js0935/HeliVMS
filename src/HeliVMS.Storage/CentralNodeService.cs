@@ -1,3 +1,5 @@
+using System.Text.Json;
+
 namespace HeliVMS.Storage;
 
 /// <summary>
@@ -54,5 +56,136 @@ public sealed class CentralNodeService
         }
 
         return _repository.List().First(n => n.Id == node.Id);
+    }
+
+    /// <summary>
+    /// 逐台取回啟用中子節點的頻道清單並彙整（§14.1 #10，M302）。
+    ///
+    /// 與探測同樣是「盡力而為」：單一節點連不上、逾時、回非 200 或 JSON 壞掉都只跳過該節點，
+    /// 不讓一台子節點壞掉就整個清單拿不到——跨機面板寧可少列幾台，也不該整片空白。
+    /// 停用節點與未設位址者不查。呼叫端主動取消向上拋（與 <see cref="ProbeAsync"/> 同語意），
+    /// 其餘例外一律視為該節點失敗。
+    /// </summary>
+    public async Task<IReadOnlyList<CentralChannel>> ListChannelsAsync(CancellationToken cancellationToken = default)
+    {
+        var result = new List<CentralChannel>();
+        foreach (var node in _repository.ListEnabled())
+        {
+            if (string.IsNullOrWhiteSpace(node.BaseUrl))
+            {
+                continue;
+            }
+
+            CentralNodeResource resource;
+            try
+            {
+                resource = await _client
+                    .FetchResourceAsync(node.BaseUrl, node.ApiKey, "api/channels", cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception)
+            {
+                continue;
+            }
+
+            if (resource.StatusCode != 200)
+            {
+                continue;
+            }
+
+            result.AddRange(ParseChannels(resource.Body, node));
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// 解析子節點 <c>/api/channels</c> 的 JSON 陣列。任何非陣列、缺 <c>id</c>、型別不對或壞字串
+    /// 都跳過/回空，絕不讓一台子節點的回應把整輪聚合拖垮。
+    /// </summary>
+    private static IReadOnlyList<CentralChannel> ParseChannels(byte[] body, CentralNode node)
+    {
+        if (body.Length == 0)
+        {
+            return Array.Empty<CentralChannel>();
+        }
+
+        try
+        {
+            using var doc = JsonDocument.Parse(body);
+            if (doc.RootElement.ValueKind != JsonValueKind.Array)
+            {
+                return Array.Empty<CentralChannel>();
+            }
+
+            var list = new List<CentralChannel>();
+            foreach (var element in doc.RootElement.EnumerateArray())
+            {
+                if (element.ValueKind != JsonValueKind.Object)
+                {
+                    continue;
+                }
+
+                var id = ReadInt(element, "id");
+                if (id is null or <= 0)
+                {
+                    continue;
+                }
+
+                list.Add(new CentralChannel(
+                    node.Id,
+                    node.Name,
+                    id.Value,
+                    ReadString(element, "name") is { Length: > 0 } name ? name : $"ch{id}",
+                    ReadBool(element, "enabled") ?? true));
+            }
+
+            return list;
+        }
+        catch (JsonException)
+        {
+            return Array.Empty<CentralChannel>();
+        }
+    }
+
+    // 子節點是同一套 ASP.NET 序列化（camelCase），但為了容忍第三方或未來變更，一律不分大小寫比對。
+    private static JsonElement? Property(JsonElement element, string name)
+    {
+        foreach (var property in element.EnumerateObject())
+        {
+            if (string.Equals(property.Name, name, StringComparison.OrdinalIgnoreCase))
+            {
+                return property.Value;
+            }
+        }
+
+        return null;
+    }
+
+    private static int? ReadInt(JsonElement element, string name)
+    {
+        var value = Property(element, name);
+        return value is { ValueKind: JsonValueKind.Number } v && v.TryGetInt32(out var n) ? n : null;
+    }
+
+    private static string? ReadString(JsonElement element, string name)
+    {
+        var value = Property(element, name);
+        return value is { ValueKind: JsonValueKind.String } v ? v.GetString() : null;
+    }
+
+    private static bool? ReadBool(JsonElement element, string name)
+    {
+        var value = Property(element, name);
+        return value?.ValueKind switch
+        {
+            JsonValueKind.True => true,
+            JsonValueKind.False => false,
+            _ => null,
+        };
     }
 }

@@ -465,6 +465,66 @@ public class ApiTests : IClassFixture<ApiFactory>, IDisposable
         }
     }
 
+    // ---------- M302 中央節點頻道聚合（§14.1 #10） ----------
+
+    [Fact]
+    public async Task CentralChannels_AggregatesChildChannelsAndHidesKey()
+    {
+        _factory.CentralClient.Resource = _ => new CentralNodeResource(
+            200, "application/json",
+            Encoding.UTF8.GetBytes("[{\"id\":1,\"name\":\"大門\",\"enabled\":true}]"));
+        var id = Service<CentralNodeRepository>().Add("機房 A", "http://child:5080", "super-secret");
+        try
+        {
+            using var client = Client();
+
+            var response = await client.GetAsync("/api/central/channels");
+
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            var raw = await response.Content.ReadAsStringAsync();
+            var channels = JsonSerializer
+                .Deserialize<List<CentralChannel>>(raw, new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
+
+            var only = Assert.Single(channels);
+            Assert.Equal(id, only.NodeId);
+            Assert.Equal("機房 A", only.NodeName);
+            Assert.Equal(1, only.ChannelId);
+            Assert.Equal("大門", only.ChannelName);
+            Assert.True(only.Enabled);
+            // 金鑰只留在伺服器端，聚合視圖不得外洩。
+            Assert.DoesNotContain("super-secret", raw, StringComparison.Ordinal);
+            Assert.DoesNotContain("apiKey", raw, StringComparison.Ordinal);
+            Assert.Equal("api/channels", _factory.CentralClient.LastResourcePath);
+        }
+        finally
+        {
+            Service<CentralNodeRepository>().Delete(id);
+            _factory.CentralClient.Resource = null;
+        }
+    }
+
+    [Fact]
+    public async Task CentralChannels_SkipsUnreachableNode()
+    {
+        _factory.CentralClient.Resource = _ => throw new HttpRequestException("連線逾時");
+        var id = Service<CentralNodeRepository>().Add("down", "http://down:5080", "k");
+        try
+        {
+            using var client = Client();
+
+            var response = await client.GetAsync("/api/central/channels");
+
+            // 單台離線不該讓整個聚合端點 500：回空清單，前端仍能列出其他節點。
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            Assert.Empty(await ReadAsync<List<CentralChannel>>(response));
+        }
+        finally
+        {
+            Service<CentralNodeRepository>().Delete(id);
+            _factory.CentralClient.Resource = null;
+        }
+    }
+
     [Fact]
     public async Task Events_ListReturnsInsertedMotionEvent()
     {

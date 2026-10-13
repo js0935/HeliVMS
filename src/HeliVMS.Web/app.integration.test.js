@@ -327,6 +327,16 @@ describe('admin quick nav', () => {
     expect(appSource).toMatch(/apiRaw\(`\/api\/central\/nodes\/\$\{btn\.dataset\.centralDel\}`, \{ method: 'DELETE' \}\)/);
   });
 
+  it('aggregates child channels into a panel and the playback channel suggestions', () => {
+    expect(indexSource).toMatch(/<a href="#central-channels-panel"[^>]*data-i18n="panel\.centralChannels"/);
+    expect(indexSource).toMatch(/id="central-channels-body"/);
+    expect(indexSource).toMatch(/id="play-channel"[^>]*list="play-channel-options"/);
+    expect(indexSource).toMatch(/<datalist id="play-channel-options">/);
+    expect(appSource).toMatch(/\$\('central-channels-panel'\)\.hidden = !admin;/);
+    expect(appSource).toMatch(/centralChannelRows\(await api\('\/api\/central\/channels'\)/);
+    expect(appSource).toMatch(/\$\('play-node'\)\?\.addEventListener\('change', fillPlayChannels\)/);
+  });
+
   it('shows the nav only for actors in chrome', () => {
     expect(appSource).toMatch(/\$\(['"]admin-nav['"]\)\.hidden = !admin;/);
   });

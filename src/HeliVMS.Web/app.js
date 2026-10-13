@@ -170,7 +170,7 @@ async function submitLogin(event) {
   if (state.ok) {
     storeSession({ role: state.role, name: state.displayName });
     if (canAct(state.role)) {
-      await Promise.allSettled([renderAccounts(), renderConfig(), renderAudit(), renderEvidence(), renderBackup(), renderCentral(), renderProviders(), renderHolds(), renderRules(), renderShares(), renderReds(), renderRep(), renderHealth()]);
+      await Promise.allSettled([renderAccounts(), renderConfig(), renderAudit(), renderEvidence(), renderBackup(), renderCentral(), renderCentralChannels(), renderProviders(), renderHolds(), renderRules(), renderShares(), renderReds(), renderRep(), renderHealth()]);
     }
   }
   await renderBoard();
@@ -194,6 +194,7 @@ function updateChrome() {
   $('evidence-panel').hidden = !admin;
   $('backup-panel').hidden = !admin;
   $('central-panel').hidden = !admin;
+  $('central-channels-panel').hidden = !admin;
   $('provider-panel').hidden = !admin;
   $('hold-panel').hidden = !admin;
   $('rule-panel').hidden = !admin;
@@ -541,6 +542,7 @@ function fillPlayNodes(rows) {
   );
   $('play-node').innerHTML = options.join('');
   $('play-node').value = current;
+  fillPlayChannels();
 }
 
 async function renderCentral() {
@@ -566,6 +568,42 @@ async function renderCentral() {
       if (await feedback('central-msg', resp, () => t('central.deleted'))) renderCentral();
     });
   });
+}
+
+/**
+ * 中央站聚合子節點頻道（M302）：管理員一眼看到跨機有哪些「第幾路叫什麼」，
+ * 回放面板也靠同一份資料提供頻道建議。單台離線時後端已跳過，這裡最多整份為空。
+ */
+let centralChannelCache = [];
+
+async function renderCentralChannels() {
+  centralChannelCache = centralChannelRows(await api('/api/central/channels').catch(() => []));
+  const body = $('central-channels-body');
+  if (body) {
+    body.innerHTML = centralChannelCache
+      .map(
+        (c) =>
+          `<tr><td>${esc(c.nodeId)}</td><td>${esc(c.nodeName)}</td><td>${esc(c.channelId)}</td><td>${esc(c.channelName)}</td><td>${esc(c.enabled ? t('common.enabled') : t('common.disabled'))}</td></tr>`,
+      )
+      .join('');
+  }
+  const count = $('central-channels-count');
+  if (count) count.textContent = t('count.parenthesized', { n: centralChannelCache.length });
+  fillPlayChannels();
+}
+
+/**
+ * 回放面板的頻道建議：選了子節點就只列該節點的頻道，避免使用者猜編號。
+ * 本機（未選節點）不提供建議，維持原本的自由輸入。
+ */
+function fillPlayChannels() {
+  const list = $('play-channel-options');
+  if (!list) return;
+  const nodeId = Number($('play-node')?.value ?? '');
+  list.innerHTML = centralChannelCache
+    .filter((c) => c.nodeId === nodeId)
+    .map((c) => `<option value="${Number(c.channelId)}">${esc(c.channelName)}</option>`)
+    .join('');
 }
 
 function bindBackupForm() {
@@ -1403,6 +1441,8 @@ function wire() {
   $('timeline-up').addEventListener('click', () => bumpTimelineDay(1));
   $('timeline-down').addEventListener('click', () => bumpTimelineDay(-1));
   $('play-form').addEventListener('submit', playRemote);
+  // 換來源節點時同步換頻道建議（M302），否則會留著上一台節點的頻道清單。
+  $('play-node')?.addEventListener('change', fillPlayChannels);
   $('live-form').addEventListener('submit', openLiveView);
   $('live-stop').addEventListener('click', stopLiveView);
 

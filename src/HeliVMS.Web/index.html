@@ -53,6 +53,7 @@
     <a href="#rep-panel" data-i18n="nav.replication">異地複製</a>
     <a href="#health-panel" data-i18n="nav.health">健康</a>
     <a href="#central-panel" data-i18n="nav.central">中央管理</a>
+    <a href="#central-channels-panel" data-i18n="panel.centralChannels">中央頻道</a>
   </nav>
 
   <main class="grid" id="content">
@@ -128,7 +129,8 @@
       <h2><span data-i18n="nav.remotePlayback">遠程回放</span> <span class="muted" data-i18n="play.hlsHint">HLS／已錄影</span></h2>
       <form id="play-form" class="row-form">
         <select id="play-node" aria-label="來源節點" data-i18n-attr="aria-label:replay.node"></select>
-        <input id="play-channel" type="number" min="1" step="1" value="1" aria-label="頻道編號" data-i18n-attr="aria-label:ph.channelNumber" required />
+        <input id="play-channel" type="number" min="1" step="1" value="1" list="play-channel-options" aria-label="頻道編號" data-i18n-attr="aria-label:ph.channelNumber" required />
+        <datalist id="play-channel-options"></datalist>
         <input id="play-from" type="datetime-local" aria-label="起始時間" data-i18n-attr="aria-label:ph.startTime" required />
         <input id="play-to" type="datetime-local" aria-label="結束時間" data-i18n-attr="aria-label:ph.endTime" required />
         <button type="submit" data-i18n="action.load">載入回放</button>
@@ -389,6 +391,14 @@
         <button type="submit" data-i18n="action.add">新增</button>
         <span id="central-msg" class="muted" aria-live="polite"></span>
       </form>
+    </section>
+
+    <section class="panel wide" id="central-channels-panel" hidden>
+      <h2><span data-i18n="panel.centralChannels">中央頻道</span> <span id="central-channels-count" class="muted"></span></h2>
+      <table class="compact">
+        <thead><tr><th scope="col">ID</th><th scope="col" data-i18n="col.nodeName">節點名稱</th><th scope="col" data-i18n="col.channel">頻道</th><th scope="col" data-i18n="col.name">名稱</th><th scope="col" data-i18n="col.status">狀態</th></tr></thead>
+        <tbody id="central-channels-body"></tbody>
+      </table>
     </section>
 
     <section class="panel wide">

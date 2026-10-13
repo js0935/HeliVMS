@@ -428,6 +428,16 @@ export function centralRows(nodes) {
   }));
 }
 
+export function centralChannelRows(channels) {
+  return (Array.isArray(channels) ? channels : []).map((c) => ({
+    nodeId: Number(c.nodeId ?? 0),
+    nodeName: c.nodeName ?? '',
+    channelId: Number(c.channelId ?? 0),
+    channelName: c.channelName ?? '',
+    enabled: c.enabled !== false,
+  }));
+}
+
 export function doorRows(rows) {
   return (rows ?? []).map((e) => ({
     time: formatTimestamp(e.occurredAtUtc ?? e.OccurredAtUtc ?? ''),

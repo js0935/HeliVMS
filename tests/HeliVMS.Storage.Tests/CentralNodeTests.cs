@@ -310,10 +310,111 @@ public class CentralNodeTests : IDisposable
         Assert.Null(_repo.List()[0].Online);
     }
 
+    // ---------- ListChannelsAsync（M302 頻道聚合） ----------
+
+    [Fact]
+    public async Task 頻道聚合會帶來源節點並解析_json()
+    {
+        var a = _repo.Add("機房 A", "http://a:5080", "k");
+        var b = _repo.Add("機房 B", "http://b:5080", "k");
+        var client = new FakeClient(
+            _ => new NodeStatus("N", "n", "1", 1),
+            (url, _) => url.Contains("a:5080", StringComparison.Ordinal)
+                ? Resource("[{\"id\":1,\"name\":\"大門\",\"enabled\":true},{\"id\":2,\"name\":\"後門\",\"enabled\":false}]")
+                : Resource("[{\"id\":1,\"name\":\"車道\"}]"));
+        var service = new CentralNodeService(_repo, client);
+
+        var channels = await service.ListChannelsAsync();
+
+        Assert.Equal(3, channels.Count);
+        var gate = channels.Single(c => c.NodeId == a && c.ChannelId == 1);
+        Assert.Equal("機房 A", gate.NodeName);
+        Assert.Equal("大門", gate.ChannelName);
+        Assert.True(gate.Enabled);
+        Assert.False(channels.Single(c => c.NodeId == a && c.ChannelId == 2).Enabled);
+        // 缺 enabled 一律視為啟用（舊子節點沒這個欄位不該被畫成停用）。
+        Assert.True(channels.Single(c => c.NodeId == b).Enabled);
+        // 兩台都只查 api/channels。
+        Assert.All(client.ResourcePaths, p => Assert.Equal("api/channels", p));
+    }
+
+    [Fact]
+    public async Task 頻道聚合遇到失敗節點只跳過該節點()
+    {
+        var ok = _repo.Add("ok", "http://ok:1", "k");
+        _repo.Add("boom", "http://boom:1", "k");
+        _repo.Add("bad", "http://bad:1", "k");
+        _repo.Add("weird", "http://weird:1", "k");
+        var client = new FakeClient(
+            _ => new NodeStatus("N", "n", "1", 1),
+            (url, _) => url switch
+            {
+                var u when u.Contains("boom", StringComparison.Ordinal) => throw new HttpRequestException("連線逾時"),
+                var u when u.Contains("bad", StringComparison.Ordinal) => Resource("", status: 500),
+                var u when u.Contains("weird", StringComparison.Ordinal) => Resource("{ not json"),
+                _ => Resource("[{\"id\":7,\"name\":\"cam\"}]"),
+            });
+        var service = new CentralNodeService(_repo, client);
+
+        var channels = await service.ListChannelsAsync();
+
+        var only = Assert.Single(channels);
+        Assert.Equal(ok, only.NodeId);
+        Assert.Equal(7, only.ChannelId);
+    }
+
+    [Fact]
+    public async Task 頻道聚合不查停用或未設位址的節點()
+    {
+        _repo.Add("on", "http://on:1", "k");
+        _repo.Add("off", "http://off:1", "k", enabled: false);
+        _repo.Add("empty", "", "k");
+        var client = new FakeClient(_ => new NodeStatus("N", "n", "1", 1), (_, _) => Resource("[]"));
+        var service = new CentralNodeService(_repo, client);
+
+        await service.ListChannelsAsync();
+
+        Assert.Equal("http://on:1", Assert.Single(client.ResourceUrls));
+    }
+
+    [Fact]
+    public async Task 頻道聚合缺名稱以編號補名且忽略無效條目()
+    {
+        _repo.Add("a", "http://a:1", "k");
+        var client = new FakeClient(
+            _ => new NodeStatus("N", "n", "1", 1),
+            (_, _) => Resource("[{\"id\":5},{\"name\":\"no-id\"},{\"id\":0,\"name\":\"zero\"},{\"id\":\"x\",\"name\":\"str\"},\"junk\"]"));
+        var service = new CentralNodeService(_repo, client);
+
+        var channels = await service.ListChannelsAsync();
+
+        var only = Assert.Single(channels);
+        Assert.Equal(5, only.ChannelId);
+        Assert.Equal("ch5", only.ChannelName);
+    }
+
+    [Fact]
+    public async Task 頻道聚合的外部取消會往外拋()
+    {
+        _repo.Add("x", "http://x:1", "k");
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+        var client = new FakeClient(
+            _ => new NodeStatus("N", "n", "1", 1),
+            (_, _) => throw new OperationCanceledException(cts.Token));
+        var service = new CentralNodeService(_repo, client);
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => service.ListChannelsAsync(cts.Token));
+    }
+
     // ---------- 測試替身 ----------
 
     private static HttpResponseMessage Json(string body, HttpStatusCode code = HttpStatusCode.OK)
         => new(code) { Content = new StringContent(body, Encoding.UTF8, "application/json") };
+
+    private static CentralNodeResource Resource(string json, int status = 200)
+        => new(status, "application/json", Encoding.UTF8.GetBytes(json));
+
 
     private sealed class FakeHandler : HttpMessageHandler
     {
@@ -341,12 +442,23 @@ public class CentralNodeTests : IDisposable
     private sealed class FakeClient : ICentralNodeClient
     {
         private readonly Func<string, NodeStatus> _respond;
+        private readonly Func<string, string, CentralNodeResource>? _resource;
 
-        public FakeClient(Func<string, NodeStatus> respond) => _respond = respond;
+        public FakeClient(
+            Func<string, NodeStatus> respond,
+            Func<string, string, CentralNodeResource>? resource = null)
+        {
+            _respond = respond;
+            _resource = resource;
+        }
 
         public int Calls { get; private set; }
 
         public List<string> Urls { get; } = new();
+
+        public List<string> ResourcePaths { get; } = new();
+
+        public List<string> ResourceUrls { get; } = new();
 
         public Task<NodeStatus> FetchAsync(string baseUrl, string apiKey, CancellationToken cancellationToken = default)
         {
@@ -357,7 +469,15 @@ public class CentralNodeTests : IDisposable
 
         public Task<CentralNodeResource> FetchResourceAsync(
             string baseUrl, string apiKey, string relativePath, CancellationToken cancellationToken = default)
-            => throw new NotSupportedException("聚合探測測試替身不處理跨機回放代理。");
+        {
+            ResourcePaths.Add(relativePath);
+            ResourceUrls.Add(baseUrl);
+            if (_resource is null)
+            {
+                throw new NotSupportedException("聚合探測測試替身不處理跨機回放代理。");
+            }
+            return Task.FromResult(_resource(baseUrl, relativePath));
+        }
     }
 
     private sealed class FixedClock : TimeProvider
