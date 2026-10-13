@@ -236,6 +236,70 @@ public class ApiTests : IClassFixture<ApiFactory>, IDisposable
     }
 
     [Fact]
+    public async Task CentralNodes_CreateUpdateProbeDeleteRoundTrip()
+    {
+        _factory.CentralClient.Failure = null;
+        _factory.CentralClient.Result = new NodeStatus("CHILD-9", "child", "0.1.0", 12);
+        using var client = Client();
+
+        var createResponse = await client.PostAsJsonAsync(
+            "/api/central/nodes",
+            new { name = "child", baseUrl = "http://child:5080", apiKey = "s3cret", enabled = true });
+        Assert.Equal(HttpStatusCode.Created, createResponse.StatusCode);
+        var createdRaw = await createResponse.Content.ReadAsStringAsync();
+        Assert.DoesNotContain("s3cret", createdRaw, StringComparison.Ordinal);
+        var created = JsonSerializer.Deserialize<ApiEndpoints.CentralNodeStatusResponse>(
+            createdRaw, new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
+        Assert.True(created.Online);
+        Assert.Equal("CHILD-9", created.NodeId);
+
+        var updateResponse = await client.PutAsJsonAsync(
+            $"/api/central/nodes/{created.Id}",
+            new { name = "child-2", enabled = false });
+        Assert.Equal(HttpStatusCode.OK, updateResponse.StatusCode);
+        var updated = JsonSerializer.Deserialize<ApiEndpoints.CentralNodeStatusResponse>(
+            await updateResponse.Content.ReadAsStringAsync(), new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
+        Assert.Equal("child-2", updated.Name);
+        Assert.False(updated.Enabled);
+
+        var probeResponse = await client.PostAsync($"/api/central/nodes/{created.Id}/probe", null);
+        Assert.Equal(HttpStatusCode.OK, probeResponse.StatusCode);
+
+        Assert.Equal(HttpStatusCode.NoContent, (await client.DeleteAsync($"/api/central/nodes/{created.Id}")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await client.DeleteAsync($"/api/central/nodes/{created.Id}")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await client.PostAsync($"/api/central/nodes/{created.Id}/probe", null)).StatusCode);
+    }
+
+    [Fact]
+    public async Task CentralNodes_RejectsBlankNameOrUrl()
+    {
+        using var client = Client();
+
+        Assert.Equal(
+            HttpStatusCode.BadRequest,
+            (await client.PostAsJsonAsync("/api/central/nodes", new { name = " ", baseUrl = "http://x", apiKey = "" })).StatusCode);
+
+        var createResponse = await client.PostAsJsonAsync(
+            "/api/central/nodes",
+            new { name = "keep", baseUrl = "http://keep", apiKey = "" });
+        var created = JsonSerializer.Deserialize<ApiEndpoints.CentralNodeStatusResponse>(
+            await createResponse.Content.ReadAsStringAsync(), new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
+        try
+        {
+            Assert.Equal(
+                HttpStatusCode.BadRequest,
+                (await client.PutAsJsonAsync($"/api/central/nodes/{created.Id}", new { name = "  " })).StatusCode);
+            Assert.Equal(
+                HttpStatusCode.NotFound,
+                (await client.PutAsJsonAsync("/api/central/nodes/999999", new { name = "nope" })).StatusCode);
+        }
+        finally
+        {
+            Service<CentralNodeRepository>().Delete(created.Id);
+        }
+    }
+
+    [Fact]
     public async Task CentralNodes_ReportsOfflineWhenProbeFails()
     {
         _factory.CentralClient.Result = new NodeStatus("CHILD-1", "child", "0.1.0", 12);

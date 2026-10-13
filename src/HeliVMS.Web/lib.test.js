@@ -23,6 +23,7 @@ import {
   formatTimestamp,
   evRows,
   backupRows,
+  centralRows,
   doorRows,
   detRows,
   notifRows,
@@ -527,6 +528,16 @@ describe('login gating', () => {
       ]),
     ).toEqual([{ seq: 1, runAt: 't', copied: 3, bytes: 1200, failed: 1, advanced: false, target: '/t' }]);
     expect(backupRows(null)).toEqual([]);
+  });
+
+  it('renders central node rows and treats a missing enabled flag as enabled', () => {
+    const rows = centralRows([
+      { id: 4, name: 'child', baseUrl: 'http://child:5080', enabled: false, nodeId: 'N-1', version: '0.1.0', channels: 8, online: true, lastSeenUtc: '2026-10-13T00:00:00Z', lastError: '' },
+      { id: 5, name: 'legacy', baseUrl: 'http://legacy', online: false, channels: null },
+    ]);
+    expect(rows[0]).toMatchObject({ id: 4, enabled: false, online: true, channels: 8 });
+    expect(rows[1]).toMatchObject({ id: 5, enabled: true, online: false, channels: 0, lastSeenUtc: '' });
+    expect(centralRows(null)).toEqual([]);
   });
 
   it('renders door rows', () => {

@@ -319,6 +319,14 @@ describe('admin quick nav', () => {
     expect(indexSource).toMatch(/<a href="#health-panel"[^>]*data-i18n="nav\.health"/);
   });
 
+  it('wires the central management panel into the nav and admin chrome', () => {
+    expect(indexSource).toMatch(/<a href="#central-panel"[^>]*data-i18n="nav\.central"/);
+    expect(appSource).toMatch(/\$\('central-panel'\)\.hidden = !admin;/);
+    expect(appSource).toMatch(/async function renderCentral\(\)[\s\S]{0,120}api\('\/api\/central\/nodes'\)/);
+    expect(appSource).toMatch(/apiRaw\('\/api\/central\/nodes', \{\s*method: 'POST'/);
+    expect(appSource).toMatch(/apiRaw\(`\/api\/central\/nodes\/\$\{btn\.dataset\.centralDel\}`, \{ method: 'DELETE' \}\)/);
+  });
+
   it('shows the nav only for actors in chrome', () => {
     expect(appSource).toMatch(/\$\(['"]admin-nav['"]\)\.hidden = !admin;/);
   });

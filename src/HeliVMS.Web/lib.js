@@ -398,6 +398,21 @@ export function backupRows(rows) {
   }));
 }
 
+export function centralRows(nodes) {
+  return (Array.isArray(nodes) ? nodes : []).map((n) => ({
+    id: n.id,
+    name: n.name ?? '',
+    baseUrl: n.baseUrl ?? '',
+    enabled: n.enabled !== false,
+    nodeId: n.nodeId ?? '',
+    version: n.version ?? '',
+    channels: Number(n.channels ?? 0),
+    online: Boolean(n.online),
+    lastSeenUtc: n.lastSeenUtc ?? '',
+    lastError: n.lastError ?? '',
+  }));
+}
+
 export function doorRows(rows) {
   return (rows ?? []).map((e) => ({
     time: formatTimestamp(e.occurredAtUtc ?? e.OccurredAtUtc ?? ''),

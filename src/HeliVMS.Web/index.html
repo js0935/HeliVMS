@@ -52,6 +52,7 @@
     <a href="#provider-panel" data-i18n="nav.authProviders">登入供應商</a>
     <a href="#rep-panel" data-i18n="nav.replication">異地複製</a>
     <a href="#health-panel" data-i18n="nav.health">健康</a>
+    <a href="#central-panel" data-i18n="nav.central">中央管理</a>
   </nav>
 
   <main class="grid" id="content">
@@ -371,6 +372,21 @@
         <input name="bdst" type="text" placeholder="目標目錄（絕對路徑）" data-i18n-attr="placeholder:ph.targetDir" required>
         <button type="submit" data-i18n="action.runBackup">執行備份</button>
         <span id="backup-msg" class="muted" aria-live="polite"></span>
+      </form>
+    </section>
+
+    <section class="panel wide" id="central-panel" hidden>
+      <h2><span data-i18n="panel.centralNodes">中央節點</span> <span id="central-count" class="muted"></span></h2>
+      <table class="compact">
+        <thead><tr><th scope="col">ID</th><th scope="col" data-i18n="col.name">名稱</th><th scope="col" class="wrap" data-i18n="col.nodeUrl">位址</th><th scope="col" data-i18n="col.status">狀態</th><th scope="col" data-i18n="col.nodeVersion">版本</th><th scope="col" data-i18n="nav.channels">頻道</th><th scope="col" data-i18n="col.lastSeen">最後上線</th><th scope="col" data-i18n="col.operation">操作</th></tr></thead>
+        <tbody id="central-body"></tbody>
+      </table>
+      <form id="central-form" class="row-form">
+        <input name="cname" type="text" placeholder="名稱" data-i18n-attr="placeholder:ph.nodeName" aria-label="節點名稱" data-i18n-attr="aria-label:ph.nodeName" required>
+        <input name="curl" type="text" placeholder="http://主機:5080" data-i18n-attr="placeholder:ph.nodeUrl" aria-label="節點位址" data-i18n-attr="aria-label:ph.nodeUrl" required>
+        <input name="ckey" type="password" placeholder="API 金鑰" data-i18n-attr="placeholder:ph.nodeApiKey" aria-label="節點金鑰" data-i18n-attr="aria-label:ph.nodeApiKey">
+        <button type="submit" data-i18n="action.add">新增</button>
+        <span id="central-msg" class="muted" aria-live="polite"></span>
       </form>
     </section>
 

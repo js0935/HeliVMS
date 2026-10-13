@@ -40,6 +40,13 @@ public static class ApiEndpoints
         bool? Online,
         string? LastSeenUtc,
         string? LastError);
+
+    /// <summary>中央節點新增（M299／§14.1 #10）：名稱與位址必填，金鑰可空（子節點未開金鑰時）。</summary>
+    public sealed record CentralNodeUpsertRequest(string Name, string BaseUrl, string? ApiKey, bool? Enabled);
+
+    /// <summary>中央節點更新（M299）：未提供的欄位保持原值；有提供但空白者視為 400。</summary>
+    public sealed record CentralNodeUpdateRequest(string? Name, string? BaseUrl, string? ApiKey, bool? Enabled);
+
     public sealed record SegmentListItem(long Id, int ChannelId, string Stream, DateTime StartUtc, DateTime? EndUtc, long SizeBytes, double? DurationSec, string Format, SegmentStatus Status, string? Sha256);
     public sealed record AckRequest(bool Acknowledged);
     public sealed record TriageRequest(string Priority, DateTime? DueUtc, string? Owner);
@@ -146,6 +153,76 @@ public static class ApiEndpoints
         {
             var nodes = await central.ProbeAllAsync(cancellation).ConfigureAwait(false);
             return Results.Ok(nodes.Select(ToCentralNodeStatus).ToArray());
+        });
+
+        // 中央節點管理（M299／§14.1 #10）：新增、更新、刪除與單節點探測。
+        // 新增／更新後立即探測一次，讓 UI 不必再按一次就有狀態；金鑰永不回傳。
+        api.MapPost("/central/nodes", static async (
+            CentralNodeUpsertRequest body,
+            CentralNodeRepository repo,
+            CentralNodeService central,
+            CancellationToken cancellation) =>
+        {
+            if (string.IsNullOrWhiteSpace(body.Name) || string.IsNullOrWhiteSpace(body.BaseUrl))
+            {
+                return Results.BadRequest(new { error = "名稱與位址必填" });
+            }
+
+            var id = repo.Add(body.Name.Trim(), body.BaseUrl.Trim(), body.ApiKey ?? string.Empty, body.Enabled ?? true);
+            var node = central.List().First(n => n.Id == id);
+            var probed = await central.ProbeAsync(node, cancellation).ConfigureAwait(false);
+            return Results.Created($"/api/central/nodes/{id}", ToCentralNodeStatus(probed));
+        });
+
+        api.MapPut("/central/nodes/{id:long}", static async (
+            long id,
+            CentralNodeUpdateRequest body,
+            CentralNodeRepository repo,
+            CentralNodeService central,
+            CancellationToken cancellation) =>
+        {
+            if (repo.List().All(n => n.Id != id))
+            {
+                return Results.NotFound();
+            }
+
+            if ((body.Name is not null && string.IsNullOrWhiteSpace(body.Name))
+                || (body.BaseUrl is not null && string.IsNullOrWhiteSpace(body.BaseUrl)))
+            {
+                return Results.BadRequest(new { error = "名稱與位址不可為空" });
+            }
+
+            repo.Update(id, body.Name?.Trim(), body.BaseUrl?.Trim(), body.ApiKey, body.Enabled);
+            var node = central.List().First(n => n.Id == id);
+            var probed = await central.ProbeAsync(node, cancellation).ConfigureAwait(false);
+            return Results.Ok(ToCentralNodeStatus(probed));
+        });
+
+        api.MapDelete("/central/nodes/{id:long}", static (long id, CentralNodeRepository repo) =>
+        {
+            if (repo.List().All(n => n.Id != id))
+            {
+                return Results.NotFound();
+            }
+
+            repo.Delete(id);
+            return Results.NoContent();
+        });
+
+        api.MapPost("/central/nodes/{id:long}/probe", static async (
+            long id,
+            CentralNodeRepository repo,
+            CentralNodeService central,
+            CancellationToken cancellation) =>
+        {
+            var node = repo.List().FirstOrDefault(n => n.Id == id);
+            if (node is null)
+            {
+                return Results.NotFound();
+            }
+
+            var probed = await central.ProbeAsync(node, cancellation).ConfigureAwait(false);
+            return Results.Ok(ToCentralNodeStatus(probed));
         });
 
         api.MapGet("/channels", static (ChannelRepository r) => Results.Ok(r.List()));

@@ -22,6 +22,7 @@ import {
   parseM3u8,
   evRows,
   backupRows,
+  centralRows,
   doorRows,
   detRows,
   notifRows,
@@ -168,7 +169,7 @@ async function submitLogin(event) {
   if (state.ok) {
     storeSession({ role: state.role, name: state.displayName });
     if (canAct(state.role)) {
-      await Promise.allSettled([renderAccounts(), renderConfig(), renderAudit(), renderEvidence(), renderBackup(), renderProviders(), renderHolds(), renderRules(), renderShares(), renderReds(), renderRep(), renderHealth()]);
+      await Promise.allSettled([renderAccounts(), renderConfig(), renderAudit(), renderEvidence(), renderBackup(), renderCentral(), renderProviders(), renderHolds(), renderRules(), renderShares(), renderReds(), renderRep(), renderHealth()]);
     }
   }
   await renderBoard();
@@ -191,6 +192,7 @@ function updateChrome() {
   $('audit-panel').hidden = !admin;
   $('evidence-panel').hidden = !admin;
   $('backup-panel').hidden = !admin;
+  $('central-panel').hidden = !admin;
   $('provider-panel').hidden = !admin;
   $('hold-panel').hidden = !admin;
   $('rule-panel').hidden = !admin;
@@ -525,6 +527,30 @@ async function renderBackup() {
   $('backup-count').textContent = t('count.parenthesized', { n: rows.length });
 }
 
+async function renderCentral() {
+  const rows = centralRows(await api('/api/central/nodes').catch(() => []));
+  $('central-body').innerHTML = rows
+    .map(
+      (n) =>
+        `<tr><td>#${esc(n.id)}</td><td>${esc(n.name)}</td><td class="muted wrap">${esc(n.baseUrl)}</td><td class="${esc(n.online ? 'ok' : 'bad')}">${tx(n.online ? 'central.online' : 'central.offline')}</td><td>${esc(n.version)}</td><td>${esc(n.channels)}</td><td class="muted">${esc(n.lastSeenUtc ? n.lastSeenUtc.slice(0, 19) : t('central.never'))}</td><td><button type="button" data-central-probe="${Number(n.id)}">${tx('central.probe')}</button> <button class="danger" data-central-del="${Number(n.id)}">${tx('action.delete')}</button></td></tr>`,
+    )
+    .join('');
+  $('central-count').textContent = t('count.parenthesized', { n: rows.length });
+  // 動態按鈕在每次重繪後重綁（同 provider 面板），因為 innerHTML 會換掉節點。
+  Array.from(document.querySelectorAll('[data-central-probe]')).forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const resp = await apiRaw(`/api/central/nodes/${btn.dataset.centralProbe}/probe`, { method: 'POST' }).catch(() => null);
+      if (await feedback('central-msg', resp)) renderCentral();
+    });
+  });
+  Array.from(document.querySelectorAll('[data-central-del]')).forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const resp = await apiRaw(`/api/central/nodes/${btn.dataset.centralDel}`, { method: 'DELETE' }).catch(() => null);
+      if (await feedback('central-msg', resp, () => t('central.deleted'))) renderCentral();
+    });
+  });
+}
+
 function bindBackupForm() {
   const form = $('backup-form');
   form.addEventListener('submit', async (ev) => {
@@ -543,6 +569,26 @@ function bindBackupForm() {
       ? t('backup.done', { scanned: body.scanned, copied: body.copied, size: (body.copiedBytes / 1048576).toFixed(1), failed: body.failed })
       : body?.error ?? t('state.failed');
     if (resp.ok) renderBackup();
+  });
+}
+
+function bindCentralForm() {
+  const form = $('central-form');
+  form.addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    const name = form.querySelector('input[name="cname"]').value.trim();
+    const baseUrl = form.querySelector('input[name="curl"]').value.trim();
+    const apiKey = form.querySelector('input[name="ckey"]').value.trim();
+    if (!name || !baseUrl) return;
+    const resp = await apiRaw('/api/central/nodes', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, baseUrl, apiKey, enabled: true }),
+    }).catch(() => null);
+    if (await feedback('central-msg', resp, () => t('central.added'))) {
+      form.reset();
+      renderCentral();
+    }
   });
 }
 
@@ -1361,6 +1407,7 @@ function wire() {
   $('board-refresh')?.addEventListener('click', () => renderBoard());
   bindEvidenceForm();
   bindBackupForm();
+  bindCentralForm();
   bindExportForm();
   bindProviderForm();
   bindHoldForm();
