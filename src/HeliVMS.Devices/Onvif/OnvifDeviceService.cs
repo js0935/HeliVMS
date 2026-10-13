@@ -19,6 +19,7 @@ public sealed class OnvifDeviceService : IDisposable
     internal static readonly XNamespace Trt = "http://www.onvif.org/ver10/media/wsdl";
     internal static readonly XNamespace Ts = "http://www.onvif.org/ver10/schema";
     internal static readonly XNamespace Tptz = "http://www.onvif.org/ver10/ptz/wsdl";
+    internal static readonly XNamespace Tptz20 = "http://www.onvif.org/ver20/ptz/wsdl";
     internal static readonly XNamespace Wsa = "http://www.w3.org/2005/08/addressing";
     internal static readonly XNamespace Wsse = "http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-secext-1.0.xsd";
     internal static readonly XNamespace Wsu = "http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-utility-1.0.xsd";
@@ -38,6 +39,9 @@ public sealed class OnvifDeviceService : IDisposable
 
     /// <summary>設備曾以 ter:Namespace 拒絕 NodeToken，之後一律不帶（多節點設備才需要該元素）。</summary>
     private bool _ptzNodeTokenRejected;
+
+    /// <summary>已選定的 PTZ WSDL 命名空間（ver10 或 ver20）；由能力驗證時自動判定，預設 ver10。</summary>
+    private XNamespace _ptzWsdl = Tptz;
 
     /// <summary>量測所得之設備時鐘偏差（device − local）；套用於 WS-Security 的 Created 時間戳。</summary>
     private TimeSpan _clockSkew = TimeSpan.Zero;
@@ -320,7 +324,7 @@ public sealed class OnvifDeviceService : IDisposable
                 // 部分設備（含 VIVOTEK）會因無效 profile 回 Fault 而使可用路徑被略過。
                 xAddr = await ProbeServicePathAsync(
                     OnvifEndpointResolver.PtzServicePaths,
-                    new XElement(Tptz + "GetNodes"),
+                    new XElement(_ptzWsdl + "GetNodes"),
                     TptzAction("GetNodes"),
                     cancellationToken);
                 LogPtz($"probe ptz paths -> {Show(xAddr)}");
@@ -348,48 +352,55 @@ public sealed class OnvifDeviceService : IDisposable
     }
 
     /// <summary>
-    /// 以 GetNodes 驗證 PTZ 端點真的接受 PTZ 動作（無參數，最小化相依）。
+    /// 驗證 PTZ 端點可用性並判定其 WSDL 版本：先以 ver10 送 GetNodes（無參數、最小化相依），
+    /// 若設備以 Namespace 錯誤拒絕（ONVIF PTZ 服務自 2.x 起改用 ver20，實測 VIVOTEK 快速球），
+    /// 再以 ver20 重試。成功者即為後續所有 PTZ 動作使用的命名空間。
     /// 暫時性錯誤（逾時／連線）不視為不支援，保留端點讓實際操作回報真實錯誤，避免誤記為無 PTZ。
     /// </summary>
     private async Task<bool> VerifyPtzEndpointAsync(string ptzXAddr, CancellationToken cancellationToken)
     {
-        try
+        // 先 ver10（舊設備），再 ver20（ONVIF PTZ 服務規格 2.x 起之命名空間）。
+        // 以 ver10 對 ver20-only 設備送 GetNodes 會回 Namespace Error，誤判為不支援 PTZ 而關閉 UI。
+        foreach (var ns in new[] { Tptz, Tptz20 })
         {
-            // 以 GetNodes 驗證：它是 ver10 PTZ WSDL 定義的必要動作（無參數），任何 PTZ 服務都應回應。
-            // 不可改用 GetServiceCapabilities——該動作只存在於 ver20 WSDL，本用戶端一律以 ver10
-            // 命名空間送出，會讓僅支援 ver10 的設備（含 VIVOTEK 快速球）回 ter:Namespace（元素命名
-            // 空間不符）而被誤判為不支援 PTZ，導致明明可操控的雲台在 UI 上被關閉。
-            _ = await PostAsync(
-                new XElement(Tptz + "GetNodes"),
-                ptzXAddr,
-                TptzAction("GetNodes"),
-                cancellationToken,
-                retryable: false);
-            LogPtz("verify GetNodes ok");
-            return true;
+            // 先切換命名空間再送出，讓 SOAP 封套的 tptz 前綴宣告與 body 元素一致。
+            _ptzWsdl = ns;
+            try
+            {
+                _ = await PostAsync(
+                    new XElement(ns + "GetNodes"),
+                    ptzXAddr,
+                    $"{ns.NamespaceName}/GetNodes",
+                    cancellationToken,
+                    retryable: false);
+                LogPtz($"verify GetNodes ok ({ns.NamespaceName})");
+                return true;
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (OnvifException ex) when (ex.IsTransient)
+            {
+                // 暫時性錯誤保留端點：以當下嘗試之命名空間為預設，讓實際操作回報真實錯誤。
+                LogPtz($"verify transient {ex.Code}: {ex.Message} ({ns.NamespaceName})");
+                return true;
+            }
+            catch (OnvifException ex)
+            {
+                LogPtz($"verify fault {ex.Code}: {ex.Message} ({ns.NamespaceName})");
+            }
         }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            throw;
-        }
-        catch (OnvifException ex) when (ex.IsTransient)
-        {
-            LogPtz($"verify transient {ex.Code}: {ex.Message}");
-            return true;
-        }
-        catch (OnvifException ex)
-        {
-            LogPtz($"verify fault {ex.Code}: {ex.Message}");
-            return false;
-        }
+
+        return false;
     }
 
     /// <summary>取得 PTZ 目前位置（GetStatus）。</summary>
     public async Task<PtzStatus> GetPtzStatusAsync(string profileToken, CancellationToken cancellationToken = default)
     {
         var body = await PostPtzAsync("GetStatus", profileToken, node =>
-            new XElement(Tptz + "GetStatus",
-                new XElement(Tptz + "ProfileToken", profileToken),
+            new XElement(_ptzWsdl + "GetStatus",
+                new XElement(_ptzWsdl + "ProfileToken", profileToken),
                 node),
             cancellationToken);
 
@@ -442,7 +453,7 @@ public sealed class OnvifDeviceService : IDisposable
         }
 
         return _ptzNodesByProfile.TryGetValue(profileToken, out var nodeToken) && nodeToken.Length > 0
-            ? new XElement(Tptz + "NodeToken", nodeToken)
+            ? new XElement(_ptzWsdl + "NodeToken", nodeToken)
             : null;
     }
 
@@ -467,16 +478,16 @@ public sealed class OnvifDeviceService : IDisposable
         CancellationToken cancellationToken = default)
     {
         _ = await PostPtzAsync("ContinuousMove", profileToken, node =>
-            new XElement(Tptz + "ContinuousMove",
-                new XElement(Tptz + "ProfileToken", profileToken),
+            new XElement(_ptzWsdl + "ContinuousMove",
+                new XElement(_ptzWsdl + "ProfileToken", profileToken),
                 node,
-                new XElement(Tptz + "Velocity",
+                new XElement(_ptzWsdl + "Velocity",
                     new XElement(Ts + "PanTilt",
                         new XAttribute("x", pan.ToString(System.Globalization.CultureInfo.InvariantCulture)),
                         new XAttribute("y", tilt.ToString(System.Globalization.CultureInfo.InvariantCulture))),
                     new XElement(Ts + "Zoom",
                         new XAttribute("x", zoom.ToString(System.Globalization.CultureInfo.InvariantCulture)))),
-                new XElement(Tptz + "Timeout", "PT4S")),
+                new XElement(_ptzWsdl + "Timeout", "PT4S")),
             cancellationToken, retryable: false);
     }
 
@@ -484,11 +495,11 @@ public sealed class OnvifDeviceService : IDisposable
     public async Task StopPtzAsync(string profileToken, CancellationToken cancellationToken = default)
     {
         _ = await PostPtzAsync("Stop", profileToken, node =>
-            new XElement(Tptz + "Stop",
-                new XElement(Tptz + "ProfileToken", profileToken),
+            new XElement(_ptzWsdl + "Stop",
+                new XElement(_ptzWsdl + "ProfileToken", profileToken),
                 node,
-                new XElement(Tptz + "PanTilt", "true"),
-                new XElement(Tptz + "Zoom", "true")),
+                new XElement(_ptzWsdl + "PanTilt", "true"),
+                new XElement(_ptzWsdl + "Zoom", "true")),
             cancellationToken, retryable: false);
     }
 
@@ -496,8 +507,8 @@ public sealed class OnvifDeviceService : IDisposable
     public async Task<IReadOnlyList<PtzPreset>> GetPtzPresetsAsync(string profileToken, CancellationToken cancellationToken = default)
     {
         var body = await PostPtzAsync("GetPresets", profileToken, node =>
-            new XElement(Tptz + "GetPresets",
-                new XElement(Tptz + "ProfileToken", profileToken),
+            new XElement(_ptzWsdl + "GetPresets",
+                new XElement(_ptzWsdl + "ProfileToken", profileToken),
                 node),
             cancellationToken);
 
@@ -524,10 +535,10 @@ public sealed class OnvifDeviceService : IDisposable
     public async Task GotoPtzPresetAsync(string profileToken, string presetToken, CancellationToken cancellationToken = default)
     {
         _ = await PostPtzAsync("GotoPreset", profileToken, node =>
-            new XElement(Tptz + "GotoPreset",
-                new XElement(Tptz + "ProfileToken", profileToken),
+            new XElement(_ptzWsdl + "GotoPreset",
+                new XElement(_ptzWsdl + "ProfileToken", profileToken),
                 node,
-                new XElement(Tptz + "PresetToken", presetToken)),
+                new XElement(_ptzWsdl + "PresetToken", presetToken)),
             cancellationToken, retryable: false);
     }
 
@@ -540,10 +551,10 @@ public sealed class OnvifDeviceService : IDisposable
         CancellationToken cancellationToken = default)
     {
         _ = await PostPtzAsync("AbsoluteMove", profileToken, node =>
-            new XElement(Tptz + "AbsoluteMove",
-                new XElement(Tptz + "ProfileToken", profileToken),
+            new XElement(_ptzWsdl + "AbsoluteMove",
+                new XElement(_ptzWsdl + "ProfileToken", profileToken),
                 node,
-                new XElement(Tptz + "Position",
+                new XElement(_ptzWsdl + "Position",
                     new XElement(Ts + "PanTilt",
                         new XAttribute("x", pan.ToString(System.Globalization.CultureInfo.InvariantCulture)),
                         new XAttribute("y", tilt.ToString(System.Globalization.CultureInfo.InvariantCulture))),
@@ -552,12 +563,12 @@ public sealed class OnvifDeviceService : IDisposable
             cancellationToken, retryable: false);
     }
 
-    /// <summary>返回 Home 位置（Home）。</summary>
+    /// <summary>返回 Home 位置（GotoHomePosition）。</summary>
     public async Task HomeAsync(string profileToken, CancellationToken cancellationToken = default)
     {
-        _ = await PostPtzAsync("Home", profileToken, node =>
-            new XElement(Tptz + "Home",
-                new XElement(Tptz + "ProfileToken", profileToken),
+        _ = await PostPtzAsync("GotoHomePosition", profileToken, node =>
+            new XElement(_ptzWsdl + "GotoHomePosition",
+                new XElement(_ptzWsdl + "ProfileToken", profileToken),
                 node),
             cancellationToken, retryable: false);
     }
@@ -569,10 +580,10 @@ public sealed class OnvifDeviceService : IDisposable
         CancellationToken cancellationToken = default)
     {
         _ = await PostPtzAsync("RemovePreset", profileToken, node =>
-            new XElement(Tptz + "RemovePreset",
-                new XElement(Tptz + "ProfileToken", profileToken),
+            new XElement(_ptzWsdl + "RemovePreset",
+                new XElement(_ptzWsdl + "ProfileToken", profileToken),
                 node,
-                new XElement(Tptz + "PresetToken", presetToken)),
+                new XElement(_ptzWsdl + "PresetToken", presetToken)),
             cancellationToken, retryable: false);
     }
 
@@ -580,10 +591,10 @@ public sealed class OnvifDeviceService : IDisposable
     public async Task<string> SetPtzPresetAsync(string profileToken, string presetName, CancellationToken cancellationToken = default)
     {
         var body = await PostPtzAsync("SetPreset", profileToken, node =>
-            new XElement(Tptz + "SetPreset",
-                new XElement(Tptz + "ProfileToken", profileToken),
+            new XElement(_ptzWsdl + "SetPreset",
+                new XElement(_ptzWsdl + "ProfileToken", profileToken),
                 node,
-                new XElement(Tptz + "PresetName", presetName)),
+                new XElement(_ptzWsdl + "PresetName", presetName)),
             cancellationToken, retryable: false);
 
         return (string?)DescendantAnyNs(body, "PresetToken") ?? string.Empty;
@@ -1329,7 +1340,7 @@ public sealed class OnvifDeviceService : IDisposable
                 new XAttribute(XNamespace.Xmlns + "td", Td.NamespaceName),
                 new XAttribute(XNamespace.Xmlns + "trt", Trt.NamespaceName),
                 new XAttribute(XNamespace.Xmlns + "tns", Ts.NamespaceName),
-                new XAttribute(XNamespace.Xmlns + "tptz", Tptz.NamespaceName),
+                new XAttribute(XNamespace.Xmlns + "tptz", _ptzWsdl.NamespaceName),
                 new XAttribute(XNamespace.Xmlns + "wsa", Wsa.NamespaceName),
                 new XAttribute(XNamespace.Xmlns + "wse", Wsse.NamespaceName),
                 new XAttribute(XNamespace.Xmlns + "wsu", Wsu.NamespaceName),
@@ -1339,7 +1350,7 @@ public sealed class OnvifDeviceService : IDisposable
 
     private static string TdAction(string action) => $"http://www.onvif.org/ver10/device/wsdl/{action}";
     private static string TrtAction(string action) => $"http://www.onvif.org/ver10/media/wsdl/{action}";
-    private static string TptzAction(string action) => $"http://www.onvif.org/ver10/ptz/wsdl/{action}";
+    private string TptzAction(string action) => $"{_ptzWsdl.NamespaceName}/{action}";
 
     public void Dispose() => _http.Dispose();
 

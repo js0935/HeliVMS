@@ -248,7 +248,7 @@ public class OnvifServiceTests
         await service.SetPtzPresetAsync("MainProfile", "入口");
         await service.RemovePtzPresetAsync("MainProfile", "p_main_preset");
 
-        var actions = new[] { "GetStatus", "ContinuousMove", "Stop", "Home", "AbsoluteMove", "GetPresets", "GotoPreset", "SetPreset", "RemovePreset" };
+        var actions = new[] { "GetStatus", "ContinuousMove", "Stop", "GotoHomePosition", "AbsoluteMove", "GetPresets", "GotoPreset", "SetPreset", "RemovePreset" };
         foreach (var action in actions)
         {
             var request = handler.Requests.Single(r => r.Body.Contains(action, StringComparison.Ordinal));
@@ -329,9 +329,9 @@ public class OnvifServiceTests
         Assert.Contains("x=\"0.5\"", request.Body);
     }
 
-    /// <summary>Home 應送至 ptz 端點（GotoHomePosition）。</summary>
+    /// <summary>Home 應送至 ptz 端點（GotoHomePosition，非標準外不存在的 Home）。</summary>
     [Fact]
-    public async Task Home_PostsHomeAction_ToPtzEndpoint()
+    public async Task Home_PostsGotoHomePositionAction_ToPtzEndpoint()
     {
         var handler = new RecordingHandler((_, body) =>
             body.Contains("GetCapabilities", StringComparison.Ordinal) ? CapsAllWithPtzResponse : EmptyBodyResponse);
@@ -339,7 +339,7 @@ public class OnvifServiceTests
 
         await service.HomeAsync("MainProfile");
 
-        var request = handler.Requests.Single(r => r.Body.Contains("Home", StringComparison.Ordinal));
+        var request = handler.Requests.Single(r => r.Body.Contains("GotoHomePosition", StringComparison.Ordinal));
         Assert.Equal("http://192.168.1.5/onvif/ptz_service", request.Url);
         Assert.Contains("MainProfile", request.Body);
     }

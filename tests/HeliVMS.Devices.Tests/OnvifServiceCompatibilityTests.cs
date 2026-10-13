@@ -649,8 +649,9 @@ public class OnvifServiceCompatibilityTests
     }
 
     /// <summary>
-    /// 設備宣告 PTZ XAddr 卻對所有 PTZ 動作回 ter:Namespace（實測 VIVOTEK SD9368-EHL）時，
-    /// 應視為不支援 PTZ，讓 UI 不提供無法使用的功能。
+    /// 設備宣告 PTZ XAddr，但對 ver10 與 ver20 的 GetNodes 都回 Fault 時，應視為不支援 PTZ，
+    /// 讓 UI 不提供無法使用的功能。注意：只對 ver10 回 Namespace Error 的 ver20-only 設備不算此類
+    /// （見 EnsurePtzCapability_Ver10NamespaceFault_FallsBackToVer20）。
     /// </summary>
     [Fact]
     public async Task EnsurePtzCapability_NamespaceFaultOnPtzActions_TreatsPtzAsUnsupported()
@@ -671,6 +672,39 @@ public class OnvifServiceCompatibilityTests
 
         var error = await Assert.ThrowsAsync<OnvifException>(() => service.StopPtzAsync("MainProfile"));
         Assert.Equal(OnvifErrorCode.NotSupported, error.Code);
+    }
+
+    /// <summary>
+    /// 只實作 ver20 PTZ WSDL 的設備（ONVIF PTZ 服務規格 2.x 起；實測 125.227.64.37 之 VIVOTEK 快速球）
+    /// 對 ver10 的 GetNodes 回 Namespace Error，但對 ver20 正常回應。能力驗證須退回 ver20 並保留 PTZ，
+    /// 且後續 PTZ 動作也要用 ver20 命名空間，否則可操控的雲台會在 UI 被關閉且無任何線索。
+    /// </summary>
+    [Fact]
+    public async Task EnsurePtzCapability_Ver10NamespaceFault_FallsBackToVer20()
+    {
+        var handler = new ScriptedHandler((_, body) =>
+            body.Contains("GetCapabilities", StringComparison.Ordinal)
+                ? OnvifTestHttp.Soap(OnvifTestHttp.Capabilities(("PTZ", "http://192.168.1.64/onvif/ptz_service")))
+                : body.Contains("ver10/ptz/wsdl/GetNodes", StringComparison.Ordinal)
+                    ? OnvifTestHttp.Soap(
+                        "<s:Envelope xmlns:s=\"http://www.w3.org/2003/05/soap-envelope\"><s:Body><s:Fault>" +
+                        "<s:Code><s:Value>s:Sender</s:Value></s:Code>" +
+                        "<s:Reason><s:Text xml:lang=\"en\">Namespace Error</s:Text></s:Reason>" +
+                        "</s:Fault></s:Body></s:Envelope>")
+                    : OnvifTestHttp.Soap(
+                        "<s:Envelope xmlns:s=\"http://www.w3.org/2003/05/soap-envelope\"><s:Body>" +
+                        "<tptz:GetNodesResponse xmlns:tptz=\"http://www.onvif.org/ver20/ptz/wsdl\" /></s:Body></s:Envelope>"));
+
+        using var service = new OnvifDeviceService(DeviceXAddr, null, null, handler, NoRetry);
+
+        await service.EnsurePtzCapabilityAsync();
+        Assert.True(service.HasPtz);
+        Assert.Equal("http://192.168.1.64/onvif/ptz_service", service.PtzXAddr);
+
+        // 後續 PTZ 動作須沿用已判定的 ver20 命名空間（依 SOAPAction 判定）。
+        await service.GetPtzPresetsAsync("MainProfile");
+        Assert.Contains(handler.Requests, r => r.Body.Contains("ver20/ptz/wsdl/GetPresets", StringComparison.Ordinal));
+        Assert.DoesNotContain(handler.Requests, r => r.Body.Contains("ver10/ptz/wsdl/GetPresets", StringComparison.Ordinal));
     }
 
     /// <summary>
