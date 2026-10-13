@@ -384,6 +384,33 @@ public class OnvifServiceCompatibilityTests
         Assert.Equal("http://192.168.1.64/onvif/ptz_service", service.PtzXAddr);
     }
 
+    /// <summary>
+    /// 未在 GetCapabilities／GetServices 宣告 PTZ 的 ver10 設備，改以路徑探測時必須用無參數的
+    /// GetNodes；若用 GetPresets 帶空 ProfileToken，會因無效 profile 回 Fault，把可操控的雲台漏掉。
+    /// </summary>
+    [Fact]
+    public async Task EnsurePtzCapability_NoAdvertisedPtz_ProbesPathWithGetNodes()
+    {
+        var handler = new ScriptedHandler((_, body) =>
+            body.Contains("GetCapabilities", StringComparison.Ordinal)
+                ? OnvifTestHttp.Soap(OnvifTestHttp.Capabilities(("Device", "http://192.168.1.64/onvif/device_service")))
+                : body.Contains("GetServices", StringComparison.Ordinal)
+                    ? OnvifTestHttp.Soap(OnvifTestHttp.Services(
+                        ("http://www.onvif.org/ver10/media/wsdl", "http://192.168.1.64/onvif/Media")))
+                    : body.Contains("GetNodes", StringComparison.Ordinal)
+                        ? OnvifTestHttp.Soap(
+                            "<s:Envelope xmlns:s=\"http://www.w3.org/2003/05/soap-envelope\"><s:Body>" +
+                            "<tptz:GetNodesResponse xmlns:tptz=\"http://www.onvif.org/ver10/ptz/wsdl\" /></s:Body></s:Envelope>")
+                        : OnvifTestHttp.Status(HttpStatusCode.NotFound, "<html>404</html>"));
+
+        using var service = new OnvifDeviceService(DeviceXAddr, null, null, handler, NoRetry);
+        await service.EnsurePtzCapabilityAsync();
+
+        Assert.True(service.HasPtz);
+        Assert.Contains(handler.Requests, r => r.Body.Contains("GetNodes", StringComparison.Ordinal));
+        Assert.DoesNotContain(handler.Requests, r => r.Body.Contains("GetPresets", StringComparison.Ordinal));
+    }
+
     [Fact]
     public async Task GetPtzStatus_WithoutPtzCapability_ThrowsNotSupported()
     {

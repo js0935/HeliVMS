@@ -266,6 +266,28 @@ public sealed class OnvifDeviceService : IDisposable
         return null;
     }
 
+    /// <summary>PTZ 能力解析診斷記錄（%TEMP%\helivms-onvif-ptz.log），供實機排查「不支援 PTZ」無線索時使用。</summary>
+    internal static string PtzDiagnosticLogPath { get; } =
+        Path.Combine(Path.GetTempPath(), "helivms-onvif-ptz.log");
+
+    private static void LogPtz(string message)
+    {
+        try
+        {
+            File.AppendAllText(
+                PtzDiagnosticLogPath,
+                $"{DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss.fff} {message}{Environment.NewLine}");
+        }
+        catch (IOException)
+        {
+        }
+        catch (UnauthorizedAccessException)
+        {
+        }
+    }
+
+    private static string Show(string? xAddr) => string.IsNullOrEmpty(xAddr) ? "(none)" : xAddr;
+
     /// <summary>確保已解析 PTZ 服務位址（GetCapabilities Category=All，再回退 Category=PTZ）。</summary>
     public async Task EnsurePtzCapabilityAsync(CancellationToken cancellationToken = default)
     {
@@ -283,15 +305,25 @@ public sealed class OnvifDeviceService : IDisposable
             }
 
             var xAddr = await TryResolveCapabilityAsync("PTZ", ["All", "PTZ"], cancellationToken);
-            xAddr ??= await TryResolveServiceAsync("ver10/ptz/wsdl", cancellationToken);
+            LogPtz($"resolve begin device={DeviceXAddr}");
+            LogPtz($"GetCapabilities PTZ -> {Show(xAddr)}");
             if (string.IsNullOrEmpty(xAddr))
             {
-                // 不支援 GetCapabilities／GetServices 之設備：探測常見 PTZ 路徑
+                xAddr = await TryResolveServiceAsync("ptz/wsdl", cancellationToken);
+                LogPtz($"GetServices ptz -> {Show(xAddr)}");
+            }
+
+            if (string.IsNullOrEmpty(xAddr))
+            {
+                // 不支援 GetCapabilities／GetServices 之設備：探測常見 PTZ 路徑。
+                // 以 GetNodes（ver10 定義、無參數）探測；不可用 GetPresets 帶空 ProfileToken，
+                // 部分設備（含 VIVOTEK）會因無效 profile 回 Fault 而使可用路徑被略過。
                 xAddr = await ProbeServicePathAsync(
                     OnvifEndpointResolver.PtzServicePaths,
-                    new XElement(Tptz + "GetPresets", new XElement(Tptz + "ProfileToken", string.Empty)),
-                    TptzAction("GetPresets"),
+                    new XElement(Tptz + "GetNodes"),
+                    TptzAction("GetNodes"),
                     cancellationToken);
+                LogPtz($"probe ptz paths -> {Show(xAddr)}");
             }
 
             PtzXAddr = xAddr ?? string.Empty;
@@ -301,7 +333,12 @@ public sealed class OnvifDeviceService : IDisposable
             // 不可用時清空位址讓 HasPtz 為 false，避免 UI 提供無法使用的 PTZ 功能。
             if (PtzXAddr.Length > 0 && !await VerifyPtzEndpointAsync(PtzXAddr, cancellationToken))
             {
+                LogPtz($"verify failed at {PtzXAddr} -> HasPtz=false");
                 PtzXAddr = string.Empty;
+            }
+            else
+            {
+                LogPtz($"resolved PtzXAddr={Show(PtzXAddr)} HasPtz={PtzXAddr.Length > 0}");
             }
         }
         finally
@@ -328,6 +365,7 @@ public sealed class OnvifDeviceService : IDisposable
                 TptzAction("GetNodes"),
                 cancellationToken,
                 retryable: false);
+            LogPtz("verify GetNodes ok");
             return true;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -336,10 +374,12 @@ public sealed class OnvifDeviceService : IDisposable
         }
         catch (OnvifException ex) when (ex.IsTransient)
         {
+            LogPtz($"verify transient {ex.Code}: {ex.Message}");
             return true;
         }
-        catch (OnvifException)
+        catch (OnvifException ex)
         {
+            LogPtz($"verify fault {ex.Code}: {ex.Message}");
             return false;
         }
     }
