@@ -155,7 +155,7 @@ describe('createLiveViewer.open', () => {
     expect(v.sessionId).toBe('/api/stream/whep/abc');
   });
 
-  it('只要求 video 且是 sendonly', async () => {
+  it('只要求 video 且是 recvonly', async () => {
     const apiRaw = vi.fn(async () => ({
       ok: true,
       status: 201,
@@ -166,7 +166,9 @@ describe('createLiveViewer.open', () => {
 
     const [transceiver] = FakePeer.instances[0].transceivers;
     expect(transceiver.kind).toBe('video');
-    expect(transceiver.direction).toBe('sendonly');
+    // 伺服器的 answer 是 a=sendonly；瀏覽器這邊若寫成 sendonly，兩端都是送端，
+    // Chrome 會以「Incompatible receive direction」拒絕 answer 而完全開不起來。
+    expect(transceiver.direction).toBe('recvonly');
   });
 
   it('ICE 收集完成前不會送出 offer', async () => {

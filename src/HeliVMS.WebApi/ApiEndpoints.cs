@@ -438,7 +438,7 @@ public static class ApiEndpoints
         api.MapDelete("/patrols/{id:long}", static (long id, PatrolRepository repo) =>
             repo.Delete(id) ? Results.Ok() : Results.NotFound());
 
-        api.MapPost("/accounts/authenticate", static (LoginRequest body, AuthService auth) =>
+        api.MapPost("/accounts/authenticate", static (LoginRequest body, AuthService auth, AccountSessionStore sessions) =>
         {
             if (string.IsNullOrWhiteSpace(body.Username) || string.IsNullOrEmpty(body.Password))
             {
@@ -451,7 +451,23 @@ public static class ApiEndpoints
                 return Results.Json(new { error = result.Error }, statusCode: StatusCodes.Status401Unauthorized);
             }
 
-            return Results.Ok(new { role = result.Role, displayName = result.DisplayName });
+            // M306：登入成功即簽發工作階段 token。SPA 之後以 Bearer token 呼叫 /api/*，
+            // 不需要另外餵一顆 API 金鑰（金鑰仍可用，兩者同層）。
+            var username = body.Username.Trim();
+            var token = sessions.Create(username, result.Role, result.DisplayName);
+            return Results.Ok(new { role = result.Role, displayName = result.DisplayName, token });
+        });
+
+        api.MapPost("/accounts/logout", static (HttpContext context, AccountSessionStore sessions) =>
+        {
+            // 登出是無條件成功：撤銷目前憑證（若有），但不會因為「已經失效」而讓使用者卡住。
+            var header = context.Request.Headers.Authorization.ToString();
+            if (header.StartsWith("Bearer ", StringComparison.Ordinal))
+            {
+                sessions.Revoke(header[7..].Trim());
+            }
+
+            return Results.Ok();
         });
 
         api.MapGet("/accounts", static (UserRepository users) =>

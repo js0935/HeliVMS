@@ -41,10 +41,10 @@ export function formatTimestamp(iso) {
 
 export function eventRow(e) {
   return {
-    id: e.id ?? e.Id,
-    time: formatTimestamp(e.startUtc ?? e.StartUtc),
-    channel: e.channelId ?? e.ChannelId,
-    type: e.eventType ?? e.EventType,
+    id: e.sourceId ?? e.SourceId,
+    time: formatTimestamp(e.occurredAtUtc ?? e.OccurredAtUtc),
+    source: Number(e.source ?? e.Source ?? 0),
+    text: e.text ?? e.Text ?? '',
     status: e.status ?? e.Status,
   };
 }
@@ -296,7 +296,7 @@ export function pollGate(activeTagName, docHidden) {
 export function parseLogin(payload) {
   if (!payload || typeof payload !== 'object') return { ok: false, error: t('state.badResponse') };
   if (typeof payload.role === 'string' && payload.role.length > 0) {
-    return { ok: true, role: payload.role, displayName: payload.displayName ?? null };
+    return { ok: true, role: payload.role, displayName: payload.displayName ?? null, token: payload.token ?? null };
   }
   return { ok: false, error: payload.error || t('state.loginFailed') };
 }

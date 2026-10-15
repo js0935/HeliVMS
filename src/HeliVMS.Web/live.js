@@ -105,8 +105,12 @@ export function createLiveViewer({ apiRaw, t }) {
     await stop();
 
     const peer = new RTCPeerConnection({ iceServers: [] });
-    // 伺服器不送音軌；這裡也不要求音訊，避免多開一條 m-line 造成協商失敗。
-    peer.addTransceiver('video', { direction: 'sendonly' });
+    // 伺服器是送端（answer 為 a=sendonly），所以這條 video transceiver 對瀏覽器必須是
+    // recvonly。只要求 video、不要求音訊，避免多開一條 m-line。
+    // 這裡曾經寫成 sendonly：兩端都自稱送端，Chrome 會直接以
+    // 「Failed to set remote answer sdp: Incompatible receive direction」拒絕 answer，
+    // 連線根本建立不起來（C# loopback 用的是 recvonly，所以只有真實瀏覽器會踩到）。
+    peer.addTransceiver('video', { direction: 'recvonly' });
     video.srcObject = new MediaStream();
 
     peer.ontrack = (ev) => {
@@ -159,10 +163,10 @@ export function createLiveViewer({ apiRaw, t }) {
  *
  * TURN 與 PUBLIC_HOST 都是環境變數，操作員在畫面上看不到，卻是「遠端連不上」
  * 最常見的原因：沒有 TURN 時，對稱 NAT 一定連不回來，而症狀只是播放器卡住，
- * 沒有任何錯誤。M244 §7 要求這個限制在 UI 明說，所以要由伺服器據實回答。
+ * 沒有任何錯誤。UI 不再主動提示這件事，這個查詢保留給診斷／手動檢查用。
  *
- * 回 `null` 表示問不到（舊版伺服器、網路失敗）。此時**不**顯示任何警告：
- * 寧可少一句提醒，也不要在沒有證據時對操作員講一個可能是錯的結論。
+ * 回 `null` 表示問不到（舊版伺服器、網路失敗）。呼叫端不可把 `null` 當成
+ * 「沒有 TURN」——沒有證據時不該下結論。
  *
  * @param {number} channelId 通道編號；狀態端點掛在通道上。
  * @returns {Promise<{turnConfigured: boolean, publicHostConfigured: boolean}|null>}

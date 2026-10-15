@@ -586,6 +586,13 @@
           "HeliVMS.Shared": "[0.1.0, )"
         }
       },
+      "helivms.devices": {
+        "type": "Project",
+        "dependencies": {
+          "HeliVMS.Core": "[0.1.0, )",
+          "HeliVMS.Shared": "[0.1.0, )"
+        }
+      },
       "helivms.licensing": {
         "type": "Project",
         "dependencies": {
@@ -617,6 +624,7 @@
       "helivms.webapi": {
         "type": "Project",
         "dependencies": {
+          "HeliVMS.Devices": "[0.1.0, )",
           "HeliVMS.Rtc": "[0.1.0, )",
           "HeliVMS.Shared": "[0.1.0, )",
           "HeliVMS.Storage": "[0.1.0, )"

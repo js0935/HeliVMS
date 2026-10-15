@@ -17,56 +17,39 @@ function expectLocalized(source, key, zhTW) {
   expect(i18nSource).toContain(`'${key}': '${zhTW}'`);
 }
 
-describe('alarm board consolidation', () => {
-  it('renders the board from the validated alarm-board API', () => {
-    expect(appSource).toMatch(/\/api\/alarm-board\?take=200/);
-    expect(appSource).toMatch(/\/api\/alarm-board\/summary/);
+describe('five-tab console', () => {
+  it('has dropped the legacy admin/board panels', () => {
+    for (const gone of ['renderBoard', 'renderNotifs', 'renderProviders', 'gatedFetch', 'admin-nav', 'central-panel', 'alarm-panel', 'sw-panel']) {
+      expect(appSource, gone).not.toContain(gone);
+      expect(indexSource, gone).not.toContain(gone);
+    }
   });
 
-  it('filters the board rows through the chip filter state', () => {
-    expect(appSource).toMatch(/filterBoardRows\(rows, boardFilter\)/);
-    expect(appSource).toMatch(/data-board-filter/);
+  it('opens the live tab by default and switches on click', () => {
+    expect(appSource).toMatch(/showTab\('live'\);/);
+    expect(appSource).toMatch(/btn\.addEventListener\('click', \(\) => showTab\(btn\.dataset\.tab\)\)/);
   });
 
-  it('has no legacy alarms/board path, renderer, or escalation glyph', () => {
-    expect(appSource).not.toMatch(/\/api\/alarms\/board/);
-    expect(appSource).not.toMatch(/refreshBoard/);
-    expect(appSource).not.toMatch(/board-summary/);
-    expect(appSource).not.toMatch(/data-p="critical"/);
-  });
-
-  it('keeps the dashboard single-source boot/poll entry point', () => {
-    expect(appSource).toMatch(/setInterval\(\(\) => \{[\s\S]*?\}/);
-    expect(appSource).toMatch(/async function refreshAll\(\)[\s\S]*renderBoard\(\)[\s\S]*renderNotifs\(\)[\s\S]*renderExports\(\)/);
-  });
-});
-
-describe('dashboard live polling', () => {
-  it('polls on an interval', () => {
+  it('keeps the single-source boot/poll entry point', () => {
+    expect(appSource).toMatch(/^boot\(\);$/m);
     expect(appSource).toMatch(/POLL_MS[\s\S]*setInterval/);
-  });
-
-  it('pauses while the tab is hidden or an interactive control is focused', () => {
     expect(appSource).toMatch(/pollGate\(document\.activeElement\?\.tagName, document\.hidden\)/);
   });
 });
 
-describe('accounts area', () => {
-  it('has no traces of old alert-panel toggle', () => {
-    expect(indexSource).not.toMatch(/id="alarm-panel"/);
-  });
-});
-
 describe('api-key flow', () => {
-  it('refreshes the dashboard immediately when the API key is committed with Enter', () => {
+  it('refreshes immediately when the API key is committed with Enter', () => {
     expect(appSource).toMatch(/apikey'\)\.addEventListener\('keydown'[\s\S]*Enter[\s\S]*refreshAll\(\)/);
   });
 });
 
 describe('search feedback', () => {
-  it('reports empty result sets and truncation', () => {
+  it('reports empty result sets and a capped page', () => {
     expectLocalized(appSource, 'state.noResults', '沒有符合的結果');
-    expect(appSource).toMatch(/page\.total/);
+    // 後端只回當頁筆數（count），沒有總數；結果剛好塞滿一頁時改用「前 N 筆」提示，
+    // 不再讀一個不存在的 page.total（原症狀是畫面顯示「找到 undefined 筆」）。
+    expect(appSource).toMatch(/search\.foundCapped/);
+    expect(appSource).not.toMatch(/page\.total/);
   });
 
   it('guards empty queries with a hint', () => {
@@ -79,37 +62,25 @@ describe('search feedback', () => {
   });
 });
 
-describe('search-to-action', () => {
-  it('labels the search source column and action header', () => {
-    expect(indexSource).toMatch(/<th scope="col"[^>]*data-i18n="col\.source"/);
-    expect(indexSource).toMatch(/<th scope="col"[^>]*data-i18n="col\.operation"/);
+describe('event search table', () => {
+  it('labels the five columns it renders', () => {
+    for (const col of ['time', 'source', 'text', 'status']) {
+      expect(indexSource).toMatch(new RegExp(`<th scope="col"[^>]*data-i18n="col\\.${col}"`));
+    }
   });
 
-it('renders per-hit source names', () => {
+  it('renders per-hit source names', () => {
     // 翻譯必須在呼叫時求值，否則切換語言後這張來源表會停在舊語言。
     expect(appSource).toMatch(/FORENSIC_SOURCE_NAMES = \{ 1: \(\) => t\('replay\.sourceAlarm'\), 2: \(\) => t\('replay\.source'\), 4: \(\) => 'POS', 8: \(\) => t\('replay\.sourceEdgeAi'\) \}/);
     expect(appSource).toMatch(/FORENSIC_SOURCE_NAMES\[source\]\?\.\(\)/);
   });
 
-  it('shows alarm hit id and status, and gates 確認/誤報 actions to alarm hits for actors', () => {
-    expect(appSource).toMatch(/data-sack="\$\{Number\(sid\)\}"/);
-    expect(appSource).toMatch(/data-sfa="\$\{Number\(sid\)\}"/);
-    expect(appSource).toMatch(/can && source === 1/);
-    expect(appSource).toMatch(/esc\(row\.status \|\| '—'\)/);
-  });
-
-  it('refreshes the same search after acting on a hit', () => {
-    expect(appSource).toMatch(/bindSearchActions\(\(\) => searchEvents\(q\)\)/);
-  });
-
-  it('re-syncs the board counts after a search-row action', () => {
-    const actions = appSource.match(/refresh\(\);\s*renderBoard\(\);/g) ?? [];
-    expect(actions.length).toBe(2);
-  });
-
-  it('reuses the alarm-board disposition endpoints through the authenticated transport', () => {
-    expect(appSource).toMatch(/\/api\/alarm-board\/\$\{btn\.dataset\.sack\}\/ack/);
-    expect(appSource).toMatch(/\/api\/alarm-board\/\$\{btn\.dataset\.sfa\}\/disposition/);
+  it('shows id and status, and leaves the table read-only', () => {
+    expect(appSource).toMatch(/esc\(status \|\| '—'\)/);
+    // 事件紀錄是唯讀檢視：不再有確認／誤報的列內動作，也不再打 alarm-board。
+    expect(appSource).not.toMatch(/data-sack=/);
+    expect(appSource).not.toMatch(/data-sfa=/);
+    expect(appSource).not.toMatch(/\/api\/alarm-board/);
   });
 });
 
@@ -123,7 +94,7 @@ describe('connection banner', () => {
     expect(appSource).toMatch(/catch \(err\) \{\s*setConn\(false\);\s*throw err;\s*\}/);
   });
 
-it('renders a disconnect label and hides empty state', () => {
+  it('renders a disconnect label and hides empty state', () => {
     expect(appSource).toMatch(/el\.textContent = ok \? '' : t\('state\.disconnected'\);/);
     expect(i18nSource).toContain("'state.disconnected': '連線中斷'");
   });
@@ -134,15 +105,15 @@ describe('license banner', () => {
     expect(indexSource).toMatch(/id="lic"[^>]*role="status"[^>]*aria-live="polite"/);
   });
 
-  it('polls license state alongside the rest of the dashboard', () => {
+  it('polls license state alongside the rest of the console', () => {
     // 只在 boot 取一次不夠：授權可能在執行中被匯入或到期。
     expect(appSource).toMatch(/await refreshLicense\(\);\s*await refreshAll\(\);/);
-    expect(appSource).toMatch(/refreshLicense\(\);\s*refreshAll\(\);/);
+    expect(appSource).toMatch(/setInterval\(\(\) => \{[\s\S]*refreshLicense\(\);[\s\S]*refreshAll\(\);/);
   });
 
-it('names the missing features instead of leaving an empty panel', () => {
+  it('names the missing features instead of leaving an empty badge', () => {
     expect(appSource).toMatch(/apiRaw\('\/api\/license'\)/);
-    expect(appSource).toMatch(/tx?\('state\.unauthorized'/);
+    expect(appSource).toMatch(/t\('state\.unauthorized'/);
     expect(i18nSource).toContain("'state.unauthorized': '未授權：{reason}'");
     expect(appSource).toMatch(/\.filter\(\(f\) => !f\.allowed\)/);
   });
@@ -165,211 +136,82 @@ it('names the missing features instead of leaving an empty panel', () => {
   });
 });
 
-/**
- * 閘門是整條路徑一起擋的，所以同一面板的每個動作都可能拿到 403 與同一句 error。
- * 動作層不顯示出來的話，使用者只會看到畫面原封不動地回來，像是按了沒反應；
- * 而讀取層若把 403 吞成空清單，「沒授權」看起來就跟「這個頻道沒資料」一樣。
- * 這裡的清單刻意從伺服器的閘門表格推導出來：閘門多擋一條路徑，這條測試就會逼 SPA 補回饋。
- */
-const gateSource = readFileSync(
-  fileURLToPath(new URL('../HeliVMS.WebApi/LicenseGateMiddleware.cs', import.meta.url)),
-  'utf8',
-);
-const serverGatedPrefixes = [...gateSource.matchAll(/\("(\/api\/[\w/]+)",\s*LicenseFeatures\.\w+\)/g)].map(
-  (m) => m[1],
-);
-const spaApiLiterals = [...appSource.matchAll(/['`](\/api\/[A-Za-z0-9_-]*)/g)].map((m) => m[1]);
-const appLines = appSource.split(/\r?\n/);
-
-/** 取出 `function name(...)` 到下一個頂層 function 宣告之間的原始碼。 */
-function functionBody(name) {
-  const start = appSource.search(new RegExp(`^(?:async )?function ${name}\\(`, 'm'));
-  expect(start, `${name} 找不到`).toBeGreaterThan(-1);
-  const rest = appSource.slice(start + 1);
-  const next = rest.search(/^(?:async )?function \w+\(/m);
-  return appSource.slice(start, next === -1 ? undefined : start + 1 + next);
-}
-
-/** 面板讀取函式必須自己清掉筆數，而不是沿用上一次成功的畫面。 */
-const gatedRenders = [
-  ['renderSchedules', 'sched-count'],
-  ['renderPatrols', 'patrol-count'],
-  ['renderDetections', 'det-count'],
-  ['renderProviders', 'provider-count'],
-  ['renderShares', 'share-count'],
-];
-
-/** 列內動作（刪除／撤銷／切換）同樣要回報未授權。 */
-const gatedRowActions = [
-  ['renderSchedules', 'data-sched-del', 'sched-msg'],
-  ['renderPatrols', 'data-patrol-del', 'patrol-msg'],
-  ['renderProviders', 'data-provider-toggle', 'provider-msg'],
-  ['renderProviders', 'data-provider-del', 'provider-msg'],
-  ['renderShares', 'data-share-revoke', 'share-msg'],
-];
-
-/**
- * 取出某個 `[data-*]` 選擇器自己的那一段迴圈內容，到下一個 `[data-*]` 為止。
- * 邊界要真的收斂：直接切到檔尾的話，別處的 feedback 會讓斷言永遠成立。
- */
-function rowActionBlock(fn, action) {
-  const body = functionBody(fn);
-  const at = body.indexOf(`[${action}]`);
-  expect(at, `${fn} 內找不到 ${action} 的 handler`).toBeGreaterThan(-1);
-  const rest = body.slice(at);
-  const next = rest.indexOf('[data-', 1);
-  return next === -1 ? rest : rest.slice(0, next);
-}
-
-describe('license denial feedback on gated panels', () => {
-  it('parses the server gate table so new prefixes cannot slip through unnoticed', () => {
-    expect(serverGatedPrefixes.length).toBeGreaterThanOrEqual(5);
-  });
-
-  it('reads every gated prefix the SPA touches through gatedFetch', () => {
-    for (const prefix of serverGatedPrefixes) {
-      if (!spaApiLiterals.some((url) => url.startsWith(prefix))) continue;
-      const line = appLines.find((l) => l.includes('gatedFetch(') && l.includes(prefix));
-      expect(line, `${prefix} 在 SPA 有用到，但沒有任何面板用 gatedFetch 回報未授權`).toBeTruthy();
-      const msg = /gatedFetch\('([\w-]+)'/.exec(line)[1];
-      expect(indexSource, `${msg} 必須是 live region`).toMatch(
-        new RegExp(`id="${msg}"[^>]*aria-live="polite"`),
-      );
-    }
-  });
-
-  it('never swallows a gated read into an empty list', () => {
-    for (const prefix of serverGatedPrefixes) {
-      expect(appSource, `${prefix} 不可用 api() 直接讀，否則 403 會變成空清單`).not.toMatch(
-        new RegExp(`api\\(['\`]${prefix}`),
-      );
-    }
-  });
-
-  it('clears the row count instead of rendering zero rows when denied', () => {
-    for (const [fn, count] of gatedRenders) {
-      const body = functionBody(fn);
-      expect(body, `${fn} 必須處理 gatedFetch 的 null`).toMatch(/if \(!list\) \{/);
-      expect(body, `${fn} 被擋下時要清掉 ${count}`).toMatch(
-        new RegExp(`if \\(!list\\) \\{[\\s\\S]*?\\$\\('${count}'\\)\\.textContent = '';`),
-      );
-      expect(body, `${fn} 必須從 gatedFetch 取得資料`).toMatch(/gatedFetch\('/);
-    }
-  });
-
-it('shows the server denial text instead of a generic failure', () => {
-    const body = functionBody('feedback');
-    expect(body).toMatch(/info\?\.error \?\? t\('state\.failed'\)/);
-    expect(body).toMatch(/t\('state\.disconnected'\)/);
-    expect(body).toMatch(/resp\.ok \? okText\(info\)/);
-    expect(body).toMatch(/return resp\.ok;/);
-    // fallback 訊息必須真的有譯文，否則閘門擋下時會顯示 ‼state.failed。
-    expect(i18nSource).toContain("'state.failed': '失敗'");
-    expect(i18nSource).toContain("'state.disconnected': '連線中斷'");
-  });
-
-  it('adds a live region to every gated panel', () => {
-    for (const [, , msg] of gatedRowActions) {
-      expect(indexSource).toMatch(new RegExp(`id="${msg}"[^>]*aria-live="polite"`));
-    }
-  });
-
-  it('reports the denial for row-level actions too', () => {
-    for (const [fn, action, msg] of gatedRowActions) {
-      expect(rowActionBlock(fn, action), `${action} 被閘門擋下時必須回報到 ${msg}`).toMatch(
-        new RegExp(`feedback\\('${msg}'`),
-      );
-    }
-  });
-
-  it('reverts the provider checkbox when the server refuses the toggle', () => {
-    // 只顯示錯誤不還原勾選，畫面會停在一個伺服器根本沒接受的狀態。
-    expect(rowActionBlock('renderProviders', 'data-provider-toggle')).toMatch(
-      /if \(\!\(await feedback\('provider-msg', resp\)\)\) \{[\s\S]*?cb\.checked = !cb\.checked;/,
-    );
-  });
-
-  it('no longer swallows the create response with ok?.ok', () => {
-    expect(appSource).not.toMatch(/if \(ok\?\.ok\) renderSchedules\(\);/);
-    expect(appSource).not.toMatch(/if \(ok\?\.ok\) renderPatrols\(\);/);
+describe('live streaming (WHEP)', () => {
+  it('opens the viewer through the injected transport', () => {
+    expect(appSource).toMatch(/createLiveViewer\(\{ apiRaw, t \}\)/);
+    expect(appSource).toMatch(/viewer\.open\(channelId, video/);
+    expect(appSource).toMatch(/\$\('live-form'\)\.addEventListener\('submit', openLiveView\)/);
   });
 });
 
-describe('board freshness', () => {
-  it('labels the overdue column it already renders', () => {
-    expect(indexSource).toMatch(/<th scope="col"[^>]*data-i18n="col\.overdue"/);
+describe('snapshot', () => {
+  it('captures the decoded frame to a PNG download', () => {
+    // 直接複製畫面上已解碼的那一格：零延遲、零後端相依。
+    expect(appSource).toMatch(/getContext\('2d'\)\.drawImage\(video, 0, 0\)/);
+    expect(appSource).toMatch(/canvas\.toBlob\(/);
+    expect(appSource).toMatch(/link\.download = `snapshot-ch/);
+    expect(appSource).toMatch(/URL\.createObjectURL\(blob\)/);
   });
 
-  it('adds a last-updated meta line plus manual refresh', () => {
-    expect(indexSource).toMatch(/id="alarm-meta"/);
-    expect(indexSource).toMatch(/id="board-refresh"[^>]*>立即更新/);
-  });
-
-it('stamps the render time and wires the refresh button', () => {
-    // 時間戳必須跟著語系走（en 走 12 小時制），否則英文介面會出現 24 小時制的時間。
-    expect(appSource).toMatch(/t\('board\.updatedAt', \{ time: new Date\(\)\.toLocaleTimeString\(locale\(\)\) \}\)/);
-    expect(appSource).toMatch(/\$\(['"]board-refresh['"]\)\?\.addEventListener\(['"]click['"], \(\) => renderBoard\(\)\)/);
+  it('reports success and failure through the message region', () => {
+    expectLocalized(appSource, 'state.snapshotDone', '已下載截圖');
+    expectLocalized(appSource, 'state.snapshotFailed', '截圖失敗');
+    expect(indexSource).toMatch(/id="snap-capture"[^>]*data-i18n="action\.capture"/);
   });
 });
 
-describe('admin quick nav', () => {
-  it('lists admin section jump links below the topbar', () => {
-    expect(indexSource).toMatch(/id="admin-nav"[^>]*hidden[^>]*aria-label="管理區段"/);
-    expect(indexSource).toMatch(/<a href="#accounts-panel"[^>]*data-i18n="col\.account"/);
-    expect(indexSource).toMatch(/<a href="#health-panel"[^>]*data-i18n="nav\.health"/);
+describe('PTZ (M310 /api/ptz)', () => {
+  it('lists device profiles through the authenticated transport', () => {
+    expect(appSource).toMatch(/apiRaw\(`\/api\/ptz\/\$\{channelId\}\/profiles`\)/);
+    expect(appSource).toMatch(/ptzProfileToken = profiles\[0\]\.token/);
   });
 
-  it('wires the central management panel into the nav and admin chrome', () => {
-    expect(indexSource).toMatch(/<a href="#central-panel"[^>]*data-i18n="nav\.central"/);
-    expect(appSource).toMatch(/\$\('central-panel'\)\.hidden = !admin;/);
-    expect(appSource).toMatch(/async function renderCentral\(\)[\s\S]{0,120}api\('\/api\/central\/nodes'\)/);
-    expect(appSource).toMatch(/apiRaw\('\/api\/central\/nodes', \{\s*method: 'POST'/);
-    expect(appSource).toMatch(/apiRaw\(`\/api\/central\/nodes\/\$\{btn\.dataset\.centralDel\}`, \{ method: 'DELETE' \}\)/);
+  it('sends continuous move, stop and home with the profile token', () => {
+    expect(appSource).toMatch(/apiRaw\(`\/api\/ptz\/\$\{channelId\}\/move`, \{/);
+    expect(appSource).toMatch(/apiRaw\(`\/api\/ptz\/\$\{channelId\}\/stop`, \{/);
+    expect(appSource).toMatch(/apiRaw\(`\/api\/ptz\/\$\{channelId\}\/home`, \{/);
+    expect(appSource).toMatch(/body: JSON\.stringify\(\{ profileToken: ptzProfileToken, pan, tilt, zoom \}\)/);
   });
 
-  it('aggregates child channels into a panel and the playback channel suggestions', () => {
-    expect(indexSource).toMatch(/<a href="#central-channels-panel"[^>]*data-i18n="panel\.centralChannels"/);
-    expect(indexSource).toMatch(/id="central-channels-body"/);
-    expect(indexSource).toMatch(/id="play-channel"[^>]*list="play-channel-options"/);
-    expect(indexSource).toMatch(/<datalist id="play-channel-options">/);
-    expect(appSource).toMatch(/\$\('central-channels-panel'\)\.hidden = !admin;/);
-    expect(appSource).toMatch(/centralChannelRows\(await api\('\/api\/central\/channels'\)/);
-    // 函式必須真的 import 進來：M302 曾漏了 centralChannelRows 的 import，因為呼叫包在
-    // Promise.allSettled 裡，ReferenceError 被吞掉，面板永遠空白又沒有錯誤訊息。
-    expect(appSource).toMatch(/^\s*centralChannelRows,\s*$/m);
-    expect(appSource).toMatch(/\$\('play-node'\)\?\.addEventListener\('change', fillPlayChannels\)/);
+  it('manages presets: list, save, goto, delete', () => {
+    expect(appSource).toMatch(/apiRaw\(`\/api\/ptz\/\$\{channelId\}\/presets\?profileToken=/);
+    expect(appSource).toMatch(/apiRaw\(`\/api\/ptz\/\$\{channelId\}\/presets`, \{/);
+    expect(appSource).toMatch(/\/presets\/\$\{encodeURIComponent\(token\)\}\/goto/);
+    expect(appSource).toMatch(/\/presets\/\$\{encodeURIComponent\(token\)\}\?profileToken=/);
   });
 
-  it('aggregates child alarm boards into a central panel', () => {
-    expect(indexSource).toMatch(/<a href="#central-alarms-panel"[^>]*data-i18n="panel\.centralAlarms"/);
-    expect(indexSource).toMatch(/id="central-alarms-body"/);
-    expect(indexSource).toMatch(/id="central-alarms-refresh"[^>]*data-i18n="action\.refresh"/);
-    expect(appSource).toMatch(/\$\('central-alarms-panel'\)\.hidden = !admin;/);
-    expect(appSource).toMatch(/^\s*centralAlarmRows,\s*$/m);
-    expect(appSource).toMatch(/centralAlarmRows\(await api\('\/api\/central\/alarms'\)/);
-    expect(appSource).toMatch(/\$\('central-alarms-refresh'\)\?\.addEventListener\('click', \(\) => renderCentralAlarms\(\)\)/);
+  it('distinguishes "not supported" (409) from a generic connect failure', () => {
+    expect(appSource).toMatch(/resp\.status === 409/);
+    expectLocalized(appSource, 'ptz.notSupported', '此設備不支援 PTZ');
+    expect(appSource).toContain("t('ptz.connectFailed'");
+    expect(i18nSource).toContain("'ptz.connectFailed': '");
   });
 
-  it('shows the nav only for actors in chrome', () => {
-    expect(appSource).toMatch(/\$\(['"]admin-nav['"]\)\.hidden = !admin;/);
+  it('moves while held and stops on release', () => {
+    // ONVIF ContinuousMove 是速度命令；點一下就走一步的相機放開後會持續移動。
+    expect(appSource).toMatch(/btn\.addEventListener\('pointerdown', issue\)/);
+    expect(appSource).toMatch(/document\.addEventListener\('pointerup', \(\) => void ptzStop\(\)\)/);
+    expect(appSource).toMatch(/\$\('ptz-stop'\)\.addEventListener\('click', \(\) => void ptzStop\(\)\)/);
   });
 
-  it('reserves scroll space for anchored sections', () => {
-    expect(stylesSource).toMatch(/section\.panel\[id\] \{ scroll-margin-top: 12px; \}/);
+  it('refuses to move without a connected profile', () => {
+    expect(appSource).toMatch(/if \(!ptzProfileToken\) \{[\s\S]*t\('ptz\.notSupported'\)/);
   });
 });
+
 describe('remote playback (M239 HLS)', () => {
-it('exposes a playback panel with an accessible form and a video element', () => {
-    // M243：標題文字帶 data-i18n，斷言改看結構與 data-i18n，避免綁死某一種語言。
+  it('exposes a playback panel with an accessible form and a video element', () => {
     // data-i18n 必須在只包文字的 span 上，不能在含 <video>／計數 span 的 <h2> 上，
     // 否則 applyDom 的 textContent 會刪掉那些子節點。
     expect(indexSource).toMatch(/<h2[^>]*>\s*<span data-i18n="nav\.remotePlayback">/);
     expect(indexSource).toMatch(/<video id="play-video"[^>]*controls[^>]*playsinline/);
-    expect(indexSource).toMatch(/id="play-channel"[^>]*aria-label="頻道編號"/);
-    expect(indexSource).toMatch(/id="play-node"[^>]*data-i18n-attr="aria-label:replay\.node"/);
-    expect(indexSource).toMatch(/id="play-from"[^>]*aria-label="起始時間"/);
-    expect(indexSource).toMatch(/id="play-to"[^>]*aria-label="結束時間"/);
     expect(indexSource).toMatch(/id="play-msg"[^>]*aria-live="polite"/);
+    // 標籤文字走目錄，屬性用 data-i18n-attr（英文字面在原始碼裡，中文譯文在目錄）。
+    for (const id of ['play-node', 'play-channel', 'play-from', 'play-to']) {
+      const tag = indexSource.match(new RegExp(`<[^>]+id="${id}"[^>]*>`))?.[0] ?? '';
+      expect(tag, `#${id}`).toMatch(/aria-label=/);
+      expect(tag, `#${id}`).toMatch(/data-i18n-attr=/);
+    }
   });
 
   it('fetches the playlist through the single authenticated transport', () => {
@@ -398,7 +240,67 @@ it('exposes a playback panel with an accessible form and a video element', () =>
   });
 
   it('wires the form and seeds a one-hour default window', () => {
-    expect(appSource).toMatch(/\$\(['"]play-form['"]\)\.addEventListener\(['"]submit['"], playRemote\)/);
+    expect(appSource).toMatch(/\$\('play-form'\)\.addEventListener\('submit', playRemote\)/);
     expect(appSource).toMatch(/defaultPlayWindow\(\)/);
+  });
+
+  it('feeds child-node channels into the playback suggestions', () => {
+    expect(indexSource).toMatch(/id="play-channel"[^>]*list="play-channel-options"/);
+    expect(indexSource).toMatch(/<datalist id="play-channel-options">/);
+    expect(appSource).toMatch(/centralChannelRows\(await api\('\/api\/central\/channels'\)/);
+    // 函式必須真的 import 進來：呼叫包在 catch 裡時，ReferenceError 會被吞掉。
+    expect(appSource).toMatch(/^\s*centralChannelRows,\s*$/m);
+    expect(appSource).toMatch(/\$\('play-node'\)\?\.addEventListener\('change', fillPlayChannels\)/);
+  });
+
+  it('reserves no layout dependency on the removed inline nav', () => {
+    expect(stylesSource).not.toMatch(/\.nav-inline/);
+  });
+});
+
+describe('channel picker', () => {
+  it('offers the real channel ids instead of making operators guess', () => {
+    // 資料庫主鍵不是從 1 起算（實機上是 91/93/94）；沒有這份清單只能靠猜編號，
+    // 猜錯時畫面全黑、訊息只寫「找不到這一路攝影機」。
+    expect(indexSource).toMatch(/<select id="live-channels"[^>]*multiple/);
+    for (const [input, list] of [['snap-channel', 'snap-channel-options'], ['ptz-channel', 'ptz-channel-options']]) {
+      expect(indexSource, input).toMatch(new RegExp(`id="${input}"[^>]*list="${list}"`));
+      expect(indexSource, list).toMatch(new RegExp(`<datalist id="${list}">`));
+    }
+    expect(appSource).toMatch(/api\('\/api\/channels'\)/);
+    expect(appSource).toMatch(/Promise\.allSettled\(\[[\s\S]*refreshLocalChannels\(\)[\s\S]*\]\)/);
+  });
+});
+
+describe('multi-split live grid', () => {
+  it('offers 1/4/9/16/25 layouts in the markup', () => {
+    // 版面值就是格數；少一個選項代表某種電視牆尺寸點不到。
+    expect(indexSource).toMatch(/<select id="live-layout"/);
+    for (const n of [1, 4, 9, 16, 25]) {
+      expect(indexSource, `option ${n}`).toMatch(new RegExp(`<option value="${n}"`));
+    }
+  });
+
+  it('renders one <video> cell per layout slot', () => {
+    expect(indexSource).toMatch(/id="live-grid"[^>]*class="live-grid"/);
+    expect(appSource).toMatch(/grid\.innerHTML = Array\.from\(\{ length: count \},/);
+    expect(appSource).toMatch(/const count = liveLayoutCount\(\)/);
+  });
+
+  it('opens one WHEP session per selected channel, capped at the layout', () => {
+    // 每格各自一條會話；選超過格數只取前 N 路，不逐格等待（ICE 最長 3 秒會拖垮 5x5）。
+    expect(appSource).toMatch(/channels\.slice\(0, liveLayoutCount\(\)\)/);
+    expect(appSource).toMatch(/viewer: createLiveViewer\(\{ apiRaw, t \}\)/);
+    expect(appSource).toMatch(/viewer\.open\(channelId, video/);
+    expect(appSource).toMatch(/await Promise\.all\(/);
+  });
+
+  it('stops every cell session together', () => {
+    expect(appSource).toMatch(/cells\.map\(\(\{ viewer \}\) => viewer\.stop\(\)\)/);
+  });
+
+  it('warns when nothing is selected instead of opening zero feeds', () => {
+    expect(appSource).toMatch(/if \(channels\.length === 0\)[\s\S]*t\('live\.pickChannel'\)/);
+    expect(i18nSource).toContain("'live.pickChannel': '");
   });
 });

@@ -20,7 +20,7 @@ describe('document structure', () => {
     expect(appIdRefs().filter((r) => !ids.includes(r))).toEqual([]);
   });
 
-  it('does not gate a nonexistent alarm panel (the board is dimmed via .gated instead)', () => {
+  it('does not reference the removed alarm board', () => {
     expect(appSource).not.toContain('alarm-panel');
   });
 });
@@ -39,7 +39,7 @@ describe('keyboard accessibility', () => {
   });
 
   it('labels every high-value placeholder-only input with an aria-label', () => {
-    const labeled = ['user', 'pass', 'q', 'new-user', 'new-pass', 'audit-actor', 'door-card', 'det-conf', 'det-class', 'timeline-day'];
+    const labeled = ['user', 'pass', 'q', 'live-channels', 'snap-channel', 'ptz-channel', 'ptz-preset-name', 'io-channel'];
     for (const id of labeled) {
       const tag = indexSource.match(new RegExp(`<[^>]+id="${id}"[^>]*>`))?.[0] ?? '';
       expect(tag, `#${id}`).toMatch(/aria-label=/);
@@ -53,6 +53,15 @@ describe('keyboard accessibility', () => {
   it('labels every table header with a column scope', () => {
     expect((indexSource.match(/<th>/g) ?? []).length).toBe(0);
     expect(indexSource).toMatch(/<th scope="col">/);
+  });
+
+  it('gives every PTZ direction button a readable label (no cryptic glyphs)', () => {
+    // 方向盤上只有箭頭符號（↑↓←→↖↗↙↘），螢幕閱讀器念不出來；每一顆都必須有 aria-label。
+    const buttons = indexSource.match(/<button[^>]*data-move="[^"]+"[^>]*>/g) ?? [];
+    expect(buttons.length).toBe(10);
+    for (const tag of buttons) {
+      expect(tag).toMatch(/aria-label=/);
+    }
   });
 });
 
@@ -68,20 +77,31 @@ describe('screen readers', () => {
   it('announces the live alarm feed as a log region', () => {
     expect(indexSource).toMatch(/id="live-log"[^>]*role="log"[^>]*aria-live="polite"/);
   });
-
-  it('gives the alarm-board action buttons readable labels (no cryptic glyphs)', () => {
-    // M243：標籤文字改由目錄提供，這裡要驗的是「按鈕有可讀標籤」這件事，
-    // 而不是標籤剛好是哪一種語言的字。
-    expect(appSource).toMatch(/\$\{tx\('action\.triage'\)\}/);
-    expect(appSource).toMatch(/\$\{tx\('action\.confirm'\)\}/);
-    expect(appSource).toMatch(/\$\{tx\('common\.falseAlarm'\)\}/);
-    expect(appSource).not.toMatch(/>!!</);
-  });
 });
 
-describe('live regions and panels', () => {
-  it('keeps the smartwall section summary in sync with the topbar badge', () => {
-    expect(elementIds(indexSource)).toContain('sw-panel');
-    expect(appSource).toMatch(/\$\('sw-panel'\)/);
+describe('tabs and panels are wired together', () => {
+  it('points every tab at a panel that exists', () => {
+    const ids = elementIds(indexSource);
+    const tabs = [...indexSource.matchAll(/data-tab="([^"]+)"[^>]*aria-controls="([^"]+)"/g)];
+    // 五項功能：即時監看、回放、截圖、PTZ、事件。少一個就代表某個功能點不開。
+    expect(tabs.map((m) => m[1]).sort()).toEqual(['events', 'io', 'live', 'playback', 'ptz', 'snapshot']);
+    for (const [, , panel] of tabs) {
+      expect(ids, panel).toContain(panel);
+    }
+  });
+
+  it('marks every panel as a labelled tabpanel', () => {
+    const ids = elementIds(indexSource);
+    const panels = [...indexSource.matchAll(/data-panel="(?<name>[^"]+)"[^>]*role="tabpanel"[^>]*aria-labelledby="(?<label>[^"]+)"/g)];
+    for (const { groups } of panels) {
+      expect(ids, groups.label).toContain(groups.label);
+    }
+    const count = indexSource.match(/data-panel="/g) ?? [];
+    expect(count.length).toBe(6);
+  });
+
+  it('marks the tab strip as a tablist', () => {
+    expect(indexSource).toMatch(/role="tablist"/);
+    expect(appSource).toMatch(/btn\.setAttribute\('aria-selected', String\(on\)\)/);
   });
 });

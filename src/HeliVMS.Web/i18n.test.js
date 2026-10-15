@@ -166,7 +166,7 @@ const CJK_TEXT = /[　-〿一-鿿＀-￯]/;
 describe('static markup is wired to the catalog', () => {
   it('marks translatable text with data-i18n', () => {
     const marked = (indexSource.match(/data-i18n="/g) ?? []).length;
-    expect(marked).toBeGreaterThan(100);
+    expect(marked).toBeGreaterThan(20);
   });
 
   it('uses only keys that exist', () => {
@@ -185,14 +185,8 @@ describe('static markup is wired to the catalog', () => {
   it('does not stamp data-i18n on elements the app owns at runtime', () => {
     // 否則切換語言會把「admin · 王小明」蓋回「未登入」——
     // 這是資料與翻譯爭用同一個節點的典型錯誤。
-    //
-    // 例外：下載連結在送出失敗時會被 app.js 覆寫成錯誤訊息，但那是暫時狀態；
-    // 切換語言時回到「下載 CSV」才是預期畫面，所以刻意保留 data-i18n。
-    const ownedButIntentionallyLocalized = new Set(['audit-csv']);
-
     for (const m of indexSource.matchAll(/<(\w+)[^>]*\bid="([\w-]+)"[^>]*data-i18n="[^"]*"[^>]*>/g)) {
       const id = m[2];
-      if (ownedButIntentionallyLocalized.has(id)) continue;
       const assigned = new RegExp(
         `\\$\\('${id}'\\)\\.(textContent|innerHTML|value)\\s*=|const \\w+ = \\$\\('${id}'\\)`,
       );

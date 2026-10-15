@@ -1,62 +1,25 @@
 import { applyDom, DEFAULT_LOCALE, locale, setLocale, t } from './i18n.js';
 import { createAlertSocket } from './alerts.js';
-import { createLiveViewer, fetchDeployment } from './live.js';
+import { createLiveViewer } from './live.js';
 import {
-  accountRows,
-  ackRate,
-  auditRows,
-  auditFilter,
-  buildTimelineQuery,
-  buildPlaylistQuery,
-  buildCentralPlaylistQuery,
   bearerHeader,
-  canAct,
-  configCard,
-  dailyCard,
+  buildCentralPlaylistQuery,
+  buildPlaylistQuery,
+  centralChannelRows,
   esc,
-  escPct,
   eventRow,
-  filterBoardRows,
-  focusLayout,
   formatTimestamp,
   mseMimeType,
-  parseM3u8,
-  evRows,
-  backupRows,
-  centralRows,
-  centralChannelRows,
-  centralAlarmRows,
-  doorRows,
-  detRows,
-  notifRows,
-  exportRows,
-  providerRows,
-  holdRows,
-  ruleRows,
-  shareRows,
-  redRows,
-  repRows,
-  alarmRows,
-  patrolLabel,
-  scheduleInEffect,
-  scheduleLabel,
-  tx,
-  gapLabel,
-  gridLayout,
   parseLogin,
+  parseM3u8,
   parseWsMessage,
-  pinStyles,
-  posTotals,
   pollGate,
-  smartwallSnapshot,
-  tileClass,
-  tileLabel,
+  tx,
 } from './lib.js';
 
 const $ = (id) => document.getElementById(id);
 const key = () => (localStorage.getItem('helivms.apiKey') || $('apikey')?.value || '').trim();
-const POLL_MS = 12000; // REST 面板輪詢（門禁/偵測/通知/匯出/排程…）——分頁隱藏或焦點在輸入框時暫停
-let boardFilter = ''; // 警報看板過濾：'' | pending | acknowledged | actioned | false_alarm | overdue
+const POLL_MS = 12000; // 授權與健康狀態的輪詢；分頁隱藏或焦點在控制項上時暫停。
 
 /** Single authenticated transport: every API call must go through here so the bearer key is always sent. */
 async function apiRaw(path, init = {}) {
@@ -74,7 +37,7 @@ async function apiRaw(path, init = {}) {
   }
 }
 
-/** 連線旗標：任何 fetch 成功即可正常;網路層失敗時在頂列顯示「連線中斷」。（HTTP 錯誤狀態不算斷線） */
+/** 連線旗標：任何請求成功即可正常；網路層失敗時在頂列顯示「連線中斷」。（HTTP 錯誤狀態不算斷線） */
 function setConn(ok) {
   const el = $('conn');
   if (!el) return;
@@ -88,35 +51,6 @@ async function api(path, init = {}) {
   return response.json();
 }
 
-/**
- * 把一次授權閘門的回應寫進面板的 live region，回傳是否成功。
- * 閘門是整條路徑一起擋的，所以同一面板的每個動作都可能拿到 403 與同一句 error；
- * 動作層若不顯示出來，使用者只會看到畫面原封不動地回來，像是按了沒反應。
- */
-async function feedback(msgId, resp, okText = () => '') {
-  if (!resp) {
-    $(msgId).textContent = t('state.disconnected');
-    return false;
-  }
-  const info = await resp.json().catch(() => null);
-  $(msgId).textContent = resp.ok ? okText(info) : info?.error ?? t('state.failed');
-  return resp.ok;
-}
-
-/**
- * 受授權閘門保護的讀取。回 null 代表「被擋下或連不上」，呼叫端要清空表格而不是畫成 0 筆——
- * 空表與沒授權是兩件事，混在一起會讓人以為這個頻道真的沒有資料。
- */
-async function gatedFetch(msgId, url) {
-  const resp = await apiRaw(url).catch(() => null);
-  if (!resp || !resp.ok) {
-    await feedback(msgId, resp);
-    return null;
-  }
-  $(msgId).textContent = '';
-  return resp.json().catch(() => []);
-}
-
 async function refreshHealth() {
   try {
     const h = await api('/api/health');
@@ -125,13 +59,6 @@ async function refreshHealth() {
   } catch (err) {
     $('health').textContent = String(err);
   }
-}
-
-async function refreshChannels() {
-  const channels = await api('/api/channels');
-  $('channels').innerHTML = channels
-    .map((c) => `<li>${esc(c.id)} · ${esc(c.name ?? c.location ?? '')}</li>`)
-    .join('');
 }
 
 function readSession() {
@@ -171,15 +98,28 @@ async function submitLogin(event) {
   $('login-msg').textContent = state.ok ? '' : state.error;
   if (state.ok) {
     storeSession({ role: state.role, name: state.displayName });
-    if (canAct(state.role)) {
-      await Promise.allSettled([renderAccounts(), renderConfig(), renderAudit(), renderEvidence(), renderBackup(), renderCentral(), renderCentralChannels(), renderCentralAlarms(), renderProviders(), renderHolds(), renderRules(), renderShares(), renderReds(), renderRep(), renderHealth()]);
+    // M306：登入成功即拿到工作階段 token；存成 apiRaw 的憑證，之後不必再手動餵 API 金鑰。
+    if (state.token) {
+      localStorage.setItem('helivms.apiKey', state.token);
+      $('apikey').value = state.token;
     }
   }
-  await renderBoard();
+  await refreshAll();
 }
 
-function logout() {
+async function logout() {
+  // 撤銷伺服器端工作階段（M306）：token 一撤銷，帶著它的請求都回 401。
+  // best-effort——連不上時仍要清掉本機憑證，伺服器端最終也會因過期而失效。
+  try {
+    await apiRaw('/api/accounts/logout', { method: 'POST' });
+  } catch {
+    // 忽略：頁面仍要重載並清除本機狀態。
+  }
   storeSession(null);
+  localStorage.removeItem('helivms.apiKey');
+  $('apikey').value = '';
+  stopLiveView();
+  stopSnapshotView();
   window.location.reload();
 }
 
@@ -188,1140 +128,261 @@ function updateChrome() {
   const who = $('who');
   who.textContent = session ? `${session.role} · ${session.name ?? ''}`.trim() : t('state.notSignedIn');
   who.classList.toggle('on', Boolean(session));
-  const admin = canAct(session?.role);
-  $('board').classList.toggle('gated', !admin);
-  $('accounts-panel').hidden = !admin;
-  $('config-panel').hidden = !admin;
-  $('audit-panel').hidden = !admin;
-  $('evidence-panel').hidden = !admin;
-  $('backup-panel').hidden = !admin;
-  $('central-panel').hidden = !admin;
-  $('central-channels-panel').hidden = !admin;
-  $('central-alarms-panel').hidden = !admin;
-  $('provider-panel').hidden = !admin;
-  $('hold-panel').hidden = !admin;
-  $('rule-panel').hidden = !admin;
-  $('share-panel').hidden = !admin;
-  $('red-panel').hidden = !admin;
-  $('rep-panel').hidden = !admin;
-  $('health-panel').hidden = !admin;
-  $('admin-nav').hidden = !admin;
   $('logout').hidden = !session;
 }
 
-let csvUrl = '';
-
-async function renderAudit() {
-  const all = auditRows((await api('/api/audit?limit=200')).items);
-  const category = $('audit-category').value;
-  const actor = $('audit-actor').value;
-  const rows = auditFilter(all, category, actor);
-  $('audit').querySelector('tbody').innerHTML = rows
-    .map(
-      (r) =>
-        `<tr><td>${esc(formatTimestamp(r.occurredAtUtc))}</td><td>${esc(r.category)}</td><td>${esc(r.actor)}</td>` +
-        `<td>${esc(r.action)}</td><td>${esc(r.targetType ?? '')}${esc(r.targetId ? `${r.targetId}` : '')}</td>` +
-        `<td class="wrap" title="${esc(r.detail ?? '')}">${esc(r.detail ?? '')}</td></tr>`,
-    )
-    .join('');
-  await refreshAuditCsv(category, actor);
-}
-
-/** The export route is API-key protected, so download it through fetch + blob instead of a bare link. */
-async function refreshAuditCsv(category, actor) {
-  const link = $('audit-csv');
-  if (csvUrl) {
-    URL.revokeObjectURL(csvUrl);
-    csvUrl = '';
+/** 五大功能分頁。切換只改可見性與 ARIA 狀態，不重建內容，所以播放中的畫面不會被打斷。 */
+function showTab(name) {
+  for (const btn of document.querySelectorAll('[data-tab]')) {
+    const on = btn.dataset.tab === name;
+    btn.classList.toggle('active', on);
+    btn.setAttribute('aria-selected', String(on));
   }
-  link.removeAttribute('href');
-  try {
-    const params = new URLSearchParams();
-    if (category) params.set('category', category);
-    if (actor) params.set('actor', actor);
-    const query = params.toString();
-    const response = await apiRaw(`/api/audit/export.csv${query ? `?${query}` : ''}`);
-    if (!response.ok) return;
-    const blob = await response.blob();
-    csvUrl = URL.createObjectURL(blob);
-    link.href = csvUrl;
-  } catch {
-    link.textContent = t('state.csvFailed');
+  for (const panel of document.querySelectorAll('[data-panel]')) {
+    panel.hidden = panel.dataset.panel !== name;
   }
 }
 
-async function renderConfig() {
-  const c = configCard(await api('/api/config'));
-  $('auth-enabled').checked = c.authEnabled;
-  $('lock-threshold').value = c.lockoutThreshold;
-  $('lock-minutes').value = c.lockoutMinutes;
-  $('retention-days').value = c.recordingRetentionDays;
-  $('retention-watermark').value = c.recordingWatermarkGb;
-  $('alarm-retention-days').value = c.alarmRetentionDays;
-  const usage = await api('/api/config/usage').catch(() => null);
-  $('storage-usage').textContent = usage
-    ? t('retention.summary', { gb: usage.gb.toFixed(2), days: usage.retentionDays, alarmDays: usage.alarmRetentionDays, watermark: usage.watermarkGb })
-    : '';
-}
-
-async function saveConfig(event) {
-  event.preventDefault();
-  try {
-    await api('/api/config', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        authEnabled: $('auth-enabled').checked,
-        lockoutThreshold: Number($('lock-threshold').value),
-        lockoutMinutes: Number($('lock-minutes').value),
-        recordingRetentionDays: Number($('retention-days').value),
-        recordingWatermarkGb: Number($('retention-watermark').value),
-        alarmRetentionDays: Number($('alarm-retention-days').value),
-      }),
-    });
-    await renderConfig();
-    $('config-msg').textContent = t('state.saved');
-  } catch (err) {
-    $('config-msg').textContent = String(err);
+function bindTabs() {
+  for (const btn of document.querySelectorAll('[data-tab]')) {
+    btn.addEventListener('click', () => showTab(btn.dataset.tab));
   }
 }
 
-async function runRetention() {
-  try {
-    const result = await api('/api/retention/run', { method: 'POST' });
-    $('config-msg').textContent =
-      t('retention.purgeDone', { age: result.agePurged, watermark: result.watermarkPurged, alarm: result.alarmPurged, freed: (result.bytesFreed / 1073741824).toFixed(2) }) +
-      (result.skipped ? t('retention.purgeSkipped', { count: result.skipped }) : '');
-    await renderConfig();
-  } catch (err) {
-    $('config-msg').textContent = String(err);
-  }
+const snapshotViewer = createLiveViewer({ apiRaw, t });
+
+/** 目前格線上的每一格各自一條 WHEP 會話；「停止」一次整批收掉。 */
+let liveCells = [];
+
+/** 版面下拉的值就是格數（1／4／9／16／25），開根號即為每列格數。 */
+function liveLayoutCount() {
+  const value = Number($('live-layout')?.value);
+  return [1, 4, 9, 16, 25].includes(value) ? value : 1;
 }
 
-async function renderAccounts() {
-  const accounts = accountRows(await api('/api/accounts'));
-  $('accounts').querySelector('tbody').innerHTML = accounts
-    .map(
-      (a) =>
-        `<tr><td>${esc(a.username)}</td><td>${esc(a.role)}</td><td>${esc(a.enabled ? t('common.enabled') : t('common.disabled'))}${esc(a.locked ? t('common.lockedSuffix') : '')}</td>` +
-        `<td><button data-toggle="${Number(a.id)}" data-enable="${esc(!a.enabled)}">${esc(a.enabled ? t('common.disabled') : t('common.enabled'))}</button>` +
-        `<button data-role="${Number(a.id)}" data-next="${esc(a.role === 'admin' ? 'viewer' : 'admin')}">${tx('role.switchTo', { role: t(a.role === 'admin' ? 'role.viewer' : 'role.admin') })}</button>` +
-        `<button data-del="${Number(a.id)}">${tx('action.delete')}</button></td></tr>`,
-    )
-    .join('');
-
-  document.querySelectorAll('button[data-toggle]').forEach((btn) =>
-    btn.addEventListener('click', async () => {
-      await api(`/api/accounts/${btn.dataset.toggle}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ enabled: btn.dataset.enable === 'true' }),
-      });
-      await renderAccounts();
-    }),
-  );
-  document.querySelectorAll('button[data-role]').forEach((btn) =>
-    btn.addEventListener('click', async () => {
-      await api(`/api/accounts/${btn.dataset.role}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ role: btn.dataset.next }),
-      });
-      await renderAccounts();
-    }),
-  );
-  document.querySelectorAll('button[data-del]').forEach((btn) =>
-    btn.addEventListener('click', async () => {
-      await api(`/api/accounts/${btn.dataset.del}`, { method: 'DELETE' });
-      await renderAccounts();
-    }),
-  );
+/** 多選清單目前勾選的頻道（依清單順序）。 */
+function selectedChannelIds() {
+  const select = $('live-channels');
+  if (!select) return [];
+  return [...select.selectedOptions]
+    .map((o) => Number(o.value))
+    .filter((n) => Number.isInteger(n) && n > 0);
 }
 
-async function submitAccount(event) {
-  event.preventDefault();
-  const payload = JSON.stringify({
-    username: $('new-user').value.trim(),
-    password: $('new-pass').value,
-    role: $('new-role').value,
-  });
-  try {
-    await api('/api/accounts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: payload });
-    $('new-user').value = '';
-    $('new-pass').value = '';
-    $('account-msg').textContent = '';
-  } catch (err) {
-    $('account-msg').textContent = String(err);
-  }
-  await renderAccounts();
-}
-
-function renderMap() {
-  const pinCount = 16;
-  const pins = gridLayout(pinCount, 4);
-  const el = $('map');
-  el.innerHTML = '';
-  for (const [i, pin] of pins.entries()) {
-    const box = document.createElement('div');
-    box.className = 'pin';
-    Object.assign(box.style, pinStyles(pin));
-    box.textContent = 'CAM';
-    box.title = `CAM-${String(i + 1).padStart(2, '0')}`;
-    el.appendChild(box);
-  }
-}
-
-function renderSmartwall() {
-  api('/api/smartwall/board')
-    .then((body) => {
-      const snap = smartwallSnapshot(Array.isArray(body) ? body : (body?.cells ?? []));
-      $('sw').textContent = `smartwall ${snap.count} · critical ${snap.critical}`;
-      $('sw').classList.toggle('hot', snap.critical > 0);
-      const swPanel = $('sw-panel');
-      if (swPanel) {
-        swPanel.textContent = `smartwall ${snap.count} · critical ${snap.critical}`;
-        swPanel.classList.toggle('hot', snap.critical > 0);
-      }
-      const el = $('swgrid');
-      el.innerHTML = '';
-      const cells = snap.cells.length ? snap.cells : [{}];
-      const pins = focusLayout(cells, 4);
-      cells.forEach((c, i) => {
-        const box = document.createElement('div');
-        box.className = `swtile ${tileClass(c)}`;
-        Object.assign(box.style, pinStyles(pins[i], 0.01));
-        const tile = tileLabel(c);
-        box.title = t('tile.title', { channel: tile.channel, type: tile.type, priority: tile.priority });
-        box.textContent = String(tile.channel);
-        el.appendChild(box);
-      });
-    })
-    .catch(() => {});
-}
-
-async function renderDaily() {
-  const dayFrom = new Date();
-  dayFrom.setUTCHours(0, 0, 0, 0);
-  const dayTo = new Date(dayFrom.getTime() + 24 * 3600 * 1000);
-  const params = new URLSearchParams({ from: dayFrom.toISOString(), to: dayTo.toISOString() });
-  try {
-    const card = dailyCard(await api(`/api/reports/daily?${params}`));
-    $('daily-summary').textContent =
-      t('recording.card', { hours: card.hours, gb: card.gb, disconnects: card.disconnects });
-    $('daily-events').querySelector('tbody').innerHTML = card.events
-      .map((e) => `<tr><td>${esc(e.type)}</td><td>${esc(e.count)}</td></tr>`)
-      .join('');
-  } catch (err) {
-    $('daily-summary').textContent = String(err);
-  }
-}
-
-async function renderSchedules() {
-  const list = await gatedFetch('sched-msg', '/api/recording/schedules');
-  if (!list) {
-    $('sched-body').innerHTML = '';
-    $('sched-count').textContent = '';
-    return;
-  }
-  $('sched-body').innerHTML = list
-    .map(
-      (s) =>
-        `<tr><td>${esc(s.channelId)}</td><td>${esc(scheduleLabel(s))}</td><td>${esc(s.enabled ? t('common.enabled') : t('common.disabled'))}</td>
-         <td><button data-sched-del="${Number(s.id)}">${tx('action.delete')}</button></td></tr>`,
-    )
-    .join('');
-  $('sched-count').textContent = t('count.parenthesized', { n: list.length });
-  $('sched-body').querySelectorAll('button[data-sched-del]').forEach((btn) =>
-    btn.addEventListener('click', async () => {
-      const resp = await apiRaw(`/api/recording/schedules/${btn.dataset.schedDel}`, { method: 'DELETE' }).catch(
-        () => null,
-      );
-      if (await feedback('sched-msg', resp)) renderSchedules();
-    }),
-  );
-}
-
-function bindScheduleForm() {
-  const form = $('sched-form');
-  form.addEventListener('submit', async (ev) => {
-    ev.preventDefault();
-    const checked = [...form.querySelectorAll('input[name="sday"]:checked')].map((c) => Number(c.value));
-    const start = form.querySelector('input[name="sstart"]').value.split(':');
-    const end = form.querySelector('input[name="send"]').value.split(':');
-    if (checked.length === 0) return;
-    const body = {
-      channelId: Number(form.querySelector('input[name="schan"]').value),
-      daysMask: checked.reduce((m, d) => m | (1 << d), 0),
-      startMinute: Number(start[0]) * 60 + Number(start[1]),
-      endMinute: Number(end[0]) * 60 + Number(end[1]),
-      enabled: true,
-    };
-    const resp = await apiRaw('/api/recording/schedules', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    }).catch(() => null);
-    if (await feedback('sched-msg', resp)) renderSchedules();
-  });
-}
-
-async function renderPatrols() {
-  const list = await gatedFetch('patrol-msg', '/api/patrols');
-  if (!list) {
-    $('patrol-body').innerHTML = '';
-    $('patrol-count').textContent = '';
-    return;
-  }
-  $('patrol-body').innerHTML = list
-    .map(
-      (p) =>
-        `<tr><td>${esc(patrolLabel(p))}</td><td>${esc(p.enabled ? t('common.enabled') : t('common.disabled'))}</td>
-         <td><button data-patrol-del="${Number(p.id)}">${tx('action.delete')}</button></td></tr>`,
-    )
-    .join('');
-  $('patrol-count').textContent = t('count.parenthesized', { n: list.length });
-  $('patrol-body').querySelectorAll('button[data-patrol-del]').forEach((btn) =>
-    btn.addEventListener('click', async () => {
-      const resp = await apiRaw(`/api/patrols/${btn.dataset.patrolDel}`, { method: 'DELETE' }).catch(() => null);
-      if (await feedback('patrol-msg', resp)) renderPatrols();
-    }),
-  );
-}
-
-function bindPatrolForm() {
-  const form = $('patrol-form');
-  form.addEventListener('submit', async (ev) => {
-    ev.preventDefault();
-    const body = {
-      name: form.querySelector('input[name="pname"]').value.trim(),
-      channelId: Number(form.querySelector('input[name="pchan"]').value),
-      enabled: form.querySelector('input[name="penabled"]').checked,
-      windowStart: form.querySelector('input[name="pstart"]').value || '00:00',
-      windowEnd: form.querySelector('input[name="pend"]').value || '23:59',
-      steps: [],
-    };
-    if (!body.name) return;
-    const resp = await apiRaw('/api/patrols', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    }).catch(() => null);
-    if (await feedback('patrol-msg', resp)) renderPatrols();
-  });
-}
-
-async function renderEvidence() {
-  const rows = evRows(await api('/api/evidence').catch(() => []));
-  $('evidence-body').innerHTML = rows
-    .map(
-      (m) =>
-        `<tr><td>#${esc(m.id)}</td><td>${esc(m.status)}</td><td>${esc(m.createdAt?.slice(0, 19) ?? '')}</td><td>${esc(m.items)}</td></tr>`,
-    )
-    .join('');
-  $('evidence-count').textContent = t('count.parenthesized', { n: rows.length });
-}
-
-async function renderBackup() {
-  const rows = backupRows(await api('/api/backup/runs').catch(() => []));
-  $('backup-body').innerHTML = rows
-    .map(
-      (r) =>
-        `<tr><td>#${esc(r.seq)}</td><td>${esc(r.runAt?.slice(0, 19) ?? '')}</td><td>${esc(r.copied)}</td><td>${esc(r.bytes)}</td><td>${esc(r.failed)}</td><td>${esc(r.advanced ? t('common.advanced') : t('common.notAdvanced'))}</td><td class="muted">${esc(r.target)}</td></tr>`,
-    )
-    .join('');
-  $('backup-count').textContent = t('count.parenthesized', { n: rows.length });
+function channelName(channelId) {
+  return localChannels.find((c) => Number(c.id) === channelId)?.name || `#${channelId}`;
 }
 
 /**
- * 回放來源選單（M301）：本機 + 每個已註冊的子節點。
- * 選子節點時 playRemote 改打跨機代理，回放體驗與本機相同（伺服器已改寫片段網址）。
+ * 依版面把格線重畫成 N 格空畫面。每格都有自己的 <video> 與角標，開檔時再逐格
+ * 建立 WHEP 會話——切版面時不必保留舊連線，直接重畫最單純。
  */
-function fillPlayNodes(rows) {
-  const sel = $('play-node');
-  if (!sel) return;
-  const current = sel.value;
-  const options = [`<option value="">${esc(t('replay.nodeLocal'))}</option>`].concat(
-    rows.map((n) => `<option value="${Number(n.id)}">${esc(n.name)}</option>`),
-  );
-  $('play-node').innerHTML = options.join('');
-  $('play-node').value = current;
-  fillPlayChannels();
-}
-
-async function renderCentral() {
-  const rows = centralRows(await api('/api/central/nodes').catch(() => []));
-  fillPlayNodes(rows);
-  $('central-body').innerHTML = rows
-    .map(
-      (n) =>
-        `<tr><td>#${esc(n.id)}</td><td>${esc(n.name)}</td><td class="muted wrap">${esc(n.baseUrl)}</td><td class="${esc(n.online ? 'ok' : 'bad')}">${tx(n.online ? 'central.online' : 'central.offline')}</td><td>${esc(n.version)}</td><td>${esc(n.channels)}</td><td class="muted">${esc(n.lastSeenUtc ? n.lastSeenUtc.slice(0, 19) : t('central.never'))}</td><td><button type="button" data-central-probe="${Number(n.id)}">${tx('central.probe')}</button> <button class="danger" data-central-del="${Number(n.id)}">${tx('action.delete')}</button></td></tr>`,
-    )
-    .join('');
-  $('central-count').textContent = t('count.parenthesized', { n: rows.length });
-  // 動態按鈕在每次重繪後重綁（同 provider 面板），因為 innerHTML 會換掉節點。
-  Array.from(document.querySelectorAll('[data-central-probe]')).forEach((btn) => {
-    btn.addEventListener('click', async () => {
-      const resp = await apiRaw(`/api/central/nodes/${btn.dataset.centralProbe}/probe`, { method: 'POST' }).catch(() => null);
-      if (await feedback('central-msg', resp)) renderCentral();
-    });
-  });
-  Array.from(document.querySelectorAll('[data-central-del]')).forEach((btn) => {
-    btn.addEventListener('click', async () => {
-      const resp = await apiRaw(`/api/central/nodes/${btn.dataset.centralDel}`, { method: 'DELETE' }).catch(() => null);
-      if (await feedback('central-msg', resp, () => t('central.deleted'))) renderCentral();
-    });
-  });
+function renderLiveGrid() {
+  const grid = $('live-grid');
+  if (!grid) return;
+  const count = liveLayoutCount();
+  const cols = Math.round(Math.sqrt(count));
+  grid.style.gridTemplateColumns = `repeat(${cols}, minmax(0, 1fr))`;
+  grid.innerHTML = Array.from({ length: count }, () =>
+    '<div class="live-cell"><video class="player" autoplay muted playsinline></video><span class="live-cell-label"></span></div>',
+  ).join('');
 }
 
 /**
- * 中央站聚合子節點頻道（M302）：管理員一眼看到跨機有哪些「第幾路叫什麼」，
- * 回放面板也靠同一份資料提供頻道建議。單台離線時後端已跳過，這裡最多整份為空。
- */
-let centralChannelCache = [];
-
-async function renderCentralChannels() {
-  centralChannelCache = centralChannelRows(await api('/api/central/channels').catch(() => []));
-  const body = $('central-channels-body');
-  if (body) {
-    body.innerHTML = centralChannelCache
-      .map(
-        (c) =>
-          `<tr><td>${esc(c.nodeId)}</td><td>${esc(c.nodeName)}</td><td>${esc(c.channelId)}</td><td>${esc(c.channelName)}</td><td>${esc(c.enabled ? t('common.enabled') : t('common.disabled'))}</td></tr>`,
-      )
-      .join('');
-  }
-  const count = $('central-channels-count');
-  if (count) count.textContent = t('count.parenthesized', { n: centralChannelCache.length });
-  fillPlayChannels();
-}
-
-/**
- * 中央站彙整子節點警報看板（M303）：管理員一眼看到跨機有哪些未處理／逾期事件。
- * 後端已把最急的排前面並在單台離線時跳過，這裡照單呈現即可，最多整份為空。
- */
-async function renderCentralAlarms() {
-  const rows = centralAlarmRows(await api('/api/central/alarms').catch(() => []));
-  const body = $('central-alarms-body');
-  if (body) {
-    body.innerHTML = rows
-      .map(
-        (a) =>
-          `<tr class="${esc(a.overdue ? 'overdue' : '')}"><td>${esc(a.nodeName)}</td><td>#${esc(a.eventId)}</td><td>CH${esc(a.channelId)}</td><td>${esc(a.eventType)}</td><td>${esc(a.start)}</td><td>${esc(a.priority)}</td><td>${esc(a.status)}</td><td class="${esc(a.overdue ? 'bad' : '')}">${esc(a.overdue ? t('common.overdue') : '—')}</td></tr>`,
-      )
-      .join('');
-  }
-  const count = $('central-alarms-count');
-  if (count) count.textContent = t('count.parenthesized', { n: rows.length });
-}
-
-/**
- * 回放面板的頻道建議：選了子節點就只列該節點的頻道，避免使用者猜編號。
- * 本機（未選節點）不提供建議，維持原本的自由輸入。
- */
-function fillPlayChannels() {
-  const list = $('play-channel-options');
-  if (!list) return;
-  const nodeId = Number($('play-node')?.value ?? '');
-  list.innerHTML = centralChannelCache
-    .filter((c) => c.nodeId === nodeId)
-    .map((c) => `<option value="${Number(c.channelId)}">${esc(c.channelName)}</option>`)
-    .join('');
-}
-
-function bindBackupForm() {
-  const form = $('backup-form');
-  form.addEventListener('submit', async (ev) => {
-    ev.preventDefault();
-    const src = form.querySelector('input[name="bsrc"]').value.trim();
-    const dst = form.querySelector('input[name="bdst"]').value.trim();
-    if (!src || !dst) return;
-    const resp = await apiRaw('/api/backup/run', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sourceRoot: src, targetRoot: dst }),
-    }).catch(() => null);
-    if (!resp) return;
-    const body = await resp.json().catch(() => null);
-    $('backup-msg').textContent = resp.ok
-      ? t('backup.done', { scanned: body.scanned, copied: body.copied, size: (body.copiedBytes / 1048576).toFixed(1), failed: body.failed })
-      : body?.error ?? t('state.failed');
-    if (resp.ok) renderBackup();
-  });
-}
-
-function bindCentralForm() {
-  const form = $('central-form');
-  form.addEventListener('submit', async (ev) => {
-    ev.preventDefault();
-    const name = form.querySelector('input[name="cname"]').value.trim();
-    const baseUrl = form.querySelector('input[name="curl"]').value.trim();
-    const apiKey = form.querySelector('input[name="ckey"]').value.trim();
-    if (!name || !baseUrl) return;
-    const resp = await apiRaw('/api/central/nodes', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, baseUrl, apiKey, enabled: true }),
-    }).catch(() => null);
-    if (await feedback('central-msg', resp, () => t('central.added'))) {
-      form.reset();
-      renderCentral();
-    }
-  });
-}
-
-async function renderDoor() {
-  const card = (document.getElementById('door-card')?.value ?? '').trim();
-  const ok = document.getElementById('door-ok')?.checked ?? false;
-  const denied = document.getElementById('door-denied')?.checked ?? false;
-  const q = new URLSearchParams();
-  if (card) q.set('card', card);
-  if (ok !== denied) q.set('granted', String(ok));
-  const rows = doorRows(await api(`/api/door/events?${q}`).catch(() => []));
-  $('door-body').innerHTML = rows
-    .map(
-      (e) =>
-        `<tr><td>${esc(e.time)}</td><td>${esc(e.device)}</td><td>${esc(e.door)}</td><td>${esc(e.card)}</td><td>${esc(e.direction)}</td><td class="${esc(e.granted ? 'ok' : 'bad')}">${esc(e.granted ? t('common.granted') : t('common.denied'))}</td><td class="muted">${esc(e.reason)}</td></tr>`,
-    )
-    .join('');
-  $('door-count').textContent = t('count.parenthesized', { n: rows.length });
-}
-
-async function renderDetections() {
-  const conf = (document.getElementById('det-conf')?.value ?? '').trim();
-  const cls = (document.getElementById('det-class')?.value ?? '').trim();
-  const q = new URLSearchParams();
-  if (conf && Number(conf) > 0) q.set('minConfidence', conf);
-  if (cls) q.set('class', cls);
-  // 被閘門擋下時要清空並留白字數，而不是畫成 0 筆——「沒偵測到」與「沒授權」講法不同。
-  const list = await gatedFetch('det-msg', `/api/detections?${q}`);
-  if (!list) {
-    $('det-body').innerHTML = '';
-    $('det-count').textContent = '';
-    $('det-summary').textContent = '';
-    return;
-  }
-  const rows = detRows(list);
-  $('det-body').innerHTML = rows
-    .map(
-      (d) =>
-        `<tr><td>${esc(d.time)}</td><td>ch${esc(d.channel)}</td><td>${esc(d.cls)}</td><td>${esc((d.conf * 100).toFixed(0))}%</td><td>${esc(d.x.toFixed(2))},${esc(d.y.toFixed(2))}</td><td>${esc(d.box)}</td></tr>`,
-    )
-    .join('');
-  $('det-count').textContent = t('count.parenthesized', { n: rows.length });
-  const summaryUrl = q.toString() ? `/api/detections/summary?${q}` : '/api/detections/summary';
-  const summary = await api(summaryUrl).catch(() => []);
-  $('det-summary').textContent = (summary ?? [])
-    .map((s) => `${s.class}×${s.count}`)
-    .join(' · ');
-}
-
-async function renderNotifs() {
-  const rows = notifRows(await api('/api/notifications?limit=50').catch(() => []));
-  $('notif-body').innerHTML = rows
-    .map(
-      (n) =>
-        `<tr><td>${esc(n.time)}</td><td>ch${esc(n.channel)}</td><td>${esc(n.event)}</td><td>${esc(n.route)}</td><td class="${esc(n.ok ? 'ok' : 'bad')}">${esc(n.ok ? t('state.ok') : t('state.failed'))}</td><td>${esc(n.attempts)}</td><td class="muted">${esc(n.detail)}</td></tr>`,
-    )
-    .join('');
-  $('notif-count').textContent = t('count.parenthesized', { n: rows.length });
-}
-
-async function renderExports() {
-  const rows = exportRows(await api('/api/exports').catch(() => []));
-  $('export-body').innerHTML = rows
-    .map(
-      (j) =>
-        `<tr><td>#${esc(j.id)}</td><td>ch${esc(j.channel)}</td><td>${esc(j.stream)}</td><td>${esc(j.start)}</td><td>${esc(j.end)}</td><td>${esc(j.status)}</td><td>${esc(j.file ?? '')}</td><td class="muted">${esc(j.sha)}${esc(j.error ? ` · ${j.error}` : '')}</td></tr>`,
-    )
-    .join('');
-  $('export-count').textContent = t('count.parenthesized', { n: rows.length });
-}
-
-function bindExportForm() {
-  const form = $('export-form');
-  form.addEventListener('submit', async (ev) => {
-    ev.preventDefault();
-    const ch = Number(form.querySelector('input[name="ech"]').value);
-    const from = form.querySelector('input[name="efrom"]').value;
-    const to = form.querySelector('input[name="eto"]').value;
-    if (!ch || !from || !to) return;
-    const resp = await apiRaw('/api/exports', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ channelId: ch, stream: 'main', fromUtc: new Date(from).toISOString(), toUtc: new Date(to).toISOString() }),
-    }).catch(() => null);
-    if (!resp) return;
-    const body = await resp.json().catch(() => null);
-    $('export-msg').textContent = resp.ok ? t('export.queued', { id: body.id }) : body?.error ?? t('state.failed');
-    if (resp.ok) renderExports();
-  });
-}
-
-async function renderProviders() {
-  const list = await gatedFetch('provider-msg', '/api/auth/providers');
-  if (!list) {
-    $('provider-body').innerHTML = '';
-    $('provider-count').textContent = '';
-    return;
-  }
-  const rows = providerRows(list);
-  $('provider-body').innerHTML = rows
-    .map(
-      (p) =>
-        `<tr><td>#${esc(p.id)}</td><td>${esc(p.name)}</td><td>${esc(p.kind)}</td><td><input type="checkbox" data-provider-toggle="${Number(p.id)}" ${esc(p.enabled ? 'checked' : '')}></td><td><button class="danger" data-provider-del="${Number(p.id)}">${tx('action.delete')}</button></td><td class="muted wrap" title="${esc(p.config)}">${esc(p.config)}</td></tr>`,
-    )
-    .join('');
-  $('provider-count').textContent = t('count.parenthesized', { n: rows.length });
-  Array.from(document.querySelectorAll('[data-provider-toggle]')).forEach((cb) => {
-    cb.addEventListener('change', async () => {
-      const resp = await apiRaw(`/api/auth/providers/${cb.dataset.providerToggle}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ enabled: cb.checked }),
-      }).catch(() => null);
-      // 被擋下就把勾選還原；否則畫面會停在一個伺服器根本沒接受的狀態。
-      if (!(await feedback('provider-msg', resp))) {
-        cb.checked = !cb.checked;
-        return;
-      }
-      renderProviders();
-    });
-  });
-  Array.from(document.querySelectorAll('[data-provider-del]')).forEach((btn) => {
-    btn.addEventListener('click', async () => {
-      const resp = await apiRaw(`/api/auth/providers/${btn.dataset.providerDel}`, { method: 'DELETE' }).catch(() => null);
-      if (await feedback('provider-msg', resp)) renderProviders();
-    });
-  });
-}
-
-function bindProviderForm() {
-  const form = $('provider-form');
-  form.addEventListener('submit', async (ev) => {
-    ev.preventDefault();
-    const name = form.querySelector('input[name="pname"]').value.trim();
-    const kind = form.querySelector('select[name="pkind"]').value;
-    const cfg = form.querySelector('textarea[name="pcfg"]').value.trim();
-    if (!name || !cfg) return;
-    const resp = await apiRaw('/api/auth/providers', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, kind, configJson: cfg, enabled: true }),
-    }).catch(() => null);
-    if (await feedback('provider-msg', resp, (b) => t('common.added', { id: b.id }))) renderProviders();
-  });
-}
-
-async function renderHolds() {
-  const rows = holdRows(await api('/api/legal-holds').catch(() => []));
-  $('hold-body').innerHTML = rows
-    .map(
-      (h) =>
-        `<tr><td>#${esc(h.id)}</td><td>ch${esc(h.channel)}</td><td>${esc(h.from)}</td><td>${esc(h.to)}</td><td>${esc(h.reason)}</td><td>${esc(h.by)}</td><td class="${esc(h.active ? 'ok' : 'bad')}">${esc(h.active ? t('common.active') : t('common.revoked'))}</td><td class="muted">${esc(h.revokedBy)}</td><td>${esc(h.active ? `<button class="danger" data-hold-revoke="${Number(h.id)}">${tx('action.revoke')}</button>` : '')}</td></tr>`,
-    )
-    .join('');
-  $('hold-count').textContent = t('count.parenthesized', { n: rows.length });
-  Array.from(document.querySelectorAll('[data-hold-revoke]')).forEach((btn) => {
-    btn.addEventListener('click', async () => {
-      const reason = prompt(t('state.revokeReason'));
-      if (reason === null) return;
-      await apiRaw(`/api/legal-holds/${btn.dataset.holdRevoke}/revoke`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ by: readSession()?.name ?? 'operator', reason }),
-      });
-      renderHolds();
-    });
-  });
-}
-
-function bindHoldForm() {
-  const form = $('hold-form');
-  form.addEventListener('submit', async (ev) => {
-    ev.preventDefault();
-    const ch = Number(form.querySelector('input[name="hch"]').value);
-    const from = form.querySelector('input[name="hfrom"]').value;
-    const to = form.querySelector('input[name="hto"]').value;
-    const reason = form.querySelector('input[name="hreason"]').value.trim();
-    if (!ch || !from || !to || !reason) return;
-    const resp = await apiRaw('/api/legal-holds', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        channelId: ch,
-        fromUtc: new Date(from).toISOString(),
-        toUtc: new Date(to).toISOString(),
-        reason,
-        createdBy: readSession()?.name ?? 'operator',
-      }),
-    }).catch(() => null);
-    if (!resp) return;
-    const body = await resp.json().catch(() => null);
-    $('hold-msg').textContent = resp.ok ? t('hold.created', { id: body.id }) : body?.error ?? t('state.failed');
-    if (resp.ok) renderHolds();
-  });
-}
-
-async function renderRules() {
-  const rows = ruleRows(await api('/api/alert-rules').catch(() => []));
-  $('rule-body').innerHTML = rows
-    .map(
-      (r) =>
-        `<tr><td>#${esc(r.id)}</td><td>${esc(r.name)}</td><td>${esc(r.event || '—')}</td><td>${esc(r.channel || '—')}</td><td>${esc(r.keyword || '—')}</td><td>${esc(r.channels || '—')}</td><td><input type="checkbox" data-rule-toggle="${Number(r.id)}" ${esc(r.enabled ? 'checked' : '')}></td><td>${esc(r.min)}</td><td><button class="danger" data-rule-del="${Number(r.id)}">${tx('action.delete')}</button></td></tr>`,
-    )
-    .join('');
-  $('rule-count').textContent = t('count.parenthesized', { n: rows.length });
-  Array.from(document.querySelectorAll('[data-rule-toggle]')).forEach((cb) => {
-    cb.addEventListener('change', async () => {
-      await apiRaw(`/api/alert-rules/${cb.dataset.ruleToggle}/enabled`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ enabled: cb.checked }),
-      });
-      renderRules();
-    });
-  });
-  Array.from(document.querySelectorAll('[data-rule-del]')).forEach((btn) => {
-    btn.addEventListener('click', async () => {
-      await apiRaw(`/api/alert-rules/${btn.dataset.ruleDel}`, { method: 'DELETE' });
-      renderRules();
-    });
-  });
-}
-
-function bindRuleForm() {
-  const form = $('rule-form');
-  form.addEventListener('submit', async (ev) => {
-    ev.preventDefault();
-    const name = form.querySelector('input[name="rname"]').value.trim();
-    const eventType = form.querySelector('input[name="revent"]').value.trim();
-    const channel = Number(form.querySelector('input[name="rch"]').value || 0);
-    const keyword = form.querySelector('input[name="rkw"]').value.trim();
-    const min = Number(form.querySelector('input[name="rmin"]').value || 1);
-    if (!name) return;
-    const resp = await apiRaw('/api/alert-rules', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        name,
-        eventType: eventType || null,
-        channelId: channel || null,
-        keyword: keyword || null,
-        channels: null,
-        matchEventTypes: null,
-        frameMinutes: 0,
-        minEventsInWindow: min,
-      }),
-    }).catch(() => null);
-    if (!resp) return;
-    const body = await resp.json().catch(() => null);
-    $('rule-msg').textContent = resp.ok ? t('common.added', { id: body.id }) : body?.error ?? t('state.failed');
-    if (resp.ok) renderRules();
-  });
-}
-
-async function renderShares() {
-  const list = await gatedFetch('share-msg', '/api/shares');
-  if (!list) {
-    $('share-body').innerHTML = '';
-    $('share-count').textContent = '';
-    return;
-  }
-  const rows = shareRows(list);
-  $('share-body').innerHTML = rows
-    .map(
-      (s) =>
-        `<tr><td>#${esc(s.id)}</td><td>${esc(s.kind)}</td><td>${esc(s.label || '—')}</td><td class="muted">${esc(s.path)}</td><td>${esc(s.token)}…</td><td>${esc(s.uses)}</td><td class="${esc(s.active ? 'ok' : 'bad')}">${esc(s.active ? t('common.valid') : t('common.invalid'))}</td><td>${esc(s.active ? `<button class="danger" data-share-revoke="${Number(s.id)}">${tx('action.revoke')}</button>` : '')}</td></tr>`,
-    )
-    .join('');
-  $('share-count').textContent = t('count.parenthesized', { n: rows.length });
-  Array.from(document.querySelectorAll('[data-share-revoke]')).forEach((btn) => {
-    btn.addEventListener('click', async () => {
-      const resp = await apiRaw(`/api/shares/${btn.dataset.shareRevoke}/revoke`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: '{}',
-      }).catch(() => null);
-      if (await feedback('share-msg', resp)) renderShares();
-    });
-  });
-}
-
-function bindShareForm() {
-  const form = $('share-form');
-  form.addEventListener('submit', async (ev) => {
-    ev.preventDefault();
-    const kind = form.querySelector('select[name="skind"]').value;
-    const path = form.querySelector('input[name="spath"]').value.trim();
-    const label = form.querySelector('input[name="slabel"]').value.trim();
-    const maxUses = Number(form.querySelector('input[name="smax"]').value || 0);
-    if (!path) return;
-    const resp = await apiRaw('/api/shares', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ kind, resourcePath: path, label: label || null, maxUses }),
-    }).catch(() => null);
-    if (await feedback('share-msg', resp, (b) => t('share.created', { token: b.token.slice(0, 12) }))) renderShares();
-  });
-}
-
-async function renderReds() {
-  const rows = redRows(await api('/api/redactions?limit=200').catch(() => []));
-  $('red-body').innerHTML = rows
-    .map(
-      (r) =>
-        `<tr><td>#${esc(r.id)}</td><td>${esc(r.source)}</td><td>${esc(r.ref)}</td><td>CH${esc(r.channel)}</td><td>${esc(r.time)}</td><td>${esc(r.rect)}</td><td class="${esc(r.filled ? 'ok' : '')}">${esc(r.filled ? t('common.filled') : t('common.boxed'))}</td><td><button class="danger" data-red-del="${Number(r.id)}">${tx('action.remove')}</button></td></tr>`,
-    )
-    .join('');
-  $('red-count').textContent = t('count.parenthesized', { n: rows.length });
-  Array.from(document.querySelectorAll('[data-red-del]')).forEach((btn) => {
-    btn.addEventListener('click', async () => {
-      await apiRaw(`/api/redactions/${btn.dataset.redDel}`, { method: 'DELETE' });
-      renderReds();
-    });
-  });
-}
-
-function bindRedForm() {
-  const form = $('red-form');
-  form.addEventListener('submit', async (ev) => {
-    ev.preventDefault();
-    const f = form.elements;
-    const payload = {
-      sourceType: f.rsource.value,
-      refId: Number(f.rref.value || 0),
-      channelId: Number(f.rchannel.value || 1),
-      occurredAtUtc: f.rtime.value ? new Date(f.rtime.value).toISOString() : new Date().toISOString(),
-      x: Number(f.rx.value || 0),
-      y: Number(f.ry.value || 0),
-      width: Number(f.rw.value || 0),
-      height: Number(f.rh.value || 0),
-      filled: f.rfilled.checked,
-    };
-    const resp = await apiRaw('/api/redactions', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    }).catch(() => null);
-    if (!resp) return;
-    const body = await resp.json().catch(() => null);
-    $('red-msg').textContent = resp.ok ? t('common.added', { id: body.id }) : body?.error ?? t('state.failed');
-    if (resp.ok) renderReds();
-  });
-}
-
-async function renderRep() {
-  const rows = repRows(await api('/api/replication').catch(() => []));
-  $('rep-body').innerHTML = rows
-    .map(
-      (j) =>
-        `<tr><td>#${esc(j.id)}</td><td class="muted">${esc(j.src)}</td><td class="muted">${esc(j.dst)}</td><td>${esc(j.minutes)} ${tx('col.minutes')}</td><td class="${esc(j.enabled ? 'ok' : '')}">${esc(j.enabled ? t('common.enabled') : t('common.disabled'))}</td><td class="${esc(j.fails > 0 ? 'bad' : 'ok')}">${esc(j.lastResult || '—')}${esc(j.fails > 0 ? `（連續 ${j.fails} 次）` : '')}</td><td class="${esc(j.due ? 'bad' : '')}">${esc(j.due ? t('common.due') : '—')}</td></tr>`,
-    )
-    .join('');
-  $('rep-count').textContent = t('count.parenthesized', { n: rows.length });
-}
-
-async function renderHealth() {
-  const health = await api('/api/system-metrics').catch(() => null);
-  if (!health) {
-    $('sys-msg').textContent = t('state.metricsUnavailable');
-    return;
-  }
-  const rows = sysMetricsRows(health);
-  $('sys-count').textContent = t('metrics.disks', { count: rows.disks.length });
-  $('sys-kv').textContent = 
-    t('metrics.exec', { minutes: rows.uptimeMinutes, workingSet: rows.workingSetMb, cpu: rows.cpuPercent });
-  $('sys-body').innerHTML = rows.disks
-    .map(
-      (d) =>
-        `<tr><td>${esc(d.name)}</td><td>${esc(d.format)}</td><td>${esc(d.totalMb)} MB</td>` +
-        `<td>${esc(d.freeMb)} MB</td><td>${tx('metrics.freePct', { pct: (100 - d.usedPct).toFixed(1) })}</td></tr>`,
-    )
-    .join('');
-  $('sys-msg').textContent = '';
-}
-
-async function renderBoard() {
-  const [board, summary] = await Promise.all([
-    api('/api/alarm-board?take=200').catch(() => []),
-    api('/api/alarm-board/summary').catch(() => null),
-  ]);
-  const rows = alarmRows(board);
-  const shown = filterBoardRows(rows, boardFilter);
-  const can = canAct(readSession()?.role);
-  $('kpi').textContent = t('board.ackRate', { pct: ackRate(rows), count: rows.filter((r) => r.priority === 'critical').length });
-  $('alarm-body').innerHTML = shown
-    .map(
-      (b) =>
-        `<tr class="${esc(b.overdue ? 'overdue' : '')}"><td>#${esc(b.id)}</td><td>CH${esc(b.channel)}</td><td>${esc(b.event)}</td><td>${esc(b.start)}</td>` +
-        `<td>${esc(b.priority)}</td><td>${esc(b.status)}</td><td class="${esc(b.overdue ? 'bad' : '')}">${esc(b.overdue ? t('common.overdue') : '—')}</td>` +
-        (can
-          ? `<td><select data-pri="${Number(b.id)}"><option value="low" ${esc(b.priority === 'low' ? 'selected' : '')}>${tx('priority.low')}</option><option value="normal" ${esc(b.priority === 'normal' ? 'selected' : '')}>${tx('priority.normal')}</option><option value="high" ${esc(b.priority === 'high' ? 'selected' : '')}>${tx('priority.high')}</option><option value="critical" ${esc(b.priority === 'critical' ? 'selected' : '')}>${tx('priority.critical')}</option></select><button data-triage="${Number(b.id)}">${tx('action.triage')}</button><button data-ack="${Number(b.id)}" class="${esc(b.status === 'acknowledged' ? 'ok' : '')}">${tx('action.confirm')}</button><button class="danger" data-fa="${Number(b.id)}">${tx('common.falseAlarm')}</button></td>`
-          : ''),
-    )
-    .join('');
-  const counts = {
-    '': rows.length,
-    pending: summary?.Pending ?? 0,
-    acknowledged: summary?.Acknowledged ?? 0,
-    actioned: summary?.Actioned ?? 0,
-    false_alarm: summary?.FalseAlarm ?? 0,
-    overdue: summary?.Overdue ?? 0,
-  };
-  const chips = [
-    [t('common.all'), ''],
-    [t('common.pending'), 'pending'],
-    [t('common.acknowledged'), 'acknowledged'],
-    [t('common.actioned'), 'actioned'],
-    [t('common.falseAlarm'), 'false_alarm'],
-    [t('common.overdue'), 'overdue'],
-  ];
-  $('alarm-count').textContent = boardFilter
-    ? t('count.filteredOfTotal', { shown: shown.length, total: rows.length })
-    : t('count.parenthesized', { n: rows.length });
-  $('alarm-meta').textContent = t('board.updatedAt', { time: new Date().toLocaleTimeString(locale()) });
-  $('alarm-badges').innerHTML = chips
-    .map(
-      ([label, key]) =>
-        `<button class="chip-btn${esc(boardFilter === key ? ' on' : '')}" data-board-filter="${esc(key)}" aria-pressed="${esc(boardFilter === key)}">${tx('board.chip', { label, count: counts[key] })}</button>`,
-    )
-    .join('');
-  Array.from(document.querySelectorAll('[data-board-filter]')).forEach((btn) => {
-    btn.addEventListener('click', () => {
-      boardFilter = btn.dataset.boardFilter;
-      renderBoard();
-    });
-  });
-  if (can) bindBoardActions();
-}
-
-function bindBoardActions() {
-  Array.from(document.querySelectorAll('[data-triage]')).forEach((btn) => {
-    btn.addEventListener('click', async () => {
-      const id = btn.dataset.triage;
-      const priority = document.querySelector(`[data-pri="${id}"]`).value;
-      await apiRaw(`/api/alarm-board/${id}/triage`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ priority, dueUtc: null, owner: null }),
-      });
-      renderBoard();
-    });
-  });
-  Array.from(document.querySelectorAll('[data-ack]')).forEach((btn) => {
-    btn.addEventListener('click', async () => {
-      const id = btn.dataset.ack;
-      await apiRaw(`/api/alarm-board/${id}/ack`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ acknowledged: true }),
-      });
-      renderBoard();
-    });
-  });
-  Array.from(document.querySelectorAll('[data-fa]')).forEach((btn) => {
-    btn.addEventListener('click', async () => {
-      const id = btn.dataset.fa;
-      await apiRaw(`/api/alarm-board/${id}/disposition`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: 'false_alarm', assignedTo: null, note: t('board.manageFalseAlarm') }),
-      });
-      renderBoard();
-    });
-  });
-}
-
-function bindEvidenceForm() {
-  const form = $('evidence-form');
-  form.addEventListener('submit', async (ev) => {
-    ev.preventDefault();
-    const name = form.querySelector('input[name="evname"]').value.trim();
-    const files = form
-      .querySelector('textarea[name="evfiles"]')
-      .value.split('\n')
-      .map((f) => f.trim())
-      .filter(Boolean);
-    if (!name || files.length === 0) return;
-    const resp = await apiRaw('/api/evidence/package', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ bundleName: name, files }),
-    }).catch(() => null);
-    if (!resp) return;
-    const body = await resp.json().catch(() => null);
-    $('evidence-msg').textContent = resp.ok
-      ? t('evidence.bundleCreated', { path: body.bundlePath, sha: body.bundleSha256?.slice(0, 12) })
-      : body?.error ?? t('state.failed');
-    if (resp.ok) renderEvidence();
-  });
-}
-
-function renderPos() {
-  const to = new Date();
-  const from = new Date(to.getTime() - 3600 * 1000);
-  const params = new URLSearchParams({ from: from.toISOString(), to: to.toISOString(), limit: '200' });
-  api(`/api/pos?${params}`)
-    .then((page) => {
-      const t = posTotals(page.items);
-      const regs = Object.entries(t.registers)
-        .map(([id, r]) => `${id}:${r.count}`)
-        .join(' ');
-      $('pos').textContent = `POS ${t.count} · $${(t.totalCents / 100).toFixed(2)} · ${regs}`;
-    })
-    .catch(() => {});
-}
-
-// 必須是函式而不是模組層級常數：常數會在 import 時就把譯文定死，切換語言後這張表不會更新。
-const FORENSIC_SOURCE_NAMES = { 1: () => t('replay.sourceAlarm'), 2: () => t('replay.source'), 4: () => 'POS', 8: () => t('replay.sourceEdgeAi') };
-
-async function searchEvents(q) {
-  if (!q) {
-    $('events-msg').textContent = t('state.needKeyword');
-    return;
-  }
-  const to = new Date();
-  const from = new Date(to.getTime() - 24 * 3600 * 1000);
-  const params = new URLSearchParams({ q, from: from.toISOString(), to: to.toISOString(), limit: '50' });
-  const page = await api(`/api/events/search?${params}`);
-  const items = page.items ?? [];
-  const can = canAct(readSession()?.role);
-  $('events').querySelector('tbody').innerHTML = items
-    .map((e) => {
-      const row = eventRow(e);
-      const sid = Number(e.SourceId ?? e.sourceId ?? 0);
-      const source = Number(e.Source ?? e.source ?? 0);
-      return (
-        `<tr><td>${esc(sid ? '#' + sid : '')}</td><td>${esc(row.time)}</td><td>${esc(FORENSIC_SOURCE_NAMES[source]?.() ?? '—')}</td><td>${esc(row.type)}</td><td>${esc(row.status || '—')}</td>` +
-        (can && source === 1
-          ? `<td><button data-sack="${Number(sid)}">${tx('action.confirm')}</button><button class="danger" data-sfa="${Number(sid)}">${tx('common.falseAlarm')}</button></td></tr>`
-          : '<td></td></tr>')
-      );
-    })
-    .join('');
-  if (can) bindSearchActions(() => searchEvents(q));
-  if (items.length === 0) {
-    $('events-msg').textContent = t('state.noResults');
-  } else if (items.length < page.total) {
-    $('events-msg').textContent = t('search.foundTruncated', { total: page.total, shown: items.length });
-  } else {
-    $('events-msg').textContent = t('search.found', { total: page.total });
-  }
-}
-
-function bindSearchActions(refresh) {
-  Array.from(document.querySelectorAll('[data-sack]')).forEach((btn) => {
-    btn.addEventListener('click', async () => {
-      await apiRaw(`/api/alarm-board/${btn.dataset.sack}/ack`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ acknowledged: true }),
-      });
-      refresh();
-      renderBoard();
-    });
-  });
-  Array.from(document.querySelectorAll('[data-sfa]')).forEach((btn) => {
-    btn.addEventListener('click', async () => {
-      await apiRaw(`/api/alarm-board/${btn.dataset.sfa}/disposition`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: 'false_alarm', assignedTo: null, note: t('board.searchFalseAlarm') }),
-      });
-      refresh();
-      renderBoard();
-    });
-  });
-}
-
-let timelineDay = '';
-
-function timelineDayUtc() {
-  const day = new Date();
-  if (timelineDay) {
-    const [y, m, d] = timelineDay.split('-').map(Number);
-    day.setUTCFullYear(y, m - 1, d);
-  }
-  day.setUTCHours(0, 0, 0, 0);
-  return day;
-}
-
-function bumpTimelineDay(delta) {
-  const base = timelineDayUtc();
-  base.setUTCDate(base.getUTCDate() + delta);
-  timelineDay = base.toISOString().slice(0, 10);
-  $('timeline-day').value = timelineDay;
-  refreshTimeline();
-}
-
-async function refreshTimeline() {
-  const day = timelineDayUtc();
-  const timeline = await api(buildTimelineQuery({ channelId: 1, stream: 'main', day }));
-  $('gap').textContent = gapLabel(timeline.gapFraction);
-  const el = $('timeline');
-  el.innerHTML = '';
-  for (const bar of timeline.bars) {
-    const div = document.createElement('div');
-    div.className = 'bar';
-    div.style.left = `${escPct(bar.leftFraction * 100)}%`;
-    div.style.width = `${escPct(Math.max(bar.widthFraction * 100, 0.2))}%`;
-    el.appendChild(div);
-  }
-  for (const marker of timeline.markers) {
-    const div = document.createElement('div');
-    div.className = 'marker';
-    div.style.left = `${escPct(marker.xFraction * 100)}%`;
-    el.appendChild(div);
-  }
-}
-
-/**
- * 即時監看（M244，§14.3 串流 P0）：WHEP → 原生 RTCPeerConnection。
- * 與遠程回放共用同一塊「單一認證傳輸層」apiRaw，API key 只從 Authorization 標頭送出。
- */
-const liveViewer = createLiveViewer({ apiRaw, t });
-
-/**
- * 顯示部署限制提示（M244 §7）。
+ * 多分割即時監看：版面決定格數，多選清單決定要看哪幾路；每一格各自一條 WHEP 會話。
  *
- * 沒有 TURN 時，對稱 NAT／多層 NAT 環境的遠端瀏覽器一定連不上，而症狀只是播放器
- * 卡住、沒有任何錯誤訊息。TURN 是環境變數，操作員在畫面上看不到自己沒設定，
- * 所以這裡據實告訴他，而不是等到有人回報「遠端看不到畫面」才去猜。
+ * 選超過格數時只取前 N 路（不報錯，因為使用者通常只是懶得改清單）。
+ * 刻意平行開檔：ICE 收集最長 3 秒，逐格等待會讓 5x5 等到天荒地老。
  */
-async function showLiveDeploymentNotice() {
-  const el = $('live-nat-warning');
-  const channelId = Number($('live-channel').value);
-  const info = await fetchDeployment(channelId, apiRaw);
-
-  // 問不到就不顯示：寧可少一句提醒，也不要在沒有證據時講一個可能是錯的結論。
-  if (!info || info.turnConfigured) {
-    el.hidden = true;
-    el.textContent = '';
-    return;
-  }
-
-  el.textContent = t('live.natWarning');
-  el.hidden = false;
-}
-
 async function openLiveView(event) {
   event.preventDefault();
-  const channelId = Number($('live-channel').value);
   const msg = $('live-msg');
-  const started = await liveViewer.open(channelId, $('live-video'), (text) => {
-    msg.textContent = text;
+  const channels = selectedChannelIds();
+
+  await stopLiveView();
+  renderLiveGrid();
+
+  if (channels.length === 0) {
+    msg.textContent = t('live.pickChannel');
+    return;
+  }
+
+  const cells = [...$('live-grid').querySelectorAll('.live-cell')];
+  const shown = channels.slice(0, liveLayoutCount());
+
+  msg.textContent = t('state.liveConnecting');
+
+  liveCells = shown.map((channelId, i) => {
+    const cell = cells[i];
+    const video = cell.querySelector('video');
+    const label = cell.querySelector('.live-cell-label');
+    label.textContent = channelName(channelId);
+    return { channelId, video, label, viewer: createLiveViewer({ apiRaw, t }) };
   });
 
-  $('live-meta').textContent = started
+  const results = await Promise.all(
+    liveCells.map(({ viewer, channelId, video, label }) =>
+      viewer.open(channelId, video, (text) => {
+        label.textContent = `${channelName(channelId)} · ${text}`;
+      }),
+    ),
+  );
+
+  const ok = results.filter(Boolean).length;
+  msg.textContent = ok === liveCells.length && ok > 0
+    ? t('state.liveReady')
+    : t('live.someFailed', { ok, total: liveCells.length });
+  $('live-meta').textContent = t('live.gridMeta', {
+    count: ok,
+    channels: shown.map(channelName).join(t('list.separator')),
+  });
+}
+
+async function stopLiveView() {
+  if (liveCells.length === 0) return;
+  const cells = liveCells;
+  liveCells = [];
+  const results = await Promise.all(cells.map(({ viewer }) => viewer.stop()));
+  if (results.some(Boolean)) {
+    $('live-msg').textContent = t('state.liveStopped');
+    $('live-meta').textContent = '';
+  }
+}
+
+/**
+ * 截圖：把即時畫面畫進 canvas 再下載 PNG。
+ *
+ * 刻意不做伺服器端截圖端點——畫面上已經有解碼完成的影像，前端複製一份是零延遲、
+ * 零後端相依，而且抓到的就正是操作員當下看到的那一格。
+ */
+async function openSnapshotView(event) {
+  event.preventDefault();
+  const channelId = Number($('snap-channel').value);
+  const started = await snapshotViewer.open(channelId, $('snap-video'), (text) => {
+    $('snap-msg').textContent = text;
+  });
+  $('snap-meta').textContent = started
     ? t('live.viewerCount', { channel: channelId, viewers: 1 })
     : '';
 }
 
-async function stopLiveView() {
-  const stopped = await liveViewer.stop();
+async function stopSnapshotView() {
+  const stopped = await snapshotViewer.stop();
   if (stopped) {
-    $('live-msg').textContent = t('state.liveStopped');
-    $('live-meta').textContent = '';
+    $('snap-msg').textContent = t('state.liveStopped');
+    $('snap-meta').textContent = '';
+  }
+}
+
+function captureSnapshot() {
+  const video = $('snap-video');
+  const msg = $('snap-msg');
+  // 沒有尺寸代表根本沒有解碼中的畫面（還沒開、或 WebRTC 失敗）；硬畫只會得到黑圖。
+  if (!video.videoWidth || !video.videoHeight) {
+    msg.textContent = t('state.snapshotFailed');
+    return;
+  }
+  const canvas = document.createElement('canvas');
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  canvas.getContext('2d').drawImage(video, 0, 0);
+  canvas.toBlob((blob) => {
+    if (!blob) {
+      msg.textContent = t('state.snapshotFailed');
+      return;
+    }
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `snapshot-ch${Number($('snap-channel').value) || 0}-${Date.now()}.png`;
+    link.click();
+    URL.revokeObjectURL(url);
+    msg.textContent = t('state.snapshotDone');
+  }, 'image/png');
+}
+
+let playChannels = [];
+
+/**
+ * 回放來源選單：本機 + 每個已註冊的子節點（M301／M302）。
+ * 選子節點時 playRemote 改打跨機代理，體驗與本機相同。單台離線時後端已跳過，這裡最多整份為空。
+ */
+async function refreshPlaySources() {
+  const nodes = await api('/api/central/nodes').catch(() => []);
+  const sel = $('play-node');
+  if (sel) {
+    const current = sel.value;
+    sel.innerHTML = [`<option value="">${esc(t('replay.nodeLocal'))}</option>`]
+      .concat(nodes.map((n) => `<option value="${Number(n.id)}">${esc(n.name)}</option>`))
+      .join('');
+    sel.value = current;
+  }
+  playChannels = centralChannelRows(await api('/api/central/channels').catch(() => []));
+  fillPlayChannels();
+}
+
+/** 選了子節點就只列該節點的頻道，避免使用者猜編號；本機則列資料庫裡的實機頻道（91/93/94 這種主鍵）。 */
+function fillPlayChannels() {
+  const list = $('play-channel-options');
+  if (!list) return;
+  const nodeValue = $('play-node')?.value ?? '';
+  const rows = nodeValue
+    ? playChannels
+      .filter((c) => c.nodeId === Number(nodeValue))
+      .map((c) => ({ value: c.channelId, label: c.channelName }))
+    : localChannels.map((c) => ({ value: c.id, label: c.name }));
+  list.innerHTML = rows
+    .map((r) => `<option value="${Number(r.value)}">${esc(r.label)}</option>`)
+    .join('');
+
+  // 本機時預設第一路可用頻道。原本輸入框硬寫 value="1"，但實機主鍵通常不是 1，
+  // 使用者一按「載入回放」就得到「此時段沒有錄影」，誤以為回放功能壞了。
+  const input = $('play-channel');
+  if (input && !nodeValue && !input.value && rows.length > 0) {
+    input.value = String(Number(rows[0].value));
+  }
+}
+
+let localChannels = [];
+
+/**
+ * 本機頻道快選：串流端要的是資料庫主鍵（實機上是 91/93/94，不是從 1 起算），
+ * 不給清單的話即時／截圖／PTZ 只能靠猜編號，猜錯伺服器只回「找不到這一路攝影機」。
+ */
+async function refreshLocalChannels() {
+  const rows = await api('/api/channels').catch(() => []);
+  localChannels = (Array.isArray(rows) ? rows : []).filter((c) => c.enabled !== false);
+
+  // 回放頁的本機頻道建議也來自同一份清單。refreshAll 平行跑 refreshPlaySources，
+  // 那支可能先於這裡執行、拿不到 localChannels，所以在這裡補一次。
+  fillPlayChannels();
+
+  // 即時監看是多選：重畫選項時要保留已勾選的頻道，否則每 12 秒的輪詢會把選取清掉。
+  const select = $('live-channels');
+  if (select) {
+    const hadOptions = select.options.length > 0;
+    const chosen = new Set([...select.selectedOptions].map((o) => o.value));
+    select.innerHTML = localChannels
+      .map((c) => `<option value="${Number(c.id)}">${esc(c.name)}</option>`)
+      .join('');
+    for (const option of select.options) option.selected = chosen.has(option.value);
+    // 只有第一次載入、且使用者尚未選任何頻道時才預選第一路，讓「開啟」有預設可看。
+    if (!hadOptions && select.options.length > 0) select.options[0].selected = true;
+  }
+
+  // 截圖／PTZ／IO 仍是單一數字欄位，用 datalist 提供建議。
+  for (const id of ['snap-channel-options', 'ptz-channel-options', 'io-channel-options']) {
+    const options = $(id);
+    if (!options) continue;
+    options.innerHTML = localChannels
+      .map((c) => `<option value="${Number(c.id)}">${esc(c.name)}</option>`)
+      .join('');
+  }
+  const first = localChannels[0];
+  if (!first) return;
+  for (const id of ['snap-channel', 'ptz-channel', 'io-channel']) {
+    const input = $(id);
+    if (input && !input.value) input.value = String(Number(first.id));
   }
 }
 
@@ -1383,6 +444,7 @@ async function playRemote(event) {
     return;
   }
 
+  playInFlight = true;
   msg.textContent = t('state.loading');
   try {
     const nodeId = $('play-node')?.value ?? '';
@@ -1408,6 +470,8 @@ async function playRemote(event) {
     msg.textContent = t('state.ready');
   } catch (err) {
     msg.textContent = err.message;
+  } finally {
+    playInFlight = false;
   }
 }
 
@@ -1421,13 +485,299 @@ function defaultPlayWindow() {
   $('play-to').value = local(to);
 }
 
+let ptzProfileToken = '';
+
+/**
+ * PTZ（M310 後端 /api/ptz）：列出設備碼流，之後的移動／預設點都靠 profileToken 定位。
+ * 409 代表「這個設備不支援 PTZ」——與 404「頻道不存在」的意義完全不同，所以分開講。
+ */
+async function loadPtz(event) {
+  event.preventDefault();
+  const channelId = Number($('ptz-channel').value);
+  const msg = $('ptz-msg');
+  if (!Number.isFinite(channelId) || channelId <= 0) {
+    msg.textContent = t('state.needChannel');
+    return;
+  }
+  msg.textContent = t('ptz.connecting');
+  const resp = await apiRaw(`/api/ptz/${channelId}/profiles`).catch(() => null);
+  if (!resp) {
+    msg.textContent = t('state.disconnected');
+    return;
+  }
+  if (!resp.ok) {
+    if (resp.status === 409) {
+      msg.textContent = t('ptz.notSupported');
+      return;
+    }
+    const info = await resp.json().catch(() => null);
+    msg.textContent = t('ptz.connectFailed', { reason: info?.error ?? t('state.failed') });
+    return;
+  }
+  const body = await resp.json().catch(() => null);
+  const profiles = body?.profiles ?? [];
+  if (profiles.length === 0) {
+    msg.textContent = t('ptz.noProfiles');
+    return;
+  }
+  ptzProfileToken = profiles[0].token;
+  $('ptz-profile').innerHTML = profiles
+    .map((p) => `<option value="${esc(p.token)}">${esc(p.label ?? p.name ?? p.token)}</option>`)
+    .join('');
+  $('ptz-profile').value = ptzProfileToken;
+  msg.textContent = t('ptz.connected');
+  await loadPtzPresets(channelId);
+}
+
+async function loadPtzPresets(channelId) {
+  const resp = await apiRaw(`/api/ptz/${channelId}/presets?profileToken=${encodeURIComponent(ptzProfileToken)}`).catch(() => null);
+  if (!resp || !resp.ok) {
+    $('ptz-preset-list').innerHTML = '';
+    return;
+  }
+  const list = await resp.json().catch(() => []);
+  $('ptz-preset-list').innerHTML = (list ?? [])
+    .map((p) => `<option value="${esc(p.token)}">${esc(p.name ?? p.token)}</option>`)
+    .join('');
+}
+
+/** 共用回應處理：把後端錯誤（含閘門的 403）原文顯示，成功則顯示呼叫端給的字串。 */
+async function ptzReport(resp, okText = '') {
+  const msg = $('ptz-msg');
+  if (!resp) {
+    msg.textContent = t('state.disconnected');
+    return false;
+  }
+  const info = await resp.json().catch(() => null);
+  if (!resp.ok) {
+    msg.textContent = t('ptz.moveFailed', { reason: info?.error ?? t('state.failed') });
+    return false;
+  }
+  msg.textContent = okText;
+  return true;
+}
+
+async function ptzMove(pan, tilt, zoom) {
+  if (!ptzProfileToken) {
+    $('ptz-msg').textContent = t('ptz.notSupported');
+    return;
+  }
+  const channelId = Number($('ptz-channel').value);
+  const resp = await apiRaw(`/api/ptz/${channelId}/move`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ profileToken: ptzProfileToken, pan, tilt, zoom }),
+  }).catch(() => null);
+  await ptzReport(resp);
+}
+
+async function ptzStop() {
+  if (!ptzProfileToken) return;
+  const channelId = Number($('ptz-channel').value);
+  const resp = await apiRaw(`/api/ptz/${channelId}/stop`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ profileToken: ptzProfileToken }),
+  }).catch(() => null);
+  await ptzReport(resp);
+}
+
+async function ptzHome() {
+  if (!ptzProfileToken) {
+    $('ptz-msg').textContent = t('ptz.notSupported');
+    return;
+  }
+  const channelId = Number($('ptz-channel').value);
+  const resp = await apiRaw(`/api/ptz/${channelId}/home`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ profileToken: ptzProfileToken }),
+  }).catch(() => null);
+  await ptzReport(resp, t('ptz.gonePreset'));
+}
+
+async function savePtzPreset() {
+  if (!ptzProfileToken) {
+    $('ptz-msg').textContent = t('ptz.notSupported');
+    return;
+  }
+  const channelId = Number($('ptz-channel').value);
+  const typed = $('ptz-preset-name').value.trim();
+  // 沒命名就用時間戳，與桌機版行為一致：儲存本身不該因為沒打字而失效。
+  const name = typed || String(Date.now());
+  const resp = await apiRaw(`/api/ptz/${channelId}/presets`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ profileToken: ptzProfileToken, name }),
+  }).catch(() => null);
+  if (await ptzReport(resp, t('ptz.savedPreset'))) await loadPtzPresets(channelId);
+}
+
+async function gotoPtzPreset() {
+  const token = $('ptz-preset-list').value;
+  if (!ptzProfileToken || !token) {
+    $('ptz-msg').textContent = t('ptz.notSupported');
+    return;
+  }
+  const channelId = Number($('ptz-channel').value);
+  const resp = await apiRaw(`/api/ptz/${channelId}/presets/${encodeURIComponent(token)}/goto`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ profileToken: ptzProfileToken }),
+  }).catch(() => null);
+  await ptzReport(resp, t('ptz.gonePreset'));
+}
+
+async function deletePtzPreset() {
+  const token = $('ptz-preset-list').value;
+  if (!ptzProfileToken || !token) {
+    $('ptz-msg').textContent = t('ptz.notSupported');
+    return;
+  }
+  const channelId = Number($('ptz-channel').value);
+  const resp = await apiRaw(`/api/ptz/${channelId}/presets/${encodeURIComponent(token)}?profileToken=${encodeURIComponent(ptzProfileToken)}`, {
+    method: 'DELETE',
+  }).catch(() => null);
+  if (await ptzReport(resp, t('ptz.deletedPreset'))) await loadPtzPresets(channelId);
+}
+
+/**
+ * 方向盤與變焦採「按住移動、放開停止」：ONVIF 的 ContinuousMove 是速度命令，
+ * 不是單步位移，點一下就走一步的相機會在放開後持續移動。
+ */
+function bindPtzPad() {
+  for (const btn of document.querySelectorAll('[data-move]')) {
+    const issue = (ev) => {
+      ev.preventDefault();
+      const [pan, tilt, zoom] = btn.dataset.move.split(',').map(Number);
+      void ptzMove(pan, tilt, zoom);
+    };
+    btn.addEventListener('pointerdown', issue);
+    btn.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Enter' || ev.key === ' ') {
+        ev.preventDefault();
+        issue(ev);
+      }
+    });
+    btn.addEventListener('keyup', () => void ptzStop());
+  }
+  document.addEventListener('pointerup', () => void ptzStop());
+  $('ptz-stop').addEventListener('click', () => void ptzStop());
+  $('ptz-home').addEventListener('click', () => void ptzHome());
+}
+
+/**
+ * 攝影機 IO 接點（乾接點）。DI 只列出端子——ONVIF 沒有「輪詢 DI 目前狀態」的操作，
+ * 輸入狀態只在事件中回報；DO 則可以 SetRelayOutputState 直接切換。
+ * 「不支援 IO」由後端的 409 表達（與 PTZ 同一套語意），所以這裡要看狀態碼而不是只看 ok。
+ */
+async function loadIo(event) {
+  if (event) event.preventDefault();
+  const channelId = Number($('io-channel').value);
+  const msg = $('io-msg');
+  if (!Number.isInteger(channelId) || channelId <= 0) {
+    msg.textContent = t('state.needChannel');
+    return;
+  }
+  msg.textContent = t('state.loading');
+  const inputsResp = await apiRaw(`/api/io/${channelId}/inputs`).catch(() => null);
+  if (!inputsResp) {
+    msg.textContent = t('state.disconnected');
+    return;
+  }
+  if (inputsResp.status === 409) {
+    renderIoInputs([]);
+    renderIoOutputs([]);
+    msg.textContent = t('io.notSupported');
+    return;
+  }
+  if (!inputsResp.ok) {
+    const info = await inputsResp.json().catch(() => null);
+    msg.textContent = t('io.loadFailed', { reason: info?.error ?? inputsResp.status });
+    return;
+  }
+  const inputs = (await inputsResp.json()).inputs ?? [];
+  const outputsResp = await apiRaw(`/api/io/${channelId}/outputs`).catch(() => null);
+  const outputs = outputsResp?.ok ? ((await outputsResp.json()).outputs ?? []) : [];
+  renderIoInputs(inputs);
+  renderIoOutputs(outputs);
+  msg.textContent = t('io.loaded', { inputs: inputs.length, outputs: outputs.length });
+}
+
+function renderIoInputs(rows) {
+  $('io-inputs').querySelector('tbody').innerHTML = rows
+    .map((r) => `<tr><td>${esc(r.token)}</td><td>${esc(r.name || '—')}</td><td>${esc(r.label || '—')}</td></tr>`)
+    .join('');
+}
+
+function renderIoOutputs(rows) {
+  $('io-outputs').querySelector('tbody').innerHTML = rows
+    .map((r) => `<tr><td>${esc(r.token)}</td><td>${esc(r.name || '—')}</td><td>${esc(r.label || '—')}</td><td><button type="button" data-io-relay="${esc(r.token)}" data-io-active="1">${tx('io.activate')}</button> <button type="button" data-io-relay="${esc(r.token)}" data-io-active="0">${tx('io.deactivate')}</button></td></tr>`)
+    .join('');
+}
+
+async function switchIoRelay(button) {
+  const channelId = Number($('io-channel').value);
+  const token = button.dataset.ioRelay;
+  const active = button.dataset.ioActive === '1';
+  const msg = $('io-msg');
+  const resp = await apiRaw(`/api/io/${channelId}/outputs/${encodeURIComponent(token)}/state`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ active }),
+  }).catch(() => null);
+  if (!resp) {
+    msg.textContent = t('state.disconnected');
+    return;
+  }
+  if (resp.ok) {
+    msg.textContent = t('io.switched', { token });
+    return;
+  }
+  const info = await resp.json().catch(() => null);
+  msg.textContent = t('io.switchFailed', { reason: info?.error ?? resp.status });
+}
+
+// 必須是函式而不是模組層級常數：常數會在 import 時就把譯文定死，切換語言後這張表不會更新。
+const FORENSIC_SOURCE_NAMES = { 1: () => t('replay.sourceAlarm'), 2: () => t('replay.source'), 4: () => 'POS', 8: () => t('replay.sourceEdgeAi') };
+
+async function searchEvents(raw) {
+  const q = raw.trim();
+  if (!q) {
+    $('events-msg').textContent = t('state.needKeyword');
+    return;
+  }
+  const limit = 50;
+  const to = new Date();
+  const from = new Date(to.getTime() - 24 * 3600 * 1000);
+  const params = new URLSearchParams({ q, from: from.toISOString(), to: to.toISOString(), limit: String(limit) });
+  const page = await api(`/api/events/search?${params}`).catch(() => null);
+  if (!page) {
+    $('events-msg').textContent = t('state.disconnected');
+    return;
+  }
+  const items = page.items ?? [];
+  $('events').querySelector('tbody').innerHTML = items
+    .map((hit) => {
+      const { id, time, source, text, status } = eventRow(hit);
+      return `<tr><td>${esc(id ? '#' + id : '')}</td><td>${esc(time)}</td><td>${esc(FORENSIC_SOURCE_NAMES[source]?.() ?? '—')}</td><td>${esc(text || '—')}</td><td>${esc(status || '—')}</td></tr>`;
+    })
+    .join('');
+  if (items.length === 0) {
+    $('events-msg').textContent = t('state.noResults');
+  } else if (items.length >= limit) {
+    $('events-msg').textContent = t('search.foundCapped', { total: items.length, shown: items.length });
+  } else {
+    $('events-msg').textContent = t('search.found', { total: items.length });
+  }
+}
+
 let alertSocket = null;
 
 function connectLive() {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
   // 走 createAlertSocket 而不是直接 new WebSocket：斷線要自己接回來。
-  // 現場症狀是「伺服器重開機之後主控台再也不跳告警」，畫面上只有一個
-  // "WS off" 的小字、沒有錯誤訊息，而復原方式是使用者剛好注意到並手動重新整理。
+  // 現場症狀是「伺服器重開機之後主控台再也不跳告警」，畫面上只有一個 WS off 的小字。
   alertSocket = createAlertSocket({
     url: () => `${proto}://${location.host}/api/alerts/ws?key=${encodeURIComponent(key())}`,
     onMessage: (data) => {
@@ -1436,7 +786,6 @@ function connectLive() {
       const li = document.createElement('li');
       li.textContent = `${formatTimestamp(new Date().toISOString())} ${msg.kind} #${msg.eventId} ${msg.priority ?? msg.status ?? ''}`;
       $('live-log').prepend(li);
-      if (msg.kind.startsWith('alarm.')) renderSmartwall();
     },
     onStatus: ({ online }) => {
       $('live').textContent = online ? 'WS on' : 'WS off';
@@ -1459,18 +808,46 @@ function wire() {
     e.preventDefault();
     logout();
   });
-  $('timeline-day').addEventListener('change', refreshTimeline);
-  $('timeline-up').addEventListener('click', () => bumpTimelineDay(1));
-  $('timeline-down').addEventListener('click', () => bumpTimelineDay(-1));
+
+  bindTabs();
+  showTab('live');
+
+  $('live-form').addEventListener('submit', openLiveView);
+  $('live-stop').addEventListener('click', stopLiveView);
+  // 切版面立即重畫空格線（並收掉正在跑的會話，因為格數變了）。
+  $('live-layout').addEventListener('change', () => {
+    void stopLiveView();
+    renderLiveGrid();
+  });
+  renderLiveGrid();
+
+  $('snap-form').addEventListener('submit', openSnapshotView);
+  $('snap-stop').addEventListener('click', stopSnapshotView);
+  $('snap-capture').addEventListener('click', captureSnapshot);
+
+  $('ptz-form').addEventListener('submit', loadPtz);
+  $('ptz-preset-save').addEventListener('click', savePtzPreset);
+  $('ptz-preset-goto').addEventListener('click', gotoPtzPreset);
+  $('ptz-preset-delete').addEventListener('click', deletePtzPreset);
+  bindPtzPad();
+
+  $('io-form').addEventListener('submit', loadIo);
+  // 每一列都是動態產生的，用事件委派才不會在重繪後漏掉監聽。
+  $('io-outputs').addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-io-relay]');
+    if (btn) switchIoRelay(btn).catch(console.error);
+  });
+
   $('play-form').addEventListener('submit', playRemote);
   // 換來源節點時同步換頻道建議（M302），否則會留著上一台節點的頻道清單。
   $('play-node')?.addEventListener('change', fillPlayChannels);
-  $('live-form').addEventListener('submit', openLiveView);
-  $('live-stop').addEventListener('click', stopLiveView);
-
-  // 狀態端點掛在通道上，改通道就重問一次部署狀態。
-  $('live-channel').addEventListener('change', showLiveDeploymentNotice);
   defaultPlayWindow();
+
+  $('search-form').addEventListener('submit', (e) => {
+    e.preventDefault();
+    searchEvents($('q').value).catch(console.error);
+  });
+
   const saved = localStorage.getItem('helivms.apiKey');
   if (saved) $('apikey').value = saved;
   $('apikey').addEventListener('change', () => {
@@ -1482,40 +859,11 @@ function wire() {
     }
     location.reload();
   });
-  $('audit-category').addEventListener('change', renderAudit);
-  $('audit-actor').addEventListener('input', renderAudit);
-  $('account-form').addEventListener('submit', submitAccount);
-  $('config-form').addEventListener('submit', saveConfig);
-  $('retention-run').addEventListener('click', runRetention);
-  $('sys-refresh')?.addEventListener('click', renderHealth);
-  $('board-refresh')?.addEventListener('click', () => renderBoard());
-  $('central-alarms-refresh')?.addEventListener('click', () => renderCentralAlarms());
-  bindEvidenceForm();
-  bindBackupForm();
-  bindCentralForm();
-  bindExportForm();
-  bindProviderForm();
-  bindHoldForm();
-  bindRuleForm();
-  bindShareForm();
-  bindRedForm();
-  $('search-form').addEventListener('submit', (e) => {
-    e.preventDefault();
-    searchEvents($('q').value || '*').catch(console.error);
-  });
   $('apikey').addEventListener('keydown', (e) => {
     if (e.key === 'Enter') {
       e.preventDefault();
       refreshAll();
     }
-  });
-  ['door-card', 'door-ok', 'door-denied'].forEach((id) => {
-    const el = $(id);
-    if (el) el.addEventListener(el.type === 'checkbox' ? 'change' : 'input', renderDoor);
-  });
-  ['det-conf', 'det-class'].forEach((id) => {
-    const el = $(id);
-    if (el) el.addEventListener('input', renderDetections);
   });
 }
 
@@ -1532,9 +880,8 @@ function storedLocale() {
 }
 
 /**
- * 套用語系。除了靜態標記（applyDom），表格與訊息列也必須重繪——
- * 它們是執行時用 t()/tx() 產生的，不會因為 applyDom 而改變。
- * 直接呼叫各 render 而不整頁重載，是因為重載會清掉已輸入的篩選條件與分頁狀態。
+ * 套用語系。除了靜態標記（applyDom），訊息列與動態清單也必須重繪——
+ * 它們是執行時用 t() 產生的，不會因為 applyDom 而改變。
  */
 async function applyLocale(next, { persist = true } = {}) {
   const applied = setLocale(next);
@@ -1576,14 +923,11 @@ async function boot() {
   await refreshHealth();
   await refreshLicense();
   await refreshAll();
-  bindScheduleForm();
-  bindPatrolForm();
   bindLocalePicker();
   connectLive();
   // 離開頁面時明確停掉重連。沒有這行的話 pagehide 之後重連計時器還在跑，
   // 會在背景不斷嘗試連線直到分頁被回收。
   window.addEventListener('pagehide', disconnectLive);
-  await showLiveDeploymentNotice();
   setInterval(() => {
     if (pollGate(document.activeElement?.tagName, document.hidden)) {
       refreshLicense();
@@ -1621,7 +965,7 @@ async function refreshLicense() {
     // 功能名稱來自伺服器，前端不自行翻譯；缺的清單與句型則走目錄，
     // 否則切到英文介面時會出現「Not authorized: 影片 (缺 錄影、剪輯)」這種混雜畫面。
     const reason = missing.length
-      ? `${status.message || status.decision} ${tx('state.missingFeatures', { features: missing.join(t('list.separator')) })}`
+      ? `${status.message || status.decision} ${txMissing(missing)}`
       : status.message || status.decision;
     el.textContent = t('state.unauthorized', { reason });
     el.classList.add('off');
@@ -1630,8 +974,13 @@ async function refreshLicense() {
   }
 }
 
+/** 授權缺項的句子；與 refreshLicense 分開，讓那支函式維持完全不碰 HTML。 */
+function txMissing(features) {
+  return t('state.missingFeatures', { features: features.join(t('list.separator')) });
+}
+
 async function refreshAll() {
-  await Promise.allSettled([refreshChannels(), renderBoard(), refreshTimeline(), renderMap(), renderSmartwall(), renderPos(), renderDaily(), renderSchedules(), renderPatrols(), renderDoor(), renderDetections(), renderNotifs(), renderExports()]);
+  await Promise.allSettled([refreshHealth(), refreshPlaySources(), refreshLocalChannels()]);
 }
 
 boot();

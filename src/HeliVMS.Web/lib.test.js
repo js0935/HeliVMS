@@ -143,10 +143,10 @@ describe('bearerHeader', () => {
 });
 
 describe('eventRow', () => {
-  it('maps camelCase API payload', () => {
+  it('maps a forensic search hit (source/sourceId/text/occurredAtUtc)', () => {
     expect(
-      eventRow({ id: 7, startUtc: '2026-01-02T03:04:05Z', channelId: 1, eventType: 'motion', status: 'open' }),
-    ).toEqual({ id: 7, time: '03:04:05', channel: 1, type: 'motion', status: 'open' });
+      eventRow({ source: 1, sourceId: 7, text: 'connection lost', occurredAtUtc: '2026-01-02T03:04:05Z', status: 'pending' }),
+    ).toEqual({ id: 7, time: '03:04:05', source: 1, text: 'connection lost', status: 'pending' });
   });
 });
 
@@ -373,10 +373,17 @@ describe('login gating', () => {
   });
 
   it('parses login responses', () => {
-    expect(parseLogin({ role: 'admin', displayName: '操作員' })).toEqual({
+    expect(parseLogin({ role: 'admin', displayName: '操作員', token: 'sess-token-1' })).toEqual({
       ok: true,
       role: 'admin',
       displayName: '操作員',
+      token: 'sess-token-1',
+    });
+    expect(parseLogin({ role: 'viewer' })).toEqual({
+      ok: true,
+      role: 'viewer',
+      displayName: null,
+      token: null,
     });
     expect(parseLogin({ error: '密碼錯誤' })).toEqual({ ok: false, error: '密碼錯誤' });
     expect(parseLogin(null)).toEqual({ ok: false, error: '回應異常' });

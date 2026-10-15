@@ -186,6 +186,13 @@
           "HeliVMS.Shared": "[0.1.0, )"
         }
       },
+      "helivms.devices": {
+        "type": "Project",
+        "dependencies": {
+          "HeliVMS.Core": "[0.1.0, )",
+          "HeliVMS.Shared": "[0.1.0, )"
+        }
+      },
       "helivms.licensing": {
         "type": "Project",
         "dependencies": {

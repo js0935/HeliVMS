@@ -1026,10 +1026,16 @@ public class ApiTests : IClassFixture<ApiFactory>, IDisposable
         var body = await ReadAsync<LoginBody>(ok);
         Assert.Equal("admin", body.Role);
         Assert.Equal("操作員一", body.DisplayName);
+        Assert.False(string.IsNullOrWhiteSpace(body.Token), "登入成功必須簽發工作階段 token");
 
+        // M306：無金鑰的瀏覽器也能登入——登入本身就是授權來源，之後以 token 當作 Bearer 憑證。
         using var noKey = Client(withKey: false);
-        Assert.Equal(HttpStatusCode.Unauthorized, (await noKey.PostAsJsonAsync(
-            "/api/accounts/authenticate", new { username = "view1", password = "view" })).StatusCode);
+        var noKeyOk = await noKey.PostAsJsonAsync(
+            "/api/accounts/authenticate", new { username = "view1", password = "view" });
+        Assert.Equal(HttpStatusCode.OK, noKeyOk.StatusCode);
+        var viewBody = await ReadAsync<LoginBody>(noKeyOk);
+        Assert.Equal("viewer", viewBody.Role);
+        Assert.False(string.IsNullOrWhiteSpace(viewBody.Token));
 
         using var bad = Client();
         Assert.Equal(HttpStatusCode.Unauthorized, (await bad.PostAsJsonAsync(
@@ -2473,7 +2479,7 @@ public class ApiTests : IClassFixture<ApiFactory>, IDisposable
 
     private sealed record AccountItem(int Id, string Username, string Role, string? DisplayName, bool Enabled, bool Locked);
 
-    private sealed record LoginBody(string Role, string? DisplayName);
+    private sealed record LoginBody(string Role, string? DisplayName, string? Token);
 
     private sealed record SystemMetricsItem(
         string? CapturedAtUtc,

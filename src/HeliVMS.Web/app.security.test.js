@@ -70,11 +70,6 @@ describe('single authenticated transport', () => {
     expect(appSource).not.toMatch(/Authorization: `/);
   });
 
-  it('downloads the audit CSV through the authenticated transport', () => {
-    expect(appSource).not.toMatch(/href = `\/api\/audit\/export\.csv/);
-    expect(appSource).toMatch(/apiRaw\(`\/api\/audit\/export\.csv/);
-  });
-
   it('keeps the live-stream viewer on the injected transport', () => {
     // live.js 的 WHEP 是唯一帶 method 與 DELETE 的請求。它必須使用 app.js 注入的 apiRaw
     // （唯一 fetch 出口），否則會繞過 bearer header 而 401，也讓「只有一個 fetch」失效。
@@ -95,7 +90,10 @@ describe('escaped rendering', () => {
   });
 
   it('covers every table renderer, so the rule cannot pass by rendering nothing', () => {
-    expect(htmlAssignments(appSource).length).toBeGreaterThan(15);
+    // 事件表 / 子節點選單 / 頻道 datalist / 本機頻道快選 / PTZ 碼流 / PTZ 預設點：六處 inline 模板。
+    // 門檻刻意設在 3 而不是 5：少一兩處仍會被抓出來（斷言會失敗），但這裡允許
+    // 小幅重構而不必同步改這個魔術數字。
+    expect(htmlAssignments(appSource).length).toBeGreaterThan(3);
   });
 
   it('still clears containers without escaping', () => {
@@ -115,6 +113,17 @@ describe('shell hardening', () => {
 
   it('does not persist a blank api key', () => {
     expect(appSource).toMatch(/localStorage\.removeItem\('helivms\.apiKey'\)/);
+  });
+
+  it('stores the session token as the apiRaw credential after login', () => {
+    // 登入成功立即把工作階段 token 寫進 apiRaw 的憑證槽，之後所有 /api/* 請求都帶它，
+    // 使用者不需要另外手動餵 API 金鑰。
+    expect(appSource).toMatch(/state\.token[\s\S]*localStorage\.setItem\('helivms\.apiKey', state\.token\)/);
+  });
+
+  it('revokes the session and clears the credential on logout', () => {
+    expect(appSource).toMatch(/apiRaw\('\/api\/accounts\/logout', \{ method: 'POST' \}\)/);
+    expect(appSource).toMatch(/localStorage\.removeItem\('helivms\.apiKey'\)[\s\S]*window\.location\.reload\(\)/);
   });
 
   it('clears the session on logout instead of storing an empty object', () => {

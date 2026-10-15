@@ -17,13 +17,10 @@
     <span id="health" class="badge">…</span>
     <span id="conn" class="badge on" role="status" aria-live="polite"></span>
     <span id="lic" class="badge" role="status" aria-live="polite"></span>
-    <span id="kpi" class="badge">…</span>
-    <span id="sw" class="badge">…</span>
-    <span id="pos" class="badge muted">…</span>
-    <label><span data-i18n="app.apiKey">API 金鑰</span> <input id="apikey" type="password" placeholder="輸入 API 金鑰" data-i18n-attr="placeholder:ph.apiKey" autocomplete="off" /></label>
+    <label><span data-i18n="app.apiKey">API 金鑰</span> <input id="apikey" type="password" placeholder="Enter API key" data-i18n-attr="placeholder:ph.apiKey" autocomplete="off" /></label>
     <form id="login">
-      <input id="user" placeholder="帳號" data-i18n-attr="placeholder:ph.username" autocomplete="username" aria-label="帳號" data-i18n-attr="aria-label:ph.username" autofocus />
-      <input id="pass" type="password" placeholder="密碼" data-i18n-attr="placeholder:ph.password" autocomplete="current-password" aria-label="密碼" data-i18n-attr="aria-label:ph.password" />
+      <input id="user" placeholder="Username" data-i18n-attr="placeholder:ph.username,aria-label:ph.username" autocomplete="username" aria-label="Username" autofocus />
+      <input id="pass" type="password" placeholder="Password" data-i18n-attr="placeholder:ph.password,aria-label:ph.password" autocomplete="current-password" aria-label="Password" />
       <button type="submit" data-i18n="app.login">登入</button>
       <span id="login-msg" class="muted" aria-live="polite"></span>
     </form>
@@ -32,108 +29,52 @@
     <span id="live" class="badge off">WS</span>
     <label class="locale-pick">
       <span data-i18n="app.language">語言</span>
-      <select id="locale" aria-label="語言" data-i18n-attr="aria-label:app.language">
+      <select id="locale" aria-label="Language" data-i18n-attr="aria-label:app.language">
         <option value="zh-TW">繁體中文</option>
         <option value="en">English</option>
       </select>
     </label>
   </header>
 
-  <nav id="admin-nav" class="nav-inline" hidden aria-label="管理區段" data-i18n-attr="aria-label:a11y.adminNav">
-    <a href="#accounts-panel" data-i18n="col.account">帳號</a>
-    <a href="#config-panel" data-i18n="nav.settings">設定</a>
-    <a href="#audit-panel" data-i18n="nav.auditShort">稽核</a>
-    <a href="#rule-panel" data-i18n="nav.rules">規則</a>
-    <a href="#share-panel" data-i18n="nav.share">分享</a>
-    <a href="#red-panel" data-i18n="nav.redaction">遮罩</a>
-    <a href="#hold-panel" data-i18n="nav.evidenceHold">證據鎖定</a>
-    <a href="#evidence-panel" data-i18n="nav.evidence">證據</a>
-    <a href="#backup-panel" data-i18n="nav.backup">備份</a>
-    <a href="#provider-panel" data-i18n="nav.authProviders">登入供應商</a>
-    <a href="#rep-panel" data-i18n="nav.replication">異地複製</a>
-    <a href="#health-panel" data-i18n="nav.health">健康</a>
-    <a href="#central-panel" data-i18n="nav.central">中央管理</a>
-    <a href="#central-channels-panel" data-i18n="panel.centralChannels">中央頻道</a>
-    <a href="#central-alarms-panel" data-i18n="panel.centralAlarms">中央警報</a>
+  <nav class="tabs" role="tablist" aria-label="Sections" data-i18n-attr="aria-label:a11y.tablist">
+    <button type="button" id="tabbtn-live" class="tab active" role="tab" data-tab="live" aria-selected="true" aria-controls="panel-live"><span data-i18n="nav.liveWatch">即時監看</span></button>
+    <button type="button" id="tabbtn-playback" class="tab" role="tab" data-tab="playback" aria-selected="false" aria-controls="panel-playback"><span data-i18n="nav.remotePlayback">遠程回放</span></button>
+    <button type="button" id="tabbtn-snapshot" class="tab" role="tab" data-tab="snapshot" aria-selected="false" aria-controls="panel-snapshot"><span data-i18n="nav.snapshot">截圖</span></button>
+    <button type="button" id="tabbtn-ptz" class="tab" role="tab" data-tab="ptz" aria-selected="false" aria-controls="panel-ptz"><span data-i18n="nav.ptz">PTZ 控制</span></button>
+    <button type="button" id="tabbtn-events" class="tab" role="tab" data-tab="events" aria-selected="false" aria-controls="panel-events"><span data-i18n="nav.events">事件搜尋</span></button>
+    <button type="button" id="tabbtn-io" class="tab" role="tab" data-tab="io" aria-selected="false" aria-controls="panel-io"><span data-i18n="nav.io">IO 接點</span></button>
   </nav>
 
   <main class="grid" id="content">
-    <section class="panel">
-      <h2 data-i18n="nav.channels">頻道</h2>
-      <ul id="channels"></ul>
-    </section>
-
-    <section class="panel">
-      <h2 data-i18n="nav.alarms">警報看板</h2>
-      <table id="board">
-        <thead><tr><th scope="col">ID</th><th scope="col" data-i18n="nav.channels">頻道</th><th scope="col" data-i18n="col.type">類型</th><th scope="col" data-i18n="col.priority">優先</th><th scope="col" data-i18n="col.status">狀態</th><th scope="col" data-i18n="col.overdue">逾期</th><th scope="col" data-i18n="col.action">動作</th></tr></thead>
-        <tbody id="alarm-body"></tbody>
-      </table>
-      <div><span id="alarm-count" class="muted"></span> <span id="alarm-badges" class="muted"></span> <span id="alarm-meta" class="muted"></span> <button id="board-refresh" type="button" data-i18n="action.refresh">立即更新</button></div>
-    </section>
-
-    <section class="panel">
-      <h2 data-i18n="nav.events">事件搜尋</h2>
-      <form id="search-form">
-        <input id="q" placeholder="關鍵字" data-i18n-attr="placeholder:ph.keyword" aria-label="事件搜尋關鍵字" data-i18n-attr="aria-label:ph.searchKeyword" />
-        <button data-i18n="action.search">搜尋</button>
-      </form>
-      <table id="events">
-        <thead><tr><th scope="col">ID</th><th scope="col" data-i18n="col.time">時間</th><th scope="col" data-i18n="col.source">來源</th><th scope="col" data-i18n="col.type">類型</th><th scope="col" data-i18n="col.status">狀態</th><th scope="col" data-i18n="col.operation">操作</th></tr></thead>
-        <tbody></tbody>
-      </table>
-      <div><span id="events-msg" class="muted" aria-live="polite"></span></div>
-    </section>
-
-    <section class="panel wide" id="accounts-panel" hidden>
-      <h2 data-i18n="nav.accounts">帳號管理</h2>
-      <form id="account-form" class="row-form">
-        <input id="new-user" placeholder="帳號" data-i18n-attr="placeholder:ph.username" required aria-label="新帳號" data-i18n-attr="aria-label:ph.newUsername" />
-        <input id="new-pass" type="password" placeholder="密碼" data-i18n-attr="placeholder:ph.password" required aria-label="新密碼" data-i18n-attr="aria-label:ph.newPassword" />
-        <select id="new-role">
-          <option value="viewer">viewer</option>
-          <option value="admin">admin</option>
-        </select>
-        <button type="submit" data-i18n="action.add">新增</button>
-        <span id="account-msg" class="muted" aria-live="polite"></span>
-      </form>
-      <table id="accounts">
-        <thead><tr><th scope="col" data-i18n="col.account">帳號</th><th scope="col" data-i18n="col.role">角色</th><th scope="col" data-i18n="col.status">狀態</th><th scope="col" data-i18n="col.operation">操作</th></tr></thead>
-        <tbody></tbody>
-      </table>
-    </section>
-
-    <section class="panel wide">
-      <h2><span data-i18n="nav.timeline">回放時間軸</span> <span id="gap" class="muted"></span></h2>
-      <div class="timeline-tools">
-        <button id="timeline-down" type="button" data-i18n="action.prevDay">‹ 前一天</button>
-        <input id="timeline-day" type="date" aria-label="回放日期" data-i18n-attr="aria-label:ph.playbackDate" />
-        <button id="timeline-up" type="button" data-i18n="action.nextDay">後一天 ›</button>
-      </div>
-      <div id="timeline" class="timeline"></div>
-    </section>
-
-    <section class="panel wide">
+    <section class="panel wide" id="panel-live" data-panel="live" role="tabpanel" aria-labelledby="tabbtn-live">
       <h2><span data-i18n="nav.liveWatch">即時監看</span> <span class="muted" data-i18n="live.webrtcHint">WebRTC／低延遲</span></h2>
       <form id="live-form" class="row-form">
-        <input id="live-channel" type="number" min="1" step="1" value="1" aria-label="頻道編號" data-i18n-attr="aria-label:ph.channelNumber" required />
+        <label><span data-i18n="live.layout">版面</span>
+          <select id="live-layout" aria-label="Layout" data-i18n-attr="aria-label:live.layout">
+            <option value="1">1</option>
+            <option value="4">2×2</option>
+            <option value="9">3×3</option>
+            <option value="16">4×4</option>
+            <option value="25">5×5</option>
+          </select>
+        </label>
+        <select id="live-channels" multiple size="3" aria-label="Channels" data-i18n-attr="aria-label:live.channels"></select>
         <button type="submit" data-i18n="action.openLive">開啟即時畫面</button>
         <button type="button" id="live-stop" data-i18n="action.stopLive">停止</button>
         <span id="live-msg" class="muted" aria-live="polite"></span>
       </form>
-      <video id="live-video" class="player" autoplay muted playsinline></video>
+      <div id="live-grid" class="live-grid"></div>
       <div id="live-meta" class="muted"></div>
-      <p id="live-nat-warning" class="notice" hidden></p>
     </section>
 
-    <section class="panel wide">
+    <section class="panel wide" id="panel-playback" data-panel="playback" role="tabpanel" aria-labelledby="tabbtn-playback" hidden>
       <h2><span data-i18n="nav.remotePlayback">遠程回放</span> <span class="muted" data-i18n="play.hlsHint">HLS／已錄影</span></h2>
       <form id="play-form" class="row-form">
-        <select id="play-node" aria-label="來源節點" data-i18n-attr="aria-label:replay.node"></select>
-        <input id="play-channel" type="number" min="1" step="1" value="1" list="play-channel-options" aria-label="頻道編號" data-i18n-attr="aria-label:ph.channelNumber" required />
+        <select id="play-node" aria-label="Source node" data-i18n-attr="aria-label:replay.node"></select>
+        <input id="play-channel" type="number" min="1" step="1" list="play-channel-options" aria-label="Channel number" data-i18n-attr="aria-label:ph.channelNumber" required />
         <datalist id="play-channel-options"></datalist>
-        <input id="play-from" type="datetime-local" aria-label="起始時間" data-i18n-attr="aria-label:ph.startTime" required />
-        <input id="play-to" type="datetime-local" aria-label="結束時間" data-i18n-attr="aria-label:ph.endTime" required />
+        <input id="play-from" type="datetime-local" aria-label="Start time" data-i18n-attr="aria-label:ph.startTime" required />
+        <input id="play-to" type="datetime-local" aria-label="End time" data-i18n-attr="aria-label:ph.endTime" required />
         <button type="submit" data-i18n="action.load">載入回放</button>
         <span id="play-msg" class="muted" aria-live="polite"></span>
       </form>
@@ -141,326 +82,88 @@
       <div id="play-meta" class="muted"></div>
     </section>
 
-    <section class="panel wide">
-      <h2 data-i18n="nav.map">地圖視界</h2>
-      <div id="map" class="map"></div>
+    <section class="panel wide" id="panel-snapshot" data-panel="snapshot" role="tabpanel" aria-labelledby="tabbtn-snapshot" hidden>
+      <h2><span data-i18n="nav.snapshot">截圖</span> <span class="muted" data-i18n="snapshot.hint">由即時畫面擷取 PNG</span></h2>
+      <form id="snap-form" class="row-form">
+        <input id="snap-channel" type="number" min="1" step="1" list="snap-channel-options" aria-label="Channel number" data-i18n-attr="aria-label:ph.channelNumber" required />
+        <datalist id="snap-channel-options"></datalist>
+        <button type="submit" data-i18n="action.openLive">開啟即時畫面</button>
+        <button type="button" id="snap-stop" data-i18n="action.stopLive">停止</button>
+        <button type="button" id="snap-capture" data-i18n="action.capture">擷取畫面</button>
+        <span id="snap-msg" class="muted" aria-live="polite"></span>
+      </form>
+      <video id="snap-video" class="player" autoplay muted playsinline></video>
+      <div id="snap-meta" class="muted"></div>
     </section>
 
-    <section class="panel wide" id="config-panel" hidden>
-      <h2 data-i18n="nav.authSettings">登入設定</h2>
-      <form id="config-form" class="row-form">
-        <label><input id="auth-enabled" type="checkbox" / data-i18n="setting.enableAuth"> 啟用帳號登入</label>
-        <label><span data-i18n="setting.lockThreshold">鎖定次數</span> <input id="lock-threshold" type="number" min="1" max="99" /></label>
-        <label><span data-i18n="setting.lockMinutes">鎖定分鐘</span> <input id="lock-minutes" type="number" min="1" max="1440" /></label>
-        <label><span data-i18n="setting.retentionDays">保留天數</span> <input id="retention-days" type="number" min="1" max="3650" /></label>
-        <label><span data-i18n="setting.watermarkGb">浮水印GB</span> <input id="retention-watermark" type="number" min="0" step="0.1" /></label>
-        <label><span data-i18n="setting.alarmRetention">警報保留</span> <input id="alarm-retention-days" type="number" min="1" max="36500" /></label>
-        <button type="submit" data-i18n="action.save">儲存</button>
-        <button type="button" id="retention-run" data-i18n="action.runNow">立刻清理</button>
-        <span id="config-msg" class="muted" aria-live="polite"></span>
-        <span id="storage-usage" class="muted" aria-live="polite"></span>
+    <section class="panel wide" id="panel-ptz" data-panel="ptz" role="tabpanel" aria-labelledby="tabbtn-ptz" hidden>
+      <h2><span data-i18n="nav.ptz">PTZ 控制</span></h2>
+      <form id="ptz-form" class="row-form">
+        <input id="ptz-channel" type="number" min="1" step="1" list="ptz-channel-options" aria-label="Channel number" data-i18n-attr="aria-label:ph.channelNumber" required />
+        <datalist id="ptz-channel-options"></datalist>
+        <button type="submit" data-i18n="action.ptzConnect">連線</button>
+        <label><span data-i18n="ptz.profile">碼流</span>
+          <select id="ptz-profile" aria-label="Profile" data-i18n-attr="aria-label:ptz.profile"></select>
+        </label>
+        <span id="ptz-msg" class="muted" aria-live="polite"></span>
+      </form>
+      <div id="ptz-pad" class="ptz-pad">
+        <button type="button" class="ptz-btn" data-move="-1,1,0" aria-label="Up-left" data-i18n-attr="aria-label:ptz.upLeft">↖</button>
+        <button type="button" class="ptz-btn" data-move="0,1,0" aria-label="Up" data-i18n-attr="aria-label:ptz.up">↑</button>
+        <button type="button" class="ptz-btn" data-move="1,1,0" aria-label="Up-right" data-i18n-attr="aria-label:ptz.upRight">↗</button>
+        <button type="button" class="ptz-btn" data-move="-1,0,0" aria-label="Left" data-i18n-attr="aria-label:ptz.left">←</button>
+        <button type="button" class="ptz-btn ptz-stop" id="ptz-stop" aria-label="Stop" data-i18n-attr="aria-label:ptz.stop">■</button>
+        <button type="button" class="ptz-btn" data-move="1,0,0" aria-label="Right" data-i18n-attr="aria-label:ptz.right">→</button>
+        <button type="button" class="ptz-btn" data-move="-1,-1,0" aria-label="Down-left" data-i18n-attr="aria-label:ptz.downLeft">↙</button>
+        <button type="button" class="ptz-btn" data-move="0,-1,0" aria-label="Down" data-i18n-attr="aria-label:ptz.down">↓</button>
+        <button type="button" class="ptz-btn" data-move="1,-1,0" aria-label="Down-right" data-i18n-attr="aria-label:ptz.downRight">↘</button>
+      </div>
+      <div class="row-form">
+        <button type="button" data-move="0,0,1" aria-label="Zoom in" data-i18n-attr="aria-label:ptz.zoomIn">+</button>
+        <button type="button" data-move="0,0,-1" aria-label="Zoom out" data-i18n-attr="aria-label:ptz.zoomOut">−</button>
+        <button type="button" id="ptz-home" data-i18n="ptz.home">回預設位</button>
+      </div>
+      <form id="ptz-preset-form" class="row-form">
+        <select id="ptz-preset-list" aria-label="Preset" data-i18n-attr="aria-label:ptz.preset"></select>
+        <input id="ptz-preset-name" placeholder="Preset name" data-i18n-attr="placeholder:ptz.presetName,aria-label:ptz.presetName" aria-label="Preset name" />
+        <button type="button" id="ptz-preset-save" data-i18n="ptz.savePreset">儲存預設點</button>
+        <button type="button" id="ptz-preset-goto" data-i18n="ptz.gotoPreset">前往預設點</button>
+        <button type="button" id="ptz-preset-delete" data-i18n="ptz.deletePreset">刪除預設點</button>
       </form>
     </section>
 
-    <section class="panel wide">
-      <h2><span data-i18n="nav.smartwall">智慧看板視界</span> <span id="sw-panel" class="badge">…</span></h2>
-      <div id="swgrid" class="swgrid"></div>
-    </section>
-
-    <section class="panel wide" id="audit-panel" hidden>
-      <h2 data-i18n="nav.audit">稽核日誌</h2>
-      <div class="row-form">
-        <select id="audit-category">
-          <option value="" data-i18n="audit.allCategories">全部類別</option>
-          <option>auth</option>
-          <option>config</option>
-          <option>export</option>
-          <option>evidence</option>
-          <option>share</option>
-          <option>retention</option>
-          <option>legal_hold</option>
-        </select>
-        <input id="audit-actor" placeholder="操作者" data-i18n-attr="placeholder:ph.actor" aria-label="操作者過濾" data-i18n-attr="aria-label:ph.actorFilter" />
-        <a id="audit-csv" download aria-live="polite" data-i18n="action.downloadCsv">下載 CSV</a>
-      </div>
-      <table id="audit">
-        <thead><tr><th scope="col" data-i18n="col.time">時間</th><th scope="col" data-i18n="col.category">類別</th><th scope="col" data-i18n="col.actor">操作者</th><th scope="col" data-i18n="col.action">動作</th><th scope="col" data-i18n="col.target">目標</th><th scope="col" class="wrap" data-i18n="col.detail">細節</th></tr></thead>
+    <section class="panel wide" id="panel-events" data-panel="events" role="tabpanel" aria-labelledby="tabbtn-events" hidden>
+      <h2 data-i18n="nav.events">事件搜尋</h2>
+      <form id="search-form" class="row-form">
+        <input id="q" placeholder="Keyword" data-i18n-attr="placeholder:ph.keyword,aria-label:ph.searchKeyword" aria-label="Event search keyword" />
+        <button type="submit" data-i18n="action.search">搜尋</button>
+        <span id="events-msg" class="muted" aria-live="polite"></span>
+      </form>
+      <table id="events">
+        <thead><tr><th scope="col">ID</th><th scope="col" data-i18n="col.time">時間</th><th scope="col" data-i18n="col.source">來源</th><th scope="col" data-i18n="col.text">內容</th><th scope="col" data-i18n="col.status">狀態</th></tr></thead>
         <tbody></tbody>
       </table>
-    </section>
-
-    <section class="panel wide">
-      <h2><span data-i18n="panel.recordingSchedule">錄影排程</span> <span id="sched-count" class="muted"></span></h2>
-      <table class="compact">
-        <thead><tr><th scope="col" data-i18n="nav.channels">頻道</th><th scope="col" data-i18n="col.window">時段</th><th scope="col" data-i18n="col.status">狀態</th><th scope="col"></th></tr></thead>
-        <tbody id="sched-body"></tbody>
-      </table>
-      <form id="sched-form" class="row-form">
-        <input name="schan" type="number" min="1" value="1" title="頻道" data-i18n-attr="title:nav.channels">
-        <label><input name="sday" type="checkbox" value="1" checked data-i18n="day.1">一</label>
-        <label><input name="sday" type="checkbox" value="2" checked data-i18n="day.2">二</label>
-        <label><input name="sday" type="checkbox" value="3" checked data-i18n="day.3">三</label>
-        <label><input name="sday" type="checkbox" value="4" checked data-i18n="day.4">四</label>
-        <label><input name="sday" type="checkbox" value="5" checked data-i18n="day.5">五</label>
-        <label><input name="sday" type="checkbox" value="6" data-i18n="day.6">六</label>
-        <label><input name="sday" type="checkbox" value="0" data-i18n="day.0">日</label>
-        <input name="sstart" type="time" value="09:00">
-        <input name="send" type="time" value="17:00">
-        <button type="submit" data-i18n="action.add">新增</button>
-        <span id="sched-msg" class="muted" aria-live="polite"></span>
-      </form>
-    </section>
-
-    <section class="panel wide">
-      <h2><span data-i18n="col.patrol">巡檢</span> <span id="patrol-count" class="muted"></span></h2>
-      <table class="compact">
-        <thead><tr><th scope="col" data-i18n="col.patrol">巡檢</th><th scope="col" data-i18n="col.status">狀態</th><th scope="col"></th></tr></thead>
-        <tbody id="patrol-body"></tbody>
-      </table>
-      <form id="patrol-form" class="row-form">
-        <input name="pname" type="text" placeholder="名稱" data-i18n-attr="placeholder:ph.name" required>
-        <input name="pchan" type="number" min="1" value="1" title="頻道" data-i18n-attr="title:nav.channels">
-        <label><input name="penabled" type="checkbox" checked data-i18n="common.enabled">啟用</label>
-        <input name="pstart" type="time" value="09:00">
-        <input name="pend" type="time" value="17:00">
-        <button type="submit" data-i18n="action.add">新增</button>
-        <span id="patrol-msg" class="muted" aria-live="polite"></span>
-      </form>
-    </section>
-
-    <section class="panel wide">
-      <h2><span data-i18n="panel.daily">日報</span> <span id="daily-summary" class="muted"></span></h2>
-      <table id="daily-events" class="compact">
-        <thead><tr><th scope="col" data-i18n="col.eventCategory">事件類別</th><th scope="col" data-i18n="col.count">次數</th></tr></thead>
-        <tbody></tbody>
-      </table>
-    </section>
-
-    <section class="panel wide" id="evidence-panel" hidden>
-      <h2><span data-i18n="panel.evidenceBundle">證據包</span> <span id="evidence-count" class="muted"></span></h2>
-      <table class="compact">
-        <thead><tr><th scope="col">ID</th><th scope="col" data-i18n="col.status">狀態</th><th scope="col" data-i18n="action.create">建立</th><th scope="col" data-i18n="col.fileCount">檔案數</th></tr></thead>
-        <tbody id="evidence-body"></tbody>
-      </table>
-      <form id="evidence-form" class="row-form">
-        <input name="evname" type="text" placeholder="包名" data-i18n-attr="placeholder:ph.packageName" required>
-        <textarea name="evfiles" rows="1" placeholder="來源絕對路徑，每行一個" data-i18n-attr="placeholder:ph.sourcePaths" required></textarea>
-        <button type="submit" data-i18n="action.package">打包</button>
-        <span id="evidence-msg" class="muted" aria-live="polite"></span>
-      </form>
-    </section>
-
-    <section class="panel wide" id="share-panel" hidden>
-      <h2><span data-i18n="panel.shareLinks">分享連結</span> <span id="share-count" class="muted"></span></h2>
-      <table class="compact">
-        <thead><tr><th scope="col">ID</th><th scope="col" data-i18n="col.type">類型</th><th scope="col" data-i18n="col.label">標籤</th><th scope="col" data-i18n="col.resource">資源</th><th scope="col" data-i18n="col.token">權杖</th><th scope="col" data-i18n="col.quota">用量</th><th scope="col" data-i18n="col.status">狀態</th><th scope="col"></th></tr></thead>
-        <tbody id="share-body"></tbody>
-      </table>
-      <form id="share-form" class="row-form">
-        <select name="skind">
-          <option value="segment" data-i18n="panel.recordedSegments">錄影區段</option>
-          <option value="snapshot" data-i18n="col.snapshot">快照</option>
-          <option value="evidence" data-i18n="panel.evidenceBundle">證據包</option>
-        </select>
-        <input name="spath" type="text" placeholder="資源絕對路徑" data-i18n-attr="placeholder:ph.resourcePath" required>
-        <input name="slabel" type="text" placeholder="標籤（可空）" data-i18n-attr="placeholder:ph.labelOptional">
-        <input name="smax" type="number" min="0" value="0" placeholder="最大使用次數（0=不限）" data-i18n-attr="placeholder:ph.maxUses">
-        <button type="submit" data-i18n="action.create">建立</button>
-        <span id="share-msg" class="muted" aria-live="polite"></span>
-      </form>
-    </section>
-
-    <section class="panel wide" id="red-panel" hidden>
-      <h2><span data-i18n="panel.recordingMaskZones">錄影遮蔽區域</span> <span id="red-count" class="muted"></span></h2>
-      <table class="compact">
-        <thead><tr><th scope="col">ID</th><th scope="col" data-i18n="col.source">來源</th><th scope="col" data-i18n="col.reference">引用</th><th scope="col" data-i18n="nav.channels">頻道</th><th scope="col" data-i18n="col.occurredAt">發生時間</th><th scope="col" data-i18n="col.region">區域</th><th scope="col" data-i18n="col.type">類型</th><th scope="col"></th></tr></thead>
-        <tbody id="red-body"></tbody>
-      </table>
-      <form id="red-form" class="row-form">
-        <select name="rsource">
-          <option value="clip" data-i18n="col.recording">錄影</option>
-          <option value="snapshot" data-i18n="col.snapshot">快照</option>
-        </select>
-        <input name="rref" type="number" min="0" placeholder="引用 ID" data-i18n-attr="placeholder:ph.refId">
-        <input name="rchannel" type="number" min="1" value="1" placeholder="頻道" data-i18n-attr="placeholder:ph.channel">
-        <input name="rx" type="number" min="0" value="0" placeholder="X">
-        <input name="ry" type="number" min="0" value="0" placeholder="Y">
-        <input name="rw" type="number" min="1" value="10" placeholder="寬" data-i18n-attr="placeholder:ph.width">
-        <input name="rh" type="number" min="1" value="10" placeholder="高" data-i18n-attr="placeholder:ph.height">
-        <label><input name="rfilled" type="checkbox" checked data-i18n="common.filled"> 塗滿</label>
-        <button type="submit" data-i18n="action.add">新增</button>
-        <span id="red-msg" class="muted" aria-live="polite"></span>
-      </form>
-    </section>
-
-    <section class="panel wide" id="rep-panel" hidden>
-      <h2><span data-i18n="panel.offsiteBackupStatus">異地備援狀態</span> <span id="rep-count" class="muted"></span></h2>
-      <table class="compact">
-        <thead><tr><th scope="col">ID</th><th scope="col" data-i18n="col.source">來源</th><th scope="col" data-i18n="col.target">目標</th><th scope="col" data-i18n="col.interval">間隔</th><th scope="col" data-i18n="col.status">狀態</th><th scope="col" data-i18n="col.recentResult">最近結果</th><th scope="col" data-i18n="common.due">到期</th></tr></thead>
-        <tbody id="rep-body"></tbody>
-      </table>
-    </section>
-
-    <section class="panel wide" id="health-panel" hidden>
-      <h2><span data-i18n="panel.systemHealth">系統健康</span> <span id="sys-count" class="muted"></span></h2>
-      <div class="row-form">
-        <span id="sys-kv" class="muted"></span>
-        <button type="button" id="sys-refresh" data-i18n="action.refreshShort">重新整理</button>
-      </div>
-      <table class="compact">
-        <thead><tr><th scope="col" data-i18n="col.disk">磁碟</th><th scope="col" data-i18n="col.format">格式</th><th scope="col" data-i18n="col.total">總量</th><th scope="col" data-i18n="col.free">可用</th><th scope="col" data-i18n="col.usage">使用率</th></tr></thead>
-        <tbody id="sys-body"></tbody>
-      </table>
-      <span id="sys-msg" class="muted" aria-live="polite"></span>
-    </section>
-
-    <section class="panel wide" id="rule-panel" hidden>
-      <h2><span data-i18n="panel.alertRules">警示規則</span> <span id="rule-count" class="muted"></span></h2>
-      <table class="compact">
-        <thead><tr><th scope="col">ID</th><th scope="col" data-i18n="col.name">名稱</th><th scope="col" data-i18n="col.event">事件</th><th scope="col" data-i18n="nav.channels">頻道</th><th scope="col" data-i18n="col.keyword">關鍵字</th><th scope="col" data-i18n="panel.channelList">頻道清單</th><th scope="col" data-i18n="common.enabled">啟用</th><th scope="col" data-i18n="col.minInWindow">窗內數</th><th scope="col"></th></tr></thead>
-        <tbody id="rule-body"></tbody>
-      </table>
-      <form id="rule-form" class="row-form">
-        <input name="rname" type="text" placeholder="規則名稱" data-i18n-attr="placeholder:ph.ruleName" required>
-        <input name="revent" type="text" placeholder="事件（可空）" data-i18n-attr="placeholder:ph.eventOptional">
-        <input name="rch" type="number" min="0" placeholder="頻道（可空）" data-i18n-attr="placeholder:ph.channelOptional">
-        <input name="rkw" type="text" placeholder="關鍵字（可空）" data-i18n-attr="placeholder:ph.keywordOptional">
-        <input name="rmin" type="number" min="1" value="1" placeholder="窗內最小數" data-i18n-attr="placeholder:ph.minInWindow">
-        <button type="submit" data-i18n="action.add">新增</button>
-        <span id="rule-msg" class="muted" aria-live="polite"></span>
-      </form>
-    </section>
-
-    <section class="panel wide" id="hold-panel" hidden>
-      <h2><span data-i18n="panel.legalHold">法律保留</span> <span id="hold-count" class="muted"></span></h2>
-      <table class="compact">
-        <thead><tr><th scope="col">ID</th><th scope="col" data-i18n="nav.channels">頻道</th><th scope="col" data-i18n="range.from">起</th><th scope="col" data-i18n="range.to">訖</th><th scope="col" data-i18n="col.reasonText">原因</th><th scope="col" data-i18n="col.createdBy">建立者</th><th scope="col" data-i18n="col.status">狀態</th><th scope="col" data-i18n="col.revokedBy">撤銷者</th><th scope="col"></th></tr></thead>
-        <tbody id="hold-body"></tbody>
-      </table>
-      <form id="hold-form" class="row-form">
-        <input name="hch" type="number" min="1" placeholder="頻道" data-i18n-attr="placeholder:ph.channel" required>
-        <input name="hfrom" type="datetime-local" required>
-        <input name="hto" type="datetime-local" required>
-        <input name="hreason" type="text" placeholder="事由" data-i18n-attr="placeholder:ph.reason" required>
-        <button type="submit" data-i18n="action.createHold">建立保留</button>
-        <span id="hold-msg" class="muted" aria-live="polite"></span>
-      </form>
-    </section>
-
-    <section class="panel wide" id="provider-panel" hidden>
-      <h2><span data-i18n="nav.authProviders">登入供應商</span> <span id="provider-count" class="muted"></span></h2>
-      <table class="compact">
-        <thead><tr><th scope="col">ID</th><th scope="col" data-i18n="col.name">名稱</th><th scope="col" data-i18n="col.type">類型</th><th scope="col" data-i18n="common.enabled">啟用</th><th scope="col" data-i18n="col.operation">操作</th><th scope="col" class="wrap" data-i18n="nav.settings">設定</th></tr></thead>
-        <tbody id="provider-body"></tbody>
-      </table>
-      <form id="provider-form" class="row-form">
-        <input name="pname" type="text" placeholder="名稱（唯一）" data-i18n-attr="placeholder:ph.uniqueName" required>
-        <select name="pkind">
-          <option value="ldap">LDAP</option>
-          <option value="oidc">OIDC</option>
-        </select>
-        <textarea name="pcfg" rows="1" placeholder='設定 JSON，例：{"host":"ldap.corp","base":"dc=corp"}' required></textarea>
-        <button type="submit" data-i18n="action.add">新增</button>
-        <span id="provider-msg" class="muted" aria-live="polite"></span>
-      </form>
-    </section>
-
-    <section class="panel wide" id="backup-panel" hidden>
-      <h2><span data-i18n="panel.offsiteBackup">異地備援</span> <span id="backup-count" class="muted"></span></h2>
-      <table class="compact">
-        <thead><tr><th scope="col">#</th><th scope="col" data-i18n="col.runAt">執行時間</th><th scope="col" data-i18n="action.copy">複製</th><th scope="col" data-i18n="col.bytes">位元組</th><th scope="col" data-i18n="state.failed">失敗</th><th scope="col" data-i18n="col.checkpoint">檢查點</th><th scope="col" data-i18n="col.target">目標</th></tr></thead>
-        <tbody id="backup-body"></tbody>
-      </table>
-      <form id="backup-form" class="row-form">
-        <input name="bsrc" type="text" placeholder="來源目錄（絕對路徑）" data-i18n-attr="placeholder:ph.sourceDir" required>
-        <input name="bdst" type="text" placeholder="目標目錄（絕對路徑）" data-i18n-attr="placeholder:ph.targetDir" required>
-        <button type="submit" data-i18n="action.runBackup">執行備份</button>
-        <span id="backup-msg" class="muted" aria-live="polite"></span>
-      </form>
-    </section>
-
-    <section class="panel wide" id="central-panel" hidden>
-      <h2><span data-i18n="panel.centralNodes">中央節點</span> <span id="central-count" class="muted"></span></h2>
-      <table class="compact">
-        <thead><tr><th scope="col">ID</th><th scope="col" data-i18n="col.name">名稱</th><th scope="col" class="wrap" data-i18n="col.nodeUrl">位址</th><th scope="col" data-i18n="col.status">狀態</th><th scope="col" data-i18n="col.nodeVersion">版本</th><th scope="col" data-i18n="nav.channels">頻道</th><th scope="col" data-i18n="col.lastSeen">最後上線</th><th scope="col" data-i18n="col.operation">操作</th></tr></thead>
-        <tbody id="central-body"></tbody>
-      </table>
-      <form id="central-form" class="row-form">
-        <input name="cname" type="text" placeholder="名稱" data-i18n-attr="placeholder:ph.nodeName" aria-label="節點名稱" data-i18n-attr="aria-label:ph.nodeName" required>
-        <input name="curl" type="text" placeholder="http://主機:5080" data-i18n-attr="placeholder:ph.nodeUrl" aria-label="節點位址" data-i18n-attr="aria-label:ph.nodeUrl" required>
-        <input name="ckey" type="password" placeholder="API 金鑰" data-i18n-attr="placeholder:ph.nodeApiKey" aria-label="節點金鑰" data-i18n-attr="aria-label:ph.nodeApiKey">
-        <button type="submit" data-i18n="action.add">新增</button>
-        <span id="central-msg" class="muted" aria-live="polite"></span>
-      </form>
-    </section>
-
-    <section class="panel wide" id="central-channels-panel" hidden>
-      <h2><span data-i18n="panel.centralChannels">中央頻道</span> <span id="central-channels-count" class="muted"></span></h2>
-      <table class="compact">
-        <thead><tr><th scope="col">ID</th><th scope="col" data-i18n="col.nodeName">節點名稱</th><th scope="col" data-i18n="col.channel">頻道</th><th scope="col" data-i18n="col.name">名稱</th><th scope="col" data-i18n="col.status">狀態</th></tr></thead>
-        <tbody id="central-channels-body"></tbody>
-      </table>
-    </section>
-
-    <section class="panel wide" id="central-alarms-panel" hidden>
-      <h2><span data-i18n="panel.centralAlarms">中央警報</span> <span id="central-alarms-count" class="muted"></span> <button id="central-alarms-refresh" type="button" data-i18n="action.refresh">立即更新</button></h2>
-      <table class="compact">
-        <thead><tr><th scope="col" data-i18n="col.nodeName">節點名稱</th><th scope="col" data-i18n="col.event">事件</th><th scope="col" data-i18n="col.channel">頻道</th><th scope="col" data-i18n="col.type">類型</th><th scope="col" data-i18n="col.time">時間</th><th scope="col" data-i18n="col.priority">優先</th><th scope="col" data-i18n="col.status">狀態</th><th scope="col" data-i18n="col.overdue">逾期</th></tr></thead>
-        <tbody id="central-alarms-body"></tbody>
-      </table>
-    </section>
-
-    <section class="panel wide">
-      <h2><span data-i18n="panel.accessEvents">門禁事件</span> <span id="door-count" class="muted"></span></h2>
-      <div class="row-form">
-        <input id="door-card" type="text" placeholder="卡片號過濾" data-i18n-attr="placeholder:ph.cardFilter" aria-label="卡片號過濾" data-i18n-attr="aria-label:a11y.cardFilter">
-        <label><input id="door-ok" type="checkbox" data-i18n="common.granted"> 放行</label>
-        <label><input id="door-denied" type="checkbox" data-i18n="common.denied"> 拒絕</label>
-      </div>
-      <table class="compact">
-        <thead><tr><th scope="col" data-i18n="col.time">時間</th><th scope="col" data-i18n="col.device">裝置</th><th scope="col" data-i18n="col.door">門</th><th scope="col" data-i18n="col.card">卡片</th><th scope="col" data-i18n="col.direction">方向</th><th scope="col" data-i18n="col.result">結果</th><th scope="col" data-i18n="col.reasonText">原因</th></tr></thead>
-        <tbody id="door-body"></tbody>
-      </table>
-    </section>
-
-    <section class="panel wide">
-      <h2><span data-i18n="panel.aiDetect">AI 偵測</span> <span id="det-count" class="muted"></span> <span id="det-summary" class="muted"></span></h2>
-      <div class="row-form">
-        <input id="det-conf" type="number" min="0" max="1" step="0.05" placeholder="最低信心（0..1）" data-i18n-attr="placeholder:ph.minConfidence" aria-label="最低信心門檻" data-i18n-attr="aria-label:a11y.minConfidence">
-        <input id="det-class" type="text" placeholder="類別過濾" data-i18n-attr="placeholder:ph.categoryFilter" aria-label="類別過濾" data-i18n-attr="aria-label:a11y.categoryFilter">
-        <span id="det-msg" class="muted" aria-live="polite"></span>
-      </div>
-      <table class="compact">
-        <thead><tr><th scope="col" data-i18n="col.time">時間</th><th scope="col" data-i18n="nav.channels">頻道</th><th scope="col" data-i18n="col.category">類別</th><th scope="col" data-i18n="col.confidence">信心</th><th scope="col" data-i18n="col.center">中心(x,y)</th><th scope="col" data-i18n="col.rect">框(w×h)</th></tr></thead>
-        <tbody id="det-body"></tbody>
-      </table>
-    </section>
-
-    <section class="panel wide">
-      <h2 data-i18n="panel.liveAlarms">即時警報流</h2>
+      <h2><span data-i18n="panel.liveAlarms">即時警報流</span></h2>
       <ul id="live-log" class="log" role="log" aria-live="polite"></ul>
     </section>
 
-    <section class="panel wide">
-      <h2><span data-i18n="panel.notificationDelivery">通知投遞</span> <span id="notif-count" class="muted"></span></h2>
-      <table class="compact">
-        <thead><tr><th scope="col" data-i18n="col.time">時間</th><th scope="col" data-i18n="nav.channels">頻道</th><th scope="col" data-i18n="col.event">事件</th><th scope="col" data-i18n="col.route">路由</th><th scope="col" data-i18n="col.result">結果</th><th scope="col" data-i18n="col.attempts">嘗試</th><th scope="col" data-i18n="col.details">詳情</th></tr></thead>
-        <tbody id="notif-body"></tbody>
-      </table>
-    </section>
-
-    <section class="panel wide">
-      <h2><span data-i18n="panel.exportJobs">匯出工作</span> <span id="export-count" class="muted"></span></h2>
-      <form id="export-form" class="row-form">
-        <input name="ech" type="number" min="1" placeholder="頻道" data-i18n-attr="placeholder:ph.channel" required>
-        <input name="efrom" type="datetime-local" required>
-        <input name="eto" type="datetime-local" required>
-        <button type="submit" data-i18n="action.queueExport">排入匯出</button>
-        <span id="export-msg" class="muted" aria-live="polite"></span>
+    <section class="panel wide" id="panel-io" data-panel="io" role="tabpanel" aria-labelledby="tabbtn-io" hidden>
+      <h2><span data-i18n="nav.io">IO 接點</span> <span class="muted" data-i18n="io.hint">攝影機 DI/DO 乾接點</span></h2>
+      <form id="io-form" class="row-form">
+        <input id="io-channel" type="number" min="1" step="1" list="io-channel-options" aria-label="Channel number" data-i18n-attr="aria-label:ph.channelNumber" required />
+        <datalist id="io-channel-options"></datalist>
+        <button type="submit" data-i18n="action.ioLoad">讀取</button>
+        <span id="io-msg" class="muted" aria-live="polite"></span>
       </form>
-      <table class="compact">
-        <thead><tr><th scope="col">ID</th><th scope="col" data-i18n="nav.channels">頻道</th><th scope="col" data-i18n="col.stream">串流</th><th scope="col" data-i18n="range.from">起</th><th scope="col" data-i18n="range.to">訖</th><th scope="col" data-i18n="col.status">狀態</th><th scope="col" data-i18n="col.size">大小</th><th scope="col" data-i18n="col.result">結果</th></tr></thead>
-        <tbody id="export-body"></tbody>
+      <h3 data-i18n="io.inputs">數位輸入 (DI)</h3>
+      <table id="io-inputs">
+        <thead><tr><th scope="col" data-i18n="col.token">權杖</th><th scope="col" data-i18n="col.name">名稱</th><th scope="col" data-i18n="col.label">標籤</th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <h3 data-i18n="io.outputs">繼電器輸出 (DO)</h3>
+      <table id="io-outputs">
+        <thead><tr><th scope="col" data-i18n="col.token">權杖</th><th scope="col" data-i18n="col.name">名稱</th><th scope="col" data-i18n="col.label">標籤</th><th scope="col" data-i18n="col.action">動作</th></tr></thead>
+        <tbody></tbody>
       </table>
     </section>
   </main>
