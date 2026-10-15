@@ -50,6 +50,9 @@ public partial class SettingsWindow : Window
     /// <summary>備份紀錄頁顯示列。</summary>
     private sealed record BackupRow(string TimeLabel, string TargetLabel, string CopiedLabel, string FailedLabel, string AdvancedLabel);
 
+    /// <summary>設定版本清單顯示列（§9.5）。</summary>
+    private sealed record VersionRow(long Id, string TimeLabel, string KeysLabel, string ReasonLabel, string ActorLabel);
+
     /// <summary>多磁碟錄影清單顯示列（角色與空間文字在語言切換時會重畫）。</summary>
     private sealed record DiskRow(string Root, string RoleLabel, string SpaceLabel);
 
@@ -70,6 +73,7 @@ public partial class SettingsWindow : Window
     private readonly EnterpriseAuthService _enterprise;
     private readonly AuthProviderRepository _providers;
     private readonly ShareHost? _shareHost;
+    private readonly WebHost? _webHost;
     private readonly ChannelManager? _manager;
     private readonly PatrolHostService? _patrolHost;
     private readonly Action? _channelsChanged;
@@ -87,7 +91,8 @@ public partial class SettingsWindow : Window
         ChannelManager? manager = null,
         PatrolHostService? patrolHost = null,
         Action? channelsChanged = null,
-        Action<string>? recordingsRootChanged = null)
+        Action<string>? recordingsRootChanged = null,
+        WebHost? webHost = null)
     {
         _store = store;
         _dataRoot = dataRoot;
@@ -105,6 +110,7 @@ public partial class SettingsWindow : Window
         _enterprise = new EnterpriseAuthService(store);
         _providers = new AuthProviderRepository(store);
         _shareHost = shareHost;
+        _webHost = webHost;
         _manager = manager;
         _patrolHost = patrolHost;
         // 由主視窗傳入：攝影機／頻道管理異動後立即請主視窗重載監看區。
@@ -144,6 +150,7 @@ public partial class SettingsWindow : Window
         ReloadBackup();
         ReloadOffsite();
         ReloadShare();
+        ReloadNetwork();
 
         var langIdx = Array.IndexOf(I18n.Languages, Localizer.Lang);
         LangCombo.SelectedIndex = langIdx >= 0 ? langIdx : 0;
@@ -245,6 +252,7 @@ public partial class SettingsWindow : Window
         NavMap.Content = Localizer.T("Settings.NavMap");
         NavUsers.Content = Localizer.T("Settings.NavUsers");
         NavBackup.Content = Localizer.T("Settings.NavBackup");
+        NavNetwork.Content = Localizer.T("Settings.NavNetwork");
         NavAbout.Content = Localizer.T("Settings.NavAbout");
 
         // 一般
@@ -268,7 +276,25 @@ public partial class SettingsWindow : Window
         ((ComboBoxItem)LangCombo.Items[1]).Content = Localizer.T("Settings.LangZhHans");
         ((ComboBoxItem)LangCombo.Items[2]).Content = Localizer.T("Settings.LangEn");
         HwAccelLabel.Text = Localizer.T("Settings.HwAccel");
+        HwAccelLabel.Text = Localizer.T("Settings.HwAccel");
         HwAccelHintText.Text = Localizer.T("Settings.HwAccelHint");
+
+        // 網路
+        NetworkTitle.Text = Localizer.T("Settings.NetworkTitle");
+        WebIntroText.Text = Localizer.T("Settings.WebIntroText");
+        WebEnabledBox.Content = Localizer.T("Settings.WebEnabled");
+        WebPortLabel.Text = Localizer.T("Settings.WebPortLabel");
+        WebAllowNoKeyBox.Content = Localizer.T("Settings.WebAllowNoKey");
+        WebAllowNoKeyHintText.Text = Localizer.T("Settings.WebAllowNoKeyHint");
+        WebApplyButton.Content = Localizer.T("Settings.Apply");
+        WebApplyButton.ToolTip = Localizer.T("Settings.WebApplyTip");
+        NtpSectionTitle.Text = Localizer.T("Settings.NtpSectionTitle");
+        NtpIntroText.Text = Localizer.T("Settings.NtpIntroText");
+        NtpEnabledBox.Content = Localizer.T("Settings.NtpEnabled");
+        NtpServerLabel.Text = Localizer.T("Settings.NtpServerLabel");
+        NtpSyncButton.Content = Localizer.T("Settings.NtpSyncNow");
+        NtpSyncButton.ToolTip = Localizer.T("Settings.NtpSyncTip");
+        NtpHintText.Text = Localizer.T("Settings.NtpHint");
 
         // 儲存
         StorageTitle.Text = Localizer.T("Settings.StorageTitle");
@@ -623,6 +649,19 @@ public partial class SettingsWindow : Window
         BackupColCopied.Header = Localizer.T("Settings.BackupColCopied");
         BackupColFailed.Header = Localizer.T("Settings.BackupColFailed");
         BackupColAdvanced.Header = Localizer.T("Settings.BackupColAdvanced");
+        VersionHeading.Text = Localizer.T("Settings.VersionHeading");
+        SnapshotSettingsButton.Content = Localizer.T("Settings.VersionSnapshot");
+        SnapshotSettingsButton.ToolTip = Localizer.T("Settings.VersionSnapshotTip");
+        ExportSettingsButton.Content = Localizer.T("Settings.VersionExport");
+        ExportSettingsButton.ToolTip = Localizer.T("Settings.VersionExportTip");
+        ImportSettingsButton.Content = Localizer.T("Settings.VersionImport");
+        ImportSettingsButton.ToolTip = Localizer.T("Settings.VersionImportTip");
+        RestoreSettingsButton.Content = Localizer.T("Settings.VersionRestore");
+        RestoreSettingsButton.ToolTip = Localizer.T("Settings.VersionRestoreTip");
+        VersionColTime.Header = Localizer.T("Settings.VersionColTime");
+        VersionColKeys.Header = Localizer.T("Settings.VersionColKeys");
+        VersionColReason.Header = Localizer.T("Settings.VersionColReason");
+        VersionColActor.Header = Localizer.T("Settings.VersionColActor");
 
         // 關於
         AboutTitle.Text = Localizer.T("Settings.AboutTitle");
@@ -708,6 +747,7 @@ public partial class SettingsWindow : Window
         PageMap.Visibility = visible == Localizer.T("Settings.NavMap") ? Visibility.Visible : Visibility.Collapsed;
         PageUsers.Visibility = visible == Localizer.T("Settings.NavUsers") ? Visibility.Visible : Visibility.Collapsed;
         PageBackup.Visibility = visible == Localizer.T("Settings.NavBackup") ? Visibility.Visible : Visibility.Collapsed;
+        PageNetwork.Visibility = visible == Localizer.T("Settings.NavNetwork") ? Visibility.Visible : Visibility.Collapsed;
         PageAbout.Visibility = visible == Localizer.T("Settings.NavAbout") ? Visibility.Visible : Visibility.Collapsed;
     }
 
@@ -747,6 +787,7 @@ public partial class SettingsWindow : Window
         var interval = _settings.GetDoubleOrDefault("backup.interval_hours", 24);
         BackupIntervalBox.Text = interval > 0 ? interval.ToString(CultureInfo.InvariantCulture) : "24";
         ReloadBackupLog();
+        ReloadSettingsVersions();
     }
 
     /// <summary>將備份設定（啟用/目標/間隔）寫入 app_settings；參數不合法時回傳 false。</summary>
@@ -809,6 +850,77 @@ public partial class SettingsWindow : Window
             : _shareHost.ApplySettings(_settings);
     }
 
+    /// <summary>載入「網路」頁設定：內嵌 Web 服務（M305）與 NTP 對時（M305／引擎 M68）。</summary>
+    private void ReloadNetwork()
+    {
+        WebEnabledBox.IsChecked = _settings.Get(WebHost.EnabledKey) == "1";
+        WebPortBox.Text = _settings.Get(WebHost.PortKey) ?? WebHost.DefaultPort.ToString(CultureInfo.InvariantCulture);
+        WebAllowNoKeyBox.IsChecked = _settings.Get(WebHost.AllowNoKeyKey) == "1";
+        WebServiceStatusText.Text = _webHost?.IsRunning == true
+            ? string.Format(Localizer.T("Settings.WebRunning"), _webHost.Port)
+            : Localizer.T("Settings.WebStopped");
+
+        NtpEnabledBox.IsChecked = _settings.Get(NtpSync.EnabledKey) == "1";
+        NtpServerBox.Text = NtpSync.ReadServer(_settings);
+        var last = NtpSync.ReadLast(_settings);
+        NtpStatusText.Text = last is { } value
+            ? string.Format(Localizer.T("Settings.NtpLastSync"), value.ServerUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss"), value.OffsetMs)
+            : Localizer.T("Settings.NtpNeverSynced");
+    }
+
+    /// <summary>儲存並即時套用內嵌 Web 服務設定（M305）。</summary>
+    private void OnApplyWebClicked(object sender, RoutedEventArgs e)
+    {
+        if (!int.TryParse(WebPortBox.Text, out var port) || port is <= 0 or > 65535)
+        {
+            WebServiceStatusText.Text = Localizer.T("Settings.WebPortInvalid");
+            return;
+        }
+
+        _settings.Set(WebHost.EnabledKey, WebEnabledBox.IsChecked == true ? "1" : "0");
+        _settings.Set(WebHost.PortKey, port.ToString(CultureInfo.InvariantCulture));
+        _settings.Set(WebHost.AllowNoKeyKey, WebAllowNoKeyBox.IsChecked == true ? "1" : "0");
+
+        WebServiceStatusText.Text = _webHost is null
+            ? Localizer.T("Settings.WebSavedNextStart")
+            : _webHost.ApplySettings(_settings);
+    }
+
+    /// <summary>立即向 NTP 伺服器對時：查詢、記錄，並盡力校正系統時鐘（M305）。</summary>
+    private async void OnNtpSyncClicked(object sender, RoutedEventArgs e)
+    {
+        var server = NtpServerBox.Text.Trim();
+        _settings.Set(NtpSync.EnabledKey, NtpEnabledBox.IsChecked == true ? "1" : "0");
+        _settings.Set(NtpSync.ServerKey, server);
+
+        NtpSyncButton.IsEnabled = false;
+        NtpStatusText.Text = Localizer.T("Settings.NtpSyncing");
+        try
+        {
+            var outcome = await NtpSync.SyncAsync(_settings, server);
+            if (!outcome.Ok)
+            {
+                NtpStatusText.Text = Localizer.T("Settings.NtpSyncFailed");
+                return;
+            }
+
+            // 無權限調整系統時鐘不算失敗：偏移量仍然有用，明確告訴操作員要怎麼做。
+            var clock = outcome.ClockSet
+                ? Localizer.T("Settings.NtpClockSet")
+                : string.Format(Localizer.T("Settings.NtpClockSetDenied"), outcome.Error ?? string.Empty);
+            NtpStatusText.Text = string.Format(
+                Localizer.T("Settings.NtpSynced"),
+                (long)outcome.Offset.TotalMilliseconds,
+                outcome.RoundTrip.TotalMilliseconds,
+                outcome.Stratum,
+                clock);
+        }
+        finally
+        {
+            NtpSyncButton.IsEnabled = true;
+        }
+    }
+
     private void OnBackupBrowseClicked(object sender, RoutedEventArgs e)
     {
         var dlg = new Microsoft.Win32.OpenFolderDialog { Title = Localizer.T("Settings.ChooseBackupTarget") };
@@ -862,6 +974,162 @@ public partial class SettingsWindow : Window
             r.CopiedCount.ToString(CultureInfo.InvariantCulture),
             r.FailedCount.ToString(CultureInfo.InvariantCulture),
             r.CheckpointUtc.HasValue ? Localizer.T("Settings.Yes") : Localizer.T("Settings.No"))).ToList();
+    }
+
+    // ---------- 設定版本快照與回滾（M308，§9.5） ----------
+
+    /// <summary>重新載入設定版本清單（新到舊，最多 20 筆）。</summary>
+    private void ReloadSettingsVersions()
+    {
+        SettingsVersionList.ItemsSource = _settings.ListVersions(20)
+            .Select(v => new VersionRow(
+                v.Id,
+                v.CreatedAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture),
+                v.KeyCount.ToString(CultureInfo.InvariantCulture),
+                string.IsNullOrWhiteSpace(v.Reason) ? Localizer.T("Settings.VersionNoReason") : v.Reason,
+                v.Actor))
+            .ToList();
+    }
+
+    /// <summary>設定版本的破壞性操作需管理員；非管理員時在版本區狀態列說明。</summary>
+    private bool VersionRequireAdmin()
+    {
+        if (SessionContext.IsAdmin)
+        {
+            return true;
+        }
+
+        SettingsVersionStatusText.Text = Localizer.T("Settings.AdminOnly");
+        return false;
+    }
+
+    private long? SelectedVersionId()
+        => SettingsVersionList.SelectedItem is VersionRow row ? row.Id : null;
+
+    private void OnSnapshotSettingsClicked(object sender, RoutedEventArgs e)
+    {
+        if (!VersionRequireAdmin())
+        {
+            return;
+        }
+
+        _settings.Snapshot(Localizer.T("Settings.VersionManualReason"));
+        ReloadSettingsVersions();
+        SettingsVersionStatusText.Text = Localizer.T("Settings.VersionSnapshotDone");
+    }
+
+    private void OnExportSettingsClicked(object sender, RoutedEventArgs e)
+    {
+        if (!VersionRequireAdmin())
+        {
+            return;
+        }
+
+        var dlg = new Microsoft.Win32.SaveFileDialog
+        {
+            Title = Localizer.T("Settings.VersionExportTitle"),
+            Filter = Localizer.T("Settings.VersionFileFilter"),
+            FileName = "helivms-settings.json",
+        };
+        if (dlg.ShowDialog(this) != true)
+        {
+            return;
+        }
+
+        try
+        {
+            File.WriteAllText(dlg.FileName, _settings.ExportJson());
+            SettingsVersionStatusText.Text = Localizer.T("Settings.VersionExportDone");
+        }
+        catch (Exception ex)
+        {
+            SettingsVersionStatusText.Text = string.Format(Localizer.T("Settings.VersionFailed"), ex.Message);
+        }
+    }
+
+    private void OnImportSettingsClicked(object sender, RoutedEventArgs e)
+    {
+        if (!VersionRequireAdmin())
+        {
+            return;
+        }
+
+        var dlg = new Microsoft.Win32.OpenFileDialog
+        {
+            Title = Localizer.T("Settings.VersionExportTitle"),
+            Filter = Localizer.T("Settings.VersionFileFilter"),
+            CheckFileExists = true,
+        };
+        if (dlg.ShowDialog(this) != true)
+        {
+            return;
+        }
+
+        string json;
+        try
+        {
+            json = File.ReadAllText(dlg.FileName);
+        }
+        catch (Exception ex)
+        {
+            SettingsVersionStatusText.Text = string.Format(Localizer.T("Settings.VersionFailed"), ex.Message);
+            return;
+        }
+
+        if (MessageBox.Show(this, Localizer.T("Settings.VersionImportConfirm"),
+                Localizer.T("Settings.VersionImport"), MessageBoxButton.OKCancel, MessageBoxImage.Warning)
+            != MessageBoxResult.OK)
+        {
+            return;
+        }
+
+        try
+        {
+            // 匯入前先自動快照：匯錯檔也能一鍵回到匯入前的狀態。
+            _settings.Snapshot(Localizer.T("Settings.VersionPreImportReason"));
+            var count = _settings.ImportJson(json);
+            ReloadBackup();
+            SettingsVersionStatusText.Text = string.Format(Localizer.T("Settings.VersionImportDone"), count);
+        }
+        catch (Exception ex)
+        {
+            SettingsVersionStatusText.Text = string.Format(Localizer.T("Settings.VersionFailed"), ex.Message);
+        }
+    }
+
+    private void OnRestoreSettingsClicked(object sender, RoutedEventArgs e)
+    {
+        if (!VersionRequireAdmin())
+        {
+            return;
+        }
+
+        var id = SelectedVersionId();
+        if (id is null)
+        {
+            SettingsVersionStatusText.Text = Localizer.T("Settings.VersionSelectFirst");
+            return;
+        }
+
+        if (MessageBox.Show(this, Localizer.T("Settings.VersionRestoreConfirm"),
+                Localizer.T("Settings.VersionRestore"), MessageBoxButton.OKCancel, MessageBoxImage.Warning)
+            != MessageBoxResult.OK)
+        {
+            return;
+        }
+
+        try
+        {
+            // 還原前先自動快照：還原到錯的版本時仍能退回。
+            _settings.Snapshot(Localizer.T("Settings.VersionPreRestoreReason"));
+            _settings.Restore(id.Value);
+            ReloadBackup();
+            SettingsVersionStatusText.Text = Localizer.T("Settings.VersionRestoreDone");
+        }
+        catch (Exception ex)
+        {
+            SettingsVersionStatusText.Text = string.Format(Localizer.T("Settings.VersionFailed"), ex.Message);
+        }
     }
 
     // ---------- 異地備援複製（M55，§4.4 異地） ----------

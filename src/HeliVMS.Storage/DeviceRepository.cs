@@ -22,7 +22,7 @@ public sealed class DeviceRepository
     {
         return _store.Query(
             """
-            SELECT id, name, ip, port, vendor, enabled, created_at, sd_url, main_rtsp, sub_rtsp
+            SELECT id, name, ip, port, vendor, enabled, created_at, sd_url, main_rtsp, sub_rtsp, group_id
             FROM devices ORDER BY id;
             """,
             static r =>
@@ -42,6 +42,7 @@ public sealed class DeviceRepository
                         SdUrl = r.IsDBNull(7) ? null : r.GetString(7),
                         MainStreamUrl = r.IsDBNull(8) ? null : r.GetString(8),
                         SubStreamUrl = r.IsDBNull(9) ? null : r.GetString(9),
+                        GroupId = r.IsDBNull(10) ? null : r.GetInt64(10),
                     });
                 }
 
@@ -54,7 +55,7 @@ public sealed class DeviceRepository
     {
         return _store.Query(
             """
-            SELECT id, name, ip, port, username, password_encrypted, vendor, enabled, created_at, sd_url, main_rtsp, sub_rtsp
+            SELECT id, name, ip, port, username, password_encrypted, vendor, enabled, created_at, sd_url, main_rtsp, sub_rtsp, group_id
             FROM devices WHERE id = $id;
             """,
             static r => r.Read() ? ReadFull(r) : null,
@@ -71,7 +72,7 @@ public sealed class DeviceRepository
 
         return _store.Query(
             """
-            SELECT id, name, ip, port, username, password_encrypted, vendor, enabled, created_at, sd_url, main_rtsp, sub_rtsp
+            SELECT id, name, ip, port, username, password_encrypted, vendor, enabled, created_at, sd_url, main_rtsp, sub_rtsp, group_id
             FROM devices WHERE ip = $ip;
             """,
             static r => r.Read() ? ReadFull(r) : null,
@@ -128,6 +129,7 @@ public sealed class DeviceRepository
             SdUrl = r.IsDBNull(9) ? null : r.GetString(9),
             MainStreamUrl = r.IsDBNull(10) ? null : r.GetString(10),
             SubStreamUrl = r.IsDBNull(11) ? null : r.GetString(11),
+            GroupId = r.IsDBNull(12) ? null : r.GetInt64(12),
         };
 
     /// <summary>新增設備（M152 稽核掛載：device.add 寫 audit_log），回傳新 ID。密碼以 DPAPI（目前使用者）加密後儲存。</summary>

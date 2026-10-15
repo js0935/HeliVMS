@@ -9,10 +9,14 @@ namespace HeliVMS.Storage;
 /// </summary>
 public sealed class SqliteStore : IDisposable
 {
-    private const int CurrentSchemaVersion = 48;
+    private const int CurrentSchemaVersion = 52;
     private readonly SqliteConnection _connection;
     private readonly object _gate = new();
     private bool _disposed;
+
+    // 環境交易：InTransaction 期間設定，讓巢狀的 Execute／Query 自動加入同一交易
+    // （Microsoft.Data.Sqlite 要求交易中的命令帶 Transaction，否則丟 InvalidOperationException）。
+    private SqliteTransaction? _tx;
 
     public SqliteStore(string databasePath)
     {
@@ -292,6 +296,26 @@ public sealed class SqliteStore : IDisposable
         if (version < 48)
         {
             CreateCentralNodesTableV48();
+        }
+
+        if (version < 49)
+        {
+            CreateChannelGroupTablesV49();
+        }
+
+        if (version < 50)
+        {
+            CreateDeviceGroupTablesV50();
+        }
+
+        if (version < 51)
+        {
+            CreateDeviceOperationTableV51();
+        }
+
+        if (version < 52)
+        {
+            CreateSettingsVersionTableV52();
         }
 
         Execute("PRAGMA user_version = CURRENT_SCHEMA_VERSION;".Replace(
@@ -1425,6 +1449,163 @@ public sealed class SqliteStore : IDisposable
             """);
     }
 
+    /// <summary>
+    /// 監看群組（v49）：監控中心可用頁簽切換自選的攝影機子集。
+    ///
+    /// <para>
+    /// <c>channel_groups</c>＝一個頁簽；<c>position</c> 決定頁簽順序（「全部」固定為第一個頁簽，不在此表）。
+    /// <c>channel_group_members</c>＝群組成員與其在該群組內的顯示順序；
+    /// <c>UNIQUE(channel_id)</c> 就是「一台攝影機最多屬於一個群組」這條規則本身——放在 schema 而不是程式碼裡，
+    /// 重複指派在資料層直接被擋下，不依賴每個呼叫端都記得先解除舊歸屬。
+    /// </para>
+    /// <para>
+    /// 兩個外鍵都是 <c>ON DELETE CASCADE</c>：刪群組連帶清成員、刪頻道也連帶清成員。
+    /// 少了後者，刪掉頻道後 <c>channel_group_members</c> 會留下指向不存在頻道的孤兒列，
+    /// 監看群組頁簽上就會少一格卻找不到原因（孤兒列不會有任何錯誤）。
+    /// </para>
+    /// </summary>
+    private void CreateChannelGroupTablesV49()
+    {
+        Execute(
+            """
+            CREATE TABLE IF NOT EXISTS channel_groups (
+                id       INTEGER PRIMARY KEY AUTOINCREMENT,
+                name     TEXT    NOT NULL UNIQUE,
+                position INTEGER NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS channel_group_members (
+                group_id   INTEGER NOT NULL REFERENCES channel_groups(id) ON DELETE CASCADE,
+                channel_id INTEGER NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
+                position   INTEGER NOT NULL,
+                PRIMARY KEY (group_id, channel_id),
+                UNIQUE (channel_id)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_channel_group_members_group
+                ON channel_group_members(group_id, position);
+            """);
+    }
+
+    /// <summary>
+    /// 裝置群組（v50，§7.4）：攝影機設備樹的「群組／分區」層。
+    ///
+    /// <para>
+    /// <c>device_groups</c> 自我參照（<c>parent_id</c>）以便分區可再分子區；
+    /// 設備以 <c>devices.group_id</c> 掛到群組下，通道再隨設備掛入，形成「群組→設備→通道」三層樹。
+    /// </para>
+    /// <para>
+    /// 兩個刪除路徑都刻意用 <c>SET NULL</c> 而非 CASCADE：刪一個分區不應該連帶刪掉整批攝影機
+    /// （那會連錄影索引一起清掉）。刪群組只讓底下設備／子群組回到「未分組」，由操作員自行處置。
+    /// </para>
+    /// </summary>
+    private void CreateDeviceGroupTablesV50()
+    {
+        Execute(
+            """
+            CREATE TABLE IF NOT EXISTS device_groups (
+                id        INTEGER PRIMARY KEY AUTOINCREMENT,
+                name      TEXT    NOT NULL UNIQUE,
+                parent_id INTEGER NULL REFERENCES device_groups(id) ON DELETE SET NULL,
+                position  INTEGER NOT NULL DEFAULT 0
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_device_groups_parent
+                ON device_groups(parent_id, position);
+            """);
+
+        EnsureColumn("devices", "group_id", "INTEGER REFERENCES device_groups(id) ON DELETE SET NULL");
+    }
+
+    /// <summary>
+    /// 遠端操作紀錄（v51，§7.4）：每台設備的「重啟／韌體升級／診斷」等命令與結果。
+    ///
+    /// <para>
+    /// 這裡刻意用 <c>CASCADE</c>（不同於群組的 <c>SET NULL</c>）：這張表是「設備的操作歷史」，
+    /// 設備一旦刪除，其歷史也失去主體，留著只會指向不存在的設備。真正的稽核軌跡另有
+    /// <c>audit_log</c>（不隨設備刪除），所以刪設備不會讓「誰在何時重啟過」這件事消失。
+    /// </para>
+    /// </summary>
+    private void CreateDeviceOperationTableV51()
+    {
+        Execute(
+            """
+            CREATE TABLE IF NOT EXISTS device_operations (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                device_id  INTEGER NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
+                op_type    TEXT    NOT NULL,
+                param      TEXT    NULL,
+                result     TEXT    NOT NULL,
+                detail     TEXT    NULL,
+                created_at TEXT    NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_device_operations_device
+                ON device_operations(device_id, created_at);
+            """);
+    }
+
+    /// <summary>
+    /// 設定版本快照（v52，§9.5）：整份 <c>app_settings</c> 的 JSON 快照，供「一鍵回滾至先前版本」。
+    ///
+    /// <para>
+    /// 快照存的是「當時全部鍵值」的完整複本，而非差異：設定量小（數十鍵），完整複本
+    /// 才能在還原時也把「快照之後才新增的鍵」一併移除，得到真正一致的舊狀態。
+    /// </para>
+    /// </summary>
+    private void CreateSettingsVersionTableV52()
+    {
+        Execute(
+            """
+            CREATE TABLE IF NOT EXISTS settings_versions (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                snapshot   TEXT    NOT NULL,
+                key_count  INTEGER NOT NULL,
+                reason     TEXT    NULL,
+                actor      TEXT    NOT NULL,
+                created_at TEXT    NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_settings_versions_created
+                ON settings_versions(created_at);
+            """);
+    }
+
+    /// <summary>
+    /// 在單一交易中執行多步驟寫入；任何例外都整批復原（§9.5 設定還原需「全有或全無」，
+    /// 否則刪光設定後補回途中失敗會留下半套設定）。交易內可直接呼叫 <see cref="Execute"/>／
+    /// <see cref="Query"/>，它們會自動加入同一交易；巢狀呼叫則沿用外層交易。
+    /// </summary>
+    public void InTransaction(Action action)
+    {
+        ArgumentNullException.ThrowIfNull(action);
+        lock (_gate)
+        {
+            if (_tx is not null)
+            {
+                action();
+                return;
+            }
+
+            using var tx = _connection.BeginTransaction();
+            _tx = tx;
+            try
+            {
+                action();
+                tx.Commit();
+            }
+            catch
+            {
+                tx.Rollback();
+                throw;
+            }
+            finally
+            {
+                _tx = null;
+            }
+        }
+    }
+
     /// <summary>執行無回傳 SQL（呼叫端負責參數）。</summary>
     public void Execute(string sql, Action<SqliteCommand>? bind = null)
     {
@@ -1432,6 +1613,7 @@ public sealed class SqliteStore : IDisposable
         {
             using var cmd = _connection.CreateCommand();
             cmd.CommandText = sql;
+            cmd.Transaction = _tx;
             bind?.Invoke(cmd);
             cmd.ExecuteNonQuery();
         }
@@ -1444,6 +1626,7 @@ public sealed class SqliteStore : IDisposable
         {
             using var cmd = _connection.CreateCommand();
             cmd.CommandText = sql;
+            cmd.Transaction = _tx;
             bind?.Invoke(cmd);
             using var reader = cmd.ExecuteReader();
             return read(reader);

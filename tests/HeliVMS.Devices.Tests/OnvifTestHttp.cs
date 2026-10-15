@@ -224,6 +224,28 @@ internal static class OnvifTestHttp
                 XName.Get("MediaUri", "http://www.onvif.org/ver10/schema"),
                 new XElement(XName.Get("Uri", "http://www.onvif.org/ver10/schema"), uri))));
 
+    internal static string DigitalInputs(params (string Token, int Id, string Name)[] inputs) => Wrap(
+        XName.Get("Body", "http://www.w3.org/2003/05/soap-envelope"),
+        new XElement(
+            XName.Get("GetDigitalInputsResponse", "http://www.onvif.org/ver10/deviceIO/wsdl"),
+            inputs.Select(i => new XElement(
+                XName.Get("DigitalInputs", "http://www.onvif.org/ver10/deviceIO/wsdl"),
+                new XAttribute("token", i.Token),
+                new XElement(XName.Get("Id", "http://www.onvif.org/ver10/schema"), i.Id),
+                new XElement(XName.Get("Name", "http://www.onvif.org/ver10/schema"), i.Name)))));
+
+    /// <summary>GetRelayOutputsResponse（devicemgmt）：繼電器輸出權杖與模式。</summary>
+    internal static string RelayOutputs(params (string Token, string Mode)[] outputs) => Wrap(
+        XName.Get("Body", "http://www.w3.org/2003/05/soap-envelope"),
+        new XElement(
+            XName.Get("GetRelayOutputsResponse", "http://www.onvif.org/ver10/device/wsdl"),
+            outputs.Select(o => new XElement(
+                XName.Get("RelayOutputs", "http://www.onvif.org/ver10/device/wsdl"),
+                new XAttribute("token", o.Token),
+                new XElement(
+                    XName.Get("Properties", "http://www.onvif.org/ver10/schema"),
+                    new XElement(XName.Get("Mode", "http://www.onvif.org/ver10/schema"), o.Mode))))));
+
     internal static string Wrap(XElement body) => Wrap(body.Name, body);
 
     private static string Wrap(XName bodyName, XElement body) => new XDocument(

@@ -187,3 +187,49 @@ public sealed class PtzPreset
     public string Token { get; init; } = string.Empty;
     public string Name { get; init; } = string.Empty;
 }
+
+/// <summary>
+/// ONVIF 數位輸入（DeviceIO GetDigitalInputs）：攝影機的乾接點 alarm in。
+/// <para>
+/// ONVIF 沒有「讀取 DI 目前狀態」的輪詢操作——輸入狀態只在事件（PullPoint／Basic
+/// Notification）中回報。此型別因此只描述埠本身（能列出有哪些輸入端子），不含即時狀態。
+/// </para>
+/// </summary>
+public sealed class OnvifDigitalInput
+{
+    /// <summary>埠權杖（ONVIF token，用於事件訂閱比對）。</summary>
+    public string Token { get; init; } = string.Empty;
+
+    /// <summary>端子編號（DigitalInput/Id；裝置未提供時為 0）。</summary>
+    public int Id { get; init; }
+
+    /// <summary>顯示名稱（部分裝置提供 DigitalInput/Name，否則退回權杖）。</summary>
+    public string Name { get; init; } = string.Empty;
+
+    /// <summary>顯示標籤：名稱（或權杖）＋端子編號。</summary>
+    public string DisplayLabel =>
+        Id > 0 ? $"{Name} (#{Id})" : Name;
+}
+
+/// <summary>
+/// ONVIF 繼電器輸出（Device GetRelayOutputs）：攝影機的乾接點 relay out，可由
+/// <see cref="OnvifDeviceService.SetRelayOutputStateAsync"/> 切換。
+/// </summary>
+public sealed class OnvifRelayOutput
+{
+    /// <summary>輸出權杖（ONVIF token）。</summary>
+    public string Token { get; init; } = string.Empty;
+
+    /// <summary>模式（Bistable＝可保持，Monostable＝脈衝；裝置未提供時為空字串）。</summary>
+    public string Mode { get; init; } = string.Empty;
+
+    /// <summary>是否為可保持（Bistable）輸出——使用者切 on 後會維持，直到下次切換。</summary>
+    public bool IsBistable => Mode.Equals("Bistable", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>顯示名稱（部分裝置未提供名稱，退回權杖）。</summary>
+    public string Name { get; init; } = string.Empty;
+
+    /// <summary>顯示標籤（名稱或權杖，附模式）。</summary>
+    public string DisplayLabel =>
+        Mode.Length > 0 ? $"{Name} ({Mode})" : Name;
+}

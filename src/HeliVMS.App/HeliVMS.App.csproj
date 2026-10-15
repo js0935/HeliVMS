@@ -9,6 +9,14 @@
     <ProjectReference Include="..\HeliVMS.Alarms\HeliVMS.Alarms.csproj" />
     <ProjectReference Include="..\HeliVMS.Devices\HeliVMS.Devices.csproj" />
     <ProjectReference Include="..\HeliVMS.Storage\HeliVMS.Storage.csproj" />
+    <!-- M305：設定中心「網路」頁要在行程內啟停 Web 服務，因此桌面程式直接引用 WebApi 專案。 -->
+    <ProjectReference Include="..\HeliVMS.WebApi\HeliVMS.WebApi.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- 內嵌 ASP.NET Core（Kestrel）所需的共用框架；WebApi 是 Microsoft.NET.Sdk.Web，
+         這裡用一般 SDK，必須明確加參考才編得過。 -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
   </ItemGroup>
 
   <PropertyGroup>

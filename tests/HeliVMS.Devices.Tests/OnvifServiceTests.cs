@@ -243,12 +243,13 @@ public class OnvifServiceTests
         await service.StopPtzAsync("MainProfile");
         await service.HomeAsync("MainProfile");
         await service.AbsoluteMoveAsync("MainProfile", 0.1, 0.1, 0.1);
+        await service.RelativeMoveAsync("MainProfile", 0.02, 0.02, 0);
         await service.GetPtzPresetsAsync("MainProfile");
         await service.GotoPtzPresetAsync("MainProfile", "p_main_preset");
         await service.SetPtzPresetAsync("MainProfile", "入口");
         await service.RemovePtzPresetAsync("MainProfile", "p_main_preset");
 
-        var actions = new[] { "GetStatus", "ContinuousMove", "Stop", "GotoHomePosition", "AbsoluteMove", "GetPresets", "GotoPreset", "SetPreset", "RemovePreset" };
+        var actions = new[] { "GetStatus", "ContinuousMove", "Stop", "GotoHomePosition", "AbsoluteMove", "RelativeMove", "GetPresets", "GotoPreset", "SetPreset", "RemovePreset" };
         foreach (var action in actions)
         {
             var request = handler.Requests.Single(r => r.Body.Contains(action, StringComparison.Ordinal));
@@ -327,6 +328,25 @@ public class OnvifServiceTests
         Assert.Contains("x=\"0.6\"", request.Body);
         Assert.Contains("y=\"-0.3\"", request.Body);
         Assert.Contains("x=\"0.5\"", request.Body);
+    }
+
+    /// <summary>RelativeMove 應送至 ptz 端點並含 Translation 的 PanTilt/Zoom 值。</summary>
+    [Fact]
+    public async Task RelativeMove_PostsTranslation_ToPtzEndpoint()
+    {
+        var handler = new RecordingHandler((_, body) =>
+            body.Contains("GetCapabilities", StringComparison.Ordinal) ? CapsAllWithPtzResponse : EmptyBodyResponse);
+        using var service = new OnvifDeviceService("http://192.168.1.5/onvif/device_service", null, null, handler);
+
+        await service.RelativeMoveAsync("MainProfile", 0.02, -0.02, 0.02);
+
+        var request = handler.Requests.Single(r => r.Body.Contains("RelativeMove", StringComparison.Ordinal));
+        Assert.Equal("http://192.168.1.5/onvif/ptz_service", request.Url);
+        Assert.Contains("http://www.onvif.org/ver10/ptz/wsdl/RelativeMove", request.Body);
+        Assert.Contains("MainProfile", request.Body);
+        Assert.Contains("Translation", request.Body);
+        Assert.Contains("x=\"0.02\"", request.Body);
+        Assert.Contains("y=\"-0.02\"", request.Body);
     }
 
     /// <summary>Home 應送至 ptz 端點（GotoHomePosition，非標準外不存在的 Home）。</summary>

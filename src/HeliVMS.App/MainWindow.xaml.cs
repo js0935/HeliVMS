@@ -1,5 +1,4 @@
 using System.IO;
-using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -119,6 +118,15 @@ public partial class MainWindow : Window
     private int _selectedCell = -1;
     private IReadOnlyList<ChannelInfo> _channelList = [];
 
+    // 監看群組（監控中心頁簽）。_activeGroupId 為 null＝「全部」頁簽（顯示所有頻道）。
+    // 群組成員的歸屬與順序由 ChannelGroupRepository 管理（見 ChannelManagerWindow 的群組編輯區）。
+    private ChannelGroupRepository? _groups;
+    private long? _activeGroupId;
+    private bool _rebuildingTabs;
+
+    // 每個頁簽各自記住的格數（＋最後停留的頁簽）。啟動時讀 ui.json，切換頁簽與改佈局時寫回。
+    private MonitorLayoutPrefs _layoutPrefs = new();
+
     /// <summary>每次拖曳調整順序前的「頻道→格位」快照堆疊；「復原」後進先出地退回上一個排序。</summary>
     /// <remarks>
     /// 只存在記憶體、不跨重啟：復原的目的是拖錯一格後一鍵補救，不是版本控制。
@@ -179,6 +187,8 @@ public partial class MainWindow : Window
     private TrayIconHost? _tray;
     private IoMonitorHost? _ioHost;
     private ShareHost? _shareHost;
+    private WebHost? _webHost;
+    private DispatcherTimer? _ntpTimer;
     private AnalyticsEventEngine? _analytics;
     private AlertRuleRepository? _alertRules;
     private AlarmEventRepository? _alarmEvents;
@@ -332,6 +342,10 @@ public partial class MainWindow : Window
         {
             StatusText.Text = Localizer.T("Main.StatusVerifying");
         }
+
+        // 語言切換後「全部」頁簽標題要跟著換；_groups 尚未建立時（載入初期）交由
+        // OnLoaded 之後的 ReloadGroupTabs 處理。
+        ReloadGroupTabs();
     }
 
     /// <summary>
@@ -589,8 +603,25 @@ public partial class MainWindow : Window
 
         ApplyI18n();
         _channels = new ChannelRepository(_store);
+        _groups = new ChannelGroupRepository(_store);
         _segRepo = new SegmentRepository(_store);
         _channels.EnsureSeedChannels();
+        ReloadGroupTabs();
+
+        // 上次停留的群組若已被刪除，ReloadGroupTabs 會退回「全部」；格數也要跟著換回「全部」頁簽
+        // 記住的值，否則監看牆會沿用已刪除群組的格數（重開也一樣，因為偏好檔還記著那個群組）。
+        if (MonitorLayoutPrefs.TabKey(_activeGroupId) != _layoutPrefs.ActiveTab)
+        {
+            var restoredIndex = LayoutIndexForCells(TabCellCount(_activeGroupId));
+            if (LayoutCombo.SelectedIndex != restoredIndex)
+            {
+                LayoutCombo.SelectedIndex = restoredIndex;
+            }
+            else
+            {
+                RebuildCells();
+            }
+        }
 
         // 錄影根目錄以「設定中心→儲存」選定的磁碟為準（存在共用資料庫，桌面／WebApi／Agent 同讀）；
         // 未設定時才退回環境變數與推導值。在建立 _manager／_scheduler 之前解析，讓首次錄影就用對的磁碟。
@@ -750,6 +781,13 @@ public partial class MainWindow : Window
             new SettingsRepository(_store),
             licenseAllowed: _licenseGate?.Allows(LicenseFeatures.Remote) == true);
 
+        // M305：內嵌 Web 服務。設定了 web.enabled=1 就在啟動時拉起，交由設定中心「網路」頁控制。
+        _webHost = new WebHost(_dataRoot, Path.Combine(_dataRoot, "index.db"));
+        _webHost.ApplySettings(new SettingsRepository(_store));
+
+        // M305：NTP 對時。啟用時於啟動先對一次，之後定期對時；校正系統時鐘為盡力而為。
+        StartNtpSync();
+
         _analytics = new AnalyticsEventEngine(_store);
         _alertRules = new AlertRuleRepository(_store);
         _alarmEvents = new AlarmEventRepository(_store);
@@ -871,6 +909,114 @@ public partial class MainWindow : Window
         _channelNames = null;
     }
 
+    // ---- 監看群組（監控中心頁簽）------------------------------------------------
+    // 「全部」是虛擬頁簽（_activeGroupId = null），永遠顯示所有頻道；其餘頁簽各對應一個群組，
+    // 只顯示該群組的成員（依群組內順序）。切換頁簽只改派既有工作階段的格位
+    // （ChannelManager.ReconcileAsync），不拆除不在畫面上的頻道，錄影因此不會中斷。
+
+    /// <summary>目前頁簽要顯示的頻道；「全部」為整份清單，群組則為其成員（依群組順序）。</summary>
+    private IReadOnlyList<ChannelInfo> WallChannels()
+    {
+        if (_activeGroupId is not long groupId || _groups is null)
+        {
+            return _channelList;
+        }
+
+        var byId = _channelList.ToDictionary(c => c.Id);
+        return _groups.ListChannelIds(groupId)
+            .Where(byId.ContainsKey)
+            .Select(id => byId[id])
+            .ToList();
+    }
+
+    /// <summary>重建監控中心上方的群組頁簽，並依 <see cref="_activeGroupId"/> 還原選取。</summary>
+    /// <remarks>
+    /// 群組被刪除而目前頁簽指向它時，退回「全部」頁簽，否則 <see cref="WallChannels"/> 會
+    /// 永遠回傳空清單（監看牆空白卻沒有任何錯誤）。
+    /// </remarks>
+    private void ReloadGroupTabs()
+    {
+        if (_groups is null || GroupTabs is null)
+        {
+            return;
+        }
+
+        _rebuildingTabs = true;
+        try
+        {
+            GroupTabs.Items.Clear();
+            var all = new TabItem { Header = Localizer.T("Main.GroupAll"), Tag = (long?)null };
+            GroupTabs.Items.Add(all);
+            foreach (var group in _groups.List())
+            {
+                GroupTabs.Items.Add(new TabItem { Header = group.Name, Tag = (long?)group.Id });
+            }
+
+            var target = GroupTabs.Items.OfType<TabItem>().FirstOrDefault(t => (long?)t.Tag == _activeGroupId) ?? all;
+            GroupTabs.SelectedItem = target;
+            _activeGroupId = target.Tag as long?;
+        }
+        finally
+        {
+            _rebuildingTabs = false;
+        }
+    }
+
+    private async void OnGroupTabChanged(object sender, SelectionChangedEventArgs e)
+    {
+        // ReloadGroupTabs 重建頁簽時會觸發本事件；那時 _activeGroupId 已直接設定，不需再切。
+        if (_rebuildingTabs || GroupTabs.SelectedItem is not TabItem tab)
+        {
+            return;
+        }
+
+        var groupId = tab.Tag as long?;
+        if (groupId == _activeGroupId)
+        {
+            return;
+        }
+
+        // 離開目前頁簽前先記住它的格數，切過去才知道要還原多少格。
+        _layoutPrefs.Remember(_activeGroupId, CurrentCellCount());
+        _activeGroupId = groupId;
+
+        var targetIndex = LayoutIndexForCells(TabCellCount(groupId));
+        if (LayoutCombo.SelectedIndex != targetIndex)
+        {
+            // 改佈局會觸發 OnLayoutChanged：重建格位、依新頁簽改派工作階段，並保存格數。
+            LayoutCombo.SelectedIndex = targetIndex;
+        }
+        else
+        {
+            // 格數不變（下拉不會變更）：仍需重新改派並保存「最後停留頁簽」。
+            SaveLayoutPreference();
+            await ApplyWallAsync();
+        }
+    }
+
+    /// <summary>依目前頁簽改派既有工作階段到格位；不重連、不中斷錄影。</summary>
+    private async Task ApplyWallAsync()
+    {
+        var wall = WallChannels();
+
+        if (_manager is { } mgr && _monitoring && wall.Count > 0)
+        {
+            await _reconcileGate.WaitAsync();
+            try
+            {
+                await mgr.ReconcileAsync(wall, 0, CurrentCellCount());
+            }
+            finally
+            {
+                _reconcileGate.Release();
+            }
+        }
+
+        ClearCellsBeyondChannels(wall.Count);
+        UpdateBadges();
+        UpdateFooter();
+    }
+
     /// <summary>
     /// 把「仍沿用裝置名稱」的頻道補成格位預設名（第一格攝影機01、第二格攝影機02…）並寫回資料庫。
     /// </summary>
@@ -986,10 +1132,32 @@ public partial class MainWindow : Window
             return;
         }
 
+        // 群組可能在頻道管理視窗內被新增／改名／刪除；先重建頁簽（刪掉目前群組會退回「全部」）。
+        var tabBefore = MonitorLayoutPrefs.TabKey(_activeGroupId);
+        ReloadGroupTabs();
+
         var before = ChannelSignature(_channelList);
         RefreshChannelList();
+
+        // 目前的群組被刪除而退回「全部」時，格數要換回「全部」頁簽記住的，否則監看牆會沿用
+        // 已刪群組的格數（重開也一樣）。改下拉＝走 OnLayoutChanged，重建格位並保存偏好。
+        if (MonitorLayoutPrefs.TabKey(_activeGroupId) != tabBefore)
+        {
+            var tabIndex = LayoutIndexForCells(TabCellCount(_activeGroupId));
+            if (LayoutCombo.SelectedIndex != tabIndex)
+            {
+                LayoutCombo.SelectedIndex = tabIndex;
+            }
+        }
+
         if (ChannelSignature(_channelList) == before)
         {
+            // 頻道本身沒變，但群組成員歸屬可能改了；目前若在某個群組頁簽就重套用一次。
+            if (_activeGroupId is not null)
+            {
+                await ApplyWallAsync();
+            }
+
             return;
         }
 
@@ -1015,6 +1183,12 @@ public partial class MainWindow : Window
         // 必須明確清掉，否則監控中心會一直殘留已刪除攝影機的畫面。
         ClearCellsBeyondChannels();
 
+        // ConnectAsync 把所有頻道都派到格位；若目前在某個群組頁簽，需再依該群組重派一次。
+        if (_activeGroupId is not null)
+        {
+            await ApplyWallAsync();
+        }
+
         UpdateFooter();
         HintText.Text = Localizer.T("Main.ChannelsReloaded");
     }
@@ -1025,9 +1199,12 @@ public partial class MainWindow : Window
     /// 重新連線只對還存在的頻道重建工作階段，多出來（或已被刪除）的格子不會被重畫，
     /// 最後一張影格就凍在畫面上，看起來像攝影機還在。
     /// </remarks>
-    private void ClearCellsBeyondChannels()
+    private void ClearCellsBeyondChannels(int? wallCount = null)
     {
-        for (var i = _channelList.Count; i < MaxCells; i++)
+        // 預設以「全部頻道」為界（重新載入路徑）；切到群組頁簽時改以該群組的成員數為界，
+        // 否則群組看不到的頻道其最後一張影格會留在格子上。
+        var bound = wallCount ?? _channelList.Count;
+        for (var i = bound; i < MaxCells; i++)
         {
             if (_cellImages[i] is null)
             {
@@ -1342,7 +1519,9 @@ public partial class MainWindow : Window
 
         // 擴大佈局（例如 1 格 → 4 格）時，先前只顯示過第一格，其餘頻道還沒連線。
         // 原本這裡完全沒處理，於是多出來的格子永遠停在「未連線」。
-        if (_monitoring && _manager is { } mgr && _channelList.Count > 0)
+        // 依目前頁簽取要顯示的頻道（「全部」＝所有頻道，群組＝該組成員）。
+        var wall = WallChannels();
+        if (_monitoring && _manager is { } mgr && wall.Count > 0)
         {
             // 序列化：快速連按 F11 或手動切換會讓這裡重入，兩次 ReconcileAsync 並行時
             // 後到的那次會把先建立的 session 從 _sessions 覆蓋掉，該 session 的 RTSP
@@ -1350,8 +1529,8 @@ public partial class MainWindow : Window
             await _reconcileGate.WaitAsync();
             try
             {
-                // 佈局改變即由 ReconcileAsync 重新套用顯示碼流政策（單畫面第 0 格主流、其餘次流）。
-                var created = await mgr.ReconcileAsync(_channelList, startIndex < 0 ? 0 : startIndex, CurrentCellCount());
+                // 佈局改變即由 ReconcileAsync 重新套用顯示碼流策略（單畫面第 0 格主流、其餘次流）。
+                var created = await mgr.ReconcileAsync(wall, startIndex < 0 ? 0 : startIndex, CurrentCellCount());
                 if (created > 0)
                 {
                     HintText.Text = string.Format(Localizer.T("Main.LayoutApplied"), created);
@@ -1635,7 +1814,7 @@ public partial class MainWindow : Window
         return best;
     }
 
-    /// <summary>佈局記憶：重開沿用上次分割（LIVEVIEW §1.1）。</summary>
+    /// <summary>佈局記憶：重開沿用上次分割（LIVEVIEW §1.1）；每個頁簽各自記住自己的格數。</summary>
     private void ApplyLayoutPreference()
     {
         var pref = 0;
@@ -1644,15 +1823,19 @@ public partial class MainWindow : Window
             var path = Path.Combine(_dataRoot, UiSettingsFile);
             if (File.Exists(path))
             {
-                using var doc = JsonDocument.Parse(File.ReadAllText(path));
-                var root = doc.RootElement;
+                _layoutPrefs = MonitorLayoutPrefs.Parse(File.ReadAllText(path));
+
+                // 最後停留的頁簽（「全部」為 null）。此時 _groups 尚未建立，實際是否存在交由
+                // 稍後的 ReloadGroupTabs 驗證；不存在的群組會退回「全部」。
+                _activeGroupId = _layoutPrefs.ActiveGroupId;
+
                 // 以格數為準：選項清單日後增減（尤其在中間插入 6／12／20… 這類路數）都不會讓
                 // 操作員記下的分割走樣——存索引的話，同一個索引會因為前面多插了選項而變成別的分割。
-                if (root.TryGetProperty("cells", out var cellsEl) && cellsEl.TryGetInt32(out var cells))
+                if (_layoutPrefs.CellsFor(_activeGroupId) is int cells)
                 {
                     pref = LayoutIndexForCells(cells);
                 }
-                else if (root.TryGetProperty("layout", out var layoutEl) && layoutEl.TryGetInt32(out var layout))
+                else if (_layoutPrefs.LayoutIndex is int layout)
                 {
                     // 舊格式只有索引，只能以索引解讀；超出目前選項數就夾到最接近的合法佈局。
                     pref = Math.Clamp(layout, 0, MaxLayoutIndex);
@@ -1678,15 +1861,24 @@ public partial class MainWindow : Window
     {
         try
         {
+            // 把目前頁簽的格數記進它的鍵，再寫回；切到別的頁簽才還原得回來。
+            _layoutPrefs.ActiveTab = MonitorLayoutPrefs.TabKey(_activeGroupId);
+            _layoutPrefs.Remember(_activeGroupId, CurrentCellCount());
             File.WriteAllText(
                 Path.Combine(_dataRoot, UiSettingsFile),
-                JsonSerializer.Serialize(new { layout = LayoutCombo.SelectedIndex, cells = CurrentCellCount() }));
+                _layoutPrefs.ToJson(LayoutCombo.SelectedIndex));
         }
         catch (Exception)
         {
             // 佈局記憶失敗不影響即時監看
         }
     }
+
+    /// <summary>指定頁簽要套用的格數；該頁簽沒有記錄時退回「全部」頁簽的格數，再退回目前格數。</summary>
+    private int TabCellCount(long? groupId)
+        => _layoutPrefs.CellsFor(groupId)
+            ?? _layoutPrefs.CellsFor(null)
+            ?? CurrentCellCount();
 
     /// <summary>M14 每格 AI 策略：單格取樣 200ms；多格僅選中格啟動、小格降頻（≤4路 400ms／多路 800ms）。</summary>
     private void UpdateAiPolicy()
@@ -2597,7 +2789,52 @@ public partial class MainWindow : Window
         OpenChild(new SettingsWindow(
             _store!, _dataRoot, _ioHost, _shareHost, _manager, _patrolHost,
             channelsChanged: () => _ = ReloadChannelsIfChangedAsync(),
-            recordingsRootChanged: root => _ = OnRecordingsRootChangedAsync(root)));
+            recordingsRootChanged: root => _ = OnRecordingsRootChangedAsync(root),
+            webHost: _webHost));
+    }
+
+    /// <summary>
+    /// M305：NTP 對時。只有在設定中心「網路」頁勾選啟用時才會啟動；啟動時先對一次，
+    /// 之後每 6 小時對一次（NTP 伺服器本身通常也是這樣建議的頻率）。
+    /// </summary>
+    private void StartNtpSync()
+    {
+        if (_store is null)
+        {
+            return;
+        }
+
+        var settings = new SettingsRepository(_store);
+        if (settings.Get(NtpSync.EnabledKey) != "1")
+        {
+            return;
+        }
+
+        _ntpTimer = new DispatcherTimer(
+            TimeSpan.FromHours(6),
+            DispatcherPriority.Background,
+            (_, _) => _ = RunNtpSyncAsync(),
+            Dispatcher);
+        _ntpTimer.Start();
+        _ = RunNtpSyncAsync();
+    }
+
+    /// <summary>背景對時；失敗（網路不通等）只留給下次週期重試，不干擾 UI。</summary>
+    private async Task RunNtpSyncAsync()
+    {
+        if (_store is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await NtpSync.SyncAsync(new SettingsRepository(_store));
+        }
+        catch (Exception)
+        {
+            // 對時是盡力而為：例外不該讓主視窗的計時器執行緒出事。
+        }
     }
 
     /// <summary>開啟匯出精靈（M21，§8.5/§14）。僅 admin（M42）。</summary>
@@ -3893,16 +4130,26 @@ public partial class MainWindow : Window
     /// </remarks>
     private void ReorderCells(int from, int to)
     {
-        if (_channels is null || _channelList.Count == 0)
+        var wall = WallChannels();
+        if (_channels is null || wall.Count == 0)
         {
             return;
         }
 
         var count = CurrentCellCount();
         if (from < 0 || to < 0 || from >= count || to >= count ||
-            from >= _channelList.Count || to >= _channelList.Count || from == to)
+            from >= wall.Count || to >= wall.Count || from == to)
         {
             return;   // 落點在空格上、越界或沒真的動：不搬。
+        }
+
+        // 群組頁簽：拖曳改的是「群組內」的順序，不動全域的 display_cell 與頻道名稱。
+        if (_activeGroupId is long groupId && _groups is not null)
+        {
+            _groups.Move(groupId, wall[from].Id, to - from);
+            HintText.Text = Localizer.T("Main.CellOrderChanged");
+            _ = ApplyWallAsync();
+            return;
         }
 
         // 調整前先留快照，「復原」才有上一個排序可回。
@@ -3936,7 +4183,7 @@ public partial class MainWindow : Window
         await _reconcileGate.WaitAsync();
         try
         {
-            await _manager.ReconcileAsync(_channelList, 0, CurrentCellCount());
+            await _manager.ReconcileAsync(WallChannels(), 0, CurrentCellCount());
         }
         finally
         {
@@ -3970,6 +4217,22 @@ public partial class MainWindow : Window
         if (_channels is null || _cellOrderHistory.Count == 0)
         {
             return;
+        }
+
+        // 「復原」還原的是全域格位排序；若目前在某個群組頁簽，先切回「全部」再還原，
+        // 否則改派的會是群組成員、與快照（全體）不一致。
+        if (_activeGroupId is not null)
+        {
+            _layoutPrefs.Remember(_activeGroupId, CurrentCellCount());
+            _activeGroupId = null;
+            ReloadGroupTabs();
+
+            // 切回「全部」也要換回該頁簽的格數，否則會用著群組的格數還原全域排序。
+            var allIndex = LayoutIndexForCells(TabCellCount(null));
+            if (LayoutCombo.SelectedIndex != allIndex)
+            {
+                LayoutCombo.SelectedIndex = allIndex;
+            }
         }
 
         var snapshot = _cellOrderHistory.Pop();
@@ -4149,6 +4412,8 @@ public partial class MainWindow : Window
         _detWriter?.Dispose();
         _ioHost?.Dispose();
         _shareHost?.Dispose();
+        _webHost?.Dispose();
+        _ntpTimer?.Stop();
         _notify?.Dispose();
         _manager?.Dispose();
         _store?.Dispose();

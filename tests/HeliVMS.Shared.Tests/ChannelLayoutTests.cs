@@ -157,37 +157,37 @@ public sealed class ChannelLayoutTests
     }
 
     [Fact]
-    public void 新頻道的落點與實際補位後的索引一致()
+    public void 群組頁簽只挑出成員並依群組內順序排列()
     {
-        // 名稱用的是 NextFreeCell，但畫面位置是 ReorderByCell 決定的；兩套規則一旦分歧，
-        // 就會出現「名稱說第3格、畫面卻在第2格」且回報時無跡可尋的情況，故逐一驗證一致。
-        var cases = new[]
-        {
-            Array.Empty<int?>(),
-            new int?[] { 0 },
-            new int?[] { null },
-            new int?[] { null, null },
-            new int?[] { 0, 2 },
-            new int?[] { 2, 0 },
-            new int?[] { 0, 0 },
-            new int?[] { 99 },
-            new int?[] { 1, null, 0 },
-        };
+        // 全部頻道 [10,20,30]，群組成員順序 [30,10]：只留這兩台，且照群組順序（30 在前）。
+        var members = ChannelLayout.SelectInOrder(
+            new[] { 10, 20, 30 },
+            x => x,
+            new[] { 30, 10 });
 
-        foreach (var cells in cases)
-        {
-            var items = new List<(int Id, int? Cell)>();
-            for (var i = 0; i < cells.Length; i++)
-            {
-                items.Add((i + 1, cells[i]));
-            }
+        Assert.Equal(new[] { 30, 10 }, members);
+    }
 
-            items.Add((999, null));
+    [Fact]
+    public void 群組成員已被刪除時直接略過而非留下空格()
+    {
+        // 群組記著 [10,99,20] 但 99 已被刪；頁簽應顯示 [10,20]，不能出現指向不存在頻道的空格。
+        var members = ChannelLayout.SelectInOrder(
+            new[] { 10, 20 },
+            x => x,
+            new[] { 10, 99, 20 });
 
-            var ordered = ChannelLayout.ReorderByCell(items, x => x.Cell);
-            var index = ordered.FindIndex(x => x.Id == 999);
+        Assert.Equal(new[] { 10, 20 }, members);
+    }
 
-            Assert.Equal(ChannelLayout.NextFreeCell(cells), index);
-        }
+    [Fact]
+    public void 空群組回傳空序列()
+    {
+        var members = ChannelLayout.SelectInOrder(
+            new[] { 10, 20 },
+            x => x,
+            Array.Empty<int>());
+
+        Assert.Empty(members);
     }
 }

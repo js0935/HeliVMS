@@ -119,6 +119,38 @@ public static class ChannelLayout
     }
 
     /// <summary>
+    /// 依指定的頻道 Id 順序挑出成員並回傳（依 <paramref name="orderedIds"/> 排列），
+    /// 已不存在的 Id 直接略過。供「群組頁簽」只顯示該群組的成員、且照群組內順序排列。
+    /// </summary>
+    /// <remarks>
+    /// 篩選與排序都交給這一個純函式，而非在 UI 端用 LINQ 就地穿透，是為了能行為測試：
+    /// 「群組內順序」與「成員已被刪除」這兩件事只有在真的建過群組、又刪過頻道後才會同時出現，
+    /// 而那正是漏掉會讓頁簽少一格卻無跡可尋的地方。
+    /// </remarks>
+    public static List<T> SelectInOrder<T>(
+        IReadOnlyList<T> all,
+        Func<T, int> idOf,
+        IReadOnlyList<int> orderedIds)
+    {
+        var byId = new Dictionary<int, T>();
+        foreach (var item in all)
+        {
+            byId[idOf(item)] = item;
+        }
+
+        var result = new List<T>(orderedIds.Count);
+        foreach (var id in orderedIds)
+        {
+            if (byId.TryGetValue(id, out var item))
+            {
+                result.Add(item);
+            }
+        }
+
+        return result;
+    }
+
+    /// <summary>
     /// 新增一個「未指定格位」的頻道時，它會被排到第幾格（0 基）。
     /// </summary>
     /// <remarks>

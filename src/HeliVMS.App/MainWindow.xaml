@@ -164,7 +164,50 @@
              status/hint line now live in the top bar, leaving as much height as possible for the
              video wall; the channel list and connect/record controls are gone (auto start). -->
         <Grid Grid.Row="2" Margin="12">
-            <Border x:Name="MonitorArea" Background="#06090F" BorderBrush="#1F3A5F" BorderThickness="1"
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
+
+            <!-- Monitor group tabs: the first tab is "All" and always shows every camera, the
+                 remaining tabs are user-defined groups. Only the header strip is rendered here
+                 (custom template with just a TabPanel); the shared wall below is not duplicated
+                 per tab, so switching tabs just re-maps existing sessions to cells. -->
+            <TabControl x:Name="GroupTabs" Grid.Row="0" Background="Transparent" BorderThickness="0"
+                        Margin="0,0,0,8" SelectionChanged="OnGroupTabChanged">
+                <TabControl.Template>
+                    <ControlTemplate TargetType="TabControl">
+                        <TabPanel IsItemsHost="True" />
+                    </ControlTemplate>
+                </TabControl.Template>
+                <TabControl.Resources>
+                    <Style TargetType="TabItem">
+                        <Setter Property="Foreground" Value="{StaticResource Brand.TextDim}" />
+                        <Setter Property="FontSize" Value="12" />
+                        <Setter Property="Padding" Value="14,6" />
+                        <Setter Property="Margin" Value="0,0,6,0" />
+                        <Setter Property="Template">
+                            <Setter.Value>
+                                <ControlTemplate TargetType="TabItem">
+                                    <Border x:Name="TabBd" Background="#1A2C49" CornerRadius="4,4,0,0"
+                                            Padding="{TemplateBinding Padding}">
+                                        <ContentPresenter ContentSource="Header" VerticalAlignment="Center"
+                                                          HorizontalAlignment="Center" />
+                                    </Border>
+                                    <ControlTemplate.Triggers>
+                                        <Trigger Property="IsSelected" Value="True">
+                                            <Setter TargetName="TabBd" Property="Background" Value="#2660AA" />
+                                            <Setter Property="Foreground" Value="White" />
+                                        </Trigger>
+                                    </ControlTemplate.Triggers>
+                                </ControlTemplate>
+                            </Setter.Value>
+                        </Setter>
+                    </Style>
+                </TabControl.Resources>
+            </TabControl>
+
+            <Border x:Name="MonitorArea" Grid.Row="1" Background="#06090F" BorderBrush="#1F3A5F" BorderThickness="1"
                     ClipToBounds="True" SizeChanged="OnMonitorAreaSizeChanged">
                 <Grid>
                     <UniformGrid x:Name="CellGrid" HorizontalAlignment="Center" VerticalAlignment="Center">

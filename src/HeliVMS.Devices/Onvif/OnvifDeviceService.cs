@@ -20,6 +20,7 @@ public sealed class OnvifDeviceService : IDisposable
     internal static readonly XNamespace Ts = "http://www.onvif.org/ver10/schema";
     internal static readonly XNamespace Tptz = "http://www.onvif.org/ver10/ptz/wsdl";
     internal static readonly XNamespace Tptz20 = "http://www.onvif.org/ver20/ptz/wsdl";
+    internal static readonly XNamespace Tmd = "http://www.onvif.org/ver10/deviceIO/wsdl";
     internal static readonly XNamespace Wsa = "http://www.w3.org/2005/08/addressing";
     internal static readonly XNamespace Wsse = "http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-secext-1.0.xsd";
     internal static readonly XNamespace Wsu = "http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-utility-1.0.xsd";
@@ -98,8 +99,14 @@ public sealed class OnvifDeviceService : IDisposable
     /// <summary>PTZ 服務位址（首次呼叫 PTZ 動作前以 GetCapabilities 解析）。</summary>
     public string? PtzXAddr { get; private set; }
 
+    /// <summary>DeviceIO 服務位址（首次呼叫 <see cref="GetDigitalInputsAsync"/> 前以 GetCapabilities 解析）。</summary>
+    public string? IoXAddr { get; private set; }
+
     /// <summary>設備是否具備 PTZ 能力（需先呼叫 <see cref="EnsurePtzCapabilityAsync"/>）。</summary>
     public bool HasPtz => !string.IsNullOrWhiteSpace(PtzXAddr);
+
+    /// <summary>設備是否具備 DeviceIO 能力（需先呼叫 <see cref="EnsureIoCapabilityAsync"/>）。</summary>
+    public bool HasIo => !string.IsNullOrWhiteSpace(IoXAddr);
 
     /// <summary>取得設備基本資訊與系統時間。</summary>
     public async Task<OnvifDeviceInfo> GetInfoAsync(CancellationToken cancellationToken = default)
@@ -172,6 +179,61 @@ public sealed class OnvifDeviceService : IDisposable
         {
             return null;
         }
+    }
+
+    /// <summary>
+    /// 遠端重啟設備（ONVIF <c>SystemReboot</c>）；回傳設備回應的訊息文字（多為空字串）。
+    ///
+    /// <para>
+    /// 重啟會中斷該設備所有頻道的畫面與錄影，屬破壞性命令，故 <c>retryable: false</c>：
+    /// 網路層重試等同於對現場設備連續下令，語意上不該自動重送。
+    /// </para>
+    /// </summary>
+    public async Task<string> RebootAsync(CancellationToken cancellationToken = default)
+    {
+        var body = await PostAsync(
+            new XElement(Td + "SystemReboot"), null,
+            TdAction("SystemReboot"), cancellationToken, retryable: false);
+
+        return (string?)DescendantAnyNs(body, "SystemRebootResponse")?.ElementAnyNs("Message") ?? string.Empty;
+    }
+
+    /// <summary>韌體檔案大小上限（256 MiB）。超過即拒絕，避免把整顆檔案 base64 進 SOAP 而耗盡記憶體。</summary>
+    public const int MaxFirmwareBytes = 256 * 1024 * 1024;
+
+    /// <summary>
+    /// 遠端升級韌體（ONVIF <c>StartFirmwareUpgrade</c>，將韌體以 base64 內嵌於 <c>Upload</c>）。
+    ///
+    /// <para>
+    /// 多數設備升級完成後仍需重啟才會套用，呼叫端應在成功後另行呼叫 <see cref="RebootAsync"/>。
+    /// 這是破壞性且不可逆的命令（刷錯檔可能讓設備失聯），故 <c>retryable: false</c>。
+    /// </para>
+    /// <para>
+    /// 部分設備的 <c>Upload</c> 要求 MTOM/XOP 附件而非內嵌 base64；本實作採後者
+    /// （ONVIF 規格允許、相容性較廣）。若設備回 Fault，屬該設備實作差異，不是封包錯誤。
+    /// </para>
+    /// </summary>
+    public async Task StartFirmwareUpgradeAsync(byte[] firmware, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(firmware);
+        if (firmware.Length == 0)
+        {
+            throw new ArgumentException("韌體檔案為空。", nameof(firmware));
+        }
+
+        if (firmware.Length > MaxFirmwareBytes)
+        {
+            throw new ArgumentException(
+                $"韌體檔案過大（{firmware.Length} 位元組，上限 {MaxFirmwareBytes}）。", nameof(firmware));
+        }
+
+        _ = await PostAsync(
+            new XElement(Td + "StartFirmwareUpgrade",
+                new XElement(Td + "Upload", Convert.ToBase64String(firmware))),
+            null,
+            TdAction("StartFirmwareUpgrade"),
+            cancellationToken,
+            retryable: false);
     }
 
     /// <summary>
@@ -563,6 +625,31 @@ public sealed class OnvifDeviceService : IDisposable
             cancellationToken, retryable: false);
     }
 
+    /// <summary>
+    /// 相對移動（RelativeMove：以目前位置為基準位移固定的 Pan/Tilt/Zoom 量，設備自行停止）。
+    /// 與 ContinuousMove 不同，不需要另外送 Stop，因此不受「Stop 比移動請求晚到」的競態影響；
+    /// 相機處理 SOAP 較慢時，ContinuousMove 的實際位移會被往返延遲拉長，RelativeMove 則固定為一步。
+    /// </summary>
+    public async Task RelativeMoveAsync(
+        string profileToken,
+        double pan,
+        double tilt,
+        double zoom,
+        CancellationToken cancellationToken = default)
+    {
+        _ = await PostPtzAsync("RelativeMove", profileToken, node =>
+            new XElement(_ptzWsdl + "RelativeMove",
+                new XElement(_ptzWsdl + "ProfileToken", profileToken),
+                node,
+                new XElement(_ptzWsdl + "Translation",
+                    new XElement(Ts + "PanTilt",
+                        new XAttribute("x", pan.ToString(System.Globalization.CultureInfo.InvariantCulture)),
+                        new XAttribute("y", tilt.ToString(System.Globalization.CultureInfo.InvariantCulture))),
+                    new XElement(Ts + "Zoom",
+                        new XAttribute("x", zoom.ToString(System.Globalization.CultureInfo.InvariantCulture))))),
+            cancellationToken, retryable: false);
+    }
+
     /// <summary>返回 Home 位置（GotoHomePosition）。</summary>
     public async Task HomeAsync(string profileToken, CancellationToken cancellationToken = default)
     {
@@ -598,6 +685,157 @@ public sealed class OnvifDeviceService : IDisposable
             cancellationToken, retryable: false);
 
         return (string?)DescendantAnyNs(body, "PresetToken") ?? string.Empty;
+    }
+
+    /// <summary>
+    /// 確保已解析 DeviceIO 服務位址（GetCapabilities Category=DeviceIO／All，再回退 GetServices，
+    /// 最後探測常見路徑）。與 PTZ 一樣，僅有 XAddr 不足以證明可用，故實際以 GetDigitalInputs 驗證一次。
+    /// </summary>
+    public async Task EnsureIoCapabilityAsync(CancellationToken cancellationToken = default)
+    {
+        if (IoXAddr is not null)
+        {
+            return;
+        }
+
+        await _capabilityLock.WaitAsync(cancellationToken);
+        try
+        {
+            if (IoXAddr is not null)
+            {
+                return;
+            }
+
+            var xAddr = await TryResolveCapabilityAsync("DeviceIO", ["DeviceIO", "All"], cancellationToken);
+            xAddr ??= await TryResolveServiceAsync("deviceIO/wsdl", cancellationToken);
+            if (string.IsNullOrEmpty(xAddr))
+            {
+                xAddr = await ProbeServicePathAsync(
+                    OnvifEndpointResolver.DeviceIoServicePaths,
+                    new XElement(Tmd + "GetDigitalInputs"),
+                    TmdAction("GetDigitalInputs"),
+                    cancellationToken);
+            }
+
+            IoXAddr = xAddr ?? string.Empty;
+        }
+        finally
+        {
+            _capabilityLock.Release();
+        }
+    }
+
+    /// <summary>
+    /// 列出攝影機的數位輸入（alarm in）。ONVIF 只在 DeviceIO 服務提供；未支援時回傳可顯示之型別化錯誤。
+    /// </summary>
+    public async Task<IReadOnlyList<OnvifDigitalInput>> GetDigitalInputsAsync(CancellationToken cancellationToken = default)
+    {
+        var xAddr = await RequireIoAsync(cancellationToken);
+        var body = await PostAsync(
+            new XElement(Tmd + "GetDigitalInputs"),
+            xAddr,
+            TmdAction("GetDigitalInputs"),
+            cancellationToken);
+
+        var inputs = new List<OnvifDigitalInput>();
+        foreach (var element in DescendantsAnyNs(body, "DigitalInputs"))
+        {
+            var token = ((string?)element.Attribute("token") ?? string.Empty).Trim();
+            if (token.Length == 0)
+            {
+                continue;
+            }
+
+            inputs.Add(new OnvifDigitalInput
+            {
+                Token = token,
+                Id = ParseInt32((string?)element.ElementAnyNs("Id")),
+                Name = ((string?)element.ElementAnyNs("Name") ?? token).Trim(),
+            });
+        }
+
+        return inputs;
+    }
+
+    /// <summary>
+    /// 列出攝影機的繼電器輸出（relay out）。優先走 Device 服務（devicemgmt，最廣泛支援），
+    /// 該服務不支援時才回退至 DeviceIO 服務。
+    /// </summary>
+    public async Task<IReadOnlyList<OnvifRelayOutput>> GetRelayOutputsAsync(CancellationToken cancellationToken = default)
+    {
+        XElement body;
+        try
+        {
+            body = await PostAsync(new XElement(Td + "GetRelayOutputs"), null, TdAction("GetRelayOutputs"), cancellationToken);
+        }
+        catch (OnvifException ex) when (ex.Code == OnvifErrorCode.NotSupported)
+        {
+            var io = await RequireIoAsync(cancellationToken);
+            body = await PostAsync(new XElement(Tmd + "GetRelayOutputs"), io, TmdAction("GetRelayOutputs"), cancellationToken);
+        }
+
+        var outputs = new List<OnvifRelayOutput>();
+        foreach (var element in DescendantsAnyNs(body, "RelayOutputs"))
+        {
+            var token = ((string?)element.Attribute("token") ?? string.Empty).Trim();
+            if (token.Length == 0)
+            {
+                continue;
+            }
+
+            outputs.Add(new OnvifRelayOutput
+            {
+                Token = token,
+                Mode = ((string?)element.ElementAnyNs("Properties")?.ElementAnyNs("Mode")
+                    ?? (string?)element.ElementAnyNs("Mode")
+                    ?? string.Empty).Trim(),
+                Name = ((string?)element.ElementAnyNs("Name") ?? token).Trim(),
+            });
+        }
+
+        return outputs;
+    }
+
+    /// <summary>
+    /// 切換攝影機繼電器輸出狀態（SetRelayOutputState）。<paramref name="active"/>＝true 送 active（閉合），
+    /// false 送 inactive（斷開）。與列出時相同：優先 Device 服務，不支援時回退 DeviceIO。
+    /// </summary>
+    public async Task SetRelayOutputStateAsync(string relayToken, bool active, CancellationToken cancellationToken = default)
+    {
+        var state = active ? "active" : "inactive";
+        XElement Build() => new(
+            Td + "SetRelayOutputState",
+            new XElement(Td + "RelayOutputToken", relayToken),
+            new XElement(Td + "LogicalState", state));
+
+        try
+        {
+            _ = await PostAsync(Build(), null, TdAction("SetRelayOutputState"), cancellationToken, retryable: false);
+        }
+        catch (OnvifException ex) when (ex.Code == OnvifErrorCode.NotSupported)
+        {
+            var io = await RequireIoAsync(cancellationToken);
+            _ = await PostAsync(
+                new XElement(Tmd + "SetRelayOutputState",
+                    new XElement(Tmd + "RelayOutputToken", relayToken),
+                    new XElement(Tmd + "LogicalState", state)),
+                io,
+                TmdAction("SetRelayOutputState"),
+                cancellationToken,
+                retryable: false);
+        }
+    }
+
+    /// <summary>確認 DeviceIO 服務可用；不支援時回傳可顯示之型別化錯誤。</summary>
+    private async Task<string> RequireIoAsync(CancellationToken cancellationToken)
+    {
+        await EnsureIoCapabilityAsync(cancellationToken);
+        if (string.IsNullOrWhiteSpace(IoXAddr))
+        {
+            throw OnvifException.NotSupported("設備不支援 ONVIF DeviceIO（無法讀取數位輸入）。");
+        }
+
+        return IoXAddr;
     }
 
     private static PtzStatus ParsePtzStatus(XElement? position)
@@ -1339,6 +1577,7 @@ public sealed class OnvifDeviceService : IDisposable
                 new XAttribute(XNamespace.Xmlns + "env", Env.NamespaceName),
                 new XAttribute(XNamespace.Xmlns + "td", Td.NamespaceName),
                 new XAttribute(XNamespace.Xmlns + "trt", Trt.NamespaceName),
+                new XAttribute(XNamespace.Xmlns + "tmd", Tmd.NamespaceName),
                 new XAttribute(XNamespace.Xmlns + "tns", Ts.NamespaceName),
                 new XAttribute(XNamespace.Xmlns + "tptz", _ptzWsdl.NamespaceName),
                 new XAttribute(XNamespace.Xmlns + "wsa", Wsa.NamespaceName),
@@ -1350,6 +1589,7 @@ public sealed class OnvifDeviceService : IDisposable
 
     private static string TdAction(string action) => $"http://www.onvif.org/ver10/device/wsdl/{action}";
     private static string TrtAction(string action) => $"http://www.onvif.org/ver10/media/wsdl/{action}";
+    private static string TmdAction(string action) => $"{Tmd.NamespaceName}/{action}";
     private string TptzAction(string action) => $"{_ptzWsdl.NamespaceName}/{action}";
 
     public void Dispose() => _http.Dispose();

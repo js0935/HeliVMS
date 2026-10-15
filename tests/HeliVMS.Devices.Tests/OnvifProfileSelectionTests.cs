@@ -265,6 +265,50 @@ public class OnvifProfileSelectionTests
         Assert.Equal("Profile1", OnvifProfileSelection.SelectMain([main, sub])?.Token);
     }
 
+    [Fact]
+    public void SelectSub_PrefersNamedSubStream_OverLowerResolutionThirdStream()
+    {
+        // 實機症狀：三碼流相機（串流1 主／串流2 子／串流3 更低）。Classify 會把無關鍵字的
+        // 第三路也判為子碼流（同來源最低解析度），若 SelectSub 只取最低解析度就會誤選串流3，
+        // 但即時監看要用的其實是具名的串流2。
+        var profiles = OnvifProfileSelection.Classify(
+        [
+            Profile("Stream1", "Stream1", 1920, 1080, "VideoSource0"),
+            Profile("Stream2", "Stream2", 704, 576, "VideoSource0"),
+            Profile("Stream3", "Stream3", 352, 288, "VideoSource0"),
+        ]);
+
+        Assert.Equal("Stream2", OnvifProfileSelection.SelectSub(profiles)!.Token);
+    }
+
+    [Fact]
+    public void SelectSub_AmongNamedSubStreams_PicksClosestToMain()
+    {
+        // 多個具名子碼流時取最接近主碼流（解析度最高）者，而非最小的那個。
+        var profiles = OnvifProfileSelection.Classify(
+        [
+            Profile("MainStream", "MainStream", 1920, 1080, "VideoSource0"),
+            Profile("SubStream", "SubStream", 704, 576, "VideoSource0"),
+            Profile("LowStream", "LowStream", 352, 288, "VideoSource0"),
+        ]);
+
+        Assert.Equal("SubStream", OnvifProfileSelection.SelectSub(profiles)!.Token);
+    }
+
+    [Fact]
+    public void SelectSub_WithoutNamedSubStream_FallsBackToLowestResolution()
+    {
+        // 無具名子碼流時維持既有行為：Classify 只把同來源最低解析度者標為子碼流。
+        var profiles = OnvifProfileSelection.Classify(
+        [
+            Profile("Alpha", "Alpha", 1920, 1080, "VideoSource0"),
+            Profile("Beta", "Beta", 1280, 720, "VideoSource0"),
+            Profile("Gamma", "Gamma", 640, 360, "VideoSource0"),
+        ]);
+
+        Assert.Equal("Gamma", OnvifProfileSelection.SelectSub(profiles)!.Token);
+    }
+
     private static OnvifProfile Profile(
         string name,
         string token,

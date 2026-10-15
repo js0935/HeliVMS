@@ -40,6 +40,15 @@ public static class OnvifEndpointResolver
         "/onvif/ptz",
     ];
 
+    /// <summary>常見 DeviceIO 服務路徑（數位輸入／繼電器輸出）。</summary>
+    public static IReadOnlyList<string> DeviceIoServicePaths { get; } =
+    [
+        "/onvif/deviceIO_service",
+        "/onvif/DeviceIO",
+        "/onvif/deviceio",
+        "/onvif/DeviceIOService",
+    ];
+
     /// <summary>
     /// 依手動輸入（<c>192.168.1.64</c>、<c>192.168.1.64:8000</c>、
     /// <c>http://cam.local/onvif/device_service</c>）產生待試之 device_service 候選，

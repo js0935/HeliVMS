@@ -288,17 +288,22 @@ public sealed class AutoStartMonitoringContractTests
     {
         var code = SourceContract.Read(MainWindow);
 
-        // 存檔要寫格數，不能只寫索引。
+        // 存檔要寫格數（每個頁簽各自的），不能只寫索引。
         var save = SourceContract.BodyOf(code, "SaveLayoutPreference");
         Assert.NotEqual(string.Empty, save);
-        Assert.Contains("cells = CurrentCellCount()", save);
+        Assert.Contains("_layoutPrefs.Remember(", save);
+        Assert.Contains("CurrentCellCount()", save);
+        Assert.Contains("_layoutPrefs.ToJson(", save);
 
-        // 還原優先用格數對到最接近的選項；沒有格數（舊檔）才退回索引。
+        // 還原優先用格數對到最接近的選項；沒有格數（舊檔）才退回索引。ui.json 的解析
+        // （含舊格式相容）已抽到 MonitorLayoutPrefs 並由 HeliVMS.Shared.Tests 行為測試，
+        // 這裡只確認主視窗確實委派給它、且仍以格數挑最接近的佈局。
         var apply = SourceContract.BodyOf(code, "ApplyLayoutPreference");
         Assert.NotEqual(string.Empty, apply);
         Assert.Contains("LayoutIndexForCells", apply);
-        Assert.Contains("TryGetProperty(\"cells\"", apply);
-        Assert.Contains("TryGetProperty(\"layout\"", apply);
+        Assert.Contains("MonitorLayoutPrefs.Parse(", apply);
+        Assert.Contains("CellsFor(", apply);
+        Assert.Contains("LayoutIndex", apply);
 
         // 對應邏輯要以格數差距挑最接近者，否則插入選項後仍會挑錯。
         var pick = SourceContract.BodyOf(code, "LayoutIndexForCells");

@@ -32,6 +32,9 @@ public sealed class DeviceRecord
 
     /// <summary>ONVIF 取得的子碼流 RTSP 位址（不含帳密）；未設定為 null。</summary>
     public string? SubStreamUrl { get; init; }
+
+    /// <summary>所屬裝置群組／分區 Id（§7.4 設備樹）；未分組為 null。</summary>
+    public long? GroupId { get; init; }
 }
 
 /// <summary>

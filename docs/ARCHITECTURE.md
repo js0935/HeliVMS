@@ -393,6 +393,58 @@ CREATE TABLE schedules (
   end_min INTEGER NOT NULL,      -- 0..1439
   action TEXT DEFAULT 'record'
 );
+
+-- 監看群組（v49）：監控中心頁簽；「全部」頁簽固定為第一個，不在此表
+CREATE TABLE channel_groups (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL UNIQUE,
+  position INTEGER NOT NULL              -- 頁簽順序（0 基）
+);
+
+-- 群組成員與群組內顯示順序；UNIQUE(channel_id)＝一台攝影機最多屬一個群組
+CREATE TABLE channel_group_members (
+  group_id INTEGER NOT NULL REFERENCES channel_groups(id) ON DELETE CASCADE,
+  channel_id INTEGER NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
+  position INTEGER NOT NULL,
+  PRIMARY KEY (group_id, channel_id),
+  UNIQUE (channel_id)
+);
+CREATE INDEX idx_channel_group_members_group ON channel_group_members(group_id, position);
+
+-- 裝置群組／分區（v50，§7.4 設備樹）：名稱全樹唯一；parent_id 支援子群組
+CREATE TABLE device_groups (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL UNIQUE,
+  parent_id INTEGER REFERENCES device_groups(id) ON DELETE SET NULL,  -- 上層被刪時子群組回頂層
+  position INTEGER NOT NULL
+);
+CREATE INDEX idx_device_groups_parent ON device_groups(parent_id, position);
+
+-- devices 增欄 group_id（v50）：所屬分區；刪群組為 SET NULL（移到未分組），不刪裝置
+-- ALTER TABLE devices ADD COLUMN group_id INTEGER REFERENCES device_groups(id) ON DELETE SET NULL;
+
+-- 遠端操作紀錄（v51，§7.4 設備工具）：重啟/韌體升級/診斷/音視測試；隨設備 CASCADE 刪除
+CREATE TABLE device_operations (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  device_id INTEGER NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
+  op_type TEXT NOT NULL,                  -- reboot / firmware_upgrade / diagnostics / av_test
+  param TEXT,
+  result TEXT NOT NULL,                   -- ok / failed
+  detail TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX idx_device_operations_device ON device_operations(device_id, created_at);
+
+-- 設定版本快照（v52，§9.5）：整份 app_settings 的 JSON 快照；可一鍵回滾
+CREATE TABLE settings_versions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  snapshot TEXT NOT NULL,                 -- app_settings 全量 JSON（{key: value}）
+  key_count INTEGER NOT NULL,             -- 快照鍵數（清單顯示用）
+  reason TEXT,                            -- 手動快照／匯入前自動快照／回滾前自動快照
+  actor TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX idx_settings_versions_created ON settings_versions(created_at);
 ```
 
 - 索引合併：回放/匯出時可用 `ffmpeg concat` 依索引依序拼接多段。
@@ -575,8 +627,36 @@ L0 運動觸發才餵 L1 物件模型；並在**次串流 (e.g. 640×360) + 抽�
 
 - 設備樹三層結構：**群組/分區 → 設備 → 通道**；拖曳歸組、通道排序
 - 啟用/停用/移除/批次移除；移除前確認錄影遷移或保留策略
-- **韌體遠端升級**：批次檢查版本 → 推送映像(ONVIF FirmwareUpdate) → 升級/重啟驗證
-- 設備工具面板：Reboot、音訊/影像測試、訊號診斷
+- **韌體遠端升級（單機與批次已實作，v51）**：ONVIF `StartFirmwareUpgrade`（檔案以 base64 內嵌於 `Upload`）→
+  升級後提示重啟驗證。單機流程在 `DeviceToolsWindow`（見下）；批次流程見下一條。
+- **批次韌體升級（已實作，v51）**：`FirmwareUpgradeBatch`（Devices）編排「逐台讀取現行版本 → 推送同一份映像
+  →（可選）`SystemReboot`」，一次一台、單台失敗不中止其餘（失敗會被記錄並繼續，否則一台壞掉會讓整批停住）。
+  **讀不到版本就不推送**：讀版本失敗代表連線或身分有問題，此時硬送映像風險遠高於跳過。映像僅在**送出前**
+  驗證一次（空檔、超過 `MaxFirmwareBytes` 直接 `ArgumentException`），避免對整批設備送空映像。
+  桌面 UI `FirmwareUpgradeWindow`（App）提供勾選設備、挑檔、檢查版本與升級；升級需管理員＋確認框列出檔名與台數，
+  且**預設只勾選啟用中的設備**（停用者多在停機/替換，預設全選會把它們一起刷壞）。每台（含失敗）寫入
+  `device_operations`。入口在 `CameraManagerWindow` 的「批次韌體升級」。編排不變式見 `FirmwareUpgradeBatchTests`，
+  UI 接線契約見 `FirmwareUpgradeContractTests`。
+- **設備工具面板（已實作，v51）**：`DeviceToolsWindow`（App）對單一攝影機提供
+  ONVIF 診斷（`GetInfoAsync` 的廠牌/型號/韌體/序號 + Profile 數 + 與本機時鐘偏差）、
+  **音視測試**（以 `StreamProbe`／ffprobe 探測主碼流的解析度與視/音訊編碼；設備未存主碼流位址時
+  回退以 ONVIF `GetStreamUri` 取得）、**遠端重啟**與**韌體升級**。重啟（`RebootAsync`，
+  ONVIF `SystemReboot`）與韌體升級（`StartFirmwareUpgradeAsync`）皆為**破壞性命令**：
+  需管理員、二次確認、且 `retryable: false`（網路層重試等同對設備連下破壞性命令）。
+  每個命令成敗都寫入 `device_operations` 操作歷史（**失敗也記**，否則「按了沒反應」無從追查）
+  並掛 `device.operation` 稽核。入口在 `CameraManagerWindow`（選取裝置後按「設備工具」）。
+  儲存層不變式見 `DeviceOperationRepositoryTests`，ONVIF 封包契約見 `OnvifDeviceManagementTests`，
+  UI 接線契約見 `DeviceToolsContractTests`。
+- **裝置群組/分區（已實作，v50）**：`DeviceGroupRepository`（Storage，`DeviceGroups.cs`）提供
+  `List`/`Get`/`Create`/`Rename`/`Move`/`Delete`/`AssignDevice`/`ListDeviceIds`/`GroupOfDevice`，
+  稽核歸 `Config`（`device.group.add/rename/move/delete/assign`）。名稱**全樹唯一**（樹 UI 以名稱為標籤，
+  同名會讓操作者分不清）；`Move` 有**防環**（不可移到自身或子樹之下）。刪除群組為 **`ON DELETE SET NULL`**
+  而非 CASCADE：刪一個分區只把底下裝置移到「未分組」，絕不連帶刪掉整批攝影機（否則會一併 CASCADE 清掉
+  頻道與錄影索引）；上層被刪時子群組回到頂層。桌面 UI 在 `CameraManagerWindow` 左側新增裝置樹
+  （群組 → 裝置 → 通道，未分組墊底）：以程式碼逐一建立 `TreeViewItem`（節點身分放 `Tag`，刻意不用
+  `HierarchicalDataTemplate`）並支援拖曳歸組；另提供「移入群組」按鈕作為拖曳的替代路徑（無障礙/觸控）。
+  群組 CRUD 與指派皆需管理員（`SessionContext.IsAdmin`），刪群組兩段式確認。儲存層不變式見
+  `DeviceGroupRepositoryTests`，UI 接線契約見 `DeviceGroupContractTests`。
 
 ### 7.5 健康與可用性
 
@@ -593,9 +673,10 @@ L0 運動觸發才餵 L1 物件模型；並在**次串流 (e.g. 640×360) + 抽�
 ### 7.7 資料模型（擴充 §4）
 
 ```sql
-device_groups(id INTEGER PK, name TEXT, parent_id INTEGER);   -- 群組樹
+device_groups(id INTEGER PK, name TEXT UNIQUE, parent_id INTEGER, position INTEGER);  -- 群組樹（v50）
 
 -- devices 增欄
+group_id INTEGER REFERENCES device_groups(id) ON DELETE SET NULL,  -- 所屬分區（v50；刪群組只 SET NULL，不刪裝置）
 model TEXT, firmware TEXT, vendor_sdk TEXT,
 ntp_offset REAL, capabilities TEXT,     -- JSON 能力集
 stream_caps TEXT,                       -- 各流 profile 能力 JSON
@@ -605,9 +686,10 @@ use_role TEXT DEFAULT 'main',           -- main / sub / third 用途
 profile_token TEXT,                     -- ONVIF Profile token
 imaging_profile TEXT;
 
--- 遠端操作紀錄（PTZ/升級/重啟/改參）
-device_operations(id INTEGER PK, device_id INTEGER, op_type TEXT,
-                  param TEXT, result TEXT, created_at TEXT);
+-- 遠端操作紀錄（v51；重啟/韌體升級/診斷/音視測試）。隨設備 CASCADE 刪除——
+-- 沒有設備的歷史沒有意義；真正的追責軌跡另見 audit_log（不隨設備刪除）。
+device_operations(id INTEGER PK, device_id INTEGER REFERENCES devices(id) ON DELETE CASCADE,
+                  op_type TEXT, param TEXT, result TEXT, detail TEXT, created_at TEXT);
 ```
 
 ### 7.8 驗收標準
@@ -615,7 +697,7 @@ device_operations(id INTEGER PK, device_id INTEGER, op_type TEXT,
 - [ ] 新設備自動探索→建通道 < 1 分鐘
 - [ ] 32 通道批次套版一鍵完成、可回滾
 - [ ] PTZ 預設點/巡視與影像參數在單一管理介面完成
-- [ ] 韌體批次升級流程安全可用
+- [x] 韌體批次升級流程安全可用
 - [ ] 全部管理動作皆有稽核軌跡
 
 ---
@@ -976,12 +1058,23 @@ L2 比對（人臉/車牌）置「進階·需權限」區，預設關閉（§5.1
 - 重大變更前自動快照，可一鍵回滾至先前版本（配合 §11.5）
 - 設定檔匯出/匯入（JSON）— 複製部署多台 NVR 用
 
+**已實作（M308，schema v52）**：`SqliteStore` 新增 ambient transaction
+（`InTransaction`），設定快照表 `settings_versions`（`snapshot` JSON／`key_count`／
+`reason`／`actor`／`created_at`）。`SettingsRepository` 提供 `Snapshot`／
+`ListVersions`（新到舊）／`Restore`（整份取代、找不到版本即拒）／`ExportJson`／
+`ImportJson`（非 JSON 物件即拒），四者皆寫 `audit_log`（`settings.snapshot`／
+`settings.rollback`／`settings.export`／`settings.import`，類別 `Config`）。
+桌面端「備份與還原」頁（`SettingsWindow`）新增設定版本區塊：建立快照、匯出／
+匯入 JSON、版本清單、一鍵回滾；**匯入與回滾前一律先自動快照**，且皆需管理員與
+明確確認，匯錯檔或還原錯版本仍可退回。回滾採整份取代（先清空 `app_settings`
+再寫回快照），置於單一交易內，失敗不留半套狀態。
+
 ### 9.6 驗收標準
 
 - [ ] 新管理員 5 分鐘內完成：加設備→設錄影策略→開 AI→設通知
 - [ ] 批次操作可一鍵套用 32 通道且可回滾
 - [ ] 非法輸入全阻擋、錯誤訊息友善不崩潰
-- [ ] 每個設定變更有稽核軌跡，可回滾驗證
+- [x] 每個設定變更有稽核軌跡，可回滾驗證
 
 ---
 
@@ -1598,6 +1691,19 @@ WebRTC/WHEP 即時監看與 MSE 回放（M244）。
 - [ ] 快照 1 鍵 < 200ms 完成且含浮水印；批量快照齊時
 - [ ] 放大/回放中 PTZ 鎖定生效，無誤觸
 
+### 17.8 監看群組頁簽（已實作）
+
+> 對應 §17.1「頁簽式布局」；資料表見 §4（`channel_groups` / `channel_group_members`）。
+
+- **頁簽列**：監控中心上方一個 `TabControl`（`GroupTabs`），第一個頁簽固定為「全部」（`Main.GroupAll`，顯示所有頻道），其餘為使用者自訂群組。頁簽樣板只含 `TabPanel`（僅標題列），**不**複製下方監看牆——全體共用同一個 `MonitorArea`。
+- **一台一組**：一台攝影機最多屬於一個群組，由 `channel_group_members.UNIQUE(channel_id)` 在資料層保證；「加入」＝先刪除該頻道既有歸屬、再附加到目標群組末端（`ChannelGroupRepository.Assign`），因此改派就只是重複呼叫 `Assign`。
+- **切頁簽不中斷錄影**：切換只呼叫 `ChannelManager.ReconcileAsync` 改派**既有**工作階段的格位（不重連）。`ConnectAsync` 會先拆再建、等於中斷所有攝影機錄影，故嚴禁在切頁簽路徑使用。群組看不到的頻道其最後一張影格由 `ClearCellsBeyondChannels(wall.Count)` 清掉，否則頁簽上會殘留別頁畫面。
+- **各頁簽記憶格數**：`MonitorLayoutPrefs`（`ui.json`）以頁簽鍵（`all` 或群組 Id 字串）分別記住格數與最後停留頁簽；離開頁簽前先 `Remember(_activeGroupId, CurrentCellCount())`。舊版單一 `cells` 整數視為「全部」頁簽，仍可讀，升級不歸零版面。
+- **群組管理**：設定中心 → 頻道管理內含群組編輯區（建立／改名／刪除 ＋ 成員加入／移除／上下移）；僅管理員（`SessionContext.IsAdmin`）可異動。刪除採兩段式確認，因 CASCADE 會清掉成員歸屬、無法復原。
+- **群組內排序**：群組頁簽拖曳改的是群組內 `position`（`ChannelGroupRepository.Move`），不動全域 `display_cell` 與頻道名稱；「全部」頁簽的拖曳與「復原」維持原全域排序語意（在群組頁簽按「復原」會先切回「全部」）。
+- **回到「全部」**：目前群組被刪除時，`ReloadGroupTabs` 會退回「全部」頁簽，否則 `WallChannels` 會永遠回傳空清單、監看牆空白卻無任何錯誤。
+- **契約**：`ChannelGroupRepositoryTests`（儲存層）、`MonitorLayoutPrefsTests`（偏好檔相容與多頁簽互不干擾）、`ChannelGroupContractTests`（桌面接線、兩段式刪除、管理員守門、切頁簽不重連）。
+
 ---
 
 ## 18. 網路與通訊總覽
@@ -1660,6 +1766,9 @@ WebRTC/WHEP 即時監看與 MSE 回放（M244）。
 - **本地**：本機帳號 **PBKDF2**（BCL `Rfc2898DeriveBytes`，SHA-256、100k iter）＋失敗鎖定、RBAC admin/viewer，**M42 已實作**；**企業**：LDAP/AD/OIDC SSO（P1，§14.7 #1）
   - **角色入口契約（M233）**：`MainWindow.ApplyRoleRestrictions` 對 viewer 把管理按鈕設為 `IsEnabled = false`，但那只是關掉滑鼠——與授權層同一個形狀，硬擋在 handler 的 `RequireAdmin()`／`SessionContext.IsAdmin`。桌面無 WPF 執行期測試，靠人工複查擋不住「新增按鈕忘了 guard」，因此比照授權契約（§19.4）新增 `RbacEntryPointContractTests`：每個停用按鈕的接線 handler（必要時追一層轉呼叫）必須擋管理員、表格與 `ApplyRoleRestrictions` 雙向對帳、`ApplyRoleRestrictions` 必須在 `OnLoaded` 被呼叫，另外把「看得到但只在 handler 擋」的入口（事件中心 CSV 匯出）也納入。三項都以 mutation 驗證。
 - **API 金鑰中介軟體邊界（M234）**：`ApiKeyAuthMiddleware` 保護 `/api/*`（`health` 例外）、常時比較、每來源失敗 429、未設金鑰且非 Development 時 fail-closed。補齊先前未測的邊界，避免「順手改寬」而無感：Development 無設定時接受 dev 金鑰；有設定金鑰時即使是 Development 也以設定值為準（防誤帶 Development 退回 dev 金鑰）；**query-string `?key=` 僅在 WebSocket 升級請求被接受**（一般請求把秘密放 URL 會被拒，否則秘密會進 access log）；非 `/api/` 路徑（SPA 靜態檔）不受金鑰檢查（fail-closed 不能連 HTML 都擋掉）。WebSocket 分支以 `IHttpWebSocketFeature` 注入驗證，`?key=` 與拒絕兩向及非 API 繞過都以 mutation 驗證。 另外，新增顯式逃生門 `HELIVMS_API_KEY_DISABLED=1`：設定後完全略過 `/api/*` 的 Bearer 驗證（含 Production），僅供受信任且未對外開放的本機環境；預設不開啟以維持 fail-closed，`ApiKeyAuthMiddleware` 於啟用時記一筆警告，並由 `DisableSwitch_WithProductionAndNoKey_AllowsAnonymousCallers` 與 `DisableSwitch_Unset_KeepsApiProtected` 兩測試釘住開與關兩態。
+- **內嵌 Web 服務可由設定中心啟停（M305）**：設定中心新增「網路」頁，控制 `HeliVMS.WebApi` 在桌面行程內啟停（`WebHost`，鍵為 `web.enabled`／`web.port`／`web.allow_no_key`）。只綁 `localhost`，並把桌面正在用的資料庫與資料根目錄明確傳入，避免內嵌主機另開一份資料庫；內嵌時以 `WebApiHostOptions.IncludeHostedServices=false` 停掉背景服務，避免與桌面保留迴圈重複清理同一批檔案。啟動接線與「不重複掛保留清理」由 `WebServiceContractTests` 釘住。
+- **網路頁 NTP 對時（M305；引擎為 M68，§11.1）**：同一「網路」頁可設定 `ntp.enabled`／`ntp.server`（預設 `time.windows.com`）並「立即對時」。校時引擎沿用 M68 的 `NtpClient`／`NtpFrames`（RFC 5905 SNTP），並把查到的伺服器時間寫回系統 UTC 牆鐘（`SystemClock.TrySetUtcNow`）：錄影時間戳一律取系統牆鐘，若只查時間卻不調鐘，頁面會顯示合理偏移量、操作員以為校時成功，但證據時序仍對不上。`SetSystemTime` 需要 `SeSystemtimePrivilege`（一般權杖預設沒有，故 `SystemClock` 先 `AdjustTokenPrivileges` 啟用；失敗時回報原因，頁面提示以系統管理員身分執行，偏移量仍照顯示）。取得伺服器時間後不論調鐘成功與否都記錄 `ntp.last_sync_utc`／`ntp.last_offset_ms` 供頁面重開時顯示。`ntp.enabled=1` 時主視窗於啟動對一次、之後每 6 小時對一次（`_ntpTimer`），關閉時停掉。接線由 `NtpTimeSyncContractTests` 釘住。
+- **WEB 登入與 WPF 共用身分帳號並簽發工作階段（M306）**：`POST /api/accounts/authenticate` 不需 API 金鑰即可到達（同 `/api/health`），以 `AuthService`（＝WPF 同一份帳號庫）驗證後由 `AccountSessionStore` 簽發 12 小時、32 位元組 CSPRNG 的工作階段 token，SPA 之後以 `Bearer <token>` 存取全部 `/api/*`——`ApiKeyAuthMiddleware` 把該 token 與 API 金鑰視為同一層憑證，金鑰為憑的舊呼叫端完全不受影響。`POST /api/accounts/logout`（無金鑰可達）撤銷 token。`AccountSessionStore` 刻意用記憶體暫存：登出要真能撤銷，且主機（或桌面程式）重啟後工作階段即失效，瀏覽器重新登入即可。顧及「登入才是不需要金鑰的主入口」，`/?key=`（WebSocket）與 `Bearer` 都接受 token；登入成功後 token 同時寫進 SPA 的憑證槽，因此 WebSocket 告警串流與 WHEP 也不需另外餵金鑰。過期／登出／偽造 token 都在 `ApiKeyPolicyTests` 以行為測試釘住（含端點層的登入→存取→登出→拒收）。
 - **主機檔案存取政策（M235，§14.7 #4）**：`PathAccessPolicy` 把 evidence／shares／backup 侷限在 `HELIVMS_ALLOWED_ROOTS`，未設定根目錄一律拒絕，證據包另准伺服器自有的 `helivms-evidence` 目錄。這類程式碼只會「靜默放寬」而不會壞掉——原本只有 API 層三條行為測試（證據／備份／分享各一），核心類別本身沒有單元測試，於是補上 `PathAccessPolicyTests`：無根目錄時全拒、設定值以 `;`／換行切分並正規化、尾端分隔符去除、大小寫去重、真子路徑才算（後綴前綴與 `..` 逃逸皆拒）、證據目錄只對 `IsEvidencePath` 開放而非一般 `IsAllowed`、無法正規化的根目錄被丟棄，以及 `ValidateBundleName` 對路徑分隔符／保留名／控制字元／長度的拒絕。fail-open（`IsAllowed` 回 true）與拿掉包名字元檢查兩個 mutation 都確認會紅。
   - **錄影閘門入口契約（M237，§19.4）**：`LicenseService.CheckRecording` 是「通道上限」唯一的落點（`RecordingGateTests` 已驗證到期／時鐘回流／作廢／超限），而真正開始寫分段的地方是 `SegmentRecorder`。今天呼叫點剛好只有排程（`RecordingScheduler.ReconcileAsync`）與人工（`ChannelSession.SetRecordingAsync`）兩處、都問了閘門——但這是「目前剛好」，不是「結構上不可能漏」：將來加一條事件觸發錄影就能在 `new SegmentRecorder(` 多一行而繞過上限。因此新增 `RecordingGateContractTests`（掃整個 `src`）：每個建立點的外層方法必須先問 `CheckRecording` 再建立、閘門結果必須真的被 `Allowed` 分支採納（只呼叫不判斷等於沒擋）、要帶 `RecordingGateSources`（稽核才分得出人工與排程）、且任何未列入契約表的建立點都讓測試紅。第一版的簽章解析抓不到泛型回傳型別（`public async Task<Foo(`），等於漏掉整個第三種建立點，已修正共用解析器。三個方向都做 mutation 確認會紅。
 - **TLS**：TLS 1.2+；憑證可自簽（將導引申請）或 ACME 自動簽發；私鑰保護（DPAPI）

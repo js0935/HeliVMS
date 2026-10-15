@@ -23,6 +23,18 @@ public partial class PtzWindow : Window
     private bool _ready;
     private bool _ptzHeld;
 
+    // 每次點擊／步進的相對位移量（PTZ 正規化座標，約為全行程的比例）。實機覺得轉幅偏大或偏小時調整此值。
+    private const double NudgeStep = 0.02;
+
+    /// <summary>設備不支援 RelativeMove（回 ActionNotSupported）時改走 ContinuousMove，並記住以免每步都失敗一次。</summary>
+    private bool _nudgeRelativeUnsupported;
+
+    /// <summary>
+    /// 目前這次移動是否由滑鼠按住觸發。放開滑鼠時 WPF 會在 PreviewMouseLeftButtonUp 之後
+    /// 再補一個 Click，若不記錄來源，Click 會緊接著再送一次步進，形成「按住 + 400ms」的雙重合併。
+    /// </summary>
+    private bool _moveHeldByMouse;
+
     public PtzWindow(SqliteStore store, ChannelInfo channel, DeviceRecord device)
     {
         InitializeComponent();
@@ -42,10 +54,11 @@ public partial class PtzWindow : Window
 
     private void ApplyI18n()
     {
+        // 微型模式（220x340）沒有鉛直空間放分組標題與獨立 Profile 標籤；
+        // 資訊改由工具提示與狀態列承載。
         Title = Localizer.T("Ptz.Title");
         PtzStatusText.Text = Localizer.T("Ptz.StatusConnecting");
-        PtzProfileLabel.Text = Localizer.T("Ptz.ProfileLabel");
-        PtzMoveGroup.Header = Localizer.T("Ptz.MoveGroup");
+        PtzProfileCombo.ToolTip = Localizer.T("Ptz.ProfileLabel");
         PtzUpLeftButton.ToolTip = Localizer.T("Ptz.MoveUpLeftTip");
         PtzUpButton.ToolTip = Localizer.T("Ptz.MoveUpTip");
         PtzUpRightButton.ToolTip = Localizer.T("Ptz.MoveUpRightTip");
@@ -60,14 +73,8 @@ public partial class PtzWindow : Window
         PtzZoomOutButton.Content = Localizer.T("Ptz.ZoomOut");
         PtzZoomOutButton.ToolTip = Localizer.T("Ptz.ZoomOutTip");
         PtzHomeButton.ToolTip = Localizer.T("Ptz.HomeTip");
-        PtzPresetGroup.Header = Localizer.T("Ptz.PresetGroup");
-        PtzPresetNameBox.ToolTip = Localizer.T("Ptz.PresetNameTip");
-        PtzSavePresetButton.Content = Localizer.T("Ptz.SavePreset");
         PtzSavePresetButton.ToolTip = Localizer.T("Ptz.SavePresetTip");
         PtzDeletePresetButton.ToolTip = Localizer.T("Ptz.DeletePresetTip");
-        PtzRefreshButton.Content = Localizer.T("Ptz.Refresh");
-        PtzRefreshButton.ToolTip = Localizer.T("Ptz.RefreshTip");
-        PtzGotoPresetButton.Content = Localizer.T("Ptz.GotoPreset");
         PtzGotoPresetButton.ToolTip = Localizer.T("Ptz.GotoPresetTip");
         PtzCloseButton.Content = Localizer.T("Ptz.Close");
         PtzCloseButton.ToolTip = Localizer.T("Ptz.CloseTip");
@@ -115,7 +122,7 @@ public partial class PtzWindow : Window
             PtzLeftButton, PtzStopButton, PtzRightButton,
             PtzDownLeftButton, PtzDownButton, PtzDownRightButton,
             PtzZoomInButton, PtzZoomOutButton,
-            PtzPresetNameBox, PtzSavePresetButton, PtzRefreshButton, PtzGotoPresetButton, PtzPresetList };
+            PtzSavePresetButton, PtzGotoPresetButton, PtzDeletePresetButton, PtzPresetList };
         foreach (var c in controls)
         {
             c.IsEnabled = enabled;
@@ -141,19 +148,22 @@ public partial class PtzWindow : Window
             return;
         }
 
-        var parts = tag.Split(',');
-        var (pan, tilt, zoom) = (
-            double.Parse(parts[0], CultureInfo.InvariantCulture),
-            double.Parse(parts[1], CultureInfo.InvariantCulture),
-            double.Parse(parts[2], CultureInfo.InvariantCulture));
+        var (pan, tilt, zoom) = ParseDirection(tag);
+
+        // 標記此次移動由滑鼠按住觸發：放開後 WPF 會再補一個 Click，OnMoveClicked 依此忽略它，
+        // 否則「點一下」會被按住迴圈與 Click 兩條路徑各移動一次。
+        _moveHeldByMouse = true;
 
         _ptzHeld = true;
         try
         {
             while (_ptzHeld)
             {
-                await _service.ContinuousMoveAsync(_profileToken, pan, tilt, zoom);
-                await Task.Delay(300);
+                await NudgeAsync(pan, tilt, zoom);
+
+                // 200ms 間隔大於一般點擊的按住時間（約 80–150ms），所以「點一下」只位移一步；
+                // 真正按住才連續步進。相機回應慢時 await 本身就會拉長間隔，無需另加節流。
+                await Task.Delay(200);
             }
         }
         catch (Exception ex)
@@ -165,7 +175,13 @@ public partial class PtzWindow : Window
 
     private async void OnMoveHeldUp(object sender, MouseButtonEventArgs e) => await StopMoveAsync();
 
-    private async void OnMoveMouseLeave(object sender, System.Windows.Input.MouseEventArgs e) => await StopMoveAsync();
+    private async void OnMoveMouseLeave(object sender, System.Windows.Input.MouseEventArgs e)
+    {
+        // 滑離按鈕通常代表放開時不會落在按鈕上（也就不會產生 Click）；先清掉滑鼠標記，
+        // 免得之後改用鍵盤操作時被誤判成滑鼠點擊而吞掉。
+        _moveHeldByMouse = false;
+        await StopMoveAsync();
+    }
 
     private async Task StopMoveAsync()
     {
@@ -185,24 +201,78 @@ public partial class PtzWindow : Window
         }
     }
 
+    /// <summary>
+    /// 送一次位移。優先使用 RelativeMove：它是「固定且極小的一步、設備自行停止」，
+    /// 不受 Stop 晚到影響。ContinuousMove 是速度命令，必須靠後續的 Stop 才停；相機處理 SOAP
+    /// 較慢時 Stop 會晚到，於是「點一下」的實際位移時間被網路往返拉長，實機症狀就是轉幅遠大於按住時間。
+    /// <para>
+    /// 設備若回 ActionNotSupported（不支援 RelativeMove）就改回 ContinuousMove 並記住結果，
+    /// 之後不再嘗試 RelativeMove，行為退回舊版。
+    /// </para>
+    /// </summary>
+    private async Task NudgeAsync(double pan, double tilt, double zoom)
+    {
+        if (!_nudgeRelativeUnsupported)
+        {
+            try
+            {
+                await _service.RelativeMoveAsync(
+                    _profileToken,
+                    Math.Sign(pan) * NudgeStep,
+                    Math.Sign(tilt) * NudgeStep,
+                    Math.Sign(zoom) * NudgeStep);
+                return;
+            }
+            catch (OnvifException ex) when (IsActionNotSupported(ex))
+            {
+                _nudgeRelativeUnsupported = true;
+            }
+        }
+
+        await _service.ContinuousMoveAsync(_profileToken, pan, tilt, zoom);
+    }
+
+    private static bool IsActionNotSupported(OnvifException ex) =>
+        ex.FaultCode is { } code &&
+        (code.EndsWith("ActionNotSupported", StringComparison.OrdinalIgnoreCase) ||
+         code.EndsWith("NotSupported", StringComparison.OrdinalIgnoreCase));
+
+    private static (double Pan, double Tilt, double Zoom) ParseDirection(string tag)
+    {
+        var parts = tag.Split(',');
+        return (
+            double.Parse(parts[0], CultureInfo.InvariantCulture),
+            double.Parse(parts[1], CultureInfo.InvariantCulture),
+            double.Parse(parts[2], CultureInfo.InvariantCulture));
+    }
+
+    /// <summary>
+    /// 方向／變焦鈕的 Click。滑鼠按住的路徑已在 <see cref="OnMoveHeldDown"/> 處理並於放開時送出 Stop，
+    /// 這裡只服務鍵盤（Enter／Space）：送一次位移後停止。
+    /// </summary>
     private async void OnMoveClicked(object sender, RoutedEventArgs e)
     {
+        if (_moveHeldByMouse)
+        {
+            _moveHeldByMouse = false;
+            return;
+        }
+
         if (!_ready || _ptzHeld || sender is not Button button || button.Tag is not string tag)
         {
             return;
         }
 
-        var parts = tag.Split(',');
-        var (pan, tilt, zoom) = (
-            double.Parse(parts[0], CultureInfo.InvariantCulture),
-            double.Parse(parts[1], CultureInfo.InvariantCulture),
-            double.Parse(parts[2], CultureInfo.InvariantCulture));
-
+        var (pan, tilt, zoom) = ParseDirection(tag);
         try
         {
-            await _service.ContinuousMoveAsync(_profileToken, pan, tilt, zoom);
-            await Task.Delay(400);
-            await _service.StopPtzAsync(_profileToken);
+            await NudgeAsync(pan, tilt, zoom);
+
+            // 只有 ContinuousMove 後備路徑需要明確停止；RelativeMove 會自己停。
+            if (_nudgeRelativeUnsupported)
+            {
+                await _service.StopPtzAsync(_profileToken);
+            }
         }
         catch (Exception ex)
         {
@@ -227,16 +297,6 @@ public partial class PtzWindow : Window
         }
     }
 
-    private async void OnRefreshClicked(object sender, RoutedEventArgs e)
-    {
-        if (!_ready)
-        {
-            return;
-        }
-
-        await RefreshPresetsAsync();
-    }
-
     private async Task RefreshPresetsAsync()
     {
         try
@@ -257,9 +317,8 @@ public partial class PtzWindow : Window
             return;
         }
 
-        var name = string.IsNullOrWhiteSpace(PtzPresetNameBox.Text)
-            ? string.Format(Localizer.T("Ptz.DefaultPresetName"), DateTime.Now.ToString("HH:mm:ss"))
-            : PtzPresetNameBox.Text;
+        // 微型模式沒有名稱輸入框：一律用目前時刻當預設點名稱。
+        var name = string.Format(Localizer.T("Ptz.DefaultPresetName"), DateTime.Now.ToString("HH:mm:ss"));
         try
         {
             var token = await _service.SetPtzPresetAsync(_profileToken, name);

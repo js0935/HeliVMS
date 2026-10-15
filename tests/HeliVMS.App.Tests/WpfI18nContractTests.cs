@@ -45,6 +45,8 @@ public sealed class WpfI18nContractTests
         ["ExportCenterWindow", "src/HeliVMS.App/ExportCenterWindow.xaml", "src/HeliVMS.App/ExportCenterWindow.xaml.cs", new[] { "ExportCenter" }],
         ["OnvifWizardWindow", "src/HeliVMS.App/OnvifWizardWindow.xaml", "src/HeliVMS.App/OnvifWizardWindow.xaml.cs", new[] { "Onvif" }],
         ["CameraManagerWindow", "src/HeliVMS.App/CameraManagerWindow.xaml", "src/HeliVMS.App/CameraManagerWindow.xaml.cs", new[] { "Camera" }],
+        ["DeviceToolsWindow", "src/HeliVMS.App/DeviceToolsWindow.xaml", "src/HeliVMS.App/DeviceToolsWindow.xaml.cs", new[] { "DeviceTools" }],
+        ["FirmwareUpgradeWindow", "src/HeliVMS.App/FirmwareUpgradeWindow.xaml", "src/HeliVMS.App/FirmwareUpgradeWindow.xaml.cs", new[] { "Firmware" }],
         ["PtzWindow", "src/HeliVMS.App/PtzWindow.xaml", "src/HeliVMS.App/PtzWindow.xaml.cs", new[] { "Ptz" }],
         ["ChannelManagerWindow", "src/HeliVMS.App/ChannelManagerWindow.xaml", "src/HeliVMS.App/ChannelManagerWindow.xaml.cs", new[] { "Channels" }],
         ["TalkWindow", "src/HeliVMS.App/TalkWindow.xaml", "src/HeliVMS.App/TalkWindow.xaml.cs", new[] { "Talk" }],

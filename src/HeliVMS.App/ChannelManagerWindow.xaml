@@ -1,9 +1,9 @@
 <Window x:Class="HeliVMS.App.ChannelManagerWindow"
-        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="" Height="640" Width="940"
-        Background="{StaticResource Brand.BgDeep}" Foreground="White"
-        WindowStartupLocation="CenterOwner">
+         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+         Title="" Height="820" Width="980"
+         Background="{StaticResource Brand.BgDeep}" Foreground="White"
+         WindowStartupLocation="CenterOwner">
     <DockPanel Margin="16">
         <StackPanel DockPanel.Dock="Top">
             <TextBlock x:Name="ChannelHeader" Text="" FontSize="20" FontWeight="Bold"/>
@@ -18,6 +18,7 @@
                     Foreground="White" Background="#3A5A7A" BorderThickness="0"/>
         </StackPanel>
 
+        <ScrollViewer VerticalScrollBarVisibility="Auto">
         <StackPanel>
             <!-- Add channel -->
             <TextBlock x:Name="ChannelAddHeader" Text="" FontSize="15" FontWeight="Bold" Margin="0,0,0,6"/>
@@ -165,6 +166,65 @@
                             ToolTip=""/>
                 </WrapPanel>
             </StackPanel>
+            <!-- Monitor groups: tabs in surveillance center (first tab All + one per group). -->
+            <StackPanel Margin="0,14,0,0">
+                <TextBlock x:Name="ChannelGroupHeader" Text="" FontSize="15" FontWeight="Bold" Margin="0,0,0,6"/>
+                <TextBlock x:Name="ChannelGroupDesc" Text=""
+                           Foreground="{StaticResource Brand.TextDim}" FontSize="11" Margin="0,0,0,8"
+                           TextWrapping="Wrap"/>
+                <WrapPanel Orientation="Horizontal">
+                    <TextBlock x:Name="ChannelGroupNameLabel" Text="" VerticalAlignment="Center" Foreground="White" FontSize="12"/>
+                    <TextBox x:Name="GroupNameBox" AutomationProperties.AutomationId="GroupNameBox"
+                             Width="130" Margin="6,0,12,0" ToolTip=""
+                             Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="6,4"/>
+                    <Button x:Name="CreateGroupButton" AutomationProperties.AutomationId="CreateGroupButton"
+                            Content="" Click="OnCreateGroupClicked" Padding="8,4"
+                            Foreground="White" Background="#2A5C8A" BorderThickness="0" ToolTip=""/>
+                    <Button x:Name="RenameGroupButton" AutomationProperties.AutomationId="RenameGroupButton"
+                            Content="" Click="OnRenameGroupClicked" Margin="6,0,0,0" Padding="8,4"
+                            Foreground="White" Background="#3A5A7A" BorderThickness="0" ToolTip=""/>
+                    <Button x:Name="DeleteGroupButton" AutomationProperties.AutomationId="DeleteGroupButton"
+                            Content="" Click="OnDeleteGroupClicked" Margin="6,0,0,0" Padding="8,4"
+                            Foreground="White" Background="#8A3C2E" BorderThickness="0" ToolTip=""/>
+                </WrapPanel>
+                <Grid Margin="0,8,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Grid.Column="0">
+                        <TextBlock x:Name="ChannelGroupListHeader" Text="" Foreground="{StaticResource Brand.TextDim}" FontSize="11" Margin="0,0,0,4"/>
+                        <ListBox x:Name="GroupList" AutomationProperties.AutomationId="GroupList"
+                                 Height="130" Background="#0E1D33" Foreground="White" BorderBrush="#1F3A5F"
+                                 SelectionChanged="OnGroupSelected" DisplayMemberPath="Name"/>
+                    </StackPanel>
+                    <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="8,0">
+                        <Button x:Name="AddToGroupButton" AutomationProperties.AutomationId="AddToGroupButton"
+                                Content="" Click="OnAddToGroupClicked" Padding="8,4" Margin="0,0,0,6"
+                                Foreground="White" Background="#2A5C8A" BorderThickness="0" ToolTip=""/>
+                        <Button x:Name="RemoveFromGroupButton" AutomationProperties.AutomationId="RemoveFromGroupButton"
+                                Content="" Click="OnRemoveFromGroupClicked" Padding="8,4" Margin="0,0,0,6"
+                                Foreground="White" Background="#3A5A7A" BorderThickness="0" ToolTip=""/>
+                        <Button x:Name="GroupUpButton" AutomationProperties.AutomationId="GroupUpButton"
+                                Content="" Click="OnGroupUpClicked" Padding="8,4" Margin="0,0,0,6"
+                                Foreground="White" Background="#3A5A7A" BorderThickness="0" ToolTip=""/>
+                        <Button x:Name="GroupDownButton" AutomationProperties.AutomationId="GroupDownButton"
+                                Content="" Click="OnGroupDownClicked" Padding="8,4"
+                                Foreground="White" Background="#3A5A7A" BorderThickness="0" ToolTip=""/>
+                    </StackPanel>
+                    <StackPanel Grid.Column="2">
+                        <TextBlock x:Name="ChannelGroupMembersHeader" Text="" Foreground="{StaticResource Brand.TextDim}" FontSize="11" Margin="0,0,0,4"/>
+                        <ListBox x:Name="GroupMemberList" AutomationProperties.AutomationId="GroupMemberList"
+                                 Height="130" Background="#0E1D33" Foreground="White" BorderBrush="#1F3A5F"
+                                 DisplayMemberPath="Name"/>
+                    </StackPanel>
+                </Grid>
+                <TextBlock x:Name="GroupHintText" AutomationProperties.AutomationId="GroupEditHint"
+                           Text="" Foreground="{StaticResource Brand.TextDim}" FontSize="11" Margin="0,8,0,0"
+                           TextWrapping="Wrap"/>
+            </StackPanel>
         </StackPanel>
+        </ScrollViewer>
     </DockPanel>
 </Window>

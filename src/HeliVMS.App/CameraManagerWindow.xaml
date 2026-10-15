@@ -28,6 +28,48 @@
                     Foreground="White" Background="#3A5A7A" BorderThickness="0"/>
         </StackPanel>
 
+        <!-- Device groups / zones (section 7.4). Left panel: the group tree (group -> device ->
+             channel). The tree is built in code-behind from explicit TreeViewItem nodes
+             (deliberately no HierarchicalDataTemplate) so node identity and drag/drop stay
+             simple: each item's Tag carries what it represents. -->
+        <StackPanel DockPanel.Dock="Left" Width="250" Margin="0,0,12,0">
+            <TextBlock x:Name="DeviceGroupHeader" Text="" FontSize="15" FontWeight="Bold"/>
+            <TextBlock x:Name="DeviceGroupDesc" Text=""
+                       Foreground="{StaticResource Brand.TextDim}" FontSize="11" Margin="0,4,0,8"
+                       TextWrapping="Wrap"/>
+            <TextBlock x:Name="DeviceGroupNameLabel" Text="" VerticalAlignment="Center"
+                       Foreground="White" FontSize="12"/>
+            <TextBox x:Name="DeviceGroupNameBox" AutomationProperties.AutomationId="DeviceGroupNameBox"
+                     Margin="0,4,0,6" ToolTip=""
+                     Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="6,4"/>
+            <WrapPanel Margin="0,0,0,6">
+                <Button x:Name="AddDeviceGroupButton" AutomationProperties.AutomationId="AddDeviceGroupButton"
+                        Content="" Click="OnAddDeviceGroupClicked" Padding="8,5"
+                        Foreground="White" Background="#2A5C8A" BorderThickness="0" ToolTip=""/>
+                <Button x:Name="RenameDeviceGroupButton" AutomationProperties.AutomationId="RenameDeviceGroupButton"
+                        Content="" Click="OnRenameDeviceGroupClicked" Margin="6,0,0,0" Padding="8,5"
+                        Foreground="White" Background="#3A5A7A" BorderThickness="0" ToolTip=""/>
+                <Button x:Name="DeleteDeviceGroupButton" AutomationProperties.AutomationId="DeleteDeviceGroupButton"
+                        Content="" Click="OnDeleteDeviceGroupClicked" Margin="6,0,0,0" Padding="8,5"
+                        Foreground="White" Background="#8A3C2E" BorderThickness="0" ToolTip=""/>
+            </WrapPanel>
+            <Button x:Name="AssignDeviceToGroupButton" AutomationProperties.AutomationId="AssignDeviceToGroupButton"
+                    Content="" Click="OnAssignDeviceToGroupClicked" Margin="0,0,0,8" Padding="8,5"
+                    Foreground="White" Background="#3A5A7A" BorderThickness="0" ToolTip=""/>
+            <TreeView x:Name="DeviceTree" AutomationProperties.AutomationId="DeviceTree"
+                      Height="330" Background="#0E1D33" Foreground="White" BorderBrush="#1F3A5F"
+                      AllowDrop="True"
+                      SelectedItemChanged="OnDeviceTreeNodeSelected"
+                      PreviewMouseLeftButtonDown="OnDeviceTreeMouseDown"
+                      MouseMove="OnDeviceTreeMouseMove"
+                      DragOver="OnDeviceTreeDragOver"
+                      Drop="OnDeviceTreeDrop"
+                      ScrollViewer.HorizontalScrollBarVisibility="Disabled"/>
+            <TextBlock x:Name="DeviceGroupHintText" AutomationProperties.AutomationId="DeviceGroupHintText"
+                       Text="" Foreground="{StaticResource Brand.TextDim}" FontSize="11"
+                       Margin="0,8,0,0" TextWrapping="Wrap"/>
+        </StackPanel>
+
         <StackPanel>
             <ListView x:Name="DeviceList" AutomationProperties.AutomationId="DeviceList"
                       Height="150" Background="#0E1D33" Foreground="White" BorderBrush="#1F3A5F"
@@ -113,6 +155,14 @@
                 <Button x:Name="DeleteDeviceButton" AutomationProperties.AutomationId="DeleteDeviceButton"
                         Content="" Click="OnDeleteDeviceClicked" Margin="6,0,0,0" Padding="12,5"
                         Foreground="White" Background="#8A3C2E" BorderThickness="0"
+                        ToolTip=""/>
+                <Button x:Name="OpenDeviceToolsButton" AutomationProperties.AutomationId="OpenDeviceToolsButton"
+                        Content="" Click="OnOpenDeviceToolsClicked" Margin="12,0,0,0" Padding="12,5"
+                        Foreground="White" Background="#2A4A73" BorderThickness="0"
+                        ToolTip=""/>
+                <Button x:Name="BatchFirmwareButton" AutomationProperties.AutomationId="BatchFirmwareButton"
+                        Content="" Click="OnBatchFirmwareClicked" Margin="6,0,0,0" Padding="12,5"
+                        Foreground="White" Background="#6B4423" BorderThickness="0"
                         ToolTip=""/>
             </WrapPanel>
         </StackPanel>

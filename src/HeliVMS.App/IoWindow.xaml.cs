@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System.Globalization;
 using System.Windows;
 using System.Windows.Controls;
+using HeliVMS.Alarms;
 using HeliVMS.Storage;
 
 namespace HeliVMS.App;
@@ -9,12 +10,17 @@ namespace HeliVMS.App;
 /// <summary>
 /// 感測器 IO 測試視窗（M75，§14.1 #16）：列出 DI/DO 埠與動作鏈規則；「切換閉合＋餵入狀態」呼叫
 /// <see cref="IoRuleEngine"/> 模擬接點變化，狀態列回報觸發事件。實體採樣（GPIO/模組）留真機層。
+/// <para>
+/// 餵入改走 <see cref="IoRuleHost"/>（M74 落地層）：觸發的警報動作會真的寫入 alarm_events，
+/// 不再只是畫面有反應。DO 動作在此視窗無實體輸出端，交由 <see cref="IoRuleHost"/> 的預設
+/// 空寫入器處理（維持邏輯狀態）。
+/// </para>
 /// </summary>
 public partial class IoWindow : Window
 {
     private readonly IoPortRepository _ports;
     private readonly IoRuleRepository _rules;
-    private readonly IoRuleEngine _engine;
+    private readonly IoRuleHost _host;
     private readonly Dictionary<long, bool> _physical = new();
     private readonly ObservableCollection<PortRow> _portRows = new();
     private readonly ObservableCollection<RuleRow> _ruleRows = new();
@@ -24,7 +30,7 @@ public partial class IoWindow : Window
     {
         _ports = new IoPortRepository(store);
         _rules = new IoRuleRepository(store);
-        _engine = new IoRuleEngine(_ports.List(), _rules.List());
+        _host = new IoRuleHost(_ports, _rules, new AlarmEventRepository(store));
         InitializeComponent();
         ApplyI18n();
 
@@ -85,8 +91,8 @@ public partial class IoWindow : Window
         {
             var value = p.Kind switch
             {
-                IoPortKind.Di => _engine.GetInputState(p.Id),
-                _ => _engine.GetOutputState(p.Id),
+                IoPortKind.Di => _host.GetInputState(p.Id),
+                _ => _host.GetOutputState(p.Id),
             };
             _portRows.Add(new PortRow(
                 p.Id,
@@ -115,7 +121,7 @@ public partial class IoWindow : Window
         }
     }
 
-    private void OnFireClicked(object sender, RoutedEventArgs e)
+    private async void OnFireClicked(object sender, RoutedEventArgs e)
     {
         var di = SelectedDi();
         if (di is null)
@@ -129,12 +135,12 @@ public partial class IoWindow : Window
         IoPhysicalLabel.Text = string.Format(
             CultureInfo.InvariantCulture, Localizer.T("Io.Physical"),
             _physical[di.Id] ? Localizer.T("Io.ClosedState") : Localizer.T("Io.OpenState"));
-        var actions = _engine.OnInput(di.Id, closed, DateTime.UtcNow);
+        var actions = await _host.FeedAsync(di.Id, closed);
         if (actions.Count == 0)
         {
             IoStatusText.Text = string.Format(
                 CultureInfo.InvariantCulture, Localizer.T("Io.NoTrigger"), di.Number,
-                _engine.GetInputState(di.Id) == true ? Localizer.T("Io.Open") : Localizer.T("Io.Close"));
+                _host.GetInputState(di.Id) == true ? Localizer.T("Io.Open") : Localizer.T("Io.Close"));
         }
         else
         {
@@ -143,7 +149,7 @@ public partial class IoWindow : Window
                 a.Kind == IoActionKind.Alarm
                     ? string.Format(CultureInfo.InvariantCulture, Localizer.T("Io.SummaryAlarm"), a.EventType)
                     : string.Format(CultureInfo.InvariantCulture, Localizer.T("Io.SummaryDo"),
-                        _engine.GetOutputState(a.OutputPortId ?? 0) == true ? Localizer.T("Io.Open") : Localizer.T("Io.Close"))));
+                        _host.GetOutputState(a.OutputPortId ?? 0) == true ? Localizer.T("Io.Open") : Localizer.T("Io.Close"))));
             IoStatusText.Text = string.Format(
                 CultureInfo.InvariantCulture, Localizer.T("Io.Triggered"), _triggerCount, summary);
         }

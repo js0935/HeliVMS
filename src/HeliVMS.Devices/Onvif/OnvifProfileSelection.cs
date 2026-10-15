@@ -109,14 +109,38 @@ public static class OnvifProfileSelection
             ?? profiles.FirstOrDefault();
     }
 
-    /// <summary>挑選最佳子碼流（解析度最低者；不存在時回傳 null）。</summary>
+    /// <summary>
+    /// 挑選最佳子碼流（供多分割即時監看；不存在時回傳 null）。
+    /// <para>
+    /// 具名子碼流（名稱／token 命中 SubStream／Stream2／102…）優先於僅由「同來源解析度最低」
+    /// 推斷者。多碼流相機常另提供第三路（更低的行動／第三方串流）；若只取解析度最低者會誤選
+    /// 第三路。實機症狀：新增攝影機時次碼流一律帶入「串流3」，但即時監看要用的是「串流2」。
+    /// 具名者中取最接近主碼流（解析度最高）者；完全無具名子碼流時維持既有行為（取最低解析度）。
+    /// </para>
+    /// </summary>
     public static OnvifProfile? SelectSub(IEnumerable<OnvifProfile> profiles)
     {
         ArgumentNullException.ThrowIfNull(profiles);
-        return profiles
-            .Where(p => p.IsVideo && p.IsSubStream)
+
+        var subs = profiles.Where(p => p.IsVideo && p.IsSubStream).ToList();
+        if (subs.Count == 0)
+        {
+            return null;
+        }
+
+        var named = subs.Where(HasSubStreamKeyword).ToList();
+        if (named.Count > 0)
+        {
+            return named
+                .OrderByDescending(p => (long)p.Width * p.Height)
+                .ThenBy(p => p.Name, StringComparer.OrdinalIgnoreCase)
+                .First();
+        }
+
+        return subs
             .OrderBy(p => (long)p.Width * p.Height)
-            .FirstOrDefault();
+            .ThenBy(p => p.Name, StringComparer.OrdinalIgnoreCase)
+            .First();
     }
 
     private static OnvifStreamRole ResolveByResolution(IReadOnlyList<OnvifProfile> all, OnvifProfile profile)

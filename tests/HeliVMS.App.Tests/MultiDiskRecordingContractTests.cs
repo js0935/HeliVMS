@@ -65,9 +65,11 @@ public sealed class MultiDiskRecordingContractTests
     [Fact]
     public void 遠端回放政策涵蓋所有錄影磁碟()
     {
+        // M305 把 WebApi 的組態抽到 WebApiHost（桌面程式內嵌主機時共用同一份），
+        // 政策註冊跟著搬過去；掃描目標要跟著移動，否則守的會是一個空檔案。
         Assert.Contains(
             "ConfiguredRoots(",
-            SourceContract.Read("src/HeliVMS.WebApi/Program.cs"));
+            SourceContract.Read("src/HeliVMS.WebApi/WebApiHost.cs"));
     }
 
     private static string WiredHandler(string relativePath, string element)
