@@ -124,9 +124,8 @@
                             VerticalAlignment="Center" Padding="12,4" Margin="0,0,8,0"
                             Foreground="White" Background="#2F6E5A" BorderThickness="0" />
                     <ToggleButton x:Name="WallSequenceToggle" AutomationProperties.AutomationId="WallSequenceToggle"
-                                  Content="" ToolTip="" Click="OnWallSequenceToggled"
-                                  VerticalAlignment="Center" Padding="12,4" Margin="0,0,8,0"
-                                  Foreground="White" Background="#3F5A8A" BorderThickness="0" />
+                                  Content="" ToolTip="" Click="OnWallSequenceToggled" Style="{StaticResource HeaderToggleButton}"
+                                  VerticalAlignment="Center" Margin="0,0,8,0" />
                     <Button x:Name="HeaderSettingsButton" AutomationProperties.AutomationId="HeaderSettingsButton"
                             Content="" ToolTip="" Click="OnSettingsClicked"
                             VerticalAlignment="Center" Padding="12,4"
