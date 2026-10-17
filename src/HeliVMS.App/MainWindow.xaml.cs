@@ -96,6 +96,11 @@ public partial class MainWindow : Window
 
     /// <summary>F11 展開時要聚焦的格；-1 表示從頭開始。由 <see cref="OnLayoutChanged"/> 消耗。</summary>
     private int _pendingSingleCell = -1;
+
+    /// <summary>監看牆自動跳台（每5秒依目前分割跳到下一組）。</summary>
+    private bool _wallSequenceEnabled;
+    private int _wallSequenceIndex;
+    private DispatcherTimer? _wallSequenceTimer;
     private readonly TextBlock[] _cellBadges = new TextBlock[MaxCells];
     private readonly Border[] _cellBorders = new Border[MaxCells];
 
@@ -333,6 +338,8 @@ public partial class MainWindow : Window
         HeaderPlaybackButton.ToolTip = Localizer.T("Main.PlaybackTip");
         MapButton.Content = Localizer.T("Main.Map");
         MapButton.ToolTip = Localizer.T("Main.MapTip");
+        WallSequenceToggle.Content = Localizer.T("Main.WallSequence");
+        WallSequenceToggle.ToolTip = Localizer.T("Main.WallSequenceTip");
 
         HintText.Text = Localizer.T("Main.EmptyHint");
 
@@ -813,6 +820,13 @@ public partial class MainWindow : Window
         _reportMailTimer.Start();
         RunReportMailDue();
         _analytics.LoadZones();
+
+        _wallSequenceTimer = new DispatcherTimer(TimeSpan.FromSeconds(5), DispatcherPriority.Background,
+            (_, _) => AdvanceWallSequence(), Dispatcher);
+        if (_wallSequenceEnabled)
+        {
+            _wallSequenceTimer.Start();
+        }
         // M54 智慧警報聚合：命中聚合規則的原始事件不再逐一外送，只有「首次跨過門檻」
         // 的那一筆會產生通知。舊的 ShouldSuppressSmartAlert 是逐筆比較窗內計數，
         // 門檻一旦跨過就再也不抑制，等於 8 次的門檻在跨過之後每一筆都照送——
@@ -1569,6 +1583,9 @@ public partial class MainWindow : Window
         _lastLayoutIndex = LayoutCombo.SelectedIndex;
 
         _expandInProgress = false;
+
+        // 切換分割時跳台序列回到開頭，避免沿用舊分割的步進位置。
+        _wallSequenceIndex = 0;
 
         // F11 展開指定格時，要把「聚焦到哪一格」交給這裡處理；手動選格子時為 -1（從頭開始）。
         var startIndex = _pendingSingleCell;
@@ -3144,6 +3161,23 @@ public partial class MainWindow : Window
         AlertText.Text = string.Join("　·　", _alerts);
     }
 
+    private void OnWallSequenceToggled(object sender, RoutedEventArgs e)
+    {
+        _wallSequenceEnabled = WallSequenceToggle.IsChecked == true;
+        if (_wallSequenceTimer is not null)
+        {
+            if (_wallSequenceEnabled)
+            {
+                _wallSequenceIndex = 0;
+                _wallSequenceTimer.Start();
+            }
+            else
+            {
+                _wallSequenceTimer.Stop();
+            }
+        }
+    }
+
     private void OnAlertTextClicked(object sender, System.Windows.Input.MouseButtonEventArgs e)
     {
         int? cell = null;
@@ -4272,6 +4306,33 @@ public partial class MainWindow : Window
 
         UpdateBadges();
         UpdateFooter();
+    }
+
+    private async void AdvanceWallSequence()
+    {
+        if (!_wallSequenceEnabled || _manager is null)
+        {
+            return;
+        }
+
+        var wall = WallChannels();
+        if (wall.Count == 0)
+        {
+            return;
+        }
+
+        var cellCount = Math.Max(1, CurrentCellCount());
+        _wallSequenceIndex = (_wallSequenceIndex + cellCount) % wall.Count;
+
+        await _reconcileGate.WaitAsync();
+        try
+        {
+            await _manager.ReconcileAsync(wall, _wallSequenceIndex, cellCount);
+        }
+        finally
+        {
+            _reconcileGate.Release();
+        }
     }
 
     /// <summary>目前每台頻道的格位對應（依監看順序），供「復原」回到調整前的排序。</summary>

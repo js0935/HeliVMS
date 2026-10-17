@@ -160,4 +160,36 @@ public sealed class MonitorGridContractTests
         Assert.NotEqual(string.Empty, apply);
         Assert.Contains("Math.Clamp", apply);
     }
+
+    /// <summary>跳台（自動輪播）：每 5 秒依目前分割跳下一組。</summary>
+    /// <remarks>
+    /// 症狀：按了「跳台」卻不動，或只在單分割會跳、切到四分割後每一格各跳一台而不同步。
+    /// 步進量必須等於目前格數（單分割=1、四分割=4），且週期固定 5 秒；
+    /// 這兩者任一寫死或漏接，畫面就只會「看起來有跳」卻不是下一組。
+    /// </remarks>
+    [Fact]
+    public void 跳台功能每五秒依目前分割跳下一組()
+    {
+        var code = SourceContract.Read(MainWindow);
+        var xaml = SourceContract.Read(MainWindowXaml);
+
+        // 標頭要有跳台切換鈕並接上處理常式。
+        Assert.Contains("x:Name=\"WallSequenceToggle\"", xaml);
+        Assert.Contains("Click=\"OnWallSequenceToggled\"", xaml);
+
+        // 週期固定 5 秒。
+        Assert.Contains("TimeSpan.FromSeconds(5)", code);
+
+        var toggle = SourceContract.BodyOf(code, "OnWallSequenceToggled");
+        Assert.NotEqual(string.Empty, toggle);
+        Assert.Contains("_wallSequenceTimer.Start()", toggle);
+        Assert.Contains("_wallSequenceTimer.Stop()", toggle);
+
+        var advance = SourceContract.BodyOf(code, "AdvanceWallSequence");
+        Assert.NotEqual(string.Empty, advance);
+        // 步進量 = 目前分割格數：單分割跳一台、四分割跳一組四台。
+        Assert.Contains("CurrentCellCount()", advance);
+        Assert.Contains("_wallSequenceIndex", advance);
+        Assert.Contains("ReconcileAsync(wall, _wallSequenceIndex, cellCount)", advance);
+    }
 }
