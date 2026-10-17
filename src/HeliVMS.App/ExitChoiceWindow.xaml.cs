@@ -11,6 +11,9 @@ public enum ExitChoice
     /// <summary>結束 HeliVMS。</summary>
     Quit,
 
+    /// <summary>離開全螢幕</summary>
+    ExitFullScreen,
+
     /// <summary>不關閉（取消或直接關掉本對話框）。</summary>
     Cancel,
 }
@@ -38,6 +41,7 @@ public partial class ExitChoiceWindow : Window
     {
         Title = Localizer.T("Exit.Title");
         MessageText.Text = Localizer.T("Exit.Message");
+        ExitFullScreenButton.Content = Localizer.T("Main.ExitFullScreen");
         MinimizeButton.Content = Localizer.T("Exit.Minimize");
         QuitButton.Content = Localizer.T("Exit.Quit");
         CancelButton.Content = Localizer.T("Exit.Cancel");
@@ -65,6 +69,12 @@ public partial class ExitChoiceWindow : Window
     private void OnQuitClicked(object sender, RoutedEventArgs e)
     {
         Choice = ExitChoice.Quit;
+        DialogResult = true;
+    }
+
+    private void OnExitFullScreenClicked(object sender, RoutedEventArgs e)
+    {
+        Choice = ExitChoice.ExitFullScreen;
         DialogResult = true;
     }
 

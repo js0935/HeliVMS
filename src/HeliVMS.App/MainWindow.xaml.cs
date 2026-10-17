@@ -396,7 +396,10 @@ public partial class MainWindow : Window
                 _tray = null;
                 Dispatcher.BeginInvoke(Close);
                 break;
-            // Cancel：維持原狀，視窗不關。
+            case ExitChoice.ExitFullScreen:
+                SetWindowFullScreen(false);
+                break;
+            // Cancel不處理任何操作
         }
 
         base.OnClosing(e);
