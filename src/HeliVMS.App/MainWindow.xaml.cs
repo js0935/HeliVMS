@@ -2626,12 +2626,9 @@ public partial class MainWindow : Window
 
     private void UpdateFullScreenButton()
     {
-        HeaderFullScreenButton.Content = _isWindowFullScreen
+        ExitFullScreenMenuItem.Header = _isWindowFullScreen
             ? Localizer.T("Main.ExitFullScreen")
             : Localizer.T("Main.FullScreen");
-        HeaderFullScreenButton.ToolTip = _isWindowFullScreen
-            ? Localizer.T("Main.ExitFullScreenTip")
-            : Localizer.T("Main.FullScreenTip");
     }
 
     private void OnExportClicked(object sender, RoutedEventArgs e) => OpenExportWindow();

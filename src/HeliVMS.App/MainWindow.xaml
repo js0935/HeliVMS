@@ -123,10 +123,6 @@
                             Content="" ToolTip="" Click="OnMapClicked"
                             VerticalAlignment="Center" Padding="12,4" Margin="0,0,8,0"
                             Foreground="White" Background="#2F6E5A" BorderThickness="0" />
-                    <Button x:Name="HeaderFullScreenButton" AutomationProperties.AutomationId="HeaderFullScreenButton"
-                            Content="" ToolTip="" Click="OnToggleFullScreenClicked"
-                            VerticalAlignment="Center" Padding="12,4" Margin="0,0,8,0"
-                            Foreground="White" Background="#2A4A73" BorderThickness="0" />
                     <Button x:Name="HeaderSettingsButton" AutomationProperties.AutomationId="HeaderSettingsButton"
                             Content="" ToolTip="" Click="OnSettingsClicked"
                             VerticalAlignment="Center" Padding="12,4"
@@ -134,7 +130,13 @@
                     <Button x:Name="HeaderExitButton" AutomationProperties.AutomationId="HeaderExitButton"
                             Content="" ToolTip="" Click="OnExitClicked"
                             VerticalAlignment="Center" Padding="12,4" Margin="8,0,0,0"
-                            Foreground="White" Background="#8A3C2E" BorderThickness="0" />
+                            Foreground="White" Background="#8A3C2E" BorderThickness="0">
+                        <Button.ContextMenu>
+                            <ContextMenu x:Name="ExitButtonContextMenu">
+                                <MenuItem x:Name="ExitFullScreenMenuItem" Header="" Click="OnToggleFullScreenClicked" />
+                            </ContextMenu>
+                        </Button.ContextMenu>
+                    </Button>
                 </StackPanel>
             </Grid>
         </Border>

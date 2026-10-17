@@ -190,7 +190,7 @@ public sealed class UiWiringContractTests
         foreach (var (xamlPath, _) in WindowSources())
         {
             var xaml = WithoutComments(SourceContract.Read(xamlPath));
-            foreach (Match tag in Regex.Matches(xaml, @"<(Button|MenuItem|ToggleButton|RadioButton)\b[^>]*>"))
+            foreach (Match tag in Regex.Matches(xaml, @"<(Button|MenuItem|ToggleButton|RadioButton)\b(?![.\w])[^>]*>"))
             {
                 if (tag.Value.Contains("Click=", StringComparison.Ordinal))
                 {
@@ -358,7 +358,7 @@ public sealed class UiWiringContractTests
         Assert.Matches(@"ResizeMode=""NoResize""", xaml);
 
         var code = SourceContract.Read("src/HeliVMS.App/MainWindow.xaml.cs");
-        Assert.Contains("HeaderFullScreenButton", code);
+        Assert.Contains("ExitFullScreenMenuItem", code);
 
         var body = SourceContract.BodyOf(code, "SetWindowFullScreen");
         Assert.NotEqual(string.Empty, body);
