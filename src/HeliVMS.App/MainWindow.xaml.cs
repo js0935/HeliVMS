@@ -2581,7 +2581,14 @@ public partial class MainWindow : Window
     private void OnToggleFullScreenClicked(object sender, RoutedEventArgs e) => SetWindowFullScreen(!_isWindowFullScreen);
 
     /// <summary>頂欄「離開」按鈕：交給 <see cref="OnClosing"/> 跳「最小化／離開」選擇。</summary>
-    private void OnExitClicked(object sender, RoutedEventArgs e) => Close();
+    private void OnExitClicked(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button button && button.ContextMenu != null)
+        {
+            button.ContextMenu.PlacementTarget = button;
+            button.ContextMenu.IsOpen = true;
+        }
+    }
 
     /// <summary>
     /// 切換主視窗全螢幕 ↔ 可調整大小的視窗。
