@@ -2586,10 +2586,21 @@ public partial class MainWindow : Window
     /// <summary>頂欄「離開」按鈕：交給 <see cref="OnClosing"/> 跳「最小化／離開」選擇。</summary>
     private void OnExitClicked(object sender, RoutedEventArgs e)
     {
-        if (sender is Button button && button.ContextMenu != null)
+        switch (ExitChoiceWindow.Ask(this))
         {
-            button.ContextMenu.PlacementTarget = button;
-            button.ContextMenu.IsOpen = true;
+            case ExitChoice.Minimize:
+                Hide();
+                WriteTrayProbeIfRequested();
+                break;
+            case ExitChoice.Quit:
+                _exiting = true;
+                _tray?.Dispose();
+                _tray = null;
+                Dispatcher.BeginInvoke(Close);
+                break;
+            case ExitChoice.ExitFullScreen:
+                SetWindowFullScreen(false);
+                break;
         }
     }
 
