@@ -84,6 +84,17 @@ public static class EventDetailText
                 io.Groups["pri"].Value);
         }
 
+        if (string.Equals(detail, "connection lost", StringComparison.Ordinal))
+        {
+            return I18n.Get(lang, "EventCenter.DetailOfflineLost");
+        }
+
+        var offlineDur = Regex.Match(detail, @"^offline_duration=(?<d>\d{2}:\d{2}:\d{2})$");
+        if (offlineDur.Success)
+        {
+            return Build(lang, "EventCenter.DetailOfflineDuration", offlineDur.Groups["d"].Value);
+        }
+
         return detail;
     }
 
