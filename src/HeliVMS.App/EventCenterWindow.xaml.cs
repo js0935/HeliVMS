@@ -93,6 +93,10 @@ public partial class EventCenterWindow : Window
 
         public string? Detail { get; init; }
 
+        /// <summary>「詳情」欄顯示字串：把引擎寫入的機器可讀 detail 轉成在地化說明。
+        /// <see cref="Detail"/> 本身（機器格式）不動，匯出與遮蔽仍靠它。</summary>
+        public string DetailLabel => EventDetailText.Format(Localizer.Lang, Detail);
+
         public string DurationLabel { get; init; } = "";
 
         public bool Acknowledged { get; init; }
@@ -920,7 +924,7 @@ public partial class EventCenterWindow : Window
         ClearSnapshot();
         SnapshotDetailText.Text = string.IsNullOrEmpty(detail)
             ? Localizer.T("EventCenter.SnapshotNoDetail")
-            : string.Format(CultureInfo.InvariantCulture, Localizer.T("EventCenter.SnapshotDetail"), detail);
+            : string.Format(CultureInfo.InvariantCulture, Localizer.T("EventCenter.SnapshotDetail"), EventDetailText.Format(Localizer.Lang, detail));
 
         if (string.IsNullOrEmpty(path) || !File.Exists(path))
         {
@@ -1011,7 +1015,7 @@ public partial class EventCenterWindow : Window
 
             var label = new TextBlock
             {
-                Text = $"{d.Class} {d.Confidence:0.00}",
+                Text = $"{EventDetailText.ClassLabel(Localizer.Lang, d.Class)} {d.Confidence:0.00}",
                 FontSize = 11,
                 Foreground = Brushes.White,
                 Background = new SolidColorBrush(Color.FromArgb(170, 8, 14, 22)),

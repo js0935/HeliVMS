@@ -123,7 +123,7 @@
                                 <GridViewColumn Header="" Width="220">
                                     <GridViewColumn.CellTemplate>
                                         <DataTemplate>
-                                            <TextBlock Text="{Binding Detail}" FontSize="12" TextTrimming="CharacterEllipsis"/>
+                                            <TextBlock Text="{Binding DetailLabel}" FontSize="12" TextTrimming="CharacterEllipsis"/>
                                         </DataTemplate>
                                     </GridViewColumn.CellTemplate>
                                 </GridViewColumn>
@@ -181,7 +181,7 @@
                                             </StackPanel>
                                             <TextBlock Text="{Binding StartLabel}" FontSize="11" Foreground="White" Margin="0,3,0,0"/>
                                             <TextBlock Text="{Binding ChannelName}" FontSize="10" Foreground="{StaticResource Brand.TextDim}"/>
-                                            <TextBlock Text="{Binding Detail}" FontSize="10" Foreground="LightSteelBlue" 
+                                            <TextBlock Text="{Binding DetailLabel}" FontSize="10" Foreground="LightSteelBlue" 
                                                        TextTrimming="CharacterEllipsis" MaxWidth="300"/>
                                         </StackPanel>
                                     </Grid>
