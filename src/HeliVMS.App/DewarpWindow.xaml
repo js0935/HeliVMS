@@ -87,7 +87,7 @@
             </StackPanel>
 
             <StackPanel Grid.Row="2" Grid.ColumnSpan="5" Orientation="Horizontal" Margin="0,8,0,0">
-                <TextBlock Text="Yaw" VerticalAlignment="Center"/>
+                <TextBlock Text="偏航" VerticalAlignment="Center"/>
                 <TextBox x:Name="Yaw" AutomationProperties.AutomationId="DewarpYaw" Width="56"
                          Text="0" Margin="6,0" VerticalContentAlignment="Center"
                          Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
