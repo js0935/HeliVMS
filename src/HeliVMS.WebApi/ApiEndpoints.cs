@@ -68,10 +68,10 @@ public static class ApiEndpoints
     public sealed record AccountUpsertRequest(string Username, string Password, string Role, string? DisplayName);
     public sealed record AccountPatchRequest(string? Role, bool? Enabled, string? DisplayName);
     public sealed record AccountListItem(int Id, string Username, string Role, string? DisplayName, bool Enabled, bool Locked);
-    public sealed record ConfigResponse(bool AuthEnabled, int LockoutThreshold, int LockoutMinutes, int RecordingRetentionDays, double RecordingWatermarkGb, int AlarmRetentionDays);
-    public sealed record ConfigRequest(bool? AuthEnabled, int? LockoutThreshold, int? LockoutMinutes, int? RecordingRetentionDays, double? RecordingWatermarkGb, int? AlarmRetentionDays);
-    public sealed record UsageResponse(long Bytes, double Gb, int RetentionDays, double WatermarkGb, int AlarmRetentionDays);
-    public sealed record RetentionRunResult(int AgePurged, int WatermarkPurged, long BytesFreed, long AlarmPurged, int Skipped = 0);
+    public sealed record ConfigResponse(bool AuthEnabled, int LockoutThreshold, int LockoutMinutes, int RecordingRetentionDays, double RecordingWatermarkGb, int AlarmRetentionDays, int AuditRetentionDays = 365);
+    public sealed record ConfigRequest(bool? AuthEnabled, int? LockoutThreshold, int? LockoutMinutes, int? RecordingRetentionDays, double? RecordingWatermarkGb, int? AlarmRetentionDays, int? AuditRetentionDays = null);
+    public sealed record UsageResponse(long Bytes, double Gb, int RetentionDays, double WatermarkGb, int AlarmRetentionDays, int AuditRetentionDays = 365);
+    public sealed record RetentionRunResult(int AgePurged, int WatermarkPurged, long BytesFreed, long AlarmPurged, int Skipped = 0, long AuditPurged = 0, long AudioPurged = 0);
     public sealed record EvidencePackageRequest(string BundleName, IReadOnlyList<string> Files, string? Password);
     public sealed record EvidenceVerifyRequest(string BundlePath, string? Password);
     public sealed record EvidencePackageResult(string BundlePath, string BundleSha256, int Items, string CreatedUtc);
@@ -548,7 +548,8 @@ public static class ApiEndpoints
                 (int)settings.GetDoubleOrDefault("auth.lockout.minutes", 5),
                 (int)settings.GetDoubleOrDefault(RetentionService.DaysKey, 30),
                 settings.GetDoubleOrDefault(RetentionService.WatermarkGbKey, 0),
-                (int)settings.GetDoubleOrDefault(RetentionService.AlarmDaysKey, 365))));
+                (int)settings.GetDoubleOrDefault(RetentionService.AlarmDaysKey, 365),
+                (int)settings.GetDoubleOrDefault(RetentionService.AuditDaysKey, 365))));
 
         api.MapPut("/config", static (ConfigRequest body, SettingsRepository settings) =>
         {
@@ -607,13 +608,24 @@ public static class ApiEndpoints
                 settings.Set(RetentionService.AlarmDaysKey, alarmDays.ToString());
             }
 
+            if (body.AuditRetentionDays is int auditDays)
+            {
+                if (auditDays is < 0 or > 36500)
+                {
+                    return Results.BadRequest(new { error = "稽核保留天數須為 0..36500（0＝永久保留）" });
+                }
+
+                settings.Set(RetentionService.AuditDaysKey, auditDays.ToString());
+            }
+
             return Results.Ok(new ConfigResponse(
                 settings.GetOrDefault("auth.enabled", "0") == "1",
                 (int)settings.GetDoubleOrDefault("auth.lockout.threshold", 5),
                 (int)settings.GetDoubleOrDefault("auth.lockout.minutes", 5),
                 (int)settings.GetDoubleOrDefault(RetentionService.DaysKey, 30),
                 settings.GetDoubleOrDefault(RetentionService.WatermarkGbKey, 0),
-                (int)settings.GetDoubleOrDefault(RetentionService.AlarmDaysKey, 365)));
+                (int)settings.GetDoubleOrDefault(RetentionService.AlarmDaysKey, 365),
+                (int)settings.GetDoubleOrDefault(RetentionService.AuditDaysKey, 365)));
         });
 
         api.MapGet("/config/usage", static (RetentionService retention) =>
@@ -622,13 +634,15 @@ public static class ApiEndpoints
                 retention.UsageBytes / 1073741824.0,
                 retention.RetentionDays,
                 retention.WatermarkGb,
-                retention.AlarmRetentionDays)));
+                retention.AlarmRetentionDays,
+                retention.AuditRetentionDays)));
 
         api.MapPost("/retention/run", static (RetentionService retention) =>
         {
             var result = retention.RunOnce(DateTime.UtcNow);
             return Results.Ok(new RetentionRunResult(
-                result.AgePurged, result.WatermarkPurged, result.BytesFreed, result.AlarmPurged, result.Skipped));
+                result.AgePurged, result.WatermarkPurged, result.BytesFreed, result.AlarmPurged, result.Skipped,
+                result.AuditPurged, result.AudioPurged));
         });
 
         api.MapGet("/evidence", static (EvidenceManifestRepository manifests) =>
@@ -1593,10 +1607,10 @@ public static class ApiEndpoints
             return;
         }
 
-        // 上限與播放清單一致。分段是 15 秒一檔，24 小時就是 5,760 筆；
-        // 沒有這個上限時一個「查最近一個月」的請求會撈出 17 萬筆，
-        // 整包序列化成 JSON 會吃掉幾百 MB——遠端主控台一個查詢就能讓服務記憶體暴增，
-        // 而且使用者其實只會用到最後幾筆。
+        // 上限與播放清單一致。分段長度可設定（`RecordingSegmentPolicy`，預設 60 秒、最短 5 秒），
+        // 24 小時最短會到 17,280 筆、預設值 1,440 筆；沒有這個上限時一個「查最近一個月」
+        // 的請求會撈出數十萬筆，整包序列化成 JSON 會吃掉幾百 MB——遠端主控台一個查詢就能讓
+        // 服務記憶體暴增，而且使用者其實只會用到最後幾筆。
         if (toUtc - fromUtc > MaxPlaylistWindow)
         {
             await WriteError(context, StatusCodes.Status400BadRequest, "單次查詢區段最多 24 小時，請縮小時段");

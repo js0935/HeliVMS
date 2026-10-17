@@ -13,16 +13,24 @@ namespace HeliVMS.Recording;
 /// </summary>
 public sealed class SegmentRecorder : ISegmentRecorder
 {
-    public const int DefaultSegmentSeconds = 600;
+    /// <summary>
+    /// 未指定分段秒數時的後備值。正式路徑（排程與監看牆錄影）一律傳入
+    /// <see cref="RecordingSegmentPolicy.Read"/> 的設定值，此常數僅供直接建構
+    /// <see cref="SegmentRecorder"/> 時使用；與政策預設共用同一個數字，避免兩處分歧。
+    /// </summary>
+    public const int DefaultSegmentSeconds = RecordingSegmentPolicy.DefaultSeconds;
     private readonly SegmentRepository _repo;
     private readonly IProcessFactory _processFactory;
     private readonly Func<string, string> _audioEncoderArgsFor;
     private readonly Func<string>? _rootSelector;
+    private readonly Func<int, string?>? _folderNameFor;
     private readonly FfmpegProcessRegistry _registry;
+    private readonly Func<DateTime> _clock;
     private readonly CancellationTokenSource _cts = new();
     private Process? _process;
     private IProcess? _testProcess;
     private long _activeSegmentId = -1;
+    private string? _folderName;
     private Task? _loop;
     private bool _disposed;
 
@@ -31,13 +39,17 @@ public sealed class SegmentRecorder : ISegmentRecorder
         IProcessFactory? processFactory = null,
         Func<string, string>? audioEncoderArgsFor = null,
         Func<string>? rootSelector = null,
-        FfmpegProcessRegistry? registry = null)
+        FfmpegProcessRegistry? registry = null,
+        Func<int, string?>? folderNameFor = null,
+        Func<DateTime>? clock = null)
     {
         _repo = repo;
         _processFactory = processFactory ?? new DefaultProcessFactory();
         _audioEncoderArgsFor = audioEncoderArgsFor ?? DefaultAudioEncoderArgsFor;
         _rootSelector = rootSelector;
         _registry = registry ?? FfmpegProcessRegistry.Shared;
+        _folderNameFor = folderNameFor;
+        _clock = clock ?? (static () => DateTime.UtcNow);
     }
 
     public int ChannelId { get; private set; }
@@ -112,6 +124,10 @@ public sealed class SegmentRecorder : ISegmentRecorder
         RtspUrl = rtspUrl;
         Stream = stream;
         SegmentSeconds = segmentSeconds ?? DefaultSegmentSeconds;
+
+        // 資料夾名稱在開錄時決定一次並固定：頻道名稱之後若被改動，這次錄影的所有區段仍留在同一目錄，
+        // 不會同一段錄影被拆到兩個資料夾。
+        _folderName = _folderNameFor?.Invoke(channelId);
 
         _loop = Task.Run(() => RecordLoopAsync(recordingsRoot, _cts.Token), _cts.Token);
         return Task.CompletedTask;
@@ -212,11 +228,19 @@ public sealed class SegmentRecorder : ISegmentRecorder
     /// <summary>本段是否真的錄成正式檔。</summary>
     private async Task<bool> RecordOneSegmentAsync(string recordingsRoot, string audioEncoderArgs, CancellationToken token)
     {
-        var startUtc = DateTime.UtcNow;
-        var dir = Path.Combine(recordingsRoot, $"ch{ChannelId:000}", startUtc.ToString("yyyyMMdd"));
+        var startUtc = _clock();
+        // 以頻道名稱命名資料夾（使用者看得懂）；名稱從缺或未提供時退回舊制 ch{id}。
+        var folder = string.IsNullOrWhiteSpace(_folderName)
+            ? RecordingFolderNaming.LegacyName(ChannelId)
+            : _folderName!;
+        var dir = Path.Combine(recordingsRoot, folder, startUtc.ToString("yyyyMMdd"));
         Directory.CreateDirectory(dir);
 
-        var finalPath = Path.Combine(dir, $"seg-{startUtc:HHmmss}.mp4");
+        // 檔名帶毫秒：秒級（`HHmmss`）在「攝影機 RTSP 串流突然 EOF、ffmpeg 迅速以 0 結束」
+        // 這種情況下會出包——同一秒內就開始下一段，`File.Move` 撞到同名檔會擲 IOException，
+        // 被 catch 當成損壞段刪掉，該段錄影直接消失，log 只有一筆 corrupt。逐段錄影是循序阻塞的，
+        // 毫秒級足以保證唯一（跨串流／跨頻道另有資料夾與單一錄影器規則擋住）。
+        var finalPath = Path.Combine(dir, $"seg-{startUtc:HHmmssfff}.mp4");
         var tmpPath = finalPath + ".tmp";
 
         _activeSegmentId = _repo.BeginSegment(ChannelId, Stream, finalPath, startUtc);
@@ -226,11 +250,17 @@ public sealed class SegmentRecorder : ISegmentRecorder
             var ok = await RunSegmentAsync(tmpPath, audioEncoderArgs, token);
             if (!token.IsCancellationRequested && ok)
             {
+                // 結束時間取真實收尾時刻，而不是 `start + 設定分段秒數`：攝影機 RTSP 突然中斷時，
+                // ffmpeg 會提早以退出碼 0 結束，檔案只有幾秒，卻被記成完整一段——時間軸與 HLS
+                // 都宣稱有整整 60 秒影片，播放器一到檔案真正結尾就卡住。量到的牆鐘時間會貼近
+                // 實際長度（含極短的連線暖機，誤差在秒的下方）。結束時間要在雜湊之前取，
+                // 否則大檔的 SHA-256 讀取會被算進影片長度。
+                var endUtc = _clock();
                 File.Move(tmpPath, finalPath);
                 var size = new FileInfo(finalPath).Length;
                 var sha256 = ComputeSha256(finalPath);
-                var endUtc = startUtc.AddSeconds(SegmentSeconds);
-                _repo.CompleteSegment(_activeSegmentId, endUtc, size, SegmentSeconds, sha256);
+                var durationSec = Math.Max(0, (endUtc - startUtc).TotalSeconds);
+                _repo.CompleteSegment(_activeSegmentId, endUtc, size, durationSec, sha256);
 
                 SegmentCompleted?.Invoke(
                     this,
@@ -243,7 +273,7 @@ public sealed class SegmentRecorder : ISegmentRecorder
                         EndUtc = endUtc,
                         FilePath = finalPath,
                         SizeBytes = size,
-                        DurationSec = SegmentSeconds,
+                        DurationSec = durationSec,
                         Format = "mp4",
                         Status = SegmentStatus.Final,
                         Sha256 = sha256,
@@ -334,13 +364,19 @@ public sealed class SegmentRecorder : ISegmentRecorder
 
         var proc = _processFactory.Start(psi);
         _process = proc as Process;
-        _testProcess = proc as IProcess;
+        _testProcess = proc;
         LastUtfError.Clear();
         _lastExitCode = null;
 
         // 登錄到全域行程表：錄影 ffmpeg 是每頻道一個的常駐子行程，健康視窗要能一眼看到總量。
         // 處置即代表此行程結束；非零退出另計為失敗。
         using var job = _registry.Register(FfmpegJobKind.Record, $"ch{ChannelId:000}/{Stream}");
+
+        // ffmpeg 的 stderr 必須「邊跑邊讀」：管線緩衝區滿了會讓 ffmpeg 卡在寫入而不結束，
+        // WaitForExitAsync 就永遠等不到——畫面看起來有在錄，磁碟卻一個檔都沒有，log 也乾淨。
+        // 因此在等待結束之前就先啟動讀取，結束後再取結果。（-loglevel error 讓輸出通常很小，
+        // 但一台反覆連不上的攝影機足以把緩衝區塞滿。）
+        var stderrTask = proc.StandardError.ReadToEndAsync(CancellationToken.None);
 
         try
         {
@@ -349,13 +385,12 @@ public sealed class SegmentRecorder : ISegmentRecorder
 
             // ffmpeg 的 stderr 會以 "Input #0, rtsp, from 'rtsp://user:pass@host/...'" 回顯輸入網址；
             // 整段不是合法 URI，必須用 RedactText 逐段移除 userinfo，Redact 對此無效。
-            var stderr = RtspUri.RedactText(await proc.StandardError.ReadToEndAsync(token));
+            var stderr = RtspUri.RedactText(await stderrTask);
             lock (LastUtfError)
             {
                 LastUtfError.Append(stderr);
             }
 
-            _process = null;
             if (proc.ExitCode != 0)
             {
                 job.Fail(stderr);
@@ -372,6 +407,9 @@ public sealed class SegmentRecorder : ISegmentRecorder
         finally
         {
             _process = null;
+            _testProcess = null;
+            // 明確釋放行程與管線控制代碼；否則每個區段、每次重試都漏一組 handle 直到 GC 回收。
+            await proc.DisposeAsync();
         }
     }
 

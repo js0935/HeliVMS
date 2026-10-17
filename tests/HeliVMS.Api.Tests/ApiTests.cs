@@ -1114,11 +1114,12 @@ public class ApiTests : IClassFixture<ApiFactory>, IDisposable
         using var client = Client();
         var put = await client.PutAsJsonAsync(
             "/api/config",
-            new { recordingRetentionDays = 90, recordingWatermarkGb = 200.5 });
+            new { recordingRetentionDays = 90, recordingWatermarkGb = 200.5, auditRetentionDays = 45 });
         Assert.Equal(HttpStatusCode.OK, put.StatusCode);
         var got = await ReadAsync<ConfigBody2>(await client.GetAsync("/api/config"));
         Assert.Equal(90, got.RecordingRetentionDays);
         Assert.Equal(200.5, got.RecordingWatermarkGb);
+        Assert.Equal(45, got.AuditRetentionDays);
 
         Assert.Equal(
             HttpStatusCode.BadRequest,
@@ -1126,9 +1127,21 @@ public class ApiTests : IClassFixture<ApiFactory>, IDisposable
         Assert.Equal(
             HttpStatusCode.BadRequest,
             (await client.PutAsJsonAsync("/api/config", new { recordingWatermarkGb = -1 })).StatusCode);
+        Assert.Equal(
+            HttpStatusCode.BadRequest,
+            (await client.PutAsJsonAsync("/api/config", new { auditRetentionDays = -1 })).StatusCode);
+
+        // 0＝永久保留，必須被接受（稽核是資安治理證據，允許留存不刪）。
+        Assert.Equal(
+            HttpStatusCode.OK,
+            (await client.PutAsJsonAsync("/api/config", new { auditRetentionDays = 0 })).StatusCode);
 
         var usage = await ReadAsync<UsageBody>(await client.GetAsync("/api/config/usage"));
         Assert.True(usage.Bytes >= 0);
+        Assert.Equal(0, usage.AuditRetentionDays);
+
+        // 工廠（與資料庫）在整個測試類別間共用，改回的設定不能外洩給其他測試。
+        await client.PutAsJsonAsync("/api/config", new { auditRetentionDays = 365 });
     }
 
     [Fact]
@@ -1141,13 +1154,25 @@ public class ApiTests : IClassFixture<ApiFactory>, IDisposable
         segments.CompleteSegment(fresh, DateTime.UtcNow, 32 * 1024 * 1024, 600, "sha-new");
         Service<AlarmEventRepository>().Insert(1, "motion", new DateTime(2020, 1, 2, 2, 0, 0, DateTimeKind.Utc), detail: "x");
         Service<AlarmEventRepository>().Insert(1, "motion", DateTime.UtcNow.AddMinutes(-2), detail: "y");
+        var audit = Service<AuditLogRepository>();
+        audit.Record("system", "config.change", AuditCategories.Config, occurredAtUtc: new DateTime(2020, 1, 2, 3, 0, 0, DateTimeKind.Utc));
+        audit.Record("system", "config.change", AuditCategories.Config, occurredAtUtc: DateTime.UtcNow.AddMinutes(-2));
+        var audio = Service<EventAudioRepository>();
+        audio.Save(9001, 1, new DateTime(2020, 1, 2, 4, 0, 0, DateTimeKind.Utc), 1000, "audio/opus", [1, 2, 3]);
+        audio.Save(9002, 1, DateTime.UtcNow.AddMinutes(-2), 1000, "audio/opus", [4, 5, 6]);
 
         using var client = Client();
-        await client.PutAsJsonAsync("/api/config", new { recordingRetentionDays = 3 });
+        await client.PutAsJsonAsync(
+            "/api/config",
+            new { recordingRetentionDays = 3, alarmRetentionDays = 3, auditRetentionDays = 3 });
 
         var run = await ReadAsync<RetentionRunBody>(await client.PostAsync("/api/retention/run", null));
         Assert.True(run.AgePurged >= 1, "old segments purged");
         Assert.True(run.AlarmPurged >= 1, "old alarms purged");
+        Assert.True(run.AuditPurged >= 1, "old audit entries purged");
+        Assert.True(run.AudioPurged >= 1, "old event audio purged");
+        Assert.NotNull(audio.GetByEvent(9002));
+        Assert.Null(audio.GetByEvent(9001));
 
         await client.PutAsJsonAsync("/api/config", new { recordingRetentionDays = 3650, recordingWatermarkGb = 0.01 });
         var wm = await ReadAsync<RetentionRunBody>(await client.PostAsync("/api/retention/run", null));
@@ -1155,14 +1180,16 @@ public class ApiTests : IClassFixture<ApiFactory>, IDisposable
 
         var usage = await ReadAsync<UsageBody>(await client.GetAsync("/api/config/usage"));
         Assert.True(usage.Bytes <= 0.011 * 1073741824, "usage under watermark after purge");
-        await client.PutAsJsonAsync("/api/config", new { recordingRetentionDays = 30, recordingWatermarkGb = 0 });
+        await client.PutAsJsonAsync(
+            "/api/config",
+            new { recordingRetentionDays = 30, recordingWatermarkGb = 0, alarmRetentionDays = 365, auditRetentionDays = 365 });
     }
 
-    private sealed record RetentionRunBody(int AgePurged, int WatermarkPurged, long BytesFreed, long AlarmPurged);
+    private sealed record RetentionRunBody(int AgePurged, int WatermarkPurged, long BytesFreed, long AlarmPurged, long AuditPurged = 0, long AudioPurged = 0);
 
-    private sealed record UsageBody(long Bytes, double Gb, int RetentionDays, double WatermarkGb, int AlarmRetentionDays);
+    private sealed record UsageBody(long Bytes, double Gb, int RetentionDays, double WatermarkGb, int AlarmRetentionDays, int AuditRetentionDays = 365);
 
-    private sealed record ConfigBody2(bool AuthEnabled, int LockoutThreshold, int LockoutMinutes, int RecordingRetentionDays, double RecordingWatermarkGb, int AlarmRetentionDays);
+    private sealed record ConfigBody2(bool AuthEnabled, int LockoutThreshold, int LockoutMinutes, int RecordingRetentionDays, double RecordingWatermarkGb, int AlarmRetentionDays, int AuditRetentionDays = 365);
 
     [Fact]
     public async Task Evidence_PackagesVerifiesAndLists()

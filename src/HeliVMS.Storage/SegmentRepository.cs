@@ -66,7 +66,61 @@ public sealed class SegmentRepository
             cmd => cmd.Parameters.AddWithValue("$id", id));
     }
 
+    /// <summary>
+    /// 取出尚未做完整性檢查的 final 區段（由舊至新，最多 <paramref name="take"/> 筆）。
+    ///
+    /// <para>
+    /// 供錄影完整性自我檢查（§11.1 寫盤保護、§15.7）分頁取樣。以 <c>checked_at_utc IS NULL</c>
+    /// 過濾、由部分索引 <c>idx_seg_unchecked</c> 支撐，檢查過的不再取出，逐圈前進直到全部查過。
+    /// 只回傳輕量欄位（編號、頻道、路徑），不載入整列——抽查一次只看少數段，但呼叫端不該為此背整張表的欄位。
+    /// </para>
+    /// </summary>
+    public IReadOnlyList<(long Id, int ChannelId, string FilePath)> ListFinalUnchecked(int take)
+    {
+        return _store.Query(
+            $"""
+            SELECT id, channel_id, file_path
+            FROM segments
+            WHERE status = 'final' AND checked_at_utc IS NULL
+            ORDER BY start_time
+            LIMIT {Math.Max(1, take)};
+            """,
+            static r =>
+            {
+                var list = new List<(long, int, string)>();
+                while (r.Read())
+                {
+                    list.Add((r.GetInt64(0), r.GetInt32(1), r.GetString(2)));
+                }
+
+                return list;
+            });
+    }
+
+    /// <summary>標記區段已完成完整性檢查（含查得損壞者），使其不再被後續輪次重驗。</summary>
+    public void MarkChecked(long id, DateTime whenUtc)
+    {
+        _store.Execute(
+            "UPDATE segments SET checked_at_utc = $t WHERE id = $id;",
+            cmd =>
+            {
+                cmd.Parameters.AddWithValue("$t", SqliteStore.Iso(whenUtc));
+                cmd.Parameters.AddWithValue("$id", id);
+            });
+    }
+
     /// <summary>依時間範圍列出區段（§3.4 時間軸回放）。</summary>
+    /// <remarks>
+    /// 口徑是「與 [from, to) 重疊」而非「start 落在窗內」：60 秒一段的錄影裡，
+    /// 若使用者從 10:00:30 開始回放，覆蓋到 10:00:30 的那段（start=10:00:00）
+    /// 必須出現在清單開頭，否則 HLS 播放清單與回放清單會從下一段才開始，
+    /// 前 30 秒畫面直接缺角，而日誌完全看不出問題。`PlaybackTimelineBuilder`
+    /// 本來就把區段裁切到窗內，也印證這裡的語意本來就該是重疊式。
+    ///
+    /// 未完成（tmp／corrupt）的段沒有 <c>end_time</c>，無法判斷重疊，退回
+    /// 「start 落在窗內」的舊口徑：它們不可播放，只在起始日的時間軸上點一下，
+    /// 不該因為結束時間未知就散落到之後每一天的查詢裡。
+    /// </remarks>
     public IReadOnlyList<SegmentRecord> ListByRange(int channelId, string stream, DateTime fromUtc, DateTime toUtc)
     {
         return _store.Query(
@@ -75,7 +129,9 @@ public sealed class SegmentRepository
                    size_bytes, duration_sec, status, sha256
             FROM segments
             WHERE channel_id = $c AND stream = $s
-              AND start_time >= $from AND start_time <= $to
+              AND start_time < $to
+              AND ((end_time IS NOT NULL AND end_time > $from)
+                OR (end_time IS NULL AND start_time >= $from))
             ORDER BY start_time;
             """,
             ReadRecords,
@@ -141,8 +197,46 @@ public sealed class SegmentRepository
             });
     }
 
-    /// <summary>依開始時間取出最舊之 final 區段（配額清理用）。</summary>
-    public IReadOnlyList<SegmentRecord> ListOldestFinal(int take)
+    /// <summary>
+    /// 依配額汰除優先序取出候選 final 區段（§11.1 磁碟滿策略第二階段）。
+    ///
+    /// <para>
+    /// 排序是「先天後地」兩層：<b>先</b>事件觸發錄影（<c>channels.recording_mode = Event</c>）
+    /// 的區段、<b>再</b>其他錄影，同一層內一律由舊至新。事件段被擺在前面，是因為它們是
+    /// 事件的補充片段，全時錄影才是調查時的主要證據；容量不足時先捨補充、後捨主證。
+    /// </para>
+    ///
+    /// <para>
+    /// 注意：事件觸發錄影（<see cref="HeliVMS.Shared.Models.RecordingMode.Event"/>）目前尚未接上
+    /// 偵測觸發，所以第一層現在恆為空——這個排序是為事件錄影落地後準備的正確接縫，屆時不需再改
+    /// 任何汰除邏輯，事件段自然會被優先汰除。用 <c>LEFT JOIN</c> 是為了不因頻道列缺失而漏掉區段。
+    /// </para>
+    /// </summary>
+    public IReadOnlyList<SegmentRecord> ListReclaimCandidates(int take)
+    {
+        return _store.Query(
+            $"""
+            SELECT s.id, s.channel_id, s.stream, s.start_time, s.end_time, s.file_path,
+                   s.size_bytes, s.duration_sec, s.status, s.sha256
+            FROM segments s
+            LEFT JOIN channels c ON c.id = s.channel_id
+            WHERE s.status = 'final'
+            ORDER BY CASE WHEN c.recording_mode = 2 THEN 0 ELSE 1 END, s.start_time, s.id
+            LIMIT {Math.Max(1, take)};
+            """,
+            ReadRecords);
+    }
+
+    /// <summary>
+    /// 從 <paramref name="afterStartUtc"/>／<paramref name="afterId"/> 之後取出最舊之 final 區段
+    /// （浮水印清理分頁用；start_time 由舊至新）。
+    ///
+    /// <para>
+    /// 與 <see cref="ListRetiredAfter"/> 同理：以游標單調前進，才能在受保存鎖定的區段夾在最舊端時
+    /// 仍繼續往新的方向找可刪目標，不會整輪卡住（見 <c>RetentionService</c>）。
+    /// </para>
+    /// </summary>
+    public IReadOnlyList<SegmentRecord> ListOldestFinalAfter(DateTime afterStartUtc, long afterId, int take)
     {
         return _store.Query(
             $"""
@@ -150,10 +244,16 @@ public sealed class SegmentRepository
                    size_bytes, duration_sec, status, sha256
             FROM segments
             WHERE status = 'final'
-            ORDER BY start_time
+              AND (start_time > $afterStart OR (start_time = $afterStart AND id > $afterId))
+            ORDER BY start_time, id
             LIMIT {Math.Max(1, take)};
             """,
-            ReadRecords);
+            ReadRecords,
+            cmd =>
+            {
+                cmd.Parameters.AddWithValue("$afterStart", SqliteStore.Iso(afterStartUtc));
+                cmd.Parameters.AddWithValue("$afterId", afterId);
+            });
     }
 
     /// <summary>列出早於截止點之最舊 final 區段（保留期清理用；start_time 由舊至新）。</summary>
@@ -170,6 +270,38 @@ public sealed class SegmentRepository
             """,
             ReadRecords,
             cmd => cmd.Parameters.AddWithValue("$cut", SqliteStore.Iso(cutoffUtc)));
+    }
+
+    /// <summary>
+    /// 從 <paramref name="afterStartUtc"/>／<paramref name="afterId"/> 之後，列出早於截止點之最舊 final 區段
+    /// （保留期清理分頁用；start_time 由舊至新）。
+    ///
+    /// <para>
+    /// 保留清理必須能「跳過」受保存鎖定而刪不掉的舊區段、繼續往新的方向找可刪的目標。
+    /// 若每次都只取最舊的一批，一旦最舊那批全部被鎖住，清理就會卡在原地永遠刪不動新的
+    /// （見 <c>RetentionService</c>）。以 <c>(start_time, id)</c> 為游標單調前進即可繞過鎖住的前綴。
+    /// </para>
+    /// </summary>
+    public IReadOnlyList<SegmentRecord> ListRetiredAfter(
+        DateTime cutoffUtc, DateTime afterStartUtc, long afterId, int take)
+    {
+        return _store.Query(
+            $"""
+            SELECT id, channel_id, stream, start_time, end_time, file_path,
+                   size_bytes, duration_sec, status, sha256
+            FROM segments
+            WHERE status = 'final' AND start_time < $cut
+              AND (start_time > $afterStart OR (start_time = $afterStart AND id > $afterId))
+            ORDER BY start_time, id
+            LIMIT {Math.Max(1, take)};
+            """,
+            ReadRecords,
+            cmd =>
+            {
+                cmd.Parameters.AddWithValue("$cut", SqliteStore.Iso(cutoffUtc));
+                cmd.Parameters.AddWithValue("$afterStart", SqliteStore.Iso(afterStartUtc));
+                cmd.Parameters.AddWithValue("$afterId", afterId);
+            });
     }
 
     /// <summary>刪除區段記錄（檔案移除由配額策略負責）。</summary>
@@ -221,6 +353,46 @@ public sealed class SegmentRepository
             ORDER BY start_time;
             """,
             ReadRecords);
+    }
+
+    /// <summary>
+    /// 只回傳「頻道資料夾仍是舊制 <c>ch…</c>」的區段（僅編號、頻道、路徑）。
+    /// <para>
+    /// 供資料夾搬移（<see cref="RecordingFolderMigrator"/>）使用。24/7 全時錄影下 segments 一年可達千萬列，
+    /// 若每次都整表載入，單是啟動就會吃掉 GB 級記憶體；搬移只對「頻道名稱化之前的舊制目錄」有興趣，
+    /// 已命名為頻道名稱的列（絕大多數）在 SQL 就先濾掉，穩定狀態下這裡一列都不會回傳。
+    /// </para>
+    /// <para>
+    /// 過濾條件是路徑中含有 <c>\ch</c>（含分隔符），而非嚴格的 <c>ch{id}</c>：如此連「頻道被改名、
+    /// 舊目錄含 ch」的殘留也能被帶出來搬正；已正確命名的目錄不會命中，不會被無謂載入。
+    /// </para>
+    /// </summary>
+    public IReadOnlyList<(long Id, int ChannelId, string FilePath)> ListLegacyFolderPaths()
+    {
+        return _store.Query(
+            "SELECT id, channel_id, file_path FROM segments WHERE instr(file_path, char(92) || 'ch') > 0;",
+            static r =>
+            {
+                var list = new List<(long, int, string)>();
+                while (r.Read())
+                {
+                    list.Add((r.GetInt64(0), r.GetInt32(1), r.GetString(2)));
+                }
+
+                return list;
+            });
+    }
+
+    /// <summary>更新區段檔案路徑（資料夾搬移後回寫）。</summary>
+    public void UpdateFilePath(long id, string filePath)
+    {
+        _store.Execute(
+            "UPDATE segments SET file_path = $p WHERE id = $id;",
+            cmd =>
+            {
+                cmd.Parameters.AddWithValue("$p", filePath);
+                cmd.Parameters.AddWithValue("$id", id);
+            });
     }
 
     private static IReadOnlyList<SegmentRecord> ReadRecords(SqliteDataReader reader)

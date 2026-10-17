@@ -158,6 +158,44 @@ public sealed class RecordingSchedulerTests : IDisposable
         Assert.Contains($"source={RecordingGateSources.Always}", entry.Detail ?? string.Empty);
     }
 
+    /// <summary>
+    /// 排程要把「錄影分段長度」設定真的傳給錄影機，而不是沿用寫死的秒數。
+    ///
+    /// 分段長度決定檔數：設定頁寫入後若排程仍固定某個值，操作員把值改成別的也不會有任何效果，
+    /// 磁碟上照樣一天數千個檔，而畫面上一切正常。
+    /// </summary>
+    [Fact]
+    public async Task 排程會把設定的分段長度傳給錄影機()
+    {
+        ApplyLicense(cameras: 32);
+        AddChannel("車道 1", RecordingMode.Always);
+        new SettingsRepository(_store).Set(
+            RecordingSegmentPolicy.SettingKey,
+            42.ToString(System.Globalization.CultureInfo.InvariantCulture));
+
+        using var scheduler = NewScheduler();
+        await scheduler.ReconcileAsync();
+
+        var recorder = Assert.Single(_started);
+        Assert.Equal(42, recorder.SegmentSeconds);
+    }
+
+    /// <summary>
+    /// 未設定分段長度時，排程要採用政策預設值，而不是任何寫死的舊值。
+    /// </summary>
+    [Fact]
+    public async Task 未設定分段長度時排程採用政策預設()
+    {
+        ApplyLicense(cameras: 32);
+        AddChannel("車道 1", RecordingMode.Always);
+
+        using var scheduler = NewScheduler();
+        await scheduler.ReconcileAsync();
+
+        var recorder = Assert.Single(_started);
+        Assert.Equal(RecordingSegmentPolicy.DefaultSeconds, recorder.SegmentSeconds);
+    }
+
     /// <summary>排程模式的開錄要寫下 schedule，與全時區隔開。</summary>
     [Fact]
     public async Task 排程模式開錄寫下schedule來源()
@@ -612,20 +650,245 @@ public sealed class RecordingSchedulerTests : IDisposable
         Assert.Contains(channelId, scheduler.ActiveChannelIds);
     }
 
-    private RecordingScheduler NewScheduler(Func<int, bool>? isCellRecording = null, Func<int, long>? observedBps = null)
+    /// <summary>
+    /// 排程啟動時要把舊制 <c>ch{id}</c> 錄影資料夾搬成頻道名稱並回寫索引（M311）。
+    ///
+    /// <para>
+    /// 搬移器本身有 Storage 層的測試，但「排程有沒有真的接上它」是另一回事：漏接的話
+    /// 舊站台升級後同一路錄影會在磁碟上分成兩個目錄（舊的看得到、新錄的在另一個），
+    /// 沒有任何錯誤訊息。用假錄影機（不碰 ffmpeg）＋真實檔案系統驗證這條接線。
+    /// </para>
+    /// </summary>
+    [Fact]
+    public async Task 調和時會把舊制資料夾搬成頻道名稱並回寫索引()
+    {
+        ApplyLicense(cameras: 32);
+        var channelId = AddChannel("前門", RecordingMode.Always);
+        var segments = new SegmentRepository(_store);
+        var legacyFolder = RecordingFolderNaming.LegacyName(channelId);
+        var legacyPath = Path.Combine(_recordingsRoot, legacyFolder, "20260101", "seg-a.mp4");
+        Directory.CreateDirectory(Path.GetDirectoryName(legacyPath)!);
+        File.WriteAllText(legacyPath, "x");
+        var segmentId = segments.BeginSegment(channelId, "main", legacyPath, DateTime.UtcNow.AddMinutes(-1));
+        segments.CompleteSegment(segmentId, DateTime.UtcNow, 1, 15, new string('a', 64));
+
+        using var scheduler = NewScheduler();
+        await scheduler.ReconcileAsync();
+
+        var expected = Path.Combine(_recordingsRoot, "前門", "20260101", "seg-a.mp4");
+        Assert.True(File.Exists(expected));
+        Assert.False(Directory.Exists(Path.Combine(_recordingsRoot, legacyFolder)));
+        Assert.Equal(expected, segments.Get(segmentId)!.FilePath);
+    }
+
+    /// <summary>
+    /// 排程調和必須序列化：兩輪不得同時進行。
+    ///
+    /// <para>
+    /// <see cref="System.Threading.Timer"/> 不會等上一輪回呼結束。調和如果因為資料庫鎖住而拖過
+    /// 30 秒的間隔，就會有兩輪同時在讀寫 <c>_active</c>、同時啟動／停止錄影機，甚至同時搬同一個
+    /// 資料夾。現場症狀是同一頻道開了兩台 ffmpeg 搶區段檔、磁碟用量翻倍，而且 log 乾淨。
+    /// </para>
+    /// <para>
+    /// 這裡讓第一輪卡在「錄影機啟動中」，再從另一條執行緒發起第二輪：第二輪必須停在閘門上
+    /// （尚未完成），且最終只啟動一台錄影機。少了閘門，第二輪會因為 <c>_active</c> 還沒被寫入
+    /// 而再開一台，<c>_started</c> 會變成 2。
+    /// </para>
+    /// </summary>
+    [Fact]
+    public async Task 兩輪調和不會重疊啟動同一頻道的兩台錄影機()
+    {
+        ApplyLicense(cameras: 32);
+        var channel = AddChannel("車道 1", RecordingMode.Always);
+
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var starts = 0;
+
+        using var scheduler = NewScheduler(recorderFactory: () =>
+        {
+            var fake = new FakeSegmentRecorder
+            {
+                OnStartAsync = () =>
+                {
+                    Interlocked.Increment(ref starts);
+                    entered.TrySetResult();
+                    return release.Task;
+                },
+            };
+            _started.Add(fake);
+            return fake;
+        });
+
+        var first = scheduler.ReconcileAsync();
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        // 第一輪仍卡在啟動中、閘門被握著；第二輪必須排隊而不是並行。
+        // 若沒有閘門，第二輪會在這個同步階段就走到 StartAsync，把 starts 加到 2。
+        var second = scheduler.ReconcileAsync();
+        Assert.Equal(1, Volatile.Read(ref starts));
+
+        release.TrySetResult();
+        await Task.WhenAll(first, second);
+
+        Assert.Equal(1, starts);
+        Assert.Single(_started);
+    }
+
+    /// <summary>
+    /// 磁碟全部低於寫入門檻時不得開新錄影，且要留下一筆 transition 稽核。
+    ///
+    /// <para>
+    /// 現場症狀：磁碟寫不下時排程仍不斷開新錄影機，每台一開就失敗、log 被灌滿，
+    /// 操作員卻看不出是磁碟的問題；反過來若擋了卻沒有紀錄，磁碟滿這件事就完全不留痕跡。
+    /// </para>
+    /// </summary>
+    [Fact]
+    public async Task 磁碟全部低於門檻時不開新錄影並寫下稽核()
+    {
+        ApplyLicense(cameras: 32);
+        AddChannel("車道 1", RecordingMode.Always);
+
+        using var scheduler = NewScheduler(diskFull: () => true);
+        await scheduler.ReconcileAsync();
+
+        Assert.Empty(_started);
+        Assert.Single(RecordingAudits("recording.disk_full"));
+    }
+
+    /// <summary>
+    /// 空間恢復後下一輪要恢復開錄並寫下「已恢復」稽核——否則停了就永遠不會再開，
+    /// 而且「危機解除」不留痕跡。
+    /// </summary>
+    [Fact]
+    public async Task 磁碟恢復後下一輪恢復開錄並寫下恢復稽核()
+    {
+        ApplyLicense(cameras: 32);
+        AddChannel("車道 1", RecordingMode.Always);
+        var full = true;
+
+        using var scheduler = NewScheduler(diskFull: () => full);
+        await scheduler.ReconcileAsync();
+        Assert.Empty(_started);
+
+        full = false;
+        await scheduler.ReconcileAsync();
+
+        Assert.Single(_started);
+        Assert.Single(RecordingAudits("recording.disk_full"));
+        Assert.Single(RecordingAudits("recording.disk_full_cleared"));
+    }
+
+    /// <summary>
+    /// 讀取磁碟狀態失敗時不得擋錄影：取不到容量資訊與真的沒空間是兩回事，
+    /// 不該讓前者停掉整個站台的錄影。
+    /// </summary>
+    [Fact]
+    public async Task 磁碟狀態讀取失敗時不擋錄影()
+    {
+        ApplyLicense(cameras: 32);
+        AddChannel("車道 1", RecordingMode.Always);
+
+        using var scheduler = NewScheduler(diskFull: () => throw new IOException("磁碟查詢失敗"));
+        await scheduler.ReconcileAsync();
+
+        Assert.Single(_started);
+    }
+
+    /// <summary>
+    /// 磁碟轉危急時只停「開新」，不停「進行中」——既有錄影要留下來收尾，不能從中間砍斷。
+    /// </summary>
+    [Fact]
+    public async Task 磁碟轉危急時既有錄影不受影響()
+    {
+        ApplyLicense(cameras: 32);
+        AddChannel("車道 1", RecordingMode.Always);
+        var full = false;
+
+        using var scheduler = NewScheduler(diskFull: () => full);
+        await scheduler.ReconcileAsync();
+        var recorder = Assert.Single(_started);
+
+        full = true;
+        await scheduler.ReconcileAsync();
+
+        Assert.False(recorder.Stopped);
+        Assert.Single(scheduler.ActiveChannelIds);
+    }
+
+    /// <summary>
+    /// 每輪調和成功後要更新心跳，且內容反映當前實際錄影路數（M320）。
+    ///
+    /// <para>
+    /// 現場症狀：錄影行程整個卡死或崩潰時，外觀上毫無異狀，直到有人要調閱才發現好幾天沒錄。
+    /// 心跳是唯一能從行程外分辨「還活著」的訊號；寫的時機錯了（例如卡住時也寫）看門狗就形同虛設。
+    /// </para>
+    /// </summary>
+    [Fact]
+    public async Task 調和後寫下反映實際路數的心跳()
+    {
+        ApplyLicense(cameras: 32);
+        AddChannel("車道 1", RecordingMode.Always);
+        var heartbeatRoot = Path.Combine(Path.GetTempPath(), $"helivms-hb-{Guid.NewGuid():N}");
+
+        try
+        {
+            using var scheduler = NewScheduler(heartbeatRoot: heartbeatRoot);
+            await scheduler.ReconcileAsync();
+
+            var heartbeat = RecordingHeartbeat.TryRead(heartbeatRoot);
+            Assert.NotNull(heartbeat);
+            Assert.Equal(1, heartbeat!.ActiveChannels);
+            Assert.Equal(Environment.ProcessId, heartbeat.ProcessId);
+            Assert.Equal(
+                RecordingHeartbeatStatus.Fresh,
+                RecordingHeartbeat.Evaluate(heartbeat, DateTime.UtcNow, TimeSpan.FromMinutes(2)));
+        }
+        finally
+        {
+            if (Directory.Exists(heartbeatRoot))
+            {
+                Directory.Delete(heartbeatRoot, recursive: true);
+            }
+        }
+    }
+
+    /// <summary>
+    /// 未設定心跳根目錄時完全不寫檔——這是明確的 op-in，避免測試或非監控用途莫名在磁碟上留檔。
+    /// </summary>
+    [Fact]
+    public async Task 未設定心跳根目錄時不寫心跳()
+    {
+        ApplyLicense(cameras: 32);
+        AddChannel("車道 1", RecordingMode.Always);
+
+        using var scheduler = NewScheduler();
+        await scheduler.ReconcileAsync();
+
+        Assert.Null(RecordingHeartbeat.TryRead(_recordingsRoot));
+    }
+
+    private RecordingScheduler NewScheduler(
+        Func<int, bool>? isCellRecording = null,
+        Func<int, long>? observedBps = null,
+        Func<ISegmentRecorder>? recorderFactory = null,
+        Func<bool>? diskFull = null,
+        string? heartbeatRoot = null)
         => new(
             _store,
             _recordingsRoot,
             isCellRecording,
             reconcileInterval: TimeSpan.FromHours(1),
             license: _license,
-            recorderFactory: () =>
+            recorderFactory: recorderFactory ?? (() =>
             {
                 var fake = new FakeSegmentRecorder();
                 _started.Add(fake);
                 return fake;
-            },
-            observedBps: observedBps);
+            }),
+            observedBps: observedBps,
+            diskFull: diskFull,
+            heartbeatRoot: heartbeatRoot);
 
     private int AddChannel(string name, RecordingMode mode = RecordingMode.Scheduled)
         => _channels.Add(name, "rtsp://example.invalid/live", recordingMode: mode);
@@ -717,6 +980,15 @@ public sealed class RecordingSchedulerTests : IDisposable
 
         public bool Disposed { get; private set; }
 
+        /// <summary>排程實際要求的分段秒數；用來確認設定值真的有傳到錄影機。</summary>
+        public int? SegmentSeconds { get; private set; }
+
+        /// <summary>
+        /// 選用的非同步啟動鉤子：讓測試在「錄影機啟動中」停住。
+        /// 用來驗證排程的調和是序列化的——兩輪重疊時，第二輪會卡在閘門上而不是也去開一台。
+        /// </summary>
+        public Func<Task>? OnStartAsync { get; set; }
+
         public event EventHandler<RecordingStallInfo>? RecordingStalled;
 
         public event EventHandler<int>? RecordingResumed;
@@ -731,7 +1003,7 @@ public sealed class RecordingSchedulerTests : IDisposable
         public void SimulateResume()
             => RecordingResumed?.Invoke(this, ChannelId);
 
-        public Task StartAsync(
+        public async Task StartAsync(
             int channelId,
             string rtspUrl,
             string recordingsRoot,
@@ -741,7 +1013,11 @@ public sealed class RecordingSchedulerTests : IDisposable
             ChannelId = channelId;
             RtspUrl = rtspUrl;
             Stream = stream;
-            return Task.CompletedTask;
+            SegmentSeconds = segmentSeconds;
+            if (OnStartAsync is not null)
+            {
+                await OnStartAsync();
+            }
         }
 
         public Task StopAsync()

@@ -6,6 +6,7 @@ import {
   buildCentralPlaylistQuery,
   buildPlaylistQuery,
   centralChannelRows,
+  configCard,
   esc,
   eventRow,
   formatTimestamp,
@@ -131,7 +132,7 @@ function updateChrome() {
   $('logout').hidden = !session;
 }
 
-/** 五大功能分頁。切換只改可見性與 ARIA 狀態，不重建內容，所以播放中的畫面不會被打斷。 */
+/** 功能分頁。切換只改可見性與 ARIA 狀態，不重建內容，所以播放中的畫面不會被打斷。 */
 function showTab(name) {
   for (const btn of document.querySelectorAll('[data-tab]')) {
     const on = btn.dataset.tab === name;
@@ -141,6 +142,8 @@ function showTab(name) {
   for (const panel of document.querySelectorAll('[data-panel]')) {
     panel.hidden = panel.dataset.panel !== name;
   }
+  // 設定值不隨輪詢重載：每 12 秒覆寫會蓋掉正在編輯的欄位，所以只在開啟設定分頁時載入。
+  if (name === 'settings') void loadSettings();
 }
 
 function bindTabs() {
@@ -772,6 +775,68 @@ async function searchEvents(raw) {
   }
 }
 
+/** 設定頁：GET /api/config 讀回目前值；configCard 正規化欄位大小寫與預設值。 */
+async function loadSettings() {
+  const msg = $('settings-msg');
+  try {
+    const card = configCard(await api('/api/config'));
+    $('set-auth-enabled').checked = card.authEnabled;
+    $('set-lock-threshold').value = String(card.lockoutThreshold);
+    $('set-lock-minutes').value = String(card.lockoutMinutes);
+    $('set-retention-days').value = String(card.recordingRetentionDays);
+    $('set-watermark-gb').value = String(card.recordingWatermarkGb);
+    $('set-alarm-retention').value = String(card.alarmRetentionDays);
+    $('set-audit-retention').value = String(card.auditRetentionDays);
+    if (msg) msg.textContent = '';
+  } catch (err) {
+    if (msg) msg.textContent = t('setting.loadFailed');
+  }
+  await refreshUsage();
+}
+
+/** 用量唯讀摘要。文字在執行時產生，所以切換語系時也要重繪（見 applyLocale）。 */
+async function refreshUsage() {
+  const el = $('settings-usage');
+  if (!el) return;
+  try {
+    const usage = await api('/api/config/usage');
+    el.textContent = t('setting.usage', { gb: Number(usage.gb ?? 0).toFixed(1), days: usage.retentionDays });
+  } catch (err) {
+    el.textContent = '';
+  }
+}
+
+/** 寫回設定。範圍驗證在伺服器端（各欄上限不同），錯誤訊息照後端回傳顯示。 */
+async function saveSettings(event) {
+  event.preventDefault();
+  const msg = $('settings-msg');
+  const body = {
+    authEnabled: $('set-auth-enabled').checked,
+    lockoutThreshold: Number($('set-lock-threshold').value),
+    lockoutMinutes: Number($('set-lock-minutes').value),
+    recordingRetentionDays: Number($('set-retention-days').value),
+    recordingWatermarkGb: Number($('set-watermark-gb').value),
+    alarmRetentionDays: Number($('set-alarm-retention').value),
+    auditRetentionDays: Number($('set-audit-retention').value),
+  };
+  try {
+    const response = await apiRaw('/api/config', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!response.ok) {
+      const info = await response.json().catch(() => null);
+      if (msg) msg.textContent = info?.error ?? t('setting.saveFailed');
+      return;
+    }
+    if (msg) msg.textContent = t('setting.saved');
+    await loadSettings();
+  } catch (err) {
+    if (msg) msg.textContent = t('setting.saveFailed');
+  }
+}
+
 let alertSocket = null;
 
 function connectLive() {
@@ -838,6 +903,8 @@ function wire() {
     if (btn) switchIoRelay(btn).catch(console.error);
   });
 
+  $('settings-form').addEventListener('submit', saveSettings);
+
   $('play-form').addEventListener('submit', playRemote);
   // 換來源節點時同步換頻道建議（M302），否則會留著上一台節點的頻道清單。
   $('play-node')?.addEventListener('change', fillPlayChannels);
@@ -900,6 +967,7 @@ async function applyLocale(next, { persist = true } = {}) {
   updateChrome();
   await refreshLicense();
   await refreshAll();
+  await refreshUsage();
   return applied;
 }
 

@@ -119,7 +119,7 @@ public partial class MainWindow : Window
     private IReadOnlyList<ChannelInfo> _channelList = [];
 
     // 監看群組（監控中心頁簽）。_activeGroupId 為 null＝「全部」頁簽（顯示所有頻道）。
-    // 群組成員的歸屬與順序由 ChannelGroupRepository 管理（見 ChannelManagerWindow 的群組編輯區）。
+    // 群組成員的歸屬與順序由 ChannelGroupRepository 管理（見 MonitorGroupWindow 的群組編輯區）。
     private ChannelGroupRepository? _groups;
     private long? _activeGroupId;
     private bool _rebuildingTabs;
@@ -182,6 +182,12 @@ public partial class MainWindow : Window
     private bool _restoringFullScreen;
 
     private RecordingScheduler? _scheduler;
+
+    /// <summary>
+    /// 桌面的錄影擁有者仲裁（M321，§11.1 進程分離）。桌面為較低優先序角色：Headless 服務在線時
+    /// 搶下租約、桌面退為待命不錄影；服務缺席時桌面才錄。關閉時主動讓出，讓下次啟動或服務立即接手。
+    /// </summary>
+    private RecordingOwnershipCoordinator? _recordingOwnership;
     private DetectionWriter? _detWriter;
     private NotificationService? _notify;
     private TrayIconHost? _tray;
@@ -1283,10 +1289,19 @@ public partial class MainWindow : Window
     /// </summary>
     private RecordingScheduler CreateScheduler()
     {
+        // 錄影擁有者仲裁（M321，§11.1 進程分離）：桌面為較低優先序角色，Headless 服務在線時退為待命。
+        // 每輪調和續約；未持有者不開新錄影，且會收掉既有錄影機，把錄影交還服務，避免重複錄影。
+        _recordingOwnership = RecordingOwnership.CreateDesktop(_store!);
         var scheduler = new RecordingScheduler(
             _store!,
             _recordingsRoot,
-            isCellRecording: ch => _manager!.IsRecording(ch));
+            isCellRecording: ch => _manager!.IsRecording(ch),
+            // 磁碟滿策略第三階段（§11.1）：可用空間低於寫入門檻時停開新錄影。以目前錄影根目錄
+            // 即時判斷（每次調和重算），切換磁碟後下一個週期即依新根判斷。
+            diskFull: () => DiskPressureCoordinator.ShouldStopNewRecording(_store!, _recordingsRoot),
+            // 錄影心跳寫進資料根目錄（M320）；與 Headless Agent 的 WatchdogWorker 共用同一份。
+            heartbeatRoot: ResolveDataRoot(),
+            ownsRecording: () => _recordingOwnership!.AcquireOrRenew(DateTime.UtcNow));
         // 排程/巡邏心跳來自背景執行緒，HintText 必須回 UI 執行緒改。
         scheduler.Activity += (_, msg) => Dispatcher.BeginInvoke(new Action(() => HintText.Text = msg));
         scheduler.RecordingStalled += OnRecordingStalled;
@@ -1339,30 +1354,72 @@ public partial class MainWindow : Window
                     new LegalHoldRepository(_store!),
                     RecordingStorage.ParseKnownRoots(settings.Get(RecordingStorage.KnownRootsSettingKey)));
                 RunScheduledBackup();
-                var quota = ReadQuotaBytes();
-                var report = service.Apply(quota, DateTime.UtcNow);
+
+                // 配額汰除 ＋ 暫存隔離 ＋ 快照汰除 ＋ 中繼資料保管期限，串成同一次執行（與 Headless
+                // Agent 的 RetentionWorker 共用）。這些表過去從不隨時間汰除；桌面內嵌的 Web 主機
+                // 又不掛背景保留服務（見 WebHost），所以桌面部署下它們只會一直長大。
+                var alarmDays = (int)settings.GetDoubleOrDefault(MetadataRetentionPruner.AlarmDaysKey, MetadataRetentionPruner.DefaultDays);
+                var auditDays = (int)settings.GetDoubleOrDefault(MetadataRetentionPruner.AuditDaysKey, MetadataRetentionPruner.DefaultDays);
+                var sweep = RetentionCoordinator.Run(
+                    _store!,
+                    service,
+                    Path.Combine(_dataRoot, "snapshots"),
+                    ReadQuotaBytes(),
+                    ReadSnapshotDays(),
+                    alarmDays,
+                    auditDays,
+                    DateTime.UtcNow);
+
                 var hintParts = new List<string>();
-                if (report.DeletedSegments > 0)
+                if (sweep.DeletedSegments > 0)
                 {
-                    hintParts.Add(string.Format(Localizer.T("Main.CleanupRemovedSegments"), report.DeletedSegments, FormatBytes(report.FreedBytes)));
+                    hintParts.Add(string.Format(Localizer.T("Main.CleanupRemovedSegments"), sweep.DeletedSegments, FormatBytes(sweep.FreedBytes)));
                 }
 
-                if (report.PurgedTmp > 0)
+                if (sweep.PurgedTmp > 0)
                 {
-                    hintParts.Add(string.Format(Localizer.T("Main.CleanupPurgedTmp"), report.PurgedTmp));
+                    hintParts.Add(string.Format(Localizer.T("Main.CleanupPurgedTmp"), sweep.PurgedTmp));
                 }
 
-                var snapDays = ReadSnapshotDays();
-                var snapRoot = Path.Combine(_dataRoot, "snapshots");
-                var snapReport = service.PurgeSnapshots(snapRoot, DateTime.UtcNow.AddDays(-snapDays));
-                if (snapReport.DeletedFiles > 0)
+                if (sweep.SnapshotDeletedFiles > 0)
                 {
-                    hintParts.Add(string.Format(Localizer.T("Main.CleanupPurgedSnapshots"), snapReport.DeletedFiles, FormatBytes(snapReport.FreedBytes)));
+                    hintParts.Add(string.Format(Localizer.T("Main.CleanupPurgedSnapshots"), sweep.SnapshotDeletedFiles, FormatBytes(sweep.SnapshotFreedBytes)));
                 }
 
                 if (hintParts.Count > 0)
                 {
                     HintText.Text = string.Format(Localizer.T("Main.QuotaCleanup"), string.Join("、", hintParts));
+                }
+
+                // 錄影完整性自我檢查（§11.1 寫盤保護）：與 Headless Agent 走同一入口，每圈抽查少數
+                // 已封檔區段，把損壞／遺失寫進稽核。只記錄、不改狀態也不刪檔（見 MediaIntegrityChecker）：
+                // 改了 status 會讓壞段退出用量統計與汰除候選，反而變成刪不掉的孤兒。
+                try
+                {
+                    MediaIntegrityCoordinator.RunConfigured(_store!, DateTime.UtcNow);
+                }
+                catch (Exception)
+                {
+                    // 檢查失敗（ffprobe 暫時不可用、庫被鎖）不影響監看主線，下一圈再試。
+                }
+
+                // 磁碟滿策略第一階段（§11.1）：>85% 預警、低於寫入門檻告警。等級改變才寫稽核
+                //（與 Headless Agent 共用入口），並在提示列讓操作員當下看到。
+                try
+                {
+                    var level = DiskPressureCoordinator.RunConfigured(_store!, _recordingsRoot, DateTime.UtcNow);
+                    if (level == DiskPressureLevel.Critical)
+                    {
+                        HintText.Text = Localizer.T("Main.DiskCriticalSpace");
+                    }
+                    else if (level == DiskPressureLevel.Warning)
+                    {
+                        HintText.Text = Localizer.T("Main.DiskLowSpace");
+                    }
+                }
+                catch (Exception)
+                {
+                    // 讀不到磁碟狀態不影響監看主線，下一圈再試。
                 }
             }
             catch (Exception)
@@ -1440,7 +1497,7 @@ public partial class MainWindow : Window
     {
         if (_store is not null)
         {
-            var fromDb = new SettingsRepository(_store).GetDoubleOrDefault("snapshots.retention_days", -1);
+            var fromDb = new SettingsRepository(_store).GetDoubleOrDefault(RetentionCoordinator.SnapshotDaysKey, -1);
             if (fromDb > 0)
             {
                 return (int)fromDb;
@@ -1455,7 +1512,7 @@ public partial class MainWindow : Window
             return (int)v;
         }
 
-        return 30;
+        return RetentionCoordinator.DefaultSnapshotDays;
     }
 
     /// <summary>錄影保留配額（bytes）：app_settings["recording.quota_gb"] → HELIVMS_QUOTA_GB → 10GB。</summary>
@@ -1463,7 +1520,7 @@ public partial class MainWindow : Window
     {
         if (_store is not null)
         {
-            var fromDb = new SettingsRepository(_store).GetDoubleOrDefault("recording.quota_gb", -1);
+            var fromDb = new SettingsRepository(_store).GetDoubleOrDefault(RetentionCoordinator.QuotaGbKey, -1);
             if (fromDb > 0)
             {
                 return (long)(fromDb * 1024 * 1024 * 1024);
@@ -1475,7 +1532,7 @@ public partial class MainWindow : Window
 
     private static long ParseQuotaBytes()
     {
-        var gb = 10.0;
+        var gb = RetentionCoordinator.DefaultQuotaGb;
         var raw = Environment.GetEnvironmentVariable("HELIVMS_QUOTA_GB");
         if (!string.IsNullOrWhiteSpace(raw) &&
             double.TryParse(raw, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var v) &&
@@ -3352,8 +3409,13 @@ public partial class MainWindow : Window
 
         _licenseLimits?.Clear(channelId);
         RecBadge.Visibility = _manager.AnyRecording() ? Visibility.Visible : Visibility.Collapsed;
+        // 提示要指向實際寫入的目錄：M311 起資料夾以頻道名稱命名，若仍顯示 ch{id}，
+        // 操作員會到一個不存在（或舊的）目錄找檔案。與 SegmentRecorder 同一套命名規則。
+        var folder = _store is null
+            ? RecordingFolderNaming.LegacyName(channelId)
+            : RecordingFolderNaming.ResolveFor(_store, channelId) ?? RecordingFolderNaming.LegacyName(channelId);
         HintText.Text = next
-            ? string.Format(Localizer.T("Main.RecordingNow"), Path.Combine(_recordingsRoot, $"ch{channelId:000}"))
+            ? string.Format(Localizer.T("Main.RecordingNow"), Path.Combine(_recordingsRoot, folder))
             : Localizer.T("Main.RecordingStopped");
         UpdateFooter();
     }
@@ -4405,6 +4467,9 @@ public partial class MainWindow : Window
             await scheduler.StopAllAsync();
             scheduler.Dispose();
         }
+
+        _recordingOwnership?.Release(DateTime.UtcNow);
+        _recordingOwnership = null;
 
         await DisconnectAllAsync();
         _bgCts?.Cancel();

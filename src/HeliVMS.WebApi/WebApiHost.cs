@@ -110,7 +110,8 @@ public static class WebApiHost
             return new RetentionService(
                 sp.GetRequiredService<SqliteStore>(),
                 sp.GetRequiredService<LegalHoldRepository>(),
-                recordingsRoot);
+                recordingsRoot,
+                logger: sp.GetRequiredService<ILogger<RetentionService>>());
         });
 
         // 保留清理的單例永遠註冊（API 的 /config/usage、/retention/run 需要解析它），

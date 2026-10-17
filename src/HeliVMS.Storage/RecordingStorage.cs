@@ -301,6 +301,39 @@ public static class RecordingStorage
     }
 
     /// <summary>
+    /// 資料夾所在磁碟的總容量與可用空間（位元組）；無法取得時回 <c>(0, 0)</c>（容量未知）。
+    ///
+    /// <para>
+    /// 供磁碟滿策略計算「已用率」用（§11.1）。與 <see cref="FreeBytesFor"/> 同一組錯誤處理：
+    /// 磁碟中途退出是常態，取不到就當未知，交由呼叫端決定不動作，而不是讓監看整個失敗。
+    /// </para>
+    /// </summary>
+    public static (long TotalBytes, long FreeBytes) DriveUsageFor(string folder)
+    {
+        if (string.IsNullOrWhiteSpace(folder))
+        {
+            return (0, 0);
+        }
+
+        try
+        {
+            var root = Path.GetPathRoot(Path.GetFullPath(folder));
+            if (string.IsNullOrEmpty(root))
+            {
+                return (0, 0);
+            }
+
+            var drive = new DriveInfo(root);
+            return drive.IsReady ? (drive.TotalSize, drive.AvailableFreeSpace) : (0, 0);
+        }
+        catch (Exception ex) when (
+            ex is ArgumentException or IOException or UnauthorizedAccessException or NotSupportedException or PathTooLongException)
+        {
+            return (0, 0);
+        }
+    }
+
+    /// <summary>
     /// 選出下一段要寫入哪個錄影目錄：依 <paramref name="roots"/> 順序取第一個可用空間
     /// ≥ <paramref name="minFreeBytes"/> 者；全部都低於門檻時取可用空間最大者——寧可繼續
     /// 錄（可能寫滿某一顆），也不要因為全部踩到門檻而停止錄影。清單為空時回 null。

@@ -1,5 +1,6 @@
 using HeliVMS.Storage;
 using HeliVMS.WebApi;
+using Microsoft.Extensions.Logging;
 
 namespace HeliVMS.Api.Tests;
 
@@ -116,6 +117,142 @@ public sealed class RetentionRunTests : IDisposable
         Assert.True(File.Exists(held));
         Assert.False(File.Exists(other));
         Assert.Single(_segments.ListFinal(1));
+    }
+
+    /// <summary>
+    /// 最舊的一整批（剛好填滿一頁）全被保存鎖定時，年齡清理必須跳過它們、繼續往新的方向找，
+    /// 而不是就此停手。
+    ///
+    /// 現場症狀：調查保存鎖住較舊的一段後，年齡清理每一輪都先取到那批鎖定的最舊區段、
+    /// 發現一個都不能刪就整輪放棄——於是鎖定期間磁碟只增不減，而 log 全乾淨。
+    /// </summary>
+    [Fact]
+    public void RunOnce_最舊的一整批受保存鎖定時仍會往後清理()
+    {
+        _settings.Set(RetentionService.DaysKey, "1");
+
+        DateTime firstStart = default;
+        DateTime lastEnd = default;
+        string firstHeld = string.Empty;
+        for (var i = 0; i < 16; i++)
+        {
+            var (file, start, end) = SeedSegment(
+                daysOld: 10, sizeBytes: 1_000, channelDir: "ch001", offsetSeconds: i);
+            if (i == 0)
+            {
+                firstStart = start;
+                firstHeld = file;
+            }
+
+            lastEnd = end;
+        }
+
+        // 保存窗剛好蓋住這 16 筆最舊的區段。
+        _holds.Add(1, firstStart.AddMinutes(-1), lastEnd.AddMinutes(1), "investigation", "tester", DateTime.UtcNow);
+
+        // 較新的未鎖定區段（兩天前），必須被清掉。
+        var (free, _, _) = SeedSegment(daysOld: 2, sizeBytes: 1_000, channelDir: "ch002");
+
+        var run = new RetentionService(_store, _holds, _root).RunOnce(DateTime.UtcNow);
+
+        Assert.Equal(1, run.AgePurged);
+        Assert.True(run.Skipped >= 16);
+        Assert.False(File.Exists(free));
+        Assert.True(File.Exists(firstHeld), "受保存的舊區段被刪了");
+    }
+
+    /// <summary>
+    /// 稽核日誌過去只寫不刪（PruneOlderThan 沒有正式呼叫端），長期只增不減。
+    /// 保留清理必須依保管天數汰除過期項，同時保留期限內的項目。
+    /// </summary>
+    [Fact]
+    public void 稽核日誌依保管天數清除過期項並保留近期項()
+    {
+        _settings.Set(RetentionService.AuditDaysKey, "30");
+        var audit = new AuditLogRepository(_store);
+        audit.Record("system", "config.change", AuditCategories.Config, occurredAtUtc: DateTime.UtcNow.AddDays(-60));
+        audit.Record("system", "config.change", AuditCategories.Config, occurredAtUtc: DateTime.UtcNow.AddDays(-1));
+
+        var run = new RetentionService(_store, _holds, _root).RunOnce(DateTime.UtcNow);
+
+        Assert.Equal(1, run.AuditPurged);
+        var kept = Assert.Single(audit.List(new AuditLogQuery { Action = "config.change" }));
+        Assert.True(kept.OccurredAtUtc > DateTime.UtcNow.AddDays(-2));
+    }
+
+    /// <summary>
+    /// 稽核是資安治理證據，設 0 表示永久保留：任何過期項目都不該被清掉。
+    /// </summary>
+    [Fact]
+    public void 稽核保管天數設零時永久保留()
+    {
+        _settings.Set(RetentionService.AuditDaysKey, "0");
+        var audit = new AuditLogRepository(_store);
+        audit.Record("system", "config.change", AuditCategories.Config, occurredAtUtc: DateTime.UtcNow.AddDays(-3650));
+
+        var run = new RetentionService(_store, _holds, _root).RunOnce(DateTime.UtcNow);
+
+        Assert.Equal(0, run.AuditPurged);
+        var kept = Assert.Single(audit.List(new AuditLogQuery { Action = "config.change" }));
+        Assert.True(kept.OccurredAtUtc < DateTime.UtcNow.AddDays(-3000));
+    }
+
+    /// <summary>
+    /// 事件錄音掛在警報事件上，但兩表之間沒有外鍵，刪事件不會連帶刪錄音。
+    /// 保留清理必須用同一條警報保管期限清掉過期錄音（含事件已汰除的孤兒），否則 BLOB 只增不減。
+    /// </summary>
+    [Fact]
+    public void 事件錄音依警報保管天數清除過期項並保留近期項()
+    {
+        _settings.Set(RetentionService.AlarmDaysKey, "1");
+        var audio = new EventAudioRepository(_store);
+        audio.Save(1, 1, DateTime.UtcNow.AddDays(-10), 1000, "audio/opus", [1, 2, 3]);
+        audio.Save(2, 1, DateTime.UtcNow.AddHours(-1), 1000, "audio/opus", [4, 5, 6]);
+
+        var run = new RetentionService(_store, _holds, _root).RunOnce(DateTime.UtcNow);
+
+        Assert.Equal(1, run.AudioPurged);
+        Assert.Null(audio.GetByEvent(1));
+        Assert.NotNull(audio.GetByEvent(2));
+    }
+
+    /// <summary>
+    /// 清理迴圈的一輪失敗必須被記錄，而且迴圈要活下來。
+    ///
+    /// 舊版是一個空的 catch：資料庫暫時鎖住、目錄權限被改動等原因讓 <c>RunOnce</c> 擲例外時，
+    /// 迴圈會安靜地把每一輪都吞掉，保留清理再也不真正執行，磁碟被灌滿而維運毫無線索——
+    /// 「一直失敗」與「一直沒事」在 log 上沒有任何差別。
+    /// 這裡把資料庫關掉讓 <c>RunOnce</c> 擲例外，確定例外會進 log 且回報可繼續。
+    /// </summary>
+    [Fact]
+    public void 單輪清理擲例外時會記錄且回報繼續()
+    {
+        var logger = new CapturingLogger<RetentionService>();
+        var service = new RetentionService(_store, _holds, _root, logger: logger);
+
+        // 關閉資料庫，讓下一輪 RunOnce 在讀設定／用量時擲例外。
+        _store.Dispose();
+
+        Assert.True(service.RunOnceGuarded(DateTime.UtcNow));
+        Assert.Contains(logger.Entries, e => e.Level == LogLevel.Error);
+    }
+
+    private sealed class CapturingLogger<T> : ILogger<T>
+    {
+        public List<(LogLevel Level, string Message)> Entries { get; } = [];
+
+        public IDisposable? BeginScope<TState>(TState state)
+            where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(
+            LogLevel logLevel,
+            EventId eventId,
+            TState state,
+            Exception? exception,
+            Func<TState, Exception?, string> formatter)
+            => Entries.Add((logLevel, formatter(state, exception)));
     }
 
     private (string File, DateTime Start, DateTime End) SeedSegment(int daysOld, long sizeBytes, string channelDir = "ch001", double offsetSeconds = 0)

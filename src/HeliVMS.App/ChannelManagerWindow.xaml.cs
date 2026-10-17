@@ -41,11 +41,6 @@ public partial class ChannelManagerWindow : Window
     private readonly LicenseService _license;
     private readonly Action? _channelsChanged;
 
-    private readonly ChannelGroupRepository _groups;
-    private long? _selectedGroupId;
-    private bool _groupDeleteArm;
-
-    private sealed record MemberRow(int Id, string Name);
     private int? _channelEditId;
     private bool _channelDeleteArm;
 
@@ -58,11 +53,9 @@ public partial class ChannelManagerWindow : Window
         _license = new LicenseService(store);
         // 頻道異動後通知主視窗立即重載（否則監看區會停在舊畫面／繼續串流已刪除的頻道）。
         _channelsChanged = channelsChanged;
-        _groups = new ChannelGroupRepository(store);
 
         InitializeComponent();
         ApplyI18n();
-        ReloadGroups();
         ReloadDevices();
         ReloadChannels();
     }
@@ -128,27 +121,6 @@ public partial class ChannelManagerWindow : Window
         ApplyChannelEditButton.ToolTip = Localizer.T("Channels.ApplyTip");
         DeleteChannelButton.Content = Localizer.T("Channels.Delete");
         DeleteChannelButton.ToolTip = Localizer.T("Channels.DeleteTip");
-        ChannelGroupHeader.Text = Localizer.T("Channels.GroupHeader");
-        ChannelGroupDesc.Text = Localizer.T("Channels.GroupDesc");
-        ChannelGroupNameLabel.Text = Localizer.T("Channels.GroupNameLabel");
-        GroupNameBox.ToolTip = Localizer.T("Channels.GroupNameTip");
-        CreateGroupButton.Content = Localizer.T("Channels.GroupCreate");
-        CreateGroupButton.ToolTip = Localizer.T("Channels.GroupCreateTip");
-        RenameGroupButton.Content = Localizer.T("Channels.GroupRename");
-        RenameGroupButton.ToolTip = Localizer.T("Channels.GroupRenameTip");
-        DeleteGroupButton.Content = Localizer.T("Channels.GroupDelete");
-        DeleteGroupButton.ToolTip = Localizer.T("Channels.GroupDeleteTip");
-        ChannelGroupListHeader.Text = Localizer.T("Channels.GroupListHeader");
-        ChannelGroupMembersHeader.Text = Localizer.T("Channels.GroupMembersHeader");
-        AddToGroupButton.Content = Localizer.T("Channels.GroupAdd");
-        AddToGroupButton.ToolTip = Localizer.T("Channels.GroupAddTip");
-        RemoveFromGroupButton.Content = Localizer.T("Channels.GroupRemove");
-        RemoveFromGroupButton.ToolTip = Localizer.T("Channels.GroupRemoveTip");
-        GroupUpButton.Content = Localizer.T("Channels.GroupUp");
-        GroupUpButton.ToolTip = Localizer.T("Channels.GroupUpTip");
-        GroupDownButton.Content = Localizer.T("Channels.GroupDown");
-        GroupDownButton.ToolTip = Localizer.T("Channels.GroupDownTip");
-        GroupHintText.Text = Localizer.T("Channels.GroupSelectGroup");
         CloseButton.Content = Localizer.T("Channels.Close");
     }
 
@@ -287,9 +259,6 @@ public partial class ChannelManagerWindow : Window
                 ChannelList.SelectedItem = match;
             }
         }
-
-        // 頻道可能被改名或刪除；群組成員清單顯示的名稱要跟著更新（刪除者歸屬已由 CASCADE 清除）。
-        ReloadMembers();
     }
 
     private void OnChannelSelected(object sender, SelectionChangedEventArgs e)
@@ -580,276 +549,6 @@ public partial class ChannelManagerWindow : Window
         {
             ChannelEditHintText.Text = string.Format(Localizer.T("Channels.AddFailed"), ex.Message);
         }
-    }
-
-    // ---- 監看群組（監控中心頁簽）------------------------------------------------
-    // 群組＝監控中心的一個頁簽：第一個頁簽固定顯示全部攝影機，其餘頁簽各顯示一個
-    // 群組的自選成員。這裡只負責「群組↔頻道」的歸屬與群組內排序；頁簽實際如何把
-    // 成員套用到監看牆（挑成員、只改格位不重連）由 MainWindow 依
-    // ChannelGroupRepository.ListChannelIds + ChannelLayout.SelectInOrder 完成。
-
-    /// <summary>重建群組清單（可指定重新選取的群組）；同時歸零刪除確認與成員清單。</summary>
-    private void ReloadGroups(long? reselect = null)
-    {
-        var groups = _groups.List();
-        var keep = reselect ?? _selectedGroupId;
-
-        // 先歸零：換 ItemsSource 會觸發 SelectionChanged，讓半更新狀態先清掉。
-        _selectedGroupId = null;
-        _groupDeleteArm = false;
-        DeleteGroupButton.Content = Localizer.T("Channels.GroupDelete");
-        GroupMemberList.ItemsSource = null;
-
-        GroupList.ItemsSource = groups;
-
-        var match = keep is long id ? groups.FirstOrDefault(g => g.Id == id) : null;
-        if (match is not null)
-        {
-            // 設回選取會觸發 OnGroupSelected 載入成員。
-            GroupList.SelectedItem = match;
-        }
-        else
-        {
-            GroupHintText.Text = Localizer.T("Channels.GroupSelectGroup");
-        }
-    }
-
-    /// <summary>選取群組時載入其成員（依群組內順序）並預填名稱供改名。</summary>
-    private void OnGroupSelected(object sender, SelectionChangedEventArgs e)
-    {
-        _groupDeleteArm = false;
-        DeleteGroupButton.Content = Localizer.T("Channels.GroupDelete");
-
-        if (GroupList.SelectedItem is not ChannelGroup group)
-        {
-            _selectedGroupId = null;
-            GroupMemberList.ItemsSource = null;
-            return;
-        }
-
-        _selectedGroupId = group.Id;
-        GroupNameBox.Text = group.Name;
-        ReloadMembers();
-    }
-
-    /// <summary>
-    /// 載入目前群組的成員（依群組內順序）；名稱取自頻道清單。
-    /// 頻道若已被刪除，資料層 CASCADE 已清掉歸屬，這裡自然不會出現孤兒列。
-    /// </summary>
-    private void ReloadMembers()
-    {
-        if (_selectedGroupId is not long groupId)
-        {
-            GroupMemberList.ItemsSource = null;
-            return;
-        }
-
-        var names = _channels.List().ToDictionary(c => c.Id, c => c.Name);
-        var members = _groups.ListChannelIds(groupId)
-            .Select(id => new MemberRow(id, names.TryGetValue(id, out var name) ? name : $"#{id}"))
-            .ToList();
-        GroupMemberList.ItemsSource = members;
-
-        GroupHintText.Text = members.Count == 0
-            ? Localizer.T("Channels.GroupNoMembers")
-            : string.Format(Localizer.T("Channels.GroupMemberCount"), members.Count);
-    }
-
-    private void OnCreateGroupClicked(object sender, RoutedEventArgs e)
-    {
-        if (!SessionContext.IsAdmin)
-        {
-            GroupHintText.Text = Localizer.T("Channels.GroupAdminOnly");
-            return;
-        }
-
-        var name = GroupNameBox.Text.Trim();
-        if (name.Length == 0)
-        {
-            GroupHintText.Text = Localizer.T("Channels.GroupNameRequired");
-            return;
-        }
-
-        try
-        {
-            var id = _groups.Create(name);
-            GroupNameBox.Text = string.Empty;
-            ReloadGroups(id);
-            NotifyChannelsChanged();
-            GroupHintText.Text = string.Format(Localizer.T("Channels.GroupCreated"), name);
-        }
-        catch (Exception ex)
-        {
-            GroupHintText.Text = string.Format(Localizer.T("Channels.GroupFailed"), ex.Message);
-        }
-    }
-
-    private void OnRenameGroupClicked(object sender, RoutedEventArgs e)
-    {
-        if (!SessionContext.IsAdmin)
-        {
-            GroupHintText.Text = Localizer.T("Channels.GroupAdminOnly");
-            return;
-        }
-
-        if (_selectedGroupId is not long id)
-        {
-            GroupHintText.Text = Localizer.T("Channels.GroupSelectGroup");
-            return;
-        }
-
-        var name = GroupNameBox.Text.Trim();
-        if (name.Length == 0)
-        {
-            GroupHintText.Text = Localizer.T("Channels.GroupNameRequired");
-            return;
-        }
-
-        try
-        {
-            _groups.Rename(id, name);
-            ReloadGroups(id);
-            NotifyChannelsChanged();
-            GroupHintText.Text = string.Format(Localizer.T("Channels.GroupRenamed"), name);
-        }
-        catch (Exception ex)
-        {
-            GroupHintText.Text = string.Format(Localizer.T("Channels.GroupFailed"), ex.Message);
-        }
-    }
-
-    private void OnDeleteGroupClicked(object sender, RoutedEventArgs e)
-    {
-        if (!SessionContext.IsAdmin)
-        {
-            GroupHintText.Text = Localizer.T("Channels.GroupAdminOnly");
-            return;
-        }
-
-        if (_selectedGroupId is not long id || GroupList.SelectedItem is not ChannelGroup group)
-        {
-            GroupHintText.Text = Localizer.T("Channels.GroupSelectGroup");
-            return;
-        }
-
-        // 兩段式確認：刪除群組會連帶清掉成員歸屬（CASCADE），誤刪無法復原。
-        if (!_groupDeleteArm)
-        {
-            _groupDeleteArm = true;
-            DeleteGroupButton.Content = Localizer.T("Channels.GroupConfirmDelete");
-            GroupHintText.Text = string.Format(Localizer.T("Channels.GroupDeleteConfirm"), group.Name);
-            return;
-        }
-
-        try
-        {
-            _groups.Delete(id);
-            _groupDeleteArm = false;
-            DeleteGroupButton.Content = Localizer.T("Channels.GroupDelete");
-            ReloadGroups();
-            NotifyChannelsChanged();
-            GroupHintText.Text = string.Format(Localizer.T("Channels.GroupDeleted"), group.Name);
-        }
-        catch (Exception ex)
-        {
-            GroupHintText.Text = string.Format(Localizer.T("Channels.GroupFailed"), ex.Message);
-        }
-    }
-
-    private void OnAddToGroupClicked(object sender, RoutedEventArgs e)
-    {
-        if (!SessionContext.IsAdmin)
-        {
-            GroupHintText.Text = Localizer.T("Channels.GroupAdminOnly");
-            return;
-        }
-
-        if (_selectedGroupId is not long groupId)
-        {
-            GroupHintText.Text = Localizer.T("Channels.GroupSelectGroup");
-            return;
-        }
-
-        // 加入的來源是上方頻道清單目前選取的頻道；沒有選取就沒有東西可加入。
-        if (ChannelList.SelectedItem is not ChannelRow row)
-        {
-            GroupHintText.Text = Localizer.T("Channels.GroupSelectChannel");
-            return;
-        }
-
-        try
-        {
-            _groups.Assign(row.Id, groupId);
-            ReloadMembers();
-            NotifyChannelsChanged();
-            GroupHintText.Text = string.Format(Localizer.T("Channels.GroupAdded"), row.Name);
-        }
-        catch (Exception ex)
-        {
-            GroupHintText.Text = string.Format(Localizer.T("Channels.GroupFailed"), ex.Message);
-        }
-    }
-
-    private void OnRemoveFromGroupClicked(object sender, RoutedEventArgs e)
-    {
-        if (!SessionContext.IsAdmin)
-        {
-            GroupHintText.Text = Localizer.T("Channels.GroupAdminOnly");
-            return;
-        }
-
-        if (GroupMemberList.SelectedItem is not MemberRow member)
-        {
-            GroupHintText.Text = Localizer.T("Channels.GroupSelectMember");
-            return;
-        }
-
-        _groups.Remove(member.Id);
-        ReloadMembers();
-        NotifyChannelsChanged();
-        GroupHintText.Text = string.Format(Localizer.T("Channels.GroupRemoved"), member.Name);
-    }
-
-    private void OnGroupUpClicked(object sender, RoutedEventArgs e) => MoveGroupMember(-1);
-
-    private void OnGroupDownClicked(object sender, RoutedEventArgs e) => MoveGroupMember(1);
-
-    /// <summary>把選取的成員在群組內往前／後搬一格（負為前）；採搬移而非交換。</summary>
-    private void MoveGroupMember(int delta)
-    {
-        if (!SessionContext.IsAdmin)
-        {
-            GroupHintText.Text = Localizer.T("Channels.GroupAdminOnly");
-            return;
-        }
-
-        if (_selectedGroupId is not long groupId)
-        {
-            GroupHintText.Text = Localizer.T("Channels.GroupSelectGroup");
-            return;
-        }
-
-        if (GroupMemberList.SelectedItem is not MemberRow member)
-        {
-            GroupHintText.Text = Localizer.T("Channels.GroupSelectMember");
-            return;
-        }
-
-        _groups.Move(groupId, member.Id, delta);
-        ReloadMembers();
-        NotifyChannelsChanged();
-
-        // 重載後重新選取同一台，讓連續點上／下移可以一路搬。
-        if (GroupMemberList.ItemsSource is IEnumerable<MemberRow> rows)
-        {
-            var match = rows.FirstOrDefault(r => r.Id == member.Id);
-            if (match is not null)
-            {
-                GroupMemberList.SelectedItem = match;
-            }
-        }
-
-        GroupHintText.Text = string.Format(Localizer.T("Channels.GroupMoved"), member.Name);
     }
 
 }

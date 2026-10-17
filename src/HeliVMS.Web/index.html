@@ -43,6 +43,7 @@
     <button type="button" id="tabbtn-ptz" class="tab" role="tab" data-tab="ptz" aria-selected="false" aria-controls="panel-ptz"><span data-i18n="nav.ptz">PTZ 控制</span></button>
     <button type="button" id="tabbtn-events" class="tab" role="tab" data-tab="events" aria-selected="false" aria-controls="panel-events"><span data-i18n="nav.events">事件搜尋</span></button>
     <button type="button" id="tabbtn-io" class="tab" role="tab" data-tab="io" aria-selected="false" aria-controls="panel-io"><span data-i18n="nav.io">IO 接點</span></button>
+    <button type="button" id="tabbtn-settings" class="tab" role="tab" data-tab="settings" aria-selected="false" aria-controls="panel-settings"><span data-i18n="nav.settings">設定</span></button>
   </nav>
 
   <main class="grid" id="content">
@@ -165,6 +166,22 @@
         <thead><tr><th scope="col" data-i18n="col.token">權杖</th><th scope="col" data-i18n="col.name">名稱</th><th scope="col" data-i18n="col.label">標籤</th><th scope="col" data-i18n="col.action">動作</th></tr></thead>
         <tbody></tbody>
       </table>
+    </section>
+
+    <section class="panel wide" id="panel-settings" data-panel="settings" role="tabpanel" aria-labelledby="tabbtn-settings" hidden>
+      <h2 data-i18n="nav.settings">設定</h2>
+      <form id="settings-form" class="row-form">
+        <label><input id="set-auth-enabled" type="checkbox" /> <span data-i18n="setting.enableAuth">啟用帳號登入</span></label>
+        <label><span data-i18n="setting.lockThreshold">鎖定次數</span> <input id="set-lock-threshold" type="number" min="1" max="99" step="1" aria-label="Lockout attempts" data-i18n-attr="aria-label:setting.lockThreshold" /></label>
+        <label><span data-i18n="setting.lockMinutes">鎖定分鐘</span> <input id="set-lock-minutes" type="number" min="1" max="1440" step="1" aria-label="Lockout minutes" data-i18n-attr="aria-label:setting.lockMinutes" /></label>
+        <label><span data-i18n="setting.retentionDays">保留天數</span> <input id="set-retention-days" type="number" min="1" max="3650" step="1" aria-label="Retention days" data-i18n-attr="aria-label:setting.retentionDays" /></label>
+        <label><span data-i18n="setting.watermarkGb">浮水印GB</span> <input id="set-watermark-gb" type="number" min="0" max="99999" step="0.1" aria-label="Watermark GB" data-i18n-attr="aria-label:setting.watermarkGb" /></label>
+        <label><span data-i18n="setting.alarmRetention">警報保留</span> <input id="set-alarm-retention" type="number" min="1" max="36500" step="1" aria-label="Alarm retention" data-i18n-attr="aria-label:setting.alarmRetention" /></label>
+        <label><span data-i18n="setting.auditRetention">稽核保留</span> <input id="set-audit-retention" type="number" min="0" max="36500" step="1" aria-label="Audit retention" data-i18n-attr="aria-label:setting.auditRetention" /></label>
+        <button type="submit" data-i18n="setting.save">儲存設定</button>
+        <span id="settings-msg" class="muted" aria-live="polite"></span>
+      </form>
+      <div id="settings-usage" class="muted" role="status" aria-live="polite"></div>
     </section>
   </main>
 

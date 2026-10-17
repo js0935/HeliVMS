@@ -83,8 +83,8 @@ describe('tabs and panels are wired together', () => {
   it('points every tab at a panel that exists', () => {
     const ids = elementIds(indexSource);
     const tabs = [...indexSource.matchAll(/data-tab="([^"]+)"[^>]*aria-controls="([^"]+)"/g)];
-    // 五項功能：即時監看、回放、截圖、PTZ、事件。少一個就代表某個功能點不開。
-    expect(tabs.map((m) => m[1]).sort()).toEqual(['events', 'io', 'live', 'playback', 'ptz', 'snapshot']);
+    // 七項功能：即時監看、回放、截圖、PTZ、事件、IO 接點、設定。少一個就代表某個功能點不開。
+    expect(tabs.map((m) => m[1]).sort()).toEqual(['events', 'io', 'live', 'playback', 'ptz', 'settings', 'snapshot']);
     for (const [, , panel] of tabs) {
       expect(ids, panel).toContain(panel);
     }
@@ -97,7 +97,7 @@ describe('tabs and panels are wired together', () => {
       expect(ids, groups.label).toContain(groups.label);
     }
     const count = indexSource.match(/data-panel="/g) ?? [];
-    expect(count.length).toBe(6);
+    expect(count.length).toBe(7);
   });
 
   it('marks the tab strip as a tablist', () => {

@@ -3,8 +3,18 @@ using HeliVMS.Storage;
 
 namespace HeliVMS.WebApi;
 
-/// <summary>一次保留清理結果；Skipped 為因檔案仍存在或未設定錄影根目錄而保留的段數。</summary>
-public sealed record RetentionRun(int AgePurged, int WatermarkPurged, long BytesFreed, long AlarmPurged, int Skipped);
+/// <summary>
+/// 一次保留清理結果；Skipped 為因檔案仍存在或未設定錄影根目錄而保留的段數，
+/// AuditPurged／AudioPurged 為稽核日誌與事件錄音各自清掉的筆數。
+/// </summary>
+public sealed record RetentionRun(
+    int AgePurged,
+    int WatermarkPurged,
+    long BytesFreed,
+    long AlarmPurged,
+    int Skipped,
+    long AuditPurged = 0,
+    long AudioPurged = 0);
 
 /// <summary>
 /// 錄影保留策略（M132）：保留天數＋浮水印（GB）雙重配額清理。
@@ -14,7 +24,15 @@ public sealed class RetentionService : BackgroundService
 {
     public const string DaysKey = "recording.retention.days";
     public const string WatermarkGbKey = "recording.retention.watermark_gb";
-    public const string AlarmDaysKey = "alarm.retention.days";
+
+    /// <summary>警報事件（連同事件錄音）保管天數；與桌面保留迴圈共用同一把鍵（見 <see cref="MetadataRetentionPruner"/>）。</summary>
+    public const string AlarmDaysKey = MetadataRetentionPruner.AlarmDaysKey;
+
+    /// <summary>
+    /// 稽核日誌保管天數。稽核是資安治理證據（§14.1），預設留一年；設 0 表示永久保留。
+    /// 與桌面保留迴圈共用同一把鍵（見 <see cref="MetadataRetentionPruner"/>）。
+    /// </summary>
+    public const string AuditDaysKey = MetadataRetentionPruner.AuditDaysKey;
 
     /// <summary>錄影根目錄；未設定時不刪檔，僅清除檔案已不存在之段，避免產生孤兒檔。</summary>
     public const string RecordingsRootKey = RecordingStorage.RootVariable;
@@ -23,24 +41,27 @@ public sealed class RetentionService : BackgroundService
     private const int BatchSize = 16;
 
     private readonly SegmentRepository _segments;
-    private readonly AlarmEventRepository _alarms;
+    private readonly SqliteStore _store;
     private readonly SettingsRepository _settings;
     private readonly LegalHoldRepository? _legalHolds;
     private readonly string? _recordingsRoot;
     private readonly TimeSpan _interval;
+    private readonly ILogger<RetentionService>? _logger;
 
     public RetentionService(
         SqliteStore store,
         LegalHoldRepository? legalHolds = null,
         string? recordingsRoot = null,
-        TimeSpan? interval = null)
+        TimeSpan? interval = null,
+        ILogger<RetentionService>? logger = null)
     {
+        _store = store;
         _segments = new SegmentRepository(store);
-        _alarms = new AlarmEventRepository(store);
         _settings = new SettingsRepository(store);
         _legalHolds = legalHolds;
         _recordingsRoot = string.IsNullOrWhiteSpace(recordingsRoot) ? null : Path.GetFullPath(recordingsRoot);
         _interval = interval ?? TimeSpan.FromMinutes(30);
+        _logger = logger;
     }
 
     public int RetentionDays => (int)_settings.GetDoubleOrDefault(DaysKey, 30);
@@ -48,6 +69,9 @@ public sealed class RetentionService : BackgroundService
     public double WatermarkGb => _settings.GetDoubleOrDefault(WatermarkGbKey, 0);
 
     public int AlarmRetentionDays => (int)_settings.GetDoubleOrDefault(AlarmDaysKey, 365);
+
+    /// <summary>稽核日誌保管天數；0 表示永久保留（預設一年）。</summary>
+    public int AuditRetentionDays => (int)_settings.GetDoubleOrDefault(AuditDaysKey, 365);
 
     public long UsageBytes => _segments.GetTotalUsage();
 
@@ -57,88 +81,110 @@ public sealed class RetentionService : BackgroundService
         var days = RetentionDays;
         var watermark = WatermarkGb;
         var alarmDays = AlarmRetentionDays;
+        var auditDays = AuditRetentionDays;
         int agePurged = 0;
         int wmPurged = 0;
         int skipped = 0;
         long freed = 0;
-        var alarmPurged = alarmDays > 0
-            ? _alarms.DeleteOlderThan(nowUtc.AddDays(-alarmDays))
-            : 0;
+
+        // 中繼資料保管期限清理（警報事件／事件錄音／稽核日誌）與桌面端共用同一個入口；
+        // 稽核日誌過去只寫不刪、事件錄音又因沒有外鍵而成為孤兒，長期只增不減。
+        var meta = MetadataRetentionPruner.Prune(_store, nowUtc, alarmDays, auditDays);
+        var alarmPurged = meta.AlarmPurged;
+        var audioPurged = meta.AudioPurged;
+        var auditPurged = meta.AuditPurged;
+
         var cutoff = nowUtc.AddDays(-days);
-        var attempted = new HashSet<long>();
 
-        while (agePurged + wmPurged + skipped < MaxSweep)
+        // 用量只查一次，之後在記憶體裡扣掉已刪除的位元組。舊寫法在浮水印分支裡每刪一筆就
+        // 重算一次 SUM(size_bytes)：百萬列下這是一次又一次的整表掃描，清理永遠追不上寫入。
+        long usage = _segments.GetTotalUsage();
+        var watermarkBytes = (long)(watermark * 1073741824);
+
+        // 保留期清理：以 (start_time, id) 為游標單調往新方向掃，刪光早於截止點的 final 區段。
+        // 用游標而非「每輪重取最舊一批」，才能在受保存鎖定的舊區段夾在最舊端時繼續往後找，
+        // 而不是卡在鎖住的前綴、讓之後所有過期區段都刪不掉（見 ListRetiredAfter）。
+        if (days > 0)
         {
-            var progressed = false;
-
-            if (days > 0)
+            var afterStart = DateTime.MinValue;
+            long afterId = 0;
+            while (agePurged + wmPurged + skipped < MaxSweep)
             {
-                var retired = _segments.ListRetired(cutoff, BatchSize);
-                var target = PickUnlocked(retired, attempted);
-                if (target is not null)
+                var retired = _segments.ListRetiredAfter(cutoff, afterStart, afterId, BatchSize);
+                if (retired.Count == 0)
                 {
-                    attempted.Add(target.Id);
-                    if (Purge(target))
+                    break;
+                }
+
+                afterStart = retired[^1].StartUtc;
+                afterId = retired[^1].Id;
+
+                foreach (var segment in retired)
+                {
+                    if (IsLocked(segment))
                     {
-                        freed += target.SizeBytes;
+                        skipped++;
+                        continue;
+                    }
+
+                    if (Purge(segment))
+                    {
+                        freed += segment.SizeBytes;
+                        usage -= segment.SizeBytes;
                         agePurged++;
                     }
                     else
                     {
                         skipped++;
                     }
-
-                    progressed = true;
                 }
             }
+        }
 
-            if (!progressed && watermark > 0)
+        // 浮水印（容量）清理：年齡清理不足以壓到浮水印以下時，續刪最舊的 final 區段，同樣以游標前進。
+        if (watermark > 0)
+        {
+            var afterStart = DateTime.MinValue;
+            long afterId = 0;
+            while (agePurged + wmPurged + skipped < MaxSweep && usage - watermarkBytes > 0)
             {
-                var watermarkBytes = (long)(watermark * 1073741824);
-                if (_segments.GetTotalUsage() - watermarkBytes > 0)
+                var oldest = _segments.ListOldestFinalAfter(afterStart, afterId, BatchSize);
+                if (oldest.Count == 0)
                 {
-                    var oldest = PickUnlocked(_segments.ListOldestFinal(BatchSize), attempted);
-                    if (oldest is not null)
-                    {
-                        attempted.Add(oldest.Id);
-                        if (Purge(oldest))
-                        {
-                            freed += oldest.SizeBytes;
-                            wmPurged++;
-                        }
-                        else
-                        {
-                            skipped++;
-                        }
+                    break;
+                }
 
-                        progressed = true;
+                afterStart = oldest[^1].StartUtc;
+                afterId = oldest[^1].Id;
+
+                foreach (var segment in oldest)
+                {
+                    if (usage - watermarkBytes <= 0)
+                    {
+                        break;
+                    }
+
+                    if (IsLocked(segment))
+                    {
+                        skipped++;
+                        continue;
+                    }
+
+                    if (Purge(segment))
+                    {
+                        freed += segment.SizeBytes;
+                        usage -= segment.SizeBytes;
+                        wmPurged++;
+                    }
+                    else
+                    {
+                        skipped++;
                     }
                 }
             }
-
-            if (!progressed)
-            {
-                break;
-            }
         }
 
-        return new RetentionRun(agePurged, wmPurged, freed, alarmPurged, skipped);
-    }
-
-    /// <summary>取第一段未受保存鎖定且本輪尚未嘗試者；皆略過時為 null（該輪結束）。</summary>
-    private SegmentRecord? PickUnlocked(IReadOnlyList<SegmentRecord> candidates, HashSet<long> attempted)
-    {
-        for (var i = 0; i < candidates.Count; i++)
-        {
-            if (attempted.Contains(candidates[i].Id) || IsLocked(candidates[i]))
-            {
-                continue;
-            }
-
-            return candidates[i];
-        }
-
-        return null;
+        return new RetentionRun(agePurged, wmPurged, freed, alarmPurged, skipped, auditPurged, audioPurged);
     }
 
     private bool IsLocked(SegmentRecord segment)
@@ -226,16 +272,30 @@ public sealed class RetentionService : BackgroundService
     {
         while (!stoppingToken.IsCancellationRequested)
         {
-            try
-            {
-                RunOnce(DateTime.UtcNow);
-            }
-            catch
-            {
-                // 單輪失敗不影響後續排程
-            }
-
+            RunOnceGuarded(DateTime.UtcNow);
             await Task.Delay(_interval, stoppingToken);
+        }
+    }
+
+    /// <summary>
+    /// 執行一輪保留清理；例外只記錄、不往外拋。回傳是否可繼續下一輪。
+    ///
+    /// 迴圈若讓例外逃逸就會整個結束：保留清理悄悄停止，磁碟被灌滿卻沒有人知道，
+    /// 稽核與健康面板都不會說話。單輪失敗（資料庫暫時鎖住、目錄權限異動）留給下一輪重試，
+    /// 但例外必須進 log——否則「一直失敗」與「一直沒事」在維運眼裡長得一模一樣。
+    /// 空 catch 的版本正是如此，現場只能看到磁碟慢慢滿起來。
+    /// </summary>
+    internal bool RunOnceGuarded(DateTime nowUtc)
+    {
+        try
+        {
+            RunOnce(nowUtc);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "錄影保留清理迴圈發生例外，下一輪會再試。");
+            return true;
         }
     }
 }

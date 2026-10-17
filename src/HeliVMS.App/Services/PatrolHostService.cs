@@ -170,7 +170,7 @@ public sealed class PatrolHostService : IDisposable
     }
 
     /// <summary>
-    /// 以資料庫為準同步執行中的排程：新增、移除、以及使用者改過就重���。
+    /// 以資料庫為準同步執行中的排程：新增、移除、以及使用者改過就重建。
     /// </summary>
     private void Reconcile()
     {

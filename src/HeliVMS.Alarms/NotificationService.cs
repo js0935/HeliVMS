@@ -6,7 +6,7 @@ namespace HeliVMS.Alarms;
 
 /// <summary>
 /// 通知中心（M22，§18.5 通知平面）：佇列接收（非阻塞）＋定時批量分派。
-/// 依 notify.* 設定選擇外送通道（Webhook／SMTP）；失敗指數退避重試
+/// 依 notify.* 設定選擇外送通道（Webhook／SMTP／MQTT／Web Push／SNMP／team+）；失敗指數退避重試
 /// （backoffBase×attempt，最多 maxAttempts 次）。呼叫端一律 <see cref="Enqueue"/>，
 /// 嚴禁在事件引擎鎖內同步發送。
 /// </summary>
@@ -27,6 +27,7 @@ public sealed class NotificationService : IDisposable
     private readonly MqttNotifier _mqtt = new();
     private readonly PushNotifier _push = new();
     private readonly SnmpTrapSender _snmp = new();
+    private readonly TeamPlusNotifier _teamplus = new();
     private readonly NotificationLogRepository _log;
     private readonly ConcurrentQueue<Item> _queue = new();
     private readonly ConcurrentQueue<Item> _retry = new();
@@ -334,6 +335,17 @@ public sealed class NotificationService : IDisposable
             if (!sOk)
             {
                 failures.Add("snmp");
+            }
+        }
+
+        if (cfg.HasTeamPlusRoute && Allow(allow, "teamplus"))
+        {
+            routes.Add("teamplus");
+            var tOk = await _teamplus.SendAsync(cfg, item.Record);
+            success &= tOk;
+            if (!tOk)
+            {
+                failures.Add("teamplus");
             }
         }
 

@@ -30,7 +30,12 @@ public sealed record NotificationSettings(
     bool SnmpEnabled = false,
     string? SnmpHost = null,
     int SnmpPort = 162,
-    string? SnmpCommunity = "public")
+    string? SnmpCommunity = "public",
+    bool TeamPlusEnabled = false,
+    string? TeamPlusApiUrl = null,
+    string? TeamPlusAccount = null,
+    string? TeamPlusApiKey = null,
+    string? TeamPlusChatSn = null)
 {
     public const string EnabledKey = "notify.enabled";
     public const string WebhookUrlKey = "notify.webhook.url";
@@ -58,6 +63,11 @@ public sealed record NotificationSettings(
     public const string SnmpHostKey = "notify.snmp.host";
     public const string SnmpPortKey = "notify.snmp.port";
     public const string SnmpCommunityKey = "notify.snmp.community";
+    public const string TeamPlusEnabledKey = "notify.teamplus.enabled";
+    public const string TeamPlusApiUrlKey = "notify.teamplus.api_url";
+    public const string TeamPlusAccountKey = "notify.teamplus.account";
+    public const string TeamPlusApiKeyKey = "notify.teamplus.api_key";
+    public const string TeamPlusChatSnKey = "notify.teamplus.chat_sn";
 
     /// <summary>是否有任一外送通道已設定。</summary>
     public bool AnyChannelConfigured =>
@@ -65,7 +75,8 @@ public sealed record NotificationSettings(
         (SmtpEnabled && !string.IsNullOrWhiteSpace(SmtpHost) && SmtpTo.Count > 0) ||
         (MqttEnabled && !string.IsNullOrWhiteSpace(MqttHost) && !string.IsNullOrWhiteSpace(MqttTopic)) ||
         (PushEnabled && !string.IsNullOrWhiteSpace(PushEndpoint)) ||
-        HasSnmpRoute;
+        HasSnmpRoute ||
+        HasTeamPlusRoute;
 
     /// <summary>MQTT 通道是否可送（enabled＋host＋topic）。</summary>
     public bool HasMqttRoute => MqttEnabled && !string.IsNullOrWhiteSpace(MqttHost) && !string.IsNullOrWhiteSpace(MqttTopic);
@@ -76,6 +87,14 @@ public sealed record NotificationSettings(
 
     /// <summary>SNMP 陷阱通道是否可送（enabled＋host）。</summary>
     public bool HasSnmpRoute => SnmpEnabled && !string.IsNullOrWhiteSpace(SnmpHost);
+
+    /// <summary>team+ 通道是否可送（enabled＋api_url＋account＋api_key＋chat_sn）。</summary>
+    public bool HasTeamPlusRoute =>
+        TeamPlusEnabled &&
+        !string.IsNullOrWhiteSpace(TeamPlusApiUrl) &&
+        !string.IsNullOrWhiteSpace(TeamPlusAccount) &&
+        !string.IsNullOrWhiteSpace(TeamPlusApiKey) &&
+        !string.IsNullOrWhiteSpace(TeamPlusChatSn);
 
     /// <summary>是否位於靜默時段（notify.quiet.*，本地 24h 制 "HH:mm"；支援跨午夜）。</summary>
     public bool IsInQuietHours(DateTime now)
@@ -190,6 +209,11 @@ public sealed record NotificationSettings(
         var snmpHost = Str(settings, SnmpHostKey, "HELIVMS_SNMP_HOST", null);
         var snmpPort = Int(Str(settings, SnmpPortKey, "HELIVMS_SNMP_PORT", "162")!, 162);
         var snmpCommunity = Str(settings, SnmpCommunityKey, "HELIVMS_SNMP_COMMUNITY", "public");
+        var teamPlusEnabled = Bool(Str(settings, TeamPlusEnabledKey, "HELIVMS_TEAMPLUS_ENABLED", "false")!, false);
+        var teamPlusApiUrl = Str(settings, TeamPlusApiUrlKey, "HELIVMS_TEAMPLUS_API_URL", null);
+        var teamPlusAccount = Str(settings, TeamPlusAccountKey, "HELIVMS_TEAMPLUS_ACCOUNT", null);
+        var teamPlusApiKeyStored = Str(settings, TeamPlusApiKeyKey, "HELIVMS_TEAMPLUS_API_KEY", null);
+        var teamPlusChatSn = Str(settings, TeamPlusChatSnKey, "HELIVMS_TEAMPLUS_CHAT_SN", null);
 
         var to = (toRaw ?? string.Empty)
             .Split(new[] { ',', ';' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
@@ -220,6 +244,11 @@ public sealed record NotificationSettings(
             snmpEnabled,
             snmpHost,
             snmpPort,
-            snmpCommunity);
+            snmpCommunity,
+            teamPlusEnabled,
+            teamPlusApiUrl,
+            teamPlusAccount,
+            string.IsNullOrEmpty(teamPlusApiKeyStored) ? null : SecretProtector.Unprotect(teamPlusApiKeyStored),
+            teamPlusChatSn);
     }
 }

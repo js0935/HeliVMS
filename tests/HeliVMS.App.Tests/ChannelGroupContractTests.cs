@@ -6,46 +6,51 @@ namespace HeliVMS.App.Tests;
 /// 監看群組（監控中心頁簽）契約。
 ///
 /// <para>
-/// 桌面端沒有 WPF 執行期測試，群組的管理入口與頁簽切換只能靠原始碼契約把住。
-/// 這裡防的是三種回歸：頻道管理視窗的群組按鈕忘了接線（建了群組卻沒反應）、
-/// 成員異動後沒通知主視窗（頁簽成員改了但監看牆照舊）、
+/// 監看群組原本夾在「頻道管理」視窗底部，現已抽成獨立的 <c>MonitorGroupWindow</c>，
+/// 入口放在設定中心的「裝置與頻道」頁。桌面端沒有 WPF 執行期測試，群組的管理入口與頁簽切換
+/// 只能靠原始碼契約把住。這裡防的是五種回歸：裝置與頻道頁的入口按鈕忘了接線或忘了擋非管理員
+/// （群組按鈕建了群組卻沒反應／唯讀帳號能改頁簽）、群組視窗的按鈕忘了接線、
+/// 成員異動後沒通知主視窗（頁簽成員改了但監看牆照舊）、同一台攝影機被加入第二個群組
+/// （資料層允許改派，UI 忘了擋就會把該台從舊群組悄悄搬走）、
 /// 以及切頁簽時誤用 <c>ConnectAsync</c> 重連（切個頁簽就中斷所有錄影）。
 /// </para>
 /// </summary>
 public sealed class ChannelGroupContractTests
 {
-    private const string ChannelCode = "src/HeliVMS.App/ChannelManagerWindow.xaml.cs";
-    private const string ChannelXaml = "src/HeliVMS.App/ChannelManagerWindow.xaml";
+    private const string GroupCode = "src/HeliVMS.App/MonitorGroupWindow.xaml.cs";
+    private const string GroupXaml = "src/HeliVMS.App/MonitorGroupWindow.xaml";
+    private const string SettingsCode = "src/HeliVMS.App/SettingsWindow.xaml.cs";
+    private const string SettingsXaml = "src/HeliVMS.App/SettingsWindow.xaml";
     private const string MainCode = "src/HeliVMS.App/MainWindow.xaml.cs";
     private const string MainXaml = "src/HeliVMS.App/MainWindow.xaml";
 
     [Fact]
     public void 群組清單選取會接線到載入成員()
     {
-        Assert.Equal("OnGroupSelected", WiredHandler(ChannelXaml, "GroupList"));
+        Assert.Equal("OnGroupSelected", WiredHandler(GroupXaml, "GroupList"));
     }
 
     [Fact]
     public void 建立改名刪除群組按鈕都有接線()
     {
-        Assert.Equal("OnCreateGroupClicked", WiredHandler(ChannelXaml, "CreateGroupButton"));
-        Assert.Equal("OnRenameGroupClicked", WiredHandler(ChannelXaml, "RenameGroupButton"));
-        Assert.Equal("OnDeleteGroupClicked", WiredHandler(ChannelXaml, "DeleteGroupButton"));
+        Assert.Equal("OnCreateGroupClicked", WiredHandler(GroupXaml, "CreateGroupButton"));
+        Assert.Equal("OnRenameGroupClicked", WiredHandler(GroupXaml, "RenameGroupButton"));
+        Assert.Equal("OnDeleteGroupClicked", WiredHandler(GroupXaml, "DeleteGroupButton"));
     }
 
     [Fact]
     public void 成員加入移除與上下移按鈕都有接線()
     {
-        Assert.Equal("OnAddToGroupClicked", WiredHandler(ChannelXaml, "AddToGroupButton"));
-        Assert.Equal("OnRemoveFromGroupClicked", WiredHandler(ChannelXaml, "RemoveFromGroupButton"));
-        Assert.Equal("OnGroupUpClicked", WiredHandler(ChannelXaml, "GroupUpButton"));
-        Assert.Equal("OnGroupDownClicked", WiredHandler(ChannelXaml, "GroupDownButton"));
+        Assert.Equal("OnAddToGroupClicked", WiredHandler(GroupXaml, "AddToGroupButton"));
+        Assert.Equal("OnRemoveFromGroupClicked", WiredHandler(GroupXaml, "RemoveFromGroupButton"));
+        Assert.Equal("OnGroupUpClicked", WiredHandler(GroupXaml, "GroupUpButton"));
+        Assert.Equal("OnGroupDownClicked", WiredHandler(GroupXaml, "GroupDownButton"));
     }
 
     [Fact]
     public void 刪除群組採兩段式確認且呼叫Delete()
     {
-        var body = BodyOf(ChannelCode, "OnDeleteGroupClicked");
+        var body = BodyOf(GroupCode, "OnDeleteGroupClicked");
 
         // 群組刪除會 CASCADE 清掉成員歸屬，誤刪無法復原，故要兩段式：
         // 第一次只佈署、「按第二次才真的刪」。
@@ -64,7 +69,7 @@ public sealed class ChannelGroupContractTests
             "OnAddToGroupClicked", "OnRemoveFromGroupClicked", "MoveGroupMember",
         })
         {
-            var body = BodyOf(ChannelCode, handler);
+            var body = BodyOf(GroupCode, handler);
             Assert.NotEqual(string.Empty, body);
             Assert.Contains("SessionContext.IsAdmin", body);
             Assert.Contains("\"Channels.GroupAdminOnly\"", body);
@@ -82,7 +87,7 @@ public sealed class ChannelGroupContractTests
             "OnAddToGroupClicked", "OnRemoveFromGroupClicked", "MoveGroupMember",
         })
         {
-            Assert.Contains("NotifyChannelsChanged();", BodyOf(ChannelCode, handler));
+            Assert.Contains("NotifyChannelsChanged();", BodyOf(GroupCode, handler));
         }
     }
 
@@ -91,8 +96,51 @@ public sealed class ChannelGroupContractTests
     {
         // 一台攝影機最多屬一個群組；加入＝Assign（資料層負責先清掉舊歸屬再排到尾端），
         // 而不是自己在 UI 疊一筆，否則同一台會出現在兩個頁簽。
-        var body = BodyOf(ChannelCode, "OnAddToGroupClicked");
+        var body = BodyOf(GroupCode, "OnAddToGroupClicked");
         Assert.Contains("_groups.Assign(row.Id, groupId)", body);
+    }
+
+    [Fact]
+    public void 已歸屬其他群組的攝影機加入時會被擋下()
+    {
+        // 使用者要求「不同的群組不能加入相同的攝影機」。資料層雖只允許一台一組，但直接
+        // Assign 會把該台從舊群組悄悄搬過來——使用者看到的是舊群組莫名空了。故加入前先查
+        // GroupOf，已歸屬就提示所屬群組並 return，不執行 Assign（要改派得先移除）。
+        var body = BodyOf(GroupCode, "OnAddToGroupClicked");
+
+        Assert.Contains("_groups.GroupOf(row.Id)", body);
+        Assert.Contains("\"Channels.GroupAlreadyAssigned\"", body);
+        Assert.Contains("return;", body);
+
+        // 擋下的判斷要在 Assign 之前，否則就只是先搬再提示。
+        Assert.True(
+            body.IndexOf("GroupOf(row.Id)", StringComparison.Ordinal)
+                < body.IndexOf("_groups.Assign(", StringComparison.Ordinal),
+            "歸屬檢查必須發生在 Assign 之前。");
+    }
+
+    [Fact]
+    public void 來源清單標示已歸屬頻道所屬群組()
+    {
+        // 已加到某群組的攝影機仍留在來源清單，但名稱後要標「（群組：…）」，讓操作者一眼
+        // 看出它已被佔用；少了這個標示，清單看起來每台都還能加。
+        var body = BodyOf(GroupCode, "ReloadSourceChannels");
+
+        Assert.Contains("Channels.GroupAssignedLabel", body);
+        Assert.Contains("ListChannelIds", body);
+        Assert.Contains("Label", SourceContract.Read(GroupXaml));
+    }
+
+    [Theory]
+    [InlineData("OnAddToGroupClicked")]
+    [InlineData("OnRemoveFromGroupClicked")]
+    [InlineData("OnDeleteGroupClicked")]
+    [InlineData("OnRenameGroupClicked")]
+    public void 群組歸屬或名稱改變後會刷新來源清單(string handler)
+    {
+        // 來源清單顯示的是「頻道→所屬群組」；加入／移除／刪群組／改名都會改變這個對應，
+        // 沒重載就會出現「已移出卻仍標示群組」或標到舊名稱。
+        Assert.Contains("ReloadSourceChannels();", BodyOf(GroupCode, handler));
     }
 
     [Fact]
@@ -170,12 +218,24 @@ public sealed class ChannelGroupContractTests
     }
 
     [Fact]
-    public void 頻道管理有群組編輯區塊()
+    public void 監看群組視窗有群組編輯區塊()
     {
-        var xaml = SourceContract.Read(ChannelXaml);
+        var xaml = SourceContract.Read(GroupXaml);
 
         Assert.Contains("GroupMemberList", xaml);
         Assert.Contains("GroupNameBox", xaml);
+    }
+
+    [Fact]
+    public void 裝置與頻道頁的監看群組入口有接線且擋非管理員()
+    {
+        // 入口從頻道管理搬到「裝置與頻道」頁後，按鈕若忘了接線就整個功能無入口；
+        // 忘了擋非管理員則唯讀帳號能直接開視窗改頁簽內容。
+        Assert.Equal("OnOpenMonitorGroupsClicked", WiredHandler(SettingsXaml, "OpenMonitorGroupsButton"));
+
+        var body = BodyOf(SettingsCode, "OnOpenMonitorGroupsClicked");
+        Assert.Contains("SessionContext.IsAdmin", body);
+        Assert.Contains("MonitorGroupWindow", body);
     }
 
     private static string BodyOf(string path, string method)

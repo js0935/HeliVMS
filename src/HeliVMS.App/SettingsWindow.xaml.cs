@@ -25,10 +25,19 @@ namespace HeliVMS.App;
 /// </summary>
 public partial class SettingsWindow : Window
 {
-    private const string QuotaKey = "recording.quota_gb";
-    private const double DefaultQuotaGb = 10.0;
-    private const string SnapshotDaysKey = "snapshots.retention_days";
-    private const int DefaultSnapshotDays = 30;
+    // 配額與快照保管天數的設定鍵／預設值引用 RetentionCoordinator（桌面、Agent 共用），避免各寫一份字串而漂移。
+    private const string QuotaKey = RetentionCoordinator.QuotaGbKey;
+    private const double DefaultQuotaGb = RetentionCoordinator.DefaultQuotaGb;
+    private const string SnapshotDaysKey = RetentionCoordinator.SnapshotDaysKey;
+    private const int DefaultSnapshotDays = RetentionCoordinator.DefaultSnapshotDays;
+
+    // 中繼資料保管期限：鍵與預設值直接引用 WebApi 也使用的同一份定義（MetadataRetentionPruner），
+    // 避免桌面與 Web 各自寫一份字串而漂移（漂移的話，用 Web 設定改天數、桌面迴圈卻讀不到）。
+    // 0＝永久保留。
+    private const string AlarmRetentionDaysKey = MetadataRetentionPruner.AlarmDaysKey;
+    private const string AuditRetentionDaysKey = MetadataRetentionPruner.AuditDaysKey;
+    private const int DefaultMetadataRetentionDays = MetadataRetentionPruner.DefaultDays;
+    private const int MaxMetadataRetentionDays = 36500;
     private const string TamperKey = "detect.tamper.enabled";
     private const string HwAccelKey = "decode.hwaccel";
 
@@ -127,6 +136,7 @@ public partial class SettingsWindow : Window
         var isAdmin = SessionContext.IsAdmin;
         OpenCameraManagerButton.IsEnabled = isAdmin;
         OpenChannelManagerButton.IsEnabled = isAdmin;
+        OpenMonitorGroupsButton.IsEnabled = isAdmin;
 
         VersionText.Text = $"HeliVMS {Assembly.GetExecutingAssembly().GetName().Version}";
         DataRootText.Text = _dataRoot;
@@ -135,9 +145,12 @@ public partial class SettingsWindow : Window
 
         ReloadQuota();
         ReloadSnapshotDays();
+        ReloadAlarmRetentionDays();
+        ReloadAuditRetentionDays();
         ReloadUsage();
         ReloadRecordingsDisk();
         ReloadBandwidthBudget();
+        ReloadSegmentSeconds();
         ReloadLicense();
         ReloadNotify();
         ReloadRules();
@@ -313,6 +326,10 @@ public partial class SettingsWindow : Window
         ApplyBandwidthBudgetButton.Content = Localizer.T("Settings.Apply");
         ApplyBandwidthBudgetButton.ToolTip = Localizer.T("Settings.ApplyBandwidthBudgetTip");
         BandwidthBudgetHintText.Text = Localizer.T("Settings.BandwidthBudgetHint");
+        SegmentSecondsLabel.Text = Localizer.T("Settings.SegmentSecondsLabel");
+        ApplySegmentSecondsButton.Content = Localizer.T("Settings.Apply");
+        ApplySegmentSecondsButton.ToolTip = Localizer.T("Settings.ApplySegmentSecondsTip");
+        SegmentSecondsHintText.Text = Localizer.T("Settings.SegmentSecondsHint");
         QuotaLabel.Text = Localizer.T("Settings.QuotaLabel");
         ApplyQuotaButton.Content = Localizer.T("Settings.Apply");
         ApplyQuotaButton.ToolTip = Localizer.T("Settings.ApplyQuotaTip");
@@ -320,6 +337,14 @@ public partial class SettingsWindow : Window
         SnapshotDaysLabel.Text = Localizer.T("Settings.SnapshotDaysLabel");
         ApplySnapshotDaysButton.Content = Localizer.T("Settings.Apply");
         ApplySnapshotDaysButton.ToolTip = Localizer.T("Settings.ApplySnapshotDaysTip");
+        AlarmRetentionDaysLabel.Text = Localizer.T("Settings.AlarmRetentionDaysLabel");
+        ApplyAlarmRetentionDaysButton.Content = Localizer.T("Settings.Apply");
+        ApplyAlarmRetentionDaysButton.ToolTip = Localizer.T("Settings.ApplyAlarmRetentionDaysTip");
+        AlarmRetentionDaysHintText.Text = Localizer.T("Settings.AlarmRetentionDaysHint");
+        AuditRetentionDaysLabel.Text = Localizer.T("Settings.AuditRetentionDaysLabel");
+        ApplyAuditRetentionDaysButton.Content = Localizer.T("Settings.Apply");
+        ApplyAuditRetentionDaysButton.ToolTip = Localizer.T("Settings.ApplyAuditRetentionDaysTip");
+        AuditRetentionDaysHintText.Text = Localizer.T("Settings.AuditRetentionDaysHint");
         CleanupButton.Content = Localizer.T("Settings.Cleanup");
         CleanupButton.ToolTip = Localizer.T("Settings.CleanupTip");
 
@@ -330,6 +355,8 @@ public partial class SettingsWindow : Window
         OpenCameraManagerButton.ToolTip = Localizer.T("Settings.OpenCameraTip");
         OpenChannelManagerButton.Content = Localizer.T("Settings.OpenChannels");
         OpenChannelManagerButton.ToolTip = Localizer.T("Settings.OpenChannelTip");
+        OpenMonitorGroupsButton.Content = Localizer.T("Settings.OpenMonitorGroups");
+        OpenMonitorGroupsButton.ToolTip = Localizer.T("Settings.OpenMonitorGroupsTip");
 
         // 授權
         LicenseTitle.Text = Localizer.T("Settings.LicenseTitle");
@@ -441,6 +468,12 @@ public partial class SettingsWindow : Window
         NotifySnmpEnabledBox.Content = Localizer.T("Settings.NotifySnmpSend");
         NotifySnmpHostLabel.Text = Localizer.T("Settings.HostLabel");
         NotifySnmpPortLabel.Text = Localizer.T("Settings.PortLabel");
+        NotifyTeamPlusHeading.Text = Localizer.T("Settings.NotifyTeamPlusHeading");
+        NotifyTeamPlusEnabledBox.Content = Localizer.T("Settings.NotifyTeamPlusSend");
+        NotifyTeamPlusApiUrlLabel.Text = Localizer.T("Settings.NotifyTeamPlusApiUrlLabel");
+        NotifyTeamPlusAccountLabel.Text = Localizer.T("Settings.NotifyTeamPlusAccountLabel");
+        NotifyTeamPlusApiKeyLabel.Text = Localizer.T("Settings.NotifyTeamPlusApiKeyLabel");
+        NotifyTeamPlusChatSnLabel.Text = Localizer.T("Settings.NotifyTeamPlusChatSnLabel");
         NotifyApplyButton.Content = Localizer.T("Settings.ApplyNotify");
         NotifyApplyButton.ToolTip = Localizer.T("Settings.ApplyNotifyTip");
 
@@ -467,6 +500,8 @@ public partial class SettingsWindow : Window
         RuleChannelPushBox.ToolTip = Localizer.T("Settings.PushTip");
         RuleChannelSnmpBox.Content = Localizer.T("Settings.Snmp");
         RuleChannelSnmpBox.ToolTip = Localizer.T("Settings.SnmpTip");
+        RuleChannelTeamPlusBox.Content = Localizer.T("Settings.TeamPlus");
+        RuleChannelTeamPlusBox.ToolTip = Localizer.T("Settings.TeamPlusTip");
         ToggleRuleButton.Content = Localizer.T("Settings.Toggle");
         ToggleRuleButton.ToolTip = Localizer.T("Settings.ToggleRuleTip");
         DeleteRuleButton.Content = Localizer.T("Settings.DeleteRule");
@@ -775,6 +810,17 @@ public partial class SettingsWindow : Window
         new ChannelManagerWindow(_store, _channelsChanged) { Owner = this }.Show();
     }
 
+    /// <summary>從設定中心開啟監看群組（獨立功能；僅 admin）。</summary>
+    private void OnOpenMonitorGroupsClicked(object sender, RoutedEventArgs e)
+    {
+        if (!SessionContext.IsAdmin)
+        {
+            return;
+        }
+
+        new MonitorGroupWindow(_store, _channelsChanged) { Owner = this }.Show();
+    }
+
     private void ReloadBackup()
     {
         BackupEnabledBox.IsChecked = _settings.Get("backup.enabled") == "1";
@@ -904,10 +950,13 @@ public partial class SettingsWindow : Window
                 return;
             }
 
-            // 無權限調整系統時鐘不算失敗：偏移量仍然有用，明確告訴操作員要怎麼做。
+            // 無權限就地調整系統時鐘不算失敗：偏移量仍然有用，且已改請 Agent 服務代為校時；
+            // 明確告訴操作員目前是哪一種結果，而不是丟一句看不懂的 Win32 訊息。
             var clock = outcome.ClockSet
                 ? Localizer.T("Settings.NtpClockSet")
-                : string.Format(Localizer.T("Settings.NtpClockSetDenied"), outcome.Error ?? string.Empty);
+                : outcome.ServiceRequested
+                    ? Localizer.T("Settings.NtpClockSetDelegated")
+                    : string.Format(Localizer.T("Settings.NtpClockSetDenied"), outcome.Error ?? string.Empty);
             NtpStatusText.Text = string.Format(
                 Localizer.T("Settings.NtpSynced"),
                 (long)outcome.Offset.TotalMilliseconds,
@@ -1625,6 +1674,7 @@ public partial class SettingsWindow : Window
         if (RuleChannelMqttBox.IsChecked == true) set.Add("mqtt");
         if (RuleChannelPushBox.IsChecked == true) set.Add("push");
         if (RuleChannelSnmpBox.IsChecked == true) set.Add("snmp");
+        if (RuleChannelTeamPlusBox.IsChecked == true) set.Add("teamplus");
         return set.Count == 0 ? null : string.Join(",", set);
     }
 
@@ -1670,6 +1720,7 @@ public partial class SettingsWindow : Window
         RuleChannelMqttBox.IsChecked = false;
         RuleChannelPushBox.IsChecked = false;
         RuleChannelSnmpBox.IsChecked = false;
+        RuleChannelTeamPlusBox.IsChecked = false;
         ReloadRules();
     }
 
@@ -1716,6 +1767,16 @@ public partial class SettingsWindow : Window
         BandwidthBudgetTextBox.Text = (bps / 1_000_000d).ToString("0.#", CultureInfo.InvariantCulture);
     }
 
+    /// <summary>
+    /// 顯示目前的錄影分段長度（秒）。設定值以秒儲存，與錄影端 <see cref="RecordingSegmentPolicy"/>
+    /// 讀的是同一個鍵；這裡只做顯示，不在 UI 端另存一份而分歧。
+    /// </summary>
+    private void ReloadSegmentSeconds()
+    {
+        SegmentSecondsTextBox.Text = RecordingSegmentPolicy.Read(_store)
+            .ToString(CultureInfo.InvariantCulture);
+    }
+
     private double QuotaGbFromStore()
     {
         var fromDb = _settings.GetDoubleOrDefault(QuotaKey, -1);
@@ -1757,6 +1818,35 @@ public partial class SettingsWindow : Window
         return DefaultSnapshotDays;
     }
 
+    private void ReloadAlarmRetentionDays()
+    {
+        AlarmRetentionDaysTextBox.Text = MetadataRetentionDaysFromStore(AlarmRetentionDaysKey)
+            .ToString(CultureInfo.InvariantCulture);
+    }
+
+    private void ReloadAuditRetentionDays()
+    {
+        AuditRetentionDaysTextBox.Text = MetadataRetentionDaysFromStore(AuditRetentionDaysKey)
+            .ToString(CultureInfo.InvariantCulture);
+    }
+
+    /// <summary>
+    /// 讀中繼資料保管天數。0 是合法值（永久保留），所以不能用「&lt;=0 當未設定」的哨兵；
+    /// 只有「鍵不存在」才落回預設。GetDoubleOrDefault 以 double 存字串，故取整。
+    /// </summary>
+    private int MetadataRetentionDaysFromStore(string key)
+    {
+        var raw = _settings.Get(key);
+        if (raw is not null &&
+            double.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture, out var days) &&
+            days >= 0 && days <= MaxMetadataRetentionDays)
+        {
+            return (int)days;
+        }
+
+        return DefaultMetadataRetentionDays;
+    }
+
     private void ReloadNotify()
     {
         var cfg = NotificationSettings.Load(_settings);
@@ -1784,6 +1874,11 @@ public partial class SettingsWindow : Window
         NotifySnmpHostBox.Text = cfg.SnmpHost ?? string.Empty;
         NotifySnmpPortBox.Text = cfg.SnmpPort.ToString(CultureInfo.InvariantCulture);
         NotifySnmpCommunityBox.Text = cfg.SnmpCommunity ?? string.Empty;
+        NotifyTeamPlusEnabledBox.IsChecked = cfg.TeamPlusEnabled;
+        NotifyTeamPlusApiUrlBox.Text = cfg.TeamPlusApiUrl ?? string.Empty;
+        NotifyTeamPlusAccountBox.Text = cfg.TeamPlusAccount ?? string.Empty;
+        NotifyTeamPlusApiKeyBox.Password = string.Empty;   // 不預填 API Key
+        NotifyTeamPlusChatSnBox.Text = cfg.TeamPlusChatSn ?? string.Empty;
     }
 
     private void OnApplyNotifyClicked(object sender, RoutedEventArgs e)
@@ -1848,6 +1943,18 @@ public partial class SettingsWindow : Window
         _settings.Set(NotificationSettings.SnmpPortKey, snmpPort.ToString(CultureInfo.InvariantCulture));
         _settings.Set(NotificationSettings.SnmpCommunityKey, NotifySnmpCommunityBox.Text.Trim());
 
+        _settings.Set(NotificationSettings.TeamPlusEnabledKey,
+            NotifyTeamPlusEnabledBox.IsChecked == true ? "true" : "false");
+        _settings.Set(NotificationSettings.TeamPlusApiUrlKey, NotifyTeamPlusApiUrlBox.Text.Trim());
+        _settings.Set(NotificationSettings.TeamPlusAccountKey, NotifyTeamPlusAccountBox.Text.Trim());
+        var teamPlusApiKey = NotifyTeamPlusApiKeyBox.Password;
+        if (!string.IsNullOrEmpty(teamPlusApiKey))
+        {
+            _settings.Set(NotificationSettings.TeamPlusApiKeyKey, SecretProtector.Protect(teamPlusApiKey));
+        }
+
+        _settings.Set(NotificationSettings.TeamPlusChatSnKey, NotifyTeamPlusChatSnBox.Text.Trim());
+
         NotifyReportText.Text = Localizer.T("Settings.NotifyApplied");
     }
 
@@ -1864,6 +1971,30 @@ public partial class SettingsWindow : Window
         CleanupReportText.Text = string.Format(Localizer.T("Settings.SnapshotDaysApplied"), days);
     }
 
+    private void OnApplyAlarmRetentionDaysClicked(object sender, RoutedEventArgs e)
+        => ApplyMetadataRetentionDays(AlarmRetentionDaysTextBox, AlarmRetentionDaysKey,
+            AlarmRetentionDaysStatusText, "Settings.AlarmRetentionDaysApplied");
+
+    private void OnApplyAuditRetentionDaysClicked(object sender, RoutedEventArgs e)
+        => ApplyMetadataRetentionDays(AuditRetentionDaysTextBox, AuditRetentionDaysKey,
+            AuditRetentionDaysStatusText, "Settings.AuditRetentionDaysApplied");
+
+    /// <summary>
+    /// 套用中繼資料保管天數。0 合法（永久保留），故範圍是 0..36500，與 WebApi PUT /config 的驗證一致。
+    /// </summary>
+    private void ApplyMetadataRetentionDays(TextBox box, string key, TextBlock status, string appliedKey)
+    {
+        if (!int.TryParse(box.Text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var days) ||
+            days < 0 || days > MaxMetadataRetentionDays)
+        {
+            status.Text = Localizer.T("Settings.RetentionDaysRange");
+            return;
+        }
+
+        _settings.Set(key, days.ToString(CultureInfo.InvariantCulture));
+        status.Text = string.Format(Localizer.T(appliedKey), days);
+    }
+
     private static string FormatBytes(long bytes) => bytes >= 1024d * 1024 * 1024
         ? $"{bytes / 1024d / 1024 / 1024:0.#}GB"
         : $"{bytes / 1024d / 1024:0.#}MB";
@@ -1873,7 +2004,7 @@ public partial class SettingsWindow : Window
     ///
     /// 這裡以前是 <c>Directory.EnumerateFiles(recordingsRoot, "*.mp4",
     /// SearchOption.TopDirectoryOnly)</c>，而錄影檔實際寫在
-    /// <c>recordings/chXXX/yyyyMMdd/seg-HHmmss.mp4</c>（兩層底下）。
+    /// <c>recordings/chXXX/yyyyMMdd/seg-HHmmssfff.mp4</c>（兩層底下）。
     /// 根層一個 mp4 都掃不到，所以用量恆為 0，畫面長期顯示「0B（0 段）」——
     /// 使用者無從知道磁碟快滿了，而配額清理正在背後默默吃掉舊錄影。
     ///
@@ -2111,6 +2242,27 @@ public partial class SettingsWindow : Window
             : string.Format(Localizer.T("Settings.BandwidthBudgetApplied"), mbps);
     }
 
+    /// <summary>
+    /// 套用錄影分段長度（秒）。錄影端每段一個檔，分段越長檔數越少、磁碟與索引越省，
+    /// 但 HLS 搜尋粒度與程序崩潰時的損失也越大；超出允許範圍一律退件並提示，
+    /// 不悄悄夾值——操作員會以為設的值生效了，事實卻不是。
+    /// </summary>
+    private void OnApplySegmentSecondsClicked(object sender, RoutedEventArgs e)
+    {
+        if (!RecordingSegmentPolicy.TryParse(SegmentSecondsTextBox.Text, out var seconds))
+        {
+            SegmentSecondsStatusText.Text = string.Format(
+                Localizer.T("Settings.SegmentSecondsInvalid"),
+                RecordingSegmentPolicy.MinSeconds,
+                RecordingSegmentPolicy.MaxSeconds);
+            return;
+        }
+
+        _settings.Set(RecordingSegmentPolicy.SettingKey, seconds.ToString(CultureInfo.InvariantCulture));
+        ReloadSegmentSeconds();
+        SegmentSecondsStatusText.Text = string.Format(Localizer.T("Settings.SegmentSecondsApplied"), seconds);
+    }
+
     private void OnCleanupClicked(object sender, RoutedEventArgs e)
     {
         try
@@ -2188,7 +2340,7 @@ public partial class SettingsWindow : Window
     /// <remarks>
     /// 為什麼連未授權的也要列出：未授權功能是直接從介面上隱藏的（§19.4），
     /// 所以操作員看到的是「排程按鈕不見了」，畫面上沒有任何線索說明原因，
-    /// 也不�得要怎麼才能開。如果只顯示已授權的清單，他看到的就是一個空集合，
+    /// 也不曉得要怎麼才能開。如果只顯示已授權的清單，他看到的就是一個空集合，
     /// 頂多以為自己買了什麼都沒有的版本。把缺什麼寫出來，他才知道該問廠商加哪一項。
     /// </remarks>
     /// <remarks>

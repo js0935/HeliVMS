@@ -70,11 +70,18 @@ public sealed class RetentionService
 
         while (usage > quotaBytes)
         {
-            var candidates = _repo.ListOldestFinal(64);
+            // 汰除候選改依配額優先序（事件段先、全時段後，同層由舊至新；見 ListReclaimCandidates）。
+            // 這是 §11.1 磁碟滿策略的第二階段；以前一律只看最舊，等於對事件段與全時段一視同仁。
+            var candidates = _repo.ListReclaimCandidates(64);
             SegmentRecord? target = null;
-            for (var i = 0; i < candidates.Count; i++)
+
+            // 逐一挑第一個「大小已知、未受保存鎖定、且檔案真的刪得掉」的區段。
+            //
+            // 檔案刪不掉時（被防毒／播放器占用，或路徑汙染成不在錄影根目錄內）要「跳過」，
+            // 不能就此結束整輪：最舊的一個搬不動的檔案不該讓配額永遠降不下來、磁碟被寫爆。
+            // 刪不掉的索引列一律保留，下一輪再試。
+            foreach (var seg in candidates)
             {
-                var seg = candidates[i];
                 if (seg.SizeBytes <= 0)
                 {
                     continue;
@@ -85,25 +92,24 @@ public sealed class RetentionService
                     continue;
                 }
 
+                if (!TryDeleteSegmentFile(seg.FilePath))
+                {
+                    continue;
+                }
+
                 target = seg;
                 break;
             }
 
             if (target is null)
             {
+                // 這一批已無可刪目標（全數受鎖定、待收尾或刪不掉）：結束本輪。
                 break;
             }
 
-            var chosen = target!;
-            if (!TryDeleteSegmentFile(chosen.FilePath))
-            {
-                // 檔案仍在（遭占用或路徑不在錄影根目錄內）：保留索引列，待下一輪重試。
-                break;
-            }
-
-            _repo.Delete(chosen.Id);
-            usage -= chosen.SizeBytes;
-            freed += chosen.SizeBytes;
+            _repo.Delete(target.Id);
+            usage -= target.SizeBytes;
+            freed += target.SizeBytes;
             deleted++;
         }
 

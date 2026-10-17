@@ -26,10 +26,18 @@ namespace HeliVMS.App.Tests;
 /// </summary>
 public sealed class RecordingGateContractTests
 {
-    /// <summary>（檔案, 方法）→ 建立錄影器前必須呼叫的閘門。</summary>
+    /// <summary>
+    /// （檔案, 方法）→ 建立錄影器前必須呼叫的閘門。
+    ///
+    /// 排程的目標是 <c>ReconcileAsyncCore</c>，不是公開的 <c>ReconcileAsync</c>：
+    /// 後者現在只負責用 <c>_reconcileGate</c> 把調和序列化（避免計時器兩輪重疊），
+    /// 決策與建立錄影器的本體都搬到 Core 裡。閘門仍只有兩條路徑（排程的 Core 與人工的
+    /// SetRecordingAsync），此契約就是釘住這兩處；<c>ReconcileAsync</c> 與 <c>OnTick</c>
+    /// 都只經由 Core 進入，無法繞過。
+    /// </summary>
     private static readonly (string File, string Method)[] Sites =
     [
-        ("src/HeliVMS.Recording/RecordingScheduler.cs", "ReconcileAsync"),
+        ("src/HeliVMS.Recording/RecordingScheduler.cs", "ReconcileAsyncCore"),
         ("src/HeliVMS.App/Services/ChannelSession.cs", "SetRecordingAsync"),
     ];
 

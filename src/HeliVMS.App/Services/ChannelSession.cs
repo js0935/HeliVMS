@@ -325,8 +325,11 @@ public sealed class ChannelSession : IDisposable
             RecordingBlockedReason = null;
             var recorder = new SegmentRecorder(
                 new SegmentRepository(_store),
-                rootSelector: RecordingStorage.CreateRootSelector(_store, _recordingsRoot));
-            await recorder.StartAsync(ChannelId, RecordingUrl, _recordingsRoot, "main", segmentSeconds: 15);
+                rootSelector: RecordingStorage.CreateRootSelector(_store, _recordingsRoot),
+                // 與排程錄影同一套資料夾命名（M311）：監看牆手動錄影若走舊制 ch{id}，
+                // 同一台攝影機會在磁碟上留下兩個不同名稱的目錄。
+                folderNameFor: id => RecordingFolderNaming.ResolveFor(_store, id));
+            await recorder.StartAsync(ChannelId, RecordingUrl, _recordingsRoot, "main", segmentSeconds: RecordingSegmentPolicy.Read(_store));
             _recorder = recorder;
         }
         else if (!recording && _recorder is not null)

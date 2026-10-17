@@ -57,6 +57,30 @@ public class RetentionServiceTests : IDisposable
         Assert.False(File.Exists(oldest.FilePath));
     }
 
+    /// <summary>
+    /// 事件模式（Motion／事件）的區段要<b>先</b>被汰除，早於全時段錄影，即使它比較新。
+    ///
+    /// 事件段是全時段的補充，不是唯一來源；磁碟吃緊時先淘汰補充品、保住連續錄影的完整性
+    /// （§11.1 第二階段「優先刪事件段」）。順序反了的症狀：配額壓力下系統先刪連續錄影、
+    /// 留下零散的事件段，時間軸出現空洞而操作員看不出原因。
+    /// </summary>
+    [Fact]
+    public void 配額汰除優先刪事件段再刪全時段()
+    {
+        var start = new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc);
+        EnsureChannel(2, recordingMode: 2); // Event
+        var alwaysOld = SeedFinal(start, 1000);                          // ch1 Always，較舊
+        var eventNew = SeedFinal(start.AddHours(1), 1000, channelId: 2); // ch2 Event，較新
+
+        // 總量 2000、配額 1500：只刪得掉一個，且必須是事件段。
+        var report = NewService().Apply(quotaBytes: 1500, nowUtc: start.AddHours(3));
+
+        Assert.Equal(1, report.DeletedSegments);
+        Assert.Null(_segments.Get(eventNew.Id));
+        Assert.NotNull(_segments.Get(alwaysOld.Id));
+        Assert.True(File.Exists(alwaysOld.FilePath));
+    }
+
     /// <summary>配額以內時一個檔案都不能少。</summary>
     [Fact]
     public void 配額以內時不刪任何區段()
@@ -89,6 +113,31 @@ public class RetentionServiceTests : IDisposable
         Assert.Equal(0, report.DeletedSegments);
         Assert.True(File.Exists(victim), "錄影根目錄外的檔案被刪了");
         Assert.True(_segments.Get(seg.Id) is not null, "索引列應保留待查");
+    }
+
+    /// <summary>
+    /// 最舊的區段刪不掉（例如索引被污染成根目錄外的路徑）時，清理必須跳過它、繼續往新的
+    /// 方向找，而不是就此停手。
+    ///
+    /// 現場症狀：一筆壞掉的舊索引（或被鎖住的檔案）把整個配額清理釘死——之後每一輪都先撞到它、
+    /// 立刻放棄，磁碟只增不減，而錯誤只會在那一列上反覆出現。
+    /// </summary>
+    [Fact]
+    public void 最舊區段刪不掉時仍會繼續刪下一個()
+    {
+        var start = new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc);
+        var victim = Path.Combine(_outsideRoot, "locked.txt");
+        File.WriteAllText(victim, "不可刪");
+        var stuck = SeedFinal(start, 1000, victim);
+        var deletable = SeedFinal(start.AddHours(1), 1000);
+
+        var report = NewService().Apply(quotaBytes: 0, nowUtc: start.AddHours(2));
+
+        Assert.Equal(1, report.DeletedSegments);
+        Assert.True(File.Exists(victim), "錄影根目錄外的檔案被刪了");
+        Assert.NotNull(_segments.Get(stuck.Id));
+        Assert.Null(_segments.Get(deletable.Id));
+        Assert.False(File.Exists(deletable.FilePath));
     }
 
     /// <summary>
@@ -206,24 +255,25 @@ public class RetentionServiceTests : IDisposable
 
     /// <summary>建立一個已收尾（final）的區段：索引列與磁碟檔案都真的存在。</summary>
     private (long Id, string FilePath) SeedFinal(
-        DateTime startUtc, long sizeBytes, string? filePath = null)
+        DateTime startUtc, long sizeBytes, string? filePath = null, int channelId = 1)
     {
         var file = filePath ?? Path.Combine(_root, $"seg-{Guid.NewGuid():N}.mp4");
         File.WriteAllBytes(file, new byte[1]);
-        var id = _segments.BeginSegment(1, "main", file, startUtc);
+        var id = _segments.BeginSegment(channelId, "main", file, startUtc);
         _segments.CompleteSegment(id, startUtc.AddMinutes(10), sizeBytes, 600, "sha256");
         return (id, file);
     }
 
-    private void EnsureChannel(int id)
+    private void EnsureChannel(int id, int recordingMode = 0)
     {
         _store.Execute(
-            "INSERT OR IGNORE INTO channels (id, name, main_rtsp, recording_mode) VALUES ($id, $n, $u, 0);",
+            "INSERT OR IGNORE INTO channels (id, name, main_rtsp, recording_mode) VALUES ($id, $n, $u, $m);",
             cmd =>
             {
                 cmd.Parameters.AddWithValue("$id", id);
                 cmd.Parameters.AddWithValue("$n", $"ch-{id}");
                 cmd.Parameters.AddWithValue("$u", $"rtsp://test/{id}");
+                cmd.Parameters.AddWithValue("$m", recordingMode);
             });
     }
 

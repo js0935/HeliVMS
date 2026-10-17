@@ -60,6 +60,53 @@ public class SegmentRepositoryTests : IDisposable
         Assert.Equal(end, seg.EndUtc!.Value, TimeSpan.FromMilliseconds(1));
     }
 
+    /// <summary>
+    /// 資料夾搬移只該掃到舊制 <c>ch…</c> 目錄的區段：已命名為頻道名稱的列（絕大多數）必須在 SQL
+    /// 就濾掉，否則 24/7 錄影累積到千萬列時，每次啟動都會為了確認而整表載入。
+    /// </summary>
+    [Fact]
+    public void ListLegacyFolderPaths只回傳舊制頻道目錄的區段()
+    {
+        var t = DateTime.UtcNow;
+        var legacy = _repo.BeginSegment(1, "main", @"D:\rec\ch001\20260101\seg-a.mp4", t);
+        _repo.CompleteSegment(legacy, t, 1, 15, "h");
+
+        var named = _repo.BeginSegment(1, "main", @"D:\rec\前門\20260101\seg-b.mp4", t.AddSeconds(1));
+        _repo.CompleteSegment(named, t, 1, 15, "h");
+
+        var other = _repo.BeginSegment(2, "main", @"D:\rec\other\20260101\seg-c.mp4", t.AddSeconds(2));
+        _repo.CompleteSegment(other, t, 1, 15, "h");
+
+        var paths = _repo.ListLegacyFolderPaths();
+
+        var only = Assert.Single(paths);
+        Assert.Equal(legacy, only.Id);
+        Assert.Equal(1, only.ChannelId);
+        Assert.Equal(@"D:\rec\ch001\20260101\seg-a.mp4", only.FilePath);
+    }
+
+    /// <summary>頻道名稱中若含「ch」但不含前置分隔符（例如「前門ch」），不得被當成舊制目錄。</summary>
+    [Fact]
+    public void ListLegacyFolderPaths不誤判名稱含ch的目錄()
+    {
+        var t = DateTime.UtcNow;
+        var id = _repo.BeginSegment(1, "main", @"D:\rec\前門ch\20260101\seg-a.mp4", t);
+        _repo.CompleteSegment(id, t, 1, 15, "h");
+
+        Assert.Empty(_repo.ListLegacyFolderPaths());
+    }
+
+    /// <summary>更新路徑是搬移回寫索引的手段；寫錯就等於把既有錄影指向不存在的位置。</summary>
+    [Fact]
+    public void UpdateFilePath會改寫指定區段的路徑()
+    {
+        var id = _repo.BeginSegment(1, "main", @"D:\rec\ch001\20260101\seg-a.mp4", DateTime.UtcNow);
+
+        _repo.UpdateFilePath(id, @"D:\rec\前門\20260101\seg-a.mp4");
+
+        Assert.Equal(@"D:\rec\前門\20260101\seg-a.mp4", _repo.Get(id)!.FilePath);
+    }
+
     [Fact]
     public void ListByRange_FiltersByTimeAndStream()
     {
@@ -80,6 +127,32 @@ public class SegmentRepositoryTests : IDisposable
 
         // sub 串流不混入 main 查詢
         Assert.Empty(_repo.ListByRange(2, "sub", t.AddHours(-2.5), t.AddHours(-2)));
+    }
+
+    /// <summary>
+    /// 跨過窗起點的區段要出現在清單裡，否則回放／HLS 會從下一段才開始。
+    ///
+    /// 一段 60 秒的錄影 [10:00:00, 10:01:00)，使用者從 10:00:30 開始回放時，
+    /// 覆蓋到 10:00:30 的那一段必須包含在內。舊口徑只看 start_time，會把它整段排除，
+    /// 於是播放清單開頭直接缺掉前 30 秒，畫面一跳就少一段，而日誌毫無線索。
+    /// </summary>
+    [Fact]
+    public void ListByRange_涵蓋窗起點跨段的區段()
+    {
+        var t = DateTime.UtcNow;
+        var before = _repo.BeginSegment(2, "main", @"D:\tmp\before.mp4", t.AddHours(-3));
+        _repo.CompleteSegment(before, t.AddHours(-2), 512, 3600, "h0");
+        var straddle = _repo.BeginSegment(2, "main", @"D:\tmp\straddle.mp4", t.AddMinutes(-60));
+        _repo.CompleteSegment(straddle, t.AddMinutes(-30), 1024, 1800, "h1");
+        var after = _repo.BeginSegment(2, "main", @"D:\tmp\after.mp4", t);
+        _repo.CompleteSegment(after, t.AddMinutes(30), 2048, 1800, "h2");
+
+        // straddle [t-60m, t-30m] 跨過窗起點 → 必須在；after 在窗內 → 必須在；
+        // before [t-3h, t-2h] 早於窗起點且已經結束 → 不得混入。
+        var window = _repo.ListByRange(2, "main", t.AddMinutes(-50), t.AddMinutes(45));
+
+        Assert.Equal(new[] { @"D:\tmp\straddle.mp4", @"D:\tmp\after.mp4" },
+            window.Select(s => s.FilePath).ToArray());
     }
 
     /// <summary>
@@ -215,6 +288,187 @@ public class SegmentRepositoryTests : IDisposable
         var encrypted = DeviceRepository.Protect(secret);
         Assert.NotEqual(secret, encrypted);
         Assert.Equal(secret, DeviceRepository.Unprotect(encrypted));
+    }
+
+    /// <summary>
+    /// 保留清理所需的 <c>(status, start_time)</c> 複合索引必須存在。
+    ///
+    /// 現場症狀：16 路 30 天全時錄影（數十萬至百萬列）下，保留清理「刪一筆、重查一次」，
+    /// 而查詢以 status 過濾、以全域 start_time 排序，原本唯一的索引前置欄位卻是 channel_id，
+    /// 一個都用不上——每次清理都整表掃描＋排序，磁碟只增不減。
+    /// </summary>
+    [Fact]
+    public void 資料庫具有保留清理所需的status與start_time複合索引()
+    {
+        var count = _store.Query(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = 'idx_seg_status_time';",
+            static r =>
+            {
+                r.Read();
+                return r.GetInt32(0);
+            });
+
+        Assert.Equal(1, count);
+    }
+
+    /// <summary>
+    /// 保留清理的查詢計畫必須真的用上那個複合索引，而不是整表掃描後排序。
+    /// 索引存在但計畫沒用上，等於沒有效果——這正是最容易「加了索引卻沒改善」的陷阱。
+    /// </summary>
+    [Fact]
+    public void 保留清理查詢會使用status與start_time複合索引()
+    {
+        var plan = _store.Query(
+            "EXPLAIN QUERY PLAN SELECT id FROM segments WHERE status = 'final' AND start_time < $cut ORDER BY start_time LIMIT 16;",
+            static r =>
+            {
+                var sb = new System.Text.StringBuilder();
+                while (r.Read())
+                {
+                    sb.Append(r.GetString(3)).Append('\n');
+                }
+
+                return sb.ToString();
+            },
+            cmd => cmd.Parameters.AddWithValue("$cut", "2026-01-01T00:00:00.000Z"));
+
+        Assert.Contains("idx_seg_status_time", plan);
+    }
+
+    /// <summary>
+    /// <c>ListRetiredAfter</c> 要以 <c>(start_time, id)</c> 游標由舊到新分頁：保留清理靠它跳過
+    /// 受保存鎖定而刪不掉的舊區段、繼續往新的方向找，才不會被鎖住的前綴卡死。
+    /// </summary>
+    [Fact]
+    public void ListRetiredAfter以游標由舊到新分頁()
+    {
+        var t = new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc);
+        var a = Final(1, t, 100);
+        var b = Final(1, t.AddSeconds(60), 100);
+        var c = Final(1, t.AddSeconds(120), 100);
+        var cutoff = t.AddHours(1);
+
+        var page1 = _repo.ListRetiredAfter(cutoff, DateTime.MinValue, 0, 2);
+        Assert.Equal(new[] { a, b }, page1.Select(s => s.Id).ToArray());
+
+        var page2 = _repo.ListRetiredAfter(cutoff, page1[^1].StartUtc, page1[^1].Id, 2);
+        Assert.Equal(new[] { c }, page2.Select(s => s.Id).ToArray());
+    }
+
+    /// <summary><c>ListOldestFinalAfter</c> 同樣以游標前進，且只回傳 final（不含 tmp／corrupt）。</summary>
+    [Fact]
+    public void ListOldestFinalAfter只回傳final且依時間前進()
+    {
+        var t = new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc);
+        var a = Final(2, t, 100);
+        _ = _repo.BeginSegment(2, "main", @"D:\tmp\in-progress.mp4", t.AddSeconds(30));
+        var b = Final(2, t.AddSeconds(60), 100);
+
+        var all = _repo.ListOldestFinalAfter(DateTime.MinValue, 0, 10);
+        Assert.Equal(new[] { a, b }, all.Select(s => s.Id).ToArray());
+
+        var afterA = _repo.ListOldestFinalAfter(t, a, 10);
+        Assert.Equal(new[] { b }, afterA.Select(s => s.Id).ToArray());
+    }
+
+    /// <summary>
+    /// 完整性自我檢查的取樣清單只回傳 final 且尚未檢查的段，並以 <c>start_time</c> 由舊至新分頁。
+    ///
+    /// 這是抽查能「走過全部歷史區段」的唯一保證：若已檢查的段還留在清單裡，每一輪都重驗最舊那批，
+    /// 較新的段永遠輪不到，於是壞掉的新錄影永遠不會被發現（見 <c>MediaIntegrityChecker</c>）。
+    /// </summary>
+    [Fact]
+    public void ListFinalUnchecked只回傳未檢查的final段並向前推進()
+    {
+        var t = new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc);
+        var a = Final(1, t, 100);
+        var b = Final(1, t.AddSeconds(60), 100);
+        var c = Final(1, t.AddSeconds(120), 100);
+        var inProgress = _repo.BeginSegment(1, "main", @"D:\tmp\wip.mp4", t.AddSeconds(180));
+        var corrupt = Final(1, t.AddSeconds(240), 100);
+        _repo.MarkCorrupt(corrupt);
+
+        var first = _repo.ListFinalUnchecked(2);
+        Assert.Equal(new[] { a, b }, first.Select(s => s.Id).ToArray());
+
+        _repo.MarkChecked(a, t.AddDays(1));
+        _repo.MarkChecked(b, t.AddDays(1));
+
+        var second = _repo.ListFinalUnchecked(10);
+        Assert.Equal(new[] { c }, second.Select(s => s.Id).ToArray());
+
+        // 錄製中（tmp）與損壞（corrupt）的段永不進入抽查清單。
+        Assert.DoesNotContain(inProgress, second.Select(s => s.Id));
+    }
+
+    /// <summary><c>MarkChecked</c> 後該段即退出待檢查清單——抽查分頁能前進的關鍵。</summary>
+    [Fact]
+    public void MarkChecked後區段退出待檢查清單()
+    {
+        var t = new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc);
+        var id = Final(1, t, 100);
+        Assert.Single(_repo.ListFinalUnchecked(10));
+
+        _repo.MarkChecked(id, t);
+
+        Assert.Empty(_repo.ListFinalUnchecked(10));
+    }
+
+    /// <summary>沒有任何 final 段時待檢查清單是空的，不是例外。</summary>
+    [Fact]
+    public void 沒有final段時待檢查清單為空()
+        => Assert.Empty(_repo.ListFinalUnchecked(10));
+
+    /// <summary>
+    /// 支撐待檢查取樣的部分索引必須存在：千萬列歷史下，若每輪取樣都整表掃描，
+    /// 抽查本身就會變成負擔（而它原本是為了保護磁碟才存在的）。
+    /// </summary>
+    [Fact]
+    public void 資料庫具有完整性抽查所需的未檢查段部分索引()
+    {
+        var count = _store.Query(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = 'idx_seg_unchecked';",
+            static r =>
+            {
+                r.Read();
+                return r.GetInt32(0);
+            });
+
+        Assert.Equal(1, count);
+    }
+
+    /// <summary>
+    /// 汰除候選清單把事件模式（<c>recording_mode = 2</c>）的區段排在前面，同層再依時間由舊至新，
+    /// 且只含收尾（final）的段。
+    ///
+    /// <para>
+    /// 這是磁碟滿策略第二階段「優先刪事件段」的排序來源（§11.1）：事件段是全時段的補充，
+    /// 磁碟吃緊時先淘汰補充品、保住連續錄影。排序寫錯的症狀是配額壓力下先刪連續錄影、
+    /// 留下零散事件段，時間軸出現無聲的空洞。
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void ListReclaimCandidates優先取事件模式區段且同層由舊至新()
+    {
+        var t = new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc);
+        _store.Execute("UPDATE channels SET recording_mode = 2 WHERE id = 2;");
+
+        var alwaysOld = Final(1, t, 100);                 // 全時段，較舊
+        var eventNew = Final(2, t.AddSeconds(60), 100);   // 事件段，較新
+        var alwaysNew = Final(1, t.AddSeconds(120), 100); // 全時段，最新
+        var inProgress = _repo.BeginSegment(1, "main", @"D:\tmp\wip.mp4", t.AddSeconds(180));
+
+        var order = _repo.ListReclaimCandidates(10).Select(s => s.Id).ToArray();
+
+        Assert.Equal(new[] { eventNew, alwaysOld, alwaysNew }, order);
+        Assert.DoesNotContain(inProgress, order);
+    }
+
+    private long Final(int channelId, DateTime startUtc, long sizeBytes)
+    {
+        var id = _repo.BeginSegment(channelId, "main", $@"D:\tmp\{Guid.NewGuid():N}.mp4", startUtc);
+        _repo.CompleteSegment(id, startUtc.AddSeconds(60), sizeBytes, 60, "h");
+        return id;
     }
 
     private void EnsureChannel(int id)

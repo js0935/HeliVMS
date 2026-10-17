@@ -203,6 +203,11 @@ ChannelSession (每路 1 個，可並行 32 個)
 - 分段器：`segment` muxer，`segment_time=600`，`reset_timestamps=1`，
   檔名含 `%Y%m%d-%H%M%S`（借鏡 rtsp-record 的設計，`.mkv` 可容忍未完成段，
   但正式產品用 `.mp4` + 加 `+faststart` 並以「先寫 temp 再改名」保證完整性）。
+- **分段長度（M312）**：實作不是長跑一支 `segment` muxer，而是**每段重新 spawn 一次 ffmpeg `-t N`**，
+  寫入 `.tmp` 後改名為正式檔（見 §11.1）。`N` 由共用設定 `recording.segment_seconds` 決定
+  （`RecordingSegmentPolicy`，可設 5–600 秒、預設 60），設定中心可調。這個數字直接決定檔數——
+  15 秒時單路一天 5,760 個檔、16 路 30 天約 277 萬個檔；預設 60 秒降為四分之一。
+  上限刻意不高：分段同時是 HLS 媒體片段，拉長會讓 `EXT-X-TARGETDURATION`、搜尋粒度與崩潰損失同步變大。
 
 **錄影格式選定（以「時間軸回放」為首要約束）— Fragmented MP4 (fMP4)：**
 
@@ -340,6 +345,9 @@ CREATE TABLE segments (
   UNIQUE(channel_id, stream, start_time)
 );
 CREATE INDEX idx_seg_channel_time ON segments(channel_id, start_time);
+-- 保留清理（M313，schema v53）：清理以 status 過濾、以全域 start_time 排序，
+-- 上面那條以 channel_id 為前置欄位一個都用不上，故另建此複合索引避免整表掃描＋排序。
+CREATE INDEX idx_seg_status_time ON segments(status, start_time);
 
 -- 關鍵幀索引（fMP4 fragment 定位，供時間軸精準 seek）
 CREATE TABLE segment_keyframes (
@@ -1104,7 +1112,7 @@ L2 比對（人臉/車牌）置「進階·需權限」區，預設關閉（§5.1
 | 進程分離 | **錄影核心 = 背景服務（Windows Service）**；WPF UI 為客戶端。UI 當掉不影響錄影 |
 | 看門狗 | 服務與 UI 各自 watchdog；崩潰自動重啟，重啟後自動恢復全部通道錄影 |
 | 寫盤保護 | 分段邊寫邊 `fsync`；先寫 `.tmp` 完成後改名；定期 `ffprobe` 抽查已封檔完整性 |
-| 磁碟滿策略 | 三階段：預警(>85%)→ 優先刪最舊 `motion` 段再刪全時段 → 最後「停新錄、保全證物」並告警；**不可盲目覆寫最舊** |
+| 磁碟滿策略 | 三階段：預警(>85%)→ 優先刪事件段再刪全時段 → 最後「停新錄、保全證物」並告警；**不可盲目覆寫最舊** |
 | 斷電復原 | 開機自啟動、缺損 `.tmp` 自簽修復或隔離、索引重建掃描 |
 | 時間可信 | 設備/伺服器 NTP 校時；錄影時間以伺服器牆鐘為準並記錄偏移 |
 | 連續運行 | 目標 99.9% 可用；零「單路故障拖垮全系統」 |
@@ -1118,11 +1126,28 @@ L2 比對（人臉/車牌）置「進階·需權限」區，預設關閉（§5.1
 |---|---|---|
 | 進程分離 | 錄影核心為 Windows Service | **未做**。錄影在 WPF 程序內；關視窗會先跳「最小化／離開」選擇（`OnClosing` → `ExitChoiceWindow`），選最小化才收進匣（`Hide()`）；但登出／重開機／程序崩潰都會停錄 |
 | 開機恢復 | 開機自啟 | **已做登入自啟**。設定頁「關於」有勾選框，寫入 `HKCU\...\CurrentVersion\Run`，命令為 `"<exe>" --tray`，開機後縮匣不跳視窗。決策邏輯在 `AutoStartService`，Registry 存取在 `RegistryAutoStartStore` |
-| 看門狗 | 崩潰自動重啟並恢復錄影 | **未做**。崩潰只寫 `%TEMP%\helivms-crash.log`（上限 5 MB，由 `BoundedFileLog` 裁切） |
+| 看門狗 | 崩潰自動重啟並恢復錄影 | **部分做（M320）**。崩潰只寫 `%TEMP%\helivms-crash.log`（上限 5 MB，由 `BoundedFileLog` 裁切）；而「錄影行程還在不在」改由心跳檔 + 看門狗判定（見下列），服務模式偵測到停擺會告警。**自動重啟僅在設了 `recording.watchdog.restart_exe` 時才拉起該執行檔**；未設時只告警（多數部署靠 SCM 復原／登入自啟）。進程分離未做前，桌面關閉仍會停錄 |
+| 心跳檔 | 錄影行程定期留心跳，外部可判存活 | **已做（M320）**。`RecordingHeartbeat`（`HeliVMS.Storage`）寫 `<資料根目錄>\recording.heartbeat`（原子替換：先寫 `.tmp` 再覆蓋，避免讀到寫一半的內容），內容為 `{UpdatedUtc, ProcessId, ActiveChannels}`。**由排程器每輪調和成功後寫一次**（`RecordingScheduler.WriteHeartbeat`，桌面與 Headless Agent 共用同一程式碼路徑，故不會漏寫），只在整輪成功後寫——每輪都擲例外不會被誤判成健康。刻意**不寫資料庫**：資料庫被鎖住（正是最需要告警的卡住）時仍寫得出來，且不連資料庫的輕量監看程式也讀得到。寫入失敗一律吞掉（只是維運訊號，不該讓錄影停擺） |
+| 停擺告警 | 行程卡死／崩潰要通知 | **已做（M320）**。`RecordingWatchdogMonitor`（`HeliVMS.Recording`）每分鐘讀心跳：超過 2 分鐘沒更新為 Stale、檔案不存在為 Missing（區分「從未啟動」與「曾啟動後停住」）。**只在狀態轉折時動作**：由正常轉異常寫一筆 `recording.watchdog` 稽核並（選配）重啟，轉回正常寫 `recording.watchdog_recovered`——每輪都寫會讓一台真掛掉的機器每分鐘灌一筆、把故障淹掉。判定（`RecordingWatchdog.Evaluate`）與副作用（Monitor）分離，可用「寫一個心跳檔、把時鐘往前撥」直接測。Headless Agent 以 `WatchdogWorker` 每分鐘驅動 |
 | 停滯可見 | 錄影失敗要告警 | **已做**。`SegmentRecorder` 連續 3 段失敗時觸發 `RecordingStalled`，`RecordingScheduler` 寫 `recording.stalled` 稽核。這條是必要的：ffmpeg 連不上時 `IsRecording` 仍為 true、稽核也已寫過 `recording.start`，沒有它則「攝影機離線」與「正常錄影」長得一模一樣 |
 | 失敗退避 | — | 指數退避 5s→上限 5 分鐘。固定 5 秒重試會讓一台離線攝影機每天寫 17,280 筆 `corrupt`，16 台就是 27 萬筆，而 `segments` 同時是回放時間軸與用量統計會掃的表 |
-| 磁碟滿策略 | 三階段 | **未做**。現況是 WPF 每小時、Web 每 30 分鐘各自跑 `RetentionService`；兩邊必須指向同一個資料庫（`DataRootLayout`），否則會各自刪檔而索引互不同步 |
-| 磁碟用量顯示 | — | 設定頁用量改讀 `SegmentRepository.GetTotalUsageSummary()`。原本是 `EnumerateFiles(recordingsRoot, "*.mp4", TopDirectoryOnly)`，而檔案在 `chXXX/yyyyMMdd/` 兩層底下，所以長期顯示 0B |
+| 磁碟滿策略 | 三階段 | **已做（M319）**。共用入口 `DiskPressureCoordinator`（桌面保留迴圈 + Headless Agent `RetentionWorker` 每小時各跑一次，讀同一份設定）：①**預警** 任一顆錄影磁碟已用 ≥85%（`DiskPressurePolicy.WarnUsedFraction`）→ 寫 `recording.disk_pressure` 稽核（**只在等級改變時寫一筆**，避免每圈灌雜訊），Agent 另留分級 log；②**優先汰除事件段** 配額清理的候選改走 `SegmentRepository.ListReclaimCandidates`（`recording_mode = 2` 事件段排前，同層再由舊至新；`HeliVMS.Recording.RetentionService.Apply` 已改用）；③**停新錄、保全證物** 所有錄影磁碟都低於寫入門檻（`recording.min_free_bytes`，預設 2 GiB）時 `RecordingScheduler` 的 `diskFull` 閘門跳過開新錄影機（**既有錄影不中斷**，只停「開新」），並在狀態改變時寫 `recording.disk_full`／`recording.disk_full_cleared` 稽核。分級的整體等級取「最嚴重的一顆」（供回報），停新錄的判準則要求「每一顆」都危急（多磁碟站台不該因某一顆滿了就全面停錄）；磁碟狀態讀不到時 fail-open（不擋錄影）。三邊必須指向同一個資料庫（`DataRootLayout`），否則會各自判斷而索引互不同步 |
+| 磁碟用量顯示 | — | 設定頁用量改讀 `SegmentRepository.GetTotalUsageSummary()`。原本是 `EnumerateFiles(recordingsRoot, "*.mp4", TopDirectoryOnly)`，而檔案在 `<頻道資料夾>/yyyyMMdd/` 兩層底下，所以長期顯示 0B |
+| 介質／檔案損壞自我檢查 | 定期以 `ffprobe` 抽查已封檔區段完整性 | **已做（M318）**。桌面保留迴圈與 Headless Agent 各有一條每小時的迴圈，走共用入口 `MediaIntegrityCoordinator.RunConfigured`（讀 `recording.integrity.batch`，預設 5 段、設 0 停用）。以 `segments.checked_at_utc`（v54）記進度、只取 `status='final'` 且未檢查者分頁抽查，查過即前進。**只記錄、不改狀態也不刪檔**：保留清理的用量統計與汰除候選都以 `status='final'` 為準，標成 `corrupt` 會讓壞段同時退出兩者、變成永遠刪不掉的孤兒（磁碟照佔、用量少算）；故損壞／遺失只寫 `recording.integrity` 稽核，汰除仍交由保留清理 |
+| 錄影資料夾命名 | — | **已做（M311）**。資料夾由舊制 `ch{id:000}` 改以**頻道名稱**命名（`RecordingFolderNaming`：清洗非法字元／尾端句點空白／Windows 保留名、同名者附加 `_ch{id}` 消歧且排序固定用頻道 id；錄影端與搬移端共用同一套規則，否則會互相搬來搬去）。既有站台由 `RecordingFolderMigrator` 於排程首次調和時搬正並回寫 `segments.file_path`（只掃 `file_path` 含 `\ch` 的舊制列，已正確命名的列在 SQL 就濾掉，穩定狀態回零列，避免千萬筆整表載入）（搬檔案不回寫＝既有錄影變孤兒，回放／備援／保留清理都只認索引路徑）；`Directory.Move` 失敗（檔案被佔用等）逐筆跳過、下次再試。`SegmentRecorder` 名稱從缺時退回 `ch{id}` |
+| 分段長度 | — | **已做（M312）**。由寫死的 15 秒改為共用設定 `recording.segment_seconds`（`RecordingSegmentPolicy`，5–600 秒、預設 60），設定中心可調。排程與監看牆兩個 `SegmentRecorder` 呼叫點共用同一讀取。分段是檔數槓桿：15 秒單路一天 5,760 檔，60 秒降為 1,440 |
+| 保留清理可擴充性 | — | **已做（M313）**。①`segments` 加複合索引 `idx_seg_status_time`（schema v53）——保留清理以 `status` 過濾、全域 `start_time` 排序，原本唯一的 `(channel_id, start_time)` 索引一個都用不上，等於每次整表掃描＋排序。②桌面與 WebApi 的 `RetentionService` 改以 `(start_time, id)` **游標**單調前進（`SegmentRepository.ListRetiredAfter`／`ListOldestFinalAfter`），受保存鎖定的舊區段夾在最舊端時能跳過、繼續往後清，不會卡在鎖住的前綴；WebApi 端並把 `GetTotalUsage()` 提到迴圈外（移除每刪一筆就重算 SUM 的 O(N²)）。③桌面端碰不到的候選（佔用／路徑汙染）由 `break` 改 `continue`，一個搬不動的檔不讓配額永遠降不下來 |
+| ffmpeg 行程治理 | — | **已做（M313）**。`SegmentRecorder` 於 `WaitForExitAsync` 前先啟動 stderr `ReadToEndAsync`（管線緩衝滿會讓 ffmpeg 卡在寫入、永不結束而畫面照常），並在 `finally` `await proc.DisposeAsync()` 歸還行程／管線控制代碼（原每段漏一組 handle 直到 GC） |
+| 排程重入 | — | **已做（M313）**。`RecordingScheduler` 新增 `SemaphoreSlim _reconcileGate`：`OnTick` 以 `Wait(0)` 跳過忙碌中的上一輪（計時器不等回呼結束，重疊會出現同頻道兩台 ffmpeg 搶區段檔、用量翻倍而 log 乾淨），公開 `ReconcileAsync` 以 `WaitAsync` 排隊；決策本體在 `ReconcileAsyncCore` |
+| 回放查詢語意 | — | **已修正（M314）**。`SegmentRepository.ListByRange` 由「`start_time` 落在窗內」改為「與窗重疊」（`start_time < to` 且 `end_time > from`，未完成的段因無 `end_time` 退回只認 `start >= from`）。60 秒一段時，使用者從 10:00:30 開始回放，覆蓋到 10:00:30 的那段（start 10:00:00）原本整段被排除，HLS 播放清單與回放清單從下一段才開始，前 30 秒直接缺角而 log 乾淨。`PlaybackTimelineBuilder` 本來就把區段裁到窗內，印證這裡本該是重疊式 |
+| 分段檔名唯一性 | — | **已修正（M314）**。`SegmentRecorder` 檔名由 `seg-HHmmss.mp4` 改為 `seg-HHmmssfff.mp4`。攝影機 RTSP 突然 EOF、ffmpeg 迅速以退出碼 0 結束時，下一段會在同一秒內開錄；秒級檔名讓第二段的 `File.Move` 撞名擲 IOException，被 catch 當成損壞段刪掉，該段影片直接消失、log 只有一筆 corrupt。逐段錄影循序阻塞，毫秒級足以唯一 |
+| 分段長度真實性 | — | **已修正（M314）**。`SegmentRecorder` 的 `end_time`／`duration_sec` 改取真實收尾時刻（收尾前量牆鐘差），不再固定等於設定秒數。串流中斷時 ffmpeg 提早以 0 結束、檔案只有幾秒，舊寫法記成完整一段（如 60 秒），時間軸畫出沒有畫面的區塊、HLS `EXTINF` 過長讓播放器在檔案尾端空等。結束時間於雜湊前取得，避免大檔 SHA-256 被算進影片長度 |
+| 保留清理錯誤可見性 | — | **已修正（M314）**。WebApi `RetentionService` 迴圈原本是空 `catch`；資料庫暫時鎖住或目錄權限異動導致單輪擲例外時，每一輪都被安靜吞掉，保留清理再也不真正執行、磁碟被灌滿而維運毫無線索（「一直失敗」與「一直沒事」在 log 上沒有差別）。改為 `RunOnceGuarded`：例外記 `LogError` 後繼續下一輪 |
+| 索引庫空間回收 | — | **評估後不啟用（M314）**。SQLite 預設 `auto_vacuum=NONE`：刪除後的頁面留在 freelist、檔案不縮。讓既有庫改用 auto_vacuum 需一次性 `VACUUM`（整庫重寫、2× 臨時空間、期間鎖庫），對 NVR 啟動風險高；主要體積是影片檔（另由保留清理管理），`segments`／`alarm_events` 列很小、freelist 受峰值列數限制。`INCREMENTAL` 另需週期性 `incremental_vacuum` 呼叫者（目前沒有），只增加每次提交負擔而無回收，故維持現狀 |
+| 稽核日誌保留 | — | **已做（M315）**。`AuditLogRepository.PruneOlderThan` 過去沒有正式呼叫端，`audit_log` 只寫不刪、永久累積。新增設定 `audit.retention.days`（預設 365、**0＝永久保留**），由保留清理依 `occurred_at` 汰除過期項；可經 `PUT /api/config`（`auditRetentionDays`）調整，並在 `/api/config/usage` 回報 |
+| 事件錄音保留 | — | **已做（M315）**。`event_audio` 以 `event_id` 掛在警報事件上，但**沒有指向 `alarm_events` 的外鍵**（sqlite 建表時就不帶），刪事件不會連帶刪錄音，BLOB 只增不減。保留清理以同一條警報保管期限（`alarm.retention.days`）按 `started_at_utc` 汰除，連事件早已清除的孤兒錄音也一併帶走 |
+| 中繼資料清理入口 | — | **已做（M315）**。把警報事件／事件錄音／稽核日誌的保管期限清理抽成 `HeliVMS.Storage.MetadataRetentionPruner`（純資料庫、不碰檔案系統），由 WebApi 與**桌面**兩條保留迴圈共用；兩把設定鍵（`alarm.retention.days`／`audit.retention.days`）與預設 365 也定義於此（`AlarmDaysKey`／`AuditDaysKey`／`DefaultDays`），WebApi `RetentionService` 公開常數改為別名引用，桌面設定中心「儲存」頁與保留迴圈引用同一組，避免兩端字串漂移。桌面迴圈過去只做配額（大小）與快照，且內嵌 Web 主機不掛背景保留服務（`WebHost` 以 `IncludeHostedServices=false` 建立），因此桌面部署下這些表從不隨時間汰除——現在桌面每小時一併清理；桌面不處理區段年齡（其大小策略是 `recording.quota_gb`，與 WebApi 的浮水印 `recording.retention.watermark_gb` 是兩套機制，刻意不混用） |
+| 服務模式保留清理 | — | **已做（M316）**。Headless Agent（Windows 服務）過去只註冊 `RecordingWorker`（起／調和／停）與 `NtpSyncWorker`，**完全沒有保留清理迴圈**——沒有配額汰除、沒有暫存清理、沒有快照汰除、沒有中繼資料保管期限。以服務模式（無桌面、無 WebApi 主機）部署時，錄影檔與警報／事件錄音／稽核日誌會無上限成長，直到磁碟被寫爆才被發現，而日誌上不會有任何錯誤。新增 `RetentionWorker`（每小時）並與桌面共用 `HeliVMS.Recording.RetentionCoordinator`：一次協調配額汰除＋暫存隔離＋快照汰除＋中繼資料保管期限。配額／快照的設定鍵與預設值也集中於協調器（`QuotaGbKey`／`SnapshotDaysKey`／`DefaultQuotaGb`／`DefaultSnapshotDays`），桌面與 Agent 引用同一組以免漂移；`RetentionCoordinator.RunConfigured` 由 Agent 每圈從共用設定重推錄影根目錄（切換磁碟後下一圈即改認新根）。單圈例外只記錄並於下一圈重試，不讓服務停擺而中斷錄影。桌面 `MainWindow` 保留迴圈亦改用 `RetentionCoordinator.Run`，兩條路徑行為一致 |
 
 ### 11.2 性能與容量規劃（先算再寫，落地依據）
 
@@ -1483,7 +1508,7 @@ WebRTC/WHEP 即時監看與 MSE 回放（M244）。
 |---|---|---|
 | 區段化 | 5–10 分鐘/段，`reset_timestamps` | ✅ 核心 |
 | 保留策略 | 天數 / 容量 / 事件優先三模式 | ✅（§4 配額） |
-| 配額汰除 | 預警>優先刪事件段>停新錄保全（§8.1） | ✅ 核心 |
+| 配額汰除 | 預警>優先刪事件段>停新錄保全（§8.1） | ✅ 核心（三階段 M319） |
 | Legal Hold | 指定時段封存不被汰除 | P3（§14.6） |
 | 索引與復原 | `segments`+`segment_keyframes`；`.tmp` 修復 | ✅ 核心 |
 
@@ -1493,7 +1518,7 @@ WebRTC/WHEP 即時監看與 MSE 回放（M244）。
 |---|---|---|
 | 落盤保證 | 邊寫邊 `fsync`、先 `.tmp` 後改名 | ✅ 核心 |
 | 斷電容忍 | fMP4 fragment 自含，最多損 1 GOP | ✅ 核心 |
-| 完整性 | 寫入紀錄 SHA-256 + 定期 `ffprobe` 抽查 | ✅ 核心（§9.1） |
+| 完整性 | 寫入紀錄 SHA-256 + 定期 `ffprobe` 抽查 | ✅ 核心（SHA-256 §9.1；抽查 M318） |
 | 斷線處理 | 指數退避重連、接續新段不中斷 | ✅ 核心 |
 | Failover | 第二錄影伺服器即時接管 | P2（§14.7 #9） |
 | AI 不中斷錄影 | 推理獨立進程，崩潰僅失偵測 | ✅ 核心（§5） |
@@ -1696,10 +1721,10 @@ WebRTC/WHEP 即時監看與 MSE 回放（M244）。
 > 對應 §17.1「頁簽式布局」；資料表見 §4（`channel_groups` / `channel_group_members`）。
 
 - **頁簽列**：監控中心上方一個 `TabControl`（`GroupTabs`），第一個頁簽固定為「全部」（`Main.GroupAll`，顯示所有頻道），其餘為使用者自訂群組。頁簽樣板只含 `TabPanel`（僅標題列），**不**複製下方監看牆——全體共用同一個 `MonitorArea`。
-- **一台一組**：一台攝影機最多屬於一個群組，由 `channel_group_members.UNIQUE(channel_id)` 在資料層保證；「加入」＝先刪除該頻道既有歸屬、再附加到目標群組末端（`ChannelGroupRepository.Assign`），因此改派就只是重複呼叫 `Assign`。
+- **一台一組**：一台攝影機最多屬於一個群組，由 `channel_group_members.UNIQUE(channel_id)` 在資料層保證；`ChannelGroupRepository.Assign` 先刪除該頻道既有歸屬、再附加到目標群組末端（故重複呼叫即為改派）。**UI 不自動改派**：`MonitorGroupWindow` 的「加入」會先查 `GroupOf`，已在其他群組者一律擋下並提示所屬群組，要改派須先移除再加入（否則直接 `Assign` 會把該台從舊群組悄悄搬走，操作者只看到舊群組莫名空了）。來源清單對已歸屬頻道在名稱後標示「（群組：…）」（`Channels.GroupAssignedLabel`），異動後即時刷新。
 - **切頁簽不中斷錄影**：切換只呼叫 `ChannelManager.ReconcileAsync` 改派**既有**工作階段的格位（不重連）。`ConnectAsync` 會先拆再建、等於中斷所有攝影機錄影，故嚴禁在切頁簽路徑使用。群組看不到的頻道其最後一張影格由 `ClearCellsBeyondChannels(wall.Count)` 清掉，否則頁簽上會殘留別頁畫面。
 - **各頁簽記憶格數**：`MonitorLayoutPrefs`（`ui.json`）以頁簽鍵（`all` 或群組 Id 字串）分別記住格數與最後停留頁簽；離開頁簽前先 `Remember(_activeGroupId, CurrentCellCount())`。舊版單一 `cells` 整數視為「全部」頁簽，仍可讀，升級不歸零版面。
-- **群組管理**：設定中心 → 頻道管理內含群組編輯區（建立／改名／刪除 ＋ 成員加入／移除／上下移）；僅管理員（`SessionContext.IsAdmin`）可異動。刪除採兩段式確認，因 CASCADE 會清掉成員歸屬、無法復原。
+- **群組管理**：設定中心 →「裝置與頻道」頁的「監看群組」按鈕開啟獨立的 `MonitorGroupWindow`（建立／改名／刪除 ＋ 成員加入／移除／上下移）；僅管理員（`SessionContext.IsAdmin`）可開啟與異動，唯讀帳號的入口按鈕停用。刪除採兩段式確認，因 CASCADE 會清掉成員歸屬、無法復原。（M309 前此區塊夾在「頻道管理」視窗 `ChannelManagerWindow` 底部，已抽出。）
 - **群組內排序**：群組頁簽拖曳改的是群組內 `position`（`ChannelGroupRepository.Move`），不動全域 `display_cell` 與頻道名稱；「全部」頁簽的拖曳與「復原」維持原全域排序語意（在群組頁簽按「復原」會先切回「全部」）。
 - **回到「全部」**：目前群組被刪除時，`ReloadGroupTabs` 會退回「全部」頁簽，否則 `WallChannels` 會永遠回傳空清單、監看牆空白卻無任何錯誤。
 - **契約**：`ChannelGroupRepositoryTests`（儲存層）、`MonitorLayoutPrefsTests`（偏好檔相容與多頁簽互不干擾）、`ChannelGroupContractTests`（桌面接線、兩段式刪除、管理員守門、切頁簽不重連）。
@@ -1759,6 +1784,7 @@ WebRTC/WHEP 即時監看與 MSE 回放（M244）。
 | SNMP trap | 整合既有網管中心（NOC） | P1 |
 | 行動推播 | 遠程 App 警報推送 | P3 |
 | MQTT | 自動化平台（HA 等，§14.7 #15） | P3 |
+| team+ | 互動資通 team+ 警示推播（`application/x-www-form-urlencoded` POST 至 API 選配模組；欄位 `account`／`api_key`／`chat_sn`／`Content_type`／`msg_content`，鍵 `notify.teamplus.*`、env `HELIVMS_TEAMPLUS_*`） | ✅（M317；選配模組） |
 - 通知內容仲裁：同事件 N 分鐘合併、靜默時段（免擾）、可驗證重試（指數退避＋queue）
 
 ### 18.6 安全與認證
@@ -1767,7 +1793,7 @@ WebRTC/WHEP 即時監看與 MSE 回放（M244）。
   - **角色入口契約（M233）**：`MainWindow.ApplyRoleRestrictions` 對 viewer 把管理按鈕設為 `IsEnabled = false`，但那只是關掉滑鼠——與授權層同一個形狀，硬擋在 handler 的 `RequireAdmin()`／`SessionContext.IsAdmin`。桌面無 WPF 執行期測試，靠人工複查擋不住「新增按鈕忘了 guard」，因此比照授權契約（§19.4）新增 `RbacEntryPointContractTests`：每個停用按鈕的接線 handler（必要時追一層轉呼叫）必須擋管理員、表格與 `ApplyRoleRestrictions` 雙向對帳、`ApplyRoleRestrictions` 必須在 `OnLoaded` 被呼叫，另外把「看得到但只在 handler 擋」的入口（事件中心 CSV 匯出）也納入。三項都以 mutation 驗證。
 - **API 金鑰中介軟體邊界（M234）**：`ApiKeyAuthMiddleware` 保護 `/api/*`（`health` 例外）、常時比較、每來源失敗 429、未設金鑰且非 Development 時 fail-closed。補齊先前未測的邊界，避免「順手改寬」而無感：Development 無設定時接受 dev 金鑰；有設定金鑰時即使是 Development 也以設定值為準（防誤帶 Development 退回 dev 金鑰）；**query-string `?key=` 僅在 WebSocket 升級請求被接受**（一般請求把秘密放 URL 會被拒，否則秘密會進 access log）；非 `/api/` 路徑（SPA 靜態檔）不受金鑰檢查（fail-closed 不能連 HTML 都擋掉）。WebSocket 分支以 `IHttpWebSocketFeature` 注入驗證，`?key=` 與拒絕兩向及非 API 繞過都以 mutation 驗證。 另外，新增顯式逃生門 `HELIVMS_API_KEY_DISABLED=1`：設定後完全略過 `/api/*` 的 Bearer 驗證（含 Production），僅供受信任且未對外開放的本機環境；預設不開啟以維持 fail-closed，`ApiKeyAuthMiddleware` 於啟用時記一筆警告，並由 `DisableSwitch_WithProductionAndNoKey_AllowsAnonymousCallers` 與 `DisableSwitch_Unset_KeepsApiProtected` 兩測試釘住開與關兩態。
 - **內嵌 Web 服務可由設定中心啟停（M305）**：設定中心新增「網路」頁，控制 `HeliVMS.WebApi` 在桌面行程內啟停（`WebHost`，鍵為 `web.enabled`／`web.port`／`web.allow_no_key`）。只綁 `localhost`，並把桌面正在用的資料庫與資料根目錄明確傳入，避免內嵌主機另開一份資料庫；內嵌時以 `WebApiHostOptions.IncludeHostedServices=false` 停掉背景服務，避免與桌面保留迴圈重複清理同一批檔案。啟動接線與「不重複掛保留清理」由 `WebServiceContractTests` 釘住。
-- **網路頁 NTP 對時（M305；引擎為 M68，§11.1）**：同一「網路」頁可設定 `ntp.enabled`／`ntp.server`（預設 `time.windows.com`）並「立即對時」。校時引擎沿用 M68 的 `NtpClient`／`NtpFrames`（RFC 5905 SNTP），並把查到的伺服器時間寫回系統 UTC 牆鐘（`SystemClock.TrySetUtcNow`）：錄影時間戳一律取系統牆鐘，若只查時間卻不調鐘，頁面會顯示合理偏移量、操作員以為校時成功，但證據時序仍對不上。`SetSystemTime` 需要 `SeSystemtimePrivilege`（一般權杖預設沒有，故 `SystemClock` 先 `AdjustTokenPrivileges` 啟用；失敗時回報原因，頁面提示以系統管理員身分執行，偏移量仍照顯示）。取得伺服器時間後不論調鐘成功與否都記錄 `ntp.last_sync_utc`／`ntp.last_offset_ms` 供頁面重開時顯示。`ntp.enabled=1` 時主視窗於啟動對一次、之後每 6 小時對一次（`_ntpTimer`），關閉時停掉。接線由 `NtpTimeSyncContractTests` 釘住。
+- **網路頁 NTP 對時（M305；引擎為 M68，§11.1）**：同一「網路」頁可設定 `ntp.enabled`／`ntp.server`（預設 `time.windows.com`）並「立即對時」。校時引擎沿用 M68 的 `NtpClient`／`NtpFrames`（RFC 5905 SNTP），並把查到的伺服器時間寫回系統 UTC 牆鐘（`SystemClock.TrySetUtcNow`）：錄影時間戳一律取系統牆鐘，若只查時間卻不調鐘，頁面會顯示合理偏移量、操作員以為校時成功，但證據時序仍對不上。`SetSystemTime` 需要 `SeSystemtimePrivilege`（一般權杖預設沒有，故 `SystemClock` 先 `AdjustTokenPrivileges` 啟用；失敗時回報原因）。取得伺服器時間後不論調鐘成功與否都記錄 `ntp.last_sync_utc`／`ntp.last_offset_ms` 供頁面重開時顯示。`ntp.enabled=1` 時主視窗於啟動對一次、之後每 6 小時對一次（`_ntpTimer`），關閉時停掉。**桌面無權限時改由服務代為校時（M310）**：桌面多數以一般權限執行（UAC 篩選權杖已移除 `SeSystemtimePrivilege`），就地 `SetSystemTime` 必失敗且回覆 `ERROR_INVALID_PARAMETER`（參數錯誤，與權限無關的假訊息）。因此 `NtpSync` 就地校時失敗時改寫入 `ntp.request_utc` 請求並在畫面顯示「已請背景服務校正」（`Settings.NtpClockSetDelegated`），由以 LocalSystem（或具 `SeSystemtimePrivilege` 之服務身分）執行的 `HeliVMS.Agent` 服務 `NtpSyncWorker` 每 30 秒檢查一次 `NtpSettings.IsDue`（有未套用請求或距上次嘗試逾 6 小時）後代為查時、校鐘，並回寫 `ntp.clock_set_utc`／`ntp.clock_error`／`ntp.applied_request_utc`；`SystemClock` 因此移到 `HeliVMS.Core.Ntp` 供桌面與服務共用，`HeliVMS.Agent` 的 TFM 亦改為 `net10.0-windows`。排程判斷與設定鍵以 `NtpSettingsTests` 行為驗證，接線由 `NtpTimeSyncContractTests` 釘住。
 - **WEB 登入與 WPF 共用身分帳號並簽發工作階段（M306）**：`POST /api/accounts/authenticate` 不需 API 金鑰即可到達（同 `/api/health`），以 `AuthService`（＝WPF 同一份帳號庫）驗證後由 `AccountSessionStore` 簽發 12 小時、32 位元組 CSPRNG 的工作階段 token，SPA 之後以 `Bearer <token>` 存取全部 `/api/*`——`ApiKeyAuthMiddleware` 把該 token 與 API 金鑰視為同一層憑證，金鑰為憑的舊呼叫端完全不受影響。`POST /api/accounts/logout`（無金鑰可達）撤銷 token。`AccountSessionStore` 刻意用記憶體暫存：登出要真能撤銷，且主機（或桌面程式）重啟後工作階段即失效，瀏覽器重新登入即可。顧及「登入才是不需要金鑰的主入口」，`/?key=`（WebSocket）與 `Bearer` 都接受 token；登入成功後 token 同時寫進 SPA 的憑證槽，因此 WebSocket 告警串流與 WHEP 也不需另外餵金鑰。過期／登出／偽造 token 都在 `ApiKeyPolicyTests` 以行為測試釘住（含端點層的登入→存取→登出→拒收）。
 - **主機檔案存取政策（M235，§14.7 #4）**：`PathAccessPolicy` 把 evidence／shares／backup 侷限在 `HELIVMS_ALLOWED_ROOTS`，未設定根目錄一律拒絕，證據包另准伺服器自有的 `helivms-evidence` 目錄。這類程式碼只會「靜默放寬」而不會壞掉——原本只有 API 層三條行為測試（證據／備份／分享各一），核心類別本身沒有單元測試，於是補上 `PathAccessPolicyTests`：無根目錄時全拒、設定值以 `;`／換行切分並正規化、尾端分隔符去除、大小寫去重、真子路徑才算（後綴前綴與 `..` 逃逸皆拒）、證據目錄只對 `IsEvidencePath` 開放而非一般 `IsAllowed`、無法正規化的根目錄被丟棄，以及 `ValidateBundleName` 對路徑分隔符／保留名／控制字元／長度的拒絕。fail-open（`IsAllowed` 回 true）與拿掉包名字元檢查兩個 mutation 都確認會紅。
   - **錄影閘門入口契約（M237，§19.4）**：`LicenseService.CheckRecording` 是「通道上限」唯一的落點（`RecordingGateTests` 已驗證到期／時鐘回流／作廢／超限），而真正開始寫分段的地方是 `SegmentRecorder`。今天呼叫點剛好只有排程（`RecordingScheduler.ReconcileAsync`）與人工（`ChannelSession.SetRecordingAsync`）兩處、都問了閘門——但這是「目前剛好」，不是「結構上不可能漏」：將來加一條事件觸發錄影就能在 `new SegmentRecorder(` 多一行而繞過上限。因此新增 `RecordingGateContractTests`（掃整個 `src`）：每個建立點的外層方法必須先問 `CheckRecording` 再建立、閘門結果必須真的被 `Allowed` 分支採納（只呼叫不判斷等於沒擋）、要帶 `RecordingGateSources`（稽核才分得出人工與排程）、且任何未列入契約表的建立點都讓測試紅。第一版的簽章解析抓不到泛型回傳型別（`public async Task<Foo(`），等於漏掉整個第三種建立點，已修正共用解析器。三個方向都做 mutation 確認會紅。
@@ -2235,14 +2261,14 @@ HeliVms.Decoder  ⇄ 主進程（命名管道，JSON 協定，獨立崩潰域）
 
 ### 21.3 營運與產品缺口
 
-- **監控自身的監控者**：錄影服務死亡的通知來自信任鏈最底層 → 心跳檔（看門狗每 30s 寫）+ 服務異常 SMTP/Webhook
+- **監控自身的監控者**：錄影服務死亡的通知來自信任鏈最底層 → 心跳檔 + 看門狗（**已做 M320**：排程每輪寫 `<資料根目錄>\recording.heartbeat`，Agent `WatchdogWorker` 每分鐘判停擺並寫 `recording.watchdog` 稽核、可選 `recording.watchdog.restart_exe` 重啟）；**服務異常 SMTP/Webhook 推播仍待做**（目前只落稽核與服務 log，未主動推播）
 - **日誌衛生**：Serilog RollingFile＋保留天數；禁止影像路徑/密碼/授權碼入 log（隱私＋安全）
 - **備份還原演練**：設定＋授權＋索引之備份要求「可還原」；定義 RPO/RTO（例：索引 24h、設定即時），每版手動演練一次
 - **真實硬體驗證**：M2 驗收需 ≥1 台 ONVIF（Axis/相容）＋ 1 台品牌（海康／大華），避免「只對模擬流」過關
 - **測試訊號來源**：本機 FFmpeg 8.0.1 自造 RTSP 測試流（testsrc/sinelive）做無設備 CI 與基準
 - **公鑰輪替**：授權公鑰需可於升級時替換（新版內嵌新公鑰），避免舊版外洩後無法補救
 - **多顯示器 DPI 差異**：佈局座標/浮窗在 mixed-DPI 環境驗證（§8.3）
-- **介質/檔案損壞自我檢查**：定期抽查錄影片段 `ffprobe`（已在 §15.7，落地為排程任務）
+- ~~**介質/檔案損壞自我檢查**：定期抽查錄影片段 `ffprobe`（已在 §15.7，落地為排程任務）~~ — **已做（M318）**：桌面與 Headless Agent 每小時走 `MediaIntegrityCoordinator`，抽查結果寫 `recording.integrity` 稽核（見 §11.1.1）
 
 ### 21.4 現有資產衛生（Repo 檢討，開工即做）
 

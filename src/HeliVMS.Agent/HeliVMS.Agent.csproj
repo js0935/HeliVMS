@@ -1,7 +1,9 @@
 <Project Sdk="Microsoft.NET.Sdk.Worker">
 
   <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
+    <!-- 服務為 Windows 專用（UseWindowsService）；M310 起直接呼叫 [SupportedOSPlatform("windows")]
+         的 SystemClock 校時，故沿用 repo 預設的 net10.0-windows，讓平台相容性分析放行。 -->
+    <TargetFramework>net10.0-windows</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UserSecretsId>dotnet-HeliVMS.Agent-fb93b4f4-3696-48c0-9366-87db816f858d</UserSecretsId>

@@ -410,6 +410,7 @@ describe('login gating', () => {
       recordingRetentionDays: 30,
       recordingWatermarkGb: 0,
       alarmRetentionDays: 365,
+      auditRetentionDays: 365,
     });
     expect(configCard({ AuthEnabled: 1, LockoutThreshold: '4', LockoutMinutes: 15 })).toEqual({
       authEnabled: true,
@@ -418,6 +419,7 @@ describe('login gating', () => {
       recordingRetentionDays: 30,
       recordingWatermarkGb: 0,
       alarmRetentionDays: 365,
+      auditRetentionDays: 365,
     });
     expect(configCard(null)).toEqual({
       authEnabled: false,
@@ -426,10 +428,11 @@ describe('login gating', () => {
       recordingRetentionDays: 30,
       recordingWatermarkGb: 0,
       alarmRetentionDays: 365,
+      auditRetentionDays: 365,
     });
     expect(
-      configCard({ recordingRetentionDays: 90, recordingWatermarkGb: '12.5' }),
-    ).toMatchObject({ recordingRetentionDays: 90, recordingWatermarkGb: 12.5 });
+      configCard({ recordingRetentionDays: 90, recordingWatermarkGb: '12.5', auditRetentionDays: 0 }),
+    ).toMatchObject({ recordingRetentionDays: 90, recordingWatermarkGb: 12.5, auditRetentionDays: 0 });
   });
 
   it('maps smartwall tiles to classes and labels', () => {

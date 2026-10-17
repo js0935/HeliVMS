@@ -2,23 +2,23 @@ using System.ComponentModel;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 
-namespace HeliVMS.App.Services;
+namespace HeliVMS.Core.Ntp;
 
 /// <summary>
-/// 校正 Windows 系統時鐘（M305，搭配 M68 的 SNTP 用戶端）。
+/// 校正 Windows 系統時鐘（M305 起放在此，供桌面與 <c>HeliVMS.Agent</c> 服務共用；校時引擎搭配 <see cref="NtpClient"/>）。
 ///
 /// <para>
 /// 錄影時間戳一律取系統 UTC 牆鐘，所以「NTP 對時」若不真的調整系統時間，對證據時序就沒有意義。
 /// 但 <c>SetSystemTime</c> 需要 <c>SeSystemtimePrivilege</c>，一般使用者權杖預設沒有這個權限，
 /// 因此這裡是盡力而為：得不到權限時回傳失敗與原因（通常是需要以系統管理員身分執行），
-/// 由呼叫端把偏移量顯示給操作員，而不是靜默地什麼都沒發生。
+/// 由呼叫端決定是顯示偏移量、或改用有權限的服務代為校時，而不是靜默地什麼都沒發生。
 /// </para>
 /// <para>
 /// 用 UTC 的 <c>SetSystemTime</c>（不是設定本地時間的 <c>SetLocalTime</c>）：本程式內部時序全部是 UTC。
 /// </para>
 /// </summary>
 [SupportedOSPlatform("windows")]
-internal static class SystemClock
+public static class SystemClock
 {
     private const uint TokenAdjustPrivileges = 0x0020;
     private const uint TokenQuery = 0x0008;

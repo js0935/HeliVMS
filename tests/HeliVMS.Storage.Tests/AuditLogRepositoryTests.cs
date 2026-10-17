@@ -26,11 +26,11 @@ public class AuditLogRepositoryTests : IDisposable
     }
 
     [Fact]
-    public void SchemaVersion_IsV52()
+    public void SchemaVersion_IsV55()
     {
         var version = _store.Query<int>(
             "PRAGMA user_version;", r => r.Read() ? r.GetInt32(0) : -1);
-        Assert.Equal(52, version);
+        Assert.Equal(55, version);
     }
 
     [Fact]

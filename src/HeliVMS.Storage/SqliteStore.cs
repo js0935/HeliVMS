@@ -9,7 +9,7 @@ namespace HeliVMS.Storage;
 /// </summary>
 public sealed class SqliteStore : IDisposable
 {
-    private const int CurrentSchemaVersion = 52;
+    private const int CurrentSchemaVersion = 55;
     private readonly SqliteConnection _connection;
     private readonly object _gate = new();
     private bool _disposed;
@@ -316,6 +316,21 @@ public sealed class SqliteStore : IDisposable
         if (version < 52)
         {
             CreateSettingsVersionTableV52();
+        }
+
+        if (version < 53)
+        {
+            AddSegmentRetentionIndexV53();
+        }
+
+        if (version < 54)
+        {
+            AddSegmentCheckedAtV54();
+        }
+
+        if (version < 55)
+        {
+            CreateRecordingLeaseTableV55();
         }
 
         Execute("PRAGMA user_version = CURRENT_SCHEMA_VERSION;".Replace(
@@ -1568,6 +1583,73 @@ public sealed class SqliteStore : IDisposable
 
             CREATE INDEX IF NOT EXISTS idx_settings_versions_created
                 ON settings_versions(created_at);
+            """);
+    }
+
+    /// <summary>
+    /// 為 <c>segments</c> 補上 <c>(status, start_time)</c> 複合索引。
+    ///
+    /// <para>
+    /// 保留清理（<c>status='final' AND start_time &lt; ?</c> 依 <c>start_time</c> 排序）、
+    /// 最舊區段查詢（<c>status='final'</c> 依 <c>start_time</c> 排序，配額與浮水印用）
+    /// 與備份全量掃描（<c>status='final'</c>）都以 <c>status</c> 過濾、以全域
+    /// <c>start_time</c> 排序，但原本唯一的索引是 <c>(channel_id, start_time)</c>——
+    /// 前置欄位是 channel_id，這些查詢一個都用不上，只能整表掃描再排序。
+    /// </para>
+    /// <para>
+    /// 現場症狀：16 路 30 天全時錄影（數十萬至百萬列）時，每次保留清理都變成整表掃描，
+    /// 而清理又是「刪一筆、重查一次」的迴圈，磁碟寫入速度遠快於清理，空間只增不減。
+    /// </para>
+    /// </summary>
+    private void AddSegmentRetentionIndexV53()
+    {
+        Execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_seg_status_time ON segments(status, start_time);
+            """);
+    }
+
+    /// <summary>
+    /// 錄影完整性自我檢查（§11.1 寫盤保護、§15.7 定期 ffprobe 抽查）用的「已檢查時刻」欄位。
+    ///
+    /// <para>
+    /// 抽驗是分頁進行的：每輪取少數「尚未檢查」的已封檔區段，檢查後記錄時刻，下一輪才會往前推進。
+    /// 若不用欄位記進度，每輪都從最舊的開始重驗，較新的段永遠輪不到。以部分索引
+    /// （只涵蓋 <c>status='final' AND checked_at_utc IS NULL</c>）支撐「取 N 筆待檢查」查詢，
+    /// 索引會隨檢查進度自我縮小，不會隨千萬列歷史資料膨脹。
+    /// </para>
+    /// </summary>
+    private void AddSegmentCheckedAtV54()
+    {
+        Execute(
+            """
+            ALTER TABLE segments ADD COLUMN checked_at_utc TEXT;
+            CREATE INDEX IF NOT EXISTS idx_seg_unchecked
+                ON segments(start_time) WHERE status = 'final' AND checked_at_utc IS NULL;
+            """);
+    }
+
+    /// <summary>
+    /// 錄影單一擁有者租約（M321，§11.1 進程分離）。桌面與 Headless 服務共用同一個資料庫，
+    /// 以此單列（<c>id=1</c>）仲裁「誰在錄影」：只有租約持有者開錄影機，避免兩份行程同時
+    /// 對同一台攝影機各開一個 ffmpeg、寫出重複區段而 log 乾淨。
+    ///
+    /// <para>
+    /// 語意比照 <see cref="FailoverRepository"/> 的 <c>failover_state</c> 單列租約：空庫即取得、
+    /// 同一擁有者續約、他人租約過期可接管；另帶 <c>priority</c>，讓「服務」（較高）能主動搶下
+    /// 正在由「桌面」（較低）持有的租約——否則先開的行會永遠佔住租約，做不到「錄影核心＝服務」。
+    /// </para>
+    /// </summary>
+    private void CreateRecordingLeaseTableV55()
+    {
+        Execute(
+            """
+            CREATE TABLE IF NOT EXISTS recording_lease (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                owner_id TEXT NOT NULL,
+                priority INTEGER NOT NULL,
+                lease_expires_utc TEXT NOT NULL
+            );
             """);
     }
 

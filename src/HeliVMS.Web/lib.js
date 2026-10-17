@@ -323,6 +323,7 @@ export function configCard(raw) {
     recordingRetentionDays: Number(r.recordingRetentionDays ?? r.RecordingRetentionDays ?? 30),
     recordingWatermarkGb: Number(r.recordingWatermarkGb ?? r.RecordingWatermarkGb ?? 0),
     alarmRetentionDays: Number(r.alarmRetentionDays ?? r.AlarmRetentionDays ?? 365),
+    auditRetentionDays: Number(r.auditRetentionDays ?? r.AuditRetentionDays ?? 365),
   };
 }
 

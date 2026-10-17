@@ -304,3 +304,55 @@ describe('multi-split live grid', () => {
     expect(i18nSource).toContain("'live.pickChannel': '");
   });
 });
+
+describe('web settings', () => {
+  it('adds a settings tab wired to its panel', () => {
+    expect(indexSource).toMatch(/id="tabbtn-settings"[^>]*data-tab="settings"[^>]*aria-controls="panel-settings"/);
+    expect(indexSource).toMatch(/id="panel-settings"[^>]*data-panel="settings"[^>]*role="tabpanel"[^>]*aria-labelledby="tabbtn-settings"/);
+  });
+
+  it('exposes every retention/auth field in the markup', () => {
+    for (const id of [
+      'set-auth-enabled',
+      'set-lock-threshold',
+      'set-lock-minutes',
+      'set-retention-days',
+      'set-watermark-gb',
+      'set-alarm-retention',
+      'set-audit-retention',
+    ]) {
+      expect(indexSource, id).toMatch(new RegExp(`id="${id}"`));
+    }
+    expect(indexSource).toMatch(/data-i18n="setting\.save"/);
+    expect(i18nSource).toContain("'setting.auditRetention': '稽核保留'");
+  });
+
+  it('loads the config card through the authenticated transport', () => {
+    // configCard 是 lib.js 的純函式，負責把回應欄位正規化（大小寫／預設）；必須真的 import。
+    expect(appSource).toMatch(/const card = configCard\(await api\('\/api\/config'\)\)/);
+    expect(appSource).toMatch(/^\s*configCard,\s*$/m);
+  });
+
+  it('saves through the single transport with a JSON body', () => {
+    expect(appSource).toMatch(/const body = \{[\s\S]*recordingRetentionDays:[\s\S]*\};/);
+    expect(appSource).toMatch(/apiRaw\('\/api\/config', \{/);
+    expect(appSource).toMatch(/method: 'PUT'/);
+    expect(appSource).toMatch(/body: JSON\.stringify\(body\)/);
+    expect(appSource).toMatch(/\$\('settings-form'\)\.addEventListener\('submit', saveSettings\)/);
+  });
+
+  it('loads on tab open instead of on the poll', () => {
+    // 每 12 秒輪詢覆寫會蓋掉正在編輯的欄位，所以只在開啟設定分頁時載入。
+    expect(appSource).toMatch(/if \(name === 'settings'\) void loadSettings\(\)/);
+    expect(appSource).not.toMatch(/Promise\.allSettled\(\[[\s\S]*loadSettings\(\)/);
+  });
+
+  it('reports load/save outcomes and usage via the catalog', () => {
+    expect(appSource).toMatch(/api\('\/api\/config\/usage'\)/);
+    expectLocalized(appSource, 'setting.saved', '設定已儲存');
+    expectLocalized(appSource, 'setting.saveFailed', '儲存設定失敗');
+    expectLocalized(appSource, 'setting.loadFailed', '載入設定失敗');
+    expect(appSource).toContain("t('setting.usage',");
+    expect(i18nSource).toContain("'setting.usage': '");
+  });
+});

@@ -1,4 +1,3 @@
-using System.Globalization;
 using HeliVMS.Core.Ntp;
 using HeliVMS.Storage;
 
@@ -10,8 +9,9 @@ namespace HeliVMS.App.Services;
 /// <param name="Offset">本地時鐘相對伺服器的偏移（正值＝本地慢、要往前調）。</param>
 /// <param name="RoundTrip">往返延遲。</param>
 /// <param name="Stratum">伺服器階層。</param>
-/// <param name="ClockSet">系統時鐘是否真的被調整（無權限時為 false）。</param>
-/// <param name="Error">系統時鐘調整失敗的原因；成功或未嘗試時為 null。</param>
+/// <param name="ClockSet">系統時鐘是否由本行程直接校正（需要校時權限）。</param>
+/// <param name="Error">本行程直接校正失敗的原因；成功或未嘗試時為 null。</param>
+/// <param name="ServiceRequested">是否已改請 <c>HeliVMS.Agent</c> 服務代為校時（本行程無權限時）。</param>
 public sealed record NtpSyncOutcome(
     bool Ok,
     DateTime ServerUtc,
@@ -19,33 +19,32 @@ public sealed record NtpSyncOutcome(
     TimeSpan RoundTrip,
     byte Stratum,
     bool ClockSet,
-    string? Error);
+    string? Error,
+    bool ServiceRequested);
 
 /// <summary>
 /// 設定中心「網路」頁的 NTP 對時（M305；校時引擎為 M68 的 <see cref="NtpClient"/>）。
 ///
 /// <para>
-/// 把「查詢 → 記錄 → 盡力調整系統時鐘」收在一處，讓手動「立即對時」與主視窗的定期自動對時
-/// 走同一條路徑；否則兩邊各寫一份，日後只會有一邊被修好。
+/// 把「查詢 → 記錄 → 校正系統時鐘」收在一處，讓手動「立即對時」與主視窗的定期自動對時走同一條路徑。
+/// 校正 Windows 系統時鐘需要 <c>SeSystemtimePrivilege</c>，一般（未提高權限的）桌面行程沒有，於此情境
+/// 改為在設定庫留下請求、由以 LocalSystem 執行且預設持有該權限的 <c>HeliVMS.Agent</c> 服務代勞
+/// （見 <see cref="NtpSettings"/> 與 Agent 的 <c>NtpSyncWorker</c>）。
 /// </para>
 /// </summary>
 public static class NtpSync
 {
-    public const string EnabledKey = "ntp.enabled";
-    public const string ServerKey = "ntp.server";
-    public const string LastSyncUtcKey = "ntp.last_sync_utc";
-    public const string LastOffsetMsKey = "ntp.last_offset_ms";
+    public const string EnabledKey = NtpSettings.Enabled;
+    public const string ServerKey = NtpSettings.Server;
+    public const string LastSyncUtcKey = NtpSettings.LastSyncUtc;
+    public const string LastOffsetMsKey = NtpSettings.LastOffsetMs;
 
     /// <summary>預設伺服器。留空時使用；刻意選 Windows 內建的公用時間來源。</summary>
-    public const string DefaultServer = "time.windows.com";
+    public const string DefaultServer = NtpSettings.DefaultServer;
 
-    public static string ReadServer(SettingsRepository settings)
-    {
-        var configured = settings.Get(ServerKey);
-        return string.IsNullOrWhiteSpace(configured) ? DefaultServer : configured.Trim();
-    }
+    public static string ReadServer(SettingsRepository settings) => NtpSettings.ReadServer(settings);
 
-    public static bool IsEnabled(SettingsRepository settings) => settings.Get(EnabledKey) == "1";
+    public static bool IsEnabled(SettingsRepository settings) => NtpSettings.IsEnabled(settings);
 
     /// <summary>
     /// 對 <paramref name="server"/>（未指定時用設定的伺服器）對時，並盡力調整系統時鐘。
@@ -65,28 +64,26 @@ public static class NtpSync
         var query = await new NtpClient().QueryAsync(target, ct: ct).ConfigureAwait(false);
         if (query is null)
         {
-            return new NtpSyncOutcome(false, default, default, default, 0, false, null);
+            return new NtpSyncOutcome(false, default, default, default, 0, false, null, false);
         }
 
         var serverUtc = DateTime.UtcNow + query.Offset;
-        settings.Set(LastSyncUtcKey, serverUtc.ToString("o", CultureInfo.InvariantCulture));
-        settings.Set(LastOffsetMsKey, ((long)query.Offset.TotalMilliseconds).ToString(CultureInfo.InvariantCulture));
+        settings.Set(NtpSettings.LastSyncUtc, NtpSettings.FormatUtc(serverUtc));
+        settings.Set(NtpSettings.LastOffsetMs, NtpSettings.FormatOffsetMs(query.Offset));
 
+        // 先就地校正（本行程有校時權限時，例如以系統管理員身分執行）；失敗則改請 Agent 服務代勞，
+        // 讓無人值守的機器也能校時，不必每次都提高權限。
         var clockSet = SystemClock.TrySetUtcNow(serverUtc, out var error);
-        return new NtpSyncOutcome(true, serverUtc, query.Offset, query.RoundTrip, query.Stratum, clockSet, error);
+        var serviceRequested = false;
+        if (!clockSet)
+        {
+            NtpSettings.RequestSync(settings);
+            serviceRequested = true;
+        }
+
+        return new NtpSyncOutcome(true, serverUtc, query.Offset, query.RoundTrip, query.Stratum, clockSet, error, serviceRequested);
     }
 
     /// <summary>讀回上次對時的時間與偏移；從未對時時回傳 null。</summary>
-    public static (DateTime ServerUtc, long OffsetMs)? ReadLast(SettingsRepository settings)
-    {
-        var raw = settings.Get(LastSyncUtcKey);
-        if (string.IsNullOrWhiteSpace(raw)
-            || !DateTime.TryParse(raw, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var when))
-        {
-            return null;
-        }
-
-        var offset = long.TryParse(settings.Get(LastOffsetMsKey), out var ms) ? ms : 0;
-        return (when, offset);
-    }
+    public static (DateTime ServerUtc, long OffsetMs)? ReadLast(SettingsRepository settings) => NtpSettings.ReadLast(settings);
 }

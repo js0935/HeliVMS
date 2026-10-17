@@ -84,8 +84,33 @@ public sealed class SegmentRecorderTests : IDisposable
         Assert.Equal(SegmentStatus.Final, stored.Status);
         Assert.True(File.Exists(stored.FilePath));
         Assert.Equal(factory.Processes[0].Output.Length, (int)stored.SizeBytes);
-        Assert.Equal(SegmentSeconds, stored.DurationSec!.Value);
+        // 結束時間與長度取自真實收尾時刻（見 SegmentRecorder），不再固定等於設定秒數，
+        // 兩者必須彼此一致。
+        Assert.NotNull(stored.EndUtc);
+        Assert.Equal(
+            (stored.EndUtc!.Value - stored.StartUtc).TotalSeconds,
+            stored.DurationSec!.Value,
+            2);
         Assert.Equal(Sha256Of(factory.Processes[0].Output), stored.Sha256);
+
+        await recorder.DisposeAsync();
+    }
+
+    /// <summary>
+    /// 每個區段結束後都必須釋放它的 ffmpeg 行程與管線控制代碼。
+    ///
+    /// 長期錄影是「一天 1,440 段 × 16 路」，若每段都漏一組 handle，程式會先耗盡控制代碼、
+    /// 接著在完全無關的地方（例如開檔）以看似隨機的例外崩掉——而 log 只會指向崩潰點。
+    /// </summary>
+    [Fact]
+    public async Task 區段收尾後會釋放ffmpeg行程()
+    {
+        var (recorder, factory, first) = BeginFirstSegment(FirstCompletesThenPending);
+        await first.WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.True(
+            factory.Processes[0].Disposed,
+            "區段結束後沒有釋放 ffmpeg 行程，控制代碼會隨每段累積外洩。");
 
         await recorder.DisposeAsync();
     }
@@ -506,6 +531,147 @@ public sealed class SegmentRecorderTests : IDisposable
         }
     }
 
+    /// <summary>
+    /// 錄影資料夾要使用注入的頻道名稱，而不是舊制 <c>ch{id}</c>：這是操作員在磁碟上認得出
+    /// 「哪個資料夾是哪台攝影機」的唯一依據（M311）。名稱由排程／監看牆以同一套規則算出。
+    /// </summary>
+    [Fact]
+    public async Task 錄影資料夾會使用注入的頻道名稱()
+    {
+        var completed = new TaskCompletionSource<SegmentRecord>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var factory = new FakeProcessFactory(FirstCompletesThenPending);
+        await using var recorder = new SegmentRecorder(
+            _segments,
+            factory,
+            _ => string.Empty,
+            folderNameFor: _ => "前門");
+        recorder.SegmentCompleted += (_, segment) => completed.TrySetResult(segment);
+
+        await recorder.StartAsync(_channelId, RtspUrl, _recordingsRoot, "main", SegmentSeconds);
+        var segment = await completed.Task.WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.StartsWith(
+            Path.Combine(_recordingsRoot, "前門") + Path.DirectorySeparatorChar,
+            segment.FilePath,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// 沒有提供頻道名稱時退回舊制 <c>ch{id:000}</c>，確保未接上命名規則的呼叫端仍能錄影，
+    /// 而不是因為拿不到名稱就寫到根目錄或直接失敗。
+    /// </summary>
+    [Fact]
+    public async Task 未提供資料夾名稱時退回頻道編號目錄()
+    {
+        var completed = new TaskCompletionSource<SegmentRecord>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var factory = new FakeProcessFactory(FirstCompletesThenPending);
+        await using var recorder = new SegmentRecorder(_segments, factory, _ => string.Empty);
+        recorder.SegmentCompleted += (_, segment) => completed.TrySetResult(segment);
+
+        await recorder.StartAsync(_channelId, RtspUrl, _recordingsRoot, "main", SegmentSeconds);
+        var segment = await completed.Task.WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.StartsWith(
+            Path.Combine(_recordingsRoot, $"ch{_channelId:000}") + Path.DirectorySeparatorChar,
+            segment.FilePath,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// 同一秒內起始的兩段錄影必須各寫成不同檔名，否則後段會因為 <c>File.Move</c> 撞名而整段遺失。
+    ///
+    /// 現場症狀：攝影機 RTSP 串流突然 EOF、ffmpeg 迅速以退出碼 0 結束時，下一段會在同一秒內開錄。
+    /// 秒級檔名（<c>seg-HHmmss</c>）讓第二段的 <c>File.Move</c> 擲 IOException，被 catch 當成損壞段
+    /// 刪掉——該段影片直接消失，log 只有一筆 corrupt，操作員從時間軸只看到一個缺口。
+    /// 這裡用注入時鐘把兩段壓進同一秒、固定同一個 <c>HHmmss</c>，確定檔名帶毫秒且兩段都寫成 final。
+    /// </summary>
+    [Fact]
+    public async Task 同一秒內起始的兩段不會因檔名碰撞而遺失()
+    {
+        var t = new DateTime(2026, 1, 2, 10, 0, 0, DateTimeKind.Utc);
+        var clockCalls = 0;
+        // 每段會呼叫時鐘兩次（開始、結束）。這裡讓兩段的「開始」落在同一秒、相差 50 毫秒，
+        // 這正是正式環境的碰撞場景：秒級檔名相同、毫秒級不同。舊的 HHmmss 會撞名，
+        // 新的 HHmmssfff 不會。
+        Func<DateTime> clock = () =>
+        {
+            var n = Interlocked.Increment(ref clockCalls);
+            return n switch
+            {
+                1 => t,                              // 第一段開始（10:00:00.000）
+                2 => t.AddMilliseconds(10),          // 第一段結束
+                3 => t.AddMilliseconds(50),          // 第二段開始（10:00:00.050，同一秒）
+                4 => t.AddMilliseconds(60),          // 第二段結束
+                _ => t.AddMilliseconds(60 + n),      // 之後（行程停住，不再收尾）
+            };
+        };
+
+        var twoDone = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var completedCount = 0;
+        var factory = new FakeProcessFactory(FirstTwoCompleteThenPending);
+        await using var recorder = new SegmentRecorder(
+            _segments,
+            factory,
+            _ => string.Empty,
+            clock: clock);
+        recorder.SegmentCompleted += (_, _) =>
+        {
+            if (Interlocked.Increment(ref completedCount) >= 2)
+            {
+                twoDone.TrySetResult();
+            }
+        };
+
+        await recorder.StartAsync(_channelId, RtspUrl, _recordingsRoot, "main", SegmentSeconds);
+        await twoDone.Task.WaitAsync(TimeSpan.FromSeconds(10));
+
+        var finals = _segments.ListAllFinal();
+        Assert.Equal(2, finals.Count);
+        Assert.Equal(2, finals.Select(s => s.FilePath).Distinct(StringComparer.OrdinalIgnoreCase).Count());
+        Assert.All(
+            finals,
+            s => Assert.Matches(@"seg-\d{9}\.mp4$", s.FilePath));
+    }
+
+    /// <summary>
+    /// 區段的結束時間與長度必須反映真實收尾時刻，不能固定等於設定的分段秒數。
+    ///
+    /// 現場症狀：攝影機 RTSP 串流中斷時，ffmpeg 會提早以退出碼 0 結束，檔案只有幾秒，
+    /// 索引卻記成整整一段（例如 60 秒）。回放時間軸因此畫出一段沒有畫面的區塊，HLS 的
+    /// EXTINF 也宣稱 60 秒，播放器在檔案真正結尾之後空等。
+    /// 這裡用注入時鐘模擬「只錄了 5 秒就結束」，確定索引記的是 5 秒而不是設定值。
+    /// </summary>
+    [Fact]
+    public async Task 提早結束時區段長度取真實收尾時刻而非設定秒數()
+    {
+        var t = new DateTime(2026, 3, 4, 9, 0, 0, DateTimeKind.Utc);
+        var clockCalls = 0;
+        Func<DateTime> clock = () =>
+        {
+            var n = Interlocked.Increment(ref clockCalls);
+            return n == 1 ? t : t.AddSeconds(5);
+        };
+
+        var completed = new TaskCompletionSource<SegmentRecord>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var factory = new FakeProcessFactory(FirstCompletesThenPending);
+        await using var recorder = new SegmentRecorder(
+            _segments,
+            factory,
+            _ => string.Empty,
+            clock: clock);
+        recorder.SegmentCompleted += (_, segment) => completed.TrySetResult(segment);
+
+        await recorder.StartAsync(_channelId, RtspUrl, _recordingsRoot, "main", SegmentSeconds);
+        var segment = await completed.Task.WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.Equal(t.AddSeconds(5), segment.EndUtc!.Value, TimeSpan.FromSeconds(1));
+        Assert.Equal(5d, segment.DurationSec!.Value, 1);
+        Assert.NotEqual(SegmentSeconds, segment.DurationSec!.Value);
+
+        var stored = Assert.IsType<SegmentRecord>(_segments.Get(segment.Id));
+        Assert.Equal(5d, stored.DurationSec!.Value, 1);
+    }
+
     /// <summary>第一、第二段立即成功收尾；之後的行程停住，直到被停止或取消。</summary>
     private static FakeProcess FirstTwoCompleteThenPending(int index, ProcessStartInfo psi)
     {
@@ -628,10 +794,15 @@ public sealed class SegmentRecorderTests : IDisposable
             _exited.TrySetCanceled();
         }
 
-        public void Dispose()
-        {
-        }
+        /// <summary>行程是否已被釋放；用來確認錄影收尾會歸還管線控制代碼。</summary>
+        public bool Disposed { get; private set; }
 
-        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+        public void Dispose() => Disposed = true;
+
+        public ValueTask DisposeAsync()
+        {
+            Disposed = true;
+            return ValueTask.CompletedTask;
+        }
     }
 }
