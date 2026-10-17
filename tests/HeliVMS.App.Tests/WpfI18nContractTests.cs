@@ -72,7 +72,7 @@ public sealed class WpfI18nContractTests
         _ = xaml;
         var source = SourceContract.Read(code);
         Assert.Contains($"\"{prefixes[0]}.Title\"", source);
-        Assert.Matches(@"ApplyI18n\s*\(\s*\)\s*;", source);
+        Assert.Matches(@"ApplyI18n\s*\([^)]*\)\s*;", source);
     }
 
     [Theory]

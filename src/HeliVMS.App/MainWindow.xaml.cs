@@ -384,7 +384,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        switch (ExitChoiceWindow.Ask(this))
+        switch (ExitChoiceWindow.Ask(this, _isWindowFullScreen))
         {
             case ExitChoice.Minimize:
                 Hide();
@@ -2586,7 +2586,7 @@ public partial class MainWindow : Window
     /// <summary>頂欄「離開」按鈕：交給 <see cref="OnClosing"/> 跳「最小化／離開」選擇。</summary>
     private void OnExitClicked(object sender, RoutedEventArgs e)
     {
-        switch (ExitChoiceWindow.Ask(this))
+        switch (ExitChoiceWindow.Ask(this, _isWindowFullScreen))
         {
             case ExitChoice.Minimize:
                 Hide();

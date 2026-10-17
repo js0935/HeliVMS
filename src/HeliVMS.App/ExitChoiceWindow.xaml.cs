@@ -31,26 +31,30 @@ public partial class ExitChoiceWindow : Window
     /// <summary>使用者的選擇；對話框被關掉（X／Esc）時為 <see cref="ExitChoice.Cancel"/>。</summary>
     public ExitChoice Choice { get; private set; } = ExitChoice.Cancel;
 
-    public ExitChoiceWindow()
+    public ExitChoiceWindow(bool isFullScreen = false)
     {
         InitializeComponent();
-        ApplyI18n();
+        ApplyI18n(isFullScreen);
     }
 
-    private void ApplyI18n()
+    private void ApplyI18n(bool isFullScreen)
     {
         Title = Localizer.T("Exit.Title");
         MessageText.Text = Localizer.T("Exit.Message");
-        ExitFullScreenButton.Content = Localizer.T("Main.ExitFullScreen");
+        ExitFullScreenButton.Content = isFullScreen
+            ? Localizer.T("Main.ExitFullScreen")
+            : Localizer.T("Main.FullScreen");
         MinimizeButton.Content = Localizer.T("Exit.Minimize");
         QuitButton.Content = Localizer.T("Exit.Quit");
         CancelButton.Content = Localizer.T("Exit.Cancel");
     }
 
+    private void ApplyI18n() => ApplyI18n(false);
+
     /// <summary>以 <paramref name="owner"/> 為 owner 顯示模態對話框並回傳選擇。</summary>
-    public static ExitChoice Ask(Window owner)
+    public static ExitChoice Ask(Window owner, bool isFullScreen = false)
     {
-        var dialog = new ExitChoiceWindow();
+        var dialog = new ExitChoiceWindow(isFullScreen);
         if (owner.IsVisible)
         {
             dialog.Owner = owner;
