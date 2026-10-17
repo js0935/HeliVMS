@@ -397,7 +397,7 @@ public partial class MainWindow : Window
                 Dispatcher.BeginInvoke(Close);
                 break;
             case ExitChoice.ExitFullScreen:
-                SetWindowFullScreen(false);
+                SetWindowFullScreen(!_isWindowFullScreen);
                 break;
             // Cancel不處理任何操作
         }
@@ -2599,7 +2599,7 @@ public partial class MainWindow : Window
                 Dispatcher.BeginInvoke(Close);
                 break;
             case ExitChoice.ExitFullScreen:
-                SetWindowFullScreen(false);
+                SetWindowFullScreen(!_isWindowFullScreen);
                 break;
         }
     }
