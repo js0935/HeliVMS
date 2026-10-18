@@ -31,6 +31,7 @@
                 <TextBlock x:Name="PlaybackDateLabel" Text="" Foreground="{StaticResource Brand.TextDim}" VerticalAlignment="Center"/>
                 <DatePicker x:Name="DatePick" AutomationProperties.AutomationId="DatePick" Width="130" Margin="6,0,0,0"
                             Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"
+                            CalendarOpened="OnCalendarOpened"
                             SelectedDateChanged="OnDateChanged"/>
             </StackPanel>
 

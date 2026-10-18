@@ -48,6 +48,10 @@ public partial class PlaybackWindow : Window
     private readonly Rectangle _cursor = new() { Width = 2, Fill = Brushes.White, IsHitTestVisible = false };
     private IReadOnlyList<RedactionRegion> _activeRegions = [];
 
+    /// <summary>回放日曆本體（藏在 DatePicker 彈窗裡），第一次開啟彈窗時抓一次。</summary>
+    private Calendar? _dateCalendar;
+    private bool _dateCalendarWired;
+
     // 回放牆（§8.5）：主畫面以外的同步次畫面。每一格各自解自己的頻道，但共用主畫面的
     // 播放頭時鐘（見 SyncPanes）；焦點一律是主畫面（ChannelCombo 選取的那台）。
     private readonly List<Pane> _panes = [];
@@ -210,6 +214,116 @@ public partial class PlaybackWindow : Window
     private void OnDateChanged(object sender, SelectionChangedEventArgs e) => LoadSegments();
 
     private void OnLoadClicked(object sender, RoutedEventArgs e) => LoadSegments();
+
+    /// <summary>
+    /// 日期彈窗開啟時抓 Calendar 本體、掛上換月重算，並排入粗體標記（§3.4）。
+    ///
+    /// <para>
+    /// 必須掛 CalendarOpened：彈窗內容（Popup.Child 的 Calendar）是開啟當下才建的，
+    /// 掛在 OnLoaded 上時它還不存在，第一次開啟永遠抓不到本體。
+    /// </para>
+    /// </summary>
+    private void OnCalendarOpened(object sender, EventArgs e)
+    {
+        if (!_dateCalendarWired
+            && DatePick.Template?.FindName("PART_Popup", DatePick) is System.Windows.Controls.Primitives.Popup popup
+            && popup.Child is Calendar cal)
+        {
+            _dateCalendarWired = true;
+            _dateCalendar = cal;
+            cal.DisplayDateChanged += OnCalendarDisplayDateChanged;
+        }
+
+        QueueRecordingDayMarks();
+    }
+
+    /// <summary>換月後重算粗體；排到版面之後才套用（見 <see cref="QueueRecordingDayMarks"/>）。</summary>
+    private void OnCalendarDisplayDateChanged(object sender, CalendarDateChangedEventArgs e)
+        => QueueRecordingDayMarks();
+
+    /// <summary>
+    /// 把「當天有錄影」的日期標成粗體（§3.4）。
+    ///
+    /// <para>
+    /// 每一格都明確寫回 Bold 或 Normal，不能只標不取消：CalendarDayButton 是重複使用的按鈕，
+    /// 只在開啟時標一次的話，上個月的粗體會跟著按鈕流到下個月（實測換月後舊值仍在）。
+    /// </para>
+    /// <para>
+    /// 口徑與 <see cref="LoadSegments"/> 完全一致：只認 final 段、重疊式查詢、同一條
+    /// 時區算法（起點就地轉 UTC 再加一天），兩者不一致就會出現「有粗體但清單是空的」
+    /// 或「當天有錄影卻不粗」，比沒有粗體更容易誤導操作員。
+    /// </para>
+    /// </summary>
+    private void ApplyRecordingDayMarks()
+    {
+        if (_dateCalendar is not Calendar cal)
+        {
+            return;
+        }
+
+        var buttons = new List<System.Windows.Controls.Primitives.CalendarDayButton>();
+        CollectDayButtons(cal, buttons);
+        if (buttons.Count == 0)
+        {
+            return;
+        }
+
+        // 格位順序：CalendarDaysView 依序放進 6x7 格子，第 0 格永遠是「顯示月份的
+        // 第一個 FirstDayOfWeek」那天，往後逐格 +1 天（已以探針實測 42 格全對位）。
+        var first = new DateTime(cal.DisplayDate.Year, cal.DisplayDate.Month, 1);
+        var offset = ((int)first.DayOfWeek - (int)cal.FirstDayOfWeek + 7) % 7;
+        var firstCell = first.AddDays(-offset);
+
+        var windows = new List<(DateTime StartUtc, DateTime EndUtc)>(buttons.Count);
+        for (var i = 0; i < buttons.Count; i++)
+        {
+            var startUtc = TimeZoneInfo.ConvertTimeToUtc(firstCell.AddDays(i));
+            windows.Add((startUtc, startUtc.AddDays(1)));
+        }
+
+        IReadOnlyList<bool> has;
+        if (ChannelCombo.SelectedItem is ChannelInfo ch)
+        {
+            has = _segments.HasSegmentsInWindows(ch.Id, "main", windows);
+        }
+        else
+        {
+            has = new bool[buttons.Count];
+        }
+
+        for (var i = 0; i < buttons.Count; i++)
+        {
+            buttons[i].FontWeight = has[i] ? FontWeights.Bold : FontWeights.Normal;
+        }
+    }
+
+    /// <summary>
+    /// 排到 Dispatcher 已完成版面（Loaded 優先度）再標記。
+    ///
+    /// <para>
+    /// 彈窗的格子是開啟當下才生成的，CalendarOpened 同步執行時往往一格都還沒長出來；
+    /// 而 DisplayDateChanged 會在新月份內容重填之前觸發，同步標記會對到舊月份。
+    /// 排到佇列尾端後兩種情況都會對到已長完、已換月的版面，且早於 Render，畫面不會閃。
+    /// </para>
+    /// </summary>
+    private void QueueRecordingDayMarks()
+        => Dispatcher.BeginInvoke(DispatcherPriority.Loaded, (Action)(() => ApplyRecordingDayMarks()));
+
+    /// <summary>走視覺樹收集全部日期格；年／月視圖的 CalendarButton 不是日期格，型別就把它們擋掉了。</summary>
+    private static void CollectDayButtons(DependencyObject root, List<System.Windows.Controls.Primitives.CalendarDayButton> into)
+    {
+        var count = VisualTreeHelper.GetChildrenCount(root);
+        for (var i = 0; i < count; i++)
+        {
+            var child = VisualTreeHelper.GetChild(root, i);
+            if (child is System.Windows.Controls.Primitives.CalendarDayButton day)
+            {
+                into.Add(day);
+            }
+
+            CollectDayButtons(child, into);
+        }
+    }
 
     /// <summary>
     /// 以目前選取的頻道／區段預先帶入遮蔽匯出視窗（§14.7 #5）。

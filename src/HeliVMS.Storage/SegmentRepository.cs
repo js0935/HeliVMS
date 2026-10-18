@@ -144,6 +144,86 @@ public sealed class SegmentRepository
             });
     }
 
+    /// <summary>
+    /// 逐窗檢查是否各有至少一段可播放的 final 錄影，回傳與 <paramref name="windows"/> 等長的
+    /// 布林清單（同順位對應：第 i 個元素回答第 i 個窗口）。
+    ///
+    /// <para>
+    /// 供回放日曆把「當天有錄影」的日期加粗（§3.4）。口徑刻意與 <see cref="ListByRange"/>之後
+    /// 由呼叫端過濾 <c>SegmentStatus.Final</c> 的結果一致——重疊式而非「start 落在窗內」，且只認
+    /// status='final'：粗體是「點下去看得到東西」的指標，兩者若不同，操作員會看到有粗體的日期
+    /// 點開是空的，或當天明明有錄影卻不粗。tmp／corrupt 段不可播放，一律不算。
+    /// </para>
+    /// <para>
+    /// start_time 的下界刻意多往回看一天，是為了涵蓋「23:58 起、跨午夜才結束」的段；
+    /// 若只寫 start_time &lt; to 沒有下界，索引 idx_seg_channel_time 的探尋無法提前停下
+    /// （早於窗口卻很舊的段同樣滿足 start_time &lt; to），會退化成整段歷史掃描。
+    /// 段長以分鐘計、遠小於一天，所以回看一天即完整涵蓋任何與窗口重疊的段。
+    /// </para>
+    /// <para>
+    /// 一次陳述式回答全部窗口（每窗一次索引探尋），歷史累積千萬段也不影響；
+    /// 改成撈出窗口內所有 start_time 再在記憶體判斷，24/7 錄影的六週就有約六萬列，
+    /// 成本會隨錄影天數線性成長。
+    /// </para>
+    /// </summary>
+    public IReadOnlyList<bool> HasSegmentsInWindows(
+        int channelId,
+        string stream,
+        IReadOnlyList<(DateTime StartUtc, DateTime EndUtc)> windows)
+    {
+        if (windows.Count == 0)
+        {
+            return [];
+        }
+
+        var values = string.Join(
+            ", ",
+            Enumerable.Range(0, windows.Count).Select(i => $"({i}, $f{i}, $t{i}, $l{i})"));
+
+        var hits = _store.Query(
+            $"""
+            WITH w(i, f, t, l) AS (VALUES {values})
+            SELECT w.i
+            FROM w
+            WHERE EXISTS (
+                SELECT 1 FROM segments s
+                WHERE s.channel_id = $c AND s.stream = $s AND s.status = 'final'
+                  AND s.start_time >= w.l AND s.start_time < w.t
+                  AND ((s.end_time IS NOT NULL AND s.end_time > w.f)
+                    OR (s.end_time IS NULL AND s.start_time >= w.f))
+            );
+            """,
+            static r =>
+            {
+                var list = new List<int>();
+                while (r.Read())
+                {
+                    list.Add(r.GetInt32(0));
+                }
+
+                return list;
+            },
+            cmd =>
+            {
+                cmd.Parameters.AddWithValue("$c", channelId);
+                cmd.Parameters.AddWithValue("$s", stream);
+                for (var i = 0; i < windows.Count; i++)
+                {
+                    cmd.Parameters.AddWithValue($"$f{i}", SqliteStore.Iso(windows[i].StartUtc));
+                    cmd.Parameters.AddWithValue($"$t{i}", SqliteStore.Iso(windows[i].EndUtc));
+                    cmd.Parameters.AddWithValue($"$l{i}", SqliteStore.Iso(windows[i].StartUtc.AddDays(-1)));
+                }
+            });
+
+        var flags = new bool[windows.Count];
+        foreach (var i in hits)
+        {
+            flags[i] = true;
+        }
+
+        return flags;
+    }
+
     /// <summary>統計某頻道錄影總量（位元組）。</summary>
     public long GetChannelTotalSize(int channelId)
     {

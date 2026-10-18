@@ -464,6 +464,115 @@ public class SegmentRepositoryTests : IDisposable
         Assert.DoesNotContain(inProgress, order);
     }
 
+    /// <summary>
+    /// 回放日曆的「當天有錄影」粗體只認可播放的 final 段：未收尾（tmp）與已標記損壞（corrupt）
+    /// 的段一律不算，否則日期會粗體、點下去卻什麼都沒有。
+    /// </summary>
+    [Fact]
+    public void 日曆逐日查詢只認可播放的final段()
+    {
+        var day = new DateTime(2026, 10, 18, 0, 0, 0, DateTimeKind.Utc);
+        Final(1, day.AddHours(9), 100);
+        _repo.BeginSegment(1, "main", @"D:\tmp\wip.mp4", day.AddDays(1).AddHours(9));
+        var corrupt = Final(1, day.AddDays(2).AddHours(9), 100);
+        _repo.MarkCorrupt(corrupt);
+
+        var flags = _repo.HasSegmentsInWindows(
+            1,
+            "main",
+            [(day, day.AddDays(1)), (day.AddDays(1), day.AddDays(2)), (day.AddDays(2), day.AddDays(3))]);
+
+        Assert.Equal(new[] { true, false, false }, flags);
+    }
+
+    /// <summary>
+    /// 23:58 起、00:03 才收尾的段必須讓前後兩天都粗體：操作員在前一天看到粗體、
+    /// 次日卻空的，會以為漏錄。這也是 start_time 下界回看一天的由來。
+    /// </summary>
+    [Fact]
+    public void 跨午夜才結束的段讓前後兩天都算有錄影()
+    {
+        var day = new DateTime(2026, 10, 18, 0, 0, 0, DateTimeKind.Utc);
+        var start = day.AddHours(23).AddMinutes(58);
+        var id = _repo.BeginSegment(1, "main", @"D:\tmp\night.mp4", start);
+        _repo.CompleteSegment(id, start.AddMinutes(5), 100, 300, "h");
+
+        var flags = _repo.HasSegmentsInWindows(
+            1, "main", [(day, day.AddDays(1)), (day.AddDays(1), day.AddDays(2))]);
+
+        Assert.Equal(new[] { true, true }, flags);
+    }
+
+    /// <summary>
+    /// 口徑必須是重疊式：09:55–10:05 的段覆蓋 10:00 開始的窗口，即使 start 落在窗口之前
+    /// 也算（只看 start 的話，整天第一格會漏掉跨入的第一段）。
+    /// </summary>
+    [Fact]
+    public void 跨進窗口的段算有錄影()
+    {
+        var day = new DateTime(2026, 10, 18, 0, 0, 0, DateTimeKind.Utc);
+        var id = _repo.BeginSegment(1, "main", @"D:\tmp\overlap.mp4", day.AddHours(9).AddMinutes(55));
+        _repo.CompleteSegment(id, day.AddHours(10).AddMinutes(5), 100, 600, "h");
+
+        var flags = _repo.HasSegmentsInWindows(1, "main", [(day.AddHours(10), day.AddHours(11))]);
+
+        Assert.True(flags[0]);
+    }
+
+    /// <summary>窗口開始前就收尾的段與該窗口無關，不得讓日期誤加粗。</summary>
+    [Fact]
+    public void 窗口前就結束的段不算有錄影()
+    {
+        var day = new DateTime(2026, 10, 18, 0, 0, 0, DateTimeKind.Utc);
+        var id = _repo.BeginSegment(1, "main", @"D:\tmp\ended.mp4", day.AddHours(8));
+        _repo.CompleteSegment(id, day.AddHours(9), 100, 3600, "h");
+
+        var flags = _repo.HasSegmentsInWindows(1, "main", [(day.AddHours(10), day.AddHours(11))]);
+
+        Assert.False(flags[0]);
+    }
+
+    /// <summary>
+    /// 回傳值與輸入窗口逐位對應：日曆把 42 格直接依索引取用，錯位一格就會把粗體
+    /// 標到隔壁的日期上，而且完全不報錯。
+    /// </summary>
+    [Fact]
+    public void 旗標與輸入窗口等長且逐位對應()
+    {
+        var day = new DateTime(2026, 10, 18, 0, 0, 0, DateTimeKind.Utc);
+        Final(1, day.AddHours(1), 100);
+        Final(1, day.AddDays(2).AddHours(1), 100);
+
+        var flags = _repo.HasSegmentsInWindows(
+            1,
+            "main",
+            [(day, day.AddDays(1)),
+             (day.AddDays(1), day.AddDays(2)),
+             (day.AddDays(2), day.AddDays(3)),
+             (day.AddDays(3), day.AddDays(4))]);
+
+        Assert.Equal(4, flags.Count);
+        Assert.Equal(new[] { true, false, true, false }, flags);
+    }
+
+    [Fact]
+    public void 沒有窗口時回傳空清單()
+        => Assert.Empty(_repo.HasSegmentsInWindows(1, "main", []));
+
+    /// <summary>日曆只會查所選頻道／主串流，別台或子串流的段不該讓日期加粗。</summary>
+    [Fact]
+    public void 別的頻道或串流的段不算()
+    {
+        var day = new DateTime(2026, 10, 18, 0, 0, 0, DateTimeKind.Utc);
+        Final(2, day.AddHours(1), 100);
+        var sub = _repo.BeginSegment(1, "sub", @"D:\tmp\sub.mp4", day.AddHours(2));
+        _repo.CompleteSegment(sub, day.AddHours(2).AddMinutes(1), 100, 60, "h");
+
+        var flags = _repo.HasSegmentsInWindows(1, "main", [(day, day.AddDays(1))]);
+
+        Assert.False(flags[0]);
+    }
+
     private long Final(int channelId, DateTime startUtc, long sizeBytes)
     {
         var id = _repo.BeginSegment(channelId, "main", $@"D:\tmp\{Guid.NewGuid():N}.mp4", startUtc);

@@ -229,4 +229,40 @@ public sealed class PlaybackWindowContractTests
         Assert.Contains("_bookmarkRepo.ListByRange(", SourceContract.BodyOf(source, "ReloadBookmarks"));
         Assert.Contains("ReloadBookmarks(", SourceContract.BodyOf(source, "LoadSegments"));
     }
+
+    /// <summary>
+    /// 回放日曆「當天有錄影」粗體（§3.4）是視覺狀態，桌面端沒有 WPF 執行期驗不到，
+    /// 這裡守住兩件一改就錯、而且光看畫面不一定發現的事：
+    ///
+    /// <para>
+    /// （1）標記必須掛 CalendarOpened——彈窗的 Calendar 是開啟當下才建的，掛在別的事件上
+    /// 第一次開永遠抓不到本體，粗體整批靜默失效（不報錯、畫面只是沒粗體）。
+    /// </para>
+    /// <para>
+    /// （2）每一格都必須寫回 Bold 與 Normal 兩種值——CalendarDayButton 會被重複使用，
+    /// 只標不取消的話上個月的粗體會跟著按鈕流到下個月（實測換月後舊值仍在）。
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void 日曆粗體在彈窗開啟時套用且逐格寫回粗或不粗()
+    {
+        var xaml = SourceContract.Read("src/HeliVMS.App/PlaybackWindow.xaml");
+        Assert.Contains("CalendarOpened=\"OnCalendarOpened\"", xaml);
+
+        var source = SourceContract.Read(Code);
+        var opened = SourceContract.BodyOf(source, "OnCalendarOpened");
+        Assert.Contains("QueueRecordingDayMarks", opened);
+        Assert.Contains("DisplayDateChanged", opened);
+        Assert.Contains(
+            "ApplyRecordingDayMarks",
+            SourceContract.BodyOf(source, "QueueRecordingDayMarks"));
+
+        var marks = SourceContract.BodyOf(source, "ApplyRecordingDayMarks");
+        Assert.Contains("FontWeights.Bold", marks);
+        Assert.Contains("FontWeights.Normal", marks);
+
+        // 口徑必須與 LoadSegments 同源：錯一條（final 過濾或時區算法），粗體清單就會對不上。
+        Assert.Contains("HasSegmentsInWindows", marks);
+        Assert.Contains("ConvertTimeToUtc", marks);
+    }
 }
