@@ -238,7 +238,7 @@ public partial class PlaybackWindow : Window
     }
 
     /// <summary>換月後重算粗體；排到版面之後才套用（見 <see cref="QueueRecordingDayMarks"/>）。</summary>
-    private void OnCalendarDisplayDateChanged(object sender, CalendarDateChangedEventArgs e)
+    private void OnCalendarDisplayDateChanged(object? sender, CalendarDateChangedEventArgs e)
         => QueueRecordingDayMarks();
 
     /// <summary>
