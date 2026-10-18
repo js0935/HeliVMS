@@ -1468,13 +1468,13 @@ public partial class PlaybackWindow : Window
 
     private void StartSync()
     {
-        if (!_syncTimer.IsEnabled)
+        if (_syncTimer is not null && !_syncTimer.IsEnabled)
         {
             _syncTimer.Start();
         }
     }
 
-    private void StopSync() => _syncTimer.Stop();
+    private void StopSync() => _syncTimer?.Stop();
 
     private void StopAllPanes()
     {
