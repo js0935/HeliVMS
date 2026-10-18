@@ -170,6 +170,9 @@ public partial class PlaybackWindow : Window
         StopButton.ToolTip = Localizer.T("Playback.StopTip");
         PlaybackSpeedLabel.Text = Localizer.T("Playback.Speed");
         PlaybackSplitLabel.Text = Localizer.T("Playback.Split");
+        ZoomSlider.Minimum = PlaybackTimelineScale.SliderValueFromSpan(TimeSpan.FromSeconds(PlaybackTimelineScale.MinSpanSeconds));
+        ZoomSlider.Maximum = PlaybackTimelineScale.SliderValueFromSpan(TimeSpan.FromSeconds(PlaybackTimeline.DaySeconds));
+        ZoomSlider.ToolTip = Localizer.T("Playback.ZoomTip");
         AutoAdvanceCheck.Content = Localizer.T("Playback.AutoAdvance");
         AutoAdvanceCheck.ToolTip = Localizer.T("Playback.AutoAdvanceTip");
         RedactionOverlayCheck.Content = Localizer.T("Playback.ShowRedaction");
@@ -1250,6 +1253,7 @@ public partial class PlaybackWindow : Window
     {
         // 刻度畫在色帶上方的獨立 canvas，與資料有無無關：空資料的日子也要看得見時間刻度。
         RenderRuler();
+        SyncZoomSlider();
 
         for (var i = BandCanvas.Children.Count - 1; i >= 0; i--)
         {
@@ -1555,6 +1559,54 @@ public partial class PlaybackWindow : Window
         RenderBlocks();
         UpdateCursor(_posInside);
         e.Handled = true;
+    }
+
+    /// <summary>滑桿重新輸入期間不回應 ValueChanged，避免「設定值→事件→再設定值」的回授圈。</summary>
+    private bool _syncingZoomSlider;
+
+    /// <summary>把目前檢視窗同步到縮放滑桿；經 RenderBlocks 單一漏斗呼叫，滾輪與載入日切換後滑桿位置都會跟上。</summary>
+    private void SyncZoomSlider()
+    {
+        _syncingZoomSlider = true;
+        try
+        {
+            ZoomSlider.Value = PlaybackTimelineScale.SliderValueFromSpan(View().Span);
+        }
+        finally
+        {
+            _syncingZoomSlider = false;
+        }
+    }
+
+    /// <summary>
+    /// 縮放滑桿（§8.5 主時間列）：拖曳改窗寬，錨在目前檢視窗中心——滑桿是粗調、
+    /// 滾輪才是跟游標的細調。窗夾回當日範圍後照一般縮放重畫刻度與色塊。
+    /// </summary>
+    private void OnZoomSliderChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+    {
+        if (_syncingZoomSlider || _view is null || _dayStartUtc == default)
+        {
+            return;
+        }
+
+        var spanSeconds = PlaybackTimelineScale.SpanSecondsFromSliderValue(e.NewValue);
+        var dayEnd = _dayStartUtc.AddDays(1);
+        var center = _view.StartUtc + _view.Span / 2;
+        var startUtc = center.AddSeconds(-spanSeconds / 2);
+        if (startUtc < _dayStartUtc)
+        {
+            startUtc = _dayStartUtc;
+        }
+
+        var endUtc = startUtc.AddSeconds(spanSeconds);
+        if (endUtc > dayEnd)
+        {
+            endUtc = dayEnd;
+            startUtc = endUtc.AddSeconds(-spanSeconds);
+        }
+
+        _view = new HeliVMS.Storage.TimelineViewWindow(startUtc, endUtc);
+        RenderBlocks();
     }
 
     private void OnSeekDragStarted(object sender, System.Windows.Controls.Primitives.DragStartedEventArgs e) => _seeking = true;

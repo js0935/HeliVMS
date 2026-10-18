@@ -386,4 +386,37 @@ public sealed class PlaybackWindowContractTests
         Assert.Contains("_panes.Count == 0", mainClick);
         Assert.Contains("SplitCombo.SelectedIndex = 0", mainClick);
     }
+
+    /// <summary>
+    /// 縮放滑桿必須與滾輪共用同一個檢視窗（§8.5 主時間列「刻度 / 縮放滑桿 / 滾輪無級縮放」）：
+    /// 滑桿是粗調、滾輪是跟游標的細調，兩者各管各的窗就會出現「滑桿在中段、畫面卻貼著秒級」的錯位。
+    /// <para>
+    /// （1）滑桿沒掛 ValueChanged、或 handler 沒換窗重畫：拖了完全沒反應。
+    /// </para>
+    /// <para>
+    /// （2）滑桿值沒經 RenderBlocks 單一漏斗回同步：滾輪縮放後滑桿停在舊位置，
+    /// 操作員再拖一下會從錯誤的窗寬起跳。
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void 縮放滑桿與滾輪共用同一檢視窗()
+    {
+        var xaml = SourceContract.Read("src/HeliVMS.App/PlaybackWindow.xaml");
+        Assert.Contains("x:Name=\"ZoomSlider\"", xaml);
+        Assert.Contains("ValueChanged=\"OnZoomSliderChanged\"", xaml);
+
+        var source = SourceContract.Read(Code);
+
+        var slider = SourceContract.BodyOf(source, "OnZoomSliderChanged");
+        Assert.Contains("SpanSecondsFromSliderValue", slider);
+        Assert.Contains("RenderBlocks", slider);
+        Assert.Contains("_view =", slider);
+
+        var funnel = SourceContract.BodyOf(source, "RenderBlocks");
+        Assert.Contains("SyncZoomSlider", funnel);
+
+        var sync = SourceContract.BodyOf(source, "SyncZoomSlider");
+        Assert.Contains("SliderValueFromSpan", sync);
+        Assert.Contains("_syncingZoomSlider", sync);
+    }
 }

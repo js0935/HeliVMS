@@ -204,14 +204,23 @@
                 </Border>
             </Canvas>
 
-            <!-- Timeline (§8.5): ruler row = time scale above the channel band; mouse wheel zooms the view window. -->
+            <!-- Timeline (§8.5): ruler row = time scale + zoom slider above the channel band; mouse wheel zooms the view window. -->
             <Grid Grid.Row="1" Margin="0,8,0,0" MouseWheel="OnBandMouseWheel">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="20"/>
                     <RowDefinition Height="48"/>
                 </Grid.RowDefinitions>
-                <Canvas x:Name="RulerCanvas" Grid.Row="0" Background="Transparent" ClipToBounds="True"
-                        AutomationProperties.AutomationId="PlaybackRuler"/>
+                <Grid Grid.Row="0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <Canvas x:Name="RulerCanvas" Grid.Column="0" Background="Transparent" ClipToBounds="True"
+                            AutomationProperties.AutomationId="PlaybackRuler"/>
+                    <Slider x:Name="ZoomSlider" Grid.Column="1" Width="110" Margin="8,0,0,0" VerticalAlignment="Center"
+                            AutomationProperties.AutomationId="PlaybackZoomSlider" ToolTip=""
+                            ValueChanged="OnZoomSliderChanged"/>
+                </Grid>
                 <Border Grid.Row="1" BorderBrush="#2A4A73" BorderThickness="1"
                         Background="#0F1D2E" MouseLeftButtonDown="OnBandScrubStart"
                         MouseMove="OnBandMouseMove" MouseLeftButtonUp="OnBandClicked">

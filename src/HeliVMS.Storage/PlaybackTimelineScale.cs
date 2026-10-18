@@ -99,6 +99,21 @@ public static class PlaybackTimelineScale
     }
 
     /// <summary>
+    /// 縮放滑桿（§8.5 主時間列）的值：以 log10(秒) 表示窗寬，
+    /// 下限 <see cref="MinSpanSeconds"/>、上限一整天——與滾輪縮放同一組邊界，
+    /// 滑桿與滾輪改的是同一個檢視窗，不會出現滑桿在中段、滾輪卻已貼底的錯位。
+    /// </summary>
+    public static double SliderValueFromSpan(TimeSpan span)
+        => Math.Log10(Math.Clamp(span.TotalSeconds, MinSpanSeconds, PlaybackTimeline.DaySeconds));
+
+    /// <summary>縮放滑桿值換回窗寬（秒），同樣夾在 [MinSpanSeconds, 一天]；越界拖曳不會拉出無意義的窗。</summary>
+    public static double SpanSecondsFromSliderValue(double value)
+        => Math.Pow(10, Math.Clamp(
+            value,
+            Math.Log10(MinSpanSeconds),
+            Math.Log10(PlaybackTimeline.DaySeconds)));
+
+    /// <summary>
     /// 依窗寬選主刻度：由小到大找第一個「主刻度數 ≤ 上限」的階梯
     /// （24 小時窗→2 小時、12 小時→1 小時、2 小時→10 分鐘、10 分鐘→1 分鐘、10 秒→1 秒）。
     /// </summary>

@@ -182,4 +182,54 @@ public class PlaybackTimelineScaleTests
         Assert.Equal(PlaybackTimeline.DaySeconds, full.Span.TotalSeconds, precision: 3);
         Assert.Equal(TimeSpan.FromHours(2), PlaybackTimelineScale.SelectMajorStep(full.EndUtc - full.StartUtc));
     }
+
+    [Theory]
+    [InlineData(10)]
+    [InlineData(60)]
+    [InlineData(3600)]
+    [InlineData(86400)]
+    public void 縮放滑桿值與窗寬互為反函數(int spanSeconds)
+    {
+        // 滑桿與滾輪共用同一個檢視窗（§8.5）：互轉若不精確，滾輪縮放後滑桿位置會慢慢漂，
+        // 操作員把滑桿拖回同一個刻度卻得到不同的窗寬，兩個控制項各說各話。
+        var value = PlaybackTimelineScale.SliderValueFromSpan(TimeSpan.FromSeconds(spanSeconds));
+
+        var span = PlaybackTimelineScale.SpanSecondsFromSliderValue(value);
+
+        Assert.Equal(spanSeconds, span, precision: 6);
+    }
+
+    [Fact]
+    public void 縮放滑桿值隨窗寬單調遞增()
+    {
+        var oneMinute = PlaybackTimelineScale.SliderValueFromSpan(TimeSpan.FromMinutes(1));
+        var oneHour = PlaybackTimelineScale.SliderValueFromSpan(TimeSpan.FromHours(1));
+        var oneDay = PlaybackTimelineScale.SliderValueFromSpan(TimeSpan.FromDays(1));
+
+        Assert.True(oneMinute < oneHour);
+        Assert.True(oneHour < oneDay);
+    }
+
+    [Fact]
+    public void 縮放滑桿互轉夾在十秒到一天之間()
+    {
+        // 越界值來自拖到極限後的浮點誤差或程式直接塞值：夾限失效會算出負窗寬或超過一天的窗，
+        // 色塊映射直接翻到帶子外。
+        Assert.Equal(
+            PlaybackTimelineScale.MinSpanSeconds,
+            PlaybackTimelineScale.SpanSecondsFromSliderValue(-99),
+            precision: 6);
+        Assert.Equal(
+            PlaybackTimeline.DaySeconds,
+            PlaybackTimelineScale.SpanSecondsFromSliderValue(99),
+            precision: 6);
+        Assert.Equal(
+            Math.Log10(PlaybackTimelineScale.MinSpanSeconds),
+            PlaybackTimelineScale.SliderValueFromSpan(TimeSpan.FromSeconds(1)),
+            precision: 6);
+        Assert.Equal(
+            Math.Log10(PlaybackTimeline.DaySeconds),
+            PlaybackTimelineScale.SliderValueFromSpan(TimeSpan.FromDays(3)),
+            precision: 6);
+    }
 }
