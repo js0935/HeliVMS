@@ -1644,9 +1644,9 @@ public sealed class SqliteStore : IDisposable
     /// </summary>
     private void AddSegmentCheckedAtV54()
     {
+        EnsureColumn("segments", "checked_at_utc", "TEXT");
         Execute(
             """
-            ALTER TABLE segments ADD COLUMN checked_at_utc TEXT;
             CREATE INDEX IF NOT EXISTS idx_seg_unchecked
                 ON segments(start_time) WHERE status = 'final' AND checked_at_utc IS NULL;
             """);

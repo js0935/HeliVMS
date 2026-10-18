@@ -52,10 +52,26 @@ public partial class App : Application
         }
         catch (Exception ex)
         {
+            var path = Path.Combine(Path.GetTempPath(), "helivms-startup.log");
             File.WriteAllText(
-                Path.Combine(Path.GetTempPath(), "helivms-startup.log"),
+                path,
                 $"{DateTime.UtcNow:O}\n{ex}\n");
-            throw;
+            try
+            {
+                MessageBox.Show(
+                    $"Startup failed. See log: {path}\n\n" +
+                    "Check if index.db is corrupted or paths/permissions are valid.",
+                    "HeliVMS - Startup failed",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error);
+            }
+            catch
+            {
+                // 如果 MessageBox 因為無法建立視窗而失敗，就不要再重擲造成完全無訊息的卡住。
+            }
+
+            Shutdown(1);
+            return;
         }
     }
 
