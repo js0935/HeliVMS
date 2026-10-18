@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using HeliVMS.Media;
 using HeliVMS.Shared;
@@ -48,6 +49,11 @@ public sealed class PlaybackSession : IAsyncDisposable
         _probe = probe ?? (path => StreamProbe.Probe(path, _ffprobe));
     }
 
+    // 探測結果快取：每次 PlayAsync 都跑一次 ffprobe 會讓每次跳轉多背一個行程啟動（數十至上百毫秒），
+    // 直接吃掉「拖拽跳轉 < 300ms 出畫」的預算（§8.5 驗收）。以「檔案路徑 + 長度 + 最後寫入時間」為簽章，
+    // 區段定稿後檔案不再變動即命中；仍在寫入的檔案簽章會變，自動重探。
+    private static readonly ConcurrentDictionary<string, (long Length, DateTime Mtime, StreamProbeInfo Info)> ProbeCache = new();
+
     public SegmentRecord Segment { get; }
 
     /// <summary>播放速率：0.5 / 1 / 2 / 4 / 8。</summary>
@@ -92,7 +98,7 @@ public sealed class PlaybackSession : IAsyncDisposable
 
         try
         {
-            var info = await Task.Run(() => _probe(Segment.FilePath), cancellationToken);
+            var info = await Task.Run(() => ProbeCached(Segment.FilePath), cancellationToken);
             await StreamFramesAsync(info, seekSeconds, _cts.Token);
         }
         catch (OperationCanceledException)
@@ -115,6 +121,45 @@ public sealed class PlaybackSession : IAsyncDisposable
     {
         _cts?.Cancel();
         KillProcess();
+    }
+
+    /// <summary>
+    /// 以檔案簽章快取 ffprobe 結果（見 <see cref="ProbeCache"/> 說明）。
+    /// 檔案不存在或無法取得資訊時退回直接探測——快取永不改變「探不到就是探不到」的結果語意。
+    /// </summary>
+    private StreamProbeInfo ProbeCached(string path)
+    {
+        long length;
+        DateTime mtime;
+        try
+        {
+            var file = new FileInfo(path);
+            if (!file.Exists)
+            {
+                return _probe(path);
+            }
+
+            length = file.Length;
+            mtime = file.LastWriteTimeUtc;
+        }
+        catch (Exception)
+        {
+            return _probe(path);
+        }
+
+        if (ProbeCache.TryGetValue(path, out var hit) && hit.Length == length && hit.Mtime == mtime)
+        {
+            return hit.Info;
+        }
+
+        var info = _probe(path);
+        if (ProbeCache.Count > 4096)
+        {
+            ProbeCache.Clear();
+        }
+
+        ProbeCache[path] = (length, mtime, info);
+        return info;
     }
 
     private async Task StreamFramesAsync(StreamProbeInfo info, double seekSeconds, CancellationToken token)

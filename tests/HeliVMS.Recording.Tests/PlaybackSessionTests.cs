@@ -171,6 +171,67 @@ public sealed class PlaybackSessionTests : IDisposable
         Assert.False(session.IsPlaying);
     }
 
+    /// <summary>
+    /// 同一段檔（定稿後不再變動）連續回放只探測一次：每次 PlayAsync 都跑一次 ffprobe 會讓每次跳轉
+    /// 多背一個行程啟動（數十至上百毫秒），直接吃掉「拖拽跳轉 &lt; 300ms 出畫」的預算（§8.5 驗收）。
+    /// 現場症狀是「每次拉時間軸都慢半拍」，但沒有任何錯誤——只是每次多等一個 ffprobe。
+    /// </summary>
+    [Fact]
+    public async Task 同一檔案連續回放只探測一次()
+    {
+        var file = CreateEmptyFile();
+        var calls = 0;
+        StreamProbeInfo Probe(string _)
+        {
+            Interlocked.Increment(ref calls);
+            return Info;
+        }
+
+        var factory = new FakeProcessFactory(_ => new FakeProcess(new MemoryStream()));
+        await using (var first = new PlaybackSession(Segment(file, 10), processFactory: factory, probe: Probe))
+        {
+            await first.PlayAsync();
+        }
+
+        await using (var second = new PlaybackSession(Segment(file, 10), processFactory: factory, probe: Probe))
+        {
+            await second.PlayAsync();
+        }
+
+        Assert.Equal(1, calls);
+    }
+
+    /// <summary>
+    /// 檔案內容改變（仍在寫入的區段會變長）就必須重新探測，不可拿舊的長寬／幀率硬套——
+    /// 快取以「路徑＋長度＋最後寫入時間」為簽章，就是在守這個邊界。
+    /// </summary>
+    [Fact]
+    public async Task 檔案內容改變後會重新探測()
+    {
+        var file = CreateEmptyFile();
+        var calls = 0;
+        StreamProbeInfo Probe(string _)
+        {
+            Interlocked.Increment(ref calls);
+            return Info;
+        }
+
+        var factory = new FakeProcessFactory(_ => new FakeProcess(new MemoryStream()));
+        await using (var first = new PlaybackSession(Segment(file, 10), processFactory: factory, probe: Probe))
+        {
+            await first.PlayAsync();
+        }
+
+        File.AppendAllText(file, "x");
+
+        await using (var second = new PlaybackSession(Segment(file, 10), processFactory: factory, probe: Probe))
+        {
+            await second.PlayAsync();
+        }
+
+        Assert.Equal(2, calls);
+    }
+
     private SegmentRecord Segment(string filePath, double durationSec) => new()
     {
         Id = 1,

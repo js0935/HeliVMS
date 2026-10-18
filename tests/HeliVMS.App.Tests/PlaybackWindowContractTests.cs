@@ -197,6 +197,31 @@ public sealed class PlaybackWindowContractTests
     }
 
     [Fact]
+    public void 時間軸拖曳期間只搬播放頭並在放開時才跳一段()
+    {
+        var source = SourceContract.Read(Code);
+
+        // 拖曳預覽絕不啟動解碼：每移動一格就多開一個 ffmpeg，手感會直接爛掉，
+        // 也讓「拖拽跳轉 < 300ms 出畫」的預算花在幾十個用不到的行程上（§8.5 驗收）。
+        var preview = SourceContract.BodyOf(source, "PreviewBandAt");
+        Assert.Contains("_cursor", preview);
+        Assert.DoesNotContain("PlayFrom(", preview);
+        Assert.DoesNotContain("new PlaybackSession", preview);
+
+        Assert.Contains("PreviewBandAt(", SourceContract.BodyOf(source, "OnBandMouseMove"));
+
+        // 真正的跳轉（含跨段）只在放開滑鼠時發生一次。
+        var commit = SourceContract.BodyOf(source, "OnBandClicked");
+        Assert.Contains("_scrubbing = false", commit);
+        Assert.Contains("PlayFrom(", commit);
+
+        var xaml = SourceContract.Read("src/HeliVMS.App/PlaybackWindow.xaml");
+        Assert.Contains("MouseLeftButtonDown=\"OnBandScrubStart\"", xaml);
+        Assert.Contains("MouseMove=\"OnBandMouseMove\"", xaml);
+        Assert.Contains("MouseLeftButtonUp=\"OnBandClicked\"", xaml);
+    }
+
+    [Fact]
     public void 書籤由倉儲依通道與當日範圍載入()
     {
         var source = SourceContract.Read(Code);

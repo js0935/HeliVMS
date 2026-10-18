@@ -42,6 +42,7 @@ public partial class PlaybackWindow : Window
     private DateTime _dayStartUtc;
     private HeliVMS.Storage.PlaybackTimeline? _timeline;
     private bool _seeking;
+    private bool _scrubbing;
     private bool _pendingFramePause;
     private bool _suppressSegmentAutoplay;
     private readonly Rectangle _cursor = new() { Width = 2, Fill = Brushes.White, IsHitTestVisible = false };
@@ -758,7 +759,11 @@ public partial class PlaybackWindow : Window
                 SeekSlider.Value = Math.Min(_posInside / (seg.DurationSec ?? 1), 1) * 10000;
             }
 
-            UpdateCursor(_posInside);
+            // 拖曳中播放頭由使用者控制；這裡若跟著解碼位置跑，游標會在手指底下被拉走。
+            if (!_scrubbing)
+            {
+                UpdateCursor(_posInside);
+            }
 
             if (_pendingFramePause)
             {
@@ -1175,12 +1180,47 @@ public partial class PlaybackWindow : Window
     };
 
     /// <summary>
-    /// 點擊時間軸帶：定位到該時刻所在片段並從該處播放。
+    /// 時間軸帶按下：開始拖曳，先只把播放頭搬到指標位置（<see cref="PreviewBandAt"/>），
+    /// 不啟動任何解碼。真正跳轉留到放開滑鼠的 <see cref="OnBandClicked"/>。
+    /// 拖曳途中逐格啟動 ffmpeg 會讓手感變成一片卡頓，而且每動一格就多開一個行程。
+    /// </summary>
+    private void OnBandScrubStart(object sender, MouseButtonEventArgs e)
+    {
+        if (BandCanvas.ActualWidth <= 0 || _bandSegments.Count == 0)
+        {
+            return;
+        }
+
+        _scrubbing = true;
+        if (sender is UIElement element)
+        {
+            element.CaptureMouse();
+        }
+
+        PreviewBandAt(e.GetPosition(BandCanvas).X);
+    }
+
+    private void OnBandMouseMove(object sender, MouseEventArgs e)
+    {
+        if (_scrubbing)
+        {
+            PreviewBandAt(e.GetPosition(BandCanvas).X);
+        }
+    }
+
+    /// <summary>
+    /// 放開滑鼠（或單純點擊）才真正跳轉：定位到該時刻所在片段並從該處播放。
     /// 落在無錄影區間（灰底）時只回報「此時段無錄影」，不再像以前那樣默默跳到最後一段——
     /// 那會讓操作員以為點到的地方有錄影（§8.5 驗收：無錄影區間點擊要有明確回饋）。
     /// </summary>
     private void OnBandClicked(object sender, MouseButtonEventArgs e)
     {
+        _scrubbing = false;
+        if (sender is UIElement element && element.IsMouseCaptured)
+        {
+            element.ReleaseMouseCapture();
+        }
+
         if (BandCanvas.ActualWidth <= 0)
         {
             return;
@@ -1210,6 +1250,26 @@ public partial class PlaybackWindow : Window
         }
 
         StatusText.Text = Localizer.T("Playback.NoRecordingHere");
+    }
+
+    /// <summary>拖曳中即時把播放頭移到指標位置並顯示該時刻；只搬畫面，不碰解碼（見 <see cref="OnBandScrubStart"/>）。</summary>
+    private void PreviewBandAt(double x)
+    {
+        var width = BandCanvas.ActualWidth;
+        if (width <= 0 || _bandSegments.Count == 0)
+        {
+            return;
+        }
+
+        var frac = Math.Max(0, Math.Min(1, x / width));
+        Canvas.SetLeft(_cursor, frac * width - 1);
+        _cursor.Height = BandCanvas.ActualHeight;
+        Canvas.SetTop(_cursor, 0);
+
+        var dayStartUtc = TimeZoneInfo.ConvertTimeToUtc(_bandSegments[0].Segment.StartUtc.ToLocalTime().Date);
+        TimeText.Text = TimeZoneInfo
+            .ConvertTimeFromUtc(dayStartUtc.AddMinutes(frac * 1440), TimeZoneInfo.Local)
+            .ToString("HH:mm:ss");
     }
 
     private void OnSeekDragStarted(object sender, System.Windows.Controls.Primitives.DragStartedEventArgs e) => _seeking = true;
