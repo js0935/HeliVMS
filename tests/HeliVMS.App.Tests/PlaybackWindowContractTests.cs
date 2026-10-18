@@ -231,20 +231,29 @@ public sealed class PlaybackWindowContractTests
     }
 
     /// <summary>
-    /// 回放日曆「當天有錄影」粗體（§3.4）是視覺狀態，桌面端沒有 WPF 執行期驗不到，
-    /// 這裡守住兩件一改就錯、而且光看畫面不一定發現的事：
+    /// 回放日曆「當天有錄影」粗體＋藍字（§3.4）是視覺狀態，桌面端沒有 WPF 執行期驗不到，
+    /// 這裡守住四件一改就錯、而且光看畫面不一定發現的事：
     ///
     /// <para>
     /// （1）標記必須掛 CalendarOpened——彈窗的 Calendar 是開啟當下才建的，掛在別的事件上
-    /// 第一次開永遠抓不到本體，粗體整批靜默失效（不報錯、畫面只是沒粗體）。
+    /// 第一次開永遠抓不到本體，標記整批靜默失效（不報錯、畫面只是沒粗體沒藍字）。
     /// </para>
     /// <para>
-    /// （2）每一格都必須寫回 Bold 與 Normal 兩種值——CalendarDayButton 會被重複使用，
-    /// 只標不取消的話上個月的粗體會跟著按鈕流到下個月（實測換月後舊值仍在）。
+    /// （2）每一格都必須寫回兩種狀態——CalendarDayButton 會被重複使用，只標不取消的話
+    /// 上個月的樣子會跟著按鈕流到下個月（實測換月後舊值仍在）。
+    /// </para>
+    /// <para>
+    /// （3）字色必須設在日字的 TextElement.Foreground 上，不許設在按鈕的 Foreground 上——
+    /// 兩者是不同的 DP、模板不接這座橋，設在按鈕上屬性讀值會變、畫面永遠是樣式白
+    /// （探針以紅字實測：像素完全不變），正是「看起來有改到、上機沒效果」的失敗樣態。
+    /// </para>
+    /// <para>
+    /// （4）無錄影日必須 ClearValue 退回樣式，不能寫死白色：樣式日後改色，
+    /// 被寫死的格子不會跟著改。
     /// </para>
     /// </summary>
     [Fact]
-    public void 日曆粗體在彈窗開啟時套用且逐格寫回粗或不粗()
+    public void 日曆有錄影日逐格寫回粗體與藍字且字色設在日字上()
     {
         var xaml = SourceContract.Read("src/HeliVMS.App/PlaybackWindow.xaml");
         Assert.Contains("CalendarOpened=\"OnCalendarOpened\"", xaml);
@@ -261,8 +270,26 @@ public sealed class PlaybackWindowContractTests
         Assert.Contains("FontWeights.Bold", marks);
         Assert.Contains("FontWeights.Normal", marks);
 
-        // 口徑必須與 LoadSegments 同源：錯一條（final 過濾或時區算法），粗體清單就會對不上。
+        // 口徑必須與 LoadSegments 同源：錯一條（final 過濾或時區算法），標記清單就會對不上。
         Assert.Contains("HasSegmentsInWindows", marks);
         Assert.Contains("ConvertTimeToUtc", marks);
+
+        // 藍字接縫：設在日字上、清本機值退回樣式、且不許改寫成死接縫（按鈕上的 Foreground）。
+        Assert.Contains("text.Foreground = s_recordedDayForeground", marks);
+        Assert.Contains("TextElement.ForegroundProperty", marks);
+        Assert.DoesNotContain("buttons[i].Foreground", marks);
+        Assert.Contains("s_recordedDayForeground", source);
+
+        // 找不到日字就整段跳過，藍字會靜默消失——DayText 必須真的走視覺樹找 TextBlock。
+        var dayText = SourceContract.BodyOf(source, "DayText");
+        Assert.Contains("VisualTreeHelper.GetChild", dayText);
+        Assert.Contains("is TextBlock text", dayText);
+
+        // 而且 null 早退不許提到查找之前：return null 放最前面，下面的查找程式碼還在、
+        // 字串檢查全過，但實際執行永遠回 null，藍字整批靜默不生效。
+        Assert.True(
+            dayText.IndexOf("is TextBlock text", StringComparison.Ordinal)
+                < dayText.IndexOf("return null", StringComparison.Ordinal),
+            "DayText 必須先找日字再回 null；null 放在查找之前會讓藍字靜默失效");
     }
 }

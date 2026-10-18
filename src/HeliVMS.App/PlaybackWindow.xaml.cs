@@ -1,6 +1,7 @@
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
+using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
@@ -97,6 +98,9 @@ public partial class PlaybackWindow : Window
 
     // 時間軸帶分兩列：上班放錄影區塊，下班放事件標記，標記才不會壓在區塊上看不清楚（§8.5 專業時間軸）。
     private static readonly Brush s_bandEmptyFill = Frozen(Color.FromRgb(0x33, 0x41, 0x4F));
+
+    /// <summary>日曆有錄影日的字色：與鍵盤焦點環同色 #4D9FFF，深底 #12233C 上對比約 5.8:1。</summary>
+    private static readonly Brush s_recordedDayForeground = Frozen(Color.FromRgb(0x4D, 0x9F, 0xFF));
     private const double BandBarTop = 3;
     private const double BandMarkerSize = 12;
     private const double BandMarkerMargin = 3;
@@ -242,16 +246,20 @@ public partial class PlaybackWindow : Window
         => QueueRecordingDayMarks();
 
     /// <summary>
-    /// 把「當天有錄影」的日期標成粗體（§3.4）。
+    /// 把「當天有錄影」的日期標成粗體＋藍字，其餘日期重設回樣式預設（§3.4）。
     ///
     /// <para>
-    /// 每一格都明確寫回 Bold 或 Normal，不能只標不取消：CalendarDayButton 是重複使用的按鈕，
-    /// 只在開啟時標一次的話，上個月的粗體會跟著按鈕流到下個月（實測換月後舊值仍在）。
+    /// 每一格都明確寫回兩種狀態，不能只標不取消：CalendarDayButton 是重複使用的按鈕，
+    /// 只在開啟時標一次的話，上個月的粗體與藍字會跟著按鈕流到下個月（實測換月後舊值仍在）。
     /// </para>
     /// <para>
     /// 口徑與 <see cref="LoadSegments"/> 完全一致：只認 final 段、重疊式查詢、同一條
     /// 時區算法（起點就地轉 UTC 再加一天），兩者不一致就會出現「有粗體但清單是空的」
     /// 或「當天有錄影卻不粗」，比沒有粗體更容易誤導操作員。
+    /// </para>
+    /// <para>
+    /// 字重要設在按鈕上、字色必須設在日字上，理由見 <see cref="DayText"/>：兩個屬性
+    /// 雖然都叫 Foreground／FontWeight，走的卻不是同一條路。
     /// </para>
     /// </summary>
     private void ApplyRecordingDayMarks()
@@ -293,8 +301,55 @@ public partial class PlaybackWindow : Window
 
         for (var i = 0; i < buttons.Count; i++)
         {
-            buttons[i].FontWeight = has[i] ? FontWeights.Bold : FontWeights.Normal;
+            var day = buttons[i];
+            day.FontWeight = has[i] ? FontWeights.Bold : FontWeights.Normal;
+
+            // 無錄影日用 ClearValue 而不是寫回白色：清掉本機值才會退回樣式，
+            // 樣式日後改色，被寫死的格子不會跟著改。
+            if (DayText(day) is { } text)
+            {
+                if (has[i])
+                {
+                    text.Foreground = s_recordedDayForeground;
+                }
+                else
+                {
+                    text.ClearValue(TextElement.ForegroundProperty);
+                }
+            }
         }
+    }
+
+    /// <summary>
+    /// 日期格中央的日字：ContentPresenter 為字串內容內建的 TextBlock。
+    ///
+    /// <para>
+    /// 字色只能設在這裡。<c>CalendarDayButton.Foreground</c> 是 <c>Control.ForegroundProperty</c>，
+    /// 文字繼承的是 <c>TextElement.ForegroundProperty</c>，兩者是不同的 DP，而 CalendarDayButton
+    /// 的模板不接這座橋：在按鈕上設 Foreground，屬性讀值會變成設的顏色、畫面卻永遠維持樣式白
+    /// （探針以紅字實測，像素完全不變；設到日字上才真的變色，ClearValue 也能退回樣式白）。
+    /// 字重沒有這個問題——<c>Control</c> 與 <c>TextElement</c> 的 FontWeight 是同一個 DP，
+    /// 所以粗體照舊設在按鈕上（探針比墨量：粗 54 對 normal 50，確實畫出來）。
+    /// </para>
+    /// </summary>
+    private static TextBlock? DayText(DependencyObject root)
+    {
+        var count = VisualTreeHelper.GetChildrenCount(root);
+        for (var i = 0; i < count; i++)
+        {
+            var child = VisualTreeHelper.GetChild(root, i);
+            if (child is TextBlock text)
+            {
+                return text;
+            }
+
+            if (DayText(child) is { } nested)
+            {
+                return nested;
+            }
+        }
+
+        return null;
     }
 
     /// <summary>
