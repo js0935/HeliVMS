@@ -319,16 +319,62 @@
             <Setter Property="BorderThickness" Value="1" />
             <Setter Property="MinHeight" Value="32" />
             <Setter Property="FocusVisualStyle" Value="{StaticResource FocusVisualAccent}" />
+            <!-- 沒有這個 setter，彈出的月曆吃不到下面的深色樣式（模板把 PART_Calendar.Style
+                 綁到 CalendarStyle，null 會寫成 local Style 擋掉隱含樣式），只有繼承的淺色字
+                 壓著主題淺底 → 操作員回報的「日期白底白字看不清」。 -->
+            <Setter Property="CalendarStyle" Value="{DynamicResource DarkCalendar}" />
         </Style>
 
-        <!-- 深色月曆：以隱含樣式直擊 Calendar 內層元件（預設模板產生的元件同樣套用隱含樣式，
-             不覆寫模板以保全月曆標題/選取/黑日期邏輯）。IsSelected/IsMouseOver 仍由預設模板
-             以強調色呈現，深底上保持可讀。 -->
-        <Style TargetType="Calendar">
+        <!-- 日期輸入框是 DatePickerTextBox（不是 TextBox，吃不到全域的 TextBox 隱含樣式）：
+             主題給白底，字又繼承 DatePicker 的淺色 → 關閉彈窗時欄位本身也是白底白字。 -->
+        <Style TargetType="DatePickerTextBox">
+            <Setter Property="Background" Value="#1A2C49" />
+            <Setter Property="Foreground" Value="#EBF3FF" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+        </Style>
+
+        <!-- 深色月曆：有兩條綁定會把 null 寫進 local Style，因而擋掉 Application.Resources
+             的隱含樣式，只剩繼承來的淺色字（#EBF3FF）壓在主題預設的淺底（#BADDE9）上 →
+             操作員看到的「白底白字、日期看不清」。深色必須從入口注入，不能只靠隱含樣式：
+               1) CalendarItem 的模板把 Calendar.DayButtonStyle／CalendarButtonStyle／
+                  CalendarItemStyle 綁進每一個子按鈕的 Style。
+               2) DatePicker 的模板把 DatePicker.CalendarStyle 綁進 PART_Calendar.Style，
+                  彈出視窗的月曆因此永遠吃不到隱含的 Calendar 樣式。
+             定義集中在下面這個 key，DatePicker 與獨立 Calendar 都引用它。 -->
+        <Style x:Key="DarkCalendarDayButton" TargetType="CalendarDayButton">
             <Setter Property="Background" Value="#12233C" />
+            <Setter Property="Foreground" Value="#EBF3FF" />
+            <Setter Property="BorderBrush" Value="#1D3A5F" />
+            <Setter Property="BorderThickness" Value="1" />
+        </Style>
+
+        <!-- 日標題列（日／一／…）與月份按鈕：同屬 CalendarButton，兩種都走這個入口。 -->
+        <Style x:Key="DarkCalendarButton" TargetType="CalendarButton">
+            <Setter Property="Background" Value="#1A2C49" />
+            <Setter Property="Foreground" Value="#EBF3FF" />
+            <Setter Property="BorderBrush" Value="#2A4A73" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Padding" Value="4,2" />
+        </Style>
+
+        <Style x:Key="DarkCalendarItem" TargetType="CalendarItem">
+            <Setter Property="Background" Value="#0F1D2E" />
             <Setter Property="BorderBrush" Value="#2A4A73" />
             <Setter Property="Foreground" Value="#EBF3FF" />
         </Style>
+
+        <!-- IsSelected／IsMouseOver 仍由預設模板以強調色呈現，深底上保持可讀，不覆寫模板。 -->
+        <Style x:Key="DarkCalendar" TargetType="Calendar">
+            <Setter Property="Background" Value="#12233C" />
+            <Setter Property="BorderBrush" Value="#2A4A73" />
+            <Setter Property="Foreground" Value="#EBF3FF" />
+            <Setter Property="CalendarItemStyle" Value="{StaticResource DarkCalendarItem}" />
+            <Setter Property="CalendarButtonStyle" Value="{StaticResource DarkCalendarButton}" />
+            <Setter Property="CalendarDayButtonStyle" Value="{StaticResource DarkCalendarDayButton}" />
+        </Style>
+
+        <Style TargetType="Calendar" BasedOn="{StaticResource DarkCalendar}" />
 
         <Style TargetType="CalendarItem">
             <Setter Property="Background" Value="#0F1D2E" />

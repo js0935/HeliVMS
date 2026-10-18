@@ -69,6 +69,54 @@ public sealed class DarkThemeContractTests
         Assert.Contains("#12233C", style);
     }
 
+    [Fact]
+    public void 日期彈窗的深色月曆必須從CalendarStyle入口注入()
+    {
+        // 實際症狀：播放視窗的日期選擇器一打開「白底白字、日期看不清」，而且不會有任何
+        // 錯誤。DatePicker 的模板把 PART_Calendar.Style 綁到 DatePicker.CalendarStyle，
+        // 為 null 時這個綁定會寫出 local Style，local 值會擋掉 Application.Resources 的
+        // 隱含 Calendar 樣式；只剩下繼承而來的近白字（#EBF3FF）壓在主題預設的淺底上。
+        // 所以只寫 <Style TargetType="Calendar"> 治不到彈窗裡那顆月曆，必須走 CalendarStyle。
+        var xaml = SourceContract.Read(AppXaml);
+        var datePicker = StyleBlock(xaml, "DatePicker");
+        Assert.NotEqual(string.Empty, datePicker);
+        Assert.Contains("Property=\"CalendarStyle\"", datePicker);
+        Assert.Contains("DarkCalendar", datePicker);
+    }
+
+    [Fact]
+    public void 深色月曆樣式必須把內層三種元件都接上()
+    {
+        // CalendarItem 的模板會把 Calendar.DayButtonStyle／CalendarButtonStyle／
+        // CalendarItemStyle 綁進每一顆子按鈕的 Style；任一個漏掉，該類元件就退回主題淺底，
+        // 症狀是「日標題列或日期格其中一塊變白」——一樣沒有錯誤，只是字看不見。
+        var xaml = SourceContract.Read(AppXaml);
+        var match = Regex.Match(
+            xaml,
+            "<Style x:Key=\"DarkCalendar\" TargetType=\"Calendar\">(?<body>.*?)</Style>",
+            RegexOptions.Singleline);
+        Assert.True(match.Success, "找不到 x:Key=\"DarkCalendar\" 的月曆樣式（彈窗月曆會退回主題淺底）");
+
+        var body = match.Groups["body"].Value;
+        Assert.Contains("CalendarItemStyle", body);
+        Assert.Contains("CalendarButtonStyle", body);
+        Assert.Contains("CalendarDayButtonStyle", body);
+    }
+
+    [Fact]
+    public void 日期輸入框必須是深色底()
+    {
+        // 實際症狀：DatePicker 的文字欄是 DatePickerTextBox，不是 TextBox，吃不到全域的
+        // TextBox 隱含樣式；主題給白底，字又繼承 DatePicker 的近白字 → 關掉彈窗後
+        // 欄位本身同樣是白底白字。
+        var style = StyleBlock(SourceContract.Read(AppXaml), "DatePickerTextBox");
+        Assert.NotEqual(string.Empty, style);
+
+        var background = BackgroundOf(style);
+        Assert.NotNull(background);
+        Assert.True(IsDark(background), $"DatePickerTextBox 的背景 {background} 偏亮，與近白色文字相衝（白底白字）");
+    }
+
     private static string StyleBlock(string xaml, string targetType)
     {
         var match = Regex.Match(
