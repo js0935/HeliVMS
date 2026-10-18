@@ -152,7 +152,7 @@
 
             <!-- Timeline band: all of the day's segments, AI/motion markers, and the play position -->
             <Border Grid.Row="1" Margin="0,8,0,0" BorderBrush="#2A4A73" BorderThickness="1"
-                    Background="#0F1D2E" Height="30" MouseLeftButtonDown="OnBandClicked">
+                    Background="#0F1D2E" Height="48" MouseLeftButtonDown="OnBandClicked">
                 <Canvas x:Name="BandCanvas" SizeChanged="OnBandSizeChanged"
                         AutomationProperties.AutomationId="PlaybackBand"/>
             </Border>

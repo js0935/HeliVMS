@@ -37,6 +37,7 @@ public partial class PlaybackWindow : Window
     private HeliVMS.Storage.PlaybackTimeline? _timeline;
     private bool _seeking;
     private bool _pendingFramePause;
+    private bool _suppressSegmentAutoplay;
     private readonly Rectangle _cursor = new() { Width = 2, Fill = Brushes.White, IsHitTestVisible = false };
     private IReadOnlyList<RedactionRegion> _activeRegions = [];
 
@@ -44,6 +45,12 @@ public partial class PlaybackWindow : Window
     private static readonly Brush s_redactBlurStroke = Frozen(Color.FromRgb(0xE5, 0xC8, 0x3C));
     private static readonly Brush s_redactFilledFill = Frozen(Color.FromArgb(0x59, 0xE5, 0x53, 0x3C));
     private static readonly Brush s_redactBlurFill = Frozen(Color.FromArgb(0x33, 0xE5, 0xC8, 0x3C));
+
+    // 時間軸帶分兩列：上班放錄影區塊，下班放事件標記，標記才不會壓在區塊上看不清楚（§8.5 專業時間軸）。
+    private static readonly Brush s_bandEmptyFill = Frozen(Color.FromRgb(0x33, 0x41, 0x4F));
+    private const double BandBarTop = 3;
+    private const double BandMarkerSize = 12;
+    private const double BandMarkerMargin = 3;
 
     private sealed record SegmentItem(SegmentRecord Segment, string StartLabel, string DurationLabel, string SizeLabel);
 
@@ -131,7 +138,7 @@ public partial class PlaybackWindow : Window
                 var end = seg.EndUtc ?? seg.StartUtc.AddSeconds(seg.DurationSec ?? 10);
                 if (seg.StartUtc <= focus && end >= focus)
                 {
-                    SegmentList.SelectedItem = item;
+                    SelectSegment(item);
                     PlayFrom(seg, Math.Max(0, (focus - seg.StartUtc).TotalSeconds));
                     break;
                 }
@@ -239,11 +246,36 @@ public partial class PlaybackWindow : Window
         }
     }
 
+    /// <summary>
+    /// 只有「使用者直接在清單點選區段」才自動從頭播放。
+    /// 時間軸點擊／事件跳轉／跨段跳轉是由程式改選取狀態後再自行指定起播秒數
+    /// （<see cref="SelectSegment"/>）；不抑制的話這裡會先從 0 起一段、外部再起第二段，
+    /// 每跳一次就多開一個 ffmpeg 行程並閃一下畫面。
+    /// </summary>
     private void OnSegmentSelected(object sender, SelectionChangedEventArgs e)
     {
+        if (_suppressSegmentAutoplay)
+        {
+            return;
+        }
+
         if (SegmentList.SelectedItem is SegmentItem item)
         {
             PlayFrom(item.Segment, 0);
+        }
+    }
+
+    /// <summary>程式化選取區段（不觸發 <see cref="OnSegmentSelected"/> 的自動播放），起播位置由呼叫端指定。</summary>
+    private void SelectSegment(SegmentItem item)
+    {
+        _suppressSegmentAutoplay = true;
+        try
+        {
+            SegmentList.SelectedItem = item;
+        }
+        finally
+        {
+            _suppressSegmentAutoplay = false;
         }
     }
 
@@ -265,6 +297,8 @@ public partial class PlaybackWindow : Window
                               && rec.StartUtc <= b.Segment.StartUtc.AddSeconds(b.Segment.DurationSec ?? 0));
         if (band is not null)
         {
+            // 讓左側區段清單的高亮跟著事件跳轉一起移動，否則清單停在舊選取、畫面上卻在播別段。
+            SelectSegment(band);
             PlayFrom(band.Segment, (rec.StartUtc - band.Segment.StartUtc).TotalSeconds);
         }
     }
@@ -279,7 +313,7 @@ public partial class PlaybackWindow : Window
         if (PlayPauseButton.Content.ToString() == Localizer.T("Playback.Play"))
         {
             var pos = _posInside;
-            StopPlayback(keepSelection: true);
+            StopPlayback();
             if (_current is not null)
             {
                 PlayFrom(_current, pos);
@@ -304,7 +338,7 @@ public partial class PlaybackWindow : Window
         }
     }
 
-    /// <summary>全視窗鍵盤快捷鍵（M17，對齊 ARCHITECTURE §8.5）：Space 播放/暫停、方向鍵±10秒、Ctrl 方向鍵±1分、Shift 方向鍵±10分、F 逐幀、Esc 停止。</summary>
+    /// <summary>全視窗鍵盤快捷鍵（M17，對齊 ARCHITECTURE §8.5）：Space 播放/暫停、方向鍵±10秒、Ctrl 方向鍵±1分、Shift 方向鍵±10分、F 逐幀、E 遮蔽匯出、Esc 停止。</summary>
     private void OnPreviewKeyDown(object sender, KeyEventArgs e)
     {
         if (Keyboard.FocusedElement is System.Windows.Controls.TextBox
@@ -343,6 +377,11 @@ public partial class PlaybackWindow : Window
                 StepFrame();
                 break;
 
+            case Key.E when !ctrl && !shift:
+                e.Handled = true;
+                OnRedactFromPlaybackClicked(this, new RoutedEventArgs());
+                break;
+
             case Key.Escape:
                 e.Handled = true;
                 StopPlayback();
@@ -365,7 +404,7 @@ public partial class PlaybackWindow : Window
             var end = seg.EndUtc ?? seg.StartUtc.AddSeconds(seg.DurationSec ?? 10);
             if (seg.StartUtc <= targetUtc && targetUtc <= end)
             {
-                SegmentList.SelectedItem = item;
+                SelectSegment(item);
                 PlayFrom(seg, Math.Max(0, (targetUtc - seg.StartUtc).TotalSeconds));
                 return;
             }
@@ -374,14 +413,14 @@ public partial class PlaybackWindow : Window
         var first = _bandSegments[0].Segment;
         if (targetUtc < first.StartUtc)
         {
-            SegmentList.SelectedItem = _bandSegments[0];
+            SelectSegment(_bandSegments[0]);
             PlayFrom(first, 0);
             return;
         }
 
         var lastItem = _bandSegments[^1];
         var last = lastItem.Segment;
-        SegmentList.SelectedItem = lastItem;
+        SelectSegment(lastItem);
         PlayFrom(last, Math.Max(0, (last.DurationSec ?? 1) - 0.001));
     }
 
@@ -422,7 +461,7 @@ public partial class PlaybackWindow : Window
 
     private void PlayFrom(SegmentRecord seg, double seekSeconds)
     {
-        StopPlayback(keepSelection: true);
+        StopPlayback();
         _current = seg;
         _basePos = seekSeconds;
         _posInside = seekSeconds;
@@ -487,7 +526,7 @@ public partial class PlaybackWindow : Window
             if (_pendingFramePause)
             {
                 _pendingFramePause = false;
-                StopPlayback(keepSelection: true);
+                StopPlayback();
                 StatusText.Text = Localizer.T("Playback.Paused");
             }
         });
@@ -676,7 +715,7 @@ public partial class PlaybackWindow : Window
         return brush;
     }
 
-    private void StopPlayback(bool keepSelection = false)
+    private void StopPlayback()
     {
         _stopping = true;
         var session = _session;
@@ -705,6 +744,9 @@ public partial class PlaybackWindow : Window
             }
         }
 
+        var width = BandCanvas.ActualWidth;
+        var height = BandCanvas.ActualHeight;
+
         var hasData = _bandSegments.Count > 0 || _events.Count > 0;
         if (!hasData)
         {
@@ -713,26 +755,44 @@ public partial class PlaybackWindow : Window
             return;
         }
 
+        // 先鋪一層「無錄影」灰底（§8.5 驗收：無錄影區間色帶灰顯示），再疊上真正有錄影的藍色區塊，
+        // 操作員一眼就能分辨哪裡有錄、哪裡是空的。
+        if (width > 0 && height > 0)
+        {
+            var backdrop = new Rectangle
+            {
+                Width = width,
+                Height = height,
+                Fill = s_bandEmptyFill,
+                IsHitTestVisible = false,
+            };
+            Canvas.SetLeft(backdrop, 0);
+            Canvas.SetTop(backdrop, 0);
+            BandCanvas.Children.Add(backdrop);
+        }
+
         var dayStart = DayStartUtc();
         _timeline = PlaybackTimelineBuilder.Build(
             _bandSegments.Select(i => i.Segment).ToArray(),
             _events,
             dayStart);
 
-        if (BandCanvas.ActualWidth > 0)
+        // 區塊只佔上面的區塊列，下面留給事件標記；帶子加高（48）後兩列才不會互相重疊。
+        if (width > 0)
         {
             var fill = (Brush)new SolidColorBrush(Color.FromRgb(0x2A, 0x7F, 0xC9)).GetAsFrozen();
+            var barHeight = Math.Max(6, height - BandBarTop - BandMarkerSize - BandMarkerMargin * 2);
             foreach (var bar in _timeline.Bars)
             {
                 var rect = new Rectangle
                 {
-                    Width = Math.Max(2, bar.WidthFraction * BandCanvas.ActualWidth),
-                    Height = 26,
+                    Width = Math.Max(2, bar.WidthFraction * width),
+                    Height = barHeight,
                     Fill = fill,
                     IsHitTestVisible = false,
                 };
-                Canvas.SetLeft(rect, Math.Max(0, bar.LeftFraction) * BandCanvas.ActualWidth);
-                Canvas.SetTop(rect, 2);
+                Canvas.SetLeft(rect, Math.Max(0, bar.LeftFraction) * width);
+                Canvas.SetTop(rect, BandBarTop);
                 BandCanvas.Children.Add(rect);
             }
         }
@@ -777,8 +837,8 @@ public partial class PlaybackWindow : Window
             var rec = _events.FirstOrDefault(e => e.Id == marker.EventId);
             var dot = new Ellipse
             {
-                Width = 10,
-                Height = 10,
+                Width = BandMarkerSize,
+                Height = BandMarkerSize,
                 Fill = MarkerBrush(marker.Kind),
                 Stroke = Brushes.Black,
                 StrokeThickness = 1,
@@ -790,8 +850,8 @@ public partial class PlaybackWindow : Window
                     rec?.Detail),
                 Cursor = System.Windows.Input.Cursors.Hand,
             };
-            Canvas.SetLeft(dot, marker.XFraction * BandCanvas.ActualWidth - 5);
-            Canvas.SetTop(dot, 10);
+            Canvas.SetLeft(dot, marker.XFraction * BandCanvas.ActualWidth - BandMarkerSize / 2);
+            Canvas.SetTop(dot, Math.Max(0, BandCanvas.ActualHeight - BandMarkerSize - BandMarkerMargin));
             BandCanvas.Children.Add(dot);
         }
     }
@@ -805,7 +865,11 @@ public partial class PlaybackWindow : Window
         _ => (Brush)new SolidColorBrush(Color.FromRgb(0x4C, 0xAF, 0x7A)).GetAsFrozen(),
     };
 
-    /// <summary>點擊時間軸帶：定位到該時刻所在片段並從該處播放。</summary>
+    /// <summary>
+    /// 點擊時間軸帶：定位到該時刻所在片段並從該處播放。
+    /// 落在無錄影區間（灰底）時只回報「此時段無錄影」，不再像以前那樣默默跳到最後一段——
+    /// 那會讓操作員以為點到的地方有錄影（§8.5 驗收：無錄影區間點擊要有明確回饋）。
+    /// </summary>
     private void OnBandClicked(object sender, MouseButtonEventArgs e)
     {
         if (_bandSegments.Count == 0 || BandCanvas.ActualWidth <= 0)
@@ -823,15 +887,13 @@ public partial class PlaybackWindow : Window
             var end = seg.EndUtc ?? seg.StartUtc.AddSeconds(seg.DurationSec ?? 10);
             if (seg.StartUtc <= targetUtc && targetUtc <= end)
             {
-                SegmentList.SelectedItem = item;
+                SelectSegment(item);
                 PlayFrom(seg, Math.Max(0, (targetUtc - seg.StartUtc).TotalSeconds));
                 return;
             }
         }
 
-        var last = _bandSegments[^1];
-        SegmentList.SelectedItem = last;
-        PlayFrom(last.Segment, 0);
+        StatusText.Text = Localizer.T("Playback.NoRecordingHere");
     }
 
     private void OnSeekDragStarted(object sender, System.Windows.Controls.Primitives.DragStartedEventArgs e) => _seeking = true;
@@ -866,7 +928,8 @@ public partial class PlaybackWindow : Window
         var dayStartUtc = DayStartUtc();
         var frac = (_current.StartUtc.AddSeconds(posSeconds) - dayStartUtc).TotalMinutes / 1440.0;
         Canvas.SetLeft(_cursor, Math.Max(0, Math.Min(1, frac)) * BandCanvas.ActualWidth - 1);
-        Canvas.SetTop(_cursor, 2);
+        _cursor.Height = BandCanvas.ActualHeight;
+        Canvas.SetTop(_cursor, 0);
     }
 
     private void DisposeQuietly(PlaybackSession? session)
