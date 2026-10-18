@@ -555,6 +555,12 @@ public sealed class PlaybackWindowContractTests
         Assert.Contains("ConvertTimeToUtc", jump);
         Assert.Contains("PlayFrom", jump);
 
+        // §8.5 規格給的是完整日期時間（2026-09-12 14:30:00）；解析本身在 Shared
+        // （HeliVMS.Shared.Tests.PlaybackTimeJumpTests 有行為測試），這裡卡視窗接的是它，
+        // 免得日後又在視窗裡長出第二套解析、兩邊格式不同步。
+        Assert.Contains("PlaybackTimeJump.TryParse", jump);
+        Assert.Contains("DatePick.SelectedDate = requestedDay", jump);
+
         // 按鈕／Enter 兩條路都要真的接到跳轉核心：只留 Click 屬性而事件空殼，
         // 畫面看起來有按鈕，按了卻沒反應（上一輪匯出預填就是這樣被斷言漏掉的）。
         Assert.Contains("JumpToLocalTime", SourceContract.BodyOf(source, "OnTimeJumpClicked"));
@@ -618,5 +624,51 @@ public sealed class PlaybackWindowContractTests
         Assert.Contains("ModifierKeys.Control", move);
         Assert.Contains("DragDrop.DoDragDrop", move);
         Assert.Contains("DragFormats.ChannelId", move);
+    }
+
+    /// <summary>
+    /// §8.5 收尾：可收合側欄，以及選擇區間窗的起止手柄。
+    /// <para>
+    /// （1）側欄收合只改按鈕文字而欄寬照舊時，按下去畫面一格都沒變大——9／16 分割最需要的
+    /// 就是這些寬度，所以斷言要卡在欄寬與可見性，不是只有事件有接。
+    /// </para>
+    /// <para>
+    /// （2）手柄的命中與拖曳計算在 <c>HeliVMS.Shared.PlaybackRangeHandle</c>（另有行為測試）；
+    /// 這裡只卡「視窗端接的是那份計算」，避免又在自己身上寫第二套而兩邊行為不同步。
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void 側欄可收合且選擇區間可用起止手柄精修()
+    {
+        var xaml = SourceContract.Read("src/HeliVMS.App/PlaybackWindow.xaml");
+        Assert.Contains("x:Name=\"SideColumn\"", xaml);
+        Assert.Contains("x:Name=\"SidePanel\"", xaml);
+        Assert.Contains("Click=\"OnSidebarToggleClicked\"", xaml);
+        Assert.Contains("AutomationProperties.AutomationId=\"PlaybackSidebarToggle\"", xaml);
+
+        var source = SourceContract.Read(Code);
+
+        var toggle = SourceContract.BodyOf(source, "OnSidebarToggleClicked");
+        Assert.Contains("SideColumn.Width", toggle);
+        Assert.Contains("GridLength(0)", toggle);
+        Assert.Contains("Visibility.Collapsed", toggle);
+        Assert.Contains("ApplyPlayerFrameGeometry", toggle);
+
+        var scrub = SourceContract.BodyOf(source, "OnBandScrubStart");
+        Assert.Contains("PlaybackRangeHandle.HitEdge", scrub);
+        Assert.Contains("_rangeResizeEdge", scrub);
+
+        var resize = SourceContract.BodyOf(source, "ResizeRangeSelection");
+        Assert.Contains("PlaybackRangeHandle.Drag", resize);
+
+        var move = SourceContract.BodyOf(source, "OnBandMouseMove");
+        Assert.Contains("ResizeRangeSelection", move);
+
+        // 手柄要看得到才抓得到：兩端各一條亮色豎條。
+        Assert.Contains("GripWidth", SourceContract.BodyOf(source, "RenderSelectionWindow"));
+
+        var i18n = SourceContract.BodyOf(source, "ApplyI18n");
+        Assert.Contains("SidebarToggleButton", i18n);
+        Assert.Contains("Playback.SidebarHide", i18n);
     }
 }

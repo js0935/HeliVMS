@@ -53,7 +53,15 @@ public partial class PlaybackWindow : Window
     private (DateTime StartUtc, DateTime EndUtc)? _rangeSelection;
     private bool _selecting;
     private DateTime _selectAnchorUtc;
-    private Rectangle? _selectionRect;
+
+    /// <summary>選擇窗覆蓋層：半透明矩形＋左右起止手柄；當一個單位整組換掉，不會殘留上一次的手柄。</summary>
+    private FrameworkElement? _selectionRect;
+
+    /// <summary>正在拖曳的起止手柄：-1＝左緣、+1＝右緣、0＝不是拖手柄（是重新框選）。</summary>
+    private int _rangeResizeEdge;
+
+    /// <summary>左側清單是否已收合（§8.5「可收合側欄」）。</summary>
+    private bool _sidebarCollapsed;
 
     /// <summary>重播所選區間時的上界；播放頭一越過就自動停（PlayFrom／停止／換載入都會清掉）。</summary>
     private DateTime? _rangeStopUtc;
@@ -117,6 +125,9 @@ public partial class PlaybackWindow : Window
     /// <summary>通道色帶列（§8.5）每排的色條高度與間距；4 路牆總高 26px，不搶主帶子的空間。</summary>
     private const double ChannelBandStripHeight = 5;
     private const double ChannelBandStripGap = 2;
+
+    /// <summary>起止手柄的抓取容差（像素）：描邊只有 1px，照描邊抓根本抓不到。</summary>
+    private const double RangeHandlePx = 6;
 
     /// <summary>牆邊框的預設色；通道色只在有牆時上色，沒有通道時回到這個底色。</summary>
     private static readonly Brush s_defaultFrameBorder = Frozen(Color.FromRgb(0x2A, 0x4A, 0x73));
@@ -216,6 +227,8 @@ public partial class PlaybackWindow : Window
         JumpButton.ToolTip = Localizer.T("Playback.TimeJumpTip");
         SnapshotMenuItem.Header = Localizer.T("Snapshot.Capture");
         WallCapacityText.ToolTip = Localizer.T("Playback.WallCapacityTip");
+        SidebarToggleButton.ToolTip = Localizer.T("Playback.SidebarTip");
+        SidebarToggleButton.Content = Localizer.T("Playback.SidebarHide");
         AutoAdvanceCheck.Content = Localizer.T("Playback.AutoAdvance");
         AutoAdvanceCheck.ToolTip = Localizer.T("Playback.AutoAdvanceTip");
         RedactionOverlayCheck.Content = Localizer.T("Playback.ShowRedaction");
@@ -966,10 +979,11 @@ public partial class PlaybackWindow : Window
         PlayFrom(last, Math.Max(0, (last.DurationSec ?? 1) - 0.001));
     }
 
-    /// <summary>時間跳轉（§8.5）：輸入當日的本地時刻，跳到覆蓋該時刻的片段並從該點起播。
+    /// <summary>時間跳轉（§8.5）：輸入時刻或完整日期時間，跳到覆蓋該時刻的片段並從該點起播。
     /// <para>
-    /// 只吃「HH:mm」「HH:mm:ss」而非完整日期：日期由 DatePick 決定，兩者各管一件事，
-    /// 操作員看事件清單記下時間後直接輸入，不必再把日期打一遍。
+    /// 規格寫的是 <c>2026-09-12 14:30:00</c>，但日期平常由 DatePick 記著，兩者各管一件事，
+    /// 所以兩種輸入都吃：只給 <c>HH:mm[:ss]</c> 時用 DatePick 的日期，給了日期就先把 DatePick
+    /// 換到那天（<c>LoadSegments</c> 會跟著重載），否則比對的是別天的片段索引。
     /// </para>
     /// <para>
     /// 該時刻落在錄影空檔時留在原位並回報，不默默跳到鄰近片段——否則操作員會以為
@@ -978,15 +992,21 @@ public partial class PlaybackWindow : Window
     /// </summary>
     private void JumpToLocalTime(string text)
     {
-        if (_bandSegments.Count == 0 || DatePick.SelectedDate is not DateTime day)
+        if (PlaybackTimeJump.TryParse(text) is not { } jump)
         {
-            StatusText.Text = Localizer.T("Playback.NoRecordingHere");
+            StatusText.Text = Localizer.T("Playback.TimeJumpInvalid");
             return;
         }
 
-        if (!TimeSpan.TryParse(text, out var clock) || clock < TimeSpan.Zero || clock >= TimeSpan.FromDays(1))
+        var (clock, date) = jump;
+        if (date is { } requestedDay && DatePick.SelectedDate?.Date != requestedDay)
         {
-            StatusText.Text = Localizer.T("Playback.TimeJumpInvalid");
+            DatePick.SelectedDate = requestedDay;
+        }
+
+        if (_bandSegments.Count == 0 || DatePick.SelectedDate is not DateTime day)
+        {
+            StatusText.Text = Localizer.T("Playback.NoRecordingHere");
             return;
         }
 
@@ -1254,6 +1274,21 @@ public partial class PlaybackWindow : Window
 
     /// <summary>中央區域尺寸變動時，重算播放框的比例與置中位置。</summary>
     private void OnPlayerAreaSizeChanged(object sender, SizeChangedEventArgs e) => ApplyPlayerFrameGeometry();
+
+    /// <summary>收合／展開左側清單（§8.5「可收合側欄」）：9／16 分割時那 250px 讓給牆，
+    /// 每一格都會明顯變大——這是操作員唯一能為「格子太小」做的調整。
+    /// <para>
+    /// 收合後主動重算一次牆：SizeChanged 要等排版回合才到，不重算會有一格寬度用舊值的殘影。
+    /// </para>
+    /// </summary>
+    private void OnSidebarToggleClicked(object sender, RoutedEventArgs e)
+    {
+        _sidebarCollapsed = !_sidebarCollapsed;
+        SideColumn.Width = _sidebarCollapsed ? new GridLength(0) : new GridLength(250);
+        SidePanel.Visibility = _sidebarCollapsed ? Visibility.Collapsed : Visibility.Visible;
+        SidebarToggleButton.Content = Localizer.T(_sidebarCollapsed ? "Playback.SidebarShow" : "Playback.SidebarHide");
+        ApplyPlayerFrameGeometry();
+    }
 
     /// <summary>
     /// 讓播放框貼合來源畫面比例並置中（沿用即時監看同一套 <see cref="MonitorGrid.Fit"/>）。
@@ -1799,10 +1834,36 @@ public partial class PlaybackWindow : Window
             return;
         }
 
+        // 起止手柄（§8.5「拖拽起止手柄」）：抓著選擇窗任一側只要調那一側，不必整個重畫。
+        // 放在 Shift 判定之前：手柄是眼前看得到的東西，抓住它就是調它，不該還要按住 Shift。
+        if (_rangeSelection is { } existing)
+        {
+            var grabX = e.GetPosition(BandCanvas).X;
+            var view = View();
+            var edge = PlaybackRangeHandle.HitEdge(
+                grabX,
+                view.FractionOf(existing.StartUtc) * BandCanvas.ActualWidth,
+                view.FractionOf(existing.EndUtc) * BandCanvas.ActualWidth,
+                RangeHandlePx);
+            if (edge != 0)
+            {
+                _selecting = true;
+                _rangeResizeEdge = edge;
+                _scrubbing = false;
+                if (sender is UIElement handleElement)
+                {
+                    handleElement.CaptureMouse();
+                }
+
+                return;
+            }
+        }
+
         // Shift+拖曳＝選取區間（§8.5「拖拽選取範圍」）；一般拖曳仍是拖曳預覽（scrub），兩者互斥。
         if ((Keyboard.Modifiers & ModifierKeys.Shift) != 0)
         {
             _selecting = true;
+            _rangeResizeEdge = 0;
             _scrubbing = false;
             if (sender is UIElement selectElement)
             {
@@ -1815,6 +1876,7 @@ public partial class PlaybackWindow : Window
             return;
         }
 
+        _rangeResizeEdge = 0;
         _scrubbing = true;
         if (sender is UIElement element)
         {
@@ -1828,7 +1890,15 @@ public partial class PlaybackWindow : Window
     {
         if (_selecting)
         {
-            UpdateRangeSelection(e.GetPosition(BandCanvas).X);
+            if (_rangeResizeEdge != 0)
+            {
+                ResizeRangeSelection(e.GetPosition(BandCanvas).X);
+            }
+            else
+            {
+                UpdateRangeSelection(e.GetPosition(BandCanvas).X);
+            }
+
             return;
         }
 
@@ -1855,6 +1925,7 @@ public partial class PlaybackWindow : Window
         if (_selecting)
         {
             _selecting = false;
+            _rangeResizeEdge = 0;
             if (BandCanvas.ActualWidth <= 0 || _rangeSelection is not { } range
                 || (range.EndUtc - range.StartUtc).TotalSeconds < 1)
             {
@@ -1905,7 +1976,25 @@ public partial class PlaybackWindow : Window
         RenderSelectionWindow();
     }
 
-    /// <summary>畫選擇區間窗（§8.5）：半透明藍底＋描邊，跟著檢視窗縮放對齊；無選擇時只清上一層。</summary>
+    /// <summary>拖曳起止手柄：只動被抓的那一側，另一側固定不動（計算見 <see cref="PlaybackRangeHandle.Drag"/>，
+    /// 含跨過對側時交換兩端與手柄身分）。</summary>
+    private void ResizeRangeSelection(double x)
+    {
+        if (_rangeSelection is not { } range)
+        {
+            return;
+        }
+
+        var frac = Math.Clamp(x / BandCanvas.ActualWidth, 0, 1);
+        var utc = View().TimeAtFraction(frac);
+        var (start, end, edge) = PlaybackRangeHandle.Drag(
+            range.StartUtc, range.EndUtc, utc, _rangeResizeEdge);
+        _rangeResizeEdge = edge;
+        _rangeSelection = (start, end);
+        RenderSelectionWindow();
+    }
+
+    /// <summary>畫選擇區間窗（§8.5）：半透明藍底＋描邊＋左右起止手柄，跟著檢視窗縮放對齊；無選擇時只清上一層。</summary>
     private void RenderSelectionWindow()
     {
         if (_selectionRect is { } old && BandCanvas.Children.Contains(old))
@@ -1936,19 +2025,37 @@ public partial class PlaybackWindow : Window
 
         var clippedLeft = Math.Max(0, left);
         var clippedRight = Math.Min(1, right);
-        var rect = new Rectangle
+        var windowWidth = Math.Max(2, (clippedRight - clippedLeft) * width);
+
+        // 整組（底＋兩條手柄）裝在一個 Canvas 裡：換掉時一起換，不會留下上一次的手柄。
+        var container = new Canvas { Width = windowWidth, Height = height, IsHitTestVisible = false };
+        container.Children.Add(new Rectangle
         {
-            Width = Math.Max(2, (clippedRight - clippedLeft) * width),
+            Width = windowWidth,
             Height = height,
             Fill = s_selectionFill,
             Stroke = s_selectionStroke,
             StrokeThickness = 1,
-            IsHitTestVisible = false,
-        };
-        Canvas.SetLeft(rect, clippedLeft * width);
-        Canvas.SetTop(rect, 0);
-        BandCanvas.Children.Add(rect);
-        _selectionRect = rect;
+        });
+
+        // 起止手柄：兩端各一條亮色豎條，讓「這裡抓得動」看得出來。
+        const double GripWidth = 3;
+        foreach (var gripAt in new[] { 0d, Math.Max(0, windowWidth - GripWidth) })
+        {
+            var grip = new Rectangle
+            {
+                Width = GripWidth,
+                Height = height,
+                Fill = s_selectionStroke,
+            };
+            Canvas.SetLeft(grip, gripAt);
+            container.Children.Add(grip);
+        }
+
+        Canvas.SetLeft(container, clippedLeft * width);
+        Canvas.SetTop(container, 0);
+        BandCanvas.Children.Add(container);
+        _selectionRect = container;
     }
 
     /// <summary>右鍵選單「重播所選區間」（§8.5「立即可重播此段」）：從區間起點播、越過盡頭自動停。</summary>
