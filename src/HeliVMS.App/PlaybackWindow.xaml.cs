@@ -1,3 +1,4 @@
+using System.IO;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
@@ -210,6 +211,10 @@ public partial class PlaybackWindow : Window
         ZoomSlider.Minimum = PlaybackTimelineScale.SliderValueFromSpan(TimeSpan.FromSeconds(PlaybackTimelineScale.MinSpanSeconds));
         ZoomSlider.Maximum = PlaybackTimelineScale.SliderValueFromSpan(TimeSpan.FromSeconds(PlaybackTimeline.DaySeconds));
         ZoomSlider.ToolTip = Localizer.T("Playback.ZoomTip");
+        PlaybackTimeJumpLabel.Text = Localizer.T("Playback.TimeJump");
+        JumpButton.Content = Localizer.T("Playback.Jump");
+        JumpButton.ToolTip = Localizer.T("Playback.TimeJumpTip");
+        SnapshotMenuItem.Header = Localizer.T("Snapshot.Capture");
         AutoAdvanceCheck.Content = Localizer.T("Playback.AutoAdvance");
         AutoAdvanceCheck.ToolTip = Localizer.T("Playback.AutoAdvanceTip");
         RedactionOverlayCheck.Content = Localizer.T("Playback.ShowRedaction");
@@ -790,7 +795,7 @@ public partial class PlaybackWindow : Window
         }
     }
 
-    /// <summary>全視窗鍵盤快捷鍵（M17，對齊 ARCHITECTURE §8.5）：Space 播放/暫停、方向鍵±10秒、Ctrl 方向鍵±1分、Shift 方向鍵±10分、F 逐幀、E 遮蔽匯出、Esc 停止。</summary>
+    /// <summary>全視窗鍵盤快捷鍵（M17，對齊 ARCHITECTURE §8.5）：Space 播放/暫停、方向鍵±10秒、Ctrl 方向鍵±1分、Shift 方向鍵±10分、F 逐幀、E 遮蔽匯出、1–4 選路、Esc 停止。</summary>
     private void OnPreviewKeyDown(object sender, KeyEventArgs e)
     {
         if (Keyboard.FocusedElement is System.Windows.Controls.TextBox
@@ -839,6 +844,17 @@ public partial class PlaybackWindow : Window
                 OnAddBookmarkClicked(this, new RoutedEventArgs());
                 break;
 
+            // 格面 1–4 選路（§8.5）：與滑鼠點 ChannelCombo 同一條路，改選即 LoadSegments 並重繪牆。
+            case Key.D1 or Key.D2 or Key.D3 or Key.D4 when !ctrl && !shift:
+                var channelIndex = e.Key - Key.D1;
+                if (channelIndex < ChannelCombo.Items.Count)
+                {
+                    e.Handled = true;
+                    ChannelCombo.SelectedIndex = channelIndex;
+                }
+
+                break;
+
             case Key.Escape:
                 e.Handled = true;
                 StopPlayback();
@@ -881,6 +897,96 @@ public partial class PlaybackWindow : Window
         PlayFrom(last, Math.Max(0, (last.DurationSec ?? 1) - 0.001));
     }
 
+    /// <summary>時間跳轉（§8.5）：輸入當日的本地時刻，跳到覆蓋該時刻的片段並從該點起播。
+    /// <para>
+    /// 只吃「HH:mm」「HH:mm:ss」而非完整日期：日期由 DatePick 決定，兩者各管一件事，
+    /// 操作員看事件清單記下時間後直接輸入，不必再把日期打一遍。
+    /// </para>
+    /// <para>
+    /// 該時刻落在錄影空檔時留在原位並回報，不默默跳到鄰近片段——否則操作員會以為
+    /// 自己看到的就是所輸入時刻的畫面。
+    /// </para>
+    /// </summary>
+    private void JumpToLocalTime(string text)
+    {
+        if (_bandSegments.Count == 0 || DatePick.SelectedDate is not DateTime day)
+        {
+            StatusText.Text = Localizer.T("Playback.NoRecordingHere");
+            return;
+        }
+
+        if (!TimeSpan.TryParse(text, out var clock) || clock < TimeSpan.Zero || clock >= TimeSpan.FromDays(1))
+        {
+            StatusText.Text = Localizer.T("Playback.TimeJumpInvalid");
+            return;
+        }
+
+        var targetUtc = TimeZoneInfo.ConvertTimeToUtc(day.Date + clock);
+        foreach (var item in _bandSegments)
+        {
+            var seg = item.Segment;
+            var end = seg.EndUtc ?? seg.StartUtc.AddSeconds(seg.DurationSec ?? 10);
+            if (seg.StartUtc <= targetUtc && targetUtc <= end)
+            {
+                SelectSegment(item);
+                PlayFrom(seg, Math.Max(0, (targetUtc - seg.StartUtc).TotalSeconds));
+                return;
+            }
+        }
+
+        StatusText.Text = Localizer.T("Playback.NoRecordingHere");
+    }
+
+    private void OnTimeJumpClicked(object sender, RoutedEventArgs e) => JumpToLocalTime(TimeJumpBox.Text);
+
+    private void OnTimeJumpBoxKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Enter)
+        {
+            return;
+        }
+
+        e.Handled = true;
+        JumpToLocalTime(TimeJumpBox.Text);
+    }
+
+    /// <summary>右鍵快照（§8.5）：把目前顯示中的畫面存成 PNG。
+    /// <para>
+    /// 用 PNG 而非 JPEG：回放快照是事件佐證，無損才有存證價值，體積不是這裡的瓶頸。
+    /// 存到與即時監看同一個 snapshots 目錄（共用清理政策），檔名帶 playback 前綴以區分來源。
+    /// </para>
+    /// </summary>
+    private void OnSnapshotClicked(object sender, RoutedEventArgs e)
+    {
+        if (_bitmap is null)
+        {
+            StatusText.Text = Localizer.T("Snapshot.NoFrame");
+            return;
+        }
+
+        try
+        {
+            var dir = System.IO.Path.Combine(MainWindow.ResolveDataRoot(), "snapshots");
+            Directory.CreateDirectory(dir);
+
+            var channelId = ChannelCombo.SelectedItem is ChannelInfo ch ? ch.Id : 0;
+            var stem = $"playback-ch{channelId:000}-{DateTime.Now:yyyyMMdd-HHmmss}";
+            var path = System.IO.Path.Combine(dir, stem + ".png");
+
+            var encoder = new PngBitmapEncoder();
+            encoder.Frames.Add(BitmapFrame.Create(_bitmap));
+            using (var stream = File.Create(path))
+            {
+                encoder.Save(stream);
+            }
+            StatusText.Text = string.Format(Localizer.T("Snapshot.Saved"), System.IO.Path.GetFileName(path));
+        }
+        catch (Exception ex)
+        {
+            StatusText.Text = string.Format(Localizer.T("Snapshot.SaveFailed"), ex.Message);
+        }
+    }
+
     /// <summary>逐幀（M17）：播放中先暫停，再向前推進約一幀（依 15fps 估約 66ms），並於首幀到達後再次暫停。</summary>
     private void StepFrame()
     {
@@ -913,6 +1019,7 @@ public partial class PlaybackWindow : Window
         2 => 2,
         3 => 4,
         4 => 8,
+        5 => 16,
         _ => 1,
     };
 

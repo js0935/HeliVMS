@@ -42,6 +42,17 @@
                     Padding="10,4" VerticalAlignment="Center" Margin="8,0,0,0"
                     Foreground="White" Background="#2A5C8A" BorderThickness="0" AutomationProperties.AutomationId="PlaybackRedactButton"/>
 
+            <StackPanel Orientation="Horizontal" Margin="0,0,14,0" VerticalAlignment="Center">
+                <TextBlock x:Name="PlaybackTimeJumpLabel" Text="" Foreground="{StaticResource Brand.TextDim}" VerticalAlignment="Center"/>
+                <TextBox x:Name="TimeJumpBox" Width="74" Margin="6,0,0,0" VerticalAlignment="Center"
+                         Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"
+                         AutomationProperties.AutomationId="PlaybackTimeJumpBox"
+                         KeyDown="OnTimeJumpBoxKeyDown"/>
+                <Button x:Name="JumpButton" Content="" Click="OnTimeJumpClicked" ToolTip=""
+                        Padding="8,4" Margin="6,0,0,0" VerticalAlignment="Center"
+                        Foreground="White" Background="#2A5C8A" BorderThickness="0" AutomationProperties.AutomationId="PlaybackJumpButton"/>
+            </StackPanel>
+
             <StackPanel Orientation="Horizontal" Margin="14,0,0,0" VerticalAlignment="Center">
                 <TextBlock x:Name="PlaybackSplitLabel" Text="" Foreground="{StaticResource Brand.TextDim}" VerticalAlignment="Center"/>
                 <ComboBox x:Name="SplitCombo" AutomationProperties.AutomationId="PlaybackSplitCombo" Width="64" Margin="6,0,0,0"
@@ -190,6 +201,7 @@
                         MouseLeftButtonDown="OnMainPlayerClicked">
                     <Border.ContextMenu>
                         <ContextMenu>
+                            <MenuItem x:Name="SnapshotMenuItem" Header="" Click="OnSnapshotClicked"/>
                             <MenuItem x:Name="AddBookmarkMenuItem" Header="" Click="OnAddBookmarkClicked"/>
                         </ContextMenu>
                     </Border.ContextMenu>
@@ -264,6 +276,7 @@
                     <ComboBoxItem Content="2×"/>
                     <ComboBoxItem Content="4×"/>
                     <ComboBoxItem Content="8×"/>
+                    <ComboBoxItem Content="16×"/>
                 </ComboBox>
                 <TextBlock x:Name="TimeText" Foreground="White" FontSize="12"
                            VerticalAlignment="Center" Margin="16,0,0,0" Text="--:--:-- / --:--:--"

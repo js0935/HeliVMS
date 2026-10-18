@@ -513,4 +513,58 @@ public sealed class PlaybackWindowContractTests
         Assert.Contains("StartTime.Text = fromLocal.ToString", exportWindow);
         Assert.Contains("EndTime.Text = toLocal.ToString", exportWindow);
     }
+
+    /// <summary>
+    /// §8.5 回放清單的其餘可達項：16× 速度、1–4 數字鍵選路、時間跳轉、右鍵快照。
+    /// <para>
+    /// （1）速度選單加了 16× 但 <c>GetSpeed</c> 沒對應索引：畫面顯示 16× 實際仍以 1× 播，
+    /// 越過整點對事件時對不上。
+    /// </para>
+    /// <para>
+    /// （2）數字鍵沒改 <c>ChannelCombo.SelectedIndex</c>：牆前面只能回頭用滑鼠點下拉，
+    /// 全螢幕操作時等於沒有這個快捷鍵。
+    /// </para>
+    /// <para>
+    /// （3）時間跳轉沒查「該時刻是否真的在錄影範圍內」：跳去鄰近片段會讓操作員以為
+    /// 自己看的是所輸入時刻的畫面。
+    /// </para>
+    /// <para>
+    /// （4）快照沒接 PngBitmapEncoder：右鍵選單出現卻存不出檔案。
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void 回放整合清單有十六倍速數字鍵選路時間跳轉與右鍵快照()
+    {
+        var xaml = SourceContract.Read("src/HeliVMS.App/PlaybackWindow.xaml");
+        Assert.Contains("Content=\"16×\"", xaml);
+        Assert.Contains("AutomationProperties.AutomationId=\"PlaybackTimeJumpBox\"", xaml);
+        Assert.Contains("Click=\"OnTimeJumpClicked\"", xaml);
+        Assert.Contains("Click=\"OnSnapshotClicked\"", xaml);
+
+        var source = SourceContract.Read(Code);
+
+        var speed = SourceContract.BodyOf(source, "GetSpeed");
+        Assert.Contains("5 => 16", speed);
+
+        var keys = SourceContract.BodyOf(source, "OnPreviewKeyDown");
+        Assert.Contains("Key.D1", keys);
+        Assert.Contains("ChannelCombo.SelectedIndex", keys);
+
+        var jump = SourceContract.BodyOf(source, "JumpToLocalTime");
+        Assert.Contains("ConvertTimeToUtc", jump);
+        Assert.Contains("PlayFrom", jump);
+
+        // 按鈕／Enter 兩條路都要真的接到跳轉核心：只留 Click 屬性而事件空殼，
+        // 畫面看起來有按鈕，按了卻沒反應（上一輪匯出預填就是這樣被斷言漏掉的）。
+        Assert.Contains("JumpToLocalTime", SourceContract.BodyOf(source, "OnTimeJumpClicked"));
+        Assert.Contains("JumpToLocalTime", SourceContract.BodyOf(source, "OnTimeJumpBoxKeyDown"));
+
+        var snapshot = SourceContract.BodyOf(source, "OnSnapshotClicked");
+        Assert.Contains("PngBitmapEncoder", snapshot);
+        Assert.Contains("encoder.Save(", snapshot);
+        Assert.Contains("snapshots", snapshot);
+
+        var i18n = SourceContract.BodyOf(source, "ApplyI18n");
+        Assert.Contains("Snapshot.Capture", i18n);
+    }
 }
