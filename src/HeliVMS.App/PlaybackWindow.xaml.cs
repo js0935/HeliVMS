@@ -1046,6 +1046,9 @@ public partial class PlaybackWindow : Window
         var h = PlayerArea.ActualHeight;
         var cells = 1 + _panes.Count;
 
+        // 多格時主畫面格也要提示可點擊放大（焦點台沒有次畫面格）；單格不留提示避免誤導。
+        PlayerFrame.ToolTip = cells > 1 ? Localizer.T("Playback.PaneTip") : null;
+
         if (cells <= 1)
         {
             // 單格：框緊貼來源畫面比例並置中（沿用即時監看同一套 Fit）。
@@ -1645,6 +1648,21 @@ public partial class PlaybackWindow : Window
         2 => 4,
         _ => 1,
     };
+
+    /// <summary>
+    /// 主畫面格單擊也放大成單畫面：焦點台（通常是攝影機 01）永遠排在主格、沒有次畫面可點，
+    /// 不補這條的話多路時點主畫面完全沒反應。它本來就是焦點，不需要換台，只要把牆收成一格。
+    /// 單格時點擊不做事，避免誤觸。
+    /// </summary>
+    private void OnMainPlayerClicked(object sender, MouseButtonEventArgs e)
+    {
+        if (_panes.Count == 0)
+        {
+            return;
+        }
+
+        SplitCombo.SelectedIndex = 0;
+    }
 
     /// <summary>依目前焦點頻道與格數重建次畫面（焦點永遠是主畫面 ChannelCombo 那台）。</summary>
     private void RebuildPanes()

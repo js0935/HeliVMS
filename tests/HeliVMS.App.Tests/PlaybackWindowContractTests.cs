@@ -354,6 +354,10 @@ public sealed class PlaybackWindowContractTests
     /// （3）次畫面沒掛 MouseLeftButtonDown（或沒接到 FocusPane）：整組點擊放大靜默失效，
     /// 游標還是手型、提示也在，對操作員是「介面說可以點、點了沒反應」。
     /// </para>
+    /// <para>
+    /// （4）主畫面格（焦點台，通常是攝影機 01）沒掛點擊：02～04 點了會放大、01 不會——
+    /// 焦點台永遠排在主格、沒有次畫面格，漏掉這條就是操作員回報的「01 不行」。
+    /// </para>
     /// </summary>
     [Fact]
     public void 單擊次畫面放大成單畫面且播放頭不斷()
@@ -374,5 +378,12 @@ public sealed class PlaybackWindowContractTests
         Assert.Contains("MouseLeftButtonDown", create);
         Assert.Contains("FocusPane", create);
         Assert.Contains("Playback.PaneTip", create);
+
+        var xaml = SourceContract.Read("src/HeliVMS.App/PlaybackWindow.xaml");
+        Assert.Contains("MouseLeftButtonDown=\"OnMainPlayerClicked\"", xaml);
+
+        var mainClick = SourceContract.BodyOf(source, "OnMainPlayerClicked");
+        Assert.Contains("_panes.Count == 0", mainClick);
+        Assert.Contains("SplitCombo.SelectedIndex = 0", mainClick);
     }
 }

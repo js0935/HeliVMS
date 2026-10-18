@@ -186,7 +186,8 @@
                 <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
             <Canvas x:Name="PlayerArea" Background="#05090E" ClipToBounds="True" SizeChanged="OnPlayerAreaSizeChanged">
-                <Border x:Name="PlayerFrame" BorderBrush="#2A4A73" BorderThickness="1" Background="#05090E">
+                <Border x:Name="PlayerFrame" BorderBrush="#2A4A73" BorderThickness="1" Background="#05090E"
+                        MouseLeftButtonDown="OnMainPlayerClicked">
                     <Border.ContextMenu>
                         <ContextMenu>
                             <MenuItem x:Name="AddBookmarkMenuItem" Header="" Click="OnAddBookmarkClicked"/>
