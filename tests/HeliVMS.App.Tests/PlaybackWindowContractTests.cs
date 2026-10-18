@@ -1,3 +1,5 @@
+using System.Text.RegularExpressions;
+
 namespace HeliVMS.App.Tests;
 
 /// <summary>
@@ -64,5 +66,27 @@ public sealed class PlaybackWindowContractTests
         var source = SourceContract.Read(Code);
         Assert.Contains("s_bandEmptyFill", SourceContract.BodyOf(source, "RenderBlocks"));
         Assert.Contains("BandMarkerSize", SourceContract.BodyOf(source, "RenderMarkers"));
+    }
+
+    [Fact]
+    public void 整天無錄影時時間軸仍鋪灰底且點擊有回饋()
+    {
+        var source = SourceContract.Read(Code);
+
+        // 灰底必須畫在「有資料才繼續」的判斷之前。否則整天沒錄影時帶子會是空的，
+        // 操作員看不出是「這天沒錄」還是「還沒載入」。
+        var render = SourceContract.BodyOf(source, "RenderBlocks");
+        Assert.True(
+            render.IndexOf("s_bandEmptyFill") < render.IndexOf("hasData"),
+            "灰底（s_bandEmptyFill）必須先於 hasData 的提前 return 繪製。");
+
+        // 完全沒有 segments 時，點擊也要回報無錄影，而不是直接 return 讓操作員以為點歪了。
+        // 只看「方法裡有沒有 NoRecordingHere」是不夠的——灰底區間那條路徑本來就會用到同一個字串；
+        // 這裡直接盯住 Count == 0 的那個 if 區塊，確保回饋真的在裡面。
+        var click = SourceContract.BodyOf(source, "OnBandClicked");
+        var guard = Regex.Match(click, @"_bandSegments\.Count == 0\)\s*\{([^}]*)\}");
+        Assert.True(
+            guard.Success && guard.Groups[1].Value.Contains("Playback.NoRecordingHere"),
+            "OnBandClicked 在 _bandSegments.Count == 0 時必須回報 Playback.NoRecordingHere，而不是直接 return。");
     }
 }

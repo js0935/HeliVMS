@@ -747,16 +747,9 @@ public partial class PlaybackWindow : Window
         var width = BandCanvas.ActualWidth;
         var height = BandCanvas.ActualHeight;
 
-        var hasData = _bandSegments.Count > 0 || _events.Count > 0;
-        if (!hasData)
-        {
-            CoverageText.Text = string.Empty;
-            _timeline = null;
-            return;
-        }
-
         // 先鋪一層「無錄影」灰底（§8.5 驗收：無錄影區間色帶灰顯示），再疊上真正有錄影的藍色區塊，
-        // 操作員一眼就能分辨哪裡有錄、哪裡是空的。
+        // 操作員一眼就能分辨哪裡有錄、哪裡是空的；整天完全沒有錄影時也要整條灰，
+        // 否則帶子會是空的、看不出是「這天沒錄」還是「還沒載入」。
         if (width > 0 && height > 0)
         {
             var backdrop = new Rectangle
@@ -769,6 +762,14 @@ public partial class PlaybackWindow : Window
             Canvas.SetLeft(backdrop, 0);
             Canvas.SetTop(backdrop, 0);
             BandCanvas.Children.Add(backdrop);
+        }
+
+        var hasData = _bandSegments.Count > 0 || _events.Count > 0;
+        if (!hasData)
+        {
+            CoverageText.Text = string.Empty;
+            _timeline = null;
+            return;
         }
 
         var dayStart = DayStartUtc();
@@ -872,8 +873,15 @@ public partial class PlaybackWindow : Window
     /// </summary>
     private void OnBandClicked(object sender, MouseButtonEventArgs e)
     {
-        if (_bandSegments.Count == 0 || BandCanvas.ActualWidth <= 0)
+        if (BandCanvas.ActualWidth <= 0)
         {
+            return;
+        }
+
+        if (_bandSegments.Count == 0)
+        {
+            // 整天都沒有錄影：整條帶子都是灰的，任何位置都算無錄影，給明確回饋而不是沒反應。
+            StatusText.Text = Localizer.T("Playback.NoRecordingHere");
             return;
         }
 
