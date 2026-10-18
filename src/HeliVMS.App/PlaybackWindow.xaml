@@ -40,6 +40,19 @@
             <Button x:Name="RedactExportButton" Content="" Click="OnRedactFromPlaybackClicked" ToolTip=""
                     Padding="10,4" VerticalAlignment="Center" Margin="8,0,0,0"
                     Foreground="White" Background="#2A5C8A" BorderThickness="0" AutomationProperties.AutomationId="PlaybackRedactButton"/>
+
+            <StackPanel Orientation="Horizontal" Margin="14,0,0,0" VerticalAlignment="Center">
+                <TextBlock x:Name="PlaybackSplitLabel" Text="" Foreground="{StaticResource Brand.TextDim}" VerticalAlignment="Center"/>
+                <ComboBox x:Name="SplitCombo" AutomationProperties.AutomationId="PlaybackSplitCombo" Width="64" Margin="6,0,0,0"
+                          SelectedIndex="0" VerticalAlignment="Center"
+                          Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"
+                          SelectionChanged="OnSplitChanged">
+                    <ComboBoxItem Content="1"/>
+                    <ComboBoxItem Content="2"/>
+                    <ComboBoxItem Content="4"/>
+                </ComboBox>
+            </StackPanel>
+
             <TextBlock x:Name="LoadHint" Foreground="{StaticResource Brand.TextDim}"
                        VerticalAlignment="Center" Margin="12,0,0,0" FontSize="11"
                        AutomationProperties.AutomationId="PlaybackHint"/>
@@ -136,9 +149,8 @@
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
-            <Grid x:Name="PlayerArea" Background="#05090E" SizeChanged="OnPlayerAreaSizeChanged">
-                <Border x:Name="PlayerFrame" BorderBrush="#2A4A73" BorderThickness="1" Background="#05090E"
-                        HorizontalAlignment="Center" VerticalAlignment="Center">
+            <Canvas x:Name="PlayerArea" Background="#05090E" ClipToBounds="True" SizeChanged="OnPlayerAreaSizeChanged">
+                <Border x:Name="PlayerFrame" BorderBrush="#2A4A73" BorderThickness="1" Background="#05090E">
                     <Grid>
                         <Image x:Name="PlayerImage" Stretch="Uniform" RenderOptions.BitmapScalingMode="Linear"/>
                         <TextBlock x:Name="EmptyHint" Text=""
@@ -148,7 +160,7 @@
                                 AutomationProperties.AutomationId="PlaybackRedactOverlay"/>
                     </Grid>
                 </Border>
-            </Grid>
+            </Canvas>
 
             <!-- Timeline band: all of the day's segments, AI/motion markers, and the play position -->
             <Border Grid.Row="1" Margin="0,8,0,0" BorderBrush="#2A4A73" BorderThickness="1"

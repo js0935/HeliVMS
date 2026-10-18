@@ -1570,6 +1570,7 @@ public static class I18n
         ["Playback.Coverage"] = "覆蓋 {0}% · 未涵蓋 {1} 區間",
         ["Playback.MarkerTip"] = "{0} 「{1}」{2}",
         ["Playback.NoRecordingHere"] = "此時段無錄影",
+        ["Playback.Split"] = "回放牆",
         // Export center window (ExportCenterWindow, M44/M51/M209).
         ["ExportCenter.Title"] = "HeliVMS 匯出中心",
         ["ExportCenter.AddHeader"] = "新增匯出（多通道批量，依序加入佇列）",
@@ -3818,6 +3819,7 @@ public static class I18n
         ["Playback.Coverage"] = "覆盖 {0}% · 未涵盖 {1} 区间",
         ["Playback.MarkerTip"] = "{0} 「{1}」{2}",
         ["Playback.NoRecordingHere"] = "此时段无录像",
+        ["Playback.Split"] = "回放墙",
         // Export center window (ExportCenterWindow, M44/M51/M209).
         ["ExportCenter.Title"] = "HeliVMS 导出中心",
         ["ExportCenter.AddHeader"] = "新增导出（多通道批量，依序加入队列）",
@@ -6062,6 +6064,7 @@ public static class I18n
         ["Playback.Coverage"] = "Coverage {0}% · {1} gap(s)",
         ["Playback.MarkerTip"] = "{0} [{1}] {2}",
         ["Playback.NoRecordingHere"] = "No recording at this time",
+        ["Playback.Split"] = "Wall",
         // Export center window (ExportCenterWindow, M44/M51/M209).
         ["ExportCenter.Title"] = "HeliVMS Export Center",
         ["ExportCenter.AddHeader"] = "Add export (multi-channel batch, queued in order)",

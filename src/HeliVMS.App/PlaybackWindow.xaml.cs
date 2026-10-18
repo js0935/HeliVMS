@@ -5,6 +5,7 @@ using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Shapes;
+using System.Windows.Threading;
 using HeliVMS.Media;
 using HeliVMS.Recording;
 using HeliVMS.Shared;
@@ -41,6 +42,44 @@ public partial class PlaybackWindow : Window
     private readonly Rectangle _cursor = new() { Width = 2, Fill = Brushes.White, IsHitTestVisible = false };
     private IReadOnlyList<RedactionRegion> _activeRegions = [];
 
+    // 回放牆（§8.5）：主畫面以外的同步次畫面。每一格各自解自己的頻道，但共用主畫面的
+    // 播放頭時鐘（見 SyncPanes）；焦點一律是主畫面（ChannelCombo 選取的那台）。
+    private readonly List<Pane> _panes = [];
+    private readonly DispatcherTimer _syncTimer;
+    private const double PaneDriftToleranceSec = 1.5;
+
+    /// <summary>回放牆上的一個次畫面（頻道、影像、解碼工作與其當日區段）。</summary>
+    private sealed class Pane
+    {
+        public required ChannelInfo Channel { get; init; }
+
+        public required Border Frame { get; init; }
+
+        public required Image Image { get; init; }
+
+        public required TextBlock Osd { get; init; }
+
+        public IReadOnlyList<SegmentRecord> Segments { get; init; } = [];
+
+        public PlaybackSession? Session { get; set; }
+
+        public SegmentRecord? Current { get; set; }
+
+        public double BasePos { get; set; }
+
+        public double PosInside { get; set; }
+
+        public long Version { get; set; }
+
+        public WriteableBitmap? Bitmap { get; set; }
+
+        public int LastWidth { get; set; }
+
+        public int LastHeight { get; set; }
+
+        public bool NoRecording { get; set; }
+    }
+
     private static readonly Brush s_redactFilledStroke = Frozen(Color.FromRgb(0xE5, 0x53, 0x3C));
     private static readonly Brush s_redactBlurStroke = Frozen(Color.FromRgb(0xE5, 0xC8, 0x3C));
     private static readonly Brush s_redactFilledFill = Frozen(Color.FromArgb(0x59, 0xE5, 0x53, 0x3C));
@@ -70,6 +109,10 @@ public partial class PlaybackWindow : Window
         LoadChannels();
         BandCanvas.Children.Add(_cursor);
         Canvas.SetZIndex(_cursor, 10);
+
+        // 次畫面不需要每一幀都重算：主畫面時鐘每 150ms 檢查一次，只有明顯飄掉或需要換段時才重啟該格。
+        _syncTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(150) };
+        _syncTimer.Tick += (_, _) => SyncPanes(force: false);
     }
 
     private void ApplyI18n()
@@ -96,6 +139,7 @@ public partial class PlaybackWindow : Window
         StopButton.Content = Localizer.T("Playback.Stop");
         StopButton.ToolTip = Localizer.T("Playback.StopTip");
         PlaybackSpeedLabel.Text = Localizer.T("Playback.Speed");
+        PlaybackSplitLabel.Text = Localizer.T("Playback.Split");
         AutoAdvanceCheck.Content = Localizer.T("Playback.AutoAdvance");
         AutoAdvanceCheck.ToolTip = Localizer.T("Playback.AutoAdvanceTip");
         RedactionOverlayCheck.Content = Localizer.T("Playback.ShowRedaction");
@@ -186,6 +230,7 @@ public partial class PlaybackWindow : Window
         {
             SegmentList.ItemsSource = null;
             _bandSegments = [];
+            RebuildPanes();
             RenderBlocks();
             LoadHint.Text = Localizer.T("Playback.NoChannel");
             return;
@@ -193,6 +238,7 @@ public partial class PlaybackWindow : Window
 
         if (DatePick.SelectedDate is not DateTime day)
         {
+            RebuildPanes();
             return;
         }
 
@@ -235,6 +281,7 @@ public partial class PlaybackWindow : Window
                 .ToList();
             EventCountText.Text = _events.Count > 0 ? string.Format(Localizer.T("Playback.EventCount"), _events.Count) : "";
 
+            RebuildPanes();
             RenderBlocks();
             LoadHint.Text = _events.Count > 0
                 ? string.Format(Localizer.T("Playback.SummaryBoth"), segs.Count, _events.Count)
@@ -321,9 +368,8 @@ public partial class PlaybackWindow : Window
         }
         else
         {
-            _session.Stop();
-            StopButton.IsEnabled = true;
-            PlayPauseButton.Content = Localizer.T("Playback.Play");
+            // 暫停所有格（主畫面＋回放牆次畫面），畫面停在最後一幀；不重設 _current，才能原處續播。
+            StopPlayback();
             StatusText.Text = Localizer.T("Playback.Paused");
         }
     }
@@ -335,6 +381,25 @@ public partial class PlaybackWindow : Window
         if (_session is not null && !_stopping)
         {
             _session.Speed = GetSpeed();
+        }
+
+        foreach (var pane in _panes)
+        {
+            if (pane.Session is { } paneSession)
+            {
+                paneSession.Speed = GetSpeed();
+            }
+        }
+    }
+
+    /// <summary>回放牆格數切換（1／2／4）：重建次畫面並重新對齊到目前播放頭。</summary>
+    private void OnSplitChanged(object sender, SelectionChangedEventArgs e)
+    {
+        RebuildPanes();
+        if (_session is not null)
+        {
+            StartSync();
+            SyncPanes(force: true);
         }
     }
 
@@ -490,6 +555,10 @@ public partial class PlaybackWindow : Window
         });
 
         _ = session.PlayAsync(seekSeconds);
+
+        // 主畫面（焦點）時鐘就是回放牆的母鐘：一換段／一跳轉，立刻把次畫面帶到同一絕對時刻。
+        StartSync();
+        SyncPanes(force: true);
     }
 
     private void OnFrame(long version, SegmentRecord seg, VideoFrame frame)
@@ -554,6 +623,8 @@ public partial class PlaybackWindow : Window
                 }
             }
 
+            StopSync();
+            StopAllPanes();
             SetIdleUi();
             TimeText.Text = $"{FormatTime(_posInside)} / {FormatTime(seg.DurationSec ?? 0)}";
             StatusText.Text = completed
@@ -619,20 +690,54 @@ public partial class PlaybackWindow : Window
 
         var w = PlayerArea.ActualWidth;
         var h = PlayerArea.ActualHeight;
-        var aspect = _lastWidth > 0 && _lastHeight > 0
-            ? (double)_lastWidth / _lastHeight
-            : w > 0 && h > 0 ? w / h : 16.0 / 9.0;
+        var cells = 1 + _panes.Count;
 
-        var fit = MonitorGrid.Fit(1, w, h, aspect);
-        if (fit.Width > 0 && fit.Height > 0)
+        if (cells <= 1)
         {
-            PlayerFrame.Width = fit.Width;
-            PlayerFrame.Height = fit.Height;
+            // 單格：框緊貼來源畫面比例並置中（沿用即時監看同一套 Fit）。
+            var aspect = _lastWidth > 0 && _lastHeight > 0
+                ? (double)_lastWidth / _lastHeight
+                : w > 0 && h > 0 ? w / h : 16.0 / 9.0;
+
+            var fit = MonitorGrid.Fit(1, w, h, aspect);
+            if (fit.Width > 0 && fit.Height > 0)
+            {
+                PlayerFrame.Width = fit.Width;
+                PlayerFrame.Height = fit.Height;
+                Canvas.SetLeft(PlayerFrame, (w - fit.Width) / 2);
+                Canvas.SetTop(PlayerFrame, (h - fit.Height) / 2);
+            }
+            else
+            {
+                PlayerFrame.Width = double.NaN;
+                PlayerFrame.Height = double.NaN;
+            }
         }
         else
         {
-            PlayerFrame.Width = double.NaN;
-            PlayerFrame.Height = double.NaN;
+            // 多格：主畫面＋次畫面共用一個 16:9 網格，全部鎖同一播放頭跨機比對。
+            var fit = MonitorGrid.Fit(cells, w, h);
+            var left0 = (w - fit.Width) / 2;
+            var top0 = (h - fit.Height) / 2;
+            var cols = Math.Max(1, fit.Columns);
+            var cw = fit.Width / cols;
+            var ch = fit.Height / Math.Max(1, fit.Rows);
+
+            void Place(FrameworkElement element, int index)
+            {
+                var row = index / cols;
+                var col = index % cols;
+                element.Width = Math.Max(1, cw - 2);
+                element.Height = Math.Max(1, ch - 2);
+                Canvas.SetLeft(element, left0 + col * cw + 1);
+                Canvas.SetTop(element, top0 + row * ch + 1);
+            }
+
+            Place(PlayerFrame, 0);
+            for (var i = 0; i < _panes.Count; i++)
+            {
+                Place(_panes[i].Frame, i + 1);
+            }
         }
 
         LayoutRedactionOverlay();
@@ -723,6 +828,8 @@ public partial class PlaybackWindow : Window
         _sessionVersion++;
         session?.Stop();
         DisposeQuietly(session);
+        StopSync();
+        StopAllPanes();
         SetIdleUi();
     }
 
@@ -973,9 +1080,251 @@ public partial class PlaybackWindow : Window
     private void OnClosing(object sender, System.ComponentModel.CancelEventArgs e)
     {
         _sessionVersion++;
+        StopSync();
+        StopAllPanes();
         var session = _session;
         _session = null;
         session?.Stop();
         DisposeQuietly(session);
+    }
+
+    /// <summary>回放牆格數（1／2／4）。</summary>
+    private int SplitCount() => SplitCombo.SelectedIndex switch
+    {
+        1 => 2,
+        2 => 4,
+        _ => 1,
+    };
+
+    /// <summary>依目前焦點頻道與格數重建次畫面（焦點永遠是主畫面 ChannelCombo 那台）。</summary>
+    private void RebuildPanes()
+    {
+        StopAllPanes();
+        foreach (var pane in _panes)
+        {
+            PlayerArea.Children.Remove(pane.Frame);
+        }
+
+        _panes.Clear();
+
+        var channels = ChannelCombo.Items.OfType<ChannelInfo>().ToList();
+        if (channels.Count == 0
+            || ChannelCombo.SelectedItem is not ChannelInfo focus
+            || DatePick.SelectedDate is not DateTime day)
+        {
+            ApplyPlayerFrameGeometry();
+            return;
+        }
+
+        foreach (var id in PlaybackSyncPlanner.WallChannelIds(channels.Select(c => c.Id).ToList(), focus.Id, SplitCount()).Skip(1))
+        {
+            var channel = channels.FirstOrDefault(c => c.Id == id);
+            if (channel is null)
+            {
+                continue;
+            }
+
+            var pane = CreatePane(channel, LoadPaneSegments(id, day));
+            _panes.Add(pane);
+            PlayerArea.Children.Add(pane.Frame);
+        }
+
+        ApplyPlayerFrameGeometry();
+    }
+
+    private Pane CreatePane(ChannelInfo channel, IReadOnlyList<SegmentRecord> segments)
+    {
+        var osd = new TextBlock
+        {
+            Text = channel.Name,
+            Foreground = Brushes.White,
+            Background = Frozen(Color.FromArgb(0x99, 0x00, 0x00, 0x00)),
+            FontSize = 11,
+            Padding = new Thickness(4, 1, 4, 1),
+            HorizontalAlignment = HorizontalAlignment.Left,
+            VerticalAlignment = VerticalAlignment.Top,
+            Margin = new Thickness(4),
+            IsHitTestVisible = false,
+        };
+
+        var image = new Image { Stretch = Stretch.Uniform };
+        RenderOptions.SetBitmapScalingMode(image, BitmapScalingMode.Linear);
+
+        var grid = new Grid();
+        grid.Children.Add(image);
+        grid.Children.Add(osd);
+
+        var frame = new Border
+        {
+            BorderBrush = Frozen(Color.FromRgb(0x2A, 0x4A, 0x73)),
+            BorderThickness = new Thickness(1),
+            Background = Frozen(Color.FromRgb(0x05, 0x09, 0x0E)),
+            Cursor = Cursors.Hand,
+            ToolTip = channel.Name,
+            Child = grid,
+        };
+
+        var pane = new Pane { Channel = channel, Frame = frame, Image = image, Osd = osd, Segments = segments };
+
+        // 任一畫面點選即為主焦點（§8.5）：把該台切到主畫面，時間軸／清單／遮蔽疊圖都跟著它。
+        frame.MouseLeftButtonDown += (_, _) => FocusPane(pane);
+        return pane;
+    }
+
+    private void FocusPane(Pane pane)
+    {
+        foreach (var candidate in ChannelCombo.Items.OfType<ChannelInfo>())
+        {
+            if (candidate.Id != pane.Channel.Id)
+            {
+                continue;
+            }
+
+            if (!ReferenceEquals(ChannelCombo.SelectedItem, candidate))
+            {
+                ChannelCombo.SelectedItem = candidate;
+            }
+
+            return;
+        }
+    }
+
+    private IReadOnlyList<SegmentRecord> LoadPaneSegments(int channelId, DateTime day)
+    {
+        var startUtc = TimeZoneInfo.ConvertTimeToUtc(day.Date);
+        try
+        {
+            return _segments.ListByRange(channelId, "main", startUtc, startUtc.AddDays(1))
+                .Where(s => s.Status == SegmentStatus.Final)
+                .OrderBy(s => s.StartUtc)
+                .ToList();
+        }
+        catch (Exception)
+        {
+            return [];
+        }
+    }
+
+    private void StartSync()
+    {
+        if (!_syncTimer.IsEnabled)
+        {
+            _syncTimer.Start();
+        }
+    }
+
+    private void StopSync() => _syncTimer.Stop();
+
+    private void StopAllPanes()
+    {
+        foreach (var pane in _panes)
+        {
+            StopPane(pane);
+        }
+    }
+
+    private void StopPane(Pane pane)
+    {
+        pane.Version++;
+        var session = pane.Session;
+        pane.Session = null;
+        session?.Stop();
+        DisposeQuietly(session);
+    }
+
+    /// <summary>
+    /// 以主畫面（焦點）的絕對時刻為母鐘，把次畫面帶到同一時刻。
+    /// 某格此刻落在空隙（<see cref="PlaybackSyncPlanner.Resolve"/> 回 null）就停在那裡、不硬跳別段，
+    /// 否則兩台會看似同步卻在播不同時刻——這正是多路比對最怕的假同步。
+    /// </summary>
+    private void SyncPanes(bool force)
+    {
+        if (_current is not SegmentRecord focusSegment || _panes.Count == 0)
+        {
+            return;
+        }
+
+        var target = focusSegment.StartUtc.AddSeconds(_posInside);
+
+        foreach (var pane in _panes)
+        {
+            var cursor = PlaybackSyncPlanner.Resolve(pane.Segments, target);
+            if (cursor is null)
+            {
+                if (pane.Session is not null)
+                {
+                    StopPane(pane);
+                }
+
+                pane.NoRecording = true;
+                pane.Osd.Text = $"{pane.Channel.Name} · {Localizer.T("Playback.NoRecordingHere")}";
+                continue;
+            }
+
+            pane.NoRecording = false;
+            var paneUtc = pane.Current is { } current ? current.StartUtc.AddSeconds(pane.PosInside) : (DateTime?)null;
+            var restart = force
+                || pane.Session is null
+                || pane.Current is null
+                || pane.Current.Id != cursor.Value.Segment.Id
+                || paneUtc is null
+                || Math.Abs((paneUtc.Value - target).TotalSeconds) > PaneDriftToleranceSec;
+
+            if (restart)
+            {
+                PlayPane(pane, cursor.Value.Segment, cursor.Value.OffsetSeconds);
+            }
+        }
+    }
+
+    private void PlayPane(Pane pane, SegmentRecord segment, double offsetSeconds)
+    {
+        StopPane(pane);
+        pane.Current = segment;
+        pane.BasePos = offsetSeconds;
+        pane.PosInside = offsetSeconds;
+        pane.NoRecording = false;
+        var version = ++pane.Version;
+        var session = new PlaybackSession(segment) { Speed = GetSpeed() };
+        pane.Session = session;
+        session.FrameDecoded += (_, frame) => Dispatcher.BeginInvoke(() => OnPaneFrame(pane, version, frame));
+        session.Ended += (_, _) => Dispatcher.BeginInvoke(() => OnPaneEnded(pane, version));
+        _ = session.PlayAsync(offsetSeconds);
+    }
+
+    private void OnPaneFrame(Pane pane, long version, VideoFrame frame)
+    {
+        if (version != pane.Version || pane.Session is null)
+        {
+            return;
+        }
+
+        if (pane.Bitmap is null || pane.LastWidth != frame.Width || pane.LastHeight != frame.Height)
+        {
+            pane.LastWidth = frame.Width;
+            pane.LastHeight = frame.Height;
+            pane.Bitmap = new WriteableBitmap(frame.Width, frame.Height, 96, 96, PixelFormats.Bgr24, null);
+            pane.Image.Source = pane.Bitmap;
+        }
+
+        pane.Bitmap.WritePixels(
+            new Int32Rect(0, 0, frame.Width, frame.Height),
+            frame.Pixels,
+            frame.Width * 3,
+            0);
+
+        pane.PosInside = pane.BasePos + frame.PtsMs / 1000.0;
+        pane.Osd.Text = $"{pane.Channel.Name}  {FormatTime(pane.PosInside)}";
+    }
+
+    private void OnPaneEnded(Pane pane, long version)
+    {
+        if (version != pane.Version)
+        {
+            return;
+        }
+
+        // 不自行跨段：交給同步計時器依母鐘決定要進下一段（有錄影）還是停在空隙。
+        pane.Session = null;
     }
 }

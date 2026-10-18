@@ -89,4 +89,59 @@ public sealed class PlaybackWindowContractTests
             guard.Success && guard.Groups[1].Value.Contains("Playback.NoRecordingHere"),
             "OnBandClicked 在 _bandSegments.Count == 0 時必須回報 Playback.NoRecordingHere，而不是直接 return。");
     }
+
+    [Fact]
+    public void 回放牆格數切換重建次畫面並重新對齊母鐘()
+    {
+        var source = SourceContract.Read(Code);
+
+        var onSplit = SourceContract.BodyOf(source, "OnSplitChanged");
+        Assert.Contains("RebuildPanes(", onSplit);
+        Assert.Contains("SyncPanes(", onSplit);
+
+        // 1 路時整條路徑要與舊的單窗行為等價（不可誤刪成 0 格或預設成 4 格）。
+        var split = SourceContract.BodyOf(source, "SplitCount");
+        Assert.Contains("1 => 2", split);
+        Assert.Contains("2 => 4", split);
+        Assert.Contains("_ => 1", split);
+    }
+
+    [Fact]
+    public void 次畫面以母鐘解算且空隙不硬跳別段()
+    {
+        var source = SourceContract.Read(Code);
+
+        // 逐格用 PlaybackSyncPlanner 依絕對時刻解算；落在空隙要標示無錄影，不可自行找下一段跳過去
+        // ——那會讓兩台看似同步卻在播不同時刻（多路比對最危險的假同步）。
+        var sync = SourceContract.BodyOf(source, "SyncPanes");
+        Assert.Contains("PlaybackSyncPlanner.Resolve(", sync);
+        Assert.Contains("Playback.NoRecordingHere", sync);
+        Assert.DoesNotContain("FindNextSegment", sync);
+
+        // 次畫面播到尾不自己跨段，交由母鐘決定（否則每格各跳各的，時間軸就散了）。
+        var ended = SourceContract.BodyOf(source, "OnPaneEnded");
+        Assert.Contains("pane.Session = null", ended);
+        Assert.DoesNotContain("PlayPane(", ended);
+    }
+
+    [Fact]
+    public void 點次畫面會把該頻道切成主焦點()
+    {
+        var source = SourceContract.Read(Code);
+
+        Assert.Contains("MouseLeftButtonDown", SourceContract.BodyOf(source, "CreatePane"));
+        Assert.Contains("FocusPane(", SourceContract.BodyOf(source, "CreatePane"));
+
+        var focus = SourceContract.BodyOf(source, "FocusPane");
+        Assert.Contains("ChannelCombo.SelectedItem", focus);
+    }
+
+    [Fact]
+    public void 回放牆下拉有接線且不硬編中文()
+    {
+        var xaml = SourceContract.Read("src/HeliVMS.App/PlaybackWindow.xaml");
+        Assert.Contains("x:Name=\"SplitCombo\"", xaml);
+        Assert.Contains("SelectionChanged=\"OnSplitChanged\"", xaml);
+        Assert.DoesNotMatch(@"[\u4e00-\u9fff]", xaml);
+    }
 }
