@@ -548,6 +548,7 @@ public sealed class PlaybackWindowContractTests
 
         var keys = SourceContract.BodyOf(source, "OnPreviewKeyDown");
         Assert.Contains("Key.D1", keys);
+        Assert.Contains("Key.NumPad1", keys);
         Assert.Contains("ChannelCombo.SelectedIndex", keys);
 
         var jump = SourceContract.BodyOf(source, "JumpToLocalTime");

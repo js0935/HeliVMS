@@ -845,8 +845,10 @@ public partial class PlaybackWindow : Window
                 break;
 
             // 格面 1–4 選路（§8.5）：與滑鼠點 ChannelCombo 同一條路，改選即 LoadSegments 並重繪牆。
-            case Key.D1 or Key.D2 or Key.D3 or Key.D4 when !ctrl && !shift:
-                var channelIndex = e.Key - Key.D1;
+            // 數字鍵盤也吃：NVR 操作台多半用右側數字鍵，兩邊挑一個等於沒有這個快捷鍵。
+            case Key.D1 or Key.D2 or Key.D3 or Key.D4 or Key.NumPad1 or Key.NumPad2 or Key.NumPad3 or Key.NumPad4
+                when !ctrl && !shift:
+                var channelIndex = e.Key <= Key.D4 ? e.Key - Key.D1 : e.Key - Key.NumPad1;
                 if (channelIndex < ChannelCombo.Items.Count)
                 {
                     e.Handled = true;
