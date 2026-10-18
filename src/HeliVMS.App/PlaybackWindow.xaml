@@ -228,6 +228,14 @@
                 <Border Grid.Row="2" BorderBrush="#2A4A73" BorderThickness="1"
                         Background="#0F1D2E" MouseLeftButtonDown="OnBandScrubStart"
                         MouseMove="OnBandMouseMove" MouseLeftButtonUp="OnBandClicked">
+                    <Border.ContextMenu>
+                        <ContextMenu>
+                            <MenuItem x:Name="ReplayRangeMenuItem" Header="" AutomationProperties.AutomationId="PlaybackReplayRange" Click="OnReplayRangeClicked"/>
+                            <MenuItem x:Name="ExportRangeMenuItem" Header="" AutomationProperties.AutomationId="PlaybackExportRange" Click="OnExportRangeClicked"/>
+                            <Separator/>
+                            <MenuItem x:Name="ClearRangeMenuItem" Header="" AutomationProperties.AutomationId="PlaybackClearRange" Click="OnClearRangeClicked"/>
+                        </ContextMenu>
+                    </Border.ContextMenu>
                     <Canvas x:Name="BandCanvas" SizeChanged="OnBandSizeChanged"
                             AutomationProperties.AutomationId="PlaybackBand"/>
                 </Border>

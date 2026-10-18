@@ -19,7 +19,7 @@ public partial class ExportWindow : Window
     private CancellationTokenSource? _cts;
     private string? _lastOutputPath;
 
-    public ExportWindow(SqliteStore store, string dataRoot, long? focusChannelId = null)
+    public ExportWindow(SqliteStore store, string dataRoot, long? focusChannelId = null, DateTime? focusFromUtc = null, DateTime? focusToUtc = null)
     {
         _store = store;
         _dataRoot = dataRoot;
@@ -33,6 +33,17 @@ public partial class ExportWindow : Window
 
         StartDate.SelectedDate = DateTime.Now.Date;
         EndDate.SelectedDate = DateTime.Now.Date;
+
+        // 回放帶子「匯出所選區間」帶來的精確起止（§8.5）：預填日期＋時間欄，操作員確認後直接匯出。
+        if (focusFromUtc is { } from && focusToUtc is { } to)
+        {
+            var fromLocal = TimeZoneInfo.ConvertTimeFromUtc(from, TimeZoneInfo.Local);
+            var toLocal = TimeZoneInfo.ConvertTimeFromUtc(to, TimeZoneInfo.Local);
+            StartDate.SelectedDate = fromLocal.Date;
+            StartTime.Text = fromLocal.ToString("HH:mm", CultureInfo.InvariantCulture);
+            EndDate.SelectedDate = toLocal.Date;
+            EndTime.Text = toLocal.ToString("HH:mm", CultureInfo.InvariantCulture);
+        }
 
         OutputFolderBox.Text = Path.Combine(_dataRoot, "exports");
     }

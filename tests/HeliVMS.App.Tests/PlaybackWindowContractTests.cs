@@ -458,4 +458,59 @@ public sealed class PlaybackWindowContractTests
         var create = SourceContract.BodyOf(source, "CreatePane");
         Assert.Contains("ChannelBrush", create);
     }
+
+    /// <summary>
+    /// 選擇區間窗必須能重播與匯出（§8.5「拖拽選取範圍 → 立即可重播此段 / 匯出此段」）：
+    /// Shift+左鍵拖出區間、右鍵選單兩項動作、重播越過盡頭自動停、匯出精靈預填起止。
+    /// <para>
+    /// （1）帶子拖曳沒分流 Shift：選取與拖曳預覽互搶同一個手势，操作員永遠選不出區間。
+    /// </para>
+    /// <para>
+    /// （2）重播沒設/沒檢查 _rangeStopUtc：會一路播到片段尾，「重播此段」變成「重播這天」。
+    /// </para>
+    /// <para>
+    /// （3）匯出精靈沒預填起止：選好的區間還要手打日期時間，選取形同虛設。
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void 帶子拖拽選取區間可重播與匯出()
+    {
+        var xaml = SourceContract.Read("src/HeliVMS.App/PlaybackWindow.xaml");
+        Assert.Contains("Click=\"OnReplayRangeClicked\"", xaml);
+        Assert.Contains("Click=\"OnExportRangeClicked\"", xaml);
+
+        var source = SourceContract.Read(Code);
+
+        var scrub = SourceContract.BodyOf(source, "OnBandScrubStart");
+        Assert.Contains("ModifierKeys.Shift", scrub);
+        Assert.Contains("_selecting = true", scrub);
+
+        var move = SourceContract.BodyOf(source, "OnBandMouseMove");
+        Assert.Contains("UpdateRangeSelection", move);
+
+        var clicked = SourceContract.BodyOf(source, "OnBandClicked");
+        Assert.Contains("_selecting", clicked);
+
+        var blocks = SourceContract.BodyOf(source, "RenderBlocks");
+        Assert.Contains("RenderSelectionWindow", blocks);
+
+        var replay = SourceContract.BodyOf(source, "OnReplayRangeClicked");
+        Assert.Contains("PlayFrom", replay);
+        Assert.Contains("_rangeStopUtc", replay);
+
+        var frame = SourceContract.BodyOf(source, "OnFrame");
+        Assert.Contains("_rangeStopUtc", frame);
+
+        var export = SourceContract.BodyOf(source, "OnExportRangeClicked");
+        Assert.Contains("range.StartUtc", export);
+        Assert.Contains("ExportWindow", export);
+
+        var exportWindow = SourceContract.Read("src/HeliVMS.App/ExportWindow.xaml.cs");
+
+        // 參數存在不等於有預填：斷言要卡在「把起止寫進時間欄」那一段，
+        // 只留參數不接線時匯出精靈仍是預設整天，選取形同虛設。
+        Assert.Contains("focusFromUtc is { } from", exportWindow);
+        Assert.Contains("StartTime.Text = fromLocal.ToString", exportWindow);
+        Assert.Contains("EndTime.Text = toLocal.ToString", exportWindow);
+    }
 }

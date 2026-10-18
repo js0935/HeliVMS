@@ -47,6 +47,15 @@ public partial class PlaybackWindow : Window
     private HeliVMS.Storage.TimelineViewWindow? _view;
     private bool _seeking;
     private bool _scrubbing;
+
+    /// <summary>選擇區間窗（§8.5「拖拽選取範圍」）：Shift+左鍵在帶子上拖出的 UTC 起止；null＝無選擇。</summary>
+    private (DateTime StartUtc, DateTime EndUtc)? _rangeSelection;
+    private bool _selecting;
+    private DateTime _selectAnchorUtc;
+    private Rectangle? _selectionRect;
+
+    /// <summary>重播所選區間時的上界；播放頭一越過就自動停（PlayFrom／停止／換載入都會清掉）。</summary>
+    private DateTime? _rangeStopUtc;
     private bool _pendingFramePause;
     private bool _suppressSegmentAutoplay;
     private readonly Rectangle _cursor = new() { Width = 2, Fill = Brushes.White, IsHitTestVisible = false };
@@ -101,6 +110,8 @@ public partial class PlaybackWindow : Window
 
     // 時間軸帶分兩列：上班放錄影區塊，下班放事件標記，標記才不會壓在區塊上看不清楚（§8.5 專業時間軸）。
     private static readonly Brush s_bandEmptyFill = Frozen(Color.FromRgb(0x33, 0x41, 0x4F));
+    private static readonly Brush s_selectionFill = Frozen(Color.FromArgb(0x33, 0x4D, 0x9F, 0xFF));
+    private static readonly Brush s_selectionStroke = Frozen(Color.FromRgb(0x4D, 0x9F, 0xFF));
 
     /// <summary>通道色帶列（§8.5）每排的色條高度與間距；4 路牆總高 26px，不搶主帶子的空間。</summary>
     private const double ChannelBandStripHeight = 5;
@@ -186,6 +197,9 @@ public partial class PlaybackWindow : Window
         AddBookmarkMenuItem.Header = Localizer.T("Playback.AddBookmark");
         RenameBookmarkMenuItem.Header = Localizer.T("Playback.RenameBookmark");
         DeleteBookmarkMenuItem.Header = Localizer.T("Playback.DeleteBookmark");
+        ReplayRangeMenuItem.Header = Localizer.T("Playback.ReplayRange");
+        ExportRangeMenuItem.Header = Localizer.T("Playback.ExportRange");
+        ClearRangeMenuItem.Header = Localizer.T("Playback.ClearRange");
         EmptyHint.Text = Localizer.T("Playback.EmptyHint");
         PlayPauseButton.Content = Localizer.T("Playback.Play");
         PlayPauseButton.ToolTip = Localizer.T("Playback.PlayPauseTip");
@@ -443,6 +457,8 @@ public partial class PlaybackWindow : Window
         StopPlayback();
         _activeRegions = [];
         RedactOverlay.Children.Clear();
+        _rangeSelection = null;
+        _rangeStopUtc = null;
         if (ChannelCombo.SelectedItem is not ChannelInfo ch)
         {
             SegmentList.ItemsSource = null;
@@ -903,6 +919,7 @@ public partial class PlaybackWindow : Window
     private void PlayFrom(SegmentRecord seg, double seekSeconds)
     {
         StopPlayback();
+        _rangeStopUtc = null;
         _current = seg;
         _basePos = seekSeconds;
         _posInside = seekSeconds;
@@ -970,6 +987,15 @@ public partial class PlaybackWindow : Window
             if (!_scrubbing)
             {
                 UpdateCursor(_posInside);
+            }
+
+            // 重播所選區間（§8.5）：播放頭一越過區間盡頭就停，不要繼續播到操作員沒選的畫面。
+            if (_rangeStopUtc is { } rangeStop && seg.StartUtc.AddSeconds(_posInside) >= rangeStop)
+            {
+                _rangeStopUtc = null;
+                StopPlayback();
+                StatusText.Text = Localizer.T("Playback.RangeEnded");
+                return;
             }
 
             if (_pendingFramePause)
@@ -1206,6 +1232,7 @@ public partial class PlaybackWindow : Window
     private void StopPlayback()
     {
         _stopping = true;
+        _rangeStopUtc = null;
         var session = _session;
         _session = null;
         _sessionVersion++;
@@ -1414,6 +1441,9 @@ public partial class PlaybackWindow : Window
         // 書籤標記獨立於錄影區塊：就算這天沒有錄影/事件，標過的書籤也要看得見。
         RenderBookmarks();
 
+        // 選擇區間窗最後畫（要疊在色塊與書籤之上），縮放/換日後也跟著新檢視窗對齊。
+        RenderSelectionWindow();
+
         var hasData = _bandSegments.Count > 0 || _events.Count > 0;
         if (!hasData)
         {
@@ -1586,6 +1616,22 @@ public partial class PlaybackWindow : Window
             return;
         }
 
+        // Shift+拖曳＝選取區間（§8.5「拖拽選取範圍」）；一般拖曳仍是拖曳預覽（scrub），兩者互斥。
+        if ((Keyboard.Modifiers & ModifierKeys.Shift) != 0)
+        {
+            _selecting = true;
+            _scrubbing = false;
+            if (sender is UIElement selectElement)
+            {
+                selectElement.CaptureMouse();
+            }
+
+            var x = Math.Clamp(e.GetPosition(BandCanvas).X, 0, BandCanvas.ActualWidth);
+            _selectAnchorUtc = View().TimeAtFraction(x / BandCanvas.ActualWidth);
+            _rangeSelection = null;
+            return;
+        }
+
         _scrubbing = true;
         if (sender is UIElement element)
         {
@@ -1597,6 +1643,12 @@ public partial class PlaybackWindow : Window
 
     private void OnBandMouseMove(object sender, MouseEventArgs e)
     {
+        if (_selecting)
+        {
+            UpdateRangeSelection(e.GetPosition(BandCanvas).X);
+            return;
+        }
+
         if (_scrubbing)
         {
             PreviewBandAt(e.GetPosition(BandCanvas).X);
@@ -1614,6 +1666,21 @@ public partial class PlaybackWindow : Window
         if (sender is UIElement element && element.IsMouseCaptured)
         {
             element.ReleaseMouseCapture();
+        }
+
+        // Shift 拖曳選取途中放開：定案選擇、不要順便跳轉——選完再用右鍵選單重播/匯出。
+        if (_selecting)
+        {
+            _selecting = false;
+            if (BandCanvas.ActualWidth <= 0 || _rangeSelection is not { } range
+                || (range.EndUtc - range.StartUtc).TotalSeconds < 1)
+            {
+                // 幾個像素的「拖曳」其實是點擊：清掉零寬區間，免得選單上重播/匯出都點不動。
+                _rangeSelection = null;
+            }
+
+            RenderSelectionWindow();
+            return;
         }
 
         if (BandCanvas.ActualWidth <= 0)
@@ -1644,6 +1711,102 @@ public partial class PlaybackWindow : Window
         }
 
         StatusText.Text = Localizer.T("Playback.NoRecordingHere");
+    }
+
+    /// <summary>拖曳中的選擇窗：每像素都在動，只重畫覆蓋層本身，不重畫整條帶子。</summary>
+    private void UpdateRangeSelection(double x)
+    {
+        var frac = Math.Clamp(x / BandCanvas.ActualWidth, 0, 1);
+        var utc = View().TimeAtFraction(frac);
+        _rangeSelection = _selectAnchorUtc <= utc ? (_selectAnchorUtc, utc) : (utc, _selectAnchorUtc);
+        RenderSelectionWindow();
+    }
+
+    /// <summary>畫選擇區間窗（§8.5）：半透明藍底＋描邊，跟著檢視窗縮放對齊；無選擇時只清上一層。</summary>
+    private void RenderSelectionWindow()
+    {
+        if (_selectionRect is { } old && BandCanvas.Children.Contains(old))
+        {
+            BandCanvas.Children.Remove(old);
+        }
+
+        _selectionRect = null;
+        if (_rangeSelection is not { } range)
+        {
+            return;
+        }
+
+        var width = BandCanvas.ActualWidth;
+        var height = BandCanvas.ActualHeight;
+        if (width <= 0 || height <= 0)
+        {
+            return;
+        }
+
+        var view = View();
+        var left = view.FractionOf(range.StartUtc);
+        var right = view.FractionOf(range.EndUtc);
+        if (right <= 0 || left >= 1)
+        {
+            return;
+        }
+
+        var clippedLeft = Math.Max(0, left);
+        var clippedRight = Math.Min(1, right);
+        var rect = new Rectangle
+        {
+            Width = Math.Max(2, (clippedRight - clippedLeft) * width),
+            Height = height,
+            Fill = s_selectionFill,
+            Stroke = s_selectionStroke,
+            StrokeThickness = 1,
+            IsHitTestVisible = false,
+        };
+        Canvas.SetLeft(rect, clippedLeft * width);
+        Canvas.SetTop(rect, 0);
+        BandCanvas.Children.Add(rect);
+        _selectionRect = rect;
+    }
+
+    /// <summary>右鍵選單「重播所選區間」（§8.5「立即可重播此段」）：從區間起點播、越過盡頭自動停。</summary>
+    private void OnReplayRangeClicked(object sender, RoutedEventArgs e)
+    {
+        if (_rangeSelection is not { } range)
+        {
+            return;
+        }
+
+        foreach (var item in _bandSegments)
+        {
+            var seg = item.Segment;
+            var end = seg.EndUtc ?? seg.StartUtc.AddSeconds(seg.DurationSec ?? 10);
+            if (seg.StartUtc <= range.StartUtc && range.StartUtc <= end)
+            {
+                SelectSegment(item);
+                PlayFrom(seg, Math.Max(0, (range.StartUtc - seg.StartUtc).TotalSeconds));
+                _rangeStopUtc = range.EndUtc;
+                return;
+            }
+        }
+
+        StatusText.Text = Localizer.T("Playback.NoRecordingHere");
+    }
+
+    /// <summary>右鍵選單「匯出所選區間」（§8.5「立即可匯出此段」）：開匯出精靈並預填精確起止。</summary>
+    private void OnExportRangeClicked(object sender, RoutedEventArgs e)
+    {
+        if (_rangeSelection is not { } range || ChannelCombo.SelectedItem is not ChannelInfo ch)
+        {
+            return;
+        }
+
+        new ExportWindow(_store, MainWindow.ResolveDataRoot(), ch.Id, range.StartUtc, range.EndUtc) { Owner = this }.ShowDialog();
+    }
+
+    private void OnClearRangeClicked(object sender, RoutedEventArgs e)
+    {
+        _rangeSelection = null;
+        RenderSelectionWindow();
     }
 
     /// <summary>拖曳中即時把播放頭移到指標位置並顯示該時刻；只搬畫面，不碰解碼（見 <see cref="OnBandScrubStart"/>）。</summary>
