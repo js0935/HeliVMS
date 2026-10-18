@@ -102,6 +102,29 @@ public partial class PlaybackWindow : Window
     // 時間軸帶分兩列：上班放錄影區塊，下班放事件標記，標記才不會壓在區塊上看不清楚（§8.5 專業時間軸）。
     private static readonly Brush s_bandEmptyFill = Frozen(Color.FromRgb(0x33, 0x41, 0x4F));
 
+    /// <summary>通道色帶列（§8.5）每排的色條高度與間距；4 路牆總高 26px，不搶主帶子的空間。</summary>
+    private const double ChannelBandStripHeight = 5;
+    private const double ChannelBandStripGap = 2;
+
+    /// <summary>牆邊框的預設色；通道色只在有牆時上色，沒有通道時回到這個底色。</summary>
+    private static readonly Brush s_defaultFrameBorder = Frozen(Color.FromRgb(0x2A, 0x4A, 0x73));
+
+    /// <summary>通道色盤（§8.5）：色帶列與牆邊框共用，索引由 PlaybackChannelPalette 決定。</summary>
+    private static readonly Brush[] s_channelPalette =
+    [
+        Frozen(Color.FromRgb(0x2A, 0x7F, 0xC9)),
+        Frozen(Color.FromRgb(0x3F, 0xB9, 0x84)),
+        Frozen(Color.FromRgb(0xD9, 0x8E, 0x32)),
+        Frozen(Color.FromRgb(0xB0, 0x5A, 0xC9)),
+        Frozen(Color.FromRgb(0x5A, 0xC9, 0xD9)),
+        Frozen(Color.FromRgb(0xC9, 0x5A, 0x6B)),
+        Frozen(Color.FromRgb(0x8A, 0xA3, 0x3C)),
+        Frozen(Color.FromRgb(0x7F, 0x8C, 0xA3)),
+    ];
+
+    private static Brush ChannelBrush(int channelId)
+        => s_channelPalette[HeliVMS.Storage.PlaybackChannelPalette.IndexFor(channelId)];
+
     /// <summary>日曆有錄影日的字色：與鍵盤焦點環同色 #4D9FFF，深底 #12233C 上對比約 5.8:1。</summary>
     private static readonly Brush s_recordedDayForeground = Frozen(Color.FromRgb(0x4D, 0x9F, 0xFF));
     private const double BandBarTop = 3;
@@ -1249,11 +1272,116 @@ public partial class PlaybackWindow : Window
     }
 
     /// <summary>繪製時間軸：主時間列刻度＋當日色帶（M84/§8.5）——依 PlaybackTimeline L0 的 fractions 畫每段藍色區塊＋事件標記＋覆蓋率標籤，全部映射到目前的檢視窗。</summary>
+    /// <summary>
+    /// 通道色帶列（§8.5「色帶按通道橫向排列，多路同時比對一目了然」）：回放牆每一格
+    /// （主＋次）在帶子上方各佔一排，畫該通道當日在檢視窗內的錄影涵蓋；焦點台那排再疊事件刻度。
+    /// 多路比對時「哪台哪一段沒錄」不用逐格 solo 就看得出來。高度隨牆的格數變化（Auto 行）。
+    /// </summary>
+    private void RenderChannelBands()
+    {
+        ChannelBandsCanvas.Children.Clear();
+        if (_dayStartUtc == default)
+        {
+            ChannelBandsCanvas.Height = 0;
+            return;
+        }
+
+        var rows = new List<(ChannelInfo Channel, IReadOnlyList<SegmentRecord> Segments, bool IsFocus)>();
+        if (ChannelCombo.SelectedItem is ChannelInfo focus)
+        {
+            rows.Add((focus, _bandSegments.Select(i => i.Segment).ToList(), true));
+        }
+
+        foreach (var pane in _panes)
+        {
+            rows.Add((pane.Channel, pane.Segments, false));
+        }
+
+        var pitch = ChannelBandStripHeight + ChannelBandStripGap;
+        ChannelBandsCanvas.Height = Math.Max(0, rows.Count * pitch - ChannelBandStripGap);
+        var width = ChannelBandsCanvas.ActualWidth;
+        if (rows.Count == 0 || width <= 0)
+        {
+            return;
+        }
+
+        var view = View();
+        for (var i = 0; i < rows.Count; i++)
+        {
+            var top = i * pitch;
+            var backdrop = new Rectangle
+            {
+                Width = width,
+                Height = ChannelBandStripHeight,
+                Fill = s_bandEmptyFill,
+                IsHitTestVisible = false,
+            };
+            Canvas.SetLeft(backdrop, 0);
+            Canvas.SetTop(backdrop, top);
+            ChannelBandsCanvas.Children.Add(backdrop);
+
+            var brush = ChannelBrush(rows[i].Channel.Id);
+            foreach (var seg in rows[i].Segments)
+            {
+                var end = seg.EndUtc ?? seg.StartUtc.AddSeconds(seg.DurationSec ?? 0);
+                var left = view.FractionOf(seg.StartUtc);
+                var right = view.FractionOf(end);
+                if (right <= 0 || left >= 1)
+                {
+                    continue;
+                }
+
+                var clippedLeft = Math.Max(0, left);
+                var clippedRight = Math.Min(1, right);
+                var rect = new Rectangle
+                {
+                    Width = Math.Max(1, (clippedRight - clippedLeft) * width),
+                    Height = ChannelBandStripHeight,
+                    Fill = brush,
+                    IsHitTestVisible = false,
+                };
+                Canvas.SetLeft(rect, clippedLeft * width);
+                Canvas.SetTop(rect, top);
+                ChannelBandsCanvas.Children.Add(rect);
+            }
+
+            // 事件刻度只畫焦點台那排：事件清單本來就只載焦點頻道（LoadSegments），其他排畫了會是空的。
+            if (!rows[i].IsFocus)
+            {
+                continue;
+            }
+
+            foreach (var evt in _events)
+            {
+                var frac = view.FractionOf(evt.StartUtc);
+                if (frac < 0 || frac > 1)
+                {
+                    continue;
+                }
+
+                var tick = new Rectangle
+                {
+                    Width = 1,
+                    Height = ChannelBandStripHeight,
+                    Fill = Brushes.White,
+                    IsHitTestVisible = false,
+                };
+                Canvas.SetLeft(tick, frac * width);
+                Canvas.SetTop(tick, top);
+                ChannelBandsCanvas.Children.Add(tick);
+            }
+        }
+    }
+
+    /// <summary>色帶列寬度跟窗走：視窗縮放後要照新寬度重畫，否則色條會停在舊寬度或整段縮在左邊。</summary>
+    private void OnChannelBandsSizeChanged(object sender, SizeChangedEventArgs e) => RenderChannelBands();
+
     private void RenderBlocks()
     {
         // 刻度畫在色帶上方的獨立 canvas，與資料有無無關：空資料的日子也要看得見時間刻度。
         RenderRuler();
         SyncZoomSlider();
+        RenderChannelBands();
 
         for (var i = BandCanvas.Children.Count - 1; i >= 0; i--)
         {
@@ -1732,10 +1860,14 @@ public partial class PlaybackWindow : Window
             || ChannelCombo.SelectedItem is not ChannelInfo focus
             || DatePick.SelectedDate is not DateTime day)
         {
+            PlayerFrame.BorderBrush = s_defaultFrameBorder;
             ApplyPlayerFrameGeometry();
+            RenderChannelBands();
             return;
         }
 
+        // 主畫面邊框＝焦點台在色帶列的顏色，與次畫面同一套色盤。
+        PlayerFrame.BorderBrush = ChannelBrush(focus.Id);
         foreach (var id in PlaybackSyncPlanner.WallChannelIds(channels.Select(c => c.Id).ToList(), focus.Id, SplitCount()).Skip(1))
         {
             var channel = channels.FirstOrDefault(c => c.Id == id);
@@ -1750,6 +1882,7 @@ public partial class PlaybackWindow : Window
         }
 
         ApplyPlayerFrameGeometry();
+        RenderChannelBands();
     }
 
     private Pane CreatePane(ChannelInfo channel, IReadOnlyList<SegmentRecord> segments)
@@ -1776,7 +1909,8 @@ public partial class PlaybackWindow : Window
 
         var frame = new Border
         {
-            BorderBrush = Frozen(Color.FromRgb(0x2A, 0x4A, 0x73)),
+            // 邊框色＝這台在通道色帶列的顏色：不用讀 OSD 就能把色帶對回畫面（§8.5 多路比對）。
+            BorderBrush = ChannelBrush(channel.Id),
             BorderThickness = new Thickness(1),
             Background = Frozen(Color.FromRgb(0x05, 0x09, 0x0E)),
             Cursor = Cursors.Hand,

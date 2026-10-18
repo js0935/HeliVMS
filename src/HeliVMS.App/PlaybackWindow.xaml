@@ -204,10 +204,11 @@
                 </Border>
             </Canvas>
 
-            <!-- Timeline (§8.5): ruler row = time scale + zoom slider above the channel band; mouse wheel zooms the view window. -->
+            <!-- Timeline (§8.5): ruler row = time scale + zoom slider; channel bands = one strip per wall cell; band = focus segments. -->
             <Grid Grid.Row="1" Margin="0,8,0,0" MouseWheel="OnBandMouseWheel">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="20"/>
+                    <RowDefinition Height="Auto"/>
                     <RowDefinition Height="48"/>
                 </Grid.RowDefinitions>
                 <Grid Grid.Row="0">
@@ -221,7 +222,10 @@
                             AutomationProperties.AutomationId="PlaybackZoomSlider" ToolTip=""
                             ValueChanged="OnZoomSliderChanged"/>
                 </Grid>
-                <Border Grid.Row="1" BorderBrush="#2A4A73" BorderThickness="1"
+                <Canvas x:Name="ChannelBandsCanvas" Grid.Row="1" Background="Transparent" ClipToBounds="True"
+                        SizeChanged="OnChannelBandsSizeChanged"
+                        AutomationProperties.AutomationId="PlaybackChannelBands"/>
+                <Border Grid.Row="2" BorderBrush="#2A4A73" BorderThickness="1"
                         Background="#0F1D2E" MouseLeftButtonDown="OnBandScrubStart"
                         MouseMove="OnBandMouseMove" MouseLeftButtonUp="OnBandClicked">
                     <Canvas x:Name="BandCanvas" SizeChanged="OnBandSizeChanged"

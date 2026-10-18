@@ -419,4 +419,43 @@ public sealed class PlaybackWindowContractTests
         Assert.Contains("SliderValueFromSpan", sync);
         Assert.Contains("_syncingZoomSlider", sync);
     }
+
+    /// <summary>
+    /// 通道色帶列必須跟著牆的組成與檢視窗重畫（§8.5「色帶按通道橫向排列，多路同時比對一目了然」）：
+    /// 每一格（主＋次）在帶子上方各佔一排，畫該通道當日的錄影涵蓋；主畫面邊框與色帶同色。
+    /// <para>
+    /// （1）色帶列沒掛在 RenderBlocks 漏斗：滾輪縮放或換日後色帶停在舊窗，跟主帶子對不齊。
+    /// </para>
+    /// <para>
+    /// （2）色帶列沒畫次畫面（pane.Segments）：只剩焦點台一排，多路比對失去意義——
+    /// 操作員要的就是「一眼看到哪台哪段沒錄」。
+    /// </para>
+    /// <para>
+    /// （3）牆邊框沒上通道色：色帶列對不回畫面，只能靠 OSD 讀名字逐格比對。
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void 通道色帶列跟隨牆的組成與檢視窗()
+    {
+        var xaml = SourceContract.Read("src/HeliVMS.App/PlaybackWindow.xaml");
+        Assert.Contains("x:Name=\"ChannelBandsCanvas\"", xaml);
+
+        var source = SourceContract.Read(Code);
+
+        var bands = SourceContract.BodyOf(source, "RenderChannelBands");
+        Assert.Contains("ChannelBandsCanvas", bands);
+        Assert.Contains("_bandSegments", bands);
+        Assert.Contains("pane.Segments", bands);
+        Assert.Contains("View()", bands);
+
+        var funnel = SourceContract.BodyOf(source, "RenderBlocks");
+        Assert.Contains("RenderChannelBands", funnel);
+
+        var rebuild = SourceContract.BodyOf(source, "RebuildPanes");
+        Assert.Contains("RenderChannelBands", rebuild);
+        Assert.Contains("ChannelBrush", rebuild);
+
+        var create = SourceContract.BodyOf(source, "CreatePane");
+        Assert.Contains("ChannelBrush", create);
+    }
 }
