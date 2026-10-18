@@ -338,4 +338,41 @@ public sealed class PlaybackWindowContractTests
         var load = SourceContract.BodyOf(source, "LoadSegments");
         Assert.Contains("PlaybackTimelineScale.FullDay", load);
     }
+
+    /// <summary>
+    /// 單擊次畫面必須放大成單畫面（§8.5 主焦點，操作者回饋）：點擊路徑要「格數切到 1 →
+    /// 頻道換成點到那台 → 從原播放頭續播」，三者缺一都有對應的壞掉畫面。
+    /// <para>
+    /// （1）FocusPane 沒把 SplitCombo 切到 1：點次畫面只是把焦點換到左上角、牆還維持原格數，
+    /// 操作員要的「放大成單畫面」沒發生。
+    /// </para>
+    /// <para>
+    /// （2）沒記播放頭就換頻道：ChannelCombo 一動就同步 LoadSegments→StopPlayback，
+    /// 放大後回到停在原點——「在多路回放時單擊放大」的瞬間反而把畫面停掉。
+    /// </para>
+    /// <para>
+    /// （3）次畫面沒掛 MouseLeftButtonDown（或沒接到 FocusPane）：整組點擊放大靜默失效，
+    /// 游標還是手型、提示也在，對操作員是「介面說可以點、點了沒反應」。
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void 單擊次畫面放大成單畫面且播放頭不斷()
+    {
+        var source = SourceContract.Read(Code);
+
+        var focus = SourceContract.BodyOf(source, "FocusPane");
+        Assert.Contains("SplitCombo.SelectedIndex = 0", focus);
+        Assert.Contains("ChannelCombo.SelectedItem = candidate", focus);
+        Assert.Contains("ResumePlaybackAt", focus);
+        Assert.Contains("_current.StartUtc.AddSeconds(_posInside)", focus);
+
+        var resume = SourceContract.BodyOf(source, "ResumePlaybackAt");
+        Assert.Contains("SelectSegment", resume);
+        Assert.Contains("PlayFrom", resume);
+
+        var create = SourceContract.BodyOf(source, "CreatePane");
+        Assert.Contains("MouseLeftButtonDown", create);
+        Assert.Contains("FocusPane", create);
+        Assert.Contains("Playback.PaneTip", create);
+    }
 }

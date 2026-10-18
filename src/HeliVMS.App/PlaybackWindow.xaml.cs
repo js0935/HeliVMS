@@ -1710,19 +1710,27 @@ public partial class PlaybackWindow : Window
             BorderThickness = new Thickness(1),
             Background = Frozen(Color.FromRgb(0x05, 0x09, 0x0E)),
             Cursor = Cursors.Hand,
-            ToolTip = channel.Name,
+            ToolTip = $"{channel.Name} · {Localizer.T("Playback.PaneTip")}",
             Child = grid,
         };
 
         var pane = new Pane { Channel = channel, Frame = frame, Image = image, Osd = osd, Segments = segments };
 
-        // 任一畫面點選即為主焦點（§8.5）：把該台切到主畫面，時間軸／清單／遮蔽疊圖都跟著它。
+        // 單擊放大成單畫面（§8.5 主焦點）：把該台切到主畫面並收成一格，時間軸／清單／遮蔽疊圖都跟著它。
         frame.MouseLeftButtonDown += (_, _) => FocusPane(pane);
         return pane;
     }
 
     private void FocusPane(Pane pane)
     {
+        // 先記播放頭：ChannelCombo 一動就同步 LoadSegments→StopPlayback，不記下來放大後回到停在原點。
+        var resumeUtc = _session is not null && _current is not null
+            ? _current.StartUtc.AddSeconds(_posInside)
+            : (DateTime?)null;
+
+        // 格數選到「1」＝單畫面（OnSplitChanged 重建牆時就沒有次畫面）；再把點到那台設成焦點。
+        // 先切格數再切頻道，避免先換焦點時用舊格數短暫長出一圈要立刻拆掉的次畫面。
+        SplitCombo.SelectedIndex = 0;
         foreach (var candidate in ChannelCombo.Items.OfType<ChannelInfo>())
         {
             if (candidate.Id != pane.Channel.Id)
@@ -1735,7 +1743,31 @@ public partial class PlaybackWindow : Window
                 ChannelCombo.SelectedItem = candidate;
             }
 
-            return;
+            break;
+        }
+
+        if (resumeUtc is { } target)
+        {
+            ResumePlaybackAt(target);
+        }
+    }
+
+    /// <summary>
+    /// 把主畫面接到指定 UTC 時刻繼續播：在當日時間軸找到涵蓋該時刻的片段並從偏移量起播。
+    /// 該台此刻無錄影就不硬跳（停在已載入畫面），語意與次畫面同步的空隙處理一致。
+    /// </summary>
+    private void ResumePlaybackAt(DateTime targetUtc)
+    {
+        foreach (var item in _bandSegments)
+        {
+            var seg = item.Segment;
+            var end = seg.EndUtc ?? seg.StartUtc.AddSeconds(seg.DurationSec ?? 10);
+            if (seg.StartUtc <= targetUtc && targetUtc <= end)
+            {
+                SelectSegment(item);
+                PlayFrom(seg, Math.Max(0, (targetUtc - seg.StartUtc).TotalSeconds));
+                return;
+            }
         }
     }
 
