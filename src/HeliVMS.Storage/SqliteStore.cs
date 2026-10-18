@@ -9,7 +9,7 @@ namespace HeliVMS.Storage;
 /// </summary>
 public sealed class SqliteStore : IDisposable
 {
-    private const int CurrentSchemaVersion = 55;
+    private const int CurrentSchemaVersion = 56;
     private readonly SqliteConnection _connection;
     private readonly object _gate = new();
     private bool _disposed;
@@ -331,6 +331,11 @@ public sealed class SqliteStore : IDisposable
         if (version < 55)
         {
             CreateRecordingLeaseTableV55();
+        }
+
+        if (version < 56)
+        {
+            CreateBookmarkTableV56();
         }
 
         Execute("PRAGMA user_version = CURRENT_SCHEMA_VERSION;".Replace(
@@ -1288,6 +1293,24 @@ public sealed class SqliteStore : IDisposable
 
             CREATE INDEX IF NOT EXISTS idx_redaction_source   ON redaction_regions(source_type, ref_id);
             CREATE INDEX IF NOT EXISTS idx_redaction_channel  ON redaction_regions(channel_id, occurred_at_utc);
+            """);
+    }
+
+    /// <summary>回放書籤（§8.5 §11.4 側欄書籤列表）：操作員在某通道某時刻標記的重點與筆記。</summary>
+    private void CreateBookmarkTableV56()
+    {
+        Execute(
+            """
+            CREATE TABLE IF NOT EXISTS bookmarks (
+                id             INTEGER PRIMARY KEY AUTOINCREMENT,
+                channel_id     INTEGER NOT NULL,
+                at_utc         TEXT    NOT NULL,
+                note           TEXT    NOT NULL DEFAULT '',
+                created_by     TEXT    NOT NULL DEFAULT '',
+                created_at_utc TEXT    NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_bookmarks_channel ON bookmarks(channel_id, at_utc);
             """);
     }
 

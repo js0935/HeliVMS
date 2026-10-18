@@ -66,6 +66,8 @@
                     <RowDefinition Height="*"/>
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="*"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
                 </Grid.RowDefinitions>
                 <TextBlock x:Name="PlaybackSegmentsLabel" Text="" Foreground="{StaticResource Brand.TextDim}" Margin="8,6" FontSize="11"/>
                 <TextBlock x:Name="PlaybackDayEventsLabel" Text="" Foreground="{StaticResource Brand.TextDim}" Grid.Row="2" Margin="8,12,8,4" FontSize="11"/>
@@ -139,6 +141,39 @@
                         </GridView>
                     </ListView.View>
                 </ListView>
+
+                <!-- Bookmarks (M3 §8.5 §11.4): right-click list to rename/delete, click a row to jump -->
+                <TextBlock x:Name="PlaybackBookmarksLabel" Text="" Foreground="{StaticResource Brand.TextDim}" Grid.Row="4" Margin="8,12,8,4" FontSize="11"/>
+                <ListView x:Name="BookmarkList" Grid.Row="5" AutomationProperties.AutomationId="PlaybackBookmarkList"
+                          SelectionChanged="OnBookmarkSelected"
+                          Background="Transparent" BorderThickness="0"
+                          Foreground="White">
+                    <ListView.ContextMenu>
+                        <ContextMenu>
+                            <MenuItem x:Name="RenameBookmarkMenuItem" Header="" Click="OnRenameBookmarkClicked"/>
+                            <MenuItem x:Name="DeleteBookmarkMenuItem" Header="" Click="OnDeleteBookmarkClicked"/>
+                        </ContextMenu>
+                    </ListView.ContextMenu>
+                    <ListView.View>
+                        <GridView>
+                            <GridViewColumn x:Name="BmColStart" Header="" Width="110">
+                                <GridViewColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding StartLabel}" FontSize="12"/>
+                                    </DataTemplate>
+                                </GridViewColumn.CellTemplate>
+                            </GridViewColumn>
+                            <GridViewColumn x:Name="BmColNote" Header="" Width="Auto">
+                                <GridViewColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding NoteLabel}" FontSize="12"
+                                                   TextTrimming="CharacterEllipsis" MaxWidth="200"/>
+                                    </DataTemplate>
+                                </GridViewColumn.CellTemplate>
+                            </GridViewColumn>
+                        </GridView>
+                    </ListView.View>
+                </ListView>
             </Grid>
         </Border>
 
@@ -151,6 +186,11 @@
             </Grid.RowDefinitions>
             <Canvas x:Name="PlayerArea" Background="#05090E" ClipToBounds="True" SizeChanged="OnPlayerAreaSizeChanged">
                 <Border x:Name="PlayerFrame" BorderBrush="#2A4A73" BorderThickness="1" Background="#05090E">
+                    <Border.ContextMenu>
+                        <ContextMenu>
+                            <MenuItem x:Name="AddBookmarkMenuItem" Header="" Click="OnAddBookmarkClicked"/>
+                        </ContextMenu>
+                    </Border.ContextMenu>
                     <Grid>
                         <Image x:Name="PlayerImage" Stretch="Uniform" RenderOptions.BitmapScalingMode="Linear"/>
                         <TextBlock x:Name="EmptyHint" Text=""

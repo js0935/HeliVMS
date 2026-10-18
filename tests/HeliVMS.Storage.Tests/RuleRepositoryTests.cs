@@ -27,7 +27,7 @@ public class RuleRepositoryTests : IDisposable
     }
 
     [Fact]
-    public void SchemaVersion_IsV55()
+    public void SchemaVersion_IsV56()
     {
         var version = _store.Query(
             "PRAGMA user_version;",
@@ -36,7 +36,7 @@ public class RuleRepositoryTests : IDisposable
                 r.Read();
                 return r.GetInt32(0);
             });
-        Assert.Equal(55, version);
+        Assert.Equal(56, version);
     }
 
     [Fact]

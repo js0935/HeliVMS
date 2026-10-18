@@ -144,4 +144,64 @@ public sealed class PlaybackWindowContractTests
         Assert.Contains("SelectionChanged=\"OnSplitChanged\"", xaml);
         Assert.DoesNotMatch(@"[\u4e00-\u9fff]", xaml);
     }
+
+    [Fact]
+    public void 書籤可用B鍵與播放器右鍵加入()
+    {
+        var source = SourceContract.Read(Code);
+
+        // B 鍵與右鍵都要走到同一個加入路徑；少一個（例如只留右鍵）操作員就少了全鍵盤那條（§8.5）。
+        Assert.Contains("Key.B", SourceContract.BodyOf(source, "OnPreviewKeyDown"));
+        Assert.Contains("OnAddBookmarkClicked", SourceContract.BodyOf(source, "OnPreviewKeyDown"));
+
+        var xaml = SourceContract.Read("src/HeliVMS.App/PlaybackWindow.xaml");
+        Assert.Matches(@"<MenuItem[^>]*x:Name=""AddBookmarkMenuItem""[^>]*Click=""OnAddBookmarkClicked""", xaml);
+        Assert.Contains("<Border.ContextMenu>", xaml);
+    }
+
+    [Fact]
+    public void 沒有正在播放的片段時不會靜默新增書籤()
+    {
+        var source = SourceContract.Read(Code);
+        var add = SourceContract.BodyOf(source, "OnAddBookmarkClicked");
+
+        // 沒有 _current 卻仍往下走，會標出一個 00:00 的假書籤；必須先擋住並回報。
+        var guard = Regex.Match(add, @"_current is not SegmentRecord seg\)\s*\{([^}]*)\}");
+        Assert.True(
+            guard.Success && guard.Groups[1].Value.Contains("Playback.BookmarkNoSegment"),
+            "OnAddBookmarkClicked 在沒有可播放片段時必須回報 Playback.BookmarkNoSegment 後 return。");
+        Assert.Contains("_bookmarkRepo.Add(", add);
+    }
+
+    [Fact]
+    public void 點書籤會依SelectSegment跳轉且不自行改選取()
+    {
+        var source = SourceContract.Read(Code);
+        var jump = SourceContract.BodyOf(source, "OnBookmarkSelected");
+
+        Assert.Contains("SelectSegment(", jump);
+        Assert.DoesNotContain("SegmentList.SelectedItem =", jump);
+    }
+
+    [Fact]
+    public void 書籤清單可重命名與刪除()
+    {
+        var source = SourceContract.Read(Code);
+
+        Assert.Contains("UpdateNote(", SourceContract.BodyOf(source, "OnRenameBookmarkClicked"));
+        Assert.Contains("Remove(", SourceContract.BodyOf(source, "OnDeleteBookmarkClicked"));
+
+        var xaml = SourceContract.Read("src/HeliVMS.App/PlaybackWindow.xaml");
+        Assert.Matches(@"<MenuItem[^>]*x:Name=""RenameBookmarkMenuItem""[^>]*Click=""OnRenameBookmarkClicked""", xaml);
+        Assert.Matches(@"<MenuItem[^>]*x:Name=""DeleteBookmarkMenuItem""[^>]*Click=""OnDeleteBookmarkClicked""", xaml);
+    }
+
+    [Fact]
+    public void 書籤由倉儲依通道與當日範圍載入()
+    {
+        var source = SourceContract.Read(Code);
+
+        Assert.Contains("_bookmarkRepo.ListByRange(", SourceContract.BodyOf(source, "ReloadBookmarks"));
+        Assert.Contains("ReloadBookmarks(", SourceContract.BodyOf(source, "LoadSegments"));
+    }
 }

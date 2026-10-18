@@ -21,6 +21,7 @@ public partial class PlaybackWindow : Window
     private readonly ChannelRepository _channels;
     private readonly SegmentRepository _segments;
     private readonly RedactionRepository _redactions;
+    private readonly BookmarkRepository _bookmarkRepo;
     private long? _focusChannelId;
     private readonly DateTime? _focusUtc;
 
@@ -35,6 +36,10 @@ public partial class PlaybackWindow : Window
     private int _lastHeight;
     private IReadOnlyList<SegmentItem> _bandSegments = [];
     private List<AlarmEventRecord> _events = [];
+    private List<BookmarkRecord> _bookmarks = [];
+
+    /// <summary>目前載入日的零時（UTC）；書籤標記與色帶共用同一條時間軸的起點。</summary>
+    private DateTime _dayStartUtc;
     private HeliVMS.Storage.PlaybackTimeline? _timeline;
     private bool _seeking;
     private bool _pendingFramePause;
@@ -95,6 +100,8 @@ public partial class PlaybackWindow : Window
 
     private sealed record EventItem(long Id, string StartLabel, string TypeLabel, string DetailLabel);
 
+    private sealed record BookmarkItem(long Id, DateTime AtUtc, string StartLabel, string NoteLabel);
+
     public PlaybackWindow(SqliteStore store, long? focusChannelId = null, DateTime? focusUtc = null)
     {
         _store = store;
@@ -103,6 +110,7 @@ public partial class PlaybackWindow : Window
         _channels = new ChannelRepository(_store);
         _segments = new SegmentRepository(_store);
         _redactions = new RedactionRepository(_store);
+        _bookmarkRepo = new BookmarkRepository(_store);
         InitializeComponent();
         ApplyI18n();
         DatePick.SelectedDate = DateTime.Today;
@@ -133,6 +141,12 @@ public partial class PlaybackWindow : Window
         EvtColStart.Header = Localizer.T("Playback.ColStart");
         EvtColType.Header = Localizer.T("Playback.ColType");
         EvtColDetail.Header = Localizer.T("Playback.ColDetail");
+        PlaybackBookmarksLabel.Text = Localizer.T("Playback.Bookmarks");
+        BmColStart.Header = Localizer.T("Playback.ColStart");
+        BmColNote.Header = Localizer.T("Playback.ColNote");
+        AddBookmarkMenuItem.Header = Localizer.T("Playback.AddBookmark");
+        RenameBookmarkMenuItem.Header = Localizer.T("Playback.RenameBookmark");
+        DeleteBookmarkMenuItem.Header = Localizer.T("Playback.DeleteBookmark");
         EmptyHint.Text = Localizer.T("Playback.EmptyHint");
         PlayPauseButton.Content = Localizer.T("Playback.Play");
         PlayPauseButton.ToolTip = Localizer.T("Playback.PlayPauseTip");
@@ -230,6 +244,8 @@ public partial class PlaybackWindow : Window
         {
             SegmentList.ItemsSource = null;
             _bandSegments = [];
+            _bookmarks = [];
+            BookmarkList.ItemsSource = null;
             RebuildPanes();
             RenderBlocks();
             LoadHint.Text = Localizer.T("Playback.NoChannel");
@@ -280,6 +296,9 @@ public partial class PlaybackWindow : Window
                 })
                 .ToList();
             EventCountText.Text = _events.Count > 0 ? string.Format(Localizer.T("Playback.EventCount"), _events.Count) : "";
+
+            _dayStartUtc = startUtc;
+            ReloadBookmarks(ch.Id, startUtc, endUtc);
 
             RebuildPanes();
             RenderBlocks();
@@ -348,6 +367,150 @@ public partial class PlaybackWindow : Window
             SelectSegment(band);
             PlayFrom(band.Segment, (rec.StartUtc - band.Segment.StartUtc).TotalSeconds);
         }
+    }
+
+    /// <summary>載入某通道當日的書籤並綁定到側欄清單（§8.5 §11.4）。</summary>
+    private void ReloadBookmarks(int channelId, DateTime fromUtc, DateTime toUtc)
+    {
+        try
+        {
+            _bookmarks = _bookmarkRepo.ListByRange(channelId, fromUtc, toUtc).ToList();
+        }
+        catch (Exception)
+        {
+            _bookmarks = [];
+        }
+
+        BookmarkList.ItemsSource = _bookmarks
+            .Select(b => new BookmarkItem(
+                b.Id,
+                b.AtUtc,
+                TimeZoneInfo.ConvertTimeFromUtc(b.AtUtc, TimeZoneInfo.Local).ToString("HH:mm:ss"),
+                b.Note))
+            .ToList();
+    }
+
+    /// <summary>
+    /// 在目前播放頭加入書籤（右鍵選單或 <c>B</c>）：記下當下這一格的絕對時刻與筆記。
+    /// 沒有正在播放的片段時明確回報，而不是靜默新增一個 00:00 的書籤。
+    /// </summary>
+    private void OnAddBookmarkClicked(object sender, RoutedEventArgs e)
+    {
+        if (ChannelCombo.SelectedItem is not ChannelInfo ch || _current is not SegmentRecord seg)
+        {
+            StatusText.Text = Localizer.T("Playback.BookmarkNoSegment");
+            return;
+        }
+
+        var atUtc = seg.StartUtc.AddSeconds(_posInside);
+        var note = PromptNote(Localizer.T("Playback.AddBookmark"), string.Empty);
+        if (note is null)
+        {
+            return;
+        }
+
+        _bookmarkRepo.Add(ch.Id, atUtc, note, Environment.UserName, DateTime.UtcNow);
+        ReloadBookmarks(ch.Id, _dayStartUtc, _dayStartUtc.AddDays(1));
+        RenderBlocks();
+        StatusText.Text = string.Format(
+            Localizer.T("Playback.BookmarkAdded"),
+            TimeZoneInfo.ConvertTimeFromUtc(atUtc, TimeZoneInfo.Local).ToString("HH:mm:ss"));
+    }
+
+    /// <summary>點書籤跳到其時刻（定位到所含片段並從該處起播）。</summary>
+    private void OnBookmarkSelected(object sender, SelectionChangedEventArgs e)
+    {
+        if (BookmarkList.SelectedItem is not BookmarkItem bm)
+        {
+            return;
+        }
+
+        var band = _bandSegments
+            .FirstOrDefault(b => b.Segment.StartUtc <= bm.AtUtc
+                              && bm.AtUtc <= b.Segment.StartUtc.AddSeconds(b.Segment.DurationSec ?? 0));
+        if (band is not null)
+        {
+            SelectSegment(band);
+            PlayFrom(band.Segment, Math.Max(0, (bm.AtUtc - band.Segment.StartUtc).TotalSeconds));
+        }
+        else
+        {
+            StatusText.Text = Localizer.T("Playback.NoRecordingHere");
+        }
+    }
+
+    private void OnRenameBookmarkClicked(object sender, RoutedEventArgs e)
+    {
+        if (BookmarkList.SelectedItem is not BookmarkItem bm || ChannelCombo.SelectedItem is not ChannelInfo ch)
+        {
+            return;
+        }
+
+        var note = PromptNote(Localizer.T("Playback.RenameBookmark"), bm.NoteLabel);
+        if (note is null)
+        {
+            return;
+        }
+
+        _bookmarkRepo.UpdateNote(bm.Id, note);
+        ReloadBookmarks(ch.Id, _dayStartUtc, _dayStartUtc.AddDays(1));
+        RenderBlocks();
+    }
+
+    private void OnDeleteBookmarkClicked(object sender, RoutedEventArgs e)
+    {
+        if (BookmarkList.SelectedItem is not BookmarkItem bm || ChannelCombo.SelectedItem is not ChannelInfo ch)
+        {
+            return;
+        }
+
+        _bookmarkRepo.Remove(bm.Id);
+        ReloadBookmarks(ch.Id, _dayStartUtc, _dayStartUtc.AddDays(1));
+        RenderBlocks();
+    }
+
+    /// <summary>
+    /// 單行文字輸入對話框（書籤筆記用）。以程式碼建立而非新增 XAML 視窗：
+    /// 這個對話框只有「輸入一行字」一種用途，不值得多一個視窗檔與多語系棘輪。
+    /// 回傳 null 表示取消。
+    /// </summary>
+    private string? PromptNote(string title, string initial)
+    {
+        var box = new TextBox { Text = initial ?? string.Empty, MinWidth = 280, Margin = new Thickness(0, 0, 0, 10) };
+        var ok = new Button { Content = Localizer.T("Playback.NoteOk"), IsDefault = true, Padding = new Thickness(14, 4, 14, 4), Margin = new Thickness(0, 0, 8, 0) };
+        var cancel = new Button { Content = Localizer.T("Playback.NoteCancel"), IsCancel = true, Padding = new Thickness(14, 4, 14, 4) };
+        var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
+        buttons.Children.Add(ok);
+        buttons.Children.Add(cancel);
+        var panel = new StackPanel { Margin = new Thickness(14) };
+        panel.Children.Add(box);
+        panel.Children.Add(buttons);
+
+        var dialog = new Window
+        {
+            Title = title,
+            Content = panel,
+            SizeToContent = SizeToContent.WidthAndHeight,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            Owner = this,
+            ResizeMode = ResizeMode.NoResize,
+            ShowInTaskbar = false,
+            Background = Frozen(Color.FromRgb(0x0B, 0x16, 0x22)),
+            Foreground = Brushes.White,
+        };
+        string? result = null;
+        ok.Click += (_, _) =>
+        {
+            result = box.Text;
+            dialog.DialogResult = true;
+        };
+        dialog.Loaded += (_, _) =>
+        {
+            box.Focus();
+            box.SelectAll();
+        };
+
+        return dialog.ShowDialog() == true ? result : null;
     }
 
     private void OnPlayPauseClicked(object sender, RoutedEventArgs e)
@@ -445,6 +608,11 @@ public partial class PlaybackWindow : Window
             case Key.E when !ctrl && !shift:
                 e.Handled = true;
                 OnRedactFromPlaybackClicked(this, new RoutedEventArgs());
+                break;
+
+            case Key.B when !ctrl && !shift:
+                e.Handled = true;
+                OnAddBookmarkClicked(this, new RoutedEventArgs());
                 break;
 
             case Key.Escape:
@@ -871,6 +1039,9 @@ public partial class PlaybackWindow : Window
             BandCanvas.Children.Add(backdrop);
         }
 
+        // 書籤標記獨立於錄影區塊：就算這天沒有錄影/事件，標過的書籤也要看得見。
+        RenderBookmarks();
+
         var hasData = _bandSegments.Count > 0 || _events.Count > 0;
         if (!hasData)
         {
@@ -930,6 +1101,36 @@ public partial class PlaybackWindow : Window
 
     /// <summary>一天內比例（0..1）。</summary>
     private double FracOfDay(DateTime utc) => Math.Max(0, Math.Min(1, (utc - DayStartUtc()).TotalMinutes / 1440.0));
+
+    /// <summary>在時間軸帶上畫當日書籤（橙色點，滑過顯示筆記）。</summary>
+    private void RenderBookmarks()
+    {
+        var width = BandCanvas.ActualWidth;
+        if (width <= 0 || _bookmarks.Count == 0)
+        {
+            return;
+        }
+
+        var brush = (Brush)new SolidColorBrush(Color.FromRgb(0xE5, 0x8A, 0x3C)).GetAsFrozen();
+        var start = _dayStartUtc == default ? DayStartUtc() : _dayStartUtc;
+        foreach (var b in _bookmarks)
+        {
+            var frac = Math.Max(0, Math.Min(1, (b.AtUtc - start).TotalMinutes / 1440.0));
+            var dot = new Ellipse
+            {
+                Width = BandMarkerSize,
+                Height = BandMarkerSize,
+                Fill = brush,
+                Stroke = Brushes.Black,
+                StrokeThickness = 1,
+                IsHitTestVisible = false,
+                ToolTip = b.Note,
+            };
+            Canvas.SetLeft(dot, frac * width - BandMarkerSize / 2);
+            Canvas.SetTop(dot, Math.Max(0, BandCanvas.ActualHeight - BandMarkerSize - BandMarkerMargin));
+            BandCanvas.Children.Add(dot);
+        }
+    }
 
     /// <summary>繪製當日事件標記（M84）：以 PlaybackTimeline.Markers 的 XFraction 定位；點擊帶上對應時刻即跳播（OnBandClicked）。</summary>
     private void RenderMarkers()
