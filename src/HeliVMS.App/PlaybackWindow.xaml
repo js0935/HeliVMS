@@ -203,13 +203,21 @@
                 </Border>
             </Canvas>
 
-            <!-- Timeline band: all of the day's segments, AI/motion markers, and the play position -->
-            <Border Grid.Row="1" Margin="0,8,0,0" BorderBrush="#2A4A73" BorderThickness="1"
-                    Background="#0F1D2E" Height="48" MouseLeftButtonDown="OnBandScrubStart"
-                    MouseMove="OnBandMouseMove" MouseLeftButtonUp="OnBandClicked">
-                <Canvas x:Name="BandCanvas" SizeChanged="OnBandSizeChanged"
-                        AutomationProperties.AutomationId="PlaybackBand"/>
-            </Border>
+            <!-- Timeline (§8.5): ruler row = time scale above the channel band; mouse wheel zooms the view window. -->
+            <Grid Grid.Row="1" Margin="0,8,0,0" MouseWheel="OnBandMouseWheel">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="20"/>
+                    <RowDefinition Height="48"/>
+                </Grid.RowDefinitions>
+                <Canvas x:Name="RulerCanvas" Grid.Row="0" Background="Transparent" ClipToBounds="True"
+                        AutomationProperties.AutomationId="PlaybackRuler"/>
+                <Border Grid.Row="1" BorderBrush="#2A4A73" BorderThickness="1"
+                        Background="#0F1D2E" MouseLeftButtonDown="OnBandScrubStart"
+                        MouseMove="OnBandMouseMove" MouseLeftButtonUp="OnBandClicked">
+                    <Canvas x:Name="BandCanvas" SizeChanged="OnBandSizeChanged"
+                            AutomationProperties.AutomationId="PlaybackBand"/>
+                </Border>
+            </Grid>
 
             <StackPanel Orientation="Horizontal" Grid.Row="2" Margin="0,10,0,0">
                 <Slider x:Name="SeekSlider" AutomationProperties.AutomationId="SeekSlider" Width="150" VerticalAlignment="Center" Minimum="0" Maximum="10000"

@@ -42,6 +42,9 @@ public partial class PlaybackWindow : Window
     /// <summary>目前載入日的零時（UTC）；書籤標記與色帶共用同一條時間軸的起點。</summary>
     private DateTime _dayStartUtc;
     private HeliVMS.Storage.PlaybackTimeline? _timeline;
+
+    /// <summary>時間軸目前的檢視窗（UTC）。載入日時重設為全日；滾輪縮放夾在當日窗內（§3.4/§8.5）。</summary>
+    private HeliVMS.Storage.TimelineViewWindow? _view;
     private bool _seeking;
     private bool _scrubbing;
     private bool _pendingFramePause;
@@ -104,6 +107,10 @@ public partial class PlaybackWindow : Window
     private const double BandBarTop = 3;
     private const double BandMarkerSize = 12;
     private const double BandMarkerMargin = 3;
+
+    // 主時間列（§8.5）：刻度是輔助線，顏色只能比色帶底色亮一點，搶過錄影色塊就本末倒置。
+    private static readonly Brush s_rulerTick = Frozen(Color.FromRgb(0x2A, 0x4A, 0x73));
+    private static readonly Brush s_rulerText = Frozen(Color.FromRgb(0x8F, 0xA8, 0xC4));
 
     private sealed record SegmentItem(SegmentRecord Segment, string StartLabel, string DurationLabel, string SizeLabel);
 
@@ -416,6 +423,8 @@ public partial class PlaybackWindow : Window
             _bandSegments = [];
             _bookmarks = [];
             BookmarkList.ItemsSource = null;
+            _dayStartUtc = default;
+            _view = null;
             RebuildPanes();
             RenderBlocks();
             LoadHint.Text = Localizer.T("Playback.NoChannel");
@@ -468,6 +477,9 @@ public partial class PlaybackWindow : Window
             EventCountText.Text = _events.Count > 0 ? string.Format(Localizer.T("Playback.EventCount"), _events.Count) : "";
 
             _dayStartUtc = startUtc;
+
+            // 載入新的一天＝回到全日視窗：留著昨天的縮放窗看今天，帶子上會是一片沒有對到資料的空白。
+            _view = HeliVMS.Storage.PlaybackTimelineScale.FullDay(startUtc);
             ReloadBookmarks(ch.Id, startUtc, endUtc);
 
             RebuildPanes();
@@ -1182,9 +1194,60 @@ public partial class PlaybackWindow : Window
         UpdateCursor(_posInside);
     }
 
-    /// <summary>繪製當日時間軸帶（M84）：依 PlaybackTimeline L0 的 fractions 畫每段藍色區塊＋事件標記＋覆蓋率標籤。</summary>
+    /// <summary>
+    /// 繪製主時間列刻度（§8.5「主時間列：刻度」、§3.4「時間刻度依縮放層級切換」）：
+    /// 刻度階梯與刻度位置全由 <see cref="HeliVMS.Storage.PlaybackTimelineScale.Ticks"/> 決定，
+    /// 這裡只負責把算好的刻度畫上 canvas。
+    /// </summary>
+    private void RenderRuler()
+    {
+        RulerCanvas.Children.Clear();
+        var view = _view;
+        var width = RulerCanvas.ActualWidth;
+        if (view is null || width <= 0)
+        {
+            return;
+        }
+
+        foreach (var tick in HeliVMS.Storage.PlaybackTimelineScale.Ticks(view, TimeZoneInfo.Local))
+        {
+            var x = view.FractionOf(tick.Utc) * width;
+            var line = new Rectangle
+            {
+                Width = 1,
+                Height = tick.IsMajor ? 6 : 3,
+                Fill = s_rulerTick,
+                IsHitTestVisible = false,
+            };
+            Canvas.SetLeft(line, x);
+            Canvas.SetTop(line, Math.Max(0, RulerCanvas.ActualHeight - line.Height));
+            RulerCanvas.Children.Add(line);
+
+            if (!tick.IsMajor || tick.Label.Length == 0)
+            {
+                continue;
+            }
+
+            var label = new TextBlock
+            {
+                Text = tick.Label,
+                FontSize = 10,
+                Foreground = s_rulerText,
+                IsHitTestVisible = false,
+            };
+            label.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+            Canvas.SetLeft(label, x - label.DesiredSize.Width / 2);
+            Canvas.SetTop(label, 0);
+            RulerCanvas.Children.Add(label);
+        }
+    }
+
+    /// <summary>繪製時間軸：主時間列刻度＋當日色帶（M84/§8.5）——依 PlaybackTimeline L0 的 fractions 畫每段藍色區塊＋事件標記＋覆蓋率標籤，全部映射到目前的檢視窗。</summary>
     private void RenderBlocks()
     {
+        // 刻度畫在色帶上方的獨立 canvas，與資料有無無關：空資料的日子也要看得見時間刻度。
+        RenderRuler();
+
         for (var i = BandCanvas.Children.Count - 1; i >= 0; i--)
         {
             if (!ReferenceEquals(BandCanvas.Children[i], _cursor))
@@ -1231,20 +1294,34 @@ public partial class PlaybackWindow : Window
             dayStart);
 
         // 區塊只佔上面的區塊列，下面留給事件標記；帶子加高（48）後兩列才不會互相重疊。
+        // Bar 是對全日窗的比例，先轉回時刻再映射到檢視窗：縮放後窗外的區塊整塊跳過，
+        // 壓到邊邊的只畫露出來的那一截，否則區塊會伸出帶子或整條錯位。
         if (width > 0)
         {
             var fill = (Brush)new SolidColorBrush(Color.FromRgb(0x2A, 0x7F, 0xC9)).GetAsFrozen();
             var barHeight = Math.Max(6, height - BandBarTop - BandMarkerSize - BandMarkerMargin * 2);
+            var view = View();
             foreach (var bar in _timeline.Bars)
             {
+                var leftUtc = _timeline.DayUtc.AddSeconds(bar.LeftFraction * PlaybackTimeline.DaySeconds);
+                var rightUtc = leftUtc.AddSeconds(bar.WidthFraction * PlaybackTimeline.DaySeconds);
+                var left = view.FractionOf(leftUtc);
+                var right = view.FractionOf(rightUtc);
+                if (right <= 0 || left >= 1)
+                {
+                    continue;
+                }
+
+                var clippedLeft = Math.Max(0, left);
+                var clippedRight = Math.Min(1, right);
                 var rect = new Rectangle
                 {
-                    Width = Math.Max(2, bar.WidthFraction * width),
+                    Width = Math.Max(2, (clippedRight - clippedLeft) * width),
                     Height = barHeight,
                     Fill = fill,
                     IsHitTestVisible = false,
                 };
-                Canvas.SetLeft(rect, Math.Max(0, bar.LeftFraction) * width);
+                Canvas.SetLeft(rect, clippedLeft * width);
                 Canvas.SetTop(rect, BandBarTop);
                 BandCanvas.Children.Add(rect);
             }
@@ -1273,8 +1350,10 @@ public partial class PlaybackWindow : Window
         return TimeZoneInfo.ConvertTimeToUtc(DateTime.Now.Date);
     }
 
-    /// <summary>一天內比例（0..1）。</summary>
-    private double FracOfDay(DateTime utc) => Math.Max(0, Math.Min(1, (utc - DayStartUtc()).TotalMinutes / 1440.0));
+    /// <summary>目前檢視窗；未載入日時退回全日窗（色帶、游標、點擊換算共用同一條路徑）。</summary>
+    private HeliVMS.Storage.TimelineViewWindow View()
+        => _view ?? HeliVMS.Storage.PlaybackTimelineScale.FullDay(
+            _dayStartUtc == default ? DayStartUtc() : _dayStartUtc);
 
     /// <summary>在時間軸帶上畫當日書籤（橙色點，滑過顯示筆記）。</summary>
     private void RenderBookmarks()
@@ -1286,10 +1365,15 @@ public partial class PlaybackWindow : Window
         }
 
         var brush = (Brush)new SolidColorBrush(Color.FromRgb(0xE5, 0x8A, 0x3C)).GetAsFrozen();
-        var start = _dayStartUtc == default ? DayStartUtc() : _dayStartUtc;
+        var view = View();
         foreach (var b in _bookmarks)
         {
-            var frac = Math.Max(0, Math.Min(1, (b.AtUtc - start).TotalMinutes / 1440.0));
+            var frac = view.FractionOf(b.AtUtc);
+            if (frac < 0 || frac > 1)
+            {
+                continue;
+            }
+
             var dot = new Ellipse
             {
                 Width = BandMarkerSize,
@@ -1315,8 +1399,15 @@ public partial class PlaybackWindow : Window
             return;
         }
 
+        var view = View();
         foreach (var marker in markers)
         {
+            var frac = view.FractionOf(marker.Utc);
+            if (frac < 0 || frac > 1)
+            {
+                continue;
+            }
+
             var rec = _events.FirstOrDefault(e => e.Id == marker.EventId);
             var dot = new Ellipse
             {
@@ -1403,8 +1494,7 @@ public partial class PlaybackWindow : Window
         }
 
         var frac = Math.Max(0, Math.Min(1, e.GetPosition(BandCanvas).X / BandCanvas.ActualWidth));
-        var dayStartLocal = _bandSegments[0].Segment.StartUtc.ToLocalTime().Date;
-        var targetUtc = TimeZoneInfo.ConvertTimeToUtc(dayStartLocal).AddMinutes(frac * 1440);
+        var targetUtc = View().TimeAtFraction(frac);
 
         foreach (var item in _bandSegments)
         {
@@ -1435,10 +1525,33 @@ public partial class PlaybackWindow : Window
         _cursor.Height = BandCanvas.ActualHeight;
         Canvas.SetTop(_cursor, 0);
 
-        var dayStartUtc = TimeZoneInfo.ConvertTimeToUtc(_bandSegments[0].Segment.StartUtc.ToLocalTime().Date);
         TimeText.Text = TimeZoneInfo
-            .ConvertTimeFromUtc(dayStartUtc.AddMinutes(frac * 1440), TimeZoneInfo.Local)
+            .ConvertTimeFromUtc(View().TimeAtFraction(frac), TimeZoneInfo.Local)
             .ToString("HH:mm:ss");
+    }
+
+    /// <summary>
+    /// 滾輪無級縮放（§8.5「縮放中心跟隨滑鼠游標」、§3.4「支援滑鼠滾輪縮放」）：
+    /// 錨點＝游標所在的畫面位置，對應時刻在縮放前後留在原地。
+    /// 只換檢視窗、不重查資料庫：當日資料已經在手，10 秒窗用同一批 segments 就畫得出來。
+    /// </summary>
+    private void OnBandMouseWheel(object sender, MouseWheelEventArgs e)
+    {
+        if (_view is null || BandCanvas.ActualWidth <= 0 || e.Delta == 0)
+        {
+            return;
+        }
+
+        var anchor = Math.Clamp(e.GetPosition(BandCanvas).X / BandCanvas.ActualWidth, 0, 1);
+        _view = HeliVMS.Storage.PlaybackTimelineScale.Zoom(
+            _view,
+            _dayStartUtc,
+            _dayStartUtc.AddDays(1),
+            anchor,
+            e.Delta / 120.0);
+        RenderBlocks();
+        UpdateCursor(_posInside);
+        e.Handled = true;
     }
 
     private void OnSeekDragStarted(object sender, System.Windows.Controls.Primitives.DragStartedEventArgs e) => _seeking = true;
@@ -1461,7 +1574,7 @@ public partial class PlaybackWindow : Window
         PlayFrom(_current, offset);
     }
 
-    /// <summary>將播放位置遊標移到時間軸帶上的對應時刻。</summary>
+    /// <summary>將播放位置遊標移到時間軸帶上的對應時刻（映射到目前檢視窗）。</summary>
     private void UpdateCursor(double posSeconds)
     {
         if (_current is null || BandCanvas.ActualWidth <= 0)
@@ -1470,9 +1583,16 @@ public partial class PlaybackWindow : Window
             return;
         }
 
-        var dayStartUtc = DayStartUtc();
-        var frac = (_current.StartUtc.AddSeconds(posSeconds) - dayStartUtc).TotalMinutes / 1440.0;
-        Canvas.SetLeft(_cursor, Math.Max(0, Math.Min(1, frac)) * BandCanvas.ActualWidth - 1);
+        var frac = View().FractionOf(_current.StartUtc.AddSeconds(posSeconds));
+        if (frac < 0 || frac > 1)
+        {
+            // 播放頭在檢視窗外（縮放到別的時段時）：藏起來。夾到帶子邊邊會讓操作員
+            // 以為播放頭還在畫面上，點邊邊還真的跳回邊界時刻。
+            Canvas.SetLeft(_cursor, -8);
+            return;
+        }
+
+        Canvas.SetLeft(_cursor, frac * BandCanvas.ActualWidth - 1);
         _cursor.Height = BandCanvas.ActualHeight;
         Canvas.SetTop(_cursor, 0);
     }

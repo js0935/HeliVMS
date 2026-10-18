@@ -292,4 +292,50 @@ public sealed class PlaybackWindowContractTests
                 < dayText.IndexOf("return null", StringComparison.Ordinal),
             "DayText 必須先找日字再回 null；null 放在查找之前會讓藍字靜默失效");
     }
+
+    /// <summary>
+    /// 主時間列刻度與滾輪縮放（§3.4「時間刻度依縮放層級切換」、§8.5「主時間列：刻度／滾輪無級縮放，
+    /// 縮放中心跟隨游標」）。桌面端沒有 WPF 執行期，刻度畫面驗不到，這裡守住三個一改就錯的接縫：
+    ///
+    /// <para>
+    /// （1）縮放必須掛在帶子的 MouseWheel 上、刻度必須畫在 RulerCanvas——缺任何一個，
+    /// 滾輪沒反應或刻度列永遠空白，而且都不會報錯。
+    /// </para>
+    /// <para>
+    /// （2）帶子的點擊與游標換算必須走檢視窗（<c>TimeAtFraction</c>/<c>FractionOf</c>）——
+    /// 退回舊的「全日窗比例」公式（frac×1440）的話，縮放後點擊會跳到完全不同的時刻：
+    /// 畫面停在 10:30、跳轉卻落在 10:00 附近，比沒縮放更容易誤判錄影位置。
+    /// </para>
+    /// <para>
+    /// （3）載入新的一天必須重設為全日窗——留著前一日的縮放窗看新的一天，
+    /// 帶子上是一片對不到資料的空白。
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void 時間軸有主時間列刻度與滾輪縮放且帶子換算走檢視窗()
+    {
+        var xaml = SourceContract.Read("src/HeliVMS.App/PlaybackWindow.xaml");
+        Assert.Contains("MouseWheel=\"OnBandMouseWheel\"", xaml);
+        Assert.Contains("x:Name=\"RulerCanvas\"", xaml);
+
+        var source = SourceContract.Read(Code);
+
+        var wheel = SourceContract.BodyOf(source, "OnBandMouseWheel");
+        Assert.Contains("PlaybackTimelineScale.Zoom", wheel);
+        Assert.Contains("RenderBlocks", wheel);
+
+        var ruler = SourceContract.BodyOf(source, "RenderRuler");
+        Assert.Contains("RulerCanvas", ruler);
+        Assert.Contains("PlaybackTimelineScale.Ticks", ruler);
+
+        var click = SourceContract.BodyOf(source, "OnBandClicked");
+        Assert.Contains("TimeAtFraction", click);
+        Assert.DoesNotContain("AddMinutes(frac * 1440)", click);
+
+        var cursor = SourceContract.BodyOf(source, "UpdateCursor");
+        Assert.Contains("FractionOf", cursor);
+
+        var load = SourceContract.BodyOf(source, "LoadSegments");
+        Assert.Contains("PlaybackTimelineScale.FullDay", load);
+    }
 }
