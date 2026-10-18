@@ -87,15 +87,15 @@
             </StackPanel>
 
             <StackPanel Grid.Row="2" Grid.ColumnSpan="5" Orientation="Horizontal" Margin="0,8,0,0">
-                <TextBlock Text="偏航" VerticalAlignment="Center"/>
+                <TextBlock x:Name="DewarpYawLabel" Text="" VerticalAlignment="Center"/>
                 <TextBox x:Name="Yaw" AutomationProperties.AutomationId="DewarpYaw" Width="56"
                          Text="0" Margin="6,0" VerticalContentAlignment="Center"
                          Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
-                <TextBlock Text="Pitch" VerticalAlignment="Center"/>
+                <TextBlock x:Name="DewarpPitchLabel" Text="" VerticalAlignment="Center"/>
                 <TextBox x:Name="Pitch" AutomationProperties.AutomationId="DewarpPitch" Width="56"
                          Text="0" Margin="6,0" VerticalContentAlignment="Center"
                          Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
-                <TextBlock Text="Roll" VerticalAlignment="Center"/>
+                <TextBlock x:Name="DewarpRollLabel" Text="" VerticalAlignment="Center"/>
                 <TextBox x:Name="Roll" AutomationProperties.AutomationId="DewarpRoll" Width="56"
                          Text="0" Margin="6,0" VerticalContentAlignment="Center"
                          Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>

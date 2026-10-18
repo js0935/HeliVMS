@@ -85,6 +85,9 @@ public partial class DewarpWindow : Window
         DewarpOutputFovLabel.Text = Localizer.T("Dewarp.OutputFov");
         DewarpOutputWidthLabel.Text = Localizer.T("Dewarp.OutputWidth");
         DewarpHeightLabel.Text = Localizer.T("Dewarp.Height");
+        DewarpYawLabel.Text = Localizer.T("Dewarp.Yaw");
+        DewarpPitchLabel.Text = Localizer.T("Dewarp.Pitch");
+        DewarpRollLabel.Text = Localizer.T("Dewarp.Roll");
         PreviewButton.Content = Localizer.T("Dewarp.Preview");
         PreviewButton.ToolTip = Localizer.T("Dewarp.PreviewTip");
         DewarpButton.Content = Localizer.T("Dewarp.Start");
