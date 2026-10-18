@@ -4098,6 +4098,22 @@ public partial class MainWindow : Window
         if (Math.Abs(p.X - _dragStart.X) > SystemParameters.MinimumHorizontalDragDistance ||
             Math.Abs(p.Y - _dragStart.Y) > SystemParameters.MinimumVerticalDragDistance)
         {
+            // Ctrl+拖曳＝把這台帶去回放視窗（§8.5 拖入分屏立即回放）。
+            // 不與一般拖曳共用同一手勢：換位是在放開時結算的，中途改走 OLE 拖放會把那段結算整段吃掉，
+            // 等於用新功能換掉一個每天在用的舊功能。
+            if ((Keyboard.Modifiers & ModifierKeys.Control) != 0 && _cellChannel[cell] is int dragChannelId)
+            {
+                _dragSourceCell = -1;
+                _dragged = false;
+                element.Opacity = 1.0;
+                element.ReleaseMouseCapture();
+
+                var data = new DataObject();
+                data.SetData(DragFormats.ChannelId, dragChannelId.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                DragDrop.DoDragDrop(element, data, DragDropEffects.Copy);
+                return;
+            }
+
             _dragged = true;
             // 拖曳中把來源格調淡，操作員才看得出正在搬的是哪一格。
             element.Opacity = 0.55;

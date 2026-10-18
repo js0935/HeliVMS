@@ -215,6 +215,7 @@ public partial class PlaybackWindow : Window
         JumpButton.Content = Localizer.T("Playback.Jump");
         JumpButton.ToolTip = Localizer.T("Playback.TimeJumpTip");
         SnapshotMenuItem.Header = Localizer.T("Snapshot.Capture");
+        WallCapacityText.ToolTip = Localizer.T("Playback.WallCapacityTip");
         AutoAdvanceCheck.Content = Localizer.T("Playback.AutoAdvance");
         AutoAdvanceCheck.ToolTip = Localizer.T("Playback.AutoAdvanceTip");
         RedactionOverlayCheck.Content = Localizer.T("Playback.ShowRedaction");
@@ -244,6 +245,72 @@ public partial class PlaybackWindow : Window
         _focusChannelId = channelId;
         LoadChannels();
         LoadSegments();
+    }
+
+    /// <summary>
+    /// 拖入分屏立即回放（§8.5）：把即時監看某台拖進本窗，就切到該台並開播。
+    /// <para>
+    /// 先前已有播放頭（本窗正在播）就從同一時刻接上，維持多路比對的時刻一致；
+    /// 沒有播放頭時從當日最後一段開頭播——操作員把畫面拖進回放，通常想看剛發生的事。
+    /// </para>
+    /// <para>
+    /// 頻道不存在（已刪台）時什麼都不做：<c>FocusChannel</c> 找不到會退回第一台，
+    /// 那會變成「拖 A 卻播出 B」，比沒反應更糟。
+    /// </para>
+    /// </summary>
+    public void FocusChannelAndPlay(long channelId)
+    {
+        if (ChannelCombo.Items.OfType<ChannelInfo>().All(c => c.Id != channelId))
+        {
+            return;
+        }
+
+        var resumeUtc = _session is not null && _current is not null
+            ? _current.StartUtc.AddSeconds(_posInside)
+            : (DateTime?)null;
+
+        FocusChannel(channelId);
+
+        if (resumeUtc is { } target)
+        {
+            ResumePlaybackAt(target);
+            return;
+        }
+
+        if (_bandSegments.Count > 0)
+        {
+            var last = _bandSegments[^1];
+            SelectSegment(last);
+            PlayFrom(last.Segment, 0);
+        }
+    }
+
+    private void OnPlaybackDragOver(object sender, DragEventArgs e)
+    {
+        e.Effects = TryGetDroppedChannelId(e.Data, out _) ? DragDropEffects.Copy : DragDropEffects.None;
+        e.Handled = true;
+    }
+
+    private void OnPlaybackDrop(object sender, DragEventArgs e)
+    {
+        if (!TryGetDroppedChannelId(e.Data, out var channelId))
+        {
+            return;
+        }
+
+        e.Handled = true;
+        FocusChannelAndPlay(channelId);
+    }
+
+    /// <summary>從拖放資料取出頻道 Id；自訂格式優先，文字格式當後備（其他來源也能拖進來）。</summary>
+    private static bool TryGetDroppedChannelId(System.Windows.IDataObject data, out long channelId)
+    {
+        channelId = 0;
+        var raw = data.GetDataPresent(DragFormats.ChannelId)
+            ? data.GetData(DragFormats.ChannelId) as string
+            : null;
+        raw ??= data.GetDataPresent(DataFormats.Text) ? data.GetData(DataFormats.Text) as string : null;
+        return raw is not null && long.TryParse(raw, out channelId);
     }
 
     private void OnLoaded(object sender, RoutedEventArgs e)
@@ -1207,6 +1274,13 @@ public partial class PlaybackWindow : Window
         var h = PlayerArea.ActualHeight;
         var cells = 1 + _panes.Count;
 
+        // 牆容量（§8.5 多路）：能同時播的路數＝分割數與頻道數取小，直接寫在分割選單旁，
+        // 選了 16 卻只有 4 台時一眼看得出來差在哪，不必猜是不是壞了。
+        var requested = SplitCount();
+        var effective = PlaybackWallCapacity.Effective(requested, ChannelCombo.Items.Count);
+        WallCapacityText.Text = string.Format(Localizer.T("Playback.WallCapacity"), effective, requested);
+        AutomationProperties.SetName(WallCapacityText, $"WALL:{effective}:{requested}");
+
         // 多格時主畫面格也要提示可點擊放大（焦點台沒有次畫面格）；單格不留提示避免誤導。
         PlayerFrame.ToolTip = cells > 1 ? Localizer.T("Playback.PaneTip") : null;
 
@@ -2093,11 +2167,13 @@ public partial class PlaybackWindow : Window
         DisposeQuietly(session);
     }
 
-    /// <summary>回放牆格數（1／2／4）。</summary>
+    /// <summary>回放牆格數（1／2／4／9／16）。</summary>
     private int SplitCount() => SplitCombo.SelectedIndex switch
     {
         1 => 2,
         2 => 4,
+        3 => 9,
+        4 => 16,
         _ => 1,
     };
 

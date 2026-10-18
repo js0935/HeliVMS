@@ -6,6 +6,7 @@
         WindowStartupLocation="CenterOwner"
         Background="#0B1622" Foreground="White"
         Loaded="OnLoaded" Closing="OnClosing"
+        AllowDrop="True" DragOver="OnPlaybackDragOver" Drop="OnPlaybackDrop"
         PreviewKeyDown="OnPreviewKeyDown">
 
     <Grid Margin="12">
@@ -62,7 +63,12 @@
                     <ComboBoxItem Content="1"/>
                     <ComboBoxItem Content="2"/>
                     <ComboBoxItem Content="4"/>
+                    <ComboBoxItem Content="9"/>
+                    <ComboBoxItem Content="16"/>
                 </ComboBox>
+                <TextBlock x:Name="WallCapacityText" Text="" Foreground="{StaticResource Brand.TextDim}" FontSize="11"
+                           VerticalAlignment="Center" Margin="8,0,0,0" ToolTip=""
+                           AutomationProperties.AutomationId="PlaybackWallCapacity"/>
             </StackPanel>
 
             <TextBlock x:Name="LoadHint" Foreground="{StaticResource Brand.TextDim}"

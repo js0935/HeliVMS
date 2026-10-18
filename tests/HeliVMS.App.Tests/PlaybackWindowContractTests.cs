@@ -568,4 +568,55 @@ public sealed class PlaybackWindowContractTests
         var i18n = SourceContract.BodyOf(source, "ApplyI18n");
         Assert.Contains("Snapshot.Capture", i18n);
     }
+
+    /// <summary>
+    /// 回放牆的多路容量與拖入即播（§8.5）：分割選單多了 9／16，但同時能播的路數受頻道數夾限，
+    /// 並且把即時監看的畫面拖進來就能直接開播。
+    /// <para>
+    /// （1）只加分割選單、容量沒算：選 16 而只有 4 台時畫面只長出 4 格卻毫無說明，
+    /// 操作員會以為剩下的格子壞了。
+    /// </para>
+    /// <para>
+    /// （2）拖放兩端各寫一份格式字串：任一邊打錯字就是「拖了完全沒反應」，
+    /// 沒有錯誤也沒有日誌，所以兩端都必須引用 <c>DragFormats.ChannelId</c>。
+    /// </para>
+    /// <para>
+    /// （3）拖進來只換台不開播：§8.5 寫的是「立即回放」，停在靜止畫面等於沒做。
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void 回放牆有九與十六分割且容量受限且可拖入即播()
+    {
+        var xaml = SourceContract.Read("src/HeliVMS.App/PlaybackWindow.xaml");
+        Assert.Contains("<ComboBoxItem Content=\"9\"/>", xaml);
+        Assert.Contains("<ComboBoxItem Content=\"16\"/>", xaml);
+        Assert.Contains("AllowDrop=\"True\"", xaml);
+        Assert.Contains("Drop=\"OnPlaybackDrop\"", xaml);
+        Assert.Contains("AutomationProperties.AutomationId=\"PlaybackWallCapacity\"", xaml);
+
+        var source = SourceContract.Read(Code);
+
+        var split = SourceContract.BodyOf(source, "SplitCount");
+        Assert.Contains("3 => 9", split);
+        Assert.Contains("4 => 16", split);
+
+        var geometry = SourceContract.BodyOf(source, "ApplyPlayerFrameGeometry");
+        Assert.Contains("PlaybackWallCapacity.Effective", geometry);
+        Assert.Contains("WallCapacityText", geometry);
+
+        var drop = SourceContract.BodyOf(source, "OnPlaybackDrop");
+        Assert.Contains("FocusChannelAndPlay", drop);
+
+        var play = SourceContract.BodyOf(source, "FocusChannelAndPlay");
+        Assert.Contains("PlayFrom", play);
+
+        var pick = SourceContract.BodyOf(source, "TryGetDroppedChannelId");
+        Assert.Contains("DragFormats.ChannelId", pick);
+
+        var main = SourceContract.Read("src/HeliVMS.App/MainWindow.xaml.cs");
+        var move = SourceContract.BodyOf(main, "OnCellMouseMove");
+        Assert.Contains("ModifierKeys.Control", move);
+        Assert.Contains("DragDrop.DoDragDrop", move);
+        Assert.Contains("DragFormats.ChannelId", move);
+    }
 }
