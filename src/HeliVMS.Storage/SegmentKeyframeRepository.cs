@@ -83,7 +83,7 @@ public sealed class SegmentKeyframeRepository
     /// </para>
     /// </summary>
     public IReadOnlyList<long> ListMissingIndexIds(
-        int channelId, string stream, DateTime fromUtc, DateTime toUtc)
+        long channelId, string stream, DateTime fromUtc, DateTime toUtc)
     {
         return _store.Query(
             """

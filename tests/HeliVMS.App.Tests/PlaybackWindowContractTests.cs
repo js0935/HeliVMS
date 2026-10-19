@@ -232,6 +232,60 @@ public sealed class PlaybackWindowContractTests
     }
 
     /// <summary>
+    /// 關鍵幀索引必須真的被回放視窗用起來（§3.4「播放頭為關鍵幀吸附」）。
+    ///
+    /// <para>
+    /// 這張表原本只建了 schema：索引沒人寫、刻度沒人畫，整條功能是死的而沒有任何錯誤訊息。
+    /// 這裡守住四個接縫：
+    /// </para>
+    /// <para>
+    /// （1）<c>LoadSegments</c> 要先同步載入既有索引再丟背景補建缺的——只做背景的話，
+    /// 每次換日／換頻道都要等探測跑完才看得到刻度，而且重進同一天會閃一下才出現。
+    /// </para>
+    /// <para>
+    /// （2）背景補建必須在 <c>Task.Run</c> 裡跑 ffprobe：對每個區段探測是百毫秒級
+    /// （4 路 × 一天數十段＝數十秒），同步跑會讓換日／換頻道整個卡住。
+    /// </para>
+    /// <para>
+    /// （3）世代編號必須遞增且被背景作業檢查：連續換日時舊探測的結果會畫到新的一天上，
+    /// 操作員看到的是昨天錄影位置的刻度疊在今天的色帶上。
+    /// </para>
+    /// <para>
+    /// （4）探測回空清單時不可寫入索引：寫了空的，<c>ListMissingIndexIds</c> 就再也不認為
+    /// 這一段缺索引，壞檔或暫時讀不到的段永遠補不上。
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void 關鍵幀索引在背景補建且缺索引才探測且畫成刻度()
+    {
+        var source = SourceContract.Read(Code);
+
+        var load = SourceContract.BodyOf(source, "LoadSegments");
+        Assert.Contains("LoadKeyframeCache(", load);
+        Assert.Contains("StartKeyframeIndexing(", load);
+        Assert.Contains("Interlocked.Increment", load);
+
+        var cache = SourceContract.BodyOf(source, "LoadKeyframeCache");
+        Assert.Contains("_keyframes.List(", cache);
+
+        var index = SourceContract.BodyOf(source, "StartKeyframeIndexing");
+        Assert.Contains("Task.Run(", index);
+        Assert.Contains("ListMissingIndexIds(", index);
+        Assert.Contains("KeyframeProbe.Probe(", index);
+        Assert.Contains("_keyframes.Replace(", index);
+        Assert.Contains("Volatile.Read", index);
+        Assert.Contains("rows.Count > 0", index);
+
+        // 刻度畫在 RenderBlocks 的同一個漏斗（縮放/換日/重畫都會跟上），密度判斷走 Storage 的純函式。
+        Assert.Contains("RenderKeyframeTicks(", SourceContract.BodyOf(source, "RenderBlocks"));
+        var ticks = SourceContract.BodyOf(source, "RenderKeyframeTicks");
+        Assert.Contains("_keyframeCache", ticks);
+        Assert.Contains("PlaybackKeyframeDensity.ShouldDraw", ticks);
+        Assert.Contains("KeyframeTickMinPx", ticks);
+        Assert.Contains("BandCanvas.Children.Add", ticks);
+    }
+
+    /// <summary>
     /// 回放日曆「當天有錄影」粗體＋藍字（§3.4）是視覺狀態，桌面端沒有 WPF 執行期驗不到，
     /// 這裡守住四件一改就錯、而且光看畫面不一定發現的事：
     ///

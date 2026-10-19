@@ -24,6 +24,7 @@ public partial class PlaybackWindow : Window
     private readonly SegmentRepository _segments;
     private readonly RedactionRepository _redactions;
     private readonly BookmarkRepository _bookmarkRepo;
+    private readonly SegmentKeyframeRepository _keyframes;
     private long? _focusChannelId;
     private readonly DateTime? _focusUtc;
 
@@ -39,6 +40,12 @@ public partial class PlaybackWindow : Window
     private IReadOnlyList<SegmentItem> _bandSegments = [];
     private List<AlarmEventRecord> _events = [];
     private List<BookmarkRecord> _bookmarks = [];
+
+    /// <summary>已載入日的關鍵幀索引（segment id → 關鍵幀）；背景補建完成後整份換掉。</summary>
+    private Dictionary<long, IReadOnlyList<SegmentKeyframe>> _keyframeCache = new();
+
+    /// <summary>關鍵幀索引世代：換日／換頻道時遞增，讓上一輪的背景探測自行放棄。</summary>
+    private int _keyframeGeneration;
 
     /// <summary>目前載入日的零時（UTC）；書籤標記與色帶共用同一條時間軸的起點。</summary>
     private DateTime _dayStartUtc;
@@ -169,6 +176,10 @@ public partial class PlaybackWindow : Window
     private const double BandMarkerSize = 12;
     private const double BandMarkerMargin = 3;
 
+    // 關鍵幀刻度（§3.4「播放頭為關鍵幀吸附」）：比錄影色塊更深一階，只在放大到看得清間隔時才畫。
+    private static readonly Brush s_keyframeTick = Frozen(Color.FromRgb(0x0B, 0x24, 0x3B));
+    private const double KeyframeTickMinPx = 3;
+
     // 主時間列（§8.5）：刻度是輔助線，顏色只能比色帶底色亮一點，搶過錄影色塊就本末倒置。
     private static readonly Brush s_rulerTick = Frozen(Color.FromRgb(0x2A, 0x4A, 0x73));
     private static readonly Brush s_rulerText = Frozen(Color.FromRgb(0x8F, 0xA8, 0xC4));
@@ -188,6 +199,7 @@ public partial class PlaybackWindow : Window
         _segments = new SegmentRepository(_store);
         _redactions = new RedactionRepository(_store);
         _bookmarkRepo = new BookmarkRepository(_store);
+        _keyframes = new SegmentKeyframeRepository(_store);
         InitializeComponent();
         ApplyI18n();
         DatePick.SelectedDate = DateTime.Today;
@@ -553,9 +565,102 @@ public partial class PlaybackWindow : Window
         new RedactionWindow(_store, MainWindow.ResolveDataRoot(), ch.Id, fromUtc, toUtc) { Owner = this }.ShowDialog();
     }
 
+    /// <summary>載入既有關鍵幀索引（純 SQLite 查詢，不跑 ffprobe）。</summary>
+    private void LoadKeyframeCache(IReadOnlyList<SegmentItem> segs)
+    {
+        var cache = new Dictionary<long, IReadOnlyList<SegmentKeyframe>>(segs.Count);
+        foreach (var item in segs)
+        {
+            var rows = _keyframes.List(item.Segment.Id);
+            if (rows.Count > 0)
+            {
+                cache[item.Segment.Id] = rows;
+            }
+        }
+
+        _keyframeCache = cache;
+    }
+
+    /// <summary>
+    /// 背景補建缺少的關鍵幀索引，完成後只重畫色帶。
+    /// </summary>
+    /// <remarks>
+    /// 對每個區段跑一次 ffprobe 是百毫秒級（4 路 × 一天數十段＝數十秒），絕不能擋在
+    /// <see cref="LoadSegments"/> 裡——那會讓換日／換頻道卡住整個 UI。世代編號是這裡的關鍵：
+    /// 使用者連續換日時，舊的探測還在跑，回來必須自己作廢，否則會把上一天的關鍵幀畫到今天，
+    /// 在帶子上看到一段根本不存在的密集刻度。探不到關鍵幀的區段刻意不寫入索引，
+    /// 否則它會被 <see cref="SegmentKeyframeRepository.ListMissingIndexIds"/> 永遠當成「已建」而不再重試。
+    /// </remarks>
+    private void StartKeyframeIndexing(
+        long channelId,
+        IReadOnlyList<SegmentItem> segs,
+        int generation,
+        DateTime startUtc,
+        DateTime endUtc)
+    {
+        if (segs.Count == 0)
+        {
+            return;
+        }
+
+        var missing = _keyframes.ListMissingIndexIds(channelId, "main", startUtc, endUtc).ToHashSet();
+        var work = segs.Where(item => missing.Contains(item.Segment.Id)).ToArray();
+        if (work.Length == 0)
+        {
+            return;
+        }
+
+        _ = Task.Run(() =>
+        {
+            foreach (var item in work)
+            {
+                if (Volatile.Read(ref _keyframeGeneration) != generation)
+                {
+                    return;
+                }
+
+                try
+                {
+                    var path = item.Segment.FilePath;
+                    if (string.IsNullOrEmpty(path))
+                    {
+                        continue;
+                    }
+
+                    // 探測失敗回空清單；空結果不寫入索引，下一輪才還會重試。
+                    var rows = KeyframeProbe.Probe(path);
+                    if (rows.Count > 0)
+                    {
+                        _keyframes.Replace(item.Segment.Id, rows);
+                    }
+                }
+                catch (Exception)
+                {
+                    // 索引是 best-effort：資料庫忙碌或檔案被保留策略刪掉都不該讓這個背景作業
+                    // 變成未觀察的例外，也不該影響其他區段繼續補建。
+                }
+            }
+
+            Dispatcher.BeginInvoke(() =>
+            {
+                if (Volatile.Read(ref _keyframeGeneration) != generation)
+                {
+                    return;
+                }
+
+                LoadKeyframeCache(segs);
+                RenderBlocks();
+            });
+        });
+    }
+
     /// <summary>依頻道與日期載入當日錄影片段（Final 限定）。</summary>
     private void LoadSegments()
     {
+        // 換日／換頻道即作廢上一輪的背景關鍵幀探測，避免它把上一天的結果畫到今天。
+        var keyframeGeneration = Interlocked.Increment(ref _keyframeGeneration);
+        _keyframeCache = new Dictionary<long, IReadOnlyList<SegmentKeyframe>>();
+
         StopPlayback();
         _activeRegions = [];
         RedactOverlay.Children.Clear();
@@ -625,6 +730,10 @@ public partial class PlaybackWindow : Window
             // 載入新的一天＝回到全日視窗：留著昨天的縮放窗看今天，帶子上會是一片沒有對到資料的空白。
             _view = HeliVMS.Storage.PlaybackTimelineScale.FullDay(startUtc);
             ReloadBookmarks(ch.Id, startUtc, endUtc);
+
+            // 先同步載入既有索引（純 SQLite，毫秒級）讓刻度立刻出現，缺的再丟背景補建。
+            LoadKeyframeCache(segs);
+            StartKeyframeIndexing(ch.Id, segs, keyframeGeneration, startUtc, endUtc);
 
             RebuildPanes();
             RenderBlocks();
@@ -1726,6 +1835,8 @@ public partial class PlaybackWindow : Window
                 Canvas.SetTop(rect, BandBarTop);
                 BandCanvas.Children.Add(rect);
             }
+
+            RenderKeyframeTicks(barHeight);
         }
 
         var coveragePct = (int)Math.Round((1 - _timeline.GapFraction) * 100);
@@ -1733,6 +1844,62 @@ public partial class PlaybackWindow : Window
         AutomationProperties.SetName(CoverageText, $"COV:{coveragePct}:{_timeline.GapCount}:{_timeline.Bars.Count}");
 
         RenderMarkers();
+    }
+
+    /// <summary>
+    /// 在色帶上疊一層關鍵幀刻度（§3.4「播放頭為關鍵幀吸附」的視覺依據）。
+    /// </summary>
+    /// <remarks>
+    /// 只在檢視窗細到「平均關鍵幀間隔 ≥ <see cref="KeyframeTickMinPx"/> 像素」時才畫：
+    /// 全日窗下單一區段可能有上百個關鍵幀，全畫會把藍色區塊糊成一條深色帶，
+    /// 操作員反而看不出哪裡有錄影——刻度是輔助，搶過錄影色塊就本末倒置。
+    /// </remarks>
+    private void RenderKeyframeTicks(double bandHeight)
+    {
+        var width = BandCanvas.ActualWidth;
+        if (width <= 0 || _keyframeCache.Count == 0)
+        {
+            return;
+        }
+
+        var view = View();
+        var tickHeight = Math.Max(3, bandHeight - 2);
+
+        foreach (var item in _bandSegments)
+        {
+            if (!_keyframeCache.TryGetValue(item.Segment.Id, out var keys) || keys.Count < 2)
+            {
+                continue;
+            }
+
+            // 密度判斷抽到 Storage 的純函式（PlaybackKeyframeDensityTests 有行為測試）：
+            // 太密的區段整段不畫，免得把錄影色塊糊掉。
+            if (!PlaybackKeyframeDensity.ShouldDraw(keys, view.Span.TotalSeconds, width, KeyframeTickMinPx))
+            {
+                continue;
+            }
+
+            var startUtc = item.Segment.StartUtc;
+            foreach (var key in keys)
+            {
+                var frac = view.FractionOf(startUtc.AddSeconds(key.TimeSec));
+                if (frac < 0 || frac > 1)
+                {
+                    continue;
+                }
+
+                var tick = new Rectangle
+                {
+                    Width = 1,
+                    Height = tickHeight,
+                    Fill = s_keyframeTick,
+                    IsHitTestVisible = false,
+                };
+                Canvas.SetLeft(tick, frac * width);
+                Canvas.SetTop(tick, BandBarTop);
+                BandCanvas.Children.Add(tick);
+            }
+        }
     }
 
     /// <summary>時間軸帶當日零時（UTC）。</summary>
