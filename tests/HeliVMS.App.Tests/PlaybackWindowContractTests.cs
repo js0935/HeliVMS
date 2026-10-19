@@ -804,4 +804,54 @@ public sealed class PlaybackWindowContractTests
             ready > source.IndexOf("InitializeComponent()", StringComparison.Ordinal),
             "_uiReady 只能在 InitializeComponent 完成後置位；提前放行等於沒有守衛。");
     }
+
+    /// <summary>
+    /// 索引對帳：索引說有、磁碟上卻不存在的段（幽靈段）必須在三條列段路徑上都被濾掉，
+    /// 而且要就地寫回索引，讓日曆與用量統計下一輪自己修正（2026-10 使用者回報「D 磁碟
+    /// 錄影資料刪了、回放清單還列著」）。
+    ///
+    /// <para>
+    /// （1）只有 LoadSegments 接：開日清單看得到實情，但播放尾端跨段（FindNextSegment）
+    /// 會跳到幽靈段——ffmpeg 打不開就結束，使用者只看到「按了沒反應」，這正是投訴的第二幕。
+    /// </para>
+    /// <para>
+    /// （2）只剩次畫面的 LoadPaneSegments 沒接：多路比對時次畫面永遠是空的，母畫面卻有，
+    /// 操作員會以為那台攝影機當天沒錄。
+    /// </para>
+    /// <para>
+    /// （3）提示不講清楚：清單突然變短，不解釋是「檔案不見了」而不是「沒有錄影」，
+    /// 第一反應就是系統壞了。磁碟掉線（Unverified）與檔案真的不在（Missing）必須分開講，
+    /// 否則一顆拔掉的資料碟會被說成錄影全部遺失。
+    /// </para>
+    /// <para>
+    /// （4）對帳失敗（權限、磁碟忙碌）不可讓回放視窗打不開：寧可暫時多列一段，也不要
+    /// 整個視窗只剩錯誤訊息。
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void 回放三條列段路徑都會濾掉幽靈段並解釋缺段()
+    {
+        var source = SourceContract.Read(Code);
+
+        // ReconcileSegments 的簽章帶 tuple 回傳型別（`private (…) ReconcileSegments(`），
+        // 不符合 SourceContract 的方法簽章樣式，故直接掃原始碼。
+        Assert.Contains("_reconciler.VerifyExisting(", source);
+        Assert.Contains("report.MarkedMissing", source);
+        Assert.Contains("report.Unverified", source);
+
+        // 逐檔檢查失敗時原樣放行：多列一段也不要讓整個回放視窗只剩錯誤訊息。
+        Assert.Contains("return (rows, 0, 0);", source);
+
+        var callers = Regex.Matches(source, @"ReconcileSegments\(")
+            .Select(m => SourceContract.EnclosingMethod(source, m.Index))
+            .ToHashSet();
+        Assert.Contains("LoadSegments", callers);
+        Assert.Contains("FindNextSegment", callers);
+        Assert.Contains("LoadPaneSegments", callers);
+
+        var load = SourceContract.BodyOf(source, "LoadSegments");
+        Assert.Contains("Playback.MissingSegments", load);
+        Assert.Contains("Playback.DiskNotReady", load);
+    }
 }
+

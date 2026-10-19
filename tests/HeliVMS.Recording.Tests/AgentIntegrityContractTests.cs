@@ -33,6 +33,20 @@ public sealed class AgentIntegrityContractTests
         Assert.Matches(@"(?m)^\s*var report = MediaIntegrityCoordinator\.RunConfigured\(", worker);
     }
 
+    /// <summary>
+    /// 服務模式也要跑索引對帳：外部刪檔後，桌面版會就地驗出幽靈段，服務模式若不跑同一條
+    /// 對帳，調閱清單會永遠列出不存在的錄影——兩個部署模式看到的世界不一致，而這正是
+    /// 使用者回報「D 磁碟資料刪了、回放卻還說有」的那個症狀。
+    /// </summary>
+    [Fact]
+    public void Agent會跑索引對帳走共用協調器()
+    {
+        var worker = Read(WorkerCode);
+        Assert.Matches(
+            @"(?m)^\s*var reconcile = SegmentReconcileCoordinator\.RunConfigured\(",
+            worker);
+    }
+
     private static string Read(string relativePath)
         => File.ReadAllText(Path.Combine(RepoRoot(), relativePath));
 

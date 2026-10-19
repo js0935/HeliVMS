@@ -66,6 +66,26 @@ internal sealed class IntegrityWorker : BackgroundService
                 _logger.LogWarning(ex, "Integrity check failed; will retry next interval");
             }
 
+            // 索引對帳：把「索引說有、磁碟上沒有」的段標成 missing。與完整性檢查分開的理由是
+            // 兩者的成本形狀完全不同（對帳只 stat、不做 ffprobe），而且對帳要涵蓋整個索引，
+            // 完整性抽查是每輪只取樣幾段。服務模式下若不跑這一輪，外部刪檔會讓調閱清單
+            // 永遠列出不存在的錄影，而桌面版卻看得到正確結果——兩個部署模式不一致。
+            try
+            {
+                var reconcile = SegmentReconcileCoordinator.RunConfigured(_store, DateTime.UtcNow);
+                if (reconcile.AnyMarked)
+                {
+                    _logger.LogWarning(
+                        "Segment index reconcile marked missing: {Checked} checked, {Missing} missing, {Removed} folders removed, {Unverified} unverified",
+                        reconcile.Checked, reconcile.MarkedMissing, reconcile.FoldersRemoved, reconcile.Unverified);
+                }
+            }
+            catch (Exception ex)
+            {
+                // 單輪對帳失敗（磁碟忙碌、庫被鎖）不該讓服務停擺而中斷錄影。
+                _logger.LogWarning(ex, "Segment index reconcile failed; will retry next interval");
+            }
+
             try
             {
                 await Task.Delay(Interval, stoppingToken).ConfigureAwait(false);

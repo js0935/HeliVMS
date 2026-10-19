@@ -26,7 +26,7 @@ public enum RecordingMode
     Manual,
 }
 
-/// <summary>錄影區段狀態（§4：final／tmp／corrupt）。</summary>
+/// <summary>錄影區段狀態（§4：final／tmp／corrupt／missing）。</summary>
 public enum SegmentStatus
 {
     /// <summary>錄製中（暫存檔）。</summary>
@@ -37,6 +37,16 @@ public enum SegmentStatus
 
     /// <summary>異常（檔案損壞／未正常收尾）。</summary>
     Corrupt,
+
+    /// <summary>
+    /// 索引有列、磁碟上的檔案已不存在（外部刪除、磁碟換掉等）。
+    /// <para>
+    /// 與 <see cref="Corrupt"/> 分開，是為了讓回放能說清楚「東西不見了」而不是「東西壞了」，
+    /// 也讓用量統計與汰除候選自動排除它——它不佔任何磁碟空間，繼續算成用量只會讓操作員
+    /// 看著「磁碟滿了」卻找不到東西刪。
+    /// </para>
+    /// </summary>
+    Missing,
 
     /// <summary>已汰除（配額清理）。</summary>
     Retired,

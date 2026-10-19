@@ -115,6 +115,23 @@ public sealed class MetadataRetentionContractTests
         Assert.Matches(@"(?m)^\s*heartbeatRoot: ResolveDataRoot\(\)", main);
     }
 
+    /// <summary>
+    /// 桌面保留迴圈也要跑索引對帳（幽靈段自癒，2026-10 使用者回報）。
+    ///
+    /// <para>
+    /// 外部刪檔後，索引仍說有錄影，回放清單／日曆／用量統計全都照舊。回放視窗打開那天會就
+    /// 地驗一次，但沒被打開的那幾天永遠不會修正；桌面這條每小時的迴圈若漏了對帳，症狀就是
+    /// 「昨天刪掉的檔案、今天日曆還是粗體」。斷言錨在行首，因為單用 <c>Contains</c> 會被把
+    /// 呼叫註解掉蒙混過關。
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void 桌面保留迴圈也會對帳索引()
+    {
+        var main = SourceContract.Read(MainCode);
+        Assert.Matches(@"(?m)^\s*SegmentReconcileCoordinator\.RunConfigured\(", main);
+    }
+
     private static string WiredHandler(string relativePath, string element)
     {
         var xaml = SourceContract.Read(relativePath);

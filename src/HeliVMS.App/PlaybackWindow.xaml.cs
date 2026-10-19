@@ -22,6 +22,7 @@ public partial class PlaybackWindow : Window
     private readonly SqliteStore _store;
     private readonly ChannelRepository _channels;
     private readonly SegmentRepository _segments;
+    private readonly SegmentIndexReconciler _reconciler;
     private readonly RedactionRepository _redactions;
     private readonly BookmarkRepository _bookmarkRepo;
     private readonly SegmentKeyframeRepository _keyframes;
@@ -204,6 +205,7 @@ public partial class PlaybackWindow : Window
         _focusUtc = focusUtc;
         _channels = new ChannelRepository(_store);
         _segments = new SegmentRepository(_store);
+        _reconciler = new SegmentIndexReconciler(_segments);
         _redactions = new RedactionRepository(_store);
         _bookmarkRepo = new BookmarkRepository(_store);
         _keyframes = new SegmentKeyframeRepository(_store);
@@ -664,6 +666,32 @@ public partial class PlaybackWindow : Window
         });
     }
 
+    /// <summary>
+    /// 濾掉索引說有、磁碟上卻已經不存在的段（幽靈段），順手把它們在索引裡標成 missing。
+    ///
+    /// <para>
+    /// 為什麼要在回放這條路上做：使用者把錄影資料刪掉之後，清單、帶子與日曆仍然照著索引顯示，
+    /// 點下去才失敗。背景對帳每小時才跑一輪（見 <see cref="SegmentReconcileCoordinator"/>），
+    /// 而使用者要的是「打開就看得到實情」，所以開日清單時就地驗一次——當日最多一千多段，
+    /// 一次 stat 的量在毫秒級，驗過的結果寫回索引後，日曆與用量統計下一輪就自己修正。
+    /// </para>
+    /// </summary>
+    private (IReadOnlyList<SegmentRecord> Playable, int Missing, int Unverified) ReconcileSegments(
+        IReadOnlyList<SegmentRecord> rows)
+    {
+        try
+        {
+            var (playable, report) = _reconciler.VerifyExisting(rows);
+            return (playable, report.MarkedMissing, report.Unverified);
+        }
+        catch (Exception)
+        {
+            // 逐檔檢查失敗（權限、磁碟忙碌）不該讓整個回放打不開；原樣顯示，
+            // 寧可暫時多列一段，也不要整個視窗只剩錯誤訊息。
+            return (rows, 0, 0);
+        }
+    }
+
     /// <summary>依頻道與日期載入當日錄影片段（Final 限定）。</summary>
     private void LoadSegments()
     {
@@ -701,7 +729,9 @@ public partial class PlaybackWindow : Window
 
         try
         {
-            var segs = _segments.ListByRange(ch.Id, "main", startUtc, endUtc)
+            var segs = _segments.ListByRange(ch.Id, "main", startUtc, endUtc);
+            var (playable, missingCount, unverifiedCount) = ReconcileSegments(segs);
+            var items = playable
                 .Where(s => s.Status == SegmentStatus.Final)
                 .OrderBy(s => s.StartUtc)
                 .Select(s => new SegmentItem(
@@ -710,8 +740,8 @@ public partial class PlaybackWindow : Window
                     s.DurationSec is double d ? string.Format(Localizer.T("Playback.SecondsShort"), d.ToString("0.#")) : "-",
                     s.SizeBytes > 0 ? $"{s.SizeBytes / 1024d:0}KB" : "-"))
                 .ToList();
-            _bandSegments = segs;
-            SegmentList.ItemsSource = segs;
+            _bandSegments = items;
+            SegmentList.ItemsSource = items;
 
             var startEvt = TimeZoneInfo.ConvertTimeToUtc(day.Date);
             var endEvt = startEvt.AddDays(1);
@@ -742,14 +772,27 @@ public partial class PlaybackWindow : Window
             ReloadBookmarks(ch.Id, startUtc, endUtc);
 
             // 先同步載入既有索引（純 SQLite，毫秒級）讓刻度立刻出現，缺的再丟背景補建。
-            LoadKeyframeCache(segs);
-            StartKeyframeIndexing(ch.Id, segs, keyframeGeneration, startUtc, endUtc);
+            LoadKeyframeCache(items);
+            StartKeyframeIndexing(ch.Id, items, keyframeGeneration, startUtc, endUtc);
 
             RebuildPanes();
             RenderBlocks();
-            LoadHint.Text = _events.Count > 0
-                ? string.Format(Localizer.T("Playback.SummaryBoth"), segs.Count, _events.Count)
-                : string.Format(Localizer.T("Playback.SummarySegments"), segs.Count);
+            var hint = _events.Count > 0
+                ? string.Format(Localizer.T("Playback.SummaryBoth"), items.Count, _events.Count)
+                : string.Format(Localizer.T("Playback.SummarySegments"), items.Count);
+            if (missingCount > 0)
+            {
+                // 說清楚是「檔案不見了」而不是「沒有錄影」：操作員看到清單變短，
+                // 不講的話第一反應是系統壞了。
+                hint = hint + " " + string.Format(Localizer.T("Playback.MissingSegments"), missingCount);
+            }
+
+            if (unverifiedCount > 0)
+            {
+                hint = hint + " " + Localizer.T("Playback.DiskNotReady");
+            }
+
+            LoadHint.Text = hint;
         }
         catch (Exception ex)
         {
@@ -1392,7 +1435,11 @@ public partial class PlaybackWindow : Window
 
         try
         {
-            return _segments.ListByRange(ch.Id, current.Stream, dayStartUtc, dayStartUtc.AddDays(1))
+            // 跨段跳轉也要驗：跳到一段幽靈段等於整個跳轉靜靜失敗（ffmpeg 打不開就結束），
+            // 使用者只看到「按了沒反應」。
+            var (playable, _, _) = ReconcileSegments(
+                _segments.ListByRange(ch.Id, current.Stream, dayStartUtc, dayStartUtc.AddDays(1)));
+            return playable
                 .Where(s => s.Status == SegmentStatus.Final && s.StartUtc > current.StartUtc)
                 .OrderBy(s => s.StartUtc)
                 .FirstOrDefault();
@@ -2654,7 +2701,9 @@ public partial class PlaybackWindow : Window
         var startUtc = TimeZoneInfo.ConvertTimeToUtc(day.Date);
         try
         {
-            return _segments.ListByRange(channelId, "main", startUtc, startUtc.AddDays(1))
+            var (playable, _, _) = ReconcileSegments(
+                _segments.ListByRange(channelId, "main", startUtc, startUtc.AddDays(1)));
+            return playable
                 .Where(s => s.Status == SegmentStatus.Final)
                 .OrderBy(s => s.StartUtc)
                 .ToList();

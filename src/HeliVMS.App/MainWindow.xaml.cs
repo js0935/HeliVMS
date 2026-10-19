@@ -1420,6 +1420,19 @@ public partial class MainWindow : Window
                     // 檢查失敗（ffprobe 暫時不可用、庫被鎖）不影響監看主線，下一圈再試。
                 }
 
+                // 索引對帳：把「索引說有、磁碟上沒有」的段標成 missing。
+                // 完整性檢查刻意不改狀態（見 MediaIntegrityChecker），所以外部刪檔或磁碟換掉之後，
+                // 回放清單、日曆與用量統計還會照著索引顯示，點下去才失敗——這裡才是修正索引的地方。
+                // 與 Headless Agent 共用入口，兩個部署模式的行為才會一致。
+                try
+                {
+                    SegmentReconcileCoordinator.RunConfigured(_store!, DateTime.UtcNow);
+                }
+                catch (Exception)
+                {
+                    // 單輪對帳失敗（磁碟忙碌、庫被鎖）不影響監看主線，下一圈再試。
+                }
+
                 // 磁碟滿策略第一階段（§11.1）：>85% 預警、低於寫入門檻告警。等級改變才寫稽核
                 //（與 Headless Agent 共用入口），並在提示列讓操作員當下看到。
                 try

@@ -67,6 +67,121 @@ public sealed class SegmentRepository
     }
 
     /// <summary>
+    /// 標記區段的檔案已不存在（status=missing）。
+    ///
+    /// <para>
+    /// 只動 <c>final</c> 的列：<c>tmp</c> 是正在寫入的段（磁碟缺席時本來就寫不進去，標它等於
+    /// 把正在錄的段弄丟），<c>corrupt</c>／<c>missing</c> 不該被重複改寫，而 <c>retired</c>
+    /// 是保留清理已經處理過的段——把它改成 missing 會讓清理紀錄失真。
+    /// </para>
+    /// <para>
+    /// 標記而不刪列：列本身只有幾十位元組，留著才能回答「這天原本有錄影、只是檔案不在了」，
+    /// 而用量統計與汰除候選都以 <c>status='final'</c> 為準，會自動把它排除。
+    /// </para>
+    /// </summary>
+    public void MarkMissing(long id)
+    {
+        _store.Execute(
+            "UPDATE segments SET status = 'missing' WHERE id = $id AND status = 'final';",
+            cmd => cmd.Parameters.AddWithValue("$id", id));
+    }
+
+    /// <summary>
+    /// 把某個資料夾底下所有 final 段一次標成 missing（同 <see cref="MarkMissing"/> 的理由只動 final）。
+    ///
+    /// <para>
+    /// 供索引對帳用：整天的資料夾被刪掉時，逐檔 stat 只是白花 I/O（資料夾本身不存在，
+    /// 一次判定就能涵蓋整天的段），而這是使用者手動清理磁碟後最常見的形狀。
+    /// </para>
+    /// <para>
+    /// <paramref name="folderPrefix"/> 必須帶結尾分隔符號，比對用 <c>substr</c> 精確相等而非
+    /// <c>LIKE</c>：路徑裡有 <c>_</c>（頻道資料夾名稱、使用者自選根目錄）時，LIKE 會把它當萬用字元，
+    /// 一次就會誤標到同前綴的其他資料夾。
+    /// </para>
+    /// </summary>
+    public void MarkMissingInFolder(string folderPrefix)
+    {
+        _store.Execute(
+            """
+            UPDATE segments SET status = 'missing'
+            WHERE status = 'final' AND substr(file_path, 1, length($p)) = $p;
+            """,
+            cmd => cmd.Parameters.AddWithValue("$p", folderPrefix));
+    }
+
+    /// <summary>
+    /// final 段依所在資料夾分組（資料夾、段數），供索引對帳以資料夾層級一次判定整天。
+    ///
+    /// <para>
+    /// 資料夾由檔案路徑中檔名標記（<see cref="SegmentFileMarker"/>）之前的部分取出；取不出來的
+    /// （舊版命名、人工搬動過的路徑）以空字串歸為一組，交由呼叫端逐檔檢查——讓它們靜靜消失會變成
+    /// 「換了命名規則之後對帳就無聲失效」。回傳的成本只與「天數 × 頻道數」有關，所以整段歷史都能
+    /// 在一輪內涵蓋，不必逐檔 stat。
+    /// </para>
+    /// </summary>
+    public IReadOnlyList<(string Folder, long Count)> ListFinalFolders()
+    {
+        return _store.Query(
+            """
+            SELECT CASE WHEN instr(file_path, $marker) > 1
+                        THEN rtrim(substr(file_path, 1, instr(file_path, $marker) - 1), '/\')
+                        ELSE '' END AS folder,
+                   COUNT(*)
+            FROM segments
+            WHERE status = 'final'
+            GROUP BY folder;
+            """,
+            static r =>
+            {
+                var list = new List<(string, long)>();
+                while (r.Read())
+                {
+                    list.Add((r.GetString(0), r.GetInt64(1)));
+                }
+
+                return list;
+            },
+            cmd => cmd.Parameters.AddWithValue("$marker", SegmentFileMarker));
+    }
+
+    /// <summary>最新的 <paramref name="take"/> 個 final 段（由新到舊），供索引對帳逐檔檢查近期資料。</summary>
+    public IReadOnlyList<SegmentRecord> ListFinalNewest(int take)
+    {
+        return _store.Query(
+            $"""
+            SELECT id, channel_id, stream, start_time, end_time, file_path,
+                   size_bytes, duration_sec, status, sha256
+            FROM segments
+            WHERE status = 'final'
+            ORDER BY id DESC
+            LIMIT {Math.Max(1, take)};
+            """,
+            ReadRecords);
+    }
+
+    /// <summary>
+    /// 路徑取不出資料夾（<see cref="ListFinalFolders"/> 的空字串組）的 final 段，最多
+    /// <paramref name="take"/> 筆，供索引對帳逐檔檢查。
+    /// </summary>
+    public IReadOnlyList<SegmentRecord> ListFinalWithoutFolderMarker(int take)
+    {
+        return _store.Query(
+            $"""
+            SELECT id, channel_id, stream, start_time, end_time, file_path,
+                   size_bytes, duration_sec, status, sha256
+            FROM segments
+            WHERE status = 'final' AND instr(file_path, $marker) <= 1
+            ORDER BY id
+            LIMIT {Math.Max(1, take)};
+            """,
+            ReadRecords,
+            cmd => cmd.Parameters.AddWithValue("$marker", SegmentFileMarker));
+    }
+
+    /// <summary>段檔名的固定字首；資料夾判定與 <c>SegmentRecorder</c> 的命名共用這一個事實來源。</summary>
+    public const string SegmentFileMarker = "seg-";
+
+    /// <summary>
     /// 取出尚未做完整性檢查的 final 區段（由舊至新，最多 <paramref name="take"/> 筆）。
     ///
     /// <para>
@@ -503,6 +618,8 @@ public sealed class SegmentRepository
         "tmp" => SegmentStatus.Temporary,
         "final" => SegmentStatus.Final,
         "corrupt" => SegmentStatus.Corrupt,
+        "missing" => SegmentStatus.Missing,
+        "retired" => SegmentStatus.Retired,
         _ => SegmentStatus.Temporary,
     };
 }
