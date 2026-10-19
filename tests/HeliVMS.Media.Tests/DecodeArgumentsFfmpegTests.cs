@@ -1,6 +1,3 @@
-using System.ComponentModel;
-using System.Diagnostics;
-using System.Text.RegularExpressions;
 using HeliVMS.Shared;
 
 namespace HeliVMS.Media.Tests;
@@ -28,7 +25,7 @@ public sealed class DecodeArgumentsFfmpegTests
     [SkippableFact]
     public void 監看解碼參數的每個選項都被本機ffmpeg接受()
     {
-        var help = FfmpegHelpText();
+        var help = FfmpegInstall.Help(FfmpegLocator.Ffmpeg);
         Skip.If(help is null, "PATH 上沒有可啟動的 ffmpeg，略過選項相容性檢查。");
 
         var args = RtspClient.BuildDecodeArguments("rtsp://127.0.0.1:554/live");
@@ -38,55 +35,9 @@ public sealed class DecodeArgumentsFfmpegTests
         foreach (var option in options)
         {
             Assert.True(
-                Regex.IsMatch(help, $@"(?<![A-Za-z0-9_]){Regex.Escape(option)}(?![A-Za-z0-9_])"),
+                FfmpegInstall.KnowsOption([help], option),
                 $"本機 ffmpeg（{FfmpegLocator.Ffmpeg}）不認得 {option}："
                 + "參數被新版本移除時，即時監看會變成不斷重連且沒有任何畫面，日誌只有 Unrecognized option。");
-        }
-    }
-
-    /// <summary>
-    /// 取得 <c>ffmpeg -h full</c> 的說明文字；ffmpeg 不存在或無法啟動時回 <c>null</c>（＝略過）。
-    /// </summary>
-    /// <remarks>
-    /// stdout 與 stderr 必須同時抽乾：說明文字逾 1MB，先讀完一邊會讓另一邊的管線填滿而阻塞。
-    /// 不同版本把說明寫在 stdout 或 stderr，兩邊都讀才不必猜。
-    /// </remarks>
-    private static string? FfmpegHelpText()
-    {
-        try
-        {
-            var psi = new ProcessStartInfo
-            {
-                FileName = FfmpegLocator.Ffmpeg,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true,
-            };
-            psi.ArgumentList.Add("-hide_banner");
-            psi.ArgumentList.Add("-h");
-            psi.ArgumentList.Add("full");
-
-            using var proc = Process.Start(psi);
-            if (proc is null)
-            {
-                return null;
-            }
-
-            var stdout = proc.StandardOutput.ReadToEndAsync();
-            var stderr = proc.StandardError.ReadToEndAsync();
-            if (!proc.WaitForExit(30_000))
-            {
-                proc.Kill(entireProcessTree: true);
-                return null;
-            }
-
-            var text = stdout.GetAwaiter().GetResult() + stderr.GetAwaiter().GetResult();
-            return text.Length > 0 ? text : null;
-        }
-        catch (Win32Exception)
-        {
-            return null;
         }
     }
 }
