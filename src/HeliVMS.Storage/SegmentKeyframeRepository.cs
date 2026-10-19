@@ -18,6 +18,9 @@ namespace HeliVMS.Storage;
 /// </remarks>
 public sealed class SegmentKeyframeRepository
 {
+    /// <summary>單次 IN 查詢最多帶幾個段編號（SQLite 參數上限 999 的保守值）。</summary>
+    private const int IdBatch = 900;
+
     private readonly SqliteStore _store;
 
     public SegmentKeyframeRepository(SqliteStore store)
@@ -72,6 +75,69 @@ public sealed class SegmentKeyframeRepository
                 return list;
             },
             cmd => cmd.Parameters.AddWithValue("$id", segmentId));
+    }
+
+    /// <summary>
+    /// 一次列出多段的關鍵幀（每段 time_sec 由小到大）；沒有索引的段不會出現在結果裡。
+    /// </summary>
+    /// <remarks>
+    /// 舊寫法是呼叫端對每段各查一次 <see cref="List"/>：一天數百段就是數百次來回，而回放視窗
+    /// 換日／換頻道時全落在 UI 執行緒上。這裡一趟查完，行為與逐段查完全一樣（含「無索引即缺席」）。
+    /// 分批是為了避開 SQLite 的參數數量上限——10 秒一段的一天有 8640 段，超過舊版的 999。
+    /// </remarks>
+    public IReadOnlyDictionary<long, IReadOnlyList<SegmentKeyframe>> ListForSegments(
+        IReadOnlyList<long> segmentIds)
+    {
+        var grouped = new Dictionary<long, List<SegmentKeyframe>>();
+
+        for (var start = 0; start < segmentIds.Count; start += IdBatch)
+        {
+            var batch = Math.Min(IdBatch, segmentIds.Count - start);
+            var placeholders = new string[batch];
+            for (var i = 0; i < batch; i++)
+            {
+                placeholders[i] = "$id" + i;
+            }
+
+            _ = _store.Query(
+                $"""
+                SELECT segment_id, time_sec, moof_offset
+                FROM segment_keyframes
+                WHERE segment_id IN ({string.Join(", ", placeholders)})
+                ORDER BY segment_id, time_sec;
+                """,
+                r =>
+                {
+                    while (r.Read())
+                    {
+                        var id = r.GetInt64(0);
+                        if (!grouped.TryGetValue(id, out var rows))
+                        {
+                            rows = [];
+                            grouped[id] = rows;
+                        }
+
+                        rows.Add(new SegmentKeyframe(r.GetDouble(1), r.GetInt64(2)));
+                    }
+
+                    return 0;
+                },
+                cmd =>
+                {
+                    for (var i = 0; i < batch; i++)
+                    {
+                        cmd.Parameters.AddWithValue(placeholders[i], segmentIds[start + i]);
+                    }
+                });
+        }
+
+        var result = new Dictionary<long, IReadOnlyList<SegmentKeyframe>>(grouped.Count);
+        foreach (var (id, rows) in grouped)
+        {
+            result[id] = rows;
+        }
+
+        return result;
     }
 
     /// <summary>

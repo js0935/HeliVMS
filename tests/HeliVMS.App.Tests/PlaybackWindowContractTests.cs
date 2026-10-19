@@ -254,6 +254,10 @@ public sealed class PlaybackWindowContractTests
     /// （4）探測回空清單時不可寫入索引：寫了空的，<c>ListMissingIndexIds</c> 就再也不認為
     /// 這一段缺索引，壞檔或暫時讀不到的段永遠補不上。
     /// </para>
+    /// <para>
+    /// （5）既有索引要一趟 <c>ListForSegments</c> 查完，不可逐段查：一天的段數可達上千，
+    /// 逐段查是上千次來回，而且全發生在換日／換頻道的 UI 執行緒上。
+    /// </para>
     /// </summary>
     [Fact]
     public void 關鍵幀索引在背景補建且缺索引才探測且畫成刻度()
@@ -266,7 +270,10 @@ public sealed class PlaybackWindowContractTests
         Assert.Contains("Interlocked.Increment", load);
 
         var cache = SourceContract.BodyOf(source, "LoadKeyframeCache");
-        Assert.Contains("_keyframes.List(", cache);
+        Assert.Contains("ListForSegments(", cache);
+
+        // 逐段 _keyframes.List(id) 是 N 次來回；一天上千段時換日／換頻道全卡在 UI 執行緒上。
+        Assert.DoesNotContain("_keyframes.List(", cache);
 
         var index = SourceContract.BodyOf(source, "StartKeyframeIndexing");
         Assert.Contains("Task.Run(", index);

@@ -42,7 +42,7 @@ public partial class PlaybackWindow : Window
     private List<BookmarkRecord> _bookmarks = [];
 
     /// <summary>已載入日的關鍵幀索引（segment id → 關鍵幀）；背景補建完成後整份換掉。</summary>
-    private Dictionary<long, IReadOnlyList<SegmentKeyframe>> _keyframeCache = new();
+    private IReadOnlyDictionary<long, IReadOnlyList<SegmentKeyframe>> _keyframeCache = new Dictionary<long, IReadOnlyList<SegmentKeyframe>>();
 
     /// <summary>關鍵幀索引世代：換日／換頻道時遞增，讓上一輪的背景探測自行放棄。</summary>
     private int _keyframeGeneration;
@@ -576,19 +576,19 @@ public partial class PlaybackWindow : Window
     }
 
     /// <summary>載入既有關鍵幀索引（純 SQLite 查詢，不跑 ffprobe）。</summary>
+    /// <remarks>
+    /// 一天可能有上千段；逐段一次 <c>List(id)</c> 會在 UI 執行緒上做上千次來回，
+    /// 故改走一趟 <see cref="SegmentKeyframeRepository.ListForSegments"/>（無索引的段自然缺席）。
+    /// </remarks>
     private void LoadKeyframeCache(IReadOnlyList<SegmentItem> segs)
     {
-        var cache = new Dictionary<long, IReadOnlyList<SegmentKeyframe>>(segs.Count);
-        foreach (var item in segs)
+        var ids = new long[segs.Count];
+        for (var i = 0; i < segs.Count; i++)
         {
-            var rows = _keyframes.List(item.Segment.Id);
-            if (rows.Count > 0)
-            {
-                cache[item.Segment.Id] = rows;
-            }
+            ids[i] = segs[i].Segment.Id;
         }
 
-        _keyframeCache = cache;
+        _keyframeCache = _keyframes.ListForSegments(ids);
     }
 
     /// <summary>

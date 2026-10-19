@@ -101,6 +101,86 @@ public sealed class SegmentKeyframeRepositoryTests : IDisposable
         Assert.Equal([seg], ids);
     }
 
+    /// <summary>
+    /// 一次查多段要與逐段查等價：每段的關鍵幀都只屬於自己，且段內仍由小到大。
+    /// 回放視窗從逐段查改成一次查（一天上千段），口徑若跑掉就會把別段的刻度畫到這一段上。
+    /// </summary>
+    [Fact]
+    public void 一次查多段與逐段查等價且各段由小到大()
+    {
+        var day = new DateTime(2026, 3, 4, 0, 0, 0, DateTimeKind.Utc);
+        var a = BeginFinalSegment(day.AddHours(1), 60);
+        var b = BeginFinalSegment(day.AddHours(2), 60);
+        _repo.Replace(a, [new SegmentKeyframe(20, 8192), new SegmentKeyframe(0, 1024), new SegmentKeyframe(10, 4096)]);
+        _repo.Replace(b, [new SegmentKeyframe(5, 512)]);
+
+        var all = _repo.ListForSegments([a, b]);
+
+        Assert.Equal(2, all.Count);
+        Assert.Equal(_repo.List(a).Select(r => r.TimeSec), all[a].Select(r => r.TimeSec));
+        Assert.Equal([0, 10, 20], all[a].Select(r => r.TimeSec).ToArray());
+        Assert.Equal([5], all[b].Select(r => r.TimeSec).ToArray());
+    }
+
+    /// <summary>
+    /// 沒有索引的段不可出現在結果裡（舊逐段查的 <c>rows.Count &gt; 0</c> 條件）。
+    /// 混進空清單會讓時間軸對「還沒探測」與「探測到 0 個關鍵幀」兩種狀態失去區分。
+    /// </summary>
+    [Fact]
+    public void 一次查多段不會帶出沒有索引的段()
+    {
+        var day = new DateTime(2026, 3, 4, 0, 0, 0, DateTimeKind.Utc);
+        var indexed = BeginFinalSegment(day.AddHours(1), 60);
+        var unindexed = BeginFinalSegment(day.AddHours(2), 60);
+        _repo.Replace(indexed, [new SegmentKeyframe(0, 512)]);
+
+        var all = _repo.ListForSegments([indexed, unindexed]);
+
+        Assert.True(all.ContainsKey(indexed));
+        Assert.False(all.ContainsKey(unindexed));
+    }
+
+    /// <summary>
+    /// 段數超過單批上限時要跨批次合併：排在第一批與最後一批的段都必須在結果裡。
+    /// 一天 10 秒一段就有 8640 段，單一 IN 查詢會撞到 SQLite 的參數上限；只顧最後一批
+    /// 會讓當天早上的段在時間軸上整段沒有刻度（看起來像沒錄到）。
+    /// </summary>
+    [Fact]
+    public void 段數超過單批上限時第一批與最後一批的段都要查得到()
+    {
+        var day = new DateTime(2026, 3, 4, 0, 0, 0, DateTimeKind.Utc);
+        var first = BeginFinalSegment(day.AddHours(1), 60);
+        var last = BeginFinalSegment(day.AddHours(2), 60);
+        _repo.Replace(first, [new SegmentKeyframe(0, 1024), new SegmentKeyframe(30, 4096)]);
+        _repo.Replace(last, [new SegmentKeyframe(15, 512)]);
+
+        // 40,000 個編號 = 45 批；真段各擺在最前與最後，只有把每批結果都併起來才看得到兩個。
+        const int count = 40000;
+        var ids = new long[count];
+        for (var i = 1; i < count - 1; i++)
+        {
+            ids[i] = 1_000_000 + i;
+        }
+
+        ids[0] = first;
+        ids[count - 1] = last;
+
+        var all = _repo.ListForSegments(ids);
+
+        Assert.Equal(2, all.Count);
+        Assert.Equal([0, 30], all[first].Select(r => r.TimeSec).ToArray());
+        Assert.Equal([15], all[last].Select(r => r.TimeSec).ToArray());
+    }
+
+    /// <summary>空清單要回空集合而不是拋例外（換頻道／換日都可能沒有段）。</summary>
+    [Fact]
+    public void 空清單回空結果()
+    {
+        var all = _repo.ListForSegments([]);
+
+        Assert.Empty(all);
+    }
+
     private long BeginFinalSegment(DateTime startUtc, double durationSec)
     {
         var segments = new SegmentRepository(_store);
