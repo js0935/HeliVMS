@@ -203,8 +203,9 @@ public sealed class PlaybackWindowContractTests
 
         // 拖曳預覽絕不啟動解碼：每移動一格就多開一個 ffmpeg，手感會直接爛掉，
         // 也讓「拖拽跳轉 < 300ms 出畫」的預算花在幾十個用不到的行程上（§8.5 驗收）。
+        // 搬播放頭走 PlaceCursor（直線＋菱形帽一起搬）；直接改 _cursor 會漏掉菱形帽。
         var preview = SourceContract.BodyOf(source, "PreviewBandAt");
-        Assert.Contains("_cursor", preview);
+        Assert.Contains("PlaceCursor", preview);
         Assert.DoesNotContain("PlayFrom(", preview);
         Assert.DoesNotContain("new PlaybackSession", preview);
 
@@ -624,6 +625,38 @@ public sealed class PlaybackWindowContractTests
         Assert.Contains("ModifierKeys.Control", move);
         Assert.Contains("DragDrop.DoDragDrop", move);
         Assert.Contains("DragFormats.ChannelId", move);
+    }
+
+    /// <summary>
+    /// 播放頭是直線加頂端菱形（§8.5「播放頭(菱形)」）。
+    /// <para>
+    /// 只有直線時，操作員看到一條白線卻看不出頭在哪一端，也容易與選擇區間窗的方形區塊混淆。
+    /// 菱形帽必須與線身一起搬（<c>PlaceCursor</c>），分開搬會在只改到一邊時讓菱形脫離線頂。
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void 播放頭是直線加頂端菱形且兩者一起搬動()
+    {
+        var source = SourceContract.Read(Code);
+
+        Assert.Contains("CursorCapSize", source);
+        Assert.Contains("RotateTransform(45", source);
+
+        var place = SourceContract.BodyOf(source, "PlaceCursor");
+        Assert.Contains("Canvas.SetLeft(_cursor,", place);
+        Assert.Contains("Canvas.SetLeft(_cursorCap,", place);
+
+        // 隱藏路徑也要整組一起藏：只藏線身會留下孤兒菱形漂在帶子上。
+        var hide = SourceContract.BodyOf(source, "HideCursor");
+        Assert.Contains("_cursor,", hide);
+        Assert.Contains("_cursorCap", hide);
+
+        Assert.Contains("PlaceCursor", SourceContract.BodyOf(source, "UpdateCursor"));
+        Assert.Contains("HideCursor", SourceContract.BodyOf(source, "UpdateCursor"));
+        Assert.Contains("PlaceCursor", SourceContract.BodyOf(source, "PreviewBandAt"));
+
+        // 重畫帶子時兩者都要保留，任一被清掉就再也回不來（RenderBlocks 會移除其他孩子）。
+        Assert.Contains("_cursorCap", SourceContract.BodyOf(source, "RenderBlocks"));
     }
 
     /// <summary>

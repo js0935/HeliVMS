@@ -67,7 +67,19 @@ public partial class PlaybackWindow : Window
     private DateTime? _rangeStopUtc;
     private bool _pendingFramePause;
     private bool _suppressSegmentAutoplay;
+    /// <summary>播放頭線身：2px 白線貫穿帶子，是播放位置的主體（§8.5「播放頭(菱形)」）。</summary>
     private readonly Rectangle _cursor = new() { Width = 2, Fill = Brushes.White, IsHitTestVisible = false };
+
+    /// <summary>播放頭頂端菱形帽：單獨一條白線只是「一條豎線」，看不出頭在哪一端；
+    /// 頂端菱形標出播放頭位置，也與選擇區間窗的方形區塊在視覺上分得開。</summary>
+    private readonly Rectangle _cursorCap = new()
+    {
+        Width = CursorCapSize,
+        Height = CursorCapSize,
+        Fill = Brushes.White,
+        IsHitTestVisible = false,
+        RenderTransform = new RotateTransform(45, CursorCapSize / 2, CursorCapSize / 2),
+    };
     private IReadOnlyList<RedactionRegion> _activeRegions = [];
 
     /// <summary>回放日曆本體（藏在 DatePicker 彈窗裡），第一次開啟彈窗時抓一次。</summary>
@@ -129,6 +141,9 @@ public partial class PlaybackWindow : Window
     /// <summary>起止手柄的抓取容差（像素）：描邊只有 1px，照描邊抓根本抓不到。</summary>
     private const double RangeHandlePx = 6;
 
+    /// <summary>播放頭頂端菱形帽的邊長（像素）。</summary>
+    private const double CursorCapSize = 8;
+
     /// <summary>牆邊框的預設色；通道色只在有牆時上色，沒有通道時回到這個底色。</summary>
     private static readonly Brush s_defaultFrameBorder = Frozen(Color.FromRgb(0x2A, 0x4A, 0x73));
 
@@ -178,7 +193,9 @@ public partial class PlaybackWindow : Window
         DatePick.SelectedDate = DateTime.Today;
         LoadChannels();
         BandCanvas.Children.Add(_cursor);
+        BandCanvas.Children.Add(_cursorCap);
         Canvas.SetZIndex(_cursor, 10);
+        Canvas.SetZIndex(_cursorCap, 11);
 
         // 次畫面不需要每一幀都重算：主畫面時鐘每 150ms 檢查一次，只有明顯飄掉或需要換段時才重啟該格。
         _syncTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(150) };
@@ -1630,7 +1647,8 @@ public partial class PlaybackWindow : Window
 
         for (var i = BandCanvas.Children.Count - 1; i >= 0; i--)
         {
-            if (!ReferenceEquals(BandCanvas.Children[i], _cursor))
+            var child = BandCanvas.Children[i];
+            if (!ReferenceEquals(child, _cursor) && !ReferenceEquals(child, _cursorCap))
             {
                 BandCanvas.Children.RemoveAt(i);
             }
@@ -2109,9 +2127,7 @@ public partial class PlaybackWindow : Window
         }
 
         var frac = Math.Max(0, Math.Min(1, x / width));
-        Canvas.SetLeft(_cursor, frac * width - 1);
-        _cursor.Height = BandCanvas.ActualHeight;
-        Canvas.SetTop(_cursor, 0);
+        PlaceCursor(frac * width);
 
         TimeText.Text = TimeZoneInfo
             .ConvertTimeFromUtc(View().TimeAtFraction(frac), TimeZoneInfo.Local)
@@ -2215,7 +2231,7 @@ public partial class PlaybackWindow : Window
     {
         if (_current is null || BandCanvas.ActualWidth <= 0)
         {
-            Canvas.SetLeft(_cursor, -8);
+            HideCursor();
             return;
         }
 
@@ -2224,13 +2240,29 @@ public partial class PlaybackWindow : Window
         {
             // 播放頭在檢視窗外（縮放到別的時段時）：藏起來。夾到帶子邊邊會讓操作員
             // 以為播放頭還在畫面上，點邊邊還真的跳回邊界時刻。
-            Canvas.SetLeft(_cursor, -8);
+            HideCursor();
             return;
         }
 
-        Canvas.SetLeft(_cursor, frac * BandCanvas.ActualWidth - 1);
+        PlaceCursor(frac * BandCanvas.ActualWidth);
+    }
+
+    /// <summary>把播放頭（線身＋頂端菱形）放到帶子上的指定 x；兩個元素必須一起搬，
+    /// 分開寫會在之後只改到其中一邊，菱形脫離線頂時才發現。</summary>
+    private void PlaceCursor(double x)
+    {
         _cursor.Height = BandCanvas.ActualHeight;
+        Canvas.SetLeft(_cursor, x - 1);
         Canvas.SetTop(_cursor, 0);
+        Canvas.SetLeft(_cursorCap, x - CursorCapSize / 2);
+        Canvas.SetTop(_cursorCap, 0);
+    }
+
+    /// <summary>把播放頭整組移出畫面（沒有播放中區段或位置在檢視窗外）。</summary>
+    private void HideCursor()
+    {
+        Canvas.SetLeft(_cursor, -20);
+        Canvas.SetLeft(_cursorCap, -20);
     }
 
     private void DisposeQuietly(PlaybackSession? session)
