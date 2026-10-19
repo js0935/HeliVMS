@@ -77,6 +77,42 @@ public sealed class PlaybackSession : IAsyncDisposable
     public event EventHandler<Exception>? PlaybackError;
 
     /// <summary>
+    /// 回放解碼參數（純函式，只依檔案、段內起點與要播的長度組出引數）。
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// 抽成純函式是為了讓選項相容性測試（<c>PlaybackDecodeArgumentsFfmpegTests</c>）能逐項問
+    /// 實際安裝的 ffmpeg「這個選項你認得嗎」。ffmpeg 9.0 移除了 <c>-vsync</c>（9.0.2 會直接以
+    /// <c>Unrecognized option 'vsync'</c> 結束且不輸出任何影格），本機 8.0 仍接受，所以這種回歸
+    /// 在本機全綠、只有 CI 或現場才會炸。
+    /// </para>
+    /// <para>
+    /// 每次都新建一份引數：<see cref="ProcessStartInfo.ArgumentList"/> 由呼叫端逐項填入，
+    /// 純函式回新清單才不會有共享狀態。
+    /// </para>
+    /// </remarks>
+    public static IReadOnlyList<string> BuildDecodeArguments(
+        string filePath, double seekSeconds, double durationSeconds)
+    {
+        return
+        [
+            "-hide_banner",
+            "-loglevel", "error",
+            "-ss", seekSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            "-i", filePath,
+            "-t", durationSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            "-f", "rawvideo",
+            "-pix_fmt", "bgr24",
+            // 不因時間戳重複或跳動而複製／丟棄影格（等同舊的 -vsync 0）。
+            // 不可用 -vsync：ffmpeg 9.0 已移除該選項，9.0.2 會直接以 "Unrecognized option 'vsync'"
+            // 結束且完全不輸出影格——CI（choco 安裝的 ffmpeg 9）上就是這樣「0 幀、日誌乾淨」，
+            // 本機 8.0 仍接受，所以只有 CI 會炸。-fps_mode 自 5.1 起可用。
+            "-fps_mode", "passthrough",
+            "pipe:1",
+        ];
+    }
+
+    /// <summary>
     /// 開始播放；<paramref name="seekSeconds"/> 為段內起始偏移。
     /// 播放為背景工作；結束以 <see cref="Ended"/> 事件通知。
     /// </summary>
@@ -180,26 +216,10 @@ public sealed class PlaybackSession : IAsyncDisposable
             UseShellExecute = false,
             CreateNoWindow = true,
         };
-        psi.ArgumentList.Add("-hide_banner");
-        psi.ArgumentList.Add("-loglevel");
-        psi.ArgumentList.Add("error");
-        psi.ArgumentList.Add("-ss");
-        psi.ArgumentList.Add(seekSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture));
-        psi.ArgumentList.Add("-i");
-        psi.ArgumentList.Add(Segment.FilePath);
-        psi.ArgumentList.Add("-t");
-        psi.ArgumentList.Add(remaining.ToString(System.Globalization.CultureInfo.InvariantCulture));
-        psi.ArgumentList.Add("-f");
-        psi.ArgumentList.Add("rawvideo");
-        psi.ArgumentList.Add("-pix_fmt");
-        psi.ArgumentList.Add("bgr24");
-        // 不因時間戳重複或跳動而複製／丟棄影格（等同舊的 -vsync 0）。
-        // 不可用 -vsync：ffmpeg 9.0 已移除該選項，9.0.2 會直接以 "Unrecognized option 'vsync'"
-        // 結束且完全不輸出影格——CI（choco 安裝的 ffmpeg 9）上就是這樣「0 幀、日誌乾淨」，
-        // 本機 8.0 仍接受，所以只有 CI 會炸。-fps_mode 自 5.1 起可用。
-        psi.ArgumentList.Add("-fps_mode");
-        psi.ArgumentList.Add("passthrough");
-        psi.ArgumentList.Add("pipe:1");
+        foreach (var arg in BuildDecodeArguments(Segment.FilePath, seekSeconds, remaining))
+        {
+            psi.ArgumentList.Add(arg);
+        }
 
         using var proc = _processFactory.Start(psi);
         _process = proc;
