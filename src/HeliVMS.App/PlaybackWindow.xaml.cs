@@ -74,6 +74,13 @@ public partial class PlaybackWindow : Window
     private DateTime? _rangeStopUtc;
     private bool _pendingFramePause;
     private bool _suppressSegmentAutoplay;
+
+    /// <summary>
+    /// XAML 建樹完成前 <see cref="OnSplitChanged"/> 會先被觸發（SplitCombo 帶 SelectedIndex="0"，
+    /// InitializeComponent 的 EndInit 就送出 SelectionChanged）；那時 PlayerArea／PlayerFrame 還沒建立。
+    /// </summary>
+    private bool _uiReady;
+
     /// <summary>播放頭線身：2px 白線貫穿帶子，是播放位置的主體（§8.5「播放頭(菱形)」）。</summary>
     private readonly Rectangle _cursor = new() { Width = 2, Fill = Brushes.White, IsHitTestVisible = false };
 
@@ -212,6 +219,9 @@ public partial class PlaybackWindow : Window
         // 次畫面不需要每一幀都重算：主畫面時鐘每 150ms 檢查一次，只有明顯飄掉或需要換段時才重啟該格。
         _syncTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(150) };
         _syncTimer.Tick += (_, _) => SyncPanes(force: false);
+
+        // XAML 建樹完成後才放行 OnSplitChanged：見 _uiReady 註解。
+        _uiReady = true;
     }
 
     private void ApplyI18n()
@@ -993,6 +1003,16 @@ public partial class PlaybackWindow : Window
     /// <summary>回放牆格數切換（1／2／4）：重建次畫面並重新對齊到目前播放頭。</summary>
     private void OnSplitChanged(object sender, SelectionChangedEventArgs e)
     {
+        // SplitCombo 在 XAML 裡帶 SelectedIndex="0"：InitializeComponent 建樹到這格時
+        // EndInit 就會送出 SelectionChanged，此刻 PlayerFrame／PlayerArea 還沒建立，
+        // RebuildPanes 取用會 NullReferenceException。它被 DispatcherUnhandledException
+        // 吞掉（Handled = true），症狀是「按回放完全沒反應」——2026-10-19 現場就是這樣，
+        // helivms-crash.log 只留下 RebuildPanes ← OnSplitChanged ← InitializeComponent。
+        if (!_uiReady)
+        {
+            return;
+        }
+
         RebuildPanes();
         if (_session is not null)
         {

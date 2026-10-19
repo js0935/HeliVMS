@@ -758,4 +758,43 @@ public sealed class PlaybackWindowContractTests
         Assert.Contains("SidebarToggleButton", i18n);
         Assert.Contains("Playback.SidebarHide", i18n);
     }
+
+    /// <summary>
+    /// 分割下拉在 XAML 初始化期間的 SelectionChanged 不可重建回放牆（2026-10-19 事故）。
+    ///
+    /// <para>
+    /// SplitCombo 帶 SelectedIndex="0"：InitializeComponent 建樹到那格時 EndInit 就送出
+    /// SelectionChanged → OnSplitChanged → RebuildPanes，此刻 PlayerFrame／PlayerArea 還沒建立，
+    /// NullReferenceException 被 DispatcherUnhandledException 吞掉（Handled = true），
+    /// 現場症狀是「按回放完全沒反應」——沒有對話框、沒有畫面，只有 helivms-crash.log
+    /// 裡一行 RebuildPanes ← OnSplitChanged ← InitializeComponent。
+    /// </para>
+    /// <para>
+    /// 斷言卡三點：XAML 的觸發來源還在（這條路徑真實存在）、handler 在 rebuild 前早退、
+    /// 建構子在 InitializeComponent 完成後才放行。去掉任一點事故就回來。
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void 分割選單在XAML初始化期間不重建畫面以免回放視窗開不起來()
+    {
+        var xaml = SourceContract.Read("src/HeliVMS.App/PlaybackWindow.xaml");
+
+        // 觸發來源：SplitCombo 一建好就帶選取（牆開窗即為 1 格），會在 InitializeComponent 期間送出事件。
+        Assert.Matches(@"x:Name=""SplitCombo""[\s\S]*?SelectedIndex=""0""[\s\S]*?SelectionChanged=""OnSplitChanged""", xaml);
+
+        var source = SourceContract.Read(Code);
+        var onSplit = SourceContract.BodyOf(source, "OnSplitChanged");
+
+        // 早退必須是真的 if 判斷式，不是只出現在註解裡；且必須在重建之前。
+        var guard = onSplit.IndexOf("if (!_uiReady)", StringComparison.Ordinal);
+        Assert.True(guard >= 0, "OnSplitChanged 必須在 _uiReady 就緒前早退，否則 InitializeComponent 期間會 NRE。");
+        Assert.True(
+            guard < onSplit.IndexOf("RebuildPanes(", StringComparison.Ordinal),
+            "_uiReady 的早退必須在 RebuildPanes 之前；放在後面擋不住建樹期間的那次重建。");
+
+        var ready = source.IndexOf("_uiReady = true", StringComparison.Ordinal);
+        Assert.True(
+            ready > source.IndexOf("InitializeComponent()", StringComparison.Ordinal),
+            "_uiReady 只能在 InitializeComponent 完成後置位；提前放行等於沒有守衛。");
+    }
 }
