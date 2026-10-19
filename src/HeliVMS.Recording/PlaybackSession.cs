@@ -208,6 +208,10 @@ public sealed class PlaybackSession : IAsyncDisposable
         var sw = Stopwatch.StartNew();
         long nextEmitAt = 0;
 
+        // 落後上限（毫秒）：排程落後超過這個量就放棄追趕，避免長時間停頓（例如磁碟卡住）
+        // 之後以爆量補送吃光 CPU／畫格塞爆 UI 執行緒。
+        const long MaxCatchUpLagMs = 250;
+
         try
         {
             while (!token.IsCancellationRequested)
@@ -249,15 +253,25 @@ public sealed class PlaybackSession : IAsyncDisposable
                     await Task.Delay((int)(nextEmitAt - nowMs), token);
                 }
 
-                nextEmitAt = Math.Max(nextEmitAt, sw.ElapsedMilliseconds) + (long)Math.Ceiling(intervalMs);
+                // 依「排定時刻」累加，落後時靠後續影格連續補送（catch-up），而不是把錨點重設到當下。
+                // 舊寫法 Math.Max(nextEmitAt, now) 一旦 Delay 粒度（Windows 上約 15.6ms）超過影格間隔，
+                // 每格都會被量化並重新落後，永遠追不上：16× 實測只有約 2.5×（10 秒素材花 4 秒）。
+                nextEmitAt += (long)Math.Ceiling(intervalMs);
+                var afterEmitMs = sw.ElapsedMilliseconds;
+                if (afterEmitMs - nextEmitAt > MaxCatchUpLagMs)
+                {
+                    nextEmitAt = afterEmitMs - MaxCatchUpLagMs;
+                }
+
                 FrameIndex++;
+                var contentSeconds = FrameIndex / fps;
                 FrameDecoded?.Invoke(this, new VideoFrame
                 {
                     Width = info.Width,
                     Height = info.Height,
                     Pixels = (byte[])buffer.Clone(),
-                    TimestampUtc = Segment.StartUtc.AddSeconds(seekSeconds + FrameIndex / fps / currentSpeed),
-                    PtsMs = nextEmitAt,
+                    TimestampUtc = Segment.StartUtc.AddSeconds(seekSeconds + contentSeconds),
+                    PtsMs = (long)Math.Round(contentSeconds * 1000),
                 });
             }
         }

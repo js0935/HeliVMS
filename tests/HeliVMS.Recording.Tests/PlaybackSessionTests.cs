@@ -232,6 +232,76 @@ public sealed class PlaybackSessionTests : IDisposable
         Assert.Equal(2, calls);
     }
 
+    /// <summary>
+    /// 回報的播放位置（<c>TimestampUtc</c> / <c>PtsMs</c>）只能依已播出的影格數前進，與倍速無關。
+    /// 這個解碼路徑不快轉跳幀——每一格都會送出——所以內容時間永遠是 <c>FrameIndex / fps</c>。
+    /// 先前把 <c>PtsMs</c> 當成牆上時鐘、又讓 <c>TimestampUtc</c> 除以倍速，結果 16× 時畫面已經在
+    /// 段內第 16 秒，時間文字與游標卻還停在 1 秒；區間重播的停止點也跟著晚十幾秒才觸發。
+    /// </summary>
+    [Fact]
+    public async Task 回報的播放位置只依影格數前進與倍速無關()
+    {
+        var frames = new List<VideoFrame>();
+        var factory = new FakeProcessFactory(_ => new FakeProcess(new MemoryStream(Pixels(10))));
+        await using var session = new PlaybackSession(
+            Segment(CreateEmptyFile(), 10),
+            processFactory: factory,
+            probe: _ => Info)
+        {
+            Speed = 8,
+        };
+        session.FrameDecoded += (_, frame) => frames.Add(frame);
+
+        await session.PlayAsync();
+
+        Assert.Equal(10, frames.Count);
+        for (var i = 1; i <= frames.Count; i++)
+        {
+            Assert.Equal(
+                new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc).AddSeconds(i / 25.0),
+                frames[i - 1].TimestampUtc);
+            Assert.Equal(i * 40L, frames[i - 1].PtsMs);
+        }
+    }
+
+    /// <summary>
+    /// 高倍速要真的快：節奏必須以「排定時刻」累加並允許補送，不能被 <c>Task.Delay</c> 的時間粒度
+    /// （Windows 上約 15.6ms）量化成每格一格——否則 16× 只有約 2.5×，操作員等於沒開快轉。
+    /// 斷言用「素材長度 ÷ 倍速」當基準、再乘上寬容倍數，才不會把 CI 機器的絕對速度寫死。
+    /// </summary>
+    [Fact]
+    public async Task 高倍速會追上排程而不是被Delay粒度綁住()
+    {
+        const int frames = 25;
+        const double speed = 16;
+        var contentMs = frames / 25.0 * 1000;
+        var limitMs = contentMs / speed * 4;
+
+        var fastMs = await PlaybackMsAsync(speed, frames);
+
+        Assert.True(
+            fastMs < limitMs,
+            $"16× 播 {contentMs:0}ms 素材花了 {fastMs}ms（上限 {limitMs:0}ms）：節奏被計時器粒度綁住，倍速沒有真的生效。");
+    }
+
+    private async Task<long> PlaybackMsAsync(double speed, int frameCount)
+    {
+        var factory = new FakeProcessFactory(_ => new FakeProcess(new MemoryStream(Pixels(frameCount))));
+        await using var session = new PlaybackSession(
+            Segment(CreateEmptyFile(), 10),
+            processFactory: factory,
+            probe: _ => Info)
+        {
+            Speed = speed,
+        };
+
+        var sw = Stopwatch.StartNew();
+        await session.PlayAsync();
+        return sw.ElapsedMilliseconds;
+    }
+
+    private static byte[] Pixels(int frameCount) => new byte[Info.Width * Info.Height * 3 * frameCount];
+
     private SegmentRecord Segment(string filePath, double durationSec) => new()
     {
         Id = 1,
