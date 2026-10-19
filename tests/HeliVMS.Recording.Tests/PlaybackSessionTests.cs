@@ -103,6 +103,58 @@ public sealed class PlaybackSessionTests : IDisposable
         Assert.Equal("rawvideo", ValueAfter(args, "-f"));
         Assert.Equal("bgr24", ValueAfter(args, "-pix_fmt"));
         Assert.Equal("pipe:1", args[^1]);
+        Assert.Equal("passthrough", ValueAfter(args, "-fps_mode"));
+        Assert.DoesNotContain("-vsync", args);
+    }
+
+    /// <summary>
+    /// ffmpeg 9.0 移除了 <c>-vsync</c>（9.0.2 立即以「Unrecognized option」結束且沒有任何輸出），
+    /// 而 CI 用的正是 choco 安裝的 ffmpeg 9、本機是 8.0 還會接受——回歸時只會在 CI 上變成
+    /// 「0 幀、日誌乾淨」，本機全綠。所以參數必須釘在這裡，不能只靠 CI 跑真 ffmpeg。
+    /// </summary>
+    [Fact]
+    public async Task 解碼參數使用fps_mode而非已移除的vsync()
+    {
+        var file = CreateEmptyFile();
+        var factory = new FakeProcessFactory(_ => new FakeProcess(new MemoryStream()));
+        await using var session = new PlaybackSession(
+            Segment(file, 10),
+            processFactory: factory,
+            probe: _ => Info);
+
+        await session.PlayAsync();
+
+        var args = Assert.Single(factory.Started).StartInfo.ArgumentList;
+        Assert.Equal("passthrough", ValueAfter(args, "-fps_mode"));
+        Assert.DoesNotContain("-vsync", args);
+    }
+
+    /// <summary>
+    /// ffmpeg 以非零結束（參數不支援、解碼器缺失、檔案毀損）時必須回報「未完成」並帶上
+    /// stderr：舊寫法把 0 幀當成播完，播放器收到 <c>Ended(completed: true)</c> 後畫面全黑、
+    /// 沒有任何人知道原因。這是 CI 上 3 條回放驗收全 0 幀卻完全沒有錯誤訊息的根因。
+    /// </summary>
+    [Fact]
+    public async Task ffmpeg非零結束時回報未完成並附上錯誤訊息()
+    {
+        var factory = new FakeProcessFactory(
+            _ => new FakeProcess(new MemoryStream(), exitCode: 1, exited: true, stderr: "Unrecognized option 'vsync'."));
+        await using var session = new PlaybackSession(
+            Segment(CreateEmptyFile(), 10),
+            processFactory: factory,
+            probe: _ => Info);
+
+        PlaybackEndedEventArgs? ended = null;
+        Exception? error = null;
+        session.Ended += (_, e) => ended = e;
+        session.PlaybackError += (_, e) => error = e;
+
+        await session.PlayAsync();
+
+        Assert.NotNull(ended);
+        Assert.False(ended!.Completed);
+        Assert.NotNull(error);
+        Assert.Contains("Unrecognized option", error!.Message);
     }
 
     /// <summary>
@@ -360,11 +412,15 @@ public sealed class PlaybackSessionTests : IDisposable
 
     private sealed class FakeProcess : IProcess
     {
-        public FakeProcess(Stream standardOutput, int exitCode = 0)
+        public FakeProcess(Stream standardOutput, int exitCode = 0, bool exited = false, string stderr = "")
         {
             StandardOutput = new StreamReader(standardOutput, Encoding.UTF8, detectEncodingFromByteOrderMarks: false);
-            StandardError = new StreamReader(new MemoryStream(), Encoding.UTF8, detectEncodingFromByteOrderMarks: false);
+            StandardError = new StreamReader(
+                new MemoryStream(Encoding.UTF8.GetBytes(stderr)),
+                Encoding.UTF8,
+                detectEncodingFromByteOrderMarks: false);
             ExitCode = exitCode;
+            HasExited = exited;
         }
 
         public StreamReader StandardOutput { get; }

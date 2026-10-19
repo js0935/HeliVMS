@@ -193,8 +193,12 @@ public sealed class PlaybackSession : IAsyncDisposable
         psi.ArgumentList.Add("rawvideo");
         psi.ArgumentList.Add("-pix_fmt");
         psi.ArgumentList.Add("bgr24");
-        psi.ArgumentList.Add("-vsync");
-        psi.ArgumentList.Add("0");
+        // 不因時間戳重複或跳動而複製／丟棄影格（等同舊的 -vsync 0）。
+        // 不可用 -vsync：ffmpeg 9.0 已移除該選項，9.0.2 會直接以 "Unrecognized option 'vsync'"
+        // 結束且完全不輸出影格——CI（choco 安裝的 ffmpeg 9）上就是這樣「0 幀、日誌乾淨」，
+        // 本機 8.0 仍接受，所以只有 CI 會炸。-fps_mode 自 5.1 起可用。
+        psi.ArgumentList.Add("-fps_mode");
+        psi.ArgumentList.Add("passthrough");
         psi.ArgumentList.Add("pipe:1");
 
         using var proc = _processFactory.Start(psi);
@@ -202,6 +206,11 @@ public sealed class PlaybackSession : IAsyncDisposable
         IsPlaying = true;
 
         var stream = proc.StandardOutput.BaseStream;
+
+        // 同時抽乾 stderr：管線填滿會讓 ffmpeg 阻塞，而且失敗原因（例如「Unrecognized option」）
+        // 只在這裡，是診斷「0 幀、日誌乾淨」的唯一線索。
+        var stderr = proc.StandardError.ReadToEndAsync();
+
         var frameSize = info.Width * info.Height * 3;
         var buffer = new byte[frameSize];
         var fps = info.Fps > 0 ? info.Fps : 25;
@@ -292,7 +301,39 @@ public sealed class PlaybackSession : IAsyncDisposable
             IsPlaying = false;
         }
 
+        // ffmpeg 非零結束＝解碼失敗（參數不支援、檔案毀損、解碼器缺失）。舊寫法把「一個影格都
+        // 沒解出」當成播放完成：播放器收到 Ended(completed: true)、畫面全黑、日誌乾淨，正是
+        // ffmpeg 9 移除 -vsync 後在 CI 上的樣子（3 條驗收全 0 幀卻沒有半點錯誤訊息）。
+        // 取消（Stop／換段）不走這裡，是由上面的 OperationCanceledException 直接結束。
+        if (!token.IsCancellationRequested && proc.HasExited && proc.ExitCode != 0)
+        {
+            var detail = TryRead(stderr);
+            PlaybackError?.Invoke(
+                this,
+                new InvalidOperationException($"ffmpeg 解碼失敗（結束碼 {proc.ExitCode}）：{detail}"));
+            Ended?.Invoke(this, new PlaybackEndedEventArgs(Segment, false));
+            return;
+        }
+
         Ended?.Invoke(this, new PlaybackEndedEventArgs(Segment, true));
+    }
+
+    /// <summary>取出已完成之 stderr 文字（未結束或已釋放時回空字串）。</summary>
+    private static string TryRead(Task<string> stderr)
+    {
+        try
+        {
+            if (!stderr.IsCompleted)
+            {
+                _ = stderr.Wait(TimeSpan.FromSeconds(1));
+            }
+
+            return stderr.IsCompletedSuccessfully ? stderr.Result.Trim() : string.Empty;
+        }
+        catch (Exception)
+        {
+            return string.Empty;
+        }
     }
 
     private void KillProcess()

@@ -70,7 +70,7 @@ public sealed class HwAccelContractTests
     public void RtspClient以純函式組裝解碼參數()
     {
         // StreamFramesAsync 必須經由 BuildDecodeArguments 組參數，否則測試釘住的
-        // 參數（硬體加速、bgr24、-vsync 0）可能與實際下給 ffmpeg 的不同。
+        // 參數（硬體加速、bgr24、-fps_mode passthrough）可能與實際下給 ffmpeg 的不同。
         var code = SourceContract.Read(ClientCode);
         var stream = SourceContract.BodyOf(code, "StreamFramesAsync");
 

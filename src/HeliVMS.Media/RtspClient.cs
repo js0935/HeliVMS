@@ -104,8 +104,12 @@ public sealed class RtspClient : IAsyncDisposable
         args.Add("rawvideo");
         args.Add("-pix_fmt");
         args.Add("bgr24");
-        args.Add("-vsync");
-        args.Add("0");
+        // 不可用 -vsync 0：ffmpeg 9.0 移除了該選項（9.0.2 直接 "Unrecognized option" 立刻結束），
+        // 即時監看會變成反覆重連、永遠沒有畫面。CI 安裝的正是 ffmpeg 9，但 Media 測試以假行程
+        // 驗參數清單，不會執行真 ffmpeg，所以只有真人使用才會看到這個故障。
+        // -fps_mode passthrough 語意相同（不複製、不丟棄影格），且自 5.1 起可用。
+        args.Add("-fps_mode");
+        args.Add("passthrough");
         args.Add("pipe:1");
         return args;
     }

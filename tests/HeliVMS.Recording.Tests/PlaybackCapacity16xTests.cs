@@ -99,6 +99,7 @@ public sealed class PlaybackCapacity16xTests
             Interlocked.Increment(ref frames);
             first.TrySetResult();
         };
+        session.PlaybackError += (_, ex) => _output.WriteLine($"PLAYBACK ERROR: {ex.Message}");
 
         var sw = System.Diagnostics.Stopwatch.StartNew();
         var playback = session.PlayAsync(seekSeconds: PlaybackClipFixture.DurationSec / 2.0);
@@ -141,7 +142,7 @@ public sealed class PlaybackCapacity16xTests
         };
     }
 
-    private static async Task<(long[] Counts, TimeSpan Elapsed)> RunAsync(int ways, double seekSeconds, double speed)
+    private async Task<(long[] Counts, TimeSpan Elapsed)> RunAsync(int ways, double seekSeconds, double speed)
     {
         var segment = NewSegment();
 
@@ -153,6 +154,10 @@ public sealed class PlaybackCapacity16xTests
             {
                 var index = i;
                 var session = new PlaybackSession(segment) { Speed = speed };
+
+                // 把解碼錯誤寫進測試輸出：沒有這一段，ffmpeg 因參數不支援而以非零結束時
+                // 只會看到「0 幀」而查不出原因（ffmpeg 9 移除 -vsync 就是這樣炸的）。
+                session.PlaybackError += (_, ex) => _output.WriteLine($"PLAYBACK ERROR[{index}]: {ex.Message}");
                 session.FrameDecoded += (_, _) => Interlocked.Increment(ref counts[index]);
                 sessions.Add(session);
             }

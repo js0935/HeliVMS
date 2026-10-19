@@ -240,6 +240,13 @@ public class RtspClientTests
         Assert.Equal("bgr24", list[list.IndexOf("-pix_fmt") + 1]);
         Assert.Equal("rtsp://host/live", list[list.IndexOf("-i") + 1]);
         Assert.Equal("pipe:1", args[args.Count - 1]);
+
+        // ffmpeg 9.0 移除了 -vsync；帶了它，ffmpeg 會在啟動時就以 "Unrecognized option" 結束，
+        // 即時監看變成永無止境的重連而沒有任何影像。CI 只驗參數清單（不跑真 ffmpeg），
+        // 所以一旦有人改回 -vsync，這裡是唯一會先紅的地方。
+        Assert.Equal("passthrough", list[list.IndexOf("-fps_mode") + 1]);
+        Assert.DoesNotContain("-vsync", args);
+        Assert.True(list.IndexOf("-fps_mode") > list.IndexOf("-i"), "-fps_mode 是輸出選項，必須在 -i 之後");
     }
 
     [Theory]
