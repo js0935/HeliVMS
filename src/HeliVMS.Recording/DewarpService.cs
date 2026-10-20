@@ -46,7 +46,7 @@ public sealed class DewarpService
         IProgress<ExportProgress>? progress = null,
         CancellationToken ct = default)
     {
-        var segments = _segRepo.ListByRange(request.ChannelId, "main", request.StartUtc, request.EndUtc)
+        var segments = _segRepo.ListPlayableByRange(request.ChannelId, "main", request.StartUtc, request.EndUtc)
             .OrderBy(s => s.StartUtc)
             .ToList();
 

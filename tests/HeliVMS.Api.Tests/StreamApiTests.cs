@@ -114,6 +114,24 @@ public sealed class StreamApiTests : IClassFixture<StreamApiFactory>, IDisposabl
         return id;
     }
 
+    /// <summary>
+    /// 寫入一筆 final 段之後把檔案刪掉，模擬「使用者直接從磁碟刪除錄影」。
+    ///
+    /// <para>
+    /// 索引的 (channel_id, stream, start_time) 有唯一鍵，每個測試的時刻都必須自己選一個不衝突的
+    /// 時間（原本各自硬寫偏移就是為了避開）。把「建段→刪檔」收斂成一個輔助方法，讓新增的對帳
+    /// 測試不必再重複貼同一段樣板。
+    /// </para>
+    /// </summary>
+    private long SeedDeletedSegment(DateTime startUtc)
+    {
+        var path = _factory.WriteSegment(_factory.RecordingsDir, $"seg-{Guid.NewGuid():N}.mp4", SyntheticFmp4());
+        var id = Segments.BeginSegment(1, "main", path, startUtc);
+        Segments.CompleteSegment(id, startUtc.AddSeconds(15), 128, 15, "sha");
+        File.Delete(path);
+        return id;
+    }
+
     [Fact]
     public async Task Playlist_RequiresApiKey()
     {
@@ -251,7 +269,7 @@ public sealed class StreamApiTests : IClassFixture<StreamApiFactory>, IDisposabl
     {
         var from = DateTime.UtcNow.Date.AddHours(5);
         var bytes = Encoding.ASCII.GetBytes("this is not an mp4 file at all");
-        var path = _factory.WriteSegment(_factory.RecordingsDir, "garbage.mp4", bytes);
+        var path = _factory.WriteSegment(_factory.RecordingsDir, $"seg-{Guid.NewGuid():N}.mp4", bytes);
         var id = Segments.BeginSegment(1, "main", path, from);
         Segments.CompleteSegment(id, from.AddSeconds(15), bytes.Length, 15, "sha");
         using var client = Client();
@@ -261,20 +279,102 @@ public sealed class StreamApiTests : IClassFixture<StreamApiFactory>, IDisposabl
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
 
+    /// <summary>
+    /// 磁碟上的檔案被刪掉之後，播放清單不能再列出它，且索引要被就地改成 missing。
+    ///
+    /// <para>
+    /// 現場症狀是「明明有錄影，播放到一半就卡住」：清單照著索引寫出 #EXTINF，播放器去要
+    /// init/media 時吃 404，整條播放中斷，而日誌只看到 404、看不出是索引過期。
+    /// 這個測試同時釘住「清單不列」與「索引被修正」——只做前者會在下一輪查詢再犯一次。
+    /// </para>
+    /// </summary>
+    [Fact]
+    public async Task 檔案被刪掉後播放清單不再列出且索引標成遺失()
+    {
+        var from = DateTime.UtcNow.Date.AddHours(9);
+        var aliveId = SeedSegment(_factory.RecordingsDir, from, from.AddSeconds(15), out _);
+        var doomedId = SeedDeletedSegment(from.AddMinutes(1));
+        using var client = Client();
+
+        var response = await client.GetAsync(
+            $"/api/stream/1/playlist.m3u8?stream=main&from={HttpUtility(from)}&to={HttpUtility(from.AddHours(1))}");
+        var text = await response.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Contains(HlsPlaylist.MediaUri(aliveId), text);
+        Assert.DoesNotContain(HlsPlaylist.MediaUri(doomedId), text);
+        Assert.Equal(SegmentStatus.Missing, Segments.Get(doomedId)!.Status);
+    }
+
+    /// <summary>
+    /// 遠端主控台的區段清單也不能再回報已被刪除的段。
+    ///
+    /// <para>
+    /// 這是操作員查調閱清單最直接的畫面；索引沒對帳時它會列出整天的「錄影」，
+    /// 點下去才 404。清單與時間軸、播放清單三者口徑必須一致。
+    /// </para>
+    /// </summary>
+    [Fact]
+    public async Task 檔案被刪掉後區段清單也不再列出()
+    {
+        var from = DateTime.UtcNow.Date.AddHours(11);
+        var aliveId = SeedSegment(_factory.RecordingsDir, from, from.AddSeconds(15), out _);
+        var doomedId = SeedDeletedSegment(from.AddMinutes(1));
+        using var client = Client();
+
+        var body = System.Text.Json.JsonSerializer.Deserialize<ApiEndpoints.Paged<ApiEndpoints.SegmentListItem>>(
+            await client.GetStringAsync(
+                $"/api/recording/segments?channelId=1&stream=main&from={HttpUtility(from)}&to={HttpUtility(from.AddHours(1))}"),
+            new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web))!;
+
+        Assert.Contains(body.Items, s => s.Id == aliveId);
+        Assert.DoesNotContain(body.Items, s => s.Id == doomedId);
+    }
+
+    /// <summary>
+    /// 時間軸（日曆／回放條）也不得再畫出已被刪除的段。
+    ///
+    /// <para>
+    /// 這是操作員看到的第一個畫面：日期有粗體、時間軸有一整條 bar，點下去卻放不出東西。
+    /// 三個端點（清單／播放清單）都對帳了，時間軸若漏掉，畫面就自相矛盾——這一則釘住第三條。
+    /// </para>
+    /// </summary>
+    [Fact]
+    public async Task 檔案被刪掉後時間軸也不再畫出區段()
+    {
+        var dayStart = DateTime.UtcNow.Date.AddDays(3);
+        var aliveId = SeedSegment(_factory.RecordingsDir, dayStart.AddHours(2), dayStart.AddHours(2).AddSeconds(15), out _);
+        var doomedId = SeedDeletedSegment(dayStart.AddHours(2).AddMinutes(1));
+        using var client = Client();
+
+        var timeline = System.Text.Json.JsonSerializer.Deserialize<PlaybackTimeline>(
+            await client.GetStringAsync(
+                $"/api/recording/timeline?channelId=1&stream=main&day={HttpUtility(dayStart)}"),
+            new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web))!;
+
+        Assert.Single(timeline.Bars);
+        Assert.Equal(2d / 24d, timeline.Bars[0].LeftFraction, 6);
+        Assert.Equal(SegmentStatus.Missing, Segments.Get(doomedId)!.Status);
+        Assert.Equal(SegmentStatus.Final, Segments.Get(aliveId)!.Status);
+    }
+
     [Fact]
     public async Task DeletedSegmentFileIs404()
     {
+        // 這一則是「已對帳過的索引」情境：段已被標成 missing，直接打 init 端點仍要 404。
+        // 分批刪檔 + 對帳由 檔案被刪掉後播放清單不再列出且索引標成遺失 涵蓋。
         var from = DateTime.UtcNow.Date.AddHours(4);
-        var bytes = Mp4Fixture.Fmp4();
-        var aliveId = SeedSegment(_factory.RecordingsDir, from, from.AddSeconds(15), out _);
+        var aliveId = SeedSegment(_factory.RecordingsDir, from.AddSeconds(1), from.AddSeconds(16), out _);
         var missingId = Segments.BeginSegment(
             1,
             "main",
             Path.Combine(_factory.RecordingsDir, "gone.mp4"),
             from.AddMinutes(5));
-        Segments.CompleteSegment(missingId, from.AddMinutes(5).AddSeconds(15), bytes.Length, 15, "sha");
+        Segments.CompleteSegment(missingId, from.AddMinutes(5).AddSeconds(15), 128, 15, "sha");
+        Segments.MarkMissing(missingId);
         using var client = Client();
 
+        Assert.Equal(SegmentStatus.Missing, Segments.Get(missingId)!.Status);
         Assert.Equal(HttpStatusCode.NotFound, (await client.GetAsync(HlsPlaylist.InitUri(missingId))).StatusCode);
         Assert.Equal(HttpStatusCode.OK, (await client.GetAsync(HlsPlaylist.InitUri(aliveId))).StatusCode);
     }

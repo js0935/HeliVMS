@@ -80,13 +80,29 @@ public sealed class ExportService
         IProgress<ExportProgress>? progress = null,
         CancellationToken ct = default)
     {
-        var segments = _segRepo.ListByRange(request.ChannelId, "main", request.StartUtc, request.EndUtc)
+        var segments = _segRepo.ListPlayableByRange(request.ChannelId, "main", request.StartUtc, request.EndUtc)
             .OrderBy(s => s.StartUtc)
             .ToList();
 
         if (segments.Count == 0)
         {
-            throw new InvalidOperationException("所選範圍無錄影段落可匯出。");
+            throw new InvalidOperationException("所選範圍無錄影段落可供匯出。");
+        }
+
+        // 匯出比播放更怕缺檔：concat 清單只要有一個檔案不存在，ffmpeg 就整批失敗，
+        // 而症狀是「匯出壞掉」而不是「其中幾段被刪了」。這裡把已經不在磁碟上的段剔除，
+        // 一段都不剩才報錯，並在進度訊息裡講清楚剔除了幾段——否則操作員拿到的成品
+        // 會少一段而沒有任何說明。對帳（SegmentIndexReconciler）負責把這些段寫回索引，
+        // 但匯出不能等那一輪，當下就要過濾。
+        var skipped = segments.RemoveAll(s => !File.Exists(s.FilePath));
+        if (segments.Count == 0)
+        {
+            throw new InvalidOperationException("所選範圍的錄影檔案已不存在於磁碟。");
+        }
+
+        if (skipped > 0)
+        {
+            progress?.Report(new ExportProgress(4, $"已略過 {skipped} 段不存在的錄影。"));
         }
 
         progress?.Report(new ExportProgress(5, "準備匯出…"));

@@ -110,6 +110,25 @@ public sealed class SegmentRepository
     }
 
     /// <summary>
+    /// 某個資料夾底下目前仍是 final 的段數；供對帳在整批標記前先量出規模（統計回報用）。
+    ///
+    /// <para>
+    /// 前綴比對口徑與 <see cref="MarkMissingInFolder"/> 完全相同（<c>substr</c> 精確相等而非
+    /// <c>LIKE</c>），兩者若不同就會回報一個沒人看得懂的數字。
+    /// </para>
+    /// </summary>
+    public long CountFinalInFolder(string folderPrefix)
+    {
+        return _store.Query(
+            """
+            SELECT COUNT(*) FROM segments
+            WHERE status = 'final' AND substr(file_path, 1, length($p)) = $p;
+            """,
+            static r => r.Read() ? r.GetInt64(0) : 0L,
+            cmd => cmd.Parameters.AddWithValue("$p", folderPrefix));
+    }
+
+    /// <summary>
     /// final 段依所在資料夾分組（資料夾、段數），供索引對帳以資料夾層級一次判定整天。
     ///
     /// <para>
@@ -142,6 +161,53 @@ public sealed class SegmentRepository
                 return list;
             },
             cmd => cmd.Parameters.AddWithValue("$marker", SegmentFileMarker));
+    }
+
+    /// <summary>
+    /// 與 <paramref name="fromUtc"/>..<paramref name="toUtc"/> 重疊的 final 段所在資料夾（去重）。
+    ///
+    /// <para>
+    /// 供回放日曆在標記粗體之前就地對帳：月份格位對應的 42 個窗口先收斂成一個時間範圍問出
+    /// 涉及的資料夾（數量 = 頻道 × 該月有錄影的天數），呼叫端每資料夾一次
+    /// <c>Directory.Exists</c> 就能把「整資料夾被刪掉」的那天從粗體清掉，成本與逐格查詢同一等級。
+    /// 資料夾取出規則與 <see cref="ListFinalFolders"/> 完全相同。
+    /// </para>
+    /// </summary>
+    public IReadOnlyList<string> ListFinalFoldersInRange(
+        int channelId,
+        string stream,
+        DateTime fromUtc,
+        DateTime toUtc)
+    {
+        return _store.Query(
+            """
+            SELECT DISTINCT CASE WHEN instr(file_path, $marker) > 1
+                                 THEN rtrim(substr(file_path, 1, instr(file_path, $marker) - 1), '/\')
+                                 ELSE '' END AS folder
+            FROM segments
+            WHERE channel_id = $c AND stream = $s AND status = 'final'
+              AND start_time < $to
+              AND ((end_time IS NOT NULL AND end_time > $from)
+                OR (end_time IS NULL AND start_time >= $from));
+            """,
+            static r =>
+            {
+                var list = new List<string>();
+                while (r.Read())
+                {
+                    list.Add(r.GetString(0));
+                }
+
+                return list;
+            },
+            cmd =>
+            {
+                cmd.Parameters.AddWithValue("$c", channelId);
+                cmd.Parameters.AddWithValue("$s", stream);
+                cmd.Parameters.AddWithValue("$from", SqliteStore.Iso(fromUtc));
+                cmd.Parameters.AddWithValue("$to", SqliteStore.Iso(toUtc));
+                cmd.Parameters.AddWithValue("$marker", SegmentFileMarker);
+            });
     }
 
     /// <summary>最新的 <paramref name="take"/> 個 final 段（由新到舊），供索引對帳逐檔檢查近期資料。</summary>
@@ -244,6 +310,44 @@ public sealed class SegmentRepository
                    size_bytes, duration_sec, status, sha256
             FROM segments
             WHERE channel_id = $c AND stream = $s
+              AND start_time < $to
+              AND ((end_time IS NOT NULL AND end_time > $from)
+                OR (end_time IS NULL AND start_time >= $from))
+            ORDER BY start_time;
+            """,
+            ReadRecords,
+            cmd =>
+            {
+                cmd.Parameters.AddWithValue("$c", channelId);
+                cmd.Parameters.AddWithValue("$s", stream);
+                cmd.Parameters.AddWithValue("$from", SqliteStore.Iso(fromUtc));
+                cmd.Parameters.AddWithValue("$to", SqliteStore.Iso(toUtc));
+            });
+    }
+
+    /// <summary>
+    /// 與 <paramref name="fromUtc"/>..<paramref name="toUtc"/> 重疊、且真的還能播的段。
+    ///
+    /// <para>
+    /// 給調閱型消費者用（回放解碼、匯出、去扭曲、遠端播放清單）：<see cref="ListByRange"/>
+    /// 為了診斷與對帳會把 tmp／corrupt／missing／retired 全都回傳，呼叫端得自己記得濾；
+    /// 只要有一個消費端忘記，就會把已被刪除的段丟進 ffmpeg 的 concat 清單或解碼佇列，
+    /// 症狀是「匯出整批失敗」或「播放到一半卡住」，而錯誤訊息指向檔案讀取、看不出是索引過期。
+    /// 這裡把「還能播」的口徑收斂成一個查詢，讓每一個消費端不必各自複製同一條 WHERE。
+    /// </para>
+    /// <para>
+    /// 只認 <c>status='final'</c>：tmp 正在寫、corrupt 已知損壞、missing 檔案已不在、
+    /// retired 已被汰除，四者都不是可播放的錄影。
+    /// </para>
+    /// </summary>
+    public IReadOnlyList<SegmentRecord> ListPlayableByRange(int channelId, string stream, DateTime fromUtc, DateTime toUtc)
+    {
+        return _store.Query(
+            """
+            SELECT id, channel_id, stream, start_time, end_time, file_path,
+                   size_bytes, duration_sec, status, sha256
+            FROM segments
+            WHERE channel_id = $c AND stream = $s AND status = 'final'
               AND start_time < $to
               AND ((end_time IS NOT NULL AND end_time > $from)
                 OR (end_time IS NULL AND start_time >= $from))

@@ -1,4 +1,4 @@
-﻿using HeliVMS.Shared.Models;
+using HeliVMS.Shared.Models;
 using HeliVMS.Storage;
 
 namespace HeliVMS.Storage.Tests;
@@ -138,6 +138,112 @@ public class SegmentIndexReconcileRepositoryTests : IDisposable
 
         var row = Assert.Single(rows);
         Assert.Equal(legacy, row.Id);
+    }
+
+    /// <summary>
+    /// 調閱型消費者（匯出、去扭曲、遠端播放清單）用的「還能播」查詢只回 final。
+    ///
+    /// <para>
+    /// <see cref="SegmentRepository.ListByRange"/> 為了診斷與對帳會把 tmp／corrupt／missing／
+    /// retired 全數回傳；只要有一個消費端忘了過濾，就會把已刪除或未完成的段丟進 ffmpeg 的
+    /// concat 清單或播放佇列，症狀是「匯出整批失敗」或「播放卡住」。這個查詢把口徑收斂成
+    /// 一處，這裡釘住它真的只回 final。
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void 可播放查詢只回最終段並排除遺失與汰除()
+    {
+        var t = new DateTime(2026, 10, 19, 10, 0, 0, DateTimeKind.Utc);
+        var playable = SeedFinal(1, @"D:\rec\cam_1\20261019\seg-100000000.mp4", t);
+        var missing = SeedFinal(1, @"D:\rec\cam_1\20261019\seg-100001000.mp4", t.AddSeconds(1));
+        var retired = SeedFinal(1, @"D:\rec\cam_1\20261019\seg-100002000.mp4", t.AddSeconds(2));
+        var corrupt = SeedFinal(1, @"D:\rec\cam_1\20261019\seg-100003000.mp4", t.AddSeconds(3));
+        _repo.MarkMissing(missing);
+        _repo.MarkCorrupt(corrupt);
+        SetStatus(retired, "retired");
+        _repo.BeginSegment(1, "main", @"D:\rec\cam_1\20261019\seg-100004000.mp4", t.AddSeconds(4));
+
+        var ids = _repo.ListPlayableByRange(1, "main", t.AddSeconds(-1), t.AddMinutes(1))
+            .Select(s => s.Id)
+            .ToHashSet();
+
+        Assert.Contains(playable, ids);
+        Assert.DoesNotContain(missing, ids);
+        Assert.DoesNotContain(retired, ids);
+        Assert.DoesNotContain(corrupt, ids);
+        Assert.Single(ids);
+
+        // 同一個範圍用原始查詢則全都看得到（診斷與對帳需要）。
+        Assert.Equal(5, _repo.ListByRange(1, "main", t.AddSeconds(-1), t.AddMinutes(1)).Count);
+    }
+
+    /// <summary>
+    /// 日曆粗體用的範圍查詢：只取「這個頻道、這個區間內真的有段」的資料夾。
+    ///
+    /// <para>
+    /// 回放日曆一次要標 42 格，若每格都問一次資料庫、再對每個資料夾 stat，成本會跟著
+    /// 「格數 × 天數」膨脹。這裡把查詢收斂成一次，回傳的資料夾數＝該頻道該月有錄影的天數，
+    /// 呼叫端只要對每個資料夾做一次 <c>Directory.Exists</c>。查詢若把別頻道、別天或
+    /// 未封檔的段也算進來，日曆就會出現「明明沒錄影卻粗體」的假訊號。
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void 範圍查詢只取回該頻道該區間有段的資料夾()
+    {
+        var t = new DateTime(2026, 10, 19, 10, 0, 0, DateTimeKind.Utc);
+
+        SeedFinal(1, @"D:\rec\cam_1\20261019\seg-100000000.mp4", t);
+        SeedFinal(1, @"D:\rec\cam_1\20261019\seg-100001000.mp4", t.AddSeconds(1));
+
+        // 區間外（隔天）不算。
+        SeedFinal(1, @"D:\rec\cam_1\20261020\seg-100000000.mp4", t.AddDays(1));
+
+        // 別頻道不算。
+        SeedFinal(2, @"D:\rec\cam_2\20261019\seg-100000000.mp4", t.AddSeconds(2));
+
+        // 未封檔（正在寫）不算：日曆只認已完成的錄影。
+        _repo.BeginSegment(1, "main", @"D:\rec\cam_1\20261019\seg-100002000.mp4", t.AddSeconds(3));
+
+        // 前一段跨進區間（起點在區間外、終點在區間內）要算：日曆點那一天看得到它。
+        var overlap = _repo.BeginSegment(1, "main", @"D:\rec\cam_1\20261018\seg-233000000.mp4", t.AddHours(-2));
+        _repo.CompleteSegment(overlap, t.AddHours(-1).AddMinutes(30), 100, 1800, "sha");
+
+        // 取不出資料夾者以空字串列出，交由呼叫端跳過（見 ListFinalFolders）。
+        SeedFinal(1, @"D:\rec\cam_1\20261019\legacy-100003000.mp4", t.AddSeconds(4));
+
+        var folders = _repo.ListFinalFoldersInRange(1, "main", t.AddHours(-1), t.AddHours(2));
+
+        Assert.Contains(@"D:\rec\cam_1\20261019", folders);
+        Assert.Contains(@"D:\rec\cam_1\20261018", folders);
+        Assert.Contains(string.Empty, folders);
+        Assert.DoesNotContain(@"D:\rec\cam_1\20261020", folders);
+        Assert.DoesNotContain(@"D:\rec\cam_2\20261019", folders);
+    }
+
+    /// <summary>
+    /// 資料夾段數統計與標記必須用同一個前綴口徑：統計多算或少算，稽核與提示的數字就會說謊。
+    ///
+    /// <para>
+    /// 這裡特別把 <c>cam_1</c> 與 <c>camA1</c> 放在一起——用 <c>LIKE</c> 比對前綴時
+    /// <c>_</c> 是萬用字元，兩者會被當成同一個資料夾，於是「刪了 cam_1」的訊息會報成
+    /// 兩個頻道的段數，而鄰居的錄影其實還在。
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void 資料夾段數統計與標記口徑一致()
+    {
+        var t = new DateTime(2026, 10, 19, 10, 0, 0, DateTimeKind.Utc);
+        SeedFinal(1, @"D:\rec\cam_1\20261019\seg-100000000.mp4", t);
+        SeedFinal(1, @"D:\rec\cam_1\20261019\seg-100001000.mp4", t.AddSeconds(1));
+        SeedFinal(1, @"D:\rec\camA1\20261019\seg-100000000.mp4", t.AddSeconds(2));
+        _repo.BeginSegment(1, "main", @"D:\rec\cam_1\20261019\seg-100002000.mp4", t.AddSeconds(3));
+
+        Assert.Equal(2L, _repo.CountFinalInFolder(@"D:\rec\cam_1\20261019\"));
+
+        _repo.MarkMissingInFolder(@"D:\rec\cam_1\20261019\");
+
+        Assert.Equal(0L, _repo.CountFinalInFolder(@"D:\rec\cam_1\20261019\"));
+        Assert.Equal(1L, _repo.CountFinalInFolder(@"D:\rec\camA1\20261019\"));
     }
 
     private long SeedFinal(int channelId, string path, DateTime startUtc, long sizeBytes = 100)

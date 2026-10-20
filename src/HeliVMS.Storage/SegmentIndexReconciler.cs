@@ -1,7 +1,7 @@
 using HeliVMS.Shared.Models;
 using HeliVMS.Storage;
 
-namespace HeliVMS.Recording;
+namespace HeliVMS.Storage;
 
 /// <summary>
 /// 一輪索引對帳的結果。
@@ -51,7 +51,7 @@ public readonly record struct ReconcileReport(
 /// <para>
 /// 判定口徑只有一個：<see cref="File.Exists(string)"/>。<b>不</b>用 ffprobe 判斷，因為那會讓
 /// 對帳從「幾千次 stat」變成「幾千個外部行程」，而這條路徑每個小時都會跑；檔案損壞的偵測
-/// 由 <see cref="MediaIntegrityChecker"/> 負責，兩者互補且刻意不重疊。
+/// 由錄影模組的完整性檢查（<c>MediaIntegrityChecker</c>，ffprobe 抽查）負責，兩者互補且刻意不重疊。
 /// </para>
 /// <para>
 /// 安全閥（磁碟掉線）：只有在檔案的<b>磁碟區根目錄存在</b>時才敢說檔案不見了。D: 被拔掉時
@@ -215,6 +215,53 @@ public sealed class SegmentIndexReconciler
         }
 
         return (kept, new ReconcileReport(checkedCount, marked, unverified));
+    }
+
+    /// <summary>
+    /// 就地驗證一批資料夾（回放日曆標記粗體前用）：資料夾不存在就把底下的 final 段一次標成
+    /// missing，回傳這一輪的統計。
+    ///
+    /// <para>
+    /// 與 <see cref="Run"/> 的資料夾層級是同一段判定，差別只在資料夾清單的來源：背景對帳問整段
+    /// 歷史，這裡只問使用者正在看的那個時間窗（見 <see cref="SegmentRepository.ListFinalFoldersInRange"/>）。
+    /// 日曆粗體只看 <c>status='final'</c>，所以標完的同一輪重算粗體就會消失——不必等每小時的
+    /// 背景對帳，操作員刪完檔打開回放看到的才是真實狀態。
+    /// </para>
+    /// </summary>
+    public ReconcileReport VerifyFolders(IReadOnlyList<string> folders)
+    {
+        var checkedFolders = 0;
+        var marked = 0;
+        var unverified = 0;
+        var removedFolders = 0;
+
+        // 呼叫端可能把同一個資料夾重複傳進來（跨午夜的段、重疊窗口），重複 stat 與重複標記都是白費。
+        var handledFolders = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var folder in folders)
+        {
+            if (folder.Length == 0 || !handledFolders.Add(folder))
+            {
+                continue;
+            }
+
+            checkedFolders++;
+            if (!_isVolumeReady(folder))
+            {
+                unverified++;
+                continue;
+            }
+
+            if (Directory.Exists(folder))
+            {
+                continue;
+            }
+
+            marked += (int)_repo.CountFinalInFolder(folder + Path.DirectorySeparatorChar);
+            _repo.MarkMissingInFolder(folder + Path.DirectorySeparatorChar);
+            removedFolders++;
+        }
+
+        return new ReconcileReport(checkedFolders, marked, unverified, removedFolders);
     }
 
     /// <summary>單一檔案的存在判定；順序是「磁碟區 → 檔案」，磁碟區不在就不必再問檔案。</summary>

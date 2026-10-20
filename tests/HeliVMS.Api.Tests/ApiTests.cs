@@ -154,6 +154,21 @@ public class ApiTests : IClassFixture<ApiFactory>, IDisposable
     private T Service<T>() where T : notnull =>
         _factory.Services.GetRequiredService<T>();
 
+    /// <summary>
+    /// 寫一個真實存在的最小 fMP4 到 <see cref="ApiFactory.RootDir"/> 底下並回傳路徑。
+    ///
+    /// <para>
+    /// 區段端點現在會在查詢時對帳（檔案必須真的存在），所以測試不能再用一個沒寫檔的假路徑
+    /// 種索引——那正是「索引說有、磁碟上沒有」的情境，會被新行為正確地濾掉。
+    /// </para>
+    /// </summary>
+    private string WriteRecordingFile(string name)
+    {
+        var path = Path.Combine(_factory.RootDir, $"{name}-{Guid.NewGuid():N}.mp4");
+        File.WriteAllBytes(path, Mp4Fixture.Fmp4());
+        return path;
+    }
+
     private SqliteStore Store => Service<SqliteStore>();
 
     private long InsertMotion(string detail, DateTime? atUtc = null)
@@ -830,7 +845,8 @@ public class ApiTests : IClassFixture<ApiFactory>, IDisposable
     {
         var dayStart = DateTime.UtcNow.Date;
         var repo = Service<SegmentRepository>();
-        var segId = repo.BeginSegment(1, "main", Path.Combine(Path.GetTempPath(), "timeline.mp4"), dayStart.AddHours(9));
+        var path = WriteRecordingFile("timeline");
+        var segId = repo.BeginSegment(1, "main", path, dayStart.AddHours(9));
         repo.CompleteSegment(segId, dayStart.AddHours(10), 1024, 3600, "abc");
         var motionId = InsertMotion("timeline-event", dayStart.AddHours(9).AddMinutes(30));
         using var client = Client();
@@ -841,6 +857,28 @@ public class ApiTests : IClassFixture<ApiFactory>, IDisposable
         Assert.Single(body.Bars);
         Assert.Contains(body.Markers, m => m.EventId == motionId && m.Kind == "motion");
         Assert.True(body.GapFraction > 0 && body.GapFraction < 1, "day with one bar must not be fully gapped");
+    }
+
+    /// <summary>
+    /// 檔案被刪掉之後，時間軸不得再畫出那一條 bar：日曆／時間軸是操作員判斷「這天有沒有錄影」
+    /// 的第一個畫面，畫了 bar 卻點不出片，等於系統在說謊——而且他得逐格點才發現。
+    /// </summary>
+    [Fact]
+    public async Task RecordingTimeline_檔案被刪除後不再畫出區段()
+    {
+        var dayStart = DateTime.UtcNow.Date.AddDays(2);
+        var repo = Service<SegmentRepository>();
+        var path = WriteRecordingFile("timeline-gone");
+        var segId = repo.BeginSegment(1, "main", path, dayStart.AddHours(4));
+        repo.CompleteSegment(segId, dayStart.AddHours(5), 1024, 3600, "abc");
+        File.Delete(path);
+        using var client = Client();
+
+        var body = await ReadAsync<PlaybackTimeline>(await client.GetAsync(
+            $"/api/recording/timeline?channelId=1&stream=main&day={HttpUtility(dayStart)}"));
+
+        Assert.Empty(body.Bars);
+        Assert.Equal(SegmentStatus.Missing, repo.Get(segId)!.Status);
     }
 
     [Fact]
@@ -862,7 +900,8 @@ public class ApiTests : IClassFixture<ApiFactory>, IDisposable
     {
         var from = DateTime.UtcNow.Date.AddHours(7);
         var repo = Service<SegmentRepository>();
-        var segId = repo.BeginSegment(1, "main", Path.Combine(Path.GetTempPath(), "seg.mp4"), from.AddMinutes(20));
+        var path = WriteRecordingFile("ledger");
+        var segId = repo.BeginSegment(1, "main", path, from.AddMinutes(20));
         repo.CompleteSegment(segId, from.AddMinutes(50), 2048, 1800, "deadbeef");
         using var client = Client();
 
@@ -873,6 +912,32 @@ public class ApiTests : IClassFixture<ApiFactory>, IDisposable
         Assert.NotNull(seg);
         Assert.Equal("deadbeef", seg.Sha256);
         Assert.Equal(2048, seg.SizeBytes);
+    }
+
+    /// <summary>
+    /// 檔案被刪掉之後，遠端區段清單不得再列出該段，索引也必須被就地改成 missing。
+    ///
+    /// <para>
+    /// 這條路徑以前完全不對帳，於是遠端主控台會列出「有錄影」的時段，播放器取得清單後
+    /// 才在 init/media 吃 404，播放停在一半。這裡同時釘住兩件事：清單要誠實，索引也要被修正。
+    /// </para>
+    /// </summary>
+    [Fact]
+    public async Task RecordingSegments_檔案被刪除後不再列出且索引標成遺失()
+    {
+        var from = DateTime.UtcNow.Date.AddHours(18);
+        var repo = Service<SegmentRepository>();
+        var path = WriteRecordingFile("deleted");
+        var segId = repo.BeginSegment(1, "main", path, from.AddMinutes(20));
+        repo.CompleteSegment(segId, from.AddMinutes(50), 2048, 1800, "deadbeef");
+        File.Delete(path);
+        using var client = Client();
+
+        var body = await ReadAsync<ApiEndpoints.Paged<SegmentRecord>>(await client.GetAsync(
+            $"/api/recording/segments?channelId=1&stream=main&from={HttpUtility(from)}&to={HttpUtility(from.AddHours(3))}"));
+
+        Assert.DoesNotContain(body.Items, s => s.Id == segId);
+        Assert.Equal(SegmentStatus.Missing, repo.Get(segId)!.Status);
     }
 
     [Fact]

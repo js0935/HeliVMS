@@ -208,6 +208,70 @@ public class SegmentIndexReconcilerTests : IDisposable
         Assert.Equal(SegmentStatus.Missing, StatusOf(id));
     }
 
+    [Fact]
+    public void 指定資料夾對帳時不存在者整批標成遺失()
+    {
+        // 日曆在標粗體之前就地對帳用：只問資料夾存不存在，不逐一 stat 檔案。
+        var folder = Path.Combine(Path.GetTempPath(), $"helivms-gone-{Guid.NewGuid():N}", "20261019");
+        Seed(Path.Combine(folder, "seg-100000000.mp4"), out var idA);
+        Seed(Path.Combine(folder, "seg-100010000.mp4"), out var idB);
+
+        var reconciler = New(
+            fileExists: _ => throw new InvalidOperationException("資料夾不在時不該逐一 stat 檔案"));
+
+        var report = reconciler.VerifyFolders(new[] { folder });
+
+        Assert.Equal(1, report.FoldersRemoved);
+        Assert.Equal(2, report.MarkedMissing);
+        Assert.Equal(SegmentStatus.Missing, StatusOf(idA));
+        Assert.Equal(SegmentStatus.Missing, StatusOf(idB));
+    }
+
+    [Fact]
+    public void 資料夾還在時不標記任何段()
+    {
+        Seed(Path.Combine(_liveFolder, "seg-100000000.mp4"), out var id);
+
+        var reconciler = New(fileExists: _ => true);
+
+        var report = reconciler.VerifyFolders(new[] { _liveFolder });
+
+        Assert.Equal(0, report.FoldersRemoved);
+        Assert.Equal(0, report.MarkedMissing);
+        Assert.Equal(SegmentStatus.Final, StatusOf(id));
+    }
+
+    [Fact]
+    public void 磁碟區未就緒時資料夾不標記()
+    {
+        Seed(@"D:\rec\cam\20261019\seg-100000000.mp4", out var id);
+        var reconciler = New(
+            fileExists: _ => throw new InvalidOperationException("磁碟區不在時不該去問檔案"),
+            isVolumeReady: _ => false);
+
+        var report = reconciler.VerifyFolders(new[] { @"D:\rec\cam\20261019" });
+
+        Assert.Equal(0, report.MarkedMissing);
+        Assert.Equal(1, report.Unverified);
+        Assert.Equal(SegmentStatus.Final, StatusOf(id));
+    }
+
+    [Fact]
+    public void 重複的資料夾只檢查一次()
+    {
+        // 日曆 42 格可能有多格落在同一天（跨月檢視），重複的資料夾不該被 stat 兩次、
+        // 更不該在稽核裡把段數算兩倍。
+        var folder = Path.Combine(Path.GetTempPath(), $"helivms-gone-{Guid.NewGuid():N}", "20261019");
+        Seed(Path.Combine(folder, "seg-100000000.mp4"), out _);
+
+        var reconciler = New(fileExists: _ => false);
+
+        var report = reconciler.VerifyFolders(new[] { folder, folder, folder });
+
+        Assert.Equal(1, report.FoldersRemoved);
+        Assert.Equal(1, report.MarkedMissing);
+    }
+
     private static DateTime Utc(int seconds)
         => new DateTime(2026, 10, 19, 10, 0, 0, DateTimeKind.Utc).AddSeconds(seconds);
 

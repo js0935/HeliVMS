@@ -465,6 +465,10 @@ public partial class PlaybackWindow : Window
         IReadOnlyList<bool> has;
         if (ChannelCombo.SelectedItem is ChannelInfo ch)
         {
+            // 粗體前先就地對帳：使用者把整天的錄影資料夾刪掉之後，索引原本要等最多一小時的
+            // 背景對帳才知道；而日曆是操作員判斷「這天有沒有錄影」的第一個畫面，讓他等就是在騙他。
+            // 只涉及本月份格位對應的資料夾（一格一次 Directory.Exists），成本與標記同一等級。
+            ReconcileDayFolderExistence(ch.Id, windows);
             has = _segments.HasSegmentsInWindows(ch.Id, "main", windows);
         }
         else
@@ -689,6 +693,38 @@ public partial class PlaybackWindow : Window
             // 逐檔檢查失敗（權限、磁碟忙碌）不該讓整個回放打不開；原樣顯示，
             // 寧可暫時多列一段，也不要整個視窗只剩錯誤訊息。
             return (rows, 0, 0);
+        }
+    }
+
+    /// <summary>
+    /// 日曆粗體前的資料夾層級對帳：把「整個 yyyyMMdd 資料夾已經不在磁碟上」的日子就地標成
+    /// missing，讓同一輪重算的粗體立刻消失。
+    ///
+    /// <para>
+    /// 與 <see cref="ReconcileSegments"/> 分開是因為成本形狀不同：這裡只看目前格位涵蓋的
+    /// 資料夾（≤42 個 <c>Directory.Exists</c>），逐檔 stat 交給開日清單的那條路徑。失敗一律
+    /// 靜靜放行——日曆是輔助視覺，不值得為它擋掉整個彈窗。
+    /// </para>
+    /// </summary>
+    private void ReconcileDayFolderExistence(int channelId, IReadOnlyList<(DateTime StartUtc, DateTime EndUtc)> windows)
+    {
+        if (windows.Count == 0)
+        {
+            return;
+        }
+
+        try
+        {
+            var folders = _segments.ListFinalFoldersInRange(
+                channelId, "main", windows[0].StartUtc, windows[^1].EndUtc);
+            if (folders.Count > 0)
+            {
+                _reconciler.VerifyFolders(folders);
+            }
+        }
+        catch (Exception)
+        {
+            // 對帳失敗（權限、磁碟忙碌）不該讓日曆標不出來；照舊顯示索引的現況。
         }
     }
 

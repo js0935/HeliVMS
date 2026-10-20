@@ -853,5 +853,33 @@ public sealed class PlaybackWindowContractTests
         Assert.Contains("Playback.MissingSegments", load);
         Assert.Contains("Playback.DiskNotReady", load);
     }
+
+    /// <summary>
+    /// 日曆粗體前必須先做資料夾層級的對帳，否則「使用者刪掉整天的資料夾」要等最多一小時的
+    /// 背景對帳才會反映，而日曆正是操作員判斷「這天有沒有錄影」的第一個畫面——讓他等就是在騙他。
+    ///
+    /// <para>
+    /// 這裡守住的接縫：呼叫必須發生在 <c>HasSegmentsInWindows</c> 之前（先標記再查，粗體才會
+    /// 當場消失），且必須走 <c>ListFinalFoldersInRange</c> 把查詢收斂到本月份格位的範圍，
+    /// 不能對整個歷史掃資料夾。對帳丟例外時不可讓日曆標不出來。
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void 日曆標記前先對帳本月份資料夾存在()
+    {
+        var source = SourceContract.Read(Code);
+
+        var mark = SourceContract.BodyOf(source, "ApplyRecordingDayMarks");
+        var reconcileAt = mark.IndexOf("ReconcileDayFolderExistence", StringComparison.Ordinal);
+        var queryAt = mark.IndexOf("HasSegmentsInWindows", StringComparison.Ordinal);
+        Assert.True(reconcileAt >= 0, "ApplyRecordingDayMarks 必須先對帳資料夾存在");
+        Assert.True(
+            reconcileAt < queryAt,
+            "對帳必須在 HasSegmentsInWindows 之前：先查再標會讓被刪掉的那天這一輪仍然粗體");
+
+        var reconcile = SourceContract.BodyOf(source, "ReconcileDayFolderExistence");
+        Assert.Contains("ListFinalFoldersInRange", reconcile);
+        Assert.Contains("VerifyFolders", reconcile);
+    }
 }
 

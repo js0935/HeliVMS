@@ -1594,6 +1594,7 @@ public static class ApiEndpoints
     private static async Task HandleRecordingSegments(
         HttpContext context,
         SegmentRepository segments,
+        SegmentIndexReconciler reconciler,
         int channelId,
         string stream,
         DateTime from,
@@ -1617,7 +1618,16 @@ public static class ApiEndpoints
             return;
         }
 
-        var items = segments.ListByRange(channelId, stream, fromUtc, toUtc);
+        // 查詢時對帳（與桌面回放同一條路徑，見 SegmentIndexReconciler）：使用者把錄影磁碟上的
+        // 檔案刪掉之後，索引不會自己知道；不清單先驗一次，遠端主控台就會一直列出「有錄影」的時段，
+        // 點下去才 404。每次查詢多幾千次 stat，遠小於回應體積本身；被標成 missing 的段之後
+        // 連 stat 都不會再做（狀態已不是 final）。
+        //
+        // 先走 ListPlayableByRange（只取 final）而非 ListByRange：清單只該列可播放的錄影，
+        // tmp／corrupt／retired 混進 JSON 會讓主控台顯示點不開的列，口徑與播放清單端點一致。
+        var items = reconciler
+            .VerifyExisting(segments.ListPlayableByRange(channelId, stream, fromUtc, toUtc))
+            .Playable;
         var publicItems = items.Select(static s => new SegmentListItem(
             s.Id, s.ChannelId, s.Stream, s.StartUtc, s.EndUtc, s.SizeBytes, s.DurationSec, s.Format, s.Status, s.Sha256)).ToArray();
         await context.Response.WriteAsJsonAsync(new Paged<SegmentListItem>(publicItems, publicItems.Length));
@@ -1780,6 +1790,7 @@ public static class ApiEndpoints
     private static async Task HandleStreamPlaylist(
         HttpContext context,
         SegmentRepository segments,
+        SegmentIndexReconciler reconciler,
         int channelId,
         string stream,
         DateTime from,
@@ -1799,7 +1810,13 @@ public static class ApiEndpoints
             return;
         }
 
-        var items = segments.ListByRange(channelId, stream, fromUtc, toUtc);
+        // 只把真的還在磁碟上的 final 段寫進清單：tmp（正在寫）、corrupt、missing 一旦出現在
+        // #EXTINF 序列裡，播放器會在該片請求 init/media 時吃 404 而整段卡住——清單說有、
+        // 播放卻停在中間，比整段沒有錄影更難判斷。查閱時對帳同時修正索引（同上）。
+        // ListPlayableByRange 已只取 final，對帳再把檔案不存在的剔除。
+        var items = reconciler
+            .VerifyExisting(segments.ListPlayableByRange(channelId, stream, fromUtc, toUtc))
+            .Playable;
         if (items.Count == 0)
         {
             await WriteError(context, StatusCodes.Status404NotFound, "此時段沒有錄影");
@@ -1912,6 +1929,7 @@ public static class ApiEndpoints
     private static async Task HandleRecordingTimeline(
         HttpContext context,
         SegmentRepository segments,
+        SegmentIndexReconciler reconciler,
         AlarmEventRepository events,
         int channelId,
         string stream,
@@ -1919,7 +1937,12 @@ public static class ApiEndpoints
     {
         var dayStart = Utc(day);
         var dayEnd = dayStart.AddSeconds(PlaybackTimeline.DaySeconds);
-        var segs = segments.ListByRange(channelId, stream, dayStart, dayEnd);
+
+        // 時間軸欄位＝「點得下去看得到畫面」，口徑必須與播放清單一致：先對帳再只取 final，
+        // 否則已刪掉的錄影在時間軸上仍是一整條藍 bar，點下去卻沒有片可播。
+        var segs = reconciler
+            .VerifyExisting(segments.ListPlayableByRange(channelId, stream, dayStart, dayEnd))
+            .Playable;
         var evs = events.ListByRange(channelId, dayStart, dayEnd);
         var timeline = PlaybackTimelineBuilder.Build(segs, evs, dayStart);
         await context.Response.WriteAsJsonAsync(timeline);

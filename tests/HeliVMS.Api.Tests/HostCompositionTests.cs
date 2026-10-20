@@ -34,9 +34,16 @@ public sealed class HostCompositionTests
                 nameof(LiveStreamMaintenance),
                 HostedServiceNames(new WebApiHostOptions { IncludeHostedServices = false }, dbPath));
 
+            // 索引對帳服務同理：內嵌主機（桌面）已有自己的維護迴圈會對帳，掛上去只會讓兩個
+            // 對帳器同時掃同一份索引；但獨立 Web 部署沒有桌面，索引不會自己修，所以必須掛。
+            Assert.DoesNotContain(
+                nameof(SegmentReconcileService),
+                HostedServiceNames(new WebApiHostOptions { IncludeHostedServices = false }, dbPath));
+
             var standalone = HostedServiceNames(new WebApiHostOptions { IncludeHostedServices = true }, dbPath);
             Assert.Contains(nameof(RetentionService), standalone);
             Assert.Contains(nameof(LiveStreamMaintenance), standalone);
+            Assert.Contains(nameof(SegmentReconcileService), standalone);
         }
         finally
         {

@@ -81,6 +81,10 @@ public static class WebApiHost
         builder.Services.AddSingleton(static sp => new EventSearchRepository(sp.GetRequiredService<SqliteStore>()));
         builder.Services.AddSingleton(static sp => new UnifiedEventSearch(sp.GetRequiredService<SqliteStore>()));
         builder.Services.AddSingleton(static sp => new SegmentRepository(sp.GetRequiredService<SqliteStore>()));
+        // 錄影索引對帳器：遠端回放的清單／時間軸／播放清單在查詢當下驗證檔案還在不在
+        //（與桌面回放同一個類別、同一條判定），讓「磁碟上的錄影被刪掉但索引還在」不會
+        // 在任何一個介面繼續謊報。背景每小時對帳見 SegmentReconcileService。
+        builder.Services.AddSingleton(static sp => new SegmentIndexReconciler(sp.GetRequiredService<SegmentRepository>()));
         builder.Services.AddSingleton(static sp => new ExportReceiptService(sp.GetRequiredService<SqliteStore>()));
         builder.Services.AddSingleton(static sp => new UserRepository(sp.GetRequiredService<SqliteStore>()));
         builder.Services.AddSingleton(static sp => new SettingsRepository(sp.GetRequiredService<SqliteStore>()));
@@ -119,6 +123,11 @@ public static class WebApiHost
         if (options.IncludeHostedServices)
         {
             builder.Services.AddHostedService(sp => sp.GetRequiredService<RetentionService>());
+
+            // 純 Web 部署沒有桌面也沒有 Agent，索引對帳必須自己跑（見 SegmentReconcileService）。
+            // 內嵌主機（IncludeHostedServices=false）由桌面的保留迴圈負責，不會重複。
+            builder.Services.AddSingleton<SegmentReconcileService>();
+            builder.Services.AddHostedService(sp => sp.GetRequiredService<SegmentReconcileService>());
         }
 
         builder.Services.AddSingleton(static sp => new EvidenceManifestRepository(sp.GetRequiredService<SqliteStore>()));

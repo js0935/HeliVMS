@@ -1,10 +1,8 @@
-using HeliVMS.Storage;
-
-namespace HeliVMS.Recording;
+namespace HeliVMS.Storage;
 
 /// <summary>
-/// 索引對帳的協調入口：桌面與 Headless Agent 共用同一個入口，理由與
-/// <see cref="MediaIntegrityCoordinator"/> 相同——兩邊各自實作一次，遲早會有一邊漏掉。
+/// 索引對帳的協調入口：桌面、Headless Agent 與獨立 WebApi 共用同一個入口，理由與
+/// 錄影完整性檢查的協調器相同——兩邊各自實作一次，遲早會有一邊漏掉。
 ///
 /// <para>
 /// 這裡負責 <see cref="SegmentIndexReconciler"/> 刻意不管的事：依共用設定決定每輪逐檔檢查幾個段、

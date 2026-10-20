@@ -86,10 +86,14 @@ public sealed class SegmentRecorderTests : IDisposable
         Assert.Equal(factory.Processes[0].Output.Length, (int)stored.SizeBytes);
         // 結束時間與長度取自真實收尾時刻（見 SegmentRecorder），不再固定等於設定秒數，
         // 兩者必須彼此一致。
+        //
+        // 比對前先對齊到索引的儲存精度：Iso() 只寫到毫秒，而同一個角落時間點算出的
+        // DurationSec 帶次毫秒尾數，直接比會差 0.0002 秒而讓這個契約測試變得隨機
+        // （收尾剛好跨毫秒邊界時才失敗）。量的是「兩者一致」，不是時鐘的解析度。
         Assert.NotNull(stored.EndUtc);
         Assert.Equal(
-            (stored.EndUtc!.Value - stored.StartUtc).TotalSeconds,
-            stored.DurationSec!.Value,
+            Math.Round((stored.EndUtc!.Value - stored.StartUtc).TotalSeconds, 3),
+            Math.Round(stored.DurationSec!.Value, 3),
             2);
         Assert.Equal(Sha256Of(factory.Processes[0].Output), stored.Sha256);
 
