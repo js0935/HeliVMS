@@ -125,7 +125,10 @@ public sealed class RecordingScheduler : IDisposable
     private long DefaultObservedBps(int channelId)
     {
         var now = DateTime.UtcNow;
-        var segments = _segments.ListByRange(channelId, "main", now - QualityWindow, now);
+        // 只認 final（ListPlayableByRange）：ListByRange 會把 missing／corrupt／tmp 也回傳，
+        // 而 ObservedBitrateEstimator 只憑大小與長度取樣、不看狀態，被刪除的段會被算成實際流量，
+        // 讓頻寬治理依一個磁碟上不存在的碼率去分配——最該省頻寬時反而分錯。
+        var segments = _segments.ListPlayableByRange(channelId, "main", now - QualityWindow, now);
         return ObservedBitrateEstimator.ForChannel(channelId, segments).ObservedBps;
     }
 

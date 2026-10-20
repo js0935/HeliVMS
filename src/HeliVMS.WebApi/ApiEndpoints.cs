@@ -629,13 +629,17 @@ public static class ApiEndpoints
         });
 
         api.MapGet("/config/usage", static (RetentionService retention) =>
-            Results.Ok(new UsageResponse(
-                retention.UsageBytes,
-                retention.UsageBytes / 1073741824.0,
+        {
+            // 顯數前先做一次資料夾層級對帳：外部刪檔後用量不會再慢一小時才對（見 ReconcileUsage）。
+            var used = retention.ReconcileUsage();
+            return Results.Ok(new UsageResponse(
+                used,
+                used / 1073741824.0,
                 retention.RetentionDays,
                 retention.WatermarkGb,
                 retention.AlarmRetentionDays,
-                retention.AuditRetentionDays)));
+                retention.AuditRetentionDays));
+        });
 
         api.MapPost("/retention/run", static (RetentionService retention) =>
         {

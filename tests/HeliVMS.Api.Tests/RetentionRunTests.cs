@@ -237,6 +237,28 @@ public sealed class RetentionRunTests : IDisposable
         Assert.Contains(logger.Entries, e => e.Level == LogLevel.Error);
     }
 
+    /// <summary>
+    /// 顯數前對帳：/config/usage 的用量必須反映磁碟實況，不能把已刪除的錄影一直算進去。
+    ///
+    /// 現場症狀：管理員在磁碟上把某天的錄影資料夾刪掉，用量頁仍顯示那些位元組，
+    /// 直到最多一小時後的背景對帳才修正，期間操作員會誤判「離配額還很遠」。
+    /// 這裡把整天的資料夾刪掉後直接呼叫 ReconcileUsage，用量必須立刻下降。
+    /// </summary>
+    [Fact]
+    public void ReconcileUsage_整天資料夾被刪除後用量立刻反映()
+    {
+        var (file, _, _) = SeedSegment(daysOld: 1, sizeBytes: 5_000, channelDir: "ch001");
+        var dir = Path.GetDirectoryName(file)!;
+        Assert.Equal(5_000L, _segments.GetTotalUsage());
+
+        Directory.Delete(dir, recursive: true);
+
+        var usage = new RetentionService(_store, _holds, _root).ReconcileUsage();
+
+        Assert.Equal(0L, usage);
+        Assert.Empty(_segments.ListFinal(1));
+    }
+
     private sealed class CapturingLogger<T> : ILogger<T>
     {
         public List<(LogLevel Level, string Message)> Entries { get; } = [];

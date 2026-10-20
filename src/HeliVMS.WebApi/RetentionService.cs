@@ -75,6 +75,35 @@ public sealed class RetentionService : BackgroundService
 
     public long UsageBytes => _segments.GetTotalUsage();
 
+    /// <summary>
+    /// 顯數前先把「索引說有、磁碟上沒有」的段標成 missing，再回傳用量。
+    ///
+    /// <para>
+    /// <see cref="UsageBytes"/> 只讀 <c>segments</c> 表的 final 段；外部刪檔之後那個數字會一直
+    /// 偏高，直到每小時的背景對帳跑完（<see cref="SegmentReconcileService"/>）。用量是操作員
+    /// 拿來判斷「離配額還有多遠」的數字，慢一小時才對會直接導致誤判。這裡跑的是資料夾層級
+    /// （<see cref="SegmentIndexReconciler.ReconcileFolders"/>）：整段歷史幾百到幾千次
+    /// <c>Directory.Exists</c>，不逐檔 stat，所以掛在一個查詢端點上成本可接受。
+    /// </para>
+    /// <para>
+    /// 對帳失敗（磁碟忙碌、庫被鎖）不該讓用量查詢整個 500：退回未對帳的數字，
+    /// 下一輪背景對帳仍會修正索引。
+    /// </para>
+    /// </summary>
+    public long ReconcileUsage()
+    {
+        try
+        {
+            new SegmentIndexReconciler(_segments).ReconcileFolders();
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogWarning(ex, "顯數前的資料夾層級對帳失敗，回報未對帳的用量。");
+        }
+
+        return UsageBytes;
+    }
+
     public RetentionRun RunOnce(DateTime nowUtc)
     {
         _allowedRoots = BuildAllowedRoots();

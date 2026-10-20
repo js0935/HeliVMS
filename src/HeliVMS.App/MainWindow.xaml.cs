@@ -3283,7 +3283,10 @@ public partial class MainWindow : Window
         try
         {
             var fromUtc = DateTime.UtcNow.AddHours(-1);
-            var segments = new SegmentRepository(_store).ListByRange(channelId, "main", fromUtc, DateTime.UtcNow);
+            // 用 ListPlayableByRange（只認 final）而不是 ListByRange：後者為了對帳也回傳
+            // missing／corrupt／tmp，而 ObservedBitrateEstimator 只看大小與長度、不看狀態，
+            // 一個已被刪除的段照樣會被算進「實測碼率」，診斷面板就會顯示磁碟上根本不存在的流量。
+            var segments = new SegmentRepository(_store).ListPlayableByRange(channelId, "main", fromUtc, DateTime.UtcNow);
             var result = ObservedBitrateEstimator.ForChannel(channelId, segments);
             return result.SampleCount > 0 ? result : null;
         }
