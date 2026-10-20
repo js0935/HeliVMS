@@ -259,6 +259,35 @@ public sealed class RetentionRunTests : IDisposable
         Assert.Empty(_segments.ListFinal(1));
     }
 
+    /// <summary>
+    /// 浮水印清理必須先對帳再判斷超額。
+    ///
+    /// 現場症狀：管理員在磁碟上刪掉某天的資料夾，索引的最終用量仍把那些位元組算進去。
+    /// 浮水印分支依這個虛高數字刪最舊的 final 段，於是為了把「索引數字」壓到浮水印以下，
+    /// 刪掉了另一天磁碟上還存在的真實錄影——磁碟從來沒滿，卻刪掉了調查證據。
+    /// 對帳後幽靈段先被排除，真實段低於浮水印，不該被刪。
+    /// </summary>
+    [Fact]
+    public void RunOnce_浮水印不為幽靈用量刪掉真實錄影()
+    {
+        _settings.Set(RetentionService.DaysKey, "0");
+
+        // 兩個 4,000 bytes 的段；浮水印約 5,000 bytes：
+        // 不對帳時用量 8,000 > 5,000 會刪最舊的真實段；對帳後用量 4,000 ≤ 5,000，不該刪。
+        _settings.Set(
+            RetentionService.WatermarkGbKey,
+            (5_000 / 1073741824.0).ToString(System.Globalization.CultureInfo.InvariantCulture));
+
+        var (phantom, _, _) = SeedSegment(daysOld: 1, sizeBytes: 4_000, channelDir: "ch-phantom");
+        var (real, _, _) = SeedSegment(daysOld: 2, sizeBytes: 4_000, channelDir: "ch-real");
+        Directory.Delete(Path.GetDirectoryName(phantom)!, recursive: true);
+
+        var run = new RetentionService(_store, _holds, _root).RunOnce(DateTime.UtcNow);
+
+        Assert.Equal(0, run.WatermarkPurged);
+        Assert.True(File.Exists(real), "磁碟上還存在的真實錄影不該為了幽靈用量被刪");
+    }
+
     private sealed class CapturingLogger<T> : ILogger<T>
     {
         public List<(LogLevel Level, string Message)> Entries { get; } = [];

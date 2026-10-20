@@ -64,6 +64,22 @@ public sealed class RetentionService
     public RetentionReport Apply(long quotaBytes, DateTime? nowUtc = null)
     {
         var now = nowUtc ?? DateTime.UtcNow;
+
+        // 汰除前先做一次資料夾層級對帳（只認 final 資料夾，不逐檔 stat）。
+        //
+        // 為什麼一定要在「刪檔」前做：GetTotalUsage 只讀 segments 表的 final 段，外部刪檔後
+        // 那個數字會虛高；若直接拿它判斷超額，就會為了把「索引數字」壓到配額以下而刪掉磁碟上
+        // 真正還在的錄影——磁碟從來沒滿，卻刪掉了調查證據。先對帳讓用量反映磁碟實況，
+        // 才不會用幽靈位元組逼真的檔案讓路。對帳失敗不影響清理主線，退回未對帳的口徑。
+        try
+        {
+            new SegmentIndexReconciler(_repo).ReconcileFolders();
+        }
+        catch (Exception)
+        {
+            // 磁碟忙碌、權限或庫被鎖：用現有索引數字繼續，下一圈再對帳。
+        }
+
         long usage = _repo.GetTotalUsage();
         long freed = 0;
         var deleted = 0;

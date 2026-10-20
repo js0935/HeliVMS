@@ -191,6 +191,36 @@ public class RetentionServiceTests : IDisposable
         Assert.Equal(4_000L, report.UsedBytes);
     }
 
+    [Fact]
+    public void Apply_DeletedFolderIsReconciled_DoesNotDeleteRealEvidenceForPhantomUsage()
+    {
+        // 現場症狀：管理員在磁碟上刪掉了 ch002 整天的資料夾，但索引要到下一輪對帳才會標 missing。
+        // 在那之前配額清理看到「用量超額」是幽靈位元組，於是刪掉 ch001 還在磁碟上的真實錄影——
+        // 磁碟從來沒滿，卻刪掉了調查證據。Apply 必須先對帳再判斷是否超額。
+        var phantom = SeedReturningPath("ch002", 0, 4_000);
+        var real = SeedReturningPath("ch001", 60, 4_000);
+        Directory.Delete(Path.GetDirectoryName(phantom)!, recursive: true);
+
+        var svc = new RetentionService(_repo, _root);
+        var report = svc.Apply(quotaBytes: 4_500, nowUtc: DateTime.UtcNow);
+
+        Assert.Equal(0, report.DeletedSegments);
+        Assert.True(File.Exists(real), "磁碟上還存在的錄影不該為了幽靈用量被刪");
+    }
+
+    private string SeedReturningPath(string channelDir, double offsetSeconds, long sizeBytes)
+    {
+        var dir = Path.Combine(_root, channelDir);
+        Directory.CreateDirectory(dir);
+        var path = Path.Combine(dir, $"seg-{offsetSeconds:000}.mp4");
+        File.WriteAllBytes(path, new byte[sizeBytes]);
+
+        var start = DateTime.UtcNow.AddMinutes(-10).AddSeconds(-offsetSeconds);
+        var id = _repo.BeginSegment(channelDir == "ch001" ? 1 : 2, "main", path, start);
+        _repo.CompleteSegment(id, start.AddSeconds(60), sizeBytes, 60, new string('c', 64));
+        return path;
+    }
+
     private void Seed(string channelDir, double offsetSeconds, long sizeBytes)
     {
         var dir = Path.Combine(_root, channelDir);

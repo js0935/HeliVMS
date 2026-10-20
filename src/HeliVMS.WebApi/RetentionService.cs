@@ -107,6 +107,19 @@ public sealed class RetentionService : BackgroundService
     public RetentionRun RunOnce(DateTime nowUtc)
     {
         _allowedRoots = BuildAllowedRoots();
+
+        // 汰除前先做一次資料夾層級對帳：下面浮水印分支會依 GetTotalUsage 的數字刪「真實」檔案，
+        // 而那個數字只讀 segments 表的 final 段，外部刪檔後會虛高。不對帳就直接刪，等於為了把
+        // 索引數字壓到浮水印以下，去刪磁碟上根本還在的錄影。對帳失敗不影響清理主線。
+        try
+        {
+            new SegmentIndexReconciler(_segments).ReconcileFolders();
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogWarning(ex, "清理前的資料夾層級對帳失敗，以現有索引用量繼續清理。");
+        }
+
         var days = RetentionDays;
         var watermark = WatermarkGb;
         var alarmDays = AlarmRetentionDays;
