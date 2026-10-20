@@ -272,6 +272,26 @@ public class SegmentIndexReconcilerTests : IDisposable
         Assert.Equal(1, report.MarkedMissing);
     }
 
+    [Fact]
+    public void 只跑資料夾層級時涵蓋整個索引且不逐檔stat()
+    {
+        // 用量統計（設定中心「儲存」頁）用：數字要對，但不能背逐檔 stat 的成本。
+        // 這裡種兩個不同日期的資料夾，一個還在、一個已被刪除；只跑資料夾層級時，
+        // 不存在的那個要被標成 missing，還在的不動，而且全程不該問單一檔案。
+        var gone = Path.Combine(Path.GetTempPath(), $"helivms-gone-{Guid.NewGuid():N}", "20261018");
+        Seed(Path.Combine(gone, "seg-100000000.mp4"), out var goneId);
+        Seed(Path.Combine(_liveFolder, "seg-100000000.mp4"), out var liveId);
+
+        var reconciler = New(
+            fileExists: _ => throw new InvalidOperationException("只跑資料夾層級時不該逐一 stat 檔案"));
+
+        var report = reconciler.ReconcileFolders();
+
+        Assert.Equal(1, report.FoldersRemoved);
+        Assert.Equal(SegmentStatus.Missing, StatusOf(goneId));
+        Assert.Equal(SegmentStatus.Final, StatusOf(liveId));
+    }
+
     private static DateTime Utc(int seconds)
         => new DateTime(2026, 10, 19, 10, 0, 0, DateTimeKind.Utc).AddSeconds(seconds);
 

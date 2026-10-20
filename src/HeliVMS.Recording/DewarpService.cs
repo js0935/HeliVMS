@@ -55,6 +55,20 @@ public sealed class DewarpService
             throw new InvalidOperationException("所選範圍無錄影段落可供矯正。");
         }
 
+        // 與匯出同一條理由：concat 清單只要有一個檔案不在磁碟上，ffmpeg 就整批失敗，
+        // 使用者看到的是「矯正壞了」而不是「其中幾段被刪了」。索引對帳（SegmentIndexReconciler）
+        // 會把這些段標成 missing，但矯正不能等那一輪，當下就要把缺檔剔除。
+        var skipped = segments.RemoveAll(s => !File.Exists(s.FilePath));
+        if (segments.Count == 0)
+        {
+            throw new InvalidOperationException("所選範圍的錄影檔案已不存在於磁碟。");
+        }
+
+        if (skipped > 0)
+        {
+            progress?.Report(new ExportProgress(4, $"已略過 {skipped} 段不存在的錄影。"));
+        }
+
         var filter = DewarpFilter.Build(request.Settings);
 
         var outputDir = Path.GetDirectoryName(request.OutputPath);

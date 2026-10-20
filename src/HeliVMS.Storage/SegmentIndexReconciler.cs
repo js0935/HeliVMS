@@ -264,6 +264,31 @@ public sealed class SegmentIndexReconciler
         return new ReconcileReport(checkedFolders, marked, unverified, removedFolders);
     }
 
+    /// <summary>
+    /// 只跑「資料夾層級」的一輪對帳：對整個索引問一次 final 資料夾清單，資料夾不存在就把
+    /// 底下的 final 段標成 missing。
+    ///
+    /// <para>
+    /// 供「用量統計、配額顯示」這類只要數字對、不想背逐檔 stat 成本的呼叫端用（<see cref="Run"/>
+    /// 的資料夾層級那一段）。成本只與「天數 × 頻道數」有關，且是同步可接受的量：整段歷史的
+    /// 資料夾也就幾百到幾千個 <c>Directory.Exists</c>。逐檔那一段（<see cref="Run"/> 的第二階段）
+    /// 仍然只有背景對帳會跑。
+    /// </para>
+    /// </summary>
+    public ReconcileReport ReconcileFolders()
+    {
+        var folders = new List<string>();
+        foreach (var (folder, _) in _repo.ListFinalFolders())
+        {
+            if (folder.Length > 0)
+            {
+                folders.Add(folder);
+            }
+        }
+
+        return VerifyFolders(folders);
+    }
+
     /// <summary>單一檔案的存在判定；順序是「磁碟區 → 檔案」，磁碟區不在就不必再問檔案。</summary>
     private FileVerdict CheckFile(SegmentRecord row)
     {

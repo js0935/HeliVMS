@@ -2014,6 +2014,19 @@ public partial class SettingsWindow : Window
     /// </summary>
     private void ReloadUsage()
     {
+        // 先做一輪「只要資料夾層級」的索引對帳，再算 SUM：使用者把錄影從磁碟刪掉後，索引要到
+        // 下一輪對帳才標 missing，在那之前這裡顯示的用量、段數都會把已刪除的段算進去，看起來像
+        // 「明明刪了卻還佔著」。資料夾層級只問「天數 × 頻道數」個 Directory.Exists，成本與整段
+        // 歷史無關，同步跑在使用者按下「儲存」頁時是可接受的量。逐檔 stat 仍留給背景對帳。
+        try
+        {
+            new SegmentIndexReconciler(new SegmentRepository(_store)).ReconcileFolders();
+        }
+        catch (Exception)
+        {
+            // 對帳失敗（權限、磁碟忙碌）不該讓用量頁打不開；照索引現況顯示。
+        }
+
         var (total, count) = new SegmentRepository(_store).GetTotalUsageSummary();
         UsageText.Text = string.Format(Localizer.T("Settings.UsageText"), FormatBytes(total), count, QuotaGbFromStore());
     }

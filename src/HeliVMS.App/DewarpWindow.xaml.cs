@@ -33,16 +33,18 @@ public partial class DewarpWindow : Window
         ChannelCombo.ItemsSource = channels;
         ChannelCombo.DisplayMemberPath = nameof(ChannelInfo.Name);
         var segRepo = new SegmentRepository(store);
+        // 預設範圍與預設頻道都以「還在磁碟上」的段為準：使用者把錄影刪掉後，索引要到下一輪
+        // 對帳才會標成 missing，這裡若只讀 final 會挑到已刪除的段，一按預覽就失敗。
         var index = channelId.HasValue
             ? channels.FindIndex(c => c.Id == channelId.Value)
-            : channels.FindIndex(c => segRepo.ListFinal(c.Id).Count > 0);
+            : channels.FindIndex(c => segRepo.ListFinal(c.Id).Any(s => File.Exists(s.FilePath)));
         ChannelCombo.SelectedIndex = index >= 0 ? index : (channels.Count > 0 ? 0 : -1);
 
         var defStart = fromUtc;
         var defEnd = toUtc;
         if (!defStart.HasValue && ChannelCombo.SelectedItem is ChannelInfo sel)
         {
-            var finals = segRepo.ListFinal(sel.Id);
+            var finals = segRepo.ListFinal(sel.Id).Where(s => File.Exists(s.FilePath)).ToList();
             if (finals.Count > 0)
             {
                 defStart = finals[0].StartUtc;
@@ -108,7 +110,8 @@ public partial class DewarpWindow : Window
         }
 
         var segments = new SegmentRepository(_store)
-            .ListByRange(ch.Id, "main", startUtc, endUtc)
+            .ListPlayableByRange(ch.Id, "main", startUtc, endUtc)
+            .Where(s => File.Exists(s.FilePath))
             .OrderBy(s => s.StartUtc)
             .ToList();
         if (segments.Count == 0)

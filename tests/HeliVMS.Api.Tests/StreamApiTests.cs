@@ -358,6 +358,45 @@ public sealed class StreamApiTests : IClassFixture<StreamApiFactory>, IDisposabl
         Assert.Equal(SegmentStatus.Final, Segments.Get(aliveId)!.Status);
     }
 
+    /// <summary>
+    /// 使用者把「整天的資料夾」從磁碟刪掉（換硬碟、清空間的實際形狀）之後，三個查詢端點都要
+    /// 立刻不再列出那天的錄影。
+    ///
+    /// <para>
+    /// 這是現場回報最直接的情境：D: 上的日期資料夾整個不見，回放仍說那天有錄影。逐檔刪檔
+    /// 已有覆蓋，這裡補上「資料夾整層消失」——對帳走的是同一個 <c>File.Exists</c> 判定，
+    /// 但入口不同，值得各自釘住。三個端點（清單／播放清單／時間軸）口徑必須一致。
+    /// </para>
+    /// </summary>
+    [Fact]
+    public async Task 整天資料夾被刪除後三個端點都不再列出()
+    {
+        var from = DateTime.UtcNow.Date.AddHours(15);
+        var folder = Path.Combine(_factory.RecordingsDir, "cam1-20261019");
+        Directory.CreateDirectory(folder);
+        var path = _factory.WriteSegment(folder, $"seg-{Guid.NewGuid():N}.mp4", SyntheticFmp4());
+        var id = Segments.BeginSegment(1, "main", path, from);
+        Segments.CompleteSegment(id, from.AddSeconds(15), 128, 15, "sha");
+        Directory.Delete(folder, recursive: true);
+        using var client = Client();
+
+        var playlist = await client.GetAsync(
+            $"/api/stream/1/playlist.m3u8?stream=main&from={HttpUtility(from)}&to={HttpUtility(from.AddHours(1))}");
+        var ledger = System.Text.Json.JsonSerializer.Deserialize<ApiEndpoints.Paged<ApiEndpoints.SegmentListItem>>(
+            await client.GetStringAsync(
+                $"/api/recording/segments?channelId=1&stream=main&from={HttpUtility(from)}&to={HttpUtility(from.AddHours(1))}"),
+            new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web))!;
+        var timeline = System.Text.Json.JsonSerializer.Deserialize<PlaybackTimeline>(
+            await client.GetStringAsync(
+                $"/api/recording/timeline?channelId=1&stream=main&day={HttpUtility(DateTime.UtcNow.Date)}"),
+            new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web))!;
+
+        Assert.Equal(HttpStatusCode.NotFound, playlist.StatusCode);
+        Assert.DoesNotContain(ledger.Items, s => s.Id == id);
+        Assert.DoesNotContain(timeline.Bars, b => b.SegmentId == id);
+        Assert.Equal(SegmentStatus.Missing, Segments.Get(id)!.Status);
+    }
+
     [Fact]
     public async Task DeletedSegmentFileIs404()
     {
