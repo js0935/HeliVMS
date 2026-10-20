@@ -877,6 +877,16 @@ public sealed class PlaybackWindowContractTests
             reconcileAt < queryAt,
             "對帳必須在 HasSegmentsInWindows 之前：先查再標會讓被刪掉的那天這一輪仍然粗體");
 
+        // 不能只驗字串存在：把呼叫註解掉（// ReconcileDayFolderExistence(...)）時上面兩個
+        // IndexOf 仍會命中，契約就變成裝飾品。這裡要求它是一行真正的敘述句。
+        var callLine = mark
+            .Split('\n')
+            .Select(line => line.Trim())
+            .FirstOrDefault(line => line.StartsWith("ReconcileDayFolderExistence(", StringComparison.Ordinal));
+        Assert.True(
+            callLine is not null,
+            "ApplyRecordingDayMarks 必須真的呼叫 ReconcileDayFolderExistence（不能只是註解或宣告）");
+
         var reconcile = SourceContract.BodyOf(source, "ReconcileDayFolderExistence");
         Assert.Contains("ListFinalFoldersInRange", reconcile);
         Assert.Contains("VerifyFolders", reconcile);
