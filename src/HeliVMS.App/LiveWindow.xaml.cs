@@ -20,13 +20,23 @@ namespace HeliVMS.App;
 /// 多開一條 RTSP 連線，操作員連點幾個圖釘就會讓同一台攝影機的連線數暴增，也多吃一份解碼
 /// CPU。只有在主視窗沒有該頻道的監看時（例如地圖由事件中心開啟、沒有管理器可用）才自建
 /// <see cref="RtspClient"/>，並且由本視窗負責把它關掉。
+///
+/// <para>
+/// 視窗刻意是「小視窗」而非滿版：地圖的用途是一邊看平面圖一邊確認某個點位有沒有事，
+/// 全螢幕會把剛點的那張地圖整個蓋掉，操作員得先關窗才回得到地圖。多開幾個圖釘時以
+/// 階梯錯位排開，才不會疊成一張只看到最後開的那個。
+/// </para>
 /// </remarks>
 public partial class LiveWindow : Window
 {
+    /// <summary>目前開著的即時畫面數量；只用來決定新視窗的錯位量。僅在 UI 執行緒存取。</summary>
+    private static int _openCount;
+
     private readonly SqliteStore _store;
     private readonly ChannelRepository _channels;
     private readonly int _channelId;
     private readonly ChannelManager? _manager;
+    private readonly int _cascadeIndex;
 
     /// <summary>只保留一張待畫影格；繪圖跟不上時直接丟掉舊的，避免畫面愈拖愈舊。</summary>
     private readonly LatestFrameSlots<VideoFrame> _pendingFrames = new(1);
@@ -42,13 +52,88 @@ public partial class LiveWindow : Window
         _channels = new ChannelRepository(store);
         _channelId = channelId;
         _manager = manager;
+        _cascadeIndex = _openCount++;
 
         InitializeComponent();
         ApplyI18n();
         Retitle();
 
-        Loaded += (_, _) => _ = StartAsync();
+        Loaded += (_, _) =>
+        {
+            CascadeFromCenter();
+            _ = StartAsync();
+        };
         KeyDown += OnKeyDown;
+    }
+
+    /// <summary>
+    /// 第二個以後的視窗往右下錯開。少了這段，從地圖連開三個圖釘只會看到最上面那一張，
+    /// 另外兩個完全被蓋住，看起來像「點了沒反應」。
+    /// </summary>
+    private void CascadeFromCenter()
+    {
+        if (_cascadeIndex <= 0)
+        {
+            return;
+        }
+
+        // 最多錯開 6 階，再多的話視窗會跑到螢幕外。
+        var step = 26.0 * Math.Min(_cascadeIndex, 6);
+        Left += step;
+        Top += step;
+
+        var area = SystemParameters.WorkArea;
+        if (Left + Width > area.Right)
+        {
+            Left = Math.Max(area.Left, area.Right - Width);
+        }
+
+        if (Top + Height > area.Bottom)
+        {
+            Top = Math.Max(area.Top, area.Bottom - Height);
+        }
+    }
+
+    /// <summary>
+    /// 拖曳自繪標題列移動視窗（無邊框視窗沒有系統標題列可按）。
+    /// </summary>
+    /// <remarks>
+    /// 標題列上還有「回放」與「關閉」兩顆按鈕。事件會從按鈕冒泡到標題列，若直接在
+    /// 標題列啟動 <see cref="Window.DragMove"/>，它會接管滑鼠捕獲並吃掉隨後的 Click，
+    /// 按鈕看起來就完全沒反應——所以碰到按鈕就放行。
+    /// </remarks>
+    private void OnHeaderDrag(object sender, MouseButtonEventArgs e)
+    {
+        if (e.ButtonState != MouseButtonState.Pressed || FindButton(e.OriginalSource as DependencyObject) is not null)
+        {
+            return;
+        }
+
+        try
+        {
+            DragMove();
+        }
+        catch (InvalidOperationException)
+        {
+            // 使用者在 DragMove 之前就放開滑鼠時會擲；不影響任何狀態。
+        }
+    }
+
+    private static System.Windows.Controls.Button? FindButton(DependencyObject? node)
+    {
+        while (node is not null)
+        {
+            if (node is System.Windows.Controls.Button button)
+            {
+                return button;
+            }
+
+            node = node is Visual or System.Windows.Media.Media3D.Visual3D
+                ? VisualTreeHelper.GetParent(node)
+                : LogicalTreeHelper.GetParent(node);
+        }
+
+        return null;
     }
 
     /// <summary>依現況語言套用標題、按鈕與說明（M57）。</summary>
@@ -320,6 +405,7 @@ public partial class LiveWindow : Window
     {
         _closing = true;
         _pendingFrames.Clear();
+        _openCount = Math.Max(0, _openCount - 1);
 
         // 借來的工作階段屬於主視窗，只能退訂，不能停掉或釋放，否則關掉地圖圖釘的即時畫面
         // 會順手把監看牆上同一路畫面也弄黑。

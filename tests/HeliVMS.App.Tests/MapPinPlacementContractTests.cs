@@ -69,4 +69,27 @@ public sealed class MapPinPlacementContractTests
         Assert.Contains("ChannelSessionFor(", source);
         Assert.Contains("IsMonitoring", source);
     }
+
+    /// <summary>
+    /// 圖釘單擊的即時畫面是小視窗，不是全螢幕。
+    ///
+    /// 這裡守的是操作流程而不是外觀：地圖的用途是「一邊看平面圖、一邊確認某個點位的畫面」，
+    /// 一旦即時畫面佔滿整個螢幕，剛點的那張地圖就被蓋掉，操作員得先關窗才回得到地圖，
+    /// 連續巡幾個點位變成開窗／關窗的體操。無邊框視窗沒有系統標題列可拖曳，所以拖曳也
+    /// 必須自己接——否則小視窗會固定釘在畫面中央，擋住它正在被對照的那塊地圖。
+    /// </summary>
+    [Fact]
+    public void 圖釘單擊的即時畫面是小視窗而不是全螢幕()
+    {
+        var xaml = SourceContract.Read("src/HeliVMS.App/LiveWindow.xaml");
+
+        Assert.DoesNotContain("WindowState=", xaml);
+
+        var width = System.Text.RegularExpressions.Regex.Match(xaml, @"\bWidth=""(\d+)""");
+        Assert.True(width.Success, "LiveWindow.xaml 必須明確指定視窗寬度");
+        Assert.InRange(int.Parse(width.Groups[1].Value), 320, 900);
+
+        Assert.Contains("MouseLeftButtonDown=\"OnHeaderDrag\"", xaml);
+        Assert.Contains("DragMove()", SourceContract.Read("src/HeliVMS.App/LiveWindow.xaml.cs"));
+    }
 }
