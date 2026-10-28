@@ -528,7 +528,7 @@ public sealed class SqliteStore : IDisposable
             CREATE TABLE IF NOT EXISTS map_devices (
                 id          INTEGER PRIMARY KEY AUTOINCREMENT,
                 map_id      INTEGER NOT NULL REFERENCES maps(id) ON DELETE CASCADE,
-                device_type TEXT    NOT NULL CHECK (device_type IN ('camera', 'io')),
+                device_type TEXT    NOT NULL CHECK (device_type IN ('camera', 'io', 'di', 'do')),
                 channel_id  INTEGER NOT NULL,
                 x           REAL    NOT NULL DEFAULT 0.5,
                 y           REAL    NOT NULL DEFAULT 0.5,
@@ -608,6 +608,8 @@ public sealed class SqliteStore : IDisposable
                 duration_sec  REAL,
                 status        TEXT    NOT NULL DEFAULT 'tmp',
                 sha256        TEXT,
+                tier          TEXT    NOT NULL DEFAULT 'hot',
+                origin_path   TEXT,
                 UNIQUE(channel_id, stream, start_time)
             );
             CREATE INDEX IF NOT EXISTS idx_seg_channel_time ON segments(channel_id, start_time);
@@ -1645,9 +1647,16 @@ public sealed class SqliteStore : IDisposable
     private void AddSegmentCheckedAtV54()
     {
         EnsureColumn("segments", "checked_at_utc", "TEXT");
+        EnsureColumn("segments", "tier", "TEXT NOT NULL DEFAULT 'hot'");
+        EnsureColumn("segments", "origin_path", "TEXT");
         Execute(
             """
             CREATE INDEX IF NOT EXISTS idx_seg_unchecked
+                ON segments(start_time) WHERE status = 'final' AND checked_at_utc IS NULL;
+            """);
+        Execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_seg_checked_null
                 ON segments(start_time) WHERE status = 'final' AND checked_at_utc IS NULL;
             """);
     }

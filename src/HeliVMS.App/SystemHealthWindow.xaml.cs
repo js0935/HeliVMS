@@ -26,6 +26,7 @@ public partial class SystemHealthWindow : Window
         Closed += (_, _) => _timer.Stop();
     }
 
+    private void OnCloseClicked(object sender, RoutedEventArgs e) => Close();
     private void OnRefreshClicked(object sender, RoutedEventArgs e) => Refresh();
 
     /// <summary>依現況語言套用標題、欄位與按鈕文字（M57）。</summary>

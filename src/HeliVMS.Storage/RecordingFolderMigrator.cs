@@ -128,6 +128,7 @@ public static class RecordingFolderMigrator
             foreach (var (id, filePath) in items)
             {
                 var suffix = Path.GetRelativePath(oldFolder, filePath);
+                // Preserve structure after channel folder (may include HH/)
                 pathUpdates.Add((id, Path.Combine(newFolder, suffix)));
             }
         }
@@ -230,8 +231,8 @@ public static class RecordingFolderMigrator
     }
 
     /// <summary>
-    /// 由區段檔路徑取回「頻道資料夾」的絕對路徑：結構固定為 <c>{root}\{頻道資料夾}\{yyyyMMdd}\seg-*.mp4</c>，
-    /// 所以是檔案的祖父目錄。
+    /// 由區段檔路徑取回「頻道資料夾」的絕對路徑：結構為 <c>{root}\{頻道資料夾}\{yyyyMMdd}\{HH}\seg-*.mp4</c> 或舊 <c>{root}\{頻道資料夾}\{yyyyMMdd}\seg-*.mp4</c>，
+    /// 取到頻道資料夾。
     /// </summary>
     private static bool TryGetChannelFolder(string filePath, out string folder)
     {
@@ -243,18 +244,33 @@ public static class RecordingFolderMigrator
 
         try
         {
-            var segDir = Path.GetDirectoryName(Path.GetFullPath(filePath));
+            var full = Path.GetFullPath(filePath);
+            var segDir = Path.GetDirectoryName(full);
             if (string.IsNullOrEmpty(segDir))
             {
                 return false;
             }
 
-            var channelFolder = Path.GetDirectoryName(segDir);
-            if (string.IsNullOrEmpty(channelFolder))
+            var dayDir = Path.GetDirectoryName(segDir);
+            if (string.IsNullOrEmpty(dayDir))
             {
                 return false;
             }
 
+            // Check if segDir is HH (2 digits)
+            var segDirName = Path.GetFileName(segDir);
+            if (!string.IsNullOrEmpty(segDirName) && segDirName.Length == 2 && int.TryParse(segDirName, out _))
+            {
+                var channelFolder2 = Path.GetDirectoryName(dayDir);
+                if (string.IsNullOrEmpty(channelFolder2))
+                {
+                    return false;
+                }
+                folder = channelFolder2;
+                return true;
+            }
+
+            var channelFolder = dayDir;
             folder = channelFolder;
             return true;
         }

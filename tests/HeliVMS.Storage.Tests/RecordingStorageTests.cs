@@ -189,6 +189,51 @@ public sealed class RecordingStorageTests
             roots);
     }
 
+    /// <summary>
+    /// 磁碟代號有沒有尾部分隔符都必須正規化成同一個代號。
+    ///
+    /// 設定值裡兩種寫法都存在過：設定中心下拉選單存裸代號（<c>D:</c>），而由錄影根目錄
+    /// 退回的舊路徑存 <c>Path.GetPathRoot</c> 的原樣（<c>D:\</c>）。兩者直接比字串會
+    /// 對不到碟，設定中心的空間欄位整排顯示「無法讀取」。
+    /// </summary>
+    [Fact]
+    public void 磁碟代號有無尾部分隔符都正規化成同一個代號()
+    {
+        Assert.Equal("D:", RecordingStorage.DriveRootOf(@"D:\"));
+        Assert.Equal("D:", RecordingStorage.DriveRootOf("D:"));
+        Assert.Equal(
+            RecordingStorage.DriveRootOf(@"D:\"),
+            RecordingStorage.DriveRootOf("D:"));
+    }
+
+    /// <summary>
+    /// 裸磁碟代號要組出絕對錄影目錄。
+    ///
+    /// <c>D:x</c> 是「該磁碟目前目錄」的相對路徑（<c>GetFullPath</c> 會照相對路徑解析，
+    /// 每個程序依啟動目錄解出不同位置）。錄影目錄必須是絕對路徑，不論設定存的是
+    /// 裸代號還是帶分隔符的寫法。
+    /// </summary>
+    [Fact]
+    public void 裸磁碟代號補上根分隔符後才組出絕對錄影目錄()
+    {
+        Assert.Equal(@"D:\HeliVMSRecordings", RecordingStorage.FolderForDrive("D:"));
+        Assert.Equal(@"D:\HeliVMSRecordings", RecordingStorage.FolderForDrive(@"D:\"));
+        Assert.Equal(@"E:\Data\HeliVMSRecordings", RecordingStorage.FolderForDrive(@"E:\Data"));
+    }
+
+    /// <summary>磁碟清單混用兩種寫法時，推出的錄影目錄仍是絕對路徑——寫入端不看設定格式。</summary>
+    [Fact]
+    public void 磁碟清單混用兩種寫法時仍得到絕對錄影目錄()
+    {
+        var roots = RecordingStorage.DiskRoots(
+        [
+            new RecordingStorage.RecordingDiskDto { Root = "D:", Primary = true },
+            new RecordingStorage.RecordingDiskDto { Root = @"E:\", Primary = false },
+        ]);
+
+        Assert.Equal([@"D:\HeliVMSRecordings", @"E:\HeliVMSRecordings"], roots);
+    }
+
     /// <summary>挑碟取第一個達到可用空間門檻的碟：主要碟還有空間就先用它，不會無故溢流。</summary>
     [Fact]
     public void 主要碟還有空間時不會溢流到下一顆()

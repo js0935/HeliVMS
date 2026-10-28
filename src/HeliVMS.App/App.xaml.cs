@@ -21,8 +21,37 @@ public partial class App : Application
     /// 連帶影響錄影（磁碟寫滿時 ffmpeg 寫不出分段）。5 MB 足夠看完最近幾次崩潰。
     /// </summary>
     private const long MaxDiagnosticLogBytes = 5 * 1024 * 1024;
+
+    /// <summary>單一實例守衛；null 表示本行程是重複啟動、正在結束自己。</summary>
+    private SingleInstanceGuard? _singleInstance;
+
     protected override async void OnStartup(StartupEventArgs e)
     {
+        // 單一實例判斷必須在啟動畫面之前：先開 splash／登入再退出，使用者會看到閃一下的
+        // 假啟動，而第二個行程早已開始搶同一顆 index.db 與同一批 ffmpeg 子行程。
+        _singleInstance = SingleInstanceGuard.TryAcquire(ActivateExistingWindow);
+        if (_singleInstance is null)
+        {
+            Shutdown();
+            return;
+        }
+
+        try
+        {
+            foreach (var p in System.Diagnostics.Process.GetProcessesByName("ffmpeg"))
+            {
+                try
+                {
+                    if (p.Id != System.Diagnostics.Process.GetCurrentProcess().Id)
+                    {
+                        try { p.Kill(true); } catch { }
+                        try { p.Kill(); } catch { }
+                    }
+                }
+                catch { }
+            }
+        }
+        catch { }
         base.OnStartup(e);
 
         DispatcherUnhandledException += (_, args) =>
@@ -167,5 +196,47 @@ public partial class App : Application
             case TextBox tb: Osk.Toggle(tb); break;
             case PasswordBox pb: Osk.Toggle(pb); break;
         }
+    }
+
+    /// <summary>
+    /// 第二個實例按下啟動時，把既有主視窗還原到前景。
+    /// </summary>
+    /// <remarks>
+    /// 由 <see cref="SingleInstanceGuard"/> 的背景等待執行緒呼叫；直接碰視窗會擲跨執行緒例外，
+    /// 因此一律經 <see cref="System.Windows.Threading.Dispatcher"/> 轉回 UI 執行緒。主視窗可能還沒建立
+    /// （仍在啟動畫面或登入），此時 no-op。
+    /// </remarks>
+    private void ActivateExistingWindow()
+    {
+        Dispatcher.BeginInvoke(new Action(() => (this.MainWindow as MainWindow)?.BringToFront()));
+    }
+
+    protected override void OnExit(ExitEventArgs e)
+    {
+        try
+        {
+            _singleInstance?.Dispose();
+        }
+        catch
+        {
+            // 關閉路徑不該因釋放守衛失敗而中斷（例如互斥鎖已被系統回收）。
+        }
+
+        _singleInstance = null;
+
+        try
+        {
+            foreach (var p in System.Diagnostics.Process.GetProcessesByName("ffmpeg"))
+            {
+                try
+                {
+                    try { p.Kill(true); } catch { }
+                    try { p.Kill(); } catch { }
+                }
+                catch { }
+            }
+        }
+        catch { }
+        base.OnExit(e);
     }
 }

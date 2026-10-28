@@ -9,7 +9,10 @@ import {
   buildSegmentsQuery,
   buildPlaylistQuery,
   buildCentralPlaylistQuery,
+  buildRecordingClock,
   mseMimeType,
+  parseFmp4InitTracks,
+  parseFmp4VideoSpan,
   parseM3u8,
   PLAYLIST_WINDOW_LIMIT_S,
   buildTimelineQuery,
@@ -21,6 +24,7 @@ import {
   eventRow,
   filterBoardRows,
   focusLayout,
+  formatLocalClock,
   formatTimestamp,
   evRows,
   backupRows,
@@ -799,6 +803,164 @@ describe('parseM3u8', () => {
     const parsed = parseM3u8('#EXTM3U\n#EXTINF:not-a-number,\n/a.m4s');
     expect(parsed.segments[0].duration).toBe(0);
     expect(parsed.targetDuration).toBe(0);
+  });
+});
+
+/**
+ * fMP4 測試素材在測試裡現做：盒子只有 size＋type＋內容，幾個 u32 就能拼出
+ * 解析器認得的最小 moov／moof。與其塞二進位檔進 repo，不如讓結構在這裡看得見——
+ * 解析器認的就是這些欄位（tkhd 的 track_id、mdhd 的 timescale、hdlr 的 handler、
+ * tfdt 的起點、trun 的樣本長度），換任何一個欄位的偏移都該讓這裡轉紅。
+ */
+function mp4Box(type, ...payload) {
+  const body = Buffer.concat(payload);
+  const header = Buffer.alloc(8);
+  header.writeUInt32BE(body.length + 8, 0);
+  header.write(type, 4, 'ascii');
+  return Buffer.concat([header, body]);
+}
+
+function mp4U32(value) {
+  const b = Buffer.alloc(4);
+  b.writeUInt32BE(value >>> 0, 0);
+  return b;
+}
+
+function mp4U24(value) {
+  const b = Buffer.alloc(3);
+  b.writeUIntBE(value, 0, 3);
+  return b;
+}
+
+/** 初始化段：trak 1 是影片軌（handler=vide、timescale=1000）。 */
+function initSegmentBytes() {
+  const tkhd = mp4Box('tkhd', Buffer.concat([Buffer.alloc(4), mp4U32(0), mp4U32(0), mp4U32(1)]));
+  const mdhd = mp4Box('mdhd', Buffer.concat([Buffer.alloc(4), mp4U32(0), mp4U32(0), mp4U32(1000)]));
+  const hdlr = mp4Box('hdlr', Buffer.concat([Buffer.alloc(4), Buffer.alloc(4), Buffer.from('vide')]));
+  const mdia = mp4Box('mdia', mdhd, hdlr);
+  const trak = mp4Box('trak', tkhd, mdia);
+  return Buffer.concat([
+    mp4Box('ftyp', Buffer.from('isom'), mp4U32(0), Buffer.from('isomiso2')),
+    mp4Box('moov', trak),
+  ]);
+}
+
+/** 媒體段：單一 moof/traf，trun 逐樣本帶長度，樣本長度總和＝影片軌跨度。 */
+function mediaSegmentBytes({ base, durations, trackId = 1 }) {
+  const tfhd = mp4Box('tfhd', Buffer.concat([Buffer.alloc(4), mp4U32(trackId)]));
+  const tfdt = mp4Box('tfdt', Buffer.concat([Buffer.alloc(4), mp4U32(base)]));
+  const trun = mp4Box(
+    'trun',
+    Buffer.concat([
+      Buffer.concat([Buffer.from([0]), mp4U24(0x000100)]),
+      mp4U32(durations.length),
+      ...durations.map(mp4U32),
+    ]),
+  );
+  const traf = mp4Box('traf', tfhd, tfdt, trun);
+  const mfhd = mp4Box('mfhd', Buffer.concat([Buffer.alloc(4), mp4U32(1)]));
+  const moof = mp4Box('moof', mfhd, traf);
+  return Buffer.concat([moof, mp4Box('mdat', Buffer.alloc(8))]);
+}
+
+describe('parseFmp4InitTracks', () => {
+  it('讀取初始化段的軌道編號、時間刻度與 handler', () => {
+    const tracks = parseFmp4InitTracks(initSegmentBytes());
+    expect(tracks).toEqual([{ id: 1, timescale: 1000, handler: 'vide' }]);
+  });
+
+  it('不是初始化段的東西回 null 而不是擲例外', () => {
+    expect(parseFmp4InitTracks(Buffer.from('<html>404</html>'))).toBeNull();
+    expect(parseFmp4InitTracks(Buffer.alloc(0))).toBeNull();
+    expect(parseFmp4InitTracks(undefined)).toBeNull();
+  });
+});
+
+describe('parseFmp4VideoSpan', () => {
+  const tracks = [{ id: 1, timescale: 1000, handler: 'vide' }];
+
+  it('以 tfdt 與 trun 量出影片軌在該段的時間跨度（秒）', () => {
+    const span = parseFmp4VideoSpan(tracks, mediaSegmentBytes({ base: 0, durations: [400, 600] }));
+    expect(span).toEqual({ start: 0, end: 1 });
+  });
+
+  it('起點取自 tfdt，多個 moof 取最寬的包絡', () => {
+    const bytes = Buffer.concat([
+      mediaSegmentBytes({ base: 250, durations: [400] }),
+      mediaSegmentBytes({ base: 650, durations: [350] }),
+    ]);
+    expect(parseFmp4VideoSpan(tracks, bytes)).toEqual({ start: 0.25, end: 1 });
+  });
+
+  it('量不到影片軌就回 null（接縫與時鐘退回牆鐘估算）', () => {
+    expect(parseFmp4VideoSpan(tracks, mediaSegmentBytes({ base: 0, durations: [400], trackId: 9 }))).toBeNull();
+    expect(parseFmp4VideoSpan([], mediaSegmentBytes({ base: 0, durations: [400] }))).toBeNull();
+    expect(parseFmp4VideoSpan(null, mediaSegmentBytes({ base: 0, durations: [400] }))).toBeNull();
+  });
+
+  it('毀損或空跨度的位元組回 null 而不是擲例外', () => {
+    expect(parseFmp4VideoSpan(tracks, mediaSegmentBytes({ base: 0, durations: [] }))).toBeNull();
+    expect(parseFmp4VideoSpan(tracks, Buffer.alloc(0))).toBeNull();
+    expect(parseFmp4VideoSpan(tracks, Buffer.from('not fmp4 at all!!'))).toBeNull();
+  });
+});
+
+describe('buildRecordingClock', () => {
+  const T = Date.parse('2026-10-20T14:00:00Z');
+
+  it('段內位置按比例插值成該段的錄影牆鐘', () => {
+    // 牆鐘 62 秒、媒體 60 秒（ffmpeg 啟動與收尾被算進牆鐘）：段中點顯示的是
+    // 牆鐘的 31 秒處，不是媒體的 30 秒處。
+    const clock = buildRecordingClock([
+      { mediaStart: 0, mediaEnd: 60, wallStartMs: T, wallDurS: 62 },
+    ]);
+    expect(clock.at(30)).toBe(T + 31 * 1000);
+    expect(clock.at(0)).toBe(T);
+    expect(clock.at(60)).toBe(T + 62 * 1000);
+  });
+
+  it('段界連續：牆鐘與媒體長度不同時也不會跳回', () => {
+    // 罪狀版的算法（起點＋經過秒數）會在段界倒退一個暖機量級；這裡前後兩側
+    // 必須落在同一個牆鐘刻度上，操作員跨段追事件時時間才不會往回跑。
+    const clock = buildRecordingClock([
+      { mediaStart: 0, mediaEnd: 60, wallStartMs: T, wallDurS: 62 },
+      { mediaStart: 60, mediaEnd: 120, wallStartMs: T + 62_000, wallDurS: 61 },
+    ]);
+    expect(clock.at(60)).toBe(T + 62_000);
+    expect(Math.abs(clock.at(59.999) - clock.at(60))).toBeLessThan(50);
+    expect(Math.abs(clock.at(60.001) - clock.at(60))).toBeLessThan(50);
+  });
+
+  it('沒有 PDT 的段不進時鐘（顯示不出依據時間時寧可留白）', () => {
+    const clock = buildRecordingClock([
+      { mediaStart: 0, mediaEnd: 60, wallStartMs: null, wallDurS: 62 },
+    ]);
+    expect(clock.at(30)).toBeNull();
+    expect(buildRecordingClock([]).at(30)).toBeNull();
+    expect(buildRecordingClock(null).at(30)).toBeNull();
+    expect(buildRecordingClock([{ mediaStart: 0, mediaEnd: 0, wallStartMs: T }]).at(0)).toBeNull();
+  });
+
+  it('游標在時間軸外時夾到最近端點', () => {
+    const clock = buildRecordingClock([
+      { mediaStart: 0, mediaEnd: 60, wallStartMs: T, wallDurS: 60 },
+    ]);
+    expect(clock.at(-5)).toBe(T);
+    expect(clock.at(9999)).toBe(T + 60 * 1000);
+    expect(clock.at(Number.NaN)).toBeNull();
+  });
+});
+
+describe('formatLocalClock', () => {
+  it('以本地時間輸出 yyyy-MM-dd HH:mm:ss', () => {
+    const local = new Date(2026, 9, 20, 14, 32, 5);
+    expect(formatLocalClock(local.getTime())).toBe('2026-10-20 14:32:05');
+  });
+
+  it('無效輸入回空字串，畫面上不出現 NaN 年份', () => {
+    expect(formatLocalClock(Number.NaN)).toBe('');
+    expect(formatLocalClock(undefined)).toBe('');
+    expect(formatLocalClock(null)).toBe('');
   });
 });
 

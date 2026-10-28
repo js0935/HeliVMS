@@ -149,6 +149,18 @@ button:disabled {
   object-fit: contain;
 }
 /*
+ * 回放時鐘：影片下方的「這一刻是什麼時候錄的」。
+ * tabular-nums 讓每秒更新時數字等寬、整列不會左右抖動；min-height 在還沒載入
+ * 時就先佔好高度，時鐘出現時下方的說明列不會往下跳。
+ */
+.play-clock {
+  margin-top: 4px;
+  min-height: 1.4em;
+  font-size: 1.05rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+/*
  * 多分割即時格線：欄數由 JS 依版面（1／4／9／16／25）設在 inline style。
  * 每格各自一個 <video>；minmax(0, 1fr) 讓格線能在窄螢幕收縮——固定 px 的軌道
  * 會讓 5x5 撐破面板右緣，出現橫向捲動而看不到右側畫面。

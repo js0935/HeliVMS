@@ -39,6 +39,8 @@ public partial class RulesWindow : Window
         ApplyI18n();
     }
 
+    private void OnCloseClicked(object sender, RoutedEventArgs e) => Close();
+
     private void ApplyI18n()
     {
         Title = Localizer.T("Rules.Title");

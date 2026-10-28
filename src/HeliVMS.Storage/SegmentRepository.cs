@@ -10,10 +10,18 @@ namespace HeliVMS.Storage;
 public sealed class SegmentRepository
 {
     private readonly SqliteStore _store;
+    private readonly SegmentShardRegistry? _registry;
 
     public SegmentRepository(SqliteStore store)
     {
         _store = store;
+        try { _registry = new SegmentShardRegistry(store); } catch { _registry = null; }
+    }
+
+    public SegmentRepository(SqliteStore store, SegmentShardRegistry registry)
+    {
+        _store = store;
+        _registry = registry;
     }
 
     /// <summary>開啟一個錄影區段（暫存檔，status=tmp），回傳區段 ID。</summary>
@@ -179,35 +187,68 @@ public sealed class SegmentRepository
         DateTime fromUtc,
         DateTime toUtc)
     {
-        return _store.Query(
-            """
-            SELECT DISTINCT CASE WHEN instr(file_path, $marker) > 1
-                                 THEN rtrim(substr(file_path, 1, instr(file_path, $marker) - 1), '/\')
-                                 ELSE '' END AS folder
-            FROM segments
-            WHERE channel_id = $c AND stream = $s AND status = 'final'
-              AND start_time < $to
-              AND ((end_time IS NOT NULL AND end_time > $from)
-                OR (end_time IS NULL AND start_time >= $from));
-            """,
-            static r =>
-            {
-                var list = new List<string>();
-                while (r.Read())
-                {
-                    list.Add(r.GetString(0));
-                }
+        var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-                return list;
-            },
-            cmd =>
+        void Add(SqliteStore store)
+        {
+            try
             {
-                cmd.Parameters.AddWithValue("$c", channelId);
-                cmd.Parameters.AddWithValue("$s", stream);
-                cmd.Parameters.AddWithValue("$from", SqliteStore.Iso(fromUtc));
-                cmd.Parameters.AddWithValue("$to", SqliteStore.Iso(toUtc));
-                cmd.Parameters.AddWithValue("$marker", SegmentFileMarker);
-            });
+                var list = store.Query(
+                    """
+                    SELECT DISTINCT CASE WHEN instr(file_path, $marker) > 1
+                                         THEN rtrim(substr(file_path, 1, instr(file_path, $marker) - 1), '/\')
+                                         ELSE '' END AS folder
+                    FROM segments
+                    WHERE channel_id = $c AND stream = $s AND status = 'final'
+                      AND start_time < $to
+                      AND ((end_time IS NOT NULL AND end_time > $from)
+                        OR (end_time IS NULL AND start_time >= $from));
+                    """,
+                    static r =>
+                    {
+                        var l = new List<string>();
+                        while (r.Read()) l.Add(r.GetString(0));
+                        return l;
+                    },
+                    cmd =>
+                    {
+                        cmd.Parameters.AddWithValue("$c", channelId);
+                        cmd.Parameters.AddWithValue("$s", stream);
+                        cmd.Parameters.AddWithValue("$from", SqliteStore.Iso(fromUtc));
+                        cmd.Parameters.AddWithValue("$to", SqliteStore.Iso(toUtc));
+                        cmd.Parameters.AddWithValue("$marker", SegmentFileMarker);
+                    });
+                foreach (var f in list) set.Add(f);
+            }
+            catch { }
+        }
+
+        Add(_store);
+
+        if (_registry != null)
+        {
+            try
+            {
+                var from = fromUtc.Kind == DateTimeKind.Utc ? fromUtc : fromUtc.ToUniversalTime();
+                var to = toUtc.Kind == DateTimeKind.Utc ? toUtc : toUtc.ToUniversalTime();
+                var cursor = new DateTime(from.Year, from.Month, 1, 0, 0, 0, DateTimeKind.Utc);
+                var endMonth = new DateTime(to.Year, to.Month, 1, 0, 0, 0, DateTimeKind.Utc);
+                while (cursor <= endMonth)
+                {
+                    var shardPath = _registry.GetShardPath(cursor.Year, cursor.Month);
+                    if (File.Exists(shardPath))
+                    {
+                        try { using var shard = _registry.OpenShard(shardPath); Add(shard); } catch { }
+                    }
+                    cursor = cursor.AddMonths(1);
+                    var md = (cursor.Year - from.Year) * 12 + (cursor.Month - from.Month);
+                    if (md > 60) break;
+                }
+            }
+            catch { }
+        }
+
+        return set.ToList();
     }
 
     /// <summary>最新的 <paramref name="take"/> 個 final 段（由新到舊），供索引對帳逐檔檢查近期資料。</summary>
@@ -216,7 +257,7 @@ public sealed class SegmentRepository
         return _store.Query(
             $"""
             SELECT id, channel_id, stream, start_time, end_time, file_path,
-                   size_bytes, duration_sec, status, sha256
+                   size_bytes, duration_sec, status, sha256, tier, origin_path
             FROM segments
             WHERE status = 'final'
             ORDER BY id DESC
@@ -234,7 +275,7 @@ public sealed class SegmentRepository
         return _store.Query(
             $"""
             SELECT id, channel_id, stream, start_time, end_time, file_path,
-                   size_bytes, duration_sec, status, sha256
+                   size_bytes, duration_sec, status, sha256, tier, origin_path
             FROM segments
             WHERE status = 'final' AND instr(file_path, $marker) <= 1
             ORDER BY id
@@ -304,25 +345,83 @@ public sealed class SegmentRepository
     /// </remarks>
     public IReadOnlyList<SegmentRecord> ListByRange(int channelId, string stream, DateTime fromUtc, DateTime toUtc)
     {
-        return _store.Query(
-            """
-            SELECT id, channel_id, stream, start_time, end_time, file_path,
-                   size_bytes, duration_sec, status, sha256
-            FROM segments
-            WHERE channel_id = $c AND stream = $s
-              AND start_time < $to
-              AND ((end_time IS NOT NULL AND end_time > $from)
-                OR (end_time IS NULL AND start_time >= $from))
-            ORDER BY start_time;
-            """,
-            ReadRecords,
-            cmd =>
+        var results = new List<SegmentRecord>();
+        var seen = new HashSet<long>();
+
+        void AddRange(SqliteStore store)
+        {
+            try
             {
-                cmd.Parameters.AddWithValue("$c", channelId);
-                cmd.Parameters.AddWithValue("$s", stream);
-                cmd.Parameters.AddWithValue("$from", SqliteStore.Iso(fromUtc));
-                cmd.Parameters.AddWithValue("$to", SqliteStore.Iso(toUtc));
-            });
+                var list = store.Query(
+                    """
+                    SELECT id, channel_id, stream, start_time, end_time, file_path,
+                           size_bytes, duration_sec, status, sha256, tier, origin_path
+                    FROM segments
+                    WHERE channel_id = $c AND stream = $s
+                      AND start_time < $to
+                      AND ((end_time IS NOT NULL AND end_time > $from)
+                        OR (end_time IS NULL AND start_time >= $from))
+                    ORDER BY start_time;
+                    """,
+                    ReadRecords,
+                    cmd =>
+                    {
+                        cmd.Parameters.AddWithValue("$c", channelId);
+                        cmd.Parameters.AddWithValue("$s", stream);
+                        cmd.Parameters.AddWithValue("$from", SqliteStore.Iso(fromUtc));
+                        cmd.Parameters.AddWithValue("$to", SqliteStore.Iso(toUtc));
+                    });
+
+                foreach (var s in list)
+                {
+                    if (seen.Add(s.Id))
+                    {
+                        results.Add(s);
+                    }
+                }
+            }
+            catch { }
+        }
+
+        AddRange(_store);
+
+        if (_registry != null)
+        {
+            try
+            {
+                var from = fromUtc.Kind == DateTimeKind.Utc ? fromUtc : fromUtc.ToUniversalTime();
+                var to = toUtc.Kind == DateTimeKind.Utc ? toUtc : toUtc.ToUniversalTime();
+                var cursor = new DateTime(from.Year, from.Month, 1, 0, 0, 0, DateTimeKind.Utc);
+                var endMonth = new DateTime(to.Year, to.Month, 1, 0, 0, 0, DateTimeKind.Utc);
+                if (to <= cursor.AddMonths(1))
+                {
+                    // same month or small range
+                }
+                while (cursor <= endMonth)
+                {
+                    var shardPath = _registry.GetShardPath(cursor.Year, cursor.Month);
+                    if (File.Exists(shardPath))
+                    {
+                        try
+                        {
+                            using var shard = _registry.OpenShard(shardPath);
+                            AddRange(shard);
+                        }
+                        catch { }
+                    }
+                    cursor = cursor.AddMonths(1);
+                    var monthsDiff = (cursor.Year - from.Year) * 12 + (cursor.Month - from.Month);
+                    if (monthsDiff > 48)
+                    {
+                        break;
+                    }
+                }
+            }
+            catch { }
+        }
+
+        results.Sort((a, b) => a.StartUtc.CompareTo(b.StartUtc));
+        return results;
     }
 
     /// <summary>
@@ -342,25 +441,79 @@ public sealed class SegmentRepository
     /// </summary>
     public IReadOnlyList<SegmentRecord> ListPlayableByRange(int channelId, string stream, DateTime fromUtc, DateTime toUtc)
     {
-        return _store.Query(
-            """
-            SELECT id, channel_id, stream, start_time, end_time, file_path,
-                   size_bytes, duration_sec, status, sha256
-            FROM segments
-            WHERE channel_id = $c AND stream = $s AND status = 'final'
-              AND start_time < $to
-              AND ((end_time IS NOT NULL AND end_time > $from)
-                OR (end_time IS NULL AND start_time >= $from))
-            ORDER BY start_time;
-            """,
-            ReadRecords,
-            cmd =>
+        var results = new List<SegmentRecord>();
+        var seen = new HashSet<long>();
+
+        void AddRange(SqliteStore store)
+        {
+            try
             {
-                cmd.Parameters.AddWithValue("$c", channelId);
-                cmd.Parameters.AddWithValue("$s", stream);
-                cmd.Parameters.AddWithValue("$from", SqliteStore.Iso(fromUtc));
-                cmd.Parameters.AddWithValue("$to", SqliteStore.Iso(toUtc));
-            });
+                var list = store.Query(
+                    """
+                    SELECT id, channel_id, stream, start_time, end_time, file_path,
+                           size_bytes, duration_sec, status, sha256, tier, origin_path
+                    FROM segments
+                    WHERE channel_id = $c AND stream = $s AND status = 'final'
+                      AND start_time < $to
+                      AND ((end_time IS NOT NULL AND end_time > $from)
+                        OR (end_time IS NULL AND start_time >= $from))
+                    ORDER BY start_time;
+                    """,
+                    ReadRecords,
+                    cmd =>
+                    {
+                        cmd.Parameters.AddWithValue("$c", channelId);
+                        cmd.Parameters.AddWithValue("$s", stream);
+                        cmd.Parameters.AddWithValue("$from", SqliteStore.Iso(fromUtc));
+                        cmd.Parameters.AddWithValue("$to", SqliteStore.Iso(toUtc));
+                    });
+
+                foreach (var s in list)
+                {
+                    if (seen.Add(s.Id))
+                    {
+                        results.Add(s);
+                    }
+                }
+            }
+            catch { }
+        }
+
+        AddRange(_store);
+
+        if (_registry != null)
+        {
+            try
+            {
+                var from = fromUtc.Kind == DateTimeKind.Utc ? fromUtc : fromUtc.ToUniversalTime();
+                var to = toUtc.Kind == DateTimeKind.Utc ? toUtc : toUtc.ToUniversalTime();
+                var cursor = new DateTime(from.Year, from.Month, 1, 0, 0, 0, DateTimeKind.Utc);
+                var endMonth = new DateTime(to.Year, to.Month, 1, 0, 0, 0, DateTimeKind.Utc);
+                while (cursor <= endMonth)
+                {
+                    var shardPath = _registry.GetShardPath(cursor.Year, cursor.Month);
+                    if (File.Exists(shardPath))
+                    {
+                        try
+                        {
+                            using var shard = _registry.OpenShard(shardPath);
+                            AddRange(shard);
+                        }
+                        catch { }
+                    }
+                    cursor = cursor.AddMonths(1);
+                    var monthsDiff = (cursor.Year - from.Year) * 12 + (cursor.Month - from.Month);
+                    if (monthsDiff > 60)
+                    {
+                        break;
+                    }
+                }
+            }
+            catch { }
+        }
+
+        results.Sort((a, b) => a.StartUtc.CompareTo(b.StartUtc));
+        return results;
     }
 
     /// <summary>
@@ -540,7 +693,7 @@ public sealed class SegmentRepository
         return _store.Query(
             $"""
             SELECT id, channel_id, stream, start_time, end_time, file_path,
-                   size_bytes, duration_sec, status, sha256
+                   size_bytes, duration_sec, status, sha256, tier, origin_path
             FROM segments
             WHERE status = 'final'
               AND (start_time > $afterStart OR (start_time = $afterStart AND id > $afterId))
@@ -561,7 +714,7 @@ public sealed class SegmentRepository
         return _store.Query(
             $"""
             SELECT id, channel_id, stream, start_time, end_time, file_path,
-                   size_bytes, duration_sec, status, sha256
+                   size_bytes, duration_sec, status, sha256, tier, origin_path
             FROM segments
             WHERE status = 'final' AND start_time < $cut
             ORDER BY start_time
@@ -587,7 +740,7 @@ public sealed class SegmentRepository
         return _store.Query(
             $"""
             SELECT id, channel_id, stream, start_time, end_time, file_path,
-                   size_bytes, duration_sec, status, sha256
+                   size_bytes, duration_sec, status, sha256, tier, origin_path
             FROM segments
             WHERE status = 'final' AND start_time < $cut
               AND (start_time > $afterStart OR (start_time = $afterStart AND id > $afterId))
@@ -617,7 +770,7 @@ public sealed class SegmentRepository
         return _store.Query(
             """
             SELECT id, channel_id, stream, start_time, end_time, file_path,
-                   size_bytes, duration_sec, status, sha256
+                   size_bytes, duration_sec, status, sha256, tier, origin_path
             FROM segments
             WHERE id = $id;
             """,
@@ -631,7 +784,7 @@ public sealed class SegmentRepository
         return _store.Query(
             """
             SELECT id, channel_id, stream, start_time, end_time, file_path,
-                   size_bytes, duration_sec, status, sha256
+                   size_bytes, duration_sec, status, sha256, tier, origin_path
             FROM segments
             WHERE channel_id = $c AND status = 'final'
             ORDER BY start_time;
@@ -646,7 +799,7 @@ public sealed class SegmentRepository
         return _store.Query(
             """
             SELECT id, channel_id, stream, start_time, end_time, file_path,
-                   size_bytes, duration_sec, status, sha256
+                   size_bytes, duration_sec, status, sha256, tier, origin_path
             FROM segments
             WHERE status = 'final'
             ORDER BY start_time;
@@ -669,7 +822,7 @@ public sealed class SegmentRepository
     public IReadOnlyList<(long Id, int ChannelId, string FilePath)> ListLegacyFolderPaths()
     {
         return _store.Query(
-            "SELECT id, channel_id, file_path FROM segments WHERE instr(file_path, char(92) || 'ch') > 0;",
+            "SELECT id, channel_id, file_path FROM segments WHERE instr(file_path, char(92) || 'ch') > 0 OR instr(file_path, '/ch') > 0;",
             static r =>
             {
                 var list = new List<(long, int, string)>();
@@ -711,6 +864,8 @@ public sealed class SegmentRepository
                 DurationSec = reader.IsDBNull(7) ? null : reader.GetDouble(7),
                 Status = ParseStatus(reader.GetString(8)),
                 Sha256 = reader.IsDBNull(9) ? null : reader.GetString(9),
+                Tier = reader.FieldCount > 10 && !reader.IsDBNull(10) ? reader.GetString(10) : "hot",
+                OriginPath = reader.FieldCount > 11 && !reader.IsDBNull(11) ? reader.GetString(11) : null,
             });
         }
 

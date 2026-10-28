@@ -51,6 +51,24 @@ public sealed class MultiDiskRecordingContractTests
         Assert.Contains("DisksSettingKey", reload);
     }
 
+    /// <summary>
+    /// 設定中心比對磁碟與寫回設定都要走 <c>DriveRootOf</c> 正規化。
+    ///
+    /// 症狀一：不比對正規化形式時，設定值的 <c>D:\</c>（由錄影根目錄推出的舊格式）對不上
+    /// 磁碟清單的 <c>D:</c>，空間欄位整排顯示「無法讀取」。症狀二：套用時不正規化，
+    /// 混用寫法會一直留在共用設定裡。真正的比對行為在 Storage 層測試，這裡釘的是接縫還在。
+    /// </summary>
+    [Fact]
+    public void 設定中心比對與寫回磁碟都用正規化代號()
+    {
+        Assert.Contains(
+            "DriveRootOf(",
+            SourceContract.BodyOf(SourceContract.Read(SettingsCode), "RefreshRecordingsDiskList"));
+        Assert.Contains(
+            "DriveRootOf(",
+            SourceContract.BodyOf(SourceContract.Read(SettingsCode), "OnApplyRecordingsDiskClicked"));
+    }
+
     [Fact]
     public void 桌面與Agent的錄影都經過多磁碟選擇器()
     {

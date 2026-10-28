@@ -4,7 +4,7 @@
         Title="" Width="1100" Height="720"
         MinWidth="800" MinHeight="520"
         WindowStartupLocation="CenterOwner"
-        Background="{StaticResource Brand.BgDeep}">
+        Background="{StaticResource Brand.BgDeep}" WindowStyle="None" ResizeMode="NoResize" WindowState="Maximized">
     <Grid Margin="10">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
@@ -12,19 +12,30 @@
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <DockPanel Grid.Row="0" Margin="0,0,0,8">
-            <TextBlock x:Name="MapFloorLabel" Text="" VerticalAlignment="Center" Foreground="{StaticResource Brand.TextDim}" FontSize="12" />
-            <ComboBox x:Name="MapCombo" AutomationProperties.AutomationId="MapCombo" Width="260"
-                      Margin="8,0,10,0" SelectionChanged="OnMapComboChanged"
-                      Foreground="White" Background="#14243F" BorderBrush="#2A4A73" Padding="6,3" />
-            <Button x:Name="MapRefreshButton" Content="" Click="OnRefreshClicked" ToolTip="" Padding="10,4"
-                    Foreground="White" Background="#2A5C8A" BorderThickness="0" AutomationProperties.AutomationId="MapRefreshButton"/>
-            <TextBlock x:Name="MapScaleText" AutomationProperties.AutomationId="MapScaleText"
-                       VerticalAlignment="Center" Margin="16,0,0,0"
-                       Foreground="{StaticResource Brand.TextDim}" FontSize="12" />
-            <TextBlock x:Name="MapStatusText" VerticalAlignment="Center" Margin="16,0,0,0"
-                       Foreground="{StaticResource Brand.TextDim}" FontSize="12" />
-        </DockPanel>
+        <Grid Grid.Row="0" Margin="0,0,0,8">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            <DockPanel Grid.Column="0">
+                <TextBlock x:Name="MapFloorLabel" Text="" VerticalAlignment="Center" Foreground="{StaticResource Brand.TextDim}" FontSize="12" />
+                <ComboBox x:Name="MapCombo" AutomationProperties.AutomationId="MapCombo" Width="260"
+                          Margin="8,0,10,0" SelectionChanged="OnMapComboChanged"
+                          Foreground="White" Background="#14243F" BorderBrush="#2A4A73" Padding="6,3" />
+                <Button x:Name="MapRefreshButton" Content="" Click="OnRefreshClicked" ToolTip="" Padding="10,4"
+                        Foreground="White" Background="#2A5C8A" BorderThickness="0" AutomationProperties.AutomationId="MapRefreshButton"/>
+                <TextBlock x:Name="MapScaleText" AutomationProperties.AutomationId="MapScaleText"
+                           VerticalAlignment="Center" Margin="16,0,0,0"
+                           Foreground="{StaticResource Brand.TextDim}" FontSize="12" />
+                <TextBlock x:Name="MapStatusText" VerticalAlignment="Center" Margin="16,0,0,0"
+                           Foreground="{StaticResource Brand.TextDim}" FontSize="12" />
+            </DockPanel>
+            <Button x:Name="CloseButton" Content="✕" Click="OnCloseClicked" ToolTip=""
+                    Grid.Column="1" Padding="10,4" FontSize="14"
+                    Foreground="White" Background="#C62828" BorderThickness="0"
+                    Margin="12,0,0,0" VerticalAlignment="Center"
+                    AutomationProperties.AutomationId="MapCloseButton"/>
+        </Grid>
 
         <Border Grid.Row="1" Background="#080F1A" BorderBrush="#1F3A5F" BorderThickness="1">
             <ScrollViewer x:Name="MapScroll" AutomationProperties.AutomationId="MapScroll"

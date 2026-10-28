@@ -465,7 +465,7 @@ public partial class MainWindow : Window
     /// 造成操作困擾；現在只在需要時把視窗帶到前景，不強制保持在上層。
     /// </para>
     /// </remarks>
-    private void BringToFront()
+    internal void BringToFront()
     {
         if (!IsVisible)
         {
@@ -3680,7 +3680,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        OpenChild(new MapWindow(_store!));
+        OpenChild(new MapWindow(_store!, manager: _manager));
     }
 
     /// <summary>開啟統圖報表視窗（M60，§14.7 #9 統計報表）。admin 限定。</summary>

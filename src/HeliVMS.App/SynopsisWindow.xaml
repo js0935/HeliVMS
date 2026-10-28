@@ -5,7 +5,7 @@
         Title=""
         Width="980" Height="680"
         WindowStartupLocation="CenterOwner"
-        Background="#0B1622" Foreground="White">
+        Background="#0B1622" Foreground="White" WindowStyle="None" ResizeMode="NoResize" WindowState="Maximized">
 
     <Grid Margin="16">
         <Grid.RowDefinitions>

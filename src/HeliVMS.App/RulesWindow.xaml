@@ -5,7 +5,7 @@
         Title=""
         Width="880" Height="640"
         WindowStartupLocation="CenterOwner"
-        Background="#0B1622" Foreground="White" Loaded="OnLoaded">
+        Background="#0B1622" Foreground="White" Loaded="OnLoaded" WindowStyle="None" ResizeMode="NoResize" WindowState="Maximized">
 
     <Grid Margin="16">
         <Grid.RowDefinitions>
@@ -15,8 +15,20 @@
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
-
-        <StackPanel Grid.Row="0">
+        <Grid Grid.Row="0" Margin="0,0,0,8">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            <StackPanel Grid.Column="0" Orientation="Horizontal">
+            </StackPanel>
+            <Button x:Name="CloseButton" Content="✕" Click="OnCloseClicked" ToolTip=""
+                    Grid.Column="1" Padding="10,4" FontSize="14"
+                    Foreground="White" Background="#C62828" BorderThickness="0"
+                    Margin="12,0,0,0" VerticalAlignment="Center"
+                    AutomationProperties.AutomationId="RulesCloseButton"/>
+        </Grid>
+        <StackPanel Grid.Row="1">
             <TextBlock x:Name="RulesDescText" Text=""
                        Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
             <StackPanel Orientation="Horizontal" Margin="0,10,0,0">

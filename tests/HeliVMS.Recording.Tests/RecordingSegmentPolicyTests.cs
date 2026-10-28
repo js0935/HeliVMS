@@ -6,7 +6,7 @@ namespace HeliVMS.Recording.Tests;
 /// <summary>
 /// 錄影分段長度政策（<see cref="RecordingSegmentPolicy"/>）。
 ///
-/// 這個數字直接決定單路一天要寫幾個檔：15 秒是 5,760 個、60 秒是 1,440 個。
+/// 這個數字直接決定單路一天要寫幾個檔：15 秒是 5,760 個、60 秒是 1,440 個、300 秒是 288 個。
 /// 解析若悄悄把越界值當成合法（或把設定值吞掉退回預設），操作員調了設定卻看到
 /// 檔數沒變，只會往磁碟或排程方向找錯地方，所以邊界行為要逐條釘住。
 /// </summary>
@@ -38,6 +38,20 @@ public sealed class RecordingSegmentPolicyTests : IDisposable
     [Fact]
     public void 未設定時回預設秒數()
         => Assert.Equal(RecordingSegmentPolicy.DefaultSeconds, RecordingSegmentPolicy.Parse(null));
+
+    /// <summary>
+    /// 預設必須是 300 秒，且不得悄悄退回 60 秒。60 秒 × 16 路 × 365 天約 840 萬筆
+    /// <c>segments</c>（<c>SegmentRepository</c> 自註「一年可達千萬列」），會讓索引、
+    /// 保留清理與備份在一年級儲存下被列數壓垮。300 秒把年列數砍到約 168 萬，
+    /// 且仍是 <see cref="RecordingSegmentPolicy.MaxSeconds"/>＝600 的一半，HLS 粒度可接受。
+    /// 這條釘住的是容量決策，不是實作細節——改回 60 必須先面對這個試算。
+    /// </summary>
+    [Fact]
+    public void 預設分段是五分鐘以因應一年級儲存列數()
+    {
+        Assert.Equal(300, RecordingSegmentPolicy.DefaultSeconds);
+        Assert.True(RecordingSegmentPolicy.DefaultSeconds * 2 <= RecordingSegmentPolicy.MaxSeconds);
+    }
 
     [Fact]
     public void 合法值直接採用()

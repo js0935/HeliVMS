@@ -127,7 +127,8 @@ public sealed class ExportService
 
             psi.ArgumentList.Add("-hide_banner");
             psi.ArgumentList.Add("-loglevel");
-            psi.ArgumentList.Add("error");
+            psi.ArgumentList.Add("warning");
+            psi.ArgumentList.Add("-stats");
             psi.ArgumentList.Add("-f");
             psi.ArgumentList.Add("concat");
             psi.ArgumentList.Add("-safe");

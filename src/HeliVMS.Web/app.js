@@ -5,12 +5,16 @@ import {
   bearerHeader,
   buildCentralPlaylistQuery,
   buildPlaylistQuery,
+  buildRecordingClock,
   centralChannelRows,
   configCard,
   esc,
   eventRow,
+  formatLocalClock,
   formatTimestamp,
   mseMimeType,
+  parseFmp4InitTracks,
+  parseFmp4VideoSpan,
   parseLogin,
   parseM3u8,
   parseWsMessage,
@@ -393,6 +397,12 @@ async function refreshLocalChannels() {
  * 遠程回放（M239，§14.3 串流 P0）：HLS VOD → MediaSource。
  * 伺服器每個錄影檔自帶 ftyp＋moov，所以初始化段只送第一段的那一份，
  * 之後把每段的 moof/mdat 依序 append 就能在瀏覽器裡播。
+ *
+ * 每個錄影檔是獨立的 ffmpeg 行程寫的，時間戳都從 0 重新開始；不設 timestampOffset
+ * 直接 append，後段的幀會覆蓋到前段的時間軸上，實際只剩第一段能播。所以要以
+ * parseFmp4VideoSpan 量出的真實媒體長度累加偏移，把後段接到前段之後。
+ * 回傳每段在合併時間軸上的位置與錄影牆鐘，讓時鐘能把 currentTime 換算成
+ * 「這一刻是什麼時候錄的」。
  */
 async function attachPlaylist(video, playlist) {
   if (!('MediaSource' in window)) {
@@ -406,29 +416,80 @@ async function attachPlaylist(video, playlist) {
 
   const media = new MediaSource();
   video.src = URL.createObjectURL(media);
+  const timeline = [];
   try {
     await new Promise((resolve) => media.addEventListener('sourceopen', resolve, { once: true }));
     const buffer = media.addSourceBuffer(type);
-    const push = async (uri) => {
+    const fetchBytes = async (uri) => {
       const response = await apiRaw(uri);
       if (!response.ok) throw new Error(`${uri} -> ${response.status}`);
-      const bytes = await response.arrayBuffer();
+      return response.arrayBuffer();
+    };
+    const append = async (bytes, offsetSeconds) => {
       await new Promise((resolve, reject) => {
         buffer.addEventListener('updateend', resolve, { once: true });
         buffer.addEventListener('error', reject, { once: true });
+        if (offsetSeconds !== null) buffer.timestampOffset = offsetSeconds;
         buffer.appendBuffer(bytes);
       });
     };
 
-    if (playlist.initUri) await push(playlist.initUri);
-    for (const segment of playlist.segments) await push(segment.uri);
+    const initBytes = playlist.initUri ? await fetchBytes(playlist.initUri) : null;
+    if (initBytes) await append(initBytes, null);
+    const tracks = parseFmp4InitTracks(initBytes);
+
+    let mediaEnd = 0;
+    for (const segment of playlist.segments) {
+      const bytes = await fetchBytes(segment.uri);
+      // 解析不出跨度時退回「假設從零開始＋牆鐘長度」：仍比直接覆蓋成只剩第一段好，
+      // 時鐘誤差就是 EXTINF 與媒體長度的差（每段約一到兩秒）。
+      const span = parseFmp4VideoSpan(tracks, bytes);
+      const offset = mediaEnd - (span ? span.start : 0);
+      const mediaStart = mediaEnd;
+      const mediaDuration = span
+        ? span.end - span.start
+        : (Number.isFinite(segment.duration) && segment.duration > 0 ? segment.duration : 0);
+      await append(bytes, offset);
+      timeline.push({
+        mediaStart,
+        mediaEnd: mediaStart + mediaDuration,
+        wallStartMs: Number.isFinite(segment.start) ? segment.start : null,
+        wallDurS: Number.isFinite(segment.duration) ? segment.duration : null,
+      });
+      mediaEnd += mediaDuration;
+    }
     media.endOfStream();
+    return timeline;
   } finally {
     URL.revokeObjectURL(video.src);
   }
 }
 
 let playInFlight = false;
+let playClock = { at: () => null };
+let playClockText = '';
+
+/**
+ * 回放時鐘：把游標位置換算成錄影牆鐘（操作員要靠它確認畫面是什麼時候錄的）。
+ * 只在字串真的改變時才寫 DOM——timeupdate 每秒會來好幾次，但寫入成本集中在
+ * 「數字沒變」的那些次，與播放中的影片零爭用。
+ */
+function renderPlayClock() {
+  const el = $('play-clock');
+  if (!el) return;
+  const at = playClock.at(Number($('play-video')?.currentTime));
+  const text = at === null ? '' : t('replay.recordingTime', { time: formatLocalClock(at) });
+  if (text === playClockText) return;
+  playClockText = text;
+  el.textContent = text;
+}
+
+function clearPlayClock() {
+  playClock = { at: () => null };
+  playClockText = '';
+  const el = $('play-clock');
+  if (el) el.textContent = '';
+}
 
 async function playRemote(event) {
   event.preventDefault();
@@ -449,6 +510,7 @@ async function playRemote(event) {
 
   playInFlight = true;
   msg.textContent = t('state.loading');
+  clearPlayClock();
   try {
     const nodeId = $('play-node')?.value ?? '';
     const response = await apiRaw(
@@ -468,8 +530,20 @@ async function playRemote(event) {
       return;
     }
 
-    await attachPlaylist($('play-video'), playlist);
-    $('play-meta').textContent = t('replay.playlistMeta', { segments: playlist.segments.length, seconds: Math.round(playlist.duration) });
+    const timeline = await attachPlaylist($('play-video'), playlist);
+    playClock = buildRecordingClock(timeline);
+    renderPlayClock();
+    const first = playlist.segments[0];
+    const last = playlist.segments[playlist.segments.length - 1];
+    // 顯示的是「這批影片涵蓋哪一段錄影時間」，不是「影片長度幾秒」——
+    // 操作員要回答的是「這是不是我要的時段」。
+    $('play-meta').textContent = Number.isFinite(first?.start) && Number.isFinite(last?.start)
+      ? t('replay.playlistWindow', {
+        start: formatLocalClock(first.start),
+        end: formatLocalClock(last.start + (Number.isFinite(last.duration) ? last.duration : 0) * 1000),
+        segments: playlist.segments.length,
+      })
+      : t('replay.playlistMeta', { segments: playlist.segments.length, seconds: Math.round(playlist.duration) });
     msg.textContent = t('state.ready');
   } catch (err) {
     msg.textContent = err.message;
@@ -908,6 +982,9 @@ function wire() {
   $('play-form').addEventListener('submit', playRemote);
   // 換來源節點時同步換頻道建議（M302），否則會留著上一台節點的頻道清單。
   $('play-node')?.addEventListener('change', fillPlayChannels);
+  // 拖動游標只發 seeked、播放才發 timeupdate，兩個都聽時鐘才不會停在舊位置。
+  $('play-video').addEventListener('timeupdate', renderPlayClock);
+  $('play-video').addEventListener('seeked', renderPlayClock);
   defaultPlayWindow();
 
   $('search-form').addEventListener('submit', (e) => {

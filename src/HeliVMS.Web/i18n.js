@@ -182,6 +182,8 @@ const CATALOGS = {
     'lic.channels': '授權 {count} 路',
     'lic.channelsExpiry': '授權 {count} 路｜{expiry}',
     'replay.playlistMeta': '{segments} 段／{seconds} 秒',
+    'replay.playlistWindow': '{start} ～ {end}（{segments} 段）',
+    'replay.recordingTime': '錄影時間 {time}',
 
     'plan.summary': '{name} · 頻道{channel} · {start}-{end} · {steps} 步',
     'gap.fullDay': '全日',
@@ -571,6 +573,8 @@ const CATALOGS = {
     'lic.channels': '{count} channels licensed',
     'lic.channelsExpiry': '{count} channels licensed · {expiry}',
     'replay.playlistMeta': '{segments} segments / {seconds}s',
+    'replay.playlistWindow': '{start} – {end} ({segments} segments)',
+    'replay.recordingTime': 'Recording time {time}',
 
     'plan.summary': '{name} · channel {channel} · {start}-{end} · {steps} steps',
     'gap.fullDay': 'All day',

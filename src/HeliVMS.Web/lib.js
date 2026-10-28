@@ -182,6 +182,218 @@ export function parseM3u8(text) {
 /** 播放清單的時段秒數上限；伺服端 24 小時上限的對應值，用於介面提示。 */
 export const PLAYLIST_WINDOW_LIMIT_S = 24 * 60 * 60;
 
+function dataViewOf(bytes) {
+  if (!bytes) return null;
+  const buffer = bytes instanceof ArrayBuffer ? bytes : bytes.buffer;
+  const offset = bytes instanceof ArrayBuffer ? 0 : (bytes.byteOffset ?? 0);
+  const length = bytes instanceof ArrayBuffer ? bytes.byteLength : (bytes.byteLength ?? bytes.length);
+  if (!buffer || !length || length < 8) return null;
+  return new DataView(buffer, offset, length);
+}
+
+/** 24 位盒子旗標（DataView 沒有 getUintBE，那是 Buffer 的 API）。 */
+function readUint24(view, offset) {
+  return (view.getUint8(offset) << 16) | (view.getUint8(offset + 1) << 8) | view.getUint8(offset + 2);
+}
+
+/**
+ * fMP4 盤子游標：size(4)+type(4)，size==1 是 64 位長度、size==0 延伸到結尾。
+ * 只走盤子層級並依 size 跳過 mdat 載荷，所以十萬位元組的段檔也只讀到幾百個位元組。
+ */
+function mp4Boxes(view, start, end) {
+  const boxes = [];
+  let offset = start;
+  while (offset + 8 <= end) {
+    let size = view.getUint32(offset);
+    const type = String.fromCharCode(
+      view.getUint8(offset + 4),
+      view.getUint8(offset + 5),
+      view.getUint8(offset + 6),
+      view.getUint8(offset + 7),
+    );
+    let header = 8;
+    if (size === 1) {
+      if (offset + 16 > end) break;
+      size = Number(view.getBigUint64(offset + 8));
+      header = 16;
+    } else if (size === 0) {
+      size = end - offset;
+    }
+    if (size < header || offset + size > end) break;
+    boxes.push({ type, body: offset + header, end: offset + size });
+    offset += size;
+  }
+  return boxes;
+}
+
+/**
+ * 由初始化段（EXT-X-MAP 的 init.mp4）解析每軌的 track_id／timescale／handler。
+ * 影片軌的時間戳刻度是它自己的 timescale（實機是 90000），沒有這份換算表就沒辦法
+ * 把 tfdt／trun 換成秒，也就沒辦法把各段接上同一條時間軸。
+ */
+export function parseFmp4InitTracks(bytes) {
+  const view = dataViewOf(bytes);
+  if (!view) return null;
+  try {
+    const moov = mp4Boxes(view, 0, view.byteLength).find((box) => box.type === 'moov');
+    if (!moov) return null;
+    const tracks = [];
+    for (const trak of mp4Boxes(view, moov.body, moov.end)) {
+      if (trak.type !== 'trak') continue;
+      let id = null;
+      let timescale = null;
+      let handler = null;
+      for (const box of mp4Boxes(view, trak.body, trak.end)) {
+        if (box.type === 'tkhd') id = view.getUint32(box.body + (view.getUint8(box.body) === 1 ? 20 : 12));
+        if (box.type !== 'mdia') continue;
+        for (const inner of mp4Boxes(view, box.body, box.end)) {
+          if (inner.type === 'mdhd') timescale = view.getUint32(inner.body + (view.getUint8(inner.body) === 1 ? 20 : 12));
+          if (inner.type === 'hdlr' && inner.body + 12 <= inner.end) {
+            handler = String.fromCharCode(
+              view.getUint8(inner.body + 8),
+              view.getUint8(inner.body + 9),
+              view.getUint8(inner.body + 10),
+              view.getUint8(inner.body + 11),
+            );
+          }
+        }
+      }
+      if (id && timescale) tracks.push({ id, timescale, handler });
+    }
+    return tracks.length > 0 ? tracks : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 影片軌在這一個媒體段裡的時間跨度（秒，起點是該段自己的零點）。
+ *
+ * 每個錄影檔是獨立的 ffmpeg 行程寫出的，時間戳都從 0 重新開始，所以瀏覽器不會
+ * 自動把後段接在前段後面——不設 timestampOffset 直接 append，後段的幀會覆蓋到
+ * 前段的時間軸上，實際能播的只剩第一段。接縫的依據只能取真實媒體長度：m3u8 的
+ * EXTINF 是伺服器量的牆鐘（含 ffmpeg 啟動與收尾，實機每段多約一到兩秒），
+ * 用它累加會讓時間軸長出成串空隙、時鐘也逐段漂移。取樣解析不動 mdat，成本與
+ * 盒子游標同級。B-frame 的 composition offset 只取第一個樣本近似（本系統錄的是
+ * 攝影機的基準線 H.264，沒有 B-frame）。
+ */
+export function parseFmp4VideoSpan(tracks, bytes) {
+  const video = (Array.isArray(tracks) ? tracks : []).find((track) => track.handler === 'vide');
+  const view = dataViewOf(bytes);
+  if (!video || !view) return null;
+  try {
+    let start = null;
+    let end = null;
+    for (const moof of mp4Boxes(view, 0, view.byteLength)) {
+      if (moof.type !== 'moof') continue;
+      for (const traf of mp4Boxes(view, moof.body, moof.end)) {
+        if (traf.type !== 'traf') continue;
+        let trackId = null;
+        let base = null;
+        let defaultDuration = null;
+        let duration = 0;
+        let composition = 0;
+        for (const box of mp4Boxes(view, traf.body, traf.end)) {
+          if (box.type === 'tfhd') {
+            const flags = readUint24(view, box.body + 1);
+            trackId = view.getUint32(box.body + 4);
+            let cursor = box.body + 8;
+            if (flags & 0x000001) cursor += 8;
+            if (flags & 0x000002) cursor += 4;
+            if (flags & 0x000008) {
+              defaultDuration = view.getUint32(cursor);
+              cursor += 4;
+            }
+          } else if (box.type === 'tfdt') {
+            base = view.getUint8(box.body) === 1
+              ? Number(view.getBigUint64(box.body + 4))
+              : view.getUint32(box.body + 4);
+          } else if (box.type === 'trun') {
+            const flags = readUint24(view, box.body + 1);
+            const signed = view.getUint8(box.body) === 1;
+            const count = view.getUint32(box.body + 4);
+            let cursor = box.body + 8;
+            if (flags & 0x000001) cursor += 4;
+            if (flags & 0x000004) cursor += 4;
+            for (let i = 0; i < count && cursor + 4 <= box.end; i++) {
+              let sampleDuration = defaultDuration ?? 0;
+              if (flags & 0x000100) {
+                sampleDuration = view.getUint32(cursor);
+                cursor += 4;
+              }
+              if (flags & 0x000200) cursor += 4;
+              if (flags & 0x000400) cursor += 4;
+              if (flags & 0x000800) {
+                if (i === 0) composition = signed ? view.getInt32(cursor) : view.getUint32(cursor);
+                cursor += 4;
+              }
+              duration += sampleDuration;
+            }
+          }
+        }
+        if (trackId !== video.id || base === null) continue;
+        const first = base + composition;
+        const last = base + duration + composition;
+        if (start === null || first < start) start = first;
+        if (end === null || last > end) end = last;
+      }
+    }
+    if (start === null || end === null || end <= start) return null;
+    return { start: start / video.timescale, end: end / video.timescale };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 媒體時間軸 → 錄影牆鐘（毫秒）。
+ *
+ * 每段的對應是「該段錄影起點＋段內比例插值」。牆鐘長度（EXTINF，伺服器量的端到端
+ * 時間）比媒體長度多一個連線暖機量級的常數，若用單純的「起點＋經過秒數」，時鐘會
+ * 在每段尾端落後一兩秒、又在段界跳回去；比例插值讓段界連續、最大誤差減半。範圍
+ * 外夾到最近的端點，游標停在邊界時不會顯示空白。
+ */
+export function buildRecordingClock(timeline) {
+  const entries = (Array.isArray(timeline) ? timeline : [])
+    .filter(
+      (entry) =>
+        Number.isFinite(entry?.wallStartMs) &&
+        Number.isFinite(entry?.mediaStart) &&
+        Number.isFinite(entry?.mediaEnd) &&
+        entry.mediaEnd > entry.mediaStart,
+    )
+    .sort((a, b) => a.mediaStart - b.mediaStart);
+  return {
+    at(seconds) {
+      if (entries.length === 0 || !Number.isFinite(seconds)) return null;
+      let lo = 0;
+      let hi = entries.length - 1;
+      while (lo < hi) {
+        const mid = (lo + hi + 1) >> 1;
+        if (entries[mid].mediaStart <= seconds) lo = mid;
+        else hi = mid - 1;
+      }
+      const entry = entries[lo];
+      const span = entry.mediaEnd - entry.mediaStart;
+      const wall = Number.isFinite(entry.wallDurS) && entry.wallDurS > 0 ? entry.wallDurS : span;
+      const inside = Math.min(Math.max(seconds, entry.mediaStart), entry.mediaEnd);
+      return entry.wallStartMs + ((inside - entry.mediaStart) / span) * wall * 1000;
+    },
+  };
+}
+
+/**
+ * 回放時鐘的顯示格式（本地時間）。
+ * 與 formatTimestamp（UTC，事件表慣例）刻意不同：回放時段欄位是 datetime-local、
+ * 桌面端回放也是顯示本地時間，時鐘跟著它們走，操作員才不用自己換算時差。
+ */
+export function formatLocalClock(ms) {
+  if (!Number.isFinite(ms)) return '';
+  const d = new Date(ms);
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+}
+
 export function parseWsMessage(raw) {
   let message;
   try {

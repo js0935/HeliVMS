@@ -6,7 +6,7 @@
         WindowStartupLocation="CenterOwner"
         Topmost="True"
         AutomationProperties.AutomationId="PtzWindow"
-        Background="{StaticResource Brand.BgDeep}">
+        Background="{StaticResource Brand.BgDeep}" WindowStyle="None" ResizeMode="NoResize" WindowState="Maximized">
 
     <Grid Margin="10" VerticalAlignment="Top">
         <Grid.RowDefinitions>

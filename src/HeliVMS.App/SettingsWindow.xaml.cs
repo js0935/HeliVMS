@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using System.IO;
 using System.Reflection;
 using System.Windows;
@@ -129,7 +129,7 @@ public partial class SettingsWindow : Window
 
         InitializeComponent();
         Title = Localizer.T("Settings.Title");
-        MapPinCanvas.MouseLeftButtonUp += OnMapPinCanvasClick;
+        MapPinCanvas.PreviewMouseLeftButtonDown += OnMapPinCanvasClick;
         MapPinList.SelectionChanged += OnMapPinSelectionChanged;
 
         // 裝置／頻道管理限 admin（與主視窗一致）；viewer 仍看得到入口，但按鈕停用。
@@ -565,6 +565,7 @@ public partial class SettingsWindow : Window
         MapDesc2.Text = Localizer.T("Settings.MapDesc2");
         MapSectionHeading.Text = Localizer.T("Settings.MapSectionHeading");
         MapNameBox.ToolTip = Localizer.T("Settings.MapNameTip");
+        MapNameLabel.Text = Localizer.T("Settings.MapNameLabel");
         MapImageBox.ToolTip = Localizer.T("Settings.MapImageTip");
         MapBrowseButton.Content = Localizer.T("Settings.Browse");
         MapBrowseButton.ToolTip = Localizer.T("Settings.MapBrowseTip");
@@ -590,7 +591,22 @@ public partial class SettingsWindow : Window
         MapScaleHint.Text = Localizer.T("Settings.MapScaleHint");
         MapPinHeading.Text = Localizer.T("Settings.MapPinHeading");
         MapPinChannelCombo.ToolTip = Localizer.T("Settings.MapPinChannelTip");
-        MapPinHint.Text = Localizer.T("Settings.MapPinHint");
+        MapPinKindLabel.Text = Localizer.T("Settings.MapPinKindLabel");
+        MapPinDeviceLabel.Text = Localizer.T("Settings.MapPinDeviceLabel");
+        MapPlacePinButton.Content = Localizer.T("Settings.MapPlacePin");
+        MapPinHelpText.Text = Localizer.T("Settings.MapPinHelp");
+        MapPinHint.Text = Localizer.T("Settings.MapPinEditHint");
+
+        // 圖層選單以 Tag（camera／di／do）為型別權威；Content 只是顯示文字，切語言時跟著換。
+        foreach (var item in MapPinKindCombo.Items.OfType<ComboBoxItem>())
+        {
+            item.Content = (item.Tag as string) switch
+            {
+                "di" => Localizer.T("Settings.MapPinKindDi"),
+                "do" => Localizer.T("Settings.MapPinKindDo"),
+                _ => Localizer.T("Settings.MapPinKindCamera"),
+            };
+        }
         MapPinAngleLabel.Text = Localizer.T("Settings.MapPinAngleLabel");
         MapPinAngleBox.ToolTip = Localizer.T("Settings.MapPinAngleTip");
         MapPinFovBox.ToolTip = Localizer.T("Settings.MapPinFovTip");
@@ -744,6 +760,9 @@ public partial class SettingsWindow : Window
         {
             Localizer.SetLang(_settings, tag);
             ApplyI18n();
+            // 設備下拉的項目文字是自行組的（「攝影機 X（#n）」），不在 ApplyI18n 範圍內，
+            // 切語言後要重建一次，否則清單會停在上一種語言。
+            try { ReloadMapPinChannelCombo(); } catch { }
             // 「關於」頁的文字不屬於 ApplyI18n 的範圍，切換語言時要自己重畫，
             // 否則自啟勾選框與狀態會留在上一種語言。
             FillAbout();
@@ -2004,7 +2023,7 @@ public partial class SettingsWindow : Window
     ///
     /// 這裡以前是 <c>Directory.EnumerateFiles(recordingsRoot, "*.mp4",
     /// SearchOption.TopDirectoryOnly)</c>，而錄影檔實際寫在
-    /// <c>recordings/chXXX/yyyyMMdd/seg-HHmmssfff.mp4</c>（兩層底下）。
+    /// <c>recordings/chXXX/yyyyMMdd/HH/seg-HHmmssfff.mp4</c>（兩層底下）。
     /// 根層一個 mp4 都掃不到，所以用量恆為 0，畫面長期顯示「0B（0 段）」——
     /// 使用者無從知道磁碟快滿了，而配額清理正在背後默默吃掉舊錄影。
     ///
@@ -2095,12 +2114,12 @@ public partial class SettingsWindow : Window
         DiskColSpace.Header = Localizer.T("Settings.DiskColSpace");
 
         var byRoot = RecordingStorage.ListFixedDrives()
-            .ToDictionary(d => d.Root, StringComparer.OrdinalIgnoreCase);
+            .ToDictionary(d => RecordingStorage.DriveRootOf(d.Root), StringComparer.OrdinalIgnoreCase);
 
         var rows = new List<DiskRow>(_diskConfig.Count);
         for (var i = 0; i < _diskConfig.Count; i++)
         {
-            var root = _diskConfig[i].Root;
+            var root = RecordingStorage.DriveRootOf(_diskConfig[i].Root);
             var role = i == 0
                 ? Localizer.T("Settings.DiskPrimary")
                 : Localizer.T("Settings.DiskSecondary");
@@ -2122,7 +2141,8 @@ public partial class SettingsWindow : Window
             return;
         }
 
-        if (_diskConfig.Any(d => string.Equals(d.Root, driveRoot, StringComparison.OrdinalIgnoreCase)))
+        var norm = RecordingStorage.DriveRootOf(driveRoot);
+        if (_diskConfig.Any(d => string.Equals(RecordingStorage.DriveRootOf(d.Root), norm, StringComparison.OrdinalIgnoreCase)))
         {
             RecordingsDiskStatusText.Text = string.Format(Localizer.T("Settings.DiskAlready"), driveRoot);
             return;
@@ -2130,7 +2150,7 @@ public partial class SettingsWindow : Window
 
         _diskConfig.Add(new RecordingStorage.RecordingDiskDto
         {
-            Root = driveRoot,
+            Root = norm,
             Primary = _diskConfig.Count == 0,
         });
         RefreshRecordingsDiskList();
@@ -2194,7 +2214,7 @@ public partial class SettingsWindow : Window
         }
 
         var ordered = _diskConfig
-            .Select((d, i) => new RecordingStorage.RecordingDiskDto { Root = d.Root, Primary = i == 0 })
+            .Select((d, i) => new RecordingStorage.RecordingDiskDto { Root = RecordingStorage.DriveRootOf(d.Root), Primary = i == 0 })
             .ToList();
         var folders = RecordingStorage.DiskRoots(ordered);
         var primaryFolder = folders[0];
@@ -2777,18 +2797,25 @@ public partial class SettingsWindow : Window
     {
         ReloadMapPinChannelCombo();
 
-        foreach (var child in MapPinCanvas.Children.OfType<Ellipse>().ToList())
+        if (MapPinCanvas != null)
         {
-            MapPinCanvas.Children.Remove(child);
+            for (int i = MapPinCanvas.Children.Count - 1; i >= 0; i--)
+            {
+                var c = MapPinCanvas.Children[i];
+                if (c is Ellipse el && el.Tag is string s && s.StartsWith("md:", StringComparison.Ordinal))
+                {
+                    try { MapPinCanvas.Children.RemoveAt(i); } catch { }
+                }
+            }
         }
 
-        MapPinList.ItemsSource = null;
+        if (MapPinList != null) MapPinList.ItemsSource = null;
         var map = SelectedMap;
         if (map is null)
         {
-            MapPinImage.Source = null;
-            MapPinCanvas.Width = 0;
-            MapPinCanvas.Height = 0;
+            if (MapPinImage != null) MapPinImage.Source = null;
+            if (MapPinCanvas != null) { MapPinCanvas.Width = 0; MapPinCanvas.Height = 0; }
+            if (MapPinImage != null) MapPinImage.Stretch = Stretch.None;
             return;
         }
 
@@ -2803,55 +2830,76 @@ public partial class SettingsWindow : Window
             return;
         }
 
-        MapScaleBox.Text = map.ScaleMPerPx.ToString("0.###", CultureInfo.InvariantCulture);
-        MapPinImage.Source = bitmap;
-        int w = bitmap.PixelWidth;
-        int h = bitmap.PixelHeight;
-        MapPinCanvas.Width = w;
-        MapPinCanvas.Height = h;
-        MapPinImage.Width = w;
-        MapPinImage.Height = h;
+        if (MapScaleBox != null) MapScaleBox.Text = map.ScaleMPerPx.ToString("0.###", CultureInfo.InvariantCulture);
+        int wImg = bitmap.PixelWidth;
+        int hImg = bitmap.PixelHeight;
+        if (MapPinImage != null)
+        {
+            MapPinImage.Source = bitmap;
+            if (MapPinCanvas != null) { MapPinCanvas.Width = wImg; MapPinCanvas.Height = hImg; }
+            MapPinImage.Width = wImg;
+            MapPinImage.Height = hImg;
+            MapPinImage.Stretch = Stretch.None;
+            MapPinImage.HorizontalAlignment = HorizontalAlignment.Left;
+            MapPinImage.VerticalAlignment = VerticalAlignment.Top;
+            Canvas.SetLeft(MapPinImage, 0);
+            Canvas.SetTop(MapPinImage, 0);
+            Canvas.SetZIndex(MapPinImage, 0);
+        }
+        else
+        {
+            if (MapPinCanvas != null) { MapPinCanvas.Width = wImg; MapPinCanvas.Height = hImg; }
+        }
+        try { if (MapPinCanvas != null) MapPinCanvas.UpdateLayout(); } catch { }
+        try { if (MapPinImage != null) MapPinImage.UpdateLayout(); } catch { }
+        if (MapPinCanvas != null) { MapPinCanvas.InvalidateVisual(); }
 
         var cameras = new ChannelRepository(_store).List().ToDictionary(c => c.Id, c => c.Name);
         var ios = _io.ListChannels().ToDictionary(c => c.Id, c => c.Name);
 
-        MapPinList.ItemsSource = _maps.ListDevices(map.Id)
-            .Select(p => new MapPinRow(
-                p.Id,
-                p.DeviceType,
-                p.ChannelId,
-                $"({p.X:0.00}, {p.Y:0.00})",
-                $"{p.Angle:0.#}°",
-                $"{p.FovDeg:0.#}°",
-                $"{p.FovDepth:0.#}m",
-                MapGeometry.Bearing(p.Angle),
-                p.Enabled ? Localizer.T("Settings.Enabled") : Localizer.T("Settings.Disabled"),
-                p.DeviceType == "camera"
-                    ? (cameras.TryGetValue(p.ChannelId, out var cn) ? cn : string.Format(Localizer.T("Settings.MapChannelFallback"), p.ChannelId))
-                    : (ios.TryGetValue(p.ChannelId, out var ioName) ? ioName : $"IO #{p.ChannelId}"))
-            ).ToList();
+        if (MapPinList != null)
+        {
+            MapPinList.ItemsSource = _maps.ListDevices(map.Id)
+                .Select(p => new MapPinRow(
+                    p.Id,
+                    p.DeviceType,
+                    p.ChannelId,
+                    $"({p.X:0.00}, {p.Y:0.00})",
+                    $"{p.Angle:0.#}°",
+                    $"{p.FovDeg:0.#}°",
+                    $"{p.FovDepth:0.#}m",
+                    MapGeometry.Bearing(p.Angle),
+                    p.Enabled ? Localizer.T("Settings.Enabled") : Localizer.T("Settings.Disabled"),
+                    (p.DeviceType?.ToLowerInvariant() == "camera")
+                        ? (cameras.TryGetValue(p.ChannelId, out var cn) ? cn : string.Format(Localizer.T("Settings.MapChannelFallback"), p.ChannelId))
+                        : (ios.TryGetValue(p.ChannelId, out var ioName) ? ioName : $"IO #{p.ChannelId}"))
+                ).ToList();
+        }
 
         foreach (var p in _maps.ListDevices(map.Id))
         {
-            if (!p.Enabled)
-            {
-                continue;
-            }
-
+            if (MapPinCanvas == null) break;
+            var dt = p.DeviceType?.ToLowerInvariant() ?? "camera";
             var dot = new Ellipse
             {
-                Width = 10,
-                Height = 10,
-                Fill = p.DeviceType == "camera"
+                Width = 20,
+                Height = 20,
+                Fill = dt == "camera"
                     ? new SolidColorBrush(Color.FromRgb(52, 211, 153))
-                    : new SolidColorBrush(Color.FromRgb(107, 122, 144)),
+                    : (dt == "di" ? new SolidColorBrush(Color.FromRgb(96, 165, 250)) : new SolidColorBrush(Color.FromRgb(245, 158, 11))),
                 Stroke = Brushes.White,
-                StrokeThickness = 1,
+                StrokeThickness = 3,
                 Tag = $"md:{p.Id}",
                 ToolTip = $"{p.DeviceType} #{p.ChannelId} ({p.X:0.00}, {p.Y:0.00})",
+                Visibility = Visibility.Visible,
+                IsHitTestVisible = true,
+                Opacity = p.Enabled ? 1.0 : 0.7
             };
-            Canvas.SetLeft(dot, p.X * w - 5);
-            Canvas.SetTop(dot, p.Y * h - 5);
+            var left = Math.Clamp(p.X, 0, 1) * wImg - 14;
+            var top = Math.Clamp(p.Y, 0, 1) * hImg - 14;
+            Canvas.SetLeft(dot, left);
+            Canvas.SetTop(dot, top);
+            Canvas.SetZIndex(dot, 50000);
             dot.MouseLeftButtonDown += OnMapPinDragStart;
             dot.MouseMove += OnMapPinDragMove;
             dot.MouseLeftButtonUp += OnMapPinDragEnd;
@@ -2859,33 +2907,93 @@ public partial class SettingsWindow : Window
         }
     }
 
-    private void ReloadMapPinChannelCombo()
+    /// <summary>目前圖層（以 Tag 為權威，不看在地化後的 Content）。</summary>
+    private string PinKind()
+        => (MapPinKindCombo?.SelectedItem as ComboBoxItem)?.Tag as string ?? "camera";
+
+    /// <summary>
+    /// 重建「設備」下拉清單：只列目前圖層的設備，已放置者保留在清單中但停用並標示「已新增」。
+    /// </summary>
+    /// <remarks>
+    /// 這裡原本每被呼叫一次就把 <c>SelectedIndex</c> 設回 0。呼叫端包含「點擊地圖」與
+    /// 「按下放置鈕」，於是操作員選了攝影機 02 之後，一按放置就被重設成清單第一台，
+    /// 症狀看起來像「只有攝影機 01 能新增」。因此改為保留先前選取的 Tag；已放置的設備
+    /// 也不再直接從清單消失（那會讓操作員以為清單壞了），而是停用＋標記，按了沒反應才說得通。
+    /// </remarks>
+    private void ReloadMapPinChannelCombo(bool keepSelection = true)
     {
         if (MapPinChannelCombo is null)
         {
             return;
         }
 
+        var previous = keepSelection && (MapPinChannelCombo.SelectedItem as ComboBoxItem)?.Tag is int prevId
+            ? prevId
+            : (int?)null;
+
+        var kind = PinKind();
+        var placed = new HashSet<(string Type, int Id)>();
+        if (SelectedMap is { } map)
+        {
+            foreach (var p in _maps.ListDevices(map.Id))
+            {
+                placed.Add((p.DeviceType.ToLowerInvariant(), p.ChannelId));
+            }
+        }
+
+        var suffix = Localizer.T("Settings.MapAlreadyPlaced");
+
         MapPinChannelCombo.Items.Clear();
-        var kind = (MapPinKindCombo.SelectedItem as ComboBoxItem)?.Content as string ?? "camera";
+        foreach (var (type, id, name) in PlaceableDevices(kind))
+        {
+            var isPlaced = placed.Contains((type, id));
+            MapPinChannelCombo.Items.Add(new ComboBoxItem
+            {
+                Content = isPlaced ? $"{name}（#{id}）{suffix}" : $"{name}（#{id}）",
+                Tag = id,
+                IsEnabled = !isPlaced,
+            });
+        }
+
+        // 先找回原本選取的那一台，其次退而求其次選第一個還能放的；全都放過就讓清單停在
+        // 第一個（停用）項目並關掉放置鈕，避免操作員按了只得到「重複新增」的例外訊息。
+        var items = MapPinChannelCombo.Items.OfType<ComboBoxItem>().ToList();
+        MapPinChannelCombo.SelectedItem =
+            items.FirstOrDefault(i => i.IsEnabled && i.Tag is int id && id == previous)
+            ?? items.FirstOrDefault(i => i.IsEnabled)
+            ?? items.FirstOrDefault();
+
+        if (MapPlacePinButton != null)
+        {
+            MapPlacePinButton.IsEnabled = MapPinChannelCombo.SelectedItem is ComboBoxItem { IsEnabled: true };
+        }
+    }
+
+    /// <summary>列出目前圖層可放置的設備（型別、頻道 id、顯示名稱）。</summary>
+    private IEnumerable<(string Type, int Id, string Name)> PlaceableDevices(string kind)
+    {
         if (kind == "camera")
         {
             foreach (var c in new ChannelRepository(_store).List())
             {
-                MapPinChannelCombo.Items.Add(new ComboBoxItem { Content = $"{c.Name}（#{c.Id}）", Tag = c.Id });
+                yield return ("camera", c.Id, $"{Localizer.T("Settings.MapPinKindCamera")} {c.Name}");
             }
-        }
-        else
-        {
-            foreach (var c in _io.ListChannels())
-            {
-                MapPinChannelCombo.Items.Add(new ComboBoxItem { Content = $"{c.Name}（#{c.Id}）", Tag = c.Id });
-            }
+
+            yield break;
         }
 
-        if (MapPinChannelCombo.Items.Count > 0)
+        foreach (var c in _io.ListChannels())
         {
-            MapPinChannelCombo.SelectedIndex = 0;
+            var direction = c.Direction?.ToLowerInvariant() ?? "di";
+            if (kind != "io" && direction != kind)
+            {
+                continue;
+            }
+
+            var label = direction == "do"
+                ? Localizer.T("Settings.MapPinKindDo")
+                : Localizer.T("Settings.MapPinKindDi");
+            yield return (direction, c.Id, $"{label} {c.Name}");
         }
     }
 
@@ -2904,12 +3012,26 @@ public partial class SettingsWindow : Window
 
     private void OnMapAddClicked(object sender, RoutedEventArgs e)
     {
-        var name = MapNameBox.Text.Trim();
+        var name = string.IsNullOrWhiteSpace(MapNameBox.Text) ? Localizer.T("Settings.MapDefaultName") : MapNameBox.Text.Trim();
         var source = MapImageBox.Text.Trim();
-        if (name.Length == 0 || source.Length == 0)
+        if (source.Length == 0)
         {
-            MapReportText.Text = Localizer.T("Settings.MapNameImageRequired");
-            return;
+            // try browse
+            var dlg = new Microsoft.Win32.OpenFileDialog
+            {
+                Filter = Localizer.T("Settings.MapFileFilter"),
+                Title = Localizer.T("Settings.MapFileDialogTitle"),
+            };
+            if (dlg.ShowDialog(this) == true)
+            {
+                source = dlg.FileName;
+                MapImageBox.Text = source;
+            }
+            else
+            {
+                MapReportText.Text = Localizer.T("Settings.MapNameImageRequired");
+                return;
+            }
         }
 
         if (!File.Exists(source))
@@ -2976,7 +3098,41 @@ public partial class SettingsWindow : Window
     }
 
     private void OnMapPinKindChanged(object sender, SelectionChangedEventArgs e)
-        => ReloadMapPinChannelCombo();
+    {
+        // 換圖層等於換一組設備，保留舊選取沒有意義（camera id 與 io id 會撞號）。
+        try { ReloadMapPinChannelCombo(keepSelection: false); } catch { }
+        if (MapPinHint != null)
+        {
+            MapPinHint.Text = Localizer.T("Settings.MapPinEditHint");
+        }
+    }
+
+    private void OnMapEditToggleClicked(object sender, RoutedEventArgs e)
+    {
+        if (MapPinCanvas != null)
+        {
+            MapPinCanvas.Cursor = System.Windows.Input.Cursors.Cross;
+        }
+        if (MapPinHint != null)
+        {
+            MapPinHint.Text = Localizer.T("Settings.MapPinEditHint");
+        }
+        try { ReloadMapPinChannelCombo(); } catch { }
+    }
+
+    private void OnMapPlacePinClicked(object sender, RoutedEventArgs e)
+    {
+        if (MapPinCanvas != null) MapPinCanvas.Cursor = System.Windows.Input.Cursors.Cross;
+        try { ReloadMapPinChannelCombo(); } catch { }
+        if (MapPinHint != null) MapPinHint.Text = Localizer.T("Settings.MapPinReadyHint");
+    }
+
+    private void OnMapReloadPinsClicked(object sender, RoutedEventArgs e)
+    {
+        try { ReloadMapPinChannelCombo(); } catch { }
+        try { ReloadMapPins(); } catch { }
+        if (MapPinHint != null) MapPinHint.Text = Localizer.T("Settings.MapPinsReloaded");
+    }
 
     private void OnMapPinSelectionChanged(object sender, SelectionChangedEventArgs e)
     {
@@ -3083,10 +3239,16 @@ public partial class SettingsWindow : Window
 
     private void OnMapPinCanvasClick(object sender, MouseButtonEventArgs e)
     {
-        if (e.OriginalSource is Ellipse)
+        var src = e.OriginalSource;
+        if (src is Ellipse)
         {
             return;
         }
+        if (src is FrameworkElement fe && fe.Tag is string t && t.StartsWith("md:", StringComparison.Ordinal))
+        {
+            return;
+        }
+        e.Handled = true;
 
         var map = SelectedMap;
         if (map is null)
@@ -3095,21 +3257,31 @@ public partial class SettingsWindow : Window
             return;
         }
 
-        if (MapPinChannelCombo.SelectedItem is not ComboBoxItem ci || ci.Tag is not int channelId)
+        // 這裡刻意不再重建設備清單。舊版每次點地圖都呼叫 ReloadMapPinChannelCombo()，
+        // 而它會把 SelectedIndex 重設成 0——操作員選好的攝影機在點下去的瞬間被換成第一台，
+        // 於是「只能新增攝影機 01」。清單的維護交給圖層切換與放置後的重載。
+        if (MapPinChannelCombo.SelectedItem is not ComboBoxItem { IsEnabled: true, Tag: int channelId })
         {
-            MapReportText.Text = Localizer.T("Settings.MapNoChannel");
+            MapReportText.Text = MapPinChannelCombo.Items.OfType<ComboBoxItem>().Any(i => i.IsEnabled)
+                ? Localizer.T("Settings.MapNoChannel")
+                : Localizer.T("Settings.MapPinDuplicate");
             return;
         }
 
-        var kind = (MapPinKindCombo.SelectedItem as ComboBoxItem)?.Content as string ?? "camera";
-        if (!TryReadGeometry(out var angle, out var fovDeg, out var fovDepth))
+        var kind = PinKind();
+        double angle = 0, fovDeg = 90, fovDepth = 3;
+        try { angle = MapGeometry.ValidateGeometry(0, 90, 3); } catch { angle = 0; }
+
+        if (MapPinCanvas.Width <= 0 || MapPinCanvas.Height <= 0)
         {
             return;
         }
 
         var pos = e.GetPosition(MapPinCanvas);
-        var x = Math.Clamp(pos.X / MapPinCanvas.Width, 0, 1);
-        var y = Math.Clamp(pos.Y / MapPinCanvas.Height, 0, 1);
+        var w = MapPinCanvas.ActualWidth > 0 ? MapPinCanvas.ActualWidth : MapPinCanvas.Width;
+        var h = MapPinCanvas.ActualHeight > 0 ? MapPinCanvas.ActualHeight : MapPinCanvas.Height;
+        var x = Math.Clamp(pos.X / w, 0, 1);
+        var y = Math.Clamp(pos.Y / h, 0, 1);
 
         try
         {
@@ -3121,7 +3293,8 @@ public partial class SettingsWindow : Window
             MapReportText.Text = string.Format(Localizer.T("Settings.MapPinPlaceFailed"), ex.Message);
         }
 
-        ReloadMapPins();
+        try { ReloadMapPins(); } catch { }
+        try { Dispatcher.Invoke(() => { try { ReloadMapPins(); } catch { } }, System.Windows.Threading.DispatcherPriority.Render); } catch { }
     }
 
     private FrameworkElement? _dragPin;
@@ -3173,7 +3346,7 @@ public partial class SettingsWindow : Window
         var pos = e.GetPosition(MapPinCanvas);
         _maps.SetDevicePosition(id, Math.Clamp(pos.X / MapPinCanvas.Width, 0, 1), Math.Clamp(pos.Y / MapPinCanvas.Height, 0, 1));
         MapReportText.Text = string.Format(Localizer.T("Settings.MapPinMoved"), pos.X / MapPinCanvas.Width, pos.Y / MapPinCanvas.Height);
-        ReloadMapPins();
+        try { ReloadMapPins(); } catch { }
     }
 
     private void OnMapDeletePinClicked(object sender, RoutedEventArgs e)
@@ -3205,7 +3378,7 @@ public partial class SettingsWindow : Window
             return;
         }
 
-        var pins = _maps.ListDevices(map.Id).Where(d => d.Enabled).ToList();
+        var pins = _maps.ListDevices(map.Id).ToList();
         if (pins.Count == 0)
         {
             MapReportText.Text = Localizer.T("Settings.MapLayoutNone");
@@ -3217,8 +3390,8 @@ public partial class SettingsWindow : Window
         var byId = placements.ToDictionary(p => p.Id);
         foreach (var d in pins)
         {
-            var placed = byId[d.Id];
-            _maps.SetDevicePosition(d.Id, placed.X, placed.Y);
+            if (!byId.TryGetValue(d.Id, out var placed)) continue;
+            try { _maps.SetDevicePosition(d.Id, placed.X, placed.Y); } catch { }
         }
 
         ReloadMapPins();
@@ -3529,5 +3702,11 @@ public partial class SettingsWindow : Window
         _users.DeleteUser(row.Id);
         UserReportText.Text = string.Format(Localizer.T("Settings.UserDeleted"), row.Username);
         ReloadUsers();
+    }
+
+    private void OnCloseClicked(object sender, RoutedEventArgs e)
+    {
+        try { DialogResult = false; } catch { }
+        Close();
     }
 }

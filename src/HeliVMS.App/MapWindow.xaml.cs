@@ -7,6 +7,7 @@ using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Shapes;
 using System.Windows.Threading;
+using HeliVMS.App.Services;
 using HeliVMS.Storage;
 
 namespace HeliVMS.App;
@@ -18,6 +19,7 @@ namespace HeliVMS.App;
 public partial class MapWindow : Window
 {
     private readonly SqliteStore _store;
+    private readonly ChannelManager? _manager;
     private readonly MapRepository _maps;
     private readonly IoRepository _io;
     private readonly AlarmEventRepository _events;
@@ -54,9 +56,21 @@ public partial class MapWindow : Window
     private static readonly Color ColorOrange = Color.FromRgb(0xF5, 0x9E, 0x0B);
     private static readonly Color ColorGray = Color.FromRgb(0x6B, 0x7A, 0x90);
 
-    public MapWindow(SqliteStore store, int? locateChannelId = null, string locateDeviceType = "camera")
+    /// <param name="store">資料庫連線（地圖、頻道與事件都由此讀取）。</param>
+    /// <param name="locateChannelId">開啟時要定位並閃爍的頻道；事件中心雙擊時帶入。</param>
+    /// <param name="locateDeviceType">定位目標型別（<c>camera</c> 或 <c>io</c>）。</param>
+    /// <param name="manager">
+    /// 主視窗的頻道管理器（可為 null）。圖釘單擊要開即時畫面時會優先重用它的監看連線，
+    /// 沒有管理器（例如由事件中心開啟地圖）才由 <see cref="LiveWindow"/> 自建連線。
+    /// </param>
+    public MapWindow(
+        SqliteStore store,
+        int? locateChannelId = null,
+        string locateDeviceType = "camera",
+        ChannelManager? manager = null)
     {
         _store = store;
+        _manager = manager;
         _maps = new MapRepository(store);
         _io = new IoRepository(store);
         _events = new AlarmEventRepository(store);
@@ -225,6 +239,11 @@ public partial class MapWindow : Window
         MapCanvas.Height = h;
         MapImage.Width = w;
         MapImage.Height = h;
+        MapImage.Stretch = Stretch.None;
+        MapImage.HorizontalAlignment = HorizontalAlignment.Left;
+        MapImage.VerticalAlignment = VerticalAlignment.Top;
+        Canvas.SetLeft(MapImage, 0);
+        Canvas.SetTop(MapImage, 0);
 
         _zoom = 1.0;
         ApplyZoom();
@@ -283,14 +302,11 @@ public partial class MapWindow : Window
 
         foreach (var d in _maps.ListDevices(mapId))
         {
-            if (!d.Enabled)
-            {
-                continue;
-            }
 
             PinView pin;
             string name;
-            if (d.DeviceType == "camera")
+            var dt = d.DeviceType?.ToLowerInvariant() ?? "camera";
+            if (dt == "camera")
             {
                 _cameraNames.TryGetValue(d.ChannelId, out var cn);
                 name = cn ?? string.Format(CultureInfo.InvariantCulture, Localizer.T("Map.ChannelFallback"), d.ChannelId);
@@ -307,7 +323,7 @@ public partial class MapWindow : Window
             }
 
             _pins.Add(pin);
-            MapCanvas.Children.Add(pin.Root);
+            try { MapCanvas.Children.Add(pin.Root); } catch { }
         }
 
         RefreshHotspots(mapId);
@@ -331,18 +347,18 @@ public partial class MapWindow : Window
 
         var dot = new Ellipse
         {
-            Width = 14,
-            Height = 14,
+            Width = 18,
+            Height = 18,
             Fill = new SolidColorBrush(hasEvent ? ColorOrange : ColorGreen),
             Stroke = Brushes.White,
-            StrokeThickness = 1.5,
+            StrokeThickness = 2,
         };
-        Canvas.SetLeft(dot, cx - 7);
-        Canvas.SetTop(dot, cy - 7);
+        Canvas.SetLeft(dot, cx - 9);
+        Canvas.SetTop(dot, cy - 9);
 
-        var root = new Grid { Width = 14, Height = 14 };
-        Canvas.SetLeft(root, cx - 7);
-        Canvas.SetTop(root, cy - 7);
+        var root = new Grid { Width = 18, Height = 18 };
+        Canvas.SetLeft(root, cx - 9);
+        Canvas.SetTop(root, cy - 9);
         root.ToolTip = string.Format(
             CultureInfo.InvariantCulture,
             Localizer.T("Map.CameraTip"),
@@ -352,7 +368,8 @@ public partial class MapWindow : Window
             d.FovDeg,
             d.FovDepth);
         root.Tag = $"camera:{d.ChannelId}";
-        root.MouseLeftButtonUp += OnPinClick;
+        root.MouseLeftButtonUp += OnPinLiveClick;
+        root.MouseRightButtonUp += OnPinPlaybackClick;
         root.Children.Add(sector);
         root.Children.Add(dot);
 
@@ -366,45 +383,103 @@ public partial class MapWindow : Window
 
         var box = new Rectangle
         {
-            Width = 14,
-            Height = 14,
-            RadiusX = 3,
-            RadiusY = 3,
+            Width = 18,
+            Height = 18,
+            RadiusX = 4,
+            RadiusY = 4,
             Fill = new SolidColorBrush(hasEvent ? ColorOrange : ColorGray),
             Stroke = Brushes.White,
-            StrokeThickness = 1.5,
+            StrokeThickness = 2,
         };
-        Canvas.SetLeft(box, cx - 7);
-        Canvas.SetTop(box, cy - 7);
+        Canvas.SetLeft(box, cx - 9);
+        Canvas.SetTop(box, cy - 9);
 
-        var root = new Grid { Width = 14, Height = 14 };
-        Canvas.SetLeft(root, cx - 7);
-        Canvas.SetTop(root, cy - 7);
+        var root = new Grid { Width = 18, Height = 18 };
+        Canvas.SetLeft(root, cx - 9);
+        Canvas.SetTop(root, cy - 9);
         root.ToolTip = string.Format(CultureInfo.InvariantCulture, Localizer.T("Map.IoTip"), name);
         root.Tag = $"io:{d.ChannelId}";
-        root.MouseLeftButtonUp += OnPinClick;
+        root.MouseLeftButtonUp += OnPinLiveClick;
+        root.MouseRightButtonUp += OnPinPlaybackClick;
         root.Children.Add(box);
 
         return new PinView(root, box, "io", cameraId);
     }
 
-    private void OnPinClick(object sender, MouseButtonEventArgs e)
+    /// <summary>
+    /// 圖釘單擊：攝影機開該點位的即時畫面，IO 則在狀態列顯示名稱（IO 本身沒有影像）。
+    /// </summary>
+    /// <remarks>
+    /// 原本單一 <c>OnPinClick</c> 掛在 <c>MouseLeftButtonUp</c> 上再判斷 <c>e.RightButton</c>，
+    /// 但左鍵事件永遠不會帶右鍵狀態，於是「右鍵回放」實際上是死碼——操作員按右鍵只會看到
+    /// 一行文字。左右鍵因此拆成兩個獨立處理常式。
+    /// </remarks>
+    private void OnPinLiveClick(object sender, MouseButtonEventArgs e)
     {
         if (sender is not FrameworkElement fe || fe.Tag is not string tag)
         {
             return;
         }
 
-        if (e.ClickCount >= 2 && tag.StartsWith("camera:", StringComparison.Ordinal))
+        if (tag.StartsWith("camera:", StringComparison.Ordinal))
         {
             var channelId = int.Parse(tag.AsSpan("camera:".Length));
-            var playback = new PlaybackWindow(_store, channelId) { Owner = this };
-            playback.Show();
+            try
+            {
+                var live = new LiveWindow(_store, channelId, _manager) { Owner = this };
+                live.Show();
+            }
+            catch
+            {
+                // 即時畫面開不起來（頻道被刪、解碼器缺失）時退回回放，至少看得到該點位的錄影。
+                OpenPlayback(channelId);
+            }
+
+            e.Handled = true;
             return;
         }
 
         MapStatusText.Text = fe.ToolTip as string ?? tag;
         e.Handled = true;
+    }
+
+    /// <summary>
+    /// 圖釘右鍵：開此點位的錄影回放。IO 圖釘會回放它綁定的攝影機（未綁定時僅顯示名稱）。
+    /// </summary>
+    private void OnPinPlaybackClick(object sender, MouseButtonEventArgs e)
+    {
+        if (sender is not FrameworkElement fe)
+        {
+            return;
+        }
+
+        var channelId = fe.Tag is string tag && tag.StartsWith("camera:", StringComparison.Ordinal)
+            ? int.Parse(tag.AsSpan("camera:".Length))
+            : _pins.FirstOrDefault(p => ReferenceEquals(p.Root, fe))?.LookupChannel;
+
+        if (channelId is int id)
+        {
+            OpenPlayback(id);
+        }
+        else
+        {
+            MapStatusText.Text = fe.ToolTip as string ?? string.Empty;
+        }
+
+        e.Handled = true;
+    }
+
+    private void OpenPlayback(int channelId)
+    {
+        try
+        {
+            var playback = new PlaybackWindow(_store, channelId) { Owner = this };
+            playback.Show();
+        }
+        catch (Exception ex)
+        {
+            MapStatusText.Text = ex.Message;
+        }
     }
 
     private static Geometry CreateSector(double cx, double cy, double angleDeg, double fovDeg, double radius)
@@ -452,6 +527,7 @@ public partial class MapWindow : Window
         var pins = _maps.ListDevices(mapId);
         if (pins.Count == 0)
         {
+            _pulseTimer.Stop();
             return;
         }
 
@@ -643,4 +719,6 @@ public partial class MapWindow : Window
         MapScroll.ScrollToVerticalOffset(_panV - (p.Y - _panStart.Y));
         e.Handled = true;
     }
+
+    private void OnCloseClicked(object sender, RoutedEventArgs e) => Close();
 }

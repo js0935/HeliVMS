@@ -148,6 +148,26 @@ describe('video is never cropped', () => {
   });
 });
 
+describe('playback clock stays readable and still', () => {
+  it('ships a clock row under the playback video', () => {
+    // 時鐘是回放時唯一的「這一刻是什麼時候錄的」依據；規則與元素任何一邊
+    // 消失都會讓它退回無樣式的裸文字（或整個不出現）。
+    expect(cssSource).toMatch(/\.play-clock \{/);
+    expect(indexSource).toMatch(/id="play-clock"/);
+  });
+
+  it('keeps digit widths fixed so per-second updates do not jitter the row', () => {
+    // 每秒換一次字串；比例數字（1 vs 0）寬度不同會讓整列左右抖動。
+    expect(rule('.play-clock')).toMatch(/font-variant-numeric:\s*tabular-nums/);
+  });
+
+  it('reserves the row height before the first timestamp arrives', () => {
+    // 空 div 高度為 0，時鐘出現時下方說明列會往下跳；min-height 先佔好位。
+    expect(rule('.play-clock')).toMatch(/min-height:/);
+    expect(rule('.play-clock')).toMatch(/white-space:\s*nowrap/);
+  });
+});
+
 describe('multi-split live grid', () => {
   it('lays the split cells out in a grid', () => {
     expect(rule('.live-grid')).toMatch(/display:\s*grid/);

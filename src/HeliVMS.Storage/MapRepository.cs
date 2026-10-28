@@ -143,6 +143,11 @@ public sealed class MapRepository
         double fovDeg = 90,
         double fovDepth = 3)
     {
+        var dt = deviceType?.ToLowerInvariant() ?? "camera";
+        if (dt == "io") dt = "io";
+        if (dt == "di") dt = "di";
+        if (dt == "do") dt = "do";
+        if (dt == "camera") dt = "camera";
         return _store.Query(
             """
             INSERT INTO map_devices (map_id, device_type, channel_id, x, y, angle, fov_deg, fov_depth, enabled)
@@ -157,7 +162,7 @@ public sealed class MapRepository
             cmd =>
             {
                 cmd.Parameters.AddWithValue("$m", mapId);
-                cmd.Parameters.AddWithValue("$t", deviceType);
+                cmd.Parameters.AddWithValue("$t", dt);
                 cmd.Parameters.AddWithValue("$c", channelId);
                 cmd.Parameters.AddWithValue("$x", x);
                 cmd.Parameters.AddWithValue("$y", y);

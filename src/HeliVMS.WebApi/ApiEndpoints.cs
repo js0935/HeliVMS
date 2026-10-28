@@ -1836,10 +1836,11 @@ public static class ApiEndpoints
     private static async Task HandleSegmentInit(
         HttpContext context,
         SegmentRepository segments,
+        SegmentIndexReconciler reconciler,
         RecordedSegmentPolicy policy,
         long id)
     {
-        if (!TryResolveSegment(context, segments, policy, id, out var segment, out var failure))
+        if (!TryResolveSegment(context, segments, reconciler, policy, id, out var segment, out var failure))
         {
             await failure!();
             return;
@@ -1855,10 +1856,11 @@ public static class ApiEndpoints
     private static async Task HandleSegmentMedia(
         HttpContext context,
         SegmentRepository segments,
+        SegmentIndexReconciler reconciler,
         RecordedSegmentPolicy policy,
         long id)
     {
-        if (!TryResolveSegment(context, segments, policy, id, out var segment, out var failure))
+        if (!TryResolveSegment(context, segments, reconciler, policy, id, out var segment, out var failure))
         {
             await failure!();
             return;
@@ -1882,10 +1884,20 @@ public static class ApiEndpoints
     /// <summary>
     /// 分段解析的共同防線：必須是已完成的區段、路徑必須在錄影根目錄內、檔案必須還在。
     /// 呼叫端只給編號，路徑一律取自索引。
+    ///
+    /// <para>
+    /// 檔案不在時一併就地對帳（<see cref="SegmentIndexReconciler.VerifyExisting"/>）：回 404 的同時把
+    /// 這一筆標成 missing，下一個播放清單／時間軸請求就不會再列出這個幽靈段。清單端點本身已會對帳，
+    /// 但單段端點只憑編號查，是唯一還能從索引撈到幽靈段的路徑；不在這裡修正，索引就得等到每小時的
+    /// 背景對帳——期間瀏覽器若已取得含該段的舊清單，會反覆 404 而畫面看似壞掉。
+    /// 走 <c>VerifyExisting</c> 而不是裸 <see cref="File.Exists(string)"/> 是為了沿用它的安全閥：
+    /// 磁碟未就緒（D: 未掛載）時判定為「無法判定」，不會把整顆硬碟的段誤標成 missing。
+    /// </para>
     /// </summary>
     private static bool TryResolveSegment(
         HttpContext context,
         SegmentRepository segments,
+        SegmentIndexReconciler reconciler,
         RecordedSegmentPolicy policy,
         long id,
         out SegmentRecord? segment,
@@ -1905,6 +1917,11 @@ public static class ApiEndpoints
             return false;
         }
 
+        // 就地對帳：把這一筆標成 missing，下一個清單／時間軸請求就不再列出它。VerifyExisting 內建
+        // 磁碟未就緒的安全閥（此時算「無法判定」，索引原封不動），所以不會因 D: 掉線而誤標整顆硬碟。
+        // 標記與「能不能開檔」分開判定：即使磁碟未就緒（VerifyExisting 保留原狀），這裡仍要老實回
+        // 404，否則會往下走到 ReadPrefixAsync 而在開啟檔案時丟出 FileNotFoundException 變成 500。
+        _ = reconciler.VerifyExisting([segment]);
         if (!File.Exists(segment.FilePath))
         {
             failure = () => WriteError(context, StatusCodes.Status404NotFound, "錄影檔已不存在");

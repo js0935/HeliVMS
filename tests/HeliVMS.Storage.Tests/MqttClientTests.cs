@@ -474,8 +474,10 @@ internal sealed class FakeMqttBroker : IDisposable
     private readonly TcpListener _listener;
     private readonly int _connackReturnCode;
     private readonly int _subackReturnCode;
-    private Task? _task;
+    private Thread? _thread;
+    private TcpClient? _accepted;
     private NetworkStream? _clientStream;
+    private volatile bool _disposed;
 
     public FakeMqttBroker(int connackReturnCode = 0, int subackReturnCode = 0)
     {
@@ -532,16 +534,34 @@ internal sealed class FakeMqttBroker : IDisposable
         _clientStream.Flush();
     }
 
-    public void Start() => _task = Task.Run(async () =>
+    /// <summary>
+    /// 啟動假 broker。刻意用專用執行緒而非 <c>Task.Run</c>：整包測試平行執行時執行緒集區會
+    /// 被佔滿，<c>Task.Run</c> 的 accept 迴圈可能排到數秒後才開始跑，客戶端就在等 CONNACK
+    /// 的 10 秒逾時上失敗——測試紅在「連線失敗」，看起來像 MqttClient 壞了，其實被測程式
+    /// 完全正常。這種紅只在 CI 整包執行時出現，單獨跑必定全綠，正是最難歸因的那種。
+    /// </summary>
+    public void Start()
+    {
+        _thread = new Thread(Serve) { IsBackground = true, Name = "FakeMqttBroker" };
+        _thread.Start();
+    }
+
+    private void Serve()
     {
         try
         {
-            using var client = await _listener.AcceptTcpClientAsync().ConfigureAwait(false);
+            var client = _listener.AcceptTcpClient();
+            _accepted = client;
+            if (_disposed)
+            {
+                return;
+            }
+
             using var stream = client.GetStream();
             _clientStream = stream;
             while (true)
             {
-                var packet = await ReadPacketAsync(stream).ConfigureAwait(false);
+                var packet = ReadPacket(stream);
                 if (packet is null)
                 {
                     return;
@@ -601,19 +621,26 @@ internal sealed class FakeMqttBroker : IDisposable
         }
         catch (Exception ex)
         {
-            LastError = ex.ToString();
+            if (!_disposed)
+            {
+                LastError = ex.ToString();
+            }
         }
-    });
+    }
 
     public void Dispose()
     {
-        _listener.Stop();
-        try { _task?.GetAwaiter().GetResult(); } catch { }
+        _disposed = true;
+        try { _listener.Stop(); } catch { }
+        // 關閉已接受的連線才會讓阻塞中的 Read 返回；只停 listener 的話，若連線還在，
+        // Join 會等到測試逾時。
+        try { _accepted?.Close(); } catch { }
+        try { _thread?.Join(TimeSpan.FromSeconds(5)); } catch { }
     }
 
-    private static async Task<(byte Header, byte[] Body, List<byte> RemainingLengthBytes)?> ReadPacketAsync(Stream stream)
+    private static (byte Header, byte[] Body, List<byte> RemainingLengthBytes)? ReadPacket(Stream stream)
     {
-        var first = await ReadByteAsync(stream).ConfigureAwait(false);
+        var first = ReadByte(stream);
         if (first is null)
         {
             return null;
@@ -625,7 +652,7 @@ internal sealed class FakeMqttBroker : IDisposable
         byte digit;
         do
         {
-            var d = await ReadByteAsync(stream).ConfigureAwait(false);
+            var d = ReadByte(stream);
             if (d is null)
             {
                 return null;
@@ -642,7 +669,7 @@ internal sealed class FakeMqttBroker : IDisposable
         var offset = 0;
         while (offset < length)
         {
-            var read = await stream.ReadAsync(body.AsMemory(offset, length - offset)).ConfigureAwait(false);
+            var read = stream.Read(body, offset, length - offset);
             if (read <= 0)
             {
                 return null;
@@ -654,10 +681,10 @@ internal sealed class FakeMqttBroker : IDisposable
         return (first.Value, body, lengthBytes);
     }
 
-    private static async Task<byte?> ReadByteAsync(Stream stream)
+    private static byte? ReadByte(Stream stream)
     {
         var buffer = new byte[1];
-        var read = await stream.ReadAsync(buffer).ConfigureAwait(false);
+        var read = stream.Read(buffer, 0, 1);
         return read == 0 ? null : buffer[0];
     }
 }

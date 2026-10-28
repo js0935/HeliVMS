@@ -10,7 +10,14 @@ namespace HeliVMS.Recording;
 /// 分段長度是整個錄影管線的槓桿：每段一個 MP4 檔、一筆 <c>segments</c> 索引、一個 HLS 片段。
 /// 早期固定 15 秒，單一頻道一天就是 5,760 個檔（16 路 30 天約 277 萬個檔），
 /// 讓磁碟目錄、<c>segments</c> 表與保留清理都被檔數而非容量壓垮。改成可設定後，
-/// 預設 60 秒把檔數直接降為四分之一，同時保留操作員依站台需求調整的空間。
+/// 預設 300 秒把檔數降為 15 秒的 1/20，同時保留操作員依站台需求調整的空間。
+/// </para>
+///
+/// <para>
+/// 7x24 一年級儲存（16 路約 250 TB）真正的瓶頸是檔數與索引列數，不是容量：16 路 ×
+/// 60 秒一年約 840 萬列，<c>SegmentRepository</c> 自己就註明「一年可達千萬列」。
+/// 預設拉到 300 秒把年列數砍到約 168 萬，且仍是上限 600 秒的一半，HLS 粒度可接受；
+/// 這是一次性的成本最低槓桿（只改一個常數），不需要動到保留或分層。
 /// </para>
 ///
 /// <para>
@@ -29,8 +36,8 @@ public static class RecordingSegmentPolicy
     /// <summary>分段秒數的設定鍵；未設定或無法解析時採 <see cref="DefaultSeconds"/>。</summary>
     public const string SettingKey = "recording.segment_seconds";
 
-    /// <summary>預設每段秒數。60 秒把 15 秒的檔數降為四分之一，又保留合理的搜尋粒度。</summary>
-    public const int DefaultSeconds = 60;
+    /// <summary>預設每段秒數。300 秒把 15 秒的檔數降為 1/20，又保留合理的搜尋粒度。</summary>
+    public const int DefaultSeconds = 300;
 
     /// <summary>允許的最短分段（秒）。</summary>
     public const int MinSeconds = 5;

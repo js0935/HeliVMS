@@ -5,7 +5,7 @@
         Title=""
         Width="760" Height="600"
         WindowStartupLocation="CenterOwner"
-        Background="#0B1622" Foreground="White">
+        Background="#0B1622" Foreground="White" WindowStyle="None" ResizeMode="NoResize" WindowState="Maximized">
 
     <Grid Margin="16">
         <Grid.RowDefinitions>
@@ -16,6 +16,12 @@
             <RowDefinition Height="*"/>
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
+        <Button x:Name="CloseButton" Content="✕" Click="OnCloseClicked" ToolTip=""
+                HorizontalAlignment="Right" VerticalAlignment="Top" Panel.ZIndex="9999"
+                Margin="0,12,12,0" Padding="10,4" FontSize="14"
+                Foreground="White" Background="#C62828" BorderThickness="0"
+                AutomationProperties.AutomationId="SystemHealthCloseButton"
+                Grid.Row="0"/>
 
         <TextBlock Grid.Row="0" x:Name="HeadingText"
                    AutomationProperties.AutomationId="HeadingText"

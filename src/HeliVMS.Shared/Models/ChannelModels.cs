@@ -119,4 +119,8 @@ public sealed class SegmentRecord
 
     /// <summary>檔案 SHA-256（§11.5 防竄改）。</summary>
     public string? Sha256 { get; init; }
+
+    public string Tier { get; init; } = "hot";
+
+    public string? OriginPath { get; init; }
 }

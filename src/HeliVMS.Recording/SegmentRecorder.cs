@@ -233,7 +233,7 @@ public sealed class SegmentRecorder : ISegmentRecorder
         var folder = string.IsNullOrWhiteSpace(_folderName)
             ? RecordingFolderNaming.LegacyName(ChannelId)
             : _folderName!;
-        var dir = Path.Combine(recordingsRoot, folder, startUtc.ToString("yyyyMMdd"));
+        var dir = Path.Combine(recordingsRoot, folder, startUtc.ToString("yyyyMMdd"), startUtc.ToString("HH"));
         Directory.CreateDirectory(dir);
 
         // 檔名帶毫秒：秒級（`HHmmss`）在「攝影機 RTSP 串流突然 EOF、ffmpeg 迅速以 0 結束」

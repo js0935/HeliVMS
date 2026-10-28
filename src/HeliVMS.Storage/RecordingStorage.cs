@@ -165,8 +165,21 @@ public static class RecordingStorage
         return choices;
     }
 
-    /// <summary>指定磁碟上的專用錄影目錄（<c>\HeliVMSRecordings</c>）。</summary>
-    public static string FolderForDrive(string driveRoot) => Path.Combine(driveRoot, RecordingsDirName);
+    /// <summary>
+    /// 指定磁碟上的專用錄影目錄（<c>\HeliVMSRecordings</c>）。
+    ///
+    /// 裸磁碟代號（<c>D:</c>）補上根分隔符再組合：.NET Core 起 <c>D:</c> 被視為已根化，
+    /// <c>Path.Combine("D:", "x")</c> 恰好給出 <c>D:\x</c>，但 <c>D:x</c> 本身是
+    /// 「該磁碟目前目錄」的相對路徑（<c>GetFullPath</c> 仍會照相對路徑解析）——
+    /// 明確補分隔符讓「錄影目錄一律絕對」不依賴這個平台細節。
+    /// </summary>
+    public static string FolderForDrive(string driveRoot)
+    {
+        var root = driveRoot.EndsWith(Path.DirectorySeparatorChar) || driveRoot.EndsWith(Path.AltDirectorySeparatorChar)
+            ? driveRoot
+            : driveRoot + Path.DirectorySeparatorChar;
+        return Path.Combine(root, RecordingsDirName);
+    }
 
     /// <summary>
     /// 把一個根目錄併入既有清單（分號分隔），已存在（不分大小寫）則原樣回傳。
@@ -509,11 +522,19 @@ public static class RecordingStorage
     }
 
     /// <summary>
-    /// 只取磁碟代號（如 <c>C:</c>），供跨大小寫比較；故意不用 <c>Path.GetFullPath</c>，
-    /// 因為它會把裸磁碟代號 <c>C:</c> 解析成該磁碟目前目錄，導致系統碟比對失敗。
+    /// 只取磁碟代號（如 <c>C:</c>，無尾部分隔符），供跨大小寫比較與設定正規化；
+    /// 故意不用 <c>Path.GetFullPath</c>，因為它會把裸磁碟代號 <c>C:</c> 解析成該磁碟目前目錄，
+    /// 導致系統碟比對失敗。<c>D:</c> 與 <c>D:\</c> 一律正規化成 <c>D:</c>。
     /// </summary>
-    private static string DriveRootOf(string path)
-        => (Path.GetPathRoot(path) ?? path)
+    public static string DriveRootOf(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return string.Empty;
+        }
+
+        return (Path.GetPathRoot(path) ?? path)
             .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
             .ToUpperInvariant();
+    }
 }

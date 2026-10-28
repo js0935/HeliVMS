@@ -223,10 +223,38 @@ describe('remote playback (M239 HLS)', () => {
   });
 
   it('pushes the init segment and every media segment through the authenticated transport', () => {
-    expect(appSource).toMatch(/if \(playlist\.initUri\) await push\(playlist\.initUri\)/);
-    expect(appSource).toMatch(/for \(const segment of playlist\.segments\) await push\(segment\.uri\)/);
+    expect(appSource).toMatch(/if \(initBytes\) await append\(initBytes, null\)/);
+    expect(appSource).toMatch(/const bytes = await fetchBytes\(segment\.uri\)/);
+    expect(appSource).toMatch(/await append\(bytes, offset\)/);
     expect(appSource).toMatch(/const response = await apiRaw\(uri\)/);
     expect(appSource).toMatch(/media\.endOfStream\(\)/);
+    expect(appSource).toMatch(/return timeline/);
+  });
+
+  it('stitches segments onto one media timeline instead of restarting at zero', () => {
+    // 每個錄影檔的時間戳都從 0 重新開始：不設 timestampOffset 直接 append，後段的幀
+    // 會覆蓋到前段的時間軸上，操作員實際只能看第一段，而且 log 乾淨、沒有任何報錯。
+    // 接縫的依據是 moof 量出來的真實媒體長度，不能用 m3u8 的 EXTINF（伺服器量的牆鐘，
+    // 每段多含約一秒的啟動時間，累加起來是成串空隙）。
+    expect(appSource).toMatch(/buffer\.timestampOffset = offsetSeconds/);
+    expect(appSource).toMatch(/parseFmp4InitTracks\(initBytes\)/);
+    expect(appSource).toMatch(/parseFmp4VideoSpan\(tracks, bytes\)/);
+    expect(appSource).toMatch(/const offset = mediaEnd - \(span \? span\.start : 0\)/);
+  });
+
+  it('shows the recording wall-clock time for the current position', () => {
+    // 操作員要確認「畫面這一刻是什麼時候錄的」；原生進度條只有媒體相對秒數，
+    // 回答不了這個問題。
+    expect(indexSource).toMatch(/id="play-clock"/);
+    expect(appSource).toMatch(/\$\('play-video'\)\.addEventListener\('timeupdate', renderPlayClock\)/);
+    expect(appSource).toMatch(/\$\('play-video'\)\.addEventListener\('seeked', renderPlayClock\)/);
+    expect(appSource).toMatch(/buildRecordingClock\(timeline\)/);
+    expect(appSource).toMatch(/t\('replay\.recordingTime', \{ time: formatLocalClock\(at\) \}\)/);
+  });
+
+  it('describes the loaded window as recording times, not as a duration', () => {
+    // 「N 段／M 秒」回答不了「這是不是我要的時段」；時段欄位要給錄影的起訖時刻。
+    expect(appSource).toMatch(/t\('replay\.playlistWindow'/);
   });
 
   it('never plays a segment with a bare fetch that would skip the API key', () => {

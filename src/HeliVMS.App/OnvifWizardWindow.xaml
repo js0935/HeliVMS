@@ -5,7 +5,7 @@
         Width="760" Height="560"
         WindowStartupLocation="CenterOwner"
         Closed="OnWindowClosed"
-        Background="{StaticResource Brand.BgDeep}">
+        Background="{StaticResource Brand.BgDeep}" WindowStyle="None" ResizeMode="NoResize" WindowState="Maximized">
 
     <Grid Margin="16">
         <Grid.RowDefinitions>

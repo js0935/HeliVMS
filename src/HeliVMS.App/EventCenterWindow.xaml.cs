@@ -1036,4 +1036,6 @@ public partial class EventCenterWindow : Window
         _snapSource = default;
         _snapDetections = [];
     }
+
+    private void OnCloseClicked(object sender, RoutedEventArgs e) => Close();
 }

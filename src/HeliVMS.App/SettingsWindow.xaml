@@ -3,15 +3,20 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         AutomationProperties.AutomationId="SettingsWindow"
         Title=""
-        Width="860" Height="540"
-        WindowStartupLocation="CenterOwner"
+        WindowStyle="None" ResizeMode="NoResize" WindowState="Maximized"
         Background="#0B1622" Foreground="White">
 
-    <Grid Margin="12">
+    <Grid Margin="16">
         <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="170"/>
+            <ColumnDefinition Width="200"/>
             <ColumnDefinition Width="*"/>
         </Grid.ColumnDefinitions>
+        <Button x:Name="CloseButton" Content="✕" Click="OnCloseClicked" ToolTip=""
+                HorizontalAlignment="Right" VerticalAlignment="Top" Panel.ZIndex="9999"
+                Margin="0,12,12,0" Padding="10,4" FontSize="14"
+                Foreground="White" Background="#C62828" BorderThickness="0"
+                AutomationProperties.AutomationId="SettingsCloseButton"
+                Grid.ColumnSpan="2"/>
 
         <!-- Left: category navigation -->
         <Border Background="#12233C" BorderBrush="#1F3A5F" BorderThickness="1" Padding="6">
@@ -825,22 +830,24 @@
                            Foreground="{StaticResource Brand.TextDim}" FontSize="11" Margin="0,0,0,10" TextWrapping="Wrap"/>
 
                 <TextBlock x:Name="MapSectionHeading" Text="" FontSize="14" FontWeight="Bold" Margin="0,0,0,6"/>
-                <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
-                    <TextBox x:Name="MapNameBox" AutomationProperties.AutomationId="MapNameBox"
-                             Width="120" ToolTip=""
-                             Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="8,4"/>
-                    <TextBox x:Name="MapImageBox" AutomationProperties.AutomationId="MapImageBox"
-                             Width="300" Margin="6,0,0,0" ToolTip=""
-                             Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="8,4"/>
-                    <Button x:Name="MapBrowseButton" AutomationProperties.AutomationId="MapBrowseButton" ToolTip=""
-                            Content="" Click="OnMapBrowseClicked" Margin="6,0,0,0" Padding="8,4"
-                            Foreground="White" Background="#3A5A7A" BorderThickness="0"/>
-                    <Button x:Name="MapAddButton" AutomationProperties.AutomationId="MapAddButton" ToolTip=""
-                            Content="" Click="OnMapAddClicked" Margin="6,0,0,0" Padding="8,4"
-                            Foreground="White" Background="#2A5C8A" BorderThickness="0"/>
-                    <Button x:Name="MapRefreshButton" AutomationProperties.AutomationId="MapRefreshButton" ToolTip=""
-                            Content="" Click="OnMapRefreshClicked" Margin="6,0,0,0" Padding="8,4"
-                            Foreground="White" Background="#3A5A7A" BorderThickness="0"/>
+                <StackPanel Margin="0,0,0,6">
+                    <WrapPanel>
+                        <TextBlock x:Name="MapNameLabel" Text="" Foreground="{StaticResource Brand.TextDim}" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                        <TextBox x:Name="MapNameBox" AutomationProperties.AutomationId="MapNameBox" Width="160" ToolTip=""
+                                 Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="8,4"/>
+                        <Button x:Name="MapBrowseButton" AutomationProperties.AutomationId="MapBrowseButton" ToolTip=""
+                                Content="" Click="OnMapBrowseClicked" Margin="8,0,0,0" Padding="12,4"
+                                Foreground="White" Background="#3A5A7A" BorderThickness="0"/>
+                        <Button x:Name="MapAddButton" AutomationProperties.AutomationId="MapAddButton" ToolTip=""
+                                Content="" Click="OnMapAddClicked" Margin="6,0,0,0" Padding="12,4"
+                                Foreground="White" Background="#2A5C8A" BorderThickness="0"/>
+                        <Button x:Name="MapRefreshButton" AutomationProperties.AutomationId="MapRefreshButton" ToolTip=""
+                                Content="" Click="OnMapRefreshClicked" Margin="6,0,0,0" Padding="12,4"
+                                Foreground="White" Background="#3A5A7A" BorderThickness="0"/>
+                    </WrapPanel>
+                    <TextBox x:Name="MapImageBox" AutomationProperties.AutomationId="MapImageBox" Margin="0,4,0,0"
+                             ToolTip="" IsReadOnly="True"
+                             Foreground="White" Background="#0E1D33" BorderBrush="#1F3A5F" Padding="6,3"/>
                 </StackPanel>
 
                 <ListView x:Name="MapList" AutomationProperties.AutomationId="MapList" SelectionMode="Single"
@@ -883,21 +890,29 @@
                 </StackPanel>
 
                 <TextBlock x:Name="MapPinHeading" Text="" FontSize="14" FontWeight="Bold" Margin="0,4,0,6"/>
-                <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
-                    <ComboBox x:Name="MapPinKindCombo" AutomationProperties.AutomationId="MapPinKindCombo" Width="84"
-                              SelectionChanged="OnMapPinKindChanged"
-                              Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="2,4">
-                        <ComboBoxItem Content="camera"/>
-                        <ComboBoxItem Content="io"/>
-                    </ComboBox>
-                    <ComboBox x:Name="MapPinChannelCombo" AutomationProperties.AutomationId="MapPinChannelCombo"
-                              Width="200" Margin="6,0,0,0" ToolTip=""
-                              Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="2,4"/>
+                <StackPanel Margin="0,0,0,6">
+                    <WrapPanel>
+                        <TextBlock x:Name="MapPinKindLabel" Text="" Foreground="{StaticResource Brand.TextDim}" VerticalAlignment="Center" Margin="0,0,4,0"/>
+                        <ComboBox x:Name="MapPinKindCombo" AutomationProperties.AutomationId="MapPinKindCombo" Width="80"
+                                  SelectionChanged="OnMapPinKindChanged"
+                                  Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="2,4">
+                            <ComboBoxItem Content="" Tag="camera"/>
+                            <ComboBoxItem Content="" Tag="di"/>
+                            <ComboBoxItem Content="" Tag="do"/>
+                        </ComboBox>
+                        <TextBlock x:Name="MapPinDeviceLabel" Text="" Foreground="{StaticResource Brand.TextDim}" VerticalAlignment="Center" Margin="6,0,4,0"/>
+                        <ComboBox x:Name="MapPinChannelCombo" AutomationProperties.AutomationId="MapPinChannelCombo"
+                                  Width="200" ToolTip=""
+                                  Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="2,4"/>
+                        <Button x:Name="MapPlacePinButton" Content="" Click="OnMapPlacePinClicked" ToolTip=""
+                                Padding="10,4" Margin="6,0,0,0" Foreground="White" Background="#2A5C8A" BorderThickness="0"/>
+                    </WrapPanel>
+                    <TextBlock x:Name="MapPinHelpText" Text="" Foreground="{StaticResource Brand.TextDim}" FontSize="11" Margin="0,4,0,0" TextWrapping="Wrap"/>
                 </StackPanel>
                 <TextBlock x:Name="MapPinHint" Text=""
                            Foreground="{StaticResource Brand.TextDim}" FontSize="11" Margin="0,0,0,4" TextWrapping="Wrap"/>
 
-                <WrapPanel Margin="0,0,0,4">
+                <WrapPanel Margin="0,0,0,4" Visibility="Collapsed">
                     <TextBlock x:Name="MapPinAngleLabel" Text="" Foreground="{StaticResource Brand.TextDim}" FontSize="11"
                                VerticalAlignment="Center"/>
                     <TextBox x:Name="MapPinAngleBox" AutomationProperties.AutomationId="MapPinAngleBox" Width="52"
@@ -923,7 +938,7 @@
 
                 <Border Height="210" Background="#080F1A" BorderBrush="#1F3A5F" BorderThickness="1" VerticalAlignment="Top">
                     <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
-                        <Canvas x:Name="MapPinCanvas" AutomationProperties.AutomationId="MapPinCanvas">
+                        <Canvas x:Name="MapPinCanvas" AutomationProperties.AutomationId="MapPinCanvas" Background="Transparent">
                             <Image x:Name="MapPinImage" Stretch="None"/>
                         </Canvas>
                     </ScrollViewer>

@@ -253,6 +253,7 @@ public partial class PlaybackWindow : Window
         ReplayRangeMenuItem.Header = Localizer.T("Playback.ReplayRange");
         ExportRangeMenuItem.Header = Localizer.T("Playback.ExportRange");
         ClearRangeMenuItem.Header = Localizer.T("Playback.ClearRange");
+        try { if (CloseButton != null) CloseButton.ToolTip = Localizer.T("Playback.CloseTip"); } catch { if (CloseButton != null) CloseButton.ToolTip = "關閉"; }
         EmptyHint.Text = Localizer.T("Playback.EmptyHint");
         PlayPauseButton.Content = Localizer.T("Playback.Play");
         PlayPauseButton.ToolTip = Localizer.T("Playback.PlayPauseTip");
@@ -2564,6 +2565,8 @@ public partial class PlaybackWindow : Window
         var t = TimeSpan.FromSeconds(Math.Max(0, seconds));
         return $"{(int)t.TotalHours:00}:{t.Minutes:00}:{t.Seconds:00}";
     }
+
+    private void OnCloseClicked(object sender, RoutedEventArgs e) => Close();
 
     private void OnClosing(object sender, System.ComponentModel.CancelEventArgs e)
     {
