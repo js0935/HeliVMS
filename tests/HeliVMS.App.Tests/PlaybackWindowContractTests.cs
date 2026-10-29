@@ -936,5 +936,38 @@ public sealed class PlaybackWindowContractTests
         // 沒錄影時要說清楚，不能留下一台全黑播放器（與「解碼失敗」在畫面上長得一樣）。
         Assert.Contains("Playback.NoSegmentsToday", play);
     }
+
+    /// <summary>
+    /// 選台必須用 <c>ItemsSource</c> 裡的那一個實例。
+    ///
+    /// <para>
+    /// 實際症狀：從即時畫面按「回放」，視窗開得出來但頻道沒帶進去、播放器全黑。
+    /// 原因不是沒傳頻道，而是 <c>LoadChannels</c> 呼叫 <c>_channels.List()</c> 兩次：
+    /// <c>ItemsSource</c> 拿第一次的結果，選台卻用第二次查出來的物件。WPF 的
+    /// <c>Selector.SelectedItem</c> 是參考比對，不在 Items 裡的物件會被直接丟掉
+    /// （SelectedItem 變 null、SelectedIndex 變 -1），<c>LoadSegments</c> 因此判定
+    /// 「沒有頻道」，連清單都不載。
+    /// </para>
+    /// <para>
+    /// 用實測確認過：兩個內容相同但不同實例的物件，設進 SelectedItem 之後是 null。
+    /// 所以這裡釘住的不是風格，是「只能查一次、選的就是放進去的那一份」。
+    /// 同樣的錯誤會讓事件中心跳時刻、拖曳即播、主畫面右鍵回放全部靜靜失效。
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void 回放選台用的是ItemsSource裡同一份實例()
+    {
+        var load = SourceContract.BodyOf(SourceContract.Read(Code), "LoadChannels");
+        Assert.False(string.IsNullOrWhiteSpace(load), "找不到 LoadChannels 的實作");
+
+        // 只准查一次：第二次 List() 產生的物件不在 Items 裡，選了等於沒選。
+        Assert.Single(Regex.Matches(load, @"_channels\.List\(\)"));
+
+        Assert.Contains("ChannelCombo.ItemsSource = channels", load);
+        Assert.Contains("ChannelCombo.SelectedItem = match", load);
+
+        // match 必須來自 channels 這一份，而不是又一次資料庫查詢。
+        Assert.Contains("channels.FirstOrDefault(c => c.Id == focus)", load);
+    }
 }
 

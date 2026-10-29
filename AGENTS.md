@@ -108,6 +108,14 @@ Notes that will save you time:
   missing lock file is green locally and red on CI (NU1004) — which reads like a
   runner or network problem and isn't. `dotnet restore HeliVMS.slnx` then commit the
   generated file. Also asserted by `SolutionCoverageTests`.
+- **`ComboBox.SelectedItem` compares by reference.** Setting it to an object that is
+  equal-but-not-the-same instance as one in `ItemsSource` is silently discarded
+  (`SelectedItem` becomes `null`, `SelectedIndex` `-1`) — no exception, no log. This
+  already shipped once: `PlaybackWindow.LoadChannels` called `_channels.List()` twice,
+  so every "open playback for this channel" entry point (live view, map pin, event
+  centre, drag-and-drop) opened a window with no channel selected and a black player.
+  Query once and select the instance from the collection you assigned. Guarded by
+  `回放選台用的是ItemsSource裡同一份實例`.
 - **Enabling local auth must not lock you out.** `auth.enabled=1` with no enabled
   admin parks the desktop app on `LoginWindow` with no account that can pass, and
   the only recovery is editing `index.db` by hand. `SettingsWindow` refuses to enable

@@ -297,18 +297,26 @@ public partial class PlaybackWindow : Window
 
     private void LoadChannels()
     {
-        ChannelCombo.ItemsSource = _channels.List();
+        var channels = _channels.List();
+        ChannelCombo.ItemsSource = channels;
         ChannelCombo.DisplayMemberPath = nameof(ChannelInfo.Name);
-        if (ChannelCombo.Items.Count > 0)
+
+        if (channels.Count == 0)
         {
-            if (_focusChannelId is { } focus && _channels.List().FirstOrDefault(c => c.Id == focus) is { } match)
-            {
-                ChannelCombo.SelectedItem = match;
-            }
-            else
-            {
-                ChannelCombo.SelectedIndex = 0;
-            }
+            return;
+        }
+
+        // 一定要挑 ItemsSource 裡的那一個實例。ComboBox.SelectedItem 是「參考」比對：
+        // 給一個同 Id 但來自另一份 List() 的物件會被 Selector 直接丟掉（SelectedItem 變 null、
+        // SelectedIndex 變 -1），於是 LoadSegments 認為沒選頻道。實際症狀就是從即時畫面按
+        // 「回放」時視窗開得出來、頻道卻沒帶進去，播放器全黑。
+        if (_focusChannelId is { } focus && channels.FirstOrDefault(c => c.Id == focus) is { } match)
+        {
+            ChannelCombo.SelectedItem = match;
+        }
+        else
+        {
+            ChannelCombo.SelectedIndex = 0;
         }
     }
 
