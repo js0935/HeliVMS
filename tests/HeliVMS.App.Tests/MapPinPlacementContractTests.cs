@@ -128,4 +128,39 @@ public sealed class MapPinPlacementContractTests
 
         Assert.Contains("s_open.Remove(_channelId)", closed);
     }
+
+    /// <summary>
+    /// 平面圖要自動縮放成「整張都看得到」，而不是要操作員自己拉捲軸找圖的另一半。
+    /// </summary>
+    /// <remarks>
+    /// 縮放刻意用「改畫布版面尺寸」而不是 <c>RenderTransform</c>：RenderTransform 不會改變
+    /// ScrollViewer 認定的內容大小，縮小時會留下一大片可捲動的空白、放大時又捲不到右邊那半張
+    /// 圖。這條同時釘住「換圖與視窗大小改變都要重算」以及「不放大超過原始尺寸」（放大只是變
+    /// 模糊，圖釘還會愈偏愈遠）。
+    /// </remarks>
+    [Fact]
+    public void 平面圖會自動縮放至整張可見且不放大()
+    {
+        var code = SourceContract.Read("src/HeliVMS.App/MapWindow.xaml.cs");
+
+        var fit = SourceContract.BodyOf(code, "FitScale");
+        Assert.False(string.IsNullOrWhiteSpace(fit), "找不到 FitScale 的實作");
+        Assert.Contains("ViewportWidth", fit);
+        Assert.Contains("ViewportHeight", fit);
+        Assert.Contains("Math.Min(", fit);
+        Assert.Contains("Math.Clamp(scale, 0.02, 1.0)", fit);
+
+        // 換圖就從「整張圖」開始，而不是 1:1 讓操作員自己縮。
+        Assert.Contains("_zoom = FitScale()", SourceContract.BodyOf(code, "ShowMap"));
+
+        // 視窗大小改變要重算；沒有這段，開窗時才對的那個比例在拉大視窗後就空一半。
+        Assert.Contains("SizeChanged", code);
+        Assert.Contains("ApplyFitIfNeeded", code);
+
+        var apply = SourceContract.BodyOf(code, "ApplyZoom");
+        Assert.Contains("MapCanvas.Width = w", apply);
+        Assert.Contains("LayoutPins()", apply);
+        Assert.DoesNotContain("RenderTransform", apply);
+        Assert.DoesNotContain("ScrollViewer", apply);
+    }
 }

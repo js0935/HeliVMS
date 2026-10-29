@@ -43,7 +43,7 @@
                           PreviewMouseWheel="OnScrollWheel" PanningMode="None">
                 <Border x:Name="MapHost" Background="#080F1A">
                     <Canvas x:Name="MapCanvas" AutomationProperties.AutomationId="MapCanvas">
-                        <Image x:Name="MapImage" Stretch="None" />
+                        <Image x:Name="MapImage" Stretch="Fill" />
                     </Canvas>
                 </Border>
             </ScrollViewer>
