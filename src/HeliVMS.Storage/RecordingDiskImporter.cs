@@ -57,9 +57,11 @@ public readonly record struct RecordingImportReport(
 /// 由操作員在匯入畫面指定——把 A 台的錄影掛到 B 台名下比看不到更糟（證據錯置）。
 /// </para>
 /// <para>
-/// 開始時間取自檔名（錄影端以 UTC 的 <c>HHmmssfff</c> 命名）與 <c>yyyyMMdd</c> 日期資料夾，
-/// 結束時間取檔案的 <c>LastWriteTimeUtc</c>（ffmpeg 收尾關檔的時刻）。時間解析不出來的檔案
-/// 直接略過：亂猜一個時間只會讓回放時間軸出現一段對不上的空白，比不匯入更難查。
+/// 開始時間取自檔名（錄影端以 UTC 的 <c>HHmmssfff</c> 命名）與 <c>yyyyMMdd</c> 日期資料夾；
+/// 結束時間取檔案的 <c>LastWriteTimeUtc</c>（ffmpeg 收尾關檔的時刻）。複製、還原回來的檔案
+/// 會被蓋成「現在」，所以超過一小時一律視為不可信，改用下一段的開始時間推算，最少也會給一個
+/// 正的時長——零長度的段在回放時間軸上不會被畫出來，等於匯入了卻還是看不到。
+/// 時間解析不出來的檔案直接略過：亂猜一個時間只會讓時間軸出現一段對不上的空白，比不匯入更難查。
 /// </para>
 /// </remarks>
 public sealed class RecordingDiskImporter
@@ -75,6 +77,18 @@ public sealed class RecordingDiskImporter
     /// <c>LastWriteTimeUtc</c> 不是收尾時刻（複製、還原都會蓋成當下時間），寧可記 0 秒。
     /// </summary>
     private static readonly TimeSpan MaxInferredDuration = TimeSpan.FromHours(1);
+
+    /// <summary>
+    /// 沒有可信收尾時間時，改用「下一段開始」推算時長的上限：正常一段幾十秒，
+    /// 稀疏的事件錄影下一段可能隔了好幾小時，不能讓一段蓋掉整個下午。
+    /// </summary>
+    private static readonly TimeSpan MaxEstimatedDuration = TimeSpan.FromSeconds(60);
+
+    /// <summary>
+    /// 完全無從推算時的時長。與 <see cref="PlaybackTimelineBuilder"/> 的預設值一致：
+    /// 零長度的段不會被畫在時間軸上，索引裡有、畫面上沒有，等於回報使用者「這裡沒有錄影」。
+    /// </summary>
+    private const double FallbackDurationSec = 10;
 
     private readonly SegmentRepository _repo;
 
@@ -250,10 +264,16 @@ public sealed class RecordingDiskImporter
     }
 
     /// <summary>收集資料夾底下可匯入的段；同一秒的檔案只留一個（索引的唯一鍵是頻道＋時間）。</summary>
+    /// <remarks>
+    /// 時長一定要算出一個正值。回放時間軸（<see cref="PlaybackTimelineBuilder"/>）刻意略過零長度的段，
+    /// 而索引裡「有這一列、時間軸上沒有這一條」等於告訴操作員這裡沒有錄影——明明檔案就在磁碟上。
+    /// 收尾時間不可信時，先看下一段的開始時間（全時錄影是連續的，差額就是這段的長度），
+    /// 再不行才退回 <see cref="FallbackDurationSec"/>。
+    /// </remarks>
     private List<DiskSegment> Collect(string folderPath)
     {
         var known = KnownPaths(folderPath);
-        var files = new List<DiskSegment>();
+        var parsed = new List<(string Path, long Size, DateTime StartUtc, DateTime WrittenUtc)>();
         var starts = new HashSet<DateTime>();
 
         foreach (var path in SafeEnumerateFiles(folderPath))
@@ -299,18 +319,45 @@ public sealed class RecordingDiskImporter
                 continue;
             }
 
-            var endUtc = startUtc;
-            var duration = 0d;
-            if (writtenUtc > startUtc && writtenUtc - startUtc <= MaxInferredDuration)
-            {
-                endUtc = writtenUtc;
-                duration = (writtenUtc - startUtc).TotalSeconds;
-            }
+            parsed.Add((full, size, startUtc, writtenUtc));
+        }
 
-            files.Add(new DiskSegment(full, startUtc, endUtc, size, duration));
+        // 依開始時間排序，「下一段」才有意義（檔名是時分秒，列舉順序不保證）。
+        parsed.Sort((a, b) => a.StartUtc.CompareTo(b.StartUtc));
+
+        var files = new List<DiskSegment>(parsed.Count);
+        for (var i = 0; i < parsed.Count; i++)
+        {
+            var (path, size, startUtc, writtenUtc) = parsed[i];
+            var duration = InferredDuration(parsed, i);
+            files.Add(new DiskSegment(path, startUtc, startUtc.AddSeconds(duration), size, duration));
         }
 
         return files;
+    }
+
+    /// <summary>這一段的時長（秒）；收尾時間不可信時改用下一段開始時間，最後退回固定值。</summary>
+    private static double InferredDuration(
+        IReadOnlyList<(string Path, long Size, DateTime StartUtc, DateTime WrittenUtc)> parsed,
+        int index)
+    {
+        var (_, _, startUtc, writtenUtc) = parsed[index];
+
+        if (writtenUtc > startUtc && writtenUtc - startUtc <= MaxInferredDuration)
+        {
+            return (writtenUtc - startUtc).TotalSeconds;
+        }
+
+        if (index + 1 < parsed.Count)
+        {
+            var gap = (parsed[index + 1].StartUtc - startUtc).TotalSeconds;
+            if (gap > 0 && gap <= MaxEstimatedDuration.TotalSeconds)
+            {
+                return gap;
+            }
+        }
+
+        return FallbackDurationSec;
     }
 
     /// <summary>資料夾內已建索引的路徑與狀態（missing 的列可以被復活）。</summary>

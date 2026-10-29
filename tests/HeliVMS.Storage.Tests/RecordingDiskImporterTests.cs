@@ -145,7 +145,7 @@ public sealed class RecordingDiskImporterTests : IDisposable
     }
 
     [Fact]
-    public void 沒有收尾時間的檔案仍會匯入且時長為零()
+    public void 沒有收尾時間的檔案仍會匯入且時長不是零()
     {
         var id = AddChannel("攝影機01");
         // 複製、還原回來的檔案常把 LastWriteTimeUtc 蓋成「現在」，而不是收尾時刻。
@@ -156,7 +156,65 @@ public sealed class RecordingDiskImporterTests : IDisposable
         var row = Assert.Single(new SegmentRepository(_store).ListByRange(
             id, "main", Start.AddMinutes(-1), Start.AddMinutes(1)));
         Assert.Equal(Start, row.StartUtc);
-        Assert.Equal(0, row.DurationSec);
+
+        // 零長度的段在回放時間軸上會被略過，等於「匯入了還是看不到」。
+        Assert.NotNull(row.DurationSec);
+        Assert.True(row.DurationSec > 0, "時長必須是正值，否則時間軸畫不出這一段");
+        Assert.NotNull(row.EndUtc);
+        Assert.True(row.EndUtc > row.StartUtc);
+    }
+
+    /// <summary>
+    /// 收尾時間不可信時，用下一段的開始時間推算時長；稀疏的事件錄影則退回固定值。
+    /// </summary>
+    /// <remarks>
+    /// 實機孤兒錄影（<c>C:\HeliVMSData\recordings\ch072</c>）的 LastWriteTime 全都比檔名時間
+    /// 晚了十幾個小時，若因此記成零長度，匯入後時間軸仍然一片空白——正是使用者回報的症狀。
+    /// </remarks>
+    [Fact]
+    public void 收尾時間不可信時用下一段推算時長且不會無限延伸()
+    {
+        var id = AddChannel("攝影機01");
+        var bad = Start.AddDays(3);
+        WriteSegment("攝影機01", Start, size: 1024, lastWriteUtc: bad);
+        WriteSegment("攝影機01", Start.AddSeconds(20), size: 1024, lastWriteUtc: bad);
+        // 第三段自己收尾正常，距離第二段 20 秒；第四段隔了兩小時（稀疏事件錄影的形狀）。
+        WriteSegment("攝影機01", Start.AddSeconds(40), size: 1024, durationSeconds: 20);
+        WriteSegment("攝影機01", Start.AddHours(2), size: 1024, lastWriteUtc: bad);
+
+        Import(Assert.Single(Scan()), id);
+
+        var rows = new SegmentRepository(_store)
+            .ListByRange(id, "main", Start.AddMinutes(-1), Start.AddHours(3))
+            .Where(r => r.Status == SegmentStatus.Final)
+            .OrderBy(r => r.StartUtc)
+            .ToList();
+
+        Assert.Equal(4, rows.Count);
+        Assert.Equal(20, rows[0].DurationSec!.Value, 3);
+        Assert.Equal(20, rows[1].DurationSec!.Value, 3);
+        Assert.Equal(20, rows[2].DurationSec!.Value, 3);
+        // 兩小時的缺口不能讓最後一段蓋掉整個下午，退回固定值。
+        Assert.Equal(10, rows[3].DurationSec!.Value, 3);
+    }
+
+    /// <summary>
+    /// 匯入的段必須真的畫在回放時間軸上（索引有、畫面沒有＝使用者仍然看不到錄影）。
+    /// </summary>
+    [Fact]
+    public void 匯入後回放時間軸畫得出這一段()
+    {
+        var id = AddChannel("攝影機01");
+        WriteSegment("攝影機01", Start, size: 4096, lastWriteUtc: Start.AddDays(3));
+
+        Import(Assert.Single(Scan()), id);
+
+        var rows = new SegmentRepository(_store).ListByRange(
+            id, "main", Start.Date, Start.Date.AddDays(1));
+        var timeline = PlaybackTimelineBuilder.Build(rows, [], Start.Date);
+
+        var bar = Assert.Single(timeline.Bars);
+        Assert.True(bar.WidthFraction > 0);
     }
 
     [Fact]
