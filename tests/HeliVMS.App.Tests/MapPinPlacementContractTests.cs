@@ -92,4 +92,40 @@ public sealed class MapPinPlacementContractTests
         Assert.Contains("MouseLeftButtonDown=\"OnHeaderDrag\"", xaml);
         Assert.Contains("DragMove()", SourceContract.Read("src/HeliVMS.App/LiveWindow.xaml.cs"));
     }
+
+    /// <summary>
+    /// 重複點擊同一顆圖釘只會有一個視窗，第二次是把原視窗提到最前面。
+    /// </summary>
+    /// <remarks>
+    /// 圖釘很容易被連點（第一下沒反應就會再點一下），而每開一個視窗就是一條 RTSP 連線加
+    /// 一份解碼。更糟的是「同一個畫面開五個視窗疊在一起」對操作員毫無意義：他分不出哪個是
+    /// 哪個，關窗時還會一個一個冒出來，看起來像關不掉。所以地圖不得直接 new 視窗，必須走
+    /// <c>LiveWindow.ShowFor</c> 這條「已開著就還原」的路徑。
+    /// </remarks>
+    [Fact]
+    public void 重複點擊同一顆圖釘不會開第二個視窗()
+    {
+        var pinBody = SourceContract.BodyOf(
+            SourceContract.Read("src/HeliVMS.App/MapWindow.xaml.cs"), "OnPinLiveClick");
+
+        Assert.False(string.IsNullOrWhiteSpace(pinBody), "找不到 OnPinLiveClick 的實作");
+        Assert.Contains("LiveWindow.ShowFor", pinBody);
+        Assert.DoesNotContain("new LiveWindow(", pinBody);
+
+        var live = SourceContract.Read("src/HeliVMS.App/LiveWindow.xaml.cs");
+        var showFor = SourceContract.BodyOf(live, "ShowFor");
+
+        Assert.Contains("s_open.TryGetValue", showFor);
+        Assert.Contains("BringToFront()", showFor);
+    }
+
+    /// <summary>關掉的視窗要從「已開著」的名單移除，否則下次點同一顆圖釘只會還原一個不存在的視窗。</summary>
+    [Fact]
+    public void 即時畫面關閉後會從已開視窗名單移除()
+    {
+        var closed = SourceContract.BodyOf(
+            SourceContract.Read("src/HeliVMS.App/LiveWindow.xaml.cs"), "OnClosed");
+
+        Assert.Contains("s_open.Remove(_channelId)", closed);
+    }
 }

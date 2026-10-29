@@ -46,6 +46,17 @@ public partial class LiveWindow : Window
     private RtspClient? _own;
     private bool _closing;
 
+    /// <summary>
+    /// 已開著的即時畫面，以頻道 id 為鍵：同一路攝影機只留一個視窗。
+    /// </summary>
+    /// <remarks>
+    /// 圖釘很容易被連點（第一下沒反應就會再點一下），而每開一個視窗就是一條 RTSP 連線
+    /// 加一份解碼。更重要的是「同一個畫面開五個視窗疊在一起」對操作員毫無意義——他分不出
+    /// 哪個是哪個，關窗還會一個一個冒出來。所以重複點同一顆圖釘的行為改成「把已經開著的
+    /// 那個視窗提到最前面」。只在 UI 執行緒存取。
+    /// </remarks>
+    private static readonly Dictionary<int, LiveWindow> s_open = new();
+
     public LiveWindow(SqliteStore store, int channelId, ChannelManager? manager = null)
     {
         _store = store;
@@ -58,12 +69,74 @@ public partial class LiveWindow : Window
         ApplyI18n();
         Retitle();
 
+        // 註冊在「建立視窗」而不是「點擊圖釘」的路徑上：任何開窗來源（地圖、事件中心）
+        // 都自動得到「同一頻道只有一個視窗」，不必每個呼叫端各寫一次。
+        s_open[channelId] = this;
+
         Loaded += (_, _) =>
         {
             CascadeFromCenter();
             _ = StartAsync();
         };
         KeyDown += OnKeyDown;
+    }
+
+    /// <summary>
+    /// 開啟某個頻道的即時畫面；該頻道已經開著就把原視窗提到最前面，不再開第二個。
+    /// </summary>
+    /// <param name="store">資料庫。</param>
+    /// <param name="channelId">要顯示的頻道。</param>
+    /// <param name="manager">主視窗的管理器；沒有時本視窗自建連線。</param>
+    /// <param name="owner">擁有者視窗（地圖）；重複使用既有視窗時忽略。</param>
+    public static void ShowFor(SqliteStore store, int channelId, ChannelManager? manager = null, Window? owner = null)
+    {
+        if (s_open.TryGetValue(channelId, out var existing))
+        {
+            if (existing.IsLoaded)
+            {
+                existing.BringToFront();
+                return;
+            }
+
+            // 建到一半就失敗的殘留（Show 前就擲回），直接丟掉再開一個。
+            s_open.Remove(channelId);
+            _openCount = Math.Max(0, _openCount - 1);
+        }
+
+        var window = new LiveWindow(store, channelId, manager);
+        if (owner is not null)
+        {
+            window.Owner = owner;
+        }
+
+        try
+        {
+            window.Show();
+        }
+        catch
+        {
+            // 開不起來也要把註冊清掉，否則這條頻道之後永遠只會「還原」一個沒開成的視窗。
+            s_open.Remove(channelId);
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// 把已開著的視窗提到最前面（可能被地圖或其他即時畫面蓋住）。
+    /// </summary>
+    private void BringToFront()
+    {
+        if (WindowState == WindowState.Minimized)
+        {
+            WindowState = WindowState.Normal;
+        }
+
+        // 只呼叫 Activate 在「視窗屬於同一個 owner 群組」時偶爾不會真的提到最上層
+        // （例如另一個即時畫面正好在它前面）。Topmost 一開一關可以強制它回到前景，
+        // 又不會留下「永遠置頂」這種更惱人的行為。
+        Activate();
+        Topmost = true;
+        Topmost = false;
     }
 
     /// <summary>
@@ -406,6 +479,12 @@ public partial class LiveWindow : Window
         _closing = true;
         _pendingFrames.Clear();
         _openCount = Math.Max(0, _openCount - 1);
+
+        // 只移除「自己」：同一頻道萬一已經換成新視窗（舊的正在關），不能把新的那筆註冊刪掉。
+        if (s_open.TryGetValue(_channelId, out var registered) && ReferenceEquals(registered, this))
+        {
+            s_open.Remove(_channelId);
+        }
 
         // 借來的工作階段屬於主視窗，只能退訂，不能停掉或釋放，否則關掉地圖圖釘的即時畫面
         // 會順手把監看牆上同一路畫面也弄黑。

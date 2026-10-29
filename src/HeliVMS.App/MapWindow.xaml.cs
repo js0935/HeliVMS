@@ -413,6 +413,12 @@ public partial class MapWindow : Window
     /// 原本單一 <c>OnPinClick</c> 掛在 <c>MouseLeftButtonUp</c> 上再判斷 <c>e.RightButton</c>，
     /// 但左鍵事件永遠不會帶右鍵狀態，於是「右鍵回放」實際上是死碼——操作員按右鍵只會看到
     /// 一行文字。左右鍵因此拆成兩個獨立處理常式。
+    ///
+    /// <para>
+    /// 開窗一律走 <see cref="LiveWindow.ShowFor"/>：同一顆圖釘被連點時只會把已開著的視窗提到
+    /// 最前面。直接 <c>new LiveWindow(...)</c> 會讓同一個頻道疊出好幾個一模一樣的小視窗，
+    /// 每個都各自拉一條 RTSP 連線——操作員看到的卻是「怎麼點都只多一個蓋在上面」。
+    /// </para>
     /// </remarks>
     private void OnPinLiveClick(object sender, MouseButtonEventArgs e)
     {
@@ -426,8 +432,7 @@ public partial class MapWindow : Window
             var channelId = int.Parse(tag.AsSpan("camera:".Length));
             try
             {
-                var live = new LiveWindow(_store, channelId, _manager) { Owner = this };
-                live.Show();
+                LiveWindow.ShowFor(_store, channelId, _manager, this);
             }
             catch
             {
