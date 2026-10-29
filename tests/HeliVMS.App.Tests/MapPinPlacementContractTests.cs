@@ -163,4 +163,63 @@ public sealed class MapPinPlacementContractTests
         Assert.DoesNotContain("RenderTransform", apply);
         Assert.DoesNotContain("ScrollViewer", apply);
     }
+
+    /// <summary>
+    /// 攝影機的涵蓋扇形要以圖釘自己的中心為頂點，不是以畫布座標上的落點。
+    /// </summary>
+    /// <remarks>
+    /// 扇形是圖釘 18×18 方格的子元素，所以它的座標系原點是圖釘左上角，不是畫布左上角。
+    /// 原本傳進去的是畫布上的 (cx, cy)，整個扇形因此固定往右下偏 9px：操作員把圖釘對準
+    /// 走廊，扇形卻指向牆外，看起來像方位角設定錯了，其實只是座標系用錯。這裡把頂點釘在
+    /// 與 <c>Canvas.SetLeft</c> 共用的常數上，兩者就不可能各自漂移。
+    /// </remarks>
+    [Fact]
+    public void 涵蓋扇形以圖釘中心為頂點而不是畫布座標()
+    {
+        var layout = SourceContract.BodyOf(SourceContract.Read(MapCode), "LayoutPins");
+        Assert.False(string.IsNullOrWhiteSpace(layout), "找不到 LayoutPins 的實作");
+
+        // 圖釘定位與扇形頂點必須用同一個常數；一處改成常數、另一處留著 9 就會再偏一次。
+        Assert.Contains("Canvas.SetLeft(p.Root, cx - PinCenter)", layout);
+        Assert.Contains("Canvas.SetTop(p.Root, cy - PinCenter)", layout);
+        Assert.Contains("CreateSector(", layout);
+        Assert.Contains("PinCenter,", layout);
+        Assert.DoesNotContain("CreateSector(cx, cy", layout);
+    }
+
+    /// <summary>
+    /// 設定頁的平面圖編輯畫面也要縮放成整張可見，而不是 1:1 只露出左上角。
+    /// </summary>
+    /// <remarks>
+    /// 編輯框固定 210px 高，一張 4K 平面圖以原始像素放進去只看得到一小塊；操作員必須先拉捲軸
+    /// 才知道圖釘該往哪裡放，而拉過去之後又失去整層的相對位置。這裡同時釘住「圖釘用顯示尺寸
+    /// 換算」：只縮圖、圖釘仍用原始像素定位的話，所有圖釘會擠在左上角。
+    /// </remarks>
+    [Fact]
+    public void 設定頁的平面圖編輯畫面會縮放至整張可見()
+    {
+        var xaml = SourceContract.Read("src/HeliVMS.App/SettingsWindow.xaml");
+        Assert.Contains("x:Name=\"MapPinScroll\"", xaml);
+
+        var code = SourceContract.Read(SettingsCode);
+
+        var fit = SourceContract.BodyOf(code, "ApplyMapPinFit");
+        Assert.False(string.IsNullOrWhiteSpace(fit), "找不到 ApplyMapPinFit 的實作");
+        Assert.Contains("ViewportWidth", fit);
+        Assert.Contains("ViewportHeight", fit);
+        Assert.Contains("Math.Min(", fit);
+        Assert.Contains("Math.Clamp(", fit);
+
+        // 寬高已按比例算好，所以用 Fill；None 會維持原始像素而被固定高度的框切掉。
+        Assert.Contains("Stretch.Fill", fit);
+
+        // 換圖與視窗尺寸改變都要重算。
+        Assert.Contains("ApplyMapPinFit()", SourceContract.BodyOf(code, "ReloadMapPins"));
+        Assert.Contains("MapPinScroll.SizeChanged", code);
+
+        var layout = SourceContract.BodyOf(code, "LayoutMapPins");
+        Assert.False(string.IsNullOrWhiteSpace(layout), "找不到 LayoutMapPins 的實作");
+        Assert.Contains("device.X", layout);
+        Assert.Contains("device.Y", layout);
+    }
 }

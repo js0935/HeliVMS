@@ -94,6 +94,13 @@ public partial class MapWindow : Window
     private static readonly Color ColorOrange = Color.FromRgb(0xF5, 0x9E, 0x0B);
     private static readonly Color ColorGray = Color.FromRgb(0x6B, 0x7A, 0x90);
 
+    /// <summary>
+    /// 圖釘方格的邊長與中心。扇形是圖釘的子元素，頂點必須用這個「圖釘內部」的中心，
+    /// 而不是畫布座標上的落點（見 <see cref="LayoutPins"/>）。
+    /// </summary>
+    private const double PinSize = 18;
+    private const double PinCenter = PinSize / 2;
+
     /// <param name="store">資料庫連線（地圖、頻道與事件都由此讀取）。</param>
     /// <param name="locateChannelId">開啟時要定位並閃爍的頻道；事件中心雙擊時帶入。</param>
     /// <param name="locateDeviceType">定位目標型別（<c>camera</c> 或 <c>io</c>）。</param>
@@ -433,14 +440,14 @@ public partial class MapWindow : Window
 
         var dot = new Ellipse
         {
-            Width = 18,
-            Height = 18,
+            Width = PinSize,
+            Height = PinSize,
             Fill = new SolidColorBrush(hasEvent ? ColorOrange : ColorGreen),
             Stroke = Brushes.White,
             StrokeThickness = 2,
         };
 
-        var root = new Grid { Width = 18, Height = 18 };
+        var root = new Grid { Width = PinSize, Height = PinSize };
         root.ToolTip = string.Format(
             CultureInfo.InvariantCulture,
             Localizer.T("Map.CameraTip"),
@@ -462,8 +469,8 @@ public partial class MapWindow : Window
     {
         var box = new Rectangle
         {
-            Width = 18,
-            Height = 18,
+            Width = PinSize,
+            Height = PinSize,
             RadiusX = 4,
             RadiusY = 4,
             Fill = new SolidColorBrush(hasEvent ? ColorOrange : ColorGray),
@@ -471,7 +478,7 @@ public partial class MapWindow : Window
             StrokeThickness = 2,
         };
 
-        var root = new Grid { Width = 18, Height = 18 };
+        var root = new Grid { Width = PinSize, Height = PinSize };
         root.ToolTip = string.Format(CultureInfo.InvariantCulture, Localizer.T("Map.IoTip"), name);
         root.Tag = $"io:{d.ChannelId}";
         root.MouseLeftButtonUp += OnPinLiveClick;
@@ -498,13 +505,21 @@ public partial class MapWindow : Window
         {
             var cx = p.X * w;
             var cy = p.Y * h;
-            Canvas.SetLeft(p.Root, cx - 9);
-            Canvas.SetTop(p.Root, cy - 9);
+            Canvas.SetLeft(p.Root, cx - PinCenter);
+            Canvas.SetTop(p.Root, cy - PinCenter);
 
             if (p.Sector is { } sector)
             {
-                // 扇形代表「這台攝影機實際拍得到多大範圍」，必須跟著圖一起縮放。
-                sector.Data = CreateSector(cx, cy, p.Angle, p.FovDeg, p.RadiusPx * _zoom);
+                // 扇形是圖釘本身的子元素，所以它拿到的座標是「圖釘內部」的座標系，不是畫布座標系。
+                // 這裡原本傳畫布上的 (cx, cy)，等於把頂點又往右下推了半個圖釘（18/2=9px），
+                // 整個扇形因此偏離它標示的鏡頭。扇形的頂點永遠是圖釘中心 (9, 9)。
+                // 半徑仍要跟著圖縮放，因為它代表實際拍得到的距離。
+                sector.Data = CreateSector(
+                    PinCenter,
+                    PinCenter,
+                    p.Angle,
+                    p.FovDeg,
+                    p.RadiusPx * _zoom);
             }
         }
     }

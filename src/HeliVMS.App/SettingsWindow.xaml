@@ -937,7 +937,7 @@
                 </WrapPanel>
 
                 <Border Height="210" Background="#080F1A" BorderBrush="#1F3A5F" BorderThickness="1" VerticalAlignment="Top">
-                    <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
+                    <ScrollViewer x:Name="MapPinScroll" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
                         <Canvas x:Name="MapPinCanvas" AutomationProperties.AutomationId="MapPinCanvas" Background="Transparent">
                             <Image x:Name="MapPinImage" Stretch="None"/>
                         </Canvas>

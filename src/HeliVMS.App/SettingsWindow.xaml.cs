@@ -132,6 +132,11 @@ public partial class SettingsWindow : Window
         MapPinCanvas.PreviewMouseLeftButtonDown += OnMapPinCanvasClick;
         MapPinList.SelectionChanged += OnMapPinSelectionChanged;
 
+        // 編輯畫面的平面圖也要「整張看得到」：固定 210px 高的框配上 4000px 的圖，1:1 只能看到
+        // 左上角一小塊，操作員根本無法把圖釘放到圖的另一半。視窗剛開時 Viewport 還是 0，
+        // 所以載圖當下先算一次、版面量好後再由這個事件補算。
+        MapPinScroll.SizeChanged += (_, _) => ApplyMapPinFit();
+
         // 裝置／頻道管理限 admin（與主視窗一致）；viewer 仍看得到入口，但按鈕停用。
         var isAdmin = SessionContext.IsAdmin;
         OpenCameraManagerButton.IsEnabled = isAdmin;
@@ -2813,6 +2818,9 @@ public partial class SettingsWindow : Window
         var map = SelectedMap;
         if (map is null)
         {
+            _mapPinBitmap = null;
+            _mapPinImageW = 0;
+            _mapPinImageH = 0;
             if (MapPinImage != null) MapPinImage.Source = null;
             if (MapPinCanvas != null) { MapPinCanvas.Width = 0; MapPinCanvas.Height = 0; }
             if (MapPinImage != null) MapPinImage.Stretch = Stretch.None;
@@ -2831,28 +2839,12 @@ public partial class SettingsWindow : Window
         }
 
         if (MapScaleBox != null) MapScaleBox.Text = map.ScaleMPerPx.ToString("0.###", CultureInfo.InvariantCulture);
-        int wImg = bitmap.PixelWidth;
-        int hImg = bitmap.PixelHeight;
-        if (MapPinImage != null)
-        {
-            MapPinImage.Source = bitmap;
-            if (MapPinCanvas != null) { MapPinCanvas.Width = wImg; MapPinCanvas.Height = hImg; }
-            MapPinImage.Width = wImg;
-            MapPinImage.Height = hImg;
-            MapPinImage.Stretch = Stretch.None;
-            MapPinImage.HorizontalAlignment = HorizontalAlignment.Left;
-            MapPinImage.VerticalAlignment = VerticalAlignment.Top;
-            Canvas.SetLeft(MapPinImage, 0);
-            Canvas.SetTop(MapPinImage, 0);
-            Canvas.SetZIndex(MapPinImage, 0);
-        }
-        else
-        {
-            if (MapPinCanvas != null) { MapPinCanvas.Width = wImg; MapPinCanvas.Height = hImg; }
-        }
-        try { if (MapPinCanvas != null) MapPinCanvas.UpdateLayout(); } catch { }
-        try { if (MapPinImage != null) MapPinImage.UpdateLayout(); } catch { }
-        if (MapPinCanvas != null) { MapPinCanvas.InvalidateVisual(); }
+        _mapPinImageW = bitmap.PixelWidth;
+        _mapPinImageH = bitmap.PixelHeight;
+        _mapPinBitmap = bitmap;
+
+        // 先把圖與畫布調整成「整張可見」的顯示尺寸，圖釘才能用顯示尺寸換算比例座標。
+        ApplyMapPinFit();
 
         var cameras = new ChannelRepository(_store).List().ToDictionary(c => c.Id, c => c.Name);
         var ios = _io.ListChannels().ToDictionary(c => c.Id, c => c.Name);
@@ -2876,9 +2868,127 @@ public partial class SettingsWindow : Window
                 ).ToList();
         }
 
-        foreach (var p in _maps.ListDevices(map.Id))
+        CreateMapPinDots(map.Id);
+        LayoutMapPins();
+    }
+
+    /// <summary>編輯畫面上這張平面圖的原始像素尺寸；0 表示還沒載圖。</summary>
+    private double _mapPinImageW;
+    private double _mapPinImageH;
+    private BitmapImage? _mapPinBitmap;
+
+    /// <summary>
+    /// 讓整張平面圖剛好塞進編輯框（等比、不放大），並重排圖釘。
+    /// </summary>
+    /// <remarks>
+    /// 這裡原本固定 1:1 放原始像素：一張 4K 的平面圖塞進 210px 高的框，操作員只看到左上角，
+    /// 想把圖釘放到右邊的走廊就得先拉捲軸，而且拉過去之後還看不到整層的相對位置。
+    /// 外層的捲軸留著：圖仍可能因為極端長寬比而以原始尺寸顯示（視窗還沒量好時），
+    /// 這時捲軸是唯一的退路。
+    /// </remarks>
+    private void ApplyMapPinFit()
+    {
+        if (MapPinCanvas is null || MapPinImage is null || _mapPinBitmap is null)
         {
-            if (MapPinCanvas == null) break;
+            return;
+        }
+
+        if (_mapPinImageW <= 0 || _mapPinImageH <= 0)
+        {
+            return;
+        }
+
+        MapPinImage.Source = _mapPinBitmap;
+
+        var vw = MapPinScroll?.ViewportWidth ?? 0;
+        var vh = MapPinScroll?.ViewportHeight ?? 0;
+
+        // 分頁還沒被選取時 Viewport 是 0，但外框已經有實際尺寸。用外框當退路，
+        // 才不會「第一次進設定頁是 1:1、切走再切回來才縮好」。
+        if (vw < 32 && MapPinScroll is { ActualWidth: > 32 })
+        {
+            vw = MapPinScroll.ActualWidth - 4;
+        }
+
+        if (vh < 32 && MapPinScroll is { ActualHeight: > 32 })
+        {
+            vh = MapPinScroll.ActualHeight - 4;
+        }
+
+        var scale = 1.0;
+        if (vw >= 32 && vh >= 32)
+        {
+            // 留 2px 給次像素捨入：算得剛剛好時捲軸會冒出來，冒出來又吃掉可用寬度而在兩個比例間跳動。
+            scale = Math.Clamp(Math.Min((vw - 2) / _mapPinImageW, (vh - 2) / _mapPinImageH), 0.02, 1.0);
+        }
+
+        var w = _mapPinImageW * scale;
+        var h = _mapPinImageH * scale;
+        MapPinCanvas.Width = w;
+        MapPinCanvas.Height = h;
+
+        // 用 Fill 而不是 None：寬高已經按比例算好，Fill 不會變形；None 會維持原始像素而被框切掉。
+        MapPinImage.Stretch = Stretch.Fill;
+        MapPinImage.Width = w;
+        MapPinImage.Height = h;
+        MapPinImage.HorizontalAlignment = HorizontalAlignment.Left;
+        MapPinImage.VerticalAlignment = VerticalAlignment.Top;
+        Canvas.SetLeft(MapPinImage, 0);
+        Canvas.SetTop(MapPinImage, 0);
+        Canvas.SetZIndex(MapPinImage, 0);
+
+        LayoutMapPins();
+    }
+
+    /// <summary>依目前畫布（顯示）尺寸重排圖釘；座標存的是 0..1 的比例。</summary>
+    private void LayoutMapPins()
+    {
+        if (MapPinCanvas is null)
+        {
+            return;
+        }
+
+        var w = MapPinCanvas.Width;
+        var h = MapPinCanvas.Height;
+        if (w <= 0 || h <= 0)
+        {
+            return;
+        }
+
+        if (SelectedMap is not { } map)
+        {
+            return;
+        }
+
+        var positions = _maps.ListDevices(map.Id).ToDictionary(p => p.Id);
+        foreach (var child in MapPinCanvas.Children.OfType<Ellipse>())
+        {
+            if (child.Tag is not string tag || !tag.StartsWith("md:", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            if (!int.TryParse(tag.AsSpan("md:".Length), out var id)
+                || !positions.TryGetValue(id, out var device))
+            {
+                continue;
+            }
+
+            // 圖釘的 (Left, Top) 是外框左上角，所以要把半徑扣掉，圓心才會落在比例座標上。
+            Canvas.SetLeft(child, Math.Clamp(device.X, 0, 1) * w - child.Width / 2);
+            Canvas.SetTop(child, Math.Clamp(device.Y, 0, 1) * h - child.Height / 2);
+        }
+    }
+
+    private void CreateMapPinDots(int mapId)
+    {
+        if (MapPinCanvas is null)
+        {
+            return;
+        }
+
+        foreach (var p in _maps.ListDevices(mapId))
+        {
             var dt = p.DeviceType?.ToLowerInvariant() ?? "camera";
             var dot = new Ellipse
             {
@@ -2895,10 +3005,6 @@ public partial class SettingsWindow : Window
                 IsHitTestVisible = true,
                 Opacity = p.Enabled ? 1.0 : 0.7
             };
-            var left = Math.Clamp(p.X, 0, 1) * wImg - 14;
-            var top = Math.Clamp(p.Y, 0, 1) * hImg - 14;
-            Canvas.SetLeft(dot, left);
-            Canvas.SetTop(dot, top);
             Canvas.SetZIndex(dot, 50000);
             dot.MouseLeftButtonDown += OnMapPinDragStart;
             dot.MouseMove += OnMapPinDragMove;
