@@ -43,6 +43,33 @@ public sealed class ShutdownContractTests
         // 監看的解碼 ffmpeg 也要在關窗前收掉；走管理員的版本，不是會重畫格子的
         // MainWindow.DisconnectAllAsync。
         Assert.Contains("manager.DisconnectAllAsync", body);
+
+        // 釋放連線與關資料庫同樣要走「有上限地等」的包裝：它們內部都要等 ffmpeg 收尾，
+        // 在 UI 執行緒上同步等就是死結（現場症狀：視窗關了、行程還在，WAL 沒 checkpoint）。
+        Assert.Contains("manager.DisposeAsync", body);
+        Assert.DoesNotContain("_manager?.Dispose()", body);
+        Assert.DoesNotContain("_store?.Dispose()", body);
+    }
+
+    /// <summary>
+    /// 關機要有看門狗：超過預算就清掉子行程並結束行程。
+    ///
+    /// 收尾的每一步都有各自的期限，但只要有一段沒被包住（新加的收尾工作、第三方元件裡
+    /// 卡住的建構子），視窗關掉之後行程就會一直留在工作管理員裡，還佔著 index.db 與
+    /// 攝影機連線。看門狗是唯一能保證「關掉就是關掉」的東西。
+    /// </summary>
+    [Fact]
+    public void 關機有看門狗兜底並一定會結束行程()
+    {
+        var code = SourceContract.Read(MainWindow);
+        var body = SourceContract.BodyOf(code, "OnWindowClosed");
+
+        Assert.Contains("ShutdownWatchdog", body);
+
+        var forceExit = SourceContract.BodyOf(code, "ForceExit");
+        Assert.False(string.IsNullOrEmpty(forceExit), "找不到 ForceExit 的方法本體");
+        Assert.Contains("Environment.Exit", forceExit);
+        Assert.Contains("KillOrphanChildren", forceExit);
     }
 
     /// <summary>

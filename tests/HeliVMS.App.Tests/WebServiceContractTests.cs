@@ -65,7 +65,9 @@ public sealed class WebServiceContractTests
         Assert.Contains("_webHost.ApplySettings", onLoaded);
 
         // 關閉時一定要停掉 Kestrel；否則程序結束後連接埠仍被占用，下次啟動會直接失敗。
-        Assert.Contains("_webHost?.Dispose();", code);
+        // 收尾一律先換成本地變數再丟進 RunShutdownStep（欄位在收尾開始時就清掉了，
+        // 才不會有事件回呼拿到拆到一半的實例），所以這裡認的是那條步驟。
+        Assert.Contains("RunShutdownStep(\"關閉網頁主機\", () => DisposeSync(webHost)", code);
     }
 
     [Fact]

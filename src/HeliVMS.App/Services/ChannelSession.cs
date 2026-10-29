@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.IO;
 using HeliVMS.Alarms;
 using HeliVMS.Media;
 using HeliVMS.Recording;
@@ -409,9 +410,54 @@ public sealed class ChannelSession : IDisposable
 
     public void Dispose()
     {
-        if (_disposed)
+        if (!TryBeginDispose())
         {
             return;
+        }
+
+        // 絕對不要在呼叫端的執行緒上直接 GetResult()：DisposeAsync 內部要等 ffmpeg 收尾，
+        // 續體若排回呼叫端所在的 WPF Dispatcher，而呼叫端正同步等這一行，就是永久死結。
+        // 現場症狀：視窗關了，HeliVMS.exe 還在工作管理員裡，index.db 的 WAL 沒有 checkpoint。
+        var work = Task.Run(DisposeCoreAsync);
+        try
+        {
+            if (!work.Wait(SyncDisposeTimeout))
+            {
+                HeliVMS.Shared.BoundedFileLog.Append(
+                    Path.Combine(Path.GetTempPath(), "helivms-shutdown.log"),
+                    $"{DateTime.UtcNow:O} 頻道 {Name} 的連線收尾逾時（{SyncDisposeTimeout.TotalSeconds:0} 秒）。\n",
+                    256 * 1024);
+            }
+        }
+        catch (Exception)
+        {
+            // 收尾失敗不該往外丟：關機路徑上沒有任何人有辦法處理它，丟出去只會蓋住真正的原因。
+            // 逾時與失敗都已經有日誌可查。
+        }
+    }
+
+    /// <summary>
+    /// 非同步釋放：關機流程走這條，收尾完全不需要佔用（也不需要等）UI 執行緒。
+    /// </summary>
+    public async ValueTask DisposeAsync()
+    {
+        if (TryBeginDispose())
+        {
+            await DisposeCoreAsync().ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>同步 Dispose 的等待上限；每條 RtspClient 自己再等 5 秒收 ffmpeg。</summary>
+    private static readonly TimeSpan SyncDisposeTimeout = TimeSpan.FromSeconds(20);
+
+    /// <summary>
+    /// 標記已釋放並解除事件掛鉤；回傳 true 表示這次是「第一次」釋放。
+    /// </summary>
+    private bool TryBeginDispose()
+    {
+        if (_disposed)
+        {
+            return false;
         }
 
         _disposed = true;
@@ -436,12 +482,25 @@ public sealed class ChannelSession : IDisposable
             }
         }
 
+        return true;
+    }
+
+    private async Task DisposeCoreAsync()
+    {
         _motion?.Dispose();
         _ai?.Dispose();
         _tamper?.Dispose();
-        _recorder?.DisposeAsync().AsTask().GetAwaiter().GetResult();
-        _mainClient?.DisposeAsync().AsTask().GetAwaiter().GetResult();
-        Client.DisposeAsync().AsTask().GetAwaiter().GetResult();
+        if (_recorder is not null)
+        {
+            await _recorder.DisposeAsync().ConfigureAwait(false);
+        }
+
+        if (_mainClient is not null)
+        {
+            await _mainClient.DisposeAsync().ConfigureAwait(false);
+        }
+
+        await Client.DisposeAsync().ConfigureAwait(false);
         GC.SuppressFinalize(this);
     }
 }

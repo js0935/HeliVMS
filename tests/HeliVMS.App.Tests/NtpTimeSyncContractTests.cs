@@ -100,6 +100,6 @@ public sealed class NtpTimeSyncContractTests
         Assert.Contains("NtpSync.EnabledKey", start);
 
         // 關閉時要停掉計時器，否則視窗關了還留著一個每 6 小時打一次網路的排程。
-        Assert.Contains("_ntpTimer?.Stop();", code);
+        Assert.Contains("ntpTimer?.Stop();", code);
     }
 }

@@ -145,3 +145,22 @@ Notes that will save you time:
   `App.OnExit`/`OnStartup` also sweep orphan `ffmpeg` **and** `ffprobe` processes
   (`OrphanChildNames`) — ffprobe leaks are what users see as a row of `FFPROBE.exe`.
   Guarded by `ShutdownContractTests`.
+- **Never run shutdown cleanup synchronously on the UI thread.** `ChannelSession.Dispose`
+  used to call `DisposeAsync().AsTask().GetAwaiter().GetResult()`, and `MainWindow` then
+  called it directly from `Closed`. Every `await` inside the RTSP/recorder teardown posts
+  its continuation back to the same Dispatcher that is blocked in `Wait()` — a permanent
+  deadlock. What's seen: the window closes, `HeliVMS.exe` stays in Task Manager forever,
+  and `index.db` is never closed (a `-wal` file survives, so a fresh process reads a stale
+  index). Dispose steps now go through `ShutdownSequencer` (thread pool + timeout) and
+  `ChannelManager.DisposeAsync`; a `ShutdownWatchdog` force-exits (logging first) after
+  the total budget, so "closed" always means closed. Guarded by
+  `ShutdownSequencerTests`.
+- **`PRAGMA user_version` does not prove the columns exist.** A rebuilt/restored
+  `index.db` can be at the latest version with an old `segments` table: the live one was
+  `user_version=56` and had no `tier`/`origin_path`, so the `version < 54` migration never
+  ran again. `SegmentRepository` then threw `no such column: tier` on every read, and its
+  deliberate `catch { }` (so a slow disk cannot break playback) turned that into an empty
+  list — operators reported "recordings on disk but playback shows nothing" with a clean
+  log. Additive columns are now enforced unconditionally in
+  `SqliteStore.EnsureAdditiveColumns`, and playback surfaces the read error instead of
+  claiming there is no recording. Guarded by `SchemaDriftTests`.

@@ -468,6 +468,13 @@ public sealed class ChannelManager : IDisposable
         return created;
     }
 
+    /// <summary>
+    /// 同步釋放所有連線。
+    /// </summary>
+    /// <remarks>
+    /// 內部仍會離開呼叫端執行緒（見 <see cref="ChannelSession.Dispose"/>），所以即使從 UI
+    /// 執行緒呼叫也不會死結；但關機流程請走 <see cref="DisposeAsync"/>，那條路完全不必阻塞。
+    /// </remarks>
     public void Dispose()
     {
         if (_disposed)
@@ -478,12 +485,43 @@ public sealed class ChannelManager : IDisposable
         _disposed = true;
         _health.Dispose();
         _detection?.Dispose();
-        foreach (var kv in _sessions)
+        foreach (var session in TakeSessions())
         {
-            kv.Value.Dispose();
+            session.Dispose();
         }
 
-        _sessions.Clear();
         GC.SuppressFinalize(this);
+    }
+
+    /// <summary>
+    /// 非同步釋放所有連線：關機流程用這條，每條連線各自等它的 ffmpeg 收尾，不佔用呼叫端執行緒。
+    /// </summary>
+    public async Task DisposeAsync()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _disposed = true;
+        _health.Dispose();
+        _detection?.Dispose();
+        foreach (var session in TakeSessions())
+        {
+            await session.DisposeAsync().ConfigureAwait(false);
+        }
+
+        GC.SuppressFinalize(this);
+    }
+
+    /// <summary>
+    /// 取出並清空工作階段清單：先清空再釋放，收尾途中若有事件回呼走進來，
+    /// 看到的是「沒有連線」而不是正在拆的實例。
+    /// </summary>
+    private List<ChannelSession> TakeSessions()
+    {
+        var list = _sessions.Values.ToList();
+        _sessions.Clear();
+        return list;
     }
 }

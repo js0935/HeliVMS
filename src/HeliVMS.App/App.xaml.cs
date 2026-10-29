@@ -232,14 +232,16 @@ public partial class App : Application
     /// </para>
     /// <para>
     /// 結束時再掃一次是兜底：正常路徑會先請 ffmpeg 收尾（見 <c>SegmentRecorder.StopAsync</c>），
-    /// 會留在這裡代表收尾逾時或流程根本沒跑到，此時硬砍是唯一的選擇。
+    /// 會留在這裡代表收尾逾時或流程根本沒跑到，此時硬砍是唯一的選擇。關機看門狗
+    /// （<c>MainWindow.ForceExit</c>）也呼叫這裡，因為被它強制結束的路徑不會經過
+    /// <see cref="OnExit"/>。
     /// </para>
     /// <para>
     /// <c>ffprobe</c> 必須一起收：它比 ffmpeg 更隱形——健康檢查與完整性抽查會短暫啟動它，
     /// 使用者在工作管理員裡看到的正是「關掉程式之後還有一排 FFPROBE.exe」。
     /// </para>
     /// </remarks>
-    private static void KillOrphanChildren()
+    internal static void KillOrphanChildren()
     {
         foreach (var name in OrphanChildNames)
         {

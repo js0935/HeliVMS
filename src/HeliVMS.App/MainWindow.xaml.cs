@@ -1343,7 +1343,13 @@ public partial class MainWindow : Window
         }
 
         await DisconnectAllAsync();
-        _manager?.Dispose();
+        if (_manager is { } oldManager)
+        {
+            // 走非同步釋放：這裡在 UI 執行緒上，同步版本會把介面卡住好幾秒（每條連線各自
+            // 等 ffmpeg 收尾），而切換磁碟不該讓畫面凍住。
+            await oldManager.DisposeAsync();
+        }
+
         _manager = CreateManager();
         _scheduler = CreateScheduler();
 
@@ -4579,6 +4585,9 @@ public partial class MainWindow : Window
 
     private void OnWindowClosed(object? sender, EventArgs e)
     {
+        // 計時器與系統匣綁在 Dispatcher 上，只能在 UI 執行緒關；其餘收尾一律丟到執行緒池，
+        // 原因見 ShutdownSequencer／ChannelSession.DisposeAsync：UI 執行緒上同步等一件
+        // 「續體要排回同一個 Dispatcher」的工作就是死結，現場症狀是視窗關了、行程還在。
         _unackTimer?.Dispose();
         _notifyBacklogTimer?.Dispose();
         _uiTimer?.Dispose();
@@ -4586,46 +4595,124 @@ public partial class MainWindow : Window
         _reportMailTimer?.Stop();
         _patrolHost?.Dispose();
         _patrolHost = null;
+
+        // 先把要收的實例換出來再收：收尾途中若有事件回呼讀到欄位，拿到的會是 null 而不是
+        // 一個拆到一半的物件。
         var scheduler = _scheduler;
+        var manager = _manager;
+        var store = _store;
+        var webHost = _webHost;
+        var ioHost = _ioHost;
+        var shareHost = _shareHost;
+        var notify = _notify;
+        var detWriter = _detWriter;
+        var bgCts = _bgCts;
+        var ntpTimer = _ntpTimer;
+        var ownership = _recordingOwnership;
         _scheduler = null;
+        _manager = null;
+        _store = null;
+        _webHost = null;
+        _ioHost = null;
+        _shareHost = null;
+        _notify = null;
+        _detWriter = null;
+        _bgCts = null;
+        _ntpTimer = null;
+        _recordingOwnership = null;
+
+        var startedUtc = DateTime.UtcNow;
+        LogShutdown("開始收尾。");
+
+        // 兜底：任何一步沒被包住（或死在第三方元件裡）都不該讓一個沒有視窗、還佔著
+        // index.db 與攝影機連線的行程永遠留在工作管理員裡。
+        using var watchdog = new ShutdownWatchdog(ShutdownBudget, ForceExit, LogShutdown);
+
         if (scheduler is not null)
         {
             RunShutdownStep("停止錄影", scheduler.StopAllAsync, StopRecordingTimeout);
-            scheduler.Dispose();
+            RunShutdownStep("釋放錄影排程器", () => DisposeSync(scheduler), QuickStepTimeout);
         }
 
-        _recordingOwnership?.Release(DateTime.UtcNow);
-        _recordingOwnership = null;
+        ownership?.Release(DateTime.UtcNow);
 
         // 即時監看的解碼 ffmpeg 與健康檢查用的 ffprobe 也在這裡收掉：它們不會自己結束，
         // 留著就是工作管理員裡一排孤兒行程（要等下一次啟動的孤兒清掃才收得掉）。
         // 直接呼叫管理員的版本，不走 DisconnectAllAsync——後者會重畫格子，關窗時沒有意義。
-        if (_manager is { } manager)
+        if (manager is not null)
         {
             RunShutdownStep("中斷監看", manager.DisconnectAllAsync, DisconnectTimeout);
+            RunShutdownStep("釋放監看連線", manager.DisposeAsync, DisposeTimeout);
         }
 
-        _bgCts?.Cancel();
-        _bgCts?.Dispose();
-        _detWriter?.Dispose();
-        _ioHost?.Dispose();
-        _shareHost?.Dispose();
-        _webHost?.Dispose();
-        _ntpTimer?.Stop();
-        _notify?.Dispose();
-        _manager?.Dispose();
-        _store?.Dispose();
+        bgCts?.Cancel();
+        RunShutdownStep("停止背景工作", () => DisposeSync(bgCts), QuickStepTimeout);
+        RunShutdownStep("關閉偵測寫入", () => DisposeSync(detWriter), QuickStepTimeout);
+        RunShutdownStep("關閉 IO 監看", () => DisposeSync(ioHost), QuickStepTimeout);
+        RunShutdownStep("關閉分享主機", () => DisposeSync(shareHost), QuickStepTimeout);
+        RunShutdownStep("關閉網頁主機", () => DisposeSync(webHost), QuickStepTimeout);
+        ntpTimer?.Stop();
+        RunShutdownStep("關閉通知", () => DisposeSync(notify), QuickStepTimeout);
+
+        // 資料庫最後關：前面每一步都可能還在寫索引，提早關只會讓它們在收尾途中拋例外。
+        // 而它同時也是「行程沒結束」時最貴的受害者——WAL 沒 checkpoint，下一個行程讀到的
+        // 索引就停在舊狀態。
+        RunShutdownStep("關閉資料庫", () => DisposeSync(store), StoreDisposeTimeout);
+
+        LogShutdown($"收尾完成，共 {(DateTime.UtcNow - startedUtc).TotalSeconds:0.0} 秒。");
+    }
+
+    /// <summary>把同步的 <see cref="IDisposable.Dispose"/> 包成一個可以丟到執行緒池的步驟。</summary>
+    private static Task DisposeSync(IDisposable? target)
+    {
+        // 刻意在步驟內才呼叫 Dispose：這樣它一定跑在執行緒池上，不會是 UI 執行緒。
+        target?.Dispose();
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// 看門狗觸發時的兜底：清掉子行程，然後直接結束行程。
+    /// </summary>
+    private static void ForceExit()
+    {
+        try
+        {
+            // Environment.Exit 不會跑 WPF 的 OnExit，孤兒清掃得自己做；否則被強制結束的
+            // ffmpeg 會繼續佔著攝影機連線，留下的 .tmp 要等下次啟動的救援才救得回來。
+            App.KillOrphanChildren();
+        }
+        catch
+        {
+            // 清掃失敗也要結束：留下一個關不掉的行程比留下孤兒更糟。
+        }
+
+        Environment.Exit(0);
     }
 
     /// <summary>
     /// 停止錄影的最長等待。每台 ffmpeg 的收尾上限是 8 秒
     /// （<see cref="SegmentRecorder.DefaultGracefulStopTimeout"/>）且全部並行收，
-    /// 25 秒是「磁碟很慢、段很大」時的餘裕。
+    /// 15 秒是「磁碟很慢、段很大」時的餘裕。
     /// </summary>
-    private static readonly TimeSpan StopRecordingTimeout = TimeSpan.FromSeconds(25);
+    private static readonly TimeSpan StopRecordingTimeout = TimeSpan.FromSeconds(15);
 
     /// <summary>中斷監看（解碼 ffmpeg）的最長等待。</summary>
-    private static readonly TimeSpan DisconnectTimeout = TimeSpan.FromSeconds(10);
+    private static readonly TimeSpan DisconnectTimeout = TimeSpan.FromSeconds(6);
+
+    /// <summary>釋放監看連線（每條 RtspClient 自己再等 5 秒收 ffmpeg）的最長等待。</summary>
+    private static readonly TimeSpan DisposeTimeout = TimeSpan.FromSeconds(8);
+
+    /// <summary>單純 Dispose 一個資源的最長等待。</summary>
+    private static readonly TimeSpan QuickStepTimeout = TimeSpan.FromSeconds(2);
+
+    /// <summary>關閉資料庫（含 WAL checkpoint）的最長等待。</summary>
+    private static readonly TimeSpan StoreDisposeTimeout = TimeSpan.FromSeconds(6);
+
+    /// <summary>
+    /// 收尾總預算：比上面各步的上限總和再多一點餘裕。超過就是有一步沒被包住，
+    /// 由看門狗強制結束（並留日誌）。
+    /// </summary>
+    private static readonly TimeSpan ShutdownBudget = TimeSpan.FromSeconds(55);
 
     /// <summary>
     /// 執行一個非同步收尾步驟，並有上限地等它完成。
@@ -4636,21 +4723,7 @@ public partial class MainWindow : Window
     /// 不能讓它繼續無聲無息。
     /// </remarks>
     private static void RunShutdownStep(string what, Func<Task> step, TimeSpan timeout)
-    {
-        try
-        {
-            if (Task.Run(step).Wait(timeout))
-            {
-                return;
-            }
-
-            LogShutdown($"{what}逾時（{timeout.TotalSeconds:0} 秒），改由行程結束時強制清除。");
-        }
-        catch (Exception ex)
-        {
-            LogShutdown($"{what}失敗：{ex}");
-        }
-    }
+        => ShutdownSequencer.Run(what, step, timeout, LogShutdown);
 
     private static void LogShutdown(string message)
         => BoundedFileLog.Append(
