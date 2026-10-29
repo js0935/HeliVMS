@@ -338,6 +338,14 @@ public sealed class SqliteStore : IDisposable
             CreateBookmarkTableV56();
         }
 
+        // 版號只代表「這支程式跑到第幾版」，不代表檔案裡真的有那些欄位：index.db 會被重建、
+        // 從備份還原，或被下一版的元件先建立。現場就有一份 user_version=56、segments 卻沒有
+        // tier／origin_path 的庫——版本判定因此整段跳過，而 SegmentRepository 的 SELECT 直接
+        // 擲出 "no such column: tier"；它為了容忍磁碟問題把例外吞掉（catch { }），於是回放清單
+        // 永遠是空的。操作員看到的是「磁碟裡有錄影、回放裡沒有資料」，日誌一片乾淨。
+        // 所以「純加欄」一律無條件補一次（EnsureColumn 是一次 pragma_table_info，成本可忽略）。
+        EnsureAdditiveColumns();
+
         Execute("PRAGMA user_version = CURRENT_SCHEMA_VERSION;".Replace(
             "CURRENT_SCHEMA_VERSION", CurrentSchemaVersion.ToString(CultureInfo.InvariantCulture)));
     }
@@ -996,10 +1004,71 @@ public sealed class SqliteStore : IDisposable
                 return r.GetInt64(0) > 0;
             });
 
-        if (!has)
+        if (has)
         {
-            Execute($"ALTER TABLE {table} ADD COLUMN {column} {definition};");
+            return;
         }
+
+        // 表整個不存在代表這台機器的庫是另一種形狀（重建失敗、半殘還原）。那時硬 ALTER
+        // 會讓整個啟動失敗，而真正該做的是由版本遷移或重建流程補表——加欄不是這裡的職責。
+        // 無條件補欄（EnsureAdditiveColumns）會碰到這種庫，所以先確認表在。
+        var tableExists = Query(
+            $"SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='{table}';",
+            static r =>
+            {
+                r.Read();
+                return r.GetInt64(0) > 0;
+            });
+
+        if (!tableExists)
+        {
+            return;
+        }
+
+        Execute($"ALTER TABLE {table} ADD COLUMN {column} {definition};");
+    }
+
+    /// <summary>
+    /// 冪等地補齊所有「純加欄」結構，不看 <c>user_version</c>。
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// 各版本遷移本來就加過這些欄位，但那只在「版號還沒到」時才會跑。版號與實際欄位不一致的
+    /// 資料庫（重建、還原、被較新的元件先建立）會讓那段程式永遠不再執行，缺的欄位就此定形。
+    /// 症狀不會是啟動失敗，而是「某一條查詢一直回空」——最惡劣的一種：頁面正常、日誌乾淨、
+    /// 資料卻不見了。
+    /// </para>
+    /// <para>
+    /// 刻意只收「加欄」與其相依的索引，不含帶外鍵的欄位（<c>devices.group_id</c>）：那種欄位
+    /// 依賴另一張表存在，無條件執行反而可能讓一台舊機器連啟動都失敗。
+    /// </para>
+    /// </remarks>
+    private void EnsureAdditiveColumns()
+    {
+        EnsureColumn("alert_rules", "match_event_types", "TEXT");
+        EnsureColumn("alert_rules", "frame_minutes", "INTEGER NOT NULL DEFAULT 0");
+        EnsureColumn("alert_rules", "min_events_in_window", "INTEGER NOT NULL DEFAULT 1");
+        EnsureColumn("devices", "sd_url", "TEXT");
+        EnsureColumn("devices", "main_rtsp", "TEXT");
+        EnsureColumn("devices", "sub_rtsp", "TEXT");
+        EnsureColumn("channels", "enabled", "INTEGER NOT NULL DEFAULT 1");
+        EnsureColumn("channels", "display_cell", "INTEGER");
+        EnsureColumn("segments", "checked_at_utc", "TEXT");
+        EnsureColumn("segments", "tier", "TEXT NOT NULL DEFAULT 'hot'");
+        EnsureColumn("segments", "origin_path", "TEXT");
+
+        // 這兩個部分索引以 checked_at_utc 為條件，欄位剛補上時才建得起來；
+        // 少了它們，抽驗進度查詢會退回整表掃描（見 AddSegmentCheckedAtV54 的說明）。
+        Execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_seg_unchecked
+                ON segments(start_time) WHERE status = 'final' AND checked_at_utc IS NULL;
+            """);
+        Execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_seg_checked_null
+                ON segments(start_time) WHERE status = 'final' AND checked_at_utc IS NULL;
+            """);
     }
 
     /// <summary>M53 數位證據完整性（§14.7 #5）：證據集的 manifest 記錄（含數位簽章）。</summary>

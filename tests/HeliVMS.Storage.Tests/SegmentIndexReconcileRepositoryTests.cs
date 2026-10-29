@@ -144,7 +144,7 @@ public class SegmentIndexReconcileRepositoryTests : IDisposable
     /// 調閱型消費者（匯出、去扭曲、遠端播放清單）用的「還能播」查詢只回 final。
     ///
     /// <para>
-    /// <see cref="SegmentRepository.ListByRange"/> 為了診斷與對帳會把 tmp／corrupt／missing／
+    /// <see cref="SegmentRepository.ListByRange(int, string, DateTime, DateTime)"/> 為了診斷與對帳會把 tmp／corrupt／missing／
     /// retired 全數回傳；只要有一個消費端忘了過濾，就會把已刪除或未完成的段丟進 ffmpeg 的
     /// concat 清單或播放佇列，症狀是「匯出整批失敗」或「播放卡住」。這個查詢把口徑收斂成
     /// 一處，這裡釘住它真的只回 final。

@@ -821,7 +821,7 @@ public partial class PlaybackWindow : Window
 
         try
         {
-            var segs = _segments.ListByRange(ch.Id, "main", startUtc, endUtc);
+            var segs = _segments.ListByRange(ch.Id, "main", startUtc, endUtc, out var indexError);
             var (playable, missingCount, unverifiedCount) = ReconcileSegments(segs);
             var items = playable
                 .Where(s => s.Status == SegmentStatus.Final)
@@ -882,6 +882,14 @@ public partial class PlaybackWindow : Window
             if (unverifiedCount > 0)
             {
                 hint = hint + " " + Localizer.T("Playback.DiskNotReady");
+            }
+
+            if (!string.IsNullOrEmpty(indexError))
+            {
+                // 「索引讀不到」與「這段時間沒有錄影」在畫面上長得一樣，處理方式卻完全不同：
+                // 前者要修資料庫或關掉佔用它的行程，後者只是換個時間。不講清楚，操作員會
+                // 一直以為錄影沒有寫進來，而磁碟上明明有檔案。
+                hint = hint + " " + string.Format(Localizer.T("Playback.IndexUnavailable"), indexError);
             }
 
             LoadHint.Text = hint;

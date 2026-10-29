@@ -144,7 +144,7 @@ public sealed class SegmentKeyframeRepository
     /// 區間內、尚無關鍵幀索引的 final 區段編號（背景補建用）。
     ///
     /// <para>
-    /// 口徑與 <see cref="SegmentRepository.ListByRange"/> 一樣是重疊式（<c>end_time &gt; from</c>
+    /// 口徑與 <see cref="SegmentRepository.ListByRange(int, string, DateTime, DateTime)"/> 一樣是重疊式（<c>end_time &gt; from</c>
     /// 或 tmp 段的 <c>start_time &gt;= from</c>），否則跨午夜的段會漏建。
     /// </para>
     /// </summary>

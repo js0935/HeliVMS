@@ -344,9 +344,32 @@ public sealed class SegmentRepository
     /// 不該因為結束時間未知就散落到之後每一天的查詢裡。
     /// </remarks>
     public IReadOnlyList<SegmentRecord> ListByRange(int channelId, string stream, DateTime fromUtc, DateTime toUtc)
+        => ListByRange(channelId, stream, fromUtc, toUtc, out _);
+
+    /// <summary>
+    /// 依時間範圍列出區段，並把「查詢為什麼失敗」帶回去。
+    /// </summary>
+    /// <param name="channelId">頻道。</param>
+    /// <param name="stream">主／次流。</param>
+    /// <param name="fromUtc">窗起（含）。</param>
+    /// <param name="toUtc">窗迄（不含）。</param>
+    /// <param name="error">查詢失敗的原因；null 表示這次查詢本身沒出錯（清單仍可能是空的）。</param>
+    /// <remarks>
+    /// 這裡的 <c>catch</c> 必須留下原因：索引讀不到（缺欄位、資料庫被鎖、檔案毀損）與
+    /// 「這段時間真的沒錄影」對回放清單來說都是空陣列，但處理方式天差地遠。現場回報的
+    /// 「磁碟裡有錄影、回放裡沒有資料」就是前者——查詢擲了 <c>no such column</c>，
+    /// 被吞掉之後畫面只說「今天沒有錄影」。
+    /// </remarks>
+    public IReadOnlyList<SegmentRecord> ListByRange(
+        int channelId,
+        string stream,
+        DateTime fromUtc,
+        DateTime toUtc,
+        out string? error)
     {
         var results = new List<SegmentRecord>();
         var seen = new HashSet<long>();
+        string? failure = null;
 
         void AddRange(SqliteStore store)
         {
@@ -380,7 +403,10 @@ public sealed class SegmentRepository
                     }
                 }
             }
-            catch { }
+            catch (Exception ex)
+            {
+                failure ??= ex.Message;
+            }
         }
 
         AddRange(_store);
@@ -393,10 +419,6 @@ public sealed class SegmentRepository
                 var to = toUtc.Kind == DateTimeKind.Utc ? toUtc : toUtc.ToUniversalTime();
                 var cursor = new DateTime(from.Year, from.Month, 1, 0, 0, 0, DateTimeKind.Utc);
                 var endMonth = new DateTime(to.Year, to.Month, 1, 0, 0, 0, DateTimeKind.Utc);
-                if (to <= cursor.AddMonths(1))
-                {
-                    // same month or small range
-                }
                 while (cursor <= endMonth)
                 {
                     var shardPath = _registry.GetShardPath(cursor.Year, cursor.Month);
@@ -407,7 +429,10 @@ public sealed class SegmentRepository
                             using var shard = _registry.OpenShard(shardPath);
                             AddRange(shard);
                         }
-                        catch { }
+                        catch (Exception ex)
+                        {
+                            failure ??= ex.Message;
+                        }
                     }
                     cursor = cursor.AddMonths(1);
                     var monthsDiff = (cursor.Year - from.Year) * 12 + (cursor.Month - from.Month);
@@ -417,10 +442,14 @@ public sealed class SegmentRepository
                     }
                 }
             }
-            catch { }
+            catch (Exception ex)
+            {
+                failure ??= ex.Message;
+            }
         }
 
         results.Sort((a, b) => a.StartUtc.CompareTo(b.StartUtc));
+        error = failure;
         return results;
     }
 
@@ -428,7 +457,7 @@ public sealed class SegmentRepository
     /// 與 <paramref name="fromUtc"/>..<paramref name="toUtc"/> 重疊、且真的還能播的段。
     ///
     /// <para>
-    /// 給調閱型消費者用（回放解碼、匯出、去扭曲、遠端播放清單）：<see cref="ListByRange"/>
+    /// 給調閱型消費者用（回放解碼、匯出、去扭曲、遠端播放清單）：<see cref="ListByRange(int, string, DateTime, DateTime)"/>
     /// 為了診斷與對帳會把 tmp／corrupt／missing／retired 全都回傳，呼叫端得自己記得濾；
     /// 只要有一個消費端忘記，就會把已被刪除的段丟進 ffmpeg 的 concat 清單或解碼佇列，
     /// 症狀是「匯出整批失敗」或「播放到一半卡住」，而錯誤訊息指向檔案讀取、看不出是索引過期。
@@ -521,7 +550,7 @@ public sealed class SegmentRepository
     /// 布林清單（同順位對應：第 i 個元素回答第 i 個窗口）。
     ///
     /// <para>
-    /// 供回放日曆把「當天有錄影」的日期加粗（§3.4）。口徑刻意與 <see cref="ListByRange"/>之後
+    /// 供回放日曆把「當天有錄影」的日期加粗（§3.4）。口徑刻意與 <see cref="ListByRange(int, string, DateTime, DateTime)"/>之後
     /// 由呼叫端過濾 <c>SegmentStatus.Final</c> 的結果一致——重疊式而非「start 落在窗內」，且只認
     /// status='final'：粗體是「點下去看得到東西」的指標，兩者若不同，操作員會看到有粗體的日期
     /// 點開是空的，或當天明明有錄影卻不粗。tmp／corrupt 段不可播放，一律不算。
