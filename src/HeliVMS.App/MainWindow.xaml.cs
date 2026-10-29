@@ -3504,7 +3504,12 @@ public partial class MainWindow : Window
             return;
         }
 
-        OpenChild(new PlaybackWindow(_store!, channelId), w => ((PlaybackWindow)w).FocusChannel(channelId));
+        // 右鍵「回放此頻道」＝看這台剛才的畫面，所以直接起播；沿用中的回放視窗也一樣切過去就播，
+        // 否則第二次右鍵只會把焦點移到一個還停在上一個頻道靜止畫面的視窗。
+        OpenChild(
+            new PlaybackWindow(_store!, channelId, null, autoPlayLatest: true),
+            w => ((PlaybackWindow)w).FocusChannelAndPlay(channelId));
+
     }
 
     private void OnCtxExportChannel(object sender, RoutedEventArgs e)

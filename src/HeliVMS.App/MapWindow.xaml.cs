@@ -581,7 +581,8 @@ public partial class MapWindow : Window
     {
         try
         {
-            var playback = new PlaybackWindow(_store, channelId) { Owner = this };
+            // 帶入頻道還不夠：不自動起播就只是一台空回放。圖釘右鍵要看到的是「這台剛才的畫面」。
+            var playback = new PlaybackWindow(_store, channelId, null, autoPlayLatest: true) { Owner = this };
             playback.Show();
         }
         catch (Exception ex)

@@ -891,5 +891,50 @@ public sealed class PlaybackWindowContractTests
         Assert.Contains("ListFinalFoldersInRange", reconcile);
         Assert.Contains("VerifyFolders", reconcile);
     }
+
+    /// <summary>
+    /// 從即時畫面（含地圖圖釘開的小視窗）按「回放」，必須帶入該台並直接起播。
+    ///
+    /// <para>
+    /// 實際症狀：按了回放只跳出一台「頻道選好了、清單也有資料、播放器全黑」的視窗——
+    /// 操作員得自己找到最後一段再點下去才有畫面，第一眼只會認為回放壞了。
+    /// </para>
+    /// <para>
+    /// 兩件事都要守：(1) 建立視窗時就把頻道與「自動起播」帶進去（不是靠呼叫端另叫
+    /// <c>FocusChannel</c>，那只是選台）；(2) 起播要接在 <c>OnLoaded</c> 之後，
+    /// 那時 <c>_bandSegments</c> 才有資料。
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void 從即時畫面開回放會帶入該頻道並直接起播()
+    {
+        var live = SourceContract.BodyOf(
+            SourceContract.Read("src/HeliVMS.App/LiveWindow.xaml.cs"), "OpenPlayback");
+        Assert.False(string.IsNullOrWhiteSpace(live), "找不到 LiveWindow.OpenPlayback 的實作");
+        Assert.Contains("new PlaybackWindow(_store, _channelId, null, autoPlayLatest: true)", live);
+
+        var map = SourceContract.BodyOf(
+            SourceContract.Read("src/HeliVMS.App/MapWindow.xaml.cs"), "OpenPlayback");
+        Assert.False(string.IsNullOrWhiteSpace(map), "找不到 MapWindow.OpenPlayback 的實作");
+        Assert.Contains("new PlaybackWindow(_store, channelId, null, autoPlayLatest: true)", map);
+
+        var source = SourceContract.Read(Code);
+
+        // 沒有焦點時刻時才由「自動起播」接手；兩者都在 OnLoaded 內，順序不能顛倒
+        // （事件中心指定時刻的跳轉優先於「播最後一段」）。
+        var loaded = SourceContract.BodyOf(source, "OnLoaded");
+        Assert.Contains("PlayLatestSegment()", loaded);
+        Assert.True(
+            loaded.IndexOf("_focusUtc", StringComparison.Ordinal)
+                < loaded.IndexOf("PlayLatestSegment()", StringComparison.Ordinal),
+            "指定時刻的跳轉必須先於自動起播，否則事件中心會跳到最後一段而不是事發當時");
+
+        var play = SourceContract.BodyOf(source, "PlayLatestSegment");
+        Assert.Contains("_bandSegments[^1]", play);
+        Assert.Contains("PlayFrom(", play);
+
+        // 沒錄影時要說清楚，不能留下一台全黑播放器（與「解碼失敗」在畫面上長得一樣）。
+        Assert.Contains("Playback.NoSegmentsToday", play);
+    }
 }
 

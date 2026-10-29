@@ -29,6 +29,9 @@ public partial class PlaybackWindow : Window
     private long? _focusChannelId;
     private readonly DateTime? _focusUtc;
 
+    /// <summary>開窗後直接播當日最後一段（從即時畫面／地圖圖釘按「回放」時使用）。</summary>
+    private readonly bool _autoPlayLatest;
+
     private PlaybackSession? _session;
     private SegmentRecord? _current;
     private double _basePos;
@@ -198,11 +201,26 @@ public partial class PlaybackWindow : Window
 
     private sealed record BookmarkItem(long Id, DateTime AtUtc, string StartLabel, string NoteLabel);
 
-    public PlaybackWindow(SqliteStore store, long? focusChannelId = null, DateTime? focusUtc = null)
+    /// <summary>
+    /// 建立回放視窗。
+    /// </summary>
+    /// <param name="store">資料庫。</param>
+    /// <param name="focusChannelId">開窗即選定的頻道。</param>
+    /// <param name="focusUtc">開窗即跳到的時刻（事件中心用）；有值時優先於 <paramref name="autoPlayLatest"/>。</param>
+    /// <param name="autoPlayLatest">
+    /// 開窗後直接播當日最後一段。從即時畫面或地圖圖釘按「回放」時必須開啟：
+    /// 操作員要的是「這台剛才的畫面」，只把頻道選好而播放器停在黑畫面，看起來就像回放壞了。
+    /// </param>
+    public PlaybackWindow(
+        SqliteStore store,
+        long? focusChannelId = null,
+        DateTime? focusUtc = null,
+        bool autoPlayLatest = false)
     {
         _store = store;
         _focusChannelId = focusChannelId;
         _focusUtc = focusUtc;
+        _autoPlayLatest = autoPlayLatest;
         _channels = new ChannelRepository(_store);
         _segments = new SegmentRepository(_store);
         _reconciler = new SegmentIndexReconciler(_segments);
@@ -371,6 +389,7 @@ public partial class PlaybackWindow : Window
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
         LoadSegments();
+
         if (_focusUtc is { } focus)
         {
             foreach (var item in _bandSegments)
@@ -384,7 +403,35 @@ public partial class PlaybackWindow : Window
                     break;
                 }
             }
+
+            return;
         }
+
+        if (_autoPlayLatest)
+        {
+            PlayLatestSegment();
+        }
+    }
+
+    /// <summary>
+    /// 從當日最後一段開始播。
+    /// </summary>
+    /// <remarks>
+    /// 最後一段是「剛剛發生的事」，也就是操作員從即時畫面按回放時想看的那一段；
+    /// 想看更早的再從時間軸或清單往回找。挑不到可播區段時必須出聲：空白播放器
+    /// 與「解碼失敗」在畫面上長得一模一樣，不講清楚會變成查錯方向。
+    /// </remarks>
+    private void PlayLatestSegment()
+    {
+        if (_bandSegments.Count == 0)
+        {
+            LoadHint.Text = Localizer.T("Playback.NoSegmentsToday");
+            return;
+        }
+
+        var last = _bandSegments[^1];
+        SelectSegment(last);
+        PlayFrom(last.Segment, 0);
     }
 
     private void OnChannelSelectionChanged(object sender, SelectionChangedEventArgs e) => LoadSegments();

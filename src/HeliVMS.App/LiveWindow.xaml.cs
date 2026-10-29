@@ -450,11 +450,17 @@ public partial class LiveWindow : Window
 
     private void OnPlaybackClicked(object sender, RoutedEventArgs e) => OpenPlayback();
 
+    /// <summary>以本視窗的頻道開回放，並直接播當日最後一段。</summary>
+    /// <remarks>
+    /// 只帶頻道而不起播，會得到一個「選好台、清單有資料、播放器全黑」的視窗——從即時畫面
+    /// 按回放的人會以為回放壞了。地圖圖釘的右鍵回放（<see cref="MapWindow.OpenPlayback"/>）
+    /// 走同一條路。
+    /// </remarks>
     private void OpenPlayback()
     {
         try
         {
-            var playback = new PlaybackWindow(_store, _channelId) { Owner = this };
+            var playback = new PlaybackWindow(_store, _channelId, null, autoPlayLatest: true) { Owner = this };
             playback.Show();
         }
         catch (Exception ex)
