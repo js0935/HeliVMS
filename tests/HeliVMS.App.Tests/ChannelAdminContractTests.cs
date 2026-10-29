@@ -174,6 +174,51 @@ public sealed class ChannelAdminContractTests
         Assert.Contains("_channelsChanged", openChannel);
     }
 
+    /// <summary>
+    /// 「來源攝影機」下拉顯示 IP，且已加入頻道的攝影機不再出現。
+    /// </summary>
+    /// <remarks>
+    /// 篩選與顯示規則在 <see cref="HeliVMS.Shared.CameraSourceOptions"/>（有行為測試）；
+    /// 這裡只釘住接線——下拉若改回 <c>device.Name</c> 或忘了把已綁定清單傳進去，
+    /// 行為測試照樣全綠，操作員卻會看到名稱、並且能把同一台攝影機加進第二條頻道。
+    /// </remarks>
+    [Fact]
+    public void 來源攝影機下拉顯示IP並排除已綁定頻道者()
+    {
+        var body = BodyOf("ReloadDevices");
+
+        Assert.Contains("CameraSourceOptions.Build(", body);
+        Assert.Contains("c.DeviceId", body);
+        Assert.Contains("option.Label", body);
+        Assert.DoesNotContain("device.Name", body);
+    }
+
+    /// <summary>
+    /// 新增頻道後要重載「來源攝影機」下拉，剛用掉的攝影機才會立刻消失。
+    /// </summary>
+    /// <remarks>
+    /// 只重載頻道清單的話，清單看起來正確，但下拉仍留著剛綁定的那台；操作員順手再按一次
+    /// 「新增」就得到第二條綁同一裝置的頻道，兩邊搶同一組串流。
+    /// </remarks>
+    [Fact]
+    public void 新增頻道後會重載來源攝影機下拉()
+    {
+        Assert.Contains("ReloadDevices();", BodyOf("OnAddChannelClicked"));
+    }
+
+    /// <summary>
+    /// 刪除頻道後，它的攝影機要回到「來源攝影機」下拉才選得到。
+    /// </summary>
+    /// <remarks>
+    /// 下拉已排除「有頻道綁定」的攝影機；刪掉頻道若不重載下拉，那台機器就要等到
+    /// 關掉再開設定中心才會出現，操作員會以為它被刪掉了（攝影機本身其實還在 devices 表）。
+    /// </remarks>
+    [Fact]
+    public void 刪除頻道後攝影機會回到來源下拉()
+    {
+        Assert.Contains("ReloadDevices();", BodyOf("OnDeleteChannelClicked"));
+    }
+
     private static string BodyOf(string method)
     {
         var body = SourceContract.BodyOf(SourceContract.Read(Code), method);

@@ -33,8 +33,6 @@ public partial class ChannelManagerWindow : Window
         string MotionLabel,
         string CellLabel);
 
-    private sealed record SourceDevice(int Id, string Name);
-
     private readonly SqliteStore _store;
     private readonly ChannelRepository _channels;
     private readonly DeviceRepository _devices;
@@ -181,15 +179,27 @@ public partial class ChannelManagerWindow : Window
         }
     }
 
-    /// <summary>填入「來源攝影機」下拉：第一項為手動輸入，其餘為已加入攝影機（Tag＝設備 Id）。</summary>
+    /// <summary>
+    /// 填入「來源攝影機」下拉：第一項為手動輸入，其餘為尚未綁定頻道的攝影機（Tag＝設備 Id）。
+    /// </summary>
+    /// <remarks>
+    /// 顯示內容（IP 優先）與「排除已綁定者」的規則在 <see cref="CameraSourceOptions"/>，
+    /// 那裡才有行為測試——畫面本身在測試專案裡建不起來。
+    /// 排除清單取自 <see cref="ChannelRepository.List"/> 的 <c>DeviceId</c>，也就是實際綁定
+    /// 關係，而不是另外維護一份「已使用」旗標（那種旗標一定會和現實不同步）。
+    /// </remarks>
     private void ReloadDevices()
     {
         DeviceSourceCombo.Items.Clear();
         DeviceSourceCombo.Items.Add(new ComboBoxItem { Content = Localizer.T("Channels.ManualItem") });
 
-        foreach (var device in _devices.List().OrderBy(d => d.Id))
+        var options = CameraSourceOptions.Build(
+            _devices.List(),
+            _channels.List().Select(c => c.DeviceId));
+
+        foreach (var option in options)
         {
-            DeviceSourceCombo.Items.Add(new ComboBoxItem { Content = device.Name, Tag = device.Id });
+            DeviceSourceCombo.Items.Add(new ComboBoxItem { Content = option.Label, Tag = option.DeviceId });
         }
 
         DeviceSourceCombo.SelectedIndex = 0;
@@ -408,6 +418,9 @@ public partial class ChannelManagerWindow : Window
             _channelDeleteArm = false;
             DeleteChannelButton.Content = Localizer.T("Channels.Delete");
             ChannelEditHintText.Text = string.Format(Localizer.T("Channels.Deleted"), row.Name, id);
+            // 刪掉頻道等於放掉它的攝影機，要讓它回到「來源攝影機」下拉；
+            // 只重載頻道清單的話，操作員得關掉再開設定中心才選得到那台機器。
+            ReloadDevices();
             ReloadChannels();
             NotifyChannelsChanged();
         }
@@ -458,6 +471,9 @@ public partial class ChannelManagerWindow : Window
             AddChannelSubUrlBox.Text = string.Empty;
             AddChannelNameBox.Text = string.Empty;
             DeviceSourceCombo.SelectedIndex = 0;
+            // 這台攝影機剛剛被這條頻道用掉，重載下拉讓它從清單消失；否則操作員可以
+            // 立刻再選同一台，做出第二條綁同一裝置的頻道。
+            ReloadDevices();
             ReloadChannels(id);
             ChannelEditHintText.Text = string.Format(Localizer.T("Channels.Added"), name, id);
             NotifyChannelsChanged();
