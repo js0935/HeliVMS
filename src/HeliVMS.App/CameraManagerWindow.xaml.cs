@@ -64,10 +64,15 @@ public partial class CameraManagerWindow : Window
     private sealed class DeviceRow : INotifyPropertyChanged
     {
         private CameraStatus _status;
+        private string? _pingText;
+        private string _pingTip = string.Empty;
+        private Brush _pingBrush = s_noChannelBrush;
 
         public DeviceRow(
             int id,
             string name,
+            string host,
+            int port,
             string ipPort,
             string vendor,
             string credentialLabel,
@@ -76,6 +81,8 @@ public partial class CameraManagerWindow : Window
         {
             Id = id;
             Name = name;
+            Host = host;
+            Port = port;
             IpPort = ipPort;
             Vendor = vendor;
             CredentialLabel = credentialLabel;
@@ -87,6 +94,12 @@ public partial class CameraManagerWindow : Window
 
         public string Name { get; }
 
+        /// <summary>裝置設定裡的主機（純 IP／主機名），Ping 的目標。</summary>
+        public string Host { get; }
+
+        /// <summary>裝置設定裡的埠；位址字串自帶埠時以字串為準（見 <see cref="HostProbe.ParseEndpoint"/>）。</summary>
+        public int Port { get; }
+
         public string IpPort { get; }
 
         public string Vendor { get; }
@@ -94,6 +107,24 @@ public partial class CameraManagerWindow : Window
         public string CredentialLabel { get; }
 
         public string MainStreamUrl { get; }
+
+        /// <summary>手動 Ping 的結果；null 表示這台還沒 Ping 過（與「不通」是不同的事）。</summary>
+        public string PingText => _pingText ?? Localizer.T("Camera.PingIdle");
+
+        public string PingTip => _pingText is null ? Localizer.T("Camera.PingIdleTip") : _pingTip;
+
+        public Brush PingBrush => _pingBrush;
+
+        /// <summary>更新 Ping 結果欄；文字、顏色與工具提示一起通知，才不會出現綠字寫逾時。</summary>
+        public void SetPing(string text, string tip, Brush brush)
+        {
+            _pingText = text;
+            _pingTip = tip;
+            _pingBrush = brush;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(PingText)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(PingTip)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(PingBrush)));
+        }
 
         public CameraStatus Status
         {
@@ -160,6 +191,7 @@ public partial class CameraManagerWindow : Window
     private bool _deviceGroupDeleteArm;
     private Point _deviceTreeDragStart;
     private TreeViewItem? _deviceTreeDragNode;
+    private bool _pinging;
 
     public CameraManagerWindow(SqliteStore store, ChannelManager? manager = null, Action? channelsChanged = null)
     {
@@ -205,6 +237,7 @@ public partial class CameraManagerWindow : Window
         CameraColCredential.Header = Localizer.T("Camera.ColCredential");
         CameraColMainStream.Header = Localizer.T("Camera.ColMainStream");
         CameraColStatus.Header = Localizer.T("Camera.ColStatus");
+        CameraColPing.Header = Localizer.T("Camera.ColPing");
         CameraSettingsHeader.Text = Localizer.T("Camera.SettingsHeader");
         DeviceHintText.Text = Localizer.T("Camera.DeviceHint");
         CameraNameLabel.Text = Localizer.T("Camera.NameLabel");
@@ -223,6 +256,10 @@ public partial class CameraManagerWindow : Window
         SaveDeviceButton.ToolTip = Localizer.T("Camera.SaveTip");
         DeleteDeviceButton.Content = Localizer.T("Camera.Delete");
         DeleteDeviceButton.ToolTip = Localizer.T("Camera.DeleteTip");
+        PingDeviceButton.Content = Localizer.T("Camera.Ping");
+        PingDeviceButton.ToolTip = Localizer.T("Camera.PingTip");
+        // 狀態列講的是「下一步該做什麼」，不是欄位佔位字元（那是「—」）。
+        PingStatusText.Text = Localizer.T("Camera.PingIdleTip");
         OpenDeviceToolsButton.Content = Localizer.T("Camera.DeviceTools");
         OpenDeviceToolsButton.ToolTip = Localizer.T("Camera.DeviceToolsTip");
         BatchFirmwareButton.Content = Localizer.T("Camera.BatchFirmware");
@@ -245,6 +282,96 @@ public partial class CameraManagerWindow : Window
 
     private void OnRefreshDevicesClicked(object sender, RoutedEventArgs e) => ReloadDevices();
 
+    /// <summary>
+    /// 對「清單中被選取的那一台攝影機」的 IP 發送 Ping（ICMP，無回應再試其連接埠的 TCP）。
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// 只 Ping 選取的那一台而不是整個清單：這是操作員回報「這台連不上」時的查證動作，
+    /// 一次按鍵就該給出一個明確答案（通／不通／幾毫秒），而不是一片同時變色的表格。
+    /// </para>
+    /// <para>
+    /// 結果同時寫進狀態列與清單的 Ping 欄。狀態列會被 2 秒一次的狀態輪詢重畫覆蓋，
+    /// 所以不能只靠它——真正留存的是 Ping 欄；狀態列只是把完整句子（含 TCP 埠與毫秒）
+    /// 講清楚，方便直接複製進工單。
+    /// </para>
+    /// <para>
+    /// 探測本身是非封鎖的：2 秒逾時的 ICMP 加上退路的 TCP 最多等 4 秒，跑在 UI 執行緒上
+    /// 會讓整個視窗在這段時間內沒有回應。
+    /// </para>
+    /// </remarks>
+    private async void OnPingDeviceClicked(object sender, RoutedEventArgs e)
+    {
+        if (_pinging)
+        {
+            return;
+        }
+
+        if (DeviceList.SelectedItem is not DeviceRow row)
+        {
+            PingStatusText.Text = Localizer.T("Camera.PingSelectFirst");
+            return;
+        }
+
+        _pinging = true;
+        PingDeviceButton.IsEnabled = false;
+        PingStatusText.Text = string.Format(Localizer.T("Camera.PingRunning"), row.Host);
+
+        try
+        {
+            var result = await HostProbe.ProbeAsync(row.Host, row.Port, TimeSpan.FromSeconds(2));
+
+            switch (result.Outcome)
+            {
+                case HostProbeOutcome.Reached when result.ViaTcp:
+                    PingStatusText.Text = string.Format(
+                        Localizer.T("Camera.PingReplyTcp"), row.Host, row.Port, result.LatencyMs);
+                    row.SetPing(
+                        $"{result.LatencyMs} ms",
+                        string.Format(Localizer.T("Camera.PingReplyTcpTip"), row.Port),
+                        s_onlineBrush);
+                    break;
+
+                case HostProbeOutcome.Reached:
+                    PingStatusText.Text = string.Format(
+                        Localizer.T("Camera.PingReply"), row.Host, result.LatencyMs);
+                    row.SetPing(
+                        $"{result.LatencyMs} ms",
+                        Localizer.T("Camera.PingReplyTip"),
+                        s_onlineBrush);
+                    break;
+
+                case HostProbeOutcome.InvalidAddress:
+                    PingStatusText.Text = string.Format(Localizer.T("Camera.PingInvalid"), row.IpPort);
+                    row.SetPing(
+                        Localizer.T("Camera.PingBadAddress"),
+                        Localizer.T("Camera.PingInvalidTip"),
+                        s_offlineBrush);
+                    break;
+
+                default:
+                    PingStatusText.Text = string.Format(
+                        Localizer.T("Camera.PingFailed"), row.Host, row.Port);
+                    row.SetPing(
+                        Localizer.T("Camera.PingTimeout"),
+                        string.Format(Localizer.T("Camera.PingFailedTip"), row.Port),
+                        s_offlineBrush);
+                    break;
+            }
+        }
+        catch (Exception ex)
+        {
+            // 探測本身已吞掉網路例外；這裡只可能剩下「UI 欄位不見了」之類的意外，
+            // 但仍要讓操作員看到，而不是按了沒反應。
+            PingStatusText.Text = ex.Message;
+        }
+        finally
+        {
+            _pinging = false;
+            PingDeviceButton.IsEnabled = true;
+        }
+    }
+
     private void ReloadDevices(int? reselect = null)
     {
         var rows = _devices.List()
@@ -257,8 +384,8 @@ public partial class CameraManagerWindow : Window
                         ? Localizer.T("Camera.NoPasswordSuffix")
                         : Localizer.T("Camera.HasPasswordSuffix"));
                 return new DeviceRow(
-                    d.Id, d.Name, $"{d.Ip}:{d.Port}", d.Vendor, label, d.MainStreamUrl ?? string.Empty,
-                    ComputeStatus(d.Id));
+                    d.Id, d.Name, d.Ip, d.Port, $"{d.Ip}:{d.Port}", d.Vendor, label,
+                    d.MainStreamUrl ?? string.Empty, ComputeStatus(d.Id));
             })
             .ToList();
 
@@ -276,6 +403,12 @@ public partial class CameraManagerWindow : Window
         DeviceMainUrlBox.Text = string.Empty;
         DeviceSubUrlBox.Text = string.Empty;
         DeviceHintText.Text = Localizer.T("Camera.DeviceHint");
+
+        // 清單重建＝資料重讀；上一次的 Ping 結果是舊位址的，留著會誤導。
+        if (PingStatusText is not null)
+        {
+            PingStatusText.Text = Localizer.T("Camera.PingIdleTip");
+        }
 
         if (reselect is int target)
         {

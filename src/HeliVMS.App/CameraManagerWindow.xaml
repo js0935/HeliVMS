@@ -107,6 +107,17 @@
                                 </DataTemplate>
                             </GridViewColumn.CellTemplate>
                         </GridViewColumn>
+                        <!-- Result of the last manual Ping of this camera's IP; grey until the
+                             operator presses Ping, because "not pinged yet" is not "offline". -->
+                        <GridViewColumn x:Name="CameraColPing" Header="" Width="86">
+                            <GridViewColumn.CellTemplate>
+                                <DataTemplate>
+                                    <TextBlock Text="{Binding PingText}" Foreground="{Binding PingBrush}"
+                                               FontSize="11" VerticalAlignment="Center"
+                                               ToolTip="{Binding PingTip}"/>
+                                </DataTemplate>
+                            </GridViewColumn.CellTemplate>
+                        </GridViewColumn>
                     </GridView>
                 </ListView.View>
             </ListView>
@@ -156,6 +167,10 @@
                         Content="" Click="OnDeleteDeviceClicked" Margin="6,0,0,0" Padding="12,5"
                         Foreground="White" Background="#8A3C2E" BorderThickness="0"
                         ToolTip=""/>
+                <Button x:Name="PingDeviceButton" AutomationProperties.AutomationId="PingDeviceButton"
+                        Content="" Click="OnPingDeviceClicked" Margin="6,0,0,0" Padding="12,5"
+                        Foreground="White" Background="#2F6B4F" BorderThickness="0"
+                        ToolTip=""/>
                 <Button x:Name="OpenDeviceToolsButton" AutomationProperties.AutomationId="OpenDeviceToolsButton"
                         Content="" Click="OnOpenDeviceToolsClicked" Margin="12,0,0,0" Padding="12,5"
                         Foreground="White" Background="#2A4A73" BorderThickness="0"
@@ -165,6 +180,12 @@
                         Foreground="White" Background="#6B4423" BorderThickness="0"
                         ToolTip=""/>
             </WrapPanel>
+            <!-- Ping result for the selected camera. Kept as its own line rather than a
+                 "toast": operators paste the outcome into a ticket, and it must survive the
+                 next status-column refresh (every 2 seconds). -->
+            <TextBlock x:Name="PingStatusText" AutomationProperties.AutomationId="PingStatusText"
+                       Text="" Foreground="{StaticResource Brand.TextDim}" FontSize="11"
+                       Margin="0,6,0,0" TextWrapping="Wrap"/>
         </StackPanel>
     </DockPanel>
 </Window>
