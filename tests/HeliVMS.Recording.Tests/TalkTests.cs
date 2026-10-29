@@ -267,6 +267,11 @@ public sealed class TalkTests
         public async Task WaitForExitAsync(CancellationToken cancellationToken = default)
             => await _exited.Task.WaitAsync(cancellationToken);
 
+        /// <summary>對講用的 ffmpeg 不吃 stdin 的 <c>q</c>；介面成員在此無事可做。</summary>
+        public void RequestQuit()
+        {
+        }
+
         public void Kill()
         {
             KillCount++;

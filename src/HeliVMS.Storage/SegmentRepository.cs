@@ -808,6 +808,29 @@ public sealed class SegmentRepository
     }
 
     /// <summary>
+    /// 尚未收尾的區段（<c>status='tmp'</c>），由舊至新，最多 <paramref name="take"/> 筆。
+    ///
+    /// <para>
+    /// 供啟動時的暫存救援（<c>TemporarySegmentRecovery</c>）使用。正常結束的段收尾後就是 final，
+    /// 會留在 tmp 的只有「收尾那一刻行程被砍掉」的那幾段：索引寫的是正式檔名，磁碟上卻只剩
+    /// <c>+.tmp</c>，索引對帳因此把它判成 missing，那段影片就從時間軸上消失了。
+    /// </para>
+    /// </summary>
+    public IReadOnlyList<SegmentRecord> ListTemporary(int take)
+    {
+        return _store.Query(
+            $"""
+            SELECT id, channel_id, stream, start_time, end_time, file_path,
+                   size_bytes, duration_sec, status, sha256, tier, origin_path
+            FROM segments
+            WHERE status = 'tmp'
+            ORDER BY start_time
+            LIMIT {Math.Max(1, take)};
+            """,
+            ReadRecords);
+    }
+
+    /// <summary>
     /// 只回傳「頻道資料夾仍是舊制 <c>ch…</c>」的區段（僅編號、頻道、路徑）。
     /// <para>
     /// 供資料夾搬移（<see cref="RecordingFolderMigrator"/>）使用。24/7 全時錄影下 segments 一年可達千萬列，

@@ -514,6 +514,52 @@ public sealed class RecordingSchedulerTests : IDisposable
     }
 
     /// <summary>
+    /// 停止全部時必須「先對每一台送出收尾，再一起等」，不能一台等完再換下一台。
+    ///
+    /// <para>
+    /// 現場症狀：16 路錄影時，每台 ffmpeg 收尾要幾百毫秒到 8 秒
+    /// （見 <see cref="SegmentRecorder.DefaultGracefulStopTimeout"/>）。逐一等待讓關機等待時間等於
+    /// 全部相加，主視窗等不住就被系統砍掉——而「被砍掉」正是關程式時留下
+    /// <c>seg-*.mp4.tmp</c>（最後一段錄影播不出來）的原因。並行之後總時間只等於最慢的那一台。
+    /// </para>
+    /// <para>
+    /// 這裡讓第一台的 StopAsync 只有「第二台也開始收尾」才放行：序列化實作會卡到逾時。
+    /// </para>
+    /// </summary>
+    [Fact]
+    public async Task 停止全部會同時對所有錄影機送出收尾()
+    {
+        ApplyLicense(cameras: 32);
+        foreach (var name in new[] { "車道 1", "車道 2" })
+        {
+            AddSchedule(AddChannel(name), ActiveNow());
+        }
+
+        using var scheduler = NewScheduler();
+        await scheduler.ReconcileAsync();
+        Assert.Equal(2, _started.Count);
+
+        var firstStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var secondStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _started[0].OnStopAsync = async () =>
+        {
+            firstStarted.TrySetResult();
+            await secondStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        };
+        _started[1].OnStopAsync = () =>
+        {
+            secondStarted.TrySetResult();
+            return Task.CompletedTask;
+        };
+
+        await scheduler.StopAllAsync().WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.True(firstStarted.Task.IsCompleted);
+        Assert.All(_started, r => Assert.True(r.Stopped));
+        Assert.All(_started, r => Assert.True(r.Disposed));
+    }
+
+    /// <summary>
     /// 排程開錄必須帶入設備憑證。
     ///
     /// 現場症狀：攝影機憑證存成 DPAPI 加密的設備欄位、頻道只存裸位址；
@@ -989,6 +1035,12 @@ public sealed class RecordingSchedulerTests : IDisposable
         /// </summary>
         public Func<Task>? OnStartAsync { get; set; }
 
+        /// <summary>
+        /// 選用的非同步停止鉤子：讓測試把某台錄影機的收尾「卡住」，驗證關機是並行收尾
+        /// 而不是一台等完再換下一台。
+        /// </summary>
+        public Func<Task>? OnStopAsync { get; set; }
+
         public event EventHandler<RecordingStallInfo>? RecordingStalled;
 
         public event EventHandler<int>? RecordingResumed;
@@ -1020,10 +1072,13 @@ public sealed class RecordingSchedulerTests : IDisposable
             }
         }
 
-        public Task StopAsync()
+        public async Task StopAsync()
         {
             Stopped = true;
-            return Task.CompletedTask;
+            if (OnStopAsync is not null)
+            {
+                await OnStopAsync();
+            }
         }
 
         public ValueTask DisposeAsync()

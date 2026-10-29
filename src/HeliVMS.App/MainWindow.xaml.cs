@@ -1377,7 +1377,10 @@ public partial class MainWindow : Window
                 // 又不掛背景保留服務（見 WebHost），所以桌面部署下它們只會一直長大。
                 var alarmDays = (int)settings.GetDoubleOrDefault(MetadataRetentionPruner.AlarmDaysKey, MetadataRetentionPruner.DefaultDays);
                 var auditDays = (int)settings.GetDoubleOrDefault(MetadataRetentionPruner.AuditDaysKey, MetadataRetentionPruner.DefaultDays);
-                var sweep = RetentionCoordinator.Run(
+                // 換到執行緒池：這一圈會走檔案 I/O，還會對「救回的暫存段」算 SHA-256
+                //（一段 60 秒的錄影是幾十 MB）。在 UI 執行緒上做的話，開程式時畫面會凍住
+                // 好幾秒，而操作員正好在這時候要把畫面拖上監看牆。
+                var sweep = await Task.Run(() => RetentionCoordinator.Run(
                     _store!,
                     service,
                     Path.Combine(_dataRoot, "snapshots"),
@@ -1385,9 +1388,16 @@ public partial class MainWindow : Window
                     ReadSnapshotDays(),
                     alarmDays,
                     auditDays,
-                    DateTime.UtcNow);
+                    DateTime.UtcNow,
+                    _segRepo));
 
                 var hintParts = new List<string>();
+                if (sweep.RecoveredTmp > 0)
+                {
+                    // 中斷收尾的段已救回：操作員需要知道「剛才那段其實還在」，否則他會以為錄影掉了。
+                    hintParts.Add(string.Format(Localizer.T("Main.RecoveredInterruptedSegments"), sweep.RecoveredTmp));
+                }
+
                 if (sweep.DeletedSegments > 0)
                 {
                     hintParts.Add(string.Format(Localizer.T("Main.CleanupRemovedSegments"), sweep.DeletedSegments, FormatBytes(sweep.FreedBytes)));
@@ -4567,7 +4577,7 @@ public partial class MainWindow : Window
         return _channelNames.TryGetValue(channelId, out var name) ? name : $"#{channelId}";
     }
 
-    private async void OnWindowClosed(object? sender, EventArgs e)
+    private void OnWindowClosed(object? sender, EventArgs e)
     {
         _unackTimer?.Dispose();
         _notifyBacklogTimer?.Dispose();
@@ -4580,14 +4590,21 @@ public partial class MainWindow : Window
         _scheduler = null;
         if (scheduler is not null)
         {
-            await scheduler.StopAllAsync();
+            RunShutdownStep("停止錄影", scheduler.StopAllAsync, StopRecordingTimeout);
             scheduler.Dispose();
         }
 
         _recordingOwnership?.Release(DateTime.UtcNow);
         _recordingOwnership = null;
 
-        await DisconnectAllAsync();
+        // 即時監看的解碼 ffmpeg 與健康檢查用的 ffprobe 也在這裡收掉：它們不會自己結束，
+        // 留著就是工作管理員裡一排孤兒行程（要等下一次啟動的孤兒清掃才收得掉）。
+        // 直接呼叫管理員的版本，不走 DisconnectAllAsync——後者會重畫格子，關窗時沒有意義。
+        if (_manager is { } manager)
+        {
+            RunShutdownStep("中斷監看", manager.DisconnectAllAsync, DisconnectTimeout);
+        }
+
         _bgCts?.Cancel();
         _bgCts?.Dispose();
         _detWriter?.Dispose();
@@ -4599,4 +4616,45 @@ public partial class MainWindow : Window
         _manager?.Dispose();
         _store?.Dispose();
     }
+
+    /// <summary>
+    /// 停止錄影的最長等待。每台 ffmpeg 的收尾上限是 8 秒
+    /// （<see cref="SegmentRecorder.DefaultGracefulStopTimeout"/>）且全部並行收，
+    /// 25 秒是「磁碟很慢、段很大」時的餘裕。
+    /// </summary>
+    private static readonly TimeSpan StopRecordingTimeout = TimeSpan.FromSeconds(25);
+
+    /// <summary>中斷監看（解碼 ffmpeg）的最長等待。</summary>
+    private static readonly TimeSpan DisconnectTimeout = TimeSpan.FromSeconds(10);
+
+    /// <summary>
+    /// 執行一個非同步收尾步驟，並有上限地等它完成。
+    /// </summary>
+    /// <remarks>
+    /// 一定要換到執行緒池：UI 執行緒若在等一件「續體要排回同一個 UI 執行緒」的工作，
+    /// 就是典型的自我死結。逾時或失敗都寫檔——「關機沒收乾淨」正是這次要修的症狀，
+    /// 不能讓它繼續無聲無息。
+    /// </remarks>
+    private static void RunShutdownStep(string what, Func<Task> step, TimeSpan timeout)
+    {
+        try
+        {
+            if (Task.Run(step).Wait(timeout))
+            {
+                return;
+            }
+
+            LogShutdown($"{what}逾時（{timeout.TotalSeconds:0} 秒），改由行程結束時強制清除。");
+        }
+        catch (Exception ex)
+        {
+            LogShutdown($"{what}失敗：{ex}");
+        }
+    }
+
+    private static void LogShutdown(string message)
+        => BoundedFileLog.Append(
+            Path.Combine(Path.GetTempPath(), "helivms-shutdown.log"),
+            $"{DateTime.UtcNow:O} {message}\n",
+            256 * 1024);
 }

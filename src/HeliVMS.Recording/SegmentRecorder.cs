@@ -19,6 +19,18 @@ public sealed class SegmentRecorder : ISegmentRecorder
     /// <see cref="SegmentRecorder"/> 時使用；與政策預設共用同一個數字，避免兩處分歧。
     /// </summary>
     public const int DefaultSegmentSeconds = RecordingSegmentPolicy.DefaultSeconds;
+
+    /// <summary>
+    /// 送出收尾請求後等 ffmpeg 自己結束的上限。
+    ///
+    /// <para>
+    /// ffmpeg 收到 <c>q</c> 之後要把當前 fragment 與 moov 寫完才會結束，正常是幾百毫秒；
+    /// 8 秒是「攝影機卡住、磁碟很慢」的兜底。不能無限等，也不能太短：太短就退回硬砍，
+    /// 得到的正是要修掉的 <c>seg-*.mp4.tmp</c>。
+    /// </para>
+    /// </summary>
+    public static readonly TimeSpan DefaultGracefulStopTimeout = TimeSpan.FromSeconds(8);
+
     private readonly SegmentRepository _repo;
     private readonly IProcessFactory _processFactory;
     private readonly Func<string, string> _audioEncoderArgsFor;
@@ -26,6 +38,7 @@ public sealed class SegmentRecorder : ISegmentRecorder
     private readonly Func<int, string?>? _folderNameFor;
     private readonly FfmpegProcessRegistry _registry;
     private readonly Func<DateTime> _clock;
+    private readonly TimeSpan _gracefulStopTimeout;
     private readonly CancellationTokenSource _cts = new();
     private Process? _process;
     private IProcess? _testProcess;
@@ -41,7 +54,8 @@ public sealed class SegmentRecorder : ISegmentRecorder
         Func<string>? rootSelector = null,
         FfmpegProcessRegistry? registry = null,
         Func<int, string?>? folderNameFor = null,
-        Func<DateTime>? clock = null)
+        Func<DateTime>? clock = null,
+        TimeSpan? gracefulStopTimeout = null)
     {
         _repo = repo;
         _processFactory = processFactory ?? new DefaultProcessFactory();
@@ -50,6 +64,7 @@ public sealed class SegmentRecorder : ISegmentRecorder
         _registry = registry ?? FfmpegProcessRegistry.Shared;
         _folderNameFor = folderNameFor;
         _clock = clock ?? (static () => DateTime.UtcNow);
+        _gracefulStopTimeout = gracefulStopTimeout ?? DefaultGracefulStopTimeout;
     }
 
     public int ChannelId { get; private set; }
@@ -133,7 +148,20 @@ public sealed class SegmentRecorder : ISegmentRecorder
         return Task.CompletedTask;
     }
 
-    /// <summary>停止錄影：終止目前區段並標記異常（未收尾）。</summary>
+    /// <summary>
+    /// 停止錄影：請 ffmpeg 正常收尾（送出 <c>q</c>）並等它把當前區段寫完、改成正式檔。
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// 這裡以前是「取消 → 立刻 <c>Kill()</c>」。被硬砍的 ffmpeg 留下
+    /// <c>seg-HHmmssfff.mp4.tmp</c>，而索引寫的是正式檔名，於是索引對帳把它判成 missing：
+    /// 每次關閉程式都吃掉最後一段錄影，畫面完全看不出來（.tmp 就靜靜躺在資料夾裡）。
+    /// </para>
+    /// <para>
+    /// 收尾仍然有上限（<see cref="_gracefulStopTimeout"/>）：關機不能無限等一台卡住的攝影機，
+    /// 等不到才硬砍。改成寫 <c>q</c> 之後，正常情況這一段會被完整收檔並寫進索引。
+    /// </para>
+    /// </remarks>
     public async Task StopAsync()
     {
         if (_disposed)
@@ -142,13 +170,30 @@ public sealed class SegmentRecorder : ISegmentRecorder
         }
 
         _cts.Cancel();
-        KillProcess();
 
         if (_loop is not null)
         {
             try
             {
-                await _loop;
+                // 多給一點餘裕：區段收尾＝ffmpeg 寫檔 ＋ SHA-256 ＋ 索引回寫。
+                await _loop.WaitAsync(_gracefulStopTimeout + TimeSpan.FromSeconds(5));
+            }
+            catch (TimeoutException)
+            {
+                LastFailure = "錄影收尾逾時，已強制結束 ffmpeg。";
+                KillProcess();
+                try
+                {
+                    await _loop;
+                }
+                catch (OperationCanceledException)
+                {
+                    // 預期
+                }
+                catch (Exception)
+                {
+                    // 收尾已經失敗，不該讓關閉流程再爆一次
+                }
             }
             catch (OperationCanceledException)
             {
@@ -248,13 +293,16 @@ public sealed class SegmentRecorder : ISegmentRecorder
         try
         {
             var ok = await RunSegmentAsync(tmpPath, audioEncoderArgs, token);
-            if (!token.IsCancellationRequested && ok)
+            if (ok)
             {
                 // 結束時間取真實收尾時刻，而不是 `start + 設定分段秒數`：攝影機 RTSP 突然中斷時，
                 // ffmpeg 會提早以退出碼 0 結束，檔案只有幾秒，卻被記成完整一段——時間軸與 HLS
                 // 都宣稱有整整 60 秒影片，播放器一到檔案真正結尾就卡住。量到的牆鐘時間會貼近
                 // 實際長度（含極短的連線暖機，誤差在秒的下方）。結束時間要在雜湊之前取，
                 // 否則大檔的 SHA-256 讀取會被算進影片長度。
+                //
+                // 條件刻意不再加「且未被取消」：取消時是「請 ffmpeg 收尾」，不是「這段不要了」。
+                // 被取消就丟掉的話，關程式前錄的那一段會永遠離開索引（正是要修的症狀）。
                 var endUtc = _clock();
                 File.Move(tmpPath, finalPath);
                 var size = new FileInfo(finalPath).Length;
@@ -324,6 +372,8 @@ public sealed class SegmentRecorder : ISegmentRecorder
             FileName = FfmpegLocator.Ffmpeg,
             RedirectStandardError = true,
             RedirectStandardOutput = true,
+            // 收尾要靠 stdin 的 'q'：取消時不是砍掉行程，而是請它把這段寫完。
+            RedirectStandardInput = true,
             UseShellExecute = false,
             CreateNoWindow = true,
         };
@@ -380,7 +430,39 @@ public sealed class SegmentRecorder : ISegmentRecorder
 
         try
         {
-            await proc.WaitForExitAsync(token);
+            var exitTask = proc.WaitForExitAsync(CancellationToken.None);
+            var killed = false;
+
+            try
+            {
+                await exitTask.WaitAsync(token);
+            }
+            catch (OperationCanceledException)
+            {
+                // 取消＝「請它收尾」，不是「砍掉它」。硬砍的後果是 seg-*.mp4.tmp：索引寫的是
+                // 正式檔名，磁碟上卻只有暫存檔，對帳因此判成 missing——那段錄影永遠播不出來。
+                proc.RequestQuit();
+
+                try
+                {
+                    await exitTask.WaitAsync(_gracefulStopTimeout);
+                }
+                catch (TimeoutException)
+                {
+                    job.Fail("錄影收尾逾時，強制結束 ffmpeg");
+                    KillProcess();
+                    killed = true;
+                    try
+                    {
+                        await exitTask;
+                    }
+                    catch (Exception)
+                    {
+                        // 被砍掉的行程不一定會「正常」結束；收尾失敗已經記在 registry。
+                    }
+                }
+            }
+
             _lastExitCode = proc.ExitCode;
 
             // ffmpeg 的 stderr 會以 "Input #0, rtsp, from 'rtsp://user:pass@host/...'" 回顯輸入網址；
@@ -391,18 +473,19 @@ public sealed class SegmentRecorder : ISegmentRecorder
                 LastUtfError.Append(stderr);
             }
 
+            if (killed)
+            {
+                // 被硬砍的檔案尾端可能缺一個 fragment；不能當成正常收尾改名成正式檔
+                // （時間軸會多出一段「看得到、播到一半卡住」的錄影）。
+                return false;
+            }
+
             if (proc.ExitCode != 0)
             {
                 job.Fail(stderr);
             }
 
             return proc.ExitCode == 0;
-        }
-        catch (OperationCanceledException)
-        {
-            job.Fail("錄影已取消");
-            KillProcess();
-            return false;
         }
         finally
         {

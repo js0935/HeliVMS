@@ -12,12 +12,16 @@ public readonly record struct RetentionSweepResult(
     int SnapshotDeletedFiles,
     long AlarmPurged,
     long AudioPurged,
-    long AuditPurged)
+    long AuditPurged,
+    TemporaryRecoveryReport Recovery = default)
 {
     /// <summary>本輪是否有任何東西被移除（供呼叫端決定要不要提示使用者）。</summary>
     public bool AnythingRemoved =>
         DeletedSegments > 0 || PurgedTmp > 0 || SnapshotDeletedFiles > 0 ||
         AlarmPurged > 0 || AudioPurged > 0 || AuditPurged > 0;
+
+    /// <summary>本輪救回幾段「中斷收尾」的錄影（見 <see cref="TemporarySegmentRecovery"/>）。</summary>
+    public int RecoveredTmp => Recovery.Recovered;
 }
 
 /// <summary>
@@ -52,8 +56,9 @@ public static class RetentionCoordinator
         var recordingsRoot = RecordingStorage.ResolveConfiguredRoot(
             dataRoot, settings.Get(RecordingStorage.RootSettingKey));
 
+        var segments = new SegmentRepository(store);
         var service = new RetentionService(
-            new SegmentRepository(store),
+            segments,
             recordingsRoot,
             new LegalHoldRepository(store),
             RecordingStorage.ParseKnownRoots(settings.Get(RecordingStorage.KnownRootsSettingKey)));
@@ -71,13 +76,18 @@ public static class RetentionCoordinator
             snapshotDays,
             alarmDays,
             auditDays,
-            nowUtc);
+            nowUtc,
+            segments);
     }
 
     /// <summary>
     /// 執行一輪保留清理。<paramref name="snapshotDays"/> &lt;= 0 時不快照汰除（保守：避免以
     /// 「now 之前全刪」誤刪），<paramref name="alarmDays"/>／<paramref name="auditDays"/> &lt;= 0
     /// 時該項中繼資料永久保留（見 <see cref="MetadataRetentionPruner"/>）。
+    /// <para>
+    /// <paramref name="segments"/> 為 null 時自 <paramref name="store"/> 建一個區段索引；
+    /// 桌面傳入自己那一份（含分片登錄），才不會看不到寫在分片裡的暫存段。
+    /// </para>
     /// </summary>
     public static RetentionSweepResult Run(
         SqliteStore store,
@@ -87,8 +97,14 @@ public static class RetentionCoordinator
         int snapshotDays,
         int alarmDays,
         int auditDays,
-        DateTime nowUtc)
+        DateTime nowUtc,
+        SegmentRepository? segments = null)
     {
+        // 先救援、再清理。順序是契約的一部分：PurgeStaleTmp 會把超過十分鐘的 .tmp 直接刪掉，
+        // 先清再救等於每次關程式前的錄影都被判死；反過來先救，救回的段已經改名成正式檔，
+        // 保留清理就再也看不到那個 .tmp。
+        var recovery = new TemporarySegmentRecovery(segments ?? new SegmentRepository(store)).Run();
+
         var quota = service.Apply(quotaBytes, nowUtc);
         var snap = snapshotDays > 0
             ? service.PurgeSnapshots(snapshotsRoot, nowUtc.AddDays(-snapshotDays))
@@ -104,6 +120,7 @@ public static class RetentionCoordinator
             snap.DeletedFiles,
             meta.AlarmPurged,
             meta.AudioPurged,
-            meta.AuditPurged);
+            meta.AuditPurged,
+            recovery);
     }
 }

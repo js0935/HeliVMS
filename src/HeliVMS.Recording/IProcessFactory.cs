@@ -29,6 +29,15 @@ public interface IProcess : IAsyncDisposable, IDisposable
     /// <summary>等候行程結束。</summary>
     Task WaitForExitAsync(CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// 請行程自己收尾：對 ffmpeg 送出 <c>q</c>，它會寫完當前 fragment／trailer 才結束。
+    /// </summary>
+    /// <remarks>
+    /// 只有以 <see cref="ProcessStartInfo.RedirectStandardInput"/> 啟動的行程有效；其餘情況
+    /// （未重導、管線已關、行程已結束）一律靜靜忽略，呼叫端仍須以 <see cref="Kill"/> 兜底。
+    /// </remarks>
+    void RequestQuit();
+
     /// <summary>結束行程。</summary>
     void Kill();
 }
@@ -62,6 +71,36 @@ public sealed class DefaultProcessFactory : IProcessFactory
 
         public Task WaitForExitAsync(CancellationToken cancellationToken = default)
             => _proc.WaitForExitAsync(cancellationToken);
+
+        public void RequestQuit()
+        {
+            try
+            {
+                if (_proc.HasExited)
+                {
+                    return;
+                }
+
+                // ffmpeg 的 'q' 是「收尾後結束」而不是「中斷」：Windows 上即使 stdin 是管線
+                // 也照樣讀得到（已實測：退出碼 0、檔案有完整 ftyp）。這一點是整條優雅收尾的
+                // 前提——送不進去就只能硬砍，檔案就留在 .tmp。
+                _proc.StandardInput.WriteLine("q");
+                _proc.StandardInput.Flush();
+            }
+            catch (ObjectDisposedException)
+            {
+                // 行程物件已被釋放（ObjectDisposedException 是 InvalidOperationException 的子類，
+                // 必須排在它前面才攔得到）。
+            }
+            catch (InvalidOperationException)
+            {
+                // 未重導 stdin：沒有溫和的收尾方式，交給 Kill。
+            }
+            catch (IOException)
+            {
+                // 管線已關（行程正在結束）。
+            }
+        }
 
         public void Kill()
         {

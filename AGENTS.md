@@ -123,3 +123,25 @@ Notes that will save you time:
   fail-opens (logging `%TEMP%\helivms-auth-bootstrap.log`) if that state is reached
   another way. Policy is `AuthService.HasEnabledAdmin` / `WouldRemoveLastEnabledAdmin`,
   behavior-tested by `AuthBootstrapLockoutTests` and wired by `AuthBootstrapContractTests`.
+- **Recording shutdown must ask ffmpeg to quit, never kill it first.** `ffmpeg` keeps
+  the segment open until it reads `q` on stdin; killing it leaves
+  `seg-HHmmssfff.mp4.tmp` while the index says `seg-HHmmssfff.mp4`, so the reconciler
+  marks the segment `missing` and `RetentionService.PurgeStaleTmp` deletes the file
+  10 minutes later. Every abnormal exit therefore eats the last recording with no
+  visible error. `SegmentRecorder.StopAsync` now cancels, sends `q`
+  (`IProcess.RequestQuit`), waits up to `DefaultGracefulStopTimeout`, and only then
+  kills — a killed segment is marked `corrupt` and never renamed to a final file.
+  Guarded by `停止時會請ffmpeg收尾並留下可回放的最後一段` and
+  `收尾請求被忽略時會強制結束ffmpeg且不留下半截正式檔`.
+- **Recover `.tmp` segments before purging them.** `TemporarySegmentRecovery` runs as
+  the first step of `RetentionCoordinator.Run`; with the order flipped, the stale-tmp
+  purge deletes the very files the recovery was about to rescue. Guarded by
+  `清理會先救回中斷的暫存段再清除逾時暫存檔`.
+- **Never write `async void` shutdown handlers.** WPF begins `Shutdown` as soon as the
+  last window closes, so continuations after an `await` in `MainWindow.OnWindowClosed`
+  never run: `StopAllAsync()` was silently dropped and `App.OnExit` hard-killed the
+  children. Shutdown steps now run on the thread pool with a bounded wait
+  (`RunShutdownStep`) and timeouts are logged to `%TEMP%\helivms-shutdown.log`.
+  `App.OnExit`/`OnStartup` also sweep orphan `ffmpeg` **and** `ffprobe` processes
+  (`OrphanChildNames`) — ffprobe leaks are what users see as a row of `FFPROBE.exe`.
+  Guarded by `ShutdownContractTests`.

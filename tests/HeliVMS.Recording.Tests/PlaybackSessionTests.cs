@@ -437,6 +437,11 @@ public sealed class PlaybackSessionTests : IDisposable
 
         public Task WaitForExitAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
 
+        /// <summary>回放解碼行程以 Kill 收尾（見 <see cref="PlaybackSession"/>）；介面成員在此無事可做。</summary>
+        public void RequestQuit()
+        {
+        }
+
         public void Kill()
         {
             KillCount++;

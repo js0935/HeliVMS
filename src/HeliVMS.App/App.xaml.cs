@@ -1,4 +1,4 @@
-﻿using System.IO;
+using System.IO;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
@@ -36,22 +36,7 @@ public partial class App : Application
             return;
         }
 
-        try
-        {
-            foreach (var p in System.Diagnostics.Process.GetProcessesByName("ffmpeg"))
-            {
-                try
-                {
-                    if (p.Id != System.Diagnostics.Process.GetCurrentProcess().Id)
-                    {
-                        try { p.Kill(true); } catch { }
-                        try { p.Kill(); } catch { }
-                    }
-                }
-                catch { }
-            }
-        }
-        catch { }
+        KillOrphanChildren();
         base.OnStartup(e);
 
         DispatcherUnhandledException += (_, args) =>
@@ -226,17 +211,68 @@ public partial class App : Application
 
         try
         {
-            foreach (var p in System.Diagnostics.Process.GetProcessesByName("ffmpeg"))
-            {
-                try
-                {
-                    try { p.Kill(true); } catch { }
-                    try { p.Kill(); } catch { }
-                }
-                catch { }
-            }
+            KillOrphanChildren();
         }
-        catch { }
+        catch
+        {
+            // 關閉路徑不該因清掃子行程失敗而中斷。
+        }
+
         base.OnExit(e);
     }
+
+    /// <summary>
+    /// 收掉前一輪執行遺留的子行程：<c>ffmpeg</c> 與 <c>ffprobe</c>。
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// 啟動時掃一次是為了「上次沒有正常結束」的殘骸：程式被工作管理員砍掉、當機、斷電，
+    /// 子行程都不會跟著死，它們繼續吃攝影機的 RTSP 連線與磁碟寫入，而新的行程又開一批新的，
+    /// 於是每一次當機都讓負載往上疊一層。
+    /// </para>
+    /// <para>
+    /// 結束時再掃一次是兜底：正常路徑會先請 ffmpeg 收尾（見 <c>SegmentRecorder.StopAsync</c>），
+    /// 會留在這裡代表收尾逾時或流程根本沒跑到，此時硬砍是唯一的選擇。
+    /// </para>
+    /// <para>
+    /// <c>ffprobe</c> 必須一起收：它比 ffmpeg 更隱形——健康檢查與完整性抽查會短暫啟動它，
+    /// 使用者在工作管理員裡看到的正是「關掉程式之後還有一排 FFPROBE.exe」。
+    /// </para>
+    /// </remarks>
+    private static void KillOrphanChildren()
+    {
+        foreach (var name in OrphanChildNames)
+        {
+            try
+            {
+                foreach (var p in System.Diagnostics.Process.GetProcessesByName(name))
+                {
+                    try
+                    {
+                        using (p)
+                        {
+                            if (p.Id == System.Diagnostics.Process.GetCurrentProcess().Id)
+                            {
+                                continue;
+                            }
+
+                            try { p.Kill(entireProcessTree: true); } catch { }
+                            try { p.Kill(); } catch { }
+                        }
+                    }
+                    catch
+                    {
+                        // 行程在列舉與砍殺之間自己結束：正常，繼續下一個。
+                    }
+                }
+            }
+            catch
+            {
+                // 列舉失敗（權限、WMI 不可用）不該影響啟動或關閉。
+            }
+        }
+    }
+
+    /// <summary>本程式會直接啟動的子行程名稱（不含 <c>.exe</c>）。</summary>
+    private static readonly string[] OrphanChildNames = ["ffmpeg", "ffprobe"];
 }

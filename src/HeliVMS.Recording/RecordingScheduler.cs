@@ -579,16 +579,50 @@ public sealed class RecordingScheduler : IDisposable
 
     public async Task StopAllAsync()
     {
+        var recorders = new List<ISegmentRecorder>();
         foreach (var id in _active.Keys.ToList())
         {
             if (_active.TryRemove(id, out var recorder))
             {
-                await recorder.StopAsync();
-                await recorder.DisposeAsync();
+                recorders.Add(recorder);
             }
         }
 
         _activeStreams.Clear();
+
+        if (recorders.Count == 0)
+        {
+            return;
+        }
+
+        // 先對每一台送出取消，再一起等收尾。
+        //
+        // 逐一「取消→等」的話，每台 ffmpeg 收尾要幾百毫秒到 8 秒（見 SegmentRecorder.StopAsync），
+        // 16 台就變成兩分鐘以上的關機等待，遠超過使用者願意等的時間——而關機等待太久，
+        // 就是「收尾沒做完、行程被硬砍、留下 seg-*.mp4.tmp」的成因。並行之後總時間只等於
+        // 最慢的那一台。
+        await Task.WhenAll(recorders.Select(StopQuietlyAsync));
+
+        foreach (var recorder in recorders)
+        {
+            await recorder.DisposeAsync();
+        }
+    }
+
+    /// <summary>
+    /// 停一台錄影機；單台失敗不得讓其他台（或整個關機流程）停下來。
+    /// 失敗的證據已經在 <see cref="SegmentRecorder"/> 自己的 LastFailure／稽核裡。
+    /// </summary>
+    private static async Task StopQuietlyAsync(ISegmentRecorder recorder)
+    {
+        try
+        {
+            await recorder.StopAsync();
+        }
+        catch (Exception)
+        {
+            // 收尾失敗不該阻擋其他頻道收尾，也不該讓關機流程爆掉。
+        }
     }
 
     public void Dispose()

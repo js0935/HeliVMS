@@ -1,3 +1,4 @@
+using HeliVMS.Shared.Models;
 using HeliVMS.Storage;
 
 namespace HeliVMS.Recording.Tests;
@@ -123,6 +124,48 @@ public sealed class RetentionCoordinatorTests : IDisposable
         Assert.False(File.Exists(oldSnap));
 
         Directory.Delete(dataRoot, recursive: true);
+    }
+
+    /// <summary>
+    /// 清理必須「先救回暫存檔、再清除」。
+    ///
+    /// <para>
+    /// 順序是契約的一部分：<see cref="RetentionService.PurgeStaleTmp"/> 會把超過十分鐘的
+    /// <c>.tmp</c> 直接刪掉。先清再救，等於每次程式沒收乾淨的那一段錄影都會在第一次清理時
+    /// 被永久丟棄——而它其實是完整的 fMP4，只差一個改名。
+    /// </para>
+    /// <para>
+    /// 這裡刻意把檔案的 mtime 設成一小時前（對 <c>PurgeStaleTmp</c> 而言絕對是逾時檔），
+    /// 斷言它被救成 final 而不是被清除。
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void 清理會先救回中斷的暫存段再清除逾時暫存檔()
+    {
+        // 用真實時鐘：救援（TemporarySegmentRecovery）本來就以 DateTime.UtcNow 判斷「還在寫」，
+        // 若這裡固定一個過去的日期，測試就會在系統時間較早的機器上變成「檔案來自未來」而不穩定。
+        var now = DateTime.UtcNow;
+
+        var finalPath = Path.Combine(_recordingsRoot, $"seg-{Guid.NewGuid():N}.mp4");
+        var tmpPath = finalPath + ".tmp";
+        var bytes = new byte[64];
+        bytes[3] = 0x18;
+        System.Text.Encoding.ASCII.GetBytes("ftyp").CopyTo(bytes, 4);
+        System.Text.Encoding.ASCII.GetBytes("isom").CopyTo(bytes, 8);
+        File.WriteAllBytes(tmpPath, bytes);
+        File.SetLastWriteTimeUtc(tmpPath, now.AddHours(-1));
+
+        var id = _segments.BeginSegment(1, "main", finalPath, now.AddMinutes(-30));
+
+        var result = RetentionCoordinator.Run(
+            _store, NewService(), _snapshotsRoot,
+            quotaBytes: 1_000_000, snapshotDays: 0, alarmDays: 0, auditDays: 0, nowUtc: now);
+
+        Assert.Equal(1, result.RecoveredTmp);
+        Assert.Equal(0, result.PurgedTmp);
+        Assert.False(File.Exists(tmpPath), "已救回的段不該留下 .tmp，否則下一輪會被當成逾時暫存檔清掉");
+        Assert.True(File.Exists(finalPath));
+        Assert.Equal(SegmentStatus.Final, _segments.Get(id)!.Status);
     }
 
     private RetentionService NewService()

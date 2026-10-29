@@ -288,22 +288,93 @@ public sealed class SegmentRecorderTests : IDisposable
     }
 
     /// <summary>
-    /// 停止錄影時必須終止進行中的 ffmpeg，否則關閉程式後會留下孤兒行程繼續佔用
-    /// RTSP session 直到逾時，下一次開錄會拿不到串流。
+    /// 停止錄影時要「請 ffmpeg 收尾」，而且最後那一段必須真的留下來。
+    ///
+    /// <para>
+    /// 現場症狀：每次關閉程式之後，資料夾裡躺著 <c>seg-HHmmssfff.mp4.tmp</c>，回放清單裡卻沒有
+    /// 那一段。索引寫的是正式檔名，磁碟上只有暫存檔，索引對帳因此判成 missing；十分鐘後
+    /// <see cref="RetentionService.PurgeStaleTmp"/> 再把 <c>.tmp</c> 刪掉，那段錄影就永久消失。
+    /// </para>
+    /// <para>
+    /// 這裡用假行程模擬「收到 <c>q</c> 之後把檔案寫完並以退出碼 0 結束」，斷言三件事：
+    /// 剛好送出一次收尾請求、完全沒有硬砍、多出一段可回放的 final。任一條不成立就代表
+    /// 「關程式吃掉最後一段」又回來了。
+    /// </para>
     /// </summary>
     [Fact]
-    public async Task 停止時會終止進行中的ffmpeg行程並結束錄影()
+    public async Task 停止時會請ffmpeg收尾並留下可回放的最後一段()
     {
-        var (recorder, factory, first) = BeginFirstSegment(FirstCompletesThenPending);
-        await first.WaitAsync(TimeSpan.FromSeconds(10));
+        // 兩段的開始／結束時間都不同：檔名帶到毫秒，撞名會讓第二段的 File.Move 失敗
+        // （見「同一秒內起始的兩段不會因檔名碰撞而遺失」），那樣這個測試會紅在無關的地方。
+        var t = new DateTime(2026, 1, 2, 10, 0, 0, DateTimeKind.Utc);
+        var clockCalls = 0;
+        Func<DateTime> clock = () => t.AddSeconds(Interlocked.Increment(ref clockCalls));
+
+        var factory = new FakeProcessFactory(FirstCompletesThenPending);
+        await using var recorder = new SegmentRecorder(_segments, factory, _ => string.Empty, clock: clock);
+        var completed = 0;
+        recorder.SegmentCompleted += (_, _) => Interlocked.Increment(ref completed);
+
+        await recorder.StartAsync(_channelId, RtspUrl, _recordingsRoot, "main", SegmentSeconds);
         await WaitUntilAsync(() => factory.Processes.Count >= 2);
 
         await recorder.StopAsync();
 
-        Assert.True(factory.Processes[1].KillCount >= 1);
+        Assert.Equal(1, factory.Processes[1].QuitRequestCount);
+        Assert.Equal(0, factory.Processes[1].KillCount);
         Assert.False(recorder.IsRecording);
 
-        await recorder.DisposeAsync();
+        // 第一段自己收尾、第二段靠收尾請求收檔。
+        Assert.Equal(2, completed);
+        Assert.Equal(2, _segments.ListAllFinal().Count);
+        Assert.Empty(Directory.GetFiles(_recordingsRoot, "*.tmp", SearchOption.AllDirectories));
+    }
+
+    /// <summary>
+    /// 收尾請求逾時（ffmpeg 卡在攝影機或慢磁碟）時仍然要結束，而且不能把被硬砍的半截檔
+    /// 當成可回放的正式段。
+    ///
+    /// 被砍掉的檔案尾端可能缺一個 fragment，改名成 final 之後播放器會「看得到、播到一半卡住」；
+    /// 索引對帳也無從發現，因為檔案確實存在。寧可記一筆 corrupt，也不要給操作員一段假錄影。
+    /// </summary>
+    [Fact]
+    public async Task 收尾請求被忽略時會強制結束ffmpeg且不留下半截正式檔()
+    {
+        var factory = new FakeProcessFactory((index, psi) =>
+        {
+            var process = new FakeProcess(psi, exitCode: 0);
+            if (index == 0)
+            {
+                process.ProduceAndExit();
+            }
+            else
+            {
+                // 真的 ffmpeg 在被砍之前已經寫了半個檔案：這正是「被硬砍的半截檔不能被當成
+                // 正常收尾」要防的形狀。
+                process.WritePartialOutput();
+                process.IgnoreQuit = true;
+            }
+
+            return process;
+        });
+
+        await using var recorder = new SegmentRecorder(
+            _segments,
+            factory,
+            _ => string.Empty,
+            gracefulStopTimeout: TimeSpan.FromMilliseconds(200));
+
+        await recorder.StartAsync(_channelId, RtspUrl, _recordingsRoot, "main", SegmentSeconds);
+        await WaitUntilAsync(() => factory.Processes.Count >= 2);
+
+        await recorder.StopAsync();
+
+        Assert.Equal(1, factory.Processes[1].QuitRequestCount);
+        Assert.True(factory.Processes[1].KillCount >= 1, "逾時之後必須硬砍，否則行程永遠收不掉");
+        Assert.False(recorder.IsRecording);
+
+        Assert.Single(_segments.ListAllFinal());
+        Assert.Empty(Directory.GetFiles(_recordingsRoot, "*.tmp", SearchOption.AllDirectories));
     }
 
     /// <summary>
@@ -780,6 +851,15 @@ public sealed class SegmentRecorderTests : IDisposable
 
         public int KillCount { get; private set; }
 
+        /// <summary>
+        /// 送出收尾請求（<c>q</c>）的次數。停止錄影必須「請它收尾」而不是直接砍掉，
+        /// 因為硬砍會留下 <c>seg-*.mp4.tmp</c>——那正是要修的症狀。
+        /// </summary>
+        public int QuitRequestCount { get; private set; }
+
+        /// <summary>模擬「ffmpeg 不理會收尾請求」（卡在攝影機或慢磁碟），用來驗證逾時兜底。</summary>
+        public bool IgnoreQuit { get; set; }
+
         /// <summary>模擬 ffmpeg 寫出（部分）檔案後結束；失敗情境也會留下暫存檔供驗證刪除。</summary>
         public void ProduceAndExit()
         {
@@ -788,8 +868,32 @@ public sealed class SegmentRecorderTests : IDisposable
             _exited.TrySetResult();
         }
 
+        /// <summary>
+        /// 模擬「已經開始寫檔但還沒結束」。被硬砍的 ffmpeg 就是這個樣子：暫存檔裡有半截影片，
+        /// 尾端缺一個 fragment。這種檔案改名成正式檔會變成「看得到、播到一半卡住」。
+        /// </summary>
+        public void WritePartialOutput() => File.WriteAllBytes(_outputPath, Output);
+
         public async Task WaitForExitAsync(CancellationToken cancellationToken = default)
             => await _exited.Task.WaitAsync(cancellationToken);
+
+        /// <summary>
+        /// 模擬 ffmpeg 收到 <c>q</c>：把這段寫完（fragment＋trailer）再以退出碼 0 結束。
+        ///
+        /// 已經結束的行程不再寫檔：真的 ffmpeg 不會在結束後冒出檔案，而測試裡的
+        /// <see cref="Kill"/> 之後若再寫一次檔，就會把「已刪掉的暫存檔」復活，
+        /// 讓「強制結束不留半截正式檔」的斷言失去意義。
+        /// </summary>
+        public void RequestQuit()
+        {
+            QuitRequestCount++;
+            if (IgnoreQuit || HasExited)
+            {
+                return;
+            }
+
+            ProduceAndExit();
+        }
 
         public void Kill()
         {
