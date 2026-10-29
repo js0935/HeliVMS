@@ -289,7 +289,19 @@ public partial class MainWindow : Window
         _tray = new TrayIconHost(ShowFromTray);
         _tray.ExitRequested += OnTrayExit;
         ApplyI18n();
+        Current = this;
     }
+
+    /// <summary>
+    /// 目前執行中的主視窗；重複啟動時用它把視窗帶回前景。
+    /// </summary>
+    /// <remarks>
+    /// 不能改用 <see cref="Application.MainWindow"/>：那個屬性指向第一個被建立的視窗，也就是
+    /// 啟動畫面。<c>SplashWindow</c> 關閉後它要嘛仍指向已關閉的 splash、要嘛變成 null，
+    /// 於是「重複啟動」在轉回 UI 執行緒之後找不到監控中心——操作員看到的是「程式點了沒反應」，
+    /// 而日誌一片乾淨。這裡自己保留唯一一份參照，關閉時清掉。
+    /// </remarks>
+    internal static MainWindow? Current { get; private set; }
 
     /// <summary>
     /// 套用目前語系到主視窗所有靜態文字（M57 §14.7）。設定中心切換語言時會再呼叫一次
@@ -444,6 +456,11 @@ public partial class MainWindow : Window
 
     protected override void OnClosed(EventArgs e)
     {
+        if (ReferenceEquals(Current, this))
+        {
+            Current = null;
+        }
+
         _tray?.Dispose();
         _tray = null;
         base.OnClosed(e);
@@ -454,6 +471,10 @@ public partial class MainWindow : Window
     /// <summary>
     /// 把監控中心帶回前景（由系統匣還原，或子視窗關閉後）。
     /// </summary>
+    /// <param name="maximize">
+    /// 為真時一律最大化：這是「重複啟動程式」的路徑，操作員的意圖就是「我現在要看畫面」。
+    /// 系統匣圖示的還原則傳 false，回到他離開時的狀態（可能是一般視窗）。
+    /// </param>
     /// <remarks>
     /// 主視窗是無邊框全螢幕（<see cref="WindowStyle.None"/>）。子視窗（設定中心等）以其為
     /// <see cref="Window.Owner"/> 開啟後，關閉時作業系統不一定會把焦點還給無邊框的擁有者，
@@ -461,24 +482,61 @@ public partial class MainWindow : Window
     /// 重新顯示（縮到最小時 <see cref="OnStateChanged"/> 會把視窗 Hide）、還原最小化、
     /// <see cref="Window.Activate"/> 取回前景。
     /// <para>
-    /// 依使用者要求<b>不再設定 <c>Topmost</c></b>：先前置頂會讓監控中心一直蓋在設定中心等子視窗之上，
-    /// 造成操作困擾；現在只在需要時把視窗帶到前景，不強制保持在上層。
+    /// 依使用者要求<b>不維持 <c>Topmost</c></b>：先前置頂會讓監控中心一直蓋在設定中心等子視窗之上，
+    /// 造成操作困擾。只有在重複啟動那一次會「暫時」置頂（見下），把視窗推到最上層後立刻取消。
+    /// </para>
+    /// <para>
+    /// 狀態要在 <see cref="Window.Show"/> 之前決定：先 Show 再改狀態，會讓縮到系統匣的視窗先以
+    /// 還原尺寸閃一下再放大；先改狀態則只有一個已經最大化的視窗出現。
     /// </para>
     /// </remarks>
-    internal void BringToFront()
+    internal void BringToFront(bool maximize = false)
     {
-        if (!IsVisible)
+        if (maximize)
         {
-            Show();
+            // 重複啟動一律最大化。即使操作員先前退出過全螢幕，這裡也要回到滿版：
+            // 他的動作是「再開一次程式」，不是「把我剛剛那個 1280×800 的視窗叫回來」。
+            _restoreWindowState = WindowState == WindowState.Minimized
+                ? WindowState.Normal
+                : WindowState;
+            WindowState = WindowState.Maximized;
         }
-
-        if (WindowState == WindowState.Minimized)
+        else if (WindowState == WindowState.Minimized)
         {
             // 從系統匣還原時，若目前應為滿版就回到最大化，否則會縮成 XAML 的 1280×800。
             WindowState = _isWindowFullScreen ? WindowState.Maximized : _restoreWindowState;
         }
 
+        if (!IsVisible)
+        {
+            Show();
+        }
+
+        if (maximize)
+        {
+            // 重複啟動時「前景權」在剛結束的第二個行程手上，Windows 有權拒絕本行程的
+            // SetForegroundWindow：視窗放大了卻躲在別人後面，看起來還是「點了沒反應」。
+            ForceForeground();
+            return;
+        }
+
         Activate();
+    }
+
+    /// <summary>
+    /// 把視窗強制推到最上層並取得焦點，然後立刻取消置頂。
+    /// </summary>
+    /// <remarks>
+    /// 只有「重複啟動程式」會走這裡：那時使用者的輸入落在第二個行程，第一個行程沒有前景權，
+    /// <see cref="Window.Activate"/> 可能被 Windows 直接拒絕。暫時改 <c>Topmost</c> 是少數
+    /// 不靠前景權也能改變 Z 序的做法。切完馬上取消，否則監控中心會一直蓋住設定中心等子視窗
+    /// （那正是先前拿掉 <c>Topmost="True"</c> 的原因）。
+    /// </remarks>
+    private void ForceForeground()
+    {
+        Topmost = true;
+        Activate();
+        Topmost = false;
     }
 
     private void OnTrayExit()
@@ -2893,7 +2951,7 @@ public partial class MainWindow : Window
             // 操作員會找不到。離開程序時不動，避免干擾關閉流程。
             if (!_exiting)
             {
-                Dispatcher.BeginInvoke(new Action(BringToFront), DispatcherPriority.Background);
+                Dispatcher.BeginInvoke(new Action(() => BringToFront()), DispatcherPriority.Background);
             }
         };
         window.Show();

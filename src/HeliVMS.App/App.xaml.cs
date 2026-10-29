@@ -25,6 +25,12 @@ public partial class App : Application
     /// <summary>單一實例守衛；null 表示本行程是重複啟動、正在結束自己。</summary>
     private SingleInstanceGuard? _singleInstance;
 
+    /// <summary>
+    /// 重複啟動的當下主視窗還沒建立（仍在啟動畫面或登入），喚醒請求先記著，
+    /// 等視窗顯示後補做。沒有這個旗標，操作員在啟動過程中再點一次捷徑就會被忽略。
+    /// </summary>
+    private bool _activateWhenReady;
+
     protected override async void OnStartup(StartupEventArgs e)
     {
         // 單一實例判斷必須在啟動畫面之前：先開 splash／登入再退出，使用者會看到閃一下的
@@ -62,6 +68,15 @@ public partial class App : Application
 
             var main = new MainWindow();
             main.Show();
+
+            // 啟動過程中（splash／登入）如果有人再點一次捷徑，喚醒請求會被記在這裡；
+            // 視窗一顯示就立刻滿足它，否則那次點擊等於被吞掉。
+            if (_activateWhenReady)
+            {
+                _activateWhenReady = false;
+                main.BringToFront(maximize: true);
+            }
+
             await splash.FadeOutAsync();
         }
         catch (Exception ex)
@@ -184,16 +199,31 @@ public partial class App : Application
     }
 
     /// <summary>
-    /// 第二個實例按下啟動時，把既有主視窗還原到前景。
+    /// 第二個實例按下啟動時，把既有主視窗最大化並帶到前景。
     /// </summary>
     /// <remarks>
+    /// <para>
     /// 由 <see cref="SingleInstanceGuard"/> 的背景等待執行緒呼叫；直接碰視窗會擲跨執行緒例外，
-    /// 因此一律經 <see cref="System.Windows.Threading.Dispatcher"/> 轉回 UI 執行緒。主視窗可能還沒建立
-    /// （仍在啟動畫面或登入），此時 no-op。
+    /// 因此一律經 <see cref="System.Windows.Threading.Dispatcher"/> 轉回 UI 執行緒。
+    /// </para>
+    /// <para>
+    /// 刻意用 <see cref="HeliVMS.App.MainWindow.Current"/> 而不是 <c>Application.MainWindow</c>：
+    /// 後者指向第一個建立的視窗（啟動畫面），splash 關閉後就找不到監控中心，重複啟動等於
+    /// 什麼都沒發生。主視窗可能還沒建立（仍在啟動畫面或登入），那就先記下來，
+    /// 由 <see cref="OnStartup"/> 在視窗顯示後補做。
+    /// </para>
     /// </remarks>
     private void ActivateExistingWindow()
     {
-        Dispatcher.BeginInvoke(new Action(() => (this.MainWindow as MainWindow)?.BringToFront()));
+        Dispatcher.BeginInvoke(new Action(() =>
+        {
+            _activateWhenReady = true;
+            if (HeliVMS.App.MainWindow.Current is { } main)
+            {
+                _activateWhenReady = false;
+                main.BringToFront(maximize: true);
+            }
+        }));
     }
 
     protected override void OnExit(ExitEventArgs e)

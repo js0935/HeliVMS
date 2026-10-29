@@ -155,6 +155,13 @@ Notes that will save you time:
   `ChannelManager.DisposeAsync`; a `ShutdownWatchdog` force-exits (logging first) after
   the total budget, so "closed" always means closed. Guarded by
   `ShutdownSequencerTests`.
+- **`Application.MainWindow` is the splash, not the monitor wall.** `SplashWindow` is the first
+  window created, so the property points at it (or goes null after it closes). Looking up the
+  real window that way made the single-instance wake-up silently do nothing: a second launch
+  exited, the first process got the event, cast `Application.MainWindow` to `MainWindow`,
+  failed, and nobody noticed. `MainWindow.Current` is the reference; re-launching calls
+  `BringToFront(maximize: true)` so a window hidden in the tray comes back maximized.
+  Guarded by `SingleInstanceContractTests`.
 - **`PRAGMA user_version` does not prove the columns exist.** A rebuilt/restored
   `index.db` can be at the latest version with an old `segments` table: the live one was
   `user_version=56` and had no `tier`/`origin_path`, so the `version < 54` migration never

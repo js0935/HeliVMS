@@ -393,6 +393,13 @@ public sealed class UiWiringContractTests
         Assert.NotEqual(string.Empty, body);
         Assert.Contains("Activate()", body);
         Assert.DoesNotContain("Topmost", body);
+
+        // 例外：重複啟動時允許「暫時」置頂把視窗推上來（第一個行程沒有前景權，
+        // Activate() 可能被 Windows 拒絕），但一定要立刻取消。永久置頂仍然禁止。
+        var force = SourceContract.BodyOf(code, "ForceForeground");
+        Assert.False(string.IsNullOrWhiteSpace(force), "找不到 ForceForeground 的實作");
+        Assert.Contains("Topmost = true", force);
+        Assert.Contains("Topmost = false", force);
     }
 
     /// <summary>

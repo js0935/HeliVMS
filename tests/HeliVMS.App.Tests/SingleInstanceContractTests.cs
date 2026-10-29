@@ -49,8 +49,73 @@ public sealed class SingleInstanceContractTests
     {
         // App 呼叫 MainWindow.BringToFront；它必須真的存在且可被 App 呼叫（internal 以上）。
         var source = SourceContract.Read(Main);
-        Assert.Contains("internal void BringToFront()", source);
+        Assert.Contains("internal void BringToFront(bool maximize = false)", source);
         Assert.Contains("Activate()", SourceContract.BodyOf(source, "BringToFront"));
+    }
+
+    /// <summary>
+    /// 最小化時再開一次程式，要把既有視窗最大化，而不是只還原成一般大小。
+    /// </summary>
+    /// <remarks>
+    /// 主視窗縮到系統匣後 <c>WindowState</c> 仍是 Minimized，舊版一律回到
+    /// 「離開時的大小」；操作員先前若退出過全螢幕，重複啟動就只得到一個 1280×800 的視窗，
+    /// 看起來像沒反應。這裡釘住兩件事：呼叫端要求最大化，以及狀態要在 Show() 之前決定
+    /// （先 Show 再放大，會先閃一下還原尺寸）。
+    /// </remarks>
+    [Fact]
+    public void 重複啟動會把最小化的主視窗最大化()
+    {
+        var activate = SourceContract.BodyOf(SourceContract.Read(App), "ActivateExistingWindow");
+        Assert.False(string.IsNullOrWhiteSpace(activate), "找不到 ActivateExistingWindow 的實作");
+        Assert.Contains("BringToFront(maximize: true)", activate);
+
+        var body = SourceContract.BodyOf(SourceContract.Read(Main), "BringToFront");
+        Assert.Contains("WindowState.Minimized", body);
+
+        // 只看 maximize 這一支：底下的系統匣還原分支本來就有 Maximized，整段掃字串會誤判。
+        var maximizeAt = body.IndexOf("if (maximize)", StringComparison.Ordinal);
+        var trayAt = body.IndexOf("else if", StringComparison.Ordinal);
+        Assert.True(maximizeAt >= 0 && trayAt > maximizeAt, "找不到 if (maximize) 分支");
+        var maximizeBranch = body[maximizeAt..trayAt];
+        Assert.Contains("WindowState.Maximized", maximizeBranch);
+
+        // 狀態先決定再顯示：Show() 必須出現在改 WindowState 之後。
+        var stateAt = body.IndexOf("WindowState.Maximized", StringComparison.Ordinal);
+        var showAt = body.IndexOf("Show()", StringComparison.Ordinal);
+        Assert.True(stateAt >= 0 && showAt > stateAt, "應該先設定視窗狀態再 Show()");
+    }
+
+    /// <summary>
+    /// 喚醒要認「真正的監控中心」，不能只認 <c>Application.MainWindow</c>。
+    /// </summary>
+    /// <remarks>
+    /// 啟動時第一個建立的視窗是啟動畫面，<c>Application.MainWindow</c> 因此指向 splash；
+    /// splash 關閉後那個參照要嘛是已關閉的視窗、要嘛是 null，重複啟動就變成「點了沒反應」，
+    /// 而且不會留下任何日誌。主視窗因此自己保留一份參照，關閉時清掉。
+    /// </remarks>
+    [Fact]
+    public void 喚醒對象是真正的主視窗而不是啟動畫面()
+    {
+        var activate = SourceContract.BodyOf(SourceContract.Read(App), "ActivateExistingWindow");
+        Assert.Contains("MainWindow.Current", activate);
+        Assert.DoesNotContain("this.MainWindow", activate);
+
+        var source = SourceContract.Read(Main);
+        Assert.Contains("internal static MainWindow? Current", source);
+        Assert.Contains("Current = this", SourceContract.BodyOf(source, "MainWindow"));
+        Assert.Contains("Current = null", SourceContract.BodyOf(source, "OnClosed"));
+    }
+
+    /// <summary>啟動過程中再點一次捷徑不能消失：視窗一顯示就要補做喚醒。</summary>
+    [Fact]
+    public void 主視窗還沒建立時會記下喚醒請求並在顯示後補做()
+    {
+        var activate = SourceContract.BodyOf(SourceContract.Read(App), "ActivateExistingWindow");
+        Assert.Contains("_activateWhenReady", activate);
+
+        var startup = SourceContract.BodyOf(SourceContract.Read(App), "OnStartup");
+        Assert.Contains("_activateWhenReady", startup);
+        Assert.Contains("BringToFront(maximize: true)", startup);
     }
 
     [Fact]
