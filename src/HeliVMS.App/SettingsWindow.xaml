@@ -261,6 +261,18 @@
                     <TextBlock x:Name="CleanupReportText" Margin="12,0,0,0" VerticalAlignment="Center"
                                TextWrapping="Wrap" Text=""/>
                 </DockPanel>
+
+                <TextBlock x:Name="ImportRecordingsHintText" Text=""
+                           Foreground="{StaticResource Brand.TextDim}" FontSize="11" TextWrapping="Wrap"
+                           Margin="0,6,0,4"/>
+                <DockPanel Margin="0,0,0,14">
+                    <Button x:Name="ImportRecordingsButton" Content="" Click="OnImportRecordingsClicked" ToolTip=""
+                            DockPanel.Dock="Left" Padding="12,6"
+                            Foreground="White" Background="#2A5C8A" BorderThickness="0"
+                            AutomationProperties.AutomationId="ImportRecordingsButton"/>
+                    <TextBlock x:Name="ImportRecordingsStatusText" Text="" Margin="12,0,0,0" VerticalAlignment="Center"
+                               TextWrapping="Wrap" AutomationProperties.AutomationId="ImportRecordingsStatusText"/>
+                </DockPanel>
             </StackPanel>
 
             <!-- Devices and channels: camera (devices) and channel (channels) management was split into

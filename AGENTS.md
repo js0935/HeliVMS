@@ -162,6 +162,16 @@ Notes that will save you time:
   failed, and nobody noticed. `MainWindow.Current` is the reference; re-launching calls
   `BringToFront(maximize: true)` so a window hidden in the tray comes back maximized.
   Guarded by `SingleInstanceContractTests`.
+- **Recordings on disk never come back to the index on their own.** `segments` is the only
+  source of truth for playback; after the database is rebuilt, restored from an old backup,
+  a channel is deleted and re-added (`ON DELETE CASCADE`), or the recording disk moves to
+  another machine, the `seg-HHmmssfff.mp4` files are still there while playback is empty and
+  the log is clean. `RecordingDiskImporter` puts them back, triggered from
+  Settings → Storage → "Scan disk recordings". It **does not guess** a channel for a folder
+  that matches none (e.g. a leftover `ch072`): the operator picks one in the dialog, because
+  attaching A's recordings to B is evidence pointing at the wrong camera. The reverse
+  direction (index has it, disk does not) is `SegmentIndexReconciler` — neither replaces the
+  other. Guarded by `RecordingDiskImporterTests` and `RecordingImportContractTests`.
 - **`PRAGMA user_version` does not prove the columns exist.** A rebuilt/restored
   `index.db` can be at the latest version with an old `segments` table: the live one was
   `user_version=56` and had no `tier`/`origin_path`, so the `version < 54` migration never

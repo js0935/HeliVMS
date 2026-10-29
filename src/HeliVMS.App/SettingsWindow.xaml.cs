@@ -352,6 +352,9 @@ public partial class SettingsWindow : Window
         AuditRetentionDaysHintText.Text = Localizer.T("Settings.AuditRetentionDaysHint");
         CleanupButton.Content = Localizer.T("Settings.Cleanup");
         CleanupButton.ToolTip = Localizer.T("Settings.CleanupTip");
+        ImportRecordingsHintText.Text = Localizer.T("Settings.ImportRecordingsHint");
+        ImportRecordingsButton.Content = Localizer.T("Settings.ImportRecordings");
+        ImportRecordingsButton.ToolTip = Localizer.T("Settings.ImportRecordingsTip");
 
         // 裝置與頻道
         DevicesTitle.Text = Localizer.T("Settings.DevicesTitle");
@@ -2333,6 +2336,79 @@ public partial class SettingsWindow : Window
         }
 
         ReloadUsage();
+    }
+
+    /// <summary>
+    /// 掃描各錄影根目錄，把「索引裡沒有、磁碟上還在」的段補回索引。
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// 根目錄除了目前位置與已知舊根目錄，還要加上 <c>&lt;dataRoot&gt;\recordings</c>：實機上
+    /// 舊版的錄影就落在 <c>C:\HeliVMSData\recordings</c>（例如 <c>ch072</c>），只掃目前根目錄
+    /// 的話那些檔案永遠不會被看到，而症狀正是「磁碟有錄影、回放空白」。
+    /// </para>
+    /// <para>
+    /// 掃描是純檔案列舉，整顆碟上可能跑幾十秒，所以放背景執行緒；匯入在對話框裡跑，
+    /// 讓操作員先確認「哪個資料夾掛到哪個頻道」再寫入索引。
+    /// </para>
+    /// </remarks>
+    private async void OnImportRecordingsClicked(object sender, RoutedEventArgs e)
+    {
+        ImportRecordingsButton.IsEnabled = false;
+        ImportRecordingsStatusText.Text = Localizer.T("Settings.ImportRecordingsScanning");
+
+        try
+        {
+            var channels = new ChannelRepository(_store).List();
+            var roots = new List<string> { _recordingsRoot };
+            roots.AddRange(RecordingStorage.ParseKnownRoots(_settings.Get(RecordingStorage.KnownRootsSettingKey)));
+            roots.Add(Path.Combine(_dataRoot, "recordings"));
+
+            var distinct = roots
+                .Where(r => !string.IsNullOrWhiteSpace(r))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            var folders = await Task.Run(() =>
+                new RecordingDiskImporter(new SegmentRepository(_store)).Scan(distinct, channels));
+
+            if (folders.Count == 0)
+            {
+                ImportRecordingsStatusText.Text = Localizer.T("Settings.ImportRecordingsEmpty");
+                return;
+            }
+
+            var window = new RecordingImportWindow(_store, folders) { Owner = this };
+            window.ShowDialog();
+
+            if (window.Report is { } report)
+            {
+                ImportRecordingsStatusText.Text = report.AnyImported
+                    ? string.Format(
+                        Localizer.T("Settings.ImportRecordingsDone"),
+                        report.Imported + report.Revived,
+                        FormatBytes(report.Bytes))
+                    : Localizer.T("Settings.ImportRecordingsNothingTaken");
+
+                if (report.AnyImported)
+                {
+                    ReloadUsage();
+                }
+            }
+            else
+            {
+                ImportRecordingsStatusText.Text = string.Empty;
+            }
+        }
+        catch (Exception ex)
+        {
+            ImportRecordingsStatusText.Text =
+                string.Format(Localizer.T("Settings.ImportRecordingsFailed"), ex.Message);
+        }
+        finally
+        {
+            ImportRecordingsButton.IsEnabled = true;
+        }
     }
 
     private static long QuotaBytesFromGb(double gb) => (long)(gb * 1024 * 1024 * 1024);

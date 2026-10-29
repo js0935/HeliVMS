@@ -1,0 +1,445 @@
+using HeliVMS.Shared.Models;
+
+namespace HeliVMS.Storage;
+
+/// <summary>
+/// 磁碟上一個「有未建索引錄影」的頻道資料夾。
+/// </summary>
+/// <param name="FolderPath">資料夾完整路徑（<c>&lt;root&gt;\&lt;頻道資料夾&gt;</c>）。</param>
+/// <param name="FolderName">資料夾名稱（頻道名稱或舊制 <c>chNNN</c>）。</param>
+/// <param name="ChannelId">依資料夾名稱自動對到的頻道；對不到時為 null，由操作員指定。</param>
+/// <param name="FileCount">尚未建索引的段數。</param>
+/// <param name="SizeBytes">這些段的檔案大小總和。</param>
+/// <param name="FromUtc">最早一段的開始時間（UTC）。</param>
+/// <param name="ToUtc">最晚一段的開始時間（UTC）。</param>
+public sealed record RecordingImportFolder(
+    string FolderPath,
+    string FolderName,
+    int? ChannelId,
+    int FileCount,
+    long SizeBytes,
+    DateTime FromUtc,
+    DateTime ToUtc);
+
+/// <summary>一次磁碟錄影匯入的結果。</summary>
+/// <param name="Folders">實際處理的資料夾數。</param>
+/// <param name="Imported">新增的區段列數。</param>
+/// <param name="Revived">原本被標成 missing、因檔案仍在而復活的列數。</param>
+/// <param name="Skipped">已在索引中或無法解析而略過的檔案數。</param>
+/// <param name="Bytes">新增段（含復活）的檔案大小總和。</param>
+public readonly record struct RecordingImportReport(
+    int Folders,
+    int Imported,
+    int Revived,
+    int Skipped,
+    long Bytes)
+{
+    /// <summary>本輪是否補回任何可回放的錄影。</summary>
+    public bool AnyImported => Imported > 0 || Revived > 0;
+}
+
+/// <summary>
+/// 把磁碟上「索引裡沒有」的錄影段補回 <c>segments</c> 表。
+/// </summary>
+/// <remarks>
+/// <para>
+/// 症狀是「磁碟裡明明有錄影，回放卻什麼都沒有」：索引與檔案是兩份獨立的事實，
+/// 資料庫被重建、還原成舊備份、頻道刪掉又重加（<c>segments</c> 是 CASCADE）、
+/// 或整顆錄影碟換到另一台機器時，檔案都還在，索引卻已經不認得它們。
+/// 既有的 <see cref="SegmentIndexReconciler"/> 只處理反方向（索引有、磁碟沒有），
+/// 沒有它就不會有人把檔案補回索引——操作員只能看到一個空回放，日誌完全乾淨。
+/// </para>
+/// <para>
+/// 對應頻道的規則刻意與錄影端共用 <see cref="RecordingFolderNaming.Resolve"/>：
+/// 資料夾名稱是頻道名稱（同名頻道會附加 <c>_chNNN</c>），舊資料則是 <c>chNNN</c>。
+/// 兩邊各寫一份命名規則一定會漂移，屆時新舊資料夾只有一邊認得出來。
+/// 兩條都對不上時<b>不猜</b>：回報 <see cref="RecordingImportFolder.ChannelId"/> 為 null，
+/// 由操作員在匯入畫面指定——把 A 台的錄影掛到 B 台名下比看不到更糟（證據錯置）。
+/// </para>
+/// <para>
+/// 開始時間取自檔名（錄影端以 UTC 的 <c>HHmmssfff</c> 命名）與 <c>yyyyMMdd</c> 日期資料夾，
+/// 結束時間取檔案的 <c>LastWriteTimeUtc</c>（ffmpeg 收尾關檔的時刻）。時間解析不出來的檔案
+/// 直接略過：亂猜一個時間只會讓回放時間軸出現一段對不上的空白，比不匯入更難查。
+/// </para>
+/// </remarks>
+public sealed class RecordingDiskImporter
+{
+    /// <summary>錄影段檔名首碼；與 <see cref="SegmentRepository.SegmentFileMarker"/> 同一個事實來源。</summary>
+    private const string SegmentPrefix = SegmentRepository.SegmentFileMarker;
+
+    /// <summary>段檔副檔名；只收已完成收尾的正式檔，<c>.tmp</c> 交給 <c>TemporarySegmentRecovery</c>。</summary>
+    private const string SegmentExtension = ".mp4";
+
+    /// <summary>
+    /// 由開始時間推算結束時間的上限：正常一段是幾十秒，超過一小時代表檔案的
+    /// <c>LastWriteTimeUtc</c> 不是收尾時刻（複製、還原都會蓋成當下時間），寧可記 0 秒。
+    /// </summary>
+    private static readonly TimeSpan MaxInferredDuration = TimeSpan.FromHours(1);
+
+    private readonly SegmentRepository _repo;
+
+    public RecordingDiskImporter(SegmentRepository repo)
+    {
+        _repo = repo ?? throw new ArgumentNullException(nameof(repo));
+    }
+
+    /// <summary>
+    /// 掃描各錄影根目錄，回傳「有未建索引錄影」的資料夾；已索引的檔案不列入。
+    /// </summary>
+    /// <param name="roots">要掃描的根目錄（目前根目錄 ＋ 已知舊根目錄）；不存在的直接跳過。</param>
+    /// <param name="channels">目前所有頻道，用來把資料夾名稱對回頻道。</param>
+    public IReadOnlyList<RecordingImportFolder> Scan(
+        IEnumerable<string> roots,
+        IReadOnlyList<ChannelInfo> channels)
+    {
+        var byId = channels.Where(c => c.Id > 0).ToDictionary(c => c.Id);
+        var byFolder = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (id, folder) in RecordingFolderNaming.Resolve(channels))
+        {
+            byFolder[folder] = id;
+        }
+
+        var found = new List<RecordingImportFolder>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var root in roots)
+        {
+            if (string.IsNullOrWhiteSpace(root) || !Directory.Exists(root))
+            {
+                continue;
+            }
+
+            foreach (var dir in SafeEnumerate(root))
+            {
+                var folderPath = Normalize(dir);
+                if (folderPath.Length == 0 || !seen.Add(folderPath))
+                {
+                    continue;
+                }
+
+                var folderName = Path.GetFileName(folderPath);
+                var channelId = MatchChannel(folderName, byFolder, byId);
+                var files = Collect(folderPath);
+                if (files.Count == 0)
+                {
+                    continue;
+                }
+
+                found.Add(new RecordingImportFolder(
+                    folderPath,
+                    folderName,
+                    channelId,
+                    files.Count,
+                    files.Sum(f => f.SizeBytes),
+                    files.Min(f => f.StartUtc),
+                    files.Max(f => f.StartUtc)));
+            }
+        }
+
+        return found
+            .OrderBy(f => f.FolderName, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    /// <summary>
+    /// 匯入指定的資料夾；<paramref name="assignments"/> 是「資料夾 → 頻道」的決定。
+    /// 同一個資料夾重複匯入是安全的：已索引的檔案不會再寫一次。
+    /// </summary>
+    public RecordingImportReport Import(
+        IEnumerable<(string FolderPath, int ChannelId)> assignments)
+    {
+        var folders = 0;
+        var imported = 0;
+        var revived = 0;
+        var skipped = 0;
+        long bytes = 0;
+
+        foreach (var (folderPath, channelId) in assignments)
+        {
+            if (channelId <= 0 || !Directory.Exists(folderPath))
+            {
+                continue;
+            }
+
+            folders++;
+            foreach (var file in Collect(folderPath))
+            {
+                var outcome = _repo.AdoptOrReviveFinal(
+                    channelId,
+                    "main",
+                    file.StartUtc,
+                    file.EndUtc,
+                    file.FilePath,
+                    file.SizeBytes,
+                    file.DurationSec);
+
+                switch (outcome)
+                {
+                    case AdoptOutcome.Inserted:
+                        imported++;
+                        bytes += file.SizeBytes;
+                        break;
+                    case AdoptOutcome.Revived:
+                        revived++;
+                        bytes += file.SizeBytes;
+                        break;
+                    default:
+                        skipped++;
+                        break;
+                }
+            }
+        }
+
+        return new RecordingImportReport(folders, imported, revived, skipped, bytes);
+    }
+
+    /// <summary>
+    /// 匯入畫面的預設選擇：自動對到頻道就用它，對不到就是 0（「略過」），不替操作員猜。
+    /// </summary>
+    public static int DefaultChannelId(RecordingImportFolder folder) => folder.ChannelId ?? 0;
+
+    /// <summary>
+    /// 從匯入畫面每一列的選擇挑出真正要寫入的 (資料夾, 頻道)。
+    /// </summary>
+    /// <remarks>
+    /// 兩件事在這裡收斂，避免畫面各自實作而漂移：①選「略過」（0）的資料夾不匯入——
+    /// 若把 0 傳下去，<see cref="Import"/> 也只會默默跳過，但呼叫端會得到一個看起來
+    /// 成功、實際上什麼都沒做的結果；②同一個資料夾只匯一次，重複列舉（例如兩個根目錄
+    /// 指向同一顆碟）會讓回報的段數重複計算。
+    /// </remarks>
+    public static IReadOnlyList<(string FolderPath, int ChannelId)> SelectAssignments(
+        IEnumerable<(string FolderPath, int SelectedChannelId)> rows)
+    {
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var picked = new List<(string, int)>();
+        foreach (var (folderPath, channelId) in rows)
+        {
+            if (channelId <= 0 || string.IsNullOrWhiteSpace(folderPath) || !seen.Add(folderPath))
+            {
+                continue;
+            }
+
+            picked.Add((folderPath, channelId));
+        }
+
+        return picked;
+    }
+
+    /// <summary>資料夾名稱 → 頻道編號：先比對目前的命名，再退回舊制 <c>chNNN</c>。</summary>
+    private static int? MatchChannel(
+        string folderName,
+        IReadOnlyDictionary<string, int> byFolder,
+        IReadOnlyDictionary<int, ChannelInfo> byId)
+    {
+        if (byFolder.TryGetValue(folderName, out var id) && byId.ContainsKey(id))
+        {
+            return id;
+        }
+
+        // 舊制 chNNN（例如 ch072）——頻道被刪掉又重加時編號可能不同，所以只在頻道真的
+        // 存在時才對應，否則寧可讓操作員指定。
+        if (folderName.Length > 2
+            && folderName.StartsWith("ch", StringComparison.OrdinalIgnoreCase)
+            && int.TryParse(folderName.AsSpan(2), out var legacy)
+            && byId.ContainsKey(legacy))
+        {
+            return legacy;
+        }
+
+        return null;
+    }
+
+    /// <summary>收集資料夾底下可匯入的段；同一秒的檔案只留一個（索引的唯一鍵是頻道＋時間）。</summary>
+    private List<DiskSegment> Collect(string folderPath)
+    {
+        var known = KnownPaths(folderPath);
+        var files = new List<DiskSegment>();
+        var starts = new HashSet<DateTime>();
+
+        foreach (var path in SafeEnumerateFiles(folderPath))
+        {
+            var name = Path.GetFileName(path);
+            if (!name.StartsWith(SegmentPrefix, StringComparison.OrdinalIgnoreCase)
+                || !name.EndsWith(SegmentExtension, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            var full = Normalize(path);
+            if (full.Length == 0)
+            {
+                continue;
+            }
+
+            long size;
+            DateTime writtenUtc;
+            try
+            {
+                var info = new FileInfo(full);
+                size = info.Length;
+                writtenUtc = info.LastWriteTimeUtc;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                continue;
+            }
+
+            if (size <= 0)
+            {
+                continue;
+            }
+
+            if (known.TryGetValue(full, out var status) && status != SegmentStatus.Missing)
+            {
+                continue;
+            }
+
+            if (!TryParseStartUtc(full, out var startUtc) || !starts.Add(startUtc))
+            {
+                continue;
+            }
+
+            var endUtc = startUtc;
+            var duration = 0d;
+            if (writtenUtc > startUtc && writtenUtc - startUtc <= MaxInferredDuration)
+            {
+                endUtc = writtenUtc;
+                duration = (writtenUtc - startUtc).TotalSeconds;
+            }
+
+            files.Add(new DiskSegment(full, startUtc, endUtc, size, duration));
+        }
+
+        return files;
+    }
+
+    /// <summary>資料夾內已建索引的路徑與狀態（missing 的列可以被復活）。</summary>
+    private Dictionary<string, SegmentStatus> KnownPaths(string folderPath)
+    {
+        var known = new Dictionary<string, SegmentStatus>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (path, status) in _repo.ListPathsInFolder(folderPath))
+        {
+            var normalized = Normalize(path);
+            if (normalized.Length > 0)
+            {
+                known[normalized] = status;
+            }
+        }
+
+        return known;
+    }
+
+    /// <summary>
+    /// 從 <c>&lt;root&gt;\&lt;頻道&gt;\yyyyMMdd[\HH]\seg-HHmmss[fff].mp4</c> 解析開始時間（UTC）。
+    /// </summary>
+    private static bool TryParseStartUtc(string filePath, out DateTime startUtc)
+    {
+        startUtc = default;
+
+        var name = Path.GetFileNameWithoutExtension(filePath);
+        if (name.Length <= SegmentPrefix.Length
+            || !name.StartsWith(SegmentPrefix, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        var digits = name[SegmentPrefix.Length..];
+        if (digits.Length < 6 || digits.Length > 9
+            || !digits.All(char.IsAsciiDigit))
+        {
+            return false;
+        }
+
+        var hour = int.Parse(digits.AsSpan(0, 2), System.Globalization.CultureInfo.InvariantCulture);
+        var minute = int.Parse(digits.AsSpan(2, 2), System.Globalization.CultureInfo.InvariantCulture);
+        var second = int.Parse(digits.AsSpan(4, 2), System.Globalization.CultureInfo.InvariantCulture);
+        var millis = digits.Length >= 9
+            ? int.Parse(digits.AsSpan(6, 3), System.Globalization.CultureInfo.InvariantCulture)
+            : 0;
+
+        if (hour > 23 || minute > 59 || second > 59)
+        {
+            return false;
+        }
+
+        // 日期資料夾是 yyyyMMdd（錄影端以 UTC 命名）；往上找最近的一層。
+        var dir = Path.GetDirectoryName(filePath);
+        while (!string.IsNullOrEmpty(dir))
+        {
+            var leaf = Path.GetFileName(dir);
+            if (leaf.Length == 8
+                && int.TryParse(leaf.AsSpan(0, 4), out var year)
+                && int.TryParse(leaf.AsSpan(4, 2), out var month)
+                && int.TryParse(leaf.AsSpan(6, 2), out var day)
+                && year >= 2000 && year <= 9999 && month is >= 1 and <= 12 && day is >= 1 and <= 31)
+            {
+                try
+                {
+                    startUtc = new DateTime(year, month, day, hour, minute, second, millis, DateTimeKind.Utc);
+                    return true;
+                }
+                catch (ArgumentOutOfRangeException)
+                {
+                    return false;
+                }
+            }
+
+            dir = Path.GetDirectoryName(dir);
+        }
+
+        return false;
+    }
+
+    /// <summary>列舉第一層頻道資料夾；沒有權限的根目錄不該讓整次掃描失敗。</summary>
+    private static IEnumerable<string> SafeEnumerate(string root)
+    {
+        try
+        {
+            return Directory.EnumerateDirectories(root).ToList();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return [];
+        }
+    }
+
+    /// <summary>遞迴列舉段檔；個別子資料夾讀不到時跳過，不讓一個壞目錄中斷整次掃描。</summary>
+    private static IEnumerable<string> SafeEnumerateFiles(string folderPath)
+    {
+        var options = new EnumerationOptions
+        {
+            RecurseSubdirectories = true,
+            IgnoreInaccessible = true,
+            AttributesToSkip = FileAttributes.System,
+        };
+
+        try
+        {
+            return Directory.EnumerateFiles(folderPath, "*" + SegmentExtension, options).ToList();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return [];
+        }
+    }
+
+    /// <summary>正規化路徑（大小寫不敏感比較用）；失敗時回空字串，呼叫端略過該筆。</summary>
+    private static string Normalize(string path)
+    {
+        try
+        {
+            return Path.GetFullPath(path);
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            return string.Empty;
+        }
+    }
+
+    private readonly record struct DiskSegment(
+        string FilePath,
+        DateTime StartUtc,
+        DateTime EndUtc,
+        long SizeBytes,
+        double DurationSec);
+}

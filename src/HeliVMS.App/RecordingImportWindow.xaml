@@ -1,0 +1,63 @@
+<Window x:Class="HeliVMS.App.RecordingImportWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="" Width="1040" Height="620"
+        WindowStartupLocation="CenterOwner"
+        Background="{StaticResource Brand.BgDeep}" Foreground="White"
+        AutomationProperties.AutomationId="RecordingImportWindow">
+    <Grid Margin="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <TextBlock x:Name="HeadingText" Grid.Row="0" Text="" FontSize="16" FontWeight="SemiBold" />
+
+        <TextBlock x:Name="DescriptionText" Grid.Row="1" Text="" TextWrapping="Wrap" FontSize="11"
+                   Foreground="{StaticResource Brand.TextDim}" Margin="0,6,0,0" />
+
+        <ListView x:Name="FolderList" Grid.Row="2" Margin="0,12,0,0"
+                  AutomationProperties.AutomationId="RecordingImportFolderList"
+                  Background="#0E1B2A" BorderBrush="#1F3A5F" BorderThickness="1"
+                  Foreground="White" SelectionMode="Single">
+            <ListView.View>
+                <GridView>
+                    <GridViewColumn x:Name="ColFolder" Header="" Width="250"
+                                    DisplayMemberBinding="{Binding FolderName}" />
+                    <GridViewColumn x:Name="ColFiles" Header="" Width="80"
+                                    DisplayMemberBinding="{Binding FilesText}" />
+                    <GridViewColumn x:Name="ColSize" Header="" Width="110"
+                                    DisplayMemberBinding="{Binding SizeText}" />
+                    <GridViewColumn x:Name="ColRange" Header="" Width="250"
+                                    DisplayMemberBinding="{Binding RangeText}" />
+                    <GridViewColumn x:Name="ColChannel" Header="" Width="220">
+                        <GridViewColumn.CellTemplate>
+                            <DataTemplate>
+                                <ComboBox ItemsSource="{Binding ChannelOptions}"
+                                          DisplayMemberPath="Name"
+                                          SelectedValuePath="Id"
+                                          SelectedValue="{Binding SelectedChannelId, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                          Width="200" Foreground="Black" />
+                            </DataTemplate>
+                        </GridViewColumn.CellTemplate>
+                    </GridViewColumn>
+                </GridView>
+            </ListView.View>
+        </ListView>
+
+        <TextBlock x:Name="StatusText" Grid.Row="3" Text="" TextWrapping="Wrap" Margin="0,10,0,0"
+                   AutomationProperties.AutomationId="RecordingImportStatusText" />
+
+        <StackPanel Grid.Row="4" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,14,0,0">
+            <Button x:Name="ImportButton" Content="" Click="OnImportClicked" Padding="14,6" Margin="0,0,10,0"
+                    Foreground="White" Background="#2A6A4A" BorderThickness="0"
+                    AutomationProperties.AutomationId="RecordingImportApplyButton" />
+            <Button x:Name="CloseButton" Content="" Click="OnCloseClicked" Padding="14,6"
+                    Foreground="White" Background="#2A4A73" BorderThickness="0"
+                    AutomationProperties.AutomationId="RecordingImportCloseButton" />
+        </StackPanel>
+    </Grid>
+</Window>

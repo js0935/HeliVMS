@@ -899,6 +899,111 @@ public sealed class SegmentRepository
             });
     }
 
+    /// <summary>
+    /// 匯入磁碟上既有、索引裡沒有的 final 段；若同路徑的列已被標成 <c>missing</c> 則復活它。
+    /// </summary>
+    /// <param name="channelId">要掛到的頻道。</param>
+    /// <param name="stream">串流種類（<c>main</c>／<c>sub</c>）。</param>
+    /// <param name="startUtc">段開始時間。</param>
+    /// <param name="endUtc">段結束時間；未知時傳入 <paramref name="startUtc"/>。</param>
+    /// <param name="filePath">磁碟上的完整路徑。</param>
+    /// <param name="sizeBytes">檔案大小。</param>
+    /// <param name="durationSec">時長（秒）；未知時為 0。</param>
+    /// <remarks>
+    /// 以「頻道 ＋ 串流 ＋ 開始時間」的唯一鍵去重（<c>INSERT OR IGNORE</c>），所以同一顆磁碟
+    /// 重複掃描是安全的；不會因為兩次掃描就讓回放時間軸出現重複段。
+    /// 刻意<b>不</b>覆寫已存在的 final 列：磁碟上的檔案可能只是同名，索引裡那一筆才有
+    /// 完整性檢查與 SHA-256 的結果。
+    /// </remarks>
+    public AdoptOutcome AdoptOrReviveFinal(
+        int channelId,
+        string stream,
+        DateTime startUtc,
+        DateTime endUtc,
+        string filePath,
+        long sizeBytes,
+        double durationSec)
+    {
+        var revived = _store.Query(
+            """
+            UPDATE segments SET status = 'final'
+            WHERE status = 'missing' AND file_path = $p
+              AND channel_id = $c AND stream = $s;
+            SELECT changes();
+            """,
+            static r =>
+            {
+                r.Read();
+                return r.GetInt64(0);
+            },
+            cmd =>
+            {
+                cmd.Parameters.AddWithValue("$p", filePath);
+                cmd.Parameters.AddWithValue("$c", channelId);
+                cmd.Parameters.AddWithValue("$s", stream);
+            });
+
+        if (revived > 0)
+        {
+            return AdoptOutcome.Revived;
+        }
+
+        var inserted = _store.Query(
+            """
+            INSERT OR IGNORE INTO segments
+                (channel_id, stream, start_time, end_time, file_path, size_bytes, duration_sec, status)
+            VALUES ($c, $s, $st, $e, $p, $size, $d, 'final');
+            SELECT changes();
+            """,
+            static r =>
+            {
+                r.Read();
+                return r.GetInt64(0);
+            },
+            cmd =>
+            {
+                cmd.Parameters.AddWithValue("$c", channelId);
+                cmd.Parameters.AddWithValue("$s", stream);
+                cmd.Parameters.AddWithValue("$st", SqliteStore.Iso(startUtc));
+                cmd.Parameters.AddWithValue("$e", SqliteStore.Iso(endUtc));
+                cmd.Parameters.AddWithValue("$p", filePath);
+                cmd.Parameters.AddWithValue("$size", sizeBytes);
+                cmd.Parameters.AddWithValue("$d", durationSec);
+            });
+
+        return inserted > 0 ? AdoptOutcome.Inserted : AdoptOutcome.Skipped;
+    }
+
+    /// <summary>
+    /// 列出某個資料夾底下的索引路徑與狀態（供磁碟匯入判斷「哪些檔案已經建過索引」）。
+    /// </summary>
+    /// <param name="folderPath">頻道資料夾完整路徑，結尾不需帶分隔符號。</param>
+    /// <remarks>
+    /// 用 <c>substr</c> 精確比對而非 <c>LIKE</c>：路徑裡常有 <c>_</c> 與 <c>%</c>（頻道名稱、
+    /// 使用者自選根目錄），<c>LIKE</c> 會把它們當萬用字元，一次就撈到別的資料夾的列。
+    /// </remarks>
+    public IReadOnlyList<(string FilePath, SegmentStatus Status)> ListPathsInFolder(string folderPath)
+    {
+        var prefix = folderPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+            + Path.DirectorySeparatorChar;
+        return _store.Query(
+            """
+            SELECT file_path, status FROM segments
+            WHERE substr(file_path, 1, length($p)) = $p;
+            """,
+            static r =>
+            {
+                var list = new List<(string, SegmentStatus)>();
+                while (r.Read())
+                {
+                    list.Add((r.GetString(0), ParseStatus(r.GetString(1))));
+                }
+
+                return list;
+            },
+            cmd => cmd.Parameters.AddWithValue("$p", prefix));
+    }
+
     private static IReadOnlyList<SegmentRecord> ReadRecords(SqliteDataReader reader)
     {
         var list = new List<SegmentRecord>();
@@ -933,4 +1038,17 @@ public sealed class SegmentRepository
         "retired" => SegmentStatus.Retired,
         _ => SegmentStatus.Temporary,
     };
+}
+
+/// <summary>磁碟段匯入索引的結果（見 <see cref="SegmentRepository.AdoptOrReviveFinal"/>）。</summary>
+public enum AdoptOutcome
+{
+    /// <summary>新增了一列 final。</summary>
+    Inserted,
+
+    /// <summary>原本標成 missing 的列因為檔案還在而復活。</summary>
+    Revived,
+
+    /// <summary>索引已有同頻道同時段的列（或同路徑），未改動。</summary>
+    Skipped,
 }

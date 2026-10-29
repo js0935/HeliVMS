@@ -53,6 +53,7 @@ public sealed class WpfI18nContractTests
         ["MonitorGroupWindow", "src/HeliVMS.App/MonitorGroupWindow.xaml", "src/HeliVMS.App/MonitorGroupWindow.xaml.cs", new[] { "MonitorGroup", "Channels" }],
         ["TalkWindow", "src/HeliVMS.App/TalkWindow.xaml", "src/HeliVMS.App/TalkWindow.xaml.cs", new[] { "Talk" }],
         ["SettingsWindow", "src/HeliVMS.App/SettingsWindow.xaml", "src/HeliVMS.App/SettingsWindow.xaml.cs", new[] { "Settings" }],
+        ["RecordingImportWindow", "src/HeliVMS.App/RecordingImportWindow.xaml", "src/HeliVMS.App/RecordingImportWindow.xaml.cs", new[] { "RecordingImport" }],
     ];
 
     [Theory]
