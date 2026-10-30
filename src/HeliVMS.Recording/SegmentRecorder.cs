@@ -295,6 +295,10 @@ public sealed class SegmentRecorder : ISegmentRecorder
             var ok = await RunSegmentAsync(tmpPath, audioEncoderArgs, token);
             if (ok)
             {
+                // 先改名再看時間：改名是這段錄影「已經成為正式檔」的分界點。放在取時間之前，
+                // 是為了讓「改名成功、後面任何一步失敗」都落在同一條補救路徑上（見 catch）。
+                File.Move(tmpPath, finalPath);
+
                 // 結束時間取真實收尾時刻，而不是 `start + 設定分段秒數`：攝影機 RTSP 突然中斷時，
                 // ffmpeg 會提早以退出碼 0 結束，檔案只有幾秒，卻被記成完整一段——時間軸與 HLS
                 // 都宣稱有整整 60 秒影片，播放器一到檔案真正結尾就卡住。量到的牆鐘時間會貼近
@@ -304,7 +308,6 @@ public sealed class SegmentRecorder : ISegmentRecorder
                 // 條件刻意不再加「且未被取消」：取消時是「請 ffmpeg 收尾」，不是「這段不要了」。
                 // 被取消就丟掉的話，關程式前錄的那一段會永遠離開索引（正是要修的症狀）。
                 var endUtc = _clock();
-                File.Move(tmpPath, finalPath);
                 var size = new FileInfo(finalPath).Length;
                 var sha256 = ComputeSha256(finalPath);
                 var durationSec = Math.Max(0, (endUtc - startUtc).TotalSeconds);
@@ -338,6 +341,16 @@ public sealed class SegmentRecorder : ISegmentRecorder
         catch (Exception ex)
         {
             LastFailure = ex.ToString();
+
+            // 改名成功、但後面（取時間、算雜湊、寫索引）失敗：磁碟上是一段完整的錄影，
+            // 不是壞檔。以前這裡一律 TryDeleteTmp + MarkCorrupt，而 .tmp 早就被搬走了，
+            // 結果是「檔案好好地在資料夾裡、索引記成 corrupt」，回放只讀 final 所以看不到，
+            // 磁碟匯入又會把它當成「已索引」跳過——那段影片就永遠消失了。
+            if (TryCompleteMovedSegment(_repo, _activeSegmentId, finalPath, tmpPath, startUtc))
+            {
+                return true;
+            }
+
             TryDeleteTmp(tmpPath);
             _repo.MarkCorrupt(_activeSegmentId);
             return false;
@@ -345,6 +358,61 @@ public sealed class SegmentRecorder : ISegmentRecorder
         finally
         {
             _activeSegmentId = -1;
+        }
+    }
+
+    /// <summary>
+    /// 改名成功、後續步驟失敗時，用磁碟上的事實（大小、最後寫入時間、SHA-256）補完這一段。
+    /// </summary>
+    /// <param name="repo">區段索引。</param>
+    /// <param name="segmentId">要收尾的列。</param>
+    /// <param name="finalPath">正式檔路徑。</param>
+    /// <param name="tmpPath">暫存檔路徑（用來確認改名真的發生過）。</param>
+    /// <param name="startUtc">段開始時間；檔案時間比它舊（時鐘被調整）時退回它，長度記 0 而不是負值。</param>
+    /// <returns>是否已把這段收尾成 final。</returns>
+    /// <remarks>
+    /// 「暫存檔還在」就一律不動：那只代表 <see cref="File.Move(string, string)"/> 根本沒成功（最常見的原因是
+    /// 目的地撞名），而 <paramref name="finalPath"/> 上那個檔案是<b>別人</b>的段。把別人的錄影
+    /// 記到這個頻道名下就是證據錯置，比看不到更糟。
+    /// 抽成 static 是為了能直接測：這個路徑只在「收尾途中出錯」時才會走到，用真實行程模擬不出來。
+    /// </remarks>
+    internal static bool TryCompleteMovedSegment(
+        SegmentRepository repo,
+        long segmentId,
+        string finalPath,
+        string tmpPath,
+        DateTime startUtc)
+    {
+        if (segmentId <= 0 || File.Exists(tmpPath) || !File.Exists(finalPath))
+        {
+            return false;
+        }
+
+        try
+        {
+            var size = new FileInfo(finalPath).Length;
+            if (size <= 0)
+            {
+                return false;
+            }
+
+            var endUtc = File.GetLastWriteTimeUtc(finalPath);
+            if (endUtc < startUtc)
+            {
+                endUtc = startUtc;
+            }
+
+            var durationSec = Math.Max(0, (endUtc - startUtc).TotalSeconds);
+            var sha256 = ComputeSha256(finalPath);
+            repo.CompleteSegment(segmentId, endUtc, size, durationSec, sha256);
+            return true;
+        }
+        catch (Exception ex) when (
+            ex is IOException or UnauthorizedAccessException or Microsoft.Data.Sqlite.SqliteException)
+        {
+            // 檔案仍被佔用或索引寫不進去：留給啟動／每小時的暫存救援（TemporarySegmentRecovery），
+            // 它會看到「正式檔已存在」而把這段補完。
+            return false;
         }
     }
 

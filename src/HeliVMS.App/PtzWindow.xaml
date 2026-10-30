@@ -6,7 +6,7 @@
         WindowStartupLocation="CenterOwner"
         Topmost="True"
         AutomationProperties.AutomationId="PtzWindow"
-        Background="{StaticResource Brand.BgDeep}" WindowStyle="None" ResizeMode="NoResize" WindowState="Maximized">
+        Background="{StaticResource Brand.BgDeep}" WindowStyle="None" ResizeMode="NoResize" WindowState="Normal">
 
     <Grid Margin="10" VerticalAlignment="Top">
         <Grid.RowDefinitions>
@@ -19,7 +19,8 @@
         </Grid.RowDefinitions>
 
         <TextBlock x:Name="PtzStatusText" Grid.Row="0" Text="" FontSize="11" TextTrimming="CharacterEllipsis"
-                   Foreground="{StaticResource Brand.TextPrimary}" Margin="2,0,2,6" />
+                   Foreground="{StaticResource Brand.TextPrimary}" Margin="2,0,2,6"
+                   Cursor="SizeAll" MouseLeftButtonDown="OnDragHandle" />
 
         <ComboBox x:Name="PtzProfileCombo" Grid.Row="1" AutomationProperties.AutomationId="PtzProfileCombo"
                   Height="24" Margin="2,0,2,8" Foreground="White" Background="#1A2C49"

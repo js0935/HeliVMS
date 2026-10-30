@@ -324,7 +324,7 @@ public sealed class SegmentIndexReconciler
     /// 用它當安全閥會讓「刪光了」變成「永遠無法判定」，索引就再也不會被修正。
     /// 只看磁碟區根目錄，剛好把「磁碟掉了」（根目錄不存在）與「資料被刪了」（根目錄還在）分開。
     /// </remarks>
-    private static bool DefaultIsVolumeReady(string filePath)
+    public static bool IsVolumeReady(string filePath)
     {
         if (string.IsNullOrWhiteSpace(filePath))
         {
@@ -334,6 +334,8 @@ public sealed class SegmentIndexReconciler
         var root = Path.GetPathRoot(filePath);
         return !string.IsNullOrEmpty(root) && Directory.Exists(root);
     }
+
+    private static bool DefaultIsVolumeReady(string filePath) => IsVolumeReady(filePath);
 
     private enum FileVerdict
     {

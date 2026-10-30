@@ -138,16 +138,45 @@ public sealed class TemporarySegmentRecoveryTests : IDisposable
     }
 
     /// <summary>
-    /// 兩個檔案都找不到時不能標成 corrupt：那正是「錄影磁碟沒掛上」的樣子。
+    /// 磁碟不在（D: 被拔掉、網路磁碟掉線）時，兩個檔案都找不到不能標成 corrupt，
+    /// 也不能收斂成 missing：磁碟回來之後那些錄影其實還在。
     ///
-    /// 磁碟拔掉、網路磁碟掉線時，每一段暫存列都會變成「兩檔皆無」；此時標 corrupt 等於
-    /// 在磁碟回來之後報廢一段其實還在的錄影（corrupt 不會被對帳改回來）。
-    /// 留著等下一輪，與索引對帳對「無法判定」的立場一致。
+    /// 磁碟拔掉時，每一段暫存列都會變成「兩檔皆無」；此時判死等於在磁碟回來之後報廢一段
+    /// 其實還在的錄影。留著等下一輪，與索引對帳對「無法判定」的立場一致。
     /// </summary>
     [Fact]
-    public void 兩個檔案都不在時留著等下一輪而不標成corrupt()
+    public void 磁碟不在時兩個檔案都找不到會留著等下一輪而不標成corrupt()
     {
         var (id, _, _) = SeedTemporary(
+            Mp4Bytes(),
+            Now.AddMinutes(-5),
+            Now.AddMinutes(-10),
+            writeTmp: false,
+            writeFinal: false);
+
+        var report = NewRecovery(isVolumeReady: _ => false).Run();
+
+        Assert.Equal(0, report.Recovered);
+        Assert.Equal(0, report.Discarded);
+        Assert.Equal(0, report.Abandoned);
+        Assert.Equal(1, report.Skipped);
+
+        var row = Assert.IsType<SegmentRecord>(_segments.Get(id));
+        Assert.Equal(SegmentStatus.Temporary, row.Status);
+    }
+
+    /// <summary>
+    /// 磁碟還在、正式檔與暫存檔卻都不在：這一段真的沒了，索引列要收斂成 missing 而不是
+    /// 永遠停在 tmp。
+    ///
+    /// 停在 tmp 的列有兩個實際後果：①每一輪救援都會再 stat 它們一次，數量多起來之後
+    /// （實機 182 筆）新的段會被批次上限擠掉；②磁碟匯入會把 tmp 當成「已索引」跳過。
+    /// 選 missing 還留了後路——檔案若再出現（磁碟插回來、複製完成），匯入會把它復活。
+    /// </summary>
+    [Fact]
+    public void 磁碟還在但兩個檔案都不在時會收斂成missing()
+    {
+        var (id, finalPath, _) = SeedTemporary(
             Mp4Bytes(),
             Now.AddMinutes(-5),
             Now.AddMinutes(-10),
@@ -157,14 +186,71 @@ public sealed class TemporarySegmentRecoveryTests : IDisposable
         var report = NewRecovery().Run();
 
         Assert.Equal(0, report.Recovered);
-        Assert.Equal(0, report.Discarded);
+        Assert.Equal(1, report.Abandoned);
+        Assert.True(report.AnythingChanged, "索引列真的變了，呼叫端才知道要記一筆");
+
+        var row = Assert.IsType<SegmentRecord>(_segments.Get(id));
+        Assert.Equal(SegmentStatus.Missing, row.Status);
+        Assert.False(File.Exists(finalPath));
+    }
+
+    /// <summary>
+    /// 剛開始錄的段在 <c>BeginSegment</c> 之後、ffmpeg 開檔之前是真的沒有檔案；
+    /// 此時判死會讓收尾時的 <c>CompleteSegment</c>（條件含 status='tmp'）一行都寫不進去。
+    ///
+    /// 症狀會是「錄影檔在磁碟上、索引永遠停在 missing」——回放看不到，而日誌完全乾淨。
+    /// </summary>
+    [Fact]
+    public void 剛開始錄而暫存檔還沒出現時不會被判成missing()
+    {
+        var (id, _, _) = SeedTemporary(
+            Mp4Bytes(),
+            Now.AddSeconds(-1),
+            Now.AddSeconds(-1),
+            writeTmp: false,
+            writeFinal: false);
+
+        var report = NewRecovery().Run();
+
+        Assert.Equal(0, report.Abandoned);
         Assert.Equal(1, report.Skipped);
 
         var row = Assert.IsType<SegmentRecord>(_segments.Get(id));
         Assert.Equal(SegmentStatus.Temporary, row.Status);
     }
 
-    private TemporarySegmentRecovery NewRecovery() => new(_segments, () => Now);
+    /// <summary>
+    /// 索引記成 corrupt、正式檔卻好好地在磁碟上的段也要救回來。
+    ///
+    /// 這個形狀來自「改名成功 → 算雜湊或寫索引失敗」：檔案是完整的錄影，只是索引在收尾途中
+    /// 出錯而被標成 corrupt。回放只讀 final，磁碟匯入又會把 corrupt 當「已索引」跳過，
+    /// 不救它就等於永久遺失。
+    /// </summary>
+    [Fact]
+    public void corrupt列的正式檔仍在時會救回final()
+    {
+        var bytes = Mp4Bytes();
+        var (id, finalPath, _) = SeedTemporary(
+            bytes,
+            Now.AddMinutes(-5),
+            Now.AddMinutes(-10),
+            writeTmp: false,
+            writeFinal: true);
+        _segments.MarkCorrupt(id);
+
+        var report = NewRecovery().Run();
+
+        Assert.Equal(1, report.Recovered);
+
+        var row = Assert.IsType<SegmentRecord>(_segments.Get(id));
+        Assert.Equal(SegmentStatus.Final, row.Status);
+        Assert.Equal(bytes.Length, row.SizeBytes);
+        Assert.Equal(Sha256Of(bytes), row.Sha256);
+        Assert.Equal(300d, row.DurationSec!.Value, 1);
+    }
+
+    private TemporarySegmentRecovery NewRecovery(Func<string, bool>? isVolumeReady = null)
+        => new(_segments, () => Now, isVolumeReady);
 
     private (long Id, string FinalPath, string TmpPath) SeedTemporary(
         byte[] bytes,

@@ -47,14 +47,22 @@ public sealed class SegmentRepository
             });
     }
 
-    /// <summary>完成錄影區段（status=final，含 SHA-256 與時長）。</summary>
+    /// <summary>
+    /// 完成錄影區段（status=final，含 SHA-256 與時長）。
+    /// </summary>
+    /// <remarks>
+    /// 條件是 <c>tmp</c> <b>或</b> <c>corrupt</c>：corrupt 也代表「這段還沒收尾」。收尾是
+    /// 「改名 → 算雜湊 → 寫索引」三步，中間失敗會留下「正式檔在磁碟上、索引記成 corrupt」，
+    /// 啟動時的暫存救援就是要把它補完（見 <c>TemporarySegmentRecovery</c>）。只認 tmp 的話，
+    /// 救援會算出正確的大小與 SHA-256 卻一行都寫不進去，那段影片照樣看不到。
+    /// </remarks>
     public void CompleteSegment(long id, DateTime endUtc, long sizeBytes, double durationSec, string sha256)
     {
         _store.Execute(
             """
             UPDATE segments
             SET end_time = $e, size_bytes = $s, duration_sec = $d, sha256 = $h, status = 'final'
-            WHERE id = $id AND status = 'tmp';
+            WHERE id = $id AND status IN ('tmp', 'corrupt');
             """,
             cmd =>
             {
@@ -91,6 +99,26 @@ public sealed class SegmentRepository
     {
         _store.Execute(
             "UPDATE segments SET status = 'missing' WHERE id = $id AND status = 'final';",
+            cmd => cmd.Parameters.AddWithValue("$id", id));
+    }
+
+    /// <summary>
+    /// 把一筆「檔案確定不在」的未收尾段（<c>tmp</c>）收斂成 <c>missing</c>。
+    ///
+    /// <para>
+    /// 刻意不是 <see cref="MarkCorrupt"/>：corrupt 說的是「檔案在、但壞了」，而這裡的檔案
+    /// 根本不在，兩者對操作員是完全不同的兩件事。選 missing 還有一個實際好處——
+    /// <see cref="AdoptOrReviveFinal"/> 會把檔案重新出現的 missing 列復活，磁碟拔掉再插回來、
+    /// 或救援跑在檔案複製完成之前，都還有第二次機會；標成 corrupt 就再也回不來了。
+    /// </para>
+    /// <para>
+    /// 只動 <c>tmp</c>：final 由對帳負責、corrupt 是歷史失敗紀錄，不該被這裡覆寫。
+    /// </para>
+    /// </summary>
+    public void MarkMissingTemporary(long id)
+    {
+        _store.Execute(
+            "UPDATE segments SET status = 'missing' WHERE id = $id AND status = 'tmp';",
             cmd => cmd.Parameters.AddWithValue("$id", id));
     }
 
@@ -860,6 +888,31 @@ public sealed class SegmentRepository
     }
 
     /// <summary>
+    /// 已判定損壞、但可能還有正式檔在磁碟上的段（<c>status='corrupt'</c>），由新至舊。
+    ///
+    /// <para>
+    /// 為什麼要撈這個狀態：錄影收尾是「改名成正式檔 → 算雜湊 → 寫索引」三步，中間任何一步
+    /// 失敗（磁碟忙、防毒鎖檔、行程被砍）都會留下「正式檔好好地在磁碟上、索引卻記成 corrupt」。
+    /// 回放只讀 <c>final</c>，這些檔案就永遠看不到。由新至舊是刻意的：真正還有檔案的
+    /// corrupt 幾乎都是剛剛才發生的那幾筆，而堆積在表底的是「ffmpeg 連不上」留下、檔案本來
+    /// 就不存在的舊紀錄——從舊的一端撈會讓批次被那些救不回來的列吃光。
+    /// </para>
+    /// </summary>
+    public IReadOnlyList<SegmentRecord> ListCorruptNewest(int take)
+    {
+        return _store.Query(
+            $"""
+            SELECT id, channel_id, stream, start_time, end_time, file_path,
+                   size_bytes, duration_sec, status, sha256, tier, origin_path
+            FROM segments
+            WHERE status = 'corrupt'
+            ORDER BY start_time DESC
+            LIMIT {Math.Max(1, take)};
+            """,
+            ReadRecords);
+    }
+
+    /// <summary>
     /// 只回傳「頻道資料夾仍是舊制 <c>ch…</c>」的區段（僅編號、頻道、路徑）。
     /// <para>
     /// 供資料夾搬移（<see cref="RecordingFolderMigrator"/>）使用。24/7 全時錄影下 segments 一年可達千萬列，
@@ -900,7 +953,8 @@ public sealed class SegmentRepository
     }
 
     /// <summary>
-    /// 匯入磁碟上既有、索引裡沒有的 final 段；若同路徑的列已被標成 <c>missing</c> 則復活它。
+    /// 匯入磁碟上既有的 final 段；若同路徑的列已被標成 <c>missing</c>／<c>tmp</c>／<c>corrupt</c>
+    /// 則復活它。
     /// </summary>
     /// <param name="channelId">要掛到的頻道。</param>
     /// <param name="stream">串流種類（<c>main</c>／<c>sub</c>）。</param>
@@ -910,10 +964,19 @@ public sealed class SegmentRepository
     /// <param name="sizeBytes">檔案大小。</param>
     /// <param name="durationSec">時長（秒）；未知時為 0。</param>
     /// <remarks>
+    /// <para>
     /// 以「頻道 ＋ 串流 ＋ 開始時間」的唯一鍵去重（<c>INSERT OR IGNORE</c>），所以同一顆磁碟
     /// 重複掃描是安全的；不會因為兩次掃描就讓回放時間軸出現重複段。
     /// 刻意<b>不</b>覆寫已存在的 final 列：磁碟上的檔案可能只是同名，索引裡那一筆才有
     /// 完整性檢查與 SHA-256 的結果。
+    /// </para>
+    /// <para>
+    /// 復活條件刻意包含 <c>tmp</c> 與 <c>corrupt</c>，不只是 <c>missing</c>：收尾三步
+    /// （改名 → 算雜湊 → 寫索引）中間失敗時，索引記的是 tmp／corrupt 而正式檔已經在磁碟上，
+    /// 回放只讀 final。若把這兩種狀態當成「已索引」跳過，那種段會永遠留在清單外，
+    /// 而且每一次掃描都會再跳過一次。補值只用 <c>COALESCE</c>：tmp 列的結束時間／大小是空的
+    /// 才由磁碟補上，missing 列既有的真值不會被掃描結果蓋掉。
+    /// </para>
     /// </remarks>
     public AdoptOutcome AdoptOrReviveFinal(
         int channelId,
@@ -926,8 +989,12 @@ public sealed class SegmentRepository
     {
         var revived = _store.Query(
             """
-            UPDATE segments SET status = 'final'
-            WHERE status = 'missing' AND file_path = $p
+            UPDATE segments
+            SET status = 'final',
+                end_time = COALESCE(end_time, $e),
+                size_bytes = COALESCE(size_bytes, $size),
+                duration_sec = COALESCE(duration_sec, $d)
+            WHERE status IN ('missing', 'tmp', 'corrupt') AND file_path = $p
               AND channel_id = $c AND stream = $s;
             SELECT changes();
             """,
@@ -941,6 +1008,9 @@ public sealed class SegmentRepository
                 cmd.Parameters.AddWithValue("$p", filePath);
                 cmd.Parameters.AddWithValue("$c", channelId);
                 cmd.Parameters.AddWithValue("$s", stream);
+                cmd.Parameters.AddWithValue("$e", SqliteStore.Iso(endUtc));
+                cmd.Parameters.AddWithValue("$size", sizeBytes);
+                cmd.Parameters.AddWithValue("$d", durationSec);
             });
 
         if (revived > 0)
@@ -1046,7 +1116,7 @@ public enum AdoptOutcome
     /// <summary>新增了一列 final。</summary>
     Inserted,
 
-    /// <summary>原本標成 missing 的列因為檔案還在而復活。</summary>
+    /// <summary>原本標成 missing／tmp／corrupt 的列因為檔案還在而復活。</summary>
     Revived,
 
     /// <summary>索引已有同頻道同時段的列（或同路徑），未改動。</summary>

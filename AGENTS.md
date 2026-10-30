@@ -137,6 +137,38 @@ Notes that will save you time:
   the first step of `RetentionCoordinator.Run`; with the order flipped, the stale-tmp
   purge deletes the very files the recovery was about to rescue. Guarded by
   `清理會先救回中斷的暫存段再清除逾時暫存檔`.
+- **A failed reindex must not condemn a finished segment.** Recording finishes in three
+  steps: `File.Move(tmp → final)`, hash, `CompleteSegment`. Anything that throws in the
+  last two used to land in one `catch` that deleted the `.tmp` (already moved, so a no-op)
+  and wrote `status='corrupt'` — leaving a complete, playable MP4 on disk that no query
+  returns (playback reads only `final`) and that `RecordingDiskImporter` skipped as
+  "already indexed". Nothing logged it. `SegmentRecorder.TryCompleteMovedSegment` now
+  completes the row from the file's own size/mtime/hash, but **only when the `.tmp` is
+  gone**: if the move failed, the file at `finalPath` belongs to somebody else and copying
+  it into this row would point evidence at the wrong camera. Both ends of the same gap:
+  `CompleteSegment` also accepts `corrupt` rows, `TemporarySegmentRecovery` rescues rows
+  whose final file exists, and `AdoptOrReviveFinal` revives `missing`/`tmp`/`corrupt` so a
+  manual rescan fixes what the automatic one missed. Guarded by
+  `收尾途中失敗但正式檔已在時不會被記成corrupt`,
+  `改名成功後才失敗的段會用磁碟上的事實收尾`,
+  `暫存檔還在時不會把撞名的正式檔收進索引`,
+  `被標成tmp的段在正式檔還在時會復活成final` and
+  `被標成corrupt而檔案不是MP4時不會被復活`.
+- **A `tmp` row whose files are both gone must not stay `tmp` forever.** `TemporarySegmentRecovery`
+  used to skip it ("disk may be offline") on every run, so the backlog grew without bound and
+  ate the batch limit; the live row it was supposed to rescue never got a turn. It now closes
+  the row as `missing` when the volume root still exists — the same verdict
+  `SegmentIndexReconciler.IsVolumeReady` uses — and leaves it alone when it does not. Do not
+  shorten that to "file missing": an unplugged D: looks identical. Also do not drop the
+  `MinimumIdle` guard there; `BeginSegment` writes the row before ffmpeg creates the `.tmp`,
+  and condemning it in that window makes the later `CompleteSegment` (which requires `tmp`)
+  update nothing. Guarded by `磁碟還在但兩個檔案都不在時會收斂成missing`,
+  `磁碟不在時兩個檔案都找不到會留著等下一輪而不標成corrupt` and
+  `剛開始錄而暫存檔還沒出現時不會被判成missing`.
+- **A tiny control panel must not be `WindowState="Maximized"`.** `PtzWindow` is a 220x340
+  always-on-top panel (direction keys, zoom, presets) meant to sit next to the picture; the
+  XAML said `Maximized`, so choosing PTZ blanked the whole screen with an almost empty panel
+  and looked like a crash. It compiles silently. Guarded by `PTZ面板不會以最大化開啟`.
 - **Never write `async void` shutdown handlers.** WPF begins `Shutdown` as soon as the
   last window closes, so continuations after an `await` in `MainWindow.OnWindowClosed`
   never run: `StopAllAsync()` was silently dropped and `App.OnExit` hard-killed the

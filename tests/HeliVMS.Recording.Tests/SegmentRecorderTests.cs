@@ -747,6 +747,82 @@ public sealed class SegmentRecorderTests : IDisposable
         Assert.Equal(5d, stored.DurationSec!.Value, 1);
     }
 
+    /// <summary>
+    /// 收尾途中失敗（這裡讓「取收尾時間」擲例外）但正式檔已經在磁碟上時，這一段仍然算錄成了。
+    ///
+    /// 現場症狀：資料夾裡躺著完整的 <c>seg-*.mp4</c>，索引卻記成 corrupt，回放清單裡沒有它，
+    /// 而日誌只說「corrupt」。使用者看到的是「有錄影檔、回放沒有」，怎麼找都找不到原因。
+    /// 這裡用注入時鐘在「改名之後」擲例外，驗證補救路徑真的被接上：不得留下 corrupt。
+    /// </summary>
+    [Fact]
+    public async Task 收尾途中失敗但正式檔已在時不會被記成corrupt()
+    {
+        var t = new DateTime(2026, 6, 7, 8, 0, 0, DateTimeKind.Utc);
+        var calls = 0;
+        Func<DateTime> clock = () => Interlocked.Increment(ref calls) == 2
+            ? throw new InvalidOperationException("模擬取收尾時間時失敗")
+            : t.AddSeconds(5 * calls);
+
+        var factory = new FakeProcessFactory(FirstCompletesThenPending);
+        await using var recorder = new SegmentRecorder(_segments, factory, _ => string.Empty, clock: clock);
+
+        await recorder.StartAsync(_channelId, RtspUrl, _recordingsRoot, "main", SegmentSeconds);
+        await WaitUntilAsync(() => recorder.LastFailure is not null);
+
+        var rows = _segments.ListByRange(_channelId, "main", t.AddMinutes(-1), t.AddMinutes(30));
+
+        Assert.DoesNotContain(rows, r => r.Status == SegmentStatus.Corrupt);
+        Assert.Contains(rows, r => r.Status == SegmentStatus.Final && r.SizeBytes > 0);
+        Assert.Empty(Directory.GetFiles(_recordingsRoot, "*.tmp", SearchOption.AllDirectories));
+    }
+
+    /// <summary>
+    /// 改名成功、後續失敗時，用磁碟上的事實（大小、最後寫入時間、SHA-256）把這一段補完。
+    ///
+    /// 這條路徑只在收尾途中出錯時才會走到，用真實行程模擬不出來，所以直接測這個接縫。
+    /// </summary>
+    [Fact]
+    public void 改名成功後才失敗的段會用磁碟上的事實收尾()
+    {
+        var t = new DateTime(2026, 4, 5, 10, 0, 0, DateTimeKind.Utc);
+        var finalPath = Path.Combine(_recordingsRoot, "seg-100000000.mp4");
+        var bytes = Encoding.UTF8.GetBytes("fake-mp4-payload");
+        File.WriteAllBytes(finalPath, bytes);
+        File.SetLastWriteTimeUtc(finalPath, t.AddSeconds(12));
+        var id = _segments.BeginSegment(_channelId, "main", finalPath, t);
+
+        Assert.True(SegmentRecorder.TryCompleteMovedSegment(
+            _segments, id, finalPath, finalPath + ".tmp", t));
+
+        var row = Assert.IsType<SegmentRecord>(_segments.Get(id));
+        Assert.Equal(SegmentStatus.Final, row.Status);
+        Assert.Equal(bytes.Length, row.SizeBytes);
+        Assert.Equal(Sha256Of(bytes), row.Sha256);
+        Assert.Equal(t.AddSeconds(12), row.EndUtc!.Value, TimeSpan.FromSeconds(1));
+        Assert.Equal(12d, row.DurationSec!.Value, 1);
+    }
+
+    /// <summary>
+    /// 暫存檔還在就代表改名根本沒成功（最常見的原因是目的地撞名），正式檔是<b>別人</b>的段；
+    /// 這時候把它的資訊抄進這一列，就是把 A 台的錄影記到 B 台名下。
+    ///
+    /// 證據錯置比看不到更糟：回放會指著錯的攝影機，而索引上看不出任何異狀。
+    /// </summary>
+    [Fact]
+    public void 暫存檔還在時不會把撞名的正式檔收進索引()
+    {
+        var t = new DateTime(2026, 4, 5, 10, 0, 0, DateTimeKind.Utc);
+        var finalPath = Path.Combine(_recordingsRoot, "seg-100500000.mp4");
+        var tmpPath = finalPath + ".tmp";
+        File.WriteAllBytes(finalPath, Encoding.UTF8.GetBytes("別人的段"));
+        File.WriteAllBytes(tmpPath, Encoding.UTF8.GetBytes("自己的段"));
+        var id = _segments.BeginSegment(_channelId, "main", finalPath, t);
+
+        Assert.False(SegmentRecorder.TryCompleteMovedSegment(_segments, id, finalPath, tmpPath, t));
+
+        Assert.Equal(SegmentStatus.Temporary, Assert.IsType<SegmentRecord>(_segments.Get(id)).Status);
+    }
+
     /// <summary>第一、第二段立即成功收尾；之後的行程停住，直到被停止或取消。</summary>
     private static FakeProcess FirstTwoCompleteThenPending(int index, ProcessStartInfo psi)
     {

@@ -277,6 +277,77 @@ public sealed class RecordingDiskImporterTests : IDisposable
         Assert.Equal(id, only.ChannelId);
     }
 
+    /// <summary>
+    /// 索引記成 tmp、正式檔卻在磁碟上的段要能匯入成 final。
+    ///
+    /// 症狀：收尾三步（改名 → 算雜湊 → 寫索引）在最後一步失敗，索引停在 tmp、正式檔好好的。
+    /// 回放只讀 final，所以看不到；以前的匯入把 tmp 當成「已索引」跳過，於是怎麼掃都掃不回來。
+    /// </summary>
+    [Fact]
+    public void 被標成tmp的段在正式檔還在時會復活成final()
+    {
+        var id = AddChannel("攝影機01");
+        var path = WriteMp4Segment("攝影機01", Start);
+        var repo = new SegmentRepository(_store);
+        var segmentId = repo.BeginSegment(id, "main", path, Start);
+
+        var report = Import(Assert.Single(Scan()), id);
+
+        Assert.Equal(1, report.Revived);
+        var row = Assert.IsType<SegmentRecord>(repo.Get(segmentId));
+        Assert.Equal(SegmentStatus.Final, row.Status);
+        // tmp 列的結束時間、大小、時長都是空的，必須由磁碟補上；補 0 的話時間軸畫不出來。
+        Assert.Equal(new FileInfo(path).Length, row.SizeBytes);
+        Assert.NotNull(row.EndUtc);
+        Assert.True(row.EndUtc > row.StartUtc);
+        Assert.True(row.DurationSec > 0, "時長必須是正值，否則回放時間軸上沒有這一段");
+    }
+
+    /// <summary>
+    /// 索引記成 corrupt、正式檔卻在磁碟上的段一樣要能匯入：這是收尾途中失敗留下來的完整錄影，
+    /// 不是壞檔。兩者（tmp 與 corrupt）在磁碟上的樣子完全一樣，只差索引寫到哪一步。
+    /// </summary>
+    [Fact]
+    public void 被標成corrupt的段在正式檔是MP4時會復活成final()
+    {
+        var id = AddChannel("攝影機01");
+        var path = WriteMp4Segment("攝影機01", Start);
+        var repo = new SegmentRepository(_store);
+        var segmentId = repo.BeginSegment(id, "main", path, Start);
+        repo.MarkCorrupt(segmentId);
+
+        var report = Import(Assert.Single(Scan()), id);
+
+        Assert.Equal(1, report.Revived);
+        Assert.Equal(SegmentStatus.Final, Assert.IsType<SegmentRecord>(repo.Get(segmentId)).Status);
+    }
+
+    /// <summary>
+    /// corrupt 的檔案若不是 MP4（半截、垃圾、其他程式留下的東西），不能因為「檔案在」就匯入。
+    ///
+    /// 匯入一段播不出來的影片，是把「看不到」換成「點下去報錯」，而且回放時間軸會多一條永遠
+    /// 失敗的段——比維持原狀更難查。
+    /// </summary>
+    [Fact]
+    public void 被標成corrupt而檔案不是MP4時不會被復活()
+    {
+        var id = AddChannel("攝影機01");
+        var path = WriteSegment("攝影機01", Start, size: 4096);
+        var repo = new SegmentRepository(_store);
+        var segmentId = repo.BeginSegment(id, "main", path, Start);
+        repo.MarkCorrupt(segmentId);
+
+        Assert.Empty(Scan());
+
+        var report = Import(
+            new RecordingImportFolder(
+                Path.Combine(_root, "攝影機01"), "攝影機01", id, 1, 4096, Start, Start),
+            id);
+
+        Assert.Equal(0, report.Revived);
+        Assert.Equal(SegmentStatus.Corrupt, Assert.IsType<SegmentRecord>(repo.Get(segmentId)).Status);
+    }
+
     private int AddChannel(string name)
     {
         var id = new ChannelRepository(_store).Add(name, "rtsp://127.0.0.1/live");
@@ -304,6 +375,24 @@ public sealed class RecordingDiskImporterTests : IDisposable
         var path = Path.Combine(dir, $"seg-{startUtc:HHmmssfff}.mp4");
         File.WriteAllBytes(path, new byte[size]);
         File.SetLastWriteTimeUtc(path, lastWriteUtc ?? startUtc.AddSeconds(durationSeconds));
+        return path;
+    }
+
+    /// <summary>
+    /// 寫一個「開頭真的是 MP4」的段檔（第一個 box 型別是 <c>ftyp</c>）。
+    /// tmp／corrupt 的復活會驗簽章，用全零檔案測不出真實情境。
+    /// </summary>
+    private string WriteMp4Segment(string folder, DateTime startUtc, int durationSeconds = 20)
+    {
+        var dir = Path.Combine(_root, folder, startUtc.ToString("yyyyMMdd"), startUtc.ToString("HH"));
+        Directory.CreateDirectory(dir);
+        var path = Path.Combine(dir, $"seg-{startUtc:HHmmssfff}.mp4");
+        var bytes = new byte[256];
+        bytes[3] = 0x18;
+        System.Text.Encoding.ASCII.GetBytes("ftyp").CopyTo(bytes, 4);
+        System.Text.Encoding.ASCII.GetBytes("isom").CopyTo(bytes, 8);
+        File.WriteAllBytes(path, bytes);
+        File.SetLastWriteTimeUtc(path, startUtc.AddSeconds(durationSeconds));
         return path;
     }
 }

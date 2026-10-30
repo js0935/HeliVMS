@@ -80,6 +80,32 @@ public partial class PtzWindow : Window
         PtzCloseButton.ToolTip = Localizer.T("Ptz.CloseTip");
     }
 
+    /// <summary>
+    /// 面板沒有標題列（<c>WindowStyle="None"</c>），所以狀態列同時當拖曳把手。
+    ///
+    /// <para>
+    /// 沒有的話，面板會固定釘在擁有者視窗正中央而且永遠置頂——正好蓋住要看的畫面，
+    /// 而操作員沒有任何辦法把它移開。只有按住左鍵才拖（<see cref="Window.DragMove"/> 在
+    /// 按鍵已放開時會擲 <see cref="InvalidOperationException"/>，例如點一下就跑完的事件）。
+    /// </para>
+    /// </summary>
+    private void OnDragHandle(object sender, MouseButtonEventArgs e)
+    {
+        if (e.ButtonState != MouseButtonState.Pressed)
+        {
+            return;
+        }
+
+        try
+        {
+            DragMove();
+        }
+        catch (InvalidOperationException)
+        {
+            // 按鍵在拖曳開始前就放開了：不是錯誤，下一次按得住就會動。
+        }
+    }
+
     private async Task InitializeAsync()
     {
         try

@@ -7,6 +7,12 @@
     <ProjectReference Include="..\HeliVMS.Shared\HeliVMS.Shared.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- 「改名成功、後續步驟失敗」的補救路徑只在收尾途中出錯時才會走到，用真實行程模擬不出來，
+         所以抽成 internal static 直接測（同 Rtc 的 TeardownAsync）。 -->
+    <InternalsVisibleTo Include="HeliVMS.Recording.Tests" />
+  </ItemGroup>
+
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>

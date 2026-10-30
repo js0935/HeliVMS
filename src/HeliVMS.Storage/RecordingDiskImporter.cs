@@ -24,7 +24,7 @@ public sealed record RecordingImportFolder(
 /// <summary>一次磁碟錄影匯入的結果。</summary>
 /// <param name="Folders">實際處理的資料夾數。</param>
 /// <param name="Imported">新增的區段列數。</param>
-/// <param name="Revived">原本被標成 missing、因檔案仍在而復活的列數。</param>
+/// <param name="Revived">原本被標成 missing／tmp／corrupt、因檔案仍在而復活的列數。</param>
 /// <param name="Skipped">已在索引中或無法解析而略過的檔案數。</param>
 /// <param name="Bytes">新增段（含復活）的檔案大小總和。</param>
 public readonly record struct RecordingImportReport(
@@ -309,9 +309,22 @@ public sealed class RecordingDiskImporter
                 continue;
             }
 
-            if (known.TryGetValue(full, out var status) && status != SegmentStatus.Missing)
+            if (known.TryGetValue(full, out var status))
             {
-                continue;
+                if (status is SegmentStatus.Final or SegmentStatus.Retired)
+                {
+                    // 已經在索引裡而且是完成狀態，磁碟上的檔案不必再看。
+                    continue;
+                }
+
+                // tmp／corrupt 也代表「索引還沒認可這個檔案」（收尾途中失敗會留下這種列），
+                // 只有在檔案本身真的像 MP4 時才採納：corrupt 的檔案常常是半截或垃圾，
+                // 復活它等於把「看不到」換成「點下去報錯」，比不匯入更糟。
+                if ((status is SegmentStatus.Temporary or SegmentStatus.Corrupt)
+                    && !Mp4Signature.LooksLikeMp4(full))
+                {
+                    continue;
+                }
             }
 
             if (!TryParseStartUtc(full, out var startUtc) || !starts.Add(startUtc))
@@ -360,7 +373,14 @@ public sealed class RecordingDiskImporter
         return FallbackDurationSec;
     }
 
-    /// <summary>資料夾內已建索引的路徑與狀態（missing 的列可以被復活）。</summary>
+    /// <summary>
+    /// 資料夾內已建索引的路徑與狀態。
+    /// <para>
+    /// <c>final</c>／<c>retired</c> 是「索引已經認可」的狀態，掃描時跳過；<c>missing</c>／
+    /// <c>tmp</c>／<c>corrupt</c> 代表索引不認得磁碟上這個檔案（檔案被刪過、或收尾途中失敗），
+    /// 由 <see cref="Collect"/> 進一步確認後採納。
+    /// </para>
+    /// </summary>
     private Dictionary<string, SegmentStatus> KnownPaths(string folderPath)
     {
         var known = new Dictionary<string, SegmentStatus>(StringComparer.OrdinalIgnoreCase);
