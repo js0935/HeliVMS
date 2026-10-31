@@ -210,8 +210,10 @@ public sealed class ChannelRepository
                 cmd.Parameters.AddWithValue("$d", deviceId);
                 cmd.Parameters.AddWithValue("$om", (object?)oldMain ?? DBNull.Value);
                 cmd.Parameters.AddWithValue("$os", (object?)oldSub ?? DBNull.Value);
-                cmd.Parameters.AddWithValue("$m", (object?)main ?? DBNull.Value);
-                cmd.Parameters.AddWithValue("$s", (object?)sub ?? DBNull.Value);
+                // 與 DeviceRepository.SetStreamUrls 相同的空白規則（空白＝NULL），
+                // 否則 devices 與 channels 會一邊 NULL 一邊空字串，下一次比對舊值就對不上。
+                cmd.Parameters.AddWithValue("$m", string.IsNullOrWhiteSpace(main) ? DBNull.Value : main);
+                cmd.Parameters.AddWithValue("$s", string.IsNullOrWhiteSpace(sub) ? DBNull.Value : sub);
             });
     }
 
