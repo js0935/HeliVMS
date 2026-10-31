@@ -3051,13 +3051,19 @@ public partial class PlaybackWindow : Window
     {
         if ((segment ?? _current) is not { } seg)
         {
-            // 沒有播放頭（還沒載入、清空狀態）就沒有錄影時刻可言，維持相對值的零值顯示。
+            // 沒有播放頭（還沒載入、清空狀態）就沒有錄影時刻可言，維持相對值的零值顯示；
+            // 左上角 OSD 一併收掉，讓 EmptyHint 說話。
             TimeText.Text = $"{FormatTime(0)} / {FormatTime(0)}";
+            PlayerOsd.Text = string.Empty;
             return;
         }
 
         var at = RecordingInstant(seg, _posInside);
         TimeText.Text = $"{at:HH:mm:ss}（{FormatTime(_posInside)} / {FormatTime(LengthOf(seg))}）";
+
+        // 主畫面左上角 OSD 與次畫面同一份格式（頻道名 + 錄影時刻）：從多分割放大回單畫面，
+        // 對時的位置不能消失——單分割時主畫面就是唯一的畫面，等於 pane 的 OSD。
+        PlayerOsd.Text = OsdText(ChannelCombo.SelectedItem as ChannelInfo, seg, _posInside);
     }
 
     /// <summary>
@@ -3066,6 +3072,16 @@ public partial class PlaybackWindow : Window
     /// </summary>
     private static DateTime RecordingInstant(SegmentRecord segment, double posInside) =>
         TimeZoneInfo.ConvertTimeFromUtc(segment.StartUtc.AddSeconds(posInside), TimeZoneInfo.Local);
+
+    /// <summary>
+    /// 畫面左上角 OSD 的文字：頻道名＋錄影時刻。主畫面與次畫面共用同一份格式，
+    /// 放大／縮小格數時讀起來是同一種字。
+    /// </summary>
+    private static string OsdText(ChannelInfo? channel, SegmentRecord segment, double posInside)
+    {
+        var at = RecordingInstant(segment, posInside);
+        return channel is null ? $"{at:HH:mm:ss}" : $"{channel.Name}  {at:HH:mm:ss}";
+    }
 
     private static string FormatTime(double seconds)
     {
@@ -3402,11 +3418,10 @@ public partial class PlaybackWindow : Window
 
         // 多路比對要能對時：OSD 顯示這一格此刻的「錄影時刻」（絕對），不是段內位置——
         // 段內 00:35 在兩台上對不到同一個時刻，操作員核對的是「同一瞬間兩邊各拍到什麼」。
-        // 換算與主讀數共用 RecordingInstant，兩邊才不會出現兩套時鐘。
+        // 格式與主畫面 OSD 共用 OsdText，放大回單畫面時讀起來是同一種字。
         if (pane.Current is { } paneSeg)
         {
-            var paneAt = RecordingInstant(paneSeg, pane.PosInside);
-            pane.Osd.Text = $"{pane.Channel.Name}  {paneAt:HH:mm:ss}";
+            pane.Osd.Text = OsdText(pane.Channel, paneSeg, pane.PosInside);
         }
     }
 

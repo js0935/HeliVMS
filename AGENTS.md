@@ -252,8 +252,13 @@ Notes that will save you time:
   `pos / length` only as a secondary — operators copy this readout into reports and use it to
   correlate events, and a segment-relative number matches hundreds of different wall-clock
   moments in a day. The pane OSD shows the same instant through the same helper, so the main
-  readout and a synced pane can never disagree about "what time is this". Guarded by
-  `播放讀數以錄影時刻為主而非段內位置` and `次畫面OSD顯示錄影時刻而非段內位置`.
+  readout and a synced pane can never disagree about "what time is this". The **main player has
+  its own top-left OSD too** (`PlayerOsd`, same `OsdText` format): in 1-split the main view is
+  the only pane, and an operator who zoomed in from the wall loses the familiar corner clock if
+  only the bottom readout carries the time. It is written by `ShowPlayheadTime` (the only writer
+  of time readouts) and cleared with the playback head, so it can never outlive its segment.
+  Guarded by `播放讀數以錄影時刻為主而非段內位置`, `單一畫面也有左上角的錄影時間OSD` and
+  `次畫面OSD顯示錄影時刻而非段內位置`.
 - **"Replay selection" must stop where the selection stops.** Recordings are one file per
   segment, so a selected 10:00–10:30 spans several files. `OnEnded` continues into the next
   segment while it still starts before the upper bound — but that branch must also *end the

@@ -248,27 +248,52 @@ public sealed class PlaybackWindowContractTests
     {
         var show = SourceContract.BodyOf(SourceContract.Read(Code), "ShowPlayheadTime");
 
-        // 錄影時刻走共用的 RecordingInstant（段起點＋段內位置 → 地方時）。
-        Assert.Contains("RecordingInstant(", show);
+        // 讀數本體：錄影時刻（{at:HH:mm:ss}）在前，位置／段長只在其後的括號裡。
+        // 寫反了（只剩段內相對值）操作員就沒有對時資訊——現場回報過「只看到長度時間」。
+        Assert.Contains(
+            @"TimeText.Text = $""{at:HH:mm:ss}（{FormatTime(_posInside)} / {FormatTime(LengthOf(seg))}）""",
+            show,
+            StringComparison.Ordinal);
 
-        // 位置／段長仍要保留（拖進度、確認段長時有用），但只能排在錄影時刻之後。
-        Assert.Contains("FormatTime(_posInside)", show);
-        Assert.True(
-            show.IndexOf("RecordingInstant(", StringComparison.Ordinal)
-                < show.IndexOf("FormatTime(_posInside)", StringComparison.Ordinal),
-            "錄影時刻要寫在位置／段長之前。");
+        // 左上角 OSD 的文字走共用的 OsdText（與次畫面同一份格式）。
+        Assert.Contains("OsdText(", show);
+    }
+
+    /// <summary>
+    /// 單一畫面（主播放器）左上角也要有錄影時間 OSD，與多分割的次畫面一致。
+    /// </summary>
+    /// <remarks>
+    /// 次畫面在左上角顯示「頻道名 · 錄影時刻」，主畫面卻只有底部控制列的讀數：
+    /// 單分割時主畫面就是唯一的畫面，等於 pane 的 OSD；操作員習慣的對時位置不能消失。
+    /// OSD 由 <c>ShowPlayheadTime</c> 一起維護——它是唯一寫時間讀數的地方，
+    /// 暫停、停止、掠過時間軸之後都會被叫回，OSD 才不會停在舊狀態。
+    /// </remarks>
+    [Fact]
+    public void 單一畫面也有左上角的錄影時間OSD()
+    {
+        var source = SourceContract.Read(Code);
+        var xaml = SourceContract.Read("src/HeliVMS.App/PlaybackWindow.xaml");
+
+        Assert.Contains("x:Name=\"PlayerOsd\"", xaml);
+
+        var show = SourceContract.BodyOf(source, "ShowPlayheadTime");
+        Assert.Contains("PlayerOsd.Text", show);
+        Assert.Contains("OsdText(", show);
+
+        // 沒有播放頭時要整個收掉，不能留著上一台的時刻（證據指向錯的畫面）。
+        Assert.Contains("PlayerOsd.Text = string.Empty", show);
     }
 
     /// <summary>
     /// 次畫面 OSD 也要顯示錄影時刻：多路比對核對的是「同一瞬間兩邊各拍到什麼」，
-    /// 段內位置在兩台之間對不到同一個時刻。且必須與主讀數共用同一份換算。
+    /// 段內位置在兩台之間對不到同一個時刻。且必須與主畫面 OSD 共用同一份格式。
     /// </summary>
     [Fact]
     public void 次畫面OSD顯示錄影時刻而非段內位置()
     {
         var frame = SourceContract.BodyOf(SourceContract.Read(Code), "OnPaneFrame");
 
-        Assert.Contains("RecordingInstant(", frame);
+        Assert.Contains("OsdText(", frame);
         Assert.Contains("pane.PosInside", frame);
         Assert.DoesNotContain("FormatTime(pane.PosInside)", frame);
     }

@@ -232,6 +232,11 @@
                         <TextBlock x:Name="EmptyHint" Text=""
                                    HorizontalAlignment="Center" VerticalAlignment="Center"
                                    Foreground="{StaticResource Brand.TextDim}" FontSize="13"/>
+                        <TextBlock x:Name="PlayerOsd" Text=""
+                                   HorizontalAlignment="Left" VerticalAlignment="Top" Margin="4"
+                                   Foreground="White" Background="#99000000" FontSize="11" Padding="4,1,4,1"
+                                   IsHitTestVisible="False"
+                                   AutomationProperties.AutomationId="PlaybackPlayerOsd"/>
                         <Canvas x:Name="RedactOverlay" IsHitTestVisible="False" ClipToBounds="True"
                                 AutomationProperties.AutomationId="PlaybackRedactOverlay"/>
                     </Grid>
