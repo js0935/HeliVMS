@@ -387,6 +387,16 @@ Notes that will save you time:
   `ChannelManager.DisposeAsync`; a `ShutdownWatchdog` force-exits (logging first) after
   the total budget, so "closed" always means closed. Guarded by
   `ShutdownSequencerTests`.
+- **The on-screen keyboard is `osk.exe` — refocus the target before launching it.** The keyboard
+  call button on every input used to open a hand-built WPF keyboard panel (M292: a drag-guard typo
+  made every key dead). The panel is gone; `Osk.Toggle` now refocuses the target input and
+  launches the system `osk.exe` (single instance — a second launch just brings it to the front;
+  `Enabled` only hides/shows the call buttons). Two traps: osk sends keys to whatever has focus,
+  and clicking the WPF call button moves focus to the button — skipping the refocus makes osk
+  type into the button; and a 32-bit process on 64-bit Windows has System32 redirected to
+  SysWOW64 where osk.exe does not exist — `ResolveOskPath` must use the `Sysnative` alias there.
+  A trimmed-down install may have no osk.exe at all: the launch failure is swallowed on purpose.
+  Guarded by `OskContractTests` (the old panel/layout tests are gone with the panel).
 - **`Application.MainWindow` is the splash, not the monitor wall.** `SplashWindow` is the first
   window created, so the property points at it (or goes null after it closes). Looking up the
   real window that way made the single-instance wake-up silently do nothing: a second launch

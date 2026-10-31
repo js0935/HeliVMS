@@ -1,84 +1,75 @@
 namespace HeliVMS.App.Tests;
 
 /// <summary>
-/// 螢幕虛擬鍵盤（<c>Osk.cs</c>）的原始碼契約（M292）。
+/// 螢幕虛擬鍵盤（<c>Osk.cs</c>）的原始碼契約。
 /// </summary>
 /// <remarks>
 /// <para>
-/// 實際事故：使用者回報「鍵盤叫得出來，但按鍵完全沒反應，也不能切換大小寫」。
-/// 桌面端沒有 WPF 執行期測試，而 <c>OskPanel</c> 只能在真的開視窗後才知道對錯，
-/// 兩個缺陷都不會編譯錯，只會安靜地讓整個鍵盤不能用：
+/// 歷史（M292）：自製鍵盤面板曾因拖曳守衛寫成 <c>e.OriginalSource is Button</c> 而
+/// 完全打不出字（點按鈕時 OriginalSource 是範本內的 Border，守衛永遠不成立，每個
+/// 按鍵都誤觸 DragMove 的模態迴圈）。後來整個面板移除，改為呼叫系統 <c>osk.exe</c>
+/// ——鍵帽、IME、各國配置都是 Windows 的維護成本，本程式只剩「還焦點、叫起來」。
+/// </para>
+/// <para>
+/// 兩個用契約釘住的細節：
 /// </para>
 /// <list type="bullet">
-/// <item>拖曳守衛寫成 <c>e.OriginalSource is Button</c>。點按鈕時 <c>OriginalSource</c>
-/// 是範本內的 <c>Border</c>／<c>AccessText</c>，永遠不是 <c>Button</c>，於是每個按鍵都
-/// 誤觸 <c>DragMove()</c> 的模態迴圈並吃掉 <c>Click</c>——鍵盤因此完全打不出字。</item>
-/// <item>版面根本沒有大小寫切換鍵，字母只有大寫，使用者無從切換。</item>
+/// <item>osk 的按鍵送到「目前有焦點的控制項」。呼叫鈕被點下時 WPF 把焦點給按鈕，
+/// 不先還給輸入框，osk 打的字會落在按鈕上——症狀是「小鍵盤沒作用」。</item>
+/// <item>32 位元程序在 64 位元 Windows 上，System32 會被轉送到 SysWOW64（那裡沒有
+/// osk.exe），必須走 Sysnative 虛擬別名，否則啟動直接 Win32Exception。</item>
 /// </list>
-/// <para>
-/// 已知邊界：契約只證明「正確的守衛與切換接線存在」，不證明實際點擊行為——那需要
-/// WPF 執行期環境；純邏輯（字母集合、大小寫）由
-/// <c>HeliVMS.Shared.Tests.OnScreenKeyboardLayoutTests</c> 覆蓋。
-/// </para>
 /// </remarks>
 public sealed class OskContractTests
 {
     private const string Code = "src/HeliVMS.App/Osk.cs";
 
     [Fact]
-    public void 拖曳不再以OriginalSource是否為Button判斷()
+    public void 呼叫鈕會聚焦目標輸入框並啟動系統小鍵盤()
+    {
+        var body = SourceContract.BodyOf(SourceContract.Read(Code), "ToggleCore");
+        Assert.NotEqual(string.Empty, body);
+
+        // osk 的按鍵送到有焦點的控制項：先還焦點，再啟動。
+        Assert.Contains("target.Focus()", body);
+        Assert.Contains("Process.Start(", body);
+        Assert.Contains("ResolveOskPath()", body);
+    }
+
+    [Fact]
+    public void 三十二位元程序要走Sysnative找osk()
+    {
+        var body = SourceContract.BodyOf(SourceContract.Read(Code), "ResolveOskPath");
+        Assert.NotEqual(string.Empty, body);
+
+        Assert.Contains("Environment.Is64BitProcess", body);
+        Assert.Contains("Sysnative", body);
+        Assert.Contains("osk.exe", body);
+    }
+
+    [Fact]
+    public void 啟用狀態仍控制呼叫鈕的顯示()
+    {
+        var source = SourceContract.Read(Code);
+
+        // 設定頁的「觸控模式」開關只透過 Enabled 生效：關閉時呼叫鈕整批藏起來。
+        // Enabled 是屬性（沒有括號），不能走 BodyOf，直接對全文斷言。
+        Assert.Contains("public static bool Enabled", source, StringComparison.Ordinal);
+        Assert.Contains("_enabled = value", source, StringComparison.Ordinal);
+        Assert.Contains("foreach (var b in _callButtons)", source, StringComparison.Ordinal);
+        Assert.Contains("public static Visibility CallVisibility", source, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void 不再內建自製鍵盤面板()
     {
         var code = SourceContract.Read(Code);
 
-        // 這個判斷永遠不成立，正是「按鍵沒反應」的根因，不得再出現。
-        Assert.DoesNotContain("OriginalSource is Button", code);
-
-        // 拖曳只認外框本身；點在按鈕上時事件已被按鈕標記為已處理、不會冒泡到外框。
-        Assert.Contains("ReferenceEquals(e.OriginalSource, shell)", code);
-    }
-
-    [Fact]
-    public void 拖曳改用氣泡階段且仍會實際移動視窗()
-    {
-        var code = SourceContract.Read(Code);
-
-        Assert.Contains("shell.MouseLeftButtonDown += ", code);
-        Assert.DoesNotContain("PreviewMouseLeftButtonDown += OnShellDragStart", code);
-
-        var drag = SourceContract.BodyOf(code, "TryDragMove");
-        Assert.NotEqual(string.Empty, drag);
-        Assert.Contains("DragMove()", drag);
-    }
-
-    [Fact]
-    public void 版面由共用純函式提供()
-    {
-        // 字母集合與大小寫邏輯抽到 HeliVMS.Shared，才測得到；此處釘住確實有接上。
-        Assert.Contains("OnScreenKeyboardLayout.Rows(_shift)", SourceContract.Read(Code));
-    }
-
-    [Fact]
-    public void 按鍵會實際寫入目標輸入框()
-    {
-        var body = SourceContract.BodyOf(SourceContract.Read(Code), "OnKeyClicked");
-        Assert.NotEqual(string.Empty, body);
-
-        Assert.Contains("Osk.AppendInput(Target", body);
-        Assert.Contains("OnScreenKeyboardLayout.BackspaceKey", body);
-        Assert.Contains("OnScreenKeyboardLayout.ClearKey", body);
-    }
-
-    [Fact]
-    public void 有大小寫切換鍵且會重建版面()
-    {
-        var body = SourceContract.BodyOf(SourceContract.Read(Code), "OnKeyClicked");
-        Assert.NotEqual(string.Empty, body);
-
-        Assert.Contains("OnScreenKeyboardLayout.ShiftKey", body);
-        Assert.Contains("_shift = !_shift", body);
-        Assert.Contains("Content = BuildContent()", body);
-
-        // Shift 鍵要出現在版面上（由共用版面提供，這裡確認有對應的標籤與提示）。
-        Assert.Contains("Osk.Shift", SourceContract.Read(Code));
+        // 面板、共用版面與按鍵寫入邏輯都是歷史遺跡，不得回魂：
+        // 回魂等於同時有兩套鍵盤行為（osk 與面板）搶同一批呼叫鈕。
+        Assert.DoesNotContain("OskPanel", code);
+        Assert.DoesNotContain("OnScreenKeyboardLayout", code);
+        Assert.DoesNotContain("AppendInput", code);
+        Assert.DoesNotContain("DragMove", code);
     }
 }
