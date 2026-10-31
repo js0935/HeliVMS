@@ -258,7 +258,12 @@ Notes that will save you time:
   having been picked. `PlayFrom` clears `_rangeStopUtc` (it belongs to the previous operation),
   so the continuation has to restore it after the call, or the replay runs to the end of the
   day. Guarded by `區間重播跨段會接著播下一段並保留結束上界` and
-  `區間播完不會接著播選取範圍外的一段`.
+  `區間播完不會接著播選取範圍外的一段`. The replay also has to *start* inside the selection:
+  `OnReplayRangeClicked` picks the first segment intersecting the half-open range
+  (`StartUtc < range.EndUtc && EndOf(s) > range.StartUtc`), not "the segment covering the start
+  instant" — the start may sit in a gap (old closed-interval match refused the whole replay
+  despite 25 minutes of recording inside it) or exactly at an end (played the previous segment's
+  length → instant `已播放完畢`). Guarded by `重播選取範圍會從範圍內第一段開播`.
 - **The reused playback window must re-read the channel list.** It is one window reused by the
   main app, and `ChannelCombo.Items` was snapshotted when it opened. Switching by membership in
   that list rejected cameras added since: dragging one in from live view did nothing, no error,
