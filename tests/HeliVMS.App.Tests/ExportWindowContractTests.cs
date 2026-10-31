@@ -74,5 +74,16 @@ public sealed class ExportWindowContractTests
         // 狀態／結果搬到右欄狀態面板：長的 SHA-256 與證據包訊息有完整的換行空間。
         Assert.Contains("x:Name=\"ExportStatusHeader\"", xaml, StringComparison.Ordinal);
         Assert.Contains("x:Name=\"ResultText\"", xaml, StringComparison.Ordinal);
+
+        // 起迄 2×2：日期欄 150、時間欄 92。日期欄曾用星號吃滿左欄（看起來很大），
+        // 時間框只剩 72px，「23:59:59」被裁掉——現場回報「日期很大、時間太小」。
+        // 欄位定義與元素寬度一起釘：只釘元素寬度時，欄寬回歸星號不會被發現。
+        Assert.Contains("<ColumnDefinition Width=\"150\"/>", xaml, StringComparison.Ordinal);
+        Assert.Contains("<ColumnDefinition Width=\"92\"/>", xaml, StringComparison.Ordinal);
+        Assert.Matches(@"x:Name=""StartDate""[^>]*Width=""150""", xaml);
+        Assert.Matches(@"x:Name=""EndDate""[^>]*Width=""150""", xaml);
+        Assert.Matches(@"x:Name=""StartTime""[^>]*Width=""92""", xaml);
+        Assert.Matches(@"x:Name=""EndTime""[^>]*Width=""92""", xaml);
+        Assert.DoesNotMatch(@"x:Name=""StartTime""[^>]*Width=""72""", xaml);
     }
 }

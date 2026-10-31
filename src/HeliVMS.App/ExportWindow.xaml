@@ -48,14 +48,15 @@
                               Margin="0,4,0,12"
                               Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
 
-                    <!-- Time range: 2x2 grid (start/end, date/time) instead of one long row,
-                         so neither the date pickers nor the time boxes get squeezed. -->
+                    <!-- Time range: 2x2 grid (start/end, date/time) with fixed widths:
+                         the date column used to be star-sized (huge) while the time box
+                         was left at 72px, clipping "23:59:59". -->
                     <TextBlock x:Name="ExportRangeLabel" Text="" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
                     <Grid Margin="0,4,12,0">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto"/>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="72"/>
+                            <ColumnDefinition Width="150"/>
+                            <ColumnDefinition Width="92"/>
                         </Grid.ColumnDefinitions>
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto"/>
@@ -65,20 +66,20 @@
                                    Foreground="{StaticResource Brand.TextDim}" FontSize="11"
                                    VerticalAlignment="Center" Margin="0,0,8,0"/>
                         <DatePicker x:Name="StartDate" AutomationProperties.AutomationId="StartDate"
-                                    Grid.Row="0" Grid.Column="1" Margin="0,4,0,0"
+                                    Grid.Row="0" Grid.Column="1" Margin="0,4,0,0" Width="150" HorizontalAlignment="Left"
                                     Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
                         <TextBox x:Name="StartTime" AutomationProperties.AutomationId="ExportStartTime"
-                                 Grid.Row="0" Grid.Column="2" Margin="6,4,0,0"
+                                 Grid.Row="0" Grid.Column="2" Margin="6,4,0,0" Width="92" HorizontalAlignment="Left"
                                  Text="00:00:00" VerticalContentAlignment="Center"
                                  Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
                         <TextBlock x:Name="ExportEndLabel" Text="" Grid.Row="1" Grid.Column="0"
                                    Foreground="{StaticResource Brand.TextDim}" FontSize="11"
                                    VerticalAlignment="Center" Margin="0,0,8,0"/>
                         <DatePicker x:Name="EndDate" AutomationProperties.AutomationId="EndDate"
-                                    Grid.Row="1" Grid.Column="1" Margin="0,8,0,0"
+                                    Grid.Row="1" Grid.Column="1" Margin="0,8,0,0" Width="150" HorizontalAlignment="Left"
                                     Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
                         <TextBox x:Name="EndTime" AutomationProperties.AutomationId="ExportEndTime"
-                                 Grid.Row="1" Grid.Column="2" Margin="6,8,0,0"
+                                 Grid.Row="1" Grid.Column="2" Margin="6,8,0,0" Width="92" HorizontalAlignment="Left"
                                  Text="23:59:59" VerticalContentAlignment="Center"
                                  Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
                     </Grid>
