@@ -1502,6 +1502,21 @@ public partial class MainWindow : Window
                         sweep.MergedDeletedFiles));
                 }
 
+                if (sweep.PressureDeletedSegments > 0)
+                {
+                    // 壓力汰除：磁碟低於寫入門檻時自動淘汰最舊錄影。不講的話操作員會以為
+                    // 程式「自己開始刪檔」，必須說清楚是磁碟空間不足驅動的。
+                    hintParts.Add(string.Format(
+                        Localizer.T("Main.PressureDeletedSegments"),
+                        sweep.PressureDeletedSegments,
+                        FormatBytes(sweep.PressureFreedBytes)));
+                }
+
+                if (sweep.PressureStillCritical)
+                {
+                    hintParts.Add(Localizer.T("Main.PressureExhausted"));
+                }
+
                 if (hintParts.Count > 0)
                 {
                     HintText.Text = string.Format(Localizer.T("Main.QuotaCleanup"), string.Join("、", hintParts));

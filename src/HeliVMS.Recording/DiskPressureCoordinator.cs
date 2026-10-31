@@ -34,11 +34,21 @@ public static class DiskPressureCoordinator
         SqliteStore store,
         string? fallbackRoot,
         Func<string, (long TotalBytes, long FreeBytes)>? usageFor = null)
+        => [.. ConfiguredDriveUsageDetailed(store, fallbackRoot, usageFor)
+            .Select(d => (d.TotalBytes, d.FreeBytes))];
+
+    /// <summary>
+    /// 同 <see cref="ConfiguredDriveUsage"/>，但保留磁碟根路徑（壓力汰除需要知道「刪哪顆碟上的段」）。
+    /// </summary>
+    public static IReadOnlyList<(string Root, long TotalBytes, long FreeBytes)> ConfiguredDriveUsageDetailed(
+        SqliteStore store,
+        string? fallbackRoot,
+        Func<string, (long TotalBytes, long FreeBytes)>? usageFor = null)
     {
         ArgumentNullException.ThrowIfNull(store);
 
         var usage = usageFor ?? RecordingStorage.DriveUsageFor;
-        var list = new List<(long, long)>();
+        var list = new List<(string Root, long TotalBytes, long FreeBytes)>();
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var root in RecordingStorage.ConfiguredRoots(store, fallbackRoot))
         {
@@ -59,7 +69,8 @@ public static class DiskPressureCoordinator
 
             if (seen.Add(key))
             {
-                list.Add(usage(root));
+                var (total, free) = usage(root);
+                list.Add((key, total, free));
             }
         }
 

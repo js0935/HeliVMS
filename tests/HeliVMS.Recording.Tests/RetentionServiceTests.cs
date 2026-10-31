@@ -253,6 +253,104 @@ public class RetentionServiceTests : IDisposable
 
     private RetentionService NewService() => new(_segments, _root, _legalHolds);
 
+    // ===== 壓力汰除（磁碟滿策略第四步：空間低於門檻時淘汰最舊錄影）=====
+
+    // 注入式磁碟模型：可用空間＝基準 free ＋（種下時的索引用量 − 目前索引用量）。
+    // 汰除刪掉一列，索引用量就下降，模型裡的可用空間等量回升——與真實磁碟「刪檔即
+    // 騰出空間」一致，且不依賴磁碟上檔案的真實大小（種子檔只有 1 byte）。
+    private long _baseFree;
+    private long _seededUsage;
+
+    private (long Total, long Free) UsageFor(string path)
+    {
+        var current = _segments.GetTotalUsage();
+        return (10 * GiB, _baseFree + (_seededUsage - current));
+    }
+
+    private void SeedDrive(long baseFree)
+    {
+        _baseFree = baseFree;
+        _seededUsage = _segments.GetTotalUsage();
+    }
+
+    private static long GiB => 1024L * 1024 * 1024;
+
+    [Fact]
+    public void 磁碟低於門檻時會淘汰最舊錄影直到騰出補充水位()
+    {
+        var now = new DateTime(2026, 9, 1, 12, 0, 0, DateTimeKind.Utc);
+        var old = SeedFinal(now.AddHours(-3), 1000);
+        var recent = SeedFinal(now.AddMinutes(-10), 30); // 最近一小時的寫入量估計來源
+        SeedDrive(baseFree: 30);                         // 低於門檻 40
+
+        // 目標 40＋估計(30)＝70；刪最舊的 1000 後可用空間 30＋1000＝1030 ≥ 70 → 停。
+        var driveRoot = Path.GetPathRoot(Path.GetFullPath(old.FilePath))!;
+        var drives = new List<(string Root, long Total, long Free)> { (driveRoot, 10 * GiB, 30) };
+        var report = NewService().ApplyPressure(now, criticalFreeBytes: 40, drives, UsageFor);
+
+        Assert.Equal(1, report.DeletedSegments);
+        Assert.Equal(1000, report.FreedBytes);
+        Assert.False(report.StillCritical);
+        Assert.False(File.Exists(old.FilePath), "最舊的段要被淘汰");
+        Assert.True(File.Exists(recent.FilePath), "最新的段要保住");
+        Assert.Null(_segments.Get(old.Id));
+        Assert.NotNull(_segments.Get(recent.Id));
+    }
+
+    [Fact]
+    public void 全部錄影受保存鎖定時不會刪任何東西並回報仍危急()
+    {
+        var now = new DateTime(2026, 9, 1, 12, 0, 0, DateTimeKind.Utc);
+        var seg = SeedFinal(now.AddHours(-3), 1000);
+        _legalHolds.Add(1, now.AddHours(-4), now, "案件 A", "tester", DateTime.UtcNow);
+        SeedDrive(baseFree: 30);
+
+        var driveRoot = Path.GetPathRoot(Path.GetFullPath(seg.FilePath))!;
+        var drives = new List<(string Root, long Total, long Free)> { (driveRoot, 10 * GiB, 30) };
+
+        var report = NewService().ApplyPressure(now, criticalFreeBytes: 40, drives, UsageFor);
+
+        Assert.Equal(0, report.DeletedSegments);
+        Assert.True(report.StillCritical, "沒有可刪的段仍低於門檻，要讓停新錄接手");
+        Assert.True(File.Exists(seg.FilePath), "被保全的錄影不能為了騰空間被刪");
+    }
+
+    [Fact]
+    public void 磁碟高於門檻時壓力汰除不做事()
+    {
+        var now = new DateTime(2026, 9, 1, 12, 0, 0, DateTimeKind.Utc);
+        var seg = SeedFinal(now.AddHours(-3), 1000);
+        SeedDrive(baseFree: 5 * GiB);
+
+        var driveRoot = Path.GetPathRoot(Path.GetFullPath(seg.FilePath))!;
+        var drives = new List<(string Root, long Total, long Free)> { (driveRoot, 10 * GiB, 5 * GiB) };
+
+        var report = NewService().ApplyPressure(now, criticalFreeBytes: 40, drives, UsageFor);
+
+        Assert.Equal(0, report.DeletedSegments);
+        Assert.False(report.StillCritical);
+        Assert.True(File.Exists(seg.FilePath));
+    }
+
+    [Fact]
+    public void 刪光可汰除的段仍低於門檻時回報仍危急()
+    {
+        var now = new DateTime(2026, 9, 1, 12, 0, 0, DateTimeKind.Utc);
+        var seg = SeedFinal(now.AddHours(-3), 100);
+        SeedDrive(baseFree: 30);
+
+        var driveRoot = Path.GetPathRoot(Path.GetFullPath(seg.FilePath))!;
+        var drives = new List<(string Root, long Total, long Free)> { (driveRoot, 10 * GiB, 30) };
+
+        // 補充水位下限 1GiB：刪掉唯一的段（100 bytes）也到不了目標 → 仍危急。
+        var report = NewService().ApplyPressure(now, criticalFreeBytes: 40, drives, UsageFor);
+
+        Assert.Equal(1, report.DeletedSegments);
+        Assert.True(report.StillCritical);
+        Assert.Null(_segments.Get(seg.Id));
+    }
+
+
     /// <summary>建立一個已收尾（final）的區段：索引列與磁碟檔案都真的存在。</summary>
     private (long Id, string FilePath) SeedFinal(
         DateTime startUtc, long sizeBytes, string? filePath = null, int channelId = 1)

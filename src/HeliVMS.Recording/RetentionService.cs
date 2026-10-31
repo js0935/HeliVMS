@@ -60,10 +60,12 @@ public sealed class RetentionService
         _legalHolds = legalHolds;
     }
 
+    /// <summary>目前使用的錄影根目錄（壓力汰除的預設磁碟來源）。</summary>
+    public string RecordingsRoot => _recordingsRoot;
+
     /// <summary>執行一次配額清理與 tmp 隔離；回傳結果報告。保存鎖定（M66）所覆蓋時段豁免汰除。</summary>
     public RetentionReport Apply(long quotaBytes, DateTime? nowUtc = null)
-    {
-        var now = nowUtc ?? DateTime.UtcNow;
+    {        var now = nowUtc ?? DateTime.UtcNow;
 
         // 汰除前先做一次資料夾層級對帳（只認 final 資料夾，不逐檔 stat）。
         //
@@ -132,6 +134,169 @@ public sealed class RetentionService
         var purgedTmp = PurgeStaleTmp(now);
         return new RetentionReport(usage, freed, deleted, purgedTmp);
     }
+
+    /// <summary>壓力汰除的結果。</summary>
+    /// <param name="DeletedSegments">本輪為騰出空間刪掉的最舊段數。</param>
+    /// <param name="FreedBytes">本輪釋放的位元組數。</param>
+    /// <param name="StillCritical">刪完所有可汰除的段之後，可用空間仍低於門檻（例如全被保存鎖定）。</param>
+    public sealed record PressureReport(int DeletedSegments, long FreedBytes, bool StillCritical);
+
+    /// <summary>壓力汰除的補充水位下限：連最近一小時都沒有寫入量可估時，至少騰出這麼多。</summary>
+    public static readonly long PressureRefillBytes = 1024L * 1024 * 1024;
+
+    /// <summary>
+    /// 壓力汰除（磁碟滿策略第四步）：可用空間低於寫入門檻的磁碟，從最舊的 final 段開始刪，
+    /// 直到可用空間回升到「門檻 ＋ 最近一小時的錄影寫入量」。
+    ///
+    /// <para>
+    /// 為什麼要有這一步：配額清理只看「錄影總量 vs 配額」——配額設得比磁碟大、或磁碟被
+    /// 錄影以外的資料吃掉時，配額永遠不觸發，而第三階段的「停新錄」會讓系統卡在
+    /// 「不刪舊檔、也不開新錄」，看起來就是壞掉。NVR 的標準行為是循環錄影：空間滿了
+    /// 先淘汰最舊的。保存鎖定（M66）仍然豁免——被保全的錄影不會為了騰空間被刪。
+    /// </para>
+    /// <para>
+    /// 目標不是「剛好脫離門檻」：只騰幾 MB 的話，下一個小時的錄影又把它吃回門檻以下，
+    /// 每小時都要刪一次。以「最近一小時實際寫進這顆磁碟的量」為補充水位，一口氣騰出
+    /// 能再撐一小時的空間；最近沒有寫入（事件錄影稀疏）時至少騰 <see cref="PressureRefillBytes"/>。
+    /// 刪完全部可汰除的段仍不足時回報 <see cref="PressureReport.StillCritical"/>，
+    /// 由既有的「停新錄」階段接手（這時真的沒有東西可刪了）。
+    /// </para>
+    /// </summary>
+    /// <param name="nowUtc">現在時間（估計最近一小時寫入量與游標起點）。</param>
+    /// <param name="criticalFreeBytes">寫入門檻（<c>recording.min_free_bytes</c>）。</param>
+    /// <param name="drives">各錄影磁碟的（根路徑、容量、可用空間）。</param>
+    /// <param name="usageFor">
+    /// 可用空間讀取；預設真實磁碟。注入可固定磁碟組態，測試不必碰真實磁碟。
+    /// </param>
+    public PressureReport ApplyPressure(
+        DateTime nowUtc,
+        long criticalFreeBytes,
+        IReadOnlyList<(string Root, long TotalBytes, long FreeBytes)> drives,
+        Func<string, (long TotalBytes, long FreeBytes)>? usageFor = null)
+    {
+        ArgumentNullException.ThrowIfNull(drives);
+        var usage = usageFor ?? RecordingStorage.DriveUsageFor;
+
+        var deleted = 0;
+        long freed = 0;
+        var stillCritical = false;
+
+        foreach (var (root, totalBytes, freeBytes) in drives)
+        {
+            if (DiskPressurePolicy.Evaluate(totalBytes, freeBytes, criticalFreeBytes)
+                != DiskPressureLevel.Critical)
+            {
+                continue;
+            }
+
+            var volumeRoot = NormalizeRoot(root);
+            var target = criticalFreeBytes + HourlyWriteEstimate(volumeRoot, nowUtc);
+            var free = freeBytes;
+
+            // 以（開始時間, Id）游標逐批掃最舊的 final 段。游標對「看過的每一列」前進，
+            // 被保存鎖定或刪不掉的段才不會讓迴圈原地打轉。
+            var cursorStart = DateTime.MinValue;
+            long cursorId = 0;
+            var exhausted = false;
+            while (free <= target && !exhausted)
+            {
+                var batch = _repo.ListOldestFinalAfter(cursorStart, cursorId, 64);
+                if (batch.Count == 0)
+                {
+                    break;
+                }
+
+                foreach (var seg in batch)
+                {
+                    cursorStart = seg.StartUtc;
+                    cursorId = seg.Id;
+
+                    if (free > target)
+                    {
+                        break;
+                    }
+
+                    // 只汰除壓力磁碟上的段：另一顆還有空間的磁碟不該被連坐。
+                    if (!IsOnVolume(seg.FilePath, volumeRoot))
+                    {
+                        continue;
+                    }
+
+                    if (seg.SizeBytes <= 0)
+                    {
+                        continue;
+                    }
+
+                    // 保存鎖定（M66）豁免：被保全的錄影是證據，不會為了騰空間被刪。
+                    if (_legalHolds?.IsLocked(seg.ChannelId, seg.StartUtc, seg.EndUtc ?? seg.StartUtc) == true)
+                    {
+                        continue;
+                    }
+
+                    if (!TryDeleteSegmentFile(seg.FilePath))
+                    {
+                        continue;
+                    }
+
+                    _repo.Delete(seg.Id);
+                    freed += seg.SizeBytes;
+                    deleted++;
+
+                    try
+                    {
+                        free = usage(volumeRoot).FreeBytes;
+                    }
+                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                    {
+                        // 讀不到容量就保守地用「已刪除量」推進，下一輪再校正。
+                        free += seg.SizeBytes;
+                    }
+                }
+
+                if (batch.Count < 64)
+                {
+                    exhausted = true;
+                }
+            }
+
+            if (free <= target)
+            {
+                stillCritical = true;
+            }
+        }
+
+        return new PressureReport(deleted, freed, stillCritical);
+    }
+
+    /// <summary>最近一小時實際寫進這顆磁碟的錄影量（沒有就回 <see cref="PressureRefillBytes"/>）。</summary>
+    private long HourlyWriteEstimate(string volumeRoot, DateTime nowUtc)
+    {
+        long estimate = 0;
+        foreach (var seg in _repo.ListFinalBetween(nowUtc.AddHours(-1), nowUtc))
+        {
+            if (IsOnVolume(seg.FilePath, volumeRoot))
+            {
+                estimate += Math.Max(0, seg.SizeBytes);
+            }
+        }
+
+        return estimate > 0 ? estimate : PressureRefillBytes;
+    }
+
+    private static string NormalizeRoot(string path)
+    {
+        try
+        {
+            return Path.GetPathRoot(Path.GetFullPath(path)) ?? path;
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            return path;
+        }
+    }
+
+    private static bool IsOnVolume(string filePath, string volumeRoot)
+        => string.Equals(NormalizeRoot(filePath), volumeRoot, StringComparison.OrdinalIgnoreCase);
 
     /// <summary>清除逾時未收尾之 *.tmp 錄影暫存檔；回傳清除數。</summary>
     public int PurgeStaleTmp(DateTime nowUtc)
