@@ -1467,7 +1467,8 @@ public partial class MainWindow : Window
                     alarmDays,
                     auditDays,
                     DateTime.UtcNow,
-                    _segRepo));
+                    _segRepo,
+                    HourlyMergePolicy.Read(_store!)));
 
                 var hintParts = new List<string>();
                 if (sweep.RecoveredTmp > 0)
@@ -1489,6 +1490,16 @@ public partial class MainWindow : Window
                 if (sweep.SnapshotDeletedFiles > 0)
                 {
                     hintParts.Add(string.Format(Localizer.T("Main.CleanupPurgedSnapshots"), sweep.SnapshotDeletedFiles, FormatBytes(sweep.SnapshotFreedBytes)));
+                }
+
+                if (sweep.MergedHours > 0)
+                {
+                    // 合併會重寫檔案與索引列：操作員必須知道「檔案變了」，否則對備份清單、
+                    // 檔案數量對帳時會以為程式亂刪檔。
+                    hintParts.Add(string.Format(
+                        Localizer.T("Main.MergedHourlySegments"),
+                        sweep.MergedHours,
+                        sweep.MergedDeletedFiles));
                 }
 
                 if (hintParts.Count > 0)

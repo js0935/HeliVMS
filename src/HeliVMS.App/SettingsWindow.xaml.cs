@@ -163,6 +163,7 @@ public partial class SettingsWindow : Window
         ReloadRecordingsDisk();
         ReloadBandwidthBudget();
         ReloadSegmentSeconds();
+        ReloadHourlyMerge();
         ReloadLicense();
         ReloadNotify();
         ReloadRules();
@@ -342,6 +343,9 @@ public partial class SettingsWindow : Window
         ApplySegmentSecondsButton.Content = Localizer.T("Settings.Apply");
         ApplySegmentSecondsButton.ToolTip = Localizer.T("Settings.ApplySegmentSecondsTip");
         SegmentSecondsHintText.Text = Localizer.T("Settings.SegmentSecondsHint");
+        HourlyMergeCheckBox.Content = Localizer.T("Settings.HourlyMergeLabel");
+        HourlyMergeCheckBox.ToolTip = Localizer.T("Settings.HourlyMergeLabel");
+        HourlyMergeHintText.Text = Localizer.T("Settings.HourlyMergeHint");
         QuotaLabel.Text = Localizer.T("Settings.QuotaLabel");
         ApplyQuotaButton.Content = Localizer.T("Settings.Apply");
         ApplyQuotaButton.ToolTip = Localizer.T("Settings.ApplyQuotaTip");
@@ -1809,6 +1813,38 @@ public partial class SettingsWindow : Window
     {
         SegmentSecondsTextBox.Text = RecordingSegmentPolicy.Read(_store)
             .ToString(CultureInfo.InvariantCulture);
+    }
+
+    private void ReloadHourlyMerge()
+    {
+        // IsChecked 的指派會觸發 Toggled 事件造成回寫；先掛旗標擋掉，讓「載入」是唯讀的。
+        _suppressHourlyMergeWrite = true;
+        try
+        {
+            HourlyMergeCheckBox.IsChecked = HourlyMergePolicy.Read(_store);
+        }
+        finally
+        {
+            _suppressHourlyMergeWrite = false;
+        }
+    }
+
+    private bool _suppressHourlyMergeWrite;
+
+    private void OnHourlyMergeToggled(object sender, RoutedEventArgs e)
+    {
+        if (_suppressHourlyMergeWrite)
+        {
+            return;
+        }
+
+        var enabled = HourlyMergeCheckBox.IsChecked == true;
+        _settings.Set(HourlyMergePolicy.SettingKey, enabled ? "1" : "0");
+        HourlyMergeHintText.Text = string.Format(
+            Localizer.T("Settings.HourlyMergeToggled"),
+            enabled
+                ? Localizer.T("Settings.HourlyMergeOn")
+                : Localizer.T("Settings.HourlyMergeOff"));
     }
 
     private double QuotaGbFromStore()

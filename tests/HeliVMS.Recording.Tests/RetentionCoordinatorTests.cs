@@ -91,6 +91,72 @@ public sealed class RetentionCoordinatorTests : IDisposable
     }
 
     [Fact]
+    public void 預設不啟用小時合併_清理輪不會動錄影檔()
+    {
+        var now = new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc);
+        var old = SeedHourFolder(now.AddHours(-2));
+
+        var result = RetentionCoordinator.Run(
+            _store, NewService(), _snapshotsRoot,
+            quotaBytes: 1_000_000, snapshotDays: 0, alarmDays: 0, auditDays: 0, nowUtc: now);
+
+        Assert.Equal(0, result.MergedHours);
+        Assert.True(File.Exists(old[0].FilePath));
+        Assert.True(File.Exists(old[1].FilePath));
+    }
+
+    [Fact]
+    public void 啟用小時合併時清理輪會把舊小時換成單一檔()
+    {
+        var now = new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc);
+        var rows = SeedHourFolder(now.AddHours(-2));
+
+        var remuxer = new FakeMergeRemuxer();
+        var result = RetentionCoordinator.Run(
+            _store, NewService(), _snapshotsRoot,
+            quotaBytes: 1_000_000, snapshotDays: 0, alarmDays: 0, auditDays: 0, nowUtc: now,
+            hourlyMergeEnabled: true,
+            mergeRemuxer: remuxer);
+
+        Assert.Equal(1, result.MergedHours);
+        Assert.Equal(2, result.MergedDeletedFiles);
+        Assert.False(File.Exists(rows[0].FilePath), "換列之後原檔要刪");
+        Assert.False(File.Exists(rows[1].FilePath));
+
+        // 清理輪的產物對回放可見：ListPlayableByRange 只會看到那個小時的一列。
+        var playable = _segments.ListPlayableByRange(1, "main", now.AddHours(-2), now);
+        Assert.Single(playable);
+    }
+
+    /// <summary>在同一個小時資料夾種兩段（真實檔案＋final 索引列）。</summary>
+    private List<SegmentRecord> SeedHourFolder(DateTime hourStartUtc)
+    {
+        var dir = Path.Combine(_recordingsRoot, "ch1", hourStartUtc.ToString("yyyyMMdd"), hourStartUtc.ToString("HH"));
+        Directory.CreateDirectory(dir);
+        var rows = new List<SegmentRecord>();
+        for (var i = 0; i < 2; i++)
+        {
+            var start = hourStartUtc.AddMinutes(i * 30);
+            var file = Path.Combine(dir, $"seg-{start:HHmmssfff}.mp4");
+            File.WriteAllBytes(file, new byte[64]);
+            var id = _segments.BeginSegment(1, "main", file, start);
+            _segments.CompleteSegment(id, start.AddMinutes(30), 64, 1800, $"sha-{i}");
+            rows.Add(_segments.Get(id)!);
+        }
+
+        return rows;
+    }
+
+    /// <summary>remux 替身：抄第一個輸入當產物；探測回固定的合理長度。</summary>
+    private sealed class FakeMergeRemuxer : HourlySegmentMerger.IRemuxer
+    {
+        public void Remux(IReadOnlyList<string> inputs, string outputTmp)
+            => File.Copy(inputs[0], outputTmp, overwrite: true);
+
+        public double? ProbeDurationSeconds(string file) => 3600;
+    }
+
+    [Fact]
     public void RunConfigured會依共用設定解析根目錄並清理()
     {
         var now = new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc);

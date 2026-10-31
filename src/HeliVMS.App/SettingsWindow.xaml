@@ -207,6 +207,12 @@
                            Margin="0,0,0,4"/>
                 <TextBlock x:Name="SegmentSecondsStatusText" Text="" TextWrapping="Wrap" Margin="0,0,0,8"
                            AutomationProperties.AutomationId="SegmentSecondsStatusText"/>
+                <CheckBox x:Name="HourlyMergeCheckBox" Content="" Foreground="White"
+                          Checked="OnHourlyMergeToggled" Unchecked="OnHourlyMergeToggled" Margin="0,0,0,4"
+                          AutomationProperties.AutomationId="HourlyMergeCheckBox" ToolTip=""/>
+                <TextBlock x:Name="HourlyMergeHintText" Text=""
+                           Foreground="{StaticResource Brand.TextDim}" FontSize="11" TextWrapping="Wrap"
+                           Margin="0,0,0,8"/>
                 <TextBlock x:Name="QuotaLabel" Text=""
                            Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
                 <DockPanel Margin="0,4,0,8">

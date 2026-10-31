@@ -317,6 +317,13 @@ public sealed class SegmentRepository
     public const string SegmentFileMarker = "seg-";
 
     /// <summary>
+    /// 小時合併檔的字首（<c>HourlySegmentMerger</c>）：
+    /// 時間編碼與 <see cref="SegmentFileMarker"/> 相同，但字首不同——同一小時資料夾裡
+    /// 才不會和「真的從整點開始的段」撞名。
+    /// </summary>
+    public const string MergedFileMarker = "merged-";
+
+    /// <summary>
     /// 取出尚未做完整性檢查的 final 區段（由舊至新，最多 <paramref name="take"/> 筆）。
     ///
     /// <para>
@@ -819,6 +826,140 @@ public sealed class SegmentRepository
         _store.Execute(
             "DELETE FROM segments WHERE id = $id;",
             cmd => cmd.Parameters.AddWithValue("$id", id));
+    }
+
+    /// <summary>列出時間窗內、所有頻道／串流的 final 段（小時合併的候選掃描用）。</summary>
+    /// <remarks>
+    /// 與 <see cref="ListByRange(int, string, DateTime, DateTime)"/> 同一套多磁碟／分片遍歷；
+    /// 呼叫端（小時合併）只處理 final，tmp／corrupt／missing 一律略過。
+    /// </remarks>
+    public IReadOnlyList<SegmentRecord> ListFinalBetween(DateTime fromUtc, DateTime toUtc)
+    {
+        var results = new List<SegmentRecord>();
+        var seen = new HashSet<long>();
+
+        void AddRange(SqliteStore store)
+        {
+            try
+            {
+                var list = store.Query(
+                    """
+                    SELECT id, channel_id, stream, start_time, end_time, file_path,
+                           size_bytes, duration_sec, status, sha256, tier, origin_path
+                    FROM segments
+                    WHERE status = 'final' AND start_time >= $from AND start_time < $to
+                    ORDER BY start_time;
+                    """,
+                    ReadRecords,
+                    cmd =>
+                    {
+                        cmd.Parameters.AddWithValue("$from", SqliteStore.Iso(fromUtc));
+                        cmd.Parameters.AddWithValue("$to", SqliteStore.Iso(toUtc));
+                    });
+
+                foreach (var s in list)
+                {
+                    if (seen.Add(s.Id))
+                    {
+                        results.Add(s);
+                    }
+                }
+            }
+            catch (Exception)
+            {
+                // 掃描候選是 best-effort：一個分片讀不到就跳過，下一輪再試。
+            }
+        }
+
+        AddRange(_store);
+
+        if (_registry != null)
+        {
+            var from = fromUtc.Kind == DateTimeKind.Utc ? fromUtc : fromUtc.ToUniversalTime();
+            var to = toUtc.Kind == DateTimeKind.Utc ? toUtc : toUtc.ToUniversalTime();
+            var cursor = new DateTime(from.Year, from.Month, 1, 0, 0, 0, DateTimeKind.Utc);
+            var endMonth = new DateTime(to.Year, to.Month, 1, 0, 0, 0, DateTimeKind.Utc);
+            while (cursor <= endMonth)
+            {
+                var shardPath = _registry.GetShardPath(cursor.Year, cursor.Month);
+                if (File.Exists(shardPath))
+                {
+                    try
+                    {
+                        using var shard = _registry.OpenShard(shardPath);
+                        AddRange(shard);
+                    }
+                    catch (Exception)
+                    {
+                        // 同上：分片讀不到不該讓整輪合併失敗。
+                    }
+                }
+
+                cursor = cursor.AddMonths(1);
+                var monthsDiff = (cursor.Year - from.Year) * 12 + (cursor.Month - from.Month);
+                if (monthsDiff > 48)
+                {
+                    break;
+                }
+            }
+        }
+
+        results.Sort((a, b) => a.StartUtc.CompareTo(b.StartUtc));
+        return results;
+    }
+
+    /// <summary>
+    /// 小時合併的原子換列：merged 檔的新列進來、被合併的舊列出場，同一個交易。
+    /// </summary>
+    /// <remarks>
+    /// 呼叫端（<c>HourlySegmentMerger</c>）的順序是 remux → 驗證 →
+    /// 改名 → <b>這裡</b> → 刪舊檔。交易失敗時舊列與舊檔都還在（只是多一個孤兒 merged 檔），
+    /// 下一輪重做；若把刪檔放在交易前，交易一失敗就是「索引指著已刪掉的檔案」。
+    /// merged 列以 <c>tier='merged'</c> 標記，SHA-256 由呼叫端對新檔重算。
+    /// </remarks>
+    public void ReplaceWithMerged(SegmentRecord merged, IReadOnlyList<long> replacedIds)
+    {
+        ArgumentNullException.ThrowIfNull(merged);
+        ArgumentNullException.ThrowIfNull(replacedIds);
+        if (replacedIds.Count == 0)
+        {
+            throw new ArgumentException("at least one replaced segment id", nameof(replacedIds));
+        }
+
+        _store.InTransaction(() =>
+        {
+            // 先刪舊列再插入：segments 有 (channel_id, stream, start_time) 唯一鍵，merged 列的
+            // 開始時間就是第一個舊列的開始時間，順序顛倒會撞鍵。同一個交易內，先後不影響
+            // 崩潰安全——交易要嘛整個生效、要嘛整個回滾。
+            var ids = string.Join(", ", replacedIds.Select((_, i) => $"$id{i}"));
+            _store.Execute(
+                $"DELETE FROM segments WHERE id IN ({ids});",
+                cmd =>
+                {
+                    for (var i = 0; i < replacedIds.Count; i++)
+                    {
+                        cmd.Parameters.AddWithValue($"$id{i}", replacedIds[i]);
+                    }
+                });
+
+            _store.Execute(
+                """
+                INSERT INTO segments (channel_id, stream, start_time, end_time, file_path,
+                                      size_bytes, duration_sec, status, sha256, tier)
+                VALUES ($c, $s, $st, $e, $p, $sz, $d, 'final', $h, 'merged');
+                """,
+                cmd =>
+                {
+                    cmd.Parameters.AddWithValue("$c", merged.ChannelId);
+                    cmd.Parameters.AddWithValue("$s", merged.Stream);
+                    cmd.Parameters.AddWithValue("$st", SqliteStore.Iso(merged.StartUtc));
+                    cmd.Parameters.AddWithValue("$e", SqliteStore.Iso(merged.EndUtc ?? merged.StartUtc));
+                    cmd.Parameters.AddWithValue("$p", merged.FilePath);
+                    cmd.Parameters.AddWithValue("$sz", merged.SizeBytes);
+                    cmd.Parameters.AddWithValue("$d", merged.DurationSec ?? 0);
+                    cmd.Parameters.AddWithValue("$h", (object?)merged.Sha256 ?? DBNull.Value);
+                });
+        });
     }
 
     /// <summary>依編號取得單一區段（§14.3 串流：遠程只給編號，路徑一律取自索引）。</summary>

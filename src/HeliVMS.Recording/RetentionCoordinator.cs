@@ -2,7 +2,7 @@ using HeliVMS.Storage;
 
 namespace HeliVMS.Recording;
 
-/// <summary>一次保留清理的彙總結果（配額汰除／暫存隔離／快照汰除／中繼資料保管期限）。</summary>
+/// <summary>一次保留清理的彙總結果（配額汰除／暫存隔離／快照汰除／中繼資料保管期限／小時合併）。</summary>
 public readonly record struct RetentionSweepResult(
     long UsedBytes,
     long FreedBytes,
@@ -13,12 +13,15 @@ public readonly record struct RetentionSweepResult(
     long AlarmPurged,
     long AudioPurged,
     long AuditPurged,
-    TemporaryRecoveryReport Recovery = default)
+    TemporaryRecoveryReport Recovery = default,
+    int MergedHours = 0,
+    int MergedDeletedFiles = 0,
+    int MergedFailedHours = 0)
 {
     /// <summary>本輪是否有任何東西被移除（供呼叫端決定要不要提示使用者）。</summary>
     public bool AnythingRemoved =>
         DeletedSegments > 0 || PurgedTmp > 0 || SnapshotDeletedFiles > 0 ||
-        AlarmPurged > 0 || AudioPurged > 0 || AuditPurged > 0;
+        AlarmPurged > 0 || AudioPurged > 0 || AuditPurged > 0 || MergedDeletedFiles > 0;
 
     /// <summary>本輪救回幾段「中斷收尾」的錄影（見 <see cref="TemporarySegmentRecovery"/>）。</summary>
     public int RecoveredTmp => Recovery.Recovered;
@@ -77,7 +80,8 @@ public static class RetentionCoordinator
             alarmDays,
             auditDays,
             nowUtc,
-            segments);
+            segments,
+            hourlyMergeEnabled: HourlyMergePolicy.Read(store));
     }
 
     /// <summary>
@@ -98,7 +102,9 @@ public static class RetentionCoordinator
         int alarmDays,
         int auditDays,
         DateTime nowUtc,
-        SegmentRepository? segments = null)
+        SegmentRepository? segments = null,
+        bool hourlyMergeEnabled = false,
+        HourlySegmentMerger.IRemuxer? mergeRemuxer = null)
     {
         // 先救援、再清理。順序是契約的一部分：PurgeStaleTmp 會把超過十分鐘的 .tmp 直接刪掉，
         // 先清再救等於每次關程式前的錄影都被判死；反過來先救，救回的段已經改名成正式檔，
@@ -111,6 +117,15 @@ public static class RetentionCoordinator
             : new SnapshotReport(0, 0);
         var meta = MetadataRetentionPruner.Prune(store, nowUtc, alarmDays, auditDays);
 
+        // 小時合併放在配額汰除之後：汰除先騰出空間，remux 的 .tmp（約一個小時的量）才不會
+        // 在快滿的磁碟上寫到一半失敗。預設關閉（HourlyMergePolicy.DefaultEnabled）。
+        var merge = hourlyMergeEnabled
+            ? new HourlySegmentMerger(
+                segments ?? new SegmentRepository(store),
+                new LegalHoldRepository(store),
+                mergeRemuxer).Run(nowUtc)
+            : default;
+
         return new RetentionSweepResult(
             quota.UsedBytes,
             quota.FreedBytes,
@@ -121,6 +136,9 @@ public static class RetentionCoordinator
             meta.AlarmPurged,
             meta.AudioPurged,
             meta.AuditPurged,
-            recovery);
+            recovery,
+            merge.MergedHours,
+            merge.DeletedFiles,
+            merge.FailedHours);
     }
 }

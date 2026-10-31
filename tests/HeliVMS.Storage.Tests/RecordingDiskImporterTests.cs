@@ -395,4 +395,44 @@ public sealed class RecordingDiskImporterTests : IDisposable
         File.SetLastWriteTimeUtc(path, startUtc.AddSeconds(durationSeconds));
         return path;
     }
+
+    [Fact]
+    public void 小時合併檔也會被掃描認得並以探測的時長建列()
+    {
+        var id = AddChannel("攝影機1");
+        var start = new DateTime(2026, 10, 9, 14, 0, 0, DateTimeKind.Utc);
+        var dir = Path.Combine(_root, "攝影機1", "20261009", "14");
+        Directory.CreateDirectory(dir);
+        var path = Path.Combine(dir, "merged-140000000.mp4");
+        File.WriteAllBytes(path, MakeMp4Bytes());
+        // 寫入時刻＝remux 完成的當下（這裡刻意設成 2 小時後）：它不代表內容結尾，
+        // 一般的 LastWriteTime 推斷對合併檔不成立，必須走探測。
+        File.SetLastWriteTimeUtc(path, start.AddHours(2));
+
+        var probed = new List<string>();
+        var importer = new RecordingDiskImporter(
+            new SegmentRepository(_store),
+            probeDuration: p => { probed.Add(p); return 3600; });
+
+        var folder = Assert.Single(importer.Scan([_root], new ChannelRepository(_store).List()));
+        Assert.Equal(1, folder.FileCount);
+        Assert.Equal(start, folder.FromUtc);
+
+        importer.Import([(folder.FolderPath, id)]);
+
+        var row = Assert.Single(new SegmentRepository(_store).ListByRange(id, "main", start, start.AddHours(2)));
+        Assert.Equal(start, row.StartUtc);
+        Assert.Equal(3600, row.DurationSec ?? 0, 1);
+        Assert.Contains(probed, p => p.EndsWith("merged-140000000.mp4"));
+    }
+
+    /// <summary>開頭真的是 MP4 的最小檔（ftyp box）。</summary>
+    private static byte[] MakeMp4Bytes()
+    {
+        var bytes = new byte[256];
+        bytes[3] = 0x18;
+        System.Text.Encoding.ASCII.GetBytes("ftyp").CopyTo(bytes, 4);
+        System.Text.Encoding.ASCII.GetBytes("isom").CopyTo(bytes, 8);
+        return bytes;
+    }
 }

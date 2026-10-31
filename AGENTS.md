@@ -340,6 +340,22 @@ Notes that will save you time:
   refuses start == end (`Schedule.SameTime`) and the form defaults to 00:00–23:59 so the most
   common action ("pick a channel, add an all-day rule") is correct by default. Guarded by
   `起訖相同時段會被擋下而不會存成不會錄的規則` and `表單預設時段是一整天`.
+- **Hourly merge rewrites files — the delete must come after the index swap, never before.**
+  Opt-in (`recording.hourly_merge`, Settings → Storage) consolidation packs finished hours into a
+  single `merged-HHmmssfff.mp4` (remux `-c copy`, never re-encode) to cut the ~288-files-per-
+  camera-day tail for backups, sync, AV scans and SMB. The order in `HourlySegmentMerger` is
+  load-bearing: remux to `.tmp` → ffprobe the duration against the sum of the segments (a short
+  file must never replace the index: playback would black-screen the missing span) → rename →
+  one SQLite transaction (`ReplaceWithMerged`, DELETE-then-INSERT because of the
+  `(channel_id, stream, start_time)` unique key) → only then delete the originals. Leftover
+  small files after a failed delete are garbage-collected on the next sweep (they are no longer
+  in the index and the disk importer would re-adopt them as phantom segments). Legal-held hours,
+  hours with missing files, and single-segment hours are skipped. The disk importer must keep
+  understanding the `merged-` prefix (same time encoding as `seg-`), and its written-time
+  duration inference is WRONG for merged files (the write time is when the remux finished, not
+  content end) — they are ffprobe-probed instead. Guarded by `HourlySegmentMergerTests`,
+  the importer test `小時合併檔也會被掃描認得並以探測的時長建列`, `HourlyMergeContractTests`
+  and the coordinator cases in `RetentionCoordinatorTests`.
 - **Pick the sub stream by stream number, never by a magic number in the name.** `OnvifProfileSelection`
   used to carry `"101"` in `MainKeywords` and `"102"` in `SubKeywords`, matched as plain substrings.
   The real camera at `rtsp://<host>/media/stream.sdp?profile=Profile100` exposes three profiles —

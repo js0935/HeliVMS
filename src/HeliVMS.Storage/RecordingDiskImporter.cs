@@ -70,6 +70,13 @@ public sealed class RecordingDiskImporter
     /// <summary>錄影段檔名首碼；與 <see cref="SegmentRepository.SegmentFileMarker"/> 同一個事實來源。</summary>
     private const string SegmentPrefix = SegmentRepository.SegmentFileMarker;
 
+    /// <summary>
+    /// 小時合併檔的首碼（<see cref="SegmentRepository.MergedFileMarker"/>）：
+    /// 時間編碼與段檔相同，但它的「寫入時刻」是 remux 完成的當下、不是內容結尾，
+    /// 一般的時長推斷對它不成立，必須探測（見 <see cref="InferredDuration"/>）。
+    /// </summary>
+    private const string MergedPrefix = SegmentRepository.MergedFileMarker;
+
     /// <summary>段檔副檔名；只收已完成收尾的正式檔，<c>.tmp</c> 交給 <c>TemporarySegmentRecovery</c>。</summary>
     private const string SegmentExtension = ".mp4";
 
@@ -86,10 +93,24 @@ public sealed class RecordingDiskImporter
     private static readonly TimeSpan MaxEstimatedDuration = TimeSpan.FromSeconds(60);
 
     private readonly SegmentRepository _repo;
+    private readonly Func<string, double?>? _probeDuration;
 
+    /// <summary>主要建構子（既有呼叫端）：合併檔時長不探測，退回既有推斷鏈。</summary>
+    /// <param name="repo">區段索引。</param>
     public RecordingDiskImporter(SegmentRepository repo)
+        : this(repo, probeDuration: null)
+    {
+    }
+
+    /// <summary>完整建構子。</summary>
+    /// <param name="repo">區段索引。</param>
+    /// <param name="probeDuration">
+    /// 小時合併檔的時長探測（ffprobe）；回 <c>null</c> 表示探不到。測試注入替身以脫離外部進程。
+    /// </param>
+    public RecordingDiskImporter(SegmentRepository repo, Func<string, double?>? probeDuration)
     {
         _repo = repo ?? throw new ArgumentNullException(nameof(repo));
+        _probeDuration = probeDuration;
     }
 
     /// <summary>
@@ -274,7 +295,8 @@ public sealed class RecordingDiskImporter
         foreach (var path in SafeEnumerateFiles(folderPath))
         {
             var name = Path.GetFileName(path);
-            if (!name.StartsWith(SegmentPrefix, StringComparison.OrdinalIgnoreCase)
+            if ((!name.StartsWith(SegmentPrefix, StringComparison.OrdinalIgnoreCase)
+                    && !name.StartsWith(MergedPrefix, StringComparison.OrdinalIgnoreCase))
                 || !name.EndsWith(SegmentExtension, StringComparison.OrdinalIgnoreCase))
             {
                 continue;
@@ -337,7 +359,10 @@ public sealed class RecordingDiskImporter
         for (var i = 0; i < parsed.Count; i++)
         {
             var (path, size, startUtc, writtenUtc) = parsed[i];
-            var duration = InferredDuration(parsed, i);
+            var isMerged = Path.GetFileName(path).StartsWith(MergedPrefix, StringComparison.OrdinalIgnoreCase);
+            var duration = isMerged
+                ? (_probeDuration?.Invoke(path) ?? InferredDuration(parsed, i))
+                : InferredDuration(parsed, i);
             files.Add(new DiskSegment(path, startUtc, startUtc.AddSeconds(duration), size, duration));
         }
 
@@ -345,6 +370,12 @@ public sealed class RecordingDiskImporter
     }
 
     /// <summary>這一段的時長（秒）；收尾時間不可信時改用下一段開始時間，最後退回固定值。</summary>
+    /// <remarks>
+    /// 小時合併檔對這套推斷完全不成立：它的「寫入時刻」是 remux 完成的當下（可能比內容
+    /// 結束晚好幾個小時），資料夾裡又只有它自己（沒有「下一段」可推）。所以合併檔一律
+    /// 先探測（<c>_probeDuration</c>，ffprobe）；探不到才退回既有鏈——災難復原又沒有
+    /// ffprobe 的環境會把一小時記成 10 秒，但檔案本身完好，重掃可修正。
+    /// </remarks>
     private static double InferredDuration(
         IReadOnlyList<(string Path, long Size, DateTime StartUtc, DateTime WrittenUtc)> parsed,
         int index)
@@ -399,13 +430,16 @@ public sealed class RecordingDiskImporter
         startUtc = default;
 
         var name = Path.GetFileNameWithoutExtension(filePath);
-        if (name.Length <= SegmentPrefix.Length
-            || !name.StartsWith(SegmentPrefix, StringComparison.OrdinalIgnoreCase))
+        var prefix = name.StartsWith(MergedPrefix, StringComparison.OrdinalIgnoreCase)
+            ? MergedPrefix
+            : SegmentPrefix;
+        if (name.Length <= prefix.Length
+            || !name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
         {
             return false;
         }
 
-        var digits = name[SegmentPrefix.Length..];
+        var digits = name[prefix.Length..];
         if (digits.Length < 6 || digits.Length > 9
             || !digits.All(char.IsAsciiDigit))
         {
