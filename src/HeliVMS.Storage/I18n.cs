@@ -1582,6 +1582,9 @@ public static class I18n
         ["Schedule.Updated"] = "已更新排程。",
         ["Schedule.Editing"] = "編輯中：修改後按「更新」。",
         ["Schedule.Deleted"] = "已刪除排程。",
+        ["Schedule.Close"] = "關閉",
+        ["Schedule.CloseTip"] = "關閉此視窗（Esc）",
+        ["Schedule.SameTime"] = "起訖時間相同：這樣的時段只在同一分鐘內有效，實際上錄不到東西。全天請用 00:00–23:59；跨午夜請把結束設得比開始小。",
         // Playback window (PlaybackWindow, M3/M8/M17/M84).
         ["Playback.Title"] = "HeliVMS 回放",
         ["Playback.Channel"] = "頻道",
@@ -3944,6 +3947,9 @@ public static class I18n
         ["Schedule.Updated"] = "已更新排程。",
         ["Schedule.Editing"] = "编辑中：修改后按「更新」。",
         ["Schedule.Deleted"] = "已删除排程。",
+        ["Schedule.Close"] = "关闭",
+        ["Schedule.CloseTip"] = "关闭此窗口（Esc）",
+        ["Schedule.SameTime"] = "起讫时间相同：这样的时段只在同一分钟内有效，实际上录不到东西。全天请用 00:00–23:59；跨午夜请把结束设得比开始小。",
         // Playback window (PlaybackWindow, M3/M8/M17/M84).
         ["Playback.Title"] = "HeliVMS 回放",
         ["Playback.Channel"] = "频道",
@@ -6300,6 +6306,9 @@ public static class I18n
         ["Schedule.Updated"] = "Schedule updated.",
         ["Schedule.Editing"] = "Editing: press Update after making changes.",
         ["Schedule.Deleted"] = "Schedule deleted.",
+        ["Schedule.Close"] = "Close",
+        ["Schedule.CloseTip"] = "Close this window (Esc)",
+        ["Schedule.SameTime"] = "Start and end are the same: such a window is only valid within that one minute and records nothing. Use 00:00–23:59 for all day, or set the end earlier than the start to cross midnight.",
         // Playback window (PlaybackWindow, M3/M8/M17/M84).
         ["Playback.Title"] = "HeliVMS Playback",
         ["Playback.Channel"] = "Channel",

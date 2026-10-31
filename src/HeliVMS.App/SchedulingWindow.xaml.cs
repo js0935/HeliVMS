@@ -1,5 +1,6 @@
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Media;
 using HeliVMS.Shared.Models;
 using HeliVMS.Storage;
@@ -26,6 +27,8 @@ public partial class SchedulingWindow : Window
     private void ApplyI18n()
     {
         Title = Localizer.T("Schedule.Title");
+        HeaderTitle.Text = Localizer.T("Schedule.Title");
+        CloseButton.ToolTip = Localizer.T("Schedule.CloseTip");
         ScheduleFormHeader.Text = Localizer.T("Schedule.FormHeader");
         ScheduleChannelLabel.Text = Localizer.T("Schedule.Channel");
         ScheduleWeekdayLabel.Text = Localizer.T("Schedule.Weekday");
@@ -189,6 +192,15 @@ public partial class SchedulingWindow : Window
             return null;
         }
 
+        if (start == end)
+        {
+            // IsActiveAt 用閉區間：起訖相同＝只在「那一分鐘」內有效，排程器 30 秒才跑一輪，
+            // 這條規則實際上錄不到東西——等於靜靜地什麼都沒發生。擋下來說清楚，
+            // 全天請用 00:00–23:59，跨午夜把結束設得比開始小。
+            HintText.Text = Localizer.T("Schedule.SameTime");
+            return null;
+        }
+
         return new RecordingScheduleRecord
         {
             Id = _editingId,
@@ -242,8 +254,11 @@ public partial class SchedulingWindow : Window
         AddButton.IsEnabled = true;
         UpdateButton.IsEnabled = false;
         EnabledBox.IsChecked = true;
+
+        // 預設一整天而不是 00:00–00:00：起訖相同的規則在 IsActiveAt 的閉區間語意下
+        // 只在「那一分鐘」有效，等於按了新增卻什麼都不會錄（排程器 30 秒一輪根本踩不到）。
         StartBox.Text = "00:00";
-        EndBox.Text = "00:00";
+        EndBox.Text = "23:59";
         ApplyMask(127);
     }
 
@@ -315,5 +330,17 @@ public partial class SchedulingWindow : Window
 
         HintText.Text = Localizer.T("Schedule.Deleted");
         RefreshList();
+    }
+
+    /// <summary>無邊框視窗沒有系統標題列：關閉鈕（與 Esc）是唯一出口。</summary>
+    private void OnCloseClicked(object sender, RoutedEventArgs e) => Close();
+
+    private void OnPreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Escape)
+        {
+            e.Handled = true;
+            Close();
+        }
     }
 }

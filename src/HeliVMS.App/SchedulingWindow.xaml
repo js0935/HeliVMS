@@ -5,13 +5,35 @@
         Width="980" Height="560"
         WindowStartupLocation="CenterOwner"
         Background="#0B1622" Foreground="White"
-        Loaded="OnLoaded" WindowStyle="None" ResizeMode="NoResize" WindowState="Maximized">
+        Loaded="OnLoaded" PreviewKeyDown="OnPreviewKeyDown"
+        WindowStyle="None" ResizeMode="NoResize" WindowState="Maximized">
 
     <Grid Margin="12">
-        <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="320"/>
-            <ColumnDefinition Width="*"/>
-        </Grid.ColumnDefinitions>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <!-- Header row: borderless window has no system title bar, so the title and the close
+             button live here (same pattern as LiveWindow/EventCenterWindow). -->
+        <Grid Grid.Row="0" Margin="0,0,0,10">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            <TextBlock x:Name="HeaderTitle" Text="" FontSize="15" FontWeight="Bold"
+                       Foreground="White" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+            <Button x:Name="CloseButton" Content="✕" Click="OnCloseClicked" ToolTip=""
+                    Grid.Column="1" Padding="10,4" FontSize="14"
+                    Foreground="White" Background="#C62828" BorderThickness="0"
+                    VerticalAlignment="Center" AutomationProperties.AutomationId="SchedulingCloseButton"/>
+        </Grid>
+
+        <Grid Grid.Row="1">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="320"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
 
         <!-- Left: schedule form -->
         <Border BorderBrush="#2A4A73" BorderThickness="1" Background="#0F1D2E" Margin="0,0,10,0">
@@ -49,7 +71,7 @@
                     </StackPanel>
                     <StackPanel Grid.Column="2">
                         <TextBlock x:Name="ScheduleEndLabel" Text="" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
-                        <TextBox x:Name="EndBox" AutomationProperties.AutomationId="EndBox" Text="00:00" Margin="0,4,0,0"
+                        <TextBox x:Name="EndBox" AutomationProperties.AutomationId="EndBox" Text="23:59" Margin="0,4,0,0"
                                  Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="6,4"/>
                     </StackPanel>
                 </Grid>
@@ -111,7 +133,8 @@
                             <GridViewColumn x:Name="ScheduleColState" Header="" Width="90">
                                 <GridViewColumn.CellTemplate>
                                     <DataTemplate>
-                                        <TextBlock Text="{Binding StateLabel}" FontSize="12"/>
+                                        <!-- StateBrush makes enabled/disabled scannable without reading each row. -->
+                                        <TextBlock Text="{Binding StateLabel}" Foreground="{Binding StateBrush}" FontSize="12"/>
                                     </DataTemplate>
                                 </GridViewColumn.CellTemplate>
                             </GridViewColumn>
@@ -126,5 +149,6 @@
                 </StackPanel>
             </Grid>
         </Border>
+        </Grid>
     </Grid>
 </Window>

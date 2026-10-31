@@ -310,6 +310,21 @@ Notes that will save you time:
   (enabling it measures the page with infinite width, so `TextWrapping` never wraps and the
   page becomes one long line), and the left navigation stays outside (inside, it scrolls away
   with the content). Guarded by `SettingsLayoutContractTests`.
+- **A borderless maximized window must ship its own way out.** `WindowStyle="None"` +
+  `WindowState="Maximized"` removes the system title bar, so whatever the window is, it needs a
+  visible ✕ in the page (same `OnCloseClicked` pattern as Live/EventCenter) and Esc wired to
+  `Close()` — `SchedulingWindow` had neither, and the only exit was Alt+F4, which operators read
+  as "this window has no exit" (現場回報「沒有離開的按鈕」). Note for the contract tests:
+  `SourceContract.BodyOf` returns an expression-bodied member *without* the trailing `;`, so
+  assert `Close()`, not `Close();`, on `=> Close();` handlers. Guarded by
+  `SchedulingWindowContractTests` and the window-wide `UiWiringContractTests`.
+- **A recording-schedule rule that never records must be rejected, not stored.** `IsActiveAt`
+  uses a closed interval, so start == end (e.g. the old form default 00:00–00:00) is active for
+  exactly one minute of the day; the scheduler ticks every 30 s and in practice captures
+  nothing — a rule that silently does nothing, with no error anywhere. `BuildFromForm` now
+  refuses start == end (`Schedule.SameTime`) and the form defaults to 00:00–23:59 so the most
+  common action ("pick a channel, add an all-day rule") is correct by default. Guarded by
+  `起訖相同時段會被擋下而不會存成不會錄的規則` and `表單預設時段是一整天`.
 - **Pick the sub stream by stream number, never by a magic number in the name.** `OnvifProfileSelection`
   used to carry `"101"` in `MainKeywords` and `"102"` in `SubKeywords`, matched as plain substrings.
   The real camera at `rtsp://<host>/media/stream.sdp?profile=Profile100` exposes three profiles —
