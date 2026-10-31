@@ -1578,19 +1578,25 @@ public partial class PlaybackWindow : Window
         }
 
         var targetUtc = TimeZoneInfo.ConvertTimeToUtc(day.Date + clock);
-        foreach (var item in _bandSegments)
+
+        // 與時間軸點擊、續播共用「某一瞬間屬於哪一段」的唯一一份規則（PlaybackSeekPlanner.ResolveAt，
+        // 涵蓋範圍 [起點, 結束)）。自己再寫一份閉區間迴圈，輸入的時刻剛好是某段結束、或兩段相接時，
+        // 會落在前一段的「第 60 秒」——ffmpeg -ss 60 不產生影格，畫面不動卻回報「已播放完畢」，
+        // 而右邊一格就是有影像的；操作員只會覺得時間跳轉壞了。
+        var landing = HeliVMS.Shared.PlaybackSeekPlanner.ResolveAt(
+            _bandSegments.Select(i => i.Segment),
+            targetUtc);
+        var item = landing is { } hit
+            ? _bandSegments.FirstOrDefault(i => ReferenceEquals(i.Segment, hit.Segment))
+            : null;
+        if (landing is not { } found || item is null)
         {
-            var seg = item.Segment;
-            var end = EndOf(seg);
-            if (seg.StartUtc <= targetUtc && targetUtc <= end)
-            {
-                SelectSegment(item);
-                PlayFrom(seg, Math.Max(0, (targetUtc - seg.StartUtc).TotalSeconds));
-                return;
-            }
+            StatusText.Text = Localizer.T("Playback.NoRecordingHere");
+            return;
         }
 
-        StatusText.Text = Localizer.T("Playback.NoRecordingHere");
+        SelectSegment(item);
+        PlayFrom(found.Segment, found.OffsetSeconds);
     }
 
     private void OnTimeJumpClicked(object sender, RoutedEventArgs e) => _ = JumpToLocalTime(TimeJumpBox.Text);
@@ -1664,7 +1670,12 @@ public partial class PlaybackWindow : Window
         }
 
         var frame = 1.0 / 15.0;
-        var target = Math.Min(_posInside + frame, dur);
+
+        // 推到段長本身會落在「沒有影格」的那一瞬間：session 立刻回報播放完畢，畫面停在原處
+        // （操作員看不出發生什麼事，只覺得 F 鍵沒作用）。逐幀到最後一格就該停在最後一格。
+        var target = Math.Min(
+            _posInside + frame,
+            HeliVMS.Shared.PlaybackSeekPlanner.LastFrameOf(_current));
         PlayFrom(_current, target);
         _pendingFramePause = true;
     }
@@ -2921,7 +2932,12 @@ public partial class PlaybackWindow : Window
         }
 
         var offset = Math.Max(0, Math.Min(1, SeekSlider.Value / 10000)) * dur;
-        PlayFrom(_current, offset);
+
+        // 拖到最右邊＝段長本身，而段尾那一瞬間沒有影格（ffmpeg -ss <段長> 什麼都不產生）：
+        // 直接開播會立刻回報「已播放完畢」、畫面停在上一格，看起來像拖到底就壞掉。
+        PlayFrom(
+            _current,
+            Math.Min(offset, HeliVMS.Shared.PlaybackSeekPlanner.LastFrameOf(_current)));
     }
 
     /// <summary>將播放位置遊標移到時間軸帶上的對應時刻（映射到目前檢視窗）。</summary>
@@ -3183,18 +3199,22 @@ public partial class PlaybackWindow : Window
     /// <returns>true＝已找到涵蓋該時刻的片段並開播；false＝那一刻是空檔，畫面維持原狀。</returns>
     private bool ResumePlaybackAt(DateTime targetUtc)
     {
-        // 這裡刻意不用 PlaybackSeekPlanner：它遇到空檔會落到最近的段邊界（那是方向鍵要的），
-        // 而「續播 / 拖進回放」要的是「這一刻真的有錄影」。悄悄跳到下一個小時的畫面
-        // 會讓操作員以為同步壞了，所以空檔一律回報找不到。
-        var item = _bandSegments.FirstOrDefault(
-            i => i.Segment.StartUtc <= targetUtc && EndOf(i.Segment) >= targetUtc);
-        if (item is null)
+        // 「這一刻真的有錄影」由 PlaybackSeekPlanner.ResolveAt 回答：空檔回 null，所以不會像
+        // 方向鍵那樣悄悄落到下一個小時的畫面（那會讓操作員以為同步壞了）；而接縫與段尾的判定
+        // 也因此和其他入口一致。自己寫一份閉區間比對，接縫上會命中前一段的第 60 秒＝沒有影格。
+        var landing = HeliVMS.Shared.PlaybackSeekPlanner.ResolveAt(
+            _bandSegments.Select(i => i.Segment),
+            targetUtc);
+        var item = landing is { } hit
+            ? _bandSegments.FirstOrDefault(i => ReferenceEquals(i.Segment, hit.Segment))
+            : null;
+        if (landing is not { } found || item is null)
         {
             return false;
         }
 
         SelectSegment(item);
-        PlayFrom(item.Segment, Math.Max(0, (targetUtc - item.Segment.StartUtc).TotalSeconds));
+        PlayFrom(found.Segment, found.OffsetSeconds);
         return true;
     }
 

@@ -133,6 +133,54 @@ public sealed class PlaybackWindowContractTests
     }
 
     /// <summary>
+    /// 其餘「跳到某個時刻」的入口（時間跳轉輸入、續播／拖進回放）也必須走同一份落點規則。
+    /// </summary>
+    /// <remarks>
+    /// 這兩條路各自留著一份閉區間比對，而且取「先出現」的那一段：輸入的時刻剛好是某段結束、或
+    /// 兩段相接時，會落在前一段的第 60 秒。<c>ffmpeg -ss 60</c> 不產生任何影格，於是畫面不動、
+    /// 狀態列卻說「已播放完畢」，而右邊一格就是有影像的。方向鍵與時間軸點擊都修過了，這裡不改
+    /// 就註定再分岔一次。
+    /// </remarks>
+    [Fact]
+    public void 時間跳轉與續播也共用同一份落點規則()
+    {
+        var source = SourceContract.Read(Code);
+
+        foreach (var method in new[] { "JumpToLocalTime", "ResumePlaybackAt" })
+        {
+            var body = SourceContract.BodyOf(source, method);
+            Assert.Contains("PlaybackSeekPlanner.ResolveAt(", body);
+            Assert.Contains("PlayFrom(", body);
+            Assert.DoesNotContain("targetUtc <= ", body);
+            Assert.DoesNotContain("EndOf(i.Segment) >=", body);
+        }
+
+        // 續播遇到空檔仍要回報「找不到」（不是悄悄跳下一段）。
+        Assert.Contains("return false;", SourceContract.BodyOf(source, "ResumePlaybackAt"));
+    }
+
+    /// <summary>
+    /// 拖曳進度條到底、逐幀推到最後，都不可以把播放位置設成段長本身。
+    /// </summary>
+    /// <remarks>
+    /// 段尾那一瞬間沒有影格：拖到最右邊或按 F 到最後一格時，舊寫法把位置設成 <c>DurationSec</c>，
+    /// 播放器立刻回報「已播放完畢」，畫面卻停在上一格——拖到底看起來就像壞掉。落點一律夾到
+    /// <see cref="HeliVMS.Shared.PlaybackSeekPlanner.LastFrameOf"/>。
+    /// </remarks>
+    [Fact]
+    public void 拖到段尾與逐幀到段尾都停在最後一格()
+    {
+        var source = SourceContract.Read(Code);
+
+        Assert.Contains(
+            "PlaybackSeekPlanner.LastFrameOf(_current)",
+            SourceContract.BodyOf(source, "OnSeekDragCompleted"));
+        Assert.Contains(
+            "PlaybackSeekPlanner.LastFrameOf(_current)",
+            SourceContract.BodyOf(source, "StepFrame"));
+    }
+
+    /// <summary>
     /// 滑鼠掠過時間軸會把「位置／總長」讀數換成掠過那一刻的絕對時刻；離開時必須換回來。
     /// </summary>
     /// <remarks>
