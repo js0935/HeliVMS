@@ -226,8 +226,23 @@ Notes that will save you time:
   pressed the key again and only then moved on. With the half-open interval that moment is a gap
   like any other (→ next segment forward, → that segment's last frame backward), and a seam
   (next start == previous end) still belongs to the later segment without relying on the
-  "latest start wins" tiebreak. Guarded by `PlaybackSeekPlannerTests` and
+  "latest start wins" tiebreak. The timeline click resolves through the same helper
+  (`PlaybackSeekPlanner.ResolveAt`, a gap returns no landing instead of a neighbouring segment),
+  so it cannot grow its own closed-interval loop and land on a block's 60th second. Guarded by
+  `PlaybackSeekPlannerTests`, `時間軸點擊與方向鍵共用同一份落點規則` and
   `事件與書籤跳轉使用同一段結束口徑`.
+- **The status line and the time readout must not keep describing a state that ended.** Three
+  separate reports, one root: the last message written wins, and nothing rewrites it.
+  `OnStopClicked` called `StopPlayback` and never touched `StatusText`, so pressing 停止 (or Esc,
+  which had its own copy of the call) froze on the last frame while the bar still said
+  「播放中（1×）」 — the operator's conclusion was "the stop button is broken". Esc now goes
+  through `OnStopClicked` so the two paths cannot drift. `PreviewBandAt` overwrites `TimeText`
+  with the hovered instant; with no frames coming in (paused, or a click in a gap) the readout
+  stayed at a time the operator never stopped at — and that readout is what gets copied into a
+  report. It is restored by `OnBandMouseLeave` and by the gap branches of `OnBandClicked`, all
+  through the single `ShowPlayheadTime` (which also replaced three copies of the same
+  `"{pos} / {length}"` format string). Guarded by `按停止後狀態列不會再寫著播放中` and
+  `滑鼠離開時間軸後時間讀數回到播放頭`.
 - **"Replay selection" must stop where the selection stops.** Recordings are one file per
   segment, so a selected 10:00–10:30 spans several files. `OnEnded` continues into the next
   segment while it still starts before the upper bound — but that branch must also *end the

@@ -91,6 +91,75 @@ public sealed class PlaybackWindowContractTests
     }
 
     [Fact]
+    public void 按停止後狀態列不會再寫著播放中()
+    {
+        var source = SourceContract.Read(Code);
+        var stop = SourceContract.BodyOf(source, "OnStopClicked");
+
+        // 停止後畫面刻意停在最後一格、播放頭也留著（按播放可續播），所以狀態列必須跟著改。
+        // 繼續寫「播放中（1×）」，現場看到的是「按停止沒反應、按鈕壞了」。
+        Assert.Contains("StopPlayback()", stop);
+        Assert.Contains("Playback.EndedStopped", stop);
+
+        // 訊息必須寫在 StopPlayback() 之後；寫在前面會被它之後的任何狀態更新蓋掉。
+        Assert.True(
+            stop.IndexOf("StatusText.Text", StringComparison.Ordinal)
+                > stop.IndexOf("StopPlayback()", StringComparison.Ordinal),
+            "狀態列要在 StopPlayback() 之後才更新。");
+
+        // Esc 走同一條路：兩邊各寫一份，鍵盤停止之後就會留下一句「播放中」。
+        Assert.Contains("OnStopClicked(", SourceContract.BodyOf(source, "OnPreviewKeyDown"));
+    }
+
+    /// <summary>
+    /// 時間軸上「點這一刻」與方向鍵跳轉必須共用同一份落點規則，而且段尾不能落成「段長本身」。
+    /// </summary>
+    /// <remarks>
+    /// 舊的點擊路徑自己寫了一份閉區間迴圈，且取「先出現」的那一段：點在兩段接縫上會落進前一段的
+    /// 第 60 秒。ffmpeg <c>-ss 60</c> 不產生任何影格，播放器立刻回報播放完成——畫面不動、狀態列
+    /// 卻說「已播放結束」，而後面明明還有整段錄影。同一件事在方向鍵那邊已經修過一次（半開區間），
+    /// 兩份規則並存就註定會再分岔。
+    /// </remarks>
+    [Fact]
+    public void 時間軸點擊與方向鍵共用同一份落點規則()
+    {
+        var source = SourceContract.Read(Code);
+        var click = SourceContract.BodyOf(source, "OnBandClicked");
+
+        Assert.Contains("PlaybackSeekPlanner.ResolveAt(", click);
+        Assert.Contains("PlayFrom(", click);
+        Assert.DoesNotContain("targetUtc <= ", click);
+        Assert.DoesNotContain("_bandSegments[^1]", click);
+    }
+
+    /// <summary>
+    /// 滑鼠掠過時間軸會把「位置／總長」讀數換成掠過那一刻的絕對時刻；離開時必須換回來。
+    /// </summary>
+    /// <remarks>
+    /// 沒有這個處理時，暫停中（沒有影格再進來）讀數就永遠停在一個操作員從未停過的時刻，
+    /// 而它看起來就像是播放頭的位置——拿它去抄時間或比對事件都會錯，且沒有任何提示。
+    /// </remarks>
+    [Fact]
+    public void 滑鼠離開時間軸後時間讀數回到播放頭()
+    {
+        var source = SourceContract.Read(Code);
+        var xaml = SourceContract.Read("src/HeliVMS.App/PlaybackWindow.xaml");
+
+        Assert.Contains("MouseLeave=\"OnBandMouseLeave\"", xaml);
+        Assert.Contains("ShowPlayheadTime(", SourceContract.BodyOf(source, "OnBandMouseLeave"));
+
+        // 同一個字串原本在三個地方各拼一次，格式一改就會有三處不同調；一律走 ShowPlayheadTime。
+        foreach (var method in new[] { "OnFrame", "OnEnded", "ClearPlaybackHead" })
+        {
+            Assert.Contains($"ShowPlayheadTime(", SourceContract.BodyOf(source, method));
+        }
+
+        Assert.DoesNotContain(
+            "FormatTime(_posInside)} / ",
+            SourceContract.BodyOf(source, "OnFrame"));
+    }
+
+    [Fact]
     public void 回放牆格數切換重建次畫面並重新對齊母鐘()
     {
         var source = SourceContract.Read(Code);

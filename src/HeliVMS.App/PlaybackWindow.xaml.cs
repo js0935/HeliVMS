@@ -1374,7 +1374,14 @@ public partial class PlaybackWindow : Window
         StatusText.Text = Localizer.T("Playback.Paused");
     }
 
-    private void OnStopClicked(object sender, RoutedEventArgs e) => StopPlayback();
+    private void OnStopClicked(object sender, RoutedEventArgs e)
+    {
+        StopPlayback();
+
+        // 停止後畫面刻意停在最後一格、播放頭也留著（按播放可續播），所以狀態列必須跟著改：
+        // 停住不動卻還寫「播放中（1×）」，操作員會以為按鈕沒作用——現場的回報就是「停止鈕壞了」。
+        StatusText.Text = Localizer.T("Playback.EndedStopped");
+    }
 
     private void OnSpeedChanged(object sender, SelectionChangedEventArgs e)
     {
@@ -1477,7 +1484,8 @@ public partial class PlaybackWindow : Window
 
             case Key.Escape:
                 e.Handled = true;
-                StopPlayback();
+                // 與停止鈕同一條路：狀態列才會從「播放中」改成「已停止播放」。
+                OnStopClicked(this, new RoutedEventArgs());
                 break;
         }
     }
@@ -1736,7 +1744,7 @@ public partial class PlaybackWindow : Window
                 0);
 
             _posInside = _basePos + frame.PtsMs / 1000.0;
-            TimeText.Text = $"{FormatTime(_posInside)} / {FormatTime(LengthOf(seg))}";
+            ShowPlayheadTime(seg);
             StatusText.Text = string.Format(Localizer.T("Playback.Playing"), GetSpeed().ToString("0.##"));
             if (!_seeking && (seg.DurationSec ?? 0) > 0)
             {
@@ -1809,7 +1817,7 @@ public partial class PlaybackWindow : Window
                 StopSync();
                 StopAllPanes();
                 SetIdleUi();
-                TimeText.Text = $"{FormatTime(_posInside)} / {FormatTime(LengthOf(seg))}";
+                ShowPlayheadTime(seg);
                 StatusText.Text = Localizer.T("Playback.RangeEnded");
                 return;
             }
@@ -1828,7 +1836,7 @@ public partial class PlaybackWindow : Window
             StopSync();
             StopAllPanes();
             SetIdleUi();
-            TimeText.Text = $"{FormatTime(_posInside)} / {FormatTime(LengthOf(seg))}";
+            ShowPlayheadTime(seg);
             StatusText.Text = completed
                 ? (AutoAdvanceCheck.IsChecked == true ? Localizer.T("Playback.EndedNoNext") : Localizer.T("Playback.EndedStopped"))
                 : Localizer.T("Playback.PlayFailed");
@@ -2077,7 +2085,7 @@ public partial class PlaybackWindow : Window
 
         SeekSlider.Value = 0;
         SeekSlider.IsEnabled = false;
-        TimeText.Text = $"{FormatTime(0)} / {FormatTime(0)}";
+        ShowPlayheadTime();
     }
 
     private void StopPlayback()
@@ -2639,25 +2647,31 @@ public partial class PlaybackWindow : Window
         {
             // 整天都沒有錄影：整條帶子都是灰的，任何位置都算無錄影，給明確回饋而不是沒反應。
             StatusText.Text = Localizer.T("Playback.NoRecordingHere");
+            ShowPlayheadTime();
             return;
         }
 
         var frac = Math.Max(0, Math.Min(1, e.GetPosition(BandCanvas).X / BandCanvas.ActualWidth));
         var targetUtc = View().TimeAtFraction(frac);
 
-        foreach (var item in _bandSegments)
+        // 「點這一刻」的落點規則與方向鍵共用同一份純函式：接縫歸後一段、段尾那一瞬間算空檔、
+        // 空檔就說沒錄影。自己再寫一份閉區間迴圈，點在接縫上會落進前一段的第 60 秒（沒有影格），
+        // 立刻回報「已播放結束」——後面明明還有整段錄影。
+        var landing = HeliVMS.Shared.PlaybackSeekPlanner.ResolveAt(
+            _bandSegments.Select(i => i.Segment),
+            targetUtc);
+        var item = landing is { } hit
+            ? _bandSegments.FirstOrDefault(i => ReferenceEquals(i.Segment, hit.Segment))
+            : null;
+        if (landing is not { } found || item is null)
         {
-            var seg = item.Segment;
-            var end = EndOf(seg);
-            if (seg.StartUtc <= targetUtc && targetUtc <= end)
-            {
-                SelectSegment(item);
-                PlayFrom(seg, Math.Max(0, (targetUtc - seg.StartUtc).TotalSeconds));
-                return;
-            }
+            StatusText.Text = Localizer.T("Playback.NoRecordingHere");
+            ShowPlayheadTime();
+            return;
         }
 
-        StatusText.Text = Localizer.T("Playback.NoRecordingHere");
+        SelectSegment(item);
+        PlayFrom(found.Segment, found.OffsetSeconds);
     }
 
     /// <summary>拖曳中的選擇窗：每像素都在動，只重畫覆蓋層本身，不重畫整條帶子。</summary>
@@ -2808,6 +2822,12 @@ public partial class PlaybackWindow : Window
             .ConvertTimeFromUtc(View().TimeAtFraction(frac), TimeZoneInfo.Local)
             .ToString("HH:mm:ss");
     }
+
+    /// <summary>
+    /// 滑鼠離開時間軸：把被 <see cref="PreviewBandAt"/> 蓋掉的讀數還原成播放頭。
+    /// 少了這一步，暫停時讀數會永遠停在滑鼠最後掠過的那一刻——看起來像播放頭真的在那裡。
+    /// </summary>
+    private void OnBandMouseLeave(object sender, MouseEventArgs e) => ShowPlayheadTime();
 
     /// <summary>
     /// 滾輪無級縮放（§8.5「縮放中心跟隨滑鼠游標」、§3.4「支援滑鼠滾輪縮放」）：
@@ -2962,6 +2982,22 @@ public partial class PlaybackWindow : Window
         PlayPauseButton.Content = Localizer.T("Playback.Play");
         PlayPauseButton.IsEnabled = _current is not null;
         StopButton.IsEnabled = false;
+    }
+
+    /// <summary>
+    /// 時間讀數回到「播放頭 / 段長」，全視窗唯一一份。
+    /// </summary>
+    /// <remarks>
+    /// 同一個字串原本在 <see cref="OnFrame"/>、<see cref="OnEnded"/> 與
+    /// <see cref="ClearPlaybackHead"/> 各寫一次，格式一改就會有三處不同調。
+    /// 另外，滑鼠掠過時間軸（<see cref="PreviewBandAt"/>）或點在空檔時，這個唯讀的讀數會被
+    /// 暫態的絕對時刻蓋掉；暫停中沒有影格再進來就沒人改回來，操作員看到的是自己從未停過的
+    /// 時刻——拿它去抄時間、比對事件都會錯。所以滑鼠離開帶子、點到空檔之後都要叫回這裡。
+    /// </remarks>
+    private void ShowPlayheadTime(SegmentRecord? segment = null)
+    {
+        var length = (segment ?? _current) is { } seg ? LengthOf(seg) : 0;
+        TimeText.Text = $"{FormatTime(_posInside)} / {FormatTime(length)}";
     }
 
     private static string FormatTime(double seconds)
@@ -3228,8 +3264,14 @@ public partial class PlaybackWindow : Window
                     StopPane(pane);
                 }
 
-                pane.NoRecording = true;
-                pane.Osd.Text = $"{pane.Channel.Name} · {Localizer.T("Playback.NoRecordingHere")}";
+                // 同步計時器每 150ms 跑一次；每次都重寫同一個字串會讓次畫面的 TextBlock
+                // 反覆重新排版（4 路就是每秒 27 次），畫面在比對時看起來會抖。
+                if (!pane.NoRecording)
+                {
+                    pane.NoRecording = true;
+                    pane.Osd.Text = $"{pane.Channel.Name} · {Localizer.T("Playback.NoRecordingHere")}";
+                }
+
                 continue;
             }
 

@@ -148,6 +148,45 @@ public sealed class PlaybackSeekPlannerTests
         Assert.True(landing.Value.OffsetSeconds > 59);
     }
 
+    /// <summary>
+    /// 時間軸上「點這一刻」的落點（與方向鍵共用 ResolveAt）：接縫歸後一段、段尾停在最後一格、
+    /// 空檔不硬跳。三條都是「點下去之後畫面有沒有動」的差別，在桌面上沒有執行期測試可驗。
+    /// </summary>
+    [Fact]
+    public void 時間軸點在接縫上會播後一段()
+    {
+        var segs = new[] { Seg(1, 0, 60), Seg(2, 1, 60) };
+
+        var landing = PlaybackSeekPlanner.ResolveAt(segs, T0.AddMinutes(1));
+
+        Assert.NotNull(landing);
+        Assert.Equal(2, landing!.Value.Segment.Id);
+        Assert.Equal(0, landing.Value.OffsetSeconds, 3);
+    }
+
+    [Fact]
+    public void 時間軸點在段尾那一刻不算在段內()
+    {
+        // 段尾那一瞬間沒有影格：舊的閉區間會回「該段第 60 秒」，開出來的工作立刻回報
+        // 已播放結束（畫面不動），而右邊一格就是有影像的。寧可回報此刻無錄影。
+        var segs = new[] { Seg(1, 0, 60) };
+
+        Assert.Null(PlaybackSeekPlanner.ResolveAt(segs, T0.AddSeconds(60)));
+
+        var inside = PlaybackSeekPlanner.ResolveAt(segs, T0.AddSeconds(59));
+        Assert.NotNull(inside);
+        Assert.Equal(59, inside!.Value.OffsetSeconds, 3);
+    }
+
+    [Fact]
+    public void 時間軸點在空檔上沒有落點()
+    {
+        var segs = new[] { Seg(1, 0, 60), Seg(2, 5, 60) };
+
+        Assert.Null(PlaybackSeekPlanner.ResolveAt(segs, T0.AddMinutes(3)));
+        Assert.Null(PlaybackSeekPlanner.ResolveAt([], T0));
+    }
+
     [Fact]
     public void 沒有錄影段時回空()
     {

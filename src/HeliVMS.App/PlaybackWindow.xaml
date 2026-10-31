@@ -261,7 +261,8 @@
                         AutomationProperties.AutomationId="PlaybackChannelBands"/>
                 <Border Grid.Row="2" BorderBrush="#2A4A73" BorderThickness="1"
                         Background="#0F1D2E" MouseLeftButtonDown="OnBandScrubStart"
-                        MouseMove="OnBandMouseMove" MouseLeftButtonUp="OnBandClicked">
+                        MouseMove="OnBandMouseMove" MouseLeftButtonUp="OnBandClicked"
+                        MouseLeave="OnBandMouseLeave">
                     <Border.ContextMenu>
                         <ContextMenu>
                             <MenuItem x:Name="ReplayRangeMenuItem" Header="" AutomationProperties.AutomationId="PlaybackReplayRange" Click="OnReplayRangeClicked"/>

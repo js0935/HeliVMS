@@ -38,6 +38,44 @@ public static class PlaybackSeekPlanner
     }
 
     /// <summary>
+    /// 「時間軸上點這一刻」的落點：涵蓋該時刻的那一段與段內偏移；空檔回 <c>null</c>。
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// 與 <see cref="Resolve"/> 的差別只有一點：「點哪就播哪」——空檔回 <c>null</c>，不落到
+    /// 最近的一段邊界。不出聲地跳到別的時間，畫面有影像、時刻卻不是操作員點的那一個。
+    /// </para>
+    /// <para>
+    /// 涵蓋範圍一律是 <c>[起點, 結束)</c>，全應用程式只有這一條規則：兩段相接時那一瞬間屬於
+    /// 後一段（不必靠「起點較晚者優先」這個保險規則才正確），而段尾那一瞬間本身沒有影格
+    /// （<c>ffmpeg -ss &lt;段長&gt;</c> 什麼都不產生），算空檔。舊的閉區間寫法把段尾算成
+    /// 「該段的第 60 秒」，播放器立刻回報播放完成——畫面不動、狀態列卻說「已播放結束」，
+    /// 而後面明明還有整段錄影。
+    /// </para>
+    /// </remarks>
+    public static Landing? ResolveAt(IEnumerable<SegmentRecord> segments, DateTime instantUtc)
+    {
+        Landing? covering = null;
+        foreach (var segment in segments)
+        {
+            if (segment.StartUtc > instantUtc || instantUtc >= PlaybackSegmentTiming.EndOf(segment))
+            {
+                continue;
+            }
+
+            // 段有重疊時取起點較晚的那一段，與多路同步的落點規則一致。
+            if (covering is null || segment.StartUtc > covering.Value.Segment.StartUtc)
+            {
+                covering = new Landing(
+                    segment,
+                    Math.Max(0, (instantUtc - segment.StartUtc).TotalSeconds));
+            }
+        }
+
+        return covering;
+    }
+
+    /// <summary>
     /// 算出從目前位置往 <paramref name="targetUtc"/> 跳的落點；沒有任何錄影段時回 <c>null</c>。
     /// </summary>
     /// <param name="segments">當日可播的段（允許未排序）。</param>
@@ -54,28 +92,13 @@ public static class PlaybackSeekPlanner
             return null;
         }
 
-        // 1. 目標落在某一段之內：從那個點起播。區間是 [起點, 結束)，結束那一刻不算「在段內」。
+        // 1. 目標落在某一段之內：從那個點起播。結束那一刻不算「在段內」（見 ResolveAt）。
         //    結束時刻本身沒有影格（ffmpeg -ss <段長> 什麼都不產生），落在那裡等於回報「播放完成」
         //    而畫面不動：真實症狀是按右鍵從 08:00:50 跳到 08:01:00（某段剛好結束）時，明明後面
         //    還有錄影，狀態列卻跳成「已播放結束」，再按一次才前進——看起來像跳轉少了一次。
         //    半開區間同時讓接縫（下一段起點＝前一段結束）自然歸屬後一段，不必靠「起點較晚者優先」
         //    這個保險規則才正確。
-        Landing? covering = null;
-        foreach (var segment in ordered)
-        {
-            if (segment.StartUtc <= targetUtc && targetUtc < PlaybackSegmentTiming.EndOf(segment))
-            {
-                // 段有重疊時取起點較晚的那一段，與多路同步的落點規則一致。
-                if (covering is null || segment.StartUtc > covering.Value.Segment.StartUtc)
-                {
-                    covering = new Landing(
-                        segment,
-                        Math.Max(0, (targetUtc - segment.StartUtc).TotalSeconds));
-                }
-            }
-        }
-
-        if (covering is { } hit)
+        if (ResolveAt(ordered, targetUtc) is { } hit)
         {
             return hit;
         }
