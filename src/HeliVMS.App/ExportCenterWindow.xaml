@@ -3,107 +3,170 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         AutomationProperties.AutomationId="ExportCenterWindow"
         Title=""
-        Width="760" Height="640"
         WindowStartupLocation="CenterOwner"
-        Background="#0B1622" Foreground="White">
+        Background="#0B1622" Foreground="White"
+        PreviewKeyDown="OnPreviewKeyDown"
+        WindowStyle="None" ResizeMode="NoResize" WindowState="Maximized">
 
-    <Grid Margin="16">
+    <Grid Margin="12">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
-            <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
-        <!-- Add export -->
-        <StackPanel Grid.Row="0">
-            <TextBlock x:Name="ExportCenterAddHeader" Text="" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
-            <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
-                <TextBlock x:Name="ExportCenterChannelLabel" Text="" VerticalAlignment="Center" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
-                <ListBox x:Name="ChannelList" Width="200" Height="56" Margin="8,0,0,0"
-                         SelectionMode="Multiple" Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
-            </StackPanel>
+        <!-- Header row: borderless window has no system title bar, so the title and the close
+             button live here (same pattern as ExportWindow/SchedulingWindow). -->
+        <Grid Grid.Row="0" Margin="0,0,0,10">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            <TextBlock x:Name="HeaderTitle" Text="" FontSize="15" FontWeight="Bold"
+                       Foreground="White" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+            <Button x:Name="HeaderCloseButton" Content="✕" Click="OnCloseClicked" ToolTip=""
+                    Grid.Column="1" Padding="10,4" FontSize="14"
+                    Foreground="White" Background="#C62828" BorderThickness="0"
+                    VerticalAlignment="Center" AutomationProperties.AutomationId="ExportCenterHeaderCloseButton"/>
+        </Grid>
 
-            <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
-                <DatePicker x:Name="StartDate" AutomationProperties.AutomationId="CenterStartDate"
-                            Width="120" Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
-                <TextBox x:Name="StartTime" AutomationProperties.AutomationId="ExportCenterStartTime" Width="64" Margin="6,0,0,0" Text="00:00:00"
-                         VerticalContentAlignment="Center" Foreground="White"
-                         Background="#1A2C49" BorderBrush="#2A4A73"/>
-                <TextBlock Text="～" VerticalAlignment="Center" Margin="8,0"/>
-                <DatePicker x:Name="EndDate" AutomationProperties.AutomationId="CenterEndDate"
-                            Width="120" Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
-                <TextBox x:Name="EndTime" AutomationProperties.AutomationId="ExportCenterEndTime" Width="64" Margin="6,0,0,0" Text="23:59:59"
-                         VerticalContentAlignment="Center" Foreground="White"
-                         Background="#1A2C49" BorderBrush="#2A4A73"/>
-            </StackPanel>
+        <Grid Grid.Row="1">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="520"/>
+                <ColumnDefinition Width="12"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
 
-            <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
-                <TextBlock x:Name="ExportCenterOutputLabel" Text="" VerticalAlignment="Center" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
-                <TextBox x:Name="CenterOutputBox" AutomationProperties.AutomationId="CenterOutputBox"
-                         Width="420" Margin="8,0,0,0" VerticalContentAlignment="Center"
-                         Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
-                <Button x:Name="CenterBrowseButton" Content="" Click="OnCenterBrowseClicked" ToolTip=""
-                        Width="60" Margin="8,0,0,0" Padding="0,6"
-                        Foreground="White" Background="#2A4A73" BorderThickness="0" AutomationProperties.AutomationId="CenterBrowseButton"/>
-                <Button x:Name="AddExportButton" AutomationProperties.AutomationId="AddExportButton" ToolTip=""
-                        Content="" Click="OnAddClicked"
-                        Width="80" Margin="8,0,0,0" Padding="0,6"
-                        Foreground="White" Background="#2A5C8A" BorderThickness="0"/>
-            </StackPanel>
-        </StackPanel>
+            <!-- Left: add export jobs -->
+            <Border Grid.Column="0" BorderBrush="#2A4A73" BorderThickness="1" Background="#0F1D2E">
+                <StackPanel Margin="16">
+                    <TextBlock x:Name="ExportCenterAddHeader" Text="" Foreground="{StaticResource Brand.TextDim}" FontSize="12"
+                               Margin="0,0,0,10"/>
 
-        <!-- Job list -->
-        <TextBlock Grid.Row="1" x:Name="ExportCenterListLabel" Text="" Foreground="{StaticResource Brand.TextDim}" FontSize="11" Margin="0,14,0,2"/>
-        <ListView Grid.Row="2" x:Name="JobList" AutomationProperties.AutomationId="JobList"
-                  Background="#0E1C30" BorderBrush="#2A4A73" Foreground="White"
-                  MouseDoubleClick="OnJobDoubleClick"
-                  ToolTip="">
-            <ListView.ItemTemplate>
-                <DataTemplate>
-                    <TextBlock Text="{Binding Display}" Foreground="White"/>
-                </DataTemplate>
-            </ListView.ItemTemplate>
-        </ListView>
+                    <!-- Channel: multi-select list, stretches so long camera names are readable. -->
+                    <TextBlock x:Name="ExportCenterChannelLabel" Text="" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+                    <ListBox x:Name="ChannelList" Height="96" Margin="0,4,0,12"
+                             SelectionMode="Multiple" Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
 
-        <!-- Action row -->
-        <StackPanel Grid.Row="3" Orientation="Horizontal" Margin="0,10,0,0">
-            <Button x:Name="CenterRefreshButton" Content="" Click="OnRefreshClicked" ToolTip=""
-                    Width="64" Padding="0,6" Foreground="White" Background="#2A4A73" BorderThickness="0" AutomationProperties.AutomationId="CenterRefreshButton"/>
-            <Button x:Name="CenterRunButton" AutomationProperties.AutomationId="CenterRunButton" ToolTip=""
-                    Content="" Click="OnRunClicked"
-                    Width="80" Padding="0,6" Margin="8,0,0,0"
-                    Foreground="White" Background="#2A5C8A" BorderThickness="0"/>
-            <Button x:Name="CenterVerifyButton" AutomationProperties.AutomationId="CenterVerifyButton" ToolTip=""
-                    Content="" Click="OnVerifyClicked"
-                    Width="64" Padding="0,6" Margin="8,0,0,0"
-                    Foreground="White" Background="#4A5C4A" BorderThickness="0"/>
-            <Button x:Name="CenterSigningKeysButton" AutomationProperties.AutomationId="CenterSigningKeysButton" ToolTip=""
-                    Content="" Click="OnSigningKeysClicked"
-                    Width="80" Padding="0,6" Margin="8,0,0,0"
-                    Foreground="White" Background="#3A4A6A" BorderThickness="0"/>
-            <Button x:Name="CenterDeleteButton" Content="" Click="OnDeleteClicked" ToolTip=""
-                    Width="64" Padding="0,6" Margin="8,0,0,0"
-                    Foreground="White" Background="#8A3C2E" BorderThickness="0" AutomationProperties.AutomationId="CenterDeleteButton"/>
-            <Button x:Name="CenterRetryButton" AutomationProperties.AutomationId="CenterRetryButton" ToolTip=""
-                    Content="" Click="OnRetryClicked"
-                    Width="64" Padding="0,6" Margin="8,0,0,0"
-                    Foreground="White" Background="#8A6F3A" BorderThickness="0"/>
-            <Button x:Name="CenterOpenFolderButton" AutomationProperties.AutomationId="CenterOpenFolderButton" ToolTip=""
-                    Content="" Click="OnOpenFolderClicked"
-                    Width="90" Padding="0,6" Margin="8,0,0,0"
-                    Foreground="White" Background="#2A7F6E" BorderThickness="0"/>
-            <Button x:Name="CenterPurgeButton" Content="" Click="OnPurgeClicked" ToolTip=""
-                    Width="90" Padding="0,6" Margin="8,0,0,0"
-                    Foreground="White" Background="#3A4A6A" BorderThickness="0" AutomationProperties.AutomationId="CenterPurgeButton"/>
-            <Button x:Name="ShareFromExportButton" AutomationProperties.AutomationId="ShareFromExportButton" ToolTip=""
-                    Content="" Click="OnShareClicked"
-                    Width="100" Padding="0,6" Margin="8,0,0,0"
-                    Foreground="White" Background="#2A5C8A" BorderThickness="0"/>
-        </StackPanel>
+                    <!-- Time range: 2x2 From/To grid. The old single row left the time boxes at
+                         64px, clipping "23:59:59"; the 116px boxes match the export wizard. -->
+                    <Grid Margin="0,0,12,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="170"/>
+                            <ColumnDefinition Width="116"/>
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+                        <TextBlock x:Name="ExportCenterStartLabel" Text="" Grid.Row="0" Grid.Column="0"
+                                   Foreground="{StaticResource Brand.TextDim}" FontSize="11"
+                                   VerticalAlignment="Center" Margin="0,0,8,0"/>
+                        <DatePicker x:Name="StartDate" AutomationProperties.AutomationId="CenterStartDate"
+                                    Grid.Row="0" Grid.Column="1" Margin="0,4,0,0" Width="170" HorizontalAlignment="Left"
+                                    Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
+                        <TextBox x:Name="StartTime" AutomationProperties.AutomationId="ExportCenterStartTime"
+                                 Grid.Row="0" Grid.Column="2" Margin="6,4,0,0" Width="116" HorizontalAlignment="Left"
+                                 Text="00:00:00" VerticalContentAlignment="Center"
+                                 Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
+                        <TextBlock x:Name="ExportCenterEndLabel" Text="" Grid.Row="1" Grid.Column="0"
+                                   Foreground="{StaticResource Brand.TextDim}" FontSize="11"
+                                   VerticalAlignment="Center" Margin="0,0,8,0"/>
+                        <DatePicker x:Name="EndDate" AutomationProperties.AutomationId="CenterEndDate"
+                                    Grid.Row="1" Grid.Column="1" Margin="0,8,0,0" Width="170" HorizontalAlignment="Left"
+                                    Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
+                        <TextBox x:Name="EndTime" AutomationProperties.AutomationId="ExportCenterEndTime"
+                                 Grid.Row="1" Grid.Column="2" Margin="6,8,0,0" Width="116" HorizontalAlignment="Left"
+                                 Text="23:59:59" VerticalContentAlignment="Center"
+                                 Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
+                    </Grid>
 
-        <TextBlock Grid.Row="4" x:Name="ExportCenterStatus" AutomationProperties.AutomationId="ExportCenterStatus"
-                   Margin="0,10,0,0" Foreground="#9FB8D8" TextWrapping="Wrap"/>
+                    <!-- Output folder + add -->
+                    <TextBlock x:Name="ExportCenterOutputLabel" Text="" Foreground="{StaticResource Brand.TextDim}" FontSize="11"
+                               Margin="0,12,0,0"/>
+                    <DockPanel Margin="0,4,0,0">
+                        <Button x:Name="AddExportButton" AutomationProperties.AutomationId="AddExportButton" ToolTip=""
+                                Content="" Click="OnAddClicked" DockPanel.Dock="Right"
+                                MinWidth="88" Padding="12,6" Margin="8,0,0,0"
+                                Foreground="White" Background="#2A5C8A" BorderThickness="0"/>
+                        <Button x:Name="CenterBrowseButton" Content="" Click="OnCenterBrowseClicked" ToolTip=""
+                                DockPanel.Dock="Right" MinWidth="72" Padding="12,6" Margin="8,0,0,0"
+                                Foreground="White" Background="#2A4A73" BorderThickness="0" AutomationProperties.AutomationId="CenterBrowseButton"/>
+                        <TextBox x:Name="CenterOutputBox" AutomationProperties.AutomationId="CenterOutputBox"
+                                 VerticalContentAlignment="Center" Padding="6,4"
+                                 Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
+                    </DockPanel>
+                </StackPanel>
+            </Border>
+
+            <!-- Right: job queue -->
+            <Border Grid.Column="2" BorderBrush="#2A4A73" BorderThickness="1" Background="#0F1D2E">
+                <Grid Margin="16">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+
+                    <TextBlock x:Name="ExportCenterListLabel" Text="" Foreground="{StaticResource Brand.TextDim}" FontSize="12"
+                               Margin="0,0,0,8"/>
+
+                    <ListView x:Name="JobList" AutomationProperties.AutomationId="JobList" Grid.Row="1"
+                              Background="#0E1C30" BorderBrush="#2A4A73" Foreground="White"
+                              MouseDoubleClick="OnJobDoubleClick"
+                              ToolTip="">
+                        <ListView.ItemTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding Display}" Foreground="White"/>
+                            </DataTemplate>
+                        </ListView.ItemTemplate>
+                    </ListView>
+
+                    <!-- Action row: MinWidth instead of fixed Width so translated labels are never
+                         clipped (e.g. "Open folder" / "Signing keys" are wider than "Open"). -->
+                    <WrapPanel Grid.Row="2" Orientation="Horizontal" Margin="0,10,0,0">
+                        <Button x:Name="CenterRefreshButton" Content="" Click="OnRefreshClicked" ToolTip=""
+                                MinWidth="72" Padding="12,6" Foreground="White" Background="#2A4A73" BorderThickness="0" AutomationProperties.AutomationId="CenterRefreshButton"/>
+                        <Button x:Name="CenterRunButton" AutomationProperties.AutomationId="CenterRunButton" ToolTip=""
+                                Content="" Click="OnRunClicked"
+                                MinWidth="88" Padding="12,6" Margin="8,0,0,0"
+                                Foreground="White" Background="#2A5C8A" BorderThickness="0"/>
+                        <Button x:Name="CenterVerifyButton" AutomationProperties.AutomationId="CenterVerifyButton" ToolTip=""
+                                Content="" Click="OnVerifyClicked"
+                                MinWidth="72" Padding="12,6" Margin="8,0,0,0"
+                                Foreground="White" Background="#4A5C4A" BorderThickness="0"/>
+                        <Button x:Name="CenterSigningKeysButton" AutomationProperties.AutomationId="CenterSigningKeysButton" ToolTip=""
+                                Content="" Click="OnSigningKeysClicked"
+                                MinWidth="88" Padding="12,6" Margin="8,0,0,0"
+                                Foreground="White" Background="#3A4A6A" BorderThickness="0"/>
+                        <Button x:Name="CenterDeleteButton" Content="" Click="OnDeleteClicked" ToolTip=""
+                                MinWidth="72" Padding="12,6" Margin="8,0,0,0"
+                                Foreground="White" Background="#8A3C2E" BorderThickness="0" AutomationProperties.AutomationId="CenterDeleteButton"/>
+                        <Button x:Name="CenterRetryButton" AutomationProperties.AutomationId="CenterRetryButton" ToolTip=""
+                                Content="" Click="OnRetryClicked"
+                                MinWidth="72" Padding="12,6" Margin="8,0,0,0"
+                                Foreground="White" Background="#8A6F3A" BorderThickness="0"/>
+                        <Button x:Name="CenterOpenFolderButton" AutomationProperties.AutomationId="CenterOpenFolderButton" ToolTip=""
+                                Content="" Click="OnOpenFolderClicked"
+                                MinWidth="104" Padding="12,6" Margin="8,0,0,0"
+                                Foreground="White" Background="#2A7F6E" BorderThickness="0"/>
+                        <Button x:Name="CenterPurgeButton" Content="" Click="OnPurgeClicked" ToolTip=""
+                                MinWidth="88" Padding="12,6" Margin="8,0,0,0"
+                                Foreground="White" Background="#3A4A6A" BorderThickness="0" AutomationProperties.AutomationId="CenterPurgeButton"/>
+                        <Button x:Name="ShareFromExportButton" AutomationProperties.AutomationId="ShareFromExportButton" ToolTip=""
+                                Content="" Click="OnShareClicked"
+                                MinWidth="88" Padding="12,6" Margin="8,0,0,0"
+                                Foreground="White" Background="#2A5C8A" BorderThickness="0"/>
+                        <Button x:Name="CloseButton" Content="" Click="OnCloseClicked" ToolTip="" IsCancel="True"
+                                MinWidth="88" Padding="12,6" Margin="8,0,0,0"
+                                Foreground="White" Background="#3A3A5A" BorderThickness="0" AutomationProperties.AutomationId="ExportCenterCloseButton"/>
+                    </WrapPanel>
+
+                    <TextBlock Grid.Row="3" x:Name="ExportCenterStatus" AutomationProperties.AutomationId="ExportCenterStatus"
+                               Margin="0,10,0,0" Foreground="#9FB8D8" TextWrapping="Wrap"/>
+                </Grid>
+            </Border>
+        </Grid>
     </Grid>
 </Window>

@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Diagnostics;
 using System.IO;
 using System.Windows;
+using System.Windows.Input;
 using System.Windows.Threading;
 using HeliVMS.App.Services;
 using HeliVMS.Recording;
@@ -58,7 +59,11 @@ public partial class ExportCenterWindow : Window
     private void ApplyI18n()
     {
         Title = Localizer.T("ExportCenter.Title");
+        HeaderTitle.Text = Localizer.T("ExportCenter.Title");
+        HeaderCloseButton.ToolTip = Localizer.T("ExportCenter.CloseTip");
         ExportCenterAddHeader.Text = Localizer.T("ExportCenter.AddHeader");
+        ExportCenterStartLabel.Text = Localizer.T("Export.StartLabel");
+        ExportCenterEndLabel.Text = Localizer.T("Export.EndLabel");
         ExportCenterChannelLabel.Text = Localizer.T("ExportCenter.Channel");
         ExportCenterOutputLabel.Text = Localizer.T("ExportCenter.OutputFolder");
         ExportCenterListLabel.Text = Localizer.T("ExportCenter.ListHeader");
@@ -85,6 +90,20 @@ public partial class ExportCenterWindow : Window
         CenterPurgeButton.ToolTip = Localizer.T("ExportCenter.PurgeTip");
         ShareFromExportButton.Content = Localizer.T("ExportCenter.Share");
         ShareFromExportButton.ToolTip = Localizer.T("ExportCenter.ShareTip");
+        CloseButton.Content = Localizer.T("ExportCenter.Close");
+        CloseButton.ToolTip = Localizer.T("ExportCenter.CloseTip");
+    }
+
+    /// <summary>無邊框最大化視窗沒有系統標題列：✕、關閉鈕與 Esc 是離開路徑。</summary>
+    private void OnCloseClicked(object sender, RoutedEventArgs e) => Close();
+
+    private void OnPreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Escape)
+        {
+            e.Handled = true;
+            Close();
+        }
     }
     private void Reload()
     {
