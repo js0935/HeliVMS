@@ -188,6 +188,19 @@ Notes that will save you time:
   always-on-top panel (direction keys, zoom, presets) meant to sit next to the picture; the
   XAML said `Maximized`, so choosing PTZ blanked the whole screen with an almost empty panel
   and looked like a crash. It compiles silently. Guarded by `PTZ面板不會以最大化開啟`.
+- **A settings tab taller than the window is silently unclickable.** `SettingsWindow` is
+  `WindowState="Maximized"` with `ResizeMode="NoResize"`, and every tab is a `StackPanel` with
+  no scroll of its own. Storage and Notifications are taller than the usable height of a
+  1366x768 screen, so WPF clipped the bottom of the page at the window edge — the last row of
+  「套用」/「清理」 buttons could be seen but never clicked, with no scrollbar, no error and no
+  hint that anything was missing; the operator's only workaround was changing the display
+  resolution. The content column is now wrapped in `SettingsContentScroll`
+  (`VerticalScrollBarVisibility="Auto"`). Three things make that wrapping safe and must stay:
+  no `Height="*"` row inside it (a ScrollViewer measures with infinite height, so a star row
+  collapses to 0 and the whole page vanishes), `HorizontalScrollBarVisibility="Disabled"`
+  (enabling it measures the page with infinite width, so `TextWrapping` never wraps and the
+  page becomes one long line), and the left navigation stays outside (inside, it scrolls away
+  with the content). Guarded by `SettingsLayoutContractTests`.
 - **Never write `async void` shutdown handlers.** WPF begins `Shutdown` as soon as the
   last window closes, so continuations after an `await` in `MainWindow.OnWindowClosed`
   never run: `StopAllAsync()` was silently dropped and `App.OnExit` hard-killed the

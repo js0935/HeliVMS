@@ -44,7 +44,19 @@
         </Border>
 
         <!-- Right: content area -->
-        <Grid Grid.Column="1" Margin="12,0,0,0">
+        <!-- The content must be vertically scrollable. Storage and Notifications are taller than
+             the usable height of a 1366x768 screen once the taskbar is gone, and without a
+             scrollbar the last row of "apply"/"cleanup" buttons is simply clipped by WPF: no
+             half-drawn control, no hint that anything is below. The window is maximized and
+             ResizeMode="NoResize", so the operator cannot even enlarge it.
+             Horizontal scrolling stays disabled on purpose: the page must measure against the
+             viewport width, otherwise TextWrapping never wraps and the page becomes one long line. -->
+        <ScrollViewer Grid.Column="1" Margin="12,0,0,0"
+                      AutomationProperties.AutomationId="SettingsContentScroll"
+                      VerticalScrollBarVisibility="Auto"
+                      HorizontalScrollBarVisibility="Disabled"
+                      PanningMode="VerticalOnly">
+            <Grid Margin="0,0,12,0">
 
             <!-- General -->
             <StackPanel x:Name="PageGeneral" AutomationProperties.AutomationId="SettingsPageGeneral">
@@ -122,10 +134,10 @@
             <!-- Storage -->
             <StackPanel x:Name="PageStorage" Visibility="Collapsed"
                         AutomationProperties.AutomationId="SettingsPageStorage">
-                <TextBlock x:Name="StorageTitle" Text="" FontSize="17" FontWeight="Bold" Margin="0,0,0,14"/>
+                <TextBlock x:Name="StorageTitle" Text="" FontSize="17" FontWeight="Bold" Margin="0,0,0,8"/>
                 <TextBlock x:Name="RecordingsDiskLabel" Text=""
                            Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
-                <StackPanel Orientation="Horizontal" Margin="0,6,0,8">
+                <StackPanel Orientation="Horizontal" Margin="0,4,0,6">
                     <ComboBox x:Name="RecordingsDiskCombo" AutomationProperties.AutomationId="RecordingsDiskCombo"
                               Width="300" VerticalContentAlignment="Center"
                               Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
@@ -165,7 +177,7 @@
                            AutomationProperties.AutomationId="RecordingsDiskStatusText"/>
                 <TextBlock x:Name="BandwidthBudgetLabel" Text=""
                            Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
-                <DockPanel Margin="0,6,0,4">
+                <DockPanel Margin="0,4,0,2">
                     <Button x:Name="ApplyBandwidthBudgetButton" Content="" Click="OnApplyBandwidthBudgetClicked" ToolTip=""
                             DockPanel.Dock="Right" Padding="12,6"
                             Foreground="White" Background="#2A5C8A" BorderThickness="0"
@@ -177,11 +189,11 @@
                 <TextBlock x:Name="BandwidthBudgetHintText" Text=""
                            Foreground="{StaticResource Brand.TextDim}" FontSize="11" TextWrapping="Wrap"
                            Margin="0,0,0,4"/>
-                <TextBlock x:Name="BandwidthBudgetStatusText" Text="" TextWrapping="Wrap" Margin="0,0,0,14"
+                <TextBlock x:Name="BandwidthBudgetStatusText" Text="" TextWrapping="Wrap" Margin="0,0,0,8"
                            AutomationProperties.AutomationId="BandwidthBudgetStatusText"/>
                 <TextBlock x:Name="SegmentSecondsLabel" Text=""
                            Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
-                <DockPanel Margin="0,6,0,4">
+                <DockPanel Margin="0,4,0,2">
                     <Button x:Name="ApplySegmentSecondsButton" Content="" Click="OnApplySegmentSecondsClicked" ToolTip=""
                             DockPanel.Dock="Right" Padding="12,6"
                             Foreground="White" Background="#2A5C8A" BorderThickness="0"
@@ -193,11 +205,11 @@
                 <TextBlock x:Name="SegmentSecondsHintText" Text=""
                            Foreground="{StaticResource Brand.TextDim}" FontSize="11" TextWrapping="Wrap"
                            Margin="0,0,0,4"/>
-                <TextBlock x:Name="SegmentSecondsStatusText" Text="" TextWrapping="Wrap" Margin="0,0,0,14"
+                <TextBlock x:Name="SegmentSecondsStatusText" Text="" TextWrapping="Wrap" Margin="0,0,0,8"
                            AutomationProperties.AutomationId="SegmentSecondsStatusText"/>
                 <TextBlock x:Name="QuotaLabel" Text=""
                            Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
-                <DockPanel Margin="0,6,0,14">
+                <DockPanel Margin="0,4,0,8">
                     <Button x:Name="ApplyQuotaButton" Content="" Click="OnApplyQuotaClicked" ToolTip=""
                             DockPanel.Dock="Right" Padding="12,6"
                             Foreground="White" Background="#2A5C8A" BorderThickness="0" AutomationProperties.AutomationId="ApplyQuotaButton"/>
@@ -211,7 +223,7 @@
 
                 <TextBlock x:Name="SnapshotDaysLabel" Text=""
                            Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
-                <DockPanel Margin="0,6,0,14">
+                <DockPanel Margin="0,4,0,8">
                     <Button x:Name="ApplySnapshotDaysButton" Content="" Click="OnApplySnapshotDaysClicked" ToolTip=""
                             DockPanel.Dock="Right" Padding="12,6"
                             Foreground="White" Background="#2A5C8A" BorderThickness="0" AutomationProperties.AutomationId="ApplySnapshotDaysButton"/>
@@ -222,7 +234,7 @@
 
                 <TextBlock x:Name="AlarmRetentionDaysLabel" Text=""
                            Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
-                <DockPanel Margin="0,6,0,4">
+                <DockPanel Margin="0,4,0,2">
                     <Button x:Name="ApplyAlarmRetentionDaysButton" Content="" Click="OnApplyAlarmRetentionDaysClicked" ToolTip=""
                             DockPanel.Dock="Right" Padding="12,6"
                             Foreground="White" Background="#2A5C8A" BorderThickness="0"
@@ -234,12 +246,12 @@
                 <TextBlock x:Name="AlarmRetentionDaysHintText" Text=""
                            Foreground="{StaticResource Brand.TextDim}" FontSize="11" TextWrapping="Wrap"
                            Margin="0,0,0,4"/>
-                <TextBlock x:Name="AlarmRetentionDaysStatusText" Text="" TextWrapping="Wrap" Margin="0,0,0,14"
+                <TextBlock x:Name="AlarmRetentionDaysStatusText" Text="" TextWrapping="Wrap" Margin="0,0,0,8"
                            AutomationProperties.AutomationId="AlarmRetentionDaysStatusText"/>
 
                 <TextBlock x:Name="AuditRetentionDaysLabel" Text=""
                            Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
-                <DockPanel Margin="0,6,0,4">
+                <DockPanel Margin="0,4,0,2">
                     <Button x:Name="ApplyAuditRetentionDaysButton" Content="" Click="OnApplyAuditRetentionDaysClicked" ToolTip=""
                             DockPanel.Dock="Right" Padding="12,6"
                             Foreground="White" Background="#2A5C8A" BorderThickness="0"
@@ -251,7 +263,7 @@
                 <TextBlock x:Name="AuditRetentionDaysHintText" Text=""
                            Foreground="{StaticResource Brand.TextDim}" FontSize="11" TextWrapping="Wrap"
                            Margin="0,0,0,4"/>
-                <TextBlock x:Name="AuditRetentionDaysStatusText" Text="" TextWrapping="Wrap" Margin="0,0,0,14"
+                <TextBlock x:Name="AuditRetentionDaysStatusText" Text="" TextWrapping="Wrap" Margin="0,0,0,8"
                            AutomationProperties.AutomationId="AuditRetentionDaysStatusText"/>
 
                 <DockPanel Margin="0,0,0,6">
@@ -264,8 +276,8 @@
 
                 <TextBlock x:Name="ImportRecordingsHintText" Text=""
                            Foreground="{StaticResource Brand.TextDim}" FontSize="11" TextWrapping="Wrap"
-                           Margin="0,6,0,4"/>
-                <DockPanel Margin="0,0,0,14">
+                           Margin="0,4,0,2"/>
+                <DockPanel Margin="0,0,0,8">
                     <Button x:Name="ImportRecordingsButton" Content="" Click="OnImportRecordingsClicked" ToolTip=""
                             DockPanel.Dock="Left" Padding="12,6"
                             Foreground="White" Background="#2A5C8A" BorderThickness="0"
@@ -473,7 +485,7 @@
             <!-- Notifications -->
             <StackPanel x:Name="PageNotify" Visibility="Collapsed"
                         AutomationProperties.AutomationId="SettingsPageNotify">
-                <TextBlock x:Name="NotifyTitle" Text="" FontSize="17" FontWeight="Bold" Margin="0,0,0,12"/>
+                <TextBlock x:Name="NotifyTitle" Text="" FontSize="17" FontWeight="Bold" Margin="0,0,0,8"/>
                 <TextBlock x:Name="NotifyDesc" Text=""
                            Foreground="{StaticResource Brand.TextDim}" FontSize="11" Margin="0,0,0,10"
                            TextWrapping="Wrap"/>
@@ -482,7 +494,7 @@
 
                 <TextBlock x:Name="NotifyWebhookLabel" Text="" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
                 <TextBox x:Name="NotifyWebhookUrlBox" AutomationProperties.AutomationId="NotifyWebhookUrlBox"
-                         Width="420" Margin="0,4,0,12"
+                         Width="420" Margin="0,4,0,8"
                          Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="8,4"/>
 
                 <CheckBox x:Name="NotifySmtpEnabledBox" AutomationProperties.AutomationId="NotifySmtpEnabledBox"
@@ -520,7 +532,7 @@
 
                 <TextBlock x:Name="NotifyQuietLabel" Text=""
                            Foreground="{StaticResource Brand.TextDim}" FontSize="11" Margin="0,8,0,0"/>
-                <StackPanel Orientation="Horizontal" Margin="0,4,0,12">
+                <StackPanel Orientation="Horizontal" Margin="0,4,0,8">
                     <TextBlock x:Name="NotifyQuietStartLabel" Text="" Foreground="{StaticResource Brand.TextDim}" FontSize="11" VerticalAlignment="Center"/>
                     <TextBox x:Name="NotifyQuietStartBox" AutomationProperties.AutomationId="NotifyQuietStartBox"
                              Width="90" Margin="6,0,14,0"
@@ -534,7 +546,7 @@
                 <CheckBox x:Name="NotifyQuietRetransmitBox"
                           AutomationProperties.AutomationId="NotifyQuietRetransmitBox"
                           Content=""
-                          Foreground="White" Margin="0,0,0,12"/>
+                          Foreground="White" Margin="0,0,0,8"/>
 
                 <StackPanel Orientation="Horizontal" Margin="0,2,0,4">
                     <CheckBox x:Name="NotifyMqttEnabledBox" AutomationProperties.AutomationId="NotifyMqttEnabledBox"
@@ -553,7 +565,7 @@
                              Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="8,4"/>
                 </StackPanel>
 
-                <StackPanel Orientation="Horizontal" Margin="0,2,0,12">
+                <StackPanel Orientation="Horizontal" Margin="0,2,0,8">
                     <TextBlock x:Name="NotifyMqttUserLabel" Text="" Foreground="{StaticResource Brand.TextDim}" FontSize="11" VerticalAlignment="Center"/>
                     <TextBox x:Name="NotifyMqttUserBox" AutomationProperties.AutomationId="NotifyMqttUserBox"
                              Width="110" Margin="6,0,14,0"
@@ -575,12 +587,12 @@
                              Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="8,4"/>
                 </StackPanel>
                 <TextBlock x:Name="NotifyPushVapidHint" Text=""
-                           Foreground="{StaticResource Brand.TextDim}" FontSize="11" Margin="0,0,0,12"
+                           Foreground="{StaticResource Brand.TextDim}" FontSize="11" Margin="0,0,0,8"
                            TextWrapping="Wrap"/>
 
                 <TextBlock x:Name="NotifySnmpHeading" Text=""
                            Foreground="{StaticResource Brand.TextDim}" FontSize="11" Margin="0,8,0,0"/>
-                <StackPanel Orientation="Horizontal" Margin="0,2,0,12">
+                <StackPanel Orientation="Horizontal" Margin="0,2,0,8">
                     <CheckBox x:Name="NotifySnmpEnabledBox" AutomationProperties.AutomationId="NotifySnmpEnabledBox"
                               Content="" Foreground="White" VerticalAlignment="Center"/>
                     <TextBlock x:Name="NotifySnmpHostLabel" Text="" Foreground="{StaticResource Brand.TextDim}" FontSize="11" VerticalAlignment="Center"/>
@@ -607,7 +619,7 @@
                              Width="300" Margin="6,0,0,0"
                              Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="8,4"/>
                 </StackPanel>
-                <StackPanel Orientation="Horizontal" Margin="0,2,0,12">
+                <StackPanel Orientation="Horizontal" Margin="0,2,0,8">
                     <TextBlock x:Name="NotifyTeamPlusAccountLabel" Text="" Foreground="{StaticResource Brand.TextDim}" FontSize="11" VerticalAlignment="Center"/>
                     <TextBox x:Name="NotifyTeamPlusAccountBox" AutomationProperties.AutomationId="NotifyTeamPlusAccountBox"
                              Width="110" Margin="6,0,14,0"
@@ -1323,6 +1335,7 @@
                            Foreground="{StaticResource Brand.TextDim}" FontSize="11" Margin="0,14,0,0"
                            TextWrapping="Wrap"/>
             </StackPanel>
-        </Grid>
+            </Grid>
+        </ScrollViewer>
     </Grid>
 </Window>
