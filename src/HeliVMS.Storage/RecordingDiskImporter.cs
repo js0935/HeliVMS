@@ -1,3 +1,4 @@
+using HeliVMS.Shared;
 using HeliVMS.Shared.Models;
 
 namespace HeliVMS.Storage;
@@ -83,12 +84,6 @@ public sealed class RecordingDiskImporter
     /// 稀疏的事件錄影下一段可能隔了好幾小時，不能讓一段蓋掉整個下午。
     /// </summary>
     private static readonly TimeSpan MaxEstimatedDuration = TimeSpan.FromSeconds(60);
-
-    /// <summary>
-    /// 完全無從推算時的時長。與 <see cref="PlaybackTimelineBuilder"/> 的預設值一致：
-    /// 零長度的段不會被畫在時間軸上，索引裡有、畫面上沒有，等於回報使用者「這裡沒有錄影」。
-    /// </summary>
-    private const double FallbackDurationSec = 10;
 
     private readonly SegmentRepository _repo;
 
@@ -268,7 +263,7 @@ public sealed class RecordingDiskImporter
     /// 時長一定要算出一個正值。回放時間軸（<see cref="PlaybackTimelineBuilder"/>）刻意略過零長度的段，
     /// 而索引裡「有這一列、時間軸上沒有這一條」等於告訴操作員這裡沒有錄影——明明檔案就在磁碟上。
     /// 收尾時間不可信時，先看下一段的開始時間（全時錄影是連續的，差額就是這段的長度），
-    /// 再不行才退回 <see cref="FallbackDurationSec"/>。
+    /// 再不行才退回 <see cref="PlaybackSegmentTiming.FallbackDurationSeconds"/>。
     /// </remarks>
     private List<DiskSegment> Collect(string folderPath)
     {
@@ -370,7 +365,7 @@ public sealed class RecordingDiskImporter
             }
         }
 
-        return FallbackDurationSec;
+        return PlaybackSegmentTiming.FallbackDurationSeconds;
     }
 
     /// <summary>

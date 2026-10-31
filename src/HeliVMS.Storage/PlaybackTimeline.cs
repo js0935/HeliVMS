@@ -1,3 +1,4 @@
+using HeliVMS.Shared;
 using HeliVMS.Shared.Models;
 
 namespace HeliVMS.Storage;
@@ -27,7 +28,7 @@ public sealed record PlaybackTimeline(
 /// 回放時間軸建構（M83，純 BCL）：把當日錄影片段與事件規格化為 0..1 比例（與地圖圖釘同理念——
 /// 縮放/換尺寸不跑位），供回放帶（band）渲染與點擊跳轉使用。
 /// 規則（已測試）：窗含左端不含右端〔dayStart ≤ t &lt; dayEnd〕；區段裁切至窗內、零長度略過；
-/// `EndUtc` 為 null 時以 `StartUtc + DurationSec（預設 10s）` 推算；Bar/Marker 依時間排序；
+/// `EndUtc` 為 null 時以 <see cref="PlaybackSegmentTiming.EndOf"/> 推算（索引沒寫段長就估算）；Bar/Marker 依時間排序；
 /// 重疊區段以聯集計算間隙。
 /// </summary>
 public static class PlaybackTimelineBuilder
@@ -43,7 +44,9 @@ public static class PlaybackTimelineBuilder
         var intervals = new List<(DateTime Start, DateTime End)>();
         foreach (var seg in segments)
         {
-            var segEnd = seg.EndUtc ?? seg.StartUtc.AddSeconds(seg.DurationSec ?? 10);
+            // 段尾一律走共用換算：時間軸色塊、回放牆同步與方向鍵跳轉若各寫一份估算，
+            // 就會出現「色帶畫得出來、同步卻判定為空隙」這種互相矛盾卻沒有錯誤訊息的畫面。
+            var segEnd = PlaybackSegmentTiming.EndOf(seg);
             var start = seg.StartUtc > dayStartUtc ? seg.StartUtc : dayStartUtc;
             var end = segEnd < dayEndUtc ? segEnd : dayEndUtc;
             if (end <= start)

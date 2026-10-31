@@ -1,3 +1,4 @@
+using HeliVMS.Shared;
 using HeliVMS.Shared.Models;
 using HeliVMS.Storage;
 
@@ -189,7 +190,33 @@ public class PlaybackTimelineTests
         var t = Build(new[] { Seg(21, start, null, durationSec: null) }, Array.Empty<AlarmEventRecord>());
 
         var bar = Assert.Single(t.Bars);
-        Assert.Equal(10.0 / (24 * 60 * 60.0), bar.WidthFraction, precision: 6);
+        Assert.Equal(
+            PlaybackSegmentTiming.FallbackDurationSeconds / (24 * 60 * 60.0),
+            bar.WidthFraction,
+            precision: 6);
+    }
+
+    /// <summary>
+    /// 索引沒寫段長時，時間軸色塊的尾端必須和回放用的換算完全一致。
+    /// </summary>
+    /// <remarks>
+    /// 上面的測試只釘住「大約 10 秒」；這一條釘的是兩份程式碼有沒有一致：時間軸原本自己算
+    /// <c>StartUtc + (DurationSec ?? 10)</c>，回放走 <see cref="PlaybackSegmentTiming.EndOf"/>。
+    /// 只要有人改了一邊，畫面就會出現「色帶上明明有一段、按下去卻說這裡沒有錄影」，
+    /// 沒有例外、沒有日誌，只有操作員覺得時間軸壞了。
+    /// </remarks>
+    [Fact]
+    public void 段長未知的區段在時間軸上的尾端與回放口徑一致()
+    {
+        var start = Day.AddHours(10);
+        var seg = Seg(22, start, null, durationSec: null);
+        var t = Build(new[] { seg }, Array.Empty<AlarmEventRecord>());
+
+        var expected = PlaybackSegmentTiming.EndOf(seg).Subtract(Day).TotalSeconds
+            / PlaybackTimeline.DaySeconds;
+
+        var bar = Assert.Single(t.Bars);
+        Assert.Equal(expected, bar.LeftFraction + bar.WidthFraction, precision: 9);
     }
 
     [Fact]
