@@ -1,4 +1,5 @@
 using System.Globalization;
+using HeliVMS.Shared;
 using HeliVMS.Shared.Models;
 using HeliVMS.WebApi;
 
@@ -62,7 +63,33 @@ public sealed class HlsPlaylistTests
             EndUtc = null,
             DurationSec = 12.5,
         }));
-        Assert.Equal(0d, HlsPlaylist.DurationSeconds(new SegmentRecord { Id = 1, StartUtc = start }));
+    }
+
+    /// <summary>
+    /// 段長完全未知時，HLS 清單上的長度必須是正的，而且與桌面回放用同一個估算值。
+    /// </summary>
+    /// <remarks>
+    /// 舊寫法回 0，清單就出現 <c>#EXTINF:0.000</c>。EXTINF 是分段長度，播放器拿到 0 會把這一段
+    /// 當成不存在跳過——磁碟上有檔案、桌機回放看得到，只有遠端播放少一段，而且沒有任何錯誤訊息。
+    /// 這條刻意比對 <see cref="PlaybackSegmentTiming.FallbackDurationSeconds"/> 而不是「10」：
+    /// 兩邊各寫一份常數，改了一邊就會出現「桌機 10 秒、遠端 15 秒」的無聲分歧。
+    /// </remarks>
+    [Fact]
+    public void 段長完全未知時HLS清單上的長度仍是正值且與回放同一估算()
+    {
+        var start = new DateTime(2026, 9, 30, 12, 0, 0, DateTimeKind.Utc);
+        var segment = new SegmentRecord { Id = 1, ChannelId = 1, StartUtc = start, Format = "mp4" };
+
+        var seconds = HlsPlaylist.DurationSeconds(segment);
+        Assert.Equal(PlaybackSegmentTiming.FallbackDurationSeconds, seconds);
+        Assert.True(seconds > 0);
+
+        var text = HlsPlaylist.Build([segment]);
+        Assert.Contains("#EXTINF:10.000,", text);
+        Assert.DoesNotContain("#EXTINF:0.000,", text);
+        Assert.Contains(
+            $"#EXT-X-TARGETDURATION:{(int)PlaybackSegmentTiming.FallbackDurationSeconds}",
+            text);
     }
 
     [Fact]

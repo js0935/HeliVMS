@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text;
+using HeliVMS.Shared;
 using HeliVMS.Shared.Models;
 
 namespace HeliVMS.WebApi;
@@ -48,7 +49,16 @@ public static class HlsPlaylist
         return sb.ToString();
     }
 
-    /// <summary>EXTINF 秒數：以索引的結束時間為準，缺結束時間才退回 <c>duration_sec</c>。</summary>
+    /// <summary>
+    /// EXTINF 秒數：以索引的結束時間為準，缺結束時間才退回 <c>duration_sec</c>，
+    /// 兩者都沒有時用與桌面回放、時間軸相同的估算值。
+    /// </summary>
+    /// <remarks>
+    /// 舊寫法在結束時間與段長都缺時回 0，清單於是出現 <c>#EXTINF:0.000</c>。EXTINF 是分段的
+    /// 長度，播放器拿到 0 會把這一段當成不存在直接跳過（或整條清單卡住），而磁碟上明明有檔案、
+    /// 桌機回放也看得到——只有遠端 HLS 少一段，且沒有任何錯誤訊息可查。估算值一定要跟
+    /// <see cref="PlaybackSegmentTiming"/> 同一個，否則同一段影片在兩個介面上長度不同。
+    /// </remarks>
     public static double DurationSeconds(SegmentRecord segment)
     {
         if (segment.EndUtc is { } end && end > segment.StartUtc)
@@ -56,7 +66,10 @@ public static class HlsPlaylist
             return (end - segment.StartUtc).TotalSeconds;
         }
 
-        return segment.DurationSec is > 0 ? segment.DurationSec.Value : 0d;
+        // 結束時間不可信（等於或早於起點）時改用索引的段長；連段長都沒寫才估算。
+        return segment.DurationSec is > 0 and var durationSec
+            ? durationSec
+            : PlaybackSegmentTiming.FallbackDurationSeconds;
     }
 
     /// <summary>EXT-X-TARGETDURATION 必須是所有片段時長向上取整後的最大值。</summary>
