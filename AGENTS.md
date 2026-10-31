@@ -31,6 +31,11 @@ Notes that will save you time:
   processes. Under load they contend and intermittently fail. CI runs the test
   projects **one at a time**; do the same when a full-suite run fails, before
   concluding anything is broken.
+- **`HeliVMS.App.Tests` does not compile `HeliVMS.App`.** Its contracts read the
+  source as text, so a WPF-only error (`CS0104` on `Path` between `System.IO` and
+  `Shapes`, a broken XAML binding) passes every App test and only shows up in
+  `dotnet build HeliVMS.slnx`. Build the whole solution before calling desktop work
+  done.
 - ffmpeg must be on `PATH`. Tests that need it are `[SkippableFact]` and self-skip
   via `PublishPipelineProbe`, so a green run without ffmpeg means less than it looks.
 - `HeliVMS.LicenseProducer.Tests` targets `net10.0-windows`.
@@ -173,6 +178,44 @@ Notes that will save you time:
   `PlaybackRecordingFinalizerTests`, `按回放要求收檔會把正在錄的那一段收成正式檔`,
   `同一台錄影機在冷卻時間內只會收檔一次`, `錄不到五秒的段不會為了回放被截斷` and
   `收檔逾時會回報失敗而不是卡住回放`.
+- **Changing channel or day is an async funnel, not a synchronous event.** `SelectedItem`/
+  `SelectedDate` fire `SelectionChanged` synchronously, and that handler awaits the cut before
+  `LoadSegments` — whose first act is `StopPlayback`. A caller that switches channel and then
+  immediately calls `PlayFrom` gets its playback killed ~2s later: dropped channels play for a
+  moment and go black, a double-clicked pane freezes, log clean. All entry points go through
+  `SwitchChannelAsync` → `await ReloadForPlaybackAsync()` and only then play/resume, and every
+  programmatic selection sets `_suppressSelectionReload` so the event does not queue a second
+  load. Concurrent loads are ordered by `_reloadGeneration`; an older one returns `false` and
+  must not write its rows over the newer selection. `ReloadForPlaybackAsync` also swallows its
+  own exceptions (logs `%TEMP%\helivms-playback.log`) because it is awaited from `async void`
+  handlers. Guarded by `PlaybackReloadContractTests`, `換台會等新頻道的索引載入完成才開播`
+  and `程式自己改選取時不會再排一次載入`.
+- **Clearing the list must clear the playback head and the last frame.** `StopPlayback` keeps
+  `_current`/`_bitmap` on purpose so "pause then play" resumes; across channel/day/empty states
+  that becomes "list is B, pressing play shows A's file" and a snapshot saved as B's evidence.
+  `LoadSegments`, `ShowEmptyState` and `ClearPlaybackHead` therefore clear `_current`, the seek
+  position and `PlayerImage.Source` together. A finished session is also disposed in
+  `OnEnded`/`OnPaneEnded` — `StopPlayback` only owns the *running* one, so every played segment
+  otherwise leaks a CTS and a process handle. Guarded by `換台或換日會丟掉上一輪的播放頭`,
+  `播完的播放工作會被釋放` and `載入失敗會清空清單與時間軸`.
+- **"Played to the end" cannot be inferred from `DurationSec`.** The newest segment often has
+  no duration yet, so a position check never reaches the end and pressing play resumes at EOF
+  and instantly ends again — the button looks broken. `_playbackEnded` is set only when ffmpeg
+  reports completion and cleared by `PlayFrom`/`ClearPlaybackHead`; resume goes to 0 when it
+  is set. For the same reason `LengthOf`/`EndOf` (10s fallback) is the only length/end
+  conversion: `StepFrame`, the jump-to-last-segment path, event and bookmark matching all use
+  it. Writing `DurationSec ?? 0` there collapses the segment window to an instant, so clicking
+  the event or bookmark reports "no recording here" while the bar clearly shows a block, and
+  `?? 1` made "last segment" restart at second 1. Guarded by
+  `暫停後可續播且播到尾再按會從頭`, `事件與書籤跳轉使用同一段結束口徑` and
+  `段結束時刻一律使用同一個換算口徑`.
+- **The reused playback window must re-read the channel list.** It is one window reused by the
+  main app, and `ChannelCombo.Items` was snapshotted when it opened. Switching by membership in
+  that list rejected cameras added since: dragging one in from live view did nothing, no error,
+  no log. `SwitchChannelAsync` now asks `ChannelExists` (repository query, falling back to the
+  current items on a DB error). The focus-time open path also reports
+  `Playback.NoRecordingHere` instead of leaving a black player when the timestamp falls in a
+  gap. Guarded by `開窗後才加入的頻道也能拖進回放`.
 - **A `tmp` row whose files are both gone must not stay `tmp` forever.** `TemporarySegmentRecovery`
   used to skip it ("disk may be offline") on every run, so the backlog grew without bound and
   ate the batch limit; the live row it was supposed to rescue never got a turn. It now closes

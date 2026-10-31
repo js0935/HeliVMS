@@ -108,6 +108,33 @@ public sealed class PlaybackSessionTests : IDisposable
     }
 
     /// <summary>
+    /// 索引沒寫段長（DurationSec 為 null／0）時不得當成「剩 0 秒」：舊寫法會立刻回報
+    /// 播放完成、完全不啟動 ffmpeg，播放器全黑而日誌乾淨——操作員只看到「這段壞了」。
+    /// 正確行為是不送 <c>-t</c>，讓 ffmpeg 播到檔尾。
+    /// </summary>
+    [Fact]
+    public async Task 未知段長不會提前結束並省略長度參數()
+    {
+        var file = CreateEmptyFile();
+        var factory = new FakeProcessFactory(_ => new FakeProcess(new MemoryStream()));
+        await using var session = new PlaybackSession(
+            Segment(file, 0),
+            processFactory: factory,
+            probe: _ => Info);
+
+        PlaybackEndedEventArgs? ended = null;
+        session.Ended += (_, e) => ended = e;
+
+        await session.PlayAsync(seekSeconds: 3);
+
+        var args = Assert.Single(factory.Started).StartInfo.ArgumentList;
+        Assert.Equal("3", ValueAfter(args, "-ss"));
+        Assert.DoesNotContain("-t", args);
+        Assert.NotNull(ended);
+        Assert.True(ended!.Completed);
+    }
+
+    /// <summary>
     /// ffmpeg 9.0 移除了 <c>-vsync</c>（9.0.2 立即以「Unrecognized option」結束且沒有任何輸出），
     /// 而 CI 用的正是 choco 安裝的 ffmpeg 9、本機是 8.0 還會接受——回歸時只會在 CI 上變成
     /// 「0 幀、日誌乾淨」，本機全綠。所以參數必須釘在這裡，不能只靠 CI 跑真 ffmpeg。

@@ -87,6 +87,11 @@ public sealed class PlaybackSession : IAsyncDisposable
     /// 在本機全綠、只有 CI 或現場才會炸。
     /// </para>
     /// <para>
+    /// <paramref name="durationSeconds"/> ≤ 0 表示索引沒寫這段有多長：此時不給 <c>-t</c>，
+    /// 讓 ffmpeg 播到檔尾。若照舊送 <c>-t 0</c>，ffmpeg 一幀都不輸出、行程正常結束，
+    /// 播放器收到「播放完成」卻全黑——與解碼失敗在畫面上長得一模一樣。
+    /// </para>
+    /// <para>
     /// 每次都新建一份引數：<see cref="ProcessStartInfo.ArgumentList"/> 由呼叫端逐項填入，
     /// 純函式回新清單才不會有共享狀態。
     /// </para>
@@ -94,13 +99,22 @@ public sealed class PlaybackSession : IAsyncDisposable
     public static IReadOnlyList<string> BuildDecodeArguments(
         string filePath, double seekSeconds, double durationSeconds)
     {
-        return
-        [
+        var args = new List<string>
+        {
             "-hide_banner",
             "-loglevel", "error",
             "-ss", seekSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture),
             "-i", filePath,
-            "-t", durationSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture),
+        };
+
+        if (durationSeconds > 0)
+        {
+            args.Add("-t");
+            args.Add(durationSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        }
+
+        args.AddRange(
+        [
             "-f", "rawvideo",
             "-pix_fmt", "bgr24",
             // 不因時間戳重複或跳動而複製／丟棄影格（等同舊的 -vsync 0）。
@@ -109,7 +123,9 @@ public sealed class PlaybackSession : IAsyncDisposable
             // 本機 8.0 仍接受，所以只有 CI 會炸。-fps_mode 自 5.1 起可用。
             "-fps_mode", "passthrough",
             "pipe:1",
-        ];
+        ]);
+
+        return args;
     }
 
     /// <summary>
@@ -200,9 +216,11 @@ public sealed class PlaybackSession : IAsyncDisposable
 
     private async Task StreamFramesAsync(StreamProbeInfo info, double seekSeconds, CancellationToken token)
     {
+        // 索引沒寫段長（DurationSec 為 null／0）時不能當成「剩 0 秒」：舊寫法會直接回報
+        // 播放完成，播放器全黑、日誌乾淨，操作員只看到「這段壞了」。改成不給 -t 播到檔尾。
         var duration = Segment.DurationSec ?? 0;
         var remaining = duration - seekSeconds;
-        if (remaining <= 0.1)
+        if (duration > 0 && remaining <= 0.1)
         {
             Ended?.Invoke(this, new PlaybackEndedEventArgs(Segment, true));
             return;

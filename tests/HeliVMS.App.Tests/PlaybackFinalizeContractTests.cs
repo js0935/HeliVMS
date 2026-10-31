@@ -38,20 +38,19 @@ public sealed class PlaybackFinalizeContractTests
     {
         var source = SourceContract.Read(Playback);
 
-        var loaded = SourceContract.BodyOf(source, "OnLoaded");
-        var finalizeAt = loaded.IndexOf("FinalizeRunningSegmentAsync(", StringComparison.Ordinal);
-        var loadAt = loaded.IndexOf("LoadSegments(", StringComparison.Ordinal);
-        Assert.True(finalizeAt >= 0, "回放視窗開窗時必須先收檔，否則清單裡永遠少最後一段。");
-        Assert.True(
-            loadAt >= 0 && finalizeAt < loadAt,
-            "收檔必須在 LoadSegments 之前：順序反過來就等於沒收（要等下一次重整才看得到）。");
-
         var reload = SourceContract.BodyOf(source, "ReloadForPlaybackAsync");
         var reloadFinalize = reload.IndexOf("FinalizeRunningSegmentAsync(", StringComparison.Ordinal);
         var reloadLoad = reload.IndexOf("LoadSegments(", StringComparison.Ordinal);
+        Assert.True(reloadFinalize >= 0, "重新載入必須先收檔，否則清單裡永遠少最後一段。");
         Assert.True(
-            reloadFinalize >= 0 && reloadFinalize < reloadLoad,
-            "換頻道／按載入的重新載入路徑同樣要先收檔再讀索引。");
+            reloadLoad >= 0 && reloadFinalize < reloadLoad,
+            "收檔必須在 LoadSegments 之前：順序反過來就等於沒收（要等下一次重整才看得到）。");
+
+        // 開窗、換頻道、換日、按「載入」共用同一個漏斗。開窗若自己直接呼叫 LoadSegments，
+        // 就繞過了收檔——清單裡仍然沒有「剛剛那一段」。
+        var loaded = SourceContract.BodyOf(source, "OnLoaded");
+        Assert.Contains("ReloadForPlaybackAsync(", loaded);
+        Assert.DoesNotContain("LoadSegments(", loaded);
     }
 
     [Fact]
@@ -92,8 +91,13 @@ public sealed class PlaybackFinalizeContractTests
         var source = SourceContract.Read(Playback);
 
         // 收檔是 async void 事件處理常式鏈上的一步：例外一漏出去就是整個程式結束。
-        Assert.Contains("await FinalizeRunningSegmentAsync();", SourceContract.BodyOf(source, "ReloadForPlaybackAsync"));
-        Assert.Contains("await FinalizeRunningSegmentAsync();", SourceContract.BodyOf(source, "OnLoaded"));
+        var reload = SourceContract.BodyOf(source, "ReloadForPlaybackAsync");
+        Assert.Contains("await FinalizeRunningSegmentAsync();", reload);
+        Assert.Contains("catch (Exception", reload);
+        Assert.Contains("ShowEmptyState(", reload);
+        Assert.Contains(
+            "await ReloadForPlaybackAsync()",
+            SourceContract.BodyOf(source, "OnLoaded"));
 
         // 上限必須存在：一台卡住的攝影機不能讓「按回放」變成等半分鐘。
         Assert.Contains("FinalizeTimeout", source);

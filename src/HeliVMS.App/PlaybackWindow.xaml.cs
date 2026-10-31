@@ -91,6 +91,36 @@ public partial class PlaybackWindow : Window
     private bool _suppressSegmentAutoplay;
 
     /// <summary>
+    /// 這一段是「播到檔尾」才停下來的。按播放要從頭，而不是從終點再結束一次。
+    /// </summary>
+    /// <remarks>
+    /// 不能只靠「位置是否已達段長」判斷：段長常常是 null（剛切出來的那一段還沒回填），
+    /// 那時位置比不到終點，按播放會從檔尾續播、立刻又結束——操作員只看到按鈕沒反應。
+    /// </remarks>
+    private bool _playbackEnded;
+
+    /// <summary>
+    /// 重新載入索引的世代：換頻道、換日、按「載入」各遞增一次，只有最後一代的結果會寫回畫面。
+    /// </summary>
+    /// <remarks>
+    /// 收檔（<see cref="FinalizeRunningSegmentAsync"/>）是非同步的，最長等兩秒；連續換台或換日時
+    /// 兩次載入會交錯。沒有世代編號的話，先出發的那一次會後抵達，用舊的頻道／日期覆蓋新選取——
+    /// 操作員看到的是「選了 B 台、清單卻是 A 台」。
+    /// </remarks>
+    private int _reloadGeneration;
+
+    /// <summary>
+    /// 由程式自己改選取（換台、時間跳轉換日）時為 true，事件處理常式不要再排一次載入。
+    /// </summary>
+    /// <remarks>
+    /// <c>SelectedItem</c>／<c>SelectedDate</c> 一改，WPF 就同步送出 SelectionChanged，而那個處理常式
+    /// 會 <c>await</c> 收檔後才 <see cref="LoadSegments"/>（裡面第一件事就是 <see cref="StopPlayback"/>）。
+    /// 呼叫端若緊接著自己開播，兩秒後就被那次遲到的載入停掉：拖進回放牆的畫面播一下就黑、
+    /// 點次畫面放大的那台停住不動，而日誌一片乾淨。
+    /// </remarks>
+    private bool _suppressSelectionReload;
+
+    /// <summary>
     /// XAML 建樹完成前 <see cref="OnSplitChanged"/> 會先被觸發（SplitCombo 帶 SelectedIndex="0"，
     /// InitializeComponent 的 EndInit 就送出 SelectionChanged）；那時 PlayerArea／PlayerFrame 還沒建立。
     /// </summary>
@@ -339,11 +369,63 @@ public partial class PlaybackWindow : Window
     }
 
     /// <summary>重定向本窗到指定頻道（供主視窗右鍵「此頻道」重用同窗）。</summary>
-    public void FocusChannel(long channelId)
+    public void FocusChannel(long channelId) => _ = SwitchChannelAsync(channelId);
+
+    /// <summary>
+    /// 頻道是否還存在。以資料庫為準，不只看下拉清單：視窗開著的時候操作員可以新增攝影機，
+    /// 那份 ItemsSource 是開窗當下讀的，只比它會把新頻道判成「不存在」——拖進來完全沒反應。
+    /// </summary>
+    private bool ChannelExists(long channelId)
     {
+        try
+        {
+            return _channels.List().Any(c => c.Id == channelId);
+        }
+        catch (Exception)
+        {
+            // 資料庫讀不到時退回目前清單：已載入的頻道仍可切換，不讓一次查詢失敗卡住整個操作。
+            return ChannelCombo.Items.OfType<ChannelInfo>().Any(c => c.Id == channelId);
+        }
+    }
+
+    /// <summary>
+    /// 切到指定頻道並等當日索引載入完成；回傳 false 表示頻道不存在，或這次載入已被更新的操作取代。
+    /// </summary>
+    /// <remarks>
+    /// 一定要等到 <see cref="LoadSegments"/> 跑完才讓呼叫端開播：換台本身會先
+    /// <see cref="StopPlayback"/>，而收檔是非同步的。先開播再載入，等於畫面出現兩秒後被那次
+    /// 載入自己停掉（現場症狀：拖進回放牆的頻道播一下就黑、點次畫面放大後停住）。
+    /// </remarks>
+    private async Task<bool> SwitchChannelAsync(long channelId)
+    {
+        if (!ChannelExists(channelId))
+        {
+            // 頻道不存在（已刪台）時什麼都不做：LoadChannels 找不到會退回第一台，
+            // 那會變成「拖 A 卻播出 B」，比沒反應更糟。
+            return false;
+        }
+
         _focusChannelId = channelId;
-        LoadChannels();
-        LoadSegments();
+
+        // 這裡改選取是「程式決定的」，事件處理常式不必再排一次載入；
+        // 放行的話會多一次收檔＋載入，正好把呼叫端剛開的播放停掉。
+        _suppressSelectionReload = true;
+        try
+        {
+            LoadChannels();
+        }
+        catch (Exception ex)
+        {
+            // 由 async void 事件鏈發動（拖放、主視窗重用同窗）：例外漏出去就是整個程式結束。
+            StatusText.Text = string.Format(Localizer.T("Playback.LoadFailed"), ex.Message);
+            return false;
+        }
+        finally
+        {
+            _suppressSelectionReload = false;
+        }
+
+        return await ReloadForPlaybackAsync();
     }
 
     /// <summary>
@@ -352,23 +434,20 @@ public partial class PlaybackWindow : Window
     /// 先前已有播放頭（本窗正在播）就從同一時刻接上，維持多路比對的時刻一致；
     /// 沒有播放頭時從當日最後一段開頭播——操作員把畫面拖進回放，通常想看剛發生的事。
     /// </para>
-    /// <para>
-    /// 頻道不存在（已刪台）時什麼都不做：<c>FocusChannel</c> 找不到會退回第一台，
-    /// 那會變成「拖 A 卻播出 B」，比沒反應更糟。
-    /// </para>
     /// </summary>
-    public void FocusChannelAndPlay(long channelId)
-    {
-        if (ChannelCombo.Items.OfType<ChannelInfo>().All(c => c.Id != channelId))
-        {
-            return;
-        }
+    public void FocusChannelAndPlay(long channelId) => _ = FocusChannelAndPlayAsync(channelId);
 
+    private async Task FocusChannelAndPlayAsync(long channelId)
+    {
+        // 播放頭要在換台之前記：LoadSegments 會清掉它（那時的 _current 還屬於上一台）。
         var resumeUtc = _session is not null && _current is not null
             ? _current.StartUtc.AddSeconds(_posInside)
             : (DateTime?)null;
 
-        FocusChannel(channelId);
+        if (!await SwitchChannelAsync(channelId))
+        {
+            return;
+        }
 
         if (resumeUtc is { } target)
         {
@@ -416,21 +495,26 @@ public partial class PlaybackWindow : Window
     {
         // 先把正在錄的那一段收檔再讀索引：否則清單裡永遠沒有「剛剛發生的事」，
         // 而操作員從即時畫面按回放要看的正是那一段。
-        await FinalizeRunningSegmentAsync();
-        LoadSegments();
+        if (!await ReloadForPlaybackAsync())
+        {
+            // 開窗期間已經有更新的載入接手（例如拖放指定頻道），讓那一次決定要播什麼。
+            return;
+        }
 
         if (_focusUtc is { } focus)
         {
-            foreach (var item in _bandSegments)
+            var item = _bandSegments.FirstOrDefault(
+                i => i.Segment.StartUtc <= focus && EndOf(i.Segment) >= focus);
+            if (item is not null)
             {
-                var seg = item.Segment;
-                var end = seg.EndUtc ?? seg.StartUtc.AddSeconds(seg.DurationSec ?? 10);
-                if (seg.StartUtc <= focus && end >= focus)
-                {
-                    SelectSegment(item);
-                    PlayFrom(seg, Math.Max(0, (focus - seg.StartUtc).TotalSeconds));
-                    break;
-                }
+                SelectSegment(item);
+                PlayFrom(item.Segment, Math.Max(0, (focus - item.Segment.StartUtc).TotalSeconds));
+            }
+            else
+            {
+                // 從事件中心／地圖點進來的那一刻正好落在空檔：留在原位並說清楚，
+                // 默默開一個全黑的播放器會讓人以為是解碼壞了。
+                StatusText.Text = Localizer.T("Playback.NoRecordingHere");
             }
 
             return;
@@ -464,16 +548,47 @@ public partial class PlaybackWindow : Window
     }
 
     /// <summary>
-    /// 重新載入時間軸（換頻道／按「載入」）：先把正在錄的段收檔，再看索引。
+    /// 重新載入時間軸（換頻道／換日／按「載入」）：先把正在錄的段收檔，再看索引。
     /// </summary>
     /// <remarks>
     /// 這個方法自己吞掉所有例外：它是由事件處理常式 <c>await</c> 的，
     /// 例外一漏出去就是整個程式崩掉，而「收檔失敗」根本不該有這種後果。
     /// </remarks>
-    private async Task ReloadForPlaybackAsync()
+    /// <returns>
+    /// false＝這次載入已被更新的操作取代（收檔期間又換了台或換了日），呼叫端不要再依
+    /// <see cref="_bandSegments"/> 開播或跳轉——那份資料已經不是使用者最後選的東西。
+    /// </returns>
+    private async Task<bool> ReloadForPlaybackAsync()
     {
-        await FinalizeRunningSegmentAsync();
-        LoadSegments();
+        var generation = Interlocked.Increment(ref _reloadGeneration);
+        try
+        {
+            await FinalizeRunningSegmentAsync();
+            if (generation != Volatile.Read(ref _reloadGeneration))
+            {
+                return false;
+            }
+
+            LoadSegments();
+            return true;
+        }
+        catch (Exception ex)
+        {
+            // 這條路徑由 async void 事件處理常式 await：例外一漏出去就是整個程式結束。
+            // 收檔或重畫失敗只該讓回放停在「載入失敗」，不該連視窗一起帶走；
+            // 但也不能只吞掉——沒有日誌的空白畫面在現場完全無法查。
+            BoundedFileLog.Append(
+                System.IO.Path.Combine(System.IO.Path.GetTempPath(), "helivms-playback.log"),
+                $"{DateTime.UtcNow:O} 回放載入失敗：{ex}\n",
+                256 * 1024);
+
+            if (generation == Volatile.Read(ref _reloadGeneration))
+            {
+                ShowEmptyState(string.Format(Localizer.T("Playback.LoadFailed"), ex.Message));
+            }
+
+            return false;
+        }
     }
 
     /// <summary>
@@ -501,7 +616,9 @@ public partial class PlaybackWindow : Window
     private async void OnChannelSelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         // 建構子裡的 LoadChannels 也會改選取：那時視窗還沒開，不該因此收檔。
-        if (!_uiReady)
+        // 程式自己換台（拖放、點次畫面放大、主視窗指定頻道）也走同一條路，但載入由呼叫端
+        // await，這裡再排一次就等於把對方剛開的播放停掉。
+        if (!_uiReady || _suppressSelectionReload)
         {
             return;
         }
@@ -512,7 +629,8 @@ public partial class PlaybackWindow : Window
     private async void OnDateChanged(object sender, SelectionChangedEventArgs e)
     {
         // 建構子指派 DatePick.SelectedDate 時也會走到這裡：那時視窗還沒開，不該因此收檔。
-        if (!_uiReady)
+        // 時間跳轉自己換日期時同理（見 JumpToLocalTime）。
+        if (!_uiReady || _suppressSelectionReload)
         {
             return;
         }
@@ -708,7 +826,7 @@ public partial class PlaybackWindow : Window
         if (SegmentList.SelectedItem is SegmentItem item)
         {
             fromUtc = item.Segment.StartUtc;
-            toUtc = item.Segment.EndUtc ?? item.Segment.StartUtc.AddSeconds(item.Segment.DurationSec ?? 0);
+            toUtc = EndOf(item.Segment);
         }
 
         new RedactionWindow(_store, MainWindow.ResolveDataRoot(), ch.Id, fromUtc, toUtc) { Owner = this }.ShowDialog();
@@ -868,6 +986,9 @@ public partial class PlaybackWindow : Window
         var keyframeGeneration = Interlocked.Increment(ref _keyframeGeneration);
         _keyframeCache = new Dictionary<long, IReadOnlyList<SegmentKeyframe>>();
 
+        // 播放頭屬於上一台／上一天，必須先清掉：留著它，「播放」按鈕會拿另一台的檔案續播
+        // （畫面有影像、清單卻是別台），時間與進度列也停在舊值。
+        ClearPlaybackHead();
         StopPlayback();
         _activeRegions = [];
         RedactOverlay.Children.Clear();
@@ -875,21 +996,15 @@ public partial class PlaybackWindow : Window
         _rangeStopUtc = null;
         if (ChannelCombo.SelectedItem is not ChannelInfo ch)
         {
-            SegmentList.ItemsSource = null;
-            _bandSegments = [];
-            _bookmarks = [];
-            BookmarkList.ItemsSource = null;
-            _dayStartUtc = default;
-            _view = null;
-            RebuildPanes();
-            RenderBlocks();
-            LoadHint.Text = Localizer.T("Playback.NoChannel");
+            ShowEmptyState(Localizer.T("Playback.NoChannel"));
             return;
         }
 
         if (DatePick.SelectedDate is not DateTime day)
         {
-            RebuildPanes();
+            // 日期被清空（可以手動清 DatePicker）與沒選頻道同一個下場：清單留著上一天的段，
+            // 點下去播的是別天的檔案。寧可整頁空白，也不要留一份對不上的資料。
+            ShowEmptyState(Localizer.T("Playback.NoChannel"));
             return;
         }
 
@@ -973,8 +1088,40 @@ public partial class PlaybackWindow : Window
         }
         catch (Exception ex)
         {
-            LoadHint.Text = string.Format(Localizer.T("Playback.LoadFailed"), ex.Message);
+            // 讀取失敗時必須把上一輪的清單與時間軸一併清掉：只寫一行提示碼的話，操作員眼前
+            // 還留著前一天的段，點下去播放器一片黑（檔案不屬於這天），而他會以為是解碼壞了。
+            ShowEmptyState(string.Format(Localizer.T("Playback.LoadFailed"), ex.Message));
         }
+    }
+
+    /// <summary>
+    /// 清空清單／事件／書籤／時間軸，只留一行說明。
+    /// </summary>
+    /// <remarks>
+    /// 沒選頻道、日期被清空、索引讀取失敗都走這裡：這三種情況畫面上都只剩提示，
+    /// 但清單必須一起清掉——留著上一輪的資料等於提供一份「點得到但不屬於這天」的片段。
+    /// </remarks>
+    private void ShowEmptyState(string hint)
+    {
+        // 清畫面也要清播放頭：走到這裡可能是「收檔擲例外」這種還沒開始 LoadSegments 的情況，
+        // 那時舊的 session 還在跑——只清清單會變成「畫面有影像、清單是空的」。
+        ClearPlaybackHead();
+        StopPlayback();
+        SegmentList.ItemsSource = null;
+        _bandSegments = [];
+        _events = [];
+        EventList.ItemsSource = null;
+        EventCountText.Text = string.Empty;
+        _bookmarks = [];
+        BookmarkList.ItemsSource = null;
+        _keyframeCache = new Dictionary<long, IReadOnlyList<SegmentKeyframe>>();
+        _dayStartUtc = default;
+        _view = null;
+        _timeline = null;
+        RebuildPanes();
+        RenderBlocks();
+        HideCursor();
+        LoadHint.Text = hint;
     }
 
     /// <summary>
@@ -1025,13 +1172,17 @@ public partial class PlaybackWindow : Window
 
         var band = _bandSegments
             .FirstOrDefault(b => b.Segment.StartUtc <= rec.StartUtc
-                              && rec.StartUtc <= b.Segment.StartUtc.AddSeconds(b.Segment.DurationSec ?? 0));
+                              && rec.StartUtc <= EndOf(b.Segment));
         if (band is not null)
         {
             // 讓左側區段清單的高亮跟著事件跳轉一起移動，否則清單停在舊選取、畫面上卻在播別段。
             SelectSegment(band);
             PlayFrom(band.Segment, (rec.StartUtc - band.Segment.StartUtc).TotalSeconds);
+            return;
         }
+
+        // 事件落在空檔（例如移動事件比錄影早幾秒）也要出聲：靜默不動作看起來就是點壞了。
+        StatusText.Text = Localizer.T("Playback.NoRecordingHere");
     }
 
     /// <summary>載入某通道當日的書籤並綁定到側欄清單（§8.5 §11.4）。</summary>
@@ -1092,7 +1243,7 @@ public partial class PlaybackWindow : Window
 
         var band = _bandSegments
             .FirstOrDefault(b => b.Segment.StartUtc <= bm.AtUtc
-                              && bm.AtUtc <= b.Segment.StartUtc.AddSeconds(b.Segment.DurationSec ?? 0));
+                              && bm.AtUtc <= EndOf(b.Segment));
         if (band is not null)
         {
             SelectSegment(band);
@@ -1178,28 +1329,36 @@ public partial class PlaybackWindow : Window
         return dialog.ShowDialog() == true ? result : null;
     }
 
+    /// <summary>播放／暫停切換：狀態看 <see cref="_session"/>，不看按鈕上的字。</summary>
+    /// <remarks>
+    /// 舊寫法有兩個錯誤疊在一起：（1）開頭就用 <c>_session is null</c> 早退，而暫停與停止都會把
+    /// <c>_session</c> 設成 null，所以「暫停」之後按鈕（它仍顯示「播放」、也仍可按）永遠沒反應——
+    /// 整段錄影只能靠重新點一次清單才能繼續；（2）用按鈕文字判斷目前是播還是停，一旦
+    /// ApplyI18n 換語言或按鈕文字被別處改寫，判斷就跟著錯。
+    /// </remarks>
     private void OnPlayPauseClicked(object sender, RoutedEventArgs e)
     {
-        if (_session is null || _stopping)
+        if (_current is null)
         {
             return;
         }
 
-        if (PlayPauseButton.Content.ToString() == Localizer.T("Playback.Play"))
+        if (_session is null)
         {
-            var pos = _posInside;
-            StopPlayback();
-            if (_current is not null)
-            {
-                PlayFrom(_current, pos);
-            }
+            // 已暫停／已停止：從同一個播放位置續播。播到尾之後 _posInside 停在終點，
+            // 直接續播會立刻再結束一次（按了像沒反應），所以到終點就從頭播。
+            // 「已播完」也看 _playbackEnded：段長為 null 時位置永遠比不到終點，
+            // 只靠段長判斷會讓未知長度的段播完後按播放毫無反應。
+            var duration = _current.DurationSec ?? 0;
+            var resumeAt = _playbackEnded || (duration > 0 && _posInside >= duration - 0.5)
+                ? 0
+                : _posInside;
+            PlayFrom(_current, resumeAt);
+            return;
         }
-        else
-        {
-            // 暫停所有格（主畫面＋回放牆次畫面），畫面停在最後一幀；不重設 _current，才能原處續播。
-            StopPlayback();
-            StatusText.Text = Localizer.T("Playback.Paused");
-        }
+
+        StopPlayback();
+        StatusText.Text = Localizer.T("Playback.Paused");
     }
 
     private void OnStopClicked(object sender, RoutedEventArgs e) => StopPlayback();
@@ -1322,7 +1481,7 @@ public partial class PlaybackWindow : Window
         foreach (var item in _bandSegments)
         {
             var seg = item.Segment;
-            var end = seg.EndUtc ?? seg.StartUtc.AddSeconds(seg.DurationSec ?? 10);
+            var end = EndOf(seg);
             if (seg.StartUtc <= targetUtc && targetUtc <= end)
             {
                 SelectSegment(item);
@@ -1342,21 +1501,23 @@ public partial class PlaybackWindow : Window
         var lastItem = _bandSegments[^1];
         var last = lastItem.Segment;
         SelectSegment(lastItem);
-        PlayFrom(last, Math.Max(0, (last.DurationSec ?? 1) - 0.001));
+        // 用與色帶／跳轉相同的段結束口徑：索引沒寫長度時 EndOf 會以 10 秒估算，
+        // 讀 DurationSec 則會落到 `?? 1` 而從第 1 秒起播——按「下一段」反而跳回開頭。
+        PlayFrom(last, Math.Max(0, LengthOf(last) - 0.001));
     }
 
     /// <summary>時間跳轉（§8.5）：輸入時刻或完整日期時間，跳到覆蓋該時刻的片段並從該點起播。
     /// <para>
     /// 規格寫的是 <c>2026-09-12 14:30:00</c>，但日期平常由 DatePick 記著，兩者各管一件事，
     /// 所以兩種輸入都吃：只給 <c>HH:mm[:ss]</c> 時用 DatePick 的日期，給了日期就先把 DatePick
-    /// 換到那天（<c>LoadSegments</c> 會跟著重載），否則比對的是別天的片段索引。
+    /// 換到那天、等那天的索引載入完成再比對，否則比對的是別天的片段索引。
     /// </para>
     /// <para>
     /// 該時刻落在錄影空檔時留在原位並回報，不默默跳到鄰近片段——否則操作員會以為
     /// 自己看到的就是所輸入時刻的畫面。
     /// </para>
     /// </summary>
-    private void JumpToLocalTime(string text)
+    private async Task JumpToLocalTime(string text)
     {
         if (PlaybackTimeJump.TryParse(text) is not { } jump)
         {
@@ -1367,7 +1528,24 @@ public partial class PlaybackWindow : Window
         var (clock, date) = jump;
         if (date is { } requestedDay && DatePick.SelectedDate?.Date != requestedDay)
         {
-            DatePick.SelectedDate = requestedDay;
+            // 換日必須等新的一天的索引載入完成才能比對時刻。SelectedDate 一設就換日，但把
+            // _bandSegments 換成那天的清單是非同步的（還要先收檔）：同步往下比對，等於拿昨天的
+            // 段去比今天的時刻——命中時跳到別天，沒命中就回報「這裡沒有錄影」，兩種都誤導。
+            _suppressSelectionReload = true;
+            try
+            {
+                DatePick.SelectedDate = requestedDay;
+            }
+            finally
+            {
+                _suppressSelectionReload = false;
+            }
+
+            if (!await ReloadForPlaybackAsync())
+            {
+                // 收檔期間又有更新的操作（換台／換日）：讓那一次決定畫面，這裡不要再搶。
+                return;
+            }
         }
 
         if (_bandSegments.Count == 0 || DatePick.SelectedDate is not DateTime day)
@@ -1380,7 +1558,7 @@ public partial class PlaybackWindow : Window
         foreach (var item in _bandSegments)
         {
             var seg = item.Segment;
-            var end = seg.EndUtc ?? seg.StartUtc.AddSeconds(seg.DurationSec ?? 10);
+            var end = EndOf(seg);
             if (seg.StartUtc <= targetUtc && targetUtc <= end)
             {
                 SelectSegment(item);
@@ -1392,7 +1570,7 @@ public partial class PlaybackWindow : Window
         StatusText.Text = Localizer.T("Playback.NoRecordingHere");
     }
 
-    private void OnTimeJumpClicked(object sender, RoutedEventArgs e) => JumpToLocalTime(TimeJumpBox.Text);
+    private void OnTimeJumpClicked(object sender, RoutedEventArgs e) => _ = JumpToLocalTime(TimeJumpBox.Text);
 
     private void OnTimeJumpBoxKeyDown(object sender, KeyEventArgs e)
     {
@@ -1402,7 +1580,7 @@ public partial class PlaybackWindow : Window
         }
 
         e.Handled = true;
-        JumpToLocalTime(TimeJumpBox.Text);
+        _ = JumpToLocalTime(TimeJumpBox.Text);
     }
 
     /// <summary>右鍵快照（§8.5）：把目前顯示中的畫面存成 PNG。
@@ -1413,7 +1591,7 @@ public partial class PlaybackWindow : Window
     /// </summary>
     private void OnSnapshotClicked(object sender, RoutedEventArgs e)
     {
-        if (_bitmap is null)
+        if (_bitmap is null || _current is null)
         {
             StatusText.Text = Localizer.T("Snapshot.NoFrame");
             return;
@@ -1450,12 +1628,13 @@ public partial class PlaybackWindow : Window
             return;
         }
 
-        if (_session is not null && !_stopping && PlayPauseButton.Content.ToString() == Localizer.T("Playback.Pause"))
+        if (_session is not null)
         {
+            // 逐幀要先把播放停住；續播位置由下面這次 PlayFrom 決定，不看按鈕上是「播放」還是「暫停」。
             OnPlayPauseClicked(this, new RoutedEventArgs());
         }
 
-        var dur = _current.DurationSec ?? 0;
+        var dur = LengthOf(_current);
         if (dur <= 0)
         {
             return;
@@ -1480,6 +1659,10 @@ public partial class PlaybackWindow : Window
 
     private void PlayFrom(SegmentRecord seg, double seekSeconds)
     {
+        // 上一次逐幀留下的「首幀後暫停」不能在這裡生效：在段尾按 F 會讓 session 立刻結束、
+        // 根本沒有影格可以觸發那次暫停，旗標於是活到下一次正常播放——播一格就停住。
+        _pendingFramePause = false;
+        _playbackEnded = false;
         StopPlayback();
         _rangeStopUtc = null;
         _current = seg;
@@ -1538,7 +1721,7 @@ public partial class PlaybackWindow : Window
                 0);
 
             _posInside = _basePos + frame.PtsMs / 1000.0;
-            TimeText.Text = $"{FormatTime(_posInside)} / {FormatTime(seg.DurationSec ?? 0)}";
+            TimeText.Text = $"{FormatTime(_posInside)} / {FormatTime(LengthOf(seg))}";
             StatusText.Text = string.Format(Localizer.T("Playback.Playing"), GetSpeed().ToString("0.##"));
             if (!_seeking && (seg.DurationSec ?? 0) > 0)
             {
@@ -1578,7 +1761,15 @@ public partial class PlaybackWindow : Window
                 return;
             }
 
+            var finished = _session;
             _session = null;
+
+            // 只有「真的播到檔尾」才算播完；解碼失敗要留在原位置，按播放是重試而不是從頭。
+            _playbackEnded = completed;
+
+            // 播完的 session 不會再被 StopPlayback 收掉（它只處理「正在播」的那一個），
+            // 不在此處釋放就每段漏一個 CTS／行程控制代碼；長期連續回放會慢慢累積。
+            DisposeQuietly(finished);
 
             if (completed && AutoAdvanceCheck.IsChecked == true)
             {
@@ -1594,7 +1785,7 @@ public partial class PlaybackWindow : Window
             StopSync();
             StopAllPanes();
             SetIdleUi();
-            TimeText.Text = $"{FormatTime(_posInside)} / {FormatTime(seg.DurationSec ?? 0)}";
+            TimeText.Text = $"{FormatTime(_posInside)} / {FormatTime(LengthOf(seg))}";
             StatusText.Text = completed
                 ? (AutoAdvanceCheck.IsChecked == true ? Localizer.T("Playback.EndedNoNext") : Localizer.T("Playback.EndedStopped"))
                 : Localizer.T("Playback.PlayFailed");
@@ -1755,7 +1946,7 @@ public partial class PlaybackWindow : Window
 
         try
         {
-            var end = seg.EndUtc ?? seg.StartUtc.AddSeconds(seg.DurationSec ?? 0);
+            var end = EndOf(seg);
             _activeRegions = _redactions.QueryByTime((int)ch.Id, seg.StartUtc, end);
         }
         catch (Exception)
@@ -1815,6 +2006,35 @@ public partial class PlaybackWindow : Window
         var brush = new SolidColorBrush(color);
         brush.Freeze();
         return brush;
+    }
+
+    /// <summary>
+    /// 丟掉目前的播放頭（片段與段內位置），讓「播放」沒有東西可續播。
+    /// </summary>
+    /// <remarks>
+    /// 換頻道／換日時一定要呼叫：<see cref="StopPlayback"/> 刻意保留 <c>_current</c> 是為了
+    /// 「暫停後原處續播」，但那個片段屬於上一台。留著它，畫面上是 B 台的清單、按播放卻播出
+    /// A 台的檔案——比黑畫面更難查，因為看起來一切正常。
+    /// </remarks>
+    private void ClearPlaybackHead()
+    {
+        _current = null;
+        _basePos = 0;
+        _posInside = 0;
+        _rangeStopUtc = null;
+        _playbackEnded = false;
+
+        // 上一台的最後一格不能留在畫面上：快照會把它存成這一台的檔案（證據指向錯的攝影機），
+        // 而「清單是 B 台、畫面是 A 台」看起來一切正常。寧可先顯示空白提示。
+        _bitmap = null;
+        _lastWidth = 0;
+        _lastHeight = 0;
+        PlayerImage.Source = null;
+        EmptyHint.Visibility = Visibility.Visible;
+
+        SeekSlider.Value = 0;
+        SeekSlider.IsEnabled = false;
+        TimeText.Text = $"{FormatTime(0)} / {FormatTime(0)}";
     }
 
     private void StopPlayback()
@@ -1938,7 +2158,7 @@ public partial class PlaybackWindow : Window
             var brush = ChannelBrush(rows[i].Channel.Id);
             foreach (var seg in rows[i].Segments)
             {
-                var end = seg.EndUtc ?? seg.StartUtc.AddSeconds(seg.DurationSec ?? 0);
+                var end = EndOf(seg);
                 var left = view.FractionOf(seg.StartUtc);
                 var right = view.FractionOf(end);
                 if (right <= 0 || left >= 1)
@@ -2147,19 +2367,20 @@ public partial class PlaybackWindow : Window
     }
 
     /// <summary>時間軸帶當日零時（UTC）。</summary>
+    /// <remarks>
+    /// 一律以 DatePicker 選的那一天為準，不看第一段從幾點開始：錄影是連續的，跨午夜的
+    /// 那一段（例：23:55–00:05）會同時屬於前後兩天，用它推算「這一天」會整整差一天，
+    /// 時間軸建構於是把當天其餘的段全部裁掉，帶子上只剩那一小段。
+    /// </remarks>
     private DateTime DayStartUtc()
     {
-        if (_bandSegments.Count > 0)
+        if (_dayStartUtc != default)
         {
-            return TimeZoneInfo.ConvertTimeToUtc(_bandSegments[0].Segment.StartUtc.ToLocalTime().Date);
+            return _dayStartUtc;
         }
 
-        if (_events.Count > 0)
-        {
-            return TimeZoneInfo.ConvertTimeToUtc(_events[0].StartUtc.ToLocalTime().Date);
-        }
-
-        return TimeZoneInfo.ConvertTimeToUtc(DateTime.Now.Date);
+        var day = DatePick.SelectedDate?.Date ?? DateTime.Today;
+        return TimeZoneInfo.ConvertTimeToUtc(day);
     }
 
     /// <summary>目前檢視窗；未載入日時退回全日窗（色帶、游標、點擊換算共用同一條路徑）。</summary>
@@ -2384,7 +2605,7 @@ public partial class PlaybackWindow : Window
         foreach (var item in _bandSegments)
         {
             var seg = item.Segment;
-            var end = seg.EndUtc ?? seg.StartUtc.AddSeconds(seg.DurationSec ?? 10);
+            var end = EndOf(seg);
             if (seg.StartUtc <= targetUtc && targetUtc <= end)
             {
                 SelectSegment(item);
@@ -2498,7 +2719,7 @@ public partial class PlaybackWindow : Window
         foreach (var item in _bandSegments)
         {
             var seg = item.Segment;
-            var end = seg.EndUtc ?? seg.StartUtc.AddSeconds(seg.DurationSec ?? 10);
+            var end = EndOf(seg);
             if (seg.StartUtc <= range.StartUtc && range.StartUtc <= end)
             {
                 SelectSegment(item);
@@ -2706,6 +2927,19 @@ public partial class PlaybackWindow : Window
         return $"{(int)t.TotalHours:00}:{t.Minutes:00}:{t.Seconds:00}";
     }
 
+    /// <summary>
+    /// 段的結束時刻：索引沒寫長度時以 10 秒估算（與時間軸建構同一口徑）。
+    /// </summary>
+    /// <remarks>
+    /// 這個換算散布在跳轉、書籤、事件、色帶、跨段續播五六條路徑上；只要有一條寫成 <c>?? 0</c>
+    /// （長度還沒回填的段），那一條就永遠對不到時刻——點下去說「這裡沒有錄影」，色帶上也少一塊。
+    /// </remarks>
+    private static DateTime EndOf(SegmentRecord seg)
+        => seg.EndUtc ?? seg.StartUtc.AddSeconds(seg.DurationSec ?? 10);
+
+    /// <summary>段長（秒），與 <see cref="EndOf"/> 同一口徑；索引沒寫長度時為 10 秒。</summary>
+    private static double LengthOf(SegmentRecord seg) => (EndOf(seg) - seg.StartUtc).TotalSeconds;
+
     private void OnCloseClicked(object sender, RoutedEventArgs e) => Close();
 
     private void OnClosing(object sender, System.ComponentModel.CancelEventArgs e)
@@ -2825,9 +3059,11 @@ public partial class PlaybackWindow : Window
         return pane;
     }
 
-    private void FocusPane(Pane pane)
+    private void FocusPane(Pane pane) => _ = FocusPaneAsync(pane);
+
+    private async Task FocusPaneAsync(Pane pane)
     {
-        // 先記播放頭：ChannelCombo 一動就同步 LoadSegments→StopPlayback，不記下來放大後回到停在原點。
+        // 先記播放頭：換台會清掉它（那時的 _current 還屬於原來那台），不先記下來放大後就停在原點。
         var resumeUtc = _session is not null && _current is not null
             ? _current.StartUtc.AddSeconds(_posInside)
             : (DateTime?)null;
@@ -2835,19 +3071,12 @@ public partial class PlaybackWindow : Window
         // 格數選到「1」＝單畫面（OnSplitChanged 重建牆時就沒有次畫面）；再把點到那台設成焦點。
         // 先切格數再切頻道，避免先換焦點時用舊格數短暫長出一圈要立刻拆掉的次畫面。
         SplitCombo.SelectedIndex = 0;
-        foreach (var candidate in ChannelCombo.Items.OfType<ChannelInfo>())
+
+        // 續播一定要等新頻道的索引載入完成：先續播再載入，會被那次載入的 StopPlayback 停掉，
+        // 現場看到的就是「單擊放大後畫面停住」。
+        if (!await SwitchChannelAsync(pane.Channel.Id))
         {
-            if (candidate.Id != pane.Channel.Id)
-            {
-                continue;
-            }
-
-            if (!ReferenceEquals(ChannelCombo.SelectedItem, candidate))
-            {
-                ChannelCombo.SelectedItem = candidate;
-            }
-
-            break;
+            return;
         }
 
         if (resumeUtc is { } target)
@@ -2865,7 +3094,7 @@ public partial class PlaybackWindow : Window
         foreach (var item in _bandSegments)
         {
             var seg = item.Segment;
-            var end = seg.EndUtc ?? seg.StartUtc.AddSeconds(seg.DurationSec ?? 10);
+            var end = EndOf(seg);
             if (seg.StartUtc <= targetUtc && targetUtc <= end)
             {
                 SelectSegment(item);
@@ -3013,6 +3242,8 @@ public partial class PlaybackWindow : Window
         }
 
         // 不自行跨段：交給同步計時器依母鐘決定要進下一段（有錄影）還是停在空隙。
+        var finished = pane.Session;
         pane.Session = null;
+        DisposeQuietly(finished);
     }
 }

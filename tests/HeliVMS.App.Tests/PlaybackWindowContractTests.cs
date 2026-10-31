@@ -132,8 +132,16 @@ public sealed class PlaybackWindowContractTests
         Assert.Contains("MouseLeftButtonDown", SourceContract.BodyOf(source, "CreatePane"));
         Assert.Contains("FocusPane(", SourceContract.BodyOf(source, "CreatePane"));
 
-        var focus = SourceContract.BodyOf(source, "FocusPane");
-        Assert.Contains("ChannelCombo.SelectedItem", focus);
+        var focus = SourceContract.BodyOf(source, "FocusPaneAsync");
+        Assert.Contains("SwitchChannelAsync(pane.Channel.Id)", focus);
+
+        // 換台是非同步的（先收檔、再載入索引）；續播若搶在載入之前，兩秒後就被那次
+        // LoadSegments 的 StopPlayback 停掉，現場看到的是「放大後畫面停住」。
+        var switchAt = focus.IndexOf("SwitchChannelAsync(", StringComparison.Ordinal);
+        var resumeAt = focus.IndexOf("ResumePlaybackAt(", StringComparison.Ordinal);
+        Assert.True(
+            switchAt >= 0 && resumeAt > switchAt,
+            "FocusPaneAsync 必須等 SwitchChannelAsync 完成（新頻道索引已載入）才續播。");
     }
 
     [Fact]
@@ -426,11 +434,21 @@ public sealed class PlaybackWindowContractTests
     {
         var source = SourceContract.Read(Code);
 
-        var focus = SourceContract.BodyOf(source, "FocusPane");
+        var focus = SourceContract.BodyOf(source, "FocusPaneAsync");
         Assert.Contains("SplitCombo.SelectedIndex = 0", focus);
-        Assert.Contains("ChannelCombo.SelectedItem = candidate", focus);
+        Assert.Contains("SwitchChannelAsync(", focus);
         Assert.Contains("ResumePlaybackAt", focus);
         Assert.Contains("_current.StartUtc.AddSeconds(_posInside)", focus);
+
+        // 續播一定要排在換台（含載入索引）之後，否則會被那次載入停掉。
+        Assert.True(
+            focus.IndexOf("SwitchChannelAsync(", StringComparison.Ordinal)
+                < focus.IndexOf("ResumePlaybackAt(", StringComparison.Ordinal),
+            "放大後續播必須等新頻道載入完成。");
+
+        var switchChannel = SourceContract.BodyOf(source, "SwitchChannelAsync");
+        Assert.Contains("LoadChannels()", switchChannel);
+        Assert.Contains("await ReloadForPlaybackAsync()", switchChannel);
 
         var resume = SourceContract.BodyOf(source, "ResumePlaybackAt");
         Assert.Contains("SelectSegment", resume);
@@ -675,8 +693,16 @@ public sealed class PlaybackWindowContractTests
         var drop = SourceContract.BodyOf(source, "OnPlaybackDrop");
         Assert.Contains("FocusChannelAndPlay", drop);
 
-        var play = SourceContract.BodyOf(source, "FocusChannelAndPlay");
+        var play = SourceContract.BodyOf(source, "FocusChannelAndPlayAsync");
         Assert.Contains("PlayFrom", play);
+        Assert.Contains("SwitchChannelAsync(", play);
+
+        // §8.5「立即回放」：先把頻道切過去並載入當日索引，才開播。倒過來的話，
+        // 開播後兩秒被載入停掉，畫面就停在第一幀。
+        Assert.True(
+            play.IndexOf("SwitchChannelAsync(", StringComparison.Ordinal)
+                < play.IndexOf("PlayFrom(", StringComparison.Ordinal),
+            "拖入回放必須等新頻道索引載入完成才開播。");
 
         var pick = SourceContract.BodyOf(source, "TryGetDroppedChannelId");
         Assert.Contains("DragFormats.ChannelId", pick);
