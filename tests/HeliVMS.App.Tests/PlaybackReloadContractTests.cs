@@ -335,4 +335,26 @@ public sealed class PlaybackReloadContractTests
         var loaded = SourceContract.BodyOf(source, "OnLoaded");
         Assert.Contains("Playback.NoRecordingHere", loaded);
     }
+
+    /// <summary>
+    /// 把頻道拖進回放時，會從目前播放頭接上同一時刻；但拖進來的另一台在那個時刻
+    /// 不一定有錄影。舊寫法找不到就直接返回，結果是一個全黑播放器——沒有錯誤、沒有日誌，
+    /// 看起來像拖放沒有作用。這種情況要改播當日最後一段，並說明時刻為什麼變了。
+    /// </summary>
+    [Fact]
+    public void 拖進回放的頻道在該時刻沒錄影時會改播最後一段()
+    {
+        var source = SourceContract.Read(Code);
+
+        var drag = SourceContract.BodyOf(source, "FocusChannelAndPlayAsync");
+        Assert.Contains("if (ResumePlaybackAt(target))", drag);
+        Assert.Contains("PlayLatestSegment()", drag);
+        Assert.Contains("Playback.ResumeFellBackToLatest", drag);
+
+        // 續播是否成功必須回報：直接 void 的話呼叫端分不出「已開播」與「那一刻是空檔」。
+        Assert.Contains("private bool ResumePlaybackAt(", source);
+        var resume = SourceContract.BodyOf(source, "ResumePlaybackAt");
+        Assert.Contains("return false;", resume);
+        Assert.Contains("return true;", resume);
+    }
 }

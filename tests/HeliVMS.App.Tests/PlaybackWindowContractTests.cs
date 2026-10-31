@@ -595,6 +595,28 @@ public sealed class PlaybackWindowContractTests
     }
 
     /// <summary>
+    /// 錄影是一段一個檔，「重播所選區間」選的範圍通常跨好幾段。舊行為只播起點所在那一段，
+    /// 到段尾就停住並回報「區間播畢」：選了 10:00–10:30，實際只看得到 10:00–10:05，
+    /// 而畫面上沒有任何線索說明少了什麼——當成佐證播放時這就是錯的影片。
+    /// </summary>
+    [Fact]
+    public void 區間重播跨段會接著播下一段並保留結束上界()
+    {
+        var source = SourceContract.Read(Code);
+        var ended = SourceContract.BodyOf(source, "OnEnded");
+
+        Assert.Contains("_rangeStopUtc is { } rangeStopUtc", ended);
+        Assert.Contains("FindNextSegment(seg)", ended);
+        Assert.Contains("nextInRange.StartUtc < rangeStopUtc", ended);
+
+        // 上界必須在 PlayFrom 之後補回來：PlayFrom 會清掉它（屬於上一次操作），
+        // 少這一行就變成「一路播到當日最後一段」。
+        var play = ended.IndexOf("PlayFrom(nextInRange, 0)", StringComparison.Ordinal);
+        var restore = ended.IndexOf("_rangeStopUtc = rangeStopUtc;", StringComparison.Ordinal);
+        Assert.True(play >= 0 && restore > play, "跨段續播要先把播放上界補回來，再離開這個分支。");
+    }
+
+    /// <summary>
     /// §8.5 回放清單的其餘可達項：16× 速度、1–4 數字鍵選路、時間跳轉、右鍵快照。
     /// <para>
     /// （1）速度選單加了 16× 但 <c>GetSpeed</c> 沒對應索引：畫面顯示 16× 實際仍以 1× 播，

@@ -451,7 +451,20 @@ public partial class PlaybackWindow : Window
 
         if (resumeUtc is { } target)
         {
-            ResumePlaybackAt(target);
+            if (ResumePlaybackAt(target))
+            {
+                return;
+            }
+
+            // 拖進來的那台在那一刻沒有錄影（空檔，或今天根本沒錄）：留在原地就是一個
+            // 全黑播放器，沒有錯誤、沒有日誌，看起來像拖放沒有作用。拖進回放要看的是
+            // 「剛剛發生的事」，所以改播當日最後一段，並說明為什麼時刻變了。
+            if (_bandSegments.Count > 0)
+            {
+                StatusText.Text = Localizer.T("Playback.ResumeFellBackToLatest");
+            }
+
+            PlayLatestSegment();
             return;
         }
 
@@ -1773,6 +1786,24 @@ public partial class PlaybackWindow : Window
             // 不在此處釋放就每段漏一個 CTS／行程控制代碼；長期連續回放會慢慢累積。
             DisposeQuietly(finished);
 
+            // 重播所選區間（§8.5）跨段時要接著播下一段：錄影一段一個檔，選了 10:00–10:30
+            // 而這個設定只切出 5 分鐘一段的話，舊行為會在 10:05 停住並回報「區間播畢」——
+            // 操作員只看到選好的區間少了大半。上界仍以原本的絕對時刻為準。
+            if (completed && _rangeStopUtc is { } rangeStopUtc)
+            {
+                var nextInRange = FindNextSegment(seg);
+                if (nextInRange is not null && nextInRange.StartUtc < rangeStopUtc)
+                {
+                    _posInside = 0;
+                    PlayFrom(nextInRange, 0);
+
+                    // PlayFrom 會清掉播放上界（它屬於上一次操作），這裡補回來；
+                    // 少了這行，區間重播會一路播到當日最後一段。
+                    _rangeStopUtc = rangeStopUtc;
+                    return;
+                }
+            }
+
             if (completed && AutoAdvanceCheck.IsChecked == true)
             {
                 var next = FindNextSegment(seg);
@@ -3092,19 +3123,22 @@ public partial class PlaybackWindow : Window
     /// 把主畫面接到指定 UTC 時刻繼續播：在當日時間軸找到涵蓋該時刻的片段並從偏移量起播。
     /// 該台此刻無錄影就不硬跳（停在已載入畫面），語意與次畫面同步的空隙處理一致。
     /// </summary>
-    private void ResumePlaybackAt(DateTime targetUtc)
+    /// <returns>true＝已找到涵蓋該時刻的片段並開播；false＝那一刻是空檔，畫面維持原狀。</returns>
+    private bool ResumePlaybackAt(DateTime targetUtc)
     {
-        foreach (var item in _bandSegments)
+        // 這裡刻意不用 PlaybackSeekPlanner：它遇到空檔會落到最近的段邊界（那是方向鍵要的），
+        // 而「續播 / 拖進回放」要的是「這一刻真的有錄影」。悄悄跳到下一個小時的畫面
+        // 會讓操作員以為同步壞了，所以空檔一律回報找不到。
+        var item = _bandSegments.FirstOrDefault(
+            i => i.Segment.StartUtc <= targetUtc && EndOf(i.Segment) >= targetUtc);
+        if (item is null)
         {
-            var seg = item.Segment;
-            var end = EndOf(seg);
-            if (seg.StartUtc <= targetUtc && targetUtc <= end)
-            {
-                SelectSegment(item);
-                PlayFrom(seg, Math.Max(0, (targetUtc - seg.StartUtc).TotalSeconds));
-                return;
-            }
+            return false;
         }
+
+        SelectSegment(item);
+        PlayFrom(item.Segment, Math.Max(0, (targetUtc - item.Segment.StartUtc).TotalSeconds));
+        return true;
     }
 
     private IReadOnlyList<SegmentRecord> LoadPaneSegments(int channelId, DateTime day)
