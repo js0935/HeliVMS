@@ -202,13 +202,26 @@ Notes that will save you time:
   no duration yet, so a position check never reaches the end and pressing play resumes at EOF
   and instantly ends again — the button looks broken. `_playbackEnded` is set only when ffmpeg
   reports completion and cleared by `PlayFrom`/`ClearPlaybackHead`; resume goes to 0 when it
-  is set. For the same reason `LengthOf`/`EndOf` (10s fallback) is the only length/end
-  conversion: `StepFrame`, the jump-to-last-segment path, event and bookmark matching all use
-  it. Writing `DurationSec ?? 0` there collapses the segment window to an instant, so clicking
-  the event or bookmark reports "no recording here" while the bar clearly shows a block, and
-  `?? 1` made "last segment" restart at second 1. Guarded by
-  `暫停後可續播且播到尾再按會從頭`, `事件與書籤跳轉使用同一段結束口徑` and
-  `段結束時刻一律使用同一個換算口徑`.
+  is set. For the same reason `PlaybackSegmentTiming.EndOf`/`LengthOf` (10s fallback) is the only
+  length/end conversion: `StepFrame`, the jump-to-last-segment path, event and bookmark matching
+  all use it, and `PlaybackWindow.EndOf`/`PlaybackSyncPlanner.EndOf` are thin delegates to it.
+  Writing `DurationSec ?? 0` there collapses the segment window to an instant, so clicking the
+  event or bookmark reports "no recording here" while the bar clearly shows a block, and
+  `?? 1` made "last segment" restart at second 1. A second copy in `PlaybackSyncPlanner` (it used
+  zero length for unknown duration) made the timeline draw a block that multi-pane sync then
+  refused to play. Guarded by `暫停後可續播且播到尾再按會從頭`,
+  `事件與書籤跳轉使用同一段結束口徑`, `段結束時刻一律使用同一個換算口徑` and
+  `段長未知的段在同步時仍視為有錄影`.
+- **Arrow-key seek must land on the nearest segment edge, not the last segment of the day.**
+  The keys are ±10s (±60s with Ctrl, ±600s with Shift), and a day of recording is full of gaps.
+  The old `SeekBy` only special-cased "before the first segment" and sent everything else to the
+  end of the last segment, so one press could jump from morning to evening and silently skip the
+  segment the operator wanted. Landing is now `PlaybackSeekPlanner.Resolve` (pure function in
+  `HeliVMS.Shared`, behaviour-tested): inside a segment → that offset; in a gap → next segment
+  start when moving forward, previous segment's last frame when moving back; past the end → the
+  last frame (never wraps to the start). `ffmpeg -ss <duration>` yields no frame, hence the
+  1ms `LastFrameEpsilonSeconds`. Guarded by `PlaybackSeekPlannerTests` and
+  `事件與書籤跳轉使用同一段結束口徑`.
 - **The reused playback window must re-read the channel list.** It is one window reused by the
   main app, and `ChannelCombo.Items` was snapshotted when it opened. Switching by membership in
   that list rejected cameras added since: dragging one in from live view did nothing, no error,

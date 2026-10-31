@@ -1,3 +1,4 @@
+using HeliVMS.Shared;
 using HeliVMS.Shared.Models;
 
 namespace HeliVMS.Recording;
@@ -26,15 +27,21 @@ public static class PlaybackSyncPlanner
     }
 
     /// <summary>
-    /// 區段結束時刻。<see cref="SegmentRecord.EndUtc"/> 為 null（錄影中或舊資料）時以
-    /// <see cref="SegmentRecord.DurationSec"/> 推算；再無則視為零長度段（起點即終點）。
+    /// 區段結束時刻。與時間軸色塊、事件比對、跳轉共用 <see cref="PlaybackSegmentTiming.EndOf"/>
+    /// 的唯一一份換算：<see cref="SegmentRecord.EndUtc"/> 為 null（錄影中或舊資料）時以段長推算，
+    /// 段長也沒有時以 10 秒估算。
     /// </summary>
+    /// <remarks>
+    /// 這裡原本對「沒有段長」的段回零長度，於是索引還沒回填長度的那一段在同步時被當成空隙：
+    /// 色帶上明明有一塊，次畫面卻停住並標示無錄影，看起來像同步壞掉。兩套估算並存正是原因，
+    /// 現在只剩一份。
+    /// </remarks>
     public static DateTime EndOf(SegmentRecord segment) =>
-        segment.EndUtc ?? segment.StartUtc.AddSeconds(segment.DurationSec ?? 0);
+        PlaybackSegmentTiming.EndOf(segment);
 
     /// <summary>區段長度（秒），至少 0。</summary>
     public static double LengthOf(SegmentRecord segment) =>
-        Math.Max(0, (EndOf(segment) - segment.StartUtc).TotalSeconds);
+        PlaybackSegmentTiming.LengthOf(segment);
 
     /// <summary>
     /// 在一串（允許未排序）區段中找出涵蓋 <paramref name="targetUtc"/> 的那一段，並算出段內偏移。

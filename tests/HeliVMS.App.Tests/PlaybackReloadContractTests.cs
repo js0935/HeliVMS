@@ -248,16 +248,22 @@ public sealed class PlaybackReloadContractTests
     {
         var source = SourceContract.Read(Code);
 
-        var endOf = SourceContract.BodyOf(source, "EndOf");
-        Assert.Contains("seg.EndUtc ?? seg.StartUtc.AddSeconds(seg.DurationSec ?? 10)", endOf);
+        // 換算本體只有一份（HeliVMS.Shared.PlaybackSegmentTiming），畫面這邊只轉呼叫：
+        // 多寫一份就等於多一種口徑，時間軸、事件比對與多路同步會各自算出不同的段尾。
+        Assert.Contains(
+            "HeliVMS.Shared.PlaybackSegmentTiming.EndOf(seg)",
+            SourceContract.BodyOf(source, "EndOf"));
+        Assert.Contains(
+            "HeliVMS.Shared.PlaybackSegmentTiming.LengthOf(seg)",
+            SourceContract.BodyOf(source, "LengthOf"));
 
-        // 除了 EndOf 自己，不允許任何地方再手寫一份（?? 0 或 ?? 10 都算漂移）。
+        // 除了上面兩個轉呼叫，不允許任何地方再手寫一份（?? 0 或 ?? 10 都算漂移）。
         var raw = Regex.Matches(
             source,
             @"\.EndUtc \?\? [^\r\n;]*AddSeconds\([^\r\n;]*DurationSec");
         Assert.True(
-            raw.Count == 1,
-            $"段結束時刻只可在 EndOf 內換算，實際找到 {raw.Count} 處；"
+            raw.Count == 0,
+            $"段結束時刻只可在 PlaybackSegmentTiming 內換算，實際找到 {raw.Count} 處；"
             + "多一份就有一條路徑會用錯的長度（通常是 0 秒）比對時刻。");
 
         // 「起點 + 長度 ?? 0」是同一種漂移的另一個寫法：段有 EndUtc 但沒填長度時，
@@ -271,8 +277,9 @@ public sealed class PlaybackReloadContractTests
     }
 
     /// <summary>
-    /// 事件與書籤的「這個時刻屬於哪一段」比對必須走 <c>EndOf</c>：索引沒填段長時
-    /// 舊寫法用 <c>DurationSec ?? 0</c>，比對範圍塌成一個瞬間，點下去只得到「這裡沒有錄影」，
+    /// 事件與書籤的「這個時刻屬於哪一段」比對必須走 <c>EndOf</c>；方向鍵跳轉走
+    /// <c>PlaybackSeekPlanner</c>，兩者都吃同一份段長換算。索引沒填段長時舊寫法用
+    /// <c>DurationSec ?? 0</c>，比對範圍塌成一個瞬間，點下去只得到「這裡沒有錄影」，
     /// 而畫面上明明有那一段的色塊。
     /// </summary>
     [Fact]
@@ -280,7 +287,7 @@ public sealed class PlaybackReloadContractTests
     {
         var source = SourceContract.Read(Code);
 
-        foreach (var method in new[] { "OnEventSelected", "OnBookmarkSelected", "SeekBy" })
+        foreach (var method in new[] { "OnEventSelected", "OnBookmarkSelected" })
         {
             var body = SourceContract.BodyOf(source, method);
             Assert.Contains("EndOf(", body);
@@ -288,12 +295,18 @@ public sealed class PlaybackReloadContractTests
             Assert.DoesNotContain("DurationSec ?? 1", body);
         }
 
-        // 逐幀與「跳到最後一段的尾端」也要用同一口徑：讀 DurationSec 會退回 1 秒或直接不做，
-        // 未知長度的段按 F 沒反應、跳下一段反而回到開頭。
-        foreach (var method in new[] { "StepFrame", "SeekBy" })
-        {
-            Assert.Contains("LengthOf(", SourceContract.BodyOf(source, method));
-        }
+        // 方向鍵跳轉的落點（含空隙往哪一邊落）抽成純函式才有測試可釘；
+        // 留在鍵盤處理常式裡就只能靠人眼，而它錯的時候畫面看起來完全正常。
+        var seek = SourceContract.BodyOf(source, "SeekBy");
+        Assert.Contains("PlaybackSeekPlanner.Resolve(", seek);
+        Assert.Contains("forward: seconds >= 0", seek);
+        Assert.DoesNotContain("DurationSec ?? 0", seek);
+        Assert.DoesNotContain("DurationSec ?? 1", seek);
+        Assert.DoesNotContain("_bandSegments[^1]", seek);
+
+        // 逐幀要與段長同一口徑：讀 DurationSec 會退回 1 秒或直接不做，
+        // 未知長度的段按 F 沒反應。
+        Assert.Contains("LengthOf(", SourceContract.BodyOf(source, "StepFrame"));
 
         // 事件落在空檔時要有回饋，不能靜默不動。
         Assert.Contains(

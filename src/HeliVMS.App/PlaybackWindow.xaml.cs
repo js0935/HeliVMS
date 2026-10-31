@@ -1469,7 +1469,14 @@ public partial class PlaybackWindow : Window
         }
     }
 
-    /// <summary>依目前位置向後/向前跳轉指定秒數；越過片段邊界時自動跨段，最後 clamp 於當日整段範圍。</summary>
+    /// <summary>
+    /// 依目前位置向後／向前跳轉指定秒數；越過片段邊界時自動跨段，最後 clamp 於當日整段範圍。
+    /// </summary>
+    /// <remarks>
+    /// 目標時刻落在兩段之間的空檔時，依行進方向落到最近的段邊界（往後＝下一段的開頭，
+    /// 往前＝前一段的尾端），而不是一律跳到當日最後一段：白天錄影一中斷，按一下右方向鍵
+    /// 就會從早上跳到晚上，而且真正要看的那一段被靜靜跳過。只有已經越過最後一段才停在尾端。
+    /// </remarks>
     private void SeekBy(double seconds)
     {
         if (_current is null || _bandSegments.Count == 0)
@@ -1478,32 +1485,27 @@ public partial class PlaybackWindow : Window
         }
 
         var targetUtc = _current.StartUtc.AddSeconds(_posInside + seconds);
-        foreach (var item in _bandSegments)
-        {
-            var seg = item.Segment;
-            var end = EndOf(seg);
-            if (seg.StartUtc <= targetUtc && targetUtc <= end)
-            {
-                SelectSegment(item);
-                PlayFrom(seg, Math.Max(0, (targetUtc - seg.StartUtc).TotalSeconds));
-                return;
-            }
-        }
 
-        var first = _bandSegments[0].Segment;
-        if (targetUtc < first.StartUtc)
+        // 落點規則是純函式（HeliVMS.Shared.PlaybackSeekPlanner），因為「空隙要落在哪一段」
+        // 只能靠測試釘死，而 WPF 這邊沒有執行期測試環境；留在這裡就只能靠人眼驗證。
+        var landing = HeliVMS.Shared.PlaybackSeekPlanner.Resolve(
+            _bandSegments.Select(i => i.Segment),
+            targetUtc,
+            forward: seconds >= 0);
+        if (landing is not { } hit)
         {
-            SelectSegment(_bandSegments[0]);
-            PlayFrom(first, 0);
             return;
         }
 
-        var lastItem = _bandSegments[^1];
-        var last = lastItem.Segment;
-        SelectSegment(lastItem);
-        // 用與色帶／跳轉相同的段結束口徑：索引沒寫長度時 EndOf 會以 10 秒估算，
-        // 讀 DurationSec 則會落到 `?? 1` 而從第 1 秒起播——按「下一段」反而跳回開頭。
-        PlayFrom(last, Math.Max(0, LengthOf(last) - 0.001));
+        // 落點帶回的是索引裡的同一個實例；用它找回清單項目，左側選取才會跟著移動。
+        var item = _bandSegments.FirstOrDefault(i => ReferenceEquals(i.Segment, hit.Segment));
+        if (item is null)
+        {
+            return;
+        }
+
+        SelectSegment(item);
+        PlayFrom(hit.Segment, hit.OffsetSeconds);
     }
 
     /// <summary>時間跳轉（§8.5）：輸入時刻或完整日期時間，跳到覆蓋該時刻的片段並從該點起播。
@@ -2928,17 +2930,18 @@ public partial class PlaybackWindow : Window
     }
 
     /// <summary>
-    /// 段的結束時刻：索引沒寫長度時以 10 秒估算（與時間軸建構同一口徑）。
+    /// 段的結束時刻：與時間軸色塊、事件比對、多路同步共用唯一一份換算
+    /// （<see cref="HeliVMS.Shared.PlaybackSegmentTiming"/>）；索引沒寫長度時以 10 秒估算。
     /// </summary>
     /// <remarks>
     /// 這個換算散布在跳轉、書籤、事件、色帶、跨段續播五六條路徑上；只要有一條寫成 <c>?? 0</c>
     /// （長度還沒回填的段），那一條就永遠對不到時刻——點下去說「這裡沒有錄影」，色帶上也少一塊。
+    /// 因此不要在畫面上另寫一份，一律呼叫這裡。
     /// </remarks>
-    private static DateTime EndOf(SegmentRecord seg)
-        => seg.EndUtc ?? seg.StartUtc.AddSeconds(seg.DurationSec ?? 10);
+    private static DateTime EndOf(SegmentRecord seg) => HeliVMS.Shared.PlaybackSegmentTiming.EndOf(seg);
 
     /// <summary>段長（秒），與 <see cref="EndOf"/> 同一口徑；索引沒寫長度時為 10 秒。</summary>
-    private static double LengthOf(SegmentRecord seg) => (EndOf(seg) - seg.StartUtc).TotalSeconds;
+    private static double LengthOf(SegmentRecord seg) => HeliVMS.Shared.PlaybackSegmentTiming.LengthOf(seg);
 
     private void OnCloseClicked(object sender, RoutedEventArgs e) => Close();
 

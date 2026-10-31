@@ -1,4 +1,5 @@
 using HeliVMS.Recording;
+using HeliVMS.Shared;
 using HeliVMS.Shared.Models;
 
 namespace HeliVMS.Recording.Tests;
@@ -14,7 +15,7 @@ public sealed class PlaybackSyncPlannerTests
 {
     private static readonly DateTime T0 = new(2026, 9, 12, 10, 0, 0, DateTimeKind.Utc);
 
-    private static SegmentRecord Seg(long id, double startMin, double durSec, double? endMin = null) => new()
+    private static SegmentRecord Seg(long id, double startMin, double? durSec, double? endMin = null) => new()
     {
         Id = id,
         ChannelId = 1,
@@ -152,5 +153,30 @@ public sealed class PlaybackSyncPlannerTests
         Assert.Equal(new[] { 20, 10 }, PlaybackSyncPlanner.WallChannelIds(channels, 20, 4));
         Assert.Equal(new[] { 10, 20 }, PlaybackSyncPlanner.WallChannelIds(channels, 99, 4));
         Assert.Empty(PlaybackSyncPlanner.WallChannelIds([], 1, 4));
+    }
+
+    /// <summary>
+    /// 段長未知（索引還沒回填，或從磁碟補登的舊資料）時，同步仍要把它當成有錄影。
+    /// </summary>
+    /// <remarks>
+    /// 這裡原本對「EndUtc 與 DurationSec 都沒有」的段回零長度，於是時間軸色帶畫得出那一段、
+    /// 多路同步卻判定為空隙：次畫面停住並標示無錄影，看起來像同步壞掉。估算值現在只有一份
+    /// （<see cref="PlaybackSegmentTiming.FallbackDurationSeconds"/>），與色帶、事件比對一致。
+    /// </remarks>
+    [Fact]
+    public void 段長未知的段在同步時仍視為有錄影()
+    {
+        var seg = Seg(1, 0, null, endMin: null);
+
+        var cursor = PlaybackSyncPlanner.Resolve([seg], T0.AddSeconds(3));
+        Assert.NotNull(cursor);
+        Assert.Equal(3, cursor!.Value.OffsetSeconds, 3);
+
+        // 估算值必須與時間軸色塊相同（10 秒），否則游標會走出色帶或提早停在色帶中間。
+        Assert.Equal(T0.AddSeconds(PlaybackSegmentTiming.FallbackDurationSeconds), PlaybackSyncPlanner.EndOf(seg));
+        Assert.Equal(
+            PlaybackSegmentTiming.FallbackDurationSeconds,
+            PlaybackSyncPlanner.LengthOf(seg),
+            3);
     }
 }
