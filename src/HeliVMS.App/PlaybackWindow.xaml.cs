@@ -1183,14 +1183,21 @@ public partial class PlaybackWindow : Window
             return;
         }
 
-        var band = _bandSegments
-            .FirstOrDefault(b => b.Segment.StartUtc <= rec.StartUtc
-                              && rec.StartUtc <= EndOf(b.Segment));
-        if (band is not null)
+        // 事件時刻落在哪一段，由全應用程式唯一一份規則回答（PlaybackSeekPlanner.ResolveAt，
+        // 涵蓋範圍 [起點, 結束)）。舊寫法自己比對閉區間而且取先出現的那一段：事件剛好落在
+        // 段尾或兩段接縫時，會落在前一段的「第 60 秒」——那裡沒有影格，點下去立刻回報
+        // 「已播放完畢」，而事件其實就寫在下一段的開頭。
+        var landing = HeliVMS.Shared.PlaybackSeekPlanner.ResolveAt(
+            _bandSegments.Select(b => b.Segment),
+            rec.StartUtc);
+        var band = landing is { } hit
+            ? _bandSegments.FirstOrDefault(b => ReferenceEquals(b.Segment, hit.Segment))
+            : null;
+        if (landing is { } found && band is not null)
         {
             // 讓左側區段清單的高亮跟著事件跳轉一起移動，否則清單停在舊選取、畫面上卻在播別段。
             SelectSegment(band);
-            PlayFrom(band.Segment, (rec.StartUtc - band.Segment.StartUtc).TotalSeconds);
+            PlayFrom(found.Segment, found.OffsetSeconds);
             return;
         }
 
@@ -1254,13 +1261,18 @@ public partial class PlaybackWindow : Window
             return;
         }
 
-        var band = _bandSegments
-            .FirstOrDefault(b => b.Segment.StartUtc <= bm.AtUtc
-                              && bm.AtUtc <= EndOf(b.Segment));
-        if (band is not null)
+        // 與事件、時間跳轉、時間軸點擊共用同一份落點規則；書籤正好記在段尾或接縫上時，
+        // 舊的閉區間寫法會落進前一段沒有影格的最後一刻（點下去只回報「已播放完畢」）。
+        var landing = HeliVMS.Shared.PlaybackSeekPlanner.ResolveAt(
+            _bandSegments.Select(b => b.Segment),
+            bm.AtUtc);
+        var band = landing is { } hit
+            ? _bandSegments.FirstOrDefault(b => ReferenceEquals(b.Segment, hit.Segment))
+            : null;
+        if (landing is { } found && band is not null)
         {
             SelectSegment(band);
-            PlayFrom(band.Segment, Math.Max(0, (bm.AtUtc - band.Segment.StartUtc).TotalSeconds));
+            PlayFrom(found.Segment, found.OffsetSeconds);
         }
         else
         {

@@ -277,10 +277,10 @@ public sealed class PlaybackReloadContractTests
     }
 
     /// <summary>
-    /// 事件與書籤的「這個時刻屬於哪一段」比對必須走 <c>EndOf</c>；方向鍵跳轉走
-    /// <c>PlaybackSeekPlanner</c>，兩者都吃同一份段長換算。索引沒填段長時舊寫法用
-    /// <c>DurationSec ?? 0</c>，比對範圍塌成一個瞬間，點下去只得到「這裡沒有錄影」，
-    /// 而畫面上明明有那一段的色塊。
+    /// 事件與書籤的「這個時刻屬於哪一段」比對必須走唯一的落點規則
+    /// <c>PlaybackSeekPlanner.ResolveAt</c>（內部用 <c>PlaybackSegmentTiming.EndOf</c>），
+    /// 方向鍵跳轉走同一份段長換算。索引沒填段長時舊寫法用 <c>DurationSec ?? 0</c>，比對範圍
+    /// 塌成一個瞬間，點下去只得到「這裡沒有錄影」，而畫面上明明有那一段的色塊。
     /// </summary>
     [Fact]
     public void 事件與書籤跳轉使用同一段結束口徑()
@@ -290,7 +290,7 @@ public sealed class PlaybackReloadContractTests
         foreach (var method in new[] { "OnEventSelected", "OnBookmarkSelected" })
         {
             var body = SourceContract.BodyOf(source, method);
-            Assert.Contains("EndOf(", body);
+            Assert.Contains("PlaybackSeekPlanner.ResolveAt(", body);
             Assert.DoesNotContain("DurationSec ?? 0", body);
             Assert.DoesNotContain("DurationSec ?? 1", body);
         }

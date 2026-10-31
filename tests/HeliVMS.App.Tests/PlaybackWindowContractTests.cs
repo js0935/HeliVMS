@@ -133,26 +133,31 @@ public sealed class PlaybackWindowContractTests
     }
 
     /// <summary>
-    /// 其餘「跳到某個時刻」的入口（時間跳轉輸入、續播／拖進回放）也必須走同一份落點規則。
+    /// 所有「跳到某個時刻」的入口都必須走同一份落點規則：時間軸點擊、事件、書籤、時間跳轉、
+    /// 續播／拖進回放。
     /// </summary>
     /// <remarks>
-    /// 這兩條路各自留著一份閉區間比對，而且取「先出現」的那一段：輸入的時刻剛好是某段結束、或
+    /// 這些路徑從前各自留著一份閉區間比對，而且取「先出現」的那一段：時刻剛好是某段結束、或
     /// 兩段相接時，會落在前一段的第 60 秒。<c>ffmpeg -ss 60</c> 不產生任何影格，於是畫面不動、
-    /// 狀態列卻說「已播放完畢」，而右邊一格就是有影像的。方向鍵與時間軸點擊都修過了，這裡不改
-    /// 就註定再分岔一次。
+    /// 狀態列卻說「已播放完畢」，而右邊一格就是有影像的。方向鍵與時間軸點擊都修過了，其餘幾條
+    /// 不改就註定再分岔一次。
     /// </remarks>
     [Fact]
     public void 時間跳轉與續播也共用同一份落點規則()
     {
         var source = SourceContract.Read(Code);
 
-        foreach (var method in new[] { "JumpToLocalTime", "ResumePlaybackAt" })
+        foreach (var method in new[]
+                 {
+                     "JumpToLocalTime", "ResumePlaybackAt", "OnEventSelected", "OnBookmarkSelected",
+                 })
         {
             var body = SourceContract.BodyOf(source, method);
             Assert.Contains("PlaybackSeekPlanner.ResolveAt(", body);
             Assert.Contains("PlayFrom(", body);
             Assert.DoesNotContain("targetUtc <= ", body);
             Assert.DoesNotContain("EndOf(i.Segment) >=", body);
+            Assert.DoesNotContain("bm.AtUtc <= EndOf", body);
         }
 
         // 續播遇到空檔仍要回報「找不到」（不是悄悄跳下一段）。

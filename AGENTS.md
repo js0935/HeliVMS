@@ -226,11 +226,16 @@ Notes that will save you time:
   pressed the key again and only then moved on. With the half-open interval that moment is a gap
   like any other (→ next segment forward, → that segment's last frame backward), and a seam
   (next start == previous end) still belongs to the later segment without relying on the
-  "latest start wins" tiebreak. The timeline click resolves through the same helper
-  (`PlaybackSeekPlanner.ResolveAt`, a gap returns no landing instead of a neighbouring segment),
-  so it cannot grow its own closed-interval loop and land on a block's 60th second. Guarded by
-  `PlaybackSeekPlannerTests`, `時間軸點擊與方向鍵共用同一份落點規則` and
-  `事件與書籤跳轉使用同一段結束口徑`.
+  "latest start wins" tiebreak. Every "jump to this instant" entry point resolves through this
+  one helper — timeline click, event, bookmark, the time-jump box and resume/drag-in
+  (`OnBandClicked`, `OnEventSelected`, `OnBookmarkSelected`, `JumpToLocalTime`,
+  `ResumePlaybackAt`) — because each of them had grown its own closed-interval `FirstOrDefault`
+  loop; a gap returns no landing instead of a neighbouring segment (resume falls back to the
+  latest segment and says so), so none of them can land on a block's 60th second. For the same
+  reason the seek slider drag and frame-step clamp to `PlaybackSeekPlanner.LastFrameOf` (length
+  − 1ms) instead of the length itself. Guarded by `PlaybackSeekPlannerTests`,
+  `時間軸點擊與方向鍵共用同一份落點規則`, `時間跳轉與續播也共用同一份落點規則`,
+  `拖到段尾與逐幀到段尾都停在最後一格` and `事件與書籤跳轉使用同一段結束口徑`.
 - **The status line and the time readout must not keep describing a state that ended.** Three
   separate reports, one root: the last message written wins, and nothing rewrites it.
   `OnStopClicked` called `StopPlayback` and never touched `StatusText`, so pressing 停止 (or Esc,
