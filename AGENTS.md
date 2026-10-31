@@ -247,7 +247,13 @@ Notes that will save you time:
   report. It is restored by `OnBandMouseLeave` and by the gap branches of `OnBandClicked`, all
   through the single `ShowPlayheadTime` (which also replaced three copies of the same
   `"{pos} / {length}"` format string). Guarded by `按停止後狀態列不會再寫著播放中` and
-  `滑鼠離開時間軸後時間讀數回到播放頭`.
+  `滑鼠離開時間軸後時間讀數回到播放頭`. The readout itself must lead with the **recording
+  instant** (segment start + position → local `HH:mm:ss` via `RecordingInstant`), with
+  `pos / length` only as a secondary — operators copy this readout into reports and use it to
+  correlate events, and a segment-relative number matches hundreds of different wall-clock
+  moments in a day. The pane OSD shows the same instant through the same helper, so the main
+  readout and a synced pane can never disagree about "what time is this". Guarded by
+  `播放讀數以錄影時刻為主而非段內位置` and `次畫面OSD顯示錄影時刻而非段內位置`.
 - **"Replay selection" must stop where the selection stops.** Recordings are one file per
   segment, so a selected 10:00–10:30 spans several files. `OnEnded` continues into the next
   segment while it still starts before the upper bound — but that branch must also *end the

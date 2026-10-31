@@ -234,6 +234,45 @@ public sealed class PlaybackWindowContractTests
             SourceContract.BodyOf(source, "OnFrame"));
     }
 
+    /// <summary>
+    /// 播放讀數的主訊息必須是「錄影時刻」（絕對），段內位置／段長只能是輔助。
+    /// </summary>
+    /// <remarks>
+    /// 操作員拿讀數對時、抄進報告、比對事件；只有「00:35 / 05:00」這種段內相對值時，
+    /// 同一個數字在一天裡對應幾百個不同的時刻，等於沒有對時資訊——現場回報「只看到
+    /// 影片的長度時間，應該顯示錄影時間」。錄影時刻由段起點＋段內位置換算成地方時，
+    /// 與時間軸掠過預覽、書籤、事件清單同一口徑。
+    /// </remarks>
+    [Fact]
+    public void 播放讀數以錄影時刻為主而非段內位置()
+    {
+        var show = SourceContract.BodyOf(SourceContract.Read(Code), "ShowPlayheadTime");
+
+        // 錄影時刻走共用的 RecordingInstant（段起點＋段內位置 → 地方時）。
+        Assert.Contains("RecordingInstant(", show);
+
+        // 位置／段長仍要保留（拖進度、確認段長時有用），但只能排在錄影時刻之後。
+        Assert.Contains("FormatTime(_posInside)", show);
+        Assert.True(
+            show.IndexOf("RecordingInstant(", StringComparison.Ordinal)
+                < show.IndexOf("FormatTime(_posInside)", StringComparison.Ordinal),
+            "錄影時刻要寫在位置／段長之前。");
+    }
+
+    /// <summary>
+    /// 次畫面 OSD 也要顯示錄影時刻：多路比對核對的是「同一瞬間兩邊各拍到什麼」，
+    /// 段內位置在兩台之間對不到同一個時刻。且必須與主讀數共用同一份換算。
+    /// </summary>
+    [Fact]
+    public void 次畫面OSD顯示錄影時刻而非段內位置()
+    {
+        var frame = SourceContract.BodyOf(SourceContract.Read(Code), "OnPaneFrame");
+
+        Assert.Contains("RecordingInstant(", frame);
+        Assert.Contains("pane.PosInside", frame);
+        Assert.DoesNotContain("FormatTime(pane.PosInside)", frame);
+    }
+
     [Fact]
     public void 回放牆格數切換重建次畫面並重新對齊母鐘()
     {

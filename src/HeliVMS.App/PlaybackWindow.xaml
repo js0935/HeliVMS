@@ -302,7 +302,7 @@
                     <ComboBoxItem Content="16×"/>
                 </ComboBox>
                 <TextBlock x:Name="TimeText" Foreground="White" FontSize="12"
-                           VerticalAlignment="Center" Margin="16,0,0,0" Text="--:--:-- / --:--:--"
+                           VerticalAlignment="Center" Margin="16,0,0,0" Text="--:--:--"
                            AutomationProperties.AutomationId="PlaybackTime"/>
                 <CheckBox x:Name="AutoAdvanceCheck" Content="" Foreground="{StaticResource Brand.TextDim}" AutomationProperties.AutomationId="AutoAdvanceCheck" ToolTip=""
                           IsChecked="True" VerticalAlignment="Center" Margin="14,0,0,0"/>

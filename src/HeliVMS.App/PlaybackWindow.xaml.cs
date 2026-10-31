@@ -3028,20 +3028,44 @@ public partial class PlaybackWindow : Window
     }
 
     /// <summary>
-    /// 時間讀數回到「播放頭 / 段長」，全視窗唯一一份。
+    /// 時間讀數：錄影時刻（這一格畫面是幾點幾分錄的）為主，段內位置／段長為輔，全視窗唯一一份。
     /// </summary>
     /// <remarks>
+    /// <para>
     /// 同一個字串原本在 <see cref="OnFrame"/>、<see cref="OnEnded"/> 與
     /// <see cref="ClearPlaybackHead"/> 各寫一次，格式一改就會有三處不同調。
+    /// </para>
+    /// <para>
+    /// 操作員回報過「只看到長度時間」：位置／段長是段內相對值，同一個 00:35 在 08:00 的段和
+    /// 15:00 的段是兩個完全不同的時刻——拿它對時、抄進報告、比對事件都會錯。所以主訊息是
+    /// <c>段起點 + 段內位置</c> 換算成地方時的錄影時刻，與時間軸掠過預覽、書籤、事件清單
+    /// 同一口徑（都是 HH:mm:ss 的地方時）。
+    /// </para>
+    /// <para>
     /// 另外，滑鼠掠過時間軸（<see cref="PreviewBandAt"/>）或點在空檔時，這個唯讀的讀數會被
     /// 暫態的絕對時刻蓋掉；暫停中沒有影格再進來就沒人改回來，操作員看到的是自己從未停過的
-    /// 時刻——拿它去抄時間、比對事件都會錯。所以滑鼠離開帶子、點到空檔之後都要叫回這裡。
+    /// 時刻——所以滑鼠離開帶子、點到空檔之後都要叫回這裡。
+    /// </para>
     /// </remarks>
     private void ShowPlayheadTime(SegmentRecord? segment = null)
     {
-        var length = (segment ?? _current) is { } seg ? LengthOf(seg) : 0;
-        TimeText.Text = $"{FormatTime(_posInside)} / {FormatTime(length)}";
+        if ((segment ?? _current) is not { } seg)
+        {
+            // 沒有播放頭（還沒載入、清空狀態）就沒有錄影時刻可言，維持相對值的零值顯示。
+            TimeText.Text = $"{FormatTime(0)} / {FormatTime(0)}";
+            return;
+        }
+
+        var at = RecordingInstant(seg, _posInside);
+        TimeText.Text = $"{at:HH:mm:ss}（{FormatTime(_posInside)} / {FormatTime(LengthOf(seg))}）";
     }
+
+    /// <summary>
+    /// 錄影時刻：段起點＋段內位置換算成地方時。主讀數與次畫面 OSD 共用這一份換算，
+    /// 兩邊的「幾點幾分」才會對得上同一個瞬間。
+    /// </summary>
+    private static DateTime RecordingInstant(SegmentRecord segment, double posInside) =>
+        TimeZoneInfo.ConvertTimeFromUtc(segment.StartUtc.AddSeconds(posInside), TimeZoneInfo.Local);
 
     private static string FormatTime(double seconds)
     {
@@ -3375,7 +3399,15 @@ public partial class PlaybackWindow : Window
             0);
 
         pane.PosInside = pane.BasePos + frame.PtsMs / 1000.0;
-        pane.Osd.Text = $"{pane.Channel.Name}  {FormatTime(pane.PosInside)}";
+
+        // 多路比對要能對時：OSD 顯示這一格此刻的「錄影時刻」（絕對），不是段內位置——
+        // 段內 00:35 在兩台上對不到同一個時刻，操作員核對的是「同一瞬間兩邊各拍到什麼」。
+        // 換算與主讀數共用 RecordingInstant，兩邊才不會出現兩套時鐘。
+        if (pane.Current is { } paneSeg)
+        {
+            var paneAt = RecordingInstant(paneSeg, pane.PosInside);
+            pane.Osd.Text = $"{pane.Channel.Name}  {paneAt:HH:mm:ss}";
+        }
     }
 
     private void OnPaneEnded(Pane pane, long version)
