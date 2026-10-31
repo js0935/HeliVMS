@@ -357,4 +357,24 @@ public sealed class PlaybackReloadContractTests
         Assert.Contains("return false;", resume);
         Assert.Contains("return true;", resume);
     }
+
+    /// <summary>
+    /// 點次畫面放大成單畫面時，那台在母鐘同一時刻常常正好是空檔（各台切點不同）；
+    /// 換台已清掉播放頭，若不出聲就只剩全黑播放器與灰掉的播放鈕——和「解碼壞了」
+    /// 在畫面上完全一樣，操作員無法判斷該換時刻還是換台。
+    /// </summary>
+    [Fact]
+    public void 放大次畫面時該台此刻沒錄影會說清楚()
+    {
+        var source = SourceContract.Read(Code);
+        var pane = SourceContract.BodyOf(source, "FocusPaneAsync");
+
+        Assert.Contains("if (ResumePlaybackAt(target))", pane);
+        Assert.Contains("Playback.NoRecordingHere", pane);
+
+        // 訊息必須出現在續播失敗之後，否則等於在成功路徑上也喊「沒錄影」。
+        var resume = pane.IndexOf("ResumePlaybackAt(target)", StringComparison.Ordinal);
+        var message = pane.IndexOf("Playback.NoRecordingHere", StringComparison.Ordinal);
+        Assert.True(message > resume, "「此時段無錄影」要接在續播失敗之後。");
+    }
 }

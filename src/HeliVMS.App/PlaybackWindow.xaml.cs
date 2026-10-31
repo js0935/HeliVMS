@@ -3125,7 +3125,15 @@ public partial class PlaybackWindow : Window
 
         if (resumeUtc is { } target)
         {
-            ResumePlaybackAt(target);
+            if (ResumePlaybackAt(target))
+            {
+                return;
+            }
+
+            // 各台錄影的切點不同，點次畫面放大時，那台在母鐘那一刻經常正好是空檔。
+            // 換台已經把播放頭清掉，這裡不出聲就只剩一個全黑播放器——和「解碼壞了」
+            // 在畫面上長得一模一樣，而且播放鈕還是灰的，操作員無從判斷該換時刻還是換台。
+            StatusText.Text = Localizer.T("Playback.NoRecordingHere");
         }
     }
 
