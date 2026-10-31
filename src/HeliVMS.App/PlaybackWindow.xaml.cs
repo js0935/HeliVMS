@@ -2799,20 +2799,32 @@ public partial class PlaybackWindow : Window
             return;
         }
 
-        foreach (var item in _bandSegments)
+        // 重播要從「與範圍相交的第一段」開播，不是「涵蓋範圍起點的那一段」：起點可以正好停在
+        // 空檔（選 10:00–10:30，10:05 才再有錄影——舊寫法整個拒播，後面明明有 25 分鐘），或
+        // 停在前一段的結束那一瞬間（閉區間把它算在前一段的「第 60 秒」，那裡沒有影格，開播
+        // 立刻回報播放完成）。相交判斷用半開區間，接縫自然歸屬後一段。
+        var first = _bandSegments
+            .Select(i => i.Segment)
+            .Where(s => s.StartUtc < range.EndUtc
+                     && HeliVMS.Shared.PlaybackSegmentTiming.EndOf(s) > range.StartUtc)
+            .OrderBy(s => s.StartUtc)
+            .FirstOrDefault();
+        if (first is null)
         {
-            var seg = item.Segment;
-            var end = EndOf(seg);
-            if (seg.StartUtc <= range.StartUtc && range.StartUtc <= end)
-            {
-                SelectSegment(item);
-                PlayFrom(seg, Math.Max(0, (range.StartUtc - seg.StartUtc).TotalSeconds));
-                _rangeStopUtc = range.EndUtc;
-                return;
-            }
+            StatusText.Text = Localizer.T("Playback.NoRecordingHere");
+            return;
         }
 
-        StatusText.Text = Localizer.T("Playback.NoRecordingHere");
+        var item = _bandSegments.First(i => ReferenceEquals(i.Segment, first));
+        SelectSegment(item);
+
+        // 起點落在某段內時從那個偏移開播；夾到最後一格，避免萬分之一落在「沒有影格」的段尾。
+        PlayFrom(
+            first,
+            Math.Min(
+                Math.Max(0, (range.StartUtc - first.StartUtc).TotalSeconds),
+                HeliVMS.Shared.PlaybackSeekPlanner.LastFrameOf(first)));
+        _rangeStopUtc = range.EndUtc;
     }
 
     /// <summary>右鍵選單「匯出所選區間」（§8.5「立即可匯出此段」）：開匯出精靈並預填精確起止。</summary>

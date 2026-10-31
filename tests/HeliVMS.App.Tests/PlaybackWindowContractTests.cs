@@ -186,6 +186,28 @@ public sealed class PlaybackWindowContractTests
     }
 
     /// <summary>
+    /// 重播選取範圍必須從「與範圍相交的第一段」開播，而不是要求範圍起點本身被某一段涵蓋。
+    /// </summary>
+    /// <remarks>
+    /// 範圍起點可以正好停在空檔（選了 10:00–10:30，10:05 才再有錄影：舊的閉區間比對整個拒播，
+    /// 後面明明有 25 分鐘），或停在前一段的結束那一瞬間（被算進前一段的「第 60 秒」，那裡沒有
+    /// 影格，開播立刻回報播放完成）。相交判斷必須是半開區間：起點早於範圍結束、結束晚於範圍起點。
+    /// </remarks>
+    [Fact]
+    public void 重播選取範圍會從範圍內第一段開播()
+    {
+        var body = SourceContract.BodyOf(SourceContract.Read(Code), "OnReplayRangeClicked");
+
+        // 相交測試的兩端都要出現：只看起點會退化回「涵蓋起點的那一段」。
+        Assert.Contains("s.StartUtc < range.EndUtc", body);
+        Assert.Contains("EndOf(s) > range.StartUtc", body);
+        Assert.Contains("_rangeStopUtc = range.EndUtc", body);
+
+        // 起點被夾到最後一格，不會落在沒有影格的段尾。
+        Assert.Contains("LastFrameOf(first)", body);
+    }
+
+    /// <summary>
     /// 滑鼠掠過時間軸會把「位置／總長」讀數換成掠過那一刻的絕對時刻；離開時必須換回來。
     /// </summary>
     /// <remarks>
