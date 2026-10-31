@@ -36,6 +36,14 @@ Notes that will save you time:
   `Shapes`, a broken XAML binding) passes every App test and only shows up in
   `dotnet build HeliVMS.slnx`. Build the whole solution before calling desktop work
   done.
+- **`MSB3027`/`MSB3021` file-in-use during build is the dev machine's running app,
+  not your code.** A live `HeliVMS.App` process started from
+  `src/HeliVMS.App/bin/Release/net10.0-windows` locks the copied DLLs, and the
+  full-solution build fails only on the copy step. The operator has approved closing
+  that process when it blocks a build (ask once, then just close it and rebuild);
+  to verify compilation without touching it meanwhile, build with a redirected
+  output path (`dotnet build src/HeliVMS.App -c Release -p:OutputPath=obj\verify-bin\`)
+  and delete the folder afterwards.
 - ffmpeg must be on `PATH`. Tests that need it are `[SkippableFact]` and self-skip
   via `PublishPipelineProbe`, so a green run without ffmpeg means less than it looks.
 - `HeliVMS.LicenseProducer.Tests` targets `net10.0-windows`.
