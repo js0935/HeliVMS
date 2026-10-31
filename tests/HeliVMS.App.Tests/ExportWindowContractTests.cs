@@ -75,15 +75,19 @@ public sealed class ExportWindowContractTests
         Assert.Contains("x:Name=\"ExportStatusHeader\"", xaml, StringComparison.Ordinal);
         Assert.Contains("x:Name=\"ResultText\"", xaml, StringComparison.Ordinal);
 
-        // 起迄 2×2：日期欄 150、時間欄 92。日期欄曾用星號吃滿左欄（看起來很大），
-        // 時間框只剩 72px，「23:59:59」被裁掉——現場回報「日期很大、時間太小」。
+        // 起迄 2×2：日期欄 170、時間欄 116。日期欄曾用星號吃滿左欄（看起來很大），
+        // 時間框只剩 72px，「23:59:59」被裁掉；連 92px 在預設系統字級下都還很緊
+        //（現場回報「時間欄位文字顯示不完整」），所以時間欄再放寬到 116。
         // 欄位定義與元素寬度一起釘：只釘元素寬度時，欄寬回歸星號不會被發現。
-        Assert.Contains("<ColumnDefinition Width=\"150\"/>", xaml, StringComparison.Ordinal);
-        Assert.Contains("<ColumnDefinition Width=\"92\"/>", xaml, StringComparison.Ordinal);
-        Assert.Matches(@"x:Name=""StartDate""[^>]*Width=""150""", xaml);
-        Assert.Matches(@"x:Name=""EndDate""[^>]*Width=""150""", xaml);
-        Assert.Matches(@"x:Name=""StartTime""[^>]*Width=""92""", xaml);
-        Assert.Matches(@"x:Name=""EndTime""[^>]*Width=""92""", xaml);
+        Assert.Contains("<ColumnDefinition Width=\"170\"/>", xaml, StringComparison.Ordinal);
+        Assert.Contains("<ColumnDefinition Width=\"116\"/>", xaml, StringComparison.Ordinal);
+        Assert.Matches(@"x:Name=""StartDate""[^>]*Width=""170""", xaml);
+        Assert.Matches(@"x:Name=""EndDate""[^>]*Width=""170""", xaml);
+        Assert.Matches(@"x:Name=""StartTime""[^>]*Width=""116""", xaml);
+        Assert.Matches(@"x:Name=""EndTime""[^>]*Width=""116""", xaml);
+
+        // 更窄的舊寬度都不得回歸：72 是原始值、92 是「還是太緊」的那一版。
         Assert.DoesNotMatch(@"x:Name=""StartTime""[^>]*Width=""72""", xaml);
+        Assert.DoesNotMatch(@"x:Name=""StartTime""[^>]*Width=""92""", xaml);
     }
 }
