@@ -8,7 +8,7 @@ public class OnvifProfileSelectionTests
     [Theory]
     [InlineData("MainStream", "MainProfile")]
     [InlineData("主碼流", "Profile_1")]
-    [InlineData("Main", "101")]
+    [InlineData("Main", "Main")]
     [InlineData("Stream1", "high")]
     public void HasSubStreamKeyword_ForMainStreamNaming_IsFalse(string name, string token)
     {
@@ -22,7 +22,7 @@ public class OnvifProfileSelectionTests
     [Theory]
     [InlineData("SubStream", "SubProfile")]
     [InlineData("子碼流", "Profile_2")]
-    [InlineData("Sub", "102")]
+    [InlineData("Sub", "Sub")]
     [InlineData("Stream2", "low")]
     public void HasSubStreamKeyword_ForSubStreamNaming_IsTrue(string name, string token)
     {
@@ -30,6 +30,79 @@ public class OnvifProfileSelectionTests
 
         Assert.True(OnvifProfileSelection.HasSubStreamKeyword(profile));
         Assert.True(profile.IsSubStream);
+    }
+
+    [Theory]
+    [InlineData("Profile100")]
+    [InlineData("Profile101")]
+    [InlineData("Profile102")]
+    [InlineData("101")]
+    [InlineData("102")]
+    public void 純編號的token不會被關鍵字判成主或子碼流(string token)
+    {
+        // 關鍵字表裡的 stream1／stream2／profile1／profile2 指的是「第一路／第二路」。
+        // 少了數字邊界，profile1 會命中 Profile100 與 Profile102，於是 Profile101
+        // （串流2，真正的子碼流）被當成主碼流、Profile102（串流3）成為唯一的子碼流候選。
+        // 純編號（101／102）本身也不該被直接判主或判子——第幾路要看同一組的其他 profile。
+        var profile = Profile(token, token, 1920, 1080);
+
+        Assert.False(OnvifProfileSelection.HasSubStreamKeyword(profile));
+        Assert.False(OnvifProfileSelection.HasMainStreamKeyword(profile));
+    }
+
+    [Fact]
+    public void 三路編號的次碼流是第二路而不是第三路()
+    {
+        // 實機：rtsp://…/media/stream.sdp?profile=Profile100/101/102。新增攝影機時
+        // 次碼流被自動帶成串流3（Profile102），正確是串流2（Profile101）。
+        const string sp = "rtsp://211.72.229.97:554/media/stream.sdp?profile=";
+        var profiles = new[]
+        {
+            Profile("Profile100", "Profile100", 1920, 1080, "VideoSource0", "H264").WithStreamUri(sp + "Profile100"),
+            Profile("Profile101", "Profile101", 1280, 720, "VideoSource0", "H264").WithStreamUri(sp + "Profile101"),
+            Profile("Profile102", "Profile102", 640, 360, "VideoSource0", "H264").WithStreamUri(sp + "Profile102"),
+        };
+
+        var classified = OnvifProfileSelection.Classify(profiles);
+        var main = OnvifProfileSelection.SelectMain(classified);
+        var sub = OnvifProfileSelection.SelectSub(classified);
+
+        Assert.Equal(OnvifStreamRole.Main, classified.Single(p => p.Token == "Profile100").Role);
+        Assert.Equal(OnvifStreamRole.Sub, classified.Single(p => p.Token == "Profile101").Role);
+        Assert.Equal(sp + "Profile100", main!.StreamUri);
+        Assert.Equal(sp + "Profile101", sub!.StreamUri);
+    }
+
+    [Fact]
+    public void 兩路純編號仍以第一路為主第二路為子()
+    {
+        // 同一家族的兩路機（101／102）：舊行為必須維持，否則既有安裝的次碼流會消失。
+        var profiles = new[]
+        {
+            Profile("101", "101", 1920, 1080, "VideoSource0", "H264"),
+            Profile("102", "102", 640, 360, "VideoSource0", "H264"),
+        };
+
+        var classified = OnvifProfileSelection.Classify(profiles);
+
+        Assert.Equal(OnvifStreamRole.Main, classified.Single(p => p.Token == "101").Role);
+        Assert.Equal(OnvifStreamRole.Sub, classified.Single(p => p.Token == "102").Role);
+    }
+
+    [Fact]
+    public void 編號前綴不同時退回關鍵字與解析度判斷()
+    {
+        // 混用命名（Profile100 與 Stream3）時編號無法排序，不得硬把兩個不同系列配成一組。
+        var profiles = new[]
+        {
+            Profile("MainStream", "Profile100", 1280, 720, "VideoSource0"),
+            Profile("SubStream", "Stream3", 1920, 1080, "VideoSource0"),
+        };
+
+        var classified = OnvifProfileSelection.Classify(profiles);
+
+        Assert.Equal(OnvifStreamRole.Main, classified.Single(p => p.Token == "Profile100").Role);
+        Assert.Equal(OnvifStreamRole.Sub, classified.Single(p => p.Token == "Stream3").Role);
     }
 
     [Fact]
@@ -268,9 +341,9 @@ public class OnvifProfileSelectionTests
     [Fact]
     public void SelectSub_PrefersNamedSubStream_OverLowerResolutionThirdStream()
     {
-        // 實機症狀：三碼流相機（串流1 主／串流2 子／串流3 更低）。Classify 會把無關鍵字的
-        // 第三路也判為子碼流（同來源最低解析度），若 SelectSub 只取最低解析度就會誤選串流3，
-        // 但即時監看要用的其實是具名的串流2。
+        // 實機症狀：三碼流相機（串流1 主／串流2 子／串流3 更低）。若只取解析度最低者就會
+        // 誤選串流3，但即時監看要用的其實是串流2。現在 Classify 依同一前綴的編號順序
+        // 已把串流2 標成子碼流、串流3 留 Unknown，SelectSub 不會多一個更低的候選。
         var profiles = OnvifProfileSelection.Classify(
         [
             Profile("Stream1", "Stream1", 1920, 1080, "VideoSource0"),
@@ -279,6 +352,9 @@ public class OnvifProfileSelectionTests
         ]);
 
         Assert.Equal("Stream2", OnvifProfileSelection.SelectSub(profiles)!.Token);
+
+        // 第三路不能再被標成子碼流：否則 SelectSub 會多一個更低的候選，下一次又挑錯。
+        Assert.False(profiles.Single(p => p.Token == "Stream3").IsSubStream);
     }
 
     [Fact]

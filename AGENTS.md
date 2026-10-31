@@ -201,6 +201,19 @@ Notes that will save you time:
   (enabling it measures the page with infinite width, so `TextWrapping` never wraps and the
   page becomes one long line), and the left navigation stays outside (inside, it scrolls away
   with the content). Guarded by `SettingsLayoutContractTests`.
+- **Pick the sub stream by stream number, never by a magic number in the name.** `OnvifProfileSelection`
+  used to carry `"101"` in `MainKeywords` and `"102"` in `SubKeywords`, matched as plain substrings.
+  The real camera at `rtsp://<host>/media/stream.sdp?profile=Profile100` exposes three profiles —
+  `Profile100` / `Profile101` / `Profile102` (串流 1/2/3) — so `101` marked stream 2 as *main* and
+  `102` made stream 3 the only *sub*: adding a camera auto-filled the secondary URL with stream 3.
+  Worse, `profile1` matched inside `Profile100`/`Profile102` for the same reason. `Classify` now
+  groups by `VideoSourceToken`, and the **order** of trailing numbers under one prefix decides:
+  smallest = main, second smallest = sub, the rest stay `Unknown` (a third stream must not become a
+  second sub candidate, or `SelectSub` picks it again). Keywords are only consulted for profiles the
+  numbering rule did not settle, and a keyword ending in a digit only matches when the following
+  character is not a digit. Two-stream families (101/102, `Profile_1`/`Profile_2`) must keep the old
+  result. Guarded by `三路編號的次碼流是第二路而不是第三路`,
+  `兩路純編號仍以第一路為主第二路為子` and `純編號的token不會被關鍵字判成主或子碼流`.
 - **Never write `async void` shutdown handlers.** WPF begins `Shutdown` as soon as the
   last window closes, so continuations after an `await` in `MainWindow.OnWindowClosed`
   never run: `StopAllAsync()` was silently dropped and `App.OnExit` hard-killed the
