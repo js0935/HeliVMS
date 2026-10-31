@@ -50,6 +50,42 @@ public static class ChannelEnrollment
             store, deviceName, deviceIp, devicePort, deviceUsername, devicePassword, mainRtsp, subRtsp) ?? 0;
     }
 
+    /// <summary>
+    /// 更新攝影機（設備）的主／子碼流，並把「仍是舊設備值」的綁定頻道一起換成新值。
+    /// <para>
+    /// 這是設備碼流唯一的寫入入口：頻道在建立時複製了設備的位址，兩邊就此分家，
+    /// 若只呼叫 <see cref="DeviceRepository.SetStreamUrls"/>，已存在的頻道會繼續拉舊位址
+    /// ——「新增攝影機帶入次碼流 Profile101，但頻道管理裡的舊頻道仍是 Profile102」就是這樣來的。
+    /// 手動改過位址的頻道不會被覆蓋（<see cref="ChannelRepository.RefreshDeviceStreamUrls"/> 比對舊值）。
+    /// </para>
+    /// 回傳實際被傳播更新的頻道數。
+    /// </summary>
+    public static int SetDeviceStreams(
+        SqliteStore store,
+        int deviceId,
+        string? mainRtsp,
+        string? subRtsp,
+        string? actor = null)
+    {
+        ArgumentNullException.ThrowIfNull(store);
+
+        var devices = new DeviceRepository(store, new AuditLogRepository(store));
+        if (devices.Get(deviceId) is not { } existing)
+        {
+            return 0;
+        }
+
+        if (string.Equals(existing.MainStreamUrl, mainRtsp, StringComparison.Ordinal)
+            && string.Equals(existing.SubStreamUrl, subRtsp, StringComparison.Ordinal))
+        {
+            return 0;
+        }
+
+        devices.SetStreamUrls(deviceId, mainRtsp, subRtsp, actor);
+        return new ChannelRepository(store).RefreshDeviceStreamUrls(
+            deviceId, existing.MainStreamUrl, existing.SubStreamUrl, mainRtsp, subRtsp);
+    }
+
     private static int? ResolveDeviceId(
         SqliteStore store,
         string deviceName,
@@ -78,9 +114,11 @@ public static class ChannelEnrollment
             }
 
             // 重新探索時一併刷新碼流位址（ONVIF 探測可能因韌體更新而改變 profile 編號）。
+            // 必須走 SetDeviceStreams 才會把已綁定、且仍是舊值的頻道一起換掉，
+            // 否則「重新加入攝影機」只修好 devices，既有頻道仍拉舊碼流。
             if (!string.IsNullOrWhiteSpace(mainRtsp))
             {
-                devices.SetStreamUrls(existing.Id, mainRtsp, subRtsp);
+                SetDeviceStreams(store, existing.Id, mainRtsp, subRtsp);
             }
 
             return existing.Id;

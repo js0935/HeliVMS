@@ -1,3 +1,5 @@
+using HeliVMS.Shared.Models;
+
 namespace HeliVMS.Storage.Tests;
 
 /// <summary>
@@ -149,5 +151,64 @@ public sealed class ChannelEnrollmentTests : IDisposable
         var deviceId = new ChannelRepository(_store).Get(channelId)!.DeviceId!.Value;
 
         Assert.Equal(80, new DeviceRepository(_store, new AuditLogRepository(_store)).Get(deviceId)!.Port);
+    }
+
+    [Fact]
+    public void 重新加入攝影機時仍是設備舊值的頻道會一起換成新碼流()
+    {
+        // 現場症狀：新增攝影機帶入正確的次碼流 Profile101，但「頻道管理」裡早先建立的頻道
+        // 仍是 Profile102（串流 3），畫面看不出來、錄影也正常，只有多分割一直拉到錯的那一路。
+        // 原因是頻道建立時把設備碼流複製了一份，重新探索只更新 devices，兩邊就此分家。
+        const string main = "rtsp://10.0.0.5:554/media/stream.sdp?profile=Profile100";
+        const string oldSub = "rtsp://10.0.0.5:554/media/stream.sdp?profile=Profile102";
+        const string newSub = "rtsp://10.0.0.5:554/media/stream.sdp?profile=Profile101";
+
+        var firstId = ChannelEnrollment.Enroll(_store, "CAM-A", main, "10.0.0.5", 80, "root", Password, oldSub);
+        var secondId = ChannelEnrollment.Enroll(_store, "CAM-B", main, "10.0.0.5", 80, "root", Password, oldSub);
+
+        // 重新探索同一台攝影機：主碼流不變、次碼流修正為串流 2。
+        ChannelEnrollment.Enroll(_store, "CAM-A", main, "10.0.0.5", 80, "root", Password, newSub);
+
+        var channels = new ChannelRepository(_store);
+        Assert.Equal(newSub, channels.Get(firstId)!.SubStreamUrl);
+        Assert.Equal(newSub, channels.Get(secondId)!.SubStreamUrl);
+    }
+
+    [Fact]
+    public void 手動改過碼流的頻道不會被重新探索覆蓋()
+    {
+        // 自動傳播不能有意見：操作員刻意指定的位址（例如改用另一條錄影專用 URL）
+        // 不該因為同一台攝影機被重新探索就被換掉，否則他的設定會在無聲無息中消失。
+        const string main = "rtsp://10.0.0.5:554/media/stream.sdp?profile=Profile100";
+        const string oldSub = "rtsp://10.0.0.5:554/media/stream.sdp?profile=Profile102";
+        const string newSub = "rtsp://10.0.0.5:554/media/stream.sdp?profile=Profile101";
+        const string manualSub = "rtsp://10.0.0.5:554/manual/sub.sdp";
+
+        var autoId = ChannelEnrollment.Enroll(_store, "CAM-A", main, "10.0.0.5", 80, "root", Password, oldSub);
+        var manualId = ChannelEnrollment.Enroll(_store, "CAM-B", main, "10.0.0.5", 80, "root", Password, oldSub);
+
+        var channels = new ChannelRepository(_store);
+        var manual = channels.Get(manualId)!;
+        channels.Update(new ChannelInfo
+        {
+            Id = manual.Id,
+            DeviceId = manual.DeviceId,
+            Name = manual.Name,
+            MainStreamUrl = manual.MainStreamUrl,
+            SubStreamUrl = manualSub,
+            Codec = manual.Codec,
+            AudioEnabled = manual.AudioEnabled,
+            AudioEncoder = manual.AudioEncoder,
+            MotionEnabled = manual.MotionEnabled,
+            MotionSensitivity = manual.MotionSensitivity,
+            RecordingMode = manual.RecordingMode,
+            Enabled = manual.Enabled,
+            DisplayCell = manual.DisplayCell,
+        });
+
+        ChannelEnrollment.Enroll(_store, "CAM-A", main, "10.0.0.5", 80, "root", Password, newSub);
+
+        Assert.Equal(newSub, channels.Get(autoId)!.SubStreamUrl);
+        Assert.Equal(manualSub, channels.Get(manualId)!.SubStreamUrl);
     }
 }

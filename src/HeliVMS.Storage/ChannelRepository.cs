@@ -182,6 +182,39 @@ public sealed class ChannelRepository
         }
     }
 
+    /// <summary>
+    /// 設備的主／子碼流換新時，把「仍然完全等於舊設備值」的綁定頻道一起換掉，回傳受影響筆數。
+    /// <para>
+    /// 頻道在建立當下複製一份設備的碼流位址（<see cref="ChannelEnrollment"/>），之後就與 devices 分家；
+    /// 重新探索攝影機時若只更新 devices，畫面上看到的是新碼流、實際錄影與多分割仍在拉舊位址
+    /// （典型症狀：次碼流一直是 Profile102，也就是串流 3）。比對舊值才不會蓋掉操作員手動改過的頻道：
+    /// 那條網址是刻意指定的，自動傳播不該有意見。
+    /// </para>
+    /// 傳播本身不另寫 channel.update 稽核——來源動作已有 device.streams 記錄，
+    /// 這裡逐台再記一次只會讓稽核變成同一件事的重複。
+    /// </summary>
+    public int RefreshDeviceStreamUrls(int deviceId, string? oldMain, string? oldSub, string? main, string? sub)
+    {
+        return _store.Query<int>(
+            """
+            UPDATE channels
+            SET main_rtsp = $m, sub_rtsp = $s
+            WHERE device_id = $d
+              AND IFNULL(main_rtsp, '') = IFNULL($om, '')
+              AND IFNULL(sub_rtsp, '') = IFNULL($os, '');
+            SELECT changes();
+            """,
+            r => r.Read() ? r.GetInt32(0) : 0,
+            cmd =>
+            {
+                cmd.Parameters.AddWithValue("$d", deviceId);
+                cmd.Parameters.AddWithValue("$om", (object?)oldMain ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("$os", (object?)oldSub ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("$m", (object?)main ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("$s", (object?)sub ?? DBNull.Value);
+            });
+    }
+
     /// <summary>刪除頻道（其區段索引連帶刪除）。稽核掛載：channel.delete 寫 audit_log。</summary>
     public void Delete(int id, string? actor = null)
     {

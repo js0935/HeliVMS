@@ -16,6 +16,7 @@ public sealed class ChannelAdminContractTests
 {
     private const string Code = "src/HeliVMS.App/ChannelManagerWindow.xaml.cs";
     private const string Xaml = "src/HeliVMS.App/ChannelManagerWindow.xaml";
+    private const string Wizard = "src/HeliVMS.App/OnvifWizardWindow.xaml.cs";
 
     [Fact]
     public void 頻道清單選取會接線到編輯載入()
@@ -217,6 +218,79 @@ public sealed class ChannelAdminContractTests
     public void 刪除頻道後攝影機會回到來源下拉()
     {
         Assert.Contains("ReloadDevices();", BodyOf("OnDeleteChannelClicked"));
+    }
+
+    /// <summary>
+    /// 「重新取得攝影機碼流」按鈕：必須存在、有接線，而且是用頻道綁定的那台攝影機重新探索。
+    /// </summary>
+    /// <remarks>
+    /// 舊頻道在建立時複製了設備的碼流，裝置端修正後它仍拉舊位址（次碼流停在 Profile102／串流 3）。
+    /// 若這顆按鈕不見、或改成手動輸入位址，操作員就只能刪掉頻道重加——而刪頻道會 CASCADE 掉錄影索引與事件。
+    /// </remarks>
+    [Fact]
+    public void 重新取得碼流按鈕存在並用綁定攝影機開啟精靈()
+    {
+        Assert.Equal("OnRefreshStreamsClicked", WiredHandler("RefreshStreamsButton"));
+
+        var body = BodyOf("OnRefreshStreamsClicked");
+
+        Assert.Contains("new OnvifWizardWindow(", body);
+        Assert.Contains("streamsOnly: true", body);
+        Assert.Contains("channel.DeviceId", body);
+        // 帳密在 devices（DPAPI），不帶進精靈就會被攝影機回 401，畫面只顯示「找不到服務」。
+        Assert.Contains("GetRtspCredentials(", body);
+        // 結果只填欄位、不直接寫 DB；按「套用」才寫入並傳播。
+        Assert.Contains("ChannelEditMainUrlBox.Text", body);
+        Assert.Contains("ChannelEditSubUrlBox.Text", body);
+    }
+
+    /// <summary>
+    /// 套用頻道編輯時，若網址有變且綁著攝影機，要把新碼流回寫 devices 並傳播給其他舊頻道。
+    /// </summary>
+    /// <remarks>
+    /// 只更新 channels 的話，下次「新增頻道」選同一台攝影機仍會帶入舊碼流，
+    /// 操作員看到的還是「怎麼又選錯」，而且每次重加都錯，沒有一次會自己好。
+    /// </remarks>
+    [Fact]
+    public void 套用變更會把新碼流回寫攝影機並傳播()
+    {
+        var body = BodyOf("OnApplyChannelEditClicked");
+
+        Assert.Contains("ChannelEnrollment.SetDeviceStreams(", body);
+        Assert.Contains("current.DeviceId", body);
+    }
+
+    /// <summary>頻道清單要有「次流」欄，錯的次碼流才會一眼看到。</summary>
+    /// <remarks>
+    /// 只有主流欄時，次碼流指到串流 3 完全看不出來：錄影正常、單畫面正常，
+    /// 只有多分割默默拉錯那一路（畫質與頻寬都不對），因此這一欄是診斷入口而不只是裝飾。
+    /// </remarks>
+    [Fact]
+    public void 頻道清單有次流欄並綁定SubStreamUrl()
+    {
+        var xaml = SourceContract.Read(Xaml);
+
+        Assert.Contains("ChannelColSub", xaml);
+        Assert.Contains("{Binding SubStreamUrl}", xaml);
+        Assert.Contains("ChannelColSub.Header", BodyOf("ApplyI18n"));
+    }
+
+    /// <summary>
+    /// 重新取得碼流的精靈要預填已知位址並自動探索，而且不以最大化開啟。
+    /// </summary>
+    /// <remarks>
+    /// 手動再打一次 IP／帳密只會多一個打錯的機會；這台攝影機已經綁在頻道上，位址與憑證都在 devices。
+    /// 另外它只是拿來確認兩條網址，最大化會讓操作員面對一整片空白（同 PTZ 面板的症狀）。
+    /// </remarks>
+    [Fact]
+    public void 重新取得碼流的精靈會預填並自動探索()
+    {
+        var source = SourceContract.Read(Wizard);
+
+        Assert.Contains("WindowState = WindowState.Normal;", source);
+        Assert.Contains("Loaded += OnStreamsOnlyLoaded;", source);
+        Assert.Contains("OnDiscoverClicked(DiscoverButton", SourceContract.BodyOf(source, "OnStreamsOnlyLoaded"));
+        Assert.Contains("\"Onvif.UseStreams\"", source);
     }
 
     private static string BodyOf(string method)

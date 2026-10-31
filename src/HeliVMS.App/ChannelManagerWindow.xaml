@@ -88,6 +88,17 @@
                                 </DataTemplate>
                             </GridViewColumn.CellTemplate>
                         </GridViewColumn>
+                        <!-- The sub stream column is a diagnostic surface, not decoration:
+                             a sub stream pointing at stream 3 (Profile102) looks perfectly
+                             healthy here otherwise - recording works, only multi-split is wrong. -->
+                        <GridViewColumn x:Name="ChannelColSub" Header="" Width="260">
+                            <GridViewColumn.CellTemplate>
+                                <DataTemplate>
+                                    <TextBlock Text="{Binding SubStreamUrl}" FontSize="11"
+                                               TextTrimming="CharacterEllipsis"/>
+                                </DataTemplate>
+                            </GridViewColumn.CellTemplate>
+                        </GridViewColumn>
                         <GridViewColumn x:Name="ChannelColRecording" Header="" Width="80">
                             <GridViewColumn.CellTemplate>
                                 <DataTemplate>
@@ -135,6 +146,10 @@
                     <TextBox x:Name="ChannelEditSubUrlBox" AutomationProperties.AutomationId="ChannelEditSubUrlBox"
                              Width="220" Margin="6,0,0,0" ToolTip=""
                              Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="6,4"/>
+                    <Button x:Name="RefreshStreamsButton" AutomationProperties.AutomationId="RefreshStreamsButton"
+                            Content="" Click="OnRefreshStreamsClicked" Margin="6,0,0,0" Padding="8,4"
+                            Foreground="White" Background="#2A5C8A" BorderThickness="0"
+                            ToolTip=""/>
                 </WrapPanel>
                 <WrapPanel Orientation="Horizontal" Margin="0,8,0,0">
                     <TextBlock x:Name="ChannelEditRecordingLabel" Text="" VerticalAlignment="Center" Foreground="White" FontSize="12"/>

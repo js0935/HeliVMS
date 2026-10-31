@@ -34,10 +34,58 @@ public partial class OnvifWizardWindow : Window
     /// </summary>
     private static readonly TimeSpan StreamProbeTimeout = TimeSpan.FromSeconds(45);
 
+    private readonly bool _streamsOnly;
+
     public OnvifWizardWindow()
+        : this(streamsOnly: false, address: null, username: null, password: null)
     {
+    }
+
+    /// <summary>
+    /// <paramref name="streamsOnly"/>＝只重新取得一台已知攝影機的碼流（頻道管理「重新取得攝影機碼流」）。
+    /// 預填位址與帳密並自動探索：這台攝影機已經在清單裡，操作員指定過，不需要再找一次。
+    /// 視窗不最大化——它只是用來確認兩條網址，不是初次加入攝影機的完整流程。
+    /// </summary>
+    public OnvifWizardWindow(bool streamsOnly, string? address, string? username, string? password)
+    {
+        _streamsOnly = streamsOnly;
         InitializeComponent();
         ApplyI18n();
+
+        if (!streamsOnly)
+        {
+            return;
+        }
+
+        WindowState = WindowState.Normal;
+        AddButton.Content = Localizer.T("Onvif.UseStreams");
+        OnvifDesc.Text = Localizer.T("Onvif.UseStreamsDesc");
+        if (!string.IsNullOrWhiteSpace(address))
+        {
+            AddressBox.Text = address.Trim();
+        }
+
+        if (!string.IsNullOrWhiteSpace(username))
+        {
+            UserBox.Text = username;
+        }
+
+        if (!string.IsNullOrEmpty(password))
+        {
+            PasswordBox.Password = password;
+        }
+
+        Loaded += OnStreamsOnlyLoaded;
+    }
+
+    /// <summary>
+    /// 視窗顯示後才自動探索：在建構子直接跑會在下一次配置前就開始網路 I/O，
+    /// 進度條與提示文字都還沒畫出來，操作員只看到一個凍住的空視窗。
+    /// </summary>
+    private void OnStreamsOnlyLoaded(object sender, RoutedEventArgs e)
+    {
+        Loaded -= OnStreamsOnlyLoaded;
+        OnDiscoverClicked(DiscoverButton, new RoutedEventArgs());
     }
 
     private void ApplyI18n()
@@ -140,6 +188,13 @@ public partial class OnvifWizardWindow : Window
             WizardHint.Text = _devices.Count > 0
                 ? string.Format(Localizer.T("Onvif.FoundDevices"), _devices.Count)
                 : Localizer.T("Onvif.NotFound");
+
+            // 重新取得碼流時目標是已綁定的那台攝影機，通常只有一筆；直接選取省一次點擊。
+            // 多筆（區網探索回傳很多台）仍留給操作員挑：選錯設備就是把別台的碼流寫進這個頻道。
+            if (_streamsOnly && _devices.Count == 1)
+            {
+                DeviceList.SelectedIndex = 0;
+            }
         }
         catch (OperationCanceledException)
         {

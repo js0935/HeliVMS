@@ -258,3 +258,16 @@ Notes that will save you time:
   log. Additive columns are now enforced unconditionally in
   `SqliteStore.EnsureAdditiveColumns`, and playback surfaces the read error instead of
   claiming there is no recording. Guarded by `SchemaDriftTests`.
+- **A channel snapshots the camera's stream URLs; updating `devices` alone leaves it stale.**
+  `channels.main_rtsp`/`sub_rtsp` are copies made at enrollment. Re-discovering a camera used to
+  update `devices` and nothing else, so the channel list kept the old `Profile102` (stream 3) as
+  the sub stream: main and recording looked perfect, only multi-split pulled the wrong stream, and
+  nothing was logged. `ChannelEnrollment.SetDeviceStreams` is now the single writer for camera
+  streams — it updates `devices`, then `ChannelRepository.RefreshDeviceStreamUrls` rewrites only
+  the channels that still equal the **old** device values, so a manually pinned URL is never
+  overwritten. The channel edit form writes back through the same call, and the list gained a sub
+  stream column plus 「重新取得攝影機碼流」 (ONVIF wizard in streams-only mode) so a stale row is
+  visible and repairable without deleting the channel — which would cascade away its segments and
+  events. Guarded by `重新加入攝影機時仍是設備舊值的頻道會一起換成新碼流`,
+  `手動改過碼流的頻道不會被重新探索覆蓋`, `套用變更會把新碼流回寫攝影機並傳播` and
+  `重新取得碼流按鈕存在並用綁定攝影機開啟精靈`.

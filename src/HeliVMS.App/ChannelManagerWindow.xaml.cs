@@ -29,6 +29,7 @@ public partial class ChannelManagerWindow : Window
         string Name,
         string DeviceLabel,
         string MainStreamUrl,
+        string SubStreamUrl,
         string RecordingModeLabel,
         string MotionLabel,
         string CellLabel);
@@ -88,6 +89,7 @@ public partial class ChannelManagerWindow : Window
         ChannelColName.Header = Localizer.T("Channels.ColName");
         ChannelColDevice.Header = Localizer.T("Channels.ColDevice");
         ChannelColMain.Header = Localizer.T("Channels.ColMain");
+        ChannelColSub.Header = Localizer.T("Channels.ColSub");
         ChannelColRecording.Header = Localizer.T("Channels.ColRecording");
         ChannelColMotion.Header = Localizer.T("Channels.ColMotion");
         ChannelColCell.Header = Localizer.T("Channels.ColCell");
@@ -99,6 +101,8 @@ public partial class ChannelManagerWindow : Window
         ChannelEditMainUrlBox.ToolTip = Localizer.T("Channels.MainTip");
         ChannelEditSubLabel.Text = Localizer.T("Channels.SubLabel");
         ChannelEditSubUrlBox.ToolTip = Localizer.T("Channels.SubTip");
+        RefreshStreamsButton.Content = Localizer.T("Channels.RefreshStreams");
+        RefreshStreamsButton.ToolTip = Localizer.T("Channels.RefreshStreamsTip");
         ChannelEditRecordingLabel.Text = Localizer.T("Channels.EditRecordingLabel");
         ChannelEditModeCombo.ToolTip = Localizer.T("Channels.EditRecordingTip");
         var modeKeys = new[] { "Channels.ModeAlways", "Channels.ModeSchedule", "Channels.ModeEvent", "Channels.ModeManual" };
@@ -240,6 +244,7 @@ public partial class ChannelManagerWindow : Window
                     ? deviceName
                     : Localizer.T("Channels.Unbound"),
                 c.MainStreamUrl,
+                c.SubStreamUrl,
                 c.RecordingMode.ToString(),
                 c.MotionEnabled ? Localizer.T("Channels.MotionOn") : Localizer.T("Channels.MotionOff"),
                 c.DisplayCell is int cell
@@ -298,6 +303,54 @@ public partial class ChannelManagerWindow : Window
         ChannelEditSensitivityBox.Text = channel.MotionSensitivity.ToString("0.##", CultureInfo.InvariantCulture);
         PopulateCellOptions(channel.DisplayCell);
         ChannelEditHintText.Text = string.Format(Localizer.T("Channels.Editing"), channel.Name, channel.Id);
+    }
+
+    /// <summary>
+    /// 以頻道綁定的攝影機重新探索碼流，填回編輯欄位（按「套用」才寫入）。
+    /// <para>
+    /// 為什麼需要這顆按鈕：既有頻道在建立時複製了設備的碼流，之後即使攝影機重新探索出正確的
+    /// 次碼流（例如 Profile101），舊頻道仍會停在 Profile102，而且畫面上完全看不出來
+    /// ——主流正確、錄影正常，只有多分割默默拉到錯的那一路。讓操作員能就地重抓，不必刪掉頻道重加。
+    /// </para>
+    /// 只填欄位、不直接寫 DB：探索結果仍要人工確認，且「套用」才會一併傳播給其他同設備的頻道。
+    /// </summary>
+    private void OnRefreshStreamsClicked(object sender, RoutedEventArgs e)
+    {
+        if (!SessionContext.IsAdmin)
+        {
+            ChannelEditHintText.Text = Localizer.T("Channels.AdminOnly");
+            return;
+        }
+
+        if (_channelEditId is not int id
+            || _channels.Get(id) is not { } channel
+            || channel.DeviceId is not int deviceId
+            || _devices.Get(deviceId) is not { } device)
+        {
+            ChannelEditHintText.Text = Localizer.T("Channels.RefreshStreamsNoDevice");
+            return;
+        }
+
+        // 帳密只存在 devices（DPAPI），重新探索要用同一組，否則攝影機會回 401，
+        // 操作員看到的會是「找不到服務」而不是「密碼不對」。
+        var (username, password) = _devices.GetRtspCredentials(deviceId);
+        var wizard = new OnvifWizardWindow(
+            streamsOnly: true,
+            device.Ip,
+            string.IsNullOrWhiteSpace(username) ? null : username,
+            string.IsNullOrEmpty(password) ? null : password)
+        {
+            Owner = this,
+        };
+
+        if (wizard.ShowDialog() != true || wizard.StreamUrl.Length == 0)
+        {
+            return;
+        }
+
+        ChannelEditMainUrlBox.Text = wizard.StreamUrl;
+        ChannelEditSubUrlBox.Text = wizard.SubStreamUrl ?? string.Empty;
+        ChannelEditHintText.Text = Localizer.T("Channels.StreamsReloaded");
     }
 
     private void OnApplyChannelEditClicked(object sender, RoutedEventArgs e)
@@ -361,6 +414,8 @@ public partial class ChannelManagerWindow : Window
 
         try
         {
+            var sub = ChannelEditSubUrlBox.Text.Trim();
+
             // Update 覆寫整列，未編輯的欄位（編碼／音訊／裝置綁定）必須原值帶回，否則會被清成預設。
             _channels.Update(new ChannelInfo
             {
@@ -368,7 +423,7 @@ public partial class ChannelManagerWindow : Window
                 DeviceId = current.DeviceId,
                 Name = name,
                 MainStreamUrl = main,
-                SubStreamUrl = ChannelEditSubUrlBox.Text.Trim(),
+                SubStreamUrl = sub,
                 Codec = current.Codec,
                 AudioEnabled = current.AudioEnabled,
                 AudioEncoder = current.AudioEncoder,
@@ -379,7 +434,20 @@ public partial class ChannelManagerWindow : Window
                 DisplayCell = displayCell,
             });
 
-            ChannelEditHintText.Text = string.Format(Localizer.T("Channels.Updated"), name);
+            // 頻道網址改了，綁定的攝影機也要一起改：devices 是「新增頻道」帶入值的來源，
+            // 只改 channels 的話，下次選同一台攝影機仍會拿到舊碼流（操作員看到的就是「又選錯」）。
+            // 傳播只換「仍等於設備舊值」的其他頻道，手動指定的不被覆蓋。
+            var synced = 0;
+            if (current.DeviceId is int deviceId
+                && (!string.Equals(current.MainStreamUrl, main, StringComparison.Ordinal)
+                    || !string.Equals(current.SubStreamUrl, sub, StringComparison.Ordinal)))
+            {
+                synced = ChannelEnrollment.SetDeviceStreams(_store, deviceId, main, sub);
+            }
+
+            ChannelEditHintText.Text = synced > 0
+                ? string.Format(Localizer.T("Channels.UpdatedSynced"), name, synced)
+                : string.Format(Localizer.T("Channels.Updated"), name);
             ReloadChannels(id);
             NotifyChannelsChanged();
         }
