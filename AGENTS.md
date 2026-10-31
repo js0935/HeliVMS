@@ -222,6 +222,17 @@ Notes that will save you time:
   last frame (never wraps to the start). `ffmpeg -ss <duration>` yields no frame, hence the
   1ms `LastFrameEpsilonSeconds`. Guarded by `PlaybackSeekPlannerTests` and
   `事件與書籤跳轉使用同一段結束口徑`.
+- **"Replay selection" must stop where the selection stops.** Recordings are one file per
+  segment, so a selected 10:00–10:30 spans several files. `OnEnded` continues into the next
+  segment while it still starts before the upper bound — but that branch must also *end the
+  replay* when there is none: falling through to the "auto advance" branch below it picks the
+  next segment of the **day**, not of the selection, so it starts playing footage entirely
+  outside the selection (the first frame trips the upper bound and stops again). What's seen: a
+  flash of unrelated video just before "selection finished", which reads as the wrong segment
+  having been picked. `PlayFrom` clears `_rangeStopUtc` (it belongs to the previous operation),
+  so the continuation has to restore it after the call, or the replay runs to the end of the
+  day. Guarded by `區間重播跨段會接著播下一段並保留結束上界` and
+  `區間播完不會接著播選取範圍外的一段`.
 - **The reused playback window must re-read the channel list.** It is one window reused by the
   main app, and `ChannelCombo.Items` was snapshotted when it opened. Switching by membership in
   that list rejected cameras added since: dragging one in from live view did nothing, no error,

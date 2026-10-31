@@ -617,6 +617,30 @@ public sealed class PlaybackWindowContractTests
     }
 
     /// <summary>
+    /// 選取區間內已經沒有下一段時，重播要在這裡收尾，不能掉進「自動續播」。
+    /// </summary>
+    /// <remarks>
+    /// 自動續播看的是整天的下一段，不是選取範圍的下一段：區間播完而後面還有錄影時，
+    /// 它會接著播一段完全在選取之外的影片（第一格就撞上播放上界再停住），畫面上閃過
+    /// 一段與選取無關的畫面，接著才說「區間播畢」——操作員會以為自己選錯了段。
+    /// </remarks>
+    [Fact]
+    public void 區間播完不會接著播選取範圍外的一段()
+    {
+        var source = SourceContract.Read(Code);
+        var ended = SourceContract.BodyOf(source, "OnEnded");
+
+        var autoAdvance = ended.IndexOf("AutoAdvanceCheck.IsChecked == true", StringComparison.Ordinal);
+        Assert.True(autoAdvance > 0, "找不到自動續播分支。");
+
+        // 區間分支必須在自動續播之前就把畫面收乾淨並離開方法。
+        var beforeAutoAdvance = ended[..autoAdvance];
+        Assert.Contains("Playback.RangeEnded", beforeAutoAdvance);
+        Assert.Contains("StopSync()", beforeAutoAdvance);
+        Assert.Contains("SetIdleUi()", beforeAutoAdvance);
+    }
+
+    /// <summary>
     /// §8.5 回放清單的其餘可達項：16× 速度、1–4 數字鍵選路、時間跳轉、右鍵快照。
     /// <para>
     /// （1）速度選單加了 16× 但 <c>GetSpeed</c> 沒對應索引：畫面顯示 16× 實際仍以 1× 播，

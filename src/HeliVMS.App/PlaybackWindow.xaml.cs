@@ -1794,7 +1794,6 @@ public partial class PlaybackWindow : Window
                 var nextInRange = FindNextSegment(seg);
                 if (nextInRange is not null && nextInRange.StartUtc < rangeStopUtc)
                 {
-                    _posInside = 0;
                     PlayFrom(nextInRange, 0);
 
                     // PlayFrom 會清掉播放上界（它屬於上一次操作），這裡補回來；
@@ -1802,6 +1801,17 @@ public partial class PlaybackWindow : Window
                     _rangeStopUtc = rangeStopUtc;
                     return;
                 }
+
+                // 區間內沒有下一段＝這次重播播完了。不能掉進下面的「自動續播」：
+                // 那會播出選取範圍外的一段（第一格就撞上上界再停住），畫面上閃過一段
+                // 與選取無關的影片，接著卻說「區間播畢」——看起來像選錯了段。
+                _rangeStopUtc = null;
+                StopSync();
+                StopAllPanes();
+                SetIdleUi();
+                TimeText.Text = $"{FormatTime(_posInside)} / {FormatTime(LengthOf(seg))}";
+                StatusText.Text = Localizer.T("Playback.RangeEnded");
+                return;
             }
 
             if (completed && AutoAdvanceCheck.IsChecked == true)
