@@ -220,7 +220,13 @@ Notes that will save you time:
   `HeliVMS.Shared`, behaviour-tested): inside a segment → that offset; in a gap → next segment
   start when moving forward, previous segment's last frame when moving back; past the end → the
   last frame (never wraps to the start). `ffmpeg -ss <duration>` yields no frame, hence the
-  1ms `LastFrameEpsilonSeconds`. Guarded by `PlaybackSeekPlannerTests` and
+  1ms `LastFrameEpsilonSeconds`. A segment's coverage is half-open `[start, end)`: landing exactly
+  on an end used to count as "inside that segment at the last second", i.e. an instant
+  `播放完成` even though the next segment existed — the operator saw the status flip to "ended",
+  pressed the key again and only then moved on. With the half-open interval that moment is a gap
+  like any other (→ next segment forward, → that segment's last frame backward), and a seam
+  (next start == previous end) still belongs to the later segment without relying on the
+  "latest start wins" tiebreak. Guarded by `PlaybackSeekPlannerTests` and
   `事件與書籤跳轉使用同一段結束口徑`.
 - **"Replay selection" must stop where the selection stops.** Recordings are one file per
   segment, so a selected 10:00–10:30 spans several files. `OnEnded` continues into the next

@@ -119,6 +119,36 @@ public sealed class PlaybackSeekPlannerTests
     }
 
     [Fact]
+    public void 跳轉目標正好落在段尾時會前進到下一段()
+    {
+        // 08:00:50 按右鍵 10 秒，目標剛好是 08:01:00（第一段結束、下一段 08:05 才開始）。
+        // 舊寫法把它算成「在第一段之內的第 60 秒」：ffmpeg -ss 60 不產生影格，於是直接回報
+        // 播放完成，狀態列跳成「已播放結束」——後面明明還有錄影，按第二次才前進。
+        var segs = new[] { Seg(1, 0, 60), Seg(2, 5, 60) };
+
+        var landing = PlaybackSeekPlanner.Resolve(segs, T0.AddSeconds(60), forward: true);
+
+        Assert.NotNull(landing);
+        Assert.Equal(2, landing!.Value.Segment.Id);
+        Assert.Equal(0, landing.Value.OffsetSeconds, 3);
+    }
+
+    [Fact]
+    public void 目標正好落在最後一段段尾時停在最後一格()
+    {
+        // 當日已經沒有下一段：要停在最後一格，而不是落在段長本身（那會沒有影格、
+        // 回報播放完成，時間軸游標卻停在尾端）。與「越過最後一段」同一口徑。
+        var segs = new[] { Seg(1, 0, 60) };
+
+        var landing = PlaybackSeekPlanner.Resolve(segs, T0.AddSeconds(60), forward: true);
+
+        Assert.NotNull(landing);
+        Assert.Equal(1, landing!.Value.Segment.Id);
+        Assert.True(landing.Value.OffsetSeconds < 60);
+        Assert.True(landing.Value.OffsetSeconds > 59);
+    }
+
+    [Fact]
     public void 沒有錄影段時回空()
     {
         Assert.Null(PlaybackSeekPlanner.Resolve([], T0, forward: true));

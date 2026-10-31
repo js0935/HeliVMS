@@ -54,11 +54,16 @@ public static class PlaybackSeekPlanner
             return null;
         }
 
-        // 1. 目標落在某一段之內：從那個點起播。端點採閉區間，兩段相接時才不會卡在接縫。
+        // 1. 目標落在某一段之內：從那個點起播。區間是 [起點, 結束)，結束那一刻不算「在段內」。
+        //    結束時刻本身沒有影格（ffmpeg -ss <段長> 什麼都不產生），落在那裡等於回報「播放完成」
+        //    而畫面不動：真實症狀是按右鍵從 08:00:50 跳到 08:01:00（某段剛好結束）時，明明後面
+        //    還有錄影，狀態列卻跳成「已播放結束」，再按一次才前進——看起來像跳轉少了一次。
+        //    半開區間同時讓接縫（下一段起點＝前一段結束）自然歸屬後一段，不必靠「起點較晚者優先」
+        //    這個保險規則才正確。
         Landing? covering = null;
         foreach (var segment in ordered)
         {
-            if (segment.StartUtc <= targetUtc && targetUtc <= PlaybackSegmentTiming.EndOf(segment))
+            if (segment.StartUtc <= targetUtc && targetUtc < PlaybackSegmentTiming.EndOf(segment))
             {
                 // 段有重疊時取起點較晚的那一段，與多路同步的落點規則一致。
                 if (covering is null || segment.StartUtc > covering.Value.Segment.StartUtc)
