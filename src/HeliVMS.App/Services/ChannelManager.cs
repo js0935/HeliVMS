@@ -304,6 +304,30 @@ public sealed class ChannelManager : IDisposable
     /// <summary>指定頻道是否正在錄影。</summary>
     public bool IsRecording(int channelId) => _sessions.TryGetValue(channelId, out var s) && s.IsRecording;
 
+    /// <summary>
+    /// 要求監看牆正在錄影的頻道立刻收檔，讓回放看得到剛剛發生的事。
+    /// </summary>
+    /// <param name="channelId">只收這個頻道；null 表示全部。</param>
+    /// <param name="timeout">等每一台收尾的上限。</param>
+    /// <returns>真的把一段收成 final 的台數。</returns>
+    /// <remarks>
+    /// 平行收檔，理由與排程的 CutActiveAsync 相同：
+    /// 逐台等會變成「台數 × 每台收尾時間」。單台失敗不影響其他台。
+    /// </remarks>
+    public async Task<int> CutRecordingsAsync(int? channelId, TimeSpan timeout)
+    {
+        var targets = _sessions.Values
+            .Where(session => session.IsRecording && (channelId is null || session.ChannelId == channelId))
+            .ToList();
+        if (targets.Count == 0)
+        {
+            return 0;
+        }
+
+        var results = await Task.WhenAll(targets.Select(session => session.CutRecordingAsync(timeout)));
+        return results.Count(cut => cut);
+    }
+
     /// <summary>M14：套用單一頻道 AI 策略（enabled＝是否推理；intervalMs＝取樣間隔）。</summary>
     public void SetAiPolicy(int channelId, bool enabled, int intervalMs)
     {

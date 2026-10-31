@@ -47,6 +47,13 @@ public partial class MainWindow : Window
     private LicenseUiGate? _licenseGate;
     private LicenseService? _licenseService;
     private ChannelManager? _manager;
+
+    /// <summary>
+    /// 回放前把正在錄的段收檔的服務。兩個來源都延後解析（讀欄位而非捕捉當下實例）：
+    /// 設定中心切換錄影磁碟時會整個重建 <see cref="_manager"/> 與 <see cref="_scheduler"/>，
+    /// 若抓住舊實例，換碟之後的回放就收不到任何一段。
+    /// </summary>
+    private readonly IPlaybackRecordingFinalizer _playbackFinalizer;
     private CancellationTokenSource? _bgCts;
     private WriteableBitmap?[] _bitmap = new WriteableBitmap?[MaxCells];
     private readonly int?[] _cellChannel = new int?[MaxCells];
@@ -288,6 +295,13 @@ public partial class MainWindow : Window
         _recordingsRoot = RecordingStorage.ResolveRootFromEnvironment();
         _tray = new TrayIconHost(ShowFromTray);
         _tray.ExitRequested += OnTrayExit;
+
+        // 回放前收檔的兩個來源：監看牆與排程是兩條獨立的錄影路徑，排程還會跳過已被
+        // 監看畫面錄影的頻道，所以兩邊都要問。以委派延後解析 _manager／_scheduler：
+        // 設定中心換錄影磁碟時這兩個會整個重建，抓住舊實例就再也收不到檔。
+        _playbackFinalizer = new PlaybackRecordingFinalizer(
+            (channelId, timeout) => _manager?.CutRecordingsAsync(channelId, timeout) ?? Task.FromResult(0),
+            (channelId, timeout) => _scheduler?.CutActiveAsync(channelId, timeout) ?? Task.FromResult(0));
         ApplyI18n();
         Current = this;
     }
@@ -705,7 +719,7 @@ public partial class MainWindow : Window
 
         if (Environment.GetCommandLineArgs().Contains("--playback", StringComparer.OrdinalIgnoreCase))
         {
-            Dispatcher.BeginInvoke(() => OpenChild(new PlaybackWindow(_store)));
+            Dispatcher.BeginInvoke(() => OpenChild(new PlaybackWindow(_store, playbackFinalizer: _playbackFinalizer)));
         }
 
         // 登入自啟（--tray，見 AutoStartService）：收進系統匣，不跳監控視窗。
@@ -2621,7 +2635,7 @@ public partial class MainWindow : Window
 
     private void OnPlaybackClicked(object sender, RoutedEventArgs e)
     {
-        OpenChild(new PlaybackWindow(_store!));
+        OpenChild(new PlaybackWindow(_store!, playbackFinalizer: _playbackFinalizer));
     }
 
     private void OnEventClicked(object sender, RoutedEventArgs e)
@@ -2633,7 +2647,7 @@ public partial class MainWindow : Window
     /// <summary>開啟事件中心（M38 供 harness 以 --events 自動開啟）。</summary>
     private void OpenEventCenter()
     {
-        OpenChild(new EventCenterWindow(_store!, alerts: _manager?.Alerts));
+        OpenChild(new EventCenterWindow(_store!, alerts: _manager?.Alerts, playbackFinalizer: _playbackFinalizer));
     }
 
     private void OnScheduleClicked(object sender, RoutedEventArgs e)
@@ -2866,7 +2880,7 @@ public partial class MainWindow : Window
     private void OnNotificationClicked(object sender, RoutedEventArgs e)
     {
         OpenChild(new NotificationLogWindow(_store!, ch =>
-            OpenChild(new EventCenterWindow(_store!, alerts: _manager?.Alerts), w => ((EventCenterWindow)w).FocusUnacknowledged(ch))));
+            OpenChild(new EventCenterWindow(_store!, alerts: _manager?.Alerts, playbackFinalizer: _playbackFinalizer), w => ((EventCenterWindow)w).FocusUnacknowledged(ch))));
     }
 
     /// <summary>開啟管理設定中心（M19，§9）。僅 admin（M42）。</summary>
@@ -2969,7 +2983,8 @@ public partial class MainWindow : Window
             _store!, _dataRoot, _ioHost, _shareHost, _manager, _patrolHost,
             channelsChanged: () => _ = ReloadChannelsIfChangedAsync(),
             recordingsRootChanged: root => _ = OnRecordingsRootChangedAsync(root),
-            webHost: _webHost));
+            webHost: _webHost,
+            playbackFinalizer: _playbackFinalizer));
     }
 
     /// <summary>
@@ -3407,7 +3422,7 @@ public partial class MainWindow : Window
     /// <summary>未確認徽章點擊＝直達事件中心並只顯示未確認事件（分診入口）。</summary>
     private void OnUnackBadgeClicked(object sender, System.Windows.Input.MouseButtonEventArgs e)
     {
-        OpenChild(new EventCenterWindow(_store!, alerts: _manager?.Alerts), w => ((EventCenterWindow)w).FocusUnacknowledged());
+        OpenChild(new EventCenterWindow(_store!, alerts: _manager?.Alerts, playbackFinalizer: _playbackFinalizer), w => ((EventCenterWindow)w).FocusUnacknowledged());
     }
 
     private async void OnCtxFullScreen(object sender, RoutedEventArgs e)
@@ -3581,7 +3596,7 @@ public partial class MainWindow : Window
         // 右鍵「回放此頻道」＝看這台剛才的畫面，所以直接起播；沿用中的回放視窗也一樣切過去就播，
         // 否則第二次右鍵只會把焦點移到一個還停在上一個頻道靜止畫面的視窗。
         OpenChild(
-            new PlaybackWindow(_store!, channelId, null, autoPlayLatest: true),
+            new PlaybackWindow(_store!, channelId, null, autoPlayLatest: true, playbackFinalizer: _playbackFinalizer),
             w => ((PlaybackWindow)w).FocusChannelAndPlay(channelId));
 
     }
@@ -3611,7 +3626,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        OpenChild(new EventCenterWindow(_store!, channelId, _manager?.Alerts), w => ((EventCenterWindow)w).FocusChannel(channelId));
+        OpenChild(new EventCenterWindow(_store!, channelId, _manager?.Alerts, playbackFinalizer: _playbackFinalizer), w => ((EventCenterWindow)w).FocusChannel(channelId));
     }
 
     /// <summary>
@@ -3759,7 +3774,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        OpenChild(new MapWindow(_store!, manager: _manager));
+        OpenChild(new MapWindow(_store!, manager: _manager, playbackFinalizer: _playbackFinalizer));
     }
 
     /// <summary>開啟統圖報表視窗（M60，§14.7 #9 統計報表）。admin 限定。</summary>

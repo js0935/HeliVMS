@@ -343,6 +343,17 @@ public sealed class ChannelSession : IDisposable
         return null;
     }
 
+    /// <summary>
+    /// 把這個頻道正在錄的那一段收檔，讓回放看得到最新畫面。
+    /// </summary>
+    /// <returns>這一段已成為可回放的 final 時為 true；沒在錄或收檔逾時為 false。</returns>
+    /// <remarks>
+    /// 監看牆的錄影與排程錄影是兩條獨立的路徑（排程會跳過已被監看畫面錄影的頻道），
+    /// 回放前兩邊都要問過，否則「剛才有錄、回放卻沒有」會隨操作員從哪個入口看而不同。
+    /// </remarks>
+    public Task<bool> CutRecordingAsync(TimeSpan timeout)
+        => _recorder is { } recorder ? recorder.CutAsync(timeout) : Task.FromResult(false);
+
     public async Task StopAsync()
     {
         await SetRecordingAsync(recording: false);

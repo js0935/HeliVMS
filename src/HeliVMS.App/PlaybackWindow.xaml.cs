@@ -32,6 +32,17 @@ public partial class PlaybackWindow : Window
     /// <summary>開窗後直接播當日最後一段（從即時畫面／地圖圖釘按「回放」時使用）。</summary>
     private readonly bool _autoPlayLatest;
 
+    /// <summary>
+    /// 回放前把正在錄的段收檔的服務；null 表示這個入口沒有錄影可收（例如設定中心的獨立回放）。
+    /// </summary>
+    private readonly IPlaybackRecordingFinalizer? _finalizer;
+
+    /// <summary>
+    /// 等收檔的上限。收檔正常是幾百毫秒（ffmpeg 寫完一個 fragment），
+    /// 但攝影機卡住時不能讓「按回放」變成等半分鐘——逾時就照舊載入索引。
+    /// </summary>
+    private static readonly TimeSpan FinalizeTimeout = TimeSpan.FromSeconds(2);
+
     private PlaybackSession? _session;
     private SegmentRecord? _current;
     private double _basePos;
@@ -211,16 +222,23 @@ public partial class PlaybackWindow : Window
     /// 開窗後直接播當日最後一段。從即時畫面或地圖圖釘按「回放」時必須開啟：
     /// 操作員要的是「這台剛才的畫面」，只把頻道選好而播放器停在黑畫面，看起來就像回放壞了。
     /// </param>
+    /// <param name="playbackFinalizer">
+    /// 載入時間軸前先把正在錄的那一段收檔的服務。少了它，清單裡永遠少掉「最後一分鐘」，
+    /// 而畫面上完全看不出來少了什麼（錄影是一段一個檔，正在寫的那一段在分段時間到期前
+    /// 不存在於索引）。null 時照舊載入索引現況。
+    /// </param>
     public PlaybackWindow(
         SqliteStore store,
         long? focusChannelId = null,
         DateTime? focusUtc = null,
-        bool autoPlayLatest = false)
+        bool autoPlayLatest = false,
+        IPlaybackRecordingFinalizer? playbackFinalizer = null)
     {
         _store = store;
         _focusChannelId = focusChannelId;
         _focusUtc = focusUtc;
         _autoPlayLatest = autoPlayLatest;
+        _finalizer = playbackFinalizer;
         _channels = new ChannelRepository(_store);
         _segments = new SegmentRepository(_store);
         _reconciler = new SegmentIndexReconciler(_segments);
@@ -394,8 +412,11 @@ public partial class PlaybackWindow : Window
         return raw is not null && long.TryParse(raw, out channelId);
     }
 
-    private void OnLoaded(object sender, RoutedEventArgs e)
+    private async void OnLoaded(object sender, RoutedEventArgs e)
     {
+        // 先把正在錄的那一段收檔再讀索引：否則清單裡永遠沒有「剛剛發生的事」，
+        // 而操作員從即時畫面按回放要看的正是那一段。
+        await FinalizeRunningSegmentAsync();
         LoadSegments();
 
         if (_focusUtc is { } focus)
@@ -442,11 +463,67 @@ public partial class PlaybackWindow : Window
         PlayFrom(last.Segment, 0);
     }
 
-    private void OnChannelSelectionChanged(object sender, SelectionChangedEventArgs e) => LoadSegments();
+    /// <summary>
+    /// 重新載入時間軸（換頻道／按「載入」）：先把正在錄的段收檔，再看索引。
+    /// </summary>
+    /// <remarks>
+    /// 這個方法自己吞掉所有例外：它是由事件處理常式 <c>await</c> 的，
+    /// 例外一漏出去就是整個程式崩掉，而「收檔失敗」根本不該有這種後果。
+    /// </remarks>
+    private async Task ReloadForPlaybackAsync()
+    {
+        await FinalizeRunningSegmentAsync();
+        LoadSegments();
+    }
 
-    private void OnDateChanged(object sender, SelectionChangedEventArgs e) => LoadSegments();
+    /// <summary>
+    /// 要求目前選取頻道的錄影立刻收檔並等它進索引（最多 <see cref="FinalizeTimeout"/>）。
+    /// </summary>
+    /// <remarks>
+    /// 只在看「今天」時收檔：翻看歷史時截斷正在錄的段沒有任何好處，
+    /// 而連按日期會讓錄影一直被迫換段（每一段都要重連 RTSP）。
+    /// </remarks>
+    private async Task FinalizeRunningSegmentAsync()
+    {
+        if (_finalizer is null || !IsViewingToday())
+        {
+            return;
+        }
 
-    private void OnLoadClicked(object sender, RoutedEventArgs e) => LoadSegments();
+        int? channelId = ChannelCombo.SelectedItem is ChannelInfo ch ? ch.Id : null;
+        await _finalizer.FinalizeAsync(channelId, FinalizeTimeout);
+    }
+
+    /// <summary>目前選取的是否為今天（未選日期時視為今天，載入流程本來就會擋掉）。</summary>
+    private bool IsViewingToday()
+        => DatePick.SelectedDate is not DateTime day || day.Date == DateTime.Today;
+
+    private async void OnChannelSelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        // 建構子裡的 LoadChannels 也會改選取：那時視窗還沒開，不該因此收檔。
+        if (!_uiReady)
+        {
+            return;
+        }
+
+        await ReloadForPlaybackAsync();
+    }
+
+    private async void OnDateChanged(object sender, SelectionChangedEventArgs e)
+    {
+        // 建構子指派 DatePick.SelectedDate 時也會走到這裡：那時視窗還沒開，不該因此收檔。
+        if (!_uiReady)
+        {
+            return;
+        }
+
+        await ReloadForPlaybackAsync();
+    }
+
+    private async void OnLoadClicked(object sender, RoutedEventArgs e)
+    {
+        await ReloadForPlaybackAsync();
+    }
 
     /// <summary>
     /// 日期彈窗開啟時抓 Calendar 本體、掛上換月重算，並排入粗體標記（§3.4）。

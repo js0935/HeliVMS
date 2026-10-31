@@ -8,6 +8,7 @@ using System.Windows.Media.Imaging;
 using System.Windows.Shapes;
 using HeliVMS.App.Services;
 using HeliVMS.Alarms;
+using HeliVMS.Recording;
 using HeliVMS.Shared;
 using HeliVMS.Shared.Models;
 using HeliVMS.Storage;
@@ -38,7 +39,16 @@ public partial class EventCenterWindow : Window
     private bool _restoringSelection;
     private readonly AlertFeed? _feed;
 
-    public EventCenterWindow(SqliteStore store, long? preselectChannelId = null, AlertBroadcastHub? alerts = null)
+    /// <summary>
+    /// 回放前收檔的服務；由主視窗一路傳進來。null 時回放照舊只看索引現況。
+    /// </summary>
+    private readonly IPlaybackRecordingFinalizer? _playbackFinalizer;
+
+    public EventCenterWindow(
+        SqliteStore store,
+        long? preselectChannelId = null,
+        AlertBroadcastHub? alerts = null,
+        IPlaybackRecordingFinalizer? playbackFinalizer = null)
     {
         InitializeComponent();
         _store = store;
@@ -46,6 +56,7 @@ public partial class EventCenterWindow : Window
         _events = new AlarmEventRepository(store);
         _preselect = preselectChannelId;
         _feed = alerts is null ? null : new AlertFeed(alerts, Dispatcher, OnAlertsChanged);
+        _playbackFinalizer = playbackFinalizer;
 
         // gis 旗標限定（M209）：「在地圖定位」是地圖功能，事件中心本身不藏。
         new LicenseUiGate(store).Apply(
@@ -815,7 +826,7 @@ public partial class EventCenterWindow : Window
             return;
         }
 
-        OpenChild(("playback", row.Id), new PlaybackWindow(_store, row.ChannelId, row.StartUtc));
+        OpenChild(("playback", row.Id), new PlaybackWindow(_store, row.ChannelId, row.StartUtc, playbackFinalizer: _playbackFinalizer));
     }
 
     private void OnMapLocateClicked(object sender, RoutedEventArgs e)
@@ -831,7 +842,7 @@ public partial class EventCenterWindow : Window
             return;
         }
 
-        OpenChild(("map", row.ChannelId), new MapWindow(_store, (int)row.ChannelId, "camera"));
+        OpenChild(("map", row.ChannelId), new MapWindow(_store, (int)row.ChannelId, "camera", playbackFinalizer: _playbackFinalizer));
     }
 
     /// <summary>目前檢視中被選取的列（多選時為全部選取列）。</summary>

@@ -84,6 +84,11 @@ public partial class SettingsWindow : Window
     private readonly ShareHost? _shareHost;
     private readonly WebHost? _webHost;
     private readonly ChannelManager? _manager;
+
+    /// <summary>
+    /// 回放前收檔的服務；由主視窗一路傳進來。null 時回放照舊只看索引現況。
+    /// </summary>
+    private readonly IPlaybackRecordingFinalizer? _playbackFinalizer;
     private readonly PatrolHostService? _patrolHost;
     private readonly Action? _channelsChanged;
 
@@ -101,7 +106,8 @@ public partial class SettingsWindow : Window
         PatrolHostService? patrolHost = null,
         Action? channelsChanged = null,
         Action<string>? recordingsRootChanged = null,
-        WebHost? webHost = null)
+        WebHost? webHost = null,
+        IPlaybackRecordingFinalizer? playbackFinalizer = null)
     {
         _store = store;
         _dataRoot = dataRoot;
@@ -122,6 +128,7 @@ public partial class SettingsWindow : Window
         _webHost = webHost;
         _manager = manager;
         _patrolHost = patrolHost;
+        _playbackFinalizer = playbackFinalizer;
         // 由主視窗傳入：攝影機／頻道管理異動後立即請主視窗重載監看區。
         _channelsChanged = channelsChanged;
         _recordingsRootChanged = recordingsRootChanged;
@@ -2563,10 +2570,10 @@ public partial class SettingsWindow : Window
     }
 
     private void OnLaunchPlaybackClicked(object sender, RoutedEventArgs e)
-        => new PlaybackWindow(_store) { Owner = this }.Show();
+        => new PlaybackWindow(_store, playbackFinalizer: _playbackFinalizer) { Owner = this }.Show();
 
     private void OnLaunchEventsClicked(object sender, RoutedEventArgs e)
-        => new EventCenterWindow(_store) { Owner = this }.Show();
+        => new EventCenterWindow(_store, playbackFinalizer: _playbackFinalizer) { Owner = this }.Show();
 
     private void OnLaunchScheduleClicked(object sender, RoutedEventArgs e)
     {
@@ -2652,7 +2659,7 @@ public partial class SettingsWindow : Window
     {
         OpenTool(new NotificationLogWindow(_store, ch =>
         {
-            var center = new EventCenterWindow(_store, alerts: _manager?.Alerts) { Owner = this };
+            var center = new EventCenterWindow(_store, alerts: _manager?.Alerts, playbackFinalizer: _playbackFinalizer) { Owner = this };
             center.Show();
             center.FocusUnacknowledged(ch);
         }));

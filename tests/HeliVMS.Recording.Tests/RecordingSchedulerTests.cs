@@ -70,6 +70,107 @@ public sealed class RecordingSchedulerTests : IDisposable
     }
 
     /// <summary>
+    /// 回放前要求收檔：排程正在錄的每一台都要被問到。
+    ///
+    /// 排程與監看牆是兩條獨立的錄影路徑（排程會跳過已被監看畫面錄影的頻道），
+    /// 只問一邊的結果是「同一顆按鈕，因為鏡頭剛好在牆上而看到不同長度的錄影」。
+    /// </summary>
+    [Fact]
+    public async Task 回放前收檔會問到排程正在錄的每一台()
+    {
+        ApplyLicense(cameras: 32);
+        AddChannel("車道 1", RecordingMode.Always);
+        AddChannel("車道 2", RecordingMode.Always);
+
+        using var scheduler = NewScheduler();
+        await scheduler.ReconcileAsync();
+        Assert.Equal(2, _started.Count);
+        foreach (var recorder in _started)
+        {
+            recorder.CutResult = true;
+        }
+
+        var timeout = TimeSpan.FromSeconds(3);
+        Assert.Equal(2, await scheduler.CutActiveAsync(null, timeout));
+
+        Assert.All(_started, recorder =>
+        {
+            Assert.Equal(1, recorder.CutCount);
+            Assert.Equal(timeout, recorder.LastCutTimeout);
+        });
+    }
+
+    /// <summary>
+    /// 指定頻道收檔時不能動到其他台：回放只關心它要看的那一台，
+    /// 順手截斷全部頻道的錄影會讓其他操作員的時間軸多出一堆短段。
+    /// </summary>
+    [Fact]
+    public async Task 指定頻道收檔不會動到其他台的錄影()
+    {
+        ApplyLicense(cameras: 32);
+        var untouched = AddChannel("車道 1", RecordingMode.Always);
+        var target = AddChannel("車道 2", RecordingMode.Always);
+
+        using var scheduler = NewScheduler();
+        await scheduler.ReconcileAsync();
+        foreach (var recorder in _started)
+        {
+            recorder.CutResult = true;
+        }
+
+        Assert.Equal(1, await scheduler.CutActiveAsync(target, TimeSpan.FromSeconds(3)));
+        Assert.Equal(0, _started.Single(r => r.ChannelId == untouched).CutCount);
+        Assert.Equal(1, _started.Single(r => r.ChannelId == target).CutCount);
+    }
+
+    /// <summary>
+    /// 多台收檔必須並行：逐台等會變成「台數 × 每台收尾時間」，32 台就是半分鐘，
+    /// 而這段時間回放視窗是空的。這裡讓兩台的收檔互相等待對方已經開始，
+    /// 序列化的實作會在第一台等到逾時，收到 0 段。
+    /// </summary>
+    [Fact]
+    public async Task 多台收檔是並行進行的()
+    {
+        ApplyLicense(cameras: 32);
+        AddChannel("車道 1", RecordingMode.Always);
+        AddChannel("車道 2", RecordingMode.Always);
+
+        using var scheduler = NewScheduler();
+        await scheduler.ReconcileAsync();
+
+        var entered = 0;
+        var bothEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        foreach (var recorder in _started)
+        {
+            recorder.CutResult = true;
+            recorder.OnCutAsync = async () =>
+            {
+                if (Interlocked.Increment(ref entered) == 2)
+                {
+                    bothEntered.TrySetResult();
+                }
+
+                await bothEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            };
+        }
+
+        Assert.Equal(2, await scheduler.CutActiveAsync(null, TimeSpan.FromSeconds(5)));
+        Assert.Equal(2, Volatile.Read(ref entered));
+    }
+
+    /// <summary>
+    /// 排程沒有在錄的頻道回報 0 段而不是擲例外；呼叫端（回放視窗）靠這個數字決定要不要重讀索引。
+    /// </summary>
+    [Fact]
+    public async Task 排程沒有在錄影時收檔回報零段()
+    {
+        using var scheduler = NewScheduler();
+
+        Assert.Equal(0, await scheduler.CutActiveAsync(null, TimeSpan.FromSeconds(1)));
+        Assert.Equal(0, await scheduler.CutActiveAsync(12345, TimeSpan.FromSeconds(1)));
+    }
+
+    /// <summary>
     /// 排程不得對「監看畫面已經在錄」的頻道再開一台錄影機。
     ///
     /// 現場症狀：同一頻道兩個 ffmpeg 行程搶同一批區段檔——磁碟用量翻倍、
@@ -1079,6 +1180,30 @@ public sealed class RecordingSchedulerTests : IDisposable
             {
                 await OnStopAsync();
             }
+        }
+
+        /// <summary>被要求提前收檔的次數（回放前收檔要問到每一台）。</summary>
+        public int CutCount { get; private set; }
+
+        /// <summary>收檔時收到的等待上限；用來確認呼叫端有傳逾時，不會無限等。</summary>
+        public TimeSpan? LastCutTimeout { get; private set; }
+
+        /// <summary>收檔結果；預設 false 代表「沒在錄或收不出一段 final」。</summary>
+        public bool CutResult { get; set; }
+
+        /// <summary>選用的收檔鉤子：讓測試把收檔「卡住」，驗證多台是並行收而不是一台等完再換下一台。</summary>
+        public Func<Task>? OnCutAsync { get; set; }
+
+        public async Task<bool> CutAsync(TimeSpan timeout)
+        {
+            CutCount++;
+            LastCutTimeout = timeout;
+            if (OnCutAsync is not null)
+            {
+                await OnCutAsync();
+            }
+
+            return CutResult;
         }
 
         public ValueTask DisposeAsync()

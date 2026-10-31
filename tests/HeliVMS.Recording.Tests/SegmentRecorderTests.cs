@@ -803,6 +803,154 @@ public sealed class SegmentRecorderTests : IDisposable
     }
 
     /// <summary>
+    /// 按下回放時要求收檔：對正在錄的那一段送出 <c>q</c>，等它變成 final 再回報成功。
+    ///
+    /// 現場症狀是「回放清單裡永遠少最後一分鐘」——錄影一段一個檔，正在寫的那一段
+    /// 在分段時間到期前根本不存在於索引裡，而畫面上沒有任何線索說明少了什麼。
+    /// 收檔必須沿用分段的收尾路徑（<c>q</c> → 寫完 fragment → 改名 → 雜湊 → 索引），
+    /// 不能另闢第三種檔案狀態。
+    /// </summary>
+    [Fact]
+    public async Task 按回放要求收檔會把正在錄的那一段收成正式檔()
+    {
+        var clock = new ManualClock();
+        var completed = new TaskCompletionSource<SegmentRecord>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var factory = new FakeProcessFactory((_, psi) => new FakeProcess(psi, exitCode: 0));
+        var recorder = new SegmentRecorder(_segments, factory, _ => string.Empty, clock: () => clock.Now);
+        recorder.SegmentCompleted += (_, segment) => completed.TrySetResult(segment);
+
+        await recorder.StartAsync(_channelId, RtspUrl, _recordingsRoot, "main", SegmentSeconds);
+        await WaitUntilAsync(() => factory.Processes.Count == 1);
+
+        clock.Advance(TimeSpan.FromSeconds(30));
+
+        Assert.True(await recorder.CutAsync(TimeSpan.FromSeconds(10)));
+
+        // 收檔就是「請 ffmpeg 收尾」一次，不是砍掉行程再重開。
+        Assert.Equal(1, factory.Processes[0].QuitRequestCount);
+
+        var reported = await completed.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        var stored = Assert.IsType<SegmentRecord>(_segments.Get(reported.Id));
+        Assert.Equal(SegmentStatus.Final, stored.Status);
+        Assert.True(File.Exists(stored.FilePath));
+        Assert.Empty(Directory.GetFiles(_recordingsRoot, "*.tmp", SearchOption.AllDirectories));
+
+        // 錄影沒有停：下一段要立刻接上，否則「看最新畫面」會變成「停止錄影」。
+        Assert.True(recorder.IsRecording);
+        await WaitUntilAsync(() => factory.Processes.Count == 2);
+
+        await recorder.DisposeAsync();
+    }
+
+    /// <summary>
+    /// 連按回放不會讓錄影一直換段：同一台 30 秒內只收一次檔。
+    ///
+    /// 每次收檔都是一次 RTSP 重連（掉約 0.5～2 秒畫面）並多一個檔案。
+    /// 沒有這道冷卻，操作員連按回放或兩個視窗輪流開同一台，就會換出一堆
+    /// 十幾秒的碎片檔，而錄影本身反而殘破——比看不到最後一段更糟。
+    /// </summary>
+    [Fact]
+    public async Task 同一台錄影機在冷卻時間內只會收檔一次()
+    {
+        var clock = new ManualClock();
+        var factory = new FakeProcessFactory((_, psi) => new FakeProcess(psi, exitCode: 0));
+        await using var recorder = new SegmentRecorder(_segments, factory, _ => string.Empty, clock: () => clock.Now);
+
+        await recorder.StartAsync(_channelId, RtspUrl, _recordingsRoot, "main", SegmentSeconds);
+        await WaitUntilAsync(() => factory.Processes.Count == 1);
+
+        clock.Advance(TimeSpan.FromSeconds(30));
+        Assert.True(await recorder.CutAsync(TimeSpan.FromSeconds(10)));
+        await WaitUntilAsync(() => factory.Processes.Count == 2);
+
+        // 第二段已經錄了 15 秒（超過 MinCutAge），但第一次收檔才過 15 秒：
+        // 冷卻還沒到，這次回放不該再切。
+        clock.Advance(TimeSpan.FromSeconds(15));
+        Assert.False(await recorder.CutAsync(TimeSpan.FromSeconds(10)));
+        Assert.Equal(0, factory.Processes[1].QuitRequestCount);
+        Assert.Equal(2, factory.Processes.Count);
+
+        // 冷卻過後才允許再收一次。
+        clock.Advance(TimeSpan.FromSeconds(20));
+        Assert.True(await recorder.CutAsync(TimeSpan.FromSeconds(10)));
+        Assert.Equal(1, factory.Processes[1].QuitRequestCount);
+    }
+
+    /// <summary>
+    /// 沒有在錄影時要求收檔必須立刻回報「沒收到」，不能讓回放視窗等滿逾時。
+    /// 排程與監看牆兩條路徑都會對「可能沒在錄」的頻道問一次，這是常態而不是例外。
+    /// </summary>
+    [Fact]
+    public async Task 沒有在錄影時收檔會立刻回報沒有收到()
+    {
+        var factory = new FakeProcessFactory((_, psi) => new FakeProcess(psi, exitCode: 0));
+        await using var recorder = new SegmentRecorder(_segments, factory, _ => string.Empty);
+
+        var stopwatch = Stopwatch.StartNew();
+        Assert.False(await recorder.CutAsync(TimeSpan.FromSeconds(10)));
+
+        Assert.True(
+            stopwatch.Elapsed < TimeSpan.FromSeconds(1),
+            $"沒在錄時收檔等了 {stopwatch.Elapsed.TotalSeconds:F1} 秒，回放視窗會被拖住。");
+        Assert.Empty(factory.Processes);
+    }
+
+    /// <summary>
+    /// 錄不到五秒的段不為了一次回放而截斷：截斷只會在索引留下一段長度趨近 0 的錄影
+    /// （時間軸上幾乎點不到，卻多一列索引、多一個檔案），而操作員連按兩次回放時
+    /// 本來也沒有新內容可看。
+    ///
+    /// 這裡故意用固定的 4 秒而不是 <see cref="SegmentRecorder.MinCutAge"/> 推算：
+    /// 用常數推算的測試會跟著常數一起改壞，永遠都是綠的。
+    /// </summary>
+    [Fact]
+    public async Task 錄不到五秒的段不會為了回放被截斷()
+    {
+        var clock = new ManualClock();
+        var factory = new FakeProcessFactory((_, psi) => new FakeProcess(psi, exitCode: 0));
+        await using var recorder = new SegmentRecorder(_segments, factory, _ => string.Empty, clock: () => clock.Now);
+
+        await recorder.StartAsync(_channelId, RtspUrl, _recordingsRoot, "main", SegmentSeconds);
+        await WaitUntilAsync(() => factory.Processes.Count == 1);
+
+        clock.Advance(TimeSpan.FromSeconds(4));
+
+        Assert.False(await recorder.CutAsync(TimeSpan.FromSeconds(10)));
+        Assert.Equal(0, factory.Processes[0].QuitRequestCount);
+        Assert.True(recorder.IsRecording);
+    }
+
+    /// <summary>
+    /// ffmpeg 不理會收尾請求時，收檔要在逾時後回報失敗而不是無限等：
+    /// 一台卡住的攝影機不能讓「按回放」變成等半分鐘。停止錄影仍要能正常收掉它。
+    /// </summary>
+    [Fact]
+    public async Task 收檔逾時會回報失敗而不是卡住回放()
+    {
+        var clock = new ManualClock();
+        var factory = new FakeProcessFactory((_, psi) => new FakeProcess(psi, exitCode: 0));
+        await using var recorder = new SegmentRecorder(
+            _segments,
+            factory,
+            _ => string.Empty,
+            clock: () => clock.Now,
+            gracefulStopTimeout: TimeSpan.FromMilliseconds(200));
+
+        await recorder.StartAsync(_channelId, RtspUrl, _recordingsRoot, "main", SegmentSeconds);
+        await WaitUntilAsync(() => factory.Processes.Count == 1);
+        factory.Processes[0].IgnoreQuit = true;
+        clock.Advance(TimeSpan.FromSeconds(30));
+
+        var stopwatch = Stopwatch.StartNew();
+        Assert.False(await recorder.CutAsync(TimeSpan.FromMilliseconds(250)));
+        Assert.InRange(stopwatch.ElapsedMilliseconds, 200, 5000);
+
+        // 收尾請求被忽略之後，停止錄影仍必須收得掉（關程式不能卡在這裡）。
+        factory.Processes[0].IgnoreQuit = false;
+        await recorder.StopAsync();
+    }
+
+    /// <summary>
     /// 暫存檔還在就代表改名根本沒成功（最常見的原因是目的地撞名），正式檔是<b>別人</b>的段；
     /// 這時候把它的資訊抄進這一列，就是把 A 台的錄影記到 B 台名下。
     ///
@@ -821,6 +969,16 @@ public sealed class SegmentRecorderTests : IDisposable
         Assert.False(SegmentRecorder.TryCompleteMovedSegment(_segments, id, finalPath, tmpPath, t));
 
         Assert.Equal(SegmentStatus.Temporary, Assert.IsType<SegmentRecord>(_segments.Get(id)).Status);
+    }
+
+    /// <summary>可推進的時鐘：分段長度、結束時間與 <see cref="SegmentRecorder.MinCutAge"/> 都由它決定。</summary>
+    private sealed class ManualClock
+    {
+        private long _ticks = new DateTime(2026, 1, 2, 3, 4, 5, DateTimeKind.Utc).Ticks;
+
+        public DateTime Now => new(Interlocked.Read(ref _ticks), DateTimeKind.Utc);
+
+        public void Advance(TimeSpan by) => Interlocked.Add(ref _ticks, by.Ticks);
     }
 
     /// <summary>第一、第二段立即成功收尾；之後的行程停住，直到被停止或取消。</summary>

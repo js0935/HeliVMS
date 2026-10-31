@@ -54,8 +54,8 @@ public sealed class AlertFeedContractTests
     {
         var code = SourceContract.Read(MainWindow);
         // 沒帶中樞就建立了一個沒人發布的空 hub，畫面又退回純輪詢。
-        Assert.Contains("new EventCenterWindow(_store!, alerts: _manager?.Alerts)", code);
-        Assert.Contains("new EventCenterWindow(_store!, channelId, _manager?.Alerts)", code);
+        Assert.Contains("new EventCenterWindow(_store!, alerts: _manager?.Alerts, playbackFinalizer: _playbackFinalizer)", code);
+        Assert.Contains("new EventCenterWindow(_store!, channelId, _manager?.Alerts, playbackFinalizer: _playbackFinalizer)", code);
         Assert.Contains("new AlarmManagerWindow(_store!, _manager?.Alerts)", code);
     }
 

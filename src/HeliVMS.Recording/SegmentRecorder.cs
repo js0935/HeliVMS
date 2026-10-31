@@ -47,6 +47,38 @@ public sealed class SegmentRecorder : ISegmentRecorder
     private Task? _loop;
     private bool _disposed;
 
+    /// <summary>目前這一段開始錄的時間；null 表示沒有在錄（含正介於兩段之間）。</summary>
+    private DateTime? _activeSegmentStartUtc;
+
+    /// <summary>
+    /// 正在等目前這一段收尾的呼叫者（回放視窗）。用集合而不是單一欄位：
+    /// 兩個回放視窗同時開在同一個頻道上時，兩邊都該在檔案出現後立刻看到它。
+    /// </summary>
+    private readonly List<TaskCompletionSource<bool>> _cutWaiters = [];
+
+    private readonly object _cutGate = new();
+
+    /// <summary>
+    /// 短於此長度的段不值得為了一次回放而截斷：剛起的段本來就沒有內容，
+    /// 截斷只會在索引裡留下一段長度趨近 0 的錄影（時間軸上幾乎點不到，
+    /// 卻多一列索引、多一個檔案），而操作員連按兩次回放時也根本沒有新的畫面可看。
+    /// </summary>
+    public static readonly TimeSpan MinCutAge = TimeSpan.FromSeconds(10);
+
+    /// <summary>
+    /// 同一台錄影機兩次收檔之間的最小間隔。
+    /// </summary>
+    /// <remarks>
+    /// 收檔＝提前換段＝重新連一次 RTSP 並等第一個 IDR，中間會掉約 0.5～2 秒畫面。
+    /// 沒有這道冷卻，操作員連按回放（或兩個回放視窗輪流開同一個頻道）就會讓錄影
+    /// 一直在重連：多出一堆長度十幾秒的碎片檔，而錄影本身反而殘破。
+    /// 30 秒的意義是「一次回放最多換掉半個正常分段」，最壞情況只多約 10% 檔案。
+    /// </remarks>
+    public static readonly TimeSpan CutCooldown = TimeSpan.FromSeconds(30);
+
+    /// <summary>上一次收檔的時間；<see cref="CutCooldown"/> 用它避免連續截斷。</summary>
+    private DateTime? _lastCutUtc;
+
     public SegmentRecorder(
         SegmentRepository repo,
         IProcessFactory? processFactory = null,
@@ -204,7 +236,139 @@ public sealed class SegmentRecorder : ISegmentRecorder
         }
     }
 
+    /// <summary>
+    /// 要求目前在錄的這一段立刻收尾，並等它成為可回放的正式檔。
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// 收檔＝對 ffmpeg 送出 <c>q</c>：它會把當前 fragment 寫完、關閉檔案再以退出碼 0 結束，
+    /// 也就是與「<c>-t</c> 到期」完全相同的收尾路徑。背景迴圈接著就開下一段，
+    /// 錄影沒有停止，只是提前換段。
+    /// </para>
+    /// <para>
+    /// 不切剛起的段（<see cref="MinCutAge"/>）：那會在索引留下一段長度趨近 0 的錄影，
+    /// 而下一次按回放本來也沒有新內容。
+    /// </para>
+    /// <para>
+    /// 同一台 30 秒內只切一次（<see cref="CutCooldown"/>）：收檔是一次換段，
+    /// 每個來回會掉一小段畫面，連按回放不該讓錄影一直在重連。
+    /// </para>
+    /// <para>
+    /// 逾時一定要回 false 而不是無限等：呼叫端是回放視窗的載入流程，
+    /// 一台卡住的攝影機不能讓回放開不起來。
+    /// </para>
+    /// </remarks>
+    public async Task<bool> CutAsync(TimeSpan timeout)
+    {
+        if (_disposed || !IsRecording)
+        {
+            return false;
+        }
+
+        if (_activeSegmentStartUtc is not { } started || _clock() - started < MinCutAge)
+        {
+            return false;
+        }
+
+        if (_lastCutUtc is { } lastCut && _clock() - lastCut < CutCooldown)
+        {
+            return false;
+        }
+
+        var waiter = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        lock (_cutGate)
+        {
+            _cutWaiters.Add(waiter);
+        }
+
+        // 介於兩段之間（ffmpeg 已結束、下一台還沒起來）時沒有任何東西可切：
+        // 那一段的收尾已經在跑，等它反而會多等一個逾時。
+        if (!TryRequestQuitForCut())
+        {
+            lock (_cutGate)
+            {
+                _cutWaiters.Remove(waiter);
+            }
+
+            return false;
+        }
+
+        try
+        {
+            // 冷卻從「真的送出收尾請求」起算：介於兩段之間或送不出去時，
+            // 不該害下一次回放被冷卻擋掉。
+            _lastCutUtc = _clock();
+            return await waiter.Task.WaitAsync(timeout).ConfigureAwait(false);
+        }
+        catch (TimeoutException)
+        {
+            return false;
+        }
+        finally
+        {
+            lock (_cutGate)
+            {
+                _cutWaiters.Remove(waiter);
+            }
+        }
+    }
+
+    /// <summary>對目前這一段的 ffmpeg 送出收尾請求；沒有行程可送時回 false。</summary>
+    private bool TryRequestQuitForCut()
+    {
+        var proc = _testProcess;
+        if (proc is null)
+        {
+            return false;
+        }
+
+        try
+        {
+            if (proc.HasExited)
+            {
+                return false;
+            }
+
+            proc.RequestQuit();
+            return true;
+        }
+        catch (InvalidOperationException)
+        {
+            // 行程物件剛被釋放（ObjectDisposedException 是它的子類）：這一段正在自己收尾。
+            return false;
+        }
+    }
+
+    /// <summary>這一段有結果了：放行正在等它收尾的回放視窗。</summary>
+    private void CompleteCutWaiters(bool completed)
+    {
+        TaskCompletionSource<bool>[] waiters;
+        lock (_cutGate)
+        {
+            waiters = [.. _cutWaiters];
+            _cutWaiters.Clear();
+        }
+
+        foreach (var waiter in waiters)
+        {
+            waiter.TrySetResult(completed);
+        }
+    }
+
     private async Task RecordLoopAsync(string recordingsRoot, CancellationToken token)
+    {
+        try
+        {
+            await RecordLoopCoreAsync(recordingsRoot, token);
+        }
+        finally
+        {
+            // 迴圈結束（停止錄影、例外）時不能讓等收檔的人等到逾時。
+            CompleteCutWaiters(completed: false);
+        }
+    }
+
+    private async Task RecordLoopCoreAsync(string recordingsRoot, CancellationToken token)
     {
         string? audioEncoderArgs = null;
         while (!token.IsCancellationRequested)
@@ -245,8 +409,13 @@ public sealed class SegmentRecorder : ISegmentRecorder
                     RecordingResumed?.Invoke(this, ChannelId);
                 }
 
+                // 這一段已經成為 final：按回放而要求收檔的視窗可以載入時間軸了。
+                CompleteCutWaiters(completed: true);
                 continue;
             }
+
+            // 這一段沒錄成，等它的人也不會看到新檔案——但不能讓他們等到逾時。
+            CompleteCutWaiters(completed: false);
 
             _consecutiveFailures++;
             if (!_stallReported && _consecutiveFailures >= FailureReportThreshold)
@@ -274,6 +443,7 @@ public sealed class SegmentRecorder : ISegmentRecorder
     private async Task<bool> RecordOneSegmentAsync(string recordingsRoot, string audioEncoderArgs, CancellationToken token)
     {
         var startUtc = _clock();
+        _activeSegmentStartUtc = startUtc;
         // 以頻道名稱命名資料夾（使用者看得懂）；名稱從缺或未提供時退回舊制 ch{id}。
         var folder = string.IsNullOrWhiteSpace(_folderName)
             ? RecordingFolderNaming.LegacyName(ChannelId)
@@ -358,6 +528,7 @@ public sealed class SegmentRecorder : ISegmentRecorder
         finally
         {
             _activeSegmentId = -1;
+            _activeSegmentStartUtc = null;
         }
     }
 

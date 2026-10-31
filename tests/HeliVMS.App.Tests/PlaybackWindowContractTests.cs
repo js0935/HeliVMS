@@ -911,12 +911,16 @@ public sealed class PlaybackWindowContractTests
         var live = SourceContract.BodyOf(
             SourceContract.Read("src/HeliVMS.App/LiveWindow.xaml.cs"), "OpenPlayback");
         Assert.False(string.IsNullOrWhiteSpace(live), "找不到 LiveWindow.OpenPlayback 的實作");
-        Assert.Contains("new PlaybackWindow(_store, _channelId, null, autoPlayLatest: true)", live);
+        Assert.Contains(
+            "new PlaybackWindow(_store, _channelId, null, autoPlayLatest: true, playbackFinalizer: _playbackFinalizer)",
+            live);
 
         var map = SourceContract.BodyOf(
             SourceContract.Read("src/HeliVMS.App/MapWindow.xaml.cs"), "OpenPlayback");
         Assert.False(string.IsNullOrWhiteSpace(map), "找不到 MapWindow.OpenPlayback 的實作");
-        Assert.Contains("new PlaybackWindow(_store, channelId, null, autoPlayLatest: true)", map);
+        Assert.Contains(
+            "new PlaybackWindow(_store, channelId, null, autoPlayLatest: true, playbackFinalizer: _playbackFinalizer)",
+            map);
 
         var source = SourceContract.Read(Code);
 

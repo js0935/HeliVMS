@@ -8,6 +8,7 @@ using System.Windows.Media.Imaging;
 using System.Windows.Shapes;
 using System.Windows.Threading;
 using HeliVMS.App.Services;
+using HeliVMS.Recording;
 using HeliVMS.Storage;
 
 namespace HeliVMS.App;
@@ -20,6 +21,11 @@ public partial class MapWindow : Window
 {
     private readonly SqliteStore _store;
     private readonly ChannelManager? _manager;
+
+    /// <summary>
+    /// 回放前收檔的服務；由主視窗一路傳進來。null 時回放照舊只看索引現況。
+    /// </summary>
+    private readonly IPlaybackRecordingFinalizer? _playbackFinalizer;
     private readonly MapRepository _maps;
     private readonly IoRepository _io;
     private readonly AlarmEventRepository _events;
@@ -108,14 +114,20 @@ public partial class MapWindow : Window
     /// 主視窗的頻道管理器（可為 null）。圖釘單擊要開即時畫面時會優先重用它的監看連線，
     /// 沒有管理器（例如由事件中心開啟地圖）才由 <see cref="LiveWindow"/> 自建連線。
     /// </param>
+    /// <param name="playbackFinalizer">
+    /// 回放前「把正在錄的那一段收檔」的服務，一路傳給本視窗開的即時畫面與回放。
+    /// null 時回放只看索引現況（清單裡會少掉正在寫的最後一段）。
+    /// </param>
     public MapWindow(
         SqliteStore store,
         int? locateChannelId = null,
         string locateDeviceType = "camera",
-        ChannelManager? manager = null)
+        ChannelManager? manager = null,
+        IPlaybackRecordingFinalizer? playbackFinalizer = null)
     {
         _store = store;
         _manager = manager;
+        _playbackFinalizer = playbackFinalizer;
         _maps = new MapRepository(store);
         _io = new IoRepository(store);
         _events = new AlarmEventRepository(store);
@@ -550,7 +562,7 @@ public partial class MapWindow : Window
             var channelId = int.Parse(tag.AsSpan("camera:".Length));
             try
             {
-                LiveWindow.ShowFor(_store, channelId, _manager, this);
+                LiveWindow.ShowFor(_store, channelId, _manager, this, _playbackFinalizer);
             }
             catch
             {
@@ -597,7 +609,7 @@ public partial class MapWindow : Window
         try
         {
             // 帶入頻道還不夠：不自動起播就只是一台空回放。圖釘右鍵要看到的是「這台剛才的畫面」。
-            var playback = new PlaybackWindow(_store, channelId, null, autoPlayLatest: true) { Owner = this };
+            var playback = new PlaybackWindow(_store, channelId, null, autoPlayLatest: true, playbackFinalizer: _playbackFinalizer) { Owner = this };
             playback.Show();
         }
         catch (Exception ex)

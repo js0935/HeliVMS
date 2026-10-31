@@ -5,6 +5,7 @@ using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using HeliVMS.App.Services;
 using HeliVMS.Media;
+using HeliVMS.Recording;
 using HeliVMS.Shared;
 using HeliVMS.Shared.Models;
 using HeliVMS.Storage;
@@ -36,6 +37,11 @@ public partial class LiveWindow : Window
     private readonly ChannelRepository _channels;
     private readonly int _channelId;
     private readonly ChannelManager? _manager;
+
+    /// <summary>
+    /// 回放前收檔的服務；由主視窗一路傳進來。null 時回放照舊只看索引現況。
+    /// </summary>
+    private readonly IPlaybackRecordingFinalizer? _playbackFinalizer;
     private readonly int _cascadeIndex;
 
     /// <summary>只保留一張待畫影格；繪圖跟不上時直接丟掉舊的，避免畫面愈拖愈舊。</summary>
@@ -57,12 +63,17 @@ public partial class LiveWindow : Window
     /// </remarks>
     private static readonly Dictionary<int, LiveWindow> s_open = new();
 
-    public LiveWindow(SqliteStore store, int channelId, ChannelManager? manager = null)
+    public LiveWindow(
+        SqliteStore store,
+        int channelId,
+        ChannelManager? manager = null,
+        IPlaybackRecordingFinalizer? playbackFinalizer = null)
     {
         _store = store;
         _channels = new ChannelRepository(store);
         _channelId = channelId;
         _manager = manager;
+        _playbackFinalizer = playbackFinalizer;
         _cascadeIndex = _openCount++;
 
         InitializeComponent();
@@ -88,7 +99,13 @@ public partial class LiveWindow : Window
     /// <param name="channelId">要顯示的頻道。</param>
     /// <param name="manager">主視窗的管理器；沒有時本視窗自建連線。</param>
     /// <param name="owner">擁有者視窗（地圖）；重複使用既有視窗時忽略。</param>
-    public static void ShowFor(SqliteStore store, int channelId, ChannelManager? manager = null, Window? owner = null)
+    /// <param name="playbackFinalizer">回放前收檔的服務，一路傳給本視窗開的回放。</param>
+    public static void ShowFor(
+        SqliteStore store,
+        int channelId,
+        ChannelManager? manager = null,
+        Window? owner = null,
+        IPlaybackRecordingFinalizer? playbackFinalizer = null)
     {
         if (s_open.TryGetValue(channelId, out var existing))
         {
@@ -103,7 +120,7 @@ public partial class LiveWindow : Window
             _openCount = Math.Max(0, _openCount - 1);
         }
 
-        var window = new LiveWindow(store, channelId, manager);
+        var window = new LiveWindow(store, channelId, manager, playbackFinalizer);
         if (owner is not null)
         {
             window.Owner = owner;
@@ -460,7 +477,7 @@ public partial class LiveWindow : Window
     {
         try
         {
-            var playback = new PlaybackWindow(_store, _channelId, null, autoPlayLatest: true) { Owner = this };
+            var playback = new PlaybackWindow(_store, _channelId, null, autoPlayLatest: true, playbackFinalizer: _playbackFinalizer) { Owner = this };
             playback.Show();
         }
         catch (Exception ex)

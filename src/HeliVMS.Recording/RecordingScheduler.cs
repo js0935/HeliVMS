@@ -192,8 +192,49 @@ public sealed class RecordingScheduler : IDisposable
 
     public TimeSpan ReconcileInterval { get; }
 
-    /// <summary>目前由排程啟動錄影之頻道 ID。</summary>
+    /// <summary>
+    /// 目前由排程啟動錄影之頻道 ID。
+    /// </summary>
     public IReadOnlyCollection<int> ActiveChannelIds => _active.Keys.ToList();
+
+    /// <summary>
+    /// 要求排程正在錄的頻道立刻收檔，讓回放看得到剛剛發生的事。
+    /// </summary>
+    /// <param name="channelId">只收這個頻道；null 表示全部。</param>
+    /// <param name="timeout">等每一台收尾的上限。</param>
+    /// <returns>真的把一段收成 final 的台數。</returns>
+    /// <remarks>
+    /// 平行收檔：<see cref="SegmentRecorder.StopAsync"/> 的教訓是逐台等會變成「台數 × 每台收尾時間」，
+    /// 32 台就等上半分鐘。這裡每一台都只是送一個 <c>q</c> 再等檔案寫完，總時間等於最慢的那一台。
+    /// 單台失敗不影響其他台——回放要的是「能看到多少算多少」。
+    /// </remarks>
+    public async Task<int> CutActiveAsync(int? channelId, TimeSpan timeout)
+    {
+        var targets = _active
+            .Where(pair => channelId is null || pair.Key == channelId)
+            .Select(pair => pair.Value)
+            .ToList();
+        if (targets.Count == 0)
+        {
+            return 0;
+        }
+
+        var results = await Task.WhenAll(targets.Select(recorder => CutQuietlyAsync(recorder, timeout)));
+        return results.Count(cut => cut);
+    }
+
+    /// <summary>收一台的檔；失敗當成「沒收到」，不得讓其他台或回放視窗停下來。</summary>
+    private static async Task<bool> CutQuietlyAsync(ISegmentRecorder recorder, TimeSpan timeout)
+    {
+        try
+        {
+            return await recorder.CutAsync(timeout);
+        }
+        catch (Exception)
+        {
+            return false;
+        }
+    }
 
     /// <summary>
     /// 該頻道目前「不該錄」的原因；正在錄或沒有阻擋時回 null。

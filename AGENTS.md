@@ -154,6 +154,25 @@ Notes that will save you time:
   `暫存檔還在時不會把撞名的正式檔收進索引`,
   `被標成tmp的段在正式檔還在時會復活成final` and
   `被標成corrupt而檔案不是MP4時不會被復活`.
+- **Playback must finalize the segment that is still being recorded.** Recordings are one file
+  per segment, and the segment currently being written only enters `segments` when ffmpeg exits.
+  So the item an operator actually wants — "what just happened" — is always the one missing from
+  the timeline, with nothing in the log to say so. `PlaybackWindow` therefore awaits
+  `IPlaybackRecordingFinalizer.FinalizeAsync` **before** `LoadSegments`, on open, on channel
+  change, on date change and on "load"; reversing that order silently makes the cut useless
+  (the new segment only shows up on the next reload). Desktop has two independent recording
+  paths — `ChannelSession` on the monitor wall and `RecordingScheduler` — and the scheduler
+  deliberately skips channels the wall already records, so both must be asked or the same
+  button shows different footage depending on whether the camera happens to be on screen.
+  Two gates keep this from shredding the archive: `SegmentRecorder.MinCutAge = 10s` (a segment
+  started moments ago has nothing new in it, and cutting it leaves a length-≈0 row nobody can
+  click) and `CutCooldown = 30s` per channel, counted from the moment `q` was actually sent.
+  Each cut is a segment boundary, i.e. an RTSP reconnect and 0.5–2s of lost picture, so repeated
+  clicks must not keep restarting the recorder. Only "today" is cut: paging through history
+  must not truncate the live segment. Guarded by `PlaybackFinalizeContractTests`,
+  `PlaybackRecordingFinalizerTests`, `按回放要求收檔會把正在錄的那一段收成正式檔`,
+  `同一台錄影機在冷卻時間內只會收檔一次`, `錄不到五秒的段不會為了回放被截斷` and
+  `收檔逾時會回報失敗而不是卡住回放`.
 - **A `tmp` row whose files are both gone must not stay `tmp` forever.** `TemporarySegmentRecovery`
   used to skip it ("disk may be offline") on every run, so the backlog grew without bound and
   ate the batch limit; the live row it was supposed to rescue never got a turn. It now closes

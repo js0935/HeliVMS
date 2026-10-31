@@ -46,4 +46,22 @@ public interface ISegmentRecorder : IAsyncDisposable
 
     /// <summary>停止錄影並收尾；可重複呼叫。</summary>
     Task StopAsync();
+
+    /// <summary>
+    /// 要求「正在錄的這一段」立刻收尾，讓它變成可回放的正式檔。
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// 回放視窗開啟時用它把「剛剛發生的事」變成看得到的檔案。錄影是「一段一個檔」，
+    /// 正在寫的那一段在分段時間（預設 60 秒）到期前不存在於索引裡——操作員按了回放，
+    /// 看到的最後一段其實是一分鐘前的事，而畫面上沒有任何線索說明少了什麼。
+    /// </para>
+    /// <para>
+    /// 收檔走的是與「分段時間到期」完全相同的路徑（請 ffmpeg 寫完當前 fragment 再結束），
+    /// 所以不會產生第三種檔案狀態；下一段由背景迴圈立刻接上，錄影中斷時間與正常換段相同。
+    /// </para>
+    /// </remarks>
+    /// <param name="timeout">等這一段寫檔、雜湊與索引回寫完成的上限。</param>
+    /// <returns>這一段已成為 final 時為 true；沒在錄、剛起段或逾時為 false（回放仍應照常開啟）。</returns>
+    Task<bool> CutAsync(TimeSpan timeout);
 }
