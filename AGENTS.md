@@ -317,7 +317,14 @@ Notes that will save you time:
   as "this window has no exit" (現場回報「沒有離開的按鈕」). Note for the contract tests:
   `SourceContract.BodyOf` returns an expression-bodied member *without* the trailing `;`, so
   assert `Close()`, not `Close();`, on `=> Close();` handlers. Guarded by
-  `SchedulingWindowContractTests` and the window-wide `UiWiringContractTests`.
+  `SchedulingWindowContractTests` and the window-wide `UiWiringContractTests`. The same rule now
+  covers the export wizard (`ExportWindowContractTests`): it was a 640×560 dialog and is a
+  borderless maximized two-column window, so it needed the header ✕, the labeled
+  關閉 button (`IsCancel`) *and* Esc, plus `OnClosing` canceling the export CTS — closing
+  mid-export must cancel ffmpeg, not orphan it. Fixed-width inputs (`Width="280"` on the channel
+  combo, `"180"` on the bundle fields) clipped translated labels and long camera names;
+  fullscreen form fields stretch instead, and the time range is a labelled 2×2 From/To grid
+  rather than four controls sharing one row.
 - **A recording-schedule rule that never records must be rejected, not stored.** `IsActiveAt`
   uses a closed interval, so start == end (e.g. the old form default 00:00–00:00) is active for
   exactly one minute of the day; the scheduler ticks every 30 s and in practice captures

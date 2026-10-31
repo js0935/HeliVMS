@@ -3,115 +3,175 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         AutomationProperties.AutomationId="ExportWindow"
         Title=""
-        Width="640" Height="560"
         WindowStartupLocation="CenterOwner"
         Background="#0B1622" Foreground="White"
-        Closing="OnClosing">
+        PreviewKeyDown="OnPreviewKeyDown" Closing="OnClosing"
+        WindowStyle="None" ResizeMode="NoResize" WindowState="Maximized">
 
-    <Grid Margin="16">
+    <Grid Margin="12">
         <Grid.RowDefinitions>
-            <RowDefinition Height="*"/>
             <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
 
-        <StackPanel>
-            <!-- Channel -->
-            <TextBlock x:Name="ExportChannelLabel" Text="" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
-            <ComboBox x:Name="ChannelCombo" AutomationProperties.AutomationId="ChannelCombo"
-                      Width="280" Margin="0,4,0,12"
-                      Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
+        <!-- Header row: borderless window has no system title bar, so the title and the close
+             button live here (same pattern as LiveWindow/EventCenterWindow). -->
+        <Grid Grid.Row="0" Margin="0,0,0,10">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            <TextBlock x:Name="HeaderTitle" Text="" FontSize="15" FontWeight="Bold"
+                       Foreground="White" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+            <Button x:Name="HeaderCloseButton" Content="✕" Click="OnCloseClicked" ToolTip=""
+                    Grid.Column="1" Padding="10,4" FontSize="14"
+                    Foreground="White" Background="#C62828" BorderThickness="0"
+                    VerticalAlignment="Center" AutomationProperties.AutomationId="ExportHeaderCloseButton"/>
+        </Grid>
 
-            <!-- Time range -->
-            <TextBlock x:Name="ExportRangeLabel" Text="" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
-            <StackPanel Orientation="Horizontal" Margin="0,4,0,12">
-                <DatePicker x:Name="StartDate" AutomationProperties.AutomationId="StartDate"
-                            Width="140" Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
-                <TextBox x:Name="StartTime" AutomationProperties.AutomationId="ExportStartTime" Width="70" Margin="6,0,0,0"
-                         Text="00:00:00" VerticalContentAlignment="Center"
-                         Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
-                <TextBlock Text=" ～ " VerticalAlignment="Center" Margin="6,0"/>
-                <DatePicker x:Name="EndDate" AutomationProperties.AutomationId="EndDate"
-                            Width="140" Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
-                <TextBox x:Name="EndTime" AutomationProperties.AutomationId="ExportEndTime" Width="70" Margin="6,0,0,0"
-                         Text="23:59:59" VerticalContentAlignment="Center"
-                         Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
-            </StackPanel>
+        <Grid Grid.Row="1">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="480"/>
+                <ColumnDefinition Width="12"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
 
-            <!-- Output folder -->
-            <TextBlock x:Name="ExportOutputFolderLabel" Text="" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
-            <DockPanel Margin="0,4,0,12">
-                <Button x:Name="BrowseButton" Content="" Click="OnBrowseClicked" ToolTip=""
-                        DockPanel.Dock="Right" Padding="12,6" Margin="6,0,0,0"
-                        Foreground="White" Background="#2A5C8A" BorderThickness="0" AutomationProperties.AutomationId="BrowseButton"/>
-                <TextBox x:Name="OutputFolderBox" AutomationProperties.AutomationId="OutputFolderBox"
-                         Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="8,4"/>
-            </DockPanel>
+            <!-- Left: export settings -->
+            <Border Grid.Column="0" BorderBrush="#2A4A73" BorderThickness="1" Background="#0F1D2E">
+                <StackPanel Margin="16">
+                    <TextBlock x:Name="ExportFormHeader" Text="" Foreground="{StaticResource Brand.TextDim}" FontSize="12"
+                               Margin="0,0,0,10"/>
 
-            <!-- Watermark -->
-            <TextBlock x:Name="ExportWatermarkLabel" Text="" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
-            <TextBox x:Name="WatermarkBox" AutomationProperties.AutomationId="WatermarkBox"
-                     Width="320" Margin="0,4,0,12"
-                     Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="8,4"/>
+                    <!-- Channel: stretch so long camera names are not clipped. -->
+                    <TextBlock x:Name="ExportChannelLabel" Text="" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+                    <ComboBox x:Name="ChannelCombo" AutomationProperties.AutomationId="ChannelCombo"
+                              Margin="0,4,0,12"
+                              Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
 
-            <!-- SHA-256 -->
-            <CheckBox x:Name="HashCheckBox" AutomationProperties.AutomationId="HashCheckBox"
-                      Content=""
-                      IsChecked="True" Foreground="White" Margin="0,0,0,8"/>
-
-            <!-- Apply stored redaction regions -->
-            <CheckBox x:Name="ApplyRedactionCheckBox" AutomationProperties.AutomationId="ApplyRedactionCheckBox"
-                      Content=""
-                      IsChecked="False" Foreground="White" Margin="0,0,0,8"/>
-
-            <!-- Evidence bundle -->
-            <CheckBox x:Name="BundleCheckBox" AutomationProperties.AutomationId="BundleCheckBox"
-                      Content=""
-                      IsChecked="False" Foreground="White" Margin="0,0,0,4"/>
-            <StackPanel Margin="22,0,0,8"
-                        IsEnabled="{Binding ElementName=BundleCheckBox, Path=IsChecked}">
-                <DockPanel Margin="0,0,0,4">
-                    <TextBlock x:Name="ExportBundlePasswordLabel" Text="" DockPanel.Dock="Left"
-                               Foreground="{StaticResource Brand.TextDim}" FontSize="11" VerticalAlignment="Center"/>
-                    <PasswordBox x:Name="BundlePasswordBox" AutomationProperties.AutomationId="BundlePasswordBox"
-                                 Width="180" HorizontalAlignment="Right"
+                    <!-- Time range: 2x2 grid (start/end, date/time) instead of one long row,
+                         so neither the date pickers nor the time boxes get squeezed. -->
+                    <TextBlock x:Name="ExportRangeLabel" Text="" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+                    <Grid Margin="0,4,12,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="72"/>
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+                        <TextBlock x:Name="ExportStartLabel" Text="" Grid.Row="0" Grid.Column="0"
+                                   Foreground="{StaticResource Brand.TextDim}" FontSize="11"
+                                   VerticalAlignment="Center" Margin="0,0,8,0"/>
+                        <DatePicker x:Name="StartDate" AutomationProperties.AutomationId="StartDate"
+                                    Grid.Row="0" Grid.Column="1" Margin="0,4,0,0"
+                                    Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
+                        <TextBox x:Name="StartTime" AutomationProperties.AutomationId="ExportStartTime"
+                                 Grid.Row="0" Grid.Column="2" Margin="6,4,0,0"
+                                 Text="00:00:00" VerticalContentAlignment="Center"
                                  Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
-                </DockPanel>
-                <DockPanel>
-                    <TextBlock x:Name="ExportBundleExpiryLabel" Text="" DockPanel.Dock="Left"
-                               Foreground="{StaticResource Brand.TextDim}" FontSize="11" VerticalAlignment="Center"/>
-                    <TextBox x:Name="BundleExpiryBox" AutomationProperties.AutomationId="BundleExpiryBox"
-                             Width="120" HorizontalAlignment="Right"
-                             Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="8,2"/>
-                </DockPanel>
-            </StackPanel>
+                        <TextBlock x:Name="ExportEndLabel" Text="" Grid.Row="1" Grid.Column="0"
+                                   Foreground="{StaticResource Brand.TextDim}" FontSize="11"
+                                   VerticalAlignment="Center" Margin="0,0,8,0"/>
+                        <DatePicker x:Name="EndDate" AutomationProperties.AutomationId="EndDate"
+                                    Grid.Row="1" Grid.Column="1" Margin="0,8,0,0"
+                                    Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
+                        <TextBox x:Name="EndTime" AutomationProperties.AutomationId="ExportEndTime"
+                                 Grid.Row="1" Grid.Column="2" Margin="6,8,0,0"
+                                 Text="23:59:59" VerticalContentAlignment="Center"
+                                 Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
+                    </Grid>
 
-            <!-- Status -->
-            <TextBlock x:Name="StatusText" AutomationProperties.AutomationId="StatusText"
-                       Foreground="{StaticResource Brand.TextDim}" FontSize="11"
-                       TextWrapping="Wrap" Margin="0,0,0,4"/>
-            <TextBlock x:Name="ResultText" AutomationProperties.AutomationId="ResultText"
-                       Foreground="#56C886" FontSize="11"
-                       TextWrapping="Wrap"/>
-        </StackPanel>
+                    <!-- Output folder -->
+                    <TextBlock x:Name="ExportOutputFolderLabel" Text="" Foreground="{StaticResource Brand.TextDim}" FontSize="11"
+                               Margin="0,12,0,0"/>
+                    <DockPanel Margin="0,4,0,12">
+                        <Button x:Name="BrowseButton" Content="" Click="OnBrowseClicked" ToolTip=""
+                                DockPanel.Dock="Right" Padding="12,6" Margin="6,0,0,0"
+                                Foreground="White" Background="#2A5C8A" BorderThickness="0" AutomationProperties.AutomationId="BrowseButton"/>
+                        <TextBox x:Name="OutputFolderBox" AutomationProperties.AutomationId="OutputFolderBox"
+                                 Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="8,4"/>
+                    </DockPanel>
 
-        <!-- Footer -->
-        <StackPanel Grid.Row="1" Margin="0,12,0,0">
-            <ProgressBar x:Name="ExportProgress" AutomationProperties.AutomationId="ExportProgress"
-                         Height="18" Minimum="0" Maximum="100" Value="0"
-                         Foreground="#2660AA" Background="#12233C" Margin="0,0,0,8"/>
-            <StackPanel Orientation="Horizontal">
-                <Button x:Name="ExportButton" AutomationProperties.AutomationId="ExportButton" ToolTip=""
-                        Content="" Click="OnExportClicked" IsDefault="True"
-                        Width="100" Padding="0,8"
-                        Foreground="White" Background="#2A5C8A" BorderThickness="0"/>
-                <Button x:Name="OpenFolderButton" AutomationProperties.AutomationId="OpenFolderButton"
-                        Content="" Click="OnOpenFolderClicked" ToolTip=""
-                        Width="100" Padding="0,8" Margin="8,0,0,0" IsEnabled="False"
-                        Foreground="White" Background="#2A7F6E" BorderThickness="0"/>
-                <Button x:Name="CloseButton" Content="" Click="OnCloseClicked" ToolTip="" IsCancel="True"
-                        Width="80" Padding="0,8" Margin="8,0,0,0"
-                        Foreground="White" Background="#3A3A5A" BorderThickness="0" AutomationProperties.AutomationId="CloseButton"/>
-            </StackPanel>
-        </StackPanel>
+                    <!-- Watermark: stretch so the optional text is fully visible while typing. -->
+                    <TextBlock x:Name="ExportWatermarkLabel" Text="" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+                    <TextBox x:Name="WatermarkBox" AutomationProperties.AutomationId="WatermarkBox"
+                             Margin="0,4,0,12"
+                             Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="8,4"/>
+
+                    <!-- SHA-256 -->
+                    <CheckBox x:Name="HashCheckBox" AutomationProperties.AutomationId="HashCheckBox"
+                              Content=""
+                              IsChecked="True" Foreground="White" Margin="0,0,0,8"/>
+
+                    <!-- Apply stored redaction regions -->
+                    <CheckBox x:Name="ApplyRedactionCheckBox" AutomationProperties.AutomationId="ApplyRedactionCheckBox"
+                              Content=""
+                              IsChecked="False" Foreground="White" Margin="0,0,0,8"/>
+
+                    <!-- Evidence bundle -->
+                    <CheckBox x:Name="BundleCheckBox" AutomationProperties.AutomationId="BundleCheckBox"
+                              Content=""
+                              IsChecked="False" Foreground="White" Margin="0,0,0,4"/>
+                    <StackPanel Margin="22,0,0,8"
+                                IsEnabled="{Binding ElementName=BundleCheckBox, Path=IsChecked}">
+                        <TextBlock x:Name="ExportBundlePasswordLabel" Text=""
+                                   Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+                        <PasswordBox x:Name="BundlePasswordBox" AutomationProperties.AutomationId="BundlePasswordBox"
+                                     Margin="0,4,0,8"
+                                     Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="8,2"/>
+                        <TextBlock x:Name="ExportBundleExpiryLabel" Text=""
+                                   Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+                        <TextBox x:Name="BundleExpiryBox" AutomationProperties.AutomationId="BundleExpiryBox"
+                                 Margin="0,4,0,0"
+                                 Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="8,2"/>
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
+            <!-- Right: progress, status and result -->
+            <Border Grid.Column="2" BorderBrush="#2A4A73" BorderThickness="1" Background="#0F1D2E">
+                <Grid Margin="16">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+
+                    <TextBlock x:Name="ExportStatusHeader" Text="" Foreground="{StaticResource Brand.TextDim}" FontSize="12"
+                               Margin="0,0,0,10"/>
+
+                    <ProgressBar x:Name="ExportProgress" AutomationProperties.AutomationId="ExportProgress"
+                                 Grid.Row="1"
+                                 Height="18" Minimum="0" Maximum="100" Value="0"
+                                 Foreground="#2660AA" Background="#12233C" Margin="0,0,0,12"/>
+
+                    <StackPanel Grid.Row="2">
+                        <TextBlock x:Name="StatusText" AutomationProperties.AutomationId="StatusText"
+                                   Foreground="{StaticResource Brand.TextDim}" FontSize="12"
+                                   TextWrapping="Wrap" Margin="0,0,0,8"/>
+                        <TextBlock x:Name="ResultText" AutomationProperties.AutomationId="ResultText"
+                                   Foreground="#56C886" FontSize="12"
+                                   TextWrapping="Wrap"/>
+                    </StackPanel>
+
+                    <StackPanel Grid.Row="3" Orientation="Horizontal">
+                        <Button x:Name="ExportButton" AutomationProperties.AutomationId="ExportButton" ToolTip=""
+                                Content="" Click="OnExportClicked" IsDefault="True"
+                                Width="120" Padding="0,8"
+                                Foreground="White" Background="#2A5C8A" BorderThickness="0"/>
+                        <Button x:Name="OpenFolderButton" AutomationProperties.AutomationId="OpenFolderButton"
+                                Content="" Click="OnOpenFolderClicked" ToolTip=""
+                                Width="120" Padding="0,8" Margin="8,0,0,0" IsEnabled="False"
+                                Foreground="White" Background="#2A7F6E" BorderThickness="0"/>
+                        <Button x:Name="CloseButton" Content="" Click="OnCloseClicked" ToolTip="" IsCancel="True"
+                                Width="100" Padding="0,8" Margin="8,0,0,0"
+                                Foreground="White" Background="#3A3A5A" BorderThickness="0" AutomationProperties.AutomationId="CloseButton"/>
+                    </StackPanel>
+                </Grid>
+            </Border>
+        </Grid>
     </Grid>
 </Window>

@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Diagnostics;
 using System.IO;
 using System.Windows;
+using System.Windows.Input;
 using HeliVMS.Recording;
 using HeliVMS.Shared.Models;
 using HeliVMS.Storage;
@@ -51,8 +52,14 @@ public partial class ExportWindow : Window
     private void ApplyI18n()
     {
         Title = Localizer.T("Export.Title");
+        HeaderTitle.Text = Localizer.T("Export.Title");
+        HeaderCloseButton.ToolTip = Localizer.T("Export.CloseTip");
+        ExportFormHeader.Text = Localizer.T("Export.FormHeader");
+        ExportStatusHeader.Text = Localizer.T("Export.StatusHeader");
         ExportChannelLabel.Text = Localizer.T("Export.Channel");
         ExportRangeLabel.Text = Localizer.T("Export.Range");
+        ExportStartLabel.Text = Localizer.T("Export.StartLabel");
+        ExportEndLabel.Text = Localizer.T("Export.EndLabel");
         ExportOutputFolderLabel.Text = Localizer.T("Export.OutputFolder");
         BrowseButton.Content = Localizer.T("Export.Browse");
         BrowseButton.ToolTip = Localizer.T("Export.BrowseTip");
@@ -233,6 +240,16 @@ public partial class ExportWindow : Window
     }
 
     private void OnCloseClicked(object sender, RoutedEventArgs e) => Close();
+
+    /// <summary>無邊框最大化視窗沒有系統標題列：Esc 是鍵盤出口（關閉鈕之外）。</summary>
+    private void OnPreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Escape)
+        {
+            e.Handled = true;
+            Close();
+        }
+    }
 
     /// <summary>在檔案總管中顯示上次成功匯出的檔案。</summary>
     private void OnOpenFolderClicked(object sender, RoutedEventArgs e)
