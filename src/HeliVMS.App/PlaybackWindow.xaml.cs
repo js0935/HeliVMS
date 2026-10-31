@@ -2157,7 +2157,6 @@ public partial class PlaybackWindow : Window
         }
     }
 
-    /// <summary>繪製時間軸：主時間列刻度＋當日色帶（M84/§8.5）——依 PlaybackTimeline L0 的 fractions 畫每段藍色區塊＋事件標記＋覆蓋率標籤，全部映射到目前的檢視窗。</summary>
     /// <summary>
     /// 通道色帶列（§8.5「色帶按通道橫向排列，多路同時比對一目了然」）：回放牆每一格
     /// （主＋次）在帶子上方各佔一排，畫該通道當日在檢視窗內的錄影涵蓋；焦點台那排再疊事件刻度。
@@ -2262,6 +2261,10 @@ public partial class PlaybackWindow : Window
     /// <summary>色帶列寬度跟窗走：視窗縮放後要照新寬度重畫，否則色條會停在舊寬度或整段縮在左邊。</summary>
     private void OnChannelBandsSizeChanged(object sender, SizeChangedEventArgs e) => RenderChannelBands();
 
+    /// <summary>
+    /// 繪製時間軸：主時間列刻度＋當日色帶（M84／§8.5）——依 PlaybackTimeline L0 的 fractions
+    /// 畫每段藍色區塊＋事件標記＋覆蓋率標籤，全部映射到目前的檢視窗。
+    /// </summary>
     private void RenderBlocks()
     {
         // 刻度畫在色帶上方的獨立 canvas，與資料有無無關：空資料的日子也要看得見時間刻度。
