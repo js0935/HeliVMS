@@ -55,16 +55,34 @@ public sealed class LiveTalkContractTests
             "點別台之前必須先把正在對講的那台停止（獨佔對講）。");
     }
 
+    /// <summary>
+    /// 麥克風裝置用對講視窗選的那一台；沒選過就自動挑第一支並存起來（不必先去別的視窗）。
+    /// </summary>
+    /// <remarks>
+    /// 現場回報的修正：開了對講、按了麥克風，卻被一句「沒開啟對講，或還沒選擇麥克風」擋回去——
+    /// 兩個原因混成一句，而且「叫你去別的視窗選」是一條死路。所以擋下的原因要拆開講
+    /// （沒開對講／沒有碼流／沒有麥克風），沒選過的麥克風要自動挑第一支並存起來。
+    /// </remarks>
     [Fact]
-    public void 麥克風裝置用對講視窗選的那一台()
+    public void 麥克風裝置自動挑選且擋下原因分開講()
     {
         var source = SourceContract.Read(Main);
         var build = SourceContract.BodyOf(source, "BuildTalkRequest");
 
-        // 頻道沒開對講、沒有碼流、沒選麥克風都不能送：按下去才發現不能用比不亮更糟。
+        // 頻道沒開對講、沒有碼流都不能送，而且各自要有看得到的原因。
         Assert.Contains("!channel.TalkEnabled", build);
-        Assert.Contains("TalkSettings.MicrophoneKey", build);
-        Assert.Contains("new TalkRequest(channelId, url", build);
+        Assert.Contains("_talkBlockReason = \"talk-channel-disabled\"", build);
+        Assert.Contains("_talkBlockReason = \"talk-no-stream\"", build);
+
+        // 沒選過的麥克風：自動挑第一支並存起來（否則每次按都被叫去別的視窗）。
+        Assert.Contains("MicrophoneCatalog.List()", SourceContract.BodyOf(source, "ResolveTalkMicrophone"));
+        Assert.Contains("settings.Set(TalkSettings.MicrophoneKey, devices[0])", build + SourceContract.BodyOf(source, "ResolveTalkMicrophone"));
+
+        // 提示列把三種擋下原因分開講，自動挑選的也要說明（選錯支時操作員才知道去哪裡換）。
+        var click = SourceContract.BodyOf(source, "OnCellTalkIconClicked");
+        Assert.Contains("talk-no-microphone", click);
+        Assert.Contains("talk-no-stream", click);
+        Assert.Contains("Main.TalkAutoMic", click);
 
         // 對講視窗把選擇存進同一個設定鍵（兩邊各記一份就會「這裡測得好好的、牆上按了沒聲音」）。
         var window = SourceContract.Read(TalkWindow);

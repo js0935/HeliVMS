@@ -3482,48 +3482,97 @@ public partial class MainWindow : Window
 
         if (talking)
         {
-            HintText.Text = string.Format(Localizer.T("Main.TalkStarted"), ChannelName(channelId));
+            HintText.Text = _talkAutoMicName is { } autoMic
+                ? string.Format(Localizer.T("Main.TalkAutoMic"), autoMic)
+                : string.Format(Localizer.T("Main.TalkStarted"), ChannelName(channelId));
+            return;
+        }
+
+        if (_talk.LastError == "talk-not-enabled")
+        {
+            // 被擋下的原因有很多種，混成一句話會讓操作員以為勾選沒生效：
+            // 沒開對講、沒有碼流、沒有麥克風，各自要往不同地方處理。
+            HintText.Text = _talkBlockReason switch
+            {
+                "talk-no-microphone" => Localizer.T("Talk.NoMicrophone"),
+                "talk-no-stream" => Localizer.T("Main.TalkNoStream"),
+                _ => Localizer.T("Main.TalkNotEnabled"),
+            };
             return;
         }
 
         if (_talk.LastError is { } reason)
         {
-            HintText.Text = reason switch
-            {
-                "talk-not-enabled" => Localizer.T("Main.TalkNotEnabled"),
-                _ => Localizer.T("Main.TalkFailed"),
-            };
+            HintText.Text = Localizer.T("Main.TalkFailed");
         }
     }
 
-    /// <summary>組出對講請求；這台沒開對講、沒有碼流或沒選麥克風時回 null。</summary>
+    /// <summary>對講被擋下的原因（給提示列說清楚是哪一步沒完成）。</summary>
+    private string? _talkBlockReason;
+
+    /// <summary>這次對講自動挑選的麥克風名稱（null＝用的是設定值或還沒挑）。</summary>
+    /// <remarks>提示列要說明「幫你選了哪一支、去哪裡換」，不能只給一個籠統的開始。</remarks>
+    private string? _talkAutoMicName;
+
+    /// <summary>組出對講請求；這台沒開對講、沒有碼流或沒有麥克風時回 null。</summary>
+    /// <remarks>
+    /// 麥克風沒選過時<b>自動挑主機的第一支錄音裝置並存起來</b>：先要求操作員去別的視窗
+    /// 選一次，等於「開了對講、按了麥克風，卻被叫去別處」，是一條死路。自動挑的要在
+    /// 提示列講明白（<see cref="_talkAutoMicName"/>），因為選錯支的症狀是現場聽得到
+    /// 聲音但不是操作員在講話。
+    /// </remarks>
     private TalkRequest? BuildTalkRequest(int channelId)
     {
+        _talkAutoMicName = null;
         if (_store is null)
         {
+            _talkBlockReason = "talk-no-microphone";
             return null;
         }
 
         var channel = _channelList.FirstOrDefault(c => c.Id == channelId);
         if (channel is null || !channel.TalkEnabled)
         {
+            _talkBlockReason = "talk-channel-disabled";
             return null;
         }
 
         var url = _manager?.ChannelSessionFor(channelId)?.RecordingUrl;
         if (string.IsNullOrWhiteSpace(url))
         {
+            _talkBlockReason = "talk-no-stream";
             return null;
         }
 
-        // 麥克風裝置在對講視窗選過就會存進設定；沒選過代表還不知道要用哪一支，寧可不送。
-        var microphone = new SettingsRepository(_store).Get(TalkSettings.MicrophoneKey);
+        var microphone = ResolveTalkMicrophone();
         if (string.IsNullOrWhiteSpace(microphone))
         {
+            _talkBlockReason = "talk-no-microphone";
             return null;
         }
 
         return new TalkRequest(channelId, url, string.Empty, null, null, microphone);
+    }
+
+    /// <summary>取得對講要用的麥克風：設定過用設定值，沒有就自動挑第一支並存起來。</summary>
+    private string? ResolveTalkMicrophone()
+    {
+        var settings = new SettingsRepository(_store!);
+        var chosen = settings.Get(TalkSettings.MicrophoneKey);
+        if (!string.IsNullOrWhiteSpace(chosen))
+        {
+            return chosen;
+        }
+
+        var devices = MicrophoneCatalog.List();
+        if (devices.Count == 0)
+        {
+            return null;   // 遠端桌面或真的沒接麥克風：說清楚，不猜。
+        }
+
+        _talkAutoMicName = devices[0];
+        settings.Set(TalkSettings.MicrophoneKey, devices[0]);
+        return devices[0];
     }
 
     /// <summary>
