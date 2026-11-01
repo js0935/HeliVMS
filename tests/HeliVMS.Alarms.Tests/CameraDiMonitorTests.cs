@@ -192,6 +192,48 @@ public sealed class CameraDiMonitorTests : IDisposable
         Assert.Equal(portId, map["DigitalInputToken_9"]);
     }
 
+    /// <summary>
+    /// 設定中心明確綁定的端子優先於端子號推測（與 DO 同一條規則）。
+    /// </summary>
+    /// <remarks>
+    /// 端子號是 1、綁定是 token_9：若綁定被忽略，A 門的信號會觸發 B 門的規則。
+    /// </remarks>
+    [Fact]
+    public void 綁定的端子優先於端子號推測()
+    {
+        var inputs = new List<OnvifInputRef>
+        {
+            new("DigitalInputToken_1", 1, "IN1"),
+            new("DigitalInputToken_9", 9, "IN9"),
+        };
+
+        var portId = _ports.Add(
+            _channelId, IoPortKind.Di, 1, "後門", IoPolarity.NormallyOpen, terminalToken: "DigitalInputToken_9");
+        var port = _ports.Get(portId)!;
+
+        Assert.Equal("DigitalInputToken_9", CameraDiMapping.TokenFor(port, inputs));
+        Assert.Equal(portId, CameraDiMapping.Build([port], inputs)["DigitalInputToken_9"]);
+    }
+
+    /// <summary>
+    /// 綁定失效時不再退回「猜一顆」，寧可少一個事件。
+    /// </summary>
+    /// <remarks>
+    /// 退回尾數規則會讓別顆端子的訊號驅動這個埠的規則——沒有例外、沒有日誌，
+    /// 只有事件裡出現一個從未發生過的門磁觸發。
+    /// </remarks>
+    [Fact]
+    public void 綁定失效時不會退回端子號推測()
+    {
+        var inputs = new List<OnvifInputRef> { new("DigitalInputToken_1", 1, "IN1") };
+        var portId = _ports.Add(
+            _channelId, IoPortKind.Di, 1, "後門", IoPolarity.NormallyOpen, terminalToken: "DigitalInputToken_99");
+        var port = _ports.Get(portId)!;
+
+        Assert.Null(CameraDiMapping.TokenFor(port, inputs));
+        Assert.False(CameraDiMapping.Build([port], inputs).ContainsKey("DigitalInputToken_1"));
+    }
+
     [Fact]
     public void 沒有線索時以端子號當一起算序號並在超出時回空()
     {

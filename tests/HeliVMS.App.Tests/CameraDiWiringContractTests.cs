@@ -35,8 +35,8 @@ public sealed class CameraDiWiringContractTests
         // 數位輸入解讀共用裝置層那份，App 不再自己解析 XML。
         Assert.Contains("OnvifDeviceService.TryParseDigitalInput(", source);
 
-        // 憑證解析與其他 ONVIF 路徑一致。
-        Assert.Contains("DeviceRepository.SafeUnprotect(", source);
+        // 憑證解析與其他 ONVIF 路徑一致（共用的建立點，不是各自一份）。
+        Assert.Contains("OnvifServiceFactory.Create(", source);
 
         // 只監視「有綁定設備且有 DI 埠」的頻道：訂閱是持續連線，不對沒接線的設備開著。
         Assert.Contains("IoPortKind.Di", source);

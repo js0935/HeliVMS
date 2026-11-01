@@ -28,8 +28,8 @@ public sealed class IoOutputWiringContractTests
         Assert.Contains("SetRelayOutputStateAsync(", source);
 
         // 憑證解析與 Web API gateway 同一條路徑：SafeUnprotect（舊資料可能是明文）。
-        Assert.Contains("DeviceRepository.SafeUnprotect(", source);
-        Assert.Contains("/onvif/device_service", source);
+        // 位址與憑證只剩 SettingsIoCameraContractTests 釘住的共用建立點一份。
+        Assert.Contains("OnvifServiceFactory.Create(", source);
 
         // 失敗要讓操作員看得到（DO 失敗不再靜默）。
         Assert.Contains("OnvifIoOutputWriter", source);

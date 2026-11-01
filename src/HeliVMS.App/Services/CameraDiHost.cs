@@ -170,17 +170,11 @@ public sealed class CameraDiHost : IDisposable
     }
 
     /// <summary>
-    /// 以設備的 ONVIF 位址與憑證建立服務；憑證走 SafeUnprotect（舊資料可能是明文），
-    /// 與 Web API 的 IO gateway、IoWindow 的 DO 寫入器同一條解析路徑。
+    /// 以設備資料建立 ONVIF 服務；位址與憑證解析集中在 <see cref="OnvifServiceFactory"/>
+    /// （與 Web API 的 IO gateway、設定中心、IoWindow 的 DO 寫入器同一條路徑）。
     /// </summary>
     private static OnvifDeviceService CreateService(DeviceRecord device)
-    {
-        var host = $"http://{device.Ip}:{device.Port}/onvif/device_service";
-        var password = string.IsNullOrWhiteSpace(device.PasswordEncrypted)
-            ? null
-            : DeviceRepository.SafeUnprotect(device.PasswordEncrypted);
-        return new OnvifDeviceService(host, device.Username, password);
-    }
+        => OnvifServiceFactory.Create(device);
 
     public void Dispose()
     {

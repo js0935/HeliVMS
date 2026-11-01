@@ -907,6 +907,7 @@ public sealed class SqliteStore : IDisposable
                 polarity     TEXT    NOT NULL DEFAULT 'normally_open',
                 debounce_ms  INTEGER NOT NULL DEFAULT 0,
                 enabled      INTEGER NOT NULL DEFAULT 1,
+                terminal_token TEXT,
                 UNIQUE (channel_id, kind, number)
             );
             CREATE TABLE IF NOT EXISTS io_rules (
@@ -1056,6 +1057,7 @@ public sealed class SqliteStore : IDisposable
         EnsureColumn("segments", "checked_at_utc", "TEXT");
         EnsureColumn("segments", "tier", "TEXT NOT NULL DEFAULT 'hot'");
         EnsureColumn("segments", "origin_path", "TEXT");
+        EnsureColumn("io_ports", "terminal_token", "TEXT");
 
         // 這兩個部分索引以 checked_at_utc 為條件，欄位剛補上時才建得起來；
         // 少了它們，抽驗進度查詢會退回整表掃描（見 AddSegmentCheckedAtV54 的說明）。

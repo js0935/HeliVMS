@@ -148,6 +148,48 @@ public sealed class OnvifIoOutputWriterTests : IDisposable
         Assert.Null(OnvifIoOutputWriter.RelayTokenFor(_ports.Get(thirdId)!, relays));
     }
 
+    /// <summary>
+    /// 設定中心明確綁定的端子優先於端子號推測。
+    /// </summary>
+    /// <remarks>
+    /// 案例刻意讓兩者給出不同答案：端子號是 1（尾數規則會選 token_1），
+    /// 但操作員把這個埠綁到 token_9。若綁定被忽略，這裡會切換錯的閘門——
+    /// 而且畫面上完全看不出來，只有到現場才發現開的是另一道門。
+    /// </remarks>
+    [Fact]
+    public async Task 綁定的端子優先於端子號推測()
+    {
+        _relays = [new("RelayOutputToken_1", "大門"), new("RelayOutputToken_9", "後門")];
+        var doPort = _ports.Add(
+            _channelId, IoPortKind.Do, 1, "後門警燈", IoPolarity.NormallyOpen, terminalToken: "RelayOutputToken_9");
+
+        await Writer().WriteAsync(doPort, logicalOn: true);
+
+        Assert.Equal("RelayOutputToken_9", Assert.Single(_switches).Token);
+    }
+
+    /// <summary>
+    /// 綁定失效時不再退回「猜一顆」，寧可什麼都不做。
+    /// </summary>
+    /// <remarks>
+    /// 端子被改名、換型號、或攝影機回報的清單改變時，舊權杖就對不上了。退回尾數規則
+    /// 會「成功地」驅動另一顆繼電器——比失敗更糟，因為沒有任何錯誤可追。回 null 至少
+    /// 會留下 <c>relay-not-found</c> 與稽核，操作員知道要重新綁定。
+    /// </remarks>
+    [Fact]
+    public async Task 綁定失效時不會退回端子號推測()
+    {
+        _relays = [new("RelayOutputToken_1", "大門")];
+        var doPort = _ports.Add(
+            _channelId, IoPortKind.Do, 1, "後門警燈", IoPolarity.NormallyOpen, terminalToken: "RelayOutputToken_99");
+        var writer = Writer();
+
+        await writer.WriteAsync(doPort, logicalOn: true);
+
+        Assert.Empty(_switches);
+        Assert.Equal("relay-not-found", writer.LastError);
+    }
+
     [Fact]
     public void 尾數解析只看結尾數字()
     {

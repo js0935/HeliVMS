@@ -208,6 +208,86 @@ public class SensorIoTests : IDisposable
         Assert.Null(engine.GetInputState(portId));
     }
 
+    // ── 攝影機端子綁定（設定中心 IO 頁）──────────────────────────────────
+    // 為什麼要「明確綁定」：ONVIF 的端子權杖是不透明字串，先前只能靠端子號猜對應；
+    // 猜錯就是驅動錯的閘門，或讓 A 端子的訊號觸發 B 端子的規則。這裡釘住綁定的
+    // 往返、查詢與冪等性——設定頁的按鈕會被連按，也可能對同一端子重複按。
+
+    [Fact]
+    public void 建立埠時可一併記下攝影機端子權杖並讀回()
+    {
+        var id = _ports.Add(
+            1, IoPortKind.Do, 1, "閘門", IoPolarity.NormallyOpen, terminalToken: "RelayOutputToken_7");
+
+        Assert.Equal("RelayOutputToken_7", _ports.Get(id)!.TerminalToken);
+        Assert.Equal("RelayOutputToken_7", Assert.Single(_ports.List()).TerminalToken);
+        Assert.Equal("RelayOutputToken_7", Assert.Single(_ports.ListByChannel(1)).TerminalToken);
+    }
+
+    [Fact]
+    public void 未指定端子權杖時存成空字串而不是null()
+    {
+        var id = AddDo();
+
+        // 空字串＝未綁定；若存成 null，記錄型別的非空字串欄位會在讀取時擲例外
+        // （SQLite 的 DBNull 沒有字串可給），播放／IO 頁會整頁空白。
+        Assert.Equal(string.Empty, _ports.Get(id)!.TerminalToken);
+    }
+
+    [Fact]
+    public void 端子綁定可依權杖找回同一個埠()
+    {
+        var id = _ports.Add(1, IoPortKind.Di, 1, "門磁", IoPolarity.NormallyOpen, terminalToken: "DigitalInputToken_1");
+
+        Assert.Equal(id, _ports.FindByTerminal(1, IoPortKind.Di, "DigitalInputToken_1")!.Id);
+
+        // 不同頻道／不同方向／空白權杖都不該命中：權杖只在同一台攝影機的同一種端子上有意義。
+        Assert.Null(_ports.FindByTerminal(2, IoPortKind.Di, "DigitalInputToken_1"));
+        Assert.Null(_ports.FindByTerminal(1, IoPortKind.Do, "DigitalInputToken_1"));
+        Assert.Null(_ports.FindByTerminal(1, IoPortKind.Di, "  "));
+    }
+
+    [Fact]
+    public void 同一個端子重複綁定不會多出第二個埠()
+    {
+        var (firstId, firstCreated) = _ports.EnsureForTerminal(1, IoPortKind.Di, 1, "門磁", "DigitalInputToken_1");
+        var (secondId, secondCreated) = _ports.EnsureForTerminal(1, IoPortKind.Di, 1, "門磁", "DigitalInputToken_1");
+
+        Assert.True(firstCreated);
+        Assert.False(secondCreated);
+        Assert.Equal(firstId, secondId);
+        Assert.Single(_ports.List());
+    }
+
+    [Fact]
+    public void 端子號已被別的埠佔用時綁定會沿用那一個而不是新增()
+    {
+        // 操作員可能先在「IO 通道」頁手動建了端子 1，之後才到攝影機區塊綁定；
+        // (channel, kind, number) 有唯一鍵，硬新增會擲例外並讓整個綁定看起來失敗。
+        var existing = AddDi(1, "手動建立的門磁");
+
+        var (id, created) = _ports.EnsureForTerminal(1, IoPortKind.Di, 1, "裝置回報的名稱", "DigitalInputToken_1");
+
+        Assert.False(created);
+        Assert.Equal(existing, id);
+        Assert.Equal("DigitalInputToken_1", _ports.Get(existing)!.TerminalToken);
+        Assert.Equal("手動建立的門磁", _ports.Get(existing)!.Name);   // 名稱不覆寫操作員取的
+    }
+
+    [Fact]
+    public void 解除綁定不會刪掉埠與它的規則()
+    {
+        var di = _ports.Add(1, IoPortKind.Di, 1, "門磁", IoPolarity.NormallyOpen, terminalToken: "DigitalInputToken_1");
+        var doPort = AddDo();
+        _rules.Add(di, IoActionKind.ToggleDo, doPort, null, 0, true);
+
+        _ports.SetTerminalToken(di, null);
+
+        Assert.Equal(string.Empty, _ports.Get(di)!.TerminalToken);
+        Assert.Null(_ports.FindByTerminal(1, IoPortKind.Di, "DigitalInputToken_1"));
+        Assert.Single(_rules.List());
+    }
+
     private IoRuleEngine MakeEngine()
         => new(_ports.List(), _rules.List());
 

@@ -3,6 +3,7 @@ using System.Globalization;
 using System.Windows;
 using System.Windows.Controls;
 using HeliVMS.Alarms;
+using HeliVMS.App.Services;
 using HeliVMS.Devices.Onvif;
 using HeliVMS.Shared.Models;
 using HeliVMS.Storage;
@@ -192,18 +193,12 @@ public partial class IoWindow : Window
     }
 
     /// <summary>
-    /// 以設備的 ONVIF 位址與憑證建立服務。
-    /// 以 <see cref="DeviceRepository.SafeUnprotect"/> 而非 Unprotect：舊資料可能是明文或
-    /// 由其他機器加密，直接解密會擲例外而讓整個 IO 動作失敗（與 Web API 的 gateway 一致）。
+    /// 以設備資料建立 ONVIF 服務；位址與憑證解析集中在
+    /// <see cref="OnvifServiceFactory"/>（設定中心、DI 監視器與這裡共用一份，
+    /// 少一處忘了 SafeUnprotect 就會變成「只有這個功能連不上」）。
     /// </summary>
     private static OnvifDeviceService CreateOnvifService(DeviceRecord device)
-    {
-        var host = $"http://{device.Ip}:{device.Port}/onvif/device_service";
-        var password = string.IsNullOrWhiteSpace(device.PasswordEncrypted)
-            ? null
-            : DeviceRepository.SafeUnprotect(device.PasswordEncrypted);
-        return new OnvifDeviceService(host, device.Username, password);
-    }
+        => OnvifServiceFactory.Create(device);
 
     private IoPortRecord? SelectedDi()
     {

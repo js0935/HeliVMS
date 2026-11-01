@@ -126,6 +126,15 @@ public sealed class OnvifIoOutputWriter : IIoOutputWriter
         ArgumentNullException.ThrowIfNull(port);
         ArgumentNullException.ThrowIfNull(relays);
 
+        // 設定中心明確綁定的端子優先，而且只認那一個：綁定的權杖若已不在設備清單上
+        // （換型號、端子被改名），一律回 null——絕不能退回「猜一個」，那會驅動錯的繼電器。
+        if (!string.IsNullOrWhiteSpace(port.TerminalToken))
+        {
+            return relays.Any(r => string.Equals(r.Token, port.TerminalToken, StringComparison.OrdinalIgnoreCase))
+                ? relays.First(r => string.Equals(r.Token, port.TerminalToken, StringComparison.OrdinalIgnoreCase)).Token
+                : null;
+        }
+
         foreach (var relay in relays)
         {
             if (string.Equals(relay.Token, port.Name, StringComparison.OrdinalIgnoreCase))

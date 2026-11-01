@@ -1,5 +1,6 @@
 ﻿using System.Globalization;
 using System.IO;
+using System.Net.Http;
 using System.Reflection;
 using System.Windows;
 using System.Windows.Controls;
@@ -9,6 +10,7 @@ using System.Windows.Media.Imaging;
 using System.Windows.Shapes;
 using HeliVMS.Alarms;
 using HeliVMS.App.Services;
+using HeliVMS.Devices.Onvif;
 using HeliVMS.Licensing;
 using HeliVMS.Media;
 using HeliVMS.Recording;
@@ -49,6 +51,23 @@ public partial class SettingsWindow : Window
 
     /// <summary>IO 通道頁顯示列。</summary>
     private sealed record IoChannelRow(int Id, string Direction, int IoIndex, string Name, string EnabledLabel, string NcLabel, int DebounceMs, string CameraLabel);
+
+    /// <summary>
+    /// 攝影機乾接點端子列（設定中心 IO 頁）：設備上實際存在的一個 DI 或 DO 端子，
+    /// 以及它是否已經綁到系統的埠（<c>io_ports</c>）。
+    /// </summary>
+    /// <remarks>
+    /// <c>Number</c> 是要寫進 <c>io_ports.number</c> 的端子號（DI 優先用設備給的 Id）：
+    /// 埠的唯一鍵是 <c>(channel, kind, number)</c>，沒有號碼就建不了埠。
+    /// </remarks>
+    private sealed record IoCamTerminalRow(
+        string Direction,
+        string Token,
+        string Name,
+        string BoundLabel,
+        IoPortKind Kind,
+        int Number,
+        bool Bound);
     private sealed record MapRow(int Id, string Name, string SizeLabel, string EnabledLabel, int SortOrder, string ScaleLabel);
     private sealed record MapPinRow(int Id, string DeviceType, int ChannelId, string PositionLabel, string AngleLabel, string FovLabel, string DepthLabel, string BearingLabel, string EnabledLabel, string Name);
     private sealed record UserRow(int Id, string Username, string Role, string EnabledLabel, string FailedLabel, string LastLoginLabel);
@@ -75,7 +94,20 @@ public partial class SettingsWindow : Window
     private List<RecordingStorage.RecordingDiskDto> _diskConfig = [];
     private readonly AlertRuleRepository _rules;
     private readonly IoRepository _io;
+    private readonly IoPortRepository _ports;
     private readonly IoMonitorHost? _ioHost;
+
+    /// <summary>
+    /// 攝影機 DI 監視主機（規則鏈與事件訂閱）。在這一頁綁定／解除端子後要叫它重掃，
+    /// 否則要等到程式重啟才會開始（或停止）監視那個端子。
+    /// </summary>
+    private readonly CameraDiHost? _cameraDiHost;
+
+    /// <summary>攝影機乾接點清單的快取（重新整理時只重算「已綁定」欄，不必再問一次設備）。</summary>
+    private List<IoCamTerminalRow> _ioCamTerminals = [];
+
+    private readonly ChannelRepository _channels;
+    private readonly DeviceRepository _devices;
     private readonly MapRepository _maps;
     private readonly string _mapsRoot;
     private readonly UserRepository _users;
@@ -101,6 +133,7 @@ public partial class SettingsWindow : Window
         SqliteStore store,
         string dataRoot,
         IoMonitorHost? ioHost = null,
+        CameraDiHost? cameraDiHost = null,
         ShareHost? shareHost = null,
         ChannelManager? manager = null,
         PatrolHostService? patrolHost = null,
@@ -118,7 +151,11 @@ public partial class SettingsWindow : Window
         _snapshotsRoot = Path.Combine(dataRoot, "snapshots");
         _rules = new AlertRuleRepository(store);
         _io = new IoRepository(store);
+        _ports = new IoPortRepository(store);
         _ioHost = ioHost;
+        _cameraDiHost = cameraDiHost;
+        _channels = new ChannelRepository(store);
+        _devices = new DeviceRepository(store, new AuditLogRepository(store));
         _maps = new MapRepository(store);
         _mapsRoot = Path.Combine(dataRoot, "maps");
         _users = new UserRepository(store);
@@ -577,6 +614,22 @@ public partial class SettingsWindow : Window
         DoOnButton.ToolTip = Localizer.T("Settings.DoOnTip");
         DoOffButton.ToolTip = Localizer.T("Settings.DoOffTip");
         IoDoHint.Text = Localizer.T("Settings.IoDoHint");
+        IoCamHeading.Text = Localizer.T("Settings.IoCamHeading");
+        IoCamDesc.Text = Localizer.T("Settings.IoCamDesc");
+        IoCamReadButton.Content = Localizer.T("Settings.IoCamRead");
+        IoCamReadButton.ToolTip = Localizer.T("Settings.IoCamReadTip");
+        IoCamColDirection.Header = Localizer.T("Settings.IoColDirection");
+        IoCamColTerminal.Header = Localizer.T("Settings.IoCamColTerminal");
+        IoCamColName.Header = Localizer.T("Settings.IoCamColName");
+        IoCamColBound.Header = Localizer.T("Settings.IoCamColBound");
+        IoCamBindButton.Content = Localizer.T("Settings.IoCamBind");
+        IoCamBindButton.ToolTip = Localizer.T("Settings.IoCamBindTip");
+        IoCamUnbindButton.Content = Localizer.T("Settings.IoCamUnbind");
+        IoCamUnbindButton.ToolTip = Localizer.T("Settings.IoCamUnbindTip");
+        IoCamOnButton.ToolTip = Localizer.T("Settings.DoOnTip");
+        IoCamOffButton.ToolTip = Localizer.T("Settings.DoOffTip");
+        IoCamHint.Text = Localizer.T("Settings.IoCamHint");
+        IoCamCombo.ToolTip = Localizer.T("Settings.IoCamComboTip");
 
         // 地圖
         MapTitle.Text = Localizer.T("Settings.MapTitle");
@@ -1449,6 +1502,7 @@ public partial class SettingsWindow : Window
 
         ReloadIoCameraCombo();
         ReloadIoChannels();
+        ReloadIoCameras();
     }
 
     private void ReloadIoCameraCombo()
@@ -1698,6 +1752,304 @@ public partial class SettingsWindow : Window
         IoDoStatusText.Text = ok
             ? string.Format(Localizer.T("Settings.DoSet"), chId, on ? "ON" : "OFF")
             : Localizer.T("Settings.DoWriteFailed");
+    }
+
+    // ── 攝影機乾接點（ONVIF）──────────────────────────────────────────────
+    // 為什麼放在設定中心：攝影機的 DI/DO 屬於「有哪些端子、哪個端子接到哪個埠」的設定，
+    // 與 IO 模組同類。先前只有一個獨立的模擬視窗，而且端子對應只能靠端子號猜——猜錯
+    // 就是驅動錯的閘門、或讓 A 端子的訊號觸發 B 端子的規則。這裡讓操作員直接看見設備
+    // 實際回報的端子，並把「這個端子就是那個埠」明確存進 io_ports.terminal_token。
+
+    /// <summary>目前選取的攝影機（頻道）與其綁定的設備；未綁定設備或沒選→null。</summary>
+    private (int ChannelId, DeviceRecord Device)? SelectedIoCamera()
+    {
+        if (IoCamCombo.SelectedItem is not ComboBoxItem { Tag: int channelId })
+        {
+            return null;
+        }
+
+        var channel = _channels.List().FirstOrDefault(c => c.Id == channelId);
+        if (channel?.DeviceId is not int deviceId)
+        {
+            return null;
+        }
+
+        var device = _devices.Get(deviceId);
+        return device is null ? null : (channelId, device);
+    }
+
+    /// <summary>重載攝影機下拉：只列「已綁定 ONVIF 設備」的頻道（沒設備就沒有端子可讀）。</summary>
+    private void ReloadIoCameras()
+    {
+        var previous = IoCamCombo.SelectedItem is ComboBoxItem { Tag: int prev } ? prev : (int?)null;
+        IoCamCombo.Items.Clear();
+
+        foreach (var channel in _channels.List())
+        {
+            if (channel.DeviceId is not int deviceId)
+            {
+                continue;
+            }
+
+            var device = _devices.Get(deviceId);
+            if (device is null)
+            {
+                continue;
+            }
+
+            IoCamCombo.Items.Add(new ComboBoxItem
+            {
+                Content = $"{channel.Name}（{device.Name}）",
+                Tag = channel.Id,
+            });
+        }
+
+        if (IoCamCombo.Items.Count == 0)
+        {
+            _ioCamTerminals = [];
+            IoCamTerminalList.ItemsSource = null;
+            return;
+        }
+
+        // 重載後選回原本那一台：這個方法會被 ReloadIo() 反覆呼叫，每次都跳回第一台的話，
+        // 操作員剛選好的攝影機會在新增模組、切換頁籤後來自己變掉。
+        var index = 0;
+        for (var i = 0; i < IoCamCombo.Items.Count; i++)
+        {
+            if (IoCamCombo.Items[i] is ComboBoxItem { Tag: int id } && id == previous)
+            {
+                index = i;
+                break;
+            }
+        }
+
+        IoCamCombo.SelectedIndex = index;
+        ReloadIoCamTerminals();
+    }
+
+    /// <summary>重算每個端子的「已綁定」欄（只查資料庫，不再問設備）。</summary>
+    private void ReloadIoCamTerminals()
+    {
+        var selected = (IoCamTerminalList.SelectedItem as IoCamTerminalRow)?.Token;
+        var camera = SelectedIoCamera();
+        var rows = new List<IoCamTerminalRow>(_ioCamTerminals.Count);
+
+        foreach (var row in _ioCamTerminals)
+        {
+            var port = camera is { } cam ? _ports.FindByTerminal(cam.ChannelId, row.Kind, row.Token) : null;
+            rows.Add(row with
+            {
+                Bound = port is not null,
+                BoundLabel = port is null
+                    ? Localizer.T("Settings.IoCamUnbound")
+                    : string.Format(CultureInfo.InvariantCulture, Localizer.T("Settings.IoCamBoundPort"), port.Id),
+            });
+        }
+
+        IoCamTerminalList.ItemsSource = rows;
+
+        if (selected is not null)
+        {
+            IoCamTerminalList.SelectedItem = rows.FirstOrDefault(r => r.Token == selected);
+        }
+    }
+
+    private void OnIoCamComboChanged(object sender, SelectionChangedEventArgs e)
+    {
+        // 換攝影機就換一組端子：留著上一台的清單會讓「綁定為埠」把 A 台的權杖寫到 B 台。
+        if (!ReferenceEquals(e.OriginalSource, IoCamCombo))
+        {
+            return;
+        }
+
+        _ioCamTerminals = [];
+        IoCamTerminalList.ItemsSource = null;
+        IoCamStatusText.Text = " ";
+    }
+
+    private async void OnIoCamReadClicked(object sender, RoutedEventArgs e)
+    {
+        if (SelectedIoCamera() is not { } camera)
+        {
+            IoCamStatusText.Text = Localizer.T("Settings.IoCamNoCamera");
+            return;
+        }
+
+        IoCamReadButton.IsEnabled = false;
+        try
+        {
+            using var service = OnvifServiceFactory.Create(camera.Device);
+            var terminals = new List<IoCamTerminalRow>();
+            var failures = new List<string>();
+
+            try
+            {
+                var inputs = await service.GetDigitalInputsAsync();
+                for (var i = 0; i < inputs.Count; i++)
+                {
+                    var input = inputs[i];
+                    var number = input.Id > 0
+                        ? input.Id
+                        : OnvifIoOutputWriter.TrailingNumber(input.Token) ?? i + 1;
+                    terminals.Add(new IoCamTerminalRow(
+                        "DI",
+                        input.Token,
+                        string.IsNullOrWhiteSpace(input.Name) ? input.Token : input.Name,
+                        "",
+                        IoPortKind.Di,
+                        number,
+                        false));
+                }
+            }
+            catch (Exception ex) when (ex is OnvifException or HttpRequestException or TaskCanceledException)
+            {
+                // 只支援 DI 不支援 DO（或反之）的設備很常見：兩邊分開讀，一邊失敗不影響另一邊。
+                failures.Add(string.Format(
+                    CultureInfo.InvariantCulture, Localizer.T("Settings.IoCamInputsFailed"), ex.Message));
+            }
+
+            try
+            {
+                var relays = await service.GetRelayOutputsAsync();
+                for (var i = 0; i < relays.Count; i++)
+                {
+                    var relay = relays[i];
+                    var number = OnvifIoOutputWriter.TrailingNumber(relay.Token)
+                        ?? OnvifIoOutputWriter.TrailingNumber(relay.Name)
+                        ?? i + 1;
+                    terminals.Add(new IoCamTerminalRow(
+                        "DO",
+                        relay.Token,
+                        string.IsNullOrWhiteSpace(relay.Name) ? relay.Token : relay.Name,
+                        "",
+                        IoPortKind.Do,
+                        number,
+                        false));
+                }
+            }
+            catch (Exception ex) when (ex is OnvifException or HttpRequestException or TaskCanceledException)
+            {
+                failures.Add(string.Format(
+                    CultureInfo.InvariantCulture, Localizer.T("Settings.IoCamOutputsFailed"), ex.Message));
+            }
+
+            _ioCamTerminals = terminals;
+            ReloadIoCamTerminals();
+
+            IoCamStatusText.Text = string.Format(
+                CultureInfo.InvariantCulture,
+                Localizer.T("Settings.IoCamReadOk"),
+                terminals.Count(r => r.Kind == IoPortKind.Di),
+                terminals.Count(r => r.Kind == IoPortKind.Do));
+            if (failures.Count > 0)
+            {
+                IoCamStatusText.Text = $"{IoCamStatusText.Text} {string.Join(" ", failures)}";
+            }
+        }
+        catch (Exception ex) when (ex is OnvifException or HttpRequestException or TaskCanceledException)
+        {
+            IoCamStatusText.Text = string.Format(
+                CultureInfo.InvariantCulture, Localizer.T("Settings.IoCamReadFailed"), ex.Message);
+        }
+        finally
+        {
+            IoCamReadButton.IsEnabled = true;
+        }
+    }
+
+    private void OnIoCamBindClicked(object sender, RoutedEventArgs e)
+    {
+        if (SelectedIoCamera() is not { } camera)
+        {
+            IoCamStatusText.Text = Localizer.T("Settings.IoCamNoCamera");
+            return;
+        }
+
+        if (IoCamTerminalList.SelectedItem is not IoCamTerminalRow row)
+        {
+            IoCamStatusText.Text = Localizer.T("Settings.IoCamSelectTerminal");
+            return;
+        }
+
+        var (id, created) = _ports.EnsureForTerminal(camera.ChannelId, row.Kind, row.Number, row.Name, row.Token);
+        ReloadIoCamTerminals();
+
+        // DI 綁定後要讓監視主機重掃，否則新的端子要等程式重啟才開始進事件。
+        _cameraDiHost?.RefreshAndStart();
+
+        IoCamStatusText.Text = created
+            ? string.Format(CultureInfo.InvariantCulture, Localizer.T("Settings.IoCamBound"), row.Token, id)
+            : string.Format(CultureInfo.InvariantCulture, Localizer.T("Settings.IoCamRebound"), row.Token, id);
+    }
+
+    private void OnIoCamUnbindClicked(object sender, RoutedEventArgs e)
+    {
+        if (SelectedIoCamera() is not { } camera)
+        {
+            IoCamStatusText.Text = Localizer.T("Settings.IoCamNoCamera");
+            return;
+        }
+
+        if (IoCamTerminalList.SelectedItem is not IoCamTerminalRow row)
+        {
+            IoCamStatusText.Text = Localizer.T("Settings.IoCamSelectTerminal");
+            return;
+        }
+
+        var port = _ports.FindByTerminal(camera.ChannelId, row.Kind, row.Token);
+        if (port is null)
+        {
+            IoCamStatusText.Text = Localizer.T("Settings.IoCamUnboundNone");
+            return;
+        }
+
+        // 只解除端子綁定，不刪埠：埠上可能還掛著動作鏈規則，刪掉會一起帶走。
+        _ports.SetTerminalToken(port.Id, null);
+        ReloadIoCamTerminals();
+        _cameraDiHost?.RefreshAndStart();
+        IoCamStatusText.Text = string.Format(
+            CultureInfo.InvariantCulture, Localizer.T("Settings.IoCamUnboundDone"), row.Token);
+    }
+
+    private async void OnIoCamDoClicked(object sender, RoutedEventArgs e)
+    {
+        if (SelectedIoCamera() is not { } camera)
+        {
+            IoCamStatusText.Text = Localizer.T("Settings.IoCamNoCamera");
+            return;
+        }
+
+        if (IoCamTerminalList.SelectedItem is not IoCamTerminalRow row)
+        {
+            IoCamStatusText.Text = Localizer.T("Settings.IoCamSelectTerminal");
+            return;
+        }
+
+        if (row.Kind != IoPortKind.Do)
+        {
+            IoCamStatusText.Text = Localizer.T("Settings.IoCamNotDo");
+            return;
+        }
+
+        if (sender is not Button button)
+        {
+            return;
+        }
+
+        var on = string.Equals(button.Tag?.ToString(), "true", StringComparison.OrdinalIgnoreCase);
+        try
+        {
+            using var service = OnvifServiceFactory.Create(camera.Device);
+            await service.SetRelayOutputStateAsync(row.Token, on);
+            IoCamStatusText.Text = string.Format(
+                CultureInfo.InvariantCulture, Localizer.T("Settings.IoCamDoSet"), row.Token, on ? "ON" : "OFF");
+        }
+        catch (Exception ex) when (ex is OnvifException or HttpRequestException or TaskCanceledException)
+        {
+            // 攝影機連不上或權杖已失效：把原因說出來，不要讓按鈕看起來「按了沒反應」。
+            IoCamStatusText.Text = string.Format(
+                CultureInfo.InvariantCulture, Localizer.T("Settings.IoCamDoFailed"), ex.Message);
+        }
     }
 
     private static string FormatRuleChannels(string? channels)

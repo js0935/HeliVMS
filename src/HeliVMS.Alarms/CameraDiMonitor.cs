@@ -52,6 +52,15 @@ public static class CameraDiMapping
         ArgumentNullException.ThrowIfNull(port);
         ArgumentNullException.ThrowIfNull(inputs);
 
+        // 與繼電器輸出同一條規則：設定中心綁定的端子優先，綁定失效就回 null，
+        // 不退回猜測——寧可少一個事件，也不要讓 A 端子的訊號觸發 B 端子的規則。
+        if (!string.IsNullOrWhiteSpace(port.TerminalToken))
+        {
+            return inputs.Any(i => string.Equals(i.Token, port.TerminalToken, StringComparison.OrdinalIgnoreCase))
+                ? port.TerminalToken
+                : null;
+        }
+
         foreach (var input in inputs)
         {
             if (string.Equals(input.Token, port.Name, StringComparison.OrdinalIgnoreCase))

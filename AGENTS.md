@@ -436,3 +436,22 @@ Notes that will save you time:
   events. Guarded by `重新加入攝影機時仍是設備舊值的頻道會一起換成新碼流`,
   `手動改過碼流的頻道不會被重新探索覆蓋`, `套用變更會把新碼流回寫攝影機並傳播` and
   `重新取得碼流按鈕存在並用綁定攝影機開啟精靈`.
+- **A camera dry contact is a token, not a terminal number — bind it explicitly.** ONVIF exposes
+  DI/DO as opaque strings (`RelayOutputToken_1`, `DigitalInputToken_2`); the old mapping guessed by
+  trailing number, then by 1-based list position. A camera that reports `Profile101/102/103`-style
+  names, or that reorders its list after a firmware update, made the guess silently pick a different
+  relay: A-terminal signals drove B-terminal rules, and the only visible symptom was a gate opening
+  that nobody had configured. `io_ports.terminal_token` now records the operator's explicit binding
+  and `OnvifIoOutputWriter.RelayTokenFor`/`CameraDiMapping.TokenFor` honour **only** that token when
+  it is set — if the token is gone from the device list they return `null` instead of falling back to
+  guessing, because a wrong action is worse than no action (it leaves `relay-not-found` and an audit
+  row). With no binding the old three-step rule still applies. Settings centre → IO
+  (`IoCam*` in `SettingsWindow`) is the only place that writes the binding:
+  `IoPortRepository.EnsureForTerminal` is idempotent, reuses a port that already holds the number
+  (`io_ports` is unique on `(channel, kind, number)`), and unbinding clears the token without
+  deleting the port or its `io_rules`. Binding a DI also calls `CameraDiHost.RefreshAndStart()`, or
+  the new terminal keeps waiting for the next launch before it produces events. All three desktop
+  ONVIF call sites go through `OnvifServiceFactory.Create`, so one missing `SafeUnprotect` cannot
+  turn into "only this feature cannot connect". Guarded by `SettingsIoCameraContractTests`,
+  `綁定的端子優先於端子號推測` (DO and DI), `綁定失效時不會退回端子號推測` (DO and DI),
+  `端子號已被別的埠佔用時綁定會沿用那一個而不是新增` and `同一個端子重複綁定不會多出第二個埠`.

@@ -3012,7 +3012,7 @@ public partial class MainWindow : Window
         }
 
         OpenChild(new SettingsWindow(
-            _store!, _dataRoot, _ioHost, _shareHost, _manager, _patrolHost,
+            _store!, _dataRoot, _ioHost, _cameraDiHost, _shareHost, _manager, _patrolHost,
             channelsChanged: () => _ = ReloadChannelsIfChangedAsync(),
             recordingsRootChanged: root => _ = OnRecordingsRootChangedAsync(root),
             webHost: _webHost,
