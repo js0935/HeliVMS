@@ -109,6 +109,13 @@ public partial class MainWindow : Window
     private int _wallSequenceIndex;
     private DispatcherTimer? _wallSequenceTimer;
     private readonly TextBlock[] _cellBadges = new TextBlock[MaxCells];
+
+    /// <summary>
+    /// 每格右下角的喇叭圖示（現場收音）。只出現在「頻道管理有開收音」的攝影機上；
+    /// 白色＝可聽、藍色＝正在播、灰色靜音＝這台沒有音訊軌。放在數位縮放層外，
+    /// 放大時才不會跟著變形。
+    /// </summary>
+    private readonly TextBlock[] _cellAudioIcons = new TextBlock[MaxCells];
     private readonly Border[] _cellBorders = new Border[MaxCells];
 
     /// <summary>
@@ -208,13 +215,10 @@ public partial class MainWindow : Window
     private ShareHost? _shareHost;
 
     /// <summary>
-    /// 監看牆的現場收音（只播主畫面那一台的主碼流）。同一時間只能有一台在播，
-    /// 換台／換分割／停止監看／關窗都要收回，否則會聽到上一台的聲音。
+    /// 監看牆的現場收音：同一時間只有一台在播（點別台就把這台靜音），
+    /// 圖示只出現在「頻道管理有開收音」的攝影機畫面右下角。
     /// </summary>
     private LiveAudioController? _audio;
-
-    /// <summary>程式自己改 <c>HeaderAudioToggle</c> 時設為 true，避免再排一次播放／停止。</summary>
-    private bool _suppressAudioToggle;
     private WebHost? _webHost;
     private DispatcherTimer? _ntpTimer;
     private AnalyticsEventEngine? _analytics;
@@ -250,6 +254,10 @@ public partial class MainWindow : Window
     private static readonly SolidColorBrush BrCellBg = Frozen(Color.FromRgb(0x06, 0x09, 0x0F));
 
     private static readonly SolidColorBrush BrBadgeBg = Frozen(Color.FromArgb(0xC0, 0x03, 0x05, 0x08));
+
+    /// <summary>喇叭圖示的兩種狀態色：正在播＝藍（可點靜音）、這台沒有音訊軌＝灰。</summary>
+    private static readonly SolidColorBrush s_audioActive = Frozen(Color.FromRgb(0x4D, 0xA3, 0xFF));
+    private static readonly SolidColorBrush s_audioUnavailable = Frozen(Color.FromRgb(0x8A, 0x93, 0x9C));
 
     // AI 疊加用填色／標籤底色。原本是「每個偵測框、每一幀」各 new 一個 SolidColorBrush，
     // 16 格 × 15fps × N 框就是每秒數千個一次性 Brush 落到 LOH。改成靜態共用並 Freeze：
@@ -376,8 +384,6 @@ public partial class MainWindow : Window
         MapButton.ToolTip = Localizer.T("Main.MapTip");
         WallSequenceToggle.Content = Localizer.T("Main.WallSequence");
         WallSequenceToggle.ToolTip = Localizer.T("Main.WallSequenceTip");
-        HeaderAudioToggle.Content = Localizer.T("Main.Audio");
-        HeaderAudioToggle.ToolTip = Localizer.T("Main.AudioTip");
 
         HintText.Text = Localizer.T("Main.EmptyHint");
 
@@ -886,10 +892,9 @@ public partial class MainWindow : Window
             new SettingsRepository(_store),
             licenseAllowed: _licenseGate?.Allows(LicenseFeatures.Remote) == true);
 
-        // 現場收音：來源固定是主碼流（次碼流是給多分割省頻寬的，通常沒有音訊軌）。
-        // 這裡只建立控制器，實際播放要等操作員按下喇叭開關。
-        _audio = new LiveAudioController(id => _manager?.ChannelSessionFor(id)?.RecordingUrl);
-        _audio.Faulted += OnLiveAudioFaulted;
+        // 現場收音：來源是「這台正在顯示的解碼行程」（埠在工作階段建立時就綁好），
+        // 按喇叭不用重連。這裡只建立控制器，實際播放要等操作員點畫面右下角的喇叭。
+        _audio = new LiveAudioController(id => _manager?.ChannelSessionFor(id));
 
         // M305：內嵌 Web 服務。設定了 web.enabled=1 就在啟動時拉起，交由設定中心「網路」頁控制。
         _webHost = new WebHost(_dataRoot, Path.Combine(_dataRoot, "index.db"));
@@ -1133,8 +1138,8 @@ public partial class MainWindow : Window
         UpdateBadges();
         UpdateFooter();
 
-        // 換頁簽／換群組也可能換掉第 0 格的頻道；聲音必須跟著走。
-        await SyncAudioAsync();
+        // 換頁簽／換群組也可能換掉正在播的那一台；聲音必須跟著走。
+        await EnforceAudioVisibilityAsync();
     }
 
     /// <summary>
@@ -1308,6 +1313,10 @@ public partial class MainWindow : Window
         // 必須明確清掉，否則監控中心會一直殘留已刪除攝影機的畫面。
         ClearCellsBeyondChannels();
 
+        // 頻道被刪之後正在播的那台可能已經不在畫面上；這裡沒有群組頁簽時不會經過
+        // ApplyWallAsync，所以要自己裁決一次（否則聲音會在沒有圖示的畫面外繼續播）。
+        await EnforceAudioVisibilityAsync();
+
         // ConnectAsync 把所有頻道都派到格位；若目前在某個群組頁簽，需再依該群組重派一次。
         if (_activeGroupId is not null)
         {
@@ -1344,10 +1353,9 @@ public partial class MainWindow : Window
             // 走統一投影途徑：空格顯示 Disable 佔位圖且不留「未連線」文字。
             ApplyCellState(i, RtspState.Stopped);
             CellOverlay(i)?.Children.Clear();
+            _cellAudioIcons[i].Text = string.Empty;
+            _cellAudioIcons[i].Visibility = Visibility.Collapsed;
         }
-
-        // 頻道被刪到只剩不到一格時，第 0 格可能已被清空：還在播的聲音要停。
-        _ = SyncAudioAsync();
     }
 
     /// <summary>
@@ -1390,7 +1398,10 @@ public partial class MainWindow : Window
     /// </summary>
     private ChannelManager CreateManager()
     {
-        var manager = new ChannelManager(_store!, _recordingsRoot, Path.Combine(_dataRoot, "snapshots"), DetectionModelResolver.TryResolve());
+        // 現場收音的取樣率跟著播放裝置（先探測、寫進 ffmpeg 參數），兩邊不一致就會忽快忽慢。
+        var manager = new ChannelManager(
+            _store!, _recordingsRoot, Path.Combine(_dataRoot, "snapshots"), DetectionModelResolver.TryResolve(),
+            audioSampleRate: WaveOutPlayer.ProbeSampleRate() ?? AudioStreamReceiver.DefaultSampleRate);
         manager.FrameArrived += (_, e) => OnCellFrame(e.Cell, e.Frame);
         manager.AiDetections += OnManagerAiDetections;
         manager.MotionSignal += (_, e) => OnMotionSignal(e.Cell, e.Ratio);
@@ -1779,8 +1790,8 @@ public partial class MainWindow : Window
             }
         }
 
-        // 分割改變＝第 0 格的意義可能變了（多分割時不播聲音，單分割時播主畫面那一台）。
-        await SyncAudioAsync();
+        // 分割改變＝畫面上的攝影機組合變了：正在播的那台若不在了就把聲音收掉。
+        await EnforceAudioVisibilityAsync();
     }
 
     /// <summary>目前佈局選項對應的目標格數（列×欄由監看區比例自動決定）。</summary>
@@ -1848,6 +1859,27 @@ public partial class MainWindow : Window
                 Text = string.Empty,
                 Visibility = Visibility.Collapsed,
             };
+            var audioIcon = new TextBlock
+            {
+                HorizontalAlignment = HorizontalAlignment.Right,
+                VerticalAlignment = VerticalAlignment.Bottom,
+                Margin = new Thickness(4),
+                Padding = new Thickness(7, 3, 7, 3),
+                Background = BrBadgeBg,
+                Foreground = Brushes.White,
+                FontFamily = new System.Windows.Media.FontFamily("Segoe MDL2 Assets"),
+                FontSize = Math.Max(10, 16 - cols),
+                Text = string.Empty,
+                Visibility = Visibility.Collapsed,
+                Cursor = System.Windows.Input.Cursors.Hand,
+            };
+            // 喇叭是「點了要播」的按鈕：吃掉事件，別讓它同時觸發格子的選取／拖曳。
+            var audioCell = cellIndex;
+            audioIcon.MouseLeftButtonDown += (s, e) =>
+            {
+                e.Handled = true;
+                OnCellAudioIconClicked(audioCell);
+            };
             // 數位縮放的套用層：影像與 AI 疊加一起變形，狀態文字與頻道徽章留在外層不跟著放大。
             // 疊加框用「顯示中影像」的比例繪製，兩者必須共用同一個 RenderTransform 才會貼在一起。
             var zoomLayer = new Grid();
@@ -1862,6 +1894,7 @@ public partial class MainWindow : Window
             inner.Children.Add(zoomLayer);
             inner.Children.Add(text);
             inner.Children.Add(badge);
+            inner.Children.Add(audioIcon);
 
             var border = new Border
             {
@@ -1903,6 +1936,7 @@ public partial class MainWindow : Window
             _cellOverlays[i] = overlay;
             _cellTexts[i] = text;
             _cellBadges[i] = badge;
+            _cellAudioIcons[i] = audioIcon;
             _cellBorders[i] = border;
 
             CellGrid.Children.Add(border);
@@ -2212,8 +2246,8 @@ public partial class MainWindow : Window
             UpdateBadges();
             UpdateFooter();
 
-            // 第 0 格換了頻道：正在播的聲音必須換成新的那一台（否則會聽到上一台在說話）。
-            _ = SyncAudioAsync();
+            // 格位換了頻道：正在播的那台可能已經不在畫面上（被拖走、被換掉）。
+            _ = EnforceAudioVisibilityAsync();
         }), DispatcherPriority.Background);
     }
 
@@ -2576,8 +2610,9 @@ public partial class MainWindow : Window
         HintText.Text = Localizer.T("Main.Disconnected");
         UpdateFooter();
 
-        // 停止監看：連線都收了，聲音沒有來源可播，開關也要退回未按。
-        _ = StopAudioAsync();
+        // 停止監看：連線都收了，聲音沒有來源可播，圖示也要退回未按。
+        await StopAudioAsync();
+        UpdateAudioIcons();
     }
 
     /// <summary>
@@ -3349,105 +3384,118 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// 頂欄的喇叭開關：開始／停止聽主畫面那一台的現場聲音。
+    /// 頂欄的喇叭開關改到每一格：圖示只出現在「頻道管理有開收音」的攝影機上。
     /// </summary>
     /// <remarks>
-    /// 只在單分割（<c>CurrentCellCount() == 1</c>）且該格有頻道時才播音。多分割時有 4／9／16 台
-    /// 同時在畫面上，播哪一台都是猜，操作員聽到聲音卻不知道來自哪一格——比不播更糟。
+    /// 舊版是頂欄一顆切換鈕＋單分割限定，但「這台攝影機有沒有接麥克風」是設備的事實，
+    /// 不是畫面佈局的事實；搬到格位右下角之後，多分割也能指定要聽哪一台，設定則在頻道管理。
     /// </remarks>
-    private async void OnAudioToggled(object sender, RoutedEventArgs e)
+    private async void OnCellAudioIconClicked(int cell)
     {
-        if (_suppressAudioToggle || _audio is null)
+        if (_audio is null || _cellChannel[cell] is not int channelId)
         {
             return;
         }
 
-        if (HeaderAudioToggle.IsChecked != true)
+        var playing = await _audio.ToggleAsync(channelId);
+        UpdateAudioIcons();
+
+        if (playing)
         {
-            await _audio.StopAsync();
+            HintText.Text = string.Format(Localizer.T("Main.AudioPlaying"), ChannelName(channelId));
             return;
         }
 
-        if (CurrentCellCount() != 1 || _cellChannel[0] is not int channelId)
+        if (_audio.LastError is { } reason)
         {
-            SetAudioToggle(false);
-            HintText.Text = Localizer.T("Main.AudioNeedsSingle");
-            return;
-        }
-
-        if (!await _audio.StartAsync(channelId))
-        {
-            SetAudioToggle(false);
-            HintText.Text = Localizer.T("Main.AudioUnavailable");
+            HintText.Text = reason switch
+            {
+                "no-audio-track" => Localizer.T("Main.AudioNoTrack"),
+                "no-audio-device" => Localizer.T("Main.AudioNoDevice"),
+                _ => Localizer.T("Main.AudioUnavailable"),
+            };
         }
     }
 
     /// <summary>
-    /// 讓聲音跟著現在的畫面（單分割的第 0 格）；不該播時自動把開關退回未按。
+    /// 依「這台有沒有開收音／有沒有量到音訊軌／是不是正在播」重畫每格右下角的喇叭圖示。
     /// </summary>
     /// <remarks>
-    /// 換台、換分割、頻道被刪除、停止監看都走這裡：散在各事件裡最容易漏掉的一步就是
-    /// 「切走了但舊的聲音還在」，聽起來像另一台攝影機在說話，而且沒有任何錯誤訊息。
+    /// 只改外觀、不收聲音：切佈局的途中格位會短暫清空，在這裡裁決會把聲音錯殺（切一次佈局
+    /// 斷一次聲音）。「還在不在畫面上」的裁決交給 <see cref="EnforceAudioVisibilityAsync"/>，
+    /// 在佈局／頁簽／頻道清單落定之後才呼叫。
     /// </remarks>
-    private async Task SyncAudioAsync()
+    private void UpdateAudioIcons()
     {
-        if (_audio is null || HeaderAudioToggle.IsChecked != true)
+        for (var cell = 0; cell < MaxCells; cell++)
         {
-            return;
-        }
+            var icon = _cellAudioIcons[cell];
+            if (icon is null)
+            {
+                continue;
+            }
 
-        var desired = CurrentCellCount() == 1 ? _cellChannel[0] : null;
-        if (desired is null)
-        {
-            await _audio.StopAsync();
-            SetAudioToggle(false);
-            HintText.Text = Localizer.T("Main.AudioNeedsSingle");
-            return;
-        }
+            if (_cellChannel[cell] is not int channelId || _audio?.CanListen(channelId) != true)
+            {
+                icon.Visibility = Visibility.Collapsed;
+                continue;
+            }
 
-        if (!await _audio.SyncAsync(desired.Value))
-        {
-            SetAudioToggle(false);
-            HintText.Text = Localizer.T("Main.AudioUnavailable");
-        }
-    }
+            icon.Visibility = Visibility.Visible;
+            if (_audio.ChannelId == channelId)
+            {
+                // 正在播：藍色（點擊＝靜音）。
+                icon.Text = "\uE767";
+                icon.Foreground = s_audioActive;
+                icon.ToolTip = Localizer.T("Main.AudioPlayingTip");
+                continue;
+            }
 
-    /// <summary>停止播音並把開關退回未按（停止監看、關窗）。</summary>
-    private Task StopAudioAsync()
-    {
-        SetAudioToggle(false);
-        return _audio?.StopAsync() ?? Task.CompletedTask;
-    }
+            if (_audio.HasAudioTrack(channelId) == false)
+            {
+                // 有開收音但這台沒有音訊軌：灰色靜音圖示，讓「按了沒聲音」變成看得到的狀態。
+                icon.Text = "\uE74F";
+                icon.Foreground = s_audioUnavailable;
+                icon.ToolTip = Localizer.T("Main.AudioNoTrackTip");
+                continue;
+            }
 
-    /// <summary>程式自己改開關時先設旗標，否則會再觸發一次播放／停止。</summary>
-    private void SetAudioToggle(bool on)
-    {
-        _suppressAudioToggle = true;
-        try
-        {
-            HeaderAudioToggle.IsChecked = on;
-        }
-        finally
-        {
-            _suppressAudioToggle = false;
+            // 可以聽、還沒聽：白色（點擊＝播音，並把別台靜音）。
+            icon.Text = "\uE767";
+            icon.Foreground = Brushes.White;
+            icon.ToolTip = Localizer.T("Main.AudioListenTip");
         }
     }
 
     /// <summary>
-    /// 拉音訊中止（多半是這台攝影機沒有音訊軌）：收掉開關並把原因寫在提示列。
+    /// 正在播的那台若已不在畫面上（換台、換頁簽、頻道被刪），把聲音收掉。
     /// </summary>
     /// <remarks>
-    /// 沒有音訊軌是常態，不該每 5 秒重開一個 ffmpeg 空轉（<c>AudioPullClient</c> 也刻意不重試）；
-    /// 讓操作員看到一次原因就好，要聽再自己按一次。
+    /// 只在佈局／頁簽／頻道清單「落定之後」裁決：切佈局的途中格位會短暫清空，
+    /// 那時裁決會把聲音錯殺。落定後才查，畫面與聲音才會一致。
     /// </remarks>
-    private void OnLiveAudioFaulted(object? sender, string reason)
+    private async Task EnforceAudioVisibilityAsync()
     {
-        Dispatcher.BeginInvoke(new Action(() =>
+        if (_audio?.ChannelId is not { } listening)
         {
-            SetAudioToggle(false);
-            HintText.Text = Localizer.T("Main.AudioUnavailable");
-        }), DispatcherPriority.Background);
+            return;
+        }
+
+        for (var cell = 0; cell < CurrentCellCount(); cell++)
+        {
+            if (_cellChannel[cell] == listening)
+            {
+                UpdateAudioIcons();
+                return;
+            }
+        }
+
+        await _audio.StopAsync();
+        UpdateAudioIcons();
     }
+
+    /// <summary>停止播音（停止監看、頻道被刪光、關窗）。不碰 UI：關窗路徑在執行緒池上跑。</summary>
+    private Task StopAudioAsync() => _audio?.StopAsync() ?? Task.CompletedTask;
 
     private void OnAlertTextClicked(object sender, System.Windows.Input.MouseButtonEventArgs e)
     {
@@ -4810,6 +4858,10 @@ public partial class MainWindow : Window
             badge.Text = text;
             badge.Visibility = text.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
         }
+
+        // 喇叭圖示跟著同一個節奏重畫：探測結果（這台到底有沒有音訊軌）是重連時才會回來的，
+        // 靠這裡每秒對齊一次，操作員才不會對著一顆「永遠點不出聲音」的圖示。
+        UpdateAudioIcons();
     }
 
     private string ChannelName(int channelId)
@@ -4889,8 +4941,9 @@ public partial class MainWindow : Window
             RunShutdownStep("釋放監看連線", manager.DisposeAsync, DisposeTimeout);
         }
 
-        // 現場收音：收掉拉音訊的 ffmpeg 與播放執行緒。走控制器自己的 DisposeAsync（不碰 UI 開關），
-        // 因為這一步在執行緒池上跑，去改 HeaderAudioToggle 會變成跨執行緒存取 WPF 控制項。
+        // 現場收音：收掉播放執行緒（聲音的來源是解碼行程，會由「中斷監看」收掉）。
+        // 走控制器自己的 DisposeAsync（不碰 UI 圖示），因為這一步在執行緒池上跑，
+        // 去改 WPF 控制項會變成跨執行緒存取。
         RunShutdownStep("停止音訊", () => audio?.DisposeAsync().AsTask() ?? Task.CompletedTask, QuickStepTimeout);
 
         bgCts?.Cancel();

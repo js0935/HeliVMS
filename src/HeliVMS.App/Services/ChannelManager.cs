@@ -38,13 +38,17 @@ public sealed class ChannelManager : IDisposable
     private IDetectionEngine? _detection;
     private bool _disposed;
 
-    public ChannelManager(SqliteStore store, string recordingsRoot, string snapshotsRoot, string? modelPath)
+    /// <summary>現場收音的輸出取樣率（跟播放裝置一致；啟動時探測一次）。</summary>
+    private readonly int _audioSampleRate;
+
+    public ChannelManager(SqliteStore store, string recordingsRoot, string snapshotsRoot, string? modelPath, int audioSampleRate = AudioStreamReceiver.DefaultSampleRate)
     {
         _store = store;
         _channels = new ChannelRepository(store);
         _devices = new DeviceRepository(store, new AuditLogRepository(store));
         _recordingsRoot = recordingsRoot;
         _snapshotsRoot = snapshotsRoot;
+        _audioSampleRate = audioSampleRate;
         _offline = new OfflineEventTracker(new AlarmEventRepository(store));
         _offline.CloseOpenAtStartup();
         _streamPrefs = new StreamPreferenceRepository(store);
@@ -165,7 +169,9 @@ public sealed class ChannelManager : IDisposable
             _snapshotsRoot,
             ch.MotionEnabled,
             _detection,
-            IsTamperEnabled());
+            IsTamperEnabled(),
+            listenEnabled: ch.ListenEnabled,
+            audioSampleRate: _audioSampleRate);
         session.Cell = cell;
 
         // 一律讀 session.Cell 而非閉包捕捉的 cell：佈局切換改派格位時，

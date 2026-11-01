@@ -27,6 +27,19 @@ public sealed class ChannelSession : IDisposable
     /// <summary>常駐次流以外的選用主流連線（單畫面才建立）。</summary>
     private RtspClient? _mainClient;
 
+    /// <summary>現場收音的接收器（null＝這台沒有開啟收音）。</summary>
+    private readonly AudioStreamReceiver? _audioReceiver;
+
+    /// <summary>現場收音的接收器；null＝這台沒有開啟收音（監看牆不顯示喇叭圖示）。</summary>
+    public AudioStreamReceiver? AudioReceiver => _audioReceiver;
+
+    /// <summary>目前顯示來源是否量到音訊軌（null＝還沒探測到）。</summary>
+    /// <remarks>
+    /// 「有開收音但這台根本沒有麥克風」要靠這個值才顯示得出來；沒有它，操作員只會看到
+    /// 按了喇叭卻沒聲音，而日誌一片乾淨。
+    /// </remarks>
+    public bool? SourceHasAudio => EffectiveClient.SourceHasAudio;
+
     /// <summary>解析後的主流顯示位址（已嵌設備憑證）。</summary>
     private readonly string _mainUrl;
 
@@ -39,7 +52,7 @@ public sealed class ChannelSession : IDisposable
     /// <summary>主流是否已出畫；未出畫前顯示來源仍為次流。</summary>
     private bool _mainReady;
 
-    public ChannelSession(int channelId, string name, string mainDisplayUrl, string subDisplayUrl, SqliteStore store, string recordingsRoot, string snapshotsRoot, bool motionEnabled, IDetectionEngine? detection, bool tamperEnabled = false, LicenseService? license = null)
+    public ChannelSession(int channelId, string name, string mainDisplayUrl, string subDisplayUrl, SqliteStore store, string recordingsRoot, string snapshotsRoot, bool motionEnabled, IDetectionEngine? detection, bool tamperEnabled = false, LicenseService? license = null, bool listenEnabled = false, int audioSampleRate = AudioStreamReceiver.DefaultSampleRate)
     {
         ChannelId = channelId;
         Name = name;
@@ -54,6 +67,15 @@ public sealed class ChannelSession : IDisposable
         // 故切換佈局不會出現「連線中」，也不會黑畫面。
         Client = new RtspClient(subDisplayUrl, hwAccel: ReadHwAccel()) { MaxFramesPerSecond = 15 };
         AttachSubClient(Client);
+
+        if (listenEnabled)
+        {
+            // 現場收音的埠必須在 ffmpeg 啟動前寫進參數，所以接收器跟著工作階段生、跟著工作階段死。
+            // 埠先綁著但沒人讀時，送來的封包由作業系統丟掉：不影響畫面，也不佔行程外的資源。
+            _audioReceiver = new AudioStreamReceiver(audioSampleRate);
+            Client.AudioPort = _audioReceiver.Port;
+            Client.AudioSampleRate = audioSampleRate;
+        }
 
         if (motionEnabled)
         {
@@ -277,6 +299,14 @@ public sealed class ChannelSession : IDisposable
 
         var main = new RtspClient(_mainUrl, hwAccel: ReadHwAccel()) { MaxFramesPerSecond = 15 };
         AttachMainClient(main);
+
+        // 主流幾乎一定有音訊軌（次碼流常常沒有），所以單畫面時的收音走這一條。
+        if (_audioReceiver is { } receiver)
+        {
+            main.AudioPort = receiver.Port;
+            main.AudioSampleRate = receiver.SampleRate;
+        }
+
         _mainClient = main;
         _mainReady = false;
         await main.StartAsync();
@@ -512,6 +542,10 @@ public sealed class ChannelSession : IDisposable
         }
 
         await Client.DisposeAsync().ConfigureAwait(false);
+
+        // 最後才關收音的埠：關掉後 ffmpeg 若仍在送，封包會被系統丟掉（無害），
+        // 但反過來先關就沒辦法保證「埠在整個解碼行程生命週期內都在」。
+        _audioReceiver?.Dispose();
         GC.SuppressFinalize(this);
     }
 }
