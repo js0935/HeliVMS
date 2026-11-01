@@ -12,7 +12,7 @@ namespace HeliVMS.Devices.Onvif;
 /// HTTP Digest／Basic 認證自動切換、SOAP 1.1／1.2 與 Fault 位置容忍、
 /// GetCapabilities 路徑精確解析與 Media／PTZ 路徑候選探測、XAddr 位址校正。</para>
 /// </summary>
-public sealed class OnvifDeviceService : IDisposable
+public sealed partial class OnvifDeviceService : IDisposable
 {
     internal static readonly XNamespace Env = "http://www.w3.org/2003/05/soap-envelope";
     internal static readonly XNamespace Td = "http://www.onvif.org/ver10/device/wsdl";

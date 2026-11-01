@@ -204,6 +204,7 @@ public partial class MainWindow : Window
     private NotificationService? _notify;
     private TrayIconHost? _tray;
     private IoMonitorHost? _ioHost;
+    private CameraDiHost? _cameraDiHost;
     private ShareHost? _shareHost;
     private WebHost? _webHost;
     private DispatcherTimer? _ntpTimer;
@@ -863,6 +864,11 @@ public partial class MainWindow : Window
         _ioHost = new IoMonitorHost(_store);
         _ioHost.RefreshAndStart();
         _ioHost.EventInserted += (_, record) => RouteAlarm(record);
+
+        // 攝影機內建乾接點（ONVIF PullPoint）：與 Modbus 模組並存的另一條實體路徑。
+        // 沒有這段，攝影機的 DI 永遠不會進系統——規則與警報只能靠人工模擬觸發。
+        _cameraDiHost = new CameraDiHost(_store);
+        _cameraDiHost.RefreshAndStart();
 
         _shareHost = new ShareHost(_store);
         _shareHost.ApplySettings(

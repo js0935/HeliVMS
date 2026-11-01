@@ -212,6 +212,20 @@ public sealed class OnvifDigitalInput
 }
 
 /// <summary>
+/// 一則 ONVIF 事件通知（PullPoint 的 NotificationMessage）：主題＋來源／資料的鍵值。
+///
+/// <para>
+/// 乾接點輸入的狀態就在這裡：主題 <c>tns1:Device/Trigger/DigitalInput</c>、
+/// 來源 <c>InputToken</c>、資料 <c>LogicalState</c>。用
+/// <see cref="OnvifDeviceService.TryParseDigitalInput"/> 解讀，不要各自解析 XML。
+/// </para>
+/// </summary>
+public sealed record OnvifEventMessage(
+    string Topic,
+    IReadOnlyDictionary<string, string> Source,
+    IReadOnlyDictionary<string, string> Data);
+
+/// <summary>
 /// ONVIF 繼電器輸出（Device GetRelayOutputs）：攝影機的乾接點 relay out，可由
 /// <see cref="OnvifDeviceService.SetRelayOutputStateAsync"/> 切換。
 /// </summary>
