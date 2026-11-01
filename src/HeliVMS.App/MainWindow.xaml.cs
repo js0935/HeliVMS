@@ -4540,7 +4540,10 @@ public partial class MainWindow : Window
             return;
         }
 
-        OpenChild(new IoWindow(_store!));
+        // Modbus 寫入器讓 IO 視窗的手動切換也能打到 Modbus 線圈（與監視宿主同一套路由）。
+        OpenChild(new IoWindow(_store!, new ModbusIoOutputWriter(
+            new IoPortRepository(_store!),
+            (ioChannelId, on) => _ioHost!.WriteOutputByIoChannelAsync(ioChannelId, on))));
     }
 
     private void OnIoClicked(object sender, RoutedEventArgs e) => OpenIoWindow();

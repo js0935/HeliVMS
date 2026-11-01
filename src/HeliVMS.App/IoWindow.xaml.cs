@@ -28,27 +28,31 @@ public partial class IoWindow : Window
     private readonly IoPortRepository _ports;
     private readonly IoRuleRepository _rules;
     private readonly IoRuleHost _host;
-    private readonly OnvifIoOutputWriter _outputWriter;
+    private readonly IIoOutputWriter _outputWriter;
     private readonly Dictionary<long, bool> _physical = new();
     private readonly ObservableCollection<PortRow> _portRows = new();
     private readonly ObservableCollection<RuleRow> _ruleRows = new();
     private int _triggerCount;
 
-    public IoWindow(SqliteStore store)
+    public IoWindow(SqliteStore store, IIoOutputWriter? modbusWriter = null)
     {
         _ports = new IoPortRepository(store);
         _rules = new IoRuleRepository(store);
         var audit = new AuditLogRepository(store);
-        _outputWriter = new OnvifIoOutputWriter(
+        var onvif = new OnvifIoOutputWriter(
             _ports,
             new ChannelRepository(store),
             new DeviceRepository(store, audit),
             ListRelaysAsync,
             SwitchRelayAsync,
             audit);
-        _outputWriter.Failed += (_, reason) => Dispatcher.BeginInvoke(
+        // 輸出失敗（攝影機端）顯示在狀態列；路由後的 Modbus 失敗走 ModbusIoOutputWriter 的回呼。
+        onvif.Failed += (_, reason) => Dispatcher.BeginInvoke(
             new Action(() => IoStatusText.Text = string.Format(
                 CultureInfo.InvariantCulture, Localizer.T("Io.OutputFailed"), reason)));
+        _outputWriter = modbusWriter is null
+            ? onvif
+            : new RoutingIoOutputWriter(_ports, onvif, modbusWriter);
         _host = new IoRuleHost(_ports, _rules, new AlarmEventRepository(store), _outputWriter);
         InitializeComponent();
         ApplyI18n();

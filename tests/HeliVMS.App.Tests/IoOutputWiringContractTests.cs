@@ -34,6 +34,9 @@ public sealed class IoOutputWiringContractTests
         // 失敗要讓操作員看得到（DO 失敗不再靜默）。
         Assert.Contains("OnvifIoOutputWriter", source);
         Assert.Contains("Io.OutputFailed", source);
-        Assert.Contains("_outputWriter.Failed +=", source);
+        Assert.Contains("onvif.Failed +=", source);
+
+        // Modbus 接點統一登記在 io_ports 之後，IO 視窗的手動切換也要依接點來源路由。
+        Assert.Contains("RoutingIoOutputWriter", source);
     }
 }
