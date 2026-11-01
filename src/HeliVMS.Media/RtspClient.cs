@@ -153,17 +153,6 @@ public sealed class RtspClient : IAsyncDisposable
     /// </summary>
     public bool? SourceHasAudio { get; private set; }
 
-    /// <summary>
-    /// 決定這一輪要不要掛音訊輸出：設定了埠<b>且</b>確定量到音訊軌才掛。
-    /// </summary>
-    /// <remarks>
-    /// 抽成純函式是因為這個決定錯了只有兩種下場，而且都不會出現在畫面上：
-    /// 該掛沒掛＝「明明有麥克風卻永遠聽不到」；不該掛亂掛＝對沒有音訊的來源下
-    /// <c>-map 0:a:0</c> 會讓 ffmpeg 直接失敗，<b>連畫面都沒有</b>。
-    /// </remarks>
-    public static int ResolveAudioPort(int configuredPort, bool? sourceHasAudio) =>
-        configuredPort > 0 && sourceHasAudio == true ? configuredPort : 0;
-
     public bool IsRunning { get; private set; }
 
     /// <summary>監看最大幀率上限（§3.3：防止 32 路塞爆 UI）。</summary>
@@ -290,7 +279,7 @@ public sealed class RtspClient : IAsyncDisposable
                 // 有音訊軌才掛音訊輸出：沒有麥克風的攝影機完全不碰這件事，
                 // 也就不可能因為音訊而影響畫面（`-map 0:a:0` 對沒有音訊的來源會讓行程失敗）。
                 SourceHasAudio = probe.AudioCodec is not null;
-                var audioPort = ResolveAudioPort(AudioPort, SourceHasAudio);
+                var audioPort = AudioOutputArguments.ResolvePort(AudioPort, SourceHasAudio);
 
                 // 只在「設定了硬體加速、本機支援、且不在失敗冷卻期內」時才帶 -hwaccel。
                 // 一幀都沒出的失敗會進入冷卻期，下一輪即退回軟解（見 catch）。

@@ -48,10 +48,13 @@ public partial class PlaybackWindow : Window
     private SegmentRecord? _current;
 
     /// <summary>
-    /// 回放的聲音（只做主畫面、單聲道）。與影格用不同的 ffmpeg 拉同一段的 PCM：
-    /// 一個子行程只有一條 stdout，rawvideo 與位元組流混在一起兩邊都會錯位。
+    /// 回放的聲音（只做主畫面、單聲道）。與影格共用同一個解碼 ffmpeg：行程多吐一份 PCM
+    /// 到本機 UDP，接收器在 <see cref="PlayFrom"/> 裡先綁好埠。
     /// </summary>
-    private AudioPlayer? _audio;
+    private AudioOutput? _audio;
+
+    /// <summary>目前這一段的收音接收器（跟著段換、跟著段關）。</summary>
+    private AudioStreamReceiver? _audioReceiver;
     private double _basePos;
     private double _posInside;
     private bool _stopping;
@@ -1417,15 +1420,13 @@ public partial class PlaybackWindow : Window
             }
         }
 
-        // 聲音跟著主畫面的速度：非 1× 停掉（不做變聲），回到 1× 再從目前位置接回來。
-        if (_session is not null && _current is not null)
-        {
-            StartAudio(_current, _posInside);
-        }
-        else
+        // 聲音跟著主畫面的速度：非 1× 停掉（不做變聲），回到 1× 由操作員再按一次。
+        if (_session is null || Math.Abs(GetSpeed() - 1) > 0.001)
         {
             _ = StopAudioAsync();
         }
+
+        UpdatePlaybackAudioIcon();
     }
 
     /// <summary>回放牆格數切換（1／2／4）：重建次畫面並重新對齊到目前播放頭。</summary>
@@ -1755,8 +1756,10 @@ public partial class PlaybackWindow : Window
             StatusText.Text = string.Format(Localizer.T("Playback.DecodeError"), ex.Message);
         });
 
+        // 收音埠必須在 ffmpeg 啟動前寫進參數：先綁接收器、再把埠交給 session。
+        ArmPlaybackAudio(session);
+
         _ = session.PlayAsync(seekSeconds);
-        StartAudio(seg, seekSeconds);
 
         // 主畫面（焦點）時鐘就是回放牆的母鐘：一換段／一跳轉，立刻把次畫面帶到同一絕對時刻。
         StartSync();
@@ -1764,34 +1767,120 @@ public partial class PlaybackWindow : Window
     }
 
     /// <summary>
-    /// 從目前播放頭開始播這一「段」的聲音；起點與長度都跟影像一致，播到段尾自然收掉。
+    /// 為這一段綁好收音的接收器與埠（只在有音訊軌的檔案上掛音訊輸出）。
+    /// </summary>
+    /// <remarks>
+    /// 回放聲音與即時監看共用同一份參數（解碼行程的第二個輸出）：不佔新連線、
+    /// 也不與 stdout 的 rawvideo 混流。是否顯示喇叭圖示等 <c>SourceHasAudio</c>
+    /// 探測回來才知道（舊錄影可能沒有音訊軌）。
+    /// </remarks>
+    private void ArmPlaybackAudio(PlaybackSession session)
+    {
+        _audioReceiver?.Dispose();
+        _audioReceiver = new AudioStreamReceiver(
+            WaveOutPlayer.ProbeSampleRate() ?? AudioStreamReceiver.DefaultSampleRate);
+        session.AudioPort = _audioReceiver.Port;
+        session.AudioSampleRate = _audioReceiver.SampleRate;
+    }
+
+    /// <summary>
+    /// 開始／停止播這一段的聲音（回放主畫面右下角的喇叭）。
     /// </summary>
     /// <remarks>
     /// <para>
-    /// 非 1× 速度時不播：變速需要 ffmpeg 的 <c>atempo</c> 才不會變成怪聲，這裡不做——播出「快轉的
-    /// 抖音」比安靜更糟，操作員會以為是攝影機壞了。暫停與停止由 <see cref="StopPlayback"/> 收掉，
-    /// 續播時 <see cref="PlayFrom"/> 會照新的位置重新對齊。
+    /// 與即時監看同一套行為：預設白色（沒在播），點擊變藍開始播；非 1× 速度不播——變速需要
+    /// ffmpeg 的 <c>atempo</c> 才不會變成怪聲，播出「快轉的抖音」比安靜更糟。暫停與停止由
+    /// <see cref="StopPlayback"/> 收掉，續播時 <see cref="PlayFrom"/> 會照新的位置重新對齊。
     /// </para>
     /// <para>
-    /// 沒有音訊軌的段很常見（舊錄影、當初設定就沒開音訊），這條路徑刻意安靜失敗：不彈視窗、
-    /// 不改狀態列，回放照常。裝置層級的失敗（遠端桌面沒有音效卡）寫在 <c>%TEMP%\helivms-audio.log</c>。
+    /// 圖示只在「這一段確實有音訊軌」時出現（探測結果）；舊錄影與當初沒開音訊的攝影機
+    /// 沒有聲音可播，圖示不顯示比「按了沒反應」好。
     /// </para>
     /// </remarks>
-    private void StartAudio(SegmentRecord seg, double seekSeconds)
+    private async void OnPlaybackAudioClicked(object sender, System.Windows.Input.MouseButtonEventArgs e)
     {
-        if (Math.Abs(GetSpeed() - 1) > 0.001 || string.IsNullOrWhiteSpace(seg.FilePath))
+        e.Handled = true;
+        await TogglePlaybackAudioAsync();
+    }
+
+    /// <summary>依探測結果與播放狀態重畫回放主畫面的喇叭圖示。</summary>
+    /// <remarks>
+    /// <see cref="PlaybackSession.SourceHasAudio"/> 在背景解碼執行緒上回來，這裡從每一幀的路徑
+    /// 呼叫（那時圖示才第一次知道該不該出現）；用上一次的狀態擋住重複寫入，避免每幀都動 UI。
+    /// </remarks>
+    private void UpdatePlaybackAudioIcon()
+    {
+        var hasAudio = _session?.SourceHasAudio == true && _audioReceiver is not null;
+        var playing = _audio?.IsPlaying == true;
+        var state = (Visible: hasAudio, Playing: playing);
+        if (state == _lastPlaybackAudioIcon)
         {
-            _ = StopAudioAsync();
             return;
         }
 
-        var duration = Math.Max(0, LengthOf(seg) - seekSeconds);
-        _audio ??= new AudioPlayer();
-        _ = _audio.PlayAsync(seg.FilePath, live: false, seekSeconds, duration);
+        _lastPlaybackAudioIcon = state;
+        if (!hasAudio)
+        {
+            PlayerAudioIcon.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        PlayerAudioIcon.Visibility = Visibility.Visible;
+        if (playing)
+        {
+            PlayerAudioIcon.Text = "\uE767";
+            PlayerAudioIcon.Foreground = s_playbackAudioActive;
+            PlayerAudioIcon.ToolTip = Localizer.T("Main.AudioPlayingTip");
+            return;
+        }
+
+        PlayerAudioIcon.Text = "\uE767";
+        PlayerAudioIcon.Foreground = Brushes.White;
+        PlayerAudioIcon.ToolTip = Localizer.T("Main.AudioListenTip");
+    }
+
+    /// <summary>喇叭圖示上一次的狀態（避免每幀都重寫 UI 屬性）。</summary>
+    private (bool Visible, bool Playing) _lastPlaybackAudioIcon = (false, false);
+
+    /// <summary>切換回放的聲音；失敗（沒有音訊裝置）寫在狀態列。</summary>
+    private async Task TogglePlaybackAudioAsync()
+    {
+        if (_session?.SourceHasAudio != true || _audioReceiver is null)
+        {
+            return;
+        }
+
+        _audio ??= new AudioOutput();
+        if (_audio.IsPlaying)
+        {
+            await _audio.StopAsync();
+            UpdatePlaybackAudioIcon();
+            return;
+        }
+
+        // 非 1× 速度不播：變速需要 atempo 才不失真，播出快轉的抖音比安靜更糟。
+        if (Math.Abs(GetSpeed() - 1) > 0.001)
+        {
+            StatusText.Text = Localizer.T("Playback.AudioNeedsNormalSpeed");
+            return;
+        }
+
+        if (!await _audio.StartAsync(_audioReceiver))
+        {
+            StatusText.Text = _audio.LastError == "no-audio-device"
+                ? Localizer.T("Main.AudioNoDevice")
+                : Localizer.T("Main.AudioUnavailable");
+        }
+
+        UpdatePlaybackAudioIcon();
     }
 
     /// <summary>停止回放的聲音；沒有開過播放管線時什麼都不做。</summary>
-    private Task StopAudioAsync() => _audio?.StopAsync() ?? Task.CompletedTask;
+    private Task StopAudioAsync()
+    {
+        _audioReceiver?.Stop();
+        return _audio?.StopAsync() ?? Task.CompletedTask;
+    }
 
     private void OnFrame(long version, SegmentRecord seg, VideoFrame frame)
     {
@@ -1817,6 +1906,9 @@ public partial class PlaybackWindow : Window
             _posInside = _basePos + frame.PtsMs / 1000.0;
             ShowPlayheadTime(seg);
             StatusText.Text = string.Format(Localizer.T("Playback.Playing"), GetSpeed().ToString("0.##"));
+
+            // 探測結果（這段有沒有音訊軌）在解碼執行緒上回來；第一次有影格時圖示才確定該不該出現。
+            UpdatePlaybackAudioIcon();
             if (!_seeking && (seg.DurationSec ?? 0) > 0)
             {
                 SeekSlider.Value = Math.Min(_posInside / (seg.DurationSec ?? 1), 1) * 10000;
@@ -2172,7 +2264,9 @@ public partial class PlaybackWindow : Window
         StopAllPanes();
 
         // 影片停住聲音也要停：留著會變成「畫面靜止但有人在說話」，聽起來像另一段錄影在播。
+        // 停止是丟到執行緒池完成的；圖示在它返回後重畫（此時 _session 已清空）。
         _ = StopAudioAsync();
+        UpdatePlaybackAudioIcon();
 
         SetIdleUi();
     }
@@ -3152,6 +3246,17 @@ public partial class PlaybackWindow : Window
     /// </remarks>
     private static DateTime EndOf(SegmentRecord seg) => HeliVMS.Shared.PlaybackSegmentTiming.EndOf(seg);
 
+    /// <summary>喇叭圖示的兩種狀態色：正在播＝藍（可點靜音）、可聽未播＝白。</summary>
+    private static readonly System.Windows.Media.SolidColorBrush s_playbackAudioActive =
+        FrozenPlaybackBrush(System.Windows.Media.Color.FromRgb(0x4D, 0xA3, 0xFF));
+
+    private static System.Windows.Media.SolidColorBrush FrozenPlaybackBrush(System.Windows.Media.Color color)
+    {
+        var brush = new System.Windows.Media.SolidColorBrush(color);
+        brush.Freeze();
+        return brush;
+    }
+
     /// <summary>段長（秒），與 <see cref="EndOf"/> 同一口徑；索引沒寫長度時為 10 秒。</summary>
     private static double LengthOf(SegmentRecord seg) => HeliVMS.Shared.PlaybackSegmentTiming.LengthOf(seg);
 
@@ -3167,13 +3272,16 @@ public partial class PlaybackWindow : Window
         session?.Stop();
         DisposeQuietly(session);
 
-        // 關窗就收掉拉音訊的 ffmpeg。不等待：關窗路徑是同步的，等它會卡住 UI；
-        // 停止是丟到執行緒池完成的，行程不會漏（App 啟動時另有孤兒清掃）。
+        // 關窗就收掉播放執行緒與收音的埠（聲音的來源是上面的解碼行程，會跟著收）。
+        // 不等待：關窗路徑是同步的，等它會卡住 UI；停止是丟到執行緒池完成的。
         if (_audio is { } audio)
         {
             _audio = null;
             _ = audio.DisposeAsync();
         }
+
+        _audioReceiver?.Dispose();
+        _audioReceiver = null;
     }
 
     /// <summary>回放牆格數（1／2／4／9／16）。</summary>

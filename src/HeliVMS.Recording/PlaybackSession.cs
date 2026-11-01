@@ -96,8 +96,20 @@ public sealed class PlaybackSession : IAsyncDisposable
     /// 純函式回新清單才不會有共享狀態。
     /// </para>
     /// </remarks>
+    /// <param name="filePath">錄影檔路徑。</param>
+    /// <param name="seekSeconds">段內起始偏移（<c>-ss</c>；輸入端快速跳轉）。</param>
+    /// <param name="durationSeconds">播放長度上限；0＝播到檔尾（索引沒寫段長時）。</param>
+    /// <param name="audioPort">
+    /// 大於 0 時多掛一個 PCM 輸出到這個本機 UDP 埠（與即時監看共用同一份參數，見
+    /// <see cref="AudioOutputArguments"/>）。只有檔案確實有音訊軌時才會傳入。
+    /// </param>
+    /// <param name="audioSampleRate">音訊輸出取樣率；須等於播放裝置協商出的值。</param>
     public static IReadOnlyList<string> BuildDecodeArguments(
-        string filePath, double seekSeconds, double durationSeconds)
+        string filePath,
+        double seekSeconds,
+        double durationSeconds,
+        int audioPort = 0,
+        int audioSampleRate = AudioStreamReceiver.DefaultSampleRate)
     {
         var args = new List<string>
         {
@@ -125,6 +137,12 @@ public sealed class PlaybackSession : IAsyncDisposable
             "pipe:1",
         ]);
 
+        // 回放的聲音與即時監看同一份參數：不佔新連線、不與 stdout 的 rawvideo 混流。
+        if (audioPort > 0)
+        {
+            args.AddRange(AudioOutputArguments.Build(audioPort, audioSampleRate));
+        }
+
         return args;
     }
 
@@ -151,6 +169,7 @@ public sealed class PlaybackSession : IAsyncDisposable
         try
         {
             var info = await Task.Run(() => ProbeCached(Segment.FilePath), cancellationToken);
+            SourceHasAudio = info.AudioCodec is not null;
             await StreamFramesAsync(info, seekSeconds, _cts.Token);
         }
         catch (OperationCanceledException)
@@ -174,6 +193,18 @@ public sealed class PlaybackSession : IAsyncDisposable
         _cts?.Cancel();
         KillProcess();
     }
+
+    /// <summary>
+    /// 現場收音要用的本機 UDP 埠（0＝不掛音訊輸出）。
+    /// 埠在 <see cref="PlayAsync"/> 之前就要設好：參數是啟動 ffmpeg 時寫定的。
+    /// </summary>
+    public int AudioPort { get; set; }
+
+    /// <summary>音訊輸出取樣率（須與裝置一致）。</summary>
+    public int AudioSampleRate { get; set; } = AudioStreamReceiver.DefaultSampleRate;
+
+    /// <summary>這一段檔案是否量到音訊軌（null＝還沒探測到）。</summary>
+    public bool? SourceHasAudio { get; private set; }
 
     /// <summary>
     /// 以檔案簽章快取 ffprobe 結果（見 <see cref="ProbeCache"/> 說明）。
@@ -234,7 +265,10 @@ public sealed class PlaybackSession : IAsyncDisposable
             UseShellExecute = false,
             CreateNoWindow = true,
         };
-        foreach (var arg in BuildDecodeArguments(Segment.FilePath, seekSeconds, remaining))
+        // 有音訊軌才掛：舊錄影（或當初沒開音訊的攝影機）的檔案沒有音訊串流，
+        // 對它下 `-map 0:a:0` 會讓 ffmpeg 直接失敗，連畫面都沒有。
+        var audioPort = AudioOutputArguments.ResolvePort(AudioPort, info.AudioCodec is not null);
+        foreach (var arg in BuildDecodeArguments(Segment.FilePath, seekSeconds, remaining, audioPort, AudioSampleRate))
         {
             psi.ArgumentList.Add(arg);
         }

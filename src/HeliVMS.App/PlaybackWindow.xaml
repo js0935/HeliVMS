@@ -237,6 +237,12 @@
                                    Foreground="White" Background="#99000000" FontSize="11" Padding="4,1,4,1"
                                    IsHitTestVisible="False"
                                    AutomationProperties.AutomationId="PlaybackPlayerOsd"/>
+                        <TextBlock x:Name="PlayerAudioIcon" Text=""
+                                   HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="4"
+                                   Foreground="White" Background="#99000000" FontSize="12" Padding="7,3,7,3"
+                                   FontFamily="Segoe MDL2 Assets" Cursor="Hand"
+                                   MouseLeftButtonDown="OnPlaybackAudioClicked"
+                                   AutomationProperties.AutomationId="PlaybackAudioIcon"/>
                         <Canvas x:Name="RedactOverlay" IsHitTestVisible="False" ClipToBounds="True"
                                 AutomationProperties.AutomationId="PlaybackRedactOverlay"/>
                     </Grid>

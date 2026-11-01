@@ -1,7 +1,7 @@
 namespace HeliVMS.Media;
 
 /// <summary>
-/// 有界 PCM 片段佇列（<see cref="AudioPullClient"/> 與播放端之間的緩衝）。
+/// 有界 PCM 片段佇列（<see cref="AudioStreamReceiver"/> 與播放端之間的緩衝）。
 /// </summary>
 /// <remarks>
 /// <para>

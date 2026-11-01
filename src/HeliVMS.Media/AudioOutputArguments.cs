@@ -28,6 +28,17 @@ public static class AudioOutputArguments
     public const string LoopbackHost = "127.0.0.1";
 
     /// <summary>
+    /// 決定要不要掛音訊輸出：設定了埠<b>且</b>確定量到音訊軌才掛。
+    /// </summary>
+    /// <remarks>
+    /// 抽成純函式是因為這個決定錯了只有兩種下場，而且都不會出現在畫面上：
+    /// 該掛沒掛＝「明明有麥克風卻永遠聽不到」；不該掛亂掛＝對沒有音訊的來源下
+    /// <c>-map 0:a:0</c> 會讓 ffmpeg 直接失敗，<b>連畫面都沒有</b>。
+    /// </remarks>
+    public static int ResolvePort(int configuredPort, bool? sourceHasAudio) =>
+        configuredPort > 0 && sourceHasAudio == true ? configuredPort : 0;
+
+    /// <summary>
     /// 音訊輸出的參數（接在影像輸出之後；<c>-map 0:a:0</c> 只作用於這一個輸出路徑）。
     /// </summary>
     /// <param name="port">接收端已經綁定的 UDP 埠（必須先綁才能給 ffmpeg，否則會被系統拒絕）。</param>

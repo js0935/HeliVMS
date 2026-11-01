@@ -57,7 +57,7 @@ public sealed class AudioOutputArgumentsTests
     [InlineData(41000, false, 0)]   // 設定了但這台沒有麥克風：絕不能掛
     [InlineData(41000, null, 0)]    // 還沒探測到：寧願晚一點也先不掛
     public void 只有確定有音訊軌時才掛音訊輸出(int configured, bool? hasAudio, int expected) =>
-        Assert.Equal(expected, RtspClient.ResolveAudioPort(configured, hasAudio));
+        Assert.Equal(expected, AudioOutputArguments.ResolvePort(configured, hasAudio));
 
     [Fact]
     public void 監看解碼參數在指定埠時才附上音訊()
