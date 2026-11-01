@@ -53,6 +53,9 @@ public sealed class CameraDiHost : IDisposable
     }
 
     /// <summary>依資料庫現況同步監視器集合（新增有 DI 埠的設備、移除不再需要的）。</summary>
+    /// <summary>警報動作（DI 觸發 → 帶畫面／截圖／播音／地圖等）由畫面層執行；宿主只轉發。</summary>
+    public event EventHandler<IReadOnlyList<IoAction>>? LinkTriggered;
+
     public void RefreshAndStart()
     {
         if (_disposed)
@@ -103,10 +106,23 @@ public sealed class CameraDiHost : IDisposable
                 }
 
                 var monitor = CreateMonitor(entry.Device);
+                monitor.LinkTriggered += (_, actions) => LinkTriggered?.Invoke(this, actions);
                 monitor.Start();
                 _monitors[deviceId] = monitor;
             }
         }
+    }
+
+    /// <summary>
+    /// 讓警報中心剛改完的 IO 連動規則立即生效（重建引擎；等同重新上電）。
+    /// </summary>
+    /// <remarks>
+    /// 規則在警報中心編輯，執行中的監視器拿的是建立當下的引擎副本；
+    /// 沒有這一步，改完規則要重啟軟體才會生效，操作員會以為設定沒存到。
+    /// </remarks>
+    public void ReloadRules()
+    {
+        _ruleHost.Reload();
     }
 
     /// <summary>目前監視中的設備數（供診斷／契約測試）。</summary>

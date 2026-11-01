@@ -1,13 +1,22 @@
 namespace HeliVMS.Storage;
 
-/// <summary>引擎產出之一個 IO 動作（M74）：由規則觸發，App/採樣層負責落地（alarm_events / DO 實際輸出）。</summary>
+/// <summary>
+/// 引擎產出之一個 IO 動作（M74）：由規則觸發，App/採樣層負責落地
+/// （alarm_events / DO 實際輸出 / 帶畫面、截圖、播音、地圖等警報動作）。</summary>
 public sealed record IoAction(
     IoActionKind Kind,
     long RuleId,
     long ChannelId,
     long InputPortId,
     long? OutputPortId,
-    string? EventType);
+    string? EventType,
+    int? LinkChannelId = null,
+    bool LinkFullscreen = false,
+    bool LinkSnapshot = false,
+    string? LinkSoundPath = null,
+    bool LinkMap = false,
+    int ResetSeconds = 0,
+    int OutputSeconds = 0);
 
 /// <summary>
 /// 感測器動作鏈引擎（M74，§14.1 #16，純 BCL）：以「邏輯值」運算——
@@ -85,14 +94,18 @@ public sealed class IoRuleEngine
                 if (rule.ActionKind == IoActionKind.Alarm)
                 {
                     actions.Add(new IoAction(
-                        IoActionKind.Alarm, rule.Id, port.ChannelId, portId, null, rule.EventType));
+                        IoActionKind.Alarm, rule.Id, port.ChannelId, portId, null, rule.EventType,
+                        rule.LinkChannelId, rule.LinkFullscreen, rule.LinkSnapshot, rule.LinkSoundPath,
+                        rule.LinkMap, rule.ResetSeconds, rule.OutputSeconds));
                 }
                 else if (rule.OutputPortId is { } outputId)
                 {
                     var next = !(_outputState.TryGetValue(outputId, out var o) && o);
                     _outputState[outputId] = next;
                     actions.Add(new IoAction(
-                        IoActionKind.ToggleDo, rule.Id, port.ChannelId, portId, outputId, null));
+                        IoActionKind.ToggleDo, rule.Id, port.ChannelId, portId, outputId, null,
+                        rule.LinkChannelId, rule.LinkFullscreen, rule.LinkSnapshot, rule.LinkSoundPath,
+                        rule.LinkMap, rule.ResetSeconds, rule.OutputSeconds));
                 }
 
                 _lastTrigger[rule.Id] = utcNow;

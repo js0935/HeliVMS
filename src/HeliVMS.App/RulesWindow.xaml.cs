@@ -1,6 +1,7 @@
 using System.Windows;
 using System.Windows.Controls;
 using HeliVMS.Alarms;
+using HeliVMS.App.Services;
 using HeliVMS.Shared.Models;
 using HeliVMS.Storage;
 
@@ -11,6 +12,13 @@ public partial class RulesWindow : Window
 {
     private readonly SqliteStore _store;
     private readonly RuleRepository _rules;
+
+    private readonly IoPortRepository _ioPorts;
+    private readonly IoRuleRepository _ioRules;
+    private readonly ChannelRepository _channels;
+
+    /// <summary>IO 連動規則變更後的回呼（讓執行中的監視器重建引擎，不必重啟軟體）。</summary>
+    private readonly Action? _ioRulesChanged;
 
     private sealed class RuleRowViewModel
     {
@@ -31,12 +39,18 @@ public partial class RulesWindow : Window
         public string DeleteText => Localizer.T("Rules.Delete");
     }
 
-    public RulesWindow(SqliteStore store)
+    public RulesWindow(SqliteStore store, Action? ioRulesChanged = null)
     {
         _store = store;
         _rules = new RuleRepository(store);
+        _ioPorts = new IoPortRepository(store);
+        _ioRules = new IoRuleRepository(store);
+        _channels = new ChannelRepository(store);
+        _ioRulesChanged = ioRulesChanged;
         InitializeComponent();
         ApplyI18n();
+        ReloadIoRuleChoices();
+        RefreshIoRules();
     }
 
     private void OnCloseClicked(object sender, RoutedEventArgs e) => Close();
@@ -63,11 +77,46 @@ public partial class RulesWindow : Window
         RulesColExpr.Header = Localizer.T("Rules.ColExpr");
         RulesColActions.Header = Localizer.T("Rules.ColActions");
         RulesEvalHeaderText.Text = Localizer.T("Rules.EvalHeader");
+
+        // IO 連動（接點在設定中心 → IO 登記；這裡只設定觸發後做什麼）。
+        IoRulesHeaderText.Text = Localizer.T("Rules.IoHeader");
+        IoRulesAddToggleButton.Content = Localizer.T("Rules.IoAddToggle");
+        IoRulesAddToggleButton.ToolTip = Localizer.T("Rules.IoAddToggleTip");
+        IoRulesRefreshButton.Content = Localizer.T("Rules.IoRefresh");
+        IoRulesRefreshButton.ToolTip = Localizer.T("Rules.IoRefreshTip");
+        IoRuleInputLabel.Text = Localizer.T("Rules.IoInputLabel");
+        IoRuleActionLabel.Text = Localizer.T("Rules.IoActionLabel");
+        IoRuleActionAlarmItem.Content = Localizer.T("Rules.IoActionAlarm");
+        IoRuleActionDoItem.Content = Localizer.T("Rules.IoActionDo");
+        IoRuleEnabledBox.Content = Localizer.T("Rules.Enable");
+        IoRuleEnabledBox.ToolTip = Localizer.T("Rules.IoEnableTip");
+        IoRuleTargetLabel.Text = Localizer.T("Rules.IoTargetLabel");
+        IoRuleRetriggerLabel.Text = Localizer.T("Rules.IoRetriggerLabel");
+        IoRuleOutputSecLabel.Text = Localizer.T("Rules.IoOutputSecLabel");
+        IoRuleOutputSecBox.ToolTip = Localizer.T("Rules.IoOutputSecTip");
+        IoRuleResetLabel.Text = Localizer.T("Rules.IoResetLabel");
+        IoRuleResetBox.ToolTip = Localizer.T("Rules.IoResetTip");
+        IoRuleLinkLabel.Text = Localizer.T("Rules.IoLinkLabel");
+        IoRuleFullscreenBox.Content = Localizer.T("Rules.IoFullscreen");
+        IoRuleSnapshotBox.Content = Localizer.T("Rules.IoSnapshot");
+        IoRuleMapBox.Content = Localizer.T("Rules.IoMap");
+        IoRuleSoundBox.ToolTip = Localizer.T("Rules.IoSoundTip");
+        IoRuleSoundBrowseButton.Content = Localizer.T("Talk.Browse");
+        IoRuleConfirmButton.Content = Localizer.T("Rules.Confirm");
+        IoRuleConfirmButton.ToolTip = Localizer.T("Rules.ConfirmTip");
+        IoRuleCancelButton.Content = Localizer.T("Rules.Cancel");
+        IoRuleColInput.Header = Localizer.T("Rules.IoColInput");
+        IoRuleColAction.Header = Localizer.T("Rules.IoColAction");
+        IoRuleColRetrigger.Header = Localizer.T("Rules.IoColRetrigger");
+        IoRuleColState.Header = Localizer.T("Rules.IoColState");
+        IoRuleColOps.Header = Localizer.T("Rules.IoColOps");
     }
 
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
         Refresh();
+        ReloadIoRuleChoices();
+        RefreshIoRules();
     }
 
     private void Refresh()
@@ -169,6 +218,226 @@ public partial class RulesWindow : Window
             _rules.Delete(row.Rule.Id);
             Refresh();
         }
+    }
+
+    // ── IO 連動（io_rules）：接點在設定中心 → IO 登記，這裡只設定觸發後做什麼。
+    // 對照 Home Assistant 的分工：裝置／實體（這裡的「接點」）與自動化（這裡的「連動」）分離，
+    // 才不會出現「接點設定頁兼管規則」的雙頭馬車。
+    private sealed class IoRuleRowViewModel
+    {
+        public required IoRuleRecord Rule { get; init; }
+
+        public required string InputText { get; init; }
+
+        public required string ActionText { get; init; }
+
+        public string RetriggerText => Rule.RetriggerSec.ToString(System.Globalization.CultureInfo.InvariantCulture);
+
+        public string EnabledText => Rule.Enabled ? Localizer.T("Rules.Enabled") : Localizer.T("Rules.Disabled");
+
+        public string EnabledColor => Rule.Enabled ? "#8AE08A" : "#E0B0B0";
+
+        public string ToggleText => Rule.Enabled ? Localizer.T("Rules.Disabled") : Localizer.T("Rules.Enabled");
+
+        public string DeleteText => Localizer.T("Rules.Delete");
+    }
+
+    private void ReloadIoRuleChoices()
+    {
+        var ports = _ioPorts.List();
+
+        // 只列登記過的接點：沒登記的端子在這裡選不到，規則才不會指向不存在的硬體。
+        IoRuleInputCombo.Items.Clear();
+        foreach (var port in ports.Where(p => p.Kind == IoPortKind.Di))
+        {
+            IoRuleInputCombo.Items.Add(new ComboBoxItem
+            {
+                Content = DescribePort(port),
+                Tag = port.Id,
+            });
+        }
+
+        IoRuleOutputCombo.Items.Clear();
+        foreach (var port in ports.Where(p => p.Kind == IoPortKind.Do))
+        {
+            IoRuleOutputCombo.Items.Add(new ComboBoxItem
+            {
+                Content = DescribePort(port),
+                Tag = port.Id,
+            });
+        }
+
+        // 連動攝影機：觸發時把該台帶到監看牆上（或展開單畫面）。
+        IoRuleLinkCombo.Items.Clear();
+        IoRuleLinkCombo.Items.Add(new ComboBoxItem
+        {
+            Content = Localizer.T("Rules.IoLinkNone"),
+            Tag = null,
+        });
+        foreach (var channel in _channels.List())
+        {
+            IoRuleLinkCombo.Items.Add(new ComboBoxItem
+            {
+                Content = $"#{channel.Id} ({channel.Name})",
+                Tag = channel.Id,
+            });
+        }
+        IoRuleLinkCombo.SelectedIndex = 0;
+    }
+
+    private static string DescribePort(IoPortRecord port) =>
+        string.Format(System.Globalization.CultureInfo.InvariantCulture, "{0}#{1} {2}",
+            port.Kind == IoPortKind.Di ? "DI" : "DO", port.Number, port.Name);
+
+    private void RefreshIoRules()
+    {
+        var portById = _ioPorts.List().ToDictionary(p => p.Id);
+        var rows = _ioRules.List().Select(r =>
+        {
+            var input = portById.TryGetValue(r.InputPortId, out var p) ? DescribePort(p) : $"#{r.InputPortId}";
+            var action = r.ActionKind == IoActionKind.Alarm
+                ? string.Format(System.Globalization.CultureInfo.InvariantCulture, Localizer.T("Rules.IoActionAlarm"), EventTypeText.Label(r.EventType ?? string.Empty))
+                : string.Format(System.Globalization.CultureInfo.InvariantCulture, Localizer.T("Rules.IoActionDo"),
+                    portById.TryGetValue(r.OutputPortId ?? 0, out var o) ? DescribePort(o) : $"#{r.OutputPortId}");
+            return new IoRuleRowViewModel
+            {
+                Rule = r,
+                InputText = input,
+                ActionText = action,
+            };
+        }).ToList();
+        IoRuleList.ItemsSource = rows;
+    }
+
+    private void OnIoRuleAddToggleClicked(object sender, RoutedEventArgs e)
+    {
+        IoRulesEditPanel.Visibility = IoRulesEditPanel.Visibility == Visibility.Visible
+            ? Visibility.Collapsed
+            : Visibility.Visible;
+    }
+
+    private void OnIoRuleRefreshClicked(object sender, RoutedEventArgs e)
+    {
+        ReloadIoRuleChoices();
+        RefreshIoRules();
+    }
+
+    private void OnIoRuleActionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
+    {
+        if (IoRuleOutputCombo is null || IoRuleEventTypeBox is null)
+        {
+            return;
+        }
+
+        var isDo = ReferenceEquals(IoRuleActionCombo.SelectedItem, IoRuleActionDoItem);
+        IoRuleOutputCombo.Visibility = isDo ? Visibility.Visible : Visibility.Collapsed;
+        IoRuleEventTypeBox.Visibility = isDo ? Visibility.Collapsed : Visibility.Visible;
+    }
+
+    private static long? SelectedPortId(System.Windows.Controls.ComboBox combo)
+        => (combo.SelectedItem as ComboBoxItem)?.Tag as long?;
+
+    private static string? NullIfEmpty(string text) => string.IsNullOrWhiteSpace(text) ? null : text.Trim();
+
+    private static int ParseSeconds(string text) =>
+        int.TryParse(text.Trim(), out var value) && value > 0 ? value : 0;
+
+    /// <summary>挑選對講／警報音檔（觸發時主機播放）。</summary>
+    private void OnIoRuleSoundBrowseClicked(object sender, RoutedEventArgs e)
+    {
+        var dialog = new Microsoft.Win32.OpenFileDialog
+        {
+            Title = Localizer.T("Talk.PickTitle"),
+            Filter = Localizer.T("Talk.FileFilter"),
+            CheckFileExists = true,
+        };
+        if (dialog.ShowDialog(this) == true)
+        {
+            IoRuleSoundBox.Text = dialog.FileName;
+        }
+    }
+
+    private void OnIoRuleConfirmed(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var input = SelectedPortId(IoRuleInputCombo);
+            if (input is null)
+            {
+                RulesStatusText.Text = Localizer.T("Rules.IoNeedInput");
+                return;
+            }
+
+            var isDo = ReferenceEquals(IoRuleActionCombo.SelectedItem, IoRuleActionDoItem);
+            var output = isDo ? SelectedPortId(IoRuleOutputCombo) : null;
+            if (isDo && output is null)
+            {
+                RulesStatusText.Text = Localizer.T("Rules.IoNeedTarget");
+                return;
+            }
+
+            var eventType = isDo ? null : (IoRuleEventTypeBox.Text ?? string.Empty).Trim();
+            if (!isDo && string.IsNullOrWhiteSpace(eventType))
+            {
+                RulesStatusText.Text = Localizer.T("Rules.IoNeedEventType");
+                return;
+            }
+
+            if (!int.TryParse(IoRuleRetriggerBox.Text.Trim(), out var retrigger) || retrigger < 0)
+            {
+                RulesStatusText.Text = Localizer.T("Rules.IoNeedTarget");
+                return;
+            }
+
+            var enabled = IoRuleEnabledBox.IsChecked == true;
+            var linkChannel = (IoRuleLinkCombo.SelectedItem as ComboBoxItem)?.Tag as int?;
+            var id = _ioRules.Add(
+                input.Value,
+                isDo ? IoActionKind.ToggleDo : IoActionKind.Alarm,
+                output,
+                eventType,
+                retrigger,
+                enabled,
+                linkChannel,
+                IoRuleFullscreenBox.IsChecked == true,
+                IoRuleSnapshotBox.IsChecked == true,
+                NullIfEmpty(IoRuleSoundBox.Text),
+                IoRuleMapBox.IsChecked == true,
+                ParseSeconds(IoRuleResetBox.Text),
+                ParseSeconds(IoRuleOutputSecBox.Text));
+            IoRulesEditPanel.Visibility = Visibility.Collapsed;
+            RefreshIoRules();
+            RulesStatusText.Text = string.Format(System.Globalization.CultureInfo.InvariantCulture, Localizer.T("Rules.IoAdded"), id);
+            _ioRulesChanged?.Invoke();
+        }
+        catch (Exception ex)
+        {
+            RulesStatusText.Text = string.Format(System.Globalization.CultureInfo.InvariantCulture, Localizer.T("Rules.IoFailed"), ex.Message);
+        }
+    }
+
+    private void OnIoRuleToggleClicked(object sender, RoutedEventArgs e)
+    {
+        if (sender is not System.Windows.Controls.Button { DataContext: IoRuleRowViewModel row })
+        {
+            return;
+        }
+
+        _ioRules.SetEnabled(row.Rule.Id, !row.Rule.Enabled);
+        RefreshIoRules();
+        _ioRulesChanged?.Invoke();
+    }
+
+    private void OnIoRuleDeleteClicked(object sender, RoutedEventArgs e)
+    {
+        if (sender is not System.Windows.Controls.Button { DataContext: IoRuleRowViewModel row })
+        {
+            return;
+        }
+
+        _ioRules.Delete(row.Rule.Id);
+        RefreshIoRules();
+        _ioRulesChanged?.Invoke();
     }
 
     private static string Shorten(string json, int max)

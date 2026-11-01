@@ -13,6 +13,8 @@
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
             <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
         <Grid Grid.Row="0" Margin="0,0,0,8">
@@ -115,13 +117,129 @@
             </ListView.View>
         </ListView>
 
-        <StackPanel Grid.Row="3" Margin="0,14,0,0">
+        <!-- IO linkage: contacts are registered in Settings > IO; this configures
+             what a DI trigger does (alarm event / DO output). -->
+        <StackPanel Grid.Row="3" Margin="0,16,0,0">
+            <TextBlock x:Name="IoRulesHeaderText" Text="" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+            <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                <Button x:Name="IoRulesAddToggleButton" AutomationProperties.AutomationId="IoRulesAddToggleButton" ToolTip=""
+                        Content="" Click="OnIoRuleAddToggleClicked"
+                        Width="92" Padding="0,6"
+                        Foreground="White" Background="#2A5C8A" BorderThickness="0"/>
+                <Button x:Name="IoRulesRefreshButton" AutomationProperties.AutomationId="IoRulesRefreshButton" ToolTip=""
+                        Content="" Click="OnIoRuleRefreshClicked"
+                        Width="92" Padding="0,6" Margin="8,0,0,0"
+                        Foreground="White" Background="#3A5A7A" BorderThickness="0"/>
+            </StackPanel>
+            <Border x:Name="IoRulesEditPanel" Visibility="Collapsed"
+                    Background="#102030" BorderBrush="#2A5C8A" BorderThickness="1" CornerRadius="3"
+                    Margin="0,10,0,0" Padding="10">
+                <StackPanel>
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock x:Name="IoRuleInputLabel" Text="" VerticalAlignment="Center" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+                        <ComboBox x:Name="IoRuleInputCombo" AutomationProperties.AutomationId="IoRuleInputCombo"
+                                  Width="230" Margin="8,0,0,0"/>
+                        <TextBlock x:Name="IoRuleActionLabel" Text="" VerticalAlignment="Center" Margin="16,0,0,0" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+                        <ComboBox x:Name="IoRuleActionCombo" AutomationProperties.AutomationId="IoRuleActionCombo"
+                                  Width="150" Margin="8,0,0,0" SelectionChanged="OnIoRuleActionChanged">
+                            <ComboBoxItem x:Name="IoRuleActionAlarmItem"/>
+                            <ComboBoxItem x:Name="IoRuleActionDoItem"/>
+                        </ComboBox>
+                        <CheckBox x:Name="IoRuleEnabledBox" Content="" IsChecked="True" Margin="16,0,0,0"
+                                  Foreground="White" VerticalAlignment="Center" ToolTip=""/>
+                    </StackPanel>
+                                        <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                        <TextBlock x:Name="IoRuleTargetLabel" Text="" VerticalAlignment="Center" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+                        <ComboBox x:Name="IoRuleOutputCombo" AutomationProperties.AutomationId="IoRuleOutputCombo"
+                                  Width="200" Margin="8,0,0,0" Visibility="Collapsed"/>
+                        <TextBox x:Name="IoRuleEventTypeBox" AutomationProperties.AutomationId="IoRuleEventTypeBox"
+                                 Width="140" Margin="8,0,0,0" Visibility="Visible" Foreground="Black"/>
+                        <TextBlock x:Name="IoRuleRetriggerLabel" Text="" VerticalAlignment="Center" Margin="10,0,0,0" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+                        <TextBox x:Name="IoRuleRetriggerBox" AutomationProperties.AutomationId="IoRuleRetriggerBox"
+                                 Width="46" Margin="6,0,0,0" Text="30" Foreground="Black"/>
+                        <TextBlock x:Name="IoRuleOutputSecLabel" Text="" VerticalAlignment="Center" Margin="10,0,0,0" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+                        <TextBox x:Name="IoRuleOutputSecBox" AutomationProperties.AutomationId="IoRuleOutputSecBox"
+                                 Width="46" Margin="6,0,0,0" Text="0" Foreground="Black"/>
+                        <TextBlock x:Name="IoRuleResetLabel" Text="" VerticalAlignment="Center" Margin="10,0,0,0" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+                        <TextBox x:Name="IoRuleResetBox" AutomationProperties.AutomationId="IoRuleResetBox"
+                                 Width="46" Margin="6,0,0,0" Text="0" Foreground="Black"/>
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                        <TextBlock x:Name="IoRuleLinkLabel" Text="" VerticalAlignment="Center" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+                        <ComboBox x:Name="IoRuleLinkCombo" AutomationProperties.AutomationId="IoRuleLinkCombo"
+                                  Width="200" Margin="8,0,0,0"/>
+                        <CheckBox x:Name="IoRuleFullscreenBox" Content="" Margin="12,0,0,0" Foreground="White" VerticalAlignment="Center"/>
+                        <CheckBox x:Name="IoRuleSnapshotBox" Content="" Margin="10,0,0,0" Foreground="White" VerticalAlignment="Center"/>
+                        <CheckBox x:Name="IoRuleMapBox" Content="" Margin="10,0,0,0" Foreground="White" VerticalAlignment="Center"/>
+                        <TextBox x:Name="IoRuleSoundBox" AutomationProperties.AutomationId="IoRuleSoundBox"
+                                 Width="170" Margin="10,0,0,0" Foreground="Black"/>
+                        <Button x:Name="IoRuleSoundBrowseButton" Content="" Click="OnIoRuleSoundBrowseClicked"
+                                Margin="6,0,0,0" Padding="8,3"
+                                Foreground="White" Background="#3A5A7A" BorderThickness="0"/>
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                        <Button x:Name="IoRuleConfirmButton" AutomationProperties.AutomationId="IoRuleConfirmButton" ToolTip=""
+                                Content="" Click="OnIoRuleConfirmed"
+                                Width="90" Padding="0,5"
+                                Foreground="White" Background="#3A6A5A" BorderThickness="0"/>
+                        <Button x:Name="IoRuleCancelButton" Click="OnIoRuleAddToggleClicked" ToolTip=""
+                                Content="" Width="60" Padding="0,5" Margin="8,0,0,0"
+                                Foreground="White" Background="#5A3A3A" BorderThickness="0" AutomationProperties.AutomationId="IoRuleCancelButton"/>
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+        </StackPanel>
+
+        <ListView Grid.Row="4" x:Name="IoRuleList" AutomationProperties.AutomationId="IoRuleList"
+                  Margin="0,10,0,0" Background="Transparent" BorderThickness="0"
+                  Foreground="White" SelectionMode="Single" FontSize="12">
+            <ListView.View>
+                <GridView>
+                    <GridViewColumn x:Name="IoRuleColInput" Header="" Width="200">
+                        <GridViewColumn.CellTemplate>
+                            <DataTemplate><TextBlock Text="{Binding InputText}" FontSize="12" TextWrapping="Wrap"/></DataTemplate>
+                        </GridViewColumn.CellTemplate>
+                    </GridViewColumn>
+                    <GridViewColumn x:Name="IoRuleColAction" Header="" Width="190">
+                        <GridViewColumn.CellTemplate>
+                            <DataTemplate><TextBlock Text="{Binding ActionText}" FontSize="12" TextWrapping="Wrap" Foreground="#C9D8E8"/></DataTemplate>
+                        </GridViewColumn.CellTemplate>
+                    </GridViewColumn>
+                    <GridViewColumn x:Name="IoRuleColRetrigger" Header="" Width="70">
+                        <GridViewColumn.CellTemplate>
+                            <DataTemplate><TextBlock Text="{Binding RetriggerText}" FontSize="12"/></DataTemplate>
+                        </GridViewColumn.CellTemplate>
+                    </GridViewColumn>
+                    <GridViewColumn x:Name="IoRuleColState" Header="" Width="64">
+                        <GridViewColumn.CellTemplate>
+                            <DataTemplate><TextBlock Text="{Binding EnabledText}" FontSize="12" Foreground="{Binding EnabledColor}"/></DataTemplate>
+                        </GridViewColumn.CellTemplate>
+                    </GridViewColumn>
+                    <GridViewColumn x:Name="IoRuleColOps" Header="" Width="150">
+                        <GridViewColumn.CellTemplate>
+                            <DataTemplate>
+                                <StackPanel Orientation="Horizontal">
+                                    <Button Content="{Binding ToggleText}" Click="OnIoRuleToggleClicked"
+                                            Foreground="White" Background="#3A5A7A" BorderThickness="0"
+                                            Padding="6,2" Margin="0,0,6,0"/>
+                                    <Button Content="{Binding DeleteText}" Click="OnIoRuleDeleteClicked"
+                                            Foreground="White" Background="#7A3A3A" BorderThickness="0"
+                                            Padding="6,2"/>
+                                </StackPanel>
+                            </DataTemplate>
+                        </GridViewColumn.CellTemplate>
+                    </GridViewColumn>
+                </GridView>
+            </ListView.View>
+        </ListView>
+
+        <StackPanel Grid.Row="5" Margin="0,14,0,0">
             <TextBlock x:Name="RulesEvalHeaderText" Text="" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
             <TextBlock x:Name="RulesEvalText" AutomationProperties.AutomationId="RulesEvalText"
                        Margin="0,4,0,0" Foreground="#C9D8E8" TextWrapping="Wrap" FontSize="12"/>
         </StackPanel>
 
-        <TextBlock Grid.Row="4" x:Name="RulesStatusText" AutomationProperties.AutomationId="RulesStatusText"
+        <TextBlock Grid.Row="6" x:Name="RulesStatusText" AutomationProperties.AutomationId="RulesStatusText"
                    Margin="0,10,0,0" Foreground="#9FB8D8" TextWrapping="Wrap"/>
     </Grid>
 </Window>

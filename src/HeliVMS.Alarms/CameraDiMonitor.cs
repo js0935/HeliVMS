@@ -156,6 +156,8 @@ public sealed class CameraDiMonitor : IDisposable
     /// <summary>狀態有更新（供介面刷新計數）。</summary>
     public event EventHandler? Updated;
 
+    /// <summary>規則觸發後的警報動作（帶畫面／截圖／播音／地圖等，由宿主層往上送）。</summary>
+    public event EventHandler<IReadOnlyList<IoAction>>? LinkTriggered;
     /// <summary>開始監視（重複呼叫無效）。</summary>
     public void Start()
     {
@@ -216,8 +218,12 @@ public sealed class CameraDiMonitor : IDisposable
                             continue;
                         }
 
-                        await _host.FeedAsync(portId, input.Active, cancellationToken).ConfigureAwait(false);
+                        var actions = await _host.FeedAsync(portId, input.Active, cancellationToken).ConfigureAwait(false);
                         FedCount++;
+                        if (actions.Count > 0)
+                        {
+                            LinkTriggered?.Invoke(this, actions);
+                        }
                         Updated?.Invoke(this, EventArgs.Empty);
                     }
                 }

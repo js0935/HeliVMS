@@ -909,6 +909,9 @@ public partial class MainWindow : Window
         _talk = new LiveTalkController(id => BuildTalkRequest(id));
         _talk.StateChanged += (_, _) => Dispatcher.BeginInvoke(new Action(UpdateAudioIcons), DispatcherPriority.Background);
 
+        // 警報動作：DI 觸發後的帶畫面／截圖／播音／地圖／賦歸（繼電器由 IoRuleHost 直接輸出）。
+        _cameraDiHost.LinkTriggered += OnCameraDiLinkTriggered;
+
         // M305：內嵌 Web 服務。設定了 web.enabled=1 就在啟動時拉起，交由設定中心「網路」頁控制。
         _webHost = new WebHost(_dataRoot, Path.Combine(_dataRoot, "index.db"));
         _webHost.ApplySettings(new SettingsRepository(_store));
@@ -2488,6 +2491,141 @@ public partial class MainWindow : Window
             });
         }
     }
+
+    /// <summary>
+    /// 執行 DI 警報動作（帶畫面／截圖／播音／地圖／賦歸）。
+    /// </summary>
+    /// <remarks>
+    /// 繼電器（DO）由 <c>IoRuleHost</c> 直接輸出（含輸出秒數的自動賦歸）；
+    /// 畫面側的動作只能在這裡做——監看牆、截圖與地圖都是主視窗的狀態。
+    /// 事件來自背景執行緒，一律排回 Dispatcher 再動 UI。
+    /// </remarks>
+    private void OnCameraDiLinkTriggered(object? sender, IReadOnlyList<IoAction> actions)
+    {
+        Dispatcher.BeginInvoke(new Action(() =>
+        {
+            foreach (var action in actions)
+            {
+                ExecuteIoLinkAction(action);
+            }
+        }), DispatcherPriority.Background);
+    }
+
+    /// <summary>賦歸前的佈局（展開單畫面前先記住，N 秒後還原）。</summary>
+    private int? _preLinkLayout;
+
+    private void ExecuteIoLinkAction(IoAction action)
+    {
+        // 1) 連動攝影機／全畫面：把該台帶到牆上；找不到就說明，不默默吞掉。
+        if (action.LinkChannelId is int linkChannel)
+        {
+            LinkCameraOnWall(linkChannel, action.LinkFullscreen);
+        }
+
+        // 2) 截圖存證（與右鍵截圖同一條路徑）。
+        if (action.LinkSnapshot && action.LinkChannelId is int shotChannel)
+        {
+            CaptureChannelSnapshot(shotChannel);
+        }
+
+        // 3) 播放警報音（檔案不存在就略過：聲音是加值，不能因為它壞掉把警報卡住）。
+        if (!string.IsNullOrWhiteSpace(action.LinkSoundPath) && File.Exists(action.LinkSoundPath))
+        {
+            try
+            {
+                new System.Media.SoundPlayer(action.LinkSoundPath).Play();
+            }
+            catch (Exception ex)
+            {
+                HintText.Text = string.Format(Localizer.T("Main.LinkSoundFailed"), ex.Message);
+            }
+        }
+
+        // 4) 電子地圖（聚焦到地圖頁，圖釘的即時狀態會自己更新）。
+        if (action.LinkMap)
+        {
+            OpenMapWindow();
+        }
+
+        // 5) 賦歸：N 秒後把佈局還原（0＝不自動恢復）。
+        if (action.ResetSeconds > 0)
+        {
+            ScheduleLinkReset(action.ResetSeconds);
+        }
+    }
+
+    /// <summary>把連動的攝影機帶到牆上；必要時展開單畫面（展開前記住佈局供賦歸還原）。</summary>
+    private void LinkCameraOnWall(int channelId, bool fullscreen)
+    {
+        for (var cell = 0; cell < CurrentCellCount(); cell++)
+        {
+            if (_cellChannel[cell] != channelId)
+            {
+                continue;
+            }
+
+            if (fullscreen)
+            {
+                if (LayoutCombo.SelectedIndex != 0 && _preLinkLayout is null)
+                {
+                    _preLinkLayout = LayoutCombo.SelectedIndex;
+                }
+
+                if (LayoutCombo.SelectedIndex != 0 || _cellChannel[0] != channelId)
+                {
+                    ToggleExpandCell(cell);
+                }
+            }
+            else
+            {
+                _selectedCell = cell;
+                PaintCellBorders();
+            }
+
+            HintText.Text = string.Format(Localizer.T("Main.LinkCamera"), ChannelName(channelId));
+            return;
+        }
+
+        HintText.Text = string.Format(Localizer.T("Main.LinkCameraOffWall"), ChannelName(channelId));
+    }
+
+    /// <summary>對連動的攝影機截圖存證（該台不在牆上時略過）。</summary>
+    private void CaptureChannelSnapshot(int channelId)
+    {
+        for (var cell = 0; cell < CurrentCellCount(); cell++)
+        {
+            if (_cellChannel[cell] != channelId)
+            {
+                continue;
+            }
+
+            CaptureCellSnapshot(cell);
+            return;
+        }
+    }
+
+    /// <summary>警報賦歸：N 秒後把佈局還原（連動展開單畫面時才需要）。</summary>
+    private void ScheduleLinkReset(int seconds)
+    {
+        if (_preLinkLayout is null)
+        {
+            return;
+        }
+
+        var layout = _preLinkLayout;
+        _ = Task.Delay(TimeSpan.FromSeconds(seconds)).ContinueWith(_ =>
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                if (LayoutCombo.SelectedIndex == 0 && layout is > 0 and <= MaxLayoutIndex)
+                {
+                    LayoutCombo.SelectedIndex = layout.Value;
+                }
+
+                _preLinkLayout = null;
+                HintText.Text = Localizer.T("Main.LinkReset");
+            })));
+    }
+
 
     private void OnCellFrame(int cell, VideoFrame frame)
     {
@@ -4194,6 +4332,17 @@ public partial class MainWindow : Window
             return;
         }
 
+        CaptureCellSnapshot(cell);
+    }
+
+    /// <summary>對一格畫面截圖存證（右鍵與警報連動共用）。</summary>
+    private void CaptureCellSnapshot(int cell)
+    {
+        if (cell is < 0 or >= MaxCells)
+        {
+            return;
+        }
+
         if (_cellImages[cell]?.Source is not WriteableBitmap bmp)
         {
             PushAlert(Localizer.T("Snapshot.NoFrame"), cell);
@@ -4319,7 +4468,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        OpenChild(new RulesWindow(_store!));
+        OpenChild(new RulesWindow(_store!, ioRulesChanged: () => _cameraDiHost?.ReloadRules()));
     }
 
     private void OnRulesClicked(object sender, RoutedEventArgs e) => OpenRulesWindow();

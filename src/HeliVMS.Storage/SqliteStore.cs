@@ -919,7 +919,14 @@ public sealed class SqliteStore : IDisposable
                 output_port_id  INTEGER,
                 event_type      TEXT,
                 retrigger_sec   INTEGER NOT NULL DEFAULT 30,
-                enabled         INTEGER NOT NULL DEFAULT 1
+                enabled         INTEGER NOT NULL DEFAULT 1,
+                link_channel_id INTEGER,
+                link_fullscreen INTEGER NOT NULL DEFAULT 0,
+                link_snapshot   INTEGER NOT NULL DEFAULT 0,
+                link_sound_path TEXT,
+                link_map        INTEGER NOT NULL DEFAULT 0,
+                reset_seconds   INTEGER NOT NULL DEFAULT 0,
+                output_seconds  INTEGER NOT NULL DEFAULT 0
             );
             """);
     }
@@ -1058,6 +1065,15 @@ public sealed class SqliteStore : IDisposable
         EnsureColumn("channels", "display_cell", "INTEGER");
         // 現場收音（麥克風）。user_version 已是最新的舊庫也可能沒有這一欄
         // （AGENTS 的 SchemaDrift 教訓：PRAGMA user_version 不證明欄位存在）。
+        // IO 連動規則的「觸發後要做什麼」欄位（接點登記在 io_ports，規則在警報中心設定）。
+        // 現場要的是一套完整的警報動作：帶畫面、截圖、播音、地圖、繼電器輸出秒數與賦歸。
+        EnsureColumn("io_rules", "link_channel_id", "INTEGER");
+        EnsureColumn("io_rules", "link_fullscreen", "INTEGER NOT NULL DEFAULT 0");
+        EnsureColumn("io_rules", "link_snapshot", "INTEGER NOT NULL DEFAULT 0");
+        EnsureColumn("io_rules", "link_sound_path", "TEXT");
+        EnsureColumn("io_rules", "link_map", "INTEGER NOT NULL DEFAULT 0");
+        EnsureColumn("io_rules", "reset_seconds", "INTEGER NOT NULL DEFAULT 0");
+        EnsureColumn("io_rules", "output_seconds", "INTEGER NOT NULL DEFAULT 0");
         EnsureColumn("channels", "listen_enabled", "INTEGER NOT NULL DEFAULT 0");
         // 對講（這台有喇叭，可從主機把聲音送過去）。與收音是兩個方向，開關分開。
         EnsureColumn("channels", "talk_enabled", "INTEGER NOT NULL DEFAULT 0");

@@ -31,6 +31,9 @@ public sealed class IoRuleHost
     private readonly object _gate = new();
     private IoRuleEngine _engine;
 
+    /// <summary>輸出秒數的賦歸計時器（每埠一個；新的觸發先取消舊的，避免先開後關互相覆寫）。</summary>
+    private readonly Dictionary<long, Timer> _outputResets = new();
+
     public IoRuleHost(
         IoPortRepository ports,
         IoRuleRepository rules,
@@ -107,12 +110,50 @@ public sealed class IoRuleHost
             }
             else if (action.Kind == IoActionKind.ToggleDo && action.OutputPortId is long outputId)
             {
-                var state = GetOutputState(outputId) == true;
-                await _writer.WriteAsync(outputId, state, cancellationToken).ConfigureAwait(false);
+                if (action.OutputSeconds > 0)
+                {
+                    // 警報連動的「輸出秒數」：輸出 N 秒後自動賦歸（賦歸與否不影響引擎的觸發狀態）。
+                    await _writer.WriteAsync(outputId, true, cancellationToken).ConfigureAwait(false);
+                    ScheduleOutputReset(outputId, action.OutputSeconds);
+                }
+                else
+                {
+                    var state = GetOutputState(outputId) == true;
+                    await _writer.WriteAsync(outputId, state, cancellationToken).ConfigureAwait(false);
+                }
             }
         }
 
         return actions;
+    }
+
+    /// <summary>
+    /// 排定輸出埠 N 秒後自動賦歸（同一埠再觸發時先取消前一次，順序才不會亂）。
+    /// </summary>
+    /// <remarks>
+    /// 現場的閘門與警燈多半要「響一下就停」：繼電器閉合之後沒人記得去放開，
+    /// 就是現場回報「警報響了停不下來」的那一種。
+    /// </remarks>
+    private void ScheduleOutputReset(long outputPortId, int seconds)
+    {
+        lock (_gate)
+        {
+            if (_outputResets.Remove(outputPortId, out var previous))
+            {
+                previous.Dispose();
+            }
+
+            var timer = new Timer(_ =>
+            {
+                lock (_gate)
+                {
+                    _outputResets.Remove(outputPortId);
+                }
+
+                _ = _writer.WriteAsync(outputPortId, logicalOn: false);
+            }, null, TimeSpan.FromSeconds(seconds), Timeout.InfiniteTimeSpan);
+            _outputResets[outputPortId] = timer;
+        }
     }
 
     /// <summary>未提供輸出寫入器時使用：DO 動作仍計入引擎狀態，但不寫任何硬體。</summary>
