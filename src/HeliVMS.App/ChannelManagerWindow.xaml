@@ -166,6 +166,9 @@
                     <CheckBox x:Name="ChannelEditListenCheck" AutomationProperties.AutomationId="ChannelEditListenCheck"
                               Content="" VerticalAlignment="Center" Margin="12,0,0,0" Foreground="White" FontSize="12"
                               ToolTip=""/>
+                    <CheckBox x:Name="ChannelEditTalkCheck" AutomationProperties.AutomationId="ChannelEditTalkCheck"
+                              Content="" VerticalAlignment="Center" Margin="12,0,0,0" Foreground="White" FontSize="12"
+                              ToolTip=""/>
                     <TextBlock x:Name="ChannelEditSensitivityLabel" Text="" VerticalAlignment="Center" Margin="12,0,0,0" Foreground="White" FontSize="12"/>
                     <TextBox x:Name="ChannelEditSensitivityBox" AutomationProperties.AutomationId="ChannelEditSensitivityBox"
                              Width="60" Margin="6,0,12,0" ToolTip=""

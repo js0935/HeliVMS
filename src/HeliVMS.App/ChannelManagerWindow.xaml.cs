@@ -117,6 +117,8 @@ public partial class ChannelManagerWindow : Window
         ChannelEditMotionCheck.Content = Localizer.T("Channels.MotionCheck");
         ChannelEditListenCheck.Content = Localizer.T("Channels.ListenCheck");
         ChannelEditListenCheck.ToolTip = Localizer.T("Channels.ListenTip");
+        ChannelEditTalkCheck.Content = Localizer.T("Channels.TalkCheck");
+        ChannelEditTalkCheck.ToolTip = Localizer.T("Channels.TalkTip");
         ChannelEditSensitivityLabel.Text = Localizer.T("Channels.SensitivityLabel");
         ChannelEditSensitivityBox.ToolTip = Localizer.T("Channels.SensitivityTip");
         ChannelEditCellLabel.Text = Localizer.T("Channels.EditCellLabel");
@@ -265,6 +267,7 @@ public partial class ChannelManagerWindow : Window
         ChannelEditModeCombo.SelectedIndex = 0;
         ChannelEditMotionCheck.IsChecked = false;
         ChannelEditListenCheck.IsChecked = false;
+        ChannelEditTalkCheck.IsChecked = false;
         ChannelEditSensitivityBox.Text = string.Empty;
         PopulateCellOptions(null);
         ChannelEditHintText.Text = Localizer.T("Channels.EditHint");
@@ -304,6 +307,7 @@ public partial class ChannelManagerWindow : Window
         ChannelEditModeCombo.SelectedIndex = (int)channel.RecordingMode;
         ChannelEditMotionCheck.IsChecked = channel.MotionEnabled;
         ChannelEditListenCheck.IsChecked = channel.ListenEnabled;
+        ChannelEditTalkCheck.IsChecked = channel.TalkEnabled;
         ChannelEditSensitivityBox.Text = channel.MotionSensitivity.ToString("0.##", CultureInfo.InvariantCulture);
         PopulateCellOptions(channel.DisplayCell);
         ChannelEditHintText.Text = string.Format(Localizer.T("Channels.Editing"), channel.Name, channel.Id);
@@ -432,6 +436,7 @@ public partial class ChannelManagerWindow : Window
                 AudioEnabled = current.AudioEnabled,
                 AudioEncoder = current.AudioEncoder,
                 ListenEnabled = ChannelEditListenCheck.IsChecked == true,
+                TalkEnabled = ChannelEditTalkCheck.IsChecked == true,
                 MotionEnabled = ChannelEditMotionCheck.IsChecked == true,
                 MotionSensitivity = Math.Clamp(sensitivity, 0, 1),
                 RecordingMode = (RecordingMode)Math.Clamp(ChannelEditModeCombo.SelectedIndex, 0, 3),

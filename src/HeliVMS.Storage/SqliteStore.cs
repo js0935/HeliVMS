@@ -599,6 +599,7 @@ public sealed class SqliteStore : IDisposable
                 audio_enabled        INTEGER NOT NULL DEFAULT 1,
                 audio_encoder        TEXT    NOT NULL DEFAULT 'copy',
                 listen_enabled       INTEGER NOT NULL DEFAULT 0,
+                talk_enabled         INTEGER NOT NULL DEFAULT 0,
                 recording_mode       INTEGER NOT NULL DEFAULT 0,
                 motion_enabled       INTEGER NOT NULL DEFAULT 0,
                 motion_sensitivity   REAL    NOT NULL DEFAULT 0.5,
@@ -1058,6 +1059,8 @@ public sealed class SqliteStore : IDisposable
         // 現場收音（麥克風）。user_version 已是最新的舊庫也可能沒有這一欄
         // （AGENTS 的 SchemaDrift 教訓：PRAGMA user_version 不證明欄位存在）。
         EnsureColumn("channels", "listen_enabled", "INTEGER NOT NULL DEFAULT 0");
+        // 對講（這台有喇叭，可從主機把聲音送過去）。與收音是兩個方向，開關分開。
+        EnsureColumn("channels", "talk_enabled", "INTEGER NOT NULL DEFAULT 0");
         EnsureColumn("segments", "checked_at_utc", "TEXT");
         EnsureColumn("segments", "tier", "TEXT NOT NULL DEFAULT 'hot'");
         EnsureColumn("segments", "origin_path", "TEXT");

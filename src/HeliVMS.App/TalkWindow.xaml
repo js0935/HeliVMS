@@ -11,6 +11,7 @@
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
 
@@ -24,6 +25,24 @@
         </StackPanel>
 
         <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,0,0,8">
+            <TextBlock x:Name="TalkSourceLabel" Width="90" VerticalAlignment="Center"/>
+            <ComboBox x:Name="TalkSourceCombo" Width="180"
+                      SelectionChanged="OnTalkSourceChanged"
+                      AutomationProperties.AutomationId="TalkSourceCombo">
+                <ComboBoxItem x:Name="TalkSourceMicrophone"/>
+                <ComboBoxItem x:Name="TalkSourceFile"/>
+            </ComboBox>
+            <ComboBox x:Name="TalkMicCombo" Width="300" Margin="8,0,0,0"
+                      Visibility="Collapsed"
+                      SelectionChanged="OnMicSelectionChanged"
+                      AutomationProperties.AutomationId="TalkMicCombo"/>
+            <Button x:Name="TalkMicRefreshButton" Content="" Click="OnRefreshMicsClicked"
+                    Margin="8,0,0,0" Padding="12,4"
+                    Foreground="White" Background="#3A5A7A" BorderThickness="0"
+                    AutomationProperties.AutomationId="TalkMicRefreshButton"/>
+        </StackPanel>
+
+        <StackPanel x:Name="TalkAudioRow" Grid.Row="3" Orientation="Horizontal" Margin="0,0,0,8">
             <TextBlock x:Name="TalkAudioLabel" Width="90" VerticalAlignment="Center"/>
             <TextBox x:Name="TalkAudioBox" Width="300" VerticalContentAlignment="Center"
                      AutomationProperties.AutomationId="TalkAudioBox"/>
@@ -33,13 +52,13 @@
                     AutomationProperties.AutomationId="TalkBrowseButton"/>
         </StackPanel>
 
-        <StackPanel Grid.Row="3" Orientation="Horizontal" Margin="0,0,0,8">
+        <StackPanel Grid.Row="4" Orientation="Horizontal" Margin="0,0,0,8">
             <TextBlock x:Name="TalkPreferredLabel" Width="90" VerticalAlignment="Center"/>
             <TextBox x:Name="TalkPreferredBox" Width="300" VerticalContentAlignment="Center"
                      AutomationProperties.AutomationId="TalkPreferredBox"/>
         </StackPanel>
 
-        <StackPanel Grid.Row="4" Orientation="Horizontal">
+        <StackPanel Grid.Row="5" Orientation="Horizontal">
             <Button x:Name="TalkStartButton" Content="" Click="OnStartClicked"
                     Padding="16,6" Foreground="White" Background="#2A5C8A" BorderThickness="0"
                     AutomationProperties.AutomationId="TalkStartButton"/>
@@ -49,7 +68,7 @@
                     AutomationProperties.AutomationId="TalkStopButton"/>
         </StackPanel>
 
-        <TextBlock x:Name="TalkStatusText" Grid.Row="5" Margin="0,12,0,0" TextWrapping="Wrap"
+        <TextBlock x:Name="TalkStatusText" Grid.Row="6" Margin="0,12,0,0" TextWrapping="Wrap"
                    VerticalAlignment="Top" Foreground="#90C0FF"
                    AutomationProperties.AutomationId="TalkStatusText"/>
     </Grid>

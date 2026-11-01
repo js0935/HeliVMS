@@ -28,7 +28,8 @@ public sealed class ChannelRepository
             """
             SELECT id, device_id, name, main_rtsp, sub_rtsp, codec,
                    audio_enabled, audio_encoder, recording_mode,
-                   motion_enabled, motion_sensitivity, enabled, display_cell, listen_enabled
+                   motion_enabled, motion_sensitivity, enabled, display_cell,
+                   listen_enabled, talk_enabled
             FROM channels ORDER BY id;
             """,
             static r =>
@@ -81,7 +82,8 @@ public sealed class ChannelRepository
             """
             SELECT id, device_id, name, main_rtsp, sub_rtsp, codec,
                    audio_enabled, audio_encoder, recording_mode,
-                   motion_enabled, motion_sensitivity, enabled, display_cell, listen_enabled
+                   motion_enabled, motion_sensitivity, enabled, display_cell,
+                   listen_enabled, talk_enabled
             FROM channels WHERE id = $id;
             """,
             static r => r.Read() ? ReadChannel(r) : null,
@@ -152,7 +154,7 @@ public sealed class ChannelRepository
             SET name = $n, main_rtsp = $m, sub_rtsp = $s, codec = $c,
                 audio_enabled = $a, audio_encoder = $ae, recording_mode = $rm,
                 motion_enabled = $me, motion_sensitivity = $ms, enabled = $en,
-                display_cell = $dc, listen_enabled = $le
+                display_cell = $dc, listen_enabled = $le, talk_enabled = $te
             WHERE id = $id;
             SELECT changes();
             """,
@@ -174,6 +176,7 @@ public sealed class ChannelRepository
                 cmd.Parameters.AddWithValue("$en", channel.Enabled ? 1 : 0);
                 cmd.Parameters.AddWithValue("$dc", (object?)channel.DisplayCell ?? DBNull.Value);
                 cmd.Parameters.AddWithValue("$le", channel.ListenEnabled ? 1 : 0);
+                cmd.Parameters.AddWithValue("$te", channel.TalkEnabled ? 1 : 0);
             });
 
         if (affected > 0)
@@ -264,6 +267,7 @@ public sealed class ChannelRepository
             // 漏掉這一欄的話 ListenEnabled 永遠是 false：設定中心明明開了收音，
             // 重開程式後監看牆卻沒有喇叭圖示，看起來像設定沒存到。
             ListenEnabled = r.GetInt32(13) != 0,
+            TalkEnabled = r.GetInt32(14) != 0,
         };
     }
 }

@@ -33,7 +33,7 @@ public sealed class ExplicitTalkUrlProvider : ITalkProvider
 
     /// <inheritdoc />
     public TalkCommand BuildCommand(TalkRequest request, TalkTarget target)
-        => TalkCommandBuilder.Build(request.AudioFilePath, target);
+        => TalkCommandBuilder.Build(request, target);
 }
 
 /// <summary>一般 ONVIF／RTSP 回傳通道：沿用頻道自身的 RTSP 位址（最後的退路）。</summary>
@@ -51,5 +51,5 @@ public sealed class GenericRtspTalkProvider : ITalkProvider
 
     /// <inheritdoc />
     public TalkCommand BuildCommand(TalkRequest request, TalkTarget target)
-        => TalkCommandBuilder.Build(request.AudioFilePath, target);
+        => TalkCommandBuilder.Build(request, target);
 }

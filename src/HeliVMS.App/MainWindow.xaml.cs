@@ -116,6 +116,15 @@ public partial class MainWindow : Window
     /// 放大時才不會跟著變形。
     /// </summary>
     private readonly TextBlock[] _cellAudioIcons = new TextBlock[MaxCells];
+
+    /// <summary>
+    /// 每格右下角的麥克風圖示（對講）：把主機麥克風的聲音送到這台攝影機的喇叭。
+    /// 只出現在「頻道管理有開對講」的攝影機上，與喇叭並排（喇叭＝聽攝影機）。
+    /// </summary>
+    private readonly TextBlock[] _cellTalkIcons = new TextBlock[MaxCells];
+
+    /// <summary>監看牆的對講（主機麥克風 → 攝影機喇叭，同一時間只有一台）。</summary>
+    private LiveTalkController? _talk;
     private readonly Border[] _cellBorders = new Border[MaxCells];
 
     /// <summary>
@@ -896,6 +905,10 @@ public partial class MainWindow : Window
         // 按喇叭不用重連。這裡只建立控制器，實際播放要等操作員點畫面右下角的喇叭。
         _audio = new LiveAudioController(id => _manager?.ChannelSessionFor(id));
 
+        // 對講：把主機麥克風送到攝影機的喇叭。請求在按下時才組（頻道清單與麥克風設定都是最新的）。
+        _talk = new LiveTalkController(id => BuildTalkRequest(id));
+        _talk.StateChanged += (_, _) => Dispatcher.BeginInvoke(new Action(UpdateAudioIcons), DispatcherPriority.Background);
+
         // M305：內嵌 Web 服務。設定了 web.enabled=1 就在啟動時拉起，交由設定中心「網路」頁控制。
         _webHost = new WebHost(_dataRoot, Path.Combine(_dataRoot, "index.db"));
         _webHost.ApplySettings(new SettingsRepository(_store));
@@ -1212,6 +1225,7 @@ public partial class MainWindow : Window
             Enabled = channel.Enabled,
             DisplayCell = channel.DisplayCell,
             ListenEnabled = channel.ListenEnabled,
+            TalkEnabled = channel.TalkEnabled,
         });
     }
 
@@ -1234,6 +1248,7 @@ public partial class MainWindow : Window
             Enabled = channel.Enabled,
             DisplayCell = displayCell,
             ListenEnabled = channel.ListenEnabled,
+            TalkEnabled = channel.TalkEnabled,
         });
     }
 
@@ -1359,6 +1374,8 @@ public partial class MainWindow : Window
             CellOverlay(i)?.Children.Clear();
             _cellAudioIcons[i].Text = string.Empty;
             _cellAudioIcons[i].Visibility = Visibility.Collapsed;
+            _cellTalkIcons[i].Text = string.Empty;
+            _cellTalkIcons[i].Visibility = Visibility.Collapsed;
         }
     }
 
@@ -1865,9 +1882,6 @@ public partial class MainWindow : Window
             };
             var audioIcon = new TextBlock
             {
-                HorizontalAlignment = HorizontalAlignment.Right,
-                VerticalAlignment = VerticalAlignment.Bottom,
-                Margin = new Thickness(4),
                 Padding = new Thickness(7, 3, 7, 3),
                 Background = BrBadgeBg,
                 Foreground = Brushes.White,
@@ -1884,6 +1898,33 @@ public partial class MainWindow : Window
                 e.Handled = true;
                 OnCellAudioIconClicked(audioCell);
             };
+            var talkIcon = new TextBlock
+            {
+                Padding = new Thickness(7, 3, 7, 3),
+                Background = BrBadgeBg,
+                Foreground = Brushes.White,
+                FontFamily = new System.Windows.Media.FontFamily("Segoe MDL2 Assets"),
+                FontSize = Math.Max(10, 16 - cols),
+                Text = string.Empty,
+                Visibility = Visibility.Collapsed,
+                Cursor = System.Windows.Input.Cursors.Hand,
+            };
+            // 麥克風（對講）與喇叭並排：喇叭＝聽攝影機，麥克風＝把主機的聲音送過去。
+            talkIcon.MouseLeftButtonDown += (s, e) =>
+            {
+                e.Handled = true;
+                OnCellTalkIconClicked(audioCell);
+            };
+            var audioStrip = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                HorizontalAlignment = HorizontalAlignment.Right,
+                VerticalAlignment = VerticalAlignment.Bottom,
+                // 兩顆圖示都收起時面板沒有大小，不會擋住畫面的點擊。
+                IsHitTestVisible = true,
+            };
+            audioStrip.Children.Add(audioIcon);
+            audioStrip.Children.Add(talkIcon);
             // 數位縮放的套用層：影像與 AI 疊加一起變形，狀態文字與頻道徽章留在外層不跟著放大。
             // 疊加框用「顯示中影像」的比例繪製，兩者必須共用同一個 RenderTransform 才會貼在一起。
             var zoomLayer = new Grid();
@@ -1898,7 +1939,7 @@ public partial class MainWindow : Window
             inner.Children.Add(zoomLayer);
             inner.Children.Add(text);
             inner.Children.Add(badge);
-            inner.Children.Add(audioIcon);
+            inner.Children.Add(audioStrip);
 
             var border = new Border
             {
@@ -1941,6 +1982,7 @@ public partial class MainWindow : Window
             _cellTexts[i] = text;
             _cellBadges[i] = badge;
             _cellAudioIcons[i] = audioIcon;
+            _cellTalkIcons[i] = talkIcon;
             _cellBorders[i] = border;
 
             CellGrid.Children.Add(border);
@@ -3422,7 +3464,70 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// 依「這台有沒有開收音／有沒有量到音訊軌／是不是正在播」重畫每格右下角的喇叭圖示。
+    /// 點畫面右下角的麥克風：把主機麥克風送到這台攝影機（並把別台停止）；再點一次就停止。
+    /// </summary>
+    /// <remarks>
+    /// 與喇叭（聽攝影機）是兩個方向。失敗要有看得到的原因：沒開對講、沒選麥克風、
+    /// ffmpeg 啟動失敗，操作員都得知道為什麼「按了現場卻沒聲音」。
+    /// </remarks>
+    private async void OnCellTalkIconClicked(int cell)
+    {
+        if (_talk is null || _cellChannel[cell] is not int channelId)
+        {
+            return;
+        }
+
+        var talking = await _talk.ToggleAsync(channelId);
+        UpdateAudioIcons();
+
+        if (talking)
+        {
+            HintText.Text = string.Format(Localizer.T("Main.TalkStarted"), ChannelName(channelId));
+            return;
+        }
+
+        if (_talk.LastError is { } reason)
+        {
+            HintText.Text = reason switch
+            {
+                "talk-not-enabled" => Localizer.T("Main.TalkNotEnabled"),
+                _ => Localizer.T("Main.TalkFailed"),
+            };
+        }
+    }
+
+    /// <summary>組出對講請求；這台沒開對講、沒有碼流或沒選麥克風時回 null。</summary>
+    private TalkRequest? BuildTalkRequest(int channelId)
+    {
+        if (_store is null)
+        {
+            return null;
+        }
+
+        var channel = _channelList.FirstOrDefault(c => c.Id == channelId);
+        if (channel is null || !channel.TalkEnabled)
+        {
+            return null;
+        }
+
+        var url = _manager?.ChannelSessionFor(channelId)?.RecordingUrl;
+        if (string.IsNullOrWhiteSpace(url))
+        {
+            return null;
+        }
+
+        // 麥克風裝置在對講視窗選過就會存進設定；沒選過代表還不知道要用哪一支，寧可不送。
+        var microphone = new SettingsRepository(_store).Get(TalkSettings.MicrophoneKey);
+        if (string.IsNullOrWhiteSpace(microphone))
+        {
+            return null;
+        }
+
+        return new TalkRequest(channelId, url, string.Empty, null, null, microphone);
+    }
+
+    /// <summary>
+    /// 依設定與狀態重畫每格右下角的喇叭（聽攝影機）與麥克風（對講）圖示。
     /// </summary>
     /// <remarks>
     /// 只改外觀、不收聲音：切佈局的途中格位會短暫清空，在這裡裁決會把聲音錯殺（切一次佈局
@@ -3469,10 +3574,49 @@ public partial class MainWindow : Window
             icon.Foreground = Brushes.White;
             icon.ToolTip = Localizer.T("Main.AudioListenTip");
         }
+
+        UpdateTalkIcons();
+    }
+
+    /// <summary>重畫每格右下角的麥克風（對講）圖示：白色＝可對講、藍色＝正在對講。</summary>
+    /// <remarks>
+    /// 只出現在「頻道管理有開對講」的攝影機上。麥克風設定在對講視窗選過才會亮起來——
+    /// 沒選過就亮，等於按下去才發現不能用。
+    /// </remarks>
+    private void UpdateTalkIcons()
+    {
+        for (var cell = 0; cell < MaxCells; cell++)
+        {
+            var icon = _cellTalkIcons[cell];
+            if (icon is null)
+            {
+                continue;
+            }
+
+            if (_cellChannel[cell] is not int channelId
+                || !_channelList.Any(c => c.Id == channelId && c.TalkEnabled))
+            {
+                icon.Visibility = Visibility.Collapsed;
+                continue;
+            }
+
+            icon.Visibility = Visibility.Visible;
+            icon.Text = "\uE720";
+            if (_talk?.ChannelId == channelId)
+            {
+                // 正在對講：藍色（點擊＝停止）。
+                icon.Foreground = s_audioActive;
+                icon.ToolTip = Localizer.T("Main.TalkStopTip");
+                continue;
+            }
+
+            icon.Foreground = Brushes.White;
+            icon.ToolTip = Localizer.T("Main.TalkStartTip");
+        }
     }
 
     /// <summary>
-    /// 正在播的那台若已不在畫面上（換台、換頁簽、頻道被刪），把聲音收掉。
+    /// 正在播／正在講的那台若已不在畫面上（換台、換頁簽、頻道被刪），把聲音與對講收掉。
     /// </summary>
     /// <remarks>
     /// 只在佈局／頁簽／頻道清單「落定之後」裁決：切佈局的途中格位會短暫清空，
@@ -3480,26 +3624,60 @@ public partial class MainWindow : Window
     /// </remarks>
     private async Task EnforceAudioVisibilityAsync()
     {
-        if (_audio?.ChannelId is not { } listening)
-        {
-            return;
-        }
+        var changed = false;
 
-        for (var cell = 0; cell < CurrentCellCount(); cell++)
+        if (_audio?.ChannelId is { } listening)
         {
-            if (_cellChannel[cell] == listening)
+            var visible = false;
+            for (var cell = 0; cell < CurrentCellCount(); cell++)
             {
-                UpdateAudioIcons();
-                return;
+                if (_cellChannel[cell] == listening)
+                {
+                    visible = true;
+                    break;
+                }
+            }
+
+            if (!visible)
+            {
+                await _audio.StopAsync();
+                changed = true;
             }
         }
 
-        await _audio.StopAsync();
+        if (_talk?.ChannelId is { } talking)
+        {
+            var visible = false;
+            for (var cell = 0; cell < CurrentCellCount(); cell++)
+            {
+                if (_cellChannel[cell] == talking)
+                {
+                    visible = true;
+                    break;
+                }
+            }
+
+            if (!visible)
+            {
+                await _talk.StopAsync();
+                changed = true;
+            }
+        }
+
+        if (changed)
+        {
+            HintText.Text = Localizer.T("Main.AudioOffScreen");
+        }
+
         UpdateAudioIcons();
     }
 
-    /// <summary>停止播音（停止監看、頻道被刪光、關窗）。不碰 UI：關窗路徑在執行緒池上跑。</summary>
-    private Task StopAudioAsync() => _audio?.StopAsync() ?? Task.CompletedTask;
+    /// <summary>停止播音與對講（停止監看、頻道被刪光、關窗）。不碰 UI：關窗路徑在執行緒池上跑。</summary>
+    private Task StopAudioAsync()
+    {
+        _ = _talk?.StopAsync();
+        return _audio?.StopAsync() ?? Task.CompletedTask;
+    }
 
     /// <summary>
     /// 把監看牆的收音狀態對齊頻道清單（設定中心剛改完的值）。
@@ -4944,6 +5122,8 @@ public partial class MainWindow : Window
         var ownership = _recordingOwnership;
         var audio = _audio;
         _audio = null;
+        var talk = _talk;
+        _talk = null;
         _scheduler = null;
         _manager = null;
         _store = null;
@@ -4980,10 +5160,11 @@ public partial class MainWindow : Window
             RunShutdownStep("釋放監看連線", manager.DisposeAsync, DisposeTimeout);
         }
 
-        // 現場收音：收掉播放執行緒（聲音的來源是解碼行程，會由「中斷監看」收掉）。
-        // 走控制器自己的 DisposeAsync（不碰 UI 圖示），因為這一步在執行緒池上跑，
-        // 去改 WPF 控制項會變成跨執行緒存取。
+        // 現場收音與對講：收掉播放執行緒與對講的 ffmpeg（聲音的來源是解碼行程，會由
+        // 「中斷監看」收掉）。走控制器自己的 DisposeAsync（不碰 UI 圖示），因為這一步
+        // 在執行緒池上跑，去改 WPF 控制項會變成跨執行緒存取。
         RunShutdownStep("停止音訊", () => audio?.DisposeAsync().AsTask() ?? Task.CompletedTask, QuickStepTimeout);
+        RunShutdownStep("停止對講", () => talk?.DisposeAsync().AsTask() ?? Task.CompletedTask, QuickStepTimeout);
 
         bgCts?.Cancel();
         RunShutdownStep("停止背景工作", () => DisposeSync(bgCts), QuickStepTimeout);

@@ -85,6 +85,15 @@ public sealed class ChannelInfo
     /// </remarks>
     public bool ListenEnabled { get; init; }
 
+    /// <summary>
+    /// 這台攝影機支援對講（有喇叭）：主機可以把麥克風的聲音送過去，畫面右下角出現麥克風圖示。
+    /// </summary>
+    /// <remarks>
+    /// 與 <see cref="ListenEnabled"/>（聽攝影機）是兩個方向、兩個開關。預設關閉：對講通道的位址
+    /// 各廠牌不同，貿然對不支援的攝影機開回傳通道只會「連上了卻沒聲音」。
+    /// </remarks>
+    public bool TalkEnabled { get; init; }
+
     public bool MotionEnabled { get; init; }
 
     public double MotionSensitivity { get; init; } = 0.5;
