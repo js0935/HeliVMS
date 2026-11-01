@@ -102,8 +102,19 @@ public sealed class WaveOutPlayer : IDisposable
                 failures.Add($"{rate}Hz={ErrorText(result)}");
             }
 
+            // 失敗刻意不進快取：遠端桌面（沒有音訊裝置）是常態，但插上耳機或接回音效卡之後
+            // 就應該能用。把「沒有裝置」快取住的話，症狀會是「插了耳機還是沒聲音，要重開才行」。
             Log("沒有可用的音訊播放裝置：" + string.Join(", ", failures));
             return null;
+        }
+    }
+
+    /// <summary>丟掉快取的取樣率，讓下一次播放重新探測（裝置換了之後仍要能出聲）。</summary>
+    private static void InvalidateProbe()
+    {
+        lock (ProbeGate)
+        {
+            _probedRate = null;
         }
     }
 
@@ -123,6 +134,10 @@ public sealed class WaveOutPlayer : IDisposable
                 LastError = ErrorText(result);
                 IsAvailable = false;
                 Log($"waveOutOpen({SampleRate}Hz) 失敗：{LastError}");
+
+                // 快取的取樣率對這台裝置已經失效（換了耳機／音效卡）；下次重新探測，
+                // 否則會一直用同一個開不起來的值重試。
+                InvalidateProbe();
                 return;
             }
 

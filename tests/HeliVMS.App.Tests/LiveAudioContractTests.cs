@@ -89,5 +89,11 @@ public sealed class LiveAudioContractTests
 
         Assert.Contains("WaveOutPlayer.ProbeSampleRate()", player);
         Assert.Contains("LastError = \"no-audio-device\"", player);
+
+        // 探測失敗與開啟失敗都不能被快取住：遠端桌面沒有裝置是常態，但插上耳機之後
+        // 就應該能用。症狀是「插了耳機還是沒聲音，要重開程式才會好」，而日誌一片乾淨。
+        var waveOut = SourceContract.Read(WaveOut);
+        Assert.Contains("_probedRate = null", waveOut);
+        Assert.Contains("InvalidateProbe();", waveOut);
     }
 }
