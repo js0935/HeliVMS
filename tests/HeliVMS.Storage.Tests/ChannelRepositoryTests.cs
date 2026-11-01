@@ -77,6 +77,102 @@ public sealed class ChannelRepositoryTests : IDisposable
     }
 
     /// <summary>
+    /// 現場收音（麥克風）開關要存得住、讀得回來，而且預設是關閉。
+    /// </summary>
+    /// <remarks>
+    /// 預設關閉是刻意的：收音是「這台有麥克風、操作員要聽」的宣告，不是每台攝影機的
+    /// 預設能力。若沿用 <c>audio_enabled</c>（預設 1、且被聲音事件感測器使用），升級完
+    /// 16 台攝影機會一起開始播音，而那個欄位的語意也會被兩個功能拉扯。
+    /// </remarks>
+    [Fact]
+    public void 現場收音開關會存得住且預設關閉()
+    {
+        var id = _channels.Add("Cam1", "rtsp://10.0.0.5/1");
+
+        var before = _channels.Get(id);
+        Assert.NotNull(before);
+        Assert.False(before.ListenEnabled);
+
+        var current = _channels.Get(id)!;
+        _channels.Update(new ChannelInfo
+        {
+            Id = id,
+            Name = current.Name,
+            MainStreamUrl = current.MainStreamUrl,
+            SubStreamUrl = current.SubStreamUrl,
+            Codec = current.Codec,
+            AudioEnabled = current.AudioEnabled,
+            AudioEncoder = current.AudioEncoder,
+            MotionEnabled = current.MotionEnabled,
+            MotionSensitivity = current.MotionSensitivity,
+            RecordingMode = current.RecordingMode,
+            Enabled = current.Enabled,
+            DisplayCell = current.DisplayCell,
+            ListenEnabled = true,
+        });
+        Assert.True(_channels.Get(id)!.ListenEnabled);
+
+        // 關回來也要真的關：這是操作員把某一台「靜音」的正式途徑。
+        var updated = _channels.Get(id)!;
+        _channels.Update(new ChannelInfo
+        {
+            Id = id,
+            Name = updated.Name,
+            MainStreamUrl = updated.MainStreamUrl,
+            SubStreamUrl = updated.SubStreamUrl,
+            Codec = updated.Codec,
+            AudioEnabled = updated.AudioEnabled,
+            AudioEncoder = updated.AudioEncoder,
+            MotionEnabled = updated.MotionEnabled,
+            MotionSensitivity = updated.MotionSensitivity,
+            RecordingMode = updated.RecordingMode,
+            Enabled = updated.Enabled,
+            DisplayCell = updated.DisplayCell,
+            ListenEnabled = false,
+        });
+        Assert.False(_channels.Get(id)!.ListenEnabled);
+    }
+
+    /// <summary>
+    /// 重建／還原回來的舊資料庫（<c>channels</c> 沒有 <c>listen_enabled</c>）在補欄後要能正常讀寫。
+    /// </summary>
+    /// <remarks>
+    /// 這正是 AGENTS 記錄過的 SchemaDrift 事故：還原的舊庫 <c>user_version</c> 已是最新，
+    /// 版本遷移一欄都不會再跑，讀取就一路拋「no such column」。補欄必須無條件、冪等。
+    /// </remarks>
+    [Fact]
+    public void 舊資料庫缺現場收音欄位時會補上且可讀寫()
+    {
+        var id = _channels.Add("Cam1", "rtsp://10.0.0.5/1");
+        _store.Execute("ALTER TABLE channels DROP COLUMN listen_enabled;");
+
+        // 模擬下一次啟動：版本已是最新，只能靠無條件補欄救回來。
+        _store.Initialize();
+
+        var current = _channels.Get(id);
+        Assert.NotNull(current);
+        Assert.False(current.ListenEnabled);
+
+        _channels.Update(new ChannelInfo
+        {
+            Id = id,
+            Name = current.Name,
+            MainStreamUrl = current.MainStreamUrl,
+            SubStreamUrl = current.SubStreamUrl,
+            Codec = current.Codec,
+            AudioEnabled = current.AudioEnabled,
+            AudioEncoder = current.AudioEncoder,
+            MotionEnabled = current.MotionEnabled,
+            MotionSensitivity = current.MotionSensitivity,
+            RecordingMode = current.RecordingMode,
+            Enabled = current.Enabled,
+            DisplayCell = current.DisplayCell,
+            ListenEnabled = true,
+        });
+        Assert.True(_channels.Get(id)!.ListenEnabled);
+    }
+
+    /// <summary>
     /// 停用頻道必須真的存得住、讀得回來。
     ///
     /// <c>enabled</c> 之前只存在於 C# 的 <c>ChannelInfo</c>，資料庫沒有對應欄位，

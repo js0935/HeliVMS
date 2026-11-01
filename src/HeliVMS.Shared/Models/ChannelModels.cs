@@ -75,6 +75,16 @@ public sealed class ChannelInfo
     /// <summary>音訊錄製方式（aac 轉碼／copy／none）。</summary>
     public string AudioEncoder { get; init; } = "copy";
 
+    /// <summary>
+    /// 這台攝影機允許現場收音（監看牆與回放出現喇叭圖示、可點開聲音）。
+    /// </summary>
+    /// <remarks>
+    /// 預設<b>關閉</b>：現場收音是「這台有麥克風、而且操作員要聽」的明確宣告，不是每台
+    /// 攝影機的預設能力。它不影響錄影——錄影仍依碼流本身有沒有音訊軌決定（<see cref="AudioEnabled"/>
+    /// 是聲音事件感測器用的，兩件事不能混在一起）。
+    /// </remarks>
+    public bool ListenEnabled { get; init; }
+
     public bool MotionEnabled { get; init; }
 
     public double MotionSensitivity { get; init; } = 0.5;

@@ -115,6 +115,8 @@ public partial class ChannelManagerWindow : Window
         }
 
         ChannelEditMotionCheck.Content = Localizer.T("Channels.MotionCheck");
+        ChannelEditListenCheck.Content = Localizer.T("Channels.ListenCheck");
+        ChannelEditListenCheck.ToolTip = Localizer.T("Channels.ListenTip");
         ChannelEditSensitivityLabel.Text = Localizer.T("Channels.SensitivityLabel");
         ChannelEditSensitivityBox.ToolTip = Localizer.T("Channels.SensitivityTip");
         ChannelEditCellLabel.Text = Localizer.T("Channels.EditCellLabel");
@@ -262,6 +264,7 @@ public partial class ChannelManagerWindow : Window
         ChannelEditSubUrlBox.Text = string.Empty;
         ChannelEditModeCombo.SelectedIndex = 0;
         ChannelEditMotionCheck.IsChecked = false;
+        ChannelEditListenCheck.IsChecked = false;
         ChannelEditSensitivityBox.Text = string.Empty;
         PopulateCellOptions(null);
         ChannelEditHintText.Text = Localizer.T("Channels.EditHint");
@@ -300,6 +303,7 @@ public partial class ChannelManagerWindow : Window
         ChannelEditSubUrlBox.Text = channel.SubStreamUrl;
         ChannelEditModeCombo.SelectedIndex = (int)channel.RecordingMode;
         ChannelEditMotionCheck.IsChecked = channel.MotionEnabled;
+        ChannelEditListenCheck.IsChecked = channel.ListenEnabled;
         ChannelEditSensitivityBox.Text = channel.MotionSensitivity.ToString("0.##", CultureInfo.InvariantCulture);
         PopulateCellOptions(channel.DisplayCell);
         ChannelEditHintText.Text = string.Format(Localizer.T("Channels.Editing"), channel.Name, channel.Id);
@@ -427,6 +431,7 @@ public partial class ChannelManagerWindow : Window
                 Codec = current.Codec,
                 AudioEnabled = current.AudioEnabled,
                 AudioEncoder = current.AudioEncoder,
+                ListenEnabled = ChannelEditListenCheck.IsChecked == true,
                 MotionEnabled = ChannelEditMotionCheck.IsChecked == true,
                 MotionSensitivity = Math.Clamp(sensitivity, 0, 1),
                 RecordingMode = (RecordingMode)Math.Clamp(ChannelEditModeCombo.SelectedIndex, 0, 3),

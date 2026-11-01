@@ -1206,6 +1206,7 @@ public partial class MainWindow : Window
             RecordingMode = channel.RecordingMode,
             Enabled = channel.Enabled,
             DisplayCell = channel.DisplayCell,
+            ListenEnabled = channel.ListenEnabled,
         });
     }
 
@@ -1227,6 +1228,7 @@ public partial class MainWindow : Window
             RecordingMode = channel.RecordingMode,
             Enabled = channel.Enabled,
             DisplayCell = displayCell,
+            ListenEnabled = channel.ListenEnabled,
         });
     }
 
