@@ -82,7 +82,18 @@ public sealed class RtspClient : IAsyncDisposable
     /// 啟用時僅在 <c>-i</c> 前插入一組 <c>-hwaccel &lt;value&gt;</c>；編碼參數（rawvideo/bgr24）不變，
     /// 故輸出仍是去交錯前的 BGR24 原始影格。
     /// </summary>
-    public static IReadOnlyList<string> BuildDecodeArguments(string rtspUrl, string? hwAccel = null)
+    /// <param name="rtspUrl">RTSP 位址。</param>
+    /// <param name="hwAccel">硬體解碼方式；null＝軟解。</param>
+    /// <param name="audioPort">
+    /// 大於 0 時多掛一個 PCM 輸出到這個本機 UDP 埠（見 <see cref="AudioOutputArguments"/>）。
+    /// 只有確定串流有音訊軌時才會傳入（沒有麥克風的攝影機什麼都不掛）。
+    /// </param>
+    /// <param name="audioSampleRate">音訊輸出取樣率；須等於播放裝置協商出的值。</param>
+    public static IReadOnlyList<string> BuildDecodeArguments(
+        string rtspUrl,
+        string? hwAccel = null,
+        int audioPort = 0,
+        int audioSampleRate = AudioStreamReceiver.DefaultSampleRate)
     {
         var args = new List<string>
         {
@@ -111,10 +122,47 @@ public sealed class RtspClient : IAsyncDisposable
         args.Add("-fps_mode");
         args.Add("passthrough");
         args.Add("pipe:1");
+
+        // 音訊走「同一條連線的另一個輸出」：不佔攝影機額外的 RTSP session，
+        // 也不會和 stdout 上的 rawvideo 混在一起（一個子行程只有一條 stdout）。
+        if (audioPort > 0)
+        {
+            args.AddRange(AudioOutputArguments.Build(audioPort, audioSampleRate));
+        }
+
         return args;
     }
 
     public string RtspUrl { get; }
+
+    /// <summary>
+    /// 現場收音要用的本機 UDP 埠（0＝不掛音訊輸出）。
+    /// </summary>
+    /// <remarks>
+    /// 由呼叫端（App）先綁好 <see cref="AudioStreamReceiver"/> 再把埠設進來；執行中才改只會
+    /// 在下一輪重連生效，因為參數是啟動 ffmpeg 時寫定的。
+    /// </remarks>
+    public int AudioPort { get; set; }
+
+    /// <summary>音訊輸出取樣率（須與裝置一致）。</summary>
+    public int AudioSampleRate { get; set; } = AudioStreamReceiver.DefaultSampleRate;
+
+    /// <summary>
+    /// 這一輪探測到的結果：true＝串流有音訊軌、false＝沒有、null＝還沒探測到。
+    /// 「有設定收音但攝影機根本沒有麥克風」要靠它才顯示得出來，而不是安靜地沒聲音。
+    /// </summary>
+    public bool? SourceHasAudio { get; private set; }
+
+    /// <summary>
+    /// 決定這一輪要不要掛音訊輸出：設定了埠<b>且</b>確定量到音訊軌才掛。
+    /// </summary>
+    /// <remarks>
+    /// 抽成純函式是因為這個決定錯了只有兩種下場，而且都不會出現在畫面上：
+    /// 該掛沒掛＝「明明有麥克風卻永遠聽不到」；不該掛亂掛＝對沒有音訊的來源下
+    /// <c>-map 0:a:0</c> 會讓 ffmpeg 直接失敗，<b>連畫面都沒有</b>。
+    /// </remarks>
+    public static int ResolveAudioPort(int configuredPort, bool? sourceHasAudio) =>
+        configuredPort > 0 && sourceHasAudio == true ? configuredPort : 0;
 
     public bool IsRunning { get; private set; }
 
@@ -236,7 +284,13 @@ public sealed class RtspClient : IAsyncDisposable
             try
             {
                 SetState(RtspState.Connecting);
-                var (width, height) = await ProbeResolutionAsync(token);
+                var probe = await ProbeAsync(token);
+                var (width, height) = (probe.Width, probe.Height);
+
+                // 有音訊軌才掛音訊輸出：沒有麥克風的攝影機完全不碰這件事，
+                // 也就不可能因為音訊而影響畫面（`-map 0:a:0` 對沒有音訊的來源會讓行程失敗）。
+                SourceHasAudio = probe.AudioCodec is not null;
+                var audioPort = ResolveAudioPort(AudioPort, SourceHasAudio);
 
                 // 只在「設定了硬體加速、本機支援、且不在失敗冷卻期內」時才帶 -hwaccel。
                 // 一幀都沒出的失敗會進入冷卻期，下一輪即退回軟解（見 catch）。
@@ -244,7 +298,7 @@ public sealed class RtspClient : IAsyncDisposable
                 _lastAttemptUsedHwAccel = hwAccel is not null;
                 _lastAttemptProducedFrame = false;
 
-                await StreamFramesAsync(width, height, hwAccel, token);
+                await StreamFramesAsync(width, height, hwAccel, audioPort, token);
             }
             catch (OperationCanceledException)
             {
@@ -329,7 +383,7 @@ public sealed class RtspClient : IAsyncDisposable
         }
     }
 
-    private async Task StreamFramesAsync(int width, int height, string? hwAccel, CancellationToken token)
+    private async Task StreamFramesAsync(int width, int height, string? hwAccel, int audioPort, CancellationToken token)
     {
         var psi = new ProcessStartInfo
         {
@@ -339,7 +393,7 @@ public sealed class RtspClient : IAsyncDisposable
             UseShellExecute = false,
             CreateNoWindow = true,
         };
-        foreach (var arg in BuildDecodeArguments(RtspUrl, hwAccel))
+        foreach (var arg in BuildDecodeArguments(RtspUrl, hwAccel, audioPort, AudioSampleRate))
         {
             psi.ArgumentList.Add(arg);
         }
@@ -502,14 +556,20 @@ var nowMs = sw.ElapsedMilliseconds;
         }
     }
 
-    /// <summary>以 ffprobe 取得影格解析度（逾時或取消會擲出，讓重連迴圈接手）。</summary>
-    private async Task<(int Width, int Height)> ProbeResolutionAsync(CancellationToken token)
+    /// <summary>
+    /// 以 ffprobe 取得解析度與音訊編碼（逾時或取消會擲出，讓重連迴圈接手）。
+    /// </summary>
+    /// <remarks>
+    /// 以前只回傳解析度，把 <c>AudioCodec</c> 丟掉；收音要判斷「這台有沒有麥克風」就得多探測
+    /// 一次，等於每次連線多開一個 ffprobe——同一份結果一起傳回來才不用重複探。
+    /// </remarks>
+    private async Task<StreamProbeInfo> ProbeAsync(CancellationToken token)
     {
 // 明確傳入逾時與取消權杖，讓 StreamProbe 得以終止 ffprobe 進程；外層 WaitAsync 僅作保險。
         var info = await Task
             .Run(() => StreamProbe.Probe(RtspUrl, _ffprobe, ProbeTimeout, token), token)
             .WaitAsync(ProbeTimeout + TimeSpan.FromSeconds(2), token);
-        return (info.Width, info.Height);
+        return info;
     }
 
     private void KillProcess()
