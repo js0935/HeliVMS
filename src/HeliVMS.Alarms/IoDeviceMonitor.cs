@@ -16,6 +16,8 @@ public sealed class IoDeviceMonitor : IDisposable
     private readonly IoDevice _device;
     private readonly IoRepository _io;
     private readonly AlarmEventRepository _events;
+    private readonly IoRuleHost? _ruleHost;
+    private readonly IoPortRepository? _ports;
     private readonly IModbusTcpClient _client;
     private readonly System.Threading.Timer _timer;
     private readonly object _gate = new();
@@ -27,11 +29,19 @@ public sealed class IoDeviceMonitor : IDisposable
     private bool _busy;
     private bool _disposed;
 
-    public IoDeviceMonitor(IoDevice device, IoRepository io, AlarmEventRepository events, IModbusTcpClient? client = null)
+    public IoDeviceMonitor(
+        IoDevice device,
+        IoRepository io,
+        AlarmEventRepository events,
+        IoRuleHost? ruleHost = null,
+        IoPortRepository? ports = null,
+        IModbusTcpClient? client = null)
     {
         _device = device;
         _io = io;
         _events = events;
+        _ruleHost = ruleHost;
+        _ports = ports;
         _client = client ?? new ModbusTcpClient(device.Host, device.Port);
         _timer = new System.Threading.Timer(OnTick, null, Timeout.Infinite, Timeout.Infinite);
     }
@@ -228,7 +238,41 @@ public sealed class IoDeviceMonitor : IDisposable
         if (trigger)
         {
             OnStableChangeLocked(ch, rawActive);
+            FeedRuleEngine(ch, rawActive);
         }
+    }
+
+    /// <summary>
+    /// DI 穩定變化餵入連動規則引擎（與攝影機乾接點同一套 io_rules）。
+    /// </summary>
+    /// <remarks>
+    /// 通道沒有對應的接點（尚未同步）就不餵；餵入失敗也不影響既有的 io_input 事件——
+    /// 規則是加值功能，不能因為它壞掉把感測器的既有行為打斷。
+    /// </remarks>
+    private void FeedRuleEngine(IoChannel ch, bool active)
+    {
+        if (_ruleHost is null || _ports is null)
+        {
+            return;
+        }
+
+        var portId = _ports.FindByIoChannel(ch.Id)?.Id;
+        if (portId is not { } id)
+        {
+            return;
+        }
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await _ruleHost.FeedAsync(id, active).ConfigureAwait(false);
+            }
+            catch (Exception)
+            {
+                // 規則引擎的失敗（事件 FK、輸出失敗）不往外丟：採樣迴圈不能被它打斷。
+            }
+        });
     }
 
     private void OnStableChangeLocked(IoChannel ch, bool active)

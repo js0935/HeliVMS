@@ -30,12 +30,13 @@ public sealed class CameraDiHost : IDisposable
     private readonly IoRuleRepository _rules;
     private readonly AlarmEventRepository _events;
     private readonly AuditLogRepository _audit;
+    private readonly IIoOutputWriter _outputWriter;
     private readonly IoRuleHost _ruleHost;
     private readonly Dictionary<int, CameraDiMonitor> _monitors = [];
     private readonly object _gate = new();
     private bool _disposed;
 
-    public CameraDiHost(SqliteStore store)
+    public CameraDiHost(SqliteStore store, IIoOutputWriter? modbusWriter = null)
     {
         _channels = new ChannelRepository(store);
         _audit = new AuditLogRepository(store);
@@ -44,12 +45,14 @@ public sealed class CameraDiHost : IDisposable
         _rules = new IoRuleRepository(store);
         _events = new AlarmEventRepository(store);
 
-        // 規則鏈與手動模擬（IoWindow）共用同一份實作：事件落地與 DO 輸出只有一套行為。
-        _ruleHost = new IoRuleHost(
-            _ports,
-            _rules,
-            _events,
-            new OnvifIoOutputWriter(_ports, _channels, _devices, ListRelaysAsync, SwitchRelayAsync, _audit));
+        // DO output is routed by contact source: camera relay (ONVIF) or Modbus coil.
+        // Without the route, a Modbus contact's output would go to a camera relay -
+        // the gate does not move and the log stays clean.
+        var onvif = new OnvifIoOutputWriter(_ports, _channels, _devices, ListRelaysAsync, SwitchRelayAsync, _audit);
+        _outputWriter = modbusWriter is null
+            ? onvif
+            : new RoutingIoOutputWriter(_ports, onvif, modbusWriter);
+        _ruleHost = new IoRuleHost(_ports, _rules, _events, _outputWriter);
     }
 
     /// <summary>依資料庫現況同步監視器集合（新增有 DI 埠的設備、移除不再需要的）。</summary>
@@ -120,6 +123,9 @@ public sealed class CameraDiHost : IDisposable
     /// 規則在警報中心編輯，執行中的監視器拿的是建立當下的引擎副本；
     /// 沒有這一步，改完規則要重啟軟體才會生效，操作員會以為設定沒存到。
     /// </remarks>
+    /// <summary>Camera relay writer (for other hosts to route; a Modbus DI can drive a camera relay).</summary>
+    public IIoOutputWriter OutputWriter => _outputWriter;
+
     public void ReloadRules()
     {
         _ruleHost.Reload();

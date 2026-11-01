@@ -26,7 +26,7 @@ public sealed class IoRuleHost
     private readonly IoPortRepository _ports;
     private readonly IoRuleRepository _rules;
     private readonly AlarmEventRepository _events;
-    private readonly IIoOutputWriter _writer;
+    private IIoOutputWriter _writer;
     private readonly TimeProvider _clock;
     private readonly object _gate = new();
     private IoRuleEngine _engine;
@@ -56,6 +56,14 @@ public sealed class IoRuleHost
         {
             _engine = new IoRuleEngine(_ports.List(), _rules.List());
         }
+    }
+
+    /// <summary>
+    /// 換輸出寫入器（兩個宿主的建立順序互為前後時，路由要等對方就緒才能補上）。
+    /// </summary>
+    public void SetOutputWriter(IIoOutputWriter writer)
+    {
+        _writer = writer ?? NullIoOutputWriter.Instance;
     }
 
     /// <summary>目前邏輯輸入狀態；尚未收過該埠任何訊號→null。</summary>
@@ -105,8 +113,13 @@ public sealed class IoRuleHost
         {
             if (action.Kind == IoActionKind.Alarm)
             {
-                var detail = $"rule={action.RuleId};port={action.InputPortId};event={action.EventType}";
-                _events.Insert((int)action.ChannelId, action.EventType ?? "io_trigger", now, null, detail);
+                // Modbus 接點沒綁攝影機時沒有頻道可綁（alarm_events.channel_id 有 FK）：
+                // 略過事件寫入，其他動作（繼電器／帶畫面等）照常。
+                if (action.ChannelId > 0)
+                {
+                    var detail = $"rule={action.RuleId};port={action.InputPortId};event={action.EventType}";
+                    _events.Insert((int)action.ChannelId, action.EventType ?? "io_trigger", now, null, detail);
+                }
             }
             else if (action.Kind == IoActionKind.ToggleDo && action.OutputPortId is long outputId)
             {

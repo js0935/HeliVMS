@@ -893,8 +893,14 @@ public partial class MainWindow : Window
 
         // 攝影機內建乾接點（ONVIF PullPoint）：與 Modbus 模組並存的另一條實體路徑。
         // 沒有這段，攝影機的 DI 永遠不會進系統——規則與警報只能靠人工模擬觸發。
-        _cameraDiHost = new CameraDiHost(_store);
+        // 兩個宿主的 DO 輸出互相路由：Modbus 接點能驅動攝影機繼電器，反之亦然。
+        _cameraDiHost = new CameraDiHost(_store, new ModbusIoOutputWriter(
+            new IoPortRepository(_store),
+            (ioChannelId, on) => _ioHost!.WriteOutputByIoChannelAsync(ioChannelId, on),
+            reason => HintText.Text = reason));
         _cameraDiHost.RefreshAndStart();
+        _ioHost.SetCameraWriter(_cameraDiHost.OutputWriter);
+        _ioHost.ReloadRules();
 
         _shareHost = new ShareHost(_store);
         _shareHost.ApplySettings(

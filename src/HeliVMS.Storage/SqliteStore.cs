@@ -910,6 +910,7 @@ public sealed class SqliteStore : IDisposable
                 debounce_ms  INTEGER NOT NULL DEFAULT 0,
                 enabled      INTEGER NOT NULL DEFAULT 1,
                 terminal_token TEXT,
+                io_channel_id INTEGER,
                 UNIQUE (channel_id, kind, number)
             );
             CREATE TABLE IF NOT EXISTS io_rules (
@@ -1081,6 +1082,8 @@ public sealed class SqliteStore : IDisposable
         EnsureColumn("segments", "tier", "TEXT NOT NULL DEFAULT 'hot'");
         EnsureColumn("segments", "origin_path", "TEXT");
         EnsureColumn("io_ports", "terminal_token", "TEXT");
+        // Modbus 通道對應的接點（接點統一登記在 io_ports，Modbus 與攝影機端子共用規則引擎）。
+        EnsureColumn("io_ports", "io_channel_id", "INTEGER");
 
         // 這兩個部分索引以 checked_at_utc 為條件，欄位剛補上時才建得起來；
         // 少了它們，抽驗進度查詢會退回整表掃描（見 AddSegmentCheckedAtV54 的說明）。

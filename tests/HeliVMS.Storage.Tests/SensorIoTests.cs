@@ -288,6 +288,137 @@ public class SensorIoTests : IDisposable
         Assert.Single(_rules.List());
     }
 
+    // ── Modbus 通道同步為接點（io_channel_id）：Modbus 與攝影機端子共用同一套連動規則。
+
+    [Fact]
+
+    public void Modbus通道會登記成接點且名字極性改了會跟著()
+
+    {
+
+        var (id, created) = _ports.EnsureForIoChannel(1, 9001, IoPortKind.Di, 1, "門磁", IoPolarity.NormallyOpen, 250);
+
+        Assert.True(created);
+
+
+
+        // 同步是冪等的：再跑一次不會多出第二個接點。
+
+        var (same, created2) = _ports.EnsureForIoChannel(1, 9001, IoPortKind.Di, 1, "門磁", IoPolarity.NormallyOpen, 250);
+
+        Assert.False(created2);
+
+        Assert.Equal(id, same);
+
+
+
+        // 名字／極性改了要跟著（否則規則編輯器看到的是舊的接點名稱）。
+
+        var (updated, created3) = _ports.EnsureForIoChannel(1, 9001, IoPortKind.Di, 1, "大門門磁", IoPolarity.NormallyClosed, 250);
+
+        Assert.False(created3);
+
+        Assert.Equal(updated, id);
+
+        var port = _ports.Get(id)!;
+
+        Assert.Equal("大門門磁", port.Name);
+
+        Assert.Equal(IoPolarity.NormallyClosed, port.Polarity);
+
+        Assert.Equal(9001, port.IoChannelId);
+
+    }
+
+
+
+    [Fact]
+
+    public void Modbus接點編號不會搶走攝影機端子已佔用的號碼()
+
+    {
+
+        // 攝影機端子先佔了 1 號：Modbus 接點若搶同一號，DO 輸出會打到錯的硬體。
+
+        _ports.Add(1, IoPortKind.Di, 1, "攝影機端子", IoPolarity.NormallyOpen);
+
+
+
+        var (id, _) = _ports.EnsureForIoChannel(1, 9002, IoPortKind.Di, 1, "Modbus DI", IoPolarity.NormallyOpen);
+
+
+
+        var port = _ports.Get(id)!;
+
+        Assert.Equal(2, port.Number);
+
+        Assert.Equal(9002, port.IoChannelId);
+
+
+
+        // 攝影機端子的接點不被改動：名稱與歸屬原封不動。
+
+        var cameraPort = Assert.Single(_ports.ListByChannel(1), p => p.IoChannelId is null);
+
+        Assert.Equal("攝影機端子", cameraPort.Name);
+
+        Assert.Null(cameraPort.IoChannelId);
+
+    }
+
+
+
+    [Fact]
+
+    public void Modbus通道被刪除時接點與其規則一起清掉()
+
+    {
+
+        var (portId, _) = _ports.EnsureForIoChannel(1, 9003, IoPortKind.Di, 1, "門磁", IoPolarity.NormallyOpen);
+
+        _rules.Add(portId, IoActionKind.Alarm, null, "io_input", 30, true);
+
+
+
+        _ports.DeleteByIoChannel(9003);
+
+
+
+        Assert.Null(_ports.FindByIoChannel(9003));
+
+        Assert.Null(_ports.Get(portId));
+
+        Assert.DoesNotContain(_rules.List(), r => r.InputPortId == portId);
+
+    }
+
+
+
+    [Fact]
+
+    public void Modbus接點與攝影機端子在同一清單可供規則編輯器選擇()
+
+    {
+
+        _ports.Add(1, IoPortKind.Di, 1, "攝影機端子", IoPolarity.NormallyOpen);
+
+        _ports.EnsureForIoChannel(1, 9004, IoPortKind.Di, 1, "Modbus DI", IoPolarity.NormallyOpen);
+
+
+
+        var ports = _ports.List().Where(p => p.Kind == IoPortKind.Di).ToList();
+
+        Assert.Equal(2, ports.Count);
+
+        Assert.Contains(ports, p => p.IoChannelId is null);
+
+        Assert.Contains(ports, p => p.IoChannelId == 9004);
+
+    }
+
+
+
+
     private IoRuleEngine MakeEngine()
         => new(_ports.List(), _rules.List());
 

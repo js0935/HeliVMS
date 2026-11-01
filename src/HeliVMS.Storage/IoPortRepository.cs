@@ -1,32 +1,33 @@
 namespace HeliVMS.Storage;
 
-/// <summary>感測器埠類型（M74，§14.1 #16）：DI＝乾接點輸入，DO＝乾接點輸出。</summary>
+/// <summary>接點方向。</summary>
 public enum IoPortKind
 {
-    /// <summary>數位輸入（感測器）。</summary>
+    /// <summary>乾接點輸入。</summary>
     Di,
 
-    /// <summary>數位輸出（繼電器/指示燈）。</summary>
+    /// <summary>繼電器輸出。</summary>
     Do,
 }
 
-/// <summary>埠極性（M74）：常開＝閉合才接通；常閉＝斷開才動作。Engine 以「邏輯值」運算。</summary>
+/// <summary>接點極性。</summary>
 public enum IoPolarity
 {
-    /// <summary>常開：實體閉合→邏輯開。</summary>
+    /// <summary>常開（NO）：閉合＝觸發。</summary>
     NormallyOpen,
 
-    /// <summary>常閉：實體閉合→邏輯關。</summary>
+    /// <summary>常閉（NC）：斷開＝觸發。</summary>
     NormallyClosed,
 }
 
-/// <summary>一顆感測器埠（M74）：實體接點以 polarity 轉邏輯值，Engine 只在邏輯上昇沿觸發動作。</summary>
+/// <summary>
+/// 一個接點（§14.1 #16）：綁在頻道上的 DI／DO，攝影機端子與 Modbus 通道統一登記於此，
+/// 連動規則（<c>io_rules</c>）只認這張表。
+/// </summary>
 /// <remarks>
-/// <c>TerminalToken</c> 是攝影機端子權杖（ONVIF 的 <c>RelayOutputToken_1</c>／
-/// <c>DigitalInputToken_2</c>），空字串＝未綁定；未綁定時才用端子號去猜
-/// （見 <c>OnvifIoOutputWriter.RelayTokenFor</c> 的三段規則）。為什麼要存：權杖是不透明字串，
-/// 端子號對應只是猜測；在設定中心明確綁定之後，動作一定要打在那顆端子上——猜錯等於驅動錯的
-/// 閘門，或讓 A 端子的訊號觸發 B 端子的規則。
+/// <c>TerminalToken</c> 指向攝影機端子；<c>IoChannelId</c> 指向 Modbus 通道
+/// （<c>io_channels</c>）。null＝攝影機端子或手動建立的埠。
+/// 輸出路由靠 <c>IoChannelId</c> 決定打到哪種硬體（攝影機繼電器 / Modbus 線圈）。
 /// </remarks>
 public sealed record IoPortRecord(
     long Id,
@@ -37,11 +38,12 @@ public sealed record IoPortRecord(
     IoPolarity Polarity,
     int DebounceMs,
     bool Enabled,
-    string TerminalToken = "");
+    string TerminalToken = "",
+    int? IoChannelId = null);
 
 /// <summary>
 /// 感測器埠設定存取（M74，§14.1 #16）。每 (channel, kind, number) 唯一定義一埠；
-/// 刪除 port 時連帶刪除其動作鏈規則。App 層提供可讀/測試視窗（M75），Engine 於 Storage 側。
+/// Modbus 通道與攝影機端子都登記在這裡（<c>IoChannelId</c> 欄位區分來源）。
 /// </summary>
 public sealed class IoPortRepository
 {
@@ -61,7 +63,8 @@ public sealed class IoPortRepository
         IoPolarity polarity,
         int debounceMs = 0,
         bool enabled = true,
-        string? terminalToken = null)
+        string? terminalToken = null,
+        int? ioChannelId = null)
     {
         if (channelId <= 0)
         {
@@ -85,8 +88,8 @@ public sealed class IoPortRepository
 
         return _store.Query(
             """
-            INSERT INTO io_ports (channel_id, kind, number, name, polarity, debounce_ms, enabled, terminal_token)
-            VALUES ($c, $k, $n, $m, $p, $d, $e, $t);
+            INSERT INTO io_ports (channel_id, kind, number, name, polarity, debounce_ms, enabled, terminal_token, io_channel_id)
+            VALUES ($c, $k, $n, $m, $p, $d, $e, $t, $ic);
             SELECT last_insert_rowid();
             """,
             static r =>
@@ -96,16 +99,7 @@ public sealed class IoPortRepository
             },
             cmd =>
             {
-                cmd.Parameters.AddWithValue("$c", channelId);
-                cmd.Parameters.AddWithValue("$k", KindText(kind));
-                cmd.Parameters.AddWithValue("$n", number);
-                cmd.Parameters.AddWithValue("$m", name);
-                cmd.Parameters.AddWithValue("$p", PolarityText(polarity));
-                cmd.Parameters.AddWithValue("$d", debounceMs);
-                cmd.Parameters.AddWithValue("$e", enabled ? 1 : 0);
-                cmd.Parameters.AddWithValue(
-                    "$t",
-                    string.IsNullOrWhiteSpace(terminalToken) ? DBNull.Value : terminalToken!.Trim());
+                Fill(cmd, channelId, kind, number, name, polarity, debounceMs, enabled, terminalToken, ioChannelId);
             });
     }
 
@@ -121,7 +115,7 @@ public sealed class IoPortRepository
 
         var list = _store.Query(
             """
-            SELECT id, channel_id, kind, number, name, polarity, debounce_ms, enabled, terminal_token
+            SELECT id, channel_id, kind, number, name, polarity, debounce_ms, enabled, terminal_token, io_channel_id
             FROM io_ports
             WHERE channel_id = $c AND kind = $k AND terminal_token = $t
             LIMIT 1;
@@ -229,7 +223,7 @@ public sealed class IoPortRepository
     public IReadOnlyList<IoPortRecord> List()
     {
         return _store.Query(
-            "SELECT id, channel_id, kind, number, name, polarity, debounce_ms, enabled, terminal_token FROM io_ports ORDER BY kind, number;",
+            "SELECT id, channel_id, kind, number, name, polarity, debounce_ms, enabled, terminal_token, io_channel_id FROM io_ports ORDER BY kind, number;",
             ReadRecords);
     }
 
@@ -238,7 +232,7 @@ public sealed class IoPortRepository
     {
         return _store.Query(
             """
-            SELECT id, channel_id, kind, number, name, polarity, debounce_ms, enabled, terminal_token
+            SELECT id, channel_id, kind, number, name, polarity, debounce_ms, enabled, terminal_token, io_channel_id
             FROM io_ports
             WHERE channel_id = $c
             ORDER BY kind, number;
@@ -252,7 +246,7 @@ public sealed class IoPortRepository
     {
         var list = _store.Query(
             """
-            SELECT id, channel_id, kind, number, name, polarity, debounce_ms, enabled, terminal_token
+            SELECT id, channel_id, kind, number, name, polarity, debounce_ms, enabled, terminal_token, io_channel_id
             FROM io_ports WHERE id = $id;
             """,
             ReadRecords,
@@ -281,6 +275,94 @@ public sealed class IoPortRepository
         return true;
     }
 
+    /// <summary>依 Modbus 通道找對應的接點；不存在回 <c>null</c>。</summary>
+    public IoPortRecord? FindByIoChannel(int ioChannelId)
+    {
+        var list = _store.Query(
+            """
+            SELECT id, channel_id, kind, number, name, polarity, debounce_ms, enabled, terminal_token, io_channel_id
+            FROM io_ports WHERE io_channel_id = $ic LIMIT 1;
+            """,
+            ReadRecords,
+            cmd => cmd.Parameters.AddWithValue("$ic", ioChannelId));
+        return list.Count > 0 ? list[0] : null;
+    }
+
+    /// <summary>
+    /// 為 Modbus 通道建立（或更新）對應的接點；回傳埠 Id 與是否新建。
+    /// </summary>
+    /// <remarks>
+    /// 接點統一登記在 <c>io_ports</c>，Modbus 通道與攝影機端子才能共用同一套連動規則引擎。
+    /// 編號從 <c>IoIndex + 1</c> 起找第一個空位：不搶走同一頻道上攝影機端子已佔用的編號
+    /// （搶了等於把攝影機端子的接點改指向 Modbus，DO 輸出會打到錯的硬體）。
+    /// </remarks>
+    public (long Id, bool Created) EnsureForIoChannel(
+        int videoChannelId,
+        int ioChannelId,
+        IoPortKind kind,
+        int startNumber,
+        string name,
+        IoPolarity polarity,
+        int debounceMs = 0)
+    {
+        var existing = FindByIoChannel(ioChannelId);
+        if (existing is not null)
+        {
+            UpdateIoChannelFields(existing.Id, videoChannelId, kind, existing.Number, name, polarity, debounceMs);
+            return (existing.Id, false);
+        }
+
+        var number = startNumber;
+        while (Exists(videoChannelId, kind, number))
+        {
+            number++;
+        }
+
+        var id = Add(videoChannelId, kind, number, name, polarity, debounceMs, enabled: true, ioChannelId: ioChannelId);
+        return (id, true);
+    }
+
+    /// <summary>更新 Modbus 通道對應接點的欄位（名字改了、極性改了要跟著）。</summary>
+    private void UpdateIoChannelFields(
+        long id,
+        int videoChannelId,
+        IoPortKind kind,
+        int number,
+        string name,
+        IoPolarity polarity,
+        int debounceMs)
+    {
+        _store.Execute(
+            """
+            UPDATE io_ports SET channel_id = $c, kind = $k, number = $n, name = $m,
+                polarity = $p, debounce_ms = $d
+            WHERE id = $id;
+            """,
+            cmd =>
+            {
+                cmd.Parameters.AddWithValue("$id", id);
+                cmd.Parameters.AddWithValue("$c", videoChannelId);
+                cmd.Parameters.AddWithValue("$k", KindText(kind));
+                cmd.Parameters.AddWithValue("$n", number);
+                cmd.Parameters.AddWithValue("$m", name);
+                cmd.Parameters.AddWithValue("$p", PolarityText(polarity));
+                cmd.Parameters.AddWithValue("$d", debounceMs);
+            });
+    }
+
+    /// <summary>刪除 Modbus 通道對應的接點（通道被刪除時；其上的連動規則一併清掉）。</summary>
+    public void DeleteByIoChannel(int ioChannelId)
+    {
+        var port = FindByIoChannel(ioChannelId);
+        if (port is null)
+        {
+            return;
+        }
+
+        _store.Execute("DELETE FROM io_rules WHERE input_port_id = $id;", cmd => cmd.Parameters.AddWithValue("$id", port.Id));
+        _store.Execute("DELETE FROM io_ports WHERE id = $id;", cmd => cmd.Parameters.AddWithValue("$id", port.Id));
+    }
+
     internal static string KindText(IoPortKind kind) => kind == IoPortKind.Di ? "DI" : "DO";
 
     internal static IoPortKind KindFromText(string text) => text == "DO" ? IoPortKind.Do : IoPortKind.Di;
@@ -288,6 +370,31 @@ public sealed class IoPortRepository
     internal static string PolarityText(IoPolarity polarity) => polarity == IoPolarity.NormallyClosed ? "normally_closed" : "normally_open";
 
     internal static IoPolarity PolarityFromText(string text) => text == "normally_closed" ? IoPolarity.NormallyClosed : IoPolarity.NormallyOpen;
+
+    private static void Fill(
+        Microsoft.Data.Sqlite.SqliteCommand cmd,
+        int channelId,
+        IoPortKind kind,
+        int number,
+        string name,
+        IoPolarity polarity,
+        int debounceMs,
+        bool enabled,
+        string? terminalToken,
+        int? ioChannelId)
+    {
+        cmd.Parameters.AddWithValue("$c", channelId);
+        cmd.Parameters.AddWithValue("$k", KindText(kind));
+        cmd.Parameters.AddWithValue("$n", number);
+        cmd.Parameters.AddWithValue("$m", name);
+        cmd.Parameters.AddWithValue("$p", PolarityText(polarity));
+        cmd.Parameters.AddWithValue("$d", debounceMs);
+        cmd.Parameters.AddWithValue("$e", enabled ? 1 : 0);
+        cmd.Parameters.AddWithValue(
+            "$t",
+            string.IsNullOrWhiteSpace(terminalToken) ? DBNull.Value : terminalToken!.Trim());
+        cmd.Parameters.AddWithValue("$ic", (object?)ioChannelId ?? DBNull.Value);
+    }
 
     private static IReadOnlyList<IoPortRecord> ReadRecords(Microsoft.Data.Sqlite.SqliteDataReader reader)
     {
@@ -303,7 +410,8 @@ public sealed class IoPortRepository
                 PolarityFromText(reader.GetString(5)),
                 reader.GetInt32(6),
                 reader.GetInt32(7) == 1,
-                reader.IsDBNull(8) ? string.Empty : reader.GetString(8)));
+                reader.IsDBNull(8) ? string.Empty : reader.GetString(8),
+                reader.IsDBNull(9) ? null : reader.GetInt32(9)));
         }
 
         return list;

@@ -86,7 +86,7 @@ public class IoDeviceMonitorTests : IDisposable
         var devId = _io.AddDevice("門禁模組", "127.0.0.1");
         _io.AddChannel(devId, "DI", 1, "緊急鈕", debounceMs: 0, polarity: true, cameraId: _cameraId);
         var fake = new FakeModbusClient([true]);
-        var monitor = new IoDeviceMonitor(_io.GetDevice(devId)!, _io, _events, fake);
+        var monitor = new IoDeviceMonitor(_io.GetDevice(devId)!, _io, _events, client: fake);
         monitor.RefreshChannels();
 
         await monitor.PollOnceAsync();                 // raw=true → NC active=false（基準）
@@ -132,7 +132,7 @@ public class IoDeviceMonitorTests : IDisposable
         var chId = _io.AddChannel(devId, "DI", 0, "停用輸入", debounceMs: 0, cameraId: _cameraId);
         _io.SetChannelEnabled(chId, enabled: false);
 
-        var monitor = new IoDeviceMonitor(_io.GetDevice(devId)!, _io, _events, new FakeModbusClient([true]));
+        var monitor = new IoDeviceMonitor(_io.GetDevice(devId)!, _io, _events, client: new FakeModbusClient([true]));
         monitor.RefreshChannels();
         await monitor.PollOnceAsync();
 
@@ -147,7 +147,7 @@ public class IoDeviceMonitorTests : IDisposable
         var devId = _io.AddDevice("門禁模組", "127.0.0.1");
         _io.AddChannel(devId, "DI", 0, "未綁定輸入", debounceMs: 0);
         var fake = new FakeModbusClient([false]);
-        var monitor = new IoDeviceMonitor(_io.GetDevice(devId)!, _io, _events, fake);
+        var monitor = new IoDeviceMonitor(_io.GetDevice(devId)!, _io, _events, client: fake);
         monitor.RefreshChannels();
         var states = 0;
         monitor.StateChanged += (_, _) => states++;
@@ -169,7 +169,7 @@ public class IoDeviceMonitorTests : IDisposable
         // RefreshChannels 只載入 DI；DO 通道不會有 DI 輪詢行為。
         var devId = _io.AddDevice("門禁模組", "127.0.0.1");
         _io.AddChannel(devId, "DO", 0, "警報燈");
-        var monitor = new IoDeviceMonitor(_io.GetDevice(devId)!, _io, _events, new FakeModbusClient([true]));
+        var monitor = new IoDeviceMonitor(_io.GetDevice(devId)!, _io, _events, client: new FakeModbusClient([true]));
         monitor.RefreshChannels();
         await monitor.PollOnceAsync();
         var rows = _events.ListByRange(null, DateTime.MinValue, DateTime.MaxValue);
@@ -202,7 +202,7 @@ public class IoDeviceMonitorTests : IDisposable
         }
 
         var fake = new FakeModbusClient([false]);
-        var monitor = new IoDeviceMonitor(_io.GetDevice(devId)!, _io, _events, fake);
+        var monitor = new IoDeviceMonitor(_io.GetDevice(devId)!, _io, _events, client: fake);
         monitor.RefreshChannels();
         return (monitor, fake);
     }

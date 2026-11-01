@@ -19,7 +19,8 @@ public sealed class CameraDiWiringContractTests
     {
         var source = SourceContract.Read(MainCode);
 
-        Assert.Contains("_cameraDiHost = new CameraDiHost(_store)", source);
+        // Modbus 寫入器讓攝影機 DI 的連動也能驅動 Modbus 繼電器（DO 輸出依接點來源路由）。
+        Assert.Contains("new CameraDiHost(_store, new ModbusIoOutputWriter(", source);
         Assert.Contains("_cameraDiHost.RefreshAndStart()", source);
     }
 
