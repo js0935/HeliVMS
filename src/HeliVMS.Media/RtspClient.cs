@@ -266,6 +266,16 @@ public sealed class RtspClient : IAsyncDisposable
         IsRunning = false;
     }
 
+    /// <summary>
+    /// 重新拉流：ffmpeg 的參數（含要不要掛音訊輸出）只在行程啟動時寫定，
+    /// 改變參數的唯一途徑就是把行程殺掉重開。
+    /// </summary>
+    public async Task RestartAsync()
+    {
+        await StopAsync().ConfigureAwait(false);
+        await StartAsync().ConfigureAwait(false);
+    }
+
     private async Task RunLoopAsync(CancellationToken token)
     {
         while (!token.IsCancellationRequested)

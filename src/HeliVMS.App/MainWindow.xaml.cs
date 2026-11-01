@@ -1266,6 +1266,10 @@ public partial class MainWindow : Window
         var before = ChannelSignature(_channelList);
         RefreshChannelList();
 
+        // 現場收音的開關不在頻道簽章裡（改一個勾不該讓每台都重連），所以要單獨同步：
+        // 只有「勾被打開／取消的那一台」重啟自己的解碼連線，圖示立即出現或消失。
+        await SyncListenSettingsAsync();
+
         // 目前的群組被刪除而退回「全部」時，格數要換回「全部」頁簽記住的，否則監看牆會沿用
         // 已刪群組的格數（重開也一樣）。改下拉＝走 OnLayoutChanged，重建格位並保存偏好。
         if (MonitorLayoutPrefs.TabKey(_activeGroupId) != tabBefore)
@@ -3496,6 +3500,41 @@ public partial class MainWindow : Window
 
     /// <summary>停止播音（停止監看、頻道被刪光、關窗）。不碰 UI：關窗路徑在執行緒池上跑。</summary>
     private Task StopAudioAsync() => _audio?.StopAsync() ?? Task.CompletedTask;
+
+    /// <summary>
+    /// 把監看牆的收音狀態對齊頻道清單（設定中心剛改完的值）。
+    /// </summary>
+    /// <remarks>
+    /// 收音是否武裝是在工作階段建立時寫進 ffmpeg 參數的；只比對簽章的話，「只改收音」
+    /// 這種變更會被當成沒事，圖示要重啟軟體才會動。這裡逐台比對，只對有差的那台
+    /// 重啟它自己的解碼連線——其他台的畫面與錄影完全不動。
+    /// </remarks>
+    private async Task SyncListenSettingsAsync()
+    {
+        if (_manager is null || _audio is null)
+        {
+            return;
+        }
+
+        foreach (var channel in _channelList)
+        {
+            var session = _manager.ChannelSessionFor(channel.Id);
+            if (session is null || session.IsListenEnabled == channel.ListenEnabled)
+            {
+                continue;
+            }
+
+            // 正在播的這台被取消收音：先停聲再拆接收器（順序反了讀取端會撞上已釋放的埠）。
+            if (!channel.ListenEnabled && _audio.ChannelId == channel.Id)
+            {
+                await _audio.StopAsync();
+            }
+
+            await _manager.ApplyListenSettingAsync(channel.Id, channel.ListenEnabled);
+        }
+
+        UpdateAudioIcons();
+    }
 
     private void OnAlertTextClicked(object sender, System.Windows.Input.MouseButtonEventArgs e)
     {

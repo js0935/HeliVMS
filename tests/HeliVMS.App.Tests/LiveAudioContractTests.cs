@@ -119,4 +119,44 @@ public sealed class LiveAudioContractTests
         Assert.Contains("no-audio-device", output);
         Assert.Contains("helivms-audio.log", SourceContract.Read(WaveOut));
     }
+
+    /// <summary>
+    /// 打勾或取消「現場收音」要立即生效，不必重啟軟體。
+    /// </summary>
+    /// <remarks>
+    /// 現場回報的修正：原本只在「工作階段建立時」把要不要收音寫進 ffmpeg 參數，
+    /// 設定中心的勾改完之後監看牆毫無反應，操作員必須關掉整個程式再開——那個勾看起來就像沒存到。
+    /// 三個環節缺一不可：頻道清單一刷新就對齊（在簽章比對之前，因為只改收音不會改簽章）、
+    /// 收音開關<b>不進</b>頻道簽章（進了的話改一個勾會讓全部攝影機重連一次）、
+    /// 以及只重啟有差的那一台（其他台的畫面與錄影完全不動）。
+    /// </remarks>
+    [Fact]
+    public void 打勾或取消收音會立即生效而不必重啟()
+    {
+        var main = SourceContract.Read(Main);
+
+        // 對齊必須發生在「簽章比對」之前：只改收音不會改簽章，晚於比對就會被早退掉。
+        var reload = SourceContract.BodyOf(main, "ReloadChannelsIfChangedAsync");
+        Assert.Contains("await SyncListenSettingsAsync()", reload);
+        Assert.True(
+            reload.IndexOf("await SyncListenSettingsAsync()", StringComparison.Ordinal)
+            < reload.IndexOf("ChannelSignature(_channelList) == before", StringComparison.Ordinal),
+            "收音的對齊必須在簽章比對之前；放後面會被『頻道本身沒變』的早退跳過。");
+
+        var sync = SourceContract.BodyOf(main, "SyncListenSettingsAsync");
+        Assert.Contains("IsListenEnabled == channel.ListenEnabled", sync);
+        Assert.Contains("ApplyListenSettingAsync(channel.Id, channel.ListenEnabled)", sync);
+        Assert.Contains("await _audio.StopAsync()", sync);
+
+        // 只重啟有差的那一台，其他台不動。
+        var manager = SourceContract.Read("src/HeliVMS.App/Services/ChannelManager.cs");
+        Assert.Contains("ApplyListenSettingAsync(int channelId, bool enabled)", manager);
+        Assert.Contains("session.SetListenEnabledAsync(enabled)", manager);
+
+        var session = SourceContract.Read("src/HeliVMS.App/Services/ChannelSession.cs");
+        Assert.Contains("RestartAsync()", SourceContract.BodyOf(session, "SetListenEnabledAsync"));
+
+        // 收音開關不進頻道簽章：進了會讓「改一個勾」變成全部攝影機重連一次。
+        Assert.DoesNotContain("ListenEnabled", SourceContract.BodyOf(main, "ChannelSignature"));
+    }
 }

@@ -28,10 +28,16 @@ public sealed class ChannelSession : IDisposable
     private RtspClient? _mainClient;
 
     /// <summary>現場收音的接收器（null＝這台沒有開啟收音）。</summary>
-    private readonly AudioStreamReceiver? _audioReceiver;
+    private AudioStreamReceiver? _audioReceiver;
+
+    /// <summary>現場收音的取樣率（跟播放裝置一致；建立時由呼叫端探測後傳入）。</summary>
+    private readonly int _audioSampleRate;
 
     /// <summary>現場收音的接收器；null＝這台沒有開啟收音（監看牆不顯示喇叭圖示）。</summary>
     public AudioStreamReceiver? AudioReceiver => _audioReceiver;
+
+    /// <summary>這台是否已武裝收音（ffmpeg 參數帶音訊輸出）。</summary>
+    public bool IsListenEnabled => _audioReceiver is not null;
 
     /// <summary>目前顯示來源是否量到音訊軌（null＝還沒探測到）。</summary>
     /// <remarks>
@@ -68,13 +74,11 @@ public sealed class ChannelSession : IDisposable
         Client = new RtspClient(subDisplayUrl, hwAccel: ReadHwAccel()) { MaxFramesPerSecond = 15 };
         AttachSubClient(Client);
 
+        // 現場收音的取樣率跟著播放裝置（呼叫端探測後傳入），之後開關收音沿用同一個值。
+        _audioSampleRate = audioSampleRate;
         if (listenEnabled)
         {
-            // 現場收音的埠必須在 ffmpeg 啟動前寫進參數，所以接收器跟著工作階段生、跟著工作階段死。
-            // 埠先綁著但沒人讀時，送來的封包由作業系統丟掉：不影響畫面，也不佔行程外的資源。
-            _audioReceiver = new AudioStreamReceiver(audioSampleRate);
-            Client.AudioPort = _audioReceiver.Port;
-            Client.AudioSampleRate = audioSampleRate;
+            ArmAudio();
         }
 
         if (motionEnabled)
@@ -115,6 +119,57 @@ public sealed class ChannelSession : IDisposable
 
     /// <summary>目前實際顯示的 RTSP 位址（主流已接手時為主流，否則為常駐次流）。</summary>
     public string Url => EffectiveClient.RtspUrl;
+
+    /// <summary>綁收音埠並寫進現有連線的參數（ffmpeg 下一輪啟動才會真的帶上）。</summary>
+    private void ArmAudio()
+    {
+        _audioReceiver = new AudioStreamReceiver(_audioSampleRate);
+        Client.AudioPort = _audioReceiver.Port;
+        Client.AudioSampleRate = _audioSampleRate;
+    }
+
+    /// <summary>
+    /// 開／關這台的現場收音，立即生效（不必重啟軟體、也不影響其他頻道）。
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// 為什麼要重啟這台的解碼連線：ffmpeg 的參數（含要不要掛音訊輸出）在行程啟動時寫定，
+    /// 事後改欄位不會影響還在跑的行程。只重啟<b>這一台</b>，代價是那格畫面閃一下（與正常
+    /// 重連相同）；全部重建則是每台都斷一次，設定一個勾不值得。
+    /// </para>
+    /// <para>
+    /// 關閉時先重啟（殺掉還在送音訊的行程）再拆接收器：接收器先拆的話，ffmpeg 會對著
+    /// 一個已關閉的埠送封包。呼叫端必須先把正在播的聲音停掉，否則讀取端會撞上
+    /// <see cref="ObjectDisposedException"/>。
+    /// </para>
+    /// </remarks>
+    public async Task SetListenEnabledAsync(bool enabled)
+    {
+        if (enabled == (_audioReceiver is not null))
+        {
+            return;
+        }
+
+        if (!enabled)
+        {
+            _audioReceiver = null;
+            Client.AudioPort = 0;
+            if (_mainClient is not null)
+            {
+                _mainClient.AudioPort = 0;
+            }
+        }
+        else
+        {
+            ArmAudio();
+        }
+
+        await Client.RestartAsync().ConfigureAwait(false);
+        if (_mainClient is not null)
+        {
+            await _mainClient.RestartAsync().ConfigureAwait(false);
+        }
+    }
 
     /// <summary>錄影用 RTSP 位址（固定主流，不隨顯示切流改變）。</summary>
     public string RecordingUrl { get; } = string.Empty;

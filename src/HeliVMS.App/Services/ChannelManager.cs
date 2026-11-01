@@ -429,6 +429,24 @@ public sealed class ChannelManager : IDisposable
     public ChannelSession? ChannelSessionFor(int channelId)
         => _sessions.TryGetValue(channelId, out var session) ? session : null;
 
+    /// <summary>
+    /// 套用某台「現場收音」開關的變更，立即生效（只重啟那一台的解碼連線）。
+    /// </summary>
+    /// <remarks>
+    /// 設定中心改的是資料庫；監看牆的工作階段是建立當下把「要不要收音」寫進 ffmpeg 參數的。
+    /// 不在這裡補一條路的話，操作員打勾之後必須重啟軟體圖示才會出現——而那個勾看起來
+    /// 就像沒存到。頻道目前沒有工作階段（不在畫面上）時不用做事：下次建立自然帶新值。
+    /// </remarks>
+    public async Task ApplyListenSettingAsync(int channelId, bool enabled)
+    {
+        if (_disposed || !_sessions.TryGetValue(channelId, out var session))
+        {
+            return;
+        }
+
+        await session.SetListenEnabledAsync(enabled).ConfigureAwait(false);
+    }
+
     private async Task TeardownAsync(ChannelSession session)
     {
         await session.StopAsync();
