@@ -287,6 +287,12 @@ public partial class PlaybackWindow : Window
         _keyframes = new SegmentKeyframeRepository(_store);
         InitializeComponent();
         ApplyI18n();
+
+        // 速度預設 1×。XAML 的 SelectedIndex 在項目還沒建立時可能被忽略，
+        // 這裡再設一次才保證是 1×——0.5× 的預設會讓操作員以為「回放怎麼慢慢的」，
+        // 也會讓喇叭按不下去（非 1× 不播聲音）。
+        SpeedCombo.SelectedIndex = 1;
+
         DatePick.SelectedDate = DateTime.Today;
         LoadChannels();
         BandCanvas.Children.Add(_cursor);
@@ -1858,11 +1864,16 @@ public partial class PlaybackWindow : Window
             return;
         }
 
-        // 非 1× 速度不播：變速需要 atempo 才不失真，播出快轉的抖音比安靜更糟。
+        // 非 1× 播聲音需要 atempo 才不失真（會變成怪聲）。操作員點喇叭要的是「聽」：
+        // 自動切回 1× 並從目前位置重新起播——速度一變，原本的音訊窗口就跟畫面時間對不上，
+        // 不重播的話聲音會比畫面快或慢，而且越差越多。
         if (Math.Abs(GetSpeed() - 1) > 0.001)
         {
-            StatusText.Text = Localizer.T("Playback.AudioNeedsNormalSpeed");
-            return;
+            SpeedCombo.SelectedIndex = 1;
+            if (_current is not null)
+            {
+                PlayFrom(_current, _posInside);
+            }
         }
 
         if (!await _audio.StartAsync(_audioReceiver))

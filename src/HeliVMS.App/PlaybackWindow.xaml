@@ -302,7 +302,7 @@
                         Foreground="White" Background="#8A3C2E" BorderThickness="0" AutomationProperties.AutomationId="PlaybackStopButton"/>
                 <TextBlock x:Name="PlaybackSpeedLabel" Text="" Foreground="{StaticResource Brand.TextDim}"
                            VerticalAlignment="Center" Margin="14,0,6,0"/>
-                <ComboBox x:Name="SpeedCombo" AutomationProperties.AutomationId="SpeedCombo" Width="64" SelectedIndex="0" VerticalAlignment="Center"
+                <ComboBox x:Name="SpeedCombo" AutomationProperties.AutomationId="SpeedCombo" Width="64" SelectedIndex="1" VerticalAlignment="Center"
                           Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"
                           SelectionChanged="OnSpeedChanged">
                     <ComboBoxItem Content="0.5×"/>

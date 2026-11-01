@@ -11,6 +11,7 @@ namespace HeliVMS.App.Tests;
 public sealed class PlaybackAudioContractTests
 {
     private const string Code = "src/HeliVMS.App/PlaybackWindow.xaml.cs";
+    private const string Xaml = "src/HeliVMS.App/PlaybackWindow.xaml";
     private const string Session = "src/HeliVMS.Recording/PlaybackSession.cs";
 
     [Fact]
@@ -59,15 +60,52 @@ public sealed class PlaybackAudioContractTests
         Assert.Contains("UpdatePlaybackAudioIcon()", SourceContract.BodyOf(source, "OnFrame"));
     }
 
+    /// <summary>
+    /// 回放速度預設 1×：0.5× 的預設讓「回放怎麼慢慢的」，也讓喇叭按不下去（非 1× 不播聲音）。
+    /// </summary>
+    /// <remarks>
+    /// 現場回報的修正：速度下拉預設落在第 0 項（0.5×），操作員看到的回放是慢動作，
+    /// 點喇叭只會改狀態列、圖示不會變藍——看起來就像「聲音符號壞了」。預設必須是 1×，
+    /// XAML 與建構子各設一次（XAML 的 SelectedIndex 在項目還沒建立時可能被忽略）。
+    /// </remarks>
     [Fact]
-    public void 非一倍速不播聲音()
+    public void 回放速度預設一倍()
+    {
+        // XAML：速度下拉的預設選項是第 1 項（1×），不是第 0 項（0.5×）。
+        var xaml = SourceContract.Read(Xaml);
+        var comboStart = xaml.IndexOf("x:Name=\"SpeedCombo\"", StringComparison.Ordinal);
+        Assert.True(comboStart >= 0, "找不到速度下拉。");
+        var tagEnd = xaml.IndexOf('>', comboStart);
+        var tag = xaml[comboStart..tagEnd];
+        Assert.Contains("SelectedIndex=\"1\"", tag);
+
+        // 建構子再設一次（項目尚未建立時 XAML 的選擇可能不生效）。
+        // 釘在建構子本體而非整份檔案：喇叭的自動切回也寫同一句，抓整份檔案會空轉全綠。
+        Assert.Contains("SpeedCombo.SelectedIndex = 1;", SourceContract.BodyOf(SourceContract.Read(Code), "PlaybackWindow"));
+
+        // 對照：1× 的速度值必須真的是 1（改對應表時不能把 1× 弄丟）。
+        Assert.Contains("1 => 1", SourceContract.BodyOf(SourceContract.Read(Code), "GetSpeed"));
+    }
+
+    /// <summary>
+    /// 非 1× 時點喇叭：切回 1× 並從目前位置重新對齊，而不是叫操作員自己去速度下拉改。
+    /// </summary>
+    /// <remarks>
+    /// 速度一變，原本的音訊窗口（從起播那一刻開始的 PCM）就跟畫面時間對不上了；
+    /// 不重新起播的話，聲音會比畫面快或慢，而且越差越多——所以必須重播，
+    /// 這也是為什麼這條契約要釘住「切速度」與「重新起播」兩件事一起發生。
+    /// </remarks>
+    [Fact]
+    public void 非一倍速點喇叭會切回一倍並重新對齊()
     {
         var source = SourceContract.Read(Code);
+        var toggle = SourceContract.BodyOf(source, "TogglePlaybackAudioAsync");
 
-        // 變速需要 atempo 才不失真；播出快轉的抖音比安靜更糟。
-        Assert.Contains("GetSpeed() - 1", SourceContract.BodyOf(source, "TogglePlaybackAudioAsync"));
+        Assert.Contains("GetSpeed() - 1", toggle);
+        Assert.Contains("SpeedCombo.SelectedIndex = 1", toggle);
+        Assert.Contains("PlayFrom(_current, _posInside)", toggle);
 
-        // 播放中改速度要立刻把聲音停掉，圖示也要跟著退回白色。
+        // 播放中改速度仍要把聲音停掉（速度 ≠ 1 不播聲音），圖示也要跟著退回白色。
         var speed = SourceContract.BodyOf(source, "OnSpeedChanged");
         Assert.Contains("StopAudioAsync()", speed);
         Assert.Contains("UpdatePlaybackAudioIcon()", speed);
