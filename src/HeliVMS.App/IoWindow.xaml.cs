@@ -3,6 +3,8 @@ using System.Globalization;
 using System.Windows;
 using System.Windows.Controls;
 using HeliVMS.Alarms;
+using HeliVMS.Devices.Onvif;
+using HeliVMS.Shared.Models;
 using HeliVMS.Storage;
 
 namespace HeliVMS.App;
@@ -12,8 +14,12 @@ namespace HeliVMS.App;
 /// <see cref="IoRuleEngine"/> 模擬接點變化，狀態列回報觸發事件。實體採樣（GPIO/模組）留真機層。
 /// <para>
 /// 餵入改走 <see cref="IoRuleHost"/>（M74 落地層）：觸發的警報動作會真的寫入 alarm_events，
-/// 不再只是畫面有反應。DO 動作在此視窗無實體輸出端，交由 <see cref="IoRuleHost"/> 的預設
-/// 空寫入器處理（維持邏輯狀態）。
+/// DO 動作經 <see cref="OnvifIoOutputWriter"/> 打到頻道所綁攝影機的 ONVIF 繼電器
+/// ——先前用預設的空寫入器，規則看起來有反應、現場的閘門／警燈卻不會動。
+/// </para>
+/// <para>
+/// ONVIF 的繼電器是接上去才問得到的（權杖不透明），所以寫入器在每次動作時才列舉；
+/// 攝影機連不上或找不到對應繼電器只記在狀態列與稽核，不讓規則鏈中斷。
 /// </para>
 /// </summary>
 public partial class IoWindow : Window
@@ -21,6 +27,7 @@ public partial class IoWindow : Window
     private readonly IoPortRepository _ports;
     private readonly IoRuleRepository _rules;
     private readonly IoRuleHost _host;
+    private readonly OnvifIoOutputWriter _outputWriter;
     private readonly Dictionary<long, bool> _physical = new();
     private readonly ObservableCollection<PortRow> _portRows = new();
     private readonly ObservableCollection<RuleRow> _ruleRows = new();
@@ -30,7 +37,18 @@ public partial class IoWindow : Window
     {
         _ports = new IoPortRepository(store);
         _rules = new IoRuleRepository(store);
-        _host = new IoRuleHost(_ports, _rules, new AlarmEventRepository(store));
+        var audit = new AuditLogRepository(store);
+        _outputWriter = new OnvifIoOutputWriter(
+            _ports,
+            new ChannelRepository(store),
+            new DeviceRepository(store, audit),
+            ListRelaysAsync,
+            SwitchRelayAsync,
+            audit);
+        _outputWriter.Failed += (_, reason) => Dispatcher.BeginInvoke(
+            new Action(() => IoStatusText.Text = string.Format(
+                CultureInfo.InvariantCulture, Localizer.T("Io.OutputFailed"), reason)));
+        _host = new IoRuleHost(_ports, _rules, new AlarmEventRepository(store), _outputWriter);
         InitializeComponent();
         ApplyI18n();
 
@@ -155,6 +173,36 @@ public partial class IoWindow : Window
         }
 
         RefreshViews();
+    }
+
+    /// <summary>列出設備繼電器（權杖與名稱）；ONVIF 服務的建立與 Web API 同一條路徑。</summary>
+    private static async Task<IReadOnlyList<OnvifRelayRef>> ListRelaysAsync(
+        DeviceRecord device, CancellationToken cancellationToken)
+    {
+        using var service = CreateOnvifService(device);
+        var relays = await service.GetRelayOutputsAsync(cancellationToken).ConfigureAwait(false);
+        return relays.Select(r => new OnvifRelayRef(r.Token, r.Name)).ToList();
+    }
+
+    private static async Task SwitchRelayAsync(
+        DeviceRecord device, string relayToken, bool active, CancellationToken cancellationToken)
+    {
+        using var service = CreateOnvifService(device);
+        await service.SetRelayOutputStateAsync(relayToken, active, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// 以設備的 ONVIF 位址與憑證建立服務。
+    /// 以 <see cref="DeviceRepository.SafeUnprotect"/> 而非 Unprotect：舊資料可能是明文或
+    /// 由其他機器加密，直接解密會擲例外而讓整個 IO 動作失敗（與 Web API 的 gateway 一致）。
+    /// </summary>
+    private static OnvifDeviceService CreateOnvifService(DeviceRecord device)
+    {
+        var host = $"http://{device.Ip}:{device.Port}/onvif/device_service";
+        var password = string.IsNullOrWhiteSpace(device.PasswordEncrypted)
+            ? null
+            : DeviceRepository.SafeUnprotect(device.PasswordEncrypted);
+        return new OnvifDeviceService(host, device.Username, password);
     }
 
     private IoPortRecord? SelectedDi()
