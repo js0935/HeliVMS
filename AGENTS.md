@@ -488,3 +488,19 @@ Notes that will save you time:
   every layout switch would cut the sound. Guarded by `AudioOutputArgumentsTests`,
   `AudioStreamReceiverTests`, `AudioOutputFfmpegTests` (runs the real production fragment into the
   receiver), `LiveAudioContractTests` and `PlaybackAudioContractTests`.
+- **IO contacts are registered in Settings → IO; linkage rules live in the alarm rules window.**
+  Two different questions were once answered on one page: "what contacts exist" and "what happens
+  when one fires". The split mirrors Home Assistant's devices/entities vs automations: the IO page
+  registers contacts (Modbus modules/channels **and** camera dry-contact terminals — both are
+  `io_ports`), and `RulesWindow` owns `io_rules` (DI trigger → alarm event with a type, or switch a
+  registered DO; cooldown seconds). The rule editor only offers **registered** contacts, so a rule
+  cannot point at hardware that was never bound. Actions are complete rather than event-only:
+  linked camera (bring it up on the wall, optionally full screen), snapshot (same path as the
+  right-click capture), alarm sound (SoundPlayer on the host), map focus, reset seconds (restore the
+  layout after N s) and relay output seconds (`IoRuleHost.ScheduleOutputReset` closes the relay for
+  N s then releases — the "alarm rang and would not stop" complaint). Rule changes call
+  `CameraDiHost.ReloadRules()` so the running monitor rebuilds its engine immediately; Modbus
+  channels keep their own `io_channels` semantics and do not go through `io_rules`. The XAML ratchet
+  scans whole files: no CJK in `RulesWindow.xaml` comments, no full-width punctuation in code
+  strings, and one i18n key per window (reuse across two windows fails the duplicate-key check).
+  Guarded by `AlarmIoRuleContractTests` and `LiveTalkContractTests`.
