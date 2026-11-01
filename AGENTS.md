@@ -455,25 +455,36 @@ Notes that will save you time:
   turn into "only this feature cannot connect". Guarded by `SettingsIoCameraContractTests`,
   `綁定的端子優先於端子號推測` (DO and DI), `綁定失效時不會退回端子號推測` (DO and DI),
   `端子號已被別的埠佔用時綁定會沿用那一個而不是新增` and `同一個端子重複綁定不會多出第二個埠`.
-- **Sound gets its own ffmpeg process and never rides the frame pipe.** `RtspClient` decodes with
-  `-an`, so a camera's microphone was never heard. A child process has one stdout, and fixed-size
-  `rawvideo` frames interleaved with a continuous PCM byte stream desynchronise both, so
-  `HeliVMS.Media/AudioPullClient` pulls audio on a separate ffmpeg (mono 16 bit `s16le`,
-  `-vn -ac 1 -ar <rate>`; live sources add `-rtsp_transport tcp -fflags nobuffer`, files put `-ss`
-  before `-i` and use `-t` for the window) and the chunk size follows the sample rate (100 ms a
-  chunk). `HeliVMS.Media/PcmChunkQueue` is the bounded buffer: full means **drop the oldest** chunk
-  — the buffer cannot grow while the sound card is stuck, and re-playing minutes-old audio is worse
-  than skipping it — with `Dropped` as the only visible trace. Playback lives in
-  `HeliVMS.App/Services/WaveOutPlayer` (winmm `waveOut*`, three buffers, `WHDR_DONE` polling) so
-  `HeliVMS.Media` keeps running on a sound-card-less CI machine. `AudioPlayer` probes the device
-  (16 k, else 44.1 k, 48 k, 8 k) and tells ffmpeg to output **that** rate: a mismatch shows up as a
-  wrong pitch, not as an error. No device (remote desktop) is not an error — `PlayAsync` returns
-  false and logs to `%TEMP%\helivms-audio.log`. The wall toggle is single-pane only
-  (`CurrentCellCount() == 1`) because across 4/9/16 panes playback would be a guess, and it always
-  uses the **main** stream (`ChannelSession.RecordingUrl`; the sub stream usually has no audio
-  track). Changing channel, cell mapping, layout, group tab, stopping monitoring and closing the
-  window all funnel through `SyncAudioAsync`/`StopAudioAsync`, otherwise the stale pipeline keeps
-  talking as the previous camera with nothing logged. Playback audio is `PlaybackWindow.StartAudio`
-  called from `PlayFrom` (the only start funnel) and stopped in `StopPlayback`; non-1x speeds stay
-  silent (no `atempo`) and `OnSpeedChanged` re-aligns. Guarded by `PcmChunkQueueTests`,
-  `AudioPullClientTests`, `LiveAudioContractTests` and `PlaybackAudioContractTests`.
+- **Audio rides the decode process; it never opens a second RTSP session.** `RtspClient` decodes
+  with `-an`, so a camera's microphone was once never heard. The fix is NOT a second ffmpeg per
+  camera: cheap cameras allow only 2-4 concurrent RTSP sessions (main-for-recording +
+  sub-for-wall + main-for-single-pane is already three), and one more for sound kicks the *picture*
+  off - the symptom is "the image drops when I turn the sound on" and the log only shows RTSP
+  reconnects. Instead the decode process gets a second output (`AudioOutputArguments.Build`:
+  `-map 0:a:0 -ac 1 -ar <rate> -acodec pcm_s16le -f s16le -flush_packets 1 udp://127.0.0.1:<port>`)
+  shared by live (`RtspClient`) and playback (`PlaybackSession`). UDP on purpose: a slow reader
+  drops packets (a small gap in sound); a TCP backpressure would stall ffmpeg and freeze the
+  picture. `AudioStreamReceiver` binds the loopback port *before* the process starts (the port
+  number has to be in the args), keeps it bound for the session's lifetime (an unbound port makes
+  ffmpeg's sends fail), drains stale datagrams on Start (so pressing the speaker doesn't replay
+  seconds-old audio) and re-chops the byte stream into 100 ms chunks (`PcmChunkQueue` is the bounded
+  buffer: full = drop the **oldest**, with `Dropped` as the only trace). The output is armed **only
+  when the probe found an audio track** (`AudioOutputArguments.ResolvePort`; `-map 0:a:0` on a
+  source without audio makes ffmpeg fail outright - no picture at all), which is also why
+  `SourceHasAudio` is surfaced: "listen enabled but no microphone" must be visible, not silent.
+  Sample rate is probed from the device once (`WaveOutPlayer.ProbeSampleRate`, 16k first) and baked
+  into the args; a mismatch shows up as wrong pitch, not as an error. No audio device (remote
+  desktop) is not an error - `AudioOutput.StartAsync` returns false and logs to
+  `%TEMP%\helivms-audio.log`. Wall playback is **exclusive**: one camera at a time
+  (`LiveAudioController.ToggleAsync` stops the previous one first), because several cameras at once
+  are indistinguishable. The per-pane speaker icon (bottom-right, outside the zoom layer so it does
+  not scale) shows only for channels with `channels.listen_enabled = 1` (settings centre / channel
+  management): white = clickable, blue = playing (click mutes), grey mute = no audio track. Arming
+  happens at session creation, so clicking never reconnects. Playback shows the icon only when the
+  segment file actually has an audio track (old recordings may not), and non-1x speeds stay silent
+  (no `atempo`). When the playing camera leaves the screen (channel change, tab switch, channel
+  deleted, monitoring stopped) the audio stops - decided only at layout/tab/list *settle points*
+  (`EnforceAudioVisibilityAsync`), never mid-layout-change when cells are transiently empty, or
+  every layout switch would cut the sound. Guarded by `AudioOutputArgumentsTests`,
+  `AudioStreamReceiverTests`, `AudioOutputFfmpegTests` (runs the real production fragment into the
+  receiver), `LiveAudioContractTests` and `PlaybackAudioContractTests`.
