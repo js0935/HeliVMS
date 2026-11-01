@@ -16,25 +16,40 @@ public sealed class NotificationLogWindowContractTests
     private const string Code = "src/HeliVMS.App/NotificationLogWindow.xaml.cs";
     private const string Xaml = "src/HeliVMS.App/NotificationLogWindow.xaml";
 
+    /// <summary>
+    /// 離開路徑：工具列的「關閉」鈕與 Esc（操作員指定不加表頭列，所以沒有 ✕）。
+    /// </summary>
+    /// <remarks>
+    /// 這個視窗原本連一個關閉控制都沒有（無邊框最大化、唯一離開方式是 Alt+F4）。
+    /// 操作員看過加了表頭（標題＋✕）的版本後指定：不要表頭，只要工具列那顆「關閉」——
+    /// 所以表頭列不得再長回來，否則就是沒問過又加回去。
+    /// </remarks>
     [Fact]
-    public void 通知紀錄有關閉鈕與Esc可離開()
+    public void 通知紀錄以工具列關閉鈕與Esc離開且沒有表頭列()
     {
         var xaml = SourceContract.Read(Xaml);
         var source = SourceContract.Read(Code);
 
         Assert.Contains("WindowState=\"Maximized\"", xaml, StringComparison.Ordinal);
-        Assert.Matches(
-            @"<Button[^>]*x:Name=""HeaderCloseButton""[^>]*Click=""OnCloseClicked""",
-            xaml);
+
+        // 保留：工具列右側的「關閉」鈕（IsCancel，Esc 也會觸發）與 Esc。
         Assert.Matches(
             @"<Button[^>]*x:Name=""CloseButton""[^>]*IsCancel=""True""",
             xaml);
         Assert.Contains("Close()", SourceContract.BodyOf(source, "OnCloseClicked"));
+        Assert.Contains("NotifyLog.Close", source);
+        Assert.Contains("CloseButton.Content", source);
 
         var key = SourceContract.BodyOf(source, "OnPreviewKeyDown");
         Assert.Contains("Key.Escape", key);
         Assert.Contains("Close()", key);
         Assert.Contains(@"PreviewKeyDown=""OnPreviewKeyDown""", xaml, StringComparison.Ordinal);
+
+        // 取消：表頭列（視窗標題＋右上角 ✕）。
+        Assert.DoesNotContain("HeaderTitle", xaml, StringComparison.Ordinal);
+        Assert.DoesNotContain("HeaderCloseButton", xaml, StringComparison.Ordinal);
+        Assert.DoesNotContain("HeaderTitle", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("HeaderCloseButton", source, StringComparison.Ordinal);
     }
 
     /// <summary>

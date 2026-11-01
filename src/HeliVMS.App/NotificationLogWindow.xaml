@@ -12,27 +12,12 @@
     <Grid Margin="12">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
-            <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
-        <!-- Header row: borderless window has no system title bar, so the title and the close
-             button live here (same pattern as the export windows). -->
-        <Grid Grid.Row="0" Margin="0,0,0,10">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="Auto"/>
-            </Grid.ColumnDefinitions>
-            <TextBlock x:Name="HeaderTitle" Text="" FontSize="15" FontWeight="Bold"
-                       Foreground="White" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
-            <Button x:Name="HeaderCloseButton" Content="✕" Click="OnCloseClicked" ToolTip=""
-                    Grid.Column="1" Padding="10,4" FontSize="14"
-                    Foreground="White" Background="#C62828" BorderThickness="0"
-                    VerticalAlignment="Center" AutomationProperties.AutomationId="NotificationHeaderCloseButton"/>
-        </Grid>
-
-        <DockPanel Grid.Row="1" Margin="0,0,0,10">
+        <!-- No header bar: the labeled close button in this toolbar is the exit (Esc also works). -->
+        <DockPanel Grid.Row="0" Margin="0,0,0,10">
             <Button x:Name="CloseButton" Content="" Click="OnCloseClicked" ToolTip="" IsCancel="True"
                     DockPanel.Dock="Right" MinWidth="88" Padding="12,6" Margin="8,0,0,0"
                     Foreground="White" Background="#3A3A5A" BorderThickness="0" AutomationProperties.AutomationId="NotificationCloseButton"/>
@@ -43,7 +28,7 @@
                        VerticalAlignment="Center" Margin="14,0,0,0" FontSize="11"/>
         </DockPanel>
 
-        <Border Grid.Row="2" BorderBrush="#2A4A73" BorderThickness="1" Background="#0F1D2E">
+        <Border Grid.Row="1" BorderBrush="#2A4A73" BorderThickness="1" Background="#0F1D2E">
             <ListView x:Name="NotificationLogList" AutomationProperties.AutomationId="NotificationLogList"
                       Background="Transparent" BorderThickness="0" Foreground="White"
                       MouseDoubleClick="OnLogDoubleClick"
@@ -104,7 +89,7 @@
             </ListView>
         </Border>
 
-        <TextBlock x:Name="NotificationLogFootnote" Grid.Row="3" Text=""
+        <TextBlock x:Name="NotificationLogFootnote" Grid.Row="2" Text=""
                    Foreground="{StaticResource Brand.TextDim}" FontSize="11" Margin="0,8,0,0" TextWrapping="Wrap"/>
     </Grid>
 </Window>

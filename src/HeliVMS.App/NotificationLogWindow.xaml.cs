@@ -30,8 +30,6 @@ public partial class NotificationLogWindow : Window
     private void ApplyI18n()
     {
         Title = Localizer.T("NotifyLog.Title");
-        HeaderTitle.Text = Localizer.T("NotifyLog.Title");
-        HeaderCloseButton.ToolTip = Localizer.T("NotifyLog.CloseTip");
         CloseButton.Content = Localizer.T("NotifyLog.Close");
         CloseButton.ToolTip = Localizer.T("NotifyLog.CloseTip");
         NotificationRefreshButton.Content = Localizer.T("NotifyLog.Refresh");
