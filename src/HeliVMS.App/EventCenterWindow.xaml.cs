@@ -120,21 +120,14 @@ public partial class EventCenterWindow : Window
 
         public string StatusLabel => LocalizedStatus(Status);
 
-        /// <summary>事件類型的顯示名；未列的類型原樣顯示（上游新增類型不會炸掉視窗）。</summary>
-        public string TypeLabel =>
-            EventType switch
-            {
-                "motion" => Localizer.T("EventCenter.TypeMotion"),
-                "ai_person" => Localizer.T("EventCenter.TypeAiPerson"),
-                "ai_vehicle" => Localizer.T("EventCenter.TypeAiVehicle"),
-                "offline" => Localizer.T("EventCenter.TypeOffline"),
-                "tamper" => Localizer.T("EventCenter.TypeTamper"),
-                "io_input" => Localizer.T("EventCenter.TypeIoInput"),
-                "line_cross" => Localizer.T("EventCenter.TypeLineCross"),
-                "intrusion" => Localizer.T("EventCenter.TypeIntrusion"),
-                "license_limit" => Localizer.T("EventCenter.TypeLicenseLimit"),
-                _ => EventType,
-            };
+        /// <summary>
+        /// 事件類型的顯示名；未列的類型原樣顯示（上游新增類型不會炸掉視窗）。
+        /// </summary>
+        /// <remarks>
+        /// 對照表搬到 <see cref="EventTypeText"/>：通知紀錄也要顯示同一批事件類型，
+        /// 留在這裡等於兩份會各自漂移（新增類型只改到其中一邊，另一邊顯示英文代號）。
+        /// </remarks>
+        public string TypeLabel => EventTypeText.Label(EventType);
 
         public string AssignedLabel => string.IsNullOrWhiteSpace(AssignedTo) ? "" : AssignedTo!;
 

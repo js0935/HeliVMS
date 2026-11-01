@@ -1,7 +1,9 @@
 using System.Globalization;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Media;
+using HeliVMS.App.Services;
 using HeliVMS.Storage;
 
 namespace HeliVMS.App;
@@ -28,6 +30,10 @@ public partial class NotificationLogWindow : Window
     private void ApplyI18n()
     {
         Title = Localizer.T("NotifyLog.Title");
+        HeaderTitle.Text = Localizer.T("NotifyLog.Title");
+        HeaderCloseButton.ToolTip = Localizer.T("NotifyLog.CloseTip");
+        CloseButton.Content = Localizer.T("NotifyLog.Close");
+        CloseButton.ToolTip = Localizer.T("NotifyLog.CloseTip");
         NotificationRefreshButton.Content = Localizer.T("NotifyLog.Refresh");
         NotificationRefreshButton.ToolTip = Localizer.T("NotifyLog.RefreshTip");
         NotificationLogList.ToolTip = Localizer.T("NotifyLog.ListTip");
@@ -57,6 +63,12 @@ public partial class NotificationLogWindow : Window
 
         public string Route { get; init; } = "";
 
+        /// <summary>事件類型顯示名（與事件中心共用一份對照，見 <see cref="EventTypeText"/>）。</summary>
+        public string EventTypeLabel => EventTypeText.Label(EventType);
+
+        /// <summary>外送通道顯示名（多通道以在地化分隔符重組，見 <see cref="NotificationRouteText"/>）。</summary>
+        public string RouteLabel => NotificationRouteText.Label(Route);
+
         public bool Ok { get; init; }
 
         public int Attempts { get; init; }
@@ -73,6 +85,18 @@ public partial class NotificationLogWindow : Window
     }
 
     private void OnLoaded(object sender, RoutedEventArgs e) => RefreshLog();
+
+    /// <summary>無邊框最大化視窗沒有系統標題列：✕、關閉鈕與 Esc 是離開路徑。</summary>
+    private void OnCloseClicked(object sender, RoutedEventArgs e) => Close();
+
+    private void OnPreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Escape)
+        {
+            e.Handled = true;
+            Close();
+        }
+    }
 
     private void OnRefreshClicked(object sender, RoutedEventArgs e) => RefreshLog();
 
