@@ -8,6 +8,7 @@ using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Shapes;
 using System.Windows.Threading;
+using HeliVMS.App.Services;
 using HeliVMS.Media;
 using HeliVMS.Recording;
 using HeliVMS.Shared;
@@ -45,6 +46,12 @@ public partial class PlaybackWindow : Window
 
     private PlaybackSession? _session;
     private SegmentRecord? _current;
+
+    /// <summary>
+    /// 回放的聲音（只做主畫面、單聲道）。與影格用不同的 ffmpeg 拉同一段的 PCM：
+    /// 一個子行程只有一條 stdout，rawvideo 與位元組流混在一起兩邊都會錯位。
+    /// </summary>
+    private AudioPlayer? _audio;
     private double _basePos;
     private double _posInside;
     private bool _stopping;
@@ -1409,6 +1416,16 @@ public partial class PlaybackWindow : Window
                 paneSession.Speed = GetSpeed();
             }
         }
+
+        // 聲音跟著主畫面的速度：非 1× 停掉（不做變聲），回到 1× 再從目前位置接回來。
+        if (_session is not null && _current is not null)
+        {
+            StartAudio(_current, _posInside);
+        }
+        else
+        {
+            _ = StopAudioAsync();
+        }
     }
 
     /// <summary>回放牆格數切換（1／2／4）：重建次畫面並重新對齊到目前播放頭。</summary>
@@ -1739,11 +1756,42 @@ public partial class PlaybackWindow : Window
         });
 
         _ = session.PlayAsync(seekSeconds);
+        StartAudio(seg, seekSeconds);
 
         // 主畫面（焦點）時鐘就是回放牆的母鐘：一換段／一跳轉，立刻把次畫面帶到同一絕對時刻。
         StartSync();
         SyncPanes(force: true);
     }
+
+    /// <summary>
+    /// 從目前播放頭開始播這一「段」的聲音；起點與長度都跟影像一致，播到段尾自然收掉。
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// 非 1× 速度時不播：變速需要 ffmpeg 的 <c>atempo</c> 才不會變成怪聲，這裡不做——播出「快轉的
+    /// 抖音」比安靜更糟，操作員會以為是攝影機壞了。暫停與停止由 <see cref="StopPlayback"/> 收掉，
+    /// 續播時 <see cref="PlayFrom"/> 會照新的位置重新對齊。
+    /// </para>
+    /// <para>
+    /// 沒有音訊軌的段很常見（舊錄影、當初設定就沒開音訊），這條路徑刻意安靜失敗：不彈視窗、
+    /// 不改狀態列，回放照常。裝置層級的失敗（遠端桌面沒有音效卡）寫在 <c>%TEMP%\helivms-audio.log</c>。
+    /// </para>
+    /// </remarks>
+    private void StartAudio(SegmentRecord seg, double seekSeconds)
+    {
+        if (Math.Abs(GetSpeed() - 1) > 0.001 || string.IsNullOrWhiteSpace(seg.FilePath))
+        {
+            _ = StopAudioAsync();
+            return;
+        }
+
+        var duration = Math.Max(0, LengthOf(seg) - seekSeconds);
+        _audio ??= new AudioPlayer();
+        _ = _audio.PlayAsync(seg.FilePath, live: false, seekSeconds, duration);
+    }
+
+    /// <summary>停止回放的聲音；沒有開過播放管線時什麼都不做。</summary>
+    private Task StopAudioAsync() => _audio?.StopAsync() ?? Task.CompletedTask;
 
     private void OnFrame(long version, SegmentRecord seg, VideoFrame frame)
     {
@@ -2122,6 +2170,10 @@ public partial class PlaybackWindow : Window
         DisposeQuietly(session);
         StopSync();
         StopAllPanes();
+
+        // 影片停住聲音也要停：留著會變成「畫面靜止但有人在說話」，聽起來像另一段錄影在播。
+        _ = StopAudioAsync();
+
         SetIdleUi();
     }
 
@@ -3114,6 +3166,14 @@ public partial class PlaybackWindow : Window
         _session = null;
         session?.Stop();
         DisposeQuietly(session);
+
+        // 關窗就收掉拉音訊的 ffmpeg。不等待：關窗路徑是同步的，等它會卡住 UI；
+        // 停止是丟到執行緒池完成的，行程不會漏（App 啟動時另有孤兒清掃）。
+        if (_audio is { } audio)
+        {
+            _audio = null;
+            _ = audio.DisposeAsync();
+        }
     }
 
     /// <summary>回放牆格數（1／2／4／9／16）。</summary>

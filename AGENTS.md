@@ -455,3 +455,25 @@ Notes that will save you time:
   turn into "only this feature cannot connect". Guarded by `SettingsIoCameraContractTests`,
   `綁定的端子優先於端子號推測` (DO and DI), `綁定失效時不會退回端子號推測` (DO and DI),
   `端子號已被別的埠佔用時綁定會沿用那一個而不是新增` and `同一個端子重複綁定不會多出第二個埠`.
+- **Sound gets its own ffmpeg process and never rides the frame pipe.** `RtspClient` decodes with
+  `-an`, so a camera's microphone was never heard. A child process has one stdout, and fixed-size
+  `rawvideo` frames interleaved with a continuous PCM byte stream desynchronise both, so
+  `HeliVMS.Media/AudioPullClient` pulls audio on a separate ffmpeg (mono 16 bit `s16le`,
+  `-vn -ac 1 -ar <rate>`; live sources add `-rtsp_transport tcp -fflags nobuffer`, files put `-ss`
+  before `-i` and use `-t` for the window) and the chunk size follows the sample rate (100 ms a
+  chunk). `HeliVMS.Media/PcmChunkQueue` is the bounded buffer: full means **drop the oldest** chunk
+  — the buffer cannot grow while the sound card is stuck, and re-playing minutes-old audio is worse
+  than skipping it — with `Dropped` as the only visible trace. Playback lives in
+  `HeliVMS.App/Services/WaveOutPlayer` (winmm `waveOut*`, three buffers, `WHDR_DONE` polling) so
+  `HeliVMS.Media` keeps running on a sound-card-less CI machine. `AudioPlayer` probes the device
+  (16 k, else 44.1 k, 48 k, 8 k) and tells ffmpeg to output **that** rate: a mismatch shows up as a
+  wrong pitch, not as an error. No device (remote desktop) is not an error — `PlayAsync` returns
+  false and logs to `%TEMP%\helivms-audio.log`. The wall toggle is single-pane only
+  (`CurrentCellCount() == 1`) because across 4/9/16 panes playback would be a guess, and it always
+  uses the **main** stream (`ChannelSession.RecordingUrl`; the sub stream usually has no audio
+  track). Changing channel, cell mapping, layout, group tab, stopping monitoring and closing the
+  window all funnel through `SyncAudioAsync`/`StopAudioAsync`, otherwise the stale pipeline keeps
+  talking as the previous camera with nothing logged. Playback audio is `PlaybackWindow.StartAudio`
+  called from `PlayFrom` (the only start funnel) and stopped in `StopPlayback`; non-1x speeds stay
+  silent (no `atempo`) and `OnSpeedChanged` re-aligns. Guarded by `PcmChunkQueueTests`,
+  `AudioPullClientTests`, `LiveAudioContractTests` and `PlaybackAudioContractTests`.
