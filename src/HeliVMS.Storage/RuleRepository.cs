@@ -95,6 +95,46 @@ public sealed class RuleRepository
         }
     }
 
+    /// <summary>整列覆寫一條規則（警報中心的「編輯」）；回傳是否實際存在。</summary>
+    /// <remarks>
+    /// 編輯走 Update 而不是「刪掉重加」：刪加會換 Id——操作員在清單上看到的條目、
+    /// 稽核軌跡與任何以 Id 對照的東西都會斷線。created_at 保留原值（規則的誕生時間不因修改而漂移）。
+    /// </remarks>
+    public bool Update(int id, string name, string expressionJson, string actionsJson, bool enabled, string? actor = null)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            throw new ArgumentException("規則名稱不可為空", nameof(name));
+        }
+
+        if (string.IsNullOrWhiteSpace(expressionJson))
+        {
+            throw new ArgumentException("規則條件不可為空", nameof(expressionJson));
+        }
+
+        var affected = _store.Query<int>(
+            """
+            UPDATE ai_rules SET name = $n, expression_json = $e, actions_json = $a, enabled = $en
+            WHERE id = $id;
+            SELECT changes();
+            """,
+            static r => r.Read() ? r.GetInt32(0) : 0,
+            cmd =>
+            {
+                cmd.Parameters.AddWithValue("$id", id);
+                cmd.Parameters.AddWithValue("$n", name);
+                cmd.Parameters.AddWithValue("$e", expressionJson);
+                cmd.Parameters.AddWithValue("$a", string.IsNullOrWhiteSpace(actionsJson) ? "{}" : actionsJson);
+                cmd.Parameters.AddWithValue("$en", enabled ? 1 : 0);
+            });
+        if (affected > 0)
+        {
+            _audit.Record(actor, "rule.update", AuditCategories.Config, targetType: "ai_rule", targetId: id, detail: $"name={name}");
+        }
+
+        return affected > 0;
+    }
+
     public void Delete(int id, string? actor = null)
     {
         var affected = _store.Query<int>(

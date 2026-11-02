@@ -4554,7 +4554,27 @@ public partial class MainWindow : Window
             return;
         }
 
-        OpenChild(new RulesWindow(_store!, ioRulesChanged: () => _cameraDiHost?.ReloadRules()));
+        // 兩個回呼都必須接：ioRulesChanged 重建 IO 連動引擎（兩個宿主）、
+        // eventRulesChanged 重建複合事件規則求值器。漏接任何一個，操作員改完規則
+        // 都要重啟軟體才生效——清單看起來存好了，執行期卻還是舊的一套，日誌乾淨無聲。
+        OpenChild(new RulesWindow(
+            _store!,
+            ioRulesChanged: ReloadIoRuleEngines,
+            eventRulesChanged: RebuildEventRules));
+    }
+
+    /// <summary>
+    /// IO 連動規則變更後重建「兩個」宿主的引擎。
+    /// </summary>
+    /// <remarks>
+    /// 攝影機乾接點（<see cref="CameraDiHost"/>）與 Modbus 接點（<see cref="IoMonitorHost"/>）
+    /// 各自持有一份 <c>IoRuleHost</c> 引擎、只共用路由寫入器。只重載攝影機側的話，
+    /// Modbus 接點的連動（改繼電器輸出秒數、換 DO 目標…）要重啟軟體才生效。
+    /// </remarks>
+    private void ReloadIoRuleEngines()
+    {
+        _cameraDiHost?.ReloadRules();
+        _ioHost?.ReloadRules();
     }
 
     private void OnRulesClicked(object sender, RoutedEventArgs e) => OpenRulesWindow();

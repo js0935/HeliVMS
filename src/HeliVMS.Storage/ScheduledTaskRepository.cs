@@ -106,6 +106,50 @@ public sealed class ScheduledTaskRepository
             ReadRecords);
     }
 
+    /// <summary>整列覆寫任務內容（警報中心的「編輯」）；<b>不動</b> <c>last_run_utc</c>／<c>last_result</c>。回傳是否實際存在。</summary>
+    /// <remarks>
+    /// 編輯保留執行狀態是安全規則：把「每天 03:00 重開機」改成「每天 04:00」時，
+    /// last_run 還是今天稍早的值——今天不會再跑，下次跑到點是明天 04:00。
+    /// 如果 Update 順手把 last_run 重置成當下，等於「編輯＝重置今天已跑」，
+    /// 一顆已經跑過的任務會在下一個輪詢被判成到點再跑一次。
+    /// </remarks>
+    public bool Update(
+        long id,
+        string name,
+        MaintenanceTaskKind kind,
+        MaintenanceScheduleKind scheduleKind,
+        int timeOfDay = 0,
+        int weekdaysMask = MaintenanceWeekdays.All,
+        int intervalMinutes = 0,
+        int? channelId = null,
+        bool enabled = true)
+    {
+        Validate(kind, scheduleKind, timeOfDay, weekdaysMask, intervalMinutes);
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+
+        return _store.Query(
+            """
+            UPDATE scheduled_tasks
+            SET name = $n, kind = $k, enabled = $e, schedule_kind = $s, time_of_day = $t,
+                weekdays = $w, interval_min = $m, channel_id = $c
+            WHERE id = $id;
+            SELECT changes();
+            """,
+            static r => r.Read() && r.GetInt32(0) > 0,
+            cmd =>
+            {
+                cmd.Parameters.AddWithValue("$id", id);
+                cmd.Parameters.AddWithValue("$n", name.Trim());
+                cmd.Parameters.AddWithValue("$k", kind.ToString());
+                cmd.Parameters.AddWithValue("$e", enabled ? 1 : 0);
+                cmd.Parameters.AddWithValue("$s", scheduleKind.ToString());
+                cmd.Parameters.AddWithValue("$t", timeOfDay);
+                cmd.Parameters.AddWithValue("$w", weekdaysMask);
+                cmd.Parameters.AddWithValue("$m", intervalMinutes);
+                cmd.Parameters.AddWithValue("$c", (object?)channelId ?? DBNull.Value);
+            });
+    }
+
     /// <summary>刪除任務。</summary>
     public bool Delete(long id)
     {

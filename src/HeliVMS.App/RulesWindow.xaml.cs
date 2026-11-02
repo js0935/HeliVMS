@@ -28,6 +28,15 @@ public partial class RulesWindow : Window
     /// <summary>複合事件規則變更後的回呼（讓執行期求值器重建，不必重啟軟體）。</summary>
     private readonly Action? _eventRulesChanged;
 
+    /// <summary>正在編輯的複合事件規則 Id；null＝新增模式。</summary>
+    private int? _editingRuleId;
+
+    /// <summary>正在編輯的 IO 連動規則 Id；null＝新增模式。</summary>
+    private long? _editingIoRuleId;
+
+    /// <summary>正在編輯的排程任務 Id；null＝新增模式。</summary>
+    private long? _editingTaskId;
+
     private sealed class RuleRowViewModel
     {
         public required AiRuleRecord Rule { get; init; }
@@ -43,6 +52,8 @@ public partial class RulesWindow : Window
         public string ActionsSummary => Shorten(Rule.ActionsJson, 40);
 
         public string ToggleText => Rule.Enabled ? Localizer.T("Rules.Disabled") : Localizer.T("Rules.Enabled");
+
+        public string EditText => Localizer.T("Rules.Edit");
 
         public string DeleteText => Localizer.T("Rules.Delete");
     }
@@ -269,10 +280,89 @@ public partial class RulesWindow : Window
         RulesEvalText.Text = lines.Count == 0 ? Localizer.T("Rules.EvalNone") : string.Join("\n", lines);
     }
 
+    /// <summary>依 Tag 選下拉項目（物件類型／頻道／接點）；找不到退回第一個。</summary>
+    private static void SelectComboByTag(System.Windows.Controls.ComboBox combo, object? tag)
+    {
+        for (var i = 0; i < combo.Items.Count; i++)
+        {
+            if (combo.Items[i] is ComboBoxItem item && Equals(item.Tag, tag))
+            {
+                combo.SelectedIndex = i;
+                return;
+            }
+        }
+
+        combo.SelectedIndex = combo.Items.Count > 0 ? 0 : -1;
+    }
+
+    /// <summary>
+    /// 點「編輯」：把這條規則載回表單。
+    /// 條件 JSON 解得回簡易形狀就回表單；解不回（any／not／巢狀等進阶形狀）
+    /// 就進階 JSON 原樣顯示——硬解會把規則改壞，寧可讓操作員看到原文。
+    /// </summary>
+    private void OnEditClicked(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { DataContext: RuleRowViewModel row })
+        {
+            return;
+        }
+
+        var rule = row.Rule;
+        _editingRuleId = rule.Id;
+        RulesNameBox.Text = rule.Name;
+        RulesEnabledBox.IsChecked = rule.Enabled;
+        RulesSimpleCountCheck.IsChecked = false;
+        RulesSimpleTimeCheck.IsChecked = false;
+
+        var form = RuleExpressionBuilder.TryParseExpression(rule.ExpressionJson);
+        if (form is { } values)
+        {
+            var culture = System.Globalization.CultureInfo.InvariantCulture;
+            _simpleMode = true;
+            RulesModeCombo.SelectedItem = RulesModeSimple;
+            SelectComboByTag(RulesSimpleEventCombo, values.EventType);
+            SelectComboByTag(RulesSimpleChannelCombo, values.ChannelId);
+            if (values.CountAtLeast is int atLeast)
+            {
+                RulesSimpleCountCheck.IsChecked = true;
+                RulesSimpleCountBox.Text = atLeast.ToString(culture);
+                RulesSimpleSecondsBox.Text = (values.CountSeconds ?? 60).ToString(culture);
+            }
+
+            if (values.TimeStartHhmm is int start && values.TimeEndHhmm is int end)
+            {
+                RulesSimpleTimeCheck.IsChecked = true;
+                RulesSimpleStartBox.Text = start.ToString(culture);
+                RulesSimpleEndBox.Text = end.ToString(culture);
+            }
+
+            var (severity, tag, notify) = RuleExpressionBuilder.TryParseActions(rule.ActionsJson);
+            RulesSimpleSeverityCombo.SelectedItem = severity ?? RuleSeverity.Warning;
+            RulesSimpleTagBox.Text = tag ?? string.Empty;
+            RulesSimpleNotifyCheck.IsChecked = notify;
+        }
+        else
+        {
+            _simpleMode = false;
+            RulesModeCombo.SelectedItem = RulesModeAdvanced;
+            RulesExprBox.Text = rule.ExpressionJson;
+            RulesActionsBox.Text = rule.ActionsJson;
+        }
+
+        RulesEditPanel.Visibility = Visibility.Visible;
+    }
+
     private void OnAddToggleClicked(object sender, RoutedEventArgs e)
-        => RulesEditPanel.Visibility = RulesEditPanel.Visibility == Visibility.Visible
+    {
+        if (RulesEditPanel.Visibility != Visibility.Visible)
+        {
+            _editingRuleId = null;   // 開「新增」面板＝離開編輯模式，別把上一條的 Id 帶進來。
+        }
+
+        RulesEditPanel.Visibility = RulesEditPanel.Visibility == Visibility.Visible
             ? Visibility.Collapsed
             : Visibility.Visible;
+    }
 
     /// <summary>切換簡易（表單）／進階（JSON）：兩種模式寫同一份規則，操作員不必學 JSON。</summary>
     private void OnRulesModeChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
@@ -332,14 +422,30 @@ public partial class RulesWindow : Window
             }
 
             var enabled = RulesEnabledBox.IsChecked == true;
-            var id = _rules.Add(name, expr!, actions!, enabled);
+            var wasEdit = _editingRuleId is not null;
+            int ruleId;
+            if (_editingRuleId is int editingRuleId)
+            {
+                // 編輯走 Update：刪掉重加會換 Id，稽核軌跡與清單就斷線了。
+                _rules.Update(editingRuleId, name, expr!, actions!, enabled);
+                ruleId = editingRuleId;
+                _editingRuleId = null;
+            }
+            else
+            {
+                ruleId = _rules.Add(name, expr!, actions!, enabled);
+            }
+
             RulesNameBox.Clear();
             RulesExprBox.Clear();
             RulesActionsBox.Clear();
             RulesEnabledBox.IsChecked = true;
             RulesEditPanel.Visibility = Visibility.Collapsed;
             Refresh();
-            RulesStatusText.Text = string.Format(Localizer.T("Rules.Added"), id);
+            RulesStatusText.Text = string.Format(
+                System.Globalization.CultureInfo.InvariantCulture,
+                Localizer.T(wasEdit ? "Rules.Updated" : "Rules.Added"),
+                ruleId);
             _eventRulesChanged?.Invoke();
         }
         catch (Exception ex)
@@ -390,6 +496,8 @@ public partial class RulesWindow : Window
         public string EnabledColor => Rule.Enabled ? "#8AE08A" : "#E0B0B0";
 
         public string ToggleText => Rule.Enabled ? Localizer.T("Rules.Disabled") : Localizer.T("Rules.Enabled");
+
+        public string EditText => Localizer.T("Rules.Edit");
 
         public string DeleteText => Localizer.T("Rules.Delete");
     }
@@ -463,6 +571,11 @@ public partial class RulesWindow : Window
 
     private void OnIoRuleAddToggleClicked(object sender, RoutedEventArgs e)
     {
+        if (IoRulesEditPanel.Visibility != Visibility.Visible)
+        {
+            _editingIoRuleId = null;
+        }
+
         IoRulesEditPanel.Visibility = IoRulesEditPanel.Visibility == Visibility.Visible
             ? Visibility.Collapsed
             : Visibility.Visible;
@@ -509,6 +622,43 @@ public partial class RulesWindow : Window
         }
     }
 
+    /// <summary>點「編輯」：把這條 IO 連動的值載回表單並切到編輯模式。</summary>
+    private void OnIoRuleEditClicked(object sender, RoutedEventArgs e)
+    {
+        if (sender is not System.Windows.Controls.Button { DataContext: IoRuleRowViewModel row })
+        {
+            return;
+        }
+
+        var rule = row.Rule;
+        _editingIoRuleId = rule.Id;
+
+        SelectComboByTag(IoRuleInputCombo, rule.InputPortId);
+        var isDo = rule.ActionKind == IoActionKind.ToggleDo;
+        IoRuleActionCombo.SelectedItem = isDo ? IoRuleActionDoItem : IoRuleActionAlarmItem;
+        if (isDo)
+        {
+            SelectComboByTag(IoRuleOutputCombo, rule.OutputPortId);
+        }
+        else
+        {
+            IoRuleEventTypeBox.Text = rule.EventType ?? string.Empty;
+        }
+
+        var culture = System.Globalization.CultureInfo.InvariantCulture;
+        IoRuleRetriggerBox.Text = rule.RetriggerSec.ToString(culture);
+        IoRuleEnabledBox.IsChecked = rule.Enabled;
+        SelectComboByTag(IoRuleLinkCombo, rule.LinkChannelId);
+        IoRuleFullscreenBox.IsChecked = rule.LinkFullscreen;
+        IoRuleSnapshotBox.IsChecked = rule.LinkSnapshot;
+        IoRuleMapBox.IsChecked = rule.LinkMap;
+        IoRuleSoundBox.Text = rule.LinkSoundPath ?? string.Empty;
+        IoRuleOutputSecBox.Text = rule.OutputSeconds.ToString(culture);
+        IoRuleResetBox.Text = rule.ResetSeconds.ToString(culture);
+
+        IoRulesEditPanel.Visibility = Visibility.Visible;
+    }
+
     private void OnIoRuleConfirmed(object sender, RoutedEventArgs e)
     {
         try
@@ -543,23 +693,48 @@ public partial class RulesWindow : Window
 
             var enabled = IoRuleEnabledBox.IsChecked == true;
             var linkChannel = (IoRuleLinkCombo.SelectedItem as ComboBoxItem)?.Tag as int?;
-            var id = _ioRules.Add(
-                input.Value,
-                isDo ? IoActionKind.ToggleDo : IoActionKind.Alarm,
-                output,
-                eventType,
-                retrigger,
-                enabled,
-                linkChannel,
-                IoRuleFullscreenBox.IsChecked == true,
-                IoRuleSnapshotBox.IsChecked == true,
-                NullIfEmpty(IoRuleSoundBox.Text),
-                IoRuleMapBox.IsChecked == true,
-                ParseSeconds(IoRuleResetBox.Text),
-                ParseSeconds(IoRuleOutputSecBox.Text));
+            var wasEdit = _editingIoRuleId is not null;
+            long ruleId;
+            if (_editingIoRuleId is long editingIoRuleId)
+            {
+                _ioRules.Update(
+                    editingIoRuleId,
+                    input.Value,
+                    isDo ? IoActionKind.ToggleDo : IoActionKind.Alarm,
+                    output,
+                    eventType,
+                    retrigger,
+                    enabled,
+                    linkChannel,
+                    IoRuleFullscreenBox.IsChecked == true,
+                    IoRuleSnapshotBox.IsChecked == true,
+                    NullIfEmpty(IoRuleSoundBox.Text),
+                    IoRuleMapBox.IsChecked == true,
+                    ParseSeconds(IoRuleResetBox.Text),
+                    ParseSeconds(IoRuleOutputSecBox.Text));
+                ruleId = editingIoRuleId;
+                _editingIoRuleId = null;
+            }
+            else
+            {
+                ruleId = _ioRules.Add(
+                    input.Value,
+                    isDo ? IoActionKind.ToggleDo : IoActionKind.Alarm,
+                    output,
+                    eventType,
+                    retrigger,
+                    enabled,
+                    linkChannel,
+                    IoRuleFullscreenBox.IsChecked == true,
+                    IoRuleSnapshotBox.IsChecked == true,
+                    NullIfEmpty(IoRuleSoundBox.Text),
+                    IoRuleMapBox.IsChecked == true,
+                    ParseSeconds(IoRuleResetBox.Text),
+                    ParseSeconds(IoRuleOutputSecBox.Text));
+            }
             IoRulesEditPanel.Visibility = Visibility.Collapsed;
             RefreshIoRules();
-            RulesStatusText.Text = string.Format(System.Globalization.CultureInfo.InvariantCulture, Localizer.T("Rules.IoAdded"), id);
+            RulesStatusText.Text = string.Format(System.Globalization.CultureInfo.InvariantCulture, Localizer.T(wasEdit ? "Rules.IoUpdated" : "Rules.IoAdded"), ruleId);
             _ioRulesChanged?.Invoke();
         }
         catch (Exception ex)
@@ -623,6 +798,8 @@ public partial class RulesWindow : Window
 
         public string ToggleText => Task.Enabled ? Localizer.T("Tasks.Disable") : Localizer.T("Tasks.Enable");
 
+        public string EditText => Localizer.T("Tasks.Edit");
+
         public string DeleteText => Localizer.T("Tasks.Delete");
     }
 
@@ -679,6 +856,11 @@ public partial class RulesWindow : Window
 
     private void OnTaskAddToggleClicked(object sender, RoutedEventArgs e)
     {
+        if (TasksEditPanel.Visibility != Visibility.Visible)
+        {
+            _editingTaskId = null;
+        }
+
         TasksEditPanel.Visibility = TasksEditPanel.Visibility == Visibility.Visible
             ? Visibility.Collapsed
             : Visibility.Visible;
@@ -719,6 +901,45 @@ public partial class RulesWindow : Window
         }
 
         return parsed / 100 > 23 || parsed % 100 > 59 ? null : parsed;
+    }
+
+    /// <summary>點「編輯」：把這顆排程任務的值載回表單並切到編輯模式。</summary>
+    private void OnTaskEditClicked(object sender, RoutedEventArgs e)
+    {
+        if (sender is not System.Windows.Controls.Button { DataContext: TaskRowViewModel row })
+        {
+            return;
+        }
+
+        var task = row.Task;
+        _editingTaskId = task.Id;
+        TaskNameBox.Text = task.Name;
+        TaskKindCombo.SelectedItem = task.Kind switch
+        {
+            MaintenanceTaskKind.Reboot => TaskKindRebootItem,
+            MaintenanceTaskKind.Snapshot => TaskKindSnapshotItem,
+            _ => TaskKindReconnectItem,
+        };
+        TaskSchedCombo.SelectedItem = task.ScheduleKind switch
+        {
+            MaintenanceScheduleKind.Daily => TaskSchedDailyItem,
+            MaintenanceScheduleKind.Weekly => TaskSchedWeeklyItem,
+            _ => TaskSchedIntervalItem,
+        };
+
+        var culture = System.Globalization.CultureInfo.InvariantCulture;
+        TaskTimeBox.Text = task.TimeOfDay.ToString("0000", culture);
+        TaskIntervalBox.Text = task.IntervalMinutes.ToString(culture);
+        var boxes = new[] { TaskDow0, TaskDow1, TaskDow2, TaskDow3, TaskDow4, TaskDow5, TaskDow6 };
+        for (var day = 0; day < boxes.Length; day++)
+        {
+            boxes[day].IsChecked = MaintenanceWeekdays.Has(task.WeekdaysMask, (DayOfWeek)day);
+        }
+
+        SelectComboByTag(TaskChannelCombo, task.ChannelId);
+        TaskEnabledBox.IsChecked = task.Enabled;
+
+        TasksEditPanel.Visibility = Visibility.Visible;
     }
 
     private void OnTaskConfirmed(object sender, RoutedEventArgs e)
@@ -792,18 +1013,26 @@ public partial class RulesWindow : Window
                 : isWeekly ? MaintenanceScheduleKind.Weekly
                 : MaintenanceScheduleKind.Daily;
             var channelId = (TaskChannelCombo.SelectedItem as ComboBoxItem)?.Tag as int?;
-            var id = _taskRepo.Add(
-                name,
-                kind,
-                scheduleKind,
-                timeOfDay,
-                weekdays,
-                interval,
-                kind == MaintenanceTaskKind.Snapshot ? channelId : null,
-                TaskEnabledBox.IsChecked == true);
+            var snapshotChannel = kind == MaintenanceTaskKind.Snapshot ? channelId : null;
+            var taskEnabled = TaskEnabledBox.IsChecked == true;
+            // 編輯不重置執行狀態（倉匨的 Update 刻意不動 last_run）：
+            // 否則編一下「每天 03:00 重開機」等於把今天已跑抹掀，下一輪又到點重開一次。
+            var wasEdit = _editingTaskId is not null;
+            long taskId;
+            if (_editingTaskId is long editingTaskId)
+            {
+                _taskRepo.Update(editingTaskId, name, kind, scheduleKind, timeOfDay, weekdays, interval, snapshotChannel, taskEnabled);
+                taskId = editingTaskId;
+                _editingTaskId = null;
+            }
+            else
+            {
+                taskId = _taskRepo.Add(name, kind, scheduleKind, timeOfDay, weekdays, interval, snapshotChannel, taskEnabled);
+            }
+
             TasksEditPanel.Visibility = Visibility.Collapsed;
             RefreshTasks();
-            RulesStatusText.Text = string.Format(System.Globalization.CultureInfo.InvariantCulture, Localizer.T("Tasks.Added"), id);
+            RulesStatusText.Text = string.Format(System.Globalization.CultureInfo.InvariantCulture, Localizer.T(wasEdit ? "Tasks.Updated" : "Tasks.Added"), taskId);
         }
         catch (Exception ex)
         {

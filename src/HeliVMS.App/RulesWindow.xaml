@@ -141,11 +141,14 @@
                             <DataTemplate><TextBlock Text="{Binding ActionsSummary}" FontSize="12" TextWrapping="Wrap" Foreground="#C9D8E8"/></DataTemplate>
                         </GridViewColumn.CellTemplate>
                     </GridViewColumn>
-                    <GridViewColumn x:Name="RulesColOps" Header="" Width="150">
+                    <GridViewColumn x:Name="RulesColOps" Header="" Width="210">
                         <GridViewColumn.CellTemplate>
                             <DataTemplate>
                                 <StackPanel Orientation="Horizontal">
                                     <Button Content="{Binding ToggleText}" Click="OnToggleClicked"
+                                            Foreground="White" Background="#3A5A7A" BorderThickness="0"
+                                            Padding="6,2" Margin="0,0,6,0"/>
+                                    <Button Content="{Binding EditText}" Click="OnEditClicked"
                                             Foreground="White" Background="#3A5A7A" BorderThickness="0"
                                             Padding="6,2" Margin="0,0,6,0"/>
                                     <Button Content="{Binding DeleteText}" Click="OnDeleteClicked"
@@ -257,11 +260,14 @@
                             <DataTemplate><TextBlock Text="{Binding EnabledText}" FontSize="12" Foreground="{Binding EnabledColor}"/></DataTemplate>
                         </GridViewColumn.CellTemplate>
                     </GridViewColumn>
-                    <GridViewColumn x:Name="IoRuleColOps" Header="" Width="150">
+                    <GridViewColumn x:Name="IoRuleColOps" Header="" Width="210">
                         <GridViewColumn.CellTemplate>
                             <DataTemplate>
                                 <StackPanel Orientation="Horizontal">
                                     <Button Content="{Binding ToggleText}" Click="OnIoRuleToggleClicked"
+                                            Foreground="White" Background="#3A5A7A" BorderThickness="0"
+                                            Padding="6,2" Margin="0,0,6,0"/>
+                                    <Button Content="{Binding EditText}" Click="OnIoRuleEditClicked"
                                             Foreground="White" Background="#3A5A7A" BorderThickness="0"
                                             Padding="6,2" Margin="0,0,6,0"/>
                                     <Button Content="{Binding DeleteText}" Click="OnIoRuleDeleteClicked"
@@ -379,11 +385,14 @@
                             <DataTemplate><TextBlock Text="{Binding EnabledText}" FontSize="12" Foreground="{Binding EnabledColor}"/></DataTemplate>
                         </GridViewColumn.CellTemplate>
                     </GridViewColumn>
-                    <GridViewColumn x:Name="TaskColOps" Header="" Width="150">
+                    <GridViewColumn x:Name="TaskColOps" Header="" Width="210">
                         <GridViewColumn.CellTemplate>
                             <DataTemplate>
                                 <StackPanel Orientation="Horizontal">
                                     <Button Content="{Binding ToggleText}" Click="OnTaskToggleClicked"
+                                            Foreground="White" Background="#3A5A7A" BorderThickness="0"
+                                            Padding="6,2" Margin="0,0,6,0"/>
+                                    <Button Content="{Binding EditText}" Click="OnTaskEditClicked"
                                             Foreground="White" Background="#3A5A7A" BorderThickness="0"
                                             Padding="6,2" Margin="0,0,6,0"/>
                                     <Button Content="{Binding DeleteText}" Click="OnTaskDeleteClicked"

@@ -451,6 +451,35 @@ Notes that will save you time:
   through the same per-session path the health tick uses, never `DisconnectAllAsync`
   (that repaints the wall). Guarded by `MaintenanceTaskPlannerTests`,
   `ScheduledTaskRepositoryTests`, `SnapshotGrabberTests`, `MaintenanceTaskContractTests`.
+- **Every rules change must rebuild every engine that consumed a snapshot.** The alarm-rules
+  window invokes two callbacks; `OpenRulesWindow` originally wired only `ioRulesChanged`, so
+  composite event rules (ai_rules → `RuleEvaluator`) needed an app restart to take effect —
+  the list looked saved, the runtime kept the old set, log clean. And `ioRulesChanged` reloaded
+  only `CameraDiHost`: the camera dry-contact host and `IoMonitorHost` (Modbus) each hold their
+  **own** `IoRuleHost` engine (they share only the routed writer), so a rule change touching a
+  Modbus contact also waited for a restart. `ReloadIoRuleEngines` now rebuilds both hosts and
+  `RebuildEventRules` is passed as `eventRulesChanged`.
+  Guarded by `RulesWiringContractTests`.
+- **Editing a rule is Update, never delete+re-add — and editing must not reset run state.**
+  All three lists in the alarm-rules window (event rules, IO linkage, scheduled tasks) have an
+  Edit button feeding a full-row Update (`RuleRepository.Update` / `IoRuleRepository.Update` /
+  `ScheduledTaskRepository.Update`). Delete+re-add would change the Id and orphan the audit
+  trail. Two state rules: `On*AddToggleClicked` clears the editing Id when opening the "add"
+  panel (shared confirm button — otherwise "edit then add" silently overwrites the edited row),
+  and `ScheduledTaskRepository.Update` deliberately does **not** touch `last_run_utc`/`last_result`
+  (resetting it turns "edit the 03:00 reboot task" into "today already ran = cleared", and the
+  next poll reboots the machine again). Event-rule edit parses the condition JSON back into the
+  simple form via `RuleExpressionBuilder.TryParseExpression`; shapes the builder never produces
+  (any/not/within/nested) are refused and the editor falls back to advanced JSON — hard-mapping
+  them would corrupt the rule.
+  Guarded by `RulesWiringContractTests`, `RuleUpdateTests`, `ScheduledTaskUpdateTests`,
+  `RuleExpressionParseTests`.
+- **`notify=false` must be serialized, not omitted.** `BuildActions` used to map
+  `Notify: notify ? true : null` — with `WhenWritingNull` the `false` case vanished from the
+  JSON, the runtime read "no key" and applied the default (`Notify != false` → send). The
+  operator's unchecked 通知 box was silently ignored and notifications kept flowing, log clean.
+  `false` is now written as `false`; the all-defaults → empty-string optimization keys off
+  `Notify is not false`. Guarded by `RuleExpressionParseTests`.
 - **`PRAGMA user_version` does not prove the columns exist.** A rebuilt/restored
   `index.db` can be at the latest version with an old `segments` table: the live one was
   `user_version=56` and had no `tier`/`origin_path`, so the `version < 54` migration never
