@@ -87,6 +87,20 @@ scoop／choco 的 shim（stub 行程），腳本會透過 `.shim` 檔解析到�
 `NOTICE-ffmpeg.txt` 提醒補上——隨包 GPL 建置的 ffmpeg 散布時必須附授權聲明與
 對應原始碼的取得方式。
 
+### 打包成安裝檔（Inno Setup 6）
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/build-installer.ps1
+# 輸出：publish/Setup/HeliVMS-Setup-<版本>.exe（約 180 MB，已壓縮）
+```
+
+安裝檔內含自包含輸出（.NET Runtime、ASP.NET Core、隨包 ffmpeg）——**目標機器什麼都不用再裝**，
+執行 setup → 下一步 → 完成。每機安裝（Program Files，會自動放行 Web 主控台的 TCP 5080 防火牆規則）；
+測試或無管理權時可用 `/CURRENTUSER /DIR=<路徑>` 裝到使用者資料夾。解除安裝只刪程式，
+資料根目錄（`C:\HeliVMSData`）的錄影與索引不會被動到。升級安裝時安裝器會關閉執行中的 HeliVMS。
+
+> 建置安裝檔需要 Inno Setup 6（ISCC.exe）；腳本會自動找到它。版本號取自 `Directory.Build.props`。
+
 ## 產生授權
 
 ```powershell
