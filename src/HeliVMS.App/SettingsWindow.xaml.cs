@@ -751,7 +751,8 @@ public partial class SettingsWindow : Window
         BackupBrowseButton.Content = Localizer.T("Settings.BrowseEllipsis");
         BackupBrowseButton.ToolTip = Localizer.T("Settings.BackupBrowseTip");
         BackupIntervalLabel.Text = Localizer.T("Settings.BackupIntervalLabel");
-        ApplyBackupButton.Content = Localizer.T("Settings.SaveConfig");
+        OffsiteIntervalLabel.Text = Localizer.T("Settings.OffsiteIntervalLabel");
+        ApplyBackupButton.Content = Localizer.T("Settings.BackupApply");
         ApplyBackupButton.ToolTip = Localizer.T("Settings.BackupSaveTip");
         BackupNowButton.Content = Localizer.T("Settings.BackupNow");
         BackupNowButton.ToolTip = Localizer.T("Settings.BackupNowTip");
@@ -760,7 +761,7 @@ public partial class SettingsWindow : Window
         OffsiteSourceBrowseButton.ToolTip = Localizer.T("Settings.OffsiteSourceTip");
         OffsiteDestBrowseButton.Content = Localizer.T("Settings.TargetEllipsis");
         OffsiteDestBrowseButton.ToolTip = Localizer.T("Settings.OffsiteDestTip");
-        OffsiteApplyButton.Content = Localizer.T("Settings.SaveConfig");
+        OffsiteApplyButton.Content = Localizer.T("Settings.OffsiteApply");
         OffsiteApplyButton.ToolTip = Localizer.T("Settings.OffsiteSaveTip");
         OffsiteEnabledBox.Content = Localizer.T("Settings.OffsiteEnabled");
         OffsiteEnabledBox.ToolTip = Localizer.T("Settings.OffsiteEnabledTip");
@@ -783,10 +784,6 @@ public partial class SettingsWindow : Window
         VersionHeading.Text = Localizer.T("Settings.VersionHeading");
         SnapshotSettingsButton.Content = Localizer.T("Settings.VersionSnapshot");
         SnapshotSettingsButton.ToolTip = Localizer.T("Settings.VersionSnapshotTip");
-        ExportSettingsButton.Content = Localizer.T("Settings.VersionExport");
-        ExportSettingsButton.ToolTip = Localizer.T("Settings.VersionExportTip");
-        ImportSettingsButton.Content = Localizer.T("Settings.VersionImport");
-        ImportSettingsButton.ToolTip = Localizer.T("Settings.VersionImportTip");
         RestoreSettingsButton.Content = Localizer.T("Settings.VersionRestore");
         RestoreSettingsButton.ToolTip = Localizer.T("Settings.VersionRestoreTip");
         VersionColTime.Header = Localizer.T("Settings.VersionColTime");
@@ -1002,6 +999,11 @@ public partial class SettingsWindow : Window
                 return;
             }
 
+            if (!VersionRequireAdmin())
+            {
+                return;
+            }
+
             var service = new SettingsBackupService(_store!, AppVersionText());
             var summary = service.ReadSummary(dialog.FileName);
             var counts = string.Join(", ", summary.Counts.Where(kv => kv.Value > 0).Select(kv => $"{kv.Key}={kv.Value}"));
@@ -1017,6 +1019,8 @@ public partial class SettingsWindow : Window
                 return;
             }
 
+            // 匯入前自動快照 app_settings：匯錯檔也能從版本清單一鍵回到匯入前。
+            _settings.Snapshot("設定檔匯入前自動快照");
             service.ImportFrom(dialog.FileName);
             ConfigXferStatus.Text = Localizer.T("Settings.ConfigImportDone");
 
@@ -1253,85 +1257,6 @@ public partial class SettingsWindow : Window
         _settings.Snapshot(Localizer.T("Settings.VersionManualReason"));
         ReloadSettingsVersions();
         SettingsVersionStatusText.Text = Localizer.T("Settings.VersionSnapshotDone");
-    }
-
-    private void OnExportSettingsClicked(object sender, RoutedEventArgs e)
-    {
-        if (!VersionRequireAdmin())
-        {
-            return;
-        }
-
-        var dlg = new Microsoft.Win32.SaveFileDialog
-        {
-            Title = Localizer.T("Settings.VersionExportTitle"),
-            Filter = Localizer.T("Settings.VersionFileFilter"),
-            FileName = "helivms-settings.json",
-        };
-        if (dlg.ShowDialog(this) != true)
-        {
-            return;
-        }
-
-        try
-        {
-            File.WriteAllText(dlg.FileName, _settings.ExportJson());
-            SettingsVersionStatusText.Text = Localizer.T("Settings.VersionExportDone");
-        }
-        catch (Exception ex)
-        {
-            SettingsVersionStatusText.Text = string.Format(Localizer.T("Settings.VersionFailed"), ex.Message);
-        }
-    }
-
-    private void OnImportSettingsClicked(object sender, RoutedEventArgs e)
-    {
-        if (!VersionRequireAdmin())
-        {
-            return;
-        }
-
-        var dlg = new Microsoft.Win32.OpenFileDialog
-        {
-            Title = Localizer.T("Settings.VersionExportTitle"),
-            Filter = Localizer.T("Settings.VersionFileFilter"),
-            CheckFileExists = true,
-        };
-        if (dlg.ShowDialog(this) != true)
-        {
-            return;
-        }
-
-        string json;
-        try
-        {
-            json = File.ReadAllText(dlg.FileName);
-        }
-        catch (Exception ex)
-        {
-            SettingsVersionStatusText.Text = string.Format(Localizer.T("Settings.VersionFailed"), ex.Message);
-            return;
-        }
-
-        if (MessageBox.Show(this, Localizer.T("Settings.VersionImportConfirm"),
-                Localizer.T("Settings.VersionImport"), MessageBoxButton.OKCancel, MessageBoxImage.Warning)
-            != MessageBoxResult.OK)
-        {
-            return;
-        }
-
-        try
-        {
-            // 匯入前先自動快照：匯錯檔也能一鍵回到匯入前的狀態。
-            _settings.Snapshot(Localizer.T("Settings.VersionPreImportReason"));
-            var count = _settings.ImportJson(json);
-            ReloadBackup();
-            SettingsVersionStatusText.Text = string.Format(Localizer.T("Settings.VersionImportDone"), count);
-        }
-        catch (Exception ex)
-        {
-            SettingsVersionStatusText.Text = string.Format(Localizer.T("Settings.VersionFailed"), ex.Message);
-        }
     }
 
     private void OnRestoreSettingsClicked(object sender, RoutedEventArgs e)
