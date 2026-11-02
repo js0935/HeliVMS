@@ -228,6 +228,13 @@ public partial class App : Application
 
     protected override void OnExit(ExitEventArgs e)
     {
+        // 先記下「本行程是否真的擁有單一實例」再釋放守衛。重複啟動的第二個行程
+        // （TryAcquire 失敗，_singleInstance 為 null）也會走到 OnExit：它如果照舊清掃，
+        // 殺掉的是第一個實例正在使用的 ffmpeg 解碼器與錄影寫入器——操作員看到的正是
+        // 「重複執行程式後攝影機全部斷線重連、正在錄的那段被記成損毀」。
+        // 只有擁有實例的行程結束時，機器上殘留的子行程才真的是孤兒。
+        var ownedSingleInstance = _singleInstance is not null;
+
         try
         {
             _singleInstance?.Dispose();
@@ -239,13 +246,16 @@ public partial class App : Application
 
         _singleInstance = null;
 
-        try
+        if (ownedSingleInstance)
         {
-            KillOrphanChildren();
-        }
-        catch
-        {
-            // 關閉路徑不該因清掃子行程失敗而中斷。
+            try
+            {
+                KillOrphanChildren();
+            }
+            catch
+            {
+                // 關閉路徑不該因清掃子行程失敗而中斷。
+            }
         }
 
         base.OnExit(e);

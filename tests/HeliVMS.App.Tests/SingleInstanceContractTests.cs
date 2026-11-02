@@ -86,6 +86,46 @@ public sealed class SingleInstanceContractTests
     }
 
     /// <summary>
+    /// 重複啟動的第二個行程不得清掃子行程。
+    /// </summary>
+    /// <remarks>
+    /// 現場回報：程式最小化到系統匣後重複執行，視窗有回來（滿版），但牆上攝影機全部
+    /// 斷線重連。原因：第二個實例 <c>TryAcquire</c> 失敗後照樣走到 <c>OnExit</c>，
+    /// <c>KillOrphanChildren</c> 把機器上所有 ffmpeg／ffprobe 全部殺掉——包括第一個實例
+    /// 正在使用的解碼器與錄影寫入器，工作階段只好全部重連，正在錄的那段也被記成損毀。
+    /// 清掃只屬於「擁有單一實例的行程」：它結束時，機器上殘留的子行程才真的是孤兒。
+    /// </remarks>
+    [Fact]
+    public void 重複啟動的第二個實例不會清掃第一實例的子行程()
+    {
+        var exit = SourceContract.BodyOf(SourceContract.Read(App), "OnExit");
+
+        var ownedAt = exit.IndexOf("ownedSingleInstance", StringComparison.Ordinal);
+        Assert.True(ownedAt >= 0, "OnExit 必須先判斷本行程是否擁有單一實例，才能決定要不要清掃子行程");
+
+        var sweepAt = exit.IndexOf("KillOrphanChildren()", StringComparison.Ordinal);
+        Assert.True(
+            sweepAt > ownedAt,
+            "清掃必須在擁有權判斷之後，並被擁有權守衛包住：第二個實例清掃會殺掉第一實例的解碼器");
+
+        Assert.True(
+            System.Text.RegularExpressions.Regex.IsMatch(
+                exit,
+                @"if\s*\(\s*ownedSingleInstance\s*\)\s*\{[\s\S]*?KillOrphanChildren\(\)"),
+            "KillOrphanChildren 必須在 if (ownedSingleInstance) 區塊內：無條件清掃會殺掉第一實例的子行程");
+
+        // OnStartup 的清掃也必須在第二實例分支的 return 之後：那個分支若清掃，
+        // 殺到的是別人（第一實例）的子行程。
+        var startup = SourceContract.BodyOf(SourceContract.Read(App), "OnStartup");
+        var nullGuardAt = startup.IndexOf("if (_singleInstance is null", StringComparison.Ordinal);
+        var returnAt = startup.IndexOf("return;", nullGuardAt, StringComparison.Ordinal);
+        var startupSweepAt = startup.IndexOf("KillOrphanChildren", StringComparison.Ordinal);
+        Assert.True(
+            nullGuardAt >= 0 && returnAt > nullGuardAt && startupSweepAt > returnAt,
+            "OnStartup 的清掃必須位於「單一實例判斷失敗就 return」之後");
+    }
+
+    /// <summary>
     /// 喚醒要認「真正的監控中心」，不能只認 <c>Application.MainWindow</c>。
     /// </summary>
     /// <remarks>

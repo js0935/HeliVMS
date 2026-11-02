@@ -404,6 +404,17 @@ Notes that will save you time:
   failed, and nobody noticed. `MainWindow.Current` is the reference; re-launching calls
   `BringToFront(maximize: true)` so a window hidden in the tray comes back maximized.
   Guarded by `SingleInstanceContractTests`.
+- **Only the single-instance owner may sweep orphan children.** `App.OnExit` used to call
+  `KillOrphanChildren()` unconditionally, but a *second* launch reaches `OnExit` too
+  (`TryAcquire` fails → `Shutdown()`) — and its sweep killed every `ffmpeg`/`ffprobe` on the
+  machine, including the **first instance's live decoders and recording writers**. The operator
+  sees exactly "relaunch while minimized → window comes back full screen but every camera
+  disconnects and reconnects", and the in-progress recording segment is marked corrupt
+  (killed ffmpeg never renames the `.tmp`). The sweep exists to clean up children of a *dead*
+  instance; while the mutex is held they are somebody's live children. `OnExit` now captures
+  `ownedSingleInstance = _singleInstance is not null` before disposing the guard and sweeps
+  only when it was the owner; `OnStartup` already swept after the second-instance early-return.
+  Guarded by `重複啟動的第二個實例不會清掃第一實例的子行程`.
 - **Recordings on disk never come back to the index on their own.** `segments` is the only
   source of truth for playback; after the database is rebuilt, restored from an old backup,
   a channel is deleted and re-added (`ON DELETE CASCADE`), or the recording disk moves to
