@@ -67,8 +67,25 @@ powershell -ExecutionPolicy Bypass -File scripts/publish-desktop.ps1
 # 自訂輸出位置： -Output D:\dist\HeliVMS
 ```
 
-> ffmpeg／ffprobe 是外部元件（GPL 授權考量，刻意不隨包）：目標機器仍需依既有慣例提供（PATH 或程式資料夾旁）。
-> Runtime 版本跟隨建置機器的 .NET SDK（10.0.x）；要釘住特定版本在 publish 加 `-p:RuntimeFrameworkVersion=10.0.14`。
+### ffmpeg／ffprobe 隨包
+
+腳本**預設會隨包**：把 `ffmpeg.exe`／`ffprobe.exe` 複製進輸出的 `ffmpeg\` 子資料夾
+（程式解析 ffmpeg 的第一順位就是這個資料夾——比環境變數與 PATH 優先，見 `FfmpegLocator`）。
+隨包後輸出約 650 MB，目標機器完全零設定。
+
+```powershell
+# 指定來源資料夾（建議：官方 zip 解開的那份，內含授權檔會一併帶走）
+powershell -ExecutionPolicy Bypass -File scripts/publish-desktop.ps1 -FfmpegDir D:\ffmpeg-8.0.1-full_build\bin
+
+# 不隨包（輸出仍可用，目標機器自行提供 ffmpeg 到程式資料夾旁的 ffmpeg\ 或 PATH）
+powershell -ExecutionPolicy Bypass -File scripts/publish-desktop.ps1 -NoFfmpeg
+```
+
+來源解析順序：`-FfmpegDir` → `HELIVMS_FFMPEG` 環境變數 → PATH。PATH 命中的若是
+scoop／choco 的 shim（stub 行程），腳本會透過 `.shim` 檔解析到真正的 exe。
+隨包時授權檔（來源資料夾的 `*.txt`）會一起複製；來源沒有授權檔時腳本會寫出
+`NOTICE-ffmpeg.txt` 提醒補上——隨包 GPL 建置的 ffmpeg 散布時必須附授權聲明與
+對應原始碼的取得方式。
 
 ## 產生授權
 
