@@ -506,6 +506,19 @@ Notes that will save you time:
   process's children. Map image files and rule sound files stay in the data root (paths, not
   payloads) — cross-machine migration copies the folder too.
   Guarded by `SettingsBackupServiceTests`, `ConfigXferContractTests`.
+- **Cameras-full-screen (immersive) is a layer ON TOP of window-full-screen - exit it first.**
+  The top bar has a `HeaderImmersiveButton`; entering hides `TopBarBorder`/`GroupTabs`/
+  `FooterBorder`, zeroes `MainAreaGrid.Margin` (the wall re-fills itself via
+  `OnMonitorAreaSizeChanged`), shows a floating `ImmersiveExitButton` (the only visible
+  control) and calls `SetWindowFullScreen(true)`. Two rules:
+  (1) entering captures `_windowFullScreenBeforeImmersive` and exiting restores it - an
+  operator already in window-full-screen must not shrink to windowed mode when leaving
+  immersive;
+  (2) Esc unwinds in the order it stacked: expand-cell -> **immersive** -> window
+  full-screen. Exiting window-full-screen first would hand back a window whose chrome is
+  still hidden. The grid geometry needs no manual work - only sizes change, and the wall
+  listens to its own SizeChanged.
+  Guarded by `MonitorImmersiveContractTests`.
 - **`PRAGMA user_version` does not prove the columns exist.** A rebuilt/restored
   `index.db` can be at the latest version with an old `segments` table: the live one was
   `user_version=56` and had no `tier`/`origin_path`, so the `version < 54` migration never

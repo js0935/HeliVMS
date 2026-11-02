@@ -59,7 +59,7 @@
     </Grid.RowDefinitions>
 
         <!-- Top bar -->
-        <Border Grid.Row="0" Background="{StaticResource Brand.BgPanel}" Padding="12,8" BorderBrush="#1F3A5F" BorderThickness="0,0,0,1">
+        <Border x:Name="TopBarBorder" Grid.Row="0" Background="{StaticResource Brand.BgPanel}" Padding="12,8" BorderBrush="#1F3A5F" BorderThickness="0,0,0,1">
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto" />
@@ -126,6 +126,10 @@
                     <ToggleButton x:Name="WallSequenceToggle" AutomationProperties.AutomationId="WallSequenceToggle"
                                   Content="" ToolTip="" Click="OnWallSequenceToggled" Style="{StaticResource HeaderToggleButton}"
                                   VerticalAlignment="Center" Margin="0,0,8,0" />
+                    <Button x:Name="HeaderImmersiveButton" AutomationProperties.AutomationId="HeaderImmersiveButton"
+                            Content="" ToolTip="" Click="OnImmersiveClicked"
+                            VerticalAlignment="Center" Padding="12,4" Margin="0,0,8,0"
+                            Foreground="White" Background="#3A5A7A" BorderThickness="0" />
                     <Button x:Name="HeaderSettingsButton" AutomationProperties.AutomationId="HeaderSettingsButton"
                             Content="" ToolTip="" Click="OnSettingsClicked"
                             VerticalAlignment="Center" Padding="12,4"
@@ -168,7 +172,7 @@
         <!-- Main area: the monitor wall fills the whole row. The split-layout selector and the
              status/hint line now live in the top bar, leaving as much height as possible for the
              video wall; the channel list and connect/record controls are gone (auto start). -->
-        <Grid Grid.Row="2" Margin="12">
+        <Grid x:Name="MainAreaGrid" Grid.Row="2" Margin="12">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="*" />
@@ -225,12 +229,20 @@
                             <TextBlock Text="REC" Foreground="White" FontSize="12" FontWeight="Bold" />
                         </StackPanel>
                     </Border>
-                </Grid>
+                
+
+            <!-- Leave cameras-full-screen: the only visible control in immersive mode,
+                 floating over the wall's top-right corner. -->
+            <Button x:Name="ImmersiveExitButton" Grid.Row="0" Grid.RowSpan="2" Visibility="Collapsed"
+                    HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,10,10,0"
+                    Content="" ToolTip="" Click="OnImmersiveClicked" Padding="14,6"
+                    Foreground="White" Background="#CC1F3A5F" BorderBrush="#2A5C8A" BorderThickness="1"
+                    AutomationProperties.AutomationId="ImmersiveExitButton" /></Grid>
             </Border>
         </Grid>
 
         <!-- Bottom bar: live alert line + status + unacknowledged badge -->
-        <Border Grid.Row="3" Background="{StaticResource Brand.BgPanel}" Padding="12,6" BorderBrush="#1F3A5F" BorderThickness="0,1,0,0">
+        <Border x:Name="FooterBorder" Grid.Row="3" Background="{StaticResource Brand.BgPanel}" Padding="12,6" BorderBrush="#1F3A5F" BorderThickness="0,1,0,0">
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*"/>

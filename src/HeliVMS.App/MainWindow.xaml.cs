@@ -209,6 +209,15 @@ public partial class MainWindow : Window
     /// <summary>正在把滿版狀態套回時為 true，避免 <see cref="OnStateChanged"/> 自我遞迴。</summary>
     private bool _restoringFullScreen;
 
+    /// <summary>
+    /// 攝影機畫面全畫面（沉浸模式）：頂欄／頁籤／底欄全部隱藏、視窗無邊框全螢幕，
+    /// 牆上只剩攝影機與浮動的「離開」按鈕。與 <see cref="_isWindowFullScreen"/>（視窗級）
+    /// 是兩層：進沉浸模式一定先記住當下的視窗級狀態，退出時原樣還原——
+    /// 操作員若本來就在視窗全螢幕，退出沉浸不該意外縮回視窗模式。
+    /// </summary>
+    private bool _monitorImmersive;
+    private bool _windowFullScreenBeforeImmersive;
+
     private RecordingScheduler? _scheduler;
     private MaintenanceTaskHost? _taskHost;
 
@@ -395,6 +404,10 @@ public partial class MainWindow : Window
         HeaderPlaybackButton.Content = Localizer.T("Main.Playback");
         HeaderPlaybackButton.ToolTip = Localizer.T("Main.PlaybackTip");
         MapButton.Content = Localizer.T("Main.Map");
+        HeaderImmersiveButton.Content = Localizer.T("Main.ImmersiveOn");
+        HeaderImmersiveButton.ToolTip = Localizer.T("Main.ImmersiveOnTip");
+        ImmersiveExitButton.Content = Localizer.T("Main.ImmersiveOff");
+        ImmersiveExitButton.ToolTip = Localizer.T("Main.ImmersiveOffTip");
         MapButton.ToolTip = Localizer.T("Main.MapTip");
         WallSequenceToggle.Content = Localizer.T("Main.WallSequence");
         WallSequenceToggle.ToolTip = Localizer.T("Main.WallSequenceTip");
@@ -3107,6 +3120,41 @@ public partial class MainWindow : Window
     /// XAML 以全螢幕啟動（<c>_isWindowFullScreen</c> 初始為 true），此時的還原預設值是一般視窗。
     /// 關閉鍵的行為不變：<see cref="OnClosing"/> 仍收進系統匣，故無標題列也不會無從結束。
     /// </remarks>
+    private void OnImmersiveClicked(object sender, RoutedEventArgs e) => SetMonitorImmersive(!_monitorImmersive);
+
+    /// <summary>
+    /// 進出攝影機全畫面（沉浸模式）。牆的格線由 <c>OnMonitorAreaSizeChanged</c> 自動重算：
+    /// 頁籤收起、邊距歸零後監看區變大，格子自己鋪滿，不需要在這裡動 CellGrid。
+    /// </summary>
+    internal void SetMonitorImmersive(bool immersive)
+    {
+        if (_monitorImmersive == immersive)
+        {
+            return;
+        }
+
+        _monitorImmersive = immersive;
+        if (immersive)
+        {
+            _windowFullScreenBeforeImmersive = _isWindowFullScreen;
+            TopBarBorder.Visibility = Visibility.Collapsed;
+            GroupTabs.Visibility = Visibility.Collapsed;
+            FooterBorder.Visibility = Visibility.Collapsed;
+            MainAreaGrid.Margin = new Thickness(0);
+            ImmersiveExitButton.Visibility = Visibility.Visible;
+            SetWindowFullScreen(true);
+        }
+        else
+        {
+            TopBarBorder.Visibility = Visibility.Visible;
+            GroupTabs.Visibility = Visibility.Visible;
+            FooterBorder.Visibility = Visibility.Visible;
+            MainAreaGrid.Margin = new Thickness(12);
+            ImmersiveExitButton.Visibility = Visibility.Collapsed;
+            SetWindowFullScreen(_windowFullScreenBeforeImmersive);
+        }
+    }
+
     private void SetWindowFullScreen(bool fullScreen)
     {
         if (_isWindowFullScreen == fullScreen)
@@ -4221,6 +4269,12 @@ public partial class MainWindow : Window
             {
                 e.Handled = true;
                 ToggleExpandCell(0);
+            }
+            else if (_monitorImmersive)
+            {
+                // 沉浸模式先退：它包著視窗全螢幕，直接退視窗全螢幕會留下隱藏的頂欄與頁籤。
+                e.Handled = true;
+                SetMonitorImmersive(false);
             }
             else if (_isWindowFullScreen)
             {
