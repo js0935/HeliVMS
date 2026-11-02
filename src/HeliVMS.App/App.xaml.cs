@@ -26,6 +26,12 @@ public partial class App : Application
     private SingleInstanceGuard? _singleInstance;
 
     /// <summary>
+    /// 設定匯入後要求重啟。<see cref="OnExit"/> 會在釋放單一實體守衛<b>之後</b>拉起新行程：
+    /// 太早拉的話，新行程會被守衛當成重複啟動、喚醒一個正在關閉的舊行程，結果兩邊都不在。
+    /// </summary>
+    internal static bool RestartOnExit;
+
+    /// <summary>
     /// 重複啟動的當下主視窗還沒建立（仍在啟動畫面或登入），喚醒請求先記著，
     /// 等視窗顯示後補做。沒有這個旗標，操作員在啟動過程中再點一次捷徑就會被忽略。
     /// </summary>
@@ -255,6 +261,28 @@ public partial class App : Application
             catch
             {
                 // 關閉路徑不該因清掃子行程失敗而中斷。
+            }
+        }
+
+        // 設定匯入後的重啟：守衛已釋放、孤兒清掃已做完（新行程還沒有自己的子行程），
+        // 這裡才拉起新行程，順序顛倒會讓新舊行程互相干擾。
+        if (RestartOnExit)
+        {
+            RestartOnExit = false;
+            try
+            {
+                if (!string.IsNullOrEmpty(Environment.ProcessPath))
+                {
+                    System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                    {
+                        FileName = Environment.ProcessPath,
+                        UseShellExecute = true,
+                    });
+                }
+            }
+            catch
+            {
+                // 重啟失敗不攔關機：設定已經寫進資料庫，操作員自己再開一次即可。
             }
         }
 

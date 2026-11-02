@@ -1306,6 +1306,21 @@
                         </GridView>
                     </ListView.View>
                 </ListView>
+
+                <!-- Configuration export / import (settings migration) -->
+                <TextBlock x:Name="ConfigXferHeading" Text="" FontSize="14" FontWeight="Bold" Margin="0,22,0,6"/>
+                <TextBlock x:Name="ConfigXferDesc" Text="" Foreground="{StaticResource Brand.TextDim}" FontSize="11" TextWrapping="Wrap"/>
+                <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                    <Button x:Name="ConfigExportButton" AutomationProperties.AutomationId="ConfigExportButton" ToolTip=""
+                            Content="" Click="OnConfigExportClicked" Padding="14,8"
+                            Foreground="White" Background="#2A5C8A" BorderThickness="0"/>
+                    <Button x:Name="ConfigImportButton" AutomationProperties.AutomationId="ConfigImportButton" ToolTip=""
+                            Content="" Click="OnConfigImportClicked" Padding="14,8" Margin="10,0,0,0"
+                            Foreground="White" Background="#5A4A2A" BorderThickness="0"/>
+                    <TextBlock x:Name="ConfigXferStatus" AutomationProperties.AutomationId="ConfigXferStatus"
+                               Margin="12,0,0,0" VerticalAlignment="Center" TextWrapping="Wrap"
+                               Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+                </StackPanel>
             </StackPanel>
 
             <!-- Network (M305: embedded Web service toggle) -->

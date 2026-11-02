@@ -480,6 +480,25 @@ Notes that will save you time:
   operator's unchecked 通知 box was silently ignored and notifications kept flowing, log clean.
   `false` is now written as `false`; the all-defaults → empty-string optimization keys off
   `Notify is not false`. Guarded by `RuleExpressionParseTests`.
+- **Settings export/import is a security boundary, not a convenience dump.**
+  `SettingsBackupService` (Settings centre → Backup → Configuration export/import) ships 22
+  configuration tables (cameras, groups, schedules, IO, rules, patrols, maps, masks, smart
+  wall, scheduled tasks, app_settings) as one JSON with an explicit `version`. Three rules:
+  (1) The `ExportTables` whitelist **never** grows a credentials/data table — `users`,
+  `auth_providers`, `license` (machine-bound), `login_sessions`, `audit_log`, `segments`,
+  `alarm_events` are data or identity, and a contract test fails the build if one appears.
+  (2) **Import is atomic**: FK off → one transaction (delete all → insert in parent-first
+  order, explicit Ids preserved so rules' channel references stay valid) → commit → FK on;
+  any failure rolls the whole file back. Imported column names come from the file, so every
+  row's keys are validated against `pragma_table_info` before an INSERT is built — never
+  interpolate file strings into SQL. Files with a future `version` are refused.
+  (3) **Import offers a restart and the restart must be ordered**: the app prompts after
+  import; `App.OnExit` spawns the successor **after** disposing the single-instance guard and
+  after the orphan sweep — spawning earlier makes the new process a "duplicate launch" that
+  wakes the dying instance, leaving nothing running; and the sweep must not race the new
+  process's children. Map image files and rule sound files stay in the data root (paths, not
+  payloads) — cross-machine migration copies the folder too.
+  Guarded by `SettingsBackupServiceTests`, `ConfigXferContractTests`.
 - **`PRAGMA user_version` does not prove the columns exist.** A rebuilt/restored
   `index.db` can be at the latest version with an old `segments` table: the live one was
   `user_version=56` and had no `tier`/`origin_path`, so the `version < 54` migration never

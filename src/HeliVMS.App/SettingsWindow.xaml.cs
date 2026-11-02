@@ -766,6 +766,14 @@ public partial class SettingsWindow : Window
         OffsiteEnabledBox.ToolTip = Localizer.T("Settings.OffsiteEnabledTip");
         OffsiteRunNowButton.Content = Localizer.T("Settings.OffsiteRunNow");
         OffsiteRunNowButton.ToolTip = Localizer.T("Settings.OffsiteRunNowTip");
+
+        // Configuration export / import (settings migration).
+        ConfigXferHeading.Text = Localizer.T("Settings.ConfigXferHeading");
+        ConfigXferDesc.Text = Localizer.T("Settings.ConfigXferDesc");
+        ConfigExportButton.Content = Localizer.T("Settings.ConfigExport");
+        ConfigExportButton.ToolTip = Localizer.T("Settings.ConfigExportTip");
+        ConfigImportButton.Content = Localizer.T("Settings.ConfigImport");
+        ConfigImportButton.ToolTip = Localizer.T("Settings.ConfigImportTip");
         BackupLogLabel.Text = Localizer.T("Settings.BackupLogLabel");
         BackupColTime.Header = Localizer.T("Settings.BackupColTime");
         BackupColTarget.Header = Localizer.T("Settings.BackupColTarget");
@@ -942,6 +950,95 @@ public partial class SettingsWindow : Window
         _settings.Set("backup.interval_hours", interval.ToString(CultureInfo.InvariantCulture));
         return true;
     }
+
+    /// <summary>把所有設定表匯出成一個 JSON（資料根不動，只讀印到檔）。</summary>
+    private void OnConfigExportClicked(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var dialog = new Microsoft.Win32.SaveFileDialog
+            {
+                Title = Localizer.T("Settings.ConfigExportTitle"),
+                FileName = $"helivms-settings-{DateTime.Now:yyyyMMdd-HHmmss}.json",
+                Filter = "JSON (*.json)|*.json",
+            };
+            if (dialog.ShowDialog(this) != true)
+            {
+                return;
+            }
+
+            new SettingsBackupService(_store!, AppVersionText()).ExportTo(dialog.FileName);
+            ConfigXferStatus.Text = string.Format(
+                System.Globalization.CultureInfo.InvariantCulture,
+                Localizer.T("Settings.ConfigExportDone"),
+                dialog.FileName);
+        }
+        catch (Exception ex)
+        {
+            ConfigXferStatus.Text = string.Format(
+                System.Globalization.CultureInfo.InvariantCulture,
+                Localizer.T("Settings.ConfigFailed"),
+                ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// 匯入設定檔：先顯示摘要確認，套用後問是否重啟。
+    /// 重啟是必要的：語系、Web 埠、錄影磁碟、通知…都在啟動時載入生效，
+    /// 不重啟的話介面看起來改了、實際行為還是舊的。
+    /// </summary>
+    private void OnConfigImportClicked(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var dialog = new Microsoft.Win32.OpenFileDialog
+            {
+                Title = Localizer.T("Settings.ConfigImportTitle"),
+                Filter = "JSON (*.json)|*.json",
+                CheckFileExists = true,
+            };
+            if (dialog.ShowDialog(this) != true)
+            {
+                return;
+            }
+
+            var service = new SettingsBackupService(_store!, AppVersionText());
+            var summary = service.ReadSummary(dialog.FileName);
+            var counts = string.Join(", ", summary.Counts.Where(kv => kv.Value > 0).Select(kv => $"{kv.Key}={kv.Value}"));
+            var confirm = string.Format(
+                System.Globalization.CultureInfo.InvariantCulture,
+                Localizer.T("Settings.ConfigImportConfirm"),
+                summary.Version,
+                summary.CreatedUtc,
+                counts);
+            if (MessageBox.Show(this, confirm, Localizer.T("Settings.ConfigImportTitle"),
+                    MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes)
+            {
+                return;
+            }
+
+            service.ImportFrom(dialog.FileName);
+            ConfigXferStatus.Text = Localizer.T("Settings.ConfigImportDone");
+
+            if (MessageBox.Show(this, Localizer.T("Settings.ConfigRestartAsk"), Localizer.T("Settings.ConfigImportTitle"),
+                    MessageBoxButton.YesNo, MessageBoxImage.Information) == MessageBoxResult.Yes)
+            {
+                App.RestartOnExit = true;
+                MainWindow.Current?.Close();   // 走既有收尾序列，不硬殺行程。
+            }
+        }
+        catch (Exception ex)
+        {
+            ConfigXferStatus.Text = string.Format(
+                System.Globalization.CultureInfo.InvariantCulture,
+                Localizer.T("Settings.ConfigFailed"),
+                ex.Message);
+        }
+    }
+
+    /// <summary>程式版本（匯出檔記錄用）。</summary>
+    private static string AppVersionText()
+        => System.Reflection.Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "0.0.0";
 
     private void OnSaveBackupClicked(object sender, RoutedEventArgs e)
     {
