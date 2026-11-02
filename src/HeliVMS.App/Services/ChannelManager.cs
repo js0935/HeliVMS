@@ -408,6 +408,44 @@ public sealed class ChannelManager : IDisposable
         }
     }
 
+    /// <summary>
+    /// 重建全部監看工作階段（排程任務「重連攝影機」）：回傳實際重連成功的台數。
+    /// </summary>
+    /// <remarks>
+    /// 串流不穩的攝影機跑幾天後 decoder 會進入「連著但不出畫」的狀態，健康檢查要等
+    /// 逾時才會救；夜間保養排程讓操作員可以每天固定整牆重建一次。逐台走與健康檢查
+    /// 完全相同的路徑（停→啟→清偵測窗口→補離線/上線標記），不走 DisconnectAllAsync：
+    /// 後者會重畫格子，凌晨三點的操作員不想看到牆面閃爍。
+    /// </remarks>
+    public async Task<int> RestartAllAsync()
+    {
+        var restarted = 0;
+        foreach (var kv in _sessions)
+        {
+            var session = kv.Value;
+            if (!session.IsMonitoring)
+            {
+                continue;
+            }
+
+            var info = _channels.Get(kv.Key);
+            var cell = GetCell(kv.Key);
+            _offline.MarkOffline(kv.Key);
+            if (await RestartAsync(session))
+            {
+                restarted++;
+                _offline.MarkOnline(kv.Key);
+            }
+
+            if (info is not null)
+            {
+                HealthRestart?.Invoke(this, (cell, info));
+            }
+        }
+
+        return restarted;
+    }
+
     private int GetCell(int channelId)
         => _cellByChannel.TryGetValue(channelId, out var cell) ? cell : -1;
 

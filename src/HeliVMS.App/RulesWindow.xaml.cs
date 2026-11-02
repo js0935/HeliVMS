@@ -2,6 +2,7 @@ using System.Windows;
 using System.Windows.Controls;
 using HeliVMS.Alarms;
 using HeliVMS.App.Services;
+using HeliVMS.Shared;
 using HeliVMS.Shared.Models;
 using HeliVMS.Storage;
 
@@ -16,6 +17,7 @@ public partial class RulesWindow : Window
     private readonly IoPortRepository _ioPorts;
     private readonly IoRuleRepository _ioRules;
     private readonly ChannelRepository _channels;
+    private readonly ScheduledTaskRepository _taskRepo;
 
     /// <summary>是否處於簡易（表單）模式；false＝進階（直接寫 JSON）。</summary>
     private bool _simpleMode = true;
@@ -52,12 +54,15 @@ public partial class RulesWindow : Window
         _ioPorts = new IoPortRepository(store);
         _ioRules = new IoRuleRepository(store);
         _channels = new ChannelRepository(store);
+        _taskRepo = new ScheduledTaskRepository(store);
         _ioRulesChanged = ioRulesChanged;
         _eventRulesChanged = eventRulesChanged;
         InitializeComponent();
         ApplyI18n();
         ReloadIoRuleChoices();
         RefreshIoRules();
+        ReloadTaskChannels();
+        RefreshTasks();
     }
 
     private void OnCloseClicked(object sender, RoutedEventArgs e) => Close();
@@ -145,6 +150,56 @@ public partial class RulesWindow : Window
         }
         RulesSimpleEventCombo.SelectedIndex = 0;
         ReloadSimpleChannels();
+
+        // Scheduled maintenance tasks (reboot / snapshot / reconnect).
+        TasksHeaderText.Text = Localizer.T("Tasks.Header");
+        TasksAddToggleButton.Content = Localizer.T("Tasks.AddToggle");
+        TasksAddToggleButton.ToolTip = Localizer.T("Tasks.AddToggleTip");
+        TasksRefreshButton.Content = Localizer.T("Tasks.Refresh");
+        TasksRefreshButton.ToolTip = Localizer.T("Tasks.RefreshTip");
+        TaskNameLabel.Text = Localizer.T("Tasks.NameLabel");
+        TaskKindLabel.Text = Localizer.T("Tasks.KindLabel");
+        TaskKindRebootItem.Content = Localizer.T("Tasks.KindReboot");
+        TaskKindSnapshotItem.Content = Localizer.T("Tasks.KindSnapshot");
+        TaskKindReconnectItem.Content = Localizer.T("Tasks.KindReconnect");
+        TaskEnabledBox.Content = Localizer.T("Tasks.Enable");
+        TaskEnabledBox.ToolTip = Localizer.T("Tasks.EnableTip");
+        TaskSchedLabel.Text = Localizer.T("Tasks.SchedLabel");
+        TaskSchedDailyItem.Content = Localizer.T("Tasks.SchedDaily");
+        TaskSchedWeeklyItem.Content = Localizer.T("Tasks.SchedWeekly");
+        TaskSchedIntervalItem.Content = Localizer.T("Tasks.SchedInterval");
+        TaskTimeLabel.Text = Localizer.T("Tasks.TimeLabel");
+        TaskTimeBox.ToolTip = Localizer.T("Tasks.TimeTip");
+        TaskIntervalLabel.Text = Localizer.T("Tasks.IntervalLabel");
+        TaskIntervalUnit.Text = Localizer.T("Tasks.IntervalUnit");
+        TaskChannelLabel.Text = Localizer.T("Tasks.ChannelLabel");
+        TaskWeekdayLabel.Text = Localizer.T("Tasks.WeekdayLabel");
+        TaskDow0.Content = Localizer.T("Tasks.Dow0");
+        TaskDow1.Content = Localizer.T("Tasks.Dow1");
+        TaskDow2.Content = Localizer.T("Tasks.Dow2");
+        TaskDow3.Content = Localizer.T("Tasks.Dow3");
+        TaskDow4.Content = Localizer.T("Tasks.Dow4");
+        TaskDow5.Content = Localizer.T("Tasks.Dow5");
+        TaskDow6.Content = Localizer.T("Tasks.Dow6");
+        TaskConfirmButton.Content = Localizer.T("Tasks.Confirm");
+        TaskConfirmButton.ToolTip = Localizer.T("Tasks.ConfirmTip");
+        TaskCancelButton.Content = Localizer.T("Tasks.Cancel");
+        TaskColName.Header = Localizer.T("Tasks.ColName");
+        TaskColKind.Header = Localizer.T("Tasks.ColKind");
+        TaskColSchedule.Header = Localizer.T("Tasks.ColSchedule");
+        TaskColLastRun.Header = Localizer.T("Tasks.ColLastRun");
+        TaskColState.Header = Localizer.T("Tasks.ColState");
+        TaskColOps.Header = Localizer.T("Tasks.ColOps");
+
+        TaskKindCombo.SelectedIndex = 0;
+        TaskSchedCombo.SelectedIndex = 0;
+        TaskDow0.IsChecked = true;
+        TaskDow1.IsChecked = true;
+        TaskDow2.IsChecked = true;
+        TaskDow3.IsChecked = true;
+        TaskDow4.IsChecked = true;
+        TaskDow5.IsChecked = true;
+        TaskDow6.IsChecked = true;
     }
 
     private void ReloadSimpleChannels()
@@ -535,6 +590,247 @@ public partial class RulesWindow : Window
         _ioRules.Delete(row.Rule.Id);
         RefreshIoRules();
         _ioRulesChanged?.Invoke();
+    }
+
+    // ── 排程任務（scheduled_tasks）：重開機／定時截圖／重連攝影機。
+    // 到點判定在 Shared.MaintenanceTaskPlanner（純函式）；執行在 App.Services.MaintenanceTaskHost。
+    // 這裡只負責編輯與存取。建立當下就寫入 last_run（宿主以「上次執行」為基準），
+    // 所以新建任務的第一次執行一定落在下一個到點時刻，
+    // 不會有「15:00 建一顆每天 03:00 重開機，存好就立刻重開」這種事故。
+
+    private sealed class TaskRowViewModel
+    {
+        public required ScheduledTaskRecord Task { get; init; }
+
+        public string NameText => Task.Name;
+
+        public string KindText => Task.Kind switch
+        {
+            MaintenanceTaskKind.Reboot => Localizer.T("Tasks.KindReboot"),
+            MaintenanceTaskKind.Snapshot => Localizer.T("Tasks.KindSnapshot"),
+            _ => Localizer.T("Tasks.KindReconnect"),
+        };
+
+        public string ScheduleText => DescribeSchedule(Task);
+
+        public string LastRunText => Task.LastRunUtc is { } run
+            ? string.Format(System.Globalization.CultureInfo.InvariantCulture, Localizer.T("Tasks.LastRunText"), run.ToLocalTime(), Task.LastResult ?? string.Empty)
+            : Localizer.T("Tasks.LastNever");
+
+        public string EnabledText => Task.Enabled ? Localizer.T("Tasks.Enabled") : Localizer.T("Tasks.Disabled");
+
+        public string EnabledColor => Task.Enabled ? "#8AE08A" : "#E0B0B0";
+
+        public string ToggleText => Task.Enabled ? Localizer.T("Tasks.Disable") : Localizer.T("Tasks.Enable");
+
+        public string DeleteText => Localizer.T("Tasks.Delete");
+    }
+
+    private static string DescribeSchedule(ScheduledTaskRecord task)
+    {
+        var culture = System.Globalization.CultureInfo.InvariantCulture;
+        return task.ScheduleKind switch
+        {
+            MaintenanceScheduleKind.Daily => string.Format(culture, Localizer.T("Tasks.SchedDailyText"), task.TimeOfDay / 100, task.TimeOfDay % 100),
+            MaintenanceScheduleKind.Weekly => string.Format(culture, Localizer.T("Tasks.SchedWeeklyText"), DescribeWeekdays(task.WeekdaysMask), task.TimeOfDay / 100, task.TimeOfDay % 100),
+            _ => string.Format(culture, Localizer.T("Tasks.SchedIntervalText"), task.IntervalMinutes),
+        };
+    }
+
+    private static string DescribeWeekdays(int mask)
+    {
+        var names = new[] { "Dow0", "Dow1", "Dow2", "Dow3", "Dow4", "Dow5", "Dow6" };
+        var selected = new System.Collections.Generic.List<string>();
+        for (var day = 0; day < 7; day++)
+        {
+            if ((mask & (1 << day)) != 0)
+            {
+                selected.Add(Localizer.T("Tasks." + names[day]));
+            }
+        }
+
+        return string.Join("/", selected);
+    }
+
+    private void ReloadTaskChannels()
+    {
+        TaskChannelCombo.Items.Clear();
+        TaskChannelCombo.Items.Add(new ComboBoxItem
+        {
+            Content = Localizer.T("Tasks.AllChannels"),
+            Tag = null,
+        });
+        foreach (var channel in _channels.List())
+        {
+            TaskChannelCombo.Items.Add(new ComboBoxItem
+            {
+                Content = $"#{channel.Id} ({channel.Name})",
+                Tag = channel.Id,
+            });
+        }
+
+        TaskChannelCombo.SelectedIndex = 0;
+    }
+
+    private void RefreshTasks()
+    {
+        TaskList.ItemsSource = _taskRepo.List().Select(t => new TaskRowViewModel { Task = t }).ToList();
+    }
+
+    private void OnTaskAddToggleClicked(object sender, RoutedEventArgs e)
+    {
+        TasksEditPanel.Visibility = TasksEditPanel.Visibility == Visibility.Visible
+            ? Visibility.Collapsed
+            : Visibility.Visible;
+    }
+
+    private void OnTaskRefreshClicked(object sender, RoutedEventArgs e)
+    {
+        ReloadTaskChannels();
+        RefreshTasks();
+    }
+
+    private void OnTaskSchedChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
+    {
+        if (TaskTimeBox is null || TaskIntervalBox is null || TaskWeekdaysPanel is null || TaskTimeLabel is null)
+        {
+            return;
+        }
+
+        var isInterval = ReferenceEquals(TaskSchedCombo.SelectedItem, TaskSchedIntervalItem);
+        var isWeekly = ReferenceEquals(TaskSchedCombo.SelectedItem, TaskSchedWeeklyItem);
+        TaskTimeBox.Visibility = isInterval ? Visibility.Collapsed : Visibility.Visible;
+        TaskTimeLabel.Visibility = TaskTimeBox.Visibility;
+        TaskTimeLabel.Margin = TaskTimeBox.Visibility == Visibility.Visible
+            ? new Thickness(16, 0, 0, 0)
+            : new Thickness(0);
+        TaskIntervalBox.Visibility = isInterval ? Visibility.Visible : Visibility.Collapsed;
+        TaskIntervalLabel.Visibility = TaskIntervalBox.Visibility;
+        TaskIntervalUnit.Visibility = TaskIntervalBox.Visibility;
+        TaskWeekdaysPanel.Visibility = isWeekly ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private static int? ParseHhmm(string? text)
+    {
+        text = (text ?? string.Empty).Trim();
+        if (text.Length is < 3 or > 4 || !int.TryParse(text, out var parsed))
+        {
+            return null;
+        }
+
+        return parsed / 100 > 23 || parsed % 100 > 59 ? null : parsed;
+    }
+
+    private void OnTaskConfirmed(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var name = (TaskNameBox.Text ?? string.Empty).Trim();
+            if (name.Length == 0)
+            {
+                RulesStatusText.Text = Localizer.T("Tasks.NeedName");
+                return;
+            }
+
+            var kind = ReferenceEquals(TaskKindCombo.SelectedItem, TaskKindSnapshotItem) ? MaintenanceTaskKind.Snapshot
+                : ReferenceEquals(TaskKindCombo.SelectedItem, TaskKindReconnectItem) ? MaintenanceTaskKind.ReconnectChannels
+                : MaintenanceTaskKind.Reboot;
+
+            var isInterval = ReferenceEquals(TaskSchedCombo.SelectedItem, TaskSchedIntervalItem);
+            var isWeekly = ReferenceEquals(TaskSchedCombo.SelectedItem, TaskSchedWeeklyItem);
+
+            if (kind == MaintenanceTaskKind.Reboot && isInterval)
+            {
+                RulesStatusText.Text = Localizer.T("Tasks.RebootIntervalDenied");
+                return;
+            }
+
+            var timeOfDay = 0;
+            if (!isInterval)
+            {
+                var parsed = ParseHhmm(TaskTimeBox.Text);
+                if (parsed is null)
+                {
+                    RulesStatusText.Text = Localizer.T("Tasks.NeedTime");
+                    return;
+                }
+
+                timeOfDay = parsed.Value;
+            }
+
+            var weekdays = MaintenanceWeekdays.All;
+            if (isWeekly)
+            {
+                weekdays = 0;
+                var boxes = new[] { TaskDow0, TaskDow1, TaskDow2, TaskDow3, TaskDow4, TaskDow5, TaskDow6 };
+                for (var day = 0; day < boxes.Length; day++)
+                {
+                    if (boxes[day].IsChecked == true)
+                    {
+                        weekdays |= 1 << day;
+                    }
+                }
+
+                if (weekdays == 0)
+                {
+                    RulesStatusText.Text = Localizer.T("Tasks.NeedWeekday");
+                    return;
+                }
+            }
+
+            var interval = 0;
+            if (isInterval)
+            {
+                if (!int.TryParse((TaskIntervalBox.Text ?? string.Empty).Trim(), out interval) || interval is < 1 or > 10080)
+                {
+                    RulesStatusText.Text = Localizer.T("Tasks.NeedInterval");
+                    return;
+                }
+            }
+
+            var scheduleKind = isInterval ? MaintenanceScheduleKind.Interval
+                : isWeekly ? MaintenanceScheduleKind.Weekly
+                : MaintenanceScheduleKind.Daily;
+            var channelId = (TaskChannelCombo.SelectedItem as ComboBoxItem)?.Tag as int?;
+            var id = _taskRepo.Add(
+                name,
+                kind,
+                scheduleKind,
+                timeOfDay,
+                weekdays,
+                interval,
+                kind == MaintenanceTaskKind.Snapshot ? channelId : null,
+                TaskEnabledBox.IsChecked == true);
+            TasksEditPanel.Visibility = Visibility.Collapsed;
+            RefreshTasks();
+            RulesStatusText.Text = string.Format(System.Globalization.CultureInfo.InvariantCulture, Localizer.T("Tasks.Added"), id);
+        }
+        catch (Exception ex)
+        {
+            RulesStatusText.Text = string.Format(System.Globalization.CultureInfo.InvariantCulture, Localizer.T("Tasks.Failed"), ex.Message);
+        }
+    }
+
+    private void OnTaskToggleClicked(object sender, RoutedEventArgs e)
+    {
+        if (sender is not System.Windows.Controls.Button { DataContext: TaskRowViewModel row })
+        {
+            return;
+        }
+
+        _taskRepo.SetEnabled(row.Task.Id, !row.Task.Enabled);
+        RefreshTasks();
+    }
+
+    private void OnTaskDeleteClicked(object sender, RoutedEventArgs e)
+    {
+        if (sender is not System.Windows.Controls.Button { DataContext: TaskRowViewModel row })
+        {
+            return;
+        }
+
+        _taskRepo.Delete(row.Task.Id);
+        RefreshTasks();
     }
 
     private static string Shorten(string json, int max)

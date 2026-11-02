@@ -425,6 +425,32 @@ Notes that will save you time:
   attaching A's recordings to B is evidence pointing at the wrong camera. The reverse
   direction (index has it, disk does not) is `SegmentIndexReconciler` — neither replaces the
   other. Guarded by `RecordingDiskImporterTests` and `RecordingImportContractTests`.
+- **Scheduled maintenance tasks have two orderings and one non-negotiable skip.** `scheduled_tasks`
+  (V57) drives reboot / snapshot / reconnect from the alarm-rules window, executed by
+  `MaintenanceTaskHost` (30 s poll; the "is it due" decision lives in
+  `Shared.MaintenanceTaskPlanner`, pure and behavior-tested). Three rules keep a maintenance
+  task from becoming an incident:
+  (1) **Mark before run** — `MarkRunStarted` writes `last_run_utc` *before* the action executes.
+  Run-then-mark + a crash mid-action = the poll re-fires the same due task every 30 s, i.e. a
+  machine stuck in a 30-second reboot loop.
+  (2) **Audit before action** — the reboot's audit row is written before `shutdown.exe` runs;
+  after a reboot this process no longer exists, so anything written later is lost.
+  (3) **No catch-up for missed slots** — the planner runs a task only when the *previous*
+  scheduled slot was honored and today's slot time has passed. "Time passed and last-run is
+  older" would reboot the machine 30 s after the operator powers it on in the morning
+  (HeliVMS auto-starts, first poll fires). A new task gets `last_run_utc = now` at `Add`, so
+  its first run is always the *next* slot — without that, a 03:00 reboot created at 15:00
+  reboots immediately.
+  Reboot is daily/weekly only (`Validate` refuses interval; the window shows its own denial
+  too). Reboot asks Windows for `shutdown /r /t 90` (survives our death) and then `Close()`s
+  the main window so teardown reuses the operator's ✕ path (ffmpeg gets its `q`, the in-flight
+  segment survives); `ShutdownWatchdog`'s 55 s budget fits inside the 90 s grace. Scheduled
+  snapshots use a one-shot `SnapshotGrabber` ffmpeg process — never the wall's decode sessions
+  (cheap cameras allow 2–4 RTSP sessions; `-rtsp_transport` is RTSP-demuxer-only and must stay
+  conditional or file-based test sources fail). Reconnect restarts every monitoring session
+  through the same per-session path the health tick uses, never `DisconnectAllAsync`
+  (that repaints the wall). Guarded by `MaintenanceTaskPlannerTests`,
+  `ScheduledTaskRepositoryTests`, `SnapshotGrabberTests`, `MaintenanceTaskContractTests`.
 - **`PRAGMA user_version` does not prove the columns exist.** A rebuilt/restored
   `index.db` can be at the latest version with an old `segments` table: the live one was
   `user_version=56` and had no `tier`/`origin_path`, so the `version < 54` migration never

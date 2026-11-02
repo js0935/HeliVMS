@@ -23,7 +23,7 @@ namespace HeliVMS.Storage.Tests;
 /// </summary>
 public class SqliteSchemaMigrationTests : IDisposable
 {
-    private const int CurrentVersion = 56;
+    private const int CurrentVersion = 57;
     private readonly string _dbPath;
 
     public SqliteSchemaMigrationTests()

@@ -210,6 +210,7 @@ public partial class MainWindow : Window
     private bool _restoringFullScreen;
 
     private RecordingScheduler? _scheduler;
+    private MaintenanceTaskHost? _taskHost;
 
     /// <summary>
     /// 桌面的錄影擁有者仲裁（M321，§11.1 進程分離）。桌面為較低優先序角色：Headless 服務在線時
@@ -973,6 +974,16 @@ public partial class MainWindow : Window
         _patrolHost.Activity += (_, msg) => Dispatcher.BeginInvoke(new Action(() => HintText.Text = msg));
         _patrolHost.PatrolFailed += OnPatrolFailed;
         _patrolHost.Start();
+
+        // 排程任務宿主（§14）：重開機／定時截圖／重連攝影機的到點執行。
+        // 重開機走「請 Windows 排定 shutdown /r /t 90 ＋ 本視窗直接 Close()」：Close 觸發的
+        // 收尾序列與操作員按 ✕ 完全相同（ffmpeg 先收 q，正在錄的段收得了尾），
+        // 收尾逾時還有 ShutdownWatchdog 兜底，都落在 90 秒的系統寬限內。
+        _taskHost = new MaintenanceTaskHost(_store, Path.Combine(_dataRoot, "snapshots", "tasks"));
+        _taskHost.Activity += (_, msg) => Dispatcher.BeginInvoke(new Action(() => HintText.Text = msg));
+        _taskHost.RebootRequested += (_, _) => Dispatcher.BeginInvoke(new Action(Close));
+        _taskHost.ReconnectHandler = () => _manager is null ? Task.FromResult(0) : _manager.RestartAllAsync();
+        _taskHost.Start();
 
         _bgCts = new CancellationTokenSource();
         _ = RunRetentionLoopAsync(_bgCts.Token);
@@ -5382,6 +5393,8 @@ public partial class MainWindow : Window
         _reportMailTimer?.Stop();
         _patrolHost?.Dispose();
         _patrolHost = null;
+        _taskHost?.Dispose();
+        _taskHost = null;
 
         // 先把要收的實例換出來再收：收尾途中若有事件回呼讀到欄位，拿到的會是 null 而不是
         // 一個拆到一半的物件。

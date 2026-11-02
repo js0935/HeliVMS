@@ -9,7 +9,7 @@ namespace HeliVMS.Storage;
 /// </summary>
 public sealed class SqliteStore : IDisposable
 {
-    private const int CurrentSchemaVersion = 56;
+    private const int CurrentSchemaVersion = 57;
     private readonly SqliteConnection _connection;
     private readonly object _gate = new();
     private bool _disposed;
@@ -336,6 +336,11 @@ public sealed class SqliteStore : IDisposable
         if (version < 56)
         {
             CreateBookmarkTableV56();
+        }
+
+        if (version < 57)
+        {
+            CreateScheduledTaskTableV57();
         }
 
         // 版號只代表「這支程式跑到第幾版」，不代表檔案裡真的有那些欄位：index.db 會被重建、
@@ -1410,6 +1415,33 @@ public sealed class SqliteStore : IDisposable
             );
 
             CREATE INDEX IF NOT EXISTS idx_bookmarks_channel ON bookmarks(channel_id, at_utc);
+            """);
+    }
+
+    /// <summary>
+    /// 排程任務（V57，§14）：重開機／定時截圖／重連攝影機的保養排程。
+    /// <c>last_run_utc</c> 在建任務時就寫成當下（而不是留空），讓第一次執行落在
+    /// 下一個到點時刻——否則「15:00 建一顆每天 03:00 重開機」會立刻把機器重開機。
+    /// </summary>
+    private void CreateScheduledTaskTableV57()
+    {
+        Execute(
+            """
+            CREATE TABLE IF NOT EXISTS scheduled_tasks (
+                id             INTEGER PRIMARY KEY AUTOINCREMENT,
+                name           TEXT    NOT NULL DEFAULT '',
+                kind           TEXT    NOT NULL,
+                enabled        INTEGER NOT NULL DEFAULT 1,
+                schedule_kind  TEXT    NOT NULL,
+                time_of_day    INTEGER NOT NULL DEFAULT 0,
+                weekdays       INTEGER NOT NULL DEFAULT 0,
+                interval_min   INTEGER NOT NULL DEFAULT 0,
+                channel_id     INTEGER,
+                last_run_utc   TEXT,
+                last_result    TEXT
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_scheduled_tasks_enabled ON scheduled_tasks(enabled, id);
             """);
     }
 
