@@ -55,6 +55,21 @@ dotnet build HeliVMS.slnx -c Release
 dotnet test  HeliVMS.slnx -c Release
 ```
 
+## 發佈（免安裝 .NET Runtime）
+
+`scripts/publish-desktop.ps1` 以**自包含（self-contained）**方式發佈桌面程式：
+.NET 10 Desktop Runtime 與 ASP.NET Core（內建 Web 服務用）直接烤進輸出資料夾，
+**目標機器不需要安裝或下載任何 .NET 元件**——整包複製即可執行。
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/publish-desktop.ps1
+# 輸出：publish/HeliVMS（約 250 MB，含 Runtime；腳本會驗證 hostfxr/coreclr 確實在包內）
+# 自訂輸出位置： -Output D:\dist\HeliVMS
+```
+
+> ffmpeg／ffprobe 是外部元件（GPL 授權考量，刻意不隨包）：目標機器仍需依既有慣例提供（PATH 或程式資料夾旁）。
+> Runtime 版本跟隨建置機器的 .NET SDK（10.0.x）；要釘住特定版本在 publish 加 `-p:RuntimeFrameworkVersion=10.0.14`。
+
 ## 產生授權
 
 ```powershell
