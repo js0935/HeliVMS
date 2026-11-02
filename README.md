@@ -95,9 +95,13 @@ powershell -ExecutionPolicy Bypass -File scripts/build-installer.ps1
 ```
 
 安裝檔內含自包含輸出（.NET Runtime、ASP.NET Core、隨包 ffmpeg）——**目標機器什麼都不用再裝**，
-執行 setup → 下一步 → 完成。每機安裝（Program Files，會自動放行 Web 主控台的 TCP 5080 防火牆規則）；
-測試或無管理權時可用 `/CURRENTUSER /DIR=<路徑>` 裝到使用者資料夾。解除安裝只刪程式，
-資料根目錄（`C:\HeliVMSData`）的錄影與索引不會被動到。升級安裝時安裝器會關閉執行中的 HeliVMS。
+執行 setup → 下一步 → 完成。**預設裝給目前使用者**（`%LOCALAPPDATA%\Programs\HeliVMS`，
+不需要管理權、安裝精靈不詢問）；要裝給所有使用者（Program Files，含防火牆規則）用命令列
+`/ALLUSERS`。解除安裝只刪程式，資料根目錄（`C:\HeliVMSData`）的錄影與索引不會被動到。
+升級安裝時安裝器會關閉執行中的 HeliVMS 並原地升級。
+
+> 使用者層級安裝沒有管理權，不會動防火牆——本機開 `http://localhost:5080` 不需要它；
+> 別的機器要連過來看網頁時，請手動放行該埠或改用 `/ALLUSERS` 安裝。
 
 > 建置安裝檔需要 Inno Setup 6（ISCC.exe）；腳本會自動找到它。版本號取自 `Directory.Build.props`。
 

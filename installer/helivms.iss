@@ -31,9 +31,11 @@ LicenseFile={#Root}\LICENSE
 OutputDir={#Root}\publish\Setup
 OutputBaseFilename=HeliVMS-Setup-{#AppVersion}
 SetupIconFile={#Root}\Assets\app.ico
-; 預設每機安裝（Program Files）；可用 /CURRENTUSER 裝到使用者資料夾（測試用）。
-PrivilegesRequired=admin
-PrivilegesRequiredOverridesAllowed=dialog commandline
+; 預設裝給目前使用者（%LOCALAPPDATA%\Programs，不需要管理權）——安裝精靈不再詢問
+; 「給我或所有使用者」。要每機安裝時用命令列 /ALLUSERS（此時才會要 UAC），
+; 沒有 dialog 是刻意的：精靈裡一多這個問題，操作員就會多一次選錯的機會。
+PrivilegesRequired=lowest
+PrivilegesRequiredOverridesAllowed=commandline
 ArchitecturesInstallIn64BitMode=x64compatible
 MinVersion=10.0
 Compression=lzma2/max
@@ -58,6 +60,8 @@ Name: "desktopicon"; Description: "Create a &desktop icon"; GroupDescription: "A
 
 [Run]
 ; Web 主控台的 Kestrel 埠（web.port 預設 5080）：放行 TCP 入站，遠端才開得到網頁。
+; 預設的使用者層級安裝沒有管理權，這一步會跳過（本機開 localhost 不需要它）；
+; /ALLUSERS 安裝才會建立。遠端要開網頁而裝的是使用者層級時，請手動放行或改用 /ALLUSERS。
 ; 只在每機安裝（有管理權）時做；埠之後在設定中心改的話規則要自己跟著改。
 Filename: "netsh"; Parameters: "advfirewall firewall add rule name=""HeliVMS Web Console (TCP 5080)"" dir=in action=allow protocol=TCP localport=5080"; Flags: runhidden; Check: IsAdminInstallMode
 Filename: "{app}\HeliVMS.App.exe"; Description: "Launch {#AppName}"; Flags: nowait postinstall skipifsilent
