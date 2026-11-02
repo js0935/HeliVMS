@@ -481,7 +481,7 @@ Notes that will save you time:
   `false` is now written as `false`; the all-defaults → empty-string optimization keys off
   `Notify is not false`. Guarded by `RuleExpressionParseTests`.
 - **Settings export/import is a security boundary, not a convenience dump.**
-  `SettingsBackupService` (Settings centre → Backup → Configuration export/import) ships 22
+  `SettingsBackupService` (Settings centre → About → Configuration export/import) ships 22
   configuration tables (cameras, groups, schedules, IO, rules, patrols, maps, masks, smart
   wall, scheduled tasks, app_settings) as one JSON with an explicit `version`. Three rules:
   (1) The `ExportTables` whitelist **never** grows a credentials/data table — `users`,

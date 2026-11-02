@@ -20,6 +20,15 @@ public sealed class ConfigXferContractTests
         Assert.Contains("new SettingsBackupService(", source);
         Assert.Contains("ExportTo(", source);
         Assert.Contains("ImportFrom(", source);
+
+        // 位置契約：區塊在「關於」頁（PageAbout 之後），不在備份頁——備份頁管存檔複製，
+        // 設定遷移是另一件事，混在一起操作員會把「備份錄影」與「取代設定」搞混。
+        var xaml = SourceContract.Read("src/HeliVMS.App/SettingsWindow.xaml");
+        var aboutAt = xaml.IndexOf("x:Name=\"PageAbout\"", StringComparison.Ordinal);
+        var configAt = xaml.IndexOf("ConfigXferHeading", StringComparison.Ordinal);
+        var backupEndAt = xaml.IndexOf("x:Name=\"PageNetwork\"", StringComparison.Ordinal);
+        Assert.True(aboutAt >= 0 && configAt > aboutAt, "設定匯出／匯入區塊應在關於頁");
+        Assert.True(backupEndAt >= 0 && configAt > backupEndAt, "設定匯出／匯入區塊不應留在備份頁");
     }
 
     [Fact]
