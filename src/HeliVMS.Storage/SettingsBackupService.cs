@@ -68,15 +68,22 @@ public sealed class SettingsBackupService
 
     private readonly SqliteStore _store;
     private readonly string _appVersion;
+    private readonly AuditLogRepository _audit;
 
     public SettingsBackupService(SqliteStore store, string appVersion)
     {
         _store = store;
         _appVersion = appVersion;
+        _audit = new AuditLogRepository(store);
     }
 
     /// <summary>把設定表整份寫成 JSON。</summary>
-    public void ExportTo(string filePath)
+    /// <remarks>
+    /// 匯出檔含憑證材料（SMTP／MQTT 密碼與 API Key 以 DPAPI 加密攜帶），必須留稽核：
+    /// 「誰在何時把整套設定帶走」是安全事件調查的基本題。跨機遷移時 DPAPI 綁定原使用者，
+    /// 這些密文在別台機器解不開，通知密碼需重新輸入——行為上安全失敗（SafeUnprotect 回 null）。
+    /// </remarks>
+    public void ExportTo(string filePath, string? actor = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(filePath);
 
@@ -96,6 +103,13 @@ public sealed class SettingsBackupService
 
         var json = JsonSerializer.Serialize(file, new JsonSerializerOptions { WriteIndented = true });
         File.WriteAllText(filePath, json);
+
+        _audit.Record(
+            actor,
+            "settings.export",
+            AuditCategories.Export,
+            targetType: "settings_backup",
+            detail: Path.GetFileName(filePath));
     }
 
     /// <summary>讀摘要（不動資料庫）：給 UI 在「真的要覆蓋嗎」確認框顯示。</summary>
@@ -125,8 +139,8 @@ public sealed class SettingsBackupService
             counts);
     }
 
-    /// <summary>把設定檔倒回資料庫（原子；失敗整份回滾）。</summary>
-    public SettingsBackupSummary ImportFrom(string filePath)
+    /// <summary>把設定檔倒回資料庫（原子；失敗整份回滾）。成功後寫稽核：這是清空 22 張表的大動作。</summary>
+    public SettingsBackupSummary ImportFrom(string filePath, string? actor = null)
     {
         var summary = ReadSummary(filePath);
         if (summary.Version > BackupVersion)
@@ -148,15 +162,25 @@ public sealed class SettingsBackupService
                 _store.Execute("DELETE FROM \"" + table + "\";");
             }
 
+            var total = 0;
             foreach (var (table, rows) in parsed)
             {
                 foreach (var row in rows)
                 {
                     InsertRow(table, row);
                 }
+
+                total += rows.Count;
             }
 
             _store.Execute("COMMIT;");
+
+            _audit.Record(
+                actor,
+                "settings.import",
+                AuditCategories.Config,
+                targetType: "settings_backup",
+                detail: $"{Path.GetFileName(filePath)}; v{summary.Version}; {total} rows");
         }
         catch
         {

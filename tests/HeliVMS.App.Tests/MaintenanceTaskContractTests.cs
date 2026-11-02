@@ -80,6 +80,14 @@ public sealed class MaintenanceTaskContractTests
     }
 
     [Fact]
+    public void 設定檔匯出與匯入同樣限管理員()
+    {
+        // 匯出檔含憑證材料（DPAPI 密文）：能帶走設定的人必須與能改設定的人同級。
+        var export = SourceContract.BodyOf(SourceContract.Read("src/HeliVMS.App/SettingsWindow.xaml.cs"), "OnConfigExportClicked");
+        Assert.Contains("VersionRequireAdmin()", export);
+    }
+
+    [Fact]
     public void 警報規則視窗提供排程任務的編輯與清單()
     {
         var source = SourceContract.Read(Rules);

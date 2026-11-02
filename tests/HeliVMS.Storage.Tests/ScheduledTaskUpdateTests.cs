@@ -67,4 +67,22 @@ public class ScheduledTaskUpdateTests : IDisposable
         Assert.ThrowsAny<ArgumentException>(() => _repo.Update(
             id, "重開機", MaintenanceTaskKind.Reboot, MaintenanceScheduleKind.Interval, intervalMinutes: 30));
     }
+
+    [Fact]
+    public void 任務的增改刪啟停都會寫稽核()
+    {
+        // 排程重開機是高危設定：被誰建、被誰改、被誰停用、被誰刪，出事時是第一個要查的問題。
+        var id = _repo.Add("夜間重開機", MaintenanceTaskKind.Reboot, MaintenanceScheduleKind.Daily, timeOfDay: 300, actor: "admin");
+        _repo.SetEnabled(id, false, actor: "admin");
+        _repo.Update(id, "改名", MaintenanceTaskKind.Reboot, MaintenanceScheduleKind.Daily, timeOfDay: 400, actor: "admin");
+        _repo.Delete(id, actor: "admin");
+
+        var audit = new AuditLogRepository(_store);
+        var rows = audit.List(new AuditLogQuery { Action = "task.add", Limit = 10 });
+        Assert.Single(rows);
+        foreach (var action in new[] { "task.toggle", "task.update", "task.delete" })
+        {
+            Assert.Contains(audit.List(new AuditLogQuery { Action = action, Limit = 10 }), r => r.TargetType == "scheduled_task" && r.TargetId == id);
+        }
+    }
 }

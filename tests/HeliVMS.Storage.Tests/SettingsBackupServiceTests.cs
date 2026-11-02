@@ -145,4 +145,26 @@ public class SettingsBackupServiceTests : IDisposable
         File.WriteAllText(_backupPath, "{not json");
         Assert.Throws<InvalidOperationException>(() => _service.ImportFrom(_backupPath));
     }
+
+    [Fact]
+    public void 匯出與匯入都會寫稽核()
+    {
+        // 匯入會清空 22 張表、匯出檔含憑證材料：「誰在何時把設定帶走／倒回」是
+        // 安全事件調查的基本題，沒有稽核等於這兩個操作可以無聲發生。
+        AddChannel("大門口");
+        _service.ExportTo(_backupPath);
+
+        var audit = new AuditLogRepository(_store);
+        var exports = audit.List(new AuditLogQuery { Action = "settings.export", Limit = 10 });
+        var exportRow = Assert.Single(exports);
+        Assert.Equal("settings_backup", exportRow.TargetType);
+        Assert.Contains(".json", exportRow.Detail);
+
+        _service.ImportFrom(_backupPath);
+
+        var imports = audit.List(new AuditLogQuery { Action = "settings.import", Limit = 10 });
+        var importRow = Assert.Single(imports);
+        Assert.Equal(AuditCategories.Config, importRow.Category);
+        Assert.Contains("v1", importRow.Detail);
+    }
 }

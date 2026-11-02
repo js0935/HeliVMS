@@ -951,6 +951,12 @@ public partial class SettingsWindow : Window
     /// <summary>把所有設定表匯出成一個 JSON（資料根不動，只讀印到檔）。</summary>
     private void OnConfigExportClicked(object sender, RoutedEventArgs e)
     {
+        // 匯出檔含憑證材料（SMTP／MQTT 密碼的 DPAPI 密文、API Key），與匯入同樣限管理員。
+        if (!VersionRequireAdmin())
+        {
+            return;
+        }
+
         try
         {
             var dialog = new Microsoft.Win32.SaveFileDialog

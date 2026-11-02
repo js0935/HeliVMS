@@ -492,7 +492,14 @@ Notes that will save you time:
   any failure rolls the whole file back. Imported column names come from the file, so every
   row's keys are validated against `pragma_table_info` before an INSERT is built — never
   interpolate file strings into SQL. Files with a future `version` are refused.
-  (3) **Import offers a restart and the restart must be ordered**: the app prompts after
+  (3) **Export and import are admin-only and audited** — the file carries credential material
+  (SMTP/MQTT passwords and API keys DPAPI-encrypted in `app_settings`), so export sits behind
+  the same `VersionRequireAdmin` gate as import, and both write audit rows
+  (`settings.export` category `export` / `settings.import` category `config`). DPAPI binds to
+  the original user: same-machine restore decrypts fine, cross-machine the blobs are inert
+  (SafeUnprotect → null) and notification passwords must be re-entered — the settings
+  description says so. Scheduled-task CRUD is audited too (`task.add/update/delete/toggle`).
+  (4) **Import offers a restart and the restart must be ordered**: the app prompts after
   import; `App.OnExit` spawns the successor **after** disposing the single-instance guard and
   after the orphan sweep — spawning earlier makes the new process a "duplicate launch" that
   wakes the dying instance, leaving nothing running; and the sweep must not race the new

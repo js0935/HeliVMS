@@ -34,10 +34,14 @@ public sealed record ScheduledTaskRecord(
 public sealed class ScheduledTaskRepository
 {
     private readonly SqliteStore _store;
+    private readonly AuditLogRepository _audit;
 
     public ScheduledTaskRepository(SqliteStore store)
     {
         _store = store;
+        // 設定類 CRUD 寫稽核（M159 慣例）：重開機／截圖排程被誰建、被誰改、被誰刪，
+        // 出事時是第一個要查的問題；執行本身由宿主另行記錄（task.reboot 等）。
+        _audit = new AuditLogRepository(store);
     }
 
     /// <summary>
@@ -52,12 +56,13 @@ public sealed class ScheduledTaskRepository
         int weekdaysMask = MaintenanceWeekdays.All,
         int intervalMinutes = 0,
         int? channelId = null,
-        bool enabled = true)
+        bool enabled = true,
+        string? actor = null)
     {
         Validate(kind, scheduleKind, timeOfDay, weekdaysMask, intervalMinutes);
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
 
-        return _store.Query(
+        var id = _store.Query(
             """
             INSERT INTO scheduled_tasks (name, kind, enabled, schedule_kind, time_of_day, weekdays, interval_min, channel_id, last_run_utc)
             VALUES ($n, $k, $e, $s, $t, $w, $m, $c, $lr);
@@ -80,6 +85,8 @@ public sealed class ScheduledTaskRepository
                 cmd.Parameters.AddWithValue("$c", (object?)channelId ?? DBNull.Value);
                 cmd.Parameters.AddWithValue("$lr", DateTime.UtcNow);
             });
+        _audit.Record(actor, "task.add", AuditCategories.Config, targetType: "scheduled_task", targetId: id, detail: $"name={name.Trim()}");
+        return id;
     }
 
     /// <summary>全部任務，依 Id 排序。</summary>
@@ -122,12 +129,13 @@ public sealed class ScheduledTaskRepository
         int weekdaysMask = MaintenanceWeekdays.All,
         int intervalMinutes = 0,
         int? channelId = null,
-        bool enabled = true)
+        bool enabled = true,
+        string? actor = null)
     {
         Validate(kind, scheduleKind, timeOfDay, weekdaysMask, intervalMinutes);
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
 
-        return _store.Query(
+        var updated = _store.Query(
             """
             UPDATE scheduled_tasks
             SET name = $n, kind = $k, enabled = $e, schedule_kind = $s, time_of_day = $t,
@@ -148,19 +156,34 @@ public sealed class ScheduledTaskRepository
                 cmd.Parameters.AddWithValue("$m", intervalMinutes);
                 cmd.Parameters.AddWithValue("$c", (object?)channelId ?? DBNull.Value);
             });
+
+        if (updated)
+        {
+            _audit.Record(actor, "task.update", AuditCategories.Config, targetType: "scheduled_task", targetId: id, detail: $"name={name.Trim()}");
+        }
+
+        return updated;
     }
 
     /// <summary>刪除任務。</summary>
-    public bool Delete(long id)
+    public bool Delete(long id, string? actor = null)
     {
-        _store.Execute("DELETE FROM scheduled_tasks WHERE id = $id;", cmd => cmd.Parameters.AddWithValue("$id", id));
-        return true;
+        var deleted = _store.Query(
+            "DELETE FROM scheduled_tasks WHERE id = $id; SELECT changes();",
+            static r => r.Read() && r.GetInt32(0) > 0,
+            cmd => cmd.Parameters.AddWithValue("$id", id));
+        if (deleted)
+        {
+            _audit.Record(actor, "task.delete", AuditCategories.Config, targetType: "scheduled_task", targetId: id);
+        }
+
+        return deleted;
     }
 
     /// <summary>只切換啟用／停用。</summary>
-    public bool SetEnabled(long id, bool enabled)
+    public bool SetEnabled(long id, bool enabled, string? actor = null)
     {
-        return _store.Query(
+        var updated = _store.Query(
             "UPDATE scheduled_tasks SET enabled = $e WHERE id = $id; SELECT changes();",
             static r => r.Read() && r.GetInt32(0) > 0,
             cmd =>
@@ -168,6 +191,12 @@ public sealed class ScheduledTaskRepository
                 cmd.Parameters.AddWithValue("$id", id);
                 cmd.Parameters.AddWithValue("$e", enabled ? 1 : 0);
             });
+        if (updated)
+        {
+            _audit.Record(actor, "task.toggle", AuditCategories.Config, targetType: "scheduled_task", targetId: id, detail: $"enabled={enabled}");
+        }
+
+        return updated;
     }
 
     /// <summary>記下「這次已經動手跑」；執行前就要呼叫（先記後跑，見 <see cref="ScheduledTaskRecord"/>）。</summary>
