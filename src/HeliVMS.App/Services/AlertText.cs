@@ -13,6 +13,16 @@ namespace HeliVMS.App.Services;
 /// </remarks>
 public static class EventTypeText
 {
+    /// <summary>
+    /// 已知的事件類型識別碼（規則編輯器的下拉來源；顯示名用 <see cref="Label"/>）。
+    /// 上游新增類型時這裡要跟著列，否則簡易表單選不到。
+    /// </summary>
+    public static IReadOnlyList<string> KnownTypes { get; } = 
+    [
+        "motion", "ai_person", "ai_vehicle", "io_input", "tamper",
+        "line_cross", "intrusion", "offline", "smart_alert",
+    ];
+
     public static string Label(string eventType) => eventType switch
     {
         "motion" => Localizer.T("EventCenter.TypeMotion"),

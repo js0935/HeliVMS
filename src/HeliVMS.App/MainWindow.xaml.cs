@@ -232,6 +232,10 @@ public partial class MainWindow : Window
     private DispatcherTimer? _ntpTimer;
     private AnalyticsEventEngine? _analytics;
     private AlertRuleRepository? _alertRules;
+
+    /// <summary>複合事件規則（ai_rules）：警報事件逐一餵入，命中即套用嚴重度／標籤並通知。</summary>
+    private RuleEvaluator? _eventRules;
+    private RuleRepository? _eventRuleRepo;
     private AlarmEventRepository? _alarmEvents;
     private SmartAlertHost? _smartAlerts;
 
@@ -927,6 +931,8 @@ public partial class MainWindow : Window
 
         _analytics = new AnalyticsEventEngine(_store);
         _alertRules = new AlertRuleRepository(_store);
+        _eventRuleRepo = new RuleRepository(_store);
+        RebuildEventRules();
         _alarmEvents = new AlarmEventRepository(_store);
         _licenseLimits = new LicenseLimitNotifier(_store);
         _offsite = new OffsiteReplicationRepository(_store);
@@ -2477,10 +2483,15 @@ public partial class MainWindow : Window
             return;
         }
 
-        // 沒有任何聚合規則命中 → 照常通知這一筆原始事件。
+        // 複合事件規則：命中即套用嚴重度／標籤（寫進通知明細），並照規則決定是否通知。
+        // 沒有任何聚合規則命中 → 照常處理這一筆原始事件。
         if (!outcome.Aggregated)
         {
-            _notify?.Enqueue(record);
+            foreach (var enriched in ApplyEventRules(record))
+            {
+                _notify?.Enqueue(enriched);
+            }
+
             return;
         }
 
@@ -2630,6 +2641,64 @@ public partial class MainWindow : Window
                 _preLinkLayout = null;
                 HintText.Text = Localizer.T("Main.LinkReset");
             })));
+    }
+
+
+    /// <summary>
+    /// 把警報事件餵入複合事件規則；回傳要通知的事件（套用嚴重度／標籤後的副本）。
+    /// </summary>
+    /// <remarks>
+    /// 規則由警報中心的「複合事件規則」設定（運算式為 JSON DSL，簡易表單會組出來）；
+    /// 這裡是它們唯一在執行期被求值的地方——之前規則只能建、不能跑，等於裝飾品。
+    /// 求值器在規則變更時重建（警報中心回呼），狀態（滑動窗）隨之歸零，等同重新上電。
+    /// </remarks>
+    private IReadOnlyList<AlarmEventRecord> ApplyEventRules(AlarmEventRecord record)
+    {
+        var evaluator = _eventRules;
+        if (evaluator is null)
+        {
+            return [record];
+        }
+
+        var results = new List<AlarmEventRecord>();
+        foreach (var match in evaluator.Feed(record))
+        {
+            var actions = match.Actions;
+            var severity = actions.Severity is { } s ? $"severity={s}" : null;
+            var tag = actions.Tag is { } t ? $"tag={t}" : null;
+            var prefix = string.Join(";", new[] { severity, tag }.Where(x => x is not null));
+            var detail = string.IsNullOrEmpty(prefix)
+                ? record.Detail
+                : string.IsNullOrEmpty(record.Detail)
+                    ? $"[{prefix}]"
+                    : $"[{prefix}] {record.Detail}";
+
+            // 規則未明確關閉通知（Notify == false）才送通知平面。
+            if (actions.Notify != false)
+            {
+                results.Add(new AlarmEventRecord
+                {
+                    ChannelId = record.ChannelId,
+                    EventType = record.EventType,
+                    StartUtc = record.StartUtc,
+                    SnapshotPath = record.SnapshotPath,
+                    Detail = detail,
+                });
+            }
+        }
+
+        return results;
+    }
+
+    /// <summary>以目前啟用的複合事件規則重建求值器（規則變更、啟停後呼叫）。</summary>
+    private void RebuildEventRules()
+    {
+        if (_eventRuleRepo is null)
+        {
+            return;
+        }
+
+        _eventRules = new RuleEvaluator(_eventRuleRepo.ListEnabled());
     }
 
 

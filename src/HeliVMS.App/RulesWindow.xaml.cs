@@ -17,8 +17,14 @@ public partial class RulesWindow : Window
     private readonly IoRuleRepository _ioRules;
     private readonly ChannelRepository _channels;
 
+    /// <summary>是否處於簡易（表單）模式；false＝進階（直接寫 JSON）。</summary>
+    private bool _simpleMode = true;
+
     /// <summary>IO 連動規則變更後的回呼（讓執行中的監視器重建引擎，不必重啟軟體）。</summary>
     private readonly Action? _ioRulesChanged;
+
+    /// <summary>複合事件規則變更後的回呼（讓執行期求值器重建，不必重啟軟體）。</summary>
+    private readonly Action? _eventRulesChanged;
 
     private sealed class RuleRowViewModel
     {
@@ -39,7 +45,7 @@ public partial class RulesWindow : Window
         public string DeleteText => Localizer.T("Rules.Delete");
     }
 
-    public RulesWindow(SqliteStore store, Action? ioRulesChanged = null)
+    public RulesWindow(SqliteStore store, Action? ioRulesChanged = null, Action? eventRulesChanged = null)
     {
         _store = store;
         _rules = new RuleRepository(store);
@@ -47,6 +53,7 @@ public partial class RulesWindow : Window
         _ioRules = new IoRuleRepository(store);
         _channels = new ChannelRepository(store);
         _ioRulesChanged = ioRulesChanged;
+        _eventRulesChanged = eventRulesChanged;
         InitializeComponent();
         ApplyI18n();
         ReloadIoRuleChoices();
@@ -110,6 +117,53 @@ public partial class RulesWindow : Window
         IoRuleColRetrigger.Header = Localizer.T("Rules.IoColRetrigger");
         IoRuleColState.Header = Localizer.T("Rules.IoColState");
         IoRuleColOps.Header = Localizer.T("Rules.IoColOps");
+
+        // 簡易／進階模式與簡易表單。
+        RulesModeLabel.Text = Localizer.T("Rules.ModeLabel");
+        RulesModeSimple.Content = Localizer.T("Rules.ModeSimple");
+        RulesModeAdvanced.Content = Localizer.T("Rules.ModeAdvanced");
+        RulesSimpleEventLabel.Text = Localizer.T("Rules.SimpleEvent");
+        RulesSimpleChannelLabel.Text = Localizer.T("Rules.SimpleChannel");
+        RulesSimpleCountCheck.Content = Localizer.T("Rules.SimpleCount");
+        RulesSimpleCountWithinLabel.Text = Localizer.T("Rules.SimpleCountWithin");
+        RulesSimpleSecondsUnit.Text = Localizer.T("Rules.SimpleSecondsUnit");
+        RulesSimpleTimeCheck.Content = Localizer.T("Rules.SimpleTime");
+        RulesSimpleSeverityLabel.Text = Localizer.T("Rules.SimpleSeverity");
+        RulesSimpleTagLabel.Text = Localizer.T("Rules.SimpleTag");
+        RulesSimpleNotifyCheck.Content = Localizer.T("Rules.SimpleNotify");
+
+        foreach (var severity in RuleSeverity.All)
+        {
+            RulesSimpleSeverityCombo.Items.Add(severity);
+        }
+        RulesSimpleSeverityCombo.SelectedIndex = 1;
+
+        RulesSimpleEventCombo.Items.Clear();
+        foreach (var type in EventTypeText.KnownTypes)
+        {
+            RulesSimpleEventCombo.Items.Add(new ComboBoxItem { Content = EventTypeText.Label(type), Tag = type });
+        }
+        RulesSimpleEventCombo.SelectedIndex = 0;
+        ReloadSimpleChannels();
+    }
+
+    private void ReloadSimpleChannels()
+    {
+        RulesSimpleChannelCombo.Items.Clear();
+        RulesSimpleChannelCombo.Items.Add(new ComboBoxItem
+        {
+            Content = Localizer.T("Rules.SimpleAnyChannel"),
+            Tag = null,
+        });
+        foreach (var channel in _channels.List())
+        {
+            RulesSimpleChannelCombo.Items.Add(new ComboBoxItem
+            {
+                Content = $"#{channel.Id} ({channel.Name})",
+                Tag = channel.Id,
+            });
+        }
+        RulesSimpleChannelCombo.SelectedIndex = 0;
     }
 
     private void OnLoaded(object sender, RoutedEventArgs e)
@@ -165,13 +219,51 @@ public partial class RulesWindow : Window
             ? Visibility.Collapsed
             : Visibility.Visible;
 
+    /// <summary>切換簡易（表單）／進階（JSON）：兩種模式寫同一份規則，操作員不必學 JSON。</summary>
+    private void OnRulesModeChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
+    {
+        if (RulesSimplePanel is null || RulesAdvancedPanel is null)
+        {
+            return;   // InitializeComponent 建樹期間的第一次觸發。
+        }
+
+        _simpleMode = ReferenceEquals(RulesModeCombo.SelectedItem, RulesModeSimple);
+        RulesSimplePanel.Visibility = _simpleMode ? Visibility.Visible : Visibility.Collapsed;
+        RulesAdvancedPanel.Visibility = _simpleMode ? Visibility.Collapsed : Visibility.Visible;
+    }
+
     private void OnAddConfirmed(object sender, RoutedEventArgs e)
     {
         try
         {
             var name = RulesNameBox.Text.Trim();
-            var expr = RulesExprBox.Text.Trim();
-            var actions = RulesActionsBox.Text.Trim();
+            string? expr;
+            string? actions;
+
+            if (_simpleMode)
+            {
+                var eventType = (RulesSimpleEventCombo.SelectedItem as ComboBoxItem)?.Tag as string
+                    ?? EventTypeText.KnownTypes[0];
+                var channel = (RulesSimpleChannelCombo.SelectedItem as ComboBoxItem)?.Tag as int?;
+                var atLeast = RulesSimpleCountCheck.IsChecked == true
+                    ? int.TryParse(RulesSimpleCountBox.Text.Trim(), out var n) && n > 1 ? n : 2
+                    : (int?)null;
+                var seconds = int.TryParse(RulesSimpleSecondsBox.Text.Trim(), out var s) && s > 0 ? s : 60;
+                var timeStart = RulesSimpleTimeCheck.IsChecked == true && int.TryParse(RulesSimpleStartBox.Text.Trim(), out var t0) ? t0 : (int?)null;
+                var timeEnd = RulesSimpleTimeCheck.IsChecked == true && int.TryParse(RulesSimpleEndBox.Text.Trim(), out var t1) ? t1 : (int?)null;
+
+                expr = RuleExpressionBuilder.Build(eventType, channel, atLeast, seconds, timeStart, timeEnd);
+                actions = RuleExpressionBuilder.BuildActions(
+                    RulesSimpleSeverityCombo.SelectedItem as string,
+                    RulesSimpleTagBox.Text,
+                    RulesSimpleNotifyCheck.IsChecked == true);
+            }
+            else
+            {
+                expr = RulesExprBox.Text.Trim();
+                actions = RulesActionsBox.Text.Trim();
+            }
+
             if (string.IsNullOrWhiteSpace(name) || string.IsNullOrWhiteSpace(expr))
             {
                 RulesStatusText.Text = Localizer.T("Rules.NeedNameExpr");
@@ -185,7 +277,7 @@ public partial class RulesWindow : Window
             }
 
             var enabled = RulesEnabledBox.IsChecked == true;
-            var id = _rules.Add(name, expr, actions, enabled);
+            var id = _rules.Add(name, expr!, actions!, enabled);
             RulesNameBox.Clear();
             RulesExprBox.Clear();
             RulesActionsBox.Clear();
@@ -193,6 +285,7 @@ public partial class RulesWindow : Window
             RulesEditPanel.Visibility = Visibility.Collapsed;
             Refresh();
             RulesStatusText.Text = string.Format(Localizer.T("Rules.Added"), id);
+            _eventRulesChanged?.Invoke();
         }
         catch (Exception ex)
         {
@@ -209,6 +302,8 @@ public partial class RulesWindow : Window
             _rules.SetEnabled(row.Rule.Id, !row.Rule.Enabled);
             Refresh();
         }
+
+    _eventRulesChanged?.Invoke();
     }
 
     private void OnDeleteClicked(object sender, RoutedEventArgs e)
@@ -218,6 +313,8 @@ public partial class RulesWindow : Window
             _rules.Delete(row.Rule.Id);
             Refresh();
         }
+
+    _eventRulesChanged?.Invoke();
     }
 
     // ── IO 連動（io_rules）：接點在設定中心 → IO 登記，這裡只設定觸發後做什麼。

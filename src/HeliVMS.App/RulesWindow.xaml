@@ -50,18 +50,58 @@
                 Margin="0,12,0,0" Padding="10">
             <StackPanel>
                 <StackPanel Orientation="Horizontal">
+                    <TextBlock x:Name="RulesModeLabel" Text="" VerticalAlignment="Center" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+                    <ComboBox x:Name="RulesModeCombo" AutomationProperties.AutomationId="RulesModeCombo"
+                              Width="120" Margin="8,0,0,0" SelectionChanged="OnRulesModeChanged">
+                        <ComboBoxItem x:Name="RulesModeSimple"/>
+                        <ComboBoxItem x:Name="RulesModeAdvanced"/>
+                    </ComboBox>
+                </StackPanel>
+                <StackPanel x:Name="RulesSimplePanel" Margin="0,8,0,0">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock x:Name="RulesSimpleEventLabel" Text="" VerticalAlignment="Center" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+                        <ComboBox x:Name="RulesSimpleEventCombo" AutomationProperties.AutomationId="RulesSimpleEventCombo"
+                                  Width="170" Margin="8,0,0,0"/>
+                        <TextBlock x:Name="RulesSimpleChannelLabel" Text="" VerticalAlignment="Center" Margin="14,0,0,0" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+                        <ComboBox x:Name="RulesSimpleChannelCombo" AutomationProperties.AutomationId="RulesSimpleChannelCombo"
+                                  Width="170" Margin="8,0,0,0"/>
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                        <CheckBox x:Name="RulesSimpleCountCheck" Content="" Foreground="White" VerticalAlignment="Center"/>
+                        <TextBox x:Name="RulesSimpleCountBox" Width="46" Margin="6,0,0,0" Text="3" Foreground="Black"/>
+                        <TextBlock x:Name="RulesSimpleCountWithinLabel" Text="" VerticalAlignment="Center" Margin="6,0,0,0" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+                        <TextBox x:Name="RulesSimpleSecondsBox" Width="46" Margin="6,0,0,0" Text="60" Foreground="Black"/>
+                        <TextBlock x:Name="RulesSimpleSecondsUnit" Text="" VerticalAlignment="Center" Margin="4,0,0,0" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                        <CheckBox x:Name="RulesSimpleTimeCheck" Content="" Foreground="White" VerticalAlignment="Center"/>
+                        <TextBox x:Name="RulesSimpleStartBox" Width="52" Margin="6,0,0,0" Text="0000" Foreground="Black"/>
+                        <TextBlock x:Name="RulesSimpleTimeDash" Text="-" VerticalAlignment="Center" Margin="4,0,4,0" Foreground="{StaticResource Brand.TextDim}"/>
+                        <TextBox x:Name="RulesSimpleEndBox" Width="52" Margin="0,0,0,0" Text="2359" Foreground="Black"/>
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                        <TextBlock x:Name="RulesSimpleSeverityLabel" Text="" VerticalAlignment="Center" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+                        <ComboBox x:Name="RulesSimpleSeverityCombo" Width="110" Margin="8,0,0,0"/>
+                        <TextBlock x:Name="RulesSimpleTagLabel" Text="" VerticalAlignment="Center" Margin="14,0,0,0" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+                        <TextBox x:Name="RulesSimpleTagBox" Width="140" Margin="8,0,0,0" Foreground="Black"/>
+                        <CheckBox x:Name="RulesSimpleNotifyCheck" Content="" IsChecked="True" Margin="14,0,0,0" Foreground="White" VerticalAlignment="Center"/>
+                    </StackPanel>
+                </StackPanel>
+                <StackPanel Orientation="Horizontal">
                     <TextBlock x:Name="RulesNameLabel" Text="" VerticalAlignment="Center" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
                     <TextBox x:Name="RulesNameBox" AutomationProperties.AutomationId="RulesNameBox"
                              Width="180" Margin="8,0,0,0" Foreground="Black"/>
                     <CheckBox x:Name="RulesEnabledBox" Content="" IsChecked="True" AutomationProperties.AutomationId="RulesEnabledBox" ToolTip=""
                               Margin="16,0,0,0" Foreground="White" VerticalAlignment="Center"/>
                 </StackPanel>
+                <StackPanel x:Name="RulesAdvancedPanel">
                 <TextBlock x:Name="RulesExprLabel" Text="" Foreground="{StaticResource Brand.TextDim}" FontSize="11" Margin="0,8,0,0"/>
                 <TextBox x:Name="RulesExprBox" AutomationProperties.AutomationId="RulesExprBox"
                          Height="56" AcceptsReturn="True" TextWrapping="NoWrap" Foreground="Black" FontFamily="Consolas" FontSize="11"/>
                 <TextBlock x:Name="RulesActionsLabel" Text="" Foreground="{StaticResource Brand.TextDim}" FontSize="11" Margin="0,8,0,0"/>
                 <TextBox x:Name="RulesActionsBox" AutomationProperties.AutomationId="RulesActionsBox"
                          Height="40" AcceptsReturn="True" TextWrapping="NoWrap" Foreground="Black" FontFamily="Consolas" FontSize="11"/>
+                </StackPanel>
                 <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
                     <Button x:Name="RulesConfirmButton" AutomationProperties.AutomationId="RulesConfirmButton" ToolTip=""
                             Content="" Click="OnAddConfirmed"
