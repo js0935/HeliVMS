@@ -32,13 +32,14 @@ public sealed class NotificationLogWindowContractTests
 
         Assert.Contains("WindowState=\"Maximized\"", xaml, StringComparison.Ordinal);
 
-        // 保留：工具列右側的「關閉」鈕（IsCancel，Esc 也會觸發）與 Esc。
+        // 保留：工具列右側的關閉鈕已統一為紅 X（IsCancel，Esc 也會觸發）與 Esc。
+        Assert.Matches(
+            @"<Button[^>]*x:Name=""CloseButton""[^>]*Content=""✕""",
+            xaml);
+        Assert.Contains("Close()", SourceContract.BodyOf(source, "OnCloseClicked"));
         Assert.Matches(
             @"<Button[^>]*x:Name=""CloseButton""[^>]*IsCancel=""True""",
             xaml);
-        Assert.Contains("Close()", SourceContract.BodyOf(source, "OnCloseClicked"));
-        Assert.Contains("NotifyLog.Close", source);
-        Assert.Contains("CloseButton.Content", source);
 
         var key = SourceContract.BodyOf(source, "OnPreviewKeyDown");
         Assert.Contains("Key.Escape", key);

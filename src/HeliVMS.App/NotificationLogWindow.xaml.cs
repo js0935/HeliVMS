@@ -30,7 +30,6 @@ public partial class NotificationLogWindow : Window
     private void ApplyI18n()
     {
         Title = Localizer.T("NotifyLog.Title");
-        CloseButton.Content = Localizer.T("NotifyLog.Close");
         CloseButton.ToolTip = Localizer.T("NotifyLog.CloseTip");
         NotificationRefreshButton.Content = Localizer.T("NotifyLog.Refresh");
         NotificationRefreshButton.ToolTip = Localizer.T("NotifyLog.RefreshTip");
@@ -127,4 +126,5 @@ public partial class NotificationLogWindow : Window
             _openEvents?.Invoke(row.ChannelId);
         }
     }
+
 }

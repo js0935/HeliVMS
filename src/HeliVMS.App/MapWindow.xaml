@@ -4,7 +4,7 @@
         Title="" Width="1100" Height="720"
         MinWidth="800" MinHeight="520"
         WindowStartupLocation="CenterOwner"
-        Background="{StaticResource Brand.BgDeep}" WindowStyle="None" ResizeMode="NoResize" WindowState="Maximized">
+        Background="{StaticResource Brand.BgDeep}" WindowStyle="None" ResizeMode="NoResize" WindowState="Maximized" PreviewKeyDown="OnWindowKeyDown">
     <Grid Margin="10">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />

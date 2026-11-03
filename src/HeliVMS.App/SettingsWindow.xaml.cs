@@ -1,4 +1,4 @@
-﻿using System.Globalization;
+using System.Globalization;
 using System.IO;
 using System.Net.Http;
 using System.Reflection;
@@ -28,8 +28,11 @@ namespace HeliVMS.App;
 public partial class SettingsWindow : Window
 {
     // 配額與快照保管天數的設定鍵／預設值引用 RetentionCoordinator（桌面、Agent 共用），避免各寫一份字串而漂移。
-    private const string QuotaKey = RetentionCoordinator.QuotaGbKey;
-    private const double DefaultQuotaGb = RetentionCoordinator.DefaultQuotaGb;
+    /// <summary>磁碟保留空間（GB）的設定鍵；實際儲存為 bytes（recording.min_free_bytes）。</summary>
+    private const string ReserveGbSettingKey = RecordingStorage.MinFreeSettingKey;
+
+    /// <summary>未設定時的預設保留空間（GB），對應 RecordingStorage.DefaultMinFreeBytes。</summary>
+    private const double DefaultReserveGb = RecordingStorage.DefaultMinFreeBytes / (1024d * 1024 * 1024);
     private const string SnapshotDaysKey = RetentionCoordinator.SnapshotDaysKey;
     private const int DefaultSnapshotDays = RetentionCoordinator.DefaultSnapshotDays;
 
@@ -2171,8 +2174,20 @@ public partial class SettingsWindow : Window
 
     private void ReloadQuota()
     {
-        var quotaGb = QuotaGbFromStore();
-        QuotaTextBox.Text = quotaGb.ToString("0.#", CultureInfo.InvariantCulture);
+        var reserveGb = ReserveGbFromStore();
+        QuotaTextBox.Text = reserveGb.ToString("0.#", CultureInfo.InvariantCulture);
+    }
+
+    /// <summary>讀取磁碟保留空間（GB）：recording.min_free_bytes（bytes）÷ 1GB；未設定時回預設。</summary>
+    private double ReserveGbFromStore()
+    {
+        var fromDb = _settings.GetDoubleOrDefault(ReserveGbSettingKey, -1);
+        if (fromDb >= 0)
+        {
+            return fromDb / (1024d * 1024 * 1024);
+        }
+
+        return DefaultReserveGb;
     }
 
     /// <summary>
@@ -2227,23 +2242,6 @@ public partial class SettingsWindow : Window
                 : Localizer.T("Settings.HourlyMergeOff"));
     }
 
-    private double QuotaGbFromStore()
-    {
-        var fromDb = _settings.GetDoubleOrDefault(QuotaKey, -1);
-        if (fromDb > 0)
-        {
-            return fromDb;
-        }
-
-        var fromEnv = Environment.GetEnvironmentVariable("HELIVMS_QUOTA_GB");
-        if (!string.IsNullOrWhiteSpace(fromEnv) &&
-            double.TryParse(fromEnv, NumberStyles.Float, CultureInfo.InvariantCulture, out var v) && v > 0)
-        {
-            return v;
-        }
-
-        return DefaultQuotaGb;
-    }
 
     private void ReloadSnapshotDays()
     {
@@ -2478,7 +2476,7 @@ public partial class SettingsWindow : Window
         }
 
         var (total, count) = new SegmentRepository(_store).GetTotalUsageSummary();
-        UsageText.Text = string.Format(Localizer.T("Settings.UsageText"), FormatBytes(total), count, QuotaGbFromStore());
+        UsageText.Text = string.Format(Localizer.T("Settings.UsageText"), FormatBytes(total), count, ReserveGbFromStore());
     }
 
     /// <summary>
@@ -2677,7 +2675,9 @@ public partial class SettingsWindow : Window
             return;
         }
 
-        _settings.Set(QuotaKey, gb.ToString("0.#", CultureInfo.InvariantCulture));
+        // 保留空間以 bytes 寫入（recording.min_free_bytes）：壓力汰除的門檻——
+        // 磁碟可用空間低於這個值時，每小時清理會從最舊的錄影開始汰除。
+        _settings.Set(ReserveGbSettingKey, ((long)(gb * 1024d * 1024 * 1024)).ToString(System.Globalization.CultureInfo.InvariantCulture));
         CleanupReportText.Text = string.Format(Localizer.T("Settings.QuotaApplied"), gb);
         ReloadUsage();
     }
@@ -2736,9 +2736,12 @@ public partial class SettingsWindow : Window
                 repo,
                 _recordingsRoot,
                 additionalRoots: RecordingStorage.ParseKnownRoots(_settings.Get(RecordingStorage.KnownRootsSettingKey)));
-            var report = service.Apply(QuotaBytesFromGb(QuotaGbFromStore()), DateTime.UtcNow);
-            var text = string.Format(Localizer.T("Settings.CleanupDone"), report.DeletedSegments, FormatBytes(report.FreedBytes)) +
-                       (report.PurgedTmp > 0 ? string.Format(Localizer.T("Settings.CleanupTmp"), report.PurgedTmp) : string.Empty);
+            // 手動清理＝按「磁碟保留空間」跑一輪壓力汰除：可用空間低於保留值時
+            // 從最舊的錄影刪到回升為止（與每小時清理的門檻同一套）。
+            var reserveBytes = (long)(ReserveGbFromStore() * 1024d * 1024 * 1024);
+            var drives = DiskPressureCoordinator.ConfiguredDriveUsageDetailed(_store, _recordingsRoot);
+            var pressure = service.ApplyPressure(DateTime.UtcNow, reserveBytes, drives);
+            var text = string.Format(Localizer.T("Settings.CleanupDone"), pressure.DeletedSegments, FormatBytes(pressure.FreedBytes));
 
             var snapDays = SnapDaysFromStore();
             var snapReport = service.PurgeSnapshots(_snapshotsRoot, DateTime.UtcNow.AddDays(-snapDays));
@@ -4313,5 +4316,13 @@ public partial class SettingsWindow : Window
     {
         try { DialogResult = false; } catch { }
         Close();
+    }
+
+    private void OnWindowKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+    {
+        if (e.Key == System.Windows.Input.Key.Escape)
+        {
+            Close();
+        }
     }
 }

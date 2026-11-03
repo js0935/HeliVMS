@@ -139,4 +139,14 @@ public partial class DetectionWindow : Window
             ? Math.Clamp(v, 0f, 1f)
             : null;
     }
+
+    private void OnCloseClicked(object sender, RoutedEventArgs e) => Close();
+
+    private void OnWindowKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+    {
+        if (e.Key == System.Windows.Input.Key.Escape)
+        {
+            Close();
+        }
+    }
 }

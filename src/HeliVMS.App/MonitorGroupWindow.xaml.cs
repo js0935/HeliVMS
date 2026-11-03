@@ -76,7 +76,6 @@ public partial class MonitorGroupWindow : Window
         GroupDownButton.Content = Localizer.T("Channels.GroupDown");
         GroupDownButton.ToolTip = Localizer.T("Channels.GroupDownTip");
         GroupHintText.Text = Localizer.T("Channels.GroupSelectGroup");
-        CloseButton.Content = Localizer.T("Channels.Close");
     }
 
     private void OnCloseClicked(object sender, RoutedEventArgs e) => Close();
@@ -383,5 +382,13 @@ public partial class MonitorGroupWindow : Window
         }
 
         GroupHintText.Text = string.Format(Localizer.T("Channels.GroupMoved"), member.Name);
+    }
+
+    private void OnWindowKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+    {
+        if (e.Key == System.Windows.Input.Key.Escape)
+        {
+            Close();
+        }
     }
 }

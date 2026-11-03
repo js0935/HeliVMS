@@ -266,4 +266,14 @@ public partial class TalkWindow : Window
         TalkStartButton.IsEnabled = usable;
         TalkStopButton.IsEnabled = _session is not null;
     }
+
+    private void OnCloseClicked(object sender, RoutedEventArgs e) => Close();
+
+    private void OnWindowKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+    {
+        if (e.Key == System.Windows.Input.Key.Escape)
+        {
+            Close();
+        }
+    }
 }

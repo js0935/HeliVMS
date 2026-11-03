@@ -41,13 +41,14 @@ public readonly record struct RetentionSweepResult(
 /// </summary>
 public static class RetentionCoordinator
 {
-    /// <summary>錄影配額（GB）設定鍵；桌面與 Headless Agent 共用。</summary>
+    /// <summary>錄影配額（GB）設定鍵；已由「磁碟保留空間」（recording.min_free_bytes）取代，
+    /// 保留常數供進階使用者以 app_settings 手動啟用總量上限。</summary>
     public const string QuotaGbKey = "recording.quota_gb";
 
     /// <summary>快照保管天數設定鍵；桌面與 Headless Agent 共用。</summary>
     public const string SnapshotDaysKey = "snapshots.retention_days";
 
-    /// <summary>未設定時的預設配額（GB）。</summary>
+    /// <summary>舊配額的預設值已無作用（配額汰除停用）；保留常數避免破壞參考。</summary>
     public const double DefaultQuotaGb = 10.0;
 
     /// <summary>未設定時的預設快照保管天數。</summary>
@@ -70,7 +71,8 @@ public static class RetentionCoordinator
             new LegalHoldRepository(store),
             RecordingStorage.ParseKnownRoots(settings.Get(RecordingStorage.KnownRootsSettingKey)));
 
-        var quotaBytes = (long)(settings.GetDoubleOrDefault(QuotaGbKey, DefaultQuotaGb) * 1024 * 1024 * 1024);
+        // 空間治理以「磁碟保留空間」（recording.min_free_bytes，壓力汰除）為準；
+        // 舊的總量配額（recording.quota_gb）已從設定面移除，這裡傳 0＝配額汰除停用。
         var snapshotDays = (int)settings.GetDoubleOrDefault(SnapshotDaysKey, DefaultSnapshotDays);
         var alarmDays = (int)settings.GetDoubleOrDefault(MetadataRetentionPruner.AlarmDaysKey, MetadataRetentionPruner.DefaultDays);
         var auditDays = (int)settings.GetDoubleOrDefault(MetadataRetentionPruner.AuditDaysKey, MetadataRetentionPruner.DefaultDays);
@@ -79,7 +81,7 @@ public static class RetentionCoordinator
             store,
             service,
             Path.Combine(dataRoot, "snapshots"),
-            quotaBytes,
+            quotaBytes: 0,
             snapshotDays,
             alarmDays,
             auditDays,

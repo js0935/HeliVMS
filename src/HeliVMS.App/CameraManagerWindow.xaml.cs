@@ -230,7 +230,6 @@ public partial class CameraManagerWindow : Window
         OnvifWizardButton.ToolTip = Localizer.T("Camera.OnvifWizardTip");
         RefreshDevicesButton.Content = Localizer.T("Camera.Refresh");
         RefreshDevicesButton.ToolTip = Localizer.T("Camera.RefreshTip");
-        CloseButton.Content = Localizer.T("Camera.Close");
         CameraColName.Header = Localizer.T("Camera.ColName");
         CameraColAddress.Header = Localizer.T("Camera.ColAddress");
         CameraColVendor.Header = Localizer.T("Camera.ColVendor");
@@ -1063,4 +1062,12 @@ public partial class CameraManagerWindow : Window
     }
 
     private static string Actor() => SessionContext.CurrentUser?.Username ?? "system";
+
+    private void OnWindowKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+    {
+        if (e.Key == System.Windows.Input.Key.Escape)
+        {
+            Close();
+        }
+    }
 }

@@ -283,4 +283,14 @@ public partial class DewarpWindow : Window
     private static string FormatBytes(long bytes) => bytes >= 1024d * 1024 * 1024
         ? $"{bytes / 1024d / 1024 / 1024:0.#}GB"
         : $"{bytes / 1024d / 1024:0.#}MB";
+
+    private void OnCloseClicked(object sender, RoutedEventArgs e) => Close();
+
+    private void OnWindowKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+    {
+        if (e.Key == System.Windows.Input.Key.Escape)
+        {
+            Close();
+        }
+    }
 }

@@ -76,6 +76,27 @@ public static class RecordingIntent
         };
     }
 
+    /// <summary>事件錄影的預設錄製窗口：事件後續錄 30 秒（app_settings 可調）。</summary>
+    public static readonly TimeSpan DefaultEventWindow = TimeSpan.FromSeconds(30);
+
+    /// <summary>
+    /// 事件錄影：最近 <paramref name="window"/> 內有事件就錄。
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// 後續事件會刷新窗口——連續動作不會切段，静止超過窗口才停錄。
+    /// <paramref name="lastEventUtc"/> 為 null 表示從未觸發。
+    /// </para>
+    /// <para>
+    /// 沒有前置緩衝（pre-buffer）：事件到開錄之間的延遲是「立刻調和」的亞秒級，
+    /// 持續背景緩衝要為每個 Event 頻道常駐一條解碼管線，成本不成比例，刻意不做。
+    /// </para>
+    /// </remarks>
+    public static bool ShouldRecordEvent(DateTime? lastEventUtc, DateTime nowUtc, TimeSpan window)
+        => lastEventUtc is { } last
+            && nowUtc >= last
+            && nowUtc - last <= window;
+
     /// <summary>
     /// 該次開錄寫進稽核的來源標籤。全時與排程必須分開記，
     /// 否則出事時分不出是「使用者設了全時所以本來就該錄」還是「排程把它開起來的」。

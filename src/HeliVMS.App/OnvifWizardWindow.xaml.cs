@@ -105,7 +105,6 @@ public partial class OnvifWizardWindow : Window
         CancelButton.ToolTip = Localizer.T("Onvif.CancelTip");
         AddButton.Content = Localizer.T("Onvif.Add");
         AddButton.ToolTip = Localizer.T("Onvif.AddTip");
-        CloseButton.Content = Localizer.T("Onvif.Close");
         CloseButton.ToolTip = Localizer.T("Onvif.CloseTip");
         OnvifDeviceLabel.Text = Localizer.T("Onvif.DeviceLabel");
         OnvifProfilesLabel.Text = Localizer.T("Onvif.ProfilesLabel");
@@ -586,4 +585,12 @@ private async Task<IReadOnlyList<OnvifProfile>> ProbeResolutionsAsync(
         OperationCanceledException => Localizer.T("Onvif.Canceled"),
         _ => exception.Message,
     };
+
+    private void OnWindowKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+    {
+        if (e.Key == System.Windows.Input.Key.Escape)
+        {
+            Close();
+        }
+    }
 }

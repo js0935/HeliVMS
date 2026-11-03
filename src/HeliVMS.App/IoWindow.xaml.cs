@@ -215,4 +215,14 @@ public partial class IoWindow : Window
         var diList = _ports.List().Where(p => p.Kind == IoPortKind.Di).ToList();
         return idx < diList.Count ? diList[idx] : null;
     }
+
+    private void OnCloseClicked(object sender, RoutedEventArgs e) => Close();
+
+    private void OnWindowKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+    {
+        if (e.Key == System.Windows.Input.Key.Escape)
+        {
+            Close();
+        }
+    }
 }

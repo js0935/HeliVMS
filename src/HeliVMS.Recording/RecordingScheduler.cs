@@ -337,6 +337,84 @@ public sealed class RecordingScheduler : IDisposable
         }
     }
 
+    /// <summary>事件錄影：每頻道最近一次事件觸發時間（UTC）。僅 Event 模式消費。</summary>
+    private readonly ConcurrentDictionary<int, DateTime> _eventTriggers = new();
+
+    /// <summary>事件錄影窗口（秒）的設定鍵：事件後續錄 N 秒，静止超過窗口停錄。</summary>
+    internal const string EventWindowSecondsKey = "recording.event_seconds";
+    internal const int DefaultEventWindowSeconds = 30;
+
+    /// <summary>
+    /// 事件觸發（事件錄影接線）：偵測引擎每產生一筆事件就呼叫一次。
+    /// 僅 Event 模式的頻道會被登記——全時本來就錄、排程看時段、手動看按鈕，
+    /// 其他模式吃事件只是製造混亂。登記後立刻調和：事件錄影的價值在
+    /// 「事件發生當下就開始錄」，等下一輪 30 秒 tick，前段畫面早就過去了。
+    /// </summary>
+    public void RegisterEvent(int channelId, DateTime? whenUtc = null)
+    {
+        var channel = _channels.Get(channelId);
+        if (channel is null || channel.RecordingMode != RecordingMode.Event)
+        {
+            return;
+        }
+
+        _eventTriggers[channelId] = whenUtc ?? DateTime.UtcNow;
+
+        // 立刻踢一輪調和：把計時器的下次觸發改成「立即」（週期不變）。
+        // 調和跑在計時器自己的執行緒與例外處理裡（OnTick：閘門序列化、失敗記 LastError），
+        // 不在事件執行緒上背景起 Task——那會與測試／行程釋放競爭，也讓
+        // 「事件當下就開錄」變成機率。連續事件自然合併：Change 只是重設下一次觸發。
+        // 若該輪恰逢前一輪調和仍在跑（TryWait 跳過），觸發留在字典裡，下一輪 tick 會接手。
+        try
+        {
+            _timer.Change(TimeSpan.Zero, ReconcileInterval);
+        }
+        catch (ObjectDisposedException)
+        {
+            // 宿主已停止：字典隨實例消亡，不需處理。
+        }
+    }
+
+    private bool ShouldRecordIncludingEvents(
+        ChannelInfo channel,
+        IReadOnlyList<RecordingScheduleRecord> schedules,
+        DateTime nowLocal,
+        DateTime nowUtc,
+        TimeSpan eventWindow)
+        => channel.RecordingMode == RecordingMode.Event
+            ? RecordingIntent.ShouldRecordEvent(
+                _eventTriggers.TryGetValue(channel.Id, out var last) ? last : null,
+                nowUtc,
+                eventWindow)
+            : RecordingIntent.ShouldRecord(channel, schedules, nowLocal);
+
+    private TimeSpan EventWindow()
+    {
+        try
+        {
+            var seconds = new SettingsRepository(_store).GetDoubleOrDefault(
+                EventWindowSecondsKey, DefaultEventWindowSeconds);
+            return TimeSpan.FromSeconds(Math.Max(1, seconds));
+        }
+        catch (Exception)
+        {
+            // 設定讀取失敗不擋錄影：退回預設窗口。
+            return TimeSpan.FromSeconds(DefaultEventWindowSeconds);
+        }
+    }
+
+    private void PurgeExpiredEventTriggers(DateTime nowUtc, TimeSpan window)
+    {
+        // 窗口兩倍壽命之外的觸發已無意義：清掉避免長期運行的字典無限成長。
+        foreach (var kv in _eventTriggers)
+        {
+            if (nowUtc - kv.Value > window * 2)
+            {
+                _eventTriggers.TryRemove(kv.Key, out _);
+            }
+        }
+    }
+
     private async Task ReconcileAsyncCore()
     {
         MigrateRecordingFoldersOnce();
@@ -348,19 +426,26 @@ public sealed class RecordingScheduler : IDisposable
         // 單一趟迴圈決定該錄的頻道清單，啟動與停止共用同一份判斷。
         // 舊的寫法是「走排程清單啟動、走排程清單停止」，兩份依據各自算出來；
         // 改成走 recording_mode 之後這個分歧會更明顯，所以改成先收斂成 wanted。
+        // 事件錄影：Event 模式以「最近 N 秒內有事件」為閘（窗口由 recording.event_seconds 調整），
+        // 其餘模式照舊走 RecordingIntent。
+        var nowUtc = DateTime.UtcNow;
+        var eventWindow = EventWindow();
+        PurgeExpiredEventTriggers(nowUtc, eventWindow);
+
         var wanted = channelById.Values
-            .Where(ch => RecordingIntent.ShouldRecord(ch, schedules, now))
+            .Where(ch => ShouldRecordIncludingEvents(ch, schedules, now, nowUtc, eventWindow))
             .ToDictionary(ch => ch.Id);
 
         // 記下每個「不該錄」的頻道為什麼不該錄，讓 UI 能直接回答「為什麼沒錄」。
         // 少了這一步，操作員看到磁碟沒檔案時只能逐一猜原因。
+        // 該錄的頻道（含事件觸發中的）要把舊的原因清掉——上一輪的 EventOnly 不該殘留。
         var reasons = channelById.Values.ToDictionary(
             ch => ch.Id,
             ch => RecordingIntent.BlockReasonFor(ch, schedules, now));
         _blockReasons.Clear();
         foreach (var (channelId, reason) in reasons)
         {
-            if (reason != RecordingBlockReason.None)
+            if (reason != RecordingBlockReason.None && !wanted.ContainsKey(channelId))
             {
                 _blockReasons[channelId] = reason;
             }

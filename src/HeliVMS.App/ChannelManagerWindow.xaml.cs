@@ -127,7 +127,6 @@ public partial class ChannelManagerWindow : Window
         ApplyChannelEditButton.ToolTip = Localizer.T("Channels.ApplyTip");
         DeleteChannelButton.Content = Localizer.T("Channels.Delete");
         DeleteChannelButton.ToolTip = Localizer.T("Channels.DeleteTip");
-        CloseButton.Content = Localizer.T("Channels.Close");
     }
 
     private void OnCloseClicked(object sender, RoutedEventArgs e) => Close();
@@ -645,4 +644,12 @@ public partial class ChannelManagerWindow : Window
         }
     }
 
+
+    private void OnWindowKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+    {
+        if (e.Key == System.Windows.Input.Key.Escape)
+        {
+            Close();
+        }
+    }
 }

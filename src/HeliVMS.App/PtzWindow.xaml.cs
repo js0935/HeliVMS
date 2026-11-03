@@ -421,4 +421,12 @@ public partial class PtzWindow : Window
         _service.Dispose();
         base.OnClosed(e);
     }
+
+    private void OnWindowKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+    {
+        if (e.Key == System.Windows.Input.Key.Escape)
+        {
+            Close();
+        }
+    }
 }

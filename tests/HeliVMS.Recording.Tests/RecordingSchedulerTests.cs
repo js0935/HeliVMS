@@ -1040,6 +1040,73 @@ public sealed class RecordingSchedulerTests : IDisposable
     private int AddChannel(string name, RecordingMode mode = RecordingMode.Scheduled)
         => _channels.Add(name, "rtsp://example.invalid/live", recordingMode: mode);
 
+    /// <summary>
+    /// 事件錄影接線（§15.1）：Event 模式的頻道以偵測事件為錄影閘。
+    /// 症狀背景：Event 模式自建立以來沒有任何行為消費者——設了「事件錄影」的頻道
+    /// 靜靜地什麼都沒錄（BlockReason.EventOnly），log 乾淨、磁碟乾淨。
+    /// 這組測試釘住三件事：事件登記後立刻開錄、窗口過後停錄、非 Event 模式忽略事件。
+    /// </summary>
+    [Fact]
+    public async Task 事件錄影頻道登記事件後調和會開錄()
+    {
+        var id = AddChannel("事件攝影機", RecordingMode.Event);
+        using var scheduler = NewScheduler();
+
+        // 沒有事件時：EventOnly，不開錄（這正是原本「靜靜地什麼都沒錄」的狀態）。
+        await scheduler.ReconcileAsync();
+        Assert.Empty(_started);
+        Assert.Equal(RecordingBlockReason.EventOnly, scheduler.BlockReasonFor(id));
+
+        // 事件觸發：登記後立即調和，錄影機開起來；BlockReason 清空（該錄的不再報擋）。
+        scheduler.RegisterEvent(id, DateTime.UtcNow);
+        await scheduler.ReconcileAsync();
+        Assert.Single(_started);
+        Assert.Null(scheduler.BlockReasonFor(id));
+    }
+
+    [Fact]
+    public async Task 事件窗口過後調和會停錄()
+    {
+        var id = AddChannel("事件攝影機", RecordingMode.Event);
+        using var scheduler = NewScheduler();
+
+        // 用「過去的時間戳」模擬窗口已過：register 的時間早於窗口起算點。
+        scheduler.RegisterEvent(id, DateTime.UtcNow - RecordingIntent.DefaultEventWindow * 2);
+        await scheduler.ReconcileAsync();
+        Assert.Empty(_started);
+    }
+
+    [Fact]
+    public async Task 連續事件刷新窗口不會切段()
+    {
+        var id = AddChannel("事件攝影機", RecordingMode.Event);
+        using var scheduler = NewScheduler();
+
+        scheduler.RegisterEvent(id, DateTime.UtcNow);
+        await scheduler.ReconcileAsync();
+        Assert.Single(_started);
+
+        // 窗口過半再觸發一次：仍在錄同一台錄影機，不會重開新檔。
+        scheduler.RegisterEvent(id, DateTime.UtcNow);
+        await scheduler.ReconcileAsync();
+        Assert.Single(_started);
+    }
+
+    [Fact]
+    public async Task 非事件模式的頻道忽略事件觸發()
+    {
+        // 全時本來就錄、排程看時段、手動看按鈕：事件呼叫對它們是無害的 no-op，
+        // 不會把排程外的頻道悄悄開錄。
+        var always = AddChannel("全時", RecordingMode.Always);
+        var scheduled = AddChannel("排程", RecordingMode.Scheduled);
+        using var scheduler = NewScheduler();
+
+        scheduler.RegisterEvent(always, DateTime.UtcNow);
+        scheduler.RegisterEvent(scheduled, DateTime.UtcNow);
+        await scheduler.ReconcileAsync();
+        Assert.Empty(_started);
+    }
+
     /// <summary>停用頻道。停用是操作員在設定頁關閉錄影的手段，必須真的生效。</summary>
     private void DisableChannel(int channelId)
     {

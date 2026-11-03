@@ -86,6 +86,11 @@ public sealed class RetentionService
         long freed = 0;
         var deleted = 0;
 
+        // 配額停用（quotaBytes <= 0）：空間治理改由「磁碟保留空間」（min_free 壓力汰除）接手後，
+        // 總量上限不再是設定面的一部分。0 或負值＝不依總量汰除——否則 while (usage > 0)
+        // 會把磁碟上的錄影汰到一滴不剩。仍保留對帳與暫存清理。
+        if (quotaBytes > 0)
+        {
         while (usage > quotaBytes)
         {
             // 汰除候選改依配額優先序（事件段先、全時段後，同層由舊至新；見 ListReclaimCandidates）。
@@ -129,6 +134,7 @@ public sealed class RetentionService
             usage -= target.SizeBytes;
             freed += target.SizeBytes;
             deleted++;
+        }
         }
 
         var purgedTmp = PurgeStaleTmp(now);

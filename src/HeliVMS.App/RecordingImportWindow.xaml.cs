@@ -99,7 +99,6 @@ public partial class RecordingImportWindow : Window
         ColChannel.Header = Localizer.T("RecordingImport.ColChannel");
         ImportButton.Content = Localizer.T("RecordingImport.Import");
         ImportButton.ToolTip = Localizer.T("RecordingImport.ImportTip");
-        CloseButton.Content = Localizer.T("RecordingImport.Close");
 
         if (Report is null)
         {
@@ -149,4 +148,12 @@ public partial class RecordingImportWindow : Window
     private static string FormatBytes(long bytes) => bytes >= 1024d * 1024 * 1024
         ? $"{bytes / 1024d / 1024 / 1024:0.#}GB"
         : $"{bytes / 1024d / 1024:0.#}MB";
+
+    private void OnWindowKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+    {
+        if (e.Key == System.Windows.Input.Key.Escape)
+        {
+            Close();
+        }
+    }
 }

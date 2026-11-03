@@ -1572,7 +1572,7 @@ public partial class MainWindow : Window
                     _store!,
                     service,
                     Path.Combine(_dataRoot, "snapshots"),
-                    ReadQuotaBytes(),
+                    quotaBytes: 0,   // 空間治理改由磁碟保留空間（min_free 壓力汰除）接手
                     ReadSnapshotDays(),
                     alarmDays,
                     auditDays,
@@ -1769,34 +1769,9 @@ public partial class MainWindow : Window
         return RetentionCoordinator.DefaultSnapshotDays;
     }
 
-    /// <summary>錄影保留配額（bytes）：app_settings["recording.quota_gb"] → HELIVMS_QUOTA_GB → 10GB。</summary>
-    private long ReadQuotaBytes()
-    {
-        if (_store is not null)
-        {
-            var fromDb = new SettingsRepository(_store).GetDoubleOrDefault(RetentionCoordinator.QuotaGbKey, -1);
-            if (fromDb > 0)
-            {
-                return (long)(fromDb * 1024 * 1024 * 1024);
-            }
-        }
-
-        return ParseQuotaBytes();
-    }
-
+    /// <summary>舊配額路徑已停用（空間治理改由磁碟保留空間接手）；保留空殼避免參考斷線。</summary>
     private static long ParseQuotaBytes()
-    {
-        var gb = RetentionCoordinator.DefaultQuotaGb;
-        var raw = Environment.GetEnvironmentVariable("HELIVMS_QUOTA_GB");
-        if (!string.IsNullOrWhiteSpace(raw) &&
-            double.TryParse(raw, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var v) &&
-            v > 0)
-        {
-            gb = v;
-        }
-
-        return (long)(gb * 1024 * 1024 * 1024);
-    }
+        => (long)(RetentionCoordinator.DefaultQuotaGb * 1024 * 1024 * 1024);
 
     private async void OnLayoutChanged(object sender, SelectionChangedEventArgs e)
     {
@@ -2486,6 +2461,11 @@ public partial class MainWindow : Window
     /// </remarks>
     private void RouteAlarm(AlarmEventRecord record)
     {
+        // 事件錄影接線：Event 模式的頻道以偵測事件為錄影閘（排程器內部會過濾模式，
+        // 其他模式的事件呼叫是無害的 no-op）。放在智慧警報過濾之前——被聚合抑制通知的
+        // 原始事件仍然是真實的偵測，該錄的就是要錄。
+        _scheduler?.RegisterEvent(record.ChannelId);
+
         // 聚合判定要讀資料庫；這些事件可能來自解碼執行緒。
         // SmartAlertHost 內部讀不到資料時會退化成「照常通知」，所以這裡不會丟事件。
         SmartAlertOutcome outcome;
