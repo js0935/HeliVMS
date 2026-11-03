@@ -344,14 +344,14 @@ Notes that will save you time:
   mid-export must cancel ffmpeg, not orphan it. Fixed-width inputs (`Width="280"` on the channel
   combo, `"180"` on the bundle fields) clipped translated labels and long camera names;
   fullscreen form fields stretch instead, and the time range is a labelled 2×2 From/To grid
-  rather than four controls sharing one row. The rule now covers the whole settings centre:
-  every borderless maximized window — including the twelve child windows `SettingsWindow` opens
-  (camera/channel manager, detection, redaction, dewarp, stream switch, IO, talk, monitor group,
-  recording import, notification log, ONVIF wizard, map, PTZ) — carries the same red ✕ at
-  top-right plus Esc. Six of them had no close affordance at all and six had a text 關閉 button;
-  both read as "this window has no exit" once the title bar is gone. Guarded by
-  `WindowExitContractTests` (table of 18 windows; each row reads the XAML for the ✕ and the
-  code-behind for Esc).
+  rather than four controls sharing one row. The rule now covers every borderless maximized
+  window in the app (18 of them: the settings-centre children — detection, redaction, dewarp,
+  stream switch, IO, talk, camera/channel manager, monitor group, recording import, notification
+  log, ONVIF wizard, map, PTZ — plus scheduling/export/export centre and the settings centre
+  itself), each carrying the same red ✕ at top-right plus Esc. Six of them had no close
+  affordance at all and six had only a text 關閉 button; both read as "this window has no exit"
+  once the title bar is gone. Guarded by `WindowExitContractTests` (table of 18 windows; each
+  row reads the XAML for the ✕ and the code-behind for Esc).
 - **Space governance is "keep N GB free", not "recording quota".** The Storage page used to say
   「錄影保留上限（GB）」 while `RetentionService.Apply` looped `while (usage > quotaBytes)` — set it
   to 0, or below one segment, and a single hourly sweep deleted *every* recording while the UI
