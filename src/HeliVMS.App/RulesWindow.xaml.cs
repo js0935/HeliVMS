@@ -31,6 +31,13 @@ public partial class RulesWindow : Window
     /// <summary>手動執行一顆排程任務（回傳結果字串供狀態列顯示）；宿主由主視窗提供。</summary>
     private readonly Func<long, Task<string?>>? _runTaskNow;
 
+    /// <summary>
+    /// 任務清單自動刷新（30 秒）：宿主在背景輪詢執行任務後，結果寫在資料庫的
+    /// last_result——視窗開著不重讀的話，操作員看到的永遠是開窗那一刻的舊結果，
+    /// 以為任務沒跑。只刷新清單，不動編輯面板裡正在輸入的欄位。
+    /// </summary>
+    private readonly System.Windows.Threading.DispatcherTimer _taskRefreshTimer;
+
     /// <summary>正在編輯的複合事件規則 Id；null＝新增模式。</summary>
     private int? _editingRuleId;
 
@@ -73,6 +80,11 @@ public partial class RulesWindow : Window
         _eventRulesChanged = eventRulesChanged;
         _runTaskNow = runTaskNow;
         InitializeComponent();
+
+        _taskRefreshTimer = new System.Windows.Threading.DispatcherTimer(
+            TimeSpan.FromSeconds(30), System.Windows.Threading.DispatcherPriority.Background,
+            (_, _) => RefreshTasks(), Dispatcher);
+        _taskRefreshTimer.Start();
         ApplyI18n();
         ReloadIoRuleChoices();
         RefreshIoRules();
@@ -81,6 +93,12 @@ public partial class RulesWindow : Window
     }
 
     private void OnCloseClicked(object sender, RoutedEventArgs e) => Close();
+
+    protected override void OnClosed(EventArgs e)
+    {
+        base.OnClosed(e);
+        _taskRefreshTimer.Stop();
+    }
 
     private void ApplyI18n()
     {

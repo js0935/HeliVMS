@@ -73,6 +73,20 @@ public sealed class TaskRunNowContractTests
         return count;
     }
 
+    [Fact]
+    public void 任務清單自動刷新且關窗時停止計時器()
+    {
+        // 輪詢執行的結果寫在資料庫；視窗開著不重讀，操作員看到的永遠是舊結果，
+        // 以為任務沒跑。
+        var source = SourceContract.Read(Code);
+        Assert.Contains("_taskRefreshTimer = new System.Windows.Threading.DispatcherTimer(", source);
+        Assert.Contains("(_, _) => RefreshTasks()", source);
+
+        // 計時器綁在 Dispatcher 上，關窗不停就是洩漏（對照巡邏宿主的收法）。
+        var closed = SourceContract.BodyOf(source, "OnClosed");
+        Assert.Contains("_taskRefreshTimer.Stop()", closed);
+    }
+
     private static string BodyOf(string signature)
     {
         var source = SourceContract.Read(Host);
