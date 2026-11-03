@@ -123,6 +123,15 @@ public partial class MainWindow : Window
     /// </summary>
     private readonly TextBlock[] _cellTalkIcons = new TextBlock[MaxCells];
 
+    /// <summary>
+    /// 每格右上角的「錄影方式指示燈」：紅＝全時、藍＝排程、綠＝事件、灰＝手動
+    /// （色票在 <see cref="WallModeDotPalette"/>）。全亮＝現在真的在錄，壓暗＝該模式當下不錄
+    /// （排程時段外、事件未觸發、手動待按）。左下角的名稱徽章（文字）與右上角的燈（顏色）
+    /// 一起回答「這台是怎麼錄的、現在有沒有在錄」——設定頁查錄影方式得點進頻道管理，
+    /// 而監看牆上一次有 16 台在跑。
+    /// </summary>
+    private readonly Ellipse[] _cellModeDots = new Ellipse[MaxCells];
+
     /// <summary>監看牆的對講（主機麥克風 → 攝影機喇叭，同一時間只有一台）。</summary>
     private LiveTalkController? _talk;
     private readonly Border[] _cellBorders = new Border[MaxCells];
@@ -184,8 +193,11 @@ public partial class MainWindow : Window
     private Point _panOrigin;
     private Point _panStart;
 
-    /// <summary>channelId → 名稱快取（<see cref="ChannelName"/> 每秒呼叫 32 次）。</summary>
-    private Dictionary<int, string>? _channelNames;
+    /// <summary>
+    /// channelId → 頻道列快取（<see cref="ChannelName"/> 每秒呼叫 32 次，<see cref="ChannelMode"/>
+    /// 是同一個節奏）。名稱與錄影方式取自同一份快取，兩者不可能對到不同的頻道列。
+    /// </summary>
+    private Dictionary<int, ChannelInfo>? _channelById;
     private string _footerBase = string.Empty;
     private int _preFullscreenLayout = 1;
 
@@ -282,6 +294,13 @@ public partial class MainWindow : Window
     private static readonly SolidColorBrush s_audioActive = Frozen(Color.FromRgb(0x4D, 0xA3, 0xFF));
     private static readonly SolidColorBrush s_audioUnavailable = Frozen(Color.FromRgb(0x8A, 0x93, 0x9C));
 
+    // 錄影方式指示燈的燈色。色票在 HeliVMS.Shared.WallModeDotPalette——「紅＝全時、藍＝排程、
+    // 綠＝事件、灰＝手動」是操作員背下來的約定，桌面端不自己寫第二份色表。
+    private static readonly SolidColorBrush BrModeAlways = Frozen(ParseHex(WallModeDotPalette.Always));
+    private static readonly SolidColorBrush BrModeScheduled = Frozen(ParseHex(WallModeDotPalette.Scheduled));
+    private static readonly SolidColorBrush BrModeEvent = Frozen(ParseHex(WallModeDotPalette.Event));
+    private static readonly SolidColorBrush BrModeManual = Frozen(ParseHex(WallModeDotPalette.Manual));
+
     // AI 疊加用填色／標籤底色。原本是「每個偵測框、每一幀」各 new 一個 SolidColorBrush，
     // 16 格 × 15fps × N 框就是每秒數千個一次性 Brush 落到 LOH。改成靜態共用並 Freeze：
     // Freeze 後 WPF 不再為它建立-change 通知鏈，跨執行緒使用也安全。
@@ -294,6 +313,18 @@ public partial class MainWindow : Window
         brush.Freeze();
         return brush;
     }
+
+    private static Color ParseHex(string hex) => (Color)ColorConverter.ConvertFromString(hex);
+
+    /// <summary>錄影方式指示燈的燈色；未知的錄影方式回 <see langword="null"/>（把燈收起來，不猜顏色）。</summary>
+    private static SolidColorBrush? ModeBrush(RecordingMode? mode) => WallModeDotPalette.For(mode) switch
+    {
+        WallModeDotPalette.Always => BrModeAlways,
+        WallModeDotPalette.Scheduled => BrModeScheduled,
+        WallModeDotPalette.Event => BrModeEvent,
+        WallModeDotPalette.Manual => BrModeManual,
+        _ => null,
+    };
 
     private bool _aiVisible;
     private readonly IReadOnlyList<Detection>[] _aiBoxes = new IReadOnlyList<Detection>[MaxCells];
@@ -1086,7 +1117,7 @@ public partial class MainWindow : Window
             _channelList = ChannelLayout.ReorderByCell(_channels.List(), c => c.DisplayCell);
         }
 
-        _channelNames = null;
+        _channelById = null;
     }
 
     // ---- 監看群組（監控中心頁簽）------------------------------------------------
@@ -1421,6 +1452,9 @@ public partial class MainWindow : Window
             _cellAudioIcons[i].Visibility = Visibility.Collapsed;
             _cellTalkIcons[i].Text = string.Empty;
             _cellTalkIcons[i].Visibility = Visibility.Collapsed;
+            // 沒有頻道的格子不留燈：一顆孤零零的紅點會讓操作員以為那格還在錄。
+            _cellModeDots[i].Fill = null;
+            _cellModeDots[i].Visibility = Visibility.Collapsed;
         }
     }
 
@@ -1931,6 +1965,20 @@ public partial class MainWindow : Window
                 e.Handled = true;
                 OnCellTalkIconClicked(audioCell);
             };
+            // 錄影方式指示燈：右上角。刻意留在數位縮放層外（與狀態文字、名稱徽章同一層），
+            // 放大畫面時燈不會跟著放大跑掉，也永遠在看得見的角落。
+            var modeDot = new Ellipse
+            {
+                Width = 11,
+                Height = 11,
+                HorizontalAlignment = HorizontalAlignment.Right,
+                VerticalAlignment = VerticalAlignment.Top,
+                Margin = new Thickness(6),
+                // 深色描邊：畫面可能是整片亮白（車燈、逆光），純色圓點會消失在白底上。
+                Stroke = BrBadgeBg,
+                StrokeThickness = 1.5,
+                Visibility = Visibility.Collapsed,
+            };
             var audioStrip = new StackPanel
             {
                 Orientation = Orientation.Horizontal,
@@ -1955,6 +2003,7 @@ public partial class MainWindow : Window
             inner.Children.Add(zoomLayer);
             inner.Children.Add(text);
             inner.Children.Add(badge);
+            inner.Children.Add(modeDot);
             inner.Children.Add(audioStrip);
 
             var border = new Border
@@ -1997,6 +2046,7 @@ public partial class MainWindow : Window
             _cellOverlays[i] = overlay;
             _cellTexts[i] = text;
             _cellBadges[i] = badge;
+            _cellModeDots[i] = modeDot;
             _cellAudioIcons[i] = audioIcon;
             _cellTalkIcons[i] = talkIcon;
             _cellBorders[i] = border;
@@ -4883,18 +4933,40 @@ public partial class MainWindow : Window
     /// 該頻道「不該錄」的白話原因；沒有阻擋時回 null（讓呼叫端顯示一般狀態）。
     /// </summary>
     /// <remarks>
+    /// <para>
     /// 存在的理由是那種最難查的失效：操作員設定頁勾了「全時」，
     /// 但磁碟上沒有檔案、log 也乾淨、沒有任何錯誤。沒有這個原因顯示，
     /// 唯一能確認的方法是讀程式碼。
+    /// </para>
+    /// <para>
+    /// <paramref name="mode"/> 是為了去掉重複句：事件模式的「僅事件錄影」與手動模式的
+    /// 「僅手動錄影」在徽章已經寫了錄影方式之後只是同一句話說兩次，讀起來像兩個不同的問題。
+    /// 其餘原因（頻道停用、未設位址、排程外）都是操作員真正需要的資訊，一律保留。
+    /// </para>
     /// </remarks>
-    private static string? BlockLabel(RecordingBlockReason? block) => block switch
+    private static string? BlockLabel(RecordingBlockReason? block, RecordingMode? mode) => block switch
     {
         null => null,
+        RecordingBlockReason.ManualOnly when mode == RecordingMode.Manual => null,
+        RecordingBlockReason.EventOnly when mode == RecordingMode.Event => null,
         RecordingBlockReason.ChannelDisabled => Localizer.T("Main.BlockChannelDisabled"),
         RecordingBlockReason.NoStreamUrl => Localizer.T("Main.BlockNoStreamUrl"),
         RecordingBlockReason.ManualOnly => Localizer.T("Main.BlockManualOnly"),
         RecordingBlockReason.EventOnly => Localizer.T("Main.BlockEventOnly"),
         RecordingBlockReason.OutsideSchedule => Localizer.T("Main.BlockOutsideSchedule"),
+        _ => null,
+    };
+
+    /// <summary>
+    /// 錄影方式在徽章上的短標籤。未知值回 <see langword="null"/>：徽章是操作員判斷
+    /// 「這台會不會錄」的依據，寫上一個猜的值比留白更糟。
+    /// </summary>
+    private static string? ModeLabel(RecordingMode? mode) => mode switch
+    {
+        RecordingMode.Always => Localizer.T("Main.ModeAlways"),
+        RecordingMode.Scheduled => Localizer.T("Main.ModeScheduled"),
+        RecordingMode.Event => Localizer.T("Main.ModeEvent"),
+        RecordingMode.Manual => Localizer.T("Main.ModeManual"),
         _ => null,
     };
 
@@ -5377,7 +5449,12 @@ public partial class MainWindow : Window
         }), DispatcherPriority.Render);
     }
 
-    /// <summary>每格左下角頻道名徽章（含錄影指示）。</summary>
+    /// <summary>每格左下角的徽章：頻道名 · 錄影方式（全時／排程／事件／手動）＋ ●REC ＋ 沒錄的原因。</summary>
+    /// <remarks>
+    /// 錄影方式一定要出現：設定頁改錄影方式要點進頻道管理，而監看牆上一次有 16 台在跑。
+    /// 少了它，「排程外」（正常）與「勾了全時卻沒錄」（故障）在畫面上長得一模一樣，
+    /// 只能一台一台點進設定頁查。
+    /// </remarks>
     private void UpdateBadges()
     {
         for (var i = 0; i < MaxCells; i++)
@@ -5390,24 +5467,47 @@ public partial class MainWindow : Window
 
             var ch = _cellChannel[i];
             var text = string.Empty;
+            string? tip = null;
+            var dot = _cellModeDots[i];
             if (ch is int id)
             {
+                var mode = ChannelMode(id);
+                var modeLabel = ModeLabel(mode);
                 var recording = _manager?.IsRecording(id) == true;
-                text = ChannelName(id) + (recording ? " ●REC" : string.Empty);
 
                 // 非錄影狀態時把「為什麼沒錄」直接印在格框徽章上。設定頁勾了全時
                 // 卻沒有錄影，是那種沒有任何錯誤訊息的失效；讓原因長在畫面上，
                 // 比讓操作員去猜省下的是一整趟現場查線。
-                if (!recording)
+                var why = recording ? null : BlockLabel(_scheduler?.BlockReasonFor(id), mode);
+
+                text = WallBadgeTextPlanner.Compose(ChannelName(id), modeLabel, recording, why);
+                if (modeLabel is not null)
                 {
-                    var why = BlockLabel(_scheduler?.BlockReasonFor(id));
-                    if (why is not null)
-                    {
-                        text += $"（{why}）";
-                    }
+                    tip = string.Format(Localizer.T("Main.ModeTip"), modeLabel);
+                }
+
+                if (dot is not null)
+                {
+                    var brush = ModeBrush(mode);
+                    dot.Fill = brush;
+                    // 同一盞燈同時回答兩個問題：顏色＝錄影方式，明暗＝現在有沒有在錄。
+                    dot.Opacity = WallModeDotPalette.OpacityFor(recording);
+                    dot.ToolTip = modeLabel is null
+                        ? null
+                        : string.Format(
+                            Localizer.T(recording ? "Main.ModeDotOn" : "Main.ModeDotOff"),
+                            modeLabel);
+                    dot.Visibility = brush is null ? Visibility.Collapsed : Visibility.Visible;
                 }
             }
+            else if (dot is not null)
+            {
+                dot.Fill = null;
+                dot.Visibility = Visibility.Collapsed;
+            }
+
             badge.Text = text;
+            badge.ToolTip = tip;
             badge.Visibility = text.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
         }
 
@@ -5417,16 +5517,26 @@ public partial class MainWindow : Window
     }
 
     private string ChannelName(int channelId)
+        => ChannelById().TryGetValue(channelId, out var channel) ? channel.Name : $"#{channelId}";
+
+    /// <summary>
+    /// 該頻道設定的錄影方式；查不到頻道時回 <see langword="null"/>。
+    /// 徽章上寧可不寫錄影方式，也不要印一個猜的——那正是操作員拿來判斷「現在為什麼沒錄」的依據。
+    /// </summary>
+    private RecordingMode? ChannelMode(int channelId)
+        => ChannelById().TryGetValue(channelId, out var channel) ? channel.RecordingMode : null;
+
+    private Dictionary<int, ChannelInfo> ChannelById()
     {
-        if (_channelNames is null)
+        if (_channelById is null)
         {
-            // 快取隨頻道清單重建而失效（RefreshChannelList 設 _channelNames = null）。
+            // 快取隨頻道清單重建而失效（RefreshChannelList 設 _channelById = null）。
             // ChannelName 每秒被呼叫 32 次（UpdateCellStatus 16 次＋ UpdateBadges 16 次），
             // 原本每次都線性掃描整個 _channelList。
-            _channelNames = _channelList.ToDictionary(c => c.Id, c => c.Name);
+            _channelById = _channelList.ToDictionary(c => c.Id);
         }
 
-        return _channelNames.TryGetValue(channelId, out var name) ? name : $"#{channelId}";
+        return _channelById;
     }
 
     private void OnWindowClosed(object? sender, EventArgs e)

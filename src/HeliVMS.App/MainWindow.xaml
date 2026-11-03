@@ -221,7 +221,11 @@
                     <UniformGrid x:Name="CellGrid" HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
                     </UniformGrid>
 
-                    <Border x:Name="RecBadge" HorizontalAlignment="Right" VerticalAlignment="Top"
+                    <!-- Wall-level "something is recording" chip. Centered, not right-aligned: each
+                         pane carries its own recording-mode dot in its top-right corner, and an
+                         opaque chip sitting on that corner would hide the mode of exactly the
+                         camera underneath it. -->
+                    <Border x:Name="RecBadge" HorizontalAlignment="Center" VerticalAlignment="Top"
                             Margin="10" Padding="10,4" CornerRadius="3" Background="#B0352A" Visibility="Collapsed">
                         <StackPanel Orientation="Horizontal">
                             <Ellipse Width="10" Height="10" Fill="White" Margin="0,0,6,0" VerticalAlignment="Center" />

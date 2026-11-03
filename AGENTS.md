@@ -378,6 +378,22 @@ Notes that will save you time:
   without it `LicenseService.CheckRecording` blocks Event mode and the assertion passes for a
   reason that has nothing to do with the gate. Guarded by `事件錄影頻道登記事件後調和會開錄`,
   `事件窗口過後調和會停錄`, `連續事件刷新窗口不會切段` and `非事件模式的頻道忽略事件觸發`.
+- **The wall's recording-mode dot: the colour is the mode, the brightness is "recording right now".**
+  Every pane carries an 11 px dot in its top-right corner (created in `RebuildCells`, refreshed by
+  `UpdateBadges` on the same 1 s cadence as the name badge): red = always-on, blue = schedule,
+  green = event/motion, grey = manual. The palette lives in `HeliVMS.Shared.WallModeDotPalette`
+  because the legend is what the operator memorises; the desktop maps those constants to brushes
+  and must not keep a second colour table. Full opacity = a recorder is really running; 0.35 = the
+  mode simply is not recording at the moment (outside schedule, event not triggered, manual waiting
+  for the button). That distinction is the whole point: "should be recording but isn't" and "not
+  supposed to be recording" used to look identical on the wall, and the mode could only be read by
+  opening Settings → Channel management. The colour is never the only channel — the bottom-left
+  badge reads `名稱 · 全時 ●REC（排程外）` (text from `WallBadgeTextPlanner`, reasons from
+  `BlockLabel`, which drops "僅事件錄影"/"僅手動錄影" when the mode label already says it) and both
+  tooltips spell the mode out. The wall-level REC chip is **centred**, not right-aligned: parked on
+  the top-right corner it would cover the dot of exactly the pane underneath it. Guarded by
+  `WallModeDotPaletteTests`, `WallBadgeTextPlannerTests` and
+  `MonitorWallRecordingModeContractTests`.
 - **A recording-schedule rule that never records must be rejected, not stored.** `IsActiveAt`
   uses a closed interval, so start == end (e.g. the old form default 00:00–00:00) is active for
   exactly one minute of the day; the scheduler ticks every 30 s and in practice captures

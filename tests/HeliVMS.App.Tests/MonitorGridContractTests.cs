@@ -209,9 +209,15 @@ public sealed class MonitorGridContractTests
         var xaml = SourceContract.Read(MainWindowXaml);
         var at = xaml.IndexOf("x:Name=\"CellGrid\"", StringComparison.Ordinal);
         Assert.True(at >= 0, "找不到 CellGrid");
-        var tail = xaml[at..];
-        Assert.Contains("HorizontalAlignment=\"Stretch\"", tail);
-        Assert.Contains("VerticalAlignment=\"Stretch\"", tail);
-        Assert.DoesNotContain("HorizontalAlignment=\"Center\"", tail[..tail.IndexOf("/>")]);
+
+        // 只看 CellGrid 自己的標籤。截到第一個 '/>' 會把後面的「置中對齊全域 REC 徽章」
+        // 一起掃進來（它與格線無關），斷言就變成在驗另一顆徽章。
+        var openTagEnd = xaml.IndexOf('>', at);
+        Assert.True(openTagEnd > at, "CellGrid 標籤沒有結束");
+        var element = xaml[at..openTagEnd];
+
+        Assert.Contains("HorizontalAlignment=\"Stretch\"", element);
+        Assert.Contains("VerticalAlignment=\"Stretch\"", element);
+        Assert.DoesNotContain("HorizontalAlignment=\"Center\"", element);
     }
 }
