@@ -58,6 +58,19 @@ public sealed class SettingsReserveSpaceContractTests
     }
 
     [Fact]
+    public void 沒有東西可汰除時不會回報移除零段()
+    {
+        var body = SourceContract.BodyOf(SourceContract.Read(Code), "OnCleanupClicked");
+
+        // 可用空間還在保留值之上時壓力汰除什麼都不做。若照樣寫「清理完成：移除 0 段」，
+        // 操作員讀成「這顆按鈕壞了」——兩條訊息必須分流。
+        Assert.Contains("pressure.DeletedSegments == 0", body);
+        Assert.Contains("Settings.CleanupNoPressure", body);
+        Assert.Contains("Settings.CleanupDone", body);
+        Assert.DoesNotContain("DeletedSegments != 0", body);
+    }
+
+    [Fact]
     public void 儲存頁的保留空間說明三語都在且不再提錄影上限()
     {
         var i18n = SourceContract.Read(I18n);
