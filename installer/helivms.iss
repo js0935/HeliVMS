@@ -64,8 +64,13 @@ Name: "desktopicon"; Description: "Create a &desktop icon"; GroupDescription: "A
 ; /ALLUSERS 安裝才會建立。遠端要開網頁而裝的是使用者層級時，請手動放行或改用 /ALLUSERS。
 ; 只在每機安裝（有管理權）時做；埠之後在設定中心改的話規則要自己跟著改。
 Filename: "netsh"; Parameters: "advfirewall firewall add rule name=""HeliVMS Web Console (TCP 5080)"" dir=in action=allow protocol=TCP localport=5080"; Flags: runhidden; Check: IsAdminInstallMode
+; WS-Discovery（ONVIF 設備搜尋）：多播 Probe 送出後，攝影機的回應會以 UDP 3702 回來；
+; 沒有這條規則時 Windows 防火牆常常吞掉回應，精靈的「搜尋」永遠是空的，
+; 操作員只好逐台打 IP——正是這條規則要避免的。
+Filename: "netsh"; Parameters: "advfirewall firewall add rule name=""HeliVMS ONVIF Discovery (UDP 3702)"" dir=in action=allow protocol=UDP localport=3702"; Flags: runhidden; Check: IsAdminInstallMode
 Filename: "{app}\HeliVMS.App.exe"; Description: "Launch {#AppName}"; Flags: nowait postinstall skipifsilent
 
 [UninstallRun]
 Filename: "netsh"; Parameters: "advfirewall firewall delete rule name=""HeliVMS Web Console (TCP 5080)"""; Flags: runhidden; RunOnceId: "DelFirewall"
+Filename: "netsh"; Parameters: "advfirewall firewall delete rule name=""HeliVMS ONVIF Discovery (UDP 3702)"""; Flags: runhidden; RunOnceId: "DelDiscoveryRule"
 
