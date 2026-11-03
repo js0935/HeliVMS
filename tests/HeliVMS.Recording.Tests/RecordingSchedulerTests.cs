@@ -1049,6 +1049,7 @@ public sealed class RecordingSchedulerTests : IDisposable
     [Fact]
     public async Task 事件錄影頻道登記事件後調和會開錄()
     {
+        ApplyLicense(cameras: 32);
         var id = AddChannel("事件攝影機", RecordingMode.Event);
         using var scheduler = NewScheduler();
 
@@ -1067,6 +1068,7 @@ public sealed class RecordingSchedulerTests : IDisposable
     [Fact]
     public async Task 事件窗口過後調和會停錄()
     {
+        ApplyLicense(cameras: 32);
         var id = AddChannel("事件攝影機", RecordingMode.Event);
         using var scheduler = NewScheduler();
 
@@ -1079,6 +1081,7 @@ public sealed class RecordingSchedulerTests : IDisposable
     [Fact]
     public async Task 連續事件刷新窗口不會切段()
     {
+        ApplyLicense(cameras: 32);
         var id = AddChannel("事件攝影機", RecordingMode.Event);
         using var scheduler = NewScheduler();
 
@@ -1096,15 +1099,23 @@ public sealed class RecordingSchedulerTests : IDisposable
     public async Task 非事件模式的頻道忽略事件觸發()
     {
         // 全時本來就錄、排程看時段、手動看按鈕：事件呼叫對它們是無害的 no-op，
-        // 不會把排程外的頻道悄悄開錄。
+        // 不會把排程外的頻道悄悄開錄。授權要先套用，否則「沒開錄」只是因為授權擋下，
+        // 這個測試就變成永遠綠的空殼。
+        ApplyLicense(cameras: 32);
         var always = AddChannel("全時", RecordingMode.Always);
         var scheduled = AddChannel("排程", RecordingMode.Scheduled);
+        var eventMode = AddChannel("事件", RecordingMode.Event);
         using var scheduler = NewScheduler();
 
         scheduler.RegisterEvent(always, DateTime.UtcNow);
         scheduler.RegisterEvent(scheduled, DateTime.UtcNow);
         await scheduler.ReconcileAsync();
-        Assert.Empty(_started);
+
+        // 只有全時那台開錄；排程（無時段）與事件（未觸發）都維持不錄。
+        var recorder = Assert.Single(_started);
+        Assert.Equal(always, recorder.ChannelId);
+        Assert.Equal(RecordingBlockReason.OutsideSchedule, scheduler.BlockReasonFor(scheduled));
+        Assert.Equal(RecordingBlockReason.EventOnly, scheduler.BlockReasonFor(eventMode));
     }
 
     /// <summary>停用頻道。停用是操作員在設定頁關閉錄影的手段，必須真的生效。</summary>
