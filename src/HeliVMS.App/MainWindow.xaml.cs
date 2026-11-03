@@ -1629,7 +1629,7 @@ public partial class MainWindow : Window
 
                 if (hintParts.Count > 0)
                 {
-                    HintText.Text = string.Format(Localizer.T("Main.QuotaCleanup"), string.Join("、", hintParts));
+                    HintText.Text = string.Format(Localizer.T("Main.FreeSpaceCleanup"), string.Join("、", hintParts));
                 }
 
                 // 錄影完整性自我檢查（§11.1 寫盤保護）：與 Headless Agent 走同一入口，每圈抽查少數
