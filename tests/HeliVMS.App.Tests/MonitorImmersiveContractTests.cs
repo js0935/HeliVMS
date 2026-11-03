@@ -22,6 +22,12 @@ public sealed class MonitorImmersiveContractTests
         var at = xaml.IndexOf("x:Name=\"ImmersiveExitButton\"", StringComparison.Ordinal);
         var collapsed = xaml.IndexOf("Visibility=\"Collapsed\"", at, StringComparison.Ordinal);
         Assert.True(at >= 0 && collapsed > at && collapsed - at < 200, "ImmersiveExitButton 預設必須 Collapsed");
+
+        // 離開鈕必須在「左上角」：右上角是 REC 錄影徽章的地盤——沉浸模式錄影中時
+        // 兩顆都靠右上會疊在一起（使用者看得到的是兩個半透明元素互相覆蓋）。
+        var tag = xaml[at..];
+        Assert.Contains("HorizontalAlignment=\"Left\"", tag[..tag.IndexOf("/>")]);
+        Assert.DoesNotContain("HorizontalAlignment=\"Right\"", tag[..tag.IndexOf("/>")]);
     }
 
     [Fact]
