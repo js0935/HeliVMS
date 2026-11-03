@@ -126,6 +126,13 @@ Notes that will save you time:
   (e.g. via `git add -A` right after publishing) makes CI locked-mode restore fail with
   NU1004 on every project. The script reverts the lock files itself after publishing;
   if you publish by hand, check `git status` for lock files before committing.
+- **Enum switch expressions must keep the discard arm (`_ =>`).** With
+  `TreatWarningsAsErrors`, CS8524 (an unnamed enum value not handled) is an error, and it
+  fires the moment a new enum member is added while some switch over that enum lost its
+  discard arm - the arm most often displaced when an edit replaces `_ => fallback` with
+  the new member's case. Keep both: the named cases AND the discard (mapping unknown
+  values to the safest fallback). Recently bit the maintenance-task kind combo.
+
 - **`ComboBox.SelectedItem` compares by reference.** Setting it to an object that is
   equal-but-not-the-same instance as one in `ItemsSource` is silently discarded
   (`SelectedItem` becomes `null`, `SelectedIndex` `-1`) — no exception, no log. This
