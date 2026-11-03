@@ -120,7 +120,12 @@ Notes that will save you time:
 - **`packages.lock.json` must be committed.** CI restores with `--locked-mode`, so a
   missing lock file is green locally and red on CI (NU1004) — which reads like a
   runner or network problem and isn't. `dotnet restore HeliVMS.slnx` then commit the
-  generated file. Also asserted by `SolutionCoverageTests`.
+  generated file.  Also asserted by `SolutionCoverageTests`. **Self-contained publishing poisons the
+  lock files:** `scripts/publish-desktop.ps1` restores with `-r win-x64`, which rewrites
+  every `packages.lock.json` with a `net10.0/win-x64` RID graph; committing that state
+  (e.g. via `git add -A` right after publishing) makes CI locked-mode restore fail with
+  NU1004 on every project. The script reverts the lock files itself after publishing;
+  if you publish by hand, check `git status` for lock files before committing.
 - **`ComboBox.SelectedItem` compares by reference.** Setting it to an object that is
   equal-but-not-the-same instance as one in `ItemsSource` is silently discarded
   (`SelectedItem` becomes `null`, `SelectedIndex` `-1`) — no exception, no log. This
