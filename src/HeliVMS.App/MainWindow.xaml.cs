@@ -2050,10 +2050,15 @@ public partial class MainWindow : Window
 
         // 外框尺寸為 0 表示監看區還沒量到（版面首次載入），交還自動尺寸，
         // 等 SizeChanged 再算一次。
-        if (fit.Width > 0 && fit.Height > 0)
+        // 牆一律鋪滿監看區：Fit 的長对比是「每格 16:9」的理想值，只用來挑列欄；
+        // 1088 這類高度的螢幕上監看區比例更寬，contain 會在兩側各留約 100px 的底色——
+        // 現場回報「攝影機不會滿版、底圖外露」。格線直接撐滿，
+        // 單格內的影片用 UniformToFill 裁切鋪滿自己的格子，牆上不再需底。
+        // 監看區還沒量到（版面首次載入）時交給自動尺寸，等 SizeChanged 再算一次。
+        if (areaW > 0 && areaH > 0)
         {
-            CellGrid.Width = fit.Width;
-            CellGrid.Height = fit.Height;
+            CellGrid.Width = areaW;
+            CellGrid.Height = areaH;
         }
         else
         {

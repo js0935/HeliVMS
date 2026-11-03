@@ -219,7 +219,7 @@
             <Border x:Name="MonitorArea" Grid.Row="1" Background="#06090F" BorderBrush="#1F3A5F" BorderThickness="1"
                     ClipToBounds="True" SizeChanged="OnMonitorAreaSizeChanged">
                 <Grid>
-                    <UniformGrid x:Name="CellGrid" HorizontalAlignment="Center" VerticalAlignment="Center">
+                    <UniformGrid x:Name="CellGrid" HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
                     </UniformGrid>
 
                     <Border x:Name="RecBadge" HorizontalAlignment="Right" VerticalAlignment="Top"

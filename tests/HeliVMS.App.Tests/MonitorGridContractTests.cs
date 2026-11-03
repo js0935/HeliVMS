@@ -23,13 +23,20 @@ public sealed class MonitorGridContractTests
     private const string PlaybackXaml = "src/HeliVMS.App/PlaybackWindow.xaml";
 
     [Fact]
-    public void 主視窗用比例感知排版決定列欄與置中外框()
+    public void 監看區的比例只用來挑列欄而格線一律鋪滿監看區()
     {
         var fit = SourceContract.BodyOf(SourceContract.Read(MainWindow), "ApplyGridGeometry");
         Assert.NotEqual(string.Empty, fit);
         Assert.Contains("MonitorGrid.Fit", fit);
         Assert.Contains("CellGrid.Columns", fit);
         Assert.Contains("CellGrid.Rows", fit);
+
+        // 1088 這類高度的螢幕上監看區比例比 16:9 更寬，contain 的外框會在兩側
+        // 各留約 100px 的底色（現場回報「攝影機不會滿版、底圖外露」）。
+        // 格線必須直接以監看區實際尺寸鋪滿；單格內的影片用 UniformToFill 裁切鋪滿。
+        Assert.Contains("CellGrid.Width = areaW", fit);
+        Assert.Contains("CellGrid.Height = areaH", fit);
+        Assert.DoesNotContain("CellGrid.Width = fit.Width", fit);
     }
 
     [Fact]
@@ -191,5 +198,18 @@ public sealed class MonitorGridContractTests
         Assert.Contains("CurrentCellCount()", advance);
         Assert.Contains("_wallSequenceIndex", advance);
         Assert.Contains("ReconcileAsync(wall, _wallSequenceIndex, cellCount)", advance);
+    }
+
+    /// <summary>格線以拉伸對齊鋪滿監看區；置中對齊會讓 1088 這類螢幕兩側露底。</summary>
+    [Fact]
+    public void 格線不再置中而是拉伸鋪滿()
+    {
+        var xaml = SourceContract.Read(MainWindowXaml);
+        var at = xaml.IndexOf("x:Name=\"CellGrid\"", StringComparison.Ordinal);
+        Assert.True(at >= 0, "找不到 CellGrid");
+        var tail = xaml[at..];
+        Assert.Contains("HorizontalAlignment=\"Stretch\"", tail);
+        Assert.Contains("VerticalAlignment=\"Stretch\"", tail);
+        Assert.DoesNotContain("HorizontalAlignment=\"Center\"", tail[..tail.IndexOf("/>")]);
     }
 }
