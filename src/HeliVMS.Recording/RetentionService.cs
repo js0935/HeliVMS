@@ -63,7 +63,15 @@ public sealed class RetentionService
     /// <summary>目前使用的錄影根目錄（壓力汰除的預設磁碟來源）。</summary>
     public string RecordingsRoot => _recordingsRoot;
 
-    /// <summary>執行一次配額清理與 tmp 隔離；回傳結果報告。保存鎖定（M66）所覆蓋時段豁免汰除。</summary>
+    /// <summary>
+    /// 執行一次總量上限（<paramref name="quotaBytes"/>）汰除與 tmp 隔離；回傳結果報告。
+    /// 保存鎖定（M66）所覆蓋時段豁免汰除。
+    /// <para>
+    /// <paramref name="quotaBytes"/> &lt;= 0 表示停用總量汰除：產品路徑（桌面與 Headless Agent）
+    /// 現在都傳 0，空間治理改由 <see cref="ApplyPressure"/> 的「磁碟保留空間」負責。
+    /// 這個參數保留給仍想以總量上限管理的呼叫端與測試。
+    /// </para>
+    /// </summary>
     public RetentionReport Apply(long quotaBytes, DateTime? nowUtc = null)
     {
         var now = nowUtc ?? DateTime.UtcNow;
