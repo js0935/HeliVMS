@@ -115,6 +115,11 @@ public sealed class AutoStartMonitoringContractTests
         Assert.Contains("LoadPlaceholder(\"Disable.png\")", code);
         Assert.Contains("LoadPlaceholder(\"Invisible.png\")", code);
 
+        // 佔位圖是 16:9（640×360）的格位底圖：UniformToFill 鋪滿格子——
+        // Uniform 會縮在格子中央、四周露底（現場回報「Disable.png 沒有滿版」）。
+        Assert.Contains("img.Stretch = Stretch.UniformToFill", placeholder);
+        Assert.DoesNotContain("Stretch.Uniform;", placeholder);
+
         // 非即時狀態要清掉最後一張影格，否則畫面凍在斷線前那一刻、佔位圖不會出現。
         var apply = SourceContract.BodyOf(code, "ApplyCellState");
         Assert.NotEqual(string.Empty, apply);

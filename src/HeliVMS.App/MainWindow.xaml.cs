@@ -4812,8 +4812,10 @@ public partial class MainWindow : Window
             return;
         }
 
-        // 佔位圖是圖示不是畫面，用 Uniform 才不會被拉寬變形。
-        img.Stretch = Stretch.Uniform;
+        // 佔位圖（640×360，16:9）就是格位的底圖：用 UniformToFill 鋪滿格子——
+        // 16:9 格位剛好零裁切；牆鋪滿後被拉寬的格位輕微裁掉上下緣，不變形。
+        // Uniform 會讓它縮在格子中央、四周露底，正是「Disable.png 沒有滿版」的原因。
+        img.Stretch = Stretch.UniformToFill;
         img.Source = _cellChannel[cell] is null ? NoChannelImage() : DisconnectedImage();
     }
 
