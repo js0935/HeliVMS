@@ -10,13 +10,6 @@ namespace HeliVMS.Shared.Tests;
 /// </summary>
 public class MaintenanceTaskPlannerTests
 {
-    [Fact]
-    public void DEBUG_enum_members()
-    {
-        var names = Enum.GetNames<MaintenanceTaskKind>();
-        Assert.True(names.Length == 4, $"enum members: {string.Join(",", names)}");
-    }
-
     private static readonly DateTime Now = new(2026, 11, 2, 3, 5, 0, DateTimeKind.Local); // 週一 03:05
 
     [Fact]
