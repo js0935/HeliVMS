@@ -309,6 +309,7 @@
                             <ComboBoxItem x:Name="TaskKindRebootItem"/>
                             <ComboBoxItem x:Name="TaskKindSnapshotItem"/>
                             <ComboBoxItem x:Name="TaskKindReconnectItem"/>
+                            <ComboBoxItem x:Name="TaskKindRestartAppItem"/>
                         </ComboBox>
                         <CheckBox x:Name="TaskEnabledBox" Content="" IsChecked="True" Margin="16,0,0,0"
                                   Foreground="White" VerticalAlignment="Center" ToolTip=""/>

@@ -87,6 +87,27 @@ public sealed class TaskRunNowContractTests
         Assert.Contains("_taskRefreshTimer.Stop()", closed);
     }
 
+    [Fact]
+    public void 重新啟動程式種類已接線且可排間隔()
+    {
+        // 夜間定期重啟程式（釋放記憶體）是合理保養：與重開機不同，允許「每隔 N 分鐘」。
+        var source = SourceContract.Read(Code);
+        Assert.Contains("TaskKindRestartAppItem", source);
+        Assert.Contains("MaintenanceTaskKind.RestartApp => TaskKindRestartAppItem", source);
+
+        // 重啟程式與重開機同樣是「會把所有人請出畫面」的動作，手動執行必須先確認。
+        var run = BodyOf("void OnTaskRunClicked");
+        Assert.Contains("MaintenanceTaskKind.RestartApp", run);
+
+        // 宿主必須有對應事件，且主視窗走 RestartOnExit（與設定匯入同一條重啟路）。
+        var host = SourceContract.Read(Host);
+        Assert.Contains("RestartAppRequested", host);
+        Assert.Contains("task.restart_app", host);
+        var main = SourceContract.BodyOf(SourceContract.Read(Main), "OnLoaded");
+        Assert.Contains("RestartAppRequested", main);
+        Assert.Contains("App.RestartOnExit = true", main);
+    }
+
     private static string BodyOf(string signature)
     {
         var source = SourceContract.Read(Host);

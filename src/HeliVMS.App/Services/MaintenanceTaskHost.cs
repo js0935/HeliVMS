@@ -53,6 +53,9 @@ public sealed class MaintenanceTaskHost : IDisposable
     /// <summary>重開機任務到點：主視窗應立刻走既有收尾序列並結束行程。</summary>
     public event EventHandler? RebootRequested;
 
+    /// <summary>重新啟動程式任務到點：主視窗應設定 App.RestartOnExit 並走既有收尾序列；新行程由 App.OnExit 在守衛釋放後拉起（與設定匯入後的重啟同一條路）。</summary>
+    public event EventHandler? RestartAppRequested;
+
     /// <summary>重連任務到點：回傳重連成功的工作階段數（宿主會把數字寫進任務結果）。</summary>
     public Func<Task<int>>? ReconnectHandler { get; set; }
 
@@ -178,6 +181,9 @@ public sealed class MaintenanceTaskHost : IDisposable
             case MaintenanceTaskKind.Reboot:
                 RunReboot(task);
                 break;
+            case MaintenanceTaskKind.RestartApp:
+                RunRestartApp(task);
+                break;
             case MaintenanceTaskKind.Snapshot:
                 await RunSnapshotAsync(task);
                 break;
@@ -224,6 +230,28 @@ public sealed class MaintenanceTaskHost : IDisposable
         }
 
         RebootRequested?.Invoke(this, EventArgs.Empty);
+    }
+
+    /// <summary>重新啟動程式：稽核 → 請主視窗優雅收尾並以 RestartOnExit 拉起新行程。</summary>
+    /// <remarks>
+    /// 與重開機不同：這裡不碰 Windows 的 shutdown——行程自己結束再自己拉起新的，
+    /// 攝影機連線與錄影收尾完全走既有序列。長時間執行的行程定期重啟可以釋放
+    /// 記憶體與控制代碼，是 VMS 的例行保養；先記後跑同樣防止重啟循環。
+    /// </remarks>
+    private void RunRestartApp(ScheduledTaskRecord task)
+    {
+        // 稽核先於動作：行程消失後才寫的稽核永遠寫不到（同重開機）。
+        _audit.Record(
+            "system",
+            "task.restart_app",
+            AuditCategories.Config,
+            targetType: "scheduled_task",
+            targetId: task.Id,
+            detail: task.Name);
+
+        _tasks.SetLastResult(task.Id, "requested");
+        Activity?.Invoke(this, $"[task #{task.Id}] restart requested");
+        RestartAppRequested?.Invoke(this, EventArgs.Empty);
     }
 
     /// <summary>定時截圖：對目標頻道逐一單發取影；離線攝影機計入失敗但不中斷其他台。</summary>

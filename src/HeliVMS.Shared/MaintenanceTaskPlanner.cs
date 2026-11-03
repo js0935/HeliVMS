@@ -11,6 +11,9 @@ public enum MaintenanceTaskKind
 
     /// <summary>重連攝影機：把全部監看工作階段重建一次（串流不穩時的夜間保養）。</summary>
     ReconnectChannels,
+
+    /// <summary>重新啟動本程式（長時間執行的行程定期釋放記憶體與控制代碼；不重開機）。</summary>
+    RestartApp,
 }
 
 /// <summary>排程任務的週期類型。</summary>

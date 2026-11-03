@@ -195,6 +195,7 @@ public partial class RulesWindow : Window
         TaskKindRebootItem.Content = Localizer.T("Tasks.KindReboot");
         TaskKindSnapshotItem.Content = Localizer.T("Tasks.KindSnapshot");
         TaskKindReconnectItem.Content = Localizer.T("Tasks.KindReconnect");
+        TaskKindRestartAppItem.Content = Localizer.T("Tasks.KindRestartApp");
         TaskEnabledBox.Content = Localizer.T("Tasks.Enable");
         TaskEnabledBox.ToolTip = Localizer.T("Tasks.EnableTip");
         TaskSchedLabel.Text = Localizer.T("Tasks.SchedLabel");
@@ -805,6 +806,7 @@ public partial class RulesWindow : Window
         {
             MaintenanceTaskKind.Reboot => Localizer.T("Tasks.KindReboot"),
             MaintenanceTaskKind.Snapshot => Localizer.T("Tasks.KindSnapshot"),
+            MaintenanceTaskKind.RestartApp => Localizer.T("Tasks.KindRestartApp"),
             _ => Localizer.T("Tasks.KindReconnect"),
         };
 
@@ -942,6 +944,10 @@ public partial class RulesWindow : Window
         {
             MaintenanceTaskKind.Reboot => TaskKindRebootItem,
             MaintenanceTaskKind.Snapshot => TaskKindSnapshotItem,
+            MaintenanceTaskKind.ReconnectChannels => TaskKindReconnectItem,
+            MaintenanceTaskKind.RestartApp => TaskKindRestartAppItem,
+            // 捨棄臂不可省：未命名枚舉值（CS8524）在 TreatWarningsAsErrors 下是錯誤；
+            // 未來新增種類時這裡會被窮舉檢查提醒補上對應的下拉項目。
             _ => TaskKindReconnectItem,
         };
         TaskSchedCombo.SelectedItem = task.ScheduleKind switch
@@ -979,6 +985,7 @@ public partial class RulesWindow : Window
 
             var kind = ReferenceEquals(TaskKindCombo.SelectedItem, TaskKindSnapshotItem) ? MaintenanceTaskKind.Snapshot
                 : ReferenceEquals(TaskKindCombo.SelectedItem, TaskKindReconnectItem) ? MaintenanceTaskKind.ReconnectChannels
+                : ReferenceEquals(TaskKindCombo.SelectedItem, TaskKindRestartAppItem) ? MaintenanceTaskKind.RestartApp
                 : MaintenanceTaskKind.Reboot;
 
             var isInterval = ReferenceEquals(TaskSchedCombo.SelectedItem, TaskSchedIntervalItem);
@@ -1082,7 +1089,7 @@ public partial class RulesWindow : Window
             return;
         }
 
-        if (row.Task.Kind == MaintenanceTaskKind.Reboot)
+        if (row.Task.Kind is MaintenanceTaskKind.Reboot or MaintenanceTaskKind.RestartApp)
         {
             var confirm = string.Format(
                 System.Globalization.CultureInfo.InvariantCulture,

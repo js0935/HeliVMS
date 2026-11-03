@@ -995,6 +995,13 @@ public partial class MainWindow : Window
         _taskHost = new MaintenanceTaskHost(_store, Path.Combine(_dataRoot, "snapshots", "tasks"));
         _taskHost.Activity += (_, msg) => Dispatcher.BeginInvoke(new Action(() => HintText.Text = msg));
         _taskHost.RebootRequested += (_, _) => Dispatcher.BeginInvoke(new Action(Close));
+        // 重新啟動程式：與設定匯入後的重啟同一條路——先標記 RestartOnExit，收尾完成
+        // 後由 App.OnExit 在守衛釋放後拉起新行程。
+        _taskHost.RestartAppRequested += (_, _) => Dispatcher.BeginInvoke(new Action(() =>
+        {
+            App.RestartOnExit = true;
+            Close();
+        }));
         _taskHost.ReconnectHandler = () => _manager is null ? Task.FromResult(0) : _manager.RestartAllAsync();
         _taskHost.Start();
 
