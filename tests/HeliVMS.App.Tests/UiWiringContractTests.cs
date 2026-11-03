@@ -328,7 +328,7 @@ public sealed class UiWiringContractTests
             .ToList();
         var expected = new[]
         {
-            "LayoutItemSingle", "LayoutItem4", "LayoutItem6", "LayoutItem9", "LayoutItem12",
+            "LayoutItemSingle", "LayoutItem4", "LayoutItem9", "LayoutItem12",
             "LayoutItem16", "LayoutItem20", "LayoutItem25", "LayoutItem30", "LayoutItem36",
             "LayoutItem42", "LayoutItem56", "LayoutItem64",
         };
@@ -338,8 +338,8 @@ public sealed class UiWiringContractTests
         Assert.Equal("LayoutItemUndo", items[^1]);
 
         var code = SourceContract.Read("src/HeliVMS.App/MainWindow.xaml.cs");
-        Assert.Contains("LayoutCellCounts = [1, 4, 6, 9, 12, 16, 20, 25, 30, 36, 42, 56, 64]", code);
-        Assert.Contains("MaxLayoutIndex = 12", code);
+        Assert.Contains("LayoutCellCounts = [1, 4, 9, 12, 16, 20, 25, 30, 36, 42, 56, 64]", code);
+        Assert.Contains("MaxLayoutIndex = 11", code);
     }
 
     /// <summary>

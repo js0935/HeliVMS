@@ -87,7 +87,6 @@
                                   Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="8,4">
                             <ComboBoxItem x:Name="LayoutItemSingle" Content="" />
                             <ComboBoxItem x:Name="LayoutItem4" Content="" />
-                            <ComboBoxItem x:Name="LayoutItem6" Content="" />
                             <ComboBoxItem x:Name="LayoutItem9" Content="" />
                             <ComboBoxItem x:Name="LayoutItem12" Content="" />
                             <ComboBoxItem x:Name="LayoutItem16" Content="" />

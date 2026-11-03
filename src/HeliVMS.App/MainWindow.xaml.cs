@@ -30,12 +30,12 @@ public partial class MainWindow : Window
 
     /// <summary>佈局下拉的最大索引（對應 <see cref="LayoutCellCounts"/>）。佈局記憶／F11 還原都以此為界，
     /// 之前寫死 3 會讓較大的佈局重開後被打回 1×1。</summary>
-    private const int MaxLayoutIndex = 12;
+    private const int MaxLayoutIndex = 11;
 
     /// <summary>各佈局選項的目標格數；列×欄由 <see cref="MonitorGrid.Fit"/> 依螢幕比例自動決定。
     /// 依使用者回饋加入能整齊貼合 16:9 畫面的路數（6／12／20／30／42／56）並延伸到 64 路，
     /// 故索引即格數的清單長度減一（見 <see cref="MaxLayoutIndex"/>）。</summary>
-    private static readonly int[] LayoutCellCounts = [1, 4, 6, 9, 12, 16, 20, 25, 30, 36, 42, 56, 64];
+    private static readonly int[] LayoutCellCounts = [1, 4, 9, 12, 16, 20, 25, 30, 36, 42, 56, 64];
     private const string UiSettingsFile = "ui.json";
 
     private readonly string _dataRoot;
@@ -384,7 +384,6 @@ public partial class MainWindow : Window
         LayoutHeader.Text = Localizer.T("Main.Layout");
         LayoutItemSingle.Content = Localizer.T("Main.LayoutSingle");
         LayoutItem4.Content = Localizer.T("Main.Layout4");
-        LayoutItem6.Content = Localizer.T("Main.Layout6");
         LayoutItem9.Content = Localizer.T("Main.Layout9");
         LayoutItem12.Content = Localizer.T("Main.Layout12");
         LayoutItem16.Content = Localizer.T("Main.Layout16");
