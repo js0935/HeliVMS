@@ -27,7 +27,9 @@ public sealed class MonitorGridContractTests
     {
         var fit = SourceContract.BodyOf(SourceContract.Read(MainWindow), "ApplyGridGeometry");
         Assert.NotEqual(string.Empty, fit);
-        Assert.Contains("MonitorGrid.Fit", fit);
+        // 排列以分割數平均（Balanced）：64 → 8×8、12 → 4×3——不再以每格 16:9 最大化
+        // 挑出 10×7 這種帶空格、不平均的排列（現場回報「64 路是 10×7 應該 8×8」）。
+        Assert.Contains("MonitorGrid.Balanced", fit);
         Assert.Contains("CellGrid.Columns", fit);
         Assert.Contains("CellGrid.Rows", fit);
 

@@ -2049,7 +2049,9 @@ public partial class MainWindow : Window
         var areaW = MonitorArea.ActualWidth;
         var areaH = MonitorArea.ActualHeight;
 
-        var fit = MonitorGrid.Fit(count, areaW, areaH, CurrentCellAspect());
+        // 排列以分割數平均（Balanced）：64 → 8×8、12 → 4×3；格線鋪滿監看區，
+        // 格內影片 UniformToFill 裁切鋪滿自己的格子。
+        var fit = MonitorGrid.Balanced(count);
 
         CellGrid.Columns = fit.Columns;
         CellGrid.Rows = fit.Rows;
@@ -2074,24 +2076,6 @@ public partial class MainWindow : Window
     }
 
     private void OnMonitorAreaSizeChanged(object sender, SizeChangedEventArgs e) => ApplyGridGeometry();
-
-    /// <summary>格子要維持的畫面比例：取第一個已知的來源解析度，未知時用 16:9。</summary>
-    /// <remarks>
-    /// 用偵測到的比例（例如 4:3 的舊攝影機）當格子比例，UniformToFill 才不會白白裁掉畫面；
-    /// 只有來源比例與格子比例真的不同（例如混接 4:3 與 16:9）時才會裁切。
-    /// </remarks>
-    private double CurrentCellAspect()
-    {
-        for (var i = 0; i < MaxCells; i++)
-        {
-            if (_cellResolution[i] is { Width: > 0, Height: > 0 } res)
-            {
-                return (double)res.Width / res.Height;
-            }
-        }
-
-        return 16.0 / 9.0;
-    }
 
     private static MenuItem AddMenuItem(ContextMenu menu, string header, RoutedEventHandler handler, int cell)
     {

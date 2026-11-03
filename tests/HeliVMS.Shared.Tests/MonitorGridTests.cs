@@ -13,6 +13,51 @@ namespace HeliVMS.Shared.Tests;
 /// </remarks>
 public sealed class MonitorGridTests
 {
+    /// <summary>監看牆（鋪滿模式）的排列：分割數平均、欄 ≥ 列、最少空格。</summary>
+    /// <remarks>
+    /// 現場回報 64 路排出 10×7（帶 6 個空格）——舊演算法以「每格 16:9 最大化」挑排列，
+    /// 在寬比例的監看區上會犧牲平均換格數。牆改為鋪滿拉伸後，格子比例隨區域適應，
+    /// 排列只求平均：64 → 8×8、12 → 4×3、6 → 3×2。
+    /// </remarks>
+    [Theory]
+    [InlineData(1, 1, 1)]
+    [InlineData(4, 2, 2)]
+    [InlineData(6, 2, 3)]
+    [InlineData(9, 3, 3)]
+    [InlineData(12, 3, 4)]
+    [InlineData(16, 4, 4)]
+    [InlineData(20, 4, 5)]
+    [InlineData(25, 5, 5)]
+    [InlineData(30, 5, 6)]
+    [InlineData(36, 6, 6)]
+    [InlineData(42, 6, 7)]
+    [InlineData(56, 7, 8)]
+    [InlineData(64, 8, 8)]
+    public void 牆的排列以分割數平均且欄大於等於列(int cells, int rows, int cols)
+    {
+        var fit = MonitorGrid.Balanced(cells);
+
+        Assert.Equal(rows, fit.Rows);
+        Assert.Equal(cols, fit.Columns);
+        Assert.Equal(rows * cols, fit.Capacity);
+        // 尺寸交給呼叫端以監看區實際大小決定（牆鋪滿）。
+        Assert.Equal(0, fit.Width);
+        Assert.Equal(0, fit.Height);
+    }
+
+    [Fact]
+    public void 非平方數取最少空格的均衡排列()
+    {
+        // 5 路 → 3×2（容量 6，一格空位）；7 路 → 3×3（兩格空位）。
+        var five = MonitorGrid.Balanced(5);
+        Assert.Equal(2, five.Rows);
+        Assert.Equal(3, five.Columns);
+
+        var seven = MonitorGrid.Balanced(7);
+        Assert.Equal(3, seven.Rows);
+        Assert.Equal(3, seven.Columns);
+    }
+
     private const double Eps = 1e-6;
 
     [Fact]

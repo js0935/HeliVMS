@@ -131,4 +131,27 @@ public static class MonitorGrid
 
         return new Arrangement(bestRows, bestCols, width, height);
     }
+
+    /// <summary>
+    /// 依分割數取「最均衡」的列×欄：欄 = ⌈√格數⌉、列 = ⌈格數÷欄⌉（欄 ≥ 列、最少空格）。
+    /// 64 → 8×8、12 → 4×3、6 → 3×2；5 → 3×2（一格空位）。
+    /// </summary>
+    /// <remarks>
+    /// 牆鋪滿監看區後（格線拉伸、格內影片 UniformToFill），格子的比例隨區域適應，
+    /// 排列因此只求平均：操作員的要求是「分割數平均畫面」——64 路就是 8×8，
+    /// 而不是以每格 16:9 最大化挑出的 10×7（帶 6 個空格、大小不一）。
+    /// Width/Height 回 0：尺寸由呼叫端以監看區實際大小決定。
+    /// 單一影片框的等比置中（回放）仍用 Fit。
+    /// </remarks>
+    public static Arrangement Balanced(int cells)
+    {
+        if (cells < 1)
+        {
+            cells = 1;
+        }
+
+        var cols = (int)Math.Ceiling(Math.Sqrt(cells));
+        var rows = (int)Math.Ceiling((double)cells / cols);
+        return new Arrangement(rows, cols, 0, 0);
+    }
 }
