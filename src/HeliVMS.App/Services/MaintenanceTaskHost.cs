@@ -111,6 +111,42 @@ public sealed class MaintenanceTaskHost : IDisposable
         }
     }
 
+    /// <summary>
+    /// 手動立刻執行一次排程任務（警報中心的「執行」按鈕）。回傳任務的執行結果字串，
+    /// 任務不存在或宿主已停止時回 null。
+    /// </summary>
+    /// <remarks>
+    /// 與輪詢共用同一條 <see cref="RunTaskAsync"/>：先記後跑、稽核先於動作、
+    /// 重開機同樣先排 shutdown 再請主視窗收尾。與輪詢相反，這裡搶不到閘門時
+    /// <b>排隊等待</b>而不是跳過——操作員按了按鈕就該執行，晚一輪是背景輪詢的取捨，
+    /// 不是手動觸發的。停用中的任務也允許手動跑：按鈕是操作員的明確意圖，
+    /// 先試跑再啟用是合理的驗證流程。
+    /// </remarks>
+    public async Task<string?> RunNowAsync(long id)
+    {
+        if (_disposed)
+        {
+            return null;
+        }
+
+        await _gate.WaitAsync();
+        try
+        {
+            var task = _tasks.List().FirstOrDefault(t => t.Id == id);
+            if (task is null)
+            {
+                return null;
+            }
+
+            await RunTaskAsync(task);
+            return _tasks.List().FirstOrDefault(t => t.Id == id)?.LastResult;
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
     private async Task EvaluateAsync()
     {
         var tasks = _tasks.ListEnabled();

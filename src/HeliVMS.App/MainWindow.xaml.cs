@@ -4614,7 +4614,8 @@ public partial class MainWindow : Window
         OpenChild(new RulesWindow(
             _store!,
             ioRulesChanged: ReloadIoRuleEngines,
-            eventRulesChanged: RebuildEventRules));
+            eventRulesChanged: RebuildEventRules,
+            runTaskNow: id => _taskHost is null ? Task.FromResult<string?>(null) : _taskHost.RunNowAsync(id)));
     }
 
     /// <summary>

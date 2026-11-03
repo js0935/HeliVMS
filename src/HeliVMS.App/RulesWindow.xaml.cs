@@ -28,6 +28,9 @@ public partial class RulesWindow : Window
     /// <summary>複合事件規則變更後的回呼（讓執行期求值器重建，不必重啟軟體）。</summary>
     private readonly Action? _eventRulesChanged;
 
+    /// <summary>手動執行一顆排程任務（回傳結果字串供狀態列顯示）；宿主由主視窗提供。</summary>
+    private readonly Func<long, Task<string?>>? _runTaskNow;
+
     /// <summary>正在編輯的複合事件規則 Id；null＝新增模式。</summary>
     private int? _editingRuleId;
 
@@ -58,7 +61,7 @@ public partial class RulesWindow : Window
         public string DeleteText => Localizer.T("Rules.Delete");
     }
 
-    public RulesWindow(SqliteStore store, Action? ioRulesChanged = null, Action? eventRulesChanged = null)
+    public RulesWindow(SqliteStore store, Action? ioRulesChanged = null, Action? eventRulesChanged = null, Func<long, Task<string?>>? runTaskNow = null)
     {
         _store = store;
         _rules = new RuleRepository(store);
@@ -68,6 +71,7 @@ public partial class RulesWindow : Window
         _taskRepo = new ScheduledTaskRepository(store);
         _ioRulesChanged = ioRulesChanged;
         _eventRulesChanged = eventRulesChanged;
+        _runTaskNow = runTaskNow;
         InitializeComponent();
         ApplyI18n();
         ReloadIoRuleChoices();
@@ -798,6 +802,8 @@ public partial class RulesWindow : Window
 
         public string ToggleText => Task.Enabled ? Localizer.T("Tasks.Disable") : Localizer.T("Tasks.Enable");
 
+        public string RunText => Localizer.T("Tasks.Run");
+
         public string EditText => Localizer.T("Tasks.Edit");
 
         public string DeleteText => Localizer.T("Tasks.Delete");
@@ -1033,6 +1039,50 @@ public partial class RulesWindow : Window
             TasksEditPanel.Visibility = Visibility.Collapsed;
             RefreshTasks();
             RulesStatusText.Text = string.Format(System.Globalization.CultureInfo.InvariantCulture, Localizer.T(wasEdit ? "Tasks.Updated" : "Tasks.Added"), taskId);
+        }
+        catch (Exception ex)
+        {
+            RulesStatusText.Text = string.Format(System.Globalization.CultureInfo.InvariantCulture, Localizer.T("Tasks.Failed"), ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// 手動立刻執行一次。重開機是會讓所有人離席的動作，必須先確認；
+    /// 其餘動作（截圖／重連）無害，直接跑。結果寫回狀態列。
+    /// </summary>
+    private async void OnTaskRunClicked(object sender, RoutedEventArgs e)
+    {
+        if (sender is not System.Windows.Controls.Button { DataContext: TaskRowViewModel row })
+        {
+            return;
+        }
+
+        var run = _runTaskNow;
+        if (run is null)
+        {
+            RulesStatusText.Text = Localizer.T("Tasks.RunUnavailable");
+            return;
+        }
+
+        if (row.Task.Kind == MaintenanceTaskKind.Reboot)
+        {
+            var confirm = string.Format(
+                System.Globalization.CultureInfo.InvariantCulture,
+                Localizer.T("Tasks.RunRebootConfirm"),
+                row.Task.Name);
+            if (MessageBox.Show(this, confirm, Localizer.T("Tasks.RunTitle"),
+                    MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes)
+            {
+                return;
+            }
+        }
+
+        try
+        {
+            var result = await run(row.Task.Id);
+            RulesStatusText.Text = result is null
+                ? Localizer.T("Tasks.RunUnavailable")
+                : string.Format(System.Globalization.CultureInfo.InvariantCulture, Localizer.T("Tasks.RunDone"), result);
         }
         catch (Exception ex)
         {
