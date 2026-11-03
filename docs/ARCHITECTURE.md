@@ -99,7 +99,7 @@ HeliVms/
 ├─ HeliVms.Core/                # 領域模型（Camera、Channel、RecordingSegment、Event）
 ├─ HeliVms.Media/               # FFmpeg/mpv 封裝：拉流、解碼、segment 錄影、硬體加速
 ├─ HeliVms.Decoder/             # 回放解碼子進程（源自 Tools/HeliVMS.Decoder，命名管道隔離）
-├─ HeliVms.Recording/           # 錄影排程、區段管理、磁碟配額、索引寫入
+├─ HeliVms.Recording/           # 錄影排程、區段管理、磁碟保留空間、索引寫入
 ├─ HeliVms.Alarms/              # 運動偵測、事件引擎、通知
 ├─ HeliVms.Devices/             # ONVIF 探索/控制、RTSP 位址生成、網路健康度
 ├─ HeliVms.Storage/             # SQLite 存取層、Schema、遷移
@@ -164,7 +164,7 @@ C:\HeliVmsData\
 依清單順序取第一個可用空間 ≥ `recording.min_free_bytes`（預設 2 GiB）的磁碟，主要碟寫滿即
 自動續錄下一顆；全部低於門檻時取剩餘空間最大者——寧可寫滿一顆，也不要因滿碟而無聲停錄
 （見 `ChooseRoot`）。設定每次區段都重讀，故改磁碟後立即生效、不必重啟。切換時所有目錄併入
-`recording.known_roots`（`MergeKnownRoot`／`ParseKnownRoots`），讓配額清理與遠端回放仍能看到
+`recording.known_roots`（`MergeKnownRoot`／`ParseKnownRoots`），讓保留清理與遠端回放仍能看到
 每一顆碟上的既有錄影；`RecordedSegmentPolicy` 由 `RecordingStorage.ConfiguredRoots` 涵蓋所有
 錄影根目錄，否則遠端播放次要碟上的片段會被判成超範圍而 404（舊片段以絕對路徑留在原磁碟，
 仍可回放）。首度啟動尚未設定時，桌面主視窗以 `ResolveRootFromEnvironment` 得到推導值。任何一端
@@ -456,7 +456,7 @@ CREATE INDEX idx_settings_versions_created ON settings_versions(created_at);
 ```
 
 - 索引合併：回放/匯出時可用 `ffmpeg concat` 依索引依序拼接多段。
-- 配額：磁碟可用空間 < 門檻時，依 `segments.start_time` 由舊到新刪檔並同步刪索引（錄影不中斷）。
+- 汰除：磁碟可用空間 < 門檻時，依 `segments.start_time` 由舊到新刪檔並同步刪索引（錄影不中斷）。
 
 ---
 
@@ -1015,7 +1015,7 @@ L1 ONVIF 走 Profile S 標準並對非標準實作容錯，不倚賴單一廠牌
 ├─ 總覽        系統狀態、錄影概況、容量趨勢、健康告警
 ├─ 設備        設備列表 / 探索嚮導 / 批次套版 / 韌體
 ├─ 通道        串流參數、用途(§7.2)、錄影策略、AI 開關
-├─ 錄影與儲存  錄影目錄、區段長度、保留策略、容量估算器(§11.2)、配額
+├─ 錄影與儲存  錄影目錄、區段長度、保留策略、容量估算器(§11.2)、磁碟保留空間
 ├─ 事件與 AI   AI 引擎、偵測類別、ROI、通知
 ├─ 帳戶與安全  角色/權限、密碼政策、稽核檢視器(§11.5)
 ├─ 系統        NTP/時區、開機自啟動、服務狀態、升級、備份還原
@@ -1131,12 +1131,12 @@ L2 比對（人臉/車牌）置「進階·需權限」區，預設關閉（§5.1
 | 停擺告警 | 行程卡死／崩潰要通知 | **已做（M320）**。`RecordingWatchdogMonitor`（`HeliVMS.Recording`）每分鐘讀心跳：超過 2 分鐘沒更新為 Stale、檔案不存在為 Missing（區分「從未啟動」與「曾啟動後停住」）。**只在狀態轉折時動作**：由正常轉異常寫一筆 `recording.watchdog` 稽核並（選配）重啟，轉回正常寫 `recording.watchdog_recovered`——每輪都寫會讓一台真掛掉的機器每分鐘灌一筆、把故障淹掉。判定（`RecordingWatchdog.Evaluate`）與副作用（Monitor）分離，可用「寫一個心跳檔、把時鐘往前撥」直接測。Headless Agent 以 `WatchdogWorker` 每分鐘驅動 |
 | 停滯可見 | 錄影失敗要告警 | **已做**。`SegmentRecorder` 連續 3 段失敗時觸發 `RecordingStalled`，`RecordingScheduler` 寫 `recording.stalled` 稽核。這條是必要的：ffmpeg 連不上時 `IsRecording` 仍為 true、稽核也已寫過 `recording.start`，沒有它則「攝影機離線」與「正常錄影」長得一模一樣 |
 | 失敗退避 | — | 指數退避 5s→上限 5 分鐘。固定 5 秒重試會讓一台離線攝影機每天寫 17,280 筆 `corrupt`，16 台就是 27 萬筆，而 `segments` 同時是回放時間軸與用量統計會掃的表 |
-| 磁碟滿策略 | 三階段 | **已做（M319）**。共用入口 `DiskPressureCoordinator`（桌面保留迴圈 + Headless Agent `RetentionWorker` 每小時各跑一次，讀同一份設定）：①**預警** 任一顆錄影磁碟已用 ≥85%（`DiskPressurePolicy.WarnUsedFraction`）→ 寫 `recording.disk_pressure` 稽核（**只在等級改變時寫一筆**，避免每圈灌雜訊），Agent 另留分級 log；②**優先汰除事件段** 配額清理的候選改走 `SegmentRepository.ListReclaimCandidates`（`recording_mode = 2` 事件段排前，同層再由舊至新；`HeliVMS.Recording.RetentionService.Apply` 已改用）；③**停新錄、保全證物** 所有錄影磁碟都低於寫入門檻（`recording.min_free_bytes`，預設 2 GiB）時 `RecordingScheduler` 的 `diskFull` 閘門跳過開新錄影機（**既有錄影不中斷**，只停「開新」），並在狀態改變時寫 `recording.disk_full`／`recording.disk_full_cleared` 稽核。分級的整體等級取「最嚴重的一顆」（供回報），停新錄的判準則要求「每一顆」都危急（多磁碟站台不該因某一顆滿了就全面停錄）；磁碟狀態讀不到時 fail-open（不擋錄影）。三邊必須指向同一個資料庫（`DataRootLayout`），否則會各自判斷而索引互不同步 |
+| 磁碟滿策略 | 三階段 | **已做（M319）**。共用入口 `DiskPressureCoordinator`（桌面保留迴圈 + Headless Agent `RetentionWorker` 每小時各跑一次，讀同一份設定）：①**預警** 任一顆錄影磁碟已用 ≥85%（`DiskPressurePolicy.WarnUsedFraction`）→ 寫 `recording.disk_pressure` 稽核（**只在等級改變時寫一筆**，避免每圈灌雜訊），Agent 另留分級 log；②**優先汰除事件段** 保留清理的候選改走 `SegmentRepository.ListReclaimCandidates`（`recording_mode = 2` 事件段排前，同層再由舊至新；`HeliVMS.Recording.RetentionService.Apply` 已改用）；③**停新錄、保全證物** 所有錄影磁碟都低於寫入門檻（`recording.min_free_bytes`，預設 2 GiB）時 `RecordingScheduler` 的 `diskFull` 閘門跳過開新錄影機（**既有錄影不中斷**，只停「開新」），並在狀態改變時寫 `recording.disk_full`／`recording.disk_full_cleared` 稽核。分級的整體等級取「最嚴重的一顆」（供回報），停新錄的判準則要求「每一顆」都危急（多磁碟站台不該因某一顆滿了就全面停錄）；磁碟狀態讀不到時 fail-open（不擋錄影）。三邊必須指向同一個資料庫（`DataRootLayout`），否則會各自判斷而索引互不同步 |
 | 磁碟用量顯示 | — | 設定頁用量改讀 `SegmentRepository.GetTotalUsageSummary()`。原本是 `EnumerateFiles(recordingsRoot, "*.mp4", TopDirectoryOnly)`，而檔案在 `<頻道資料夾>/yyyyMMdd/` 兩層底下，所以長期顯示 0B |
 | 介質／檔案損壞自我檢查 | 定期以 `ffprobe` 抽查已封檔區段完整性 | **已做（M318）**。桌面保留迴圈與 Headless Agent 各有一條每小時的迴圈，走共用入口 `MediaIntegrityCoordinator.RunConfigured`（讀 `recording.integrity.batch`，預設 5 段、設 0 停用）。以 `segments.checked_at_utc`（v54）記進度、只取 `status='final'` 且未檢查者分頁抽查，查過即前進。**只記錄、不改狀態也不刪檔**：保留清理的用量統計與汰除候選都以 `status='final'` 為準，標成 `corrupt` 會讓壞段同時退出兩者、變成永遠刪不掉的孤兒（磁碟照佔、用量少算）；故損壞／遺失只寫 `recording.integrity` 稽核，汰除仍交由保留清理 |
 | 錄影資料夾命名 | — | **已做（M311）**。資料夾由舊制 `ch{id:000}` 改以**頻道名稱**命名（`RecordingFolderNaming`：清洗非法字元／尾端句點空白／Windows 保留名、同名者附加 `_ch{id}` 消歧且排序固定用頻道 id；錄影端與搬移端共用同一套規則，否則會互相搬來搬去）。既有站台由 `RecordingFolderMigrator` 於排程首次調和時搬正並回寫 `segments.file_path`（只掃 `file_path` 含 `\ch` 的舊制列，已正確命名的列在 SQL 就濾掉，穩定狀態回零列，避免千萬筆整表載入）（搬檔案不回寫＝既有錄影變孤兒，回放／備援／保留清理都只認索引路徑）；`Directory.Move` 失敗（檔案被佔用等）逐筆跳過、下次再試。`SegmentRecorder` 名稱從缺時退回 `ch{id}` |
 | 分段長度 | — | **已做（M312）**。由寫死的 15 秒改為共用設定 `recording.segment_seconds`（`RecordingSegmentPolicy`，5–600 秒、預設 60），設定中心可調。排程與監看牆兩個 `SegmentRecorder` 呼叫點共用同一讀取。分段是檔數槓桿：15 秒單路一天 5,760 檔，60 秒降為 1,440 |
-| 保留清理可擴充性 | — | **已做（M313）**。①`segments` 加複合索引 `idx_seg_status_time`（schema v53）——保留清理以 `status` 過濾、全域 `start_time` 排序，原本唯一的 `(channel_id, start_time)` 索引一個都用不上，等於每次整表掃描＋排序。②桌面與 WebApi 的 `RetentionService` 改以 `(start_time, id)` **游標**單調前進（`SegmentRepository.ListRetiredAfter`／`ListOldestFinalAfter`），受保存鎖定的舊區段夾在最舊端時能跳過、繼續往後清，不會卡在鎖住的前綴；WebApi 端並把 `GetTotalUsage()` 提到迴圈外（移除每刪一筆就重算 SUM 的 O(N²)）。③桌面端碰不到的候選（佔用／路徑汙染）由 `break` 改 `continue`，一個搬不動的檔不讓配額永遠降不下來 |
+| 保留清理可擴充性 | — | **已做（M313）**。①`segments` 加複合索引 `idx_seg_status_time`（schema v53）——保留清理以 `status` 過濾、全域 `start_time` 排序，原本唯一的 `(channel_id, start_time)` 索引一個都用不上，等於每次整表掃描＋排序。②桌面與 WebApi 的 `RetentionService` 改以 `(start_time, id)` **游標**單調前進（`SegmentRepository.ListRetiredAfter`／`ListOldestFinalAfter`），受保存鎖定的舊區段夾在最舊端時能跳過、繼續往後清，不會卡在鎖住的前綴；WebApi 端並把 `GetTotalUsage()` 提到迴圈外（移除每刪一筆就重算 SUM 的 O(N²)）。③桌面端碰不到的候選（佔用／路徑汙染）由 `break` 改 `continue`，一個搬不動的檔不讓用量永遠降不下來 |
 | ffmpeg 行程治理 | — | **已做（M313）**。`SegmentRecorder` 於 `WaitForExitAsync` 前先啟動 stderr `ReadToEndAsync`（管線緩衝滿會讓 ffmpeg 卡在寫入、永不結束而畫面照常），並在 `finally` `await proc.DisposeAsync()` 歸還行程／管線控制代碼（原每段漏一組 handle 直到 GC） |
 | 排程重入 | — | **已做（M313）**。`RecordingScheduler` 新增 `SemaphoreSlim _reconcileGate`：`OnTick` 以 `Wait(0)` 跳過忙碌中的上一輪（計時器不等回呼結束，重疊會出現同頻道兩台 ffmpeg 搶區段檔、用量翻倍而 log 乾淨），公開 `ReconcileAsync` 以 `WaitAsync` 排隊；決策本體在 `ReconcileAsyncCore` |
 | 回放查詢語意 | — | **已修正（M314）**。`SegmentRepository.ListByRange` 由「`start_time` 落在窗內」改為「與窗重疊」（`start_time < to` 且 `end_time > from`，未完成的段因無 `end_time` 退回只認 `start >= from`）。60 秒一段時，使用者從 10:00:30 開始回放，覆蓋到 10:00:30 的那段（start 10:00:00）原本整段被排除，HLS 播放清單與回放清單從下一段才開始，前 30 秒直接缺角而 log 乾淨。`PlaybackTimelineBuilder` 本來就把區段裁到窗內，印證這裡本該是重疊式 |
@@ -1148,6 +1148,9 @@ L2 比對（人臉/車牌）置「進階·需權限」區，預設關閉（§5.1
 | 事件錄音保留 | — | **已做（M315）**。`event_audio` 以 `event_id` 掛在警報事件上，但**沒有指向 `alarm_events` 的外鍵**（sqlite 建表時就不帶），刪事件不會連帶刪錄音，BLOB 只增不減。保留清理以同一條警報保管期限（`alarm.retention.days`）按 `started_at_utc` 汰除，連事件早已清除的孤兒錄音也一併帶走 |
 | 中繼資料清理入口 | — | **已做（M315）**。把警報事件／事件錄音／稽核日誌的保管期限清理抽成 `HeliVMS.Storage.MetadataRetentionPruner`（純資料庫、不碰檔案系統），由 WebApi 與**桌面**兩條保留迴圈共用；兩把設定鍵（`alarm.retention.days`／`audit.retention.days`）與預設 365 也定義於此（`AlarmDaysKey`／`AuditDaysKey`／`DefaultDays`），WebApi `RetentionService` 公開常數改為別名引用，桌面設定中心「儲存」頁與保留迴圈引用同一組，避免兩端字串漂移。桌面迴圈過去只做配額（大小）與快照，且內嵌 Web 主機不掛背景保留服務（`WebHost` 以 `IncludeHostedServices=false` 建立），因此桌面部署下這些表從不隨時間汰除——現在桌面每小時一併清理；桌面不處理區段年齡（其大小策略是 `recording.quota_gb`，與 WebApi 的浮水印 `recording.retention.watermark_gb` 是兩套機制，刻意不混用） |
 | 服務模式保留清理 | — | **已做（M316）**。Headless Agent（Windows 服務）過去只註冊 `RecordingWorker`（起／調和／停）與 `NtpSyncWorker`，**完全沒有保留清理迴圈**——沒有配額汰除、沒有暫存清理、沒有快照汰除、沒有中繼資料保管期限。以服務模式（無桌面、無 WebApi 主機）部署時，錄影檔與警報／事件錄音／稽核日誌會無上限成長，直到磁碟被寫爆才被發現，而日誌上不會有任何錯誤。新增 `RetentionWorker`（每小時）並與桌面共用 `HeliVMS.Recording.RetentionCoordinator`：一次協調配額汰除＋暫存隔離＋快照汰除＋中繼資料保管期限。配額／快照的設定鍵與預設值也集中於協調器（`QuotaGbKey`／`SnapshotDaysKey`／`DefaultQuotaGb`／`DefaultSnapshotDays`），桌面與 Agent 引用同一組以免漂移；`RetentionCoordinator.RunConfigured` 由 Agent 每圈從共用設定重推錄影根目錄（切換磁碟後下一圈即改認新根）。單圈例外只記錄並於下一圈重試，不讓服務停擺而中斷錄影。桌面 `MainWindow` 保留迴圈亦改用 `RetentionCoordinator.Run`，兩條路徑行為一致 |
+| 設定中心關閉鈕統一 | — | **已統一（M321）**。無邊框最大化視窗一律以「右上角紅 ✕ ＋ Esc」關閉：六個子視窗完全沒有關閉鈕（偵測、遮罩、去魚眼、流切換、IO、對講）、六個只有文字關閉鈕；失去系統標題列後兩者都被讀成「這個視窗沒有出口」。契約由 `WindowExitContractTests`（18 個視窗）盯住 |
+| 空間治理語意（保留空間） | — | **已改造（M322）**。設定中心「保留上限（GB）」改為「**磁碟保留空間**（`recording.min_free_bytes`，預設 2 GiB）**」**：保留的是「至少留多少可用」，由 `RetentionService.ApplyPressure` 在磁碟可用空間低於門檻時從最舊的段汰除。舊的總量配額（`recording.quota_gb`）停用：`Apply` 以 `if (quotaBytes > 0)` 守衛（協調器舎桌面傳 0），否則 `while (usage > quotaBytes)` 會把整顆錄影刪光而畫面寫「已套用」 |
+| 事件錄影門檻 | — | **已接線（M323）**。`RecordingMode.Event` 以「最近 N 秒內有事件」為門檻（`recording.event_seconds`，預設 30）：`RegisterEvent` 記下觸發時間並踢一輪調和（否則閒置頻道要等下一個 30 秒 tick 才開錄，等到時觸發的畫面已經錯過），視窗過後下一輪調和停錄。刻意不做 pre-buffer：那會讓每一滾 Event 模式頻道常駐一條解碼管線，正是廊灯攝像機 RTSP 會話數的瓶頸 |
 
 ### 11.2 性能與容量規劃（先算再寫，落地依據）
 
@@ -1380,7 +1383,7 @@ WebRTC/WHEP 即時監看與 MSE 回放（M244）。
 
 ### 14.6 P3 建議（法遵 / 商業）
 
-- **Legal Hold**：單通道指定時段「暫時封存」不被配額汰除；沖銷前需高權限操作並留稽核
+- **Legal Hold**：單通道指定時段「暫時封存」不被汰除；沖銷前需高權限操作並留稽核
   - 現況：**已落地**（`legal_holds`＋`LegalHoldRepository`＋`LegalHoldWindow`）
 - **GPS 時鐘**：選配接收器校正 NTP 偏移，提供「時間可信度」等級標示於回放 OSD
   - 現況：無，僅 NTP
@@ -1449,7 +1452,7 @@ WebRTC/WHEP 即時監看與 MSE 回放（M244）。
 
 | 類型 | 行為 | 設計要點 | 資料表欄位 |
 |---|---|---|---|
-| **全時錄影** | 24/7 不間斷 | 預設 `always`；配額汰除保底 | `channels.recording_mode` |
+| **全時錄影** | 24/7 不間斷 | 預設 `always`；空間汰除保底 | `channels.recording_mode` |
 | **排程錄影** | 依週計劃起停 | 7×24 矩陣編輯（§6）；30s 檢查 | `schedules`（day_mask/start/end） |
 | **事件錄影** | 觸發才錄（含前後預錄） | L0/L1 或 IO 觸發；預錄 I 幀掃描 | `recording_mode=Event` + `alarm_events` |
 | **混合/Smart** | 平時次流，事件切主流（含往後 N 秒） | 事件級最高畫質保證，省空間主力（§11.2） | 事件設定檔 + `segments.stream` |
@@ -1507,8 +1510,8 @@ WebRTC/WHEP 即時監看與 MSE 回放（M244）。
 | 機制 | 設計 | 狀態 |
 |---|---|---|
 | 區段化 | 5–10 分鐘/段，`reset_timestamps` | ✅ 核心 |
-| 保留策略 | 天數 / 容量 / 事件優先三模式 | ✅（§4 配額） |
-| 配額汰除 | 預警>優先刪事件段>停新錄保全（§8.1） | ✅ 核心（三階段 M319） |
+| 保留策略 | 天數（快照）/ 磁碟保留空間（壓力汰除）/ 事件優先三模式 | ✅（§4） |
+| 空間汰除 | 預警>優先刪事件段>停新錄保全（§8.1）；大小由「磁碟至少留多少可用」決定 | ✅ 核心（三階段 M319；保留空間 M322） |
 | Legal Hold | 指定時段封存不被汰除 | P3（§14.6） |
 | 索引與復原 | `segments`+`segment_keyframes`；`.tmp` 修復 | ✅ 核心 |
 
@@ -2165,7 +2168,7 @@ CREATE INDEX idx_license_verified ON license(last_verified DESC);
 ┌───────────────────────────────▼──────────────────┬────────▼────────────────────┐
 │          錄影核心 (HeliVms.Recording Service)     │      遠程服務層 (P0)         │
 │  Devices   Media    Recording   Alarms   Licensing│  HeliVms.WebApi: REST + JWT  │
-│  ONVIF/RTSP FFmpeg  排程/配額   事件+AI   驗證    │  + WS 推送 + WebRTC/轉封裝    │
+│  ONVIF/RTSP FFmpeg  排程/保留   事件+AI   驗證    │  + WS 推送 + WebRTC/轉封裝    │
 │  IO§16    H/W解碼   fMP4區段    Scheduler         │                             │
 └───┬──────┬───────┬──────────┬───┬───────┬─────┬──┴────────────┬─────────────┬──┘
     │      │       │          │   │       │     │               │             │

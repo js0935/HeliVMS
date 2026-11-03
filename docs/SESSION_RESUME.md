@@ -4,6 +4,16 @@
 > 權威來源：`git` 與 GitHub Actions 的現況（不是聊天記錄）。
 > 所有里程碑均已 commit＋push、CI 全綠、工作目錄乾淨（下方數據皆為驗證過的真實值）。
 
+> **【整合更新 2026-11-04】M319–M323 已 commit＋push（`665a574`，新一輪 CI 經 `gh run view` 確認 success）**：
+> ①**空間治理語意改為「磁碟保留空間」**（`recording.min_free_bytes`，預設 2 GiB；設定中心「儲存」頁寫入與顯示）：保留的是「至少留多少可用」，由 `RetentionService.ApplyPressure` 汰除。
+> 舊的總量配額（`recording.quota_gb`）停用：`Apply` 以 `if (quotaBytes > 0)` 守衛，0／負值代表「停用」而不是「刪光」（原寫法 `while (usage > quotaBytes)` 會把整顆錄影刪光而畫面寫「已套用」）。
+> ②**事件錄影門檻接線**：`RecordingMode.Event` 以 `recording.event_seconds`（預設 30 秒）為門檻，`RegisterEvent` 記下觸發時間並立即踢一輪調和（否則閒置頻道等下一個 30 秒 tick 才開錄）。
+> ③**設定中心關閉鈕統一**：18 個無邊框最大化視窗一律「右上角紅 ✕ ＋ Esc」（六個原本完全沒關閉鈕、六個只有文字關閉鈕），`WindowExitContractTests` 盯住。
+> ④前幾輪已落地：監看牆鋺滿監看區、分割數平均（64 路＝8×8）、移除 6 分割、沉浸模式離開鈕左上角、任務清單 30 秒刷新與「重新啟動程式」排程任務、安裝器放行 WS-Discovery（UDP 3702）。
+> ⑤**實測**：Release build 0 error／0 warning；12 個測試專案逐一套跑全綠（App 703、Storage 1445、Alarms 348、Recording 315、Api 264、Shared 223、Devices 198、Rtc 135、Media 109、LicenseProducer 97、Licensing 69、ExportVerify 11）；
+> 安裝檔已重打包 `publish\Setup\HeliVMS-Setup-0.1.0.exe`（181.5 MB，`git status` 乾淨、無 `packages.lock.json` 污染）。本輪未動 `src/HeliVMS.Web`，Web vitest 沿用上一次經驗值。
+> **以下凡標「尚未 commit、CI 未跑」的條目，若屬 M319–M323 之前，狀態一律以本次提交與 CI 為準。**
+
 > **【整合更新 2026-10-12】M245–M272 及「設定中心選定錄影磁碟」等本機工作集已整理並提交**
 > （commit `dc8dae7`，CI run 38186739092 全綠）：`RecordingStorage.cs` 曾於先前工作階段被寫檔工具弄壞——整檔塌成一行、
 > 轉義字元被吃掉、所有方法遺失——已依 `RecordingStorageTests` 與全部呼叫端（`Agent`、`WebApi`
