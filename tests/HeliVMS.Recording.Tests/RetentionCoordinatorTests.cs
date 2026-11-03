@@ -157,7 +157,7 @@ public sealed class RetentionCoordinatorTests : IDisposable
     }
 
     [Fact]
-    public void RunConfigured會依共用設定解析根目錄並清理()
+    public void RunConfigured會依共用設定解析根目錄並清理過期快照()
     {
         var now = new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc);
 
@@ -169,12 +169,15 @@ public sealed class RetentionCoordinatorTests : IDisposable
 
         var settings = new SettingsRepository(_store);
         settings.Set(RecordingStorage.RootSettingKey, _recordingsRoot);
-        settings.Set(RetentionCoordinator.QuotaGbKey, "0.000001"); // 約 1KB，迫使汰除
         settings.Set(RetentionCoordinator.SnapshotDaysKey, "30");
+        // 保留空間設 0＝壓力汰除停用，這支測試只驗根目錄解析與快照到期清理。
+        settings.Set(RecordingStorage.MinFreeSettingKey, "0");
 
-        // 區段總量 3000、配額約 1KB → 從最舊刪。
+        // 舊站台留下的總量配額設定（recording.quota_gb）：升級後不得再拿它汰除錄影。
+        settings.Set(RetentionCoordinator.QuotaGbKey, "0.000001");
+
         var oldest = SeedSegment(now.AddHours(-3), 1000);
-        SeedSegment(now.AddHours(-2), 1000);
+        var middle = SeedSegment(now.AddHours(-2), 1000);
         var newest = SeedSegment(now.AddHours(-1), 1000);
 
         var oldSnap = Path.Combine(snapDir, "snap-old.jpg");
@@ -183,11 +186,39 @@ public sealed class RetentionCoordinatorTests : IDisposable
 
         var sweep = RetentionCoordinator.RunConfigured(_store, dataRoot, now);
 
-        Assert.True(sweep.DeletedSegments > 0, "配額極小應觸發汰除");
-        Assert.Equal(1, sweep.SnapshotDeletedFiles);
-        Assert.False(File.Exists(oldest.FilePath));
+        // 舊配額值還在資料庫裡也不能生效：總量配額已停用，否則一次升級就清空整顆錄影。
+        Assert.Equal(0, sweep.DeletedSegments);
+        Assert.True(File.Exists(oldest.FilePath));
+        Assert.True(File.Exists(middle.FilePath));
         Assert.True(File.Exists(newest.FilePath));
+
+        Assert.Equal(1, sweep.SnapshotDeletedFiles);
         Assert.False(File.Exists(oldSnap));
+
+        Directory.Delete(dataRoot, recursive: true);
+    }
+
+    [Fact]
+    public void RunConfigured會依磁碟保留空間做壓力汰除()
+    {
+        var now = new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc);
+        var dataRoot = Path.Combine(Path.GetTempPath(), $"helivms-coord-data-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(Path.Combine(dataRoot, "snapshots"));
+
+        var settings = new SettingsRepository(_store);
+        settings.Set(RecordingStorage.RootSettingKey, _recordingsRoot);
+        settings.Set(RetentionCoordinator.SnapshotDaysKey, "0");
+        // 保留空間大到任何磁碟都達不到：壓力汰除必須把可汰除的 final 段全部清掉。
+        settings.Set(RecordingStorage.MinFreeSettingKey, (1L << 50).ToString(System.Globalization.CultureInfo.InvariantCulture));
+
+        var oldest = SeedSegment(now.AddHours(-3), 1000);
+        var newest = SeedSegment(now.AddHours(-1), 1000);
+
+        var sweep = RetentionCoordinator.RunConfigured(_store, dataRoot, now);
+
+        Assert.True(sweep.PressureDeletedSegments > 0, "保留空間達不到時必須汰除");
+        Assert.False(File.Exists(oldest.FilePath));
+        Assert.False(File.Exists(newest.FilePath));
 
         Directory.Delete(dataRoot, recursive: true);
     }

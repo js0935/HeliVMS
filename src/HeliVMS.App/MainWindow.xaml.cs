@@ -1769,10 +1769,6 @@ public partial class MainWindow : Window
         return RetentionCoordinator.DefaultSnapshotDays;
     }
 
-    /// <summary>舊配額路徑已停用（空間治理改由磁碟保留空間接手）；保留空殼避免參考斷線。</summary>
-    private static long ParseQuotaBytes()
-        => (long)(RetentionCoordinator.DefaultQuotaGb * 1024 * 1024 * 1024);
-
     private async void OnLayoutChanged(object sender, SelectionChangedEventArgs e)
     {
         // 佈局下拉最底是「復原」項目，不是佈局：選到它先還原成上一個佈局索引，再執行復原，

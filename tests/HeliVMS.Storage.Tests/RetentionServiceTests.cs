@@ -92,6 +92,8 @@ public class RetentionServiceTests : IDisposable
     [Fact]
     public void Apply_DeletesFilesAndRows()
     {
+        // 1 byte 的配額：任何一段都超額，清理必須一路刪下來。
+        // （0 現在代表「總量配額停用」，用 0 會讓這支測試因為沒刪而綠得毫無意義。）
         var file = Path.Combine(_root, "seg-old.mp4");
         File.WriteAllBytes(file, new byte[100]);
 
@@ -99,7 +101,7 @@ public class RetentionServiceTests : IDisposable
         _repo.CompleteSegment(id, DateTime.UtcNow.AddMinutes(-29), 100, 60, new string('b', 64));
 
         var svc = new RetentionService(_repo, _root);
-        svc.Apply(quotaBytes: 0, nowUtc: DateTime.UtcNow);
+        svc.Apply(quotaBytes: 1, nowUtc: DateTime.UtcNow);
 
         Assert.False(File.Exists(file));
         Assert.Empty(_repo.ListFinal(1));
@@ -165,7 +167,7 @@ public class RetentionServiceTests : IDisposable
         holds.Add(1, oldestStart.AddMinutes(-1), oldestStart.AddSeconds(30), "harness hold", "tester", DateTime.UtcNow);
 
         var svc = new RetentionService(_repo, _root, holds);
-        var report = svc.Apply(quotaBytes: 0, nowUtc: DateTime.UtcNow);
+        var report = svc.Apply(quotaBytes: 1, nowUtc: DateTime.UtcNow);
 
         Assert.Equal(2, report.DeletedSegments);
         Assert.Equal(2_000L, report.UsedBytes);
@@ -185,7 +187,7 @@ public class RetentionServiceTests : IDisposable
         holds.Add(1, all[0].StartUtc.AddMinutes(-1), all[^1].EndUtc!.Value.AddMinutes(1), "harness hold", "tester", DateTime.UtcNow);
 
         var svc = new RetentionService(_repo, _root, holds);
-        var report = svc.Apply(quotaBytes: 0, nowUtc: DateTime.UtcNow);
+        var report = svc.Apply(quotaBytes: 1, nowUtc: DateTime.UtcNow);
 
         Assert.Equal(0, report.DeletedSegments);
         Assert.Equal(4_000L, report.UsedBytes);

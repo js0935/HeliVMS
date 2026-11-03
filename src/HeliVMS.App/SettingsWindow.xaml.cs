@@ -195,7 +195,7 @@ public partial class SettingsWindow : Window
         RecordingsRootText.Text = _recordingsRoot;
         SnapshotsRootText.Text = _snapshotsRoot;
 
-        ReloadQuota();
+        ReloadReserve();
         ReloadSnapshotDays();
         ReloadAlarmRetentionDays();
         ReloadAuditRetentionDays();
@@ -386,9 +386,9 @@ public partial class SettingsWindow : Window
         HourlyMergeCheckBox.Content = Localizer.T("Settings.HourlyMergeLabel");
         HourlyMergeCheckBox.ToolTip = Localizer.T("Settings.HourlyMergeLabel");
         HourlyMergeHintText.Text = Localizer.T("Settings.HourlyMergeHint");
-        QuotaLabel.Text = Localizer.T("Settings.QuotaLabel");
-        ApplyQuotaButton.Content = Localizer.T("Settings.Apply");
-        ApplyQuotaButton.ToolTip = Localizer.T("Settings.ApplyQuotaTip");
+        ReserveLabel.Text = Localizer.T("Settings.ReserveLabel");
+        ApplyReserveButton.Content = Localizer.T("Settings.Apply");
+        ApplyReserveButton.ToolTip = Localizer.T("Settings.ApplyReserveTip");
         UsageLabel.Text = Localizer.T("Settings.UsageLabel");
         SnapshotDaysLabel.Text = Localizer.T("Settings.SnapshotDaysLabel");
         ApplySnapshotDaysButton.Content = Localizer.T("Settings.Apply");
@@ -2172,10 +2172,10 @@ public partial class SettingsWindow : Window
         ReloadRules();
     }
 
-    private void ReloadQuota()
+    private void ReloadReserve()
     {
         var reserveGb = ReserveGbFromStore();
-        QuotaTextBox.Text = reserveGb.ToString("0.#", CultureInfo.InvariantCulture);
+        ReserveTextBox.Text = reserveGb.ToString("0.#", CultureInfo.InvariantCulture);
     }
 
     /// <summary>讀取磁碟保留空間（GB）：recording.min_free_bytes（bytes）÷ 1GB；未設定時回預設。</summary>
@@ -2667,9 +2667,9 @@ public partial class SettingsWindow : Window
             Localizer.T("Settings.DisksApplied"), folders.Count, primaryFolder);
     }
 
-    private void OnApplyQuotaClicked(object sender, RoutedEventArgs e)
+    private void OnApplyReserveClicked(object sender, RoutedEventArgs e)
     {
-        if (!double.TryParse(QuotaTextBox.Text, NumberStyles.Float, CultureInfo.InvariantCulture, out var gb) || gb <= 0)
+        if (!double.TryParse(ReserveTextBox.Text, NumberStyles.Float, CultureInfo.InvariantCulture, out var gb) || gb <= 0)
         {
             CleanupReportText.Text = Localizer.T("Settings.GbPositive");
             return;
@@ -2678,7 +2678,7 @@ public partial class SettingsWindow : Window
         // 保留空間以 bytes 寫入（recording.min_free_bytes）：壓力汰除的門檻——
         // 磁碟可用空間低於這個值時，每小時清理會從最舊的錄影開始汰除。
         _settings.Set(ReserveGbSettingKey, ((long)(gb * 1024d * 1024 * 1024)).ToString(System.Globalization.CultureInfo.InvariantCulture));
-        CleanupReportText.Text = string.Format(Localizer.T("Settings.QuotaApplied"), gb);
+        CleanupReportText.Text = string.Format(Localizer.T("Settings.ReserveApplied"), gb);
         ReloadUsage();
     }
 
@@ -2741,7 +2741,11 @@ public partial class SettingsWindow : Window
             var reserveBytes = (long)(ReserveGbFromStore() * 1024d * 1024 * 1024);
             var drives = DiskPressureCoordinator.ConfiguredDriveUsageDetailed(_store, _recordingsRoot);
             var pressure = service.ApplyPressure(DateTime.UtcNow, reserveBytes, drives);
-            var text = string.Format(Localizer.T("Settings.CleanupDone"), pressure.DeletedSegments, FormatBytes(pressure.FreedBytes));
+            // 可用空間還在保留值之上時壓力汰除什麼都不做。若照樣回報「移除 0 段」，
+            // 操作員會讀成「這顆按鈕壞了」——要說清楚是按了、只是沒有需要刪的東西。
+            var text = pressure.DeletedSegments == 0
+                ? Localizer.T("Settings.CleanupNoPressure")
+                : string.Format(Localizer.T("Settings.CleanupDone"), pressure.DeletedSegments, FormatBytes(pressure.FreedBytes));
 
             var snapDays = SnapDaysFromStore();
             var snapReport = service.PurgeSnapshots(_snapshotsRoot, DateTime.UtcNow.AddDays(-snapDays));

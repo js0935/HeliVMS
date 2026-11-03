@@ -108,7 +108,7 @@ public class RetentionServiceTests : IDisposable
         File.WriteAllText(victim, "不可刪");
         var seg = SeedFinal(DateTime.UtcNow.AddHours(-1), 1000, victim);
 
-        var report = NewService().Apply(quotaBytes: 0);
+        var report = NewService().Apply(quotaBytes: 1);
 
         Assert.Equal(0, report.DeletedSegments);
         Assert.True(File.Exists(victim), "錄影根目錄外的檔案被刪了");
@@ -131,7 +131,7 @@ public class RetentionServiceTests : IDisposable
         var stuck = SeedFinal(start, 1000, victim);
         var deletable = SeedFinal(start.AddHours(1), 1000);
 
-        var report = NewService().Apply(quotaBytes: 0, nowUtc: start.AddHours(2));
+        var report = NewService().Apply(quotaBytes: 1, nowUtc: start.AddHours(2));
 
         Assert.Equal(1, report.DeletedSegments);
         Assert.True(File.Exists(victim), "錄影根目錄外的檔案被刪了");
@@ -156,7 +156,7 @@ public class RetentionServiceTests : IDisposable
         // 保存窗只剛好蓋住第一個區段（00:00-00:10），第二個在 02:00 必須照常被淘汰。
         _legalHolds.Add(1, start.AddMinutes(-1), start.AddMinutes(11), "訴訟保全", "admin", start);
 
-        var report = NewService().Apply(quotaBytes: 0, nowUtc: start.AddHours(3));
+        var report = NewService().Apply(quotaBytes: 1, nowUtc: start.AddHours(3));
 
         Assert.Equal(1, report.DeletedSegments);
         Assert.True(_segments.Get(held.Id) is not null, "受保存的區段被淘汰了");
@@ -174,7 +174,7 @@ public class RetentionServiceTests : IDisposable
         var recording = _segments.BeginSegment(
             1, "main", Path.Combine(_root, "in-progress.mp4"), DateTime.UtcNow.AddMinutes(-1));
 
-        var report = NewService().Apply(quotaBytes: 0);
+        var report = NewService().Apply(quotaBytes: 1);
 
         Assert.Equal(0, report.DeletedSegments);
         Assert.NotNull(_segments.Get(recording));
@@ -193,10 +193,36 @@ public class RetentionServiceTests : IDisposable
         File.Delete(seg.FilePath);
         Assert.False(File.Exists(seg.FilePath));
 
-        var report = NewService().Apply(quotaBytes: 0);
+        var report = NewService().Apply(quotaBytes: 1);
 
         Assert.Equal(1, report.DeletedSegments);
         Assert.Null(_segments.Get(seg.Id));
+    }
+
+    /// <summary>
+    /// 總量配額停用（quotaBytes &lt;= 0）時，一段都不准汰除。
+    ///
+    /// <para>
+    /// 空間治理改成「磁碟保留空間」（recording.min_free_bytes 的壓力汰除）之後，
+    /// 設定面已經沒有配額；協調器與桌面都傳 0 進來。舊的迴圈條件是 
+    /// <c>while (usage &gt; quotaBytes)</c>，0 會讓它把所有 final 段刪到一滴不剩——
+    /// 一次設定升級就等於把整顆錄影清空，而 log 只會說「清理完成」。
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void 總量配額停用時不會汰除任何區段()
+    {
+        var oldest = SeedFinal(new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc), 1000);
+        var newest = SeedFinal(new DateTime(2026, 9, 1, 2, 0, 0, DateTimeKind.Utc), 1000);
+
+        var report = NewService().Apply(quotaBytes: 0);
+
+        Assert.Equal(0, report.DeletedSegments);
+        Assert.Equal(0, report.FreedBytes);
+        Assert.NotNull(_segments.Get(oldest.Id));
+        Assert.NotNull(_segments.Get(newest.Id));
+        Assert.True(File.Exists(oldest.FilePath));
+        Assert.True(File.Exists(newest.FilePath));
     }
 
     /// <summary>仍在錄影中的 *.tmp 暫存檔不能被清掉，否則會把正在寫的錄影砍斷。</summary>

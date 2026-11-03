@@ -65,7 +65,8 @@ public sealed class RetentionService
 
     /// <summary>執行一次配額清理與 tmp 隔離；回傳結果報告。保存鎖定（M66）所覆蓋時段豁免汰除。</summary>
     public RetentionReport Apply(long quotaBytes, DateTime? nowUtc = null)
-    {        var now = nowUtc ?? DateTime.UtcNow;
+    {
+        var now = nowUtc ?? DateTime.UtcNow;
 
         // 汰除前先做一次資料夾層級對帳（只認 final 資料夾，不逐檔 stat）。
         //
@@ -91,50 +92,50 @@ public sealed class RetentionService
         // 會把磁碟上的錄影汰到一滴不剩。仍保留對帳與暫存清理。
         if (quotaBytes > 0)
         {
-        while (usage > quotaBytes)
-        {
-            // 汰除候選改依配額優先序（事件段先、全時段後，同層由舊至新；見 ListReclaimCandidates）。
-            // 這是 §11.1 磁碟滿策略的第二階段；以前一律只看最舊，等於對事件段與全時段一視同仁。
-            var candidates = _repo.ListReclaimCandidates(64);
-            SegmentRecord? target = null;
-
-            // 逐一挑第一個「大小已知、未受保存鎖定、且檔案真的刪得掉」的區段。
-            //
-            // 檔案刪不掉時（被防毒／播放器占用，或路徑汙染成不在錄影根目錄內）要「跳過」，
-            // 不能就此結束整輪：最舊的一個搬不動的檔案不該讓配額永遠降不下來、磁碟被寫爆。
-            // 刪不掉的索引列一律保留，下一輪再試。
-            foreach (var seg in candidates)
+            while (usage > quotaBytes)
             {
-                if (seg.SizeBytes <= 0)
+                // 汰除候選改依配額優先序（事件段先、全時段後，同層由舊至新；見 ListReclaimCandidates）。
+                // 這是 §11.1 磁碟滿策略的第二階段；以前一律只看最舊，等於對事件段與全時段一視同仁。
+                var candidates = _repo.ListReclaimCandidates(64);
+                SegmentRecord? target = null;
+
+                // 逐一挑第一個「大小已知、未受保存鎖定、且檔案真的刪得掉」的區段。
+                //
+                // 檔案刪不掉時（被防毒／播放器占用，或路徑汙染成不在錄影根目錄內）要「跳過」，
+                // 不能就此結束整輪：最舊的一個搬不動的檔案不該讓配額永遠降不下來、磁碟被寫爆。
+                // 刪不掉的索引列一律保留，下一輪再試。
+                foreach (var seg in candidates)
                 {
-                    continue;
+                    if (seg.SizeBytes <= 0)
+                    {
+                        continue;
+                    }
+
+                    if (_legalHolds?.IsLocked(seg.ChannelId, seg.StartUtc, seg.EndUtc ?? seg.StartUtc) == true)
+                    {
+                        continue;
+                    }
+
+                    if (!TryDeleteSegmentFile(seg.FilePath))
+                    {
+                        continue;
+                    }
+
+                    target = seg;
+                    break;
                 }
 
-                if (_legalHolds?.IsLocked(seg.ChannelId, seg.StartUtc, seg.EndUtc ?? seg.StartUtc) == true)
+                if (target is null)
                 {
-                    continue;
+                    // 這一批已無可刪目標（全數受鎖定、待收尾或刪不掉）：結束本輪。
+                    break;
                 }
 
-                if (!TryDeleteSegmentFile(seg.FilePath))
-                {
-                    continue;
-                }
-
-                target = seg;
-                break;
+                _repo.Delete(target.Id);
+                usage -= target.SizeBytes;
+                freed += target.SizeBytes;
+                deleted++;
             }
-
-            if (target is null)
-            {
-                // 這一批已無可刪目標（全數受鎖定、待收尾或刪不掉）：結束本輪。
-                break;
-            }
-
-            _repo.Delete(target.Id);
-            usage -= target.SizeBytes;
-            freed += target.SizeBytes;
-            deleted++;
-        }
         }
 
         var purgedTmp = PurgeStaleTmp(now);

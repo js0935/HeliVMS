@@ -213,13 +213,13 @@
                 <TextBlock x:Name="HourlyMergeHintText" Text=""
                            Foreground="{StaticResource Brand.TextDim}" FontSize="11" TextWrapping="Wrap"
                            Margin="0,0,0,8"/>
-                <TextBlock x:Name="QuotaLabel" Text=""
+                <TextBlock x:Name="ReserveLabel" Text=""
                            Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
                 <DockPanel Margin="0,4,0,8">
-                    <Button x:Name="ApplyQuotaButton" Content="" Click="OnApplyQuotaClicked" ToolTip=""
+                    <Button x:Name="ApplyReserveButton" Content="" Click="OnApplyReserveClicked" ToolTip=""
                             DockPanel.Dock="Right" Padding="12,6"
-                            Foreground="White" Background="#2A5C8A" BorderThickness="0" AutomationProperties.AutomationId="ApplyQuotaButton"/>
-                    <TextBox x:Name="QuotaTextBox" AutomationProperties.AutomationId="QuotaTextBox"
+                            Foreground="White" Background="#2A5C8A" BorderThickness="0" AutomationProperties.AutomationId="ApplyReserveButton"/>
+                    <TextBox x:Name="ReserveTextBox" AutomationProperties.AutomationId="ReserveTextBox"
                              Width="120" Margin="0,0,10,0"
                              Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
                 </DockPanel>

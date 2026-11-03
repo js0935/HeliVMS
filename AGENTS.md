@@ -344,7 +344,40 @@ Notes that will save you time:
   mid-export must cancel ffmpeg, not orphan it. Fixed-width inputs (`Width="280"` on the channel
   combo, `"180"` on the bundle fields) clipped translated labels and long camera names;
   fullscreen form fields stretch instead, and the time range is a labelled 2×2 From/To grid
-  rather than four controls sharing one row.
+  rather than four controls sharing one row. The rule now covers the whole settings centre:
+  every borderless maximized window — including the twelve child windows `SettingsWindow` opens
+  (camera/channel manager, detection, redaction, dewarp, stream switch, IO, talk, monitor group,
+  recording import, notification log, ONVIF wizard, map, PTZ) — carries the same red ✕ at
+  top-right plus Esc. Six of them had no close affordance at all and six had a text 關閉 button;
+  both read as "this window has no exit" once the title bar is gone. Guarded by
+  `WindowExitContractTests` (table of 18 windows; each row reads the XAML for the ✕ and the
+  code-behind for Esc).
+- **Space governance is "keep N GB free", not "recording quota".** The Storage page used to say
+  「錄影保留上限（GB）」 while `RetentionService.Apply` looped `while (usage > quotaBytes)` — set it
+  to 0, or below one segment, and a single hourly sweep deleted *every* recording while the UI
+  said 已套用 and the log stayed clean. It is now a free-space reserve
+  (`recording.min_free_bytes`, default 2 GiB) enforced by `ApplyPressure`, which only acts when a
+  drive actually drops below the threshold. `Apply`'s quota path is disabled by
+  `if (quotaBytes > 0)` — **keep that guard**: `RetentionCoordinator` and `MainWindow` pass 0, and
+  `>= 0` turns "disabled" into "delete everything". `recording.quota_gb` may still sit in upgraded
+  databases; nothing reads it any more. Tests that need "nothing will ever fit" use
+  `quotaBytes: 1`, never 0 — 0 now means disabled, so such a test quietly goes green by deleting
+  nothing. Guarded by `SettingsReserveSpaceContractTests`,
+  `總量配額停用時不會汰除任何區段`, `RunConfigured會依磁碟保留空間做壓力汰除` and
+  `RunConfigured會依共用設定解析根目錄並清理過期快照`.
+- **Event recording is gated by a time window, and the gate must be re-evaluated immediately.**
+  `RecordingMode.Event` records only while the channel had an event within
+  `recording.event_seconds` (default 30 s): `RegisterEvent` stamps `_eventTriggers[channel]`,
+  `ShouldRecordEvent` compares against `now`, and the 30 s reconcile tick stops the recorder once
+  the window lapses. There is no pre-buffer on purpose — a pre-roll would need one live decode
+  pipeline per event-mode channel, which is the same RTSP-session budget that made audio ride the
+  decode process instead of opening a second session. `RegisterEvent` also kicks
+  `_timer.Change(TimeSpan.Zero, ReconcileInterval)`, otherwise an event on an idle channel waits up
+  to 30 s for the recorder to start, i.e. the footage that triggered it is already gone. Every
+  test that expects recording to actually start must call `ApplyLicense(cameras: 32)` first;
+  without it `LicenseService.CheckRecording` blocks Event mode and the assertion passes for a
+  reason that has nothing to do with the gate. Guarded by `事件錄影頻道登記事件後調和會開錄`,
+  `事件窗口過後調和會停錄`, `連續事件刷新窗口不會切段` and `非事件模式的頻道忽略事件觸發`.
 - **A recording-schedule rule that never records must be rejected, not stored.** `IsActiveAt`
   uses a closed interval, so start == end (e.g. the old form default 00:00–00:00) is active for
   exactly one minute of the day; the scheduler ticks every 30 s and in practice captures
