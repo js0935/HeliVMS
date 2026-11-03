@@ -32,6 +32,17 @@ if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
 }
 
+# 發佈的還原（帶 -r win-x64）會把 packages.lock.json 改寫成含 RID 的版本——
+# CI 的 locked-mode 還原（無 RID）讀到就 NU1004 全紅。發佈用的資產已寫進 obj，
+# 這裡把 lock 檔還原成 repo 版本即可；發佈輸出不受影響。
+# 只在 git clone 內執行；不是 clone 時（無 .git）就跳過。
+if (Test-Path .git) {
+    $dirty = git status --porcelain | Where-Object { $_ -match 'packages\.lock\.json$' }
+    foreach ($line in $dirty) {
+        git checkout -- $line.Substring(3).Trim()
+    }
+}
+
 # 驗證輸出真的是自包含：hostfxr／coreclr 必須在資料夾裡。它們缺席代表發佈退化成
 # framework-dependent——目標機器會去下載 Runtime，正是這個腳本要避免的失敗模式。
 $required = @(
