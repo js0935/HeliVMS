@@ -159,7 +159,6 @@ public partial class PlaybackWindow : Window
     // 播放頭時鐘（見 SyncPanes）；焦點一律是主畫面（ChannelCombo 選取的那台）。
     private readonly List<Pane> _panes = [];
     private readonly DispatcherTimer _syncTimer;
-    private const double PaneDriftToleranceSec = 1.5;
 
     /// <summary>回放牆上的一個次畫面（頻道、影像、解碼工作與其當日區段）。</summary>
     private sealed class Pane
@@ -181,6 +180,18 @@ public partial class PlaybackWindow : Window
         public double BasePos { get; set; }
 
         public double PosInside { get; set; }
+
+        /// <summary>
+        /// 這一格「按下播放到第一張影格」的估計延遲（秒）。
+        /// </summary>
+        /// <remarks>
+        /// 對時跳轉時先加上它，畫面才會出現在正確的時刻：每一格的 ffmpeg 啟動＋seek 時間
+        /// 不一樣，不加這一項的話啟動慢的那格會永遠落後同樣的秒數（現場看到的就是「各播各的」）。
+        /// </remarks>
+        public double StartupLatencySeconds { get; set; } = 0.5;
+
+        /// <summary>本次啟動的牆鐘時間；第一張影格到達時用來量啟動延遲，量完歸零。</summary>
+        public DateTime? StartedAtUtc { get; set; }
 
         public long Version { get; set; }
 
@@ -3216,7 +3227,9 @@ public partial class PlaybackWindow : Window
         }
 
         var at = RecordingInstant(seg, _posInside);
-        TimeText.Text = $"{at:HH:mm:ss}（{FormatTime(_posInside)} / {FormatTime(LengthOf(seg))}）";
+        // 到毫秒（18:25:32:015）：同一秒內有幾十張影格，只到秒的讀數無法指出「哪一張」，
+        // 而操作員是把這個數字抄進報告的。段內位置／長度維持秒級（相對值，毫秒只是噪音）。
+        TimeText.Text = $"{PlaybackClock.FormatInstant(at)}（{FormatTime(_posInside)} / {FormatTime(LengthOf(seg))}）";
 
         // 主畫面左上角 OSD 與次畫面同一份格式（頻道名 + 錄影時刻）：從多分割放大回單畫面，
         // 對時的位置不能消失——單分割時主畫面就是唯一的畫面，等於 pane 的 OSD。
@@ -3236,8 +3249,8 @@ public partial class PlaybackWindow : Window
     /// </summary>
     private static string OsdText(ChannelInfo? channel, SegmentRecord segment, double posInside)
     {
-        var at = RecordingInstant(segment, posInside);
-        return channel is null ? $"{at:HH:mm:ss}" : $"{channel.Name}  {at:HH:mm:ss}";
+        var at = PlaybackClock.FormatInstant(RecordingInstant(segment, posInside));
+        return channel is null ? at : $"{channel.Name}  {at}";
     }
 
     private static string FormatTime(double seconds)
@@ -3548,7 +3561,7 @@ public partial class PlaybackWindow : Window
                 || pane.Current is null
                 || pane.Current.Id != cursor.Value.Segment.Id
                 || paneUtc is null
-                || Math.Abs((paneUtc.Value - target).TotalSeconds) > PaneDriftToleranceSec;
+                || Math.Abs((paneUtc.Value - target).TotalSeconds) > PlaybackSyncPlanner.DefaultDriftToleranceSeconds;
 
             if (restart)
             {
@@ -3561,15 +3574,19 @@ public partial class PlaybackWindow : Window
     {
         StopPane(pane);
         pane.Current = segment;
-        pane.BasePos = offsetSeconds;
-        pane.PosInside = offsetSeconds;
+
+        // 加上這一格自己的啟動延遲：第一張影格才會落在正確的時刻上（見 StartupLatencySeconds）。
+        var offset = PlaybackSyncPlanner.CompensatedOffset(offsetSeconds, pane.StartupLatencySeconds);
+        pane.BasePos = offset;
+        pane.PosInside = offset;
         pane.NoRecording = false;
+        pane.StartedAtUtc = DateTime.UtcNow;
         var version = ++pane.Version;
         var session = new PlaybackSession(segment) { Speed = GetSpeed() };
         pane.Session = session;
         session.FrameDecoded += (_, frame) => Dispatcher.BeginInvoke(() => OnPaneFrame(pane, version, frame));
         session.Ended += (_, _) => Dispatcher.BeginInvoke(() => OnPaneEnded(pane, version));
-        _ = session.PlayAsync(offsetSeconds);
+        _ = session.PlayAsync(offset);
     }
 
     private void OnPaneFrame(Pane pane, long version, VideoFrame frame)
@@ -3577,6 +3594,15 @@ public partial class PlaybackWindow : Window
         if (version != pane.Version || pane.Session is null)
         {
             return;
+        }
+
+        // 第一張影格＝量到了這一格的啟動延遲（按下播放到有畫面）；下一次對時跳轉會先補上它。
+        if (pane.StartedAtUtc is { } startedAt)
+        {
+            pane.StartedAtUtc = null;
+            pane.StartupLatencySeconds = PlaybackSyncPlanner.NextLatencyEstimate(
+                pane.StartupLatencySeconds,
+                (DateTime.UtcNow - startedAt).TotalSeconds);
         }
 
         if (pane.Bitmap is null || pane.LastWidth != frame.Width || pane.LastHeight != frame.Height)

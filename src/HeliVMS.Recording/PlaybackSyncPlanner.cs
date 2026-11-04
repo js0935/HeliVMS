@@ -27,6 +27,51 @@ public static class PlaybackSyncPlanner
     }
 
     /// <summary>
+    /// 判定「這一格該重新對時」的容許誤差（秒）。
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// 現場回報「多路回放各播各的」：舊值 1.5 秒等於每一格都可以落後主畫面一個半秒以上才被拉回，
+    /// 而每次拉回都是重開 ffmpeg（解碼啟動又要幾百毫秒），於是四格各自在自己的節奏上跑。
+    /// 0.4 秒約是 10–30fps 下 4–12 張影格的差距，肉眼在同一畫面內看得出來；再縮小則會因為
+    /// 解碼啟動抖動而不斷重開，反而更不穩。
+    /// </para>
+    /// <para>
+    /// 光縮小容差會讓「啟動比別人慢」的那一格永遠追不上（每輪都落後同樣的啟動延遲），
+    /// 所以必須搭配 <see cref="CompensatedOffset"/>：把該格量到的啟動延遲先加進跳轉位置。
+    /// </para>
+    /// </remarks>
+    public const double DefaultDriftToleranceSeconds = 0.4;
+
+    /// <summary>
+    /// 對時跳轉的實際落點：要求位置＋<b>這一格自己的啟動延遲</b>。
+    /// </summary>
+    /// <remarks>
+    /// 從按下播放到第一張影格出現之間要啟動 ffmpeg 並 seek，這段時間畫面是空的；
+    /// 若直接跳到要求位置，等到第一張影格出現時已經落後別人那麼多，而且之後是等速播放，
+    /// 落後量永遠存在。先把落後量加進跳轉位置，第一張影格就會出現在正確的時刻上。
+    /// </remarks>
+    /// <param name="offsetSeconds">要求的位置（段內秒數）。</param>
+    /// <param name="startupLatencySeconds">該格量到的啟動延遲（未量到時給合理初值）。</param>
+    public static double CompensatedOffset(double offsetSeconds, double startupLatencySeconds)
+        => Math.Max(0, offsetSeconds + Math.Max(0, startupLatencySeconds));
+
+    /// <summary>
+    /// 更新某格的啟動延遲估計值（指數加權移動平均，取樣少的抖動不至於讓下一次跳轉過衝）。
+    /// </summary>
+    /// <param name="previous">前一次估計（秒）。</param>
+    /// <param name="measured">這次量到的延遲（秒）；不合理值會先被夾住。</param>
+    public static double NextLatencyEstimate(double previous, double measured)
+    {
+        var sample = Math.Clamp(measured, 0, MaxStartupLatencySeconds);
+        var baseValue = Math.Clamp(previous, 0, MaxStartupLatencySeconds);
+        return Math.Clamp((baseValue * 0.5) + (sample * 0.5), 0, MaxStartupLatencySeconds);
+    }
+
+    /// <summary>啟動延遲估計的上限（秒）：超過這個值代表機器有更大的問題，不該一路加進跳轉位置。</summary>
+    public const double MaxStartupLatencySeconds = 5;
+
+    /// <summary>
     /// 區段結束時刻。與時間軸色塊、事件比對、跳轉共用 <see cref="PlaybackSegmentTiming.EndOf"/>
     /// 的唯一一份換算：<see cref="SegmentRecord.EndUtc"/> 為 null（錄影中或舊資料）時以段長推算，
     /// 段長也沒有時以 10 秒估算。

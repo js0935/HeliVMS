@@ -248,10 +248,11 @@ public sealed class PlaybackWindowContractTests
     {
         var show = SourceContract.BodyOf(SourceContract.Read(Code), "ShowPlayheadTime");
 
-        // 讀數本體：錄影時刻（{at:HH:mm:ss}）在前，位置／段長只在其後的括號裡。
-        // 寫反了（只剩段內相對值）操作員就沒有對時資訊——現場回報過「只看到長度時間」。
+        // 讀數本體：錄影時刻在前（到毫秒，見 PlaybackClock），位置／段長只在其後的括號裡。
+        // 寫反了（只剩段內相對值）操作員就沒有對時資訊——現場回報過「只看到長度時間」；
+        // 而只到秒則分不出同一秒內的哪一張影格（現場要求「秒數後面再加上張數」）。
         Assert.Contains(
-            @"TimeText.Text = $""{at:HH:mm:ss}（{FormatTime(_posInside)} / {FormatTime(LengthOf(seg))}）""",
+            @"TimeText.Text = $""{PlaybackClock.FormatInstant(at)}（{FormatTime(_posInside)} / {FormatTime(LengthOf(seg))}）""",
             show,
             StringComparison.Ordinal);
 
@@ -330,6 +331,59 @@ public sealed class PlaybackWindowContractTests
         var ended = SourceContract.BodyOf(source, "OnPaneEnded");
         Assert.Contains("pane.Session = null", ended);
         Assert.DoesNotContain("PlayPane(", ended);
+    }
+
+    /// <summary>
+    /// 多路同步要「對得起來」：容差用共用常數（不是各寫一份的 1.5 秒），而且跳轉要補上
+    /// 這一格自己的啟動延遲。
+    /// </summary>
+    /// <remarks>
+    /// 現場回報「多路回放各播各的」：舊容差 1.5 秒讓每格可以落後一個半秒以上才被拉回；
+    /// 而啟動慢的那一格即使被拉回，也永遠落後同樣的啟動延遲——因為從按下播放到第一張影格
+    /// 之間的空窗沒有被補進跳轉位置。兩件事要一起修，單修容差會變成不停重開 ffmpeg。
+    /// </remarks>
+    [Fact]
+    public void 多路同步用共用容差且跳轉補上啟動延遲()
+    {
+        var source = SourceContract.Read(Code);
+
+        // 容差只留在排程核心裡；視窗自己寫一個常數就是「同一個決定有兩份」。
+        var sync = SourceContract.BodyOf(source, "SyncPanes");
+        Assert.Contains("PlaybackSyncPlanner.DefaultDriftToleranceSeconds", sync);
+        Assert.DoesNotContain("PaneDriftToleranceSec", source);
+
+        // 跳轉位置＝要求位置＋該格量到的啟動延遲。
+        var play = SourceContract.BodyOf(source, "PlayPane");
+        Assert.Contains("PlaybackSyncPlanner.CompensatedOffset(", play);
+
+        // 第一張影格就是量測點：沒有它，估計值永遠停在初值。
+        // 比對整句指派而不是函式名：把結果乘 0 或丟掉照樣含有函式名，卻等於沒有量。
+        var frame = SourceContract.BodyOf(source, "OnPaneFrame");
+        Assert.Contains("pane.StartupLatencySeconds = PlaybackSyncPlanner.NextLatencyEstimate(", frame);
+    }
+
+    /// <summary>播放讀數到毫秒（18:25:32:015），且主畫面與次畫面共用同一個格式。</summary>
+    /// <remarks>
+    /// 現場要求「秒數後面再加上張數」：同一秒內有幾十張影格，只到秒的讀數無法指出操作員
+    /// 看到的是哪一張，而那個數字是要抄進報告的。兩邊各寫一份格式的話，同一個瞬間在
+    /// 主畫面與次畫面會印出不同長度的字。
+    /// </remarks>
+    [Fact]
+    public void 播放讀數到毫秒且主次畫面共用格式()
+    {
+        var source = SourceContract.Read(Code);
+
+        var playhead = SourceContract.BodyOf(source, "ShowPlayheadTime");
+        Assert.Contains("PlaybackClock.FormatInstant(", playhead);
+        // 舊寫法（只到秒）不得回來。
+        Assert.DoesNotContain("at:HH:mm:ss", playhead);
+
+        var osd = SourceContract.BodyOf(source, "OsdText");
+        Assert.Contains("PlaybackClock.FormatInstant(", osd);
+        Assert.DoesNotContain("HH:mm:ss", osd);
+
+        // 段內位置／長度維持秒級（相對值，毫秒只是噪音）。
+        Assert.Contains("FormatTime(", playhead);
     }
 
     [Fact]

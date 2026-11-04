@@ -11,6 +11,48 @@ namespace HeliVMS.Recording.Tests;
 /// 同一個絕對時刻對某一路是段內、對另一路可能是空隙。若把空隙誤判成有錄影
 /// （硬跳到別的段），操作員會看到兩台畫面在播不同時刻卻以為同步——是證據比對時最危險的錯。
 /// </summary>
+/// <summary>
+/// 多路同步的容差與啟動延遲補償。現場症狀：四格「各播各的」——舊容差 1.5 秒讓每一格都
+/// 可以落後一個半秒以上才被拉回，而啟動慢的那格又永遠追不上（每輪都落後同樣的啟動延遲）。
+/// </summary>
+public sealed class PlaybackSyncTimingTests
+{
+    [Fact]
+    public void 對時跳轉會補上這一格的啟動延遲()
+    {
+        // 要求 10:00:07，這一格啟動要 0.6 秒 → 跳到 07.6，第一張影格出現時剛好是 07.6 的內容。
+        Assert.Equal(7.6, PlaybackSyncPlanner.CompensatedOffset(7.0, 0.6), 3);
+    }
+
+    [Fact]
+    public void 補償不會把跳轉位置往回推()
+    {
+        Assert.Equal(0.8, PlaybackSyncPlanner.CompensatedOffset(0.2, 0.6), 3);
+        Assert.Equal(0, PlaybackSyncPlanner.CompensatedOffset(0, 0), 3);
+        // 負的估計值（不該出現）視為 0，而不是把位置往回推。
+        Assert.Equal(5, PlaybackSyncPlanner.CompensatedOffset(5, -3), 3);
+    }
+
+    [Fact]
+    public void 啟動延遲估計是移動平均且夾在上限內()
+    {
+        // 前一次 1.0、這次量到 3.0 → 1.0*0.5 + 3.0*0.5 = 2.0（單次抖動不至於讓下一跳過衝）。
+        Assert.Equal(2.0, PlaybackSyncPlanner.NextLatencyEstimate(1.0, 3.0), 3);
+        // 荒謬值被夾在上限：一路把上限加進跳轉位置會直接跳過要看的畫面。
+        Assert.Equal(
+            PlaybackSyncPlanner.MaxStartupLatencySeconds,
+            PlaybackSyncPlanner.NextLatencyEstimate(PlaybackSyncPlanner.MaxStartupLatencySeconds, 600),
+            3);
+    }
+
+    [Fact]
+    public void 容差要小到肉眼看得出來但不會不停重開()
+    {
+        // 10–30fps 下 4–12 張影格；再大就是「各播各的」，再小則解碼啟動抖動會不斷重開 ffmpeg。
+        Assert.InRange(PlaybackSyncPlanner.DefaultDriftToleranceSeconds, 0.2, 0.5);
+    }
+}
+
 public sealed class PlaybackSyncPlannerTests
 {
     private static readonly DateTime T0 = new(2026, 9, 12, 10, 0, 0, DateTimeKind.Utc);

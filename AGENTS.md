@@ -268,17 +268,32 @@ Notes that will save you time:
   through the single `ShowPlayheadTime` (which also replaced three copies of the same
   `"{pos} / {length}"` format string). Guarded by `按停止後狀態列不會再寫著播放中` and
   `滑鼠離開時間軸後時間讀數回到播放頭`. The readout itself must lead with the **recording
-  instant** (segment start + position → local `HH:mm:ss` via `RecordingInstant`), with
-  `pos / length` only as a secondary — operators copy this readout into reports and use it to
-  correlate events, and a segment-relative number matches hundreds of different wall-clock
-  moments in a day. The pane OSD shows the same instant through the same helper, so the main
-  readout and a synced pane can never disagree about "what time is this". The **main player has
-  its own top-left OSD too** (`PlayerOsd`, same `OsdText` format): in 1-split the main view is
-  the only pane, and an operator who zoomed in from the wall loses the familiar corner clock if
-  only the bottom readout carries the time. It is written by `ShowPlayheadTime` (the only writer
-  of time readouts) and cleared with the playback head, so it can never outlive its segment.
-  Guarded by `播放讀數以錄影時刻為主而非段內位置`, `單一畫面也有左上角的錄影時間OSD` and
-  `次畫面OSD顯示錄影時刻而非段內位置`.
+  instant** — segment start + position → local time via `RecordingInstant`, formatted by
+  `HeliVMS.Shared.PlaybackClock.FormatInstant` as `18:25:32:015` (時:分:秒:毫秒) — with
+  `pos / length` only as a secondary. The last field is the **displayed frame's** milliseconds
+  (`_posInside` is `BasePos + frame.PtsMs / 1000`), not a wall-clock estimate; the operator asked
+  for it because "a second contains dozens of frames and a seconds-only readout cannot say which
+  one I am looking at", and this readout is what gets copied into reports. Keep `pos / length` at
+  seconds (a relative value; milliseconds there are noise). The pane OSD shows the same instant
+  through the same formatter, so the main readout and a synced pane can never disagree about
+  "what time is this". The **main player has its own top-left OSD too** (`PlayerOsd`, same
+  `OsdText` format): in 1-split the main view is the only pane, and an operator who zoomed in from
+  the wall loses the familiar corner clock if only the bottom readout carries the time. It is
+  written by `ShowPlayheadTime` (the only writer of time readouts) and cleared with the playback
+  head, so it can never outlive its segment. Guarded by `播放讀數以錄影時刻為主而非段內位置`,
+  `單一畫面也有左上角的錄影時間OSD`, `次畫面OSD顯示錄影時刻而非段內位置`,
+  `播放讀數到毫秒且主次畫面共用格式` and `PlaybackClockTests`.
+- **Multi-pane playback must stay on one clock: a small tolerance AND per-pane startup-latency
+  compensation — never one without the other.** 現場回報「多路回放各播各的」：每一格都落後主畫面
+  不同秒數。舊容差 1.5 秒（`PlaybackWindow` 自己寫的 `PaneDriftToleranceSec`）讓每格可以先落後
+  一個半秒以上才被拉回，而更根本的是：**從按下播放到第一張影格之間的啟動空窗從未被補償**——
+  那格之後是等速播放，於是永遠落後它自己的啟動延遲。修正：容差改由排程核心提供
+  （`PlaybackSyncPlanner.DefaultDriftToleranceSeconds` = 0.4 秒，約 10–30fps 下 4–12 張影格，
+  再小會因解碼啟動抖動而不停重開 ffmpeg），跳轉位置改用
+  `PlaybackSyncPlanner.CompensatedOffset(offset, 該格量到的啟動延遲)`，延遲在**第一張影格到達時**
+  量測並以 `NextLatencyEstimate`（0.5/0.5 移動平均、上限 5 秒）更新。只調容差會讓啟動慢的那格
+  永遠追不上並每輪重開；只補償不縮容差則仍然看得到各播各的。Guarded by `PlaybackSyncTimingTests`,
+  `多路同步用共用容差且跳轉補上啟動延遲` and `次畫面以母鐘解算且空隙不硬跳別段`.
 - **"Replay selection" must stop where the selection stops.** Recordings are one file per
   segment, so a selected 10:00–10:30 spans several files. `OnEnded` continues into the next
   segment while it still starts before the upper bound — but that branch must also *end the
