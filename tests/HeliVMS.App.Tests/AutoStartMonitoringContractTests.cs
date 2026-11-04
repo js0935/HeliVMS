@@ -240,10 +240,16 @@ public sealed class AutoStartMonitoringContractTests
         Assert.Contains("OnCellClicked", up);
 
         // 拖曳後只改派既有 session 的格位；用 ConnectAsync 會拆掉再重建，等於中斷錄影。
+        // 排序與切頁簽、改佈局共用同一個入口（ApplyWallAsync），所以要在這裡同時釘住
+        // 「排序會走到那個入口」與「那個入口不會重連」，缺一不可。
         var apply = SourceContract.BodyOf(code, "ApplyCellOrderAsync");
         Assert.NotEqual(string.Empty, apply);
-        Assert.Contains("ReconcileAsync", apply);
-        Assert.DoesNotContain("ConnectAsync", apply);
+        Assert.Contains("ApplyWallAsync", apply);
+
+        var wall = SourceContract.BodyOf(code, "ApplyWallAsync");
+        Assert.NotEqual(string.Empty, wall);
+        Assert.Contains("ReconcileAsync", wall);
+        Assert.DoesNotContain("ConnectAsync", wall);
     }
 
     /// <summary>拖曳調順序後可按「復原」退回上一個排序。</summary>

@@ -5274,26 +5274,12 @@ public partial class MainWindow : Window
     }
 
     /// <summary>依目前清單順序把既有工作階段改派到對應格位（不重連、不中斷錄影）。</summary>
-    private async Task ApplyCellOrderAsync()
-    {
-        if (_manager is null || !_monitoring)
-        {
-            return;
-        }
-
-        await _reconcileGate.WaitAsync();
-        try
-        {
-            await _manager.ReconcileAsync(WallChannels(), 0, CurrentCellCount());
-        }
-        finally
-        {
-            _reconcileGate.Release();
-        }
-
-        UpdateBadges();
-        UpdateFooter();
-    }
+    /// <remarks>
+    /// 走與切頁簽、改佈局相同的 <see cref="ApplyWallAsync"/>：改派、清掉超出這一頁簽的格子、
+    /// 更新徽章與聲音都只有一份實作。拖曳排序時那些格子本來就是空的，但「每個改派入口都
+    /// 自己記得清格」是這一類殘影 bug 的來源——入口只有一個就沒有忘記的問題。
+    /// </remarks>
+    private Task ApplyCellOrderAsync() => ApplyWallAsync();
 
     private async void AdvanceWallSequence()
     {
