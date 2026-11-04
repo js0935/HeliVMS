@@ -154,6 +154,20 @@ public static class OnvifEndpointResolver
     public static string? ExtractHost(string? address) =>
         TryParseHostInput(address, out var host, out _, out _, out _) ? host : null;
 
+    /// <summary>
+    /// 取出 XAddr 的主機與埠（無法解析時回傳空字串與 0）。埠未明載時以 80 計——呼叫端
+    /// 要的是「之後連這一台要用哪個埠」，不是「URI 有沒有省略預設埠」。
+    /// </summary>
+    public static (string Host, int Port) ExtractHostAndPort(string? address)
+    {
+        if (!TryParseHostInput(address, out var host, out var port, out var scheme, out _))
+        {
+            return (string.Empty, 0);
+        }
+
+        return (host, port ?? DefaultPort(scheme));
+    }
+
     /// <summary>展開環境變數／使用者輸入之位址；回傳主機、指定埠（未指定為 null）、scheme 與路徑。</summary>
     internal static bool TryParseHostInput(
         string? address,

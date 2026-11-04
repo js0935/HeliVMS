@@ -31,6 +31,8 @@
                 <TextBlock x:Name="OnvifAddressLabel" Text="" Foreground="{StaticResource Brand.TextDim}" FontSize="12" Margin="0,0,0,6" />
                 <TextBox x:Name="AddressBox" AutomationProperties.AutomationId="AddressBox" ToolTip=""
                          Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="8,4" />
+                <TextBlock x:Name="OnvifAddressHint" Text="" TextWrapping="Wrap"
+                           Foreground="{StaticResource Brand.TextDim}" FontSize="11" Margin="0,4,0,0" />
 
                 <TextBlock x:Name="OnvifUserLabel" Text="" Foreground="{StaticResource Brand.TextDim}" FontSize="12" Margin="0,12,0,6" />
                 <TextBox x:Name="UserBox" AutomationProperties.AutomationId="UserBox" ToolTip=""
@@ -66,15 +68,27 @@
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="*" />
                     </Grid.RowDefinitions>
-                    <TextBlock x:Name="OnvifDeviceLabel" Text="" Foreground="{StaticResource Brand.TextDim}" FontSize="12" Margin="0,0,0,6" />
+                    <DockPanel Margin="0,0,0,6">
+                        <Button x:Name="SelectAllButton" Content="" Click="OnSelectAllClicked"
+                                DockPanel.Dock="Right" Padding="10,2" Visibility="Collapsed"
+                                Foreground="White" Background="#2A4A73" BorderThickness="0"
+                                AutomationProperties.AutomationId="SelectAllButton" />
+                        <TextBlock x:Name="OnvifDeviceLabel" Text="" Foreground="{StaticResource Brand.TextDim}" FontSize="12" />
+                    </DockPanel>
                     <ListBox x:Name="DeviceList" Grid.Row="1" SelectionChanged="OnDeviceSelected"
                              Foreground="White" Background="#0B1626" BorderBrush="#2A4A73">
                         <ListBox.ItemTemplate>
                             <DataTemplate>
-                                <StackPanel Margin="2">
-                                    <TextBlock Text="{Binding NameHint}" FontSize="13" Foreground="White" />
-                                    <TextBlock Text="{Binding HttpXAddr}" FontSize="11" Foreground="{StaticResource Brand.TextDim}" />
-                                </StackPanel>
+                                <!-- Checkbox feeds batch enrollment; selecting the row still loads profiles for the single-camera flow. -->
+                                <DockPanel Margin="2">
+                                    <CheckBox DockPanel.Dock="Left" VerticalAlignment="Center" Margin="0,0,8,0"
+                                              IsChecked="{Binding IsChecked, Mode=TwoWay}"
+                                              AutomationProperties.AutomationId="DeviceCheckBox" />
+                                    <StackPanel>
+                                        <TextBlock Text="{Binding NameHint}" FontSize="13" Foreground="White" />
+                                        <TextBlock Text="{Binding Address}" FontSize="11" Foreground="{StaticResource Brand.TextDim}" />
+                                    </StackPanel>
+                                </DockPanel>
                             </DataTemplate>
                         </ListBox.ItemTemplate>
                     </ListBox>
@@ -105,6 +119,9 @@
             <Button x:Name="CancelButton" Content="" ToolTip="" Click="OnCancelClicked"
                     Padding="16,8" Margin="0,0,10,0" IsEnabled="False"
                     Foreground="White" Background="#8A4B2A" BorderThickness="0" AutomationProperties.AutomationId="CancelButton"/>
+            <Button x:Name="BatchAddButton" Content="" ToolTip="" Click="OnBatchAddClicked"
+                    Padding="16,8" Margin="0,0,10,0" Visibility="Collapsed" IsEnabled="False"
+                    Foreground="White" Background="#1F6B4A" BorderThickness="0" AutomationProperties.AutomationId="BatchAddButton"/>
             <Button x:Name="AddButton" Content="" ToolTip="" Click="OnAddClicked"
                     Padding="16,8" Margin="0,0,10,0" IsEnabled="False"
                     Foreground="White" Background="#2A5C8A" BorderThickness="0" AutomationProperties.AutomationId="AddButton"/>

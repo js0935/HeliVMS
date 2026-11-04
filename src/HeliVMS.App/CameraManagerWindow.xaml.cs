@@ -647,36 +647,71 @@ public partial class CameraManagerWindow : Window
             Owner = this,
         };
 
-        if (wizard.ShowDialog() != true || wizard.StreamUrl.Length == 0)
+        if (wizard.ShowDialog() != true || wizard.Candidates.Count == 0)
         {
             return;
         }
 
-        try
+        // 一台與十台走同一條路：批次搜尋的價值就在「一次把十幾台加進來」，
+        // 單台失敗（連不上、帳密不符）只記在清單裡，不中斷其餘設備。
+        var added = 0;
+        var failures = new List<string>();
+        var lastId = 0;
+        foreach (var candidate in wizard.Candidates)
         {
-            var id = ChannelEnrollment.EnrollDevice(
-                _store,
-                wizard.ChannelName,
-                wizard.DeviceIp,
-                wizard.DevicePort,
-                wizard.DeviceUsername,
-                wizard.DevicePassword,
-                wizard.StreamUrl,
-                wizard.SubStreamUrl);
-
-            if (id == 0)
+            try
             {
-                DeviceHintText.Text = Localizer.T("Camera.EnrollMissing");
-                return;
-            }
+                var name = NextDeviceName(candidate.SuggestedName);
+                var id = ChannelEnrollment.EnrollDevice(
+                    _store,
+                    name,
+                    candidate.DeviceIp,
+                    candidate.DevicePort,
+                    candidate.Username,
+                    candidate.Password,
+                    candidate.MainStreamUrl,
+                    candidate.SubStreamUrl);
 
-            ReloadDevices(id);
-            DeviceHintText.Text = string.Format(Localizer.T("Camera.Enrolled"), wizard.ChannelName, id);
+                if (id == 0)
+                {
+                    failures.Add($"{name}：{Localizer.T("Camera.EnrollMissing")}");
+                    continue;
+                }
+
+                added++;
+                lastId = id;
+                DeviceHintText.Text = string.Format(Localizer.T("Camera.Enrolled"), name, id);
+            }
+            catch (Exception ex)
+            {
+                failures.Add($"{candidate.SuggestedName}：{ex.Message}");
+            }
         }
-        catch (Exception ex)
+
+        if (added > 0)
         {
-            DeviceHintText.Text = string.Format(Localizer.T("Camera.EnrollFailed"), ex.Message);
+            ReloadDevices(lastId);
         }
+
+        DeviceHintText.Text = failures.Count == 0
+            ? string.Format(Localizer.T("Camera.EnrolledBatch"), added)
+            : string.Format(Localizer.T("Camera.EnrolledBatchPartial"), added, failures.Count, string.Join("；", failures));
+    }
+
+    /// <summary>
+    /// 為一台新加入的攝影機取名：優先沿用設備自報的名稱，撞名或沒名稱時退回預設序號名。
+    /// </summary>
+    /// <remarks>每次重讀裝置清單：批次加入是逐台寫入的，後一台要看得到前一台佔用的名稱。</remarks>
+    private string NextDeviceName(string suggested)
+    {
+        var existing = _devices.List().Select(d => d.Name).ToList();
+        var name = suggested.Trim();
+        if (name.Length > 0 && !existing.Contains(name, StringComparer.Ordinal))
+        {
+            return name;
+        }
+
+        return ChannelNaming.NextDefault(existing, Localizer.T("Camera.DefaultName"));
     }
 
     /// <summary>

@@ -394,6 +394,25 @@ Notes that will save you time:
   the top-right corner it would cover the dot of exactly the pane underneath it. Guarded by
   `WallModeDotPaletteTests`, `WallBadgeTextPlannerTests` and
   `MonitorWallRecordingModeContractTests`.
+- **Adding cameras must not require typing one IP at a time.** The ONVIF wizard's address box is a
+  *search expression*: a single IP/host, a CIDR (`192.168.1.0/24`), a last-octet range
+  (`192.168.1.1-50`), a full range, or a comma/space separated mix
+  (`HeliVMS.Devices.Onvif.DiscoveryAddressRange`; pure, capped at 512 addresses and it *reports* the
+  truncation — a /16 scan would otherwise look like "I scanned everything and found nothing"). Two
+  traps there: a token containing `/` is only a CIDR when the left side parses as IPv4
+  (`http://cam/onvif/device_service` is a host, not a subnet), and a typo'd prefix
+  (`192.168.1.0/99`) must be dropped, not silently probed as a literal host name.
+  `DiscoverySweep` runs the probes in parallel (16, hard cap 32 — a hundred simultaneous ONVIF
+  connections starve the cameras' RTSP/replay sessions) and `DiscoveryClient.ProbeAddressAsync` is
+  the cheap per-address probe (700 ms unicast WS-Discovery, then `/onvif/device_service` on
+  80/8000/8080/2020 with a 2 s timeout — **not** `DiscoverByIpAsync`, whose 42 candidates × 10 s
+  timeout turns a /24 into an overnight job); a 401 counts as *found*, because the device is there
+  and only its credentials are missing. Discovered devices are listed with checkboxes and added in
+  one go: `OnvifEnrollmentPlanner` resolves each device sequentially (main/sub stream, no resolution
+  probing — that would add 45 s of ffprobe per camera), one failure never aborts the batch, and the
+  wizard hands the caller a single list (`Candidates`) so the single-camera and batch paths share
+  one naming/enrollment loop. Guarded by `DiscoveryAddressRangeTests`, `DiscoverySweepTests`,
+  `OnvifEnrollmentPlannerTests` and `OnvifBatchDiscoveryContractTests`.
 - **A group tab with fewer cameras than cells must leave the extra cells empty — and both tab paths
   must share one implementation.** 現場回報：群組只設 2 支攝影機卻用 4 分割，在不同群組之間切換後
   再回到原群組，第 3、4 格「串」著另一支攝影機的畫面。三個獨立原因疊在一起：

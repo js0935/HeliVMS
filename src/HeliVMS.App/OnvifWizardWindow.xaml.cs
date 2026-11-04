@@ -13,7 +13,30 @@ namespace HeliVMS.App;
 /// </summary>
 public partial class OnvifWizardWindow : Window
 {
-    private IReadOnlyList<DiscoveredDevice> _devices = [];
+    /// <summary>清單上的一列設備；勾選＝批次加入的對象。</summary>
+    public sealed class DeviceRow
+    {
+        public DeviceRow(DiscoveredDevice device)
+        {
+            Device = device;
+            NameHint = device.NameHint ?? string.Empty;
+            Address = device.HttpXAddr ?? device.EndpointAddress;
+        }
+
+        public DiscoveredDevice Device { get; }
+
+        /// <summary>設備自報名稱（WS-Discovery scope 或掃描時讀到的名稱）；未知為空。</summary>
+        public string NameHint { get; }
+
+        /// <summary>device_service 位址。</summary>
+        public string Address { get; }
+
+        /// <summary>是否勾選（清單樣板雙向繫結；批次加入讀這一個）。</summary>
+        public bool IsChecked { get; set; }
+    }
+
+    private List<DeviceRow> _rows = [];
+    private List<OnvifEnrollmentCandidate> _candidates = [];
     private readonly List<OnvifProfile> _profiles = [];
     private string _deviceLabel = string.Empty;
     private string _deviceName = string.Empty;
@@ -94,7 +117,13 @@ public partial class OnvifWizardWindow : Window
         OnvifHeader.Text = Localizer.T("Onvif.Header");
         OnvifDesc.Text = Localizer.T("Onvif.Desc");
         OnvifAddressLabel.Text = Localizer.T("Onvif.AddressLabel");
+        OnvifAddressHint.Text = Localizer.T("Onvif.AddressHint");
         AddressBox.ToolTip = Localizer.T("Onvif.AddressTip");
+        BatchAddButton.Content = Localizer.T("Onvif.BatchAdd");
+        BatchAddButton.ToolTip = Localizer.T("Onvif.BatchAddTip");
+        BatchAddButton.Visibility = _streamsOnly ? Visibility.Collapsed : Visibility.Visible;
+        SelectAllButton.ToolTip = Localizer.T("Onvif.SelectAllTip");
+        UpdateBatchButtons();
         OnvifUserLabel.Text = Localizer.T("Onvif.UserLabel");
         UserBox.ToolTip = Localizer.T("Onvif.UserTip");
         OnvifPasswordLabel.Text = Localizer.T("Onvif.PasswordLabel");
@@ -111,26 +140,14 @@ public partial class OnvifWizardWindow : Window
         WizardHint.Text = Localizer.T("Onvif.Hint");
     }
 
-    /// <summary>加入之頻道名稱（空白表示取消）。</summary>
-    public string ChannelName { get; private set; } = string.Empty;
-
-    /// <summary>加入之 RTSP 主碼流位址（錄影與單畫面監控使用）。</summary>
-    public string StreamUrl { get; private set; } = string.Empty;
-
-    /// <summary>加入之 RTSP 子碼流位址（多分割監控使用）；設備無子碼流時為空字串。</summary>
-    public string? SubStreamUrl { get; private set; }
-
-    /// <summary>加入之攝影機 IP；無法解析時為空字串（呼叫端須略過建立設備記錄）。</summary>
-    public string DeviceIp { get; private set; } = string.Empty;
-
-    /// <summary>攝影機 ONVIF 埠（DeviceIp 有效時才有意義）。</summary>
-    public int DevicePort { get; private set; }
-
-    /// <summary>攝影機帳號；為 null 表示未填，呼叫端不應建立設備記錄。</summary>
-    public string? DeviceUsername { get; private set; }
-
-    /// <summary>攝影機密碼（明文，僅供呼叫端寫入 devices.password_encrypted 後丟棄）。</summary>
-    public string? DevicePassword { get; private set; }
+    /// <summary>
+    /// 要加入的攝影機（單台是長度 1 的清單）。對話結果為 true 時至少一台。
+    /// </summary>
+    /// <remarks>
+    /// 單台與批次共用同一個出口：呼叫端只有一條「逐台命名＋寫入」的路，
+    /// 不會出現「批次加進去的沒有 device 記錄」這種只在批次路徑才會踩到的缺口。
+    /// </remarks>
+    public IReadOnlyList<OnvifEnrollmentCandidate> Candidates => _candidates;
 
     private string? Username => string.IsNullOrWhiteSpace(UserBox.Text) ? null : UserBox.Text.Trim();
 
@@ -153,44 +170,48 @@ public partial class OnvifWizardWindow : Window
 
         try
         {
-            if (string.IsNullOrWhiteSpace(AddressBox.Text))
+            var expansion = DiscoveryAddressRange.Expand(AddressBox.Text);
+            if (expansion.Addresses.Count > 1)
             {
-                SetBusyHint(Localizer.T("Onvif.Discovering"));
-                _devices = await DiscoveryClient.DiscoverAsync(TimeSpan.FromSeconds(5)).WaitAsync(token);
+                await RunSweepAsync(expansion, cts, token);
             }
-            else
+            else if (expansion.Addresses.Count == 1)
             {
                 // 手動位址：多廠牌路徑/埠候選探測，失敗時以單播 WS-Discovery 回退
-                var address = AddressBox.Text.Trim();
+                var address = expansion.Addresses[0];
                 SetBusyHint(string.Format(Localizer.T("Onvif.ConnectingTarget"), address));
                 var xAddr = await DiscoveryClient.DiscoverByIpAsync(address, Username, Password).WaitAsync(token);
                 if (xAddr is null)
                 {
-                    _devices = [];
+                    _rows = [];
                     DeviceList.ItemsSource = null;
                     WizardHint.Text = string.Format(Localizer.T("Onvif.ServiceNotFound"), address);
                     return;
                 }
 
                 var host = OnvifEndpointResolver.ExtractHost(xAddr) ?? address;
-                _devices =
+                SetRows(
                 [
                     new DiscoveredDevice
                     {
                         EndpointAddress = $"urn:manual:{host}",
                         XAddrs = [xAddr],
                     },
-                ];
+                ]);
+            }
+            else
+            {
+                SetBusyHint(Localizer.T("Onvif.Discovering"));
+                SetRows(await DiscoveryClient.DiscoverAsync(TimeSpan.FromSeconds(5)).WaitAsync(token));
             }
 
-            DeviceList.ItemsSource = _devices;
-            WizardHint.Text = _devices.Count > 0
-                ? string.Format(Localizer.T("Onvif.FoundDevices"), _devices.Count)
+            WizardHint.Text = _rows.Count > 0
+                ? string.Format(Localizer.T("Onvif.FoundDevices"), _rows.Count)
                 : Localizer.T("Onvif.NotFound");
 
             // 重新取得碼流時目標是已綁定的那台攝影機，通常只有一筆；直接選取省一次點擊。
             // 多筆（區網探索回傳很多台）仍留給操作員挑：選錯設備就是把別台的碼流寫進這個頻道。
-            if (_streamsOnly && _devices.Count == 1)
+            if (_streamsOnly && _rows.Count == 1)
             {
                 DeviceList.SelectedIndex = 0;
             }
@@ -213,15 +234,66 @@ public partial class OnvifWizardWindow : Window
         }
     }
 
+    /// <summary>
+    /// 網段掃描：把整段位址並行探測，找到的設備一次列出來。
+    /// </summary>
+    /// <remarks>
+    /// 進度用「已完成／總數」而不用百分比：操作員要判斷的是「還剩幾個位址」，
+    /// 而掃描速度取決於當下有沒有閒置主機（沒有回應的位址要等逾時）。
+    /// </remarks>
+    private async Task RunSweepAsync(
+        DiscoveryAddressRange.Expansion expansion,
+        CancellationTokenSource cts,
+        CancellationToken token)
+    {
+        var total = expansion.Addresses.Count;
+        SetBusyHint(string.Format(Localizer.T("Onvif.Sweeping"), 0, total));
+
+        // Progress 在 UI 執行緒回呼（捕捉建立時的 SynchronizationContext），可直接寫控制項。
+        var progress = new Progress<(int Done, int Total)>(report =>
+        {
+            if (ReferenceEquals(_cts, cts))
+            {
+                SetBusyHint(string.Format(Localizer.T("Onvif.Sweeping"), report.Done, report.Total));
+            }
+        });
+
+        var found = await DiscoverySweep.RunAsync(
+            expansion.Addresses,
+            (address, ct) => DiscoveryClient.ProbeAddressAsync(address, Username, Password, ct),
+            progress: progress,
+            cancellationToken: token);
+
+        SetRows(found);
+
+        if (expansion.Truncated)
+        {
+            // 明確說出「只掃了一部分」：否則操作員會以為整段都掃過了、只是沒設備。
+            WizardHint.Text = string.Format(
+                Localizer.T("Onvif.SweepTruncated"), total, DiscoveryAddressRange.MaxAddresses);
+        }
+    }
+
+    /// <summary>更新設備清單（每次重設列，勾選狀態不沿用上一輪）。</summary>
+    private void SetRows(IReadOnlyList<DiscoveredDevice> devices)
+    {
+        _rows = [.. devices.Select(d => new DeviceRow(d))];
+        DeviceList.ItemsSource = null;
+        DeviceList.ItemsSource = _rows;
+        UpdateBatchButtons();
+    }
+
     private async void OnDeviceSelected(object sender, SelectionChangedEventArgs e)
     {
         SetProfiles([]);
         AddButton.IsEnabled = false;
 
-        if (DeviceList.SelectedItem is not DiscoveredDevice device || device.HttpXAddr is null)
+        if (DeviceList.SelectedItem is not DeviceRow row || row.Device.HttpXAddr is null)
         {
             return;
         }
+
+        var device = row.Device;
 
         // 換選設備時先取消仍在進行中的載入（避免兩個連載入交錯覆寫 UI）；新操作接管。
         _cts?.Cancel();
@@ -455,16 +527,19 @@ private async Task<IReadOnlyList<OnvifProfile>> ProbeResolutionsAsync(
                 subUri = string.Empty;
             }
 
-            StreamUrl = mainUri;
-            SubStreamUrl = subUri.Length > 0 ? subUri : null;
-            ChannelName = string.IsNullOrWhiteSpace(_deviceName)
-                ? main.DisplayLabel
-                : _deviceName;
-
             // 供呼叫端建立／連結 devices 記錄，讓 RTSP 與 PTZ 共用同一份加密憑證。
-            (DeviceIp, DevicePort) = ParseHostPort(_deviceXAddr);
-            DeviceUsername = Username;
-            DevicePassword = Password;
+            var (ip, port) = ParseHostPort(_deviceXAddr);
+            _candidates =
+            [
+                new OnvifEnrollmentCandidate(
+                    string.IsNullOrWhiteSpace(_deviceName) ? main.DisplayLabel : _deviceName,
+                    mainUri,
+                    subUri.Length > 0 ? subUri : null,
+                    ip,
+                    port,
+                    Username,
+                    Password),
+            ];
 
             DialogResult = true;
             Close();
@@ -473,6 +548,132 @@ private async Task<IReadOnlyList<OnvifProfile>> ProbeResolutionsAsync(
         {
             SetBusy(false);
         }
+    }
+
+    /// <summary>
+    /// 批次加入：把勾選的設備逐台連線、解析主／子碼流，再一次交給呼叫端寫入。
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>不做解析度探測</b>：單台的流程會對每個 profile 跑 ffprobe（上限 45 秒），
+    /// 十幾台加起來就是十幾分鐘，而批次要的是「先把機器都加進來」。解析度由監看畫面
+    /// 第一張影格自行校正，不影響錄影與回放。
+    /// </para>
+    /// <para>
+    /// <b>單台失敗不中止整批</b>：一台連不上不該讓另外十一台重新做一次；成功的照樣交出去，
+    /// 失敗的連原因一起回報（呼叫端會把兩邊的數量都寫在畫面上）。
+    /// </para>
+    /// </remarks>
+    private async void OnBatchAddClicked(object sender, RoutedEventArgs e)
+    {
+        if (_busy)
+        {
+            return;
+        }
+
+        var targets = _rows.Where(r => r.IsChecked).ToList();
+        if (targets.Count == 0)
+        {
+            WizardHint.Text = Localizer.T("Onvif.BatchNoneSelected");
+            return;
+        }
+
+        var cts = new CancellationTokenSource();
+        _cts = cts;
+        var token = cts.Token;
+        SetBusy(true);
+        _candidates = [];
+        var failures = new List<string>();
+
+        try
+        {
+            // 解析邏輯在 HeliVMS.Devices.OnvifEnrollmentPlanner（行為測試在那裡，不必開 UI）。
+            var progress = new Progress<(int Done, int Total, string Address)>(report =>
+            {
+                if (ReferenceEquals(_cts, cts))
+                {
+                    SetBusyHint(string.Format(
+                        Localizer.T("Onvif.BatchProgress"), report.Done, report.Total, report.Address));
+                }
+            });
+
+            var results = await new OnvifEnrollmentPlanner().RunAsync(
+                [.. targets.Select(r => r.Device)],
+                Username,
+                Password,
+                progress,
+                token);
+
+            foreach (var result in results)
+            {
+                if (result.Candidate is { } candidate)
+                {
+                    _candidates.Add(candidate);
+                }
+                else
+                {
+                    failures.Add(
+                        $"{result.Device.HttpXAddr ?? result.Device.EndpointAddress}：{result.Error ?? Localizer.T("Onvif.NoUsableStream")}");
+                }
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            WizardHint.Text = Localizer.T("Onvif.Canceled");
+            _candidates = [];
+            return;
+        }
+        finally
+        {
+            if (ReferenceEquals(_cts, cts))
+            {
+                _cts = null;
+                SetBusy(false);
+            }
+        }
+
+        if (_candidates.Count == 0)
+        {
+            WizardHint.Text = string.Format(Localizer.T("Onvif.BatchAllFailed"), string.Join("；", failures));
+            return;
+        }
+
+        if (failures.Count > 0)
+        {
+            // 仍然把成功的交出去；失敗清單由呼叫端在加入結果裡一起顯示。
+            WizardHint.Text = string.Format(
+                Localizer.T("Onvif.BatchPartial"), _candidates.Count, string.Join("；", failures));
+        }
+
+        DialogResult = true;
+        Close();
+    }
+
+    private void OnSelectAllClicked(object sender, RoutedEventArgs e)
+    {
+        // 全部已勾選時這顆按鈕的意義是「取消全選」，否則就是「全選」。
+        var check = _rows.Any(r => !r.IsChecked);
+        foreach (var row in _rows)
+        {
+            row.IsChecked = check;
+        }
+
+        DeviceList.ItemsSource = null;
+        DeviceList.ItemsSource = _rows;
+        UpdateBatchButtons();
+    }
+
+    /// <summary>批次按鈕與全選按鈕的可用狀態與文字（沒有設備時整排收起）。</summary>
+    private void UpdateBatchButtons()
+    {
+        var hasRows = _rows.Count > 0;
+        BatchAddButton.Visibility = hasRows && !_streamsOnly ? Visibility.Visible : Visibility.Collapsed;
+        SelectAllButton.Visibility = hasRows && !_streamsOnly ? Visibility.Visible : Visibility.Collapsed;
+        // 忙碌中一律停用：批次加入自己會擋重入，但按鈕看起來可按會讓人以為沒在跑。
+        BatchAddButton.IsEnabled = !_busy && hasRows && _rows.Any(r => r.IsChecked);
+        SelectAllButton.Content = _rows.All(r => r.IsChecked) && hasRows
+            ? Localizer.T("Onvif.SelectNone")
+            : Localizer.T("Onvif.SelectAll");
     }
 
     /// <summary>取得 profile 的 RTSP 位址；尚未解析者即時向設備查詢（失敗回傳空字串）。</summary>
@@ -563,8 +764,13 @@ private async Task<IReadOnlyList<OnvifProfile>> ProbeResolutionsAsync(
         ProgressBar.Visibility = busy ? Visibility.Visible : Visibility.Collapsed;
 
         // 操作期間鎖住輸入，避免改用不同帳密的同時還送著舊帳密的連線。
+        AddressBox.IsEnabled = !busy;
         UserBox.IsEnabled = !busy;
         PasswordBox.IsEnabled = !busy;
+
+        // 加入鈕的可用性由「有沒有可用的主碼流」決定（選設備時載入 profile）；忙碌時一律停用。
+        AddButton.IsEnabled = !busy && (_mainProfile ?? OnvifProfileSelection.SelectMain(_profiles)) is not null;
+        UpdateBatchButtons();
     }
 
     private void SetBusyHint(string text) => WizardHint.Text = text;

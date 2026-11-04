@@ -350,13 +350,15 @@ public partial class ChannelManagerWindow : Window
             Owner = this,
         };
 
-        if (wizard.ShowDialog() != true || wizard.StreamUrl.Length == 0)
+        if (wizard.ShowDialog() != true || wizard.Candidates.Count == 0)
         {
             return;
         }
 
-        ChannelEditMainUrlBox.Text = wizard.StreamUrl;
-        ChannelEditSubUrlBox.Text = wizard.SubStreamUrl ?? string.Empty;
+        // 重新取得碼流是「這一台」的操作，精靈只會回一筆（目標已預填、直接探索）。
+        var refreshed = wizard.Candidates[0];
+        ChannelEditMainUrlBox.Text = refreshed.MainStreamUrl;
+        ChannelEditSubUrlBox.Text = refreshed.SubStreamUrl ?? string.Empty;
         ChannelEditHintText.Text = Localizer.T("Channels.StreamsReloaded");
     }
 
@@ -580,6 +582,26 @@ public partial class ChannelManagerWindow : Window
     }
 
     /// <summary>
+    /// 為一台新加入的攝影機取名：優先沿用設備自報的名稱（操作員才認得出是哪一台），
+    /// 撞名或設備沒報名稱時退回「攝影機NN」的第一個未使用序號。
+    /// </summary>
+    /// <remarks>
+    /// 每次呼叫都重讀頻道清單：批次加入是逐台寫入的，後一台必須看到前一台剛佔用的名稱，
+    /// 否則十台同型號攝影機會一起取到同一個預設名。
+    /// </remarks>
+    private string NextChannelName(string suggested)
+    {
+        var existing = _channels.List().Select(c => c.Name).ToList();
+        var name = suggested.Trim();
+        if (name.Length > 0 && !existing.Contains(name, StringComparer.Ordinal))
+        {
+            return name;
+        }
+
+        return ChannelNaming.NextDefault(existing, Localizer.T("Channels.DefaultName"));
+    }
+
+    /// <summary>
     /// 指定監看格位後，讓「自動命名」的頻道名稱跟著該格號（攝影機{格號+1}）。
     /// </summary>
     /// <remarks>
@@ -617,31 +639,50 @@ public partial class ChannelManagerWindow : Window
             Owner = this,
         };
 
-        if (wizard.ShowDialog() != true || wizard.StreamUrl.Length == 0)
+        if (wizard.ShowDialog() != true || wizard.Candidates.Count == 0)
         {
             return;
         }
 
-        try
+        // 一台與十台走同一條路：逐台命名、逐台加入，單台失敗只記在清單裡。
+        // 批次搜尋的目的就是「一次把十幾台加進來」，中途停在一台連不上的設備
+        // 會讓操作員從頭再做一次。
+        var added = 0;
+        var failures = new List<string>();
+        var lastId = 0;
+        foreach (var candidate in wizard.Candidates)
         {
-            var id = ChannelEnrollment.Enroll(
-                _store,
-                wizard.ChannelName,
-                wizard.StreamUrl,
-                wizard.DeviceIp,
-                wizard.DevicePort,
-                wizard.DeviceUsername,
-                wizard.DevicePassword,
-                wizard.SubStreamUrl);
+            try
+            {
+                var name = NextChannelName(candidate.SuggestedName);
+                lastId = ChannelEnrollment.Enroll(
+                    _store,
+                    name,
+                    candidate.MainStreamUrl,
+                    candidate.DeviceIp,
+                    candidate.DevicePort,
+                    candidate.Username,
+                    candidate.Password,
+                    candidate.SubStreamUrl);
+                added++;
+                ChannelEditHintText.Text = string.Format(Localizer.T("Channels.Enrolled"), name, lastId);
+            }
+            catch (Exception ex)
+            {
+                failures.Add($"{candidate.SuggestedName}：{ex.Message}");
+            }
+        }
+
+        if (added > 0)
+        {
             ReloadDevices();
-            ReloadChannels(id);
-            ChannelEditHintText.Text = string.Format(Localizer.T("Channels.Enrolled"), wizard.ChannelName, id);
+            ReloadChannels(lastId);
             NotifyChannelsChanged();
         }
-        catch (Exception ex)
-        {
-            ChannelEditHintText.Text = string.Format(Localizer.T("Channels.AddFailed"), ex.Message);
-        }
+
+        ChannelEditHintText.Text = failures.Count == 0
+            ? string.Format(Localizer.T("Channels.EnrolledBatch"), added)
+            : string.Format(Localizer.T("Channels.EnrolledBatchPartial"), added, failures.Count, string.Join("；", failures));
     }
 
 

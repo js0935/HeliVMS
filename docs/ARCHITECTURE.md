@@ -1153,6 +1153,7 @@ L2 比對（人臉/車牌）置「進階·需權限」區，預設關閉（§5.1
 | 事件錄影門檻 | — | **已接線（M323）**。`RecordingMode.Event` 以「最近 N 秒內有事件」為門檻（`recording.event_seconds`，預設 30）：`RegisterEvent` 記下觸發時間並踢一輪調和（否則閒置頻道要等下一個 30 秒 tick 才開錄，等到時觸發的畫面已經錯過），視窗過後下一輪調和停錄。刻意不做 pre-buffer：那會讓每一滾 Event 模式頻道常駐一條解碼管線，正是廊灯攝像機 RTSP 會話數的瓶頸 |
 | 監看牆錄影方式指示燈 | — | **已做（M324）**。每格右上角一顆 11px 的燈（`WallModeDotPalette`：**紅＝全時、藍＝排程、綠＝事件（位移）、灰＝手動**）：全亮＝現在真的有錄影工作階段，壓暗（0.35）＝這個模式當下不錄（排程時段外、事件未觸發、手動待按）——「該錄而沒錄」與「本來就不錄」以前在牆上長得一模一樣。顏色不是唯一管道：左下角徽章同時寫出「名稱 · 全時 ●REC（排程外）」（`WallBadgeTextPlanner`＋`ModeLabel`），兩個工具提示也各寫一次。監看牆層級的 REC 徽章改置中（原本貼右上角，會蓋住最右上那一格的燈）。|
 | 群組頁籤空格殘影 | — | **已修正（M325）**。群組只設 2 支攝影機卻用 4 分割，切換群組再回來後第 3、4 格會「串」著另一支攝影機的畫面。三個原因：①`OnLayoutChanged`（兩個頁籤記住的格數不同時走的那條）自己實作了一次改派、漏掉 `ClearCellsBeyondChannels`，`RebuildCells → ApplyCellStateAfterRebuild` 就把上一頁籤的 `_bitmap` 重新投影到新格子；②`ReconcileAsync` 的卸下條件「`Cell < count`」放過了前一頁籤 16 分割、格位編號 4 以上的工作階段；③影格事件只帶格位、不帶頻道。修正：`RebuildCells` 結尾一律清空超出群組的格子；`OnLayoutChanged` 改走 `ApplyWallAsync`（切頁籤與改佈局共用一個入口）；卸下條件改為 `Cell >= 0`；影格事件改帶 `(Cell, ChannelId, Frame)`，畫面端比對 `_cellChannel[cell]` 才畫。|
+| ONVIF 搜尋與批次加入 | — | **已做（M326）**。搜尋欄位改收「搜尋表達式」：單一 IP／主機名、CIDR（192.168.1.0/24）、末碼範圍（192.168.1.1-50）、完整範圍、逗號分隔混合（`DiscoveryAddressRange`，上限 512 並明確回報截斷）；`DiscoverySweep` 並行探測（預設 16、硬上限 32），`DiscoveryClient.ProbeAddressAsync` 為短逾時單位址探測（700ms 單播 WS-Discovery、之後 80/8000/8080/2020 各 2 秒；401 也算找到）。清單每列可勾選，「批次加入」由 `OnvifEnrollmentPlanner` 逐台解析主／子碼流（做不做解析度探測：每台 45 秒的 ffprobe 會讓批次變成幾十分鐘），單台失敗不中斷整批；單台與批次共用 `Candidates` 一個出口。|
 
 ### 11.2 性能與容量規劃（先算再寫，落地依據）
 
