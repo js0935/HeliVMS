@@ -194,6 +194,145 @@ public static class DiscoveryClient
     private static readonly TimeSpan UnicastProbeTimeout = TimeSpan.FromSeconds(1);
     private static readonly TimeSpan UnicastProbeBudget = TimeSpan.FromSeconds(8);
 
+    /// <summary>掃描用的短逾時：單次 SOAP 請求 2 秒、不重試、不做時鐘校正。</summary>
+    /// <remarks>
+    /// 掃描問的是「這台在不在」，不是「這台的全部服務」；<see cref="OnvifClientOptions.Timeout"/>
+    /// 的預設 10 秒乘上候選數量，單一 IP 就可能花上數分鐘。
+    /// </remarks>
+    private static readonly OnvifClientOptions SweepOptions = new()
+    {
+        Timeout = TimeSpan.FromSeconds(2),
+        RetryCount = 0,
+        AutoClockSkew = false,
+    };
+
+    /// <summary>掃描時嘗試的 ONVIF 服務埠（80 為 Profile S 慣例；其餘為海康／大華／TVT 常見值）。</summary>
+    private static readonly int[] SweepPorts = [80, 8000, 8080, 2020];
+
+    /// <summary>掃描時單一位址的 WS-Discovery 等待時間。</summary>
+    private static readonly TimeSpan SweepProbeTimeout = TimeSpan.FromMilliseconds(700);
+
+    /// <summary>
+    /// 網段掃描用的單一位址探測：先單播 WS-Discovery（最快、且直接拿到設備真正的 XAddr），
+    /// 沒有回應再對常見 ONVIF 埠用短逾時試一次 <c>device_service</c>。
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// 刻意不使用 <see cref="DiscoverByIpAsync"/>：它為了「單一台、一定要找到」而逐一嘗試
+    /// 42 個埠×路徑候選，每個候選 10 秒逾時，單一 IP 就可能花掉幾分鐘——掃一個 /24 等於整晚。
+    /// </para>
+    /// <para>
+    /// <b>401 未授權也算找到</b>：設備確實在，只是還沒給帳密；回報它是為了讓操作員在清單上
+    /// 看到「這裡有一台」，而不是對著一個空清單繼續懷疑網路。設備名在未授權時拿不到，
+    /// 清單就只有位址。
+    /// </para>
+    /// </remarks>
+    /// <param name="address">IP 或主機名（可含埠，如 <c>192.168.1.64:8000</c>）。</param>
+    /// <param name="username">ONVIF 帳號；未提供時以匿名探測。</param>
+    /// <param name="password">ONVIF 密碼。</param>
+    /// <param name="cancellationToken">取消權杖。</param>
+    /// <param name="serviceFactory">建立候選端點服務之工廠（測試注入）。</param>
+    /// <param name="ports">自訂嘗試的埠；未提供時用 <see cref="SweepPorts"/>。</param>
+    public static async Task<DiscoveredDevice?> ProbeAddressAsync(
+        string address,
+        string? username = null,
+        string? password = null,
+        CancellationToken cancellationToken = default,
+        Func<string, OnvifDeviceService>? serviceFactory = null,
+        IReadOnlyList<int>? ports = null)
+    {
+        if (!OnvifEndpointResolver.TryParseHostInput(address, out var host, out var explicitPort, out _, out _))
+        {
+            return null;
+        }
+
+        serviceFactory ??= xAddr => new OnvifDeviceService(xAddr, username, password, SweepOptions);
+
+        try
+        {
+            var matches = await ProbeUnicastAsync(host, DiscoveryPort, SweepProbeTimeout, cancellationToken)
+                .ConfigureAwait(false);
+            if (matches.FirstOrDefault(m => m.HttpXAddr is not null) is { } match)
+            {
+                return match;
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (SocketException)
+        {
+            // 這個網路介面送不出單播探測：仍可繼續走 HTTP 候選。
+        }
+
+        foreach (var candidate in BuildSweepCandidates(host, explicitPort, ports))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            using var service = serviceFactory(candidate);
+            try
+            {
+                var info = await service.GetInfoAsync(cancellationToken).ConfigureAwait(false);
+                return FromProbe(candidate, host, info.DisplayName);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (OnvifException ex) when (ex.Code == OnvifErrorCode.Unauthorized)
+            {
+                return FromProbe(candidate, host, name: null);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                // 這個埠沒有 ONVIF（連線被拒、逾時、回應不是 SOAP…）：換下一個。
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>掃描候選：每個埠只試 Profile S 慣例路徑（<c>/onvif/device_service</c>）。</summary>
+    private static IReadOnlyList<string> BuildSweepCandidates(
+        string host,
+        int? explicitPort,
+        IReadOnlyList<int>? ports)
+    {
+        var candidates = new List<int>();
+        if (explicitPort is { } specified)
+        {
+            candidates.Add(specified);
+        }
+
+        foreach (var port in ports ?? SweepPorts)
+        {
+            if (!candidates.Contains(port))
+            {
+                candidates.Add(port);
+            }
+        }
+
+        var authority = host.Contains(':', StringComparison.Ordinal) ? $"[{host}]" : host;
+        return [.. candidates.Select(port => port == 80
+            ? $"http://{authority}/onvif/device_service"
+            : $"http://{authority}:{port.ToString(System.Globalization.CultureInfo.InvariantCulture)}/onvif/device_service")];
+    }
+
+    /// <summary>
+    /// 把「HTTP 探測成功」包成與 WS-Discovery 相同的形狀，讓清單可以直接顯示。
+    /// 設備名借用 scope 的字面形狀（<see cref="DiscoveredDevice.NameHint"/> 讀的就是
+    /// <c>name/…</c>）：掃描的結果要回答「哪一台」，一排 IP 沒有人認得出來。
+    /// </summary>
+    private static DiscoveredDevice FromProbe(string xAddr, string host, string? name)
+        => new()
+        {
+            EndpointAddress = $"urn:probe:{host}",
+            XAddrs = [xAddr],
+            Scopes = string.IsNullOrWhiteSpace(name) ? [] : [$"onvif://www.onvif.org/name/{name}"],
+            Types = "tdn:NetworkVideoTransmitter",
+        };
+
     private static bool TryUnicastProbeTargets(
         string deviceXAddr,
         out string host,
