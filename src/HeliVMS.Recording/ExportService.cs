@@ -112,9 +112,10 @@ public sealed class ExportService
         try
         {
             var concatFile = Path.Combine(tmpDir, "concat.txt");
-            File.WriteAllText(concatFile, BuildConcatContent(segments, request.StartUtc, request.EndUtc));
+            File.WriteAllText(concatFile, BuildConcatContent(segments));
 
             // 回報與收據用「交集長度」而不是整段長度：不裁切時兩者相同，裁切時只有前者是真的。
+            var trimStart = TrimStartSeconds(segments, request.StartUtc);
             var outputSeconds = TrimmedDurationSeconds(segments, request.StartUtc, request.EndUtc);
 
             progress?.Report(new ExportProgress(10, $"正在匯出 {segments.Count} 段錄影…"));
@@ -132,6 +133,18 @@ public sealed class ExportService
             psi.ArgumentList.Add("-loglevel");
             psi.ArgumentList.Add("warning");
             psi.ArgumentList.Add("-stats");
+
+            // 輸入端的範圍限制（必須在 -i 之前）：-ss 跳過要求起點之前的內容，-t 只讀
+            // 要求範圍的實際秒數。兩者都以 concat 後「實際內容」計算，缺口不影響（見 BuildConcatContent）。
+            if (trimStart > TrimEpsilonSeconds)
+            {
+                psi.ArgumentList.Add("-ss");
+                psi.ArgumentList.Add(trimStart.ToString("0.###", CultureInfo.InvariantCulture));
+            }
+
+            psi.ArgumentList.Add("-t");
+            psi.ArgumentList.Add(outputSeconds.ToString("0.###", CultureInfo.InvariantCulture));
+
             psi.ArgumentList.Add("-f");
             psi.ArgumentList.Add("concat");
             psi.ArgumentList.Add("-safe");
@@ -260,30 +273,23 @@ public sealed class ExportService
     /// <summary>裁切門檻：小於一個畫格的差距不值得叫 ffmpeg 精準 seek（20fps 一畫格 = 50ms）。</summary>
     internal const double TrimEpsilonSeconds = 0.05;
 
-    /// <summary>
-    /// 組出 concat 清單：**每段各自裁到與要求範圍的交集**（<c>inpoint</c>／<c>outpoint</c>）。
-    /// </summary>
+    /// <summary>組出 concat 清單（只有檔案，範圍由 <c>-ss</c>／<c>-t</c> 套用）。</summary>
     /// <remarks>
     /// <para>
-    /// 為什麼一定要裁：匯出範圍幾乎不會剛好對齊分段邊界。不裁的話，「匯出 11:04:07–11:04:12」
-    /// 會拿到整段 11:04:00–11:05:00（前面多 7 秒、後面多 48 秒），而操作員要的那 5 秒淹在裡面
-    /// ——現場回報就是「設定 5 秒卻匯出 50 分鐘」。
+    /// 為什麼範圍不放進 concat 清單：concat demuxer 的 <c>inpoint</c> 在這個 ffmpeg 版本
+    /// <b>不會生效</b>（實測：整段 15 秒的檔案寫 <c>inpoint 5</c>，輸出仍是 15 秒；
+    /// <c>outpoint</c> 有生效）。單元測試用字串比對時全綠，實際匯出卻仍然是整段——
+    /// 這是拿真實錄影檔跑過才發現的。範圍改用輸入端的 <c>-ss</c>＋<c>-t</c>（見
+    /// <see cref="TrimStartSeconds"/> 與 <see cref="TrimmedDurationSeconds"/>）。
     /// </para>
     /// <para>
-    /// 為什麼是「每段各自裁」而不是整體 <c>-ss/-t</c>：段落之間可能有缺口（那段時間根本沒錄到），
-    /// concat 之後的時間軸已經不是牆鐘時間，用整體偏移量裁會多收或漏收。逐段的 inpoint／outpoint
-    /// 以各檔自己的時間軸為準（錄影時帶 <c>reset_timestamps 1</c>，每段都從 0 開始），
-    /// 有缺口也照樣精準。裁切量小於一個畫格時不寫，保持「整段」的快速路徑。
-    /// </para>
-    /// <para>
-    /// 末段沒有結束時間（還在錄）時只裁開頭、尾端交給 ffmpeg 讀到檔案結束為止；要求範圍若比
-    /// 檔案短，<c>outpoint</c> 仍然精準，比檔案長則自然停在 EOF，兩種情況都不會多收別段的畫面。
+    /// 為什麼整體 <c>-ss</c>／<c>-t</c> 在這裡是對的：concat 之後的時間軸把缺口壓掉，
+    /// 而 <c>-t</c> 是以「實際內容的秒數」計算。從要求起點 seek 進去之後，逐段消耗
+    /// 「該段與範圍的交集」，總和剛好等於 <see cref="TrimmedDurationSeconds"/>——所以
+    /// 段落之間有沒有缺口都不影響，且最後一段的尾端也自然停在交集結束處。
     /// </para>
     /// </remarks>
-    public static string BuildConcatContent(
-        IReadOnlyList<SegmentRecord> segments,
-        DateTime startUtc,
-        DateTime endUtc)
+    public static string BuildConcatContent(IReadOnlyList<SegmentRecord> segments)
     {
         ArgumentNullException.ThrowIfNull(segments);
 
@@ -294,32 +300,25 @@ public sealed class ExportService
             sb.Append(seg.FilePath.Replace("'", "'\\''"));
             sb.Append('\'');
             sb.AppendLine();
-
-            var from = seg.StartUtc > startUtc ? seg.StartUtc : startUtc;
-            var inpoint = (from - seg.StartUtc).TotalSeconds;
-            if (inpoint > TrimEpsilonSeconds)
-            {
-                sb.Append("inpoint ");
-                sb.Append(inpoint.ToString("0.###", CultureInfo.InvariantCulture));
-                sb.AppendLine();
-            }
-
-            var segEnd = seg.EndUtc ?? (seg.DurationSec is > 0 ? seg.StartUtc.AddSeconds(seg.DurationSec.Value) : (DateTime?)null);
-            var to = segEnd is { } end && end < endUtc ? end : endUtc;
-            if (segEnd is null || to < segEnd)
-            {
-                var outpoint = (to - seg.StartUtc).TotalSeconds;
-                var knownLength = (segEnd - seg.StartUtc)?.TotalSeconds;
-                if (outpoint > TrimEpsilonSeconds && (knownLength is null || knownLength - outpoint > TrimEpsilonSeconds))
-                {
-                    sb.Append("outpoint ");
-                    sb.Append(outpoint.ToString("0.###", CultureInfo.InvariantCulture));
-                    sb.AppendLine();
-                }
-            }
         }
 
         return sb.ToString();
+    }
+
+    /// <summary>
+    /// 要從 concat 後的第一段往後跳幾秒才到要求起點（範圍起點在缺口裡或第一段之前時為 0）。
+    /// </summary>
+    public static double TrimStartSeconds(IReadOnlyList<SegmentRecord> segments, DateTime startUtc)
+    {
+        ArgumentNullException.ThrowIfNull(segments);
+
+        if (segments.Count == 0)
+        {
+            return 0;
+        }
+
+        var offset = (startUtc - segments[0].StartUtc).TotalSeconds;
+        return offset > TrimEpsilonSeconds ? offset : 0;
     }
 
     /// <summary>

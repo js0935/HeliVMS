@@ -12,7 +12,7 @@
 > ⑥**監看牆錄影方式指示燈（M324）**：每格右上角一顆 11px 的燈（紅＝全時、藍＝排程、綠＝事件（位移）、灰＝手動，色票在 `HeliVMS.Shared.WallModeDotPalette`）：全亮＝現在真的在錄，壓暗＝該模式當下不錄；左下角徽章同步寫出「名稱 · 全時 ●REC（排程外）」（`WallBadgeTextPlanner`），兩個工具提示各寫一次。監看牆層級 REC 徽章改置中，避免蓋住最右上那一格的燈。
 > ⑦**群組頁籤空格殘影（M325）**：群組只設 2 支攝影機卻用 4 分割，切換群組再回來後第 3、4 格會「串」著另一支攝影機的畫面。修正三處：`RebuildCells` 結尾清空超出群組的格子、`OnLayoutChanged` 改走 `ApplyWallAsync`（切頁籤與改佈局共用入口）、影格事件改帶 `(Cell, ChannelId, Frame)` 並在 `RenderCellFrame` 比對。
 > ⑧**ONVIF 搜尋與批次加入（M326）**：搜尋欄可輸入整段位址（CIDR、末碼範圍、逗號清單）並並行掃描（上限 512、回報截斷），清單每列可勾選，「批次加入」一次解析並寫入十幾台（單台失敗不中斷整批）。
-> ⑨**匯出時刻與範圍裁切（M327）**：現場設 11:04:07.25～11:04:07.30（5 秒）卻得到 50 分鐘的檔案。修正：`ClockTime` 讀得懂緊湊寫法 11040725（與分段檔名同一種），讀不懂就擋下；`BuildConcatContent` 用每段各自的 inpoint／outpoint 裁到交集，回報與收據用 `TrimmedDurationSeconds`；回放帶入的區間改寫到秒。
+> ⑨**匯出時刻與範圍裁切（M327）**：現場設 11:04:07.25～11:04:07.30（5 秒）卻得到 50 分鐘的檔案。修正：`ClockTime` 讀得懂緊湊寫法 11040725（與分段檔名同一種），讀不懂就擋下；`ExportService` 用輸入端 `-ss`＋`-t` 裁到要求範圍（concat 的 inpoint 實測不生效），回報與收據用 `TrimmedDurationSeconds`；回放帶入的區間改寫到秒。
 > ④前幾輪已落地：監看牆鋺滿監看區、分割數平均（64 路＝8×8）、移除 6 分割、沉浸模式離開鈕左上角、任務清單 30 秒刷新與「重新啟動程式」排程任務、安裝器放行 WS-Discovery（UDP 3702）。
 > ⑤**實測**：Release build 0 error／0 warning；12 個測試專案逐一套跑全綠（App 703、Storage 1445、Alarms 348、Recording 315、Api 264、Shared 223、Devices 198、Rtc 135、Media 109、LicenseProducer 97、Licensing 69、ExportVerify 11）；
 > 安裝檔已重打包 `publish\Setup\HeliVMS-Setup-0.1.0.exe`（181.5 MB，`git status` 乾淨、無 `packages.lock.json` 污染）。本輪未動 `src/HeliVMS.Web`，Web vitest 沿用上一次經驗值。

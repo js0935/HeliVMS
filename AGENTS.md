@@ -402,11 +402,16 @@ Notes that will save you time:
   整段整段地 concat，就算時刻讀對了，「匯出 5 秒」也會拿到整段 60 秒（前面多 7 秒、後面多 48 秒）。
   修正：`HeliVMS.Shared.ClockTime` 讀得懂 `HH:mm`／`HH:mm:ss`／`HH:mm:ss.fff` 與緊湊寫法
   `HHmm`／`HHmmss`／`HHmmssff`／`HHmmssfff`（讀不懂就擋下來並說出哪個字串讀不懂）；
-  `ExportService.BuildConcatContent` 用 **每段各自的 `inpoint`／`outpoint`** 裁到與要求範圍的交集
-  （不是整體 `-ss/-t`：段落之間可能有缺口，concat 後的時間軸已經不是牆鐘時間），
-  `TrimmedDurationSeconds` 才是回報與收據用的長度。回放帶入的區間也改寫到秒（`HH:mm` 會讓兩端
-  各伸縮最多 59 秒）。Guarded by `ClockTimeTests`, `ExportTrimTests` and
-  `時刻讀不懂會擋下來而不是默默匯出一整天`.
+  `ExportService` 以輸入端的 **`-ss`（要求起點距第一段起點的秒數，`TrimStartSeconds`）＋ `-t`
+  （各段交集總和，`TrimmedDurationSeconds`）** 裁切，`-ss` 必須在 `-i` 之前。**不要改用 concat
+  demuxer 的 `inpoint`／`outpoint`**：實測（真實錄影檔）這個 ffmpeg 版本 `inpoint` 完全不生效
+  （整段 15 秒寫 `inpoint 5` 仍輸出 15 秒），`outpoint` 才有；用字串比對的單元測試會全綠，
+  而匯出仍然整段——這種「測試在測實作細節、成品還是壞的」是最貴的一種假綠。
+  整體 `-ss`／`-t` 在有缺口時依然正確：concat 後缺口被壓掉，而 `-t` 算的是實際內容秒數，
+  所以逐段消耗的交集總和剛好等於 `TrimmedDurationSeconds`（實測 A 段後 5.06 秒＋缺口 8 秒＋B 段前 5 秒
+  → 輸出 10.07 秒）。回放帶入的區間也改寫到秒（`HH:mm` 會讓兩端各伸縮最多 59 秒）。
+  Guarded by `ClockTimeTests`, `ExportTrimTests` and
+  `時刻讀不懂會擋下來而不是默默匯出一整天`；裁切機制本身是拿真實錄影檔跑 ffmpeg 驗過的。
 - **Adding cameras must not require typing one IP at a time.** The ONVIF wizard's address box is a
   *search expression*: a single IP/host, a CIDR (`192.168.1.0/24`), a last-octet range
   (`192.168.1.1-50`), a full range, or a comma/space separated mix
