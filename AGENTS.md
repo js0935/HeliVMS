@@ -298,6 +298,17 @@ Notes that will save you time:
   只調容差會讓啟動慢的那格永遠追不上並每輪重開；只補償不縮容差則仍然看得到各播各的。
   Guarded by `PlaybackSyncTimingTests`,
   `多路同步用共用容差且跳轉補上啟動延遲` and `次畫面以母鐘解算且空隙不硬跳別段`.
+- **The playback control bar must expose stepping and looping with the mouse, not only on the
+  keyboard.** 現場盤點：回放只看得到播放／暫停／速度，逐幀與跳段只有鍵盤（F、PageUp…），而
+  「上一張」根本不存在——新進的操作員不會知道那些鍵，也不該被要求記。現在有四顆按鈕
+  （⏮上一段／◀上一張／下一張▶／下一段⏭，快捷鍵 PageUp/PageDown、F/Shift+F）、循環勾選
+  （`LoopCheck`：播完回到**本次播放的起點**——有選取區間就回區間起點，落點規則與「重播選取範圍」
+  共用 `PlaybackSeekPlanner.Resolve(…, forward: true)`，不是自己找第一段）與「立即同步」按鈕
+  （`SyncNowButton`，只在多分割且有待同步的次畫面時可用）。兩個順序陷阱：循環必須排在
+  `AutoAdvanceCheck` 之前（順序顛倒＝勾了循環還是往下一段走，永遠看不到第二輪），
+  「上一段」在段中按下要先回本段開頭（與一般播放器一致；否則只想重看本段會被一路帶到前一段）。
+  跨段與循環都走 `DaySegments`（同一次對帳、同一份排序），不要各自再查一次——兩份查詢遲早漂移。
+  Guarded by `逐幀跳段循環與立即同步都有按鈕與快捷鍵` and `循環回到本次播放起點且排在自動續播之前`.
 - **"Replay selection" must stop where the selection stops.** Recordings are one file per
   segment, so a selected 10:00–10:30 spans several files. `OnEnded` continues into the next
   segment while it still starts before the upper bound — but that branch must also *end the

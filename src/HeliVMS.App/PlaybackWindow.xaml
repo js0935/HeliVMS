@@ -300,6 +300,20 @@
                 <Button x:Name="StopButton" Content="" Click="OnStopClicked" ToolTip=""
                         Width="70" Padding="0,6" Margin="8,0,0,0" IsEnabled="False"
                         Foreground="White" Background="#8A3C2E" BorderThickness="0" AutomationProperties.AutomationId="PlaybackStopButton"/>
+                <!-- Segment / frame stepping: the operator reviews footage step by step, and "previous frame"
+                     "previous segment" must be reachable with the mouse too (keyboard alone is not discoverable). -->
+                <Button x:Name="PrevSegmentButton" Content="" Click="OnPrevSegmentClicked" ToolTip=""
+                        Width="42" Padding="0,6" Margin="10,0,0,0" IsEnabled="False"
+                        Foreground="White" Background="#1F3A5F" BorderThickness="0" AutomationProperties.AutomationId="PlaybackPrevSegmentButton"/>
+                <Button x:Name="PrevFrameButton" Content="" Click="OnPrevFrameClicked" ToolTip=""
+                        Width="42" Padding="0,6" Margin="4,0,0,0" IsEnabled="False"
+                        Foreground="White" Background="#1F3A5F" BorderThickness="0" AutomationProperties.AutomationId="PlaybackPrevFrameButton"/>
+                <Button x:Name="NextFrameButton" Content="" Click="OnNextFrameClicked" ToolTip=""
+                        Width="42" Padding="0,6" Margin="4,0,0,0" IsEnabled="False"
+                        Foreground="White" Background="#1F3A5F" BorderThickness="0" AutomationProperties.AutomationId="PlaybackNextFrameButton"/>
+                <Button x:Name="NextSegmentButton" Content="" Click="OnNextSegmentClicked" ToolTip=""
+                        Width="42" Padding="0,6" Margin="4,0,0,0" IsEnabled="False"
+                        Foreground="White" Background="#1F3A5F" BorderThickness="0" AutomationProperties.AutomationId="PlaybackNextSegmentButton"/>
                 <TextBlock x:Name="PlaybackSpeedLabel" Text="" Foreground="{StaticResource Brand.TextDim}"
                            VerticalAlignment="Center" Margin="14,0,6,0"/>
                 <ComboBox x:Name="SpeedCombo" AutomationProperties.AutomationId="SpeedCombo" Width="64" SelectedIndex="1" VerticalAlignment="Center"
@@ -317,6 +331,12 @@
                            AutomationProperties.AutomationId="PlaybackTime"/>
                 <CheckBox x:Name="AutoAdvanceCheck" Content="" Foreground="{StaticResource Brand.TextDim}" AutomationProperties.AutomationId="AutoAdvanceCheck" ToolTip=""
                           IsChecked="True" VerticalAlignment="Center" Margin="14,0,0,0"/>
+                <CheckBox x:Name="LoopCheck" Content="" Foreground="{StaticResource Brand.TextDim}"
+                          AutomationProperties.AutomationId="PlaybackLoopCheck" ToolTip=""
+                          IsChecked="False" VerticalAlignment="Center" Margin="14,0,0,0"/>
+                <Button x:Name="SyncNowButton" Content="" Click="OnSyncNowClicked" ToolTip=""
+                        Width="58" Padding="0,6" Margin="6,0,0,0" IsEnabled="False"
+                        Foreground="White" Background="#1F3A5F" BorderThickness="0" AutomationProperties.AutomationId="PlaybackSyncNowButton"/>
                 <CheckBox x:Name="RedactionOverlayCheck" Content="" Foreground="{StaticResource Brand.TextDim}"
                           AutomationProperties.AutomationId="RedactionOverlayCheck" ToolTip=""
                           IsChecked="True" VerticalAlignment="Center" Margin="14,0,0,0"

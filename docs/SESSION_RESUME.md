@@ -13,6 +13,7 @@
 > ⑦**群組頁籤空格殘影（M325）**：群組只設 2 支攝影機卻用 4 分割，切換群組再回來後第 3、4 格會「串」著另一支攝影機的畫面。修正三處：`RebuildCells` 結尾清空超出群組的格子、`OnLayoutChanged` 改走 `ApplyWallAsync`（切頁籤與改佈局共用入口）、影格事件改帶 `(Cell, ChannelId, Frame)` 並在 `RenderCellFrame` 比對。
 > ⑧**ONVIF 搜尋與批次加入（M326）**：搜尋欄可輸入整段位址（CIDR、末碼範圍、逗號清單）並並行掃描（上限 512、回報截斷），清單每列可勾選，「批次加入」一次解析並寫入十幾台（單台失敗不中斷整批）。
 > ⑨**匯出時刻與範圍裁切（M327）**：現場設 11:04:07.25～11:04:07.30（5 秒）卻得到 50 分鐘的檔案。修正：`ClockTime` 讀得懂緊湊寫法 11040725（與分段檔名同一種），讀不懂就擋下；`ExportService` 用輸入端 `-ss`＋`-t` 裁到要求範圍（concat 的 inpoint 實測不生效），回報與收據用 `TrimmedDurationSeconds`；回放帶入的區間改寫到秒。
+> ⑩**回放讀數到毫秒與回放控制列（M328–M329）**：讀數與 OSD 改為 `18:25:32:015`；多路同步容差 0.4 秒＋啟動延遲補償（等待首張期間不判漂移）；新增上一段／上一張／下一張／下一段按鈕、循環與立即同步。
 > ④前幾輪已落地：監看牆鋺滿監看區、分割數平均（64 路＝8×8）、移除 6 分割、沉浸模式離開鈕左上角、任務清單 30 秒刷新與「重新啟動程式」排程任務、安裝器放行 WS-Discovery（UDP 3702）。
 > ⑤**實測**：Release build 0 error／0 warning；12 個測試專案逐一套跑全綠（App 703、Storage 1445、Alarms 348、Recording 315、Api 264、Shared 223、Devices 198、Rtc 135、Media 109、LicenseProducer 97、Licensing 69、ExportVerify 11）；
 > 安裝檔已重打包 `publish\Setup\HeliVMS-Setup-0.1.0.exe`（181.5 MB，`git status` 乾淨、無 `packages.lock.json` 污染）。本輪未動 `src/HeliVMS.Web`，Web vitest 沿用上一次經驗值。

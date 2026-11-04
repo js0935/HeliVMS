@@ -97,6 +97,11 @@ public partial class PlaybackWindow : Window
 
     /// <summary>重播所選區間時的上界；播放頭一越過就自動停（PlayFrom／停止／換載入都會清掉）。</summary>
     private DateTime? _rangeStopUtc;
+
+    /// <summary>
+    /// 這次播放的起點（重播所選區間時才有）：循環要回到這裡，而不是回到整段的開頭。
+    /// </summary>
+    private DateTime? _rangeStartUtc;
     private bool _pendingFramePause;
     private bool _suppressSegmentAutoplay;
 
@@ -366,6 +371,18 @@ public partial class PlaybackWindow : Window
         SidebarToggleButton.Content = Localizer.T("Playback.SidebarHide");
         AutoAdvanceCheck.Content = Localizer.T("Playback.AutoAdvance");
         AutoAdvanceCheck.ToolTip = Localizer.T("Playback.AutoAdvanceTip");
+        PrevSegmentButton.Content = Localizer.T("Playback.PrevSegment");
+        PrevSegmentButton.ToolTip = Localizer.T("Playback.PrevSegmentTip");
+        PrevFrameButton.Content = Localizer.T("Playback.PrevFrame");
+        PrevFrameButton.ToolTip = Localizer.T("Playback.PrevFrameTip");
+        NextFrameButton.Content = Localizer.T("Playback.NextFrame");
+        NextFrameButton.ToolTip = Localizer.T("Playback.NextFrameTip");
+        NextSegmentButton.Content = Localizer.T("Playback.NextSegment");
+        NextSegmentButton.ToolTip = Localizer.T("Playback.NextSegmentTip");
+        LoopCheck.Content = Localizer.T("Playback.Loop");
+        LoopCheck.ToolTip = Localizer.T("Playback.LoopTip");
+        SyncNowButton.Content = Localizer.T("Playback.SyncNow");
+        SyncNowButton.ToolTip = Localizer.T("Playback.SyncNowTip");
         RedactionOverlayCheck.Content = Localizer.T("Playback.ShowRedaction");
         RedactionOverlayCheck.ToolTip = Localizer.T("Playback.ShowRedactionTip");
     }
@@ -1034,6 +1051,7 @@ public partial class PlaybackWindow : Window
         RedactOverlay.Children.Clear();
         _rangeSelection = null;
         _rangeStopUtc = null;
+        _rangeStartUtc = null;
         if (ChannelCombo.SelectedItem is not ChannelInfo ch)
         {
             ShowEmptyState(Localizer.T("Playback.NoChannel"));
@@ -1506,6 +1524,34 @@ public partial class PlaybackWindow : Window
                 StepFrame();
                 break;
 
+            // Shift+F＝上一張：現場是一張一張比對，只能前進等於要整段重播才看得到前一張。
+            case Key.F when !ctrl && shift:
+                e.Handled = true;
+                StepFrame(backward: true);
+                break;
+
+            // PageUp／PageDown＝上一段／下一段（跳過空檔）。
+            case Key.PageUp when !ctrl:
+                e.Handled = true;
+                StepSegment(-1);
+                break;
+
+            case Key.PageDown when !ctrl:
+                e.Handled = true;
+                StepSegment(+1);
+                break;
+
+            // +／-＝播放速度（慢動作與快轉都用得到的同一個選單）。
+            case Key.OemPlus or Key.Add when !ctrl:
+                e.Handled = true;
+                ShiftSpeed(+1);
+                break;
+
+            case Key.OemMinus or Key.Subtract when !ctrl:
+                e.Handled = true;
+                ShiftSpeed(-1);
+                break;
+
             case Key.E when !ctrl && !shift:
                 e.Handled = true;
                 OnRedactFromPlaybackClicked(this, new RoutedEventArgs());
@@ -1696,8 +1742,11 @@ public partial class PlaybackWindow : Window
         }
     }
 
-    /// <summary>逐幀（M17）：播放中先暫停，再向前推進約一幀（依 15fps 估約 66ms），並於首幀到達後再次暫停。</summary>
-    private void StepFrame()
+    /// <summary>
+    /// 逐幀（M17）：播放中先暫停，再前進／後退約一幀（依 15fps 估約 66ms），並於首幀到達後再次暫停。
+    /// </summary>
+    /// <param name="backward">true＝上一張。退到段開頭之前就退到上一段的最後一格。</param>
+    private void StepFrame(bool backward = false)
     {
         if (_current is null)
         {
@@ -1718,13 +1767,102 @@ public partial class PlaybackWindow : Window
 
         var frame = 1.0 / 15.0;
 
+        if (backward && _posInside - frame < 0)
+        {
+            // 已經在這一段的第一格：退到上一段的最後一格（與前進時「跨到下一段」對稱）。
+            if (FindPreviousSegment(_current) is { } previous)
+            {
+                PlayFrom(previous, HeliVMS.Shared.PlaybackSeekPlanner.LastFrameOf(previous));
+                _pendingFramePause = true;
+            }
+
+            return;
+        }
+
         // 推到段長本身會落在「沒有影格」的那一瞬間：session 立刻回報播放完畢，畫面停在原處
         // （操作員看不出發生什麼事，只覺得 F 鍵沒作用）。逐幀到最後一格就該停在最後一格。
-        var target = Math.Min(
-            _posInside + frame,
-            HeliVMS.Shared.PlaybackSeekPlanner.LastFrameOf(_current));
+        var target = backward
+            ? Math.Max(0, _posInside - frame)
+            : Math.Min(_posInside + frame, HeliVMS.Shared.PlaybackSeekPlanner.LastFrameOf(_current));
         PlayFrom(_current, target);
         _pendingFramePause = true;
+    }
+
+    /// <summary>
+    /// 跳上一段／下一段（跳過沒錄影的空檔；現場是一段一段核對，不是滑時間軸）。
+    /// </summary>
+    /// <param name="direction">-1＝上一段、+1＝下一段。</param>
+    private void StepSegment(int direction)
+    {
+        if (_current is not { } current)
+        {
+            return;
+        }
+
+        if (direction < 0)
+        {
+            // 不在段首時先回到本段開頭，再按一次才跳上一段：與一般播放器一致，
+            // 也避免只想重看本段卻一路被帶到前一段。
+            if (_posInside > SegmentRestartThresholdSeconds)
+            {
+                PlayFrom(current, 0);
+                StatusText.Text = Localizer.T("Playback.SegmentRestarted");
+                return;
+            }
+
+            var previous = FindPreviousSegment(current);
+            if (previous is null)
+            {
+                StatusText.Text = Localizer.T("Playback.NoPreviousSegment");
+                return;
+            }
+
+            PlayFrom(previous, 0);
+            return;
+        }
+
+        var next = FindNextSegment(current);
+        if (next is null)
+        {
+            StatusText.Text = Localizer.T("Playback.NoNextSegment");
+            return;
+        }
+
+        PlayFrom(next, 0);
+    }
+
+    /// <summary>按「上一段」時，位置超過這麼多秒就先回到本段開頭（而不是直接跳上一段）。</summary>
+    private const double SegmentRestartThresholdSeconds = 1.0;
+
+    private void OnPrevSegmentClicked(object sender, RoutedEventArgs e) => StepSegment(-1);
+
+    private void OnNextSegmentClicked(object sender, RoutedEventArgs e) => StepSegment(+1);
+
+    private void OnPrevFrameClicked(object sender, RoutedEventArgs e) => StepFrame(backward: true);
+
+    private void OnNextFrameClicked(object sender, RoutedEventArgs e) => StepFrame(backward: false);
+
+    /// <summary>多路回放：立刻把次畫面帶到主畫面的時刻（不必等容差判定）。</summary>
+    private void OnSyncNowClicked(object sender, RoutedEventArgs e)
+    {
+        if (_panes.Count == 0)
+        {
+            StatusText.Text = Localizer.T("Playback.SyncNoPanes");
+            return;
+        }
+
+        SyncPanes(force: true);
+        StatusText.Text = Localizer.T("Playback.Synced");
+    }
+
+    /// <summary>調整播放速度（±1 格）；已在兩端時不動，並在狀態列說明目前倍數。</summary>
+    private void ShiftSpeed(int direction)
+    {
+        var next = Math.Clamp(SpeedCombo.SelectedIndex + direction, 0, SpeedCombo.Items.Count - 1);
+        SpeedCombo.SelectedIndex = next;
+        StatusText.Text = string.Format(
+            Localizer.T("Playback.Playing"),
+            GetSpeed().ToString("0.##", System.Globalization.CultureInfo.InvariantCulture));
     }
 
     private double GetSpeed() => SpeedCombo.SelectedIndex switch
@@ -1746,6 +1884,7 @@ public partial class PlaybackWindow : Window
         _playbackEnded = false;
         StopPlayback();
         _rangeStopUtc = null;
+        _rangeStartUtc = null;
         _current = seg;
         _basePos = seekSeconds;
         _posInside = seekSeconds;
@@ -1946,6 +2085,7 @@ public partial class PlaybackWindow : Window
             if (_rangeStopUtc is { } rangeStop && seg.StartUtc.AddSeconds(_posInside) >= rangeStop)
             {
                 _rangeStopUtc = null;
+                _rangeStartUtc = null;
                 StopPlayback();
                 StatusText.Text = Localizer.T("Playback.RangeEnded");
                 return;
@@ -1999,11 +2139,22 @@ public partial class PlaybackWindow : Window
                 // 那會播出選取範圍外的一段（第一格就撞上上界再停住），畫面上閃過一段
                 // 與選取無關的影片，接著卻說「區間播畢」——看起來像選錯了段。
                 _rangeStopUtc = null;
+                _rangeStartUtc = null;
                 StopSync();
                 StopAllPanes();
                 SetIdleUi();
                 ShowPlayheadTime(seg);
                 StatusText.Text = Localizer.T("Playback.RangeEnded");
+                return;
+            }
+
+            // 循環（現場要一直看重播的那一段）：播完回到本次播放的起點重來。
+            // 擺在「區間重播」與「自動續播」之前——勾了循環就是「不要往下走」，
+            // 順序顛倒會變成播完直接跳到下一段，操作員永遠看不到第二輪。
+            if (completed && LoopCheck.IsChecked == true && LoopRestartPoint(seg) is { } loopFrom)
+            {
+                PlayFrom(loopFrom.Segment, loopFrom.OffsetSeconds);
+                StatusText.Text = Localizer.T("Playback.LoopRestarted");
                 return;
             }
 
@@ -2029,28 +2180,65 @@ public partial class PlaybackWindow : Window
     }
 
     private SegmentRecord? FindNextSegment(SegmentRecord current)
+        => DaySegments(current)
+            .Where(s => s.StartUtc > current.StartUtc)
+            .FirstOrDefault();
+
+    /// <summary>上一段：時間上早於 <paramref name="current"/> 的最近一段（沒有就 null）。</summary>
+    private SegmentRecord? FindPreviousSegment(SegmentRecord current)
+        => DaySegments(current)
+            .Where(s => s.StartUtc < current.StartUtc)
+            .OrderByDescending(s => s.StartUtc)
+            .FirstOrDefault();
+
+    /// <summary>
+    /// 循環要回到哪裡：有選取區間就回區間起點所在的那一段（與「重播選取範圍」同一份落點規則），
+    /// 否則回到剛播完那一段的開頭。
+    /// </summary>
+    /// <remarks>
+    /// 用 <see cref="PlaybackSeekPlanner.Resolve"/> 而不是自己找「第一段」：區間起點可能落在
+    /// 缺口或剛好落在段尾，自己寫一份閉區間比對就會挑到別段（AGENTS 已記錄過這個坑）。
+    /// </remarks>
+    private PlaybackSeekPlanner.Landing? LoopRestartPoint(SegmentRecord finished)
+    {
+        if (_rangeStartUtc is { } rangeStart && _rangeStopUtc is not null)
+        {
+            // forward: true＝起點落在空檔時往後找下一段（與「重播選取範圍」的起點規則一致）。
+            var cursor = PlaybackSeekPlanner.Resolve(DaySegments(finished), rangeStart, forward: true);
+            if (cursor is { } start)
+            {
+                return start;
+            }
+        }
+
+        return new PlaybackSeekPlanner.Landing(finished, 0);
+    }
+
+    /// <summary>
+    /// 這一天可播放的段落（依時間排序、幽靈段已剔除）。跨段跳轉與循環起點共用同一份查詢：
+    /// 各自重查一次遲早會漂移（一邊含 missing、一邊不含，就會出現「跳過去一片黑」）。
+    /// </summary>
+    /// <remarks>
+    /// 跳轉前一定要驗：跳到一段幽靈段等於整個跳轉靜靜失敗（ffmpeg 打不開就結束），
+    /// 使用者只看到「按了沒反應」。
+    /// </remarks>
+    private IReadOnlyList<SegmentRecord> DaySegments(SegmentRecord reference)
     {
         if (ChannelCombo.SelectedItem is not ChannelInfo ch)
         {
-            return null;
+            return [];
         }
 
-        var dayStartUtc = TimeZoneInfo.ConvertTimeToUtc(current.StartUtc.ToLocalTime().Date);
-
+        var dayStartUtc = TimeZoneInfo.ConvertTimeToUtc(reference.StartUtc.ToLocalTime().Date);
         try
         {
-            // 跨段跳轉也要驗：跳到一段幽靈段等於整個跳轉靜靜失敗（ffmpeg 打不開就結束），
-            // 使用者只看到「按了沒反應」。
             var (playable, _, _) = ReconcileSegments(
-                _segments.ListByRange(ch.Id, current.Stream, dayStartUtc, dayStartUtc.AddDays(1)));
-            return playable
-                .Where(s => s.Status == SegmentStatus.Final && s.StartUtc > current.StartUtc)
-                .OrderBy(s => s.StartUtc)
-                .FirstOrDefault();
+                _segments.ListByRange(ch.Id, reference.Stream, dayStartUtc, dayStartUtc.AddDays(1)));
+            return [.. playable.Where(s => s.Status == SegmentStatus.Final).OrderBy(s => s.StartUtc)];
         }
         catch
         {
-            return null;
+            return [];
         }
     }
 
@@ -2258,6 +2446,7 @@ public partial class PlaybackWindow : Window
         _basePos = 0;
         _posInside = 0;
         _rangeStopUtc = null;
+        _rangeStartUtc = null;
         _playbackEnded = false;
 
         // 上一台的最後一格不能留在畫面上：快照會把它存成這一台的檔案（證據指向錯的攝影機），
@@ -2277,6 +2466,7 @@ public partial class PlaybackWindow : Window
     {
         _stopping = true;
         _rangeStopUtc = null;
+        _rangeStartUtc = null;
         var session = _session;
         _session = null;
         _sessionVersion++;
@@ -2992,7 +3182,10 @@ public partial class PlaybackWindow : Window
             Math.Min(
                 Math.Max(0, (range.StartUtc - first.StartUtc).TotalSeconds),
                 HeliVMS.Shared.PlaybackSeekPlanner.LastFrameOf(first)));
+
+        // 上界與起點都記下來：循環要回到「這次播放的起點」而不是段開頭（見 LoopRestartPoint）。
         _rangeStopUtc = range.EndUtc;
+        _rangeStartUtc = range.StartUtc;
     }
 
     /// <summary>右鍵選單「匯出所選區間」（§8.5「立即可匯出此段」）：開匯出精靈並預填精確起止。</summary>
@@ -3186,6 +3379,7 @@ public partial class PlaybackWindow : Window
         PlayPauseButton.Content = Localizer.T("Playback.Pause");
         PlayPauseButton.IsEnabled = true;
         StopButton.IsEnabled = true;
+        SetStepButtonsEnabled(true);
     }
 
     private void SetIdleUi()
@@ -3193,6 +3387,16 @@ public partial class PlaybackWindow : Window
         PlayPauseButton.Content = Localizer.T("Playback.Play");
         PlayPauseButton.IsEnabled = _current is not null;
         StopButton.IsEnabled = false;
+        SetStepButtonsEnabled(_current is not null);
+    }
+
+    /// <summary>逐幀與跳段按鈕的可用狀態（沒有播放頭時全部停用）。</summary>
+    private void SetStepButtonsEnabled(bool enabled)
+    {
+        PrevSegmentButton.IsEnabled = enabled;
+        PrevFrameButton.IsEnabled = enabled;
+        NextFrameButton.IsEnabled = enabled;
+        NextSegmentButton.IsEnabled = enabled;
     }
 
     /// <summary>
@@ -3343,6 +3547,7 @@ public partial class PlaybackWindow : Window
         }
 
         _panes.Clear();
+        SyncNowButton.IsEnabled = false;
 
         var channels = ChannelCombo.Items.OfType<ChannelInfo>().ToList();
         if (channels.Count == 0
@@ -3369,6 +3574,9 @@ public partial class PlaybackWindow : Window
             _panes.Add(pane);
             PlayerArea.Children.Add(pane.Frame);
         }
+
+        // 沒有次畫面就沒有「同步」可言：按鈕留著可按只會讓人以為同步壞了。
+        SyncNowButton.IsEnabled = _panes.Count > 0;
 
         ApplyPlayerFrameGeometry();
         RenderChannelBands();

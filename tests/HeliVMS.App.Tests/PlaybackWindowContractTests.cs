@@ -363,6 +363,75 @@ public sealed class PlaybackWindowContractTests
         Assert.Contains("pane.StartupLatencySeconds = PlaybackSyncPlanner.NextLatencyEstimate(", frame);
     }
 
+    /// <summary>
+    /// 回放控制要「用滑鼠也按得到」：逐幀前後、跳上／下一段、循環、立即同步。
+    /// </summary>
+    /// <remarks>
+    /// 現場盤點時回報回放只有播放／暫停／速度與鍵盤快捷鍵，滑鼠找不到逐幀與跳段——
+    /// 新進的操作員不會知道 F 與 PageUp 的存在。逐幀前進原本只到最後一格就無法再動，
+    /// 後退更是完全沒有；「上一段／下一段」也還不存在（只能滑時間軸找）。
+    /// </remarks>
+    [Fact]
+    public void 逐幀跳段循環與立即同步都有按鈕與快捷鍵()
+    {
+        var xaml = SourceContract.Read("src/HeliVMS.App/PlaybackWindow.xaml");
+        var source = SourceContract.Read(Code);
+
+        // 滑鼠可及：四顆步進鈕、循環勾選、立即同步鈕都要在畫面上且有接線。
+        foreach (var (name, handler) in new[]
+                 {
+                     ("PrevSegmentButton", "OnPrevSegmentClicked"),
+                     ("PrevFrameButton", "OnPrevFrameClicked"),
+                     ("NextFrameButton", "OnNextFrameClicked"),
+                     ("NextSegmentButton", "OnNextSegmentClicked"),
+                     ("SyncNowButton", "OnSyncNowClicked"),
+                 })
+        {
+            Assert.Contains($"x:Name=\"{name}\"", xaml);
+            Assert.Contains($"Click=\"{handler}\"", xaml);
+        }
+
+        Assert.Contains("x:Name=\"LoopCheck\"", xaml);
+
+        // 鍵盤：Shift+F 上一張、PageUp/PageDown 跳段、+/- 速度。
+        var keys = SourceContract.BodyOf(source, "OnPreviewKeyDown");
+        Assert.Contains("StepFrame(backward: true)", keys);
+        Assert.Contains("Key.PageUp", keys);
+        Assert.Contains("Key.PageDown", keys);
+        Assert.Contains("ShiftSpeed(", keys);
+
+        // 步進與跳段都要走既有的落點規則，不得自己算段內位置。
+        var frame = SourceContract.BodyOf(source, "StepFrame");
+        Assert.Contains("PlaybackSeekPlanner.LastFrameOf(", frame);
+        // 退到段開頭之前要跨到上一段的最後一格（只夾在 0 會讓人以為「上一張」壞了）。
+        Assert.Contains("FindPreviousSegment(", frame);
+        var segment = SourceContract.BodyOf(source, "StepSegment");
+        Assert.Contains("FindPreviousSegment(", segment);
+        Assert.Contains("FindNextSegment(", segment);
+    }
+
+    /// <summary>循環要回到「這次播放的起點」，而且不得與自動續播搶順序。</summary>
+    /// <remarks>
+    /// 勾了循環還往下一段走＝永遠看不到第二輪；順序顛倒（自動續播在前）正是那個症狀。
+    /// </remarks>
+    [Fact]
+    public void 循環回到本次播放起點且排在自動續播之前()
+    {
+        var source = SourceContract.Read(Code);
+        var ended = SourceContract.BodyOf(source, "OnEnded");
+
+        var loopAt = ended.IndexOf("LoopCheck.IsChecked", StringComparison.Ordinal);
+        var autoAt = ended.IndexOf("AutoAdvanceCheck.IsChecked", StringComparison.Ordinal);
+        Assert.True(loopAt >= 0 && autoAt > loopAt, "循環必須排在自動續播之前");
+
+        var point = SourceContract.BodyOf(source, "LoopRestartPoint");
+        // 有選取區間就回區間起點（與重播同一份落點規則），否則回本段開頭。
+        // 條件式整句比對：只比對字串的話，把條件寫成永遠不成立也照樣通過（改壞驗證抓到過）。
+        Assert.Contains("if (_rangeStartUtc is { } rangeStart && _rangeStopUtc is not null)", point);
+        Assert.Contains("PlaybackSeekPlanner.Resolve(", point);
+        Assert.Contains("new PlaybackSeekPlanner.Landing(finished, 0)", point);
+    }
+
     /// <summary>播放讀數到毫秒（18:25:32:015），且主畫面與次畫面共用同一個格式。</summary>
     /// <remarks>
     /// 現場要求「秒數後面再加上張數」：同一秒內有幾十張影格，只到秒的讀數無法指出操作員
@@ -1181,7 +1250,8 @@ public sealed class PlaybackWindowContractTests
             .Select(m => SourceContract.EnclosingMethod(source, m.Index))
             .ToHashSet();
         Assert.Contains("LoadSegments", callers);
-        Assert.Contains("FindNextSegment", callers);
+        // 跨段跳轉與循環起點共用 DaySegments（已含對帳）；這條路徑就是當年投訴的第二幕。
+        Assert.Contains("DaySegments", callers);
         Assert.Contains("LoadPaneSegments", callers);
 
         var load = SourceContract.BodyOf(source, "LoadSegments");
