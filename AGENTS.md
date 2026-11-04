@@ -309,6 +309,19 @@ Notes that will save you time:
   「上一段」在段中按下要先回本段開頭（與一般播放器一致；否則只想重看本段會被一路帶到前一段）。
   跨段與循環都走 `DaySegments`（同一次對帳、同一份排序），不要各自再查一次——兩份查詢遲早漂移。
   Guarded by `逐幀跳段循環與立即同步都有按鈕與快捷鍵` and `循環回到本次播放起點且排在自動續播之前`.
+- **Day boundaries: auto-advance must cross into the next day, and playback preferences must survive
+  the window.** 現場回看跨夜事故（23:40→00:20）時，當天播完就停住，操作員得自己記住看到哪裡、
+  手動把日期往後一天、再找第一段。現在 `AutoAdvanceCheck` 開啟時會走 `ContinueToNextDayAsync`
+  （最多往後找 `MaxCrossDayLookaheadDays` 天，只取那一天的第一段）。兩個必須保持的細節：換日要走
+  既有的非同步漏斗 `ReloadForPlaybackAsync`——直接 `PlayFrom` 會在索引還沒載入時開播，兩秒後被
+  那次載入的 `StopPlayback` 停掉，症狀是「跳到隔天了但畫面停住」；而且程式自己改
+  `DatePick.SelectedDate` 時要設 `_suppressSelectionReload`，否則事件會再排一次載入。另外把操作員
+  的習慣存起來（`playback.speed`／`playback.split`／`playback.auto_advance`／`playback.loop`），
+  還原一律經 `PlaybackPreferenceValues`（壞值或越界退回預設——索引越界會讓 `SelectedIndex` 變 -1，
+  畫面看起來像壞掉），並且在**改動當下**寫回而不是等關窗（關窗有自己的收尾路徑，漏掉就沒存到）。
+  鍵盤補齊：Home／End＝當天第一段／最後一段、↑／↓＝上一段／下一段。Guarded by
+  `當天播完會自動接隔天且等索引載入完成`, `方向鍵與HomeEnd可以跳段`,
+  `回放偏好會記住且壞值退回預設` and `PlaybackPreferenceValuesTests`.
 - **"Replay selection" must stop where the selection stops.** Recordings are one file per
   segment, so a selected 10:00–10:30 spans several files. `OnEnded` continues into the next
   segment while it still starts before the upper bound — but that branch must also *end the

@@ -79,9 +79,15 @@ public sealed class PlaybackAudioContractTests
         var tag = xaml[comboStart..tagEnd];
         Assert.Contains("SelectedIndex=\"1\"", tag);
 
-        // 建構子再設一次（項目尚未建立時 XAML 的選擇可能不生效）。
+        // 建構子再設一次（項目尚未建立時 XAML 的選擇可能不生效）——現在由偏好還原負責，
+        // 沒有偏好時 fallback 必須是 1×（索引 1）。
         // 釘在建構子本體而非整份檔案：喇叭的自動切回也寫同一句，抓整份檔案會空轉全綠。
-        Assert.Contains("SpeedCombo.SelectedIndex = 1;", SourceContract.BodyOf(SourceContract.Read(Code), "PlaybackWindow"));
+        var ctor = SourceContract.BodyOf(SourceContract.Read(Code), "PlaybackWindow");
+        Assert.Contains("RestorePlaybackPreferences();", ctor);
+
+        var restore = SourceContract.BodyOf(SourceContract.Read(Code), "RestorePlaybackPreferences");
+        Assert.Contains("SpeedCombo.Items.Count, fallback: 1", restore);
+        Assert.Contains("SpeedCombo.SelectedIndex = PlaybackPreferenceValues.Index(", restore);
 
         // 對照：1× 的速度值必須真的是 1（改對應表時不能把 1× 弄丟）。
         Assert.Contains("1 => 1", SourceContract.BodyOf(SourceContract.Read(Code), "GetSpeed"));

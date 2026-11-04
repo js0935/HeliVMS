@@ -320,7 +320,8 @@
                                VerticalAlignment="Center" Margin="16,0,0,0" Text="--:--:--"
                                AutomationProperties.AutomationId="PlaybackTime"/>
                     <CheckBox x:Name="AutoAdvanceCheck" Content="" Foreground="{StaticResource Brand.TextDim}" AutomationProperties.AutomationId="AutoAdvanceCheck" ToolTip=""
-                              IsChecked="True" VerticalAlignment="Center" Margin="14,0,0,0"/>
+                              IsChecked="True" VerticalAlignment="Center" Margin="14,0,0,0"
+                              Checked="OnPlaybackPreferenceToggled" Unchecked="OnPlaybackPreferenceToggled"/>
                     <CheckBox x:Name="RedactionOverlayCheck" Content="" Foreground="{StaticResource Brand.TextDim}"
                               AutomationProperties.AutomationId="RedactionOverlayCheck" ToolTip=""
                               IsChecked="True" VerticalAlignment="Center" Margin="14,0,0,0"
@@ -343,7 +344,8 @@
                             Foreground="White" Background="#1F3A5F" BorderThickness="0" AutomationProperties.AutomationId="PlaybackNextSegmentButton"/>
                     <CheckBox x:Name="LoopCheck" Content="" Foreground="{StaticResource Brand.TextDim}"
                               AutomationProperties.AutomationId="PlaybackLoopCheck" ToolTip=""
-                              IsChecked="False" VerticalAlignment="Center" Margin="14,0,0,0"/>
+                              IsChecked="False" VerticalAlignment="Center" Margin="14,0,0,0"
+                              Checked="OnPlaybackPreferenceToggled" Unchecked="OnPlaybackPreferenceToggled"/>
                     <Button x:Name="SyncNowButton" Content="" Click="OnSyncNowClicked" ToolTip=""
                             Width="58" Padding="0,6" Margin="6,0,0,0" IsEnabled="False"
                             Foreground="White" Background="#1F3A5F" BorderThickness="0" AutomationProperties.AutomationId="PlaybackSyncNowButton"/>

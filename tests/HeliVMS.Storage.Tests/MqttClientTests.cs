@@ -449,19 +449,24 @@ public class MqttClientTests : IDisposable
         using var client = new MqttClient();
         var hub = new MqttMessageHub(client);
         var received = 0;
-        hub.Register("events/#", _ => received++);
+        hub.Register("events/#", _ => Interlocked.Increment(ref received));
         Assert.True(client.Connect("127.0.0.1", broker.Port, "hub", 30).Ok);
         hub.SubscribeAll();
-        WaitUntil(() => broker.LastSubscribeTopic is not null);
+        WaitUntil(() => broker.LastSubscribeTopic is not null, timeoutMs: 15_000);
 
         using var cts = new CancellationTokenSource();
         var run = hub.Run(TimeSpan.FromMilliseconds(50), cts.Token);
         broker.Push("events/a", new byte[] { 1 });
         broker.Push("events/b", new byte[] { 2 });
-        WaitUntil(() => received == 2);
+
+        // 負載下（整包測試併跑）pump 迴圈與 loopback broker 都可能慢好幾秒；原本只等 3 秒，
+        // 而且逾時**不 assert**（received 沒到 2 也照樣往下走），失敗只會以「run 等 10 秒逾時」
+        // 的形式出現，看不出是訊息沒收到還是收不掉。這裡放寬等待並明確斷言。
+        WaitUntil(() => Volatile.Read(ref received) == 2, timeoutMs: 15_000);
+        Assert.Equal(2, Volatile.Read(ref received));
 
         cts.Cancel();
-        await run.WaitAsync(TimeSpan.FromSeconds(10));
+        await run.WaitAsync(TimeSpan.FromSeconds(30));
     }
 
     public void Dispose()

@@ -410,6 +410,85 @@ public sealed class PlaybackWindowContractTests
         Assert.Contains("FindNextSegment(", segment);
     }
 
+    /// <summary>
+    /// 當天播完要能自動接隔天（跨夜事故的回看），而且換日必須走非同步漏斗。
+    /// </summary>
+    /// <remarks>
+    /// 現場流程是「昨天 23:40 一路看到今天 00:20」：少了這條，操作員得記住看到哪裡、
+    /// 手動把日期往後一天、再自己找第一段。換日是非同步漏斗（先收檔再載入索引），
+    /// 直接開播會在索引還沒載入時被 <c>StopPlayback</c> 停掉——症狀是「跳到隔天了但畫面停住」。
+    /// </remarks>
+    [Fact]
+    public void 當天播完會自動接隔天且等索引載入完成()
+    {
+        var source = SourceContract.Read(Code);
+        var ended = SourceContract.BodyOf(source, "OnEnded");
+
+        // 整句比對：只比對函式名時，把條件寫成 `if (false && await ContinueToNextDayAsync(seg))`
+        // 照樣通過（改壞驗證抓到過）。
+        Assert.Contains("if (await ContinueToNextDayAsync(seg))", ended);
+        // 只有勾了自動接續才跨日（沒勾就是停在當天最後一段）。
+        var autoAt = ended.IndexOf("AutoAdvanceCheck.IsChecked", StringComparison.Ordinal);
+        var acrossAt = ended.IndexOf("if (await ContinueToNextDayAsync(seg))", StringComparison.Ordinal);
+        Assert.True(autoAt >= 0 && acrossAt > autoAt, "跨日續播必須在自動接續的分支裡");
+
+        var next = SourceContract.BodyOf(source, "ContinueToNextDayAsync");
+        // 找隔天的第一段，最多往前找固定天數（不是整庫掃描）。
+        Assert.Contains("MaxCrossDayLookaheadDays", next);
+        Assert.Contains("SegmentsForDay(", next);
+        Assert.Contains(".FirstOrDefault()", next);
+        // 換日走既有漏斗；程式自己改日期要抑制事件造成第二次載入
+        //（比對整句指派：只比對欄位名會被 finally 裡的歸零那行滿足）。
+        Assert.Contains("await ReloadForPlaybackAsync()", next);
+        Assert.Contains("_suppressSelectionReload = true;", next);
+    }
+
+    /// <summary>Home／End／↑／↓ 要能用（現場用方向鍵盤一段一段看）。</summary>
+    [Fact]
+    public void 方向鍵與HomeEnd可以跳段()
+    {
+        var keys = SourceContract.BodyOf(SourceContract.Read(Code), "OnPreviewKeyDown");
+
+        Assert.Contains("Key.Up", keys);
+        Assert.Contains("Key.Down", keys);
+        Assert.Contains("Key.Home", keys);
+        Assert.Contains("Key.End", keys);
+        Assert.Contains("StepSegment(-1)", keys);
+        Assert.Contains("StepSegment(+1)", keys);
+        // 兩個方向都要在（只比對函式名時，Home 改成別的行為也照樣通過）。
+        Assert.Contains("JumpToDayEdge(forward: false)", keys);
+        Assert.Contains("JumpToDayEdge(forward: true)", keys);
+    }
+
+    /// <summary>回放偏好（速度、分割數、自動接續、循環）要記得，且壞值退回預設。</summary>
+    [Fact]
+    public void 回放偏好會記住且壞值退回預設()
+    {
+        var source = SourceContract.Read(Code);
+
+        // 鍵名以常數宣告（拼字只有一處），本體用的是常數名。
+        Assert.Contains("\"playback.speed\"", source);
+        Assert.Contains("\"playback.split\"", source);
+        Assert.Contains("\"playback.auto_advance\"", source);
+        Assert.Contains("\"playback.loop\"", source);
+
+        var restore = SourceContract.BodyOf(source, "RestorePlaybackPreferences");
+        Assert.Contains("SpeedSettingKey", restore);
+        Assert.Contains("SplitSettingKey", restore);
+        Assert.Contains("AutoAdvanceSettingKey", restore);
+        Assert.Contains("LoopSettingKey", restore);
+        // 越界／壞值一律走共用的還原函式（不是直接塞回 SelectedIndex）。
+        Assert.Contains("PlaybackPreferenceValues.Index(", restore);
+        Assert.Contains("PlaybackPreferenceValues.Bool(", restore);
+
+        // 改動時就寫回，不必等關窗（關窗路徑有自己的一串收尾，漏掉就沒存到）。
+        Assert.Contains("SavePlaybackPreferences();", SourceContract.BodyOf(source, "OnSpeedChanged"));
+        Assert.Contains("SavePlaybackPreferences();", SourceContract.BodyOf(source, "OnSplitChanged"));
+
+        var xaml = SourceContract.Read("src/HeliVMS.App/PlaybackWindow.xaml");
+        Assert.Contains("OnPlaybackPreferenceToggled", xaml);
+    }
+
     /// <summary>控制列必須分兩列：單列在窄螢幕上會把右端（先是狀態、再是同步鈕）默默裁掉。</summary>
     /// <remarks>
     /// 底部控制列是橫向 StackPanel，塞不下時最後幾個元素會被視窗邊緣切掉且沒有任何提示
@@ -1276,8 +1355,8 @@ public sealed class PlaybackWindowContractTests
             .Select(m => SourceContract.EnclosingMethod(source, m.Index))
             .ToHashSet();
         Assert.Contains("LoadSegments", callers);
-        // 跨段跳轉與循環起點共用 DaySegments（已含對帳）；這條路徑就是當年投訴的第二幕。
-        Assert.Contains("DaySegments", callers);
+        // 跨段跳轉、循環起點與跨日續播共用 SegmentsForDay（已含對帳）；這條路徑就是當年投訴的第二幕。
+        Assert.Contains("SegmentsForDay", callers);
         Assert.Contains("LoadPaneSegments", callers);
 
         var load = SourceContract.BodyOf(source, "LoadSegments");

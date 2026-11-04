@@ -306,8 +306,8 @@ public partial class PlaybackWindow : Window
 
         // 速度預設 1×。XAML 的 SelectedIndex 在項目還沒建立時可能被忽略，
         // 這裡再設一次才保證是 1×——0.5× 的預設會讓操作員以為「回放怎麼慢慢的」，
-        // 也會讓喇叭按不下去（非 1× 不播聲音）。
-        SpeedCombo.SelectedIndex = 1;
+        // 也會讓喇叭按不下去（非 1× 不播聲音）。有上次的偏好的話以偏好為準。
+        RestorePlaybackPreferences();
 
         DatePick.SelectedDate = DateTime.Today;
         LoadChannels();
@@ -323,6 +323,48 @@ public partial class PlaybackWindow : Window
         // XAML 建樹完成後才放行 OnSplitChanged：見 _uiReady 註解。
         _uiReady = true;
     }
+
+    // 回放偏好：速度、分割數、自動接續、循環。回看事故的習慣（例如 4× ＋ 四分割 ＋ 自動接續）
+    // 每次都重選一次是純浪費，而這些值本來就該跟著操作員而不是跟著視窗。
+    private const string SpeedSettingKey = "playback.speed";
+
+    private const string SplitSettingKey = "playback.split";
+
+    private const string AutoAdvanceSettingKey = "playback.auto_advance";
+
+    private const string LoopSettingKey = "playback.loop";
+
+    /// <summary>還原上次的回放偏好（壞值／越界一律退回預設，見 <see cref="PlaybackPreferenceValues"/>）。</summary>
+    private void RestorePlaybackPreferences()
+    {
+        var settings = new SettingsRepository(_store);
+        SpeedCombo.SelectedIndex = PlaybackPreferenceValues.Index(
+            settings.Get(SpeedSettingKey), SpeedCombo.Items.Count, fallback: 1);
+        SplitCombo.SelectedIndex = PlaybackPreferenceValues.Index(
+            settings.Get(SplitSettingKey), SplitCombo.Items.Count, fallback: 0);
+        AutoAdvanceCheck.IsChecked = PlaybackPreferenceValues.Bool(
+            settings.Get(AutoAdvanceSettingKey), fallback: true);
+        LoopCheck.IsChecked = PlaybackPreferenceValues.Bool(settings.Get(LoopSettingKey), fallback: false);
+    }
+
+    /// <summary>寫回目前選項（速度、分割數、自動接續、循環）。</summary>
+    private void SavePlaybackPreferences()
+    {
+        try
+        {
+            var settings = new SettingsRepository(_store);
+            settings.Set(SpeedSettingKey, SpeedCombo.SelectedIndex.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            settings.Set(SplitSettingKey, SplitCombo.SelectedIndex.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            settings.Set(AutoAdvanceSettingKey, AutoAdvanceCheck.IsChecked == true ? "1" : "0");
+            settings.Set(LoopSettingKey, LoopCheck.IsChecked == true ? "1" : "0");
+        }
+        catch (Exception)
+        {
+            // 記不住偏好不該讓回放不能用（資料庫忙碌時仍要能播）。
+        }
+    }
+
+    private void OnPlaybackPreferenceToggled(object sender, RoutedEventArgs e) => SavePlaybackPreferences();
 
     private void ApplyI18n()
     {
@@ -1442,6 +1484,8 @@ public partial class PlaybackWindow : Window
 
     private void OnSpeedChanged(object sender, SelectionChangedEventArgs e)
     {
+        SavePlaybackPreferences();
+
         if (_session is not null && !_stopping)
         {
             _session.Speed = GetSpeed();
@@ -1477,6 +1521,7 @@ public partial class PlaybackWindow : Window
             return;
         }
 
+        SavePlaybackPreferences();
         RebuildPanes();
         if (_session is not null)
         {
@@ -1530,15 +1575,28 @@ public partial class PlaybackWindow : Window
                 StepFrame(backward: true);
                 break;
 
-            // PageUp／PageDown＝上一段／下一段（跳過空檔）。
+            // PageUp／PageDown＝上一段／下一段（跳過空檔）；↑／↓ 同一件事（現場用方向鍵盤）。
             case Key.PageUp when !ctrl:
+            case Key.Up when !ctrl:
                 e.Handled = true;
                 StepSegment(-1);
                 break;
 
             case Key.PageDown when !ctrl:
+            case Key.Down when !ctrl:
                 e.Handled = true;
                 StepSegment(+1);
+                break;
+
+            // Home／End＝當天第一段／最後一段。
+            case Key.Home when !ctrl:
+                e.Handled = true;
+                JumpToDayEdge(forward: false);
+                break;
+
+            case Key.End when !ctrl:
+                e.Handled = true;
+                JumpToDayEdge(forward: true);
                 break;
 
             // +／-＝播放速度（慢動作與快轉都用得到的同一個選單）。
@@ -1786,6 +1844,28 @@ public partial class PlaybackWindow : Window
             : Math.Min(_posInside + frame, HeliVMS.Shared.PlaybackSeekPlanner.LastFrameOf(_current));
         PlayFrom(_current, target);
         _pendingFramePause = true;
+    }
+
+    /// <summary>
+    /// 跳到當天的第一段／最後一段（Home／End）。每次都從該段開頭播：操作員按 End 是想看
+    /// 當天最後一段，不是想停在它最後一格。
+    /// </summary>
+    private void JumpToDayEdge(bool forward)
+    {
+        if (_current is not { } current)
+        {
+            return;
+        }
+
+        var day = DaySegments(current);
+        var target = forward ? day.LastOrDefault() : day.FirstOrDefault();
+        if (target is null || ReferenceEquals(target, current))
+        {
+            StatusText.Text = forward ? Localizer.T("Playback.NoNextSegment") : Localizer.T("Playback.NoPreviousSegment");
+            return;
+        }
+
+        PlayFrom(target, 0);
     }
 
     /// <summary>
@@ -2167,6 +2247,13 @@ public partial class PlaybackWindow : Window
                     PlayFrom(next, 0);
                     return;
                 }
+
+                // 當天播完：自動接隔天（最多往前找幾天）。跨夜事故的回看就是這樣一段接一段，
+                // 少了這條操作員得自己記住「昨天看到 23:59，換日期、找最後一段」再手動續播。
+                if (await ContinueToNextDayAsync(seg))
+                {
+                    return;
+                }
             }
 
             StopSync();
@@ -2183,6 +2270,57 @@ public partial class PlaybackWindow : Window
         => DaySegments(current)
             .Where(s => s.StartUtc > current.StartUtc)
             .FirstOrDefault();
+
+    /// <summary>自動續播往後找幾天的第一段（跨夜事故不會超過這個範圍；避免整庫掃描）。</summary>
+    private const int MaxCrossDayLookaheadDays = 7;
+
+    /// <summary>
+    /// 當天播完時接著播隔天的第一段（<see cref="MaxCrossDayLookaheadDays"/> 天內）。
+    /// </summary>
+    /// <returns>真的跳到隔天並開播時回 true。</returns>
+    /// <remarks>
+    /// 換日是**非同步漏斗**（先收檔再載入索引）：直接 <c>PlayFrom</c> 會在索引還沒載入時開播，
+    /// 兩秒後被那次載入的 <c>StopPlayback</c> 停掉——現場看到的是「跳到隔天了，但畫面停住」。
+    /// 所以這裡先設定日期（並抑制 SelectedDate 事件造成第二次載入），等
+    /// <see cref="ReloadForPlaybackAsync"/> 完成才開播。
+    /// </remarks>
+    private async Task<bool> ContinueToNextDayAsync(SegmentRecord lastOfDay)
+    {
+        var day = lastOfDay.StartUtc.ToLocalTime().Date;
+        for (var ahead = 1; ahead <= MaxCrossDayLookaheadDays; ahead++)
+        {
+            var candidate = day.AddDays(ahead);
+            var first = SegmentsForDay(candidate, lastOfDay.Stream).FirstOrDefault();
+            if (first is null)
+            {
+                continue;
+            }
+
+            _suppressSelectionReload = true;
+            try
+            {
+                DatePick.SelectedDate = candidate;
+            }
+            finally
+            {
+                _suppressSelectionReload = false;
+            }
+
+            if (!await ReloadForPlaybackAsync())
+            {
+                // 期間操作員自己換了台／換了日：讓新的那次操作主導，不要再搶著開播。
+                return false;
+            }
+
+            PlayFrom(first, 0);
+            StatusText.Text = string.Format(
+                Localizer.T("Playback.ContinuedNextDay"),
+                candidate.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture));
+            return true;
+        }
+
+        return false;
+    }
 
     /// <summary>上一段：時間上早於 <paramref name="current"/> 的最近一段（沒有就 null）。</summary>
     private SegmentRecord? FindPreviousSegment(SegmentRecord current)
@@ -2223,17 +2361,21 @@ public partial class PlaybackWindow : Window
     /// 使用者只看到「按了沒反應」。
     /// </remarks>
     private IReadOnlyList<SegmentRecord> DaySegments(SegmentRecord reference)
+        => SegmentsForDay(reference.StartUtc.ToLocalTime().Date, reference.Stream);
+
+    /// <summary>某一天（地方時）的某路可播放段（已對帳、只留 final、依時間排序）。</summary>
+    private IReadOnlyList<SegmentRecord> SegmentsForDay(DateTime localDay, string stream)
     {
         if (ChannelCombo.SelectedItem is not ChannelInfo ch)
         {
             return [];
         }
 
-        var dayStartUtc = TimeZoneInfo.ConvertTimeToUtc(reference.StartUtc.ToLocalTime().Date);
+        var dayStartUtc = TimeZoneInfo.ConvertTimeToUtc(localDay.Date);
         try
         {
             var (playable, _, _) = ReconcileSegments(
-                _segments.ListByRange(ch.Id, reference.Stream, dayStartUtc, dayStartUtc.AddDays(1)));
+                _segments.ListByRange(ch.Id, stream, dayStartUtc, dayStartUtc.AddDays(1)));
             return [.. playable.Where(s => s.Status == SegmentStatus.Final).OrderBy(s => s.StartUtc)];
         }
         catch
