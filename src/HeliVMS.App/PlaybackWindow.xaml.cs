@@ -3556,12 +3556,19 @@ public partial class PlaybackWindow : Window
 
             pane.NoRecording = false;
             var paneUtc = pane.Current is { } current ? current.StartUtc.AddSeconds(pane.PosInside) : (DateTime?)null;
+
+            // 等待第一張影格期間不比對漂移：那時「目前時刻」是刻意超前補償過的跳轉位置，
+            // 與母鐘比一定超出容差（見 PlaybackSyncPlanner.ShouldReseek），只有卡住才重開。
+            var drift = paneUtc is { } shown ? (shown - target).TotalSeconds : 0;
+            var sinceStart = pane.StartedAtUtc is { } startedAt
+                ? (DateTime.UtcNow - startedAt).TotalSeconds
+                : 0;
             var restart = force
                 || pane.Session is null
                 || pane.Current is null
                 || pane.Current.Id != cursor.Value.Segment.Id
                 || paneUtc is null
-                || Math.Abs((paneUtc.Value - target).TotalSeconds) > PlaybackSyncPlanner.DefaultDriftToleranceSeconds;
+                || PlaybackSyncPlanner.ShouldReseek(drift, pane.StartedAtUtc is not null, sinceStart);
 
             if (restart)
             {

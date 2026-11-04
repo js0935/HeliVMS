@@ -46,6 +46,28 @@ public sealed class PlaybackSyncTimingTests
     }
 
     [Fact]
+    public void 等待第一張影格期間不比對漂移只有卡住才重開()
+    {
+        // 啟動期間「目前時刻」是刻意超前補償的跳轉位置，與母鐘比一定超出容差；
+        // 照著判定就會每一輪重開 ffmpeg，畫面永遠起不來。
+        Assert.False(PlaybackSyncPlanner.ShouldReseek(driftSeconds: 0.8, waitingForFirstFrame: true, secondsSinceStart: 0.5));
+        // 卡住（超過啟動延遲上限）仍要救：重開一次。
+        Assert.True(PlaybackSyncPlanner.ShouldReseek(
+            driftSeconds: 0.8,
+            waitingForFirstFrame: true,
+            secondsSinceStart: PlaybackSyncPlanner.MaxStartupLatencySeconds + 0.1));
+    }
+
+    [Fact]
+    public void 出畫之後才用容差判定()
+    {
+        Assert.False(PlaybackSyncPlanner.ShouldReseek(0.3, waitingForFirstFrame: false, secondsSinceStart: 10));
+        Assert.True(PlaybackSyncPlanner.ShouldReseek(0.6, waitingForFirstFrame: false, secondsSinceStart: 10));
+        // 正負都是漂移：落後與超前都要拉回。
+        Assert.True(PlaybackSyncPlanner.ShouldReseek(-0.6, waitingForFirstFrame: false, secondsSinceStart: 10));
+    }
+
+    [Fact]
     public void 容差要小到肉眼看得出來但不會不停重開()
     {
         // 10–30fps 下 4–12 張影格；再大就是「各播各的」，再小則解碼啟動抖動會不斷重開 ffmpeg。

@@ -291,8 +291,12 @@ Notes that will save you time:
   （`PlaybackSyncPlanner.DefaultDriftToleranceSeconds` = 0.4 秒，約 10–30fps 下 4–12 張影格，
   再小會因解碼啟動抖動而不停重開 ffmpeg），跳轉位置改用
   `PlaybackSyncPlanner.CompensatedOffset(offset, 該格量到的啟動延遲)`，延遲在**第一張影格到達時**
-  量測並以 `NextLatencyEstimate`（0.5/0.5 移動平均、上限 5 秒）更新。只調容差會讓啟動慢的那格
-  永遠追不上並每輪重開；只補償不縮容差則仍然看得到各播各的。Guarded by `PlaybackSyncTimingTests`,
+  量測並以 `NextLatencyEstimate`（0.5/0.5 移動平均、上限 5 秒）更新。
+  **等待第一張影格期間不得做漂移判定**（`ShouldReseek` 的 `waitingForFirstFrame` 分支）：
+  那時的「目前時刻」就是刻意超前的跳轉位置，與母鐘比一定超出容差，照判會每一輪重開 ffmpeg、
+  畫面永遠起不來；等待期間只處理「卡住」（超過 `MaxStartupLatencySeconds` 才重開一次）。
+  只調容差會讓啟動慢的那格永遠追不上並每輪重開；只補償不縮容差則仍然看得到各播各的。
+  Guarded by `PlaybackSyncTimingTests`,
   `多路同步用共用容差且跳轉補上啟動延遲` and `次畫面以母鐘解算且空隙不硬跳別段`.
 - **"Replay selection" must stop where the selection stops.** Recordings are one file per
   segment, so a selected 10:00–10:30 spans several files. `OnEnded` continues into the next

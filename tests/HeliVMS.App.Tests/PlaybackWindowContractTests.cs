@@ -347,9 +347,10 @@ public sealed class PlaybackWindowContractTests
     {
         var source = SourceContract.Read(Code);
 
-        // 容差只留在排程核心裡；視窗自己寫一個常數就是「同一個決定有兩份」。
+        // 該不該重新對時由排程核心判定（容差＋啟動視窗都在那裡）；視窗自己寫一個常數
+        // 或自己比 Math.Abs 就是「同一個決定有兩份」。
         var sync = SourceContract.BodyOf(source, "SyncPanes");
-        Assert.Contains("PlaybackSyncPlanner.DefaultDriftToleranceSeconds", sync);
+        Assert.Contains("PlaybackSyncPlanner.ShouldReseek(", sync);
         Assert.DoesNotContain("PaneDriftToleranceSec", source);
 
         // 跳轉位置＝要求位置＋該格量到的啟動延遲。

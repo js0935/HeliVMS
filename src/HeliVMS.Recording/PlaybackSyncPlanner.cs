@@ -72,6 +72,34 @@ public static class PlaybackSyncPlanner
     public const double MaxStartupLatencySeconds = 5;
 
     /// <summary>
+    /// 這一格該不該重新對時。
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>等待第一張影格期間不做漂移判定</b>：那段時間的「目前時刻」是跳轉目標本身，而跳轉位置
+    /// 刻意超前補償了啟動延遲（見 <see cref="CompensatedOffset"/>）——拿它與母鐘比會永遠超出容差，
+    /// 於是每一輪都重開 ffmpeg，反而永遠播不起來。等待期間唯一要處理的是「卡住」：
+    /// 超過 <see cref="MaxStartupLatencySeconds"/> 還沒有第一張影格就重開一次。
+    /// </para>
+    /// <para>
+    /// 第一張影格到達之後，母鐘也已經往前走了同樣的啟動時間，於是「畫面上的時刻」與母鐘
+    /// 只差「實際延遲與估計值的差」——那才是該用容差判定的量。
+    /// </para>
+    /// </remarks>
+    /// <param name="driftSeconds">畫面上的時刻與母鐘的差（秒）。</param>
+    /// <param name="waitingForFirstFrame">這一格是否還在等第一張影格。</param>
+    /// <param name="secondsSinceStart">從按下播放起算的秒數。</param>
+    /// <param name="toleranceSeconds">容差（秒）。</param>
+    public static bool ShouldReseek(
+        double driftSeconds,
+        bool waitingForFirstFrame,
+        double secondsSinceStart,
+        double toleranceSeconds = DefaultDriftToleranceSeconds)
+        => waitingForFirstFrame
+            ? secondsSinceStart > MaxStartupLatencySeconds
+            : Math.Abs(driftSeconds) > toleranceSeconds;
+
+    /// <summary>
     /// 區段結束時刻。與時間軸色塊、事件比對、跳轉共用 <see cref="PlaybackSegmentTiming.EndOf"/>
     /// 的唯一一份換算：<see cref="SegmentRecord.EndUtc"/> 為 null（錄影中或舊資料）時以段長推算，
     /// 段長也沒有時以 10 秒估算。
