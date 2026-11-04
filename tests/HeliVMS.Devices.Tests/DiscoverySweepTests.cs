@@ -154,25 +154,39 @@ public class DiscoverySweepTests
     public async Task 取消會讓掃描停止()
     {
         using var cts = new CancellationTokenSource();
-        var probed = 0;
+        var started = 0;
+        var completed = 0;
+        var firstProbeStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () =>
-            await DiscoverySweep.RunAsync(
-                [.. Enumerable.Range(1, 200).Select(i => $"10.0.0.{i}")],
-                async (_, token) =>
+        var sweep = DiscoverySweep.RunAsync(
+            [.. Enumerable.Range(1, 200).Select(i => $"10.0.0.{i}")],
+            async (_, token) =>
+            {
+                if (Interlocked.Increment(ref started) == 1)
                 {
-                    if (Interlocked.Increment(ref probed) >= 5)
-                    {
-                        await cts.CancelAsync();
-                    }
+                    firstProbeStarted.TrySetResult();
+                }
 
-                    await Task.Delay(5, token);
-                    return null;
-                },
-                concurrency: 2,
-                cancellationToken: cts.Token));
+                // 探測本身掛到取消為止：沒有取消就不會結束，所以「掃描結束」只可能來自取消。
+                await Task.Delay(Timeout.InfiniteTimeSpan, token);
+                Interlocked.Increment(ref completed);
+                return null;
+            },
+            concurrency: 2,
+            cancellationToken: cts.Token);
 
-        Assert.True(probed < 200, $"取消後不該繼續掃完，實際探測 {probed} 個");
+        await firstProbeStarted.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        await cts.CancelAsync();
+
+        // 沒停止就是逾時（TimeoutException），不會讓測試永遠掛著。
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            async () => await sweep.WaitAsync(TimeSpan.FromSeconds(10)));
+
+        // 判準用「完成」而不是「開始」：取消之後仍可能有探測進來就立刻拋（SemaphoreSlim 快路徑），
+        // 那些沒有做任何事。真正該保證的是「取消後不再有人做完一輪探測」——這裡的探測在取消前
+        // 永遠不會自己完成，所以任何一個「完成」都代表取消訊號被吞掉了。
+        Assert.True(completed == 0, $"取消後不該再有探測完成，實際完成 {completed} 個（開始 {started} 個）");
+        Assert.True(started < 200, $"取消後不該繼續掃完，實際開始 {started} 個");
     }
 
     [Fact]

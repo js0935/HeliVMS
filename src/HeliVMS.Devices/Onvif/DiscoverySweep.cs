@@ -64,6 +64,11 @@ public static class DiscoverySweep
                     await gate.WaitAsync(cancellationToken).ConfigureAwait(false);
                     try
                     {
+                        // SemaphoreSlim.WaitAsync 有空位時走同步快路徑，可能先拿到空位才輪到檢查權杖；
+                        // 取消之後仍會有一連串「進得來、立刻拋」的探測。多這一行，取消就是不再開始
+                        // 新的探測——掃描一次 200 個位址時，這一連串白工也是幾百個排程與例外。
+                        cancellationToken.ThrowIfCancellationRequested();
+
                         DiscoveredDevice? device = null;
                         try
                         {
