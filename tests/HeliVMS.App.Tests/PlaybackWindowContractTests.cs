@@ -410,6 +410,32 @@ public sealed class PlaybackWindowContractTests
         Assert.Contains("FindNextSegment(", segment);
     }
 
+    /// <summary>控制列必須分兩列：單列在窄螢幕上會把右端（先是狀態、再是同步鈕）默默裁掉。</summary>
+    /// <remarks>
+    /// 底部控制列是橫向 StackPanel，塞不下時最後幾個元素會被視窗邊緣切掉且沒有任何提示
+    /// （與 AGENTS 記錄的「比視窗高的設定頁只是看不到、點不到」同一類）。操作員的畫面寬 1128，
+    /// 扣掉側欄後只剩約 860，運輸＋步進＋狀態一定放不下。
+    /// </remarks>
+    [Fact]
+    public void 控制列分兩列避免窄螢幕裁掉按鈕與狀態()
+    {
+        var xaml = SourceContract.Read("src/HeliVMS.App/PlaybackWindow.xaml");
+
+        Assert.Contains("x:Name=\"PlaybackControlsRow\"", xaml);
+        Assert.Contains("x:Name=\"PlaybackStepRow\"", xaml);
+
+        var second = xaml.IndexOf("x:Name=\"PlaybackStepRow\"", StringComparison.Ordinal);
+        Assert.True(second > 0);
+
+        // 運輸控制留在第一列；步進鈕與狀態列在第二列（狀態被裁掉時操作員看不到任何訊息）。
+        var first = xaml[..second];
+        Assert.Contains("x:Name=\"PlayPauseButton\"", first);
+        Assert.Contains("x:Name=\"SpeedCombo\"", first);
+        Assert.Contains("x:Name=\"PrevSegmentButton\"", xaml[second..]);
+        Assert.Contains("x:Name=\"SyncNowButton\"", xaml[second..]);
+        Assert.Contains("x:Name=\"StatusText\"", xaml[second..]);
+    }
+
     /// <summary>循環要回到「這次播放的起點」，而且不得與自動續播搶順序。</summary>
     /// <remarks>
     /// 勾了循環還往下一段走＝永遠看不到第二輪；順序顛倒（自動續播在前）正是那個症狀。
