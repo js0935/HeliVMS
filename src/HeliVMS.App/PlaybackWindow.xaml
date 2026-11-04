@@ -316,6 +316,9 @@
                         <ComboBoxItem Content="8×"/>
                         <ComboBoxItem Content="16×"/>
                     </ComboBox>
+                    <Button x:Name="JumpToNowButton" Content="" Click="OnJumpToNowClicked" ToolTip=""
+                            Width="72" Padding="0,6" Margin="12,0,0,0" IsEnabled="False"
+                            Foreground="White" Background="#1F3A5F" BorderThickness="0" AutomationProperties.AutomationId="PlaybackJumpToNowButton"/>
                     <TextBlock x:Name="TimeText" Foreground="White" FontSize="12"
                                VerticalAlignment="Center" Margin="16,0,0,0" Text="--:--:--"
                                AutomationProperties.AutomationId="PlaybackTime"/>
@@ -342,6 +345,12 @@
                     <Button x:Name="NextSegmentButton" Content="" Click="OnNextSegmentClicked" ToolTip=""
                             Width="42" Padding="0,6" Margin="4,0,0,0" IsEnabled="False"
                             Foreground="White" Background="#1F3A5F" BorderThickness="0" AutomationProperties.AutomationId="PlaybackNextSegmentButton"/>
+                    <Button x:Name="PrevEventButton" Content="" Click="OnPrevEventClicked" ToolTip=""
+                            Width="52" Padding="0,6" Margin="14,0,0,0" IsEnabled="False"
+                            Foreground="White" Background="#1F3A5F" BorderThickness="0" AutomationProperties.AutomationId="PlaybackPrevEventButton"/>
+                    <Button x:Name="NextEventButton" Content="" Click="OnNextEventClicked" ToolTip=""
+                            Width="52" Padding="0,6" Margin="4,0,0,0" IsEnabled="False"
+                            Foreground="White" Background="#1F3A5F" BorderThickness="0" AutomationProperties.AutomationId="PlaybackNextEventButton"/>
                     <CheckBox x:Name="LoopCheck" Content="" Foreground="{StaticResource Brand.TextDim}"
                               AutomationProperties.AutomationId="PlaybackLoopCheck" ToolTip=""
                               IsChecked="False" VerticalAlignment="Center" Margin="14,0,0,0"

@@ -334,10 +334,27 @@ public partial class PlaybackWindow : Window
 
     private const string LoopSettingKey = "playback.loop";
 
+    /// <summary>上次檢視的頻道：操作員通常固定回看同一台，開窗直接落在它上面。</summary>
+    private const string ChannelSettingKey = "playback.channel_id";
+
+    /// <summary>上次檢視的頻道 Id（讀不到或不合法時 null）。</summary>
+    private long? _rememberedChannelId;
+
     /// <summary>還原上次的回放偏好（壞值／越界一律退回預設，見 <see cref="PlaybackPreferenceValues"/>）。</summary>
     private void RestorePlaybackPreferences()
     {
         var settings = new SettingsRepository(_store);
+
+        // 上次的頻道：壞值（頻道被刪）不該讓回放視窗開不起來，退回清單第一台。
+        var storedChannel = settings.Get(ChannelSettingKey);
+        _rememberedChannelId = long.TryParse(
+            storedChannel,
+            System.Globalization.NumberStyles.Integer,
+            System.Globalization.CultureInfo.InvariantCulture,
+            out var channelId) && channelId > 0
+                ? channelId
+                : null;
+
         SpeedCombo.SelectedIndex = PlaybackPreferenceValues.Index(
             settings.Get(SpeedSettingKey), SpeedCombo.Items.Count, fallback: 1);
         SplitCombo.SelectedIndex = PlaybackPreferenceValues.Index(
@@ -357,6 +374,11 @@ public partial class PlaybackWindow : Window
             settings.Set(SplitSettingKey, SplitCombo.SelectedIndex.ToString(System.Globalization.CultureInfo.InvariantCulture));
             settings.Set(AutoAdvanceSettingKey, AutoAdvanceCheck.IsChecked == true ? "1" : "0");
             settings.Set(LoopSettingKey, LoopCheck.IsChecked == true ? "1" : "0");
+            if (ChannelCombo.SelectedItem is ChannelInfo selected)
+            {
+                settings.Set(ChannelSettingKey, selected.Id.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                _rememberedChannelId = selected.Id;
+            }
         }
         catch (Exception)
         {
@@ -423,6 +445,12 @@ public partial class PlaybackWindow : Window
         NextSegmentButton.ToolTip = Localizer.T("Playback.NextSegmentTip");
         LoopCheck.Content = Localizer.T("Playback.Loop");
         LoopCheck.ToolTip = Localizer.T("Playback.LoopTip");
+        PrevEventButton.Content = Localizer.T("Playback.PrevEvent");
+        PrevEventButton.ToolTip = Localizer.T("Playback.PrevEventTip");
+        NextEventButton.Content = Localizer.T("Playback.NextEvent");
+        NextEventButton.ToolTip = Localizer.T("Playback.NextEventTip");
+        JumpToNowButton.Content = Localizer.T("Playback.Now");
+        JumpToNowButton.ToolTip = Localizer.T("Playback.NowTip");
         SyncNowButton.Content = Localizer.T("Playback.SyncNow");
         SyncNowButton.ToolTip = Localizer.T("Playback.SyncNowTip");
         RedactionOverlayCheck.Content = Localizer.T("Playback.ShowRedaction");
@@ -447,6 +475,12 @@ public partial class PlaybackWindow : Window
         if (_focusChannelId is { } focus && channels.FirstOrDefault(c => c.Id == focus) is { } match)
         {
             ChannelCombo.SelectedItem = match;
+        }
+        else if (_rememberedChannelId is { } remembered
+            && channels.FirstOrDefault(c => c.Id == remembered) is { } rememberedMatch)
+        {
+            // 開窗時「指定頻道」優先（現場從即時畫面帶過來），其次才是上次檢視的那一台。
+            ChannelCombo.SelectedItem = rememberedMatch;
         }
         else
         {
@@ -722,6 +756,8 @@ public partial class PlaybackWindow : Window
             return;
         }
 
+        // 操作員自己換台就把這一台記下來（下次開窗直接落在它上面）。
+        SavePlaybackPreferences();
         await ReloadForPlaybackAsync();
     }
 
@@ -1588,6 +1624,17 @@ public partial class PlaybackWindow : Window
                 StepSegment(+1);
                 break;
 
+            // N／P＝下一個／上一個事件（現場一段一段跳事件，不必滑鼠去點清單）。
+            case Key.N when !ctrl && !shift:
+                e.Handled = true;
+                StepEvent(+1);
+                break;
+
+            case Key.P when !ctrl && !shift:
+                e.Handled = true;
+                StepEvent(-1);
+                break;
+
             // Home／End＝當天第一段／最後一段。
             case Key.Home when !ctrl:
                 e.Handled = true;
@@ -1866,6 +1913,80 @@ public partial class PlaybackWindow : Window
         }
 
         PlayFrom(target, 0);
+    }
+
+    /// <summary>
+    /// 跳到下一個／上一個事件（N／P 與兩顆按鈕）：只移動事件清單的選取，
+    /// 由 <see cref="OnEventSelected"/> 走既有的事件落點規則——不在這裡另寫一份跳轉。
+    /// </summary>
+    /// <param name="direction">+1＝下一個、-1＝上一個。</param>
+    private void StepEvent(int direction)
+    {
+        if (_events.Count == 0)
+        {
+            StatusText.Text = Localizer.T("Playback.NoEvents");
+            return;
+        }
+
+        var index = EventList.SelectedIndex;
+        var target = PlaybackEventNavigation.NextIndex(index, _events.Count, direction);
+        if (target == index)
+        {
+            StatusText.Text = Localizer.T("Playback.NoMoreEvents");
+            return;
+        }
+
+        EventList.SelectedIndex = target;
+        EventList.ScrollIntoView(EventList.SelectedItem);
+    }
+
+    private void OnPrevEventClicked(object sender, RoutedEventArgs e) => StepEvent(-1);
+
+    private void OnNextEventClicked(object sender, RoutedEventArgs e) => StepEvent(+1);
+
+    /// <summary>
+    /// 回到今天目前時刻：跳到今天並播到「現在」所在的那一段。
+    /// </summary>
+    /// <remarks>
+    /// 現場問「看到一半想回到最新畫面」：原本得自己按 End、再滑到最右邊、再看是哪一段。
+    /// 落點仍走全應用程式唯一一份規則（<see cref="PlaybackSeekPlanner.ResolveAt"/>）；
+    /// 「現在」正好落在空檔（例如這一台是事件錄影、當下沒有事件）就照實說沒有錄影。
+    /// </remarks>
+    private async void OnJumpToNowClicked(object sender, RoutedEventArgs e)
+    {
+        var now = DateTime.Now;
+        _suppressSelectionReload = true;
+        try
+        {
+            DatePick.SelectedDate = now.Date;
+        }
+        finally
+        {
+            _suppressSelectionReload = false;
+        }
+
+        if (!await ReloadForPlaybackAsync())
+        {
+            return;
+        }
+
+        var landing = HeliVMS.Shared.PlaybackSeekPlanner.ResolveAt(
+            _bandSegments.Select(b => b.Segment),
+            now.ToUniversalTime());
+        if (landing is not { } hit)
+        {
+            StatusText.Text = Localizer.T("Playback.NoRecordingHere");
+            return;
+        }
+
+        var band = _bandSegments.FirstOrDefault(b => ReferenceEquals(b.Segment, hit.Segment));
+        if (band is not null)
+        {
+            SelectSegment(band);
+        }
+
+        PlayFrom(hit.Segment, hit.OffsetSeconds);
+        StatusText.Text = Localizer.T("Playback.JumpedToNow");
     }
 
     /// <summary>
@@ -3539,6 +3660,10 @@ public partial class PlaybackWindow : Window
         PrevFrameButton.IsEnabled = enabled;
         NextFrameButton.IsEnabled = enabled;
         NextSegmentButton.IsEnabled = enabled;
+        // 事件跳轉要有事件才有意義；「回到現在」只要有頻道就能去（今天還沒錄也該說得出來）。
+        PrevEventButton.IsEnabled = enabled && _events.Count > 0;
+        NextEventButton.IsEnabled = enabled && _events.Count > 0;
+        JumpToNowButton.IsEnabled = enabled;
     }
 
     /// <summary>

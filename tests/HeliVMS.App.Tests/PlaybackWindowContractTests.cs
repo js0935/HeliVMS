@@ -489,6 +489,74 @@ public sealed class PlaybackWindowContractTests
         Assert.Contains("OnPlaybackPreferenceToggled", xaml);
     }
 
+    /// <summary>事件跳轉（N／P 與按鈕）與「回到現在」都要能從畫面與鍵盤操作。</summary>
+    /// <remarks>
+    /// 現場是一段一段跳事件（事件清單要滑鼠去點），而「看到一半想回到最新畫面」原本得自己按
+    /// End、再滑到最右邊、再看是哪一段。兩者都只移動既有清單的選取／共用落點規則，
+    /// 不在這裡另寫第二份跳轉邏輯。
+    /// </remarks>
+    [Fact]
+    public void 事件跳轉與回到現在都有按鈕與快捷鍵()
+    {
+        var xaml = SourceContract.Read("src/HeliVMS.App/PlaybackWindow.xaml");
+        var source = SourceContract.Read(Code);
+
+        foreach (var (name, handler) in new[]
+                 {
+                     ("PrevEventButton", "OnPrevEventClicked"),
+                     ("NextEventButton", "OnNextEventClicked"),
+                     ("JumpToNowButton", "OnJumpToNowClicked"),
+                 })
+        {
+            Assert.Contains($"x:Name=\"{name}\"", xaml);
+            Assert.Contains($"Click=\"{handler}\"", xaml);
+        }
+
+        var keys = SourceContract.BodyOf(source, "OnPreviewKeyDown");
+        Assert.Contains("StepEvent(+1)", keys);
+        Assert.Contains("StepEvent(-1)", keys);
+        Assert.Contains("Key.N", keys);
+        Assert.Contains("Key.P", keys);
+
+        // 事件跳轉只移動清單選取（由 OnEventSelected 走既有落點規則），不自己算時刻。
+        var step = SourceContract.BodyOf(source, "StepEvent");
+        Assert.Contains("PlaybackEventNavigation.NextIndex(", step);
+        Assert.Contains("EventList.SelectedIndex = target;", step);
+        Assert.DoesNotContain("PlayFrom(", step);
+
+        // 「回到現在」用唯一一份落點規則，且跳今天要抑制事件避免多排一次載入。
+        var now = SourceContract.BodyOf(source, "OnJumpToNowClicked");
+        Assert.Contains("PlaybackSeekPlanner.ResolveAt(", now);
+        Assert.Contains("_suppressSelectionReload = true;", now);
+        Assert.Contains("DatePick.SelectedDate = now.Date;", now);
+    }
+
+    /// <summary>上次檢視的頻道要記得；開窗時「指定頻道」優先，其次才是記憶。</summary>
+    [Fact]
+    public void 上次檢視的頻道會被記住但指定頻道優先()
+    {
+        var source = SourceContract.Read(Code);
+
+        Assert.Contains("\"playback.channel_id\"", source);
+
+        var restore = SourceContract.BodyOf(source, "RestorePlaybackPreferences");
+        Assert.Contains("_rememberedChannelId", restore);
+        // 壞值（頻道被刪）必須退回 null，而不是塞一個不存在的 Id 讓開窗失敗。
+        Assert.Contains("channelId > 0", restore);
+
+        var load = SourceContract.BodyOf(source, "LoadChannels");
+        // 整句比對條件式：只比對欄位名時，把指定頻道那個分支寫成永遠不成立也照樣通過。
+        Assert.Contains(
+            "if (_focusChannelId is { } focus && channels.FirstOrDefault(c => c.Id == focus) is { } match)",
+            load);
+        var rememberedAt = load.IndexOf("_rememberedChannelId", StringComparison.Ordinal);
+        var focusAt = load.IndexOf("_focusChannelId", StringComparison.Ordinal);
+        Assert.True(focusAt >= 0 && rememberedAt > focusAt, "指定頻道必須排在記憶的頻道之前");
+
+        // 換台就寫回。
+        Assert.Contains("SavePlaybackPreferences();", SourceContract.BodyOf(source, "OnChannelSelectionChanged"));
+    }
+
     /// <summary>控制列必須分兩列：單列在窄螢幕上會把右端（先是狀態、再是同步鈕）默默裁掉。</summary>
     /// <remarks>
     /// 底部控制列是橫向 StackPanel，塞不下時最後幾個元素會被視窗邊緣切掉且沒有任何提示

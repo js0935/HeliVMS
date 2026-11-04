@@ -1157,6 +1157,7 @@ L2 比對（人臉/車牌）置「進階·需權限」區，預設關閉（§5.1
 | 回放讀數到毫秒＋多路同步 | — | **已做（M328）**。讀數與 OSD 改為 `18:25:32:015`（最後一欄是那一張影格的毫秒，來自影格 PTS；共用 `HeliVMS.Shared.PlaybackClock`）；多路同步容差 1.5→0.4 秒（`DefaultDriftToleranceSeconds`）並補償每格自己的啟動延遲（`CompensatedOffset`；首張影格到達時以 `NextLatencyEstimate` 更新），等待首張期間不做漂移判定（`ShouldReseek`，否則會每 150ms 重開 ffmpeg）。|
 | 回放控制列 | — | **已擴充（M329）**。上一段／上一張／下一張／下一段四顆按鈕（PageUp／PageDown、Shift+F／F）、循環勾選（播完回到本次播放的起點；有選取區間就循環該區間）與「立即同步」按鈕；逐帧與跳段共用`PlaybackSeekPlanner`、`DaySegments` 單一一份查詢。|
 | 回放：跨日續播、偏好記憶、方向鍵 | — | **已做（M330）**。自動接續開啟時，當天播完會接著播隔天的第一段（`ContinueToNextDayAsync`，最多往後找 7 天），換日走非同步漏斗 `ReloadForPlaybackAsync` 並抑制 SelectedDate 事件；回放偏好（`playback.speed`／`playback.split`／`playback.auto_advance`／`playback.loop`）改動當下寫回、還原經 `PlaybackPreferenceValues`（壞值退回預設）；鍵盤補齊 Home／End（當天首尾段）與 ↑／↓（上下一段）。|
+| 回放：事件跳轉、回到現在、記憶頻道 | — | **已做（M331）**。下一個／上一個事件（`N`／`P` 與兩顆按鈕，`PlaybackEventNavigation.NextIndex`）只移動事件清單選取，由 `OnEventSelected` 走既有的 `PlaybackSeekPlanner.ResolveAt` 落點規則；「回到現在」跳到今天目前時刻所在的段（同一份落點規則，並抑制 SelectedDate 事件）；上次檢視的頻道存 `playback.channel_id`（開窗時「指定頻道」優先）。|
 | 匯出時刻與範圍裁切 | — | **已修正（M327）**。現場回報：設 11:04:07.25～11:04:07.30（5 秒）卻得到 50 分鐘的檔案。原因二重：①`TimeSpan.TryParse` 讀不懂 `11040725`，舊版靜默退回 00:00–23:59:59（整天錄影都被並進成品）；②匯出從不裁切，整段整段地 concat。修正：`HeliVMS.Shared.ClockTime` 讀得懂 `HH:mm`／`HH:mm:ss`／`HH:mm:ss.fff` 與緊湊寫法 `HHmm`／`HHmmss`／`HHmmssff`／`HHmmssfff`（與分段檔名同一種），讀不懂就擋下並說出哪個字串；`ExportService` 以輸入端 `-ss`（`TrimStartSeconds`）＋ `-t`（`TrimmedDurationSeconds`）裁切（`-ss` 在 `-i` 之前）；concat 的 `inpoint` 實測在這個 ffmpeg 版本不生效，不得改用；回放帶入的區間也改寫到秒。|
 
 ### 11.2 性能與容量規劃（先算再寫，落地依據）

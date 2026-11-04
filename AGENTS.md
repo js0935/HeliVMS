@@ -308,7 +308,14 @@ Notes that will save you time:
   `AutoAdvanceCheck` 之前（順序顛倒＝勾了循環還是往下一段走，永遠看不到第二輪），
   「上一段」在段中按下要先回本段開頭（與一般播放器一致；否則只想重看本段會被一路帶到前一段）。
   跨段與循環都走 `DaySegments`（同一次對帳、同一份排序），不要各自再查一次——兩份查詢遲早漂移。
-  Guarded by `逐幀跳段循環與立即同步都有按鈕與快捷鍵` and `循環回到本次播放起點且排在自動續播之前`.
+  事件跳轉（`N`／`P` 與兩顆按鈕）**只移動 `EventList` 的選取**，由 `OnEventSelected` 走既有的
+  `PlaybackSeekPlanner.ResolveAt` 落點規則；不要在 `StepEvent` 裡自己算時刻或直接 `PlayFrom`
+  （那就成了第二份跳轉規則，事件剛好落在段尾或接縫時會停在「前一段的第 60 秒」）。
+  「回到現在」同樣走 `ResolveAt`，而且跳今天時要設 `_suppressSelectionReload`，否則事件會再排一次
+  載入、舊的那次會回來搶著開播。上次檢視的頻道存 `playback.channel_id`：開窗時「指定頻道」優先、
+  其次才是記憶，而且記憶值必須檢查 `> 0`——頻道被刪之後字串還在，塞進清單會讓開窗失敗。
+  Guarded by `逐幀跳段循環與立即同步都有按鈕與快捷鍵`, `循環回到本次播放起點且排在自動續播之前`,
+  `事件跳轉與回到現在都有按鈕與快捷鍵` and `上次檢視的頻道會被記住但指定頻道優先`.
 - **Day boundaries: auto-advance must cross into the next day, and playback preferences must survive
   the window.** 現場回看跨夜事故（23:40→00:20）時，當天播完就停住，操作員得自己記住看到哪裡、
   手動把日期往後一天、再找第一段。現在 `AutoAdvanceCheck` 開啟時會走 `ContinueToNextDayAsync`
