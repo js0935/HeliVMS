@@ -4,6 +4,7 @@ using System.IO;
 using System.Windows;
 using System.Windows.Input;
 using HeliVMS.Recording;
+using HeliVMS.Shared;
 using HeliVMS.Shared.Models;
 using HeliVMS.Storage;
 
@@ -41,9 +42,11 @@ public partial class ExportWindow : Window
             var fromLocal = TimeZoneInfo.ConvertTimeFromUtc(from, TimeZoneInfo.Local);
             var toLocal = TimeZoneInfo.ConvertTimeFromUtc(to, TimeZoneInfo.Local);
             StartDate.SelectedDate = fromLocal.Date;
-            StartTime.Text = fromLocal.ToString("HH:mm", CultureInfo.InvariantCulture);
+            // 到秒：分段檔名有毫秒，而回放游標停在秒上；只寫 HH:mm 會讓「我要這一段」
+            // 的區間兩端各伸縮最多 59 秒（差一個分鐘的畫面往往就是關鍵那幾秒）。
+            StartTime.Text = fromLocal.ToString("HH:mm:ss", CultureInfo.InvariantCulture);
             EndDate.SelectedDate = toLocal.Date;
-            EndTime.Text = toLocal.ToString("HH:mm", CultureInfo.InvariantCulture);
+            EndTime.Text = toLocal.ToString("HH:mm:ss", CultureInfo.InvariantCulture);
         }
 
         OutputFolderBox.Text = Path.Combine(_dataRoot, "exports");
@@ -60,6 +63,9 @@ public partial class ExportWindow : Window
         ExportRangeLabel.Text = Localizer.T("Export.Range");
         ExportStartLabel.Text = Localizer.T("Export.StartLabel");
         ExportEndLabel.Text = Localizer.T("Export.EndLabel");
+        // 時刻欄位的可接受寫法寫進工具提示（標籤本身只有「起」「迄」，沒有空間寫格式）。
+        StartTime.ToolTip = Localizer.T("Export.TimeTip");
+        EndTime.ToolTip = Localizer.T("Export.TimeTip");
         ExportOutputFolderLabel.Text = Localizer.T("Export.OutputFolder");
         BrowseButton.Content = Localizer.T("Export.Browse");
         BrowseButton.ToolTip = Localizer.T("Export.BrowseTip");
@@ -123,14 +129,19 @@ public partial class ExportWindow : Window
             return;
         }
 
-        if (!TimeSpan.TryParse(StartTime.Text, CultureInfo.InvariantCulture, out var startTime))
+        // 讀不懂就擋下來。舊版在這裡默默退回「00:00–23:59:59」，於是操作員把 11:04:07.25
+        // 打成 11040725 時，要的是 5 秒卻拿到一整天的錄影（現場回報：匯出檔有 50 分鐘）。
+        // 猜一個範圍比拒絕更危險：成品是有紀錄價值的檔案，而操作員不會知道內容不是他要的。
+        if (!ClockTime.TryParse(StartTime.Text, out var startTime))
         {
-            startTime = TimeSpan.Zero;
+            StatusText.Text = string.Format(Localizer.T("Export.TimeInvalid"), StartTime.Text.Trim());
+            return;
         }
 
-        if (!TimeSpan.TryParse(EndTime.Text, CultureInfo.InvariantCulture, out var endTime))
+        if (!ClockTime.TryParse(EndTime.Text, out var endTime))
         {
-            endTime = new TimeSpan(23, 59, 59);
+            StatusText.Text = string.Format(Localizer.T("Export.TimeInvalid"), EndTime.Text.Trim());
+            return;
         }
 
         var startUtc = StartDate.SelectedDate.Value.Add(startTime).ToUniversalTime();

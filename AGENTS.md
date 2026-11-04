@@ -394,6 +394,19 @@ Notes that will save you time:
   the top-right corner it would cover the dot of exactly the pane underneath it. Guarded by
   `WallModeDotPaletteTests`, `WallBadgeTextPlannerTests` and
   `MonitorWallRecordingModeContractTests`.
+- **An unreadable export time must be refused, never silently widened to a whole day — and the export
+  must be trimmed to the requested range.** 現場回報：匯出精靈設 11:04:07.25～11:04:07.30（5 秒），
+  匯出的檔案卻有 50 分鐘。兩件事疊在一起：(1) `ExportWindow` 用 `TimeSpan.TryParse` 讀時刻，
+  讀不懂時**默默**把起訖當成 00:00–23:59:59，所以操作員打成 `11040725`（＝11:04:07.25，與分段檔名
+  `seg-HHmmssfff.mp4` 同一種寫法）時，整天錄影都被併進成品；(2) `ExportService` 從不裁切，
+  整段整段地 concat，就算時刻讀對了，「匯出 5 秒」也會拿到整段 60 秒（前面多 7 秒、後面多 48 秒）。
+  修正：`HeliVMS.Shared.ClockTime` 讀得懂 `HH:mm`／`HH:mm:ss`／`HH:mm:ss.fff` 與緊湊寫法
+  `HHmm`／`HHmmss`／`HHmmssff`／`HHmmssfff`（讀不懂就擋下來並說出哪個字串讀不懂）；
+  `ExportService.BuildConcatContent` 用 **每段各自的 `inpoint`／`outpoint`** 裁到與要求範圍的交集
+  （不是整體 `-ss/-t`：段落之間可能有缺口，concat 後的時間軸已經不是牆鐘時間），
+  `TrimmedDurationSeconds` 才是回報與收據用的長度。回放帶入的區間也改寫到秒（`HH:mm` 會讓兩端
+  各伸縮最多 59 秒）。Guarded by `ClockTimeTests`, `ExportTrimTests` and
+  `時刻讀不懂會擋下來而不是默默匯出一整天`.
 - **Adding cameras must not require typing one IP at a time.** The ONVIF wizard's address box is a
   *search expression*: a single IP/host, a CIDR (`192.168.1.0/24`), a last-octet range
   (`192.168.1.1-50`), a full range, or a comma/space separated mix

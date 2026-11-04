@@ -112,7 +112,10 @@ public sealed class ExportService
         try
         {
             var concatFile = Path.Combine(tmpDir, "concat.txt");
-            WriteConcatFile(concatFile, segments);
+            File.WriteAllText(concatFile, BuildConcatContent(segments, request.StartUtc, request.EndUtc));
+
+            // 回報與收據用「交集長度」而不是整段長度：不裁切時兩者相同，裁切時只有前者是真的。
+            var outputSeconds = TrimmedDurationSeconds(segments, request.StartUtc, request.EndUtc);
 
             progress?.Report(new ExportProgress(10, $"正在匯出 {segments.Count} 段錄影…"));
 
@@ -217,7 +220,7 @@ public sealed class ExportService
                     request.OutputPath,
                     sha256,
                     new FileInfo(request.OutputPath).Length,
-                    segments.Sum(s => s.DurationSec ?? 0),
+                    outputSeconds,
                     request.ChannelId,
                     "main",
                     request.StartUtc,
@@ -227,11 +230,10 @@ public sealed class ExportService
             }
 
             var fi = new FileInfo(request.OutputPath);
-            var duration = segments.Sum(s => s.DurationSec ?? 0);
 
             progress?.Report(new ExportProgress(100, "匯出完成。"));
 
-            return new ExportResult(request.OutputPath, sha256, fi.Length, duration);
+            return new ExportResult(request.OutputPath, sha256, fi.Length, outputSeconds);
         }
         finally
         {
@@ -255,8 +257,36 @@ public sealed class ExportService
         return $"drawtext=text='{escapedText}'{fontPart}:fontsize=20:fontcolor=white:x=10:y=10:box=1:boxcolor=black@0.5";
     }
 
-    private static void WriteConcatFile(string path, IReadOnlyList<SegmentRecord> segments)
+    /// <summary>裁切門檻：小於一個畫格的差距不值得叫 ffmpeg 精準 seek（20fps 一畫格 = 50ms）。</summary>
+    internal const double TrimEpsilonSeconds = 0.05;
+
+    /// <summary>
+    /// 組出 concat 清單：**每段各自裁到與要求範圍的交集**（<c>inpoint</c>／<c>outpoint</c>）。
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// 為什麼一定要裁：匯出範圍幾乎不會剛好對齊分段邊界。不裁的話，「匯出 11:04:07–11:04:12」
+    /// 會拿到整段 11:04:00–11:05:00（前面多 7 秒、後面多 48 秒），而操作員要的那 5 秒淹在裡面
+    /// ——現場回報就是「設定 5 秒卻匯出 50 分鐘」。
+    /// </para>
+    /// <para>
+    /// 為什麼是「每段各自裁」而不是整體 <c>-ss/-t</c>：段落之間可能有缺口（那段時間根本沒錄到），
+    /// concat 之後的時間軸已經不是牆鐘時間，用整體偏移量裁會多收或漏收。逐段的 inpoint／outpoint
+    /// 以各檔自己的時間軸為準（錄影時帶 <c>reset_timestamps 1</c>，每段都從 0 開始），
+    /// 有缺口也照樣精準。裁切量小於一個畫格時不寫，保持「整段」的快速路徑。
+    /// </para>
+    /// <para>
+    /// 末段沒有結束時間（還在錄）時只裁開頭、尾端交給 ffmpeg 讀到檔案結束為止；要求範圍若比
+    /// 檔案短，<c>outpoint</c> 仍然精準，比檔案長則自然停在 EOF，兩種情況都不會多收別段的畫面。
+    /// </para>
+    /// </remarks>
+    public static string BuildConcatContent(
+        IReadOnlyList<SegmentRecord> segments,
+        DateTime startUtc,
+        DateTime endUtc)
     {
+        ArgumentNullException.ThrowIfNull(segments);
+
         var sb = new StringBuilder();
         foreach (var seg in segments)
         {
@@ -264,9 +294,61 @@ public sealed class ExportService
             sb.Append(seg.FilePath.Replace("'", "'\\''"));
             sb.Append('\'');
             sb.AppendLine();
+
+            var from = seg.StartUtc > startUtc ? seg.StartUtc : startUtc;
+            var inpoint = (from - seg.StartUtc).TotalSeconds;
+            if (inpoint > TrimEpsilonSeconds)
+            {
+                sb.Append("inpoint ");
+                sb.Append(inpoint.ToString("0.###", CultureInfo.InvariantCulture));
+                sb.AppendLine();
+            }
+
+            var segEnd = seg.EndUtc ?? (seg.DurationSec is > 0 ? seg.StartUtc.AddSeconds(seg.DurationSec.Value) : (DateTime?)null);
+            var to = segEnd is { } end && end < endUtc ? end : endUtc;
+            if (segEnd is null || to < segEnd)
+            {
+                var outpoint = (to - seg.StartUtc).TotalSeconds;
+                var knownLength = (segEnd - seg.StartUtc)?.TotalSeconds;
+                if (outpoint > TrimEpsilonSeconds && (knownLength is null || knownLength - outpoint > TrimEpsilonSeconds))
+                {
+                    sb.Append("outpoint ");
+                    sb.Append(outpoint.ToString("0.###", CultureInfo.InvariantCulture));
+                    sb.AppendLine();
+                }
+            }
         }
 
-        File.WriteAllText(path, sb.ToString());
+        return sb.ToString();
+    }
+
+    /// <summary>
+    /// 實際會匯出的秒數＝每段與要求範圍的交集總和（不是整段長度總和）。
+    /// </summary>
+    /// <remarks>
+    /// 收據與畫面回報的長度必須是這個數字：拿整段長度去寫收據，等於把一份 5 秒的證據
+    /// 標成 60 秒，日後比對時間軸時會對不起來。
+    /// </remarks>
+    public static double TrimmedDurationSeconds(
+        IReadOnlyList<SegmentRecord> segments,
+        DateTime startUtc,
+        DateTime endUtc)
+    {
+        ArgumentNullException.ThrowIfNull(segments);
+
+        var total = 0d;
+        foreach (var seg in segments)
+        {
+            var from = seg.StartUtc > startUtc ? seg.StartUtc : startUtc;
+            var segEnd = seg.EndUtc ?? (seg.DurationSec is > 0 ? seg.StartUtc.AddSeconds(seg.DurationSec.Value) : (DateTime?)null);
+            var to = segEnd is { } end && end < endUtc ? end : endUtc;
+            if (to > from)
+            {
+                total += (to - from).TotalSeconds;
+            }
+        }
+
+        return total;
     }
 
     private static string ComputeSha256(string path)

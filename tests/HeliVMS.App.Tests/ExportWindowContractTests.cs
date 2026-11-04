@@ -90,4 +90,62 @@ public sealed class ExportWindowContractTests
         Assert.DoesNotMatch(@"x:Name=""StartTime""[^>]*Width=""72""", xaml);
         Assert.DoesNotMatch(@"x:Name=""StartTime""[^>]*Width=""92""", xaml);
     }
+
+    /// <summary>
+    /// 時刻讀不懂就擋下來，**不得**默默退回一整天。
+    /// </summary>
+    /// <remarks>
+    /// 現場回報：設定 11040725～11040730（要 5 秒）卻匯出 50 分鐘的檔案。原因是舊版用
+    /// <c>TimeSpan.TryParse</c> 解析，讀不懂時默默把起訖當成 00:00–23:59:59，於是整天的錄影
+    /// 都被併進成品——而成品是有紀錄價值的檔案，操作員不會知道內容不是他要的。
+    /// </remarks>
+    [Fact]
+    public void 時刻讀不懂會擋下來而不是默默匯出一整天()
+    {
+        var source = SourceContract.Read(Code);
+        var body = SourceContract.BodyOf(source, "OnExportClicked");
+
+        // 讀得懂現場寫法（11040725＝11:04:07.25，與錄影檔名同一種）。
+        Assert.Contains("ClockTime.TryParse(StartTime.Text", body);
+        Assert.Contains("ClockTime.TryParse(EndTime.Text", body);
+        // 讀不懂要說出來。
+        Assert.Contains("Export.TimeInvalid", body);
+        // 舊版的靜默退路不得回來。
+        Assert.DoesNotContain("TimeSpan.Zero", body);
+        Assert.DoesNotContain("new TimeSpan(23, 59, 59)", body);
+    }
+
+    /// <summary>由回放帶入的區間精確到秒（只寫到分會讓兩端各伸縮最多 59 秒）。</summary>
+    [Fact]
+    public void 由回放帶入的區間精確到秒()
+    {
+        var source = SourceContract.Read(Code);
+        var ctor = SourceContract.BodyOf(source, "ExportWindow");
+
+        Assert.Contains("HH:mm:ss", ctor);
+        Assert.DoesNotContain("\"HH:mm\"", ctor);
+
+        // 時刻欄位要說明可接受的寫法（標籤只有「起」「迄」，塞不下格式）。
+        var i18n = SourceContract.BodyOf(source, "ApplyI18n");
+        Assert.Contains("Export.TimeTip", i18n);
+    }
+
+    /// <summary>新增的時刻文案三語都在，且錯誤訊息帶得出打錯的字串。</summary>
+    [Fact]
+    public void 時刻文案三語都在且錯誤訊息帶得出輸入值()
+    {
+        var i18n = SourceContract.Read("src/HeliVMS.Storage/I18n.cs");
+
+        foreach (var key in new[] { "Export.TimeInvalid", "Export.TimeTip" })
+        {
+            var lines = i18n.Split('\n')
+                .Where(line => line.Contains($"\"{key}\"", StringComparison.Ordinal))
+                .ToList();
+            Assert.True(lines.Count == 3, $"{key} 應該有三語，實際 {lines.Count}");
+        }
+
+        var invalid = i18n.Split('\n')
+            .Where(line => line.Contains("\"Export.TimeInvalid\"", StringComparison.Ordinal));
+        Assert.All(invalid, line => Assert.Contains("{0}", line));
+    }
 }
