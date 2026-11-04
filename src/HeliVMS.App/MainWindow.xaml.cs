@@ -1182,6 +1182,12 @@ public partial class MainWindow : Window
 
     private async void OnGroupTabChanged(object sender, SelectionChangedEventArgs e)
     {
+
+        // 建樹期間的事件一律忽略（與 OnLayoutChanged 同一個原因：後半段的具名元素還沒建立）。
+        if (!IsLoaded)
+        {
+            return;
+        }
         // ReloadGroupTabs 重建頁簽時會觸發本事件；那時 _activeGroupId 已直接設定，不需再切。
         if (_rebuildingTabs || GroupTabs.SelectedItem is not TabItem tab)
         {
@@ -1823,6 +1829,16 @@ public partial class MainWindow : Window
 
     private async void OnLayoutChanged(object sender, SelectionChangedEventArgs e)
     {
+        // XAML 建樹時，版面下拉在宣告處就設了 SelectedIndex，SelectionChanged 於是在
+        // InitializeComponent 途中就觸發——那一刻位於它之後的具名元素（頁尾的 StatusText 等）
+        // 還沒建立。實際症狀：每次啟動都在 UpdateFooter 擲 NullReferenceException 並寫進
+        // helivms-crash.log，而畫面上只有「第一次的牆面配置沒跑完」這種看不出來的差異。
+        // 正式套用一律發生在 OnLoaded（ApplyLayoutPreference）之後，所以直接忽略建樹期間的事件。
+        if (!IsLoaded)
+        {
+            return;
+        }
+
         // 佈局下拉最底是「復原」項目，不是佈局：選到它先還原成上一個佈局索引，再執行復原，
         // 否則會被當成一種（不存在的）格數套用。
         if (ReferenceEquals(LayoutCombo.SelectedItem, LayoutItemUndo))
@@ -2474,6 +2490,13 @@ public partial class MainWindow : Window
 
     private void UpdateFooter()
     {
+        // 頁尾的具名元素在 InitializeComponent 途中還不存在（見 OnLayoutChanged 的說明）；
+        // 這一守衛是防止任何新的呼叫端在建樹期間摸到它。
+        if (!IsLoaded)
+        {
+            return;
+        }
+
         var live = _manager?.CountStreaming() ?? 0;
         StatusText.Text = _footerBase.Length > 0 ? string.Format(Localizer.T("Main.FooterConnected"), _footerBase, live) : string.Empty;
     }

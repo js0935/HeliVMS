@@ -203,6 +203,26 @@ public sealed class MonitorGridContractTests
     }
 
     /// <summary>格線以拉伸對齊鋪滿監看區；置中對齊會讓 1088 這類螢幕兩側露底。</summary>
+    /// <summary>
+    /// 建樹期間的選取事件不得碰到還沒建立的具名元素。
+    /// </summary>
+    /// <remarks>
+    /// XAML 建樹時 ComboBox 的 SelectedIndex 就會觸發 SelectionChanged（版面下拉在宣告處設定），
+    /// 那一刻位於它之後的具名元素還沒建立。實際症狀：每次啟動都在 UpdateFooter 擲
+    /// NullReferenceException 並寫進 helivms-crash.log，畫面上只有「第一次的牆面配置沒跑完」
+    /// 這種看不出來的差異。正式套用一律發生在 OnLoaded（ApplyLayoutPreference）之後。
+    /// </remarks>
+    [Fact]
+    public void 建樹期間的版面事件不會碰到還沒建立的元素()
+    {
+        var source = SourceContract.Read(MainWindow);
+
+        Assert.Contains("if (!IsLoaded)", SourceContract.BodyOf(source, "OnLayoutChanged"));
+        Assert.Contains("if (!IsLoaded)", SourceContract.BodyOf(source, "OnGroupTabChanged"));
+        // 崩潰現場本身也要有守衛：新的呼叫端不該再從建樹期間摸頁尾。
+        Assert.Contains("if (!IsLoaded)", SourceContract.BodyOf(source, "UpdateFooter"));
+    }
+
     [Fact]
     public void 格線不再置中而是拉伸鋪滿()
     {
