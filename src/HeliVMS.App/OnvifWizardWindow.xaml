@@ -84,6 +84,9 @@
                                     <CheckBox DockPanel.Dock="Left" VerticalAlignment="Center" Margin="0,0,8,0"
                                               IsChecked="{Binding IsChecked, Mode=TwoWay}"
                                               AutomationProperties.AutomationId="DeviceCheckBox" />
+                                    <!-- "Already added" badge: same camera found twice must not be enrolled twice. -->
+                                    <TextBlock DockPanel.Dock="Right" VerticalAlignment="Center" Margin="8,0,0,0"
+                                               Text="{Binding KnownLabel}" FontSize="11" Foreground="#D8A12C" />
                                     <StackPanel>
                                         <TextBlock Text="{Binding NameHint}" FontSize="13" Foreground="White" />
                                         <TextBlock Text="{Binding Address}" FontSize="11" Foreground="{StaticResource Brand.TextDim}" />

@@ -100,6 +100,29 @@ public sealed class OnvifBatchDiscoveryContractTests
     }
 
     [Fact]
+    public void 開窗預填上次搜尋且已加入的預設不勾()
+    {
+        var wizard = SourceContract.Read(WizardCode);
+
+        // 預填：補一台新機時不必重打整個網段（密碼不記，憑證只在 devices 以 DPAPI 保存）。
+        Assert.Contains("onvif.last_address", wizard);
+        Assert.Contains("PrefillLastSearch", wizard);
+        Assert.Contains("RememberLastSearch", wizard);
+        Assert.DoesNotContain("onvif.last_password", wizard);
+
+        // 「已加入」標示＋預設不勾：重加一台已在錄的攝影機會替它多開一個頻道。
+        var rows = SourceContract.BodyOf(wizard, "SetRows");
+        Assert.Contains("OnvifKnownDevices.IsKnown", rows);
+        var rowCtor = wizard[..wizard.IndexOf("public DiscoveredDevice Device", StringComparison.Ordinal)];
+        Assert.Contains("IsChecked = !alreadyAdded", rowCtor);
+        Assert.Contains("Onvif.AlreadyAdded", wizard);
+
+        // 兩個入口都要把共用設定交給精靈（少了它，預填與標示都不會生效）。
+        Assert.Contains("store: _store", SourceContract.Read(ChannelsCode));
+        Assert.Contains("store: _store", SourceContract.Read(CamerasCode));
+    }
+
+    [Fact]
     public void 掃描與批次加入的文案三語都在()
     {
         var i18n = SourceContract.Read(I18n);

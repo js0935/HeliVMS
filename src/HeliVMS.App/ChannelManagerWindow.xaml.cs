@@ -345,7 +345,8 @@ public partial class ChannelManagerWindow : Window
             streamsOnly: true,
             device.Ip,
             string.IsNullOrWhiteSpace(username) ? null : username,
-            string.IsNullOrEmpty(password) ? null : password)
+            string.IsNullOrEmpty(password) ? null : password,
+            store: _store)
         {
             Owner = this,
         };
@@ -634,7 +635,14 @@ public partial class ChannelManagerWindow : Window
             return;
         }
 
-        var wizard = new OnvifWizardWindow
+        // 精靈需要共用設定：記住上次的搜尋位址（補一台新機不必重打網段），
+        // 並把已在系統裡的攝影機標成「已加入」且預設不勾（重加會在時間軸上多一個頻道）。
+        var wizard = new OnvifWizardWindow(
+            streamsOnly: false,
+            address: null,
+            username: null,
+            password: null,
+            store: _store)
         {
             Owner = this,
         };

@@ -3,6 +3,7 @@ using System.Windows.Controls;
 using HeliVMS.Devices.Onvif;
 using HeliVMS.Media;
 using HeliVMS.Shared;
+using HeliVMS.Storage;
 
 namespace HeliVMS.App;
 
@@ -16,11 +17,16 @@ public partial class OnvifWizardWindow : Window
     /// <summary>清單上的一列設備；勾選＝批次加入的對象。</summary>
     public sealed class DeviceRow
     {
-        public DeviceRow(DiscoveredDevice device)
+        public DeviceRow(DiscoveredDevice device, bool alreadyAdded)
         {
             Device = device;
             NameHint = device.NameHint ?? string.Empty;
             Address = device.HttpXAddr ?? device.EndpointAddress;
+            IsKnown = alreadyAdded;
+
+            // 已經加入的預設不勾：批次加入一台已在錄的攝影機會替它多開一個頻道，
+            // 時間軸上兩個頻道各錄一半。要重加仍可自己勾。
+            IsChecked = !alreadyAdded;
         }
 
         public DiscoveredDevice Device { get; }
@@ -30,6 +36,12 @@ public partial class OnvifWizardWindow : Window
 
         /// <summary>device_service 位址。</summary>
         public string Address { get; }
+
+        /// <summary>這台是否已在系統裡（依主機名比對 devices.ip 與頻道位址）。</summary>
+        public bool IsKnown { get; }
+
+        /// <summary>「已加入」標籤；未加入時為空字串（樣板直接綁這一個）。</summary>
+        public string KnownLabel => IsKnown ? Localizer.T("Onvif.AlreadyAdded") : string.Empty;
 
         /// <summary>是否勾選（清單樣板雙向繫結；批次加入讀這一個）。</summary>
         public bool IsChecked { get; set; }
@@ -59,8 +71,17 @@ public partial class OnvifWizardWindow : Window
 
     private readonly bool _streamsOnly;
 
+    /// <summary>共用設定來源（記住上次的搜尋條件、標示已加入的攝影機）；null 時全部略過。</summary>
+    private readonly SqliteStore? _store;
+
+    /// <summary>上次搜尋的位址運算式；開窗預填，補一台新機不必重打整個網段。</summary>
+    private const string LastAddressKey = "onvif.last_address";
+
+    /// <summary>上次使用的 ONVIF 帳號；密碼不存（憑證只在 devices 以 DPAPI 保存）。</summary>
+    private const string LastUserKey = "onvif.last_user";
+
     public OnvifWizardWindow()
-        : this(streamsOnly: false, address: null, username: null, password: null)
+        : this(streamsOnly: false, address: null, username: null, password: null, store: null)
     {
     }
 
@@ -69,11 +90,18 @@ public partial class OnvifWizardWindow : Window
     /// 預填位址與帳密並自動探索：這台攝影機已經在清單裡，操作員指定過，不需要再找一次。
     /// 視窗不最大化——它只是用來確認兩條網址，不是初次加入攝影機的完整流程。
     /// </summary>
-    public OnvifWizardWindow(bool streamsOnly, string? address, string? username, string? password)
+    public OnvifWizardWindow(
+        bool streamsOnly,
+        string? address,
+        string? username,
+        string? password,
+        SqliteStore? store = null)
     {
         _streamsOnly = streamsOnly;
+        _store = store;
         InitializeComponent();
         ApplyI18n();
+        PrefillLastSearch();
 
         if (!streamsOnly)
         {
@@ -109,6 +137,97 @@ public partial class OnvifWizardWindow : Window
     {
         Loaded -= OnStreamsOnlyLoaded;
         OnDiscoverClicked(DiscoverButton, new RoutedEventArgs());
+    }
+
+    /// <summary>預填上次的搜尋位址與帳號（帳號是打字成本，密碼基於安全一律不記）。</summary>
+    private void PrefillLastSearch()
+    {
+        if (_streamsOnly || _store is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var settings = new SettingsRepository(_store);
+            if (string.IsNullOrWhiteSpace(AddressBox.Text))
+            {
+                var lastAddress = settings.Get(LastAddressKey);
+                if (!string.IsNullOrWhiteSpace(lastAddress))
+                {
+                    AddressBox.Text = lastAddress;
+                }
+            }
+
+            if (string.IsNullOrWhiteSpace(UserBox.Text))
+            {
+                var lastUser = settings.Get(LastUserKey);
+                if (!string.IsNullOrWhiteSpace(lastUser))
+                {
+                    UserBox.Text = lastUser;
+                }
+            }
+        }
+        catch (Exception)
+        {
+            // 記不住／讀不到搜尋條件不該讓精靈打不開（資料庫忙碌時仍要能加攝影機）。
+        }
+    }
+
+    /// <summary>記住這次的搜尋條件，下次開窗預填。</summary>
+    private void RememberLastSearch()
+    {
+        if (_streamsOnly || _store is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var settings = new SettingsRepository(_store);
+            var address = AddressBox.Text.Trim();
+            if (address.Length > 0)
+            {
+                settings.Set(LastAddressKey, address);
+            }
+
+            if (Username is { } user)
+            {
+                settings.Set(LastUserKey, user);
+            }
+        }
+        catch (Exception)
+        {
+            // 同上：記不住不影響這次搜尋的結果。
+        }
+    }
+
+    /// <summary>
+    /// 系統裡既有的攝影機主機名（devices.ip 與頻道位址）；讀不到時回空集合。
+    /// </summary>
+    /// <remarks>
+    /// 寧可「認不出來」也不要「認錯」反過來：讀不到就當作全部未加入，操作員仍可自行判斷；
+    /// 讀成一半而亂標，會讓人以為某台已經加過而漏掉它。
+    /// </remarks>
+    private HashSet<string> LoadKnownHosts()
+    {
+        if (_store is null)
+        {
+            return new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        }
+
+        try
+        {
+            var devices = new DeviceRepository(_store, new AuditLogRepository(_store)).List();
+            var channels = new ChannelRepository(_store).List();
+            return OnvifKnownDevices.Build(
+                devices.Select(d => d.Ip),
+                channels.Select(c => c.MainStreamUrl));
+        }
+        catch (Exception)
+        {
+            return new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        }
     }
 
     private void ApplyI18n()
@@ -205,9 +324,15 @@ public partial class OnvifWizardWindow : Window
                 SetRows(await DiscoveryClient.DiscoverAsync(TimeSpan.FromSeconds(5)).WaitAsync(token));
             }
 
+            var knownCount = _rows.Count(r => r.IsKnown);
             WizardHint.Text = _rows.Count > 0
-                ? string.Format(Localizer.T("Onvif.FoundDevices"), _rows.Count)
+                ? knownCount > 0
+                    // 說清楚幾台已經在系統裡、預設不勾：否則操作員會以為勾選被吃掉了。
+                    ? string.Format(Localizer.T("Onvif.FoundDevicesKnown"), _rows.Count, knownCount)
+                    : string.Format(Localizer.T("Onvif.FoundDevices"), _rows.Count)
                 : Localizer.T("Onvif.NotFound");
+
+            RememberLastSearch();
 
             // 重新取得碼流時目標是已綁定的那台攝影機，通常只有一筆；直接選取省一次點擊。
             // 多筆（區網探索回傳很多台）仍留給操作員挑：選錯設備就是把別台的碼流寫進這個頻道。
@@ -274,10 +399,13 @@ public partial class OnvifWizardWindow : Window
         }
     }
 
-    /// <summary>更新設備清單（每次重設列，勾選狀態不沿用上一輪）。</summary>
+    /// <summary>
+    /// 更新設備清單（每次重設列，勾選狀態不沿用上一輪）：已在系統裡的標「已加入」且預設不勾。
+    /// </summary>
     private void SetRows(IReadOnlyList<DiscoveredDevice> devices)
     {
-        _rows = [.. devices.Select(d => new DeviceRow(d))];
+        var known = LoadKnownHosts();
+        _rows = [.. devices.Select(d => new DeviceRow(d, OnvifKnownDevices.IsKnown(known, d)))];
         DeviceList.ItemsSource = null;
         DeviceList.ItemsSource = _rows;
         UpdateBatchButtons();

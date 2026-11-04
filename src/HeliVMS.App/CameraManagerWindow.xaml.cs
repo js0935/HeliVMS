@@ -642,7 +642,13 @@ public partial class CameraManagerWindow : Window
             return;
         }
 
-        var wizard = new OnvifWizardWindow
+        // 精靈需要共用設定：記住上次的搜尋位址，並把已在系統裡的攝影機標成「已加入」。
+        var wizard = new OnvifWizardWindow(
+            streamsOnly: false,
+            address: null,
+            username: null,
+            password: null,
+            store: _store)
         {
             Owner = this,
         };
