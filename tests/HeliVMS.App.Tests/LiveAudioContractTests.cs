@@ -74,7 +74,9 @@ public sealed class LiveAudioContractTests
         // 只在佈局／頁簽／頻道清單「落定之後」裁決：切佈局的途中格位會短暫清空，
         // 那時裁決會把聲音錯殺（切一次佈局斷一次聲音）。
         Assert.Contains("await EnforceAudioVisibilityAsync()", SourceContract.BodyOf(source, "ApplyWallAsync"));
-        Assert.Contains("await EnforceAudioVisibilityAsync()", SourceContract.BodyOf(source, "OnLayoutChanged"));
+        // 切佈局那條路改成呼叫 ApplyWallAsync（切頁簽與改佈局共用同一個入口），
+        // 所以「佈局落定後一定裁決一次」是上一行 + 這一行的組合保證。
+        Assert.Contains("await ApplyWallAsync(", SourceContract.BodyOf(source, "OnLayoutChanged"));
         Assert.Contains("EnforceAudioVisibilityAsync()", SourceContract.BodyOf(source, "OnCellMappingChanged"));
         Assert.Contains("StopAudioAsync()", SourceContract.BodyOf(source, "DisconnectAllAsync"));
 

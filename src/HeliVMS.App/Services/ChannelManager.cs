@@ -77,7 +77,7 @@ public sealed class ChannelManager : IDisposable
     public string? ModelPath => _detection is OnnxRuntimeCpuEngine e ? e.ModelPath : null;
 
     /// <summary>單一頻道畫面抵達。</summary>
-    public event EventHandler<(int Cell, VideoFrame Frame)>? FrameArrived;
+    public event EventHandler<(int Cell, int ChannelId, VideoFrame Frame)>? FrameArrived;
 
     /// <summary>單一頻道狀態轉換。</summary>
     public event EventHandler<(int Cell, ChannelInfo Channel, RtspState State)>? StateChanged;
@@ -176,7 +176,9 @@ public sealed class ChannelManager : IDisposable
 
         // 一律讀 session.Cell 而非閉包捕捉的 cell：佈局切換改派格位時，
         // 事件必須跟著新格位走，否則畫面會畫在錯的格子上。
-        session.FrameArrived += (_, f) => FrameArrived?.Invoke(this, (session.Cell, f));
+        // 同時帶上頻道 id：格位會被改派、也會被清空，畫面端得據此確認「這張影格屬於這一格」
+        // （同一個格位編號換人之後，舊工作階段送來的影格不該再畫上去）。
+        session.FrameArrived += (_, f) => FrameArrived?.Invoke(this, (session.Cell, session.ChannelId, f));
         session.StateChanged += (_, st) =>
         {
             if (st == RtspState.Reconnecting)
@@ -535,12 +537,16 @@ public sealed class ChannelManager : IDisposable
             await session.StartMonitoringAsync();
         }
 
-        // 未被本次佈局指派的既有工作階段，移出畫面格位（cell = -1）：單格展開時它可能仍
+        // 未被本次佈局指派的既有工作階段，一律移出畫面格位（cell = -1）：單格展開時它可能仍
         // 佔著第 0 格，而該格已被新頻道接管，兩條串流會在同一格互相閃爍。刻意不拆除工作階段，
         // 錄影行程要繼續；只是不再往畫面上疊圖。
+        //
+        // 條件刻意不含「cell < count」：那個版本會放過「格位編號大於等於本次格數」的工作階段
+        // （前一頁簽是 16 分割、這一頁簽 4 分割），它們繼續把影格送到畫面上不存在、日後卻會
+        // 被別人接手的格位。未被指派就是不該送畫面，與這次有幾格無關。
         foreach (var kv in _sessions)
         {
-            if (!assigned.Contains(kv.Key) && kv.Value.Cell >= 0 && kv.Value.Cell < count)
+            if (!assigned.Contains(kv.Key) && kv.Value.Cell >= 0)
             {
                 kv.Value.Cell = -1;
                 _cellByChannel.TryRemove(kv.Key, out _);

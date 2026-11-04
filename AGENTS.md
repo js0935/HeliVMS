@@ -394,6 +394,20 @@ Notes that will save you time:
   the top-right corner it would cover the dot of exactly the pane underneath it. Guarded by
   `WallModeDotPaletteTests`, `WallBadgeTextPlannerTests` and
   `MonitorWallRecordingModeContractTests`.
+- **A group tab with fewer cameras than cells must leave the extra cells empty — and both tab paths
+  must share one implementation.** 現場回報：群組只設 2 支攝影機卻用 4 分割，在不同群組之間切換後
+  再回到原群組，第 3、4 格「串」著另一支攝影機的畫面。三個獨立原因疊在一起：
+  (1) `OnLayoutChanged`（兩個頁簽記住的格數不同時走的那條）自己實作了一次改派，從來沒呼叫
+  `ClearCellsBeyondChannels`，於是 `RebuildCells → ApplyCellStateAfterRebuild` 把上一頁簽留在
+  `_bitmap`／`_cellChannel`／`_cellStates` 的殘影重新投影到新格子上（那不是佔位圖，每秒重畫也蓋不掉）；
+  (2) `ReconcileAsync` 的卸下條件是「未指派且 `Cell < count`」，前一頁簽 16 分割的工作階段格位編號
+  4 以上會被放過，繼續把影格送進一個「現在看不到、日後會被別人接手」的格位；
+  (3) 影格事件只帶格位、不帶頻道，畫面端無從判斷「這張影格是不是這一格的」。
+  修正：`RebuildCells` 結尾一律 `ClearCellsBeyondChannels(WallChannels().Count)`；
+  `OnLayoutChanged` 改走 `ApplyWallAsync(startIndex)`（切頁簽與改佈局只剩一個入口）；
+  卸下條件就是 `Cell >= 0`；影格帶上頻道 id（`FrameArrived` → `_pendingFrameChannel` →
+  `RenderCellFrame` 比對 `_cellChannel[cell]`）。Guarded by `改佈局也會清掉群組看不到的格子`,
+  `影格必須屬於該格現在的頻道才畫` and `未被指派的工作階段一律移出畫面格位`.
 - **A recording-schedule rule that never records must be rejected, not stored.** `IsActiveAt`
   uses a closed interval, so start == end (e.g. the old form default 00:00–00:00) is active for
   exactly one minute of the day; the scheduler ticks every 30 s and in practice captures

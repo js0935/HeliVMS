@@ -23,6 +23,7 @@ public sealed class ChannelGroupContractTests
     private const string SettingsXaml = "src/HeliVMS.App/SettingsWindow.xaml";
     private const string MainCode = "src/HeliVMS.App/MainWindow.xaml.cs";
     private const string MainXaml = "src/HeliVMS.App/MainWindow.xaml";
+    private const string ChannelManagerCode = "src/HeliVMS.App/Services/ChannelManager.cs";
 
     [Fact]
     public void 群組清單選取會接線到載入成員()
@@ -169,6 +170,49 @@ public sealed class ChannelGroupContractTests
         Assert.DoesNotContain("ConnectAsync(", body);
         // 群組看不到的頻道其最後一張影格要清掉，否則頁簽上會殘留別頁的畫面。
         Assert.Contains("ClearCellsBeyondChannels(wall.Count)", body);
+    }
+
+    [Fact]
+    public void 改佈局也會清掉群組看不到的格子()
+    {
+        // 現場症狀：群組只設了 2 支攝影機卻用 4 分割，在不同群組之間切換後再回到原群組，
+        // 第 3、4 格「串」著上一頁簽那兩台攝影機的最後一張畫面（空格卻有畫面，而且不會消失）。
+        // 根因：切頁簽走 ApplyWallAsync（有清），但兩個頁簽的格數不同時走的是 OnLayoutChanged，
+        // 那條路自己實作了一次改派、漏了清格；而 RebuildCells → ApplyCellStateAfterRebuild
+        // 會把 _bitmap／_cellChannel 裡的殘影重新投影到新格子上。
+        var rebuild = BodyOf(MainCode, "RebuildCells");
+        Assert.Contains("ClearCellsBeyondChannels(WallChannels().Count)", rebuild);
+
+        // 兩條路共用同一個入口，否則同一個漏清單遲早會再出現一次。
+        var layout = BodyOf(MainCode, "OnLayoutChanged");
+        Assert.Contains("ApplyWallAsync(", layout);
+        Assert.DoesNotContain("mgr.ReconcileAsync(", layout);
+    }
+
+    [Fact]
+    public void 影格必須屬於該格現在的頻道才畫()
+    {
+        // 影格來自解碼執行緒、格位歸屬只在 UI 執行緒改，兩者之間一定有時間差。
+        // 少了這道檢查，格位被清空或換人之後才到的舊影格會把空格的佔位圖蓋掉。
+        var render = BodyOf(MainCode, "RenderCellFrame");
+        Assert.Contains("_cellChannel[cell] != _pendingFrameChannel[cell]", render);
+
+        // 頻道 id 由工作階段一路帶到畫面端：事件若只帶格位，畫面端無從判斷這張影格是誰的。
+        var manager = SourceContract.Read(ChannelManagerCode);
+        Assert.Contains("(session.Cell, session.ChannelId, f)", manager);
+        var wire = BodyOf(MainCode, "CreateManager");
+        Assert.Contains("OnCellFrame(e.Cell, e.ChannelId, e.Frame)", wire);
+    }
+
+    [Fact]
+    public void 未被指派的工作階段一律移出畫面格位()
+    {
+        // 條件不含「cell < count」：前一頁簽是 16 分割、這一頁簽 4 分割時，格位編號 4 以上的
+        // 工作階段會被那個條件放過，繼續把影格送到一個「目前看不到、日後會被別人接手」的格位。
+        var body = BodyOf(ChannelManagerCode, "ReconcileAsync");
+
+        Assert.Contains("!assigned.Contains(kv.Key) && kv.Value.Cell >= 0", body);
+        Assert.DoesNotContain("kv.Value.Cell < count", body);
     }
 
     [Fact]

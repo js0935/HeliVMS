@@ -69,6 +69,13 @@ public partial class MainWindow : Window
     /// <summary>每格待繪製的最新影格（latest-wins 合併，避免 Dispatcher 佇列無界膨脹）。</summary>
     private readonly LatestFrameSlots<VideoFrame> _pendingFrames = new(MaxCells);
 
+    /// <summary>
+    /// 每格「待繪製影格屬於哪個頻道」。影格來自解碼執行緒，格子歸屬只在 UI 執行緒改，
+    /// 兩者之間一定有時間差；UI 執行緒據此丟掉「格位已換人／已清空」後才到的舊影格
+    /// （否則空格會被塗成別支攝影機的畫面，而且不會自己消失）。
+    /// </summary>
+    private readonly int[] _pendingFrameChannel = new int[MaxCells];
+
     /// <summary>每格實際畫面更新率／畫面年齡估算（監看介面原本完全沒有 fps／延遲資訊）。</summary>
     private readonly FrameRateMeter[] _cellMeters = CreateMeters(MaxCells);
 
@@ -1205,17 +1212,26 @@ public partial class MainWindow : Window
         }
     }
 
-    /// <summary>依目前頁簽改派既有工作階段到格位；不重連、不中斷錄影。</summary>
-    private async Task ApplyWallAsync()
+    /// <summary>依目前頁簽改派既有工作階段到格位；不重連、不中斷錄影。回傳新建立的工作階段數。</summary>
+    /// <param name="startIndex">
+    /// 首格要顯示的頻道序（F11 展開單格時從那一台開始）；一般切頁簽／改佈局為 0。
+    /// </param>
+    /// <remarks>
+    /// 切頁簽與改佈局都必須走這裡。兩條路各自實作一次的代價已經出現過：改佈局那條漏了
+    /// <see cref="ClearCellsBeyondChannels"/>，於是「群組只有 2 台但用 4 分割」的頁簽在
+    /// 切換後，空格會留著上一頁簽攝影機的畫面。
+    /// </remarks>
+    private async Task<int> ApplyWallAsync(int startIndex = 0)
     {
         var wall = WallChannels();
+        var created = 0;
 
         if (_manager is { } mgr && _monitoring && wall.Count > 0)
         {
             await _reconcileGate.WaitAsync();
             try
             {
-                await mgr.ReconcileAsync(wall, 0, CurrentCellCount());
+                created = await mgr.ReconcileAsync(wall, startIndex, CurrentCellCount());
             }
             finally
             {
@@ -1223,12 +1239,14 @@ public partial class MainWindow : Window
             }
         }
 
+        // 群組／佈局看不到的格子一律清掉：那裡還留著上一輪的影格，看起來像「空格串到別支攝影機」。
         ClearCellsBeyondChannels(wall.Count);
         UpdateBadges();
         UpdateFooter();
 
-        // 換頁簽／換群組也可能換掉正在播的那一台；聲音必須跟著走。
+        // 換頁簽／換群組／換佈局都可能換掉正在播的那一台；聲音必須跟著走。
         await EnforceAudioVisibilityAsync();
+        return created;
     }
 
     /// <summary>
@@ -1502,7 +1520,7 @@ public partial class MainWindow : Window
         var manager = new ChannelManager(
             _store!, _recordingsRoot, Path.Combine(_dataRoot, "snapshots"), DetectionModelResolver.TryResolve(),
             audioSampleRate: WaveOutPlayer.ProbeSampleRate() ?? AudioStreamReceiver.DefaultSampleRate);
-        manager.FrameArrived += (_, e) => OnCellFrame(e.Cell, e.Frame);
+        manager.FrameArrived += (_, e) => OnCellFrame(e.Cell, e.ChannelId, e.Frame);
         manager.AiDetections += OnManagerAiDetections;
         manager.MotionSignal += (_, e) => OnMotionSignal(e.Cell, e.Ratio);
         manager.CellMappingChanged += (_, e) => OnCellMappingChanged(e.Cell, e.ChannelId);
@@ -1838,31 +1856,14 @@ public partial class MainWindow : Window
 
         // 擴大佈局（例如 1 格 → 4 格）時，先前只顯示過第一格，其餘頻道還沒連線。
         // 原本這裡完全沒處理，於是多出來的格子永遠停在「未連線」。
-        // 依目前頁簽取要顯示的頻道（「全部」＝所有頻道，群組＝該組成員）。
-        var wall = WallChannels();
-        if (_monitoring && _manager is { } mgr && wall.Count > 0)
+        // 依目前頁簽取要顯示的頻道（「全部」＝所有頻道，群組＝該組成員），
+        // 並走與切頁簽相同的入口：改派、清空格子、更新徽章與聲音都在那裡做一次。
+        // （ReconcileAsync 同時重新套用顯示碼流策略：單畫面第 0 格主流、其餘次流。）
+        var created = await ApplyWallAsync(startIndex < 0 ? 0 : startIndex);
+        if (created > 0)
         {
-            // 序列化：快速連按 F11 或手動切換會讓這裡重入，兩次 ReconcileAsync 並行時
-            // 後到的那次會把先建立的 session 從 _sessions 覆蓋掉，該 session 的 RTSP
-            // 連線與解碼行程仍在跑卻沒有任何人能關，也不會再更新畫面。
-            await _reconcileGate.WaitAsync();
-            try
-            {
-                // 佈局改變即由 ReconcileAsync 重新套用顯示碼流策略（單畫面第 0 格主流、其餘次流）。
-                var created = await mgr.ReconcileAsync(wall, startIndex < 0 ? 0 : startIndex, CurrentCellCount());
-                if (created > 0)
-                {
-                    HintText.Text = string.Format(Localizer.T("Main.LayoutApplied"), created);
-                }
-            }
-            finally
-            {
-                _reconcileGate.Release();
-            }
+            HintText.Text = string.Format(Localizer.T("Main.LayoutApplied"), created);
         }
-
-        // 分割改變＝畫面上的攝影機組合變了：正在播的那台若不在了就把聲音收掉。
-        await EnforceAudioVisibilityAsync();
     }
 
     /// <summary>目前佈局選項對應的目標格數（列×欄由監看區比例自動決定）。</summary>
@@ -2056,6 +2057,12 @@ public partial class MainWindow : Window
 
         ApplyGridGeometry();
         ApplyCellStateAfterRebuild();
+
+        // 這一頁簽實際要顯示的頻道數以外的格子一律清空。少了這一步，改佈局（含切頁簽時
+        // 還原該頁簽記住的格數）會走 RebuildCells → ApplyCellStateAfterRebuild，把上一頁簽／
+        // 上一種分割留在 _bitmap 與 _cellChannel 裡的殘影重新投影到新格子上：4 分割的群組
+        // 只有 2 台，第 3、4 格就「串」著上一頁簽那兩台攝影機的最後一張畫面。
+        ClearCellsBeyondChannels(WallChannels().Count);
     }
 
     /// <summary>依目標格數與監看區大小，決定格線的列×欄與外框尺寸（每格維持畫面比例、置中）。</summary>
@@ -2747,12 +2754,16 @@ public partial class MainWindow : Window
     }
 
 
-    private void OnCellFrame(int cell, VideoFrame frame)
+    private void OnCellFrame(int cell, int channelId, VideoFrame frame)
     {
         if (cell is < 0 or >= MaxCells)
         {
             return;
         }
+
+        // 記下這張影格屬於哪個頻道：真正的檢查在 UI 執行緒的 RenderCellFrame，
+        // 因為「這格現在是誰」只在 UI 執行緒改（改派、清空、重建格位）。
+        _pendingFrameChannel[cell] = channelId;
 
         // 只把「第一張」影格送進 Dispatcher；繪製期間抵達的後續影格直接覆蓋該格的待繪製項目。
         // 原本每張影格都 InvokeAsync，而 Dispatcher 佇列沒有容量上限——UI 執行緒一旦跟不上
@@ -2772,6 +2783,15 @@ public partial class MainWindow : Window
     {
         var frame = _pendingFrames.Take(cell);
         if (frame is null)
+        {
+            return;
+        }
+
+        // 這張影格必須屬於這一格現在的頻道。切換頁簽／佈局時，「格子被清空或換人」與
+        // 「解碼執行緒手上最後一張舊影格」之間一定有窗口，少了這道檢查，那張影格會把
+        // 已經清空的格子畫成別支攝影機——而且不會自己消失（它不是佔位圖，每秒重畫也不會蓋掉），
+        // 操作員看到的就是「空格串到別支攝影機」。
+        if (_cellChannel[cell] != _pendingFrameChannel[cell])
         {
             return;
         }

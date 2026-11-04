@@ -10,6 +10,7 @@
 > ②**事件錄影門檻接線**：`RecordingMode.Event` 以 `recording.event_seconds`（預設 30 秒）為門檻，`RegisterEvent` 記下觸發時間並立即踢一輪調和（否則閒置頻道等下一個 30 秒 tick 才開錄）。
 > ③**設定中心關閉鈕統一**：18 個無邊框最大化視窗一律「右上角紅 ✕ ＋ Esc」（六個原本完全沒關閉鈕、六個只有文字關閉鈕），`WindowExitContractTests` 盯住。
 > ⑥**監看牆錄影方式指示燈（M324）**：每格右上角一顆 11px 的燈（紅＝全時、藍＝排程、綠＝事件（位移）、灰＝手動，色票在 `HeliVMS.Shared.WallModeDotPalette`）：全亮＝現在真的在錄，壓暗＝該模式當下不錄；左下角徽章同步寫出「名稱 · 全時 ●REC（排程外）」（`WallBadgeTextPlanner`），兩個工具提示各寫一次。監看牆層級 REC 徽章改置中，避免蓋住最右上那一格的燈。
+> ⑦**群組頁籤空格殘影（M325）**：群組只設 2 支攝影機卻用 4 分割，切換群組再回來後第 3、4 格會「串」著另一支攝影機的畫面。修正三處：`RebuildCells` 結尾清空超出群組的格子、`OnLayoutChanged` 改走 `ApplyWallAsync`（切頁籤與改佈局共用入口）、影格事件改帶 `(Cell, ChannelId, Frame)` 並在 `RenderCellFrame` 比對。
 > ④前幾輪已落地：監看牆鋺滿監看區、分割數平均（64 路＝8×8）、移除 6 分割、沉浸模式離開鈕左上角、任務清單 30 秒刷新與「重新啟動程式」排程任務、安裝器放行 WS-Discovery（UDP 3702）。
 > ⑤**實測**：Release build 0 error／0 warning；12 個測試專案逐一套跑全綠（App 703、Storage 1445、Alarms 348、Recording 315、Api 264、Shared 223、Devices 198、Rtc 135、Media 109、LicenseProducer 97、Licensing 69、ExportVerify 11）；
 > 安裝檔已重打包 `publish\Setup\HeliVMS-Setup-0.1.0.exe`（181.5 MB，`git status` 乾淨、無 `packages.lock.json` 污染）。本輪未動 `src/HeliVMS.Web`，Web vitest 沿用上一次經驗值。
