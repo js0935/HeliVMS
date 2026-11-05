@@ -308,11 +308,11 @@ public sealed class PlaybackWindowContractTests
         Assert.Contains("RebuildPanes(", onSplit);
         Assert.Contains("SyncPanes(", onSplit);
 
-        // 1 路時整條路徑要與舊的單窗行為等價（不可誤刪成 0 格或預設成 4 格）。
+        // 格數來自單一來源（PlaybackWallBudget.SplitOptions），而且索引要先夾住：
+        // ComboBox 在重建期間可能短暫是 -1，直接拿去索引清單會擲例外（整個回放開不起來）。
         var split = SourceContract.BodyOf(source, "SplitCount");
-        Assert.Contains("1 => 2", split);
-        Assert.Contains("2 => 4", split);
-        Assert.Contains("_ => 1", split);
+        Assert.Contains("PlaybackWallBudget.SplitOptions", split);
+        Assert.Contains("Math.Clamp(", split);
     }
 
     [Fact]
@@ -1281,9 +1281,10 @@ public sealed class PlaybackWindowContractTests
 
         var source = SourceContract.Read(Code);
 
+        // 格數與分割選單必須同一份來源：`PlaybackWallBudget.SplitOptions`（1／2／4／9／16／25／36／64）。
+        // 清單抄兩份遲早會漂移，而症狀是「選了 64 卻是 16 的預算」——沒有任何錯誤訊息。
         var split = SourceContract.BodyOf(source, "SplitCount");
-        Assert.Contains("3 => 9", split);
-        Assert.Contains("4 => 16", split);
+        Assert.Contains("PlaybackWallBudget.SplitOptions", split);
 
         var geometry = SourceContract.BodyOf(source, "ApplyPlayerFrameGeometry");
         Assert.Contains("PlaybackWallCapacity.Effective", geometry);

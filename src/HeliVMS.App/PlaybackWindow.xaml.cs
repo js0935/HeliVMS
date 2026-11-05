@@ -2134,7 +2134,7 @@ public partial class PlaybackWindow : Window
         SeekSlider.Value = dur > 0 ? Math.Min(seekSeconds / dur, 1) * 10000 : 0;
         UpdateCursor(seekSeconds);
 
-        var session = new PlaybackSession(seg) { Speed = GetSpeed() };
+        var session = CreateSession(seg);
         _session = session;
         session.FrameDecoded += (_, frame) => OnFrame(version, seg, frame);
         session.Ended += (_, args) => OnEnded(version, seg, args.Completed);
@@ -3814,15 +3814,18 @@ public partial class PlaybackWindow : Window
         _audioReceiver = null;
     }
 
-    /// <summary>回放牆格數（1／2／4／9／16）。</summary>
-    private int SplitCount() => SplitCombo.SelectedIndex switch
+    /// <summary>回放牆格數（最多 64 路）。</summary>
+    /// <remarks>
+    /// 選項與 <see cref="PlaybackWallBudget.SplitOptions"/> 同一份：格數決定每一格的解碼預算
+    /// （縮放寬度、顯示上限、執行緒數），而那個對應表是量出來的——兩份清單遲早會漂移，
+    /// 所以 UI 的格數一律從那裡取，這裡只把索引轉成格數。
+    /// </remarks>
+    private int SplitCount()
     {
-        1 => 2,
-        2 => 4,
-        3 => 9,
-        4 => 16,
-        _ => 1,
-    };
+        var options = HeliVMS.Shared.PlaybackWallBudget.SplitOptions;
+        var index = Math.Clamp(SplitCombo.SelectedIndex, 0, options.Count - 1);
+        return options[index];
+    }
 
     /// <summary>
     /// 主畫面格單擊也放大成單畫面：焦點台（通常是攝影機 01）永遠排在主格、沒有次畫面可點，
@@ -4091,7 +4094,11 @@ public partial class PlaybackWindow : Window
                 || pane.Current is null
                 || pane.Current.Id != cursor.Value.Segment.Id
                 || paneUtc is null
-                || PlaybackSyncPlanner.ShouldReseek(drift, pane.StartedAtUtc is not null, sinceStart);
+                || PlaybackSyncPlanner.ShouldReseek(
+                    drift,
+                    pane.StartedAtUtc is not null,
+                    sinceStart,
+                    SyncToleranceSeconds());
 
             if (restart)
             {
@@ -4099,6 +4106,67 @@ public partial class PlaybackWindow : Window
             }
         }
     }
+
+    /// <summary>
+    /// 建立一段回放解碼工作，並依「牆上格數」套用這一格的解碼預算（最多 64 路）。
+    /// </summary>
+    /// <remarks>
+    /// 預算來自 <see cref="PlaybackWallBudget"/>（純函式，表格是量出來的）：格數越多就縮得越小、
+    /// 更新率越低，換到的是「所有格都有畫面」；硬體解碼可用時（與即時監看共用
+    /// <c>decode.hwaccel</c>）解碼成本移到 GPU，每格可以給更高的更新率。
+    /// 主畫面與次畫面共用同一個預算——多格時主畫面也只是格子裡的一格。
+    /// </remarks>
+    private PlaybackSession CreateSession(SegmentRecord segment)
+    {
+        var budget = PlaybackWallBudget.For(1 + _panes.Count, HardwareDecodeEnabled());
+        return new PlaybackSession(segment)
+        {
+            Speed = GetSpeed(),
+            DisplayWidth = budget.DisplayWidth,
+            MaxFramesPerSecond = budget.MaxFramesPerSecond,
+            DecodeThreads = budget.DecodeThreads,
+            KeyframesOnly = budget.KeyframesOnly,
+            HwAccel = HardwareDecodeSetting(),
+        };
+    }
+
+    /// <summary>硬體解碼設定值（<c>decode.hwaccel</c>）；未設定或 off 時為 <c>null</c>。</summary>
+    private string? HardwareDecodeSetting()
+    {
+        try
+        {
+            return RtspClient.NormalizeHwAccel(new SettingsRepository(_store).Get("decode.hwaccel"));
+        }
+        catch (Exception)
+        {
+            // 讀不到設定＝沒有硬體解碼（軟解一定可用），不必讓回放開不起來。
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// 目前版面下每一格的對時容差（秒）。
+    /// </summary>
+    /// <remarks>
+    /// 大格數的總覽牆只解關鍵影格，每一格顯示的時刻本來就會落後母鐘最多一個 GOP：
+    /// 用 0.4 秒判定會讓 64 條解碼行程每 150ms 被重開一次（見
+    /// <see cref="PlaybackSyncPlanner.OverviewDriftToleranceSeconds"/>）。
+    /// </remarks>
+    private double SyncToleranceSeconds()
+        => PlaybackWallBudget.For(1 + _panes.Count, HardwareDecodeEnabled()).KeyframesOnly
+            ? PlaybackSyncPlanner.OverviewDriftToleranceSeconds
+            : PlaybackSyncPlanner.DefaultDriftToleranceSeconds;
+
+    /// <summary>硬體解碼是否可用且已啟用（探測結果快取在 <see cref="FfmpegHwAccel"/>）。</summary>
+    private bool HardwareDecodeEnabled()
+    {
+        _hardwareDecode ??= HardwareDecodeSetting() is { } setting
+            && FfmpegHwAccel.ShouldUse(setting, FfmpegHwAccel.ProbeCached(FfmpegLocator.Ffmpeg, TimeSpan.FromSeconds(5)));
+        return _hardwareDecode.Value;
+    }
+
+    /// <summary>硬體解碼可用性（延後探測；null＝還沒問過）。</summary>
+    private bool? _hardwareDecode;
 
     private void PlayPane(Pane pane, SegmentRecord segment, double offsetSeconds)
     {
@@ -4113,7 +4181,7 @@ public partial class PlaybackWindow : Window
         pane.NoRecording = false;
         pane.StartedAtUtc = DateTime.UtcNow;
         var version = ++pane.Version;
-        var session = new PlaybackSession(segment) { Speed = GetSpeed() };
+        var session = CreateSession(segment);
         pane.Session = session;
         session.FrameDecoded += (_, frame) => Dispatcher.BeginInvoke(() => OnPaneFrame(pane, version, frame));
         session.Ended += (_, args) => Dispatcher.BeginInvoke(() => OnPaneEnded(pane, version, args.Completed));

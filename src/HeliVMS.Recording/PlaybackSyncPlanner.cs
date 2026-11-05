@@ -44,6 +44,17 @@ public static class PlaybackSyncPlanner
     public const double DefaultDriftToleranceSeconds = 0.4;
 
     /// <summary>
+    /// 大格數「只解關鍵影格」總覽牆的漂移容差（秒）。
+    /// </summary>
+    /// <remarks>
+    /// 關鍵影格之間通常隔一個 GOP（實測現場錄影 2–20 秒），所以那一格顯示的時刻本來就會
+    /// 落後母鐘最多一個 GOP：用 0.4 秒的容差判定「落後」會變成每一輪都判定要重新對時，
+    /// 於是 64 條解碼行程每 150ms 被重開一次——畫面永遠起不來，而且 CPU 全花在啟動 ffmpeg。
+    /// 容差必須比 GOP 大，讓那一格安靜地播它的關鍵影格；要精確對時就點那一格放大成單格。
+    /// </remarks>
+    public const double OverviewDriftToleranceSeconds = 30;
+
+    /// <summary>
     /// 對時跳轉的實際落點：要求位置＋<b>這一格自己的啟動延遲</b>。
     /// </summary>
     /// <remarks>

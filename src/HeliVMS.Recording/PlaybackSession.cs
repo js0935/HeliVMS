@@ -62,6 +62,62 @@ public sealed class PlaybackSession : IAsyncDisposable
     /// <summary>播放速率：0.5 / 1 / 2 / 4 / 8。</summary>
     public double Speed { get; set; } = 1.0;
 
+    /// <summary>
+    /// 解碼後縮到這個寬度（0＝保持原樣）。
+    /// </summary>
+    /// <remarks>
+    /// 由多格回放依格子大小設定（見 <c>PlaybackWallBudget</c>）：一格只有幾百像素寬時，
+    /// 照錄影的 1920 解碼等於每一格都在搬 6MB 原始影格只為了畫縮圖，
+    /// 而 64 路時那條算術根本無解。超過來源寬度時不縮（不上採樣）。
+    /// </remarks>
+    public int DisplayWidth { get; set; }
+
+    /// <summary>
+    /// 顯示上限（0＝不限）：超過就丟棄（先讀進來才丟，管線永遠抽乾）。
+    /// </summary>
+    /// <remarks>
+    /// 大格數時同時播放 64 條解碼行程，每一格的來源仍是 15–30fps；把每一格壓到 4–8fps
+    /// 換來的是「所有格都有畫面」而不是「幾格很順、其他格黑掉」。
+    /// </remarks>
+    public int MaxFramesPerSecond { get; set; }
+
+    /// <summary>解碼執行緒數（0＝由 ffmpeg 決定）。</summary>
+    /// <remarks>
+    /// 大量並行時必須限制：64 路各開 8 條執行緒＝512 條在 8 核心上打架，
+    /// 總吞吐比每路 1–2 條還差，而且每一路的首張影格都變慢。
+    /// </remarks>
+    public int DecodeThreads { get; set; }
+
+    /// <summary>
+    /// 硬體解碼設定（<c>Settings → 硬體解碼</c>，與即時監看共用）；<c>null</c>／<c>off</c>＝軟解。
+    /// </summary>
+    /// <remarks>
+    /// 64 路時這一項是關鍵：解碼成本移到 GPU 之後，CPU 才有餘裕同時維持錄影與即時監看。
+    /// 與即時監看同一條原則——先問本機 ffmpeg 支不支援，不支援就不用；
+    /// 而且**一次「帶了 -hwaccel 卻一幀都沒出」就全域停用五分鐘**：64 格各自重試同一件壞事
+    /// （驅動被佔用、GPU 不支援這個 profile）只會讓操作員多等 64 次黑畫面。
+    /// </remarks>
+    public string? HwAccel { get; set; }
+
+    /// <summary>
+    /// 只解關鍵影格（<c>-skip_frame nokey</c>）：大格數「總覽牆」用的模式。
+    /// </summary>
+    /// <remarks>
+    /// 64 格時操作員要的是「每一格現在大概長什麼樣」，不是每一格的流暢播放——而解完整串
+    /// 1080p 影格在 64 路同時是算不出來的（實測：軟解每格 1fps、硬解 2.5fps，而且 64 條行程
+    /// 把錄影的 CPU 搶光）。只解關鍵影格（每個 GOP 一張，約 2–4 秒一張）的成本降到
+    /// 1/GOP 以下，而且是**跳著解**：連 seek 都變快（不必解中間的 P/B 影格）。
+    /// 代價是那幾格以「每幾秒換一張」的節奏更新——這正是 64 宮格該有的語意，
+    /// 要看清細節就點那一格放大成單格（單格用原生解析度、完整帧率）。
+    /// </remarks>
+    public bool KeyframesOnly { get; set; }
+
+    /// <summary>上一次「帶了硬體解碼卻一幀都沒出」之後，停用它的期限。</summary>
+    private static DateTime _hwAccelDisabledUntil = DateTime.MinValue;
+
+    /// <summary>硬體解碼失敗後的冷卻時間。</summary>
+    private static readonly TimeSpan HwAccelCooldown = TimeSpan.FromMinutes(5);
+
     public bool IsPlaying { get; private set; }
 
     /// <summary>已播出幀數（供時間標記）。</summary>
@@ -69,6 +125,9 @@ public sealed class PlaybackSession : IAsyncDisposable
 
     /// <summary>已自管道讀入之總幀數（未節流，診斷用）。</summary>
     public int FramesRead { get; private set; }
+
+    /// <summary>因顯示上限而丟棄的影格數（丟棄發生在讀取之後，管線永遠被抽乾）。</summary>
+    public long FramesDropped { get; private set; }
 
     /// <summary>解碼出一幀（已依速率節奏）。</summary>
     public event EventHandler<VideoFrame>? FrameDecoded;
@@ -107,25 +166,79 @@ public sealed class PlaybackSession : IAsyncDisposable
     /// <see cref="AudioOutputArguments"/>）。只有檔案確實有音訊軌時才會傳入。
     /// </param>
     /// <param name="audioSampleRate">音訊輸出取樣率；須等於播放裝置協商出的值。</param>
+    /// <param name="displayWidth">解碼後縮到這個寬度（0＝不縮）；見 <see cref="DisplayWidth"/>。</param>
+    /// <param name="decodeThreads">解碼執行緒數（0＝由 ffmpeg 決定）；見 <see cref="DecodeThreads"/>。</param>
+    /// <param name="sourceWidth">來源寬度（<paramref name="displayWidth"/> 有值時用來算高度）。</param>
+    /// <param name="sourceHeight">來源高度。</param>
+    /// <param name="hwAccel">硬體解碼方式（<c>null</c>＝軟解）；須置於 <c>-i</c> 之前。</param>
+    /// <param name="keyframesOnly">只解關鍵影格（大格數總覽牆）；須置於 <c>-i</c> 之前。</param>
     public static IReadOnlyList<string> BuildDecodeArguments(
         string filePath,
         double seekSeconds,
         double durationSeconds,
         int audioPort = 0,
-        int audioSampleRate = AudioStreamReceiver.DefaultSampleRate)
+        int audioSampleRate = AudioStreamReceiver.DefaultSampleRate,
+        int displayWidth = 0,
+        int decodeThreads = 0,
+        int sourceWidth = 0,
+        int sourceHeight = 0,
+        string? hwAccel = null,
+        bool keyframesOnly = false)
     {
         var args = new List<string>
         {
             "-hide_banner",
             "-loglevel", "error",
-            "-ss", seekSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture),
-            "-i", filePath,
         };
+
+        // 與即時監看同一條規則：-hwaccel 必須在 -i 之前（對解碼器生效）。
+        if (!string.IsNullOrWhiteSpace(hwAccel))
+        {
+            args.Add("-hwaccel");
+            args.Add(hwAccel);
+        }
+
+        // 同樣是解碼器選項，必須在 -i 之前：只解關鍵影格（大格數的總覽牆）。
+        if (keyframesOnly)
+        {
+            args.Add("-skip_frame");
+            args.Add("nokey");
+        }
+
+        // 解碼執行緒數必須在 -i 之前（對解碼器生效）。大量並行時要限制：64 路各開 8 條執行緒
+        // 就是 512 條在 8 核心上打架，總吞吐反而比每路 1 條差。
+        if (decodeThreads > 0)
+        {
+            args.Add("-threads");
+            args.Add(decodeThreads.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        }
+
+        args.Add("-ss");
+        args.Add(seekSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        args.Add("-i");
+        args.Add(filePath);
 
         if (durationSeconds > 0)
         {
             args.Add("-t");
             args.Add(durationSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        }
+
+        // 多格回放的每一格在畫面上只有幾百（甚至一百多）像素寬，卻照 1920 解碼：
+        // 解碼後的 6MB 原始影格要經過管線、複製、再寫進 WPF 點陣圖，全部只是為了畫縮圖。
+        // 在解碼端就縮到顯示需要的寬度，管線與 UI 成本等比下降（64 路時是唯一可行的做法）。
+        // -2 讓高度自動取偶數（yuv420p 需要）；呼叫端已確認來源比目標寬，這裡不上採樣。
+        if (displayWidth > 0)
+        {
+            // 高度自己算（不用 -2 讓 ffmpeg 算）：解碼端吐出來的影格尺寸必須與這裡算的一模一樣，
+            // 差一個像素就是每一張影格都錯位（畫面全黑或斜切）。算完取偶數（yuv420p 需要）。
+            var height = ScaledHeight(displayWidth, sourceWidth, sourceHeight);
+            args.Add("-vf");
+            args.Add(string.Format(
+                System.Globalization.CultureInfo.InvariantCulture,
+                "scale={0}:{1}",
+                displayWidth,
+                height));
         }
 
         args.AddRange(
@@ -147,6 +260,30 @@ public sealed class PlaybackSession : IAsyncDisposable
         }
 
         return args;
+    }
+
+    /// <summary>
+    /// 縮放後的偶數高度（與 <see cref="BuildDecodeArguments"/> 送進 ffmpeg 的數字完全相同）。
+    /// </summary>
+    /// <remarks>
+    /// 呼叫端要用它算影格大小：解碼端吐出來的尺寸與這裡算的必須一致，差一個像素就是每一張
+    /// 影格都錯位（畫面全黑或斜切），而症狀在日誌上完全看不出來。來源尺寸未知時回 0
+    /// （呼叫端就不縮放）。
+    /// </remarks>
+    public static int ScaledHeight(int displayWidth, int sourceWidth, int sourceHeight)
+    {
+        if (displayWidth <= 0 || sourceWidth <= 0 || sourceHeight <= 0)
+        {
+            return 0;
+        }
+
+        var height = (int)Math.Round(sourceHeight * (double)displayWidth / sourceWidth);
+        if (height < 2)
+        {
+            height = 2;
+        }
+
+        return height % 2 == 0 ? height : height + 1;
     }
 
     /// <summary>
@@ -335,7 +472,21 @@ public sealed class PlaybackSession : IAsyncDisposable
         // 有音訊軌才掛：舊錄影（或當初沒開音訊的攝影機）的檔案沒有音訊串流，
         // 對它下 `-map 0:a:0` 會讓 ffmpeg 直接失敗，連畫面都沒有。
         var audioPort = AudioOutputArguments.ResolvePort(AudioPort, info.AudioCodec is not null);
-        foreach (var arg in BuildDecodeArguments(Segment.FilePath, seekSeconds, remaining, audioPort, AudioSampleRate))
+
+        // 只有來源真的比目標寬才縮：比來源還寬的 scale 會放大（更貴、更糊），而且
+        // 解析度小的舊錄影（或子碼流錄影）本來就不需要縮。
+        var displayWidth = DisplayWidth > 0 && info.Width > DisplayWidth ? DisplayWidth : 0;
+
+        // 硬體解碼：先問本機 ffmpeg 支不支援（不支援就不用），且避開前次失敗的冷卻期。
+        var hwAccel = DateTime.UtcNow < _hwAccelDisabledUntil
+            ? null
+            : FfmpegHwAccel.ShouldUse(RtspClient.NormalizeHwAccel(HwAccel), FfmpegHwAccel.ProbeCached(_ffmpeg, TimeSpan.FromSeconds(5)))
+                ? RtspClient.NormalizeHwAccel(HwAccel)
+                : null;
+
+        foreach (var arg in BuildDecodeArguments(
+            Segment.FilePath, seekSeconds, remaining, audioPort, AudioSampleRate,
+            displayWidth, DecodeThreads, info.Width, info.Height, hwAccel, KeyframesOnly))
         {
             psi.ArgumentList.Add(arg);
         }
@@ -350,8 +501,13 @@ public sealed class PlaybackSession : IAsyncDisposable
         // 只在這裡，是診斷「0 幀、日誌乾淨」的唯一線索。
         var stderr = proc.StandardError.ReadToEndAsync();
 
-        var frameSize = info.Width * info.Height * 3;
+        // 縮放後每一格的影格尺寸＝送進 ffmpeg 的那組數字（見 ScaledHeight 的說明）。
+        var width = displayWidth > 0 ? displayWidth : info.Width;
+        var height = displayWidth > 0 ? ScaledHeight(displayWidth, info.Width, info.Height) : info.Height;
+        var frameSize = width * height * 3;
         var buffer = new byte[frameSize];
+        var gate = new FrameRateGate();
+        double lastDecisionMs = 0;
         var fps = info.Fps > 0 ? info.Fps : 25;
         var sw = Stopwatch.StartNew();
 
@@ -390,6 +546,21 @@ public sealed class PlaybackSession : IAsyncDisposable
                 }
 
                 FramesRead++;
+
+                // 顯示上限：讀進來才丟（管線永遠抽乾，時間軸不會愈拖愈舊）。與即時監看同一套
+                // 令牌桶：攝影機錄下來的影格也不是等間距的，嚴格等間距會吃掉每一批的第二張。
+                var decisionMs = sw.Elapsed.TotalMilliseconds;
+                // 上限是「每秒畫幾張」的絕對值（牆鐘），不隨倍速放大：它的用途是保護 UI，
+                // 而每一張的繪製成本與倍速無關。大格數時操作員要的是「每一格都有畫面」，
+                // 不是「幾格很順、其他格黑掉」。
+                if (!gate.Admit(TimeSpan.FromMilliseconds(decisionMs - lastDecisionMs), MaxFramesPerSecond))
+                {
+                    FramesDropped++;
+                    lastDecisionMs = decisionMs;
+                    continue;
+                }
+
+                lastDecisionMs = decisionMs;
 
                 var currentSpeed = Speed;
                 if (currentSpeed <= 0)
@@ -437,8 +608,10 @@ public sealed class PlaybackSession : IAsyncDisposable
                 lastContentMs = contentMs;
                 FrameDecoded?.Invoke(this, new VideoFrame
                 {
-                    Width = info.Width,
-                    Height = info.Height,
+                    // 縮放後的尺寸（不是探測到的來源尺寸）：宣告錯一級，UI 就會用錯的行距
+                    // 複製整張圖——畫面全黑或斜切，而日誌乾淨。
+                    Width = width,
+                    Height = height,
                     Pixels = (byte[])buffer.Clone(),
                     TimestampUtc = Segment.StartUtc.AddSeconds(seekSeconds + (contentMs / 1000.0)),
                     PtsMs = contentMs,
@@ -474,6 +647,14 @@ public sealed class PlaybackSession : IAsyncDisposable
                 new InvalidOperationException($"ffmpeg 解碼失敗（結束碼 {proc.ExitCode}）：{detail}"));
             Ended?.Invoke(this, new PlaybackEndedEventArgs(Segment, false));
             return;
+        }
+
+        // 帶了硬體解碼卻一幀都沒出＝這個加速方式在本機不可用（驅動被佔用、GPU 不支援這個
+        // profile）：全域停用一段冷卻時間，讓後續每一格（64 路時是其他 63 格）直接走軟解，
+        // 而不是各自再撞一次同樣的牆。
+        if (hwAccel is not null && FrameIndex == 0)
+        {
+            _hwAccelDisabledUntil = DateTime.UtcNow + HwAccelCooldown;
         }
 
         // 取消也可能從「讀取迴圈的上緣」離開（讀取還沒開始就被停止）：那時它不是播完，

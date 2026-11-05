@@ -17,6 +17,29 @@ namespace HeliVMS.Recording.Tests;
 /// </summary>
 public sealed class PlaybackSyncTimingTests
 {
+    /// <summary>
+    /// 大格數總覽牆（只解關鍵影格）不能沿用 0.4 秒的容差判定。
+    /// </summary>
+    /// <remarks>
+    /// 關鍵影格之間是一個 GOP（現場實測 2–20 秒），所以那一格顯示的時刻本來就會落後母鐘
+    /// 最多一個 GOP。用 0.4 秒判定「該重新對時」的話，64 條解碼行程每一輪（150ms）都會被
+    /// 重開一次：畫面永遠起不來，CPU 全花在啟動 ffmpeg 上，而日誌乾淨。
+    /// </remarks>
+    [Fact]
+    public void 總覽牆的容差比一個GOP還大()
+    {
+        Assert.True(PlaybackSyncPlanner.OverviewDriftToleranceSeconds >= 20);
+
+        // 落後 5 秒的關鍵影格格：總覽容差下不重開，一般容差下才重開。
+        const double drift = 5;
+        Assert.False(PlaybackSyncPlanner.ShouldReseek(
+            drift, waitingForFirstFrame: false, secondsSinceStart: 30,
+            PlaybackSyncPlanner.OverviewDriftToleranceSeconds));
+        Assert.True(PlaybackSyncPlanner.ShouldReseek(
+            drift, waitingForFirstFrame: false, secondsSinceStart: 30,
+            PlaybackSyncPlanner.DefaultDriftToleranceSeconds));
+    }
+
     [Fact]
     public void 對時跳轉會補上這一格的啟動延遲()
     {

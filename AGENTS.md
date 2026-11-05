@@ -377,6 +377,24 @@ Notes that will save you time:
   `LiveViewCounterTrackerTests`, `進度回報跟不上牆鐘時回報管線落後`,
   `超過顯示上限的影格是先讀進來才丟棄`, `進度回報不會蓋掉連線失敗原因` and
   `LiveViewDiagnosticsContractTests`.
+- **Multi-pane playback scales to 64 panes only because each pane's decode is budgeted — and the
+  budget is coupled to the sync tolerance.** 現場要求「多路回放最多 64 路」。64 格各解一條 1080p
+  在算術上就是不可能的（一格 6MB 原始影格、畫面上卻只有約 110–160 像素寬），實測（本機 8 核心、
+  **同時還在錄 6 路**）：64 路原生解析度＝每格 1fps 而且把錄影的 CPU 搶光；硬體解碼只到每格 2.5fps。
+  `PlaybackWallBudget.For(cells, hardwareDecode)`（純函式，行為測試在 Shared.Tests）給每一格
+  縮放寬度、更新率上限、解碼執行緒數，36 格以上再切到**只解關鍵影格**（`-skip_frame nokey`）：
+  成本降到 1/GOP，量到的結果是 64 格首格 12 秒內到齊、之後每格每 2–20 秒換一張（＝那個 GOP 的
+  長度）。**兩個必須一起改的地方**：①36 格以上的對時容差要用
+  `PlaybackSyncPlanner.OverviewDriftToleranceSeconds`（30 秒）而不是 0.4 秒——關鍵影格天生落後母鐘
+  一個 GOP，用 0.4 秒判定會讓 64 條解碼行程每 150ms 被重開一次（畫面永遠開不起來、CPU 全花在
+  啟動 ffmpeg，日誌乾淨）；②`DisplayWidth` 的高度**自己算**（`PlaybackSession.ScaledHeight`，取偶數），
+  不可用 ffmpeg 的 `scale=W:-2`——回報給 UI 的影格尺寸必須與 ffmpeg 真正輸出的完全一致，
+  差一個像素就是每一張影格錯位（畫面全黑或斜切）。硬體解碼沿用即時監看的 `decode.hwaccel`
+  設定與探測，並有**全域冷卻**：一次「帶了 -hwaccel 卻一幀都沒出」就停用五分鐘，
+  否則 64 格會各自再撞一次同樣的牆。面板清單（1/2/4/9/16/25/36/64）與格數一律取自
+  `PlaybackWallBudget.SplitOptions`，UI 不要再抄一份。
+  Guarded by `PlaybackWallBudgetTests`, `PlaybackDecodeScalingTests`（含真實 ffmpeg 的縮放尺寸驗收）、
+  `總覽牆的容差比一個GOP還大` and `PlaybackWallScaleContractTests`.
 - **The playback control bar must expose stepping and looping with the mouse, not only on the
   keyboard.** 現場盤點：回放只看得到播放／暫停／速度，逐幀與跳段只有鍵盤（F、PageUp…），而
   「上一張」根本不存在——新進的操作員不會知道那些鍵，也不該被要求記。現在有四顆按鈕

@@ -70,6 +70,9 @@
                     <ComboBoxItem Content="4"/>
                     <ComboBoxItem Content="9"/>
                     <ComboBoxItem Content="16"/>
+                    <ComboBoxItem Content="25"/>
+                    <ComboBoxItem Content="36"/>
+                    <ComboBoxItem Content="64"/>
                 </ComboBox>
                 <TextBlock x:Name="WallCapacityText" Text="" Foreground="{StaticResource Brand.TextDim}" FontSize="11"
                            VerticalAlignment="Center" Margin="8,0,0,0" ToolTip=""
