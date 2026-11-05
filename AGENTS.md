@@ -330,6 +330,23 @@ Notes that will save you time:
   `PlaybackWindow` treat 停止 as 已播畢, so pressing play afterwards restarts from the segment
   head (the field symptom was "stop then play jumps back to the beginning").
   Guarded by `次畫面播完後母鐘還在同段時不會一直重開` and `取消而結束的播放回報未完成`.
+- **The wall-clock anchor of a segment lives in the index, not in the file — and it is the ffmpeg
+  *launch* time.** `segments.start_time` is written by `BeginSegment` before ffmpeg connects, while
+  the file's first frame arrives after the RTSP session is established; `duration_sec` is the
+  wall-clock span of the process, not the content length. Measured on the live system: healthy
+  cameras start 0.6–0.9 s late (harmless, and it is why the pane hold rule exists), but one camera
+  takes 2–14 s per segment, so its claimed instants are that far *earlier* than the content really
+  is — a constant per-segment offset that no playback-side change can recover, because the file
+  carries no wall clock (PTS starts at 0, no `creation_time` tag). Two consequences: (1) a heading
+  like "multi-pane playback is off by N seconds for camera X" is this, not the sync logic — check
+  `duration_sec` against the file's real span (`ffprobe -show_entries packet=pts_time`, last minus
+  first) before touching `PlaybackSyncPlanner`; (2) **do not "correct" it at playback time by
+  shifting every instant by `duration_sec − content span`**: an internal stall (camera stalls
+  mid-segment) is indistinguishable from a slow session start, and shifting a whole segment by the
+  stall total moves the early part *further* off. Fixing it properly means recording the first
+  frame's arrival (or `-use_wallclock_as_timestamps`) and teaching `RecordingDiskImporter` the same
+  value, since the importer derives `start_time` from the `seg-HHmmssfff.mp4` filename (the launch
+  time). Until then the offset is at most part of a second on healthy cameras.
 - **The playback control bar must expose stepping and looping with the mouse, not only on the
   keyboard.** 現場盤點：回放只看得到播放／暫停／速度，逐幀與跳段只有鍵盤（F、PageUp…），而
   「上一張」根本不存在——新進的操作員不會知道那些鍵，也不該被要求記。現在有四顆按鈕
