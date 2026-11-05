@@ -205,9 +205,15 @@ public sealed class AutoStartMonitoringContractTests
 
         // 收到影格＝地面真相：不是 Streaming 就補成 Streaming，否則文字永遠卡在「未連線」。
         Assert.Contains("_cellStates[cell] = RtspState.Streaming", body);
-        // 文字更新不可再只限 Streaming，那正是卡住不動的原因。
+        // 文字更新不可再只限 Streaming，那正是卡住不動的原因（現在整段改由每秒的計時器負責）。
         Assert.DoesNotContain("if (_cellStates[cell] == RtspState.Streaming)", body);
-        Assert.Contains("RenderCellStatusText(cell)", body);
+
+        // 文字的重畫搬到每秒的 UpdateCellMetrics（見 RenderCellFrame 的註解：狀態文字顯示的是
+        // 一秒才變一次的統計值，每張影格重排只是白花 UI 成本）。這裡要確認那條路還在——
+        // 搬到計時器卻忘了在計時器裡呼叫，症狀與原本的「卡在未連線」一模一樣。
+        Assert.DoesNotContain("RenderCellStatusText(cell)", body);
+        var metrics = SourceContract.BodyOf(SourceContract.Read(MainWindow), "UpdateCellMetrics");
+        Assert.Contains("RenderCellStatusText(", metrics);
     }
 
     /// <summary>按住畫面左鍵拖到別格，放開即調整攝影機順序。</summary>

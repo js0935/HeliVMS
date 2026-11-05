@@ -28,7 +28,6 @@ public sealed class MotionEventEngine : IDisposable
     private int _firstMotionHeight;
     private bool _snapshotReady;
     private double _peakRatio;
-    private VideoFrame? _lastFrame;
 
     public MotionEventEngine(int channelId, AlarmEventRepository repo, string snapshotDir, double sensitivity = 0.5,
         Func<DateTime>? utcNow = null)
@@ -56,7 +55,6 @@ public sealed class MotionEventEngine : IDisposable
         double ratio;
         lock (_gate)
         {
-            _lastFrame = frame;
             FramesProcessed++;
             ratio = _detector.Update(frame);
             nowUtc = _utcNow();
@@ -110,7 +108,6 @@ public sealed class MotionEventEngine : IDisposable
             _armed = false;
             _snapshotReady = false;
             _detector.Reset();
-            _lastFrame = null;
         }
     }
 
@@ -167,7 +164,6 @@ public sealed class MotionEventEngine : IDisposable
             $"duration={duration:0}ms peak={_peakRatio:0%}");
         var end = _lastMotionUtc > _armedUtc ? _lastMotionUtc : resolvedUtc;
         _repo.UpdateEnd(id, end, snapshotPath);
-        _lastFrame = null;
         EventInserted?.Invoke(this, new AlarmEventRecord
         {
             Id = id,

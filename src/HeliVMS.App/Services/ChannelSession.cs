@@ -3,6 +3,7 @@ using System.IO;
 using HeliVMS.Alarms;
 using HeliVMS.Media;
 using HeliVMS.Recording;
+using HeliVMS.Shared;
 using HeliVMS.Shared.Models;
 using HeliVMS.Storage;
 using StreamKind = HeliVMS.Storage.StreamKind;
@@ -201,6 +202,32 @@ public sealed class ChannelSession : IDisposable
     /// 但從來沒有任何 UI 讀過它——資訊已經算好了卻沒人看。
     /// </remarks>
     public string LastDiagnostic => EffectiveClient.LastDiagnostic;
+
+    /// <summary>
+    /// 本機解碼管線積了多少影格（＝畫面會不會愈拖愈舊）；讀不到回報時為 <c>null</c>。
+    /// </summary>
+    /// <remarks>
+    /// 操作員回報「畫面延遲」時要分辨兩件事：影像離現場多遠（攝影機 ＋ 網路 ＋ 解碼緩衝，
+    /// 本機量不到——ffmpeg 會把輸出時間歸零）與本機有沒有落後（這一項，可以修）。
+    /// 後者持續變大才是這台機器的問題。
+    /// </remarks>
+    public TimeSpan? StreamBacklog => EffectiveClient.CurrentStreamBacklog;
+
+    /// <summary>解碼診斷快照（累計計數＋最近影格尺寸）。</summary>
+    /// <remarks>
+    /// 刻意是<em>方法</em>而不是屬性：桌面端的契約測試以原始碼掃描（<c>SourceContract.BodyOf</c>）
+    /// 確認接線，而它只認得方法簽章——屬性會被讀成空字串，守衛形同不存在。
+    /// </remarks>
+    public DecodeSnapshot GetDecodeSnapshot()
+        => new(
+            EffectiveClient.FramesRead,
+            EffectiveClient.FramesEmitted,
+            EffectiveClient.FramesDropped,
+            EffectiveClient.FrameSize.Width,
+            EffectiveClient.FrameSize.Height);
+
+    /// <summary>已讀／已送出／因顯示上限丟棄的影格數，與最近一次的影格尺寸。</summary>
+    public readonly record struct DecodeSnapshot(long Read, long Emitted, long Dropped, int Width, int Height);
 
     public event EventHandler<VideoFrame>? FrameArrived;
 

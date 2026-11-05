@@ -347,6 +347,36 @@ Notes that will save you time:
   frame's arrival (or `-use_wallclock_as_timestamps`) and teaching `RecordingDiskImporter` the same
   value, since the importer derives `start_time` from the `seg-HHmmssfff.mp4` filename (the launch
   time). Until then the offset is at most part of a second on healthy cameras.
+- **Live view: find out which side owns the delay before "optimising" it — the picture looks the
+  same for all three.** 現場回報「即時監看會延遲」時，症狀只有一種，原因卻可能在三段完全不同的
+  地方：①攝影機 ＋ 網路 ＋ 解碼緩衝（本機量不到，也修不了）；②本機管線積影格（畫面**愈拖愈舊**，
+  可以修）；③UI 佇列積影格（UI 執行緒跟不上）。`%TEMP%\helivms-live.log` 每 5 秒一行
+  （`LiveViewDiagnosticLine`，上限 512KB）把三段分開寫：`read/emit/drop` 每秒率
+  （`RtspClient.FramesRead`／`FramesEmitted`／`FramesDropped`；丟棄是**先讀進來才丟**，管線才會被
+  抽乾）、`backlog=`（本機管線落後，由 `-progress` 的 `out_time_us` 與牆鐘差推得）、`age=`（畫面
+  年齡，UI 佇列）、`shown=`（實際顯示 fps）與解析度。實測現場（6 台 640×360 子碼流、約 10fps）：
+  `read≈shown`、`drop=0`、`age` 20–150ms ⇒ 本機沒有落後，延遲在①——所以**不要再「優化」本機**，
+  先看這一行字。
+  **不要為了填一個「延遲 xx ms」而編數字。** 絕對延遲在本機量不到：ffmpeg 會把輸出時間歸零
+  （實測 `-copyts` 也一樣：`out_time_us=0`；`showinfo` 的 `pts_time` 同樣從 0 起算），所以畫面上
+  顯示的是「本機落後量」，量不到就顯示「—」。`-use_wallclock_as_timestamps 1` 只影響時間戳
+  （畫面順序由 H.264 的 POC 決定，已用 loopback 伺服器驗過），但它是讓 backlog 可信的關鍵：
+  攝影機自己的時鐘快慢才不會被誤算成落後。
+  **`-progress` 的行必須被過濾掉**（`RtspClient.IsProgressLine`）：它們每秒十幾行，一旦混進
+  stderr 尾端那 20 行，操作員看到的「連線失敗原因」會變成 `out_time_us=…`（真正的 401 被擠掉）。
+  每一格的狀態文字只在 1 秒的計時器更新（`UpdateCellMetrics`），不要恢復成每一張影格重排——
+  那是最白花的一種 UI 成本，而且那些數字一秒才變一次。
+  **顯示上限要用令牌桶，不是「距上一張至少 1/上限 秒」。** 攝影機是一陣一陣送的（現場實測
+  一批兩三張貼在同幾毫秒內），嚴格等間距會把每一批的第二張丟掉：診斷日誌同時出現
+  `read=15/s`、`drop=4–9/s`、`shown=5–10/s`——**畫面比攝影機原本還頓**，而 operator 只說得出
+  「有點不流暢」。`FrameRateGate`（令牌桶，burst 2 張）修好之後同一組鏡頭變成
+  `read=15/s`、`shown=15/s`、`drop≈0/s`（實測 6 路）。丟棄仍必須發生在讀取之後（管線抽乾）。
+  同理，`FrameRateMeter` 要拒收同一毫秒的重複影格並把回報值夾在上限內：抖動時它算過
+  `shown=772/s`，那種數字會被誤讀成「機器很快」而蓋掉真正的訊號（低 fps、高年齡）。
+  Guarded by `LiveViewDiagnosticLineTests`, `LiveFrameRatesTests`, `FrameRateGateTests`,
+  `LiveViewCounterTrackerTests`, `進度回報跟不上牆鐘時回報管線落後`,
+  `超過顯示上限的影格是先讀進來才丟棄`, `進度回報不會蓋掉連線失敗原因` and
+  `LiveViewDiagnosticsContractTests`.
 - **The playback control bar must expose stepping and looping with the mouse, not only on the
   keyboard.** 現場盤點：回放只看得到播放／暫停／速度，逐幀與跳段只有鍵盤（F、PageUp…），而
   「上一張」根本不存在——新進的操作員不會知道那些鍵，也不該被要求記。現在有四顆按鈕

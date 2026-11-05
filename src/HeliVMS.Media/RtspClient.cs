@@ -99,6 +99,15 @@ public sealed class RtspClient : IAsyncDisposable
         {
             "-hide_banner", "-loglevel", "error",
             "-rtsp_transport", "tcp",
+
+            // 每一格的封包時間戳改成「本機收到它的牆鐘時刻」：即時監看唯一需要的是
+            // 「這條串流現在離現場多遠」，而攝影機的 RTP 時間戳是相對時鐘，對不到牆鐘。
+            // 只影響時間戳，不影響畫面（解碼器輸出順序由 H.264 的畫面序決定）。
+            "-use_wallclock_as_timestamps", "1",
+
+            // 每秒把「最新解出的那一格是哪一刻」寫到 stderr（見 ParseProgress）。
+            // 這是操作員唯一能分辨「延遲在攝影機／網路」還是「在本機管線」的數字。
+            "-progress", "pipe:2", "-stats_period", "1",
         };
 
         var accel = NormalizeHwAccel(hwAccel);
@@ -197,6 +206,39 @@ public sealed class RtspClient : IAsyncDisposable
     /// 用於回答「為何這個頻道連不上」而毋須洩漏憑證。
     /// </summary>
     public string LastDiagnostic { get; private set; } = string.Empty;
+
+    /// <summary>已從解碼管線讀到的影格數（含因顯示上限而丟棄的）。</summary>
+    /// <remarks>診斷用；由讀取迴圈單執行緒寫入，讀取端容許舊值。</remarks>
+    public long FramesRead { get; private set; }
+
+    /// <summary>已對外送出的影格數。</summary>
+    public long FramesEmitted { get; private set; }
+
+    /// <summary>因 <see cref="MaxFramesPerSecond"/> 而丟棄的影格數。</summary>
+    /// <remarks>
+    /// 丟棄是「先讀進來再丟」：ffmpeg 的管線永遠被抽乾，延遲才不會隨時間累積。
+    /// 這個數字若長期是 0，代表上限比來源還高（白白多解碼）；若佔比很高，代表上限太低。
+    /// </remarks>
+    public long FramesDropped { get; private set; }
+
+    /// <summary>最近一次解出的影格尺寸（0×0＝還沒有影格）。</summary>
+    public (int Width, int Height) FrameSize { get; private set; }
+
+    /// <summary>
+    /// 本機解碼管線積了多少秒的影格（＝輸出進度自第一筆回報以來落後牆鐘多少）。
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// 由 <c>-progress</c> 的 <c>out_time_us</c> 與牆鐘的差推得。為什麼不是「絕對延遲」：
+    /// ffmpeg 會把輸出時間歸零，所以影像離現場多遠（攝影機 ＋ 網路 ＋ 解碼緩衝）**在本機量不到**；
+    /// 硬要報一個數字只能是編的。這裡報的是本機唯一該負責的那一段——管線有沒有積影格；
+    /// 它若持續變大，畫面就會愈拖愈舊（現場回報的「延遲」），而且是這台機器可以修的。
+    /// </para>
+    /// <para>
+    /// 沒有進度回報時為 <c>null</c>：欄位顯示「—」，不可寫 0——0 讀起來像「完全沒有落後」。
+    /// </para>
+    /// </remarks>
+    public TimeSpan? StreamBacklog { get; private set; }
 
     /// <summary>解碼出一幀。</summary>
     public event EventHandler<VideoFrame>? FrameDecoded;
@@ -401,6 +443,11 @@ public sealed class RtspClient : IAsyncDisposable
         _process = proc;
         IsRunning = true;
 
+        // 上一條連線的數字不能留著：重連後的操作員要看的是「現在」多遠，不是上一條的殘值。
+        StreamBacklog = null;
+        _progressAtUtc = DateTime.MinValue;
+        _progressAnchorUtc = DateTime.MinValue;
+
         // 登錄到全域行程表：監看解碼 ffmpeg 是每顯示頻道一個的常駐子行程。
         using var job = _registry.Register(FfmpegJobKind.Decode, RtspUri.Redact(RtspUrl));
 
@@ -416,6 +463,15 @@ public sealed class RtspClient : IAsyncDisposable
                 using var reader = proc.StandardError;
                 while (await reader.ReadLineAsync().ConfigureAwait(false) is { } line)
                 {
+                    // -progress 每秒寫一行 key=value。那些行不是診斷訊息，混進尾端會把真正的
+                    // 錯誤（帳密錯、串流不合）擠出 20 行之外——操作員看到的「原因」就變成
+                    // 「out_time_us=…」這種天書。
+                    if (IsProgressLine(line))
+                    {
+                        ParseProgress(line);
+                        continue;
+                    }
+
                     lock (stderrGate)
                     {
                         stderrTail.Enqueue(line);
@@ -436,8 +492,11 @@ public sealed class RtspClient : IAsyncDisposable
         var frameSize = width * height * 3;
         var buffer = new byte[frameSize];
         var sw = Stopwatch.StartNew();
-        var emitIntervalMs = MaxFramesPerSecond > 0 ? 1000.0 / MaxFramesPerSecond : 0;
-        long lastEmitMs = 0;
+
+        // 顯示上限用令牌桶而不是「距上一張至少 1/上限 秒」：攝影機送出來的影格是一陣一陣的，
+        // 嚴格等間距會把每一批的第二張丟掉（實測 read=15/s 卻只 shown=5–10/s，比來源還頓）。
+        var gate = new FrameRateGate();
+        long lastDecisionMs = 0;
         var firstFrame = true;
 
         try
@@ -475,17 +534,20 @@ public sealed class RtspClient : IAsyncDisposable
                     offset += read;
                 }
 
+                FramesRead++;
+
 var nowMs = sw.ElapsedMilliseconds;
-                // 首幀不做幀率節流：若 ffmpeg 啟動後 <1 幀間隔（e.g. MaxFramesPerSecond=30 時 <33ms）
-                // 就完成了首幀讀取，`nowMs - lastEmitMs(0) < emitIntervalMs` 會誤把第一幀 skip，
-                // 而 firstFrame 又尚未轉 false，導致對「單一瞬間輸出」的來源（及測試 stub）
-                // 永遠收不到首幀、反覆重連（lastEmitMs 只在非 skip 時更新）。
-                if (!firstFrame && nowMs - lastEmitMs < emitIntervalMs)
+                // 令牌桶自己處理「第一張一定出畫」（起始令牌是滿的），所以不必再為首幀開特例；
+                // 丟棄一律發生在讀取之後：管線永遠被抽乾，延遲才不會隨時間累積。
+                var elapsed = TimeSpan.FromMilliseconds(nowMs - lastDecisionMs);
+                lastDecisionMs = nowMs;
+                if (!gate.Admit(elapsed, MaxFramesPerSecond))
                 {
+                    FramesDropped++;
                     continue;
                 }
-
-                lastEmitMs = nowMs;
+                FramesEmitted++;
+                FrameSize = (width, height);
                 if (State != RtspState.Streaming)
                 {
                     SetState(RtspState.Streaming);
@@ -554,6 +616,94 @@ var nowMs = sw.ElapsedMilliseconds;
             }
         }
     }
+
+    /// <summary><c>-progress</c> 寫出的 key=value 行（不是診斷訊息）。</summary>
+    /// <remarks>
+    /// 只認已知的鍵：誤判一般診斷訊息為進度會讓它從 <see cref="LastDiagnostic"/> 消失，
+    /// 而那正是操作員唯一看得到的失敗原因。
+    /// </remarks>
+    private static bool IsProgressLine(string line)
+    {
+        foreach (var key in ProgressKeys)
+        {
+            if (line.StartsWith(key, StringComparison.Ordinal))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static readonly string[] ProgressKeys =
+    [
+        "frame=", "fps=", "stream_0_0_q=", "bitrate=", "total_size=", "out_time_us=", "out_time_ms=",
+        "out_time=", "dup_frames=", "drop_frames=", "speed=", "progress=",
+    ];
+
+    /// <summary>
+    /// 從 <c>-progress</c> 的 <c>out_time_us</c> 更新 <see cref="StreamBacklog"/>。
+    /// </summary>
+    /// <remarks>
+    /// ffmpeg 會把輸出時間歸零（實測 <c>-copyts</c> 也一樣），所以只能比較「變化量」：
+    /// 以第一筆回報為錨，之後「牆鐘走了多久」減「輸出時間走了多久」就是管線積了多少影格。
+    /// 因為參數帶了 <c>-use_wallclock_as_timestamps</c>，輸出時間的推進就是影格的**到達**時間，
+    /// 攝影機自己的時鐘快慢不會被誤算成落後。
+    /// </remarks>
+    private void ParseProgress(string line)
+    {
+        const string Prefix = "out_time_us=";
+        if (!line.StartsWith(Prefix, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        var text = line[Prefix.Length..].Trim();
+        if (text.Length == 0 || text == "N/A"
+            || !long.TryParse(text, System.Globalization.NumberStyles.Integer,
+                System.Globalization.CultureInfo.InvariantCulture, out var outUs)
+            || outUs <= 0)
+        {
+            return;
+        }
+
+        var now = DateTime.UtcNow;
+        if (_progressAtUtc == DateTime.MinValue)
+        {
+            // 錨點：這一刻的落後量定義為 0（起點無法得知，也不該假裝知道）。
+            _progressAnchorUtc = now;
+            _progressAnchorOutUs = outUs;
+            _progressAtUtc = now;
+            StreamBacklog = TimeSpan.Zero;
+            return;
+        }
+
+        var wallDelta = (now - _progressAnchorUtc).TotalMilliseconds;
+        var outputDelta = (outUs - _progressAnchorOutUs) / 1000.0;
+        var backlog = wallDelta - outputDelta;
+
+        // 合理區間：0 到 10 分鐘。負值（回報順序或時鐘抖動）與爆量都歸零，
+        // 免得畫面上出現一個操作員無法解釋的數字。
+        StreamBacklog = backlog is > 0 and < 600_000
+            ? TimeSpan.FromMilliseconds(backlog)
+            : TimeSpan.Zero;
+        _progressAtUtc = now;
+    }
+
+    /// <summary>落後量的錨點（第一筆進度回報的牆鐘與輸出時間）。</summary>
+    private DateTime _progressAnchorUtc = DateTime.MinValue;
+    private long _progressAnchorOutUs;
+
+    /// <summary>
+    /// 目前可用的落後值：進度回報中斷超過 10 秒就不再宣稱（畫面停住時舊數字會騙人）。
+    /// </summary>
+    public TimeSpan? CurrentStreamBacklog =>
+        _progressAtUtc != DateTime.MinValue && DateTime.UtcNow - _progressAtUtc <= TimeSpan.FromSeconds(10)
+            ? StreamBacklog
+            : null;
+
+    /// <summary>最近一次收到進度回報的時刻（用來判斷落後值是否已經過期）。</summary>
+    private DateTime _progressAtUtc = DateTime.MinValue;
 
     /// <summary>
     /// 以 ffprobe 取得解析度與音訊編碼（逾時或取消會擲出，讓重連迴圈接手）。

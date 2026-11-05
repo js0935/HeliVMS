@@ -410,6 +410,32 @@ public class RtspClientTests
         ping -n 30 127.0.0.1 >nul
         """;
 
+    // 兩筆進度回報：輸出時間不動、牆鐘前進約 1 秒，之後才吐出一幀。
+    // 這是「本機讀取跟不上來源」的最小重現（進度回報本身是 ffmpeg -progress 的格式）。
+    // 停頓用 ping 到不回應的位址（-w 只在等不到回應時才真的等；ping 127.0.0.1 會立刻回來）。
+    private static string EmitProgressWithStall(string framePath) =>
+        $$"""
+        @echo off
+        echo out_time_us=1000000 1>&2
+        echo progress=continue 1>&2
+        ping -n 1 -w 1000 10.255.255.1 >nul
+        echo out_time_us=1000000 1>&2
+        echo progress=continue 1>&2
+        type "{{framePath}}"
+        ping -n 30 127.0.0.1 >nul
+        """;
+
+    // 先寫真正的失敗原因，再用 30 行進度回報淹掉它（每秒十幾行的真實形狀）。
+    // 篩選失效時，尾端 20 行只會剩下 out_time_us=…。
+    private const string ErrorThenProgressFlood =
+        """
+        @echo off
+        echo [rtsp @ 0] method DESCRIBE failed: 401 Unauthorized 1>&2
+        echo Error opening input files: Server returned 401 Unauthorized 1>&2
+        for /l %%i in (1,1,30) do @echo out_time_us=%%i000000 1>&2
+        echo progress=continue 1>&2
+        """;
+
     // 持續輸出多幀，讓「可重啟」與「Streaming 狀態」可被觀察。
     private static string EmitFramesContinuously(string framePath) =>
         $$"""
@@ -441,6 +467,128 @@ public class RtspClientTests
         echo done > "{marker}"
         ping -n 30 127.0.0.1 >nul
         """;
+
+    /// <summary>
+    /// 管線落後量：ffmpeg 的進度回報若跟不上牆鐘，就代表本機積了影格（畫面會愈拖愈舊）。
+    /// </summary>
+    /// <remarks>
+    /// 現場只說得出「畫面會延遲」，而延遲有兩段：影像離現場多遠（攝影機 ＋ 網路，本機量不到）
+    /// 與本機管線積了多少（可以修）。stub 刻意讓輸出時間原地不動而牆鐘前進 400ms——
+    /// 這正是「讀取迴圈跟不上來源」的樣子；若把 ParseProgress 改成直接信任回報值（或忘了錨點），
+    /// 這裡就會回 0 而永遠看不到落後。
+    /// </remarks>
+    [Fact]
+    public async Task 進度回報跟不上牆鐘時回報管線落後()
+    {
+        var dir = NewDir();
+        var probe = WriteStub(dir, "ffprobe.cmd", EchoResolution);
+        var frame = WriteFrame(dir);
+        var ffmpeg = WriteStub(dir, "ffmpeg.cmd", EmitProgressWithStall(frame));
+
+        await using var client = new RtspClient("rtsp://10.0.0.1/live.sdp", ffmpeg, probe)
+        {
+            ProbeTimeout = TimeSpan.FromSeconds(5),
+            FirstFrameTimeout = TimeSpan.FromSeconds(10),
+            FrameTimeout = TimeSpan.FromSeconds(10),
+        };
+
+        var got = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        client.FrameDecoded += (_, _) => got.TrySetResult();
+
+        await client.StartAsync();
+        await Task.WhenAny(got.Task, Task.Delay(TimeSpan.FromSeconds(20)));
+
+        Assert.True(client.FramesRead >= 1, "應該至少讀到一幀");
+        Assert.True(client.FramesEmitted >= 1, "應該至少送出一幀");
+        Assert.Equal((2, 2), client.FrameSize);
+
+        var backlog = client.CurrentStreamBacklog;
+        Assert.NotNull(backlog);
+        Assert.True(
+            backlog >= TimeSpan.FromMilliseconds(120),
+            $"落後量應反映牆鐘前進而輸出時間未動（實得 {backlog?.TotalMilliseconds:0}ms）");
+
+        await client.StopAsync();
+    }
+
+    /// <summary>
+    /// ffmpeg 的 -progress 行不得把真正的失敗原因擠出診斷尾端。
+    /// </summary>
+    /// <remarks>
+    /// 現場形狀：連線一開始就失敗（401／逾時），之後每秒十幾行進度回報繼續寫。
+    /// 若進度行也算「診斷訊息」，最後 20 行全是 <c>out_time_us=…</c>，
+    /// 操作員在「為什麼連不上」看到的是一串天書——而真正的原因已經被擠掉。
+    /// </remarks>
+    [Fact]
+    public async Task 進度回報不會蓋掉連線失敗原因()
+    {
+        var dir = NewDir();
+        var probe = WriteStub(dir, "ffprobe.cmd", EchoResolution);
+        var ffmpeg = WriteStub(dir, "ffmpeg.cmd", ErrorThenProgressFlood);
+
+        await using var client = new RtspClient("rtsp://10.0.0.1/live.sdp", ffmpeg, probe)
+        {
+            ProbeTimeout = TimeSpan.FromSeconds(5),
+            FirstFrameTimeout = TimeSpan.FromSeconds(5),
+            FrameTimeout = TimeSpan.FromSeconds(5),
+        };
+
+        var reconnecting = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        client.Reconnecting += (_, _) => reconnecting.TrySetResult();
+
+        await client.StartAsync();
+        await Task.WhenAny(reconnecting.Task, Task.Delay(TimeSpan.FromSeconds(15)));
+
+        // 診斷字串是在行程收尾、stderr 排乾之後才寫入；等它出現再斷言，
+        // 不然測到的是「還沒寫」而不是「被擠掉」。
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
+        while (client.LastDiagnostic.Length == 0 && DateTime.UtcNow < deadline)
+        {
+            await Task.Delay(50);
+        }
+
+        Assert.Contains("401 Unauthorized", client.LastDiagnostic);
+        Assert.DoesNotContain("out_time_us=", client.LastDiagnostic);
+
+        await client.StopAsync();
+    }
+
+    /// <summary>
+    /// 顯示上限丟棄的影格也要「先讀進來」：丟棄只在讀取之後發生，管線才會被抽乾。
+    /// </summary>
+    /// <remarks>
+    /// 若有人在讀取之前就跳過（例如先睡再讀），來源很快就會在管線裡積一長串影格，
+    /// 畫面看起來仍然流暢、只是愈拖愈舊——正是最難查的那種延遲。
+    /// </remarks>
+    [Fact]
+    public async Task 超過顯示上限的影格是先讀進來才丟棄()
+    {
+        var dir = NewDir();
+        var probe = WriteStub(dir, "ffprobe.cmd", EchoResolution);
+        var frame = WriteFrame(dir);
+        var ffmpeg = WriteStub(dir, "ffmpeg.cmd", EmitFramesContinuously(frame));
+
+        await using var client = new RtspClient("rtsp://10.0.0.1/live.sdp", ffmpeg, probe)
+        {
+            ProbeTimeout = TimeSpan.FromSeconds(5),
+            FirstFrameTimeout = TimeSpan.FromSeconds(10),
+            FrameTimeout = TimeSpan.FromSeconds(10),
+            MaxFramesPerSecond = 1,
+        };
+
+        var got = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        client.FrameDecoded += (_, _) => got.TrySetResult();
+
+        await client.StartAsync();
+        await Task.WhenAny(got.Task, Task.Delay(TimeSpan.FromSeconds(20)));
+        await Task.Delay(300);
+
+        Assert.True(client.FramesEmitted >= 1, "應該送出一幀");
+        Assert.True(client.FramesRead > client.FramesEmitted, "被丟棄的影格必須已經讀進來（管線抽乾）");
+        Assert.True(client.FramesDropped >= 1, "超過上限的影格要計入丟棄數，才看得出上限是否太低");
+
+        await client.StopAsync();
+    }
 
     private const string EchoResolution =
         """

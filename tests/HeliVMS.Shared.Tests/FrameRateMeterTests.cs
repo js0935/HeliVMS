@@ -122,6 +122,39 @@ public sealed class FrameRateMeterTests
         Assert.Equal(1, meter.SampleCount);
     }
 
+    /// <summary>
+    /// 同一毫秒內的批次抖動不得讓更新率爆表。
+    /// </summary>
+    /// <remarks>
+    /// 現場診斷日誌出現過 <c>shown=772/s</c>：攝影機是一批兩三張送出來，幾張貼在同幾毫秒內，
+    /// 而更新率是「(張數-1) ÷ 時間跨度」——分母趨近 0 就爆表。那個數字會被誤讀成
+    /// 「這台機器很快」，反而蓋掉真正的訊號（低 fps、高年齡）。
+    /// </remarks>
+    [Fact]
+    public void 同毫秒的重複影格不會讓更新率爆表()
+    {
+        var meter = new FrameRateMeter();
+        for (var i = 0; i < 50; i++)
+        {
+            meter.Record(T0);
+        }
+
+        Assert.Equal(1, meter.SampleCount);
+        Assert.Equal(0, meter.Fps);
+    }
+
+    [Fact]
+    public void 更新率有上限()
+    {
+        var meter = new FrameRateMeter();
+        for (var i = 0; i < 60; i++)
+        {
+            meter.Record(T0.AddMilliseconds(i));
+        }
+
+        Assert.InRange(meter.Fps, 1, FrameRateMeter.MaxFps);
+    }
+
     /// <summary>清空後不得殘留舊數字，否則中斷再連線會顯示上一段串流的 fps。</summary>
     [Fact]
     public void 清空後不留殘留數字()

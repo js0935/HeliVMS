@@ -42,9 +42,20 @@ public sealed class FrameRateMeter
             // 用第一張到最後一張的實際間隔當分母，而不是窗長：
             // 剛連線不到一秒時就能給出有意義的數字，不必等窗填滿。
             var span = (_window.Last() - _window.First()).TotalSeconds;
-            return span <= 0 ? 0 : (_window.Count - 1) / span;
+            if (span <= 0)
+            {
+                return 0;
+            }
+
+            // 上限：攝影機與網路都會「一陣一陣」送（現場實測一批兩三張貼在同幾毫秒內），
+            // 那一刻的分母趨近 0，算出來是幾百 fps。這個數字要回答的是「畫面有沒有在更新、
+            // 有沒有愈拖愈舊」——爆表的瞬時值只會蓋掉真正的訊號（低 fps、高年齡）。
+            return Math.Min((_window.Count - 1) / span, MaxFps);
         }
     }
+
+    /// <summary>回報的更新率上限（幀／秒）：抖動的瞬時值不該蓋掉真正的訊號。</summary>
+    public const double MaxFps = 240;
 
     /// <summary>窗內影格數（供測試與診斷）。</summary>
     public int SampleCount => _window.Count;
@@ -52,10 +63,16 @@ public sealed class FrameRateMeter
     /// <summary>記錄一張已畫上螢幕的影格時間（UTC）。</summary>
     public void Record(DateTime frameUtc)
     {
-        // 同一張影格重複送出（時間戳未變）不算數，否則時間戳異常時 fps 會爆表。
-        if (_window.Count > 0 && _window.Peek() > frameUtc)
+        if (_window.Count > 0 && frameUtc < _window.Last())
         {
+            // 時間倒退＝這是上一段的舊影格遲到（或新的串流段）：舊樣本不再代表現在。
             _window.Clear();
+        }
+        else if (_window.Count > 0 && frameUtc == _window.Last())
+        {
+            // 同一毫秒的兩張（現場的批次抖動就是這樣）不計入：分母趨近 0 會讓 fps 爆表，
+            // 而那個數字只會被誤讀成「這台機器很快」。
+            return;
         }
 
         _window.Enqueue(frameUtc);

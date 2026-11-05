@@ -1,4 +1,4 @@
-using System.IO;
+﻿using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -2870,8 +2870,9 @@ public partial class MainWindow : Window
             }
         }
 
-        RenderCellStatusText(cell);
-
+        // 狀態文字（fps／延遲／年齡）由每秒的 UpdateCellMetrics 更新，不在這裡：
+        // 每一格每秒就有 15~30 次影格，逐格重排文字是白花的 UI 成本，而且它顯示的是
+        // 每秒才變一次的統計值。
         DrawLiveOverlay(cell);
     }
 
@@ -2909,16 +2910,93 @@ public partial class MainWindow : Window
             parts.Add($"{fps:0.#} fps");
         }
 
-        var age = meter.Age(DateTime.UtcNow);
-        if (age > TimeSpan.Zero)
+        // 「延遲」優先顯示本機管線的落後量（由 ffmpeg 的進度回報推得）；讀不到才退回畫面年齡
+        // （＝UI 佇列的落後量）。兩者都是「這台機器自己造成的」部分——影像離現場多遠
+        // （攝影機 ＋ 網路 ＋ 解碼緩衝）在本機量不到，報一個編出來的數字比不報更糟。
+        var lag = _cellChannel[cell] is { } latencyChannel
+            ? _manager?.ChannelSessionFor(latencyChannel)?.StreamBacklog ?? meter.Age(DateTime.UtcNow)
+            : meter.Age(DateTime.UtcNow);
+        if (lag > TimeSpan.Zero)
         {
-            parts.Add(age.TotalSeconds < 10
-                ? string.Format(Localizer.T("Main.CellLatency"), age.TotalMilliseconds.ToString("0"))
-                : string.Format(Localizer.T("Main.CellStale"), age.TotalSeconds.ToString("0.#")));
+            parts.Add(lag.TotalSeconds < 10
+                ? string.Format(Localizer.T("Main.CellLatency"), lag.TotalMilliseconds.ToString("0"))
+                : string.Format(Localizer.T("Main.CellStale"), lag.TotalSeconds.ToString("0.#")));
         }
 
         SetCellStatus(cell, string.Join(" · ", parts), BrLive);
     }
+
+    /// <summary>即時監看診斷的取樣計數（每 5 次 UI tick＝每 5 秒寫一行）。</summary>
+    private int _liveLogTick;
+
+    /// <summary>上一個取樣點的累計影格數（算每秒率用）；每頻道一筆。</summary>
+    /// <remarks>
+    /// 率的狀態由 <see cref="LiveViewCounterTracker"/> 保管：第一版把「清掉不再顯示的頻道」
+    /// 放在取樣之前，於是每一輪都像第一次取樣，日誌永遠是 <c>read=0/s</c>——
+    /// 那個 0 看起來只像「沒有影格」，實際上計數器一直在動。
+    /// </remarks>
+    private readonly LiveViewCounterTracker _liveLogCounters = new();
+
+    /// <summary>
+    /// 每 5 秒把顯示中的每一格寫進 <c>%TEMP%\helivms-live.log</c>（上限 512KB）。
+    /// </summary>
+    /// <remarks>
+    /// 只在真的有人在看畫面時寫（沒有 cell 就整行略過）：這份日誌是為了回答
+    /// 「延遲在哪一段」，而沒有畫面時它沒有任何內容可回答。欄位與理由見
+    /// <see cref="LiveViewDiagnosticLine"/>。
+    /// </remarks>
+    private void WriteLiveDiagnostics()
+    {
+        if (_manager is null || !_monitoring)
+        {
+            return;
+        }
+
+        var now = DateTime.UtcNow;
+        var samples = new List<LiveViewDiagnosticLine.CellSample>();
+        for (var cell = 0; cell < MaxCells; cell++)
+        {
+            if (_cellChannel[cell] is not { } channelId)
+            {
+                continue;
+            }
+
+            var session = _manager.ChannelSessionFor(channelId);
+            var counters = session?.GetDecodeSnapshot() ?? default;
+            var rates = _liveLogCounters.Record(
+                channelId,
+                new LiveFrameRates.Counters(counters.Read, counters.Emitted, counters.Dropped),
+                now);
+            samples.Add(new LiveViewDiagnosticLine.CellSample(
+                channelId,
+                _manager.GetStreamKind(channelId) == HeliVMS.Storage.StreamKind.Main ? "main" : "sub",
+                counters.Width,
+                counters.Height,
+                _cellMeters[cell].Fps,
+                rates.Read,
+                rates.Emitted,
+                rates.Dropped,
+                session?.StreamBacklog,
+                _cellMeters[cell].Age(now),
+                _cellStates[cell].ToString()));
+        }
+
+        // 修剪「這一輪已經不在畫面上」的頻道：換台／關掉之後留著舊計數，下次回來會被當成
+        // 同一段而算出一個橫跨整個空窗的平均率。修剪必須在取樣之後（見 LiveViewCounterTracker）。
+        _liveLogCounters.KeepOnly(samples.Select(sample => sample.ChannelId));
+
+        if (samples.Count == 0)
+        {
+            return;
+        }
+
+        BoundedFileLog.Append(
+            Path.Combine(Path.GetTempPath(), "helivms-live.log"),
+            LiveViewDiagnosticLine.Format(now, samples) + Environment.NewLine,
+            512 * 1024);
+    }
+
+
 
     private async Task DisconnectAllAsync()
     {
@@ -4940,6 +5018,13 @@ public partial class MainWindow : Window
         UpdateBadges();
         UpdateAiPolicy();
         UpdateCellMetrics();
+
+        // 每 5 秒一行診斷（同一條 1 秒計時器，不另外開一條）。
+        if (++_liveLogTick >= 5)
+        {
+            _liveLogTick = 0;
+            WriteLiveDiagnostics();
+        }
     }
 
     /// <summary>頁尾狀態列的目前日期時間時鐘（本機時間，每秒更新）。</summary>
