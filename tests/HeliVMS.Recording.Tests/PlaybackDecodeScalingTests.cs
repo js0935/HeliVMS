@@ -9,10 +9,16 @@ namespace HeliVMS.Recording.Tests;
 /// 多路回放的解碼預算怎麼落到 ffmpeg 參數上：縮放、執行緒、硬體解碼。
 /// </summary>
 /// <remarks>
+/// 這個類別會起真實 ffmpeg（見最後一條測試），所以必須進 <c>rtc-io</c>／
+/// <c>recording-io</c> 這一類「不與其他測試並行」的集合：並行跑解碼行程會讓同專案裡
+/// 「16× 要跑多快」那類時間斷言在負載下變紅（AGENTS 的行程 landmine）。
+/// </remarks>
+/// <remarks>
 /// 這幾項錯了都不會有錯誤訊息，只會表現成「格數多時畫面很頓」或「畫面全黑」：
 /// 縮放的寬高必須與 <see cref="PlaybackSession"/> 宣告給 UI 的影格尺寸一致（差一個像素
 /// 就是每張影格錯位），而 <c>-hwaccel</c>／<c>-threads</c> 必須在 <c>-i</c> 之前才對解碼器生效。
 /// </remarks>
+[Collection(RecordingIoCollection.Name)]
 public sealed class PlaybackDecodeScalingTests
 {
     private static string ValueAfter(IReadOnlyList<string> args, string option)

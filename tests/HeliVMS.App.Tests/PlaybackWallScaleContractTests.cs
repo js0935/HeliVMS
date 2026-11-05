@@ -71,6 +71,39 @@ public sealed class PlaybackWallScaleContractTests
         Assert.Contains("OverviewDriftToleranceSeconds", tolerance);
     }
 
+    /// <summary>
+    /// 次畫面的 OSD 文字不可隨每一張影格重排：64 格時那是每秒上千次的白工。
+    /// </summary>
+    [Fact]
+    public void 次畫面OSD文字有更新間隔()
+    {
+        var frame = SourceContract.BodyOf(SourceContract.Read(Code), "OnPaneFrame");
+
+        Assert.Contains("OsdText(", frame);
+        Assert.Contains("PaneOsdInterval", frame);
+        Assert.Contains("pane.LastOsdAtUtc", frame);
+    }
+
+    /// <summary>
+    /// 每 5 秒一行回放取樣：現場說「不順」時，這是唯一能分辨四種成因的證據。
+    /// </summary>
+    [Fact]
+    public void 同步計時器每五秒寫一行回放診斷()
+    {
+        var code = SourceContract.Read(Code);
+
+        // 掛在既有的 150ms 同步計時器上（不另外開計時器）：33 拍 ≈ 5 秒。
+        Assert.Contains("WritePaneDiagnostics()", SourceContract.BodyOf(code, "SyncPanes"));
+
+        var write = SourceContract.BodyOf(code, "WritePaneDiagnostics");
+        Assert.Contains("PlaybackPaneDiagnosticLine.Format(", write);
+        Assert.Contains("helivms-playback.log", write);
+        Assert.Contains("BoundedFileLog.Append(", write);
+        Assert.Contains("256 * 1024", write);
+        // 沒有次畫面時不必寫（那時候牆上只有主畫面）。
+        Assert.Contains("_panes.Count == 0", write);
+    }
+
     [Fact]
     public void 硬體解碼沿用即時監看的設定與探測()
     {

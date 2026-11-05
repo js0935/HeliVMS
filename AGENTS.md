@@ -90,7 +90,10 @@ Notes that will save you time:
   stop someone else's packets from arriving on a recycled port, so every test class
   that binds a loopback RTP port or starts real ffmpeg is now in the `rtc-io`
   collection (`RtcIoCollection`), which does not run in parallel with anything else.
-  Adding a socket- or process-touching test class means adding it to that collection.
+  Adding a socket- or process-touching test class means adding it to that collection. When you
+  forget, the symptom is not in your new test: an *unrelated* timing test in the same project goes
+  red under load and passes when run alone (measured: a new real-ffmpeg class started in parallel
+  with `高倍速會追上排程而不是被Delay粒度綁住` and made it fail at 331 ms against a 250 ms budget).
 - **ffmpeg RTP output must stay `-f rtp`.** `-f rte` (RTCP only) produces no media.
   `PublisherIntegrationTests` fails if this regresses.
 - **`OpenAsync` must not complete before the first RTP packet.** Returning 201
@@ -395,6 +398,16 @@ Notes that will save you time:
   `PlaybackWallBudget.SplitOptions`，UI 不要再抄一份。
   Guarded by `PlaybackWallBudgetTests`, `PlaybackDecodeScalingTests`（含真實 ffmpeg 的縮放尺寸驗收）、
   `總覽牆的容差比一個GOP還大` and `PlaybackWallScaleContractTests`.
+  兩個「看起來不重要、其實是 64 路能不能用」的細節：**次畫面的 OSD 文字有更新間隔**
+  （`PaneOsdInterval`，4 次/秒）：64 格每一張影格都重寫 TextBlock 會讓 WPF 每秒重排上千次，只為了
+  顯示一個每秒才變一次的數字（主畫面的讀數不受影響——只有一條文字，而且是操作員要複製進報告的）；
+  以及**每 5 秒一行回放取樣**（`%TEMP%\helivms-playback.log`，`PlaybackPaneDiagnosticLine`）：
+  現場說「多路回放不順」時，那一行是唯一能分辨四種成因的證據（落後母鐘多少、這一格有沒有在更新
+  `frame=`、重開解碼幾次 `restarts=`、以及現在生效的 `tol=`——36 格以上是 30 秒的總覽模式，
+  用 0.4 秒的期待去看它只會誤判）。`kf` 標記也必須留著：少了它，讀日誌的人會以為「每格每幾秒
+  才換一張」是壞掉，而它其實是那個版面的設計。
+  Guarded by `PlaybackPaneDiagnosticLineTests`、`次畫面OSD文字有更新間隔` and
+  `同步計時器每五秒寫一行回放診斷`.
 - **The playback control bar must expose stepping and looping with the mouse, not only on the
   keyboard.** 現場盤點：回放只看得到播放／暫停／速度，逐幀與跳段只有鍵盤（F、PageUp…），而
   「上一張」根本不存在——新進的操作員不會知道那些鍵，也不該被要求記。現在有四顆按鈕

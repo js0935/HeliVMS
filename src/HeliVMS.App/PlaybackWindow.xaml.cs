@@ -208,6 +208,21 @@ public partial class PlaybackWindow : Window
 
         public bool NoRecording { get; set; }
 
+        /// <summary>最後一次重寫 OSD 文字的時刻（限流用；見 OnPaneFrame）。</summary>
+        public DateTime LastOsdAtUtc { get; set; }
+
+        /// <summary>最後一張影格到達的時刻（診斷用：這一格還有沒有在更新）。</summary>
+        public DateTime LastFrameAtUtc { get; set; }
+
+        /// <summary>這一格開播以來重開解碼的次數（對時跳轉、換段；診斷用）。</summary>
+        public int Restarts { get; set; }
+
+        /// <summary>已顯示的影格數（算這一格的實際更新率；診斷用）。</summary>
+        public long ShownFrames { get; set; }
+
+        /// <summary>最後量到的母鐘漂移（秒，正＝這一格超前；診斷用）。</summary>
+        public double LastDriftSeconds { get; set; }
+
         /// <summary>已經播到檔案結尾的區段 Id（0＝沒有）；見 <see cref="SyncPanes"/> 的說明。</summary>
         public long FinishedSegmentId { get; set; }
 
@@ -4086,6 +4101,7 @@ public partial class PlaybackWindow : Window
             // 等待第一張影格期間不比對漂移：那時「目前時刻」是刻意超前補償過的跳轉位置，
             // 與母鐘比一定超出容差（見 PlaybackSyncPlanner.ShouldReseek），只有卡住才重開。
             var drift = paneUtc is { } shown ? (shown - target).TotalSeconds : 0;
+            pane.LastDriftSeconds = drift;
             var sinceStart = pane.StartedAtUtc is { } startedAt
                 ? (DateTime.UtcNow - startedAt).TotalSeconds
                 : 0;
@@ -4105,6 +4121,60 @@ public partial class PlaybackWindow : Window
                 PlayPane(pane, cursor.Value.Segment, cursor.Value.OffsetSeconds);
             }
         }
+
+        WritePaneDiagnostics();
+    }
+
+    /// <summary>診斷取樣的節拍（每秒 150ms 的同步計時器 → 每 5 秒寫一行）。</summary>
+    private int _paneLogTick;
+
+    /// <summary>上一輪的顯示影格數（算每秒率用；由 <see cref="LiveViewCounterTracker"/> 保管）。</summary>
+    private readonly LiveViewCounterTracker _paneLogCounters = new();
+
+    /// <summary>
+    /// 每 5 秒把每一格的實況寫進 <c>%TEMP%\helivms-playback.log</c>（上限 256KB）。
+    /// </summary>
+    /// <remarks>
+    /// 現場說「多路回放不順」時，這行字要能分開四種成因：落後母鐘多少、這一格有沒有在更新、
+    /// 重開解碼幾次（容差太小＝每 150ms 重開一次）、以及現在生效的容差（36 格以上是 30 秒的
+    /// 總覽模式）。欄位與理由見 <see cref="PlaybackPaneDiagnosticLine"/>。
+    /// </remarks>
+    private void WritePaneDiagnostics()
+    {
+        if (++_paneLogTick < 33 || _panes.Count == 0)
+        {
+            return;
+        }
+
+        _paneLogTick = 0;
+
+        var now = DateTime.UtcNow;
+        var tolerance = SyncToleranceSeconds();
+        var keyframesOnly = PlaybackWallBudget.For(1 + _panes.Count, HardwareDecodeEnabled()).KeyframesOnly;
+        var samples = new List<PlaybackPaneDiagnosticLine.PaneSample>(_panes.Count);
+        foreach (var pane in _panes)
+        {
+            var shown = _paneLogCounters.Record(pane.Channel.Id, new LiveFrameRates.Counters(pane.ShownFrames, 0, 0), now).Read;
+            var playing = pane.Session is not null && pane.Current is not null;
+            samples.Add(new PlaybackPaneDiagnosticLine.PaneSample(
+                pane.Channel.Id,
+                pane.Current?.Stream ?? "main",
+                pane.LastWidth,
+                pane.LastHeight,
+                keyframesOnly,
+                shown,
+                playing ? pane.LastDriftSeconds : null,
+                pane.Restarts,
+                pane.LastFrameAtUtc == default ? TimeSpan.Zero : now - pane.LastFrameAtUtc,
+                playing ? "playing" : pane.NoRecording ? "gap" : pane.FinishedSegmentId != 0 ? "done" : "stopped"));
+        }
+
+        _paneLogCounters.KeepOnly(samples.Select(sample => sample.ChannelId));
+
+        BoundedFileLog.Append(
+            System.IO.Path.Combine(System.IO.Path.GetTempPath(), "helivms-playback.log"),
+            PlaybackPaneDiagnosticLine.Format(now, 1 + _panes.Count, tolerance, samples) + Environment.NewLine,
+            256 * 1024);
     }
 
     /// <summary>
@@ -4171,6 +4241,13 @@ public partial class PlaybackWindow : Window
     private void PlayPane(Pane pane, SegmentRecord segment, double offsetSeconds)
     {
         StopPane(pane);
+
+        // 診斷：這一格被重開幾次（對時跳轉、換段）。第一次開播不算。
+        if (pane.Current is not null)
+        {
+            pane.Restarts++;
+        }
+
         pane.Current = segment;
         pane.FinishedSegmentId = 0;
 
@@ -4219,15 +4296,25 @@ public partial class PlaybackWindow : Window
             0);
 
         pane.PosInside = pane.BasePos + frame.PtsMs / 1000.0;
+        pane.ShownFrames++;
+        pane.LastFrameAtUtc = DateTime.UtcNow;
 
         // 多路比對要能對時：OSD 顯示這一格此刻的「錄影時刻」（絕對），不是段內位置——
         // 段內 00:35 在兩台上對不到同一個時刻，操作員核對的是「同一瞬間兩邊各拍到什麼」。
         // 格式與主畫面 OSD 共用 OsdText，放大回單畫面時讀起來是同一種字。
-        if (pane.Current is { } paneSeg)
+        //
+        // 但**不可以每一張影格都重寫**：文字變更會讓 WPF 重新排版那一格的 TextBlock，
+        // 64 格時每秒上千次只是為了顯示一個每秒才變一次的數字（閱讀速度也是 4 次/秒左右）。
+        // 主畫面的讀數不受影響——那一邊只有一條文字，而且是操作員要複製進報告的。
+        if (pane.Current is { } paneSeg && DateTime.UtcNow - pane.LastOsdAtUtc >= PaneOsdInterval)
         {
+            pane.LastOsdAtUtc = DateTime.UtcNow;
             pane.Osd.Text = OsdText(pane.Channel, paneSeg, pane.PosInside);
         }
     }
+
+    /// <summary>次畫面 OSD 的更新間隔（秒）：數字一秒才變一次，重排不必跟著影格跑。</summary>
+    private static readonly TimeSpan PaneOsdInterval = TimeSpan.FromMilliseconds(250);
 
     private void OnPaneEnded(Pane pane, long version, bool completed)
     {
