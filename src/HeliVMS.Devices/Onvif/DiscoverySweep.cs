@@ -104,20 +104,16 @@ public static class DiscoverySweep
 
     /// <summary>
     /// 同一台設備可能被兩個位址找到（主機名與 IP、或設備有多個網路介面）：
-    /// 以 ONVIF 的裝置 UUID 為身分，取不到時退回 XAddr。
+    /// 身分判準集中在 <see cref="OnvifDiscoveryIdentity"/>，多網卡多播的合併也用同一份。
     /// </summary>
     private static bool Claim(
         HashSet<string> identities,
         object identityLock,
         DiscoveredDevice device)
     {
-        var key = device.EndpointAddress.StartsWith("urn:uuid:", StringComparison.OrdinalIgnoreCase)
-            ? device.EndpointAddress
-            : device.HttpXAddr ?? device.EndpointAddress;
-
         lock (identityLock)
         {
-            return identities.Add(key);
+            return identities.Add(OnvifDiscoveryIdentity.KeyOf(device));
         }
     }
 }

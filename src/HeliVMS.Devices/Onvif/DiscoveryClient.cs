@@ -24,11 +24,41 @@ public static class DiscoveryClient
     /// </summary>
     /// <param name="timeout">總探測時間（建議 ≥3000 毫秒）。</param>
     /// <param name="cancellationToken">取消權杖。</param>
+    /// <param name="localAddresses">
+    /// 要從哪些來源位址送出探測（預設＝本機所有可多播的 IPv4 介面，見
+    /// <see cref="MulticastSourceAddresses"/>）。測試可注入以固定來源。
+    /// </param>
     public static async Task<IReadOnlyList<DiscoveredDevice>> DiscoverAsync(
         TimeSpan timeout,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        Func<IReadOnlyList<IPAddress>>? localAddresses = null)
     {
-        using var udp = new UdpClient();
+        var sources = (localAddresses ?? MulticastSourceAddresses.Enumerate)();
+        if (sources.Count == 0)
+        {
+            sources = [IPAddress.Any];
+        }
+
+        // 逐來源位址各送一輪，再合併去重。多網卡的機器只有預設路由那個介面送得出多播，
+        // 不逐介面的話另一邊的攝影機永遠找不到，而畫面上沒有任何錯誤。
+        if (sources.Count > 1)
+        {
+            var perSource = await Task.WhenAll(sources.Select(
+                source => ProbeFromSourceAsync(source, timeout, cancellationToken))).ConfigureAwait(false);
+
+            return Merge(perSource);
+        }
+
+        return await ProbeFromSourceAsync(sources[0], timeout, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>逐來源位址探測（單一來源時就是原本的行為）。</summary>
+    private static async Task<IReadOnlyList<DiscoveredDevice>> ProbeFromSourceAsync(
+        IPAddress source,
+        TimeSpan timeout,
+        CancellationToken cancellationToken)
+    {
+        using var udp = IPAddress.Any.Equals(source) ? new UdpClient() : new UdpClient(new IPEndPoint(source, 0));
         udp.EnableBroadcast = true;
 
         // 部分環境（VPN、受限 CI、已停用 IPv4 多播）不允許設定多播 socket 選項，
@@ -47,11 +77,14 @@ public static class DiscoveryClient
         var address = IPAddress.Parse(DiscoveryAddress);
         try
         {
-            // 加入多播群組可提升 ProbeMatch 接收率（部分網路/VLAN 未加入仍可收到單播回應）
+            // 加入多播群組可提升 ProbeMatch 接收率（部分網路/VLAN 未加入仍可收到單播回應）。
+            // 逐介面加入：綁定來源位址的 socket 要指定同一張網卡，否則群組加在別張上、回應收不到。
             udp.Client.SetSocketOption(
                 SocketOptionLevel.IP,
                 SocketOptionName.AddMembership,
-                new MulticastOption(address, IPAddress.Any));
+                IPAddress.Any.Equals(source)
+                    ? new MulticastOption(address, IPAddress.Any)
+                    : new MulticastOption(address, source));
         }
         catch (SocketException)
         {
@@ -59,6 +92,35 @@ public static class DiscoveryClient
 
         var endpoint = new IPEndPoint(address, DiscoveryPort);
         return await ProbeAsync(udp, endpoint, timeout, cancellationToken);
+    }
+
+    /// <summary>
+    /// 合併多個來源位址的探測結果：同一台設備（裝置 UUID 或 XAddr 相同）只留一筆，
+    /// 順序沿用來源順序（第一個回報它的那個介面），讓清單穩定可預期。
+    /// </summary>
+    /// <remarks>
+    /// 身分判準與掃描共用 <see cref="OnvifDiscoveryIdentity"/>：兩邊各寫一份，
+    /// 遲早出現「多播看到一台、掃描看到兩台」這種同一台被算兩次的情況。
+    /// </remarks>
+    public static IReadOnlyList<DiscoveredDevice> Merge(
+        IEnumerable<IReadOnlyList<DiscoveredDevice>> perSource)
+    {
+        ArgumentNullException.ThrowIfNull(perSource);
+
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var merged = new List<DiscoveredDevice>();
+        foreach (var devices in perSource)
+        {
+            foreach (var device in devices)
+            {
+                if (seen.Add(OnvifDiscoveryIdentity.KeyOf(device)))
+                {
+                    merged.Add(device);
+                }
+            }
+        }
+
+        return merged;
     }
 
     /// <summary>
@@ -206,8 +268,12 @@ public static class DiscoveryClient
         AutoClockSkew = false,
     };
 
-    /// <summary>掃描時嘗試的 ONVIF 服務埠（80 為 Profile S 慣例；其餘為海康／大華／TVT 常見值）。</summary>
-    private static readonly int[] SweepPorts = [80, 8000, 8080, 2020];
+    /// <summary>
+    /// 掃描時嘗試的 ONVIF 服務埠（與 <see cref="OnvifEndpointResolver.CommonPorts"/> 同一份清單：
+    /// 80 為 Profile S 慣例，其餘為海康／大華／TVT 常見值）。清單可以放大是因為 TCP 預檢
+    /// 已經把「沒有人在聽」的埠濾掉——逐埠花兩秒做 ONVIF 探測的舊寫法才需要限制數量。
+    /// </summary>
+    private static readonly int[] SweepPorts = [.. OnvifEndpointResolver.CommonPorts];
 
     /// <summary>掃描時單一位址的 WS-Discovery 等待時間。</summary>
     private static readonly TimeSpan SweepProbeTimeout = TimeSpan.FromMilliseconds(700);
@@ -266,8 +332,20 @@ public static class DiscoveryClient
             // 這個網路介面送不出單播探測：仍可繼續走 HTTP 候選。
         }
 
-        foreach (var candidate in BuildSweepCandidates(host, explicitPort, ports))
+        // 先做 TCP 預檢：沒有回應的位址只等一次連線逾時，而不是每個埠各等一次 ONVIF 逾時；
+        // 掃到的埠才值得花兩秒做 ONVIF 探測（也讓非標準埠的清單可以放大而不拖慢掃描）。
+        var candidatesByPort = BuildSweepCandidates(host, explicitPort, ports);
+        var openPorts = await OnvifPortScan
+            .OpenPortsAsync(host, [.. candidatesByPort.Keys], cancellationToken: cancellationToken)
+            .ConfigureAwait(false);
+        if (openPorts.Count == 0)
         {
+            return null;
+        }
+
+        foreach (var port in openPorts)
+        {
+            var candidate = candidatesByPort[port];
             cancellationToken.ThrowIfCancellationRequested();
 
             using var service = serviceFactory(candidate);
@@ -293,8 +371,11 @@ public static class DiscoveryClient
         return null;
     }
 
-    /// <summary>掃描候選：每個埠只試 Profile S 慣例路徑（<c>/onvif/device_service</c>）。</summary>
-    private static IReadOnlyList<string> BuildSweepCandidates(
+    /// <summary>
+    /// 掃描候選：每個埠只試 Profile S 慣例路徑（<c>/onvif/device_service</c>），
+    /// 以埠號為鍵（TCP 預檢回傳埠號，之後據此取回候選 URL）。
+    /// </summary>
+    private static IReadOnlyDictionary<int, string> BuildSweepCandidates(
         string host,
         int? explicitPort,
         IReadOnlyList<int>? ports)
@@ -314,9 +395,11 @@ public static class DiscoveryClient
         }
 
         var authority = host.Contains(':', StringComparison.Ordinal) ? $"[{host}]" : host;
-        return [.. candidates.Select(port => port == 80
-            ? $"http://{authority}/onvif/device_service"
-            : $"http://{authority}:{port.ToString(System.Globalization.CultureInfo.InvariantCulture)}/onvif/device_service")];
+        return candidates.ToDictionary(
+            port => port,
+            port => port == 80
+                ? $"http://{authority}/onvif/device_service"
+                : $"http://{authority}:{port.ToString(System.Globalization.CultureInfo.InvariantCulture)}/onvif/device_service");
     }
 
     /// <summary>

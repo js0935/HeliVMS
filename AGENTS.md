@@ -479,8 +479,19 @@ Notes that will save you time:
   one go: `OnvifEnrollmentPlanner` resolves each device sequentially (main/sub stream, no resolution
   probing — that would add 45 s of ffprobe per camera), one failure never aborts the batch, and the
   wizard hands the caller a single list (`Candidates`) so the single-camera and batch paths share
-  one naming/enrollment loop. Guarded by `DiscoveryAddressRangeTests`, `DiscoverySweepTests`,
-  `OnvifEnrollmentPlannerTests` and `OnvifBatchDiscoveryContractTests`.
+  one naming/enrollment loop. Two traps inside discovery itself: (1) **multicast must be sent from
+  every interface** (`MulticastSourceAddresses`: only Up + multicast-capable IPv4 adapters, loopback
+  only when there is nothing else, `IPAddress.Any` as the last resort) — an unbound socket leaves via
+  the default route only, so a two-NIC NVR silently finds just one side's cameras; results are merged
+  and de-duplicated through `OnvifDiscoveryIdentity` (device UUID first, XAddr as fallback), the same
+  identity the sweep uses. (2) **every swept address gets a TCP pre-scan first**
+  (`OnvifPortScan`, 300 ms per port) and only the listening ports get an ONVIF call: an address with
+  nothing on it then costs one connect timeout instead of two seconds per port, which is also what
+  makes the port list safe to widen to `OnvifEndpointResolver.CommonPorts` (8899/34567/5000 would
+  otherwise never be found). The pre-scan is only a filter — TCP answering is not proof of ONVIF —
+  and a timeout counts as "nothing there" while only a real cancellation propagates.
+  Guarded by `DiscoveryAddressRangeTests`, `DiscoverySweepTests`, `MulticastSourceAddressesTests`,
+  `OnvifPortScanTests`, `OnvifEnrollmentPlannerTests` and `OnvifBatchDiscoveryContractTests`.
 - **A group tab with fewer cameras than cells must leave the extra cells empty — and both tab paths
   must share one implementation.** 現場回報：群組只設 2 支攝影機卻用 4 分割，在不同群組之間切換後
   再回到原群組，第 3、4 格「串」著另一支攝影機的畫面。三個獨立原因疊在一起：
