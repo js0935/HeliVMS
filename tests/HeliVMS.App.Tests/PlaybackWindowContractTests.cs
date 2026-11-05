@@ -334,6 +334,54 @@ public sealed class PlaybackWindowContractTests
     }
 
     /// <summary>
+    /// 次畫面播完檔案之後，母鐘還停在同一段索引區間時不得每 150ms 重開一次解碼。
+    /// </summary>
+    /// <remarks>
+    /// 索引的段長是收檔時量的牆鐘時間（含 ffmpeg 連線暖機與相機斷流），比檔案內容長：
+    /// 現場實測有相機每段多 12 秒。照舊重開的話每一輪都立刻再播完一次，直到母鐘離開這一段，
+    /// 畫面閃個不停而 log 乾淨——操作員看到的是「這一格一直重新整理」。停在最後一格才是事實。
+    /// </remarks>
+    [Fact]
+    public void 次畫面播完後母鐘還在同段時不會一直重開()
+    {
+        var source = SourceContract.Read(Code);
+
+        var sync = SourceContract.BodyOf(source, "SyncPanes");
+        Assert.Contains("FinishedSegmentId", sync);
+
+        // 「播完」必須區分正常播到檔尾與解碼失敗：解碼失敗要留在原位置重試，
+        // 記成「這一段沒有內容了」會讓那段錄影從此停住不再重試（看起來像畫面凍結）。
+        var ended = SourceContract.BodyOf(source, "OnPaneEnded");
+        Assert.Contains("completed", ended);
+        Assert.Contains("FinishedSegmentId", ended);
+
+        // 重新開一段時要清掉標記：不清的話母鐘往回拉也拒絕重開，畫面停在舊位置。
+        var play = SourceContract.BodyOf(source, "PlayPane");
+        Assert.Contains("pane.FinishedSegmentId = 0", play);
+    }
+
+    /// <summary>
+    /// 逐幀的步長要用檔案裡真的相鄰兩格，不是固定的 1/15 秒。
+    /// </summary>
+    /// <remarks>
+    /// 固定步長只在「檔案剛好 15fps」時等於一格。現場的相機名目 15fps 實送 12.5fps
+    /// （步長 80ms，66ms 的步會落在同一格——操作員的結論是「F 鍵壞了」），
+    /// 另一台名目 30fps 但實送 13fps（一步跳過好幾格，看起來像跳了一段）。
+    /// </remarks>
+    [Fact]
+    public void 逐幀步長取自檔案相鄰兩格()
+    {
+        var source = SourceContract.Read(Code);
+
+        var step = SourceContract.BodyOf(source, "StepFrame");
+        Assert.Contains("FrameStepSeconds(", step);
+
+        var helper = SourceContract.BodyOf(source, "FrameStepSeconds");
+        Assert.Contains("PlaybackSession.FrameTimes(", helper);
+        Assert.Contains("PlaybackFrameTiming.IndexAtOrBefore(", helper);
+    }
+
+    /// <summary>
     /// 多路同步要「對得起來」：容差用共用常數（不是各寫一份的 1.5 秒），而且跳轉要補上
     /// 這一格自己的啟動延遲。
     /// </summary>

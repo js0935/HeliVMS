@@ -298,6 +298,38 @@ Notes that will save you time:
   只調容差會讓啟動慢的那格永遠追不上並每輪重開；只補償不縮容差則仍然看得到各播各的。
   Guarded by `PlaybackSyncTimingTests`,
   `多路同步用共用容差且跳轉補上啟動延遲` and `次畫面以母鐘解算且空隙不硬跳別段`.
+- **The playback clock is the file's own frame timestamps, never `frame index ÷ nominal fps`.**
+  Real recordings do not deliver at their nominal rate: measured on the live system, one camera's
+  segments mix 67 ms and 100 ms spacing (12.5 fps effective, `r_frame_rate` 15) and another
+  declares 30 fps but delivers 13 (`-c:v copy` copies the camera's VFR timestamps). Frame-count
+  playback therefore runs each camera at its own speed (1.0× / 1.2× / 2.3×) and reports an instant
+  that is not the displayed frame's instant — so every pane shows a different moment while all the
+  OSDs agree, nothing looks wrong on screen and nothing is logged. `PlaybackSession` now reads
+  `packet=pts_time` once per file (`HeliVMS.Media.FrameTimestamps`, cached by path+length+mtime,
+  shared by all panes of the same file) and maps/pace through
+  `HeliVMS.Recording.PlaybackFrameTiming`; a camera stall then shows as a still frame instead of
+  being fast-forwarded. Two things not to "simplify" back: **do not use `-fps_mode cfr -r <avg>`**
+  — measured with this ffmpeg, a file with a genuine 5 s gap held the first post-gap frame for
+  *twice* the gap (the output grid ran to 30.3 s while the content stayed at 20.0 s), i.e. a
+  silently shifted timeline; and **frame stepping must use the real neighbouring frame**
+  (`PlaybackFrameTiming.IndexAtOrBefore`) — a fixed 1/15 s step lands on the same frame on a
+  12.5 fps file ("F does nothing") and skips several on a 13 fps one.
+  Guarded by `FrameTimestampsTests`, `PlaybackFrameTimingTests`,
+  `回放時刻取自檔案時間戳而不是影格序號除以名目幀率`, `逐幀步長取自檔案相鄰兩格`.
+- **A pane that finished its file must not be restarted while the master is still in the same
+  index segment — and a cancelled playback must not report "completed".** `segments.duration_sec`
+  is wall-clock (ffmpeg connect warm-up plus camera stalls), not content length: measured +0.6 s
+  for healthy cameras and **+12 s** for one that stalls. So the pane's `Resolve()` keeps returning
+  that segment for another 12 s after its file ended, and the old code re-opened ffmpeg every
+  150 ms (each run ending immediately) until the master moved on — a pane that visibly keeps
+  re-flashing, log clean. `PlaybackWindow.OnPaneEnded` now records `FinishedSegmentId`/
+  `FinishedAtUtc` and `SyncPanes` holds the last frame until the master either moves into the next
+  segment or rewinds before that instant (`PlayPane` clears the mark). Separately,
+  `PlaybackSession` reports `completed: false` whenever the token was cancelled — including the
+  path where the read loop exits at its top edge before reading anything; reporting `true` makes
+  `PlaybackWindow` treat 停止 as 已播畢, so pressing play afterwards restarts from the segment
+  head (the field symptom was "stop then play jumps back to the beginning").
+  Guarded by `次畫面播完後母鐘還在同段時不會一直重開` and `取消而結束的播放回報未完成`.
 - **The playback control bar must expose stepping and looping with the mouse, not only on the
   keyboard.** 現場盤點：回放只看得到播放／暫停／速度，逐幀與跳段只有鍵盤（F、PageUp…），而
   「上一張」根本不存在——新進的操作員不會知道那些鍵，也不該被要求記。現在有四顆按鈕

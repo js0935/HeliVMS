@@ -207,6 +207,12 @@ public partial class PlaybackWindow : Window
         public int LastHeight { get; set; }
 
         public bool NoRecording { get; set; }
+
+        /// <summary>已經播到檔案結尾的區段 Id（0＝沒有）；見 <see cref="SyncPanes"/> 的說明。</summary>
+        public long FinishedSegmentId { get; set; }
+
+        /// <summary>那一格最後一張影格的錄影時刻（絕對），用來判斷母鐘是否還停在同一個區段裡。</summary>
+        public DateTime FinishedAtUtc { get; set; }
     }
 
     private static readonly Brush s_redactFilledStroke = Frozen(Color.FromRgb(0xE5, 0x53, 0x3C));
@@ -1870,7 +1876,9 @@ public partial class PlaybackWindow : Window
             return;
         }
 
-        var frame = 1.0 / 15.0;
+        // 步長＝這一格與相鄰那一格的實際間距，不是固定的 1/15 秒：名目與實際幀率不同的檔案上，
+        // 固定步長會落在同一格（按了像沒反應）或一次跳過好幾格。讀不到時間戳才退回估計值。
+        var frame = FrameStepSeconds(_current.FilePath, _posInside, backward);
 
         if (backward && _posInside - frame < 0)
         {
@@ -1891,6 +1899,33 @@ public partial class PlaybackWindow : Window
             : Math.Min(_posInside + frame, HeliVMS.Shared.PlaybackSeekPlanner.LastFrameOf(_current));
         PlayFrom(_current, target);
         _pendingFramePause = true;
+    }
+
+    /// <summary>讀不到時間戳時的逐幀步長（秒）。</summary>
+    private const double DefaultFrameStepSeconds = 1.0 / 15.0;
+
+    /// <summary>
+    /// 逐幀的步長（秒）：目前位置與相鄰那一格之間的實際距離。
+    /// </summary>
+    /// <remarks>
+    /// 固定 1/15 秒只在「檔案剛好 15fps」時等於一格；現場的相機名目 15fps 實送 12.5fps
+    /// （步長 80ms，66ms 的步會落在同一格——操作員覺得 F 鍵壞了）、名目 30fps 名義但實際 13fps。
+    /// 段端點（沒有相鄰格）由呼叫端處理，這裡退回估計值讓邊界邏輯維持原樣。
+    /// </remarks>
+    private static double FrameStepSeconds(string filePath, double position, bool backward)
+    {
+        var times = PlaybackSession.FrameTimes(filePath);
+        if (times.Count > 1)
+        {
+            var index = PlaybackFrameTiming.IndexAtOrBefore(times, position);
+            var neighbour = index + (backward ? -1 : 1);
+            if (index >= 0 && neighbour >= 0 && neighbour < times.Count)
+            {
+                return Math.Max(0.001, Math.Abs(times[neighbour] - position));
+            }
+        }
+
+        return DefaultFrameStepSeconds;
     }
 
     /// <summary>
@@ -4030,6 +4065,19 @@ public partial class PlaybackWindow : Window
             }
 
             pane.NoRecording = false;
+
+            // 這一格的檔案已經播完，而母鐘還停在同一段索引區間裡：不再重開。段長是收檔時量的
+            // 牆鐘時間（含 ffmpeg 連線暖機與相機斷流），比檔案內容長——實測有相機每段多 12 秒。
+            // 照舊重開的話每 150ms 就開一個 ffmpeg、立刻又播完，直到母鐘離開這一段為止，
+            // 畫面閃個不停；停在最後一格才是事實（這一段就是沒有更多內容了）。
+            // 母鐘往回拉（target 早於最後一格）＝操作員要看更前面，那時才重開。
+            if (pane.Session is null
+                && pane.FinishedSegmentId == cursor.Value.Segment.Id
+                && target > pane.FinishedAtUtc)
+            {
+                continue;
+            }
+
             var paneUtc = pane.Current is { } current ? current.StartUtc.AddSeconds(pane.PosInside) : (DateTime?)null;
 
             // 等待第一張影格期間不比對漂移：那時「目前時刻」是刻意超前補償過的跳轉位置，
@@ -4056,6 +4104,7 @@ public partial class PlaybackWindow : Window
     {
         StopPane(pane);
         pane.Current = segment;
+        pane.FinishedSegmentId = 0;
 
         // 加上這一格自己的啟動延遲：第一張影格才會落在正確的時刻上（見 StartupLatencySeconds）。
         var offset = PlaybackSyncPlanner.CompensatedOffset(offsetSeconds, pane.StartupLatencySeconds);
@@ -4067,7 +4116,7 @@ public partial class PlaybackWindow : Window
         var session = new PlaybackSession(segment) { Speed = GetSpeed() };
         pane.Session = session;
         session.FrameDecoded += (_, frame) => Dispatcher.BeginInvoke(() => OnPaneFrame(pane, version, frame));
-        session.Ended += (_, _) => Dispatcher.BeginInvoke(() => OnPaneEnded(pane, version));
+        session.Ended += (_, args) => Dispatcher.BeginInvoke(() => OnPaneEnded(pane, version, args.Completed));
         _ = session.PlayAsync(offset);
     }
 
@@ -4112,11 +4161,18 @@ public partial class PlaybackWindow : Window
         }
     }
 
-    private void OnPaneEnded(Pane pane, long version)
+    private void OnPaneEnded(Pane pane, long version, bool completed)
     {
         if (version != pane.Version)
         {
             return;
+        }
+
+        // 正常播到檔尾才記「這一段已經沒有內容了」：解碼失敗要留在原位置重試，不是停在黑畫面。
+        if (completed && pane.Current is { } current)
+        {
+            pane.FinishedSegmentId = current.Id;
+            pane.FinishedAtUtc = current.StartUtc.AddSeconds(pane.PosInside);
         }
 
         // 不自行跨段：交給同步計時器依母鐘決定要進下一段（有錄影）還是停在空隙。

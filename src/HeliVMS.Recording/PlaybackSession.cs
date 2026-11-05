@@ -31,6 +31,7 @@ public sealed class PlaybackSession : IAsyncDisposable
     private readonly string _ffprobe;
     private readonly IProcessFactory _processFactory;
     private readonly Func<string, StreamProbeInfo> _probe;
+    private readonly Func<string, IReadOnlyList<double>> _frameTimes;
     private CancellationTokenSource? _cts;
     private IProcess? _process;
     private bool _disposed;
@@ -40,13 +41,15 @@ public sealed class PlaybackSession : IAsyncDisposable
         string? ffmpegPath = null,
         string? ffprobePath = null,
         IProcessFactory? processFactory = null,
-        Func<string, StreamProbeInfo>? probe = null)
+        Func<string, StreamProbeInfo>? probe = null,
+        Func<string, IReadOnlyList<double>>? frameTimes = null)
     {
         Segment = segment;
         _ffmpeg = ffmpegPath ?? FfmpegLocator.Ffmpeg;
         _ffprobe = ffprobePath ?? FfmpegLocator.Ffprobe;
         _processFactory = processFactory ?? new DefaultProcessFactory();
         _probe = probe ?? (path => StreamProbe.Probe(path, _ffprobe));
+        _frameTimes = frameTimes ?? (path => FrameTimestamps.Read(path, _ffprobe));
     }
 
     // 探測結果快取：每次 PlayAsync 都跑一次 ffprobe 會讓每次跳轉多背一個行程啟動（數十至上百毫秒），
@@ -207,6 +210,70 @@ public sealed class PlaybackSession : IAsyncDisposable
     public bool? SourceHasAudio { get; private set; }
 
     /// <summary>
+    /// 每一格的呈現時刻（秒）的快取，簽章與 <see cref="ProbeCache"/> 相同。
+    /// </summary>
+    /// <remarks>
+    /// 多路回放時四格同時開播，可能同一個檔案被四個 session 同時要求；用 <see cref="Lazy{T}"/>
+    /// 讓同一份（路徑＋長度＋最後寫入時間）只跑一次 ffprobe，否則每格各噴一個行程。
+    /// </remarks>
+    private static readonly ConcurrentDictionary<string, (long Length, DateTime Mtime, Lazy<IReadOnlyList<double>> Times)> TimesCache = new();
+
+    /// <summary>
+    /// 檔案的封包時間戳（秒），與解碼路徑共用同一份快取。
+    /// </summary>
+    /// <remarks>
+    /// 逐幀要踩真的相鄰兩格（見 <see cref="PlaybackFrameTiming.IndexAtOrBefore"/>）：名目 15fps
+    /// 實送 12.5fps 的檔案上固定 1/15 秒會落在同一格，按了像沒反應。讀不到時回空清單，
+    /// 呼叫端退回固定步長。
+    /// </remarks>
+    public static IReadOnlyList<double> FrameTimes(string path)
+        => TimesCached(path, path2 => FrameTimestamps.Read(path2));
+
+    /// <summary>
+    /// 讀檔案的封包時間戳（快取）；探測委派可在測試注入。
+    /// 讀不到（ffprobe 失敗、檔案不存在）回空清單，呼叫端退回固定幀率節奏。
+    /// </summary>
+    private static IReadOnlyList<double> TimesCached(string path, Func<string, IReadOnlyList<double>> read)
+    {
+        long length;
+        DateTime mtime;
+        try
+        {
+            var file = new FileInfo(path);
+            if (!file.Exists)
+            {
+                // 檔案不在＝沒有任何時間戳可讀，不必白跑一個 ffprobe（PlayAsync 會立刻回報未完成）。
+                return [];
+            }
+
+            length = file.Length;
+            mtime = file.LastWriteTimeUtc;
+        }
+        catch (Exception)
+        {
+            return read(path);
+        }
+
+        if (TimesCache.TryGetValue(path, out var hit) && hit.Length == length && hit.Mtime == mtime)
+        {
+            return hit.Times.Value;
+        }
+
+        var times = new Lazy<IReadOnlyList<double>>(() => read(path));
+        if (TimesCache.Count > 4096)
+        {
+            // 對齊 ProbeCache 的上限策略：檔案不會無限多，但長跑的機器會換代。
+            TimesCache.Clear();
+        }
+
+        TimesCache[path] = (length, mtime, times);
+        return times.Value;
+    }
+
+    /// <summary>解碼路徑用的時間戳（走這個 session 的探測委派）。</summary>
+    private IReadOnlyList<double> TimesCached(string path) => TimesCached(path, _frameTimes);
+
+    /// <summary>
     /// 以檔案簽章快取 ffprobe 結果（見 <see cref="ProbeCache"/> 說明）。
     /// 檔案不存在或無法取得資訊時退回直接探測——快取永不改變「探不到就是探不到」的結果語意。
     /// </summary>
@@ -287,7 +354,15 @@ public sealed class PlaybackSession : IAsyncDisposable
         var buffer = new byte[frameSize];
         var fps = info.Fps > 0 ? info.Fps : 25;
         var sw = Stopwatch.StartNew();
-        long nextEmitAt = 0;
+
+        // 這一輪的時間基準：檔案自己的封包時間戳（見 FrameTimestamps）。讀不到時退回
+        // 「影格序號 ÷ 名目幀率」的舊節奏，回放照播不誤。
+        var times = TimesCached(Segment.FilePath);
+        var startIndex = PlaybackFrameTiming.StartIndex(times, seekSeconds);
+        var fallbackStepMs = 1000.0 / fps;
+        double scheduledMs = 0;
+        long emitted = 0;
+        long lastContentMs = 0;
 
         // 落後上限（毫秒）：排程落後超過這個量就放棄追趕，避免長時間停頓（例如磁碟卡住）
         // 之後以爆量補送吃光 CPU／畫格塞爆 UI 執行緒。
@@ -322,37 +397,51 @@ public sealed class PlaybackSession : IAsyncDisposable
                     currentSpeed = 1;
                 }
 
-                var nowMs = sw.ElapsedMilliseconds;
-                if (nextEmitAt == 0)
+                // 這一格的內容時刻＝檔案自己的時間戳（毫秒，相對起播點）。固定幀率的舊算法
+                // （影格序號 ÷ 名目幀率）在送格速率會變的相機上會讓每一格都比實際早到，
+                // 多路回放的各格因此以不同速率前進、OSD 時刻也跟著失真——見 FrameTimestamps。
+                var contentMs = PlaybackFrameTiming.ContentMs(
+                    times,
+                    startIndex,
+                    emitted,
+                    lastContentMs,
+                    fallbackStepMs);
+
+                var nowMs = sw.Elapsed.TotalMilliseconds;
+                if (emitted == 0)
                 {
-                    nextEmitAt = nowMs;
+                    scheduledMs = nowMs;
+                }
+                else
+                {
+                    // 依「排定時刻」累加（＝上一格到這一格的內容時間差 ÷ 倍速），落後時靠後續
+                    // 影格連續補送（catch-up），而不是把錨點重設到當下。舊寫法 Math.Max(nextEmitAt, now)
+                    // 一旦 Delay 粒度（Windows 上約 15.6ms）超過影格間隔，每格都會被量化並重新落後，
+                    // 永遠追不上：16× 實測只有約 2.5×（10 秒素材花 4 秒）。排定時刻用 double 累加，
+                    // 不把量化誤差帶進下一格。
+                    scheduledMs += (contentMs - lastContentMs) / currentSpeed;
+                    if (nowMs < scheduledMs)
+                    {
+                        await Task.Delay((int)Math.Ceiling(scheduledMs - nowMs), token);
+                    }
                 }
 
-                var intervalMs = 1000.0 / fps / currentSpeed;
-                if (nowMs < nextEmitAt)
+                var afterEmitMs = sw.Elapsed.TotalMilliseconds;
+                if (afterEmitMs - scheduledMs > MaxCatchUpLagMs)
                 {
-                    await Task.Delay((int)(nextEmitAt - nowMs), token);
-                }
-
-                // 依「排定時刻」累加，落後時靠後續影格連續補送（catch-up），而不是把錨點重設到當下。
-                // 舊寫法 Math.Max(nextEmitAt, now) 一旦 Delay 粒度（Windows 上約 15.6ms）超過影格間隔，
-                // 每格都會被量化並重新落後，永遠追不上：16× 實測只有約 2.5×（10 秒素材花 4 秒）。
-                nextEmitAt += (long)Math.Ceiling(intervalMs);
-                var afterEmitMs = sw.ElapsedMilliseconds;
-                if (afterEmitMs - nextEmitAt > MaxCatchUpLagMs)
-                {
-                    nextEmitAt = afterEmitMs - MaxCatchUpLagMs;
+                    scheduledMs = afterEmitMs - MaxCatchUpLagMs;
                 }
 
                 FrameIndex++;
-                var contentSeconds = FrameIndex / fps;
+                emitted++;
+                lastContentMs = contentMs;
                 FrameDecoded?.Invoke(this, new VideoFrame
                 {
                     Width = info.Width,
                     Height = info.Height,
                     Pixels = (byte[])buffer.Clone(),
-                    TimestampUtc = Segment.StartUtc.AddSeconds(seekSeconds + contentSeconds),
-                    PtsMs = (long)Math.Round(contentSeconds * 1000),
+                    TimestampUtc = Segment.StartUtc.AddSeconds(seekSeconds + (contentMs / 1000.0)),
+                    PtsMs = contentMs,
                 });
             }
         }
@@ -387,7 +476,9 @@ public sealed class PlaybackSession : IAsyncDisposable
             return;
         }
 
-        Ended?.Invoke(this, new PlaybackEndedEventArgs(Segment, true));
+        // 取消也可能從「讀取迴圈的上緣」離開（讀取還沒開始就被停止）：那時它不是播完，
+        // 回報 completed: true 會讓 PlaybackWindow 把「停止」記成「已播畢」，按播放變成從段首重播。
+        Ended?.Invoke(this, new PlaybackEndedEventArgs(Segment, !token.IsCancellationRequested));
     }
 
     /// <summary>取出已完成之 stderr 文字（未結束或已釋放時回空字串）。</summary>

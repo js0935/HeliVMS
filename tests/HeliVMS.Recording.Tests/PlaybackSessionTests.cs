@@ -44,7 +44,8 @@ public sealed class PlaybackSessionTests : IDisposable
         await using var session = new PlaybackSession(
             Segment(Path.Combine(Path.GetTempPath(), $"missing-{Guid.NewGuid():N}.mp4"), 10),
             processFactory: factory,
-            probe: _ => Info);
+            probe: _ => Info,
+            frameTimes: _ => []);
 
         PlaybackEndedEventArgs? ended = null;
         session.Ended += (_, e) => ended = e;
@@ -67,7 +68,8 @@ public sealed class PlaybackSessionTests : IDisposable
         await using var session = new PlaybackSession(
             Segment(CreateEmptyFile(), 10),
             processFactory: factory,
-            probe: _ => Info);
+            probe: _ => Info,
+            frameTimes: _ => []);
 
         PlaybackEndedEventArgs? ended = null;
         session.Ended += (_, e) => ended = e;
@@ -92,7 +94,8 @@ public sealed class PlaybackSessionTests : IDisposable
         await using var session = new PlaybackSession(
             Segment(file, 10),
             processFactory: factory,
-            probe: _ => Info);
+            probe: _ => Info,
+            frameTimes: _ => []);
 
         await session.PlayAsync(seekSeconds: 3);
 
@@ -120,7 +123,8 @@ public sealed class PlaybackSessionTests : IDisposable
         await using var session = new PlaybackSession(
             Segment(file, 0),
             processFactory: factory,
-            probe: _ => Info);
+            probe: _ => Info,
+            frameTimes: _ => []);
 
         PlaybackEndedEventArgs? ended = null;
         session.Ended += (_, e) => ended = e;
@@ -147,7 +151,8 @@ public sealed class PlaybackSessionTests : IDisposable
         await using var session = new PlaybackSession(
             Segment(file, 10),
             processFactory: factory,
-            probe: _ => Info);
+            probe: _ => Info,
+            frameTimes: _ => []);
 
         await session.PlayAsync();
 
@@ -169,7 +174,8 @@ public sealed class PlaybackSessionTests : IDisposable
         await using var session = new PlaybackSession(
             Segment(CreateEmptyFile(), 10),
             processFactory: factory,
-            probe: _ => Info);
+            probe: _ => Info,
+            frameTimes: _ => []);
 
         PlaybackEndedEventArgs? ended = null;
         Exception? error = null;
@@ -202,7 +208,8 @@ public sealed class PlaybackSessionTests : IDisposable
         await using var session = new PlaybackSession(
             Segment(CreateEmptyFile(), 10),
             processFactory: factory,
-            probe: _ => Info);
+            probe: _ => Info,
+            frameTimes: _ => []);
 
         var frames = new List<VideoFrame>();
         PlaybackEndedEventArgs? ended = null;
@@ -233,7 +240,8 @@ public sealed class PlaybackSessionTests : IDisposable
         await using var session = new PlaybackSession(
             Segment(CreateEmptyFile(), 10),
             processFactory: factory,
-            probe: _ => Info);
+            probe: _ => Info,
+            frameTimes: _ => []);
 
         PlaybackEndedEventArgs? ended = null;
         session.Ended += (_, e) => ended = e;
@@ -267,12 +275,12 @@ public sealed class PlaybackSessionTests : IDisposable
         }
 
         var factory = new FakeProcessFactory(_ => new FakeProcess(new MemoryStream()));
-        await using (var first = new PlaybackSession(Segment(file, 10), processFactory: factory, probe: Probe))
+        await using (var first = new PlaybackSession(Segment(file, 10), processFactory: factory, probe: Probe, frameTimes: _ => []))
         {
             await first.PlayAsync();
         }
 
-        await using (var second = new PlaybackSession(Segment(file, 10), processFactory: factory, probe: Probe))
+        await using (var second = new PlaybackSession(Segment(file, 10), processFactory: factory, probe: Probe, frameTimes: _ => []))
         {
             await second.PlayAsync();
         }
@@ -296,14 +304,14 @@ public sealed class PlaybackSessionTests : IDisposable
         }
 
         var factory = new FakeProcessFactory(_ => new FakeProcess(new MemoryStream()));
-        await using (var first = new PlaybackSession(Segment(file, 10), processFactory: factory, probe: Probe))
+        await using (var first = new PlaybackSession(Segment(file, 10), processFactory: factory, probe: Probe, frameTimes: _ => []))
         {
             await first.PlayAsync();
         }
 
         File.AppendAllText(file, "x");
 
-        await using (var second = new PlaybackSession(Segment(file, 10), processFactory: factory, probe: Probe))
+        await using (var second = new PlaybackSession(Segment(file, 10), processFactory: factory, probe: Probe, frameTimes: _ => []))
         {
             await second.PlayAsync();
         }
@@ -313,9 +321,11 @@ public sealed class PlaybackSessionTests : IDisposable
 
     /// <summary>
     /// 回報的播放位置（<c>TimestampUtc</c> / <c>PtsMs</c>）只能依已播出的影格數前進，與倍速無關。
-    /// 這個解碼路徑不快轉跳幀——每一格都會送出——所以內容時間永遠是 <c>FrameIndex / fps</c>。
+    /// 這個解碼路徑不快轉跳幀——每一格都會送出——所以內容時間與倍速無關。
     /// 先前把 <c>PtsMs</c> 當成牆上時鐘、又讓 <c>TimestampUtc</c> 除以倍速，結果 16× 時畫面已經在
     /// 段內第 16 秒，時間文字與游標卻還停在 1 秒；區間重播的停止點也跟著晚十幾秒才觸發。
+    /// 起播點（第 0 格）就是 <c>-ss</c> 的位置，所以第一格是 0ms 而不是一格之後——多路回放
+    /// 各格都拿它算絕對時刻，差一格的偏移會讓「同一瞬間」差一個影格寬。
     /// </summary>
     [Fact]
     public async Task 回報的播放位置只依影格數前進與倍速無關()
@@ -325,7 +335,8 @@ public sealed class PlaybackSessionTests : IDisposable
         await using var session = new PlaybackSession(
             Segment(CreateEmptyFile(), 10),
             processFactory: factory,
-            probe: _ => Info)
+            probe: _ => Info,
+            frameTimes: _ => [])
         {
             Speed = 8,
         };
@@ -334,13 +345,50 @@ public sealed class PlaybackSessionTests : IDisposable
         await session.PlayAsync();
 
         Assert.Equal(10, frames.Count);
-        for (var i = 1; i <= frames.Count; i++)
+        for (var i = 0; i < frames.Count; i++)
         {
             Assert.Equal(
                 new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc).AddSeconds(i / 25.0),
-                frames[i - 1].TimestampUtc);
-            Assert.Equal(i * 40L, frames[i - 1].PtsMs);
+                frames[i].TimestampUtc);
+            Assert.Equal(i * 40L, frames[i].PtsMs);
         }
+    }
+
+    /// <summary>
+    /// 停止（取消）一律回報「未完成」，即使讀取迴圈是因為取消而從上緣離開。
+    /// </summary>
+    /// <remarks>
+    /// <c>PlaybackWindow</c> 用 <c>completed</c> 決定「已播畢」：回報成 true 會讓按停止之後
+    /// 按播放變成從段首重播（現場症狀是「按停止再按播放就跳回開頭」），而且不再需要「播到尾」
+    /// 的上下文（自動續播、循環）也會被誤觸。
+    /// 取消的時機刻意放在**探測之後**：探測本身就以取消例外結束的話，走的是另一條路徑，
+    /// 這裡要守的是「讀取迴圈還沒開始就被停止」那一條（迴圈上緣直接離開、沒有例外）。
+    /// </remarks>
+    [Fact]
+    public async Task 取消而結束的播放回報未完成()
+    {
+        using var cts = new CancellationTokenSource();
+        StreamProbeInfo Probe(string _)
+        {
+            cts.Cancel();
+            return Info;
+        }
+
+        var factory = new FakeProcessFactory(_ => new FakeProcess(new MemoryStream(Pixels(10))));
+        await using var session = new PlaybackSession(
+            Segment(CreateEmptyFile(), 10),
+            processFactory: factory,
+            probe: Probe,
+            frameTimes: _ => []);
+
+        PlaybackEndedEventArgs? ended = null;
+        session.Ended += (_, e) => ended = e;
+
+        await session.PlayAsync(cancellationToken: cts.Token);
+
+        Assert.NotNull(ended);
+        Assert.False(ended!.Completed);
+        Assert.Equal(0, session.FramesRead);
     }
 
     /// <summary>
@@ -369,7 +417,8 @@ public sealed class PlaybackSessionTests : IDisposable
         await using var session = new PlaybackSession(
             Segment(CreateEmptyFile(), 10),
             processFactory: factory,
-            probe: _ => Info)
+            probe: _ => Info,
+            frameTimes: _ => [])
         {
             Speed = speed,
         };
