@@ -104,6 +104,40 @@ public sealed class PlaybackWallScaleContractTests
         Assert.Contains("_panes.Count == 0", write);
     }
 
+    /// <summary>日曆整月沒有藍色時，要能分辨「沒錄過」與「錄了但已被汰除」，並把後者說出來。</summary>
+    /// <remarks>
+    /// 現場（D: 滿檔、保留策略汰除整個歷史檔案）的日曆會從「整個月都是藍的」變成「一格都沒有」，
+    /// 沒有任何解釋——操作員的第一反應是系統壞了或錄影沒在跑。索引裡的 <c>missing</c> 段數
+    /// 就是「曾經錄過、現在沒了」的證據（實測：攝影機 01 在 11/04–05 有 400 多段標記為遺失）。
+    /// 提示的門檻是「有 missing 段」而不是「磁碟壓力等級」：新頻道（從沒錄過）不該被誤導。
+    /// </remarks>
+    [Fact]
+    public void 日曆整月沒有藍色時會說明錄影已被汰除()
+    {
+        var marks = SourceContract.BodyOf(SourceContract.Read(Code), "ApplyRecordingDayMarks");
+        Assert.Contains("ExplainEmptyMonth(", marks);
+
+        var explain = SourceContract.BodyOf(SourceContract.Read(Code), "ExplainEmptyMonth");
+        Assert.Contains("CountByStatusInRange(", explain);
+        Assert.Contains("Playback.RecordingsEvicted", explain);
+        // 門檻是「索引裡有 missing 段」：新頻道（沒錄過）不能被誤導成「被汰除」。
+        Assert.Contains("missing > 0", explain);
+    }
+
+    [Fact]
+    public void 回放提示與日曆說明的文案三語都在()
+    {
+        var i18n = SourceContract.Read("src/HeliVMS.Storage/I18n.cs");
+
+        var lines = i18n.Split('\n')
+            .Where(line => line.Contains("\"Playback.RecordingsEvicted\"", StringComparison.Ordinal))
+            .ToList();
+
+        // 三語各一行；少一語，該語系的操作員會看到空白按鈕或提示。
+        Assert.True(lines.Count == 3, $"Playback.RecordingsEvicted 應該有三語，實際 {lines.Count}");
+        Assert.All(lines, line => Assert.Contains("{0}", line));
+    }
+
     [Fact]
     public void 硬體解碼沿用即時監看的設定與探測()
     {

@@ -20,7 +20,8 @@ public class LiveViewDiagnosticLineTests
         string state = "Streaming",
         int width = 640,
         int height = 360,
-        string stream = "sub")
+        string stream = "sub",
+        double cap = 0)
         => new(
             channelId,
             stream,
@@ -32,19 +33,35 @@ public class LiveViewDiagnosticLineTests
             dropped,
             backlog,
             age ?? TimeSpan.FromMilliseconds(45),
-            state);
+            state,
+            cap);
 
     [Fact]
     public void 每個欄位都在同一行裡()
     {
         var line = LiveViewDiagnosticLine.Format(
             new DateTime(2026, 11, 5, 8, 12, 34, 567, DateTimeKind.Utc),
-            [Cell(backlog: TimeSpan.FromMilliseconds(780))]);
+            [Cell(backlog: TimeSpan.FromMilliseconds(780), cap: 15)]);
 
         Assert.Equal(
-            "2026-11-05T08:12:34.567Z | cells=1 | ch103 sub 640x360 shown=14.8/s read=29.9/s drop=15/s"
-            + " backlog=780ms age=45ms Streaming",
+            "2026-11-05T08:12:34.567Z | cells=1 | ch103 sub 640x360 shown=14.8/s read=29.9/s emit=14.9/s"
+            + " drop=15/s cap=15/s backlog=780ms age=45ms Streaming",
             line);
+    }
+
+    /// <summary>
+    /// 上限也要寫出來：`read=30/s drop=0/s cap=15` 這種自相矛盾的組合，唯一線索就是
+    /// 「上限寫著 15 卻什麼都沒丟」——日誌裡有這一欄，才抓得到「上限沒生效」。
+    /// </summary>
+    [Fact]
+    public void 顯示上限會寫在同一行裡()
+    {
+        var withCap = LiveViewDiagnosticLine.Format(DateTime.UnixEpoch, [Cell(cap: 15)]);
+        Assert.Contains("cap=15/s", withCap);
+
+        // 不限流（0）時不寫，免得與「上限 0」混淆。
+        var unlimited = LiveViewDiagnosticLine.Format(DateTime.UnixEpoch, [Cell(cap: 0)]);
+        Assert.DoesNotContain("cap=", unlimited);
     }
 
     [Fact]

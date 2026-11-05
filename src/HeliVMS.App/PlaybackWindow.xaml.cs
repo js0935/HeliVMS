@@ -902,6 +902,38 @@ public partial class PlaybackWindow : Window
                 }
             }
         }
+
+        ExplainEmptyMonth(has, windows);
+    }
+
+    /// <summary>
+    /// 整個月都沒有藍色時，分辨「真的沒錄過」與「錄了但已被汰除」，並把後者說出來。
+    /// </summary>
+    /// <remarks>
+    /// 現場（D: 滿檔、保留策略汰除整個歷史檔案）的日曆會從「整個月都是藍的」變成「一格都沒有」，
+    /// 沒有任何解釋——操作員的第一反應是系統壞了或錄影沒在跑。索引裡的 <c>missing</c> 段數
+    /// 就是「曾經錄過、現在沒了」的證據，把它說出來比讓日曆靜靜變空負責任。
+    /// </remarks>
+    private void ExplainEmptyMonth(IReadOnlyList<bool> has, IReadOnlyList<(DateTime StartUtc, DateTime EndUtc)> windows)
+    {
+        if (has.Count == 0 || has.Any(flag => flag) || ChannelCombo.SelectedItem is not ChannelInfo ch)
+        {
+            return;
+        }
+
+        try
+        {
+            var missing = _segments.CountByStatusInRange(
+                ch.Id, "main", "missing", windows[0].StartUtc, windows[^1].EndUtc);
+            if (missing > 0)
+            {
+                LoadHint.Text = string.Format(Localizer.T("Playback.RecordingsEvicted"), missing);
+            }
+        }
+        catch (Exception)
+        {
+            // 統計失敗不該影響日曆；提示是加值，不是必要路徑。
+        }
     }
 
     /// <summary>

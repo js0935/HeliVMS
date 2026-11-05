@@ -224,10 +224,21 @@ public sealed class ChannelSession : IDisposable
             EffectiveClient.FramesEmitted,
             EffectiveClient.FramesDropped,
             EffectiveClient.FrameSize.Width,
-            EffectiveClient.FrameSize.Height);
+            EffectiveClient.FrameSize.Height,
+            EffectiveClient.MaxFramesPerSecond);
 
-    /// <summary>已讀／已送出／因顯示上限丟棄的影格數，與最近一次的影格尺寸。</summary>
-    public readonly record struct DecodeSnapshot(long Read, long Emitted, long Dropped, int Width, int Height);
+    /// <summary>已讀／已送出／因顯示上限丟棄的影格數、最近一次的影格尺寸，與生效中的顯示上限。</summary>
+    /// <remarks>
+    /// <see cref="Cap"/> 也要一起回報：上限沒生效（例如被某條路徑改成 0）時，日誌上只會看到
+    /// 「讀 30/s、丟 0/s」這種自相矛盾的數字，而那個矛盾正是唯一的線索。
+    /// </remarks>
+    public readonly record struct DecodeSnapshot(
+        long Read,
+        long Emitted,
+        long Dropped,
+        int Width,
+        int Height,
+        double Cap);
 
     public event EventHandler<VideoFrame>? FrameArrived;
 

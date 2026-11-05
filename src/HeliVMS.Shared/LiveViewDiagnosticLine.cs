@@ -21,6 +21,18 @@ namespace HeliVMS.Shared;
 public static class LiveViewDiagnosticLine
 {
     /// <summary>一格（一個顯示中的頻道）的取樣值。</summary>
+    /// <param name="ChannelId">頻道識別碼。</param>
+    /// <param name="StreamLabel">碼流標籤（sub／main）。</param>
+    /// <param name="Width">影格寬度（0＝還沒有影格）。</param>
+    /// <param name="Height">影格高度。</param>
+    /// <param name="ShownFps">畫到螢幕上的更新率。</param>
+    /// <param name="ReadPerSecond">每秒從解碼管線讀到的影格數（含被丟棄的）。</param>
+    /// <param name="EmittedPerSecond">每秒送出的影格數。</param>
+    /// <param name="DroppedPerSecond">每秒因顯示上限丟棄的影格數。</param>
+    /// <param name="StreamBacklog">本機管線落後量（null＝量不到）。</param>
+    /// <param name="Age">畫面年齡（UI 佇列）。</param>
+    /// <param name="State">連線狀態。</param>
+    /// <param name="CapPerSecond">生效中的顯示上限（0＝不限）；用來看出「上限沒生效」。</param>
     public readonly record struct CellSample(
         int ChannelId,
         string StreamLabel,
@@ -32,7 +44,8 @@ public static class LiveViewDiagnosticLine
         double DroppedPerSecond,
         TimeSpan? StreamBacklog,
         TimeSpan Age,
-        string State);
+        string State,
+        double CapPerSecond = 0);
 
     /// <summary>
     /// 一行：<c>時間 | cells=N | ch103 sub 640x360 shown=14.8/s read=29.9/s drop=15.1/s backlog=120ms age=45ms Streaming</c>
@@ -61,7 +74,16 @@ public static class LiveViewDiagnosticLine
 
             builder.Append(" shown=").Append(Rate(cell.ShownFps)).Append("/s");
             builder.Append(" read=").Append(Rate(cell.ReadPerSecond)).Append("/s");
+            builder.Append(" emit=").Append(Rate(cell.EmittedPerSecond)).Append("/s");
             builder.Append(" drop=").Append(Rate(cell.DroppedPerSecond)).Append("/s");
+
+            // 上限也要寫出來：`read=30/s drop=0/s cap=15` 這種自相矛盾的組合，唯一的線索
+            // 就是「上限寫著 15 卻什麼都沒丟」——沒有這一欄，讀日誌的人只會以為來源是 30fps
+            // 而畫面剛好只畫得動 11fps。
+            if (cell.CapPerSecond > 0)
+            {
+                builder.Append(" cap=").Append(Rate(cell.CapPerSecond)).Append("/s");
+            }
 
             // 沒有落後值就整欄不寫：寫成 0ms 會被讀成「完全沒有落後」，那是騙人的。
             if (cell.StreamBacklog is { } backlog)

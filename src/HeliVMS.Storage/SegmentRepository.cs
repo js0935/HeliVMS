@@ -660,6 +660,41 @@ public sealed class SegmentRepository
         return flags;
     }
 
+    /// <summary>
+    /// 某頻道在某時間窗內、某種狀態的段落數。
+    /// </summary>
+    /// <remarks>
+    /// 日曆粗體「整個月都沒有藍色」時，用它分辨「真的沒錄過」與「錄了但已被汰除」：
+    /// 兩者在畫面上都是沒有藍色，但後者需要一句解釋，否則操作員會以為系統壞了。
+    /// </remarks>
+    public int CountByStatusInRange(
+        int channelId,
+        string stream,
+        string status,
+        DateTime fromUtc,
+        DateTime toUtc)
+    {
+        return _store.Query(
+            """
+            SELECT COUNT(*) FROM segments
+            WHERE channel_id = $c AND stream = $s AND status = $st
+              AND start_time < $t AND coalesce(end_time, start_time) > $f
+            """,
+            r =>
+            {
+                r.Read();
+                return r.GetInt32(0);
+            },
+            cmd =>
+            {
+                cmd.Parameters.AddWithValue("$c", channelId);
+                cmd.Parameters.AddWithValue("$s", stream);
+                cmd.Parameters.AddWithValue("$st", status);
+                cmd.Parameters.AddWithValue("$f", SqliteStore.Iso(fromUtc));
+                cmd.Parameters.AddWithValue("$t", SqliteStore.Iso(toUtc));
+            });
+    }
+
     /// <summary>統計某頻道錄影總量（位元組）。</summary>
     public long GetChannelTotalSize(int channelId)
     {
