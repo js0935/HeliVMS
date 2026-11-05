@@ -1,4 +1,4 @@
----
+-| 回放日曆：整月沒有藍色時說明錄影已被汰除（M337） | \u2014 | **已做（M337）**。日曆把「當天有 final 段」標成粗體＋藍字，標記隨索引與磁碟實況消失：D: 滿檔時保留策略汰除整個歷史檔案（實測 01\u201306 在 11/05 22:18 之前全被刪、索引 400 多段 missing），日曆變成一格都沒有且沒有解釋。ApplyRecordingDayMarks 在整月沒有藍色時用新的 SegmentRepository.CountByStatusInRange 查該月 missing 段數：有 missing 段＝曾錄過、被汰除，就在提示列說出來（Playback.RecordingsEvicted 三語）；沒有＝真的沒錄過，不說「被汰除」。 |\n--
 軟體屬名：禾秝軟體開發團隊
 代碼撰寫：洪俊士
 版本：v1.0.0

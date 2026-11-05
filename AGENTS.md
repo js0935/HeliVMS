@@ -408,6 +408,17 @@ Notes that will save you time:
   才換一張」是壞掉，而它其實是那個版面的設計。
   Guarded by `PlaybackPaneDiagnosticLineTests`、`次畫面OSD文字有更新間隔` and
   `同步計時器每五秒寫一行回放診斷`.
+- **The calendar going from "a month of blue" to "no blue at all" is data, not a bug — say so.**
+  回放日曆把「當天有 final 段」的日期標成粗體＋藍字，而標記會隨**索引與磁碟的實況**消失：
+  D: 滿檔時保留策略會汰除整個歷史檔案（實測攝影機 01–06 在 11/05 22:18 之前的錄影全部被刪，
+  索引裡 11/04–05 有 400 多段標記 missing），日曆因此從「整個月都是藍的」變成「一格都沒有」，
+  而且沒有任何解釋——操作員的第一反應是系統壞了或錄影沒在跑。`ApplyRecordingDayMarks` 在
+  整月都沒有藍色時，改用 `SegmentRepository.CountByStatusInRange` 查該月的 `missing` 段數：
+  **有 missing 段**＝曾經錄過、現在被汰除，就在提示列說出來（`Playback.RecordingsEvicted` 三語）；
+  **沒有 missing 段**＝真的沒錄過（剛加入的頻道），不能說「被汰除」——那是在騙人。
+  順帶：錄影磁碟的可用空間低於保留值（預設 2 GB）時錄影會暫停、清出空間後自動恢復，
+  這是設計（磁碟壓力等級會升到 Critical）；不要為了「讓日曆有藍色」去放寬它。
+  Guarded by `日曆整月沒有藍色時會說明錄影已被汰除`（含「門檻是 missing 段」與三語文案）.
 - **The playback control bar must expose stepping and looping with the mouse, not only on the
   keyboard.** 現場盤點：回放只看得到播放／暫停／速度，逐幀與跳段只有鍵盤（F、PageUp…），而
   「上一張」根本不存在——新進的操作員不會知道那些鍵，也不該被要求記。現在有四顆按鈕
