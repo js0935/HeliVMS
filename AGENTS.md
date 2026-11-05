@@ -541,6 +541,18 @@ Notes that will save you time:
   and a timeout counts as "nothing there" while only a real cancellation propagates.
   Guarded by `DiscoveryAddressRangeTests`, `DiscoverySweepTests`, `MulticastSourceAddressesTests`,
   `OnvifPortScanTests`, `OnvifEnrollmentPlannerTests` and `OnvifBatchDiscoveryContractTests`.
+  (3) **the wizard prefills credentials from the fleet** (`OnvifCredentialPlanner`, pure): the
+  address the operator typed wins when it names a device we already have (most specific signal),
+  otherwise the fleet's most common username+password pair; a *remembered* username that differs
+  from the fleet's keeps its own field but gets **no password**, because a wrong password is masked
+  and invisible while an empty one is obvious. Verified on the live index: 7 VIVOTEK cameras are
+  enrolled as `root` and the 2 LAN test devices as `admin`, so a hardcoded "usually admin" default
+  would have been wrong for almost the whole fleet (the tooltip said exactly that and now describes
+  the real behaviour). Parsing the address box is where this goes wrong quietly: strip the URL
+  scheme *before* deciding it is an expression (`rtsp://cam/live` is a camera, `192.168.1.0/24` is
+  a subnet) and only treat a hyphen as a last-octet range when numbers sit on both sides
+  (`192.168.1.1-50` is a range, `vivotek-01.local` is a hostname).
+  Guarded by `OnvifCredentialPlannerTests` and `開窗預填上次搜尋且已加入的預設不勾`.
 - **A group tab with fewer cameras than cells must leave the extra cells empty — and both tab paths
   must share one implementation.** 現場回報：群組只設 2 支攝影機卻用 4 分割，在不同群組之間切換後
   再回到原群組，第 3、4 格「串」著另一支攝影機的畫面。三個獨立原因疊在一起：

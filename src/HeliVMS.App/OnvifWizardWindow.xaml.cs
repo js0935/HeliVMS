@@ -139,7 +139,15 @@ public partial class OnvifWizardWindow : Window
         OnDiscoverClicked(DiscoverButton, new RoutedEventArgs());
     }
 
-    /// <summary>預填上次的搜尋位址與帳號（帳號是打字成本，密碼基於安全一律不記）。</summary>
+    /// <summary>
+    /// 預填上次的搜尋位址，以及系統裡已經在用的帳密。
+    /// </summary>
+    /// <remarks>
+    /// 帳號記在設定裡、密碼不記（設定檔要能備份與跨機還原，密碼在 <c>devices</c> 以 DPAPI 保存）。
+    /// 但每次新增攝影機都重打一次機隊共用的那組帳密，只會把操作員推向更短的密碼，
+    /// 所以帳密改由 <see cref="OnvifCredentialPlanner"/> 從既有裝置帶入：
+    /// 位址指向已知設備就用那台的，否則用全機隊最常用的一組（兩者都可自行覆寫）。
+    /// </remarks>
     private void PrefillLastSearch()
     {
         if (_streamsOnly || _store is null)
@@ -159,18 +167,54 @@ public partial class OnvifWizardWindow : Window
                 }
             }
 
-            if (string.IsNullOrWhiteSpace(UserBox.Text))
+            var prefill = OnvifCredentialPlanner.Resolve(
+                AddressBox.Text,
+                settings.Get(LastUserKey),
+                LoadFleetCredentials());
+            if (string.IsNullOrWhiteSpace(UserBox.Text) && !string.IsNullOrWhiteSpace(prefill.Username))
             {
-                var lastUser = settings.Get(LastUserKey);
-                if (!string.IsNullOrWhiteSpace(lastUser))
-                {
-                    UserBox.Text = lastUser;
-                }
+                UserBox.Text = prefill.Username;
+            }
+
+            if (PasswordBox.Password.Length == 0 && !string.IsNullOrEmpty(prefill.Password))
+            {
+                PasswordBox.Password = prefill.Password;
             }
         }
         catch (Exception)
         {
             // 記不住／讀不到搜尋條件不該讓精靈打不開（資料庫忙碌時仍要能加攝影機）。
+        }
+    }
+
+    /// <summary>
+    /// 系統裡的裝置與帳密，供預填使用（DPAPI 解不開的裝置只留帳號）。
+    /// </summary>
+    /// <remarks>
+    /// 讀不到一律回空清單：預填是便利性，不是搜尋的必要條件——資料庫忙碌時操作員仍要能打帳密。
+    /// </remarks>
+    private IReadOnlyList<OnvifCredentialPlanner.Endpoint> LoadFleetCredentials()
+    {
+        if (_store is null)
+        {
+            return [];
+        }
+
+        try
+        {
+            var devices = new DeviceRepository(_store, new AuditLogRepository(_store));
+            var endpoints = new List<OnvifCredentialPlanner.Endpoint>();
+            foreach (var device in devices.List())
+            {
+                var (username, password) = devices.GetRtspCredentials(device.Id);
+                endpoints.Add(new OnvifCredentialPlanner.Endpoint(device.Ip, username, password));
+            }
+
+            return endpoints;
+        }
+        catch (Exception)
+        {
+            return [];
         }
     }
 

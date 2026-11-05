@@ -104,11 +104,23 @@ public sealed class OnvifBatchDiscoveryContractTests
     {
         var wizard = SourceContract.Read(WizardCode);
 
-        // 預填：補一台新機時不必重打整個網段（密碼不記，憑證只在 devices 以 DPAPI 保存）。
+        // 預填：補一台新機時不必重打整個網段（密碼不記在設定裡，憑證只在 devices 以 DPAPI 保存）。
         Assert.Contains("onvif.last_address", wizard);
         Assert.Contains("PrefillLastSearch", wizard);
         Assert.Contains("RememberLastSearch", wizard);
         Assert.DoesNotContain("onvif.last_password", wizard);
+
+        // 帳密由「系統裡已經在用的那一組」帶入（現場機隊共用一組；每次重打只會推向短密碼）。
+        // 決策本身是純函式（Devices 的 OnvifCredentialPlanner，行為測試在那裡），
+        // 這裡確認視窗真的有把裝置清單交給它，且兩欄都只在自己是空的時候才填。
+        var prefill = SourceContract.BodyOf(wizard, "PrefillLastSearch");
+        Assert.Contains("OnvifCredentialPlanner.Resolve(", prefill);
+        Assert.Contains("LoadFleetCredentials(", prefill);
+        Assert.Contains("string.IsNullOrWhiteSpace(UserBox.Text)", prefill);
+        Assert.Contains("PasswordBox.Password.Length == 0", prefill);
+
+        var credentials = SourceContract.BodyOf(wizard, "LoadFleetCredentials");
+        Assert.Contains("GetRtspCredentials(", credentials);
 
         // 「已加入」標示＋預設不勾：重加一台已在錄的攝影機會替它多開一個頻道。
         var rows = SourceContract.BodyOf(wizard, "SetRows");
@@ -128,7 +140,8 @@ public sealed class OnvifBatchDiscoveryContractTests
         var i18n = SourceContract.Read(I18n);
         string[] keys =
         [
-            "Onvif.AddressHint", "Onvif.Sweeping", "Onvif.SweepTruncated",
+            "Onvif.AddressHint", "Onvif.UserTip", "Onvif.PasswordTip",
+            "Onvif.Sweeping", "Onvif.SweepTruncated",
             "Onvif.BatchAdd", "Onvif.BatchAddTip", "Onvif.SelectAll", "Onvif.SelectNone",
             "Onvif.SelectAllTip", "Onvif.BatchNoneSelected", "Onvif.BatchProgress",
             "Onvif.BatchAllFailed", "Onvif.BatchPartial",
