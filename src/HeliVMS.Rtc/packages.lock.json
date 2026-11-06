@@ -124,13 +124,6 @@
       "helivms.shared": {
         "type": "Project"
       }
-    },
-    "net10.0/win-x64": {
-      "Tmds.LibC": {
-        "type": "Transitive",
-        "resolved": "0.2.0",
-        "contentHash": "+RvLuNHOLW7cxzgDe9yHLoayBgjsuH2/gJtJnuVMxweKrxxYT6TwQNAmt06SFWpjwk68aRcwwD4FfMMA6tZvVA=="
-      }
     }
   }
 }
