@@ -6,17 +6,65 @@ using System.Xml.Linq;
 namespace HeliVMS.Devices.Onvif;
 
 /// <summary>
-/// WS-Discovery（ONVIF §2.4 設備發現）：UDP 多播 239.255.255.250:3702
-/// 送出 〈Probe〉，收集 3702 埠回應之 〈ProbeMatch〉。僅限本機網段（TTL=1）。
+/// WS-Discovery（ONVIF 核心規範 §5.1 設備發現）：UDP 多播 239.255.255.250:3702
+/// 送出 SOAP 封套的 〈Probe〉，收集 3702 埠回應之 〈ProbeMatch〉。僅限本機網段（TTL=1）。
 /// </summary>
+/// <remarks>
+/// 訊息格式依 ONVIF 核心規範 §5.1：SOAP 1.2 封套、WS-Discovery 1.0（2005/04）、
+/// WS-Addressing 2004/08、Types＝<c>dn:NetworkVideoTransmitter</c>。
+/// 回應端（<see cref="ParseMatch"/>）刻意採命名空間無關解析，2009/01（WS-Discovery 1.1）
+/// 的設備也能收進清單——現場機隊兩種都有。
+/// </remarks>
 public static class DiscoveryClient
 {
     private const string DiscoveryAddress = "239.255.255.250";
     private const int DiscoveryPort = 3702;
     private const int UdpReadTimeoutMs = 500;
 
-    private static readonly XNamespace WsaNs = "http://www.w3.org/2005/08/addressing";
-    private static readonly XNamespace WsdNs = "http://docs.oasis-open.org/ws-dd/ns/discovery/2009/01";
+    /// <summary>
+    /// 探測重送間隔：UDP 沒有重傳，一次 5 秒的掃描只送一個封包在現場等同賭運氣
+    /// （Wi-Fi／企業網路掉一個就整批找不到）。重送沿用同一個 MessageID，
+    /// 重複的 ProbeMatch 由 HttpXAddr 去重，不影響結果。
+    /// </summary>
+    private const int ProbeResendIntervalMs = 1000;
+
+    /// <summary>WS-Addressing 1.0 的命名空間（WS-Discovery 1.0／ONVIF 規範用的是 2004/08 版）。</summary>
+    private static readonly XNamespace WsaNs = "http://schemas.xmlsoap.org/ws/2004/08/addressing";
+
+    /// <summary>
+    /// 探測本體的命名空間：ONVIF 核心規範 §5.1 指定 WS-Discovery 1.0
+    /// （<c>http://schemas.xmlsoap.org/ws/2005/04/discovery</c>）。
+    /// </summary>
+    /// <remarks>
+    /// 舊寫法用 2009/01（WS-Discovery 1.1）**而且** Action 用 2005/04 的 URI，兩者不一致，
+    /// 再加上送出的根本不是 SOAP 封套——真實攝影機一律不回應。2009/01 的設備改由解析端的
+    /// 命名空間無關解析支援（見 <see cref="ParseMatch"/>）。
+    /// </remarks>
+    private static readonly XNamespace DiscNs = "http://schemas.xmlsoap.org/ws/2005/04/discovery";
+
+    /// <summary>SOAP 1.2 封套命名空間。</summary>
+    private static readonly XNamespace SoapNs = "http://www.w3.org/2003/05/soap-envelope";
+
+    /// <summary>
+    /// WS-Discovery 的探索 URN：Probe／Resolve 的 <c>wsa:To</c> 一律用它。
+    /// </summary>
+    /// <remarks>
+    /// 連**單播**探測也用 URN 而非目標位址——這是 gsoap（絕大多數 ONVIF 設備的堆疊，
+    /// 見 <c>soap_wsdd_Probe</c> 的 <c>SOAP_WSDD_TO_TS</c> 分支）與 ONVIF Device Manager
+    /// 的行為。舊程式把多播位址或 <c>host:port</c> 塞進 To，嚴格檢查的設備會直接忽略。
+    /// </remarks>
+    private const string DiscoveryUrn = "urn:schemas-xmlsoap-org:ws:2005:04:discovery";
+
+    /// <summary>ONVIF 設備類型 QName 前綴 <c>dn</c> 的命名空間（Types 必須綁定它，QName 才可解析）。</summary>
+    private const string NetworkTypeNs = "http://www.onvif.org/ver10/network/wsdl";
+
+    /// <summary>Probe 的 Types 值（ONVIF 核心規範 §5.1 指定的設備類型）。</summary>
+    private const string NetworkVideoTransmitter = "dn:NetworkVideoTransmitter";
+
+    private const string ProbeAction = "http://schemas.xmlsoap.org/ws/2005/04/discovery/Probe";
+    private const string ResolveAction = "http://schemas.xmlsoap.org/ws/2005/04/discovery/Resolve";
+    private const string HelloAction = "http://schemas.xmlsoap.org/ws/2005/04/discovery/Hello";
+    private const string ByeAction = "http://schemas.xmlsoap.org/ws/2005/04/discovery/Bye";
 
     /// <summary>
     /// 於指定逾時內對 ONVIF 多播端位址執行 WS-Discovery 探測，
@@ -147,7 +195,9 @@ public static class DiscoveryClient
         var endpoint = new IPEndPoint(address, port);
 
         // 保持未連線（unconnected）狀態，ProbeAsync 才可對任意端點重複送出探測。
-        return await ProbeAsync(udp, endpoint, $"{host}:{port.ToString(System.Globalization.CultureInfo.InvariantCulture)}", timeout, cancellationToken);
+        // To 仍用探索 URN（不是目標位址）：gsoap 的 directed probe（SOAP_WSDD_TO_TS）就是這樣送，
+        // 用位址會被部分設備的 WS-Addressing 檢查擋掉。
+        return await ProbeAsync(udp, endpoint, DiscoveryUrn, timeout, cancellationToken);
     }
 
     /// <summary>
@@ -413,7 +463,7 @@ public static class DiscoveryClient
             EndpointAddress = $"urn:probe:{host}",
             XAddrs = [xAddr],
             Scopes = string.IsNullOrWhiteSpace(name) ? [] : [$"onvif://www.onvif.org/name/{name}"],
-            Types = "tdn:NetworkVideoTransmitter",
+            Types = NetworkVideoTransmitter,
         };
 
     private static bool TryUnicastProbeTargets(
@@ -464,13 +514,13 @@ public static class DiscoveryClient
     /// </summary>
     /// <param name="instanceId">設備 UUID（urn:uuid:{id}）。</param>
     /// <param name="xAddrs">可定址之 onvif/device_service 端點（單一值）。</param>
-    /// <param name="types">設備類型（預設 tdn:NetworkVideoTransmitter）。</param>
+    /// <param name="types">設備類型（預設 <c>dn:NetworkVideoTransmitter</c>）。</param>
     /// <param name="scopes">選用的探索範圍（逗號分隔）。</param>
     /// <param name="cancellationToken">取消權杖。</param>
     public static Task<bool> SendHelloAsync(
         string instanceId,
         string xAddrs,
-        string types = "tdn:NetworkVideoTransmitter",
+        string types = NetworkVideoTransmitter,
         string? scopes = null,
         CancellationToken cancellationToken = default)
     {
@@ -528,10 +578,11 @@ public static class DiscoveryClient
         IPEndPoint endpoint,
         TimeSpan timeout,
         CancellationToken cancellationToken = default) =>
-        await ProbeAsync(udp, endpoint, $"{DiscoveryAddress}:{DiscoveryPort}", timeout, cancellationToken);
+        await ProbeAsync(udp, endpoint, DiscoveryUrn, timeout, cancellationToken);
 
     /// <summary>
     /// 對指定端位址執行 WS-Discovery 探測（可指定 wsa:To；多播與單播共用）。
+    /// 探測每 <see cref="ProbeResendIntervalMs"/> 重送一次直到逾時，回應持續累積。
     /// </summary>
     internal static async Task<IReadOnlyList<DiscoveredDevice>> ProbeAsync(
         UdpClient udp,
@@ -560,7 +611,9 @@ public static class DiscoveryClient
                 break;
             }
 
-            while (DateTime.UtcNow < deadline)
+            // 只等一個重送間隔就再送，而不是一路等到逾時：單次探測掉封包＝整批找不到。
+            var nextProbe = DateTime.UtcNow + TimeSpan.FromMilliseconds(ProbeResendIntervalMs);
+            while (DateTime.UtcNow < deadline && DateTime.UtcNow < nextProbe)
             {
                 if (udp.Available == 0)
                 {
@@ -591,7 +644,7 @@ public static class DiscoveryClient
         IPEndPoint endpoint,
         string instanceId,
         string xAddrs,
-        string types = "tdn:NetworkVideoTransmitter",
+        string types = NetworkVideoTransmitter,
         string? scopes = null,
         CancellationToken cancellationToken = default)
         => SendDiscoveryMessageAsync(udp, endpoint, BuildHello(instanceId, xAddrs, types, scopes), cancellationToken);
@@ -677,37 +730,38 @@ public static class DiscoveryClient
 
     private static string BuildHello(string instanceId, string xAddrs, string types, string? scopes)
     {
-        var hello = new XElement(WsdNs + "Hello",
+        var hello = new XElement(DiscNs + "Hello",
             new XElement(WsaNs + "EndpointReference",
                 new XElement(WsaNs + "Address", $"urn:uuid:{instanceId}")),
-            new XElement(WsdNs + "Types", types));
+            new XElement(DiscNs + "Types", types));
         if (!string.IsNullOrWhiteSpace(scopes))
         {
-            hello.Add(new XElement(WsdNs + "Scopes", scopes));
+            hello.Add(new XElement(DiscNs + "Scopes", scopes));
         }
 
         hello.Add(
-            new XElement(WsdNs + "XAddrs", xAddrs),
-            new XElement(WsdNs + "MetadataVersion", "1"));
-        return new XDocument(hello).ToString(SaveOptions.DisableFormatting);
+            new XElement(DiscNs + "XAddrs", xAddrs),
+            new XElement(DiscNs + "MetadataVersion", "1"));
+        return BuildEnvelope(HelloAction, $"urn:uuid:{Guid.NewGuid():D}", DiscoveryUrn, hello);
     }
 
     private static string BuildBye(string instanceId)
-        => new XDocument(
-            new XElement(WsdNs + "Bye",
+        => BuildEnvelope(
+            ByeAction,
+            $"urn:uuid:{Guid.NewGuid():D}",
+            DiscoveryUrn,
+            new XElement(DiscNs + "Bye",
                 new XElement(WsaNs + "EndpointReference",
-                    new XElement(WsaNs + "Address", $"urn:uuid:{instanceId}"))))
-            .ToString(SaveOptions.DisableFormatting);
+                    new XElement(WsaNs + "Address", $"urn:uuid:{instanceId}"))));
 
     private static string BuildResolve(string instanceId)
-        => new XDocument(
-            new XElement(WsdNs + "Resolve",
-                new XElement(WsaNs + "To", $"{DiscoveryAddress}:{DiscoveryPort}"),
-                new XElement(WsaNs + "Action", "http://schemas.xmlsoap.org/ws/2005/04/discovery/Resolve"),
-                new XElement(WsaNs + "MessageID", $"urn:uuid:{Guid.NewGuid():D}"),
-                new XElement(WsdNs + "EndpointReference",
-                    new XElement(WsaNs + "Address", $"urn:uuid:{instanceId}"))))
-            .ToString(SaveOptions.DisableFormatting);
+        => BuildEnvelope(
+            ResolveAction,
+            $"urn:uuid:{Guid.NewGuid():D}",
+            DiscoveryUrn,
+            new XElement(DiscNs + "Resolve",
+                new XElement(WsaNs + "EndpointReference",
+                    new XElement(WsaNs + "Address", $"urn:uuid:{instanceId}"))));
 
     private static DiscoveredDevice? ParseResolveMatch(string response, string expectedInstance)
     {
@@ -721,12 +775,15 @@ public static class DiscoveryClient
             return null;
         }
 
-        foreach (var match in doc.Descendants(WsdNs + "ResolveMatch"))
+        foreach (var match in doc.Descendants().Where(e => e.Name.LocalName == "ResolveMatch"))
         {
-            var addr = match.Element(WsaNs + "EndpointReference")?.Element(WsaNs + "Address")?.Value ?? string.Empty;
+            // 缺 EndpointReference 的畸形回應直接跳過（舊寫法用 First()，會在這裡拋例外）。
+            var addr = Child(match, "EndpointReference") is { } endpoint
+                ? Child(endpoint, "Address")?.Value ?? string.Empty
+                : string.Empty;
             if (addr == expectedInstance)
             {
-                var xaddrs = match.Element(WsdNs + "XAddrs")?.Value ?? string.Empty;
+                var xaddrs = Child(match, "XAddrs")?.Value ?? string.Empty;
                 if (string.IsNullOrEmpty(xaddrs))
                 {
                     continue;
@@ -736,8 +793,8 @@ public static class DiscoveryClient
                 {
                     EndpointAddress = addr,
                     XAddrs = SplitSpaceSeparated(xaddrs),
-                    Scopes = SplitSpaceSeparated(match.Element(WsdNs + "Scopes")?.Value ?? string.Empty),
-                    Types = match.Element(WsdNs + "Types")?.Value ?? string.Empty,
+                    Scopes = SplitSpaceSeparated(Child(match, "Scopes")?.Value ?? string.Empty),
+                    Types = Child(match, "Types")?.Value ?? string.Empty,
                 };
             }
         }
@@ -746,16 +803,57 @@ public static class DiscoveryClient
     }
 
     private static string BuildProbe(string messageId, string to)
-    {
-        var doc = new XDocument(
-            new XElement(WsdNs + "Probe",
-                new XElement(WsaNs + "To", to),
-                new XElement(WsaNs + "Action", "http://schemas.xmlsoap.org/ws/2005/04/discovery/Probe"),
-                new XElement(WsaNs + "MessageID", $"urn:uuid:{messageId}"),
-                new XElement(WsdNs + "Types", "tdn:NetworkVideoTransmitter")));
-        return doc.ToString(SaveOptions.DisableFormatting);
-    }
+        => BuildEnvelope(
+            ProbeAction,
+            $"urn:uuid:{messageId}",
+            to,
+            new XElement(DiscNs + "Probe",
+                new XElement(DiscNs + "Types",
+                    // 明確綁定 dn 前綴：Types 是 QName，嚴格解析的設備會找不到前綴就忽略探測。
+                    new XAttribute(XNamespace.Xmlns + "dn", NetworkTypeNs),
+                    NetworkVideoTransmitter)));
 
+    /// <summary>
+    /// 把 WS-Discovery 訊息包進 SOAP 1.2 封套，並把 WS-Addressing 標頭放進 Header。
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// 舊寫法直接送出**裸的** <c>&lt;Probe&gt;</c> 元素——不是 SOAP 封套，真實攝影機的
+    /// 剖析器（gsoap 等）根本不會處理它；而測試的假攝影機太寬容（收到什麼都回），
+    /// 所以這個缺陷一直沒被發現。現場都以手動 IP ＋ HTTP 探測注册，多播搜尋從未成功。
+    /// </para>
+    /// <para>
+    /// 命名空間依 ONVIF 核心規範 §5.1：訊息本體用
+    /// <c>http://schemas.xmlsoap.org/ws/2005/04/discovery</c>（WS-Discovery 1.0），
+    /// 定址用 <c>http://schemas.xmlsoap.org/ws/2004/08/addressing</c>，To 用探索 URN
+    /// （連單播探測也是，見 <see cref="DiscoveryUrn"/>）。2009/01（WS-Discovery 1.1）
+    /// 的設備由解析端的命名空間無關解析支援（見 <see cref="ParseMatch"/>）。
+    /// </para>
+    /// </remarks>
+    private static string BuildEnvelope(string action, string messageId, string to, XElement body)
+        => new XDocument(
+            new XElement(SoapNs + "Envelope",
+                // 固定前綴（s/a/d）與 ONVIF 實機封包一致：LINQ to XML 不指定時會自創前綴
+                // （p1:…），命名空間雖正確，但讓 Wireshark 比對與少數做字串比對的設備都好過。
+                new XAttribute(XNamespace.Xmlns + "s", SoapNs.NamespaceName),
+                new XAttribute(XNamespace.Xmlns + "a", WsaNs.NamespaceName),
+                new XAttribute(XNamespace.Xmlns + "d", DiscNs.NamespaceName),
+                new XElement(SoapNs + "Header",
+                    new XElement(WsaNs + "Action", action),
+                    new XElement(WsaNs + "MessageID", messageId),
+                    new XElement(WsaNs + "To", to)),
+                new XElement(SoapNs + "Body", body)))
+            .ToString(SaveOptions.DisableFormatting);
+
+    /// <summary>
+    /// 解析 ProbeMatch 回應並併入結果集（以 HttpXAddr 去重，後到者覆蓋）。
+    /// </summary>
+    /// <remarks>
+    /// **命名空間無關**（只比 local-name）：現場同時有 WS-Discovery 1.0（2005/04，
+    /// ONVIF 規範指定的版本）與 1.1（2009/01）的設備，定址命名空間也有 2004/08 與
+    /// 2005/08 兩種，而 EndpointReference 曾被觀察到放在兩種命名空間。舊寫法寫死
+    /// 2009/01＋2005/08，1.0 設備的回應會整批被丟掉——「掃得到但清單是空的」。
+    /// </remarks>
     internal static void ParseMatch(string response, IDictionary<string, DiscoveredDevice> results)
     {
         XDocument doc;
@@ -768,22 +866,23 @@ public static class DiscoveryClient
             return;
         }
 
-        foreach (var match in doc.Descendants(WsdNs + "ProbeMatch"))
+        foreach (var match in doc.Descendants().Where(e => e.Name.LocalName == "ProbeMatch"))
         {
-            var xaddrs = match.Element(WsdNs + "XAddrs")?.Value ?? string.Empty;
-            var addr = match.Element(WsaNs + "EndpointReference")?.Element(WsaNs + "Address")?.Value ?? string.Empty;
+            var xaddrs = Child(match, "XAddrs")?.Value ?? string.Empty;
+            var addr = Child(match, "EndpointReference") is { } endpoint
+                ? Child(endpoint, "Address")?.Value ?? string.Empty
+                : string.Empty;
             if (string.IsNullOrEmpty(addr) || string.IsNullOrEmpty(xaddrs))
             {
                 continue;
             }
 
-            var scopes = match.Element(WsdNs + "Scopes")?.Value ?? string.Empty;
             var device = new DiscoveredDevice
             {
                 EndpointAddress = addr,
                 XAddrs = SplitSpaceSeparated(xaddrs),
-                Scopes = SplitSpaceSeparated(scopes),
-                Types = match.Element(WsdNs + "Types")?.Value ?? string.Empty,
+                Scopes = SplitSpaceSeparated(Child(match, "Scopes")?.Value ?? string.Empty),
+                Types = Child(match, "Types")?.Value ?? string.Empty,
             };
 
             if (device.HttpXAddr is not null)
@@ -792,6 +891,10 @@ public static class DiscoveryClient
             }
         }
     }
+
+    /// <summary>在元素底下找第一個 local-name 相符的子元素（命名空間無關）。</summary>
+    private static XElement? Child(XElement parent, string localName) =>
+        parent.Elements().FirstOrDefault(e => e.Name.LocalName == localName);
 
     private static IReadOnlyList<string> SplitSpaceSeparated(string value) =>
         value.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);

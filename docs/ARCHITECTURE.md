@@ -1,4 +1,4 @@
--| 回放日曆：整月沒有藍色時說明錄影已被汰除（M337） | \u2014 | **已做（M337）**。日曆把「當天有 final 段」標成粗體＋藍字，標記隨索引與磁碟實況消失：D: 滿檔時保留策略汰除整個歷史檔案（實測 01\u201306 在 11/05 22:18 之前全被刪、索引 400 多段 missing），日曆變成一格都沒有且沒有解釋。ApplyRecordingDayMarks 在整月沒有藍色時用新的 SegmentRepository.CountByStatusInRange 查該月 missing 段數：有 missing 段＝曾錄過、被汰除，就在提示列說出來（Playback.RecordingsEvicted 三語）；沒有＝真的沒錄過，不說「被汰除」。 |\n--
+---
 軟體屬名：禾秝軟體開發團隊
 代碼撰寫：洪俊士
 版本：v1.0.0
@@ -1164,6 +1164,8 @@ L2 比對（人臉/車牌）置「進階·需權限」區，預設關閉（§5.1
 | 回放：跨日續播、偏好記憶、方向鍵 | — | **已做（M330）**。自動接續開啟時，當天播完會接著播隔天的第一段（`ContinueToNextDayAsync`，最多往後找 7 天），換日走非同步漏斗 `ReloadForPlaybackAsync` 並抑制 SelectedDate 事件；回放偏好（`playback.speed`／`playback.split`／`playback.auto_advance`／`playback.loop`）改動當下寫回、還原經 `PlaybackPreferenceValues`（壞值退回預設）；鍵盤補齊 Home／End（當天首尾段）與 ↑／↓（上下一段）。|
 | 回放：事件跳轉、回到現在、記憶頻道 | — | **已做（M331）**。下一個／上一個事件（`N`／`P` 與兩顆按鈕，`PlaybackEventNavigation.NextIndex`）只移動事件清單選取，由 `OnEventSelected` 走既有的 `PlaybackSeekPlanner.ResolveAt` 落點規則；「回到現在」跳到今天目前時刻所在的段（同一份落點規則，並抑制 SelectedDate 事件）；上次檢視的頻道存 `playback.channel_id`（開窗時「指定頻道」優先）。|
 | 匯出時刻與範圍裁切 | — | **已修正（M327）**。現場回報：設 11:04:07.25～11:04:07.30（5 秒）卻得到 50 分鐘的檔案。原因二重：①`TimeSpan.TryParse` 讀不懂 `11040725`，舊版靜默退回 00:00–23:59:59（整天錄影都被並進成品）；②匯出從不裁切，整段整段地 concat。修正：`HeliVMS.Shared.ClockTime` 讀得懂 `HH:mm`／`HH:mm:ss`／`HH:mm:ss.fff` 與緊湊寫法 `HHmm`／`HHmmss`／`HHmmssff`／`HHmmssfff`（與分段檔名同一種），讀不懂就擋下並說出哪個字串；`ExportService` 以輸入端 `-ss`（`TrimStartSeconds`）＋ `-t`（`TrimmedDurationSeconds`）裁切（`-ss` 在 `-i` 之前）；concat 的 `inpoint` 實測在這個 ffmpeg 版本不生效，不得改用；回放帶入的區間也改寫到秒。|
+| 回放日曆：整月沒有藍色時說明錄影已被汰除（M337） | — | **已做（M337）**。日曆把「當天有 final 段」的日期標成粗體＋藍字，而標記隨索引與磁碟的實況消失：D: 滿檔時保留策略汰除整個歷史檔案（實測攝影機 01–06 在 11/05 22:18 之前的錄影全部被刪，索引裡 11/04–05 有 400 多段標記 missing），日曆因此從「整個月都是藍的」變成「一格都沒有」且沒有解釋。`ApplyRecordingDayMarks` 在整月沒有藍色時，用新的 `SegmentRepository.CountByStatusInRange` 查該月的 missing 段數：**有 missing 段**＝曾經錄過、被汰除，就在提示列說出來（`Playback.RecordingsEvicted` 三語）；**沒有 missing 段**＝真的沒錄過（剛加入的頻道），不能說「被汰除」。 |
+| ONVIF 搜尋：WS-Discovery 探測的線路格式（M338） | — | **已修正（M338）**。現場「多播搜尋一台都找不到」而手動輸入 IP 正常：`DiscoveryClient` 送出的根本不是 SOAP 封套（裸的 `<Probe>` 元素），命名空間還是 2009/01 配 2005/04 的 Action，真實設備（gsoap 等）直接丟棄——測試的假設備太寬容所以從未抓到。修正：SOAP 1.2 封套＋WS-Discovery 1.0（2005/04）＋WS-Addressing 2004/08＋`wsa:To`＝探索 URN（**單播探測也用 URN**，與 gsoap 的 directed probe 一致）＋`Types`＝`dn:NetworkVideoTransmitter` 並繫結 `dn` 前綴；解析端改 local-name、與命名空間無關（同時收 1.0／1.1 回應；`EndpointReference` 出現在兩種命名空間都認）。探測每 1 秒重送直到逾時（UDP 掉一個封包就整批找不到）。守門：嚴格假攝影機只回應合格的 SOAP 探測（`嚴格假攝影機只回應合格的SOAP探測`、`ParseMatch_ONVIF200504的回應也會解析`、`探測會重送而不是只送一次`）。 |
 
 ### 11.2 性能與容量規劃（先算再寫，落地依據）
 

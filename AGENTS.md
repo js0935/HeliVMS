@@ -625,6 +625,20 @@ Notes that will save you time:
   a subnet) and only treat a hyphen as a last-octet range when numbers sit on both sides
   (`192.168.1.1-50` is a range, `vivotek-01.local` is a hostname).
   Guarded by `OnvifCredentialPlannerTests` and `開窗預填上次搜尋且已加入的預設不勾`.
+- **The WS-Discovery probe is a SOAP message, not the bare `<Probe>` element — and the fake camera in
+  tests must be strict enough to reject anything else.** 多播搜尋在現場從未成功（都以手動 IP＋HTTP
+  探測註冊），根因是 `DiscoveryClient` 送出的是**裸元素**、命名空間 2009/01 配 2005/04 的 Action，
+  而測試的假設備收到什麼都回，所以從未抓到。線路格式依 ONVIF 核心規範 §5.1：SOAP 1.2 封套、
+  WS-Discovery 1.0（**2005/04**）、WS-Addressing **2004/08**、`wsa:To`＝
+  `urn:schemas-xmlsoap-org:ws:2005:04:discovery`、`Types`＝`dn:NetworkVideoTransmitter` 且
+  Types 元素要**繫結 `dn` 前綴**（它是 QName，嚴格解析的設備找不到前綴就忽略）。三個不要改回去的地方：
+  (1) **單播探測的 `To` 也是探索 URN**，不是目標位址——gsoap 的 directed probe（`SOAP_WSDD_TO_TS`）
+  就是這樣送，用位址會被部分設備的 WS-Addressing 檢查擋掉；(2) **解析端要 local-name 無關命名空間**
+  （`EndpointReference` 有設備放 `a:`、有設備放 `d:`；回應同時有 1.0 與 1.1 兩種），寫死 2009/01
+  會讓 1.0 設備的回應整批消失——徵狀是「掃描跑完、清單是空的」；(3) **探測要重送**（每 1 秒直到逾時）：
+  UDP 沒有重傳，5 秒掃描只送一個封包在 Wi-Fi 上等於賭運氣。守門測試是嚴格假攝影機
+  （`嚴格假攝影機只回應合格的SOAP探測`：只回應合格探測，改壞驗證含「完全重現原始缺陷＝拿掉封套」）、
+  `ParseMatch_ONVIF200504的回應也會解析` 與 `探測會重送而不是只送一次`。
 - **A group tab with fewer cameras than cells must leave the extra cells empty — and both tab paths
   must share one implementation.** 現場回報：群組只設 2 支攝影機卻用 4 分割，在不同群組之間切換後
   再回到原群組，第 3、4 格「串」著另一支攝影機的畫面。三個獨立原因疊在一起：
