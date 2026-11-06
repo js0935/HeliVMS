@@ -28,7 +28,7 @@ public static class DiscoveryClient
     /// </summary>
     private const int ProbeResendIntervalMs = 1000;
 
-    /// <summary>WS-Addressing 1.0 的命名空間（WS-Discovery 1.0／ONVIF 規範用的是 2004/08 版）。</summary>
+    /// <summary>WS-Addressing 命名空間（ONVIF／WS-Discovery 1.0 用 2004/08；2009/01 的 1.1 才用 2005/08）。</summary>
     private static readonly XNamespace WsaNs = "http://schemas.xmlsoap.org/ws/2004/08/addressing";
 
     /// <summary>
@@ -820,7 +820,7 @@ public static class DiscoveryClient
     /// <para>
     /// 舊寫法直接送出**裸的** <c>&lt;Probe&gt;</c> 元素——不是 SOAP 封套，真實攝影機的
     /// 剖析器（gsoap 等）根本不會處理它；而測試的假攝影機太寬容（收到什麼都回），
-    /// 所以這個缺陷一直沒被發現。現場都以手動 IP ＋ HTTP 探測注册，多播搜尋從未成功。
+    /// 所以這個缺陷一直沒被發現。現場都以手動 IP ＋ HTTP 探測註冊，多播搜尋從未成功。
     /// </para>
     /// <para>
     /// 命名空間依 ONVIF 核心規範 §5.1：訊息本體用
