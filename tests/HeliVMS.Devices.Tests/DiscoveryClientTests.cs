@@ -32,6 +32,14 @@ public class DiscoveryClientTests
         </s:Envelope>
         """;
 
+    /// <summary>
+    /// 實機（VIVOTEK，2026-11 現場驗證）回應的形狀（去識別化：IP/UUID 換成測試值，其餘原樣）：
+    /// <c>wsadis</c> 前綴的 2004/08 定址、名稱 scope 百分比編碼、XAddrs 兩個（公網＋link-local）。
+    /// </summary>
+    private const string ProbeMatchXmlVivotek = """
+        <?xml version='1.0' encoding='utf-8'?><soap:Envelope xmlns:soap="http://www.w3.org/2003/05/soap-envelope" xmlns:d="http://schemas.xmlsoap.org/ws/2005/04/discovery" xmlns:wsadis="http://schemas.xmlsoap.org/ws/2004/08/addressing" xmlns:dn="http://www.onvif.org/ver10/network/wsdl" xmlns:tds="http://www.onvif.org/ver10/device/wsdl"><soap:Header><wsadis:Action>http://schemas.xmlsoap.org/ws/2005/04/discovery/ProbeMatches</wsadis:Action><wsadis:MessageID>uuid:aa11bb22-0000-0000-0000-000000000001</wsadis:MessageID><wsadis:RelatesTo>urn:uuid:00000000-1111-2222-3333-444444444444</wsadis:RelatesTo><wsadis:To>http://schemas.xmlsoap.org/ws/2004/08/addressing/role/anonymous</wsadis:To><d:AppSequence InstanceId="1793619951" MessageNumber="24" /></soap:Header><soap:Body><d:ProbeMatches><d:ProbeMatch><wsadis:EndpointReference><wsadis:Address>urn:uuid:273da1db-4355-ba70-8455-5183233e2787</wsadis:Address></wsadis:EndpointReference><d:Types>dn:NetworkVideoTransmitter tds:Device</d:Types><d:Scopes>onvif://www.onvif.org/hardware/IP9164-HT onvif://www.onvif.org/name/VIVOTEK%20IP9164-HT onvif://www.onvif.org/device/Camera onvif://www.onvif.org/type/video_encoder onvif://www.onvif.org/type/audio_encoder onvif://www.onvif.org/type/video_analytic onvif://www.onvif.org/Profile/Streaming onvif://www.onvif.org/Profile/G onvif://www.onvif.org/location/global</d:Scopes><d:XAddrs>http://192.168.1.64:80/onvif/device_service http://169.254.8.68:80/onvif/device_service</d:XAddrs><d:MetadataVersion>1793619952</d:MetadataVersion></d:ProbeMatch></d:ProbeMatches></soap:Body></soap:Envelope>
+        """;
+
     /// <summary>WS-Discovery 1.0（2005/04＋WS-Addressing 2004/08）回應：ONVIF 規範版本，現場實機格式。</summary>
     private const string ProbeMatchXmlOnvif = """
         <s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope" xmlns:a="http://schemas.xmlsoap.org/ws/2004/08/addressing" xmlns:d="http://schemas.xmlsoap.org/ws/2005/04/discovery" xmlns:dn="http://www.onvif.org/ver10/network/wsdl">
@@ -114,6 +122,21 @@ public class DiscoveryClientTests
         Assert.Equal("dn:NetworkVideoTransmitter", device.Types);
         Assert.Equal("http://192.168.1.64/onvif/device_service", device.HttpXAddr);
         Assert.Equal("DemoCam", device.NameHint);
+    }
+
+    [Fact]
+    public void ParseMatch_實機VIVOTEK回應的名稱會解碼且XAddr取第一個()
+    {
+        // 真機驗證抓到的形狀：名稱 scope 是百分比編碼（name/VIVOTEK%20IP9164-HT），
+        // 不解碼的話精靈清單上顯示的是「VIVOTEK%20IP9164-HT」；XAddrs 有兩個
+        // （公網＋link-local），取第一個 http 條目。
+        var device = Assert.Single(Parse(ProbeMatchXmlVivotek).Values);
+
+        Assert.Equal("urn:uuid:273da1db-4355-ba70-8455-5183233e2787", device.EndpointAddress);
+        Assert.Equal("http://192.168.1.64:80/onvif/device_service", device.HttpXAddr);
+        Assert.Equal(2, device.XAddrs.Count);
+        Assert.Equal("VIVOTEK IP9164-HT", device.NameHint);
+        Assert.Equal("dn:NetworkVideoTransmitter tds:Device", device.Types);
     }
 
     [Fact]

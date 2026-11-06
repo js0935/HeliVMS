@@ -161,10 +161,17 @@ public sealed class DiscoveredDevice
     /// 依 scope 判別常見廠牌（ONVIF scope 之「onvif://www.onvif.org/name/…」型，
     /// 僅供介面展示，不保證精確）。
     /// </summary>
+    /// <remarks>
+    /// scope 依 RFC 3986 百分比編碼——實測現場機隊（VIVOTEK）回應
+    /// <c>name/VIVOTEK%20IP9164-HT</c>，不解碼的話清單上真的是「%20」而不是空白。
+    /// 用 <see cref="Uri.UnescapeDataString(string)"/> 而不是表單解碼：scope 的「+」
+    /// 是字面上的加號，不該變成空白（那是 application/x-www-form-urlencoded 的規則）。
+    /// </remarks>
     public string? NameHint =>
         Scopes.Select(ParseScope)
-              .FirstOrDefault(v => v.StartsWith("name/", StringComparison.Ordinal))
-              ?["name/".Length..];
+              .Where(v => v.StartsWith("name/", StringComparison.Ordinal))
+              .Select(v => Uri.UnescapeDataString(v["name/".Length..]))
+              .FirstOrDefault();
 
     private static string ParseScope(string scope)
     {

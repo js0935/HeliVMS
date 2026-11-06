@@ -639,6 +639,11 @@ Notes that will save you time:
   UDP 沒有重傳，5 秒掃描只送一個封包在 Wi-Fi 上等於賭運氣。守門測試是嚴格假攝影機
   （`嚴格假攝影機只回應合格的SOAP探測`：只回應合格探測，改壞驗證含「完全重現原始缺陷＝拿掉封套」）、
   `ParseMatch_ONVIF200504的回應也會解析` 與 `探測會重送而不是只送一次`。
+  另外，真機驗證（現場 VIVOTEK，公網單播）還抓到一個只有實機才會出現的形狀：名稱 scope 是**百分比編碼**
+  （`onvif://www.onvif.org/name/VIVOTEK%20IP9164-HT`），`DiscoveredDevice.NameHint` 若不解碼，
+  精靈清單顯示的是「%20」而不是空白——用 `Uri.UnescapeDataString`（不是表單解碼，「+」不轉空白），
+  且 `XAddrs` 常有兩個（公網＋link-local），`HttpXAddr` 取第一個 http 條目。
+  Guarded by `ParseMatch_實機VIVOTEK回應的名稱會解碼且XAddr取第一個`。
 - **A group tab with fewer cameras than cells must leave the extra cells empty — and both tab paths
   must share one implementation.** 現場回報：群組只設 2 支攝影機卻用 4 分割，在不同群組之間切換後
   再回到原群組，第 3、4 格「串」著另一支攝影機的畫面。三個獨立原因疊在一起：
