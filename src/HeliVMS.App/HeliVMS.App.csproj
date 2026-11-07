@@ -9,6 +9,8 @@
     <ProjectReference Include="..\HeliVMS.Alarms\HeliVMS.Alarms.csproj" />
     <ProjectReference Include="..\HeliVMS.Devices\HeliVMS.Devices.csproj" />
     <ProjectReference Include="..\HeliVMS.Storage\HeliVMS.Storage.csproj" />
+    <!-- M2c：QCTek CMS 相容（NEMO 伺服器）實作在 HeliVMS.Qctek，桌面程式負責啟停與設定。 -->
+    <ProjectReference Include="..\HeliVMS.Qctek\HeliVMS.Qctek.csproj" />
     <!-- M305：設定中心「網路」頁要在行程內啟停 Web 服務，因此桌面程式直接引用 WebApi 專案。 -->
     <ProjectReference Include="..\HeliVMS.WebApi\HeliVMS.WebApi.csproj" />
   </ItemGroup>

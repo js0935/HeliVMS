@@ -211,6 +211,9 @@
           "HeliVMS.Shared": "[0.1.0, )"
         }
       },
+      "helivms.qctek": {
+        "type": "Project"
+      },
       "helivms.recording": {
         "type": "Project",
         "dependencies": {

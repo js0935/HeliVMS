@@ -118,6 +118,7 @@ public partial class SettingsWindow : Window
     private readonly AuthProviderRepository _providers;
     private readonly ShareHost? _shareHost;
     private readonly WebHost? _webHost;
+    private readonly QctekCompatHost? _qctekHost;
     private readonly ChannelManager? _manager;
 
     /// <summary>
@@ -143,6 +144,7 @@ public partial class SettingsWindow : Window
         Action? channelsChanged = null,
         Action<string>? recordingsRootChanged = null,
         WebHost? webHost = null,
+        QctekCompatHost? qctekHost = null,
         IPlaybackRecordingFinalizer? playbackFinalizer = null)
     {
         _store = store;
@@ -166,6 +168,7 @@ public partial class SettingsWindow : Window
         _providers = new AuthProviderRepository(store);
         _shareHost = shareHost;
         _webHost = webHost;
+        _qctekHost = qctekHost;
         _manager = manager;
         _patrolHost = patrolHost;
         _playbackFinalizer = playbackFinalizer;
@@ -354,6 +357,12 @@ public partial class SettingsWindow : Window
         WebAllowNoKeyHintText.Text = Localizer.T("Settings.WebAllowNoKeyHint");
         WebApplyButton.Content = Localizer.T("Settings.Apply");
         WebApplyButton.ToolTip = Localizer.T("Settings.WebApplyTip");
+        QctekSectionTitle.Text = Localizer.T("Settings.QctekSectionTitle");
+        QctekIntroText.Text = Localizer.T("Settings.QctekIntroText");
+        QctekEnabledBox.Content = Localizer.T("Settings.QctekEnabled");
+        QctekPortLabel.Text = Localizer.T("Settings.QctekPortLabel");
+        QctekApplyButton.Content = Localizer.T("Settings.Apply");
+        QctekApplyButton.ToolTip = Localizer.T("Settings.QctekApplyTip");
         NtpSectionTitle.Text = Localizer.T("Settings.NtpSectionTitle");
         NtpIntroText.Text = Localizer.T("Settings.NtpIntroText");
         NtpEnabledBox.Content = Localizer.T("Settings.NtpEnabled");
@@ -1107,6 +1116,13 @@ public partial class SettingsWindow : Window
             ? string.Format(Localizer.T("Settings.WebRunning"), _webHost.Port)
             : Localizer.T("Settings.WebStopped");
 
+        QctekEnabledBox.IsChecked = _settings.Get(QctekCompatHost.EnabledKey) == "1";
+        QctekPortBox.Text = _settings.Get(QctekCompatHost.PortKey)
+            ?? QctekCompatHost.DefaultPort.ToString(CultureInfo.InvariantCulture);
+        QctekServiceStatusText.Text = _qctekHost?.IsRunning == true
+            ? string.Format(Localizer.T("Settings.QctekRunning"), _qctekHost.Port)
+            : Localizer.T("Settings.QctekStopped");
+
         NtpEnabledBox.IsChecked = _settings.Get(NtpSync.EnabledKey) == "1";
         NtpServerBox.Text = NtpSync.ReadServer(_settings);
         var last = NtpSync.ReadLast(_settings);
@@ -1131,6 +1147,23 @@ public partial class SettingsWindow : Window
         WebServiceStatusText.Text = _webHost is null
             ? Localizer.T("Settings.WebSavedNextStart")
             : _webHost.ApplySettings(_settings);
+    }
+
+    /// <summary>儲存並即時套用 QCTek CMS 相容服務設定（M2c）。</summary>
+    private void OnApplyQctekClicked(object sender, RoutedEventArgs e)
+    {
+        if (!int.TryParse(QctekPortBox.Text, out var port) || port is <= 0 or > 65535)
+        {
+            QctekServiceStatusText.Text = Localizer.T("Settings.QctekPortInvalid");
+            return;
+        }
+
+        _settings.Set(QctekCompatHost.EnabledKey, QctekEnabledBox.IsChecked == true ? "1" : "0");
+        _settings.Set(QctekCompatHost.PortKey, port.ToString(CultureInfo.InvariantCulture));
+
+        QctekServiceStatusText.Text = _qctekHost is null
+            ? Localizer.T("Settings.QctekSavedNextStart")
+            : _qctekHost.ApplySettings(_settings);
     }
 
     /// <summary>立即向 NTP 伺服器對時：查詢、記錄，並盡力校正系統時鐘（M305）。</summary>

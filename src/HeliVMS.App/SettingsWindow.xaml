@@ -1330,6 +1330,27 @@
                            Foreground="{StaticResource Brand.TextDim}" FontSize="11" TextWrapping="Wrap"
                            Margin="24,4,0,0"/>
 
+                <!-- QCTek CMS compatibility (M2c: NEMO server so QCC can manage this NVR) -->
+                <TextBlock x:Name="QctekSectionTitle" Text="" FontSize="13" FontWeight="Bold"
+                           Foreground="#EBF3FF" Margin="0,22,0,0"/>
+                <TextBlock x:Name="QctekIntroText" Text=""
+                           Foreground="{StaticResource Brand.TextDim}" FontSize="11" TextWrapping="Wrap"
+                           Margin="0,4,0,0"/>
+                <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                    <CheckBox x:Name="QctekEnabledBox" AutomationProperties.AutomationId="QctekEnabledBox"
+                              Content="" Foreground="{StaticResource Brand.TextDim}" VerticalAlignment="Center"/>
+                    <TextBlock x:Name="QctekPortLabel" Text="" VerticalAlignment="Center" Margin="16,0,0,0"
+                               Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+                    <TextBox x:Name="QctekPortBox" AutomationProperties.AutomationId="QctekPortBox"
+                             Width="80" Margin="8,0,0,0" VerticalContentAlignment="Center"
+                             Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
+                    <Button x:Name="QctekApplyButton" AutomationProperties.AutomationId="QctekApplyButton" ToolTip=""
+                            Content="" Click="OnApplyQctekClicked" Margin="12,0,0,0" Padding="12,6"
+                            Foreground="White" Background="#2A5C8A" BorderThickness="0"/>
+                </StackPanel>
+                <TextBlock x:Name="QctekServiceStatusText" AutomationProperties.AutomationId="QctekServiceStatusText"
+                           Foreground="#9FB8D8" TextWrapping="Wrap" Margin="0,8,0,0"/>
+
                 <!-- NTP time sync (M305; engine M68) -->
                 <TextBlock x:Name="NtpSectionTitle" Text="" FontSize="13" FontWeight="Bold"
                            Foreground="#EBF3FF" Margin="0,22,0,0"/>

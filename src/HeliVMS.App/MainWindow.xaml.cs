@@ -258,6 +258,7 @@ public partial class MainWindow : Window
     /// </summary>
     private LiveAudioController? _audio;
     private WebHost? _webHost;
+    private QctekCompatHost? _qctekHost;
     private DispatcherTimer? _ntpTimer;
     private AnalyticsEventEngine? _analytics;
     private AlertRuleRepository? _alertRules;
@@ -976,6 +977,11 @@ public partial class MainWindow : Window
         // M305：內嵌 Web 服務。設定了 web.enabled=1 就在啟動時拉起，交由設定中心「網路」頁控制。
         _webHost = new WebHost(_dataRoot, Path.Combine(_dataRoot, "index.db"));
         _webHost.ApplySettings(new SettingsRepository(_store));
+
+        // M2c：QCTek CMS 相容服務。設定了 qctek.compat.enabled=1 就在啟動時拉起 NEMO 伺服器，
+        // 讓 QCTek QCC 能把本機當成一台 NVR（上線／頻道數／警報訂閱）；同樣交由「網路」頁控制。
+        _qctekHost = new QctekCompatHost(_store);
+        _qctekHost.ApplySettings(new SettingsRepository(_store));
 
         // M305：NTP 對時。啟用時於啟動先對一次，之後定期對時；校正系統時鐘為盡力而為。
         StartNtpSync();
@@ -3548,6 +3554,7 @@ public partial class MainWindow : Window
             channelsChanged: () => _ = ReloadChannelsIfChangedAsync(),
             recordingsRootChanged: root => _ = OnRecordingsRootChangedAsync(root),
             webHost: _webHost,
+            qctekHost: _qctekHost,
             playbackFinalizer: _playbackFinalizer));
     }
 
@@ -5675,6 +5682,7 @@ public partial class MainWindow : Window
         var manager = _manager;
         var store = _store;
         var webHost = _webHost;
+        var qctekHost = _qctekHost;
         var ioHost = _ioHost;
         var shareHost = _shareHost;
         var notify = _notify;
@@ -5690,6 +5698,7 @@ public partial class MainWindow : Window
         _manager = null;
         _store = null;
         _webHost = null;
+        _qctekHost = null;
         _ioHost = null;
         _shareHost = null;
         _notify = null;
@@ -5734,6 +5743,7 @@ public partial class MainWindow : Window
         RunShutdownStep("關閉 IO 監看", () => DisposeSync(ioHost), QuickStepTimeout);
         RunShutdownStep("關閉分享主機", () => DisposeSync(shareHost), QuickStepTimeout);
         RunShutdownStep("關閉網頁主機", () => DisposeSync(webHost), QuickStepTimeout);
+        RunShutdownStep("關閉 QCTek 相容服務", () => DisposeSync(qctekHost), QuickStepTimeout);
         ntpTimer?.Stop();
         RunShutdownStep("關閉通知", () => DisposeSync(notify), QuickStepTimeout);
 
