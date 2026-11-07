@@ -54,4 +54,52 @@ public static class QctekDiagnostics
         var spaceAt = text.IndexOf(' ');
         return spaceAt < 0 ? text : text[..spaceAt];
     }
+
+    /// <summary>
+    /// 把「不是 NEMO 框」的原始位元組整理成可讀傾印（前 <paramref name="maxBytes"/> 個）。
+    ///
+    /// <para>
+    /// 這是實測（QCC 加裝置）唯一能回答「對方到底送了什麼」的手段：QCC 對埠送出
+    /// 的第一包不是我們預期的命令時（HTTP 探測、別的協定、損壞的串流），沒有這份
+    /// 傾印就只能寫「非 NEMO 資料」——等於沒說。可列印 ASCII 原樣顯示（HTTP 請求
+    /// 列、產品探測字串一眼可見），其餘以 <c>\xNN</c> 轉義。
+    /// </para>
+    /// </summary>
+    public static string DescribeBytes(ReadOnlySpan<byte> data, int maxBytes = 96)
+    {
+        if (data.Length == 0)
+        {
+            return "(0 bytes)";
+        }
+
+        var take = Math.Min(data.Length, Math.Max(1, maxBytes));
+        var sb = new System.Text.StringBuilder(take + 24);
+        for (var i = 0; i < take; i++)
+        {
+            var b = data[i];
+            if (b is >= 0x20 and < 0x7F)
+            {
+                sb.Append((char)b);
+            }
+            else if (b == (byte)'\r')
+            {
+                sb.Append("\\r");
+            }
+            else if (b == (byte)'\n')
+            {
+                sb.Append("\\n");
+            }
+            else
+            {
+                sb.Append("\\x").Append(b.ToString("X2", System.Globalization.CultureInfo.InvariantCulture));
+            }
+        }
+
+        if (data.Length > take)
+        {
+            sb.Append($"…（共 {data.Length} bytes）");
+        }
+
+        return sb.ToString();
+    }
 }

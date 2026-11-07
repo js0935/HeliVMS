@@ -54,4 +54,34 @@ public class QctekDiagnosticsTests
         Assert.Equal("(空)", QctekDiagnostics.Summarize(null));
         Assert.Equal("(空)", QctekDiagnostics.Summarize("   "));
     }
+
+    [Fact]
+    public void 原始傾印保留可讀的請求列並轉義控制字元()
+    {
+        // 實測（QCC 加裝置）時唯一能回答「對方送了什麼」的手段：HTTP 探測列、
+        // 別的協定、或損壞的串流都要一眼可辨。
+        var http = System.Text.Encoding.ASCII.GetBytes("GET /DVR_Info.htm HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n");
+        var dump = QctekDiagnostics.DescribeBytes(http);
+
+        Assert.Contains("GET /DVR_Info.htm HTTP/1.1\\r\\n", dump);
+        Assert.Contains("Host: 127.0.0.1", dump);
+    }
+
+    [Fact]
+    public void 原始傾印截斷且標示總長()
+    {
+        var data = new byte[200];
+        Array.Fill(data, (byte)'A');
+
+        var dump = QctekDiagnostics.DescribeBytes(data, maxBytes: 96);
+
+        Assert.Contains("（共 200 bytes）", dump);
+        Assert.Equal(96, dump.Count(c => c == 'A'));
+    }
+
+    [Fact]
+    public void 空的原始資料有可讀表示()
+    {
+        Assert.Equal("(0 bytes)", QctekDiagnostics.DescribeBytes(Array.Empty<byte>()));
+    }
 }

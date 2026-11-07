@@ -163,6 +163,29 @@ public class NemoServerTests
     }
 
     [Fact]
+    public async Task 非NEMO資料會把原始位元組寫進診斷記錄()
+    {
+        // QCC 實測發現：QCC 對埠送出的第一包可能不是 NEMO（HTTP 探測、別的協定）。
+        // 「非 NEMO 資料」四個字等於沒說——傾印前 96 bytes 才能回答「對方送了什麼」。
+        var log = new System.Collections.Concurrent.ConcurrentQueue<string>();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+        await using var server = new NemoServer(new TestContext(), IPAddress.Loopback, log: log.Enqueue);
+        server.Start();
+
+        using var client = new TcpClient();
+        await client.ConnectAsync(IPAddress.Loopback, server.Port, timeout.Token);
+        var stream = client.GetStream();
+
+        await stream.WriteAsync(
+            System.Text.Encoding.ASCII.GetBytes("GET /DVR_Info.htm HTTP/1.1\r\nHost: x\r\n\r\n"), timeout.Token);
+        await Task.Delay(300);
+
+        var lines = log.ToArray();
+        Assert.Contains(lines, l => l.Contains("非 NEMO 資料", StringComparison.Ordinal));
+        Assert.Contains(lines, l => l.Contains("GET /DVR_Info.htm", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task 非NEMO資料會關閉連線而不是無限迴圈()
     {
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));

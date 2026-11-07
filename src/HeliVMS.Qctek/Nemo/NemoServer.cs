@@ -175,8 +175,12 @@ public sealed class NemoServer : IAsyncDisposable
                         }
                         catch (FormatException)
                         {
-                            // 串流不同步：直接關閉，不猜測重新同步點。
-                            _log?.Invoke($"NEMO：非 NEMO 資料（{remote}），關閉連線");
+                            // 串流不同步：直接關閉，不猜測重新同步點。傾印原始位元組——
+                            // 實測（QCC 加裝置）時，唯一能回答「對方送了什麼」的就是這一行
+                            // （HTTP 探測、別的協定、或損壞的串流一眼可辨）。
+                            _log?.Invoke(
+                                $"NEMO：非 NEMO 資料（{remote}），關閉連線。前 96 bytes：" +
+                                QctekDiagnostics.DescribeBytes(pending.Span));
                             return;
                         }
 
