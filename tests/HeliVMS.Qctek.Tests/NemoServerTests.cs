@@ -112,6 +112,57 @@ public class NemoServerTests
     }
 
     [Fact]
+    public async Task 命令與回應都會寫進診斷記錄()
+    {
+        // QCC 實測失敗時（連不上、命令不認識、密碼錯，畫面上長得一樣）這份日誌
+        // 是唯一的線索——連線、收到的每個命令、回應、與「未知命令」都必須留痕。
+        var log = new System.Collections.Concurrent.ConcurrentQueue<string>();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+        await using var server = new NemoServer(new TestContext(), IPAddress.Loopback, log: log.Enqueue);
+        server.Start();
+
+        using var client = new TcpClient();
+        await client.ConnectAsync(IPAddress.Loopback, server.Port, timeout.Token);
+        var stream = client.GetStream();
+
+        await stream.WriteAsync(NemoMessage.EncodeText("CHECK_SERVER_VERSION CLIENT_AUTH"), timeout.Token);
+        _ = await ReadFrameAsync(stream, timeout.Token);
+        await stream.WriteAsync(NemoMessage.EncodeText("WEIRD_UNKNOWN_CMD foo"), timeout.Token);
+        await Task.Delay(300); // 未知命令不回覆——等伺服器處理完那一幀
+
+        var lines = log.ToArray();
+        Assert.Contains(lines, l => l.Contains("連線來自", StringComparison.Ordinal));
+        Assert.Contains(lines, l => l.Contains("NEMO ← CHECK_SERVER_VERSION CLIENT_AUTH", StringComparison.Ordinal));
+        Assert.Contains(lines, l => l.Contains("NEMO → OK QCV8001", StringComparison.Ordinal));
+        Assert.Contains(
+            lines,
+            l => l.Contains("未知命令", StringComparison.Ordinal) && l.Contains("WEIRD_UNKNOWN_CMD", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task CONNECT的密碼不會出現在診斷記錄裡()
+    {
+        // 日誌會被複製到郵件與工單裡——密碼（Base64）絕不落地。
+        var log = new System.Collections.Concurrent.ConcurrentQueue<string>();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+        await using var server = new NemoServer(new TestContext(), IPAddress.Loopback, log: log.Enqueue);
+        server.Start();
+
+        using var client = new TcpClient();
+        await client.ConnectAsync(IPAddress.Loopback, server.Port, timeout.Token);
+        var stream = client.GetStream();
+
+        var pass = QctekPassword.Encode("s3cret");
+        await stream.WriteAsync(NemoMessage.EncodeText($"CONNECT admin {pass} "), timeout.Token);
+        _ = await ReadFrameAsync(stream, timeout.Token);
+        await Task.Delay(300);
+
+        var lines = log.ToArray();
+        Assert.Contains(lines, l => l.Contains("CONNECT admin ***", StringComparison.Ordinal));
+        Assert.DoesNotContain(lines, l => l.Contains(pass, StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task 非NEMO資料會關閉連線而不是無限迴圈()
     {
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));

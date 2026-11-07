@@ -101,6 +101,17 @@ public sealed class QctekCompatContractTests
     }
 
     [Fact]
+    public void 相容服務與警報回報都接上診斷日誌()
+    {
+        // QCC 實測失敗時（連不上、命令不認識、密碼錯，畫面上長得一樣）診斷日誌
+        // 是唯一的線索——兩個方向都要接；漏接的症狀是「什麼都查不到」。
+        var host = SourceContract.Read(Host);
+        Assert.Contains("helivms-qctek.log", host);
+        Assert.Contains("log: Diag", host);  // NEMO 伺服器
+        Assert.Contains("Log = Diag", host); // 警報回報
+    }
+
+    [Fact]
     public void 警報回報由同一顆套用啟停且Dispose會停止()
     {
         var host = SourceContract.Read(Host);

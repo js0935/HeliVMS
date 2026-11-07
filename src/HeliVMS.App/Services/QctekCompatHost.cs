@@ -1,6 +1,8 @@
+﻿using System.IO;
 using System.Net;
 using HeliVMS.Qctek.Alarm;
 using HeliVMS.Qctek.Nemo;
+using HeliVMS.Shared;
 using HeliVMS.Storage;
 
 namespace HeliVMS.App.Services;
@@ -130,6 +132,9 @@ public sealed class QctekCompatHost : IDisposable
             // 連線識別由客戶端自行遞增（QCV8001 的 %d 是每條連線的計數）；
             // =%s 是裝置資訊字串——宣告 QCV8001 讓 CMS 走相容路徑（與 NEMO 伺服器一致）。
             Info = "QCV8001",
+            // 回報側與 NEMO 側共用同一份診斷日誌：實測時「HELLO 有沒有送出去」
+            // 與「QCC 有沒有連進來」都要在同一條時間線上對照。
+            Log = Diag,
         });
         client.Start();
         _alarmClient = client;
@@ -183,11 +188,26 @@ public sealed class QctekCompatHost : IDisposable
             return;
         }
 
-        var server = new NemoServer(_context, IPAddress.Any, port);
+        var server = new NemoServer(_context, IPAddress.Any, port, log: Diag);
         server.Start();
         _server = server;
         Port = port;
     }
+
+    /// <summary>
+    /// QCTek 相容層的診斷日誌（<c>%TEMP%\helivms-qctek.log</c>，上限 512 KB）。
+    ///
+    /// <para>
+    /// QCC 實測失敗時（連不上、命令不認識、密碼錯，畫面上長得一樣）這份日誌是
+    /// 唯一的線索；命令摘要在 <see cref="QctekDiagnostics.Summarize"/> 遮蔽密碼段
+    /// ——日誌會被複製到郵件與工單裡。
+    /// </para>
+    /// </summary>
+    private static void Diag(string message)
+        => BoundedFileLog.Append(
+            Path.Combine(Path.GetTempPath(), "helivms-qctek.log"),
+            $"{DateTime.Now:HH:mm:ss.fff} {message}{Environment.NewLine}",
+            maxBytes: 512 * 1024);
 
     public void Stop()
     {

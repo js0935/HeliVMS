@@ -131,6 +131,11 @@ public sealed class NemoServer : IAsyncDisposable
             var stream = client.GetStream();
             var pending = new FrameBuffer();
             var read = new byte[8192];
+            var remote = SafeRemoteEndPoint(client);
+
+            // 每個連線與每個命令都留痕：QCC 實測失敗時（連不上、命令不認識、密碼錯，
+            // 畫面上長得一樣）這份日誌是唯一的線索。命令摘要會遮蔽密碼段。
+            _log?.Invoke($"NEMO 連線來自 {remote}");
 
             try
             {
@@ -171,14 +176,23 @@ public sealed class NemoServer : IAsyncDisposable
                         catch (FormatException)
                         {
                             // 串流不同步：直接關閉，不猜測重新同步點。
+                            _log?.Invoke($"NEMO：非 NEMO 資料（{remote}），關閉連線");
                             return;
                         }
 
                         var response = _dispatch(command);
                         if (response is not null)
                         {
+                            _log?.Invoke($"NEMO ← {QctekDiagnostics.Summarize(command)}");
                             await stream.WriteAsync(NemoMessage.EncodeText(response).AsMemory(), cancellationToken)
                                 .ConfigureAwait(false);
+                            _log?.Invoke($"NEMO → {QctekDiagnostics.Summarize(response)}");
+                        }
+                        else
+                        {
+                            // 未知命令不回覆（維持 null 語意）——但一定要留痕：
+                            // 這是「CMS 發了我們不認識的命令」唯一的證據。
+                            _log?.Invoke($"NEMO ← {QctekDiagnostics.Summarize(command)}（未知命令，不回應）");
                         }
 
                         pending.Consume(consumed);
@@ -188,8 +202,20 @@ public sealed class NemoServer : IAsyncDisposable
             catch (Exception ex)
             {
                 // 單一連線的例外（含寫入失敗）不影響伺服器本體。
-                _log?.Invoke($"NEMO 連線結束：{ex.Message}");
+                _log?.Invoke($"NEMO 連線結束（{remote}）：{ex.Message}");
             }
+        }
+    }
+
+    private static string SafeRemoteEndPoint(TcpClient client)
+    {
+        try
+        {
+            return client.Client.RemoteEndPoint?.ToString() ?? "?";
+        }
+        catch (Exception)
+        {
+            return "?";
         }
     }
 
