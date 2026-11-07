@@ -83,6 +83,35 @@ public class NemoServerTests
     }
 
     [Fact]
+    public async Task CMS完整對話序列逐項正確()
+    {
+        // 依 NVDLL（CMS 端）反編譯的實際請求序列，逐項演一遍「QCC 加一台新裝置」：
+        // CHECK_SERVER_VERSION CLIENT_AUTH → CONNECT <user> <b64(pass)> → GET_NCHANNEL
+        // → ALARM_REQUEST … → ALARM_CANCEL。這條測試讓 CI 不必開 QCC 也能釘住整段對話。
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+        await using var server = new NemoServer(new TestContext(), IPAddress.Loopback);
+        server.Start();
+
+        using var client = new TcpClient();
+        await client.ConnectAsync(IPAddress.Loopback, server.Port, timeout.Token);
+        var stream = client.GetStream();
+
+        async Task<string> RoundTripAsync(string request)
+        {
+            await stream.WriteAsync(NemoMessage.EncodeText(request), timeout.Token);
+            return (await ReadFrameAsync(stream, timeout.Token)).Payload;
+        }
+
+        var pass = QctekPassword.Encode("s3cret");
+        Assert.Equal("OK QCV8001 ", await RoundTripAsync("CHECK_SERVER_VERSION CLIENT_AUTH"));
+        Assert.Equal("OK -1 -1 -1 ", await RoundTripAsync($"CONNECT admin {pass} "));
+        Assert.Equal("OK 8 ", await RoundTripAsync("GET_NCHANNEL"));
+        Assert.Equal("OK 1 1 ", await RoundTripAsync(
+            $"ALARM_REQUEST 5 version7.7 user: admin {pass} =QCV0000000001"));
+        Assert.Equal("OK ", await RoundTripAsync("ALARM_CANCEL 1 1 "));
+    }
+
+    [Fact]
     public async Task 非NEMO資料會關閉連線而不是無限迴圈()
     {
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
