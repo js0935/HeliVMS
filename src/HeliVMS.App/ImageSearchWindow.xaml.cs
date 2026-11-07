@@ -36,6 +36,7 @@ public partial class ImageSearchWindow : Window
     private readonly string? _currentFilePath;
     private readonly double _currentPosition;
     private readonly Action<DateTime> _onJump;
+    private readonly Action<IReadOnlyList<FrameSimilarityHit>>? _onResults;
     private CancellationTokenSource? _cts;
     private string? _pickedFilePath;
 
@@ -46,7 +47,8 @@ public partial class ImageSearchWindow : Window
         DateTime day,
         string? currentFilePath,
         double currentPosition,
-        Action<DateTime> onJump)
+        Action<DateTime> onJump,
+        Action<IReadOnlyList<FrameSimilarityHit>>? onResults = null)
     {
         ArgumentNullException.ThrowIfNull(segments);
         ArgumentNullException.ThrowIfNull(channelName);
@@ -58,6 +60,7 @@ public partial class ImageSearchWindow : Window
         _currentFilePath = currentFilePath;
         _currentPosition = currentPosition;
         _onJump = onJump;
+        _onResults = onResults;
 
         InitializeComponent();
         ApplyI18n();
@@ -254,6 +257,9 @@ public partial class ImageSearchWindow : Window
             .ToList();
         StatusText.Text = string.Format(Localizer.T("ImageSearch.Done"), hits.Count);
         JumpButton.IsEnabled = hits.Count > 0;
+
+        // 回傳給母視窗把命中標在時間軸上——整天分布一眼可見（單筆跳轉仍靠清單）。
+        _onResults?.Invoke(hits);
     }
 
     private void OnCancelClicked(object sender, RoutedEventArgs e) => _cts?.Cancel();

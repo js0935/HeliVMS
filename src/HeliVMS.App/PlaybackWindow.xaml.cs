@@ -47,6 +47,9 @@ public partial class PlaybackWindow : Window
     private PlaybackSession? _session;
     private SegmentRecord? _current;
 
+    /// <summary>以圖搜圖的命中（標在時間軸頂端；換頻道/換日清空）。</summary>
+    private IReadOnlyList<FrameSimilarityHit> _searchHits = [];
+
     /// <summary>
     /// 回放的聲音（只做主畫面、單聲道）。與影格共用同一個解碼 ffmpeg：行程多吐一份 PCM
     /// 到本機 UDP，接收器在 <see cref="PlayFrom"/> 裡先綁好埠。
@@ -239,6 +242,9 @@ public partial class PlaybackWindow : Window
     private static readonly Brush s_bandEmptyFill = Frozen(Color.FromRgb(0x33, 0x41, 0x4F));
     private static readonly Brush s_selectionFill = Frozen(Color.FromArgb(0x33, 0x4D, 0x9F, 0xFF));
     private static readonly Brush s_selectionStroke = Frozen(Color.FromRgb(0x4D, 0x9F, 0xFF));
+
+    /// <summary>以圖搜圖命中的標記色（紫色——避開事件標記的紅/藍/黃/灰/綠）。</summary>
+    private static readonly Brush s_searchMarkFill = Frozen(Color.FromRgb(0xB3, 0x5C, 0xE5));
 
     /// <summary>通道色帶列（§8.5）每排的色條高度與間距；4 路牆總高 26px，不搶主帶子的空間。</summary>
     private const double ChannelBandStripHeight = 5;
@@ -1185,6 +1191,10 @@ public partial class PlaybackWindow : Window
         _rangeSelection = null;
         _rangeStopUtc = null;
         _rangeStartUtc = null;
+
+        // 搜尋命中屬於「上一輪的頻道與日期」：換頻道/換日/重新載入時清掉——
+        // 留著會把 A 相機的命中畫在 B 相機的時間軸上（比沒有標記更糟）。
+        _searchHits = [];
         if (ChannelCombo.SelectedItem is not ChannelInfo ch)
         {
             ShowEmptyState(Localizer.T("Playback.NoChannel"));
@@ -2164,11 +2174,56 @@ public partial class PlaybackWindow : Window
             day,
             _current?.FilePath,
             _posInside,
-            OnImageSearchJumped)
+            OnImageSearchJumped,
+            OnImageSearchResults)
         {
             Owner = this,
         };
         window.ShowDialog();
+    }
+
+    /// <summary>
+    /// 搜尋完成：把命中標在時間軸頂端——整天分布一眼可見（單筆跳轉仍靠搜尋清單）。
+    /// 標記保留到換頻道/換日（<see cref="LoadSegments"/> 清空）。
+    /// </summary>
+    private void OnImageSearchResults(IReadOnlyList<FrameSimilarityHit> hits)
+    {
+        _searchHits = hits;
+        RenderSearchMarks();
+        StatusText.Text = string.Format(Localizer.T("Playback.SearchMarksShown"), hits.Count);
+    }
+
+    /// <summary>時間軸頂端的搜尋命中標記（小方塊；事件標記在底端，兩層不互蓋）。</summary>
+    private void RenderSearchMarks()
+    {
+        if (_searchHits.Count == 0 || BandCanvas.ActualWidth <= 0)
+        {
+            return;
+        }
+
+        const double markSize = 8;
+        var view = View();
+        foreach (var hit in _searchHits)
+        {
+            var frac = view.FractionOf(hit.OccurredAtUtc);
+            if (frac < 0 || frac > 1)
+            {
+                continue;
+            }
+
+            var mark = new Rectangle
+            {
+                Width = markSize,
+                Height = markSize,
+                Fill = s_searchMarkFill,
+                Stroke = Brushes.Black,
+                StrokeThickness = 1,
+                IsHitTestVisible = false, // 不干擾時間軸的點擊/拖曳選取
+            };
+            Canvas.SetLeft(mark, (frac * BandCanvas.ActualWidth) - (markSize / 2));
+            Canvas.SetTop(mark, 1);
+            BandCanvas.Children.Add(mark);
+        }
     }
 
     /// <summary>搜尋結果的跳轉：把主視窗帶到命中時刻（搜尋視窗已在跳轉前關閉）。</summary>
@@ -3132,6 +3187,10 @@ public partial class PlaybackWindow : Window
         AutomationProperties.SetName(CoverageText, $"COV:{coveragePct}:{_timeline.GapCount}:{_timeline.Bars.Count}");
 
         RenderMarkers();
+
+        // 以圖搜圖的命中標在頂端（事件在底端，兩層不互蓋）；每輪重繪重畫——
+        // 上面的清理迴圈會把非游標的 children 全部移除，不重畫就會在縮放/換日後消失。
+        RenderSearchMarks();
     }
 
     /// <summary>

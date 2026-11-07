@@ -485,6 +485,14 @@ public sealed class PlaybackWindowContractTests
         var jump = SourceContract.BodyOf(source, "OnImageSearchJumped");
         Assert.NotEqual(string.Empty, jump);
         Assert.Contains("ResumePlaybackAt(", jump);
+
+        // 命中要標在時間軸上：RenderBlocks 內重畫（清理迴圈會清掉所有非游標 children，
+        // 不重畫就會在縮放/換日後消失）；換頻道/換日（LoadSegments）必須清空——
+        // 留著會把 A 相機的命中畫在 B 相機的時間軸上。
+        var render = SourceContract.BodyOf(source, "RenderBlocks");
+        Assert.Contains("RenderSearchMarks()", render);
+        var load = SourceContract.BodyOf(source, "LoadSegments");
+        Assert.Contains("_searchHits", load);
     }
 
     /// <summary>
