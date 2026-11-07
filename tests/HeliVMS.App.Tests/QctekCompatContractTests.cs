@@ -29,6 +29,8 @@ public sealed class QctekCompatContractTests
                  {
                      "QctekSectionTitle", "QctekIntroText", "QctekEnabledBox", "QctekPortBox",
                      "QctekApplyButton", "QctekServiceStatusText",
+                     "QctekAlarmEnabledBox", "QctekAlarmHostBox", "QctekAlarmPortBox",
+                     "QctekAlarmStatusText",
                  })
         {
             Assert.Contains($"x:Name=\"{element}\"", xaml);
@@ -45,6 +47,11 @@ public sealed class QctekCompatContractTests
         Assert.Contains("QctekCompatHost.EnabledKey", handler);
         Assert.Contains("QctekCompatHost.PortKey", handler);
         Assert.Contains("_qctekHost.ApplySettings", handler);
+
+        // M3b：警報回報的三個設定鍵也必須由同一顆「套用」寫入（沒有套用＝永遠不生效）。
+        Assert.Contains("QctekCompatHost.AlarmEnabledKey", handler);
+        Assert.Contains("QctekCompatHost.AlarmHostKey", handler);
+        Assert.Contains("QctekCompatHost.AlarmPortKey", handler);
     }
 
     [Fact]
@@ -78,6 +85,22 @@ public sealed class QctekCompatContractTests
     }
 
     [Fact]
+    public void 警報回報由同一顆套用啟停且Dispose會停止()
+    {
+        var host = SourceContract.Read(Host);
+
+        // 設定套用時要真的啟停 QctekAlarmClient（只寫設定不啟停＝回報永遠不會動）。
+        Assert.Contains("ApplyAlarmSettings(settings)", host);
+        Assert.Contains("new QctekAlarmClient(", host);
+        Assert.Contains("IsAlarmReporting", host);
+
+        // 關閉程式時一定要停掉回報（背景連線不關，行程結束前會多送殘留訊息）。
+        var dispose = SourceContract.BodyOf(host, "Dispose");
+        Assert.NotEqual(string.Empty, dispose);
+        Assert.Contains("StopAlarm()", dispose);
+    }
+
+    [Fact]
     public void 相容服務文案三語都在且帶參數的保留格式()
     {
         var i18n = SourceContract.Read("src/HeliVMS.Storage/I18n.cs");
@@ -87,14 +110,17 @@ public sealed class QctekCompatContractTests
                      "Settings.QctekPortLabel", "Settings.QctekStopped", "Settings.QctekRunning",
                      "Settings.QctekStartFailed", "Settings.QctekPortInvalid",
                      "Settings.QctekSavedNextStart", "Settings.QctekApplyTip",
+                     "Settings.QctekAlarmEnabled", "Settings.QctekAlarmHostLabel",
+                     "Settings.QctekAlarmPortLabel", "Settings.QctekAlarmStopped",
+                     "Settings.QctekAlarmRunning", "Settings.QctekAlarmInvalid",
                  })
         {
             var count = i18n.Split('\n').Count(line => line.Contains($"\"{key}\"", StringComparison.Ordinal));
             Assert.True(count == 3, $"{key} 應該有三語，實際 {count}");
         }
 
-        // 兩條帶參數的文案必須保留 {0}，否則 string.Format 會拋例外或吃掉埠號。
-        foreach (var key in new[] { "Settings.QctekRunning", "Settings.QctekStartFailed" })
+        // 帶參數的文案必須保留 {0}，否則 string.Format 會拋例外或吃掉目標位址。
+        foreach (var key in new[] { "Settings.QctekRunning", "Settings.QctekStartFailed", "Settings.QctekAlarmRunning" })
         {
             var lines = i18n.Split('\n').Where(line => line.Contains($"\"{key}\"", StringComparison.Ordinal)).ToList();
             Assert.All(lines, line => Assert.Contains("{0}", line));

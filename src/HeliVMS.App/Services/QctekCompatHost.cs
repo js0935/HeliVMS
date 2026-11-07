@@ -1,4 +1,5 @@
 using System.Net;
+using HeliVMS.Qctek.Alarm;
 using HeliVMS.Qctek.Nemo;
 using HeliVMS.Storage;
 
@@ -30,8 +31,15 @@ public sealed class QctekCompatHost : IDisposable
     public const string EnabledKey = "qctek.compat.enabled";
     public const string PortKey = "qctek.compat.port";
 
+    /// <summary>警報回報（M3b）：啟用、CMS 主機、CMS Alarm Service 埠。</summary>
+    public const string AlarmEnabledKey = "qctek.alarm.enabled";
+
+    public const string AlarmHostKey = "qctek.alarm.cms_host";
+    public const string AlarmPortKey = "qctek.alarm.cms_port";
+
     private readonly DeviceContext _context;
     private NemoServer? _server;
+    private QctekAlarmClient? _alarmClient;
     private bool _disposed;
 
     public QctekCompatHost(SqliteStore store)
@@ -44,13 +52,27 @@ public sealed class QctekCompatHost : IDisposable
 
     public int Port { get; private set; }
 
+    /// <summary>警報回報是否執行中（M3b）。</summary>
+    public bool IsAlarmReporting => _alarmClient is not null;
+
+    /// <summary>警報回報的目標（<c>host:port</c>）；未執行時為 <c>null</c>。</summary>
+    public string? AlarmTarget { get; private set; }
+
     /// <summary>最近一次啟動失敗的訊息；成功時為 <c>null</c>。</summary>
     public string? LastError { get; private set; }
 
-    /// <summary>依設定啟用或停用相容服務，回傳狀態訊息（設定頁直接顯示）。</summary>
+    /// <summary>
+    /// 依設定啟用或停用相容服務（NEMO 伺服器）與警報回報，回傳 NEMO 狀態訊息
+    /// （設定頁直接顯示；警報狀態由 <see cref="IsAlarmReporting"/>／
+    /// <see cref="AlarmTarget"/> 讀現況）。
+    /// </summary>
     public string ApplySettings(SettingsRepository settings)
     {
         ArgumentNullException.ThrowIfNull(settings);
+
+        // 警報回報有獨立開關（M3b）：NEMO 伺服器的啟停不影響它，反之亦然。
+        ApplyAlarmSettings(settings);
+
         var enabled = settings.Get(EnabledKey) == "1";
         var port = ReadPort(settings);
 
@@ -79,6 +101,60 @@ public sealed class QctekCompatHost : IDisposable
     {
         var raw = settings.Get(PortKey);
         return int.TryParse(raw, out var port) && port is > 0 and <= 65535 ? port : DefaultPort;
+    }
+
+    /// <summary>依設定啟停警報回報（M3b）。未啟用或未填妥目標時保持停用。</summary>
+    private void ApplyAlarmSettings(SettingsRepository settings)
+    {
+        var enabled = settings.Get(AlarmEnabledKey) == "1";
+        var host = settings.Get(AlarmHostKey)?.Trim() ?? string.Empty;
+        var portRaw = settings.Get(AlarmPortKey);
+        var port = int.TryParse(portRaw, out var parsed) && parsed is > 0 and <= 65535 ? parsed : 0;
+
+        if (!enabled || host.Length == 0 || port == 0)
+        {
+            StopAlarm();
+            return;
+        }
+
+        StartAlarm(host, port);
+    }
+
+    private void StartAlarm(string host, int port)
+    {
+        StopAlarm();
+        var client = new QctekAlarmClient(new QctekAlarmOptions
+        {
+            CmsHost = host,
+            CmsPort = port,
+            // Id／Info：QCV8001 的 %d 是連線計數、=%s 由連線物件欄位取出（內容未還原）。
+            // 先用固定值＋產品識別字串；實際語意待動態驗證後再調。
+            Id = 1,
+            Info = "QCV8001",
+        });
+        client.Start();
+        _alarmClient = client;
+        AlarmTarget = $"{host}:{port}";
+    }
+
+    private void StopAlarm()
+    {
+        var client = _alarmClient;
+        _alarmClient = null;
+        AlarmTarget = null;
+        if (client is null)
+        {
+            return;
+        }
+
+        try
+        {
+            client.StopAsync().GetAwaiter().GetResult();
+        }
+        catch (Exception)
+        {
+            // 停止失敗不讓設定套用或關閉流程卡住。
+        }
     }
 
     private void Start(int port)
@@ -122,6 +198,7 @@ public sealed class QctekCompatHost : IDisposable
 
         _disposed = true;
         Stop();
+        StopAlarm();
     }
 
     /// <summary>NEMO 命令所需的裝置資訊與憑證驗證。</summary>

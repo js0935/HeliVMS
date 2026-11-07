@@ -1350,6 +1350,22 @@
                 </StackPanel>
                 <TextBlock x:Name="QctekServiceStatusText" AutomationProperties.AutomationId="QctekServiceStatusText"
                            Foreground="#9FB8D8" TextWrapping="Wrap" Margin="0,8,0,0"/>
+                <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                    <CheckBox x:Name="QctekAlarmEnabledBox" AutomationProperties.AutomationId="QctekAlarmEnabledBox"
+                              Content="" Foreground="{StaticResource Brand.TextDim}" VerticalAlignment="Center"/>
+                    <TextBlock x:Name="QctekAlarmHostLabel" Text="" VerticalAlignment="Center" Margin="16,0,0,0"
+                               Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+                    <TextBox x:Name="QctekAlarmHostBox" AutomationProperties.AutomationId="QctekAlarmHostBox"
+                             Width="160" Margin="8,0,0,0" VerticalContentAlignment="Center"
+                             Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
+                    <TextBlock x:Name="QctekAlarmPortLabel" Text="" VerticalAlignment="Center" Margin="12,0,0,0"
+                               Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+                    <TextBox x:Name="QctekAlarmPortBox" AutomationProperties.AutomationId="QctekAlarmPortBox"
+                             Width="80" Margin="8,0,0,0" VerticalContentAlignment="Center"
+                             Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
+                </StackPanel>
+                <TextBlock x:Name="QctekAlarmStatusText" AutomationProperties.AutomationId="QctekAlarmStatusText"
+                           Foreground="#9FB8D8" TextWrapping="Wrap" Margin="0,8,0,0"/>
 
                 <!-- NTP time sync (M305; engine M68) -->
                 <TextBlock x:Name="NtpSectionTitle" Text="" FontSize="13" FontWeight="Bold"

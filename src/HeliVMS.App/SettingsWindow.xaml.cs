@@ -363,6 +363,9 @@ public partial class SettingsWindow : Window
         QctekPortLabel.Text = Localizer.T("Settings.QctekPortLabel");
         QctekApplyButton.Content = Localizer.T("Settings.Apply");
         QctekApplyButton.ToolTip = Localizer.T("Settings.QctekApplyTip");
+        QctekAlarmEnabledBox.Content = Localizer.T("Settings.QctekAlarmEnabled");
+        QctekAlarmHostLabel.Text = Localizer.T("Settings.QctekAlarmHostLabel");
+        QctekAlarmPortLabel.Text = Localizer.T("Settings.QctekAlarmPortLabel");
         NtpSectionTitle.Text = Localizer.T("Settings.NtpSectionTitle");
         NtpIntroText.Text = Localizer.T("Settings.NtpIntroText");
         NtpEnabledBox.Content = Localizer.T("Settings.NtpEnabled");
@@ -1119,9 +1122,13 @@ public partial class SettingsWindow : Window
         QctekEnabledBox.IsChecked = _settings.Get(QctekCompatHost.EnabledKey) == "1";
         QctekPortBox.Text = _settings.Get(QctekCompatHost.PortKey)
             ?? QctekCompatHost.DefaultPort.ToString(CultureInfo.InvariantCulture);
+        QctekAlarmEnabledBox.IsChecked = _settings.Get(QctekCompatHost.AlarmEnabledKey) == "1";
+        QctekAlarmHostBox.Text = _settings.Get(QctekCompatHost.AlarmHostKey) ?? string.Empty;
+        QctekAlarmPortBox.Text = _settings.Get(QctekCompatHost.AlarmPortKey) ?? string.Empty;
         QctekServiceStatusText.Text = _qctekHost?.IsRunning == true
             ? string.Format(Localizer.T("Settings.QctekRunning"), _qctekHost.Port)
             : Localizer.T("Settings.QctekStopped");
+        QctekAlarmStatusText.Text = AlarmStatusText();
 
         NtpEnabledBox.IsChecked = _settings.Get(NtpSync.EnabledKey) == "1";
         NtpServerBox.Text = NtpSync.ReadServer(_settings);
@@ -1149,7 +1156,13 @@ public partial class SettingsWindow : Window
             : _webHost.ApplySettings(_settings);
     }
 
-    /// <summary>儲存並即時套用 QCTek CMS 相容服務設定（M2c）。</summary>
+    /// <summary>警報回報狀態文字（載入與套用共用同一份組合，避免兩處漂移）。</summary>
+    private string AlarmStatusText()
+        => _qctekHost?.IsAlarmReporting == true
+            ? string.Format(Localizer.T("Settings.QctekAlarmRunning"), _qctekHost.AlarmTarget)
+            : Localizer.T("Settings.QctekAlarmStopped");
+
+    /// <summary>儲存並即時套用 QCTek CMS 相容服務設定（M2c）與警報回報（M3b）。</summary>
     private void OnApplyQctekClicked(object sender, RoutedEventArgs e)
     {
         if (!int.TryParse(QctekPortBox.Text, out var port) || port is <= 0 or > 65535)
@@ -1158,12 +1171,33 @@ public partial class SettingsWindow : Window
             return;
         }
 
+        var alarmEnabled = QctekAlarmEnabledBox.IsChecked == true;
+        var alarmHost = QctekAlarmHostBox.Text.Trim();
+        if (alarmEnabled
+            && (alarmHost.Length == 0
+                || !int.TryParse(QctekAlarmPortBox.Text, out var alarmPort)
+                || alarmPort is <= 0 or > 65535))
+        {
+            QctekAlarmStatusText.Text = Localizer.T("Settings.QctekAlarmInvalid");
+            return;
+        }
+
         _settings.Set(QctekCompatHost.EnabledKey, QctekEnabledBox.IsChecked == true ? "1" : "0");
         _settings.Set(QctekCompatHost.PortKey, port.ToString(CultureInfo.InvariantCulture));
+        _settings.Set(QctekCompatHost.AlarmEnabledKey, alarmEnabled ? "1" : "0");
+        _settings.Set(QctekCompatHost.AlarmHostKey, alarmHost);
+        _settings.Set(QctekCompatHost.AlarmPortKey, QctekAlarmPortBox.Text.Trim());
 
-        QctekServiceStatusText.Text = _qctekHost is null
-            ? Localizer.T("Settings.QctekSavedNextStart")
-            : _qctekHost.ApplySettings(_settings);
+        if (_qctekHost is null)
+        {
+            QctekServiceStatusText.Text = Localizer.T("Settings.QctekSavedNextStart");
+            QctekAlarmStatusText.Text = Localizer.T("Settings.QctekSavedNextStart");
+        }
+        else
+        {
+            QctekServiceStatusText.Text = _qctekHost.ApplySettings(_settings);
+            QctekAlarmStatusText.Text = AlarmStatusText();
+        }
     }
 
     /// <summary>立即向 NTP 伺服器對時：查詢、記錄，並盡力校正系統時鐘（M305）。</summary>
