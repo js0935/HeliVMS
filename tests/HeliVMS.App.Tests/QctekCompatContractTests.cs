@@ -85,6 +85,22 @@ public sealed class QctekCompatContractTests
     }
 
     [Fact]
+    public void 事件會從主視窗一路回報到QCTek警報客戶端()
+    {
+        // 這條接線斷掉的症狀：CMS 看得到 HeliVMS 上線（HELLO），但永遠收不到事件，
+        // 而日誌乾淨——三個環節（主視窗路由 → 宿主轉發 → 客戶端佇列）缺一不可。
+        var code = SourceContract.Read(MainWindow);
+        var route = SourceContract.BodyOf(code, "RouteAlarm");
+        Assert.NotEqual(string.Empty, route);
+        Assert.Contains("_qctekHost?.ReportEvent", route);
+
+        var host = SourceContract.Read(Host);
+        Assert.Contains("public void ReportEvent(", host);
+        Assert.Contains("new QctekAlarmEvent(", host);
+        Assert.Contains("_alarmClient?.Report", host);
+    }
+
+    [Fact]
     public void 警報回報由同一顆套用啟停且Dispose會停止()
     {
         var host = SourceContract.Read(Host);

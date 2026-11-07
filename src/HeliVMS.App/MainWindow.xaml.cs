@@ -2548,6 +2548,13 @@ public partial class MainWindow : Window
         // 原始事件仍然是真實的偵測，該錄的就是要錄。
         _scheduler?.RegisterEvent(record.ChannelId);
 
+        // QCTek CMS 相容（M3c）：事件回報。與事件錄影閘同一層級——CMS 端要的是原始偵測，
+        // 不受智慧聚合抑制影響（聚合只決定「要不要通知」，不是「有沒有發生」）。
+        // 回報未啟用時 _qctekHost 存在但沒有客戶端，呼叫是 no-op；
+        // 客戶端內部是佇列，這條路徑可能來自解碼執行緒，不會碰到 UI。
+        _qctekHost?.ReportEvent(
+            record.ChannelId, ChannelName(record.ChannelId), record.EventType, record.StartUtc, record.Detail);
+
         // 聚合判定要讀資料庫；這些事件可能來自解碼執行緒。
         // SmartAlertHost 內部讀不到資料時會退化成「照常通知」，所以這裡不會丟事件。
         SmartAlertOutcome outcome;

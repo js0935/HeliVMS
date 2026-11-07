@@ -5,7 +5,7 @@ using HeliVMS.Qctek.Nemo;
 
 namespace HeliVMS.Qctek.Tests;
 
-/// <summary>警報回報客戶端：loopback 假 CMS 實測 HELLO／保活／重連／停止。</summary>
+/// <summary>警報回報客戶端：loopback 假 CMS 實測 HELLO／週期保活／事件／重連／停止。</summary>
 public class QctekAlarmClientTests
 {
     /// <summary>假 CMS：接受連線、以 NEMO 框解析訊息、可主動斷線（模擬 CMS 重啟）。</summary>
@@ -145,14 +145,13 @@ public class QctekAlarmClientTests
         return condition();
     }
 
-    private static QctekAlarmClient CreateClient(FakeCms cms, TimeSpan keepAlive, TimeSpan reconnect)
+    private static QctekAlarmClient CreateClient(FakeCms cms, TimeSpan hello, TimeSpan reconnect)
         => new(new QctekAlarmOptions
         {
             CmsHost = "127.0.0.1",
             CmsPort = cms.Port,
-            Id = 7,
             Info = "test-info",
-            KeepAliveInterval = keepAlive,
+            HelloInterval = hello,
             ReconnectDelay = reconnect,
         });
 
@@ -160,42 +159,90 @@ public class QctekAlarmClientTests
     public async Task 連上CMS後第一則訊息是HELLO且以NEMO框傳送()
     {
         await using var cms = new FakeCms();
-        await using var client = CreateClient(cms, TimeSpan.FromSeconds(5), TimeSpan.FromMilliseconds(200));
+        await using var client = CreateClient(cms, TimeSpan.FromSeconds(30), TimeSpan.FromMilliseconds(200));
         client.Start();
 
         // 假 CMS 用 NemoMessage 拆框——收到完整 HELLO 即證明框格式與 payload 都對。
         Assert.True(await WaitUntilAsync(() => cms.Received.Count >= 1, TimeSpan.FromSeconds(10)));
-        Assert.Equal("ALARM_HELLO 7 =test-info", cms.Received[0]);
+        Assert.Equal("ALARM_HELLO 1 =test-info", cms.Received[0]);
     }
 
     [Fact]
-    public async Task 保活依間隔持續送出()
+    public async Task 保活是週期重送HELLO而不是KEEP_ALIVE()
     {
+        // QCV8001 的發送端沒有 ALARM_KEEP_ALIVE 字串（它只出現在 CMS 的接收分派器），
+        // 保活靠連線主控迴圈週期重送 HELLO——送錯命令會讓 CMS 把它當未知訊息。
         await using var cms = new FakeCms();
         await using var client = CreateClient(cms, TimeSpan.FromMilliseconds(200), TimeSpan.FromMilliseconds(200));
         client.Start();
 
         Assert.True(await WaitUntilAsync(
-            () => cms.Received.Count(r => r.StartsWith("ALARM_KEEP_ALIVE", StringComparison.Ordinal)) >= 2,
+            () => cms.Received.Count(r => r.StartsWith("ALARM_HELLO", StringComparison.Ordinal)) >= 3,
             TimeSpan.FromSeconds(10)));
-        Assert.All(
-            cms.Received.Where(r => r.StartsWith("ALARM_KEEP_ALIVE", StringComparison.Ordinal)),
-            r => Assert.Equal("ALARM_KEEP_ALIVE 7 =test-info", r));
+        Assert.DoesNotContain(cms.Received, r => r.Contains("KEEP_ALIVE", StringComparison.Ordinal));
     }
 
     [Fact]
-    public async Task 斷線後會重連並重送HELLO()
+    public async Task 事件以ALARM_MSG送出且欄位順序正確()
     {
+        // 欄位順序由發送端（QC_Alarm 0x18150 的 sprintf_s 槽序）與 CMS 解析器
+        // （QC_RM_Alarm 0x4a14 的讀回段）雙向校準：id 相機 年 月 日 時 分 秒
+        // 之後才是 $Name/$Describe/類型/$Pri/$Live/=%s。
         await using var cms = new FakeCms();
-        await using var client = CreateClient(cms, TimeSpan.FromMilliseconds(300), TimeSpan.FromMilliseconds(200));
+        await using var client = CreateClient(cms, TimeSpan.FromSeconds(30), TimeSpan.FromMilliseconds(200));
         client.Start();
+        Assert.True(await WaitUntilAsync(() => cms.Received.Count >= 1, TimeSpan.FromSeconds(10)));
 
+        client.Report(new QctekAlarmEvent(
+            CameraNumber: 7,
+            LocalTime: new DateTime(2026, 11, 8, 14, 5, 9),
+            Name: "大門",
+            Describe: "motion 12%",
+            Priority: 0,
+            EventType: "motion"));
+
+        Assert.True(await WaitUntilAsync(
+            () => cms.Received.Any(r => r.StartsWith("ALARM_MSG", StringComparison.Ordinal)),
+            TimeSpan.FromSeconds(10)));
+        var msg = cms.Received.First(r => r.StartsWith("ALARM_MSG", StringComparison.Ordinal));
+        Assert.Equal(
+            "ALARM_MSG 1 7 2026 11 8 14 5 9 $Name:大門 Describe:motion 12% motion $Pri:0 $Live:-1 =test-info",
+            msg);
+    }
+
+    [Fact]
+    public async Task 事件在斷線期間排隊且重連後補送()
+    {
+        // 現場情境：CMS 重啟的幾秒內發生的偵測不能無聲消失——事件進佇列，
+        // 重連後補送（送出途中斷線的那一筆才會遺失）。
+        await using var cms = new FakeCms();
+        await using var client = CreateClient(cms, TimeSpan.FromSeconds(30), TimeSpan.FromMilliseconds(200));
+        client.Start();
+        Assert.True(await WaitUntilAsync(() => cms.Received.Count >= 1, TimeSpan.FromSeconds(10)));
+
+        cms.CloseCurrent();
+        await Task.Delay(150); // 讓用戶端偵測到斷線
+
+        client.Report(new QctekAlarmEvent(3, new DateTime(2026, 1, 2, 3, 4, 5), "車道", "offline"));
+
+        Assert.True(await WaitUntilAsync(
+            () => cms.Received.Any(r => r.StartsWith("ALARM_MSG 2 3 ", StringComparison.Ordinal)),
+            TimeSpan.FromSeconds(10)));
+    }
+
+    [Fact]
+    public async Task 重連後HELLO使用新的連線識別()
+    {
+        // QCV8001 的 %d 是「每條連線的計數」——重連是新連線、要拿新識別，
+        // 否則 CMS 會把它綁回已死掉的舊連線格。
+        await using var cms = new FakeCms();
+        await using var client = CreateClient(cms, TimeSpan.FromSeconds(30), TimeSpan.FromMilliseconds(200));
+        client.Start();
         Assert.True(await WaitUntilAsync(() => cms.Received.Count >= 1, TimeSpan.FromSeconds(10)));
         cms.CloseCurrent();
 
-        Assert.True(await WaitUntilAsync(() => cms.ConnectionCount >= 2, TimeSpan.FromSeconds(10)));
         Assert.True(await WaitUntilAsync(
-            () => cms.Received.Count(r => r.StartsWith("ALARM_HELLO", StringComparison.Ordinal)) >= 2,
+            () => cms.Received.Any(r => r.StartsWith("ALARM_HELLO 2 ", StringComparison.Ordinal)),
             TimeSpan.FromSeconds(10)));
     }
 

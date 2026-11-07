@@ -127,14 +127,33 @@ public sealed class QctekCompatHost : IDisposable
         {
             CmsHost = host,
             CmsPort = port,
-            // Id／Info：QCV8001 的 %d 是連線計數、=%s 由連線物件欄位取出（內容未還原）。
-            // 先用固定值＋產品識別字串；實際語意待動態驗證後再調。
-            Id = 1,
+            // 連線識別由客戶端自行遞增（QCV8001 的 %d 是每條連線的計數）；
+            // =%s 是裝置資訊字串——宣告 QCV8001 讓 CMS 走相容路徑（與 NEMO 伺服器一致）。
             Info = "QCV8001",
         });
         client.Start();
         _alarmClient = client;
         AlarmTarget = $"{host}:{port}";
+    }
+
+    /// <summary>
+    /// 回報一筆事件到 CMS（M3c）。任何執行緒可呼叫；未啟用回報或未連線時
+    /// 事件進佇列等待重連（佇列有上限，滿了丟最舊）。
+    /// </summary>
+    /// <param name="channelId">頻道 id（送作相機號——穩定且唯一）。</param>
+    /// <param name="channelName">頻道名（送作事件名稱）。</param>
+    /// <param name="eventType">事件類型（motion/offline/…；送作類型字串）。</param>
+    /// <param name="startUtc">事件時刻（UTC；送出前轉本地時間）。</param>
+    /// <param name="detail">事件詳細資料（送作描述；可空）。</param>
+    public void ReportEvent(int channelId, string channelName, string eventType, DateTime startUtc, string? detail)
+    {
+        _alarmClient?.Report(new QctekAlarmEvent(
+            CameraNumber: channelId,
+            LocalTime: startUtc.ToLocalTime(),
+            Name: channelName,
+            Describe: detail ?? string.Empty,
+            Priority: 0,
+            EventType: eventType));
     }
 
     private void StopAlarm()
