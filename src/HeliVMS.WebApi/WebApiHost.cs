@@ -1,5 +1,6 @@
 using HeliVMS.Licensing;
 using HeliVMS.Licensing.Crypto;
+using HeliVMS.Recording;
 using HeliVMS.Rtc;
 using HeliVMS.Shared;
 using HeliVMS.Storage;
@@ -85,6 +86,9 @@ public static class WebApiHost
         //（與桌面回放同一個類別、同一條判定），讓「磁碟上的錄影被刪掉但索引還在」不會
         // 在任何一個介面繼續謊報。背景每小時對帳見 SegmentReconcileService。
         builder.Services.AddSingleton(static sp => new SegmentIndexReconciler(sp.GetRequiredService<SegmentRepository>()));
+        // 以圖搜圖（QCV8001 QCJpegSearch 對應功能）：查詢影像的感知雜湊 × 時間範圍 →
+        // 掃描錄影段抽樣比對。無狀態，單例即可。
+        builder.Services.AddSingleton(static sp => new FrameSimilarityScanner(sp.GetRequiredService<SegmentRepository>()));
         builder.Services.AddSingleton(static sp => new ExportReceiptService(sp.GetRequiredService<SqliteStore>()));
         builder.Services.AddSingleton(static sp => new UserRepository(sp.GetRequiredService<SqliteStore>()));
         builder.Services.AddSingleton(static sp => new SettingsRepository(sp.GetRequiredService<SqliteStore>()));

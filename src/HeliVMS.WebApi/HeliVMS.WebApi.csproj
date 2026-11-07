@@ -9,6 +9,7 @@
   <ItemGroup>
     <ProjectReference Include="..\HeliVMS.Devices\HeliVMS.Devices.csproj" />
     <ProjectReference Include="..\HeliVMS.Rtc\HeliVMS.Rtc.csproj" />
+    <ProjectReference Include="..\HeliVMS.Recording\HeliVMS.Recording.csproj" />
     <ProjectReference Include="..\HeliVMS.Shared\HeliVMS.Shared.csproj" />
     <ProjectReference Include="..\HeliVMS.Storage\HeliVMS.Storage.csproj" />
   </ItemGroup>

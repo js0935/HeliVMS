@@ -200,6 +200,22 @@
           "System.Management": "[10.0.12, )"
         }
       },
+      "helivms.media": {
+        "type": "Project",
+        "dependencies": {
+          "HeliVMS.Core": "[0.1.0, )",
+          "HeliVMS.Shared": "[0.1.0, )"
+        }
+      },
+      "helivms.recording": {
+        "type": "Project",
+        "dependencies": {
+          "HeliVMS.Core": "[0.1.0, )",
+          "HeliVMS.Media": "[0.1.0, )",
+          "HeliVMS.Shared": "[0.1.0, )",
+          "HeliVMS.Storage": "[0.1.0, )"
+        }
+      },
       "helivms.rtc": {
         "type": "Project",
         "dependencies": {

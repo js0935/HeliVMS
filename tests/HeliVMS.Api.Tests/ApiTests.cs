@@ -2076,6 +2076,60 @@ public class ApiTests : IClassFixture<ApiFactory>, IDisposable
     }
 
     [Fact]
+    public async Task Post_ImageSearch_WithoutQuery_ReturnsBadRequest()
+    {
+        // 沒有查詢影像也沒有指紋：必須是 400 而不是「0 筆命中」——
+        // 靜默空結果會讓操作員以為這段時間真的沒有相似畫面。
+        var resp = await Client().PostAsJsonAsync("/api/image-search", new { channelId = 1 });
+
+        Assert.Equal(HttpStatusCode.BadRequest, resp.StatusCode);
+    }
+
+    [Fact]
+    public async Task Post_ImageSearch_BadHash_ReturnsBadRequest()
+    {
+        var resp = await Client().PostAsJsonAsync("/api/image-search", new
+        {
+            channelId = 1,
+            queryHashHex = "not-a-hash",
+        });
+
+        Assert.Equal(HttpStatusCode.BadRequest, resp.StatusCode);
+    }
+
+    [Fact]
+    public async Task Post_ImageSearch_RangeOver24h_ReturnsBadRequest()
+    {
+        var resp = await Client().PostAsJsonAsync("/api/image-search", new
+        {
+            channelId = 1,
+            queryHashHex = "0123456789abcdef",
+            fromUtc = "2026-11-01T00:00:00Z",
+            toUtc = "2026-11-03T00:00:00Z",
+        });
+
+        Assert.Equal(HttpStatusCode.BadRequest, resp.StatusCode);
+    }
+
+    [Fact]
+    public async Task Post_ImageSearch_NoSegments_ReturnsEmptyHits()
+    {
+        // 合法請求、該頻道沒有錄影：200 ＋ 空清單（「這段時間沒有」是正常結果，不是錯誤）。
+        var resp = await Client().PostAsJsonAsync("/api/image-search", new
+        {
+            channelId = 999,
+            queryHashHex = "0123456789abcdef",
+            fromUtc = "2026-11-01T00:00:00Z",
+            toUtc = "2026-11-02T00:00:00Z",
+        });
+
+        Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
+        var result = await ReadAsync<ImageSearchResponse>(resp);
+        Assert.NotNull(result);
+        Assert.Empty(result!.Hits);
+    }
+
+    [Fact]
     public async Task Post_ClipSearch_DimensionMismatchReportsConflictInsteadOfEmptyResults()
     {
         // M242：模型換版後索引會停在舊維度。若這裡靜默回空陣列，
@@ -2386,6 +2440,9 @@ public class ApiTests : IClassFixture<ApiFactory>, IDisposable
     private sealed record DeviceItemBody(int Id, string Name, string Ip, int Port, string Vendor, bool Enabled);
 
     private sealed record ClipHitItem(long RefId, string SourceType, string? Label, double Score);
+
+    private sealed record ImageSearchHitItem(long SegmentId, DateTime OccurredAtUtc, int Distance);
+    private sealed record ImageSearchResponse(int Count, DateTime FromUtc, DateTime ToUtc, List<ImageSearchHitItem> Hits);
 
     private sealed record SystemMetricsTrendItem(string CapturedAtUtc, double WorkingSetGb);
     private sealed record SystemDiskCapacityItem(string CapturedAtUtc, string Name, long FreeMb, long TotalMb);

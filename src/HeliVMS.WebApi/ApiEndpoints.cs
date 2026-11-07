@@ -1,6 +1,7 @@
 ﻿using System.Text;
 using System.Text.Json;
 using System.Net.WebSockets;
+using HeliVMS.Recording;
 using HeliVMS.Shared;
 using HeliVMS.Shared.Models;
 using HeliVMS.Storage;
@@ -1307,6 +1308,67 @@ public static class ApiEndpoints
             return Results.Ok(RankFusion.Fuse(items));
         });
 
+        // 以圖搜圖（QCV8001 QCJpegSearch 對應功能）：查詢影像的感知雜湊 × 時間範圍，
+        // 掃描該頻道的錄影段抽樣比對，回傳相似時刻清單。
+        //
+        // 同步執行：單日掃描約數十秒（每段一顆 ffmpeg、樣本以管線送回），呼叫端等結果即可。
+        // 範圍上限 24 小時——超過的成本是「上千顆行程」，而回有限的資料比正確的 400
+        // 更容易被誤讀（操作員會以為「這段時間真的沒有」），所以明確拒絕。
+        api.MapPost("/image-search", static (ImageSearchRequest body, FrameSimilarityScanner scanner) =>
+        {
+            if (body is null || body.ChannelId <= 0)
+            {
+                return Results.BadRequest(new { error = "channelId is required" });
+            }
+
+            var toUtc = body.ToUtc ?? DateTime.UtcNow;
+            var fromUtc = body.FromUtc ?? toUtc.AddHours(-24);
+            if (toUtc <= fromUtc)
+            {
+                return Results.BadRequest(new { error = "toUtc must be after fromUtc" });
+            }
+
+            if (toUtc - fromUtc > TimeSpan.FromHours(24))
+            {
+                return Results.BadRequest(new { error = "range too large (max 24h per request)" });
+            }
+
+            ulong queryHash;
+            try
+            {
+                queryHash = ResolveImageQueryHash(body);
+            }
+            catch (Exception ex) when (ex is FormatException or OverflowException or InvalidOperationException)
+            {
+                return Results.BadRequest(new { error = ex.Message });
+            }
+
+            var hits = scanner.Scan(new FrameSimilarityQuery(
+                body.ChannelId, string.IsNullOrWhiteSpace(body.Stream) ? "main" : body.Stream!, fromUtc, toUtc, queryHash)
+            {
+                Options = new FrameSimilarityOptions
+                {
+                    SampleInterval = TimeSpan.FromSeconds(
+                        body.IntervalSeconds is > 0 and <= 3600 ? body.IntervalSeconds.Value : 15),
+                    MaxHammingDistance = Math.Clamp(body.MaxHammingDistance ?? 10, 0, PerceptualHash.Bits),
+                    MaxHits = Math.Clamp(body.MaxHits ?? 200, 1, 1000),
+                },
+            });
+
+            return Results.Ok(new
+            {
+                count = hits.Count,
+                fromUtc,
+                toUtc,
+                hits = hits.Select(h => new
+                {
+                    segmentId = h.SegmentId,
+                    occurredAtUtc = h.OccurredAtUtc,
+                    distance = h.Distance,
+                }),
+            });
+        });
+
         api.MapGet("/audio/event/{eventId:long}", static (long eventId, EventAudioRepository audio) =>
         {
             var rec = audio.GetByEvent(eventId);
@@ -1385,6 +1447,79 @@ public static class ApiEndpoints
 
     private sealed record ClipSearchRequest(float[]? Vector, string? Text, int TopK = 20);
     private sealed record ClipIndexRequest(string? SourceType, long RefId, string? Label, float[]? Vector, string? Text);
+
+    private sealed record ImageSearchRequest(
+        int ChannelId,
+        string? Stream = null,
+        DateTime? FromUtc = null,
+        DateTime? ToUtc = null,
+        double? IntervalSeconds = null,
+        int? MaxHammingDistance = null,
+        int? MaxHits = null,
+        string? QueryHashHex = null,
+        string? QueryImageBase64 = null);
+
+    /// <summary>
+    /// 解析「以圖搜圖」的查詢指紋：優先 16 位 hex 指紋（由呼叫端自行計算、可重複使用）；
+    /// 否則解 base64 圖片並以 ffmpeg 抽出與掃描端一致的灰階指紋（暫存檔即用即刪）。
+    /// 兩者皆缺或格式壞一律丟例外，由端點轉成 400——靜默回空結果會讓操作員
+    /// 以為「這段時間真的沒有」，實際上查詢根本沒送進來。
+    /// </summary>
+    private static ulong ResolveImageQueryHash(ImageSearchRequest body)
+    {
+        if (!string.IsNullOrWhiteSpace(body.QueryHashHex))
+        {
+            return ulong.Parse(
+                body.QueryHashHex.Trim(),
+                System.Globalization.NumberStyles.HexNumber,
+                System.Globalization.CultureInfo.InvariantCulture);
+        }
+
+        if (!string.IsNullOrWhiteSpace(body.QueryImageBase64))
+        {
+            var bytes = Convert.FromBase64String(body.QueryImageBase64);
+            if (bytes.Length is 0 or > 10 * 1024 * 1024)
+            {
+                throw new InvalidOperationException("queryImageBase64 must be between 1 byte and 10 MiB");
+            }
+
+            var temp = Path.Combine(
+                Path.GetTempPath(), $"helivms-qimg-{Guid.NewGuid():N}{ImageExtensionOf(bytes)}");
+            try
+            {
+                File.WriteAllBytes(temp, bytes);
+                return FrameSimilarityScanner.HashImage(temp);
+            }
+            finally
+            {
+                try
+                {
+                    File.Delete(temp);
+                }
+                catch (IOException)
+                {
+                    // 暫存檔刪不掉不影響結果；磁碟清理由系統接手。
+                }
+            }
+        }
+
+        throw new InvalidOperationException("queryHashHex or queryImageBase64 is required");
+    }
+
+    private static string ImageExtensionOf(ReadOnlySpan<byte> bytes)
+    {
+        if (bytes.Length >= 3 && bytes[0] == 0xFF && bytes[1] == 0xD8)
+        {
+            return ".jpg";
+        }
+
+        if (bytes.Length >= 4 && bytes[0] == 0x89 && bytes[1] == 0x50 && bytes[2] == 0x4E && bytes[3] == 0x47)
+        {
+            return ".png";
+        }
+
+        return ".img";
+    }
 
     /// <summary>
     /// 解析要用的向量（§14.1 #8）：優先採用呼叫端帶來的向量；未帶向量但給了文字時，交由
