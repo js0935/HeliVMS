@@ -17,6 +17,9 @@ public class NemoServerTests
         public int MaxStreams => 2;
 
         public bool HasVnc => false;
+
+        public bool TryAuthenticate(string user, string password)
+            => (user, password) is ("admin", "s3cret");
     }
 
     [Fact]
