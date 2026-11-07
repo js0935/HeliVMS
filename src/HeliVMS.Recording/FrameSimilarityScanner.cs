@@ -11,6 +11,13 @@ public sealed record FrameSimilarityOptions
     /// <summary>抽樣間隔（秒）。愈小愈不容易漏掉短暫出現的畫面、成本愈高。</summary>
     public TimeSpan SampleInterval { get; init; } = TimeSpan.FromSeconds(15);
 
+    /// <summary>
+    /// 只解碼關鍵幀（預設開）。實測（同一台機器、5 路錄影進行中）：一個 5 分鐘段
+    /// 全解碼 3.7–5.3 秒、只解關鍵幀 0.4 秒——約 9 倍差；代價是樣本時刻的精度受
+    /// GOP 限制（±1–4 秒）。「找出在哪裡出現過」不需要毫秒精度——之後用回放微調。
+    /// </summary>
+    public bool KeyFramesOnly { get; init; } = true;
+
     /// <summary>命中門檻（漢明距離 0–64，愈小愈嚴格）。</summary>
     public int MaxHammingDistance { get; init; } = 10;
 
@@ -197,7 +204,8 @@ public sealed class FrameSimilarityScanner
                         },
                         options.FfmpegPath,
                         options.PerSegmentTimeout,
-                        cancellationToken);
+                        cancellationToken,
+                        options.KeyFramesOnly);
                 }
                 catch (OperationCanceledException)
                 {

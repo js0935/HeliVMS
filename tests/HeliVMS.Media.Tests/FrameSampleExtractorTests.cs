@@ -37,6 +37,24 @@ public sealed class FrameSampleExtractorTests
     }
 
     [Fact]
+    public void 掃描模式預設只解關鍵幀且開關可關()
+    {
+        // 實測 9 倍速差（5 分鐘段：全解碼 3.7–5.3 秒 vs 只解關鍵幀 0.4 秒）。
+        // -skip_frame 是 decoder 選項，必須在 -i 之前；放到後面會變成輸出選項而整個失敗。
+        var scan = FrameSampleExtractor.BuildSampleArguments(
+            "in.mp4", TimeSpan.Zero, TimeSpan.FromSeconds(300), 15, 21);
+        var skip = scan.IndexOf("-skip_frame");
+        var i = scan.IndexOf("-i");
+        Assert.True(skip >= 0, "掃描模式應只解關鍵幀");
+        Assert.Equal("nokey", scan[skip + 1]);
+        Assert.True(skip < i, "-skip_frame 必須在 -i 之前（decoder 選項）");
+
+        var exact = FrameSampleExtractor.BuildSampleArguments(
+            "in.mp4", TimeSpan.Zero, TimeSpan.FromSeconds(300), 15, 21, keyFramesOnly: false);
+        Assert.DoesNotContain("-skip_frame", exact);
+    }
+
+    [Fact]
     public void 單幀與抽樣共用同一條縮放濾鏡()
     {
         // 查詢圖與掃描樣本幾何不一致 = 指紋對不上（「有錄到卻搜不到」）。這條斷言把
@@ -115,7 +133,9 @@ public sealed class FrameSampleExtractorTests
                 intervalSeconds: 5,
                 maxSamples: 10,
                 samples.Add,
-                timeout: TimeSpan.FromSeconds(60));
+                timeout: TimeSpan.FromSeconds(60),
+                cancellationToken: default,
+                keyFramesOnly: false); // 精確間隔斷言走全解碼；關鍵幀模式的檔案由下一條測
 
             // 16 秒、每 5 秒一個樣本：t=4,9,14 → 3 個（第四個 19 落在 span 之外）。
             Assert.Equal(3, count);
@@ -131,6 +151,36 @@ public sealed class FrameSampleExtractorTests
                 .Distinct()
                 .Count();
             Assert.True(hashes >= 2, "動態來源的不同樣本得到了相同指紋——抽樣可能每次都拿到同一幀");
+        }
+        finally
+        {
+            try { Directory.Delete(dir, recursive: true); } catch { }
+        }
+    }
+
+    [SkippableFact]
+    public void 關鍵幀模式仍抽得到樣本且尺寸正確()
+    {
+        // 只解關鍵幀是掃描的預設（快 9 倍）；樣本數依 GOP 密度而非嚴格 interval，
+        // 所以這裡只斷言「有足量樣本、尺寸正確」，精確間隔由上一條（全解碼）釘住。
+        Skip.If(FfmpegInstall.Help(FfmpegLocator.Ffmpeg) is null, "PATH 上沒有可啟動的 ffmpeg。");
+
+        var dir = MakeTempDir();
+        try
+        {
+            var source = MakeSourceVideo(Path.Combine(dir, "src.mp4"), seconds: 20);
+            var samples = new List<GraySample>();
+            var count = FrameSampleExtractor.ExtractSamples(
+                source,
+                from: TimeSpan.Zero,
+                span: TimeSpan.FromSeconds(20),
+                intervalSeconds: 2,
+                maxSamples: 10,
+                samples.Add,
+                timeout: TimeSpan.FromSeconds(60));
+
+            Assert.True(count >= 3, $"關鍵幀模式樣本太少（GOP 密度異常？）：{count}");
+            Assert.All(samples, s => Assert.Equal(FrameSampleExtractor.SampleBytes, s.Gray32x32.Length));
         }
         finally
         {

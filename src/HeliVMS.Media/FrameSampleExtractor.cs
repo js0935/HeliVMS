@@ -48,9 +48,20 @@ public static class FrameSampleExtractor
     public const string ScaleFilter =
         "scale=32:32:force_original_aspect_ratio=decrease,pad=32:32:(ow-iw)/2:(oh-ih)/2";
 
-    /// <summary>抽樣參數（純函式，供測試逐項比對）。</summary>
+    /// <summary>
+    /// 抽樣參數（純函式，供測試逐項比對）。
+    ///
+    /// <para>
+    /// <c>keyFramesOnly</c>（預設開）＝只解關鍵幀（<c>-skip_frame nokey</c>，decoder
+    /// 選項放 <c>-i</c> 前）。實測（同一台機器、5 路錄影進行中）：一個 5 分鐘段
+    /// 全解碼 3.7–5.3 秒、只解關鍵幀 0.4 秒——約 9 倍差；代價是樣本時刻的精度受
+    /// GOP 限制（±1–4 秒，fps 濾鏡仍輸出等間隔時間戳、取最接近的關鍵幀）。
+    /// 「找出在哪裡出現過」不需要毫秒精度——之後用回放微調即可。
+    /// </para>
+    /// </summary>
     public static List<string> BuildSampleArguments(
-        string inputPath, TimeSpan from, TimeSpan span, double intervalSeconds, int maxSamples)
+        string inputPath, TimeSpan from, TimeSpan span, double intervalSeconds, int maxSamples,
+        bool keyFramesOnly = true)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(inputPath);
         if (from < TimeSpan.Zero)
@@ -66,11 +77,20 @@ public static class FrameSampleExtractor
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(intervalSeconds);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxSamples);
 
-        return
-        [
+        var args = new List<string>
+        {
             "-hide_banner",
             "-loglevel", "error",
+        };
 
+        if (keyFramesOnly)
+        {
+            args.Add("-skip_frame");
+            args.Add("nokey");
+        }
+
+        args.AddRange(
+        [
             // -ss 放在 -i 之前＝input seek：只在必要時解碼丟棄，一天的回放檔才有得等。
             "-ss", Seconds(from),
             "-i", inputPath,
@@ -83,7 +103,8 @@ public static class FrameSampleExtractor
             "-pix_fmt", "gray",
             "-frames:v", maxSamples.ToString(CultureInfo.InvariantCulture),
             "-",
-        ];
+        ]);
+        return args;
     }
 
     /// <summary>單幀抽取參數（查詢影像或「抓一張」——影片與圖片檔共用）。</summary>
@@ -121,10 +142,11 @@ public static class FrameSampleExtractor
         Action<GraySample> onSample,
         string? ffmpegPath = null,
         TimeSpan? timeout = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        bool keyFramesOnly = true)
     {
         ArgumentNullException.ThrowIfNull(onSample);
-        var args = BuildSampleArguments(inputPath, from, span, intervalSeconds, maxSamples);
+        var args = BuildSampleArguments(inputPath, from, span, intervalSeconds, maxSamples, keyFramesOnly);
         return RunPipeline(
             inputPath, args, from, intervalSeconds, maxSamples, onSample, ffmpegPath, timeout, cancellationToken);
     }
