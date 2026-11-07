@@ -459,6 +459,35 @@ public sealed class PlaybackWindowContractTests
     }
 
     /// <summary>
+    /// 以圖搜圖（QCV8001 QCJpegSearch 對應功能）的入口與跳轉。
+    ///
+    /// <para>
+    /// 跳轉必須走 <c>ResumePlaybackAt</c>（內部是 <c>PlaybackSeekPlanner.ResolveAt</c>
+    /// 的落點規則）：自己算「段＋偏移」會在多段與空隙時落到錯的時刻——正是時間軸與
+    /// 事件跳轉走過的同一條坑。查詢來源取當前畫格（<c>_current</c>）；沒有播放頭時
+    /// 由搜尋視窗自動退成「從圖片檔」。
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void 以圖搜圖有按鈕且跳轉走同一份落點規則()
+    {
+        var xaml = SourceContract.Read("src/HeliVMS.App/PlaybackWindow.xaml");
+        var source = SourceContract.Read(Code);
+
+        Assert.Contains("x:Name=\"ImageSearchButton\"", xaml);
+        Assert.Contains("Click=\"OnImageSearchClicked\"", xaml);
+
+        var handler = SourceContract.BodyOf(source, "OnImageSearchClicked");
+        Assert.NotEqual(string.Empty, handler);
+        Assert.Contains("new ImageSearchWindow(", handler);
+        Assert.Contains("_current?.FilePath", handler);
+
+        var jump = SourceContract.BodyOf(source, "OnImageSearchJumped");
+        Assert.NotEqual(string.Empty, jump);
+        Assert.Contains("ResumePlaybackAt(", jump);
+    }
+
+    /// <summary>
     /// 當天播完要能自動接隔天（跨夜事故的回看），而且換日必須走非同步漏斗。
     /// </summary>
     /// <remarks>

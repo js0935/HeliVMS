@@ -474,6 +474,8 @@ public partial class PlaybackWindow : Window
         JumpToNowButton.ToolTip = Localizer.T("Playback.NowTip");
         SyncNowButton.Content = Localizer.T("Playback.SyncNow");
         SyncNowButton.ToolTip = Localizer.T("Playback.SyncNowTip");
+        ImageSearchButton.Content = Localizer.T("Playback.ImageSearch");
+        ImageSearchButton.ToolTip = Localizer.T("Playback.ImageSearchTip");
         RedactionOverlayCheck.Content = Localizer.T("Playback.ShowRedaction");
         RedactionOverlayCheck.ToolTip = Localizer.T("Playback.ShowRedactionTip");
     }
@@ -2138,6 +2140,48 @@ public partial class PlaybackWindow : Window
         StatusText.Text = Localizer.T("Playback.Synced");
     }
 
+    /// <summary>
+    /// 以圖搜圖（QCV8001 QCJpegSearch 對應功能）：以當前畫格或圖片檔為查詢，
+    /// 掃描當日錄影找出相似時刻。
+    /// </summary>
+    /// <remarks>
+    /// 查詢來源取當下狀態（正在播放／暫停的段與段內位置）；沒有播放頭時
+    /// 搜尋視窗自動退成「從檔案」模式。搜尋範圍限當日——跳轉走
+    /// <see cref="ResumePlaybackAt"/> 的落點規則，而那條規則只認當日已載入的段。
+    /// </remarks>
+    private void OnImageSearchClicked(object sender, RoutedEventArgs e)
+    {
+        if (ChannelCombo.SelectedItem is not ChannelInfo channel)
+        {
+            return;
+        }
+
+        var day = DatePick.SelectedDate?.Date ?? DateTime.Today;
+        var window = new ImageSearchWindow(
+            _segments,
+            (int)channel.Id,
+            channel.Name,
+            day,
+            _current?.FilePath,
+            _posInside,
+            OnImageSearchJumped)
+        {
+            Owner = this,
+        };
+        window.ShowDialog();
+    }
+
+    /// <summary>搜尋結果的跳轉：把主視窗帶到命中時刻（搜尋視窗已在跳轉前關閉）。</summary>
+    private void OnImageSearchJumped(DateTime occurredAtLocal)
+    {
+        // ResumePlaybackAt 吃 UTC，落點規則與時間軸點擊、事件與書籤跳轉同一份
+        // （PlaybackSeekPlanner.ResolveAt）——不要在這裡自己算段與偏移。
+        if (!ResumePlaybackAt(occurredAtLocal.ToUniversalTime()))
+        {
+            StatusText.Text = Localizer.T("Playback.ImageSearchJumpFailed");
+        }
+    }
+
     /// <summary>調整播放速度（±1 格）；已在兩端時不動，並在狀態列說明目前倍數。</summary>
     private void ShiftSpeed(int direction)
     {
@@ -3746,6 +3790,10 @@ public partial class PlaybackWindow : Window
         PrevEventButton.IsEnabled = enabled && _events.Count > 0;
         NextEventButton.IsEnabled = enabled && _events.Count > 0;
         JumpToNowButton.IsEnabled = enabled;
+
+        // 以圖搜圖：主要用法是「看到可疑畫面 → 搜這台相機過去哪裡出現過」——
+        // 沒有播放中的畫格就沒有這個入口（只剩從檔案搜，屬次要場景）。
+        ImageSearchButton.IsEnabled = enabled;
     }
 
     /// <summary>

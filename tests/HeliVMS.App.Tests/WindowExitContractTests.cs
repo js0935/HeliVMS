@@ -12,7 +12,7 @@ public sealed class WindowExitContractTests
         "DetectionWindow", "RedactionWindow", "DewarpWindow", "StreamSwitchWindow", "IoWindow", "TalkWindow",
         "CameraManagerWindow", "ChannelManagerWindow", "MonitorGroupWindow", "RecordingImportWindow",
         "NotificationLogWindow", "OnvifWizardWindow", "SchedulingWindow", "ExportWindow", "ExportCenterWindow",
-        "MapWindow", "PtzWindow", "SettingsWindow",
+        "MapWindow", "PtzWindow", "SettingsWindow", "ImageSearchWindow",
     ];
 
     [Fact]

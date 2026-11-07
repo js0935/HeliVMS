@@ -1,0 +1,117 @@
+<Window x:Class="HeliVMS.App.ImageSearchWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        AutomationProperties.AutomationId="ImageSearchWindow"
+        Title=""
+        WindowStartupLocation="CenterOwner"
+        Background="#0B1622" Foreground="White"
+        PreviewKeyDown="OnPreviewKeyDown" Closing="OnClosing"
+        WindowStyle="None" ResizeMode="NoResize" WindowState="Maximized">
+
+    <Grid Margin="12">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- Header row: borderless window has no system title bar, so the title and the close
+             button live here (same pattern as ExportWindow). -->
+        <Grid Grid.Row="0" Margin="0,0,0,10">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            <TextBlock x:Name="HeaderTitle" Text="" FontSize="15" FontWeight="Bold"
+                       Foreground="White" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+            <Button x:Name="HeaderCloseButton" Content="✕" Click="OnCloseClicked" ToolTip=""
+                    Grid.Column="1" Padding="10,4" FontSize="14"
+                    Foreground="White" Background="#C62828" BorderThickness="0"
+                    VerticalAlignment="Center" AutomationProperties.AutomationId="ImageSearchHeaderCloseButton"/>
+        </Grid>
+
+        <!-- Query form -->
+        <Border Grid.Row="1" BorderBrush="#2A4A73" BorderThickness="1" Background="#0F1D2E" Margin="0,0,0,10">
+            <StackPanel Margin="16">
+                <TextBlock x:Name="SourceHeader" Text="" FontSize="13" FontWeight="Bold" Foreground="#EBF3FF"/>
+
+                <RadioButton x:Name="SourceCurrentRadio" Content="" GroupName="ImageSearchSource"
+                             Foreground="{StaticResource Brand.TextDim}" Margin="0,8,0,0" IsChecked="True"
+                             Click="OnSourceChanged" AutomationProperties.AutomationId="ImageSearchSourceCurrent"/>
+                <RadioButton x:Name="SourceFileRadio" Content="" GroupName="ImageSearchSource"
+                             Foreground="{StaticResource Brand.TextDim}" Margin="0,6,0,0"
+                             Click="OnSourceChanged" AutomationProperties.AutomationId="ImageSearchSourceFile"/>
+                <StackPanel Orientation="Horizontal" Margin="24,6,0,0">
+                    <Button x:Name="PickFileButton" Content="" Click="OnPickFileClicked" ToolTip=""
+                            Padding="12,5" Foreground="White" Background="#2A5C8A" BorderThickness="0"
+                            AutomationProperties.AutomationId="ImageSearchPickFileButton"/>
+                    <TextBlock x:Name="PickedFileText" Text="" Margin="10,0,0,0" VerticalAlignment="Center"
+                               Foreground="#9FB8D8" FontSize="11" TextTrimming="CharacterEllipsis"/>
+                </StackPanel>
+
+                <TextBlock x:Name="RangeText" Text="" Margin="0,12,0,0"
+                           Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+
+                <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                    <TextBlock x:Name="SensitivityLabel" Text="" VerticalAlignment="Center"
+                               Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+                    <ComboBox x:Name="SensitivityCombo" AutomationProperties.AutomationId="ImageSearchSensitivityCombo"
+                              Width="150" Margin="8,0,0,0"
+                              Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73">
+                        <ComboBoxItem/>
+                        <ComboBoxItem/>
+                        <ComboBoxItem/>
+                    </ComboBox>
+                    <TextBlock x:Name="IntervalLabel" Text="" VerticalAlignment="Center" Margin="24,0,0,0"
+                               Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+                    <ComboBox x:Name="IntervalCombo" AutomationProperties.AutomationId="ImageSearchIntervalCombo"
+                              Width="150" Margin="8,0,0,0"
+                              Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73">
+                        <ComboBoxItem/>
+                        <ComboBoxItem/>
+                        <ComboBoxItem/>
+                        <ComboBoxItem/>
+                    </ComboBox>
+                </StackPanel>
+
+                <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
+                    <Button x:Name="SearchButton" Content="" Click="OnSearchClicked" ToolTip=""
+                            Padding="14,6" Foreground="White" Background="#2A5C8A" BorderThickness="0"
+                            AutomationProperties.AutomationId="ImageSearchSearchButton"/>
+                    <Button x:Name="CancelButton" Content="" Click="OnCancelClicked" ToolTip=""
+                            Padding="14,6" Margin="8,0,0,0" IsEnabled="False"
+                            Foreground="White" Background="#1F3A5F" BorderThickness="0"
+                            AutomationProperties.AutomationId="ImageSearchCancelButton"/>
+                    <TextBlock x:Name="StatusText" Text="" Margin="14,0,0,0" VerticalAlignment="Center"
+                               Foreground="#9FB8D8" TextTrimming="CharacterEllipsis"/>
+                </StackPanel>
+
+                <TextBlock x:Name="HintText" Text="" Margin="0,10,0,0" TextWrapping="Wrap"
+                           Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+            </StackPanel>
+        </Border>
+
+        <!-- Results -->
+        <ListView x:Name="ResultList" Grid.Row="2" Background="#0D1B2B" BorderBrush="#1F3A5F"
+                  Foreground="White" MouseDoubleClick="OnResultDoubleClicked"
+                  AutomationProperties.AutomationId="ImageSearchResultList">
+            <ListView.View>
+                <GridView>
+                    <GridViewColumn x:Name="TimeCol" Header="" Width="240" DisplayMemberBinding="{Binding TimeText}"/>
+                    <GridViewColumn x:Name="DistanceCol" Header="" Width="140" DisplayMemberBinding="{Binding DistanceText}"/>
+                </GridView>
+            </ListView.View>
+        </ListView>
+
+        <!-- Footer -->
+        <StackPanel Grid.Row="3" Orientation="Horizontal" Margin="0,10,0,0">
+            <Button x:Name="JumpButton" Content="" Click="OnJumpClicked" ToolTip=""
+                    Padding="14,6" IsEnabled="False"
+                    Foreground="White" Background="#2A5C8A" BorderThickness="0"
+                    AutomationProperties.AutomationId="ImageSearchJumpButton"/>
+            <TextBlock x:Name="FooterHint" Text="" Margin="14,0,0,0" VerticalAlignment="Center"
+                       Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+        </StackPanel>
+    </Grid>
+</Window>

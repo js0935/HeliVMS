@@ -43,6 +43,7 @@ public sealed class WpfI18nContractTests
         ["ExportWindow", "src/HeliVMS.App/ExportWindow.xaml", "src/HeliVMS.App/ExportWindow.xaml.cs", new[] { "Export" }],
         ["SchedulingWindow", "src/HeliVMS.App/SchedulingWindow.xaml", "src/HeliVMS.App/SchedulingWindow.xaml.cs", new[] { "Schedule" }],
         ["PlaybackWindow", "src/HeliVMS.App/PlaybackWindow.xaml", "src/HeliVMS.App/PlaybackWindow.xaml.cs", new[] { "Playback" }],
+        ["ImageSearchWindow", "src/HeliVMS.App/ImageSearchWindow.xaml", "src/HeliVMS.App/ImageSearchWindow.xaml.cs", new[] { "ImageSearch" }],
         ["ExportCenterWindow", "src/HeliVMS.App/ExportCenterWindow.xaml", "src/HeliVMS.App/ExportCenterWindow.xaml.cs", new[] { "ExportCenter" }],
         ["OnvifWizardWindow", "src/HeliVMS.App/OnvifWizardWindow.xaml", "src/HeliVMS.App/OnvifWizardWindow.xaml.cs", new[] { "Onvif" }],
         ["CameraManagerWindow", "src/HeliVMS.App/CameraManagerWindow.xaml", "src/HeliVMS.App/CameraManagerWindow.xaml.cs", new[] { "Camera" }],

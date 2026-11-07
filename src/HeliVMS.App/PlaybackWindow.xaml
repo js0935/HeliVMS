@@ -361,6 +361,9 @@
                     <Button x:Name="SyncNowButton" Content="" Click="OnSyncNowClicked" ToolTip=""
                             Width="58" Padding="0,6" Margin="6,0,0,0" IsEnabled="False"
                             Foreground="White" Background="#1F3A5F" BorderThickness="0" AutomationProperties.AutomationId="PlaybackSyncNowButton"/>
+                    <Button x:Name="ImageSearchButton" Content="" Click="OnImageSearchClicked" ToolTip=""
+                            Width="76" Padding="0,6" Margin="14,0,0,0" IsEnabled="False"
+                            Foreground="White" Background="#1F3A5F" BorderThickness="0" AutomationProperties.AutomationId="PlaybackImageSearchButton"/>
                     <TextBlock x:Name="StatusText" Foreground="{StaticResource Brand.TextDim}" FontSize="11"
                                VerticalAlignment="Center" Margin="14,0,0,0"/>
                 </StackPanel>
