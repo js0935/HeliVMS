@@ -934,3 +934,26 @@ Notes that will save you time:
   scans whole files: no CJK in `RulesWindow.xaml` comments, no full-width punctuation in code
   strings, and one i18n key per window (reuse across two windows fails the duplicate-key check).
   Guarded by `AlarmIoRuleContractTests` and `LiveTalkContractTests`.
+
+- **QCC reaches the NVR on the web port, so Web and the QCTek compat service can want the same port.**
+  QCTek's QCC connects to the device's *web* port, and the real QCV8001 multiplexes NEMO control with
+  HTTP on 80 (`HttpServer::PreParseRequest`). So `qctek.compat.port == web.port` puts the public port
+  under `QctekPortMux` (loopback front, NEMO answered in-process by the same `QctekSession`, HTTP
+  relayed untouched to Kestrel's ephemeral port), while different ports keep the standalone
+  `NemoServer` on `Any` for a remote CMS. Three things are load-bearing. (1) **Order**
+  (`NetworkPortCoordinator.Apply`): sharing -> Web listens on an ephemeral port *first*, then the mux
+  binds the public one; not sharing -> `StopMux()` *first*, then Web binds back. Reversed, one service
+  hits "port already in use" and the settings page says only "failed to start", log clean. If the mux
+  cannot bind, Web is restored to the public port so the admin UI stays reachable. Every settings-page
+  apply goes through the coordinator and refreshes *both* status lines (sharing is decided by both
+  settings, so pressing Apply on one tab can hand the port to the mux). (2) **`RemoteConsolePort` must
+  report the public port**, handed to WebApi as `helivms.public_port`
+  (`QctekHttpResponder.PublicPortConfigKey`) and resolved by `ResolveConsolePort`; reporting Kestrel's
+  ephemeral port makes QCC store a number only this process knows ("device added, connection failed").
+  (3) **The auth challenge is 27 bytes because it has no length field and no NUL** - 16 random chars +
+  space + a *ten-digit* Unix second; a nine-digit nonce misaligns any client that reads a fixed 27
+  bytes (reproduced: the mux golden test hung waiting for the challenge) with nothing in either log.
+  The HTTP relay half-closes the *target* socket per direction (a `Close` truncates the other
+  direction) and replays the bytes consumed for protocol classification. Guarded by
+  `QctekPortMuxTests`, `QctekPortPlannerTests`, `QctekChallengeTests`, `NetworkPortContractTests` and
+  `QctekHttpResponderTests`.
