@@ -2079,7 +2079,8 @@ public class ApiTests : IClassFixture<ApiFactory>, IDisposable
     public async Task Get_Root_WithBasicAuth_ReturnsQctekDevicePage()
     {
         // QCC 的裝置探測：GET /＋Basic admin:admin（實測捕獲）——要回 QCV8001 的
-        // root.html 風格頁（title 就是型號），否則 QCC 報「無法確認型號與協定」。
+        // root.html 逐位元組版本（445 bytes、UTF-8 BOM、title 就是型號）加上
+        // Server 標頭；否則 QCC 報「無法確認型號與協定」，且畫面上無線索可診斷。
         var client = Client();
         using var request = new HttpRequestMessage(HttpMethod.Get, "/");
         request.Headers.Authorization = new AuthenticationHeaderValue("Basic", "YWRtaW46YWRtaW4=");
@@ -2087,8 +2088,12 @@ public class ApiTests : IClassFixture<ApiFactory>, IDisposable
         var resp = await client.SendAsync(request);
 
         Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
-        var html = await resp.Content.ReadAsStringAsync();
-        Assert.Contains("<title>QCV8001</title>", html);
+        Assert.True(resp.Headers.TryGetValues("Server", out var serverValues), "裝置頁回應必須帶 Server 標頭");
+        Assert.Equal("QCV8001", Assert.Single(serverValues!));
+        var htmlBytes = await resp.Content.ReadAsByteArrayAsync();
+        Assert.Equal(445, htmlBytes.Length);                                             // 真機 root.html 的長度
+        Assert.Equal(new byte[] { 0xEF, 0xBB, 0xBF }, htmlBytes.Take(3).ToArray());      // UTF-8 BOM（真機位元組）
+        Assert.Contains("<title>QCV8001</title>", System.Text.Encoding.UTF8.GetString(htmlBytes));
     }
 
     [Fact]

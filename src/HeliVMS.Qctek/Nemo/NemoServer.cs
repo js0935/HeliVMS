@@ -169,9 +169,9 @@ public sealed class NemoServer : IAsyncDisposable
                     {
                         // HTTP 前景優先（在 NEMO 解碼之前）：QCV8001 的 NEMO 與 HTTP 同埠
                         // 多工，QCC 的裝置探測先送 HTTP（實測：GET /＋Basic admin:admin）。
-                        // 回應後「留在連線上」等下一包——實測顯示回 Connection: close 後
-                        // QCC 就此放棄（「無法確認監控系統的型號與協定」），因為它預期
-                        // 同一條連線可以繼續講 NEMO。
+                        // 回應後關閉連線——真機實測就是這樣（Connection: close），而且真機
+                        // 正是這樣被 QCC 成功加入：QCC 收到 close 後自己開新連線講 NEMO。
+                        // （先前的「keep-alive 留在連線上續等」是對照真機前的推測。）
                         if (QctekDiagnostics.LooksLikeHttp(pending.Span))
                         {
                             var headerEnd = pending.Span.IndexOf("\r\n\r\n"u8);
@@ -191,12 +191,16 @@ public sealed class NemoServer : IAsyncDisposable
                             await stream.WriteAsync(
                                 httpResponse is null
                                     ? Encoding.ASCII.GetBytes(
-                                        "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: keep-alive\r\n\r\n")
+                                        "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
                                     : Encoding.UTF8.GetBytes(httpResponse),
                                 cancellationToken).ConfigureAwait(false);
                             _log?.Invoke($"NEMO：HTTP {(httpResponse is null ? "404" : "200")}（{remote}）");
                             pending.Consume(headerEnd + 4);
-                            continue; // ★ 不關閉：等對方在同一條連線上發下一包
+
+                            // 真機語意：HTTP 回應即結束這條連線。實測 QCV8001 對 GET /
+                            // 回 Connection: close 並關閉，而真機正是這樣被 QCC 成功加入。
+                            // 標頭說 close 卻不關，會讓對方等我們關（或自己超時）。
+                            return;
                         }
 
                         string command;

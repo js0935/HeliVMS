@@ -185,7 +185,7 @@ public class NemoServerTests
         Assert.Contains(lines, l => l.Contains("HELLO WORLD", StringComparison.Ordinal));
     }
 
-    /// <summary>讀完整 HTTP 回應（keep-alive 下連線不會關——依 Content-Length 收滿即停）。</summary>
+    /// <summary>讀完整 HTTP 回應（依 Content-Length 收滿即停；回應後連線關閉則讀到 EOF 亦停）。</summary>
     private static async Task<string> ReadHttpResponseAsync(NetworkStream stream, CancellationToken cancellationToken)
     {
         var data = new List<byte>();
@@ -224,11 +224,12 @@ public class NemoServerTests
     }
 
     [Fact]
-    public async Task HTTP未知路徑會收到404且連線保持開啟()
+    public async Task HTTP未知路徑回404並關閉連線()
     {
         // QCC 的裝置探測會先送 HTTP（QCV8001 的 NEMO 與 HTTP 同埠多工，探測端分不出
-        // 對面）——直接斷線會讓探測端只看得到「連線被重設」；keep-alive 是刻意的：
-        // 回應後對方可能在同一條連線上繼續講 NEMO。
+        // 對面）。真機語意：HTTP 回應後關閉連線（實測 QCV8001 對 GET / 回
+        // Connection: close，而真機正是這樣被 QCC 成功加入）——404 也比照；
+        // 「標頭說 close 卻不關」會讓探測端等我們關而卡住。
         var log = new System.Collections.Concurrent.ConcurrentQueue<string>();
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
         await using var server = new NemoServer(new TestContext(), IPAddress.Loopback, log: log.Enqueue);
@@ -244,16 +245,18 @@ public class NemoServerTests
         var response = await ReadHttpResponseAsync(stream, timeout.Token);
 
         Assert.StartsWith("HTTP/1.1 404", response, StringComparison.Ordinal);
+        Assert.Contains("Connection: close", response, StringComparison.Ordinal);
         var lines = log.ToArray();
         Assert.Contains(lines, l => l.Contains("HTTP 請求", StringComparison.Ordinal));
         Assert.Contains(lines, l => l.Contains("GET /nope", StringComparison.Ordinal));
     }
 
     [Fact]
-    public async Task 根路徑探測會收到QCV8001資訊頁且連線保持開啟()
+    public async Task 根路徑探測回QCV8001頁面並關閉連線()
     {
-        // 實測捕獲的 QCC 第一包：GET /（帶 Basic admin:admin）。回 200＋ProductName，
-        // 且「不關閉連線」——QCC 預期同一條連線可以繼續講 NEMO。
+        // 實測捕獲的 QCC 第一包：GET /（帶 Basic admin:admin）。回 200＋QCV8001 頁面，
+        // 標頭逐位元組對齊真機（Server/Connection: close）——真機就是這樣被 QCC
+        // 成功加入的；QCC 收到 close 後自己開新連線，不依賴 keep-alive。
         var log = new System.Collections.Concurrent.ConcurrentQueue<string>();
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
         await using var server = new NemoServer(new TestContext(), IPAddress.Loopback, log: log.Enqueue);
@@ -270,13 +273,17 @@ public class NemoServerTests
 
         Assert.StartsWith("HTTP/1.1 200", response, StringComparison.Ordinal);
         Assert.Contains("<title>QCV8001</title>", response, StringComparison.Ordinal);
-        Assert.Contains("keep-alive", response, StringComparison.Ordinal);
-
-        // 連線仍可用：在同一條連線上接著發 NEMO 命令（QCC 的真實路徑）。
-        await stream.WriteAsync(NemoMessage.EncodeText("GET_NCHANNEL"), timeout.Token);
-        var (_, payload) = await ReadFrameAsync(stream, timeout.Token);
-        Assert.Equal("OK 8 ", payload);
+        Assert.Contains("Server: QCV8001", response, StringComparison.Ordinal);
+        Assert.Contains("Connection: close", response, StringComparison.Ordinal);
         Assert.Contains(log.ToArray(), l => l.Contains("HTTP 200", StringComparison.Ordinal));
+
+        // NEMO 不受影響：換一條新連線照常下命令（QCC 收到 close 後的真實路徑）。
+        using var nemo = new TcpClient();
+        await nemo.ConnectAsync(IPAddress.Loopback, server.Port, timeout.Token);
+        var nemoStream = nemo.GetStream();
+        await nemoStream.WriteAsync(NemoMessage.EncodeText("GET_NCHANNEL"), timeout.Token);
+        var (_, payload) = await ReadFrameAsync(nemoStream, timeout.Token);
+        Assert.Equal("OK 8 ", payload);
     }
 
     [Fact]

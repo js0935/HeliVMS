@@ -21,6 +21,8 @@ public class QctekHttpResponderTests
         Assert.StartsWith("HTTP/1.1 200 OK", response);
         Assert.Contains("<title>QCV8001</title>", response);
         Assert.Contains("Content-Type: text/html", response);
+        Assert.Contains("Server: QCV8001\r\n", response);
+        Assert.Contains("Connection: close\r\n", response);
     }
 
     [Fact]
@@ -84,5 +86,23 @@ public class QctekHttpResponderTests
         var actual = System.Text.Encoding.UTF8.GetByteCount(body);
 
         Assert.Equal(declared, actual);
+    }
+
+    [Fact]
+    public void 首頁與真機root_html逐位元組一致()
+    {
+        // 真機（已被 QCC 成功加入的對照組）的 GET / 回應是 445-byte 的 root.html：
+        // UTF-8 BOM＋LF 換行＋結尾無換行。這三個位元組層級的事實與長度 445 一起
+        // 守門——少一個位元組、換行不同、或標頭缺失，QCC 的型號判定就回到
+        // 「無法確認監控系統的型號與協定」，而且畫面上沒有任何線索可診斷。
+        var response = QctekHttpResponder.BuildResponse("GET / HTTP/1.1\r\nHost: x\r\n\r\n", Ctx)!;
+
+        var marker = response.IndexOf("\r\n\r\n", StringComparison.Ordinal);
+        var bodyBytes = System.Text.Encoding.UTF8.GetBytes(response[(marker + 4)..]);
+
+        Assert.Equal(445, bodyBytes.Length);                                   // 真機長度
+        Assert.Equal(new byte[] { 0xEF, 0xBB, 0xBF }, bodyBytes.Take(3).ToArray()); // UTF-8 BOM
+        Assert.DoesNotContain((byte)'\r', bodyBytes);                          // 真機用 LF
+        Assert.Equal((byte)'>', bodyBytes[^1]);                                // 結尾 </html>，無尾換行
     }
 }

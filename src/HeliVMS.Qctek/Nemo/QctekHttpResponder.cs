@@ -141,23 +141,27 @@ public static class QctekHttpResponder
     }
 
     /// <summary>
-    /// `/` 的首頁——QCV8001 的 <c>root.html</c> 結構：<b>title 就是產品名</b>
-    /// （QCC 的裝置識別讀它）。保留同樣的標題與「導向登入/主頁」的行為。
+    /// `/` 的首頁——<b>逐位元組對齊真機</b>。真機（已被 QCC 成功加入的對照組）對
+    /// <c>GET /</c> 的回應就是這一份 445-byte 的 <c>media/root.html</c>：
+    /// UTF-8 BOM 開頭、<b>LF</b> 換行、結尾無換行。三個細節都刻意保留——
+    /// 長度與位元組都與真機相同，QCC 以任何形式比對內容或長度
+    /// （含 <c>Content-Length: 445</c>）都不會落空。
     /// </summary>
     private static string RootPage()
-        => "<!DOCTYPE html>\r\n" +
-           "<html>\r\n" +
-           "<head>\r\n" +
-           "    <meta http-equiv=\"Content-Type\" content=\"text/html; charset=UTF-8\">\r\n" +
-           $"    <title>{ProductName}</title>\r\n" +
-           "    <link rel=\"shortcut icon\" type=\"image/x-icon\" href=\"/favicon.ico\" media=\"screen\" />\r\n" +
-           "</head>\r\n" +
-           "<body>\r\n" +
-           "    <script language=\"JavaScript\" type=\"text/javascript\">\r\n" +
-           "        location.href = \"login.html\";\r\n" +
-           "    </script>\r\n" +
-           "</body>\r\n" +
-           "</html>\r\n";
+        => "\uFEFF<!DOCTYPE html>\n" +
+           "<html>\n" +
+           "<head>\n" +
+           "    <meta http-equiv=\"Content-Type\" content=\"text/html; charset=UTF-8\">\n" +
+           $"    <title>{ProductName}</title>\n" +
+           "    <link rel=\"shortcut icon\" type=\"image/x-icon\" href=\"/favicon.ico\" media=\"screen\" />\n" +
+           "</head>\n" +
+           "<body>\n" +
+           "    <script language=\"JavaScript\" type=\"text/javascript\">\n" +
+           "        if (typeof WebAssembly !== 'undefined') location.href = \"ws/root.html\";\n" +
+           "        else location.href = \"login.html\";\n" +
+           "    </script>\n" +
+           "</body>\n" +
+           "</html>";
 
     private static string InfoPage(Context context)
         => "<html><head><title> DVR Information </title></head>\r\n" +
@@ -177,12 +181,16 @@ public static class QctekHttpResponder
     {
         var bytes = Encoding.UTF8.GetByteCount(body);
         var reason = status == 200 ? "OK" : "Not Found";
-        // keep-alive 是刻意的：QCV8001 回應探測後「留住連線」讓對方在同一條上繼續
-        // 講 NEMO；回 Connection: close 會讓 QCC 就此放棄（實測的「無法確認型號與協定」）。
+
+        // 逐字對齊真機（現場實測 QCV8001 對 GET / 的回應）：
+        //   HTTP 200 / Connection: close / Content-Length / Content-Type / Server: QCV8001
+        // 「Server: QCV8001」是產品識別的一部分；Connection 用 close 與真機相同
+        // （先前改 keep-alive 是未對照真機前的推測）。
         return $"HTTP/1.1 {status} {reason}\r\n" +
+               "Server: " + ProductName + "\r\n" +
                $"Content-Type: {contentType}\r\n" +
                $"Content-Length: {bytes.ToString(CultureInfo.InvariantCulture)}\r\n" +
-               "Connection: keep-alive\r\n\r\n" +
+               "Connection: close\r\n\r\n" +
                body;
     }
 }

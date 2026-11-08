@@ -1,5 +1,8 @@
 using System.Globalization;
+using System.IO;
+using System.Text;
 using HeliVMS.Qctek.Nemo;
+using HeliVMS.Shared;
 using HeliVMS.Storage;
 
 namespace HeliVMS.WebApi;
@@ -28,10 +31,22 @@ public static class QctekProbeMiddleware
     {
         var request = context.Request;
         var path = request.Path.Value ?? "/";
-        if (!QctekHttpResponder.IsProbeRequest(
-                request.Method,
-                path,
-                request.Headers.Authorization.ToString()))
+        var authorization = request.Headers.Authorization.ToString();
+        var isProbe = QctekHttpResponder.IsProbeRequest(request.Method, path, authorization);
+
+        // 診斷：80 埠沒有 NemoServer 的日誌——QCC 實測「它到底送了什麼」必須看得到。
+        // 只記「可疑」請求（瀏覽器 UA 開頭是 Mozilla；其餘工具與帶認證的一律留痕），
+        // 避免把 SPA 的每個資源請求都寫進日誌。
+        var userAgent = request.Headers.UserAgent.ToString();
+        if (isProbe || authorization.Length > 0 ||
+            !userAgent.StartsWith("Mozilla", StringComparison.OrdinalIgnoreCase))
+        {
+            Diag($"[WEB] {request.Method} {request.Path}{request.QueryString} " +
+                 $"probe={isProbe} auth={authorization.Length > 0} " +
+                 $"ua={(userAgent.Length <= 80 ? userAgent : userAgent[..80])}");
+        }
+
+        if (!isProbe)
         {
             await next(context);
             return;
@@ -50,8 +65,22 @@ public static class QctekProbeMiddleware
             return;
         }
 
+        Diag($"[WEB] -> 200 {content.ContentType} {Encoding.UTF8.GetByteCount(content.Body)} bytes（QCTek 探測回應）");
         context.Response.StatusCode = StatusCodes.Status200OK;
         context.Response.ContentType = content.ContentType;
+
+        // 逐位元組對齊真機的回應標頭（真機被 QCC 成功加入的實測值）：
+        // 「Server: QCV8001」是型號識別的一部分；Connection: close 與真機相同
+        // （Kestrel 依此在回應後關閉連線——QCC 對真機也是這種 close 語意）。
+        context.Response.Headers["Server"] = QctekHttpResponder.ProductName;
+        context.Response.Headers["Connection"] = "close";
         await context.Response.WriteAsync(content.Body, context.RequestAborted);
     }
+
+    /// <summary>與 NemoServer 共用同一份診斷日誌（順序對照才有意義）。</summary>
+    private static void Diag(string message)
+        => BoundedFileLog.Append(
+            Path.Combine(Path.GetTempPath(), "helivms-qctek.log"),
+            $"{DateTime.Now:HH:mm:ss.fff} {message}{Environment.NewLine}",
+            maxBytes: 512 * 1024);
 }
