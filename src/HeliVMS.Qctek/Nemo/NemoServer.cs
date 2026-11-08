@@ -175,6 +175,21 @@ public sealed class NemoServer : IAsyncDisposable
                         }
                         catch (FormatException)
                         {
+                            if (QctekDiagnostics.LooksLikeHttp(pending.Span))
+                            {
+                                // QCC 的裝置探測會先送 HTTP（QCV8001 的 NEMO 與 HTTP
+                                // 同埠多工，探測端分不出對面）。回一個最簡 404 讓對方
+                                // 正常收尾——直接斷線時探測端只看得到「連線被重設」，
+                                // 與「命令不認識」在畫面上長得一樣。
+                                _log?.Invoke(
+                                    $"NEMO：HTTP 探測（{remote}）：{QctekDiagnostics.DescribeBytes(pending.Span)}");
+                                await stream.WriteAsync(
+                                    System.Text.Encoding.ASCII.GetBytes(
+                                        "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"),
+                                    cancellationToken).ConfigureAwait(false);
+                                return;
+                            }
+
                             // 串流不同步：直接關閉，不猜測重新同步點。傾印原始位元組——
                             // 實測（QCC 加裝置）時，唯一能回答「對方送了什麼」的就是這一行
                             // （HTTP 探測、別的協定、或損壞的串流一眼可辨）。

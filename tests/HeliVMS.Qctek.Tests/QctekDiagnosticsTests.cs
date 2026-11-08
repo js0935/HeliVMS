@@ -84,4 +84,19 @@ public class QctekDiagnosticsTests
     {
         Assert.Equal("(0 bytes)", QctekDiagnostics.DescribeBytes(Array.Empty<byte>()));
     }
+
+    [Fact]
+    public void HTTP方法被認得而NEMO與二進位不會誤判()
+    {
+        var a = System.Text.Encoding.ASCII;
+
+        Assert.True(QctekDiagnostics.LooksLikeHttp(a.GetBytes("GET /DVR_Info.htm HTTP/1.1\r\n")));
+        Assert.True(QctekDiagnostics.LooksLikeHttp(a.GetBytes("HEAD / HTTP/1.0\r\n")));
+        Assert.True(QctekDiagnostics.LooksLikeHttp(a.GetBytes("POST /ws/login HTTP/1.1\r\n")));
+
+        Assert.False(QctekDiagnostics.LooksLikeHttp(a.GetBytes("NEMO 11         OK QCV8001 ")));
+        Assert.False(QctekDiagnostics.LooksLikeHttp(Array.Empty<byte>()));
+        // N9000（0x91B）的請求頭：小端 06 00 00 01 1B 09 00 00——不是 HTTP。
+        Assert.False(QctekDiagnostics.LooksLikeHttp(new byte[] { 0x06, 0x00, 0x00, 0x01, 0x1B, 0x09, 0x00, 0x00 }));
+    }
 }

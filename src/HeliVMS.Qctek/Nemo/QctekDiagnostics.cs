@@ -56,6 +56,25 @@ public static class QctekDiagnostics
     }
 
     /// <summary>
+    /// 判斷這一包是不是 HTTP 請求（QCC 的裝置探測會先送 HTTP——QCV8001 的 NEMO 與
+    /// HTTP 同埠多工，探測端無從得知對面是哪一種）。
+    /// </summary>
+    public static bool LooksLikeHttp(ReadOnlySpan<byte> data)
+    {
+        ReadOnlySpan<string> methods = ["GET ", "HEAD ", "POST ", "PUT ", "OPTI", "DELE", "PATC"];
+        foreach (var method in methods)
+        {
+            if (data.Length >= method.Length &&
+                data[..method.Length].SequenceEqual(System.Text.Encoding.ASCII.GetBytes(method)))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
     /// 把「不是 NEMO 框」的原始位元組整理成可讀傾印（前 <paramref name="maxBytes"/> 個）。
     ///
     /// <para>

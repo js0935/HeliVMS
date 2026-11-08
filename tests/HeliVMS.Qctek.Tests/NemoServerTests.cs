@@ -165,7 +165,7 @@ public class NemoServerTests
     [Fact]
     public async Task 非NEMO資料會把原始位元組寫進診斷記錄()
     {
-        // QCC 實測發現：QCC 對埠送出的第一包可能不是 NEMO（HTTP 探測、別的協定）。
+        // QCC 實測發現：QCC 對埠送出的第一包可能不是 NEMO（別的協定、損壞的串流）。
         // 「非 NEMO 資料」四個字等於沒說——傾印前 96 bytes 才能回答「對方送了什麼」。
         var log = new System.Collections.Concurrent.ConcurrentQueue<string>();
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
@@ -177,11 +177,38 @@ public class NemoServerTests
         var stream = client.GetStream();
 
         await stream.WriteAsync(
-            System.Text.Encoding.ASCII.GetBytes("GET /DVR_Info.htm HTTP/1.1\r\nHost: x\r\n\r\n"), timeout.Token);
+            System.Text.Encoding.ASCII.GetBytes("HELLO WORLD \x01\x02\x03\x04"), timeout.Token);
         await Task.Delay(300);
 
         var lines = log.ToArray();
         Assert.Contains(lines, l => l.Contains("非 NEMO 資料", StringComparison.Ordinal));
+        Assert.Contains(lines, l => l.Contains("HELLO WORLD", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task HTTP探測會收到404而不是被斷線()
+    {
+        // QCC 的裝置探測會先送 HTTP（QCV8001 的 NEMO 與 HTTP 同埠多工，探測端分不出
+        // 對面）——直接斷線會讓探測端只看得到「連線被重設」，與「命令不認識」長得一樣。
+        var log = new System.Collections.Concurrent.ConcurrentQueue<string>();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+        await using var server = new NemoServer(new TestContext(), IPAddress.Loopback, log: log.Enqueue);
+        server.Start();
+
+        using var client = new TcpClient();
+        await client.ConnectAsync(IPAddress.Loopback, server.Port, timeout.Token);
+        var stream = client.GetStream();
+
+        await stream.WriteAsync(
+            System.Text.Encoding.ASCII.GetBytes("GET /DVR_Info.htm HTTP/1.1\r\nHost: x\r\n\r\n"), timeout.Token);
+
+        var buffer = new byte[512];
+        var n = await stream.ReadAsync(buffer.AsMemory(), timeout.Token);
+        var response = System.Text.Encoding.ASCII.GetString(buffer, 0, n);
+
+        Assert.StartsWith("HTTP/1.1 404", response, StringComparison.Ordinal);
+        var lines = log.ToArray();
+        Assert.Contains(lines, l => l.Contains("HTTP 探測", StringComparison.Ordinal));
         Assert.Contains(lines, l => l.Contains("GET /DVR_Info.htm", StringComparison.Ordinal));
     }
 
@@ -197,7 +224,9 @@ public class NemoServerTests
         var stream = client.GetStream();
 
         // 拿 HTTP 打 NEMO 埠＝串流不同步：連線應被關閉（讀到 EOF），而不是卡住或回 garbage。
-        await stream.WriteAsync(Encoding.ASCII.GetBytes("GET / HTTP/1.1\r\n\r\n"), timeout.Token);
+        // 送 NEMO／HTTP 之外的串流不同步資料（≥ 16 bytes 才會觸發標頭檢查）：連線要被
+        // 關閉（讀到 EOF），而不是卡住等更多垃圾。（HTTP 是另一條路徑：回 404 再關閉。）
+        await stream.WriteAsync(Encoding.ASCII.GetBytes("HELLO WORLD \x01\x02\x03\x04"), timeout.Token);
 
         var probe = new byte[16];
         var read = await stream.ReadAsync(probe, timeout.Token);
