@@ -130,8 +130,8 @@ internal sealed class LiveRun
         _log = log;
         _cancellationToken = cancellationToken;
         _done = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        // 位圖以「我們宣告的頻道數」為界：位圖的 bit 超出頻道數的，狀態幀會回
-        // 0x8002（攝影機資訊無效），與真機對無效頻道的回法一致。
+        // 位圖以「我們宣告的頻道數」為界：超出頻道數的 bit 直接忽略——QCC 的頻道數
+        // 來自我們自己的 GET_NCHANNEL，正常情況勾不出這種 bit。
         _channels = new ChannelState?[Math.Clamp(context.ChannelCount, 0, 1024)];
     }
 
