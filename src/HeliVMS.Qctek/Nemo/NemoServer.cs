@@ -25,31 +25,27 @@ public sealed class NemoServer : IAsyncDisposable
     private readonly IPAddress _address;
     private readonly int _requestedPort;
     private readonly Action<string>? _log;
-    private readonly Func<string, string?> _dispatch;
     private readonly IQctekDeviceContext _context;
 
     private TcpListener? _listener;
     private CancellationTokenSource? _cts;
     private Task? _acceptLoop;
 
-    /// <param name="context">裝置資訊（版本、頻道數…），供預設命令派送器使用。</param>
+    /// <param name="context">裝置資訊（版本、頻道數…），供 <see cref="QctekSession"/> 使用。</param>
     /// <param name="address">綁定位址；預設所有介面。</param>
     /// <param name="port">綁定埠；<c>0</c>＝由系統指派（測試用）。</param>
     /// <param name="log">可選的訊息記錄（連線進出、例外）。</param>
-    /// <param name="dispatch">可選的自訂派送器；預設 <see cref="QctekCommandHandler.Handle"/>。</param>
     public NemoServer(
         IQctekDeviceContext context,
         IPAddress? address = null,
         int port = 0,
-        Action<string>? log = null,
-        Func<string, string?>? dispatch = null)
+        Action<string>? log = null)
     {
         ArgumentNullException.ThrowIfNull(context);
         _address = address ?? IPAddress.Any;
         _requestedPort = port;
         _log = log;
         _context = context;
-        _dispatch = dispatch ?? (command => QctekCommandHandler.Handle(command, context));
     }
 
     /// <summary>實際綁定的埠（<c>port: 0</c> 時由系統指派）。</summary>
@@ -135,6 +131,7 @@ public sealed class NemoServer : IAsyncDisposable
             var pending = new FrameBuffer();
             var read = new byte[8192];
             var remote = SafeRemoteEndPoint(client);
+            var session = new QctekSession(_context);
 
             // 每個連線與每個命令都留痕：QCC 實測失敗時（連不上、命令不認識、密碼錯，
             // 畫面上長得一樣）這份日誌是唯一的線索。命令摘要會遮蔽密碼段。
@@ -203,16 +200,8 @@ public sealed class NemoServer : IAsyncDisposable
                             return;
                         }
 
-                        string command;
-                        int consumed;
-                        try
-                        {
-                            if (!NemoMessage.TryDecodeText(pending.Span, out command, out consumed))
-                            {
-                                break; // 半個訊框：繼續讀
-                            }
-                        }
-                        catch (FormatException)
+                        var result = session.Advance(pending.Span);
+                        if (result.Close)
                         {
                             // 串流不同步：直接關閉，不猜測重新同步點。傾印原始位元組——
                             // 實測（QCC 加裝置）時，唯一能回答「對方送了什麼」的就是這一行
@@ -223,22 +212,29 @@ public sealed class NemoServer : IAsyncDisposable
                             return;
                         }
 
-                        var response = _dispatch(command);
-                        if (response is not null)
+                        if (result.Consumed == 0)
                         {
-                            _log?.Invoke($"NEMO ← {QctekDiagnostics.Summarize(command)}");
-                            await stream.WriteAsync(NemoMessage.EncodeText(response).AsMemory(), cancellationToken)
-                                .ConfigureAwait(false);
-                            _log?.Invoke($"NEMO → {QctekDiagnostics.Summarize(response)}");
+                            break; // 半個訊框：繼續讀
+                        }
+
+                        if (result.Reply is null)
+                        {
+                            if (result.Command is not null)
+                            {
+                                // 未知命令不回覆（維持 null 語意）——但一定要留痕：
+                                // 這是「CMS 發了我們不認識的命令」唯一的證據。
+                                _log?.Invoke(
+                                    $"NEMO ← {QctekDiagnostics.Summarize(result.Command)}（未知命令，不回應）");
+                            }
                         }
                         else
                         {
-                            // 未知命令不回覆（維持 null 語意）——但一定要留痕：
-                            // 這是「CMS 發了我們不認識的命令」唯一的證據。
-                            _log?.Invoke($"NEMO ← {QctekDiagnostics.Summarize(command)}（未知命令，不回應）");
+                            _log?.Invoke($"NEMO ← {QctekDiagnostics.Summarize(result.Command)}");
+                            await stream.WriteAsync(result.Reply.AsMemory(), cancellationToken).ConfigureAwait(false);
+                            _log?.Invoke($"NEMO → {QctekDiagnostics.DescribeReply(result.Reply)}");
                         }
 
-                        pending.Consume(consumed);
+                        pending.Consume(result.Consumed);
                     }
                 }
             }

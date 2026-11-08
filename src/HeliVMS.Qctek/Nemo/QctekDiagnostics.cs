@@ -1,3 +1,5 @@
+using System.Text;
+
 namespace HeliVMS.Qctek.Nemo;
 
 /// <summary>
@@ -46,6 +48,13 @@ public static class QctekDiagnostics
             return subscription.Length > 0 ? $"ALARM_REQUEST {subscription} ***" : "ALARM_REQUEST ***";
         }
 
+        // 認證回應是 digest（雜湊），不是密碼，但同樣不需要落地；長度與格式已由
+        // 命令摘要表達（是否 32 hex 會影響判讀）。
+        if (string.Equals(name, "QCV8001_AUTH_SENDCODE", StringComparison.OrdinalIgnoreCase))
+        {
+            return "QCV8001_AUTH_SENDCODE ***";
+        }
+
         return text.Length <= MaxSummaryLength ? text : text[..MaxSummaryLength] + "…";
     }
 
@@ -72,6 +81,51 @@ public static class QctekDiagnostics
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// 把回應位元組整理成可讀的一行（診斷用）：文字框顯示內容，二進位框顯示
+    /// <c>&lt;binary N bytes&gt;</c>。
+    /// <para>
+    /// 二進位 payload（設定／使用者／IO）可能上百 KB，逐位元組傾印會把日誌灌爆；
+    /// 但「回了 312 bytes 二進位」正是判斷 QCC 是否走到設定查詢的證據。
+    /// </para>
+    /// </summary>
+    public static string DescribeReply(ReadOnlySpan<byte> reply)
+    {
+        if (reply.Length >= NemoMessage.HeaderLength && reply.StartsWith("NEMO "u8))
+        {
+            try
+            {
+                if (NemoMessage.TryDecode(reply, out var payload, out _))
+                {
+                    return IsPrintable(payload)
+                        ? Encoding.ASCII.GetString(payload).TrimEnd('\0')
+                        : $"<binary {payload.Length} bytes>";
+                }
+            }
+            catch (FormatException)
+            {
+                // 不是完整訊框（理論上不會發生）：落到下面的通用處理。
+            }
+        }
+
+        return IsPrintable(reply)
+            ? Encoding.ASCII.GetString(reply).TrimEnd('\0')
+            : $"<binary {reply.Length} bytes>";
+    }
+
+    private static bool IsPrintable(ReadOnlySpan<byte> data)
+    {
+        foreach (var b in data)
+        {
+            if (b != 0 && (b < 0x20 || b > 0x7E))
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /// <summary>

@@ -33,12 +33,26 @@ public static class QctekPassword
     /// <summary>
     /// 解出 CMS 送來的密碼欄位：合法 Base64 且解回合法 UTF-8 → 密碼原文；
     /// 其餘（字面預設、壞 Base64、非 UTF-8 位元組）→ 原樣回傳，交由認證拒絕。
+    /// <para>
+    /// <b>尾端填補可省略。</b>黃金抓包裡 QCC 送的是 <c>YWRtaW4</c>（＝<c>admin</c> 的
+    /// Base64，少一個 <c>=</c>），而真機接受了——所以不能要求標準填補，否則 QCC 的
+    /// 密碼永遠驗不過（畫面只會顯示「登入失敗」，看不出是填補的問題）。
+    /// </para>
     /// </summary>
     public static string Decode(string field)
     {
         ArgumentNullException.ThrowIfNull(field);
-        Span<byte> buffer = stackalloc byte[(field.Length * 3 / 4) + 3];
-        if (Convert.TryFromBase64String(field, buffer, out var written))
+
+        // 只補到 4 的倍數；補不出合法組合（餘 1）的仍交給 TryFromBase64String 判為非 Base64。
+        var padded = (field.Length % 4) switch
+        {
+            0 => field,
+            1 => field,
+            var remainder => field + new string('=', 4 - remainder),
+        };
+
+        Span<byte> buffer = stackalloc byte[(padded.Length * 3 / 4) + 3];
+        if (Convert.TryFromBase64String(padded, buffer, out var written))
         {
             try
             {

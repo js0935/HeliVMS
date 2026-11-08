@@ -18,6 +18,14 @@ public class QctekPasswordTests
     }
 
     [Fact]
+    public void 省略填補的Base64也能解出真機接受過的密碼()
+    {
+        // 黃金抓包（stream 16）：QCC 送 "YWRtaW4"（admin 的 Base64 少一個 '='），
+        // 真機回 OK。要求標準填補會讓這個密碼永遠驗不過。
+        Assert.Equal("admin", QctekPassword.Decode("YWRtaW4"));
+    }
+
+    [Fact]
     public void 字面預設原樣回傳而不會被當成密碼()
     {
         // 判別規則：能解成合法 UTF-8 的 Base64 才是密碼。

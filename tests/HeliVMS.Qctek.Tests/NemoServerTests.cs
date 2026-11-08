@@ -14,12 +14,17 @@ public class NemoServerTests
 
         public int ChannelCount => 8;
 
+        public IReadOnlyList<string> ChannelNames
+            => Enumerable.Range(1, 8).Select(static i => $"攝影機{i:000}").ToList();
+
         public int MaxStreams => 2;
 
         public bool HasVnc => false;
 
         public bool TryAuthenticate(string user, string password)
             => (user, password) is ("admin", "s3cret");
+
+        public bool IsKnownUser(string user) => user == "admin";
     }
 
     [Fact]
@@ -39,6 +44,12 @@ public class NemoServerTests
         // 標頭逐字：「NEMO 11」＋9 個空白補滿 16 bytes；payload 尾端空白是協定慣例。
         Assert.Equal("NEMO 11         ", header);
         Assert.Equal("OK QCV8001 ", payload);
+
+        // 真機把 NUL 寫在宣告長度之外（實際 28 bytes，標頭只宣告 11）——這個
+        // 少宣告的 1 是線路格式的一部分，不是我們多送。
+        var extra = new byte[1];
+        await stream.ReadExactlyAsync(extra, timeout.Token);
+        Assert.Equal(0, extra[0]);
     }
 
     [Fact]
@@ -96,19 +107,29 @@ public class NemoServerTests
         await client.ConnectAsync(IPAddress.Loopback, server.Port, timeout.Token);
         var stream = client.GetStream();
 
-        async Task<string> RoundTripAsync(string request)
+        async Task<string> RoundTripAsync(string request, bool trailingNul = false)
         {
             await stream.WriteAsync(NemoMessage.EncodeText(request), timeout.Token);
-            return (await ReadFrameAsync(stream, timeout.Token)).Payload;
+            var reply = await ReadFrameAsync(stream, timeout.Token);
+            if (trailingNul)
+            {
+                // 真機的 framed 文字回應把 NUL 寫在標頭宣告長度之外（標頭少宣告 1）；
+                // 同一條連線上不把這個 NUL 吃掉，下一個標頭就會從它開始解析。
+                var extra = new byte[1];
+                await stream.ReadExactlyAsync(extra, timeout.Token);
+                Assert.Equal(0, extra[0]);
+            }
+
+            return reply.Payload;
         }
 
         var pass = QctekPassword.Encode("s3cret");
-        Assert.Equal("OK QCV8001 ", await RoundTripAsync("CHECK_SERVER_VERSION CLIENT_AUTH"));
+        Assert.Equal("OK QCV8001 ", await RoundTripAsync("CHECK_SERVER_VERSION CLIENT_AUTH", trailingNul: true));
         Assert.Equal("OK -1 -1 -1 ", await RoundTripAsync($"CONNECT admin {pass} "));
         Assert.Equal("OK 8 ", await RoundTripAsync("GET_NCHANNEL"));
-        Assert.Equal("OK 1 1 ", await RoundTripAsync(
+        Assert.Equal("OK 0 1 ", await RoundTripAsync(
             $"ALARM_REQUEST 5 version7.7 user: admin {pass} =QCV0000000001"));
-        Assert.Equal("OK ", await RoundTripAsync("ALARM_CANCEL 1 1 "));
+        Assert.Equal("OK ", await RoundTripAsync("ALARM_CANCEL 1 1 ", trailingNul: true));
     }
 
     [Fact]

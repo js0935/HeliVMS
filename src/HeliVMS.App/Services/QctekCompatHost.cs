@@ -245,11 +245,13 @@ public sealed class QctekCompatHost : IDisposable
     {
         private readonly AuthService _auth;
         private readonly ChannelRepository _channels;
+        private readonly UserRepository _users;
 
         public DeviceContext(SqliteStore store)
         {
             _auth = new AuthService(store);
             _channels = new ChannelRepository(store);
+            _users = new UserRepository(store);
         }
 
         /// <summary>
@@ -260,6 +262,13 @@ public sealed class QctekCompatHost : IDisposable
 
         /// <summary>頻道數即時查（CMS 只在連線時問一次，成本可忽略；頻道增減會立刻反映）。</summary>
         public int ChannelCount => _channels.List().Count;
+
+        /// <summary>
+        /// 頻道名稱即時查（<c>GET_CONFIG_QCTEK</c> 的每筆記錄）。依 <see cref="ChannelRepository.List"/>
+        /// 的排序，與 <see cref="ChannelCount"/> 同一個來源，兩者不會漂移。
+        /// </summary>
+        public IReadOnlyList<string> ChannelNames
+            => _channels.List().Select(static channel => channel.Name).ToList();
 
         /// <summary>QCV8001 慣例值；HeliVMS 每個頻道有主流＋子流。</summary>
         public int MaxStreams => 2;
@@ -280,6 +289,26 @@ public sealed class QctekCompatHost : IDisposable
             }
 
             return _auth.Authenticate(user, password).Succeeded;
+        }
+
+        /// <summary>
+        /// <c>QCV8001_AUTH_SENDCODE</c> 之後唯一能做的檢查：使用者存在且啟用。
+        /// <para>
+        /// 不能做密碼驗證——QCTek 的 digest 需要一份 HeliVMS 沒有的專有轉換密碼
+        /// （見 <see cref="QctekSession"/>）。未啟用本機登入驗證時一律放行，與
+        /// <see cref="TryAuthenticate"/> 的政策一致；啟用時至少要求帳號真的存在，
+        /// 不能任意使用者名都通過。
+        /// </para>
+        /// </summary>
+        public bool IsKnownUser(string user)
+        {
+            if (!_auth.IsAuthEnabled)
+            {
+                return true;
+            }
+
+            return !string.IsNullOrWhiteSpace(user) &&
+                   _users.GetByUsername(user) is { Enabled: true };
         }
     }
 }
