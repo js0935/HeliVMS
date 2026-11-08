@@ -8,6 +8,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\HeliVMS.Devices\HeliVMS.Devices.csproj" />
+    <!-- QCTek 裝置探測攔截（QctekProbeMiddleware）：QCC 的裝置精靈打的是 HTTP 埠。 -->
+    <ProjectReference Include="..\HeliVMS.Qctek\HeliVMS.Qctek.csproj" />
     <ProjectReference Include="..\HeliVMS.Rtc\HeliVMS.Rtc.csproj" />
     <ProjectReference Include="..\HeliVMS.Recording\HeliVMS.Recording.csproj" />
     <ProjectReference Include="..\HeliVMS.Shared\HeliVMS.Shared.csproj" />

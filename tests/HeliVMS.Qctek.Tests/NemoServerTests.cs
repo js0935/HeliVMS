@@ -269,7 +269,7 @@ public class NemoServerTests
         var response = await ReadHttpResponseAsync(stream, timeout.Token);
 
         Assert.StartsWith("HTTP/1.1 200", response, StringComparison.Ordinal);
-        Assert.Contains("<ProductName> QCV8001", response, StringComparison.Ordinal);
+        Assert.Contains("<title>QCV8001</title>", response, StringComparison.Ordinal);
         Assert.Contains("keep-alive", response, StringComparison.Ordinal);
 
         // 連線仍可用：在同一條連線上接著發 NEMO 命令（QCC 的真實路徑）。

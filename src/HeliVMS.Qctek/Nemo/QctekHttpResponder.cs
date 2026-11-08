@@ -43,28 +43,78 @@ public static class QctekHttpResponder
     {
         ArgumentNullException.ThrowIfNull(context);
         var path = RequestPath(request);
-        if (path is null)
-        {
-            return null;
-        }
+        return path is null ? null : BuildResponseForPath(path, context);
+    }
+
+    /// <summary>
+    /// 由路徑（已解析）取回應的內容——ASP.NET 端的中介層需要自行組狀態/標頭，
+    /// 與 <see cref="BuildResponseForPath"/> 共用同一份路由。
+    /// </summary>
+    public static (string ContentType, string Body)? BuildBody(string path, Context context)
+    {
+        ArgumentNullException.ThrowIfNull(path);
+        ArgumentNullException.ThrowIfNull(context);
 
         // 路徑比對不分大小寫（QCV8001 用 _stricmp；探測端的大小寫不該決定成敗）。
-        if (path == "/" || path.Equals("/DVR_Info.htm", StringComparison.OrdinalIgnoreCase))
+        //
+        // `/` 與 `/DVR_Info.htm` 回「不同的頁」——實查 QCV8001 的 media 根：
+        //   GET /          → root.html：<title>QCV8001</title>（「型號識別」的來源！）
+        //   GET /DVR_Info.htm → 「DVR Information」資訊頁（CPU/RAM/ProductVersion…）
+        // 兩者都用 title/內容宣告產品名；QCC 認的是「QCV8001」——用 DVR Information
+        // 當首頁時它拿不到型號，正是「無法確認監控系統的型號與協定」。
+        if (path == "/")
         {
-            return Response(200, "text/html", InfoPage(context));
+            return ("text/html", RootPage());
+        }
+
+        if (path.Equals("/DVR_Info.htm", StringComparison.OrdinalIgnoreCase))
+        {
+            return ("text/html", InfoPage(context));
         }
 
         if (path.StartsWith("/getparam.cgi", StringComparison.OrdinalIgnoreCase))
         {
-            return Response(200, "text/plain", $"RemoteConsolePort={context.RemoteConsolePort}\r\n");
+            return ("text/plain", $"RemoteConsolePort={context.RemoteConsolePort}\r\n");
         }
 
         if (path.Equals("/emap/EmapInfo.txt", StringComparison.OrdinalIgnoreCase))
         {
-            return Response(200, "text/plain", $"[Server_Number]\r\nTotalChannel={context.TotalChannels}\r\n");
+            return ("text/plain", $"[Server_Number]\r\nTotalChannel={context.TotalChannels}\r\n");
         }
 
         return null;
+    }
+
+    /// <summary>由路徑（已解析）建完整 HTTP 回應字串（NEMO 伺服器的獨立埠用）。</summary>
+    public static string? BuildResponseForPath(string path, Context context)
+    {
+        var body = BuildBody(path, context);
+        return body is { } b ? Response(200, b.ContentType, b.Body) : null;
+    }
+
+    /// <summary>
+    /// 這一條請求是不是「QCTek 裝置探測」？兩種特徵：①裝置資訊路徑（無條件——
+    /// 這些路徑不屬於 HeliVMS 的 SPA）；②<c>GET /</c>＋<c>Authorization: Basic</c>
+    /// （QCC 專屬——QCC 的裝置精靈帶 Basic <c>admin:admin</c> 探測，瀏覽器開首頁
+    /// 不會帶）。只攔探測，SPA 與 API 完全不受影響。
+    /// </summary>
+    public static bool IsProbeRequest(string method, string path, string? authorizationHeader)
+    {
+        if (!string.Equals(method, "GET", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        if (path.Equals("/DVR_Info.htm", StringComparison.OrdinalIgnoreCase) ||
+            path.StartsWith("/getparam.cgi", StringComparison.OrdinalIgnoreCase) ||
+            path.Equals("/emap/EmapInfo.txt", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        return path == "/" &&
+               authorizationHeader is not null &&
+               authorizationHeader.StartsWith("Basic ", StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>解析請求行 <c>GET &lt;path&gt; HTTP/1.x</c> 的路徑；非 GET 或格式不符回 null。</summary>
@@ -89,6 +139,25 @@ public static class QctekHttpResponder
         var query = target.IndexOf('?');
         return query >= 0 ? target[..query] : target;
     }
+
+    /// <summary>
+    /// `/` 的首頁——QCV8001 的 <c>root.html</c> 結構：<b>title 就是產品名</b>
+    /// （QCC 的裝置識別讀它）。保留同樣的標題與「導向登入/主頁」的行為。
+    /// </summary>
+    private static string RootPage()
+        => "<!DOCTYPE html>\r\n" +
+           "<html>\r\n" +
+           "<head>\r\n" +
+           "    <meta http-equiv=\"Content-Type\" content=\"text/html; charset=UTF-8\">\r\n" +
+           $"    <title>{ProductName}</title>\r\n" +
+           "    <link rel=\"shortcut icon\" type=\"image/x-icon\" href=\"/favicon.ico\" media=\"screen\" />\r\n" +
+           "</head>\r\n" +
+           "<body>\r\n" +
+           "    <script language=\"JavaScript\" type=\"text/javascript\">\r\n" +
+           "        location.href = \"login.html\";\r\n" +
+           "    </script>\r\n" +
+           "</body>\r\n" +
+           "</html>\r\n";
 
     private static string InfoPage(Context context)
         => "<html><head><title> DVR Information </title></head>\r\n" +

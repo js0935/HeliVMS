@@ -2076,6 +2076,44 @@ public class ApiTests : IClassFixture<ApiFactory>, IDisposable
     }
 
     [Fact]
+    public async Task Get_Root_WithBasicAuth_ReturnsQctekDevicePage()
+    {
+        // QCC 的裝置探測：GET /＋Basic admin:admin（實測捕獲）——要回 QCV8001 的
+        // root.html 風格頁（title 就是型號），否則 QCC 報「無法確認型號與協定」。
+        var client = Client();
+        using var request = new HttpRequestMessage(HttpMethod.Get, "/");
+        request.Headers.Authorization = new AuthenticationHeaderValue("Basic", "YWRtaW46YWRtaW4=");
+
+        var resp = await client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
+        var html = await resp.Content.ReadAsStringAsync();
+        Assert.Contains("<title>QCV8001</title>", html);
+    }
+
+    [Fact]
+    public async Task Get_DvrInfo_ReturnsQctekProductTags()
+    {
+        var resp = await Client().GetAsync("/DVR_Info.htm");
+
+        Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
+        var html = await resp.Content.ReadAsStringAsync();
+        Assert.Contains("<ProductName> QCV8001", html);
+        Assert.Contains("<ProductVersion>", html);
+    }
+
+    [Fact]
+    public async Task Get_Root_WithoutAuth_StillReturnsSpa()
+    {
+        // 瀏覽器開首頁（無 Basic）不受攔截影響——SPA 照常（不是裝置頁）。
+        var resp = await Client().GetAsync("/");
+
+        Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
+        var html = await resp.Content.ReadAsStringAsync();
+        Assert.DoesNotContain("<title>QCV8001</title>", html);
+    }
+
+    [Fact]
     public async Task Post_ImageSearch_WithoutQuery_ReturnsBadRequest()
     {
         // 沒有查詢影像也沒有指紋：必須是 400 而不是「0 筆命中」——

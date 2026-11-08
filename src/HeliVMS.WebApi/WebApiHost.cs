@@ -254,6 +254,13 @@ public static class WebApiHost
         var webRoot = FindWebRoot(configuration["HELIVMS_WEB"]);
 
         app.Use(ApiEndpoints.ErrorFilter);
+
+        // QCTek 裝置探測（QCC 的裝置精靈用「裝置的 HTTP 埠」——QCV8001 的 NEMO 與
+        // HTTP 同埠多工、預設 80）：GET /（帶 Basic）與 /DVR_Info.htm 等要回「裝置
+        // 資訊頁」，否則 QCC 拿到 SPA 會報「無法確認監控系統的型號與協定」。
+        // 只攔探測特徵；SPA、API 與金鑰驗證完全不受影響。
+        app.Use(QctekProbeMiddleware.Handle);
+
         if (webRoot is not null)
         {
             var provider = new PhysicalFileProvider(webRoot);

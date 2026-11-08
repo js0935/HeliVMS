@@ -11,28 +11,30 @@ public class QctekHttpResponderTests
     private static QctekHttpResponder.Context Ctx => new("5170", 6);
 
     [Fact]
-    public void 根路徑回資訊頁且含型號與版本標籤()
+    public void 根路徑回QCV8001標題頁()
     {
+        // QCV8001 的 GET / 是 root.html——title 就是產品名，QCC 的裝置識別讀它；
+        // 用「DVR Information」當首頁時它拿不到型號，那是「無法確認型號與協定」之一。
         var response = QctekHttpResponder.BuildResponse("GET / HTTP/1.1\r\nHost: x\r\n\r\n", Ctx);
 
         Assert.NotNull(response);
         Assert.StartsWith("HTTP/1.1 200 OK", response);
-        Assert.Contains("<ProductName> QCV8001 Information </ProductName>", response);
-        Assert.Contains("<ProductVersion>", response);
-        Assert.Contains("<LoginID>", response);
+        Assert.Contains("<title>QCV8001</title>", response);
         Assert.Contains("Content-Type: text/html", response);
     }
 
     [Fact]
-    public void DVR_Info頁與根路徑等價且不分大小寫()
+    public void DVR_Info頁回資訊頁且不分大小寫()
     {
         var exact = QctekHttpResponder.BuildResponse("GET /DVR_Info.htm HTTP/1.1\r\n\r\n", Ctx);
         var lower = QctekHttpResponder.BuildResponse("GET /dvr_info.htm HTTP/1.1\r\n\r\n", Ctx);
 
         Assert.NotNull(exact);
         Assert.NotNull(lower);
-        Assert.Contains("<ProductName>", exact);
-        Assert.Contains("<ProductName>", lower);
+        Assert.Contains("<ProductName> QCV8001 Information </ProductName>", exact);
+        Assert.Contains("<ProductVersion>", exact);
+        Assert.Contains("<LoginID>", exact);
+        Assert.Contains("<ProductName> QCV8001 Information </ProductName>", lower);
     }
 
     [Fact]
