@@ -5,9 +5,9 @@ namespace HeliVMS.App.Tests;
 /// </summary>
 /// <remarks>
 /// <para>
-/// QCC 連的是裝置的 Web 埠（真機 QCV8001 把 NEMO 與 HTTP 多工在同一個埠）。
-/// 所以當操作員把 <c>qctek.compat.port</c> 設成與 <c>web.port</c> 相同時，公開埠必須由
-/// 多工器持有、Kestrel 改聽系統指派的臨時埠。
+/// QCC 連的是裝置的 Web 埠（真機 QCV8001 把 NEMO 與 HTTP 多工在同一個埠），而且它沒有
+/// 地方可以填 NEMO 埠。所以只要相容服務啟用，公開埠就必須由多工器持有、Kestrel 改聽
+/// 系統指派的臨時埠；<c>qctek.compat.port</c> 是給明確指定該埠的遠端 CMS 用的。
 /// </para>
 /// <para>
 /// 兩個順序與一個回報不能省：
@@ -38,11 +38,27 @@ public sealed class NetworkPortContractTests
         Assert.NotEqual(string.Empty, apply);
 
         var webReleases = apply.IndexOf("_web.ApplyLocal(settings, sharePort: true)", StringComparison.Ordinal);
-        var muxBinds = apply.IndexOf("_qctek.ApplyLocal(settings, sharePort: true", StringComparison.Ordinal);
+        var muxBinds = apply.IndexOf("_qctek.ApplyLocal(settings, plan, httpPort: _web.InternalPort)", StringComparison.Ordinal);
 
         Assert.True(webReleases >= 0, "共用埠時 Web 必須改聽臨時埠");
         Assert.True(muxBinds >= 0, "共用埠時相容服務必須走多工器");
         Assert.True(webReleases < muxBinds, "順序反了：多工器會撞上還被 Kestrel 佔著的公開埠");
+    }
+
+    [Fact]
+    public void 共用時多工器綁的是Web埠且相容埠另開獨立listener()
+    {
+        // QCC 沒有地方可以填 NEMO 埠，它固定連 Web 埠；所以多工器綁的必須是計畫裡的
+        // 公開埠（= web.port），而 qctek.compat.port 填的號碼只能另外開一個 listener。
+        // 綁錯的話 80 還是 Kestrel、QCC 加得進去卻永遠「連線中斷」。
+        var qctekHost = SourceContract.Read(QctekHost);
+        var apply = SourceContract.BodyOf(qctekHost, "ApplyLocal");
+        Assert.NotEqual(string.Empty, apply);
+        Assert.Contains("StartMux(plan.PublicPort", apply);
+        Assert.Contains("Start(plan.StandalonePort)", apply);
+
+        // 計畫本身必須由共用決策函式產生，不能各自在協調者裡重新比對埠號。
+        Assert.Contains("QctekPortPlanner.Plan(", SourceContract.Read(Coordinator));
     }
 
     [Fact]
@@ -76,8 +92,11 @@ public sealed class NetworkPortContractTests
     {
         var web = SourceContract.Read(WebHost);
 
-        // 公開埠讓給多工器 → Kestrel 綁 0（系統指派），實際埠從 IServerAddressesFeature 讀。
-        Assert.Contains("sharePort ? 0 : port", web);
+        // 公開埠讓給多工器 → Kestrel 綁系統指派的埠，實際埠從 IServerAddressesFeature 讀。
+        // 監聽網址的決策在 HeliVMS.Shared.WebListenUrl（行為測試在 Shared.Tests）；這裡只釘住
+        // WebHost 不准自己另寫一份，尤其不能用 localhost:0——Kestrel 對它直接擲例外，
+        // 於是 Web 沒起來、多工器也沒有公開埠可綁，QCC 只看到「連線中斷」。
+        Assert.Contains("--urls={WebListenUrl.For(port, sharePort)}", web);
         Assert.Contains("IServerAddressesFeature", web);
         Assert.Contains("InternalPort", web);
 

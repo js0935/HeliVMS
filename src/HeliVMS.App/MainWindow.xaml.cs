@@ -983,9 +983,9 @@ public partial class MainWindow : Window
         // M305：內嵌 Web 服務。設定了 web.enabled=1 就在啟動時拉起，交由設定中心「網路」頁控制。
         // M2c：QCTek CMS 相容服務。設定了 qctek.compat.enabled=1 就在啟動時拉起 NEMO 伺服器，
         // 讓 QCTek QCC 能把本機當成一台 NVR（上線／頻道數／警報訂閱）。
-        // 兩者共用「連接埠協調者」啟動：QCC 連的是裝置的 Web 埠，當 qctek.compat.port 與
-        // web.port 相同時，公開埠必須由多工器擁有（Kestrel 改聽臨時埠），順序反了就是
-        // 一句「連接埠已被占用」。
+        // 兩者共用「連接埠協調者」啟動：QCC 連的是裝置的 Web 埠（沒有地方填 NEMO 埠），
+        // 所以只要相容服務啟用，公開埠就由多工器擁有（Kestrel 改聽臨時埠），順序反了就是
+        // 一句「連接埠已被占用」；qctek.compat.port 填了別的號碼時另外開獨立 listener。
         _webHost = new WebHost(_dataRoot, Path.Combine(_dataRoot, "index.db"));
         _qctekHost = new QctekCompatHost(_store);
         _networkHost = new NetworkPortCoordinator(_webHost, _qctekHost);

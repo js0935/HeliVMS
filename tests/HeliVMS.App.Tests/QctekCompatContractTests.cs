@@ -48,7 +48,7 @@ public sealed class QctekCompatContractTests
         Assert.Contains("QctekCompatHost.PortKey", handler);
         Assert.Contains("_qctekHost.ApplySettings", handler);
 
-        // 有協調者時走它：QCC 連的是 Web 埠，同埠時相容服務要改成多工器，
+        // 有協調者時走它：QCC 連的是 Web 埠，相容服務要改成多工器，
         // 而「誰先讓出公開埠」只有協調者知道。
         Assert.Contains("_network.Apply(_settings)", handler);
 
@@ -67,8 +67,9 @@ public sealed class QctekCompatContractTests
         Assert.NotEqual(string.Empty, onLoaded);
         Assert.Contains("_qctekHost = new QctekCompatHost(", onLoaded);
 
-        // 與 Web 服務同一個協調者：同埠時相容服務走多工器（QCC 連的是 Web 埠），
-        // 不同埠才用獨立 NemoServer；順序錯了就是「連接埠已被占用」。
+        // 與 Web 服務同一個協調者：相容服務一律在 Web 埠走多工器（QCC 連的是 Web 埠，
+        // 沒有地方填 NEMO 埠），不同埠再另開獨立 NemoServer；順序錯了就是
+        // 「連接埠已被占用」。
         Assert.Contains("_networkHost = new NetworkPortCoordinator(_webHost, _qctekHost)", onLoaded);
         Assert.Contains("_networkHost.Apply(new SettingsRepository(_store))", onLoaded);
 

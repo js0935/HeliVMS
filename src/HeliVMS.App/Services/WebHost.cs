@@ -1,4 +1,6 @@
-﻿using HeliVMS.Qctek.Nemo;
+﻿using System.IO;
+using HeliVMS.Qctek.Nemo;
+using HeliVMS.Shared;
 using HeliVMS.Storage;
 using HeliVMS.WebApi;
 using Microsoft.AspNetCore.Builder;
@@ -85,16 +87,28 @@ public sealed class WebHost : IDisposable
         try
         {
             Start(port, allowNoKey, sharePort);
+            WebDiag(
+                $"Web 已啟動：公開埠 {port}，實際 {InternalPort}，共用={sharePort}");
             return string.Format(Localizer.T("Settings.WebRunning"), port);
         }
         catch (Exception ex)
         {
             // 連接埠被占用等啟動失敗：確保不留半啟動的主機，否則下次再按「套用」會洩漏一個 Kestrel。
+            // 一定要寫進日誌：這個失敗在畫面上只是一句「Web 服務：已停止」，
+            // 而它的後果是「QCC 連上 Web 埠時沒有多工器可用」——看起來像相容服務壞了。
+            WebDiag($"Web 啟動失敗：{ex.GetType().Name} {ex.Message}");
             LastError = ex.Message;
             Stop();
             return string.Format(Localizer.T("Settings.WebStartFailed"), ex.Message);
         }
     }
+
+    /// <summary>Web 主機的診斷日誌（<c>%TEMP%\helivms-web.log</c>，上限 512 KB）。</summary>
+    private static void WebDiag(string message)
+        => BoundedFileLog.Append(
+            Path.Combine(Path.GetTempPath(), "helivms-web.log"),
+            $"{DateTime.Now:HH:mm:ss.fff} {message}{Environment.NewLine}",
+            maxBytes: 512 * 1024);
 
     private static int ReadPort(SettingsRepository settings)
     {
@@ -116,7 +130,9 @@ public sealed class WebHost : IDisposable
         var args = new List<string>
         {
             // 共用埠時讓系統指派：公開埠必須留給多工器。
-            $"--urls=http://localhost:{(sharePort ? 0 : port)}",
+            // 這裡一定要用明確的迴環位址——Kestrel 不接受「在 localhost 上綁連接埠 0」，
+            // 見 WebListenUrl。
+            $"--urls={WebListenUrl.For(port, sharePort)}",
             // 明確把資料庫與資料根目錄指到桌面程式正在用的那一份：不靠環境變數或預設推導，
             // 否則在某些安裝方式下 Web 端會開起另一個資料庫，設定頁顯示成功但機器沒在錄。
             $"--{DataRootLayout.DatabaseVariable}={_dbPath}",
@@ -153,7 +169,8 @@ public sealed class WebHost : IDisposable
     }
 
     /// <summary>
-    /// 讀 Kestrel 實際綁定的埠。<c>http://localhost:0</c> 的埠是啟動後才由系統指派，
+    /// 讀 Kestrel 實際綁定的埠。監聽網址的埠是 0 時（<see cref="WebListenUrl.DynamicLoopback"/>），
+    /// 真正的那一個是啟動後才由系統指派，
     /// 只有 <see cref="IServerAddressesFeature"/> 會拿到真正的那一個。
     /// </summary>
     private static int ReadBoundPort(WebApplication app)

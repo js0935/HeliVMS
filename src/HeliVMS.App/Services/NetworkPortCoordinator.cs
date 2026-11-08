@@ -11,9 +11,11 @@ public sealed record NetworkApplyResult(string Web, string Qctek);
 /// </summary>
 /// <remarks>
 /// <para>
-/// 為什麼需要它：QCC 連的是裝置的 Web 埠，而真機的 NEMO 與 HTTP 多工在同一個埠。
-/// 當操作員把 <c>qctek.compat.port</c> 設成與 <c>web.port</c> 相同時，公開埠要由
-/// <see cref="QctekPortMux"/> 擁有，Kestrel 改聽系統指派的臨時埠。
+/// 為什麼需要它：QCC 連的是裝置的 Web 埠（它沒有地方可以填 NEMO 埠），而真機的 NEMO
+/// 與 HTTP 多工在同一個埠。所以只要相容服務啟用、Web 也啟用，公開埠就要由
+/// <see cref="QctekPortMux"/> 擁有，Kestrel 改聽系統指派的臨時埠；<c>qctek.compat.port</c>
+/// 填了別的號碼時，另外再開一個獨立 listener 給明確指定該埠的遠端 CMS
+/// （見 <see cref="QctekPortPlanner"/>）。
 /// </para>
 /// <para>
 /// 兩個順序都是不可顛倒的：
@@ -54,30 +56,51 @@ public sealed class NetworkPortCoordinator
     {
         ArgumentNullException.ThrowIfNull(settings);
 
-        var share = QctekPortPlanner.ShouldSharePort(
+        var plan = QctekPortPlanner.Plan(
             settings.Get(WebHost.EnabledKey) == "1",
             settings.Get(QctekCompatHost.EnabledKey) == "1",
             ReadPort(settings, WebHost.PortKey, WebHost.DefaultPort),
             ReadPort(settings, QctekCompatHost.PortKey, QctekCompatHost.DefaultPort));
 
-        if (share)
+        QctekCompatHost.Diag(
+            $"連接埠協調：Web啟用={settings.Get(WebHost.EnabledKey) == "1"} " +
+            $"相容啟用={settings.Get(QctekCompatHost.EnabledKey) == "1"} " +
+            $"Web埠={ReadPort(settings, WebHost.PortKey, WebHost.DefaultPort)} " +
+            $"相容埠={ReadPort(settings, QctekCompatHost.PortKey, QctekCompatHost.DefaultPort)} " +
+            $"→ 共用={plan.ShareWebPort} 公開埠={plan.PublicPort} 獨立埠={plan.StandalonePort}");
+
+        if (plan.ShareWebPort)
         {
             // 順序①：Web 先讓出公開埠。
             var web = _web.ApplyLocal(settings, sharePort: true);
+            if (!_web.IsRunning)
+            {
+                // Web 起不來就沒有「公開埠」可以讓給多工器；真正的原因在 helivms-web.log。
+                QctekCompatHost.Diag($"Web 沒有起來，公開埠無法讓給多工器：{_web.LastError ?? "未知"}");
+            }
+
             if (_web.IsRunning)
             {
-                var qctek = _qctek.ApplyLocal(settings, sharePort: true, httpPort: _web.InternalPort);
+                var qctek = _qctek.ApplyLocal(settings, plan, httpPort: _web.InternalPort);
                 if (_qctek.IsMuxRunning)
                 {
+                    QctekCompatHost.Diag(
+                        $"連接埠協調完成：Web 內部埠 {_web.InternalPort}，多工器 {_qctek.Port}");
                     return new NetworkApplyResult(web, qctek);
                 }
 
                 // 多工器失敗：把 Web 還原到公開埠，至少管理介面還在。
+                QctekCompatHost.Diag("多工器沒有起來：把 Web 還原到公開埠。");
                 _web.ApplyLocal(settings, sharePort: false);
             }
 
             // Web 起不來（或已還原）時，相容服務退回獨立埠；能不能綁上看公開埠是否已被占。
-            var fallback = _qctek.ApplyLocal(settings, sharePort: false, httpPort: 0);
+            var fallback = _qctek.ApplyLocal(
+                settings,
+                QctekPortPlanner.Standalone(
+                    compatibilityEnabled: true,
+                    ReadPort(settings, QctekCompatHost.PortKey, QctekCompatHost.DefaultPort)),
+                httpPort: 0);
             return new NetworkApplyResult(
                 _web.IsRunning
                     ? string.Format(Localizer.T("Settings.WebRunning"), _web.Port)
@@ -88,7 +111,7 @@ public sealed class NetworkPortCoordinator
         // 順序②：多工器先放掉公開埠，Web 才綁得回去。
         _qctek.StopMux();
         var webStatus = _web.ApplyLocal(settings, sharePort: false);
-        var qctekStatus = _qctek.ApplyLocal(settings, sharePort: false, httpPort: 0);
+        var qctekStatus = _qctek.ApplyLocal(settings, plan, httpPort: 0);
         return new NetworkApplyResult(webStatus, qctekStatus);
     }
 

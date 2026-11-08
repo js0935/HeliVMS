@@ -935,12 +935,17 @@ Notes that will save you time:
   strings, and one i18n key per window (reuse across two windows fails the duplicate-key check).
   Guarded by `AlarmIoRuleContractTests` and `LiveTalkContractTests`.
 
-- **QCC reaches the NVR on the web port, so Web and the QCTek compat service can want the same port.**
+- **QCC reaches the NVR on the web port, and it has nowhere to type a NEMO port.**
   QCTek's QCC connects to the device's *web* port, and the real QCV8001 multiplexes NEMO control with
-  HTTP on 80 (`HttpServer::PreParseRequest`). So `qctek.compat.port == web.port` puts the public port
-  under `QctekPortMux` (loopback front, NEMO answered in-process by the same `QctekSession`, HTTP
-  relayed untouched to Kestrel's ephemeral port), while different ports keep the standalone
-  `NemoServer` on `Any` for a remote CMS. Three things are load-bearing. (1) **Order**
+  HTTP on 80 (`HttpServer::PreParseRequest`). So whenever the compat service *and* Web are enabled the
+  public port goes under `QctekPortMux` (loopback front, NEMO answered in-process by the same
+  `QctekSession`, HTTP relayed untouched to Kestrel's ephemeral port) — **`QctekPortPlanner.Plan` must
+  not require `qctek.compat.port == web.port`**. It used to, and the shipped default 5170 with
+  `web.port=80` left 80 to Kestrel: the device added fine in QCC and then showed "connection lost"
+  forever while every NEMO command got `400 Bad Request`, log clean. A different compat port now only
+  adds the standalone `NemoServer` on `Any` alongside the mux, for a remote CMS that is pointed at that
+  port explicitly; equal ports keep the mux alone (never two listeners on one port). Three things are
+  load-bearing. (1) **Order**
   (`NetworkPortCoordinator.Apply`): sharing -> Web listens on an ephemeral port *first*, then the mux
   binds the public one; not sharing -> `StopMux()` *first*, then Web binds back. Reversed, one service
   hits "port already in use" and the settings page says only "failed to start", log clean. If the mux
@@ -954,6 +959,13 @@ Notes that will save you time:
   space + a *ten-digit* Unix second; a nine-digit nonce misaligns any client that reads a fixed 27
   bytes (reproduced: the mux golden test hung waiting for the challenge) with nothing in either log.
   The HTTP relay half-closes the *target* socket per direction (a `Close` truncates the other
-  direction) and replays the bytes consumed for protocol classification. Guarded by
-  `QctekPortMuxTests`, `QctekPortPlannerTests`, `QctekChallengeTests`, `NetworkPortContractTests` and
-  `QctekHttpResponderTests`.
+  direction) and replays the bytes consumed for protocol classification. (4) **Kestrel refuses
+  `http://localhost:0`**, so share mode must bind `http://127.0.0.1:0` (`HeliVMS.Shared.WebListenUrl`);
+  its `InvalidOperationException: Dynamic port binding is not supported when binding to localhost`
+  was swallowed by the Web start-failure path, so the whole money shot collapsed silently:
+  Web never started -> no public port was freed -> the mux never bound -> only the standalone 5170
+  listener existed, and QCC (which only knows the web port) showed "connection lost" with three clean
+  logs. That failure now writes `%TEMP%\helivms-web.log`, the coordinator writes "Web did not start"
+  to `%TEMP%\helivms-qctek.log`, and the listener URL decision is behaviour-tested in Shared.Tests.
+  Guarded by `QctekPortMuxTests`, `QctekPortPlannerTests`, `QctekChallengeTests`, `WebListenUrlTests`,
+  `NetworkPortContractTests` and `QctekHttpResponderTests`.

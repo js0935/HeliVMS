@@ -10,9 +10,13 @@
 
 **NEMO 控制協定已完整解出並實作**（`src/HeliVMS.Qctek/Nemo`），以 QCC ↔ 真機 QCV8001 的
 黃金抓包逐位元組驗證。
-**80 埠多工也已實作**：`qctek.compat.port == web.port` 時，公開埠由前置多工器
-（`QctekPortMux`）持有，NEMO 在本行程應答、HTTP 原封不動轉給內部的 Kestrel 臨時埠
-（與真機 `HttpServer::PreParseRequest` 同一個模型）。
+**80 埠多工也已實作**：相容服務一啟用，公開的 Web 埠就由前置多工器（`QctekPortMux`）持有，
+NEMO 在本行程應答、HTTP 原封不動轉給內部的 Kestrel 臨時埠（與真機
+`HttpServer::PreParseRequest` 同一個模型）。
+實機踩到的坑（已修）：`web.port=80` 配出廠預設 `qctek.compat.port=5170` 時，舊規則
+「兩埠相同才共用」讓 80 上只有 Kestrel，QCC 加得進裝置卻永遠「連線中斷」（NEMO 命令換到
+一句 `400 Bad Request`，日誌乾淨）。QCC **沒有地方可以填 NEMO 埠**，所以現在只看相容服務
+有沒有啟用，與相容埠填什麼無關；5170 那類號碼只給「在 CMS 端明確指定埠」的遠端站台。
 下一步＝**在實機上讓 QCC 連 `127.0.0.1:80` 走完上線／頻道／警報**（見文末驗收清單）。
 
 ---
@@ -119,14 +123,15 @@ QCC → QCV8001_AUTH_SENDCODE <32 hex> ＋ NUL           （raw）
 | `src/HeliVMS.Qctek/Nemo/NemoSessionLoop.cs` | 單一連線的讀寫迴圈；獨立埠與多工器**共用同一套狀態機**（否則只會修好其中一份） |
 | `src/HeliVMS.Qctek/Nemo/NemoServer.cs` | 獨立埠（預設 5170）的 TCP 迴圈：NEMO＋探測 HTTP，綁 `Any`（給遠端 CMS） |
 | `src/HeliVMS.Qctek/Nemo/QctekPortMux.cs` | Web 埠前置多工器：分類 NEMO／HTTP，HTTP 雙向半關閉轉發到內部 Kestrel 臨時埠 |
-| `src/HeliVMS.Qctek/Nemo/QctekPortPlanner.cs` | 「要不要共用同一個埠」的純函式決策（兩邊都啟用且埠相同且埠合法） |
+| `src/HeliVMS.Qctek/Nemo/QctekPortPlanner.cs` | listener 組態的純函式決策：Web 埠給多工器（不看相容埠填什麼）、相容埠不同時另開獨立 listener |
 | `src/HeliVMS.Qctek/Nemo/QctekDiagnostics.cs` | 日誌摘要（密碼遮蔽、未知命令留痕） |
 | `src/HeliVMS.App/Services/QctekCompatHost.cs` | 正式 `IQctekDeviceContext`（頻道名、使用者政策）；多工器／獨立伺服器兩種 `ApplyLocal` |
 | `src/HeliVMS.App/Services/NetworkPortCoordinator.cs` | 兩個服務的啟停順序、失敗還原、兩條狀態文字（Web 與相容服務共用它） |
-| `src/HeliVMS.App/Services/WebHost.cs` | 共用埠模式改聽 `http://localhost:0`，實際埠由 `IServerAddressesFeature` 讀回 |
+| `src/HeliVMS.App/Services/WebHost.cs` | 共用埠模式改聽 `WebListenUrl.DynamicLoopback`（`http://127.0.0.1:0`），實際埠由 `IServerAddressesFeature` 讀回；啟動失敗寫 `%TEMP%\helivms-web.log` |
 | `src/HeliVMS.Qctek/Nemo/QctekPassword.cs` | 密碼欄位編解碼；**解碼容忍省略的 Base64 填補**（黃金證據：`YWRtaW4` 被真機接受） |
 
-測試（`tests/HeliVMS.Qctek.Tests`，110 綠；`tests/HeliVMS.App.Tests` 768 綠）：
+測試（`tests/HeliVMS.Qctek.Tests`，112 綠；`tests/HeliVMS.App.Tests` 769 綠，本機排除
+`SolutionCoverageTests`）：
 
 - `GoldenCapture.cs`：每條連線的原始 hex＋payload
 - `QctekPayloadsTests.cs`：與黃金 payload **整段位元組相等**、位移、超長名稱截斷
@@ -170,8 +175,11 @@ QCC → QCV8001_AUTH_SENDCODE <32 hex> ＋ NUL           （raw）
 
 ### 接線
 
-1. **共用條件**：`QctekPortPlanner.ShouldSharePort`（純函式）＝兩邊都啟用、`web.port ==
-   qctek.compat.port`、且埠在 1–65535。不同埠則維持原狀：5170 直接由 `NemoServer` 服務。
+1. **共用條件**：`QctekPortPlanner.Plan`（純函式）在相容服務與 Web 都啟用、且 `web.port`
+   合法時，一律讓多工器接手公開埠——**不要求兩個埠相同**（QCC 沒有地方填 NEMO 埠）。
+   `qctek.compat.port` 與 `web.port` 不同時，另外再開一個獨立 `NemoServer`（綁 `Any`），
+   給在 CMS 端明確填了那個埠的遠端站台；相同時只留多工器，不在同一個埠開第二個 listener。
+   Web 沒啟用時只有獨立埠；相容服務沒啟用時兩個都不開。
 2. **順序不可顛倒**（`NetworkPortCoordinator.Apply`）：
    - 共用時：Web 先改聽臨時埠 → 多工器才綁公開埠。
    - 不共用時：`StopMux()` 先放掉公開埠 → Web 才綁得回去。
@@ -191,13 +199,28 @@ QCC → QCV8001_AUTH_SENDCODE <32 hex> ＋ NUL           （raw）
 6. HTTP 轉發是**雙向半關閉**：分類時先讀掉的位元組要補送到後端，否則 Kestrel 收到半個
    請求行（400、空白頁）；每個方向讀完只 `Shutdown(Send)` 目標，不能用 `Close` 截斷另一個方向。
 
-### 還沒做的驗收（實機）
+### 驗收（實機，2026-11-08 18:24 起）
 
-1. 設定頁把 `qctek.compat.port` 改成與 `web.port` 相同 → 兩條狀態列都顯示執行中，
-   瀏覽器仍打得開 `http://127.0.0.1:<web.port>/`。
-2. QCC 對 `127.0.0.1:80` 按「連線」→ 上線、頻道數與名稱正確、警報訂閱不再 5 秒重連。
-3. 若 QCC 仍失敗，先看 `%TEMP%\helivms-qctek.log` 有沒有 `MUX：NEMO 連線來自 …`
+1. ✅ 相容服務與 Web 都啟用（`web.port=80`、`qctek.compat.port=5170`）→
+   `%TEMP%\helivms-qctek.log` 出現
+   `MUX listening on 127.0.0.1:80（HTTP → 127.0.0.1:54131）`，
+   `%TEMP%\helivms-web.log` 出現 `Web 已啟動：公開埠 80，實際 54131，共用=True`。
+   `netstat`：`127.0.0.1:80`（多工器）、`127.0.0.1:<臨時>`（Kestrel）、`0.0.0.0:5170`（獨立 listener）。
+2. ✅ 對 `127.0.0.1:80` 直接跑黃金協定（腳本 `%TEMP%\opencode\golden80.py`）：
+   raw `CHECK_SERVER_VERSION` → `OK QCV8001 \0`（12 B）；framed `GET_CONFIG_QCTEK` →
+   27 B 挑戰；同連線 `QCV8001_AUTH_SENDCODE` → `NEMO 2040`＋2040 B
+   （本機 7 頻道：`24 + 7×288`，不是真機的 312）；`GET_IOCONFIG` → `NEMO 280`＋280 B；
+   同一個埠 `GET /` → `HTTP/1.1 200 OK`（HTTP 經多工器轉發）。
+3. ⏳ QCC 端重試「連線」→ 上線、頻道數與名稱正確、警報訂閱不再 5 秒重連。
+   看 `%TEMP%\helivms-qctek.log` 是否有 `MUX：NEMO 連線來自 …`
    （沒有＝QCC 連到別的地方，或公開埠不是多工器在聽）。
+
+> **這一輪的根因（已修）**：`WebHost` 共用埠時送 `--urls=http://localhost:0`，
+> Kestrel 直接擲 `InvalidOperationException: Dynamic port binding is not supported when
+> binding to localhost`。那句話被啟動失敗處理吞掉，於是「Web 沒起來 → 公開埠沒人讓 →
+> 多工器沒綁 → 只剩 5170」，QCC 連 Web 埠什麼都拿不到。現在網址由
+> `HeliVMS.Shared.WebListenUrl` 產生（明確的 `127.0.0.1:0`），失敗會寫
+> `%TEMP%\helivms-web.log`，協調者也把「Web 起不來」寫進 `helivms-qctek.log`。
 
 ---
 
@@ -210,8 +233,8 @@ QCC → QCV8001_AUTH_SENDCODE <32 hex> ＋ NUL           （raw）
 - 診斷日誌：`%TEMP%\helivms-qctek.log`（NEMO 命令＋`[WEB]` 探測，密碼遮蔽）
 - 關機記錄：`%TEMP%\helivms-shutdown.log`（「收尾完成」＝正常關閉）
 - 現況設定（實機 `index.db`）：`web.port=80`、`qctek.compat.port=5170`
-  → 目前**走不到多工器**（兩個埠不同）；要在 80 埠上服務 QCC，把 `qctek.compat.port`
-  改成 80（或把 `web.port` 改成 5170，兩者相等即可）。
+  → 兩者不同沒關係：80 由多工器服務 QCC，5170 同時留給明確指定該埠的遠端 CMS。
+  （修正前的版本要求兩個埠相同，那時的症狀是 QCC「裝置加入成功、連線中斷」。）
 
 ### QCC（使用者的）
 - 日誌：`C:\QCTek\QCC\log\20261108.err`（**連線失敗原因看這裡**）

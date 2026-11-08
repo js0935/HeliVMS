@@ -1,4 +1,5 @@
-﻿using System.IO;
+﻿using System.Globalization;
+using System.IO;
 using System.Net;
 using HeliVMS.Qctek.Alarm;
 using HeliVMS.Qctek.Nemo;
@@ -13,7 +14,10 @@ namespace HeliVMS.App.Services;
 /// </summary>
 /// <remarks>
 /// <para>
-/// 綁定所有介面（CMS 在別的機器上），憑證政策<b>跟隨 HeliVMS 自己的登入驗證</b>：
+/// 兩種 listener：Web 埠上的多工器（<see cref="QctekPortMux"/>，只綁 loopback——QCC 與管理
+/// 介面同機）與獨立埠的 <see cref="NemoServer"/>（綁所有介面，給在 CMS 端明確填了埠的遠端
+/// 站台；兩者可以並存，見 <see cref="QctekPortPlanner"/>）。憑證政策<b>跟隨 HeliVMS 自己的
+/// 登入驗證</b>：
 /// <c>auth.enabled=1</c> 時走 <see cref="AuthService.Authenticate"/>（含鎖定與稽核）；
 /// 未啟用驗證時不檢查密碼——與「本機未啟用驗證」的政策一致，但這代表同網段的人
 /// 可以查頻道數並訂閱警報（目前相容層只實作這些命令，沒有串流），設定頁的說明
@@ -27,7 +31,10 @@ namespace HeliVMS.App.Services;
 /// </remarks>
 public sealed class QctekCompatHost : IDisposable
 {
-    /// <summary>預設埠：與 web.port（5080）錯開，避免與同機服務互撞。</summary>
+    /// <summary>
+    /// 預設的獨立埠：與 web.port（5080）錯開，避免與同機服務互撞。QCC 走的不是這個埠
+    /// （它固定連 Web 埠），這裡只用於「CMS 端明確填了這個埠」的遠端站台。
+    /// </summary>
     public const int DefaultPort = 5170;
 
     public const string EnabledKey = "qctek.compat.enabled";
@@ -61,7 +68,10 @@ public sealed class QctekCompatHost : IDisposable
     /// <summary>Web 埠多工器是否執行中（QCC 走這條路）。</summary>
     public bool IsMuxRunning => _mux is not null;
 
-    /// <summary>對外（CMS 連線）的埠；共用 Web 埠時就是 Web 埠。</summary>
+    /// <summary>
+    /// 對外（CMS 連線）的埠：與 Web 共用時就是 Web 埠（QCC 走這一個），否則才是
+    /// <see cref="PortKey"/> 指定的獨立埠。
+    /// </summary>
     public int Port { get; private set; }
 
     /// <summary>警報回報是否執行中（M3b）。</summary>
@@ -93,28 +103,35 @@ public sealed class QctekCompatHost : IDisposable
         // NemoServer 綁同一個埠（失敗），或反過來把 Web 鎖在臨時埠上。
         return _coordinator is not null
             ? _coordinator.Apply(settings).Qctek
-            : ApplyLocal(settings, sharePort: false, httpPort: 0);
+            : ApplyLocal(
+                settings,
+                QctekPortPlanner.Standalone(settings.Get(EnabledKey) == "1", ReadPort(settings)),
+                httpPort: 0);
     }
 
     /// <summary>
-    /// 套用設定，並依呼叫端指定的順序決定是「獨立埠」還是「與 Web 共用公開埠」。
+    /// 套用設定，並依呼叫端指定的順序決定 listener 的組態。
     /// </summary>
     /// <param name="settings">共用設定。</param>
-    /// <param name="sharePort">
-    /// <c>true</c>＝公開埠由多工器擁有；呼叫前 Web 服務必須已改聽 <paramref name="httpPort"/>。
+    /// <param name="plan">
+    /// 由 <see cref="QctekPortPlanner"/> 算出的計畫；共用時呼叫前 Web 服務必須已改聽
+    /// <paramref name="httpPort"/>。
     /// </param>
     /// <param name="httpPort">內部 Kestrel 的實際埠（HTTP 轉發目標）。</param>
-    public string ApplyLocal(SettingsRepository settings, bool sharePort, int httpPort)
+    public string ApplyLocal(SettingsRepository settings, QctekPortPlan plan, int httpPort)
     {
         ArgumentNullException.ThrowIfNull(settings);
+
+        // 這一行是「QCC 說連線中斷」時的第一個分流點：看得到計畫與多工器狀態，
+        // 才分得清「沒開多工器」「多工器綁不上」「Web 沒讓出公開埠」三種完全不同的成因。
+        Diag(
+            $"套用相容服務：共用Web埠={plan.ShareWebPort} 公開埠={plan.PublicPort} " +
+            $"獨立埠={plan.StandalonePort} 內部HTTP={httpPort} 目前多工器={_mux?.Port.ToString(CultureInfo.InvariantCulture) ?? "無"}");
 
         // 警報回報有獨立開關（M3b）：NEMO 伺服器的啟停不影響它，反之亦然。
         ApplyAlarmSettings(settings);
 
-        var enabled = settings.Get(EnabledKey) == "1";
-        var port = ReadPort(settings);
-
-        if (!enabled)
+        if (!plan.Anything)
         {
             StopMux();
             Stop();
@@ -124,24 +141,36 @@ public sealed class QctekCompatHost : IDisposable
         LastError = null;
         try
         {
-            if (sharePort)
+            if (plan.ShareWebPort)
             {
-                // 公開埠要讓給多工器（Web 已在臨時埠上）。
-                Stop();
-                StartMux(port, httpPort);
+                // 公開埠要讓給多工器（Web 已在臨時埠上）；同一個埠上的 NemoServer 要收掉。
+                StartMux(plan.PublicPort, httpPort);
             }
             else
             {
                 // 不共用：多工器必須先放掉公開埠，NemoServer 才綁得上。
                 StopMux();
-                Start(port);
             }
 
-            return string.Format(Localizer.T("Settings.QctekRunning"), port);
+            if (plan.StandalonePort > 0)
+            {
+                // 相容埠與 Web 埠不同：那是給「在 CMS 端明確填了這個埠」的遠端站台用的。
+                // 兩個 listener 並存才不會「換了埠就讓另一邊斷線」。
+                Start(plan.StandalonePort);
+            }
+            else if (plan.ShareWebPort)
+            {
+                Stop();
+            }
+
+            Port = plan.ShareWebPort ? plan.PublicPort : plan.StandalonePort;
+            return string.Format(Localizer.T("Settings.QctekRunning"), Port);
         }
         catch (Exception ex)
         {
             // 埠被占用等啟動失敗：確保不留半啟動的伺服器（否則下次套用會洩漏一條 listener）。
+            // 一定要寫進日誌：QCC 端只會說「連線中斷」，沒有這一行的話這裡是唯一的線索。
+            Diag($"相容服務啟動失敗：{ex.GetType().Name} {ex.Message}");
             LastError = ex.Message;
             StopMux();
             Stop();
@@ -278,6 +307,7 @@ public sealed class QctekCompatHost : IDisposable
             return;
         }
 
+        Diag($"多工器停止：公開埠 {mux.Port}");
         try
         {
             mux.StopAsync().GetAwaiter().GetResult();
@@ -297,7 +327,7 @@ public sealed class QctekCompatHost : IDisposable
     /// ——日誌會被複製到郵件與工單裡。
     /// </para>
     /// </summary>
-    private static void Diag(string message)
+    internal static void Diag(string message)
         => BoundedFileLog.Append(
             Path.Combine(Path.GetTempPath(), "helivms-qctek.log"),
             $"{DateTime.Now:HH:mm:ss.fff} {message}{Environment.NewLine}",
