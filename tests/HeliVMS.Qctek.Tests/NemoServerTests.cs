@@ -186,7 +186,7 @@ public class NemoServerTests
     }
 
     [Fact]
-    public async Task HTTP探測會收到404而不是被斷線()
+    public async Task HTTP未知路徑會收到404而不是被斷線()
     {
         // QCC 的裝置探測會先送 HTTP（QCV8001 的 NEMO 與 HTTP 同埠多工，探測端分不出
         // 對面）——直接斷線會讓探測端只看得到「連線被重設」，與「命令不認識」長得一樣。
@@ -200,7 +200,7 @@ public class NemoServerTests
         var stream = client.GetStream();
 
         await stream.WriteAsync(
-            System.Text.Encoding.ASCII.GetBytes("GET /DVR_Info.htm HTTP/1.1\r\nHost: x\r\n\r\n"), timeout.Token);
+            System.Text.Encoding.ASCII.GetBytes("GET /nope HTTP/1.1\r\nHost: x\r\n\r\n"), timeout.Token);
 
         var buffer = new byte[512];
         var n = await stream.ReadAsync(buffer.AsMemory(), timeout.Token);
@@ -209,7 +209,39 @@ public class NemoServerTests
         Assert.StartsWith("HTTP/1.1 404", response, StringComparison.Ordinal);
         var lines = log.ToArray();
         Assert.Contains(lines, l => l.Contains("HTTP 探測", StringComparison.Ordinal));
-        Assert.Contains(lines, l => l.Contains("GET /DVR_Info.htm", StringComparison.Ordinal));
+        Assert.Contains(lines, l => l.Contains("GET /nope", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task 根路徑探測會收到QCV8001資訊頁()
+    {
+        // 實測捕獲的 QCC 第一包：GET /（帶 Basic admin:admin）。回 200＋ProductName，
+        // QCC 才認得型號——這是「無法確認監控系統的型號與協定」的解藥。
+        var log = new System.Collections.Concurrent.ConcurrentQueue<string>();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+        await using var server = new NemoServer(new TestContext(), IPAddress.Loopback, log: log.Enqueue);
+        server.Start();
+
+        using var client = new TcpClient();
+        await client.ConnectAsync(IPAddress.Loopback, server.Port, timeout.Token);
+        var stream = client.GetStream();
+
+        await stream.WriteAsync(
+            System.Text.Encoding.ASCII.GetBytes("GET / HTTP/1.1\r\nHost: x\r\n\r\n"), timeout.Token);
+
+        // 整個回應讀到連線關閉（Connection: close）。
+        var received = new System.Text.StringBuilder();
+        var buffer = new byte[4096];
+        int n;
+        while ((n = await stream.ReadAsync(buffer.AsMemory(), timeout.Token)) > 0)
+        {
+            received.Append(System.Text.Encoding.UTF8.GetString(buffer, 0, n));
+        }
+
+        var response = received.ToString();
+        Assert.StartsWith("HTTP/1.1 200", response, StringComparison.Ordinal);
+        Assert.Contains("<ProductName> QCV8001", response, StringComparison.Ordinal);
+        Assert.Contains(log.ToArray(), l => l.Contains("HTTP 200", StringComparison.Ordinal));
     }
 
     [Fact]

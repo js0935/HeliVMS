@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Sockets;
+using System.Text;
 
 namespace HeliVMS.Qctek.Nemo;
 
@@ -25,6 +26,7 @@ public sealed class NemoServer : IAsyncDisposable
     private readonly int _requestedPort;
     private readonly Action<string>? _log;
     private readonly Func<string, string?> _dispatch;
+    private readonly IQctekDeviceContext _context;
 
     private TcpListener? _listener;
     private CancellationTokenSource? _cts;
@@ -46,6 +48,7 @@ public sealed class NemoServer : IAsyncDisposable
         _address = address ?? IPAddress.Any;
         _requestedPort = port;
         _log = log;
+        _context = context;
         _dispatch = dispatch ?? (command => QctekCommandHandler.Handle(command, context));
     }
 
@@ -177,16 +180,24 @@ public sealed class NemoServer : IAsyncDisposable
                         {
                             if (QctekDiagnostics.LooksLikeHttp(pending.Span))
                             {
-                                // QCC 的裝置探測會先送 HTTP（QCV8001 的 NEMO 與 HTTP
-                                // 同埠多工，探測端分不出對面）。回一個最簡 404 讓對方
-                                // 正常收尾——直接斷線時探測端只看得到「連線被重設」，
-                                // 與「命令不認識」在畫面上長得一樣。
+                                // QCC 的裝置探測會先送 HTTP（QCV8001 的 NEMO 與 HTTP 同埠
+                                // 多工，探測端分不出對面）——實測捕獲 `GET /`＋Basic
+                                // admin:admin。回答 QCV8001 風格的資訊頁，QCC 才認得出型號；
+                                // 直接斷線（或一律 404）時它只會報「無法確認型號與協定」。
                                 _log?.Invoke(
                                     $"NEMO：HTTP 探測（{remote}）：{QctekDiagnostics.DescribeBytes(pending.Span)}");
+                                var httpResponse = QctekHttpResponder.BuildResponse(
+                                    Encoding.UTF8.GetString(pending.Span),
+                                    new QctekHttpResponder.Context(
+                                        RemoteConsolePort: Port.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                                        TotalChannels: _context.ChannelCount));
                                 await stream.WriteAsync(
-                                    System.Text.Encoding.ASCII.GetBytes(
-                                        "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"),
+                                    httpResponse is null
+                                        ? Encoding.ASCII.GetBytes(
+                                            "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+                                        : Encoding.UTF8.GetBytes(httpResponse),
                                     cancellationToken).ConfigureAwait(false);
+                                _log?.Invoke($"NEMO：HTTP {(httpResponse is null ? "404" : "200")}（{remote}）");
                                 return;
                             }
 
