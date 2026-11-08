@@ -1,4 +1,5 @@
 using System.Text;
+using HeliVMS.Qctek.Live;
 using HeliVMS.Qctek.Nemo;
 
 namespace HeliVMS.Qctek.Tests;
@@ -42,6 +43,8 @@ public class QctekSessionTests
             => user == "admin" && password is "admin" or "s3cret";
 
         public bool IsKnownUser(string user) => user == "admin";
+
+        public IQctekLiveSource? CreateLiveSource(int channelIndex, int subStream) => null;
     }
 
     [Fact]

@@ -17,7 +17,10 @@ NEMO 在本行程應答、HTTP 原封不動轉給內部的 Kestrel 臨時埠（�
 「兩埠相同才共用」讓 80 上只有 Kestrel，QCC 加得進裝置卻永遠「連線中斷」（NEMO 命令換到
 一句 `400 Bad Request`，日誌乾淨）。QCC **沒有地方可以填 NEMO 埠**，所以現在只看相容服務
 有沒有啟用，與相容埠填什麼無關；5170 那類號碼只給「在 CMS 端明確指定埠」的遠端站台。
-下一步＝**在實機上讓 QCC 連 `127.0.0.1:80` 走完上線／頻道／警報**（見文末驗收清單）。
+**即時影像（live view）已實作**（`src/HeliVMS.Qctek/Live`）：`GET_LIVE_START` 之後同一條
+連線交棒給 `QctekLiveSession`——讀 QCC 的 0x90-byte keepalive、依頻道位圖開關每頻道的
+ffmpeg 來源、以 33ms tick 打 FRAM 回給 QCC（見下方「即時影像」章節）。
+下一步＝**在實機上讓 QCC 連 `127.0.0.1:80` 走完上線／頻道／警報／即時畫面**（見文末驗收清單）。
 
 ---
 
@@ -111,6 +114,74 @@ QCC → QCV8001_AUTH_SENDCODE <32 hex> ＋ NUL           （raw）
 
 ---
 
+## 即時影像（live view，已實作，待 QCC 實機驗證）
+
+證據：伺服器 live 迴圈 `QC_Server` 的 `FUN_18001eb80`（逾時／狀態碼）、逐頻道寫出的
+`FUN_18001f0d0`、FRAM writer `FUN_18001cb50`；客戶端 `dvrProxy_live::GetLiveSend`
+（keepalive 逐欄位）、`readQCV8001frame`（解析與指標重算）、`QC_StreamDec::Put`／
+`DecProc`（餵解碼器與牆鐘調速）、`SplitIFrame_H264`（block1/block2/video 的切出形狀）、
+`DummySink::GetSpsPps`（SPS/PPS block 帶 4-byte start code）。
+
+### 流程
+
+```
+QCC → GET_LIVE_START <user> QCV8001_AUTH （raw＋NUL；命令本身不帶頻道）
+     ← 27 bytes 挑戰 →（認證碼）→ "OK "＋NUL（raw 4 bytes；黃金 4f4b2000）
+之後同一條連線不再是文字命令：
+QCC → 0x90-byte keepalive（每 250ms 一個）
+     ← FRAM（33ms tick，每頻道每 tick 至多一個）／8-byte 狀態幀（每秒）
+```
+
+- **`GET_LIVE_START` 的成功回覆必須剛好 4 bytes**（`"OK "`＋NUL）。用戶端只看前兩字元
+  `OK`，但之後立刻改讀 keepalive——長度錯 1 byte 讓 keepalive 解析錯位，「即時影像永遠
+  連不上」且兩邊日誌乾淨。framed 請求用 `QctekReply.FramedWithNul`（標頭宣告 3、NUL 在外）。
+- 頻道選擇**只**透過 keepalive 的 1024-bit 位圖（bit i＝頻道 i，LSB-first，位於 `0x10–0x8f`）；
+  stream type 在 `+0x0c`（0＝主碼流、1＝子碼流，signed，負值視為錯位、關線）。
+- 逾時：超過 `0x130`（304）個 33ms tick（≈10 秒）沒有 keepalive 就斷線（真機 break3）。
+
+### FRAM 封包（資料幀）
+
+8-byte 標頭 `"FRAM"`＋u16 channel（0-based）＋u16 status（0＝資料）＋0x38-byte media header
+＋payload（**順序固定 block1→block2→video**）：
+
+| 位移 | 內容 |
+|---|---|
+| `+0x00` | u32 type＝1（視訊；客戶端 `Put` 只收 1）、`+0x04` u32 codec＝1（H.264） |
+| `+0x08` | u32 sizeVideo、`+0x0c` u32 sizeBlock1、`+0x10` u32 sizeBlock2；幀總長＝8＋0x38＋三者和 |
+| `+0x14` | u32 微秒、`+0x18` u64 Unix 秒（`qc_timeval` 的線上順序；**寫出前以牆鐘蓋章**——客戶端 `DecProc` 以封包時戳對牆鐘調速，超出容差的非關鍵幀整包丟棄） |
+| `+0x20`/`+0x28`/`+0x30` | video/block1/block2 指標欄位——客戶端依 size **重算**，線上值一律填 0 |
+
+- **block1＝SPS、block2＝PPS，都帶 4-byte start code**（`SplitIFrame_H264` 的切出形狀）；
+  video 保持 Annex-B。**block1 size > 0 是客戶端「關鍵影格」的唯一判準**：SPS 只放關鍵影格
+  的 block1，非關鍵影格 block1/block2 必須為 0。
+- 狀態幀：status 非 0 時**只有 8 bytes**。`0x8001`＝來源已開尚無影格、`0x8002`＝沒有來源
+  （頻道不存在／無法建立）。
+- AU 分組（`QctekH264AccessUnitGrouper`）：ffmpeg `-f h264` 的 packet 邊界在流裡丟失，
+  每個 AU 的第一個 slice 以「slice header 首位元組最高位元＝1」判（`first_mb_in_slice` 的
+  ue(v) 值 0 編碼成「1」）；多 slice 的續片屬同一 AU；SEI／AUD 屬**下一個** AU；
+  尾端半個 start code 留待下一包，串流結束（`Flush`）時殘留就是完整的最後一個 NAL。
+
+### 實作
+
+| 檔案 | 內容 |
+|---|---|
+| `src/HeliVMS.Qctek/Live/QctekLiveSession.cs` | live 迴圈：keepalive 解析與逾時、位圖啟停頻道、33ms tick、有界佇列（滿了丟最舊）、狀態幀每秒一個、來源重試 5 秒 |
+| `src/HeliVMS.Qctek/Live/QctekLivePackets.cs` | FRAM 位元組工廠（上表逐欄位） |
+| `src/HeliVMS.Qctek/Live/QctekH264AccessUnits.cs` | Annex-B 切分（跨包、半 start code）＋ AU 分組＋ SPS/PPS 抽到 block |
+| `src/HeliVMS.Qctek/Live/QctekLiveSource.cs` | 來源介面（Qctek 專案不引用 Media/Storage） |
+| `src/HeliVMS.Qctek/Nemo/QctekSession.cs`／`NemoSessionLoop.cs` | `QctekSessionResult.Live` 旗標與交棒（`"OK "`＋NUL 寫完後把殘餘位元組帶給 live 迴圈） |
+| `src/HeliVMS.App/Services/QctekLiveStreamSource.cs` | ffmpeg 來源：`-rtsp_transport tcp`（僅 rtsp）`-an -c:v copy -bsf:v dump_extra -f h264 -`；stderr 持續讀掉（pipe 滿會卡死 ffmpeg） |
+| `src/HeliVMS.App/Services/QctekCompatHost.cs` | `CreateLiveSource`：位圖 bit i＝`ChannelRepository.List()` 的第 i 個頻道；停用／不存在回 null（0x8002）；**子碼流為空退回主碼流** |
+
+- `-bsf:v dump_extra`：部分攝影機只在 SDP 帶 sprop-parameter-sets、流內不重複 SPS/PPS；
+  而 QCC 以 block1 > 0 判關鍵影格——SPS 缺席的關鍵影格會被它當非關鍵丟棄，那一路
+  **永遠黑屏且沒有任何錯誤**。
+- 每頻道一個短生命週期 ffmpeg 行程：CMS 要哪幾路才開哪幾路、斷線即收——與排程截圖
+  同一個理由（便宜攝影機的 RTSP 工作階段有限）。輸出是 `-c:v copy` 的純 remux，伺服器
+  不花解碼 CPU。
+
+---
+
 ## 已完成的實作
 
 | 檔案 | 內容 |
@@ -130,7 +201,7 @@ QCC → QCV8001_AUTH_SENDCODE <32 hex> ＋ NUL           （raw）
 | `src/HeliVMS.App/Services/WebHost.cs` | 共用埠模式改聽 `WebListenUrl.DynamicLoopback`（`http://127.0.0.1:0`），實際埠由 `IServerAddressesFeature` 讀回；啟動失敗寫 `%TEMP%\helivms-web.log` |
 | `src/HeliVMS.Qctek/Nemo/QctekPassword.cs` | 密碼欄位編解碼；**解碼容忍省略的 Base64 填補**（黃金證據：`YWRtaW4` 被真機接受） |
 
-測試（`tests/HeliVMS.Qctek.Tests`，112 綠；`tests/HeliVMS.App.Tests` 769 綠，本機排除
+測試（`tests/HeliVMS.Qctek.Tests`，129 綠；`tests/HeliVMS.App.Tests` 771 綠，本機排除
 `SolutionCoverageTests`）：
 
 - `GoldenCapture.cs`：每條連線的原始 hex＋payload
@@ -144,12 +215,21 @@ QCC → QCV8001_AUTH_SENDCODE <32 hex> ＋ NUL           （raw）
 - `NetworkPortContractTests.cs`（App）：共用埠的兩個先後順序、多工器失敗要還原 Web、
   `RemoteConsolePort` 回報公開埠、設定頁一次刷新兩條狀態列
 - `QctekCommandHandlerTests.cs`、`QctekPasswordTests.cs`、`QctekDiagnosticsTests.cs` 等
+- `QctekLivePacketsTests.cs`：FRAM 逐欄位（標頭／media header／時戳順序／指標全 0／payload 順序）
+- `QctekH264AccessUnitTests.cs`：SPS/PPS 抽 block、非關鍵 block 空、多 slice、半 start code、
+  分批＝整包、IDR 無 SPS 不附空 block
+- `QctekLiveSessionTests.cs`：keepalive 解析（位圖／碼流／負值拒收）、`GET_LIVE_START` 回
+  4 bytes＋交棒旗標（raw／framed／已授權重開）、**loopback 端到端**（keepalive → FRAM 輸出、
+  無來源 0x8002、位圖撤頻道收掉來源）
 
 **改壞驗證（已做並還原）**：`ConfigNameOffset 0x1C→0x18` → 4 個測試紅；
 `GET_IOCONFIG` 加入 `RequiresAuthorization` → 2 個紅；framed 警報成功改成 `FramedWithNul`
 → 2 個紅；多工器分類的大寫動詞改成回 HTTP → 2 個紅；協調者的兩個順序各自顛倒／拿掉
 `StopMux()`／拿掉多工器失敗後的 Web 還原 → 對應契約測試各紅；`ResolveConsolePort` 忽略
 公開埠設定 → 紅；挑戰尾端改回九位亂數 → 2 個紅（其中一個是「用戶端讀固定 27 bytes」卡住）。
+即時影像輪：`GET_LIVE_START` 的 `withNul` 改回 false → 1 個紅；first_mb 判準反向 → 5 個紅；
+FRAM 時戳兩欄位對調 → 2 個紅；`NemoSessionLoop` 停用交棒分支 → 3 個端到端紅；
+`Flush` 不處理殘留 → 4 個紅。
 順帶把 payload 測試的位移改成**黃金絕對值**（不再引用 `ConfigNameOffset`）——
 引用同一個常數的斷言會跟著錯誤的常數移動，永遠是綠的。
 
@@ -214,6 +294,17 @@ QCC → QCV8001_AUTH_SENDCODE <32 hex> ＋ NUL           （raw）
 3. ⏳ QCC 端重試「連線」→ 上線、頻道數與名稱正確、警報訂閱不再 5 秒重連。
    看 `%TEMP%\helivms-qctek.log` 是否有 `MUX：NEMO 連線來自 …`
    （沒有＝QCC 連到別的地方，或公開埠不是多工器在聽）。
+
+### 驗收：即時影像（代碼層完成，待 QCC 實機操作）
+
+4. ⏳ QCC 開即時影像（雙擊頻道）→ `%TEMP%\helivms-qctek.log` 出現
+   `NEMO ← GET_LIVE_START …`、`NEMO → OK `、`LIVE：即時影像通道開始`、
+   `LIVE：頻道 0（主碼流）開始輸出`。
+5. ⏳ QCC 畫面出來且時間對：黑屏但日誌有 FRAM → 看 FFmpeg 的 stderr（dump_extra／
+   碼流問題）；「連著但沒畫面」→ 先數 FRAM 的 media header 位移是否與上表一致；
+   畫面「愈播愈快／愈慢」→ 時戳蓋章（必須是寫出時牆鐘）。
+6. ⏳ 關掉 QCC 的即時影像（或關 QCC）→ 日誌出現 `LIVE：即時影像通道結束`，
+   ffmpeg 行程數回到基準（`Get-Process ffmpeg`）。
 
 > **這一輪的根因（已修）**：`WebHost` 共用埠時送 `--urls=http://localhost:0`，
 > Kestrel 直接擲 `InvalidOperationException: Dynamic port binding is not supported when

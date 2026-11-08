@@ -29,6 +29,8 @@ public class QctekCommandHandlerTests
             => (user, password) is ("admin", "s3cret") or ("guest", "guest") or ("test", "test");
 
         public bool IsKnownUser(string user) => user is "admin" or "guest" or "test";
+
+        public HeliVMS.Qctek.Live.IQctekLiveSource? CreateLiveSource(int channelIndex, int subStream) => null;
     }
 
     private static byte[]? Handle(string command, bool framed = true, bool hasVnc = false)

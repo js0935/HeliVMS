@@ -67,7 +67,17 @@ public readonly record struct QctekRequest(string Command, QctekFraming Framing)
 /// <param name="Reply">要寫回對端的完整線路位元組；<c>null</c>＝不回覆。</param>
 /// <param name="Command">這次解析出的命令（供診斷記錄；跳過孤立 NUL 時為 <c>null</c>）。</param>
 /// <param name="Close">串流已不同步或無法辨識，應立即關閉連線。</param>
-public readonly record struct QctekSessionResult(int Consumed, byte[]? Reply, string? Command, bool Close);
+/// <param name="Live">
+/// 這次回覆是 <c>GET_LIVE_START</c> 的成功回應：寫完 <see cref="Reply"/> 之後，
+/// 同一條連線要交給 <see cref="HeliVMS.Qctek.Live.QctekLiveSession"/> 接手
+/// （之後是 keepalive＋FRAM，不是文字命令）。
+/// </param>
+public readonly record struct QctekSessionResult(
+    int Consumed,
+    byte[]? Reply,
+    string? Command,
+    bool Close,
+    bool Live = false);
 
 /// <summary>
 /// 單一 TCP 連線的 NEMO 協定狀態機：分辨 raw／NEMO 框、處理 <c>QCV8001_AUTH</c>
@@ -243,6 +253,17 @@ public sealed class QctekSession
             return new QctekSessionResult(consumed, QctekReply.RawExact(challenge), request.Command, false);
         }
 
+        // 已授權後再次 GET_LIVE_START：同一條連線直接交棒（客戶端重開即時影像時這樣做）。
+        if (_authorized && QctekCommandHandler.IsLiveStart(request))
+        {
+            return new QctekSessionResult(
+                consumed,
+                QctekCommandHandler.Handle(request, _context),
+                request.Command,
+                false,
+                Live: true);
+        }
+
         return new QctekSessionResult(
             consumed,
             QctekCommandHandler.Handle(request, _context),
@@ -267,6 +288,19 @@ public sealed class QctekSession
         }
 
         _authorized = true;
+
+        // GET_LIVE_START 的成功回覆（"OK "＋NUL）之後，同一條連線就是即時影像通道：
+        // 用戶端不再送文字命令，改送 0x90-byte keepalive；這裡必須告訴呼叫端交棒。
+        if (QctekCommandHandler.IsLiveStart(pending))
+        {
+            return new QctekSessionResult(
+                consumed,
+                QctekCommandHandler.Handle(pending, _context),
+                pending.Command,
+                false,
+                Live: true);
+        }
+
         return new QctekSessionResult(
             consumed,
             QctekCommandHandler.Handle(pending, _context),

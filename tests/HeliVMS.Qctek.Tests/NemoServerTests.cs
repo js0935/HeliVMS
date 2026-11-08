@@ -25,6 +25,8 @@ public class NemoServerTests
             => (user, password) is ("admin", "s3cret");
 
         public bool IsKnownUser(string user) => user == "admin";
+
+        public HeliVMS.Qctek.Live.IQctekLiveSource? CreateLiveSource(int channelIndex, int subStream) => null;
     }
 
     [Fact]

@@ -1,3 +1,5 @@
+using HeliVMS.Qctek.Live;
+
 namespace HeliVMS.Qctek.Nemo;
 
 /// <summary>QCTek 相容層回應 NEMO 命令所需的裝置資訊與能力。</summary>
@@ -34,6 +36,18 @@ public interface IQctekDeviceContext
     /// </para>
     /// </summary>
     bool IsKnownUser(string user);
+
+    /// <summary>
+    /// 開一路即時影像的 H.264 來源（Annex-B 基本流；<see cref="QctekLiveSession"/> 消費）。
+    /// <para>
+    /// <paramref name="channelIndex"/> 是 QCV8001 的 0-based 頻道號（keepalive 位圖的
+    /// bit i）；<paramref name="subStream"/>：0＝主碼流、1＝子碼流（QCC keepalive 的
+    /// stream type 欄位；子碼流未設定時實作應退回主碼流）。頻道不存在或無法建立
+    /// （ffmpeg 不在、攝影機離線）時回 <c>null</c>——live 迴圈對該頻道每秒回狀態幀
+    /// 0x8002，不會再對同一頻道立刻重試。
+    /// </para>
+    /// </summary>
+    IQctekLiveSource? CreateLiveSource(int channelIndex, int subStream);
 }
 
 /// <summary>
@@ -108,7 +122,11 @@ public static class QctekCommandHandler
 
         if (command.StartsWith("GET_LIVE_START", StringComparison.Ordinal))
         {
-            return Text(request, "OK ", withNul: false);
+            // 即時影像交棒：用戶端（dvrProxy_live::AfterAuthorization）只檢查前兩個字元
+            // "OK"，但之後立刻在「同一條連線」上改讀 0x90-byte keepalive 與 FRAM——回應
+            // 的長度必須是剛好 4 bytes（"OK "＋NUL，黃金抓包 4f4b2000）。多一個或少一個
+            // 位元組，客戶端的 keepalive 解析就會錯位，症狀是「即時影像永遠連不上」。
+            return Text(request, "OK ", withNul: true);
         }
 
         // 二進位回應一律用 NEMO 框（真機如此，與請求是 raw 或 framed 無關）。
@@ -139,6 +157,13 @@ public static class QctekCommandHandler
     /// </summary>
     public static bool RequiresAuthorization(QctekRequest request)
         => request.Verb is "GET_CONFIG_QCTEK" or "GET_AUTH_USER" or "GET_LIVE_START";
+
+    /// <summary>
+    /// 這條命令是否為 <c>GET_LIVE_START</c>（即時影像）：成功回覆後，同一條連線
+    /// 就交給 <see cref="QctekLiveSession"/> 接手（不再回文字命令）。
+    /// </summary>
+    public static bool IsLiveStart(QctekRequest request)
+        => request.Verb == "GET_LIVE_START";
 
     private static byte[] Text(QctekRequest request, string text, bool withNul)
         => request.IsFramed

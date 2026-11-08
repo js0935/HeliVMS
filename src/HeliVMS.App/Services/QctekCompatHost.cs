@@ -2,6 +2,7 @@
 using System.IO;
 using System.Net;
 using HeliVMS.Qctek.Alarm;
+using HeliVMS.Qctek.Live;
 using HeliVMS.Qctek.Nemo;
 using HeliVMS.Shared;
 using HeliVMS.Storage;
@@ -20,8 +21,9 @@ namespace HeliVMS.App.Services;
 /// 登入驗證</b>：
 /// <c>auth.enabled=1</c> 時走 <see cref="AuthService.Authenticate"/>（含鎖定與稽核）；
 /// 未啟用驗證時不檢查密碼——與「本機未啟用驗證」的政策一致，但這代表同網段的人
-/// 可以查頻道數並訂閱警報（目前相容層只實作這些命令，沒有串流），設定頁的說明
-/// 會提醒先啟用登入驗證。HeliVMS 走的是自己的 WHEP 串流，QCC 端目前拿不到畫面。
+/// 可以查頻道數、訂閱警報、看即時影像，設定頁的說明會提醒先啟用登入驗證。
+/// 即時影像由 <see cref="QctekLiveStreamSource"/> 提供（每頻道一個 ffmpeg 行程，
+/// CMS 要哪幾路才開哪幾路）。
 /// </para>
 /// <para>
 /// 生命週期照 <see cref="WebHost"/>：MainWindow 建立後 <see cref="ApplySettings"/>，
@@ -434,6 +436,39 @@ public sealed class QctekCompatHost : IDisposable
 
             return !string.IsNullOrWhiteSpace(user) &&
                    _users.GetByUsername(user) is { Enabled: true };
+        }
+
+        /// <summary>
+        /// 開一路即時影像來源。頻道即時查（<see cref="ChannelRepository.List"/>，與
+        /// <see cref="ChannelCount"/> 同一個來源）：CMS 的位圖 bit i 對「第 i 個頻道」，
+        /// 停用的頻道與不存在的頻道一樣回 <c>null</c>（狀態幀 0x8002）——不存在的頻道
+        /// 不該看起來像「連上了但沒畫面」。
+        /// </summary>
+        public IQctekLiveSource? CreateLiveSource(int channelIndex, int subStream)
+        {
+            var channels = _channels.List();
+            if (channelIndex < 0 || channelIndex >= channels.Count)
+            {
+                return null;
+            }
+
+            var channel = channels[channelIndex];
+            if (!channel.Enabled)
+            {
+                return null;
+            }
+
+            // 子碼流為空時退回主碼流：多分割用子流省頻寬，但沒有子流可用的頻道
+            // 寧可給主流（那格至少有畫面），不要回「無來源」。
+            var url = subStream == 1 && !string.IsNullOrWhiteSpace(channel.SubStreamUrl)
+                ? channel.SubStreamUrl
+                : channel.MainStreamUrl;
+            if (string.IsNullOrWhiteSpace(url))
+            {
+                return null;
+            }
+
+            return QctekLiveStreamSource.TryOpen(url, QctekCompatHost.Diag);
         }
     }
 }

@@ -28,6 +28,8 @@ public class QctekPortMuxTests
         public bool TryAuthenticate(string user, string password) => user == "admin";
 
         public bool IsKnownUser(string user) => user == "admin";
+
+        public HeliVMS.Qctek.Live.IQctekLiveSource? CreateLiveSource(int channelIndex, int subStream) => null;
     }
 
     // ── 分類（純函式）──────────────────────────────────────────────────────

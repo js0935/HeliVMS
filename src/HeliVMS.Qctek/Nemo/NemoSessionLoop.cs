@@ -1,3 +1,5 @@
+using HeliVMS.Qctek.Live;
+
 namespace HeliVMS.Qctek.Nemo;
 
 /// <summary>
@@ -82,6 +84,23 @@ public static class NemoSessionLoop
                         log?.Invoke($"NEMO ← {QctekDiagnostics.Summarize(result.Command)}");
                         await stream.WriteAsync(result.Reply.AsMemory(), cancellationToken).ConfigureAwait(false);
                         log?.Invoke($"NEMO → {QctekDiagnostics.DescribeReply(result.Reply)}");
+
+                        if (result.Live)
+                        {
+                            // GET_LIVE_START 的成功回覆（"OK "＋NUL）已寫出：從現在起同一條
+                            // 連線是即時影像通道——客戶端不再送文字命令，改送 0x90-byte
+                            // keepalive、收 FRAM。交棒時把尚未耗用的殘餘位元組（可能已是
+                            // 半個 keepalive）一起帶過去，否則第一個 keepalive 會丟頭。
+                            pending.Consume(result.Consumed);
+                            await QctekLiveSession.RunAsync(
+                                stream,
+                                pending.ToArray(),
+                                remote,
+                                context,
+                                log,
+                                cancellationToken).ConfigureAwait(false);
+                            return;
+                        }
                     }
 
                     pending.Consume(result.Consumed);
