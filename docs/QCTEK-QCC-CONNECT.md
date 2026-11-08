@@ -291,11 +291,10 @@ FRAM 時戳兩欄位對調 → 2 個紅；`NemoSessionLoop` 停用交棒分支 �
    27 B 挑戰；同連線 `QCV8001_AUTH_SENDCODE` → `NEMO 2040`＋2040 B
    （本機 7 頻道：`24 + 7×288`，不是真機的 312）；`GET_IOCONFIG` → `NEMO 280`＋280 B；
    同一個埠 `GET /` → `HTTP/1.1 200 OK`（HTTP 經多工器轉發）。
-3. ⏳ QCC 端重試「連線」→ 上線、頻道數與名稱正確、警報訂閱不再 5 秒重連。
-   看 `%TEMP%\helivms-qctek.log` 是否有 `MUX：NEMO 連線來自 …`
-   （沒有＝QCC 連到別的地方，或公開埠不是多工器在聽）。
+3. ✅ QCC 端重試「連線」→ 上線、頻道數與名稱正確（2026-11-08 23:14 自動重連：
+   日誌見 `MUX：NEMO 連線來自`＋`GET_AUTH_USER` 挑戰→152 B）。
 
-### 驗收：即時影像（代碼層完成，待 QCC 實機操作）
+### 驗收：即時影像（代碼層完成、CI 綠，待 QCC 實機操作）
 
 4. ⏳ QCC 開即時影像（雙擊頻道）→ `%TEMP%\helivms-qctek.log` 出現
    `NEMO ← GET_LIVE_START …`、`NEMO → OK `、`LIVE：即時影像通道開始`、
