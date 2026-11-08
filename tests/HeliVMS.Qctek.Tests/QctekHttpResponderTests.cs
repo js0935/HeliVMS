@@ -49,6 +49,27 @@ public class QctekHttpResponderTests
     }
 
     [Fact]
+    public void 多工器在後面時宣告的是對外公開埠()
+    {
+        // 共用埠模式下 Kestrel 聽的是系統指派的臨時埠（例如 51234），
+        // QCC 若把 RemoteConsolePort 記成那個號碼，之後的 NEMO 連線永遠連不上
+        // ——連線目標只有本行程內部才知道。有設定公開埠就一律回報它。
+        Assert.Equal("80", QctekHttpResponder.ResolveConsolePort(51234, "80"));
+        Assert.Equal("5080", QctekHttpResponder.ResolveConsolePort(51234, "5080"));
+    }
+
+    [Fact]
+    public void 沒有有效的公開埠設定時退回連線的實際埠()
+    {
+        // 沒有多工器（Kestrel 直接聽公開埠）或設定損壞時，實際埠就是正確答案。
+        Assert.Equal("5080", QctekHttpResponder.ResolveConsolePort(5080, null));
+        Assert.Equal("5080", QctekHttpResponder.ResolveConsolePort(5080, string.Empty));
+        Assert.Equal("5080", QctekHttpResponder.ResolveConsolePort(5080, "abc"));
+        Assert.Equal("5080", QctekHttpResponder.ResolveConsolePort(5080, "0"));
+        Assert.Equal("5080", QctekHttpResponder.ResolveConsolePort(5080, "65536"));
+    }
+
+    [Fact]
     public void 地圖資訊端點回頻道數()
     {
         var response = QctekHttpResponder.BuildResponse("GET /emap/EmapInfo.txt HTTP/1.1\r\n\r\n", Ctx);

@@ -128,10 +128,9 @@ public sealed class NemoServer : IAsyncDisposable
         {
             client.NoDelay = true;
             var stream = client.GetStream();
-            var pending = new FrameBuffer();
+            var pending = new NemoSessionLoop.FrameBuffer();
             var read = new byte[8192];
             var remote = SafeRemoteEndPoint(client);
-            var session = new QctekSession(_context);
 
             // 每個連線與每個命令都留痕：QCC 實測失敗時（連不上、命令不認識、密碼錯，
             // 畫面上長得一樣）這份日誌是唯一的線索。命令摘要會遮蔽密碼段。
@@ -162,80 +161,46 @@ public sealed class NemoServer : IAsyncDisposable
 
                     pending.Append(read.AsSpan(0, count));
 
-                    while (true)
+                    // HTTP 前景優先（在 NEMO 解碼之前）：QCV8001 的 NEMO 與 HTTP 同埠
+                    // 多工，QCC 的裝置探測先送 HTTP（實測：GET /＋Basic admin:admin）。
+                    // 回應後關閉連線——真機實測就是這樣（Connection: close），而且真機
+                    // 正是這樣被 QCC 成功加入：QCC 收到 close 後自己開新連線講 NEMO。
+                    // （先前的「keep-alive 留在連線上續等」是對照真機前的推測。）
+                    if (QctekDiagnostics.LooksLikeHttp(pending.Span))
                     {
-                        // HTTP 前景優先（在 NEMO 解碼之前）：QCV8001 的 NEMO 與 HTTP 同埠
-                        // 多工，QCC 的裝置探測先送 HTTP（實測：GET /＋Basic admin:admin）。
-                        // 回應後關閉連線——真機實測就是這樣（Connection: close），而且真機
-                        // 正是這樣被 QCC 成功加入：QCC 收到 close 後自己開新連線講 NEMO。
-                        // （先前的「keep-alive 留在連線上續等」是對照真機前的推測。）
-                        if (QctekDiagnostics.LooksLikeHttp(pending.Span))
+                        var headerEnd = pending.Span.IndexOf("\r\n\r\n"u8);
+                        if (headerEnd < 0)
                         {
-                            var headerEnd = pending.Span.IndexOf("\r\n\r\n"u8);
-                            if (headerEnd < 0)
-                            {
-                                break; // 請求未完成：繼續讀
-                            }
-
-                            var requestText = Encoding.UTF8.GetString(pending.Span[..(headerEnd + 4)]);
-                            _log?.Invoke(
-                                $"NEMO：HTTP 請求（{remote}）：{QctekDiagnostics.DescribeBytes(pending.Span[..(headerEnd + 4)])}");
-                            var httpResponse = QctekHttpResponder.BuildResponse(
-                                requestText,
-                                new QctekHttpResponder.Context(
-                                    RemoteConsolePort: Port.ToString(System.Globalization.CultureInfo.InvariantCulture),
-                                    TotalChannels: _context.ChannelCount));
-                            await stream.WriteAsync(
-                                httpResponse is null
-                                    ? Encoding.ASCII.GetBytes(
-                                        "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
-                                    : Encoding.UTF8.GetBytes(httpResponse),
-                                cancellationToken).ConfigureAwait(false);
-                            _log?.Invoke($"NEMO：HTTP {(httpResponse is null ? "404" : "200")}（{remote}）");
-                            pending.Consume(headerEnd + 4);
-
-                            // 真機語意：HTTP 回應即結束這條連線。實測 QCV8001 對 GET /
-                            // 回 Connection: close 並關閉，而真機正是這樣被 QCC 成功加入。
-                            // 標頭說 close 卻不關，會讓對方等我們關（或自己超時）。
-                            return;
+                            continue; // 請求未完成：繼續讀
                         }
 
-                        var result = session.Advance(pending.Span);
-                        if (result.Close)
-                        {
-                            // 串流不同步：直接關閉，不猜測重新同步點。傾印原始位元組——
-                            // 實測（QCC 加裝置）時，唯一能回答「對方送了什麼」的就是這一行
-                            // （HTTP 探測、別的協定、或損壞的串流一眼可辨）。
-                            _log?.Invoke(
-                                $"NEMO：非 NEMO 資料（{remote}），關閉連線。前 96 bytes：" +
-                                QctekDiagnostics.DescribeBytes(pending.Span));
-                            return;
-                        }
+                        var requestText = Encoding.UTF8.GetString(pending.Span[..(headerEnd + 4)]);
+                        _log?.Invoke(
+                            $"NEMO：HTTP 請求（{remote}）：{QctekDiagnostics.DescribeBytes(pending.Span[..(headerEnd + 4)])}");
+                        var httpResponse = QctekHttpResponder.BuildResponse(
+                            requestText,
+                            new QctekHttpResponder.Context(
+                                RemoteConsolePort: Port.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                                TotalChannels: _context.ChannelCount));
+                        await stream.WriteAsync(
+                            httpResponse is null
+                                ? Encoding.ASCII.GetBytes(
+                                    "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+                                : Encoding.UTF8.GetBytes(httpResponse),
+                            cancellationToken).ConfigureAwait(false);
+                        _log?.Invoke($"NEMO：HTTP {(httpResponse is null ? "404" : "200")}（{remote}）");
 
-                        if (result.Consumed == 0)
-                        {
-                            break; // 半個訊框：繼續讀
-                        }
-
-                        if (result.Reply is null)
-                        {
-                            if (result.Command is not null)
-                            {
-                                // 未知命令不回覆（維持 null 語意）——但一定要留痕：
-                                // 這是「CMS 發了我們不認識的命令」唯一的證據。
-                                _log?.Invoke(
-                                    $"NEMO ← {QctekDiagnostics.Summarize(result.Command)}（未知命令，不回應）");
-                            }
-                        }
-                        else
-                        {
-                            _log?.Invoke($"NEMO ← {QctekDiagnostics.Summarize(result.Command)}");
-                            await stream.WriteAsync(result.Reply.AsMemory(), cancellationToken).ConfigureAwait(false);
-                            _log?.Invoke($"NEMO → {QctekDiagnostics.DescribeReply(result.Reply)}");
-                        }
-
-                        pending.Consume(result.Consumed);
+                        // 真機語意：HTTP 回應即結束這條連線。實測 QCV8001 對 GET /
+                        // 回 Connection: close 並關閉，而真機正是這樣被 QCC 成功加入。
+                        // 標頭說 close 卻不關，會讓對方等我們關（或自己超時）。
+                        return;
                     }
+
+                    // 不是 HTTP 就是 NEMO：把已讀到的位元組交給共用的讀寫迴圈，
+                    // 由它接手到連線結束（分幀與認證全在 QctekSession）。
+                    await NemoSessionLoop.RunAsync(
+                        stream, pending.ToArray(), remote, _context, _log, cancellationToken).ConfigureAwait(false);
+                    return;
                 }
             }
             catch (Exception ex)
@@ -255,40 +220,6 @@ public sealed class NemoServer : IAsyncDisposable
         catch (Exception)
         {
             return "?";
-        }
-    }
-
-    /// <summary>連線的累積緩衝：附加、取用、消耗前綴（量小，位移即可）。</summary>
-    private sealed class FrameBuffer
-    {
-        private byte[] _buffer = new byte[8192];
-        private int _length;
-
-        public ReadOnlySpan<byte> Span => _buffer.AsSpan(0, _length);
-
-        public void Append(ReadOnlySpan<byte> data)
-        {
-            if (_length + data.Length > _buffer.Length)
-            {
-                var grown = new byte[Math.Max(_buffer.Length * 2, _length + data.Length)];
-                _buffer.AsSpan(0, _length).CopyTo(grown);
-                _buffer = grown;
-            }
-
-            data.CopyTo(_buffer.AsSpan(_length));
-            _length += data.Length;
-        }
-
-        public void Consume(int count)
-        {
-            if (count >= _length)
-            {
-                _length = 0;
-                return;
-            }
-
-            _buffer.AsSpan(count, _length - count).CopyTo(_buffer);
-            _length -= count;
         }
     }
 }

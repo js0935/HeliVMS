@@ -52,6 +52,9 @@ public sealed class WebServiceContractTests
         Assert.Contains("WebHost.PortKey", handler);
         Assert.Contains("WebHost.AllowNoKeyKey", handler);
         Assert.Contains("_webHost.ApplySettings", handler);
+
+        // 有協調者時走它：Web 與相容服務可能同埠，先後順序不是單一服務能決定的。
+        Assert.Contains("_network.Apply(_settings)", handler);
     }
 
     [Fact]
@@ -62,7 +65,11 @@ public sealed class WebServiceContractTests
         var onLoaded = SourceContract.BodyOf(code, "OnLoaded");
         Assert.NotEqual(string.Empty, onLoaded);
         Assert.Contains("_webHost = new WebHost(", onLoaded);
-        Assert.Contains("_webHost.ApplySettings", onLoaded);
+
+        // 兩個服務的啟停順序由協調者決定（同埠時公開埠要讓給多工器）。
+        // 直接各自 ApplySettings 會在共用埠時嘗試搶同一個埠，只剩一句啟動失敗。
+        Assert.Contains("_networkHost = new NetworkPortCoordinator(_webHost, _qctekHost)", onLoaded);
+        Assert.Contains("_networkHost.Apply(new SettingsRepository(_store))", onLoaded);
 
         // 關閉時一定要停掉 Kestrel；否則程序結束後連接埠仍被占用，下次啟動會直接失敗。
         // 收尾一律先換成本地變數再丟進 RunShutdownStep（欄位在收尾開始時就清掉了，

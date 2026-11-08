@@ -32,6 +32,35 @@ public static class QctekHttpResponder
     /// <summary>產品版本行顯示的值（QCC 只做記錄；用產品名＋相容標註）。</summary>
     public const string ProductVersion = "QCV8001";
 
+    /// <summary>
+    /// 「對外公開的 Web 埠」設定鍵（由桌面端以命令列設定傳給內嵌 Kestrel）。
+    /// <para>
+    /// 80 埠由 <see cref="QctekPortMux"/> 佔用、HTTP 被轉發到內部的臨時埠時，
+    /// Kestrel 看到的 <c>Connection.LocalPort</c> 是那個臨時埠（例如 51234）。
+    /// <c>RemoteConsolePort</c> 若照實回報臨時埠，QCC 之後就會去連一個只有本行程
+    /// 內部才存在的號碼——裝置看起來「加入成功、連線失敗」。
+    /// </para>
+    /// </summary>
+    public const string PublicPortConfigKey = "helivms.public_port";
+
+    /// <summary>
+    /// 對外回報的 <c>RemoteConsolePort</c>：有設定公開埠就用它，否則用連線實際的
+    /// 本機埠（沒有多工器的情況）。
+    /// </summary>
+    public static string ResolveConsolePort(int localPort, string? configuredPublicPort)
+    {
+        if (int.TryParse(
+                configuredPublicPort,
+                System.Globalization.NumberStyles.Integer,
+                CultureInfo.InvariantCulture,
+                out var port) && port is > 0 and <= 65535)
+        {
+            return port.ToString(CultureInfo.InvariantCulture);
+        }
+
+        return localPort.ToString(CultureInfo.InvariantCulture);
+    }
+
     /// <summary>HTTP 前景的上下文。</summary>
     public sealed record Context(string RemoteConsolePort, int TotalChannels);
 

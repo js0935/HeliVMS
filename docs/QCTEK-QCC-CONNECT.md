@@ -9,10 +9,11 @@
 ## 一句話現況
 
 **NEMO 控制協定已完整解出並實作**（`src/HeliVMS.Qctek/Nemo`），以 QCC ↔ 真機 QCV8001 的
-黃金抓包逐位元組驗證（94 個測試）。
-**剩下的唯一關卡是「80 埠」**：QCC 連的是裝置的 Web 埠，而真機把 HTTP 與 NEMO 多工在同一個
-埠；HeliVMS 的 80 是純 Kestrel，所以 QCC 只會看到「連線失敗」。
-下一步＝**80 埠前置多工器**（見文末設計）。
+黃金抓包逐位元組驗證。
+**80 埠多工也已實作**：`qctek.compat.port == web.port` 時，公開埠由前置多工器
+（`QctekPortMux`）持有，NEMO 在本行程應答、HTTP 原封不動轉給內部的 Kestrel 臨時埠
+（與真機 `HttpServer::PreParseRequest` 同一個模型）。
+下一步＝**在實機上讓 QCC 連 `127.0.0.1:80` 走完上線／頻道／警報**（見文末驗收清單）。
 
 ---
 
@@ -71,7 +72,10 @@ QCC → QCV8001_AUTH_SENDCODE <32 hex> ＋ NUL           （raw）
 真機 → NEMO 312 ＋ 312 bytes
 ```
 
-- 挑戰＝16 bytes 隨機字元＋空白＋10 位 Unix 時間（共 27 bytes），raw 送出、**沒有 NUL**。
+- 挑戰＝16 bytes 隨機字元＋空白＋**10 位 Unix 秒**（共 27 bytes），raw 送出、**沒有 NUL**。
+  整數必須是十位數：挑戰既沒有長度欄位也沒有結尾 NUL，長度就是協定的一部分；用九位亂數
+  會變成 26 bytes，讀固定 27 bytes 的用戶端會把下一個回應的第一個位元組吞進挑戰裡，整條
+  連線從此錯位、兩邊日誌都乾淨（`QctekChallenge.TotalLength = 27`，測試釘住）。
 - 需要挑戰的命令：`GET_CONFIG_QCTEK`、`GET_AUTH_USER`、`GET_LIVE_START`。
   **`GET_IOCONFIG` 不需要**（黃金 stream 18：直接回二進位）；把它一併擋下，QCC 會卡在等挑戰。
 - 失敗回 `NEMO 12`＋`Login Failed`（12 B，無 NUL、無尾空白）。
@@ -109,26 +113,39 @@ QCC → QCV8001_AUTH_SENDCODE <32 hex> ＋ NUL           （raw）
 |---|---|
 | `src/HeliVMS.Qctek/Nemo/QctekSession.cs` | 單一連線狀態機：raw／NEMO 分幀、孤立 NUL 容忍、挑戰→sendcode→重播待辦命令、過期待辦丟棄、不同步即關線 |
 | `src/HeliVMS.Qctek/Nemo/QctekCommandHandler.cs` | 命令→線路位元組派送器；`RequiresAuthorization` 只列黃金證明需要的命令 |
-| `src/HeliVMS.Qctek/Nemo/QctekReply.cs` | 四種具名框法：`Raw`／`RawExact`／`Framed`／`FramedWithNul`／`FramedBinary` |
+| `src/HeliVMS.Qctek/Nemo/QctekReply.cs` | 五種具名框法：`Raw`／`RawExact`／`Framed`／`FramedWithNul`／`FramedBinary` |
 | `src/HeliVMS.Qctek/Nemo/QctekPayloads.cs` | 三個二進位 payload 產生器（位移與長度照黃金） |
-| `src/HeliVMS.Qctek/Nemo/QctekChallenge.cs` | 27 bytes 挑戰字串產生器 |
-| `src/HeliVMS.Qctek/Nemo/NemoServer.cs` | TCP 迴圈；HTTP 探測與 NEMO 同一埠多工（5170 用） |
+| `src/HeliVMS.Qctek/Nemo/QctekChallenge.cs` | 27 bytes 挑戰字串產生器（16 亂數字元＋空白＋10 位 Unix 秒） |
+| `src/HeliVMS.Qctek/Nemo/NemoSessionLoop.cs` | 單一連線的讀寫迴圈；獨立埠與多工器**共用同一套狀態機**（否則只會修好其中一份） |
+| `src/HeliVMS.Qctek/Nemo/NemoServer.cs` | 獨立埠（預設 5170）的 TCP 迴圈：NEMO＋探測 HTTP，綁 `Any`（給遠端 CMS） |
+| `src/HeliVMS.Qctek/Nemo/QctekPortMux.cs` | Web 埠前置多工器：分類 NEMO／HTTP，HTTP 雙向半關閉轉發到內部 Kestrel 臨時埠 |
+| `src/HeliVMS.Qctek/Nemo/QctekPortPlanner.cs` | 「要不要共用同一個埠」的純函式決策（兩邊都啟用且埠相同且埠合法） |
 | `src/HeliVMS.Qctek/Nemo/QctekDiagnostics.cs` | 日誌摘要（密碼遮蔽、未知命令留痕） |
-| `src/HeliVMS.App/Services/QctekCompatHost.cs` | 正式 `IQctekDeviceContext`（頻道名、使用者政策） |
+| `src/HeliVMS.App/Services/QctekCompatHost.cs` | 正式 `IQctekDeviceContext`（頻道名、使用者政策）；多工器／獨立伺服器兩種 `ApplyLocal` |
+| `src/HeliVMS.App/Services/NetworkPortCoordinator.cs` | 兩個服務的啟停順序、失敗還原、兩條狀態文字（Web 與相容服務共用它） |
+| `src/HeliVMS.App/Services/WebHost.cs` | 共用埠模式改聽 `http://localhost:0`，實際埠由 `IServerAddressesFeature` 讀回 |
 | `src/HeliVMS.Qctek/Nemo/QctekPassword.cs` | 密碼欄位編解碼；**解碼容忍省略的 Base64 填補**（黃金證據：`YWRtaW4` 被真機接受） |
 
-測試（`tests/HeliVMS.Qctek.Tests`，94 綠）：
+測試（`tests/HeliVMS.Qctek.Tests`，110 綠；`tests/HeliVMS.App.Tests` 768 綠）：
 
 - `GoldenCapture.cs`：每條連線的原始 hex＋payload
 - `QctekPayloadsTests.cs`：與黃金 payload **整段位元組相等**、位移、超長名稱截斷
 - `QctekSessionTests.cs`：重播 stream 0/2/4/6/16/18/24/25；未知／畸形 digest、半個訊框、
   開頭孤立 NUL、授權續用、過期待辦、不同步關線
 - `NemoServerTests.cs`：真實 loopback 連線跑完整黃金對話（含宣告長度外的 NUL）
+- `QctekPortMuxTests.cs`：分類表（NEMO／HTTP／CONNECT／半個動詞／垃圾）、多工器上的完整黃金
+  對話（挑戰＋312／280 payload）、**真實雙向 HTTP 轉發**（含分類時先讀掉的位元組要補送）
+- `QctekPortPlannerTests.cs`、`QctekChallengeTests.cs`
+- `NetworkPortContractTests.cs`（App）：共用埠的兩個先後順序、多工器失敗要還原 Web、
+  `RemoteConsolePort` 回報公開埠、設定頁一次刷新兩條狀態列
 - `QctekCommandHandlerTests.cs`、`QctekPasswordTests.cs`、`QctekDiagnosticsTests.cs` 等
 
 **改壞驗證（已做並還原）**：`ConfigNameOffset 0x1C→0x18` → 4 個測試紅；
 `GET_IOCONFIG` 加入 `RequiresAuthorization` → 2 個紅；framed 警報成功改成 `FramedWithNul`
-→ 2 個紅。順帶把 payload 測試的位移改成**黃金絕對值**（不再引用 `ConfigNameOffset`）——
+→ 2 個紅；多工器分類的大寫動詞改成回 HTTP → 2 個紅；協調者的兩個順序各自顛倒／拿掉
+`StopMux()`／拿掉多工器失敗後的 Web 還原 → 對應契約測試各紅；`ResolveConsolePort` 忽略
+公開埠設定 → 紅；挑戰尾端改回九位亂數 → 2 個紅（其中一個是「用戶端讀固定 27 bytes」卡住）。
+順帶把 payload 測試的位移改成**黃金絕對值**（不再引用 `ConfigNameOffset`）——
 引用同一個常數的斷言會跟著錯誤的常數移動，永遠是綠的。
 
 ---
@@ -145,21 +162,42 @@ QCC → QCV8001_AUTH_SENDCODE <32 hex> ＋ NUL           （raw）
 
 ---
 
-## 下一步：80 埠多工（唯一的關卡）
+## 80 埠多工（已實作）
 
 真機的 `QC_Live.exe` 在 80 上分辨 NEMO／HTTP（`HttpServer::PreParseRequest`）；QCC 連的就是
 裝置 Web 埠。`getparam.cgi` 的 `RemoteConsolePort` 導向 **已證實不可行**（真機也不靠它），
-所以要在 80 埠做前置多工。
+所以公開埠改由前置多工器持有。
 
-設計（未實作）：
+### 接線
 
-1. `qctek.compat.port == web.port` 時才啟用前置器（不同埠則維持現狀：5170 直接服務）。
-2. 前置 `TcpListener` 綁 **loopback**（保留 `WebHost` 刻意只聽本機的姿態；遠端 CMS 用
-   5170 的 `NemoServer`，它已同時服務探測 HTTP）。
-3. 連線進來先 `peek` 前幾個位元組：`NEMO ` 或可列印 ASCII 命令 → 本行程式內 `QctekSession`；
-   HTTP 方法（`GET`／`POST`／…）→ 轉發到內部 Kestrel 的臨時埠。
-4. `WebHost` 需支援「改聽內部埠」，並由 `MainWindow`／設定頁按順序啟動／停止（改埠要重啟
-   前置器；設定變更立即生效）。
+1. **共用條件**：`QctekPortPlanner.ShouldSharePort`（純函式）＝兩邊都啟用、`web.port ==
+   qctek.compat.port`、且埠在 1–65535。不同埠則維持原狀：5170 直接由 `NemoServer` 服務。
+2. **順序不可顛倒**（`NetworkPortCoordinator.Apply`）：
+   - 共用時：Web 先改聽臨時埠 → 多工器才綁公開埠。
+   - 不共用時：`StopMux()` 先放掉公開埠 → Web 才綁得回去。
+   - 多工器綁不上（公開埠被別的程式占用）→ 把 Web 還原到公開埠，管理介面至少還在。
+   兩個順序反了的症狀都一樣：設定頁一句「啟動失敗」，日誌乾淨。
+3. **多工器只綁 loopback**（`QctekPortMux`，保留 `WebHost` 刻意只聽本機的姿態）；
+   遠端 CMS 走 5170 的 `NemoServer`（綁 `Any`，同一套 `NemoSessionLoop`）。
+4. **分類規則**（`QctekPortMux.Classify`，純函式、容忍半個動詞）：第一個空白前的 token 是
+   HTTP 方法（`GET`／`HEAD`／`POST`／`PUT`／`DELETE`／`OPTIONS`／`PATCH`／`TRACE`／`PRI`）→
+   HTTP；`CONNECT` 只有帶 ` HTTP/` 才算 HTTP（NEMO 的 `CONNECT <user> <base64> ` 以 NUL 結尾）；
+   其餘大寫動詞（含 framed 的 `NEMO`）→ NEMO；出現控制字元／非 ASCII 或動詞超過 32 B → HTTP
+   （Kestrel 回 400 並關線，至少不留半開連線）。
+5. **`RemoteConsolePort` 必須回報公開埠**，不是內部臨時埠：`WebHost` 以設定鍵
+   `helivms.public_port`（`QctekHttpResponder.PublicPortConfigKey`）把公開埠傳給內嵌
+   WebApi，`QctekProbeMiddleware` 用 `ResolveConsolePort(實際埠, 設定值)` 決定。
+   回報臨時埠的症狀是「裝置加入成功、連線失敗」——那個號碼只有本行程內部知道。
+6. HTTP 轉發是**雙向半關閉**：分類時先讀掉的位元組要補送到後端，否則 Kestrel 收到半個
+   請求行（400、空白頁）；每個方向讀完只 `Shutdown(Send)` 目標，不能用 `Close` 截斷另一個方向。
+
+### 還沒做的驗收（實機）
+
+1. 設定頁把 `qctek.compat.port` 改成與 `web.port` 相同 → 兩條狀態列都顯示執行中，
+   瀏覽器仍打得開 `http://127.0.0.1:<web.port>/`。
+2. QCC 對 `127.0.0.1:80` 按「連線」→ 上線、頻道數與名稱正確、警報訂閱不再 5 秒重連。
+3. 若 QCC 仍失敗，先看 `%TEMP%\helivms-qctek.log` 有沒有 `MUX：NEMO 連線來自 …`
+   （沒有＝QCC 連到別的地方，或公開埠不是多工器在聽）。
 
 ---
 
@@ -172,6 +210,8 @@ QCC → QCV8001_AUTH_SENDCODE <32 hex> ＋ NUL           （raw）
 - 診斷日誌：`%TEMP%\helivms-qctek.log`（NEMO 命令＋`[WEB]` 探測，密碼遮蔽）
 - 關機記錄：`%TEMP%\helivms-shutdown.log`（「收尾完成」＝正常關閉）
 - 現況設定（實機 `index.db`）：`web.port=80`、`qctek.compat.port=5170`
+  → 目前**走不到多工器**（兩個埠不同）；要在 80 埠上服務 QCC，把 `qctek.compat.port`
+  改成 80（或把 `web.port` 改成 5170，兩者相等即可）。
 
 ### QCC（使用者的）
 - 日誌：`C:\QCTek\QCC\log\20261108.err`（**連線失敗原因看這裡**）
@@ -211,3 +251,7 @@ QCC → QCV8001_AUTH_SENDCODE <32 hex> ＋ NUL           （raw）
   是**預期噪音**（已建議關）。
 - QCC 加入過的裝置（127.0.0.1:80）會留在它清單；重試「連線」即可，不必重新加入。
 - **`NEMO` 標頭長度少宣告 1 是真機行為**，不是 bug；「修正」它會讓對端讀取器錯位。
+- **多工器只綁 loopback**：在 80 上服務的是本機的 QCC。別台機器連 80 送 NEMO 會落到
+  Kestrel（400 關線）——遠端 CMS 一律走 5170 的 `NemoServer`。
+- **挑戰長度就是協定**：十位 Unix 秒換成九位亂數會讓「讀固定 27 bytes」的用戶端整條錯位
+  （本輪真的重現過：測試卡在等挑戰直到逾時）。

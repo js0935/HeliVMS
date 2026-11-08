@@ -1,9 +1,9 @@
-using System.Globalization;
 using System.IO;
 using System.Text;
 using HeliVMS.Qctek.Nemo;
 using HeliVMS.Shared;
 using HeliVMS.Storage;
+using Microsoft.Extensions.Configuration;
 
 namespace HeliVMS.WebApi;
 
@@ -53,10 +53,16 @@ public static class QctekProbeMiddleware
         }
 
         var channels = context.RequestServices.GetService(typeof(ChannelRepository)) as ChannelRepository;
+
+        // 有前置多工器時 Kestrel 綁的是內部臨時埠；RemoteConsolePort 必須報對外的
+        // 公開埠，否則 QCC 記下的是一個只有本行程內部才存在的號碼。
+        var configuration = context.RequestServices.GetService(typeof(IConfiguration)) as IConfiguration;
         var body = QctekHttpResponder.BuildBody(
             path,
             new QctekHttpResponder.Context(
-                RemoteConsolePort: context.Connection.LocalPort.ToString(CultureInfo.InvariantCulture),
+                RemoteConsolePort: QctekHttpResponder.ResolveConsolePort(
+                    context.Connection.LocalPort,
+                    configuration?[QctekHttpResponder.PublicPortConfigKey]),
                 TotalChannels: channels?.List().Count ?? 0));
 
         if (body is not { } content)

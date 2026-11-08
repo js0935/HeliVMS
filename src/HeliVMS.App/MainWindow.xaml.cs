@@ -259,6 +259,12 @@ public partial class MainWindow : Window
     private LiveAudioController? _audio;
     private WebHost? _webHost;
     private QctekCompatHost? _qctekHost;
+
+    /// <summary>
+    /// Web 服務與 QCTek 相容服務的連接埠協調者：兩個服務設在同一個埠時，公開埠要由
+    /// 前置多工器擁有（QCC 連的就是裝置的 Web 埠），誰先綁、誰先放由它決定。
+    /// </summary>
+    private NetworkPortCoordinator? _networkHost;
     private DispatcherTimer? _ntpTimer;
     private AnalyticsEventEngine? _analytics;
     private AlertRuleRepository? _alertRules;
@@ -975,13 +981,15 @@ public partial class MainWindow : Window
         _cameraDiHost.LinkTriggered += OnCameraDiLinkTriggered;
 
         // M305：內嵌 Web 服務。設定了 web.enabled=1 就在啟動時拉起，交由設定中心「網路」頁控制。
-        _webHost = new WebHost(_dataRoot, Path.Combine(_dataRoot, "index.db"));
-        _webHost.ApplySettings(new SettingsRepository(_store));
-
         // M2c：QCTek CMS 相容服務。設定了 qctek.compat.enabled=1 就在啟動時拉起 NEMO 伺服器，
-        // 讓 QCTek QCC 能把本機當成一台 NVR（上線／頻道數／警報訂閱）；同樣交由「網路」頁控制。
+        // 讓 QCTek QCC 能把本機當成一台 NVR（上線／頻道數／警報訂閱）。
+        // 兩者共用「連接埠協調者」啟動：QCC 連的是裝置的 Web 埠，當 qctek.compat.port 與
+        // web.port 相同時，公開埠必須由多工器擁有（Kestrel 改聽臨時埠），順序反了就是
+        // 一句「連接埠已被占用」。
+        _webHost = new WebHost(_dataRoot, Path.Combine(_dataRoot, "index.db"));
         _qctekHost = new QctekCompatHost(_store);
-        _qctekHost.ApplySettings(new SettingsRepository(_store));
+        _networkHost = new NetworkPortCoordinator(_webHost, _qctekHost);
+        _networkHost.Apply(new SettingsRepository(_store));
 
         // M305：NTP 對時。啟用時於啟動先對一次，之後定期對時；校正系統時鐘為盡力而為。
         StartNtpSync();
@@ -3562,6 +3570,7 @@ public partial class MainWindow : Window
             recordingsRootChanged: root => _ = OnRecordingsRootChangedAsync(root),
             webHost: _webHost,
             qctekHost: _qctekHost,
+            networkHost: _networkHost,
             playbackFinalizer: _playbackFinalizer));
     }
 
@@ -5690,6 +5699,7 @@ public partial class MainWindow : Window
         var store = _store;
         var webHost = _webHost;
         var qctekHost = _qctekHost;
+        var networkHost = _networkHost;
         var ioHost = _ioHost;
         var shareHost = _shareHost;
         var notify = _notify;
@@ -5706,6 +5716,7 @@ public partial class MainWindow : Window
         _store = null;
         _webHost = null;
         _qctekHost = null;
+        _networkHost = null;
         _ioHost = null;
         _shareHost = null;
         _notify = null;

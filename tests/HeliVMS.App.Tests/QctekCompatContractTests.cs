@@ -48,6 +48,10 @@ public sealed class QctekCompatContractTests
         Assert.Contains("QctekCompatHost.PortKey", handler);
         Assert.Contains("_qctekHost.ApplySettings", handler);
 
+        // 有協調者時走它：QCC 連的是 Web 埠，同埠時相容服務要改成多工器，
+        // 而「誰先讓出公開埠」只有協調者知道。
+        Assert.Contains("_network.Apply(_settings)", handler);
+
         // M3b：警報回報的三個設定鍵也必須由同一顆「套用」寫入（沒有套用＝永遠不生效）。
         Assert.Contains("QctekCompatHost.AlarmEnabledKey", handler);
         Assert.Contains("QctekCompatHost.AlarmHostKey", handler);
@@ -62,7 +66,11 @@ public sealed class QctekCompatContractTests
         var onLoaded = SourceContract.BodyOf(code, "OnLoaded");
         Assert.NotEqual(string.Empty, onLoaded);
         Assert.Contains("_qctekHost = new QctekCompatHost(", onLoaded);
-        Assert.Contains("_qctekHost.ApplySettings", onLoaded);
+
+        // 與 Web 服務同一個協調者：同埠時相容服務走多工器（QCC 連的是 Web 埠），
+        // 不同埠才用獨立 NemoServer；順序錯了就是「連接埠已被占用」。
+        Assert.Contains("_networkHost = new NetworkPortCoordinator(_webHost, _qctekHost)", onLoaded);
+        Assert.Contains("_networkHost.Apply(new SettingsRepository(_store))", onLoaded);
 
         // 關閉時一定要把 listener 收掉；否則程序結束後連接埠仍被占用，下次啟動直接失敗。
         // 收尾一律先換成本地變數再丟進 RunShutdownStep（與網頁主機同一條序列）。

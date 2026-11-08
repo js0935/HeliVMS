@@ -41,7 +41,9 @@ public sealed class QctekCompatHost : IDisposable
 
     private readonly DeviceContext _context;
     private NemoServer? _server;
+    private QctekPortMux? _mux;
     private QctekAlarmClient? _alarmClient;
+    private NetworkPortCoordinator? _coordinator;
     private bool _disposed;
 
     public QctekCompatHost(SqliteStore store)
@@ -50,8 +52,16 @@ public sealed class QctekCompatHost : IDisposable
         _context = new DeviceContext(store);
     }
 
-    public bool IsRunning => _server is not null;
+    /// <summary>
+    /// NEMO 應答是否執行中：獨立埠（<see cref="NemoServer"/>）或 Web 埠前置多工器
+    /// （<see cref="QctekPortMux"/>）任一在跑都算。
+    /// </summary>
+    public bool IsRunning => _server is not null || _mux is not null;
 
+    /// <summary>Web 埠多工器是否執行中（QCC 走這條路）。</summary>
+    public bool IsMuxRunning => _mux is not null;
+
+    /// <summary>對外（CMS 連線）的埠；共用 Web 埠時就是 Web 埠。</summary>
     public int Port { get; private set; }
 
     /// <summary>警報回報是否執行中（M3b）。</summary>
@@ -64,11 +74,37 @@ public sealed class QctekCompatHost : IDisposable
     public string? LastError { get; private set; }
 
     /// <summary>
+    /// 由 <see cref="NetworkPortCoordinator"/> 接手啟停順序：Web 與相容服務搶同一個埠時，
+    /// 誰先綁、誰先放會決定成敗。單獨使用本宿主（沒有協調者）時仍可運作，只是
+    /// 「共用埠」不會成立。
+    /// </summary>
+    internal void AttachCoordinator(NetworkPortCoordinator coordinator) => _coordinator = coordinator;
+
+    /// <summary>
     /// 依設定啟用或停用相容服務（NEMO 伺服器）與警報回報，回傳 NEMO 狀態訊息
     /// （設定頁直接顯示；警報狀態由 <see cref="IsAlarmReporting"/>／
     /// <see cref="AlarmTarget"/> 讀現況）。
     /// </summary>
     public string ApplySettings(SettingsRepository settings)
+    {
+        ArgumentNullException.ThrowIfNull(settings);
+
+        // 有協調者時一律走它：只套用相容服務會在多工器佔著公開埠時嘗試用
+        // NemoServer 綁同一個埠（失敗），或反過來把 Web 鎖在臨時埠上。
+        return _coordinator is not null
+            ? _coordinator.Apply(settings).Qctek
+            : ApplyLocal(settings, sharePort: false, httpPort: 0);
+    }
+
+    /// <summary>
+    /// 套用設定，並依呼叫端指定的順序決定是「獨立埠」還是「與 Web 共用公開埠」。
+    /// </summary>
+    /// <param name="settings">共用設定。</param>
+    /// <param name="sharePort">
+    /// <c>true</c>＝公開埠由多工器擁有；呼叫前 Web 服務必須已改聽 <paramref name="httpPort"/>。
+    /// </param>
+    /// <param name="httpPort">內部 Kestrel 的實際埠（HTTP 轉發目標）。</param>
+    public string ApplyLocal(SettingsRepository settings, bool sharePort, int httpPort)
     {
         ArgumentNullException.ThrowIfNull(settings);
 
@@ -80,6 +116,7 @@ public sealed class QctekCompatHost : IDisposable
 
         if (!enabled)
         {
+            StopMux();
             Stop();
             return Localizer.T("Settings.QctekStopped");
         }
@@ -87,13 +124,26 @@ public sealed class QctekCompatHost : IDisposable
         LastError = null;
         try
         {
-            Start(port);
+            if (sharePort)
+            {
+                // 公開埠要讓給多工器（Web 已在臨時埠上）。
+                Stop();
+                StartMux(port, httpPort);
+            }
+            else
+            {
+                // 不共用：多工器必須先放掉公開埠，NemoServer 才綁得上。
+                StopMux();
+                Start(port);
+            }
+
             return string.Format(Localizer.T("Settings.QctekRunning"), port);
         }
         catch (Exception ex)
         {
             // 埠被占用等啟動失敗：確保不留半啟動的伺服器（否則下次套用會洩漏一條 listener）。
             LastError = ex.Message;
+            StopMux();
             Stop();
             return string.Format(Localizer.T("Settings.QctekStartFailed"), ex.Message);
         }
@@ -183,15 +233,59 @@ public sealed class QctekCompatHost : IDisposable
 
     private void Start(int port)
     {
-        if (_server is not null)
+        // 同一個埠就沿用；換埠一定要重開，否則設定頁顯示新埠、listener 還停在舊埠，
+        // CMS 永遠連不上（而且沒有任何錯誤）。
+        if (_server is { } running && running.Port == port)
         {
             return;
         }
 
+        Stop();
         var server = new NemoServer(_context, IPAddress.Any, port, log: Diag);
         server.Start();
         _server = server;
         Port = port;
+    }
+
+    /// <summary>
+    /// 啟動 Web 埠多工器（公開埠由它擁有，HTTP 轉給 <paramref name="httpPort"/>）。
+    /// 參數沒變就不重開——重開會斷掉正在連線的 QCC，也會在公開埠上留下一小段空窗。
+    /// </summary>
+    private void StartMux(int publicPort, int httpPort)
+    {
+        if (_mux is { } running && running.Port == publicPort && running.InternalHttpPort == httpPort)
+        {
+            return;
+        }
+
+        StopMux();
+        var mux = new QctekPortMux(_context, httpPort, IPAddress.Loopback, publicPort, log: Diag);
+        mux.Start();
+        _mux = mux;
+        Port = publicPort;
+    }
+
+    /// <summary>
+    /// 停掉多工器並放掉公開埠。必須在「Web 要綁回公開埠」之前完成，
+    /// 否則 Kestrel 會因連接埠被占用而啟動失敗。
+    /// </summary>
+    public void StopMux()
+    {
+        var mux = _mux;
+        _mux = null;
+        if (mux is null)
+        {
+            return;
+        }
+
+        try
+        {
+            mux.StopAsync().GetAwaiter().GetResult();
+        }
+        catch (Exception)
+        {
+            // 停止失敗（連線收尾中斷等）不讓設定套用或關閉流程卡住。
+        }
     }
 
     /// <summary>
@@ -236,6 +330,7 @@ public sealed class QctekCompatHost : IDisposable
         }
 
         _disposed = true;
+        StopMux();
         Stop();
         StopAlarm();
     }

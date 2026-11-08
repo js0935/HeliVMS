@@ -8,13 +8,16 @@ namespace HeliVMS.Qctek.Nemo;
 /// <remarks>
 /// <para>
 /// 真機（<c>QC_Server</c> 的 <c>FUN_180008f50</c>）的格式是
-/// <b>16 個字元＋一個空白＋十進位整數</b>，字元取自
-/// <c>0123456789+/A-Za-z</c>，整數來自 <c>rand()</c>；黃金抓包實例：
-/// <c>lf6AdoSqOMFtt3ln 1773482693</c>（27 bytes，無結尾 NUL）。
+/// <b>16 個字元＋一個空白＋十進位整數</b>，字元取自 <c>0123456789+/A-Za-z</c>；
+/// 黃金抓包實例：<c>lf6AdoSqOMFtt3ln 1773482693</c>（27 bytes，無結尾 NUL）。
 /// </para>
 /// <para>
-/// 這裡改用 <see cref="RandomNumberGenerator"/> 而不是 <c>rand()</c>：格式必須相同，
-/// 但沒有理由讓挑戰值可預測（QCC 只把它當作 digest 的輸入字串，不解析內容）。
+/// <b>尾端整數是十位數，不是「隨便一個整數」。</b>挑戰既沒有結尾 NUL 也沒有長度欄位
+/// ——用戶端只能靠「一次 recv 收完」或「讀固定的 27 bytes」。整數少一位就變成 26 bytes，
+/// 讀固定長度的用戶端會把下一個回應的第一個位元組當成挑戰的一部分，整條連線從此錯位，
+/// 而且兩邊的日誌都正常。黃金值 <c>1773482693</c> 與 Unix 秒相符（2026-03 的某一刻），
+/// 因此這裡直接送目前的 Unix 秒：位數與真機一致（十位直到 2286 年），
+/// 前綴仍是密碼學亂數，QCC 只把整串當作 digest 的輸入字串。
 /// </para>
 /// </remarks>
 public static class QctekChallenge
@@ -25,7 +28,10 @@ public static class QctekChallenge
     /// <summary>挑戰字串的隨機前綴長度（真機固定 16）。</summary>
     public const int PrefixLength = 16;
 
-    /// <summary>產生一個 27 bytes 的挑戰字串（<c>16 字元＋空白＋整數</c>）。</summary>
+    /// <summary>挑戰字串的固定線路長度（16 ＋ 空白 ＋ 10 位 Unix 秒）。</summary>
+    public const int TotalLength = PrefixLength + 1 + 10;
+
+    /// <summary>產生一個 <see cref="TotalLength"/> bytes 的挑戰字串（<c>16 字元＋空白＋十位整數</c>）。</summary>
     public static string Create()
     {
         var chars = new char[PrefixLength];
@@ -34,8 +40,6 @@ public static class QctekChallenge
             chars[i] = Alphabet[RandomNumberGenerator.GetInt32(Alphabet.Length)];
         }
 
-        // 真機的整數是正的 int（抓包 1773482693）；避開 0 只是為了看起來像真機。
-        var nonce = RandomNumberGenerator.GetInt32(1, int.MaxValue);
-        return $"{new string(chars)} {nonce}";
+        return $"{new string(chars)} {DateTimeOffset.UtcNow.ToUnixTimeSeconds()}";
     }
 }

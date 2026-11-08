@@ -119,6 +119,12 @@ public partial class SettingsWindow : Window
     private readonly ShareHost? _shareHost;
     private readonly WebHost? _webHost;
     private readonly QctekCompatHost? _qctekHost;
+
+    /// <summary>
+    /// 兩個網路服務的連接埠協調者。有它時「套用」一次會同時處理 Web 與相容服務的
+    /// 先後順序（共用埠時公開埠要讓給多工器），否則退回各自套用。
+    /// </summary>
+    private readonly NetworkPortCoordinator? _network;
     private readonly ChannelManager? _manager;
 
     /// <summary>
@@ -145,6 +151,7 @@ public partial class SettingsWindow : Window
         Action<string>? recordingsRootChanged = null,
         WebHost? webHost = null,
         QctekCompatHost? qctekHost = null,
+        NetworkPortCoordinator? networkHost = null,
         IPlaybackRecordingFinalizer? playbackFinalizer = null)
     {
         _store = store;
@@ -169,6 +176,7 @@ public partial class SettingsWindow : Window
         _shareHost = shareHost;
         _webHost = webHost;
         _qctekHost = qctekHost;
+        _network = networkHost;
         _manager = manager;
         _patrolHost = patrolHost;
         _playbackFinalizer = playbackFinalizer;
@@ -1151,6 +1159,18 @@ public partial class SettingsWindow : Window
         _settings.Set(WebHost.PortKey, port.ToString(CultureInfo.InvariantCulture));
         _settings.Set(WebHost.AllowNoKeyKey, WebAllowNoKeyBox.IsChecked == true ? "1" : "0");
 
+        if (_network is not null)
+        {
+            // 走協調者：兩個服務可能剛好同埠（QCC 連的就是 Web 埠），此時公開埠要
+            // 讓給多工器。這裡必須一次重算兩邊，並把兩條狀態列一起刷新——只更新
+            // 「Web」那一條會讓另一條繼續寫著舊的埠或「已停止」。
+            var result = _network.Apply(_settings);
+            WebServiceStatusText.Text = result.Web;
+            QctekServiceStatusText.Text = result.Qctek;
+            QctekAlarmStatusText.Text = AlarmStatusText();
+            return;
+        }
+
         WebServiceStatusText.Text = _webHost is null
             ? Localizer.T("Settings.WebSavedNextStart")
             : _webHost.ApplySettings(_settings);
@@ -1187,6 +1207,17 @@ public partial class SettingsWindow : Window
         _settings.Set(QctekCompatHost.AlarmEnabledKey, alarmEnabled ? "1" : "0");
         _settings.Set(QctekCompatHost.AlarmHostKey, alarmHost);
         _settings.Set(QctekCompatHost.AlarmPortKey, QctekAlarmPortBox.Text.Trim());
+
+        if (_network is not null)
+        {
+            // 與 Web 那一顆共用同一個協調者：相容服務的埠可能正好等於 Web 埠，
+            // 這時順序（誰先讓出公開埠）比個別套用重要。兩條狀態列一起刷新。
+            var result = _network.Apply(_settings);
+            WebServiceStatusText.Text = result.Web;
+            QctekServiceStatusText.Text = result.Qctek;
+            QctekAlarmStatusText.Text = AlarmStatusText();
+            return;
+        }
 
         if (_qctekHost is null)
         {
