@@ -108,10 +108,12 @@ public static class QctekHttpResponder
     {
         var bytes = Encoding.UTF8.GetByteCount(body);
         var reason = status == 200 ? "OK" : "Not Found";
+        // keep-alive 是刻意的：QCV8001 回應探測後「留住連線」讓對方在同一條上繼續
+        // 講 NEMO；回 Connection: close 會讓 QCC 就此放棄（實測的「無法確認型號與協定」）。
         return $"HTTP/1.1 {status} {reason}\r\n" +
                $"Content-Type: {contentType}\r\n" +
                $"Content-Length: {bytes.ToString(CultureInfo.InvariantCulture)}\r\n" +
-               "Connection: close\r\n\r\n" +
+               "Connection: keep-alive\r\n\r\n" +
                body;
     }
 }

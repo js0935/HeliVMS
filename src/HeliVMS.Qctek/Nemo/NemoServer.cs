@@ -167,6 +167,38 @@ public sealed class NemoServer : IAsyncDisposable
 
                     while (true)
                     {
+                        // HTTP 前景優先（在 NEMO 解碼之前）：QCV8001 的 NEMO 與 HTTP 同埠
+                        // 多工，QCC 的裝置探測先送 HTTP（實測：GET /＋Basic admin:admin）。
+                        // 回應後「留在連線上」等下一包——實測顯示回 Connection: close 後
+                        // QCC 就此放棄（「無法確認監控系統的型號與協定」），因為它預期
+                        // 同一條連線可以繼續講 NEMO。
+                        if (QctekDiagnostics.LooksLikeHttp(pending.Span))
+                        {
+                            var headerEnd = pending.Span.IndexOf("\r\n\r\n"u8);
+                            if (headerEnd < 0)
+                            {
+                                break; // 請求未完成：繼續讀
+                            }
+
+                            var requestText = Encoding.UTF8.GetString(pending.Span[..(headerEnd + 4)]);
+                            _log?.Invoke(
+                                $"NEMO：HTTP 請求（{remote}）：{QctekDiagnostics.DescribeBytes(pending.Span[..(headerEnd + 4)])}");
+                            var httpResponse = QctekHttpResponder.BuildResponse(
+                                requestText,
+                                new QctekHttpResponder.Context(
+                                    RemoteConsolePort: Port.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                                    TotalChannels: _context.ChannelCount));
+                            await stream.WriteAsync(
+                                httpResponse is null
+                                    ? Encoding.ASCII.GetBytes(
+                                        "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: keep-alive\r\n\r\n")
+                                    : Encoding.UTF8.GetBytes(httpResponse),
+                                cancellationToken).ConfigureAwait(false);
+                            _log?.Invoke($"NEMO：HTTP {(httpResponse is null ? "404" : "200")}（{remote}）");
+                            pending.Consume(headerEnd + 4);
+                            continue; // ★ 不關閉：等對方在同一條連線上發下一包
+                        }
+
                         string command;
                         int consumed;
                         try
@@ -178,29 +210,6 @@ public sealed class NemoServer : IAsyncDisposable
                         }
                         catch (FormatException)
                         {
-                            if (QctekDiagnostics.LooksLikeHttp(pending.Span))
-                            {
-                                // QCC 的裝置探測會先送 HTTP（QCV8001 的 NEMO 與 HTTP 同埠
-                                // 多工，探測端分不出對面）——實測捕獲 `GET /`＋Basic
-                                // admin:admin。回答 QCV8001 風格的資訊頁，QCC 才認得出型號；
-                                // 直接斷線（或一律 404）時它只會報「無法確認型號與協定」。
-                                _log?.Invoke(
-                                    $"NEMO：HTTP 探測（{remote}）：{QctekDiagnostics.DescribeBytes(pending.Span)}");
-                                var httpResponse = QctekHttpResponder.BuildResponse(
-                                    Encoding.UTF8.GetString(pending.Span),
-                                    new QctekHttpResponder.Context(
-                                        RemoteConsolePort: Port.ToString(System.Globalization.CultureInfo.InvariantCulture),
-                                        TotalChannels: _context.ChannelCount));
-                                await stream.WriteAsync(
-                                    httpResponse is null
-                                        ? Encoding.ASCII.GetBytes(
-                                            "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
-                                        : Encoding.UTF8.GetBytes(httpResponse),
-                                    cancellationToken).ConfigureAwait(false);
-                                _log?.Invoke($"NEMO：HTTP {(httpResponse is null ? "404" : "200")}（{remote}）");
-                                return;
-                            }
-
                             // 串流不同步：直接關閉，不猜測重新同步點。傾印原始位元組——
                             // 實測（QCC 加裝置）時，唯一能回答「對方送了什麼」的就是這一行
                             // （HTTP 探測、別的協定、或損壞的串流一眼可辨）。
