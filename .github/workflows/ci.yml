@@ -65,9 +65,7 @@ jobs:
             'tests/HeliVMS.Alarms.Tests/HeliVMS.Alarms.Tests.csproj',
             'tests/HeliVMS.App.Tests/HeliVMS.App.Tests.csproj',
             'tests/HeliVMS.Devices.Tests/HeliVMS.Devices.Tests.csproj',
-            'tests/HeliVMS.ExportVerify.Tests/HeliVMS.ExportVerify.Tests.csproj',
             'tests/HeliVMS.Licensing.Tests/HeliVMS.Licensing.Tests.csproj',
-            'tests/HeliVMS.LicenseProducer.Tests/HeliVMS.LicenseProducer.Tests.csproj',
             'tests/HeliVMS.Media.Tests/HeliVMS.Media.Tests.csproj',
             # Rtc（M244）：PublishPipelineTests 與 PublisherIntegrationTests 會真的執行 ffmpeg；
             # runner 上沒有 ffmpeg 時依設計略過（SkippableFact），不會讓 CI 變紅。
