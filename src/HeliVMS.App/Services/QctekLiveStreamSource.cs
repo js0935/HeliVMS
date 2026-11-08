@@ -51,14 +51,16 @@ internal sealed class QctekLiveStreamSource : IQctekLiveSource
         var psi = new ProcessStartInfo
         {
             FileName = FfmpegLocator.Ffmpeg,
+            RedirectStandardInput = true,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             UseShellExecute = false,
             CreateNoWindow = true,
         };
 
-        // -nostdin：stdin 沒人管（App 是 GUI），不讓 ffmpeg 嘗試互動。
-        psi.ArgumentList.Add("-nostdin");
+        // stdin 立即送 EOF（Start 後 Close）：不讓 ffmpeg 等互動輸入（App 是 GUI、
+        // 也沒有人會去按「q」）。不用 -nostdin 選項——它是合法選項但不出現在
+        // `ffmpeg -h full`，契約測試（FfmpegOptionLiteralsFfmpegTests）以 help 為準。
         psi.ArgumentList.Add("-loglevel");
         psi.ArgumentList.Add("error");
         if (url.StartsWith("rtsp://", StringComparison.OrdinalIgnoreCase) ||
@@ -84,6 +86,7 @@ internal sealed class QctekLiveStreamSource : IQctekLiveSource
         {
             var process = Process.Start(psi)
                 ?? throw new InvalidOperationException("Process.Start 回傳 null");
+            process.StandardInput.Close();
 
             // stderr 的 pipe 必須持續讀掉：塞滿（64 KB）會讓 ffmpeg 卡在寫入，
             // 症狀是「行程在跑但永遠沒有輸出」。loglevel error 讓流量很小。
