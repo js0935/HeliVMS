@@ -46,7 +46,6 @@ Notes that will save you time:
   and delete the folder afterwards.
 - ffmpeg must be on `PATH`. Tests that need it are `[SkippableFact]` and self-skip
   via `PublishPipelineProbe`, so a green run without ffmpeg means less than it looks.
-- `HeliVMS.LicenseProducer.Tests` targets `net10.0-windows`.
 - Commits go through `.github/workflows/ci.yml`. Check the run before calling work done.
 
 ## Frontend conventions
@@ -120,6 +119,15 @@ Notes that will save you time:
   the one the solution actually built. `SolutionCoverageTests` now fails the build if
   a project is undeclared; add new projects to the slnx, or move them under
   `Tools/_deprecated/` to state that you meant to drop them.
+- **Deleting a directory must remove its slnx entry, its CI test list entry, and every
+  test project that referenced it — all in the same commit.** `Delete Tools directory`
+  removed six tracked projects but left `HeliVMS.slnx` referencing them and
+  `HeliVMS.LicenseProducer.Tests`/`HeliVMS.ExportVerify.Tests` referencing Tools
+  projects directly, so CI failed with MSB3202 while every local build stayed green —
+  the deleted files still existed on the dev machine's disk as untracked leftovers,
+  and `dotnet build` resolves references from disk. A green local run therefore
+  proves nothing about a commit that deletes files; check `git status` for untracked
+  leftovers before concluding a deletion is complete.
 - **`packages.lock.json` must be committed.** CI restores with `--locked-mode`, so a
   missing lock file is green locally and red on CI (NU1004) — which reads like a
   runner or network problem and isn't. `dotnet restore HeliVMS.slnx` then commit the

@@ -201,8 +201,8 @@ QCC → 0x90-byte keepalive（每 250ms 一個）
 | `src/HeliVMS.App/Services/WebHost.cs` | 共用埠模式改聽 `WebListenUrl.DynamicLoopback`（`http://127.0.0.1:0`），實際埠由 `IServerAddressesFeature` 讀回；啟動失敗寫 `%TEMP%\helivms-web.log` |
 | `src/HeliVMS.Qctek/Nemo/QctekPassword.cs` | 密碼欄位編解碼；**解碼容忍省略的 Base64 填補**（黃金證據：`YWRtaW4` 被真機接受） |
 
-測試（`tests/HeliVMS.Qctek.Tests`，129 綠；`tests/HeliVMS.App.Tests` 771 綠，本機排除
-`SolutionCoverageTests`）：
+測試（`tests/HeliVMS.Qctek.Tests`，129 綠；`tests/HeliVMS.App.Tests` 769 綠，本機排除
+`SolutionCoverageTests`——未追蹤的 `Tools/授權/LicenseKeyGen` 不在 slnx，CI 無此檔不影響）：
 
 - `GoldenCapture.cs`：每條連線的原始 hex＋payload
 - `QctekPayloadsTests.cs`：與黃金 payload **整段位元組相等**、位移、超長名稱截斷
@@ -350,7 +350,13 @@ FRAM 時戳兩欄位對調 → 2 個紅；`NemoSessionLoop` 停用交棒分支 �
   `D:\SDK\QCC\qc_ipcam_aver_decompiled`（用戶端狀態機與 digest）
 
 ### Git
-- 工作目錄：`Tools/授權.rar`、`Tools/授權/` 是使用者的未追蹤檔——**不可動、不可提交**
+- 工作目錄：`Tools/` 底下剩的全是**未追蹤**的本地檔（含 `授權.rar`、`授權/`）——
+  **不可動、不可提交**。repo 裡的 6 個 Tools 專案（BrandGen、HeliVMS.Decoder、
+  HeliVMS.LicenseProducer、HeliVmsVerify、LicenseKeyGen、LicenseKeyGenUI）已由
+  「Delete Tools directory」移除，連同依賴它們的 `HeliVMS.LicenseProducer.Tests`／
+  `HeliVMS.ExportVerify.Tests` 一併下架（slnx 與 CI 的測試清單同步清理）；
+  磁碟上殘留的 Tools 檔案讓本機建置一直綠、CI 卻紅（MSB3202）——「刪除類 commit
+  的本地綠」不作數，要先看 `git status` 有沒有未追蹤殘留。
 - 相容層本體在 `src/HeliVMS.Qctek`，已列入 `HeliVMS.slnx`（`SolutionCoverageTests` 會擋）
 
 ---
