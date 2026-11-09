@@ -147,6 +147,14 @@
                                 Content="" Click="OnRetryClicked"
                                 MinWidth="72" Padding="12,6" Margin="8,0,0,0"
                                 Foreground="White" Background="#8A6F3A" BorderThickness="0"/>
+                        <Button x:Name="CenterCancelButton" AutomationProperties.AutomationId="CenterCancelButton" ToolTip=""
+                                Content="" Click="OnCancelClicked"
+                                MinWidth="72" Padding="12,6" Margin="8,0,0,0"
+                                Foreground="White" Background="#6A4A2A" BorderThickness="0"/>
+                        <Button x:Name="CenterStopButton" AutomationProperties.AutomationId="CenterStopButton" ToolTip=""
+                                Content="" Click="OnStopClicked"
+                                MinWidth="72" Padding="12,6" Margin="8,0,0,0"
+                                Foreground="White" Background="#5A2A4A" BorderThickness="0"/>
                         <Button x:Name="CenterOpenFolderButton" AutomationProperties.AutomationId="CenterOpenFolderButton" ToolTip=""
                                 Content="" Click="OnOpenFolderClicked"
                                 MinWidth="104" Padding="12,6" Margin="8,0,0,0"

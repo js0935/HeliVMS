@@ -97,4 +97,42 @@ public sealed class ExportCenterWindowContractTests
         // 輸出資料夾欄位填滿列寬（原本固定 420）。
         Assert.DoesNotMatch(@"x:Name=""CenterOutputBox""[^>]*(?<!Min)Width=""", xaml);
     }
+
+    /// <summary>
+    /// 取消與停止（QC_Live 的 <c>ctrlRecBackupTask</c> 對齊）的接線契約：
+    /// 取消只打排隊中的工作（repository 行為測試在 Storage.Tests），
+    /// 停止打斷整批且批次真的把 token 傳進 <c>ProcessQueuedAsync</c>。
+    /// 漏接的症狀是「按了停止 ffmpeg 繼續跑」或「按了取消沒任何反應」，兩者日誌都乾淨。
+    /// </summary>
+    [Fact]
+    public void 匯出中心的取消與停止都有接上()
+    {
+        var xaml = SourceContract.Read(Xaml);
+        var source = SourceContract.Read(Code);
+
+        Assert.Matches(
+            @"<Button[^>]*x:Name=""CenterCancelButton""[^>]*Click=""OnCancelClicked""",
+            xaml);
+        Assert.Matches(
+            @"<Button[^>]*x:Name=""CenterStopButton""[^>]*Click=""OnStopClicked""",
+            xaml);
+
+        var cancel = SourceContract.BodyOf(source, "OnCancelClicked");
+        Assert.Contains("_jobs.Cancel(item.Job.Id)", cancel);
+        Assert.Contains("Reload()", cancel);
+
+        var run = SourceContract.BodyOf(source, "OnRunClicked");
+        Assert.Contains("_batchCts = cts", run);
+        Assert.Contains("cts.Token", run);
+        Assert.Contains("OperationCanceledException", run);
+
+        var stop = SourceContract.BodyOf(source, "OnStopClicked");
+        Assert.Contains("_batchCts?.Cancel()", stop);
+
+        // 批次服務必須跳過「排隊後被取消」的工作（行為測試在 ExportJobServiceTests），
+        // 否則「取消 3 筆再執行」會報成 3 筆失敗。
+        var svc = SourceContract.BodyOf(
+            SourceContract.Read("src/HeliVMS.Recording/ExportJobService.cs"), "ProcessQueuedAsync");
+        Assert.Contains("?.Status != \"queued\"", svc);
+    }
 }

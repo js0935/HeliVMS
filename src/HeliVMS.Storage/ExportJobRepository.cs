@@ -163,6 +163,37 @@ public sealed class ExportJobRepository
             targetType: "export_job", targetId: id, detail: "失敗後重新排入佇列");
     }
 
+    /// <summary>取消排隊中的工作（QC_Live 的 <c>ctrlRecBackupTask</c> 對齊）。</summary>
+    /// <remarks>
+    /// 只取消 <c>queued</c>：正在執行的工作由「停止」中斷整批（ffmpeg 的 ct 生效），
+    /// 已完成／已失敗的工作沒有可取消的東西。取消的工作保留在清單上（狀態 <c>cancelled</c>）——
+    /// 操作員看得到「這筆曾經排過、後來取消」，也才想得到要重新排（Delete 才會移除）。
+    /// </remarks>
+    public bool Cancel(long id, string? actor = null)
+    {
+        var affected = _store.Query<int>(
+            """
+            UPDATE export_jobs
+            SET status = 'cancelled', error = 'cancelled', finished_at = $f
+            WHERE id = $id AND status = 'queued';
+            SELECT changes();
+            """,
+            static r => r.Read() ? r.GetInt32(0) : 0,
+            cmd =>
+            {
+                cmd.Parameters.AddWithValue("$id", id);
+                cmd.Parameters.AddWithValue("$f", DateTime.UtcNow);
+            });
+
+        if (affected > 0)
+        {
+            _audit.Record(actor, "export.cancel", AuditCategories.Export,
+                targetType: "export_job", targetId: id, detail: "排隊中的匯出工作被取消");
+        }
+
+        return affected > 0;
+    }
+
     /// <summary>刪除單一工作（含完成檔可另行移除）。</summary>
     public void Delete(long id)
     {
@@ -171,13 +202,13 @@ public sealed class ExportJobRepository
             cmd => cmd.Parameters.AddWithValue("$id", id));
     }
 
-    /// <summary>清空已完成／失敗且早於指定時間的舊紀錄，回傳刪除數。</summary>
+    /// <summary>清空已完成／失敗／取消且早於指定時間的舊紀錄，回傳刪除數。</summary>
     public int PurgeFinished(DateTime beforeUtc)
     {
         return _store.Query(
             """
             DELETE FROM export_jobs
-            WHERE status IN ('done', 'failed') AND finished_at < $b;
+            WHERE status IN ('done', 'failed', 'cancelled') AND finished_at < $b;
             SELECT changes();
             """,
             static r =>

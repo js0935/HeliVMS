@@ -161,4 +161,40 @@ public sealed class ExportJobServiceTests : IDisposable
         Assert.NotNull(captured);
         Assert.Empty(captured!.RedactionRois!);
     }
+
+    /// <summary>
+    /// TOCTOU：工作在 ListQueued <b>之後</b>、輪到它執行之前被取消——
+    /// 執行器跑第一筆的途中取消第二筆（正是操作員在清單旁按取消的時序）。
+    /// 沒有重查狀態就 MarkRunning 會把已取消的工作照跑（症狀：取消沒用，檔案還是生出來）。
+    /// </summary>
+    [Fact]
+    public async Task ProcessQueued_執行途中被取消的後筆不會照跑()
+    {
+        var jobs = new ExportJobRepository(_store);
+        _ = jobs.Enqueue(1, "main", Base.AddMinutes(-2), Base.AddMinutes(2));
+        var second = jobs.Enqueue(2, "main", Base.AddMinutes(-2), Base.AddMinutes(2));
+
+        var executed = new List<int>();
+        var svc = new ExportJobService(_store, (request, ct) =>
+        {
+            executed.Add(request.ChannelId);
+            if (request.ChannelId == 1)
+            {
+                // 第一筆在跑的同時取消第二筆：此時 ListQueued 已經取過清單。
+                Assert.True(jobs.Cancel(second));
+            }
+
+            File.WriteAllBytes(request.OutputPath, new byte[] { 1 });
+            return Task.FromResult(new ExportResult(request.OutputPath, "abc", 1, 1.0));
+        });
+
+        var result = await svc.ProcessQueuedAsync(_dir);
+
+        // 第二筆雖然在清單裡，但輪到它之前已被取消：不執行、不算失敗。
+        Assert.Equal([1], executed);
+        Assert.Equal("cancelled", jobs.Get(second)!.Status);
+        Assert.Equal(1, result.Processed);
+        Assert.Equal(1, result.Succeeded);
+        Assert.Equal(0, result.Failed);
+    }
 }

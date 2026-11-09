@@ -146,4 +146,44 @@ public sealed class ExportJobRepositoryTests
         Assert.NotNull(repo.Get(newFailed));
         Assert.NotNull(repo.Get(queued));
     }
+
+    /// <summary>取消排隊中的工作（QC_Live 的 ctrlRecBackupTask 對齊）：只取消 queued，取消的保留在清單上。</summary>
+    [Fact]
+    public void Cancel_只取消排隊中的工作且狀態保留在清單()
+    {
+        using var store = NewStore(out var db);
+        var repo = new ExportJobRepository(store);
+        var queued = repo.Enqueue(1, "main", DateTime.UtcNow.AddHours(-2), DateTime.UtcNow);
+
+        Assert.True(repo.Cancel(queued));
+
+        var job = repo.Get(queued);
+        Assert.NotNull(job);
+        Assert.Equal("cancelled", job!.Status);
+        Assert.Equal("cancelled", job.Error);
+        Assert.NotNull(job.FinishedUtc);
+
+        // 不在佇列裡：下一次「開始處理」不會把它撿起來跑。
+        Assert.Empty(repo.ListQueued());
+
+        // 已結束（done/failed/cancelled）與不存在的工作沒有可取消的東西。
+        var other = repo.Enqueue(1, "main", DateTime.UtcNow.AddHours(-2), DateTime.UtcNow);
+        Assert.False(repo.Cancel(other * 100));
+        Assert.False(repo.Cancel(queued));
+    }
+
+    /// <summary>取消後的紀錄也要能被清掃（不然取消累積幾個月就成堆）。</summary>
+    [Fact]
+    public void PurgeFinished_包含取消的工作()
+    {
+        using var store = NewStore(out var db);
+        var repo = new ExportJobRepository(store);
+        var id = repo.Enqueue(1, "main", DateTime.UtcNow.AddDays(-3), DateTime.UtcNow.AddDays(-3).AddMinutes(5));
+        repo.Cancel(id);
+
+        var removed = repo.PurgeFinished(DateTime.UtcNow.AddHours(-1));
+
+        Assert.Equal(1, removed);
+        Assert.Null(repo.Get(id));
+    }
 }

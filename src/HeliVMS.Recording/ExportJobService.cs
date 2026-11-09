@@ -39,9 +39,18 @@ public sealed class ExportJobService
         var queued = jobs.ListQueued();
 
         var succeeded = 0;
+        var failed = 0;
         foreach (var job in queued)
         {
             ct.ThrowIfCancellationRequested();
+
+            // ListQueued 與 MarkRunning 之間工作可能已被取消（操作員在另一邊按了取消）：
+            // 只執行仍是 queued 的；跳過的不算失敗也不算成功。
+            if (jobs.Get(job.Id)?.Status != "queued")
+            {
+                continue;
+            }
+
             var now = DateTime.UtcNow;
             jobs.MarkRunning(job.Id, now);
 
@@ -78,9 +87,12 @@ public sealed class ExportJobService
             catch (Exception ex)
             {
                 jobs.SetError(job.Id, ex.Message, DateTime.UtcNow);
+                failed++;
             }
         }
 
-        return new ExportJobBatchResult(queued.Count, succeeded, queued.Count - succeeded);
+        // Processed＝實際跑過的筆數（含失敗）；被取消而跳過的不在內，
+        // 否則「取消 3 筆再執行」會報成 3 筆失敗，操作員會以為匯出壞了。
+        return new ExportJobBatchResult(succeeded + failed, succeeded, failed);
     }
 }

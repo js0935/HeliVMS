@@ -22,6 +22,9 @@ public partial class ExportCenterWindow : Window
     private readonly ExportJobRepository _jobs;
     private readonly DispatcherTimer _timer = new() { Interval = TimeSpan.FromSeconds(2) };
     private bool _running;
+
+    /// <summary>整批處理的取消來源；「停止」按鈕用它打斷 <see cref="OnRunClicked"/> 裡的批次。</summary>
+    private CancellationTokenSource? _batchCts;
     private Window? _share;
     private Window? _keys;
 
@@ -84,6 +87,10 @@ public partial class ExportCenterWindow : Window
         CenterDeleteButton.ToolTip = Localizer.T("ExportCenter.DeleteTip");
         CenterRetryButton.Content = Localizer.T("ExportCenter.Retry");
         CenterRetryButton.ToolTip = Localizer.T("ExportCenter.RetryTip");
+        CenterCancelButton.Content = Localizer.T("ExportCenter.Cancel");
+        CenterCancelButton.ToolTip = Localizer.T("ExportCenter.CancelTip");
+        CenterStopButton.Content = Localizer.T("ExportCenter.Stop");
+        CenterStopButton.ToolTip = Localizer.T("ExportCenter.StopTip");
         CenterOpenFolderButton.Content = Localizer.T("ExportCenter.OpenFolder");
         CenterOpenFolderButton.ToolTip = Localizer.T("ExportCenter.OpenFolderTip");
         CenterPurgeButton.Content = Localizer.T("ExportCenter.Purge");
@@ -193,13 +200,23 @@ public partial class ExportCenterWindow : Window
 
         _running = true;
         CenterRunButton.IsEnabled = false;
+        CenterStopButton.IsEnabled = true;
         ExportCenterStatus.Text = Localizer.T("ExportCenter.Running");
         try
         {
+            // QC_Live 的備份任務可中途停止（ctrlRecBackupTask）：這裡的 token 打斷整批——
+            // 正在跑的那筆會以「已取消」收尾（ffmpeg 收到 ct 即收），沒跑的保持 queued。
+            using var cts = new CancellationTokenSource();
+            _batchCts = cts;
             var svc = new ExportJobService(_store);
             var progress = new Progress<ExportProgress>(p => ExportCenterStatus.Text = string.Format(Localizer.T("ExportCenter.Progress"), p.Status));
-            var result = await svc.ProcessQueuedAsync(CenterOutputBox.Text, progress);
+            var result = await svc.ProcessQueuedAsync(CenterOutputBox.Text, progress, cts.Token);
             ExportCenterStatus.Text = string.Format(Localizer.T("ExportCenter.Done"), result.Succeeded, result.Failed, result.Processed);
+            Reload();
+        }
+        catch (OperationCanceledException)
+        {
+            ExportCenterStatus.Text = Localizer.T("ExportCenter.Stopped");
             Reload();
         }
         catch (Exception ex)
@@ -210,7 +227,40 @@ public partial class ExportCenterWindow : Window
         {
             _running = false;
             CenterRunButton.IsEnabled = true;
+            CenterStopButton.IsEnabled = false;
+            _batchCts = null;
         }
+    }
+
+    /// <summary>停止整批處理（QC_Live 的 ctrlRecBackupTask 對齊）：正在跑的中斷、沒跑的留在佇列。</summary>
+    private void OnStopClicked(object sender, RoutedEventArgs e)
+    {
+        if (!_running)
+        {
+            ExportCenterStatus.Text = Localizer.T("ExportCenter.NotRunning");
+            return;
+        }
+
+        _batchCts?.Cancel();
+    }
+
+    /// <summary>取消所選排隊中的工作（正在跑的用「停止」，已結束的沒有可取消的東西）。</summary>
+    private void OnCancelClicked(object sender, RoutedEventArgs e)
+    {
+        if (JobList.SelectedItem is not JobItem item)
+        {
+            ExportCenterStatus.Text = Localizer.T("ExportCenter.PickJob");
+            return;
+        }
+
+        if (!_jobs.Cancel(item.Job.Id))
+        {
+            ExportCenterStatus.Text = string.Format(Localizer.T("ExportCenter.NotCancellable"), item.Job.Id);
+            return;
+        }
+
+        ExportCenterStatus.Text = string.Format(Localizer.T("ExportCenter.Cancelled"), item.Job.Id);
+        Reload();
     }
 
     private void OnVerifyClicked(object sender, RoutedEventArgs e)
