@@ -333,8 +333,18 @@ QCC 的「遠端回放」也走同一條 NEMO 通道（`dvrProxy_pb`，與 live 
 | `SEEKFILE %d` | 跳轉 | |
 | `CLOSEFILE` | 結束 | |
 
-流程與 live 同構：`PlaybackAutuor`（挑戰授權）→ `ReadFile`／`ReadFileResponseQCV8001`
-（幀流）→ `PlaybackStop`。實作前必須抓「QCC ↔ 真機的回放抓包」雙重驗證——
+**回應格式（QCC 端解析器還原）**：
+
+| 命令 | 回應 |
+|---|---|
+| `GET_MONTH_DATE` | **NEMO 框**，payload 0x40：`"OK"`＋位移 0x10 起 48 bytes 月曆條件；非 OK 回全 0 |
+| `CATALOG` | **NEMO 框**，payload 0x314（788）：標頭約 20B＋32 天×24 小時矩陣（每 byte 一小時）；位移 0x14 起逐 byte 欄位 |
+| `OPENFILE` | **raw**：`"OK <d1> <d2> <d3> <d4> \0"`——四個數字由 `parserFileInfo` 解析進 `__PB_FILE_INFO` |
+| 幀流 | **與 live 完全相同的 FRAM**（回放直接重用 `dvrProxy_live::readQCV8001frame`） |
+
+狀態機（`dvrProxy_pb::ProcessCallback`）：6＝月曆、7＝目錄、8＝開檔、9＝幀流；
+每個查詢（月曆/目錄）都是「關舊檔→開新連線→發送→解析→關線」的短連線。
+實作前必須抓「QCC ↔ 真機的回放抓包」雙重驗證——
 live 的經驗：反編譯還原的格式，抓包會抓出反推不出的細節（挑戰長度、時戳順序、
 回應延遲敏感度）。
 
