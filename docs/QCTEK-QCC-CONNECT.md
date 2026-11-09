@@ -296,14 +296,27 @@ FRAM 時戳兩欄位對調 → 2 個紅；`NemoSessionLoop` 停用交棒分支 �
 
 ### 驗收：即時影像（代碼層完成、CI 綠，待 QCC 實機操作）
 
-4. ⏳ QCC 開即時影像（雙擊頻道）→ `%TEMP%\helivms-qctek.log` 出現
-   `NEMO ← GET_LIVE_START …`、`NEMO → OK `、`LIVE：即時影像通道開始`、
-   `LIVE：頻道 0（主碼流）開始輸出`。
-5. ⏳ QCC 畫面出來且時間對：黑屏但日誌有 FRAM → 看 FFmpeg 的 stderr（dump_extra／
-   碼流問題）；「連著但沒畫面」→ 先數 FRAM 的 media header 位移是否與上表一致；
-   畫面「愈播愈快／愈慢」→ 時戳蓋章（必須是寫出時牆鐘）。
-6. ⏳ 關掉 QCC 的即時影像（或關 QCC）→ 日誌出現 `LIVE：即時影像通道結束`，
+4. ✅ QCC 開即時影像 → 通道完整運行：`LIVE：即時影像通道開始`、
+   `LIVE：頻道 0（主碼流）開始輸出`、ffmpeg 來源啟動，keepalive 與 FRAM 輸出
+   持續到操作員關閉（10.4 秒全程無斷線）。
+   - **根因（已修）**：一條 NEMO 命令寫三次同步日誌（開檔/寫/關，過防毒），回應被
+     拖到 20–90ms；QCC 的狀態機以 33ms 為週期，回應跨過一個週期它就在授權成功後
+     0.6ms 發 FIN、從不送 keepalive（真機 <1ms、每次成功）。修法：NEMO 處理改
+     **專用執行緒＋同步 I/O**（真機的核心模型：每連線一條同步迴圈）、診斷日誌改
+     **有界佇列背景泵**、執行緒池下限一次抬足（SetMinThreads 96）。
+5. ⏳ 畫面驗證（操作員遠端遙控暫時看不到 QCC 畫面，恢復後確認）。
+6. ⏳ 關掉 QCC 的即時影像 → 日誌出現 `LIVE：即時影像通道結束`，
    ffmpeg 行程數回到基準（`Get-Process ffmpeg`）。
+7. ✅ 狀態碼對齊真機四態判定樹（FUN_18001eb80）：0x8003 無權限→0x8002 攝影機
+   資訊無效→0x8004 proxy 未建立→0x8001 等幀。相容層不做使用者級頻道權限
+   （GET_AUTH_USER 回全權限），0x8003 不會發生；腳本實測 0x8001→0x8004 序列
+   （來源建立後死亡、重試中）。另回歸真機值：GET_AUTH_USER 位移 20 恆為 36
+   （機種容量，不是實際頻道數——回實際頻道數會讓 QCC 授權後關線）。
+8. ⏳ `/QCCamList.bin`（RMCL，284B/頻道）與 `/QCUserList.bin`（RMUL，552B/使用者）
+   的格式與驗證邏輯已從 QCC 端（QC_rsClient::CheckCameraList）還原，但**記錄欄位
+   佈局需要真機 HTTP 樣本**（QCC 連真機時抓包）——操作員能操作 QCC 後補。
+   現況：HeliVMS 對這兩個路徑回 SPA（QCC 的驗證會失敗，但 live 不依賴它們——
+   live 走 NEMO）。
 
 > **這一輪的根因（已修）**：`WebHost` 共用埠時送 `--urls=http://localhost:0`，
 > Kestrel 直接擲 `InvalidOperationException: Dynamic port binding is not supported when
