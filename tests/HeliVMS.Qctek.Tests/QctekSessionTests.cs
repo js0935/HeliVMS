@@ -45,6 +45,16 @@ public class QctekSessionTests
         public bool IsKnownUser(string user) => user == "admin";
 
         public IQctekLiveSource? CreateLiveSource(int channelIndex, int subStream) => null;
+
+        public IReadOnlyList<bool> GetRecordingMonthDays(int channelIndex, int year, int month) => new bool[31];
+
+        public IReadOnlyList<byte> GetRecordingHourMatrix(int channelIndex, int year, int month) => new byte[768];
+
+        public QctekPlaybackSegment? FindSegmentFrom(int channelIndex, DateTime fromUtc) => null;
+
+        public QctekPlaybackSegment? FindSegmentCovering(int channelIndex, DateTime fromUtc) => null;
+
+        public IQctekLiveSource? CreatePlaybackSource(string filePath) => null;
     }
 
     [Fact]

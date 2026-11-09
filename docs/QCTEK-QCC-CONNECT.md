@@ -165,7 +165,7 @@ QCC → 0x90-byte keepalive（每 250ms 一個）
 
 | 檔案 | 內容 |
 |---|---|
-| `src/HeliVMS.Qctek/Live/QctekLiveSession.cs` | live 迴圈：keepalive 解析與逾時、位圖啟停頻道、33ms tick、有界佇列（滿了丟最舊）、狀態幀每秒一個、來源重試 5 秒 |
+| `src/HeliVMS.Qctek/Live/QctekLiveSession.cs` | live 迴圈：keepalive 解析與逾時、位圖啟停頻道、33ms tick、有界佇列（容量 64，見下節）、狀態幀每秒一個、來源重試 5 秒 |
 | `src/HeliVMS.Qctek/Live/QctekLivePackets.cs` | FRAM 位元組工廠（上表逐欄位） |
 | `src/HeliVMS.Qctek/Live/QctekH264AccessUnits.cs` | Annex-B 切分（跨包、半 start code）＋ AU 分組＋ SPS/PPS 抽到 block |
 | `src/HeliVMS.Qctek/Live/QctekLiveSource.cs` | 來源介面（Qctek 專案不引用 Media/Storage） |
@@ -179,6 +179,66 @@ QCC → 0x90-byte keepalive（每 250ms 一個）
 - 每頻道一個短生命週期 ffmpeg 行程：CMS 要哪幾路才開哪幾路、斷線即收——與排程截圖
   同一個理由（便宜攝影機的 RTSP 工作階段有限）。輸出是 `-c:v copy` 的純 remux，伺服器
   不花解碼 CPU。
+
+### 啟動突發：佇列容量必須大於它（2026-11-09 實測修復）
+
+「QCC 連得上、畫面全黑、兩邊日誌乾淨」的真因是**每頻道佇列**，不是授權也不是攝影機。
+實測（VIVOTEK IP9164-HT、1080p15、`-c:v copy -bsf:v dump_extra`）：ffmpeg 建立 RTSP
+工作階段後把輸入緩衝**一次倒出來**——
+
+| 讀取 | 相對時間 | 內容 |
+|---|---|---|
+| #0 | 連上後 2.35 s | 10279 bytes ＝ SPS/PPS/SPS/PPS/IDR（1 個 AU） |
+| #1 | ＋1 ms | 2201 bytes ＝ 27 個 P-frame AU |
+
+兩包都遠早於第一個 33 ms tick，所以佇列會先收下 28 個 AU 才開始被消費。舊的
+`QueueCapacity = 8` 讓排在後面的 27 個 P-frame 把那張 IDR 擠出去；之後每一幀都是
+`block1 = 0`，而 **QCC 只以 `block1 > 0` 認定關鍵影格**，解碼器因此沒有起點——修復前
+實測要等到第 91 幀（約 7.5 秒）的下一個 GOP 才有畫面。修復後同一個探測腳本的第一個
+資料幀就是 `block1=46 block2=8 video=9542 nals=[5]`（含 SPS/PPS 的 IDR）。
+
+兩條規則不要改回去：
+
+1. **容量必須大於啟動突發**（現在 64，約 2 秒的 30 fps 寫出）。這個數字是量出來的。
+2. **溢位時寧可跳段，也不要送解不開的影格**：新的關鍵影格到達而佇列已滿時，整段舊積壓
+   作廢（`LiveFrameQueue.Push`）——關鍵影格自己就帶著 SPS/PPS，是唯一可用的解碼起點。
+   第一次丟棄會寫進 `%TEMP%\helivms-qctek.log`，「關鍵影格被積壓丟棄」另有第二行；
+   沒有這兩行，這個症狀的預設值就是「日誌乾淨」。
+
+守門測試：`啟動突發不會把關鍵影格擠出佇列`、`新的關鍵影格到達時會清掉積壓的舊影格`、
+`啟動突發後的第一個資料幀是含SPS的關鍵影格`（把容量改回 8 會同時紅）。
+
+---
+
+### QCC 每 66 秒自我重啟：是機器記憶體壓力，不是我們的程式（2026-11-10 定位）
+
+11/09 之後所有「QCC 行為怪異」的觀測都先看這一節。症狀是日誌在固定間隔重複
+`BOOT→…→Out of Memory!→Stop NVR 3: ShellStartPage`，`20261109.err` 從 3,992 行
+長到 20,907 行（約 124 輪 × 130 行），而**我方日誌與程式完全正常**。
+
+呼叫鏈（`D:\SDK\QCC\qcc` 與 `QC_Live` 反編譯）：
+
+1. `QCC.exe` 的 `FUN_140001ef0` 建立 `QC_Timer::Open(..., 3, true)`，計數器
+   `DAT_1400090b4` 從 `0x14` 遞減；每輪呼叫 `GlobalMemoryStatusEx`。
+2. 條件 `ullAvailPageFile * 10 < ullTotalPageFile`（可用分頁檔低於總量 **10%**）成立時，
+   把 `+0x608` 設成 `0x1417`，再由 `FUN_140001af0` 對子視窗
+   `PostMessageW(childHwnd, 0x801b, 3, 0x1417)`。
+3. `QC_Live` 的 `FUN_140015aa0` 收到 `0x801b` 後印 `ProcMemInfo`＋`Out of Memory!`＋
+   `Stop NVR 3: ShellStartPage` 並重建整個 NVR 子行程。`Stop NVR` 後面的 `3` 就是
+   `PostMessage` 的 `wParam`。
+
+實測數字（本機）：QCC 執行中 commit 13,238 / 14,031 MB（可用 5.6%，門檻 1,403 MB）；
+把 Ghidra／OpenCode 等關掉、QCC 結束後可用 2,407 MB（17.2%），不再觸發。當時的
+commit 大戶是 `java.exe`（Ghidra）889 MB、`opencode-cli` 759 MB、`OpenCode` 488 MB、
+Chrome 373 MB、node 305 MB。本機分頁檔只有 1,984 MB，所以門檻很容易被踩到。
+
+週期：執行 58 秒＋拆除 8 秒＝**66 秒**，每個週期都重建 NVR，於是「加裝置、放頻道、
+改登錄檔」全部被重置。
+
+**判準**：`20261109.err` 不再出現 `Out of Memory!`／`Stop NVR 3: ShellStartPage`，
+才代表觀測環境乾淨。**做任何 P0 實驗（尤其「把頻道拖進格位」）前先確認這件事**，
+否則得到的是「沒有訊號」，而真正的原因只是實驗每 66 秒被重置一次（登錄檔實驗
+`ImmedChannels`／`ImmedSelAll` 就是這樣白做一輪）。
 
 ---
 
@@ -201,7 +261,7 @@ QCC → 0x90-byte keepalive（每 250ms 一個）
 | `src/HeliVMS.App/Services/WebHost.cs` | 共用埠模式改聽 `WebListenUrl.DynamicLoopback`（`http://127.0.0.1:0`），實際埠由 `IServerAddressesFeature` 讀回；啟動失敗寫 `%TEMP%\helivms-web.log` |
 | `src/HeliVMS.Qctek/Nemo/QctekPassword.cs` | 密碼欄位編解碼；**解碼容忍省略的 Base64 填補**（黃金證據：`YWRtaW4` 被真機接受） |
 
-測試（`tests/HeliVMS.Qctek.Tests`，129 綠；`tests/HeliVMS.App.Tests` 769 綠，本機排除
+測試（`tests/HeliVMS.Qctek.Tests`，134 綠；`tests/HeliVMS.App.Tests` 769 綠，本機排除
 `SolutionCoverageTests`——未追蹤的 `Tools/授權/LicenseKeyGen` 不在 slnx，CI 無此檔不影響）：
 
 - `GoldenCapture.cs`：每條連線的原始 hex＋payload
@@ -232,6 +292,8 @@ FRAM 時戳兩欄位對調 → 2 個紅；`NemoSessionLoop` 停用交棒分支 �
 `Flush` 不處理殘留 → 4 個紅。
 順帶把 payload 測試的位移改成**黃金絕對值**（不再引用 `ConfigNameOffset`）——
 引用同一個常數的斷言會跟著錯誤的常數移動，永遠是綠的。
+心跳輪：`IsSilentHeartbeat` 改成 `false` → 2 個紅（含「日誌只記一次」）；
+把心跳的 `return null` 改成回一個 `OK ` 框 → 2 個紅（客戶端錯位，版本查詢收到心跳的回應）。
 
 ---
 
@@ -352,8 +414,11 @@ live 的經驗：反編譯還原的格式，抓包會抓出反推不出的細節
 
 | 命令 | HeliVMS | 備註 |
 |---|---|---|
-| CHECK_SERVER_VERSION、GET_CONFIG_QCTEK、GET_AUTH_USER、GET_NCHANNEL、GET_MAX_STREAM_NUM、GET_IOCONFIG、CONNECT、ALARM_*、CHECK_VNC_VERSION | ✅ | 黃金抓包對齊 |
-| GET_LIVE_START | ✅ | FRAM 幀流（本文件上半） |
+| CHECK_SERVER_VERSION、GET_CONFIG_QCTEK、GET_AUTH_USER、GET_NCHANNEL、GET_MAX_STREAM_NUM、GET_IOCONFIG、CONNECT、CHECK_VNC_VERSION | ✅ | 黃金抓包對齊 |
+| GET_LIVE_START | ✅ | FRAM 幀流（本文件上半）；伺服器端管線已驗證（`block1` 有值、`nals=[5]`），待 QCC 實機放頻道 |
+| `ALARM_HELLO`（QCC 自己的外送心跳） | ✅ | **回 0 bytes**（真機如此）；不可補回應框 |
+| `ALARM_ISALIVE`、`ALARM_REQUEST` | ✅ | 同族的存活／警報回報 |
+| **SEARCH_EVENT** | ⏳ | 二進位框（與 `GET_AUTH_USER` 同族）；QCC 事件搜尋頁要用 |
 | GET_CATALOG／CATALOG、GET_MONTH_DATE、OPENFILE、OPENSECOND、SEEKFILE、CLOSEFILE | ⏳ | 回放協定（上表藍圖） |
 | **GET_REC_DAYS** | ⏳ | **第三種協定**：`HR_MonthDays::SendRequest` 用「QC32」魔數框（+0x00 `"QC32"`、+0x04 總長 0xec、+0x08 `"GET_REC_DAYS"`、+0xdc 起月範圍；236B 固定結構、MonthDateCB 回呼）——與 NEMO/RMCL 並列，需另外還原回應 |
 
@@ -434,8 +499,15 @@ live 的經驗：反編譯還原的格式，抓包會抓出反推不出的細節
 - **不要用 PowerShell 改原始碼**：`Set-Content -NoNewline` 會把 CJK 編碼弄壞（本輪就因此重建過
   兩個檔案）。用編輯工具改。
 - **80 埠會被 HeliVMS App 佔用**；「連不上 127.0.0.1:80」先查 App 是否在跑。
-- 使用者的「回報警報到 CMS」設定指到 `127.0.0.1:5170`（自己），每 5 秒一條 `ALARM_HELLO`
-  是**預期噪音**（已建議關）。
+- 使用者的「回報警報到 CMS」設定指到 `127.0.0.1:5170`（自己），每 5 秒一條
+  `ALARM_HELLO 1 =QCV8001`（單一工作階段實測 1,341 次）是 QCC 的**外送心跳**，
+  不是 CMS 在管理裝置。**它本來就沒有回應**：真機 `qc_rm_alarm` 的
+  `FUN_180004830 → FUN_180005f10` 只把 0x100 回應緩衝區首位寫 0（線路上 0 bytes），
+  QCC 端 `qc_alarm` 的 `FUN_180015620` 送出後只累加計數、**從不讀回應**。
+  所以正確做法是 `return null`（見 `QctekCommandHandler.IsSilentHeartbeat`）。
+  給它一個回應框會讓客戶端把那一框當成**下一條命令**的回應，之後全錯位一格——症狀是
+  「連得上、命令都送得出、畫面與清單全空」，兩邊日誌乾淨。日誌端也必須只記第一次，
+  否則 1,341 行會把 512 KB 滾動檔裡真正的線索擠掉。
 - QCC 加入過的裝置（127.0.0.1:80）會留在它清單；重試「連線」即可，不必重新加入。
 - **`NEMO` 標頭長度少宣告 1 是真機行為**，不是 bug；「修正」它會讓對端讀取器錯位。
 - **多工器只綁 loopback**：在 80 上服務的是本機的 QCC。別台機器連 80 送 NEMO 會落到

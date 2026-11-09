@@ -6,6 +6,7 @@ using HeliVMS.Qctek.Alarm;
 using HeliVMS.Qctek.Live;
 using HeliVMS.Qctek.Nemo;
 using HeliVMS.Shared;
+using HeliVMS.Shared.Models;
 using HeliVMS.Storage;
 
 namespace HeliVMS.App.Services;
@@ -407,12 +408,16 @@ public sealed class QctekCompatHost : IDisposable
         private readonly AuthService _auth;
         private readonly ChannelRepository _channels;
         private readonly UserRepository _users;
+        private readonly SegmentRepository _segments;
+        private readonly DeviceRepository _devices;
 
         public DeviceContext(SqliteStore store)
         {
             _auth = new AuthService(store);
             _channels = new ChannelRepository(store);
             _users = new UserRepository(store);
+            _segments = new SegmentRepository(store);
+            _devices = new DeviceRepository(store, new AuditLogRepository(store));
         }
 
         /// <summary>
@@ -494,15 +499,188 @@ public sealed class QctekCompatHost : IDisposable
 
             // 子碼流為空時退回主碼流：多分割用子流省頻寬，但沒有子流可用的頻道
             // 寧可給主流（那格至少有畫面），不要回「無來源」。
-            var url = subStream == 1 && !string.IsNullOrWhiteSpace(channel.SubStreamUrl)
-                ? channel.SubStreamUrl
-                : channel.MainStreamUrl;
+            var url = StreamRouting.DisplayUrl(
+                channel.MainStreamUrl,
+                channel.SubStreamUrl,
+                subStream == 1 ? HeliVMS.Storage.StreamKind.Sub : HeliVMS.Storage.StreamKind.Main);
             if (string.IsNullOrWhiteSpace(url))
             {
                 return null;
             }
 
-            return QctekLiveStreamSource.TryOpen(url, QctekCompatHost.Diag);
+            // 憑證在「真的要拉流」的當下才補：channels.main_rtsp 只存裸位址（避免明文
+            // 密碼落進 sqlite／備份／稽核）。少了這一步攝影機會回 401，ffmpeg 啟動後
+            // 立刻退出、stdout 一片空白——CMS 只看到狀態幀 0x8004，畫面永遠是黑的，
+            // 而日誌裡只有「來源已啟動」。規則與 ChannelManager.ResolveStreamUrl 相同。
+            var resolved = RtspStreamResolver.Resolve(
+                url,
+                channel.DeviceId,
+                host => _devices.FindByIp(host)?.Id,
+                _devices.GetRtspCredentials);
+
+            return QctekLiveStreamSource.TryOpen(resolved, QctekCompatHost.Diag);
         }
+
+        /// <summary>目前頻道清單中第 <paramref name="channelIndex"/> 個頻道的資料庫 Id。</summary>
+        /// <remarks>
+        /// QCC 的位圖與回放參數都只帶「第幾路」，實際的 <c>channel_id</c> 只能從同一份
+        /// <see cref="ChannelRepository.List"/> 排序取得——與 <see cref="ChannelCount"/>、
+        /// <see cref="ChannelNames"/> 共用一個來源，三者不會漂移。
+        /// </remarks>
+        private int? ChannelIdAt(int channelIndex)
+        {
+            var channels = _channels.List();
+            return channelIndex >= 0 && channelIndex < channels.Count ? channels[channelIndex].Id : null;
+        }
+
+        /// <summary>該頻道在整段期間內「可播放」（status=final）的錄影段。</summary>
+        private IReadOnlyList<SegmentRecord> SegmentsBetween(int channelIndex, DateTime fromUtc, DateTime toUtc)
+            => ChannelIdAt(channelIndex) is { } id
+                ? _segments.ListPlayableByRange(id, "main", fromUtc, toUtc)
+                : [];
+
+        /// <summary>
+        /// 回放月曆：某頻道某月「每天有無錄影」。以本機時區的日界線判定——操作員看到的
+        /// 日曆是本地日期，與 <c>PlaybackWindow</c> 的日曆標記同一口徑。
+        /// </summary>
+        public IReadOnlyList<bool> GetRecordingMonthDays(int channelIndex, int year, int month)
+        {
+            var days = new bool[31];
+            if (month is < 1 or > 12 || year is < 1970 or > 9998)
+            {
+                return days;
+            }
+
+            var first = new DateTime(year, month, 1);
+            var segments = SegmentsBetween(
+                channelIndex,
+                TimeZoneInfo.ConvertTimeToUtc(first),
+                TimeZoneInfo.ConvertTimeToUtc(first.AddMonths(1)));
+
+            foreach (var segment in segments)
+            {
+                MarkDays(segment, year, month, days);
+            }
+
+            return days;
+        }
+
+        /// <summary>
+        /// 回放 CATALOG：某頻道某月的 32 天×24 小時矩陣（索引 = (day−1)×24 + hour）。
+        /// 每格只回答「這一小時有沒有錄影」（1/0），與真機的「錄影量」欄位語意相同。
+        /// </summary>
+        public IReadOnlyList<byte> GetRecordingHourMatrix(int channelIndex, int year, int month)
+        {
+            var matrix = new byte[768];
+            if (month is < 1 or > 12 || year is < 1970 or > 9998)
+            {
+                return matrix;
+            }
+
+            var first = new DateTime(year, month, 1);
+            var segments = SegmentsBetween(
+                channelIndex,
+                TimeZoneInfo.ConvertTimeToUtc(first),
+                TimeZoneInfo.ConvertTimeToUtc(first.AddMonths(1)));
+
+            foreach (var segment in segments)
+            {
+                MarkHours(segment, year, month, matrix);
+            }
+
+            return matrix;
+        }
+
+        /// <summary><c>fromUtc</c> 之後（含蓋此刻的段）的第一段可播放錄影。</summary>
+        public QctekPlaybackSegment? FindSegmentFrom(int channelIndex, DateTime fromUtc)
+        {
+            var from = DateTime.SpecifyKind(fromUtc, DateTimeKind.Utc);
+            var segment = SegmentsBetween(channelIndex, from, from.AddDays(7))
+                .FirstOrDefault(s => SegmentEnd(s) > from);
+            return segment is null ? null : ToPlaybackSegment(channelIndex, segment);
+        }
+
+        /// <summary>含蓋 <paramref name="fromUtc"/> 的那一段（從段開頭播）。</summary>
+        public QctekPlaybackSegment? FindSegmentCovering(int channelIndex, DateTime fromUtc)
+        {
+            var from = DateTime.SpecifyKind(fromUtc, DateTimeKind.Utc);
+            var segment = SegmentsBetween(channelIndex, from.AddSeconds(-1), from.AddSeconds(1))
+                .FirstOrDefault(s => s.StartUtc <= from && SegmentEnd(s) > from);
+            return segment is null ? null : ToPlaybackSegment(channelIndex, segment);
+        }
+
+        /// <summary>
+        /// 開一路錄影檔回放來源（Annex-B H.264）。與即時影像共用同一個 ffmpeg 包裝：
+        /// 只 remux、不解碼，CMS 端自行解碼。
+        /// </summary>
+        public IQctekLiveSource? CreatePlaybackSource(string filePath)
+        {
+            if (string.IsNullOrWhiteSpace(filePath) || !File.Exists(filePath))
+            {
+                return null;
+            }
+
+            return QctekLiveStreamSource.TryOpen(filePath, QctekCompatHost.Diag);
+        }
+
+        private static void MarkDays(SegmentRecord segment, int year, int month, bool[] days)
+        {
+            var (start, end) = LocalSpan(segment);
+            var monthStart = new DateTime(year, month, 1);
+            var monthEnd = monthStart.AddMonths(1);
+            var cursor = start.Date < monthStart ? monthStart : start.Date;
+            while (cursor < monthEnd && cursor < end)
+            {
+                days[cursor.Day - 1] = true;
+                cursor = cursor.AddDays(1);
+            }
+        }
+
+        private static void MarkHours(SegmentRecord segment, int year, int month, byte[] matrix)
+        {
+            var (start, end) = LocalSpan(segment);
+            var monthStart = new DateTime(year, month, 1);
+            var monthEnd = monthStart.AddMonths(1);
+            var cursor = new DateTime(start.Year, start.Month, start.Day, start.Hour, 0, 0);
+            if (cursor < monthStart)
+            {
+                cursor = monthStart;
+            }
+
+            while (cursor < monthEnd && cursor < end)
+            {
+                matrix[(cursor.Day - 1) * 24 + cursor.Hour] = 1;
+                cursor = cursor.AddHours(1);
+            }
+        }
+
+        /// <summary>段的本地時間範圍（日曆標記一律用本機時區）。</summary>
+        private static (DateTime Start, DateTime End) LocalSpan(SegmentRecord segment)
+        {
+            var startUtc = DateTime.SpecifyKind(segment.StartUtc, DateTimeKind.Utc);
+            var endUtc = SegmentEnd(segment);
+            if (endUtc <= startUtc)
+            {
+                endUtc = startUtc.AddSeconds(1);
+            }
+
+            return (
+                TimeZoneInfo.ConvertTimeFromUtc(startUtc, TimeZoneInfo.Local),
+                TimeZoneInfo.ConvertTimeFromUtc(endUtc, TimeZoneInfo.Local));
+        }
+
+        /// <summary>段結束時刻；舊段沒有 end_time 時用 duration_sec 推（再沒有就以一分鐘計）。</summary>
+        private static DateTime SegmentEnd(SegmentRecord segment)
+            => segment.EndUtc is { } end
+                ? DateTime.SpecifyKind(end, DateTimeKind.Utc)
+                : DateTime.SpecifyKind(segment.StartUtc, DateTimeKind.Utc)
+                    .AddSeconds(segment.DurationSec is { } duration and > 0 ? duration : 60);
+
+        private static QctekPlaybackSegment ToPlaybackSegment(int channelIndex, SegmentRecord segment)
+            => new(
+                channelIndex,
+                DateTime.SpecifyKind(segment.StartUtc, DateTimeKind.Utc),
+                segment.FilePath,
+                segment.SizeBytes);
     }
 }

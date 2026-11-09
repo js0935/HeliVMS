@@ -29,7 +29,10 @@ namespace HeliVMS.Qctek.Live;
 /// 為什麼「有界佇列、滿了丟最舊」：CMS 只看「現在」，解碼端的輸出節奏由客戶端
 /// （DecProc 對牆鐘調速）決定；我們積壓再久它也不會補播，只會看到愈來愈舊的畫面。
 /// 與即時監看「丟棄發生在讀取之後（管線抽乾）」同一取捨：消費任務總是把 ffmpeg
-/// 讀乾淨，積壓只在佇列端發生。
+/// 讀乾淨，積壓只在佇列端發生。但丟棄<b>不能丟掉解碼起點</b>：容量必須大於啟動
+/// 突發（見 <see cref="QueueCapacity"/>），而且新的關鍵影格到達時寧可整段作廢
+/// （見 <see cref="LiveFrameQueue"/>）——否則 QCC 收到的是一串解不開的 P-frame，
+/// 表現成「連線正常、畫面全黑、日誌乾淨」。
 /// </para>
 /// </remarks>
 public static class QctekLiveSession
@@ -43,8 +46,19 @@ public static class QctekLiveSession
     /// <summary>tick 週期：真機 live 迴圈的輸出節奏（≈30fps 的寫出上限）。</summary>
     public const int TickMilliseconds = 33;
 
-    /// <summary>每頻道的 AU 積壓上限（滿了丟最舊）。</summary>
-    public const int QueueCapacity = 8;
+    /// <summary>
+    /// 每頻道的 AU 積壓上限（滿了丟最舊），約等於 2 秒（33ms tick ＝ 30fps 的寫出上限）。
+    /// </summary>
+    /// <remarks>
+    /// 這個值必須<b>大於啟動突發</b>，否則連線成功卻永遠沒有畫面。實測（VIVOTEK
+    /// IP9164-HT、1080p15）：ffmpeg 建立 RTSP 工作階段後把輸入緩衝一次倒出來——
+    /// 第一包 10279 bytes＝SPS/PPS/SPS/PPS/IDR，1 毫秒後又一包 2201 bytes＝27 個
+    /// P-frame；兩包都遠早於第一個 33ms tick，所以佇列會先收到 28 個 AU 才開始被
+    /// 消費。舊值 8 讓排在後面的 27 個 P-frame 把 IDR 擠出去，QCC 之後只收到解不開的
+    /// P-frame，症狀是「連線正常、畫面全黑、日誌乾淨」，要等下一個 GOP 才有畫面
+    /// （實測第 91 幀、約 7.5 秒）。
+    /// </remarks>
+    public const int QueueCapacity = 64;
 
     /// <summary>主迴圈的輪詢步長（毫秒）：tick 節奏的粒度，也是 keepalive 的讀取延遲上限。</summary>
     public const int PollMilliseconds = 5;
@@ -378,7 +392,24 @@ internal sealed class LiveRunSync
 
                 foreach (var unit in grouper.Append(buffer.AsSpan(0, count)))
                 {
-                    state.Queue.Push(unit);
+                    var dropped = state.Queue.Push(unit);
+                    if (dropped > 0 && !state.OverflowLogged)
+                    {
+                        state.OverflowLogged = true;
+                        _log?.Invoke(
+                            $"LIVE：頻道 {state.Channel} 積壓超過 {QctekLiveSession.QueueCapacity} 幀，" +
+                            $"開始丟棄較舊的影格（{_remote}）");
+                    }
+
+                    if (state.Queue.DroppedKeyframes > 0 && !state.KeyframeDropLogged)
+                    {
+                        // 「有連線、沒畫面」唯一會留下的證據：關鍵影格一旦被積壓丟掉，
+                        // QCC 的解碼器就沒有起點，畫面凍住直到下一個 GOP 到達。
+                        state.KeyframeDropLogged = true;
+                        _log?.Invoke(
+                            $"LIVE：頻道 {state.Channel} 的關鍵影格被積壓丟棄，" +
+                            $"CMS 的畫面會凍住直到下一個 GOP（{_remote}）");
+                    }
                 }
             }
         }
@@ -534,9 +565,21 @@ internal sealed class ChannelState
 
     /// <summary>上次嘗試建立來源的時刻（重試節流）。</summary>
     public DateTimeOffset SourceAttemptAt { get; set; } = DateTimeOffset.MinValue;
+
+    /// <summary>是否已記錄過「積壓丟棄」（只記第一次，避免每丟一幀就洗版）。</summary>
+    public bool OverflowLogged { get; set; }
+
+    /// <summary>是否已記錄過「關鍵影格被積壓丟棄」（同上，只記第一次）。</summary>
+    public bool KeyframeDropLogged { get; set; }
 }
 
 /// <summary>每頻道的 AU 佇列：有界、滿了丟最舊（單寫單讀，鎖只是為了 Clear 的安全性）。</summary>
+/// <remarks>
+/// 溢位的處理原則是「寧可跳段，也不要送解不開的影格」：關鍵影格是解碼器唯一的起點
+/// （SPS/PPS 就在它的 block1 裡），把關鍵影格留在積壓裡卻丟掉它後面的影格，或反過來，
+/// 結果都是讓 CMS 停在黑畫面直到下一個 GOP。所以新的關鍵影格到達而佇列已滿時，整段
+/// 舊積壓直接作廢，從這張關鍵影格重新開始。
+/// </remarks>
 public sealed class LiveFrameQueue
 {
     private readonly object _lock = new();
@@ -549,6 +592,12 @@ public sealed class LiveFrameQueue
         _items = new Queue<QctekAccessUnit>(_capacity);
     }
 
+    /// <summary>累計丟棄的 AU 數（診斷用：這個數字不為 0 就代表曾經積壓到跳段）。</summary>
+    public long Dropped { get; private set; }
+
+    /// <summary>累計丟棄的關鍵影格數（不為 0 代表 CMS 曾因此等了一個 GOP）。</summary>
+    public long DroppedKeyframes { get; private set; }
+
     public int Count
     {
         get
@@ -560,17 +609,28 @@ public sealed class LiveFrameQueue
         }
     }
 
-    public void Push(QctekAccessUnit unit)
+    /// <summary>推入一個 AU；回傳這次為了讓位而丟棄的 AU 數（0 ＝ 沒有丟）。</summary>
+    public int Push(QctekAccessUnit unit)
     {
         ArgumentNullException.ThrowIfNull(unit);
         lock (_lock)
         {
+            var dropped = 0;
             if (_items.Count >= _capacity)
             {
-                _items.Dequeue();
+                if (unit.Keyframe)
+                {
+                    // 新的解碼起點到了：積壓裡的每一幀都比它舊，而且解不開的機率很高。
+                    dropped = EvictAll();
+                }
+                else
+                {
+                    dropped = EvictOldest();
+                }
             }
 
             _items.Enqueue(unit);
+            return dropped;
         }
     }
 
@@ -595,5 +655,33 @@ public sealed class LiveFrameQueue
         {
             _items.Clear();
         }
+    }
+
+    private int EvictOldest()
+    {
+        var dropped = _items.Dequeue();
+        Dropped++;
+        if (dropped.Keyframe)
+        {
+            DroppedKeyframes++;
+        }
+
+        return 1;
+    }
+
+    private int EvictAll()
+    {
+        foreach (var unit in _items)
+        {
+            if (unit.Keyframe)
+            {
+                DroppedKeyframes++;
+            }
+        }
+
+        var count = _items.Count;
+        _items.Clear();
+        Dropped += count;
+        return count;
     }
 }

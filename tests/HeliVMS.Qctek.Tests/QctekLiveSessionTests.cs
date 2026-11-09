@@ -166,6 +166,16 @@ public class QctekLiveSessionTests
 
         public IQctekLiveSource? CreateLiveSource(int channelIndex, int subStream)
             => Factory?.Invoke(channelIndex, subStream);
+
+        public IReadOnlyList<bool> GetRecordingMonthDays(int channelIndex, int year, int month) => new bool[31];
+
+        public IReadOnlyList<byte> GetRecordingHourMatrix(int channelIndex, int year, int month) => new byte[768];
+
+        public QctekPlaybackSegment? FindSegmentFrom(int channelIndex, DateTime fromUtc) => null;
+
+        public QctekPlaybackSegment? FindSegmentCovering(int channelIndex, DateTime fromUtc) => null;
+
+        public IQctekLiveSource? CreatePlaybackSource(string filePath) => null;
     }
 
     private sealed record FramPacket(int Channel, ushort Status, byte[] Media, byte[] Payload);
@@ -371,5 +381,117 @@ public class QctekLiveSessionTests
         }
 
         Assert.Equal(1, source.Disposed);
+    }
+
+    // ── 啟動突發（ffmpeg 把 RTSP 輸入緩衝一次倒出來）──────────────────────
+
+    private static QctekAccessUnit KeyUnit(byte[] video) => new(true, SpSc(), PpSc(), video);
+
+    private static QctekAccessUnit SliceUnit() => new(false, [], [], SliceSc());
+
+    [Fact]
+    public void 啟動突發不會把關鍵影格擠出佇列()
+    {
+        // 實測（VIVOTEK IP9164-HT、1080p15）：ffmpeg 建立 RTSP 工作階段後第一包是
+        // SPS/PPS/IDR，1 毫秒後又一包 27 個 P-frame，兩包都遠早於第一個 33ms tick。
+        // 容量小於這個突發量時，「滿了丟最舊」會先丟掉那張 IDR，QCC 從此只收到
+        // 解不開的 P-frame——連線正常、畫面全黑、日誌乾淨，要等下一個 GOP。
+        var queue = new LiveFrameQueue(QctekLiveSession.QueueCapacity);
+        var keyframe = KeyUnit(IdrSc());
+        queue.Push(keyframe);
+        for (var i = 0; i < 27; i++)
+        {
+            queue.Push(SliceUnit());
+        }
+
+        Assert.Equal(0, queue.Dropped);
+        Assert.True(queue.TryPop(out var first));
+        Assert.Same(keyframe, first);
+    }
+
+    [Fact]
+    public void 新的關鍵影格到達時會清掉積壓的舊影格()
+    {
+        // 積壓超過容量時，「丟最舊」會把唯一的解碼起點丟掉，剩下的 P-frame 解不開。
+        // 新關鍵影格自己就帶著 SPS/PPS，整段舊積壓都已被它超越，直接從它重開。
+        var queue = new LiveFrameQueue(4);
+        for (var i = 0; i < 4; i++)
+        {
+            queue.Push(SliceUnit());
+        }
+
+        var keyframe = KeyUnit(IdrSc());
+        queue.Push(keyframe);
+
+        Assert.Equal(4, queue.Dropped);
+        Assert.True(queue.TryPop(out var first));
+        Assert.Same(keyframe, first);
+    }
+
+    [Fact]
+    public async Task 啟動突發後的第一個資料幀是含SPS的關鍵影格()
+    {
+        // 端到端重現現場：來源一次吐出 IDR 加 27 個 P-frame（比佇列容量更早發生的
+        // 那一種突發）。送給 QCC 的第一個資料幀必須是 block1 > 0 的關鍵影格——
+        // QCC 只以 block1 判關鍵影格，缺 SPS 的 IDR 會被它當非關鍵丟棄，畫面永遠
+        // 起不來，而且沒有任何錯誤訊息。
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        var burst = new List<byte>();
+        burst.AddRange(AnnexBStream());
+        burst.AddRange(Enumerable.Repeat(SliceSc(), 26).SelectMany(slice => slice));
+        var context = new LiveContext { Factory = (_, _) => new FakeLiveSource([.. burst]) };
+        await using var server = new NemoServer(context, IPAddress.Loopback);
+        server.Start();
+
+        using var client = new TcpClient();
+        await client.ConnectAsync(IPAddress.Loopback, server.Port, timeout.Token);
+        var stream = client.GetStream();
+        await LoginAsync(stream, timeout.Token);
+
+        using var keepAliveCts = CancellationTokenSource.CreateLinkedTokenSource(timeout.Token);
+        var keepAlives = KeepAlive(0, 0);
+        var pacer = Task.Run(async () =>
+        {
+            try
+            {
+                while (!keepAliveCts.IsCancellationRequested)
+                {
+                    await stream.WriteAsync(keepAlives, keepAliveCts.Token);
+                    await Task.Delay(250, keepAliveCts.Token);
+                }
+            }
+            catch (Exception)
+            {
+            }
+        });
+
+        try
+        {
+            FramPacket? first = null;
+            var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
+            while (first is null && DateTime.UtcNow < deadline)
+            {
+                var packet = await ReadFramAsync(stream, timeout.Token);
+                if (packet.Status == 0)
+                {
+                    first = packet;
+                }
+            }
+
+            Assert.NotNull(first);
+            Assert.Equal(SpSc().Length, BinaryPrimitives.ReadInt32LittleEndian(first!.Media.AsSpan(0x0c)));
+            Assert.Equal(SpSc(), first.Payload[..SpSc().Length]);
+        }
+        finally
+        {
+            keepAliveCts.Cancel();
+            try
+            {
+                await pacer;
+            }
+            catch (Exception)
+            {
+            }
+        }
     }
 }

@@ -90,13 +90,25 @@ internal sealed class QctekLiveStreamSource : IQctekLiveSource
 
             // stderr 的 pipe 必須持續讀掉：塞滿（64 KB）會讓 ffmpeg 卡在寫入，
             // 症狀是「行程在跑但永遠沒有輸出」。loglevel error 讓流量很小。
+            // 前兩行一定要寫進診斷日誌：攝影機層的失敗（401、連不上、找不到串流）
+            // 只出現在 stderr；不記的話症狀是「來源已啟動、狀態幀一直 0x8004、
+            // 日誌乾淨」——CMS 回報「有連線、沒畫面」時最難查的就是這一種。
+            // 只記前兩行：來源每 5 秒重試一次，全記會把 512 KB 的日誌洗掉。
+            // 錯誤訊息會回顯輸入網址，一律經 RedactText 遮掉帳密。
             var drain = Task.Run(async () =>
             {
-                var buffer = new char[4096];
+                var logged = 0;
                 try
                 {
-                    while (await process.StandardError.ReadAsync(buffer.AsMemory()) != 0)
+                    while (await process.StandardError.ReadLineAsync().ConfigureAwait(false) is { } line)
                     {
+                        if (line.Length == 0 || logged >= 2)
+                        {
+                            continue;
+                        }
+
+                        logged++;
+                        log?.Invoke($"QCTEK live：ffmpeg：{RtspUri.RedactText(line)}");
                     }
                 }
                 catch (Exception)

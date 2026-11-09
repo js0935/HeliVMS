@@ -977,3 +977,45 @@ Notes that will save you time:
   to `%TEMP%\helivms-qctek.log`, and the listener URL decision is behaviour-tested in Shared.Tests.
   Guarded by `QctekPortMuxTests`, `QctekPortPlannerTests`, `QctekChallengeTests`, `WebListenUrlTests`,
   `NetworkPortContractTests` and `QctekHttpResponderTests`.
+- **QCC live view: the first FRAM must be a keyframe, and the live queue must be bigger than the
+  startup burst.** 現場回報「QCC 連得上但沒畫面」時，主因不是授權也不是攝影機，而是我們的每頻道
+  佇列: 實測（VIVOTEK IP9164-HT、1080p15、`-c:v copy -bsf:v dump_extra`）ffmpeg 建立 RTSP 工作
+  階段後把輸入緩衝一次倒出來——第一包 10279 bytes ＝ SPS/PPS/SPS/PPS/IDR，1 毫秒後又一包
+  2201 bytes ＝ 27 個 P-frame，兩包都遠早於第一個 33 ms tick。舊的 `QueueCapacity = 8` 讓排在
+  後面的 P-frame 把那張 IDR 擠出去，之後每一幀都是 `block1 = 0`，而 **QCC 只以 `block1 > 0`
+  認定關鍵影格**，於是解碼器沒有起點: 連線正常、畫面全黑、兩邊日誌乾淨，要等下一個 GOP
+  （修復前實測第 91 幀、約 7.5 秒）。兩條規則不要改回去: (1) 容量必須大於突發量（現在 64，
+  約 2 秒的 30 fps 輸出）；(2) 溢位時寧可跳段也不要送解不開的影格——新的關鍵影格到達而佇列
+  已滿時整段舊積壓作廢（`LiveFrameQueue.Push`），因為關鍵影格自己就帶著 SPS/PPS。第一次丟棄
+  會寫進 `%TEMP%\helivms-qctek.log`（關鍵影格被丟棄另有第二行），否則這個症狀的預設值就是
+  「日誌乾淨」。Guarded by `啟動突發不會把關鍵影格擠出佇列`,
+  `新的關鍵影格到達時會清掉積壓的舊影格` and `啟動突發後的第一個資料幀是含SPS的關鍵影格`
+  （把容量改回 8 會同時紅）。
+- **QCC heartbeat commands are answered with zero bytes — never with a frame.** `ALARM_HELLO 1
+  =QCV8001` arrives every 5 seconds (1,341 times in one measured session) not because the CMS is
+  managing the device but because QCC's own "report alarms to CMS" setting points at
+  `127.0.0.1:5170`. The real QCV8001 answers nothing: `qc_rm_alarm`'s `FUN_180004830` →
+  `FUN_180005f10` writes `0` to the first byte of the 0x100 response buffer (= 0 bytes on the
+  wire), and the QCC side (`qc_alarm` `FUN_180015620`) only increments a counter after sending —
+  it never reads a reply. So `QctekCommandHandler` returns `null` for these. Sending an "OK "
+  frame instead makes the client treat that frame as the response to its **next** command, and
+  every subsequent reply is off by one: the device connects, every command goes out, and both the
+  picture and every list stay empty with clean logs on both sides. `NemoSessionLoop` also logs the
+  heartbeat only once per connection — 1,341 lines in a 512 KB rolling file erases the lines that
+  actually explain a failure, and "the log looks clean" is worse than no log. Guarded by
+  `心跳命令是已知命令且不回任何位元組` and `心跳命令只記錄第一次且不會吃掉下一條命令的回應`.
+- **QCC restarting itself every 66 seconds is the machine's memory pressure, not a compat-layer
+  bug.** When investigating "QCC behaves oddly" (a device that adds fine then disconnects, a
+  registry experiment with no signal, `Out of Memory!` in `C:\QCTek\QCC\log\*.err`), check
+  whether the log is looping `BOOT → Out of Memory! → Stop NVR 3: ShellStartPage` about every 58
+  seconds of run plus 8 seconds of teardown. `QCC.exe`'s `FUN_140001ef0` calls
+  `GlobalMemoryStatusEx` on a timer and, when `ullAvailPageFile * 10 < ullTotalPageFile` (free
+  page file below 10 %), sets `+0x608 = 0x1417` and `FUN_140001af0` posts `0x801b` with
+  `wParam = 3` to the child window; `QC_Live`'s `FUN_140015aa0` prints `ProcMemInfo` and rebuilds
+  the whole NVR. Measured on this box: 13,238 / 14,031 MB committed (5.6 % free against a 1,403 MB
+  threshold) while Ghidra, OpenCode, Chrome and node were running; 2,407 MB (17.2 %) after they
+  closed, and the loop stops. Anything observed while the loop is running is worthless — a probe,
+  click or registry change is reset before it can be measured — and this is why
+  `ALARM_HELLO` timing surveys and `ImmedChannels`/`ImmedSelAll` experiments produced "no
+  signal". Confirm the loop is gone (no `Out of Memory!` / `Stop NVR 3: ShellStartPage`) before
+  concluding anything about live view, and never "fix" it in our own code.

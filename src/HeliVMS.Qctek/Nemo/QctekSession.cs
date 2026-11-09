@@ -72,12 +72,22 @@ public readonly record struct QctekRequest(string Command, QctekFraming Framing)
 /// 同一條連線要交給 <see cref="HeliVMS.Qctek.Live.QctekLiveSession"/> 接手
 /// （之後是 keepalive＋FRAM，不是文字命令）。
 /// </param>
+/// <param name="Playback">
+/// 這次回覆是 <c>OPENFILE</c> 的成功回應：寫完 <see cref="Reply"/> 之後，
+/// 同一條連線要交給 <see cref="HeliVMS.Qctek.Live.QctekPlaybackSession"/> 接手
+/// （回放幀流，時戳＝錄影時刻）。
+/// </param>
+/// <param name="PlaybackStartUtc">回放的起播時刻（UTC；OPENFILE 的時間參數解析結果）。</param>
+/// <param name="PlaybackChannel">回放的 0-based 頻道號。</param>
 public readonly record struct QctekSessionResult(
     int Consumed,
     byte[]? Reply,
     string? Command,
     bool Close,
-    bool Live = false);
+    bool Live = false,
+    bool Playback = false,
+    DateTime PlaybackStartUtc = default,
+    int PlaybackChannel = 0);
 
 /// <summary>
 /// 單一 TCP 連線的 NEMO 協定狀態機：分辨 raw／NEMO 框、處理 <c>QCV8001_AUTH</c>
@@ -264,6 +274,18 @@ public sealed class QctekSession
                 Live: true);
         }
 
+        if (_authorized && QctekCommandHandler.IsPlaybackStart(request))
+        {
+            return new QctekSessionResult(
+                consumed,
+                QctekCommandHandler.Handle(request, _context),
+                request.Command,
+                false,
+                Playback: true,
+                PlaybackStartUtc: QctekCommandHandler.PlaybackStartUtc(request),
+                PlaybackChannel: QctekCommandHandler.PlaybackChannel(request));
+        }
+
         return new QctekSessionResult(
             consumed,
             QctekCommandHandler.Handle(request, _context),
@@ -299,6 +321,20 @@ public sealed class QctekSession
                 pending.Command,
                 false,
                 Live: true);
+        }
+
+        // OPENFILE/OPENSECOND 的成功回覆（"OK <檔案資訊>"）之後，同一條連線是回放
+        // 通道（FRAM 幀流、時戳＝錄影時刻）；同樣必須告訴呼叫端交棒。
+        if (QctekCommandHandler.IsPlaybackStart(pending))
+        {
+            return new QctekSessionResult(
+                consumed,
+                QctekCommandHandler.Handle(pending, _context),
+                pending.Command,
+                false,
+                Playback: true,
+                PlaybackStartUtc: QctekCommandHandler.PlaybackStartUtc(pending),
+                PlaybackChannel: QctekCommandHandler.PlaybackChannel(pending));
         }
 
         return new QctekSessionResult(

@@ -30,6 +30,16 @@ public class QctekPortMuxTests
         public bool IsKnownUser(string user) => user == "admin";
 
         public HeliVMS.Qctek.Live.IQctekLiveSource? CreateLiveSource(int channelIndex, int subStream) => null;
+
+        public IReadOnlyList<bool> GetRecordingMonthDays(int channelIndex, int year, int month) => new bool[31];
+
+        public IReadOnlyList<byte> GetRecordingHourMatrix(int channelIndex, int year, int month) => new byte[768];
+
+        public HeliVMS.Qctek.Live.QctekPlaybackSegment? FindSegmentFrom(int channelIndex, DateTime fromUtc) => null;
+
+        public HeliVMS.Qctek.Live.QctekPlaybackSegment? FindSegmentCovering(int channelIndex, DateTime fromUtc) => null;
+
+        public HeliVMS.Qctek.Live.IQctekLiveSource? CreatePlaybackSource(string filePath) => null;
     }
 
     // ── 分類（純函式）──────────────────────────────────────────────────────

@@ -162,4 +162,33 @@ public sealed class QctekCompatContractTests
             Assert.All(lines, line => Assert.Contains("{0}", line));
         }
     }
+
+    [Fact]
+    public void 相容服務的即時影像來源會補上攝影機憑證()
+    {
+        // 少了這一步的症狀（實測）：攝影機對裸位址回 401 Unauthorized，ffmpeg 啟動後
+        // 立刻退出、stdout 一片空白，QCC 只收到 0x8004 狀態幀——「有連線、沒畫面」，
+        // 而日誌裡只有「來源已啟動」。channels.main_rtsp 存的是裸位址，憑證必須在
+        // 拉流當下由 RtspStreamResolver 補（與 ChannelManager.ResolveStreamUrl 同一規則）。
+        var code = SourceContract.Read(Host);
+        var create = SourceContract.BodyOf(code, "CreateLiveSource");
+        Assert.NotEqual(string.Empty, create);
+        Assert.Contains("StreamRouting.DisplayUrl(", create);
+        Assert.Contains("RtspStreamResolver.Resolve(", create);
+        Assert.Contains("GetRtspCredentials", create);
+
+        // 交給 ffmpeg 的必須是補完憑證的位址，不是資料庫裡的裸位址。
+        Assert.Contains("QctekLiveStreamSource.TryOpen(resolved", create);
+    }
+
+    [Fact]
+    public void 即時影像來源的ffmpeg錯誤會留在診斷日誌()
+    {
+        // 攝影機層的失敗只出現在 ffmpeg stderr。先前只把 stderr 讀掉不記錄，
+        // 401 因此完全隱形，只能從「狀態幀 0x8004」反推——這一條就是那個缺口。
+        var code = SourceContract.Read("src/HeliVMS.App/Services/QctekLiveStreamSource.cs");
+        Assert.Contains("ReadLineAsync", code);
+        Assert.Contains("RtspUri.RedactText(line)", code);
+        Assert.Contains("QCTEK live：ffmpeg：", code);
+    }
 }

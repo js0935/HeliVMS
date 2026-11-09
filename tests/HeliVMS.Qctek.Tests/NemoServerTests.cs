@@ -27,6 +27,16 @@ public class NemoServerTests
         public bool IsKnownUser(string user) => user == "admin";
 
         public HeliVMS.Qctek.Live.IQctekLiveSource? CreateLiveSource(int channelIndex, int subStream) => null;
+
+        public IReadOnlyList<bool> GetRecordingMonthDays(int channelIndex, int year, int month) => new bool[31];
+
+        public IReadOnlyList<byte> GetRecordingHourMatrix(int channelIndex, int year, int month) => new byte[768];
+
+        public HeliVMS.Qctek.Live.QctekPlaybackSegment? FindSegmentFrom(int channelIndex, DateTime fromUtc) => null;
+
+        public HeliVMS.Qctek.Live.QctekPlaybackSegment? FindSegmentCovering(int channelIndex, DateTime fromUtc) => null;
+
+        public HeliVMS.Qctek.Live.IQctekLiveSource? CreatePlaybackSource(string filePath) => null;
     }
 
     [Fact]
@@ -93,6 +103,37 @@ public class NemoServerTests
 
         // 未知命令不回應（不猜內容）；下一個命令的回應直接接上。
         Assert.Equal("ALIVE ", (await ReadFrameAsync(stream, timeout.Token)).Payload);
+    }
+
+    [Fact]
+    public async Task 心跳命令只記錄第一次且不會吃掉下一條命令的回應()
+    {
+        // QCC 實測：一個工作階段送 1,341 次 ALARM_HELLO（每 5 秒一次）。這份診斷日誌
+        // 是 512 KB 滾動檔，每次都記會把真正的線索（連線失敗原因、未知命令、live 診斷）
+        // 整段擠掉，症狀反而變成「日誌乾淨」。兩件事一起釘住：
+        // (1) 心跳真的不回位元組——否則客戶端會錯位一格（連得上、命令送得出、畫面全空）；
+        // (2) 心跳不被記成「未知命令」，避免下一次有人去補一個不該存在的回應。
+        var log = new System.Collections.Concurrent.ConcurrentQueue<string>();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+        await using var server = new NemoServer(new TestContext(), IPAddress.Loopback, log: log.Enqueue);
+        server.Start();
+
+        using var client = new TcpClient();
+        await client.ConnectAsync(IPAddress.Loopback, server.Port, timeout.Token);
+        var stream = client.GetStream();
+
+        var frames = Enumerable.Range(0, 3)
+            .SelectMany(_ => NemoMessage.EncodeText("ALARM_HELLO 1 =QCV8001"))
+            .Concat(NemoMessage.EncodeText("CHECK_SERVER_VERSION CLIENT_AUTH"))
+            .ToArray();
+        await stream.WriteAsync(frames, timeout.Token);
+
+        // 心跳不回覆，所以第一個收到的訊框必須是版本查詢的回應（錯位就會是心跳的回應）。
+        Assert.Equal("OK QCV8001 ", (await ReadFrameAsync(stream, timeout.Token)).Payload);
+
+        var lines = log.ToArray();
+        Assert.Equal(1, lines.Count(l => l.Contains("心跳", StringComparison.Ordinal)));
+        Assert.DoesNotContain(lines, l => l.Contains("未知命令", StringComparison.Ordinal));
     }
 
     [Fact]

@@ -54,6 +54,7 @@ public static class NemoSessionLoop
         pending.Append(initial);
         var read = new byte[8192];
         var session = new QctekSession(context);
+        var heartbeatSeen = false;
 
         try
         {
@@ -82,10 +83,27 @@ public static class NemoSessionLoop
                     {
                         if (result.Command is not null)
                         {
-                            // 未知命令不回覆（維持 null 語意）——但一定要留痕：
-                            // 這是「CMS 發了我們不認識的命令」唯一的證據。
-                            log?.Invoke(
-                                $"NEMO ← {QctekDiagnostics.Summarize(result.Command)}（未知命令，不回應）");
+                            if (QctekCommandHandler.IsSilentHeartbeat(result.Command))
+                            {
+                                // ALARM_HELLO 每 5 秒一次，單一工作階段實測 1,341 次。這份
+                                // 日誌是 512 KB 滾動檔，全部記下來會把真正的線索（連線失敗
+                                // 原因、未知命令、live 診斷）整段擠掉——症狀會變成「日誌
+                                // 乾淨」，那比沒有日誌更糟。只記第一次，足以證明警報通道活著。
+                                if (!heartbeatSeen)
+                                {
+                                    heartbeatSeen = true;
+                                    log?.Invoke(
+                                        $"NEMO ← {QctekDiagnostics.Summarize(result.Command)}" +
+                                        "（心跳；真機不回覆，同一連線後續不再記錄）");
+                                }
+                            }
+                            else
+                            {
+                                // 未知命令不回覆（維持 null 語意）——但一定要留痕：
+                                // 這是「CMS 發了我們不認識的命令」唯一的證據。
+                                log?.Invoke(
+                                    $"NEMO ← {QctekDiagnostics.Summarize(result.Command)}（未知命令，不回應）");
+                            }
                         }
                     }
                     else

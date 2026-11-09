@@ -31,6 +31,16 @@ public class QctekCommandHandlerTests
         public bool IsKnownUser(string user) => user is "admin" or "guest" or "test";
 
         public HeliVMS.Qctek.Live.IQctekLiveSource? CreateLiveSource(int channelIndex, int subStream) => null;
+
+        public IReadOnlyList<bool> GetRecordingMonthDays(int channelIndex, int year, int month) => new bool[31];
+
+        public IReadOnlyList<byte> GetRecordingHourMatrix(int channelIndex, int year, int month) => new byte[768];
+
+        public HeliVMS.Qctek.Live.QctekPlaybackSegment? FindSegmentFrom(int channelIndex, DateTime fromUtc) => null;
+
+        public HeliVMS.Qctek.Live.QctekPlaybackSegment? FindSegmentCovering(int channelIndex, DateTime fromUtc) => null;
+
+        public HeliVMS.Qctek.Live.IQctekLiveSource? CreatePlaybackSource(string filePath) => null;
     }
 
     private static byte[]? Handle(string command, bool framed = true, bool hasVnc = false)
@@ -233,8 +243,23 @@ public class QctekCommandHandlerTests
     public void 未知命令不回猜測內容()
     {
         // 未還原語意的命令（SEARCH_EVENT 等）回 null：寧可不回應，也不要回錯讓 CMS 誤判。
+        // GET_MONTH_DATE 已由回放協定實作（QctekPlaybackPayloads），所以不再列在這裡。
         Assert.Null(Handle("SEARCH_EVENT foo"));
-        Assert.Null(Handle("GET_MONTH_DATE"));
+        Assert.Null(Handle("GET_SDK_RECINFO"));
+        Assert.Null(Handle("ALARM_MATRIX 0"));
+    }
+
+    [Fact]
+    public void 心跳命令是已知命令且不回任何位元組()
+    {
+        // 真機 QC_RM_Alarm 對 ALARM_HELLO 只把回應緩衝區首位寫 0（空字串），線路上就是
+        // 0 bytes；QCC 端送出後只累加計數、從不讀回應。所以「補上」一個回應框會讓
+        // 客戶端把它當成下一條命令的回應而全部錯位一格——比不回應更糟。這裡同時釘住
+        // 「心跳」與「未知命令」必須分得出來，否則日誌會把心跳寫成缺陷。
+        var heartbeat = QctekRequest.Nemo("ALARM_HELLO 1 =QCV8001");
+        Assert.True(QctekCommandHandler.IsSilentHeartbeat(heartbeat.Command));
+        Assert.Null(QctekCommandHandler.Handle(heartbeat, new TestContext()));
+        Assert.False(QctekCommandHandler.IsSilentHeartbeat("SEARCH_EVENT 1 2 3"));
     }
 
     [Fact]
