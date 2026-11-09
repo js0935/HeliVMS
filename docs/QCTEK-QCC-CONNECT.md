@@ -318,6 +318,26 @@ FRAM 時戳兩欄位對調 → 2 個紅；`NemoSessionLoop` 停用交棒分支 �
    現況：HeliVMS 對這兩個路徑回 SPA（QCC 的驗證會失敗，但 live 不依賴它們——
    live 走 NEMO）。
 
+### 下一階段藍圖：QCC 的遠端回放協定（dvrProxy_pb）
+
+QCC 的「遠端回放」也走同一條 NEMO 通道（`dvrProxy_pb`，與 live 的 `dvrProxy_live`
+同構：挑戰授權→命令→幀流）。命令集已從反編譯還原（`QC_ipcam_aver` 的
+`dvrProxy_pb::*`），**線路格式待真機抓包驗證後實作**：
+
+| 命令 | 格式（反編譯還原） | 用途 |
+|---|---|---|
+| `GET_MONTH_DATE %u %u %u %u %u %u` | 月曆查詢 | 哪些天有錄影 |
+| `CATALOG %u %u %u %d`（年 = tm_year+1900） | 目錄查詢 | 某天的錄影段目錄 |
+| `OPENFILE %u %u %u %u %u %s %s QCV8001_AUTH` | 開檔 | 頻道＋時間＋帳密＋挑戰 |
+| `OPENSECOND …`（同命令變體，旗標 0x94 bit24） | 按秒開檔 | |
+| `SEEKFILE %d` | 跳轉 | |
+| `CLOSEFILE` | 結束 | |
+
+流程與 live 同構：`PlaybackAutuor`（挑戰授權）→ `ReadFile`／`ReadFileResponseQCV8001`
+（幀流）→ `PlaybackStop`。實作前必須抓「QCC ↔ 真機的回放抓包」雙重驗證——
+live 的經驗：反編譯還原的格式，抓包會抓出反推不出的細節（挑戰長度、時戳順序、
+回應延遲敏感度）。
+
 > **這一輪的根因（已修）**：`WebHost` 共用埠時送 `--urls=http://localhost:0`，
 > Kestrel 直接擲 `InvalidOperationException: Dynamic port binding is not supported when
 > binding to localhost`。那句話被啟動失敗處理吞掉，於是「Web 沒起來 → 公開埠沒人讓 →
