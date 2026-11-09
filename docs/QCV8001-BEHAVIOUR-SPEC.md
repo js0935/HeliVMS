@@ -202,3 +202,25 @@ CMD_PLAYBACK_AUDIO_OPEN/CLOSE；二進位幀 /device/playback/data
 | F2 輪巡 | **HeliVMS 已有跳台序列**（`AdvanceWallSequence`＋`WallSequenceToggle`，固定 5 秒）。本輪升級為 QC_Live 語意而非另造第二份：推進算術改走 `WallAutoScanPlanner.NextOffset`（尾頁夾住、分割量蓋滿全部頻道時不動）；開關持久化 `wall.auto_scan`、週期 `wall.auto_scan_seconds`（未設定＝5 秒＝既有節奏）。QC_Live 把 `AutoScanEnable`/`AutoScanPeriod` 記在 UsageHabit，重開不會忘——HeliVMS 原本會忘，這是本次補的缺口 | `src/HeliVMS.Shared/WallAutoScanPlanner.cs`＋`WallAutoScanPlannerTests`（7 條，含突變檢查）；`WallSequenceContractTests`（3 條） |
 
 尚未實作：F3（OSD 兩種時間模式＋字色字級）、F4（每攝影機音量）、F5（全螢幕單格自動主/子碼流）、F6（解碼策略設定化）、F7（錄影語意：`RecFileSeconds`、模式對齊、事件型別 23 種、剩餘可錄時間）、F8（回放 ±30s、事件過濾、匯出任務化）。
+
+## 7. F3–F8 盤點結論（2026-11-10 自主掃描）
+
+逐項對照的結果：**多數 QC_Live 核心行為 HeliVMS 已經存在**，真正缺的都有「需要新 UI」或「高風險低收益」的性質。逐項：
+
+| 項目 | 結論 | 證據 |
+|---|---|---|
+| F3 OSD 時間/字色字級 | **部分存在**：單格 OSD（`OsdText`，與主讀數同一格式器）在 1 分割已有；多分割每格 OSD 有更新間隔（`PaneOsdInterval` 模式）。缺的是「畫面上疊時刻＋兩種格式＋字色字級設定」——本質是畫面上的新元素，**需要你同意才加**（預設關閉可做到零視覺變化） | `AGENTS.md` 播放 OSD 條目；`PlaybackClock.FormatInstant` |
+| F4 每攝影機音量 | **不存在**：`channels` 無 volume 欄、`WaveOutPlayer` 無音量 API。要落地需 schema＋`waveOutSetVolume`＋至少一個設定入口（UI）——**暫緩** | 掃描 `src/HeliVMS.Storage`、`src/HeliVMS.App` |
+| F5 單畫面自動主碼流 | **已存在**：`ChannelManager.ApplyDisplayPolicyAsync`——1 分割第 0 格升主流、其餘次流、錄影恆主流、次流常駐不斷線（比 QC_Live 更細：含手動切流覆蓋與回復） | `ChannelManager.cs` 215–229 |
+| F6 解碼策略 | **等價物已存在且更進階**：live 有 `FrameRateGate`（令牌桶丟幀）、`decode.hwaccel` 設定與全域冷卻、回放有 `PlaybackWallBudget`（每格縮放/幀率上限/解碼執行緒/關鍵影格模式）。QC_Live 的 `LimitDispRes`/`LimitOneFPS` 是設定面；HeliVMS 是自動策略＋診斷。設定化屬 UI 範疇——**暫緩** | `AGENTS.md` live/回放 budget 條目 |
+| F7 單檔秒數 | **已存在**：`recording.segment_seconds`（`RecordingSegmentPolicy`，預設 3600）＝QC_Live `RecFileSeconds` | `RecordingSegmentPolicy.cs` |
+| F7 錄影模式 | **語意已由映射對齊**：HeliVMS 4 模式（全時/排程/事件/手動）涵蓋 QC_Live 的 MOTION/ALARM/MOTION_ALARM（→event）與手動；`INTENSIVE_*` 是碼流策略不是錄影時機。改 `RecordingMode` 列舉會波及排程/牆上模式點/CS8524——**不做內部對齊**，QCC 相容層已在回應面映射（`QctekEventTypes`） | `QctekEventTypes.cs`；`AGENTS.md` 錄影模式點條目 |
+| F7 事件型別 23 種 | **部分**：`alarm_events.event_type` 已分類且 CMS 映射完成（System/Operation/Network/Event/Alarm）；補滿 23 種 QCV8001 專屬型別（POS/車牌/人臉…）對 HeliVMS 沒有對應資料源——**不做** | `QctekEventTypes.cs` |
+| F7 剩餘可錄時間 | **基礎存在**（磁碟壓力等級/保留空間）；「剩餘可錄時間估計」需要顯示位置（UI）——**暫緩** | `DiskPressureCoordinator` |
+| F7 關機等錄影收尾 | **已存在且更完整**：`SegmentRecorder` 先 q 後 kill、`ShutdownSequencer` 有界收尾、`ShutdownWatchdog` 兜底 | `AGENTS.md` shutdown 條目 |
+| F8 ±30 秒 | **能力已存在**（±10s/±60s Ctrl/±600s Shift）；QC_Live 的 30 秒是不同步進值。改預設值會動現有操作員肌肉記憶——**保留現值** | `PlaybackSeekPlanner` |
+| F8 事件過濾/匯出任務化 | 事件清單已有；型別過濾與背景匯出佇列都是 UI 面——**暫緩** | `PlaybackWindow`；匯出精靈 |
+
+結論：**F 系列裡「不改 UI 就能移植」的部分，在 F1/F2 提交後已全部完成或確認已存在**。
+其餘每一項都需要（a）你同意加最小 UI，或（b）動列舉/綱要的高風險改動。要繼續的話，建議順序
+F3（OSD 時間，預設關閉）→ F4（每路音量）→ F8 匯出任務化；說一聲就動工。
