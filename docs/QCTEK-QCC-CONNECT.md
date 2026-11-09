@@ -356,6 +356,13 @@ live 的經驗：反編譯還原的格式，抓包會抓出反推不出的細節
 | GET_LIVE_START | ✅ | FRAM 幀流（本文件上半） |
 | GET_CATALOG／CATALOG、GET_MONTH_DATE、OPENFILE、OPENSECOND、SEEKFILE、CLOSEFILE | ⏳ | 回放協定（上表藍圖） |
 | **GET_REC_DAYS** | ⏳ | **第三種協定**：`HR_MonthDays::SendRequest` 用「QC32」魔數框（+0x00 `"QC32"`、+0x04 總長 0xec、+0x08 `"GET_REC_DAYS"`、+0xdc 起月範圍；236B 固定結構、MonthDateCB 回呼）——與 NEMO/RMCL 並列，需另外還原回應 |
+
+**GET_REC_DAYS 的回應格式（MonthDateCB 還原）**：分兩段到達——先讀滿 **0xec（236B）**
+（結構原樣：QC32＋總長＋命令＋參數，結果欄位由裝置填），再讀 **0x28（40B）** 到結構的
++0x114；累積滿 0x28 後取 **+0x124 起 6 個 u32（24 bytes）** 回呼給上層（48 bytes 容器、
+後半補零）——語意是**連續月份（月範圍查詢，跨度 ≤6）的「每天有無錄影」位圖**
+（u32 的 bit d＝當月第 d 天）。資料開頭是 `"FAIL    "`（8 bytes）表示查詢失敗。
+回應讀取中斷（不足 0x28）且非 FAIL 時靜默等待；完成或失敗都會關閉連線。
 | GET_SDK_RECINFO | ⏳ | 錄影資訊 |
 | GET_FACE_FINDER_CHANNEL、GET_OBJECT_COUNTING_CHANNEL | ⏳ | AI 分析頻道 |
 | ALARM_MATRIX、ALARM_MSG、ALARM_RESET | ⏳ | 警報矩陣/訊息/復位 |
