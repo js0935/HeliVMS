@@ -125,6 +125,24 @@ public partial class MainWindow : Window
     private const string WallSequenceEnabledKey = "wall.auto_scan";
     private const string WallSequenceSecondsKey = "wall.auto_scan_seconds";
     private int _wallSequencePeriodSeconds = WallAutoScanPlanner.DefaultPeriodSeconds;
+
+    /// <summary>
+    /// 每格「時間 OSD」（QC_Live 的時間疊字對齊）：畫面左上疊當下時刻。
+    /// 模式記在 <c>wall.osd_time</c>（0＝關〔預設〕、1＝完整日期時間、2＝只有時分秒），
+    /// 字色 <c>wall.osd_font_color</c>（預設白）、字級 <c>wall.osd_font_size</c>（預設 12）。
+    /// 預設關閉：升級後畫面與之前完全一樣，要看的操作員自己用右鍵選單打開。
+    /// </summary>
+    private const string OsdTimeKey = "wall.osd_time";
+    private const string OsdFontColorKey = "wall.osd_font_color";
+    private const string OsdFontSizeKey = "wall.osd_font_size";
+    private bool _osdTimeEnabled;
+    private WallOsdSettings.OsdTimeMode _osdTimeFormat = WallOsdSettings.OsdTimeMode.Full;
+    private string _osdColorHex = WallOsdSettings.DefaultColorHex;
+    private double _osdFontSize = WallOsdSettings.DefaultFontSize;
+    private readonly TextBlock[] _cellOsdTime = new TextBlock[MaxCells];
+
+    /// <summary>各格右鍵選單中的「時間 OSD」項目；切換時同步所有格的勾選狀態。</summary>
+    private readonly List<MenuItem> _osdTimeMenuItems = [];
     private readonly TextBlock[] _cellBadges = new TextBlock[MaxCells];
 
     /// <summary>
@@ -785,12 +803,28 @@ public partial class MainWindow : Window
             (int)Math.Round(settings.GetDoubleOrDefault(WallSequenceSecondsKey, WallAutoScanPlanner.DefaultPeriodSeconds)));
         WallSequenceToggle.IsChecked = _wallSequenceEnabled;
 
+        // 時間 OSD：模式讀不懂一律關（預設），格式只落在 QC_Live 的兩種；壞色碼/字級由
+        // WallOsdSettings 整備回預設——這些值每秒都在用，不能讓一個壞設定把刷新打掉。
+        var osdMode = WallOsdSettings.ParseMode(settings.Get(OsdTimeKey));
+        _osdTimeEnabled = osdMode != WallOsdSettings.OsdTimeMode.Off;
+        if (osdMode != WallOsdSettings.OsdTimeMode.Off)
+        {
+            _osdTimeFormat = osdMode;
+        }
+        _osdColorHex = WallOsdSettings.NormalizeColorHex(settings.Get(OsdFontColorKey)) ?? WallOsdSettings.DefaultColorHex;
+        _osdFontSize = WallOsdSettings.NormalizeFontSize(settings.Get(OsdFontSizeKey));
+
         // 格子在 ApplyLayoutPreference 內就已先建好（那時還讀不到設定），把勾選狀態補正，
         // 否則上次開著的人這次開起來選單會顯示成未勾選，與實際顯示不一致。
         foreach (var item in _cellStatusMenuItems)
         {
             item.IsChecked = _showCellStatus;
         }
+        foreach (var item in _osdTimeMenuItems)
+        {
+            item.IsChecked = _osdTimeEnabled;
+        }
+        ApplyOsdTimeVisibility();
 
         ApplyI18n();
         _channels = new ChannelRepository(_store);
@@ -1931,6 +1965,7 @@ public partial class MainWindow : Window
         var cols = Math.Max(1, (int)Math.Round(Math.Sqrt(count)));
         CellGrid.Children.Clear();
         _cellStatusMenuItems.Clear();
+        _osdTimeMenuItems.Clear();
         _cellZoom = 1.0;
         _zoomPanX = 0;
         _zoomPanY = 0;
@@ -1973,6 +2008,20 @@ public partial class MainWindow : Window
                 Background = BrBadgeBg,
                 Foreground = Brushes.White,
                 FontSize = Math.Max(9, 15 - cols),
+                Text = string.Empty,
+                Visibility = Visibility.Collapsed,
+            };
+            // 時間 OSD（QC_Live 對齊）：畫面左上疊當下時刻。留在數位縮放層外（與狀態文字、
+            // 名稱徽章同一層），放大畫面時刻不會跟著放大跑掉。預設關閉。
+            var osdTime = new TextBlock
+            {
+                HorizontalAlignment = HorizontalAlignment.Left,
+                VerticalAlignment = VerticalAlignment.Top,
+                Margin = new Thickness(6, 4, 6, 4),
+                Padding = new Thickness(7, 2, 7, 2),
+                Background = BrBadgeBg,
+                Foreground = ResolveOsdBrush(),
+                FontSize = _osdFontSize,
                 Text = string.Empty,
                 Visibility = Visibility.Collapsed,
             };
@@ -2049,6 +2098,7 @@ public partial class MainWindow : Window
             inner.Children.Add(zoomLayer);
             inner.Children.Add(text);
             inner.Children.Add(badge);
+            inner.Children.Add(osdTime);
             inner.Children.Add(modeDot);
             inner.Children.Add(audioStrip);
 
@@ -2086,11 +2136,16 @@ public partial class MainWindow : Window
             statusItem.IsCheckable = true;
             statusItem.IsChecked = _showCellStatus;
             _cellStatusMenuItems.Add(statusItem);
+            var osdTimeItem = AddMenuItem(menu, Localizer.T("Monitor.OsdTime"), OnToggleOsdTime, i);
+            osdTimeItem.IsCheckable = true;
+            osdTimeItem.IsChecked = _osdTimeEnabled;
+            _osdTimeMenuItems.Add(osdTimeItem);
             border.ContextMenu = menu;
 
             _cellImages[i] = img;
             _cellOverlays[i] = overlay;
             _cellTexts[i] = text;
+            _cellOsdTime[i] = osdTime;
             _cellBadges[i] = badge;
             _cellModeDots[i] = modeDot;
             _cellAudioIcons[i] = audioIcon;
@@ -2181,6 +2236,86 @@ public partial class MainWindow : Window
         }
 
         RefreshCellStatusText();
+    }
+
+    /// <summary>
+    /// 切換每格「時間 OSD」（QC_Live 的時間疊字對齊）。格式（完整/只有時分秒）在
+    /// <c>wall.osd_time</c>＝1/2，開關只翻 0↔記住的格式；與「顯示即時狀態」同一個模式。
+    /// </summary>
+    private void OnToggleOsdTime(object sender, RoutedEventArgs e)
+    {
+        _osdTimeEnabled = (sender as MenuItem)?.IsChecked
+            ?? (_osdTimeModeNow() == WallOsdSettings.OsdTimeMode.Off);
+
+        if (_store is not null)
+        {
+            new SettingsRepository(_store).Set(
+                OsdTimeKey, _osdTimeEnabled ? ((int)_osdTimeFormat).ToString() : "0");
+        }
+
+        foreach (var item in _osdTimeMenuItems)
+        {
+            item.IsChecked = _osdTimeEnabled;
+        }
+
+        ApplyOsdTimeVisibility();
+    }
+
+    /// <summary>現在生效的時間 OSD 模式（關閉時回 <see cref="WallOsdSettings.OsdTimeMode.Off"/>）。</summary>
+    private WallOsdSettings.OsdTimeMode _osdTimeModeNow()
+        => _osdTimeEnabled ? _osdTimeFormat : WallOsdSettings.OsdTimeMode.Off;
+
+    /// <summary>把每格的時間 OSD 依開關顯示或收起；文字立刻補一次，不等下一秒的計時器。</summary>
+    private void ApplyOsdTimeVisibility()
+    {
+        var visibility = _osdTimeEnabled ? Visibility.Visible : Visibility.Collapsed;
+        var text = WallOsdSettings.FormatTime(_osdTimeModeNow(), DateTime.Now);
+        for (var i = 0; i < MaxCells; i++)
+        {
+            var t = _cellOsdTime[i];
+            if (t is null)
+            {
+                continue;
+            }
+
+            t.Visibility = visibility;
+            t.Text = text;
+        }
+    }
+
+    /// <summary>每秒刷新各格時間 OSD 的文字（只在開啟時動字串，關閉時完全不碰）。</summary>
+    private void UpdateCellOsdTime()
+    {
+        if (!_osdTimeEnabled)
+        {
+            return;
+        }
+
+        var text = WallOsdSettings.FormatTime(_osdTimeModeNow(), DateTime.Now);
+        for (var i = 0; i < MaxCells; i++)
+        {
+            var t = _cellOsdTime[i];
+            if (t is not null && t.Text != text)
+            {
+                t.Text = text;
+            }
+        }
+    }
+
+    /// <summary>時間 OSD 的字色；色碼已在載入時整備，這裡再把轉換失敗兜回白色。</summary>
+    private System.Windows.Media.SolidColorBrush ResolveOsdBrush()
+    {
+        try
+        {
+            var brush = new System.Windows.Media.SolidColorBrush(
+                (System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString(_osdColorHex));
+            brush.Freeze();
+            return brush;
+        }
+        catch (FormatException)
+        {
+            return System.Windows.Media.Brushes.White;
+        }
     }
 
     /// <summary>把目前所有處於連線中的格，依 <see cref="_showCellStatus"/> 重畫或收掉狀態文字。</summary>
@@ -5062,6 +5197,7 @@ public partial class MainWindow : Window
         UpdateBadges();
         UpdateAiPolicy();
         UpdateCellMetrics();
+        UpdateCellOsdTime();
 
         // 每 5 秒一行診斷（同一條 1 秒計時器，不另外開一條）。
         if (++_liveLogTick >= 5)
