@@ -348,6 +348,24 @@ QCC 的「遠端回放」也走同一條 NEMO 通道（`dvrProxy_pb`，與 live 
 live 的經驗：反編譯還原的格式，抓包會抓出反推不出的細節（挑戰長度、時戳順序、
 回應延遲敏感度）。
 
+### QCC 對裝置的完整命令清單與對齊完成度（從 QCC 端字串盤點）
+
+| 命令 | HeliVMS | 備註 |
+|---|---|---|
+| CHECK_SERVER_VERSION、GET_CONFIG_QCTEK、GET_AUTH_USER、GET_NCHANNEL、GET_MAX_STREAM_NUM、GET_IOCONFIG、CONNECT、ALARM_*、CHECK_VNC_VERSION | ✅ | 黃金抓包對齊 |
+| GET_LIVE_START | ✅ | FRAM 幀流（本文件上半） |
+| GET_CATALOG／CATALOG、GET_MONTH_DATE、OPENFILE、OPENSECOND、SEEKFILE、CLOSEFILE | ⏳ | 回放協定（上表藍圖） |
+| **GET_REC_DAYS** | ⏳ | **第三種協定**：`HR_MonthDays::SendRequest` 用「QC32」魔數框（+0x00 `"QC32"`、+0x04 總長 0xec、+0x08 `"GET_REC_DAYS"`、+0xdc 起月範圍；236B 固定結構、MonthDateCB 回呼）——與 NEMO/RMCL 並列，需另外還原回應 |
+| GET_SDK_RECINFO | ⏳ | 錄影資訊 |
+| GET_FACE_FINDER_CHANNEL、GET_OBJECT_COUNTING_CHANNEL | ⏳ | AI 分析頻道 |
+| ALARM_MATRIX、ALARM_MSG、ALARM_RESET | ⏳ | 警報矩陣/訊息/復位 |
+| OPEN_IO、CLOSE_IO、OPEN_POS、CLOSE_POS | ⏳ | IO/位置開關 |
+| GET_PARAMETER、GET_IP_NUMBER、GET_PREV | ⏳ | 參數查詢 |
+
+未實作命令的現況：`NemoSessionLoop` 不回應（留痕於日誌「未知命令」）——QCC 端會
+逾時或重試，不會崩潰。每實作一個命令前，先挖 QCC 端的**回應解析器**（格式的權威）
+並以真機抓包雙重驗證。
+
 > **這一輪的根因（已修）**：`WebHost` 共用埠時送 `--urls=http://localhost:0`，
 > Kestrel 直接擲 `InvalidOperationException: Dynamic port binding is not supported when
 > binding to localhost`。那句話被啟動失敗處理吞掉，於是「Web 沒起來 → 公開埠沒人讓 →
