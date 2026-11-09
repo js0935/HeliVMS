@@ -13,7 +13,16 @@ public enum QctekFraming
 }
 
 /// <summary>一條已解出框法的 NEMO／raw 命令。</summary>
-public readonly record struct QctekRequest(string Command, QctekFraming Framing)
+/// <param name="Command">
+/// 命令的文字前段。純文字命令就是完整內容；二進位命令（<c>SEARCH_EVENT</c>）只有前段
+/// 可列印 ASCII，二進位本體在 <paramref name="Payload"/>。
+/// </param>
+/// <param name="Framing">線路框法。</param>
+/// <param name="Payload">NEMO 框的完整 payload（raw 命令為空）；二進位命令靠它取參數。</param>
+public readonly record struct QctekRequest(
+    string Command,
+    QctekFraming Framing,
+    ReadOnlyMemory<byte> Payload = default)
 {
     public bool IsFramed => Framing == QctekFraming.Nemo;
 
@@ -26,6 +35,9 @@ public readonly record struct QctekRequest(string Command, QctekFraming Framing)
     public static QctekRequest Raw(string command) => new(command, QctekFraming.Raw);
 
     public static QctekRequest Nemo(string command) => new(command, QctekFraming.Nemo);
+
+    public static QctekRequest Nemo(string command, ReadOnlyMemory<byte> payload)
+        => new(command, QctekFraming.Nemo, payload);
 
     private static string FirstToken(string command, int index)
     {
@@ -128,6 +140,22 @@ public sealed class QctekSession
     private QctekRequest? _pending;
     private bool _authorized;
 
+    /// <summary>
+    /// 這條連線上最近一次 <c>SEARCH_EVENT</c> 的查詢。分頁命令（<c>NEXT</c>／<c>PREV</c>）
+    /// 只送 4 bytes、不帶任何參數，所以頁碼與查詢條件<b>只能</b>留在連線層；放進
+    /// <see cref="QctekCommandHandler"/> 會變成第二份狀態，兩邊遲早漂移。
+    /// </summary>
+    private QctekEventSearchRequest? _eventQuery;
+
+    private int _eventPage;
+    private int _eventTotal;
+    private int _cachedEntries;
+
+    /// <summary>已抓過的頁（頁碼 → 內容）。綁住上限，避免 1024 頁 × 大頁寬吃光記憶體。</summary>
+    private readonly Dictionary<int, QctekEventPage> _eventPages = [];
+
+    private const int MaxCachedEventEntries = 20_000;
+
     /// <param name="context">裝置資訊（頻道名、使用者驗證）。</param>
     /// <param name="challengeFactory">挑戰字串產生器；測試注入固定值以重播黃金對話。</param>
     public QctekSession(IQctekDeviceContext context, Func<string>? challengeFactory = null)
@@ -202,13 +230,59 @@ public sealed class QctekSession
             extra++;
         }
 
-        var command = Encoding.UTF8.GetString(payload).TrimEnd('\0');
+        var command = DescribeCommand(payload);
         var total = offset + consumed + extra;
-        return Dispatch(QctekRequest.Nemo(command), total);
+        return Dispatch(QctekRequest.Nemo(command, payload), total);
+    }
+
+    /// <summary>
+    /// 從 NEMO payload 取出命令文字。
+    /// <para>
+    /// 純文字命令（<c>CONNECT</c>、<c>ALARM_ISALIVE</c>…）的 payload 全是可列印 ASCII，
+    /// 後面可能有 NUL 補滿——舊行為是整段解 UTF-8 再削掉尾端 NUL。二進位命令
+    /// （<c>SEARCH_EVENT</c>）在命令名之後就是本體，整段解碼會把本體變成亂碼字串，
+    /// 所以命令只取<b>前段可列印 ASCII</b>，本體留在 <see cref="QctekRequest.Payload"/>。
+    /// </para>
+    /// <para>
+    /// 遇到命令名之後不是 NUL 而是非 ASCII（理論上不會發生）就退回舊行為，避免把
+    /// 一個純文字命令截斷成半個名字。
+    /// </para>
+    /// </summary>
+    private static string DescribeCommand(byte[] payload)
+    {
+        var length = 0;
+        while (length < payload.Length && payload[length] is >= 0x20 and <= 0x7E)
+        {
+            length++;
+        }
+
+        if (length == 0)
+        {
+            return string.Empty;
+        }
+
+        if (length < payload.Length && payload[length] != 0)
+        {
+            return Encoding.UTF8.GetString(payload).TrimEnd('\0');
+        }
+
+        return Encoding.ASCII.GetString(payload, 0, length);
     }
 
     private QctekSessionResult AdvanceRaw(ReadOnlySpan<byte> data, int offset)
     {
+        // 事件分頁命令只送 4 個位元組、不帶結尾 NUL（QCC 的 DAT_18001cf10 與其後 8 bytes
+        // 就是 "NEXT"／"PREV"）。照一般 raw 命令等 NUL 的話會一直等不到，QCC 等 10 秒
+        // 後放棄、清單停在第一頁——而兩邊日誌都只有「連線正常」。
+        if (data.Length >= 4)
+        {
+            var head = data[..4];
+            if (head.SequenceEqual("NEXT"u8) || head.SequenceEqual("PREV"u8))
+            {
+                return Dispatch(QctekRequest.Raw(Encoding.ASCII.GetString(head)), offset + 4);
+            }
+        }
+
         // 第一 byte 就不是可列印 ASCII：不是 raw 命令，也不是 NEMO 框——不猜重新同步點。
         if (data[0] is < 0x20 or > 0x7E)
         {
@@ -256,6 +330,18 @@ public sealed class QctekSession
         // 挑戰交換途中來了別的命令：丟掉過期的待辦狀態，當成新命令處理。
         _pending = null;
 
+        // SEARCH_EVENT 不經 QCV8001_AUTH 挑戰（QC_RM_Event::SearchEvent 直接送框），
+        // 而且它的回應要分頁——由連線層處理，不進 QctekCommandHandler。
+        if (request.Verb == QctekEventSearchRequest.CommandName)
+        {
+            return BeginEventSearch(request, consumed);
+        }
+
+        if (request.Verb is "NEXT" or "PREV")
+        {
+            return MoveEventPage(request, consumed);
+        }
+
         if (!_authorized && QctekCommandHandler.RequiresAuthorization(request))
         {
             var challenge = _challengeFactory();
@@ -291,6 +377,102 @@ public sealed class QctekSession
             QctekCommandHandler.Handle(request, _context),
             request.Command,
             false);
+    }
+
+    /// <summary>
+    /// <c>SEARCH_EVENT</c>：解析查詢、回第 0 頁，並記住查詢供後續 <c>NEXT</c>／<c>PREV</c> 使用。
+    /// <para>
+    /// 讀不懂的查詢回「0 筆」而不是替對端猜一個時間範圍（同匯出時刻的教訓：默默放寬
+    /// 範圍比報錯更難發現）。
+    /// </para>
+    /// </summary>
+    private QctekSessionResult BeginEventSearch(QctekRequest request, int consumed)
+    {
+        _eventPages.Clear();
+        _cachedEntries = 0;
+        _eventPage = 0;
+        _eventTotal = 0;
+        _eventQuery = QctekEventSearchRequest.TryParse(request.Payload.Span);
+
+        if (_eventQuery is null)
+        {
+            return new QctekSessionResult(
+                consumed,
+                QctekReply.FramedBinary(QctekEventPayloads.Page(QctekEventPage.Empty)),
+                request.Command,
+                false);
+        }
+
+        var page = PageAt(0);
+        return new QctekSessionResult(
+            consumed,
+            QctekReply.FramedBinary(QctekEventPayloads.Page(page)),
+            request.Command,
+            false);
+    }
+
+    /// <summary>NEXT／PREV：在同一條連線上換頁；超出範圍就停在最前／最後一頁。</summary>
+    private QctekSessionResult MoveEventPage(QctekRequest request, int consumed)
+    {
+        // 沒有查詢在前（對端重用了連線狀態）：回一個乾淨的空頁，不要讓它等滿 10 秒。
+        if (_eventQuery is null)
+        {
+            return new QctekSessionResult(
+                consumed,
+                QctekReply.FramedBinary(QctekEventPayloads.Page(QctekEventPage.Empty)),
+                request.Command,
+                false);
+        }
+
+        var pageSize = _eventQuery.PageSize;
+        var pages = pageSize <= 0 ? 1 : (_eventTotal + pageSize - 1) / pageSize;
+        var last = Math.Max(0, pages - 1);
+        var target = request.Verb == "NEXT"
+            ? Math.Min(_eventPage + 1, last)
+            : Math.Max(_eventPage - 1, 0);
+
+        var page = PageAt(target);
+        _eventPage = target;
+        return new QctekSessionResult(
+            consumed,
+            QctekReply.FramedBinary(QctekEventPayloads.Page(page)),
+            request.Command,
+            false);
+    }
+
+    /// <summary>
+    /// 取得第 <paramref name="index"/> 頁（有快取就用快取）。
+    /// <para>
+    /// 總筆數以<b>第一頁</b>為準：QCC 用第一頁的 <c>"OK n"</c> 算頁數，後續頁若因為
+    /// 期間有新事件而回不同的總數，它會算出不同的頁數、翻頁停在錯的位置。
+    /// </para>
+    /// </summary>
+    private QctekEventPage PageAt(int index)
+    {
+        if (_eventPages.TryGetValue(index, out var cached))
+        {
+            return cached;
+        }
+
+        var query = _eventQuery!;
+        var page = _context.SearchEvents(query, index * query.PageSize, query.PageSize);
+
+        if (index == 0)
+        {
+            _eventTotal = page.Total;
+        }
+        else if (page.Total != _eventTotal)
+        {
+            page = page with { Total = _eventTotal };
+        }
+
+        if (_cachedEntries + page.Entries.Count <= MaxCachedEventEntries)
+        {
+            _eventPages[index] = page;
+            _cachedEntries += page.Entries.Count;
+        }
+
+        return page;
     }
 
     private QctekSessionResult CompleteAuthorization(QctekRequest request, int consumed)

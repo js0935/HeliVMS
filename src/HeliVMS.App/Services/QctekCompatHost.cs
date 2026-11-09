@@ -410,6 +410,7 @@ public sealed class QctekCompatHost : IDisposable
         private readonly UserRepository _users;
         private readonly SegmentRepository _segments;
         private readonly DeviceRepository _devices;
+        private readonly AlarmEventRepository _events;
 
         public DeviceContext(SqliteStore store)
         {
@@ -418,6 +419,7 @@ public sealed class QctekCompatHost : IDisposable
             _users = new UserRepository(store);
             _segments = new SegmentRepository(store);
             _devices = new DeviceRepository(store, new AuditLogRepository(store));
+            _events = new AlarmEventRepository(store);
         }
 
         /// <summary>
@@ -607,6 +609,77 @@ public sealed class QctekCompatHost : IDisposable
             var segment = SegmentsBetween(channelIndex, from.AddSeconds(-1), from.AddSeconds(1))
                 .FirstOrDefault(s => s.StartUtc <= from && SegmentEnd(s) > from);
             return segment is null ? null : ToPlaybackSegment(channelIndex, segment);
+        }
+
+        /// <summary>
+        /// 事件查詢（<c>SEARCH_EVENT</c>）：把 <c>alarm_events</c> 的欄位翻成 CMS 認得的
+        /// 頻道索引／型別碼／本地時間，先過濾再取頁。總筆數是<b>過濾後</b>的總數——QCC
+        /// 用它算頁數。
+        /// </summary>
+        public QctekEventPage SearchEvents(QctekEventSearchRequest query, int offset, int limit)
+        {
+            ArgumentNullException.ThrowIfNull(query);
+
+            var fromUtc = TimeZoneInfo.ConvertTimeToUtc(
+                DateTime.SpecifyKind(query.FromLocal, DateTimeKind.Unspecified));
+            var toUtc = TimeZoneInfo.ConvertTimeToUtc(
+                DateTime.SpecifyKind(query.ToLocal, DateTimeKind.Unspecified));
+
+            // 指定了不存在的頻道（頻道被刪、索引位移）：沒有事件，不要退化成「全部頻道」。
+            int? channelId = null;
+            if (query.ChannelIndex >= 0)
+            {
+                channelId = ChannelIdAt(query.ChannelIndex);
+                if (channelId is null)
+                {
+                    QctekCompatHost.Diag(
+                        $"事件查詢：頻道 {query.ChannelIndex} 不存在 → 0 筆");
+                    return QctekEventPage.Empty;
+                }
+            }
+
+            var rows = _events.ListByRange(channelId, fromUtc, toUtc);
+            var channels = _channels.List();
+            var indexById = new Dictionary<int, int>(channels.Count);
+            for (var i = 0; i < channels.Count; i++)
+            {
+                indexById[channels[i].Id] = i;
+            }
+
+            var matched = new List<QctekEventEntry>(rows.Count);
+            foreach (var row in rows)
+            {
+                var type = QctekEventTypes.FromAlarmEventType(row.EventType);
+                if (!QctekEventTypes.Matches(query.TypeCode, type))
+                {
+                    continue;
+                }
+
+                var index = indexById.TryGetValue(row.ChannelId, out var at) ? at : -1;
+                var name = index >= 0 ? channels[index].Name : $"CH{row.ChannelId}";
+                var text = string.IsNullOrWhiteSpace(row.Detail)
+                    ? $"{name} {row.EventType}"
+                    : $"{name} {row.EventType} - {row.Detail}";
+
+                matched.Add(new QctekEventEntry(
+                    index,
+                    type,
+                    TimeZoneInfo.ConvertTimeFromUtc(
+                        DateTime.SpecifyKind(row.StartUtc, DateTimeKind.Utc),
+                        TimeZoneInfo.Local),
+                    text));
+            }
+
+            var total = matched.Count;
+            var page = limit <= 0
+                ? Array.Empty<QctekEventEntry>()
+                : matched.Skip(Math.Max(0, offset)).Take(limit).ToArray();
+
+            QctekCompatHost.Diag(
+                $"事件查詢：{query.FromLocal:yyyy/MM/dd HH:mm:ss}～{query.ToLocal:HH:mm:ss}" +
+                $" 型別={query.TypeCode} 頻道={query.ChannelIndex} → 共 {total} 筆，回 {page.Length} 筆");
+
+            return new QctekEventPage(page, total);
         }
 
         /// <summary>

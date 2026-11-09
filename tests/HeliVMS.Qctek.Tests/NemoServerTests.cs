@@ -36,6 +36,9 @@ public class NemoServerTests
 
         public HeliVMS.Qctek.Live.QctekPlaybackSegment? FindSegmentCovering(int channelIndex, DateTime fromUtc) => null;
 
+        public QctekEventPage SearchEvents(QctekEventSearchRequest query, int offset, int limit)
+            => QctekEventPage.Empty;
+
         public HeliVMS.Qctek.Live.IQctekLiveSource? CreatePlaybackSource(string filePath) => null;
     }
 
@@ -96,7 +99,9 @@ public class NemoServerTests
         await client.ConnectAsync(IPAddress.Loopback, server.Port, timeout.Token);
         var stream = client.GetStream();
 
-        var frames = NemoMessage.EncodeText("SEARCH_EVENT 1 2 3")
+        // 用一個真的不存在的命令名：SEARCH_EVENT 現在是已知命令（不可解析的查詢會回
+        // 「OK 0」），拿它當未知命令的例子會讓這條測試失去意義。
+        var frames = NemoMessage.EncodeText("NOT_A_REAL_COMMAND 1 2 3")
             .Concat(NemoMessage.EncodeText("ALARM_ISALIVE"))
             .ToArray();
         await stream.WriteAsync(frames, timeout.Token);

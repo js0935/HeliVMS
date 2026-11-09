@@ -67,6 +67,10 @@ jobs:
             'tests/HeliVMS.Devices.Tests/HeliVMS.Devices.Tests.csproj',
             'tests/HeliVMS.Licensing.Tests/HeliVMS.Licensing.Tests.csproj',
             'tests/HeliVMS.Media.Tests/HeliVMS.Media.Tests.csproj',
+            # Qctek：相容層的線路契約（NEMO 框、SEARCH_EVENT 分頁、多工器、挑戰）全走 loopback，
+            # 不需要 ffmpeg。這個專案原本不在清單裡——170 條守門測試因此在 CI 上從未執行，
+            # 綠色只代表「它們能被編譯」。
+            'tests/HeliVMS.Qctek.Tests/HeliVMS.Qctek.Tests.csproj',
             # Rtc（M244）：PublishPipelineTests 與 PublisherIntegrationTests 會真的執行 ffmpeg；
             # runner 上沒有 ffmpeg 時依設計略過（SkippableFact），不會讓 CI 變紅。
             'tests/HeliVMS.Rtc.Tests/HeliVMS.Rtc.Tests.csproj',

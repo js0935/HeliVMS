@@ -418,7 +418,7 @@ live 的經驗：反編譯還原的格式，抓包會抓出反推不出的細節
 | GET_LIVE_START | ✅ | FRAM 幀流（本文件上半）；伺服器端管線已驗證（`block1` 有值、`nals=[5]`），待 QCC 實機放頻道 |
 | `ALARM_HELLO`（QCC 自己的外送心跳） | ✅ | **回 0 bytes**（真機如此）；不可補回應框 |
 | `ALARM_ISALIVE`、`ALARM_REQUEST` | ✅ | 同族的存活／警報回報 |
-| **SEARCH_EVENT** | ⏳ | 二進位框（與 `GET_AUTH_USER` 同族）；QCC 事件搜尋頁要用 |
+| **SEARCH_EVENT** | ✅ | 二進位框＋分頁（`NEXT`／`PREV`）；格式見下節，待 QCC 實機驗證 |
 | GET_CATALOG／CATALOG、GET_MONTH_DATE、OPENFILE、OPENSECOND、SEEKFILE、CLOSEFILE | ⏳ | 回放協定（上表藍圖） |
 | **GET_REC_DAYS** | ⏳ | **第三種協定**：`HR_MonthDays::SendRequest` 用「QC32」魔數框（+0x00 `"QC32"`、+0x04 總長 0xec、+0x08 `"GET_REC_DAYS"`、+0xdc 起月範圍；236B 固定結構、MonthDateCB 回呼）——與 NEMO/RMCL 並列，需另外還原回應 |
 
@@ -437,6 +437,48 @@ live 的經驗：反編譯還原的格式，抓包會抓出反推不出的細節
 未實作命令的現況：`NemoSessionLoop` 不回應（留痕於日誌「未知命令」）——QCC 端會
 逾時或重試，不會崩潰。每實作一個命令前，先挖 QCC 端的**回應解析器**（格式的權威）
 並以真機抓包雙重驗證。
+
+#### SEARCH_EVENT 線路格式（已實作，待 QCC 實機驗證）
+
+請求是 `NEMO 360` 框（payload 總長 `0x178`）：
+
+| 位移 | 內容 |
+|---|---|
+| `+0x00` | 16-byte 命令名 `"SEARCH_EVENT"`＋NUL 補滿 |
+| `+0x10` | u32 本體長度（真機固定 `0x150`） |
+| `+0x14` | u32 每頁筆數（`0` 或 `>10000` 視為壞請求 → 回 0 筆） |
+| `+0x18` | 336-byte 本體＝`__EVENT_SEARCH_PARAM` 去掉前 4 bytes |
+
+本體（位移相對於 `+0x18`）：`+0x00` 起始 `struct tm`（9×int，36B）、`+0x24` 結束
+`struct tm`、`+0x48` i32 型別、`+0x4c` i16 頻道（**負值＝全部**）、`+0x4e` 起 150B
+標籤文字（POS 用，忽略）。`tm_year` 是「距 1900」、`tm_mon` 是 0-based。
+
+回應 payload 是 `"OK "` ＋ ASCII 十進位**總筆數** ＋ 零補到 `+0x10`，之後每筆 0x38：
+
+| 位移 | 內容 |
+|---|---|
+| `+0x00` | i16 頻道（0-based） |
+| `+0x02` | i16 型別碼（見下） |
+| `+0x04` | 44B 寬字元 `"YYYY/MM/DD HH:MM:SS"`——**本地**時間（真機 `qc_UtcToLocal`） |
+| `+0x30` | u16 len1（≤64；<2 視為空） |
+| `+0x32` | u16 len2（UTF-16LE，≤512，**含結束 NUL**） |
+| `+0x34` | u32 len3（<3 視為空） |
+
+三件容易做錯的事：
+
+1. **分頁不是重送查詢。** 同一條連線上 QCC 接下來送的是 **raw 4-byte `NEXT`／`PREV`**
+   （沒有 `NEMO` 標頭、沒有 NUL），伺服器回前／後一頁。
+2. **`OK <n>` 的 n 是符合條件的總筆數**，不是本頁筆數——QCC 用它算頁數。回本頁筆數會
+   讓清單只畫得出一頁，翻頁時把清單算空。分頁狀態放在連線層（`QctekSession`），
+   總數以**第一頁**為準，頁碼超出範圍夾在最前／最後一頁。
+3. **0 筆也要回框**：`"OK 0"`（payload 總長 0x20）。QCC 的 `iVar1 < 0x21` 直接
+   回 false，連空清單都不顯示。
+
+型別對映只落在 **1–5**（1＝System、2＝Operation、3＝Network、4＝Event、5＝Alarm），
+`line_cross`／`intrusion` 與 `ai_*` 都歸 Event，`io_*` 歸 Alarm，離線／連線歸 Network；
+查詢型別 `0`＝事件日誌全部（不含 POS 標籤），**200–205（VTMS／POS）一律回 0 筆**
+（HeliVMS 沒有那種資料）。時刻讀不懂時拒絕整筆查詢（回 0 筆），不默默放寬成整天——
+理由同匯出精靈那個「要 5 秒卻給 50 分鐘」的教訓。
 
 > **這一輪的根因（已修）**：`WebHost` 共用埠時送 `--urls=http://localhost:0`，
 > Kestrel 直接擲 `InvalidOperationException: Dynamic port binding is not supported when

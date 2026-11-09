@@ -62,6 +62,18 @@ public interface IQctekDeviceContext
     QctekPlaybackSegment? FindSegmentCovering(int channelIndex, DateTime fromUtc);
 
     /// <summary>
+    /// 事件查詢（<c>SEARCH_EVENT</c>）：回第 <paramref name="offset"/> 筆起、最多
+    /// <paramref name="limit"/> 筆，並附「符合條件的總筆數」——CMS 用總筆數算頁數，
+    /// 不是用本頁筆數。
+    /// <para>
+    /// <see cref="QctekEventSearchRequest.FromLocal"/>／<see cref="QctekEventSearchRequest.ToLocal"/>
+    /// 是<b>本地</b>時間（CMS 端就是本地時間），實作負責換成 UTC 查詢；
+    /// <see cref="QctekEventSearchRequest.ChannelIndex"/> 負值＝全部頻道。
+    /// </para>
+    /// </summary>
+    QctekEventPage SearchEvents(QctekEventSearchRequest query, int offset, int limit);
+
+    /// <summary>
     /// 開一路「錄影檔回放」的 H.264 來源（Annex-B；回放幀流用）。路徑無效或
     /// ffmpeg 不可用時回 null。
     /// </summary>

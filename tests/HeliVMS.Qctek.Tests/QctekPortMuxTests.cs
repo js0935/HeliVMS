@@ -39,6 +39,9 @@ public class QctekPortMuxTests
 
         public HeliVMS.Qctek.Live.QctekPlaybackSegment? FindSegmentCovering(int channelIndex, DateTime fromUtc) => null;
 
+        public QctekEventPage SearchEvents(QctekEventSearchRequest query, int offset, int limit)
+            => QctekEventPage.Empty;
+
         public HeliVMS.Qctek.Live.IQctekLiveSource? CreatePlaybackSource(string filePath) => null;
     }
 

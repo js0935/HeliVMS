@@ -1019,3 +1019,27 @@ Notes that will save you time:
   `ALARM_HELLO` timing surveys and `ImmedChannels`/`ImmedSelAll` experiments produced "no
   signal". Confirm the loop is gone (no `Out of Memory!` / `Stop NVR 3: ShellStartPage`) before
   concluding anything about live view, and never "fix" it in our own code.
+- **QCC's event search answers with a *total count* and pages with raw `NEXT`/`PREV`, not a second
+  query.** `SEARCH_EVENT` is the binary NEMO command behind the CMS event log page: 16-byte
+  `"SEARCH_EVENT"` + u32 `0x150` (body length) + u32 page size + the 336-byte
+  `__EVENT_SEARCH_PARAM` body with its first 4 bytes dropped (`+0x00`/`+0x24` `struct tm`, `+0x48`
+  i32 type, `+0x4c` i16 channel, negative = all). The reply is `"OK "` + ASCII decimal **total** +
+  zero fill to `+0x10`, then 0x38-byte records: i16 channel, i16 type, 44-byte wide
+  `"YYYY/MM/DD HH:MM:SS"` **local** time, and at `+0x30`/`+0x32`/`+0x34` three lengths where len2 is
+  UTF-16LE *including* its terminating NUL (len1 < 2, len2 < 3, len3 < 3 mean "empty"). Four things
+  are load-bearing. (1) The number after `OK ` is how many events matched, **not** the page size —
+  the CMS computes its page count from it, so answering with the page size shows one page and then
+  an empty list the moment the operator pages. (2) Paging is not a resend: the client then sends a
+  raw 4-byte `NEXT`/`PREV` with **no NEMO header and no NUL**, so the session must intercept those
+  before framing (a NUL-padded command is a different frame); the total is taken from the first page
+  and out-of-range page numbers clamp to the first/last page. (3) Zero results still need a frame
+  (`"OK 0"`, payload 0x20) because the client returns false below 0x21 and never renders an empty
+  list. (4) `SEARCH_EVENT` does **not** go through the `QCV8001_AUTH` challenge — putting it in
+  `RequiresAuthorization` leaves the CMS event page hanging with nothing in either log. Type codes
+  map only to 1–5 (System/Operation/Network/Event/Alarm; `line_cross`/`intrusion`/`ai_*` are Event,
+  `io_*` is Alarm, offline/online is Network), 200–205 are VTMS/POS tags and those queries answer
+  0 rows — mapping AI events to 205 "looks closer" but makes them vanish from the all-events query,
+  which asks with type 0. Unreadable times refuse the whole query instead of widening it to a day
+  (same lesson as the export wizard's "5 seconds became 50 minutes"). Guarded by
+  `QctekEventPayloadsTests`, `QctekEventSearchRequestTests` and the paging cases in
+  `QctekSessionTests`.

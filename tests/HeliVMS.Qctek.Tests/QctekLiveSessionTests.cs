@@ -175,6 +175,9 @@ public class QctekLiveSessionTests
 
         public QctekPlaybackSegment? FindSegmentCovering(int channelIndex, DateTime fromUtc) => null;
 
+        public QctekEventPage SearchEvents(QctekEventSearchRequest query, int offset, int limit)
+            => QctekEventPage.Empty;
+
         public IQctekLiveSource? CreatePlaybackSource(string filePath) => null;
     }
 
