@@ -48,6 +48,12 @@ public static class QctekLivePackets
     public const ushort StatusNoSource = 0x8002;
 
     /// <summary>
+    /// 頻道的 proxy session 尚未建立（真機語意：<c>*plVar1 == 0</c>——攝影機有效、
+    /// 權限足，但串流代理還沒起來；HeliVMS 對映到「來源曾建立但已結束、重試中」）。
+    /// </summary>
+    public const ushort StatusNoProxy = 0x8004;
+
+    /// <summary>
     /// 組一個資料幀。時戳由呼叫端在<b>寫出前</b>以牆鐘蓋章（Unix 秒＋當秒內微秒）。
     /// </summary>
     public static byte[] Data(

@@ -250,11 +250,18 @@ internal sealed class LiveRunSync
                 continue;
             }
 
+            // 狀態碼的判定順序照真機（FUN_18001eb80）：無權限（0x8003）→ 攝影機資訊
+            // 無效（0x8002）→ proxy 未建立（0x8004）→ 等幀（0x8001）。HeliVMS 的相容層
+            // 不做使用者級頻道權限（GET_AUTH_USER 回全權限），0x8003 不會發生；
+            // 「攝影機資訊無效」對映到「從未能建立來源」（頻道停用／URL 空／ffmpeg 不在），
+            // 「proxy 未建立」對映到「來源曾建立但已結束、重試中」。
             Write(QctekLivePackets.Status(
                 state.Channel,
-                state.Source is null
-                    ? QctekLivePackets.StatusNoSource
-                    : QctekLivePackets.StatusNoFrameYet));
+                state.Source is not null
+                    ? QctekLivePackets.StatusNoFrameYet
+                    : state.HadSource
+                        ? QctekLivePackets.StatusNoProxy
+                        : QctekLivePackets.StatusNoSource));
             state.LastStatusAt = wallClock;
         }
     }
@@ -504,7 +511,17 @@ internal sealed class ChannelState
 
     public IQctekLiveSource? TakeSource() => Interlocked.Exchange(ref _source, null);
 
-    public void SetSource(IQctekLiveSource? source) => Interlocked.Exchange(ref _source, source);
+    public void SetSource(IQctekLiveSource? source)
+    {
+        Interlocked.Exchange(ref _source, source);
+        if (source is not null)
+        {
+            HadSource = true;
+        }
+    }
+
+    /// <summary>是否曾成功建立過來源（區分「proxy 未建立」與「攝影機資訊無效」）。</summary>
+    public bool HadSource { get; private set; }
 
     public Thread? Reader { get; set; }
 
