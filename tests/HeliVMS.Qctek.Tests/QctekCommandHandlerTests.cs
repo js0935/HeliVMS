@@ -212,7 +212,10 @@ public class QctekCommandHandlerTests
     {
         var payload = PayloadOf(Handle("GET_AUTH_USER admin QCV8001_AUTH"));
         Assert.Equal(QctekPayloads.AuthUserLength, payload.Length);
-        Assert.Equal(8u, BitConverter.ToUInt32(payload, 20));
+
+        // 位移 20 是機種容量常數（真機在 1 個頻道的裝置上也回 36），不是實際頻道數——
+        // QCC 以它初始化權限表，回實際頻道數會讓即時影像在授權後立刻關線。
+        Assert.Equal(36u, BitConverter.ToUInt32(payload, 20));
         Assert.All(payload.AsSpan(24).ToArray(), b => Assert.Equal((byte)0xFF, b));
     }
 

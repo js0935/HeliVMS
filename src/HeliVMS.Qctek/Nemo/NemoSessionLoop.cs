@@ -1,54 +1,63 @@
+using System.Text;
 using HeliVMS.Qctek.Live;
 
 namespace HeliVMS.Qctek.Nemo;
 
 /// <summary>
-/// 單一連線的 NEMO 讀寫迴圈：分幀交給 <see cref="QctekSession"/>，這裡只負責
-/// 「讀進累積緩衝 → 消耗 → 寫回回應」。
+/// 單一連線的 NEMO 讀寫迴圈（同步核心）：分幀交給 <see cref="QctekSession"/>，
+/// 這裡只負責「讀進累積緩衝 → 消耗 → 寫回回應」。
 /// </summary>
 /// <remarks>
 /// <para>
-/// 抽成獨立型別的原因：同一個 NEMO 對話有兩個入口——獨立埠的 <see cref="NemoServer"/>
-/// （遠端 CMS 用）與 Web 埠的前置多工器 <see cref="QctekPortMux"/>（QCC 用）。
-/// 兩邊各自寫一份讀寫迴圈，遲早只修好其中一份：症狀是「5170 可以連、80 不行」
-/// （或反過來），而兩邊的日誌都正常。
+/// 為什麼是<b>同步</b>I/O：QCC 的即時影像狀態機以 33ms 為週期輪詢，挑戰與 OK 的回應
+/// 只要跨過一個週期（實測 >33ms 就會），QCC 便在授權成功後立刻關線（OK 之後 0.6ms 發
+/// FIN），即時影像永遠黑屏。真機（QC_Live.exe，C++）的回應低於 1ms、每次成功；HeliVMS
+/// 走 async＋執行緒池時回應 20–90ms、每次失敗——這台機器同時錄影與監看，執行緒池的
+/// 工作佇列常年非空，每個 await 延續的喚醒都被排到幾十毫秒之外。連線處理改成
+/// 「專用執行緒＋同步阻塞 socket」之後才與真機同一量級，而且這正是真機的核心模型
+/// （每連線一條同步迴圈）。
 /// </para>
 /// <para>
-/// <see cref="RunAsync"/> 的 <c>initial</c> 是呼叫端為了分辨 NEMO／HTTP 而已經讀掉的位元組；
-/// 這裡接手時必須先處理它們，否則連線的第一個命令會被吞掉。
+/// 同一個 NEMO 對話有兩個入口——獨立埠的 <see cref="NemoServer"/>（遠端 CMS 用）與
+/// Web 埠的前置多工器 <see cref="QctekPortMux"/>（QCC 用）；兩邊都必須走這一份，
+/// 否則只會修好其中一份（症狀：「5170 可以、80 不行」或反過來，兩邊日誌都正常）。
+/// </para>
+/// <para>
+/// <see cref="NemoSessionLoop.RunSync(System.IO.Stream,byte[],string,HeliVMS.Qctek.Nemo.IQctekDeviceContext,Action{string})"/>
+/// 的 <c>initial</c> 是呼叫端為了分辨 NEMO／HTTP 而已經讀掉的位元組；這裡
+/// 接手時必須先處理它們，否則連線的第一個命令會被吞掉。
 /// </para>
 /// </remarks>
 public static class NemoSessionLoop
 {
     /// <summary>
-    /// 把 <paramref name="stream"/> 當 NEMO 對話處理，直到對端關閉、工作被取消，
-    /// 或串流不同步（此時直接關閉連線，不猜測重新同步點）。
+    /// 把 <paramref name="stream"/> 當 NEMO 對話處理（同步、阻塞），直到對端關閉、
+    /// 串流不同步（直接關閉，不猜測重新同步點），或呼叫端關閉串流（取消）。
     /// </summary>
-    /// <param name="stream">已連上的串流。</param>
+    /// <param name="stream">已連上的串流（呼叫端負責在取消時關閉它以打斷阻塞讀）。</param>
     /// <param name="initial">呼叫端已讀取、尚未處理的位元組（可為空）。</param>
     /// <param name="remote">診斷用的對端位址。</param>
     /// <param name="context">裝置資訊與憑證政策。</param>
     /// <param name="log">可選的訊息記錄。</param>
-    /// <param name="cancellationToken">停止訊號。</param>
-    public static async Task RunAsync(
+    public static void RunSync(
         Stream stream,
-        ReadOnlyMemory<byte> initial,
+        byte[] initial,
         string remote,
         IQctekDeviceContext context,
-        Action<string>? log,
-        CancellationToken cancellationToken)
+        Action<string>? log)
     {
         ArgumentNullException.ThrowIfNull(stream);
+        ArgumentNullException.ThrowIfNull(initial);
         ArgumentNullException.ThrowIfNull(context);
 
         var pending = new FrameBuffer();
-        pending.Append(initial.Span);
+        pending.Append(initial);
         var read = new byte[8192];
         var session = new QctekSession(context);
 
         try
         {
-            while (!cancellationToken.IsCancellationRequested)
+            while (true)
             {
                 // 先把緩衝裡完整的命令處理完（呼叫端讀掉的初始位元組也在裡面）。
                 while (pending.Length > 0)
@@ -82,7 +91,7 @@ public static class NemoSessionLoop
                     else
                     {
                         log?.Invoke($"NEMO ← {QctekDiagnostics.Summarize(result.Command)}");
-                        await stream.WriteAsync(result.Reply.AsMemory(), cancellationToken).ConfigureAwait(false);
+                        stream.Write(result.Reply, 0, result.Reply.Length);
                         log?.Invoke($"NEMO → {QctekDiagnostics.DescribeReply(result.Reply)}");
 
                         if (result.Live)
@@ -92,13 +101,12 @@ public static class NemoSessionLoop
                             // keepalive、收 FRAM。交棒時把尚未耗用的殘餘位元組（可能已是
                             // 半個 keepalive）一起帶過去，否則第一個 keepalive 會丟頭。
                             pending.Consume(result.Consumed);
-                            await QctekLiveSession.RunAsync(
+                            QctekLiveSession.RunSync(
                                 stream,
                                 pending.ToArray(),
                                 remote,
                                 context,
-                                log,
-                                cancellationToken).ConfigureAwait(false);
+                                log);
                             return;
                         }
                     }
@@ -106,20 +114,7 @@ public static class NemoSessionLoop
                     pending.Consume(result.Consumed);
                 }
 
-                int count;
-                try
-                {
-                    count = await stream.ReadAsync(read.AsMemory(), cancellationToken).ConfigureAwait(false);
-                }
-                catch (OperationCanceledException)
-                {
-                    return;
-                }
-                catch (IOException)
-                {
-                    return; // 對方斷線（RST 等）
-                }
-
+                var count = stream.Read(read, 0, read.Length);
                 if (count == 0)
                 {
                     return; // 對方正常關閉
@@ -130,7 +125,7 @@ public static class NemoSessionLoop
         }
         catch (Exception ex)
         {
-            // 單一連線的例外（含寫入失敗）不影響伺服器本體。
+            // 單一連線的例外（含寫入失敗、呼叫端關閉串流的取消）不影響伺服器本體。
             log?.Invoke($"NEMO 連線結束（{remote}）：{ex.Message}");
         }
     }
@@ -145,7 +140,7 @@ public static class NemoSessionLoop
 
         public ReadOnlySpan<byte> Span => _buffer.AsSpan(0, _length);
 
-        /// <summary>目前緩衝內容的複本（交給 <see cref="NemoSessionLoop.RunAsync"/> 接手時用）。</summary>
+        /// <summary>目前緩衝內容的複本（交棒給即時影像通道時用）。</summary>
         public byte[] ToArray() => _buffer.AsSpan(0, _length).ToArray();
 
         public void Append(ReadOnlySpan<byte> data)

@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Sockets;
 
@@ -56,7 +57,8 @@ public sealed class QctekPortMux : IAsyncDisposable
 
     private TcpListener? _listener;
     private CancellationTokenSource? _cts;
-    private Task? _acceptLoop;
+    private Thread? _acceptThread;
+    private readonly ConcurrentDictionary<Socket, byte> _connections = new();
 
     /// <param name="context">裝置資訊（版本、頻道數…），供 <see cref="QctekSession"/> 使用。</param>
     /// <param name="httpPort">內部 Kestrel 的實際埠（HTTP 轉發目標）。</param>
@@ -103,7 +105,16 @@ public sealed class QctekPortMux : IAsyncDisposable
         Port = ((IPEndPoint)listener.LocalEndpoint).Port;
         _listener = listener;
         _cts = new CancellationTokenSource();
-        _acceptLoop = Task.Run(() => AcceptLoopAsync(listener, _cts.Token));
+        // accept 迴圈也用專用執行緒：新連線的「第一個回應」的時效是協定行為的一部分
+        // （見 DedicatedThread）；accept 的喚醒排在執行緒池佇列裡一樣會吃到幾十毫秒。
+        var cts = _cts;
+        _acceptThread = new Thread(
+            () => AcceptLoopAsync(listener, cts.Token).GetAwaiter().GetResult())
+        {
+            IsBackground = true,
+            Name = "qctek-mux-accept",
+        };
+        _acceptThread.Start();
         _log?.Invoke($"MUX listening on {_address}:{Port}（HTTP → 127.0.0.1:{_httpPort}）");
     }
 
@@ -120,10 +131,30 @@ public sealed class QctekPortMux : IAsyncDisposable
         listener.Stop();
         _listener = null;
 
-        if (_acceptLoop is not null)
+        // 同步迴圈阻塞在 socket 讀上，取消令牌打不斷它——關閉每條連線讓阻塞讀拋出。
+        foreach (var socket in _connections.Keys)
         {
-            await _acceptLoop.ConfigureAwait(false);
-            _acceptLoop = null;
+            try
+            {
+                socket.Shutdown(SocketShutdown.Both);
+            }
+            catch (Exception)
+            {
+            }
+
+            try
+            {
+                socket.Close();
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        if (_acceptThread is not null)
+        {
+            _acceptThread.Join(TimeSpan.FromSeconds(3));
+            _acceptThread = null;
         }
 
         _cts?.Dispose();
@@ -221,96 +252,103 @@ public sealed class QctekPortMux : IAsyncDisposable
                 break;
             }
 
-            _ = Task.Run(() => HandleConnectionAsync(client, cancellationToken), CancellationToken.None);
+            // 專用執行緒（非執行緒池）＋同步 I/O：回應時效是協定行為的一部分，見 DedicatedThread。
+            DedicatedThread.Run(() => HandleConnection(client), "qctek-mux-conn");
         }
     }
 
-    private async Task HandleConnectionAsync(TcpClient client, CancellationToken cancellationToken)
+    private void HandleConnection(TcpClient client)
     {
-        using (client)
+        var socket = client.Client;
+        _connections[socket] = 0;
+        try
         {
-            client.NoDelay = true;
-            var stream = client.GetStream();
-            var remote = SafeRemoteEndPoint(client);
-            var pending = new NemoSessionLoop.FrameBuffer();
-            var read = new byte[8192];
-
-            try
+            using (client)
             {
-                var protocol = QctekMuxProtocol.NeedMore;
-                while (protocol == QctekMuxProtocol.NeedMore)
+                client.NoDelay = true;
+                var stream = client.GetStream();
+                var remote = SafeRemoteEndPoint(client);
+                var pending = new NemoSessionLoop.FrameBuffer();
+                var read = new byte[8192];
+
+                try
                 {
-                    int count;
-                    try
+                    var protocol = QctekMuxProtocol.NeedMore;
+                    while (protocol == QctekMuxProtocol.NeedMore)
                     {
-                        count = await stream.ReadAsync(read.AsMemory(), cancellationToken).ConfigureAwait(false);
+                        var count = stream.Read(read, 0, read.Length);
+                        if (count == 0)
+                        {
+                            return;
+                        }
+
+                        pending.Append(read.AsSpan(0, count));
+                        protocol = Classify(pending.Span);
                     }
-                    catch (OperationCanceledException)
+
+                    if (protocol == QctekMuxProtocol.Http)
                     {
-                        return;
-                    }
-                    catch (IOException)
-                    {
+                        _log?.Invoke($"MUX：HTTP（{remote}）→ 127.0.0.1:{_httpPort}");
+                        RelayHttp(client, pending.ToArray());
                         return;
                     }
 
-                    if (count == 0)
-                    {
-                        return;
-                    }
-
-                    pending.Append(read.AsSpan(0, count));
-                    protocol = Classify(pending.Span);
+                    _log?.Invoke($"MUX：NEMO 連線來自 {remote}");
+                    NemoSessionLoop.RunSync(stream, pending.ToArray(), remote, _context, _log);
                 }
-
-                if (protocol == QctekMuxProtocol.Http)
+                catch (Exception ex)
                 {
-                    _log?.Invoke($"MUX：HTTP（{remote}）→ 127.0.0.1:{_httpPort}");
-                    await RelayHttpAsync(client, pending.ToArray(), cancellationToken).ConfigureAwait(false);
-                    return;
+                    // 單一連線的例外不影響多工器本體（含伺服器停用時的關閉打斷）。
+                    _log?.Invoke($"MUX 連線結束（{remote}）：{ex.Message}");
                 }
-
-                _log?.Invoke($"MUX：NEMO 連線來自 {remote}");
-                await NemoSessionLoop.RunAsync(
-                    stream, pending.ToArray(), remote, _context, _log, cancellationToken).ConfigureAwait(false);
             }
-            catch (Exception ex)
-            {
-                // 單一連線的例外不影響多工器本體。
-                _log?.Invoke($"MUX 連線結束（{remote}）：{ex.Message}");
-            }
+        }
+        finally
+        {
+            _connections.TryRemove(socket, out _);
         }
     }
 
     /// <summary>
-    /// 把連線原封不動轉給內部 Kestrel。兩個方向各自半關閉（<c>Shutdown(Send)</c>）：
+    /// 把連線原封不動轉給內部 Kestrel（同步版）。兩個方向各自半關閉（<c>Shutdown(Send)</c>）：
     /// 單向 <c>Close</c> 會把另一個方向還在傳的回應截斷。
     /// </summary>
-    private async Task RelayHttpAsync(TcpClient client, ReadOnlyMemory<byte> initial, CancellationToken cancellationToken)
+    private void RelayHttp(TcpClient client, byte[] initial)
     {
         using var upstream = new TcpClient();
         upstream.NoDelay = true;
         try
         {
-            await upstream.ConnectAsync(IPAddress.Loopback, _httpPort, cancellationToken).ConfigureAwait(false);
+            upstream.Connect(IPAddress.Loopback, _httpPort);
             var downstream = client.GetStream();
             var up = upstream.GetStream();
 
             // 為了分類而先讀掉的位元組要先補送，否則 Kestrel 收到的是半個請求行。
             if (initial.Length > 0)
             {
-                await up.WriteAsync(initial, cancellationToken).ConfigureAwait(false);
+                up.Write(initial, 0, initial.Length);
             }
 
             // 半關閉的是「目標」的 socket：來源讀完＝這個方向沒有更多資料，
             // 要讓目標知道（客戶端才看得到 EOF，而不是等我們關整條連線）。
-            await Task.WhenAll(
-                PumpAsync(downstream, up, upstream.Client, cancellationToken),
-                PumpAsync(up, downstream, client.Client, cancellationToken)).ConfigureAwait(false);
-        }
-        catch (OperationCanceledException)
-        {
-            // 停止中：兩個 socket 都會由 using／呼叫端收掉。
+            // HTTP 轉發是短生命週期的 I/O 對拷，兩個方向各一條專用執行緒——
+            // 不排執行緒池佇列（見 DedicatedThread 的說明）。
+            var toUpstream = new Thread(
+                () => Pump(downstream, up, upstream.Client))
+            {
+                IsBackground = true,
+                Name = "qctek-mux-http-up",
+            };
+            var toClient = new Thread(
+                () => Pump(up, downstream, client.Client))
+            {
+                IsBackground = true,
+                Name = "qctek-mux-http-down",
+            };
+            toUpstream.Start();
+            toClient.Start();
+            toUpstream.Join();
+            toClient.Join();
         }
         catch (SocketException ex)
         {
@@ -323,29 +361,21 @@ public sealed class QctekPortMux : IAsyncDisposable
     }
 
     /// <summary>單向搬運；來源結束即對目標半關閉（讓對方知道沒有更多資料）。</summary>
-    private static async Task PumpAsync(
-        Stream source,
-        Stream target,
-        Socket targetSocket,
-        CancellationToken cancellationToken)
+    private static void Pump(Stream source, Stream target, Socket targetSocket)
     {
         var buffer = new byte[8192];
         try
         {
             while (true)
             {
-                var count = await source.ReadAsync(buffer.AsMemory(), cancellationToken).ConfigureAwait(false);
+                var count = source.Read(buffer, 0, buffer.Length);
                 if (count == 0)
                 {
                     break;
                 }
 
-                await target.WriteAsync(buffer.AsMemory(0, count), cancellationToken).ConfigureAwait(false);
+                target.Write(buffer, 0, count);
             }
-        }
-        catch (OperationCanceledException)
-        {
-            // 停止中；仍要嘗試半關閉，讓另一邊的 pump 有機會結束。
         }
         catch (IOException)
         {

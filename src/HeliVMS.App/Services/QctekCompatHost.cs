@@ -1,4 +1,5 @@
-﻿using System.Globalization;
+﻿using System.Collections.Concurrent;
+using System.Globalization;
 using System.IO;
 using System.Net;
 using HeliVMS.Qctek.Alarm;
@@ -54,6 +55,33 @@ public sealed class QctekCompatHost : IDisposable
     private QctekAlarmClient? _alarmClient;
     private NetworkPortCoordinator? _coordinator;
     private bool _disposed;
+
+    /// <summary>
+    /// 診斷日誌的背景泵：NEMO 的回應時效是協定行為的一部分（QCC 的狀態機以 33ms
+    /// 為週期，回應跨過一個週期它就在授權成功後立刻關線），而一條命令要寫三行日誌、
+    /// 每行都是同步的開檔＋寫＋關（過防毒掃描，實測每次 5–30ms）——同步寫會把回應
+    /// 拖過這個週期。改為有界佇列＋專用寫入執行緒：關鍵路徑只做入隊（滿了丟掉），
+    /// 磁碟 I/O 全在背景。崩潰時最後幾行可能丟失，可接受（診斷日誌不是稽核）。
+    /// </summary>
+    private static readonly BlockingCollection<string> LogQueue = new(boundedCapacity: 1024);
+
+    static QctekCompatHost()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "helivms-qctek.log");
+        var writer = new Thread(
+            () =>
+            {
+                foreach (var line in LogQueue.GetConsumingEnumerable())
+                {
+                    BoundedFileLog.Append(path, line, maxBytes: 512 * 1024);
+                }
+            })
+        {
+            IsBackground = true,
+            Name = "qctek-log",
+        };
+        writer.Start();
+    }
 
     public QctekCompatHost(SqliteStore store)
     {
@@ -330,10 +358,16 @@ public sealed class QctekCompatHost : IDisposable
     /// </para>
     /// </summary>
     internal static void Diag(string message)
-        => BoundedFileLog.Append(
-            Path.Combine(Path.GetTempPath(), "helivms-qctek.log"),
-            $"{DateTime.Now:HH:mm:ss.fff} {message}{Environment.NewLine}",
-            maxBytes: 512 * 1024);
+    {
+        try
+        {
+            LogQueue.TryAdd($"{DateTime.Now:HH:mm:ss.fff} {message}{Environment.NewLine}");
+        }
+        catch (Exception)
+        {
+            // 佇列已滿（磁碟寫入暫時卡住）：丟掉這一行，不讓診斷拖垮協定時效。
+        }
+    }
 
     public void Stop()
     {

@@ -137,7 +137,11 @@ public static class QctekCommandHandler
 
         if (command.StartsWith("GET_AUTH_USER", StringComparison.Ordinal))
         {
-            return QctekReply.FramedBinary(QctekPayloads.AuthUser(context.ChannelNames.Count));
+            // 位移 20 是機種容量常數，不是實際頻道數：真機（黃金 authuser.bin）在
+            // 1 個頻道的裝置上也回 36（QCV8001 的路數），QCC 以它初始化權限表——
+            // 回實際頻道數會讓 QCC 的即時影像在授權後立刻關線（ReadDVR 視為權限
+            // 不完整）。
+            return QctekReply.FramedBinary(QctekPayloads.AuthUser(36));
         }
 
         if (command.StartsWith("GET_IOCONFIG", StringComparison.Ordinal))

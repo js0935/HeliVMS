@@ -51,6 +51,13 @@ public partial class App : Application
         KillOrphanChildren();
         base.OnStartup(e);
 
+        // 執行緒池下限一次抬足：這台機器同時跑錄影、監看解碼與 Web，執行緒池的
+        // 工作佇列常年非空，新工作項（含 QCTek 相容層的每個 await 延續）的喚醒會被
+        // 排到幾十毫秒之外——實測 NEMO 回應 20–90ms，而 QCC 的即時影像狀態機以
+        // 33ms 為週期，回應跨過一個週期它就在授權成功後立刻關線（永遠黑屏）。
+        // 相容層啟用時的回應時效是協定行為的一部分，不是最佳化。
+        ThreadPool.SetMinThreads(workerThreads: 96, completionPortThreads: 96);
+
         DispatcherUnhandledException += (_, args) =>
         {
             WriteCrash(args.Exception);
