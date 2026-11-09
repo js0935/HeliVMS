@@ -115,6 +115,16 @@ public partial class MainWindow : Window
     private bool _wallSequenceEnabled;
     private int _wallSequenceIndex;
     private DispatcherTimer? _wallSequenceTimer;
+
+    /// <summary>
+    /// 跳台序列（QC_Live <c>AutoScan</c> 對齊）的週期（秒）。app_settings <c>wall.auto_scan_seconds</c>，
+    /// 沒設定＝5 秒（既有節奏）；開關本身記在 <c>wall.auto_scan</c>，隨 <see cref="OnWallSequenceToggled"/> 寫回。
+    /// </summary>
+    /// <remarks>QC_Live 把 <c>AutoScanEnable</c>/<c>AutoScanPeriod</c> 記在 UsageHabit 登錄檔——
+    /// 重開後輪巡還在跑。HeliVMS 原本只活在記憶體，重開就忘；持久化是這次對齊補上的。</remarks>
+    private const string WallSequenceEnabledKey = "wall.auto_scan";
+    private const string WallSequenceSecondsKey = "wall.auto_scan_seconds";
+    private int _wallSequencePeriodSeconds = WallAutoScanPlanner.DefaultPeriodSeconds;
     private readonly TextBlock[] _cellBadges = new TextBlock[MaxCells];
 
     /// <summary>
@@ -770,6 +780,10 @@ public partial class MainWindow : Window
         var settings = new SettingsRepository(_store);
         Localizer.Init(settings);
         _showCellStatus = settings.Get("monitor.show_status") == "1";
+        _wallSequenceEnabled = settings.Get(WallSequenceEnabledKey) == "1";
+        _wallSequencePeriodSeconds = WallAutoScanPlanner.NormalizePeriodSeconds(
+            (int)Math.Round(settings.GetDoubleOrDefault(WallSequenceSecondsKey, WallAutoScanPlanner.DefaultPeriodSeconds)));
+        WallSequenceToggle.IsChecked = _wallSequenceEnabled;
 
         // 格子在 ApplyLayoutPreference 內就已先建好（那時還讀不到設定），把勾選狀態補正，
         // 否則上次開著的人這次開起來選單會顯示成未勾選，與實際顯示不一致。
@@ -1013,7 +1027,8 @@ public partial class MainWindow : Window
         RunReportMailDue();
         _analytics.LoadZones();
 
-        _wallSequenceTimer = new DispatcherTimer(TimeSpan.FromSeconds(5), DispatcherPriority.Background,
+        _wallSequenceTimer = new DispatcherTimer(
+            TimeSpan.FromSeconds(_wallSequencePeriodSeconds), DispatcherPriority.Background,
             (_, _) => AdvanceWallSequence(), Dispatcher);
         if (_wallSequenceEnabled)
         {
@@ -3853,6 +3868,11 @@ public partial class MainWindow : Window
     private void OnWallSequenceToggled(object sender, RoutedEventArgs e)
     {
         _wallSequenceEnabled = WallSequenceToggle.IsChecked == true;
+        if (_store is not null)
+        {
+            // QC_Live 把 AutoScanEnable 記在 UsageHabit：重開後輪巡還在跑。HeliVMS 原本重開就忘。
+            new SettingsRepository(_store).Set(WallSequenceEnabledKey, _wallSequenceEnabled ? "1" : "0");
+        }
         if (_wallSequenceTimer is not null)
         {
             if (_wallSequenceEnabled)
@@ -5427,7 +5447,16 @@ public partial class MainWindow : Window
         }
 
         var cellCount = Math.Max(1, CurrentCellCount());
-        _wallSequenceIndex = (_wallSequenceIndex + cellCount) % wall.Count;
+
+        // QC_Live AutoScan 的算術（WallAutoScanPlanner）：推進一個分割量、尾頁不足一個分割量
+        // 時夾在 count-cells、分割量蓋滿全部頻道時不動。原本的純取模會在尾頁畫出半頁空格，
+        // 並在分割量大於頻道數時空轉（每次 tick 都改派一次，什麼都沒換）。
+        var next = WallAutoScanPlanner.NextOffset(wall.Count, cellCount, _wallSequenceIndex);
+        if (next == _wallSequenceIndex)
+        {
+            return;
+        }
+        _wallSequenceIndex = next;
 
         await _reconcileGate.WaitAsync();
         try

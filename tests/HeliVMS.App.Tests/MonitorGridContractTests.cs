@@ -170,11 +170,12 @@ public sealed class MonitorGridContractTests
         Assert.Contains("Math.Clamp", apply);
     }
 
-    /// <summary>跳台（自動輪播）：每 5 秒依目前分割跳下一組。</summary>
+    /// <summary>跳台（自動輪播＝QC_Live 的 AutoScan）：每個週期依目前分割跳下一組。</summary>
     /// <remarks>
     /// 症狀：按了「跳台」卻不動，或只在單分割會跳、切到四分割後每一格各跳一台而不同步。
-    /// 步進量必須等於目前格數（單分割=1、四分割=4），且週期固定 5 秒；
-    /// 這兩者任一寫死或漏接，畫面就只會「看起來有跳」卻不是下一組。
+    /// 步進量必須等於目前格數（單分割=1、四分割=4）；推進算術已對齊 QC_Live——
+    /// 改走 <c>WallAutoScanPlanner</c>（尾頁夾住、分割量蓋滿全部頻道時不動），
+    /// 週期自 <c>wall.auto_scan_seconds</c> 來（沒設定＝5 秒＝原本的固定週期）。
     /// </remarks>
     [Fact]
     public void 跳台功能每五秒依目前分割跳下一組()
@@ -186,8 +187,8 @@ public sealed class MonitorGridContractTests
         Assert.Contains("x:Name=\"WallSequenceToggle\"", xaml);
         Assert.Contains("Click=\"OnWallSequenceToggled\"", xaml);
 
-        // 週期固定 5 秒。
-        Assert.Contains("TimeSpan.FromSeconds(5)", code);
+        // 週期自設定來（未設定＝5 秒），不再是寫死的 5。
+        Assert.Contains("TimeSpan.FromSeconds(_wallSequencePeriodSeconds)", code);
 
         var toggle = SourceContract.BodyOf(code, "OnWallSequenceToggled");
         Assert.NotEqual(string.Empty, toggle);
