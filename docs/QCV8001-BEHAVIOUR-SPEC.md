@@ -216,11 +216,13 @@ CMD_PLAYBACK_AUDIO_OPEN/CLOSE；二進位幀 /device/playback/data
 | F7 單檔秒數 | **已存在**：`recording.segment_seconds`（`RecordingSegmentPolicy`，預設 3600）＝QC_Live `RecFileSeconds` | `RecordingSegmentPolicy.cs` |
 | F7 錄影模式 | **語意已由映射對齊**：HeliVMS 4 模式（全時/排程/事件/手動）涵蓋 QC_Live 的 MOTION/ALARM/MOTION_ALARM（→event）與手動；`INTENSIVE_*` 是碼流策略不是錄影時機。改 `RecordingMode` 列舉會波及排程/牆上模式點/CS8524——**不做內部對齊**，QCC 相容層已在回應面映射（`QctekEventTypes`） | `QctekEventTypes.cs`；`AGENTS.md` 錄影模式點條目 |
 | F7 事件型別 23 種 | **部分**：`alarm_events.event_type` 已分類且 CMS 映射完成（System/Operation/Network/Event/Alarm）；補滿 23 種 QCV8001 專屬型別（POS/車牌/人臉…）對 HeliVMS 沒有對應資料源——**不做** | `QctekEventTypes.cs` |
+| P3 裝置模型 | **前提經黃金抓包否證**：`%TEMP%\opencode\qcc-capture\config.bin`＝312B＝`0x18＋1×0x120`——實機 `GET_CONFIG_QCTEK` 的 n＝**當時實際頻道數（1）**，不是 36；`GET_AUTH_USER` 位移 20＝36 是**授權層級**（36 通道視圖），兩者本來就不同欄位。HeliVMS 現況（config n＝7、AuthUser＝36）與真機**同構**，不需改。「`GET_CONFIG_QCTEK` 補到 36 筆」的原本 P3 計畫作廢；`SET_CONFIG_QCTEK` 不在 QCC 實際使用的 6 條命令裡（普查 0 次），等有 CMS 端證據再做 | `docs/QCTEK-QCC-CONNECT.md` §二進位 payload 版型；抓包 `config.bin`／`authuser.bin` |
 | F7 剩餘可錄時間 | **基礎存在**（磁碟壓力等級/保留空間）；「剩餘可錄時間估計」需要顯示位置（UI）——**暫緩** | `DiskPressureCoordinator` |
 | F7 關機等錄影收尾 | **已存在且更完整**：`SegmentRecorder` 先 q 後 kill、`ShutdownSequencer` 有界收尾、`ShutdownWatchdog` 兜底 | `AGENTS.md` shutdown 條目 |
 | F8 ±30 秒 | **能力已存在**（±10s/±60s Ctrl/±600s Shift）；QC_Live 的 30 秒是不同步進值。改預設值會動現有操作員肌肉記憶——**保留現值** | `PlaybackSeekPlanner` |
 | F8 事件過濾/匯出任務化 | 事件清單已有；型別過濾與背景匯出佇列都是 UI 面——**暫緩** | `PlaybackWindow`；匯出精靈 |
 
-結論：**F 系列裡「不改 UI 就能移植」的部分，在 F1/F2 提交後已全部完成或確認已存在**。
-其餘每一項都需要（a）你同意加最小 UI，或（b）動列舉/綱要的高風險改動。要繼續的話，建議順序
-F3（OSD 時間，預設關閉）→ F4（每路音量）→ F8 匯出任務化；說一聲就動工。
+結論：**F 系列裡「不改 UI 就能移植」的部分，在 F1/F2/F3/F4 提交後已全部完成或確認已存在**。
+F8（匯出任務化：背景佇列＋任務清單視窗＋進度）是唯一剩項，本質是一個新視窗的 UI 工程，
+等核定範圍再動工。其餘每一項都需要（a）你同意加最小 UI，或（b）動列舉/綱要的高風險改動。
+要繼續的話，說一聲就動工。
