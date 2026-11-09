@@ -1081,6 +1081,8 @@ public sealed class SqliteStore : IDisposable
         EnsureColumn("io_rules", "reset_seconds", "INTEGER NOT NULL DEFAULT 0");
         EnsureColumn("io_rules", "output_seconds", "INTEGER NOT NULL DEFAULT 0");
         EnsureColumn("channels", "listen_enabled", "INTEGER NOT NULL DEFAULT 0");
+        // 每台攝影機的收音音量（QC_Live 的 CameraVolume 對齊；0＝這台靜音）。
+        EnsureColumn("channels", "listen_volume", "INTEGER NOT NULL DEFAULT 100");
         // 對講（這台有喇叭，可從主機把聲音送過去）。與收音是兩個方向，開關分開。
         EnsureColumn("channels", "talk_enabled", "INTEGER NOT NULL DEFAULT 0");
         EnsureColumn("segments", "checked_at_utc", "TEXT");

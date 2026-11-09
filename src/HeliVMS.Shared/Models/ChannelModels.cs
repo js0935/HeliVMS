@@ -86,6 +86,13 @@ public sealed class ChannelInfo
     public bool ListenEnabled { get; init; }
 
     /// <summary>
+    /// 現場收音的音量（0–100，預設 100）。QC_Live 的 <c>CameraVolume</c> 對齊：
+    /// 每台攝影機各記各的，點喇叭時套用；0＝這台靜音但不等於關閉收音
+    /// （<see cref="ListenEnabled"/> 才是收音開關）。
+    /// </summary>
+    public int ListenVolume { get; init; } = 100;
+
+    /// <summary>
     /// 這台攝影機支援對講（有喇叭）：主機可以把麥克風的聲音送過去，畫面右下角出現麥克風圖示。
     /// </summary>
     /// <remarks>

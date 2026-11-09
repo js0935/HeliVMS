@@ -2,6 +2,7 @@ using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
 using HeliVMS.Media;
+using HeliVMS.Shared;
 
 namespace HeliVMS.App.Services;
 
@@ -49,11 +50,13 @@ public sealed class WaveOutPlayer : IDisposable
 
     /// <param name="sampleRate">裝置取樣率；必須等於送進來的 PCM 取樣率（不符會忽快忽慢）。</param>
     /// <param name="queue">片段來源；null＝自行建立預設容量的佇列。</param>
-    public WaveOutPlayer(int sampleRate, PcmChunkQueue? queue = null)
+    /// <param name="volumePercent">起始音量（0–100；越界值先夾）。開好裝置立即套用。</param>
+    public WaveOutPlayer(int sampleRate, PcmChunkQueue? queue = null, int volumePercent = AudioVolume.Default)
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(sampleRate, 8000);
 
         SampleRate = sampleRate;
+        VolumePercent = AudioVolume.Clamp(volumePercent);
         _queue = queue ?? new PcmChunkQueue();
         // 一段 100 ms 的位元組數；留兩倍餘裕給取樣率換算與最後一段，緩衝區就永遠夠放。
         _maxChunkBytes = Math.Max(2048, sampleRate * 2 / 5);
@@ -67,6 +70,34 @@ public sealed class WaveOutPlayer : IDisposable
 
     /// <summary>裝置是否已開啟；false 時所有寫入都會被忽略。</summary>
     public bool IsAvailable { get; private set; }
+
+    /// <summary>目前音量（0–100；預設 100＝原樣輸出）。QC_Live 的 CameraVolume 對齊。</summary>
+    public int VolumePercent { get; private set; } = AudioVolume.Default;
+
+    /// <summary>
+    /// 設定音量（0–100；越界值先夾再套）。裝置還沒開時只記住，<see cref="Start"/> 開好就套。
+    /// 套不到裝置不是錯誤（遠端桌面／無音效卡本來就沒有聲音）。
+    /// </summary>
+    public void SetVolume(int percent)
+    {
+        VolumePercent = AudioVolume.Clamp(percent);
+        lock (_gate)
+        {
+            ApplyVolumeLocked();
+        }
+    }
+
+    private void ApplyVolumeLocked()
+    {
+        if (_device == IntPtr.Zero)
+        {
+            return;
+        }
+
+        // 左右聲道同值（低位＝左、高位＝右）；立體聲平衡不是這個功能要管的。
+        var level = AudioVolume.ToWaveOutLevel(VolumePercent);
+        _ = WaveOutSetVolume(_device, level | ((uint)level << 16));
+    }
 
     /// <summary>最近一次失敗的原因（給診斷頁與日誌）；成功時為 null。</summary>
     public string? LastError { get; private set; }
@@ -144,6 +175,9 @@ public sealed class WaveOutPlayer : IDisposable
             _device = handle;
             IsAvailable = true;
             _stop = false;
+            // 開機即套用目前音量（QC_Live 的 CameraVolume）：裝置開了但音量還沒套的窗口，
+            // 會讓「100→50 之後重新點喇叭」的前幾百毫秒回到全音量。
+            ApplyVolumeLocked();
             _thread = new Thread(Run) { IsBackground = true, Name = "helivms-audio-out" };
             _thread.Start();
         }
@@ -402,6 +436,9 @@ public sealed class WaveOutPlayer : IDisposable
     private static extern uint WaveOutOpen(
         out IntPtr hWaveOut, uint uDeviceID, ref WaveFormat lpFormat,
         IntPtr dwCallback, IntPtr dwInstance, uint dwFlags);
+
+    [DllImport("winmm.dll", EntryPoint = "waveOutSetVolume")]
+    private static extern uint WaveOutSetVolume(IntPtr hwo, uint dwVolume);
 
     [DllImport("winmm.dll", EntryPoint = "waveOutClose")]
     private static extern uint WaveOutClose(IntPtr hwo);

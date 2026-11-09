@@ -133,6 +133,89 @@ public sealed class ChannelRepositoryTests : IDisposable
         Assert.False(_channels.Get(id)!.ListenEnabled);
     }
 
+    /// <summary>每台攝影機的收音音量（QC_Live 的 CameraVolume）要存得住，且越界值在寫入時夾回 0–100。</summary>
+    /// <remarks>
+    /// 預設 100：沒設定的頻道就是原樣輸出，升級後聽感不變。夾值發生在寫入端——
+    /// 讀出來的值已經是夾過的，UI 拉桿再送奇怪數字也炸不到 waveOut。
+    /// </remarks>
+    [Fact]
+    public void 每台攝影機的收音音量會存得住且越界值夾回0到100()
+    {
+        var id = _channels.Add("Cam1", "rtsp://10.0.0.5/1");
+
+        Assert.Equal(100, _channels.Get(id)!.ListenVolume);
+
+        var current = _channels.Get(id)!;
+        _channels.Update(new ChannelInfo
+        {
+            Id = id,
+            Name = current.Name,
+            MainStreamUrl = current.MainStreamUrl,
+            SubStreamUrl = current.SubStreamUrl,
+            Codec = current.Codec,
+            AudioEnabled = current.AudioEnabled,
+            AudioEncoder = current.AudioEncoder,
+            MotionEnabled = current.MotionEnabled,
+            MotionSensitivity = current.MotionSensitivity,
+            RecordingMode = current.RecordingMode,
+            Enabled = current.Enabled,
+            DisplayCell = current.DisplayCell,
+            ListenEnabled = true,
+            ListenVolume = 37,
+        });
+        Assert.Equal(37, _channels.Get(id)!.ListenVolume);
+
+        var updated = _channels.Get(id)!;
+        _channels.Update(new ChannelInfo
+        {
+            Id = updated.Id,
+            Name = updated.Name,
+            MainStreamUrl = updated.MainStreamUrl,
+            SubStreamUrl = updated.SubStreamUrl,
+            Codec = updated.Codec,
+            AudioEnabled = updated.AudioEnabled,
+            AudioEncoder = updated.AudioEncoder,
+            MotionEnabled = updated.MotionEnabled,
+            MotionSensitivity = updated.MotionSensitivity,
+            RecordingMode = updated.RecordingMode,
+            Enabled = updated.Enabled,
+            DisplayCell = updated.DisplayCell,
+            ListenEnabled = updated.ListenEnabled,
+            ListenVolume = 999,
+        });
+        Assert.Equal(100, _channels.Get(id)!.ListenVolume);
+    }
+
+    /// <summary>音量 0＝這台靜音，但要與「關閉收音」分得開：開關還在、只是這台播不出聲。</summary>
+    [Fact]
+    public void 音量0與關閉收音是兩件事()
+    {
+        var id = _channels.Add("Cam1", "rtsp://10.0.0.5/1");
+
+        var current = _channels.Get(id)!;
+        _channels.Update(new ChannelInfo
+        {
+            Id = current.Id,
+            Name = current.Name,
+            MainStreamUrl = current.MainStreamUrl,
+            SubStreamUrl = current.SubStreamUrl,
+            Codec = current.Codec,
+            AudioEnabled = current.AudioEnabled,
+            AudioEncoder = current.AudioEncoder,
+            MotionEnabled = current.MotionEnabled,
+            MotionSensitivity = current.MotionSensitivity,
+            RecordingMode = current.RecordingMode,
+            Enabled = current.Enabled,
+            DisplayCell = current.DisplayCell,
+            ListenEnabled = true,
+            ListenVolume = 0,
+        });
+
+        var after = _channels.Get(id)!;
+        Assert.True(after.ListenEnabled);
+        Assert.Equal(0, after.ListenVolume);
+    }
+
     /// <summary>
     /// 重建／還原回來的舊資料庫（<c>channels</c> 沒有 <c>listen_enabled</c>）在補欄後要能正常讀寫。
     /// </summary>

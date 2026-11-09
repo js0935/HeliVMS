@@ -4041,6 +4041,9 @@ public partial class MainWindow : Window
 
         if (playing)
         {
+            // 每台各記各的音量（QC_Live 的 CameraVolume）：點開就套這台的值，
+            // 不用等操作員再拉一次；讀不到頻道（剛被刪）就用預設 100。
+            _audio.SetVolume(_channelList.FirstOrDefault(c => c.Id == channelId)?.ListenVolume ?? AudioVolume.Default);
             HintText.Text = string.Format(Localizer.T("Main.AudioPlaying"), ChannelName(channelId));
             return;
         }

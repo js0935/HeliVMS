@@ -119,6 +119,8 @@ public partial class ChannelManagerWindow : Window
         ChannelEditListenCheck.ToolTip = Localizer.T("Channels.ListenTip");
         ChannelEditTalkCheck.Content = Localizer.T("Channels.TalkCheck");
         ChannelEditTalkCheck.ToolTip = Localizer.T("Channels.TalkTip");
+        ChannelEditVolumeLabel.Text = Localizer.T("Channels.VolumeLabel");
+        ChannelEditVolumeBox.ToolTip = Localizer.T("Channels.VolumeTip");
         ChannelEditSensitivityLabel.Text = Localizer.T("Channels.SensitivityLabel");
         ChannelEditSensitivityBox.ToolTip = Localizer.T("Channels.SensitivityTip");
         ChannelEditCellLabel.Text = Localizer.T("Channels.EditCellLabel");
@@ -267,6 +269,7 @@ public partial class ChannelManagerWindow : Window
         ChannelEditMotionCheck.IsChecked = false;
         ChannelEditListenCheck.IsChecked = false;
         ChannelEditTalkCheck.IsChecked = false;
+        ChannelEditVolumeBox.Text = AudioVolume.Default.ToString(CultureInfo.InvariantCulture);
         ChannelEditSensitivityBox.Text = string.Empty;
         PopulateCellOptions(null);
         ChannelEditHintText.Text = Localizer.T("Channels.EditHint");
@@ -307,6 +310,7 @@ public partial class ChannelManagerWindow : Window
         ChannelEditMotionCheck.IsChecked = channel.MotionEnabled;
         ChannelEditListenCheck.IsChecked = channel.ListenEnabled;
         ChannelEditTalkCheck.IsChecked = channel.TalkEnabled;
+        ChannelEditVolumeBox.Text = AudioVolume.Clamp(channel.ListenVolume).ToString(CultureInfo.InvariantCulture);
         ChannelEditSensitivityBox.Text = channel.MotionSensitivity.ToString("0.##", CultureInfo.InvariantCulture);
         PopulateCellOptions(channel.DisplayCell);
         ChannelEditHintText.Text = string.Format(Localizer.T("Channels.Editing"), channel.Name, channel.Id);
@@ -439,6 +443,10 @@ public partial class ChannelManagerWindow : Window
                 AudioEncoder = current.AudioEncoder,
                 ListenEnabled = ChannelEditListenCheck.IsChecked == true,
                 TalkEnabled = ChannelEditTalkCheck.IsChecked == true,
+                // 音量讀不懂回 100：操作員把欄位清空再套用，不該把整台變成靜音。
+                ListenVolume = int.TryParse(ChannelEditVolumeBox.Text, out var vol)
+                    ? AudioVolume.Clamp(vol)
+                    : AudioVolume.Default,
                 MotionEnabled = ChannelEditMotionCheck.IsChecked == true,
                 MotionSensitivity = Math.Clamp(sensitivity, 0, 1),
                 RecordingMode = (RecordingMode)Math.Clamp(ChannelEditModeCombo.SelectedIndex, 0, 3),

@@ -92,6 +92,12 @@ public sealed class LiveAudioController : IAsyncDisposable
         return _output.StopAsync();
     }
 
+    /// <summary>
+    /// 設定收音音量（0–100；QC_Live 的 CameraVolume 對齊）。正在播時立即套用，
+    /// 沒在播時記住，下一次啟動套上——換台不用重連就能換音量。
+    /// </summary>
+    public void SetVolume(int percent) => _output.SetVolume(percent);
+
     /// <summary>最近一次失敗的原因（供提示列顯示）。</summary>
     public string? LastError { get; private set; }
 

@@ -1,4 +1,5 @@
 using HeliVMS.Media;
+using HeliVMS.Shared;
 
 namespace HeliVMS.App.Services;
 
@@ -24,6 +25,7 @@ public sealed class AudioOutput : IAsyncDisposable
     private AudioStreamReceiver? _receiver;
     private EventHandler<byte[]>? _pump;
     private int _generation;
+    private int _volumePercent = AudioVolume.Default;
     private bool _disposed;
 
     /// <summary>是否正在播放。</summary>
@@ -34,6 +36,16 @@ public sealed class AudioOutput : IAsyncDisposable
 
     /// <summary>最近一次失敗的原因（沒有裝置、裝置開不起來）。</summary>
     public string? LastError { get; private set; }
+
+    /// <summary>
+    /// 設定收音音量（0–100；QC_Live 的 CameraVolume 對齊）。正在播時立即套用，
+    /// 沒在播時記住，下一次 <see cref="StartAsync"/> 套上。
+    /// </summary>
+    public void SetVolume(int percent)
+    {
+        _volumePercent = AudioVolume.Clamp(percent);
+        _player?.SetVolume(_volumePercent);
+    }
 
     /// <summary>開始播放某個接收器的片段；返回 false＝沒有音訊裝置。</summary>
     public async Task<bool> StartAsync(AudioStreamReceiver receiver, CancellationToken cancellationToken = default)
@@ -51,7 +63,7 @@ public sealed class AudioOutput : IAsyncDisposable
 
         cancellationToken.ThrowIfCancellationRequested();
 
-        var player = new WaveOutPlayer(rate);
+        var player = new WaveOutPlayer(rate, volumePercent: AudioVolume.Clamp(_volumePercent));
         player.Start();
         if (!player.IsAvailable)
         {
