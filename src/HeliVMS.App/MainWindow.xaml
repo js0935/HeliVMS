@@ -128,6 +128,9 @@
                     <ToggleButton x:Name="QuickBarToggle" AutomationProperties.AutomationId="QuickBarToggle"
                                   Content="" ToolTip="" Click="OnQuickBarToggled" Style="{StaticResource HeaderToggleButton}"
                                   VerticalAlignment="Center" Margin="0,0,8,0" />
+                    <ToggleButton x:Name="EventPanelToggle" AutomationProperties.AutomationId="EventPanelToggle"
+                                  Content="" ToolTip="" Click="OnEventPanelToggled" Style="{StaticResource HeaderToggleButton}"
+                                  VerticalAlignment="Center" Margin="0,0,8,0" />
                     <Button x:Name="HeaderImmersiveButton" AutomationProperties.AutomationId="HeaderImmersiveButton"
                             Content="" ToolTip="" Click="OnImmersiveClicked"
                             VerticalAlignment="Center" Padding="12,4" Margin="0,0,8,0"
@@ -244,6 +247,22 @@
                     Content="" ToolTip="" Click="OnImmersiveClicked" Padding="14,6"
                     Foreground="White" Background="#CC1F3A5F" BorderBrush="#2A5C8A" BorderThickness="1"
                     AutomationProperties.AutomationId="ImmersiveExitButton" />
+
+                    <!-- Event panel (QC_Live modeless event view): left-edge strip listing the
+                         latest alarm_events rows; clicking a row selects that camera's cell.
+                         Hidden by default (the footer alert line already carries the latest). -->
+                    <Border x:Name="EventPanel" HorizontalAlignment="Left" VerticalAlignment="Stretch"
+                            Width="280" Background="#E60D1526" BorderBrush="#1F3A5F" BorderThickness="0,0,1,0"
+                            Visibility="Collapsed">
+                        <DockPanel>
+                            <TextBlock x:Name="EventPanelHeader" DockPanel.Dock="Top" Margin="8,8,8,4"
+                                       Foreground="{StaticResource Brand.TextDim}" FontSize="11" Text="" />
+                            <ListBox x:Name="EventPanelList" Background="Transparent" BorderThickness="0"
+                                     Foreground="White" FontSize="11"
+                                     SelectionChanged="OnEventPanelSelectionChanged"
+                                     ScrollViewer.HorizontalScrollBarVisibility="Disabled" />
+                        </DockPanel>
+                    </Border>
 
                     <!-- Channel quick bar (QC_Live channel%02d buttons): right-edge strip, one button
                          per channel; clicking a number shows that camera in a single pane (ImmedChannels),

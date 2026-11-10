@@ -152,6 +152,20 @@ public partial class MainWindow : Window
     private const string QuickBarEnabledKey = "wall.quick_bar";
     private bool _quickBarEnabled = true;
     private readonly List<System.Windows.Controls.Primitives.ToggleButton> _quickButtons = [];
+
+    /// <summary>
+    /// 牆上事件面板（QC_Live 的 modeless event view 對齊）：左緣列出最近的事件列
+    /// （<c>alarm_events</c>），點一列就選取那台的格位。開關記在 <c>wall.event_panel</c>，
+    /// <b>預設關</b>——頁尾警報列已經有最近三筆，面板是想要更多歷史的操作員自己開的。
+    /// </summary>
+    private const string EventPanelEnabledKey = "wall.event_panel";
+    private bool _eventPanelEnabled;
+
+    /// <summary>事件面板單列（時間＋頻道＋型別＋明細；點擊用 <see cref="EventRow.ChannelId"/>）。</summary>
+    private sealed record EventRow(string Time, string Text, int ChannelId);
+
+    /// <summary>事件面板最多保留的列數：再多是捲動負擔，歷史查詢本來就該去事件中心。</summary>
+    private const int EventPanelCapacity = 20;
     private readonly TextBlock[] _cellBadges = new TextBlock[MaxCells];
 
     /// <summary>
@@ -494,6 +508,9 @@ public partial class MainWindow : Window
         WallSequenceToggle.ToolTip = Localizer.T("Main.WallSequenceTip");
         QuickBarToggle.Content = Localizer.T("Main.QuickBar");
         QuickBarToggle.ToolTip = Localizer.T("Main.QuickBarTip");
+        EventPanelToggle.Content = Localizer.T("Main.EventPanel");
+        EventPanelToggle.ToolTip = Localizer.T("Main.EventPanelTip");
+        EventPanelHeader.Text = Localizer.T("Main.EventPanelHeader");
 
         HintText.Text = Localizer.T("Main.EmptyHint");
 
@@ -826,6 +843,8 @@ public partial class MainWindow : Window
         _osdFontSize = WallOsdSettings.NormalizeFontSize(settings.Get(OsdFontSizeKey));
         _quickBarEnabled = settings.Get(QuickBarEnabledKey) != "0";
         QuickBarToggle.IsChecked = _quickBarEnabled;
+        _eventPanelEnabled = settings.Get(EventPanelEnabledKey) == "1";
+        EventPanelToggle.IsChecked = _eventPanelEnabled;
 
         // 格子在 ApplyLayoutPreference 內就已先建好（那時還讀不到設定），把勾選狀態補正，
         // 否則上次開著的人這次開起來選單會顯示成未勾選，與實際顯示不一致。
@@ -2723,6 +2742,11 @@ public partial class MainWindow : Window
         // 原始事件仍然是真實的偵測，該錄的就是要錄。
         _scheduler?.RegisterEvent(record.ChannelId);
 
+        // 牆上事件面板（QC_Live 的 modeless event view 對齊）吃的是原始偵測流——
+        // 與 QCC 的 SEARCH_EVENT 同一個源頭；聚合只影響「要不要通知」，不影響「發生了」。
+        // RouteAlarm 可能來自解碼執行緒，回 UI 執行緒才碰 ItemsSource。
+        Dispatcher.BeginInvoke(new Action(() => AppendEventPanel(record)), DispatcherPriority.Background);
+
         // QCTek CMS 相容（M3c）：事件回報。與事件錄影閘同一層級——CMS 端要的是原始偵測，
         // 不受智慧聚合抑制影響（聚合只決定「要不要通知」，不是「有沒有發生」）。
         // 回報未啟用時 _qctekHost 存在但沒有客戶端，呼叫是 no-op；
@@ -3474,6 +3498,7 @@ public partial class MainWindow : Window
             MainAreaGrid.Margin = new Thickness(0);
             ImmersiveExitButton.Visibility = Visibility.Visible;
             UpdateQuickBarVisibility();
+            UpdateEventPanelVisibility();
             SetWindowFullScreen(true);
         }
         else
@@ -3484,6 +3509,7 @@ public partial class MainWindow : Window
             MainAreaGrid.Margin = new Thickness(12);
             ImmersiveExitButton.Visibility = Visibility.Collapsed;
             UpdateQuickBarVisibility();
+            UpdateEventPanelVisibility();
             SetWindowFullScreen(_windowFullScreenBeforeImmersive);
         }
     }
@@ -4693,6 +4719,100 @@ public partial class MainWindow : Window
         }
 
         UpdateQuickBarVisibility();
+    }
+
+    /// <summary>切換牆上事件面板；開啟時先補一次最近事件（背景查，回 UI 執行緒填）。</summary>
+    private void OnEventPanelToggled(object sender, RoutedEventArgs e)
+    {
+        _eventPanelEnabled = EventPanelToggle.IsChecked == true;
+        if (_store is not null)
+        {
+            new SettingsRepository(_store).Set(EventPanelEnabledKey, _eventPanelEnabled ? "1" : "0");
+        }
+
+        UpdateEventPanelVisibility();
+        if (_eventPanelEnabled)
+        {
+            _ = LoadRecentEventsAsync();
+        }
+    }
+
+    /// <summary>依開關與沉浸模式顯示或收起事件面板；沉浸模式一律收起。</summary>
+    private void UpdateEventPanelVisibility()
+    {
+        if (EventPanel is null)
+        {
+            return;
+        }
+
+        EventPanel.Visibility = _eventPanelEnabled && !_monitorImmersive
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+    }
+
+    /// <summary>把最近一天的條列補進面板（新在上、最多 <see cref="EventPanelCapacity"/> 列）。</summary>
+    private async Task LoadRecentEventsAsync()
+    {
+        if (_store is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var toUtc = DateTime.UtcNow;
+            var events = await Task.Run(() => _alarmEvents?.ListByRange(null, toUtc.AddDays(-1), toUtc)
+                ?? []).ConfigureAwait(true);
+
+            if (!_eventPanelEnabled || EventPanelList is null)
+            {
+                return;
+            }
+
+            EventPanelList.ItemsSource = events
+                .TakeLast(EventPanelCapacity)
+                .Reverse()
+                .Select(ToEventRow)
+                .ToList();
+        }
+        catch (Exception ex)
+        {
+            // 面板是加值功能：查不到（磁碟忙、鎖）就保持現狀，不能把每秒刷新打掉。
+            HintText.Text = string.Format(Localizer.T("Main.EventPanelLoadFail"), ex.Message);
+        }
+    }
+
+    /// <summary>把一筆事件接到面板最上面（RouteAlarm 可能來自解碼執行緒，呼叫端須已回到 UI）。</summary>
+    private void AppendEventPanel(AlarmEventRecord record)
+    {
+        if (!_eventPanelEnabled || EventPanelList is null)
+        {
+            return;
+        }
+
+        var existing = EventPanelList.ItemsSource as IReadOnlyList<EventRow> ?? [];
+        var rows = new List<EventRow> { ToEventRow(record) };
+        rows.AddRange(existing.Take(EventPanelCapacity - 1));
+        EventPanelList.ItemsSource = rows;
+    }
+
+    private EventRow ToEventRow(AlarmEventRecord record)
+        => new(
+            record.StartUtc.ToLocalTime().ToString("HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture),
+            $"{ChannelName(record.ChannelId)} · {record.EventType}{(string.IsNullOrEmpty(record.Detail) ? string.Empty : $" · {record.Detail}")}",
+            record.ChannelId);
+
+    /// <summary>點事件列＝選取那台的格位（跟頁尾警報列點擊同一個行為）。</summary>
+    private void OnEventPanelSelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (EventPanelList?.SelectedItem is EventRow row)
+        {
+            var cell = GetCell(row.ChannelId);
+            if (cell >= 0)
+            {
+                SelectCell(cell);
+            }
+        }
     }
 
     private void ToggleExpandCell(int cell)
