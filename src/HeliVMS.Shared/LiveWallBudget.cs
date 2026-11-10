@@ -80,4 +80,39 @@ public static class LiveWallBudget
 
         return new Window(256, hardwareDecode ? 8 : 4);
     }
+
+    /// <summary>
+    /// AI 偵測啟用時的預算：<b>不縮小解碼寬度</b>，只保留更新率上限。
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// 偵測精度優先於 CPU。AI 的輸入是「這一張影格的像素」：把 640 寬的次碼流縮到 480 再送進
+    /// 模型，等於把每一個物件都縮小 25% 之後才辨識——遠處的人車就是這樣消失的，而且不會有任何
+    /// 錯誤訊息，只表現成「這台攝影機的 AI 事件變少了」。
+    /// </para>
+    /// <para>
+    /// 回傳原生寬度也正好是「與調整前相同」：AI 頻道維持原本的解碼成本，省下來的 CPU 落在
+    /// 佔多數的、沒有跑 AI 的頻道上。
+    /// </para>
+    /// <para>
+    /// 運動與遮蔽偵測不需要這個例外：兩者都先把影格抽樣成 16×16 的亮度格
+    /// （<c>FrameDifferenceMotionDetector.DownsampleToGrid</c>），影格解析度本來就不影響判定。
+    /// </para>
+    /// </remarks>
+    /// <param name="window">依格數算出的預算。</param>
+    public static Window ForDetection(Window window)
+        => window.DecodeWidth > 0 ? window with { DecodeWidth = 0 } : window;
+
+    /// <summary>
+    /// 依「這台頻道的 AI 偵測是否啟用」決定真正要交給解碼端的預算。
+    /// </summary>
+    /// <remarks>
+    /// 這個判斷刻意放在純函式裡：它只有兩種結果，但寫在桌面端就沒有執行期測試能釘住，
+    /// 而寫錯的方向（永遠當成 AI 已啟用）不會有任何錯誤訊息——它只是讓全站悄悄停止縮小解碼，
+    /// 於是多分割又回到每一格都用原生解析度，症狀只有「大格數時有點頓」。
+    /// </remarks>
+    /// <param name="window">依格數算出的預算。</param>
+    /// <param name="aiEnabled">該頻道是否正在跑 AI 偵測。</param>
+    public static Window ApplyDetectionRule(Window window, bool aiEnabled)
+        => aiEnabled ? ForDetection(window) : window;
 }

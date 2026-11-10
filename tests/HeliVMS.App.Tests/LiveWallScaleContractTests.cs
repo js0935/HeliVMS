@@ -41,11 +41,44 @@ public sealed class LiveWallScaleContractTests
     public void 解碼預算同時套用到次流與主流()
     {
         var budget = SourceContract.BodyOf(SourceContract.Read(Session), "SetLiveBudgetAsync");
+        var apply = SourceContract.BodyOf(SourceContract.Read(Session), "ApplyDecodeWidthAsync");
 
         Assert.Contains("Client.MaxFramesPerSecond", budget);
-        Assert.Contains("Client.SetDecodeWidthAsync(", budget);
         Assert.Contains("_mainClient", budget);
-        Assert.Contains("SetDecodeWidthAsync(", budget);
+        Assert.Contains("ApplyDecodeWidthAsync(", budget);
+
+        Assert.Contains("Client.SetDecodeWidthAsync(", apply);
+        Assert.Contains("_mainClient", apply);
+        Assert.Contains("SetDecodeWidthAsync(", apply);
+    }
+
+    [Fact]
+    public void 解碼寬度一律經過AI例外換算()
+    {
+        // 只在一條路徑上套用 ForDetection 是不夠的：主流有「單畫面」與「手動切流」兩條
+        // 建立路徑，任何一條漏掉，那條路徑上的 AI 頻道就會被縮小解碼——畫面正常，
+        // 只有模型看不到遠處的人車。
+        var session = SourceContract.Read(Session);
+        var effective = SourceContract.BodyOf(session, "EffectiveDecodeWidth");
+        var apply = SourceContract.BodyOf(session, "ApplyDecodeWidthAsync");
+        var ensure = SourceContract.BodyOf(session, "EnsureMainAsync");
+
+        Assert.Contains("ApplyDetectionRule(", effective);
+        Assert.Contains("_ai", effective);
+        Assert.Contains("EffectiveDecodeWidth(", apply);
+        Assert.Contains("EffectiveDecodeWidth(", ensure);
+    }
+
+    [Fact]
+    public void AI開關變動時會立即重新套用解碼寬度()
+    {
+        // 設定頁勾選 AI 之後若只在下一次切換佈局才生效，同一台攝影機的偵測精度會
+        // 取決於「先勾 AI 還是先切版面」，這種不一致沒有人查得出來。
+        var configure = SourceContract.BodyOf(SourceContract.Read(Session), "ConfigureAi");
+
+        Assert.Contains("wasEnabled", configure);
+        Assert.Contains("ReapplyDecodeWidthAsync(", configure);
+        Assert.Contains("IsMonitoring", configure);
     }
 
     [Fact]
@@ -66,9 +99,12 @@ public sealed class LiveWallScaleContractTests
         // 錄影走獨立的主流 SegmentRecorder，顯示端縮小解碼只是為了畫縮圖；
         // 若有人把預算接到錄影路徑，錄下來的檔案會變成 480 寬，而且完全沒有錯誤訊息。
         var budget = SourceContract.BodyOf(SourceContract.Read(Session), "SetLiveBudgetAsync");
+        var apply = SourceContract.BodyOf(SourceContract.Read(Session), "ApplyDecodeWidthAsync");
 
         Assert.DoesNotContain("_recorder", budget);
         Assert.DoesNotContain("RecordingUrl", budget);
+        Assert.DoesNotContain("_recorder", apply);
+        Assert.DoesNotContain("RecordingUrl", apply);
     }
 
     [Fact]

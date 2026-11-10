@@ -125,6 +125,50 @@ public class LiveWallBudgetTests
     }
 
     [Fact]
+    public void AI偵測啟用時不縮小解碼寬度但保留更新率上限()
+    {
+        // AI 的輸入就是這一張影格的像素。多分割時把它縮到 480 再送模型，等於把每個物件
+        // 縮小之後才辨識——遠處的人車就是這樣消失的，而且只有「AI 事件變少了」這個線索。
+        foreach (var cells in new[] { 9, 16, 25, 36, 64 })
+        {
+            foreach (var hardwareDecode in new[] { false, true })
+            {
+                var budget = LiveWallBudget.For(cells, hardwareDecode);
+                var ai = LiveWallBudget.ForDetection(budget);
+
+                Assert.Equal(0, ai.DecodeWidth);
+                Assert.Equal(budget.MaxFramesPerSecond, ai.MaxFramesPerSecond);
+            }
+        }
+    }
+
+    [Fact]
+    public void AI例外只改寬度不改動本來就不縮的預算()
+    {
+        // 1–4 格本來就是原生寬度：換算後必須一模一樣，否則「有沒有開 AI」會讓
+        // 最常用的比對版面出現兩種行為。
+        var native = LiveWallBudget.For(4);
+
+        Assert.Equal(native, LiveWallBudget.ForDetection(native));
+        Assert.Equal(LiveWallBudget.Window.Native, LiveWallBudget.ForDetection(LiveWallBudget.Window.Native));
+    }
+
+    [Fact]
+    public void 沒開AI的頻道仍然要縮小解碼()
+    {
+        // 這是「AI 例外」最危險的一種寫錯方向：把它寫成無條件套用，就等於全站從此
+        // 不再縮小解碼，多分割又回到每一格都用原生解析度——沒有任何錯誤訊息，
+        // 只有「大格數時有點頓」。
+        foreach (var cells in new[] { 9, 16, 25, 36, 64 })
+        {
+            var budget = LiveWallBudget.For(cells);
+
+            Assert.Equal(budget, LiveWallBudget.ApplyDetectionRule(budget, aiEnabled: false));
+            Assert.Equal(0, LiveWallBudget.ApplyDetectionRule(budget, aiEnabled: true).DecodeWidth);
+        }
+    }
+
+    [Fact]
     public void 分割選項與回放牆共用同一份()
     {
         // 兩套牆各抄一份清單，遲早出現「回放可以 64 分割、監看只能 36」這種

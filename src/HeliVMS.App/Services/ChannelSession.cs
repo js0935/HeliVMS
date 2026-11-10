@@ -275,7 +275,58 @@ public sealed class ChannelSession : IDisposable
         }
 
         _ai.MinSampleIntervalMs = sampleIntervalMs;
+        var wasEnabled = _ai.Enabled;
         _ai.Enabled = enabled;
+
+        // 開啟 AI 的頻道不縮小解碼（見 LiveWallBudget.ForDetection）：這裡重算一次，
+        // 否則操作員在設定頁勾了 AI 之後，要等下一次切換佈局才生效——同一台攝影機的
+        // 偵測精度會取決於「先勾 AI 還是先切版面」，這種不一致沒有人查得出來。
+        if (wasEnabled != enabled && IsMonitoring)
+        {
+            _ = ReapplyDecodeWidthAsync();
+        }
+    }
+
+    /// <summary>
+    /// 依「AI 是否啟用」把目前的預算換算成真正要交給解碼端的寬度。
+    /// </summary>
+    /// <remarks>
+    /// 只有 AI 需要原生解析度；運動／遮蔽偵測都先抽樣成 16×16 亮度格，不受影響。
+    /// 沒有 AI 引擎的頻道（<c>_ai</c> 為 null）永遠不可能啟用偵測，所以維持縮小解碼。
+    /// </remarks>
+    private int EffectiveDecodeWidth(int requestedWidth)
+        => LiveWallBudget.ApplyDetectionRule(
+            new LiveWallBudget.Window(Math.Max(0, requestedWidth), _budgetMaxFramesPerSecond),
+            _ai is { Enabled: true }).DecodeWidth;
+
+    /// <summary>重新套用目前的解碼寬度（AI 開關變動時用）；背景執行，失敗只記錄。</summary>
+    private async Task ReapplyDecodeWidthAsync()
+    {
+        try
+        {
+            await ApplyDecodeWidthAsync().ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            HeliVMS.Shared.BoundedFileLog.Append(
+                Path.Combine(Path.GetTempPath(), "helivms-live.log"),
+                $"{DateTime.UtcNow:O} 頻道 {Name} 重新套用解碼寬度失敗：{ex.GetType().Name}: {ex.Message}\n",
+                512 * 1024);
+        }
+    }
+
+    /// <summary>把目前的預算（換算過 AI 例外）送給次流與主流。</summary>
+    private async Task ApplyDecodeWidthAsync()
+    {
+        var width = EffectiveDecodeWidth(_budgetDecodeWidth);
+
+        await Client.SetDecodeWidthAsync(width).ConfigureAwait(false);
+
+        // 主流可能在上一行之後才被建立（EnsureMainAsync），所以再取一次而不是沿用區域變數。
+        if (_mainClient is { } main)
+        {
+            await main.SetDecodeWidthAsync(width).ConfigureAwait(false);
+        }
     }
 
     /// <summary>
@@ -302,13 +353,7 @@ public sealed class ChannelSession : IDisposable
             mainClient.MaxFramesPerSecond = fps;
         }
 
-        await Client.SetDecodeWidthAsync(width).ConfigureAwait(false);
-
-        // 主流可能在上一行之後才被建立（EnsureMainAsync），所以再取一次而不是沿用區域變數。
-        if (_mainClient is { } main)
-        {
-            await main.SetDecodeWidthAsync(width).ConfigureAwait(false);
-        }
+        await ApplyDecodeWidthAsync().ConfigureAwait(false);
     }
 
     public async Task StartMonitoringAsync()
@@ -432,7 +477,7 @@ public sealed class ChannelSession : IDisposable
 
         // 主流可能在多分割時被手動切上來（切流視窗），所以要套用目前的解碼預算；
         // 否則同一格在自動政策下是 480 寬、手動切一次就變回 1920——成本無聲地回來。
-        await main.SetDecodeWidthAsync(_budgetDecodeWidth).ConfigureAwait(false);
+        await main.SetDecodeWidthAsync(EffectiveDecodeWidth(_budgetDecodeWidth)).ConfigureAwait(false);
 
         // 主流幾乎一定有音訊軌（次碼流常常沒有），所以單畫面時的收音走這一條。
         if (_audioReceiver is { } receiver)

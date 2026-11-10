@@ -405,6 +405,15 @@ Notes that will save you time:
   否證：解碼本身 3.91 s、色轉與 1080p 管線只多 2.67 s，軟體解碼換不掉那 3.91 s。
   Guarded by `LiveWallBudgetTests`, `VideoScalingTests`, `RtspDecodeScalingTests`,
   `LiveWallScaleContractTests`.
+  **AI 啟用的頻道不縮小解碼寬度**（`LiveWallBudget.ApplyDetectionRule`）：AI 的輸入就是那張
+  影格的像素，縮小等於把物件縮小後才辨識，遠處的人車會消失且沒有任何錯誤訊息。回原生寬度
+  也正好等於調整前的行為（零回歸）。運動／遮蔽偵測不受影響（先抽樣成 16×16 亮度格）。
+  判斷放在純函式而非桌面端，就是因為它只有兩種結果、但沒有執行期測試可釘——寫錯的方向
+  （無條件套用）不會報錯，只會讓全站悄悄停止縮小解碼。三條路徑都要經過它：
+  `SetLiveBudgetAsync`、`EnsureMainAsync`、以及 `ConfigureAi` 在開關變動當下重新套用。
+  Guarded by `AI偵測啟用時不縮小解碼寬度但保留更新率上限`,
+  `沒開AI的頻道仍然要縮小解碼`, `解碼寬度一律經過AI例外換算` and
+  `AI開關變動時會立即重新套用解碼寬度`.
 - **Multi-pane playback scales to 64 panes only because each pane's decode is budgeted — and the
   budget is coupled to the sync tolerance.** 現場要求「多路回放最多 64 路」。64 格各解一條 1080p
   在算術上就是不可能的（一格 6MB 原始影格、畫面上卻只有約 110–160 像素寬），實測（本機 8 核心、
