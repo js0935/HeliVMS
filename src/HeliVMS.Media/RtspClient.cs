@@ -236,6 +236,17 @@ public sealed class RtspClient : IAsyncDisposable
     private int _lastProbeHeight;
 
     /// <summary>
+    /// 最近一次探測到的視訊編碼格式（<c>h264</c>／<c>hevc</c>…），供
+    /// <see cref="HardwareDecodePolicy"/> 判斷「原生尺寸也值得硬解」。
+    /// </summary>
+    /// <remarks>
+    /// 少了它，H.265 的頻道在單格或 1–4 分割（不縮尺寸）時會一律軟解，實測白白多燒
+    /// 12–45% CPU——而畫面上完全正常，只有 CPU 使用率看得出來。
+    /// 尚未探測到時為 <c>null</c>，政策會保守地回軟解。
+    /// </remarks>
+    private string? _lastProbeCodec;
+
+    /// <summary>
     /// ffprobe 探測解析度的逾時上限。攝影機 RTSP 連線無回應時 ffprobe 可能停滯，
     /// 逾時後必須讓重連迴圈接手，否則頻道會永遠停在 Connecting。
     /// 實測最慢的攝影機（220.130.205.226）ffprobe 需 11.6～55.3 秒才回傳解析度，
@@ -266,9 +277,9 @@ public sealed class RtspClient : IAsyncDisposable
     /// <c>-hwaccel</c>。供診斷／測試觀察，判定前為 <c>null</c>。
     /// </summary>
     /// <remarks>
-    /// <c>auto</c> 的答案會隨「這一輪有沒有縮尺寸解碼」而變：原生尺寸時政策刻意回軟解
-    /// （實測硬體解碼在那裡量不到好處），所以這裡也會是 <c>false</c>——它回答的是
-    /// 「實際會不會用」，不是「這台機器支不支援」。
+    /// <c>auto</c> 的答案會隨「這一輪有沒有縮尺寸解碼」與「編碼格式」而變：原生尺寸的 H.264
+    /// 政策刻意回軟解（實測量不到好處），所以這裡也會是 <c>false</c>；原生尺寸的 HEVC 則會是
+    /// <c>true</c>（實測省 12–45%）。它回答的是「實際會不會用」，不是「這台機器支不支援」。
     /// </remarks>
     public bool? HwAccelSupported => _hwAccel is null ? null : (_hwAccelProbed ? _hwAccelSupported : null);
 
@@ -413,6 +424,7 @@ public sealed class RtspClient : IAsyncDisposable
                 var (width, height) = (probe.Width, probe.Height);
                 _lastProbeWidth = width;
                 _lastProbeHeight = height;
+                _lastProbeCodec = probe.VideoCodec;
 
                 // 有音訊軌才掛音訊輸出：沒有麥克風的攝影機完全不碰這件事，
                 // 也就不可能因為音訊而影響畫面（`-map 0:a:0` 對沒有音訊的來源會讓行程失敗）。
@@ -421,7 +433,8 @@ public sealed class RtspClient : IAsyncDisposable
 
                 // 只在「設定了硬體加速、本機支援、且不在失敗冷卻期內」時才帶 -hwaccel。
                 // 一幀都沒出的失敗會進入冷卻期，下一輪即退回軟解（見 catch）。
-                // auto 另外要求這一輪真的在縮尺寸解碼（見 HardwareDecodePolicy）。
+                // auto 另外要求「這一輪真的在縮尺寸解碼」或「編碼格式在原生尺寸也划算」
+                // （H.264 原生尺寸實測打平，HEVC 省 12–45%；見 HardwareDecodePolicy）。
                 var hwAccel = EffectiveHwAccel();
                 HwAccelInUse = hwAccel;
                 _lastAttemptUsedHwAccel = hwAccel is not null;
@@ -470,8 +483,9 @@ public sealed class RtspClient : IAsyncDisposable
     /// </summary>
     /// <remarks>
     /// 決策本體在 <see cref="HardwareDecodePolicy"/>：<c>auto</c> 由它解析成一個明確的方法名，
-    /// 且只在這一輪真的縮尺寸解碼時才啟用（原生尺寸的硬體解碼實測沒有好處）。
-    /// 這裡只負責三件外面做不到的事：探測（且只探一次）、冷卻期、以及目前這一輪的縮放狀態。
+    /// 且只在「這一輪真的縮尺寸解碼」或「編碼格式在原生尺寸也划算（HEVC）」時才啟用。
+    /// 這裡只負責四件外面做不到的事：探測（且只探一次）、冷卻期、目前這一輪的縮放狀態，
+    /// 以及探測到的編碼格式。
     /// </remarks>
     private string? EffectiveHwAccel()
     {
@@ -488,7 +502,11 @@ public sealed class RtspClient : IAsyncDisposable
         // 探測結果（ffmpeg -hwaccels）與「這一輪有沒有縮」無關，只問一次並快取；
         // 決策本身則每次重算——切換佈局會改變縮放狀態，auto 的答案要跟著變。
         _hwAccelAvailable ??= FfmpegHwAccel.ProbeCached(_ffmpeg, TimeSpan.FromSeconds(5));
-        var decision = HardwareDecodePolicy.Resolve(_hwAccel, _hwAccelAvailable, DecodeScalingActive());
+        var decision = HardwareDecodePolicy.Resolve(
+            _hwAccel,
+            _hwAccelAvailable,
+            DecodeScalingActive(),
+            _lastProbeCodec);
 
         _hwAccelProbed = true;
         _hwAccelSupported = decision is not null;

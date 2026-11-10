@@ -429,35 +429,46 @@ Notes that will save you time:
   Guarded by `AI偵測啟用時不縮小解碼寬度但保留更新率上限`,
   `沒開AI的頻道仍然要縮小解碼`, `解碼寬度一律經過AI例外換算` and
   `AI開關變動時會立即重新套用解碼寬度`.
-- **`decode.hwaccel=auto` must be resolved into one concrete method, and only when the decode is
-  actually scaled down — `auto` handed to ffmpeg is the worst option measured.** 量測環境：本機
+- **`decode.hwaccel=auto` must be resolved into one concrete method, and only when it pays off —
+  `auto` handed to ffmpeg is the worst option measured.** 量測環境：本機
   i5-1035G1（4C/8T）、1920×1080/15fps、6 路同時、`-re` 即時速率、每路 300 幀，總 CPU＝各 ffmpeg 的
   `bench: utime+stime`。原生 1080p：軟解 25.57 s、`d3d11va` 26.17 s（打平）、`auto` 36.42 s（最差）；
   縮 640×360：18.72 → 8.94 s（−52%，`auto` 11.09 s）；縮 480×270：24.41 → 9.39 s（−62%）；
   16 路 640×360：61.20 → 26.11 s（−57%）；24 路 640×360：113.14 → 42.53 s，而且軟解在 24 路
-  **追不上即時**（wall 24.1 s 的視窗只解完 113 s 的 CPU 需求，畫面愈拖愈舊）。兩個結論：
-  (1) 原生尺寸的硬解沒有好處（下載回系統記憶體的成本把省下的解碼成本吃光），多一層 GPU 依賴只是
-  多一種「連得上卻沒畫面」； (2) 不能把字面 `auto` 交給 ffmpeg，它在上面每一種情境都挑得比明確
-  指定差。`HeliVMS.Media.HardwareDecodePolicy.Resolve(configured, available, scalingActive)` 是
+  **追不上即時**（wall 24.1 s 的視窗只解完 113 s 的 CPU 需求，畫面愈拖愈舊）。三個結論：
+  (1) **H.264** 原生尺寸的硬解沒有好處（下載回系統記憶體的成本把省下的解碼成本吃光），多一層 GPU
+  依賴只是多一種「連得上卻沒畫面」； (2) **H.265 不是這樣**——同一組量測 HEVC 8-bit 原生
+  40.42/46.86 s → 35.47/36.28 s（−12%～−23%）、HEVC 10-bit 62.73/84.36 s → 41.66/46.03 s
+  （−34%～−45%），縮 640×360 則是 26.00 → 7.70 s／34.95 → 11.39 s（−67%～−70%）；軟解愈貴，
+  下載成本佔比愈小，所以**決策輸入是編碼格式，不是 CPU 世代**（第 10 代同時有 Ice Lake 與
+  Comet Lake，媒體引擎不同代；同一代不同 iGPU 也不同，寫世代表一定有一半是錯的）； (3) 不能把
+  字面 `auto` 交給 ffmpeg，它在上面每一種情境都挑得比明確指定差。
+  `HeliVMS.Media.HardwareDecodePolicy.Resolve(configured, available, scalingActive, videoCodec)` 是
   **唯一**的決策點：`auto` → `d3d11va → dxva2 → qsv` 中第一個 `ffmpeg -hwaccels` 回報支援者，且
-  `scalingActive == false` 時回軟解；探測失敗或偏好清單全缺也回軟解（挑錯的症狀是連得上卻沒畫面）；
+  只在「`scalingActive == true`」或「`PaysOffAtNativeSize(videoCodec)`（`hevc`／`h265`／`hvc1`／
+  `hev1`）」時啟用；探測失敗／偏好清單全缺／還沒探測到編碼格式時回軟解（挑錯的症狀是連得上卻沒畫面）；
   明確值（`d3d11va`／`cuda`／`dxva2`）維持既有語意，不因原生尺寸被改掉。`qsv` 排最後是量出來的：
-  本機 ffmpeg 有回報它，但 6 路實測全部失敗。三件不要改回去的事： (1) `scalingActive` 的口徑必須
+  本機 ffmpeg 有回報它，但 6 路實測全部失敗。四件不要改回去的事： (1) `scalingActive` 的口徑必須
   與實際解碼相同（`RtspClient.DecodeScalingActive` 走 `DecodedSize`），否則「政策以為有縮、實際沒縮」
   會讓 auto 落在最不划算的情境； (2) 決策只能有一份，即時監看（`RtspClient.EffectiveHwAccel`）與
-  回放（`PlaybackSession` 建參數時）都走它，兩份遲早漂移成「監看吃滿 CPU 而回放正常」；
+  回放（`PlaybackSession` 建參數時）都走它，**輸入也要一致**（兩邊都傳 `VideoCodec`；漏傳會讓
+  單格回放 HEVC 一律軟解，與監看差 12–45%，而兩邊畫面都正常）；
   (3) `%TEMP%\helivms-live.log` 的每一格都要寫 `hw=`（軟解寫 `hw=off`，不省略整欄）而且寫的是
   **這一輪實際生效**的方法（`RtspClient.HwAccelInUse`），不是設定值——少了它，現場「明明設了硬解
-  卻還是吃滿 CPU」只能靠猜，而 `HwAccelSupported` 也已改成回答「這一輪會不會用」。
-  Guarded by `HardwareDecodePolicyTests`, `RtspHardwareDecodeTests`（stub ffmpeg 驗真實命令列）、
-  `硬體解碼決策只存在政策裡且監看與回放共用`, `診斷行會寫出實際生效的硬體解碼方式` and
-  `實際生效的硬體解碼會寫在同一行裡`. 突變檢查（每一項都先改壞確認會紅再還原）：政策拿掉
+  卻還是吃滿 CPU」只能靠猜，而 `HwAccelSupported` 也已改成回答「這一輪會不會用」；
+  (4) `PaysOffAtNativeSize` 是唯一判斷 HEVC 的同義詞（`hevc`／`h265`／`hvc1`／`hev1`）的地方：
+  ffprobe 給 `codec_name=hevc`、mp4 的 codec tag 是 `hvc1`／`hev1`，各寫一份遲早漏掉一種。
+  Guarded by `HardwareDecodePolicyTests`, `RtspHardwareDecodeTests`（stub ffmpeg 驗真實命令列，含
+  HEVC probe stub）、`硬體解碼決策只存在政策裡且監看與回放共用`, `診斷行會寫出實際生效的硬體解碼方式`
+  and `實際生效的硬體解碼會寫在同一行裡`. 突變檢查（每一項都先改壞確認會紅再還原）：政策拿掉
   `!scalingActive` 檢查 → Media 2 紅；`EffectiveHwAccel` 改回 `ShouldUse` → Media 3 紅＋App 契約紅；
   `Format` 不輸出 `hw=` → Shared 3 紅；`MainWindow` 不傳 `counters.HwAccel` → App 紅；
-  `ChannelSession` 不傳 `HwAccelInUse` → App 紅；`PlaybackSession` 改回 `ShouldUse` → App 紅。
+  `ChannelSession` 不傳 `HwAccelInUse` → App 紅；`PlaybackSession` 改回 `ShouldUse` → App 紅；
+  拿掉 `PaysOffAtNativeSize` 的 codec 判斷 → `原生尺寸的HEVC仍會帶入硬體解碼` 紅。
   已量測但**不採納**的選項：`-threads 1/2/4`、`dxva2`（比 `d3d11va` 慢）、`-pix_fmt nv12`
   單項都沒有好處；NV12 直送＋自寫 AVX2 `NV12→BGR24` 單路 1080p 可再省約 8.9 ms/幀，但色差與
-  維護風險高於收益。
+  維護風險高於收益；`scale_d3d11` GPU 縮放本機失敗（`Failed to create input view: HRESULT
+  0x887A0004`，加 `-filter_hw_device` 亦同），等有第 11 代以後的實機量到再開。
 - **Multi-pane playback scales to 64 panes only because each pane's decode is budgeted — and the
   budget is coupled to the sync tolerance.** 現場要求「多路回放最多 64 路」。64 格各解一條 1080p
   在算術上就是不可能的（一格 6MB 原始影格、畫面上卻只有約 110–160 像素寬），實測（本機 8 核心、

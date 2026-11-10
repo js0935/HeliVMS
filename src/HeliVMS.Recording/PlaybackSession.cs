@@ -467,13 +467,16 @@ public sealed class PlaybackSession : IAsyncDisposable
         var displayWidth = DisplayWidth > 0 && info.Width > DisplayWidth ? DisplayWidth : 0;
 
         // 硬體解碼：先問本機 ffmpeg 支不支援（不支援就不用），避開前次失敗的冷卻期，
-        // 並由政策決定要不要、用哪一個（auto 只在這一輪真的縮尺寸時才啟用）。
+        // 並由政策決定要不要、用哪一個（auto 在這一輪真的縮尺寸、或編碼格式在原生尺寸
+        // 也划算時才啟用）。回放與即時監看共用同一份政策，輸入也必須一致：少了 info.VideoCodec，
+        // 單格回放 HEVC 錄影會一律軟解，與即時監看的 CPU 差 12–45%，而兩邊畫面都正常。
         var hwAccel = DateTime.UtcNow < _hwAccelDisabledUntil
             ? null
             : HardwareDecodePolicy.Resolve(
                 HwAccel,
                 FfmpegHwAccel.ProbeCached(_ffmpeg, TimeSpan.FromSeconds(5)),
-                displayWidth > 0);
+                displayWidth > 0,
+                info.VideoCodec);
 
         foreach (var arg in BuildDecodeArguments(
             Segment.FilePath, seekSeconds, remaining, audioPort, AudioSampleRate,

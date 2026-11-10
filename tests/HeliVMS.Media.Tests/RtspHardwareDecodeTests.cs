@@ -48,9 +48,9 @@ public class RtspHardwareDecodeTests
     }
 
     [Fact]
-    public async Task auto在原生尺寸時以軟解啟動()
+    public async Task 原生尺寸的H264以軟解啟動()
     {
-        // 實測原生 1080p：軟解 25.57s vs d3d11va 26.17s——多一層 GPU 依賴卻沒有好處。
+        // 實測原生 1080p H.264：軟解 25.57s vs d3d11va 26.17s——多一層 GPU 依賴卻沒有好處。
         var dir = NewDir();
         var probe = WriteStub(dir, "ffprobe.cmd", EchoResolution64x36);
         WriteFrame(dir, 64 * 36 * 3);
@@ -69,6 +69,34 @@ public class RtspHardwareDecodeTests
         Assert.DoesNotContain("-hwaccel", args);
         Assert.Null(client.HwAccelInUse);
         Assert.False(client.HwAccelSupported, "原生尺寸下 auto 刻意不啟用硬解");
+
+        await client.StopAsync();
+    }
+
+    [Fact]
+    public async Task 原生尺寸的HEVC仍會帶入硬體解碼()
+    {
+        // 實測原生 1080p HEVC：軟解 40.42/46.86s → d3d11va 35.47/36.28s（−12%～−23%），
+        // 10-bit 更明顯（62.73/84.36s → 41.66/46.03s）。少了這條，「不縮尺寸」的 H.265
+        // 頻道會一律軟解，白白多燒 CPU 而畫面完全正常——正是這一層守門要抓的漏接。
+        var dir = NewDir();
+        var probe = WriteStub(dir, "ffprobe.cmd", EchoResolution64x36Hevc);
+        WriteFrame(dir, 64 * 36 * 3);
+        var ffmpeg = WriteStub(dir, "ffmpeg.cmd", HwAccelStub(hwAccels: ["d3d11va", "dxva2"]));
+
+        await using var client = NewClient(ffmpeg, probe, "auto");
+
+        var got = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        client.FrameDecoded += (_, _) => got.TrySetResult();
+        await client.StartAsync();
+
+        var done = await Task.WhenAny(got.Task, Task.Delay(TimeSpan.FromSeconds(30)));
+        Assert.True(done == got.Task, "原生尺寸的 HEVC 應正常出畫");
+
+        var args = await File.ReadAllTextAsync(Path.Combine(dir, "args.txt"));
+        Assert.Contains("-hwaccel d3d11va", args);
+        Assert.Equal("d3d11va", client.HwAccelInUse);
+        Assert.True(client.HwAccelSupported, "原生尺寸的 HEVC 這一輪真的用了硬解");
 
         await client.StopAsync();
     }
@@ -138,6 +166,12 @@ public class RtspHardwareDecodeTests
         """
         @echo off
         echo {"streams":[{"codec_type":"video","codec_name":"h264","width":64,"height":36,"r_frame_rate":"1/1"}]}
+        """;
+
+    private const string EchoResolution64x36Hevc =
+        """
+        @echo off
+        echo {"streams":[{"codec_type":"video","codec_name":"hevc","width":64,"height":36,"r_frame_rate":"1/1"}]}
         """;
 
     // 第一參數固定 -hide_banner，故探測呼叫的 %2 為 -hwaccels（見 FfmpegHwAccel.Probe）。
