@@ -74,10 +74,14 @@
 
 ```
 <RecStorage>\YYYY_MM_DD\HH_mm\ChannelNNNN\
-    ├─ YYYYMMDD-HH.idx   每小時索引 0xE10 bytes＝100 槽 × 60 bytes（tm_min 定位）
-    │                    每槽低 4 bit＝錄影型態旗標
+    ├─ YYYYMMDD-HH.idx   每小時索引 0xE10＝3600 bytes＝60 分鐘 × 60 bytes
+    │                    一個 byte 對一秒；查詢以 tm_min × 0x3C 定位，低 4 bit＝錄影型態旗標
     └─ 媒體檔（與 idx 同目錄；容器需動態驗證）
 ```
+
+> 版型由 `QC_Record!FUN_180006560` 重建（`read(idx, buf, 0xE10)` → `buf + tm_min × 0x3C`
+> → 掃 60 個 byte，`(值 & 0xf) != 0 && != 3` 才算有錄影）。原本寫的「100 槽 × 60 bytes」
+> 是誤記（100×60≠0xE10），已更正。逐項對照見 `STORAGE-ALIGNMENT.md`。
 
 - 儲存池：`QC_NVRStorage.initial_storage(path)`，路徑來自 `qc_setting.xls!RecStorage`
   （實機 `D:\QC_Storage\`，36 槽＝36 通道）；多顆 HDD 依設定輪替
