@@ -39,6 +39,7 @@ public sealed class RtspClient : IAsyncDisposable
     private int _consecutiveFailures;
     private bool _hwAccelProbed;
     private bool _hwAccelSupported;
+    private IReadOnlyCollection<string>? _hwAccelAvailable;
     private bool _lastAttemptUsedHwAccel;
     private bool _lastAttemptProducedFrame;
     private DateTime _hwAccelDisabledUntil = DateTime.MinValue;
@@ -264,9 +265,25 @@ public sealed class RtspClient : IAsyncDisposable
 
     /// <summary>
     /// 本機 ffmpeg 是否支援目前設定的硬體加速：<c>null</c>＝未設定硬體加速、
-    /// <c>true/false</c>＝已探測且（不）支援。供診斷／測試觀察，探測前為 <c>null</c>。
+    /// <c>true/false</c>＝已依 <see cref="HardwareDecodePolicy"/> 判定這一輪（不）會帶
+    /// <c>-hwaccel</c>。供診斷／測試觀察，判定前為 <c>null</c>。
     /// </summary>
+    /// <remarks>
+    /// <c>auto</c> 的答案會隨「這一輪有沒有縮尺寸解碼」而變：原生尺寸時政策刻意回軟解
+    /// （實測硬體解碼在那裡量不到好處），所以這裡也會是 <c>false</c>——它回答的是
+    /// 「實際會不會用」，不是「這台機器支不支援」。
+    /// </remarks>
     public bool? HwAccelSupported => _hwAccel is null ? null : (_hwAccelProbed ? _hwAccelSupported : null);
+
+    /// <summary>
+    /// 最近一輪實際交給 ffmpeg 的加速方式（<c>null</c>＝軟解）。
+    /// </summary>
+    /// <remarks>
+    /// 必須是「實際生效」而不是「設定值」：<c>auto</c> 會被解析成明確的方法名、
+    /// 不支援或前次失敗冷卻中會被剝除。診斷日誌若只寫設定值，現場
+    /// 「明明設了硬解卻還是吃滿 CPU」就永遠查不出來。
+    /// </remarks>
+    public string? HwAccelInUse { get; private set; }
 
     /// <summary>目前連線狀態。</summary>
     public RtspState State { get; private set; } = RtspState.Stopped;
@@ -407,7 +424,9 @@ public sealed class RtspClient : IAsyncDisposable
 
                 // 只在「設定了硬體加速、本機支援、且不在失敗冷卻期內」時才帶 -hwaccel。
                 // 一幀都沒出的失敗會進入冷卻期，下一輪即退回軟解（見 catch）。
+                // auto 另外要求這一輪真的在縮尺寸解碼（見 HardwareDecodePolicy）。
                 var hwAccel = EffectiveHwAccel();
+                HwAccelInUse = hwAccel;
                 _lastAttemptUsedHwAccel = hwAccel is not null;
                 _lastAttemptProducedFrame = false;
 
@@ -452,6 +471,11 @@ public sealed class RtspClient : IAsyncDisposable
     /// 決定這一輪連線要用的硬體加速值（<c>null</c>＝軟解）：未設定、本機不支援，
     /// 或處於前次失敗的冷卻期內時皆為 <c>null</c>。首次呼叫會探測本機 ffmpeg 支援的加速方式。
     /// </summary>
+    /// <remarks>
+    /// 決策本體在 <see cref="HardwareDecodePolicy"/>：<c>auto</c> 由它解析成一個明確的方法名，
+    /// 且只在這一輪真的縮尺寸解碼時才啟用（原生尺寸的硬體解碼實測沒有好處）。
+    /// 這裡只負責三件外面做不到的事：探測（且只探一次）、冷卻期、以及目前這一輪的縮放狀態。
+    /// </remarks>
     private string? EffectiveHwAccel()
     {
         if (_hwAccel is null)
@@ -464,15 +488,24 @@ public sealed class RtspClient : IAsyncDisposable
             return null;
         }
 
-        if (!_hwAccelProbed)
-        {
-            _hwAccelProbed = true;
-            var available = FfmpegHwAccel.ProbeCached(_ffmpeg, TimeSpan.FromSeconds(5));
-            _hwAccelSupported = FfmpegHwAccel.ShouldUse(_hwAccel, available);
-        }
+        // 探測結果（ffmpeg -hwaccels）與「這一輪有沒有縮」無關，只問一次並快取；
+        // 決策本身則每次重算——切換佈局會改變縮放狀態，auto 的答案要跟著變。
+        _hwAccelAvailable ??= FfmpegHwAccel.ProbeCached(_ffmpeg, TimeSpan.FromSeconds(5));
+        var decision = HardwareDecodePolicy.Resolve(_hwAccel, _hwAccelAvailable, DecodeScalingActive());
 
-        return _hwAccelSupported ? _hwAccel : null;
+        _hwAccelProbed = true;
+        _hwAccelSupported = decision is not null;
+        return decision;
     }
+
+    /// <summary>
+    /// 這一輪是不是真的會在解碼端縮小尺寸。判斷口徑與 <see cref="StreamFramesAsync"/> 完全相同
+    /// （<see cref="DecodedSize"/>），否則「政策以為有縮、實際沒縮」會讓 auto 啟用在最不划算的情境。
+    /// 還沒探測到來源尺寸時視為沒有縮（新的一輪會重新判）。
+    /// </summary>
+    private bool DecodeScalingActive()
+        => _lastProbeWidth > 0
+            && DecodedSize(_lastProbeWidth, _lastProbeHeight, DecodeWidth).Width < _lastProbeWidth;
 
     private void SetState(RtspState state)
     {

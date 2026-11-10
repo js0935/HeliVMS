@@ -33,6 +33,11 @@ public static class LiveViewDiagnosticLine
     /// <param name="Age">畫面年齡（UI 佇列）。</param>
     /// <param name="State">連線狀態。</param>
     /// <param name="CapPerSecond">生效中的顯示上限（0＝不限）；用來看出「上限沒生效」。</param>
+    /// <param name="HwAccel">
+    /// 這一輪實際生效的加速方式（<c>null</c>＝軟解）。必須是「實際生效」而不是設定值：
+    /// <c>auto</c> 會被解析成明確的方法名、原生尺寸時刻意不啟用、失敗冷卻期內也會退回軟解。
+    /// 沒有這一欄，現場「明明設了硬解卻還是吃滿 CPU」只能靠猜。
+    /// </param>
     public readonly record struct CellSample(
         int ChannelId,
         string StreamLabel,
@@ -45,10 +50,11 @@ public static class LiveViewDiagnosticLine
         TimeSpan? StreamBacklog,
         TimeSpan Age,
         string State,
-        double CapPerSecond = 0);
+        double CapPerSecond = 0,
+        string? HwAccel = null);
 
     /// <summary>
-    /// 一行：<c>時間 | cells=N | ch103 sub 640x360 shown=14.8/s read=29.9/s drop=15.1/s backlog=120ms age=45ms Streaming</c>
+    /// 一行：<c>時間 | cells=N | ch103 sub 640x360 hw=d3d11va shown=14.8/s read=29.9/s drop=15.1/s backlog=120ms age=45ms Streaming</c>
     /// </summary>
     public static string Format(DateTime utcNow, IReadOnlyList<CellSample> cells)
     {
@@ -71,6 +77,13 @@ public static class LiveViewDiagnosticLine
                 builder.Append(' ').Append(cell.Width.ToString(CultureInfo.InvariantCulture))
                     .Append('x').Append(cell.Height.ToString(CultureInfo.InvariantCulture));
             }
+
+            // 硬解一直寫（軟解寫 hw=off），不寫「沒帶就整欄省略」：省略與「這台舊版沒有這一欄」
+            // 在日誌上長得一樣，而這一欄正是分辨「設了硬解卻沒生效」的唯一線索。
+            // 硬解一直寫（軟解寫 hw=off），不寫「沒帶就整欄省略」：省略與「這台舊版沒有這一欄」
+            // 在日誌上長得一樣，而這一欄正是分辨「設了硬解卻沒生效」的唯一線索。
+            builder.Append(" hw=").Append(
+                string.IsNullOrWhiteSpace(cell.HwAccel) ? "off" : cell.HwAccel);
 
             builder.Append(" shown=").Append(Rate(cell.ShownFps)).Append("/s");
             builder.Append(" read=").Append(Rate(cell.ReadPerSecond)).Append("/s");

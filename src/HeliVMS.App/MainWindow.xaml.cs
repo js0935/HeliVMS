@@ -3297,7 +3297,8 @@ public partial class MainWindow : Window
                 session?.StreamBacklog,
                 _cellMeters[cell].Age(now),
                 _cellStates[cell].ToString(),
-                counters.Cap));
+                counters.Cap,
+                counters.HwAccel));
         }
 
         // 修剪「這一輪已經不在畫面上」的頻道：換台／關掉之後留著舊計數，下次回來會被當成

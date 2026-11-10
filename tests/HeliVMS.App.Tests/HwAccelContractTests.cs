@@ -78,6 +78,29 @@ public sealed class HwAccelContractTests
         Assert.DoesNotContain("psi.ArgumentList.Add(\"-hwaccel\")", stream);
     }
 
+    /// <summary>
+    /// 「要不要硬解、用哪一個」只能有一份決策，而且即時監看與回放都要走它。
+    /// </summary>
+    /// <remarks>
+    /// 兩份決策遲早漂移：一份認為 <c>auto</c> 可以用、另一份認為原生尺寸不值得，
+    /// 於是同一台機器上監看吃滿 CPU 而回放正常（或反過來），日誌兩邊都乾淨。
+    /// </remarks>
+    [Fact]
+    public void 硬體解碼決策只存在政策裡且監看與回放共用()
+    {
+        var client = SourceContract.Read(ClientCode);
+        var effective = SourceContract.BodyOf(client, "EffectiveHwAccel");
+        Assert.Contains("HardwareDecodePolicy.Resolve(", effective);
+        Assert.DoesNotContain("FfmpegHwAccel.ShouldUse(", effective);
+
+        // auto 的「有沒有縮尺寸」必須用與實際解碼相同的口徑（DecodedSize）。
+        var scaling = SourceContract.BodyOf(client, "DecodeScalingActive");
+        Assert.Contains("DecodedSize(", scaling);
+
+        var playback = SourceContract.Read("src/HeliVMS.Recording/PlaybackSession.cs");
+        Assert.Contains("HardwareDecodePolicy.Resolve(", playback);
+    }
+
     private static string WiredSelectionChanged(string relativePath, string element)
     {
         var xaml = SourceContract.Read(relativePath);

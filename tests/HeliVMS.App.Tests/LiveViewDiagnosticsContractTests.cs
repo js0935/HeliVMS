@@ -57,6 +57,27 @@ public sealed class LiveViewDiagnosticsContractTests
     }
 
     /// <summary>
+    /// 診斷行要寫出「這一輪實際生效」的硬體解碼方式，不是設定值。
+    /// </summary>
+    /// <remarks>
+    /// <c>auto</c> 會被解析成明確的方法名、原生尺寸時刻意不啟用、失敗冷卻期內也會退回軟解。
+    /// 只寫設定值的日誌會讓現場「明明設了硬解卻還是吃滿 CPU」永遠查不出來，
+    /// 而這個欄位就在既有的每秒計時器裡，沒有額外成本。
+    /// </remarks>
+    [Fact]
+    public void 診斷行會寫出實際生效的硬體解碼方式()
+    {
+        var write = SourceContract.BodyOf(SourceContract.Read(MainCode), "WriteLiveDiagnostics");
+        Assert.Contains("counters.HwAccel", write);
+
+        var stats = SourceContract.BodyOf(SourceContract.Read(SessionCode), "GetDecodeSnapshot");
+        Assert.Contains("HwAccelInUse", stats);
+
+        var client = SourceContract.Read(MediaCode);
+        Assert.Contains("HwAccelInUse", client);
+    }
+
+    /// <summary>
     /// 狀態列顯示的延遲必須是「本機造成的」那一段；量不到就退回畫面年齡，不可報 0。
     /// </summary>
     /// <remarks>

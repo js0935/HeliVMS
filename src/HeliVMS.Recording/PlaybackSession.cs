@@ -93,9 +93,11 @@ public sealed class PlaybackSession : IAsyncDisposable
     /// </summary>
     /// <remarks>
     /// 64 路時這一項是關鍵：解碼成本移到 GPU 之後，CPU 才有餘裕同時維持錄影與即時監看。
-    /// 與即時監看同一條原則——先問本機 ffmpeg 支不支援，不支援就不用；
-    /// 而且**一次「帶了 -hwaccel 卻一幀都沒出」就全域停用五分鐘**：64 格各自重試同一件壞事
-    /// （驅動被佔用、GPU 不支援這個 profile）只會讓操作員多等 64 次黑畫面。
+    /// 與即時監看同一條原則——先問本機 ffmpeg 支不支援，不支援就不用；決策本體是
+    /// <see cref="HardwareDecodePolicy"/>（<c>auto</c> 解析成明確的方法名，且只在這一格真的
+    /// 縮尺寸解碼時啟用——原生尺寸時實測沒有好處）；而且**一次「帶了 -hwaccel 卻一幀都沒出」
+    /// 就全域停用五分鐘**：64 格各自重試同一件壞事（驅動被佔用、GPU 不支援這個 profile）
+    /// 只會讓操作員多等 64 次黑畫面。
     /// </remarks>
     public string? HwAccel { get; set; }
 
@@ -466,12 +468,14 @@ public sealed class PlaybackSession : IAsyncDisposable
         // 解析度小的舊錄影（或子碼流錄影）本來就不需要縮。
         var displayWidth = DisplayWidth > 0 && info.Width > DisplayWidth ? DisplayWidth : 0;
 
-        // 硬體解碼：先問本機 ffmpeg 支不支援（不支援就不用），且避開前次失敗的冷卻期。
+        // 硬體解碼：先問本機 ffmpeg 支不支援（不支援就不用），避開前次失敗的冷卻期，
+        // 並由政策決定要不要、用哪一個（auto 只在這一輪真的縮尺寸時才啟用）。
         var hwAccel = DateTime.UtcNow < _hwAccelDisabledUntil
             ? null
-            : FfmpegHwAccel.ShouldUse(RtspClient.NormalizeHwAccel(HwAccel), FfmpegHwAccel.ProbeCached(_ffmpeg, TimeSpan.FromSeconds(5)))
-                ? RtspClient.NormalizeHwAccel(HwAccel)
-                : null;
+            : HardwareDecodePolicy.Resolve(
+                HwAccel,
+                FfmpegHwAccel.ProbeCached(_ffmpeg, TimeSpan.FromSeconds(5)),
+                displayWidth > 0);
 
         foreach (var arg in BuildDecodeArguments(
             Segment.FilePath, seekSeconds, remaining, audioPort, AudioSampleRate,

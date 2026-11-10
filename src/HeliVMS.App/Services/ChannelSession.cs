@@ -229,12 +229,16 @@ public sealed class ChannelSession : IDisposable
             EffectiveClient.FramesDropped,
             EffectiveClient.FrameSize.Width,
             EffectiveClient.FrameSize.Height,
-            EffectiveClient.MaxFramesPerSecond);
+            EffectiveClient.MaxFramesPerSecond,
+            EffectiveClient.HwAccelInUse);
 
     /// <summary>已讀／已送出／因顯示上限丟棄的影格數、最近一次的影格尺寸，與生效中的顯示上限。</summary>
     /// <remarks>
     /// <see cref="Cap"/> 也要一起回報：上限沒生效（例如被某條路徑改成 0）時，日誌上只會看到
     /// 「讀 30/s、丟 0/s」這種自相矛盾的數字，而那個矛盾正是唯一的線索。
+    /// <see cref="HwAccel"/> 是「這一輪實際生效的加速方式」（<c>null</c>＝軟解），不是設定值：
+    /// <c>auto</c> 會被解析成明確的方法名、原生尺寸時刻意不啟用、失敗冷卻期內也會退回軟解。
+    /// 少了這一欄，現場「明明設了硬解卻還是吃滿 CPU」只能靠猜。
     /// </remarks>
     public readonly record struct DecodeSnapshot(
         long Read,
@@ -242,7 +246,8 @@ public sealed class ChannelSession : IDisposable
         long Dropped,
         int Width,
         int Height,
-        double Cap);
+        double Cap,
+        string? HwAccel = null);
 
     public event EventHandler<VideoFrame>? FrameArrived;
 

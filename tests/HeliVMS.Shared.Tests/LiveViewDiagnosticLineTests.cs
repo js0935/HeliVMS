@@ -21,7 +21,8 @@ public class LiveViewDiagnosticLineTests
         int width = 640,
         int height = 360,
         string stream = "sub",
-        double cap = 0)
+        double cap = 0,
+        string? hw = null)
         => new(
             channelId,
             stream,
@@ -34,19 +35,33 @@ public class LiveViewDiagnosticLineTests
             backlog,
             age ?? TimeSpan.FromMilliseconds(45),
             state,
-            cap);
+            cap,
+            hw);
 
     [Fact]
     public void 每個欄位都在同一行裡()
     {
         var line = LiveViewDiagnosticLine.Format(
             new DateTime(2026, 11, 5, 8, 12, 34, 567, DateTimeKind.Utc),
-            [Cell(backlog: TimeSpan.FromMilliseconds(780), cap: 15)]);
+            [Cell(backlog: TimeSpan.FromMilliseconds(780), cap: 15, hw: "d3d11va")]);
 
         Assert.Equal(
-            "2026-11-05T08:12:34.567Z | cells=1 | ch103 sub 640x360 shown=14.8/s read=29.9/s emit=14.9/s"
+            "2026-11-05T08:12:34.567Z | cells=1 | ch103 sub 640x360 hw=d3d11va shown=14.8/s read=29.9/s emit=14.9/s"
             + " drop=15/s cap=15/s backlog=780ms age=45ms Streaming",
             line);
+    }
+
+    /// <summary>
+    /// 硬解一直寫（軟解寫 <c>hw=off</c>）：現場「明明設了硬解，CPU 還是滿載」時，
+    /// 這一欄是唯一能分辨「政策沒啟用（例如原生尺寸或冷卻期）」與「真的用了硬解卻還是慢」的線索。
+    /// </summary>
+    [Fact]
+    public void 實際生效的硬體解碼會寫在同一行裡()
+    {
+        Assert.Contains("hw=d3d11va", LiveViewDiagnosticLine.Format(DateTime.UnixEpoch, [Cell(hw: "d3d11va")]));
+
+        // 軟解不省略整欄：省略與「舊版沒有這一欄」在日誌上長得一樣。
+        Assert.Contains("hw=off", LiveViewDiagnosticLine.Format(DateTime.UnixEpoch, [Cell()]));
     }
 
     /// <summary>
@@ -108,9 +123,10 @@ public class LiveViewDiagnosticLineTests
     public void 沒有影格時不寫尺寸()
     {
         // 還沒出過畫的連線（解析度未知）不該寫 0x0：那看起來像一個真的尺寸。
+        // 但 hw 仍要寫——「連線中，軟解」正是這一格當下的解碼方式。
         var line = LiveViewDiagnosticLine.Format(DateTime.UnixEpoch, [Cell(width: 0, height: 0)]);
 
-        Assert.Contains("ch103 sub shown=", line);
+        Assert.Contains("ch103 sub hw=off shown=", line);
         Assert.DoesNotContain("0x0", line);
     }
 }
