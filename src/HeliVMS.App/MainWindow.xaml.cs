@@ -154,15 +154,21 @@ public partial class MainWindow : Window
     private readonly List<System.Windows.Controls.Primitives.ToggleButton> _quickButtons = [];
 
     /// <summary>
-    /// 第二螢幕鏡像牆（QC_Live 的多螢幕監看對齊）：主牆畫出的幀轉發到第二螢幕的格位。
-    /// 控制權完全留在主視窗；鏡像窗只讀（<see cref="WallMirrorWindow.RenderFrame"/>）。
-    /// 開窗與否不持久化（螢幕配置每次開機可能不同，操作員開了才有），但格數記在
-    /// <c>wall.mirror.split</c>——不然每天開機都要重設一次。
+    /// 第二螢幕鏡像牆（QC_Live 的多螢幕監看對齊）：主牆已解碼的幀轉發到第二螢幕的格位。
+    /// 控制權完全留在主視窗；鏡像窗只讀（<see cref="WallMirrorWindow.PostFrame"/>）。
+    /// 開窗與否不持久化（螢幕配置每次開機可能不同，操作員開了才有），但格數與來源記在
+    /// <c>wall.mirror.split</c>／<c>wall.mirror.group</c>——不然每天開機都要重設一次。
     /// </summary>
     private WallMirrorWindow? _mirror;
 
     /// <summary>鏡像牆的分割數（1／2／4／9／16，由 <see cref="MirrorWallBudget"/> 決定合法值）。</summary>
     private const string MirrorSplitKey = "wall.mirror.split";
+
+    /// <summary>鏡像牆的頻道來源（群組 id；<see cref="FollowTabSource"/>＝跟隨主牆頁簽）。</summary>
+    private const string MirrorSourceKey = "wall.mirror.group";
+
+    /// <summary>「跟隨主牆頁簽」在設定裡的字面值；必須與 <see cref="MirrorGroupId"/> 的非數字判定一致。</summary>
+    private const string FollowTabSource = "follow";
 
     /// <summary>
     /// 牆上事件面板（QC_Live 的 modeless event view 對齊）：左緣列出最近的事件列
@@ -1252,6 +1258,10 @@ public partial class MainWindow : Window
         }
 
         _channelById = null;
+
+        // 頻道清單變了（改名、加入、刪除），鏡像牆的來源內容也跟著變；不重送的話第二螢幕
+        // 會停在舊名稱／舊成員，而群組成員是「加入頻道」時才對得上的東西。
+        _mirror?.SetChannels(MirrorChannels());
     }
 
     // ---- 監看群組（監控中心頁簽）------------------------------------------------
@@ -1300,6 +1310,18 @@ public partial class MainWindow : Window
             var target = GroupTabs.Items.OfType<TabItem>().FirstOrDefault(t => (long?)t.Tag == _activeGroupId) ?? all;
             GroupTabs.SelectedItem = target;
             _activeGroupId = target.Tag as long?;
+
+            // 鏡像牆的來源清單是同一份群組（它可以把第二螢幕固定在某一組）。群組被改名／刪除後
+            // 不重送，第二螢幕上的來源鈕會顯示一個已經不存在的名字，而且再也切不回來。
+            _mirror?.SetSources(MirrorSources(), _mirror.SourceGroupId);
+            _mirror?.SetChannels(MirrorChannels());
+
+            // 群組被刪除時來源可能正好指著它：SetSources 會退回「跟隨主牆頁簽」，但設定裡
+            // 還留著那個 id，下次開窗會再退回一次（而畫面已經正確）。一併寫回才不會有兩種說法。
+            if (_mirror is { } mirror && mirror.SourceGroupId is null && _store is not null)
+            {
+                new SettingsRepository(_store).Set(MirrorSourceKey, FollowTabSource);
+            }
         }
         finally
         {
@@ -2232,7 +2254,7 @@ public partial class MainWindow : Window
         // 頻道快速列跟著目前頁簽的牆序重建（按鈕編號＝牆序，與跳台/改派同一口徑）。
         RebuildQuickBar();
         // 鏡像窗的格位對應跟著目前頁簽重設（前四台）。
-        _mirror?.SetChannels(WallChannels());
+        _mirror?.SetChannels(MirrorChannels());
     }
 
     /// <summary>依目標格數與監看區大小，決定格線的列×欄與外框尺寸（每格維持畫面比例、置中）。</summary>
@@ -3094,6 +3116,14 @@ public partial class MainWindow : Window
 
     private void OnCellFrame(int cell, int channelId, VideoFrame frame)
     {
+        // 第二螢幕鏡像牆可能顯示「不在主牆格位上的頻道」（它有自己的來源，見
+        // MirrorChannels）：所以要在「格位過濾」之前先問鏡像牆要不要這一台。鏡像端比對的是
+        // 頻道而不是格位，而且它自己會把繪製排到 UI 執行緒（WriteableBitmap 只能在 UI 執行緒寫）。
+        if (_mirror is { } mirror && mirror.WantsChannel(channelId))
+        {
+            mirror.PostFrame(channelId, frame);
+        }
+
         if (cell is < 0 or >= MaxCells)
         {
             return;
@@ -3172,12 +3202,9 @@ public partial class MainWindow : Window
             pending.Unlock();
         }
 
-        // 第二螢幕鏡像（QC_Live 的多螢幕監看對齊）：同一份已解碼影格轉發給鏡像窗，
-        // 不另開解碼行程。鏡像窗自己管理 WriteableBitmap 與節流。
-        if (_mirror is { } mirror && _cellChannel[cell] is int mirrorChannel)
-        {
-            mirror.RenderFrame(mirrorChannel, frame);
-        }
+        // 第二螢幕鏡像的轉發點在 OnCellFrame（解碼執行緒、格位過濾之前）——這裡不再送一份：
+        // 兩個轉發點會讓同一格被畫兩次，而且這一條只涵蓋「在主牆格位上」的頻道，
+        // 鏡像自己的來源（別的群組）永遠收不到影格。
 
         // 收到影格＝「此刻真的有畫面」，是狀態的地面真相。改派格位時管理器重用既有 session
         // 且不再補送狀態事件（見 OnCellMappingChanged），_cellStates 會停在 Stopped；而狀態文字
@@ -4834,13 +4861,19 @@ public partial class MainWindow : Window
 
     /// <summary>
     /// 開/關第二螢幕鏡像牆（QC_Live 的多螢幕監看對齊）。開：建窗、放到第二螢幕、依
-    /// <c>wall.mirror.split</c> 決定格數、餵目前頁簽前 N 台；關：Shutdown 解除轉發。
-    /// 幀轉發點在 <see cref="RenderCellFrame"/>，不另開解碼行程、不重連。
+    /// <c>wall.mirror.split</c> 與 <c>wall.mirror.group</c> 決定格數與來源；關：Shutdown 解除轉發。
+    /// 幀轉發點在 <see cref="OnCellFrame"/>（解碼執行緒、格位過濾之前），不另開解碼行程、不重連。
     /// </summary>
     /// <remarks>
+    /// <para>
     /// 鏡像窗右上角的 ✕、Esc、以及「第二螢幕被拔掉」都會關掉它，而這三條路都不是走這裡的
     /// toggle 分支——所以 <c>Closed</c> 必須把 <see cref="MirrorToggle"/> 的勾選清掉。少了那一行，
     /// 按鈕會一直顯示「開著」而畫面已經沒有第二份，操作員的結論是「這顆按鈕壞了」。
+    /// </para>
+    /// <para>
+    /// 來源與格數都在<b>改動當下</b>寫回設定，不等關窗：關窗有自己的收尾路徑（✕／Esc／拔螢幕），
+    /// 漏掉就等於沒存到。
+    /// </para>
     /// </remarks>
     private void OnMirrorToggleClicked(object sender, RoutedEventArgs e)
     {
@@ -4862,6 +4895,21 @@ public partial class MainWindow : Window
                 // 格數變了就要補一次狀態，不然新出現的格子要等下一秒才有徽章與燈。
                 PushMirrorBadges();
             };
+
+            mirror.SetSources(
+                MirrorSources(),
+                MirrorGroupId(settings.Get(MirrorSourceKey)));
+            mirror.SourceChanged += (_, _) =>
+            {
+                var groupId = mirror.SourceGroupId;
+                settings.Set(
+                    MirrorSourceKey,
+                    groupId?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? FollowTabSource);
+
+                // 換來源就整面換人：重送格位（並清掉上一組的殘影）＋立刻補一次徽章。
+                mirror.SetChannels(MirrorChannels());
+                PushMirrorBadges();
+            };
         }
 
         mirror.Closed += (_, _) =>
@@ -4874,10 +4922,56 @@ public partial class MainWindow : Window
             }
         };
         _mirror = mirror;
-        mirror.SetChannels(WallChannels());
+        mirror.SetChannels(MirrorChannels());
         PushMirrorBadges();
         mirror.Show();
         MirrorToggle.IsChecked = true;
+    }
+
+    /// <summary>鏡像牆目前的頻道來源（依 <c>wall.mirror.group</c> 還原；無效值退回「跟隨頁簽」）。</summary>
+    private long? MirrorGroupId(string? stored)
+        => long.TryParse(stored, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out var id)
+           && id > 0
+           && _groups?.Get(id) is not null
+            ? id
+            : null;
+
+    /// <summary>鏡像牆可選的來源：跟隨主牆頁簽 ＋ 各監看群組。</summary>
+    private IReadOnlyList<MirrorSource> MirrorSources()
+    {
+        var sources = new List<MirrorSource>
+        {
+            new(null, Localizer.T("Main.MirrorSourceFollowTab")),
+        };
+
+        if (_groups is not null)
+        {
+            sources.AddRange(_groups.List().Select(g => new MirrorSource(g.Id, g.Name)));
+        }
+
+        return sources;
+    }
+
+    /// <summary>
+    /// 鏡像牆要顯示的頻道：指定群組時是該群組的成員（依群組順序），否則與主牆目前頁簽相同。
+    /// </summary>
+    /// <remarks>
+    /// 指定群組的頻道可能不在主牆格位上（<c>Cell = -1</c>）——那些工作階段仍在解碼（錄影需要），
+    /// 所以在 <see cref="OnCellFrame"/> 比對頻道就送得到影格；少了那一條，第二螢幕只會是一片黑，
+    /// 而且沒有任何錯誤訊息。
+    /// </remarks>
+    private IReadOnlyList<ChannelInfo> MirrorChannels()
+    {
+        if (_mirror?.SourceGroupId is not long groupId || _groups is null)
+        {
+            return WallChannels();
+        }
+
+        var byId = _channelList.ToDictionary(c => c.Id);
+        return _groups.ListChannelIds(groupId)
+            .Where(byId.ContainsKey)
+            .Select(id => byId[id])
+            .ToList();
     }
 
     /// <summary>切換牆上事件面板；開啟時先補一次最近事件（背景查，回 UI 執行緒填）。</summary>
@@ -6271,12 +6365,12 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// 把目前頁簽前 N 台（N＝鏡像牆格數）的徽章文字與錄影方式指示燈推給第二螢幕。
+    /// 把鏡像牆前 N 台（N＝鏡像格數）的徽章文字與錄影方式指示燈推給第二螢幕。
     /// </summary>
     /// <remarks>
-    /// 順序與 <see cref="WallMirrorWindow.SetChannels"/> 相同（都取自 <see cref="WallChannels"/>），
-    /// 所以第 i 筆一定對到第 i 格。鏡像窗顯示的可能是主牆格位看不到的頻道（鏡像 16 格、
-    /// 主牆 4 格），因此來源是頻道清單而不是主牆的格位。
+    /// 順序與 <see cref="WallMirrorWindow.SetChannels"/> 相同（都取自 <see cref="MirrorChannels"/>），
+    /// 所以第 i 筆一定對到第 i 格。鏡像窗顯示的可能是主牆格位看不到的頻道（自己的群組、
+    /// 或格數比主牆多），因此來源是頻道清單而不是主牆的格位。
     /// </remarks>
     private void PushMirrorBadges()
     {
@@ -6285,7 +6379,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        var channels = WallChannels();
+        var channels = MirrorChannels();
         var count = Math.Min(_mirror.CurrentSplit, channels.Count);
         var badges = new List<MirrorBadge>(count);
         for (var i = 0; i < count; i++)

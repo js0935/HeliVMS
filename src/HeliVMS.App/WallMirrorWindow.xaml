@@ -19,6 +19,13 @@
                 Margin="0,10,6,0" Padding="10,4" FontSize="13"
                 Foreground="White" Background="#1F3A5F" BorderThickness="0"
                 AutomationProperties.AutomationId="MirrorSplitButton" />
+        <!-- Channel source cycle: follow the main wall's tab, or pin one monitor group so the
+             second screen can keep showing (say) the gate while the main wall pages elsewhere. -->
+        <Button x:Name="SourceButton" Content="" Click="OnSourceClicked" ToolTip=""
+                DockPanel.Dock="Right" HorizontalAlignment="Right" VerticalAlignment="Top"
+                Margin="0,10,0,0" Padding="10,4" FontSize="13"
+                Foreground="White" Background="#1F3A5F" BorderThickness="0"
+                AutomationProperties.AutomationId="MirrorSourceButton" />
         <Grid>
             <UniformGrid x:Name="MirrorGrid" Rows="2" Columns="2" />
         </Grid>

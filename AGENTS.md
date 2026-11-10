@@ -673,6 +673,19 @@ Notes that will save you time:
   `RecordingCapacityServiceTests`, `RecordingCapacityApiTests`,
   `RecordingCapacityContractTests` and `寫入量只有一份實作`.
   逐項對照與參考實作的容量公式見 `docs/STORAGE-ALIGNMENT.md`（§5.1）。
+- **The second-screen mirror wall filters frames by channel, not by cell — and it must be fed
+  from the decode thread.** `WallMirrorWindow` can be pinned to a monitor group (`wall.mirror.group`)
+  so the second screen keeps showing one set of cameras while the main wall pages elsewhere;
+  those channels often have `Cell = -1` (unmounted from the wall but still decoding for
+  recording), so the forward in `MainWindow.OnCellFrame` has to happen **before** the
+  `cell is < 0 or >= MaxCells` guard — after it, the pinned group is a black screen with a clean
+  log. Because that forward now runs on the decode thread, the mirror only stores the newest
+  frame per cell and schedules the draw on the UI thread (`PostFrame` → `RenderCell`); writing
+  `WriteableBitmap.WritePixels` from `PostFrame` throws "The calling thread cannot access this
+  object", and rendering in `RenderCellFrame` again would double-draw and re-break the -1 cells.
+  Cell assignment and badges both come from `MirrorChannels()` (one source of truth), and
+  `ReloadGroupTabs` re-sends the source list so a renamed/deleted group cannot leave the second
+  screen pointing at a name that no longer exists. Guarded by `WallMirrorContractTests`.
 - **Event recording is gated by a time window, and the gate must be re-evaluated immediately.**
   `RecordingMode.Event` records only while the channel had an event within
   `recording.event_seconds` (default 30 s): `RegisterEvent` stamps `_eventTriggers[channel]`,

@@ -3,6 +3,7 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using System.Windows.Threading;
 using HeliVMS.Shared;
 using HeliVMS.Shared.Models;
 
@@ -18,18 +19,34 @@ namespace HeliVMS.App;
 /// <param name="DotOpacity">燈的明暗（全亮＝正在錄）。</param>
 public sealed record MirrorBadge(string Text, string? Tip, System.Windows.Media.Brush? DotBrush, double DotOpacity);
 
+/// <summary>鏡像牆的頻道來源選項（「跟隨主牆頁簽」或某個監看群組）。</summary>
+/// <param name="GroupId">群組 id；<see langword="null"/>＝跟隨主牆目前頁簽。</param>
+/// <param name="Name">顯示名稱。</param>
+public sealed record MirrorSource(long? GroupId, string Name);
+
 /// <summary>
 /// 第二螢幕鏡像牆（QC_Live 的多螢幕監看對齊）：
-/// 主牆解碼的幀<b>轉發</b>到這裡的格位，<b>不另開解碼行程、不重連</b>——
-/// 只訂閱主牆已經畫出來的原始影格（<see cref="RenderFrame"/>）。
+/// 主牆解碼的幀<b>轉發</b>到這裡的格位，<b>不另開解碼行程、不重連</b>——影格由
+/// <c>MainWindow.OnCellFrame</c> 從解碼執行緒送進來（<see cref="PostFrame"/>）。
 /// </summary>
 /// <remarks>
 /// <para>
+/// <b>頻道來源可以跟主牆不一樣</b>（QC_Live 的每個 win 各自有分割與頻道派置）：右上角的來源鈕
+/// 可選「跟隨主牆頁簽」或任一監看群組，所以第二螢幕可以固定顯示某個群組（例如大門），
+/// 主螢幕照樣翻頁看別的。為了做到這件事，鏡像的影格過濾是<b>比對頻道</b>而不是比對格位
+/// ——不在主牆格位上的頻道（<c>Cell = -1</c>）仍在解碼（錄影需要），影格一樣送得進來。
+/// </para>
+/// <para>
 /// 格數由 <see cref="MirrorWallBudget.SplitOptions"/> 決定（1／2／4／9／16，預設 4）：鏡像不花解碼
 /// 成本，花的是每格一張 <c>WriteableBitmap</c> 的貼圖成本，所以上限刻意低於主牆的 64 格。
-/// 操作員在第二螢幕上按右上角的分割鈕循環切換，<see cref="SplitChanged"/> 讓主視窗把它記進
-/// <c>wall.mirror.split</c>——不記的話每次開機都要重設一次，而「昨天明明是 9 格」這種回報
-/// 永遠查不到原因。
+/// 格數與來源都由主視窗記進設定（<c>wall.mirror.split</c>／<c>wall.mirror.group</c>）——不記的話
+/// 每次開機都要重設一次，而「昨天明明是 9 格」這種回報永遠查不到原因。
+/// </para>
+/// <para>
+/// <b>執行緒</b>：<see cref="PostFrame"/> 從解碼執行緒呼叫，只碰每個格位自己的欄位與一份
+/// 不可變的格位陣列（<c>volatile</c> 換手），真正畫圖（<c>WriteableBitmap.WritePixels</c>）
+/// 一律排回 UI 執行緒；每格最多一張待畫（最新一張勝出），否則 UI 執行緒一旦跟不上，
+/// 佇列會無限膨脹且畫面愈拖愈舊。
 /// </para>
 /// <para>
 /// 刻意不做的：拖曳、右鍵、PTZ——控制權留在主視窗（操作員在主螢幕控制、第二螢幕純顯示，
@@ -44,7 +61,7 @@ public sealed record MirrorBadge(string Text, string? Tip, System.Windows.Media.
 /// </remarks>
 public partial class WallMirrorWindow : Window
 {
-    /// <summary>格位（依序對應主牆目前頁簽的頻道）。</summary>
+    /// <summary>格位。</summary>
     private sealed class MirrorCell
     {
         public required Image Image { get; init; }
@@ -55,15 +72,33 @@ public partial class WallMirrorWindow : Window
         public string Name { get; set; } = string.Empty;
         public string BadgeText { get; set; } = string.Empty;
         public long LastLabelTicks;
+
+        /// <summary>解碼執行緒放進來、等 UI 執行緒畫的最新一張影格。</summary>
+        public VideoFrame? Pending;
+
+        /// <summary>這一格已經排了一個 UI 繪製工作（每格最多一張在途）。</summary>
+        public bool RenderScheduled;
     }
 
-    private readonly List<MirrorCell> _cells = [];
+    /// <summary>
+    /// 目前格位。整份換手（<c>volatile</c>）而不是就地改：<see cref="PostFrame"/> 在解碼執行緒上
+    /// 讀它，邊讀邊改一個 <c>List</c> 遲早會撞到「集合已修改」或半新半舊的格位。
+    /// </summary>
+    private volatile MirrorCell[] _cells = [];
+
+    /// <summary>目前已指派頻道（解碼執行緒的快速過濾；與格位同時換手）。</summary>
+    private volatile HashSet<int> _wanted = [];
+
     private IReadOnlyList<ChannelInfo> _lastChannels = [];
+    private IReadOnlyList<MirrorSource> _sources = [];
     private string? _screenDeviceName;
     private bool _closed;
 
     /// <summary>分割數被操作員改變（要寫回設定）。</summary>
     public event EventHandler<int>? SplitChanged;
+
+    /// <summary>頻道來源被操作員改變（要寫回設定並重送格位）。</summary>
+    public event EventHandler? SourceChanged;
 
     public WallMirrorWindow()
     {
@@ -74,13 +109,17 @@ public partial class WallMirrorWindow : Window
     }
 
     /// <summary>目前的格數。</summary>
-    public int CurrentSplit => _cells.Count;
+    public int CurrentSplit => _cells.Length;
+
+    /// <summary>目前的頻道來源：<see langword="null"/>＝跟隨主牆頁簽。</summary>
+    public long? SourceGroupId { get; private set; }
 
     private void ApplyI18n()
     {
         Title = Localizer.T("Main.MirrorTitle");
         CloseButton.ToolTip = Localizer.T("Main.MirrorCloseTip");
         SplitButton.ToolTip = Localizer.T("Main.MirrorSplitTip");
+        SourceButton.ToolTip = Localizer.T("Main.MirrorSourceTip");
     }
 
     /// <summary>
@@ -100,15 +139,18 @@ public partial class WallMirrorWindow : Window
         MirrorGrid.Rows = rows;
         MirrorGrid.Columns = columns;
         MirrorGrid.Children.Clear();
-        _cells.Clear();
 
+        var built = new MirrorCell[count];
         for (var i = 0; i < count; i++)
         {
-            _cells.Add(CreateCell());
+            built[i] = CreateCell();
         }
 
+        _cells = built;
+        _wanted = [];
+        ApplyChannels(_lastChannels);
+
         SplitButton.Content = count.ToString(System.Globalization.CultureInfo.InvariantCulture);
-        SetChannels(_lastChannels);
         SplitChanged?.Invoke(this, count);
     }
 
@@ -156,7 +198,66 @@ public partial class WallMirrorWindow : Window
     }
 
     /// <summary>
-    /// 套用主牆推來的每格狀態（第 i 筆對應第 i 格，依牆序）。每秒一次，與主牆的
+    /// 設定可用來源（「跟隨主牆頁簽」＋各監看群組）。由主視窗在開窗與群組清單變動時呼叫。
+    /// </summary>
+    /// <remarks>
+    /// 選項存在按鈕的 <c>Tag</c> 上而不是 ComboBox：鏡像窗在第二螢幕上，操作員的滑鼠在那裡，
+    /// 一顆「切換來源」的按鈕比拉下一個清單少一次點擊，而且清單長度不會把整條列擠爆。
+    /// </remarks>
+    public void SetSources(IReadOnlyList<MirrorSource> sources, long? current)
+    {
+        if (_closed)
+        {
+            return;
+        }
+
+        _sources = sources.Count > 0 ? sources : [new MirrorSource(null, Localizer.T("Main.MirrorSourceFollowTab"))];
+
+        var index = 0;
+        for (var i = 0; i < _sources.Count; i++)
+        {
+            if (_sources[i].GroupId == current)
+            {
+                index = i;
+                break;
+            }
+        }
+
+        SourceGroupId = _sources[index].GroupId;
+        UpdateSourceButton();
+    }
+
+    private void UpdateSourceButton()
+    {
+        var current = _sources.FirstOrDefault(s => s.GroupId == SourceGroupId);
+        SourceButton.Content = current?.Name ?? Localizer.T("Main.MirrorSourceFollowTab");
+    }
+
+    /// <summary>循環切換頻道來源（跟隨頁簽 → 群組 1 → 群組 2 → …）。</summary>
+    private void OnSourceClicked(object sender, RoutedEventArgs e)
+    {
+        if (_sources.Count == 0)
+        {
+            return;
+        }
+
+        var index = 0;
+        for (var i = 0; i < _sources.Count; i++)
+        {
+            if (_sources[i].GroupId == SourceGroupId)
+            {
+                index = i;
+                break;
+            }
+        }
+
+        SourceGroupId = _sources[(index + 1) % _sources.Count].GroupId;
+        UpdateSourceButton();
+        SourceChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    /// <summary>
+    /// 套用主牆推來的每格狀態（第 i 筆對應第 i 格）。每秒一次，與主牆的
     /// <c>UpdateBadges</c> 同一個節奏。
     /// </summary>
     public void ApplyBadges(IReadOnlyList<MirrorBadge> badges)
@@ -166,9 +267,10 @@ public partial class WallMirrorWindow : Window
             return;
         }
 
-        for (var i = 0; i < _cells.Count; i++)
+        var cells = _cells;
+        for (var i = 0; i < cells.Length; i++)
         {
-            var cell = _cells[i];
+            var cell = cells[i];
             var badge = i < badges.Count ? badges[i] : null;
 
             cell.BadgeText = badge?.Text ?? string.Empty;
@@ -249,82 +351,137 @@ public partial class WallMirrorWindow : Window
         }));
     }
 
-    /// <summary>設定格位與頻道對應（主牆頁簽的前 N 台，依牆序）。</summary>
-    public void SetChannels(IReadOnlyList<ChannelInfo> wallChannels)
+    /// <summary>
+    /// 設定格位與頻道對應（依來源的牆序，第 0 台在第 0 格）。主牆在頁簽切換、來源切換、
+    /// 群組清單變動時呼叫；<b>必須在 UI 執行緒</b>。
+    /// </summary>
+    public void SetChannels(IReadOnlyList<ChannelInfo> channels)
     {
         if (_closed)
         {
             return;
         }
 
-        _lastChannels = wallChannels;
+        _lastChannels = channels;
+        ApplyChannels(channels);
+    }
 
-        for (var i = 0; i < _cells.Count; i++)
+    private void ApplyChannels(IReadOnlyList<ChannelInfo> channels)
+    {
+        var cells = _cells;
+        var wanted = new HashSet<int>();
+
+        for (var i = 0; i < cells.Length; i++)
         {
-            var cell = _cells[i];
-            var channel = i < wallChannels.Count ? wallChannels[i] : null;
+            var cell = cells[i];
+            var channel = i < channels.Count ? channels[i] : null;
             cell.ChannelId = channel?.Id ?? 0;
             cell.Name = channel?.Name ?? string.Empty;
             cell.BadgeText = string.Empty;
             cell.Label.ToolTip = null;
             cell.Label.Text = WallMirrorLabel.Compose(null, cell.Name, DateTime.Now);
+            if (cell.ChannelId > 0)
+            {
+                wanted.Add(cell.ChannelId);
+            }
+
             if (channel is null)
             {
+                cell.Pending = null;
                 cell.Image.Source = null;
                 cell.Bitmap = null;
                 cell.Dot.Fill = null;
                 cell.Dot.Visibility = Visibility.Collapsed;
             }
         }
+
+        _wanted = wanted;
     }
 
     /// <summary>
-    /// 畫一幀（主牆 UI 執行緒轉發過來的原始 BGR24 影格）。
-    /// 頻道不在鏡像格位內、或視窗已關：直接忽略。
+    /// 這個頻道現在有格位嗎？<b>可以在解碼執行緒呼叫</b>（主牆用它決定要不要送影格過來）。
     /// </summary>
-    public void RenderFrame(int channelId, VideoFrame frame)
+    public bool WantsChannel(int channelId) => _wanted.Contains(channelId);
+
+    /// <summary>
+    /// 從解碼執行緒收一張影格（<c>MainWindow.OnCellFrame</c>）：每格只留最新一張，
+    /// 排在 UI 執行緒以 Render 優先權畫。
+    /// </summary>
+    public void PostFrame(int channelId, VideoFrame frame)
     {
         if (_closed)
         {
             return;
         }
 
-        // 不提早 return：同一台若同時佔了兩格（主牆把小群組放大到 9 格時會發生），
-        // 提早結束只會讓後面那格永遠停在舊畫面，且沒有任何錯誤訊息。
-        foreach (var cell in _cells)
+        var cells = _cells;
+        for (var i = 0; i < cells.Length; i++)
         {
+            var cell = cells[i];
             if (cell.ChannelId != channelId)
             {
                 continue;
             }
 
-            if (cell.Bitmap is null || cell.Bitmap.PixelWidth != frame.Width || cell.Bitmap.PixelHeight != frame.Height)
+            cell.Pending = frame;
+            if (cell.RenderScheduled)
             {
-                cell.Bitmap = new WriteableBitmap(frame.Width, frame.Height, 96, 96, System.Windows.Media.PixelFormats.Bgr24, null);
-                cell.Image.Source = cell.Bitmap;
+                continue;
             }
 
-            cell.Bitmap.Lock();
-            try
-            {
-                cell.Bitmap.WritePixels(
-                    new Int32Rect(0, 0, frame.Width, frame.Height),
-                    frame.Pixels,
-                    frame.Stride,
-                    0);
-            }
-            finally
-            {
-                cell.Bitmap.Unlock();
-            }
+            cell.RenderScheduled = true;
+            var index = i;
+            Dispatcher.BeginInvoke(new Action(() => RenderCell(index, cell)), DispatcherPriority.Render);
+        }
+    }
 
-            // 時間 OSD 每 500ms 一次：每幀改 TextBlock 會讓 WPF 每秒重排上百次。
-            var ticks = Environment.TickCount64;
-            if (ticks - cell.LastLabelTicks > 500)
-            {
-                cell.LastLabelTicks = ticks;
-                cell.Label.Text = WallMirrorLabel.Compose(cell.BadgeText, cell.Name, frame.TimestampUtc.ToLocalTime());
-            }
+    /// <summary>
+    /// 畫一格的待畫影格（UI 執行緒）。格位可能在排隊期間被重建，所以要驗身分。
+    /// </summary>
+    private void RenderCell(int index, MirrorCell cell)
+    {
+        cell.RenderScheduled = false;
+
+        var frame = cell.Pending;
+        cell.Pending = null;
+        if (_closed || frame is null)
+        {
+            return;
+        }
+
+        var cells = _cells;
+        if (index < 0 || index >= cells.Length || !ReferenceEquals(cells[index], cell))
+        {
+            // 排隊期間切了分割：這一格已經不是現在那一格，畫上去只會出現在錯的位置。
+            return;
+        }
+
+        if (cell.Bitmap is null || cell.Bitmap.PixelWidth != frame.Width || cell.Bitmap.PixelHeight != frame.Height)
+        {
+            cell.Bitmap = new WriteableBitmap(frame.Width, frame.Height, 96, 96, System.Windows.Media.PixelFormats.Bgr24, null);
+            cell.Image.Source = cell.Bitmap;
+        }
+
+        cell.Bitmap.Lock();
+        try
+        {
+            cell.Bitmap.WritePixels(
+                new Int32Rect(0, 0, frame.Width, frame.Height),
+                frame.Pixels,
+                frame.Stride,
+                0);
+        }
+        finally
+        {
+            cell.Bitmap.Unlock();
+        }
+
+        // 時間 OSD 每 500ms 一次：每幀改 TextBlock 會讓 WPF 每秒重排上百次。
+        var ticks = Environment.TickCount64;
+        if (ticks - cell.LastLabelTicks > 500)
+        {
+            cell.LastLabelTicks = ticks;
+            cell.Label.Text = WallMirrorLabel.Compose(cell.BadgeText, cell.Name, frame.TimestampUtc.ToLocalTime());
         }
     }
 
@@ -334,7 +491,7 @@ public partial class WallMirrorWindow : Window
     private void OnSplitClicked(object sender, RoutedEventArgs e)
     {
         var options = MirrorWallBudget.SplitOptions;
-        var current = options.ToList().IndexOf(_cells.Count);
+        var current = options.ToList().IndexOf(CurrentSplit);
         SetSplit(options[(current + 1) % options.Count]);
     }
 
@@ -361,8 +518,11 @@ public partial class WallMirrorWindow : Window
         _closed = true;
         foreach (var cell in _cells)
         {
+            cell.Pending = null;
             cell.Image.Source = null;
             cell.Bitmap = null;
         }
+
+        _wanted = [];
     }
 }

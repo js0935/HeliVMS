@@ -39,18 +39,66 @@ public sealed class WallMirrorContractTests
     public void 幀從主牆轉發且鏡像不開新解碼()
     {
         var main = SourceContract.Read(MainCode);
-        var render = SourceContract.BodyOf(main, "RenderCellFrame");
-        Assert.Contains("mirror.RenderFrame(mirrorChannel, frame)", render);
+        var onFrame = SourceContract.BodyOf(main, "OnCellFrame");
+
+        // 轉發點只有一個，而且在「格位過濾」之前：鏡像牆可以顯示不在主牆格位上的頻道
+        // （自己的群組），那些影格的 Cell 是 -1，先過濾就永遠送不到。
+        Assert.Contains("mirror.PostFrame(channelId, frame)", onFrame);
+        Assert.True(
+            onFrame.IndexOf("mirror.PostFrame(channelId, frame)", StringComparison.Ordinal) <
+            onFrame.IndexOf("cell is < 0 or >= MaxCells", StringComparison.Ordinal),
+            "影格轉發必須排在格位過濾之前，否則自訂來源（不在主牆格位上）永遠是黑的");
+
+        Assert.DoesNotContain("mirror.", SourceContract.BodyOf(main, "RenderCellFrame"));
 
         var mirror = SourceContract.Read(MirrorCode);
-        // 鏡像窗自己 WritePixels（同一份已解碼影格），絕不碰 RTSP/ConnectAsync。
-        Assert.Contains("public void RenderFrame(int channelId, VideoFrame frame)", mirror);
+        // 鏡像窗只寫自己那張 WriteableBitmap，絕不碰 RTSP/ConnectAsync，也不自己查資料庫。
+        Assert.Contains("public void PostFrame(int channelId, VideoFrame frame)", mirror);
+        Assert.Contains("public bool WantsChannel(int channelId)", mirror);
         Assert.DoesNotContain("ConnectAsync", mirror);
         Assert.DoesNotContain("RtspClient", mirror);
+        Assert.DoesNotContain("ChannelGroupRepository", mirror);
+
+        // WriteableBitmap 只能在 UI 執行緒寫：解碼執行緒進來的 PostFrame 只放「待畫影格」＋排程，
+        // 真正的 WritePixels 在 RenderCell（UI 執行緒）。寫錯邊的症狀是擲回
+        // 「The calling thread cannot access this object」，或是偶發的畫面撕裂。
+        Assert.DoesNotContain("WritePixels", SourceContract.BodyOf(mirror, "PostFrame"));
+        Assert.Contains("WritePixels", SourceContract.BodyOf(mirror, "RenderCell"));
 
         // 同一台若佔了兩格（放大某個小群組時會發生），兩格都要更新：
-        // 提早 return 只會讓後面那格永遠停在舊畫面，而且沒有任何錯誤訊息。
-        Assert.Contains("foreach (var cell in _cells)", SourceContract.BodyOf(mirror, "RenderFrame"));
+        // 提早結束只會讓後面那格永遠停在舊畫面，而且沒有任何錯誤訊息。
+        Assert.Contains("cell.Pending = frame", SourceContract.BodyOf(mirror, "PostFrame"));
+        Assert.Contains("continue;", SourceContract.BodyOf(mirror, "PostFrame"));
+    }
+
+    [Fact]
+    public void 鏡像有自己的頻道來源且與主牆共用同一份清單口徑()
+    {
+        var main = SourceContract.Read(MainCode);
+
+        // 來源＝跟隨主牆頁簽或某個監看群組；格位與徽章都必須走 MirrorChannels，
+        // 兩邊各查一次遲早會出現「畫面是 A 組、徽章是 B 組」。
+        var mirrorChannels = SourceContract.BodyOf(main, "MirrorChannels");
+        Assert.Contains("_mirror?.SourceGroupId", mirrorChannels);
+        Assert.Contains("_groups.ListChannelIds(groupId)", mirrorChannels);
+        Assert.Contains("WallChannels()", mirrorChannels);
+
+        Assert.Contains("mirror.SetChannels(MirrorChannels())", SourceContract.BodyOf(main, "OnMirrorToggleClicked"));
+        Assert.Contains("var channels = MirrorChannels();", SourceContract.BodyOf(main, "PushMirrorBadges"));
+
+        // 來源與格數一樣：改動當下寫回設定，不等關窗（關窗有自己的收尾路徑）。
+        Assert.Contains("wall.mirror.group", main);
+        Assert.Contains("settings.Set(", SourceContract.BodyOf(main, "OnMirrorToggleClicked"));
+
+        // 群組被刪除／改名後要重送來源清單，否則來源鈕顯示一個不存在的名字、也切不回來。
+        Assert.Contains("_mirror?.SetSources(MirrorSources(), _mirror.SourceGroupId)", SourceContract.BodyOf(main, "ReloadGroupTabs"));
+
+        // 鏡像窗只知道來源清單與目前選哪一個（顯示層），群組的查詢留在主視窗。
+        var mirror = SourceContract.Read(MirrorCode);
+        Assert.Contains("public void SetSources(IReadOnlyList<MirrorSource> sources, long? current)", mirror);
+        Assert.Contains("public event EventHandler? SourceChanged", mirror);
+        Assert.Matches(@"<Button[^>]*x:Name=""SourceButton""[^>]*Click=""OnSourceClicked""", SourceContract.Read(MirrorXaml));
+        Assert.Contains("Main.MirrorSourceTip", SourceContract.BodyOf(mirror, "ApplyI18n"));
     }
 
     [Fact]
@@ -60,10 +108,10 @@ public sealed class WallMirrorContractTests
 
         var toggle = SourceContract.BodyOf(main, "OnMirrorToggleClicked");
         Assert.Contains("mirror.Shutdown()", toggle);
-        Assert.Contains("mirror.SetChannels(WallChannels())", toggle);
+        Assert.Contains("mirror.SetChannels(MirrorChannels())", toggle);
 
         var rebuild = SourceContract.BodyOf(main, "RebuildCells");
-        Assert.Contains("_mirror?.SetChannels(WallChannels())", rebuild);
+        Assert.Contains("_mirror?.SetChannels(MirrorChannels())", rebuild);
     }
 
     [Fact]
@@ -91,7 +139,7 @@ public sealed class WallMirrorContractTests
         var setSplit = SourceContract.BodyOf(mirror, "SetSplit");
 
         // 切分割必須重建格位後立刻用最後一次清單重新對位，否則要等下次切頁簽才有畫面。
-        Assert.Contains("SetChannels(_lastChannels)", setSplit);
+        Assert.Contains("ApplyChannels(_lastChannels)", setSplit);
         Assert.Contains("MirrorWallBudget.Clamp(cells)", setSplit);
         Assert.Contains("MirrorWallBudget.GridOf", setSplit);
     }
