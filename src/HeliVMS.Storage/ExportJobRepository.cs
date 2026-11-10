@@ -182,7 +182,10 @@ public sealed class ExportJobRepository
             cmd =>
             {
                 cmd.Parameters.AddWithValue("$id", id);
-                cmd.Parameters.AddWithValue("$f", DateTime.UtcNow);
+                // 與 MarkRunning/SetResult/SetError 同一口徑：一律走 Iso。
+                // 裸綁 DateTime 會產生另一種文字格式，跟 PurgeFinished 的 Iso 截止值
+                // 做字串比較時詞序隨時區翻轉（本機 UTC+8 綠、CI UTC 紅的那次就是它）。
+                cmd.Parameters.AddWithValue("$f", SqliteStore.Iso(DateTime.UtcNow));
             });
 
         if (affected > 0)

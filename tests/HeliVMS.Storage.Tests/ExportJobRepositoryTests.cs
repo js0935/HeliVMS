@@ -181,7 +181,8 @@ public sealed class ExportJobRepositoryTests
         var id = repo.Enqueue(1, "main", DateTime.UtcNow.AddDays(-3), DateTime.UtcNow.AddDays(-3).AddMinutes(5));
         repo.Cancel(id);
 
-        var removed = repo.PurgeFinished(DateTime.UtcNow.AddHours(-1));
+        // 截止在「取消之後」：剛取消的列要落入清掃範圍（清掃看 finished_at 是否早於截止）。
+        var removed = repo.PurgeFinished(DateTime.UtcNow.AddHours(1));
 
         Assert.Equal(1, removed);
         Assert.Null(repo.Get(id));
