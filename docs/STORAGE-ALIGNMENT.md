@@ -99,13 +99,20 @@ reserve = max(raw, 1 GiB)                     // 0x40000000 下限
 ### 2.1 目錄與檔名
 
 ```
-<錄影根>\chNNN\
+<錄影根>\<頻道資料夾>\
     ├─ seg-HHmmssfff.mp4            每段一檔（正式檔）
     ├─ seg-HHmmssfff.mp4.tmp        錄影中；收尾成功才改名
     └─ merged-HHmmssfff.mp4         選用的小時合併檔（remux，不重編碼）
 ```
 
+**頻道資料夾是頻道名稱**（M311，`RecordingFolderNaming`）：`ch{id:000}`（`ch001`）只是
+**舊名／退回名**——名稱不可用（全空白、非法字元清完為空）時才用它。原因是磁碟搬到別台時
+`ch007` 沒有任何辨識價值，而名稱讓資料夾自己說得出是哪一台；代價是名稱要清成檔名安全、
+超過 80 字截斷、同名以 `_ch{id}` 消歧，而**錄影端與搬移端必須用同一個函式**
+（否則已經搬好的目錄名稱會和寫入端對不上）。
+
 出處：`src/HeliVMS.Storage/RecordingStorage.cs`（`RecordingsDirName`、`FolderForDrive`）、
+`src/HeliVMS.Storage/RecordingFolderNaming.cs`（`Sanitize`／`LegacyName`／`ResolveFor`）、
 `src/HeliVMS.Recording/SegmentRecorder.cs`。
 
 ### 2.2 索引
@@ -155,14 +162,14 @@ duration_sec, size_bytes, status, tier, origin_path`…），外加 `SegmentShar
 
 | # | 面向 | QCV8001（參考） | HeliVMS | 判定 |
 |---|---|---|---|---|
-| 1 | 目錄結構 | `YYYY_MM_DD\HH_mm\ChannelNNNN\` | `chNNN\`＋檔名帶時刻 | **刻意不同**（見 §4） |
+| 1 | 目錄結構 | `YYYY_MM_DD\HH_mm\ChannelNNNN\` | `<頻道名稱>\`（舊名 `chNNN`）＋檔名帶時刻 | **刻意不同**（見 §4） |
 | 2 | 錄影索引 | 每小時 `.idx`（3600 B，1 byte/秒，低 4 bit 型別） | SQLite `segments`（＋分片） | 等價（線路查詢一致即可） |
 | 3 | 單檔時長 | `RecFileSeconds` 可調（預設未定） | `recording.segment_seconds` 300s（5–600） | 等價 |
 | 4 | 空間不足時 | 滿即刪最舊（`qc_rec_recycle`） | 低於保留空間才刪最舊；刪到「門檻＋最近一小時寫入量」 | **更強**（可預期、可解釋、不刪到門檻以下） |
 | 5 | 保留語意 | 容量導向（滿了才動） | 保留空間導向（`min_free_bytes`）＋法律保存豁免 | **更強**（證據不被空間逼走） |
 | 6 | 事件/稽核保管 | `RecycleLog`：`utc_sec < cutoff` 整批刪 | `MetadataRetentionPruner` 三類各自天數 | 等價 |
 | 7 | 快照 | `Img_<ch>_<id>_<時間>.jpg` | `snapshots/`＋DB 指標＋感知雜湊 | **更強**（可搜尋、可去識別） |
-| 8 | 儲存池/多碟 | 設定檔列出的多槽輪替 | 避開系統碟、已知根目錄、逐顆壓力判準 | 大致等價（輪替策略未明，見缺口 2） |
+| 8 | 儲存池/多碟 | 設定檔列出的多槽輪替 | `CreateRootSelector`＋`ChooseRoot`：依「主要碟排首位」的順序挑第一個還有保留空間的碟，全都不夠時挑空間最多的；錄影一律避開系統碟 | 等價 |
 | 9 | 開機回收/修復 | `CQC_Recovery`／`NVRStorageSystem` | 四個獨立機制（§2.4），順序被測試釘住 | **更強** |
 | 10 | 容量需求估算 | `GetRecordReservedBytes`＋1.25 倍／+1 GiB | 只有保留空間門檻 | **缺口 1** |
 | 11 | 剩餘可錄時間 | Web／原生 `queryRemainRecTime` | **沒有** | **缺口 1**（同一件事的兩個面） |
@@ -197,7 +204,7 @@ duration_sec, size_bytes, status, tier, origin_path`…），外加 `SegmentShar
 | # | 缺口 | 為什麼值得 | 形狀 | 驗收 |
 |---|---|---|---|---|
 | 1 | ~~沒有容量需求／剩餘可錄時間估算~~ → **已實作（2026-11-11）** | 現場問「這顆碟還能錄多久」「幾路要配多大的碟」時，目前只能靠猜；參考實作兩者都有（`GetRecordReservedBytes`、`queryRemainRecTime`） | 純函式 `RecordingCapacity` ＋量測入口 `RecordingCapacityService`：以**實測寫入量**推算，不用名目碼率；沒有寫入樣本時回「未知」而不是 0 或無限大；低於保留水位回 0 | 設定中心「儲存」頁與 `GET /api/recording/capacity` 用同一份計算；見 §5.1 |
-| 2 | 多碟輪替策略未明 | 兩顆錄影碟時「新段寫哪一顆」目前由根目錄決定，沒有輪替或依剩餘空間分配 | 先寫進文件（現況＝單一作用中根目錄＋已知根目錄），有需求再做 | — |
+| ~~2~~ | ~~多碟輪替策略未明~~ → **已釐清：實作已存在** | 「新段寫哪一顆」由 `CreateRootSelector`→`ChooseRoot` 決定（見 §3 第 8 列），設定中心的多磁碟清單順序就是優先序 | 不用做 | — |
 | 3 | JPEG 連拍（`initial_jpeg_record`） | 參考實作有；但我們的快照已是事件驅動＋可搜索，連拍要新 UI 與大量磁碟 | 暫緩（記錄理由即可） | — |
 | 4 | 事件錄影自動輸出 MP4（ASR） | 我們的匯出工具已能裁切；自動成品是便利性，不是能力缺口 | 暫緩 | — |
 | 5 | 索引與 NEMO 查詢的一致性 | 若哪天索引補欄或改語意，`CATALOG`／月曆會跟著錯；目前由測試釘住 | 保持現有守門（`QctekEventPayloadsTests` 等） | — |
