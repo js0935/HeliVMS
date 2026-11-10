@@ -453,6 +453,15 @@ Notes that will save you time:
   Guarded by `AI偵測啟用時不縮小解碼寬度但保留更新率上限`,
   `沒開AI的頻道仍然要縮小解碼`, `解碼寬度一律經過AI例外換算` and
   `AI開關變動時會立即重新套用解碼寬度`.
+  **動解碼前先看佔比表**：`docs/LIVEVIEW.md` §3.4 有解碼／色轉／顯示三段的實測拆解，以及七條
+  **已用 A/B 交錯配對否證**的候選（`-sws_flags`、`zscale` 色轉與縮小、`+faststart`、`rgb565`、
+  「把來源縮到格子尺寸以降低軟繪成本」、`NearestNeighbor`）。兩個反直覺但量得很乾淨的事實：
+  1080p 的解碼端有 **38% 不是解碼而是 yuv420p→BGR24 的色轉**（所以「硬解對原生 H.264 打平」），
+  而 **WPF 軟繪成本 ∝ 輸出像素 × 更新率、與來源解析度無關**（同一版面把來源由 640×360 換到
+  176×99，每 tick 成本 61.5→61.9 ms 完全不變）——所以「軟繪時縮小解碼讓 WPF 不必縮放」是無效
+  優化，`wpf=0` 時該換的是顯示方式。重做這些實驗前先讀那一節，並照同一套協定量
+  （6 路併發、每路 300 幀、`bench: utime+stime`、交錯 A/B ≥5 輪取中位數——本機單次會在
+  30.4–39.6 s 之間漂移，單次不可信）。
 - **`decode.hwaccel=auto` must be resolved into one concrete method, and only when it pays off —
   `auto` handed to ffmpeg is the worst option measured.** 量測環境：本機
   i5-1035G1（4C/8T）、1920×1080/15fps、6 路同時、`-re` 即時速率、每路 300 幀，總 CPU＝各 ffmpeg 的
