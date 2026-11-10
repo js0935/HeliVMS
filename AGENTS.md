@@ -1043,3 +1043,12 @@ Notes that will save you time:
   (same lesson as the export wizard's "5 seconds became 50 minutes"). Guarded by
   `QctekEventPayloadsTests`, `QctekEventSearchRequestTests` and the paging cases in
   `QctekSessionTests`.
+- **Timestamps bind through `SqliteStore.Iso`, never a raw `DateTime` — mixing the two makes
+  string comparisons timezone-dependent.** Several columns (`finished_at`, `started_at`, …) are
+  TEXT and queries compare them against an Iso-bound cutoff; a raw-bound DateTime writes a
+  different text format (space separator, no Z), and which one sorts first flips between a UTC+8
+  dev box and the UTC runner. The exact test passed locally and failed on CI
+  (`ExportJobRepositoryTests.PurgeFinished_*`, F8's `Cancel` binding — fixed in `c3d9ce6`).
+  Every new column that a query ever compares or orders by must be written AND cut off through
+  the same helper; when a time test can pass on one timezone and fail on another, suspect the
+  binding, not the clock.
