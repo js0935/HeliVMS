@@ -410,6 +410,26 @@ public partial class SettingsWindow : Window
         ApplyReserveButton.Content = Localizer.T("Settings.Apply");
         ApplyReserveButton.ToolTip = Localizer.T("Settings.ApplyReserveTip");
         UsageLabel.Text = Localizer.T("Settings.UsageLabel");
+        PlanHeading.Text = Localizer.T("Settings.PlanHeading");
+        PlanChannelsLabel.Text = Localizer.T("Settings.PlanChannelsLabel");
+        PlanMbpsLabel.Text = Localizer.T("Settings.PlanMbpsLabel");
+        PlanDaysLabel.Text = Localizer.T("Settings.PlanDaysLabel");
+        PlanDiskSizeLabel.Text = Localizer.T("Settings.PlanDiskSizeLabel");
+        PlanExistingDisksLabel.Text = Localizer.T("Settings.PlanExistingDisksLabel");
+        PlanComputeButton.Content = Localizer.T("Settings.PlanCompute");
+        PlanComputeButton.ToolTip = Localizer.T("Settings.PlanComputeTip");
+        PlanRaidCombo.ItemsSource = new[]
+        {
+            Localizer.T("Settings.PlanRaidNone"),
+            Localizer.T("Settings.PlanRaidMirror"),
+            Localizer.T("Settings.PlanRaid5"),
+            Localizer.T("Settings.PlanRaid6"),
+        };
+        if (PlanRaidCombo.SelectedIndex < 0)
+        {
+            PlanRaidCombo.SelectedIndex = 0;
+        }
+
         SnapshotDaysLabel.Text = Localizer.T("Settings.SnapshotDaysLabel");
         ApplySnapshotDaysButton.Content = Localizer.T("Settings.Apply");
         ApplySnapshotDaysButton.ToolTip = Localizer.T("Settings.ApplySnapshotDaysTip");
@@ -2629,6 +2649,89 @@ public partial class SettingsWindow : Window
         var perDrive = string.Join("  ", report.Drives.Select(d => $"{d.Root} {DescribeRemaining(d.Estimate)}"));
         return string.Format(Localizer.T("Settings.RemainingRecordTextMulti"), total, rate, perDrive);
     }
+
+    /// <summary>
+    /// 容量規劃：給「還沒裝機」的場合（輸入碼率而不是量測）。算式與
+    /// `docs/ARCHITECTURE.md` §11.2 一致，RAID 容損耗另外回報——那是最常被忘掉的一項。
+    /// </summary>
+    private void OnPlanComputeClicked(object sender, RoutedEventArgs e)
+    {
+        var culture = CultureInfo.InvariantCulture;
+        if (!int.TryParse(PlanChannelsBox.Text, NumberStyles.Integer, culture, out var channels) ||
+            !double.TryParse(PlanMbpsBox.Text, NumberStyles.Float, culture, out var mbps) ||
+            !int.TryParse(PlanDaysBox.Text, NumberStyles.Integer, culture, out var days) ||
+            !double.TryParse(PlanDiskSizeBox.Text, NumberStyles.Float, culture, out var diskTb) ||
+            channels <= 0 || mbps <= 0 || days <= 0 || diskTb <= 0)
+        {
+            PlanResultText.Text = Localizer.T("Settings.PlanInvalid");
+            return;
+        }
+
+        var plan = RecordingCapacityPlanner.Plan(new CapacityPlanRequest(channels, mbps, days));
+        if (plan is not { } value)
+        {
+            PlanResultText.Text = Localizer.T("Settings.PlanInvalid");
+            return;
+        }
+
+        var summary = string.Format(
+            Localizer.T("Settings.PlanResult"),
+            channels,
+            FormatNumber(mbps),
+            days,
+            FormatNumber(value.RequiredTb),
+            FormatNumber(value.PerDayTb));
+
+        var diskBytes = (long)Math.Round(diskTb * 1_000_000_000_000d);
+        var level = PlanRaidLevel();
+        var levelLabel = Localizer.T(RaidLabelKey(level));
+
+        // 「已有幾顆」留空＝採購清單（需要幾顆）；填了＝回答「手上這些夠不夠」。
+        // 兩個問題的答案不一樣，而 RAID 容損耗正是後者最常忘掉的一項。
+        var advice = int.TryParse(PlanExistingDisksBox.Text, NumberStyles.Integer, culture, out var existing)
+                     && existing > 0
+            ? RecordingCapacityPlanner.Evaluate(value.RequiredBytes, diskBytes, existing, level) is { } have
+                ? string.Format(
+                      Localizer.T("Settings.PlanDisksHave"),
+                      levelLabel,
+                      have.TotalDisks,
+                      FormatNumber(diskTb),
+                      existing,
+                      FormatNumber(have.UsableBytes / 1_000_000_000_000d)) +
+                  Localizer.T(have.Shortfall ? "Settings.PlanDisksShortfall" : "Settings.PlanDisksOk")
+                : string.Empty
+            : RecordingCapacityPlanner.DisksRequired(value.RequiredBytes, diskBytes, level) is { } need
+                ? string.Format(
+                    Localizer.T("Settings.PlanDisks"),
+                    levelLabel,
+                    need.TotalDisks,
+                    FormatNumber(diskTb),
+                    need.DataDisks,
+                    need.TotalDisks - need.DataDisks)
+                : string.Empty;
+
+        PlanResultText.Text = string.IsNullOrEmpty(advice) ? summary : $"{summary}｜{advice}";
+    }
+
+    private RaidLevel PlanRaidLevel() => Math.Clamp(PlanRaidCombo.SelectedIndex, 0, 3) switch
+    {
+        1 => RaidLevel.Mirror,
+        2 => RaidLevel.Raid5,
+        3 => RaidLevel.Raid6,
+        _ => RaidLevel.None,
+    };
+
+    private static string RaidLabelKey(RaidLevel level) => level switch
+    {
+        RaidLevel.Mirror => "Settings.PlanRaidMirror",
+        RaidLevel.Raid5 => "Settings.PlanRaid5",
+        RaidLevel.Raid6 => "Settings.PlanRaid6",
+        _ => "Settings.PlanRaidNone",
+    };
+
+    /// <summary>數字的顯示口徑（不用千分位，避免與逗號分隔的欄位混淆）。</summary>
+    private static string FormatNumber(double value)
+        => value.ToString("0.##", CultureInfo.InvariantCulture);
 
     /// <summary>單顆磁碟的短版描述：未知是「—」（不可以是 0），低於保留水位才是 0。</summary>
     private string DescribeRemaining(RecordingCapacityEstimate estimate) => estimate.State switch

@@ -31,7 +31,44 @@ public sealed class RecordingCapacityContractTests
         "Settings.RemainingRecordUnknown",
         "Settings.RemainingRecordAtReserve",
         "Settings.RemainingRecordUnavailable",
+        "Settings.PlanHeading",
+        "Settings.PlanChannelsLabel",
+        "Settings.PlanMbpsLabel",
+        "Settings.PlanDaysLabel",
+        "Settings.PlanDiskSizeLabel",
+        "Settings.PlanExistingDisksLabel",
+        "Settings.PlanCompute",
+        "Settings.PlanComputeTip",
+        "Settings.PlanRaidNone",
+        "Settings.PlanRaidMirror",
+        "Settings.PlanRaid5",
+        "Settings.PlanRaid6",
+        "Settings.PlanInvalid",
+        "Settings.PlanResult",
+        "Settings.PlanDisks",
+        "Settings.PlanDisksHave",
+        "Settings.PlanDisksShortfall",
+        "Settings.PlanDisksOk",
     ];
+
+    [Fact]
+    public void 容量規劃用純函式且輸入不合理時不編數字()
+    {
+        var xaml = SourceContract.Read(SettingsXaml);
+        Assert.Matches(@"<Button[^>]*x:Name=""PlanComputeButton""[^>]*Click=""OnPlanComputeClicked""", xaml);
+
+        var body = SourceContract.BodyOf(SourceContract.Read(SettingsCode), "OnPlanComputeClicked");
+
+        // 規劃是「還沒有機器可以量」的場合：吃輸入碼率，且與 §11.2 的算式共用同一個純函式。
+        Assert.Contains("RecordingCapacityPlanner.Plan", body);
+        Assert.Contains("RecordingCapacityPlanner.DisksRequired", body);
+        Assert.Contains("RecordingCapacityPlanner.Evaluate", body);
+        Assert.Contains("Settings.PlanInvalid", body);
+        Assert.Contains("Settings.PlanDisksShortfall", body);
+
+        // RAID 容損耗是採購時最常被忘掉的一項：有填「手上已有幾顆」就要走 Evaluate 並回報不足。
+        Assert.Contains("PlanExistingDisksBox", body);
+    }
 
     [Fact]
     public void 儲存頁有剩餘可錄時間且跟著用量重新載入()

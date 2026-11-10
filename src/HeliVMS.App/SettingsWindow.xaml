@@ -233,6 +233,63 @@
                 <TextBlock x:Name="RemainingRecordText" Margin="0,0,0,14" TextWrapping="Wrap"
                            AutomationProperties.AutomationId="RemainingRecordText"/>
 
+                <!-- Capacity planner: for the "not installed yet" case. Takes bitrates as input
+                     (nothing to measure), and reports RAID parity loss separately because that is
+                     the term people forget (see RecordingCapacityPlanner). -->
+                <TextBlock x:Name="PlanHeading" Text="" Margin="0,0,0,4"
+                           Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+                <Grid Margin="0,0,0,6">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+                    <StackPanel Grid.Row="0" Grid.Column="0" Margin="0,0,8,4">
+                        <TextBlock x:Name="PlanChannelsLabel" Text="" FontSize="11"
+                                   Foreground="{StaticResource Brand.TextDim}"/>
+                        <TextBox x:Name="PlanChannelsBox" AutomationProperties.AutomationId="PlanChannelsBox"
+                                 Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
+                    </StackPanel>
+                    <StackPanel Grid.Row="0" Grid.Column="1" Margin="0,0,0,4">
+                        <TextBlock x:Name="PlanMbpsLabel" Text="" FontSize="11"
+                                   Foreground="{StaticResource Brand.TextDim}"/>
+                        <TextBox x:Name="PlanMbpsBox" AutomationProperties.AutomationId="PlanMbpsBox"
+                                 Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
+                    </StackPanel>
+                    <StackPanel Grid.Row="1" Grid.Column="0" Margin="0,0,8,0">
+                        <TextBlock x:Name="PlanDaysLabel" Text="" FontSize="11"
+                                   Foreground="{StaticResource Brand.TextDim}"/>
+                        <TextBox x:Name="PlanDaysBox" AutomationProperties.AutomationId="PlanDaysBox"
+                                 Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
+                    </StackPanel>
+                    <StackPanel Grid.Row="1" Grid.Column="1">
+                        <TextBlock x:Name="PlanDiskSizeLabel" Text="" FontSize="11"
+                                   Foreground="{StaticResource Brand.TextDim}"/>
+                        <TextBox x:Name="PlanDiskSizeBox" AutomationProperties.AutomationId="PlanDiskSizeBox"
+                                 Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
+                    </StackPanel>
+                    <StackPanel Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="2" Margin="0,4,0,0">
+                        <TextBlock x:Name="PlanExistingDisksLabel" Text="" FontSize="11"
+                                   Foreground="{StaticResource Brand.TextDim}"/>
+                        <TextBox x:Name="PlanExistingDisksBox" AutomationProperties.AutomationId="PlanExistingDisksBox"
+                                 Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
+                    </StackPanel>
+                </Grid>
+                <DockPanel Margin="0,0,0,8">
+                    <Button x:Name="PlanComputeButton" Content="" Click="OnPlanComputeClicked" ToolTip=""
+                            DockPanel.Dock="Right" Padding="12,6"
+                            Foreground="White" Background="#2A5C8A" BorderThickness="0"
+                            AutomationProperties.AutomationId="PlanComputeButton"/>
+                    <ComboBox x:Name="PlanRaidCombo" AutomationProperties.AutomationId="PlanRaidCombo"
+                              Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
+                </DockPanel>
+                <TextBlock x:Name="PlanResultText" Text="" Margin="0,0,0,14" TextWrapping="Wrap"
+                           AutomationProperties.AutomationId="PlanResultText"/>
+
                 <TextBlock x:Name="SnapshotDaysLabel" Text=""
                            Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
                 <DockPanel Margin="0,4,0,8">
