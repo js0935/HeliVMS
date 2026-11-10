@@ -131,6 +131,9 @@
                     <ToggleButton x:Name="EventPanelToggle" AutomationProperties.AutomationId="EventPanelToggle"
                                   Content="" ToolTip="" Click="OnEventPanelToggled" Style="{StaticResource HeaderToggleButton}"
                                   VerticalAlignment="Center" Margin="0,0,8,0" />
+                    <ToggleButton x:Name="AlarmPopupToggle" AutomationProperties.AutomationId="AlarmPopupToggle"
+                                  Content="" ToolTip="" Click="OnAlarmPopupToggled" Style="{StaticResource HeaderToggleButton}"
+                                  VerticalAlignment="Center" Margin="0,0,8,0" />
                     <Button x:Name="HeaderImmersiveButton" AutomationProperties.AutomationId="HeaderImmersiveButton"
                             Content="" ToolTip="" Click="OnImmersiveClicked"
                             VerticalAlignment="Center" Padding="12,4" Margin="0,0,8,0"
@@ -226,6 +229,17 @@
                 <Grid>
                     <UniformGrid x:Name="CellGrid" HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
                     </UniformGrid>
+
+                    <!-- Alarm popup (QC_Live modeless alarm dialog): top-center over the wall,
+                         shows the latest notify-worthy alarm and auto-hides after a few seconds.
+                         Survives immersive mode on purpose: alarms matter most when the operator
+                         is watching the wall full-screen. -->
+                    <Border x:Name="AlarmPopup" HorizontalAlignment="Center" VerticalAlignment="Top"
+                            Margin="10,44,10,10" Padding="12,8" CornerRadius="4" Background="#E0B3261E"
+                            BorderBrush="#FFD54F" BorderThickness="1" Visibility="Collapsed">
+                        <TextBlock x:Name="AlarmPopupText" Foreground="White" FontSize="13" FontWeight="SemiBold"
+                                   MaxWidth="720" TextWrapping="Wrap" Text="" />
+                    </Border>
 
                     <!-- Wall-level "something is recording" chip. Centered, not right-aligned: each
                          pane carries its own recording-mode dot in its top-right corner, and an

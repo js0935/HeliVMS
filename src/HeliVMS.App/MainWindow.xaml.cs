@@ -166,6 +166,19 @@ public partial class MainWindow : Window
 
     /// <summary>事件面板最多保留的列數：再多是捲動負擔，歷史查詢本來就該去事件中心。</summary>
     private const int EventPanelCapacity = 20;
+
+    /// <summary>
+    /// 浮動警報窗（QC_Live 的 <c>modeless alarm dialog</c>/<c>AlarmDialogAction</c> 對齊）：
+    /// 通知級事件到達時在牆上方浮出、數秒後自動隱藏。開關記在 <c>wall.alarm_popup</c>，
+    /// <b>預設開</b>——QC_Live 的警報窗本來就是常駐行為，且窗會自己消失、不佔畫面。
+    /// 刻意在沉浸模式<b>仍然顯示</b>：操作員全畫面看牆時警報最不能漏。
+    /// </summary>
+    private const string AlarmPopupEnabledKey = "wall.alarm_popup";
+    private const string AlarmPopupSecondsKey = "wall.alarm_popup_seconds";
+    private bool _alarmPopupEnabled = true;
+    private int _alarmPopupSeconds = 10;
+    private DispatcherTimer? _alarmPopupTimer;
+    private int _alarmPopupGeneration;
     private readonly TextBlock[] _cellBadges = new TextBlock[MaxCells];
 
     /// <summary>
@@ -511,6 +524,8 @@ public partial class MainWindow : Window
         EventPanelToggle.Content = Localizer.T("Main.EventPanel");
         EventPanelToggle.ToolTip = Localizer.T("Main.EventPanelTip");
         EventPanelHeader.Text = Localizer.T("Main.EventPanelHeader");
+        AlarmPopupToggle.Content = Localizer.T("Main.AlarmPopup");
+        AlarmPopupToggle.ToolTip = Localizer.T("Main.AlarmPopupTip");
 
         HintText.Text = Localizer.T("Main.EmptyHint");
 
@@ -845,6 +860,10 @@ public partial class MainWindow : Window
         QuickBarToggle.IsChecked = _quickBarEnabled;
         _eventPanelEnabled = settings.Get(EventPanelEnabledKey) == "1";
         EventPanelToggle.IsChecked = _eventPanelEnabled;
+        _alarmPopupEnabled = settings.Get(AlarmPopupEnabledKey) != "0";
+        AlarmPopupToggle.IsChecked = _alarmPopupEnabled;
+        _alarmPopupSeconds = Math.Clamp(
+            (int)Math.Round(settings.GetDoubleOrDefault(AlarmPopupSecondsKey, 10)), 3, 60);
 
         // 格子在 ApplyLayoutPreference 內就已先建好（那時還讀不到設定），把勾選狀態補正，
         // 否則上次開著的人這次開起來選單會顯示成未勾選，與實際顯示不一致。
@@ -2776,7 +2795,7 @@ public partial class MainWindow : Window
         {
             foreach (var enriched in ApplyEventRules(record))
             {
-                _notify?.Enqueue(enriched);
+                NotifyAlarm(enriched);
             }
 
             return;
@@ -2785,7 +2804,7 @@ public partial class MainWindow : Window
         // 命中但門檻還沒到（或這個窗已經告過警）→ 不外送原始事件。
         foreach (var trigger in outcome.Triggers)
         {
-            _notify?.Enqueue(new AlarmEventRecord
+            NotifyAlarm(new AlarmEventRecord
             {
                 ChannelId = record.ChannelId,
                 EventType = SmartAlertHost.SmartAlertEventType,
@@ -2793,6 +2812,75 @@ public partial class MainWindow : Window
                 SnapshotPath = record.SnapshotPath,
                 Detail = string.Format(Localizer.T("Main.SmartAggregateFired"), trigger.RuleName, trigger.WindowCount),
             });
+        }
+    }
+
+    /// <summary>
+    /// 通知級事件的單一入口：送通知系統，並（若開啟）讓牆上浮動警報窗顯示這一筆。
+    /// 收斂成 helper 是因為「聚合未命中」與「聚合觸發」兩條路都要走到同一個窗，
+    /// 各寫一次遲早漂移。
+    /// </summary>
+    private void NotifyAlarm(AlarmEventRecord record)
+    {
+        _notify?.Enqueue(record);
+        if (_alarmPopupEnabled)
+        {
+            // RouteAlarm 可能來自解碼執行緒；浮窗是 UI 元件，回 UI 執行緒才碰。
+            Dispatcher.BeginInvoke(new Action(() => ShowAlarmPopup(record)), DispatcherPriority.Background);
+        }
+    }
+
+    /// <summary>浮動警報窗顯示這一筆警報，並重啟自動隱藏的倒數。</summary>
+    private void ShowAlarmPopup(AlarmEventRecord record)
+    {
+        if (AlarmPopup is null || AlarmPopupText is null)
+        {
+            return;
+        }
+
+        var detail = string.IsNullOrEmpty(record.Detail) ? string.Empty : $"：{record.Detail}";
+        AlarmPopupText.Text = string.Format(
+            "⚠ {0} {1} · {2}{3}",
+            record.StartUtc.ToLocalTime().ToString("HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture),
+            ChannelName(record.ChannelId),
+            record.EventType,
+            detail);
+        AlarmPopup.Visibility = Visibility.Visible;
+
+        // Generation 遞增：新警報取消上一筆的隱藏倒數（窗的內容已被覆寫，舊倒數不該把新窗藏掉）。
+        var generation = ++_alarmPopupGeneration;
+        if (_alarmPopupTimer is null)
+        {
+            _alarmPopupTimer = new DispatcherTimer(
+                TimeSpan.FromSeconds(_alarmPopupSeconds), DispatcherPriority.Background,
+                (_, _) =>
+                {
+                    if (_alarmPopupEnabled && generation == _alarmPopupGeneration)
+                    {
+                        AlarmPopup.Visibility = Visibility.Collapsed;
+                    }
+                }, Dispatcher);
+        }
+        else
+        {
+            _alarmPopupTimer.Interval = TimeSpan.FromSeconds(_alarmPopupSeconds);
+            _alarmPopupTimer.Stop();
+            _alarmPopupTimer.Start();
+        }
+    }
+
+    /// <summary>切換浮動警報窗（QC_Live 的警報窗常駐行為），狀態記 <c>wall.alarm_popup</c>。</summary>
+    private void OnAlarmPopupToggled(object sender, RoutedEventArgs e)
+    {
+        _alarmPopupEnabled = AlarmPopupToggle.IsChecked == true;
+        if (_store is not null)
+        {
+            new SettingsRepository(_store).Set(AlarmPopupEnabledKey, _alarmPopupEnabled ? "1" : "0");
+        }
+
+        if (!_alarmPopupEnabled && AlarmPopup is not null)
+        {
+            AlarmPopup.Visibility = Visibility.Collapsed;
         }
     }
 
