@@ -1,0 +1,19 @@
+<Window x:Class="HeliVMS.App.WallMirrorWindow"
+         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+         Title="" Height="752" Width="1128"
+         Background="#06090F" WindowStartupLocation="Manual"
+         WindowStyle="None" ResizeMode="NoResize" PreviewKeyDown="OnWindowKeyDown">
+    <DockPanel>
+        <!-- Exit button: the mirror is borderless, so it must carry its own way out
+             (same rule as every borderless window in this app). -->
+        <Button x:Name="CloseButton" Content="✕" Click="OnCloseClicked" ToolTip=""
+                DockPanel.Dock="Right" HorizontalAlignment="Right" VerticalAlignment="Top"
+                Margin="0,10,10,0" Padding="10,4" FontSize="14"
+                Foreground="White" Background="#C62828" BorderThickness="0"
+                AutomationProperties.AutomationId="MirrorCloseButton" />
+        <Grid>
+            <UniformGrid x:Name="MirrorGrid" Rows="2" Columns="2" />
+        </Grid>
+    </DockPanel>
+</Window>

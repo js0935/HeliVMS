@@ -154,6 +154,13 @@ public partial class MainWindow : Window
     private readonly List<System.Windows.Controls.Primitives.ToggleButton> _quickButtons = [];
 
     /// <summary>
+    /// 第二螢幕鏡像牆（QC_Live 的多螢幕監看對齊，MVP）：主牆畫出的幀轉發到第二螢幕的 2×2 格。
+    /// 控制權完全留在主視窗；鏡像窗只讀（<see cref="WallMirrorWindow.RenderFrame"/>）。
+    /// 瞬時狀態不持久化——螢幕配置每次開機可能不同，操作員開了才有。
+    /// </summary>
+    private WallMirrorWindow? _mirror;
+
+    /// <summary>
     /// 牆上事件面板（QC_Live 的 modeless event view 對齊）：左緣列出最近的事件列
     /// （<c>alarm_events</c>），點一列就選取那台的格位。開關記在 <c>wall.event_panel</c>，
     /// <b>預設關</b>——頁尾警報列已經有最近三筆，面板是想要更多歷史的操作員自己開的。
@@ -526,6 +533,8 @@ public partial class MainWindow : Window
         EventPanelHeader.Text = Localizer.T("Main.EventPanelHeader");
         AlarmPopupToggle.Content = Localizer.T("Main.AlarmPopup");
         AlarmPopupToggle.ToolTip = Localizer.T("Main.AlarmPopupTip");
+        MirrorToggle.Content = Localizer.T("Main.Mirror");
+        MirrorToggle.ToolTip = Localizer.T("Main.MirrorTip");
 
         HintText.Text = Localizer.T("Main.EmptyHint");
 
@@ -2218,6 +2227,8 @@ public partial class MainWindow : Window
 
         // 頻道快速列跟著目前頁簽的牆序重建（按鈕編號＝牆序，與跳台/改派同一口徑）。
         RebuildQuickBar();
+        // 鏡像窗的格位對應跟著目前頁簽重設（前四台）。
+        _mirror?.SetChannels(WallChannels());
     }
 
     /// <summary>依目標格數與監看區大小，決定格線的列×欄與外框尺寸（每格維持畫面比例、置中）。</summary>
@@ -3155,6 +3166,13 @@ public partial class MainWindow : Window
         finally
         {
             pending.Unlock();
+        }
+
+        // 第二螢幕鏡像（QC_Live 的多螢幕監看對齊）：同一份已解碼影格轉發給鏡像窗，
+        // 不另開解碼行程。鏡像窗自己管理 WriteableBitmap 與節流。
+        if (_mirror is { } mirror && _cellChannel[cell] is int mirrorChannel)
+        {
+            mirror.RenderFrame(mirrorChannel, frame);
         }
 
         // 收到影格＝「此刻真的有畫面」，是狀態的地面真相。改派格位時管理器重用既有 session
@@ -4807,6 +4825,34 @@ public partial class MainWindow : Window
         }
 
         UpdateQuickBarVisibility();
+    }
+
+    /// <summary>
+    /// 開/關第二螢幕鏡像牆（QC_Live 的多螢幕監看對齊，MVP）。開：建窗、放到第二螢幕、
+    /// 餵目前頁簽前四台；關：Shutdown 解除轉發。幀轉發點在 <see cref="RenderCellFrame"/>，
+    /// 不另開解碼行程、不重連。
+    /// </summary>
+    private void OnMirrorToggleClicked(object sender, RoutedEventArgs e)
+    {
+        if (_mirror is not null)
+        {
+            _mirror.Close();
+            return;
+        }
+
+        var mirror = new WallMirrorWindow { Owner = this };
+        mirror.Closed += (_, _) =>
+        {
+            mirror.Shutdown();
+            if (ReferenceEquals(_mirror, mirror))
+            {
+                _mirror = null;
+            }
+        };
+        _mirror = mirror;
+        mirror.SetChannels(WallChannels());
+        mirror.Show();
+        MirrorToggle.IsChecked = true;
     }
 
     /// <summary>切換牆上事件面板；開啟時先補一次最近事件（背景查，回 UI 執行緒填）。</summary>

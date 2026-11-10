@@ -134,6 +134,9 @@
                     <ToggleButton x:Name="AlarmPopupToggle" AutomationProperties.AutomationId="AlarmPopupToggle"
                                   Content="" ToolTip="" Click="OnAlarmPopupToggled" Style="{StaticResource HeaderToggleButton}"
                                   VerticalAlignment="Center" Margin="0,0,8,0" />
+                    <ToggleButton x:Name="MirrorToggle" AutomationProperties.AutomationId="MirrorToggle"
+                                  Content="" ToolTip="" Click="OnMirrorToggleClicked" Style="{StaticResource HeaderToggleButton}"
+                                  VerticalAlignment="Center" Margin="0,0,8,0" />
                     <Button x:Name="HeaderImmersiveButton" AutomationProperties.AutomationId="HeaderImmersiveButton"
                             Content="" ToolTip="" Click="OnImmersiveClicked"
                             VerticalAlignment="Center" Padding="12,4" Margin="0,0,8,0"
