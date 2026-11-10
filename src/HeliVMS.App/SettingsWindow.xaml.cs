@@ -2575,6 +2575,76 @@ public partial class SettingsWindow : Window
 
         var (total, count) = new SegmentRepository(_store).GetTotalUsageSummary();
         UsageText.Text = string.Format(Localizer.T("Settings.UsageText"), FormatBytes(total), count, ReserveGbFromStore());
+        ReloadRemainingRecordTime();
+    }
+
+    /// <summary>
+    /// 「剩餘可錄時間」：以最近一小時實際寫進磁碟的錄影量推算（不是名目碼率）。
+    /// 沒有寫入樣本時顯示「—」並說明原因——顯示 0 會被讀成「磁碟滿了」，
+    /// 而真正要去看的是「錄影是不是沒在跑」；低於保留水位時才顯示 0（那是事實）。
+    /// </summary>
+    private void ReloadRemainingRecordTime()
+    {
+        try
+        {
+            var report = RecordingCapacityService.Measure(
+                _store,
+                _recordingsRoot,
+                DateTime.UtcNow,
+                RecordingCapacityService.DefaultWindow);
+
+            RemainingRecordText.Text = report.Total.State switch
+            {
+                RecordingCapacityState.AtReserve => Localizer.T("Settings.RemainingRecordAtReserve"),
+                RecordingCapacityState.Unknown => string.Format(
+                    Localizer.T("Settings.RemainingRecordUnknown"),
+                    report.Window.TotalMinutes),
+                _ => ComposeRemainingText(report),
+            };
+        }
+        catch (Exception ex) when (
+            ex is IOException or UnauthorizedAccessException or Microsoft.Data.Sqlite.SqliteException)
+        {
+            // 磁碟/索引讀不到不該讓設定頁打不開：說「—」比說一個猜的數字好。
+            RemainingRecordText.Text = Localizer.T("Settings.RemainingRecordUnavailable");
+        }
+    }
+
+    /// <summary>把量測結果組成一句話：總計＋逐顆（超過一顆才列，且一定列出有問題的那顆）。</summary>
+    private string ComposeRemainingText(CapacityReport report)
+    {
+        var (days, hours, minutes) = RecordingCapacity.Parts(report.Total.Remaining);
+        var total = days > 0
+            ? string.Format(Localizer.T("Settings.RemainingRecordDays"), days, hours)
+            : string.Format(Localizer.T("Settings.RemainingRecordHours"), hours, minutes);
+
+        var rate = string.Format(Localizer.T("Settings.RemainingRecordRate"), FormatBytes((long)report.Total.BytesPerHour));
+
+        // 多顆磁碟時一定要列出逐顆：合計看不出是哪一顆快滿了，而擴充磁碟是「哪一顆」的事。
+        if (report.Drives.Count <= 1)
+        {
+            return string.Format(Localizer.T("Settings.RemainingRecordText"), total, rate);
+        }
+
+        var perDrive = string.Join("  ", report.Drives.Select(d => $"{d.Root} {DescribeRemaining(d.Estimate)}"));
+        return string.Format(Localizer.T("Settings.RemainingRecordTextMulti"), total, rate, perDrive);
+    }
+
+    /// <summary>單顆磁碟的短版描述：未知是「—」（不可以是 0），低於保留水位才是 0。</summary>
+    private string DescribeRemaining(RecordingCapacityEstimate estimate) => estimate.State switch
+    {
+        RecordingCapacityState.AtReserve => "0",
+        RecordingCapacityState.Unknown => Localizer.T("Settings.RemainingRecordNone"),
+        _ => ShortDuration(estimate.Remaining),
+    };
+
+    /// <summary>短版時長（逐顆清單用）；與主要讀數一樣向下取整。</summary>
+    private static string ShortDuration(TimeSpan remaining)
+    {
+        var (days, hours, minutes) = RecordingCapacity.Parts(remaining);
+        return days > 0
+            ? string.Format(Localizer.T("Settings.RemainingRecordCompactDays"), days, hours)
+            : string.Format(Localizer.T("Settings.RemainingRecordCompactHours"), hours, minutes);
     }
 
     /// <summary>

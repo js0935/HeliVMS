@@ -204,7 +204,7 @@ public sealed class RetentionService
                 continue;
             }
 
-            var volumeRoot = NormalizeRoot(root);
+            var volumeRoot = RecordingVolume.NormalizeRoot(root);
             var target = criticalFreeBytes + HourlyWriteEstimate(volumeRoot, nowUtc);
             var free = freeBytes;
 
@@ -232,7 +232,7 @@ public sealed class RetentionService
                     }
 
                     // 只汰除壓力磁碟上的段：另一顆還有空間的磁碟不該被連坐。
-                    if (!IsOnVolume(seg.FilePath, volumeRoot))
+                    if (!RecordingVolume.IsOnVolume(seg.FilePath, volumeRoot))
                     {
                         continue;
                     }
@@ -283,35 +283,16 @@ public sealed class RetentionService
         return new PressureReport(deleted, freed, stillCritical);
     }
 
-    /// <summary>最近一小時實際寫進這顆磁碟的錄影量（沒有就回 <see cref="PressureRefillBytes"/>）。</summary>
+    /// <summary>
+    /// 最近一小時實際寫進這顆磁碟的錄影量（沒有就回 <see cref="PressureRefillBytes"/>）。
+    /// 量測本身走 <see cref="RecordingVolume.WrittenBytes"/>——與剩餘可錄時間估算同一份實作，
+    /// 免得同一顆碟在兩個畫面上出現兩個數字。
+    /// </summary>
     private long HourlyWriteEstimate(string volumeRoot, DateTime nowUtc)
     {
-        long estimate = 0;
-        foreach (var seg in _repo.ListFinalBetween(nowUtc.AddHours(-1), nowUtc))
-        {
-            if (IsOnVolume(seg.FilePath, volumeRoot))
-            {
-                estimate += Math.Max(0, seg.SizeBytes);
-            }
-        }
-
+        var estimate = RecordingVolume.WrittenBytes(_repo, volumeRoot, nowUtc.AddHours(-1), nowUtc);
         return estimate > 0 ? estimate : PressureRefillBytes;
     }
-
-    private static string NormalizeRoot(string path)
-    {
-        try
-        {
-            return Path.GetPathRoot(Path.GetFullPath(path)) ?? path;
-        }
-        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
-        {
-            return path;
-        }
-    }
-
-    private static bool IsOnVolume(string filePath, string volumeRoot)
-        => string.Equals(NormalizeRoot(filePath), volumeRoot, StringComparison.OrdinalIgnoreCase);
 
     /// <summary>清除逾時未收尾之 *.tmp 錄影暫存檔；回傳清除數。</summary>
     public int PurgeStaleTmp(DateTime nowUtc)

@@ -72,6 +72,41 @@ public static class ApiEndpoints
     public sealed record ConfigResponse(bool AuthEnabled, int LockoutThreshold, int LockoutMinutes, int RecordingRetentionDays, double RecordingWatermarkGb, int AlarmRetentionDays, int AuditRetentionDays = 365);
     public sealed record ConfigRequest(bool? AuthEnabled, int? LockoutThreshold, int? LockoutMinutes, int? RecordingRetentionDays, double? RecordingWatermarkGb, int? AlarmRetentionDays, int? AuditRetentionDays = null);
     public sealed record UsageResponse(long Bytes, double Gb, int RetentionDays, double WatermarkGb, int AlarmRetentionDays, int AuditRetentionDays = 365);
+
+/// <summary>剩餘可錄時間的 API 回應（欄位口徑見 <see cref="RecordingCapacity"/>）。</summary>
+/// <param name="ReserveBytes">保留空間（<c>recording.min_free_bytes</c>）。</param>
+/// <param name="WindowMinutes">量測窗（分鐘）。</param>
+/// <param name="State">合計狀態：<c>known</c>／<c>at_reserve</c>／<c>unknown</c>。</param>
+/// <param name="RemainingSeconds">合計剩餘秒數；只有 <c>known</c> 時才有意義（其餘為 0）。</param>
+/// <param name="BytesPerHour">量測到的寫入速率。</param>
+/// <param name="Drives">逐顆磁碟（擴充磁碟是「哪一顆」的事，合計看不出來）。</param>
+public sealed record RecordingCapacityResponse(
+    long ReserveBytes,
+    double WindowMinutes,
+    string State,
+    double RemainingSeconds,
+    double BytesPerHour,
+    IReadOnlyList<RecordingCapacityDrive> Drives);
+
+/// <summary>單顆錄影磁碟的容量與剩餘可錄時間。</summary>
+/// <param name="Root">磁碟根。</param>
+/// <param name="TotalBytes">總容量。</param>
+/// <param name="FreeBytes">可用空間。</param>
+/// <param name="WrittenBytes">量測窗內的錄影寫入量。</param>
+/// <param name="BasisMinutes">
+/// 速率的分母（分鐘）：錄影涵蓋範圍不滿一個量測窗時會小於窗長，
+/// 客戶端要據此說明「依最近 N 分鐘」而不是寫死一小時。
+/// </param>
+/// <param name="State">這顆碟的狀態（<c>known</c>／<c>at_reserve</c>／<c>unknown</c>）。</param>
+/// <param name="RemainingSeconds">這顆碟的剩餘秒數；只有 <c>known</c> 時有意義。</param>
+public sealed record RecordingCapacityDrive(
+    string Root,
+    long TotalBytes,
+    long FreeBytes,
+    long WrittenBytes,
+    double BasisMinutes,
+    string State,
+    double RemainingSeconds);
     public sealed record RetentionRunResult(int AgePurged, int WatermarkPurged, long BytesFreed, long AlarmPurged, int Skipped = 0, long AuditPurged = 0, long AudioPurged = 0);
     public sealed record EvidencePackageRequest(string BundleName, IReadOnlyList<string> Files, string? Password);
     public sealed record EvidenceVerifyRequest(string BundlePath, string? Password);
@@ -648,6 +683,39 @@ public static class ApiEndpoints
             return Results.Ok(new RetentionRunResult(
                 result.AgePurged, result.WatermarkPurged, result.BytesFreed, result.AlarmPurged, result.Skipped,
                 result.AuditPurged, result.AudioPurged));
+        });
+
+        // 剩餘可錄時間：與桌面設定中心「儲存」頁同一份實作（RecordingCapacityService），
+        // 所以畫面上的數字與 API 的數字不可能互相矛盾。狀態用字串回傳而不是只回秒數——
+        // 「沒有樣本（unknown）」與「已低於保留空間（at_reserve）」的處置完全相反，
+        // 讓客戶端只看到 remaining_seconds=0 會把它們混成同一件事。
+        api.MapGet("/recording/capacity", static (
+            SqliteStore store,
+            RecordedSegmentPolicy policy,
+            TimeProvider clock) =>
+        {
+            var roots = policy.Roots;
+            var report = RecordingCapacityService.Measure(
+                store,
+                roots.Count > 0 ? roots[0] : null,
+                clock.GetUtcNow().UtcDateTime);
+
+            return Results.Ok(new RecordingCapacityResponse(
+                report.ReserveBytes,
+                report.Window.TotalMinutes,
+                CapacityStateName(report.Total),
+                report.Total.State == RecordingCapacityState.Known ? report.Total.Remaining.TotalSeconds : 0,
+                report.Total.BytesPerHour,
+                report.Drives
+                    .Select(d => new RecordingCapacityDrive(
+                        d.Root,
+                        d.TotalBytes,
+                        d.FreeBytes,
+                        d.WrittenBytes,
+                        d.Basis.TotalMinutes,
+                        CapacityStateName(d.Estimate),
+                        d.Estimate.State == RecordingCapacityState.Known ? d.Estimate.Remaining.TotalSeconds : 0))
+                    .ToList()));
         });
 
         api.MapGet("/evidence", static (EvidenceManifestRepository manifests) =>
@@ -1548,6 +1616,14 @@ public static class ApiEndpoints
     private sealed record AudioUpsert(long EventId, long ChannelId, DateTime? StartedAtUtc, int DurationMs, string? Mime, string? Bytes);
 
     private sealed record InputAck(bool Acknowledged);
+
+    /// <summary>剩餘可錄時間的狀態字串（客戶端據此決定顯示數字或「—」）。</summary>
+    private static string CapacityStateName(RecordingCapacityEstimate estimate) => estimate.State switch
+    {
+        RecordingCapacityState.AtReserve => "at_reserve",
+        RecordingCapacityState.Unknown => "unknown",
+        _ => "known",
+    };
 
     private static AlarmBoardItem ToBoard(AlarmBoardRow r) =>
         new(r.EventId, r.ChannelId, r.EventType, SqliteStore.Iso(r.StartUtc), r.Status, r.Priority,

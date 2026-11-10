@@ -659,6 +659,20 @@ Notes that will save you time:
   nothing. Guarded by `SettingsReserveSpaceContractTests`,
   `總量配額停用時不會汰除任何區段`, `RunConfigured會依磁碟保留空間做壓力汰除` and
   `RunConfigured會依共用設定解析根目錄並清理過期快照`.
+- **"How long can this disk record?" has three answers, and two of them are not a number.**
+  `RecordingCapacity`／`RecordingCapacityService`（設定中心「儲存」頁與
+  `GET /api/recording/capacity` 共用）：`known`（有樣本）／`at_reserve`（可用空間已低於
+  `recording.min_free_bytes`，真的是 0）／`unknown`（最近一個量測窗沒有寫入，顯示「—」）。
+  把 `unknown` 印成 0 會讓「錄影根本沒在跑」看起來像「磁碟滿了」——兩者的處置完全相反，
+  所以逐顆清單也是「—」而不是 0。三個不要改回去的地方：(1) 速率用**實測寫入量**，
+  不用名目碼率；(2) 速率的分母是 `MeasurementBasis`（最早段起點到現在，夾在
+  `MinimumBasis`＝10 分鐘與量測窗之間），半小時前才開始錄的機器若除以一小時，
+  速率會少一半、剩餘時間會變兩倍；(3) 寫入量只有 `RecordingVolume.WrittenBytes` 一份實作
+  （壓力汰除與剩餘時間共用）——兩份會讓同一顆碟在兩個畫面上出現兩個數字。
+  時長一律向下取整（`Parts`）。Guarded by `RecordingCapacityTests`,
+  `RecordingCapacityServiceTests`, `RecordingCapacityApiTests`,
+  `RecordingCapacityContractTests` and `寫入量只有一份實作`.
+  逐項對照與參考實作的容量公式見 `docs/STORAGE-ALIGNMENT.md`（§5.1）。
 - **Event recording is gated by a time window, and the gate must be re-evaluated immediately.**
   `RecordingMode.Event` records only while the channel had an event within
   `recording.event_seconds` (default 30 s): `RegisterEvent` stamps `_eventTriggers[channel]`,

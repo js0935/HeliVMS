@@ -225,7 +225,13 @@
                 </DockPanel>
 
                 <TextBlock x:Name="UsageLabel" Text="" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
-                <TextBlock x:Name="UsageText" Margin="0,2,0,14" TextWrapping="Wrap"/>
+                <TextBlock x:Name="UsageText" Margin="0,2,0,2" TextWrapping="Wrap"/>
+
+                <!-- Remaining record time (measured from the last hour of real writes, not from
+                     nominal bitrates). Unknown renders as an em dash, never as 0 — see
+                     RecordingCapacityState and docs/STORAGE-ALIGNMENT.md gap 1. -->
+                <TextBlock x:Name="RemainingRecordText" Margin="0,0,0,14" TextWrapping="Wrap"
+                           AutomationProperties.AutomationId="RemainingRecordText"/>
 
                 <TextBlock x:Name="SnapshotDaysLabel" Text=""
                            Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>

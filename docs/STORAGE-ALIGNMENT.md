@@ -196,7 +196,7 @@ duration_sec, size_bytes, status, tier, origin_path`…），外加 `SegmentShar
 
 | # | 缺口 | 為什麼值得 | 形狀 | 驗收 |
 |---|---|---|---|---|
-| 1 | **沒有容量需求／剩餘可錄時間估算** | 現場問「這顆碟還能錄多久」「幾路要配多大的碟」時，目前只能靠猜；參考實作兩者都有（`GetRecordReservedBytes`、`queryRemainRecTime`） | 純函式 `RecordingCapacity`：以**實測寫入量**（最近一小時）推算，不用名目碼率；沒有寫入樣本時回「未知」而不是 0 或無限大；低於保留水位回 0 | 新增測試：未知/0/低於水位/正常四態；同一顆碟的兩個顯示處（設定頁與 API）用同一份計算 |
+| 1 | ~~沒有容量需求／剩餘可錄時間估算~~ → **已實作（2026-11-11）** | 現場問「這顆碟還能錄多久」「幾路要配多大的碟」時，目前只能靠猜；參考實作兩者都有（`GetRecordReservedBytes`、`queryRemainRecTime`） | 純函式 `RecordingCapacity` ＋量測入口 `RecordingCapacityService`：以**實測寫入量**推算，不用名目碼率；沒有寫入樣本時回「未知」而不是 0 或無限大；低於保留水位回 0 | 設定中心「儲存」頁與 `GET /api/recording/capacity` 用同一份計算；見 §5.1 |
 | 2 | 多碟輪替策略未明 | 兩顆錄影碟時「新段寫哪一顆」目前由根目錄決定，沒有輪替或依剩餘空間分配 | 先寫進文件（現況＝單一作用中根目錄＋已知根目錄），有需求再做 | — |
 | 3 | JPEG 連拍（`initial_jpeg_record`） | 參考實作有；但我們的快照已是事件驅動＋可搜索，連拍要新 UI 與大量磁碟 | 暫緩（記錄理由即可） | — |
 | 4 | 事件錄影自動輸出 MP4（ASR） | 我們的匯出工具已能裁切；自動成品是便利性，不是能力缺口 | 暫緩 | — |
@@ -204,6 +204,23 @@ duration_sec, size_bytes, status, tier, origin_path`…），外加 `SegmentShar
 
 > 缺口 1 是唯一「有參考依據、有現場價值、且不動儲存格式」的一項，優先開工；
 > 其餘三項在文件裡留原因，避免日後重做同一批評估。
+
+### 5.1 剩餘可錄時間：實作口徑（2026-11-11）
+
+| 決定 | 理由 |
+|---|---|
+| 輸入是**實測寫入量**，不是名目碼率 | 攝影機送的是變動位元率（`-c:v copy` 複製的是攝影機自己的時間戳與位元率），名目碼率算出來的「還能錄 30 天」會在 12 天後變成真的沒空間 |
+| 速率分母是**實際涵蓋範圍**（最早段起點→現在），夾在 10 分鐘與一小時之間 | 半小時前才開始錄的機器只涵蓋半小時，除以一小時會低估速率、把剩餘時間報成兩倍（799→「還能錄 8 小時」在 4 小時後爆掉）；一段 5 秒的事件錄影若直接當分母會算出天文數字，所以有 10 分鐘的下限 |
+| 三態：`known`／`at_reserve`／`unknown` | 「沒有樣本」要去看錄影有沒有在跑；「已低於保留空間」要去清磁碟或調保留空間。兩者都印成 0 會讓第一個問題永遠不會被問出來 |
+| 只有 `free − reserve` 拿來估算 | 保留空間是壓力汰除的停止線，越過它錄影就會被汰除；拿 `free` 全額估算等於保證不會發生的事 |
+| 時長一律**向下取整** | 向上取整會把「23 小時 40 分」顯示成「2 天」，而操作員會據此決定今天要不要擴充磁碟 |
+| 量測只有一份實作（`RecordingVolume.WrittenBytes`） | 壓力汰除與剩餘時間問的是同一個問題；兩份實作會讓同一顆碟在兩個畫面上出現兩個數字 |
+
+出處：`src/HeliVMS.Recording/RecordingCapacity.cs`（純函式）、
+`RecordingCapacityService.cs`（量測入口）、`RecordingVolume.cs`（共用寫入量）、
+桌面 `SettingsWindow.ReloadRemainingRecordTime`、API `GET /api/recording/capacity`。
+守門：`RecordingCapacityTests`（20）、`RecordingCapacityServiceTests`（6）、
+`RecordingCapacityApiTests`（2）、`RecordingCapacityContractTests`（5）。
 
 ---
 
