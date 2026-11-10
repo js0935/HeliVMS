@@ -116,6 +116,18 @@ QCC → QCV8001_AUTH_SENDCODE <32 hex> ＋ NUL           （raw）
 
 ## 即時影像（live view，已實作，待 QCC 實機驗證）
 
+> **P0 實機驗證（2026-11-10）**：伺服器端閉環 **PASS**——
+> QCC 實連（`QC_DVR_Aver::Connect OK! 127.0.0.1, 80`＋`Connect!`＋`StartLiveReq 0,1,1`），
+> 我方每節送出 **305 FRAM 幀（約 14 秒）**；同源串流經 ffmpeg 解碼
+> **1920×1080、108 幀、零 decode error**、首幀即含 SPS/PPS 的 IDR（block1=46、nals=[5]）、
+> 狀態碼 0x8001。QCC 端在約 305 幀後停止 keepalive、我方按設計關線
+> （`LIVE：305 幀 tick 沒有 keepalive，關閉連線`）。
+> **QCC 端畫面黑的原因在它自己的顯示環境**：每次開機 `{DbgM} Hide Monitor 16` ×3＋
+> **`SetDisplay lock fail!`（QC_Display.dll qc_display.cpp L125）**——D3D 顯示層初始化失敗，
+> 監看格从未起來（與真機 log 的「D3D 不可用（無頭環境）致 qc_live 崩潰」同族；
+> 11/08 的 `StartStream88 fail!` 亦是）。驗證「QCC 真的顯示」需在正常 D3D 桌面環境
+> 看 QCC 視窗；我方串流已用 ffmpeg 獨立證明可解碼。
+
 證據：伺服器 live 迴圈 `QC_Server` 的 `FUN_18001eb80`（逾時／狀態碼）、逐頻道寫出的
 `FUN_18001f0d0`、FRAM writer `FUN_18001cb50`；客戶端 `dvrProxy_live::GetLiveSend`
 （keepalive 逐欄位）、`readQCV8001frame`（解析與指標重算）、`QC_StreamDec::Put`／
