@@ -54,7 +54,9 @@ public sealed class PlaybackDecodeScalingTests
             "f.mp4", 0, 300, displayWidth: 640, decodeThreads: 1,
             sourceWidth: 1920, sourceHeight: 1080);
 
-        Assert.Equal("scale=640:360", ValueAfter(args, "-vf"));
+        // flags=area：bicubic 在這種 3:1 縮小要多花約 23% CPU 而品質相同（見
+        // VideoScaling.DownscaleFilter 的量測）。少了 flags，畫面正常但多格時 CPU 白花。
+        Assert.Equal("scale=640:360:flags=area", ValueAfter(args, "-vf"));
         Assert.Equal(360, PlaybackSession.ScaledHeight(640, 1920, 1080));
     }
 

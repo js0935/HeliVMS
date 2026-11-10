@@ -143,11 +143,15 @@ public sealed class PlaybackWallScaleContractTests
     {
         var code = SourceContract.Read(Code);
 
-        // 與即時監看同一把尺：同一個設定鍵、同一個正規化、同一個能力探測。
+        // 與即時監看同一把尺：同一個設定鍵、同一個正規化、同一個能力探測，
+        // 而且決策本體是共用政策（不是自己再判斷一次）。
         Assert.Contains("decode.hwaccel", code);
         Assert.Contains("RtspClient.NormalizeHwAccel(", code);
-        Assert.Contains("FfmpegHwAccel.ShouldUse(", code);
         Assert.Contains("FfmpegHwAccel.ProbeCached(", code);
+
+        var enabled = SourceContract.BodyOf(code, "HardwareDecodeEnabled");
+        Assert.Contains("HardwareDecodePolicy.Resolve(", enabled);
+        Assert.DoesNotContain("FfmpegHwAccel.ShouldUse(", enabled);
     }
 
     [Fact]

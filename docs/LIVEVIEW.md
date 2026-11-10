@@ -100,6 +100,34 @@
 `%TEMP%\helivms-live.log` 的每一格現在都帶 `hw=`（`hw=off`＝軟解），寫的是**這一輪實際生效**
 的方法而不是設定值：`auto` 被解析成什麼、有沒有因為原生尺寸或失敗冷卻期退回軟解，只有這一欄看得出來。
 
+### 3.2 解碼端縮小的濾鏡（`flags=area`）
+
+多分割時 ffmpeg 在解碼端就縮到顯示需要的寬度（見 `LiveWallBudget`／`PlaybackWallBudget`）。
+那一步的濾鏡字串**只有一份**：`HeliVMS.Shared.VideoScaling.DownscaleFilter`，而且固定帶
+`flags=area`。同一組量測環境（6 路 1080p15、每路 300 幀、4 輪取中位數）：
+
+| 縮小濾鏡（1080p → 640×360） | 總 CPU | 相對 bicubic | PSNR（縮小後放大回 1080p） |
+| --- | --- | --- | --- |
+| `flags=bicubic`（swscale 預設） | 22.84 s | — | 32.44 dB |
+| `flags=bilinear` | 19.92 s | −13% | 32.14 dB |
+| **`flags=area`** | **17.56 s** | **−23%** | **32.37 dB** |
+| `flags=fast_bilinear` | 17.39 s | −24% | 26.43 dB（鋸齒） |
+
+搭硬體解碼時同樣有效：`-hwaccel d3d11va` ＋ bicubic 9.77 s → `area` 8.06 s。
+
+結論：`area` 用 `fast_bilinear` 的速度換到 bicubic 的品質。`fast_bilinear` 只再快 1%，
+少掉的 6 dB 會直接變成監看畫面裡欄杆與車牌邊緣的鋸齒——那不是「便宜一點」，是換掉畫質。
+
+三件不要改回去的事：
+
+- **濾鏡字串不得各自拼**：`RtspClient`（即時監看）與 `PlaybackSession`（多路回放）都呼叫
+  `VideoScaling.DownscaleFilter`。少一個 `flags=area` 畫面完全正常，只是大格數時 CPU 白花；
+  這種退化沒有任何錯誤訊息，只有 CPU 使用率看得出來。
+- **高度仍由 `VideoScaling.EvenHeight` 算**，不交給 `scale=W:-2`：解碼端吐出的尺寸與呼叫端
+  湊一幀用的位元組數只要差一個像素，每一張影格就錯位（畫面全黑或斜切），日誌乾淨。
+- **只有縮小走這條路徑**（上限不小於來源時 `Fit` 回 `(0, 0)`、不帶 `-vf`），所以不必考慮
+  `area` 在放大時的行為。
+
 ## 4. 驗收標準
 1. 四路同時連線虛擬流，開啟 AI 疊加：人身/車流樣本畫面即時出現對應框與 label。
 2. 畫格縮放（視窗 resize／切佈局）後框與影像仍對齊。

@@ -40,7 +40,11 @@ public class RtspDecodeScalingTests
 
         var vf = args.IndexOf("-vf");
         Assert.True(vf >= 0, "指定解碼寬度時應帶入 -vf scale=…");
-        Assert.Equal("scale=640:360", args[vf + 1]);
+
+        // flags=area：swscale 預設的 bicubic 在 3:1 以上的縮小要多花約 23% CPU 卻沒有換到品質
+        // （量測與 PSNR 見 VideoScaling.DownscaleFilter）。少了 flags 這一項，畫面一樣正常，
+        // 只是大格數時 CPU 白花——所以必須釘在這裡。
+        Assert.Equal("scale=640:360:flags=area", args[vf + 1]);
 
         // -vf 是輸出選項：放在 -i 之前會被 ffmpeg 當成輸入選項而報錯（或靜默套用到錯的地方）。
         Assert.True(vf > args.IndexOf("-i"), "-vf 必須在 -i 之後");

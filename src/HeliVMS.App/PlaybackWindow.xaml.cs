@@ -4367,15 +4367,19 @@ public partial class PlaybackWindow : Window
             : PlaybackSyncPlanner.DefaultDriftToleranceSeconds;
 
     /// <summary>硬體解碼是否可用且已啟用（探測結果快取在 <see cref="FfmpegHwAccel"/>）。</summary>
+    /// <remarks>
+    /// 判斷走與解碼端完全相同的 <see cref="HardwareDecodePolicy"/>（<c>scalingActive: true</c>＝
+    /// 「多格需要縮小解碼」的情境，也就是這張預算表唯一會參考它的地方）。用
+    /// <see cref="FfmpegHwAccel.ShouldUse"/> 自己判斷會讓 <c>auto</c> 一律回 true，
+    /// 於是預算表給出硬解的更新率、解碼端卻在原生尺寸刻意用軟解——一張做不到的支票。
+    /// 單格（原生尺寸、不看這個旗標）也涵蓋在內，因為政策只在有縮尺寸時才啟用 <c>auto</c>。
+    /// 不快取：設定可以在執行中改；真正的探測已由 <see cref="FfmpegHwAccel.ProbeCached"/> 共用。
+    /// </remarks>
     private bool HardwareDecodeEnabled()
-    {
-        _hardwareDecode ??= HardwareDecodeSetting() is { } setting
-            && FfmpegHwAccel.ShouldUse(setting, FfmpegHwAccel.ProbeCached(FfmpegLocator.Ffmpeg, TimeSpan.FromSeconds(5)));
-        return _hardwareDecode.Value;
-    }
-
-    /// <summary>硬體解碼可用性（延後探測；null＝還沒問過）。</summary>
-    private bool? _hardwareDecode;
+        => HardwareDecodePolicy.Resolve(
+            HardwareDecodeSetting(),
+            FfmpegHwAccel.ProbeCached(FfmpegLocator.Ffmpeg, TimeSpan.FromSeconds(5)),
+            scalingActive: true) is not null;
 
     private void PlayPane(Pane pane, SegmentRecord segment, double offsetSeconds)
     {

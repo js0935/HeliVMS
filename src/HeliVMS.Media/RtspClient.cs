@@ -130,14 +130,11 @@ public sealed class RtspClient : IAsyncDisposable
         // 照原生解析度解碼再讓 WPF 用軟體縮小，等於付了完整的解碼、管線與 UI 成本只為了畫縮圖。
         // 高度必須由呼叫端算好（<see cref="VideoScaling.EvenHeight"/>）——解碼端吐出來的影格尺寸
         // 與呼叫端算的必須一模一樣，差一個像素就是每一張影格錯位而日誌完全乾淨。
+        // 濾鏡字串（含為什麼是 flags=area 的量測）在 <see cref="VideoScaling.DownscaleFilter"/>。
         if (decodeWidth > 0 && decodeHeight > 0)
         {
             args.Add("-vf");
-            args.Add(string.Format(
-                System.Globalization.CultureInfo.InvariantCulture,
-                "scale={0}:{1}",
-                decodeWidth,
-                decodeHeight));
+            args.Add(VideoScaling.DownscaleFilter(decodeWidth, decodeHeight));
         }
 
         args.Add("-f");

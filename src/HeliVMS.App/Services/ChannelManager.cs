@@ -240,21 +240,31 @@ public sealed class ChannelManager : IDisposable
     /// 硬體解碼是否可用且已啟用（探測結果快取在 <see cref="FfmpegHwAccel"/>）。
     /// </summary>
     /// <remarks>
+    /// <para>
     /// 用它是為了讓 <see cref="LiveWallBudget"/> 在硬解可用時給較高的更新率：同一張表在
     /// 硬解機器上會低估能力，把大格數的畫面壓得比機器做得到的還頓。
+    /// </para>
+    /// <para>
+    /// 判斷走與解碼端完全相同的 <see cref="HardwareDecodePolicy"/>，<c>scalingActive: true</c>
+    /// 代表「多分割需要縮小解碼」的情境——那正是這張預算表唯一會參考這個旗標的地方
+    /// （1–4 格不縮、也不看它）。若這裡自己用 <see cref="FfmpegHwAccel.ShouldUse"/> 判斷，
+    /// <c>auto</c> 會回 true，於是預算表以為有硬解、解碼端卻因為原生尺寸刻意用軟解，
+    /// 大格數的更新率上限就變成一張做不到的支票。
+    /// </para>
+    /// <para>
+    /// 刻意<em>不</em>快取：設定可以在執行中改，快取住的舊值會讓「剛打開硬解」的牆一直拿到
+    /// 軟解的更新率上限。真正的探測由 <see cref="FfmpegHwAccel.ProbeCached"/> 全機共用，
+    /// 這裡只是一次字典查詢加一次設定讀取，而且只在改佈局時呼叫。
+    /// </para>
     /// </remarks>
     private bool HardwareDecodeEnabled()
-    {
-        _hardwareDecode ??= HardwareDecodeSetting() is { } setting
-            && FfmpegHwAccel.ShouldUse(setting, FfmpegHwAccel.ProbeCached(FfmpegLocator.Ffmpeg, TimeSpan.FromSeconds(5)));
-        return _hardwareDecode.Value;
-    }
+        => HardwareDecodePolicy.Resolve(
+            HardwareDecodeSetting(),
+            FfmpegHwAccel.ProbeCached(FfmpegLocator.Ffmpeg, TimeSpan.FromSeconds(5)),
+            scalingActive: true) is not null;
 
     /// <summary>設定頁上的硬體解碼選項（未設定時為 null）。</summary>
     private string? HardwareDecodeSetting() => new SettingsRepository(_store).Get("decode.hwaccel");
-
-    /// <summary>硬體解碼可用性（延後探測；null＝還沒問過）。</summary>
-    private bool? _hardwareDecode;
 
     /// <summary>目前採用的顯示碼流（供切流視窗顯示）。</summary>
     public StreamKind GetStreamKind(long channelId) => Switcher.GetCurrent(channelId);

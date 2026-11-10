@@ -113,7 +113,12 @@ public sealed class LiveWallScaleContractTests
         var manager = SourceContract.Read(Manager);
 
         Assert.Contains("decode.hwaccel", manager);
-        Assert.Contains("FfmpegHwAccel.ShouldUse(", manager);
-        Assert.Contains("FfmpegHwAccel.ProbeCached(", manager);
+
+        // 預算表的旗標必須問與解碼端同一份政策：自己用 ShouldUse 判斷會讓 auto 一律回 true，
+        // 於是「硬解可用」的更新率上限變成一張解碼端不會兌現的支票。
+        var enabled = SourceContract.BodyOf(manager, "HardwareDecodeEnabled");
+        Assert.Contains("HardwareDecodePolicy.Resolve(", enabled);
+        Assert.DoesNotContain("FfmpegHwAccel.ShouldUse(", enabled);
+        Assert.Contains("FfmpegHwAccel.ProbeCached(", enabled);
     }
 }

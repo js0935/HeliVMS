@@ -58,4 +58,31 @@ public static class VideoScaling
 
         return (maxWidth, EvenHeight(maxWidth, sourceWidth, sourceHeight));
     }
+
+    /// <summary>
+    /// 解碼端縮小尺寸用的 ffmpeg 濾鏡字串（即時監看與多路回放共用）。
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// 一定要帶 <c>flags=area</c>：swscale 預設的 bicubic 在 3:1 以上的縮小（1080p → 640/480）
+    /// 是「取樣」而不是「平均」，實測同一組 6 路 1080p15（每路 300 幀）總 CPU：
+    /// bicubic 22.84 s、bilinear 19.92 s、<b>area 17.56 s（−23%）</b>、fast_bilinear 17.39 s。
+    /// 而品質（縮到 640×360 再放大回 1080p 對原圖的 PSNR）：bicubic 32.44 dB、
+    /// <b>area 32.37 dB</b>、bilinear 32.14 dB、fast_bilinear 26.43 dB。也就是 <c>area</c>
+    /// 用 fast_bilinear 的速度換到 bicubic 的品質，而 fast_bilinear 少掉的 6 dB 就是
+    /// 監看畫面裡欄杆、車牌邊緣的鋸齒。搭硬體解碼時同樣有效（bicubic 9.77 s → area 8.06 s）。
+    /// </para>
+    /// <para>
+    /// 只有縮小會走這條路徑（<see cref="Fit"/> 在上限不小於來源時回 <c>(0, 0)</c>），
+    /// 所以不必擔心 <c>area</c> 在放大時的行為。
+    /// </para>
+    /// </remarks>
+    /// <param name="width">目標寬度（像素，必須是 <see cref="Fit"/> 算出來的偶數高度搭配）。</param>
+    /// <param name="height">目標高度（像素）。</param>
+    public static string DownscaleFilter(int width, int height)
+        => string.Format(
+            System.Globalization.CultureInfo.InvariantCulture,
+            "scale={0}:{1}:flags=area",
+            width,
+            height);
 }

@@ -405,6 +405,21 @@ Notes that will save you time:
   否證：解碼本身 3.91 s、色轉與 1080p 管線只多 2.67 s，軟體解碼換不掉那 3.91 s。
   Guarded by `LiveWallBudgetTests`, `VideoScalingTests`, `RtspDecodeScalingTests`,
   `LiveWallScaleContractTests`.
+  **解碼端縮小的濾鏡固定 `flags=area`，字串只有 `VideoScaling.DownscaleFilter` 一份**（即時監看
+  與多路回放共用）：swscale 預設的 bicubic 在 3:1 以上的縮小是「取樣」而不是「平均」，同一組 6 路
+  1080p15（每路 300 幀、4 輪取中位數）總 CPU bicubic 22.84 s、bilinear 19.92 s、**area 17.56 s
+  （−23%）**、fast_bilinear 17.39 s；而縮到 640×360 再放大回 1080p 對原圖的 PSNR bicubic
+  32.44 dB、**area 32.37 dB**、bilinear 32.14 dB、fast_bilinear 26.43 dB。也就是 area 用
+  fast_bilinear 的速度換到 bicubic 的品質，而 fast_bilinear 少掉的 6 dB 就是監看畫面裡欄杆、
+  車牌邊緣的鋸齒。搭 `d3d11va` 時同樣有效（bicubic 9.77 s → area 8.06 s）。少一個 `flags=area`
+  畫面完全正常、只是大格數時 CPU 白花——沒有任何錯誤訊息，只有 CPU 使用率看得出來，所以必須釘在
+  測試裡（`縮小濾鏡固定使用area且尺寸與換算口徑一致`、`指定解碼寬度時縮放濾鏡在輸入之後且在輸出
+  格式之前`、`縮放寬高與宣告給UI的尺寸一致`）。
+  兩個「預算表旗標」也走同一份硬解決策（`ChannelManager.HardwareDecodeEnabled`、
+  `PlaybackWindow.HardwareDecodeEnabled` 皆 `HardwareDecodePolicy.Resolve(..., scalingActive: true)`，
+  且**不快取**）：若那裡自己用 `FfmpegHwAccel.ShouldUse`，`auto` 一律回 true，預算表就會給出
+  硬解才做得到的更新率上限，而解碼端因原生尺寸刻意用軟解——一張做不到的支票。
+  Guarded by `硬體解碼設定與回放牆共用同一把尺` and `硬體解碼沿用即時監看的設定與探測`.
   **AI 啟用的頻道不縮小解碼寬度**（`LiveWallBudget.ApplyDetectionRule`）：AI 的輸入就是那張
   影格的像素，縮小等於把物件縮小後才辨識，遠處的人車會消失且沒有任何錯誤訊息。回原生寬度
   也正好等於調整前的行為（零回歸）。運動／遮蔽偵測不受影響（先抽樣成 16×16 亮度格）。

@@ -236,11 +236,9 @@ public sealed class PlaybackSession : IAsyncDisposable
             // 差一個像素就是每一張影格都錯位（畫面全黑或斜切）。算完取偶數（yuv420p 需要）。
             var height = ScaledHeight(displayWidth, sourceWidth, sourceHeight);
             args.Add("-vf");
-            args.Add(string.Format(
-                System.Globalization.CultureInfo.InvariantCulture,
-                "scale={0}:{1}",
-                displayWidth,
-                height));
+            // 縮小濾鏡的字串（含 flags=area）只有一份：swscale 預設的 bicubic 在 3:1 以上的
+            // 縮小要多花約 23% CPU 卻沒有換到品質（量測見 VideoScaling.DownscaleFilter）。
+            args.Add(VideoScaling.DownscaleFilter(displayWidth, height));
         }
 
         args.AddRange(

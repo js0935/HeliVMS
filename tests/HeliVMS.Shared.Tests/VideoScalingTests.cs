@@ -80,4 +80,25 @@ public class VideoScalingTests
         Assert.True(height >= 2, $"高度至少要 2（實得 {height}）");
         Assert.Equal(0, height % 2);
     }
+
+    /// <summary>
+    /// 縮小濾鏡一律帶 <c>flags=area</c>，而且即時監看與多路回放都只能用這一份字串。
+    /// </summary>
+    /// <remarks>
+    /// swscale 預設的 bicubic 在 3:1 以上的縮小是「取樣」而不是「平均」：實測 6 路 1080p15
+    /// （每路 300 幀）總 CPU bicubic 22.84 s、area 17.56 s（−23%），而縮到 640×360 再放大回
+    /// 1080p 對原圖的 PSNR bicubic 32.44 dB、area 32.37 dB——也就是 area 便宜 23% 而幾乎
+    /// 沒有品質代價。fast_bilinear 只快一點點（17.39 s）卻掉到 26.43 dB，欄杆與車牌邊緣的
+    /// 鋸齒會直接出現在監看畫面裡。
+    /// </remarks>
+    [Fact]
+    public void 縮小濾鏡固定使用area且尺寸與換算口徑一致()
+    {
+        var filter = VideoScaling.DownscaleFilter(640, VideoScaling.EvenHeight(640, 1920, 1080));
+
+        Assert.Equal("scale=640:360:flags=area", filter);
+
+        // 不是 -2 也不是交由 ffmpeg 決定：尺寸必須是呼叫端算好的那一組。
+        Assert.DoesNotContain(":-2", filter);
+    }
 }
