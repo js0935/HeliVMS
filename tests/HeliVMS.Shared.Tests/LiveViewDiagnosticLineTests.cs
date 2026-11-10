@@ -46,9 +46,34 @@ public class LiveViewDiagnosticLineTests
             [Cell(backlog: TimeSpan.FromMilliseconds(780), cap: 15, hw: "d3d11va")]);
 
         Assert.Equal(
-            "2026-11-05T08:12:34.567Z | cells=1 | ch103 sub 640x360 hw=d3d11va shown=14.8/s read=29.9/s emit=14.9/s"
+            "2026-11-05T08:12:34.567Z | cells=1 | wpf=? | ch103 sub 640x360 hw=d3d11va shown=14.8/s read=29.9/s emit=14.9/s"
             + " drop=15/s cap=15/s backlog=780ms age=45ms Streaming",
             line);
+    }
+
+    /// <summary>
+    /// WPF 渲染層級每行寫一次，而且要寫得出來：層級 0 代表連貼圖都在 CPU 上做
+    /// （遠端桌面、虛擬機、沒有顯示驅動），此時「解碼很快、管線沒落後、年齡也正常」
+    /// 但畫面就是跟不上，任何解碼端優化都不會有效——這一欄是唯一的分辨依據。
+    /// </summary>
+    [Theory]
+    [InlineData(2)]
+    [InlineData(1)]
+    [InlineData(0)]
+    public void 診斷行會寫出WPF渲染層級(int tier)
+    {
+        var line = LiveViewDiagnosticLine.Format(DateTime.UnixEpoch, [Cell()], tier);
+
+        Assert.Contains($"| wpf={tier} |", line);
+    }
+
+    /// <summary>不確定就寫 <c>?</c>：整欄省略與「這台是舊版」在日誌上長得一樣。</summary>
+    [Fact]
+    public void 未知渲染層級寫成問號而不是省略()
+    {
+        var line = LiveViewDiagnosticLine.Format(DateTime.UnixEpoch, [Cell()]);
+
+        Assert.Contains("| wpf=? |", line);
     }
 
     /// <summary>

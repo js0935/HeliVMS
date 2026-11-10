@@ -3312,7 +3312,7 @@ public partial class MainWindow : Window
 
         BoundedFileLog.Append(
             Path.Combine(Path.GetTempPath(), "helivms-live.log"),
-            LiveViewDiagnosticLine.Format(now, samples) + Environment.NewLine,
+            LiveViewDiagnosticLine.Format(now, samples, RenderCapability.Tier >> 16) + Environment.NewLine,
             512 * 1024);
     }
 

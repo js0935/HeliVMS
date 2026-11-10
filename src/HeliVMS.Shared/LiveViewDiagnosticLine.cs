@@ -54,16 +54,38 @@ public static class LiveViewDiagnosticLine
         string? HwAccel = null);
 
     /// <summary>
-    /// 一行：<c>時間 | cells=N | ch103 sub 640x360 hw=d3d11va shown=14.8/s read=29.9/s drop=15.1/s backlog=120ms age=45ms Streaming</c>
+    /// 一行：<c>時間 | cells=N | wpf=2 | ch103 sub 640x360 hw=d3d11va shown=14.8/s read=29.9/s drop=15.1/s backlog=120ms age=45ms Streaming</c>
     /// </summary>
-    public static string Format(DateTime utcNow, IReadOnlyList<CellSample> cells)
+    /// <param name="utcNow">取樣時刻（UTC）。</param>
+    /// <param name="cells">每一格的取樣值。</param>
+    /// <param name="renderTier">
+    /// WPF 的渲染層級（<c>RenderCapability.Tier &gt;&gt; 16</c>：0＝全部軟體繪製、1＝部分硬體、
+    /// 2＝完整硬體；<c>null</c>＝呼叫端不是 WPF，例如單元測試）。每行只寫一次，因為它是
+    /// 這台機器的屬性而不是某一格的。
+    /// </param>
+    /// <remarks>
+    /// <para>
+    /// 渲染層級是「顯示慢」這題的第四個成因，而且過去完全看不出來：層級 0 代表 WPF 連
+    /// 影格貼圖都在 CPU 上做（遠端桌面、虛擬機、沒有可用顯示驅動的機器），此時「解碼很快、
+    /// 管線沒有落後、年齡也正常」但畫面就是跟不上，任何解碼端優化都不會有效。
+    /// </para>
+    /// <para>
+    /// 一律寫出（不確定寫 <c>wpf=?</c>）：整欄省略與「這台是舊版」在日誌上長得一樣，
+    /// 而這一欄正是分辨「本機解碼沒問題，是繪製在軟體」的唯一線索。
+    /// </para>
+    /// </remarks>
+    public static string Format(
+        DateTime utcNow,
+        IReadOnlyList<CellSample> cells,
+        int? renderTier = null)
     {
         ArgumentNullException.ThrowIfNull(cells);
 
         var builder = new StringBuilder(96);
         builder.Append(utcNow.ToString("yyyy-MM-ddTHH:mm:ss.fffZ", CultureInfo.InvariantCulture));
         builder.Append(" | cells=").Append(cells.Count);
-
+        builder.Append(" | wpf=").Append(
+            renderTier is null ? "?" : renderTier.Value.ToString(CultureInfo.InvariantCulture));
         foreach (var cell in cells)
         {
             builder.Append(" | ch").Append(cell.ChannelId.ToString(CultureInfo.InvariantCulture));
@@ -78,8 +100,6 @@ public static class LiveViewDiagnosticLine
                     .Append('x').Append(cell.Height.ToString(CultureInfo.InvariantCulture));
             }
 
-            // 硬解一直寫（軟解寫 hw=off），不寫「沒帶就整欄省略」：省略與「這台舊版沒有這一欄」
-            // 在日誌上長得一樣，而這一欄正是分辨「設了硬解卻沒生效」的唯一線索。
             // 硬解一直寫（軟解寫 hw=off），不寫「沒帶就整欄省略」：省略與「這台舊版沒有這一欄」
             // 在日誌上長得一樣，而這一欄正是分辨「設了硬解卻沒生效」的唯一線索。
             builder.Append(" hw=").Append(

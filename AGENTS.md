@@ -364,15 +364,19 @@ Notes that will save you time:
   value, since the importer derives `start_time` from the `seg-HHmmssfff.mp4` filename (the launch
   time). Until then the offset is at most part of a second on healthy cameras.
 - **Live view: find out which side owns the delay before "optimising" it — the picture looks the
-  same for all three.** 現場回報「即時監看會延遲」時，症狀只有一種，原因卻可能在三段完全不同的
+  same for all four.** 現場回報「即時監看會延遲」時，症狀只有一種，原因卻可能在四段完全不同的
   地方：①攝影機 ＋ 網路 ＋ 解碼緩衝（本機量不到，也修不了）；②本機管線積影格（畫面**愈拖愈舊**，
-  可以修）；③UI 佇列積影格（UI 執行緒跟不上）。`%TEMP%\helivms-live.log` 每 5 秒一行
-  （`LiveViewDiagnosticLine`，上限 512KB）把三段分開寫：`read/emit/drop` 每秒率
+  可以修）；③UI 佇列積影格（UI 執行緒跟不上）；④WPF 根本在軟體繪製（遠端桌面、虛擬機、沒有可用
+  顯示驅動：連把影格貼到視窗都在 CPU 上做，解碼再快也沒用）。`%TEMP%\helivms-live.log` 每 5 秒一行
+  （`LiveViewDiagnosticLine`，上限 512KB）把四段分開寫：`read/emit/drop` 每秒率
   （`RtspClient.FramesRead`／`FramesEmitted`／`FramesDropped`；丟棄是**先讀進來才丟**，管線才會被
   抽乾）、`backlog=`（本機管線落後，由 `-progress` 的 `out_time_us` 與牆鐘差推得）、`age=`（畫面
-  年齡，UI 佇列）、`shown=`（實際顯示 fps）與解析度。實測現場（6 台 640×360 子碼流、約 10fps）：
+  年齡，UI 佇列）、`shown=`（實際顯示 fps）與解析度，以及行首的 `wpf=`（`RenderCapability.Tier >> 16`：
+  2＝完整硬體、0＝全程軟體、`?`＝呼叫端不是 WPF）。實測現場（6 台 640×360 子碼流、約 10fps）：
   `read≈shown`、`drop=0`、`age` 20–150ms ⇒ 本機沒有落後，延遲在①——所以**不要再「優化」本機**，
-  先看這一行字。
+  先看這一行字。`wpf=` 只寫在行首（它是機器的屬性，不是某一格的），但**一律要寫**：整欄省略與
+  「這台是舊版」在日誌上長得一樣，而「`wpf=0` 卻 `read≈shown`、`age` 正常」正是「該換顯示方式
+  （本機繪製／關掉遠端桌面的省電模式）而不是再改解碼」的唯一證據。
   **不要為了填一個「延遲 xx ms」而編數字。** 絕對延遲在本機量不到：ffmpeg 會把輸出時間歸零
   （實測 `-copyts` 也一樣：`out_time_us=0`；`showinfo` 的 `pts_time` 同樣從 0 起算），所以畫面上
   顯示的是「本機落後量」，量不到就顯示「—」。`-use_wallclock_as_timestamps 1` 只影響時間戳
@@ -389,7 +393,8 @@ Notes that will save you time:
   `read=15/s`、`shown=15/s`、`drop≈0/s`（實測 6 路）。丟棄仍必須發生在讀取之後（管線抽乾）。
   同理，`FrameRateMeter` 要拒收同一毫秒的重複影格並把回報值夾在上限內：抖動時它算過
   `shown=772/s`，那種數字會被誤讀成「機器很快」而蓋掉真正的訊號（低 fps、高年齡）。
-  Guarded by `LiveViewDiagnosticLineTests`, `LiveFrameRatesTests`, `FrameRateGateTests`,
+  Guarded by `LiveViewDiagnosticLineTests`（含 `診斷行會寫出WPF渲染層級`、
+  `未知渲染層級寫成問號而不是省略`）, `LiveFrameRatesTests`, `FrameRateGateTests`,
   `LiveViewCounterTrackerTests`, `進度回報跟不上牆鐘時回報管線落後`,
   `超過顯示上限的影格是先讀進來才丟棄`, `進度回報不會蓋掉連線失敗原因` and
   `LiveViewDiagnosticsContractTests`.
