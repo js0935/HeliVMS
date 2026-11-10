@@ -1165,6 +1165,8 @@ L2 比對（人臉/車牌）置「進階·需權限」區，預設關閉（§5.1
 | 回放：事件跳轉、回到現在、記憶頻道 | — | **已做（M331）**。下一個／上一個事件（`N`／`P` 與兩顆按鈕，`PlaybackEventNavigation.NextIndex`）只移動事件清單選取，由 `OnEventSelected` 走既有的 `PlaybackSeekPlanner.ResolveAt` 落點規則；「回到現在」跳到今天目前時刻所在的段（同一份落點規則，並抑制 SelectedDate 事件）；上次檢視的頻道存 `playback.channel_id`（開窗時「指定頻道」優先）。|
 | 匯出時刻與範圍裁切 | — | **已修正（M327）**。現場回報：設 11:04:07.25～11:04:07.30（5 秒）卻得到 50 分鐘的檔案。原因二重：①`TimeSpan.TryParse` 讀不懂 `11040725`，舊版靜默退回 00:00–23:59:59（整天錄影都被並進成品）；②匯出從不裁切，整段整段地 concat。修正：`HeliVMS.Shared.ClockTime` 讀得懂 `HH:mm`／`HH:mm:ss`／`HH:mm:ss.fff` 與緊湊寫法 `HHmm`／`HHmmss`／`HHmmssff`／`HHmmssfff`（與分段檔名同一種），讀不懂就擋下並說出哪個字串；`ExportService` 以輸入端 `-ss`（`TrimStartSeconds`）＋ `-t`（`TrimmedDurationSeconds`）裁切（`-ss` 在 `-i` 之前）；concat 的 `inpoint` 實測在這個 ffmpeg 版本不生效，不得改用；回放帶入的區間也改寫到秒。|
 | 回放日曆：整月沒有藍色時說明錄影已被汰除（M337） | — | **已做（M337）**。日曆把「當天有 final 段」的日期標成粗體＋藍字，而標記隨索引與磁碟的實況消失：D: 滿檔時保留策略汰除整個歷史檔案（實測攝影機 01–06 在 11/05 22:18 之前的錄影全部被刪，索引裡 11/04–05 有 400 多段標記 missing），日曆因此從「整個月都是藍的」變成「一格都沒有」且沒有解釋。`ApplyRecordingDayMarks` 在整月沒有藍色時，用新的 `SegmentRepository.CountByStatusInRange` 查該月的 missing 段數：**有 missing 段**＝曾經錄過、被汰除，就在提示列說出來（`Playback.RecordingsEvicted` 三語）；**沒有 missing 段**＝真的沒錄過（剛加入的頻道），不能說「被汰除」。 |
+| 剩餘可錄時間（容量估算器 · 唯讀面） | — | **已做（2026-11-11）**。現場問「這顆碟還能錄多久」時唯一的答案來源：純函式 `HeliVMS.Recording.RecordingCapacity`＋量測入口 `RecordingCapacityService`（寫入量取自 `segments` 的 `final` 段，與壓力汰除共用 `RecordingVolume.WrittenBytes` 一份實作）。**三態**：`known`／`at_reserve`（可用空間已低於 `recording.min_free_bytes`，真的是 0）／`unknown`（量測窗內沒有寫入，顯示「—」而不是 0——「錄影沒在跑」與「磁碟滿了」的處置完全相反）。速率用**實測**寫入量（現場攝影機是變動位元率），分母是 `MeasurementBasis`（最早段起點→現在，夾在 10 分鐘與量測窗之間），半小時前才開始錄的機器若除以一小時會把剩餘時間報成兩倍；時長向下取整。設定中心「儲存」頁與 `GET /api/recording/capacity` 共用同一份計算。逐項對照 QCV8001 的容量公式見 `docs/STORAGE-ALIGNMENT.md`。 |
+| 第二螢幕鏡像牆（QC_Live 多螢幕對齊） | — | **已做三輪（`88d32a3`＋2026-11-11）**。①**鏡像不重解碼**：主牆已解碼的影格轉發到第二螢幕的格位，錄影仍只有一份（`RecordingScheduler` 不重複開）；②**分割與記憶**：右上角分割鈕 1／2／4／9／16（`MirrorWallBudget`，上限 16 因為鏡像只花每格一張 `WriteableBitmap` 的貼圖）、格數與來源在**改動當下**寫回 `wall.mirror.split`／`wall.mirror.group`；③**拔插**：`SystemEvents.DisplaySettingsChanged`——所在螢幕還在就只讓 Windows 重排、消失就搬到另一個非主螢幕、一個都不剩就關窗（不是縮成主螢幕上的小窗）；④**關窗同步取消主視窗勾選**（✕／Esc／拔插三條路都不走 toggle 分支，否則按鈕一直顯示「開著」）；⑤**徽章與錄影方式指示燈由主牆推**（`PushMirrorBadges`，掛在 `UpdateBadges` 的尾巴＝同一個一秒節奏），鏡像端不碰錄影方式／阻塞原因／色票；⑥**獨立頻道來源**：來源鈕可固定在任一個監看群組——為此影格過濾改為**比對頻道、且在格位過濾之前**（指定群組的頻道常常不在主牆格位上、`Cell = -1`），因為轉發發生在解碼執行緒上，鏡像端只放「待畫影格」並把 `WritePixels` 排回 UI 執行緒（每格最多一張在途）。 |
 | ONVIF 搜尋：WS-Discovery 探測的線路格式（M338） | — | **已修正（M338）**。現場「多播搜尋一台都找不到」而手動輸入 IP 正常：`DiscoveryClient` 送出的根本不是 SOAP 封套（裸的 `<Probe>` 元素），命名空間還是 2009/01 配 2005/04 的 Action，真實設備（gsoap 等）直接丟棄——測試的假設備太寬容所以從未抓到。修正：SOAP 1.2 封套＋WS-Discovery 1.0（2005/04）＋WS-Addressing 2004/08＋`wsa:To`＝探索 URN（**單播探測也用 URN**，與 gsoap 的 directed probe 一致）＋`Types`＝`dn:NetworkVideoTransmitter` 並繫結 `dn` 前綴；解析端改 local-name、與命名空間無關（同時收 1.0／1.1 回應；`EndpointReference` 出現在兩種命名空間都認）。探測每 1 秒重送直到逾時（UDP 掉一個封包就整批找不到）。真機驗證（現場 VIVOTEK 公網單播）另外抓到名稱 scope 是百分比編碼（`name/VIVOTEK%20IP9164-HT`），`DiscoveredDevice.NameHint` 已用 `Uri.UnescapeDataString` 解碼；`XAddrs` 兩個（公網＋link-local）取第一個 http 條目。守門：嚴格假攝影機只回應合格的 SOAP 探測（`嚴格假攝影機只回應合格的SOAP探測`、`ParseMatch_ONVIF200504的回應也會解析`、`探測會重送而不是只送一次`、`ParseMatch_實機VIVOTEK回應的名稱會解碼且XAddr取第一個`）。 |
 
 ### 11.2 性能與容量規劃（先算再寫，落地依據）
@@ -1174,7 +1176,10 @@ L2 比對（人臉/車牌）置「進階·需權限」區，預設關閉（§5.1
 ```
 - 例：主流 4M + 次流 1M = 5Mbps → 32 路 × 30 天 = 5/8×86400×32×30 ≈ **518TB 不可能**
   → 實務以**次流(1M)做主錄影 + 事件/時段切主流**，或降低主流碼率/保留天數再取 RAID 實體容量。
-- 階段：先內建 **「容量估算器」** 於設定頁，輸入碼率/路數/天數即輸出需求與 RAID 建議。
+- 階段：**「還能錄多久」（唯讀面）已做**（2026-11-11，見 §15.3 表格「剩餘可錄時間」）：
+  設定中心「儲存」頁與 `GET /api/recording/capacity` 以**實測**寫入量推估剩餘時間（不用名目碼率），
+  沒有樣本時顯示「—」。仍待做的是**規劃面**：輸入碼率／路數／保留天數即輸出所需容量與 RAID 建議
+  （給「還沒裝機」的場合用；唯讀面回答的是「這台已經在錄，還撐多久」）。
 - 網路：32×4Mbps ≈ 128Mbps 吞吐，建議雙網卡（隊列綁定）。
 - 儲存：OS+索引放 SSD；錄影區塊放 HDD（WD Purple 等級、SMART 監控）。
 
