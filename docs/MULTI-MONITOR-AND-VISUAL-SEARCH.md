@@ -1,0 +1,71 @@
+# 多螢幕牆與視覺搜索——設計（下一輪施工圖）
+
+> 使用者已解禁 UI（2026-11-10「UI 可以變動」），這兩項是 QC_Live 對齊的最後兩個大工程。
+> 本文把設計決策先釘住，施工時不再重新發明；依據與前份文件相同（`QCV8001-BEHAVIOUR-SPEC.md`）。
+
+---
+
+## 1. 多螢幕牆（QC_Live：`monitor%d.png`、`{Display} set win=%d`、`GetMaxMonitorSize`）
+
+### 1.1 現況約束（反編譯＋程式碼事實）
+
+- `ChannelSession`／`ChannelManager` 的工作階段是「一頻道 ↔ 一格」（`session.Cell` 單值）；
+  `ReconcileAsync(wall, startIndex, cellCount)` 一次只服務一面牆。
+- 錄影擁有權（`RecordingOwnership`）與 `RecordingScheduler` 以頻道為單位，與格位無關——
+  第二面牆顯示同一台**不會**重複錄影（錄影走主流解碼行程，與顯示格位脫鉤）。
+- QC_Live 的多螢幕：每個 win 一份 0x1828B 設定＋桌布； win 內各自有分割與頻道派置。
+
+### 1.2 設計
+
+1. **每螢幕一個 Window**（`MonitorWallWindow`），主視窗保留現有牆（不動既有行為與測試）。
+2. **格位位址改成 (wallId, cell)**：`ChannelSession.Cell` 維持不變，但牆 window 的
+   `ReconcileAsync` 呼叫帶 `wallId`；同頻道出現在兩面牆＝**同一個解碼行程、兩個顯示訂閱**
+   （幀事件 multicast 到兩個視窗的格位，不解碼兩次——QC_Live 的 D3D9 疊層同構）。
+3. **佈局記憶**：`MonitorLayoutPrefs` 擴充為每螢幕一份（`ui.json` 加 `"screens": { "1": {...} }`，
+   舊檔相容：沒有 screens 時全部沿用現有單牆值）。
+4. **沉浸模式**只在焦點所在的螢幕生效；快速列／事件面板每窗一份（事件面板共用同一份清單）。
+5. **錄影模式圓點／徽章**：每窗各自的 `UpdateBadges`（同一條 1 秒計時器 multicast）。
+
+### 1.3 驗收
+
+- 同頻道兩面牆都顯示、錄影只有一份（`RecordingScheduler` 不重複開）。
+- 第二螢幕拔掉：視窗關閉、格位改派回主牆、串流不重連。
+- 既有 561 條 App 測試不改（新視窗是新增，不改主視窗行為）。
+
+---
+
+## 2. 視覺/框選搜索（QC_Live：`PopupVisualSearch`、`SetRegion`、`QC_VisualSearch`）
+
+### 2.1 現況資產
+
+- `HeliVMS.Shared` 已有**感知雜湊**（`PerceptualHash`，含測試）。
+- 事件已帶快照：`alarm_events.snapshot_path`（RouteAlarm 時寫入），快照集中於資料根 `snapshots/`。
+- 框選區域：智慧分析的 ROI 基礎建設已在（`RedactionRoi`、`DetectionWriter`、AI 政策）。
+
+### 2.2 設計（以既有資產拼裝，不引 AI 依賴）
+
+1. **索引**：事件快照寫入時計算 64-bit 感知雜湊並存進 `alarm_events` 新欄
+   `snapshot_hash INTEGER`（`EnsureAdditiveColumns` 補欄；既有列懶計算——搜尋時現算現補）。
+2. **以圖搜圖**：輸入樣本圖 → 同雜湊演算法 → 漢明距離 ≤ 門檻（預設 10/64）的事件列表，
+   按距離排序；點結果 → `PlaybackSeekPlanner.ResolveAt` 跳到該事件時間（**與事件跳轉同一落點
+   規則**，不寫第二份）。
+3. **框選過濾**：樣本圖先讓操作員框出關注區域 → 只對框內區域算雜湊（ROI 裁切後重算），
+   事件側存「全圖雜湊」＋比對時同樣裁切事件快照——兩側同一個裁切函式。
+4. **UI**：事件中心新增「以圖搜索」頁（選圖／框選／結果清單），與 QC_Live 的
+   `PopupVisualSearch` 掛在回放 UI 同位。
+
+### 2.3 驗收
+
+- 同一攝影機、同一場景的快照互搜命中（漢明距離小）；不同場景不命中。
+- 框選只比對框內：同一張圖框不同區域→結果不同。
+- 結果跳轉落在事件所在的錄影段（時間軸上看得見那個色塊）。
+
+---
+
+## 3. 施工順序與體量
+
+| 項目 | 預估 | 前置 |
+|---|---|---|
+| 視覺搜索（2） | 1 輪（雜湊索引＋搜尋頁，無新依賴） | 無——資產齊 |
+| 多螢幕牆（1） | 2 輪（先雙螢幕 MVP：第二窗＋multicast 幀；再佈局記憶與拔插） | `ChannelSession` 幀事件多播改造 |
+| P0 QCC 顯示閉環 | 操作員在 QCC 視窗雙擊頻道 1，看兩邊 log | 無 |
