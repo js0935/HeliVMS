@@ -92,13 +92,18 @@ public sealed class RtspClient : IAsyncDisposable
     /// <param name="audioSampleRate">音訊輸出取樣率；須等於播放裝置協商出的值。</param>
     /// <param name="decodeWidth">解碼後縮到的寬度（0＝原生；見 <see cref="LiveWallBudget"/>）。</param>
     /// <param name="decodeHeight">解碼後的高度（與 <paramref name="decodeWidth"/> 成對，須為偶數）。</param>
+    /// <param name="sourceWidth">
+    /// 來源寬度（探測到的原生寬度）。只在「真的縮小」時才跳過解環濾波器
+    /// （<see cref="VideoScaling.ShouldSkipLoopFilter"/>）；未知時傳 0＝不跳。
+    /// </param>
     public static IReadOnlyList<string> BuildDecodeArguments(
         string rtspUrl,
         string? hwAccel = null,
         int audioPort = 0,
         int audioSampleRate = AudioStreamReceiver.DefaultSampleRate,
         int decodeWidth = 0,
-        int decodeHeight = 0)
+        int decodeHeight = 0,
+        int sourceWidth = 0)
     {
         var args = new List<string>
         {
@@ -120,6 +125,14 @@ public sealed class RtspClient : IAsyncDisposable
         {
             args.Add("-hwaccel");
             args.Add(accel);
+        }
+
+        // 多分割時連解環濾波器一起跳過（約 −15% 總 CPU）：這一格在畫面上只有一兩百像素寬，
+        // 而 flags=area 的縮小本來就會把 8×8 方塊的邊界平均掉。原生尺寸（1–4 格）不跳，
+        // 那是操作員放大看細節的情境；量測與完整理由在 VideoScaling.ShouldSkipLoopFilter。
+        if (VideoScaling.ShouldSkipLoopFilter(sourceWidth, decodeWidth))
+        {
+            args.AddRange(VideoScaling.SkipLoopFilterArguments);
         }
 
         args.Add("-i");
@@ -563,7 +576,7 @@ public sealed class RtspClient : IAsyncDisposable
             UseShellExecute = false,
             CreateNoWindow = true,
         };
-        foreach (var arg in BuildDecodeArguments(RtspUrl, hwAccel, audioPort, AudioSampleRate, outputWidth, outputHeight))
+        foreach (var arg in BuildDecodeArguments(RtspUrl, hwAccel, audioPort, AudioSampleRate, outputWidth, outputHeight, width))
         {
             psi.ArgumentList.Add(arg);
         }

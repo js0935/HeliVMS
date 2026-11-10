@@ -420,6 +420,25 @@ Notes that will save you time:
   畫面完全正常、只是大格數時 CPU 白花——沒有任何錯誤訊息，只有 CPU 使用率看得出來，所以必須釘在
   測試裡（`縮小濾鏡固定使用area且尺寸與換算口徑一致`、`指定解碼寬度時縮放濾鏡在輸入之後且在輸出
   格式之前`、`縮放寬高與宣告給UI的尺寸一致`）。
+  **縮小解碼時連解環濾波器一起跳過（`-skip_loop_filter all`，總 CPU −15.2%）**，但只在
+  `VideoScaling.ShouldSkipLoopFilter(sourceWidth, decodeWidth)` 為真時——也就是「真的縮小」。
+  量測（6 路 1080p15、每路 300 幀、`scale=640:360:flags=area`、A/B 交錯配對 10 次取中位數；
+  單次量測在本機會在 30.7–39.7 s 之間漂移）：38.9 s → 33.4 s，**10/10 次都較快**（最差 −7.4%、
+  最好 −19.8%）。品質（跳過前後對同一張基準）：1080p→640×360 的低碼率來源 43.2–44.0 dB／
+  SSIM ≥0.9938，640×360 次碼流縮到 480/384/320/256 是 42.9–45.7 dB／SSIM ≥0.9906。
+  界線畫在「有沒有縮小」而不是「解碼成本高不高」，因為解環濾波器修的是 8×8 方塊邊界，而
+  `flags=area` 的縮小本來就會把它平均掉；**原生尺寸（1–4 格、單格回放）一律不跳**——那是操作員
+  放大看車牌的路徑，而且那時只有少數幾條解碼行程，省下來的 CPU 換不到東西。四件不要改回去的事：
+  (1) **值只能是 `all`**，本機 ffmpeg 8.0.1 對 `nonref` 回 `Unable to parse option value` 並直接
+  結束（＝每一格都連得上卻永遠沒有畫面，日誌只有一行 parse 錯誤）；(2) **必須在 `-i` 之前**，
+  放後面會被當成輸出選項而靜默無效；(3) **來源寬度必須真的傳進去**（`RtspClient` 傳探測寬度、
+  `PlaybackSession` 用 `sourceWidth`），漏傳的症狀只有「大格數時 CPU 沒下降」，畫面完全正常；
+  (4) 與 `d3d11va`／`dxva2`／`-skip_frame nokey` 併用在 H.264／HEVC 8-bit／10-bit 都驗過正常
+  （`qsv` 的失敗是既有的 `-vf scale` 吃不了 hw frame，與此無關）。Guarded by
+  `只有真的縮小才跳過解環濾波器`、`跳過解環濾波器的引數固定是all`、
+  `縮小時連解環濾波器一起跳過且放在輸入之前`（即時監看與回放各一條）、
+  `沒有真的縮小時不會跳過解環濾波器` and `縮放後實際影格尺寸與參數一致`（後者走 stub 行程，
+  是唯一釘住「呼叫端真的把來源寬度傳進去」的那一條）。
   兩個「預算表旗標」也走同一份硬解決策（`ChannelManager.HardwareDecodeEnabled`、
   `PlaybackWindow.HardwareDecodeEnabled` 皆 `HardwareDecodePolicy.Resolve(..., scalingActive: true)`，
   且**不快取**）：若那裡自己用 `FfmpegHwAccel.ShouldUse`，`auto` 一律回 true，預算表就會給出

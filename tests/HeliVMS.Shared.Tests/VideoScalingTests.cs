@@ -101,4 +101,55 @@ public class VideoScalingTests
         // 不是 -2 也不是交由 ffmpeg 決定：尺寸必須是呼叫端算好的那一組。
         Assert.DoesNotContain(":-2", filter);
     }
+
+    /// <summary>
+    /// 只有真的把畫面縮小才跳過解環濾波器；原生尺寸一律不跳。
+    /// </summary>
+    /// <remarks>
+    /// 跳過解環濾波器（deblocking）在 6 路 1080p15 的 A/B 交錯量測是 −15.2% 總 CPU，
+    /// 但它修的是 8×8 方塊的邊界——也就是操作員放大看車牌時最在意的那種細節。
+    /// 界線畫在「有沒有真的縮小」：大格數（一格只有一兩百像素寬）才需要那份 CPU，
+    /// 而那裡 <c>flags=area</c> 的縮小本來就會把方塊邊界平均掉
+    /// （實測縮到 480/384/320/256 的 PSNR 42.9–45.7 dB、SSIM ≥0.9906）。
+    /// 1–4 格與單格回放走原生尺寸，維持完整解環。
+    /// </remarks>
+    [Fact]
+    public void 只有真的縮小才跳過解環濾波器()
+    {
+        // 1080p 主碼流放上 9 格以上的牆：每一種預算寬度都真的縮小了，全部要跳。
+        foreach (var width in new[] { 960, 640, 480, 384, 320, 256 })
+        {
+            Assert.True(
+                VideoScaling.ShouldSkipLoopFilter(1920, width),
+                $"1920 → {width} 是真的縮小，應跳過解環濾波器");
+        }
+
+        // 現場次碼流 640 寬、9 格版面的預算正好也是 640：沒有縮小，不跳。
+        Assert.False(VideoScaling.ShouldSkipLoopFilter(640, 640));
+
+        // 原生尺寸（1–4 格即時監看、單格回放）一律不跳。
+        Assert.False(VideoScaling.ShouldSkipLoopFilter(1920, 0));
+
+        // 目標比來源寬（放大）不在預算表的行為裡，但純函式不能因此回 true。
+        Assert.False(VideoScaling.ShouldSkipLoopFilter(640, 1920));
+
+        // 來源寬度未知（探測失敗）時不跳：跳錯的方向是「畫面變差而日誌完全乾淨」，
+        // 換到的只是 CPU，不值得拿不確定的畫質去賭。
+        Assert.False(VideoScaling.ShouldSkipLoopFilter(0, 640));
+    }
+
+    /// <summary>
+    /// 跳過解環濾波器的引數固定是 <c>all</c>。
+    /// </summary>
+    /// <remarks>
+    /// 本機 ffmpeg 8.0.1 對 <c>-skip_loop_filter nonref</c> 直接回
+    /// <c>Unable to parse option value "nonref"</c> 並結束：那不是「少省一點 CPU」，
+    /// 而是每一格都連得上卻永遠沒有畫面，而且日誌只看得到一行 parse 錯誤。
+    /// 所以值釘死在這裡。
+    /// </remarks>
+    [Fact]
+    public void 跳過解環濾波器的引數固定是all()
+    {
+        Assert.Equal(["-skip_loop_filter", "all"], VideoScaling.SkipLoopFilterArguments);
+    }
 }

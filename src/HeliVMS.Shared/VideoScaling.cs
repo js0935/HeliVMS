@@ -85,4 +85,47 @@ public static class VideoScaling
             "scale={0}:{1}:flags=area",
             width,
             height);
+
+    /// <summary>
+    /// 縮小解碼時跳過解環濾波器（deblocking）用的解碼器引數；<b>必須放在 <c>-i</c> 之前</b>。
+    /// </summary>
+    /// <remarks>
+    /// 即時監看與多路回放共用同一份（<see cref="ShouldSkipLoopFilter"/> 決定要不要加），
+    /// 理由與 <see cref="DownscaleFilter"/> 相同：解碼端的行為只能有一份定義。
+    /// </remarks>
+    public static IReadOnlyList<string> SkipLoopFilterArguments { get; } = ["-skip_loop_filter", "all"];
+
+    /// <summary>
+    /// 這一輪解碼是否要連解環濾波器一起跳過：<b>只有真的把畫面縮小</b>（目標寬度小於來源）才跳。
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// 量測（本機 i5-1035G1、6 路 1080p15、每路 300 幀、<c>scale=640:360:flags=area</c>、
+    /// 以 ffmpeg <c>bench: utime+stime</c> 取總 CPU、A/B 交錯配對 10 次取中位數）：
+    /// <c>-skip_loop_filter all</c> 讓總 CPU 少 <b>15.2%</b>（10/10 次都較快，最差 −7.4%、
+    /// 最好 −19.8%）。背景負載會讓單次量測在 30.7–39.7 s 之間跳動，所以只有交錯配對的中位數可信。
+    /// </para>
+    /// <para>
+    /// 為什麼以「有沒有縮小」為界，而不是「解碼成本高不高」：解環濾波器修的是 8×8 方塊的邊界，
+    /// 而 <c>flags=area</c> 的縮小本身就是對每個輸出像素平均掉一整塊輸入像素，方塊邊界跟著被平均。
+    /// 實測跳過前後（對同一張基準畫面的 PSNR／SSIM）：縮到 640×360 的 1080p 來源
+    /// （低碼率 300k/800k/2500k）43.2–44.0 dB／≥0.9938，640×360 次碼流縮到牆上要的
+    /// 480/384/320/256 是 42.9–45.7 dB／SSIM Y ≥0.9906。這一格在畫面上只有一兩百像素寬，
+    /// 看的是「有沒有人、車在動」，不是車牌。
+    /// </para>
+    /// <para>
+    /// <b>原生尺寸一律不跳</b>：1–4 格的即時監看與單格回放就是操作員放大看細節的情境，
+    /// 而且那時只有少數幾條解碼行程，省下來的 CPU 換不到任何東西。
+    /// 第二個理由同樣重要：這一格可以點開放大成單格，放大走的是原生尺寸那條路，
+    /// 所以小格數看的永遠是完整解環的畫面。
+    /// </para>
+    /// <para>
+    /// 來源寬度未知時回 <c>false</c>：跳錯的方向是「畫面變差卻沒有任何錯誤訊息」，
+    /// 而這個選項換到的是 CPU，不值得拿不確定的畫質去賭。
+    /// </para>
+    /// </remarks>
+    /// <param name="sourceWidth">來源寬度（像素；未知時傳 0）。</param>
+    /// <param name="decodeWidth">這一輪實際要解碼的寬度（0＝原生）。</param>
+    public static bool ShouldSkipLoopFilter(int sourceWidth, int decodeWidth)
+        => decodeWidth > 0 && sourceWidth > 0 && decodeWidth < sourceWidth;
 }

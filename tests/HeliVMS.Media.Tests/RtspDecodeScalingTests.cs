@@ -68,6 +68,44 @@ public class RtspDecodeScalingTests
         Assert.DoesNotContain("-vf", args);
     }
 
+    /// <summary>
+    /// 真的縮小才連解環濾波器一起跳過，而且放在 <c>-i</c> 之前。
+    /// </summary>
+    /// <remarks>
+    /// 6 路 1080p15、<c>scale=640:360:flags=area</c> 的 A/B 交錯量測（10 對、取中位數）
+    /// 是 −15.2% 總 CPU。放錯位置（<c>-i</c> 之後）會被當成輸出選項而靜默無效：
+    /// CPU 沒省到，畫面也正常，完全沒有訊號。
+    /// </remarks>
+    [Fact]
+    public void 縮小時連解環濾波器一起跳過且放在輸入之前()
+    {
+        var args = RtspClient.BuildDecodeArguments(
+            "rtsp://host/live",
+            decodeWidth: 640,
+            decodeHeight: 360,
+            sourceWidth: 1920).ToList();
+
+        var skip = args.IndexOf("-skip_loop_filter");
+        Assert.True(skip >= 0, "1920 縮到 640 是真的縮小，應帶入 -skip_loop_filter");
+        Assert.Equal("all", args[skip + 1]);
+        Assert.True(skip < args.IndexOf("-i"), "-skip_loop_filter 必須在 -i 之前才會對解碼器生效");
+    }
+
+    [Theory]
+    [InlineData(1920)] // 原生尺寸（1–4 格）：不縮就不跳
+    [InlineData(640)]  // 次碼流 640 寬、9 格預算也是 640：沒有縮小
+    [InlineData(0)]    // 來源未知：不跳（跳錯的方向是畫面變差而日誌乾淨）
+    public void 沒有真的縮小時不會跳過解環濾波器(int sourceWidth)
+    {
+        var args = RtspClient.BuildDecodeArguments(
+            "rtsp://host/live",
+            decodeWidth: sourceWidth == 1920 ? 0 : 640,
+            decodeHeight: sourceWidth == 1920 ? 0 : 360,
+            sourceWidth: sourceWidth);
+
+        Assert.DoesNotContain("-skip_loop_filter", args);
+    }
+
     [Theory]
     [InlineData(1920, 1080, 640, 640, 360)]
     [InlineData(1920, 1080, 480, 480, 270)]
@@ -136,6 +174,10 @@ public class RtspDecodeScalingTests
 
         var args = await File.ReadAllTextAsync(Path.Combine(dir, "args.txt"));
         Assert.Contains("scale=32:18", args);
+
+        // 這一條同時是「呼叫端真的把來源寬度傳進去」的守門：只驗 BuildDecodeArguments
+        // 收得到 sourceWidth 不夠，漏傳的話大格數的 −15% CPU 會靜默消失（畫面完全正常）。
+        Assert.Contains("-skip_loop_filter all", args);
     }
 
     [Fact]

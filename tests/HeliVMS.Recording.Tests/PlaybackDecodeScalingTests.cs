@@ -100,6 +100,43 @@ public sealed class PlaybackDecodeScalingTests
         Assert.DoesNotContain("-vf", args);
         Assert.DoesNotContain("-hwaccel", args);
         Assert.DoesNotContain("-threads", args);
+        Assert.DoesNotContain("-skip_loop_filter", args);
+    }
+
+    /// <summary>
+    /// 多格回放縮小時連解環濾波器一起跳過，而且放在 <c>-i</c> 之前。
+    /// </summary>
+    /// <remarks>
+    /// 單格（<c>Pane.Native</c>）是操作員放大看車牌的路徑，必須維持完整解環；
+    /// 2–4 格的 960／16 格以上的 480 才跳（量測與理由見 <see cref="VideoScaling.ShouldSkipLoopFilter"/>）。
+    /// </remarks>
+    [Fact]
+    public void 縮小時連解環濾波器一起跳過且放在輸入之前()
+    {
+        var args = PlaybackSession.BuildDecodeArguments(
+            "f.mp4", 0, 300, displayWidth: 640, decodeThreads: 1,
+            sourceWidth: 1920, sourceHeight: 1080);
+
+        Assert.Equal("all", ValueAfter(args, "-skip_loop_filter"));
+        Assert.True(
+            IndexOf(args, "-skip_loop_filter") < IndexOf(args, "-i"),
+            "-skip_loop_filter 是解碼器選項，必須在 -i 之前");
+    }
+
+    [Fact]
+    public void 沒有真的縮小或來源未知時不會跳過解環濾波器()
+    {
+        // 次碼流 640 放在 2 格版面的 960 上限：呼叫端算出不縮（displayWidth=0）。
+        Assert.DoesNotContain(
+            "-skip_loop_filter",
+            PlaybackSession.BuildDecodeArguments("f.mp4", 0, 300, sourceWidth: 640, sourceHeight: 360));
+
+        // 就算呼叫端硬傳了等於來源的寬度，純函式也不跳（跳錯的方向是畫面變差而日誌乾淨）。
+        Assert.DoesNotContain(
+            "-skip_loop_filter",
+            PlaybackSession.BuildDecodeArguments(
+                "f.mp4", 0, 300, displayWidth: 640, decodeThreads: 1,
+                sourceWidth: 640, sourceHeight: 360));
     }
 
     /// <summary>

@@ -207,6 +207,14 @@ public sealed class PlaybackSession : IAsyncDisposable
             args.Add("nokey");
         }
 
+        // 多格回放的每一格在畫面上只有一兩百像素寬，連解環濾波器一起跳過（約 −15% 總 CPU）；
+        // 只在「真的縮小」時才跳，單格與 1–4 格仍是完整解環（操作員放大看細節的那條路）。
+        // 量測與完整理由在 VideoScaling.ShouldSkipLoopFilter。與 -skip_frame nokey 併用已驗過。
+        if (VideoScaling.ShouldSkipLoopFilter(sourceWidth, displayWidth))
+        {
+            args.AddRange(VideoScaling.SkipLoopFilterArguments);
+        }
+
         // 解碼執行緒數必須在 -i 之前（對解碼器生效）。大量並行時要限制：64 路各開 8 條執行緒
         // 就是 512 條在 8 核心上打架，總吞吐反而比每路 1 條差。
         if (decodeThreads > 0)
