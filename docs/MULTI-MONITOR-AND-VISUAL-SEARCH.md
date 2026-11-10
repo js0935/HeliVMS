@@ -46,11 +46,19 @@
 
 1. **索引**：事件快照寫入時計算 64-bit 感知雜湊並存進 `alarm_events` 新欄
    `snapshot_hash INTEGER`（`EnsureAdditiveColumns` 補欄；既有列懶計算——搜尋時現算現補）。
+   **雜湊的唯一管線是 `VisualHash`**（Bgra → 灰階 Rec.709 → 可選 ROI 裁切 → `PerceptualHash`），
+   取樣尺寸是 `VisualHash.IndexWidth`（72）×`VisualHash.IndexHeight`（64），即 9×8 區塊每塊
+   8×8 像素。這個尺寸**就是雜湊的定義**：改它等於換一套指紋，資料庫裡既有的 `snapshot_hash`
+   會全部與新樣本不可比，而症狀只是「以圖搜索找出來的都不像」，沒有任何錯誤訊息——要改就得
+   同時重建索引。樣本側（`VisualSearchService.TryHashImage`）與快照側（`BackfillAsync`）都走
+   同一個入口，服務內不得再寫第二份灰階公式。
 2. **以圖搜圖**：輸入樣本圖 → 同雜湊演算法 → 漢明距離 ≤ 門檻（預設 10/64）的事件列表，
    按距離排序；點結果 → `PlaybackSeekPlanner.ResolveAt` 跳到該事件時間（**與事件跳轉同一落點
    規則**，不寫第二份）。
 3. **框選過濾**：樣本圖先讓操作員框出關注區域 → 只對框內區域算雜湊（ROI 裁切後重算），
    事件側存「全圖雜湊」＋比對時同樣裁切事件快照——兩側同一個裁切函式。
+   框選的相對座標（0–1）讓不同解析度的樣本與快照框在同一個位置；候選重算要用
+   `VisualHash.FromBgra(..., roi)`，不可另寫一份裁切＋縮放。
 4. **UI**：事件中心新增「以圖搜索」頁（選圖／框選／結果清單），與 QC_Live 的
    `PopupVisualSearch` 掛在回放 UI 同位。
 

@@ -22,6 +22,20 @@ public static class VisualHash
     /// <summary>解碼建議寬度（像素）：640 寬對 9×8 區塊趨勢已經過剩。</summary>
     public const int ScaleWidth = 640;
 
+    /// <summary>
+    /// 事件快照索引的解碼寬：9 欄 × 8 像素。
+    /// </summary>
+    /// <remarks>
+    /// 索引存的是 <c>alarm_events.snapshot_hash</c>。這個尺寸決定了每個 9×8 區塊的取樣面積，
+    /// 也就是雜湊值本身：<b>改它就等於換掉雜湊的定義</b>，資料庫裡既有的雜湊會全部變成
+    /// 「用另一條管線算出來的指紋」，與新樣本比較出來的漢明距離毫無意義——而且沒有任何
+    /// 錯誤訊息，只表現成「以圖搜索找出來的都不像」。要改就得同時做一次索引重建。
+    /// </remarks>
+    public const int IndexWidth = PerceptualHash.GrayColumns * 8;
+
+    /// <summary>事件快照索引的解碼高：8 列 × 8 像素（理由同 <see cref="IndexWidth"/>）。</summary>
+    public const int IndexHeight = PerceptualHash.GrayRows * 8;
+
     /// <summary>相對裁切框（0–1；超出範圍的部分在像素裁切時夾回）。</summary>
     public sealed record Roi(double X, double Y, double W, double H);
 

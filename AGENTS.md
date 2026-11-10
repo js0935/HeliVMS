@@ -1087,3 +1087,14 @@ Notes that will save you time:
   writing zeros — fixed in the P4 follow-up). Rule: any `BinaryPrimitives.Write*` target must be
   a `Span` obtained from `AsSpan(offset)` or a span parameter, never a range-indexed array;
   when a wire-format field reads back as zero with a clean log, grep for `..]` writes first.
+- **視覺搜索的雜湊只有一條管線，而取樣尺寸就是雜湊的定義。** `alarm_events.snapshot_hash` 與
+  搜尋樣本都必須走 `VisualHash`（Bgra → 灰階 Rec.709 → 可選 ROI → `PerceptualHash`），
+  取樣尺寸是 `VisualHash.IndexWidth`（72）×`VisualHash.IndexHeight`（64）＝ 9×8 區塊每塊
+  8×8 像素。兩件事不要改回去：①服務內**不得**再寫一份灰階公式——係數或四捨五入差一點，
+  兩側指紋就整組不同，漢明距離變成亂數，而症狀只是「以圖搜索找出來的都不像」；
+  ②改 `IndexWidth`/`IndexHeight` 等於換掉雜湊定義，既有索引會全部不可比且**不會**自動重建，
+  必須同時安排一次重建（`snapshot_hash` 由 0 補算即可）。`VisualSearchService` 只保留
+  「解碼成索引尺寸的 Bgra」這一件事（`DecodeBgraIndex`），雜湊交給共用層。
+  Guarded by `整張圖的雜湊與舊的灰階入口完全相同`（＝既有索引不需重建的唯一依據）、
+  `索引解碼尺寸讓每個九乘八區塊剛好八乘八像素` and `灰階與雜湊都走共用的VisualHash管線`.
+

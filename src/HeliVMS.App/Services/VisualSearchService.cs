@@ -15,7 +15,7 @@ namespace HeliVMS.App.Services;
 public sealed class VisualSearchService
 {
     private readonly AlarmEventRepository _events;
-    private readonly Func<string, byte[]> _decodeGray72x64;
+    private readonly Func<string, byte[]> _decodeBgra;
 
     /// <summary>一次補算的列數上限：快照解碼是 CPU 活，分段做、不卡搜尋。</summary>
     public const int BacklogBatchSize = 200;
@@ -27,16 +27,16 @@ public sealed class VisualSearchService
     public const int CandidateLimit = 2000;
 
     /// <param name="events">事件存取（雜湊索引與候選查詢）。</param>
-    /// <param name="decodeGray72x64">
-    /// 圖檔 → 72×64 灰階緩衝（9×8 區塊的取樣網格）。注入是為了繞開 WPF 解碼的測試限制；
-    /// 生產實作是 <see cref="DecodeGray72X64"/>。
+    /// <param name="decodeBgra">
+    /// 圖檔 → 索引尺寸（<see cref="VisualHash.IndexWidth"/>×<see cref="VisualHash.IndexHeight"/>）
+    /// 的 Bgra32 緩衝。注入是為了繞開 WPF 解碼的測試限制；生產實作是 <see cref="DecodeBgraIndex"/>。
     /// </param>
     public VisualSearchService(
         AlarmEventRepository events,
-        Func<string, byte[]>? decodeGray72x64 = null)
+        Func<string, byte[]>? decodeBgra = null)
     {
         _events = events;
-        _decodeGray72x64 = decodeGray72x64 ?? DecodeGray72X64;
+        _decodeBgra = decodeBgra ?? DecodeBgraIndex;
     }
 
     /// <summary>計算單張圖的感知雜湊；檔案讀不到或解不開回 null（呼叫端略過，不中斷整批）。</summary>
@@ -44,8 +44,10 @@ public sealed class VisualSearchService
     {
         try
         {
-            var gray = _decodeGray72x64(imagePath);
-            return PerceptualHash.FromGrayImage(gray, PerceptualHash.GrayColumns * 8, PerceptualHash.GrayRows * 8);
+            // 灰階與區塊取樣一律走共用管線（VisualHash）：樣本與事件快照各寫一份灰階公式，
+            // 兩側只要差一點（係數、四捨五入）漢明距離就是亂數，而以圖搜索「看起來能用」。
+            var bgra = _decodeBgra(imagePath);
+            return VisualHash.FromBgra(bgra, VisualHash.IndexWidth, VisualHash.IndexHeight, roi: null);
         }
         catch (Exception)
         {
@@ -101,32 +103,23 @@ public sealed class VisualSearchService
     }
 
     /// <summary>
-    /// 生產的灰階解碼：WPF 解碼 → 縮到 72×64 → Bgra32 CopyPixels → 亮度（Rec.709 加權）。
-    /// 72×64 讓 <see cref="PerceptualHash.FromGrayImage"/> 的 9×8 區塊每塊 8×8 像素。
+    /// 生產的解碼：WPF 解碼 → 縮到索引尺寸 → Bgra32 CopyPixels。
+    /// 灰階與雜湊交給 <see cref="VisualHash"/>（樣本與事件快照同一條管線）。
     /// </summary>
-    public static byte[] DecodeGray72X64(string imagePath)
+    public static byte[] DecodeBgraIndex(string imagePath)
     {
         var frame = BitmapFrame.Create(
             new Uri(Path.GetFullPath(imagePath)), BitmapCreateOptions.None, BitmapCacheOption.OnLoad);
         var scaled = new TransformedBitmap(frame, new System.Windows.Media.ScaleTransform(
-            PerceptualHash.GrayColumns * 8.0 / frame.PixelWidth,
-            PerceptualHash.GrayRows * 8.0 / frame.PixelHeight));
+            VisualHash.IndexWidth / (double)frame.PixelWidth,
+            VisualHash.IndexHeight / (double)frame.PixelHeight));
 
-        var width = PerceptualHash.GrayColumns * 8;
-        var height = PerceptualHash.GrayRows * 8;
+        var width = VisualHash.IndexWidth;
+        var height = VisualHash.IndexHeight;
         var pixels = new byte[width * height * 4];
         var converter = new FormatConvertedBitmap(scaled, System.Windows.Media.PixelFormats.Bgra32, null, 0);
         converter.CopyPixels(pixels, width * 4, 0);
 
-        var gray = new byte[width * height];
-        for (var i = 0; i < gray.Length; i++)
-        {
-            var b = pixels[i * 4];
-            var g = pixels[i * 4 + 1];
-            var r = pixels[i * 4 + 2];
-            gray[i] = (byte)((r * 299 + g * 587 + b * 114) / 1000);
-        }
-
-        return gray;
+        return pixels;
     }
 }
