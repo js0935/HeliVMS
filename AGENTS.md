@@ -638,12 +638,13 @@ Notes that will save you time:
   combo, `"180"` on the bundle fields) clipped translated labels and long camera names;
   fullscreen form fields stretch instead, and the time range is a labelled 2×2 From/To grid
   rather than four controls sharing one row. The rule now covers every borderless maximized
-  window in the app (18 of them: the settings-centre children — detection, redaction, dewarp,
+  window in the app (21 of them: the settings-centre children — detection, redaction, dewarp,
   stream switch, IO, talk, camera/channel manager, monitor group, recording import, notification
-  log, ONVIF wizard, map, PTZ — plus scheduling/export/export centre and the settings centre
-  itself), each carrying the same red ✕ at top-right plus Esc. Six of them had no close
+  log, ONVIF wizard, map, PTZ — plus scheduling/export/export centre, the settings centre
+  itself, image search, the visual-search ROI picker and the second-screen mirror wall),
+  each carrying the same red ✕ at top-right plus Esc. Six of them had no close
   affordance at all and six had only a text 關閉 button; both read as "this window has no exit"
-  once the title bar is gone. Guarded by `WindowExitContractTests` (table of 18 windows; each
+  once the title bar is gone. Guarded by `WindowExitContractTests` (table of 21 windows; each
   row reads the XAML for the ✕ and the code-behind for Esc).
 - **Space governance is "keep N GB free", not "recording quota".** The Storage page used to say
   「錄影保留上限（GB）」 while `RetentionService.Apply` looped `while (usage > quotaBytes)` — set it

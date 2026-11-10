@@ -13,6 +13,9 @@ public sealed class WindowExitContractTests
         "CameraManagerWindow", "ChannelManagerWindow", "MonitorGroupWindow", "RecordingImportWindow",
         "NotificationLogWindow", "OnvifWizardWindow", "SchedulingWindow", "ExportWindow", "ExportCenterWindow",
         "MapWindow", "PtzWindow", "SettingsWindow", "ImageSearchWindow", "VisualRoiWindow",
+        // 第二螢幕鏡像牆也是無邊框最大化（放在第二螢幕、ResizeMode=NoResize）：它的操作員
+        // 離鍵盤最遠，卻最需要「怎麼關掉這塊」的答案。
+        "WallMirrorWindow",
     ];
 
     [Fact]

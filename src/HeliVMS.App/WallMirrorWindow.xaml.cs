@@ -3,32 +3,38 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using HeliVMS.Shared;
 using HeliVMS.Shared.Models;
 
 namespace HeliVMS.App;
 
 /// <summary>
-/// 第二螢幕鏡像牆（QC_Live 的多螢幕監看對齊，MVP）：
-/// 主牆解碼的幀<b>轉發</b>到這裡的 2×2 格位，<b>不另開解碼行程、不重連</b>——
+/// 第二螢幕鏡像牆（QC_Live 的多螢幕監看對齊）：
+/// 主牆解碼的幀<b>轉發</b>到這裡的格位，<b>不另開解碼行程、不重連</b>——
 /// 只訂閱主牆已經畫出來的原始影格（<see cref="RenderFrame"/>）。
-/// 格位固定四格：主牆目前頁簽的前四台；頻道異動時以 <see cref="SetChannels"/> 重新對位。
 /// </summary>
 /// <remarks>
 /// <para>
-/// 刻意不做的：佈局選擇、拖曳、右鍵、PTZ——控制權留在主視窗（操作員在主螢幕控制、
-/// 第二螢幕純顯示，正是錄影牆的用法）。每格的時間 OSD 每 500ms 才更新一次
-/// （每幀改 TextBlock 會讓 WPF 每秒重排上百次，同 PaneOsdInterval 的教訓）。
+/// 格數由 <see cref="MirrorWallBudget.SplitOptions"/> 決定（1／2／4／9／16，預設 4）：鏡像不花解碼
+/// 成本，花的是每格一張 <c>WriteableBitmap</c> 的貼圖成本，所以上限刻意低於主牆的 64 格。
+/// 操作員在第二螢幕上按右上角的分割鈕循環切換，<see cref="SplitChanged"/> 讓主視窗把它記進
+/// <c>wall.mirror.split</c>——不記的話每次開機都要重設一次，而「昨天明明是 9 格」這種回報
+/// 永遠查不到原因。
 /// </para>
 /// <para>
-/// 依賴 WinForms 的 <c>Screen.AllScreens</c> 定位第二螢幕；App 專案需啟用
-/// <c>UseWindowsForms</c>（若未啟用，此視窗會在編譯期報錯——那是有意的守門）。
+/// 刻意不做的：拖曳、右鍵、PTZ——控制權留在主視窗（操作員在主螢幕控制、第二螢幕純顯示，
+/// 正是錄影牆的用法）。每格的時間 OSD 每 500ms 才更新一次（每幀改 TextBlock 會讓 WPF 每秒
+/// 重排上百次，同 <c>PaneOsdInterval</c> 的教訓）。
+/// </para>
+/// <para>
+/// 拔插：訂閱 <c>SystemEvents.DisplaySettingsChanged</c>。所在螢幕被拔掉時，搬到另一個非主螢幕；
+/// 一個都不剩就<b>關窗</b>而不是縮成主螢幕上的小窗——小窗會蓋在主牆上，操作員看到的是
+/// 「主畫面多了一塊奇怪的縮圖」，而真正該發生的是回到單螢幕（主視窗的勾選也會同步取消）。
 /// </para>
 /// </remarks>
 public partial class WallMirrorWindow : Window
 {
-    /// <summary>MVP 的固定格數：2×2。更多的格位與佈局選擇屬下一輪。</summary>
-    public const int CellCount = 4;
-
+    /// <summary>格位（依序對應主牆目前頁簽的頻道）。</summary>
     private sealed class MirrorCell
     {
         public required Image Image { get; init; }
@@ -39,76 +45,160 @@ public partial class WallMirrorWindow : Window
         public long LastLabelTicks;
     }
 
-    private readonly MirrorCell?[] _cells = new MirrorCell[CellCount];
+    private readonly List<MirrorCell> _cells = [];
+    private IReadOnlyList<ChannelInfo> _lastChannels = [];
+    private string? _screenDeviceName;
     private bool _closed;
+
+    /// <summary>分割數被操作員改變（要寫回設定）。</summary>
+    public event EventHandler<int>? SplitChanged;
 
     public WallMirrorWindow()
     {
         InitializeComponent();
-        for (var i = 0; i < CellCount; i++)
-        {
-            var image = new Image { Stretch = Stretch.UniformToFill };
-            RenderOptions.SetBitmapScalingMode(image, BitmapScalingMode.Linear);
-            var label = new TextBlock
-            {
-                HorizontalAlignment = HorizontalAlignment.Left,
-                VerticalAlignment = VerticalAlignment.Bottom,
-                Margin = new Thickness(4),
-                Padding = new Thickness(7, 2, 7, 2),
-                Background = new SolidColorBrush(Color.FromArgb(0xB0, 0x0D, 0x15, 0x26)),
-                Foreground = Brushes.White,
-                FontSize = 12,
-                Text = string.Empty,
-            };
-            var inner = new Grid();
-            inner.Children.Add(image);
-            inner.Children.Add(label);
-            var border = new Border
-            {
-                Margin = new Thickness(1),
-                Background = new SolidColorBrush(Color.FromRgb(0x06, 0x09, 0x0F)),
-                BorderBrush = new SolidColorBrush(Color.FromRgb(0x1F, 0x3A, 0x5F)),
-                BorderThickness = new Thickness(1),
-                Child = inner,
-                ClipToBounds = true,
-            };
-            MirrorGrid.Children.Add(border);
-            _cells[i] = new MirrorCell { Image = image, Label = label };
-        }
-
         ApplyI18n();
-        PutOnSecondaryScreen();
+        SetSplit(MirrorWallBudget.DefaultCells);
+        PlaceOnSecondary(closeWhenNoSecondary: false);
     }
+
+    /// <summary>目前的格數。</summary>
+    public int CurrentSplit => _cells.Count;
 
     private void ApplyI18n()
     {
         Title = Localizer.T("Main.MirrorTitle");
         CloseButton.ToolTip = Localizer.T("Main.MirrorCloseTip");
+        SplitButton.ToolTip = Localizer.T("Main.MirrorSplitTip");
+    }
+
+    /// <summary>
+    /// 改變格數並重建格位；非法值由 <see cref="MirrorWallBudget.Clamp"/> 夾回預設。
+    /// 重建後立即以最後一次的頻道清單重新對位——否則切一次分割就要等下次切頁簽才有畫面。
+    /// </summary>
+    public void SetSplit(int cells)
+    {
+        if (_closed)
+        {
+            return;
+        }
+
+        var count = MirrorWallBudget.Clamp(cells);
+        var (rows, columns) = MirrorWallBudget.GridOf(count);
+
+        MirrorGrid.Rows = rows;
+        MirrorGrid.Columns = columns;
+        MirrorGrid.Children.Clear();
+        _cells.Clear();
+
+        for (var i = 0; i < count; i++)
+        {
+            _cells.Add(CreateCell());
+        }
+
+        SplitButton.Content = count.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        SetChannels(_lastChannels);
+        SplitChanged?.Invoke(this, count);
+    }
+
+    private MirrorCell CreateCell()
+    {
+        var image = new Image { Stretch = Stretch.UniformToFill };
+        RenderOptions.SetBitmapScalingMode(image, BitmapScalingMode.Linear);
+        var label = new TextBlock
+        {
+            HorizontalAlignment = HorizontalAlignment.Left,
+            VerticalAlignment = VerticalAlignment.Bottom,
+            Margin = new Thickness(4),
+            Padding = new Thickness(7, 2, 7, 2),
+            Background = new SolidColorBrush(Color.FromArgb(0xB0, 0x0D, 0x15, 0x26)),
+            Foreground = Brushes.White,
+            FontSize = 12,
+            Text = string.Empty,
+        };
+        var inner = new Grid();
+        inner.Children.Add(image);
+        inner.Children.Add(label);
+        var border = new Border
+        {
+            Margin = new Thickness(1),
+            Background = new SolidColorBrush(Color.FromRgb(0x06, 0x09, 0x0F)),
+            BorderBrush = new SolidColorBrush(Color.FromRgb(0x1F, 0x3A, 0x5F)),
+            BorderThickness = new Thickness(1),
+            Child = inner,
+            ClipToBounds = true,
+        };
+        MirrorGrid.Children.Add(border);
+        return new MirrorCell { Image = image, Label = label };
     }
 
     /// <summary>有第二個螢幕就放第二螢幕（工作區最大化），否則退回主螢幕的視窗化備用位置。</summary>
-    private void PutOnSecondaryScreen()
+    private void PlaceOnSecondary(bool closeWhenNoSecondary)
     {
         var screens = System.Windows.Forms.Screen.AllScreens;
-        WindowStartupLocation = WindowStartupLocation.Manual;
-        if (screens.Length >= 2)
+
+        // 原本所在的螢幕還在（只是換了解析度）就留在原地：Windows 會自己把最大化視窗
+        // 重排到新的工作區，這裡再動一次只會閃一下。只有「那個螢幕不見了」才需要搬家。
+        var target = screens.FirstOrDefault(s => string.Equals(s.DeviceName, _screenDeviceName, StringComparison.Ordinal))
+            ?? screens.FirstOrDefault(s => !s.Primary);
+
+        if (target is null)
         {
-            var secondary = screens.First(s => !s.Primary);
-            WindowState = WindowState.Maximized;
-            Left = secondary.WorkingArea.Left;
-            Top = secondary.WorkingArea.Top;
-            Width = secondary.WorkingArea.Width;
-            Height = secondary.WorkingArea.Height;
-        }
-        else
-        {
+            if (closeWhenNoSecondary)
+            {
+                // 第二螢幕被拔掉：關窗而不是縮在主螢幕上蓋住主牆。
+                Close();
+                return;
+            }
+
+            // 初次開窗時本來就只有一個螢幕（使用者自己按的）：沿用視窗化備用位置。
             WindowState = WindowState.Normal;
             Left = 80;
             Top = 80;
+            _screenDeviceName = screens.FirstOrDefault()?.DeviceName;
+            return;
         }
+
+        var moved = !string.Equals(target.DeviceName, _screenDeviceName, StringComparison.Ordinal);
+        _screenDeviceName = target.DeviceName;
+        if (!moved)
+        {
+            return;
+        }
+
+        // 最大化視窗的 Left/Top 會被忽略，要先回到 Normal 才能指定新的工作區。
+        WindowState = WindowState.Normal;
+        Left = target.WorkingArea.Left;
+        Top = target.WorkingArea.Top;
+        Width = target.WorkingArea.Width;
+        Height = target.WorkingArea.Height;
+        WindowState = WindowState.Maximized;
     }
 
-    /// <summary>設定格位與頻道對應（主牆頁簽的前 <see cref="CellCount"/> 台，依牆序）。</summary>
+    protected override void OnSourceInitialized(EventArgs e)
+    {
+        base.OnSourceInitialized(e);
+
+        // 螢幕拔插／換解析度。事件可能從系統執行緒送來，視窗屬性只能在 UI 執行緒動。
+        Microsoft.Win32.SystemEvents.DisplaySettingsChanged += OnDisplaySettingsChanged;
+    }
+
+    private void OnDisplaySettingsChanged(object? sender, EventArgs e)
+    {
+        if (_closed)
+        {
+            return;
+        }
+
+        Dispatcher.BeginInvoke(new Action(() =>
+        {
+            if (!_closed)
+            {
+                PlaceOnSecondary(closeWhenNoSecondary: true);
+            }
+        }));
+    }
+
+    /// <summary>設定格位與頻道對應（主牆頁簽的前 N 台，依牆序）。</summary>
     public void SetChannels(IReadOnlyList<ChannelInfo> wallChannels)
     {
         if (_closed)
@@ -116,14 +206,11 @@ public partial class WallMirrorWindow : Window
             return;
         }
 
-        for (var i = 0; i < CellCount; i++)
+        _lastChannels = wallChannels;
+
+        for (var i = 0; i < _cells.Count; i++)
         {
             var cell = _cells[i];
-            if (cell is null)
-            {
-                continue;
-            }
-
             var channel = i < wallChannels.Count ? wallChannels[i] : null;
             cell.ChannelId = channel?.Id ?? 0;
             cell.Name = channel?.Name ?? string.Empty;
@@ -147,10 +234,11 @@ public partial class WallMirrorWindow : Window
             return;
         }
 
-        for (var i = 0; i < CellCount; i++)
+        // 不提早 return：同一台若同時佔了兩格（主牆把小群組放大到 9 格時會發生），
+        // 提早結束只會讓後面那格永遠停在舊畫面，且沒有任何錯誤訊息。
+        foreach (var cell in _cells)
         {
-            var cell = _cells[i];
-            if (cell is null || cell.ChannelId != channelId)
+            if (cell.ChannelId != channelId)
             {
                 continue;
             }
@@ -182,12 +270,18 @@ public partial class WallMirrorWindow : Window
                 cell.LastLabelTicks = ticks;
                 cell.Label.Text = $"{cell.Name} · {frame.TimestampUtc.ToLocalTime():HH:mm:ss}";
             }
-
-            return;
         }
     }
 
     private void OnCloseClicked(object sender, RoutedEventArgs e) => Close();
+
+    /// <summary>循環切換分割（1→2→4→9→16→1）。</summary>
+    private void OnSplitClicked(object sender, RoutedEventArgs e)
+    {
+        var options = MirrorWallBudget.SplitOptions;
+        var current = options.ToList().IndexOf(_cells.Count);
+        SetSplit(options[(current + 1) % options.Count]);
+    }
 
     private void OnWindowKeyDown(object sender, KeyEventArgs e)
     {
@@ -197,18 +291,21 @@ public partial class WallMirrorWindow : Window
         }
     }
 
-    /// <summary>主視窗在關閉時呼叫：清格位並解除幀轉發（轉發點在主視窗的 RenderCellFrame）。</summary>
+    protected override void OnClosed(EventArgs e)
+    {
+        // 一定要退訂：SystemEvents 是行程層級的靜態事件，留著就是每次開窗多一個永久的
+        // 訂閱者（視窗關了還在收事件，然後對著已釋放的 Dispatcher 排工作）。
+        Microsoft.Win32.SystemEvents.DisplaySettingsChanged -= OnDisplaySettingsChanged;
+        Shutdown();
+        base.OnClosed(e);
+    }
+
+    /// <summary>清格位並停止轉發（主視窗關閉或鏡像窗關閉時呼叫；可重複呼叫）。</summary>
     public void Shutdown()
     {
         _closed = true;
-        for (var i = 0; i < CellCount; i++)
+        foreach (var cell in _cells)
         {
-            var cell = _cells[i];
-            if (cell is null)
-            {
-                continue;
-            }
-
             cell.Image.Source = null;
             cell.Bitmap = null;
         }

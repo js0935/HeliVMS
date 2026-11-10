@@ -154,11 +154,15 @@ public partial class MainWindow : Window
     private readonly List<System.Windows.Controls.Primitives.ToggleButton> _quickButtons = [];
 
     /// <summary>
-    /// 第二螢幕鏡像牆（QC_Live 的多螢幕監看對齊，MVP）：主牆畫出的幀轉發到第二螢幕的 2×2 格。
+    /// 第二螢幕鏡像牆（QC_Live 的多螢幕監看對齊）：主牆畫出的幀轉發到第二螢幕的格位。
     /// 控制權完全留在主視窗；鏡像窗只讀（<see cref="WallMirrorWindow.RenderFrame"/>）。
-    /// 瞬時狀態不持久化——螢幕配置每次開機可能不同，操作員開了才有。
+    /// 開窗與否不持久化（螢幕配置每次開機可能不同，操作員開了才有），但格數記在
+    /// <c>wall.mirror.split</c>——不然每天開機都要重設一次。
     /// </summary>
     private WallMirrorWindow? _mirror;
+
+    /// <summary>鏡像牆的分割數（1／2／4／9／16，由 <see cref="MirrorWallBudget"/> 決定合法值）。</summary>
+    private const string MirrorSplitKey = "wall.mirror.split";
 
     /// <summary>
     /// 牆上事件面板（QC_Live 的 modeless event view 對齊）：左緣列出最近的事件列
@@ -4829,10 +4833,15 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// 開/關第二螢幕鏡像牆（QC_Live 的多螢幕監看對齊，MVP）。開：建窗、放到第二螢幕、
-    /// 餵目前頁簽前四台；關：Shutdown 解除轉發。幀轉發點在 <see cref="RenderCellFrame"/>，
-    /// 不另開解碼行程、不重連。
+    /// 開/關第二螢幕鏡像牆（QC_Live 的多螢幕監看對齊）。開：建窗、放到第二螢幕、依
+    /// <c>wall.mirror.split</c> 決定格數、餵目前頁簽前 N 台；關：Shutdown 解除轉發。
+    /// 幀轉發點在 <see cref="RenderCellFrame"/>，不另開解碼行程、不重連。
     /// </summary>
+    /// <remarks>
+    /// 鏡像窗右上角的 ✕、Esc、以及「第二螢幕被拔掉」都會關掉它，而這三條路都不是走這裡的
+    /// toggle 分支——所以 <c>Closed</c> 必須把 <see cref="MirrorToggle"/> 的勾選清掉。少了那一行，
+    /// 按鈕會一直顯示「開著」而畫面已經沒有第二份，操作員的結論是「這顆按鈕壞了」。
+    /// </remarks>
     private void OnMirrorToggleClicked(object sender, RoutedEventArgs e)
     {
         if (_mirror is not null)
@@ -4842,12 +4851,22 @@ public partial class MainWindow : Window
         }
 
         var mirror = new WallMirrorWindow { Owner = this };
+        if (_store is not null)
+        {
+            var settings = new SettingsRepository(_store);
+            mirror.SetSplit(MirrorWallBudget.Resolve(settings.Get(MirrorSplitKey)));
+            mirror.SplitChanged += (_, cells) => settings.Set(
+                MirrorSplitKey,
+                cells.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        }
+
         mirror.Closed += (_, _) =>
         {
             mirror.Shutdown();
             if (ReferenceEquals(_mirror, mirror))
             {
                 _mirror = null;
+                MirrorToggle.IsChecked = false;
             }
         };
         _mirror = mirror;
