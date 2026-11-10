@@ -143,6 +143,15 @@ public partial class MainWindow : Window
 
     /// <summary>各格右鍵選單中的「時間 OSD」項目；切換時同步所有格的勾選狀態。</summary>
     private readonly List<MenuItem> _osdTimeMenuItems = [];
+
+    /// <summary>
+    /// 頻道快速列（QC_Live 的 <c>channel%02d</c> 按鈕列對齊）：牆右緣直欄，一顆一個頻道，
+    /// 點了把那台放到單格（<c>ImmedChannels</c> 語意），「全部」還原整面（<c>ImmedSelAll</c>）。
+    /// 開關記在 <c>wall.quick_bar</c>，預設開（QC_Live 的按鈕列是常駐的）。
+    /// </summary>
+    private const string QuickBarEnabledKey = "wall.quick_bar";
+    private bool _quickBarEnabled = true;
+    private readonly List<System.Windows.Controls.Primitives.ToggleButton> _quickButtons = [];
     private readonly TextBlock[] _cellBadges = new TextBlock[MaxCells];
 
     /// <summary>
@@ -483,6 +492,8 @@ public partial class MainWindow : Window
         MapButton.ToolTip = Localizer.T("Main.MapTip");
         WallSequenceToggle.Content = Localizer.T("Main.WallSequence");
         WallSequenceToggle.ToolTip = Localizer.T("Main.WallSequenceTip");
+        QuickBarToggle.Content = Localizer.T("Main.QuickBar");
+        QuickBarToggle.ToolTip = Localizer.T("Main.QuickBarTip");
 
         HintText.Text = Localizer.T("Main.EmptyHint");
 
@@ -813,6 +824,8 @@ public partial class MainWindow : Window
         }
         _osdColorHex = WallOsdSettings.NormalizeColorHex(settings.Get(OsdFontColorKey)) ?? WallOsdSettings.DefaultColorHex;
         _osdFontSize = WallOsdSettings.NormalizeFontSize(settings.Get(OsdFontSizeKey));
+        _quickBarEnabled = settings.Get(QuickBarEnabledKey) != "0";
+        QuickBarToggle.IsChecked = _quickBarEnabled;
 
         // 格子在 ApplyLayoutPreference 內就已先建好（那時還讀不到設定），把勾選狀態補正，
         // 否則上次開著的人這次開起來選單會顯示成未勾選，與實際顯示不一致。
@@ -1312,6 +1325,7 @@ public partial class MainWindow : Window
         ClearCellsBeyondChannels(wall.Count);
         UpdateBadges();
         UpdateFooter();
+        UpdateQuickBarSelection();
 
         // 換頁簽／換群組／換佈局都可能換掉正在播的那一台；聲音必須跟著走。
         await EnforceAudioVisibilityAsync();
@@ -2163,6 +2177,9 @@ public partial class MainWindow : Window
         // 上一種分割留在 _bitmap 與 _cellChannel 裡的殘影重新投影到新格子上：4 分割的群組
         // 只有 2 台，第 3、4 格就「串」著上一頁簽那兩台攝影機的最後一張畫面。
         ClearCellsBeyondChannels(WallChannels().Count);
+
+        // 頻道快速列跟著目前頁簽的牆序重建（按鈕編號＝牆序，與跳台/改派同一口徑）。
+        RebuildQuickBar();
     }
 
     /// <summary>依目標格數與監看區大小，決定格線的列×欄與外框尺寸（每格維持畫面比例、置中）。</summary>
@@ -3456,6 +3473,7 @@ public partial class MainWindow : Window
             FooterBorder.Visibility = Visibility.Collapsed;
             MainAreaGrid.Margin = new Thickness(0);
             ImmersiveExitButton.Visibility = Visibility.Visible;
+            UpdateQuickBarVisibility();
             SetWindowFullScreen(true);
         }
         else
@@ -3465,6 +3483,7 @@ public partial class MainWindow : Window
             FooterBorder.Visibility = Visibility.Visible;
             MainAreaGrid.Margin = new Thickness(12);
             ImmersiveExitButton.Visibility = Visibility.Collapsed;
+            UpdateQuickBarVisibility();
             SetWindowFullScreen(_windowFullScreenBeforeImmersive);
         }
     }
@@ -4530,6 +4549,152 @@ public partial class MainWindow : Window
     /// 這個抱怨的來源。現在只改派格位（<see cref="ChannelManager.ReconcileAsync"/>），
     /// RTSP 連線與解碼行程完全保留。
     /// </remarks>
+    /// <summary>
+    /// 重建頻道快速列（QC_Live 的 channel%02d 按鈕列對齊）：一顆一個頻道＋「全部」。
+    /// 依<b>目前頁簽</b>的牆序編號——點擊以牆序（不是資料庫 id）定位，與跳台/改派同一口徑。
+    /// </summary>
+    private void RebuildQuickBar()
+    {
+        if (QuickBarPanel is null)
+        {
+            return;
+        }
+
+        QuickBarPanel.Children.Clear();
+        _quickButtons.Clear();
+
+        var all = new System.Windows.Controls.Primitives.ToggleButton
+        {
+            Content = Localizer.T("Main.QuickAll"),
+            ToolTip = Localizer.T("Main.QuickAllTip"),
+            FontSize = 10,
+            Padding = new Thickness(2, 6, 2, 6),
+            Margin = new Thickness(0, 0, 0, 6),
+            Foreground = Brushes.White,
+            Background = new SolidColorBrush(Color.FromRgb(0x26, 0x60, 0xAA)),
+            BorderThickness = new Thickness(0),
+            Cursor = System.Windows.Input.Cursors.Hand,
+            Tag = -1,
+        };
+        all.Click += OnQuickAllClicked;
+        QuickBarPanel.Children.Add(all);
+        _quickButtons.Add(all);
+
+        var wall = WallChannels();
+        for (var i = 0; i < wall.Count; i++)
+        {
+            var wallIndex = i;
+            var button = new System.Windows.Controls.Primitives.ToggleButton
+            {
+                Content = (i + 1).ToString(System.Globalization.CultureInfo.InvariantCulture),
+                ToolTip = wall[i].Name,
+                FontSize = 10,
+                Padding = new Thickness(2, 5, 2, 5),
+                Margin = new Thickness(0, 2, 0, 0),
+                Foreground = Brushes.White,
+                Background = new SolidColorBrush(Color.FromRgb(0x1A, 0x2C, 0x49)),
+                BorderThickness = new Thickness(0),
+                Cursor = System.Windows.Input.Cursors.Hand,
+                Tag = wallIndex,
+            };
+            button.Click += OnQuickChannelClicked;
+            QuickBarPanel.Children.Add(button);
+            _quickButtons.Add(button);
+        }
+
+        UpdateQuickBarVisibility();
+        UpdateQuickBarSelection();
+    }
+
+    /// <summary>點頻道按鈕：該台放到單格（已在單格且同一台＝還原全部；別台＝直接換台，不重連）。</summary>
+    private void OnQuickChannelClicked(object sender, RoutedEventArgs e)
+    {
+        if (_manager is null || sender is not FrameworkElement { Tag: int wallIndex })
+        {
+            return;
+        }
+
+        var wall = WallChannels();
+        if (wallIndex < 0 || wallIndex >= wall.Count)
+        {
+            return;
+        }
+
+        if (LayoutCombo.SelectedIndex == 0)
+        {
+            // 已在單格：同一台＝還原全部（F11 同一個往返）；別台＝只改派，不動佈局也不重連。
+            if (_cellChannel[0] == wall[wallIndex].Id)
+            {
+                ToggleExpandCell(0);
+                return;
+            }
+
+            _pendingSingleCell = wallIndex;
+            _ = ApplyWallAsync(wallIndex);
+            UpdateFooter();
+            UpdateQuickBarSelection();
+            return;
+        }
+
+        ToggleExpandCell(wallIndex);
+    }
+
+    /// <summary>點「全部」：還原整面（<c>ImmedSelAll</c> 語意）；已在整面時不做任何事。</summary>
+    private void OnQuickAllClicked(object sender, RoutedEventArgs e)
+    {
+        if (LayoutCombo.SelectedIndex == 0)
+        {
+            ToggleExpandCell(0);
+        }
+    }
+
+    /// <summary>同步快速列的選取亮光：單格顯示中的那台亮起，其餘熄掉。</summary>
+    private void UpdateQuickBarSelection()
+    {
+        if (QuickBarPanel is null)
+        {
+            return;
+        }
+
+        var singleChannelId = LayoutCombo.SelectedIndex == 0 ? _cellChannel[0] : null;
+        var wall = WallChannels();
+        for (var i = 0; i < _quickButtons.Count; i++)
+        {
+            var button = _quickButtons[i];
+            if (button.Tag is not int wallIndex || wallIndex < 0 || wallIndex >= wall.Count)
+            {
+                continue;
+            }
+
+            button.IsChecked = singleChannelId == wall[wallIndex].Id;
+        }
+    }
+
+    /// <summary>依開關與沉浸模式顯示或收起快速列；沉浸模式一律收起（那格要給畫面）。</summary>
+    private void UpdateQuickBarVisibility()
+    {
+        if (ChannelQuickBar is null)
+        {
+            return;
+        }
+
+        ChannelQuickBar.Visibility = _quickBarEnabled && !_monitorImmersive
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+    }
+
+    /// <summary>切換頻道快速列（QC_Live 的按鈕列常駐；這裡給操作員關掉的自由），狀態記 <c>wall.quick_bar</c>。</summary>
+    private void OnQuickBarToggled(object sender, RoutedEventArgs e)
+    {
+        _quickBarEnabled = QuickBarToggle.IsChecked == true;
+        if (_store is not null)
+        {
+            new SettingsRepository(_store).Set(QuickBarEnabledKey, _quickBarEnabled ? "1" : "0");
+        }
+
+        UpdateQuickBarVisibility();
+    }
+
     private void ToggleExpandCell(int cell)
     {
         if (_manager is null)

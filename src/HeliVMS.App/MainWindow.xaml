@@ -125,6 +125,9 @@
                     <ToggleButton x:Name="WallSequenceToggle" AutomationProperties.AutomationId="WallSequenceToggle"
                                   Content="" ToolTip="" Click="OnWallSequenceToggled" Style="{StaticResource HeaderToggleButton}"
                                   VerticalAlignment="Center" Margin="0,0,8,0" />
+                    <ToggleButton x:Name="QuickBarToggle" AutomationProperties.AutomationId="QuickBarToggle"
+                                  Content="" ToolTip="" Click="OnQuickBarToggled" Style="{StaticResource HeaderToggleButton}"
+                                  VerticalAlignment="Center" Margin="0,0,8,0" />
                     <Button x:Name="HeaderImmersiveButton" AutomationProperties.AutomationId="HeaderImmersiveButton"
                             Content="" ToolTip="" Click="OnImmersiveClicked"
                             VerticalAlignment="Center" Padding="12,4" Margin="0,0,8,0"
@@ -240,7 +243,17 @@
                     HorizontalAlignment="Left" VerticalAlignment="Top" Margin="10,10,0,0"
                     Content="" ToolTip="" Click="OnImmersiveClicked" Padding="14,6"
                     Foreground="White" Background="#CC1F3A5F" BorderBrush="#2A5C8A" BorderThickness="1"
-                    AutomationProperties.AutomationId="ImmersiveExitButton" /></Grid>
+                    AutomationProperties.AutomationId="ImmersiveExitButton" />
+
+                    <!-- Channel quick bar (QC_Live channel%02d buttons): right-edge strip, one button
+                         per channel; clicking a number shows that camera in a single pane (ImmedChannels),
+                         the All button restores the wall (ImmedSelAll). -->
+                    <Border x:Name="ChannelQuickBar" HorizontalAlignment="Right" VerticalAlignment="Stretch"
+                            Width="44" Background="#E60D1526" BorderBrush="#1F3A5F" BorderThickness="1,0,0,0">
+                        <ScrollViewer VerticalScrollBarVisibility="Hidden">
+                            <StackPanel x:Name="QuickBarPanel" Margin="4,8" />
+                        </ScrollViewer>
+                    </Border></Grid>
             </Border>
         </Grid>
 
