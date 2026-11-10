@@ -214,6 +214,45 @@ public sealed class AlarmEventRepository
             });
     }
 
+    /// <summary>
+    /// 框選搜索的候選：時間範圍內、有快照檔的事件（id／快照路徑），由新到舊。
+    /// </summary>
+    /// <remarks>
+    /// 框選比對要對每張快照<b>重算</b>框內雜湊——索引裡的 <c>snapshot_hash</c> 是整張圖的，
+    /// 拿它跟框內樣本比等於比兩個不同的東西（沒有錯誤訊息，只會「找出來的都不像」）。
+    /// 所以這裡回路徑而不是雜湊；沒有快照的事件無從比對，直接排除。
+    /// </remarks>
+    public IReadOnlyList<(long Id, string SnapshotPath)> ListSnapshotCandidates(
+        DateTime fromUtc, DateTime toUtc, int max)
+    {
+        return _store.Query(
+            """
+            SELECT id, snapshot_path
+            FROM alarm_events
+            WHERE snapshot_path IS NOT NULL
+              AND TRIM(snapshot_path) != ''
+              AND start_time >= $from AND start_time <= $to
+            ORDER BY start_time DESC
+            LIMIT $max;
+            """,
+            static r =>
+            {
+                var list = new List<(long, string)>();
+                while (r.Read())
+                {
+                    list.Add((r.GetInt64(0), r.GetString(1)));
+                }
+
+                return list;
+            },
+            cmd =>
+            {
+                cmd.Parameters.AddWithValue("$from", SqliteStore.Iso(fromUtc));
+                cmd.Parameters.AddWithValue("$to", SqliteStore.Iso(toUtc));
+                cmd.Parameters.AddWithValue("$max", max);
+            });
+    }
+
     /// <summary>確認／取消確認事件（舊 API；同步處置狀態與軌跡，指派/備註保留）。</summary>
     public void Acknowledge(long id, bool acknowledged)
     {

@@ -53,4 +53,47 @@ public sealed class VisualSearchContractTests
         Assert.Contains("ListHashCandidates(", search);
         Assert.Contains("VisualSearchRank.Rank(", search);
     }
+
+    [Fact]
+    public void 框選搜索對候選快照以同一個相對框重算雜湊()
+    {
+        // 現場症狀：框了畫面裡的一個門，搜出來的卻是完全不相干的事件（或什麼都沒有）。
+        // 原因是索引的 snapshot_hash 是「整張圖」的指紋，與框內樣本是兩種東西。
+        // 所以這裡守兩件事：候選必須是「有快照的列」，且雜湊必須用同一個 roi 重算。
+        var code = SourceContract.Read(Service);
+        var region = SourceContract.BodyOf(code, "SearchInRegionAsync");
+        var hash = SourceContract.BodyOf(code, "TryHashRegion");
+
+        Assert.Contains("ListSnapshotCandidates(", region);
+        Assert.Contains("HashRegions(", region);
+        Assert.Contains("_decodeScaled(", hash);
+        Assert.Contains("VisualHash.FromBgra(", hash);
+        Assert.Contains("roi", hash);
+    }
+
+    [Fact]
+    public void 事件中心把框選區域交給搜索服務()
+    {
+        // 只加了框選視窗而沒把 roi 傳進 SearchAsync，等於按了框選卻還是搜整張圖：
+        // 畫面看起來完全正常，結果卻與框選無關。
+        var code = SourceContract.Read("src/HeliVMS.App/EventCenterWindow.xaml.cs");
+        var click = SourceContract.BodyOf(code, "OnVisualRoiClicked");
+        var search = SourceContract.BodyOf(code, "OnVisualSearchClicked");
+
+        Assert.Contains("new VisualRoiWindow(", click);
+        // 呼叫本身必須把框當第三個參數傳進去：只宣告 roi 而不傳，等於按了框選仍搜整張圖。
+        Assert.Matches(@"SearchAsync\s*\(\s*sample\s*,\s*[^,)]+,\s*roi\s*\)", search);
+    }
+
+    [Fact]
+    public void 框選視窗以影像像素換算並畫回顯示座標()
+    {
+        // 影像用 Stretch=Uniform（有黑邊）：把顯示座標直接當像素用時，非原生解析度或
+        // 非等比例視窗會框到完全不同的一塊，而框看起來就畫在操作員拖的位置上。
+        var code = SourceContract.Read("src/HeliVMS.App/VisualRoiWindow.xaml.cs");
+
+        Assert.Contains("VisualHash.FromPixels(", code);
+        Assert.Contains("VisualHash.PixelRect(", code);
+        Assert.Contains("Stretch=\"Uniform\"", SourceContract.Read("src/HeliVMS.App/VisualRoiWindow.xaml"));
+    }
 }

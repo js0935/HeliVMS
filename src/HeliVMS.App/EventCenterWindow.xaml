@@ -59,6 +59,10 @@
             <Button x:Name="VisualBrowseButton" Content="" Click="OnVisualBrowseClicked" ToolTip=""
                     Padding="10,4" Margin="6,0,0,0" VerticalAlignment="Center"
                     Foreground="White" Background="#2A4A73" BorderThickness="0"/>
+            <Button x:Name="VisualRoiButton" AutomationProperties.AutomationId="VisualRoiButton" ToolTip=""
+                    Content="" Click="OnVisualRoiClicked"
+                    Padding="10,4" Margin="6,0,0,0" VerticalAlignment="Center"
+                    Foreground="White" Background="#2A4A73" BorderThickness="0"/>
             <Button x:Name="VisualSearchButton" AutomationProperties.AutomationId="VisualSearchButton" ToolTip=""
                     Content="" Click="OnVisualSearchClicked"
                     Padding="10,4" Margin="6,0,0,0" VerticalAlignment="Center"

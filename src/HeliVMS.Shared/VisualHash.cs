@@ -39,6 +39,58 @@ public static class VisualHash
     /// <summary>相對裁切框（0–1；超出範圍的部分在像素裁切時夾回）。</summary>
     public sealed record Roi(double X, double Y, double W, double H);
 
+    /// <summary>框選範圍的最小邊長（來源像素）：比它小的選取視為「沒有框選」。</summary>
+    public const int MinSelectionPixels = 8;
+
+    /// <summary>
+    /// 把畫面上的框選換算成相對 ROI（<paramref name="x"/>／<paramref name="y"/> 為左上角，
+    /// 寬高可為負＝反向拖曳）；範圍太小或影像尺寸無效時回 <c>null</c>。
+    /// </summary>
+    /// <remarks>
+    /// 太小的框選刻意回 <c>null</c> 而不是「夾成 1×1」：1×1 的裁切沒有任何明暗變化，
+    /// 雜湊恆為 0，而任何樣本與 0 的漢明距離都等於它自己的位元數——以圖搜索會回「全部事件」，
+    /// 操作員只看到自己框了一小角，卻得到整頁結果。
+    /// </remarks>
+    /// <param name="x">選取起點（來源像素座標）。</param>
+    /// <param name="y">選取起點（來源像素座標）。</param>
+    /// <param name="width">選取寬（可為負）。</param>
+    /// <param name="height">選取高（可為負）。</param>
+    /// <param name="imageWidth">影像寬（像素）。</param>
+    /// <param name="imageHeight">影像高（像素）。</param>
+    public static Roi? FromPixels(
+        double x, double y, double width, double height, int imageWidth, int imageHeight)
+    {
+        if (imageWidth <= 0 || imageHeight <= 0)
+        {
+            return null;
+        }
+
+        if (double.IsNaN(x) || double.IsNaN(y) || double.IsNaN(width) || double.IsNaN(height))
+        {
+            return null;
+        }
+
+        var left = Math.Clamp(Math.Min(x, x + width), 0, imageWidth);
+        var top = Math.Clamp(Math.Min(y, y + height), 0, imageHeight);
+        var right = Math.Clamp(Math.Max(x, x + width), 0, imageWidth);
+        var bottom = Math.Clamp(Math.Max(y, y + height), 0, imageHeight);
+
+        var w = right - left;
+        var h = bottom - top;
+        if (w < MinSelectionPixels || h < MinSelectionPixels)
+        {
+            return null;
+        }
+
+        var rx = left / imageWidth;
+        var ry = top / imageHeight;
+        return new Roi(
+            rx,
+            ry,
+            Math.Min(w / imageWidth, 1 - rx),
+            Math.Min(h / imageHeight, 1 - ry));
+    }
+
     /// <summary>
     /// 把相對 ROI 換算成像素矩形（夾在影像邊界內、至少 1×1）。
     /// roi 為 null＝整張圖。

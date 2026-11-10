@@ -165,6 +165,38 @@ public sealed class VisualHashTests
     }
 
     [Fact]
+    public void 框選太小會被拒絕而不是變成一個像素的雜湊()
+    {
+        // 1×1 的裁切沒有任何明暗變化，雜湊恆為 0；而任何樣本與 0 的漢明距離都等於它的
+        // 位元數。若把「點一下」當成框選，以圖搜索會回全部事件，操作員只看到自己框了一小角。
+        Assert.Null(VisualHash.FromPixels(10, 10, 0, 0, 640, 360));
+        Assert.Null(VisualHash.FromPixels(10, 10, 7, 200, 640, 360));
+        Assert.Null(VisualHash.FromPixels(10, 10, 200, 7, 640, 360));
+        Assert.NotNull(VisualHash.FromPixels(10, 10, 8, 8, 640, 360));
+
+        // 影像尺寸無效（還沒載入）也不能算出一個框。
+        Assert.Null(VisualHash.FromPixels(0, 0, 100, 100, 0, 0));
+        Assert.Null(VisualHash.FromPixels(double.NaN, 0, 100, 100, 640, 360));
+    }
+
+    [Fact]
+    public void 框選可以反向拖曳且夾在影像邊界內()
+    {
+        // 操作員從右下往左上拖是常態，不該因為方向不同就得到不同的框。
+        Assert.Equal(
+            VisualHash.FromPixels(100, 50, 200, 100, 800, 400),
+            VisualHash.FromPixels(300, 150, -200, -100, 800, 400));
+
+        // 拖出畫面外時夾回邊界（否則 PixelRect 會把寬高夾成 1，等於框了一個像素）。
+        var clipped = VisualHash.FromPixels(700, 300, 400, 400, 800, 400);
+        Assert.Equal(new VisualHash.Roi(0.875, 0.75, 0.125, 0.25), clipped);
+
+        // 換算回像素時仍在影像內。
+        var (x, y, w, h) = VisualHash.PixelRect(clipped, 800, 400);
+        Assert.Equal((700, 300, 100, 100), (x, y, w, h));
+    }
+
+    [Fact]
     public void 灰階用Rec709加權()
     {
         var green = VisualHash.BgraToGray([0, 255, 0, 255], 1, 1);

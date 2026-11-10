@@ -80,6 +80,41 @@ public sealed class AlarmEventSnapshotHashTests : IDisposable
     }
 
     [Fact]
+    public void 框選候選只含有快照且落在時間窗內的事件()
+    {
+        // 框選搜索要把每張快照解碼重算，所以候選清單必須回路徑；沒有快照的事件
+        // 根本無從比對，混進來只會讓「搜了 N 張」的數字與實際能比對的張數不符。
+        var repo = new AlarmEventRepository(_store);
+        var withPath = repo.Insert(1, "motion", DateTime.UtcNow.AddMinutes(-30), snapshotPath: @"C:\snap\a.bmp");
+        var outside = repo.Insert(2, "motion", DateTime.UtcNow.AddDays(-9), snapshotPath: @"C:\snap\old.bmp");
+        var emptyPath = repo.Insert(1, "motion", DateTime.UtcNow.AddMinutes(-20), snapshotPath: " ");
+        repo.Insert(1, "motion", DateTime.UtcNow.AddMinutes(-10));
+
+        var candidates = repo.ListSnapshotCandidates(
+            DateTime.UtcNow.AddDays(-7), DateTime.UtcNow.AddMinutes(5), 50);
+
+        var row = Assert.Single(candidates);
+        Assert.Equal(withPath, row.Id);
+        Assert.Equal(@"C:\snap\a.bmp", row.SnapshotPath);
+        Assert.DoesNotContain(candidates, c => c.Id == outside || c.Id == emptyPath);
+    }
+
+    [Fact]
+    public void 框選候選受筆數上限約束且由新到舊()
+    {
+        var repo = new AlarmEventRepository(_store);
+        repo.Insert(1, "motion", DateTime.UtcNow.AddMinutes(-30), snapshotPath: @"C:\snap\1.bmp");
+        repo.Insert(1, "motion", DateTime.UtcNow.AddMinutes(-20), snapshotPath: @"C:\snap\2.bmp");
+        var newest = repo.Insert(1, "motion", DateTime.UtcNow.AddMinutes(-5), snapshotPath: @"C:\snap\3.bmp");
+
+        var candidates = repo.ListSnapshotCandidates(
+            DateTime.UtcNow.AddHours(-1), DateTime.UtcNow.AddMinutes(5), 1);
+
+        var single = Assert.Single(candidates);
+        Assert.Equal(newest, single.Id);
+    }
+
+    [Fact]
     public void 查詢可用事件id白名單過濾_視覺搜索命中集()
     {
         var repo = new AlarmEventRepository(_store);

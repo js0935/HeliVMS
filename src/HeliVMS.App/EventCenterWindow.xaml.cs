@@ -33,6 +33,15 @@ public partial class EventCenterWindow : Window
 
     /// <summary>視覺搜索的命中事件 id 集（null＝未啟用過濾）；清空樣本框再搜尋即解除。</summary>
     private HashSet<long>? _visualHits;
+
+    /// <summary>
+    /// 視覺搜索的框選區域（null＝整張圖）。換樣本圖時必須清掉：框還留在舊圖的座標上，
+    /// 看起來像「框錯了地方」，而搜出來的結果也會與操作員眼前那張圖無關。
+    /// </summary>
+    private VisualHash.Roi? _visualRoi;
+
+    /// <summary>上面那個框是對哪一張樣本圖框的（換圖後框就不再適用）。</summary>
+    private string? _visualRoiSamplePath;
     private long? _selectedId;
 
     /// <summary>本頁已選取的事件 Id（多選批次處置用）。重整後據此保留同頁選取。</summary>
@@ -196,6 +205,8 @@ public partial class EventCenterWindow : Window
         VisualSampleBox.ToolTip = Localizer.T("EventCenter.VisualSampleTip");
         VisualBrowseButton.Content = Localizer.T("EventCenter.VisualBrowse");
         VisualBrowseButton.ToolTip = Localizer.T("EventCenter.VisualBrowseTip");
+        VisualRoiButton.Content = Localizer.T("EventCenter.VisualRoi");
+        VisualRoiButton.ToolTip = Localizer.T("EventCenter.VisualRoiTip");
         VisualSearchButton.Content = Localizer.T("EventCenter.VisualSearch");
         VisualSearchButton.ToolTip = Localizer.T("EventCenter.VisualSearchTip");
         RefreshButton.Content = Localizer.T("EventCenter.Refresh");
@@ -418,6 +429,8 @@ public partial class EventCenterWindow : Window
         {
             // 清空樣本＝解除過濾（回到一般查詢）。
             _visualHits = null;
+            _visualRoi = null;
+            _visualRoiSamplePath = null;
             _page = 1;
             DoRefresh();
             return;
@@ -429,17 +442,27 @@ public partial class EventCenterWindow : Window
             return;
         }
 
+        // 框是對某一張圖框的：換了圖就當作沒有框（否則會拿舊圖的區域去搜新圖）。
+        var roi = string.Equals(
+                _visualRoiSamplePath, System.IO.Path.GetFullPath(sample), StringComparison.OrdinalIgnoreCase)
+            ? _visualRoi
+            : null;
+
         VisualSearchButton.IsEnabled = false;
         CountText.Text = Localizer.T("EventCenter.VisualSearching");
         try
         {
             var service = new VisualSearchService(_events);
-            var hits = await service.SearchAsync(sample, VisualSearchRank.DefaultThreshold);
+            var hits = await service.SearchAsync(sample, VisualSearchRank.DefaultThreshold, roi);
             _visualHits = hits.Count > 0 ? hits.ToHashSet() : [];
             _page = 1;
             DoRefresh();
             CountText.Text = hits.Count > 0
-                ? string.Format(Localizer.T("EventCenter.VisualHits"), hits.Count)
+                ? string.Format(
+                    Localizer.T(roi is null
+                        ? "EventCenter.VisualHits"
+                        : "EventCenter.VisualHitsRegion"),
+                    hits.Count)
                 : Localizer.T("EventCenter.VisualNoHit");
         }
         catch (Exception ex)
@@ -463,7 +486,41 @@ public partial class EventCenterWindow : Window
         if (dlg.ShowDialog() == true)
         {
             VisualSampleBox.Text = dlg.FileName;
+            _visualRoi = null;
+            _visualRoiSamplePath = null;
         }
+    }
+
+    /// <summary>
+    /// 框選要搜尋的區域（QC_Live <c>SetRegion</c> 對齊）。框只對「框的那張圖」有意義，
+    /// 所以記下圖檔路徑；搜尋時發現樣本換了就直接忽略框，而不是拿舊圖的區域去搜新圖。
+    /// </summary>
+    private void OnVisualRoiClicked(object sender, RoutedEventArgs e)
+    {
+        var sample = VisualSampleBox.Text.Trim();
+        if (sample.Length == 0 || !File.Exists(sample))
+        {
+            CountText.Text = Localizer.T("EventCenter.VisualRoiNeedSample");
+            return;
+        }
+
+        var initial = string.Equals(
+                _visualRoiSamplePath, System.IO.Path.GetFullPath(sample), StringComparison.OrdinalIgnoreCase)
+            ? _visualRoi
+            : null;
+
+        var window = new VisualRoiWindow(sample, initial) { Owner = this };
+        if (window.ShowDialog() != true || !window.Applied)
+        {
+            return;
+        }
+
+        // Applied 但 Result 為 null＝操作員按了「清除」，回到整張圖搜尋。
+        _visualRoi = window.Result;
+        _visualRoiSamplePath = _visualRoi is null ? null : System.IO.Path.GetFullPath(sample);
+        CountText.Text = _visualRoi is null
+            ? Localizer.T("EventCenter.VisualRoiCleared")
+            : Localizer.T("EventCenter.VisualRoiReady");
     }
 
     private void OnPendingOnlyChanged(object sender, RoutedEventArgs e)

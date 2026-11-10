@@ -1,0 +1,77 @@
+<Window x:Class="HeliVMS.App.VisualRoiWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        AutomationProperties.AutomationId="VisualRoiWindow"
+        Title=""
+        WindowStartupLocation="CenterOwner"
+        Background="#0B1622" Foreground="White"
+        PreviewKeyDown="OnPreviewKeyDown"
+        WindowStyle="None" ResizeMode="NoResize" WindowState="Maximized">
+
+    <Grid Margin="12">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- Header row: a borderless maximized window has no system title bar, so the title and
+             the close button live here (same pattern as ImageSearchWindow). -->
+        <Grid Grid.Row="0" Margin="0,0,0,10">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            <TextBlock x:Name="HeaderTitle" Text="" FontSize="15" FontWeight="Bold"
+                       Foreground="White" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+            <Button x:Name="HeaderCloseButton" Content="✕" Click="OnCloseClicked" ToolTip=""
+                    Grid.Column="1" Padding="10,4" FontSize="14"
+                    Foreground="White" Background="#C62828" BorderThickness="0"
+                    VerticalAlignment="Center" AutomationProperties.AutomationId="VisualRoiHeaderCloseButton"/>
+        </Grid>
+
+        <TextBlock x:Name="HintText" Grid.Row="1" Text="" TextWrapping="Wrap" Margin="0,0,0,8"
+                   Foreground="{StaticResource Brand.TextDim}" FontSize="12"/>
+
+        <!-- The image is letterboxed by Stretch=Uniform; the transparent Canvas on top captures
+             the drag. The mapping display to image pixels lives in the code-behind
+             (VisualHash.FromPixels does the normalisation). -->
+        <Border Grid.Row="2" BorderBrush="#2A4A73" BorderThickness="1" Background="#050B12">
+            <Grid x:Name="ImageHost">
+                <Image x:Name="SampleImage" Stretch="Uniform"
+                       AutomationProperties.AutomationId="VisualRoiSampleImage"/>
+                <Canvas x:Name="Overlay" Background="Transparent"
+                        ClipToBounds="True"
+                        MouseLeftButtonDown="OnOverlayMouseLeftButtonDown"
+                        MouseMove="OnOverlayMouseMove"
+                        MouseLeftButtonUp="OnOverlayMouseLeftButtonUp">
+                    <Rectangle x:Name="Selection" Stroke="#FF5252" StrokeThickness="2"
+                               Fill="#33FF5252" Visibility="Collapsed" IsHitTestVisible="False"/>
+                </Canvas>
+            </Grid>
+        </Border>
+
+        <Grid Grid.Row="3" Margin="0,10,0,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            <TextBlock x:Name="RoiInfoText" Text="" VerticalAlignment="Center"
+                       Foreground="#9FB8D8" FontSize="12" TextTrimming="CharacterEllipsis"/>
+            <StackPanel Grid.Column="1" Orientation="Horizontal">
+                <Button x:Name="ClearButton" Content="" Click="OnClearClicked" ToolTip=""
+                        Padding="14,6" Foreground="White" Background="#1F3A5F" BorderThickness="0"
+                        AutomationProperties.AutomationId="VisualRoiClearButton"/>
+                <Button x:Name="CancelButton" Content="" Click="OnCloseClicked" ToolTip=""
+                        Padding="14,6" Margin="8,0,0,0" IsCancel="True"
+                        Foreground="White" Background="#1F3A5F" BorderThickness="0"
+                        AutomationProperties.AutomationId="VisualRoiCancelButton"/>
+                <Button x:Name="ApplyButton" Content="" Click="OnApplyClicked" ToolTip=""
+                        Padding="14,6" Margin="8,0,0,0" IsEnabled="False"
+                        Foreground="White" Background="#2A5C8A" BorderThickness="0"
+                        AutomationProperties.AutomationId="VisualRoiApplyButton"/>
+            </StackPanel>
+        </Grid>
+    </Grid>
+</Window>

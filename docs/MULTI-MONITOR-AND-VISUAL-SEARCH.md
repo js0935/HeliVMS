@@ -68,6 +68,23 @@
 - 框選只比對框內：同一張圖框不同區域→結果不同。
 - 結果跳轉落在事件所在的錄影段（時間軸上看得見那個色塊）。
 
+### 2.4 框選搜索的落地細節
+
+- **框只對「框的那張圖」有意義**。事件中心記住框架時的樣本圖完整路徑（`_visualRoiSamplePath`），
+  換圖或重新選圖就把框清掉；否則會拿舊圖的區域去搜新圖，看起來像「框錯了地方」。
+- **顯示座標 → 影像像素**：`VisualRoiWindow` 的影像是 `Stretch="Uniform"`（有黑邊），
+  所以拖曳點要先扣掉黑邊並除以縮放比才是影像像素，再交給 `VisualHash.FromPixels`（含反向拖曳、
+  邊界夾取、最小邊長 `MinSelectionPixels = 8`）。框選太小回 `null` 而不是夾成 1×1——1×1 的雜湊恆為 0，
+  與任何樣本的漢明距離都等於自己的位元數，於是「每次都回全部事件」。
+- **候選必須重算**：索引的 `snapshot_hash` 是整張圖的指紋，與框內樣本是兩種東西。
+  `VisualSearchService.SearchInRegionAsync` 走 `AlarmEventRepository.ListSnapshotCandidates`
+  （時間窗＋`TRIM(snapshot_path) != ''`），把每張快照解到 `VisualHash.ScaleWidth`（640）寬，
+  以**同一個相對 ROI** 呼叫 `VisualHash.FromBgra(..., roi)`；樣本側也走同一尺寸，兩側才框到同一個區域。
+  候選上限 `RoiCandidateLimit = 400`、平行上限 4 條：每張都要解碼，七天內超過 400 筆時縮小時間或頻道
+  範圍比讓視窗看起來像當機合理。
+- **規則來源**：`VisualHash` 是唯一管線（行為測試 `VisualHashTests`）；接線由
+  `VisualSearchContractTests` 守住（事件中心把 roi 傳進 `SearchAsync`、服務用候選查詢＋同一 ROI 重算）。
+
 ---
 
 ## 3. 施工順序與體量
