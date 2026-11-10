@@ -58,27 +58,48 @@ public class RetentionServiceTests : IDisposable
     }
 
     /// <summary>
-    /// 事件模式（Motion／事件）的區段要<b>先</b>被汰除，早於全時段錄影，即使它比較新。
+    /// 事件模式的區段要<b>最後</b>才被汰除：配額只夠刪一個時，先刪全時段，即使事件段比較新。
     ///
-    /// 事件段是全時段的補充，不是唯一來源；磁碟吃緊時先淘汰補充品、保住連續錄影的完整性
-    /// （§11.1 第二階段「優先刪事件段」）。順序反了的症狀：配額壓力下系統先刪連續錄影、
-    /// 留下零散的事件段，時間軸出現空洞而操作員看不出原因。
+    /// 事件模式的頻道只在事件窗口內錄影，那些片段是它<b>唯一</b>的畫面（錄影模式互斥）；
+    /// 連續錄影則是持續再生的。順序反了的症狀：混用模式的站台先失去事件模式頻道的全部證據，
+    /// 而全時頻道好幾天的量原封不動，log 乾淨（§11.1 第二階段）。
     /// </summary>
     [Fact]
-    public void 配額汰除優先刪事件段再刪全時段()
+    public void 配額汰除先刪全時段而事件段留到最後()
     {
         var start = new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc);
         EnsureChannel(2, recordingMode: 2); // Event
         var alwaysOld = SeedFinal(start, 1000);                          // ch1 Always，較舊
         var eventNew = SeedFinal(start.AddHours(1), 1000, channelId: 2); // ch2 Event，較新
 
-        // 總量 2000、配額 1500：只刪得掉一個，且必須是事件段。
+        // 總量 2000、配額 1500：只刪得掉一個，且必須是全時段。
         var report = NewService().Apply(quotaBytes: 1500, nowUtc: start.AddHours(3));
 
         Assert.Equal(1, report.DeletedSegments);
-        Assert.Null(_segments.Get(eventNew.Id));
-        Assert.NotNull(_segments.Get(alwaysOld.Id));
-        Assert.True(File.Exists(alwaysOld.FilePath));
+        Assert.Null(_segments.Get(alwaysOld.Id));
+        Assert.NotNull(_segments.Get(eventNew.Id));
+        Assert.True(File.Exists(eventNew.FilePath), "事件模式的唯一畫面被刪掉了");
+    }
+
+    /// <summary>
+    /// 「留到最後」不是「永遠不刪」：只剩事件段而仍在配額之上時，仍然由舊至新汰除它們。
+    ///
+    /// 少了這一條，排序被改成「事件段永不刪」也不會有測試變紅——那會讓磁碟在只有事件錄影的
+    /// 站台上無聲寫爆（配額永遠降不下來、清理每輪都找不到可刪目標）。
+    /// </summary>
+    [Fact]
+    public void 只剩事件段而仍超額時仍會由舊至新汰除()
+    {
+        var start = new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc);
+        EnsureChannel(2, recordingMode: 2); // Event
+        var eventOld = SeedFinal(start, 1000, channelId: 2);
+        var eventNew = SeedFinal(start.AddHours(1), 1000, channelId: 2);
+
+        var report = NewService().Apply(quotaBytes: 1500, nowUtc: start.AddHours(3));
+
+        Assert.Equal(1, report.DeletedSegments);
+        Assert.Null(_segments.Get(eventOld.Id));
+        Assert.NotNull(_segments.Get(eventNew.Id));
     }
 
     /// <summary>配額以內時一個檔案都不能少。</summary>

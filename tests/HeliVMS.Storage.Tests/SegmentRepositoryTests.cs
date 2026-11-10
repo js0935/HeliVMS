@@ -438,17 +438,18 @@ public class SegmentRepositoryTests : IDisposable
     }
 
     /// <summary>
-    /// 汰除候選清單把事件模式（<c>recording_mode = 2</c>）的區段排在前面，同層再依時間由舊至新，
-    /// 且只含收尾（final）的段。
+    /// 汰除候選清單把事件模式（<c>recording_mode = 2</c>）的區段排在<b>最後</b>，同層再依時間
+    /// 由舊至新，且只含收尾（final）的段。
     ///
     /// <para>
-    /// 這是磁碟滿策略第二階段「優先刪事件段」的排序來源（§11.1）：事件段是全時段的補充，
-    /// 磁碟吃緊時先淘汰補充品、保住連續錄影。排序寫錯的症狀是配額壓力下先刪連續錄影、
-    /// 留下零散事件段，時間軸出現無聲的空洞。
+    /// 這是磁碟滿策略第二階段「事件證據優先保留」的排序來源（§11.1）。事件模式的頻道只在事件
+    /// 窗口內錄影，那些片段是它<b>唯一</b>的畫面（模式互斥，不是全時錄影的補充）；配額壓力下先
+    /// 刪全時段，事件段留到最後。順序反了的症狀：混用模式的站台先失去事件模式頻道的全部證據，
+    /// 而全時頻道好幾天的量原封不動，log 乾淨。
     /// </para>
     /// </summary>
     [Fact]
-    public void ListReclaimCandidates優先取事件模式區段且同層由舊至新()
+    public void ListReclaimCandidates事件模式區段排在最後且同層由舊至新()
     {
         var t = new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc);
         _store.Execute("UPDATE channels SET recording_mode = 2 WHERE id = 2;");
@@ -460,7 +461,7 @@ public class SegmentRepositoryTests : IDisposable
 
         var order = _repo.ListReclaimCandidates(10).Select(s => s.Id).ToArray();
 
-        Assert.Equal(new[] { eventNew, alwaysOld, alwaysNew }, order);
+        Assert.Equal(new[] { alwaysOld, alwaysNew, eventNew }, order);
         Assert.DoesNotContain(inProgress, order);
     }
 

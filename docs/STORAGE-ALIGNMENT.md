@@ -129,7 +129,7 @@ duration_sec, size_bytes, status, tier, origin_path`…），外加 `SegmentShar
 | 壓力汰除 | `RetentionService.ApplyPressure`：低於門檻才刪最舊 final 段，刪到「門檻＋最近一小時實際寫入量」 | 補充水位下限 `PressureRefillBytes`＝**1 GiB** |
 | 總量配額 | `RetentionService.Apply(quotaBytes)`；**產品路徑一律傳 0＝停用** | `if (quotaBytes > 0)` 是防「刪到一滴不剩」的閘 |
 | 保存鎖定 | `LegalHoldRepository.IsLocked` 豁免汰除 | 證據優先於空間 |
-| 汰除優先序（配額路徑） | `ListReclaimCandidates`：事件段先、全時段後，同層由舊至新 | 壓力路徑嚴格由舊至新 |
+| 汰除優先序（配額路徑） | `ListReclaimCandidates`：全時／排程／手動段先，**事件段最後**，同層由舊至新（2026-11-11 修正，見 §5.2） | 壓力路徑嚴格由舊至新 |
 | 暫存殘檔 | `PurgeStaleTmp`：`*.tmp` 超過 **10 分鐘**刪除（先救援再清除） | `RetentionCoordinator.Run` 順序 |
 | 快照 | `PurgeSnapshots`：依檔案時間刪 | `snapshots.retention_days` 預設 **30 天** |
 | 警報/稽核 | `MetadataRetentionPruner`：`alarm.retention.days`／`audit.retention.days` | 預設 **365 天** |
@@ -227,7 +227,40 @@ duration_sec, size_bytes, status, tier, origin_path`…），外加 `SegmentShar
 `RecordingCapacityService.cs`（量測入口）、`RecordingVolume.cs`（共用寫入量）、
 桌面 `SettingsWindow.ReloadRemainingRecordTime`、API `GET /api/recording/capacity`。
 守門：`RecordingCapacityTests`（20）、`RecordingCapacityServiceTests`（6）、
-`RecordingCapacityApiTests`（2）、`RecordingCapacityContractTests`（5）。
+`RecordingCapacityApiTests`（2）、`RecordingCapacityContractTests`（6）。
+
+### 5.2 第二輪：設定鍵逐項對照，以及一個被對照揪出來的語意錯誤
+
+**（a）參考側的錄影相關設定鍵，逐一歸類**（先前只列了名字，這裡把語意釘住）：
+
+| QC 鍵（`Advanced`／`qc_setting.xls`） | 實際語意（出處） | HeliVMS 對應 | 判定 |
+|---|---|---|---|
+| `EventReserveDays`（實機值 **184**） | **事件／警報／車牌「日誌」的保管天數**，不是錄影影片：`QC_Schedule::RecycleEventLog` 拿它去呼叫 `QC_AlarmLog::RecycleLog(days)`／`QC_EventLog::RecycleLog(days)`／`QC_VtmsLog`／`QC_CMSAlarmLog`（`QC_Center` 0x13d70、`NVRSetting` 把天數映射成 6 段下拉） | `alarm.retention.days`（警報事件＋事件錄音）＋`audit.retention.days`（稽核）＋`MetadataRetentionPruner` | **等價**（命名會騙人：看到 "EventReserveDays" 別以為是影片保留空間） |
+| `RecFileSeconds` | 單檔秒數 | `recording.segment_seconds`（300 秒、5–600） | 等價 |
+| `RecStorage`／`StoragePath`（實機 `QC_Storage`） | 錄影根目錄（可多槽） | `recording.root`＋`recording.disks`＋`ChooseRoot` 輪替 | 等價 |
+| `FileSizeLimit` | 單檔**大小**上限（`QC_Reg::ReadNumber`） | 我們用**時間**上限（`recording.segment_seconds`） | 等價（更強的槓桿：檔大小隨碼率浮動，時間才是可預期的那個） |
+| `ShutdownAfterRecordStopping` | 離開時等錄影收尾再關機 | `SegmentRecorder.StopAsync`（先 `q` 後 kill）＋`ShutdownSequencer`＋`ShutdownWatchdog` | **更強**（有界收尾＋兜底，且行程若死掉不會留半截檔） |
+| `BackupPlayer`（實機 1） | 把播放器複製進錄影碟（`HDPlayerInstall`） | 不做 | **刻意不做**（錄影碟含可執行檔＝擴大執行面） |
+| `RecordingSystemMode` | 執行期模式旗標（QC_Live 用它決定顯示／行為分支），非儲存策略 | — | 非儲存語意，不比對 |
+
+**（b）被對照揪出來的語意錯誤：配額汰除原本會先刪事件段（2026-11-11 修正）**
+
+`ListReclaimCandidates` 的原本排序是「事件模式（`recording_mode = 2`）**先**、其他後」，理由是
+「事件段是全時段的補充，連續錄影才是主證」。這個前提在 HeliVMS 不成立：**錄影模式是互斥的**
+——事件模式的頻道只在事件窗口內錄影（`recording.event_seconds`），那些片段是**它唯一的畫面**，
+不是任何東西的補充。舊排序的實際後果：混用模式的站台在配額壓力下先失去事件模式頻道的全部證據，
+而全時頻道好幾天的量原封不動，log 乾淨（連續錄影是會再生的，事件片段不會再發生一次）。
+
+修正：`ORDER BY CASE WHEN c.recording_mode = 2 THEN 1 ELSE 0 END`（事件段最後），並補上
+「只剩事件段而仍超額時仍會由舊至新汰除」的測試——「留到最後」不等於「永遠不刪」，
+少了那一條，「事件段永不刪」會讓配額永遠降不下來、磁碟無聲寫爆。
+「絕不刪」仍然只有保存鎖定（`LegalHoldRepository`）一個機制。
+
+> 這一項與參考實作的關係是**方向一致**：QC 用 `EventReserveDays` 保護事件**日誌**、
+> 我們用排序層保護事件**影片**；兩邊都不會讓事件材料比連續材料先被淘汰。
+
+守門：`ListReclaimCandidates事件模式區段排在最後且同層由舊至新`、
+`配額汰除先刪全時段而事件段留到最後`、`只剩事件段而仍超額時仍會由舊至新汰除`。
 
 ---
 

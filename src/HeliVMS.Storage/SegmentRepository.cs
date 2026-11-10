@@ -752,15 +752,23 @@ public sealed class SegmentRepository
     /// 依配額汰除優先序取出候選 final 區段（§11.1 磁碟滿策略第二階段）。
     ///
     /// <para>
-    /// 排序是「先天後地」兩層：<b>先</b>事件觸發錄影（<c>channels.recording_mode = Event</c>）
-    /// 的區段、<b>再</b>其他錄影，同一層內一律由舊至新。事件段被擺在前面，是因為它們是
-    /// 事件的補充片段，全時錄影才是調查時的主要證據；容量不足時先捨補充、後捨主證。
+    /// 排序是「先天後地」兩層：<b>先</b>全時／排程／手動錄影的區段、<b>再</b>事件觸發錄影
+    /// （<c>channels.recording_mode = 2</c>）的區段，同一層內一律由舊至新。
     /// </para>
     ///
     /// <para>
-    /// 注意：事件觸發錄影（<see cref="HeliVMS.Shared.Models.RecordingMode.Event"/>）目前尚未接上
-    /// 偵測觸發，所以第一層現在恆為空——這個排序是為事件錄影落地後準備的正確接縫，屆時不需再改
-    /// 任何汰除邏輯，事件段自然會被優先汰除。用 <c>LEFT JOIN</c> 是為了不因頻道列缺失而漏掉區段。
+    /// 事件段排在<b>最後</b>（2026-11-11 修正，先前排在第一位）。舊的理由是「事件段是全時段的
+    /// 補充、連續錄影才是主證」，但 HeliVMS 的錄影模式是<b>互斥</b>的：事件模式的頻道只在事件
+    /// 窗口內錄影，那些片段是<b>它唯一的畫面</b>，不是任何東西的補充。舊排序在配額壓力下會讓
+    /// 混用模式的站台先失去事件模式頻道的全部證據，而全時頻道好幾天的量反而原封不動——正是
+    /// 「先捨補充、後捨主證」想避免的相反結果。連續錄影是會再生的（同一條走廊明天照樣錄），
+    /// 事件片段不會再發生一次。
+    /// </para>
+    ///
+    /// <para>
+    /// 這一層只決定「先刪哪一個」；「絕不刪」仍然只有保存鎖定（<c>LegalHoldRepository</c>）一個
+    /// 機制。事件段仍然會被刪（配額小於事件量時由舊至新刪），只是排在其他段之後。
+    /// 用 <c>LEFT JOIN</c> 是為了不因頻道列缺失而漏掉區段。
     /// </para>
     /// </summary>
     public IReadOnlyList<SegmentRecord> ListReclaimCandidates(int take)
@@ -772,7 +780,7 @@ public sealed class SegmentRepository
             FROM segments s
             LEFT JOIN channels c ON c.id = s.channel_id
             WHERE s.status = 'final'
-            ORDER BY CASE WHEN c.recording_mode = 2 THEN 0 ELSE 1 END, s.start_time, s.id
+            ORDER BY CASE WHEN c.recording_mode = 2 THEN 1 ELSE 0 END, s.start_time, s.id
             LIMIT {Math.Max(1, take)};
             """,
             ReadRecords);

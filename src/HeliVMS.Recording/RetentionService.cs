@@ -102,8 +102,9 @@ public sealed class RetentionService
         {
             while (usage > quotaBytes)
             {
-                // 汰除候選改依配額優先序（事件段先、全時段後，同層由舊至新；見 ListReclaimCandidates）。
-                // 這是 §11.1 磁碟滿策略的第二階段；以前一律只看最舊，等於對事件段與全時段一視同仁。
+                // 汰除候選依配額優先序（全時／排程／手動段先，事件段最後；同層由舊至新；
+                // 見 ListReclaimCandidates）。事件模式的頻道只在事件窗口內錄影，那些片段是它
+                // 唯一的畫面；連續錄影則是持續再生的，所以先捨後者。
                 var candidates = _repo.ListReclaimCandidates(64);
                 SegmentRecord? target = null;
 
