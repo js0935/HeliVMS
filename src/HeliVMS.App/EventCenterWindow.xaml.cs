@@ -30,6 +30,9 @@ public partial class EventCenterWindow : Window
     /// <summary>RangeCombo 中「全部」的索引（與 <see cref="RangeWindow"/> 的判定共用）。</summary>
     private const int AllRangeIndex = 3;
     private int _page = 1;
+
+    /// <summary>視覺搜索的命中事件 id 集（null＝未啟用過濾）；清空樣本框再搜尋即解除。</summary>
+    private HashSet<long>? _visualHits;
     private long? _selectedId;
 
     /// <summary>本頁已選取的事件 Id（多選批次處置用）。重整後據此保留同頁選取。</summary>
@@ -190,6 +193,11 @@ public partial class EventCenterWindow : Window
         KeywordLabel.Text = Localizer.T("EventCenter.Keyword");
         ApplyQueryButton.Content = Localizer.T("EventCenter.Apply");
         ApplyQueryButton.ToolTip = Localizer.T("EventCenter.ApplyTip");
+        VisualSampleBox.ToolTip = Localizer.T("EventCenter.VisualSampleTip");
+        VisualBrowseButton.Content = Localizer.T("EventCenter.VisualBrowse");
+        VisualBrowseButton.ToolTip = Localizer.T("EventCenter.VisualBrowseTip");
+        VisualSearchButton.Content = Localizer.T("EventCenter.VisualSearch");
+        VisualSearchButton.ToolTip = Localizer.T("EventCenter.VisualSearchTip");
         RefreshButton.Content = Localizer.T("EventCenter.Refresh");
         RefreshButton.ToolTip = Localizer.T("EventCenter.RefreshTip");
         ExportCsvButton.Content = Localizer.T("EventCenter.ExportCsv");
@@ -391,10 +399,71 @@ public partial class EventCenterWindow : Window
             EventType = eventType,
             Status = PendingOnlyCheck.IsChecked == true ? AlarmEventStatus.Pending : null,
             Keyword = KeywordBox.Text.Trim(),
+            EventIds = _visualHits is { Count: > 0 } hits ? hits.ToList() : null,
             FromUtc = from,
             ToUtc = to,
             Limit = 10000,
         };
+    }
+
+    /// <summary>
+    /// 以圖搜索（QC_Live 的 <c>PopupVisualSearch</c> 對齊）：樣本圖 → 感知雜湊 →
+    /// 事件快照比對，把命中的事件 id 交給既有查詢管線過濾——列表/分頁/卡片/點擊跳轉
+    /// 全部重用，不另寫一份呈現。
+    /// </summary>
+    private async void OnVisualSearchClicked(object sender, RoutedEventArgs e)
+    {
+        var sample = VisualSampleBox.Text.Trim();
+        if (sample.Length == 0)
+        {
+            // 清空樣本＝解除過濾（回到一般查詢）。
+            _visualHits = null;
+            _page = 1;
+            DoRefresh();
+            return;
+        }
+
+        if (!File.Exists(sample))
+        {
+            CountText.Text = Localizer.T("EventCenter.VisualSampleMissing");
+            return;
+        }
+
+        VisualSearchButton.IsEnabled = false;
+        CountText.Text = Localizer.T("EventCenter.VisualSearching");
+        try
+        {
+            var service = new VisualSearchService(_events);
+            var hits = await service.SearchAsync(sample, VisualSearchRank.DefaultThreshold);
+            _visualHits = hits.Count > 0 ? hits.ToHashSet() : [];
+            _page = 1;
+            DoRefresh();
+            CountText.Text = hits.Count > 0
+                ? string.Format(Localizer.T("EventCenter.VisualHits"), hits.Count)
+                : Localizer.T("EventCenter.VisualNoHit");
+        }
+        catch (Exception ex)
+        {
+            CountText.Text = string.Format(Localizer.T("EventCenter.VisualSearchFail"), ex.Message);
+        }
+        finally
+        {
+            VisualSearchButton.IsEnabled = true;
+        }
+    }
+
+    /// <summary>選樣本圖（事件快照的 bmp/jpg/png）。</summary>
+    private void OnVisualBrowseClicked(object sender, RoutedEventArgs e)
+    {
+        var dlg = new Microsoft.Win32.OpenFileDialog
+        {
+            Title = Localizer.T("EventCenter.VisualBrowseTitle"),
+            Filter = Localizer.T("EventCenter.VisualDialogFilter"),
+        };
+        if (dlg.ShowDialog() == true)
+        {
+            VisualSampleBox.Text = dlg.FileName;
+        }
     }
 
     private void OnPendingOnlyChanged(object sender, RoutedEventArgs e)

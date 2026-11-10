@@ -51,6 +51,19 @@
                       Checked="OnPendingOnlyChanged" Unchecked="OnPendingOnlyChanged"
                       ToolTip=""/>
 
+            <!-- Visual search (QC_Live PopupVisualSearch): pick a sample snapshot, match event
+                 snapshots by perceptual hash, filter the list to the hits. -->
+            <TextBox x:Name="VisualSampleBox" AutomationProperties.AutomationId="VisualSampleBox"
+                     Width="150" Margin="20,0,0,0" VerticalContentAlignment="Center"
+                     Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"/>
+            <Button x:Name="VisualBrowseButton" Content="" Click="OnVisualBrowseClicked" ToolTip=""
+                    Padding="10,4" Margin="6,0,0,0" VerticalAlignment="Center"
+                    Foreground="White" Background="#2A4A73" BorderThickness="0"/>
+            <Button x:Name="VisualSearchButton" AutomationProperties.AutomationId="VisualSearchButton" ToolTip=""
+                    Content="" Click="OnVisualSearchClicked"
+                    Padding="10,4" Margin="6,0,0,0" VerticalAlignment="Center"
+                    Foreground="White" Background="#2A5C8A" BorderThickness="0"/>
+
             <Button x:Name="ApplyQueryButton" AutomationProperties.AutomationId="ApplyQueryButton" ToolTip=""
                     Content="" Click="OnApplyQueryClicked"
                     Padding="10,4" Margin="8,0,0,0" VerticalAlignment="Center" IsDefault="True"

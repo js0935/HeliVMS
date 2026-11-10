@@ -348,6 +348,11 @@ public sealed class AlarmEventRepository
         /// <summary>關鍵字（M56；對 detail 做 LIKE，大小寫不敏感；null／空＝不限）。</summary>
         public string? Keyword { get; init; }
 
+        /// <summary>
+        /// 事件 id 白名單（視覺搜索命中集；null 或空＝不過濾）。用 IN 參數，不串 SQL。
+        /// </summary>
+        public IReadOnlyList<long>? EventIds { get; init; }
+
         public DateTime FromUtc { get; init; }
 
         public DateTime ToUtc { get; init; }
@@ -381,6 +386,19 @@ public sealed class AlarmEventRepository
             where.Add("a.detail LIKE $kw");
         }
 
+        // 視覺搜索的結果集過濾（QC_Live 的 PopupVisualSearch 對齊）：比對命中的事件 id 白名單。
+        // 用 IN + 參數（不串字串），空白名單＝不過濾。
+        if (q.EventIds is { Count: > 0 } ids)
+        {
+            var names = new List<string>(ids.Count);
+            for (var i = 0; i < ids.Count; i++)
+            {
+                names.Add($"$vid{i}");
+            }
+
+            where.Add($"a.id IN ({string.Join(", ", names)})");
+        }
+
         return where;
     }
 
@@ -406,6 +424,14 @@ public sealed class AlarmEventRepository
         if (!string.IsNullOrWhiteSpace(q.Keyword))
         {
             cmd.Parameters.AddWithValue("$kw", $"%{q.Keyword}%");
+        }
+
+        if (q.EventIds is { Count: > 0 } ids)
+        {
+            for (var i = 0; i < ids.Count; i++)
+            {
+                cmd.Parameters.AddWithValue($"$vid{i}", ids[i]);
+            }
         }
     }
 

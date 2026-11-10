@@ -78,4 +78,39 @@ public sealed class AlarmEventSnapshotHashTests : IDisposable
         // 由新到舊：只取 1 筆時是最新那筆（id 3）。
         Assert.Equal(3, single.Id);
     }
+
+    [Fact]
+    public void 查詢可用事件id白名單過濾_視覺搜索命中集()
+    {
+        var repo = new AlarmEventRepository(_store);
+        var hit = repo.Insert(1, "motion", DateTime.UtcNow.AddMinutes(-30));
+        repo.Insert(2, "motion", DateTime.UtcNow.AddMinutes(-20));
+        var hit2 = repo.Insert(1, "motion", DateTime.UtcNow.AddMinutes(-10));
+
+        var q = new AlarmEventRepository.QueryArgs
+        {
+            FromUtc = DateTime.UtcNow.AddHours(-1),
+            ToUtc = DateTime.UtcNow.AddHours(1),
+            EventIds = [hit, hit2],
+        };
+        var list = repo.ListByQuery(q);
+
+        Assert.Equal([hit2, hit], list.Select(e => e.Id));
+    }
+
+    [Fact]
+    public void 空白名單不過濾()
+    {
+        var repo = new AlarmEventRepository(_store);
+        repo.Insert(1, "motion", DateTime.UtcNow.AddMinutes(-30));
+        repo.Insert(1, "motion", DateTime.UtcNow.AddMinutes(-10));
+
+        var q = new AlarmEventRepository.QueryArgs
+        {
+            FromUtc = DateTime.UtcNow.AddHours(-1),
+            ToUtc = DateTime.UtcNow.AddHours(1),
+            EventIds = [],
+        };
+        Assert.Equal(2, repo.ListByQuery(q).Count);
+    }
 }
