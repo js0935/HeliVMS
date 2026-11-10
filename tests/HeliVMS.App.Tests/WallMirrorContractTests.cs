@@ -97,6 +97,33 @@ public sealed class WallMirrorContractTests
     }
 
     [Fact]
+    public void 鏡像牆的徽章與指示燈由主牆推來而不是自己算()
+    {
+        // 兩面牆對同一台給出不同答案時，操作員唯一能做的就是兩邊都不信。所以鏡像端
+        // 不碰錄影方式、不碰阻塞原因、不碰色票——那些只有一份（主牆的 UpdateBadges）。
+        var mirror = SourceContract.Read(MirrorCode);
+        Assert.DoesNotContain("WallModeDotPalette", mirror);
+        Assert.DoesNotContain("WallBadgeTextPlanner", mirror);
+        Assert.DoesNotContain("RecordingMode", mirror);
+
+        var main = SourceContract.Read(MainCode);
+        var push = SourceContract.BodyOf(main, "PushMirrorBadges");
+        Assert.Contains("_mirror.ApplyBadges(badges)", push);
+        Assert.Contains("WallBadgeTextPlanner.Compose", push);
+        Assert.Contains("ModeBrush(mode)", push);
+        Assert.Contains("WallModeDotPalette.OpacityFor(recording)", push);
+
+        // 同一個一秒節奏（UpdateBadges 的尾巴），不另開計時器。
+        Assert.Contains("PushMirrorBadges()", SourceContract.BodyOf(main, "UpdateBadges"));
+
+        // 開窗與切分割都要當下補一次，否則新格位要等下一秒才有徽章。
+        Assert.Contains("PushMirrorBadges()", SourceContract.BodyOf(main, "OnMirrorToggleClicked"));
+
+        // 鏡像端只做顯示：時刻由共用組字器接上（徽章字串自己不含時刻）。
+        Assert.Contains("WallMirrorLabel.Compose", SourceContract.BodyOf(mirror, "ApplyBadges"));
+    }
+
+    [Fact]
     public void 第二螢幕被拔掉時關窗且會退訂系統事件()
     {
         var mirror = SourceContract.Read(MirrorCode);

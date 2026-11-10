@@ -9,6 +9,16 @@ using HeliVMS.Shared.Models;
 namespace HeliVMS.App;
 
 /// <summary>
+/// 一格要顯示的狀態（由主牆每秒推來一次）。<see cref="DotBrush"/> 直接帶著已凍結的筆刷，
+/// 鏡像端不重算色票——色票只有主牆那一份，兩端各轉一次就是兩個會漂移的圖例。
+/// </summary>
+/// <param name="Text">左下角徽章文字（主牆組好的那一份，含錄影方式與沒錄的原因）。</param>
+/// <param name="Tip">錄影方式的 tooltip。</param>
+/// <param name="DotBrush">右上角指示燈的筆刷；<see langword="null"/>＝這一格不收燈。</param>
+/// <param name="DotOpacity">燈的明暗（全亮＝正在錄）。</param>
+public sealed record MirrorBadge(string Text, string? Tip, System.Windows.Media.Brush? DotBrush, double DotOpacity);
+
+/// <summary>
 /// 第二螢幕鏡像牆（QC_Live 的多螢幕監看對齊）：
 /// 主牆解碼的幀<b>轉發</b>到這裡的格位，<b>不另開解碼行程、不重連</b>——
 /// 只訂閱主牆已經畫出來的原始影格（<see cref="RenderFrame"/>）。
@@ -39,9 +49,11 @@ public partial class WallMirrorWindow : Window
     {
         public required Image Image { get; init; }
         public required TextBlock Label { get; init; }
+        public required System.Windows.Shapes.Ellipse Dot { get; init; }
         public WriteableBitmap? Bitmap { get; set; }
         public int ChannelId { get; set; }
         public string Name { get; set; } = string.Empty;
+        public string BadgeText { get; set; } = string.Empty;
         public long LastLabelTicks;
     }
 
@@ -115,9 +127,21 @@ public partial class WallMirrorWindow : Window
             FontSize = 12,
             Text = string.Empty,
         };
+        // 右上角的錄影方式指示燈（顏色＝模式、明暗＝現在有沒有在錄），與主牆同一套色票。
+        var dot = new System.Windows.Shapes.Ellipse
+        {
+            Width = 11,
+            Height = 11,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            VerticalAlignment = VerticalAlignment.Top,
+            Margin = new Thickness(6),
+            Visibility = Visibility.Collapsed,
+            IsHitTestVisible = false,
+        };
         var inner = new Grid();
         inner.Children.Add(image);
         inner.Children.Add(label);
+        inner.Children.Add(dot);
         var border = new Border
         {
             Margin = new Thickness(1),
@@ -128,7 +152,34 @@ public partial class WallMirrorWindow : Window
             ClipToBounds = true,
         };
         MirrorGrid.Children.Add(border);
-        return new MirrorCell { Image = image, Label = label };
+        return new MirrorCell { Image = image, Label = label, Dot = dot };
+    }
+
+    /// <summary>
+    /// 套用主牆推來的每格狀態（第 i 筆對應第 i 格，依牆序）。每秒一次，與主牆的
+    /// <c>UpdateBadges</c> 同一個節奏。
+    /// </summary>
+    public void ApplyBadges(IReadOnlyList<MirrorBadge> badges)
+    {
+        if (_closed)
+        {
+            return;
+        }
+
+        for (var i = 0; i < _cells.Count; i++)
+        {
+            var cell = _cells[i];
+            var badge = i < badges.Count ? badges[i] : null;
+
+            cell.BadgeText = badge?.Text ?? string.Empty;
+            cell.Label.ToolTip = badge?.Tip;
+            cell.Dot.Fill = badge?.DotBrush;
+            cell.Dot.Opacity = badge?.DotOpacity ?? 1.0;
+            cell.Dot.Visibility = badge?.DotBrush is null ? Visibility.Collapsed : Visibility.Visible;
+
+            // 影格還沒到也要畫（攝影機離線時操作員更需要看到「這格是哪一台、該不該在錄」）。
+            cell.Label.Text = WallMirrorLabel.Compose(cell.BadgeText, cell.Name, DateTime.Now);
+        }
     }
 
     /// <summary>有第二個螢幕就放第二螢幕（工作區最大化），否則退回主螢幕的視窗化備用位置。</summary>
@@ -214,11 +265,15 @@ public partial class WallMirrorWindow : Window
             var channel = i < wallChannels.Count ? wallChannels[i] : null;
             cell.ChannelId = channel?.Id ?? 0;
             cell.Name = channel?.Name ?? string.Empty;
-            cell.Label.Text = channel is null ? string.Empty : channel.Name;
+            cell.BadgeText = string.Empty;
+            cell.Label.ToolTip = null;
+            cell.Label.Text = WallMirrorLabel.Compose(null, cell.Name, DateTime.Now);
             if (channel is null)
             {
                 cell.Image.Source = null;
                 cell.Bitmap = null;
+                cell.Dot.Fill = null;
+                cell.Dot.Visibility = Visibility.Collapsed;
             }
         }
     }
@@ -268,7 +323,7 @@ public partial class WallMirrorWindow : Window
             if (ticks - cell.LastLabelTicks > 500)
             {
                 cell.LastLabelTicks = ticks;
-                cell.Label.Text = $"{cell.Name} · {frame.TimestampUtc.ToLocalTime():HH:mm:ss}";
+                cell.Label.Text = WallMirrorLabel.Compose(cell.BadgeText, cell.Name, frame.TimestampUtc.ToLocalTime());
             }
         }
     }

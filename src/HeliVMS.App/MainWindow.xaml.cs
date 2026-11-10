@@ -4855,9 +4855,13 @@ public partial class MainWindow : Window
         {
             var settings = new SettingsRepository(_store);
             mirror.SetSplit(MirrorWallBudget.Resolve(settings.Get(MirrorSplitKey)));
-            mirror.SplitChanged += (_, cells) => settings.Set(
-                MirrorSplitKey,
-                cells.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            mirror.SplitChanged += (_, cells) =>
+            {
+                settings.Set(MirrorSplitKey, cells.ToString(System.Globalization.CultureInfo.InvariantCulture));
+
+                // 格數變了就要補一次狀態，不然新出現的格子要等下一秒才有徽章與燈。
+                PushMirrorBadges();
+            };
         }
 
         mirror.Closed += (_, _) =>
@@ -4871,6 +4875,7 @@ public partial class MainWindow : Window
         };
         _mirror = mirror;
         mirror.SetChannels(WallChannels());
+        PushMirrorBadges();
         mirror.Show();
         MirrorToggle.IsChecked = true;
     }
@@ -6259,6 +6264,46 @@ public partial class MainWindow : Window
         // 喇叭圖示跟著同一個節奏重畫：探測結果（這台到底有沒有音訊軌）是重連時才會回來的，
         // 靠這裡每秒對齊一次，操作員才不會對著一顆「永遠點不出聲音」的圖示。
         UpdateAudioIcons();
+
+        // 第二螢幕鏡像牆的徽章與指示燈：在同一個節奏、用同一組值往外推。鏡像端自己算的話，
+        // 兩面牆對同一台給出不同答案時，操作員唯一能做的就是兩邊都不信。
+        PushMirrorBadges();
+    }
+
+    /// <summary>
+    /// 把目前頁簽前 N 台（N＝鏡像牆格數）的徽章文字與錄影方式指示燈推給第二螢幕。
+    /// </summary>
+    /// <remarks>
+    /// 順序與 <see cref="WallMirrorWindow.SetChannels"/> 相同（都取自 <see cref="WallChannels"/>），
+    /// 所以第 i 筆一定對到第 i 格。鏡像窗顯示的可能是主牆格位看不到的頻道（鏡像 16 格、
+    /// 主牆 4 格），因此來源是頻道清單而不是主牆的格位。
+    /// </remarks>
+    private void PushMirrorBadges()
+    {
+        if (_mirror is null)
+        {
+            return;
+        }
+
+        var channels = WallChannels();
+        var count = Math.Min(_mirror.CurrentSplit, channels.Count);
+        var badges = new List<MirrorBadge>(count);
+        for (var i = 0; i < count; i++)
+        {
+            var id = channels[i].Id;
+            var mode = ChannelMode(id);
+            var modeLabel = ModeLabel(mode);
+            var recording = _manager?.IsRecording(id) == true;
+            var why = recording ? null : BlockLabel(_scheduler?.BlockReasonFor(id), mode);
+
+            badges.Add(new MirrorBadge(
+                Text: WallBadgeTextPlanner.Compose(ChannelName(id), modeLabel, recording, why),
+                Tip: modeLabel is null ? null : string.Format(Localizer.T("Main.ModeTip"), modeLabel),
+                DotBrush: ModeBrush(mode),
+                DotOpacity: WallModeDotPalette.OpacityFor(recording)));
+        }
+
+        _mirror.ApplyBadges(badges);
     }
 
     private string ChannelName(int channelId)
