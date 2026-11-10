@@ -216,6 +216,10 @@ public sealed class ChannelManager : IDisposable
     {
         var now = DateTime.UtcNow;
 
+        // 每一格的解碼預算：多分割時在解碼端就縮到顯示需要的寬度，並依格數降低更新率。
+        // 1–4 格與調整前完全相同（不縮、15fps），所以最常用的比對版面不會有任何變化。
+        var budget = LiveWallBudget.For(cellCount, HardwareDecodeEnabled());
+
         foreach (var (channelId, session) in _sessions)
         {
             var target = cellCount <= 1 && session.Cell == 0 ? StreamKind.Main : StreamKind.Sub;
@@ -226,8 +230,31 @@ public sealed class ChannelManager : IDisposable
             }
 
             await session.SwitchDisplayStreamAsync(target);
+
+            // 順序要在切流之後：單畫面時主流是切流才建立的，先設預算會漏掉它。
+            await session.SetLiveBudgetAsync(budget.DecodeWidth, budget.MaxFramesPerSecond);
         }
     }
+
+    /// <summary>
+    /// 硬體解碼是否可用且已啟用（探測結果快取在 <see cref="FfmpegHwAccel"/>）。
+    /// </summary>
+    /// <remarks>
+    /// 用它是為了讓 <see cref="LiveWallBudget"/> 在硬解可用時給較高的更新率：同一張表在
+    /// 硬解機器上會低估能力，把大格數的畫面壓得比機器做得到的還頓。
+    /// </remarks>
+    private bool HardwareDecodeEnabled()
+    {
+        _hardwareDecode ??= HardwareDecodeSetting() is { } setting
+            && FfmpegHwAccel.ShouldUse(setting, FfmpegHwAccel.ProbeCached(FfmpegLocator.Ffmpeg, TimeSpan.FromSeconds(5)));
+        return _hardwareDecode.Value;
+    }
+
+    /// <summary>設定頁上的硬體解碼選項（未設定時為 null）。</summary>
+    private string? HardwareDecodeSetting() => new SettingsRepository(_store).Get("decode.hwaccel");
+
+    /// <summary>硬體解碼可用性（延後探測；null＝還沒問過）。</summary>
+    private bool? _hardwareDecode;
 
     /// <summary>目前採用的顯示碼流（供切流視窗顯示）。</summary>
     public StreamKind GetStreamKind(long channelId) => Switcher.GetCurrent(channelId);

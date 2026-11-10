@@ -271,20 +271,9 @@ public sealed class PlaybackSession : IAsyncDisposable
     /// （呼叫端就不縮放）。
     /// </remarks>
     public static int ScaledHeight(int displayWidth, int sourceWidth, int sourceHeight)
-    {
-        if (displayWidth <= 0 || sourceWidth <= 0 || sourceHeight <= 0)
-        {
-            return 0;
-        }
-
-        var height = (int)Math.Round(sourceHeight * (double)displayWidth / sourceWidth);
-        if (height < 2)
-        {
-            height = 2;
-        }
-
-        return height % 2 == 0 ? height : height + 1;
-    }
+        // 口徑只有一份（<see cref="HeliVMS.Shared.VideoScaling"/>）：即時監看牆也用同一份，
+        // 兩邊各算一次遲早差一個像素，而那個症狀是「畫面全黑或斜切、日誌乾淨」。
+        => HeliVMS.Shared.VideoScaling.EvenHeight(displayWidth, sourceWidth, sourceHeight);
 
     /// <summary>
     /// 開始播放；<paramref name="seekSeconds"/> 為段內起始偏移。

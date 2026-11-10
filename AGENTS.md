@@ -75,6 +75,11 @@ Notes that will save you time:
   is brittle and usually a sign the real seam is missing.
 - Verify a new guard actually guards: mutate the code it protects, confirm the test
   fails, then revert. A test that passes against broken code is worse than no test.
+  **When you restore the mutated file by copying a backup, the copy carries the backup's
+  timestamp** — so the restored file is *older* than the DLL built from the broken code,
+  `dotnet build` skips it as up to date, and the "reverted" run tests the mutation (this
+  already happened here: two budget assertions stayed red after a clean-looking revert).
+  Touch the restored files, or build once more after checking the timestamp.
 - Check coverage before claiming a module is under-tested. Raw test counts are not
   evidence — `HeliVMS.Media` has 52 tests to `HeliVMS.Storage`'s 997, and measured
   with coverlet it is 92% versus 95%. The module that actually had no coverage was
@@ -388,6 +393,18 @@ Notes that will save you time:
   `LiveViewCounterTrackerTests`, `進度回報跟不上牆鐘時回報管線落後`,
   `超過顯示上限的影格是先讀進來才丟棄`, `進度回報不會蓋掉連線失敗原因` and
   `LiveViewDiagnosticsContractTests`.
+  **多分割的即時監看現在會在解碼端縮尺寸**（`HeliVMS.Shared.LiveWallBudget`，純函式）：一格在
+  9 格以上版面只有幾百像素寬，照原生解析度解碼再讓 WPF 用軟體縮小，等於付完整成本只為畫縮圖。
+  1–4 格刻意與調整前完全相同（不縮、15fps），所以最常用的比對版面「看起來沒變」。兩個不可
+  改回去的地方：(1) 永遠解**完整**影格，不像回放牆 36 格以上切「只解關鍵影格」——即時監看若
+  只解關鍵影格，等於每 2–10 秒才換一張，現場會直接判定「畫面不動了」；(2) 尺寸口徑只有
+  `VideoScaling` 一份，送給 ffmpeg 的 `scale=` 與讀取迴圈湊一幀的位元組數差一個像素就是每張
+  影格錯位（全黑或斜切、日誌乾淨）。`RtspClient.SetDecodeWidthAsync` 只在**實際生效寬度**
+  改變時才重開 ffmpeg，否則切一次分割每一格都閃「連線中」並重新協商 RTSP。錄影不受影響
+  （走獨立的主流 `SegmentRecorder`）。「改用 `-c:v copy` 直送 H.264 給 WPF 解碼」的效益已量測
+  否證：解碼本身 3.91 s、色轉與 1080p 管線只多 2.67 s，軟體解碼換不掉那 3.91 s。
+  Guarded by `LiveWallBudgetTests`, `VideoScalingTests`, `RtspDecodeScalingTests`,
+  `LiveWallScaleContractTests`.
 - **Multi-pane playback scales to 64 panes only because each pane's decode is budgeted — and the
   budget is coupled to the sync tolerance.** 現場要求「多路回放最多 64 路」。64 格各解一條 1080p
   在算術上就是不可能的（一格 6MB 原始影格、畫面上卻只有約 110–160 像素寬），實測（本機 8 核心、

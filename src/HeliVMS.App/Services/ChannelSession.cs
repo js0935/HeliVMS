@@ -59,6 +59,10 @@ public sealed class ChannelSession : IDisposable
     /// <summary>主流是否已出畫；未出畫前顯示來源仍為次流。</summary>
     private bool _mainReady;
 
+    /// <summary>目前佈局的解碼預算（見 <see cref="LiveWallBudget"/>）；主流建立時要沿用同一組。</summary>
+    private int _budgetDecodeWidth;
+    private double _budgetMaxFramesPerSecond = LiveWallBudget.DefaultMaxFramesPerSecond;
+
     public ChannelSession(int channelId, string name, string mainDisplayUrl, string subDisplayUrl, SqliteStore store, string recordingsRoot, string snapshotsRoot, bool motionEnabled, IDetectionEngine? detection, bool tamperEnabled = false, LicenseService? license = null, bool listenEnabled = false, int audioSampleRate = AudioStreamReceiver.DefaultSampleRate)
     {
         ChannelId = channelId;
@@ -274,6 +278,39 @@ public sealed class ChannelSession : IDisposable
         _ai.Enabled = enabled;
     }
 
+    /// <summary>
+    /// 套用目前佈局的解碼預算（<see cref="LiveWallBudget"/>）：多分割時在解碼端就縮到
+    /// 顯示需要的寬度，並依格數降低更新率。
+    /// </summary>
+    /// <remarks>
+    /// 次流與主流都要套用：單畫面時顯示的是主流，若只縮次流，切回單畫面又會恢復成原生解析度
+    /// （切換看起來沒問題，成本卻在無聲中回來）。縮放寬度沒有真的改變時
+    /// <see cref="RtspClient.SetDecodeWidthAsync"/> 不會重開行程，所以切佈局不會閃「連線中」。
+    /// 這裡刻意不碰錄影：錄影走的是獨立的主流 <c>SegmentRecorder</c>，不受顯示預算影響。
+    /// </remarks>
+    public async Task SetLiveBudgetAsync(int decodeWidth, double maxFramesPerSecond)
+    {
+        var width = Math.Max(0, decodeWidth);
+        var fps = Math.Max(0, maxFramesPerSecond);
+
+        _budgetDecodeWidth = width;
+        _budgetMaxFramesPerSecond = fps;
+
+        Client.MaxFramesPerSecond = fps;
+        if (_mainClient is { } mainClient)
+        {
+            mainClient.MaxFramesPerSecond = fps;
+        }
+
+        await Client.SetDecodeWidthAsync(width).ConfigureAwait(false);
+
+        // 主流可能在上一行之後才被建立（EnsureMainAsync），所以再取一次而不是沿用區域變數。
+        if (_mainClient is { } main)
+        {
+            await main.SetDecodeWidthAsync(width).ConfigureAwait(false);
+        }
+    }
+
     public async Task StartMonitoringAsync()
     {
         if (IsMonitoring || _disposed)
@@ -390,8 +427,12 @@ public sealed class ChannelSession : IDisposable
             return;
         }
 
-        var main = new RtspClient(_mainUrl, hwAccel: ReadHwAccel()) { MaxFramesPerSecond = 15 };
+        var main = new RtspClient(_mainUrl, hwAccel: ReadHwAccel()) { MaxFramesPerSecond = _budgetMaxFramesPerSecond };
         AttachMainClient(main);
+
+        // 主流可能在多分割時被手動切上來（切流視窗），所以要套用目前的解碼預算；
+        // 否則同一格在自動政策下是 480 寬、手動切一次就變回 1920——成本無聲地回來。
+        await main.SetDecodeWidthAsync(_budgetDecodeWidth).ConfigureAwait(false);
 
         // 主流幾乎一定有音訊軌（次碼流常常沒有），所以單畫面時的收音走這一條。
         if (_audioReceiver is { } receiver)

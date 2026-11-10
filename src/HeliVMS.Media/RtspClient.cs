@@ -89,11 +89,15 @@ public sealed class RtspClient : IAsyncDisposable
     /// 只有確定串流有音訊軌時才會傳入（沒有麥克風的攝影機什麼都不掛）。
     /// </param>
     /// <param name="audioSampleRate">音訊輸出取樣率；須等於播放裝置協商出的值。</param>
+    /// <param name="decodeWidth">解碼後縮到的寬度（0＝原生；見 <see cref="LiveWallBudget"/>）。</param>
+    /// <param name="decodeHeight">解碼後的高度（與 <paramref name="decodeWidth"/> 成對，須為偶數）。</param>
     public static IReadOnlyList<string> BuildDecodeArguments(
         string rtspUrl,
         string? hwAccel = null,
         int audioPort = 0,
-        int audioSampleRate = AudioStreamReceiver.DefaultSampleRate)
+        int audioSampleRate = AudioStreamReceiver.DefaultSampleRate,
+        int decodeWidth = 0,
+        int decodeHeight = 0)
     {
         var args = new List<string>
         {
@@ -120,6 +124,21 @@ public sealed class RtspClient : IAsyncDisposable
         args.Add("-i");
         args.Add(rtspUrl);
         args.Add("-an");
+
+        // 多分割時在解碼端就縮到顯示需要的寬度：那一格在畫面上只有幾百像素寬，
+        // 照原生解析度解碼再讓 WPF 用軟體縮小，等於付了完整的解碼、管線與 UI 成本只為了畫縮圖。
+        // 高度必須由呼叫端算好（<see cref="VideoScaling.EvenHeight"/>）——解碼端吐出來的影格尺寸
+        // 與呼叫端算的必須一模一樣，差一個像素就是每一張影格錯位而日誌完全乾淨。
+        if (decodeWidth > 0 && decodeHeight > 0)
+        {
+            args.Add("-vf");
+            args.Add(string.Format(
+                System.Globalization.CultureInfo.InvariantCulture,
+                "scale={0}:{1}",
+                decodeWidth,
+                decodeHeight));
+        }
+
         args.Add("-f");
         args.Add("rawvideo");
         args.Add("-pix_fmt");
@@ -166,6 +185,57 @@ public sealed class RtspClient : IAsyncDisposable
 
     /// <summary>監看最大幀率上限（§3.3：防止 32 路塞爆 UI）。</summary>
     public double MaxFramesPerSecond { get; set; } = 15;
+
+    /// <summary>
+    /// 解碼後縮到的寬度上限（0＝原生）。多分割時由 <see cref="LiveWallBudget"/> 決定。
+    /// </summary>
+    /// <remarks>
+    /// 只在下一輪（重新）連線生效，因為參數是啟動 ffmpeg 時寫定的——改值請走
+    /// <see cref="SetDecodeWidthAsync"/>，它會在「真的需要換」時才重開行程。
+    /// </remarks>
+    public int DecodeWidth { get; private set; }
+
+    /// <summary>
+    /// 這一輪實際要解碼的尺寸（探測到的來源尺寸 ＋ 寬度上限）。
+    /// </summary>
+    /// <remarks>
+    /// 這是「影格大小」的唯一口徑：<see cref="BuildDecodeArguments"/> 送給 ffmpeg 的
+    /// <c>scale=</c> 與讀取迴圈用來湊滿一幀的位元組數都必須從這裡來。上限不小於來源寬度時
+    /// 原樣回傳探測尺寸（<see cref="VideoScaling.Fit"/> 在不需要縮放時回 0）。
+    /// </remarks>
+    public static (int Width, int Height) DecodedSize(int probeWidth, int probeHeight, int decodeWidth)
+    {
+        var (width, height) = VideoScaling.Fit(probeWidth, probeHeight, decodeWidth);
+        return width > 0 && height > 0 ? (width, height) : (probeWidth, probeHeight);
+    }
+
+    /// <summary>
+    /// 要求把解碼寬度縮到 <paramref name="decodeWidth"/>（0＝原生），必要時重開 ffmpeg。
+    /// </summary>
+    /// <remarks>
+    /// 「必要時」是真的判斷過：切佈局時這條路每次都會被呼叫，若每個版面都無條件重開行程，
+    /// 操作員切一次 4 分割就會看到每一格閃一下「連線中」。所以先比較<b>實際生效的</b>寬度
+    /// （以最近一次探測到的來源寬度換算），一樣就什麼都不做。還沒探測過（尚在連線中）時
+    /// 也不重開：新值會在那一輪自然生效。
+    /// </remarks>
+    public async Task SetDecodeWidthAsync(int decodeWidth)
+    {
+        var cap = Math.Max(0, decodeWidth);
+        var before = DecodedSize(_lastProbeWidth, _lastProbeHeight, DecodeWidth).Width;
+        var after = DecodedSize(_lastProbeWidth, _lastProbeHeight, cap).Width;
+        var changed = before != after;
+
+        DecodeWidth = cap;
+
+        if (changed && IsRunning)
+        {
+            await RestartAsync().ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>最近一次 ffprobe 得到的來源尺寸（判斷縮放是否真的生效用；0＝還沒探測過）。</summary>
+    private int _lastProbeWidth;
+    private int _lastProbeHeight;
 
     /// <summary>
     /// ffprobe 探測解析度的逾時上限。攝影機 RTSP 連線無回應時 ffprobe 可能停滯，
@@ -327,6 +397,8 @@ public sealed class RtspClient : IAsyncDisposable
                 SetState(RtspState.Connecting);
                 var probe = await ProbeAsync(token);
                 var (width, height) = (probe.Width, probe.Height);
+                _lastProbeWidth = width;
+                _lastProbeHeight = height;
 
                 // 有音訊軌才掛音訊輸出：沒有麥克風的攝影機完全不碰這件事，
                 // 也就不可能因為音訊而影響畫面（`-map 0:a:0` 對沒有音訊的來源會讓行程失敗）。
@@ -426,6 +498,15 @@ public sealed class RtspClient : IAsyncDisposable
 
     private async Task StreamFramesAsync(int width, int height, string? hwAccel, int audioPort, CancellationToken token)
     {
+        // 這一輪真正的輸出尺寸：多分割時 ffmpeg 會在解碼端就縮到這裡算出的大小，
+        // 因此「湊滿一幀要讀幾個位元組」與送給 ffmpeg 的 scale= 必須用同一組數字。
+        var (outputWidth, outputHeight) = DecodedSize(width, height, DecodeWidth);
+        if (outputWidth <= 0 || outputHeight <= 0)
+        {
+            // 探測失敗（0×0）不會走到這裡（上游會先重連），但寧可明確失敗也不要算出 0 位元組的影格。
+            throw new InvalidOperationException($"無法決定解碼尺寸（來源 {width}×{height}）");
+        }
+
         var psi = new ProcessStartInfo
         {
             FileName = _ffmpeg,
@@ -434,7 +515,7 @@ public sealed class RtspClient : IAsyncDisposable
             UseShellExecute = false,
             CreateNoWindow = true,
         };
-        foreach (var arg in BuildDecodeArguments(RtspUrl, hwAccel, audioPort, AudioSampleRate))
+        foreach (var arg in BuildDecodeArguments(RtspUrl, hwAccel, audioPort, AudioSampleRate, outputWidth, outputHeight))
         {
             psi.ArgumentList.Add(arg);
         }
@@ -489,7 +570,7 @@ public sealed class RtspClient : IAsyncDisposable
         });
 
         var stream = proc.StandardOutput.BaseStream;
-        var frameSize = width * height * 3;
+        var frameSize = outputWidth * outputHeight * 3;
         var buffer = new byte[frameSize];
         var sw = Stopwatch.StartNew();
 
@@ -522,8 +603,8 @@ public sealed class RtspClient : IAsyncDisposable
                         // 影格逾時（非使用者取消）：視為串流停滯，交由重連迴圈處理。
                         throw new TimeoutException(
                             firstFrame
-                                ? $"串流未在 {FirstFrameTimeout.TotalSeconds:0} 秒內送出首幀（預期 {width}×{height}）"
-                                : $"串流停滯超過 {FrameTimeout.TotalSeconds:0} 秒未送出下一幀（預期 {width}×{height}）");
+                                ? $"串流未在 {FirstFrameTimeout.TotalSeconds:0} 秒內送出首幀（預期 {outputWidth}×{outputHeight}）"
+                                : $"串流停滯超過 {FrameTimeout.TotalSeconds:0} 秒未送出下一幀（預期 {outputWidth}×{outputHeight}）");
                     }
 
                     if (read == 0)
@@ -536,7 +617,7 @@ public sealed class RtspClient : IAsyncDisposable
 
                 FramesRead++;
 
-var nowMs = sw.ElapsedMilliseconds;
+                var nowMs = sw.ElapsedMilliseconds;
                 // 令牌桶自己處理「第一張一定出畫」（起始令牌是滿的），所以不必再為首幀開特例；
                 // 丟棄一律發生在讀取之後：管線永遠被抽乾，延遲才不會隨時間累積。
                 var elapsed = TimeSpan.FromMilliseconds(nowMs - lastDecisionMs);
@@ -547,7 +628,7 @@ var nowMs = sw.ElapsedMilliseconds;
                     continue;
                 }
                 FramesEmitted++;
-                FrameSize = (width, height);
+                FrameSize = (outputWidth, outputHeight);
                 if (State != RtspState.Streaming)
                 {
                     SetState(RtspState.Streaming);
@@ -555,8 +636,8 @@ var nowMs = sw.ElapsedMilliseconds;
 
                 var frame = new VideoFrame
                 {
-                    Width = width,
-                    Height = height,
+                    Width = outputWidth,
+                    Height = outputHeight,
                     Pixels = (byte[])buffer.Clone(),
                     TimestampUtc = DateTime.UtcNow,
                     PtsMs = nowMs,
