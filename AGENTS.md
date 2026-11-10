@@ -1052,3 +1052,12 @@ Notes that will save you time:
   Every new column that a query ever compares or orders by must be written AND cut off through
   the same helper; when a time test can pass on one timezone and fail on another, suspect the
   binding, not the clock.
+- **Slicing a `byte[]` with a Range (`buffer[0x10..]`) produces a COPY — writing through it is a
+  silent no-op.** `BinaryPrimitives.WriteUInt32LittleEndian(payload[0x10..], v)` compiles, runs,
+  and writes into the temporary array the range indexer allocated; the original stays untouched.
+  On a `Span<byte>`/`ReadOnlySpan<byte>` the same slice is a view and the write lands. The two
+  sit side by side in the same file and both compile, so the only signal is a behavioral test
+  reading the field back (`QctekPlaybackPayloadsTests.Catalog*` caught `CATALOG`'s day field
+  writing zeros — fixed in the P4 follow-up). Rule: any `BinaryPrimitives.Write*` target must be
+  a `Span` obtained from `AsSpan(offset)` or a span parameter, never a range-indexed array;
+  when a wire-format field reads back as zero with a clean log, grep for `..]` writes first.

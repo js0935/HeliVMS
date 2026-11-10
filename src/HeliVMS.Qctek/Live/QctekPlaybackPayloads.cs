@@ -31,7 +31,10 @@ public static class QctekPlaybackPayloads
         var payload = new byte[0x314];
         payload[0] = (byte)'O';
         payload[1] = (byte)'K';
-        BinaryPrimitives.WriteUInt32LittleEndian(payload[0x10..], (uint)day);
+        // 位移 0x10 是「查詢的日」（u32）。必須用 AsSpan：payload 是陣列，
+        // `payload[0x10..]` 的 Range 切片會產生副本——寫進副本、原陣列不動，
+        // 是一個靜默 no-op（AGENTS 的時間戳教訓同一形狀：測試才抓得到）。
+        BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(0x10), (uint)day);
         for (var i = 0; i < 768 && i < hourMatrix.Count; i++)
         {
             payload[0x14 + i] = hourMatrix[i];
