@@ -136,6 +136,84 @@ public sealed class AlarmEventRepository
             });
     }
 
+    /// <summary>
+    /// 寫回事件快照的感知雜湊（視覺搜索的索引；QC_Live 的 <c>PopupVisualSearch</c> 對齊）。
+    /// ulong 以 long 儲存（unchecked）：SQLite INTEGER 是 64 位有號，讀回時同樣 unchecked 轉回。
+    /// </summary>
+    public void SetSnapshotHash(long id, ulong hash)
+    {
+        _store.Execute(
+            "UPDATE alarm_events SET snapshot_hash = $h WHERE id = $id;",
+            cmd =>
+            {
+                cmd.Parameters.AddWithValue("$h", unchecked((long)hash));
+                cmd.Parameters.AddWithValue("$id", id);
+            });
+    }
+
+    /// <summary>
+    /// 列出「有快照檔但還沒算雜湊」的舊事件（最舊優先），供索引補算；上限防止一次掃整個資料庫。
+    /// </summary>
+    public IReadOnlyList<(long Id, string SnapshotPath)> ListSnapshotHashBacklog(int max)
+    {
+        return _store.Query(
+            """
+            SELECT id, snapshot_path
+            FROM alarm_events
+            WHERE snapshot_path IS NOT NULL AND snapshot_path != '' AND snapshot_hash IS NULL
+            ORDER BY id
+            LIMIT $max;
+            """,
+            static r =>
+            {
+                var list = new List<(long, string)>();
+                while (r.Read())
+                {
+                    list.Add((r.GetInt64(0), r.GetString(1)));
+                }
+
+                return list;
+            },
+            cmd => cmd.Parameters.AddWithValue("$max", max));
+    }
+
+    /// <summary>
+    /// 視覺搜索的候選：時間範圍內、已有雜湊的事件（id/頻道/時間/雜湊），由新到舊。
+    /// </summary>
+    public IReadOnlyList<(long Id, int ChannelId, DateTime StartUtc, ulong Hash)> ListHashCandidates(
+        DateTime fromUtc, DateTime toUtc, int max)
+    {
+        return _store.Query(
+            """
+            SELECT id, channel_id, start_time, snapshot_hash
+            FROM alarm_events
+            WHERE snapshot_hash IS NOT NULL
+              AND start_time >= $from AND start_time <= $to
+            ORDER BY start_time DESC
+            LIMIT $max;
+            """,
+            static r =>
+            {
+                var list = new List<(long, int, DateTime, ulong)>();
+                while (r.Read())
+                {
+                    list.Add((
+                        r.GetInt64(0),
+                        r.GetInt32(1),
+                        SqliteStore.FromIso(r.GetString(2)),
+                        unchecked((ulong)r.GetInt64(3))));
+                }
+
+                return list;
+            },
+            cmd =>
+            {
+                cmd.Parameters.AddWithValue("$from", SqliteStore.Iso(fromUtc));
+                cmd.Parameters.AddWithValue("$to", SqliteStore.Iso(toUtc));
+                cmd.Parameters.AddWithValue("$max", max);
+            });
+    }
+
     /// <summary>確認／取消確認事件（舊 API；同步處置狀態與軌跡，指派/備註保留）。</summary>
     public void Acknowledge(long id, bool acknowledged)
     {

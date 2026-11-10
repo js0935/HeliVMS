@@ -1085,6 +1085,8 @@ public sealed class SqliteStore : IDisposable
         EnsureColumn("channels", "listen_volume", "INTEGER NOT NULL DEFAULT 100");
         // 對講（這台有喇叭，可從主機把聲音送過去）。與收音是兩個方向，開關分開。
         EnsureColumn("channels", "talk_enabled", "INTEGER NOT NULL DEFAULT 0");
+        // 視覺搜索（QC_Live 的 PopupVisualSearch 對齊）：事件快照的 64-bit 感知雜湊。
+        EnsureColumn("alarm_events", "snapshot_hash", "INTEGER");
         EnsureColumn("segments", "checked_at_utc", "TEXT");
         EnsureColumn("segments", "tier", "TEXT NOT NULL DEFAULT 'hot'");
         EnsureColumn("segments", "origin_path", "TEXT");
