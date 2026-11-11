@@ -4,6 +4,23 @@
 > 權威來源：`git` 與 GitHub Actions 的現況（不是聊天記錄）。
 > 所有里程碑均已 commit＋push、CI 全綠、工作目錄乾淨（下方數據皆為驗證過的真實值）。
 
+> **【追加 2026-11-11（之二）】多路回放：對時預算每輪只算一次（同 §5 候選 6）**
+>
+> 多路比對時「一同步就卡一下」的一個來源是 UI 執行緒上的白工：`SyncPanes` 每一格每一輪都呼叫
+> `SyncToleranceSeconds()`，而它每次讀一次 `decode.hwaccel`（SQLite）＋重跑一次
+> `PlaybackWallBudget.For`——8 路 × 每秒 6.7 輪＝**每秒 53 次磁碟讀取**，日誌與畫面都正常。
+> - `PlaybackWindow.SyncPanes` 開頭算一次 `PaneBudget()` 與 `ToleranceForBudget(budget)`，回圈只用
+>   這一輪的值；`CreateSession` 與 `WritePaneDiagnostics` 也共用同一份預算（後者順帶保證
+>   `tol=` 寫的就是實際判定用的那個容差）。
+> - 守門：`對時預算每一輪只算一次`（回圈外一次、回圈內不得再出現 `PaneBudget(`／
+>   `ToleranceForBudget(`／`HardwareDecodeSetting(`），`總覽牆用放寬的對時容差` 改指
+>   `ToleranceForBudget`。突變檢查：把回圈內改成 `ToleranceForBudget(PaneBudget())` → 該測試紅；
+>   還原後 69 綠。
+> - 驗證：Release 全解決方案 build 0/0、App 852 綠（唯一紅仍是未追蹤 `Tools/` 造成的
+>   `SolutionCoverageTests`）。
+> - 下一步候選：`PLAYBACK-ALIGNMENT` §4 缺口 4（本機／遠端同一來源抽象）先行設計；
+>   GPU 管線需有 GPU 的機器；QCTek P0/P4 需正常 D3D 桌面。
+
 > **【追加 2026-11-11】多路回放：同步重啟的滯後（`docs/PLAYBACK-PERFORMANCE.md` §5 候選 1）**
 >
 > 現場「畫面一直閃／重來」的成因不是解碼慢，而是**單輪超容差就重開 ffmpeg**：解碼只比母鐘慢

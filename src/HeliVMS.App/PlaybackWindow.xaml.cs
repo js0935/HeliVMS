@@ -4410,6 +4410,13 @@ public partial class PlaybackWindow : Window
 
         var target = focusSegment.StartUtc.AddSeconds(_posInside);
 
+        // 這一輪的預算與容差只跟格數、設定有關，所以放在回圈外算一次。舊寫法在每一格裡呼叫
+        // SyncToleranceSeconds()，於是每一格每 150ms 都讀一次 decode.hwaccel（SQLite）並重跑一次
+        // 預算表：8 路＝每秒 53 次磁碟讀取，全部在 UI 執行緒上，比對多路時就是「一同步就卡一下」，
+        // 而日誌與畫面都正常。
+        var budget = PaneBudget();
+        var tolerance = ToleranceForBudget(budget);
+
         foreach (var pane in _panes)
         {
             var cursor = PlaybackSyncPlanner.Resolve(pane.Segments, target);
@@ -4462,7 +4469,7 @@ public partial class PlaybackWindow : Window
                 pane.StartedAtUtc is not null,
                 sinceStart,
                 pane.DriftStreak,
-                SyncToleranceSeconds());
+                tolerance);
             pane.DriftStreak = driftDecision.Streak;
 
             var restart = force
@@ -4478,7 +4485,7 @@ public partial class PlaybackWindow : Window
             }
         }
 
-        WritePaneDiagnostics();
+        WritePaneDiagnostics(budget);
     }
 
     /// <summary>診斷取樣的節拍（每秒 150ms 的同步計時器 → 每 5 秒寫一行）。</summary>
@@ -4495,7 +4502,7 @@ public partial class PlaybackWindow : Window
     /// 重開解碼幾次（容差太小＝每 150ms 重開一次）、以及現在生效的容差（36 格以上是 30 秒的
     /// 總覽模式）。欄位與理由見 <see cref="PlaybackPaneDiagnosticLine"/>。
     /// </remarks>
-    private void WritePaneDiagnostics()
+    private void WritePaneDiagnostics(PlaybackWallBudget.Pane budget)
     {
         if (++_paneLogTick < 33 || _panes.Count == 0)
         {
@@ -4505,8 +4512,10 @@ public partial class PlaybackWindow : Window
         _paneLogTick = 0;
 
         var now = DateTime.UtcNow;
-        var tolerance = SyncToleranceSeconds();
-        var keyframesOnly = PlaybackWallBudget.For(1 + _panes.Count, HardwareDecodeEnabled()).KeyframesOnly;
+        // 預算與容差都沿用這一輪同步算好的那一份：這裡再讀一次設定，只是多一次 SQLite 讀取，
+        // 還可能寫出一組與實際判定不同的 tol= 而誤導讀日誌的人。
+        var tolerance = ToleranceForBudget(budget);
+        var keyframesOnly = budget.KeyframesOnly;
         var samples = new List<PlaybackPaneDiagnosticLine.PaneSample>(_panes.Count);
         foreach (var pane in _panes)
         {
@@ -4544,7 +4553,7 @@ public partial class PlaybackWindow : Window
     /// </remarks>
     private PlaybackSession CreateSession(SegmentRecord segment)
     {
-        var budget = PlaybackWallBudget.For(1 + _panes.Count, HardwareDecodeEnabled());
+        var budget = PaneBudget();
         return new PlaybackSession(segment)
         {
             Speed = GetSpeed(),
@@ -4571,6 +4580,17 @@ public partial class PlaybackWindow : Window
     }
 
     /// <summary>
+    /// 目前版面下每一格的解碼預算（格數 + 硬體解碼設定決定）。
+    /// </summary>
+    /// <remarks>
+    /// 不快取：<c>decode.hwaccel</c> 可以在執行中改，真正的探測也已由
+    /// <see cref="FfmpegHwAccel.ProbeCached"/> 共用。但一輪同步只算一次（見 <see cref="SyncPanes"/>），
+    /// 不要放進逐格的回圈裡。
+    /// </remarks>
+    private PlaybackWallBudget.Pane PaneBudget()
+        => PlaybackWallBudget.For(1 + _panes.Count, HardwareDecodeEnabled());
+
+    /// <summary>
     /// 目前版面下每一格的對時容差（秒）。
     /// </summary>
     /// <remarks>
@@ -4578,8 +4598,8 @@ public partial class PlaybackWindow : Window
     /// 用 0.4 秒判定會讓 64 條解碼行程每 150ms 被重開一次（見
     /// <see cref="PlaybackSyncPlanner.OverviewDriftToleranceSeconds"/>）。
     /// </remarks>
-    private double SyncToleranceSeconds()
-        => PlaybackWallBudget.For(1 + _panes.Count, HardwareDecodeEnabled()).KeyframesOnly
+    private static double ToleranceForBudget(PlaybackWallBudget.Pane budget)
+        => budget.KeyframesOnly
             ? PlaybackSyncPlanner.OverviewDriftToleranceSeconds
             : PlaybackSyncPlanner.DefaultDriftToleranceSeconds;
 

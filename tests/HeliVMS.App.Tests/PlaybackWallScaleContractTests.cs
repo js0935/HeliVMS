@@ -44,14 +44,16 @@ public sealed class PlaybackWallScaleContractTests
         Assert.Contains("CreateSession(", SourceContract.BodyOf(code, "PlayPane"));
 
         var create = SourceContract.BodyOf(code, "CreateSession");
-        Assert.Contains("PlaybackWallBudget.For(", create);
+        Assert.Contains("PaneBudget()", create);
         Assert.Contains("DisplayWidth = budget.DisplayWidth", create);
         Assert.Contains("MaxFramesPerSecond = budget.MaxFramesPerSecond", create);
         Assert.Contains("DecodeThreads = budget.DecodeThreads", create);
         Assert.Contains("HwAccel = ", create);
 
-        // 格數＝主畫面 1 格＋次畫面數，否則預算會少算一格。
-        Assert.Contains("1 + _panes.Count", create);
+        // 格數＝主畫面 1 格＋次畫面數，否則預算會少算一格；換算只有 PaneBudget 一份。
+        var budget = SourceContract.BodyOf(code, "PaneBudget");
+        Assert.Contains("PlaybackWallBudget.For(", budget);
+        Assert.Contains("1 + _panes.Count", budget);
     }
 
     /// <summary>
@@ -63,12 +65,39 @@ public sealed class PlaybackWallScaleContractTests
         var code = SourceContract.Read(Code);
 
         var sync = SourceContract.BodyOf(code, "SyncPanes");
-        Assert.Contains("SyncToleranceSeconds()", sync);
+        Assert.Contains("ToleranceForBudget(budget)", sync);
 
-        var tolerance = SourceContract.BodyOf(code, "SyncToleranceSeconds");
-        Assert.Contains("PlaybackWallBudget.For(", tolerance);
+        var tolerance = SourceContract.BodyOf(code, "ToleranceForBudget");
         Assert.Contains("KeyframesOnly", tolerance);
         Assert.Contains("OverviewDriftToleranceSeconds", tolerance);
+        Assert.Contains("DefaultDriftToleranceSeconds", tolerance);
+    }
+
+    /// <summary>
+    /// 對時容差與解碼預算每一輪只算一次，不在逐格的回圈裡重讀硬體解碼設定。
+    /// </summary>
+    /// <remarks>
+    /// 舊寫法在每一格裡呼叫 <c>SyncToleranceSeconds()</c>，而它每次都會讀一次
+    /// <c>decode.hwaccel</c>（SQLite）並重跑一次預算表：8 路 × 每秒約 6.7 輪＝每秒 53 次磁碟讀取，
+    /// 全部在 UI 執行緒上。畫面只表現為「多路比對時一同步就卡一下」，沒有任何錯誤訊息、
+    /// 日誌也乾淨，所以只能靠這裡釘住。
+    /// </remarks>
+    [Fact]
+    public void 對時預算每一輪只算一次()
+    {
+        var sync = SourceContract.BodyOf(SourceContract.Read(Code), "SyncPanes");
+
+        var loop = sync.IndexOf("foreach (var pane in _panes)", StringComparison.Ordinal);
+        Assert.True(loop > 0, "SyncPanes 應該有逐格的回圈");
+
+        var before = sync[..loop];
+        Assert.Contains("var budget = PaneBudget();", before);
+        Assert.Contains("ToleranceForBudget(budget)", before);
+
+        var insideLoop = sync[loop..];
+        Assert.DoesNotContain("PaneBudget()", insideLoop);
+        Assert.DoesNotContain("ToleranceForBudget(", insideLoop);
+        Assert.DoesNotContain("HardwareDecodeSetting(", insideLoop);
     }
 
     /// <summary>
@@ -93,7 +122,7 @@ public sealed class PlaybackWallScaleContractTests
         var code = SourceContract.Read(Code);
 
         // 掛在既有的 150ms 同步計時器上（不另外開計時器）：33 拍 ≈ 5 秒。
-        Assert.Contains("WritePaneDiagnostics()", SourceContract.BodyOf(code, "SyncPanes"));
+        Assert.Contains("WritePaneDiagnostics(budget)", SourceContract.BodyOf(code, "SyncPanes"));
 
         var write = SourceContract.BodyOf(code, "WritePaneDiagnostics");
         Assert.Contains("PlaybackPaneDiagnosticLine.Format(", write);

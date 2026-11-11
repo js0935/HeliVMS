@@ -554,6 +554,11 @@ Notes that will save you time:
   才換一張」是壞掉，而它其實是那個版面的設計。
   Guarded by `PlaybackPaneDiagnosticLineTests`、`次畫面OSD文字有更新間隔` and
   `同步計時器每五秒寫一行回放診斷`.
+  容差與解碼預算**每一輪同步只算一次**（`SyncPanes` 開頭的 `PaneBudget()` → `ToleranceForBudget`）：
+  舊寫法在逐格回圈裡呼叫容差函式，而它每次都會讀一次 `decode.hwaccel`（SQLite）並重跑預算表——
+  8 路 × 每秒約 6.7 輪＝每秒 53 次 UI 執行緒上的磁碟讀取，畫面只表現為「一同步就卡一下」而日誌乾淨。
+  `WritePaneDiagnostics` 也沿用同一份預算，否則 `tol=` 可能寫出與實際判定不同的一個數字。
+  Guarded by `對時預算每一輪只算一次`.
 - **The calendar going from "a month of blue" to "no blue at all" is data, not a bug — say so.**
   回放日曆把「當天有 final 段」的日期標成粗體＋藍字，而標記會隨**索引與磁碟的實況**消失：
   D: 滿檔時保留策略會汰除整個歷史檔案（實測攝影機 01–06 在 11/05 22:18 之前的錄影全部被刪，
