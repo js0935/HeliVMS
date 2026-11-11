@@ -102,6 +102,24 @@ public sealed class PlaybackSession : IAsyncDisposable
     public string? HwAccel { get; set; }
 
     /// <summary>
+    /// 這一輪**實際下給 ffmpeg** 的硬體解碼方式（診斷用；<c>off</c>＝軟解、
+    /// <c>off(cooldown)</c>＝本來要用但正在失敗後的冷卻期）。
+    /// </summary>
+    /// <remarks>
+    /// 設定值與生效值不是同一件事：<see cref="HwAccel"/> 寫 <c>auto</c> 時，這一格可能是原生尺寸
+    /// 的 H.264（政策判不值得）、也可能剛好在一次「帶了 -hwaccel 卻一幀都沒出」之後的五分鐘冷卻裡。
+    /// 少了這個值，現場問「明明設了硬解，多路回放還是吃滿 CPU」只能靠猜；而日誌照設定值寫，
+    /// 會與事實相反。與即時監看的 <c>RtspClient.HwAccelInUse</c> 同一個口徑。
+    /// </remarks>
+    public string? HwAccelInUse { get; private set; }
+
+    /// <summary>
+    /// 診斷欄位 <c>hw=</c> 的字樣：方法名／<c>off</c>／<c>off(cooldown)</c>。
+    /// </summary>
+    public static string HardwareDecodeToken(string? method, bool cooldownActive)
+        => method ?? (cooldownActive ? "off(cooldown)" : "off");
+
+    /// <summary>
     /// 只解關鍵影格（<c>-skip_frame nokey</c>）：大格數「總覽牆」用的模式。
     /// </summary>
     /// <remarks>
@@ -478,13 +496,17 @@ public sealed class PlaybackSession : IAsyncDisposable
         // 並由政策決定要不要、用哪一個（auto 在這一輪真的縮尺寸、或編碼格式在原生尺寸
         // 也划算時才啟用）。回放與即時監看共用同一份政策，輸入也必須一致：少了 info.VideoCodec，
         // 單格回放 HEVC 錄影會一律軟解，與即時監看的 CPU 差 12–45%，而兩邊畫面都正常。
-        var hwAccel = DateTime.UtcNow < _hwAccelDisabledUntil
+        var hwAccelCooldown = DateTime.UtcNow < _hwAccelDisabledUntil;
+        var hwAccel = hwAccelCooldown
             ? null
             : HardwareDecodePolicy.Resolve(
                 HwAccel,
                 FfmpegHwAccel.ProbeCached(_ffmpeg, TimeSpan.FromSeconds(5)),
                 displayWidth > 0,
                 info.VideoCodec);
+
+        // 診斷寫的是這一輪真的生效的方式（設定值另外記在 HwAccel）。
+        HwAccelInUse = HardwareDecodeToken(hwAccel, hwAccelCooldown);
 
         foreach (var arg in BuildDecodeArguments(
             Segment.FilePath, seekSeconds, remaining, audioPort, AudioSampleRate,

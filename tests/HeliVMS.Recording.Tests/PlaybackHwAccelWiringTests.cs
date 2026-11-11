@@ -32,30 +32,51 @@ public sealed class PlaybackHwAccelWiringTests
     [Fact]
     public async Task 原生尺寸的HEVC回放會帶入硬體解碼()
     {
-        var args = await StartArgsAsync(Hevc, displayWidth: 0);
+        var (args, hwAccelInUse) = await StartAsync(Hevc, displayWidth: 0);
 
         Assert.Equal("d3d11va", ValueAfter(args, "-hwaccel"));
+        Assert.Equal("d3d11va", hwAccelInUse);
     }
 
     /// <summary>原生尺寸的 H.264 維持軟解：多一層 GPU 依賴卻量不到好處。</summary>
     [Fact]
     public async Task 原生尺寸的H264回放維持軟解()
     {
-        var args = await StartArgsAsync(H264, displayWidth: 0);
+        var (args, hwAccelInUse) = await StartAsync(H264, displayWidth: 0);
 
         Assert.DoesNotContain("-hwaccel", args);
+        Assert.Equal("off", hwAccelInUse);
     }
 
     /// <summary>縮尺寸時不看格式：H.264 也照用（那是量到 52–70% 的那一條）。</summary>
     [Fact]
     public async Task 縮小解碼的回放不看編碼格式()
     {
-        var args = await StartArgsAsync(H264, displayWidth: 32);
+        var (args, hwAccelInUse) = await StartAsync(H264, displayWidth: 32);
 
         Assert.Equal("d3d11va", ValueAfter(args, "-hwaccel"));
+        Assert.Equal("d3d11va", hwAccelInUse);
     }
 
-    private static async Task<IList<string>> StartArgsAsync(StreamProbeInfo info, int displayWidth)
+    /// <summary>
+    /// 診斷欄位寫的是「這一輪真的用了什麼」，三種狀態要分得出來。
+    /// </summary>
+    /// <remarks>
+    /// 現場問「明明設了硬解，多路回放還是吃滿 CPU」時，答案可能是設定沒開、可能是原生尺寸
+    /// 的 H.264 不划算、也可能是剛才失敗過正在五分鐘冷卻裡——把設定值 <c>auto</c> 寫進日誌
+    /// 會與三者的任何一種事實都相反。
+    /// </remarks>
+    [Fact]
+    public void 冷卻中的硬解在診斷裡寫得出來()
+    {
+        Assert.Equal("d3d11va", PlaybackSession.HardwareDecodeToken("d3d11va", cooldownActive: false));
+        Assert.Equal("off", PlaybackSession.HardwareDecodeToken(null, cooldownActive: false));
+        Assert.Equal("off(cooldown)", PlaybackSession.HardwareDecodeToken(null, cooldownActive: true));
+    }
+
+    private static async Task<(IList<string> Args, string? HwAccelInUse)> StartAsync(
+        StreamProbeInfo info,
+        int displayWidth)
     {
         var dir = Path.Combine(Path.GetTempPath(), $"helivms-play-hw-{Guid.NewGuid():N}");
         Directory.CreateDirectory(dir);
@@ -98,7 +119,7 @@ public sealed class PlaybackHwAccelWiringTests
 
         await session.PlayAsync();
 
-        return factory.Started.Single().StartInfo.ArgumentList;
+        return (factory.Started.Single().StartInfo.ArgumentList, session.HwAccelInUse);
     }
 
     private static string? ValueAfter(IList<string> args, string flag)

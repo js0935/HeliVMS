@@ -4,6 +4,21 @@
 > 權威來源：`git` 與 GitHub Actions 的現況（不是聊天記錄）。
 > 所有里程碑均已 commit＋push、CI 全綠、工作目錄乾淨（下方數據皆為驗證過的真實值）。
 
+> **【追加 2026-11-11（之三）】多路回放診斷行補上 `hw=`：寫生效值，不是設定值**
+>
+> 即時監看早就每格寫 `hw=`（`helivms-live.log`），回放一直沒有——於是「明明設了硬解，多路回放
+> 還是吃滿 CPU」只能靠猜：設定寫 `auto` 時，這一格可能是原生尺寸的 H.264（政策判不值得）、
+> 也可能是剛才「帶了 -hwaccel 卻一幀都沒出」之後的五分鐘全域冷卻裡，三種事實長得一樣。
+> - `PlaybackSession.HwAccelInUse`（在啟動行程前由 `HardwareDecodeToken(method, cooldown)`
+>   寫入）：方法名／`off`／`off(cooldown)`；`PaneSample.HwAccel` 為 `null`＝沒在播，整欄省略
+>   （寫 `off` 會被讀成「這一格正在軟解」）。
+> - 守門：Shared `硬體解碼欄位寫的是實際生效的方式`、`沒有在播的格不寫硬體解碼`；Recording
+>   三條既有硬解測試補上 `HwAccelInUse` 斷言＋`冷卻中的硬解在診斷裡寫得出來`；App 契約
+>   `回放診斷行寫出實際生效的硬體解碼`。突變檢查：`HwAccelInUse` 改寫設定值 → Recording 3 紅；
+>   拿掉 `playing ?` 條件 → App 契約紅；把 `hw=` 區塊停用 → Shared 1 紅；全部還原後全綠。
+> - 驗證：Release 全解決方案 build 0/0；Shared 479、Recording 392、App 853 綠（唯一紅仍是
+>   未追蹤 `Tools/` 的 `SolutionCoverageTests`）。
+
 > **【追加 2026-11-11（之二）】多路回放：對時預算每輪只算一次（同 §5 候選 6）**
 >
 > 多路比對時「一同步就卡一下」的一個來源是 UI 執行緒上的白工：`SyncPanes` 每一格每一輪都呼叫

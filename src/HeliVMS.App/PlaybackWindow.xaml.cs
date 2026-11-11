@@ -4527,6 +4527,7 @@ public partial class PlaybackWindow : Window
                 pane.LastWidth,
                 pane.LastHeight,
                 keyframesOnly,
+                playing ? pane.Session?.HwAccelInUse : null,
                 shown,
                 playing ? pane.LastDriftSeconds : null,
                 pane.Restarts,

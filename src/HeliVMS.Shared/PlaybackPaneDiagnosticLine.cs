@@ -25,6 +25,11 @@ public static class PlaybackPaneDiagnosticLine
     /// <param name="Width">解碼後的影格寬度（縮放後）。</param>
     /// <param name="Height">解碼後的影格高度。</param>
     /// <param name="KeyframesOnly">這一格是否只解關鍵影格（總覽牆）。</param>
+    /// <param name="HwAccel">
+    /// 這一輪實際生效的硬體解碼（<c>null</c>＝沒有在播，整欄省略）：方法名／<c>off</c>／
+    /// <c>off(cooldown)</c>。寫的是**生效值**而不是設定值——設定 <c>auto</c> 但這一格是原生尺寸
+    /// H.264 時仍是軟解，照設定值寫會讓日誌與事實相反。
+    /// </param>
     /// <param name="ShownFps">實際顯示的更新率。</param>
     /// <param name="DriftSeconds">與母鐘的差（秒，正＝超前）；沒有在播時為 <c>null</c>。</param>
     /// <param name="Restarts">這一格重開解碼的次數（對時跳轉、換段）。</param>
@@ -36,6 +41,7 @@ public static class PlaybackPaneDiagnosticLine
         int Width,
         int Height,
         bool KeyframesOnly,
+        string? HwAccel,
         double ShownFps,
         double? DriftSeconds,
         int Restarts,
@@ -77,6 +83,15 @@ public static class PlaybackPaneDiagnosticLine
             if (pane.KeyframesOnly)
             {
                 builder.Append(" kf");
+            }
+
+            // hw＝這一輪**實際生效**的硬體解碼（軟解寫 off，冷卻中寫 off(cooldown)）。
+            // 沒有這一欄，「明明設了硬解，多路回放還是吃滿 CPU」只能靠猜：可能是設定沒開、
+            // 可能是這個編碼格式在原生尺寸不划算、也可能是剛才失敗過正在五分鐘冷卻裡——
+            // 三者的處置完全不同。這是即時監看那邊已經繳過的學費（見 helivms-live.log 的 hw=）。
+            if (!string.IsNullOrWhiteSpace(pane.HwAccel))
+            {
+                builder.Append(" hw=").Append(pane.HwAccel);
             }
 
             builder.Append(" shown=").Append(pane.ShownFps.ToString("0.#", CultureInfo.InvariantCulture)).Append("/s");

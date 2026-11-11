@@ -19,13 +19,15 @@ public class PlaybackPaneDiagnosticLineTests
         string state = "playing",
         int width = 960,
         int height = 540,
-        string stream = "main")
+        string stream = "main",
+        string? hwAccel = null)
         => new(
             channelId,
             stream,
             width,
             height,
             keyframesOnly,
+            hwAccel,
             shown,
             drift,
             restarts,
@@ -84,6 +86,34 @@ public class PlaybackPaneDiagnosticLineTests
             DateTime.UnixEpoch, cells: 2, toleranceSeconds: 0.4, [Pane(drift: -3.25)]);
 
         Assert.Contains("drift=-3.3s", line);
+    }
+
+    [Fact]
+    public void 硬體解碼欄位寫的是實際生效的方式()
+    {
+        var line = PlaybackPaneDiagnosticLine.Format(
+            DateTime.UnixEpoch, cells: 4, toleranceSeconds: 0.4,
+            [
+                Pane(channelId: 103, hwAccel: "d3d11va"),
+                Pane(channelId: 104, hwAccel: "off"),
+                Pane(channelId: 105, hwAccel: "off(cooldown)"),
+            ]);
+
+        // 三種狀態的處置完全不同：設定沒開／不划算（off）、剛才失敗過（五分鐘冷卻）、真的在硬解。
+        Assert.Contains("ch103 main 960x540 hw=d3d11va", line);
+        Assert.Contains("hw=off ", line);
+        Assert.Contains("hw=off(cooldown)", line);
+    }
+
+    [Fact]
+    public void 沒有在播的格不寫硬體解碼()
+    {
+        // 沒在播就沒有「生效方式」可言；寫 off 會被讀成「這一格正在軟解」。
+        var line = PlaybackPaneDiagnosticLine.Format(
+            DateTime.UnixEpoch, cells: 2, toleranceSeconds: 0.4,
+            [Pane(hwAccel: null, drift: null, shown: 0, state: "gap")]);
+
+        Assert.DoesNotContain("hw=", line);
     }
 
     [Fact]

@@ -133,6 +133,22 @@ public sealed class PlaybackWallScaleContractTests
         Assert.Contains("_panes.Count == 0", write);
     }
 
+    /// <summary>
+    /// 回放診斷行要寫出「這一輪實際生效的硬體解碼」，而不是設定值。
+    /// </summary>
+    /// <remarks>
+    /// 設定 <c>auto</c> 時這一格可能是原生尺寸的 H.264（政策判不值得）、也可能剛好在一次
+    /// 「帶了 -hwaccel 卻一幀都沒出」之後的五分鐘冷卻裡。照設定值寫，日誌會與三種事實都相反。
+    /// </remarks>
+    [Fact]
+    public void 回放診斷行寫出實際生效的硬體解碼()
+    {
+        var write = SourceContract.BodyOf(SourceContract.Read(Code), "WritePaneDiagnostics");
+
+        // 沒在播就沒有「生效方式」可言：寫 off 會被讀成「這一格正在軟解」。
+        Assert.Contains("playing ? pane.Session?.HwAccelInUse : null", write);
+    }
+
     /// <summary>日曆整月沒有藍色時，要能分辨「沒錄過」與「錄了但已被汰除」，並把後者說出來。</summary>
     /// <remarks>
     /// 現場（D: 滿檔、保留策略汰除整個歷史檔案）的日曆會從「整個月都是藍的」變成「一格都沒有」，

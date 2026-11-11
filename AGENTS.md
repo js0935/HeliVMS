@@ -551,9 +551,12 @@ Notes that will save you time:
   現場說「多路回放不順」時，那一行是唯一能分辨四種成因的證據（落後母鐘多少、這一格有沒有在更新
   `frame=`、重開解碼幾次 `restarts=`、以及現在生效的 `tol=`——36 格以上是 30 秒的總覽模式，
   用 0.4 秒的期待去看它只會誤判）。`kf` 標記也必須留著：少了它，讀日誌的人會以為「每格每幾秒
-  才換一張」是壞掉，而它其實是那個版面的設計。
-  Guarded by `PlaybackPaneDiagnosticLineTests`、`次畫面OSD文字有更新間隔` and
-  `同步計時器每五秒寫一行回放診斷`.
+  才換一張」是壞掉，而它其實是那個版面的設計。每一格還有 `hw=`，寫的是**這一輪實際生效**的
+  硬體解碼（`PlaybackSession.HwAccelInUse` → `HardwareDecodeToken`：方法名／`off`／
+  `off(cooldown)`），不是設定值：設 `auto` 時原生尺寸的 H.264 會是 `off`、剛失敗過的會在五分鐘
+  冷卻裡也是 `off`，照設定值寫等於三種事實都寫反。沒有在播的格不寫（寫 `off` 會被讀成「正在軟解」）。
+  Guarded by `PlaybackPaneDiagnosticLineTests`、`次畫面OSD文字有更新間隔`、
+  `同步計時器每五秒寫一行回放診斷` and `回放診斷行寫出實際生效的硬體解碼`.
   容差與解碼預算**每一輪同步只算一次**（`SyncPanes` 開頭的 `PaneBudget()` → `ToleranceForBudget`）：
   舊寫法在逐格回圈裡呼叫容差函式，而它每次都會讀一次 `decode.hwaccel`（SQLite）並重跑預算表——
   8 路 × 每秒約 6.7 輪＝每秒 53 次 UI 執行緒上的磁碟讀取，畫面只表現為「一同步就卡一下」而日誌乾淨。
