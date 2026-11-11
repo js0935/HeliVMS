@@ -24,6 +24,10 @@ public sealed class CameraDiMonitorTests : IDisposable
     private IReadOnlyList<OnvifInputRef> _inputs = [new("DigitalInputToken_1", 1, "IN1")];
     private readonly Queue<IReadOnlyList<CameraDiInput>> _batches = new();
     private Exception? _pullThrows;
+
+    /// <summary>一直失敗（不是只失敗一次）：用來驗「同一個失敗不會每一輪都寫稽核」。</summary>
+    private Exception? _pullAlwaysThrows;
+
     private int _subscribeCount;
 
     public CameraDiMonitorTests()
@@ -64,6 +68,11 @@ public sealed class CameraDiMonitorTests : IDisposable
 
     private Task<IReadOnlyList<CameraDiInput>> Pull(Uri subscription, CancellationToken ct)
     {
+        if (_pullAlwaysThrows is not null)
+        {
+            throw _pullAlwaysThrows;
+        }
+
         if (_pullThrows is not null)
         {
             var ex = _pullThrows;
@@ -80,7 +89,7 @@ public sealed class CameraDiMonitorTests : IDisposable
         return Task.Delay(20, ct).ContinueWith(_ => (IReadOnlyList<CameraDiInput>)[], ct);
     }
 
-    private CameraDiMonitor Monitor(TimeSpan? retryDelay = null) => new(
+    private CameraDiMonitor Monitor(TimeSpan? retryDelay = null, DiFailureAuditPlanner? failureAudit = null) => new(
         "攝影機 1",
         _ports,
         new IoRuleHost(_ports, _rules, _events),
@@ -88,7 +97,8 @@ public sealed class CameraDiMonitorTests : IDisposable
         Subscribe,
         Pull,
         _audit,
-        retryDelay ?? TimeSpan.FromMilliseconds(20));
+        retryDelay ?? TimeSpan.FromMilliseconds(20),
+        failureAudit);
 
     private static async Task<bool> WaitUntilAsync(Func<bool> condition, int timeoutMs = 3000)
     {
@@ -156,6 +166,87 @@ public sealed class CameraDiMonitorTests : IDisposable
         Assert.True(await WaitUntilAsync(() => monitor.FedCount > 0), "第一次失敗後應該重新訂閱並成功餵入");
         Assert.Equal(1, _audit.Count(new AuditLogQuery { Action = "camera.di.failed" }));
         Assert.True(_subscribeCount >= 2, "重試時應該重新建立訂閱");
+    }
+
+    /// <summary>
+    /// 同一個失敗<b>不會每一輪重試都寫一筆稽核</b>：只留下第一次。
+    /// </summary>
+    /// <remarks>
+    /// 現場實測（VIVOTEK IP9164-HT，event_service 一直回 HTTP 500）：舊版每 15 秒寫一筆，
+    /// 9 天 18,568 筆內容完全相同的列，佔整個錄影類別稽核的 88%。稽核是證據鏈，
+    /// 被這種重複列淹掉之後，真正的訊號（<c>recording.stalled</c>、<c>recording.disk_full</c>）
+    /// 就找不到了。這一條同時確認監視器<b>仍持續重試</b>——節流只影響稽核，不影響復原。
+    /// </remarks>
+    [Fact]
+    public async Task 同一個失敗不會每一輪都寫稽核()
+    {
+        _ports.Add(_channelId, IoPortKind.Di, 1, "門磁", IoPolarity.NormallyOpen);
+        _pullAlwaysThrows = new TimeoutException("HTTP 500 InternalServerError");
+
+        using var monitor = Monitor(retryDelay: TimeSpan.FromMilliseconds(10));
+        monitor.Start();
+
+        Assert.True(await WaitUntilAsync(() => _subscribeCount >= 8), "失敗後仍要持續重新訂閱");
+        Assert.Equal(1, _audit.Count(new AuditLogQuery { Action = "camera.di.failed" }));
+    }
+
+    /// <summary>
+    /// 失敗原因改變時要再記一筆，並在說明裡寫出連續失敗次數。
+    /// </summary>
+    /// <remarks>
+    /// 「什麼時候換了症狀」比「一直壞」更關鍵（HTTP 500 → 連線逾時通常代表換了一層出問題：
+    /// 設備或網路）。連續次數則是操作員判斷「這是持續中的故障」的依據。
+    /// </remarks>
+    [Fact]
+    public async Task 失敗原因改變時會補記一筆並帶出連續次數()
+    {
+        _ports.Add(_channelId, IoPortKind.Di, 1, "門磁", IoPolarity.NormallyOpen);
+        _pullAlwaysThrows = new TimeoutException("HTTP 500 InternalServerError");
+
+        // 最短間隔歸零：正式值是一分鐘，測試不必真的等。
+        var planner = new DiFailureAuditPlanner(minimumInterval: TimeSpan.Zero);
+        using var monitor = Monitor(TimeSpan.FromMilliseconds(10), planner);
+        monitor.Start();
+
+        Assert.True(await WaitUntilAsync(
+            () => _audit.Count(new AuditLogQuery { Action = "camera.di.failed" }) == 1));
+
+        _pullAlwaysThrows = new TimeoutException("連線逾時");
+
+        Assert.True(await WaitUntilAsync(
+            () => _audit.Count(new AuditLogQuery { Action = "camera.di.failed" }) >= 2),
+            "原因改變是新資訊，應該立刻再寫一筆");
+
+        var rows = _audit.List(new AuditLogQuery { Action = "camera.di.failed" });
+        Assert.Contains(rows, r => r.Detail?.Contains("連線逾時", StringComparison.Ordinal) == true
+                                   && r.Detail.Contains("已連續失敗", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// 成功之後再壞掉要重新留一筆：那是新的一次故障。
+    /// </summary>
+    /// <remarks>
+    /// 若節流只認「訊息字串」而不在成功時歸零，「昨晚好了、今早又壞」在稽核裡看起來
+    /// 像從未好過，維修紀錄就對不起來。
+    /// </remarks>
+    [Fact]
+    public async Task 成功之後再失敗會重新寫一筆稽核()
+    {
+        _ports.Add(_channelId, IoPortKind.Di, 1, "門磁", IoPolarity.NormallyOpen);
+        _pullThrows = new TimeoutException("HTTP 500 InternalServerError");
+
+        using var monitor = Monitor(retryDelay: TimeSpan.FromMilliseconds(10));
+        monitor.Start();
+
+        Assert.True(await WaitUntilAsync(
+            () => _audit.Count(new AuditLogQuery { Action = "camera.di.failed" }) == 1));
+        Assert.True(await WaitUntilAsync(() => _subscribeCount >= 2), "第一次失敗後應該重新訂閱成功");
+
+        _pullAlwaysThrows = new TimeoutException("HTTP 500 InternalServerError");
+
+        Assert.True(await WaitUntilAsync(
+            () => _audit.Count(new AuditLogQuery { Action = "camera.di.failed" }) == 2),
+            "成功過之後的同一個失敗是新的一次故障，要再寫一筆");
     }
 
     [Fact]

@@ -117,6 +117,13 @@ public sealed class CameraDiMonitor : IDisposable
     private readonly Puller _pull;
     private readonly AuditLogRepository? _audit;
     private readonly TimeSpan _retryDelay;
+
+    /// <summary>
+    /// 失敗稽核的節流：同一個失敗每小時最多一筆（見 <see cref="DiFailureAuditPlanner"/>）。
+    /// 沒有它，這一台一直回 HTTP 500 的攝影機會在 9 天內寫近兩萬筆一模一樣的稽核列。
+    /// </summary>
+    private readonly DiFailureAuditPlanner _failureAudit;
+
     private readonly CancellationTokenSource _cts = new();
     private Task? _loop;
     private bool _disposed;
@@ -129,7 +136,8 @@ public sealed class CameraDiMonitor : IDisposable
         Subscriber subscribe,
         Puller pull,
         AuditLogRepository? audit = null,
-        TimeSpan? retryDelay = null)
+        TimeSpan? retryDelay = null,
+        DiFailureAuditPlanner? failureAudit = null)
     {
         _deviceName = deviceName;
         _ports = ports;
@@ -139,6 +147,7 @@ public sealed class CameraDiMonitor : IDisposable
         _pull = pull;
         _audit = audit;
         _retryDelay = retryDelay ?? TimeSpan.FromSeconds(15);
+        _failureAudit = failureAudit ?? new DiFailureAuditPlanner();
     }
 
     /// <summary>收到並解讀為數位輸入的通知筆數。</summary>
@@ -204,11 +213,18 @@ public sealed class CameraDiMonitor : IDisposable
                 var map = CameraDiMapping.Build(diPorts, inputs);
 
                 var subscription = await _subscribe(cancellationToken).ConfigureAwait(false);
-                LastError = null;
 
                 while (!cancellationToken.IsCancellationRequested)
                 {
                     var events = await _pull(subscription, cancellationToken).ConfigureAwait(false);
+
+                    // 拉取成功＝這一台現在是好的：下一次失敗要重新留下一筆稽核。
+                    // 不能放在「訂閱成功」那裡——訂閱成功、拉取失敗正是最常見的故障形狀
+                    // （event_service 回 500 就是這樣），那樣每一輪都會被當成新故障，
+                    // 節流等於不存在。
+                    _failureAudit.Reset();
+                    LastError = null;
+
                     foreach (var input in events)
                     {
                         NotificationCount++;
@@ -237,17 +253,25 @@ public sealed class CameraDiMonitor : IDisposable
                 // 連不上、認證失敗、訂閱過期：記下來等下一輪重新訂閱。
                 // 不往外丟——監視器是最後一道，丟出去只會變成未觀察的工作例外。
                 LastError = ex.Message;
-                try
+
+                // 只有「新的失敗」才寫稽核。舊版每一輪都寫：一台 event_service 一直回
+                // HTTP 500 的攝影機在 9 天內寫了 18,568 筆內容完全相同的列，把真正的
+                // 訊號（recording.stalled／disk_full）埋在裡面。
+                var shouldAudit = _failureAudit.ShouldAudit(ex.Message, out var consecutive);
+                if (_audit is not null && shouldAudit)
                 {
-                    _audit?.Record(
-                        "system",
-                        "camera.di.failed",
-                        AuditCategories.Recording,
-                        detail: $"{_deviceName}: {ex.Message}");
-                }
-                catch (Exception auditEx) when (auditEx is IOException or Microsoft.Data.Sqlite.SqliteException)
-                {
-                    // 稽核寫不進去不影響重試。
+                    try
+                    {
+                        _audit.Record(
+                            "system",
+                            "camera.di.failed",
+                            AuditCategories.Recording,
+                            detail: DescribeFailure(ex.Message, consecutive));
+                    }
+                    catch (Exception auditEx) when (auditEx is IOException or Microsoft.Data.Sqlite.SqliteException)
+                    {
+                        // 稽核寫不進去不影響重試。
+                    }
                 }
 
                 Updated?.Invoke(this, EventArgs.Empty);
@@ -262,6 +286,15 @@ public sealed class CameraDiMonitor : IDisposable
             }
         }
     }
+
+    /// <summary>
+    /// 稽核說明。連續失敗次數只在第二次以後附加：第一次只是一行原因，
+    /// 而「已連續失敗 214 次」是操作員判斷「這是持續中的故障、不是剛才才壞」的依據。
+    /// </summary>
+    private string DescribeFailure(string message, long consecutive)
+        => consecutive > 1
+            ? $"{_deviceName}: {message}（已連續失敗 {consecutive} 次）"
+            : $"{_deviceName}: {message}";
 
     public void Dispose()
     {
