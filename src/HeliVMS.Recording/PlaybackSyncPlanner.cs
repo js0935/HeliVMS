@@ -83,7 +83,7 @@ public static class PlaybackSyncPlanner
     public const double MaxStartupLatencySeconds = 5;
 
     /// <summary>
-    /// 這一格該不該重新對時。
+    /// 這一格該不該重新對時（單輪判定，不含滯後；實際接線走 <see cref="EvaluateDrift"/>）。
     /// </summary>
     /// <remarks>
     /// <para>
@@ -109,6 +109,58 @@ public static class PlaybackSyncPlanner
         => waitingForFirstFrame
             ? secondsSinceStart > MaxStartupLatencySeconds
             : Math.Abs(driftSeconds) > toleranceSeconds;
+
+    /// <summary>
+    /// 連續幾輪（同步計時器 150ms 一次）超容差才真的重新對時。
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// 每一次重新對時都是一次 <c>StopPane</c> ＋ 重開 ffmpeg：畫面會黑掉數百毫秒。
+    /// 舊的接線只要單輪超出容差就重開，於是「解碼速度比母鐘慢一點」的那一格會在
+    /// 開啟→落後→重開→再落後之間反覆閃爍（現場看到的「畫面一直閃／重來」，
+    /// 日誌特徵是 <c>restarts</c> 每 5 秒大於 2 而 <c>drift</c> 只是略超容差）。
+    /// </para>
+    /// <para>
+    /// 連續三輪＝約 0.45 秒：真的落後（解碼跟不上、seek 偏差）撐不過三輪；
+    /// 單一輪的抖動（VFR 影格間距、一次 GC、磁碟忙）則不會換來一次黑畫面。
+    /// 判定仍然只有一份（<see cref="ShouldReseek"/>），這裡只加「要連續幾次」。
+    /// </para>
+    /// </remarks>
+    public const int DriftHysteresisTicks = 3;
+
+    /// <summary>
+    /// 一輪漂移判定（含滯後）：要不要重新對時，以及下一次的「連續超容差」計數。
+    /// </summary>
+    /// <remarks>
+    /// 呼叫端（<c>PlaybackWindow.SyncPanes</c>）每一格各持有一個計數，逐輪把
+    /// <c>Streak</c> 寫回；等待第一張影格期間（含「卡住」重開）一律歸零——
+    /// 那段期間的漂移是刻意補償出來的，累積它會讓首幀一到就立刻再重開一次。
+    /// </remarks>
+    /// <param name="driftSeconds">畫面上的時刻與母鐘的差（秒）。</param>
+    /// <param name="waitingForFirstFrame">這一格是否還在等第一張影格。</param>
+    /// <param name="secondsSinceStart">從按下播放起算的秒數。</param>
+    /// <param name="streak">前一輪累積的連續超容差次數。</param>
+    /// <param name="toleranceSeconds">容差（秒）。</param>
+    public static (bool Reseek, int Streak) EvaluateDrift(
+        double driftSeconds,
+        bool waitingForFirstFrame,
+        double secondsSinceStart,
+        int streak,
+        double toleranceSeconds = DefaultDriftToleranceSeconds)
+    {
+        if (waitingForFirstFrame)
+        {
+            return (ShouldReseek(driftSeconds, waitingForFirstFrame: true, secondsSinceStart, toleranceSeconds), 0);
+        }
+
+        if (!ShouldReseek(driftSeconds, waitingForFirstFrame: false, secondsSinceStart, toleranceSeconds))
+        {
+            return (false, 0);
+        }
+
+        var next = Math.Max(0, streak) + 1;
+        return (next >= DriftHysteresisTicks, next);
+    }
 
     /// <summary>
     /// 區段結束時刻。與時間軸色塊、事件比對、跳轉共用 <see cref="PlaybackSegmentTiming.EndOf"/>

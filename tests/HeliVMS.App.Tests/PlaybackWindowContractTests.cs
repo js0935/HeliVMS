@@ -395,10 +395,11 @@ public sealed class PlaybackWindowContractTests
     {
         var source = SourceContract.Read(Code);
 
-        // 該不該重新對時由排程核心判定（容差＋啟動視窗都在那裡）；視窗自己寫一個常數
+        // 該不該重新對時由排程核心判定（容差＋啟動視窗＋滯後都在那裡）；視窗自己寫一個常數
         // 或自己比 Math.Abs 就是「同一個決定有兩份」。
         var sync = SourceContract.BodyOf(source, "SyncPanes");
-        Assert.Contains("PlaybackSyncPlanner.ShouldReseek(", sync);
+        Assert.Contains("PlaybackSyncPlanner.EvaluateDrift(", sync);
+        Assert.DoesNotContain("Math.Abs(", sync);
         Assert.DoesNotContain("PaneDriftToleranceSec", source);
 
         // 跳轉位置＝要求位置＋該格量到的啟動延遲。
@@ -409,6 +410,28 @@ public sealed class PlaybackWindowContractTests
         // 比對整句指派而不是函式名：把結果乘 0 或丟掉照樣含有函式名，卻等於沒有量。
         var frame = SourceContract.BodyOf(source, "OnPaneFrame");
         Assert.Contains("pane.StartupLatencySeconds = PlaybackSyncPlanner.NextLatencyEstimate(", frame);
+    }
+
+    /// <summary>
+    /// 同步重開要有滯後：每一輪的計數要寫回那一格，重開（含換段）時要歸零。
+    /// </summary>
+    /// <remarks>
+    /// 排程核心的 <c>EvaluateDrift</c> 只是純函式；沒有把
+    /// <c>Streak</c> 寫回畫面格，每一輪都從 0 開始算＝回到「單輪超容差就重開 ffmpeg」，
+    /// 畫面一直閃而所有測試仍會全綠。
+    /// </remarks>
+    [Fact]
+    public void 同步重開的滯後計數會寫回該格且在重開時歸零()
+    {
+        var source = SourceContract.Read(Code);
+
+        var sync = SourceContract.BodyOf(source, "SyncPanes");
+        Assert.Contains("pane.DriftStreak = driftDecision.Streak;", sync);
+        Assert.Contains("driftDecision.Reseek", sync);
+
+        // 重開（對時跳轉、換段）之後舊的累積不屬於新的一段。
+        var play = SourceContract.BodyOf(source, "PlayPane");
+        Assert.Contains("pane.DriftStreak = 0;", play);
     }
 
     /// <summary>

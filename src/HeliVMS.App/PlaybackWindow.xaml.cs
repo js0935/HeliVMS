@@ -235,6 +235,15 @@ public partial class PlaybackWindow : Window
         /// <summary>最後量到的母鐘漂移（秒，正＝這一格超前；診斷用）。</summary>
         public double LastDriftSeconds { get; set; }
 
+        /// <summary>
+        /// 連續幾輪被判定超容差；達 <see cref="PlaybackSyncPlanner.DriftHysteresisTicks"/> 才重開。
+        /// </summary>
+        /// <remarks>
+        /// 沒有這個計數就是「單輪超容差就重開 ffmpeg」：解碼比母鐘慢一點的那一格會反覆
+        /// 開啟→落後→重開→再落後，畫面一直閃，而每一輪都只是幾百毫秒的黑畫面。
+        /// </remarks>
+        public int DriftStreak { get; set; }
+
         /// <summary>已經播到檔案結尾的區段 Id（0＝沒有）；見 <see cref="SyncPanes"/> 的說明。</summary>
         public long FinishedSegmentId { get; set; }
 
@@ -4445,16 +4454,23 @@ public partial class PlaybackWindow : Window
             var sinceStart = pane.StartedAtUtc is { } startedAt
                 ? (DateTime.UtcNow - startedAt).TotalSeconds
                 : 0;
+
+            // 出畫之後要連續幾輪超容差才真的重開：單輪抖動換來一次黑畫面，畫面看起來就是
+            // 「一直閃／重來」（見 PlaybackSyncPlanner.DriftHysteresisTicks）。
+            var driftDecision = PlaybackSyncPlanner.EvaluateDrift(
+                drift,
+                pane.StartedAtUtc is not null,
+                sinceStart,
+                pane.DriftStreak,
+                SyncToleranceSeconds());
+            pane.DriftStreak = driftDecision.Streak;
+
             var restart = force
                 || pane.Session is null
                 || pane.Current is null
                 || pane.Current.Id != cursor.Value.Segment.Id
                 || paneUtc is null
-                || PlaybackSyncPlanner.ShouldReseek(
-                    drift,
-                    pane.StartedAtUtc is not null,
-                    sinceStart,
-                    SyncToleranceSeconds());
+                || driftDecision.Reseek;
 
             if (restart)
             {
@@ -4594,6 +4610,10 @@ public partial class PlaybackWindow : Window
 
         pane.Current = segment;
         pane.FinishedSegmentId = 0;
+
+        // 重新對時的滯後計數從零開始：舊的累積屬於上一次播放，留著會讓新的一段
+        // 在第一輪就被判定要重開。
+        pane.DriftStreak = 0;
 
         // 加上這一格自己的啟動延遲：第一張影格才會落在正確的時刻上（見 StartupLatencySeconds）。
         var offset = PlaybackSyncPlanner.CompensatedOffset(offsetSeconds, pane.StartupLatencySeconds);

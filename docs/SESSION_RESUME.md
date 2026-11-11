@@ -4,6 +4,25 @@
 > 權威來源：`git` 與 GitHub Actions 的現況（不是聊天記錄）。
 > 所有里程碑均已 commit＋push、CI 全綠、工作目錄乾淨（下方數據皆為驗證過的真實值）。
 
+> **【追加 2026-11-11】多路回放：同步重啟的滯後（`docs/PLAYBACK-PERFORMANCE.md` §5 候選 1）**
+>
+> 現場「畫面一直閃／重來」的成因不是解碼慢，而是**單輪超容差就重開 ffmpeg**：解碼只比母鐘慢
+> 一點點的那一格會在 開啟→落後→重開→再落後 之間反覆，每一輪都是數百毫秒黑畫面。
+> - `PlaybackSyncPlanner.DriftHysteresisTicks`＝3（同步計時器 150ms → 約 0.45 秒）＋
+>   `EvaluateDrift(drift, waiting, sinceStart, streak, tolerance)` 一次回傳「要不要重開」與
+>   「下一次的連續超容差次數」；容差判定仍然只有 `ShouldReseek` 一份。
+> - `PlaybackWindow.Pane.DriftStreak` 逐輪寫回、`PlayPane` 歸零；**等待首幀期間（含「卡住」）
+>   一律歸零**——否則首幀一到就固定再閃一次。
+> - 守門：`超容差要連續三輪才重新對時`、`回到容差內會把滯後計數歸零`、
+>   `等待首張影格期間不累積滯後但卡住仍會重開`（Recording）、
+>   `同步重開的滯後計數會寫回該格且在重開時歸零`（App 契約）。
+>   突變檢查：`EvaluateDrift` 改成一律 `return (true, next)` → Recording 2 紅；
+>   拿掉 `pane.DriftStreak = driftDecision.Streak;` 與 `pane.DriftStreak = 0;` → App 契約紅。
+> - 驗證：Release build 0/0、Recording 391 綠、App 851 綠（唯一紅是 `SolutionCoverageTests`，
+>   原因是**未追蹤的** `Tools/LicenseKeyGen` 留在磁碟上；CI 看不到未追蹤檔，與本次改動無關）。
+> - 下一步候選不變（依序）：GPU 管線需有 GPU 的機器先量 → `PLAYBACK-ALIGNMENT` §4 缺口 4
+>   （本機／遠端同一引擎）→ QCTek P0 需正常 D3D 桌面。
+
 > **【整合更新 2026-11-11】儲存對照 ＋ 回放對照 ＋ 鏡像牆三輪（全部 commit＋push，CI 逐筆確認 success）**
 >
 > **一、儲存方式對照 `D:\SDK\REA`（使用者指示「HeliVMS 的儲存方式 參考 d:\SDK\REA」）**

@@ -329,8 +329,15 @@ Notes that will save you time:
   那時的「目前時刻」就是刻意超前的跳轉位置，與母鐘比一定超出容差，照判會每一輪重開 ffmpeg、
   畫面永遠起不來；等待期間只處理「卡住」（超過 `MaxStartupLatencySeconds` 才重開一次）。
   只調容差會讓啟動慢的那格永遠追不上並每輪重開；只補償不縮容差則仍然看得到各播各的。
+  **重新對時要有滯後**：單輪超容差就重開 ffmpeg，等於「解碼比母鐘慢一點」的那一格在
+  開啟→落後→重開→再落後之間反覆，畫面一直閃（日誌 `restarts` 每 5 秒 > 2 而 `drift` 只是略超）。
+  `PlaybackSyncPlanner.EvaluateDrift` 把「要不要重開」與「連續超容差次數」一起回傳，
+  達 `DriftHysteresisTicks`＝3（約 0.45 秒）才真的重開；計數要逐輪寫回該格
+  （`PlaybackWindow.Pane.DriftStreak`）並在 `PlayPane` 歸零，否則每輪都從 0 算＝滯後形同不存在、
+  所有測試仍全綠。等待首幀期間（含「卡住」）一律歸零，否則首幀一到就固定再閃一次。
   Guarded by `PlaybackSyncTimingTests`,
-  `多路同步用共用容差且跳轉補上啟動延遲` and `次畫面以母鐘解算且空隙不硬跳別段`.
+  `多路同步用共用容差且跳轉補上啟動延遲`, `同步重開的滯後計數會寫回該格且在重開時歸零`
+  and `次畫面以母鐘解算且空隙不硬跳別段`.
 - **The playback clock is the file's own frame timestamps, never `frame index ÷ nominal fps`.**
   Real recordings do not deliver at their nominal rate: measured on the live system, one camera's
   segments mix 67 ms and 100 ms spacing (12.5 fps effective, `r_frame_rate` 15) and another

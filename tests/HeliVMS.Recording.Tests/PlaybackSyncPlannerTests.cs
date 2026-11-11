@@ -96,6 +96,87 @@ public sealed class PlaybackSyncTimingTests
         // 10–30fps 下 4–12 張影格；再大就是「各播各的」，再小則解碼啟動抖動會不斷重開 ffmpeg。
         Assert.InRange(PlaybackSyncPlanner.DefaultDriftToleranceSeconds, 0.2, 0.5);
     }
+
+    /// <summary>
+    /// 超容差要連續幾輪才真的重新對時——不是一輪就重開 ffmpeg。
+    /// </summary>
+    /// <remarks>
+    /// 現場症狀是「畫面一直閃／重來」，日誌裡 <c>restarts</c> 每 5 秒大於 2，而 <c>drift</c>
+    /// 只是略超容差：解碼比母鐘慢一點的那一格在 開啟→落後→重開→再落後 之間反覆，
+    /// 每一輪都是幾百毫秒的黑畫面，看起來比「稍微不同步」更糟。
+    /// </remarks>
+    [Fact]
+    public void 超容差要連續三輪才重新對時()
+    {
+        const double tolerance = PlaybackSyncPlanner.DefaultDriftToleranceSeconds;
+        const double drift = 0.6; // 超出 0.4 秒的容差
+        Assert.True(PlaybackSyncPlanner.DriftHysteresisTicks >= 2);
+
+        var streak = 0;
+        var reseeks = 0;
+        for (var tick = 1; tick <= PlaybackSyncPlanner.DriftHysteresisTicks; tick++)
+        {
+            var decision = PlaybackSyncPlanner.EvaluateDrift(
+                drift, waitingForFirstFrame: false, secondsSinceStart: 10, streak, tolerance);
+            streak = decision.Streak;
+            if (decision.Reseek)
+            {
+                reseeks++;
+                Assert.Equal(PlaybackSyncPlanner.DriftHysteresisTicks, tick);
+            }
+        }
+
+        // 只有最後那一輪會重開；前兩輪只是記帳。
+        Assert.Equal(1, reseeks);
+        Assert.Equal(PlaybackSyncPlanner.DriftHysteresisTicks, streak);
+    }
+
+    [Fact]
+    public void 回到容差內會把滯後計數歸零()
+    {
+        const double tolerance = PlaybackSyncPlanner.DefaultDriftToleranceSeconds;
+
+        // 兩輪超容差之後回到容差內：計數歸零，下一次超容差要重新數滿三輪。
+        var first = PlaybackSyncPlanner.EvaluateDrift(0.6, false, 10, 0, tolerance);
+        var second = PlaybackSyncPlanner.EvaluateDrift(0.6, false, 10, first.Streak, tolerance);
+        Assert.Equal(2, second.Streak);
+        Assert.False(second.Reseek);
+
+        var back = PlaybackSyncPlanner.EvaluateDrift(0.1, false, 10, second.Streak, tolerance);
+        Assert.Equal(0, back.Streak);
+        Assert.False(back.Reseek);
+
+        // 抖動（時好時壞）因此永遠不會累積到門檻——這正是要的：不換來黑畫面。
+        Assert.False(PlaybackSyncPlanner.EvaluateDrift(0.6, false, 10, back.Streak, tolerance).Reseek);
+    }
+
+    /// <summary>
+    /// 等待第一張影格期間（含「卡住」）不累積滯後計數，卡住仍然立即重開。
+    /// </summary>
+    /// <remarks>
+    /// 那段期間的漂移是刻意超前補償出來的（見 <see cref="PlaybackSyncPlanner.CompensatedOffset"/>）：
+    /// 若照樣累積，第一張影格一到就會立刻再重開一次，變成每次開播都固定閃兩下。
+    /// </remarks>
+    [Fact]
+    public void 等待首張影格期間不累積滯後但卡住仍會重開()
+    {
+        const double tolerance = PlaybackSyncPlanner.DefaultDriftToleranceSeconds;
+
+        // 剛開播：漂移看起來很大（補償量），但不判定、也不記帳。
+        var starting = PlaybackSyncPlanner.EvaluateDrift(0.9, waitingForFirstFrame: true, secondsSinceStart: 0.3, streak: 2, tolerance);
+        Assert.False(starting.Reseek);
+        Assert.Equal(0, starting.Streak);
+
+        // 卡住超過啟動延遲上限：立即重開一次，滯後計數同樣歸零。
+        var stuck = PlaybackSyncPlanner.EvaluateDrift(
+            0.9,
+            waitingForFirstFrame: true,
+            secondsSinceStart: PlaybackSyncPlanner.MaxStartupLatencySeconds + 0.1,
+            streak: 2,
+            tolerance);
+        Assert.True(stuck.Reseek);
+        Assert.Equal(0, stuck.Streak);
+    }
 }
 
 public sealed class PlaybackSyncPlannerTests
