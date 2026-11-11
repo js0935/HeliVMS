@@ -9,14 +9,26 @@ namespace HeliVMS.Devices.Tests;
 /// GetCapabilities 路徑精確解析與 Category 回退、XAddr 埠校正、Media 路徑探測、
 /// Profile 解析度／主子碼流、暫時性錯誤重試。
 /// </summary>
+[Collection(OnvifPtzCacheCollection.Name)]
 public class OnvifServiceCompatibilityTests
 {
     private const string DeviceXAddr = "http://192.168.1.64/onvif/device_service";
     private const string DigestChallenge =
         "Digest realm=\"IPC-Camera\", nonce=\"abc123\", qop=\"auth\", algorithm=MD5, opaque=\"op\"";
 
+    static OnvifServiceCompatibilityTests()
+    {
+        // PTZ 能力解析結果現在有跨實例快取（見 OnvifDeviceService.PtzCapabilityCache）；
+        // xunit 會跑同類別的多支測試，靜態快取會把第一支的解析結果留給後面所有測試，
+        // 「每次解析都要走 X 個往返」的斷言從第二支起全數失真。每支測試建構時清一次。
+        OnvifDeviceService.ResetPtzCapabilityCacheForTests();
+    }
+
     private static readonly OnvifClientOptions NoRetry =
         OnvifClientOptions.Default with { RetryCount = 0, RetryDelay = TimeSpan.Zero };
+
+    /// <summary>每支測試都要從乾淨的能力快取開始（見靜態建構式的說明）。</summary>
+    public OnvifServiceCompatibilityTests() => OnvifDeviceService.ResetPtzCapabilityCacheForTests();
 
     // ---- 認證：HTTP Digest / Basic ----
 

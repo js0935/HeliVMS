@@ -1044,6 +1044,25 @@ Notes that will save you time:
   tray-restore path (`maximize: false`) deliberately stays quiet — the operator initiated it.
   Balloon failures (RDP sessions without a notification centre) are swallowed; waking must
   never depend on the toast. Guarded by `被喚醒的舊實例會用氣泡亮出自己的啟動時刻`.
+- **PTZ capability resolution is cached across service instances — per-command re-resolution
+  is a measured joystick-latency tax.** Field data (`%TEMP%\helivms-onvif-ptz.log`, now
+  bounded at 512 KB — it had grown to 1.7 MB unbounded): 2,328 `resolve begin` entries in one
+  day, each costing 2–4 ONVIF HTTP round trips (GetCapabilities + GetNodes verification),
+  because every Web API PTZ command and every patrol step constructs a fresh
+  `OnvifDeviceService` and the resolved `PtzXAddr` lived only on the instance. On the
+  public-IP camera each extra round trip is 0.5–1 s — the joystick felt broken through no
+  fault of the motion code. `EnsurePtzCapabilityAsync` now consults a process-wide cache
+  (key = device XAddr, TTL 10 min via `PtzCapabilityTtl`) that stores **the chosen WSDL
+  namespace alongside the XAddr** — a ver20-only camera's namespace is discovered during
+  verification, and caching only the XAddr would make every new instance fall back to ver10
+  and fail wholesale (the VIVOTEK speed-dome lesson). The "no PTZ" verdict is cached too:
+  unsupported is the steady state, re-probing it per command pays the same round trips for
+  nothing. Tests pinning exact round-trip counts live in the `onvif-ptz-cache` collection
+  (`DisableParallelization` — the static cache is process-global state; two classes
+  resetting/resolving concurrently fail randomly), and every such class resets in its
+  constructor. Known remaining per-command cost: one `GetProfiles` round trip when the
+  caller supplies no profile token. Guarded by `第二個實例沿用快取的PTZ能力而不是重新解析`,
+  `ver20設備的命名空間隨能力一起快取`, `不支援PTZ的判定也會被快取` and `快取逾期後會重新解析`.
 - **Pick the sub stream by stream number, never by a magic number in the name.** `OnvifProfileSelection`
   used to carry `"101"` in `MainKeywords` and `"102"` in `SubKeywords`, matched as plain substrings.
   The real camera at `rtsp://<host>/media/stream.sdp?profile=Profile100` exposes three profiles —

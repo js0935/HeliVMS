@@ -340,9 +340,12 @@ public sealed partial class OnvifDeviceService : IDisposable
     {
         try
         {
-            File.AppendAllText(
+            // 有界日誌：現場一個月累到 1.7 MB（每天最多一萬行的解析循環）。診斷記錄只需要
+            // 最近這段時間的行為，無界的檔案只會越長越難看。
+            HeliVMS.Shared.BoundedFileLog.Append(
                 PtzDiagnosticLogPath,
-                $"{DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss.fff} {message}{Environment.NewLine}");
+                $"{DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss.fff} {message}{Environment.NewLine}",
+                512 * 1024);
         }
         catch (IOException)
         {
@@ -352,6 +355,30 @@ public sealed partial class OnvifDeviceService : IDisposable
         }
     }
 
+    /// <summary>
+    /// 跨實例的 PTZ 能力快取（device XAddr → 解析結果）。PTZ 的 HTTP 進入點
+    /// （Web API 每條命令、巡邏）都會 <c>new OnvifDeviceService</c>，而
+    /// <see cref="EnsurePtzCapabilityAsync"/> 原本只在單一實例內記住解析結果——
+    /// 實測現場一天 2328 次 resolve（每一次都是 GetCapabilities ＋ GetNodes 驗證的
+    /// 2–4 個 HTTP 往返），慢的公網攝影機上每條搖桿命令因此多等 1–2 秒。
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// 快取內容含<b>選定的 WSDL 命名空間</b>：ver20-only 設備（實測 VIVOTEK 快速球）的
+    /// 命名空間是驗證時才判定出來的，只快取 XAddr 的話，新實例會退回 ver10 送動作而
+    /// 整批失敗。TTL 兜底處理攝影機換位址／重啟的少數情況；「不支援 PTZ」的判定
+    /// 一併快取——不支援就是支援的常態，每條命令重新探測同樣是白付的往返。
+    /// </para>
+    /// </remarks>
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, (string PtzXAddr, string Wsdl, DateTime ResolvedUtc)>
+        PtzCapabilityCache = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>能力快取的效期。internal 可寫僅供測試（壓成 0 驗證「逾期後重新解析」）。</summary>
+    internal static TimeSpan PtzCapabilityTtl { get; set; } = TimeSpan.FromMinutes(10);
+
+    /// <summary>清空能力快取（測試用）：測試之間不得互相繼承解析結果。</summary>
+    internal static void ResetPtzCapabilityCacheForTests() => PtzCapabilityCache.Clear();
+
     private static string Show(string? xAddr) => string.IsNullOrEmpty(xAddr) ? "(none)" : xAddr;
 
     /// <summary>確保已解析 PTZ 服務位址（GetCapabilities Category=All，再回退 Category=PTZ）。</summary>
@@ -359,6 +386,15 @@ public sealed partial class OnvifDeviceService : IDisposable
     {
         if (PtzXAddr is not null)
         {
+            return;
+        }
+
+        var cacheKey = DeviceXAddr;
+        if (PtzCapabilityCache.TryGetValue(cacheKey, out var cached) &&
+            DateTime.UtcNow - cached.ResolvedUtc < PtzCapabilityTtl)
+        {
+            PtzXAddr = cached.PtzXAddr;
+            _ptzWsdl = cached.Wsdl.Length > 0 ? cached.Wsdl : Tptz;
             return;
         }
 
@@ -406,6 +442,10 @@ public sealed partial class OnvifDeviceService : IDisposable
             {
                 LogPtz($"resolved PtzXAddr={Show(PtzXAddr)} HasPtz={PtzXAddr.Length > 0}");
             }
+
+            // 解析結果（含「不支援」）跨實例快取：Web API 每條 PTZ 命令都是新實例，
+            // 沒有這裡的話每次命令都重付 2–4 個 HTTP 往返（實測一天 2328 次 resolve）。
+            PtzCapabilityCache[cacheKey] = (PtzXAddr, _ptzWsdl.ToString(), DateTime.UtcNow);
         }
         finally
         {

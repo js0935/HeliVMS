@@ -5,6 +5,7 @@ using HeliVMS.Devices.Ptz;
 
 namespace HeliVMS.Devices.Tests;
 
+[Collection(OnvifPtzCacheCollection.Name)]
 public class OnvifPtzExecutorTests
 {
     private const string Cap = @"{0}<d:GetCapabilitiesResponse xmlns:d=""http://www.onvif.org/ver10/device/wsdl""><d:Capabilities><d:PTZ><d:XAddr>http://dev/ptz</d:XAddr></d:PTZ></d:Capabilities></d:GetCapabilitiesResponse>{1}";

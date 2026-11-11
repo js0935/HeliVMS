@@ -4,6 +4,24 @@
 > 權威來源：`git` 與 GitHub Actions 的現況（不是聊天記錄）。
 > 所有里程碑均已 commit＋push、CI 全綠、工作目錄乾淨（下方數據皆為驗證過的真實值）。
 
+> **【追加 2026-11-12（之十三）】PTZ 能力解析一天 2328 次——每條搖桿命令都在重付 2–4 個 HTTP 往返**
+>
+> 之十二後接著掃 `%TEMP%\helivms-onvif-ptz.log`（1.7 MB、無界）：10-19 一天 10109 行，
+> 其中 **2328 次 `resolve begin`**。原因：Web API 的每條 PTZ 命令、巡邏的每一步都
+> `new OnvifDeviceService`，而 `EnsurePtzCapabilityAsync` 的解析結果（PtzXAddr＋驗證
+> 選出的 WSDL 命名空間）只活在單一實例內——每條命令重付 GetCapabilities＋GetNodes
+> 的 2–4 個往返，公網攝影機上每條搖桿命令多等 1–2 秒。
+> - `EnsurePtzCapabilityAsync` 現在走行程級快取（key＝device XAddr，TTL 10 分鐘），
+>   內容**含命名空間**：ver20-only 設備（VIVOTEK 快速球）的命名空間是驗證時才判定的，
+>   只快 XAddr 的話新實例退回 ver10、動作整批失敗。「不支援 PTZ」的判定也在快取裡——
+>   不支援是常態，每條命令重探測同樣白付。TTL 兜底處理攝影機換位址／重啟。
+> - PTZ 日誌改走 BoundedFileLog（512 KB）：診斷記錄只需要最近這段，無界只會越長越難查。
+> - 測試隔離的坑：靜態快取是行程級狀態，xunit 以集合為並行單位——同位址的測試類別
+>   必須進 `onvif-ptz-cache` 集合（DisableParallelization）並在建構式重置，否則
+>   「每次解析走 X 個往返」的斷言隨機失敗（本輪就紅了 5 支既有的相容性測試）。
+> - 突變驗證「不寫快取」紅後還原。已知每條命令剩下的成本：未帶 profileToken 時的
+>   一次 GetProfiles 往返。測試：Devices 274 全綠。
+>
 > **【追加 2026-11-12（之十二）】「重啟」常常沒有真的重啟——被喚醒的舊實例必須自報行程年齡**
 >
 > 之十一的考古結論落在桌面單一實例的 UX 陷阱：第二次啟動會喚醒舊行程並把視窗滿版帶回前景，
