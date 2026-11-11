@@ -4,6 +4,89 @@
 > 權威來源：`git` 與 GitHub Actions 的現況（不是聊天記錄）。
 > 所有里程碑均已 commit＋push、CI 全綠、工作目錄乾淨（下方數據皆為驗證過的真實值）。
 
+> **【整合更新 2026-11-11】儲存對照 ＋ 回放對照 ＋ 鏡像牆三輪（全部 commit＋push，CI 逐筆確認 success）**
+>
+> **一、儲存方式對照 `D:\SDK\REA`（使用者指示「HeliVMS 的儲存方式 參考 d:\SDK\REA」）**
+> - 新增 `docs/STORAGE-ALIGNMENT.md`：QCV8001 的目錄／索引／容量公式／回收／CMS ASR／備份
+>   全部標了出處（`QC_Record!FUN_180006560` 重建出 `.idx` 精確版型；`GetRecordReservedBytes`
+>   與 `FUN_18000ab50` 的容量公式）。同時更正 `QCV8001-BEHAVIOUR-SPEC.md` §2.1 的誤記
+>   （「100 槽 × 60 bytes」→ 3600 bytes＝60 分鐘 × 60 bytes，1 byte/秒，低 4 bit 為型別）。
+> - **缺口 1 落地**：剩餘可錄時間（`RecordingCapacity` 三態 known／at_reserve／unknown＋
+>   `RecordingCapacityService`＋`RecordingVolume` 共用寫入量）。**未知顯示「—」而不是 0**；
+>   速率分母是「最早段起點→現在」（半小時前才開始錄不會被算成兩倍）。設定頁＋
+>   `GET /api/recording/capacity`。
+> - **規劃面落地**：`RecordingCapacityPlanner`（Plan／DisksRequired／Evaluate）。過程中發現
+>   `ARCHITECTURE.md` §11.2 的範例 **518 TB 差了 10 倍**（正解 51.84 TB），已更正並由測試釘住。
+> - **第二輪（設定鍵）**：`EventReserveDays` 的實際語意是**事件／警報／車牌「日誌」保管天數**
+>   （`QC_Schedule::RecycleEventLog` → `RecycleLog(days)`；實機值 184），**不是錄影保留**——
+>   命名會騙人，已在文件標明；`RecFileSeconds`／`RecStorage`／`FileSizeLimit`／
+>   `ShutdownAfterRecordStopping`／`BackupPlayer` 逐項歸類（§5.2）。
+> - **配額汰除順序修正**：`ListReclaimCandidates` 原本讓「事件模式」段**先被刪**（前提是
+>   「事件段是全時段的補充」——但我們的錄影模式**互斥**，事件模式頻道那些片段是它**唯一**的
+>   畫面）。改成事件段排最後，並補「只剩事件段仍超額時仍會由舊至新汰除」的測試。
+> - **磁碟健康（S.M.A.R.T.）**：`DiskHealth`（ATA 屬性解析＋四級）＋`WmiDiskHealthSource`
+>   （逐段 fail-open）＋`DiskHealthCoordinator`（只回報錄影碟、等級改變才稽核）。
+>   **`Unknown` 與 `Healthy` 分開**——讀不到 S.M.A.R.T. 顯示「未提供」，不是綠色。
+>   桌面每小時迴圈／Agent／設定頁／`GET /api/system/disk-health` 都接上。
+>   （參考側有 SMART 頁但取樣機制**無證據**，文件標明此項為自建、非協議對齊。）
+> - **磁碟滿閘門補上手動錄影**：`ChannelSession.SetRecordingAsync` 原本只問授權，滿碟上按錄影
+>   會建出一台每段都失敗的錄影機而 REC 徽章亮著（`IsRecording` 只看迴圈有沒有結束）。
+>   現在與排程同一道 `ShouldStopNewRecording`；`RecordingGateResult.DiskFull` 讓
+>   `LicenseLimitNotifier` 不把它記成「已達授權上限」。契約比對 **`if (…)` 形狀**而非裸字串
+>   （第一版被說明註解餵飽、突變不會紅——已記在 AGENTS.md）。
+>
+> **二、回放架構對照（自主模式：把 REA 的「錄影回放架構核心」重寫進 HeliVMS）**
+> - 新增 `docs/PLAYBACK-ALIGNMENT.md`：REA 四層（`QC_Playback.exe` 外殼／`QC_Player` 引擎／
+>   `NVRPlayback` 檢索 UI／`QC_RM_Player` 遠端）＋逐項對照（本機／遠端來源抽象是最大缺口）
+>   ＋施工順序。**已完成四項**：
+>   ① **倒轉播放**（REA 的「快／慢／倒／逐格」家族最後一塊）：`PlaybackReversePump`（步長＝
+>   速度×0.25s 夾 0.25–4s；落點共用 `PlaybackSeekPlanner.Resolve(forward:false)`；到當日開頭
+>   回 `ReachedStart` 且**不繞回**最後一段）＋`PlaybackWindow` 按鈕與 250ms 節拍。
+>   ② **節拍保護**：上一步首幀未到就跳過（`ShouldSkipBeat`），連續跳過 8 拍＝2 秒收工並說原因。
+>   ③ **書籤時間軸刻度**（黃 2px，與事件白 1px 分色）。④ **事件依類別分色**：
+>   `TimelineEventPalette`（11 類收 6 色，分類沿用 `EventTaxonomy.CategoryOf`）。
+> - 新增 `docs/PLAYBACK-PERFORMANCE.md`：業界三條路線（每格獨立／單一來源多消費者如 go2rtc／
+>   GPU 管線）、我們已量測的基線、**為什麼不直接改用 QCV8001 的播放方式**（解碼層同一套
+>   FFmpeg；它的優勢是 GPU 管線＋DirectX 疊層＝路線 C；代價是失去行程隔離並必須保留 CPU 後備）、
+>   以及「卡頓／不同步各有四種成因」的日誌判讀表。**多路回放預算已顯示在 UI**
+>   （「每格 480px · 上限 10 fps」；36 格以上顯示「總覽模式：只解關鍵影格」），
+>   數字全取自 `PlaybackWallBudget`。
+>
+> **三、QC_Live 對齊：第二螢幕鏡像牆三輪**：①可選分割 1/2/4/9/16＋`wall.mirror.split` 記憶＋
+> 螢幕拔插（`DisplaySettingsChanged`，所在螢幕消失就搬到另一個非主螢幕、都沒了就關窗）＋
+> 關窗同步取消主視窗勾選；②徽章與錄影方式指示燈**由主牆推**（同一個一秒節奏）；
+> ③**獨立頻道來源**（`wall.mirror.group`：跟隨頁簽或固定某個監看群組）——為此影格改在
+> **格位過濾之前按頻道轉發**（指定群組的頻道 `Cell = -1`），且轉發在解碼執行緒上，
+> `WritePixels` 一律排回 UI 執行緒（`PostFrame` → `RenderCell`）。
+>
+> **四、WinUI 3 評估（結論：不建議整站升級）**：量化事實＝App 79 個 `.cs`／32,831 行＋51 個
+> `.xaml`／7,390 行、`WriteableBitmap`×15、`Dispatcher`×154、`Topmost`×8、`Screen`×8、
+> 830 條**掃原始碼**的契約測試。理由：顯示路徑與所有量測結論要重來、WinUI 3 **強制**
+> Composition/DirectX（本機／現場有 `wpf=0` 的無 GPU 情境，WPF 至少能軟繪後備）、
+> 契約測試全失效、21 個無框最大化視窗要重做、部署與 CI 要重做；且 WPF 與 WinUI 3
+> **無法混搭**（XamlIsland 不支援 WPF 宿主）。若要做，先做「獨立小工具 exe」試點並量三個數字
+> （啟動時間、遠端桌面能否顯示、封裝體積）。
+>
+> **測試與 CI 現況**：Shared 477、App 848、Storage 1457、Recording 388、Api 273 全綠
+> （每個新守門都做過突變檢查：改壞確認會紅再還原）。
+> 今日 commit（依序）：`c9e25e5` `8075e48` `0adb28a` `7c2bcae` `a8e28f5` `a55143d` `4dc5ec8`
+> `bb044b2` `cd49632` `dcc50d4` `a4231fc` `4c8674a` `62b1bb7` `f5012c3` `720de9a` `5ff10aa`
+> `18ddbf0`——**除最後兩個外都已由 `gh run list` 確認 success**。
+>
+> **下一步候選**（依價值）：
+> 1. `docs/PLAYBACK-PERFORMANCE.md` §5 候選 1：同步重啟的滯後（`restarts` 高時每次重啟都是一次
+>    黑畫面）——低風險、可用既有日誌量測。
+> 2. 候選 3：GPU 管線（**僅在偵測到可用 GPU 時**；本機 `scale_d3d11` 失敗過，需有 GPU 的機器先量）。
+> 3. `docs/PLAYBACK-ALIGNMENT.md` §4 缺口 4：來源抽象（本機／遠端同一引擎）。
+> 4. QCTek 線：P0 需正常 D3D 桌面才能目視驗證；P5 選配缺 CMS 端證據。
+>
+> **工作約定（新 session 必讀）**：思考與回覆一律**繁體中文**；使用者要求**自主模式**
+> （持續開發、不逐項確認、自動進入下一輪）；**不可動**未追蹤的 `Tools/授權.rar`、`Tools/授權/`；
+> 測試一次跑**一個專案**（`HeliVMS.Media`／`Storage`／`Rtc` 會互相搶檔與 ffmpeg）；
+> 測試名用繁中句子；新增守門**必須先突變驗證**；提交訊息用繁中時走
+> `git commit -F <檔>`（經 shell 會被 scanner 擋）；量測**交錯 A/B ≥5 輪取中位數**
+> （本機單次在 30.4–39.6 s 之間漂移）；已否證清單見 `docs/LIVEVIEW.md` §3.4。
+>
 > **【整合更新 2026-11-04】M319–M323 已 commit＋push（`665a574`，新一輪 CI 經 `gh run view` 確認 success）**：
 > ①**空間治理語意改為「磁碟保留空間」**（`recording.min_free_bytes`，預設 2 GiB；設定中心「儲存」頁寫入與顯示）：保留的是「至少留多少可用」，由 `RetentionService.ApplyPressure` 汰除。
 > 舊的總量配額（`recording.quota_gb`）停用：`Apply` 以 `if (quotaBytes > 0)` 守衛，0／負值代表「停用」而不是「刪光」（原寫法 `while (usage > quotaBytes)` 會把整顆錄影刪光而畫面寫「已套用」）。
