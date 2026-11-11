@@ -1031,6 +1031,19 @@ Notes that will save you time:
   Guarded by `一個來源失敗不會吞掉另一個來源收到的段且會留下日誌` (asserts the source name in
   the log), `來源被取消時回報零段而不是讓例外冒出來` and
   `ffmpeg不理收尾請求時收檔逾時回false而不是TaskCanceledException`.
+- **A woken instance must identify itself — "restart" often isn't.** The single-instance wake
+  (`BringToFront(maximize: true)`) makes the old window fill the screen exactly like a fresh
+  launch, and the second process exits silently: the operator has no way to tell whether their
+  update took effect. The 164-entry finalize-failure log proves a 10-30-era process can survive
+  into 11-12 this way (close-to-tray + wake keeps the *original* process; the splash/login
+  relaunch path too). `MainWindow.BringToFront(maximize: true)` now shows a tray balloon
+  (`TrayIconHost.ShowBalloon`, `Main.WakeTitle`/`Main.WakeBody`, 3 languages) with **this
+  process's start time** — an instance running for days is visible at a glance, and the text
+  says "if you just updated, this is still the old build: exit from the tray and start again".
+  No start time (near-impossible) → no balloon: an info-free hint is worse than no hint. The
+  tray-restore path (`maximize: false`) deliberately stays quiet — the operator initiated it.
+  Balloon failures (RDP sessions without a notification centre) are swallowed; waking must
+  never depend on the toast. Guarded by `被喚醒的舊實例會用氣泡亮出自己的啟動時刻`.
 - **Pick the sub stream by stream number, never by a magic number in the name.** `OnvifProfileSelection`
   used to carry `"101"` in `MainKeywords` and `"102"` in `SubKeywords`, matched as plain substrings.
   The real camera at `rtsp://<host>/media/stream.sdp?profile=Profile100` exposes three profiles —

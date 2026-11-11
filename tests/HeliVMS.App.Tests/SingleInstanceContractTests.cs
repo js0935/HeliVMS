@@ -190,4 +190,40 @@ public sealed class SingleInstanceContractTests
         Assert.Contains("_singleInstance", body);
         Assert.Contains("Dispose", body);
     }
+
+    /// <summary>
+    /// 被喚醒的舊實例必須用系統匣氣泡告知操作員「這是同一個行程」。
+    ///
+    /// <para>
+    /// 喚醒的畫面與真正啟動一模一樣（滿版回前景），第二個行程靜靜退出——操作員無從
+    /// 分辨「更新有沒有生效」。2026-11 現場：一個 10-30 的舊行程活到 11-12，期間的
+    /// 修復原始碼裡早就在，操作員卻一直跑沒有它的版本（164 筆收檔失敗日誌）。氣泡帶
+    /// 本行程的啟動時刻，執行了好幾天一眼就看出來。
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void 被喚醒的舊實例會用氣泡亮出自己的啟動時刻()
+    {
+        var source = SourceContract.Read(Main);
+        var body = SourceContract.BodyOf(source, "BringToFront");
+
+        // 氣泡屬於「重複啟動」分支：系統匣還原（else if 之後）不需要它。
+        var maximizeAt = body.IndexOf("if (maximize)", StringComparison.Ordinal);
+        var trayAt = body.IndexOf("else if", StringComparison.Ordinal);
+        Assert.True(maximizeAt >= 0 && trayAt > maximizeAt, "找不到 if (maximize) 分支");
+        Assert.Contains("ShowWakeBalloon()", body[maximizeAt..trayAt]);
+
+        var wake = SourceContract.BodyOf(source, "ShowWakeBalloon");
+        Assert.Contains("Process.GetCurrentProcess()", wake);
+        Assert.Contains("StartTime", wake);
+        Assert.Contains("Main.WakeTitle", wake);
+        Assert.Contains("Main.WakeBody", wake);
+        // 拿不到啟動時刻就靜靜不提示：沒有資訊的提示比沒有提示更糟。
+        Assert.Contains("return", wake);
+
+        // 文案必須走 i18n（三語都要有鍵），且托盤要有對應的氣泡入口。
+        var i18n = SourceContract.Read("src/HeliVMS.Storage/I18n.cs");
+        Assert.Equal(3, System.Text.RegularExpressions.Regex.Matches(i18n, "\"Main.WakeBody\"").Count);
+        Assert.Contains("void ShowBalloon(string title, string text)", SourceContract.Read("src/HeliVMS.App/TrayIconHost.cs"));
+    }
 }

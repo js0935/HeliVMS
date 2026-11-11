@@ -694,6 +694,7 @@ public partial class MainWindow : Window
                 ? WindowState.Normal
                 : WindowState;
             WindowState = WindowState.Maximized;
+            ShowWakeBalloon();
         }
         else if (WindowState == WindowState.Minimized)
         {
@@ -715,6 +716,40 @@ public partial class MainWindow : Window
         }
 
         Activate();
+    }
+
+    /// <summary>
+    /// 重複啟動被喚醒時，用系統匣氣泡告訴操作員「這是同一個行程，不是新的」。
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// 喚醒的畫面與真正啟動一模一樣（視窗滿版回到前景），而單一實例守衛讓第二次啟動
+    /// 靜靜退出——操作員完全無從分辨「我的更新有沒有生效」。2026-11 的現場教訓：一個
+    /// 10-30 的舊行程活到 11-12，期間「回放前收檔」的修復在原始碼裡早就存在，操作員
+    /// 卻始終跑著沒有它的版本（164 筆收檔失敗）。氣泡帶上本行程的啟動時刻，執行了好幾天
+    /// 一眼就看出來；拿不到啟動時刻（極少見）就不顯示——沒有資訊的提示比沒有提示更糟。
+    /// </para>
+    /// <para>
+    /// 只在重複啟動（<c>maximize: true</c>）顯示：系統匣的「顯示主視窗」是操作員主動
+    /// 還原，他知道自己點的是什麼，不需要被告知行程年齡。
+    /// </para>
+    /// </remarks>
+    private void ShowWakeBalloon()
+    {
+        string started;
+        try
+        {
+            using var process = System.Diagnostics.Process.GetCurrentProcess();
+            started = process.StartTime.ToString("yyyy-MM-dd HH:mm", System.Globalization.CultureInfo.InvariantCulture);
+        }
+        catch (Exception)
+        {
+            return;
+        }
+
+        _tray?.ShowBalloon(
+            Localizer.T("Main.WakeTitle"),
+            string.Format(Localizer.T("Main.WakeBody"), started));
     }
 
     /// <summary>
