@@ -150,37 +150,47 @@ public sealed class HourlySegmentMerger
             return (MergeVerdict.Skipped, 0);
         }
 
-        var channel = rows[0].ChannelId;
-        var start = rows[0].StartUtc;
-        var end = rows[^1].EndUtc ?? groupEnd;
+        // 這一小時裡「已經合併過的子區間」與「還沒合併的段」要分開看。
+        //
+        // 為什麼不能只用「最早那一列的檔名」判斷整小時合併過：合併只處理到當時已收尾的段，
+        // 之後才收尾的段不在那一輪的清單裡（例如 11-07 23 時合併到 23:38，而 23:54／23:59
+        // 兩段是後來才 final 的）。舊版看到最早那一列是 merged-*.mp4 就直接進「清孤兒」分支，
+        // 於是那 2–3 個小檔<b>永遠</b>不會被併進去、每一輪都白跑一次查詢——實測索引裡有 7 個
+        // 資料夾是這個形狀（每個小時仍留著 2–3 個小檔，合併的意義正好消失）。
+        var alreadyMerged = rows.Where(r => IsMergedFile(r.FilePath)).ToList();
+        var todo = rows.Where(r => !IsMergedFile(r.FilePath)).ToList();
+
+        // 沒有可合併的殘段：已合併的小時只清理交易後刪檔失敗留下的孤兒
+        //（它們已不在索引裡，留著會被磁碟匯入器誤認成新段）。
+        if (todo.Count < 2)
+        {
+            return alreadyMerged.Count > 0
+                ? CleanLeftovers(dir, _repo.ListPathsInFolder(dir), alreadyMerged[0].FilePath)
+                : (MergeVerdict.Skipped, 0);
+        }
+
+        var channel = todo[0].ChannelId;
+        var start = todo[0].StartUtc;
+        var end = todo[^1].EndUtc ?? groupEnd;
         if (_legalHolds?.IsLocked(channel, start, end) == true)
         {
             // 被保全的錄影是證據：合併會重寫檔案與索引列，等同動到證據本體，整組跳過。
             return (MergeVerdict.Skipped, 0);
         }
 
-        var known = _repo.ListPathsInFolder(dir);
         var mergedPath = Path.Combine(dir, MergedFileName(start));
-        var knownStatus = Lookup(known, mergedPath);
-        if (knownStatus is SegmentStatus.Final or SegmentStatus.Temporary)
-        {
-            // 上一輪已完成合併：索引裡是 merged 列，舊的小檔若還躺著就是殘留
-            //（交易後刪檔失敗留下的）。它們已不在索引裡，留著會被磁碟匯入器誤認成新段。
-            // 這個分支必須在「段數不足」守衛之前：merged 小時的索引本來就只有一列。
-            var (verdict, removed) = CleanLeftovers(dir, known, mergedPath);
-            return (verdict, removed);
-        }
-
-        // 只有一段的小時不合併：合併是為了減少檔數，一個檔沒有可減的東西。
-        if (rows.Count < 2)
-        {
-            return (MergeVerdict.Skipped, 0);
-        }
 
         if (File.Exists(mergedPath))
         {
-            // 磁碟上有、索引裡沒有：換列之前斷電留下的孤兒。直接刪掉重做——
-            // 留著的話下一次 File.Move 會撞名，而且磁碟匯入器會把它當成 14:00 整的段。
+            // 磁碟上有同名檔，先問索引：有這一列就<b>不能刪</b>（那是某一列指著的內容，
+            // 例如磁碟離線被標成 missing 之後又接回來），這一小時本輪跳過。
+            // 索引裡沒有才是「換列之前斷電」留下的孤兒，直接刪掉重做——留著的話
+            // 下一次 File.Move 會撞名，而且磁碟匯入器會把它當成整點的段。
+            if (IsIndexed(dir, mergedPath))
+            {
+                return (MergeVerdict.Skipped, 0);
+            }
+
             try
             {
                 File.Delete(mergedPath);
@@ -193,7 +203,7 @@ public sealed class HourlySegmentMerger
 
         // 任一檔不在磁碟上就整組跳過：合併一半的清單會讓 ffmpeg 整批失敗，
         // 而缺的那幾段該由對帳（SegmentIndexReconciler）標 missing，不是這裡猜。
-        foreach (var row in rows)
+        foreach (var row in todo)
         {
             if (!File.Exists(row.FilePath))
             {
@@ -202,10 +212,10 @@ public sealed class HourlySegmentMerger
         }
 
         var tmpPath = mergedPath + ".tmp";
-        var expected = rows.Sum(r => Math.Max(0, (PlaybackSegmentTiming.EndOf(r) - r.StartUtc).TotalSeconds));
+        var expected = todo.Sum(r => Math.Max(0, (PlaybackSegmentTiming.EndOf(r) - r.StartUtc).TotalSeconds));
         try
         {
-            _remuxer.Remux([.. rows.Select(r => r.FilePath)], tmpPath);
+            _remuxer.Remux([.. todo.Select(r => r.FilePath)], tmpPath);
 
             var actual = _remuxer.ProbeDurationSeconds(tmpPath);
             var tolerance = Math.Max(
@@ -236,8 +246,18 @@ public sealed class HourlySegmentMerger
         try
         {
             size = new FileInfo(mergedPath).Length;
-            sha256 = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(File.OpenRead(mergedPath)))
-                .ToLowerInvariant();
+
+            // 這裡一定要把檔案關掉：`SHA256.HashData(File.OpenRead(path))` 開的 FileStream
+            // 沒有人處置，Windows 上它就是一個開著的讀取控制代碼（FileShare.Read），
+            // 於是①這一段 60 MB 的檔案在下一次 GC 之前不能被刪、不能被保留策略汰除；
+            // ②下面換列失敗時那道 TryDelete(mergedPath) 保證刪不掉自己剛產出的檔，
+            // 現場因此留下一個 63.9 MB、索引裡沒有它、保留策略也看不到的孤兒
+            // （merged-170348710.mp4，磁碟上有、索引裡沒有，回收只認索引）。
+            using (var stream = File.OpenRead(mergedPath))
+            {
+                sha256 = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(stream))
+                    .ToLowerInvariant();
+            }
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
@@ -254,7 +274,7 @@ public sealed class HourlySegmentMerger
                 new SegmentRecord
                 {
                     ChannelId = channel,
-                    Stream = rows[0].Stream,
+                    Stream = todo[0].Stream,
                     StartUtc = start,
                     EndUtc = end,
                     FilePath = mergedPath,
@@ -264,7 +284,7 @@ public sealed class HourlySegmentMerger
                     Sha256 = sha256,
                     Tier = "merged",
                 },
-                [.. rows.Select(r => r.Id)]);
+                [.. todo.Select(r => r.Id)]);
         }
         catch (Exception ex) when (
             ex is IOException
@@ -277,7 +297,7 @@ public sealed class HourlySegmentMerger
         }
 
         // 索引已換成 merged 列，這裡才刪原檔。刪不掉（被防毒／備份占用）就留給下一輪清理。
-        foreach (var row in rows)
+        foreach (var row in todo)
         {
             try
             {
@@ -289,7 +309,26 @@ public sealed class HourlySegmentMerger
             }
         }
 
-        return (MergeVerdict.Merged, rows.Count);
+        return (MergeVerdict.Merged, todo.Count);
+    }
+
+    /// <summary>這是合併檔嗎（檔名 <c>merged-HHmmssfff.mp4</c>；磁碟匯入器用同一個字首認它）。</summary>
+    private static bool IsMergedFile(string path)
+        => Path.GetFileName(path).StartsWith("merged-", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>這個資料夾裡有沒有任何一列（不分狀態）指著這個路徑。</summary>
+    private bool IsIndexed(string dir, string path)
+    {
+        var normalized = Normalize(path);
+        foreach (var (filePath, _) in _repo.ListPathsInFolder(dir))
+        {
+            if (Normalize(filePath).Equals(normalized, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /// <summary>清掉「索引裡已是 merged 列」之後還留在小時資料夾裡的殘留段檔。</summary>
@@ -336,20 +375,6 @@ public sealed class HourlySegmentMerger
         {
             return [];
         }
-    }
-
-    private static SegmentStatus? Lookup(IReadOnlyList<(string FilePath, SegmentStatus Status)> known, string path)
-    {
-        var normalized = Normalize(path);
-        foreach (var (filePath, status) in known)
-        {
-            if (Normalize(filePath).Equals(normalized, StringComparison.OrdinalIgnoreCase))
-            {
-                return status;
-            }
-        }
-
-        return null;
     }
 
     private static string Normalize(string path)
