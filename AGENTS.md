@@ -656,7 +656,19 @@ Notes that will save you time:
   `>= 0` turns "disabled" into "delete everything". `recording.quota_gb` may still sit in upgraded
   databases; nothing reads it any more. Tests that need "nothing will ever fit" use
   `quotaBytes: 1`, never 0 — 0 now means disabled, so such a test quietly goes green by deleting
-  nothing. Guarded by `SettingsReserveSpaceContractTests`,
+  nothing. **The disk-full gate belongs on every recording start point, not just the scheduler's.**
+  Automatic recording (Always/Scheduled/Event) asks `DiskPressureCoordinator.ShouldStopNewRecording`
+  through the scheduler's injected `diskFull` delegate, but the wall's manual per-pane record button
+  (`ChannelSession.SetRecordingAsync`) only asked the license gate until 2026-11-11 — so pressing
+  record on a full disk built a recorder whose every segment failed while `IsRecording` stayed true
+  (`_loop is { IsCompleted: false }`), leaving the REC badge lit and nothing in the picture but one
+  `recording.stalled` audit row. The block returns a `RecordingGateResult` with the new
+  `DiskFull = true` flag (`Decision` stays `Valid` on purpose) so `LicenseLimitNotifier` does not file
+  it as a licence-limit event — an operator sent to check a perfectly good licence is the wrong
+  investigation. Guarded by `磁碟滿時每個開錄點都要擋`, which matches the **`if (…)` call shape** per
+  start point, not a bare string: the first version matched the string and stayed green after the
+  whole `if` block was deleted, because the explanatory comment above it contained the same text.
+  Guarded by `SettingsReserveSpaceContractTests`,
   `總量配額停用時不會汰除任何區段`, `RunConfigured會依磁碟保留空間做壓力汰除` and
   `RunConfigured會依共用設定解析根目錄並清理過期快照`.
 - **"How long can this disk record?" has three answers, and two of them are not a number.**

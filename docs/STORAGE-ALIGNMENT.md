@@ -259,6 +259,25 @@ duration_sec, size_bytes, status, tier, origin_path`…），外加 `SegmentShar
 > 這一項與參考實作的關係是**方向一致**：QC 用 `EventReserveDays` 保護事件**日誌**、
 > 我們用排序層保護事件**影片**；兩邊都不會讓事件材料比連續材料先被淘汰。
 
+**（c）被「當錄影滿了會如何」這個問題揪出來的第三個缺口：磁碟滿閘門只蓋住排程路徑**
+
+參考實作是「容量滿即刪最舊、繼續錄」；我們是「低於保留水位先汰除，全滿才停開新錄」。
+逐一追問「誰會停、誰不會停」時發現：`RecordingScheduler`（全時／排程／事件）有 `diskFull` 閘門，
+但**監看牆上的手動錄影按鈕沒有**——`ChannelSession.SetRecordingAsync` 只問授權閘門。於是滿碟上
+手動開錄會建出一台每段都失敗的錄影機，而 `SegmentRecorder.IsRecording` 只看迴圈有沒有結束
+（`_loop is { IsCompleted: false }`），所以 REC 徽章亮著、畫面看不出異常，只有一筆
+`recording.stalled` 稽核——正是「看起來在錄、其實沒錄」那一類。
+
+修正：手動路徑也問 `DiskPressureCoordinator.ShouldStopNewRecording`（與排程同一道閘門、同一個
+判準：**每一顆**錄影磁碟都低於門檻才擋，多碟站台不因某一顆滿了就全面停錄）；擋下時回
+`RecordingGateResult` 並帶 `DiskFull = true`（`Decision` 刻意維持 `Valid`），
+`LicenseLimitNotifier` 才不會把它記成「已達授權上限」——把操作員送去查一張沒問題的授權是錯的調查方向。
+
+> 守門測試的教訓值得記下來：第一版契約用**裸字串**比對 `ShouldStopNewRecording`，把整個 `if`
+> 區塊刪掉之後它仍然全綠——因為上面那段說明註解裡有同一個字串。改成比對 **`if (…)` 的呼叫形狀**
+> （排程端則要求 `_diskFull?.Invoke(`）之後，突變才真的會紅。原始碼掃描的價值全在「真的有人接線」，
+> 而註解會把字串比對餵飽。
+
 守門：`ListReclaimCandidates事件模式區段排在最後且同層由舊至新`、
 `配額汰除先刪全時段而事件段留到最後`、`只剩事件段而仍超額時仍會由舊至新汰除`。
 

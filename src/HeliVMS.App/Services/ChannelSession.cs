@@ -537,6 +537,26 @@ public sealed class ChannelSession : IDisposable
                 return gate;
             }
 
+            // 磁碟滿閘門（§11.1）：與授權閘門同一條規則——**每一個開錄點都要問**。
+            // 排程路徑（全時／排程／事件）早就問了（RecordingScheduler 的 _diskFull 來自
+            // DiskPressureCoordinator.ShouldStopNewRecording），手動錄影卻沒有；在滿碟上手動開錄的
+            // 症狀是 REC 徽章亮著、每一段都失敗（IsRecording 只看迴圈有沒有結束），
+            // 只有一筆 recording.stalled 稽核，而操作員看到的卻是「正在錄影」。
+            if (DiskPressureCoordinator.ShouldStopNewRecording(_store, _recordingsRoot))
+            {
+                var diskBlocked = new RecordingGateResult(
+                    Allowed: false,
+                    Decision: LicenseDecision.Valid,
+                    MaxCameras: 0,
+                    Reason: Localizer.T("Main.RecordingBlockedDiskFull"),
+                    ChannelId: ChannelId,
+                    DiskFull: true);
+
+                RecordingBlockedReason = diskBlocked.Reason;
+                RecordingBlocked?.Invoke(this, diskBlocked);
+                return diskBlocked;
+            }
+
             RecordingBlockedReason = null;
             var recorder = new SegmentRecorder(
                 new SegmentRepository(_store),

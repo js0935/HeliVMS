@@ -30,7 +30,9 @@ public sealed class LicenseLimitNotifier
     /// <returns>是否真的寫入了一筆事件。</returns>
     public bool Report(RecordingGateResult gate, DateTime nowUtc)
     {
-        if (gate.Allowed || gate.Decision != LicenseDecision.Valid)
+        // 磁碟滿不是授權事件：記成「已達授權上限」會讓操作員去查一張沒問題的授權
+        //（磁碟滿的閘門刻意不改 Decision，所以一定要用 DiskFull 分辨）。
+        if (gate.Allowed || gate.DiskFull || gate.Decision != LicenseDecision.Valid)
         {
             return false;
         }

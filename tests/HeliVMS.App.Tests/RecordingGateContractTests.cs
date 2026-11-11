@@ -1,3 +1,5 @@
+using System.Text.RegularExpressions;
+
 namespace HeliVMS.App.Tests;
 
 /// <summary>
@@ -100,6 +102,62 @@ public sealed class RecordingGateContractTests
         Assert.True(
             gate < create,
             $"{file} 的 {method} 先建立錄影器才問閘門：上限在開始寫檔之後才檢查等於沒檢查");
+    }
+
+    /// <summary>
+    /// 磁碟滿也是閘門：**每一個開錄點**都要在建立錄影器之前問（§11.1 第三階段）。
+    /// </summary>
+    /// <remarks>
+    /// 排程路徑（`_diskFull` ← `DiskPressureCoordinator.ShouldStopNewRecording`）早就有，
+    /// 手動錄影沒有：滿碟上按錄影會建立一台每段都失敗的錄影機，而 `IsRecording` 只看迴圈
+    /// 有沒有結束，所以 REC 徽章亮著、畫面上看不出異常，只有一筆 `recording.stalled` 稽核。
+    /// 契約放在這裡而不是各寫一條：兩個開錄點是同一條規則的兩個入口，漏一個就是漏一種錄影。
+    /// </remarks>
+    /// <summary>
+    /// 每個開錄點的磁碟滿閘門「長什麼樣」：比對**真正的條件式形狀**，不是裸字串。
+    ///
+    /// <para>
+    /// 這一條踩過一次：第一版只找 <c>ShouldStopNewRecording</c> 這個字串，於是把整個 <c>if</c>
+    /// 區塊刪掉之後測試仍然全綠——因為上面的說明註解裡也寫了同一個字串，註解把契約餵飽了。
+    /// 原始碼掃描的價值全在「真的有人接線」，所以這裡要求 <c>if (…)</c> 的形狀
+    /// （排程端的間接呼叫也要求 <c>?.Invoke(</c> 的實際呼叫寫法）。
+    /// </para>
+    /// </summary>
+    private static readonly (string File, string Method, string GatePattern)[] DiskGateSites =
+    [
+        (Sites[0].File, Sites[0].Method, @"_diskFull\??\.Invoke\("),
+        (Sites[1].File, Sites[1].Method, @"if\s*\(\s*DiskPressureCoordinator\.ShouldStopNewRecording\("),
+    ];
+
+    public static TheoryData<string, string, string> DiskGateStartSites
+    {
+        get
+        {
+            var data = new TheoryData<string, string, string>();
+            foreach (var (file, method, pattern) in DiskGateSites)
+            {
+                data.Add(file, method, pattern);
+            }
+
+            return data;
+        }
+    }
+
+    [Theory]
+    [MemberData(nameof(DiskGateStartSites))]
+    public void 磁碟滿時每個開錄點都要擋(string file, string method, string gatePattern)
+    {
+        var body = SourceContract.BodyOf(SourceContract.Read(file), method);
+        Assert.NotEqual(string.Empty, body);
+
+        var diskGate = Regex.Match(body, gatePattern);
+        var create = Earliest(body, Creation, FactoryCall);
+
+        Assert.True(diskGate.Success, $"{file} 的 {method} 沒有問磁碟滿閘門（{gatePattern}）");
+        Assert.True(create >= 0, $"{file} 的 {method} 找不到建立錄影器的位置，契約表可能已漂移");
+        Assert.True(
+            diskGate.Index < create,
+            $"{file} 的 {method} 先建立錄影器才問磁碟滿：滿碟上會開始寫檔之後才檢查");
     }
 
     [Theory]

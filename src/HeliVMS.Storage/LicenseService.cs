@@ -100,12 +100,18 @@ public sealed record LicenseApplyResult(
 /// <param name="MaxCameras">授權通道上限；未匯入授權時為 0。</param>
 /// <param name="Reason">可顯示給使用者的阻擋原因；允許時為 null。</param>
 /// <param name="ChannelId">被判定的頻道 ID。</param>
+/// <param name="DiskFull">
+/// 這一筆是「磁碟滿了、不開新錄影」而不是授權問題。授權上限事件的通知器（
+/// <see cref="LicenseLimitNotifier"/>）與 UI 的授權提示都要靠它分辨，否則滿碟會被記成
+/// 「已達授權上限」，而操作員會去查一張根本沒問題的授權。
+/// </param>
 public sealed record RecordingGateResult(
     bool Allowed,
     LicenseDecision Decision,
     int MaxCameras,
     string? Reason,
-    int ChannelId);
+    int ChannelId,
+    bool DiskFull = false);
 
 /// <summary>
 /// 產品端授權整合點（§19.4）：把 <see cref="LicenseManager"/> 的驗證結果落到
