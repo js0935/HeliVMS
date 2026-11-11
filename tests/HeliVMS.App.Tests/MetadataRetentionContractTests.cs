@@ -132,6 +132,23 @@ public sealed class MetadataRetentionContractTests
         Assert.Matches(@"(?m)^\s*SegmentReconcileCoordinator\.RunConfigured\(", main);
     }
 
+    /// <summary>
+    /// 桌面保留迴圈也要跑段長修正（M319）。
+    ///
+    /// <para>
+    /// 改動前寫進索引的 <c>duration_sec</c> 是「ffmpeg 行程活了多久」，Windows 睡眠或校時
+    /// 一次就膨脹成幾千秒。桌面是最常見的部署方式，漏掉這條，那幾列會永遠留著：時間軸上幾小時
+    /// 的色塊、方向鍵跳到沒有影像的地方，而日誌乾淨。斷言錨在行首，因為單用 <c>Contains</c>
+    /// 會被把呼叫註解掉蒙混過關。
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void 桌面保留迴圈也會修正舊索引的段長()
+    {
+        var main = SourceContract.Read(MainCode);
+        Assert.Matches(@"(?m)^\s*SegmentDurationRepairCoordinator\.RunConfigured\(", main);
+    }
+
     private static string WiredHandler(string relativePath, string element)
     {
         var xaml = SourceContract.Read(relativePath);

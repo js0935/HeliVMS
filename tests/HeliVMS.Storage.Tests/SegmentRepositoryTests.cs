@@ -574,6 +574,87 @@ public class SegmentRepositoryTests : IDisposable
         Assert.False(flags[0]);
     }
 
+    /// <summary>
+    /// 段長修正的分頁清單以<b>主鍵</b>由舊至新前進，且只含 final 段。
+    ///
+    /// <para>
+    /// 用主鍵而不是 <c>checked_at_utc</c> 是這支清單存在的理由：完整性抽查的游標對改動前
+    /// 就已標記過的舊段會直接跳過，靠它永遠輪不到真正要修的那幾列（見 <c>SegmentDurationRepair</c>）。
+    /// 混進 tmp／corrupt 也一樣糟——那些段沒有可回放的檔案，探測必然失敗，只是白花 I/O。
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void ListFinalAfter以主鍵前進且只回傳final()
+    {
+        var t = new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc);
+        var a = Final(1, t, 100);
+        var b = Final(1, t.AddSeconds(60), 100);
+        var corrupt = Final(1, t.AddSeconds(120), 100);
+        _repo.MarkCorrupt(corrupt);
+        var c = Final(1, t.AddSeconds(180), 100);
+        _ = _repo.BeginSegment(1, "main", @"D:\tmp\wip.mp4", t.AddSeconds(240));
+
+        Assert.Equal(new[] { a, b }, _repo.ListFinalAfter(0, 2).Select(s => s.Id).ToArray());
+
+        // 游標是「上次看到的那一個編號」，不是頁碼：第二頁必須從 b 之後接下去。
+        Assert.Equal(new[] { c }, _repo.ListFinalAfter(b, 2).Select(s => s.Id).ToArray());
+    }
+
+    /// <summary>
+    /// 段長修正只改寫 final 段的 <c>duration_sec</c> 與 <c>end_time</c>：其他狀態的段
+    /// （tmp／corrupt）沒有可回放的檔案，改它們的長度只會讓索引更難解讀。
+    /// </summary>
+    [Fact]
+    public void RepairDuration只改寫final段()
+    {
+        var t = new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc);
+        var final = Final(1, t, 100);
+        var corrupt = Final(1, t.AddSeconds(60), 100);
+        _repo.MarkCorrupt(corrupt);
+
+        _repo.RepairDuration(final, t.AddSeconds(250), 250);
+        _repo.RepairDuration(corrupt, t.AddSeconds(250), 250);
+
+        var repaired = _repo.Get(final)!;
+        Assert.Equal(250, repaired.DurationSec!.Value, 3);
+        Assert.Equal(t.AddSeconds(250), repaired.EndUtc!.Value);
+
+        var untouched = _repo.Get(corrupt)!;
+        Assert.Equal(60, untouched.DurationSec!.Value, 3);
+        Assert.Equal(t.AddSeconds(120), untouched.EndUtc!.Value);
+    }
+
+    /// <summary>
+    /// 段長修正的游標存在 <c>app_settings</c>，但<b>不記</b> <c>settings.set</c> 稽核。
+    ///
+    /// <para>
+    /// 那是機器自己的掃描進度（與磁碟健康同一條規則），不是人類改的設定；若走
+    /// <c>SettingsRepository.Set</c>，每小時都會多一筆「某人改了設定」的稽核，真正的設定變更
+    /// 反而被洗掉。游標本身也要能分辨「從未跑過」（<c>null</c>）與「已掃完」（<c>-1</c>）：
+    /// 兩者混用會讓掃完的機器每一輪都從第一段重探一次。
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void 段長修正游標存在執行期設定且不寫設定稽核()
+    {
+        Assert.Null(_repo.GetDurationRepairCursor());
+
+        _repo.SetDurationRepairCursor(42, new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc));
+        Assert.Equal(42, _repo.GetDurationRepairCursor());
+
+        _repo.SetDurationRepairCursor(-1, new DateTime(2026, 9, 1, 0, 0, 30, DateTimeKind.Utc));
+        Assert.Equal(-1, _repo.GetDurationRepairCursor());
+
+        var settingAudits = _store.Query(
+            "SELECT COUNT(*) FROM audit_log WHERE action = 'settings.set';",
+            static r =>
+            {
+                r.Read();
+                return r.GetInt32(0);
+            });
+        Assert.Equal(0, settingAudits);
+    }
+
     private long Final(int channelId, DateTime startUtc, long sizeBytes)
     {
         var id = _repo.BeginSegment(channelId, "main", $@"D:\tmp\{Guid.NewGuid():N}.mp4", startUtc);

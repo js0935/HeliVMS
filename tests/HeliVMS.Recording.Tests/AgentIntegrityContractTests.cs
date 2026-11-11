@@ -47,6 +47,20 @@ public sealed class AgentIntegrityContractTests
             worker);
     }
 
+    /// <summary>
+    /// 服務模式也要跑段長修正：改動前寫進索引的 `duration_sec` 是「行程活多久」，Windows 睡眠
+    /// 或校時一次就是幾千秒。桌面版修了而服務模式不修，同一台機器換個部署方式時間軸就換一個樣子
+    /// ——與索引對帳同一個理由：兩個部署模式必須看到同一個世界。
+    /// </summary>
+    [Fact]
+    public void Agent會跑段長修正走共用協調器()
+    {
+        var worker = Read(WorkerCode);
+        Assert.Matches(
+            @"(?m)^\s*var repair = SegmentDurationRepairCoordinator\.RunConfigured\(",
+            worker);
+    }
+
     private static string Read(string relativePath)
         => File.ReadAllText(Path.Combine(RepoRoot(), relativePath));
 

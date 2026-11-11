@@ -1852,6 +1852,18 @@ public partial class MainWindow : Window
                     // 檢查失敗（ffprobe 暫時不可用、庫被鎖）不影響監看主線，下一圈再試。
                 }
 
+                // 段長修正：改動前的索引把「行程活多久」記成段長，Windows 睡眠或校時一次就是幾千秒，
+                // 時間軸因此出現幾小時的色塊、方向鍵跳到沒有影像的地方。既有的列不會自己變好，
+                // 所以用檔案自己的長度一批一批改回來（游標記在 app_settings，掃完一次就停）。
+                try
+                {
+                    SegmentDurationRepairCoordinator.RunConfigured(_store!, DateTime.UtcNow);
+                }
+                catch (Exception)
+                {
+                    // 同上：探測失敗或庫被鎖只在下一圈重試，不影響監看。
+                }
+
                 // 索引對帳：把「索引說有、磁碟上沒有」的段標成 missing。
                 // 完整性檢查刻意不改狀態（見 MediaIntegrityChecker），所以外部刪檔或磁碟換掉之後，
                 // 回放清單、日曆與用量統計還會照著索引顯示，點下去才失敗——這裡才是修正索引的地方。

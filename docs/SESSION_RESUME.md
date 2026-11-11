@@ -4,6 +4,35 @@
 > 權威來源：`git` 與 GitHub Actions 的現況（不是聊天記錄）。
 > 所有里程碑均已 commit＋push、CI 全綠、工作目錄乾淨（下方數據皆為驗證過的真實值）。
 
+> **【追加 2026-11-11（之五）】舊索引段長自癒：`SegmentDurationRepair`（游標掃描，掃完即停）**
+>
+> 之四修好的是「新錄的段」；**改動前寫進索引的列不會自己變好**。實測 `C:\HeliVMSData\index.db`
+> 716 段 `final` 裡 15 段與檔案差超過 60 秒（最壞兩段 7105／7102 秒），而且其中 369 段早已被
+> 完整性抽查標記過——所以**不能搭在 `MediaIntegrityChecker` 上**：那支的契約是「只觀察、不改狀態」，
+> 它的 `checked_at_utc` 游標會剛好跳過要修的舊段。
+> - `SegmentRepository`：`ListFinalAfter(afterId, take)`（主鍵由舊至新、只取 final）、
+>   `RepairDuration(id, endUtc, durationSec)`（只動 final，`end = start + 長度` 一起寫）、
+>   `Get/SetDurationRepairCursor`（`app_settings`，原始 UPSERT，不記 `settings.set`）。
+> - `SegmentDurationRepair`：每批探測、`|Resolve(probed, indexed) − indexed| > 0.5 秒`才改寫並寫
+>   `recording.duration.repair` 稽核（`channel= old= new= path=`）；探測失敗的段跳過且游標照樣前進
+>   （否則永遠卡在第一個被鎖住的檔案）；撈不滿一批就把游標寫 `-1`，之後輪次什麼都不做。
+>   健康段的 0.2–1.0 秒暖機差與合法的 `merged-*.mp4`（約 3600 秒）都不會被改。
+> - `SegmentDurationRepairCoordinator.RunConfigured`（`recording.duration_repair.batch`，預設 100，
+>   ≤0 停用），桌面保留迴圈與 `IntegrityWorker` 都呼叫它。
+> - 守門：Storage `ListFinalAfter以主鍵前進且只回傳final`／`RepairDuration只改寫final段`／
+>   `段長修正游標存在執行期設定且不寫設定稽核`；Recording `以檔案長度修正舊索引的段長與結束時刻`／
+>   `段長一致時不寫入`／`探測失敗的段跳過並繼續前進`／`游標到結尾後不再掃描`／
+>   `RunConfigured段數為零時停用段長修正`／`RunConfigured未設定時採用預設段數`；Agent 契約
+>   `Agent會跑段長修正走共用協調器`、App 契約 `桌面保留迴圈也會修正舊索引的段長`。突變檢查（每一項
+>   都先改壞確認會紅再還原）：`id > $after`→`>=` 紅；`RepairDuration` 拿掉 final 條件 紅；
+>   游標改走 `SettingsRepository.Set` 紅；`Resolve` 改回索引值 紅；`end_time` 用索引值 紅；
+>   探測失敗改成中止整批 紅；拿掉「掃完即停」紅；協調器不讀設定 紅；兩個呼叫點各自註解掉 → 契約紅。
+> - 驗證：Release 全解決方案 build 0/0；Storage **1475**、Recording **402**、App 852
+>   （`SolutionCoverageTests` 過濾掉，紅的原因仍是未追蹤 `Tools/LicenseKeyGen` 留在磁碟上）。
+> - 下一步候選：`RecordingDiskImporter.InferredDuration` 對「複製到別的機器」的檔案仍用寫入時間推
+>   長度（同樣不可信），可改走 `MediaDurationProbe`；`PLAYBACK-ALIGNMENT` §4 缺口 4 暫緩（只有一個
+>   真實消費端）。
+
 > **【追加 2026-11-11（之四）】錄影段長改取檔案自身長度（牆鐘時間只是後備）**
 >
 > 現場「時間軸上出現幾小時的色塊、方向鍵跳到沒有影像的地方、多路回放每一格都在等一個不存在的

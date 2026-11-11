@@ -366,6 +366,100 @@ public sealed class SegmentRepository
             });
     }
 
+    /// <summary>
+    /// 由舊至新列出 <paramref name="afterId"/> 之後的 final 區段（最多 <paramref name="take"/> 筆）。
+    ///
+    /// <para>
+    /// 供「以檔案自身長度修正段長」的整檔掃描分頁使用（<c>SegmentDurationRepair</c>）。
+    /// 用主鍵而不是 <c>checked_at_utc</c> 分頁：完整性抽查的那個游標只前進一次，改動前的段
+    /// 大多早已標記過，靠它永遠輪不到要修的那幾段。
+    /// </para>
+    /// </summary>
+    public IReadOnlyList<SegmentRecord> ListFinalAfter(long afterId, int take)
+    {
+        return _store.Query(
+            $"""
+            SELECT id, channel_id, stream, start_time, end_time, file_path,
+                   size_bytes, duration_sec, status, sha256, tier, origin_path
+            FROM segments
+            WHERE status = 'final' AND id > $after
+            ORDER BY id
+            LIMIT {Math.Max(1, take)};
+            """,
+            ReadRecords,
+            cmd => cmd.Parameters.AddWithValue("$after", afterId));
+    }
+
+    /// <summary>
+    /// 以檔案自己的長度改寫一段的 <c>duration_sec</c> 與 <c>end_time</c>。
+    ///
+    /// <para>
+    /// 只動 <c>final</c>：其他狀態的段沒有可回放的檔案，改它們的長度只會讓索引更難解讀。
+    /// <c>end_time</c> 必須跟著 <c>duration_sec</c> 一起寫（<c>end = start + 長度</c>），
+    /// 否則時間軸（用起點＋長度換算）與索引會各自說出不同的結束時刻。
+    /// </para>
+    /// </summary>
+    public void RepairDuration(long id, DateTime endUtc, double durationSec)
+    {
+        _store.Execute(
+            """
+            UPDATE segments
+            SET end_time = $e, duration_sec = $d
+            WHERE id = $id AND status = 'final';
+            """,
+            cmd =>
+            {
+                cmd.Parameters.AddWithValue("$e", SqliteStore.Iso(endUtc));
+                cmd.Parameters.AddWithValue("$d", durationSec);
+                cmd.Parameters.AddWithValue("$id", id);
+            });
+    }
+
+    /// <summary>段長修正游標的執行期設定鍵（<c>app_settings</c>）。</summary>
+    public const string DurationRepairCursorKey = "recording.duration_repair.cursor";
+
+    /// <summary>
+    /// 讀取段長修正游標。
+    /// </summary>
+    /// <returns>
+    /// <c>null</c>＝從未跑過（下一輪由第一段開始）；
+    /// <c>-1</c>＝整份索引已掃完（不再重掃，見 <c>SegmentDurationRepair</c>）；
+    /// 其他值＝下次從這個編號之後繼續。
+    /// </returns>
+    public long? GetDurationRepairCursor()
+    {
+        var raw = _store.Query<string?>(
+            "SELECT value FROM app_settings WHERE key = $k;",
+            r => r.Read() && !r.IsDBNull(0) ? r.GetString(0) : null,
+            cmd => cmd.Parameters.AddWithValue("$k", DurationRepairCursorKey));
+
+        return long.TryParse(raw, System.Globalization.NumberStyles.Integer,
+            System.Globalization.CultureInfo.InvariantCulture, out var cursor)
+            ? cursor
+            : null;
+    }
+
+    /// <summary>
+    /// 寫入段長修正游標，刻意用原始 UPSERT 而不走 <see cref="SettingsRepository.Set"/>：
+    /// 後者每寫一次就記一筆 <c>settings.set</c> 稽核（那是給「誰改了設定」看的），
+    /// 而這是機器自己的掃描進度（與磁碟健康 <c>DiskHealthCoordinator</c> 同一條規則）。
+    /// </summary>
+    public void SetDurationRepairCursor(long cursor, DateTime nowUtc)
+    {
+        _store.Execute(
+            """
+            INSERT INTO app_settings (key, value, updated_at)
+            VALUES ($k, $v, $t)
+            ON CONFLICT(key) DO UPDATE SET value = $v, updated_at = $t;
+            """,
+            cmd =>
+            {
+                cmd.Parameters.AddWithValue("$k", DurationRepairCursorKey);
+                cmd.Parameters.AddWithValue("$v", cursor.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                cmd.Parameters.AddWithValue("$t", SqliteStore.Iso(nowUtc));
+            });
+    }
+
     /// <summary>依時間範圍列出區段（§3.4 時間軸回放）。</summary>
     /// <remarks>
     /// 口徑是「與 [from, to) 重疊」而非「start 落在窗內」：60 秒一段的錄影裡，

@@ -66,6 +66,27 @@ internal sealed class IntegrityWorker : BackgroundService
                 _logger.LogWarning(ex, "Integrity check failed; will retry next interval");
             }
 
+            // 段長修正：把改動前寫進索引的「行程活多久」改回檔案自己的長度。與完整性檢查分開，
+            // 因為那支的契約是「只觀察、不改狀態」，而這裡要寫庫；分頁游標也不同（主鍵 vs
+            // checked_at_utc），混用會讓早就標記過的舊段永遠輪不到。
+            try
+            {
+                var repair = SegmentDurationRepairCoordinator.RunConfigured(_store, DateTime.UtcNow);
+                if (repair.Repaired > 0)
+                {
+                    // 改了既有索引的段長是資料變更，服務日誌要留下來：日後有人問「這段時間軸
+                    // 為什麼變短了」，這裡是第一手線索。
+                    _logger.LogInformation(
+                        "Segment duration repair: {Probed} probed, {Repaired} repaired, {Skipped} skipped, cursor {Cursor}",
+                        repair.Probed, repair.Repaired, repair.Skipped, repair.Cursor);
+                }
+            }
+            catch (Exception ex)
+            {
+                // 單輪修正失敗（ffprobe 暫時不可用、庫被鎖）不該讓服務停擺而中斷錄影。
+                _logger.LogWarning(ex, "Segment duration repair failed; will retry next interval");
+            }
+
             // 索引對帳：把「索引說有、磁碟上沒有」的段標成 missing。與完整性檢查分開的理由是
             // 兩者的成本形狀完全不同（對帳只 stat、不做 ffprobe），而且對帳要涵蓋整個索引，
             // 完整性抽查是每輪只取樣幾段。服務模式下若不跑這一輪，外部刪檔會讓調閱清單

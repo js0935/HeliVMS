@@ -401,10 +401,29 @@ Notes that will save you time:
   (`TryCompleteMovedSegment`, rename succeeded but the index write failed) uses the same resolver —
   fixing only the normal path would leave the segments hit by the very clock jump this exists for.
   fMP4 (`frag_keyframe+empty_moov`) still reports `format=duration`; that is pinned by a real-ffmpeg
-  test because if it did not, the whole fix would be silently inert. Guarded by
+  test because if it did not, the whole fix would be silently inert. **Old rows do not repair
+  themselves**: `SegmentDurationRepair` (desktop hourly loop and the Agent's `IntegrityWorker`, via
+  `SegmentDurationRepairCoordinator.RunConfigured`, `recording.duration_repair.batch` default 100)
+  walks `final` rows in id order, probes each file, and rewrites `duration_sec` + `end_time =
+  start + 長度` when they differ by more than 0.5 s. It is deliberately **not** piggybacked on
+  `MediaIntegrityChecker` — that one's contract is observe-only, and its `checked_at_utc` cursor would
+  skip exactly the legacy rows that need fixing. The cursor lives in `app_settings`
+  (`recording.duration_repair.cursor`) and is written with a raw upsert, never
+  `SettingsRepository.Set` (that one records `settings.set`: a "who changed a setting" audit every
+  hour would drown the real changes). `-1` means the sweep finished and later rounds do nothing —
+  the hourly cost of rescanning would be pure waste, since new rows are already written correctly.
+  A row whose probe fails (ffprobe missing, file locked, file deleted) is skipped and the cursor still
+  advances, or the sweep would be stuck on the first locked file forever. Healthy rows differ by
+  0.2–1.0 s and are left alone; `merged-HHmmssfff.mp4` hourly files are legitimately ~3600 s and must
+  not be "repaired" further. Guarded by
   `RecordedSegmentLengthTests`, `MediaDurationProbeTests`,
-  `錄影段長取檔案自身長度而不是牆鐘`, `探測失敗時段長退回牆鐘` and
-  `補救收尾也用檔案長度而不是最後寫入時間`.
+  `錄影段長取檔案自身長度而不是牆鐘`, `探測失敗時段長退回牆鐘`,
+  `補救收尾也用檔案長度而不是最後寫入時間`,
+  `ListFinalAfter以主鍵前進且只回傳final`, `RepairDuration只改寫final段`,
+  `段長修正游標存在執行期設定且不寫設定稽核`,
+  `以檔案長度修正舊索引的段長與結束時刻`, `段長一致時不寫入`,
+  `探測失敗的段跳過並繼續前進`, `游標到結尾後不再掃描`,
+  `Agent會跑段長修正走共用協調器` and `桌面保留迴圈也會修正舊索引的段長`.
 - **Live view: find out which side owns the delay before "optimising" it — the picture looks the
   same for all four.** 現場回報「即時監看會延遲」時，症狀只有一種，原因卻可能在四段完全不同的
   地方：①攝影機 ＋ 網路 ＋ 解碼緩衝（本機量不到，也修不了）；②本機管線積影格（畫面**愈拖愈舊**，
