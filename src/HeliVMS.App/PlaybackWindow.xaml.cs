@@ -2900,6 +2900,19 @@ public partial class PlaybackWindow : Window
         WallCapacityText.Text = string.Format(Localizer.T("Playback.WallCapacity"), effective, requested);
         AutomationProperties.SetName(WallCapacityText, $"WALL:{effective}:{requested}");
 
+        // 這個格數的每格預算（縮到多寬、更新率上限、是否總覽模式）。沒有這行，「牆很頓」是
+        // 無法回答的：36 格以上是**設計上**只解關鍵影格的總覽牆（每 2–20 秒換一張），
+        // 而畫面上沒有任何字說明，操作員只會回報「卡頓」。預算表本身在 PlaybackWallBudget。
+        var budget = PlaybackWallBudget.For(cells, HardwareDecodeEnabled());
+        WallBudgetText.Text = budget.KeyframesOnly
+            ? Localizer.T("Playback.WallOverviewMode")
+            : string.Format(
+                Localizer.T("Playback.WallBudget"),
+                budget.DisplayWidth <= 0 ? Localizer.T("Playback.WallBudgetNative") : $"{budget.DisplayWidth}px",
+                budget.MaxFramesPerSecond <= 0
+                    ? Localizer.T("Playback.WallBudgetUnlimited")
+                    : $"{budget.MaxFramesPerSecond:0.#} fps");
+
         // 多格時主畫面格也要提示可點擊放大（焦點台沒有次畫面格）；單格不留提示避免誤導。
         PlayerFrame.ToolTip = cells > 1 ? Localizer.T("Playback.PaneTip") : null;
 

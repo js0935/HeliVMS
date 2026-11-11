@@ -77,6 +77,12 @@
                 <TextBlock x:Name="WallCapacityText" Text="" Foreground="{StaticResource Brand.TextDim}" FontSize="11"
                            VerticalAlignment="Center" Margin="8,0,0,0" ToolTip=""
                            AutomationProperties.AutomationId="PlaybackWallCapacity"/>
+                <!-- Per-pane decode budget for the current split. Without it, "the wall is jerky"
+                     is unanswerable: at 36+ cells the wall is a keyframe-only overview by design
+                     (one frame every 2–20 s), and nothing on screen says so. -->
+                <TextBlock x:Name="WallBudgetText" Text="" Foreground="{StaticResource Brand.TextDim}" FontSize="11"
+                           VerticalAlignment="Center" Margin="8,0,0,0" ToolTip=""
+                           AutomationProperties.AutomationId="PlaybackWallBudget"/>
                 <Button x:Name="SidebarToggleButton" Content="" Click="OnSidebarToggleClicked" ToolTip=""
                         Padding="8,4" Margin="10,0,0,0" VerticalAlignment="Center"
                         Foreground="White" Background="#1A2C49" BorderThickness="0"
