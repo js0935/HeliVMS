@@ -1074,7 +1074,21 @@ Notes that will save you time:
   `failures=N`** (N × (segment seconds + max retry backoff) + 300 s, capped 6 h): a later
   episode's audit cannot reach further back than its own duration, and audits without a
   parseable `failures=` are never used — preferring a gap that stays unexplained over a wrong
-  explanation written into evidence. The excerpt (`ffmpeg=` first, `error=` fallback) goes
+  explanation written into evidence. **v2 (measured): episodes are delimited by successes, not
+  by the window alone.** `failures=N` is the count at report time — a long episode keeps failing
+  for hours after its single audit, and the window-only rule missed 86 of 207 live rows. v2
+  attributes every corrupt row to the earliest stall audit after the channel's last successful
+  completion (`GetLastFinalCompletionBefore`) provided no other final completes between the row
+  and the audit (`HasFinalCompletionBetween`); both directions of cross-episode attribution are
+  blocked (audit before the last success = previous episode; a success between row and audit =
+  the audit belongs to the next episode). Live-copy measurement: 104 → **156 of 207** rows
+  explained (ch107's multi-hour episodes now fill in one sweep). The excerpt also drops ffmpeg's
+  per-run address prefix (`[in#0 @ 000001dd...]`) — a heap address in a permanent evidence field
+  only hurts comparison. Additional guards: `長事件後段的失敗原因也會由同事件的稽核補上`,
+  `段與稽核之間有成功收錄時不會跨事件歸因` (the audit is deliberately inside the window so only
+  this rule can block it), `上一次成功之前的稽核不會被拿來補` and `節錄會去掉ffmpeg的位址前綴`.
+  Mutation lesson: the lower bound lives in the SQL `FromUtc`, not the in-memory re-check —
+  removing the re-check alone stays green because the query already enforces it. The excerpt (`ffmpeg=` first, `error=` fallback) goes
   through `NormalizeFailureReason` again (redact before truncate; the audit column should
   already be redacted — belt and suspenders). Rows with a reason are never rewritten.
   `AuditLogQuery` gained an additive `TargetId` filter. Wired into both the desktop retention

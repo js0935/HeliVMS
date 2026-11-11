@@ -103,27 +103,58 @@ public sealed class SegmentFailureReasonBackfill
     }
 
     /// <summary>找出這個 corrupt 段對應的失敗描述；找不到（窗內沒有稽核）回 null。</summary>
+    /// <remarks>
+    /// <para>
+    /// 歸因以「成功收錄」劃定事件邊界：連續失敗事件從上一次成功之後開始，到下一次成功為止。
+    /// 稽核在事件的第 3 次失敗才寫（failures=N 只反映報告時點），長事件的後續段落落在
+    /// 報告之後很久也屬於同一事件。實測：線上 207 列無原因的 corrupt，純窗距版補到 104，
+    /// 事件邊界版補到 156（ch107 長事件一次補上數十列）。
+    /// </para>
+    /// </remarks>
     private string? FindReason(SegmentRecord row)
     {
         var windowEnd = row.StartUtc + MaxAttributionWindow;
+        var lastSuccess = _segments.GetLastFinalCompletionBefore(row.ChannelId, row.StartUtc);
         var candidates = _audit.List(new AuditLogQuery
         {
             Action = StalledAction,
             TargetId = row.ChannelId,
-            FromUtc = row.StartUtc,
+            FromUtc = lastSuccess,
             ToUtc = windowEnd,
             Limit = 50,
         });
 
-        // List 以時間 DESC 排序；歸因取窗內最早的一筆。窗距由稽核自己的 failures 推導：
-        // 較晚事件的稽核（窗距超出該事件時長）不夠成歸因證據。
+        // 歸因以「成功收錄」劃定事件邊界：連續失敗事件從上一次成功之後開始，到下一次成功為止。
+        // 稽核在事件的第 3 次失敗才寫（failures=N 只反映報告時點），長事件的後續段落
+        // 在報告之後很久也屬於同一事件（中間沒有成功收錄）。實測：線上 207 列無原因的
+        // corrupt，純窗距版補到 104，事件邊界版補到 156（ch107 長事件一次補上數十列）。
+        // 兩個方向都要擋：稽核早於本段開始（長事件尾段）時，靠「最後一次成功在稽核之後」
+        // 擋掉跨事件；稽核晚於本段開始（本段是事件的頭幾次失敗）時，靠窗距與
+        // 「段與稽核之間沒有成功收錄」擋掉跨事件。
         AuditLogEntry? match = null;
         foreach (var entry in candidates)
         {
-            if (entry.TargetId != row.ChannelId ||
-                entry.OccurredAtUtc < row.StartUtc ||
-                entry.OccurredAtUtc > row.StartUtc + AttributionWindow(entry.Detail))
+            if (entry.TargetId != row.ChannelId)
             {
+                continue;
+            }
+
+            if (lastSuccess is { } success && entry.OccurredAtUtc <= success)
+            {
+                // 稽核早於最近一次成功＝屬於上一次事件。SQL 的 FromUtc 是同一條件的主過濾；
+                // 這裡再擋一次等號邊界（稽核恰與成功收錄同時刻時，寧可不歸因）。
+                continue;
+            }
+
+            if (entry.OccurredAtUtc > row.StartUtc + AttributionWindow(entry.Detail))
+            {
+                // 窗距由稽核自己的 failures 推導：夠不到本段的較晚事件不採用。
+                continue;
+            }
+
+            if (_segments.HasFinalCompletionBetween(row.ChannelId, row.StartUtc, entry.OccurredAtUtc))
+            {
+                // 本段開始之後、稽核之前有成功收錄＝本段屬於更早的事件，這筆稽核是下一次的。
                 continue;
             }
 
@@ -205,11 +236,32 @@ public sealed class SegmentFailureReasonBackfill
         {
             var start = idx + ffmpegMarker.Length;
             var end = detail.IndexOf(errorMarker, start, StringComparison.Ordinal);
-            var text = end > start ? detail[start..end] : detail[start..].TrimEnd();
-            return text.Length > 0 ? text : null;
+            var text = (end > start ? detail[start..end] : detail[start..].TrimEnd()).Trim();
+            return StripFfmpegPrefix(text);
         }
 
         var err = detail.IndexOf("error=", StringComparison.Ordinal);
-        return err >= 0 ? detail[(err + "error=".Length)..].TrimEnd() : null;
+        return err >= 0 ? StripFfmpegPrefix(detail[(err + "error=".Length)..].TrimEnd()) : null;
+    }
+
+    /// <summary>
+    /// 去掉 ffmpeg 記錄前綴（<c>[in#0 @ 000001ddfdb964c0]</c>）：方括號內的行程內部位址
+    /// 是雜訊，每次執行都不同，寫進索引的證據欄只會妨礙比對。
+    /// </summary>
+    internal static string StripFfmpegPrefix(string text)
+    {
+        var trimmed = text.TrimStart();
+        while (trimmed.StartsWith('['))
+        {
+            var close = trimmed.IndexOf(']');
+            if (close < 0)
+            {
+                break;
+            }
+
+            trimmed = trimmed[(close + 1)..].TrimStart();
+        }
+
+        return trimmed.Length > 0 ? trimmed : text.TrimStart();
     }
 }

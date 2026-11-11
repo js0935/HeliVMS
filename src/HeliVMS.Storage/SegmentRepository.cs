@@ -581,6 +581,51 @@ public sealed class SegmentRepository
             });
     }
 
+    /// <summary>取得某頻道在 t（含）之前最後一次成功收錄的完成時刻。</summary>
+    /// <remarks>
+    /// 成功（final 段）是失敗事件（連續失敗，直到下一次成功）的天然邊界：
+    /// 失敗原因回填以它劃分「這一列屬於哪一次連續失敗」。
+    /// </remarks>
+    public DateTime? GetLastFinalCompletionBefore(int channelId, DateTime t)
+    {
+        return _store.Query<DateTime?>(
+            """
+            SELECT MAX(coalesce(end_time, start_time)) FROM segments
+            WHERE channel_id = $c AND status = 'final' AND coalesce(end_time, start_time) <= $t;
+            """,
+            r => r.Read() && !r.IsDBNull(0) ? SqliteStore.FromIso(r.GetString(0)) : null,
+            cmd =>
+            {
+                cmd.Parameters.AddWithValue("$c", channelId);
+                cmd.Parameters.AddWithValue("$t", SqliteStore.Iso(t));
+            });
+    }
+
+    /// <summary>某頻道在 (from, to) 之間是否有成功收錄的完成時刻。</summary>
+    public bool HasFinalCompletionBetween(int channelId, DateTime from, DateTime to)
+    {
+        return _store.Query(
+            """
+            SELECT EXISTS (
+                SELECT 1 FROM segments
+                WHERE channel_id = $c AND status = 'final'
+                  AND coalesce(end_time, start_time) > $f
+                  AND coalesce(end_time, start_time) < $t
+            );
+            """,
+            r =>
+            {
+                r.Read();
+                return r.GetInt32(0) == 1;
+            },
+            cmd =>
+            {
+                cmd.Parameters.AddWithValue("$c", channelId);
+                cmd.Parameters.AddWithValue("$f", SqliteStore.Iso(from));
+                cmd.Parameters.AddWithValue("$t", SqliteStore.Iso(to));
+            });
+    }
+
     /// <summary>依時間範圍列出區段（§3.4 時間軸回放）。</summary>
     /// <remarks>
     /// 口徑是「與 [from, to) 重疊」而非「start 落在窗內」：60 秒一段的錄影裡，
