@@ -4,6 +4,24 @@
 > 權威來源：`git` 與 GitHub Actions 的現況（不是聊天記錄）。
 > 所有里程碑均已 commit＋push、CI 全綠、工作目錄乾淨（下方數據皆為驗證過的真實值）。
 
+> **【追加 2026-11-12（之十四）】舊索引的 207 列 corrupt 沒有原因——但答案早就在稽核裡**
+>
+> 之十的 `failure_reason` 只對新寫入的段生效；掃完現場日誌後（crash.log 的兩個簽名都已在
+> 11-05 修復、live.log 健康、ch111 是死鏡頭非缺陷），把歷史的洞補起來：207 列 corrupt 的
+> 失敗經過**已經寫在 `recording.stalled` 稽核裡**（failures=N＋遮蔽過的 ffmpeg 節錄），
+> 兩邊接起來就好，錄影端什麼都不用改。
+> - `SegmentFailureReasonBackfill`（一次性掃描，游標 `recording.failure_backfill.cursor`
+>   寫 -1 就停，與段長修正同一套模式）：對 `failure_reason IS NULL` 的 corrupt 段，找
+>   「段開始之後、歸因窗內」最早的一筆同頻道停滯稽核，取其 `ffmpeg=` 節錄（無則 `error=`）。
+> - **歸因窗由稽核自己的 failures 推導**（N ×（段秒＋最長退避）＋300 秒，上限 6 小時）：
+>   較晚事件的稽核夠不到更早的段；解析不出 failures 的稽核一律不用——寧缺勿錯，
+>   不把別次事件的錯誤寫成這一段的原因。回填文字再過一次 NormalizeFailureReason
+>   （先遮再截；稽核欄本應已遮，雙重保險）。
+> - `AuditLogQuery` 加 `TargetId` 過濾（加欄位，既有呼叫端不受影響）。
+> - 接線：桌面保留迴圈與 Agent `IntegrityWorker` 都走
+>   `SegmentFailureReasonBackfillCoordinator.RunConfigured`（`recording.failure_backfill.batch`）。
+> - 突變驗證「拿掉窗距判定」紅（2 支）後還原。測試：Recording 421／Storage 1485／App 857 全綠。
+>
 > **【追加 2026-11-12（之十三）】PTZ 能力解析一天 2328 次——每條搖桿命令都在重付 2–4 個 HTTP 往返**
 >
 > 之十二後接著掃 `%TEMP%\helivms-onvif-ptz.log`（1.7 MB、無界）：10-19 一天 10109 行，

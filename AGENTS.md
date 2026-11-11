@@ -1063,6 +1063,27 @@ Notes that will save you time:
   constructor. Known remaining per-command cost: one `GetProfiles` round trip when the
   caller supplies no profile token. Guarded by `第二個實例沿用快取的PTZ能力而不是重新解析`,
   `ver20設備的命名空間隨能力一起快取`, `不支援PTZ的判定也會被快取` and `快取逾期後會重新解析`.
+- **Historical `corrupt` rows get their failure reason backfilled from the stall audits they
+  already produced.** The `failure_reason` column only helps rows written after it shipped; the
+  live index had 207 corrupt rows (ch107: 118) with no cause. The evidence for those already
+  exists in `recording.stalled` audit rows (`failures=N` + the redacted ffmpeg excerpt) — the
+  backfill only has to join the two. `SegmentFailureReasonBackfill` (one-shot sweep, cursor
+  `recording.failure_backfill.cursor`, `-1` when done — the duration-repair pattern) matches
+  each reason-less corrupt row with the **earliest** same-channel stall audit occurring after
+  the segment started. The attribution window is **derived from that audit's own
+  `failures=N`** (N × (segment seconds + max retry backoff) + 300 s, capped 6 h): a later
+  episode's audit cannot reach further back than its own duration, and audits without a
+  parseable `failures=` are never used — preferring a gap that stays unexplained over a wrong
+  explanation written into evidence. The excerpt (`ffmpeg=` first, `error=` fallback) goes
+  through `NormalizeFailureReason` again (redact before truncate; the audit column should
+  already be redacted — belt and suspenders). Rows with a reason are never rewritten.
+  `AuditLogQuery` gained an additive `TargetId` filter. Wired into both the desktop retention
+  loop and the Agent's `IntegrityWorker` via
+  `SegmentFailureReasonBackfillCoordinator.RunConfigured` (`recording.failure_backfill.batch`).
+  Guarded by `corrupt段的失敗原因會由窗內的停滯稽核補上`, `歸因窗以外的停滯稽核不會被誤用`,
+  `其他頻道的停滯稽核不會被拿來補`, `解析不出failures的稽核不用來歸因`,
+  `已有原因的段不會被改寫`, `稽核節錄會遮帳密並截斷`, `掃到尾後游標寫負一且不再掃描`,
+  `停用時不掃描且游標不變` and `Agent會跑失敗原因回填走共用協調器`.
 - **Pick the sub stream by stream number, never by a magic number in the name.** `OnvifProfileSelection`
   used to carry `"101"` in `MainKeywords` and `"102"` in `SubKeywords`, matched as plain substrings.
   The real camera at `rtsp://<host>/media/stream.sdp?profile=Profile100` exposes three profiles —

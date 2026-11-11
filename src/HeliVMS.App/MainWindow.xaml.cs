@@ -1926,6 +1926,18 @@ public partial class MainWindow : Window
                     // 同上：探測失敗或庫被鎖只在下一圈重試，不影響監看。
                 }
 
+                // 失敗原因回填：新版的 corrupt 段會帶原因，舊版留下的 200 多列只有狀態。
+                // 把它們與 recording.stalled 稽核接起來（窗距由稽核的 failures 推導），
+                // 歷史時間軸上的洞才有得解釋。一次性掃描，掃完游標寫 -1。
+                try
+                {
+                    SegmentFailureReasonBackfillCoordinator.RunConfigured(_store!, DateTime.UtcNow);
+                }
+                catch (Exception)
+                {
+                    // 稽核讀取失敗或庫被鎖：下一圈再試，不影響監看主線。
+                }
+
                 // 索引對帳：把「索引說有、磁碟上沒有」的段標成 missing。
                 // 完整性檢查刻意不改狀態（見 MediaIntegrityChecker），所以外部刪檔或磁碟換掉之後，
                 // 回放清單、日曆與用量統計還會照著索引顯示，點下去才失敗——這裡才是修正索引的地方。

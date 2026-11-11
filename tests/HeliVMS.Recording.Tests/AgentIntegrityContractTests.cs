@@ -61,6 +61,20 @@ public sealed class AgentIntegrityContractTests
             worker);
     }
 
+    /// <summary>
+    /// 服務模式也要跑失敗原因回填：舊版索引的 corrupt 段只有狀態沒有原因，桌面版把它們
+    /// 與 recording.stalled 稽核接起來補上；服務模式若不跑，同一台機器換個部署方式，
+    /// 回放時間軸上的洞就有解釋與沒解釋——與段長修正同一個理由。
+    /// </summary>
+    [Fact]
+    public void Agent會跑失敗原因回填走共用協調器()
+    {
+        var worker = Read(WorkerCode);
+        Assert.Matches(
+            @"(?m)^\s*var backfill = SegmentFailureReasonBackfillCoordinator\.RunConfigured\(",
+            worker);
+    }
+
     private static string Read(string relativePath)
         => File.ReadAllText(Path.Combine(RepoRoot(), relativePath));
 

@@ -87,6 +87,24 @@ internal sealed class IntegrityWorker : BackgroundService
                 _logger.LogWarning(ex, "Segment duration repair failed; will retry next interval");
             }
 
+            // 失敗原因回填：舊版索引的 corrupt 段只有狀態沒有原因，與 recording.stalled 稽核
+            // 接起來補上（窗距由稽核的 failures 推導）。一次性掃描，掃完游標寫 -1。
+            try
+            {
+                var backfill = SegmentFailureReasonBackfillCoordinator.RunConfigured(_store, DateTime.UtcNow);
+                if (backfill.Backfilled > 0)
+                {
+                    _logger.LogInformation(
+                        "Segment failure reason backfill: {Examined} examined, {Backfilled} backfilled, cursor {Cursor}",
+                        backfill.Examined, backfill.Backfilled, backfill.Cursor);
+                }
+            }
+            catch (Exception ex)
+            {
+                // 單輪回填失敗（庫被鎖）不該讓服務停擺而中斷錄影。
+                _logger.LogWarning(ex, "Segment failure reason backfill failed; will retry next interval");
+            }
+
             // 索引對帳：把「索引說有、磁碟上沒有」的段標成 missing。與完整性檢查分開的理由是
             // 兩者的成本形狀完全不同（對帳只 stat、不做 ffprobe），而且對帳要涵蓋整個索引，
             // 完整性抽查是每輪只取樣幾段。服務模式下若不跑這一輪，外部刪檔會讓調閱清單

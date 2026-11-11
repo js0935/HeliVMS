@@ -457,6 +457,25 @@ public sealed class SegmentRepository
     }
 
     /// <summary>
+    /// 尚未留下失敗原因的 corrupt 段（主鍵遞增、最多 <paramref name="take"/> 筆），
+    /// 供失敗原因回填掃描（<c>SegmentFailureReasonBackfill</c>）使用。
+    /// </summary>
+    public IReadOnlyList<SegmentRecord> ListCorruptWithoutReasonAfter(long afterId, int take)
+    {
+        return _store.Query(
+            $"""
+            SELECT id, channel_id, stream, start_time, end_time, file_path,
+                   size_bytes, duration_sec, status, sha256, tier, origin_path, failure_reason
+            FROM segments
+            WHERE status = 'corrupt' AND failure_reason IS NULL AND id > $after
+            ORDER BY id
+            LIMIT {Math.Max(1, take)};
+            """,
+            ReadRecords,
+            cmd => cmd.Parameters.AddWithValue("$after", afterId));
+    }
+
+    /// <summary>
     /// 以檔案自己的長度改寫一段的 <c>duration_sec</c> 與 <c>end_time</c>。
     ///
     /// <para>
@@ -505,8 +524,7 @@ public sealed class SegmentRepository
             : null;
     }
 
-    /// <summary>
-    /// 寫入段長修正游標，刻意用原始 UPSERT 而不走 <see cref="SettingsRepository.Set"/>：
+    /// <summary>寫入段長修正游標，刻意用原始 UPSERT 而不走 <see cref="SettingsRepository.Set"/>：
     /// 後者每寫一次就記一筆 <c>settings.set</c> 稽核（那是給「誰改了設定」看的），
     /// 而這是機器自己的掃描進度（與磁碟健康 <c>DiskHealthCoordinator</c> 同一條規則）。
     /// </summary>
@@ -521,6 +539,43 @@ public sealed class SegmentRepository
             cmd =>
             {
                 cmd.Parameters.AddWithValue("$k", DurationRepairCursorKey);
+                cmd.Parameters.AddWithValue("$v", cursor.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                cmd.Parameters.AddWithValue("$t", SqliteStore.Iso(nowUtc));
+            });
+    }
+
+    /// <summary>失敗原因回填游標的執行期設定鍵（<c>app_settings</c>）。</summary>
+    public const string FailureBackfillCursorKey = "recording.failure_backfill.cursor";
+
+    /// <summary>
+    /// 讀取失敗原因回填游標（語意同 <see cref="GetDurationRepairCursor"/>：
+    /// null＝從未跑過、-1＝掃完、其他＝續掃起點）。
+    /// </summary>
+    public long? GetFailureBackfillCursor()
+    {
+        var raw = _store.Query<string?>(
+            "SELECT value FROM app_settings WHERE key = $k;",
+            r => r.Read() && !r.IsDBNull(0) ? r.GetString(0) : null,
+            cmd => cmd.Parameters.AddWithValue("$k", FailureBackfillCursorKey));
+
+        return long.TryParse(raw, System.Globalization.NumberStyles.Integer,
+            System.Globalization.CultureInfo.InvariantCulture, out var cursor)
+            ? cursor
+            : null;
+    }
+
+    /// <summary>寫入失敗原因回填游標（原始 UPSERT，理由同 <see cref="SetDurationRepairCursor"/>）。</summary>
+    public void SetFailureBackfillCursor(long cursor, DateTime nowUtc)
+    {
+        _store.Execute(
+            """
+            INSERT INTO app_settings (key, value, updated_at)
+            VALUES ($k, $v, $t)
+            ON CONFLICT(key) DO UPDATE SET value = $v, updated_at = $t;
+            """,
+            cmd =>
+            {
+                cmd.Parameters.AddWithValue("$k", FailureBackfillCursorKey);
                 cmd.Parameters.AddWithValue("$v", cursor.ToString(System.Globalization.CultureInfo.InvariantCulture));
                 cmd.Parameters.AddWithValue("$t", SqliteStore.Iso(nowUtc));
             });

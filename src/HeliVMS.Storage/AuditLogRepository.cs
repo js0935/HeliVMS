@@ -41,6 +41,9 @@ public sealed class AuditLogQuery
     public string? Category { get; init; }
     public string? Actor { get; init; }
     public string? Action { get; init; }
+
+    /// <summary>目標編號（<c>target_id</c>；頻道／段的數字 ID）。null＝不篩。</summary>
+    public long? TargetId { get; init; }
     public DateTime? FromUtc { get; init; }
     public DateTime? ToUtc { get; init; }
     public int Limit { get; init; }
@@ -106,6 +109,7 @@ public sealed class AuditLogRepository
         if (q.Category is { Length: > 0 }) where.Add("category = $category");
         if (q.Actor is { Length: > 0 }) where.Add("actor = $actor");
         if (q.Action is { Length: > 0 }) where.Add("action = $action");
+        if (q.TargetId is { } ti) where.Add("target_id = $ti");
         if (q.FromUtc is { } f) where.Add("occurred_at >= $from");
         if (q.ToUtc is { } t) where.Add("occurred_at < $to");
 
@@ -147,6 +151,7 @@ public sealed class AuditLogRepository
             if (q.Category is { Length: > 0 }) cmd.Parameters.AddWithValue("$category", q.Category);
             if (q.Actor is { Length: > 0 }) cmd.Parameters.AddWithValue("$actor", q.Actor);
             if (q.Action is { Length: > 0 }) cmd.Parameters.AddWithValue("$action", q.Action);
+            if (q.TargetId is { } ti) cmd.Parameters.AddWithValue("$ti", ti);
             if (q.FromUtc is { } f) cmd.Parameters.AddWithValue("$from", SqliteStore.Iso(f));
             if (q.ToUtc is { } t) cmd.Parameters.AddWithValue("$to", SqliteStore.Iso(t));
             if (q.Limit > 0)
