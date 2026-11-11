@@ -673,6 +673,25 @@ Notes that will save you time:
   `RecordingCapacityServiceTests`, `RecordingCapacityApiTests`,
   `RecordingCapacityContractTests` and `寫入量只有一份實作`.
   逐項對照與參考實作的容量公式見 `docs/STORAGE-ALIGNMENT.md`（§5.1）。
+- **"Disk is full" and "disk is dying" are different failures — keep them separate, and never
+  render *unknown* as *healthy*.** `DiskHealth`／`DiskHealthCoordinator`（`HeliVMS.Storage`）
+  answers the second one: ATA attribute parsing (12 bytes × 30 slots; attribute 5 reallocated,
+  197 pending, 194 temperature, 9 power-on hours), level `Failing`／`Warning`／`Healthy`／
+  `Unknown`, `Worst` ranks Unknown lowest so a disk nobody can read does not mask a failing one.
+  `Failing` means only two things: the controller predicts failure, or pending sectors ≥ 1
+  (reads already failing, data is leaving). Reallocated sectors or ≥55 °C are `Warning`.
+  `Unknown` (not admin, controller hides SMART, RAID/USB bridge) must stay its own UI state —
+  printing it as healthy is the expensive silent failure, because the screen stays green while
+  the disk remaps sectors. The WMI reader (`WmiDiskHealthSource`) fails open at every step
+  (volume → partition → physical disk → `root\wmi` `MSFailurePredictStatus`/`ATAPISmartData`
+  matched by `PNPDeviceID`), the coordinator audits **only on level change** (a failing disk
+  keeps the same level for days; hourly rows would drown the audit log) and stores its state via
+  a raw `app_settings` upsert, not `SettingsRepository.Set` (that one records `settings.set`,
+  which is for human edits). Both call sites matter: the desktop hourly loop and the Agent's
+  `RetentionWorker.RunOnce`. The reference NVR has a SMART page but its sampling mechanism has
+  **no evidence** in the reverse-engineering corpus (`docs/STORAGE-ALIGNMENT.md` §5.3) — this was
+  built on documented Windows APIs, not protocol alignment. Guarded by `DiskHealthTests`,
+  `DiskHealthCoordinatorTests` and `DiskHealthContractTests`.
 - **The second-screen mirror wall filters frames by channel, not by cell — and it must be fed
   from the decode thread.** `WallMirrorWindow` can be pinned to a monitor group (`wall.mirror.group`)
   so the second screen keeps showing one set of cameras while the main wall pages elsewhere;

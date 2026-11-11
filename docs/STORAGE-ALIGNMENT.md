@@ -262,6 +262,43 @@ duration_sec, size_bytes, status, tier, origin_path`…），外加 `SegmentShar
 守門：`ListReclaimCandidates事件模式區段排在最後且同層由舊至新`、
 `配額汰除先刪全時段而事件段留到最後`、`只剩事件段而仍超額時仍會由舊至新汰除`。
 
+### 5.3 第三輪：磁碟健康（S.M.A.R.T.）——參考側有頁面、沒有取樣證據
+
+**參考側的事實（含證據等級）**：
+
+| 觀察 | 證據 | 等級 |
+|---|---|---|
+| 有磁碟 SMART 頁 | `QCV8001\UI-ROUTES.md`：`config/disk/information/smart`（另有 `diskArrayCfg`／`diskMode`／`physicalDiskCfg`／`storage/mode`） | 已觀察（UI 路由） |
+| 取樣機制 | **查無證據**：反編譯語料裡沒有 WMI 類別（`MSStorageDriver_*`）、沒有 ATA pass-through IOCTL、`PROTOCOL-WS.md` 也沒有磁碟健康命令 | 未知（不可推論） |
+| 頁面欄位 | **查無證據**：語料只有反編譯函式與 .md 摘要，沒有 web 資產（`ws\view\...`） | 未知 |
+
+換句話說：**操作員會期待這台 NVR 有磁碟健康頁**（參考實作有），但「它到底量了什麼」我們不知道。
+所以這一項不是協議對齊，是照 Windows 上有文件的做法自建；要對齊欄位得先拿到那頁的資產或實機。
+
+**HeliVMS 的實作（2026-11-11）**：
+
+| 層 | 內容 |
+|---|---|
+| 純函式 `DiskHealth` | ATA 屬性區解析（12 bytes × 30 項；屬性 5 重新配置、197 待重新配置、194 溫度、9 通電時數）＋等級（`Failing`／`Warning`／`Healthy`／`Unknown`）＋`Worst`（未知不掩蓋已知） |
+| 讀取器 `WmiDiskHealthSource` | `Win32_LogicalDisk`→分割區→`Win32_DiskDrive` 對應實體碟，再以 `PNPDeviceID` 對上 `root\wmi` 的 `FailurePredictStatus`／`ATAPISmartData`；每一段各自 fail-open |
+| 協調 `DiskHealthCoordinator` | 只回報**錄影磁碟**；等級改變才寫 `disk.health` 稽核（執行期狀態存 `app_settings`，不記 `settings.set`）；讀不到一律未知 |
+| 顯示 | 設定中心「儲存」頁逐顆一行（等級＋型號＋溫度）、每小時迴圈提示列、Headless Agent 分級 log、`GET /api/system/disk-health` |
+
+三個刻意的決定：
+
+1. **`Unknown` 與 `Healthy` 分開**（`未提供` vs `正常`）：不是管理員、控制器不外露、RAID/USB 橋接後面
+   看不到實體碟——這些都會讓畫面一片綠，而硬碟已經在重新配置磁區。未知印成健康是最貴的一種靜默失效。
+2. **`Failing` 的判準只看兩件事**：控制器預測故障、以及**待重新配置磁區 ≥ 1**（讀取失敗、等重映射，
+   資料已在流失）。已重新配置磁區與高溫（≥55°C）算 `Warning`——還能用，但要準備換。
+3. **不做「健康時也寫稽核」**：一顆預測故障的硬碟會連續好幾天維持同等級，每小時一筆會把稽核表灌滿
+   （與磁碟壓力同一條去重規則）。
+
+與既有機制的分工：`DiskPressurePolicy`＝碟滿了（清檔／擴充）、`MediaIntegrityChecker`＝已封檔區段的
+**解碼**抽查（事後才知道某一格讀不出來）、`DiskHealth`＝硬碟自己講的早期訊號（換碟）。
+三者互補，任何一個都不能取代另一個。
+
+守門：`DiskHealthTests`（12）、`DiskHealthCoordinatorTests`（5）、`DiskHealthContractTests`（4）。
+
 ---
 
 ## 6. 這份文件不包含什麼

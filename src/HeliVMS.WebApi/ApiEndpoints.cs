@@ -88,6 +88,36 @@ public sealed record RecordingCapacityResponse(
     double BytesPerHour,
     IReadOnlyList<RecordingCapacityDrive> Drives);
 
+/// <summary>磁碟健康回應（每顆錄影磁碟一筆；欄位為 null＝該項讀不到）。</summary>
+/// <param name="State">最嚴重的一顆：<c>healthy</c>／<c>warning</c>／<c>failing</c>／<c>unknown</c>。</param>
+/// <param name="Failing">預測故障／有待重新配置磁區的顆數。</param>
+/// <param name="Warning">已重新配置磁區或溫度偏高的顆數。</param>
+/// <param name="Drives">逐顆磁碟。</param>
+public sealed record DiskHealthResponse(
+    string State,
+    int Failing,
+    int Warning,
+    IReadOnlyList<DiskHealthDrive> Drives);
+
+/// <summary>單顆磁碟的健康讀數。</summary>
+/// <param name="Root">磁碟區根（<c>D:\</c>）。</param>
+/// <param name="Model">型號。</param>
+/// <param name="Serial">序號。</param>
+/// <param name="State">這一顆的等級：<c>healthy</c>／<c>warning</c>／<c>failing</c>／<c>unknown</c>。</param>
+/// <param name="TemperatureCelsius">溫度（°C）。</param>
+/// <param name="PendingSectors">待重新配置磁區數。</param>
+/// <param name="ReallocatedSectors">已重新配置磁區數。</param>
+/// <param name="PowerOnHours">累計通電時數。</param>
+public sealed record DiskHealthDrive(
+    string Root,
+    string? Model,
+    string? Serial,
+    string State,
+    int? TemperatureCelsius,
+    int? PendingSectors,
+    int? ReallocatedSectors,
+    int? PowerOnHours);
+
 /// <summary>單顆錄影磁碟的容量與剩餘可錄時間。</summary>
 /// <param name="Root">磁碟根。</param>
 /// <param name="TotalBytes">總容量。</param>
@@ -675,6 +705,30 @@ public sealed record RecordingCapacityDrive(
                 retention.WatermarkGb,
                 retention.AlarmRetentionDays,
                 retention.AuditRetentionDays));
+        });
+
+        // 錄影磁碟的健康（S.M.A.R.T.）：與 `GET /recording/capacity`（碟滿了）分開，
+        // 因為兩者的處置相反（換碟 vs 清檔）。讀不到時 state=unknown，不會回 healthy。
+        api.MapGet("/system/disk-health", static (SqliteStore store, RecordedSegmentPolicy policy) =>
+        {
+            var roots = policy.Roots;
+            var report = DiskHealthCoordinator.ReadConfigured(store, roots.Count > 0 ? roots[0] : null);
+
+            return Results.Ok(new DiskHealthResponse(
+                report.Worst.ToString().ToLowerInvariant(),
+                report.Failing,
+                report.Warning,
+                report.Volumes
+                    .Select(v => new DiskHealthDrive(
+                        v.Root,
+                        v.Model,
+                        v.Serial,
+                        v.Level.ToString().ToLowerInvariant(),
+                        v.Attributes?.TemperatureCelsius,
+                        v.Attributes?.PendingSectors,
+                        v.Attributes?.ReallocatedSectors,
+                        v.Attributes?.PowerOnHours))
+                    .ToList()));
         });
 
         api.MapPost("/retention/run", static (RetentionService retention) =>

@@ -239,7 +239,8 @@
           "HeliVMS.Core": "[0.1.0, )",
           "HeliVMS.Licensing": "[0.1.0, )",
           "HeliVMS.Shared": "[0.1.0, )",
-          "Microsoft.Data.Sqlite": "[10.0.12, )"
+          "Microsoft.Data.Sqlite": "[10.0.12, )",
+          "System.Management": "[10.0.12, )"
         }
       },
       "helivms.webapi": {

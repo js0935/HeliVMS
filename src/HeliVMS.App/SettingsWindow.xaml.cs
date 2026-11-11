@@ -2596,6 +2596,52 @@ public partial class SettingsWindow : Window
         var (total, count) = new SegmentRepository(_store).GetTotalUsageSummary();
         UsageText.Text = string.Format(Localizer.T("Settings.UsageText"), FormatBytes(total), count, ReserveGbFromStore());
         ReloadRemainingRecordTime();
+        ReloadDiskHealth();
+    }
+
+    /// <summary>
+    /// 錄影磁碟的健康（S.M.A.R.T.）。
+    /// </summary>
+    /// <remarks>
+    /// 「碟要壞了」與「碟滿了」是兩種都會無聲吃掉錄影的失效，處置相反（換碟 vs 清檔），
+    /// 所以在同一個頁面上要分得出來。讀不到 S.M.A.R.T.（非管理員、控制器不外露、虛擬碟）
+    /// 一律顯示「未提供」——那與「健康」是不同的兩件事，混在一起就是畫面一片綠而硬碟在壞。
+    /// 這一呼叫會走 WMI（實測數十至數百毫秒），但同一個頁面本來就會做一次資料夾層級的索引對帳，
+    /// 兩者的量級相同。
+    /// </remarks>
+    private void ReloadDiskHealth()
+    {
+        DiskHealthHeading.Text = Localizer.T("Settings.DiskHealthLabel");
+
+        try
+        {
+            var report = DiskHealthCoordinator.ReadConfigured(_store, _recordingsRoot);
+            if (report.Volumes.Count == 0)
+            {
+                DiskHealthText.Text = Localizer.T("Settings.DiskHealthEmpty");
+                return;
+            }
+
+            DiskHealthText.Text = string.Join(
+                "　",
+                report.Volumes.Select(volume =>
+                {
+                    var level = Localizer.T(DiskHealth.LevelKey(volume.Level));
+                    var model = string.IsNullOrWhiteSpace(volume.Model)
+                        ? string.Empty
+                        : string.Format(Localizer.T("Settings.DiskHealthModel"), volume.Model);
+                    var temperature = volume.Attributes?.TemperatureCelsius is { } celsius
+                        ? string.Format(Localizer.T("Settings.DiskHealthTemperature"), celsius)
+                        : string.Empty;
+
+                    return string.Format(Localizer.T("Settings.DiskHealthLine"), volume.Root, level, model, temperature);
+                }));
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or UnauthorizedAccessException)
+        {
+            // 健康查詢失敗不該讓設定頁打不開。
+            DiskHealthText.Text = Localizer.T("Settings.DiskHealthEmpty");
+        }
     }
 
     /// <summary>

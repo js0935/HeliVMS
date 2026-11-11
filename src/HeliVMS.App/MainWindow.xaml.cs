@@ -1883,6 +1883,26 @@ public partial class MainWindow : Window
                 {
                     // 讀不到磁碟狀態不影響監看主線，下一圈再試。
                 }
+
+                // 磁碟健康（S.M.A.R.T.）：與「磁碟滿了」不同的一件事——硬碟要壞了要換碟，
+                // 不是清檔。同樣只在等級改變時寫稽核（與 Agent 共用入口），並在提示列讓
+                // 操作員當下看到：等到回放讀不出來才發現，往往已經少了好幾天的錄影。
+                try
+                {
+                    var health = DiskHealthCoordinator.RunConfigured(_store!, _recordingsRoot, DateTime.UtcNow);
+                    if (health.Worst == DiskHealthLevel.Failing)
+                    {
+                        HintText.Text = Localizer.T("Main.DiskHealthFailing");
+                    }
+                    else if (health.Worst == DiskHealthLevel.Warning)
+                    {
+                        HintText.Text = Localizer.T("Main.DiskHealthWarning");
+                    }
+                }
+                catch (Exception)
+                {
+                    // 健康查詢讀不到（非管理員、控制器不外露）不影響監看主線。
+                }
             }
             catch (Exception)
             {

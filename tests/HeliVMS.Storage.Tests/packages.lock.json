@@ -182,13 +182,6 @@
           "HeliVMS.Shared": "[0.1.0, )"
         }
       },
-      "helivms.decoder": {
-        "type": "Project",
-        "dependencies": {
-          "HeliVMS.Core": "[0.1.0, )",
-          "HeliVMS.Shared": "[0.1.0, )"
-        }
-      },
       "helivms.licensing": {
         "type": "Project",
         "dependencies": {
@@ -200,7 +193,6 @@
         "type": "Project",
         "dependencies": {
           "HeliVMS.Core": "[0.1.0, )",
-          "HeliVMS.Decoder": "[0.1.0, )",
           "HeliVMS.Shared": "[0.1.0, )"
         }
       },
@@ -224,6 +216,7 @@
           "HeliVMS.Shared": "[0.1.0, )",
           "Microsoft.Data.Sqlite": "[10.0.12, )",
           "System.Drawing.Common": "[9.0.4, )",
+          "System.Management": "[10.0.12, )",
           "System.Security.Cryptography.ProtectedData": "[10.0.12, )"
         }
       }

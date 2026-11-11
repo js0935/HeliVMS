@@ -89,5 +89,28 @@ internal sealed class RetentionWorker : BackgroundService
         {
             _logger.LogWarning("錄影磁碟已用超過 85%（{Root}），請預先清理或擴充。", recordingsRoot);
         }
+
+        // 磁碟健康（S.M.A.R.T.）：「碟要壞了」與「碟滿了」是兩件事，處置也不同（換碟 vs 清檔）。
+        // 與桌面共用入口、同一組磁碟；等級改變才寫稽核，這裡另外留分級 log 讓維運不必查稽核。
+        // 讀不到（非管理員、控制器不外露）一律是未知，不影響錄影。
+        try
+        {
+            var health = DiskHealthCoordinator.RunConfigured(_store, recordingsRoot, nowUtc);
+            if (health.Worst == DiskHealthLevel.Failing)
+            {
+                _logger.LogError(
+                    "錄影磁碟預測故障或有待重新配置磁區（{Root}）：請立刻備份並更換硬碟。",
+                    recordingsRoot);
+            }
+            else if (health.Worst == DiskHealthLevel.Warning)
+            {
+                _logger.LogWarning("錄影磁碟已出現重新配置磁區或溫度偏高（{Root}），請準備更換。", recordingsRoot);
+            }
+        }
+        catch (Exception ex)
+        {
+            // 健康查詢失敗（WMI 被停用／權限不足）不該讓保留清理停擺。
+            _logger.LogDebug(ex, "Disk health check failed; will retry next interval");
+        }
     }
 }

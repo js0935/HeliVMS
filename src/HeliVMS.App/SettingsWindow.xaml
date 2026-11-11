@@ -230,8 +230,15 @@
                 <!-- Remaining record time (measured from the last hour of real writes, not from
                      nominal bitrates). Unknown renders as an em dash, never as 0 — see
                      RecordingCapacityState and docs/STORAGE-ALIGNMENT.md gap 1. -->
-                <TextBlock x:Name="RemainingRecordText" Margin="0,0,0,14" TextWrapping="Wrap"
+                <TextBlock x:Name="RemainingRecordText" Margin="0,0,0,8" TextWrapping="Wrap"
                            AutomationProperties.AutomationId="RemainingRecordText"/>
+
+                <!-- Disk health (S.M.A.R.T.): "the disk is dying" is a different failure than
+                     "the disk is full", and its treatment is different too (replace vs purge).
+                     Unknown (cannot read S.M.A.R.T.) must never render as healthy. -->
+                <TextBlock x:Name="DiskHealthHeading" Text="" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+                <TextBlock x:Name="DiskHealthText" Margin="0,2,0,14" TextWrapping="Wrap"
+                           AutomationProperties.AutomationId="DiskHealthText"/>
 
                 <!-- Capacity planner: for the "not installed yet" case. Takes bitrates as input
                      (nothing to measure), and reports RAID parity loss separately because that is
