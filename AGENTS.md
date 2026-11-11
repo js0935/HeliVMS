@@ -955,6 +955,35 @@ Notes that will save you time:
   `已經合併過的子區間不會擋住同一小時後半段的合併`,
   `合併完成後檔案沒有被雜湊讀取留在開啟狀態`, `換列失敗時不會留下刪不掉的合併檔` and
   `同名的合併檔已被索引指著時不會被刪掉重做`.
+  **Duration validation must measure the inputs' own lengths, and a failure must say which hour
+  and why.** `segments.duration_sec` was a wall clock (how long the recorder process ran) before the
+  file-derived-length work, and it can be 3–22 % larger than the file — measured on the live index,
+  **33 of 59 mergeable hours** failed the old check while the output was complete (e.g.
+  `攝影機05\20261109\02`: index sum 3505.231 s vs the 14 files' own 3065.386 s, output 3065.386 s).
+  Validating only against the index therefore means measuring a correct output with a ruler known to
+  lie, and those hours can **never** merge, with a clean log. The order in `MergeOne` is now: compare
+  the output against the index (cheap, one probe, correct in the normal case) → on mismatch measure
+  every input with `TrySumInputSeconds` → compare again against that sum (a real content loss is
+  still refused). Do not "simplify" this into always probing every input: that is N ffprobes per
+  hour for every sweep. The merged row's `DurationSec` and `EndUtc` come from the **merged file's own
+  length** (`contentSeconds`, `end = start + contentSeconds`), never from the old rows' wall-clock
+  span — copying the old value into the new row is exactly how the error reaches the timeline, the
+  arrow keys and multi-pane sync. Failure reporting is typed, not a counter: `HourlyMergeReport`
+  carries `Failures` (`HourlyMergeFailure`: folder, hour, `MergeFailureReason`
+  — `RemuxFailed`/`DurationProbeFailed`/`DurationMismatch`/`HashFailed`/`IndexSwapFailed`/
+  `OrphanDeleteFailed`, each with a different remedy — and a detail string), the desktop hint says
+  `Main.HourlyMergeFailed` and names one folder via `ShortFolderLabel` (`頻道\日期\小時`; the full
+  path would blow up the hint bar), and the headless Agent logs a `LogWarning` naming the first
+  failing folder. Per-failure detail goes to **`%TEMP%\helivms-merge.log`** (256 KB,
+  `BoundedFileLog`), deliberately **not** to `audit_log`: the same hour can fail every sweep, i.e. 24
+  rows a day, which would bury the `recording.stalled`/`recording.disk_full` rows that actually
+  matter (the DI-audit flooding lesson). Guarded by `長度驗證不過時不會換列`,
+  `索引段長比檔案長時仍會合併且新列長度取檔案自己的長度`,
+  `合併失敗會記錄是哪一小時與為什麼`, `清理輪合併失敗會在主畫面說明並指出資料夾` and
+  `Agent的保留清理會把合併失敗寫進log`. Contract-test trap (hit for real this round): the Agent
+  fact first asserted the source contains 「小時合併失敗」 — the explanatory comment above the log
+  line contains the same characters, so deleting the whole `LogWarning` kept it green. It now pins
+  the message template (with the `{Failed}` placeholder) and `mergeFailures[0].FolderPath`.
 - **Pick the sub stream by stream number, never by a magic number in the name.** `OnvifProfileSelection`
   used to carry `"101"` in `MainKeywords` and `"102"` in `SubKeywords`, matched as plain substrings.
   The real camera at `rtsp://<host>/media/stream.sdp?profile=Profile100` exposes three profiles —

@@ -19,6 +19,7 @@ public sealed class HourlySegmentMergerTests : IDisposable
 
     private readonly string _dbPath;
     private readonly string _root;
+    private readonly string _logPath;
     private readonly SqliteStore _store;
     private readonly SegmentRepository _segments;
     private readonly FakeRemuxer _remuxer = new();
@@ -29,6 +30,7 @@ public sealed class HourlySegmentMergerTests : IDisposable
         _root = Path.Combine(dir, "recordings");
         Directory.CreateDirectory(_root);
         _dbPath = Path.Combine(dir, "index.db");
+        _logPath = Path.Combine(dir, "helivms-merge.log");
         _store = new SqliteStore(_dbPath);
         _store.Initialize();
         _segments = new SegmentRepository(_store);
@@ -55,7 +57,8 @@ public sealed class HourlySegmentMergerTests : IDisposable
     }
 
     private HourlySegmentMerger NewMerger(DateTime now)
-        => new(_segments, new LegalHoldRepository(_store), _remuxer, clock: () => now);
+        => new(_segments, new LegalHoldRepository(_store), _remuxer,
+            clock: () => now, logPath: _logPath);
 
     [Fact]
     public void 超過一小時的完整小時會被合併並換成單一索引列()
@@ -68,6 +71,7 @@ public sealed class HourlySegmentMergerTests : IDisposable
 
         Assert.Equal(1, report.MergedHours);
         Assert.Equal(3, report.DeletedFiles);
+        Assert.Empty(report.Failures ?? []);
 
         var mergedPath = Path.Combine(_root, "ch1", "20261009", "14", "merged-140000000.mp4");
         Assert.True(File.Exists(mergedPath), "合併檔應該落在同一個小時資料夾");
@@ -140,6 +144,75 @@ public sealed class HourlySegmentMergerTests : IDisposable
             Assert.True(File.Exists(row.FilePath), "長度對不上的檔案不能換上去");
         }
         Assert.Equal(3, _segments.ListFinalBetween(Hour14, Hour14.AddHours(1)).Count);
+    }
+
+    /// <summary>
+    /// 索引的段長比檔案本身長時（改動前寫進去的牆鐘值），長度驗證要用「輸入檔自己的長度」再判一次，
+    /// 而且換上去的新列要記檔案自己的長度。
+    /// </summary>
+    /// <remarks>
+    /// 現場實測（<c>C:\HeliVMSData\index.db</c> 對上 <c>D:\HeliVMSRecordings</c>）：59 個可合併的小時裡
+    /// 有 33 個停在長度驗證失敗分支，而輸出檔其實一個位元組都沒少——例：<c>攝影機05\20261109\02</c>
+    /// 的 14 段索引合計 3505.2 秒、檔案自己的長度合計 3065.4 秒。舊版拿索引當基準，等於拿一個
+    /// 已知會說謊的尺去量正確的輸出，於是這些小時<b>永遠</b>合併不起來，而日誌乾淨。
+    /// </remarks>
+    [Fact]
+    public void 索引段長比檔案長時仍會合併且新列長度取檔案自己的長度()
+    {
+        var rows = SeedHour(Hour14, segments: 3, minutesEach: 20);
+
+        // 舊版索引把「行程活多久」記成段長：三段各 20 分鐘的檔案被記成 23 分鐘。
+        // end_time 也要一起偏大，否則 EndOf() 會先看 end_time 而看不到這個症狀。
+        foreach (var row in rows)
+        {
+            _segments.RepairDuration(row.Id, row.StartUtc.AddSeconds(1380), 1380);
+        }
+
+        // 輸出與輸入檔自己的長度一致（3600 秒）；只有索引在說謊。
+        _remuxer.Probe = p => p.EndsWith(".tmp", StringComparison.OrdinalIgnoreCase) ? 3600 : 1200;
+
+        // now 要拉得比偏大的 end_time 更晚：舊列的最後一段被記成 14:40 + 23 分鐘，
+        // 用 16:00 當 now 會讓這個小時被「還在錄」的守門條件跳過（測到的就不是長度驗證了）。
+        var now = Hour14.AddHours(3);
+
+        var report = NewMerger(now).Run(now);
+
+        Assert.Equal(1, report.MergedHours);
+        Assert.Equal(0, report.FailedHours);
+
+        var mergedRow = Assert.Single(_segments.ListFinalBetween(Hour14, Hour14.AddHours(1)));
+        Assert.Equal(3600, mergedRow.DurationSec ?? 0, 1);
+        Assert.Equal(Hour14.AddHours(1), mergedRow.EndUtc);
+        Assert.Equal("merged", mergedRow.Tier);
+    }
+
+    /// <summary>
+    /// 合併失敗要說得出「哪一小時、為什麼」——舊版只把一個計數加一，而那個計數沒有任何地方讀它。
+    /// </summary>
+    /// <remarks>
+    /// 這一條是「輸出真的掉了內容」：索引與檔案都說 2400 秒，輸出只有 1800。這種情況必須仍然擋下，
+    /// 但報告要帶資料夾、小時與原因，並寫進 <c>%TEMP%\helivms-merge.log</c>；否則現場只看得到
+    /// 「檔案數沒有變少」，沒有任何線索可以查。
+    /// </remarks>
+    [Fact]
+    public void 合併失敗會記錄是哪一小時與為什麼()
+    {
+        var rows = SeedHour(Hour14, segments: 2, minutesEach: 20);
+        _remuxer.Probe = p => p.EndsWith(".tmp", StringComparison.OrdinalIgnoreCase) ? 1800 : 1200;
+        var now = Hour14.AddHours(2);
+
+        var report = NewMerger(now).Run(now);
+
+        Assert.Equal(1, report.FailedHours);
+        var failure = Assert.Single(report.Failures!);
+        Assert.Equal(MergeFailureReason.DurationMismatch, failure.Reason);
+        Assert.Equal(Path.GetDirectoryName(rows[0].FilePath), failure.FolderPath);
+        Assert.Equal(Hour14, failure.HourStartUtc);
+
+        var log = File.ReadAllText(_logPath);
+        Assert.Contains("merge-failed", log);
+        Assert.Contains("DurationMismatch", log);
+        Assert.Contains(failure.FolderPath, log);
     }
 
     [Fact]

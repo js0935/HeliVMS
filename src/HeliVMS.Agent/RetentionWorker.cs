@@ -74,6 +74,17 @@ internal sealed class RetentionWorker : BackgroundService
                 sweep.AlarmPurged, sweep.AudioPurged, sweep.AuditPurged);
         }
 
+        // 小時合併失敗：服務模式沒有提示列，log 是唯一看得到的地方。只寫第一個資料夾與原因
+        //（同一個小時可能每一輪都失敗，逐筆寫會把 log 洗掉），完整清單在 %TEMP%\helivms-merge.log。
+        if (sweep.MergeFailures is { Count: > 0 } mergeFailures)
+        {
+            _logger.LogWarning(
+                "小時合併失敗 {Failed} 個小時；第一個：{Folder} 原因 {Reason}（詳見 %TEMP%\\helivms-merge.log）",
+                mergeFailures.Count,
+                mergeFailures[0].FolderPath,
+                mergeFailures[0].Reason);
+        }
+
         // 磁碟滿策略第一階段（§11.1）：>85% 預警、低於寫入門檻告警。等級改變才寫稽核
         //（與桌面共用入口），並在這裡留下分級的 log 讓維運不必查稽核就看得到。
         var recordingsRoot = RecordingStorage.ResolveConfiguredRoot(

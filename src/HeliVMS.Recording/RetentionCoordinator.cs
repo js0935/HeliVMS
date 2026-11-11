@@ -16,7 +16,7 @@ public readonly record struct RetentionSweepResult(
     TemporaryRecoveryReport Recovery = default,
     int MergedHours = 0,
     int MergedDeletedFiles = 0,
-    int MergedFailedHours = 0,
+    IReadOnlyList<HourlyMergeFailure>? MergeFailures = null,
     int PressureDeletedSegments = 0,
     long PressureFreedBytes = 0,
     bool PressureStillCritical = false)
@@ -29,6 +29,9 @@ public readonly record struct RetentionSweepResult(
 
     /// <summary>本輪救回幾段「中斷收尾」的錄影（見 <see cref="TemporarySegmentRecovery"/>）。</summary>
     public int RecoveredTmp => Recovery.Recovered;
+
+    /// <summary>本輪合併失敗的小時數（含原因，見 <see cref="HourlyMergeFailure"/>）。</summary>
+    public int MergedFailedHours => MergeFailures?.Count ?? 0;
 }
 
 /// <summary>
@@ -98,6 +101,10 @@ public static class RetentionCoordinator
     /// <paramref name="segments"/> 為 null 時自 <paramref name="store"/> 建一個區段索引；
     /// 桌面傳入自己那一份（含分片登錄），才不會看不到寫在分片裡的暫存段。
     /// </para>
+    /// <para>
+    /// <paramref name="mergeLogPath"/> 只給測試指定失敗診斷日誌的位置；正式路徑由
+    /// <see cref="HourlySegmentMerger"/> 預設為 <c>%TEMP%\helivms-merge.log</c>。
+    /// </para>
     /// </summary>
     public static RetentionSweepResult Run(
         SqliteStore store,
@@ -111,7 +118,8 @@ public static class RetentionCoordinator
         SegmentRepository? segments = null,
         bool hourlyMergeEnabled = false,
         HourlySegmentMerger.IRemuxer? mergeRemuxer = null,
-        Func<string, (long TotalBytes, long FreeBytes)>? driveUsageFor = null)
+        Func<string, (long TotalBytes, long FreeBytes)>? driveUsageFor = null,
+        string? mergeLogPath = null)
     {
         // 先救援、再清理。順序是契約的一部分：PurgeStaleTmp 會把超過十分鐘的 .tmp 直接刪掉，
         // 先清再救等於每次關程式前的錄影都被判死；反過來先救，救回的段已經改名成正式檔，
@@ -151,7 +159,8 @@ public static class RetentionCoordinator
             ? new HourlySegmentMerger(
                 segments ?? new SegmentRepository(store),
                 new LegalHoldRepository(store),
-                mergeRemuxer).Run(nowUtc)
+                mergeRemuxer,
+                logPath: mergeLogPath).Run(nowUtc)
             : default;
 
         return new RetentionSweepResult(
@@ -167,7 +176,7 @@ public static class RetentionCoordinator
             recovery,
             merge.MergedHours,
             merge.DeletedFiles,
-            merge.FailedHours,
+            merge.Failures,
             pressure.DeletedSegments,
             pressure.FreedBytes,
             pressure.StillCritical);

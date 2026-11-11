@@ -4,6 +4,53 @@
 > 權威來源：`git` 與 GitHub Actions 的現況（不是聊天記錄）。
 > 所有里程碑均已 commit＋push、CI 全綠、工作目錄乾淨（下方數據皆為驗證過的真實值）。
 
+> **【追加 2026-11-11（之九）】合併的長度驗證要拿「輸入檔自己的長度」當基準，失敗要說得出哪一小時、為什麼**
+>
+> 之八的下一步候選（`FailedHours` 有產生但沒有任何地方讀它）就是這一輪，而追下去發現失敗的
+> **量體遠大於預期**：實測 `C:\HeliVMSData\index.db` 對上 `D:\HeliVMSRecordings`，328 個小時
+> 資料夾裡 269 個沒有可併的段，剩 **59 個可合併**——其中 **33 個**會停在長度驗證失敗分支。
+> 例：`攝影機05\20261109\02` 的 14 段索引合計 **3505.231 秒**，14 個檔案自己的長度合計
+> **3065.386 秒**（每一段的索引值都比檔案長 3–22%，例 `seg-020804213.mp4` 索引 367.706／檔案
+> 300.027）。輸出檔一個位元組都沒少，是**索引那支尺在說謊**（舊版的 `duration_sec` 是牆鐘：
+> 行程活了多久，Windows 睡眠或校時一次就多出幾百甚至幾千秒）。
+> - 修法（`HourlySegmentMerger.MergeOne`）：驗證順序改成「先用索引（便宜，正常情況一次探測就
+>   夠）→ 對不上時才逐檔探測輸入自己的長度（`TrySumInputSeconds`）→ 用『輸入內容合計』再判一次」。
+>   真的掉了內容仍然擋得住，只是多花一次探測。**不要**因為「索引比較舊」就跳過索引那一關：
+>   正常情況（99% 的呼叫）不該為每一個小時跑 N 次 ffprobe。
+> - 換上去的新列，`DurationSec` 與 `EndUtc` 一律取自**合併檔自己的長度**（`contentSeconds`，
+>   `end = start + contentSeconds`），不是第一個到最後一個舊列的牆鐘跨度。照抄舊列的
+>   `duration_sec` 等於把錯放進新列，而新列的長度會被時間軸、方向鍵與多路回放直接拿去算時刻。
+> - **失敗要說得出「哪一小時、為什麼」**。舊版只把 `failed++`，而那個計數沒有任何地方讀它：
+>   沒有稽核、沒有日誌、沒有 UI，於是「這個小時永遠不會被併起來」在現場完全隱形。現在
+>   `HourlyMergeReport` 帶 `IReadOnlyList<HourlyMergeFailure>? Failures`（`FailedHours` 改成
+>   `Failures?.Count` 的計算屬性），每一筆有資料夾、小時起點、`MergeFailureReason`（六種：
+>   `RemuxFailed`／`DurationProbeFailed`／`DurationMismatch`／`HashFailed`／`IndexSwapFailed`／
+>   `OrphanDeleteFailed`——處置完全不同，只寫「合併失敗」等於什麼都沒說）與 `Detail`。
+>   桌面提示列用 `Main.HourlyMergeFailed` 指出**一個具體資料夾**（`ShortFolderLabel` 只留
+>   `頻道\日期\小時` 三段，完整路徑會把提示列擠爆），Headless Agent 則 `LogWarning` 寫進 log
+>   （服務模式沒有提示列）。
+> - 逐筆原因寫進 **`%TEMP%\helivms-merge.log`（上限 256 KB，`BoundedFileLog`）**，
+>   **刻意不寫稽核列**：同一個小時可能每一輪都失敗，一小時一輪＝一天 24 列，會把真正的
+>   `recording.stalled`／`recording.disk_full`／`recording.ownership_lost` 淹掉（這就是之七
+>   DI 稽核 18,568 列的教訓）。提示列也只給一行摘要，不逐筆列。
+> - 守門：`長度驗證不過時不會換列`（輸出真的掉內容時仍要擋）、
+>   `索引段長比檔案長時仍會合併且新列長度取檔案自己的長度`、
+>   `合併失敗會記錄是哪一小時與為什麼`（報告內容＋log 檔內容）、
+>   `清理輪合併失敗會在主畫面說明並指出資料夾`、
+>   `Agent的保留清理會把合併失敗寫進log`。
+>   突變檢查（每一項先改壞確認會紅、再以編輯器還原，不用備份檔複製以免 mtime 讓 build 跳過）：
+>   把重測輸入改成無條件失敗（`if (true || …)`）→ 合併數 0，紅；`contentSeconds = indexedSeconds`
+>   → 新列 4140 秒（期望 3600），紅；拿掉 `LogFailure` → log 檔不存在，紅；拿掉 `failures.Add`
+>   → `FailedHours` 0，紅；`Main.HourlyMergeFailed` 換成 `Main.MergedHourlySegments` → 契約紅；
+>   Agent 的 `sweep.MergeFailures` 改成別的形狀 → 契約紅。
+> - **契約測試自己的坑（這一輪實際踩到）**：Agent 那條一開始只斷言原始碼含「小時合併失敗」，
+>   而它上面的說明註解**本身就含同樣的字**，於是整段 `LogWarning` 被刪掉、測試照樣綠（與
+>   AGENTS.md 裡「磁碟滿時每個開錄點都要擋」同一個病）。改成釘訊息模板（含 `{Failed}` 預留位置）
+>   與 `mergeFailures[0].FolderPath`——這兩者只可能出現在程式碼裡。
+> - 驗證：Release 全解決方案 build 0/0；Recording **408** 綠、Storage **1479** 綠、
+>   App **855** 綠（本機排除 `SolutionCoverageTests`，它紅是因為磁碟上有未追蹤的
+>   `Tools/LicenseKeyGen`，CI 不受影響）。
+
 > **【追加 2026-11-11（之八）】小時合併：半小時的合併不算「這一小時已完成」，雜湊讀取也不能把新檔鎖住**
 >
 > 之七的下一步候選就是這一輪。實測 `C:\HeliVMSData\index.db` 與 `D:\HeliVMSRecordings`：

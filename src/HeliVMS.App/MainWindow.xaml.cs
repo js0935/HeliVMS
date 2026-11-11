@@ -1751,6 +1751,21 @@ public partial class MainWindow : Window
         ? $"{bytes / 1024d / 1024 / 1024:0.#}GB"
         : $"{bytes / 1024d / 1024:0.#}MB";
 
+    /// <summary>
+    /// 提示列只帶 <c>頻道\日期\小時</c> 三段。
+    /// 完整路徑太長會把提示列擠爆，而磁碟代號與根目錄對操作員沒有意義；
+    /// 三段剛好是他能在檔案總管裡找到那個資料夾所需的最少資訊。
+    /// </summary>
+    private static string ShortFolderLabel(string folder)
+    {
+        var parts = folder.Split(
+            [Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar],
+            StringSplitOptions.RemoveEmptyEntries);
+        return parts.Length <= 3
+            ? folder
+            : string.Join(Path.DirectorySeparatorChar, parts[^3..]);
+    }
+
     /// <summary>每小時執行一次配額清理與 tmp 隔離、快照過期清理（設定每圈重讀）。</summary>
     private async Task RunRetentionLoopAsync(CancellationToken token)
     {
@@ -1828,6 +1843,17 @@ public partial class MainWindow : Window
                         Localizer.T("Main.PressureDeletedSegments"),
                         sweep.PressureDeletedSegments,
                         FormatBytes(sweep.PressureFreedBytes)));
+                }
+
+                if (sweep.MergedFailedHours > 0 && sweep.MergeFailures is { Count: > 0 })
+                {
+                    // 合併失敗在舊版完全隱形：檔案數沒變少、日誌乾淨、也沒有任何提示。
+                    // 一個小時一直失敗就是「它永遠不會被併起來」（實測現場 33/59 個可合併小時），
+                    // 所以要在提示列說出來，並指出一個具體資料夾讓操作員查得到。
+                    hintParts.Add(string.Format(
+                        Localizer.T("Main.HourlyMergeFailed"),
+                        sweep.MergedFailedHours,
+                        ShortFolderLabel(sweep.MergeFailures[0].FolderPath)));
                 }
 
                 if (sweep.PressureStillCritical)
