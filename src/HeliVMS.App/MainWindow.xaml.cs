@@ -720,13 +720,13 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// 在系統匣停留提示亮出本行程的啟動時刻：操作員平時只會滑過系統匣圖示，
-    /// 而喚醒氣泡只在重複啟動那一次出現——tooltip 是「這個實例多老了」的常駐來源。
+    /// 在系統匣停留提示亮出本行程的啟動時刻與程式建置時間：操作員平時只會滑過系統匣圖示，
+    /// 而喚醒氣泡只在重複啟動那一次出現——tooltip 是「這個實例多老了、跑的是哪一版」的常駐來源。
     /// </summary>
     /// <remarks>
-    /// 拿不到啟動時刻（極少見）就維持預設文字：沒有資訊的提示比沒有提示更糟。
-    /// 與 <see cref="ShowWakeBalloon"/> 同一個目的（2026-11 的現場教訓：一個 10-30 的
-    /// 舊行程活到 11-12，操作員始終以為自己跑著新版），只是把資訊常駐在圖示上。
+    /// 建置時間取自執行檔本身的寫入時間：發佈副本（publish -r win-x64）與開發建置的 exe
+    /// 只隔一個資料夾，操作員極易啟動舊版而不自知（2026-11-12 實測：win-x64 副本落後 11 輪）。
+    /// 兩個時間都拿不到就維持預設文字：沒有資訊的提示比沒有提示更糟。
     /// </remarks>
     private void SetTrayTooltip()
     {
@@ -734,12 +734,35 @@ public partial class MainWindow : Window
         {
             using var process = System.Diagnostics.Process.GetCurrentProcess();
             var started = process.StartTime.ToString(
-                "yyyy-MM-dd HH:mm", System.Globalization.CultureInfo.InvariantCulture);
-            _tray?.SetTooltip(string.Format(Localizer.T("Main.TrayTooltip"), started));
+                "MM-dd HH:mm", System.Globalization.CultureInfo.InvariantCulture);
+            var built = GetBuildTimeLabel();
+            _tray?.SetTooltip(built is null
+                ? string.Format(Localizer.T("Main.TrayTooltip"), started)
+                : string.Format(Localizer.T("Main.TrayTooltipBuilt"), started, built));
         }
         catch (Exception)
         {
             // 拿不到就保持「HeliVMS」預設提示；提示是輔助，不是功能。
+        }
+    }
+
+    /// <summary>執行檔的建置時間（本地時區顯示）；拿不到回 null。</summary>
+    internal static string? GetBuildTimeLabel()
+    {
+        try
+        {
+            var path = Environment.ProcessPath;
+            if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+            {
+                return null;
+            }
+
+            return File.GetLastWriteTime(path).ToString(
+                "MM-dd HH:mm", System.Globalization.CultureInfo.InvariantCulture);
+        }
+        catch (Exception)
+        {
+            return null;
         }
     }
 
@@ -772,9 +795,14 @@ public partial class MainWindow : Window
             return;
         }
 
+        // 建置時間一併帶上：被喚醒的若是發佈副本（例如 11-06 的 win-x64），操作員
+        // 對照「我剛更新過」就能立刻看出跑的是舊版程式，而不是視窗壞了。
+        var built = GetBuildTimeLabel();
         _tray?.ShowBalloon(
             Localizer.T("Main.WakeTitle"),
-            string.Format(Localizer.T("Main.WakeBody"), started));
+            built is null
+                ? string.Format(Localizer.T("Main.WakeBody"), started)
+                : string.Format(Localizer.T("Main.WakeBodyBuilt"), started, built));
     }
 
     /// <summary>

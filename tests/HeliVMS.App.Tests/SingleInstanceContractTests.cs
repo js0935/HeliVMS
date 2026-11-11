@@ -128,9 +128,9 @@ public sealed class SingleInstanceContractTests
     }
 
     /// <summary>
-    /// 喚醒氣泡只在重複啟動那一次出現；系統匣的停留提示是「這個實例多老了」的常駐來源——
-    /// 操作員平時只會滑過系統匣圖示。提示必須帶本行程的啟動時刻（i18n 三語）、
-    /// 超過 Windows 63 字元上限時截斷而不是丟例外。
+    /// 喚醒氣泡只在重複啟動那一次出現；系統匣的停留提示是「這個實例多老了、跑的是哪一版」
+    /// 的常駐來源——操作員平時只會滑過系統匣圖示。提示必須帶本行程的啟動時刻與程式建置
+    /// 時間（i18n 三語）、超過 Windows 63 字元上限時截斷而不是丟例外。
     /// </summary>
     [Fact]
     public void 系統匣停留提示常駐亮出本行程的啟動時刻()
@@ -148,9 +148,18 @@ public sealed class SingleInstanceContractTests
         Assert.Contains("Process.GetCurrentProcess()", wake);
         Assert.Contains("StartTime", wake);
         Assert.Contains("Main.TrayTooltip", wake);
+        // 發佈副本（win-x64）與開發 exe 只隔一個資料夾：建置時間是辨識「跑的是哪一版」的關鍵。
+        Assert.Contains("Main.TrayTooltipBuilt", wake);
+        Assert.Contains("GetBuildTimeLabel", main);
+        Assert.Contains("GetLastWriteTime", SourceContract.BodyOf(main, "GetBuildTimeLabel"));
+
+        var wakeBalloon = SourceContract.BodyOf(main, "ShowWakeBalloon");
+        Assert.Contains("Main.WakeBodyBuilt", wakeBalloon);
 
         var i18n = SourceContract.Read("src/HeliVMS.Storage/I18n.cs");
         Assert.Equal(3, Regex.Matches(i18n, "\"Main.TrayTooltip\"").Count);
+        Assert.Equal(3, Regex.Matches(i18n, "\"Main.TrayTooltipBuilt\"").Count);
+        Assert.Equal(3, Regex.Matches(i18n, "\"Main.WakeBodyBuilt\"").Count);
     }
 
     /// <summary>

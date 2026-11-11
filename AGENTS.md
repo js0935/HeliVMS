@@ -1126,6 +1126,24 @@ Notes that will save you time:
   `dotnet test --no-build` run STALE test DLLs, which surfaced as a fake WpfI18n failure
   (「Main.TrayTooltip 查無翻譯」 — the old Storage.dll genuinely lacked the key). When a test
   failure contradicts the source, first confirm the test DLL is fresh before debugging code.
+- **The published copy ages silently — show the build time wherever the instance shows itself.**
+  REA decompiled the self-contained publish copy at
+  `bin\Release\net10.0-windows\win-x64\` (464 files, built 11-06, **11 rounds behind**): its
+  `CutAsync` is byte-for-byte the same shape as HEAD's (`WaitAsync(timeout)` +
+  `catch (TimeoutException)`) — so the published copy is NOT the source of the 164 anonymous
+  `TaskCanceledException` lines, and that mystery stays with the named finalize log until the
+  new build actually runs in production. What the detour DID find: the publish copy sits one
+  folder away from the dev exe, and launching it starts STALE code as a fresh first instance —
+  no wake balloon fires (that only happens on a second launch), so nothing tells the operator
+  their update didn't take. The build time (the exe's own `LastWriteTime`) is therefore part of
+  the instance identity: the tray tooltip reads 「HeliVMS（自 {0} 起；建置 {1}）」 and the wake
+  balloon says 「程式建置於 {1}」 (`Main.TrayTooltipBuilt`/`Main.WakeBodyBuilt`, 3 languages;
+  `MainWindow.GetBuildTimeLabel` reads `File.GetLastWriteTime(Environment.ProcessPath)`). No
+  build time → fall back to the start-time-only text. Compared against "I just updated", a
+  build date 11-06 is immediately incriminating.
+  Guarded by `系統匣停留提示常駐亮出本行程的啟動時刻` (extended: `Main.TrayTooltipBuilt`,
+  `Main.WakeBodyBuilt`, `GetBuildTimeLabel` + `GetLastWriteTime` in the balloon) —
+  mutation-verified by removing the build-time branch from the balloon (red, reverted).
 - **Pick the sub stream by stream number, never by a magic number in the name.** `OnvifProfileSelection`
   used to carry `"101"` in `MainKeywords` and `"102"` in `SubKeywords`, matched as plain substrings.
   The real camera at `rtsp://<host>/media/stream.sdp?profile=Profile100` exposes three profiles —
