@@ -984,6 +984,33 @@ Notes that will save you time:
   fact first asserted the source contains 「小時合併失敗」 — the explanatory comment above the log
   line contains the same characters, so deleting the whole `LogWarning` kept it green. It now pins
   the message template (with the `{Failed}` placeholder) and `mergeFailures[0].FolderPath`.
+- **A `corrupt` row must say why it failed — and a revived row must not keep accusing the file.**
+  The live index had 207 `corrupt` rows (ch107 alone 118) with no cause anywhere in the row: the
+  timeline shows a hole, the operator's only recourse was matching `recording.stalled` rows out of
+  21k+ audit entries by timestamp. `segments.failure_reason` (TEXT, additive column in
+  `EnsureAdditiveColumns` — no schema bump, the SchemaDrift lesson) now carries one redacted line:
+  `SegmentRecorder` composes it via `SummarizeFailure` (human diagnosis first — exception first
+  line / 收尾逾時; then ffmpeg stderr's **last** non-empty line — the fatal error is at the tail,
+  the input-URL echo at the head; then exit code; then "no output"), `TemporarySegmentRecovery`
+  writes "not MP4" / "no file path", and `SegmentRepository.MarkCorrupt(id, reason)` normalizes
+  through `NormalizeFailureReason`: **redact credentials → flatten newlines → truncate to 200**, in
+  that order, because ffmpeg's stderr always echoes `rtsp://user:pass@host` and truncation before
+  redaction can cut the URL so the `@` is gone and the userinfo regex no longer matches — a stored
+  password. A later generic `MarkCorrupt(id)` must **not** wipe an earlier specific reason
+  (`COALESCE`); an explicit new reason overwrites. The flip side: a row that becomes playable again
+  must drop the reason — `CompleteSegment` (rescue of a half-finished finalize) and
+  `AdoptOrReviveFinal` (disk import revive) both set `failure_reason = NULL`, otherwise every future
+  "show why this failed" surface accuses a healthy file. Playback: `LoadSegments` counts
+  `SegmentStatus.Corrupt` rows (distinct from `missing` = evicted) into the hint
+  (`Playback.FailedSegments`, 3 languages) and puts the per-row `HH:mm:ss  原因` lines into
+  `LoadHint.ToolTip` — the reasons can be 200 chars, they would push the segment count out of the
+  one-line hint bar; the tooltip is cleared when the day has no failed segments and in
+  `ShowEmptyState`, or it keeps describing yesterday. Guarded by
+  `失敗原因會連同損壞狀態一起寫進索引`, `失敗原因會遮掉帳密壓成單行並截斷`,
+  `沒有新原因的損壞標記不會抹掉既有原因`, `收尾成功後不再留著失敗原因`,
+  `復活成final的段不再留著失敗原因`, `錄影失敗標成corrupt時會留下遮掉帳密的失敗原因`,
+  `失敗原因摘要優先取人的診斷再取stderr尾行`, `開頭不是MP4而判死時會留下失敗原因` and
+  `回放提示會說明錄影失敗的段數並把原因放進工具提示`.
 - **Pick the sub stream by stream number, never by a magic number in the name.** `OnvifProfileSelection`
   used to carry `"101"` in `MainKeywords` and `"102"` in `SubKeywords`, matched as plain substrings.
   The real camera at `rtsp://<host>/media/stream.sdp?profile=Profile100` exposes three profiles —

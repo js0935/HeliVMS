@@ -1090,6 +1090,10 @@ public sealed class SqliteStore : IDisposable
         EnsureColumn("segments", "checked_at_utc", "TEXT");
         EnsureColumn("segments", "tier", "TEXT NOT NULL DEFAULT 'hot'");
         EnsureColumn("segments", "origin_path", "TEXT");
+        // 損壞段的失敗原因（錄影當下為什麼失敗）。索引裡的 corrupt 列過去只有狀態沒有原因，
+        // 現場 ch107 有 118 列 corrupt，時間軸上的洞卻說不出是「攝影機拒絕連線」還是「磁碟寫入失敗」，
+        // 操作員只能靠 audit_log 的 recording.stalled 對時間——兩萬多列裡要捞出正確的那幾筆。
+        EnsureColumn("segments", "failure_reason", "TEXT");
         EnsureColumn("io_ports", "terminal_token", "TEXT");
         // Modbus 通道對應的接點（接點統一登記在 io_ports，Modbus 與攝影機端子共用規則引擎）。
         EnsureColumn("io_ports", "io_channel_id", "INTEGER");

@@ -4,6 +4,34 @@
 > 權威來源：`git` 與 GitHub Actions 的現況（不是聊天記錄）。
 > 所有里程碑均已 commit＋push、CI 全綠、工作目錄乾淨（下方數據皆為驗證過的真實值）。
 
+> **【追加 2026-11-12（之十）】corrupt 段要說得出為什麼失敗，復活的段不能再背著舊原因**
+>
+> 之九收尾後對線上索引做了一輪不變量普查（全部乾淨：`end_time = start + duration_sec` 3138 列
+> 0 個不吻合；final 列沒有 null/0 大小；沒有 tmp；corrupt/missing 列的檔案都不在磁碟上＝索引誠實；
+> 2434 列 missing 全部可由「D: 滿檔 → 壓力汰除 11-03…11-05 → 資料夾對帳標 missing」解釋；
+> `recording.quota_gb` 確認沒有任何讀取端；alarm_events 的 1131 列 null snapshot 是因為
+> alert_rules 與 ai_rules 都是空的，不是缺陷）。真正留下的缺口是 **207 列 `corrupt` 沒有任何
+> 失敗原因**：ch107 一個人 118 列（公開 IP 攝影機，實測每次故障都是 +6/+11/+20 秒三次快敗後成功，
+> 是攝影機拒絕 RTSP 約 20–40 秒，不是程式缺陷），但時間軸上的洞說不出是「攝影機拒絕連線」還是
+> 「磁碟寫入失敗」，操作員只能拿 audit_log 兩萬多列 `recording.stalled` 對時間。
+> - `segments.failure_reason`（TEXT，走 `EnsureAdditiveColumns` 無條件補欄，不動版號——
+>   SchemaDrift 教訓）。`MarkCorrupt(id, reason)` 經 `NormalizeFailureReason`：
+>   **先遮帳密 → 壓平換行 → 截斷 200 字**，順序不可對調——先截再遮的話，截斷可能把 URL 的 `@`
+>   切掉，`[^\s/?#]*@` 就不再匹配，憑證原樣進索引。
+> - 原因的來源：`SegmentRecorder.SummarizeFailure`（人的診斷優先——例外的第一行／收尾逾時；
+>   其次 ffmpeg stderr 的**最後一個**非空行——致命錯誤在尾端、輸入網址回顧在開頭；再來退出碼；
+>   最後「正常結束但沒有產出」）、`TemporarySegmentRecovery`（「檔案開頭不是 MP4」／「沒有檔案路徑」）。
+> - **兩個方向的守恆**：後到的泛型 `MarkCorrupt(id)` 不得抹掉先前的具體原因（`COALESCE`）；
+>   但列復活成 final 時必須清掉（`CompleteSegment` 與 `AdoptOrReviveFinal` 都寫
+>   `failure_reason = NULL`）——final 是能播的檔案，留著舊原因等於指控好檔案。
+> - 回放端：`LoadSegments` 把當日 `corrupt` 段數用 `Playback.FailedSegments`（三語）加進提示列，
+>   逐段「HH:mm:ss 原因」放進 `LoadHint.ToolTip`（原因可達 200 字，塞單行提示列會把段數擠出畫面）；
+>   沒有失敗段與 `ShowEmptyState` 都要清 tooltip，否則換日後還在描述前一天的失敗。
+> - 突變驗證 7 項全紅後還原；測試 Storage 1485／Recording 411（中途一次紅為已知負載抖動，
+>   連續三次複跑全綠）／App 856（排除本機 SolutionCoverageTests——untracked `Tools/LicenseKeyGen`）。
+> - 下一步候選：`PLAYBACK-PERFORMANCE.md` §5 的 3（GPU 管線）與 5（D3DImage）需要可用 GPU；
+>   對齊缺口 5（遠端 HLS 快取）與 6（多路倒轉）等現場輸入。
+>
 > **【追加 2026-11-11（之九）】合併的長度驗證要拿「輸入檔自己的長度」當基準，失敗要說得出哪一小時、為什麼**
 >
 > 之八的下一步候選（`FailedHours` 有產生但沒有任何地方讀它）就是這一輪，而追下去發現失敗的

@@ -233,6 +233,79 @@ public sealed class SegmentRecorderTests : IDisposable
     }
 
     /// <summary>
+    /// 錄影失敗標成 corrupt 時，索引必須留下「為什麼」：時間軸上的洞要說得出是
+    /// 「攝影機拒絕連線」還是「磁碟寫入失敗」。現場 ch107 一百多列 corrupt 沒有任何原因，
+    /// 操作員只能拿 audit_log 兩萬多列裡撈出正確的那幾筆對時間。
+    ///
+    /// 原因也必須遮掉帳密：ffmpeg 的 stderr 會以輸入網址回顯帳密，直接寫進索引
+    /// 等於把密碼存在資料庫裡（稽核欄遮了、索引欄沒遮，防護就白做了）。
+    /// </summary>
+    [Fact]
+    public async Task 錄影失敗標成corrupt時會留下遮掉帳密的失敗原因()
+    {
+        const string password = "S3cretPass";
+        var stderr = "ffmpeg version 8.0.1 Copyright (c) 2000-2025 the FFmpeg developers\n"
+            + $"Input #0, rtsp, from 'rtsp://admin:{password}@203.0.113.7:554/stream'\n"
+            + $"rtsp://admin:{password}@203.0.113.7:554/stream: Connection refused";
+        var factory = new FakeProcessFactory((index, psi) =>
+        {
+            var p = new FakeProcess(psi, exitCode: 1, stderr: stderr);
+            if (index == 0)
+            {
+                p.ProduceAndExit();
+            }
+
+            return p;
+        });
+
+        await using var recorder = new SegmentRecorder(_segments, factory, _ => string.Empty);
+        await recorder.StartAsync(_channelId, RtspUrl, _recordingsRoot, "main", SegmentSeconds);
+
+        await WaitUntilAsync(() => _segments.ListByRange(
+            _channelId,
+            "main",
+            DateTime.UtcNow.AddMinutes(-5),
+            DateTime.UtcNow.AddMinutes(5)).Any(s => s.Status == SegmentStatus.Corrupt));
+
+        var corrupt = Assert.Single(
+            _segments.ListByRange(
+                _channelId,
+                "main",
+                DateTime.UtcNow.AddMinutes(-5),
+                DateTime.UtcNow.AddMinutes(5)),
+            s => s.Status == SegmentStatus.Corrupt);
+
+        // 摘要取 stderr 的最後一個非空行（ffmpeg 的致命錯誤印在尾端），遮蔽在索引層完成。
+        Assert.Equal("rtsp://203.0.113.7:554/stream: Connection refused", corrupt.FailureReason);
+        Assert.DoesNotContain(password, corrupt.FailureReason);
+        Assert.DoesNotContain("admin", corrupt.FailureReason);
+    }
+
+    /// <summary>
+    /// 失敗摘要的優先序：「人寫的診斷」（例外、收尾逾時）> ffmpeg stderr 尾行 > 退出碼兜底。
+    /// 例外只取第一行——<c>ToString()</c> 的堆疊對時間軸上的洞沒有任何幫助。
+    /// </summary>
+    [Fact]
+    public void 失敗原因摘要優先取人的診斷再取stderr尾行()
+    {
+        Assert.Equal(
+            "System.IO.IOException: 磁碟空間不足",
+            SegmentRecorder.SummarizeFailure(
+                "System.IO.IOException: 磁碟空間不足\n   於 HeliVMS.Recording.SegmentRecorder.Write()",
+                "Input #0, rtsp, from 'rtsp://cam/stream'",
+                null));
+        Assert.Equal(
+            "rtsp://host: Connection refused",
+            SegmentRecorder.SummarizeFailure(null, "banner\nInput #0 ...\nrtsp://host: Connection refused\n", null));
+        Assert.Equal(
+            "ffmpeg 以結束碼 -1073741510 結束，沒有產出",
+            SegmentRecorder.SummarizeFailure(null, null, -1073741510));
+        Assert.Equal(
+            "ffmpeg 正常結束但沒有產出（連不上攝影機或沒有影像流）",
+            SegmentRecorder.SummarizeFailure(null, "   ", 0));
+    }
+
+    /// <summary>
     /// 音訊探測（ffprobe）每場錄影只該做一次：它是慢的、且會佔攝影機的 RTSP session。
     /// 若每段都探測，長時間錄影會反覆擠掉主串流。
     /// </summary>

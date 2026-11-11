@@ -149,4 +149,10 @@ public sealed class SegmentRecord
     public string Tier { get; init; } = "hot";
 
     public string? OriginPath { get; init; }
+
+    /// <summary>
+    /// 損壞段的失敗原因（<c>status='corrupt'</c> 時由錄影端寫入；已遮掉帳密、單行、最長 200 字）。
+    /// 收尾成功或復活成 final 時會清掉——final 段是能播的檔案，留著舊原因等於指控好檔案。
+    /// </summary>
+    public string? FailureReason { get; init; }
 }

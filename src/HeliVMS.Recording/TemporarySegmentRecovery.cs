@@ -103,7 +103,7 @@ public sealed class TemporarySegmentRecovery
         {
             if (string.IsNullOrWhiteSpace(row.FilePath))
             {
-                _repo.MarkCorrupt(row.Id);
+                _repo.MarkCorrupt(row.Id, "暫存段沒有檔案路徑，無從救援");
                 discarded++;
                 continue;
             }
@@ -172,7 +172,9 @@ public sealed class TemporarySegmentRecovery
             {
                 // 開頭就不是 MP4（空檔、半個 box header、被其他程式佔用後留下的垃圾）：
                 // 這種檔案改什麼名字都播不出來，留著只會被保留清理再掃一次。
-                _repo.MarkCorrupt(row.Id);
+                // 開頭就不是 MP4（空檔、半個 box header、被其他程式佔用後留下的垃圾）：
+                // 這種檔案改什麼名字都播不出來，留著只會被保留清理再掃一次。
+                _repo.MarkCorrupt(row.Id, "檔案開頭不是 MP4（空檔或內容損毀）");
                 TryDelete(tmpPath);
                 discarded++;
                 continue;

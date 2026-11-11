@@ -241,6 +241,115 @@ public class SegmentRepositoryTests : IDisposable
         Assert.Equal(SegmentStatus.Corrupt, Assert.Single(records).Status);
     }
 
+    /// <summary>
+    /// 標成 corrupt 必須連「為什麼」一起寫進索引：時間軸上的洞要說得出是攝影機拒絕連線
+    /// 還是磁碟寫入失敗，操作員不該被要求去 audit_log 對時間。
+    /// </summary>
+    [Fact]
+    public void 失敗原因會連同損壞狀態一起寫進索引()
+    {
+        var t = DateTime.UtcNow;
+        var id = _repo.BeginSegment(3, "main", @"D:\tmp\bad-reason.mp4", t);
+
+        _repo.MarkCorrupt(id, "連不上攝影機（Connection refused）");
+
+        var seg = _repo.Get(id);
+        Assert.NotNull(seg);
+        Assert.Equal(SegmentStatus.Corrupt, seg!.Status);
+        Assert.Equal("連不上攝影機（Connection refused）", seg.FailureReason);
+    }
+
+    /// <summary>
+    /// 失敗原因在寫入前必須遮掉帳密、壓成單行並截斷。順序是先遮再截：
+    /// 反過來的話，遮蔽讓字串變短後再截前 200 字，恰好會在有憑證要遮時把帳密留在前面。
+    /// 來源常是 ffmpeg stderr（一定回顯 rtsp://user:pass@host）與例外訊息（可能內嵌命令列）。
+    /// </summary>
+    [Fact]
+    public void 失敗原因會遮掉帳密壓成單行並截斷()
+    {
+        var t = DateTime.UtcNow;
+        var id = _repo.BeginSegment(3, "main", @"D:\tmp\bad-redact.mp4", t);
+
+        _repo.MarkCorrupt(id,
+            "Input #0, rtsp, from 'rtsp://admin:S3cret@203.0.113.7:554/stream'\n"
+            + "rtsp://admin:S3cret@203.0.113.7:554/stream: Connection refused\n"
+            + new string('x', 600));
+
+        var reason = _repo.Get(id)!.FailureReason;
+        Assert.NotNull(reason);
+        Assert.DoesNotContain("S3cret", reason);
+        Assert.DoesNotContain("admin", reason);
+        Assert.Contains("203.0.113.7", reason);
+        Assert.DoesNotContain('\n', reason);
+        Assert.DoesNotContain('\r', reason);
+        Assert.True(reason!.Length <= SegmentRepository.FailureReasonMaxLength);
+    }
+
+    /// <summary>
+    /// 沒有新診斷的泛型標記不得抹掉先到的具體原因：TemporarySegmentRecovery 先標一次帶原因，
+    /// 之後任何不帶原因的 MarkCorrupt（舊呼叫端、對帳）再碰到同一列時，原因必須還在；
+    /// 但明確給了新原因時要覆蓋——最新的診斷才對。
+    /// </summary>
+    [Fact]
+    public void 沒有新原因的損壞標記不會抹掉既有原因()
+    {
+        var t = DateTime.UtcNow;
+        var id = _repo.BeginSegment(3, "main", @"D:\tmp\bad-keep.mp4", t);
+        _repo.MarkCorrupt(id, "收尾途中失敗：磁碟滿");
+        _repo.MarkCorrupt(id);
+
+        Assert.Equal("收尾途中失敗：磁碟滿", _repo.Get(id)!.FailureReason);
+
+        _repo.MarkCorrupt(id, "攝影機拒絕連線");
+        Assert.Equal("攝影機拒絕連線", _repo.Get(id)!.FailureReason);
+    }
+
+    /// <summary>
+    /// 收尾成功（tmp 或 corrupt → final）後不得再留著失敗原因：final 段是能播的檔案，
+    /// 殘留的舊原因會讓任何「顯示失敗原因」的畫面指控一份好檔案。
+    /// </summary>
+    [Fact]
+    public void 收尾成功後不再留著失敗原因()
+    {
+        var t = DateTime.UtcNow;
+        var id = _repo.BeginSegment(3, "main", @"D:\tmp\rescued.mp4", t);
+        _repo.MarkCorrupt(id, "改名後索引寫入失敗");
+
+        _repo.CompleteSegment(id, t.AddSeconds(30), 900, 30, "sha-rescued");
+
+        var seg = _repo.Get(id)!;
+        Assert.Equal(SegmentStatus.Final, seg.Status);
+        Assert.Null(seg.FailureReason);
+    }
+
+    /// <summary>
+    /// 磁碟匯入把 corrupt 列復活成 final 時，同樣要清掉失敗原因——
+    /// 檔案實際上是好的，舊原因從此不再屬於這一段。
+    /// </summary>
+    [Fact]
+    public void 復活成final的段不再留著失敗原因()
+    {
+        var t = DateTime.UtcNow;
+        var path = @"D:\tmp\revive-reason.mp4";
+        var id = _repo.BeginSegment(3, "main", path, t);
+        _repo.MarkCorrupt(id, "攝影機拒絕連線");
+
+        var outcome = _repo.AdoptOrReviveFinal(3, "main", t, t.AddSeconds(30), path, 900, 30);
+
+        Assert.Equal(AdoptOutcome.Revived, outcome);
+        var seg = _repo.Get(id)!;
+        Assert.Equal(SegmentStatus.Final, seg.Status);
+        Assert.Null(seg.FailureReason);
+    }
+
+    /// <summary>沒有內容或全是空白的失敗文字就是「沒有原因」，存 NULL 而不是空字串。</summary>
+    [Fact]
+    public void 空白失敗原因存成NULL()
+    {
+        Assert.Null(SegmentRepository.NormalizeFailureReason(null));
+        Assert.Null(SegmentRepository.NormalizeFailureReason("   \r\n  "));
+    }
+
     [Fact]
     public void GetChannelTotalSize_SumsFinalOnly()
     {

@@ -88,6 +88,24 @@ public sealed class TemporarySegmentRecoveryTests : IDisposable
     }
 
     /// <summary>
+    /// 判死的決定必須留下「為什麼」：時間軸上的洞要說得出「檔案開頭就不是 MP4」，
+    /// 操作員才不會把它誤讀成「錄影沒在跑」或「被汰除」。
+    /// </summary>
+    [Fact]
+    public void 開頭不是MP4而判死時會留下失敗原因()
+    {
+        var garbage = Encoding.ASCII.GetBytes("this-is-not-an-mp4-file-just-garbage");
+        var (id, _, _) = SeedTemporary(garbage, Now.AddMinutes(-5), Now.AddMinutes(-10));
+
+        NewRecovery().Run();
+
+        var row = Assert.IsType<SegmentRecord>(_segments.Get(id));
+        Assert.Equal(SegmentStatus.Corrupt, row.Status);
+        Assert.False(string.IsNullOrWhiteSpace(row.FailureReason), "判成 corrupt 必須留原因");
+        Assert.Contains("MP4", row.FailureReason);
+    }
+
+    /// <summary>
     /// 檔案時間在三十秒內視為「還在寫」，本輪不得搬動。
     ///
     /// 搬一個正在寫入的檔案會讓錄影中斷，而且 Windows 上會直接因共用違規失敗。
@@ -236,7 +254,7 @@ public sealed class TemporarySegmentRecoveryTests : IDisposable
             Now.AddMinutes(-10),
             writeTmp: false,
             writeFinal: true);
-        _segments.MarkCorrupt(id);
+        _segments.MarkCorrupt(id, "收尾途中寫索引失敗");
 
         var report = NewRecovery().Run();
 
@@ -247,6 +265,9 @@ public sealed class TemporarySegmentRecoveryTests : IDisposable
         Assert.Equal(bytes.Length, row.SizeBytes);
         Assert.Equal(Sha256Of(bytes), row.Sha256);
         Assert.Equal(300d, row.DurationSec!.Value, 1);
+        // 復活成 final 的段不能再留著失敗原因：它是能播的檔案，
+        // 留著「當年標成 corrupt」的舊原因等於指控一份好檔案。
+        Assert.Null(row.FailureReason);
     }
 
     private TemporarySegmentRecovery NewRecovery(Func<string, bool>? isVolumeReady = null)

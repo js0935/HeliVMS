@@ -518,7 +518,7 @@ public sealed class SegmentRecorder : ISegmentRecorder
             // ffmpeg 收工但沒有可用輸出（連不上、無資料流、容器不合）：不能算成功，
             // 否則上層會以為這台攝影機一切正常。
             TryDeleteTmp(tmpPath);
-            _repo.MarkCorrupt(_activeSegmentId);
+            _repo.MarkCorrupt(_activeSegmentId, SummarizeFailure(LastFailure, LastFfError, _lastExitCode));
             return false;
         }
         catch (Exception ex)
@@ -535,7 +535,9 @@ public sealed class SegmentRecorder : ISegmentRecorder
             }
 
             TryDeleteTmp(tmpPath);
-            _repo.MarkCorrupt(_activeSegmentId);
+            // 這條路的失敗者是例外本身（磁碟滿、檔案被鎖……），訊息比 stderr 準。
+            // 帳密遮蔽與截斷由 MarkCorrupt 統一處理（必須先遮再截，見 NormalizeFailureReason）。
+            _repo.MarkCorrupt(_activeSegmentId, ex.Message);
             return false;
         }
         finally
@@ -543,6 +545,82 @@ public sealed class SegmentRecorder : ISegmentRecorder
             _activeSegmentId = -1;
             _activeSegmentStartUtc = null;
         }
+    }
+
+    /// <summary>
+    /// 把一次錄影失敗的證據（例外描述、ffmpeg stderr、退出碼）濃縮成一行，
+    /// 供索引 <c>failure_reason</c> 使用。
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// 優先序是「人寫的診斷 > 機器的診斷」：<see cref="LastFailure"/> 是收尾逾時這種
+    /// 自己給的結論，或例外的 <c>ToString()</c>（第一行就是型別＋訊息，堆疊是雜訊）；
+    /// stderr 的<b>最後一個非空行</b>才是 ffmpeg 的致命錯誤（開頭是 banner 與輸入網址回顯，
+    /// 資訊量最低）；都沒有才用退出碼與「沒有產出」兜底。
+    /// </para>
+    /// <para>
+    /// 這裡不做遮蔽與截斷——那是 <c>SegmentRepository.NormalizeFailureReason</c> 的事，
+    /// 兩處做同一件事遲早有一處先遮後截的順序會錯。
+    /// </para>
+    /// </remarks>
+    internal static string? SummarizeFailure(string? failure, string? stderr, int? exitCode)
+    {
+        var failureLine = FirstMeaningfulLine(failure);
+        if (failureLine is not null)
+        {
+            return failureLine;
+        }
+
+        var stderrLine = LastMeaningfulLine(stderr);
+        if (stderrLine is not null)
+        {
+            return stderrLine;
+        }
+
+        return exitCode is int code && code != 0
+            ? $"ffmpeg 以結束碼 {code} 結束，沒有產出"
+            : "ffmpeg 正常結束但沒有產出（連不上攝影機或沒有影像流）";
+    }
+
+    /// <summary>取多行文字的第一個非空行（例外的型別＋訊息，不要堆疊）。</summary>
+    private static string? FirstMeaningfulLine(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return null;
+        }
+
+        foreach (var line in text.Split('\n'))
+        {
+            var trimmed = line.Trim();
+            if (trimmed.Length > 0)
+            {
+                return trimmed;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>取多行文字的最後一個非空行（ffmpeg 的致命錯誤印在 stderr 尾端）。</summary>
+    private static string? LastMeaningfulLine(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return null;
+        }
+
+        var lines = text.Split('\n');
+        for (var i = lines.Length - 1; i >= 0; i--)
+        {
+            var trimmed = lines[i].Trim();
+            if (trimmed.Length > 0)
+            {
+                return trimmed;
+            }
+        }
+
+        return null;
     }
 
     /// <summary>

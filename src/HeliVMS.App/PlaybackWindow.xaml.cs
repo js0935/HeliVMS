@@ -1277,6 +1277,9 @@ public partial class PlaybackWindow : Window
         {
             var segs = _segments.ListByRange(ch.Id, "main", startUtc, endUtc, out var indexError);
             var (playable, missingCount, unverifiedCount) = ReconcileSegments(segs);
+            // 錄影當下失敗的段（連不上攝影機、磁碟寫入失敗）：它們不會出現在清單裡，
+            // 但時間軸上的洞就是它們留下的——不講，操作員會以為是沒錄或被汰除。
+            var failed = segs.Where(s => s.Status == SegmentStatus.Corrupt).ToList();
             var items = playable
                 .Where(s => s.Status == SegmentStatus.Final)
                 .OrderBy(s => s.StartUtc)
@@ -1333,6 +1336,21 @@ public partial class PlaybackWindow : Window
                 hint = hint + " " + string.Format(Localizer.T("Playback.MissingSegments"), missingCount);
             }
 
+            if (failed.Count > 0)
+            {
+                // 與 missing 不同：這些段從來沒有存成檔案（錄影當下就失敗了）。
+                hint = hint + " " + string.Format(Localizer.T("Playback.FailedSegments"), failed.Count);
+            }
+
+            // 失敗原因放工具提示而不是提示列：原因可能上百字，塞進單行提示列會把
+            // 「當日 N 段」擠出畫面。沒有失敗段時必須清掉上一輪的提示，否則換日之後
+            // 工具提示還在描述前一天的失敗。
+            var reasons = failed
+                .Where(s => !string.IsNullOrWhiteSpace(s.FailureReason))
+                .Select(s => $"{TimeZoneInfo.ConvertTimeFromUtc(s.StartUtc, TimeZoneInfo.Local):HH:mm:ss}  {s.FailureReason}")
+                .ToList();
+            LoadHint.ToolTip = reasons.Count > 0 ? string.Join(Environment.NewLine, reasons) : null;
+
             if (unverifiedCount > 0)
             {
                 hint = hint + " " + Localizer.T("Playback.DiskNotReady");
@@ -1384,6 +1402,8 @@ public partial class PlaybackWindow : Window
         RenderBlocks();
         HideCursor();
         LoadHint.Text = hint;
+        // 清單清了，上一輪的失敗原因提示也要清：留著會讓空狀態看起來「還有失敗段可看」。
+        LoadHint.ToolTip = null;
     }
 
     /// <summary>

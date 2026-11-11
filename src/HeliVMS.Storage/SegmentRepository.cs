@@ -1,3 +1,4 @@
+using HeliVMS.Shared;
 using HeliVMS.Shared.Models;
 using Microsoft.Data.Sqlite;
 
@@ -61,7 +62,8 @@ public sealed class SegmentRepository
         _store.Execute(
             """
             UPDATE segments
-            SET end_time = $e, size_bytes = $s, duration_sec = $d, sha256 = $h, status = 'final'
+            SET end_time = $e, size_bytes = $s, duration_sec = $d, sha256 = $h, status = 'final',
+                failure_reason = NULL
             WHERE id = $id AND status IN ('tmp', 'corrupt');
             """,
             cmd =>
@@ -74,12 +76,76 @@ public sealed class SegmentRepository
             });
     }
 
-    /// <summary>標記區段異常（status=corrupt）。</summary>
-    public void MarkCorrupt(long id)
+    /// <summary>
+    /// 標記區段異常（status=corrupt），並留下「為什麼失敗」的一行原因。
+    /// </summary>
+    /// <param name="id">區段 ID。</param>
+    /// <param name="reason">
+    /// 失敗原因（例外訊息、ffmpeg stderr 節錄……）。寫入前會遮掉帳密、壓成單行並截斷
+    /// （見 <see cref="NormalizeFailureReason"/>）；傳 null／空字串表示「這次呼叫沒有新的診斷」，
+    /// 既有原因會保留——後到的泛型標記不得抹掉先到的具體原因。
+    /// </param>
+    /// <remarks>
+    /// 索引裡的 corrupt 列過去只有狀態沒有原因：現場 ch107 一百多列 corrupt，時間軸上的洞
+    /// 說不出是「攝影機拒絕連線」還是「磁碟寫入失敗」，操作員只能拿 audit_log 的
+    /// <c>recording.stalled</c> 對時間。原因就留在列上，回放清單與工具提示才有得說。
+    /// </remarks>
+    public void MarkCorrupt(long id, string? reason = null)
     {
+        var normalized = NormalizeFailureReason(reason);
         _store.Execute(
-            "UPDATE segments SET status = 'corrupt' WHERE id = $id;",
-            cmd => cmd.Parameters.AddWithValue("$id", id));
+            """
+            UPDATE segments
+            SET status = 'corrupt',
+                failure_reason = COALESCE($r, failure_reason)
+            WHERE id = $id;
+            """,
+            cmd =>
+            {
+                cmd.Parameters.AddWithValue("$id", id);
+                cmd.Parameters.AddWithValue("$r", (object?)normalized ?? DBNull.Value);
+            });
+    }
+
+    /// <summary>失敗原因寫進索引前的上限（字元）。時間軸工具提示一行能讀完的量。</summary>
+    public const int FailureReasonMaxLength = 200;
+
+    /// <summary>
+    /// 把任意失敗文字整理成適合放進索引的單行原因：遮帳密 → 壓平換行 → 截斷。
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// 順序不可對調：必須<b>先遮蔽再截斷</b>。拿遮蔽前的長度去切遮蔽後的字串，會因為遮蔽
+    /// 讓字串變短而把使用者資訊切進前 200 字裡（<c>RecordingScheduler.OnRecordingStalled</c>
+    /// 的稽核欄就是先踩過這個坑）。
+    /// </para>
+    /// <para>
+    /// 來源常是 <c>ex.ToString()</c> 與 ffmpeg stderr：前者可能內嵌含帳密的命令列，後者一定
+    /// 回顯 <c>rtsp://user:pass@host</c>。換行壓平是因為例外與 stderr 都是多行，而這個值
+    /// 會被放進單行的提示列與工具提示。
+    /// </para>
+    /// </remarks>
+    public static string? NormalizeFailureReason(string? reason)
+    {
+        if (string.IsNullOrWhiteSpace(reason))
+        {
+            return null;
+        }
+
+        // 先遮蔽再壓平：帳密藏在「rtsp://user:pass@host」裡，必須在截斷前移除。
+        var redacted = RtspUri.RedactText(reason);
+        var flat = string.Join(' ', redacted.Split(
+            new[] { '\r', '\n' },
+            StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+        flat = flat.Trim();
+        if (flat.Length == 0)
+        {
+            return null;
+        }
+
+        return flat.Length <= FailureReasonMaxLength
+            ? flat
+            : flat[..FailureReasonMaxLength];
     }
 
     /// <summary>
@@ -285,7 +351,7 @@ public sealed class SegmentRepository
         return _store.Query(
             $"""
             SELECT id, channel_id, stream, start_time, end_time, file_path,
-                   size_bytes, duration_sec, status, sha256, tier, origin_path
+                   size_bytes, duration_sec, status, sha256, tier, origin_path, failure_reason
             FROM segments
             WHERE status = 'final'
             ORDER BY id DESC
@@ -303,7 +369,7 @@ public sealed class SegmentRepository
         return _store.Query(
             $"""
             SELECT id, channel_id, stream, start_time, end_time, file_path,
-                   size_bytes, duration_sec, status, sha256, tier, origin_path
+                   size_bytes, duration_sec, status, sha256, tier, origin_path, failure_reason
             FROM segments
             WHERE status = 'final' AND instr(file_path, $marker) <= 1
             ORDER BY id
@@ -380,7 +446,7 @@ public sealed class SegmentRepository
         return _store.Query(
             $"""
             SELECT id, channel_id, stream, start_time, end_time, file_path,
-                   size_bytes, duration_sec, status, sha256, tier, origin_path
+                   size_bytes, duration_sec, status, sha256, tier, origin_path, failure_reason
             FROM segments
             WHERE status = 'final' AND id > $after
             ORDER BY id
@@ -507,7 +573,7 @@ public sealed class SegmentRepository
                 var list = store.Query(
                     """
                     SELECT id, channel_id, stream, start_time, end_time, file_path,
-                           size_bytes, duration_sec, status, sha256, tier, origin_path
+                           size_bytes, duration_sec, status, sha256, tier, origin_path, failure_reason
                     FROM segments
                     WHERE channel_id = $c AND stream = $s
                       AND start_time < $to
@@ -609,7 +675,7 @@ public sealed class SegmentRepository
                 var list = store.Query(
                     """
                     SELECT id, channel_id, stream, start_time, end_time, file_path,
-                           size_bytes, duration_sec, status, sha256, tier, origin_path
+                           size_bytes, duration_sec, status, sha256, tier, origin_path, failure_reason
                     FROM segments
                     WHERE channel_id = $c AND stream = $s AND status = 'final'
                       AND start_time < $to
@@ -894,7 +960,7 @@ public sealed class SegmentRepository
         return _store.Query(
             $"""
             SELECT id, channel_id, stream, start_time, end_time, file_path,
-                   size_bytes, duration_sec, status, sha256, tier, origin_path
+                   size_bytes, duration_sec, status, sha256, tier, origin_path, failure_reason
             FROM segments
             WHERE status = 'final'
               AND (start_time > $afterStart OR (start_time = $afterStart AND id > $afterId))
@@ -915,7 +981,7 @@ public sealed class SegmentRepository
         return _store.Query(
             $"""
             SELECT id, channel_id, stream, start_time, end_time, file_path,
-                   size_bytes, duration_sec, status, sha256, tier, origin_path
+                   size_bytes, duration_sec, status, sha256, tier, origin_path, failure_reason
             FROM segments
             WHERE status = 'final' AND start_time < $cut
             ORDER BY start_time
@@ -941,7 +1007,7 @@ public sealed class SegmentRepository
         return _store.Query(
             $"""
             SELECT id, channel_id, stream, start_time, end_time, file_path,
-                   size_bytes, duration_sec, status, sha256, tier, origin_path
+                   size_bytes, duration_sec, status, sha256, tier, origin_path, failure_reason
             FROM segments
             WHERE status = 'final' AND start_time < $cut
               AND (start_time > $afterStart OR (start_time = $afterStart AND id > $afterId))
@@ -982,7 +1048,7 @@ public sealed class SegmentRepository
                 var list = store.Query(
                     """
                     SELECT id, channel_id, stream, start_time, end_time, file_path,
-                           size_bytes, duration_sec, status, sha256, tier, origin_path
+                           size_bytes, duration_sec, status, sha256, tier, origin_path, failure_reason
                     FROM segments
                     WHERE status = 'final' AND start_time >= $from AND start_time < $to
                     ORDER BY start_time;
@@ -1105,7 +1171,7 @@ public sealed class SegmentRepository
         return _store.Query(
             """
             SELECT id, channel_id, stream, start_time, end_time, file_path,
-                   size_bytes, duration_sec, status, sha256, tier, origin_path
+                   size_bytes, duration_sec, status, sha256, tier, origin_path, failure_reason
             FROM segments
             WHERE id = $id;
             """,
@@ -1119,7 +1185,7 @@ public sealed class SegmentRepository
         return _store.Query(
             """
             SELECT id, channel_id, stream, start_time, end_time, file_path,
-                   size_bytes, duration_sec, status, sha256, tier, origin_path
+                   size_bytes, duration_sec, status, sha256, tier, origin_path, failure_reason
             FROM segments
             WHERE channel_id = $c AND status = 'final'
             ORDER BY start_time;
@@ -1134,7 +1200,7 @@ public sealed class SegmentRepository
         return _store.Query(
             """
             SELECT id, channel_id, stream, start_time, end_time, file_path,
-                   size_bytes, duration_sec, status, sha256, tier, origin_path
+                   size_bytes, duration_sec, status, sha256, tier, origin_path, failure_reason
             FROM segments
             WHERE status = 'final'
             ORDER BY start_time;
@@ -1156,7 +1222,7 @@ public sealed class SegmentRepository
         return _store.Query(
             $"""
             SELECT id, channel_id, stream, start_time, end_time, file_path,
-                   size_bytes, duration_sec, status, sha256, tier, origin_path
+                   size_bytes, duration_sec, status, sha256, tier, origin_path, failure_reason
             FROM segments
             WHERE status = 'tmp'
             ORDER BY start_time
@@ -1181,7 +1247,7 @@ public sealed class SegmentRepository
         return _store.Query(
             $"""
             SELECT id, channel_id, stream, start_time, end_time, file_path,
-                   size_bytes, duration_sec, status, sha256, tier, origin_path
+                   size_bytes, duration_sec, status, sha256, tier, origin_path, failure_reason
             FROM segments
             WHERE status = 'corrupt'
             ORDER BY start_time DESC
@@ -1255,6 +1321,10 @@ public sealed class SegmentRepository
     /// 而且每一次掃描都會再跳過一次。補值只用 <c>COALESCE</c>：tmp 列的結束時間／大小是空的
     /// 才由磁碟補上，missing 列既有的真值不會被掃描結果蓋掉。
     /// </para>
+    /// <para>
+    /// 復活時清掉 <c>failure_reason</c>：final 段是能播的檔案，留著「當年標成 corrupt」的舊原因，
+    /// 之後任何「顯示失敗原因」的畫面都會指控一份好檔案。
+    /// </para>
     /// </remarks>
     public AdoptOutcome AdoptOrReviveFinal(
         int channelId,
@@ -1271,7 +1341,8 @@ public sealed class SegmentRepository
             SET status = 'final',
                 end_time = COALESCE(end_time, $e),
                 size_bytes = COALESCE(size_bytes, $size),
-                duration_sec = COALESCE(duration_sec, $d)
+                duration_sec = COALESCE(duration_sec, $d),
+                failure_reason = NULL
             WHERE status IN ('missing', 'tmp', 'corrupt') AND file_path = $p
               AND channel_id = $c AND stream = $s;
             SELECT changes();
@@ -1371,6 +1442,7 @@ public sealed class SegmentRepository
                 Sha256 = reader.IsDBNull(9) ? null : reader.GetString(9),
                 Tier = reader.FieldCount > 10 && !reader.IsDBNull(10) ? reader.GetString(10) : "hot",
                 OriginPath = reader.FieldCount > 11 && !reader.IsDBNull(11) ? reader.GetString(11) : null,
+                FailureReason = reader.FieldCount > 12 && !reader.IsDBNull(12) ? reader.GetString(12) : null,
             });
         }
 

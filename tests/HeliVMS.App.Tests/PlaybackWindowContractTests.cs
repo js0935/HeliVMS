@@ -1542,6 +1542,28 @@ public sealed class PlaybackWindowContractTests
     }
 
     /// <summary>
+    /// 錄影當下失敗的段（corrupt）與「檔案被汰除」（missing）必須分開講，原因放進工具提示：
+    /// 現場 ch107 一百多列 corrupt 沒有任何解釋，操作員把「攝影機拒絕連線」誤讀成系統壞了。
+    ///
+    /// 兩個順序上的細節：(1) 沒有失敗段時必須把上一輪的工具提示清掉，否則換日之後
+    /// 游標停在提示列還在描述前一天的失敗；(2) ShowEmptyState 也要清——清單空了，
+    /// 提示還留著「有失敗段」的訊息一樣是說謊。
+    /// </summary>
+    [Fact]
+    public void 回放提示會說明錄影失敗的段數並把原因放進工具提示()
+    {
+        var source = SourceContract.Read(Code);
+        var load = SourceContract.BodyOf(source, "LoadSegments");
+
+        Assert.Contains("Playback.FailedSegments", load);
+        Assert.Contains("SegmentStatus.Corrupt", load);
+        Assert.Contains("LoadHint.ToolTip", load);
+
+        var empty = SourceContract.BodyOf(source, "ShowEmptyState");
+        Assert.Contains("LoadHint.ToolTip", empty);
+    }
+
+    /// <summary>
     /// 日曆粗體前必須先做資料夾層級的對帳，否則「使用者刪掉整天的資料夾」要等最多一小時的
     /// 背景對帳才會反映，而日曆正是操作員判斷「這天有沒有錄影」的第一個畫面——讓他等就是在騙他。
     ///
