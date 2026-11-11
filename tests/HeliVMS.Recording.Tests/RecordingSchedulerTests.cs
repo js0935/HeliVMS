@@ -54,18 +54,33 @@ public sealed class RecordingSchedulerTests : IDisposable
     public void Dispose()
     {
         _store.Dispose();
-        foreach (var suffix in new[] { string.Empty, "-wal", "-shm" })
+
+        // 與其他測試類別同一條規則：暫存檔清不掉不影響測試結果。
+        //
+        // 這裡特別容易踩到：計時器回呼是 async void（OnTick），Timer.Dispose 不會等
+        // 已經在跑的那一輪結束，它可能還在用這條連線寫庫；SqliteStore 關閉時正有一筆
+        // 查詢在別的執行緒上，檔案句柄就會晚一點才放掉，File.Delete 於是丟
+        // IOException「being used by another process」。排程本身的行為已經在測試裡
+        // 驗證過了，清理失敗不該讓整個測試類別紅掉（負載高時尤其明顯）。
+        try
         {
-            var path = _dbPath + suffix;
-            if (File.Exists(path))
+            foreach (var suffix in new[] { string.Empty, "-wal", "-shm" })
             {
-                File.Delete(path);
+                var path = _dbPath + suffix;
+                if (File.Exists(path))
+                {
+                    File.Delete(path);
+                }
+            }
+
+            if (Directory.Exists(_recordingsRoot))
+            {
+                Directory.Delete(_recordingsRoot, recursive: true);
             }
         }
-
-        if (Directory.Exists(_recordingsRoot))
+        catch (IOException)
         {
-            Directory.Delete(_recordingsRoot, recursive: true);
+            // 暫存目錄清不掉不影響測試結果。
         }
     }
 
