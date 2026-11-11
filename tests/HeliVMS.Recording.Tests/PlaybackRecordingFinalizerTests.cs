@@ -24,13 +24,14 @@ public sealed class PlaybackRecordingFinalizerTests
         int? seenChannel = null;
         TimeSpan? seenTimeout = null;
         var finalizer = new PlaybackRecordingFinalizer(
-            (channelId, timeout) =>
-            {
-                seenChannel = channelId;
-                seenTimeout = timeout;
-                return Task.FromResult(1);
-            },
-            (_, _) => Task.FromResult(2));
+            ("來源一",
+                (channelId, timeout) =>
+                {
+                    seenChannel = channelId;
+                    seenTimeout = timeout;
+                    return Task.FromResult(1);
+                }),
+            ("來源二", (_, _) => Task.FromResult(2)));
 
         Assert.Equal(3, await finalizer.FinalizeAsync(7, TimeSpan.FromSeconds(2)));
         Assert.Equal(7, seenChannel);
@@ -46,19 +47,24 @@ public sealed class PlaybackRecordingFinalizerTests
             var secondCalled = false;
             var finalizer = new PlaybackRecordingFinalizer(
                 logPath,
-                (_, _) => throw new InvalidOperationException("模擬排程壞掉"),
-                (_, _) =>
-                {
-                    secondCalled = true;
-                    return Task.FromResult(2);
-                });
+                ("模擬排程", (_, _) => throw new InvalidOperationException("模擬排程壞掉")),
+                ("模擬牆",
+                    (_, _) =>
+                    {
+                        secondCalled = true;
+                        return Task.FromResult(2);
+                    }));
 
             Assert.Equal(2, await finalizer.FinalizeAsync(null, TimeSpan.FromSeconds(1)));
             Assert.True(secondCalled, "一個來源失敗不能讓另一個來源的收檔白做。");
 
             // 沒有這一行日誌，「按了回放卻看不到最新的一段」在現場完全無法查起。
+            // 來源名稱必須在日誌裡：只有例外與堆疊時，兩條錄影路徑壞了哪一條無從判斷
+            // （現場 164 筆無名 TCE 就是這個代價）。
             Assert.True(File.Exists(logPath), "收檔失敗必須留下日誌。");
-            Assert.Contains("回放前收檔失敗", File.ReadAllText(logPath));
+            var log = File.ReadAllText(logPath);
+            Assert.Contains("回放前收檔失敗", log);
+            Assert.Contains("（模擬排程）", log);
         }
         finally
         {
@@ -81,8 +87,10 @@ public sealed class PlaybackRecordingFinalizerTests
     public async Task 來源被取消時回報零段而不是讓例外冒出來()
     {
         // 收檔只是「讓最新的一段早點出現」：來源取消／逾時不該讓回放視窗崩掉。
+        // 現場 %TEMP%\helivms-playback.log 的 164 筆 TaskCanceledException 就是走這一條
+        // 被吞掉的路——行為本身（吞掉、記日誌、照常開回放）是對的。
         var finalizer = new PlaybackRecordingFinalizer(
-            (_, _) => Task.FromCanceled<int>(new CancellationToken(canceled: true)));
+            ("監看牆", (_, _) => Task.FromCanceled<int>(new CancellationToken(canceled: true))));
 
         Assert.Equal(0, await finalizer.FinalizeAsync(null, TimeSpan.FromSeconds(1)));
     }

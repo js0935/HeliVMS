@@ -4,6 +4,30 @@
 > 權威來源：`git` 與 GitHub Actions 的現況（不是聊天記錄）。
 > 所有里程碑均已 commit＋push、CI 全綠、工作目錄乾淨（下方數據皆為驗證過的真實值）。
 
+> **【追加 2026-11-12（之十一）】回放前收檔在現場 164/164 全失敗，而日誌一行說不出是哪條錄影路徑**
+>
+> 之十收尾後掃 `%TEMP%\helivms-playback.log`：**164 筆**「回放前收檔失敗：TaskCanceledException」，
+> 2026-10-30 起 13 天每天都有，時間 cadence 對準操作員每次開回放（13:36–13:47 那段每 25–35 秒一筆
+> ＝CutCooldown 30 秒到期就再失敗一次）——「把正在錄的那一段收成可回放」這個功能在現場
+> **從未成功過**，而畫面上沒有任何徵兆。
+> - 堆疊只有一幀（RunQuietlyAsync line 76）：那是「await 到一個被取消的工作」的形狀，不是拋出點。
+>   HEAD 的 `CutAsync` 已證明產生不出來——`WaitAsync(timeout)` 逾時拋 `TimeoutException`（實測），
+>   被 `catch (TimeoutException)` 接住回 false；stub 行程重現整條鏈（FinalizeAsync →
+>   CutRecordingsAsync → CutAsync，ffmpeg 不理 q）也回 false。最可能的解釋：現場跑的是
+>   d810121 之前的**中間版二進位**（CTS + WaitAsync(token) 的寫法，逾時＝取消的 waiter →
+>   WhenAll → 取消的來源工作 → 正好這個簽名）；桌面單一實例＋縮到系統匣的喚醒讓「重啟」
+>   常常沒有真的換掉行程，10-30 的程式可以活到 11-12。
+> - 本輪兩件事，讓下一次發生一眼可判：①`PlaybackRecordingFinalizer` 的來源帶名稱
+>   （監看牆／排程），失敗日誌變成「回放前收檔失敗（{來源}）：{ex}」——無名的 TCE 行就是
+>   164 筆查不下去的死胡同；②守衛測試 `ffmpeg不理收尾請求時收檔逾時回false而不是
+>   TaskCanceledException` 把「逾時＝回 false」的形狀釘死，防止有人改回 CTS 寫法。
+> - 吞例外的行為是刻意的、保留：收檔失敗不得擋回放開啟，代價只是清單少最新一段。
+> - **交接給下一輪的未解之謎**：等新版跑起來之後看日誌。若「（監看牆）」版 TCE 再現，
+>   就是一條真的會取消來源工作的路徑（查 ChannelSession 的 dispositional race）；
+>   若從此不再出現，就是舊二進位之案，且要處理「重啟沒有真的重啟」的單一實例陷阱。
+> - 測試：Recording 412（Finalizer 5＋守衛 1）／App 856／Storage 1485 全綠；突變驗證
+>   「日誌不寫來源名稱」紅後還原。
+>
 > **【追加 2026-11-12（之十）】corrupt 段要說得出為什麼失敗，復活的段不能再背著舊原因**
 >
 > 之九收尾後對線上索引做了一輪不變量普查（全部乾淨：`end_time = start + duration_sec` 3138 列

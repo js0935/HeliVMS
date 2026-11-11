@@ -1011,6 +1011,26 @@ Notes that will save you time:
   `復活成final的段不再留著失敗原因`, `錄影失敗標成corrupt時會留下遮掉帳密的失敗原因`,
   `失敗原因摘要優先取人的診斷再取stderr尾行`, `開頭不是MP4而判死時會留下失敗原因` and
   `回放提示會說明錄影失敗的段數並把原因放進工具提示`.
+- **The playback finalize log must name the failing recording path — a bare exception line
+  is unfollowable.** Field evidence: `%TEMP%\helivms-playback.log` accumulated 164 entries of
+  「回放前收檔失敗：TaskCanceledException」 between 10-30 and 11-12 — one per playback open,
+  i.e. the "cut the segment being recorded" feature never once succeeded in that window. The
+  stack is a single frame (`RunQuietlyAsync` line 76) because the exception is a *canceled
+  task* being awaited, not a throw: HEAD's `CutAsync` provably cannot produce it (it waits with
+  `WaitAsync(timeout)` → `TimeoutException` → caught → false; verified by experiment and by
+  `ffmpeg不理收尾請求時收檔逾時回false而不是TaskCanceledException`), so the running instance
+  was most likely a stale pre-commit build where the cut waited on a `CancellationTokenSource`
+  (canceled waiter → `WhenAll` → canceled source task → exactly this signature). Two things
+  shipped so the next occurrence is decidable in one glance instead of a whole-chain audit:
+  (1) `PlaybackRecordingFinalizer` sources carry **names** (`("監看牆", …)`, `("排程", …)`) and
+  the failure log line is `回放前收檔失敗（{來源}）：{ex}` — a bare TCE with no name is exactly
+  the 164-entry dead end; (2) the cut-timeout shape is pinned by a regression test so nobody
+  reintroduces a CTS-based wait whose timeouts would resurface as anonymous `TaskCanceledException`
+  lines. The swallowing behavior itself is deliberate and stays: a failed cut must not block
+  opening playback (the operator just loses the newest segment from the list).
+  Guarded by `一個來源失敗不會吞掉另一個來源收到的段且會留下日誌` (asserts the source name in
+  the log), `來源被取消時回報零段而不是讓例外冒出來` and
+  `ffmpeg不理收尾請求時收檔逾時回false而不是TaskCanceledException`.
 - **Pick the sub stream by stream number, never by a magic number in the name.** `OnvifProfileSelection`
   used to carry `"101"` in `MainKeywords` and `"102"` in `SubKeywords`, matched as plain substrings.
   The real camera at `rtsp://<host>/media/stream.sdp?profile=Profile100` exposes three profiles —

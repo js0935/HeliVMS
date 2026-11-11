@@ -466,9 +466,10 @@ public partial class MainWindow : Window
         // 回放前收檔的兩個來源：監看牆與排程是兩條獨立的錄影路徑，排程還會跳過已被
         // 監看畫面錄影的頻道，所以兩邊都要問。以委派延後解析 _manager／_scheduler：
         // 設定中心換錄影磁碟時這兩個會整個重建，抓住舊實例就再也收不到檔。
+        // 名稱跟著來源走進失敗日誌：沒有它，「每次開回放收檔都失敗」只能整條鏈路排查。
         _playbackFinalizer = new PlaybackRecordingFinalizer(
-            (channelId, timeout) => _manager?.CutRecordingsAsync(channelId, timeout) ?? Task.FromResult(0),
-            (channelId, timeout) => _scheduler?.CutActiveAsync(channelId, timeout) ?? Task.FromResult(0));
+            ("監看牆", (channelId, timeout) => _manager?.CutRecordingsAsync(channelId, timeout) ?? Task.FromResult(0)),
+            ("排程", (channelId, timeout) => _scheduler?.CutActiveAsync(channelId, timeout) ?? Task.FromResult(0)));
         ApplyI18n();
         Current = this;
     }

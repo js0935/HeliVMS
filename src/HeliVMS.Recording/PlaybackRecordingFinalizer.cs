@@ -38,18 +38,20 @@ public interface IPlaybackRecordingFinalizer
 /// </remarks>
 public sealed class PlaybackRecordingFinalizer : IPlaybackRecordingFinalizer
 {
-    private readonly Func<int?, TimeSpan, Task<int>>[] _sources;
+    private readonly (string Name, Func<int?, TimeSpan, Task<int>> Source)[] _sources;
     private readonly string _logPath;
 
-    /// <param name="sources">各錄影來源的收檔函式（監看牆、排程）。</param>
-    public PlaybackRecordingFinalizer(params Func<int?, TimeSpan, Task<int>>[] sources)
+    /// <param name="sources">各錄影來源的收檔函式（監看牆、排程），帶上名稱供失敗日誌定位。</param>
+    public PlaybackRecordingFinalizer(params (string Name, Func<int?, TimeSpan, Task<int>> Source)[] sources)
         : this(null, sources)
     {
     }
 
     /// <param name="logPath">失敗日誌路徑；null 表示 <c>%TEMP%\helivms-playback.log</c>。</param>
-    /// <param name="sources">各錄影來源的收檔函式（監看牆、排程）。</param>
-    public PlaybackRecordingFinalizer(string? logPath, params Func<int?, TimeSpan, Task<int>>[] sources)
+    /// <param name="sources">各錄影來源的收檔函式（監看牆、排程），帶上名稱供失敗日誌定位。</param>
+    public PlaybackRecordingFinalizer(
+        string? logPath,
+        params (string Name, Func<int?, TimeSpan, Task<int>> Source)[] sources)
     {
         _sources = sources;
         _logPath = logPath ?? Path.Combine(Path.GetTempPath(), "helivms-playback.log");
@@ -67,19 +69,22 @@ public sealed class PlaybackRecordingFinalizer : IPlaybackRecordingFinalizer
     }
 
     private async Task<int> RunQuietlyAsync(
-        Func<int?, TimeSpan, Task<int>> source,
+        (string Name, Func<int?, TimeSpan, Task<int>> Source) source,
         int? channelId,
         TimeSpan timeout)
     {
         try
         {
-            return await source(channelId, timeout);
+            return await source.Source(channelId, timeout);
         }
         catch (Exception ex)
         {
+            // 來源名稱必須進日誌：2026-11 現場的 %TEMP%\helivms-playback.log 有 164 筆
+            // 「回放前收檔失敗：TaskCanceledException」（10-30 至 11-12，每次開回放都失敗），
+            // 卻完全看不出是監看牆還是排程壞的——只能整條鏈路逐一排查。名稱是定位的第一步。
             HeliVMS.Shared.BoundedFileLog.Append(
                 _logPath,
-                $"{DateTime.UtcNow:O} 回放前收檔失敗：{ex}\n",
+                $"{DateTime.UtcNow:O} 回放前收檔失敗（{source.Name}）：{ex}\n",
                 256 * 1024);
             return 0;
         }
