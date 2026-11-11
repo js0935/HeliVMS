@@ -174,6 +174,9 @@ public partial class PlaybackWindow : Window
     /// <summary>倒轉進行中；任何使用者操作（播放／停止／拖曳／點時間軸）都要把它關掉。</summary>
     private bool _reversing;
 
+    /// <summary>倒轉連續跳過的節拍數（上一步首幀未到）；達門檻放棄，見 <see cref="HeliVMS.Shared.PlaybackReversePump.MaxSkippedBeats"/>。</summary>
+    private int _reverseSkippedBeats;
+
     /// <summary>回放牆上的一個次畫面（頻道、影像、解碼工作與其當日區段）。</summary>
     private sealed class Pane
     {
@@ -1633,6 +1636,7 @@ public partial class PlaybackWindow : Window
 
         StopPlayback();
         _reversing = true;
+        _reverseSkippedBeats = 0;
         ReverseButton.Background = BrReverseActive;
         _reverseTimer.Start();
 
@@ -1648,6 +1652,22 @@ public partial class PlaybackWindow : Window
             StopReverse();
             return;
         }
+
+        // 上一步的首幀還沒到（_pendingFramePause 在首幀到達時才清掉）就跳過本節拍：
+        // 連發 PlayFrom 只會互相打斷，畫面反而什麼都看不到。連續跳過 2 秒＝放棄。
+        if (HeliVMS.Shared.PlaybackReversePump.ShouldSkipBeat(previousStepArrived: !_pendingFramePause))
+        {
+            _reverseSkippedBeats++;
+            if (HeliVMS.Shared.PlaybackReversePump.ShouldGiveUp(_reverseSkippedBeats))
+            {
+                StopReverse();
+                StatusText.Text = Localizer.T("Playback.ReverseStalled");
+            }
+
+            return;
+        }
+
+        _reverseSkippedBeats = 0;
 
         var playheadUtc = _current.StartUtc.AddSeconds(_posInside);
         if (HeliVMS.Shared.PlaybackReversePump.Next(DaySegments(_current), playheadUtc, GetSpeed()) is not { } step)

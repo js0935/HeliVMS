@@ -112,6 +112,20 @@ public class PlaybackReversePumpTests
     }
 
     [Fact]
+    public void 上一步還沒到就跳過節拍而不是連發()
+    {
+        // seek 比節拍慢時連發只會互相打斷（每步都停掉上一步的 session），畫面什麼都看不到。
+        Assert.True(PlaybackReversePump.ShouldSkipBeat(previousStepArrived: false));
+        Assert.False(PlaybackReversePump.ShouldSkipBeat(previousStepArrived: true));
+
+        // 但也不能無限等：連續跳過 2 秒（8 拍）就放棄，免得首幀永遠不來時卡在那裡。
+        Assert.False(PlaybackReversePump.ShouldGiveUp(0));
+        Assert.False(PlaybackReversePump.ShouldGiveUp(PlaybackReversePump.MaxSkippedBeats - 1));
+        Assert.True(PlaybackReversePump.ShouldGiveUp(PlaybackReversePump.MaxSkippedBeats));
+        Assert.True(PlaybackReversePump.ShouldGiveUp(PlaybackReversePump.MaxSkippedBeats + 5));
+    }
+
+    [Fact]
     public void 重複倒轉會單調往回且最終停在開頭()
     {
         // 三個段、兩個空隙：倒轉一圈必須一路往回（單調不增），最後停在第一段開頭。

@@ -23,7 +23,26 @@ public sealed class PlaybackReverseContractTests
         "Playback.Reverse",
         "Playback.ReverseTip",
         "Playback.ReverseAtStart",
+        "Playback.ReverseStalled",
     ];
+
+    [Fact]
+    public void 上一步還沒到時跳過節拍且連續跳過會放棄()
+    {
+        var tick = SourceContract.BodyOf(SourceContract.Read(Code), "OnReverseTick");
+
+        // 連發 PlayFrom 會互相打斷：上一步的首幀未到就跳過本節拍。
+        Assert.Contains("ShouldSkipBeat(previousStepArrived: !_pendingFramePause)", tick);
+        Assert.Contains("_reverseSkippedBeats++", tick);
+
+        // 不能無限等（首幀永遠不來時要收工並說原因）。
+        var giveUp = tick.IndexOf("ShouldGiveUp(_reverseSkippedBeats)", StringComparison.Ordinal);
+        Assert.True(giveUp >= 0, "連續跳過沒有放棄門檻：seek 卡住時倒轉會永遠停在那裡");
+        Assert.Contains("Playback.ReverseStalled", tick);
+        Assert.True(
+            tick.IndexOf("StopReverse();", giveUp, StringComparison.Ordinal) > giveUp,
+            "放棄時要停掉倒轉");
+    }
 
     [Fact]
     public void 倒轉鈕存在且有文案()

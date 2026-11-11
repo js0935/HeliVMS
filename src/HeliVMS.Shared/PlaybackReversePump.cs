@@ -46,6 +46,22 @@ public static class PlaybackReversePump
     private const double MinSpeed = 0.5;
     private const double MaxSpeed = 16;
 
+    /// <summary>
+    /// 連續跳過幾個節拍就放棄倒轉：8 × 250ms ＝ 2 秒。
+    /// </summary>
+    /// <remarks>
+    /// seek 比節拍慢時（大檔、磁碟忙、遠端來源），連發 <c>PlayFrom</c> 只會互相打斷——
+    /// 每一步都把上一步的 session 停掉再開一個，畫面反而什麼都看不到。所以上一步的首幀還沒到
+    /// 就跳過本節拍；但也不能無限等下去（檔案損壞時首幀永遠不會到），連續跳過 2 秒就收工並說原因。
+    /// </remarks>
+    public const int MaxSkippedBeats = 8;
+
+    /// <summary>本節拍該不該發步：上一步的首幀還沒到就跳過（<paramref name="previousStepArrived"/>＝沒有在等）。</summary>
+    public static bool ShouldSkipBeat(bool previousStepArrived) => !previousStepArrived;
+
+    /// <summary>連續跳過的節拍是否已達放棄門檻。</summary>
+    public static bool ShouldGiveUp(int consecutiveSkippedBeats) => consecutiveSkippedBeats >= MaxSkippedBeats;
+
     /// <summary>單步倒退的影片秒數：速度倍率 × 節拍，夾在允許範圍內。</summary>
     public static double StepSeconds(double speed)
     {
