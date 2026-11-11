@@ -372,21 +372,39 @@ Notes that will save you time:
   Guarded by `次畫面播完後母鐘還在同段時不會一直重開` and `取消而結束的播放回報未完成`.
 - **The wall-clock anchor of a segment lives in the index, not in the file — and it is the ffmpeg
   *launch* time.** `segments.start_time` is written by `BeginSegment` before ffmpeg connects, while
-  the file's first frame arrives after the RTSP session is established; `duration_sec` is the
-  wall-clock span of the process, not the content length. Measured on the live system: healthy
-  cameras start 0.6–0.9 s late (harmless, and it is why the pane hold rule exists), but one camera
-  takes 2–14 s per segment, so its claimed instants are that far *earlier* than the content really
-  is — a constant per-segment offset that no playback-side change can recover, because the file
-  carries no wall clock (PTS starts at 0, no `creation_time` tag). Two consequences: (1) a heading
-  like "multi-pane playback is off by N seconds for camera X" is this, not the sync logic — check
-  `duration_sec` against the file's real span (`ffprobe -show_entries packet=pts_time`, last minus
-  first) before touching `PlaybackSyncPlanner`; (2) **do not "correct" it at playback time by
+  the file's first frame arrives after the RTSP session is established. Measured on the live system:
+  healthy cameras start 0.6–0.9 s late (harmless, and it is why the pane hold rule exists), but one
+  camera takes 2–14 s per segment, so its claimed instants are that far *earlier* than the content
+  really is — a constant per-segment offset that no playback-side change can recover, because the
+  file carries no wall clock (PTS starts at 0, no `creation_time` tag). Two consequences: (1) a
+  heading like "multi-pane playback is off by N seconds for camera X" is this, not the sync logic —
+  check `duration_sec` against the file's real span (`ffprobe -show_entries packet=pts_time`, last
+  minus first) before touching `PlaybackSyncPlanner`; (2) **do not "correct" it at playback time by
   shifting every instant by `duration_sec − content span`**: an internal stall (camera stalls
   mid-segment) is indistinguishable from a slow session start, and shifting a whole segment by the
-  stall total moves the early part *further* off. Fixing it properly means recording the first
-  frame's arrival (or `-use_wallclock_as_timestamps`) and teaching `RecordingDiskImporter` the same
-  value, since the importer derives `start_time` from the `seg-HHmmssfff.mp4` filename (the launch
-  time). Until then the offset is at most part of a second on healthy cameras.
+  stall total moves the early part *further* off. Fixing the anchor properly means recording the
+  first frame's arrival (or `-use_wallclock_as_timestamps`) and teaching `RecordingDiskImporter` the
+  same value, since the importer derives `start_time` from the `seg-HHmmssfff.mp4` filename (the
+  launch time). Until then the offset is at most part of a second on healthy cameras.
+  **The segment *length*, in contrast, is not a wall clock at all — it is the file's own duration.**
+  It used to be `_clock() − startUtc`, i.e. how long the process was scheduled, and that number
+  grows without bound when Windows sleeps or the clock is corrected: measured on the live index,
+  15 of 68 `final` rows differed from the file by more than 60 s, the worst two claiming 6853/6849 s
+  for 250/260 s files, and four claiming 99–200 s for 0.07–0.34 s files. On screen that is hours-wide
+  bands on the timeline, arrow keys landing where no picture exists, and every pane of a multi-pane
+  session waiting for an instant that never comes. `SegmentRecorder` now probes the finished file
+  (`HeliVMS.Media.MediaDurationProbe`, ~90 ms) and records `RecordedSegmentLength.Resolve(probed,
+  wall)` — probed wins whenever it is in `(0, 24 h]`, `end_time = start + that length` so
+  `PlaybackSegmentTiming.EndOf` and the index cannot disagree, and the wall clock is only the
+  fail-open fallback (ffprobe missing, file locked). Do not gate the probed value on being ≤ the wall
+  clock: the wall clock is the number being replaced. The recovery path
+  (`TryCompleteMovedSegment`, rename succeeded but the index write failed) uses the same resolver —
+  fixing only the normal path would leave the segments hit by the very clock jump this exists for.
+  fMP4 (`frag_keyframe+empty_moov`) still reports `format=duration`; that is pinned by a real-ffmpeg
+  test because if it did not, the whole fix would be silently inert. Guarded by
+  `RecordedSegmentLengthTests`, `MediaDurationProbeTests`,
+  `錄影段長取檔案自身長度而不是牆鐘`, `探測失敗時段長退回牆鐘` and
+  `補救收尾也用檔案長度而不是最後寫入時間`.
 - **Live view: find out which side owns the delay before "optimising" it — the picture looks the
   same for all four.** 現場回報「即時監看會延遲」時，症狀只有一種，原因卻可能在四段完全不同的
   地方：①攝影機 ＋ 網路 ＋ 解碼緩衝（本機量不到，也修不了）；②本機管線積影格（畫面**愈拖愈舊**，

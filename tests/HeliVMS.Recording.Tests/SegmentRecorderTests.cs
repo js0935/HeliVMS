@@ -748,6 +748,104 @@ public sealed class SegmentRecorderTests : IDisposable
     }
 
     /// <summary>
+    /// 段長取檔案自己的長度，不是 ffmpeg 行程的牆鐘時間。
+    ///
+    /// 現場症狀：時間軸上出現幾個小時長的色塊，方向鍵一跳就落在沒有影像的地方。原因是索引
+    /// 記的是「這台機器被排程了多久」——Windows 睡眠或校時一次，同一段的牆鐘差就膨脹到
+    /// 幾千秒（實測 68 段有 15 段與檔案實際長度差超過 60 秒，最壞 6853 秒對 250 秒的檔案）。
+    /// 這裡用注入時鐘模擬「牆鐘 60 秒、檔案 42.5 秒」，確定索引記的是 42.5，而且結束時刻
+    /// 與段長同一個口徑（時間軸用起點＋長度換算，兩者不一致就會出現點不到的色塊）。
+    /// </summary>
+    [Fact]
+    public async Task 錄影段長取檔案自身長度而不是牆鐘()
+    {
+        var t = new DateTime(2026, 3, 4, 9, 0, 0, DateTimeKind.Utc);
+        var calls = 0;
+        Func<DateTime> clock = () =>
+        {
+            var n = Interlocked.Increment(ref calls);
+            return n == 1 ? t : t.AddSeconds(60);
+        };
+
+        var completed = new TaskCompletionSource<SegmentRecord>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var factory = new FakeProcessFactory(FirstCompletesThenPending);
+        await using var recorder = new SegmentRecorder(
+            _segments,
+            factory,
+            _ => string.Empty,
+            clock: clock,
+            probeDuration: _ => 42.5);
+        recorder.SegmentCompleted += (_, segment) => completed.TrySetResult(segment);
+
+        await recorder.StartAsync(_channelId, RtspUrl, _recordingsRoot, "main", SegmentSeconds);
+        var segment = await completed.Task.WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.Equal(42.5, segment.DurationSec!.Value, 6);
+        Assert.Equal(t.AddSeconds(42.5), segment.EndUtc!.Value, TimeSpan.FromMilliseconds(1));
+
+        var stored = Assert.IsType<SegmentRecord>(_segments.Get(segment.Id));
+        Assert.Equal(42.5, stored.DurationSec!.Value, 6);
+        Assert.Equal(t.AddSeconds(42.5), stored.EndUtc!.Value, TimeSpan.FromMilliseconds(1));
+    }
+
+    /// <summary>
+    /// 探測不到檔案長度時退回牆鐘時間，而不是記 0 或讓收尾失敗。
+    ///
+    /// ffprobe 可能不在（精簡安裝）、檔案可能正被防毒鎖住。這條路徑在錄影收尾的關鍵時刻
+    /// 執行：寧可回到舊口徑（誤差 0.2～1 秒），也不能把一段已經寫完的錄影丢掉。
+    /// </summary>
+    [Fact]
+    public async Task 探測失敗時段長退回牆鐘()
+    {
+        var t = new DateTime(2026, 3, 4, 9, 30, 0, DateTimeKind.Utc);
+        var calls = 0;
+        Func<DateTime> clock = () =>
+        {
+            var n = Interlocked.Increment(ref calls);
+            return n == 1 ? t : t.AddSeconds(7);
+        };
+
+        var completed = new TaskCompletionSource<SegmentRecord>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var factory = new FakeProcessFactory(FirstCompletesThenPending);
+        await using var recorder = new SegmentRecorder(
+            _segments,
+            factory,
+            _ => string.Empty,
+            clock: clock,
+            probeDuration: _ => null);
+        recorder.SegmentCompleted += (_, segment) => completed.TrySetResult(segment);
+
+        await recorder.StartAsync(_channelId, RtspUrl, _recordingsRoot, "main", SegmentSeconds);
+        var segment = await completed.Task.WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.Equal(7d, segment.DurationSec!.Value, 6);
+        Assert.Equal(t.AddSeconds(7), segment.EndUtc!.Value, TimeSpan.FromMilliseconds(1));
+    }
+
+    /// <summary>
+    /// 收尾途中出錯的那一段也要用同一份段長口徑。
+    ///
+    /// 這條補救路徑（改名成功、寫索引失敗）如果繼續用檔案最後寫入時間，修正就只覆蓋正常
+    /// 路徑——碰到時鐘被調整的那一段仍然留著幾千秒的假長度，而且是它最容易被忽略的時候。
+    /// </summary>
+    [Fact]
+    public void 補救收尾也用檔案長度而不是最後寫入時間()
+    {
+        var t = new DateTime(2026, 4, 5, 10, 0, 0, DateTimeKind.Utc);
+        var finalPath = Path.Combine(_recordingsRoot, "seg-100000500.mp4");
+        File.WriteAllBytes(finalPath, Encoding.UTF8.GetBytes("fake-mp4-payload"));
+        File.SetLastWriteTimeUtc(finalPath, t.AddSeconds(3));
+        var id = _segments.BeginSegment(_channelId, "main", finalPath, t);
+
+        Assert.True(SegmentRecorder.TryCompleteMovedSegment(
+            _segments, id, finalPath, finalPath + ".tmp", t, _ => 95.25));
+
+        var row = Assert.IsType<SegmentRecord>(_segments.Get(id));
+        Assert.Equal(95.25, row.DurationSec!.Value, 6);
+        Assert.Equal(t.AddSeconds(95.25), row.EndUtc!.Value, TimeSpan.FromMilliseconds(1));
+    }
+
+    /// <summary>
     /// 收尾途中失敗（這裡讓「取收尾時間」擲例外）但正式檔已經在磁碟上時，這一段仍然算錄成了。
     ///
     /// 現場症狀：資料夾裡躺著完整的 <c>seg-*.mp4</c>，索引卻記成 corrupt，回放清單裡沒有它，
@@ -764,7 +862,8 @@ public sealed class SegmentRecorderTests : IDisposable
             : t.AddSeconds(5 * calls);
 
         var factory = new FakeProcessFactory(FirstCompletesThenPending);
-        await using var recorder = new SegmentRecorder(_segments, factory, _ => string.Empty, clock: clock);
+        await using var recorder = new SegmentRecorder(
+            _segments, factory, _ => string.Empty, clock: clock, probeDuration: _ => null);
 
         await recorder.StartAsync(_channelId, RtspUrl, _recordingsRoot, "main", SegmentSeconds);
         await WaitUntilAsync(() => recorder.LastFailure is not null);
@@ -792,7 +891,7 @@ public sealed class SegmentRecorderTests : IDisposable
         var id = _segments.BeginSegment(_channelId, "main", finalPath, t);
 
         Assert.True(SegmentRecorder.TryCompleteMovedSegment(
-            _segments, id, finalPath, finalPath + ".tmp", t));
+            _segments, id, finalPath, finalPath + ".tmp", t, _ => null));
 
         var row = Assert.IsType<SegmentRecord>(_segments.Get(id));
         Assert.Equal(SegmentStatus.Final, row.Status);

@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using HeliVMS.Media;
 using HeliVMS.Shared;
 using HeliVMS.Shared.Models;
 using HeliVMS.Storage;
@@ -447,56 +448,7 @@ public sealed class HourlySegmentMerger
             }
         }
 
-        public double? ProbeDurationSeconds(string file)
-        {
-            try
-            {
-                var psi = new ProcessStartInfo
-                {
-                    FileName = FfmpegLocator.Ffprobe,
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    UseShellExecute = false,
-                    CreateNoWindow = true,
-                };
-                psi.ArgumentList.Add("-v");
-                psi.ArgumentList.Add("error");
-                psi.ArgumentList.Add("-show_entries");
-                psi.ArgumentList.Add("format=duration");
-                psi.ArgumentList.Add("-of");
-                psi.ArgumentList.Add("default=noprint_wrappers=1:nokey=1");
-                psi.ArgumentList.Add(file);
-
-                using var process = Process.Start(psi)
-                    ?? throw new InvalidOperationException("ffprobe could not be started");
-
-                var stdoutTask = process.StandardOutput.ReadToEndAsync();
-                _ = process.StandardError.ReadToEndAsync();
-
-                if (!process.WaitForExit(60_000))
-                {
-                    try { process.Kill(true); } catch { /* 早已結束 */ }
-                    return null;
-                }
-
-                if (process.ExitCode != 0)
-                {
-                    return null;
-                }
-
-                var stdout = stdoutTask.GetAwaiter().GetResult();
-                return double.TryParse(stdout.Trim(),
-                    System.Globalization.CultureInfo.InvariantCulture,
-                    out var duration)
-                    ? duration
-                    : null;
-            }
-            catch (Exception ex) when (
-                ex is System.ComponentModel.Win32Exception or InvalidOperationException)
-            {
-                return null;
-            }
-        }
+        public double? ProbeDurationSeconds(string file) => MediaDurationProbe.ProbeSeconds(file);
 
         private static string Trim(string text)
         {

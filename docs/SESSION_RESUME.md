@@ -4,6 +4,38 @@
 > 權威來源：`git` 與 GitHub Actions 的現況（不是聊天記錄）。
 > 所有里程碑均已 commit＋push、CI 全綠、工作目錄乾淨（下方數據皆為驗證過的真實值）。
 
+> **【追加 2026-11-11（之四）】錄影段長改取檔案自身長度（牆鐘時間只是後備）**
+>
+> 現場「時間軸上出現幾小時的色塊、方向鍵跳到沒有影像的地方、多路回放每一格都在等一個不存在的
+> 時刻」的根源不是回放端，而是索引裡的 `duration_sec`：它記的是 **ffmpeg 行程被排程了多久**，
+> 不是影片有幾秒。量測（`C:\HeliVMSData\index.db`，唯讀）：68 段 `final` 有 15 段與檔案實際長度
+> 差超過 60 秒；最壞兩段記著 **6853／6849 秒**（檔案 250／260 秒）；另有 4 段記著 99–200 秒，
+> 而檔案是 0.07–0.34 秒。健康段也固定多 0.2–1.0 秒（RTSP 暖機）。
+> - `HeliVMS.Media.MediaDurationProbe.ProbeSeconds`：`ffprobe -show_entries format=duration`，
+>   容錯回 `null`（ffprobe 不在／檔案被鎖／逾時）；實測每段約 **90 ms**，可接受。
+> - `HeliVMS.Shared.RecordedSegmentLength.Resolve(probed, wall)`：探測值落在 `(0, 24h]` 就採用，
+>   否則退回牆鐘；**刻意不拿牆鐘當上界**（牆鐘正是要被換掉的那個數字）。
+> - `SegmentRecorder`：收尾時刻先取（探測與 SHA-256 不能算進牆鐘），再探測；`end_time =
+>   start + 段長`，讓 `PlaybackSegmentTiming.EndOf` 與索引不可能說出兩個結束時刻。補救路徑
+>   `TryCompleteMovedSegment` 用同一份口徑（只修正常路徑＝時鐘跳動命中的那幾段仍然是假長度）。
+> - `HourlySegmentMerger.ProbeDurationSeconds` 收斂到同一支探測（原本是第二份 ffprobe 呼叫）。
+> - 守門：Shared `探測到的長度優先於牆鐘長度`／`牆鐘膨脹幾千秒時仍採用檔案長度`／
+>   `探測不到時退回牆鐘長度`／`不合理的探測值一律退回牆鐘長度`／`超過一天的探測值視為讀錯檔案`／
+>   `兩個數字都不能用時記零而不是負值`；Media `讀得懂ffprobe的單行長度`／`檔案不存在時回空值而不是
+>   擲例外`／**`錄影用的fMP4檔仍探測得到長度`（真 ffmpeg，用錄影同一組 `-movflags`：若 fMP4 的
+>   `format=duration` 是 N/A，整個修正會靜默無效）**；Recording `錄影段長取檔案自身長度而不是牆鐘`／
+>   `探測失敗時段長退回牆鐘`／`補救收尾也用檔案長度而不是最後寫入時間`。突變檢查（每一項都先改壞
+>   確認會紅再還原）：`Resolve` 一律回牆鐘 → Shared 3 紅；`Resolve` 退回 0 → Recording 1 紅；
+>   正常路徑傳 `null` → Recording 1 紅；補救路徑傳 `null` → Recording 1 紅；探測固定回 `null`
+>   → Media 1 紅（fMP4 那條）。
+> - 驗證：Release 全解決方案 build 0/0；Shared **488**、Recording **395**、Media **194**、
+>   App 851（`SolutionCoverageTests` 過濾掉，紅的原因是未追蹤 `Tools/LicenseKeyGen` 留在磁碟上，
+>   CI 看不到）。
+> - 下一步候選：`MediaIntegrityChecker` 每小時取樣時順手以同一支探測**自癒舊資料**（把既有的
+>   6853 秒那幾列改回檔案長度、`end_time = start + 探測值`）；`RecordingDiskImporter` 的
+>   `InferredDuration` 對「複製到別的機器」的檔案同樣不可信（寫入時間不是內容長度），可一併改走
+>   探測；`PLAYBACK-ALIGNMENT` §4 缺口 4 仍暫緩（只有一個真實消費端）。
+
 > **【追加 2026-11-11（之三）】多路回放診斷行補上 `hw=`：寫生效值，不是設定值**
 >
 > 即時監看早就每格寫 `hw=`（`helivms-live.log`），回放一直沒有——於是「明明設了硬解，多路回放

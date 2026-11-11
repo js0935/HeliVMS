@@ -38,6 +38,7 @@ public sealed class SegmentRecorder : ISegmentRecorder
     private readonly Func<int, string?>? _folderNameFor;
     private readonly FfmpegProcessRegistry _registry;
     private readonly Func<DateTime> _clock;
+    private readonly Func<string, double?> _probeDuration;
     private readonly TimeSpan _gracefulStopTimeout;
     private readonly CancellationTokenSource _cts = new();
     private Process? _process;
@@ -87,7 +88,8 @@ public sealed class SegmentRecorder : ISegmentRecorder
         FfmpegProcessRegistry? registry = null,
         Func<int, string?>? folderNameFor = null,
         Func<DateTime>? clock = null,
-        TimeSpan? gracefulStopTimeout = null)
+        TimeSpan? gracefulStopTimeout = null,
+        Func<string, double?>? probeDuration = null)
     {
         _repo = repo;
         _processFactory = processFactory ?? new DefaultProcessFactory();
@@ -96,6 +98,7 @@ public sealed class SegmentRecorder : ISegmentRecorder
         _registry = registry ?? FfmpegProcessRegistry.Shared;
         _folderNameFor = folderNameFor;
         _clock = clock ?? (static () => DateTime.UtcNow);
+        _probeDuration = probeDuration ?? (static path => MediaDurationProbe.ProbeSeconds(path));
         _gracefulStopTimeout = gracefulStopTimeout ?? DefaultGracefulStopTimeout;
     }
 
@@ -471,16 +474,26 @@ public sealed class SegmentRecorder : ISegmentRecorder
 
                 // 結束時間取真實收尾時刻，而不是 `start + 設定分段秒數`：攝影機 RTSP 突然中斷時，
                 // ffmpeg 會提早以退出碼 0 結束，檔案只有幾秒，卻被記成完整一段——時間軸與 HLS
-                // 都宣稱有整整 60 秒影片，播放器一到檔案真正結尾就卡住。量到的牆鐘時間會貼近
-                // 實際長度（含極短的連線暖機，誤差在秒的下方）。結束時間要在雜湊之前取，
-                // 否則大檔的 SHA-256 讀取會被算進影片長度。
+                // 都宣稱有整整 60 秒影片，播放器一到檔案真正結尾就卡住。
                 //
                 // 條件刻意不再加「且未被取消」：取消時是「請 ffmpeg 收尾」，不是「這段不要了」。
                 // 被取消就丟掉的話，關程式前錄的那一段會永遠離開索引（正是要修的症狀）。
-                var endUtc = _clock();
+                //
+                // 收尾時刻要在探測與雜湊之前取：ffprobe 與 SHA-256 都要讀檔，算進牆鐘長度就白多一段。
+                var stoppedUtc = _clock();
+
+                // 段長改用檔案自己的長度（見 RecordedSegmentLength）。牆鐘時間只是後備：
+                // 它量的是「這台機器被排程了多久」，Windows 睡眠或校時一次就會膨脹幾千秒，
+                // 時間軸因此長出幾個小時的假區塊，而同步與跳轉都會落在沒有影像的時刻。
+                var probedSeconds = _probeDuration(finalPath);
+                var wallSeconds = Math.Max(0, (stoppedUtc - startUtc).TotalSeconds);
+                var durationSec = RecordedSegmentLength.Resolve(probedSeconds, wallSeconds);
+
+                // 索引的結束時刻必須與段長同一個口徑：時間軸用 EndOf（起點＋長度）換算，
+                // 兩個數字各自獨立就會出現「色帶到 45 秒、點下去回報沒有錄影」。
+                var endUtc = durationSec > 0 ? startUtc.AddSeconds(durationSec) : stoppedUtc;
                 var size = new FileInfo(finalPath).Length;
                 var sha256 = ComputeSha256(finalPath);
-                var durationSec = Math.Max(0, (endUtc - startUtc).TotalSeconds);
                 _repo.CompleteSegment(_activeSegmentId, endUtc, size, durationSec, sha256);
 
                 SegmentCompleted?.Invoke(
@@ -516,7 +529,7 @@ public sealed class SegmentRecorder : ISegmentRecorder
             // 不是壞檔。以前這裡一律 TryDeleteTmp + MarkCorrupt，而 .tmp 早就被搬走了，
             // 結果是「檔案好好地在資料夾裡、索引記成 corrupt」，回放只讀 final 所以看不到，
             // 磁碟匯入又會把它當成「已索引」跳過——那段影片就永遠消失了。
-            if (TryCompleteMovedSegment(_repo, _activeSegmentId, finalPath, tmpPath, startUtc))
+            if (TryCompleteMovedSegment(_repo, _activeSegmentId, finalPath, tmpPath, startUtc, _probeDuration))
             {
                 return true;
             }
@@ -540,6 +553,7 @@ public sealed class SegmentRecorder : ISegmentRecorder
     /// <param name="finalPath">正式檔路徑。</param>
     /// <param name="tmpPath">暫存檔路徑（用來確認改名真的發生過）。</param>
     /// <param name="startUtc">段開始時間；檔案時間比它舊（時鐘被調整）時退回它，長度記 0 而不是負值。</param>
+    /// <param name="probeDuration">讀檔長的委派（<c>null</c> 時只用檔案最後寫入時間）；預設走真實的 ffprobe。</param>
     /// <returns>是否已把這段收尾成 final。</returns>
     /// <remarks>
     /// 「暫存檔還在」就一律不動：那只代表 <see cref="File.Move(string, string)"/> 根本沒成功（最常見的原因是
@@ -552,7 +566,8 @@ public sealed class SegmentRecorder : ISegmentRecorder
         long segmentId,
         string finalPath,
         string tmpPath,
-        DateTime startUtc)
+        DateTime startUtc,
+        Func<string, double?>? probeDuration = null)
     {
         if (segmentId <= 0 || File.Exists(tmpPath) || !File.Exists(finalPath))
         {
@@ -567,13 +582,19 @@ public sealed class SegmentRecorder : ISegmentRecorder
                 return false;
             }
 
-            var endUtc = File.GetLastWriteTimeUtc(finalPath);
-            if (endUtc < startUtc)
+            var stoppedUtc = File.GetLastWriteTimeUtc(finalPath);
+            if (stoppedUtc < startUtc)
             {
-                endUtc = startUtc;
+                stoppedUtc = startUtc;
             }
 
-            var durationSec = Math.Max(0, (endUtc - startUtc).TotalSeconds);
+            // 這裡與正常收尾用同一份口徑：檔案長度優先，最後寫入時間只是後備。
+            // 少見但真的會發生（改名成功後索引寫入失敗）的這條路徑若繼續用牆鐘時間，
+            // 修正就只覆蓋正常路徑，出錯的那一段仍然是幾千秒的假長度。
+            var durationSec = RecordedSegmentLength.Resolve(
+                (probeDuration ?? (static path => MediaDurationProbe.ProbeSeconds(path)))(finalPath),
+                Math.Max(0, (stoppedUtc - startUtc).TotalSeconds));
+            var endUtc = durationSec > 0 ? startUtc.AddSeconds(durationSec) : stoppedUtc;
             var sha256 = ComputeSha256(finalPath);
             repo.CompleteSegment(segmentId, endUtc, size, durationSec, sha256);
             return true;
