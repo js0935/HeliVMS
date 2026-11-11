@@ -33,6 +33,33 @@ public sealed class TrayIconHost : IDisposable
         _icon.ContextMenuStrip = menu;
     }
 
+    /// <summary>
+    /// 更新系統匣的停留提示（滑鼠停在圖示上時顯示）。Windows 上限 63 字元，超長截斷。
+    /// </summary>
+    /// <remarks>
+    /// 讓「這是多久之前啟動的實例」任何時刻都看得到：喚醒氣泡只在重複啟動那一次出現
+    /// （見 <see cref="MainWindow.ShowWakeBalloon"/>），而操作員平時只會滑過系統匣圖示——
+    /// 提示寫著「自 10 天前起執行」，舊行程就無所遁形。字串是 i18n 文案（帶啟動時刻），
+    /// 由呼叫端組好傳入；失敗靜靜略過，提示是輔助不是功能。
+    /// </remarks>
+    public void SetTooltip(string text)
+    {
+        if (_disposed || string.IsNullOrWhiteSpace(text))
+        {
+            return;
+        }
+
+        // 63 字元是 Windows 對 NotifyIcon.Text 的硬上限；超過的話設定會靜默失敗或丟例外，
+        // 截斷比丟例外好——這一行只該是輔助資訊。
+        try
+        {
+            _icon.Text = text.Length <= 63 ? text : text[..63];
+        }
+        catch (Exception)
+        {
+        }
+    }
+
     /// <summary>圖示目前是否可見（於 system tray）。</summary>
     public bool IsVisible => !_disposed && _icon.Visible;
 

@@ -4,6 +4,35 @@
 > 權威來源：`git` 與 GitHub Actions 的現況（不是聊天記錄）。
 > 所有里程碑均已 commit＋push、CI 全綠、工作目錄乾淨（下方數據皆為驗證過的真實值）。
 
+> **【追加 2026-11-12（之十六）】系統匣停留提示常駐亮出行程年齡——氣泡只在再啟動那一次出現**
+>
+> 之十二的喚醒氣泡有個盲區：它只在「第二次啟動」時出現，而操作員平時只會滑過系統匣
+> 圖示——一個活了 13 天的舊行程，滑過圖示只看得到「HeliVMS」三個字。
+> - `MainWindow` 建構式（托盤建立處）立刻 `SetTrayTooltip()`：文案
+>   `Main.TrayTooltip`＝「HeliVMS（自 {0} 起執行）」（三語），{0}＝本行程啟動時刻。
+>   拿不到啟動時刻就維持預設文字；超過 Windows 的 63 字元上限截斷而非丟例外。
+> - `TrayIconHost.SetTooltip` 是唯一寫入端；氣泡（ShowWakeBalloon）與 tooltip 同一目的
+>   兩個觸點：氣泡在喚醒當下、tooltip 常駐。
+> - 教訓（本輪實踩）：App.Tests 的編譯錯誤（漏 using Regex）讓 `dotnet test --no-build`
+>   跑了**舊 DLL**，一個假的 WpfI18n 失敗（Main.TrayTooltip 查無翻譯）——那是舊
+>   Storage.dll 沒有新鍵的錯覺。看到失敗先確認測試 DLL 是新的，再查程式。
+> - 突變驗證「建構式不呼叫 SetTrayTooltip」紅後還原（契約同時釘住呼叫在建構式內、
+>   StartTime、三語鍵）。測試：App 858／Storage 1485 全綠。
+>
+> **【追加 2026-11-12（之十五）】純 Web 部署的每小時輪補齊索引維護三件套**
+>
+> 桌面（保留迴圈）與 Agent（IntegrityWorker）都跑對帳＋段長修正＋失敗原因回填；
+> 純 WebApi 部署掛不到那兩個宿主，唯一的維護入口 `SegmentReconcileService` 原本只跑
+> 對帳——缺項的後果是同一份索引在不同部署下呈現不同的世界：桌面版修好的舊列，
+> 純 Web 機器上永遠保持原樣。
+> - 每小時輪加上 `SegmentDurationRepairCoordinator.RunConfigured` 與
+>   `SegmentFailureReasonBackfillCoordinator.RunConfigured`，各自包 try/catch
+>   （單輪失敗只記警告，不讓服務停擺）。兩支都是一次性游標掃描，掃完即停；
+>   探測不到 ffprobe 時游標照樣前進（既有測試釘住）。
+> - 契約：三項工作都在、各被自己的例外守衛包住、節奏與保留清理錯開
+>   （開機延後 5 分鐘、每小時一輪）。突變「整段移除段長修正」紅（2 支）後還原。
+> - 測試：Api 276 全綠。
+>
 > **【追加 2026-11-12（之十四）】舊索引的 207 列 corrupt 沒有原因——但答案早就在稽核裡**
 >
 > 之十的 `failure_reason` 只對新寫入的段生效；掃完現場日誌後（crash.log 的兩個簽名都已在

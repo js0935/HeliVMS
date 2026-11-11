@@ -462,6 +462,7 @@ public partial class MainWindow : Window
         _recordingsRoot = RecordingStorage.ResolveRootFromEnvironment();
         _tray = new TrayIconHost(ShowFromTray);
         _tray.ExitRequested += OnTrayExit;
+        SetTrayTooltip();
 
         // 回放前收檔的兩個來源：監看牆與排程是兩條獨立的錄影路徑，排程還會跳過已被
         // 監看畫面錄影的頻道，所以兩邊都要問。以委派延後解析 _manager／_scheduler：
@@ -716,6 +717,30 @@ public partial class MainWindow : Window
         }
 
         Activate();
+    }
+
+    /// <summary>
+    /// 在系統匣停留提示亮出本行程的啟動時刻：操作員平時只會滑過系統匣圖示，
+    /// 而喚醒氣泡只在重複啟動那一次出現——tooltip 是「這個實例多老了」的常駐來源。
+    /// </summary>
+    /// <remarks>
+    /// 拿不到啟動時刻（極少見）就維持預設文字：沒有資訊的提示比沒有提示更糟。
+    /// 與 <see cref="ShowWakeBalloon"/> 同一個目的（2026-11 的現場教訓：一個 10-30 的
+    /// 舊行程活到 11-12，操作員始終以為自己跑著新版），只是把資訊常駐在圖示上。
+    /// </remarks>
+    private void SetTrayTooltip()
+    {
+        try
+        {
+            using var process = System.Diagnostics.Process.GetCurrentProcess();
+            var started = process.StartTime.ToString(
+                "yyyy-MM-dd HH:mm", System.Globalization.CultureInfo.InvariantCulture);
+            _tray?.SetTooltip(string.Format(Localizer.T("Main.TrayTooltip"), started));
+        }
+        catch (Exception)
+        {
+            // 拿不到就保持「HeliVMS」預設提示；提示是輔助，不是功能。
+        }
     }
 
     /// <summary>

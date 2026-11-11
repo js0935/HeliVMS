@@ -1084,6 +1084,34 @@ Notes that will save you time:
   `其他頻道的停滯稽核不會被拿來補`, `解析不出failures的稽核不用來歸因`,
   `已有原因的段不會被改寫`, `稽核節錄會遮帳密並截斷`, `掃到尾後游標寫負一且不再掃描`,
   `停用時不掃描且游標不變` and `Agent會跑失敗原因回填走共用協調器`.
+- **The pure-Web deployment's hourly loop runs all three index-maintenance sweeps.** The
+  desktop (MainWindow retention loop) and the Headless Agent (IntegrityWorker) both run
+  reconcile + duration repair + failure backfill; a pure WebApi host mounts neither, and
+  `SegmentReconcileService` was its only maintenance worker — running reconcile only. The
+  consequence of a missing sweep is the same index rendering differently per deployment: rows
+  the desktop repaired stay wrong on the web machine. The hourly loop now runs
+  `SegmentDurationRepairCoordinator.RunConfigured` and
+  `SegmentFailureReasonBackfillCoordinator.RunConfigured` too, each in its own try/catch
+  (one failed sweep logs a warning; the service never stops). Both are one-shot cursor sweeps
+  that stop when done, and both tolerate a missing ffprobe by advancing the cursor.
+  Guarded by `純Web部署的每小時輪也會修正段長與回填失敗原因`,
+  `每一項維護工作都被自己的例外守衛包住` and `維護輪的節奏與保留清理錯開`
+  (initial delay 5 min, interval 1 h — staggered against retention to avoid fighting over the
+  SQLite write lock).
+- **The tray tooltip shows the process start time — the wake balloon only fires on relaunch.**
+  An operator's everyday gesture is hovering the tray icon, and a 13-day-old process showed
+  just "HeliVMS". `MainWindow` sets the tooltip at construction (`SetTrayTooltip()` →
+  `TrayIconHost.SetTooltip`, `Main.TrayTooltip` = 「HeliVMS（自 {0} 起執行）」, 3 languages,
+  {0} = this process's start time). No start time → default text stays (an info-free hint is
+  worse than no hint); over Windows' 63-char tooltip limit → truncate, never throw; tooltip
+  failures are swallowed — it is an aid, not a feature. Balloon and tooltip are two touch
+  points of the same fact: balloon at wake time, tooltip always.
+  Guarded by `系統匣停留提示常駐亮出本行程的啟動時刻` (pins the call inside the MainWindow
+  constructor, the StartTime read, and the 3-language key).
+  **Process lesson (hit for real):** an App.Tests compile error (missing `using`) made
+  `dotnet test --no-build` run STALE test DLLs, which surfaced as a fake WpfI18n failure
+  (「Main.TrayTooltip 查無翻譯」 — the old Storage.dll genuinely lacked the key). When a test
+  failure contradicts the source, first confirm the test DLL is fresh before debugging code.
 - **Pick the sub stream by stream number, never by a magic number in the name.** `OnvifProfileSelection`
   used to carry `"101"` in `MainKeywords` and `"102"` in `SubKeywords`, matched as plain substrings.
   The real camera at `rtsp://<host>/media/stream.sdp?profile=Profile100` exposes three profiles —

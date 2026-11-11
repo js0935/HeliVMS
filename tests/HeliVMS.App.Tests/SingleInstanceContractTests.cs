@@ -1,3 +1,5 @@
+using System.Text.RegularExpressions;
+
 namespace HeliVMS.App.Tests;
 
 /// <summary>
@@ -123,6 +125,32 @@ public sealed class SingleInstanceContractTests
         Assert.True(
             nullGuardAt >= 0 && returnAt > nullGuardAt && startupSweepAt > returnAt,
             "OnStartup 的清掃必須位於「單一實例判斷失敗就 return」之後");
+    }
+
+    /// <summary>
+    /// 喚醒氣泡只在重複啟動那一次出現；系統匣的停留提示是「這個實例多老了」的常駐來源——
+    /// 操作員平時只會滑過系統匣圖示。提示必須帶本行程的啟動時刻（i18n 三語）、
+    /// 超過 Windows 63 字元上限時截斷而不是丟例外。
+    /// </summary>
+    [Fact]
+    public void 系統匣停留提示常駐亮出本行程的啟動時刻()
+    {
+        var tray = SourceContract.Read("src/HeliVMS.App/TrayIconHost.cs");
+        Assert.Contains("public void SetTooltip(string text)", tray);
+        Assert.Contains("text.Length <= 63", tray);
+
+        var main = SourceContract.Read(Main);
+        // 必須在建構式（托盤建立處）就設定提示：晚到任何一步都有「滑過圖示看不到年齡」的窗口。
+        var ctor = SourceContract.BodyOf(main, "MainWindow");
+        Assert.Contains("SetTrayTooltip()", ctor);
+
+        var wake = SourceContract.BodyOf(main, "SetTrayTooltip");
+        Assert.Contains("Process.GetCurrentProcess()", wake);
+        Assert.Contains("StartTime", wake);
+        Assert.Contains("Main.TrayTooltip", wake);
+
+        var i18n = SourceContract.Read("src/HeliVMS.Storage/I18n.cs");
+        Assert.Equal(3, Regex.Matches(i18n, "\"Main.TrayTooltip\"").Count);
     }
 
     /// <summary>
