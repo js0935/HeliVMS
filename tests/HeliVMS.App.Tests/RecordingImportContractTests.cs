@@ -90,4 +90,28 @@ public sealed class RecordingImportContractTests
         var ctor = SourceContract.BodyOf(SourceContract.Read(ImportCode), "RecordingImportWindow");
         Assert.Contains("RecordingDiskImporter.DefaultChannelId(", ctor);
     }
+
+    /// <summary>
+    /// 匯入時真的把 <c>MediaDurationProbe.ProbeSeconds</c> 接上，而不是用不探測的建構子。
+    ///
+    /// <para>
+    /// <c>RecordingDiskImporter</c> 在 <c>HeliVMS.Storage</c>，而探測器在 <c>HeliVMS.Media</c>——
+    /// Storage 不能參考 Media，所以真正的探測一定要由呼叫端注入。漏掉這一行的症狀：匯入本身
+    /// 成功、段數正確、日誌乾淨，但每一列的時長都退回「寫入時刻推斷」，也就是把這次要修的
+    /// 缺陷（攝影機卡住 39 秒 → 一段 36 秒的影片記成 75 秒）原封不動寫回索引。
+    /// 行為測試在 Storage（<c>匯入時以檔案自身長度建列而不是寫入時間</c>），這裡只守接線。
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void 匯入時以真實探測取得檔案長度()
+    {
+        var body = SourceContract.BodyOf(SourceContract.Read(ImportCode), "OnImportClicked");
+
+        Assert.Contains("MediaDurationProbe.ProbeSeconds(", body);
+
+        // 探測也要在背景執行緒裡：每段約 90 ms，幾千段留在 UI 執行緒就是「沒有回應」。
+        var probe = body.IndexOf("MediaDurationProbe.ProbeSeconds(", StringComparison.Ordinal);
+        var task = body.IndexOf("Task.Run(", StringComparison.Ordinal);
+        Assert.True(task >= 0 && task < probe, "探測必須在 Task.Run 裡，不能在 UI 執行緒上跑");
+    }
 }

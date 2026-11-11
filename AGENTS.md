@@ -999,7 +999,20 @@ Notes that will save you time:
   that matches none (e.g. a leftover `ch072`): the operator picks one in the dialog, because
   attaching A's recordings to B is evidence pointing at the wrong camera. The reverse
   direction (index has it, disk does not) is `SegmentIndexReconciler` — neither replaces the
-  other. Guarded by `RecordingDiskImporterTests` and `RecordingImportContractTests`.
+  other. **Import writes the file's own duration, not a write-time guess.** `LastWriteTimeUtc`
+  is the wall clock at which ffmpeg closed the file, so a camera that stalls mid-segment makes
+  it too long (measured: `seg-005201944.mp4` inferred 74.77 s for a 35.91 s file; the two
+  inflated rows reproduced their 7105 / 7102 s exactly from write time), and a file copied or
+  restored gets "now" for all files. `Collect(folderPath, probeEveryFile)` probes only on the
+  import path (`Import` → `true`, `Scan` → `false`) because the folder list must stay cheap
+  (~90 ms per file × thousands); a failed probe (ffprobe missing, file locked, network disk
+  gone, or an exception) falls back to the old inference and never aborts the batch. The probe
+  is injected from the desktop call site (`RecordingImportWindow` → `MediaDurationProbe`) since
+  `HeliVMS.Storage` cannot reference `HeliVMS.Media` — dropping that wiring silently restores
+  the defect with a clean log. Guarded by `RecordingDiskImporterTests` and
+  `RecordingImportContractTests` (`匯入時以檔案自身長度建列而不是寫入時間`,
+  `探測不到的檔案退回寫入時間推斷`, `探測拋出例外不會中斷整批匯入`,
+  `掃描時不會為每一個檔案啟動探測`, `匯入時以真實探測取得檔案長度`).
 - **Scheduled maintenance tasks have two orderings and one non-negotiable skip.** `scheduled_tasks`
   (V57) drives reboot / snapshot / reconnect from the alarm-rules window, executed by
   `MaintenanceTaskHost` (30 s poll; the "is it due" decision lives in

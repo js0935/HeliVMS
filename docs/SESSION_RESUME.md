@@ -4,6 +4,38 @@
 > 權威來源：`git` 與 GitHub Actions 的現況（不是聊天記錄）。
 > 所有里程碑均已 commit＋push、CI 全綠、工作目錄乾淨（下方數據皆為驗證過的真實值）。
 
+> **【追加 2026-11-11（之六）】磁碟匯入也用檔案自身長度建列（掃描仍保持便宜）**
+>
+> 之四、之五修的是「錄影端」與「既有索引」；**匯入**是第三條會寫段長的路徑，它原本用
+> `LastWriteTimeUtc` 推斷。實測（`index.db` 對照 `ffprobe`）：兩段膨脹列（7105.58／7102.92 秒）
+> 與「寫入時間 − 開始時間」**分秒不差**（260／250 秒的檔案），健康段則普遍多 0.3–0.5 秒，
+> 但也量到 `seg-005201944.mp4` 推得 74.77 秒、實際 35.91 秒（攝影機卡了 39 秒）與
+> `seg-005051421.mp4` 70.51 對 39.16。也就是說：索引被重建／還原舊備份／換機器之後重新匯入，
+> 會把同樣的缺陷原封不動寫回去。
+> - `RecordingDiskImporter.Collect(folderPath, probeEveryFile)`：`Import` 傳 `true`
+>   （每一段都以 `RecordedSegmentLength.Resolve(probed, inferred)` 決定），`Scan` 傳 `false`
+>   （只數檔數與起訖時間；每段 ~90 ms，幾千段等於幾十分鐘的「沒有回應」）。`merged-*.mp4`
+>   兩種路徑都探測（寫入時刻是 remux 完成當下，推斷一定錯）。
+> - `SafeProbe`：探測器拋例外（被鎖住、路徑太長、網路磁碟掉線、防毒攔 ffprobe）只讓那一段
+>   退回推斷，不中斷整批匯入。
+> - Storage 不能參考 Media，所以真實探測由 App 注入：`RecordingImportWindow` 以
+>   `path => MediaDurationProbe.ProbeSeconds(path)` 建 importer，並維持在 `Task.Run` 裡。
+>   漏掉這行＝匯入成功、段數正確、日誌乾淨，但每一列都是寫入時間推斷。
+> - 守門：Storage `匯入時以檔案自身長度建列而不是寫入時間`／`探測不到的檔案退回寫入時間推斷`／
+>   `探測拋出例外不會中斷整批匯入`／`掃描時不會為每一個檔案啟動探測`；App 契約
+>   `匯入時以真實探測取得檔案長度`。突變檢查（先改壞確認會紅再還原）：`Scan` 改成 `true` 紅；
+>   `Import` 改成 `false` 紅；`Resolve(probed, inferred)` 參數對調 紅；`SafeProbe` 拿掉
+>   try/catch 紅；App 拿掉探測注入 → 契約紅。
+> - 順帶修掉一個測試基礎設施的假紅：`RecordingSchedulerTests.Dispose` 是唯一沒有吞
+>   `IOException` 的清理（其他測試類別都吞），而計時器回呼是 `async void`，`Timer.Dispose`
+>   不等在跑的那一輪，SqliteStore 關閉時正有查詢在別的執行緒上，負載高時 `File.Delete` 就丟
+>   「being used by another process」。改為與其他類別一致：暫存檔清不掉不影響測試結果。
+> - 驗證：Release 全解決方案 build 0/0；Storage **1479**、Recording **402**（連跑 4 次皆綠）、
+>   App 853（`SolutionCoverageTests` 過濾掉，原因是未追蹤 `Tools/`）。
+> - 成本註記：匯入時每段一次 ffprobe（實測約 90 ms）。3357 段約 5 分鐘，且是在「匯入」這種
+>   明確按下按鈕的動作裡、有進度狀態文字；若現場抱怨太慢，加一個設定開關（預設開）比回頭
+>   用寫入時間好。`PLAYBACK-ALIGNMENT` §4 缺口 4 仍暫緩（只有一個真實消費端）。
+
 > **【追加 2026-11-11（之五）】舊索引段長自癒：`SegmentDurationRepair`（游標掃描，掃完即停）**
 >
 > 之四修好的是「新錄的段」；**改動前寫進索引的列不會自己變好**。實測 `C:\HeliVMSData\index.db`

@@ -426,6 +426,126 @@ public sealed class RecordingDiskImporterTests : IDisposable
         Assert.Contains(probed, p => p.EndsWith("merged-140000000.mp4"));
     }
 
+    /// <summary>
+    /// 匯入時以<b>檔案自己的長度</b>建列，而不是 <c>LastWriteTimeUtc</c> 的差值。
+    ///
+    /// <para>
+    /// 寫入時刻是牆鐘：ffmpeg 收尾的那一刻，攝影機中途卡住多久它就晚多久。實測
+    /// <c>seg-005201944.mp4</c> 由寫入時刻推得 74.77 秒、檔案其實只有 35.91 秒（卡了 39 秒），
+    /// Windows 睡眠或校時更是整段膨脹成幾千秒（716 段裡 15 段差超過 60 秒，最壞兩段
+    /// 7105／7102 秒對 260／250 秒的檔案）。匯入是「把磁碟上的檔案補回索引」——索引記的該是
+    /// 影片真的有幾秒，否則時間軸多出幾小時的色塊、方向鍵跳到沒有影像的地方、多路回放每一格
+    /// 都在等一個不存在的時刻。
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void 匯入時以檔案自身長度建列而不是寫入時間()
+    {
+        var id = AddChannel("攝影機01");
+        // 收尾時間比內容晚 39 秒（攝影機中途卡住），探測到的是真正的 35.91 秒。
+        WriteSegment("攝影機01", Start, size: 4096, durationSeconds: 75);
+        var folder = Assert.Single(Scan());
+
+        var importer = new RecordingDiskImporter(
+            new SegmentRepository(_store),
+            probeDuration: _ => 35.91);
+        importer.Import([(folder.FolderPath, id)]);
+
+        var row = Assert.Single(new SegmentRepository(_store).ListByRange(
+            id, "main", Start.AddMinutes(-1), Start.AddMinutes(2)));
+
+        Assert.Equal(35.91, row.DurationSec!.Value, 3);
+        Assert.Equal(35.91, (row.EndUtc!.Value - row.StartUtc).TotalSeconds, 2);
+    }
+
+    /// <summary>
+    /// 探測不到時退回寫入時刻的推斷，而不是記成零或直接放棄匯入。
+    ///
+    /// <para>
+    /// ffprobe 不在 <c>PATH</c>、檔案被別的程序鎖住、網路磁碟掉線都會讓探測失敗；那時
+    /// 「匯入了但時間軸畫不出來」和「沒有匯入」對操作員是同一件事，所以一定要留下一個正值。
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void 探測不到的檔案退回寫入時間推斷()
+    {
+        var id = AddChannel("攝影機01");
+        WriteSegment("攝影機01", Start, size: 4096, durationSeconds: 20);
+        var folder = Assert.Single(Scan());
+
+        var importer = new RecordingDiskImporter(
+            new SegmentRepository(_store),
+            probeDuration: _ => null);
+        importer.Import([(folder.FolderPath, id)]);
+
+        var row = Assert.Single(new SegmentRepository(_store).ListByRange(
+            id, "main", Start.AddMinutes(-1), Start.AddMinutes(1)));
+
+        Assert.Equal(20, row.DurationSec!.Value, 3);
+    }
+
+    /// <summary>
+    /// 掃描（選資料夾那一步）不會為每一個檔案啟動探測。
+    ///
+    /// <para>
+    /// 掃描只需要檔數與起訖時間，時長是匯入時才算的。實測每段約 90 ms，一個月、十幾台攝影機
+    /// 就是幾千次 ffprobe＝好幾分鐘；而操作員只是剛選了一個資料夾，畫面看起來像當掉。
+    /// 小時合併檔是例外（它的寫入時刻是 remux 完成當下，推斷一定錯），仍要探測。
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void 掃描時不會為每一個檔案啟動探測()
+    {
+        AddChannel("攝影機01");
+        WriteSegment("攝影機01", Start, size: 4096);
+        WriteSegment("攝影機01", Start.AddMinutes(1), size: 4096);
+
+        var probed = new List<string>();
+        var importer = new RecordingDiskImporter(
+            new SegmentRepository(_store),
+            probeDuration: p => { probed.Add(p); return 20; });
+
+        var folder = Assert.Single(importer.Scan([_root], new ChannelRepository(_store).List()));
+
+        Assert.Equal(2, folder.FileCount);
+        Assert.Empty(probed);
+    }
+
+    /// <summary>
+    /// 探測拋出例外時只跳過那個檔案，不能讓整批匯入停擺。
+    ///
+    /// <para>
+    /// 真實世界的探測失敗不是「回 null」而是「丟例外」：檔案被獨佔鎖住、路徑超過 MAX_PATH、
+    /// 網路磁碟掉線、ffprobe 被防毒軟體攔下。若例外一路往上冒，幾千段的匯入會停在第一段，
+    /// 操作員看到的是一個沒有結果的畫面——而且已經寫進索引的那幾段與沒寫的混在一起，重跑也
+    /// 分不出來。
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void 探測拋出例外不會中斷整批匯入()
+    {
+        var id = AddChannel("攝影機01");
+        var first = WriteSegment("攝影機01", Start, size: 4096, durationSeconds: 20);
+        WriteSegment("攝影機01", Start.AddMinutes(1), size: 4096, durationSeconds: 20);
+        var folder = Assert.Single(Scan());
+
+        var importer = new RecordingDiskImporter(
+            new SegmentRepository(_store),
+            probeDuration: p => p == first ? throw new IOException("locked") : 30);
+        var report = importer.Import([(folder.FolderPath, id)]);
+
+        Assert.Equal(2, report.Imported);
+
+        var rows = new SegmentRepository(_store)
+            .ListByRange(id, "main", Start.AddMinutes(-1), Start.AddMinutes(2))
+            .OrderBy(r => r.StartUtc)
+            .ToList();
+        Assert.Equal(2, rows.Count);
+        // 探測失敗那一段退回寫入時刻推斷，仍然要有正的時長。
+        Assert.Equal(20, rows[0].DurationSec!.Value, 3);
+        Assert.Equal(30, rows[1].DurationSec!.Value, 3);
+    }
+
     /// <summary>開頭真的是 MP4 的最小檔（ftyp box）。</summary>
     private static byte[] MakeMp4Bytes()
     {

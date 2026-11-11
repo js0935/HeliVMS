@@ -1,4 +1,5 @@
 using System.Windows;
+using HeliVMS.Media;
 using HeliVMS.Storage;
 
 namespace HeliVMS.App;
@@ -123,9 +124,12 @@ public partial class RecordingImportWindow : Window
 
         try
         {
-            // 幾千段就是幾千次 INSERT，留在 UI 執行緒會讓整個設定中心「沒有回應」。
+            // 幾千段就是幾千次 INSERT，而且每一段都要 ffprobe 一次（約 90 ms），留在 UI 執行緒
+            // 會讓整個設定中心「沒有回應」。
             var report = await Task.Run(() =>
-                new RecordingDiskImporter(new SegmentRepository(_store)).Import(picked));
+                new RecordingDiskImporter(
+                    new SegmentRepository(_store),
+                    path => MediaDurationProbe.ProbeSeconds(path)).Import(picked));
 
             Report = report;
             StatusText.Text = string.Format(

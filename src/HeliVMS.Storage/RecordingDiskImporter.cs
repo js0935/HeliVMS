@@ -62,6 +62,9 @@ public readonly record struct RecordingImportReport(
 /// 結束時間取檔案的 <c>LastWriteTimeUtc</c>（ffmpeg 收尾關檔的時刻）。複製、還原回來的檔案
 /// 會被蓋成「現在」，所以超過一小時一律視為不可信，改用下一段的開始時間推算，最少也會給一個
 /// 正的時長——零長度的段在回放時間軸上不會被畫出來，等於匯入了卻還是看不到。
+/// 這些都只是<b>猜測</b>：寫入時刻是牆鐘（攝影機中途卡住、Windows 睡眠都會讓它與內容長度無關），
+/// 所以真正寫進索引時一律以檔案自己的長度為準（<see cref="RecordedSegmentLength"/>），
+/// 推斷只當探測不到時的後備（見 <see cref="Collect"/>）。
 /// 時間解析不出來的檔案直接略過：亂猜一個時間只會讓時間軸出現一段對不上的空白，比不匯入更難查。
 /// </para>
 /// </remarks>
@@ -95,7 +98,7 @@ public sealed class RecordingDiskImporter
     private readonly SegmentRepository _repo;
     private readonly Func<string, double?>? _probeDuration;
 
-    /// <summary>主要建構子（既有呼叫端）：合併檔時長不探測，退回既有推斷鏈。</summary>
+    /// <summary>主要建構子（既有呼叫端）：不探測，時長全靠推斷。</summary>
     /// <param name="repo">區段索引。</param>
     public RecordingDiskImporter(SegmentRepository repo)
         : this(repo, probeDuration: null)
@@ -105,7 +108,8 @@ public sealed class RecordingDiskImporter
     /// <summary>完整建構子。</summary>
     /// <param name="repo">區段索引。</param>
     /// <param name="probeDuration">
-    /// 小時合併檔的時長探測（ffprobe）；回 <c>null</c> 表示探不到。測試注入替身以脫離外部進程。
+    /// 檔案自身長度的探測（ffprobe）；回 <c>null</c> 表示探不到。匯入時每一個檔案都會問它
+    /// （掃描畫面不會，見 <see cref="Collect"/>），測試注入替身以脫離外部進程。
     /// </param>
     public RecordingDiskImporter(SegmentRepository repo, Func<string, double?>? probeDuration)
     {
@@ -149,7 +153,7 @@ public sealed class RecordingDiskImporter
 
                 var folderName = Path.GetFileName(folderPath);
                 var channelId = MatchChannel(folderName, byFolder, byId);
-                var files = Collect(folderPath);
+                var files = Collect(folderPath, probeEveryFile: false);
                 if (files.Count == 0)
                 {
                     continue;
@@ -192,7 +196,7 @@ public sealed class RecordingDiskImporter
             }
 
             folders++;
-            foreach (var file in Collect(folderPath))
+            foreach (var file in Collect(folderPath, probeEveryFile: true))
             {
                 var outcome = _repo.AdoptOrReviveFinal(
                     channelId,
@@ -281,12 +285,21 @@ public sealed class RecordingDiskImporter
 
     /// <summary>收集資料夾底下可匯入的段；同一秒的檔案只留一個（索引的唯一鍵是頻道＋時間）。</summary>
     /// <remarks>
+    /// <para>
     /// 時長一定要算出一個正值。回放時間軸（<see cref="PlaybackTimelineBuilder"/>）刻意略過零長度的段，
     /// 而索引裡「有這一列、時間軸上沒有這一條」等於告訴操作員這裡沒有錄影——明明檔案就在磁碟上。
     /// 收尾時間不可信時，先看下一段的開始時間（全時錄影是連續的，差額就是這段的長度），
     /// 再不行才退回 <see cref="PlaybackSegmentTiming.FallbackDurationSeconds"/>。
+    /// </para>
+    /// <para>
+    /// <paramref name="probeEveryFile"/> 只有「真的要寫索引」時才開：寫入時刻只能當<b>猜測</b>，
+    /// 它記的是 ffmpeg 收尾的牆鐘時刻，攝影機中途卡住 39 秒就會讓一段 36 秒的影片被記成 74 秒
+    /// （實測），Windows 睡眠或校時更是整段膨脹成幾千秒。掃描畫面只看檔數與起訖時間，
+    /// 不需要時長——對一整個月、十幾台攝影機的檔案逐一啟動 ffprobe（每段約 90 ms）會讓
+    /// 「選一個資料夾」變成幾十分鐘的等待。
+    /// </para>
     /// </remarks>
-    private List<DiskSegment> Collect(string folderPath)
+    private List<DiskSegment> Collect(string folderPath, bool probeEveryFile)
     {
         var known = KnownPaths(folderPath);
         var parsed = new List<(string Path, long Size, DateTime StartUtc, DateTime WrittenUtc)>();
@@ -359,14 +372,40 @@ public sealed class RecordingDiskImporter
         for (var i = 0; i < parsed.Count; i++)
         {
             var (path, size, startUtc, writtenUtc) = parsed[i];
+            var inferred = InferredDuration(parsed, i);
+
+            // 合併檔的寫入時刻是 remux 完成當下，一般的推斷對它完全不成立，所以一律探測；
+            // 匯入時則是每一個檔案都以自身長度為準（見參數說明），探不到才退回推斷。
             var isMerged = Path.GetFileName(path).StartsWith(MergedPrefix, StringComparison.OrdinalIgnoreCase);
-            var duration = isMerged
-                ? (_probeDuration?.Invoke(path) ?? InferredDuration(parsed, i))
-                : InferredDuration(parsed, i);
+            var probed = probeEveryFile || isMerged ? SafeProbe(path) : null;
+            var duration = probeEveryFile
+                ? RecordedSegmentLength.Resolve(probed, inferred)
+                : probed ?? inferred;
             files.Add(new DiskSegment(path, startUtc, startUtc.AddSeconds(duration), size, duration));
         }
 
         return files;
+    }
+
+    /// <summary>
+    /// 探測單一檔案的長度；探測器本身注入，這裡只負責不讓一個壞檔中斷整批匯入
+    /// （被鎖住、路徑太長、網路磁碟掉線都不該讓幾千段的匯入停在第一段）。
+    /// </summary>
+    private double? SafeProbe(string path)
+    {
+        if (_probeDuration is null)
+        {
+            return null;
+        }
+
+        try
+        {
+            return _probeDuration(path);
+        }
+        catch (Exception)
+        {
+            return null;
+        }
     }
 
     /// <summary>這一段的時長（秒）；收尾時間不可信時改用下一段開始時間，最後退回固定值。</summary>
