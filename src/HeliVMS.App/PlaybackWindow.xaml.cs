@@ -255,6 +255,12 @@ public partial class PlaybackWindow : Window
     /// <summary>以圖搜圖命中的標記色（紫色——避開事件標記的紅/藍/黃/灰/綠）。</summary>
     private static readonly Brush s_searchMarkFill = Frozen(Color.FromRgb(0xB3, 0x5C, 0xE5));
 
+    /// <summary>
+    /// 時間軸上的書籤刻度（黃）。事件刻度是白色 1px、書籤是黃色 2px——兩者都是「這裡有東西」，
+    /// 但一個是機器記的事件、一個是操作員自己標的；顏色一樣就分不出「我標過哪裡」。
+    /// </summary>
+    private static readonly Brush s_bookmarkMarkFill = Frozen(Color.FromRgb(0xE5, 0xC8, 0x3C));
+
     /// <summary>通道色帶列（§8.5）每排的色條高度與間距；4 路牆總高 26px，不搶主帶子的空間。</summary>
     private const double ChannelBandStripHeight = 5;
     private const double ChannelBandStripGap = 2;
@@ -3210,6 +3216,29 @@ public partial class PlaybackWindow : Window
                 Canvas.SetLeft(tick, frac * width);
                 Canvas.SetTop(tick, top);
                 ChannelBandsCanvas.Children.Add(tick);
+            }
+
+            // 書籤刻度（QCV8001 的 timeline 有 bookmark 標記）：操作員自己標的「這裡要注意」，
+            // 只出現在清單裡的話，之後就只能靠清單逐筆點——看不到自己標過哪裡、也沒得沿著時間軸掃。
+            // 與事件同一排（_bookmarks 只載焦點頻道的書籤），但顏色與寬度不同以免混淆。
+            foreach (var bookmark in _bookmarks)
+            {
+                var frac = view.FractionOf(bookmark.AtUtc);
+                if (frac < 0 || frac > 1)
+                {
+                    continue;
+                }
+
+                var mark = new Rectangle
+                {
+                    Width = 2,
+                    Height = ChannelBandStripHeight,
+                    Fill = s_bookmarkMarkFill,
+                    IsHitTestVisible = false,
+                };
+                Canvas.SetLeft(mark, frac * width);
+                Canvas.SetTop(mark, top);
+                ChannelBandsCanvas.Children.Add(mark);
             }
         }
     }
