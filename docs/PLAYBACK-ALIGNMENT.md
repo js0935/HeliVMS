@@ -39,7 +39,7 @@
 | 9 | 視覺/區域搜索 | `CQC_VisualSearch`／`SetRegion` | 視覺搜索（感知雜湊）＋框選 ROI（`VisualHash`） | 等價 |
 | 10 | 來源抽象 | 本機/遠端同一引擎＋快取 | 本機（索引＋`RecordingDiskImporter`）／遠端（HLS VOD、QCTek NEMO、中央代理）**各自成路** | 缺口（架構級，見 §4 第 3 項） |
 | 11 | 播放快取 | `PlayerCache_Template` | `FrameTimestamps`（依路徑＋長度＋mtime，跨窗共用） | 等價 |
-| 12 | 每頻道一列時間軸 | canvas、每頻道 28px、事件分色 | `ChannelBandsCanvas`（每格一列覆蓋＋焦點台事件刻度） | 等價（§8.5 已做） |
+| 12 | 每頻道一列時間軸 | canvas、每頻道 28px、`colorMap` 事件分色 | `ChannelBandsCanvas`（每格一列覆蓋＋焦點台事件刻度）；**2026-11-11 起事件依類別分色**（`TimelineEventPalette`，11 類收成 6 色，書籤另為黃色 2px） | 等價 |
 | 13 | 記住上次佈局 | `GetPlaybackMonitorIdx` | `playback.split`／`speed`／`auto_advance`／`loop`／`channel_id` | 等價 |
 
 ## 3. 第一項落地：倒轉播放（2026-11-11）

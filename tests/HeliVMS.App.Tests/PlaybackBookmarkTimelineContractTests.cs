@@ -23,8 +23,10 @@ public sealed class PlaybackBookmarkTimelineContractTests
         Assert.Contains("_bookmarks", bands);
         Assert.Contains("s_bookmarkMarkFill", bands);
 
-        // 事件刻度仍然是白的：兩者同色就分不出「機器記的」與「我標的」。
-        Assert.Contains("Brushes.White", bands);
+        // 事件刻度走類別色票（TimelineEventPalette），書籤是自己的黃色：
+        // 兩者同一色就分不出「機器記的」與「我標的」。
+        Assert.Contains("TimelineEventPalette.For", bands);
+        Assert.Contains("s_eventTypeBrushes", bands);
     }
 
     [Fact]

@@ -256,10 +256,28 @@ public partial class PlaybackWindow : Window
     private static readonly Brush s_searchMarkFill = Frozen(Color.FromRgb(0xB3, 0x5C, 0xE5));
 
     /// <summary>
-    /// 時間軸上的書籤刻度（黃）。事件刻度是白色 1px、書籤是黃色 2px——兩者都是「這裡有東西」，
-    /// 但一個是機器記的事件、一個是操作員自己標的；顏色一樣就分不出「我標過哪裡」。
+    /// 時間軸上的書籤刻度（黃）。事件刻度依類別分色（<see cref="HeliVMS.Shared.TimelineEventPalette"/>）、
+    /// 書籤固定黃色 2px——一個是機器記的事件、一個是操作員自己標的；顏色與寬度一樣就分不出
+    /// 「我標過哪裡」。
     /// </summary>
     private static readonly Brush s_bookmarkMarkFill = Frozen(Color.FromRgb(0xE5, 0xC8, 0x3C));
+
+    /// <summary>
+    /// 事件刻度的筆刷快取：色票在 <see cref="HeliVMS.Shared.TimelineEventPalette"/>（純資料），
+    /// 這裡只在啟動時把 6 個色值轉成凍結筆刷。每幀都解析字串會讓時間軸重畫變成字串工作。
+    /// </summary>
+    private static readonly IReadOnlyDictionary<string, Brush> s_eventTypeBrushes = BuildEventTypeBrushes();
+
+    private static IReadOnlyDictionary<string, Brush> BuildEventTypeBrushes()
+    {
+        var map = new Dictionary<string, Brush>(StringComparer.Ordinal);
+        foreach (var hex in HeliVMS.Shared.TimelineEventPalette.All)
+        {
+            map[hex] = Frozen((Color)ColorConverter.ConvertFromString(hex));
+        }
+
+        return map;
+    }
 
     /// <summary>通道色帶列（§8.5）每排的色條高度與間距；4 路牆總高 26px，不搶主帶子的空間。</summary>
     private const double ChannelBandStripHeight = 5;
@@ -3206,11 +3224,13 @@ public partial class PlaybackWindow : Window
                     continue;
                 }
 
+                // 依事件類別分色（QCV8001 的 timeline 用 colorMap；我們原本清一色白）：
+                // 取證時是「沿著時間軸掃」，一個白點要點進清單才知道是警報還是離線。
                 var tick = new Rectangle
                 {
                     Width = 1,
                     Height = ChannelBandStripHeight,
-                    Fill = Brushes.White,
+                    Fill = s_eventTypeBrushes[HeliVMS.Shared.TimelineEventPalette.For(evt.EventType)],
                     IsHitTestVisible = false,
                 };
                 Canvas.SetLeft(tick, frac * width);
