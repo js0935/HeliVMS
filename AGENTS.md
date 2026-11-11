@@ -931,6 +931,30 @@ Notes that will save you time:
   content end) — they are ffprobe-probed instead. Guarded by `HourlySegmentMergerTests`,
   the importer test `小時合併檔也會被掃描認得並以探測的時長建列`, `HourlyMergeContractTests`
   and the coordinator cases in `RetentionCoordinatorTests`.
+  **A partially merged hour must not be declared done by its first row, and the hash read must not
+  keep the new file open.** Two failures measured on the live index. (1) `MergeOne` used to derive
+  "this hour is already merged" from `rows[0]`'s filename; `ListFinalBetween(from, now−1h)` only
+  returns what was `final` at that moment, so segments that finished *after* the merge (a
+  playback-triggered cut, a reconnect) could never enter it — the sweep saw `merged-*` first and
+  went straight to `CleanLeftovers`, forever. Measured: 7 folders keep 2–3 stray `seg-*` next to a
+  merged file (e.g. `攝影機01\20261107\23`: merged for 2316 s, then `seg-235445787` and
+  `seg-235948449`), i.e. the whole point of merging (fewer small files) is lost there. The hour is
+  now split into `alreadyMerged` (rows whose path starts `merged-`, `IsMergedFile`) and `todo`;
+  `todo.Count < 2` is the only "nothing to do" test, and everything after it works on `todo`.
+  A later merge therefore lands as a **second** merged file in the same hour (`merged-<later
+  start>`) rather than rewriting the first — deliberately crash-safe: re-remuxing the indexed file
+  would mean deleting a file the index still points at before the swap. (2)
+  `SHA256.HashData(File.OpenRead(path))` opens a `FileStream` nobody disposes, so the freshly
+  produced 60 MB file stayed open (`FileShare.Read`): the failure path's `TryDelete(mergedPath)`
+  could never delete it, and retention (which only knows index rows) could never evict it. Live
+  evidence: `攝影機05\20261110\17\merged-170348710.mp4` (63.9 MB) on disk with no row, the same
+  hour's 12 `seg-*` rows still `final` with their files present — the app was closed at 18:29:26
+  (`%TEMP%\helivms-shutdown.log`) mid-swap. The stream is now disposed (`using`). Related guard:
+  a same-named file on disk is only treated as an orphan when **no** row (any status) references
+  it — a `missing` row whose file came back must not be deleted and re-made. Guarded by
+  `已經合併過的子區間不會擋住同一小時後半段的合併`,
+  `合併完成後檔案沒有被雜湊讀取留在開啟狀態`, `換列失敗時不會留下刪不掉的合併檔` and
+  `同名的合併檔已被索引指著時不會被刪掉重做`.
 - **Pick the sub stream by stream number, never by a magic number in the name.** `OnvifProfileSelection`
   used to carry `"101"` in `MainKeywords` and `"102"` in `SubKeywords`, matched as plain substrings.
   The real camera at `rtsp://<host>/media/stream.sdp?profile=Profile100` exposes three profiles —
@@ -1148,6 +1172,28 @@ Notes that will save you time:
   turn into "only this feature cannot connect". Guarded by `SettingsIoCameraContractTests`,
   `綁定的端子優先於端子號推測` (DO and DI), `綁定失效時不會退回端子號推測` (DO and DI),
   `端子號已被別的埠佔用時綁定會沿用那一個而不是新增` and `同一個端子重複綁定不會多出第二個埠`.
+- **An audit row per retry is not evidence — it is noise that hides the evidence.** `CameraDiMonitor`
+  retries every `retryDelay` (15 s) and used to write `camera.di.failed` unconditionally in its
+  `catch`. Measured on the live `index.db`: one VIVOTEK IP9164-HT whose `event_service` returns
+  HTTP 500 wrote **18,568 identical rows in 9 days**, i.e. 88% of every `recording`-category audit
+  row (21,546). The signal an operator actually needs — `recording.stalled` (271),
+  `recording.disk_full` (39), `recording.ownership_lost` (21) — was buried under it, and answering
+  "when did recording stop?" meant scrolling past twenty thousand copies of one string. Nor is
+  dropping the row an option: `AuditLogQuery` has no target/action filter in the UI, and the row is
+  the only place a DI failure is visible at all. `DiFailureAuditPlanner` (pure state machine,
+  clock injected) therefore throttles instead: **first failure always audited** (that is the
+  normal→failing edge), **a changed cause audited after `MinimumInterval` (1 min)** (a timeout/500
+  oscillation would otherwise be one row per retry again), **the same cause re-audited at most once
+  per `RepeatInterval` (1 h)** as a bounded heartbeat carrying `（已連續失敗 N 次）` — a fault that
+  has lasted a month must not look like it never happened, and the count is what tells the operator
+  it is ongoing rather than new. The one detail that makes the throttle real: **`Reset()` runs after
+  a successful `_pull`, never after a successful `_subscribe`.** "Subscribe OK, pull fails" *is* this
+  camera's failure shape (the 500 comes from the pull), so resetting on subscribe re-classified every
+  retry as a brand-new failure and the throttle did nothing — the first test run showed
+  expected 1 / actual 9. Throttling affects the audit only; the retry loop keeps re-subscribing every
+  15 s and feeds events into the rule chain unchanged. Guarded by `DiFailureAuditPlannerTests` and
+  `同一個失敗不會每一輪都寫稽核`, `失敗原因改變時會補記一筆並帶出連續次數`,
+  `成功之後再失敗會重新寫一筆稽核`.
 - **Audio rides the decode process; it never opens a second RTSP session.** `RtspClient` decodes
   with `-an`, so a camera's microphone was once never heard. The fix is NOT a second ffmpeg per
   camera: cheap cameras allow only 2-4 concurrent RTSP sessions (main-for-recording +
