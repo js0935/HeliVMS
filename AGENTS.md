@@ -272,6 +272,23 @@ Notes that will save you time:
   − 1ms) instead of the length itself. Guarded by `PlaybackSeekPlannerTests`,
   `時間軸點擊與方向鍵共用同一份落點規則`, `時間跳轉與續播也共用同一份落點規則`,
   `拖到段尾與逐幀到段尾都停在最後一格` and `事件與書籤跳轉使用同一段結束口徑`.
+- **Reverse playback is a beat, not a negative speed — and its landing must be the same planner the
+  arrow keys use.** `QC_Player` lists forward/slow/**reverse**/step as one family of playback
+  abilities; HeliVMS had forward only until 2026-11-11 (`docs/PLAYBACK-ALIGNMENT.md` §3). The decoder
+  can only start at a keyframe and seek forward, so "negative speed" is impossible at the file level
+  (`-vf reverse` has to buffer the whole segment — GBs for a 60 s 1080p clip); reverse is implemented
+  as **one step back every 250 ms** (`PlaybackReversePump.TickSeconds`), step length = speed × 0.25 s
+  clamped to 0.25–4 s (below that it lands on the same frame, above it skips a whole GOP).
+  `PlaybackReversePump.Next` calls `PlaybackSeekPlanner.Resolve(…, forward: false)` — reverse must not
+  grow a second "where do gaps lead" rule, or it silently skips segments the timeline clearly shows.
+  Reaching the **first segment's 0 s stops reverse** (returning `ReachedStart`); wrapping to the last
+  segment of the day looks like "reverse jumped to the evening". The frame is shown through the step
+  seam (`PlayFrom` + `_pendingFramePause`), never a new decode path. Every gesture that takes the
+  playhead must call `StopReverse()` — play/pause, stop, scrubbing the timeline, clicking it,
+  switching channel/day/reload (`ReloadForPlaybackAsync`) and window close — otherwise the beat keeps
+  pulling the picture back while the operator does something else, which reads as "playback jumps
+  around on its own". Guarded by `PlaybackReversePumpTests` (includes "repeated reverse is monotonic
+  and converges to the start") and `PlaybackReverseContractTests`.
 - **The status line and the time readout must not keep describing a state that ended.** Three
   separate reports, one root: the last message written wins, and nothing rewrites it.
   `OnStopClicked` called `StopPlayback` and never touched `StatusText`, so pressing 停止 (or Esc,

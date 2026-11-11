@@ -168,6 +168,12 @@ public partial class PlaybackWindow : Window
     private readonly List<Pane> _panes = [];
     private readonly DispatcherTimer _syncTimer;
 
+    /// <summary>倒轉的節拍器（每 250ms 一步；見 <see cref="HeliVMS.Shared.PlaybackReversePump"/>）。</summary>
+    private readonly DispatcherTimer _reverseTimer;
+
+    /// <summary>倒轉進行中；任何使用者操作（播放／停止／拖曳／點時間軸）都要把它關掉。</summary>
+    private bool _reversing;
+
     /// <summary>回放牆上的一個次畫面（頻道、影像、解碼工作與其當日區段）。</summary>
     private sealed class Pane
     {
@@ -259,6 +265,11 @@ public partial class PlaybackWindow : Window
     /// <summary>牆邊框的預設色；通道色只在有牆時上色，沒有通道時回到這個底色。</summary>
     private static readonly Brush s_defaultFrameBorder = Frozen(Color.FromRgb(0x2A, 0x4A, 0x73));
 
+    /// <summary>倒轉鈕的底：閒置＝一般藍、進行中＝紅棕（一眼看出「現在是倒著播」）。</summary>
+    private static readonly Brush BrReverseIdle = Frozen(Color.FromRgb(0x1F, 0x3A, 0x5F));
+
+    private static readonly Brush BrReverseActive = Frozen(Color.FromRgb(0x8A, 0x3C, 0x2E));
+
     /// <summary>通道色盤（§8.5）：色帶列與牆邊框共用，索引由 PlaybackChannelPalette 決定。</summary>
     private static readonly Brush[] s_channelPalette =
     [
@@ -346,6 +357,14 @@ public partial class PlaybackWindow : Window
         // 次畫面不需要每一幀都重算：主畫面時鐘每 150ms 檢查一次，只有明顯飄掉或需要換段時才重啟該格。
         _syncTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(150) };
         _syncTimer.Tick += (_, _) => SyncPanes(force: false);
+
+        // 倒轉的節拍：每 250ms 往回退一步（步長由速度決定，見 PlaybackReversePump）。
+        // 節拍與步長都放在純函式裡，這裡只負責「問下一步 → 顯示」。
+        _reverseTimer = new DispatcherTimer
+        {
+            Interval = TimeSpan.FromSeconds(HeliVMS.Shared.PlaybackReversePump.TickSeconds),
+        };
+        _reverseTimer.Tick += (_, _) => OnReverseTick();
 
         // XAML 建樹完成後才放行 OnSplitChanged：見 _uiReady 註解。
         _uiReady = true;
@@ -466,6 +485,8 @@ public partial class PlaybackWindow : Window
         PrevSegmentButton.ToolTip = Localizer.T("Playback.PrevSegmentTip");
         PrevFrameButton.Content = Localizer.T("Playback.PrevFrame");
         PrevFrameButton.ToolTip = Localizer.T("Playback.PrevFrameTip");
+        ReverseButton.Content = Localizer.T("Playback.Reverse");
+        ReverseButton.ToolTip = Localizer.T("Playback.ReverseTip");
         NextFrameButton.Content = Localizer.T("Playback.NextFrame");
         NextFrameButton.ToolTip = Localizer.T("Playback.NextFrameTip");
         NextSegmentButton.Content = Localizer.T("Playback.NextSegment");
@@ -722,6 +743,10 @@ public partial class PlaybackWindow : Window
     /// </returns>
     private async Task<bool> ReloadForPlaybackAsync()
     {
+        // 換台／換日／重新載入＝整個播放頭都要換人：倒轉必須先停，否則節拍器會拿著舊段的
+        // 播放頭去問下一步，把新載入的清單拉回上一個頻道的時間。
+        StopReverse();
+
         var generation = Interlocked.Increment(ref _reloadGeneration);
         try
         {
@@ -1551,6 +1576,9 @@ public partial class PlaybackWindow : Window
     /// </remarks>
     private void OnPlayPauseClicked(object sender, RoutedEventArgs e)
     {
+        // 倒轉中按播放＝接管：先停掉節拍器，否則它會在下一步把畫面拉回去。
+        StopReverse();
+
         if (_current is null)
         {
             return;
@@ -1574,8 +1602,91 @@ public partial class PlaybackWindow : Window
         StatusText.Text = Localizer.T("Playback.Paused");
     }
 
+    /// <summary>
+    /// 倒轉播放（QCV8001 回放引擎把「快／慢／倒／逐格」列為同一組能力，我們長年缺「倒」）。
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// 實作是「以 250ms 節拍往回退一步」，不是把速度設成負數：解碼器只能從關鍵影格往後解，
+    /// 負速度在檔案層做不到（`-vf reverse` 要整段緩衝進記憶體）。每步的落點由
+    /// <see cref="HeliVMS.Shared.PlaybackReversePump"/> 決定，而它用的是方向鍵那一份落點規則——
+    /// 倒轉自己再寫一份，遲早會在空隙或接縫上給出不同答案。
+    /// </para>
+    /// <para>
+    /// 開始前先停掉正向播放：兩者在同一個播放頭上競爭只會互相蓋掉畫面。步進顯示走既有的
+    /// 「起播＋<c>_pendingFramePause</c>」路徑（與逐幀同一個接縫），不新增解碼路徑。
+    /// </para>
+    /// </remarks>
+    private void OnReverseClicked(object sender, RoutedEventArgs e)
+    {
+        if (_reversing)
+        {
+            StopReverse();
+            StatusText.Text = Localizer.T("Playback.EndedStopped");
+            return;
+        }
+
+        if (_current is null)
+        {
+            return;
+        }
+
+        StopPlayback();
+        _reversing = true;
+        ReverseButton.Background = BrReverseActive;
+        _reverseTimer.Start();
+
+        // 立刻退一步：按下去就有反應，不必等第一個節拍。
+        OnReverseTick();
+    }
+
+    /// <summary>倒轉的節拍：問下一步、顯示它；到當日開頭就停住。</summary>
+    private void OnReverseTick()
+    {
+        if (!_reversing || _current is null)
+        {
+            StopReverse();
+            return;
+        }
+
+        var playheadUtc = _current.StartUtc.AddSeconds(_posInside);
+        if (HeliVMS.Shared.PlaybackReversePump.Next(DaySegments(_current), playheadUtc, GetSpeed()) is not { } step)
+        {
+            StopReverse();
+            return;
+        }
+
+        // 與逐幀同一個顯示路徑：起播到落點、首幀到達後立刻暫停。
+        PlayFrom(step.Landing.Segment, step.Landing.OffsetSeconds);
+        _pendingFramePause = true;
+
+        if (step.ReachedStart)
+        {
+            // 到當日開頭就停住，**不繞回**當天最後一段（否則看起來像倒轉跳到晚上）。
+            StopReverse();
+            StatusText.Text = Localizer.T("Playback.ReverseAtStart");
+        }
+    }
+
+    /// <summary>
+    /// 停掉倒轉。任何會搶播放頭的操作（播放、停止、拖曳、點時間軸、換台、關窗）都要呼叫它，
+    /// 否則節拍器會在操作員做別的事時繼續往回拉畫面——看起來就是「回放自己亂跳」。
+    /// </summary>
+    private void StopReverse()
+    {
+        _reverseTimer.Stop();
+        ReverseButton.Background = BrReverseIdle;
+        if (!_reversing)
+        {
+            return;
+        }
+
+        _reversing = false;
+    }
+
     private void OnStopClicked(object sender, RoutedEventArgs e)
     {
+        StopReverse();
         StopPlayback();
 
         // 停止後畫面刻意停在最後一格、播放頭也留著（按播放可續播），所以狀態列必須跟著改：
@@ -3362,6 +3473,9 @@ public partial class PlaybackWindow : Window
     /// </summary>
     private void OnBandScrubStart(object sender, MouseButtonEventArgs e)
     {
+        // 拖曳時間軸＝操作員要自己定位；倒轉的節拍器必須讓開（否則它會在下一步把畫面拉回去）。
+        StopReverse();
+
         if (BandCanvas.ActualWidth <= 0 || _bandSegments.Count == 0)
         {
             return;
@@ -3448,6 +3562,9 @@ public partial class PlaybackWindow : Window
     /// </summary>
     private void OnBandClicked(object sender, MouseButtonEventArgs e)
     {
+        // 時間軸點擊＝自己選時間；倒轉讓開（拖曳那條路在 OnBandScrubStart 已經停過，
+        // 這一條涵蓋「沒有拖曳的直接點擊」）。
+        StopReverse();
         _scrubbing = false;
         if (sender is UIElement element && element.IsMouseCaptured)
         {
@@ -3849,6 +3966,7 @@ public partial class PlaybackWindow : Window
         PrevEventButton.IsEnabled = enabled && _events.Count > 0;
         NextEventButton.IsEnabled = enabled && _events.Count > 0;
         JumpToNowButton.IsEnabled = enabled;
+        ReverseButton.IsEnabled = enabled;
 
         // 以圖搜圖：主要用法是「看到可疑畫面 → 搜這台相機過去哪裡出現過」——
         // 沒有播放中的畫格就沒有這個入口（只剩從檔案搜，屬次要場景）。
@@ -3949,6 +4067,7 @@ public partial class PlaybackWindow : Window
     private void OnClosing(object sender, System.ComponentModel.CancelEventArgs e)
     {
         _sessionVersion++;
+        StopReverse();
         StopSync();
         StopAllPanes();
         var session = _session;
