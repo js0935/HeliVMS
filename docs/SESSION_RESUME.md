@@ -59,6 +59,18 @@
 >   dvrProxy_live 的授權鏈），這個類沒反編譯——下一輪用 REA 拆 QC_Live.exe 找預覽解析器。
 > - 可能性提示：我們的 media 幠 +0x20 起 FILETIME 為 0（真機有值）。pcap 已存檔可驗。
 
+> **【追加 2026-11-13（之三十二）】視窗誤殺修復：推流會話首次穩定存活****
+>
+> 視窗修復後的運行實錄抓到兩個新問題（commit c24d7fc 修復）：
+> ① 警報連線（ALARM_HELLO 每 15-20 秒一發）心跳後 600ms 靜默被視窗誤判
+>   成預覽連線、整條交棒——警報死、live 接在錯的連線上；
+> ② NemoSessionLoop 處理過命令後緩衝空，每次 Read 都重用視窗——交棒後又砍。
+> 修法：等待視窗只適用「從未收到任何資料」的連線頭部（sawData/sawCommand），
+> 收到過資料後一律無限等。NemoServer/QctekPortMux/NemoSessionLoop 三處同修。
+> - **驗證**：部署後 LIVE 通道（58782）穩定存活 **>2 分鐘**（先前 30 秒寛限用盡即斷、
+>   或 600ms 誤判即斷），ALARM_HELLO Resync 正常共存、MUX 不再無故停止。
+> - 另觀察：開流時真機首個參數幠 payload 是 118B（非 1000B）、影像幠 46524B——
+>   參數幠 payload 長度可變，我們的固定 1000B 常量待觀察 QCC 反應。
 > **【追加 2026-11-13（之三十一）】對真機也是 +0x60=1／fid=-1；keepalive 發送者不在 QC_IPCAM_Aver**
 >
 > Frida 掛 QC_Live（QCC 連真機 QCV8001.exe）的實測：dvrProxy_live 單一實例
