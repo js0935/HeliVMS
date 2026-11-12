@@ -405,6 +405,22 @@ internal sealed class LiveRunSync
             Name = $"qctek-live-src-{state.Channel}",
         };
         state.Reader.Start();
+
+        // 黃金抓包 §5c：真機在影像流開頭送 type=2 參數幀（frame 3），QCC 的預覽
+        // 解析器需要它才認得這條流——沒有它，QCC 收到影像也不會激活發 keepalive。
+        try
+        {
+            var wallClock = DateTimeOffset.UtcNow;
+            Write(QctekLivePackets.ParameterFrame(
+                state.Channel,
+                wallClock.ToUnixTimeSeconds(),
+                wallClock.ToFileTime()));
+        }
+        catch (Exception ex)
+        {
+            Log($"LIVE：頻道 {state.Channel} 參數幀送出失敗：{ex.Message}");
+        }
+
         Log($"LIVE：頻道 {state.Channel}（{(_subStream == 0 ? "主" : "子")}碼流）開始輸出（{_remote}）");
     }
 

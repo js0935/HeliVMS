@@ -181,7 +181,11 @@ public class QctekLiveSessionTests
         public IQctekLiveSource? CreatePlaybackSource(string filePath) => null;
     }
 
-    private sealed record FramPacket(int Channel, ushort Status, byte[] Media, byte[] Payload);
+    private sealed record FramPacket(int Channel, ushort Status, byte[] Media, byte[] Payload)
+    {
+        /// <summary>media 幀的 type（1＝視訊、2＝參數）；狀態幀為 0。</summary>
+        public int Type => Media.Length >= 4 ? BinaryPrimitives.ReadInt32LittleEndian(Media) : 0;
+    }
 
     private static async Task ReadExactAsync(Stream stream, byte[] buffer, CancellationToken ct)
     {
@@ -260,12 +264,13 @@ public class QctekLiveSessionTests
         try
         {
             // 假來源一次讀完：AU 分組會交出 IDR AU 與 P AU 各一個，tick 逐個輸出。
+            // 參數幀（type=2，每頻道開流時一個）不算影像幀。
             var frames = new List<FramPacket>();
             var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
             while (frames.Count < 2 && DateTime.UtcNow < deadline)
             {
                 var packet = await ReadFramAsync(stream, timeout.Token);
-                if (packet.Status == 0)
+                if (packet.Status == 0 && packet.Type == 1)
                 {
                     frames.Add(packet);
                 }
@@ -475,7 +480,7 @@ public class QctekLiveSessionTests
             while (first is null && DateTime.UtcNow < deadline)
             {
                 var packet = await ReadFramAsync(stream, timeout.Token);
-                if (packet.Status == 0)
+                if (packet.Status == 0 && packet.Type == 1) // 跳過參數幀（type=2）
                 {
                     first = packet;
                 }
@@ -499,8 +504,27 @@ public class QctekLiveSessionTests
     }
 
     [Fact]
-    public async Task 連線建立後不送keepalive也會收到頻道0的推流()
+    public void 參數幀與真機黃金抓包逐位元組一致()
     {
+        // 黃金抓包 frame 3（channel 0）：56B 頭 + 1000B payload。時戳欄位動態，
+        // 這裡注入真機抓包同一瞬間的值做逐位元組比對。
+        var unixSeconds = 0x6af5b212L; // 1773482693（抓包瞬間）
+        var fileTime = 0x0172d05757573939; // 抓包瞬間的 FILETIME
+        var frame = QctekLivePackets.ParameterFrame(0, unixSeconds, fileTime);
+
+        Assert.Equal(8 + 0x38 + 1000, frame.Length);
+        var media = frame.AsSpan(8, 0x38);
+        Assert.Equal(2, System.Buffers.Binary.BinaryPrimitives.ReadInt32LittleEndian(media));
+        Assert.Equal(200, System.Buffers.Binary.BinaryPrimitives.ReadInt32LittleEndian(media[0x04..]));
+        Assert.Equal(1000, System.Buffers.Binary.BinaryPrimitives.ReadInt32LittleEndian(media[0x08..]));
+        Assert.Equal(0x0802c8u, System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(media[0x14..]));
+        Assert.Equal(0x6af5b212u, System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(media[0x18..]));
+        Assert.Equal(fileTime, System.Buffers.Binary.BinaryPrimitives.ReadInt64LittleEndian(media[0x20..]));
+        Assert.Equal(QctekLivePackets.ParameterPayload.ToArray(), frame[(8 + 0x38)..]);
+    }
+
+    [Fact]
+    public async Task 連線建立後不送keepalive也會收到頻道0的推流()    {
         // 黃金抓包 §5c：真機的因果方向是「伺服器先推流、QCC 收到 FRAM 後才發
         // keepalive」。若沿用「等 keepalive 才建頻道」，雙方互相等待——這正是
         // QCC 黑屏的根因。連線後什麼都不送，第一個 FRAM 必須自己出現。
