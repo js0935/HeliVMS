@@ -286,7 +286,7 @@ internal sealed class LiveRunSync
             if (state.Queue.TryPop(out var unit) && unit is not null)
             {
                 // 時戳在寫出前以牆鐘蓋章：客戶端 DecProc 以封包時戳對牆鐘調速，
-                // 寫出時蓋章即恆在容差內。
+                // 寫出時蓋章即恆在容差內。FILETIME（+0x20）黃金抓包有值，一併蓋章。
                 Write(
                     QctekLivePackets.Data(
                         state.Channel,
@@ -294,7 +294,8 @@ internal sealed class LiveRunSync
                         unit.Block2,
                         unit.Video,
                         wallClock.ToUnixTimeSeconds(),
-                        wallClock.UtcDateTime.Microsecond));
+                        wallClock.UtcDateTime.Microsecond,
+                        wallClock.ToFileTime()));
                 state.LastStatusAt = wallClock;
                 continue;
             }

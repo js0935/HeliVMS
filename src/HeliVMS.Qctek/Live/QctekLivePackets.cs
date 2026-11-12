@@ -54,7 +54,7 @@ public static class QctekLivePackets
     public const ushort StatusNoProxy = 0x8004;
 
     /// <summary>
-    /// 組一個資料幀。時戳由呼叫端在<b>寫出前</b>以牆鐘蓋章（Unix 秒＋當秒內微秒）。
+    /// 組一個資料幀。時戳由呼叫端在<b>寫出前</b>以牆鐘蓋章（Unix 秒＋當秒內微秒＋FILETIME）。
     /// </summary>
     public static byte[] Data(
         int channel,
@@ -62,7 +62,8 @@ public static class QctekLivePackets
         ReadOnlySpan<byte> block2,
         ReadOnlySpan<byte> video,
         long unixSeconds,
-        int microSeconds)
+        int microSeconds,
+        long fileTime)
     {
         var buffer = new byte[HeaderLength + MediaHeaderLength + block1.Length + block2.Length + video.Length];
         WriteHeader(buffer, channel, 0);
@@ -75,7 +76,11 @@ public static class QctekLivePackets
         BinaryPrimitives.WriteInt32LittleEndian(media[0x10..], block2.Length);
         BinaryPrimitives.WriteUInt32LittleEndian(media[0x14..], (uint)microSeconds);
         BinaryPrimitives.WriteInt64LittleEndian(media[0x18..], unixSeconds);
-        // 指標欄位（+0x20/+0x28/+0x30）維持 0：客戶端以 size 重算，線上值不讀。
+        // +0x20：FILETIME（黃金抓包 frame 9/10808 有值，遞增）。真機的 +0x18 是
+        // u32 秒＋+0x1c u32 0＋+0x20 u64 FILETIME——我們的 Int64 秒低 32 位相同、
+        // 高 32 位（+0x1c）恰為 0，布局相容；+0x20 補上真機有的 FILETIME。
+        BinaryPrimitives.WriteInt64LittleEndian(media[0x20..], fileTime);
+        // 指標欄位（+0x28/+0x30）維持 0：客戶端以 size 重算，線上值不讀。
 
         var payload = buffer.AsSpan(HeaderLength + MediaHeaderLength);
         block1.CopyTo(payload);

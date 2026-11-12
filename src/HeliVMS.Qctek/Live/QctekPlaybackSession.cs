@@ -188,7 +188,8 @@ public static class QctekPlaybackSession
                         unit.Block2,
                         unit.Video,
                         new DateTimeOffset(frameUtc).ToUnixTimeSeconds(),
-                        frameUtc.Microsecond);
+                        frameUtc.Microsecond,
+                        frameUtc.ToFileTime());
                     network.Write(packet, 0, packet.Length);
                 }
             }

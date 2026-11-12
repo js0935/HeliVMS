@@ -21,7 +21,7 @@ public class QctekLivePacketsTests
         byte[] block2 = [0x00, 0x00, 0x00, 0x01, 0x68, 0xce];
         byte[] video = [0x00, 0x00, 0x00, 0x01, 0x65, 0x88, 0x84];
 
-        var packet = QctekLivePackets.Data(7, block1, block2, video, unixSeconds: 1_799_000_000, microSeconds: 123_456);
+        var packet = QctekLivePackets.Data(7, block1, block2, video, unixSeconds: 1_799_000_000, microSeconds: 123_456, fileTime: 0x0173_0000_0000_0000);
 
         // 幀總長 = 8 標頭 + 0x38 media + block1 + block2 + video。
         Assert.Equal(8 + 0x38 + block1.Length + block2.Length + video.Length, packet.Length);
@@ -41,8 +41,8 @@ public class QctekLivePacketsTests
         Assert.Equal(123_456u, BinaryPrimitives.ReadUInt32LittleEndian(media[0x14..]));
         Assert.Equal(1_799_000_000L, BinaryPrimitives.ReadInt64LittleEndian(media[0x18..]));
 
-        // 指標欄位（+0x20/+0x28/+0x30）一律 0：客戶端以 size 重算，線上值不讀。
-        Assert.Equal(0, BinaryPrimitives.ReadInt64LittleEndian(media[0x20..]));
+        // +0x20 FILETIME（黃金抓包 frame 9 有值）；+0x28/+0x30 指標欄位一律 0。
+        Assert.Equal(0x0173_0000_0000_0000L, BinaryPrimitives.ReadInt64LittleEndian(media[0x20..]));
         Assert.Equal(0, BinaryPrimitives.ReadInt64LittleEndian(media[0x28..]));
         Assert.Equal(0, BinaryPrimitives.ReadInt64LittleEndian(media[0x30..]));
 
@@ -69,7 +69,7 @@ public class QctekLivePacketsTests
     {
         // 時戳蓋章的兩個欄位彼此獨立：微秒在 +0x14（4 bytes），秒在 +0x18（8 bytes）。
         // 一個錯誤的實作會把秒當 4 bytes 寫（溢出後蓋掉微秒欄位），這裡用大值抓。
-        var packet = QctekLivePackets.Data(0, [], [], [0xAA], unixSeconds: 1_812_345_678, microSeconds: 999_999);
+        var packet = QctekLivePackets.Data(0, [], [], [0xAA], unixSeconds: 1_812_345_678, microSeconds: 999_999, fileTime: 0x0173_1111_2222_3333);
 
         var media = packet.AsSpan(8, 0x38);
         Assert.Equal(999_999u, BinaryPrimitives.ReadUInt32LittleEndian(media[0x14..]));
