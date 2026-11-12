@@ -1176,6 +1176,20 @@ Notes that will save you time:
   `啟動孤兒匯出對帳會在建構式執行並把筆數亮在提示列` — note `SourceContract.BodyOf` truncates
   the huge MainWindow constructor at its first closing brace, so pin constructor-ordering with
   `IndexOf` comparisons, not `BodyOf`.
+- **A machine-driven stream switch must not write a settings.set audit — measured: 4,583 rows.**
+  The second-biggest audit category on the live index (after the already-throttled
+  camera.di.failed) was `settings.set` — 3,127 rows in October, 1,430 in November, ~2 rows per
+  stream switch — because `StreamPreferenceRepository.Save` (machine decision by the quality
+  coordinator, frequent by design) wrote through `SettingsRepository.Set`, which audits every
+  write. The same rule as DiskHealthCoordinator and the duration-repair cursor: **machine state
+  goes through a raw UPSERT, never the auditing setter.** The "when did it switch" question is
+  answered by the `channel.stream.{id}.at` key itself (the value IS the timestamp); auditing is
+  not the observability. Channel deletion now also prunes the channel's stream keys
+  (`StreamPreferenceRepository.DeleteForChannel`, called from `ChannelRepository.Delete`) — the
+  live settings table held keys for channels 70–110 that no longer exist, and a re-created
+  channel with a recycled ID would inherit a dead preference. Guarded by
+  `儲存碼流偏好不會記settings_set稽核`, `刪除頻道會清掉它的碼流偏好鍵` and
+  `刪除頻道不會波及別的頻道的偏好`.
 - **Pick the sub stream by stream number, never by a magic number in the name.** `OnvifProfileSelection`
   used to carry `"101"` in `MainKeywords` and `"102"` in `SubKeywords`, matched as plain substrings.
   The real camera at `rtsp://<host>/media/stream.sdp?profile=Profile100` exposes three profiles —

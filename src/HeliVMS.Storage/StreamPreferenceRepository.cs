@@ -15,7 +15,13 @@ public sealed class StreamPreferenceRepository
 
     private readonly SettingsRepository _settings;
 
-    public StreamPreferenceRepository(SqliteStore store) => _settings = new SettingsRepository(store);
+    private readonly SqliteStore _store;
+
+    public StreamPreferenceRepository(SqliteStore store)
+    {
+        _store = store;
+        _settings = new SettingsRepository(store);
+    }
 
     /// <summary>目前碼流；未設定過者一律視為主碼流。</summary>
     public StreamKind GetKind(long channelId)
@@ -33,9 +39,57 @@ public sealed class StreamPreferenceRepository
     }
 
     /// <summary>寫入目前碼流與切換時間。</summary>
+    /// <remarks>
+    /// <para>
+    /// 刻意用<b>原始 UPSERT</b> 而不是 <see cref="SettingsRepository.Set"/>：切流是
+    /// 品質協調器的機器決策（可頻繁觸發），後者每寫一次就記一筆 settings.set
+    /// 稽核——實測現場 4,583 列（10 月 3,127／11 月 1,430），第二大稽核類別被
+    /// 機器行為洗版，真正的「誰改了設定」被淹沒。這與 DiskHealthCoordinator、
+    /// 段長修正游標是同一條規則：機器狀態走原始寫入，不記人工稽核。
+    /// </para>
+    /// <para>
+    /// 「何時切的」由 channel.stream.{id}.at 鍵自己回答（值即時間），
+    /// 稽核不是必要的可觀測性。
+    /// </para>
+    /// </remarks>
     public void Save(long channelId, StreamKind kind, DateTime switchedUtc)
     {
-        _settings.Set(KindPrefix + channelId, kind == StreamKind.Sub ? "sub" : "main");
-        _settings.Set(KindPrefix + channelId + AtSuffix, SqliteStore.Iso(switchedUtc));
+        var kindRaw = kind == StreamKind.Sub ? "sub" : "main";
+        _store.Execute(
+            """
+            INSERT INTO app_settings (key, value, updated_at)
+            VALUES ($k, $v, $t)
+            ON CONFLICT(key) DO UPDATE SET value = $v, updated_at = $t;
+            """,
+            cmd =>
+            {
+                cmd.Parameters.AddWithValue("$k", KindPrefix + channelId);
+                cmd.Parameters.AddWithValue("$v", kindRaw);
+                cmd.Parameters.AddWithValue("$t", SqliteStore.Iso(switchedUtc));
+            });
+        _store.Execute(
+            """
+            INSERT INTO app_settings (key, value, updated_at)
+            VALUES ($k, $v, $t)
+            ON CONFLICT(key) DO UPDATE SET value = $v, updated_at = $t;
+            """,
+            cmd =>
+            {
+                cmd.Parameters.AddWithValue("$k", KindPrefix + channelId + AtSuffix);
+                cmd.Parameters.AddWithValue("$v", SqliteStore.Iso(switchedUtc));
+                cmd.Parameters.AddWithValue("$t", SqliteStore.Iso(switchedUtc));
+            });
+    }
+
+    /// <summary>刪除頻道的碼流偏好鍵（頻道刪除時呼叫；鍵不得被復用同一 ID 的新頻道繼承）。</summary>
+    public static void DeleteForChannel(SqliteStore store, long channelId)
+    {
+        store.Execute(
+            "DELETE FROM app_settings WHERE key = $k OR key = $ka;",
+            cmd =>
+            {
+                cmd.Parameters.AddWithValue("$k", KindPrefix + channelId);
+                cmd.Parameters.AddWithValue("$ka", KindPrefix + channelId + AtSuffix);
+            });
     }
 }

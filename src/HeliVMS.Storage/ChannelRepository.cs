@@ -224,10 +224,13 @@ public sealed class ChannelRepository
     }
 
     /// <summary>刪除頻道（其區段索引連帶刪除）。稽核掛載：channel.delete 寫 audit_log。</summary>
+    /// <remarks>碼流偏好鍵（<c>channel.stream.{id}*</c>）一併清除：頻道刪了，偏好鍵是
+    /// 不得再被新頻道（復用同一 ID）繼承的舊狀態——實測現場留了 70–110 等已刪頻道的殘鍵。</remarks>
     public void Delete(int id, string? actor = null)
     {
         var name = Get(id)?.Name ?? $"id:{id}";
         _store.Execute("DELETE FROM channels WHERE id = $id;", cmd => cmd.Parameters.AddWithValue("$id", id));
+        StreamPreferenceRepository.DeleteForChannel(_store, id);
         _audit.Record(actor, "channel.delete", AuditCategories.Config, "channel", id, name);
     }
 

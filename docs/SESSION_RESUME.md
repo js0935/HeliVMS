@@ -17,6 +17,20 @@
 >   拿不到建置時間就退回只有啟動時刻的文案。
 > - 突變驗證「氣泡不帶建置時間」紅後還原。測試：App 858／Storage 1485 全綠。
 >
+> **【追加 2026-11-12（之二十二）】settings.set 稽核 4,583 列——機器切流走人工稽核通道**
+>
+> 掃稽核類別分布：第二大類別 `settings.set` **4,583 列**（10 月 3,127／11 月 1,430，
+> 約每小時 4 筆）。來源：`StreamPreferenceRepository.Save`（品質協調器的機器切流決策）
+> 走 `SettingsRepository.Set`——後者每次寫入都記一筆「誰改了設定」稽核。每次切流寫
+> 兩個鍵＝兩列稽核，真正的設定變更被機器行為洗版。
+> - `Save` 改原始 UPSERT（DiskHealthCoordinator／段長修正游標同一條規則：機器狀態
+>   不記人工稽核）。「何時切的」由 `channel.stream.{id}.at` 鍵自己回答。
+> - `ChannelRepository.Delete` 一併清掉該頻道的碼流偏好鍵
+>   （`StreamPreferenceRepository.DeleteForChannel`）——現場留了頻道 70–110 等已刪
+>   頻道的殘鍵，復用同一 ID 的新頻道會繼承死偏好。
+> - 測試：`儲存碼流偏好不會記settings_set稽核`／`刪除頻道會清掉它的碼流偏好鍵`／
+>   `刪除頻道不會波及別的頻道的偏好`。Storage 1491 全綠（+3）。
+>
 > **【追加 2026-11-12（之二十）】孤兒匯出工作在啟動時結算——running 掛了 11 天沒人管**
 >
 > 掃剩餘資料表：`export_jobs` 有 1 筆 running＋2 筆 queued 停在 **11-01**。匯出跑在

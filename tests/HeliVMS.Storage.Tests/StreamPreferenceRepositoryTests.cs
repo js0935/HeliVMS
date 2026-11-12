@@ -69,4 +69,49 @@ public sealed class StreamPreferenceRepositoryTests : IDisposable
         Assert.Equal(StreamKind.Main, _prefs.GetKind(2));
         Assert.Null(_prefs.GetLastSwitchUtc(2));
     }
+
+    /// <summary>
+    /// 切流是品質協調器的機器決策（可頻繁觸發）：不得記 settings.set 稽核。
+    /// 實測現場 4,583 列（10 月 3,127／11 月 1,430），第二大稽核類別被機器行為洗版，
+    /// 真正的「誰改了設定」被淹沒——與 DiskHealthCoordinator、段長修正游標同一條規則。
+    /// </summary>
+    [Fact]
+    public void 儲存碼流偏好不會記settings_set稽核()
+    {
+        _prefs.Save(1, StreamKind.Sub, T0);
+        _prefs.Save(1, StreamKind.Main, T0.AddMinutes(5));
+
+        var n = _store.Query(
+            "SELECT COUNT(*) FROM audit_log WHERE action = 'settings.set';",
+            r => { r.Read(); return r.GetInt32(0); });
+        Assert.Equal(0, n);
+    }
+
+    /// <summary>頻道刪除時其碼流偏好鍵一併清除：不得被復用同一 ID 的新頻道繼承。</summary>
+    /// <remarks>實測現場留了 70–110 等已刪頻道的殘鍵。</remarks>
+    [Fact]
+    public void 刪除頻道會清掉它的碼流偏好鍵()
+    {
+        _prefs.Save(5, StreamKind.Sub, T0);
+        new ChannelRepository(_store).Delete(5, "tester");
+
+        Assert.Equal(StreamKind.Main, _prefs.GetKind(5));
+        Assert.Null(_prefs.GetLastSwitchUtc(5));
+        var n = _store.Query(
+            "SELECT COUNT(*) FROM app_settings WHERE key LIKE 'channel.stream.5%';",
+            r => { r.Read(); return r.GetInt32(0); });
+        Assert.Equal(0, n);
+    }
+
+    /// <summary>刪除頻道不得波及別的頻道的偏好。</summary>
+    [Fact]
+    public void 刪除頻道不會波及別的頻道的偏好()
+    {
+        _prefs.Save(5, StreamKind.Sub, T0);
+        _prefs.Save(6, StreamKind.Sub, T0);
+        new ChannelRepository(_store).Delete(5, "tester");
+
+        Assert.Equal(StreamKind.Sub, _prefs.GetKind(6));
+        Assert.Equal(T0, _prefs.GetLastSwitchUtc(6));
+    }
 }
