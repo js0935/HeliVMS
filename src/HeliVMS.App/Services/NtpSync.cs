@@ -68,8 +68,9 @@ public static class NtpSync
         }
 
         var serverUtc = DateTime.UtcNow + query.Offset;
-        settings.Set(NtpSettings.LastSyncUtc, NtpSettings.FormatUtc(serverUtc));
-        settings.Set(NtpSettings.LastOffsetMs, NtpSettings.FormatOffsetMs(query.Offset));
+        // 遙測（不記稽核）；時鐘校正與請求記號各自保留原通道（校正=稽核、請求=人類操作）。
+        NtpSettings.SaveTelemetry(settings, NtpSettings.LastSyncUtc, NtpSettings.FormatUtc(serverUtc));
+        NtpSettings.SaveTelemetry(settings, NtpSettings.LastOffsetMs, NtpSettings.FormatOffsetMs(query.Offset));
 
         // 先就地校正（本行程有校時權限時，例如以系統管理員身分執行）；失敗則改請 Agent 服務代勞，
         // 讓無人值守的機器也能校時，不必每次都提高權限。

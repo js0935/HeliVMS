@@ -71,6 +71,37 @@ public sealed class SettingsRepository
     }
 
     /// <summary>
+    /// 寫入機器產生的遙測／狀態（<b>不記 settings.set 稽核</b>）。
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <see cref="Set"/> 每次寫入都記一筆「誰改了設定」稽核——那是給<b>人</b>的操作用的。
+    /// 機器自己的狀態遙測（NTP 對時結果、授權最後檢視時刻、碼流偏好……）走這裡：
+    /// 實測現場 4,583 列 settings.set 裡，絕大多數是 NTP 遙測、license.max_seen_dt 與
+    /// 碼流偏好，真正的設定變更被機器行為洗版。機器寫入一律走本方法。
+    /// </para>
+    /// <para>
+    /// 例外：機器行為中<b>值得留證據的狀態變化</b>（如系統時鐘被校正）仍應走 <see cref="Set"/>
+    /// 或專屬稽核動作——本方法只給「純遙測」。
+    /// </para>
+    /// </remarks>
+    public void SetWithoutAudit(string key, string value)
+    {
+        _store.Execute(
+            """
+            INSERT INTO app_settings (key, value, updated_at)
+            VALUES ($k, $v, $t)
+            ON CONFLICT(key) DO UPDATE SET value = $v, updated_at = $t;
+            """,
+            cmd =>
+            {
+                cmd.Parameters.AddWithValue("$k", key);
+                cmd.Parameters.AddWithValue("$v", value);
+                cmd.Parameters.AddWithValue("$t", SqliteStore.Iso(DateTime.UtcNow));
+            });
+    }
+
+    /// <summary>
     /// 建立整份設定的快照並回傳版本 id（§9.5：重大變更前自動快照）。空設定也可快照——
     /// 「把設定清空」同樣是一個合法的可回滾狀態。
     /// </summary>

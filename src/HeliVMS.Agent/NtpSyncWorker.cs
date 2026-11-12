@@ -87,23 +87,24 @@ internal sealed class NtpSyncWorker : BackgroundService
 
         // 先記下「嘗試時間」，即使查詢或校正失敗，週期計時也不會每 30 秒重打一次；
         // 請求失敗則由桌面再次按「立即對時」觸發（請求記號在下方一律標記為已處理）。
-        settings.Set(NtpSettings.ClockAttemptUtc, NtpSettings.FormatUtc(now));
+        NtpSettings.SaveTelemetry(settings, NtpSettings.ClockAttemptUtc, NtpSettings.FormatUtc(now));
 
         var query = await new NtpClient().QueryAsync(server, ct: ct).ConfigureAwait(false);
         if (query is null)
         {
-            settings.Set(NtpSettings.ClockError, "NTP query failed");
+            NtpSettings.SaveTelemetry(settings, NtpSettings.ClockError, "NTP query failed");
             _logger.LogWarning("NTP query to {Server} failed", server);
             MarkRequestApplied(settings, request);
             return;
         }
 
         var serverUtc = DateTime.UtcNow + query.Offset;
-        settings.Set(NtpSettings.LastSyncUtc, NtpSettings.FormatUtc(serverUtc));
-        settings.Set(NtpSettings.LastOffsetMs, NtpSettings.FormatOffsetMs(query.Offset));
+        NtpSettings.SaveTelemetry(settings, NtpSettings.LastSyncUtc, NtpSettings.FormatUtc(serverUtc));
+        NtpSettings.SaveTelemetry(settings, NtpSettings.LastOffsetMs, NtpSettings.FormatOffsetMs(query.Offset));
 
         if (SystemClock.TrySetUtcNow(serverUtc, out var error))
         {
+            // 系統時鐘被校正：值得留證據的狀態變化，保留 settings.set 稽核（低頻、安全相關）。
             settings.Set(NtpSettings.ClockSetUtc, NtpSettings.FormatUtc(DateTime.UtcNow));
             settings.Set(NtpSettings.ClockError, string.Empty);
             _logger.LogInformation(
@@ -128,7 +129,7 @@ internal sealed class NtpSyncWorker : BackgroundService
     {
         if (request is DateTime req)
         {
-            settings.Set(NtpSettings.AppliedRequestUtc, NtpSettings.FormatUtc(req));
+            NtpSettings.SaveTelemetry(settings, NtpSettings.AppliedRequestUtc, NtpSettings.FormatUtc(req));
         }
     }
 }

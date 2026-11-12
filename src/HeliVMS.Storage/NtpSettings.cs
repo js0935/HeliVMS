@@ -38,8 +38,13 @@ public static class NtpSettings
     public static bool IsEnabled(SettingsRepository settings) => settings.Get(Enabled) == "1";
 
     /// <summary>桌面程式要求服務立即校時：寫下一個單調遞增的請求時間。</summary>
+    /// <remarks>人類操作（設定中心「立即對時」）：保留 settings.set 稽核。</remarks>
     public static void RequestSync(SettingsRepository settings)
         => settings.Set(RequestUtc, FormatUtc(DateTime.UtcNow));
+
+    /// <summary>寫入對時遙測（<b>不記 settings.set 稽核</b>——機器週期行為，見 SetWithoutAudit）。</summary>
+    public static void SaveTelemetry(SettingsRepository settings, string key, string value)
+        => settings.SetWithoutAudit(key, value);
 
     public static DateTime? ReadUtc(SettingsRepository settings, string key) => ParseUtc(settings.Get(key));
 

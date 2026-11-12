@@ -187,6 +187,27 @@ public sealed class SingleInstanceContractTests
     }
 
     /// <summary>
+    /// 設定中心不得把「剛載入的值」回寫進設定：ReloadHwAccel 的程序化選取會觸發
+    /// SelectionChanged，必須被抑制旗標擋下（實測 368 列 settings.set 稽核，
+    /// 每次造訪解碼頁籤一列，操作員根本沒有變更任何東西）。
+    /// </summary>
+    [Fact]
+    public void 載入解碼設定頁不會回寫decode_hwaccel()
+    {
+        var source = SourceContract.Read("src/HeliVMS.App/SettingsWindow.xaml.cs");
+
+        // 抑制旗標必須存在、ReloadHwAccel 設定它、OnHwAccelChanged 檢查它。
+        Assert.Contains("_suppressHwAccelChanged = true;", source);
+        Assert.Contains("if (_suppressHwAccelChanged || !IsLoaded)", source);
+
+        // 順序：旗標歸零必須在 finally（早退路徑也要復原）。
+        var reload = SourceContract.BodyOf(source, "ReloadHwAccel");
+        Assert.Contains("_suppressHwAccelChanged = true;", reload);
+        Assert.Contains("finally", reload);
+        Assert.Contains("_suppressHwAccelChanged = false;", reload);
+    }
+
+    /// <summary>
     /// 喚醒要認「真正的監控中心」，不能只認 <c>Application.MainWindow</c>。
     /// </summary>    /// <remarks>
     /// 啟動時第一個建立的視窗是啟動畫面，<c>Application.MainWindow</c> 因此指向 splash；

@@ -1190,6 +1190,25 @@ Notes that will save you time:
   channel with a recycled ID would inherit a dead preference. Guarded by
   `儲存碼流偏好不會記settings_set稽核`, `刪除頻道會清掉它的碼流偏好鍵` and
   `刪除頻道不會波及別的頻道的偏好`.
+  **Two more machine writers on the same audit went through `SetWithoutAudit`** (round follow-up,
+  per-key counts from the same live audit): `license.max_seen_dt` (927 rows — the anti-rollback
+  watermark updates on every licence import) and the NTP telemetry keys `ntp.last_sync_utc` /
+  `ntp.last_offset_ms` / `ntp.clock_attempt_utc` / `ntp.applied_request_utc` (1,044 rows — the
+  worker runs every 6 h and writes 3–5 keys per sync). `SettingsRepository.SetWithoutAudit`
+  is the sanctioned machine-writer entry point. **The boundary:** pure telemetry goes
+  without audit; state changes worth evidence keep their audit — `ntp.clock_set_utc` /
+  `ntp.clock_error` still go through `Set` (a corrected system clock is security-relevant and
+  low-frequency), and `ntp.request_utc` stays audited because it is a human action (設定中心
+  「立即對時」). Guarded by `對時遙測不記settings_set稽核` and `人類觸發的立即對時請求仍記稽核`.
+- **The settings centre must not write back what it just loaded.** `decode.hwaccel` had 368
+  settings.set rows with no operator changes behind them: `ReloadHwAccel` assigns
+  `HwAccelCombo.SelectedItem` programmatically, `SelectionChanged` fires, and
+  `OnHwAccelChanged` wrote the same value back — one row per visit to the decode tab. Fixed
+  with a `_suppressHwAccelChanged` flag around the programmatic selection (the documented
+  `_suppressSelectionReload` pattern; the `IsLoaded` guard used by the language combo does not
+  help here because tab navigation happens after load). Guarded by
+  `載入解碼設定頁不會回寫decode.hwaccel` (source contract) — mutation: remove the suppress
+  flag, the audit-count behaviour test stays green only because the guard is source-pinned.
 - **Pick the sub stream by stream number, never by a magic number in the name.** `OnvifProfileSelection`
   used to carry `"101"` in `MainKeywords` and `"102"` in `SubKeywords`, matched as plain substrings.
   The real camera at `rtsp://<host>/media/stream.sdp?profile=Profile100` exposes three profiles —

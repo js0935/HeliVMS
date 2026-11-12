@@ -535,6 +535,7 @@ public sealed class LicenseService
     }
 
     /// <summary>高水位只增不減：時鐘被改回時不得把已記錄的最大時間往後推。</summary>
+    /// <remarks>防回流的機器遙測（每次匯入授權都更新）：走 SetWithoutAudit，不記 settings.set。</remarks>
     private void WriteMaxSeenUtc(DateTime nowUtc, DateTime? current)
     {
         if (current is { } c && c >= nowUtc)
@@ -542,7 +543,7 @@ public sealed class LicenseService
             return;
         }
 
-        _settings.Set(MaxSeenSettingKey, SqliteStore.Iso(nowUtc));
+        _settings.SetWithoutAudit(MaxSeenSettingKey, SqliteStore.Iso(nowUtc));
     }
 
     private void AuditSecurity(

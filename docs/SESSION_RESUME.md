@@ -28,8 +28,19 @@
 > - `ChannelRepository.Delete` 一併清掉該頻道的碼流偏好鍵
 >   （`StreamPreferenceRepository.DeleteForChannel`）——現場留了頻道 70–110 等已刪
 >   頻道的殘鍵，復用同一 ID 的新頻道會繼承死偏好。
-> - 測試：`儲存碼流偏好不會記settings_set稽核`／`刪除頻道會清掉它的碼流偏好鍵`／
->   `刪除頻道不會波及別的頻道的偏好`。Storage 1491 全綠（+3）。
+  測試：`儲存碼流偏好不會記settings_set稽核`／`刪除頻道會清掉它的碼流偏好鍵`／
+  `刪除頻道不會波及別的頻道的偏好`。Storage 1493 全綠（+5）。
+  - **同源追加**：per-key 分布顯示還有兩個機器寫入端——`license.max_seen_dt`（927 列，
+    防回流高水位每次匯入都更新）與 `ntp.*` 遙測（1,044 列，服務每 6 小時寫 3–5 鍵）。
+    `SettingsRepository.SetWithoutAudit` 成為機器寫入的正式入口；**邊界**：純遙測免稽核，
+    值得留證據的狀態變化保留稽核——時鐘校正（`ntp.clock_set_utc`／`clock_error`，安全相關
+    且低頻）與人類操作（`ntp.request_utc`，設定中心「立即對時」）仍走 `Set`。
+  - **第三類根源（WPF 回寫）**：`decode.hwaccel` 368 列——`ReloadHwAccel` 的程序化選取
+    觸發 SelectionChanged，`OnHwAccelChanged` 把同一個值回寫＋記一列稽核（每次造訪
+    解碼頁籤一列）。`_suppressHwAccelChanged` 旗標包住程序化選取（finally 復原）；
+    `OnLangChanged` 用的 `IsLoaded` 守衛在這裡不夠——頁籤切換發生在載入**之後**。
+  - 突變：拿掉 hwaccel 抑制旗標 → 契約紅（已還原）；還原時 try/finally 縮排被
+    破壞過一次，build error 即時抓到。
 >
 > **【追加 2026-11-12（之二十）】孤兒匯出工作在啟動時結算——running 掛了 11 天沒人管**
 >

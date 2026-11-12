@@ -46,6 +46,9 @@ public partial class SettingsWindow : Window
     private const string TamperKey = "detect.tamper.enabled";
     private const string HwAccelKey = "decode.hwaccel";
 
+    /// <summary>ReloadHwAccel 的程序化選取不得回寫設定（368 列 settings.set 的來源）。</summary>
+    private bool _suppressHwAccelChanged;
+
     /// <summary>告警規則頁顯示列。</summary>
     private sealed record RuleRow(long Id, string Name, string EventType, string ChannelLabel, string Keyword, string MatchTypes, string AggregateLabel, string Channels, string EnabledLabel);
 
@@ -844,23 +847,41 @@ public partial class SettingsWindow : Window
     }
 
     /// <summary>載入監看硬體解碼設定（<c>decode.hwaccel</c>）：空／off 選「off」項。</summary>
+    /// <remarks>
+    /// 程序化選取會觸發 <see cref="OnHwAccelChanged"/>：不加抑制的話，每次打開設定中心的
+    /// 解碼頁籤都會把同一個值回寫一次＋記一列 settings.set 稽核（實測 368 列）。
+    /// 抑制只蓋「回寫」，不影響操作員真正的下拉變更。
+    /// </remarks>
     private void ReloadHwAccel()
     {
         var tag = RtspClient.NormalizeHwAccel(_settings.Get(HwAccelKey)) ?? "off";
-        foreach (var obj in HwAccelCombo.Items)
+        _suppressHwAccelChanged = true;
+        try
         {
-            if (obj is ComboBoxItem item && (item.Tag as string) == tag)
+            foreach (var obj in HwAccelCombo.Items)
             {
-                HwAccelCombo.SelectedItem = item;
-                return;
+                if (obj is ComboBoxItem item && (item.Tag as string) == tag)
+                {
+                    HwAccelCombo.SelectedItem = item;
+                    return;
+                }
             }
-        }
 
-        HwAccelCombo.SelectedIndex = 0;
+            HwAccelCombo.SelectedIndex = 0;
+        }
+        finally
+        {
+            _suppressHwAccelChanged = false;
+        }
     }
 
     private void OnHwAccelChanged(object sender, SelectionChangedEventArgs e)
     {
+        if (_suppressHwAccelChanged || !IsLoaded)
+        {
+            return;
+        }
+
         if (HwAccelCombo.SelectedItem is ComboBoxItem item && item.Tag is string tag)
         {
             _settings.Set(HwAccelKey, tag);

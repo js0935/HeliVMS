@@ -48,6 +48,41 @@ public sealed class NtpSettingsTests : IDisposable
         Assert.True(NtpSettings.IsDue(null, null, null, DateTime.UtcNow, Interval));
     }
 
+    /// <summary>
+    /// 對時遙測（last_sync／offset／attempt）走 SaveTelemetry＝不記 settings.set 稽核：
+    /// 實測現場 ntp.* 遙測寫了 1,044 列 settings.set（每 6 小時 × 每次對時 3–5 鍵），
+    /// 機器週期行為不得洗版「誰改了設定」。時鐘校正本身（clock_set_utc）仍走 Set 留證據。
+    /// </summary>
+    [Fact]
+    public void 對時遙測不記settings_set稽核()
+    {
+        var now = DateTime.UtcNow;
+        NtpSettings.SaveTelemetry(_settings, NtpSettings.LastSyncUtc, NtpSettings.FormatUtc(now));
+        NtpSettings.SaveTelemetry(_settings, NtpSettings.LastOffsetMs, "123");
+        NtpSettings.SaveTelemetry(_settings, NtpSettings.ClockAttemptUtc, NtpSettings.FormatUtc(now));
+
+        var n = _store.Query(
+            "SELECT COUNT(*) FROM audit_log WHERE action = 'settings.set';",
+            r => { r.Read(); return r.GetInt32(0); });
+        Assert.Equal(0, n);
+
+        // 值本身照常可讀回。
+        Assert.Equal(now.ToString("O")[0..19], NtpSettings.ReadUtc(_settings, NtpSettings.LastSyncUtc)!.Value.ToString("O")[0..19]);
+        Assert.Equal(123, NtpSettings.ReadLast(_settings)!.Value.OffsetMs);
+    }
+
+    /// <summary>人類操作（設定中心「立即對時」的請求記號）仍走 Set 留稽核。</summary>
+    [Fact]
+    public void 人類觸發的立即對時請求仍記稽核()
+    {
+        _settings.Set(NtpSettings.RequestUtc, NtpSettings.FormatUtc(DateTime.UtcNow));
+
+        var n = _store.Query(
+            "SELECT COUNT(*) FROM audit_log WHERE action = 'settings.set' AND detail = 'ntp.request_utc';",
+            r => { r.Read(); return r.GetInt32(0); });
+        Assert.Equal(1, n);
+    }
+
     [Fact]
     public void 距上次嘗試未滿週期不校時()
     {
