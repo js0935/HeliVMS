@@ -17,6 +17,21 @@
 >   拿不到建置時間就退回只有啟動時刻的文案。
 > - 突變驗證「氣泡不帶建置時間」紅後還原。測試：App 858／Storage 1485 全綠。
 >
+> **【追加 2026-11-12（之二十）】孤兒匯出工作在啟動時結算——running 掛了 11 天沒人管**
+>
+> 掃剩餘資料表：`export_jobs` 有 1 筆 running＋2 筆 queued 停在 **11-01**。匯出跑在
+> 行程內，行程被砍時 ffmpeg 一起死，`finished_at` 永遠不會有人寫；
+> `ProcessQueuedAsync` 只挑 queued，running 列就此永生——匯出中心列著一筆
+> 「執行中」掛 11 天。
+> - `ExportJobRepository.FailRunningAsOrphaned(now, reason)`：把所有 running 結算成
+>   failed（原因原樣顯示在匯出中心）＋每筆一列 `export.orphan` 稽核；`MainWindow`
+>   建構式（行程剛啟動，不可能有在跑的匯出）呼叫一次，筆數用 `Main.ExportOrphans`
+>   （三語）亮在提示列。
+> - 刻意**只在啟動時**：匯出中心開啟時行程可能正有匯出在跑，那時結算會殺掉活著的
+>   工作。結算成 failed 而非重排——匯出是長 ffmpeg 工作，自動重跑可能與操作員當下
+>   的操作衝突；既有的「重試」按鈕接手。
+> - 突變「不結算」紅後還原。測試：Storage 1488（+3）／App 858 全綠。
+>
 > **【追加 2026-11-12（之十九）】ONVIF 的 HttpClient 改為行程級共用**
 >
 > 之十三解決了 PTZ 能力重複解析，但每一條命令仍然 `new HttpClient(new HttpClientHandler())`

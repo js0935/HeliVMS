@@ -54,6 +54,9 @@ public partial class MainWindow : Window
     /// 若抓住舊實例，換碟之後的回放就收不到任何一段。
     /// </summary>
     private readonly IPlaybackRecordingFinalizer _playbackFinalizer;
+
+    /// <summary>啟動時結算的孤兒匯出工作數（>0 時在提示列告知操作員）。</summary>
+    private int _exportOrphans;
     private CancellationTokenSource? _bgCts;
     private WriteableBitmap?[] _bitmap = new WriteableBitmap?[MaxCells];
     private readonly int?[] _cellChannel = new int?[MaxCells];
@@ -936,6 +939,23 @@ public partial class MainWindow : Window
         _store = new SqliteStore(Path.Combine(_dataRoot, "index.db"));
         _store.Initialize();
 
+        // 匯出工作的孤兒對帳（一次性）：上一個行程若在匯出途中被砍（關機、當機、
+        // 結束工作），running 工作永遠不會有 finished_at——匯出中心會列著一筆
+        // 「執行中」好幾天（實測 11-01 的工作掛到 11-12）。本行程剛啟動、不可能
+        // 有在跑的匯出，全部結算成 failed 並寫明原因，操作員按重試即可重排。
+        try
+        {
+            var orphaned = new ExportJobRepository(_store).FailRunningAsOrphaned(DateTime.UtcNow);
+            if (orphaned > 0)
+            {
+                _exportOrphans = orphaned;
+            }
+        }
+        catch (Exception)
+        {
+            // 稽核或索引被鎖：不影響啟動主線，匯出中心下一次開啟時仍看得到實情（狀態未變）。
+        }
+
         // 啟動時重新驗證授權（M213，§19.4）：license 列的 features／max_cameras 是閘門唯一
         // 的判斷依據，若只在匯入時寫一次，使用者手改資料庫就能無痛放大授權。這裡以授權檔與
         // 資料庫列兩者中「可驗證且較新」的一張重新套用，兩者都驗不過就把列標記失效。
@@ -948,6 +968,12 @@ public partial class MainWindow : Window
 
         var settings = new SettingsRepository(_store);
         Localizer.Init(settings);
+        if (_exportOrphans > 0)
+        {
+            // 語系初始化完成才能說人話：孤兒匯出工作的結算在這裡讓操作員當下看到，
+            // 不用等他自己打開匯出中心才發現有一筆「執行中」掛了好幾天。
+            HintText.Text = string.Format(Localizer.T("Main.ExportOrphans"), _exportOrphans);
+        }
         _showCellStatus = settings.Get("monitor.show_status") == "1";
         _wallSequenceEnabled = settings.Get(WallSequenceEnabledKey) == "1";
         _wallSequencePeriodSeconds = WallAutoScanPlanner.NormalizePeriodSeconds(

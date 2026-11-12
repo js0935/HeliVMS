@@ -1158,6 +1158,20 @@ Notes that will save you time:
   Guarded by `系統匣停留提示常駐亮出本行程的啟動時刻` (extended: `Main.TrayTooltipBuilt`,
   `Main.WakeBodyBuilt`, `GetBuildTimeLabel` + `GetLastWriteTime` in the balloon) —
   mutation-verified by removing the build-time branch from the balloon (red, reverted).
+- **Export jobs orphaned by a dead process must be settled at startup.** The live index had one
+  `running` and two `queued` export jobs from 11-01 still sitting in the export centre on 11-12:
+  the process died mid-export, ffmpeg died with it, and nothing ever writes finished_at —
+  `ProcessQueuedAsync` only picks up queued, so a running row is untouchable forever.
+  `ExportJobRepository.FailRunningAsOrphaned(now, reason)` marks every running row failed with
+  a reason that lands verbatim in the export centre, writes one `export.orphan` audit row per
+  job, and returns the count; `MainWindow` runs it once at construction (a fresh process cannot
+  have a live export) and surfaces the count in the hint bar (`Main.ExportOrphans`, 3 languages).
+  Deliberately startup-only: the export centre may legitimately own a running export while open,
+  so reconciling there would kill a live job. Settled to failed, not re-queued — export is a long
+  ffmpeg job and auto-rerunning it can collide with what the operator is doing; the existing
+  重試 button (`Retry`) takes it from there. Guarded by
+  `啟動時把孤兒的running工作結算成failed並寫明原因`, `queued與done的工作不受啟動對帳影響` and
+  `孤兒工作結算後可重試重排`.
 - **Pick the sub stream by stream number, never by a magic number in the name.** `OnvifProfileSelection`
   used to carry `"101"` in `MainKeywords` and `"102"` in `SubKeywords`, matched as plain substrings.
   The real camera at `rtsp://<host>/media/stream.sdp?profile=Profile100` exposes three profiles —

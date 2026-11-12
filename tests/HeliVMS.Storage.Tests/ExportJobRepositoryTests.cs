@@ -187,4 +187,69 @@ public sealed class ExportJobRepositoryTests
         Assert.Equal(1, removed);
         Assert.Null(repo.Get(id));
     }
+
+    /// <summary>
+    /// 行程孤兒對帳：程式於匯出途中被砍時，running 工作永遠不會有 finished_at——
+    /// 實測 11-01 的 running 掛到 11-12，匯出中心列著一筆永遠不會完成的「執行中」。
+    /// 啟動時必須結算成 failed 並寫明原因，操作員按重試即可重排。
+    /// </summary>
+    [Fact]
+    public void 啟動時把孤兒的running工作結算成failed並寫明原因()
+    {
+        using var store = NewStore(out var db);
+        var repo = new ExportJobRepository(store);
+        var id = repo.Enqueue(1, "main", DateTime.UtcNow.AddHours(-2), DateTime.UtcNow.AddHours(-1));
+        repo.MarkRunning(id, DateTime.UtcNow.AddHours(-1));
+
+        var now = DateTime.UtcNow;
+        var settled = repo.FailRunningAsOrphaned(now, "程式於匯出途中結束，工作未完成");
+
+        Assert.Equal(1, settled);
+        var job = repo.Get(id)!;
+        Assert.Equal("failed", job.Status);
+        Assert.Equal("程式於匯出途中結束，工作未完成", job.Error);
+        Assert.NotNull(job.FinishedUtc);
+
+        // 結算要留稽核（export.orphan）：「這筆為什麼變成失敗」的唯一線索。
+        var audit = store.Query(
+            "SELECT COUNT(*) FROM audit_log WHERE action = 'export.orphan' AND target_id = $id;",
+            r => { r.Read(); return r.GetInt32(0); },
+            c => c.Parameters.AddWithValue("$id", id));
+        Assert.Equal(1, audit);
+    }
+
+    /// <summary>queued 與 done 的工作不受啟動對帳影響：queued 仍可被佇列執行器接手。</summary>
+    [Fact]
+    public void queued與done的工作不受啟動對帳影響()
+    {
+        using var store = NewStore(out var db);
+        var repo = new ExportJobRepository(store);
+        var queuedId = repo.Enqueue(1, "main", DateTime.UtcNow.AddHours(-2), DateTime.UtcNow.AddHours(-1));
+        var doneId = repo.Enqueue(2, "main", DateTime.UtcNow.AddHours(-3), DateTime.UtcNow.AddHours(-2));
+        repo.MarkRunning(doneId, DateTime.UtcNow.AddHours(-2));
+        repo.SetResult(doneId, @"C:\tmp\ok.mp4", "BBBB", 16, DateTime.UtcNow.AddHours(-2));
+
+        repo.FailRunningAsOrphaned(DateTime.UtcNow, "程式於匯出途中結束，工作未完成");
+
+        Assert.Equal("queued", repo.Get(queuedId)!.Status);
+        Assert.Equal("done", repo.Get(doneId)!.Status);
+    }
+
+    /// <summary>孤兒工作結算成 failed 之後，「重試」接手把它排回佇列。</summary>
+    [Fact]
+    public void 孤兒工作結算後可重試重排()
+    {
+        using var store = NewStore(out var db);
+        var repo = new ExportJobRepository(store);
+        var id = repo.Enqueue(1, "main", DateTime.UtcNow.AddHours(-2), DateTime.UtcNow.AddHours(-1));
+        repo.MarkRunning(id, DateTime.UtcNow.AddHours(-1));
+        repo.FailRunningAsOrphaned(DateTime.UtcNow, "程式於匯出途中結束，工作未完成");
+
+        repo.Retry(id);
+
+        var job = repo.Get(id)!;
+        Assert.Equal("queued", job.Status);
+        Assert.Null(job.Error);
+        Assert.Null(job.StartedUtc);
+    }
 }

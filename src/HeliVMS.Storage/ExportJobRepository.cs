@@ -163,6 +163,50 @@ public sealed class ExportJobRepository
             targetType: "export_job", targetId: id, detail: "失敗後重新排入佇列");
     }
 
+    /// <summary>啟動時把「執行中」的匯出工作結算成 failed（行程孤兒對帳）。</summary>
+    /// <param name="nowUtc">結算時刻（finished_at 與稽核的時間）。</param>
+    /// <param name="reason">寫進 error 欄的說明（會原樣顯示在匯出中心）。</param>
+    /// <returns>結算的工作數。</returns>
+    /// <remarks>
+    /// <para>
+    /// 匯出跑在本行程內：行程剛啟動時，索引裡任何 running 工作都是上個行程的孤兒
+    /// （程式於匯出途中被砍時，ffmpeg 一起死掉，工作永遠不會有 finished_at——
+    /// 實測 11-01 的 running 掛到 11-12，匯出中心列著一筆永遠不會完成的「執行中」）。
+    /// 刻意<b>只在啟動時</b>呼叫：匯出中心開啟時行程可能正有匯出在跑，那時結算會殺掉
+    /// 活著的工作。
+    /// </para>
+    /// <para>
+    /// 結算成 failed 而不是重新排入佇列：匯出是長時間的 ffmpeg 工作，自動重跑可能與
+    /// 操作員當下的操作衝突；狀態 failed 讓「重試」按鈕（<see cref="Retry"/>）接手，
+    /// 重排的決定留給操作員。
+    /// </para>
+    /// </remarks>
+    public int FailRunningAsOrphaned(DateTime nowUtc, string reason)
+    {
+        var orphanIds = _store.Query(
+            "SELECT id FROM export_jobs WHERE status = 'running' ORDER BY id;",
+            r =>
+            {
+                var ids = new List<long>();
+                while (r.Read())
+                {
+                    ids.Add(r.GetInt64(0));
+                }
+
+                return ids;
+            });
+
+        foreach (var id in orphanIds)
+        {
+            SetError(id, reason, nowUtc);
+            _audit.Record("system", "export.orphan", AuditCategories.Export,
+                targetType: "export_job", targetId: id,
+                detail: "程式於匯出途中結束，工作結算為失敗", occurredAtUtc: nowUtc);
+        }
+
+        return orphanIds.Count;
+    }
+
     /// <summary>取消排隊中的工作（QC_Live 的 <c>ctrlRecBackupTask</c> 對齊）。</summary>
     /// <remarks>
     /// 只取消 <c>queued</c>：正在執行的工作由「停止」中斷整批（ffmpeg 的 ct 生效），
