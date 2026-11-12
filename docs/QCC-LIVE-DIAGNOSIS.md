@@ -128,3 +128,113 @@ GET_LIVE_START → 挑戰(27B) → SENDCODE → "OK \0"(4B)
   QCC 的 `< 0x21` 檢查；執行時實錄 QCC 照常完成 SENDCODE。
 - **回放（dvrProxy_pb）的讀循環**用同一個 readQCV8001frame
   （ReadFileResponseQCV8001），FRAM 格式與 live 共用——live 通了回放同享。
+
+## 7. 附錄：模擬客戶端腳本（端到端驗證用）
+
+對運行中的 HeliVMS 重跑（PORT 改 80 即驗 MUX 路徑）：
+
+\\python
+# -*- coding: utf-8 -*-
+"""模擬 QCC 的 live 客戶端（依 qc_ipcam_aver 反編譯的狀態機），對運行中的
+HeliVMS 做端到端驗證：GET_LIVE_START → 挑戰 → SENDCODE → OK → keepalive → FRAM。"""
+import io
+import socket
+import sys
+import time
+
+HOST = '127.0.0.1'
+PORT = 5170          # 獨立 NEMO 埠（MUX 80 也可以）
+
+out = io.StringIO()
+def w(s):
+    out.write(s + '\n')
+
+def recv_until_nul_or_bytes(s, want=None, timeout=3.0):
+    s.settimeout(timeout)
+    buf = b''
+    try:
+        while True:
+            chunk = s.recv(4096)
+            if not chunk:
+                break
+            buf += chunk
+            if want is not None and len(buf) >= want:
+                break
+            if b'\x00' in chunk:
+                break
+    except socket.timeout:
+        pass
+    return buf
+
+t0 = time.time()
+s = socket.create_connection((HOST, PORT), timeout=3)
+w(f'[{time.time()-t0:.3f}] connected')
+
+# 1. raw GET_LIVE_START（QCC type 0：無 NEMO 框、結尾 NUL）
+cmd = b'GET_LIVE_START admin QCV8001_AUTH\x00'
+s.sendall(cmd)
+w(f'[{time.time()-t0:.3f}] -> {cmd!r}')
+
+# 2. 讀挑戰（< 33 bytes；真機 27 bytes：16字符+空格+10位Unix秒）
+challenge = recv_until_nul_or_bytes(s, timeout=2.0)
+w(f'[{time.time()-t0:.3f}] <- challenge ({len(challenge)} bytes): {challenge!r}')
+
+if len(challenge) == 0 or len(challenge) >= 0x21:
+    w('!! 挑戰長度不合法（QCC 要求 < 0x21）——依反編譯 QCC 會靜默重試或斷線')
+    s.close()
+    sys.stdout.buffer.write(out.getvalue().encode('utf-8', errors='replace'))
+    sys.exit(1)
+
+# 3. 送認證碼（QCV8001_AUTH_SENDCODE <32hex>；摘要演算法不驗，形狀要對）
+code = b'a' * 32
+sendcode = b'QCV8001_AUTH_SENDCODE ' + code + b'\x00'
+s.sendall(sendcode)
+w(f'[{time.time()-t0:.3f}] -> {sendcode!r}')
+
+# 4. 讀 OK（QCC 的 AfterAuthorization：回應開頭 = "OK" → 激活）
+reply = recv_until_nul_or_bytes(s, timeout=2.0)
+w(f'[{time.time()-t0:.3f}] <- reply ({len(reply)} bytes): {reply!r}')
+ok = reply[:2] == b'OK'
+w(f'[{time.time()-t0:.3f}] authorized = {ok}')
+
+if not ok:
+    s.close()
+    sys.stdout.buffer.write(out.getvalue().encode('utf-8', errors='replace'))
+    sys.exit(1)
+
+# 5. 每 250ms 送 0x90 keepalive（QCTEK_RM + 01 00 00 01 + stream type + 128-byte 位圖）
+#    依 GetLiveSend：+0x00 "QCTEK_RM"、+0x08 01 00 00 01、+0x0c u32 stream type(0=主碼流)、
+#    +0x10 起 128 bytes 頻道位圖（bit i = 頻道 i，LSB-first）
+ka = bytearray(0x90)
+ka[0:8] = b'QCTEK_RM'
+ka[8:12] = bytes([0x01, 0x00, 0x00, 0x01])
+ka[12:16] = (0).to_bytes(4, 'little')      # stream type 0（主碼流）
+ka[16] = 0x01                               # bit 0 = 頻道 0
+# QCC 端 ks+0xaa334 初始 -250 → 第一次立即送；之後每 250ms
+s.sendall(bytes(ka))
+w(f'[{time.time()-t0:.3f}] -> keepalive #1 (0x90 bytes)')
+
+# 6. 讀 FRAM（期待 SPS/PPS/IDR 或狀態幀）
+s.settimeout(8.0)
+total = b''
+try:
+    for _ in range(10):
+        chunk = s.recv(65536)
+        if not chunk:
+            w(f'[{time.time()-t0:.3f}] connection closed by server')
+            break
+        total += chunk
+        w(f'[{time.time()-t0:.3f}] <- {len(chunk)} bytes (head={chunk[:8].hex()})')
+        if len(total) > 200000:
+            break
+except socket.timeout:
+    w(f'[{time.time()-t0:.3f}] recv timeout')
+
+w(f'total received: {len(total)} bytes')
+if total[:4] == b'FRAM':
+    w('FRAM received — LIVE 通道端到端成功')
+else:
+    w(f'no FRAM; head={total[:32].hex()}')
+s.close()
+sys.stdout.buffer.write(out.getvalue().encode('utf-8', errors='replace'))
+\\n
