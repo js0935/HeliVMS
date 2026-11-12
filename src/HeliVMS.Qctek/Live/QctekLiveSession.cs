@@ -200,10 +200,21 @@ internal sealed class LiveRunSync
                     {
                         if (!pending.TryParseNext(out var subStream, out var bits))
                         {
+                            // 黃金抓包 §5c ＋ 運行時實錄：QCC 把 ALARM_HELLO（警報心跳，
+                            // NEMO 框）發到與預覽共用的連線上。真機的 live 通道忽略這些
+                            // 資料繼續推流；在這裡斷線會同時殺掉警報與預覽，並讓 QCC
+                            // 陷入「交棒→斷線→重連→再交棒」的循環。
+                            var discarded = pending.Resync();
                             _log?.Invoke(
-                                $"LIVE：keepalive 不合格（{_remote}），關閉連線。前 96 bytes：" +
-                                QctekDiagnostics.DescribeBytes(pending.TakeBroken()));
-                            return;
+                                $"LIVE：非 keepalive 資料 {discarded} bytes（{_remote}），已重新同步。前 96 bytes：" +
+                                QctekDiagnostics.DescribeBytes(read.AsSpan(0, Math.Min(count, 96))));
+                            if (discarded == 0)
+                            {
+                                // 無法前進（頭不完整）：等下一批資料再同步，避免空轉。
+                                break;
+                            }
+
+                            continue;
                         }
 
                         sinceKeepAlive = 0;
@@ -522,7 +533,7 @@ internal sealed class LiveRunSync
 /// <summary>
 /// keepalive 的累積與解析緩衝：以 0x90 為界逐包解析；不合格的內容原樣交出供傾印。
 /// </summary>
-internal sealed class PendingKeepAlives
+public sealed class PendingKeepAlives
 {
     private readonly NemoSessionLoop.FrameBuffer _buffer = new();
 
@@ -536,6 +547,48 @@ internal sealed class PendingKeepAlives
         => QctekLiveSession.TryParseKeepAlive(
             _buffer.Span[..QctekLiveSession.KeepAliveLength], out subStream, out channels)
             && ConsumeOne();
+
+    /// <summary>
+    /// 重新同步：丟掉位元組流中第一個 <c>QCTEK_RM</c> 頭之前的所有非 keepalive
+    /// 資料（QCC 的警報心跳 ALARM_HELLO 是 NEMO 框，會與預覽共用同一條連線——
+    /// 真機的 live 通道忽略它們繼續推流，斷線反而殺掉警報與預覽）。
+    /// 回傳丟棄的位元組數；連下一個頭都不完整時丟到只剩尾端可能半個頭。
+    /// </summary>
+    public int Resync()
+    {
+        var span = _buffer.Span;
+        var searchFrom = 1; // 開頭就是頭的情況在 TryParseNext 已被處理（格式錯才會到這）
+        while (searchFrom <= span.Length - 8)
+        {
+            var at = span[searchFrom..].IndexOf("QCTEK_RM"u8);
+            if (at < 0)
+            {
+                break;
+            }
+
+            var head = searchFrom + at;
+            if (head + QctekLiveSession.KeepAliveLength <= span.Length)
+            {
+                // 後面夠一個完整 keepalive：丟掉頭之前的雜訊，讓下一輪 TryParseNext 解它。
+                _buffer.Consume(head);
+                return head;
+            }
+
+            // 頭之後不完整：丟到這個頭為止（半個頭留給下一輪 Append 補完）。
+            _buffer.Consume(head);
+            return head;
+        }
+
+        // 沒有任何頭：保留尾端 7 bytes（可能是被切斷的半個頭），其餘全丟。
+        var keep = Math.Min(7, span.Length);
+        var discard = span.Length - keep;
+        if (discard > 0)
+        {
+            _buffer.Consume(discard);
+        }
+
+        return discard;
+    }
 
     /// <summary>取走一個已解析的 keepalive；解析失敗時交出全部（呼叫端傾印後關線）。</summary>
     public byte[] TakeBroken()

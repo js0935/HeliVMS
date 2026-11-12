@@ -54,6 +54,42 @@ public class QctekKeepAliveHandoffTests
         Assert.NotNull(result.Reply);
     }
 
+    [Fact]
+    public void 警報心跳夾在keepalive之間時重新同步不丟後面的keepalive()
+    {
+        // 運行時實錄：QCC 把 ALARM_HELLO（NEMO 框）發到與預覽共用的連線上。
+        // PendingKeepAlives.Resync 要丟掉 NEMO 框、對齊下一個 QCTEK_RM 頭，
+        // 讓後面的 keepalive 正常解析——斷線會同時殺掉警報與預覽。
+        var keep1 = KeepAlivePacket();
+        var alarm = Encoding.ASCII.GetBytes("NEMO 22         ALARM_HELLO 1 =QCV8001\0");
+        var keep2 = KeepAlivePacket();
+        var stream = new MemoryStream();
+        stream.Write(keep1);
+        stream.Write(alarm);
+        stream.Write(keep2);
+
+        var pending = new PendingKeepAlives(stream.ToArray());
+
+        Assert.True(pending.TryParseNext(out _, out _)); // keep1
+
+        Assert.True(pending.Resync() > 0); // 丟掉 NEMO 框
+        Assert.True(pending.TryParseNext(out var sub, out var bits)); // keep2
+        Assert.True(bits[0]);
+        Assert.Equal(0, sub);
+    }
+
+    [Fact]
+    public void 只有雜訊沒有下一個頭時保留尾端半個頭()
+    {
+        var noise = Encoding.ASCII.GetBytes("NEMO 22         ALARM_HELLO 1 =QCV8001NEMO 22");
+        var pending = new PendingKeepAlives(noise);
+
+        var discarded = pending.Resync();
+
+        // 保留尾端 7 bytes（可能是半個 QCTEK_RM 頭），其餘全丟。
+        Assert.Equal(noise.Length - 7, discarded);
+    }
+
     private static byte[] KeepAlivePacket()
     {
         var packet = new byte[QctekLiveSession.KeepAliveLength];
