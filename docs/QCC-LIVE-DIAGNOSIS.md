@@ -128,6 +128,53 @@ Frida hook 隨目標進程退出而失效。QCC 重新啟動後重掛：
 **進程優先序**：先找 `QC_Live.exe`（live 客戶端在這裡），
 沒有才退回 `QCC.exe`（只有輪詢，會看到「QC_IPCAM_Aver.dll not loaded」）。
 
+## 5b. 執行時鐵證：根因鏈完整定位（Frida，2026-11-12 晚）
+
+操作員點擊 live 後（StartLive 被呼叫兩次），Frida 捕獲完整序列：
+
+```
+ProcessCallback state=3 type=0
+StartLive_QCV8001 type=0
+>> GET_LIVE_START admin QCV8001_AUTH\0        (raw 34B)
+ProcessCallback state=3 type=2                  ← 同一事件又跑一次（type 殘值）
+StartLive_QCV8001 type=2
+<< 挑戰 27B
+>> QCV8001_AUTH_SENDCODE <32hex>\0
+ProcessCallback state=4 type=2
+<< "OK \0" (4B)
+AfterAuthorization resp="OK "                   ← 激活函數被調了！
+C 127.0.0.1:80 fd=4140                          ← 新連線（但閒置、無流量）
+```
+
+實例字段轉儲（關鍵）：
+
+```
+dvrProxy_live this=0x1779f606408
+  active(+0x78) = 1    ← 激活旗標已設（AfterAuthorization 成功）
+  +0x60(NVR 旗標) = 1  ← LiveAutuor(param_2 = (NET_TYPE == 2)) = true
+  fd(+0x4c)     = -1   ← 授權後立即被關閉！
+  state(+0x2c)  = 0    ← 回到空閒
+```
+
+**根因鏈（100% 實鏈）**：dvrProxy_live::AfterAuthorization 的 "OK" 分支：
+`this[0x60] != 0 → Close(fd)、fd = -1`。之後 ReadDVR 計時器的
+`ReceiveFrame` 因 `fd = -1` 永遠失敗（條件 `-1 < fd`），
+GetLiveSend（keepalive）永不執行，伺服器 305 tick 逾時斷線→黑屏。
+
+**機制揭露**：QCC 的 `dvrProxy::ClientCallback(fd, obj, type)` 對每條 fd
+**成對呼叫（type=0 與 type=2 各一次**，實錄反覆出現）——
+所以 ProcessCallback 的 type 參數是殘值，StartLive_QCV8001 被調兩次
+（type=0 發 GET_LIVE_START；type=2 讀挑戰送 SENDCODE）。
+`this[0x60]` 由 LiveAutuor 的 param_2（交替的 0/2）決定，
+實測值 = 1（type 2 語意：授權完成後關控制連線，
+影像改走其他通道——真機上那條通道是什麼我們沒有抓包無法確定）。
+
+**伺服器側無法單方修復**：不回挑戰→ QCC 把 "OK " 當挑戰解析，
+摘要錯誤；回挑戰→ 授權成功但 +0x60=1 關線。
+兩條路都死。**需要真機 QCV8001 的 live 抓包**（現場有真機）：
+看真機對 type 2 連線授權後的下一步——伺服器在哪條連線、
+以何格式開始送影格。拿到抓包即可補齊最後一塊。
+
 ## 6. 不要做的事
 
 - **不要把 GET_LIVE_START 改成 framed**：QCC 的 StartLive_QCV8001 type 0
