@@ -48,6 +48,34 @@
 > - 現場狀態（22:32/23:18 日誌）：交棒→頻道 0 推流→ALARM_HELLO Resync 正常共存——**但 QCC 仍不發 keepalive**。真機的 keepalive 發自 QC_Live 的預覽連線（不經 dvrProxy_live 的授權鏈），這個類沒反編譯——下一輪用 REA 拆 QC_Live.exe 找預覽解析器（它要什麼條件才激活）。pcap、模擬客戶端、工具全在。
 > - 可能性提示：我們的 media 幠 +0x20 起 FILETIME 為 0（真機有值）；另真機影像幠 payload 開頭是 00 00 00 01 61（Annex-B）、參數幠 payload 是 7e/ff 模式——兩者都在 pcap 可驗。
 >
+> **【追加 2026-11-13（之三十）】type=2 參數幠已送；剩 QCC 解碼器激活細節（待 QC_Live 反編譯）**
+>
+> type=2 參數幠已實作（commit eb07b96）：56B 頭與 1000B payload 都從黃金抓包
+> frame 3/5 **逐位元照抄**（常量與 pcap 比對 match=True），每頻道開流時送一次。
+> 派生守衛「參數幠與真機黃金抓包逐位元一致」；既有影像幠測試改為跳過 type=2。
+> Qctek 206 全緒。
+> - 現場狀態：交棒→頻道 0 推流→ALARM_HELLO Resync 正常共存——
+>   **但 QCC 仍不發 keepalive**。真機的 keepalive 發自 QC_Live 的預覽連線（不經
+>   dvrProxy_live 的授權鏈），這個類沒反編譯——下一輪用 REA 拆 QC_Live.exe 找預覽解析器。
+> - 可能性提示：我們的 media 幠 +0x20 起 FILETIME 為 0（真機有值）。pcap 已存檔可驗。
+
+> **【追加 2026-11-13（之三十一）】對真機也是 +0x60=1／fid=-1；keepalive 發送者不在 QC_IPCAM_Aver**
+>
+> Frida 掛 QC_Live（QCC 連真機 QCV8001.exe）的實測：dvrProxy_live 單一實例
+> state 在 14/2/4/17 來回、fd 在 0/1 間跳（live 授權鏈反覆）、
+> **active=1、+0x60=1、GetLiveSend 零次**——與連 HeliVMS 時完全相同。
+> 這推翻了「NET_TYPE 差異」假說：QCC 對兩台伺服器的 dvrProxy_live
+> 行為一致（授權後關線）。
+> - 黃金抓包的 keepalive（stream 0）發送者不在 QC_IPCAM_Aver.dll
+>   （GetLiveSend 是全庫唯一的 QCTEK_RM 構造點，但零次執行）、
+>   也不在 QC_Live/qc_stream/qc_center/qc_dvr/qc_network/qc_alarm（全數搜無
+>   QCTEK_RM）——**發送者是另一個未反編譯的組件**（QC_Live 不 import ws2_32，
+>   經 QC_Accessories.dll <NET> 或其他）。下一輪：hook ws2_32!send 抓 144B
+>   QCTEK_RM 的呼叫栈，或拆 QC_Accessories.dll。
+> - 注意 hook 時機：keepalive 發生在 QCC 重連真機後的首幾秒（抓包 frame 25），
+>   hook 裝好時已過。實驗要 hook 先行、再重啟 QCC。
+> - 另：對真機的 state=4+fd=1 卡住（等 OK）曾持續多次採樣——真機
+>   對新連線的 GET_LIVE_START 回應也可能有條件，待抓包確認。
 > **【追加 2026-11-12（之二十九）】推流已通：ALARM_HELLO 共存修復；剩最後一步（QCC 解碼器激活）**
 >
 > 連線即推流落地後實測：模擬 QCC 預覽行為 12 秒收到 **69 個影像幠**（status=0）＋3 個狀態幠（NoFrameYet）——伺服器的推流持續正常。
