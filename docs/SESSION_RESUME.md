@@ -42,6 +42,12 @@
   - 突變：拿掉 hwaccel 抑制旗標 → 契約紅（已還原）；還原時 try/finally 縮排被
     破壞過一次，build error 即時抓到。
 >
+> **【追加 2026-11-12（之三十）】type=2 參數幠已送；剩 QCC 解碼器激活細節（待 QC_Live 反編譯）**
+>
+> type=2 參數幠已實作（commit eb07b96）：56B 頭與 1000B payload 都從黃金抓包frame 3/5 **逐位元照抄**（常量與 pcap 比對 match=True），每頻道開流時送一次。派生守衛「參數幠與真機黃金抓包逐位元一致」；既有影像幠測試改為跳過 type=2。Qctek 206 全緒。
+> - 現場狀態（22:32/23:18 日誌）：交棒→頻道 0 推流→ALARM_HELLO Resync 正常共存——**但 QCC 仍不發 keepalive**。真機的 keepalive 發自 QC_Live 的預覽連線（不經 dvrProxy_live 的授權鏈），這個類沒反編譯——下一輪用 REA 拆 QC_Live.exe 找預覽解析器（它要什麼條件才激活）。pcap、模擬客戶端、工具全在。
+> - 可能性提示：我們的 media 幠 +0x20 起 FILETIME 為 0（真機有值）；另真機影像幠 payload 開頭是 00 00 00 01 61（Annex-B）、參數幠 payload 是 7e/ff 模式——兩者都在 pcap 可驗。
+>
 > **【追加 2026-11-12（之二十九）】推流已通：ALARM_HELLO 共存修復；剩最後一步（QCC 解碼器激活）**
 >
 > 連線即推流落地後實測：模擬 QCC 預覽行為 12 秒收到 **69 個影像幠**（status=0）＋3 個狀態幠（NoFrameYet）——伺服器的推流持續正常。
