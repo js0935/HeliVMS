@@ -42,6 +42,13 @@
   - 突變：拿掉 hwaccel 抑制旗標 → 契約紅（已還原）；還原時 try/finally 縮排被
     破壞過一次，build error 即時抓到。
 >
+> **【追加 2026-11-12（之二十五）】QCC 全黑的根因實鎚：發佈副本早於 Qctek 模組；.bin 端點補齊**
+>
+> 操作員回報「QCC 還是無法看到影像、回放」。插查鏪：①當下沒有任何行程在跑（HeliVMS 與 QCC 都沒有）——先啟動應用（帶全部 23 輪）與 QCC；②發佈副本 bin\...\win-x64\ 建於 11-06，而 Qctek 模組首提供是 11-07——該副本完全沒有 HeliVMS.Qctek.dll（無 NEMO 伺服器），從它啟動 QCC 必然全黑。已以 -r win-x64 重建（lock 檁已還原），Qctek.dll 已在。
+> - 新證據（QCC 連線後的 helivms-qctek.log）：QCC 對 /QCSystemStatus.bin、/QCCameraStatus.bin、/QCBackupSystem.bin 各重試≥3 次、之後每幾分鐘再試。QCC 端解析器反編譯還原：SystemStatus 驗「NSSB」魔術＋長度洽 0x400，通過後才抓 QCBackupSystem；BackupSystem 在真機是「設定備份下載」（QC_Config::Export → application/octet-stream）。
+> - 已實作三端點（QctekSupportBin）：1024-byte NSSB、0 列 NCSB（相機狀態未對接，0 列合法且不會被重試）、JSON 設定匯出；中介層與獨立埠同一份路由。Qctek 188、Api 276、App 860 全緒。
+> - 舊 08:37 會話遺留待觀察：GET_LIVE_START → OK 後 QCC 未送 keepalive（305 tick 逾時）。伺服器端已被迄環測試證明（keepalive→FRAM 全緒）；新版下的 NEMO 資料傾印會顯示 QCC 實際送了什麼——若再現即可定位客戶端側缺口。
+>
 > **【追加 2026-11-12（之二十）】孤兒匯出工作在啟動時結算——running 掛了 11 天沒人管**
 >
 > 掃剩餘資料表：`export_jobs` 有 1 筆 running＋2 筆 queued 停在 **11-01**。匯出跑在
