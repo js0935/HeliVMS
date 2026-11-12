@@ -945,7 +945,8 @@ public partial class MainWindow : Window
         // 有在跑的匯出，全部結算成 failed 並寫明原因，操作員按重試即可重排。
         try
         {
-            var orphaned = new ExportJobRepository(_store).FailRunningAsOrphaned(DateTime.UtcNow);
+            var orphaned = new ExportJobRepository(_store).FailRunningAsOrphaned(
+                DateTime.UtcNow, "程式於匯出途中結束，工作未完成");
             if (orphaned > 0)
             {
                 _exportOrphans = orphaned;
