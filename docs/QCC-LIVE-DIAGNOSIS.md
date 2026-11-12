@@ -118,6 +118,16 @@ GET_LIVE_START → 挑戰(27B) → SENDCODE → "OK \0"(4B)
 `[NET] >>/<<` 是與 HeliVMS 之間的原始字節，`[LIVE]` 是狀態機事件——
 對照第 2 節即可定位斷點。
 
+## 5a. 重新掛鉤（QCC 重啟後）
+
+Frida hook 隨目標進程退出而失效。QCC 重新啟動後重掛：
+把 REA MCP 的 `start_frida_session`（attach QC_Live.exe）＋
+`load_frida_script`（本檔 §5 的腳本）再跑一次；或用操作員側的
+`hook_qcc_live.py`（frida CLI 注入，輸出 `%TEMP%\qcc-live-trace.txt`）。
+
+**進程優先序**：先找 `QC_Live.exe`（live 客戶端在這裡），
+沒有才退回 `QCC.exe`（只有輪詢，會看到「QC_IPCAM_Aver.dll not loaded」）。
+
 ## 6. 不要做的事
 
 - **不要把 GET_LIVE_START 改成 framed**：QCC 的 StartLive_QCV8001 type 0
