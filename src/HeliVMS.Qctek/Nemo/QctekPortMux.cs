@@ -274,9 +274,15 @@ public sealed class QctekPortMux : IAsyncDisposable
                 try
                 {
                     var protocol = QctekMuxProtocol.NeedMore;
+                    var sawData = false;
                     while (protocol == QctekMuxProtocol.NeedMore)
                     {
-                        var count = NemoSessionLoop.ReadWithPreviewTimeout(stream, read, pending.Length);
+                        // 等待視窗只適用「尚未收到任何位元組」的分類期（QCC 的預覽長連線
+                        // 在等伺服器先推流）。分類中的後續讀取必須無限等——HTTP 請求與
+                        // NEMO 命令會分段到達，視窗誤判會把半個請求交棒掉。
+                        var count = sawData
+                            ? stream.Read(read, 0, read.Length)
+                            : NemoSessionLoop.ReadWithPreviewTimeout(stream, read, pending.Length);
                         if (count == 0)
                         {
                             return;
@@ -293,6 +299,7 @@ public sealed class QctekPortMux : IAsyncDisposable
                             return;
                         }
 
+                        sawData = true;
                         pending.Append(read.AsSpan(0, count));
                         protocol = Classify(pending.Span);
                     }

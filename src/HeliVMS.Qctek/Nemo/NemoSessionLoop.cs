@@ -56,6 +56,7 @@ public static class NemoSessionLoop
         var read = new byte[8192];
         var session = new QctekSession(context);
         var heartbeatSeen = false;
+        var sawCommand = false;
 
         try
         {
@@ -149,7 +150,13 @@ public static class NemoSessionLoop
                     pending.Consume(result.Consumed);
                 }
 
-                var count = ReadWithPreviewTimeout(stream, read, pending.Length);
+                var count = sawCommand
+                    ? stream.Read(read, 0, read.Length)
+                    : ReadWithPreviewTimeout(stream, read, pending.Length);
+                if (count > 0)
+                {
+                    sawCommand = true;
+                }
                 if (count == 0)
                 {
                     return; // 對方正常關閉
@@ -161,6 +168,9 @@ public static class NemoSessionLoop
                     // 伺服器先推流（TCP 握手後真機立即送 FRAM 0000 0000）。等待視窗
                     // 內沒有任何命令位元組，就把這條連線交棒即時影像通道開始推流；
                     // config/auth 的短連線會立刻送命令，不受視窗影響。
+                    // 注意：處理過至少一條命令後（sawCommand）不再用視窗——QCC 的警報
+                    // 心跳 ALARM_HELLO 每 15-20 秒才一發，心跳後的靜默會被視窗誤判
+                    // （運行時實錄：警報連線被整條交棒掉）。
                     log?.Invoke($"NEMO：等待視窗內沒有命令（{remote}），交棒即時影像通道");
                     QctekLiveSession.RunSync(
                         stream,
