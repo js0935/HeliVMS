@@ -1209,6 +1209,17 @@ Notes that will save you time:
   help here because tab navigation happens after load). Guarded by
   `載入解碼設定頁不會回寫decode.hwaccel` (source contract) — mutation: remove the suppress
   flag, the audit-count behaviour test stays green only because the guard is source-pinned.
+- **QCC 相容的三個診斷事實（live/playback 黑屏時先看這裡）。** ①live 客戶端是
+  `QC_IPCAM_Aver.dll` 的 `dvrProxy_live`，運行在 **QC_Live.exe 子進程**——QCC.exe
+  主進程根本沒載入那個 DLL（Frida 實測），診斷掛鉤要掛對進程。②`helivms-qctek.log`
+  每個授權命令出現**兩次相同文字**不是重發：`QctekSession.CompleteAuthorization`
+  成功後記錄的是 pending 命令名，第二次其實是 `QCV8001_AUTH_SENDCODE` 幀；
+  看到兩次＝授權成功。③QCC 的裝置模組端點 `/QCSystemStatus.bin`（驗 NSSB 魔術＋
+  長度洽 0x400）、`/QCCameraStatus.bin`、`/QCBackupSystem.bin`（設定備份下載）
+  必須回應，404 會讓 QCC 以 3 秒一次無限重試；攔截要放在 `QctekProbeMiddleware`
+  的 isProbe 閘**之前**（這些請求不帶 Basic 認證，ua=QCHTMLGET）。伺服器端 live
+  全鏈路已被模擬客戶端端到端證明（挑戰→OK→keepalive→FRAM 影格，5170 與 80/MUX
+  兩路徑）；黑屏時的完整狀態機與斷點定位見 `docs/QCC-LIVE-DIAGNOSIS.md`。
 - **Pick the sub stream by stream number, never by a magic number in the name.** `OnvifProfileSelection`
   used to carry `"101"` in `MainKeywords` and `"102"` in `SubKeywords`, matched as plain substrings.
   The real camera at `rtsp://<host>/media/stream.sdp?profile=Profile100` exposes three profiles —
