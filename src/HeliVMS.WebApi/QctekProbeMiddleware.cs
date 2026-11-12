@@ -46,6 +46,31 @@ public static class QctekProbeMiddleware
                  $"ua={(userAgent.Length <= 80 ? userAgent : userAgent[..80])}");
         }
 
+        // QCC 的裝置模組狀態端點（.bin）必須在 isProbe 閘之前攔：這些路徑不帶 Basic
+        // 認證（ua=QCHTMLGET），isProbe 判 false 會先 next() 掉——實測 404 後
+        // QCC 以 3 秒一次無限重試，對應功能停在「未就緒」。
+        if (QctekSupportBin.IsSupportBinPath(path))
+        {
+            var channels0 = context.RequestServices.GetService(typeof(ChannelRepository)) as ChannelRepository;
+            var configuration0 = context.RequestServices.GetService(typeof(IConfiguration)) as IConfiguration;
+            var binContext = new QctekHttpResponder.Context(
+                RemoteConsolePort: QctekHttpResponder.ResolveConsolePort(
+                    context.Connection.LocalPort,
+                    configuration0?[QctekHttpResponder.PublicPortConfigKey]),
+                TotalChannels: channels0?.List().Count ?? 0);
+            var bin = QctekHttpResponder.BuildBinaryBody(path, binContext);
+            if (bin is { } payload)
+            {
+                Diag($"[WEB] -> 200 {payload.ContentType} {payload.Body.Length} bytes（QCTek 支援端點）");
+                context.Response.StatusCode = StatusCodes.Status200OK;
+                context.Response.ContentType = payload.ContentType;
+                context.Response.Headers["Server"] = QctekHttpResponder.ProductName;
+                context.Response.Headers["Connection"] = "close";
+                await context.Response.Body.WriteAsync(payload.Body, context.RequestAborted);
+                return;
+            }
+        }
+
         if (!isProbe)
         {
             await next(context);
@@ -62,23 +87,6 @@ public static class QctekProbeMiddleware
                 context.Connection.LocalPort,
                 configuration?[QctekHttpResponder.PublicPortConfigKey]),
             TotalChannels: channels?.List().Count ?? 0);
-
-        // QCC 的裝置模組狀態端點（.bin）：二進位回應，先於文字路由。
-        // 不回應會讓 QCC 以 3 秒一次無限重試（實測），對應功能停在「未就緒」。
-        if (QctekSupportBin.IsSupportBinPath(path))
-        {
-            var binary = QctekHttpResponder.BuildBinaryBody(path, responderContext);
-            if (binary is { } bin)
-            {
-                Diag($"[WEB] -> 200 {bin.ContentType} {bin.Body.Length} bytes（QCTek 支援端點）");
-                context.Response.StatusCode = StatusCodes.Status200OK;
-                context.Response.ContentType = bin.ContentType;
-                context.Response.Headers["Server"] = QctekHttpResponder.ProductName;
-                context.Response.Headers["Connection"] = "close";
-                await context.Response.Body.WriteAsync(bin.Body, context.RequestAborted);
-                return;
-            }
-        }
 
         var body = QctekHttpResponder.BuildBody(
             path,
