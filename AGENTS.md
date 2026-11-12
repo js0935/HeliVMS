@@ -1171,7 +1171,11 @@ Notes that will save you time:
   ffmpeg job and auto-rerunning it can collide with what the operator is doing; the existing
   重試 button (`Retry`) takes it from there. Guarded by
   `啟動時把孤兒的running工作結算成failed並寫明原因`, `queued與done的工作不受啟動對帳影響` and
-  `孤兒工作結算後可重試重排`.
+  `孤兒工作結算後可重試重排`. The MainWindow wiring (constructor call before `Localizer.Init`,
+  hint after it, 3-language key) is pinned by
+  `啟動孤兒匯出對帳會在建構式執行並把筆數亮在提示列` — note `SourceContract.BodyOf` truncates
+  the huge MainWindow constructor at its first closing brace, so pin constructor-ordering with
+  `IndexOf` comparisons, not `BodyOf`.
 - **Pick the sub stream by stream number, never by a magic number in the name.** `OnvifProfileSelection`
   used to carry `"101"` in `MainKeywords` and `"102"` in `SubKeywords`, matched as plain substrings.
   The real camera at `rtsp://<host>/media/stream.sdp?profile=Profile100` exposes three profiles —

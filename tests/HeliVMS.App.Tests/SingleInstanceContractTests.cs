@@ -163,9 +163,32 @@ public sealed class SingleInstanceContractTests
     }
 
     /// <summary>
-    /// 喚醒要認「真正的監控中心」，不能只認 <c>Application.MainWindow</c>。
+    /// 孤兒匯出工作的結算必須在建構式執行、筆數亮在提示列（i18n 三語）：
+    /// 操作員不必自己打開匯出中心才發現有一筆「執行中」掛了好幾天
+    /// （實測 11-01 的 running 掛到 11-12）。
     /// </summary>
-    /// <remarks>
+    [Fact]
+    public void 啟動孤兒匯出對帳會在建構式執行並把筆數亮在提示列()
+    {
+        var main = SourceContract.Read(Main);
+
+        // 建構式很大（BodyOf 會在第一個 } 截斷），改用順序斷言：
+        // 對帳呼叫必須在 Localizer.Init 之前（托盤／提示都要語系就緒後才說人話）。
+        var callAt = main.IndexOf("FailRunningAsOrphaned(", StringComparison.Ordinal);
+        var initAt = main.IndexOf("Localizer.Init(", StringComparison.Ordinal);
+        var hintAt = main.IndexOf("Main.ExportOrphans", StringComparison.Ordinal);
+        Assert.True(callAt >= 0, "找不到啟動孤兒匯出對帳的呼叫");
+        Assert.True(initAt >= 0 && callAt < initAt, "對帳必須在建構式內（Localizer.Init 之前）執行");
+        Assert.True(hintAt > initAt, "孤兒匯出提示必須在 Localizer.Init 之後");
+        Assert.Contains("_exportOrphans", main);
+
+        var i18n = SourceContract.Read("src/HeliVMS.Storage/I18n.cs");
+        Assert.Equal(3, Regex.Matches(i18n, "\"Main.ExportOrphans\"").Count);
+    }
+
+    /// <summary>
+    /// 喚醒要認「真正的監控中心」，不能只認 <c>Application.MainWindow</c>。
+    /// </summary>    /// <remarks>
     /// 啟動時第一個建立的視窗是啟動畫面，<c>Application.MainWindow</c> 因此指向 splash；
     /// splash 關閉後那個參照要嘛是已關閉的視窗、要嘛是 null，重複啟動就變成「點了沒反應」，
     /// 而且不會留下任何日誌。主視窗因此自己保留一份參照，關閉時清掉。

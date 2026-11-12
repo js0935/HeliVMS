@@ -33,6 +33,10 @@
 > - 突變「不結算」紅後還原。測試：Storage 1488（+3）／App 858 全綠。
 > - CI 教訓（本輪實踩）：本地 build 只看最後兩行，CS7036（漏了 reason 參數）被放行到
 >   CI 才爆——建置輸出必須 grep error，不能只看結尾。
+> - MainWindow 接線（建構式呼叫在 Localizer.Init 之前、提示之後、三語鍵）由
+>   `啟動孤兒匯出對帳會在建構式執行並把筆數亮在提示列` 釘住（突變紅後還原）。
+>   契約測試教訓：`SourceContract.BodyOf` 會在 MainWindow 超大建構式的第一個 `}` 截斷，
+>   大建構式的順序釘住要用 `IndexOf` 比較，不要用 `BodyOf`。
 >
 > **【追加 2026-11-12（之十九）】ONVIF 的 HttpClient 改為行程級共用**
 >
