@@ -42,6 +42,13 @@
   - 突變：拿掉 hwaccel 抑制旗標 → 契約紅（已還原）；還原時 try/finally 縮排被
     破壞過一次，build error 即時抓到。
 >
+> **【追加 2026-11-12（之二十八）】黃金抓包破解真機協議＋死鎖修復：連線即推流**
+>
+> 操作員開了本機軟體版真機 QCV8001.exe，抓包破解（docs/qcc-qcv8001-golden.pcapng，15,846 包）：真機在 TCP 握手後**立即主動推流**（FRAM 0000 0000 → 0x38 媒體幠 → H.264，不等任何命令）；QCC **收到 FRAM 後才開始發 keepalive**（位圖 bit0=1，之徍每 250ms）。GET_LIVE_START（另一條短連線）授權後零流量——影像始終在長連線上。
+> - **HeliVMS 的致命錯位**：等 keepalive 才建頻道，而 QCC 等推流才發 keepalive——雞生蛋死鎖，這就是黑屏根因。已修復（commit 42a0250）：① QctekLiveSession 連線即啟用頻道 0 並立即 tick；未見 keepalive 時用啟動寛限（三倍逾時）；② QctekSession 識別 raw 0x90 keepalive 直接 Live 交棒（預覽長連線沒有 GET_LIVE_START）；③ NemoServer/ QctekPortMux 的等待視窗（600ms 無任何位元組）交棒推流。
+> - 測試：3 個新守衛（連線即推流、寛限內不斷線、keepalive 交棒），Qctek 203 全緒；突變驗證三處各自變紫後還原。端到端實測：模擬 QCC 預覽行為（連上後不送任何東西），1.2 秒內收到伺服器主動推的 FRAM。
+> - 另：抓包期間曾停 HeliVMS 讓位給真機（80/5170），完成後已恢復 HeliVMS 並重啟。
+>
 > **【追加 2026-11-12（之二十七）】QCC live 根因執行時實鏈：type 2 連線授權後關線**
 >
 > 操作員點擊 live 後 Frida 全程捕獲（docs/QCC-LIVE-DIAGNOSIS.md §5b）：StartLive 被調兩次（ClientCallback 對每 fd 成對 type=0/2，type 是殘值）——type=0 發 raw GET_LIVE_START、type=2 讀挑戰送 SENDCODE；我們的 OK 到達、AfterAuthorization("OK ") 被調用、**active(+0x78)=1 激活成功**。
