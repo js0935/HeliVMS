@@ -17,6 +17,21 @@
 >   拿不到建置時間就退回只有啟動時刻的文案。
 > - 突變驗證「氣泡不帶建置時間」紅後還原。測試：App 858／Storage 1485 全綠。
 >
+> **【追加 2026-11-12（之十九）】ONVIF 的 HttpClient 改為行程級共用**
+>
+> 之十三解決了 PTZ 能力重複解析，但每一條命令仍然 `new HttpClient(new HttpClientHandler())`
+> ——「每次請求新建客戶端」的教科書反模式：搖桿高頻操作下連線在 TIME_WAIT 堆積，
+> 症狀是「ONVIF 用一陣子之後整批連不上」而日誌乾淨。
+> - 正式路徑（未注入 handler）改用行程級 `SocketsHttpHandler`（PooledConnectionLifetime
+>   10 分鐘——攝影機位址常是 DHCP）＋每個不同 `options.Timeout` 一個共用 HttpClient；
+>   憑證逐請求帶在標頭／本文，handler 共用是安全的。`Dispose` 只釋放實例自有的
+>   客戶端（注入 handler 的測試路徑維持原樣）；User-Agent 在客戶端建立時設一次。
+> - 測試用回環 HTTP 伺服器做真行為驗證（「Dispose 不得殺死共用客戶端」：第一個
+>   實例收掉之後第二台的 GetInfo 必須照常成功——突變下第二台整批
+>   ObjectDisposedException）；計數斷言用「每支測試專屬的逾時值」當鍵，避免
+>   共用字典殘留讓計數依賴測試順序。
+> - 測試：Devices 277 全綠（+3）。
+>
 > **【追加 2026-11-12（之十七）】回填 v2：事件以「成功收錄」劃界，覆盖 104 → 156 / 207**
 >
 > 之十四的回填上線前先拿線上副本實測：純窗距版只補到 **104/207**——`failures=N` 是

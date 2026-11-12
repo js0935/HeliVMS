@@ -1063,6 +1063,20 @@ Notes that will save you time:
   constructor. Known remaining per-command cost: one `GetProfiles` round trip when the
   caller supplies no profile token. Guarded by `第二個實例沿用快取的PTZ能力而不是重新解析`,
   `ver20設備的命名空間隨能力一起快取`, `不支援PTZ的判定也會被快取` and `快取逾期後會重新解析`.
+  **The default constructor path also shares one HttpClient per timeout** (v2 of the same
+  round): every `new OnvifDeviceService` used to build its own `HttpClient(new HttpClientHandler())`
+  — the "new client per request" anti-pattern; a joystick session piles up sockets in
+  TIME_WAIT and the symptom is "ONVIF worked, then everything fails to connect" with a clean
+  log. The production path (no injected handler) now uses a process-wide
+  `SocketsHttpHandler` (PooledConnectionLifetime 10 min — camera addresses are often DHCP) and
+  one shared `HttpClient` per distinct `options.Timeout`; credentials travel per-request
+  (headers/body), so sharing the handler across cameras is safe. `Dispose` releases the client
+  only when the instance owns it (injected-handler tests keep instance ownership); the User-Agent
+  is set once at client creation. Tests use per-test unique timeouts because the timeout is the
+  sharing key — a shared dictionary persists across tests in one process, so a shared timeout
+  makes the count assertions order-dependent. Guarded by `正式路徑的多個實例共用同一個HttpClient`,
+  `共用客戶端在實例釋放後仍然可用` (loopback HTTP server; the dispose mutation fails it with
+  ObjectDisposedException on the second instance) and `逾時不同的實例各自持有客戶端`.
 - **Historical `corrupt` rows get their failure reason backfilled from the stall audits they
   already produced.** The `failure_reason` column only helps rows written after it shipped; the
   live index had 207 corrupt rows (ch107: 118) with no cause. The evidence for those already

@@ -26,6 +26,9 @@ public sealed partial class OnvifDeviceService : IDisposable
     internal static readonly XNamespace Wsu = "http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-utility-1.0.xsd";
 
     private readonly HttpClient _http;
+
+    /// <summary>本實例是否擁有 <see cref="_http"/>（注入 handler 的測試路徑＝擁有；正式路徑＝共用、不釋放）。</summary>
+    private readonly bool _ownsHttpClient;
     private readonly string? _username;
     private readonly string? _password;
     private readonly OnvifClientOptions _options;
@@ -52,7 +55,7 @@ public sealed partial class OnvifDeviceService : IDisposable
 
     /// <summary>以設備 XAddr（慣例 http://ip/onvif/device_service）建立服務端點。</summary>
     public OnvifDeviceService(string deviceXAddr, string? username = null, string? password = null)
-        : this(deviceXAddr, username, password, new HttpClientHandler())
+        : this(deviceXAddr, username, password, null, null)
     {
     }
 
@@ -62,16 +65,24 @@ public sealed partial class OnvifDeviceService : IDisposable
         string? username,
         string? password,
         OnvifClientOptions? options)
-        : this(deviceXAddr, username, password, new HttpClientHandler(), options)
+        : this(deviceXAddr, username, password, null, options)
     {
     }
 
     /// <summary>供注入自訂 HttpMessageHandler（單元測試／進階用途）。</summary>
+    /// <remarks>
+    /// <paramref name="handler"/> 為 null（正式路徑）時使用行程級共用客戶端：
+    /// Web API 的每條 PTZ 命令、乾接點輪詢、巡邏步進都會 <c>new OnvifDeviceService</c>，
+    /// 每實例一個 HttpClient 是「每次請求新建客戶端」的教科書反模式——高頻操作下
+    /// 連線在 TIME_WAIT 裡堆積，症狀是操作一段時間後 ONVIF 整批連不上。憑證不走
+    /// handler（認證逐請求帶在標頭／本文），所以共用一個 handler 是安全的；
+    /// 連線池生命週期（10 分鐘）確保攝影機換 DHCP 位址後會重新解析。
+    /// </remarks>
     public OnvifDeviceService(
         string deviceXAddr,
         string? username,
         string? password,
-        HttpMessageHandler handler,
+        HttpMessageHandler? handler,
         OnvifClientOptions? options = null)
     {
         DeviceXAddr = deviceXAddr;
@@ -87,8 +98,30 @@ public sealed partial class OnvifDeviceService : IDisposable
                 : OnvifWsSecurityMode.PasswordDigest,
         };
 
-        _http = new HttpClient(handler) { Timeout = _options.Timeout };
-        _http.DefaultRequestHeaders.Add("User-Agent", "HeliVMS/0.1 (ONVIF/ver10)");
+        if (handler is not null)
+        {
+            // 注入的 handler（測試）＝實例專屬客戶端、隨實例釋放。
+            _http = new HttpClient(handler) { Timeout = _options.Timeout };
+            _ownsHttpClient = true;
+            HttpClientCreatedCount++;
+        }
+        else
+        {
+            // 正式路徑＝共用客戶端（逾時相同者共用同一個；User-Agent 只在建立時設一次）。
+            _http = SharedClientsByTimeout.GetOrAdd(
+                _options.Timeout.Ticks,
+                _ =>
+                {
+                    HttpClientCreatedCount++;
+                    var client = new HttpClient(SharedHandler, disposeHandler: false)
+                    {
+                        Timeout = _options.Timeout,
+                    };
+                    client.DefaultRequestHeaders.Add("User-Agent", "HeliVMS/0.1 (ONVIF/ver10)");
+                    return client;
+                });
+            _ownsHttpClient = false;
+        }
     }
 
     public string DeviceXAddr { get; }
@@ -372,6 +405,25 @@ public sealed partial class OnvifDeviceService : IDisposable
     /// </remarks>
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, (string PtzXAddr, string Wsdl, DateTime ResolvedUtc)>
         PtzCapabilityCache = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// 行程級共用的 ONVIF 連線池 handler。攝影機位址常用 DHCP，連線池生命週期
+    /// 確保位址變動會被重新解析，而不是抱著一條死連線。
+    /// </summary>
+    private static readonly System.Net.Http.SocketsHttpHandler SharedHandler = new()
+    {
+        PooledConnectionLifetime = TimeSpan.FromMinutes(10),
+    };
+
+    /// <summary>逾時相同的實例共用同一個 <see cref="HttpClient"/>（見建構式的說明）。</summary>
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<long, HttpClient>
+        SharedClientsByTimeout = new();
+
+    /// <summary>本行程已建立的 HttpClient 總數（測試用遙測；正式路徑應該是 1，不是每實例一個）。</summary>
+    internal static int HttpClientCreatedCount;
+
+    /// <summary>清空測試遙測（測試之間互不繼承）。</summary>
+    internal static void ResetHttpClientTelemetryForTests() => HttpClientCreatedCount = 0;
 
     /// <summary>能力快取的效期。internal 可寫僅供測試（壓成 0 驗證「逾期後重新解析」）。</summary>
     internal static TimeSpan PtzCapabilityTtl { get; set; } = TimeSpan.FromMinutes(10);
@@ -1632,7 +1684,14 @@ public sealed partial class OnvifDeviceService : IDisposable
     private static string TmdAction(string action) => $"{Tmd.NamespaceName}/{action}";
     private string TptzAction(string action) => $"{_ptzWsdl.NamespaceName}/{action}";
 
-    public void Dispose() => _http.Dispose();
+    public void Dispose()
+    {
+        // 共用客戶端（正式路徑）不隨實例釋放——它還被其他實例使用著。
+        if (_ownsHttpClient)
+        {
+            _http.Dispose();
+        }
+    }
 
     private static XElement? DescendantAnyNs(XElement element, string localName) =>
         element.Descendants().FirstOrDefault(e => e.Name.LocalName == localName);
