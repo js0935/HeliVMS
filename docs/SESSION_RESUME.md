@@ -42,6 +42,15 @@
   - 突變：拿掉 hwaccel 抑制旗標 → 契約紅（已還原）；還原時 try/finally 縮排被
     破壞過一次，build error 即時抓到。
 >
+> **【追加 2026-11-12（之二十六）】QCC live 客戶端狀態機完整還原；伺服器端端到端驗證全通**
+>
+> 黑屏的最後一塊拼圖到位：live 客戶端 = QC_IPCAM_Aver.dll 的 dvrProxy_live，執行在 **QC_Live.exe 子進程**（Frida 實渔 QCC.exe 主進程沒載入它）。全部發現與線路圖存 docs/QCC-LIVE-DIAGNOSIS.md。
+> - 伺服器端已被模擬客戶端端到端證明：5170 與 80/MUX 兩條路徑完整走通 挑戰→OK→keepalive(0x90)→FRAM 狀態幠→影格（IDR+P幠）。黑屏原因 100% 在 QCC 端 live 通道未啟動。
+> - 狀態機（反編譯）：ProcessCallback 依授權狀態分發（1/、2/、4/、0x11；live 派生 3=StartLive、0x10=GetLive）；AfterAuthorization 收到 "OK" 開頭才激活 this[0x78]，之後 ReadDVR 33ms 計時器 → ReceiveFrame → GetLiveSend 每 250ms 送 0x90 keepalive（位圖是 QCC 自己的 UI 狀態，不是伺服器資料回顯——不要在 OK 後主動送 128B）。
+> - 日誌陷阱：helivms-qctek.log 每個命令出現兩次相同文字不是重發——CompleteAuthorization 記的是 pending 命令名；QCC 實際完成了 SENDCODE→OK 授權，之後 10 秒零字節＝激活鏈中斷（且 330ms 重試循環也沒跑）。
+> - 執行時觀察（Frida 掛 QC_Live.exe）：輪詢循環（config/permitted/IO）正常、StartLive 從未被呼叫＝live 等待 UI 點擊。hook（狀態機五函數＋ws2_32 收發）已就位，點擊 live view 後從訊息逐字節定位斷點。
+> - 認證碼字母表實錄一致：捕獲的 SENDCODE 全落 QctekAuthDigest.Alphabet。
+>
 > **【追加 2026-11-12（之二十五）】QCC 全黑的根因實鎚：發佈副本早於 Qctek 模組；.bin 端點補齊**
 >
 > 操作員回報「QCC 還是無法看到影像、回放」。插查鏪：①當下沒有任何行程在跑（HeliVMS 與 QCC 都沒有）——先啟動應用（帶全部 23 輪）與 QCC；②發佈副本 bin\...\win-x64\ 建於 11-06，而 Qctek 模組首提供是 11-07——該副本完全沒有 HeliVMS.Qctek.dll（無 NEMO 伺服器），從它啟動 QCC 必然全黑。已以 -r win-x64 重建（lock 檁已還原），Qctek.dll 已在。
