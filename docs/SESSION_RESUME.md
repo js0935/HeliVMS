@@ -39,6 +39,8 @@
 >   ffprobe 驗證最壞兩列——`ch104 seg-004217273`（索引 7105.6s → 檔案實際 260.2s）、
 >   `ch105 seg-004219933`（7102.9 → 250.1s），檔案完好可救，時間軸上的假色塊會消失。
 >   一次性掃描游標鍵（duration_repair/failure_backfill）現場皆未存在＝首次啟動從頭掃。
+> - 流程教訓：暫存目錄的 `msg*.txt` 會跨工作階段殘留——`git commit -F` 前必須確認
+>   檔案內容是本輪的訊息（本筆曾誤用舊輪訊息，push 前 `commit --amend` 修正）。
 > - MainWindow 接線（建構式呼叫在 Localizer.Init 之前、提示之後、三語鍵）由
 >   `啟動孤兒匯出對帳會在建構式執行並把筆數亮在提示列` 釘住（突變紅後還原）。
 >   契約測試教訓：`SourceContract.BodyOf` 會在 MainWindow 超大建構式的第一個 `}` 截斷，
