@@ -57,13 +57,32 @@ public static class QctekProbeMiddleware
         // 有前置多工器時 Kestrel 綁的是內部臨時埠；RemoteConsolePort 必須報對外的
         // 公開埠，否則 QCC 記下的是一個只有本行程內部才存在的號碼。
         var configuration = context.RequestServices.GetService(typeof(IConfiguration)) as IConfiguration;
+        var responderContext = new QctekHttpResponder.Context(
+            RemoteConsolePort: QctekHttpResponder.ResolveConsolePort(
+                context.Connection.LocalPort,
+                configuration?[QctekHttpResponder.PublicPortConfigKey]),
+            TotalChannels: channels?.List().Count ?? 0);
+
+        // QCC 的裝置模組狀態端點（.bin）：二進位回應，先於文字路由。
+        // 不回應會讓 QCC 以 3 秒一次無限重試（實測），對應功能停在「未就緒」。
+        if (QctekSupportBin.IsSupportBinPath(path))
+        {
+            var binary = QctekHttpResponder.BuildBinaryBody(path, responderContext);
+            if (binary is { } bin)
+            {
+                Diag($"[WEB] -> 200 {bin.ContentType} {bin.Body.Length} bytes（QCTek 支援端點）");
+                context.Response.StatusCode = StatusCodes.Status200OK;
+                context.Response.ContentType = bin.ContentType;
+                context.Response.Headers["Server"] = QctekHttpResponder.ProductName;
+                context.Response.Headers["Connection"] = "close";
+                await context.Response.Body.WriteAsync(bin.Body, context.RequestAborted);
+                return;
+            }
+        }
+
         var body = QctekHttpResponder.BuildBody(
             path,
-            new QctekHttpResponder.Context(
-                RemoteConsolePort: QctekHttpResponder.ResolveConsolePort(
-                    context.Connection.LocalPort,
-                    configuration?[QctekHttpResponder.PublicPortConfigKey]),
-                TotalChannels: channels?.List().Count ?? 0));
+            responderContext);
 
         if (body is not { } content)
         {

@@ -75,6 +75,22 @@ public static class QctekHttpResponder
         return path is null ? null : BuildResponseForPath(path, context);
     }
 
+    /// <summary>由路徑（已解析）取二進位回應——QCC 的裝置模組狀態端點（.bin）。</summary>
+    public static (string ContentType, byte[] Body)? BuildBinaryBody(string path, Context context)
+    {
+        if (!QctekSupportBin.IsSupportBinPath(path))
+        {
+            return null;
+        }
+
+        return path.Equals("/QCSystemStatus.bin", StringComparison.OrdinalIgnoreCase)
+            ? ("application/octet-stream", QctekSupportBin.SystemStatus())
+            : path.Equals("/QCCameraStatus.bin", StringComparison.OrdinalIgnoreCase)
+                ? ("application/octet-stream", QctekSupportBin.CameraStatus())
+                : ("application/octet-stream", QctekSupportBin.BackupSystem(
+                    context.RemoteConsolePort, context.TotalChannels));
+    }
+
     /// <summary>
     /// 由路徑（已解析）取回應的內容——ASP.NET 端的中介層需要自行組狀態/標頭，
     /// 與 <see cref="BuildResponseForPath"/> 共用同一份路由。
