@@ -42,6 +42,14 @@
   - 突變：拿掉 hwaccel 抑制旗標 → 契約紅（已還原）；還原時 try/finally 縮排被
     破壞過一次，build error 即時抓到。
 >
+> **【追加 2026-11-12（之二十七）】QCC live 根因執行時實鏈：type 2 連線授權後關線**
+>
+> 操作員點擊 live 後 Frida 全程捕獲（docs/QCC-LIVE-DIAGNOSIS.md §5b）：StartLive 被調兩次（ClientCallback 對每 fd 成對 type=0/2，type 是殘值）——type=0 發 raw GET_LIVE_START、type=2 讀挑戰送 SENDCODE；我們的 OK 到達、AfterAuthorization("OK ") 被調用、**active(+0x78)=1 激活成功**。
+> - **根因（100% 實鏈）**：實例 +0x60（NVR 旗標）= 1（LiveAutuor 的 param_2 = (NET_TYPE == 2)）→ AfterAuthorization 的 "OK" 分支執行 `Close(fd)、fd = -1`（語意：type 2 授權後關控制連線）→ ReceiveFrame 因 fd=-1 永失敗 → keepalive 永不發 → 305 tick 斷線 → 黑屏。
+> - 伺服器側無法單方修復：不回挑戰→ QCC 把 "OK " 當挑戰；回挑戰→ 授權成功但關線。 OK 後 QCC 開的新連線（fd=4140）閒置無流量——真機的影像通道推測在那，但缺真機抓包無法確定格式。
+> - **下一步：現場拓撲 QCC ↔ 真機 QCV8001 的 live 抓包**（Wireshark）——看授權後伺服器在哪條連線、以何格式開始送影格，拿到即可補齊最後一塊。
+> - 另：系統健康順檢正常（settings.set 今日僅 3 筆；duration.repair 674 正常工作）；HeliVMS.App 曾於 19:06 正常關閉（收尾 1.7 秒），已重啟（PID 21256）。
+>
 > **【追加 2026-11-12（之二十六）】QCC live 客戶端狀態機完整還原；伺服器端端到端驗證全通**
 >
 > 黑屏的最後一塊拼圖到位：live 客戶端 = QC_IPCAM_Aver.dll 的 dvrProxy_live，執行在 **QC_Live.exe 子進程**（Frida 實渔 QCC.exe 主進程沒載入它）。全部發現與線路圖存 docs/QCC-LIVE-DIAGNOSIS.md。
