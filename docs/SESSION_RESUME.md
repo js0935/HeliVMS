@@ -42,6 +42,13 @@
   - 突變：拿掉 hwaccel 抑制旗標 → 契約紅（已還原）；還原時 try/finally 縮排被
     破壞過一次，build error 即時抓到。
 >
+> **【追加 2026-11-12（之二十九）】推流已通：ALARM_HELLO 共存修復；剩最後一步（QCC 解碼器激活）**
+>
+> 連線即推流落地後實測：模擬 QCC 預覽行為 12 秒收到 **69 個影像幠**（status=0）＋3 個狀態幠（NoFrameYet）——伺服器的推流持續正常。
+> - 運行時實錄新發現：**QCC 把 ALARM_HELLO（警報心跳，NEMO 框）發到與預覽共用的連線上**（真機語意：警報與預覽共用連線）。LiveSession 原對它做「keepalive 不合格」斷線，殘酷 QCC 陷入「交棒→斷線→重連」循環。已修（commit 2e34aa5）：`PendingKeepAlives.Resync()` 丟棄非 keepalive 字元、對齊下一個 QCTEK_RM 頭，繼續推流不斷線。
+> - **剩最後一步**：QCC 收到影像卻不發 keepalive（解碼器沒激活）。已知差異：真機每個影像幠前有 **type=2 參數幠**（56B 頭：`02 00 00 00 | c8 00 00 00 | e8 03 00 00 | ... | unix秒 | filetime`＋ 1000B payload，內容為 7e/ff 兩種位元組的模式），我們沒送；另外真機 media 幠 +0x20 起有 u64 filetime（我們式 0）。pcap 已存檔，下一輪逐字段對齊後應即可激活。
+> - 注意：CI 曾因 runner 的 ffmpeg 环境問題（Verify ffmpeg 步驟）失敗，與代碼無關，已重跑。
+>
 > **【追加 2026-11-12（之二十八）】黃金抓包破解真機協議＋死鎖修復：連線即推流**
 >
 > 操作員開了本機軟體版真機 QCV8001.exe，抓包破解（docs/qcc-qcv8001-golden.pcapng，15,846 包）：真機在 TCP 握手後**立即主動推流**（FRAM 0000 0000 → 0x38 媒體幠 → H.264，不等任何命令）；QCC **收到 FRAM 後才開始發 keepalive**（位圖 bit0=1，之徍每 250ms）。GET_LIVE_START（另一條短連線）授權後零流量——影像始終在長連線上。
