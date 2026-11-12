@@ -43,6 +43,11 @@ public static class QctekLiveSession
     /// <summary>超過這個 tick 數沒有 keepalive 就斷線（真機 live 迴圈的 break3 條件）。</summary>
     public const int KeepAliveTimeoutTicks = 0x130;
 
+    /// <summary>啟動寬限：連線後從未見過 keepalive 的逾時上限（三倍嚴格值）。
+    /// 真機的因果方向是「伺服器先推流、QCC 收到後才發 keepalive」，若沿用嚴格值
+    /// 會在 QCC 的第一個 keepalive 到達前就斷線，恢復互相等待的死鎖。</summary>
+    public const int StartupKeepAliveGraceTicks = KeepAliveTimeoutTicks * 3;
+
     /// <summary>tick 週期：真機 live 迴圈的輸出節奏（≈30fps 的寫出上限）。</summary>
     public const int TickMilliseconds = 33;
 
@@ -167,8 +172,15 @@ internal sealed class LiveRunSync
         var pending = new PendingKeepAlives(initial);
         var read = new byte[8192];
         var sinceKeepAlive = 0;
-        var nextTickAt = Environment.TickCount64 + QctekLiveSession.TickMilliseconds;
-
+        // 真機行為（docs/QCC-LIVE-DIAGNOSIS.md §5c）：連線一建立伺服器就推流，
+        // QCC 是收到 FRAM 之後才開始發 keepalive。所以這裡不等 keepalive——
+        // 立即啟用頻道 0 並馬上送出第一個 tick，QCC 的 keepalive 隨後就會到。
+        // 真機行為（docs/QCC-LIVE-DIAGNOSIS.md §5c）：連線一建立伺服器就推流，
+        // QCC 是收到 FRAM 之後才開始發 keepalive。所以這裡不等 keepalive——
+        // 立即啟用頻道 0 並馬上送出第一個 tick，QCC 的 keepalive 隨後就會到。
+        ApplyBitmap(0, FirstChannelBits());
+        var sawKeepAlive = false;
+        var nextTickAt = Environment.TickCount64; // 立即 tick，不等第一個週期
         try
         {
             while (true)
@@ -195,6 +207,7 @@ internal sealed class LiveRunSync
                         }
 
                         sinceKeepAlive = 0;
+                        sawKeepAlive = true;
                         ApplyBitmap(subStream, bits);
                     }
                 }
@@ -205,10 +218,17 @@ internal sealed class LiveRunSync
                 {
                     nextTickAt = now + QctekLiveSession.TickMilliseconds;
                     sinceKeepAlive++;
-                    if (sinceKeepAlive > QctekLiveSession.KeepAliveTimeoutTicks)
+                    // 從未見過 keepalive（QCC 還在等我們的第一個 FRAM）時給啟動寬限：
+                    // 真機的 QCC 在收到推流後 250ms 內就會發第一個 keepalive，寬限是
+                    // 三倍逾時，避免「互相等待」的死鎖再度發生。
+                    var limit = sawKeepAlive
+                        ? QctekLiveSession.KeepAliveTimeoutTicks
+                        : QctekLiveSession.StartupKeepAliveGraceTicks;
+                    if (sinceKeepAlive > limit)
                     {
                         _log?.Invoke(
-                            $"LIVE：{sinceKeepAlive} 個 tick 沒有 keepalive（{_remote}），關閉連線");
+                            $"LIVE：{sinceKeepAlive} 個 tick 沒有 keepalive（{_remote}，" +
+                            $"{(sawKeepAlive ? "已同步" : "啟動寬限內從未收到")}），關閉連線");
                         return;
                     }
 
@@ -229,6 +249,15 @@ internal sealed class LiveRunSync
             StopAll();
             Log($"LIVE：即時影像通道結束（{_remote}）");
         }
+    }
+
+    /// <summary>啟動時的頻道位圖：只有頻道 0（真機的預設預览行為）；QCC 的
+    /// keepalive 到達後會以它自己的位圖覆蓋（含頻道切換與子碼流選擇）。</summary>
+    private bool[] FirstChannelBits()
+    {
+        var bits = new bool[_context.ChannelCount > 0 ? _context.ChannelCount : 1];
+        bits[0] = true;
+        return bits;
     }
 
     /// <summary>輸出 tick：每頻道至多一個 FRAM；沒影格時每秒一個狀態幀。</summary>

@@ -276,9 +276,20 @@ public sealed class QctekPortMux : IAsyncDisposable
                     var protocol = QctekMuxProtocol.NeedMore;
                     while (protocol == QctekMuxProtocol.NeedMore)
                     {
-                        var count = stream.Read(read, 0, read.Length);
+                        var count = NemoSessionLoop.ReadWithPreviewTimeout(stream, read, pending.Length);
                         if (count == 0)
                         {
+                            return;
+                        }
+
+                        if (count < 0)
+                        {
+                            // 黃金抓包 §5c（真機行為）：預覽長連線上 QCC 什麼都不送——它
+                            // 在等伺服器先推流。等待視窗內分類不出協定（沒有任何位元組），
+                            // 按 NEMO 處理並直接交棒即時影像通道開始推流；HTTP 短請求
+                            // 與 config/auth 短連線都會立刻送位元組，不受視窗影響。
+                            _log?.Invoke($"MUX：等待視窗內沒有資料（{remote}），交棒即時影像通道");
+                            NemoSessionLoop.RunSync(stream, pending.ToArray(), remote, _context, _log);
                             return;
                         }
 

@@ -176,10 +176,26 @@ public sealed class NemoServer : IAsyncDisposable
                 {
                     while (true)
                     {
-                        var count = stream.Read(read, 0, read.Length);
+                        var count = NemoSessionLoop.ReadWithPreviewTimeout(stream, read, pending.Length);
                         if (count == 0)
                         {
                             return; // 對方正常關閉
+                        }
+
+                        if (count < 0)
+                        {
+                            // 黃金抓包 §5c（真機行為）：預覽長連線上 QCC 什麼都不送——
+                            // 它在等伺服器先推流（TCP 握手後真機立即送 FRAM 0000 0000）。
+                            // 等待視窗內沒有任何位元組，直接交棒即時影像通道開始推流；
+                            // config/auth 的短連線會立刻送命令，不受視窗影響。
+                            _log?.Invoke($"NEMO：等待視窗內沒有資料（{remote}），交棒即時影像通道");
+                            NemoSessionLoop.RunSync(
+                                stream,
+                                pending.ToArray(),
+                                remote,
+                                _context,
+                                _log);
+                            return;
                         }
 
                         pending.Append(read.AsSpan(0, count));

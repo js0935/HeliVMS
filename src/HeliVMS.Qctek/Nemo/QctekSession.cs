@@ -194,6 +194,16 @@ public sealed class QctekSession
 
         var data = buffer[offset..];
 
+        // QCC 的 live 通道在授權完成後（以及預覽長連線上）送 0x90-byte keepalive
+        // （"QCTEK_RM"＋01 00 00 01＋stream type＋128B 位圖）——raw、無 NEMO 框。
+        // 真機的因果方向（黃金抓包 §5c）：伺服器先推流，QCC 收到 FRAM 後才發
+        // keepalive；所以收到它的第一個位元組就要交棒 live 通道，剩下的位元組
+        // （可能已含後續 keepalive）一起帶過去。
+        if (data.Length >= 12 && data.StartsWith("QCTEK_RM"u8))
+        {
+            return DispatchKeepAlive(offset);
+        }
+
         if (data.StartsWith("NEMO "u8))
         {
             return AdvanceFramed(data, offset);
@@ -201,6 +211,12 @@ public sealed class QctekSession
 
         return AdvanceRaw(data, offset);
     }
+
+    /// <summary>keepalive 交棒：本層不解析（QctekLiveSession 的
+    /// <see cref="Qctek.Live.QctekLiveSession.TryParseKeepAlive"/> 才懂位圖），
+    /// 只把連線標記成 live 通道並把緩衝原樣交給呼叫端。</summary>
+    private QctekSessionResult DispatchKeepAlive(int consumed)
+        => new(consumed, null, QctekCommandHandler.KeepAliveCommandName, false, Live: true);
 
     private QctekSessionResult AdvanceFramed(ReadOnlySpan<byte> data, int offset)
     {

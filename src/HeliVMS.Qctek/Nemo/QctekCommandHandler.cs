@@ -229,6 +229,10 @@ public static class QctekCommandHandler
     public static bool IsSilentHeartbeat(string command)
         => QctekRequest.Raw(command).Verb is "ALARM_HELLO";
 
+    /// <summary>keepalive 交棒時在診斷記錄裡用的命令名（<c>QctekSession</c> 的
+    /// live 交棒結果帶這個名字；它不是線路上的文字命令，只出現在日誌）。</summary>
+    public const string KeepAliveCommandName = "QCTEK_RM (keepalive)";
+
     /// <summary>
     /// 這條命令是否必須先完成 <c>QCV8001_AUTH</c> 挑戰交換。
     /// <para>

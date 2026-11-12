@@ -497,4 +497,66 @@ public class QctekLiveSessionTests
             }
         }
     }
+
+    [Fact]
+    public async Task 連線建立後不送keepalive也會收到頻道0的推流()
+    {
+        // 黃金抓包 §5c：真機的因果方向是「伺服器先推流、QCC 收到 FRAM 後才發
+        // keepalive」。若沿用「等 keepalive 才建頻道」，雙方互相等待——這正是
+        // QCC 黑屏的根因。連線後什麼都不送，第一個 FRAM 必須自己出現。
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        var context = new LiveContext { Factory = (_, _) => new FakeLiveSource(AnnexBStream()) };
+        await using var server = new NemoServer(context, IPAddress.Loopback);
+        server.Start();
+
+        using var client = new TcpClient();
+        await client.ConnectAsync(IPAddress.Loopback, server.Port, timeout.Token);
+        var stream = client.GetStream();
+
+        // 不 Login、不送 keepalive——只讀。
+        FramPacket? first = null;
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
+        while (first is null && DateTime.UtcNow < deadline)
+        {
+            var packet = await ReadFramAsync(stream, timeout.Token);
+            if (packet.Status == 0 && packet.Channel == 0)
+            {
+                first = packet;
+            }
+        }
+
+        Assert.NotNull(first);
+    }
+
+    [Fact]
+    public async Task 未收到keepalive的啟動寬限內不會被逾時斷線()
+    {
+        // 啟動寬限（三倍逾時）內，即使一個 keepalive 都沒有，狀態幀也要持續送出；
+        // 嚴格逾時會在 QCC 的第一個 keepalive 到達前把連線砍掉，恢復死鎖。
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        var context = new LiveContext { Factory = (_, _) => null }; // 沒有來源：只送狀態幀
+        await using var server = new NemoServer(context, IPAddress.Loopback);
+        server.Start();
+
+        using var client = new TcpClient();
+        await client.ConnectAsync(IPAddress.Loopback, server.Port, timeout.Token);
+        var stream = client.GetStream();
+
+        var statusFrames = 0;
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(5);
+        while (DateTime.UtcNow < deadline)
+        {
+            var packet = await ReadFramAsync(stream, timeout.Token);
+            if (packet.Status != 0)
+            {
+                statusFrames++;
+                if (statusFrames >= 2)
+                {
+                    break; // 至少兩個狀態幀（≥2 秒）＝寬限內活著
+                }
+            }
+        }
+
+        Assert.True(statusFrames >= 2, $"寬限期內只收到 {statusFrames} 個狀態幀");
+    }
 }

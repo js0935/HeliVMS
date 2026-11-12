@@ -1,3 +1,4 @@
+using System.Net.Sockets;
 using System.Text;
 using HeliVMS.Qctek.Live;
 
@@ -79,6 +80,22 @@ public static class NemoSessionLoop
                         break; // 半個訊框：繼續讀
                     }
 
+                    if (result.Live && result.Reply is null)
+                    {
+                        // QCTEK_RM keepalive 直接送入的交棒（黃金抓包 §5c）：預覽長連線
+                        // 沒有 GET_LIVE_START——QCC 對真機的 keepalive 走 QCC 啟動即建立
+                        // 的長連線，第一個 keepalive 就是 live 通道的起點。Reply 為 null，
+                        // 不經過「未知命令」分支（那會把它當成缺命令留痕後吞掉）。
+                        pending.Consume(result.Consumed);
+                        QctekLiveSession.RunSync(
+                            stream,
+                            pending.ToArray(),
+                            remote,
+                            context,
+                            log);
+                        return;
+                    }
+
                     if (result.Reply is null)
                     {
                         if (result.Command is not null)
@@ -132,10 +149,26 @@ public static class NemoSessionLoop
                     pending.Consume(result.Consumed);
                 }
 
-                var count = stream.Read(read, 0, read.Length);
+                var count = ReadWithPreviewTimeout(stream, read, pending.Length);
                 if (count == 0)
                 {
                     return; // 對方正常關閉
+                }
+
+                if (count < 0)
+                {
+                    // 黃金抓包 §5c（真機行為）：預覽長連線上 QCC 什麼都不送——它在等
+                    // 伺服器先推流（TCP 握手後真機立即送 FRAM 0000 0000）。等待視窗
+                    // 內沒有任何命令位元組，就把這條連線交棒即時影像通道開始推流；
+                    // config/auth 的短連線會立刻送命令，不受視窗影響。
+                    log?.Invoke($"NEMO：等待視窗內沒有命令（{remote}），交棒即時影像通道");
+                    QctekLiveSession.RunSync(
+                        stream,
+                        pending.ToArray(),
+                        remote,
+                        context,
+                        log);
+                    return;
                 }
 
                 pending.Append(read.AsSpan(0, count));
@@ -148,10 +181,41 @@ public static class NemoSessionLoop
         }
     }
 
+    /// <summary>預覽判定的等待視窗：連線後這麼久沒有任何命令位元組，就視為
+    /// QCC 的預覽長連線（它在等伺服器先推流）並交棒即時影像通道。</summary>
+    public const int PreviewWaitMilliseconds = 600;
+
+    /// <summary>
+    /// 讀一段資料；等待視窗內（僅緩衝還是空的時候）逾時回 <c>-1</c>，之後恢復
+    /// 無限等待。NetworkStream 的 ReadTimeout 逾時會丟 IOException（內層
+    /// SocketException TimedOut），在這裡轉成訊號而不是讓連線整個報錯。
+    /// </summary>
+    internal static int ReadWithPreviewTimeout(Stream stream, byte[] read, int buffered)
+    {
+        var network = stream as NetworkStream;
+        if (network is null || buffered > 0)
+        {
+            return network is null ? stream.Read(read, 0, read.Length) : network.Read(read, 0, read.Length);
+        }
+
+        try
+        {
+            network.ReadTimeout = PreviewWaitMilliseconds;
+            return network.Read(read, 0, read.Length);
+        }
+        catch (IOException ex) when (ex.InnerException is SocketException { SocketErrorCode: SocketError.TimedOut })
+        {
+            return -1;
+        }
+        finally
+        {
+            network.ReadTimeout = Timeout.Infinite;
+        }
+    }
+
     /// <summary>連線的累積緩衝：附加、取用、消耗前綴（量小，位移即可）。</summary>
     internal sealed class FrameBuffer
-    {
-        private byte[] _buffer = new byte[8192];
+    {        private byte[] _buffer = new byte[8192];
         private int _length;
 
         public int Length => _length;
