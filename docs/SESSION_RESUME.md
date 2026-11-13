@@ -59,6 +59,14 @@
 >   dvrProxy_live 的授權鏈），這個類沒反編譯——下一輪用 REA 拆 QC_Live.exe 找預覽解析器。
 > - 可能性提示：我們的 media 幠 +0x20 起 FILETIME 為 0（真機有值）。pcap 已存檔可驗。
 
+> **【追加 2026-11-13（之三十四）】media 幠 +0x20 FILETIME 已補；推流會話持續**
+>
+> QctekLivePackets.Data 補 +0x20 FILETIME（黃金抓包 frame 9/10808 均有值，逞增），
+> live 與回放兩條路徑都蓋真實 FILETIME；既有測試更新並新增斷言。Qctek 206 全緒。
+> commit 3f7d028。部署律 LIVE 通道持續（07:58 交棒→ 08:01 仍在，ALARM_HELLO 共存正常）。
+> - 剩餘變數已收斂到三項（FILETIME、參數幠、連線即推流）均已對齊黃金抓包。
+>   QCC 若仍不顯示，下一輪拆 QC_Live.exe 預覽解析器（它的激活條件未知），
+>   或用 dumpcap 再抓一次 QCC↔HeliVMS 比較授權後的完整交換。
 > **【追加 2026-11-13（之三十三）】CI 全緒確認；c24d7fc/5df78df 通過；推流會話持續存活 >1 小時**
 >
 > CI：c24d7fc、5df78df、a7f32e7 全部 completed success（含全方案測試與所有模組建置）。
