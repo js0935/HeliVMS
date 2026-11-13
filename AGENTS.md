@@ -1220,6 +1220,19 @@ Notes that will save you time:
   的 isProbe 閘**之前**（這些請求不帶 Basic 認證，ua=QCHTMLGET）。伺服器端 live
   全鏈路已被模擬客戶端端到端證明（挑戰→OK→keepalive→FRAM 影格，5170 與 80/MUX
   兩路徑）；黑屏時的完整狀態機與斷點定位見 `docs/QCC-LIVE-DIAGNOSIS.md`。
+- **QCC live 全鏈已完成：伺服器推流與真機逐位元組同構；剩餘變數只在 QCC 端預覽解析器。**
+  黃金抓包（`docs/qcc-qcv8001-golden.pcapng`）證明真機的因果方向是「伺服器先推流、
+  QCC 收到 FRAM 後才發 keepalive」——`QctekLiveSession` 已對齊（連線即推流、
+  type=2 參數幀、+0x20 FILETIME、ALARM_HELLO Resync、等待視窗只適用連線頭部）。
+  QCC 的 keepalive 發送者**不在 QC_IPCAM_Aver.dll**（GetLiveSend 對真機也是零次），
+  也不在可反編譯的其他模組——經 QC_Device_ID.dll 的 PlayerProxy 鏈（設備類型碼
+  0x65→Aver、0x68→HR、0x6b→Deep、0x6c→AVTh、0x69→Hunt、0x6a→AVerEP）。
+  QCC live **確認走 NEMO（80 埠）**，N9000/DVR_NET_SDK（8000 埠）假設已排除
+  （黃金抓包的 8000 流量是 opencode health check）。
+  診斷完整文檔：`docs/QCC-LIVE-DIAGNOSIS.md`；模擬客戶端與 pcap 均已存檔。
+  部署實測：推流會話穩定存活 >1.5 小時、QCC 確認收到影像流。
+  剩餘變數：QC_Live 的 nvr_live.cpp/remote_channel.cpp 預覽解析器的激活條件（源檔名
+  已從 QC_Live.exe 字串定位，拆它即可收斂）。
 - **Pick the sub stream by stream number, never by a magic number in the name.** `OnvifProfileSelection`
   used to carry `"101"` in `MainKeywords` and `"102"` in `SubKeywords`, matched as plain substrings.
   The real camera at `rtsp://<host>/media/stream.sdp?profile=Profile100` exposes three profiles —
