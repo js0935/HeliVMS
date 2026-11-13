@@ -59,6 +59,19 @@
 >   dvrProxy_live 的授權鏈），這個類沒反編譯——下一輪用 REA 拆 QC_Live.exe 找預覽解析器。
 > - 可能性提示：我們的 media 幠 +0x20 起 FILETIME 為 0（真機有值）。pcap 已存檔可驗。
 
+> **【追加 2026-11-13（之三十七）】架構定位：QC_Device_ID.dll 是 dvrProxy 的唯一使用者**
+>
+> PE imports 全掃：bin_release 裡**只有 QC_Device_ID.dll** import QC_IPCAM_Aver.dll
+> （dvrProxy/GetLiveSend 所在）。它的 `DevicePlayer::InitialDvrPlayer` 依廀目代碼
+> （iVar1 = 裝置類型碼）分洿：0x65/0x67→Aver、0x68→HR、0x6b→Deep、0x6c→AVTh、
+> 0x69→Hunt、0x6a→AVerEP——**每個型態一個 PlayerProxy 實例**（位於 this+200 起的陣列，
+> 0x1000 範圍≈ 256 個槽）。
+> - NET_TYPE（LiveAutuor 的 param_2、+0x60 的來源）在這條鏈上：
+>   裝置類型碼 → PlayerProxy 實例 → QC_Client 連線 type。
+>   下一輪從 QC_Device_ID 的裝置類型碼（XLS_DEVICE_LIST +0x65）追到
+>   NET_TYPE 賦值，即可從伺服噩側影響它（例如讓 QCC 把 HeliVMS 當作
+>   0x65/Aver 類型連線，NET_TYPE 就不是 2）。
+> - 另：預覽連線循環斷線已修（寛限後持續推流，commit 49ba0f0）。
 > **【追加 2026-11-13（之三十六）】預覽連線循環斷線修止；用戶回報「用遠端看不到畫面」**
 >
 > 預覽連線放棄後重複「对方開新連線→交棒→推流 30 秒寛限用盡→斷→
@@ -69,6 +82,19 @@
 >   （QCC 畫面在 RDP 下的顯示問題），還是 QCC 中的遠端設備（HeliVMS）無影像。
 >   若是後者，目前伺服器已持續推流（影像幠持續輸出），
 >   剩餘變數在 QCC 端預覽解析器的激活條件（拆 QC_Live.exe）。
+> **【追加 2026-11-13（之三十七）】架構定位：QC_Device_ID.dll 是 dvrProxy 的唯一使用者**
+>
+> PE imports 全掃：bin_release 裡**只有 QC_Device_ID.dll** import QC_IPCAM_Aver.dll
+> （dvrProxy/GetLiveSend 所在）。它的 `DevicePlayer::InitialDvrPlayer` 依廀目代碼
+> （iVar1 = 裝置類型碼）分洿：0x65/0x67→Aver、0x68→HR、0x6b→Deep、0x6c→AVTh、
+> 0x69→Hunt、0x6a→AVerEP——**每個型態一個 PlayerProxy 實例**（位於 this+200 起的陣列，
+> 0x1000 範圍≈ 256 個槽）。
+> - NET_TYPE（LiveAutuor 的 param_2、+0x60 的來源）在這條鏈上：
+>   裝置類型碼 → PlayerProxy 實例 → QC_Client 連線 type。
+>   下一輪從 QC_Device_ID 的裝置類型碼（XLS_DEVICE_LIST +0x65）追到
+>   NET_TYPE 賦值，即可從伺服噩側影響它（例如讓 QCC 把 HeliVMS 當作
+>   0x65/Aver 類型連線，NET_TYPE 就不是 2）。
+> - 另：預覽連線循環斷線已修（寛限後持續推流，commit 49ba0f0）。
 > **【追加 2026-11-13（之三十六）】預覽連線需要點擊；Frida 觸發注入點未找到**
 >
 > 干淨測試（全部重啟）：QCC 重啟後 80 埠**零 ESTABLISHED**——
