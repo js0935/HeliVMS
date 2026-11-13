@@ -232,14 +232,16 @@ internal sealed class LiveRunSync
                     // 從未見過 keepalive（QCC 還在等我們的第一個 FRAM）時給啟動寬限：
                     // 真機的 QCC 在收到推流後 250ms 內就會發第一個 keepalive，寬限是
                     // 三倍逾時，避免「互相等待」的死鎖再度發生。
-                    var limit = sawKeepAlive
-                        ? QctekLiveSession.KeepAliveTimeoutTicks
-                        : QctekLiveSession.StartupKeepAliveGraceTicks;
-                    if (sinceKeepAlive > limit)
+                    //
+                    // 運行時實錄：QCC 的預覽長連線在目前版本下**從不發 keepalive**
+                    //（dvrProxy_live 授權後即關線，發送者在另一個未反編譯的組件裡）。
+                    // 寬限用盡就斷線會讓 QCC 每 ~45 秒重連一次、ffmpeg 反覆起停——
+                    // 改為寬限用盡後**持續推流不斷線**：對端若真的離開，TCP 寫出會
+                    // 拋錯（與真機的「連線斷」同一處理），不會漏掉任何死連線。
+                    if (sawKeepAlive && sinceKeepAlive > QctekLiveSession.KeepAliveTimeoutTicks)
                     {
                         _log?.Invoke(
-                            $"LIVE：{sinceKeepAlive} 個 tick 沒有 keepalive（{_remote}，" +
-                            $"{(sawKeepAlive ? "已同步" : "啟動寬限內從未收到")}），關閉連線");
+                            $"LIVE：{sinceKeepAlive} 個 tick 沒有 keepalive（{_remote}，已同步），關閉連線");
                         return;
                     }
 
