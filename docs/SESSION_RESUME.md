@@ -59,6 +59,15 @@
 >   dvrProxy_live 的授權鏈），這個類沒反編譯——下一輪用 REA 拆 QC_Live.exe 找預覽解析器。
 > - 可能性提示：我們的 media 幠 +0x20 起 FILETIME 為 0（真機有值）。pcap 已存檔可驗。
 
+> **【追加 2026-11-13（之三十八）】N9000/DVR_NET_SDK 假設正式排除**
+>
+> 黃金抓包的 8000 埠流量解碼：`GET /health HTTP/1.1`+「User-Agent: opencode」——
+> 是 opencode CLI 的 health check，不是 QCC 的。QCC 的全部流量在 80 埠（NEMO）。
+> **QCC live 確認走 NEMO，N9000/DVR_NET_SDK 假設欸結**（M5 不需要做）。
+> - 所有已知變數已修：連線即推流、參數幠、FILETIME、ALARM 共存、視窗邊界、
+>   預覽不斷線。推流會話穩定存活 >1.5 小時。
+> - QCC 端剩餘：點擊 live view 後 QCC 收到影像但解碼器沒激活。
+>   下一輪拆 QC_Live.exe 的 nvr_live.cpp / remote_channel.cpp（字串已定位源檔名）。
 > **【追加 2026-11-13（之三十七）】架構定位：QC_Device_ID.dll 是 dvrProxy 的唯一使用者**
 >
 > PE imports 全掃：bin_release 裡**只有 QC_Device_ID.dll** import QC_IPCAM_Aver.dll
@@ -82,6 +91,15 @@
 >   （QCC 畫面在 RDP 下的顯示問題），還是 QCC 中的遠端設備（HeliVMS）無影像。
 >   若是後者，目前伺服器已持續推流（影像幠持續輸出），
 >   剩餘變數在 QCC 端預覽解析器的激活條件（拆 QC_Live.exe）。
+> **【追加 2026-11-13（之三十八）】N9000/DVR_NET_SDK 假設正式排除**
+>
+> 黃金抓包的 8000 埠流量解碼：`GET /health HTTP/1.1`+「User-Agent: opencode」——
+> 是 opencode CLI 的 health check，不是 QCC 的。QCC 的全部流量在 80 埠（NEMO）。
+> **QCC live 確認走 NEMO，N9000/DVR_NET_SDK 假設欸結**（M5 不需要做）。
+> - 所有已知變數已修：連線即推流、參數幠、FILETIME、ALARM 共存、視窗邊界、
+>   預覽不斷線。推流會話穩定存活 >1.5 小時。
+> - QCC 端剩餘：點擊 live view 後 QCC 收到影像但解碼器沒激活。
+>   下一輪拆 QC_Live.exe 的 nvr_live.cpp / remote_channel.cpp（字串已定位源檔名）。
 > **【追加 2026-11-13（之三十七）】架構定位：QC_Device_ID.dll 是 dvrProxy 的唯一使用者**
 >
 > PE imports 全掃：bin_release 裡**只有 QC_Device_ID.dll** import QC_IPCAM_Aver.dll
