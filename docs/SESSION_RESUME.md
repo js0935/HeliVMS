@@ -59,6 +59,12 @@
 >   dvrProxy_live 的授權鏈），這個類沒反編譯——下一輪用 REA 拆 QC_Live.exe 找預覽解析器。
 > - 可能性提示：我們的 media 幠 +0x20 起 FILETIME 為 0（真機有值）。pcap 已存檔可驗。
 
+> **【追加 2026-11-13（之三十五）】CI 確認：3f7d028/a606c78 通過**
+>
+> CI：3f7d028、a606c78 均 completed success。目前所有已知變數
+> （連線即推流、參數幠、FILETIME、ALARM 共存、視窗邊界）均已修並部署。
+> QCC 畫面若仍黑，下一輪：拆 QC_Live.exe 預覽解析器（找激活條件）、
+> 或 dumpcap 再抓 QCC↔HeliVMS 比對授權後交換。
 > **【追加 2026-11-13（之三十四）】media 幠 +0x20 FILETIME 已補；推流會話持續**
 >
 > QctekLivePackets.Data 補 +0x20 FILETIME（黃金抓包 frame 9/10808 均有值，逞增），
