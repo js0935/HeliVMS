@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
 
@@ -54,6 +55,7 @@ public sealed class QctekPortMux : IAsyncDisposable
     private readonly int _requestedPort;
     private readonly int _httpPort;
     private readonly Action<string>? _log;
+    private readonly TimeSpan _classificationIdleTimeout;
 
     private TcpListener? _listener;
     private CancellationTokenSource? _cts;
@@ -65,12 +67,16 @@ public sealed class QctekPortMux : IAsyncDisposable
     /// <param name="address">綁定位址；預設 loopback。</param>
     /// <param name="port">公開埠；<c>0</c>＝由系統指派（測試用）。</param>
     /// <param name="log">可選的訊息記錄。</param>
+    /// <param name="classificationIdleTimeout">
+    /// 分類前等第一包的上限；<c>null</c>＝<see cref="InitialReadGate.DefaultIdleTimeout"/>。
+    /// </param>
     public QctekPortMux(
         IQctekDeviceContext context,
         int httpPort,
         IPAddress? address = null,
         int port = 0,
-        Action<string>? log = null)
+        Action<string>? log = null,
+        TimeSpan? classificationIdleTimeout = null)
     {
         ArgumentNullException.ThrowIfNull(context);
         if (httpPort is <= 0 or > 65535)
@@ -83,6 +89,7 @@ public sealed class QctekPortMux : IAsyncDisposable
         _address = address ?? IPAddress.Loopback;
         _requestedPort = port;
         _log = log;
+        _classificationIdleTimeout = classificationIdleTimeout ?? InitialReadGate.DefaultIdleTimeout;
     }
 
     /// <summary>實際綁定的公開埠（<c>port: 0</c> 時由系統指派）。</summary>
@@ -261,31 +268,60 @@ public sealed class QctekPortMux : IAsyncDisposable
     {
         var socket = client.Client;
         _connections[socket] = 0;
+        var remote = SafeRemoteEndPoint(client);
+        var startedAt = Stopwatch.GetTimestamp();
         try
         {
             using (client)
             {
                 client.NoDelay = true;
+                // 每一條被接受的連線都留痕。「QCC 根本沒連進來」與「連進來但一個位元組
+                // 都沒送」在日誌上曾經長成同一件事（什麼都沒有），而 2026-11-14 的
+                // cfg=0 即時影像嘗試正好落在這兩者之間、無從分辨。
+                _log?.Invoke($"MUX：接受連線（{remote}）");
                 var stream = client.GetStream();
-                var remote = SafeRemoteEndPoint(client);
                 var pending = new NemoSessionLoop.FrameBuffer();
                 var read = new byte[8192];
+                var received = 0;
 
                 try
                 {
                     var protocol = QctekMuxProtocol.NeedMore;
                     while (protocol == QctekMuxProtocol.NeedMore)
                     {
-                        // 分類前先沉默的連線一律無限等：HTTP 請求與 NEMO 命令都會先送
-                        // 位元組，靜默不是任何一種協定的開場。舊版把「600ms 視窗內分類
-                        // 不出協定」當成「等伺服器先推流的預覽線」交棒給 live 通道——
-                        // 那條路把自家警報連線灌滿影片（2026-11-14 逐包實錄）。
-                        var count = stream.Read(read, 0, read.Length);
-                        if (count == 0)
+                        // 分類前先沉默：HTTP 請求與 NEMO 命令都會先送位元組，靜默不是
+                        // 任何一種協定的開場。舊版把「600ms 視窗內分類不出協定」當成
+                        // 「等伺服器先推流的預覽線」交棒給 live 通道——那條路把自家
+                        // 警報連線灌滿影片（2026-11-14 逐包實錄）。
+                        //
+                        // 但「沉默」也不能無限等：Read 是同步阻塞，每條連線佔一條專用
+                        // 執行緒，QCC 斷線後留下的半開連線會把它永遠佔住。
+                        var status = InitialReadGate.Read(
+                            client,
+                            stream,
+                            read,
+                            _classificationIdleTimeout,
+                            out var count);
+
+                        if (status == InitialReadStatus.TimedOut)
                         {
+                            _log?.Invoke(
+                                $"MUX：連線在分類前閒置逾時（{remote}）：{Elapsed(startedAt)}ms、" +
+                                $"已收 {received} bytes，關閉");
                             return;
                         }
 
+                        if (status == InitialReadStatus.Closed)
+                        {
+                            // 對端連上就關線、一個位元組都沒送：這正是「QCC 有沒有把
+                            // live 連線真的送到這裡」的唯一證據，不能靜默結束。
+                            _log?.Invoke(
+                                $"MUX：連線未送出位元組就結束（{remote}）：{Elapsed(startedAt)}ms、" +
+                                $"已收 {received} bytes");
+                            return;
+                        }
+
+                        received += count;
                         pending.Append(read.AsSpan(0, count));
                         protocol = Classify(pending.Span);
                     }
@@ -297,7 +333,9 @@ public sealed class QctekPortMux : IAsyncDisposable
                         return;
                     }
 
-                    _log?.Invoke($"MUX：NEMO 連線來自 {remote}");
+                    _log?.Invoke(
+                        $"MUX：NEMO 連線來自 {remote}（分類前已收 {received} bytes、" +
+                        $"{Elapsed(startedAt)}ms）");
                     NemoSessionLoop.RunSync(stream, pending.ToArray(), remote, _context, _log);
                 }
                 catch (Exception ex)
@@ -312,6 +350,10 @@ public sealed class QctekPortMux : IAsyncDisposable
             _connections.TryRemove(socket, out _);
         }
     }
+
+    /// <summary>從接受到現在的毫秒數（只給診斷行用）。</summary>
+    private static string Elapsed(long startedAt)
+        => Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds.ToString("F0");
 
     /// <summary>
     /// 把連線原封不動轉給內部 Kestrel（同步版）。兩個方向各自半關閉（<c>Shutdown(Send)</c>）：

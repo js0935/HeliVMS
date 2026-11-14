@@ -259,6 +259,61 @@ public class QctekPortMuxTests
         Assert.Equal(0, read);
     }
 
+    [Fact]
+    public async Task 連線沒送出位元組就關閉時會留下來源與經過時間()
+    {
+        // 2026-11-14：QCC 的 cfg=0 即時影像嘗試在 QCC 日誌裡有 StartLiveReq，我方日誌
+        // 那一秒卻完全空白。原因是「連進來了但一個位元組都沒送就關線」走的是靜默 return：
+        // 「根本沒連進來」與「進來就掛掉」在日誌上長成同一件事，而兩者的處置完全相反。
+        // 接受連線本身也要留痕，才有辦法回答「QCC 到底把 live 連線送到哪裡」。
+        var log = new System.Collections.Concurrent.ConcurrentQueue<string>();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        await using var mux = new QctekPortMux(new GoldenContext(), httpPort: UnusedHttpPort(), log: log.Enqueue);
+        mux.Start();
+
+        using (var client = new TcpClient())
+        {
+            await client.ConnectAsync(IPAddress.Loopback, mux.Port, timeout.Token);
+            // 連上就關：分類連一個位元組都還沒拿到。
+        }
+
+        var accepted = await WaitForLogAsync(log, "接受連線", timeout.Token);
+        Assert.Contains("127.0.0.1:", accepted, StringComparison.Ordinal);
+
+        var closed = await WaitForLogAsync(log, "未送出位元組就結束", timeout.Token);
+        Assert.Contains("已收 0 bytes", closed, StringComparison.Ordinal);
+        // 經過時間也要寫出來：0ms 與 8 秒的「零位元組結束」是完全不同的兩件事
+        // （前者是連上就關，後者是對端等了一段時間才放棄），而兩者的處置不同。
+        Assert.Contains("ms、", closed, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task 分類前沉默的連線會逾時關閉而不是永遠佔住執行緒()
+    {
+        // 分類靠同步阻塞讀，而每條連線是一條專用執行緒（見 DedicatedThread）。舊版沒有
+        // 上限：QCC 斷線後留下的半開連線會把執行緒佔到程式結束，日誌上只有一行
+        // 「接受連線」——連「它還活著」都看不出來。
+        var log = new System.Collections.Concurrent.ConcurrentQueue<string>();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        await using var mux = new QctekPortMux(
+            new GoldenContext(),
+            httpPort: UnusedHttpPort(),
+            log: log.Enqueue,
+            classificationIdleTimeout: TimeSpan.FromMilliseconds(300));
+        mux.Start();
+
+        using var client = new TcpClient();
+        await client.ConnectAsync(IPAddress.Loopback, mux.Port, timeout.Token);
+
+        // 一個位元組都不送：伺服器必須自己收線（對端讀到 0）。
+        var buffer = new byte[16];
+        var read = await client.GetStream().ReadAsync(buffer, timeout.Token);
+        Assert.Equal(0, read);
+
+        var line = await WaitForLogAsync(log, "分類前閒置逾時", timeout.Token);
+        Assert.Contains("已收 0 bytes", line, StringComparison.Ordinal);
+    }
+
     /// <summary>內部 Kestrel 的埠：本測試不用它，取一個空閒號碼即可（多工器只轉發才連）。</summary>
     private static int UnusedHttpPort()
     {
@@ -267,6 +322,29 @@ public class QctekPortMuxTests
         var port = ((IPEndPoint)listener.LocalEndpoint).Port;
         listener.Stop();
         return port;
+    }
+
+    private static async Task<string> WaitForLogAsync(
+        System.Collections.Concurrent.ConcurrentQueue<string> log,
+        string fragment,
+        CancellationToken cancellationToken)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(8);
+        while (DateTime.UtcNow < deadline)
+        {
+            foreach (var line in log)
+            {
+                if (line.Contains(fragment, StringComparison.Ordinal))
+                {
+                    return line;
+                }
+            }
+
+            await Task.Delay(25, cancellationToken);
+        }
+
+        Assert.Fail($"日誌沒有出現「{fragment}」：{string.Join(" | ", log)}");
+        return string.Empty;
     }
 
     private static async Task<(string Header, byte[] Payload)> ReadFrameAsync(

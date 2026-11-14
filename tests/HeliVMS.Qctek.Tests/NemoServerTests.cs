@@ -376,6 +376,83 @@ public class NemoServerTests
         Assert.Equal(0, read);
     }
 
+    [Fact]
+    public async Task 沉默的連線會在第一包逾時後關閉並留下日誌()
+    {
+        // 舊版第一包「一律無限等」：連上卻不說話的連線永遠佔著一條專用執行緒，
+        // 而日誌只有一行「連線來自」——看起來像還在等，其實已經沒人會來了。
+        var log = new System.Collections.Concurrent.ConcurrentQueue<string>();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        await using var server = new NemoServer(
+            new TestContext(),
+            IPAddress.Loopback,
+            log: log.Enqueue,
+            firstReadIdleTimeout: TimeSpan.FromMilliseconds(300));
+        server.Start();
+
+        using var client = new TcpClient();
+        await client.ConnectAsync(IPAddress.Loopback, server.Port, timeout.Token);
+
+        var probe = new byte[16];
+        Assert.Equal(0, await client.GetStream().ReadAsync(probe, timeout.Token));
+
+        var line = await WaitForLogAsync(log, "第一包之前閒置逾時", timeout.Token);
+        Assert.Contains("NEMO", line, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task 第一包之後的長連線不會被逾時砍掉()
+    {
+        // 逾時只屬於第一包。還原沒做好的症狀是「警報回報器每 20 秒才發一條命令，
+        // 連線卻在逾時後被自己砍掉」：畫面/事件每隔幾十秒斷一次，日誌只有一行
+        // 看起來像對方斷線。這裡讓連線閒置得比逾時更久，再送第二個命令。
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+        await using var server = new NemoServer(
+            new TestContext(),
+            IPAddress.Loopback,
+            firstReadIdleTimeout: TimeSpan.FromMilliseconds(300));
+        server.Start();
+
+        using var client = new TcpClient();
+        await client.ConnectAsync(IPAddress.Loopback, server.Port, timeout.Token);
+        var stream = client.GetStream();
+
+        await stream.WriteAsync(NemoMessage.EncodeText("CHECK_SERVER_VERSION"), timeout.Token);
+        Assert.Equal("OK QCV8001 ", (await ReadFrameAsync(stream, timeout.Token)).Payload);
+
+        // 真機把 NUL 寫在宣告長度之外（見 伺服器回應版本查詢且標頭與QCV8001逐字一致），
+        // 不先吃掉它，下一個訊框就會整體錯位一格。
+        await stream.ReadExactlyAsync(new byte[1], timeout.Token);
+
+        await Task.Delay(700, timeout.Token); // 遠超過 300ms 的第一包逾時
+
+        await stream.WriteAsync(NemoMessage.EncodeText("GET_NCHANNEL"), timeout.Token);
+        Assert.Equal("OK 8 ", (await ReadFrameAsync(stream, timeout.Token)).Payload);
+    }
+
+    private static async Task<string> WaitForLogAsync(
+        System.Collections.Concurrent.ConcurrentQueue<string> log,
+        string fragment,
+        CancellationToken cancellationToken)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(8);
+        while (DateTime.UtcNow < deadline)
+        {
+            foreach (var line in log)
+            {
+                if (line.Contains(fragment, StringComparison.Ordinal))
+                {
+                    return line;
+                }
+            }
+
+            await Task.Delay(25, cancellationToken);
+        }
+
+        Assert.Fail($"日誌沒有出現「{fragment}」：{string.Join(" | ", log)}");
+        return string.Empty;
+    }
+
     private static async Task<(string Header, string Payload)> ReadFrameAsync(
         NetworkStream stream,
         CancellationToken cancellationToken)

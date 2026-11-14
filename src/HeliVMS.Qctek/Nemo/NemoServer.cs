@@ -27,6 +27,7 @@ public sealed class NemoServer : IAsyncDisposable
     private readonly int _requestedPort;
     private readonly Action<string>? _log;
     private readonly IQctekDeviceContext _context;
+    private readonly TimeSpan _firstReadIdleTimeout;
 
     private TcpListener? _listener;
     private CancellationTokenSource? _cts;
@@ -37,17 +38,22 @@ public sealed class NemoServer : IAsyncDisposable
     /// <param name="address">綁定位址；預設所有介面。</param>
     /// <param name="port">綁定埠；<c>0</c>＝由系統指派（測試用）。</param>
     /// <param name="log">可選的訊息記錄（連線進出、例外）。</param>
+    /// <param name="firstReadIdleTimeout">
+    /// 第一包的等待上限；<c>null</c>＝<see cref="InitialReadGate.DefaultIdleTimeout"/>。
+    /// </param>
     public NemoServer(
         IQctekDeviceContext context,
         IPAddress? address = null,
         int port = 0,
-        Action<string>? log = null)
+        Action<string>? log = null,
+        TimeSpan? firstReadIdleTimeout = null)
     {
         ArgumentNullException.ThrowIfNull(context);
         _address = address ?? IPAddress.Any;
         _requestedPort = port;
         _log = log;
         _context = context;
+        _firstReadIdleTimeout = firstReadIdleTimeout ?? InitialReadGate.DefaultIdleTimeout;
     }
 
     /// <summary>實際綁定的埠（<c>port: 0</c> 時由系統指派）。</summary>
@@ -158,6 +164,8 @@ public sealed class NemoServer : IAsyncDisposable
     {
         var socket = client.Client;
         _connections[socket] = 0;
+        var remote = SafeRemoteEndPoint(client);
+        var startedAt = System.Diagnostics.Stopwatch.GetTimestamp();
         try
         {
             using (client)
@@ -166,7 +174,6 @@ public sealed class NemoServer : IAsyncDisposable
                 var stream = client.GetStream();
                 var pending = new NemoSessionLoop.FrameBuffer();
                 var read = new byte[8192];
-                var remote = SafeRemoteEndPoint(client);
 
                 // 每個連線與每個命令都留痕：QCC 實測失敗時（連不上、命令不認識、密碼錯，
                 // 畫面上長得一樣）這份日誌是唯一的線索。命令摘要會遮蔽密碼段。
@@ -176,14 +183,31 @@ public sealed class NemoServer : IAsyncDisposable
                 {
                     while (true)
                     {
-                        // 第一筆資料一律無限等：靜默連線不是即時影像通道（真機的 live
-                        // 連線以 GET_LIVE_START 開場，QCC 從不先沉默）。舊版把「600ms
-                        // 視窗內沒有位元組」直接交棒給 live 通道——結果是自家警報回報器
-                        // 的連線（ALARM_HELLO 每 20 秒一發、其餘時間靜默）被整條交棒、
-                        // 灌進 15MB 的影片（2026-11-14 逐包實錄）。
-                        var count = stream.Read(read, 0, read.Length);
-                        if (count == 0)
+                        // 第一筆資料最有耐心、但不能無限等：靜默連線不是即時影像通道
+                        // （真機的 live 連線以 GET_LIVE_START 開場，QCC 從不先沉默）。
+                        // 舊版把「600ms 視窗內沒有位元組」直接交棒給 live 通道——結果是
+                        // 自家警報回報器的連線（ALARM_HELLO 每 20 秒一發、其餘時間靜默）
+                        // 被整條交棒、灌進 15MB 的影片（2026-11-14 逐包實錄）。
+                        // 另一端也不能是「永遠」：同步讀佔著一條專用執行緒，
+                        // 斷線後留下的半開連線會把它佔到程式結束（見 InitialReadGate）。
+                        var status = InitialReadGate.Read(
+                            client,
+                            stream,
+                            read,
+                            _firstReadIdleTimeout,
+                            out var count);
+
+                        if (status == InitialReadStatus.TimedOut)
                         {
+                            _log?.Invoke(
+                                $"NEMO：連線在第一包之前閒置逾時（{remote}）：" +
+                                $"{Elapsed(startedAt)}ms，關閉");
+                            return;
+                        }
+
+                        if (status == InitialReadStatus.Closed)
+                        {
+                            _log?.Invoke($"NEMO：連線未送出位元組就結束（{remote}）：{Elapsed(startedAt)}ms");
                             return; // 對方正常關閉
                         }
 
@@ -238,6 +262,10 @@ public sealed class NemoServer : IAsyncDisposable
             _connections.TryRemove(socket, out _);
         }
     }
+
+    /// <summary>從接受到現在的毫秒數（只給診斷行用）。</summary>
+    private static string Elapsed(long startedAt)
+        => System.Diagnostics.Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds.ToString("F0");
 
     private static string SafeRemoteEndPoint(TcpClient client)
     {
