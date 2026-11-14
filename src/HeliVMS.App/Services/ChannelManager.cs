@@ -232,7 +232,9 @@ public sealed class ChannelManager : IDisposable
             await session.SwitchDisplayStreamAsync(target);
 
             // 順序要在切流之後：單畫面時主流是切流才建立的，先設預算會漏掉它。
-            await session.SetLiveBudgetAsync(budget.DecodeWidth, budget.MaxFramesPerSecond);
+            // 次流的寬度只在多分割跟著預算走：單畫面時沒有人在看次流，把 Native 推給它
+            // 會讓展開／收回各重開一次整面牆的次流（每格閃「連線中」2–3 秒）。
+            await session.SetLiveBudgetAsync(budget.DecodeWidth, budget.MaxFramesPerSecond, subFollowsBudget: cellCount > 1);
         }
     }
 

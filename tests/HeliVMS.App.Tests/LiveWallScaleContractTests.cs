@@ -53,6 +53,31 @@ public sealed class LiveWallScaleContractTests
     }
 
     [Fact]
+    public void 展開單格時常駐次流不跟著Native預算重開()
+    {
+        // 症狀：點放大（16→1 分割）與收回，每一格都閃「連線中」2–3 秒。根因是單畫面的
+        // Native 預算被推給「沒有人在看」的常駐次流：480→1280 重開一次、收回再重開回來。
+        // 次流的寬度只在多分割（cellCount ≥ 2）跟著預算走；單畫面的畫質由主流負責。
+        var policy = SourceContract.BodyOf(SourceContract.Read(Manager), "ApplyDisplayPolicyAsync");
+        Assert.Contains("subFollowsBudget: cellCount > 1", policy);
+
+        var budget = SourceContract.BodyOf(SourceContract.Read(Session), "SetLiveBudgetAsync");
+        Assert.Contains("subFollowsBudget", budget);
+        Assert.Contains("if (subFollowsBudget)", budget);
+        Assert.Contains("_subDecodeWidth = width", budget);
+
+        var apply = SourceContract.BodyOf(SourceContract.Read(Session), "ApplyDecodeWidthAsync");
+        // 次流與主流各用各的寬度：次流用 _subDecodeWidth（多分割寬度），主流用 _budgetDecodeWidth。
+        Assert.Contains("EffectiveDecodeWidth(_subDecodeWidth)", apply);
+        Assert.Contains("EffectiveDecodeWidth(_budgetDecodeWidth)", apply);
+        // 套用順序維持「次流先、主流後」：主流可能在套用途中才被建立（EnsureMainAsync）。
+        Assert.True(
+            apply.IndexOf("Client.SetDecodeWidthAsync(", StringComparison.Ordinal)
+            < apply.IndexOf("main.SetDecodeWidthAsync(", StringComparison.Ordinal),
+            "次流的套用應在主流之前（與原順序一致，主流可能緊接著被建立）");
+    }
+
+    [Fact]
     public void 解碼寬度一律經過AI例外換算()
     {
         // 只在一條路徑上套用 ForDetection 是不夠的：主流有「單畫面」與「手動切流」兩條

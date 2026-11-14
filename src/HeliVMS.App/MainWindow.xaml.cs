@@ -2919,9 +2919,13 @@ public partial class MainWindow : Window
     /// <summary>把權威狀態投影成格內文字與顏色（唯一寫入途徑，佈局重建後也走這裡）。</summary>
     private void ApplyCellState(int cell, RtspState state)
     {
-        // 非即時狀態不保留上一段／上一台的影格，否則斷線後畫面會凍在最後一幀、看起來還在連。
-        // 影像交由 ShowCellPlaceholder 顯示「未指派」(Disable) 或「已指派但斷線」(Invisible) 佔位圖。
-        if (state != RtspState.Streaming)
+        // Stopped（真斷線）清掉最後一幀、顯示佔位圖——「配了但攝影機掛了」必須一眼看出，
+        // 否則畫面凍在斷線前那一刻，看起來像還在錄。
+        // Connecting（同一路的重開：切分割跨解碼層級、健康檢查重試）刻意保留最後一幀：
+        // 切一次分割會讓整面牆的次流各重開一次，逐格清成佔位圖再一格格回來，
+        // 就是操作員回報的「點放大或切換分割都會出現連線中」的觀感來源——
+        // 畫面留著、用「連線中」文字與色條標示，重開完成（2–3 秒）後新幀自然覆蓋。
+        if (state == RtspState.Stopped)
         {
             _bitmap[cell] = null;
         }

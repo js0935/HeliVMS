@@ -120,11 +120,15 @@ public sealed class AutoStartMonitoringContractTests
         Assert.Contains("img.Stretch = Stretch.UniformToFill", placeholder);
         Assert.DoesNotContain("Stretch.Uniform;", placeholder);
 
-        // 非即時狀態要清掉最後一張影格，否則畫面凍在斷線前那一刻、佔位圖不會出現。
+        // 只有 Stopped（真斷線）清掉最後一張影格、出佔位圖；Connecting（同一路的重開：
+        // 切分割跨解碼層級、健康檢查重試）保留最後一幀——切一次分割整面牆逐格清成
+        // 佔位圖再回來，是操作員回報「點放大或切換分割都會出現連線中」的主要觀感。
+        // 改回「非即時狀態一律清」會讓這條測試紅。
         var apply = SourceContract.BodyOf(code, "ApplyCellState");
         Assert.NotEqual(string.Empty, apply);
         Assert.Contains("ShowCellPlaceholder(cell)", apply);
-        Assert.Contains("state != RtspState.Streaming", apply);
+        Assert.Contains("state == RtspState.Stopped", apply);
+        Assert.DoesNotContain("state != RtspState.Streaming", apply);
         Assert.Contains("_bitmap[cell] = null", apply);
         // 未指派頻道的空格不出「未連線」文字（Disable 佔位圖已說明空格）。
         Assert.Contains("_cellChannel[cell] is null", apply);

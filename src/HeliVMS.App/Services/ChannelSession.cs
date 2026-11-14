@@ -61,6 +61,13 @@ public sealed class ChannelSession : IDisposable
 
     /// <summary>目前佈局的解碼預算（見 <see cref="LiveWallBudget"/>）；主流建立時要沿用同一組。</summary>
     private int _budgetDecodeWidth;
+
+    /// <summary>
+    /// 常駐次流的解碼寬度預算。只在多分割（<c>SetLiveBudgetAsync</c> 的
+    /// <c>subFollowsBudget</c>）時跟著佈局走：單畫面時畫面是主流，次流留著原寬度，
+    /// 展開／收回才不會為一條沒人看的連線重開 ffmpeg（每格閃「連線中」）。
+    /// </summary>
+    private int _subDecodeWidth;
     private double _budgetMaxFramesPerSecond = LiveWallBudget.DefaultMaxFramesPerSecond;
 
     public ChannelSession(int channelId, string name, string mainDisplayUrl, string subDisplayUrl, SqliteStore store, string recordingsRoot, string snapshotsRoot, bool motionEnabled, IDetectionEngine? detection, bool tamperEnabled = false, LicenseService? license = null, bool listenEnabled = false, int audioSampleRate = AudioStreamReceiver.DefaultSampleRate)
@@ -320,12 +327,14 @@ public sealed class ChannelSession : IDisposable
         }
     }
 
-    /// <summary>把目前的預算（換算過 AI 例外）送給次流與主流。</summary>
+    /// <summary>把目前的預算（換算過 AI 例外）送給次流與主流：次流用它的多分割寬度，
+    /// 主流用目前的預算（單畫面時是 Native）。</summary>
     private async Task ApplyDecodeWidthAsync()
     {
         var width = EffectiveDecodeWidth(_budgetDecodeWidth);
+        var subWidth = EffectiveDecodeWidth(_subDecodeWidth);
 
-        await Client.SetDecodeWidthAsync(width).ConfigureAwait(false);
+        await Client.SetDecodeWidthAsync(subWidth).ConfigureAwait(false);
 
         // 主流可能在上一行之後才被建立（EnsureMainAsync），所以再取一次而不是沿用區域變數。
         if (_mainClient is { } main)
@@ -339,18 +348,29 @@ public sealed class ChannelSession : IDisposable
     /// 顯示需要的寬度，並依格數降低更新率。
     /// </summary>
     /// <remarks>
-    /// 次流與主流都要套用：單畫面時顯示的是主流，若只縮次流，切回單畫面又會恢復成原生解析度
-    /// （切換看起來沒問題，成本卻在無聲中回來）。縮放寬度沒有真的改變時
-    /// <see cref="RtspClient.SetDecodeWidthAsync"/> 不會重開行程，所以切佈局不會閃「連線中」。
+    /// <para>
+    /// 主流永遠跟著預算（單畫面時它就是畫面）。常駐次流只在多分割（<paramref name="subFollowsBudget"/>
+    /// ＝true）跟著走：單畫面時畫面是主流、<b>沒有人在看次流</b>，把 Native 預算推給它等於
+    /// 為一條沒人看的連線重開 ffmpeg——展開／收回各閃一次「連線中」，還會把
+    /// 「重開時同一格先斷後連」的空窗放大成整面牆的（切回多分割時全部格位都要重開回來）。
+    /// 次流留著原寬度，收回時寬度本來就一樣，一次重開都不需要。
+    /// </para>
+    /// <para>
+    /// 縮放寬度沒有真的改變時 <see cref="RtspClient.SetDecodeWidthAsync"/> 不會重開行程。
     /// 這裡刻意不碰錄影：錄影走的是獨立的主流 <c>SegmentRecorder</c>，不受顯示預算影響。
+    /// </para>
     /// </remarks>
-    public async Task SetLiveBudgetAsync(int decodeWidth, double maxFramesPerSecond)
+    public async Task SetLiveBudgetAsync(int decodeWidth, double maxFramesPerSecond, bool subFollowsBudget = true)
     {
         var width = Math.Max(0, decodeWidth);
         var fps = Math.Max(0, maxFramesPerSecond);
 
         _budgetDecodeWidth = width;
         _budgetMaxFramesPerSecond = fps;
+        if (subFollowsBudget)
+        {
+            _subDecodeWidth = width;
+        }
 
         Client.MaxFramesPerSecond = fps;
         if (_mainClient is { } mainClient)
