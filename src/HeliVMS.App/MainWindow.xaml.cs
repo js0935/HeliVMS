@@ -223,6 +223,16 @@ public partial class MainWindow : Window
     /// </summary>
     private readonly Ellipse[] _cellModeDots = new Ellipse[MaxCells];
 
+    /// <summary>
+    /// 每格底邊的「連線狀態色條」：綠＝串流中、黃＝連線／重連中、灰＝未連線、紅＝錄影停滯
+    /// （與狀態文字同一組筆刷，見 <see cref="ApplyCellState"/>）。狀態文字預設關閉
+    /// （<c>monitor.show_status</c>），16 格以上的牆沒有色條時，「哪一台斷了」只能一台一台
+    /// 點開狀態文字才看得到；色條把同一個權威狀態（<see cref="_cellStates"/>）投影到畫面上，
+    /// 只在狀態變化時重畫一次，沒有每幀成本。沒有指派頻道的空格不上色（Disable 佔位圖
+    /// 已說明「還沒配頻道」，上色反而讓空格看起來像故障）。
+    /// </summary>
+    private readonly Border[] _cellStateAccents = new Border[MaxCells];
+
     /// <summary>監看牆的對講（主機麥克風 → 攝影機喇叭，同一時間只有一台）。</summary>
     private LiveTalkController? _talk;
     private readonly Border[] _cellBorders = new Border[MaxCells];
@@ -2357,6 +2367,18 @@ public partial class MainWindow : Window
             };
             audioStrip.Children.Add(audioIcon);
             audioStrip.Children.Add(talkIcon);
+            // 連線狀態色條：底邊 3px（與狀態文字同一組筆刷，見 ApplyCellState）。刻意留在
+            // 數位縮放層外——放大畫面時色條不會跟著跑，也永遠貼在看得見的底緣。
+            // IsHitTestVisible = false：色條只是顯示，不能吃掉格子的選取／拖曳手勢。
+            var stateAccent = new Border
+            {
+                Height = 3,
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                VerticalAlignment = VerticalAlignment.Bottom,
+                Background = BrLive,
+                Visibility = Visibility.Collapsed,
+                IsHitTestVisible = false,
+            };
             // 數位縮放的套用層：影像與 AI 疊加一起變形，狀態文字與頻道徽章留在外層不跟著放大。
             // 疊加框用「顯示中影像」的比例繪製，兩者必須共用同一個 RenderTransform 才會貼在一起。
             var zoomLayer = new Grid();
@@ -2374,6 +2396,7 @@ public partial class MainWindow : Window
             inner.Children.Add(osdTime);
             inner.Children.Add(modeDot);
             inner.Children.Add(audioStrip);
+            inner.Children.Add(stateAccent);
 
             var border = new Border
             {
@@ -2421,6 +2444,7 @@ public partial class MainWindow : Window
             _cellOsdTime[i] = osdTime;
             _cellBadges[i] = badge;
             _cellModeDots[i] = modeDot;
+            _cellStateAccents[i] = stateAccent;
             _cellAudioIcons[i] = audioIcon;
             _cellTalkIcons[i] = talkIcon;
             _cellBorders[i] = border;
@@ -2898,6 +2922,7 @@ public partial class MainWindow : Window
         if (_cellChannel[cell] is null)
         {
             SetCellStatus(cell, string.Empty, BrOffline);
+            ShowCellStateAccent(cell, null, null);
             return;
         }
 
@@ -2905,7 +2930,9 @@ public partial class MainWindow : Window
         // 但磁碟上沒有檔案。所以它在這裡壓過狀態文字，並且必須一直留到復原為止。
         if (_cellChannel[cell] is int owner && _recordingStalls.TryGetValue(owner, out var stall))
         {
-            SetCellStatus(cell, string.Format(Localizer.T("Main.CellStalled"), stall.ConsecutiveFailures), BrStall);
+            var stalledText = string.Format(Localizer.T("Main.CellStalled"), stall.ConsecutiveFailures);
+            SetCellStatus(cell, stalledText, BrStall);
+            ShowCellStateAccent(cell, BrStall, stalledText);
             return;
         }
 
@@ -2914,20 +2941,46 @@ public partial class MainWindow : Window
             case RtspState.Streaming:
                 // 解析度／fps／延遲由幀路徑與每秒巡檢補齊。
                 RenderCellStatusText(cell);
+                ShowCellStateAccent(cell, BrLive, Localizer.T("Main.CellLive"));
                 break;
             case RtspState.Connecting:
                 SetCellStatus(cell, Localizer.T("Main.CellConnecting"), BrConnecting);
+                ShowCellStateAccent(cell, BrConnecting, Localizer.T("Main.CellConnecting"));
                 break;
             case RtspState.Reconnecting:
                 // 帶上原因：401、逾時、位址錯誤的處置完全不同，只寫「重連中」等於沒有資訊。
                 var reason = _cellChannel[cell] is int rc ? _manager?.ReconnectReason(rc) : null;
-                SetCellStatus(cell, reason is null ? Localizer.T("Main.CellReconnecting") : $"{Localizer.T("Main.CellReconnecting")} · {reason}", BrConnecting);
+                var reconnectingText = reason is null
+                    ? Localizer.T("Main.CellReconnecting")
+                    : $"{Localizer.T("Main.CellReconnecting")} · {reason}";
+                SetCellStatus(cell, reconnectingText, BrConnecting);
+                ShowCellStateAccent(cell, BrConnecting, reconnectingText);
                 PushAlert(string.Format(Localizer.T("Main.CellReconnectingAlert"), cell + 1, reason is null ? string.Empty : $"：{reason}"), cell);
                 break;
             default:
                 SetCellStatus(cell, Localizer.T("Main.CellOffline"), BrOffline);
+                ShowCellStateAccent(cell, BrOffline, Localizer.T("Main.CellOffline"));
                 break;
 }
+    }
+
+    /// <summary>把連線狀態投影到格子底邊的 3px 色條（顏色與狀態文字同一組筆刷）。</summary>
+    /// <remarks>
+    /// 唯一寫入點在 <see cref="ApplyCellState"/>：那裡是狀態落地的匯集點
+    /// （<see cref="OnCellState"/>／<see cref="OnCellMappingChanged"/>／重建還原都經過它），
+    /// 色條與狀態文字才不會各說各話。色條只是顯示層——沒有每幀成本，也不吃滑鼠事件。
+    /// </remarks>
+    private void ShowCellStateAccent(int cell, Brush? brush, string? tooltip)
+    {
+        var accent = _cellStateAccents[cell];
+        if (accent is null)
+        {
+            return;
+        }
+
+        accent.Background = brush;
+        accent.ToolTip = tooltip;
+        accent.Visibility = brush is null ? Visibility.Collapsed : Visibility.Visible;
     }
 
     private void UpdateFooter()
@@ -6541,6 +6594,8 @@ public partial class MainWindow : Window
             badge.Visibility = text.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
         }
 
+        UpdateOfflineBadge();
+
         // 喇叭圖示跟著同一個節奏重畫：探測結果（這台到底有沒有音訊軌）是重連時才會回來的，
         // 靠這裡每秒對齊一次，操作員才不會對著一顆「永遠點不出聲音」的圖示。
         UpdateAudioIcons();
@@ -6584,6 +6639,57 @@ public partial class MainWindow : Window
         }
 
         _mirror.ApplyBadges(badges);
+    }
+
+    /// <summary>目前頁簽「配了頻道但狀態不是串流中」的格位（升冪）。</summary>
+    /// <remarks>
+    /// 只算<b>看得到的牆</b>：未指派頻道的空格不算（那是佈局比頻道多，不是故障），
+    /// 不在牆上的離線頻道也不算（頁尾狀態列的「N 台連線中」才是全域口徑）。
+    /// </remarks>
+    private IEnumerable<int> OfflineCells()
+    {
+        for (var i = 0; i < CurrentCellCount(); i++)
+        {
+            if (_cellChannel[i] is not null && _cellStates[i] != RtspState.Streaming)
+            {
+                yield return i;
+            }
+        }
+    }
+
+    /// <summary>
+    /// 頁尾「離線格數」徽章（<see cref="UpdateBadges"/> 的同一秒節奏）。零顆時整顆隱藏，
+    /// 不佔頁尾空間——「全部正常」本來就是大多數時候的狀態，一顆常駐的 0 反而稀釋了
+    /// 真正有離線時的注意力。
+    /// </summary>
+    private void UpdateOfflineBadge()
+    {
+        var offline = OfflineCells().Count();
+        if (offline == 0)
+        {
+            OfflineBadge.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        OfflineBadgeText.Text = string.Format(Localizer.T("Main.OfflineBadge"), offline);
+        OfflineBadge.ToolTip = Localizer.T("Main.OfflineBadgeTip");
+        OfflineBadge.Visibility = Visibility.Visible;
+    }
+
+    /// <summary>點頁尾離線徽章：跳到目前選取格之後的下一個離線格（循環），讓操作員逐台檢查。</summary>
+    private void OnOfflineBadgeClicked(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    {
+        var offline = OfflineCells().ToList();
+        if (offline.Count == 0)
+        {
+            return;
+        }
+
+        // 從「目前選取格」往後找第一個離線格；沒有就在它後面的（＝整疊的第一個）。
+        // 用選取格當基準而不是另外記游標：選取會被別的點擊重設，跟著它走不會出現
+        // 「點了卻跳回同一格」的停滯。
+        var cell = offline.FirstOrDefault(c => c > _selectedCell, offline[0]);
+        SelectCell(cell);
     }
 
     private string ChannelName(int channelId)

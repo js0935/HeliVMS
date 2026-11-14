@@ -318,6 +318,16 @@
                         Cursor="Hand" MouseLeftButtonUp="OnUnackBadgeClicked" ToolTip="">
                         <TextBlock x:Name="UnackText" Foreground="White" FontSize="11" Text=""/>
                     </Border>
+                    <!-- Wall health: how many assigned cells currently have no picture. The per-cell
+                         status text is off by default and a 16-cell wall makes "which camera is down"
+                         a cell-by-cell hunt; this chip keeps the count in the footer and clicking it
+                         jumps to the next dead cell (OnOfflineBadgeClicked). Hidden when zero. -->
+                    <Border x:Name="OfflineBadge" Background="#8A3C2E" CornerRadius="3" Padding="8,2"
+                            Margin="0,0,8,0" Visibility="Collapsed"
+                            Cursor="Hand" MouseLeftButtonUp="OnOfflineBadgeClicked" ToolTip=""
+                            AutomationProperties.AutomationId="OfflineBadge">
+                        <TextBlock x:Name="OfflineBadgeText" Foreground="White" FontSize="11" Text=""/>
+                    </Border>
                     <TextBlock x:Name="StatusText" Text="" Foreground="{StaticResource Brand.TextDim}"
                                FontSize="12" Margin="10,0,0,0"/>
                     <!-- Current date/time: updated by _uiTimer (every second); monospace avoids the
