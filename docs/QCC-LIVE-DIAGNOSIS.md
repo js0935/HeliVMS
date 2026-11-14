@@ -548,3 +548,68 @@ LIVE：即時影像通道結束（<對端>）：已訂閱/未訂閱、影像 N �
 - `已訂閱`但 `影像 0 幀`：問題在我們這一側（頻道位圖或即時影像來源），log 會指出來。
 - `已訂閱`且影像幀數持續增加：這條連線是正常的；QCC 若仍黑屏，回到 §9.1–9.3 檢查
   它的 slot 狀態，不要改我們的推流。
+
+### 9.9 `Out of Memory!` 重啟迴圈會讓一切觀測失效——先清出記憶體（2026-11-14 深夜）
+
+QCC.exe 的記憶體檢查（`FUN_140001ef0`，`GlobalMemoryStatusEx`）：**可用 page file
+低於總量的 10% 就重啟整個 NVR**（`Out of Memory! (N) xxxMB, yyyyMB` → `Stop NVR 3`）。
+11-14 白天 commit 停在 12.3–12.6 GB / 13.9 GB（可用 8–11.8%），QCC 每 40–66 秒死一次：
+每條生命只有「cfg=1 探測 → +15 秒 cfg=0 嘗試 → +13 秒 read fail → OOM」，任何比這長的
+流程（授權後的串流、解碼器激活）**根本沒有機會發生**。本節前半的「cfg=0 永遠連不到」
+就是在這個迴圈裡量出來的。
+
+處置：把分析用後端（Ghidra/REA 的 java，commit ~800 MB）關掉後 commit 降到 10.7 GB
+（可用 23%），迴圈立即停止。**下一次觀測前先看 `%TEMP%\helivms-qctek.log`／QCC `.err`
+有沒有新的 `Out of Memory!`**——有就先清記憶體，否則結論一律無效。
+
+### 9.10 cfg=0 只為「有頻道被指派到監看牆」的裝置發動——「cfg=0 連不到」結案（2026-11-14 深夜）
+
+記憶體健康後重啟 QCC 的乾淨週期（`.err` 14:12，本機 22:12）：
+
+```
+14:12:06  QC_DVR_Aver::Connect OK! 127.0.0.1, 80        ← 我們
+14:12:06  QC_DVR_Aver::Connect OK! 60.251.180.241, 80   ← 真機
+14:12:07  StartLive! 2 ×2 → GET_LIVE_START cfg=1 ×2      ← 兩台都只做探測
+14:12:28  StartLive! 1 → GET_LIVE_START fd=0, cfg=0      ← 只有一台發動串流
+（之後 3 分鐘以上：零 read fail、零 OOM、零 Proxy Shutdown——串流鏈存活）
+```
+
+`Get-NetTCPConnection` 40ms 輪詢（`tcpwatch5.txt`）：22:12:27.639 SynSent →
+22:12:28.136 Established **到 `60.251.180.241:80`**——cfg=0 連的是「頻道有被放到牆上」
+的那台。`127.0.0.1`（HeliVMS）**連 cfg=0 都沒發動**：`FUN_180012d10` 的非 2 路徑在
+`StartLive!` 之前有閘門——
+
+```c
+// FUN_180012d10（param_2 != 2 的排程 tick 路徑）
+if (IsMemoryEmpty((void *)((longlong)param_1 + 0x461ec), 0x80)) {
+    return;   // 該裝置的 1024-bit 頻道位圖全空 → 連 StartLive! 都不印
+}
+```
+
+`+0x461ec` 是 **QCC 自己 UI 的「這台裝置要推哪幾路」位圖**（keepalive 的 128-byte
+位圖同源，見 §7 第 5 步）。QCC 的監看牆上只有真機的頻道，HeliVMS 的頻道一次都沒被
+指派過——所以「cfg=0 永遠到不了 80 埠」**從來不是網路或伺服器的問題**，是 QCC 根本
+沒有對我們發動串流。§9.4 的 busy 楔住是另一層（同樣發生在探測槽）。
+
+**結案**：cfg=0 缺口的唯一剩餘動作是**操作員在 QCC 的 live view 把 HeliVMS 的頻道
+拖上牆**。之後 QCC 會對 `127.0.0.1:80` 發動同一條 cfg=0 鏈（connect → GET_LIVE_START
+→ 挑戰 → SENDCODE → OK → keepalive → FRAM），而這條鏈的伺服器端已在線上完整驗證
+（§9.11）。
+
+### 9.11 HeliVMS 部署版的完整 live 鏈線上驗證（2026-11-14 深夜）
+
+對**正在執行的** HeliVMS（`127.0.0.1:80`，MUX 路徑）跑 §7 腳本的完整流程：
+
+```
+22:07:51.461  MUX：接受連線（127.0.0.1:55427）→ 分類 34 bytes
+22:07:51.461  NEMO ← GET_LIVE_START admin QCV8001_AUTH → 27B 挑戰
+22:07:53.466  NEMO ← QCV8001_AUTH_SENDCODE（32hex）→ "OK \0"
+22:07:53.467  LIVE：即時影像通道開始（127.0.0.1:55427）
+22:07:53.501  QCTEK live：來源已啟動（rtsp://…/live1s1.sdp，pid 16220）
+22:07:53.507  LIVE：頻道 0（主碼流）開始輸出
+22:08:01.548  LIVE：即時影像通道結束：已訂閱、影像 75 幀、狀態 3 幀、音訊 1 幀、8.1 秒
+```
+
+客戶端送出 0x90 keepalive（bit0=1）後 6 秒收到 19,325 bytes 的連續影格資料。
+**伺服器端沒有剩餘工作**：HeliVMS ↔ QCC 之間未驗證的只剩「QCC 解碼器激活」
+（§9.1–9.3 的 QCC 端變數）與操作員把頻道放上牆（§9.10）。

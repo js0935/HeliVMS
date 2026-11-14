@@ -672,14 +672,15 @@ public class QctekLiveSessionTests
     // ── 通道結束時的結論行（探測 vs 真 live）───────────────────────────────
 
     [Fact]
-    public async Task 授權後直接關線會判定為探測並說明要重啟QCC()
+    public async Task 授權後直接關線會判定為探測並指點把頻道放上牆()
     {
         // 2026-11-14 現場：%TEMP%\helivms-qctek.log 一整天只有五次 GET_LIVE_START，
         // 每次都在 20ms 內結束、且從未送出 keepalive——那就是 QCC 的探測連線（cfg=1）。
-        // 同一天 QCC 的 .err 在 28 秒內印了 937 次 StartLive! 0，pcap 卻證實那期間
-        // 一個 TCP 連線都沒有：QCC 的即時影像槽卡住了，而我們這一側沒有東西可修。
-        // 沒有這行結論時，「探測」與「真 live 但沒畫面」在日誌裡長得一模一樣，
-        // 現場只能猜；這條測試釘住「拿不到訂閱就要說出處置方式」。
+        // 反編譯定案（docs/QCC-LIVE-DIAGNOSIS.md §9.10）：探測後關線是 QCC 的設計
+        // （AfterAuthorization 對 cfg≠0 一律 close），而串流鏈（cfg=0）有頻道位圖閘門
+        // IsMemoryEmpty(+0x461ec, 0x80)——頻道沒被拖上 QCC 的監看牆，QCC 根本不會
+        // 對這台發動串流。結論行必須把「先上牆、後重啟」的順序說對，否則操作員
+        // 會一直重啟 QCC 而永遠不做那個真正缺的動作。
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
         var logs = new System.Collections.Concurrent.ConcurrentQueue<string>();
         var context = new LiveContext { Factory = (_, _) => new FakeLiveSource(AnnexBStream()) };
@@ -700,7 +701,13 @@ public class QctekLiveSessionTests
         var summary = Assert.Single(logs, line => line.Contains("即時影像通道結束", StringComparison.Ordinal));
         Assert.Contains("未訂閱", summary);
         Assert.Contains("影像 0 幀", summary);
-        Assert.Contains(logs, line => line.Contains("請重新啟動 QCC", StringComparison.Ordinal));
+        var verdict = Assert.Single(logs, line => line.Contains("判定為探測連線", StringComparison.Ordinal));
+        // 順序是重點：上牆是第一步，重啟 QCC 只是「已上牆仍反覆探測」時的後備。
+        Assert.Contains("監看牆", verdict);
+        Assert.Contains("重新啟動 QCC", verdict);
+        Assert.True(
+            verdict.IndexOf("監看牆", StringComparison.Ordinal) < verdict.IndexOf("重新啟動 QCC", StringComparison.Ordinal),
+            "結論行應先說上牆、再說重啟");
     }
 
     [Fact]

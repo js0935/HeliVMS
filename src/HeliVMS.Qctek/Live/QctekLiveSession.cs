@@ -304,9 +304,11 @@ internal sealed class LiveRunSync
     /// <para>
     /// 2026-11-14 現場：<c>%TEMP%\helivms-qctek.log</c> 一整天只有五次
     /// <c>GET_LIVE_START</c>，每次都在 20ms 內結束、且從未送出 keepalive——那就是探測。
-    /// 同時 QCC 的 <c>.err</c> 在 28 秒內印了 937 次 <c>StartLive! 0</c> 卻<b>完全沒有</b>
-    /// 任何 TCP 連線（pcap 逐包確認）。兩邊合起來才是「QCC 的即時影像槽卡住了」：
-    /// 我們這一側沒有東西可修，重開畫面也不會恢復。
+    /// 探測後關線是 <b>QCC 的設計</b>（<c>AfterAuthorization</c> 對 cfg≠0 一律 close；
+    /// 真機同一情況也是 7–12ms 後 FIN），每台裝置開機都會做一次，不是失敗。
+    /// 真正的串流鏈（cfg=0）在 QCC 的 <c>FUN_180012d10</c> 裡有頻道位圖閘門
+    /// （<c>IsMemoryEmpty(+0x461ec, 0x80)</c>）——<b>頻道沒被拖上 QCC 的監看牆，
+    /// QCC 根本不會對這台發動串流</b>（docs/QCC-LIVE-DIAGNOSIS.md §9.10）。
     /// </para>
     /// </remarks>
     private void LogSummary(bool subscribed)
@@ -320,12 +322,16 @@ internal sealed class LiveRunSync
         if (!subscribed)
         {
             // 授權成功、拿到 "OK " 之後直接關線、從不送 keepalive：QCC 的探測連線就是
-            // 這個形狀（真機同一個情況也是 7–12ms 後 FIN）。所以「只看到探測」不代表
-            // 我們的位元組有問題——代表 QCC 沒有進入真 live 那條路徑。
+            // 這個形狀（真機同一個情況也是 7–12ms 後 FIN），而且是每台裝置開機的例行動作。
+            // 「只看到探測」最常見的原因不是槽卡住，而是 QCC 的監看牆上沒有這台的頻道——
+            // 頻道位圖全空時 QCC 連 cfg=0 都不發動（docs/QCC-LIVE-DIAGNOSIS.md §9.10）。
+            // 槽卡住（§9.2 busy 洩漏）只發生在「已上牆卻反覆探測」，那才需要重啟 QCC。
             Log(
                 "LIVE：判定為探測連線（未送出 keepalive，QCC 的 cfg=1）。" +
-                "若 QCC 一直看不到畫面，代表它的即時影像槽已卡在失敗狀態：" +
-                "請重新啟動 QCC，或把裝置移除後重新加入（只重開畫面不會恢復）");
+                "探測後關線是 QCC 的設計，每台裝置開機都會做一次；真正的串流鏈只對" +
+                "「頻道已被拖上 QCC 監看牆」的裝置發動——請先在 QCC 的 live view 把" +
+                "HeliVMS 的頻道拖上牆；若已在牆上仍反覆出現探測，才需重新啟動 QCC" +
+                "或把裝置移除後重新加入");
             return;
         }
 

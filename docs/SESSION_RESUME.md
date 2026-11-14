@@ -4,6 +4,33 @@
 > 權威來源：`git` 與 GitHub Actions 的現況（不是聊天記錄）。
 > 所有里程碑均已 commit＋push、CI 全綠、工作目錄乾淨（下方數據皆為驗證過的真實值）。
 
+> **【追加 2026-11-14（之二）】cfg=0 連不到結案：QCC 只對「頻道已上牆」的裝置發動串流；OOM 迴圈清場後 QCC 首次穩定跑通真機串流**
+>
+> 白天「cfg=0 的 GET_LIVE_START 寫出成功卻永遠沒有 TCP 連線」的謎團，兩個因素疊加：
+> - **OOM 重啟迴圈**：commit 12.3–12.6GB／13.9GB（可用 8–11.8%）時 QCC 每 40–66 秒死一次，
+>   任何觀測都在迴圈裡。關掉 REA 的 Ghidra 後端（java ~800MB）後 commit 10.7GB（可用 23%），
+>   迴圈立即停止——**觀測前先看 .err 有沒有新的 `Out of Memory!`**。
+> - **頻道位圖閘門**：`FUN_180012d10` 非 2 路徑在 `StartLive!` 前有
+>   `IsMemoryEmpty(+0x461ec, 0x80)`——該裝置的 1024-bit 頻道位圖（QCC 自己 UI 的
+>   監看牆指派）全空就連 StartLive! 都不印。健康記憶體的乾淨週期（.err 14:12）：
+>   兩台都只做 cfg=1 探測；cfg=0 只為真機（60.251.180.241，頻道在牆上）發動，
+>   tcpwatch 40ms 輪詢看到它 SynSent→Established 到**真機的 80**，之後 3 分鐘以上
+>   零 read fail／零 OOM——**QCC 首次完整穩定跑通串流鏈**。HeliVMS 的 127.0.0.1
+>   連 cfg=0 都沒發動：不是網路問題，是沒有頻道上牆。
+> - **伺服器端線上驗證**（部署版、MUX 80 路徑）：GET_LIVE_START→挑戰→SENDCODE→OK
+>   →keepalive(bit0)→**6 秒 19,325 bytes**；HeliVMS 日誌「已訂閱、影像 75 幀、狀態 3 幀、
+>   音訊 1 幀、8.1 秒」。**伺服器端沒有剩餘工作**。
+> - 剩餘動作（操作員）：在 QCC 的 live view 把 HeliVMS 的頻道拖上牆；
+>   之後 QCC 會對 127.0.0.1:80 跑同一條鏈。QCC 解碼器激活（拆 QC_Live.exe）
+>   只在畫面仍黑時才是下一個變數。
+> - 代碼：`QctekLiveSession` 探測結論行改為「先上牆、後重啟」的正確順序
+>   （探測後關線是 QCC 的設計，每台裝置開機都會做一次）；測試改名
+>   `授權後直接關線會判定為探測並指點把頻道放上牆`（突變驗證紅後還原）。
+>   HeliVMS.Qctek 218 綠；App 以 `obj\verify-bin\` 驗證編譯 0/0（執行中的 App
+>   鎖住 bin，未強殺——新 DLL 待下次重啟生效）。
+> - 文件：`docs/QCC-LIVE-DIAGNOSIS.md` 新增 §9.9（OOM 迴圈）、§9.10（cfg=0 結案）、
+>   §9.11（部署版線上驗證）。
+>
 > **【追加 2026-11-14】真機 QCV8001 → QCC 的線路格式全量解出：type=2 是音訊、`+0x20` 是指標槽，「伺服器先推流」被推翻**
 >
 > 依黃金抓包（`docs/qcc-qcv8001-golden.pcapng`，stream 0＝port 61265、stream 48＝
