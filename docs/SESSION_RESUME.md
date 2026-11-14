@@ -31,6 +31,25 @@
 > - 文件：`docs/QCC-LIVE-DIAGNOSIS.md` 新增 §9.9（OOM 迴圈）、§9.10（cfg=0 結案）、
 >   §9.11（部署版線上驗證）。
 >
+> **【追加 2026-11-15】監控中心 UI 兩輪：牆上健康一眼判讀＋頁籤台數（5c7e088／68ac7ba，CI 綠）**
+>
+> 操作員指示「先改進監控中心 UI 介面」。兩輪都已 commit＋push、CI 逐筆 success，
+> 且已部署（App 於 00:46 重啟，10 格牆全 Streaming、wpf=2）：
+> - **每格底邊 3px 連線狀態色條**（5c7e088）：綠＝串流、黃＝連線／重連、灰＝未連線、
+>   紅＝錄影停滯——與狀態文字同一組筆刷、同一個權威狀態（_cellStates）。狀態文字預設
+>   關閉，16 格以上的牆「哪一台斷了」原本只能一台一台點右鍵才看得到。唯一寫入點在
+>   `ApplyCellState`（高頻路徑不得摸色條——契約釘死，突變驗證過）；空格不上色。
+> - **頁尾「離線 N 格」徽章**（同 commit）：只算目前頁籤配了頻道卻沒畫面的格數，零顆時
+>   整顆隱藏；點一下跳到選取格之後的下一個離線格（循環）。掛 UpdateBadges 同一秒節奏。
+> - **群組頁籤台數**（68ac7ba）：頁籤標題＝名稱（台數）。台數取自**資料庫**而不是
+>   `_channelList`——ReloadGroupTabs 在載入初期跑在 RefreshChannelList 之前，用後者
+>   每個頁籤都會是 0；成員過濾已刪頻道與 WallChannels 同口徑。突變驗證「改回 _channelList」紅。
+> - 新契約測試 10 條（MonitorWallHealthContractTests 7＋MonitorGroupTabCountContractTests 3），
+>   App.Tests 872/873（唯一紅為本機 untracked Tools/ 的既有 SolutionCoverageTests，CI 不含）。
+> - 部署後觀察：10 格牆 shown=2.5–5.4/s（cap=10）、age 75–205ms——低於 cap 是 10 格牆在
+>   4 核＋38 條 ffmpeg＋代理工具競爭下的 UI 吐吐，色條／徽章零每幀成本，非本輪回歸；
+>   helivms-live.log 一行可判（wpf=2、read≈15/s、Streaming 全綠）。
+>
 > **【追加 2026-11-14】真機 QCV8001 → QCC 的線路格式全量解出：type=2 是音訊、`+0x20` 是指標槽，「伺服器先推流」被推翻**
 >
 > 依黃金抓包（`docs/qcc-qcv8001-golden.pcapng`，stream 0＝port 61265、stream 48＝
