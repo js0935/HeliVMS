@@ -150,7 +150,13 @@ internal sealed class LiveRunSync
     private readonly IQctekDeviceContext _context;
     private readonly Action<string>? _log;
     private readonly ChannelState?[] _channels;
+    private readonly long _startedAt = Environment.TickCount64;
     private int _subStream;
+
+    // 這三個計數只由輪詢執行緒（Tick／StartChannel）寫，因此不需要鎖。
+    private long _videoFrames;
+    private long _statusFrames;
+    private long _audioFrames;
 
     public LiveRunSync(
         NetworkStream stream,
@@ -281,7 +287,54 @@ internal sealed class LiveRunSync
         finally
         {
             StopAll();
-            Log($"LIVE：即時影像通道結束（{_remote}）");
+            LogSummary(sawKeepAlive);
+        }
+    }
+
+    /// <summary>
+    /// 通道結束時的結論行：這一次到底是「探測」還是「真的推流」，以及推了幾幀。
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// 為什麼要在結束時給一句結論：QCC 的即時影像有兩種連線（<c>docs/QCC-LIVE-DIAGNOSIS.md</c> §9）
+    /// ——探測（cfg=1）授權後就關線、真 live（cfg=0）會送 keepalive 訂閱。畫面不出來時，
+    /// 「我們這一側到底有沒有收到訂閱」是唯一能分辨兩端責任的事實，而日誌原本只有
+    /// 「通道開始／結束」，看起來完全一樣。
+    /// </para>
+    /// <para>
+    /// 2026-11-14 現場：<c>%TEMP%\helivms-qctek.log</c> 一整天只有五次
+    /// <c>GET_LIVE_START</c>，每次都在 20ms 內結束、且從未送出 keepalive——那就是探測。
+    /// 同時 QCC 的 <c>.err</c> 在 28 秒內印了 937 次 <c>StartLive! 0</c> 卻<b>完全沒有</b>
+    /// 任何 TCP 連線（pcap 逐包確認）。兩邊合起來才是「QCC 的即時影像槽卡住了」：
+    /// 我們這一側沒有東西可修，重開畫面也不會恢復。
+    /// </para>
+    /// </remarks>
+    private void LogSummary(bool subscribed)
+    {
+        var seconds = Math.Max(0, Environment.TickCount64 - _startedAt) / 1000d;
+        Log(
+            $"LIVE：即時影像通道結束（{_remote}）：{(subscribed ? "已訂閱" : "未訂閱")}、" +
+            $"影像 {_videoFrames} 幀、狀態 {_statusFrames} 幀、音訊 {_audioFrames} 幀、" +
+            $"{seconds:0.0} 秒");
+
+        if (!subscribed)
+        {
+            // 授權成功、拿到 "OK " 之後直接關線、從不送 keepalive：QCC 的探測連線就是
+            // 這個形狀（真機同一個情況也是 7–12ms 後 FIN）。所以「只看到探測」不代表
+            // 我們的位元組有問題——代表 QCC 沒有進入真 live 那條路徑。
+            Log(
+                "LIVE：判定為探測連線（未送出 keepalive，QCC 的 cfg=1）。" +
+                "若 QCC 一直看不到畫面，代表它的即時影像槽已卡在失敗狀態：" +
+                "請重新啟動 QCC，或把裝置移除後重新加入（只重開畫面不會恢復）");
+            return;
+        }
+
+        if (_videoFrames == 0)
+        {
+            // 訂閱到了卻一幀都沒有：問題在我們這一側（來源／位圖），與探測無關。
+            Log(
+                "LIVE：已訂閱但沒有送出任何影像幀——" +
+                "檢查頻道位圖與即時影像來源（ffmpeg／攝影機憑證），CMS 只會看到 0x8001/0x8002 狀態幀");
         }
     }
 
@@ -309,6 +362,7 @@ internal sealed class LiveRunSync
                         unit.Video,
                         wallClock.ToUnixTimeSeconds(),
                         wallClock.UtcDateTime.Microsecond));
+                _videoFrames++;
                 state.LastStatusAt = wallClock;
                 continue;
             }
@@ -330,6 +384,7 @@ internal sealed class LiveRunSync
                     : state.HadSource
                         ? QctekLivePackets.StatusNoProxy
                         : QctekLivePackets.StatusNoSource));
+            _statusFrames++;
             state.LastStatusAt = wallClock;
         }
     }
@@ -430,6 +485,7 @@ internal sealed class LiveRunSync
                 state.Channel,
                 wallClock.ToUnixTimeSeconds(),
                 wallClock.UtcDateTime.Microsecond));
+            _audioFrames++;
         }
         catch (Exception ex)
         {

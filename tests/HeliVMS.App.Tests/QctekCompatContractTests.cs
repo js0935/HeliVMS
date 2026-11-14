@@ -161,6 +161,19 @@ public sealed class QctekCompatContractTests
             var lines = i18n.Split('\n').Where(line => line.Contains($"\"{key}\"", StringComparison.Ordinal)).ToList();
             Assert.All(lines, line => Assert.Contains("{0}", line));
         }
+
+        // QCC 的即時影像槽位一旦卡住，重開畫面不會恢復（只有重啟 QCC 或移除裝置重新加入才行）。
+        // 這個處置只有設定頁這一行字會告訴操作員，所以三語都必須帶到；少了它，現場只能靠猜。
+        var intro = i18n.Split('\n')
+            .Where(line => line.Contains("\"Settings.QctekIntroText\"", StringComparison.Ordinal))
+            .ToList();
+        Assert.Equal(3, intro.Count);
+        Assert.All(intro, line => Assert.Contains("QCC", line));
+        Assert.All(intro, line => Assert.True(
+            line.Contains("重新啟動 QCC", StringComparison.Ordinal) ||
+            line.Contains("重新启动 QCC", StringComparison.Ordinal) ||
+            line.Contains("restart QCC", StringComparison.Ordinal),
+            "設定頁文案要說明啟用或變更連接埠後需重啟 QCC：" + line));
     }
 
     [Fact]

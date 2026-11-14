@@ -230,6 +230,24 @@ public class QctekLiveSessionTests
         Assert.Equal(new byte[] { 0x4f, 0x4b, 0x20, 0x00 }, ok);
     }
 
+    /// <summary>等日誌出現指定片段（通道結束的結論行由連線執行緒寫入，測試端要等）。</summary>
+    private static async Task WaitForLogAsync(
+        System.Collections.Concurrent.ConcurrentQueue<string> logs, string fragment, CancellationToken ct)
+    {
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
+        while (DateTime.UtcNow < deadline)
+        {
+            if (logs.Any(line => line.Contains(fragment, StringComparison.Ordinal)))
+            {
+                return;
+            }
+
+            await Task.Delay(50, ct);
+        }
+
+        Assert.Fail($"日誌沒有出現「{fragment}」：{string.Join("／", logs)}");
+    }
+
     [Fact]
     public async Task 位圖要求的頻道會輸出關鍵與非關鍵影格的FRAM()
     {
@@ -649,5 +667,130 @@ public class QctekLiveSessionTests
         await stream.WriteAsync(KeepAlive(0, 0), timeout.Token);
         var packet = await ReadFramAsync(stream, timeout.Token);
         Assert.Equal(0x8002, packet.Status);
+    }
+
+    // ── 通道結束時的結論行（探測 vs 真 live）───────────────────────────────
+
+    [Fact]
+    public async Task 授權後直接關線會判定為探測並說明要重啟QCC()
+    {
+        // 2026-11-14 現場：%TEMP%\helivms-qctek.log 一整天只有五次 GET_LIVE_START，
+        // 每次都在 20ms 內結束、且從未送出 keepalive——那就是 QCC 的探測連線（cfg=1）。
+        // 同一天 QCC 的 .err 在 28 秒內印了 937 次 StartLive! 0，pcap 卻證實那期間
+        // 一個 TCP 連線都沒有：QCC 的即時影像槽卡住了，而我們這一側沒有東西可修。
+        // 沒有這行結論時，「探測」與「真 live 但沒畫面」在日誌裡長得一模一樣，
+        // 現場只能猜；這條測試釘住「拿不到訂閱就要說出處置方式」。
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        var logs = new System.Collections.Concurrent.ConcurrentQueue<string>();
+        var context = new LiveContext { Factory = (_, _) => new FakeLiveSource(AnnexBStream()) };
+        await using var server = new NemoServer(context, IPAddress.Loopback, log: logs.Enqueue);
+        server.Start();
+
+        using (var client = new TcpClient())
+        {
+            await client.ConnectAsync(IPAddress.Loopback, server.Port, timeout.Token);
+            var stream = client.GetStream();
+            await LoginAsync(stream, timeout.Token);
+
+            // 不送 keepalive：QCC 的探測連線正是「拿到 OK 就關線」這個形狀。
+        }
+
+        await WaitForLogAsync(logs, "判定為探測連線", timeout.Token);
+
+        var summary = Assert.Single(logs, line => line.Contains("即時影像通道結束", StringComparison.Ordinal));
+        Assert.Contains("未訂閱", summary);
+        Assert.Contains("影像 0 幀", summary);
+        Assert.Contains(logs, line => line.Contains("請重新啟動 QCC", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task 已訂閱但零影格時會指出是來源這一側的問題()
+    {
+        // 反面：真的收到訂閱（keepalive）卻一幀都沒送出，代表問題在我們這一側
+        // （頻道位圖／ffmpeg／攝影機憑證），不能把責任推給 QCC 的槽。
+        // 空位圖＝已訂閱但沒有任何頻道要推流，正是這個形狀。
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        var logs = new System.Collections.Concurrent.ConcurrentQueue<string>();
+        var context = new LiveContext { Factory = (_, _) => new FakeLiveSource(AnnexBStream()) };
+        await using var server = new NemoServer(context, IPAddress.Loopback, log: logs.Enqueue);
+        server.Start();
+
+        using (var client = new TcpClient())
+        {
+            await client.ConnectAsync(IPAddress.Loopback, server.Port, timeout.Token);
+            var stream = client.GetStream();
+            await LoginAsync(stream, timeout.Token);
+            await stream.WriteAsync(KeepAlive(0), timeout.Token); // bit 全空：已訂閱、沒有頻道
+        }
+
+        await WaitForLogAsync(logs, "已訂閱但沒有送出任何影像幀", timeout.Token);
+
+        var summary = Assert.Single(logs, line => line.Contains("即時影像通道結束", StringComparison.Ordinal));
+        Assert.Contains("已訂閱", summary);
+        Assert.Contains("影像 0 幀", summary);
+        Assert.DoesNotContain(logs, line => line.Contains("判定為探測連線", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task 結論行會計入真的送出的影像與音訊幀()
+    {
+        // 幀數是「我們這一側到底有沒有在推流」的唯一數字。計數漏加時，
+        // 明明推了整場的影像仍然寫「影像 0 幀」，會把一次正常的連線診斷成來源壞掉。
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        var logs = new System.Collections.Concurrent.ConcurrentQueue<string>();
+        var context = new LiveContext { Factory = (_, _) => new FakeLiveSource(AnnexBStream()) };
+        await using var server = new NemoServer(context, IPAddress.Loopback, log: logs.Enqueue);
+        server.Start();
+
+        using (var client = new TcpClient())
+        {
+            await client.ConnectAsync(IPAddress.Loopback, server.Port, timeout.Token);
+            var stream = client.GetStream();
+            await LoginAsync(stream, timeout.Token);
+            await stream.WriteAsync(KeepAlive(0, 0), timeout.Token);
+
+            var packet = await ReadFramAsync(stream, timeout.Token);
+
+            // 第一個 FRAM 是 type=2 音訊幀（真機的黃金抓包也一樣），要等到影像幀。
+            while (packet.Status != 0 || packet.Type != 1)
+            {
+                packet = await ReadFramAsync(stream, timeout.Token);
+            }
+
+            Assert.Equal(0, packet.Channel);
+        }
+
+        await WaitForLogAsync(logs, "即時影像通道結束", timeout.Token);
+        var summary = Assert.Single(logs, line => line.Contains("即時影像通道結束", StringComparison.Ordinal));
+        Assert.Matches(@"影像 [1-9]\d* 幀", summary);
+        Assert.Contains("音訊 1 幀", summary);
+    }
+
+    [Fact]
+    public async Task 結論行會計入狀態幀()
+    {
+        // 沒有來源時每秒一個狀態幀（0x8002＝攝影機資訊無效）。這條數字漏加時，
+        // 日誌會說「狀態 0 幀」，與 CMS 實際收到的畫面互相矛盾。
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        var logs = new System.Collections.Concurrent.ConcurrentQueue<string>();
+        var context = new LiveContext { Factory = (_, _) => null };
+        await using var server = new NemoServer(context, IPAddress.Loopback, log: logs.Enqueue);
+        server.Start();
+
+        using (var client = new TcpClient())
+        {
+            await client.ConnectAsync(IPAddress.Loopback, server.Port, timeout.Token);
+            var stream = client.GetStream();
+            await LoginAsync(stream, timeout.Token);
+            await stream.WriteAsync(KeepAlive(0, 0), timeout.Token);
+
+            var packet = await ReadFramAsync(stream, timeout.Token);
+            Assert.Equal(0x8002, packet.Status);
+        }
+
+        await WaitForLogAsync(logs, "即時影像通道結束", timeout.Token);
+        var summary = Assert.Single(logs, line => line.Contains("即時影像通道結束", StringComparison.Ordinal));
+        Assert.Matches(@"狀態 [1-9]\d* 幀", summary);
+        Assert.Contains("影像 0 幀", summary);
     }
 }
