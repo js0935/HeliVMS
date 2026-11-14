@@ -4,6 +4,39 @@
 > 權威來源：`git` 與 GitHub Actions 的現況（不是聊天記錄）。
 > 所有里程碑均已 commit＋push、CI 全綠、工作目錄乾淨（下方數據皆為驗證過的真實值）。
 
+> **【追加 2026-11-14】真機 QCV8001 → QCC 的線路格式全量解出：type=2 是音訊、`+0x20` 是指標槽，「伺服器先推流」被推翻**
+>
+> 依黃金抓包（`docs/qcc-qcv8001-golden.pcapng`，stream 0＝port 61265、stream 48＝
+> port 54079）逐幀重解，`framfull.py`／`fram48b.py`／`framptr.py` 對兩條串流
+> （1475＋709 幀）做到 **0 desync、0 leftover**：
+> - **因果方向相反**：`GET_LIVE_START`(125.474972) → 27B 挑戰 → `AUTH_SENDCODE`
+>   → `OK \0` → **QCC 第一個 144B keepalive**(+14.5ms) → **裝置第一個 FRAM**(+30ms)。
+>   真機在 keepalive 前零輸出；舊版「連線即推流」會被 QCC 3.5ms 內 RST。
+> - **FRAM**：8B（`FRAM`＋u16 channel＋u16 status）＋56B media header（14×u32：
+>   type/codec/主體長度/b1/b2/微秒/unix 秒/0/三個指標槽）＋payload（b1 SPS→b2 PPS→
+>   主體）；總長＝`8+0x38+f3+f4+f2`，與 `readQCV8001frame` 一致。關鍵影格 b1=118
+>   （SPS）、b2=8（PPS）、其餘 b1=b2=0；5fps、GOP≈1 秒。
+> - **type=2 是音訊**（`GetFrameQCTekAudio`：codec 200＝G.711 µ-law、長度 1000；
+>   906/906 包 payload 只有 `0x7e/0xff/0xfe` 近靜音），舊「參數幀叫醒預覽解析器」
+>   無證據、已作廢。
+> - **`+0x20/+0x28/+0x30` 是伺服器自己行程的緩衝指標槽，不是 FILETIME**：關鍵影格
+>   `+0x30−+0x28` 恰等於 b1 長度 118（114/114）、三個高位 u32 全相同；音訊幀 `+0x28`
+>   固定殘值 1416（906/906）。客戶端以三個長度重算，所以一律寫 0——舊 commit
+>   `3f7d028` 把高位 `0x172` 誤讀成 FILETIME。
+> - **真機沒送過狀態幀**：2,184 幀裡 0 個 8-byte 狀態幀、0 個 `NO DATA`；兩者只是
+>   客戶端容忍（狀態幀→media type 7，`NO DATA`→−200）。
+>
+> 程式碼：`QctekLivePackets.Data` 移除 `fileTime`、指標槽一律 0；
+> `ParameterFrame`/`ParameterPayload` → `AudioFrame`/`SilentAudioPayload`（type=2、
+> codec 200、1000B、b1/b2=0）。文件新增 `docs/QCC-LIVE-DIAGNOSIS.md` §8（完整規格、
+> 握手時序、TCP 段長、實作差異表），§5b「授權後關線＝根因」標記作廢。
+> 測試：Qctek **210/210 全綠**；突變驗證兩項（`media[0x0c]` 寫成 payload 長度→5 條紅、
+> `+0x20` 寫 `0x0172…`→「指標欄位一律為零…」紅），皆已還原。
+> 剩餘變數仍在 QCC 端：`QC_Live` 的預覽解析器激活條件（下一步：反編譯
+> `FUN_180011090`/`FUN_1800106e0`、Frida 補掛 `StartLive_QCV8001` 取 `cfg` 與
+> backtrace、追 `SetDisplay lock fail!`）。
+>
+
 > **【追加 2026-11-12（之十八）】發佈副本（win-x64）落後 11 輪——建置時間必須亮給操作員**
 >
 > 之十一的懸案追蹤用 REA 反編譯實錘：`bin\Release\net10.0-windows\win-x64\` 有一份

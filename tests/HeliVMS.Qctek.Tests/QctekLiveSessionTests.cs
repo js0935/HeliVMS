@@ -264,7 +264,7 @@ public class QctekLiveSessionTests
         try
         {
             // 假來源一次讀完：AU 分組會交出 IDR AU 與 P AU 各一個，tick 逐個輸出。
-            // 參數幀（type=2，每頻道開流時一個）不算影像幀。
+            // 音訊幀（type=2，每頻道開流時一個）不算影像幀。
             var frames = new List<FramPacket>();
             var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
             while (frames.Count < 2 && DateTime.UtcNow < deadline)
@@ -391,6 +391,51 @@ public class QctekLiveSessionTests
         Assert.Equal(1, source.Disposed);
     }
 
+    [Fact]
+    public async Task 第一個keepalive到達前不會寫出任何位元組()
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        var context = new LiveContext { Factory = (_, _) => new FakeLiveSource(AnnexBStream()) };
+        await using var server = new NemoServer(context, IPAddress.Loopback);
+        server.Start();
+
+        using var client = new TcpClient();
+        await client.ConnectAsync(IPAddress.Loopback, server.Port, timeout.Token);
+        var stream = client.GetStream();
+        await LoginAsync(stream, timeout.Token);
+
+        // 真機逐包證據（黃金抓包 stream 48，2026-11-14 重析）：QCC 在 "OK " 後
+        // +14.5ms 送第一個 keepalive、真機再 +30ms 才送第一個 FRAM。提早送
+        //（舊版「連線即推流」）的失敗實錄（stream 163）：QCC 收到資料後 3.5ms
+        // 就以 RST 拒絕——它還沒送出 keepalive、還沒進入讀取狀態。這裡故意不送
+        // keepalive：600ms 內必須一個位元組都收不到（舊版 ~10ms 就寫出音訊幀）。
+        client.ReceiveTimeout = 600;
+        var byteBeforeKeepAlive = false;
+        try
+        {
+            var n = stream.Read(new byte[1], 0, 1);
+            byteBeforeKeepAlive = n > 0;
+        }
+        catch (IOException ex) when (ex.InnerException is SocketException)
+        {
+            // 逾時＝沒有位元組＝正確。
+        }
+
+        Assert.False(byteBeforeKeepAlive, "第一個 keepalive 之前不該寫出任何位元組");
+
+        // 送出訂閱（bit 0）：通道才開始輸出，且輸出必須在寬限內到達。
+        await stream.WriteAsync(KeepAlive(0, 0), timeout.Token);
+        var gotVideo = false;
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
+        while (!gotVideo && DateTime.UtcNow < deadline)
+        {
+            var packet = await ReadFramAsync(stream, timeout.Token);
+            gotVideo = packet.Status == 0 && packet.Type == 1;
+        }
+
+        Assert.True(gotVideo, "keepalive 之後應該開始輸出影像幀");
+    }
+
     // ── 啟動突發（ffmpeg 把 RTSP 輸入緩衝一次倒出來）──────────────────────
 
     private static QctekAccessUnit KeyUnit(byte[] video) => new(true, SpSc(), PpSc(), video);
@@ -480,7 +525,7 @@ public class QctekLiveSessionTests
             while (first is null && DateTime.UtcNow < deadline)
             {
                 var packet = await ReadFramAsync(stream, timeout.Token);
-                if (packet.Status == 0 && packet.Type == 1) // 跳過參數幀（type=2）
+                if (packet.Status == 0 && packet.Type == 1) // 跳過音訊幀（type=2）
                 {
                     first = packet;
                 }
@@ -504,30 +549,35 @@ public class QctekLiveSessionTests
     }
 
     [Fact]
-    public void 參數幀與真機黃金抓包逐位元組一致()
+    public void 音訊幀與真機黃金抓包逐位元組一致()
     {
-        // 黃金抓包 frame 3（channel 0）：56B 頭 + 1000B payload。時戳欄位動態，
-        // 這裡注入真機抓包同一瞬間的值做逐位元組比對。
+        // 黃金抓包的 type=2 幀（channel 0）：56B 頭 + 1000B µ-law payload。時戳欄位
+        // 動態，這裡注入真機抓包同一瞬間的值做逐位元組比對。
         var unixSeconds = 0x6af5b212L; // 1773482693（抓包瞬間）
-        var fileTime = 0x0172d05757573939; // 抓包瞬間的 FILETIME
-        var frame = QctekLivePackets.ParameterFrame(0, unixSeconds, fileTime);
+        var microSeconds = 525_000;     // 抓包瞬間的當秒微秒
+        var frame = QctekLivePackets.AudioFrame(0, unixSeconds, microSeconds);
 
         Assert.Equal(8 + 0x38 + 1000, frame.Length);
         var media = frame.AsSpan(8, 0x38);
         Assert.Equal(2, System.Buffers.Binary.BinaryPrimitives.ReadInt32LittleEndian(media));
         Assert.Equal(200, System.Buffers.Binary.BinaryPrimitives.ReadInt32LittleEndian(media[0x04..]));
         Assert.Equal(1000, System.Buffers.Binary.BinaryPrimitives.ReadInt32LittleEndian(media[0x08..]));
-        Assert.Equal(0x0802c8u, System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(media[0x14..]));
+        Assert.Equal(0, System.Buffers.Binary.BinaryPrimitives.ReadInt32LittleEndian(media[0x0c..]));
+        Assert.Equal(0, System.Buffers.Binary.BinaryPrimitives.ReadInt32LittleEndian(media[0x10..]));
+        Assert.Equal(525_000u, System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(media[0x14..]));
         Assert.Equal(0x6af5b212u, System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(media[0x18..]));
-        Assert.Equal(fileTime, System.Buffers.Binary.BinaryPrimitives.ReadInt64LittleEndian(media[0x20..]));
-        Assert.Equal(QctekLivePackets.ParameterPayload.ToArray(), frame[(8 + 0x38)..]);
+        Assert.Equal(0L, System.Buffers.Binary.BinaryPrimitives.ReadInt64LittleEndian(media[0x20..]));
+        Assert.Equal(QctekLivePackets.SilentAudioPayload.ToArray(), frame[(8 + 0x38)..]);
     }
 
     [Fact]
-    public async Task 連線建立後不送keepalive也會收到頻道0的推流()    {
-        // 黃金抓包 §5c：真機的因果方向是「伺服器先推流、QCC 收到 FRAM 後才發
-        // keepalive」。若沿用「等 keepalive 才建頻道」，雙方互相等待——這正是
-        // QCC 黑屏的根因。連線後什麼都不送，第一個 FRAM 必須自己出現。
+    public async Task 不送keepalive不會有推流直接送keepalive才開啟通道()
+    {
+        // 舊契約（已推翻的 §5c）是「真機先推流、QCC 才發 keepalive」；逐包重析
+        // 黃金抓包（docs/QCC-LIVE-DIAGNOSIS.md §8）的結論相反：真機在第一個
+        // keepalive 之前一個位元組都不送，提早送的實測後果是 QCC 3.5ms 內 RST。
+        // 這條連線走「raw keepalive 直接交棒」路徑（交棒時 keepalive 是初始
+        // 殘餘、socket 不會再有新資料——解析必須不依賴 DataAvailable）。
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
         var context = new LiveContext { Factory = (_, _) => new FakeLiveSource(AnnexBStream()) };
         await using var server = new NemoServer(context, IPAddress.Loopback);
@@ -537,26 +587,40 @@ public class QctekLiveSessionTests
         await client.ConnectAsync(IPAddress.Loopback, server.Port, timeout.Token);
         var stream = client.GetStream();
 
-        // 不 Login、不送 keepalive——只讀。
-        FramPacket? first = null;
-        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
-        while (first is null && DateTime.UtcNow < deadline)
+        // 不 Login、不送 keepalive——1 秒內必須一個位元組都收不到。
+        client.ReceiveTimeout = 1000;
+        var streamedAnyway = false;
+        try
         {
-            var packet = await ReadFramAsync(stream, timeout.Token);
-            if (packet.Status == 0 && packet.Channel == 0)
-            {
-                first = packet;
-            }
+            var n = stream.Read(new byte[1], 0, 1);
+            streamedAnyway = n > 0;
+        }
+        catch (IOException ex) when (ex.InnerException is SocketException)
+        {
+            // 逾時＝沒有位元組＝正確。
         }
 
-        Assert.NotNull(first);
+        Assert.False(streamedAnyway, "不送 keepalive 之前不該有推流");
+
+        // 直接送訂閱（raw QCTEK_RM keepalive）：通道才開始輸出。
+        await stream.WriteAsync(KeepAlive(0, 0), timeout.Token);
+        var gotVideo = false;
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
+        while (!gotVideo && DateTime.UtcNow < deadline)
+        {
+            var packet = await ReadFramAsync(stream, timeout.Token);
+            gotVideo = packet.Status == 0 && packet.Type == 1 && packet.Channel == 0;
+        }
+
+        Assert.True(gotVideo, "keepalive 之後應該開始輸出頻道 0 的影像幀");
     }
 
     [Fact]
-    public async Task 未收到keepalive的啟動寬限內不會被逾時斷線()
+    public async Task 未收到keepalive的寬限內不會被逾時斷線()
     {
-        // 啟動寬限（三倍逾時）內，即使一個 keepalive 都沒有，狀態幀也要持續送出；
-        // 嚴格逾時會在 QCC 的第一個 keepalive 到達前把連線砍掉，恢復死鎖。
+        // 啟動寬限（三倍逾時≈30 秒）內，即使一個 keepalive 都沒有，連線也不能
+        // 被砍——但也不能寫任何位元組（真機在第一個 keepalive 前全程靜默）。
+        // 這裡觀察 3 秒：無位元組、連線活著；訂閱一到立刻開始回應（狀態幀）。
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
         var context = new LiveContext { Factory = (_, _) => null }; // 沒有來源：只送狀態幀
         await using var server = new NemoServer(context, IPAddress.Loopback);
@@ -565,22 +629,25 @@ public class QctekLiveSessionTests
         using var client = new TcpClient();
         await client.ConnectAsync(IPAddress.Loopback, server.Port, timeout.Token);
         var stream = client.GetStream();
+        await LoginAsync(stream, timeout.Token);
 
-        var statusFrames = 0;
-        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(5);
-        while (DateTime.UtcNow < deadline)
+        client.ReceiveTimeout = 3000;
+        var streamedAnyway = false;
+        try
         {
-            var packet = await ReadFramAsync(stream, timeout.Token);
-            if (packet.Status != 0)
-            {
-                statusFrames++;
-                if (statusFrames >= 2)
-                {
-                    break; // 至少兩個狀態幀（≥2 秒）＝寬限內活著
-                }
-            }
+            var n = stream.Read(new byte[1], 0, 1);
+            streamedAnyway = n > 0;
+        }
+        catch (IOException ex) when (ex.InnerException is SocketException)
+        {
+            // 逾時＝沒有位元組＝正確。
         }
 
-        Assert.True(statusFrames >= 2, $"寬限期內只收到 {statusFrames} 個狀態幀");
+        Assert.False(streamedAnyway, "寬限內不該有任何位元組");
+
+        // 寬限內連線仍活著：訂閱一到，狀態幀立刻開始（來源缺席＝0x8002）。
+        await stream.WriteAsync(KeepAlive(0, 0), timeout.Token);
+        var packet = await ReadFramAsync(stream, timeout.Token);
+        Assert.Equal(0x8002, packet.Status);
     }
 }

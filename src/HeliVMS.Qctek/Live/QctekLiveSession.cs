@@ -7,6 +7,8 @@ namespace HeliVMS.Qctek.Live;
 /// <summary>
 /// <c>GET_LIVE_START</c> 之後的即時影像通道：讀 0x90-byte keepalive（<c>QCTEK_RM</c>）、
 /// 依頻道位圖啟停每頻道來源、每 tick 每頻道寫至多一個 FRAM；無影格時每秒回狀態幀。
+/// 第一個 keepalive（＝客戶端的訂閱）到達前<b>不寫出任何位元組</b>——真機的因果方向
+/// 是 QCC 先訂閱、伺服器才推流（見 <see cref="LiveRunSync.RunSync"/> 的逐包證據）。
 /// </summary>
 /// <remarks>
 /// <para>
@@ -43,9 +45,9 @@ public static class QctekLiveSession
     /// <summary>超過這個 tick 數沒有 keepalive 就斷線（真機 live 迴圈的 break3 條件）。</summary>
     public const int KeepAliveTimeoutTicks = 0x130;
 
-    /// <summary>啟動寬限：連線後從未見過 keepalive 的逾時上限（三倍嚴格值）。
-    /// 真機的因果方向是「伺服器先推流、QCC 收到後才發 keepalive」，若沿用嚴格值
-    /// 會在 QCC 的第一個 keepalive 到達前就斷線，恢復互相等待的死鎖。</summary>
+    /// <summary>啟動寬限：交棒後等第一個 keepalive（＝訂閱）的上限（三倍嚴格值）。
+    /// 真機的第一個 keepalive 在 "OK " 後約 15ms 就到；寬限只是防呆，讓
+    /// 「永遠不訂閱的連線」不會無限佔用一條執行緒，不是預期路徑。</summary>
     public const int StartupKeepAliveGraceTicks = KeepAliveTimeoutTicks * 3;
 
     /// <summary>tick 週期：真機 live 迴圈的輸出節奏（≈30fps 的寫出上限）。</summary>
@@ -172,20 +174,33 @@ internal sealed class LiveRunSync
         var pending = new PendingKeepAlives(initial);
         var read = new byte[8192];
         var sinceKeepAlive = 0;
-        // 真機行為（docs/QCC-LIVE-DIAGNOSIS.md §5c）：連線一建立伺服器就推流，
-        // QCC 是收到 FRAM 之後才開始發 keepalive。所以這裡不等 keepalive——
-        // 立即啟用頻道 0 並馬上送出第一個 tick，QCC 的 keepalive 隨後就會到。
-        // 真機行為（docs/QCC-LIVE-DIAGNOSIS.md §5c）：連線一建立伺服器就推流，
-        // QCC 是收到 FRAM 之後才開始發 keepalive。所以這裡不等 keepalive——
-        // 立即啟用頻道 0 並馬上送出第一個 tick，QCC 的 keepalive 隨後就會到。
-        ApplyBitmap(0, FirstChannelBits());
+        // 逐包證據（2026-11-14，docs/QCC-LIVE-DIAGNOSIS.md §8）：GET_LIVE_START 收到
+        // "OK " 之後，是 QCC 先送第一個 keepalive（+14.5ms）、真機才送出第一個 FRAM
+        // （再 +30ms）。反過來做（舊版「連線即推流」立即送音訊幀）的失敗實錄（同一次
+        // 抓包 stream 163）：QCC 收到 1064 bytes 後 3.5ms 就 RST，連 keepalive 都沒
+        // 送出——QCC 在送出它自己的 keepalive、進入讀取狀態之前，把任何先到的位元組
+        // 當成協定錯誤。所以第一個 keepalive 到達前，這裡一個位元組都不寫（連狀態幀
+        // 也不送）：對端眼中與真機完全一致。
         var sawKeepAlive = false;
-        var nextTickAt = Environment.TickCount64; // 立即 tick，不等第一個週期
+        var nextTickAt = Environment.TickCount64 + QctekLiveSession.TickMilliseconds;
         try
         {
             while (true)
             {
-                // 1) 非阻塞抽乾已到達的 keepalive（Available 為 0 時不等待）。
+                // 0) 對端 FIN 不帶任何資料位元組：DataAvailable 永遠是 false，輪詢看不到
+                //    它——實測（QCC 的探針連線在 OK 後 7–12ms FIN）會讓連線空轉到寬限
+                //    逾時，日誌還把原因記成「沒有第一個 keepalive」。用
+                //    Poll(SelectRead)＋Available==0 才是可靠的 EOF 偵測。
+                if (_stream.Socket.Poll(0, SelectMode.SelectRead) && _stream.Socket.Available == 0)
+                {
+                    Log($"LIVE：對端關閉連線（{_remote}）");
+                    return;
+                }
+
+                // 1) 非阻塞抽乾已到達的資料（Available 為 0 時不等待），再解析所有完整
+                //    的 keepalive——交棒時帶進來的殘餘（直接 keepalive 交棒時可能是
+                //    完整的第一個 keepalive）也在 pending 裡，只靠 socket 有沒有新資料
+                //    會把它餓死。
                 while (_stream.DataAvailable)
                 {
                     var count = _stream.Read(read, 0, read.Length);
@@ -196,56 +211,62 @@ internal sealed class LiveRunSync
                     }
 
                     pending.Append(read.AsSpan(0, count));
-                    while (pending.HasComplete)
-                    {
-                        if (!pending.TryParseNext(out var subStream, out var bits))
-                        {
-                            // 黃金抓包 §5c ＋ 運行時實錄：QCC 把 ALARM_HELLO（警報心跳，
-                            // NEMO 框）發到與預覽共用的連線上。真機的 live 通道忽略這些
-                            // 資料繼續推流；在這裡斷線會同時殺掉警報與預覽，並讓 QCC
-                            // 陷入「交棒→斷線→重連→再交棒」的循環。
-                            var discarded = pending.Resync();
-                            _log?.Invoke(
-                                $"LIVE：非 keepalive 資料 {discarded} bytes（{_remote}），已重新同步。前 96 bytes：" +
-                                QctekDiagnostics.DescribeBytes(read.AsSpan(0, Math.Min(count, 96))));
-                            if (discarded == 0)
-                            {
-                                // 無法前進（頭不完整）：等下一批資料再同步，避免空轉。
-                                break;
-                            }
-
-                            continue;
-                        }
-
-                        sinceKeepAlive = 0;
-                        sawKeepAlive = true;
-                        ApplyBitmap(subStream, bits);
-                    }
                 }
 
-                // 2) tick 到點：逾時判定＋每頻道至多一個 FRAM／狀態幀。
+                while (pending.HasComplete)
+                {
+                    if (!pending.TryParseNext(out var subStream, out var bits))
+                    {
+                        // 運行時實錄：QCC 把 ALARM_HELLO（警報心跳，NEMO 框）發到與
+                        // 預覽共用的連線上。真機的 live 通道忽略這些資料繼續推流；
+                        // 在這裡斷線會同時殺掉警報與預覽，並讓 QCC 陷入「交棒→斷線→
+                        // 重連→再交棒」的循環。
+                        var discarded = pending.Resync();
+                        _log?.Invoke(
+                            $"LIVE：非 keepalive 資料 {discarded} bytes（{_remote}），已重新同步。前 96 bytes：" +
+                            QctekDiagnostics.DescribeBytes(pending.Peek));
+                        if (discarded == 0)
+                        {
+                            // 無法前進（頭不完整）：等下一批資料再同步，避免空轉。
+                            break;
+                        }
+
+                        continue;
+                    }
+
+                    sinceKeepAlive = 0;
+                    sawKeepAlive = true;
+                    ApplyBitmap(subStream, bits);
+                }
+
+                // 2) tick 到點：逾時判定＋（已訂閱後）每頻道至多一個 FRAM／狀態幀。
                 var now = Environment.TickCount64;
                 if (now >= nextTickAt)
                 {
                     nextTickAt = now + QctekLiveSession.TickMilliseconds;
                     sinceKeepAlive++;
-                    // 從未見過 keepalive（QCC 還在等我們的第一個 FRAM）時給啟動寬限：
-                    // 真機的 QCC 在收到推流後 250ms 內就會發第一個 keepalive，寬限是
-                    // 三倍逾時，避免「互相等待」的死鎖再度發生。
-                    //
-                    // 運行時實錄：QCC 的預覽長連線在目前版本下**從不發 keepalive**
-                    //（dvrProxy_live 授權後即關線，發送者在另一個未反編譯的組件裡）。
-                    // 寬限用盡就斷線會讓 QCC 每 ~45 秒重連一次、ffmpeg 反覆起停——
-                    // 改為寬限用盡後**持續推流不斷線**：對端若真的離開，TCP 寫出會
-                    // 拋錯（與真機的「連線斷」同一處理），不會漏掉任何死連線。
-                    if (sawKeepAlive && sinceKeepAlive > QctekLiveSession.KeepAliveTimeoutTicks)
+                    if (!sawKeepAlive)
+                    {
+                        // 等待第一個 keepalive（＝客戶端的訂閱）。真機 <15ms 就到；
+                        // 寬限（約 30 秒）內沒有就當作不是即時影像客戶端，收掉連線。
+                        // 全程沒有寫出任何位元組，對端看到的是一條安靜的連線。
+                        if (sinceKeepAlive > QctekLiveSession.StartupKeepAliveGraceTicks)
+                        {
+                            _log?.Invoke(
+                                $"LIVE：{sinceKeepAlive} 個 tick 沒有第一個 keepalive（{_remote}），關閉連線");
+                            return;
+                        }
+                    }
+                    else if (sinceKeepAlive > QctekLiveSession.KeepAliveTimeoutTicks)
                     {
                         _log?.Invoke(
                             $"LIVE：{sinceKeepAlive} 個 tick 沒有 keepalive（{_remote}，已同步），關閉連線");
                         return;
                     }
-
-                    Tick(now);
+                    else
+                    {
+                        Tick(now);
+                    }
                 }
 
                 // 3) 輪詢步長：keepalive 的讀取延遲與 tick 節奏的粒度都在這裡。
@@ -264,15 +285,6 @@ internal sealed class LiveRunSync
         }
     }
 
-    /// <summary>啟動時的頻道位圖：只有頻道 0（真機的預設預览行為）；QCC 的
-    /// keepalive 到達後會以它自己的位圖覆蓋（含頻道切換與子碼流選擇）。</summary>
-    private bool[] FirstChannelBits()
-    {
-        var bits = new bool[_context.ChannelCount > 0 ? _context.ChannelCount : 1];
-        bits[0] = true;
-        return bits;
-    }
-
     /// <summary>輸出 tick：每頻道至多一個 FRAM；沒影格時每秒一個狀態幀。</summary>
     private void Tick(long now)
     {
@@ -288,7 +300,7 @@ internal sealed class LiveRunSync
             if (state.Queue.TryPop(out var unit) && unit is not null)
             {
                 // 時戳在寫出前以牆鐘蓋章：客戶端 DecProc 以封包時戳對牆鐘調速，
-                // 寫出時蓋章即恆在容差內。FILETIME（+0x20）黃金抓包有值，一併蓋章。
+                // 寫出時蓋章即恆在容差內。
                 Write(
                     QctekLivePackets.Data(
                         state.Channel,
@@ -296,8 +308,7 @@ internal sealed class LiveRunSync
                         unit.Block2,
                         unit.Video,
                         wallClock.ToUnixTimeSeconds(),
-                        wallClock.UtcDateTime.Microsecond,
-                        wallClock.ToFileTime()));
+                        wallClock.UtcDateTime.Microsecond));
                 state.LastStatusAt = wallClock;
                 continue;
             }
@@ -409,19 +420,20 @@ internal sealed class LiveRunSync
         };
         state.Reader.Start();
 
-        // 黃金抓包 §5c：真機在影像流開頭送 type=2 參數幀（frame 3），QCC 的預覽
-        // 解析器需要它才認得這條流——沒有它，QCC 收到影像也不會激活發 keepalive。
+        // 黃金抓包 stream 0 的第 0 個封包就是 type=2 音訊幀，它與影像無關（客戶端
+        // GetFrameQCTekAudio 把它當音軌）——所以這裡送的是「有音軌」的先手，不是
+        // 「叫醒畫面」的握手。真機此後每 tick 都送 1–2 包，我們只送這一包。
         try
         {
             var wallClock = DateTimeOffset.UtcNow;
-            Write(QctekLivePackets.ParameterFrame(
+            Write(QctekLivePackets.AudioFrame(
                 state.Channel,
                 wallClock.ToUnixTimeSeconds(),
-                wallClock.ToFileTime()));
+                wallClock.UtcDateTime.Microsecond));
         }
         catch (Exception ex)
         {
-            Log($"LIVE：頻道 {state.Channel} 參數幀送出失敗：{ex.Message}");
+            Log($"LIVE：頻道 {state.Channel} 音訊幀送出失敗：{ex.Message}");
         }
 
         Log($"LIVE：頻道 {state.Channel}（{(_subStream == 0 ? "主" : "子")}碼流）開始輸出（{_remote}）");
@@ -561,6 +573,9 @@ public sealed class PendingKeepAlives
     public void Append(ReadOnlySpan<byte> data) => _buffer.Append(data);
 
     public bool HasComplete => _buffer.Length >= QctekLiveSession.KeepAliveLength;
+
+    /// <summary>目前緩衝的內容（診斷傾印用；不消耗）。</summary>
+    public ReadOnlySpan<byte> Peek => _buffer.Span;
 
     public bool TryParseNext(out int subStream, out bool[] channels)
         => QctekLiveSession.TryParseKeepAlive(

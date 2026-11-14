@@ -274,32 +274,18 @@ public sealed class QctekPortMux : IAsyncDisposable
                 try
                 {
                     var protocol = QctekMuxProtocol.NeedMore;
-                    var sawData = false;
                     while (protocol == QctekMuxProtocol.NeedMore)
                     {
-                        // 等待視窗只適用「尚未收到任何位元組」的分類期（QCC 的預覽長連線
-                        // 在等伺服器先推流）。分類中的後續讀取必須無限等——HTTP 請求與
-                        // NEMO 命令會分段到達，視窗誤判會把半個請求交棒掉。
-                        var count = sawData
-                            ? stream.Read(read, 0, read.Length)
-                            : NemoSessionLoop.ReadWithPreviewTimeout(stream, read, pending.Length);
+                        // 分類前先沉默的連線一律無限等：HTTP 請求與 NEMO 命令都會先送
+                        // 位元組，靜默不是任何一種協定的開場。舊版把「600ms 視窗內分類
+                        // 不出協定」當成「等伺服器先推流的預覽線」交棒給 live 通道——
+                        // 那條路把自家警報連線灌滿影片（2026-11-14 逐包實錄）。
+                        var count = stream.Read(read, 0, read.Length);
                         if (count == 0)
                         {
                             return;
                         }
 
-                        if (count < 0)
-                        {
-                            // 黃金抓包 §5c（真機行為）：預覽長連線上 QCC 什麼都不送——它
-                            // 在等伺服器先推流。等待視窗內分類不出協定（沒有任何位元組），
-                            // 按 NEMO 處理並直接交棒即時影像通道開始推流；HTTP 短請求
-                            // 與 config/auth 短連線都會立刻送位元組，不受視窗影響。
-                            _log?.Invoke($"MUX：等待視窗內沒有資料（{remote}），交棒即時影像通道");
-                            NemoSessionLoop.RunSync(stream, pending.ToArray(), remote, _context, _log);
-                            return;
-                        }
-
-                        sawData = true;
                         pending.Append(read.AsSpan(0, count));
                         protocol = Classify(pending.Span);
                     }

@@ -1221,9 +1221,19 @@ Notes that will save you time:
   全鏈路已被模擬客戶端端到端證明（挑戰→OK→keepalive→FRAM 影格，5170 與 80/MUX
   兩路徑）；黑屏時的完整狀態機與斷點定位見 `docs/QCC-LIVE-DIAGNOSIS.md`。
 - **QCC live 全鏈已完成：伺服器推流與真機逐位元組同構；剩餘變數只在 QCC 端預覽解析器。**
-  黃金抓包（`docs/qcc-qcv8001-golden.pcapng`）證明真機的因果方向是「伺服器先推流、
-  QCC 收到 FRAM 後才發 keepalive」——`QctekLiveSession` 已對齊（連線即推流、
-  type=2 參數幀、+0x20 FILETIME、ALARM_HELLO Resync、等待視窗只適用連線頭部）。
+  黃金抓包（`docs/qcc-qcv8001-golden.pcapng`）的因果方向是「**QCC 先送第一個
+  keepalive、裝置才推流**」（`GET_LIVE_START`→27B 挑戰→`AUTH_SENDCODE`→`OK \0`
+  →+14.5ms QCC keepalive→+30ms 第一個 FRAM）——`QctekLiveSession` 已對齊
+  （第一個 keepalive 前零輸出、`ALARM_HELLO` Resync、等待視窗只適用連線頭部）。
+  三個由逐位元組證據定案、**不可改回去**的線路細節（完整規格見
+  `docs/QCC-LIVE-DIAGNOSIS.md` §8）：①`type=2` 是**音訊**（客戶端
+  `GetFrameQCTekAudio`：codec 200＝G.711 µ-law、長度 1000；真機 906/906 包的
+  payload 只有 `0x7e/0xff/0xfe`），不是「叫醒預覽解析器的參數幀」；
+  ②`+0x20/+0x28/+0x30` 是**伺服器自己行程的緩衝指標槽**，不是 FILETIME——
+  關鍵影格 `+0x30 − +0x28` 恰等於 block1 長度 118（114/114），三個高位 u32 全相同，
+  客戶端以三個長度重算，所以我們一律寫 0（舊 commit `3f7d028` 的「+0x20
+  FILETIME」是誤讀）；③真機在 2,184 個幀裡**沒送過任何 8-byte 狀態幀或
+  `NO DATA`**，那兩種只是客戶端容忍。
   QCC 的 keepalive 發送者**不在 QC_IPCAM_Aver.dll**（GetLiveSend 對真機也是零次），
   也不在可反編譯的其他模組——經 QC_Device_ID.dll 的 PlayerProxy 鏈（設備類型碼
   0x65→Aver、0x68→HR、0x6b→Deep、0x6c→AVTh、0x69→Hunt、0x6a→AVerEP）。

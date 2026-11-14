@@ -171,41 +171,22 @@ public sealed class NemoServer : IAsyncDisposable
                 // 每個連線與每個命令都留痕：QCC 實測失敗時（連不上、命令不認識、密碼錯，
                 // 畫面上長得一樣）這份日誌是唯一的線索。命令摘要會遮蔽密碼段。
                 _log?.Invoke($"NEMO 連線來自 {remote}");
-                var sawData = false;
 
                 try
                 {
                     while (true)
                     {
-                        // 等待視窗只適用「從未收到任何資料」的連線（QCC 的預覽長連線：
-                        // 它在等伺服器先推流）。收到過資料之後必須無限等——QCC 的警報
-                        // 心跳 ALARM_HELLO 每 15-20 秒才一發，心跳後 600ms 的靜默會被
-                        // 視窗誤判成預覽連線，把警報連線整條交棒掉（運行時實錄）。
-                        var count = sawData
-                            ? stream.Read(read, 0, read.Length)
-                            : NemoSessionLoop.ReadWithPreviewTimeout(stream, read, pending.Length);
+                        // 第一筆資料一律無限等：靜默連線不是即時影像通道（真機的 live
+                        // 連線以 GET_LIVE_START 開場，QCC 從不先沉默）。舊版把「600ms
+                        // 視窗內沒有位元組」直接交棒給 live 通道——結果是自家警報回報器
+                        // 的連線（ALARM_HELLO 每 20 秒一發、其餘時間靜默）被整條交棒、
+                        // 灌進 15MB 的影片（2026-11-14 逐包實錄）。
+                        var count = stream.Read(read, 0, read.Length);
                         if (count == 0)
                         {
                             return; // 對方正常關閉
                         }
 
-                        if (count < 0)
-                        {
-                            // 黃金抓包 §5c（真機行為）：預覽長連線上 QCC 什麼都不送——
-                            // 它在等伺服器先推流（TCP 握手後真機立即送 FRAM 0000 0000）。
-                            // 等待視窗內沒有任何位元組，直接交棒即時影像通道開始推流；
-                            // config/auth 的短連線會立刻送命令，不受視窗影響。
-                            _log?.Invoke($"NEMO：等待視窗內沒有資料（{remote}），交棒即時影像通道");
-                            NemoSessionLoop.RunSync(
-                                stream,
-                                pending.ToArray(),
-                                remote,
-                                _context,
-                                _log);
-                            return;
-                        }
-
-                        sawData = true;
                         pending.Append(read.AsSpan(0, count));
 
                         // HTTP 前景優先（在 NEMO 解碼之前）：QCV8001 的 NEMO 與 HTTP 同埠

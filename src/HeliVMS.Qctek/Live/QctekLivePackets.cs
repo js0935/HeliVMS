@@ -10,20 +10,23 @@ namespace HeliVMS.Qctek.Live;
 /// <remarks>
 /// <para>
 /// 8-byte 標頭 <c>"FRAM"</c>＋u16 channel（0-based）＋u16 status；status ≠ 0 時
-/// <b>只有</b>這 8 bytes（狀態幀，之後沒有 media）。資料幀接 0x38-byte media header
-/// 與 payload，順序固定 block1（SPS）→ block2（PPS）→ video（Annex-B）：
+/// <b>只有</b>這 8 bytes（狀態幀，之後沒有 media）。status ＝ 0 時接 0x38-byte media
+/// header 與 payload；type＝1 是影像（block1 SPS → block2 PPS → video Annex-B），
+/// type＝2 是音訊（見 <see cref="AudioFrame"/>）：
 /// </para>
 /// <list type="bullet">
-/// <item><c>+0x00</c> u32 type＝1（視訊）、<c>+0x04</c> u32 codec＝1（H.264）——
-/// 客戶端 <c>QC_StreamDec::Put</c> 只收 type＝1。</item>
+/// <item><c>+0x00</c> u32 type（1＝視訊、2＝音訊）、<c>+0x04</c> u32 codec
+/// （1＝H.264、200＝G.711 µ-law）。</item>
 /// <item><c>+0x08</c> sizeVideo、<c>+0x0c</c> sizeBlock1、<c>+0x10</c> sizeBlock2；
 /// 幀總長＝8＋0x38＋block1＋block2＋video（<c>readQCV8001frame</c> 的讀取量算式）。</item>
 /// <item><c>+0x14</c> u32 微秒、<c>+0x18</c> u64 Unix 秒（<c>qc_timeval</c> 的線上順序；
 /// 客戶端 <c>QC_StreamDec::DecProc</c> 以「秒＋微秒」對牆鐘調速，超出容差的非關鍵幀
 /// 會被整包丟棄——所以時戳必須在<b>寫出時</b>以牆鐘蓋章）。</item>
-/// <item><c>+0x20</c>/<c>+0x28</c>/<c>+0x30</c> 是 video/block1/block2 的指標欄位：
-/// 客戶端依三個 size <b>重算</b>指標（0x40＋block1＋block2），線上值不會被讀，
-/// 一律填 0。</item>
+/// <item><c>+0x20</c>/<c>+0x28</c>/<c>+0x30</c> 是 video/block1/block2 的指標欄位，
+/// 一律填 0。真機在關鍵影格上填的是<b>它自己行程裡的緩衝位址</b>（實測 114/114 個
+/// 關鍵影格：<c>+0x30</c> − <c>+0x28</c> 恰等於 block1 長度 118，三個高位 u32 全相同），
+/// 而客戶端在另一台機器上——那些位址對它沒有意義，<c>readQCV8001frame</c> 也以三個
+/// size 重算指標（<c>0x40</c>＋block1＋block2）。非關鍵影格的真機值就是 0。</item>
 /// </list>
 /// <para>
 /// block1/block2 是「4-byte start code＋NAL」（客戶端 <c>SplitIFrame_H264</c> 切出的
@@ -54,7 +57,7 @@ public static class QctekLivePackets
     public const ushort StatusNoProxy = 0x8004;
 
     /// <summary>
-    /// 組一個資料幀。時戳由呼叫端在<b>寫出前</b>以牆鐘蓋章（Unix 秒＋當秒內微秒＋FILETIME）。
+    /// 組一個資料幀。時戳由呼叫端在<b>寫出前</b>以牆鐘蓋章（Unix 秒＋當秒內微秒）。
     /// </summary>
     public static byte[] Data(
         int channel,
@@ -62,8 +65,7 @@ public static class QctekLivePackets
         ReadOnlySpan<byte> block2,
         ReadOnlySpan<byte> video,
         long unixSeconds,
-        int microSeconds,
-        long fileTime)
+        int microSeconds)
     {
         var buffer = new byte[HeaderLength + MediaHeaderLength + block1.Length + block2.Length + video.Length];
         WriteHeader(buffer, channel, 0);
@@ -76,11 +78,10 @@ public static class QctekLivePackets
         BinaryPrimitives.WriteInt32LittleEndian(media[0x10..], block2.Length);
         BinaryPrimitives.WriteUInt32LittleEndian(media[0x14..], (uint)microSeconds);
         BinaryPrimitives.WriteInt64LittleEndian(media[0x18..], unixSeconds);
-        // +0x20：FILETIME（黃金抓包 frame 9/10808 有值，遞增）。真機的 +0x18 是
-        // u32 秒＋+0x1c u32 0＋+0x20 u64 FILETIME——我們的 Int64 秒低 32 位相同、
-        // 高 32 位（+0x1c）恰為 0，布局相容；+0x20 補上真機有的 FILETIME。
-        BinaryPrimitives.WriteInt64LittleEndian(media[0x20..], fileTime);
-        // 指標欄位（+0x28/+0x30）維持 0：客戶端以 size 重算，線上值不讀。
+        // +0x20/+0x28/+0x30 留 0：真機在那裡寫的是自己行程的緩衝指標（關鍵影格才有值），
+        // 跨機器沒有意義，客戶端以三個 size 重算。這裡<b>不要</b>補 FILETIME——舊版把
+        // 關鍵影格指標的高位 0x172 誤讀成 FILETIME 的日期欄位，於是每一幀都多寫了
+        // 一份真機沒有的東西。
 
         var payload = buffer.AsSpan(HeaderLength + MediaHeaderLength);
         block1.CopyTo(payload);
@@ -98,11 +99,24 @@ public static class QctekLivePackets
     }
 
     /// <summary>
-    /// 真機 type=2 參數幀的 1000-byte payload（黃金抓包 frame 5 逐位元組照抄：
-    /// 內容只有 7e/ff 兩種位元組的模式——語意未解，但 QCC 的預覽解析器需要它
-    /// 才會激活影像通道，猜測式重寫比照抄風險更大）。
+    /// 真機 type=2（音訊）幀的 1000-byte payload，逐位元組照抄黃金抓包 frame 0。
     /// </summary>
-    public static ReadOnlySpan<byte> ParameterPayload => new byte[]
+    /// <remarks>
+    /// <para>
+    /// type=2 <b>是音訊</b>，不是「參數幀」：客戶端 <c>dvrProxy_live::GetFrameQCTekAudio</c>
+    /// 明寫 <c>*(u32*)media = 2</c>、codec 取 <c>param_1+0x20</c>（實測 200）、大小取
+    /// <c>param_1+8</c>；真機 906 個 type=2 幀的 payload 長度全部是 1000，而且整段 180 秒
+    /// 只有 <c>0x7e</c>/<c>0xff</c>/<c>0xfe</c> 三種位元組（G.711 µ-law 的 -8／0／+8，
+    /// 即相機麥克風的近靜音），每個 tick 1–2 包、約 8 包/秒——這是音軌，不是「叫醒
+    /// 預覽解析器的握手」。
+    /// </para>
+    /// <para>
+    /// 我們這條相容層沒有音訊來源（即時監看給的是 Annex-B H.264 管線），所以只在頻道
+    /// 開流時送<b>一包</b>近靜音音訊，讓「有音軌的裝置」對客戶端成立；之後不再送。
+    /// 真機每 tick 都送，但客戶端對音訊缺漏是容忍的（UDP 音訊本來就會丟包）。
+    /// </para>
+    /// </remarks>
+    public static ReadOnlySpan<byte> SilentAudioPayload => new byte[]
     {
         0x7e, 0x7e, 0xff, 0x7e, 0xff, 0xff, 0xff, 0xff, 0x7e, 0xff, 0xff, 0x7e, 0xff, 0xff, 0x7e, 0x7e, 0xff, 0x7e, 0x7e, 0xff,
         0x7e, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x7e, 0xff, 0xff, 0x7e, 0xff, 0xff, 0xff, 0xff,
@@ -156,26 +170,26 @@ public static class QctekLivePackets
         0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x7e, 0x7e, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x7e, 0x7e,    };
 
     /// <summary>
-    /// 組一個 type=2 參數幀（黃金抓包 frame 3 的 0x38 頭照抄，時戳以牆鐘蓋章）：
-    /// <c>+0x04=200</c>、<c>+0x08=1000</c>（payload 長度）、<c>+0x14=0x0802c8</c>、
-    /// <c>+0x18</c> Unix 秒、<c>+0x20</c> FILETIME。真機在每個影像流開頭與
-    /// 參數更新時送它；QCC 的預覽解析器需要它才認得這條流。
+    /// 組一個 type=2 音訊幀（G.711 µ-law、codec 200、1000 bytes payload）：
+    /// <c>+0x04=200</c>、<c>+0x08=1000</c>、block1/block2 為 0，時戳以牆鐘蓋章。
     /// </summary>
-    public static byte[] ParameterFrame(int channel, long unixSeconds, long fileTime)
+    public static byte[] AudioFrame(int channel, long unixSeconds, int microSeconds)
     {
-        var payload = ParameterPayload;
+        var payload = SilentAudioPayload;
         var buffer = new byte[HeaderLength + MediaHeaderLength + payload.Length];
         WriteHeader(buffer, channel, 0);
 
         var media = buffer.AsSpan(HeaderLength, MediaHeaderLength);
-        BinaryPrimitives.WriteInt32LittleEndian(media, 2);                 // type ＝ 參數
-        BinaryPrimitives.WriteInt32LittleEndian(media[0x04..], 200);
+        BinaryPrimitives.WriteInt32LittleEndian(media, 2);                 // type ＝ 音訊
+        BinaryPrimitives.WriteInt32LittleEndian(media[0x04..], 200);       // codec ＝ G.711 µ-law
         BinaryPrimitives.WriteInt32LittleEndian(media[0x08..], payload.Length);
         BinaryPrimitives.WriteInt32LittleEndian(media[0x0c..], 0);
         BinaryPrimitives.WriteInt32LittleEndian(media[0x10..], 0);
-        BinaryPrimitives.WriteUInt32LittleEndian(media[0x14..], 0x0802c8);
-        BinaryPrimitives.WriteUInt32LittleEndian(media[0x18..], (uint)unixSeconds);
-        BinaryPrimitives.WriteInt64LittleEndian(media[0x20..], fileTime);
+        BinaryPrimitives.WriteUInt32LittleEndian(media[0x14..], (uint)microSeconds);
+        BinaryPrimitives.WriteInt64LittleEndian(media[0x18..], unixSeconds);
+        // +0x20/+0x28/+0x30 同資料幀留 0。真機的音訊幀在 +0x28 固定留著 1416
+        // （906/906）：那是它靜態表頭樣板裡的殘值，不是指標也不是長度——同一個欄位
+        // 在關鍵影格上放的是 block1 指標。
 
         payload.CopyTo(buffer.AsSpan(HeaderLength + MediaHeaderLength));
         return buffer;

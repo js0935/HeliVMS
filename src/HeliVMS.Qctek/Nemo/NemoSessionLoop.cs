@@ -56,7 +56,6 @@ public static class NemoSessionLoop
         var read = new byte[8192];
         var session = new QctekSession(context);
         var heartbeatSeen = false;
-        var sawCommand = false;
 
         try
         {
@@ -76,17 +75,13 @@ public static class NemoSessionLoop
                         return;
                     }
 
-                    if (result.Consumed == 0)
-                    {
-                        break; // 半個訊框：繼續讀
-                    }
-
                     if (result.Live && result.Reply is null)
                     {
-                        // QCTEK_RM keepalive 直接送入的交棒（黃金抓包 §5c）：預覽長連線
-                        // 沒有 GET_LIVE_START——QCC 對真機的 keepalive 走 QCC 啟動即建立
-                        // 的長連線，第一個 keepalive 就是 live 通道的起點。Reply 為 null，
-                        // 不經過「未知命令」分支（那會把它當成缺命令留痕後吞掉）。
+                        // QCTEK_RM keepalive 直接送入的交棒：keepalive 本身就是訂閱證明
+                        //（真機的 live 連線以它開場），帶著它交棒讓 live 通道立刻輸出。
+                        // 這個結果刻意回報 Consumed = 0（位元組原樣帶給 QctekLiveSession），
+                        // 所以必須排在「半個訊框」的 Consumed == 0 判斷之前——排到後面
+                        // 就是死碼（2026-11-14 由新的 E2E 測試抓出）。
                         pending.Consume(result.Consumed);
                         QctekLiveSession.RunSync(
                             stream,
@@ -95,6 +90,11 @@ public static class NemoSessionLoop
                             context,
                             log);
                         return;
+                    }
+
+                    if (result.Consumed == 0)
+                    {
+                        break; // 半個訊框：繼續讀
                     }
 
                     if (result.Reply is null)
@@ -150,35 +150,15 @@ public static class NemoSessionLoop
                     pending.Consume(result.Consumed);
                 }
 
-                var count = sawCommand
-                    ? stream.Read(read, 0, read.Length)
-                    : ReadWithPreviewTimeout(stream, read, pending.Length);
-                if (count > 0)
-                {
-                    sawCommand = true;
-                }
+                // 一律無限等第一筆資料：靜默連線不是即時影像通道（真機的 live 連線
+                // 以 GET_LIVE_START 開場，QCC 從不先沉默）。舊版把「視窗內沒有任何
+                // 位元組」交棒給 live 通道——結果是自家警報回報器的連線（ALARM_HELLO
+                // 每 20 秒一發、其餘時間靜默）被整條交棒、灌進 15MB 的影片
+                //（2026-11-14 逐包實錄，docs/QCC-LIVE-DIAGNOSIS.md §8）。
+                var count = stream.Read(read, 0, read.Length);
                 if (count == 0)
                 {
                     return; // 對方正常關閉
-                }
-
-                if (count < 0)
-                {
-                    // 黃金抓包 §5c（真機行為）：預覽長連線上 QCC 什麼都不送——它在等
-                    // 伺服器先推流（TCP 握手後真機立即送 FRAM 0000 0000）。等待視窗
-                    // 內沒有任何命令位元組，就把這條連線交棒即時影像通道開始推流；
-                    // config/auth 的短連線會立刻送命令，不受視窗影響。
-                    // 注意：處理過至少一條命令後（sawCommand）不再用視窗——QCC 的警報
-                    // 心跳 ALARM_HELLO 每 15-20 秒才一發，心跳後的靜默會被視窗誤判
-                    // （運行時實錄：警報連線被整條交棒掉）。
-                    log?.Invoke($"NEMO：等待視窗內沒有命令（{remote}），交棒即時影像通道");
-                    QctekLiveSession.RunSync(
-                        stream,
-                        pending.ToArray(),
-                        remote,
-                        context,
-                        log);
-                    return;
                 }
 
                 pending.Append(read.AsSpan(0, count));
@@ -188,38 +168,6 @@ public static class NemoSessionLoop
         {
             // 單一連線的例外（含寫入失敗、呼叫端關閉串流的取消）不影響伺服器本體。
             log?.Invoke($"NEMO 連線結束（{remote}）：{ex.Message}");
-        }
-    }
-
-    /// <summary>預覽判定的等待視窗：連線後這麼久沒有任何命令位元組，就視為
-    /// QCC 的預覽長連線（它在等伺服器先推流）並交棒即時影像通道。</summary>
-    public const int PreviewWaitMilliseconds = 600;
-
-    /// <summary>
-    /// 讀一段資料；等待視窗內（僅緩衝還是空的時候）逾時回 <c>-1</c>，之後恢復
-    /// 無限等待。NetworkStream 的 ReadTimeout 逾時會丟 IOException（內層
-    /// SocketException TimedOut），在這裡轉成訊號而不是讓連線整個報錯。
-    /// </summary>
-    internal static int ReadWithPreviewTimeout(Stream stream, byte[] read, int buffered)
-    {
-        var network = stream as NetworkStream;
-        if (network is null || buffered > 0)
-        {
-            return network is null ? stream.Read(read, 0, read.Length) : network.Read(read, 0, read.Length);
-        }
-
-        try
-        {
-            network.ReadTimeout = PreviewWaitMilliseconds;
-            return network.Read(read, 0, read.Length);
-        }
-        catch (IOException ex) when (ex.InnerException is SocketException { SocketErrorCode: SocketError.TimedOut })
-        {
-            return -1;
-        }
-        finally
-        {
-            network.ReadTimeout = Timeout.Infinite;
         }
     }
 

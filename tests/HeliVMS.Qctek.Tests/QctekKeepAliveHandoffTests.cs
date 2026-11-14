@@ -1,3 +1,5 @@
+using System.Net;
+using System.Net.Sockets;
 using System.Text;
 using HeliVMS.Qctek.Live;
 using HeliVMS.Qctek.Nemo;
@@ -6,12 +8,48 @@ using Xunit;
 namespace HeliVMS.Qctek.Tests;
 
 /// <summary>
-/// QCC 的 keepalive（raw 0x90，QCTEK_RM 開頭）直接送入時要交棒 live 通道——
-/// 黃金抓包（docs/QCC-LIVE-DIAGNOSIS.md §5c）證明真機的預覽長連線沒有
-/// GET_LIVE_START，第一個 keepalive 就是 live 通道的起點。
+/// keepalive（raw 0x90，<c>QCTEK_RM</c> 開頭）＝客戶端的訂閱：直接送入時交棒 live
+/// 通道（真機的 live 通道以它開場；交棒後 live 端在第一個 keepalive 之前不寫任何
+/// 位元組）。另外守住「靜默連線不是即時影像通道」——舊版把 600ms 視窗逾時交棒給
+/// live，讓自家警報連線被灌滿影片（2026-11-14 逐包實錄）。
 /// </summary>
 public class QctekKeepAliveHandoffTests
 {
+    [Fact]
+    public async Task 靜默連線不會被誤認成即時影像通道()
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        await using var server = new NemoServer(new KeepAliveContext(), IPAddress.Loopback);
+        server.Start();
+
+        using var client = new TcpClient();
+        await client.ConnectAsync(IPAddress.Loopback, server.Port, timeout.Token);
+        var stream = client.GetStream();
+
+        // 1.2 秒（大於舊版 600ms 視窗＋第一個 tick）內不得有任何位元組：
+        // 舊版會在這條連線上每秒寫 0x8002 狀態幀（交棒 live 的後果）。
+        client.ReceiveTimeout = 1200;
+        var streamedAnyway = false;
+        try
+        {
+            var n = stream.Read(new byte[1], 0, 1);
+            streamedAnyway = n > 0;
+        }
+        catch (IOException ex) when (ex.InnerException is SocketException)
+        {
+            // 逾時＝沒有位元組＝正確。
+        }
+
+        Assert.False(streamedAnyway, "靜默連線不該被推流");
+
+        // 靜默期間連線不能被吃掉：一般命令照常回應（live 交棒只給真正訂閱的連線）。
+        await stream.WriteAsync("CHECK_SERVER_VERSION CLIENT_AUTH QCTEK\0"u8.ToArray(), timeout.Token);
+        client.ReceiveTimeout = 3000;
+        var reply = new byte[64];
+        var n2 = stream.Read(reply, 0, reply.Length);
+        Assert.StartsWith("OK QCV8001", Encoding.ASCII.GetString(reply, 0, n2));
+    }
+
     [Fact]
     public void keepalive直接送入會交棒live通道且不耗用位元組()
     {
