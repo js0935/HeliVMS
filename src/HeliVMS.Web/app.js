@@ -148,6 +148,12 @@ function showTab(name) {
   }
   // 設定值不隨輪詢重載：每 12 秒覆寫會蓋掉正在編輯的欄位，所以只在開啟設定分頁時載入。
   if (name === 'settings') void loadSettings();
+  // 裝置資訊的 /config/usage 會掃錄影目錄（ReconcileUsage），只在開啟分頁時載入。
+  if (name === 'info') void refreshDeviceInfo();
+  if (name === 'export') {
+    refreshExportSources();
+    void refreshExports();
+  }
 }
 
 function bindTabs() {
@@ -385,6 +391,9 @@ async function refreshLocalChannels() {
       .map((c) => `<option value="${Number(c.id)}">${esc(c.name)}</option>`)
       .join('');
   }
+
+  // 匯出頁的頻道下拉用同一份清單（保留已選擇的頻道，輪詢不會把選取洗掉）。
+  refreshExportSources();
   const first = localChannels[0];
   if (!first) return;
   for (const id of ['snap-channel', 'ptz-channel', 'io-channel']) {
@@ -880,6 +889,216 @@ async function refreshUsage() {
   }
 }
 
+// ── 裝置資訊（對齊 QCV8001 web 的 Info 頁）────────────────────────────────
+//
+// 雙欄表格：左「系統」（產品／版本／時間／授權）、右「儲存與狀態」（用量／容量／健康）。
+// 資料全部來自既有 API；/config/usage 會做資料夾層級對帳（ReconcileUsage）所以只在
+// 開啟分頁時載入，不進 12 秒輪詢——每 12 秒掃一次錄影目錄是白花的磁碟成本。
+
+/** 位元組 → 人類可讀；小數一位，避免表格欄寬抖動。 */
+function formatBytes(bytes) {
+  const value = Number(bytes ?? 0);
+  if (!Number.isFinite(value)) return '—';
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  let unit = 0;
+  let size = value;
+  while (size >= 1024 && unit < units.length - 1) {
+    size /= 1024;
+    unit += 1;
+  }
+  return `${size.toFixed(unit === 0 ? 0 : 1)} ${units[unit]}`;
+}
+
+/** 剩餘可錄秒數 → 「N 天 H 小時」；狀態不是 known 時顯示佔位（—），不能印 0。 */
+function formatRemaining(seconds, state) {
+  if (state !== 'known') return '—';
+  const total = Math.max(0, Math.floor(Number(seconds ?? 0) / 60));
+  const days = Math.floor(total / 1440);
+  const hours = Math.floor((total % 1440) / 60);
+  if (days > 0) return t('info.remainDays', { days, hours });
+  return t('info.remainHours', { hours, minutes: total % 60 });
+}
+
+/** 授權／容量／磁碟健康的狀態字串都來自伺服器，前端只補翻譯；未知值保留原字串。 */
+function localizedState(key, state) {
+  const value = String(state ?? '');
+  const text = t(`${key}.${value}`);
+  return text === `${key}.${value}` ? value : text;
+}
+
+async function refreshDeviceInfo() {
+  const msg = $('info-msg');
+  const systemBody = $('info-system')?.querySelector('tbody');
+  const storageBody = $('info-storage')?.querySelector('tbody');
+  const driveBody = $('info-drives')?.querySelector('tbody');
+  if (!systemBody || !storageBody || !driveBody) return;
+
+  // 五個來源各自容錯：任何一個讀不到，其他欄位照常顯示，那一格寫「—」。
+  const [health, license, usage, capacity, disks] = await Promise.all([
+    api('/api/health').catch(() => null),
+    api('/api/license').catch(() => null),
+    api('/api/config/usage').catch(() => null),
+    api('/api/recording/capacity').catch(() => null),
+    api('/api/system/disk-health').catch(() => null),
+  ]);
+
+  const session = readSession();
+  const dash = '—';
+  // 授權拆成兩列：狀態（未授權時附伺服器的說明）與續期提醒（伺服端算好的文案）。
+  // 這些先算成「未跳脫」的原文，模板裡一律 esc(...) 一次跳脫（安全測試的規則：
+  // innerHTML 模板的每個插值都必須以 esc/tx/Number 開頭，所以不能插變數本身）。
+  const licenseState = license
+    ? license.decision === 'Valid'
+      ? license.decision
+      : `${license.decision}${license.message ? ` · ${license.message}` : ''}`
+    : dash;
+  const licenseExpiry = license?.expiryMessage || dash;
+  const channelsRaw = health ? t('info.channelsLine', { count: Number(health.channels) }) : dash;
+  const usageRaw = usage ? t('info.usageLine', { gb: Number(usage.gb ?? 0).toFixed(1), days: usage.retentionDays }) : dash;
+  const capacityRaw = capacity
+    ? t('info.capacityLine', {
+        state: localizedState('info.capacityState', capacity.state),
+        remain: formatRemaining(capacity.remainingSeconds, capacity.state),
+      })
+    : dash;
+  const diskRaw = disks
+    ? t('info.diskHealthLine', {
+        state: localizedState('info.diskState', disks.state),
+        failing: Number(disks.failing ?? 0),
+        warning: Number(disks.warning ?? 0),
+      })
+    : dash;
+
+  systemBody.innerHTML = [
+    `<tr><th scope="row">${esc(t('info.product'))}</th><td>${esc('HeliVMS')}</td></tr>`,
+    `<tr><th scope="row">${esc(t('info.database'))}</th><td>${esc(health?.database ?? dash)}</td></tr>`,
+    `<tr><th scope="row">${esc(t('info.serverTime'))}</th><td>${esc(`${new Date().toLocaleString()} (${Intl.DateTimeFormat().resolvedOptions().timeZone})`)}</td></tr>`,
+    `<tr><th scope="row">${esc(t('info.signedIn'))}</th><td>${esc(session ? `${session.name || ''}`.trim() || session.role : t('state.notSignedIn'))}</td></tr>`,
+    `<tr><th scope="row">${esc(t('info.licenseState'))}</th><td>${esc(licenseState)}</td></tr>`,
+    `<tr><th scope="row">${esc(t('info.licenseChannels'))}</th><td>${esc(license?.maxCameras != null ? String(license.maxCameras) : dash)}</td></tr>`,
+    `<tr><th scope="row">${esc(t('info.licenseExpiry'))}</th><td>${esc(licenseExpiry)}</td></tr>`,
+  ].join('');
+
+  storageBody.innerHTML = [
+    `<tr><th scope="row">${esc(t('info.channels'))}</th><td>${esc(channelsRaw)}</td></tr>`,
+    `<tr><th scope="row">${esc(t('info.usage'))}</th><td>${esc(usageRaw)}</td></tr>`,
+    `<tr><th scope="row">${esc(t('info.capacity'))}</th><td>${esc(capacityRaw)}</td></tr>`,
+    `<tr><th scope="row">${esc(t('info.diskHealth'))}</th><td>${esc(diskRaw)}</td></tr>`,
+  ].join('');
+
+  const drives = disks?.drives ?? [];
+  const byRoot = new Map((capacity?.drives ?? []).map((d) => [String(d.root), d]));
+  driveBody.innerHTML = drives.length > 0
+    ? drives
+        .map((d) => {
+          const cap = byRoot.get(String(d.root));
+          return `<tr><td>${esc(d.root)}</td><td>${esc(d.model || dash)}</td><td>${esc(localizedState('info.diskState', d.state))}</td><td>${esc(d.temperatureC != null ? `${d.temperatureC}°C` : dash)}</td><td>${esc(cap ? formatBytes(cap.freeBytes) : dash)}</td><td>${esc(cap ? formatRemaining(cap.remainingSeconds, cap.state) : dash)}</td></tr>`;
+        })
+        .join('')
+    : `<tr><td colspan="6">${esc(t('state.noResults'))}</td></tr>`;
+
+  if (msg) msg.textContent = t('info.updatedAt', { time: new Date().toLocaleTimeString() });
+}
+
+// ── 匯出（對齊 QCV8001 web 的 Export／備份頁）────────────────────────────
+//
+// 工作清單吃既有 GET /api/exports；建立走 POST /api/exports（伺服器排程 ffmpeg）。
+// 狀態徽章隨 12 秒輪詢刷新，操作員不用手動重整就知道工作跑完沒有。
+
+/** 匯出工作的狀態值（伺服器小寫英文）→ 徽章樣式；未知的狀態沿用中性樣式。 */
+function exportStatusClass(status) {
+  switch (String(status ?? '')) {
+    case 'finished':
+      return 'export-status ok';
+    case 'failed':
+      return 'export-status fail';
+    case 'running':
+      return 'export-status run';
+    default:
+      return 'export-status';
+  }
+}
+
+async function refreshExports() {
+  const body = $('export-jobs')?.querySelector('tbody');
+  if (!body) return;
+  const jobs = await api('/api/exports').catch(() => []);
+  const rows = Array.isArray(jobs) ? jobs : [];
+  body.innerHTML = rows.length > 0
+    ? rows
+        .map((j) => `<tr><td>${Number(j.id)}</td><td>${esc(channelName(Number(j.channelId)))}</td><td class="wrap">${esc(formatTimestamp(j.startUtc))} – ${esc(formatTimestamp(j.endUtc))}</td><td><span class="${esc(exportStatusClass(j.status))}">${esc(localizedState('export.status', j.status))}</span></td><td>${esc(j.fileSizeBytes != null ? formatBytes(j.fileSizeBytes) : '—')}</td><td>${esc(formatTimestamp(j.createdUtc))}</td><td class="wrap">${esc(j.error || '—')}</td></tr>`)
+        .join('')
+    : `<tr><td colspan="7">${esc(t('export.empty'))}</td></tr>`;
+  const meta = $('export-meta');
+  if (meta) meta.textContent = rows.length > 0 ? t('export.listMeta', { count: rows.length }) : '';
+}
+
+async function submitExport(event) {
+  event.preventDefault();
+  const msg = $('export-msg');
+  const from = $('export-from')?.value;
+  const to = $('export-to')?.value;
+  const channelId = Number($('export-channel')?.value);
+  if (!from || !to || !Number.isInteger(channelId) || channelId < 1) {
+    if (msg) msg.textContent = t('export.needFields');
+    return;
+  }
+
+  // datetime-local 是本地時間；API 收 UTC ISO 字串（與遠程回放的提交同一種換算）。
+  const body = {
+    channelId,
+    stream: 'main',
+    fromUtc: new Date(from).toISOString(),
+    toUtc: new Date(to).toISOString(),
+  };
+  try {
+    const response = await apiRaw('/api/exports', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!response.ok) {
+      const info = await response.json().catch(() => null);
+      if (msg) msg.textContent = info?.error ?? t('export.createFailed');
+      return;
+    }
+    if (msg) msg.textContent = t('export.created');
+    await refreshExports();
+  } catch (err) {
+    if (msg) msg.textContent = t('export.createFailed');
+  }
+}
+
+/** 匯出分頁的頻道下拉與預設時段（今天 00:00 → 現在）。 */
+function refreshExportSources() {
+  const select = $('export-channel');
+  if (select) {
+    const current = select.value;
+    select.innerHTML = localChannels
+      .map((c) => `<option value="${Number(c.id)}">${esc(c.name)}</option>`)
+      .join('');
+    if (current && localChannels.some((c) => String(c.id) === current)) {
+      select.value = current;
+    } else if (localChannels.length > 0) {
+      select.value = String(Number(localChannels[0].id));
+    }
+  }
+  const from = $('export-from');
+  const to = $('export-to');
+  if (from && !from.value) {
+    const start = new Date();
+    start.setHours(0, 0, 0, 0);
+    from.value = toLocalInputValue(start);
+  }
+  if (to && !to.value) to.value = toLocalInputValue(new Date());
+}
+
+/** datetime-local 欄位要的是本地時間（YYYY-MM-DDTHH:mm），不是 ISO UTC。 */
+function toLocalInputValue(date) {
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
 /** 寫回設定。範圍驗證在伺服器端（各欄上限不同），錯誤訊息照後端回傳顯示。 */
 async function saveSettings(event) {
   event.preventDefault();
@@ -978,6 +1197,14 @@ function wire() {
   });
 
   $('settings-form').addEventListener('submit', saveSettings);
+
+  $('export-form').addEventListener('submit', submitExport);
+  $('export-refresh').addEventListener('click', () => {
+    void refreshExports();
+  });
+  $('info-refresh').addEventListener('click', () => {
+    void refreshDeviceInfo();
+  });
 
   $('play-form').addEventListener('submit', playRemote);
   // 換來源節點時同步換頻道建議（M302），否則會留著上一台節點的頻道清單。
@@ -1125,7 +1352,9 @@ function txMissing(features) {
 }
 
 async function refreshAll() {
-  await Promise.allSettled([refreshHealth(), refreshPlaySources(), refreshLocalChannels()]);
+  // 匯出工作清單一起輪詢：工作排程在伺服器端（ffmpeg），徽章不刷新的話
+  // 操作員要手動重整才知道跑完沒有。
+  await Promise.allSettled([refreshHealth(), refreshPlaySources(), refreshLocalChannels(), refreshExports()]);
 }
 
 boot();

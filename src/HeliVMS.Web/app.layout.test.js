@@ -185,3 +185,26 @@ describe('multi-split live grid', () => {
     expect(rule('.live-cell .player')).toMatch(/max-width:\s*none/);
   });
 });
+
+describe('device info and export panels', () => {
+  it('arranges the info tables side by side on wide screens', () => {
+    // Info 頁的兩張表（系統／儲存）在寬螢幕並排；疊放的話要捲很久才看得到磁碟表。
+    expect(rule('.info-grid')).toMatch(/display:\s*grid/);
+    expect(rule('.info-grid')).toMatch(/repeat\(auto-fit,\s*minmax\(min\(320px, 100%\), 1fr\)\)/);
+  });
+
+  it('keeps the key column narrow so long values wrap instead of pushing the table', () => {
+    // 鍵值表的欄名（中文短、英文長）若不固定寬度，值欄會被擠出捲動容器。
+    expect(rule('.kv th')).toMatch(/width:\s*1%/);
+    expect(rule('.kv td')).toMatch(/white-space:\s*normal/);
+  });
+
+  it('ships distinct status badge styles for export jobs', () => {
+    // 佇列／執行中／完成／失敗四態只能靠這個徽章分辨；樣式消失時操作員
+    // 要逐列讀英文狀態字串。
+    expect(cssSource).toMatch(/\.export-status \{/);
+    expect(cssSource).toMatch(/\.export-status\.ok \{/);
+    expect(cssSource).toMatch(/\.export-status\.run \{/);
+    expect(cssSource).toMatch(/\.export-status\.fail \{/);
+  });
+});

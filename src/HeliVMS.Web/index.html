@@ -39,6 +39,8 @@
   <nav class="tabs" role="tablist" aria-label="Sections" data-i18n-attr="aria-label:a11y.tablist">
     <button type="button" id="tabbtn-live" class="tab active" role="tab" data-tab="live" aria-selected="true" aria-controls="panel-live"><span data-i18n="nav.liveWatch">即時監看</span></button>
     <button type="button" id="tabbtn-playback" class="tab" role="tab" data-tab="playback" aria-selected="false" aria-controls="panel-playback"><span data-i18n="nav.remotePlayback">遠程回放</span></button>
+    <button type="button" id="tabbtn-export" class="tab" role="tab" data-tab="export" aria-selected="false" aria-controls="panel-export"><span data-i18n="nav.export">匯出</span></button>
+    <button type="button" id="tabbtn-info" class="tab" role="tab" data-tab="info" aria-selected="false" aria-controls="panel-info"><span data-i18n="nav.info">裝置資訊</span></button>
     <button type="button" id="tabbtn-snapshot" class="tab" role="tab" data-tab="snapshot" aria-selected="false" aria-controls="panel-snapshot"><span data-i18n="nav.snapshot">截圖</span></button>
     <button type="button" id="tabbtn-ptz" class="tab" role="tab" data-tab="ptz" aria-selected="false" aria-controls="panel-ptz"><span data-i18n="nav.ptz">PTZ 控制</span></button>
     <button type="button" id="tabbtn-events" class="tab" role="tab" data-tab="events" aria-selected="false" aria-controls="panel-events"><span data-i18n="nav.events">事件搜尋</span></button>
@@ -82,6 +84,45 @@
       <video id="play-video" class="player" controls playsinline preload="metadata"></video>
       <div id="play-clock" class="play-clock"></div>
       <div id="play-meta" class="muted"></div>
+    </section>
+
+    <section class="panel wide" id="panel-export" data-panel="export" role="tabpanel" aria-labelledby="tabbtn-export" hidden>
+      <h2><span data-i18n="nav.export">匯出</span> <span class="muted" data-i18n="export.hint">選取時段建立匯出工作，完成後下載 MP4</span></h2>
+      <form id="export-form" class="row-form">
+        <select id="export-channel" aria-label="Channel" data-i18n-attr="aria-label:col.channel"></select>
+        <input id="export-from" type="datetime-local" aria-label="Start time" data-i18n-attr="aria-label:ph.startTime" required />
+        <input id="export-to" type="datetime-local" aria-label="End time" data-i18n-attr="aria-label:ph.endTime" required />
+        <button type="submit" data-i18n="export.create">建立匯出工作</button>
+        <button type="button" id="export-refresh" data-i18n="action.refresh">立即更新</button>
+        <span id="export-msg" class="muted" aria-live="polite"></span>
+      </form>
+      <table id="export-jobs">
+        <thead><tr><th scope="col">ID</th><th scope="col" data-i18n="col.channel">頻道</th><th scope="col" data-i18n="col.time">時間</th><th scope="col" data-i18n="col.status">狀態</th><th scope="col" data-i18n="export.size">大小</th><th scope="col" data-i18n="export.createdAt">建立時間</th><th scope="col" data-i18n="col.text">內容</th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <div id="export-meta" class="muted"></div>
+    </section>
+
+    <section class="panel wide" id="panel-info" data-panel="info" role="tabpanel" aria-labelledby="tabbtn-info" hidden>
+      <h2><span data-i18n="nav.info">裝置資訊</span> <span class="muted" data-i18n="info.hint">系統與儲存狀態</span></h2>
+      <div class="info-grid">
+        <section class="panel">
+          <h3 data-i18n="info.system">系統</h3>
+          <table id="info-system" class="kv"><tbody></tbody></table>
+        </section>
+        <section class="panel">
+          <h3 data-i18n="info.storage">儲存與狀態</h3>
+          <table id="info-storage" class="kv"><tbody></tbody></table>
+        </section>
+      </div>
+      <div class="row-form">
+        <button type="button" id="info-refresh" data-i18n="action.refresh">立即更新</button>
+        <span id="info-msg" class="muted" aria-live="polite"></span>
+      </div>
+      <table id="info-drives">
+        <thead><tr><th scope="col" data-i18n="info.diskRoot">磁碟</th><th scope="col" data-i18n="info.diskModel">型號</th><th scope="col" data-i18n="info.diskLevel">健康</th><th scope="col" data-i18n="info.diskTemp">溫度</th><th scope="col" data-i18n="info.diskFree">可用空間</th><th scope="col" data-i18n="info.diskRemain">剩餘可錄</th></tr></thead>
+        <tbody></tbody>
+      </table>
     </section>
 
     <section class="panel wide" id="panel-snapshot" data-panel="snapshot" role="tabpanel" aria-labelledby="tabbtn-snapshot" hidden>

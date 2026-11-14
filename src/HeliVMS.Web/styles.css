@@ -315,3 +315,27 @@ button {
 
 .log { list-style: none; margin: 0; padding: 0; max-height: 200px; overflow: auto; }
 .log li { padding: 3px 6px; border-bottom: 1px solid var(--line); font-family: Consolas, monospace; }
+
+/* 裝置資訊（對齊 QCV8001 web 的 Info 頁）：雙欄表格在寬螢幕並排、窄螢幕疊放。
+   內層 .panel 有自己的 padding 與捲動，直接重用既有面板樣式。 */
+.info-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr));
+  gap: 12px;
+  margin-bottom: 8px;
+}
+/* 「欄位名：值」的鍵值表：欄名不換行、值不撐寬，長值在面板的捲動容器裡換行。 */
+.kv th { width: 1%; white-space: nowrap; color: var(--muted); font-weight: normal; }
+.kv td { white-space: normal; }
+
+/* 匯出工作的狀態徽章：狀態值是伺服器的小寫英文，前端只補翻譯與顏色。 */
+.export-status {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 3px;
+  border: 1px solid var(--line);
+  white-space: nowrap;
+}
+.export-status.ok { background: #1d4d33; border-color: #2f7a52; }
+.export-status.run { background: #1d3a5f; border-color: #2a5c8a; }
+.export-status.fail { background: #5f1d1d; border-color: #8a3c2e; }
