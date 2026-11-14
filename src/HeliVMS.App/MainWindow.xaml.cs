@@ -1426,11 +1426,17 @@ public partial class MainWindow : Window
         try
         {
             GroupTabs.Items.Clear();
-            var all = new TabItem { Header = Localizer.T("Main.GroupAll"), Tag = (long?)null };
+            // 台數取自資料庫而不是 _channelList：載入初期頁簽先於頻道清單建立
+            // （這裡在 OnLoaded 的 RefreshChannelList 之前跑過一次），用 _channelList
+            // 會讓每個頁籤都顯示 0。過濾「已不存在的頻道」與 WallChannels 同一口徑。
+            var dbChannels = _channels?.List() ?? [];
+            var knownIds = dbChannels.Select(c => c.Id).ToHashSet();
+            var all = new TabItem { Header = TabHeader(Localizer.T("Main.GroupAll"), dbChannels.Count), Tag = (long?)null };
             GroupTabs.Items.Add(all);
             foreach (var group in _groups.List())
             {
-                GroupTabs.Items.Add(new TabItem { Header = group.Name, Tag = (long?)group.Id });
+                var count = _groups.ListChannelIds(group.Id).Count(knownIds.Contains);
+                GroupTabs.Items.Add(new TabItem { Header = TabHeader(group.Name, count), Tag = (long?)group.Id });
             }
 
             var target = GroupTabs.Items.OfType<TabItem>().FirstOrDefault(t => (long?)t.Tag == _activeGroupId) ?? all;
@@ -1454,6 +1460,11 @@ public partial class MainWindow : Window
             _rebuildingTabs = false;
         }
     }
+
+    /// <summary>頁籤標題：名稱＋台數。台數讓「該用幾分割」一目了然——64 分割看 2 台的群組
+    /// 是浪費，也是先前「群組 2 台用 4 分割、切換後空格串畫面」案例的根源之一。</summary>
+    private static string TabHeader(string name, int count)
+        => name + string.Format(Localizer.T("Main.TabCountFormat"), count);
 
     private async void OnGroupTabChanged(object sender, SelectionChangedEventArgs e)
     {
