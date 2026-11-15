@@ -87,6 +87,9 @@ public sealed class FakePtzGateway : IOnvifPtzGateway
 
     public string? LastGotoPresetToken { get; private set; }
 
+    /// <summary>儲存預設點時帶入的「覆寫這一個」Token（null＝新增）。</summary>
+    public string? LastOverwritePresetToken { get; private set; }
+
     private void MaybeThrow()
     {
         if (ThrowNotSupported)
@@ -135,12 +138,13 @@ public sealed class FakePtzGateway : IOnvifPtzGateway
         return Task.FromResult<IReadOnlyList<PtzPresetInfo>>([new PtzPresetInfo("1", "大門")]);
     }
 
-    public Task<string> SetPresetAsync(DeviceRecord device, string? profileToken, string? name, CancellationToken cancellation)
+    public Task<string> SetPresetAsync(DeviceRecord device, string? profileToken, string? name, string? presetToken, CancellationToken cancellation)
     {
         MaybeThrow();
         LastProfileToken = profileToken;
         LastPresetName = name;
-        return Task.FromResult("2");
+        LastOverwritePresetToken = presetToken;
+        return Task.FromResult(string.IsNullOrWhiteSpace(presetToken) ? "2" : presetToken);
     }
 
     public Task GotoPresetAsync(DeviceRecord device, string? profileToken, string presetToken, CancellationToken cancellation)
@@ -316,6 +320,33 @@ public sealed class PtzApiTests : IClassFixture<PtzApiFactory>
         Assert.Equal(HttpStatusCode.OK, save.StatusCode);
         Assert.Equal("倉庫", _factory.Gateway.LastPresetName);
         Assert.Equal("大門", Assert.Single(body).Name);
+    }
+
+    /// <summary>
+    /// 帶 <c>presetToken</c> 的儲存＝把「那一個」預設點的位置更新成目前位置
+    /// （參考機 PTZ 面板的「儲存位置」）。少了它，操作員微調後只能一直新增預設點，
+    /// 而巡邏／圖控指的还是舊 Token 的舊位置。
+    /// </summary>
+    [Fact]
+    public async Task 儲存既有預設點時會把Token傳給裝置端()
+    {
+        _factory.Gateway.ThrowNotSupported = false;
+        using var client = Client();
+
+        var save = await client.PostAsJsonAsync(
+            $"/api/ptz/{_factory.BoundChannelId}/presets",
+            new PtzPresetSaveRequest("Profile_1", "大門", "7"));
+
+        Assert.Equal(HttpStatusCode.OK, save.StatusCode);
+        Assert.Equal("7", _factory.Gateway.LastOverwritePresetToken);
+        Assert.Equal("7", (await ReadAsync<PtzPresetInfo>(save)).Token);
+
+        // 不帶 Token 的新增路徑不能被影響：仍是裝置端配一個新的。
+        var create = await client.PostAsJsonAsync(
+            $"/api/ptz/{_factory.BoundChannelId}/presets",
+            new PtzPresetSaveRequest("Profile_1", "側門"));
+        Assert.Null(_factory.Gateway.LastOverwritePresetToken);
+        Assert.Equal("2", (await ReadAsync<PtzPresetInfo>(create)).Token);
     }
 
     [Fact]

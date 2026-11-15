@@ -170,7 +170,42 @@ describe('PTZ (M310 /api/ptz)', () => {
     expect(appSource).toMatch(/apiRaw\(`\/api\/ptz\/\$\{channelId\}\/move`, \{/);
     expect(appSource).toMatch(/apiRaw\(`\/api\/ptz\/\$\{channelId\}\/stop`, \{/);
     expect(appSource).toMatch(/apiRaw\(`\/api\/ptz\/\$\{channelId\}\/home`, \{/);
-    expect(appSource).toMatch(/body: JSON\.stringify\(\{ profileToken: ptzProfileToken, pan, tilt, zoom \}\)/);
+    // 速度級別換算成 ONVIF 的速度向量（8＝全速，與調整前相同）；三軸一起送。
+    expect(appSource).toMatch(/pan: pan \* scale,/);
+    expect(appSource).toMatch(/tilt: tilt \* scale,/);
+    expect(appSource).toMatch(/zoom: zoom \* scale,/);
+  });
+
+  it('serialises PTZ commands so a late Stop cannot overtake the Move', () => {
+    // 參考機 web 面板把 PTZ 命令排成一條佇列（一次只有一道在飛）。少了它，放開方向鍵時
+    // 送出的 Stop 可能比先前的 Move 先到，鏡頭就在放手之後繼續轉。
+    expect(appSource).toMatch(/function ptzEnqueue\(task\)/);
+    expect(appSource).toMatch(/await ptzEnqueue\(async \(\) => \{/);
+    expect(appSource).toContain('let ptzQueue = Promise.resolve();');
+  });
+
+  it('stops the camera when the operator leaves the panel or presses Esc', () => {
+    // 滑鼠放開的事件不一定送得到（拖到視窗外、切換視窗、手機上來電），鏡頭會轉到逾時。
+    expect(appSource).toMatch(/ev\.key === 'Escape'/);
+    expect(appSource).toMatch(/document\.hidden/);
+    expect(appSource).toMatch(/window\.addEventListener\('blur'/);
+  });
+
+  it('offers the speed control of the reference panel and remembers it', () => {
+    expect(indexSource).toMatch(/id="ptz-speed"[^>]*type="range"[^>]*min="1"[^>]*max="8"/);
+    expect(appSource).toMatch(/function ptzSpeedLevel\(\)/);
+    expect(appSource).toMatch(/function ptzVelocityScale\(\)/);
+    expect(appSource).toContain("localStorage.setItem('helivms.ptzSpeed'");
+    for (const key of ['ptz.speed', 'ptz.slower', 'ptz.faster', 'ptz.updatePreset']) {
+      expect(i18nSource, key).toContain(`'${key}':`);
+    }
+  });
+
+  it('updates the selected preset position instead of always adding one', () => {
+    // 參考機的「儲存位置」：帶 presetToken 的 SetPreset 把那個預設點移到目前位置。
+    expect(indexSource).toMatch(/id="ptz-preset-update"[^>]*data-i18n="ptz\.updatePreset"/);
+    expect(appSource).toMatch(/presetToken: token \}/);
+    expect(appSource).toMatch(/async function updatePtzPreset\(\)/);
   });
 
   it('manages presets: list, save, goto, delete', () => {

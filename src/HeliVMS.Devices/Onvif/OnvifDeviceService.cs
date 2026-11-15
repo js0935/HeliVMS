@@ -766,14 +766,30 @@ public sealed partial class OnvifDeviceService : IDisposable
             cancellationToken, retryable: false);
     }
 
-    /// <summary>將目前位置儲存為預設點（SetPreset），回傳預設點 Token。</summary>
-    public async Task<string> SetPtzPresetAsync(string profileToken, string presetName, CancellationToken cancellationToken = default)
+    /// <summary>
+    /// 將目前位置儲存為預設點（SetPreset），回傳預設點 Token；
+    /// 帶 <paramref name="presetToken"/> 時<b>覆寫那一個既有預設點的位置</b>。
+    /// </summary>
+    /// <remarks>
+    /// 帶 Token 的 SetPreset 是 ONVIF 規範裡「把預設點移到目前位置」的正式做法，也是參考機
+    /// （QCV8001）PTZ 面板「儲存位置」按鈕的行為：操作員微調畫面之後要更新原本那一個預設點，
+    /// 而不是再新增一個同名／編號一直長大的預設點——巡邏與圖控照的是同一個 Token，
+    /// 新增一個等於讓既有的規則全部指到舊位置。
+    /// </remarks>
+    public async Task<string> SetPtzPresetAsync(
+        string profileToken,
+        string presetName,
+        string? presetToken = null,
+        CancellationToken cancellationToken = default)
     {
         var body = await PostPtzAsync("SetPreset", profileToken, node =>
             new XElement(_ptzWsdl + "SetPreset",
                 new XElement(_ptzWsdl + "ProfileToken", profileToken),
                 node,
-                new XElement(_ptzWsdl + "PresetName", presetName)),
+                new XElement(_ptzWsdl + "PresetName", presetName),
+                string.IsNullOrWhiteSpace(presetToken)
+                    ? null
+                    : new XElement(_ptzWsdl + "PresetToken", presetToken)),
             cancellationToken, retryable: false);
 
         return (string?)DescendantAnyNs(body, "PresetToken") ?? string.Empty;

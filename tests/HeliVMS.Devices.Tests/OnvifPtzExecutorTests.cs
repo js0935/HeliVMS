@@ -85,6 +85,29 @@ public class OnvifPtzExecutorTests
         Assert.Contains(handler.Bodies, b => b.Contains("GotoPreset") && b.Contains("tok2"));
     }
 
+    /// <summary>
+    /// 帶 <c>PresetToken</c> 的 SetPreset＝把「那一個」預設點的位置更新成目前位置
+    /// （參考機 PTZ 面板的「儲存位置」）；不帶就是新增。<c>PresetToken</c> 是規範裡的選填元素，
+    /// 少了它裝置只會再配一個新 Token，而巡邏／圖控指的还是舊位置。
+    /// </summary>
+    [Fact]
+    public async Task SetPreset_WithToken_OverwritesThatPreset()
+    {
+        var handler = new Handler();
+        var (_, device) = await MakeAsync(handler);
+
+        await device.SetPtzPresetAsync("prof1", "Lobby", "tok2");
+        await device.SetPtzPresetAsync("prof1", "Lobby");
+
+        var overwrite = Assert.Single(handler.Bodies, b => b.Contains("SetPreset") && b.Contains("tok2"));
+        Assert.Contains("SetPreset", overwrite);
+        Assert.Contains("Lobby", overwrite);
+
+        // 新增路徑（沒有 Token）不得帶 PresetToken，否則裝置端會去找一個不存在的預設點。
+        var create = handler.Bodies.Last(b => b.Contains("SetPreset"));
+        Assert.DoesNotContain("PresetToken", create);
+    }
+
     [Fact]
     public async Task GotoPreset_NoPtzCapability_Throws()
     {

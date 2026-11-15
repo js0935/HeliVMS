@@ -151,9 +151,15 @@ public static class PtzEndpoints
             }
 
             var name = string.IsNullOrWhiteSpace(body.Name) ? null : body.Name.Trim();
+
+            // 帶 PresetToken＝把「那一個」預設點的位置更新成目前位置（參考機 PTZ 面板的
+            // 「儲存位置」）。少了這個欄位，操作員微調之後只能一直新增預設點，而巡邏／圖控
+            // 指的还是舊 Token 的舊位置。
+            var overwriteToken = string.IsNullOrWhiteSpace(body.PresetToken) ? null : body.PresetToken.Trim();
             return await Run(async () =>
                 Results.Ok(new PtzPresetInfo(
-                    await gateway.SetPresetAsync(device, body.ProfileToken, name, cancellation).ConfigureAwait(false),
+                    await gateway.SetPresetAsync(device, body.ProfileToken, name, overwriteToken, cancellation)
+                        .ConfigureAwait(false),
                     name ?? string.Empty)));
         });
 
@@ -260,7 +266,7 @@ public sealed record PtzProfileInfo(string Token, string Name, string Label);
 public sealed record PtzPresetInfo(string Token, string Name);
 public sealed record PtzMoveRequest(string? ProfileToken, double Pan, double Tilt, double Zoom);
 public sealed record PtzProfileRequest(string? ProfileToken);
-public sealed record PtzPresetSaveRequest(string? ProfileToken, string? Name);
+public sealed record PtzPresetSaveRequest(string? ProfileToken, string? Name, string? PresetToken = null);
 
 /// <summary>PTZ 裝置操作；抽離是為了在端點測試注入假物件（見 <see cref="PtzEndpoints"/> 說明）。</summary>
 public interface IOnvifPtzGateway
@@ -275,7 +281,7 @@ public interface IOnvifPtzGateway
 
     Task<IReadOnlyList<PtzPresetInfo>> GetPresetsAsync(DeviceRecord device, string? profileToken, CancellationToken cancellation);
 
-    Task<string> SetPresetAsync(DeviceRecord device, string? profileToken, string? name, CancellationToken cancellation);
+    Task<string> SetPresetAsync(DeviceRecord device, string? profileToken, string? name, string? presetToken, CancellationToken cancellation);
 
     Task GotoPresetAsync(DeviceRecord device, string? profileToken, string presetToken, CancellationToken cancellation);
 
@@ -325,13 +331,22 @@ public sealed class OnvifPtzGateway : IOnvifPtzGateway
         return presets.Select(p => new PtzPresetInfo(p.Token, p.Name)).ToList();
     }
 
-    public async Task<string> SetPresetAsync(DeviceRecord device, string? profileToken, string? name, CancellationToken cancellation)
+    public async Task<string> SetPresetAsync(
+        DeviceRecord device,
+        string? profileToken,
+        string? name,
+        string? presetToken,
+        CancellationToken cancellation)
     {
         using var service = Create(device);
         var resolvedName = string.IsNullOrWhiteSpace(name)
             ? $"預設點 {DateTime.Now:HH:mm:ss}"
             : name;
-        return await service.SetPtzPresetAsync(await ResolveAsync(service, profileToken, cancellation).ConfigureAwait(false), resolvedName, cancellation).ConfigureAwait(false);
+        return await service.SetPtzPresetAsync(
+            await ResolveAsync(service, profileToken, cancellation).ConfigureAwait(false),
+            resolvedName,
+            presetToken,
+            cancellation).ConfigureAwait(false);
     }
 
     public async Task GotoPresetAsync(DeviceRecord device, string? profileToken, string presetToken, CancellationToken cancellation)

@@ -26,6 +26,16 @@ public partial class PtzWindow : Window
     // 每次點擊／步進的相對位移量（PTZ 正規化座標，約為全行程的比例）。實機覺得轉幅偏大或偏小時調整此值。
     private const double NudgeStep = 0.02;
 
+    /// <summary>速度（1–8）的設定鍵；與網頁版的滑桿同一組語意（8＝全速）。</summary>
+    private const string SpeedKey = "ptz.speed";
+
+    /// <summary>預設速度＝8（全速）：與加入速度控制之前的轉幅相同，沒動過的人感覺不到差別。</summary>
+    private const int DefaultSpeedLevel = 8;
+
+    private readonly SettingsRepository _settings;
+
+    private int _speedLevel = DefaultSpeedLevel;
+
     /// <summary>設備不支援 RelativeMove（回 ActionNotSupported）時改走 ContinuousMove，並記住以免每步都失敗一次。</summary>
     private bool _nudgeRelativeUnsupported;
 
@@ -38,6 +48,10 @@ public partial class PtzWindow : Window
     public PtzWindow(SqliteStore store, ChannelInfo channel, DeviceRecord device)
     {
         InitializeComponent();
+        _settings = new SettingsRepository(store);
+        _speedLevel = ReadSpeedLevel();
+        // 指派 Value 會觸發 ValueChanged（那時 _settings 已備好，可以寫回同一個值而無害）。
+        PtzSpeedSlider.Value = _speedLevel;
         ApplyI18n();
         Title = string.Format(Localizer.T("Ptz.TitleWindow"), channel.Name);
 
@@ -78,7 +92,37 @@ public partial class PtzWindow : Window
         PtzGotoPresetButton.ToolTip = Localizer.T("Ptz.GotoPresetTip");
         PtzCloseButton.Content = Localizer.T("Ptz.Close");
         PtzCloseButton.ToolTip = Localizer.T("Ptz.CloseTip");
+        PtzSpeedSlider.ToolTip = Localizer.T("Ptz.SpeedTip");
+        PtzSlowerButton.ToolTip = Localizer.T("Ptz.SlowerTip");
+        PtzFasterButton.ToolTip = Localizer.T("Ptz.FasterTip");
     }
+
+    /// <summary>速度級別（1–8）；設定值壞掉時退回全速。</summary>
+    private int ReadSpeedLevel()
+    {
+        var raw = _settings.Get(SpeedKey);
+        return int.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out var level)
+               && level is >= 1 and <= 8
+            ? level
+            : DefaultSpeedLevel;
+    }
+
+    /// <summary>速度級別 → 位移量／速度向量的比例：8＝全速（與加入速度控制之前相同），1＝最慢。</summary>
+    private double SpeedScale() => _speedLevel / 8.0;
+
+    private void OnSpeedChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+    {
+        _speedLevel = Math.Clamp((int)Math.Round(e.NewValue), 1, 8);
+        PtzSpeedSlider.ToolTip = string.Format(Localizer.T("Ptz.SpeedTip"), _speedLevel);
+        // 設定寫在改動當下：視窗關閉有自己的收尾路徑，等關窗才寫就漏掉了。
+        _settings.Set(SpeedKey, _speedLevel.ToString(CultureInfo.InvariantCulture));
+    }
+
+    private void OnSlowerClicked(object sender, RoutedEventArgs e)
+        => PtzSpeedSlider.Value = Math.Max(PtzSpeedSlider.Minimum, PtzSpeedSlider.Value - 1);
+
+    private void OnFasterClicked(object sender, RoutedEventArgs e)
+        => PtzSpeedSlider.Value = Math.Min(PtzSpeedSlider.Maximum, PtzSpeedSlider.Value + 1);
 
     /// <summary>
     /// 面板沒有標題列（<c>WindowStyle="None"</c>），所以狀態列同時當拖曳把手。
@@ -238,15 +282,17 @@ public partial class PtzWindow : Window
     /// </summary>
     private async Task NudgeAsync(double pan, double tilt, double zoom)
     {
+        // 速度在兩種路徑上都要生效：RelativeMove 的一步大小、以及退化路徑 ContinuousMove 的速度向量。
+        var scale = SpeedScale();
         if (!_nudgeRelativeUnsupported)
         {
             try
             {
                 await _service.RelativeMoveAsync(
                     _profileToken,
-                    Math.Sign(pan) * NudgeStep,
-                    Math.Sign(tilt) * NudgeStep,
-                    Math.Sign(zoom) * NudgeStep);
+                    Math.Sign(pan) * NudgeStep * scale,
+                    Math.Sign(tilt) * NudgeStep * scale,
+                    Math.Sign(zoom) * NudgeStep * scale);
                 return;
             }
             catch (OnvifException ex) when (IsActionNotSupported(ex))
@@ -255,7 +301,7 @@ public partial class PtzWindow : Window
             }
         }
 
-        await _service.ContinuousMoveAsync(_profileToken, pan, tilt, zoom);
+        await _service.ContinuousMoveAsync(_profileToken, pan * scale, tilt * scale, zoom * scale);
     }
 
     private static bool IsActionNotSupported(OnvifException ex) =>

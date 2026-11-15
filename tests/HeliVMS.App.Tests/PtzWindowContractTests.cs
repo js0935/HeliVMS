@@ -41,10 +41,42 @@ public sealed class PtzWindowContractTests
         var source = SourceContract.Read(Xaml);
 
         Assert.Contains("Width=\"220\"", source);
-        Assert.Contains("Height=\"340\"", source);
+        Assert.Contains("Height=\"374\"", source);
         Assert.Contains("ResizeMode=\"NoResize\"", source);
         Assert.Contains("Topmost=\"True\"", source);
         Assert.Contains("WindowStartupLocation=\"CenterOwner\"", source);
         Assert.Contains("OnDragHandle", source);
+    }
+
+    /// <summary>
+    /// 速度（1–8）與參考機同一組語意：滑桿＋慢／快，預設 8＝與加入速度控制之前相同的轉幅，
+    /// 而且**兩條移動路徑都要縮放**（RelativeMove 的一步大小、退化路徑 ContinuousMove 的速度向量）。
+    /// </summary>
+    /// <remarks>
+    /// 只縮放其中一條的症狀很隱晦：支援 RelativeMove 的相機變得可以微調，而回 ActionNotSupported
+    /// 而走 ContinuousMove 的那一台完全沒感覺——操作員會以為「速度只在某些攝影機有效」。
+    /// 設定值寫在改動當下，不是關窗才寫：關窗有自己的收尾路徑，漏掉就是「調完下一次又回到全速」。
+    /// </remarks>
+    [Fact]
+    public void 速度控制會縮放兩條移動路徑且立即持久化()
+    {
+        var xaml = SourceContract.Read(Xaml);
+        foreach (var element in new[] { "PtzSpeedSlider", "PtzSlowerButton", "PtzFasterButton" })
+        {
+            Assert.Contains($"x:Name=\"{element}\"", xaml);
+        }
+
+        var code = SourceContract.Read("src/HeliVMS.App/PtzWindow.xaml.cs");
+
+        var nudge = SourceContract.BodyOf(code, "NudgeAsync");
+        Assert.Contains("SpeedScale()", nudge);
+        Assert.Contains("NudgeStep * scale", nudge);
+        Assert.Contains("pan * scale, tilt * scale, zoom * scale", nudge);
+
+        Assert.Contains("SpeedKey = \"ptz.speed\"", code);
+        Assert.Contains("private const int DefaultSpeedLevel = 8;", code);
+
+        var changed = SourceContract.BodyOf(code, "OnSpeedChanged");
+        Assert.Contains("_settings.Set(SpeedKey", changed);
     }
 }

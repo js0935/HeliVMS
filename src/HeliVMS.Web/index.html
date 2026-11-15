@@ -112,6 +112,20 @@
             </label>
             <span id="ptz-msg" class="muted" aria-live="polite"></span>
           </form>
+          <!--
+            速度：參考機（QCV8001 web PTZ 面板）是 1–8 的滑桿＋慢／快兩顆按鈕，每一道命令都帶
+            這個值；我們這台相機吃的是 ONVIF ContinuousMove 的速度向量（-1..1），所以換算關係是
+            「級別 ÷ 8」——預設 8 等於與調整前相同的全速，調慢是操作員主動選擇。
+          -->
+          <div class="row-form">
+            <label><span data-i18n="ptz.speed">速度</span>
+              <input id="ptz-speed" type="range" min="1" max="8" step="1" value="8"
+                     aria-label="PTZ speed" data-i18n-attr="aria-label:ptz.speed" />
+            </label>
+            <button type="button" id="ptz-slower" class="btn-quiet" data-i18n="ptz.slower">慢</button>
+            <button type="button" id="ptz-faster" class="btn-quiet" data-i18n="ptz.faster">快</button>
+            <span id="ptz-speed-value" class="muted">8</span>
+          </div>
           <div id="ptz-pad" class="ptz-pad">
             <button type="button" class="ptz-btn" data-move="-1,1,0" aria-label="Up-left" data-i18n-attr="aria-label:ptz.upLeft">↖</button>
             <button type="button" class="ptz-btn" data-move="0,1,0" aria-label="Up" data-i18n-attr="aria-label:ptz.up">↑</button>
@@ -132,6 +146,7 @@
             <select id="ptz-preset-list" aria-label="Preset" data-i18n-attr="aria-label:ptz.preset"></select>
             <input id="ptz-preset-name" placeholder="Preset name" data-i18n-attr="placeholder:ptz.presetName,aria-label:ptz.presetName" aria-label="Preset name" />
             <button type="button" id="ptz-preset-save" data-i18n="ptz.savePreset">儲存預設點</button>
+            <button type="button" id="ptz-preset-update" class="btn-quiet" data-i18n="ptz.updatePreset">更新位置</button>
             <button type="button" id="ptz-preset-goto" class="btn-quiet" data-i18n="ptz.gotoPreset">前往預設點</button>
             <button type="button" id="ptz-preset-delete" class="btn-quiet" data-i18n="ptz.deletePreset">刪除預設點</button>
           </form>

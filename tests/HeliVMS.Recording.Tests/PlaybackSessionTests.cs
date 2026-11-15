@@ -257,10 +257,12 @@ public sealed class PlaybackSessionTests : IDisposable
             }
         };
 
-        session.HoldUntil(DateTime.UtcNow.AddMilliseconds(400));
+        // 等待 2 秒、只在 200ms 時檢查一次：邊際拉開，才不會在整包測試同時跑真實 ffmpeg 時
+        // 因為一次排程延遲就把斷言推過期限（那種紅是環境造成的，不是這個守衛要抓的）。
+        session.HoldUntil(DateTime.UtcNow.AddSeconds(2));
         var play = session.PlayAsync();
 
-        await Task.Delay(150);
+        await Task.Delay(200);
         lock (frames)
         {
             Assert.Empty(frames);
@@ -296,7 +298,7 @@ public sealed class PlaybackSessionTests : IDisposable
             probe: _ => Info,
             frameTimes: _ => []);
 
-        session.HoldUntil(DateTime.UtcNow.AddSeconds(2));
+        session.HoldUntil(DateTime.UtcNow.AddSeconds(3));
         var sw = Stopwatch.StartNew();
         var play = session.PlayAsync();
 
@@ -304,7 +306,8 @@ public sealed class PlaybackSessionTests : IDisposable
         session.HoldUntil(DateTime.UtcNow);
 
         await play.WaitAsync(TimeSpan.FromSeconds(5));
-        Assert.True(sw.ElapsedMilliseconds < 1500,
+        // 上限刻意遠低於那 3 秒：這裡量的是「期限可以被改寫」，不是排程精度。
+        Assert.True(sw.ElapsedMilliseconds < 2000,
             $"縮短等待之後應該立刻恢復，實際等了 {sw.ElapsedMilliseconds}ms");
         Assert.False(session.IsHolding);
     }

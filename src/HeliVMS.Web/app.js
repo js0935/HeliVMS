@@ -765,29 +765,82 @@ async function ptzReport(resp, okText = '') {
   return true;
 }
 
+/**
+ * PTZ 命令一次只送一道，下一道等前一道回應（參考機 web 面板的 queue + lock）。
+ *
+ * 這不是為了省流量，是為了**順序**：方向鍵放開時送出的是 Stop，而 Stop 與先前的 Move 是兩個
+ * 獨立的 HTTP 請求；相機處理 SOAP 慢的時候，Stop 有可能先到（或兩者交錯），鏡頭就會在操作員
+ * 放手之後繼續轉——實機症狀是「放開還會動一下」。序列化之後，相機看到的順序與操作員的手一致。
+ *
+ * 佇列只保留「最新的一道」：連續拖曳時中間那些已經過時的方向沒有送出的價值。
+ */
+let ptzQueue = Promise.resolve();
+let ptzPending = 0;
+
+function ptzEnqueue(task) {
+  ptzPending++;
+  const run = ptzQueue.then(task, task).finally(() => {
+    ptzPending--;
+  });
+  ptzQueue = run.catch(() => {});
+  return run;
+}
+
+/** 速度級別（1–8）：參考機的面板是 1–8 滑桿，每一道命令都帶它；我們換算成 ONVIF 的速度向量。 */
+function ptzSpeedLevel() {
+  const raw = Number($('ptz-speed')?.value);
+  return Number.isFinite(raw) ? Math.min(8, Math.max(1, raw)) : 8;
+}
+
+/** 速度級別 → ONVIF 速度（-1..1）：8＝全速（與調整前相同），1＝最慢。 */
+function ptzVelocityScale() {
+  return ptzSpeedLevel() / 8;
+}
+
+function setPtzSpeed(level) {
+  const next = Math.min(8, Math.max(1, level));
+  const slider = $('ptz-speed');
+  if (slider) slider.value = String(next);
+  const readout = $('ptz-speed-value');
+  if (readout) readout.textContent = String(next);
+  localStorage.setItem('helivms.ptzSpeed', String(next));
+}
+
 async function ptzMove(pan, tilt, zoom) {
   if (!ptzProfileToken) {
     $('ptz-msg').textContent = t('ptz.notSupported');
     return;
   }
   const channelId = Number($('ptz-channel').value);
-  const resp = await apiRaw(`/api/ptz/${channelId}/move`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ profileToken: ptzProfileToken, pan, tilt, zoom }),
-  }).catch(() => null);
-  await ptzReport(resp);
+  const scale = ptzVelocityScale();
+  // 只有非零軸才縮放：0 代表「這一軸不動」，乘上比例還是 0，不必特別處理但寫出來較清楚。
+  const body = {
+    profileToken: ptzProfileToken,
+    pan: pan * scale,
+    tilt: tilt * scale,
+    zoom: zoom * scale,
+  };
+  await ptzEnqueue(async () => {
+    const resp = await apiRaw(`/api/ptz/${channelId}/move`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }).catch(() => null);
+    await ptzReport(resp);
+  });
 }
 
 async function ptzStop() {
   if (!ptzProfileToken) return;
   const channelId = Number($('ptz-channel').value);
-  const resp = await apiRaw(`/api/ptz/${channelId}/stop`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ profileToken: ptzProfileToken }),
-  }).catch(() => null);
-  await ptzReport(resp);
+  await ptzEnqueue(async () => {
+    const resp = await apiRaw(`/api/ptz/${channelId}/stop`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ profileToken: ptzProfileToken }),
+    }).catch(() => null);
+    await ptzReport(resp);
+  });
 }
 
 async function ptzHome() {
@@ -819,6 +872,29 @@ async function savePtzPreset() {
     body: JSON.stringify({ profileToken: ptzProfileToken, name }),
   }).catch(() => null);
   if (await ptzReport(resp, t('ptz.savedPreset'))) await loadPtzPresets(channelId);
+}
+
+/**
+ * 把「選取的那一個」預設點的位置更新成目前位置（參考機 PTZ 面板的「儲存位置」）。
+ *
+ * 與「儲存預設點」的差別在有沒有帶 presetToken：不帶就是新增一個。操作員微調畫面後要更新
+ * 原本那一個，否則巡邏／圖控照的還是舊位置，而清單會一直長出新的預設點。
+ */
+async function updatePtzPreset() {
+  const token = $('ptz-preset-list').value;
+  if (!ptzProfileToken || !token) {
+    $('ptz-msg').textContent = t('ptz.notSupported');
+    return;
+  }
+  const channelId = Number($('ptz-channel').value);
+  const selected = $('ptz-preset-list').selectedOptions[0];
+  const name = (selected?.textContent ?? '').trim() || token;
+  const resp = await apiRaw(`/api/ptz/${channelId}/presets`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ profileToken: ptzProfileToken, name, presetToken: token }),
+  }).catch(() => null);
+  if (await ptzReport(resp, t('ptz.updatedPreset'))) await loadPtzPresets(channelId);
 }
 
 async function gotoPtzPreset() {
@@ -872,6 +948,27 @@ function bindPtzPad() {
   document.addEventListener('pointerup', () => void ptzStop());
   $('ptz-stop').addEventListener('click', () => void ptzStop());
   $('ptz-home').addEventListener('click', () => void ptzHome());
+
+  // Esc 與「分頁切走／視窗失焦」一律停止：滑鼠放開的事件不一定會送到（拖到瀏覽器外面、
+  // 切到別的視窗、手機上來電），而鏡頭會一直轉到逾時——這是安全問題，不只是體驗問題。
+  document.addEventListener('keydown', (ev) => {
+    if (ev.key === 'Escape') void ptzStop();
+  });
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) void ptzStop();
+  });
+  window.addEventListener('blur', () => void ptzStop());
+
+  // 速度：滑桿與慢／快兩顆按鈕（與參考機同一組控制），值存在本機，換頁不會被重置。
+  const slider = $('ptz-speed');
+  if (slider) {
+    const remembered = Number(localStorage.getItem('helivms.ptzSpeed'));
+    setPtzSpeed(Number.isFinite(remembered) && remembered > 0 ? remembered : 8);
+    slider.addEventListener('input', () => setPtzSpeed(Number(slider.value)));
+  }
+  $('ptz-slower')?.addEventListener('click', () => setPtzSpeed(ptzSpeedLevel() - 1));
+  $('ptz-faster')?.addEventListener('click', () => setPtzSpeed(ptzSpeedLevel() + 1));
+  $('ptz-preset-update')?.addEventListener('click', () => void updatePtzPreset());
 }
 
 /**
