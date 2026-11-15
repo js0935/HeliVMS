@@ -9,9 +9,11 @@ const indexSource = readFileSync(join(root, 'index.html'), 'utf8');
 const i18nSource = readFileSync(join(root, 'i18n.js'), 'utf8');
 
 describe('camera IO contacts (ONVIF DeviceIO)', () => {
-  it('adds an IO tab wired to its panel', () => {
-    expect(indexSource).toMatch(/id="tabbtn-io"[^>]*data-tab="io"[^>]*aria-controls="panel-io"/);
-    expect(indexSource).toMatch(/id="panel-io"[^>]*data-panel="io"[^>]*role="tabpanel"[^>]*aria-labelledby="tabbtn-io"/);
+  it('adds an IO sub-tab wired to its panel', () => {
+    // IO 接點是設定的一部分（「這台機器接了哪些乾接點」），不是日常操作頁，
+    // 所以它是設定頁的次分頁。
+    expect(indexSource).toMatch(/id="subtabbtn-io"[^>]*data-subtab="io"[^>]*aria-controls="subpanel-io"/);
+    expect(indexSource).toMatch(/id="subpanel-io"[^>]*data-subpanel="io"[^>]*role="tabpanel"[^>]*aria-labelledby="subtabbtn-io"/);
   });
 
   it('offers a channel picker seeded from the local channel list', () => {

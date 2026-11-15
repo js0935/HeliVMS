@@ -17,15 +17,25 @@
     <span id="health" class="badge">…</span>
     <span id="conn" class="badge on" role="status" aria-live="polite"></span>
     <span id="lic" class="badge" role="status" aria-live="polite"></span>
-    <label><span data-i18n="app.apiKey">API 金鑰</span> <input id="apikey" type="password" placeholder="Enter API key" data-i18n-attr="placeholder:ph.apiKey" autocomplete="off" /></label>
-    <form id="login">
-      <input id="user" placeholder="Username" data-i18n-attr="placeholder:ph.username,aria-label:ph.username" autocomplete="username" aria-label="Username" autofocus />
-      <input id="pass" type="password" placeholder="Password" data-i18n-attr="placeholder:ph.password,aria-label:ph.password" autocomplete="current-password" aria-label="Password" />
-      <button type="submit" data-i18n="app.login">登入</button>
-      <span id="login-msg" class="muted" aria-live="polite"></span>
-    </form>
     <span id="who" class="badge">未登入</span>
     <button id="logout" type="button" hidden data-i18n="app.logout">登出</button>
+    <details class="topbar-auth">
+      <!--
+        焦點放在 summary 而不是使用者名稱欄：autofocus 會把收合的 details 自動展開
+        （瀏覽器為了讓被聚焦的元素可見），帳號區就永遠是開著的，收合等於沒做。
+        鍵盤使用者按 Enter／空白鍵展開後 Tab 進第一個欄位，順序不變。
+      -->
+      <summary data-i18n="app.account" autofocus>帳號</summary>
+      <div class="topbar-auth-body">
+        <label><span data-i18n="app.apiKey">API 金鑰</span> <input id="apikey" type="password" placeholder="Enter API key" data-i18n-attr="placeholder:ph.apiKey" autocomplete="off" /></label>
+        <form id="login">
+          <input id="user" placeholder="Username" data-i18n-attr="placeholder:ph.username,aria-label:ph.username" autocomplete="username" aria-label="Username" />
+          <input id="pass" type="password" placeholder="Password" data-i18n-attr="placeholder:ph.password,aria-label:ph.password" autocomplete="current-password" aria-label="Password" />
+          <button type="submit" data-i18n="app.login">登入</button>
+          <span id="login-msg" class="muted" aria-live="polite"></span>
+        </form>
+      </div>
+    </details>
     <span id="live" class="badge off">WS</span>
     <label class="locale-pick">
       <span data-i18n="app.language">語言</span>
@@ -36,143 +46,140 @@
     </label>
   </header>
 
+  <!--
+    四個主頁籤，其餘功能收進各自主頁的次分頁（參考機 QCV8001 的結構：
+    監看／回放／事件／設定，截圖與 PTZ 是監看的工具列而不是獨立頁）。
+    「九個平鋪頁籤」是操作員回報「功能雜亂」的直接原因：每一項都要先想「它在哪一頁」。
+  -->
   <nav class="tabs" role="tablist" aria-label="Sections" data-i18n-attr="aria-label:a11y.tablist">
     <button type="button" id="tabbtn-live" class="tab active" role="tab" data-tab="live" aria-selected="true" aria-controls="panel-live"><span data-i18n="nav.liveWatch">即時監看</span></button>
     <button type="button" id="tabbtn-playback" class="tab" role="tab" data-tab="playback" aria-selected="false" aria-controls="panel-playback"><span data-i18n="nav.remotePlayback">遠程回放</span></button>
-    <button type="button" id="tabbtn-export" class="tab" role="tab" data-tab="export" aria-selected="false" aria-controls="panel-export"><span data-i18n="nav.export">匯出</span></button>
-    <button type="button" id="tabbtn-info" class="tab" role="tab" data-tab="info" aria-selected="false" aria-controls="panel-info"><span data-i18n="nav.info">裝置資訊</span></button>
-    <button type="button" id="tabbtn-snapshot" class="tab" role="tab" data-tab="snapshot" aria-selected="false" aria-controls="panel-snapshot"><span data-i18n="nav.snapshot">截圖</span></button>
-    <button type="button" id="tabbtn-ptz" class="tab" role="tab" data-tab="ptz" aria-selected="false" aria-controls="panel-ptz"><span data-i18n="nav.ptz">PTZ 控制</span></button>
     <button type="button" id="tabbtn-events" class="tab" role="tab" data-tab="events" aria-selected="false" aria-controls="panel-events"><span data-i18n="nav.events">事件搜尋</span></button>
-    <button type="button" id="tabbtn-io" class="tab" role="tab" data-tab="io" aria-selected="false" aria-controls="panel-io"><span data-i18n="nav.io">IO 接點</span></button>
     <button type="button" id="tabbtn-settings" class="tab" role="tab" data-tab="settings" aria-selected="false" aria-controls="panel-settings"><span data-i18n="nav.settings">設定</span></button>
   </nav>
 
   <main class="grid" id="content">
     <section class="panel wide" id="panel-live" data-panel="live" role="tabpanel" aria-labelledby="tabbtn-live">
       <h2><span data-i18n="nav.liveWatch">即時監看</span> <span class="muted" data-i18n="live.webrtcHint">WebRTC／低延遲</span></h2>
-      <form id="live-form" class="row-form">
-        <label><span data-i18n="live.layout">版面</span>
-          <select id="live-layout" aria-label="Layout" data-i18n-attr="aria-label:live.layout">
-            <option value="1">1</option>
-            <option value="4">2×2</option>
-            <option value="9">3×3</option>
-            <option value="16">4×4</option>
-            <option value="25">5×5</option>
-          </select>
-        </label>
-        <select id="live-channels" multiple size="3" aria-label="Channels" data-i18n-attr="aria-label:live.channels"></select>
-        <button type="submit" data-i18n="action.openLive">開啟即時畫面</button>
-        <button type="button" id="live-stop" data-i18n="action.stopLive">停止</button>
-        <span id="live-msg" class="muted" aria-live="polite"></span>
-      </form>
-      <div id="live-grid" class="live-grid"></div>
-      <div id="live-meta" class="muted"></div>
+
+      <nav class="subtabs" role="tablist" data-subtab-group="live" aria-label="Live tools" data-i18n-attr="aria-label:a11y.liveTools">
+        <button type="button" id="subtabbtn-live" class="subtab active" role="tab" data-subtab="wall" aria-selected="true" aria-controls="subpanel-live"><span data-i18n="sub.wall">監看牆</span></button>
+        <button type="button" id="subtabbtn-snapshot" class="subtab" role="tab" data-subtab="snapshot" aria-selected="false" aria-controls="subpanel-snapshot"><span data-i18n="nav.snapshot">截圖</span></button>
+        <button type="button" id="subtabbtn-ptz" class="subtab" role="tab" data-subtab="ptz" aria-selected="false" aria-controls="subpanel-ptz"><span data-i18n="nav.ptz">PTZ 控制</span></button>
+      </nav>
+
+      <div class="subpanels" data-subpanel-group="live">
+        <div id="subpanel-live" class="subpanel" data-subpanel="wall" role="tabpanel" aria-labelledby="subtabbtn-live">
+          <form id="live-form" class="row-form">
+            <label><span data-i18n="live.layout">版面</span>
+              <select id="live-layout" aria-label="Layout" data-i18n-attr="aria-label:live.layout">
+                <option value="1">1</option>
+                <option value="4">2×2</option>
+                <option value="9">3×3</option>
+                <option value="16">4×4</option>
+                <option value="25">5×5</option>
+              </select>
+            </label>
+            <select id="live-channels" multiple size="3" aria-label="Channels" data-i18n-attr="aria-label:live.channels"></select>
+            <button type="submit" data-i18n="action.openLive">開啟即時畫面</button>
+            <button type="button" id="live-stop" class="btn-quiet" data-i18n="action.stopLive">停止</button>
+            <span id="live-msg" class="muted" aria-live="polite"></span>
+          </form>
+          <div id="live-grid" class="live-grid"></div>
+          <div id="live-meta" class="muted"></div>
+        </div>
+
+        <div id="subpanel-snapshot" class="subpanel" data-subpanel="snapshot" role="tabpanel" aria-labelledby="subtabbtn-snapshot" hidden>
+          <form id="snap-form" class="row-form">
+            <input id="snap-channel" type="number" min="1" step="1" list="snap-channel-options" aria-label="Channel number" data-i18n-attr="aria-label:ph.channelNumber" required />
+            <datalist id="snap-channel-options"></datalist>
+            <button type="submit" data-i18n="action.openLive">開啟即時畫面</button>
+            <button type="button" id="snap-stop" class="btn-quiet" data-i18n="action.stopLive">停止</button>
+            <button type="button" id="snap-capture" data-i18n="action.capture">擷取畫面</button>
+            <span id="snap-msg" class="muted" aria-live="polite"></span>
+          </form>
+          <video id="snap-video" class="player" autoplay muted playsinline></video>
+          <div id="snap-meta" class="muted"></div>
+        </div>
+
+        <div id="subpanel-ptz" class="subpanel" data-subpanel="ptz" role="tabpanel" aria-labelledby="subtabbtn-ptz" hidden>
+          <form id="ptz-form" class="row-form">
+            <input id="ptz-channel" type="number" min="1" step="1" list="ptz-channel-options" aria-label="Channel number" data-i18n-attr="aria-label:ph.channelNumber" required />
+            <datalist id="ptz-channel-options"></datalist>
+            <button type="submit" data-i18n="action.ptzConnect">連線</button>
+            <label><span data-i18n="ptz.profile">碼流</span>
+              <select id="ptz-profile" aria-label="Profile" data-i18n-attr="aria-label:ptz.profile"></select>
+            </label>
+            <span id="ptz-msg" class="muted" aria-live="polite"></span>
+          </form>
+          <div id="ptz-pad" class="ptz-pad">
+            <button type="button" class="ptz-btn" data-move="-1,1,0" aria-label="Up-left" data-i18n-attr="aria-label:ptz.upLeft">↖</button>
+            <button type="button" class="ptz-btn" data-move="0,1,0" aria-label="Up" data-i18n-attr="aria-label:ptz.up">↑</button>
+            <button type="button" class="ptz-btn" data-move="1,1,0" aria-label="Up-right" data-i18n-attr="aria-label:ptz.upRight">↗</button>
+            <button type="button" class="ptz-btn" data-move="-1,0,0" aria-label="Left" data-i18n-attr="aria-label:ptz.left">←</button>
+            <button type="button" class="ptz-btn ptz-stop" id="ptz-stop" aria-label="Stop" data-i18n-attr="aria-label:ptz.stop">■</button>
+            <button type="button" class="ptz-btn" data-move="1,0,0" aria-label="Right" data-i18n-attr="aria-label:ptz.right">→</button>
+            <button type="button" class="ptz-btn" data-move="-1,-1,0" aria-label="Down-left" data-i18n-attr="aria-label:ptz.downLeft">↙</button>
+            <button type="button" class="ptz-btn" data-move="0,-1,0" aria-label="Down" data-i18n-attr="aria-label:ptz.down">↓</button>
+            <button type="button" class="ptz-btn" data-move="1,-1,0" aria-label="Down-right" data-i18n-attr="aria-label:ptz.downRight">↘</button>
+          </div>
+          <div class="row-form">
+            <button type="button" data-move="0,0,1" aria-label="Zoom in" data-i18n-attr="aria-label:ptz.zoomIn">+</button>
+            <button type="button" data-move="0,0,-1" aria-label="Zoom out" data-i18n-attr="aria-label:ptz.zoomOut">−</button>
+            <button type="button" id="ptz-home" class="btn-quiet" data-i18n="ptz.home">回預設位</button>
+          </div>
+          <form id="ptz-preset-form" class="row-form">
+            <select id="ptz-preset-list" aria-label="Preset" data-i18n-attr="aria-label:ptz.preset"></select>
+            <input id="ptz-preset-name" placeholder="Preset name" data-i18n-attr="placeholder:ptz.presetName,aria-label:ptz.presetName" aria-label="Preset name" />
+            <button type="button" id="ptz-preset-save" data-i18n="ptz.savePreset">儲存預設點</button>
+            <button type="button" id="ptz-preset-goto" class="btn-quiet" data-i18n="ptz.gotoPreset">前往預設點</button>
+            <button type="button" id="ptz-preset-delete" class="btn-quiet" data-i18n="ptz.deletePreset">刪除預設點</button>
+          </form>
+        </div>
+      </div>
     </section>
 
     <section class="panel wide" id="panel-playback" data-panel="playback" role="tabpanel" aria-labelledby="tabbtn-playback" hidden>
       <h2><span data-i18n="nav.remotePlayback">遠程回放</span> <span class="muted" data-i18n="play.hlsHint">HLS／已錄影</span></h2>
-      <form id="play-form" class="row-form">
-        <select id="play-node" aria-label="Source node" data-i18n-attr="aria-label:replay.node"></select>
-        <input id="play-channel" type="number" min="1" step="1" list="play-channel-options" aria-label="Channel number" data-i18n-attr="aria-label:ph.channelNumber" required />
-        <datalist id="play-channel-options"></datalist>
-        <input id="play-from" type="datetime-local" aria-label="Start time" data-i18n-attr="aria-label:ph.startTime" required />
-        <input id="play-to" type="datetime-local" aria-label="End time" data-i18n-attr="aria-label:ph.endTime" required />
-        <button type="submit" data-i18n="action.load">載入回放</button>
-        <span id="play-msg" class="muted" aria-live="polite"></span>
-      </form>
-      <video id="play-video" class="player" controls playsinline preload="metadata"></video>
-      <div id="play-clock" class="play-clock"></div>
-      <div id="play-meta" class="muted"></div>
-    </section>
 
-    <section class="panel wide" id="panel-export" data-panel="export" role="tabpanel" aria-labelledby="tabbtn-export" hidden>
-      <h2><span data-i18n="nav.export">匯出</span> <span class="muted" data-i18n="export.hint">選取時段建立匯出工作，完成後下載 MP4</span></h2>
-      <form id="export-form" class="row-form">
-        <select id="export-channel" aria-label="Channel" data-i18n-attr="aria-label:col.channel"></select>
-        <input id="export-from" type="datetime-local" aria-label="Start time" data-i18n-attr="aria-label:ph.startTime" required />
-        <input id="export-to" type="datetime-local" aria-label="End time" data-i18n-attr="aria-label:ph.endTime" required />
-        <button type="submit" data-i18n="export.create">建立匯出工作</button>
-        <button type="button" id="export-refresh" data-i18n="action.refresh">立即更新</button>
-        <span id="export-msg" class="muted" aria-live="polite"></span>
-      </form>
-      <table id="export-jobs">
-        <thead><tr><th scope="col">ID</th><th scope="col" data-i18n="col.channel">頻道</th><th scope="col" data-i18n="col.time">時間</th><th scope="col" data-i18n="col.status">狀態</th><th scope="col" data-i18n="export.size">大小</th><th scope="col" data-i18n="export.createdAt">建立時間</th><th scope="col" data-i18n="col.text">內容</th></tr></thead>
-        <tbody></tbody>
-      </table>
-      <div id="export-meta" class="muted"></div>
-    </section>
+      <nav class="subtabs" role="tablist" data-subtab-group="playback" aria-label="Playback tools" data-i18n-attr="aria-label:a11y.playbackTools">
+        <button type="button" id="subtabbtn-playback" class="subtab active" role="tab" data-subtab="player" aria-selected="true" aria-controls="subpanel-playback"><span data-i18n="sub.playback">回放</span></button>
+        <button type="button" id="subtabbtn-export" class="subtab" role="tab" data-subtab="export" aria-selected="false" aria-controls="subpanel-export"><span data-i18n="nav.export">匯出</span></button>
+      </nav>
 
-    <section class="panel wide" id="panel-info" data-panel="info" role="tabpanel" aria-labelledby="tabbtn-info" hidden>
-      <h2><span data-i18n="nav.info">裝置資訊</span> <span class="muted" data-i18n="info.hint">系統與儲存狀態</span></h2>
-      <div class="info-grid">
-        <section class="panel">
-          <h3 data-i18n="info.system">系統</h3>
-          <table id="info-system" class="kv"><tbody></tbody></table>
-        </section>
-        <section class="panel">
-          <h3 data-i18n="info.storage">儲存與狀態</h3>
-          <table id="info-storage" class="kv"><tbody></tbody></table>
-        </section>
-      </div>
-      <div class="row-form">
-        <button type="button" id="info-refresh" data-i18n="action.refresh">立即更新</button>
-        <span id="info-msg" class="muted" aria-live="polite"></span>
-      </div>
-      <table id="info-drives">
-        <thead><tr><th scope="col" data-i18n="info.diskRoot">磁碟</th><th scope="col" data-i18n="info.diskModel">型號</th><th scope="col" data-i18n="info.diskLevel">健康</th><th scope="col" data-i18n="info.diskTemp">溫度</th><th scope="col" data-i18n="info.diskFree">可用空間</th><th scope="col" data-i18n="info.diskRemain">剩餘可錄</th></tr></thead>
-        <tbody></tbody>
-      </table>
-    </section>
+      <div class="subpanels" data-subpanel-group="playback">
+        <div id="subpanel-playback" class="subpanel" data-subpanel="player" role="tabpanel" aria-labelledby="subtabbtn-playback">
+          <form id="play-form" class="row-form">
+            <select id="play-node" aria-label="Source node" data-i18n-attr="aria-label:replay.node"></select>
+            <input id="play-channel" type="number" min="1" step="1" list="play-channel-options" aria-label="Channel number" data-i18n-attr="aria-label:ph.channelNumber" required />
+            <datalist id="play-channel-options"></datalist>
+            <input id="play-from" type="datetime-local" aria-label="Start time" data-i18n-attr="aria-label:ph.startTime" required />
+            <input id="play-to" type="datetime-local" aria-label="End time" data-i18n-attr="aria-label:ph.endTime" required />
+            <button type="submit" data-i18n="action.load">載入回放</button>
+            <span id="play-msg" class="muted" aria-live="polite"></span>
+          </form>
+          <video id="play-video" class="player" controls playsinline preload="metadata"></video>
+          <div id="play-clock" class="play-clock"></div>
+          <div id="play-meta" class="muted"></div>
+        </div>
 
-    <section class="panel wide" id="panel-snapshot" data-panel="snapshot" role="tabpanel" aria-labelledby="tabbtn-snapshot" hidden>
-      <h2><span data-i18n="nav.snapshot">截圖</span> <span class="muted" data-i18n="snapshot.hint">由即時畫面擷取 PNG</span></h2>
-      <form id="snap-form" class="row-form">
-        <input id="snap-channel" type="number" min="1" step="1" list="snap-channel-options" aria-label="Channel number" data-i18n-attr="aria-label:ph.channelNumber" required />
-        <datalist id="snap-channel-options"></datalist>
-        <button type="submit" data-i18n="action.openLive">開啟即時畫面</button>
-        <button type="button" id="snap-stop" data-i18n="action.stopLive">停止</button>
-        <button type="button" id="snap-capture" data-i18n="action.capture">擷取畫面</button>
-        <span id="snap-msg" class="muted" aria-live="polite"></span>
-      </form>
-      <video id="snap-video" class="player" autoplay muted playsinline></video>
-      <div id="snap-meta" class="muted"></div>
-    </section>
-
-    <section class="panel wide" id="panel-ptz" data-panel="ptz" role="tabpanel" aria-labelledby="tabbtn-ptz" hidden>
-      <h2><span data-i18n="nav.ptz">PTZ 控制</span></h2>
-      <form id="ptz-form" class="row-form">
-        <input id="ptz-channel" type="number" min="1" step="1" list="ptz-channel-options" aria-label="Channel number" data-i18n-attr="aria-label:ph.channelNumber" required />
-        <datalist id="ptz-channel-options"></datalist>
-        <button type="submit" data-i18n="action.ptzConnect">連線</button>
-        <label><span data-i18n="ptz.profile">碼流</span>
-          <select id="ptz-profile" aria-label="Profile" data-i18n-attr="aria-label:ptz.profile"></select>
-        </label>
-        <span id="ptz-msg" class="muted" aria-live="polite"></span>
-      </form>
-      <div id="ptz-pad" class="ptz-pad">
-        <button type="button" class="ptz-btn" data-move="-1,1,0" aria-label="Up-left" data-i18n-attr="aria-label:ptz.upLeft">↖</button>
-        <button type="button" class="ptz-btn" data-move="0,1,0" aria-label="Up" data-i18n-attr="aria-label:ptz.up">↑</button>
-        <button type="button" class="ptz-btn" data-move="1,1,0" aria-label="Up-right" data-i18n-attr="aria-label:ptz.upRight">↗</button>
-        <button type="button" class="ptz-btn" data-move="-1,0,0" aria-label="Left" data-i18n-attr="aria-label:ptz.left">←</button>
-        <button type="button" class="ptz-btn ptz-stop" id="ptz-stop" aria-label="Stop" data-i18n-attr="aria-label:ptz.stop">■</button>
-        <button type="button" class="ptz-btn" data-move="1,0,0" aria-label="Right" data-i18n-attr="aria-label:ptz.right">→</button>
-        <button type="button" class="ptz-btn" data-move="-1,-1,0" aria-label="Down-left" data-i18n-attr="aria-label:ptz.downLeft">↙</button>
-        <button type="button" class="ptz-btn" data-move="0,-1,0" aria-label="Down" data-i18n-attr="aria-label:ptz.down">↓</button>
-        <button type="button" class="ptz-btn" data-move="1,-1,0" aria-label="Down-right" data-i18n-attr="aria-label:ptz.downRight">↘</button>
+        <div id="subpanel-export" class="subpanel" data-subpanel="export" role="tabpanel" aria-labelledby="subtabbtn-export" hidden>
+          <p class="muted" data-i18n="export.hint">選取時段建立匯出工作，完成後下載 MP4</p>
+          <form id="export-form" class="row-form">
+            <select id="export-channel" aria-label="Channel" data-i18n-attr="aria-label:col.channel"></select>
+            <input id="export-from" type="datetime-local" aria-label="Start time" data-i18n-attr="aria-label:ph.startTime" required />
+            <input id="export-to" type="datetime-local" aria-label="End time" data-i18n-attr="aria-label:ph.endTime" required />
+            <button type="submit" data-i18n="export.create">建立匯出工作</button>
+            <button type="button" id="export-refresh" class="btn-quiet" data-i18n="action.refresh">立即更新</button>
+            <span id="export-msg" class="muted" aria-live="polite"></span>
+          </form>
+          <table id="export-jobs">
+            <thead><tr><th scope="col">ID</th><th scope="col" data-i18n="col.channel">頻道</th><th scope="col" data-i18n="col.time">時間</th><th scope="col" data-i18n="col.status">狀態</th><th scope="col" data-i18n="export.size">大小</th><th scope="col" data-i18n="export.createdAt">建立時間</th><th scope="col" data-i18n="col.text">內容</th></tr></thead>
+            <tbody></tbody>
+          </table>
+          <div id="export-meta" class="muted"></div>
+        </div>
       </div>
-      <div class="row-form">
-        <button type="button" data-move="0,0,1" aria-label="Zoom in" data-i18n-attr="aria-label:ptz.zoomIn">+</button>
-        <button type="button" data-move="0,0,-1" aria-label="Zoom out" data-i18n-attr="aria-label:ptz.zoomOut">−</button>
-        <button type="button" id="ptz-home" data-i18n="ptz.home">回預設位</button>
-      </div>
-      <form id="ptz-preset-form" class="row-form">
-        <select id="ptz-preset-list" aria-label="Preset" data-i18n-attr="aria-label:ptz.preset"></select>
-        <input id="ptz-preset-name" placeholder="Preset name" data-i18n-attr="placeholder:ptz.presetName,aria-label:ptz.presetName" aria-label="Preset name" />
-        <button type="button" id="ptz-preset-save" data-i18n="ptz.savePreset">儲存預設點</button>
-        <button type="button" id="ptz-preset-goto" data-i18n="ptz.gotoPreset">前往預設點</button>
-        <button type="button" id="ptz-preset-delete" data-i18n="ptz.deletePreset">刪除預設點</button>
-      </form>
     </section>
 
     <section class="panel wide" id="panel-events" data-panel="events" role="tabpanel" aria-labelledby="tabbtn-events" hidden>
@@ -190,40 +197,72 @@
       <ul id="live-log" class="log" role="log" aria-live="polite"></ul>
     </section>
 
-    <section class="panel wide" id="panel-io" data-panel="io" role="tabpanel" aria-labelledby="tabbtn-io" hidden>
-      <h2><span data-i18n="nav.io">IO 接點</span> <span class="muted" data-i18n="io.hint">攝影機 DI/DO 乾接點</span></h2>
-      <form id="io-form" class="row-form">
-        <input id="io-channel" type="number" min="1" step="1" list="io-channel-options" aria-label="Channel number" data-i18n-attr="aria-label:ph.channelNumber" required />
-        <datalist id="io-channel-options"></datalist>
-        <button type="submit" data-i18n="action.ioLoad">讀取</button>
-        <span id="io-msg" class="muted" aria-live="polite"></span>
-      </form>
-      <h3 data-i18n="io.inputs">數位輸入 (DI)</h3>
-      <table id="io-inputs">
-        <thead><tr><th scope="col" data-i18n="col.token">權杖</th><th scope="col" data-i18n="col.name">名稱</th><th scope="col" data-i18n="col.label">標籤</th></tr></thead>
-        <tbody></tbody>
-      </table>
-      <h3 data-i18n="io.outputs">繼電器輸出 (DO)</h3>
-      <table id="io-outputs">
-        <thead><tr><th scope="col" data-i18n="col.token">權杖</th><th scope="col" data-i18n="col.name">名稱</th><th scope="col" data-i18n="col.label">標籤</th><th scope="col" data-i18n="col.action">動作</th></tr></thead>
-        <tbody></tbody>
-      </table>
-    </section>
-
     <section class="panel wide" id="panel-settings" data-panel="settings" role="tabpanel" aria-labelledby="tabbtn-settings" hidden>
       <h2 data-i18n="nav.settings">設定</h2>
-      <form id="settings-form" class="row-form">
-        <label><input id="set-auth-enabled" type="checkbox" /> <span data-i18n="setting.enableAuth">啟用帳號登入</span></label>
-        <label><span data-i18n="setting.lockThreshold">鎖定次數</span> <input id="set-lock-threshold" type="number" min="1" max="99" step="1" aria-label="Lockout attempts" data-i18n-attr="aria-label:setting.lockThreshold" /></label>
-        <label><span data-i18n="setting.lockMinutes">鎖定分鐘</span> <input id="set-lock-minutes" type="number" min="1" max="1440" step="1" aria-label="Lockout minutes" data-i18n-attr="aria-label:setting.lockMinutes" /></label>
-        <label><span data-i18n="setting.retentionDays">保留天數</span> <input id="set-retention-days" type="number" min="1" max="3650" step="1" aria-label="Retention days" data-i18n-attr="aria-label:setting.retentionDays" /></label>
-        <label><span data-i18n="setting.watermarkGb">浮水印GB</span> <input id="set-watermark-gb" type="number" min="0" max="99999" step="0.1" aria-label="Watermark GB" data-i18n-attr="aria-label:setting.watermarkGb" /></label>
-        <label><span data-i18n="setting.alarmRetention">警報保留</span> <input id="set-alarm-retention" type="number" min="1" max="36500" step="1" aria-label="Alarm retention" data-i18n-attr="aria-label:setting.alarmRetention" /></label>
-        <label><span data-i18n="setting.auditRetention">稽核保留</span> <input id="set-audit-retention" type="number" min="0" max="36500" step="1" aria-label="Audit retention" data-i18n-attr="aria-label:setting.auditRetention" /></label>
-        <button type="submit" data-i18n="setting.save">儲存設定</button>
-        <span id="settings-msg" class="muted" aria-live="polite"></span>
-      </form>
-      <div id="settings-usage" class="muted" role="status" aria-live="polite"></div>
+
+      <nav class="subtabs" role="tablist" data-subtab-group="settings" aria-label="Settings sections" data-i18n-attr="aria-label:a11y.settingsSections">
+        <button type="button" id="subtabbtn-general" class="subtab active" role="tab" data-subtab="general" aria-selected="true" aria-controls="subpanel-general"><span data-i18n="sub.general">一般</span></button>
+        <button type="button" id="subtabbtn-info" class="subtab" role="tab" data-subtab="info" aria-selected="false" aria-controls="subpanel-info"><span data-i18n="nav.info">裝置資訊</span></button>
+        <button type="button" id="subtabbtn-io" class="subtab" role="tab" data-subtab="io" aria-selected="false" aria-controls="subpanel-io"><span data-i18n="nav.io">IO 接點</span></button>
+      </nav>
+
+      <div class="subpanels" data-subpanel-group="settings">
+        <div id="subpanel-general" class="subpanel" data-subpanel="general" role="tabpanel" aria-labelledby="subtabbtn-general">
+          <form id="settings-form" class="row-form">
+            <label><input id="set-auth-enabled" type="checkbox" /> <span data-i18n="setting.enableAuth">啟用帳號登入</span></label>
+            <label><span data-i18n="setting.lockThreshold">鎖定次數</span> <input id="set-lock-threshold" type="number" min="1" max="99" step="1" aria-label="Lockout attempts" data-i18n-attr="aria-label:setting.lockThreshold" /></label>
+            <label><span data-i18n="setting.lockMinutes">鎖定分鐘</span> <input id="set-lock-minutes" type="number" min="1" max="1440" step="1" aria-label="Lockout minutes" data-i18n-attr="aria-label:setting.lockMinutes" /></label>
+            <label><span data-i18n="setting.retentionDays">保留天數</span> <input id="set-retention-days" type="number" min="1" max="3650" step="1" aria-label="Retention days" data-i18n-attr="aria-label:setting.retentionDays" /></label>
+            <label><span data-i18n="setting.watermarkGb">浮水印GB</span> <input id="set-watermark-gb" type="number" min="0" max="99999" step="0.1" aria-label="Watermark GB" data-i18n-attr="aria-label:setting.watermarkGb" /></label>
+            <label><span data-i18n="setting.alarmRetention">警報保留</span> <input id="set-alarm-retention" type="number" min="1" max="36500" step="1" aria-label="Alarm retention" data-i18n-attr="aria-label:setting.alarmRetention" /></label>
+            <label><span data-i18n="setting.auditRetention">稽核保留</span> <input id="set-audit-retention" type="number" min="0" max="36500" step="1" aria-label="Audit retention" data-i18n-attr="aria-label:setting.auditRetention" /></label>
+            <button type="submit" data-i18n="setting.save">儲存設定</button>
+            <span id="settings-msg" class="muted" aria-live="polite"></span>
+          </form>
+          <div id="settings-usage" class="muted" role="status" aria-live="polite"></div>
+        </div>
+
+        <div id="subpanel-info" class="subpanel" data-subpanel="info" role="tabpanel" aria-labelledby="subtabbtn-info" hidden>
+          <div class="info-grid">
+            <section class="panel">
+              <h3 data-i18n="info.system">系統</h3>
+              <table id="info-system" class="kv"><tbody></tbody></table>
+            </section>
+            <section class="panel">
+              <h3 data-i18n="info.storage">儲存與狀態</h3>
+              <table id="info-storage" class="kv"><tbody></tbody></table>
+            </section>
+          </div>
+          <div class="row-form">
+            <button type="button" id="info-refresh" class="btn-quiet" data-i18n="action.refresh">立即更新</button>
+            <span id="info-msg" class="muted" aria-live="polite"></span>
+          </div>
+          <table id="info-drives">
+            <thead><tr><th scope="col" data-i18n="info.diskRoot">磁碟</th><th scope="col" data-i18n="info.diskModel">型號</th><th scope="col" data-i18n="info.diskLevel">健康</th><th scope="col" data-i18n="info.diskTemp">溫度</th><th scope="col" data-i18n="info.diskFree">可用空間</th><th scope="col" data-i18n="info.diskRemain">剩餘可錄</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+
+        <div id="subpanel-io" class="subpanel" data-subpanel="io" role="tabpanel" aria-labelledby="subtabbtn-io" hidden>
+          <p class="muted" data-i18n="io.hint">攝影機 DI/DO 乾接點</p>
+          <form id="io-form" class="row-form">
+            <input id="io-channel" type="number" min="1" step="1" list="io-channel-options" aria-label="Channel number" data-i18n-attr="aria-label:ph.channelNumber" required />
+            <datalist id="io-channel-options"></datalist>
+            <button type="submit" data-i18n="action.ioLoad">讀取</button>
+            <span id="io-msg" class="muted" aria-live="polite"></span>
+          </form>
+          <h3 data-i18n="io.inputs">數位輸入 (DI)</h3>
+          <table id="io-inputs">
+            <thead><tr><th scope="col" data-i18n="col.token">權杖</th><th scope="col" data-i18n="col.name">名稱</th><th scope="col" data-i18n="col.label">標籤</th></tr></thead>
+            <tbody></tbody>
+          </table>
+          <h3 data-i18n="io.outputs">繼電器輸出 (DO)</h3>
+          <table id="io-outputs">
+            <thead><tr><th scope="col" data-i18n="col.token">權杖</th><th scope="col" data-i18n="col.name">名稱</th><th scope="col" data-i18n="col.label">標籤</th><th scope="col" data-i18n="col.action">動作</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
     </section>
   </main>
 

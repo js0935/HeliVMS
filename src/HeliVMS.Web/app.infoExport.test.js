@@ -16,10 +16,12 @@ const i18nSource = readFileSync(join(root, 'i18n.js'), 'utf8');
  * 得開桌面程式；要帶走一段錄影也沒有遠端入口。這裡釘住兩個分頁的接線與安全規則。
  */
 describe('device info panel', () => {
-  it('is wired into the tab strip with its own panel', () => {
-    expect(indexSource).toMatch(/data-tab="info"[^>]*aria-controls="panel-info"/);
-    expect(indexSource).toMatch(/id="panel-info" data-panel="info"/);
-    expect(appSource).toMatch(/if \(name === 'info'\) void refreshDeviceInfo\(\);/);
+  it('is wired as a sub-tab of 設定 with its own panel', () => {
+    // 裝置資訊不再是頂層頁籤：四個主頁（監看／回放／事件／設定）之外的東西一律收進
+    // 所屬主頁，否則九個平鋪頁籤就是操作員回報的「功能雜亂」。
+    expect(indexSource).toMatch(/data-subtab="info"[^>]*aria-controls="subpanel-info"/);
+    expect(indexSource).toMatch(/id="subpanel-info"[^>]*data-subpanel="info"/);
+    expect(appSource).toMatch(/if \(group === 'settings' && name === 'info'\) void refreshDeviceInfo\(\);/);
   });
 
   it('reads the system, license, usage, capacity and disk-health endpoints', () => {
@@ -54,11 +56,13 @@ describe('device info panel', () => {
 });
 
 describe('export panel', () => {
-  it('is wired into the tab strip with its own panel and job table', () => {
-    expect(indexSource).toMatch(/data-tab="export"[^>]*aria-controls="panel-export"/);
-    expect(indexSource).toMatch(/id="panel-export" data-panel="export"/);
+  it('is wired as a sub-tab of 回放 with its own panel and job table', () => {
+    // 匯出原本是頂層頁籤，但它與回放是同一個工作流程（找時段 → 帶走），
+    // 所以收成回放頁的第二個次分頁。
+    expect(indexSource).toMatch(/data-subtab="export"[^>]*aria-controls="subpanel-export"/);
+    expect(indexSource).toMatch(/id="subpanel-export"[^>]*data-subpanel="export"/);
     expect(indexSource).toMatch(/id="export-jobs"/);
-    expect(appSource).toMatch(/if \(name === 'export'\) \{[\s\S]*refreshExportSources\(\);[\s\S]*refreshExports\(\);/);
+    expect(appSource).toMatch(/if \(group === 'playback' && name === 'export'\) \{[\s\S]*refreshExportSources\(\);[\s\S]*refreshExports\(\);/);
   });
 
   it('creates jobs through the existing POST /api/exports endpoint', () => {

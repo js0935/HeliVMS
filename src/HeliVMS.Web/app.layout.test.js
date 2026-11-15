@@ -22,10 +22,9 @@ function rule(selector) {
   return cssSource.slice(at, cssSource.indexOf('}', at));
 }
 
-describe('five feature tabs', () => {
-  it('wraps the tab strip so five labels do not overflow on narrow screens', () => {
-    // 即時／回放／截圖／PTZ／事件五個頁籤在英文介面比中文長；單列會被擠爆
-    // 並把後面的頁籤推出畫面，操作員就再也點不到 PTZ。
+describe('four feature tabs with in-page sub-tabs', () => {
+  it('wraps the tab strip so labels do not overflow on narrow screens', () => {
+    // 主頁籤在英文介面比中文長；單列會被擠爆並把後面的頁籤推出畫面。
     expect(rule('.tabs')).toMatch(/flex-wrap:\s*wrap/);
   });
 
@@ -36,9 +35,69 @@ describe('five feature tabs', () => {
 
   it('hides inactive panels via the hidden attribute, not visibility', () => {
     // app.js 用 `panel.hidden = ...`；若 CSS 沒有對應規則，display 預設值會蓋掉
-    // hidden，五個面板會同時顯示。
+    // hidden，所有面板會同時顯示。
     expect(cssSource).toMatch(/\.panel\[hidden\] \{ display: none; \}/);
     expect(appSource).toMatch(/panel\.hidden = panel\.dataset\.panel !== name/);
+  });
+
+  it('wraps the sub-tab strip too, and keeps its labels on one line', () => {
+    expect(rule('.subtabs')).toMatch(/flex-wrap:\s*wrap/);
+    expect(rule('.subtab')).toMatch(/white-space:\s*nowrap/);
+  });
+
+  it('hides inactive sub-panels via the hidden attribute', () => {
+    // 同一組次分頁若沒有這條規則，截圖／PTZ／監看牆會同時顯示在同一頁。
+    expect(cssSource).toMatch(/\.subpanel\[hidden\] \{ display: none; \}/);
+    expect(appSource).toMatch(/panel\.hidden = panel\.dataset\.subpanel !== name/);
+  });
+
+  it('restores every group\'s chosen sub-tab when the primary tab is shown again', () => {
+    // 少了這段，切去別的主頁再回來時，次分頁的 active 標記與可見性會不一致：
+    // 標記停在「截圖」而畫面回到監看牆（或反過來），操作員會以為按錯。
+    expect(appSource).toMatch(/for \(const \[group, sub\] of activeSubTab\) \{\s*showSubTab\(group, sub\);/);
+  });
+
+  it('binds sub-tab buttons to the group their own toolbar declares', () => {
+    // 群組寫在按鈕所屬的工具列上；若改成硬編碼，第二組次分頁的按鈕會去切第一組。
+    expect(appSource).toMatch(/btn\.closest\('\[data-subtab-group\]'\)\?\.dataset\.subtabGroup/);
+  });
+});
+
+describe('per-cell live tools', () => {
+  it('overlays the cell toolbar instead of pushing the video down', () => {
+    expect(rule('.live-cell-actions')).toMatch(/position:\s*absolute/);
+  });
+
+  it('keeps the cell buttons visible without hover', () => {
+    // 大螢幕與觸控面板常常沒有 hover；只在 :hover 顯示等於點不到。
+    const block = rule('.live-cell-actions');
+    expect(block).not.toMatch(/opacity:\s*0;/);
+    expect(block).toMatch(/opacity:/);
+  });
+
+  it('labels every cell button with a translated name, not just a glyph', () => {
+    // 螢幕閱讀器唸不出「⛶」；aria-label 與 title 都要有，且必須走翻譯函式。
+    for (const key of ['cell.fullscreen', 'cell.snapshot', 'cell.ptz']) {
+      const use = appSource.match(new RegExp(`title="\\$\\{tx\\('${key}'\\)\\}"[^>]*aria-label="\\$\\{tx\\('${key}'\\)\\}"`));
+      expect(use, key).not.toBeNull();
+    }
+  });
+
+  it('acts on the cell that was clicked, not on a panel-wide channel field', () => {
+    // 這條守的是「按了截圖卻抓到另一台」：格子的頻道要從 liveCells 的同一格拿。
+    expect(appSource).toMatch(/const entry = liveCells\[liveCellIndex\(cell\)\]/);
+    expect(appSource).toMatch(/captureCellFrame\(entry\?\.video, channelId\)/);
+  });
+
+  it('delegates the cell clicks from the grid container so redraws do not lose them', () => {
+    // 格線每次開檔都整批重畫；逐格綁定會漏掉重畫後的按鈕。
+    expect(appSource).toMatch(/\$\('live-grid'\)\.addEventListener\('click', onLiveGridClick\)/);
+  });
+
+  it('carries the cell channel into the snapshot and PTZ pages', () => {
+    expect(appSource).toMatch(/function openCellTool\(group, name, channelId\)/);
+    expect(appSource).toMatch(/openCellTool\('live', 'ptz', channelId\)/);
+    expect(appSource).toMatch(/name === 'snapshot' \? \$\('snap-channel'\) : \$\('ptz-channel'\)/);
   });
 });
 

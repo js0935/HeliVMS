@@ -46,8 +46,14 @@ describe('keyboard accessibility', () => {
     }
   });
 
-  it('focuses the username field on load', () => {
-    expect(indexSource).toMatch(/<input id="user"[\s\S]*?autofocus/);
+  it('focuses the account toggle on load instead of a field inside the collapsed block', () => {
+    // 原本是 autofocus 在使用者名稱欄，但那個欄位在收合的 <details> 裡：瀏覽器為了
+    // 顯示被聚焦的元素會自動展開它，帳號區（金鑰＋帳號＋密碼）於是永遠佔著頂列，
+    // 而這正是操作員抱怨「功能雜亂」的來源之一。焦點改放在 summary。
+    expect(indexSource).toMatch(/<summary[^>]*autofocus/);
+    expect(indexSource).not.toMatch(/<input id="user"[^>]*autofocus/);
+    // 收合的區塊仍要能被鍵盤展開：summary 在 details 內、且登入表單確實在裡面。
+    expect(indexSource).toMatch(/<details class="topbar-auth">[\s\S]*?<summary[^>]*data-i18n="app\.account"[^>]*>[\s\S]*?<form id="login">/);
   });
 
   it('labels every table header with a column scope', () => {
@@ -80,11 +86,11 @@ describe('screen readers', () => {
 });
 
 describe('tabs and panels are wired together', () => {
-  it('points every tab at a panel that exists', () => {
+  it('points every primary tab at a panel that exists', () => {
     const ids = elementIds(indexSource);
     const tabs = [...indexSource.matchAll(/data-tab="([^"]+)"[^>]*aria-controls="([^"]+)"/g)];
-    // 七項功能：即時監看、回放、截圖、PTZ、事件、IO 接點、設定。少一個就代表某個功能點不開。
-    expect(tabs.map((m) => m[1]).sort()).toEqual(['events', 'export', 'info', 'io', 'live', 'playback', 'ptz', 'settings', 'snapshot']);
+    // 四個主頁：即時監看、回放、事件、設定。少一個就代表某個功能點不開。
+    expect(tabs.map((m) => m[1]).sort()).toEqual(['events', 'live', 'playback', 'settings']);
     for (const [, , panel] of tabs) {
       expect(ids, panel).toContain(panel);
     }
@@ -97,7 +103,26 @@ describe('tabs and panels are wired together', () => {
       expect(ids, groups.label).toContain(groups.label);
     }
     const count = indexSource.match(/data-panel="/g) ?? [];
-    expect(count.length).toBe(9);
+    expect(count.length).toBe(4);
+  });
+
+  it('points every sub-tab at a sub-panel in the same group', () => {
+    // 次分頁是「功能雜亂」的解法：截圖／PTZ 收進監看、匯出收進回放、裝置資訊與 IO 收進設定。
+    // 每一個都必須指到同組存在的面板，否則那一項按了完全沒反應（面板永遠 hidden）。
+    const ids = elementIds(indexSource);
+    const subs = [...indexSource.matchAll(/data-subtab="([^"]+)"[^>]*aria-controls="([^"]+)"/g)];
+    expect(subs.map((m) => m[1]).sort()).toEqual([
+      'export', 'general', 'info', 'io', 'ptz', 'snapshot', 'wall', 'player',
+    ].sort());
+    for (const [, , panel] of subs) {
+      expect(ids, panel).toContain(panel);
+    }
+    // 每一組至少要有一個子面板與它配對。
+    const groups = [...indexSource.matchAll(/data-subtab-group="([^"]+)"/g)].map((m) => m[1]);
+    expect(groups.sort()).toEqual(['live', 'playback', 'settings']);
+    for (const group of groups) {
+      expect(indexSource, group).toContain(`data-subpanel-group="${group}"`);
+    }
   });
 
   it('marks the tab strip as a tablist', () => {

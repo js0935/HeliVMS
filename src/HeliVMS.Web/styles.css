@@ -128,6 +128,68 @@ button:disabled {
 }
 .panel[hidden] { display: none; }
 
+/*
+ * 次分頁（主頁內的區段）。
+ *
+ * 為什麼要有第二層：原本九個平鋪頁籤讓操作員每次都要先想「這功能在哪一頁」，
+ * 而「截圖」「PTZ」其實是監看當下的工具、不是獨立流程。現在主頁只留四項，
+ * 其餘收進各自主頁；次分頁刻意比主頁籤小一號、不加底色，讓「我現在在哪一層」
+ * 一眼看得出來。flex-wrap 的理由與 .tabs 相同：英文標籤比中文長。
+ */
+.subtabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0 0 8px;
+}
+.subtab {
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--muted);
+  padding: 2px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.subtab:hover { border-color: var(--accent); color: var(--text); }
+.subtab.active {
+  background: var(--line);
+  border-color: var(--accent);
+  color: var(--text);
+}
+/* app.js 用 `subpanel.hidden = ...` 切換次分頁；少了這條，display 的預設值會蓋掉
+   hidden，同一組次分頁會全部同時顯示。 */
+.subpanel[hidden] { display: none; }
+
+/*
+ * 帳號區：API 金鑰與登入表單收進一個可展開的區塊。
+ *
+ * 頂列原本把金鑰欄、帳號、密碼、登入鈕全部平鋪在最上面，佔掉近半個螢幕寬，
+ * 而它們一天用不到一次（金鑰一旦貼上就存進 localStorage）。收起來之後頂列只剩
+ * 狀態：健康、連線、授權、身分、語言。內層的 label 不可吃 margin-left:auto
+ * ——那是給頂列最後一個 label 用的，套進來會把欄位推到區塊最右邊。
+ */
+.topbar-auth summary {
+  cursor: pointer;
+  color: var(--muted);
+  padding: 2px 8px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  font-size: 12px;
+  list-style: none;
+}
+.topbar-auth summary::-webkit-details-marker { display: none; }
+.topbar-auth[open] summary { color: var(--text); border-color: var(--accent); }
+.topbar-auth-body {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  align-items: center;
+  padding: 8px 0 2px;
+}
+.topbar-auth-body label { margin-left: 0; }
+
 #login { display: flex; gap: 6px; align-items: center; }
 #login input { width: 120px; }
 #login .muted { font-size: 12px; max-width: 180px; }
@@ -198,6 +260,48 @@ button:disabled {
   border-radius: 3px;
   pointer-events: none;
 }
+/*
+ * 每格的工具列（全螢幕／截圖／PTZ）。
+ *
+ * 放在格子的右上角而不是面板的某一頁：操作員看的是某一格，動作也該跟著那一格，
+ * 否則「按了截圖，結果抓到另一台的畫面」。固定顯示（不靠 hover）——現場的
+ * 大螢幕與觸控面板常常沒有 hover，藏起來等於點不到。label 類文字用 aria-label
+ * 與 title 帶，按鈕本身只放符號，才不會在三公分寬的格子裡塞滿字。
+ */
+.live-cell-actions {
+  position: absolute;
+  right: 4px;
+  top: 4px;
+  display: flex;
+  gap: 4px;
+  opacity: 0.75;
+}
+.live-cell-actions:hover,
+.live-cell-actions:focus-within { opacity: 1; }
+.cell-btn {
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 3px;
+  padding: 1px 6px;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+/*
+ * 次要動作（停止／立即更新／讀取）。
+ *
+ * 每個區塊只有一顆主要按鈕（開啟即時畫面／載入回放／建立匯出工作／儲存設定），
+ * 其餘全部退成外框。一排同色的藍按鈕等於沒有輕重之分——操作員在現場就是這樣
+ * 按錯「停止」的（它以前和「開啟」長得一模一樣）。
+ */
+.btn-quiet {
+  background: transparent;
+  border: 1px solid var(--line);
+  color: var(--text);
+}
+.btn-quiet:hover { border-color: var(--accent); }
+
 .row-form { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 6px; }
 .row-form input, .row-form select {
   background: var(--bg);

@@ -136,6 +136,52 @@ function updateChrome() {
   $('logout').hidden = !session;
 }
 
+/** 目前選取的次分頁（group → name）。切主頁籤再回來時要回到操作員最後看的那一頁。 */
+const activeSubTab = new Map();
+
+/**
+ * 次分頁（主頁內的區段）。
+ *
+ * 每一組各自獨立：`data-subtab-group` 標在工具列上、`data-subpanel-group` 標在容器上，
+ * 切「監看 → 截圖」不會動到設定頁的選取。切換只改可見性與 ARIA，不重建內容，
+ * 所以切去截圖再切回來，監看牆上的 WebRTC 會話不會斷。
+ */
+function showSubTab(group, name) {
+  activeSubTab.set(group, name);
+  const bar = document.querySelector(`[data-subtab-group="${group}"]`);
+  for (const btn of bar?.querySelectorAll('[data-subtab]') ?? []) {
+    const on = btn.dataset.subtab === name;
+    btn.classList.toggle('active', on);
+    btn.setAttribute('aria-selected', String(on));
+  }
+  const holder = document.querySelector(`[data-subpanel-group="${group}"]`);
+  for (const panel of holder?.querySelectorAll('[data-subpanel]') ?? []) {
+    panel.hidden = panel.dataset.subpanel !== name;
+  }
+
+  // 開啟次分頁才載入它自己的資料：裝置資訊的 /config/usage 會掃錄影目錄
+  // （ReconcileUsage），匯出清單則要問一次工作佇列——兩者都不該在別的頁面被輪詢。
+  if (group === 'settings' && name === 'info') void refreshDeviceInfo();
+  if (group === 'playback' && name === 'export') {
+    refreshExportSources();
+    void refreshExports();
+  }
+}
+
+/**
+ * 從監看牆的某一格跳到它的工具頁（截圖／PTZ），並把該格的頻道帶過去。
+ *
+ * 這是「功能雜亂」的另一半：把截圖與 PTZ 收進監看頁之後，操作員不該還得自己
+ * 記住「我在看第幾台、編號是多少」再手打一次——那一格就是答案。
+ */
+function openCellTool(group, name, channelId) {
+  showSubTab(group, name);
+  const target = name === 'snapshot' ? $('snap-channel') : $('ptz-channel');
+  if (target && Number.isInteger(channelId) && channelId > 0) {
+    target.value = String(channelId);
+  }
+}
+
 /** 功能分頁。切換只改可見性與 ARIA 狀態，不重建內容，所以播放中的畫面不會被打斷。 */
 function showTab(name) {
   for (const btn of document.querySelectorAll('[data-tab]')) {
@@ -146,19 +192,24 @@ function showTab(name) {
   for (const panel of document.querySelectorAll('[data-panel]')) {
     panel.hidden = panel.dataset.panel !== name;
   }
+  // 回到主頁時把它自己的次分頁還原：每組只有一個可見，標記如實反映現況。
+  for (const [group, sub] of activeSubTab) {
+    showSubTab(group, sub);
+  }
   // 設定值不隨輪詢重載：每 12 秒覆寫會蓋掉正在編輯的欄位，所以只在開啟設定分頁時載入。
   if (name === 'settings') void loadSettings();
-  // 裝置資訊的 /config/usage 會掃錄影目錄（ReconcileUsage），只在開啟分頁時載入。
-  if (name === 'info') void refreshDeviceInfo();
-  if (name === 'export') {
-    refreshExportSources();
-    void refreshExports();
-  }
 }
 
 function bindTabs() {
   for (const btn of document.querySelectorAll('[data-tab]')) {
     btn.addEventListener('click', () => showTab(btn.dataset.tab));
+  }
+  // 次分頁按鈕只知道自己的 group 與 name，群組由它所屬的工具列決定。
+  for (const btn of document.querySelectorAll('[data-subtab]')) {
+    btn.addEventListener('click', () => {
+      const group = btn.closest('[data-subtab-group]')?.dataset.subtabGroup;
+      if (group) showSubTab(group, btn.dataset.subtab);
+    });
   }
 }
 
@@ -196,9 +247,77 @@ function renderLiveGrid() {
   const count = liveLayoutCount();
   const cols = Math.round(Math.sqrt(count));
   grid.style.gridTemplateColumns = `repeat(${cols}, minmax(0, 1fr))`;
+  // 每一格自帶工具列：全螢幕、截圖、PTZ。動作跟著「那一格」而不是面板的某一頁，
+  // 否則按了截圖卻抓到另一台。符號只是提示，真正的名稱放在 aria-label 與 title
+  // （螢幕閱讀器唸得出「全螢幕」，唸不出「⛶」）。
   grid.innerHTML = Array.from({ length: count }, () =>
-    '<div class="live-cell"><video class="player" autoplay muted playsinline></video><span class="live-cell-label"></span></div>',
+    '<div class="live-cell"><video class="player" autoplay muted playsinline></video>'
+    + '<span class="live-cell-label"></span>'
+    + '<div class="live-cell-actions">'
+    + `<button type="button" class="cell-btn" data-cell-action="fullscreen" title="${tx('cell.fullscreen')}" aria-label="${tx('cell.fullscreen')}">⛶</button>`
+    + `<button type="button" class="cell-btn" data-cell-action="snapshot" title="${tx('cell.snapshot')}" aria-label="${tx('cell.snapshot')}">⎙</button>`
+    + `<button type="button" class="cell-btn" data-cell-action="ptz" title="${tx('cell.ptz')}" aria-label="${tx('cell.ptz')}">⌖</button>`
+    + '</div></div>',
   ).join('');
+}
+
+/** 第幾個格子（依畫面上的順序）；找不到回 -1。 */
+function liveCellIndex(cell) {
+  return [...($('live-grid')?.querySelectorAll('.live-cell') ?? [])].indexOf(cell);
+}
+
+/** 把某個格子上目前解碼中的畫面存成 PNG。 */
+function captureCellFrame(video, channelId) {
+  const msg = $('live-msg');
+  if (!video?.videoWidth) {
+    msg.textContent = t('state.snapshotFailed');
+    return;
+  }
+  const canvas = document.createElement('canvas');
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  canvas.getContext('2d').drawImage(video, 0, 0);
+  canvas.toBlob((blob) => {
+    if (!blob) {
+      msg.textContent = t('state.snapshotFailed');
+      return;
+    }
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `snapshot-ch${channelId || 0}-${Date.now()}.png`;
+    link.click();
+    URL.revokeObjectURL(url);
+    msg.textContent = t('state.snapshotDone');
+  }, 'image/png');
+}
+
+/**
+ * 監看牆上每一格的工具列（事件代理）。
+ *
+ * 用代理而不是逐格綁定：格線每次開檔都整批重畫，逐格綁定會漏掉重畫後的按鈕，
+ * 症狀是「大格數時有幾格的按鈕沒反應」。
+ */
+function onLiveGridClick(event) {
+  const btn = event.target.closest('[data-cell-action]');
+  if (!btn) return;
+  const cell = btn.closest('.live-cell');
+  const entry = liveCells[liveCellIndex(cell)];
+  // 先取這一格自己的頻道；沒有連線中的格（例如剛改版面）才退回清單目前的選取。
+  const channelId = Number(entry?.channelId ?? 0) || Number($('live-channels')?.value) || 0;
+
+  if (btn.dataset.cellAction === 'fullscreen') {
+    // 全螢幕失敗（瀏覽器政策、非使用者手勢）不該讓畫面壞掉，靜默即可。
+    cell?.requestFullscreen?.().catch(() => {});
+    return;
+  }
+
+  if (btn.dataset.cellAction === 'snapshot') {
+    captureCellFrame(entry?.video, channelId);
+    return;
+  }
+
+  openCellTool('live', 'ptz', channelId);
 }
 
 /**
@@ -242,8 +361,11 @@ async function openLiveView(event) {
   );
 
   const ok = results.filter(Boolean).length;
+  // 這裡只證明「協商成功」，第一張影格還沒到；真正的「播放中」由每格自己的
+  // waitForFirstFrame 回報（state.liveReady）。把這句寫成「已就緒」會把
+  // 連得上卻沒有影像（防火牆擋 UDP）誤報成正常，操作員只看到一片黑。
   msg.textContent = ok === liveCells.length && ok > 0
-    ? t('state.liveReady')
+    ? t('live.connected', { ok })
     : t('live.someFailed', { ok, total: liveCells.length });
   $('live-meta').textContent = t('live.gridMeta', {
     count: ok,
@@ -1178,6 +1300,8 @@ function wire() {
     renderLiveGrid();
   });
   renderLiveGrid();
+  // 每格的工具列（全螢幕／截圖／PTZ）：委派給格線容器，重畫後不必重新綁定。
+  $('live-grid').addEventListener('click', onLiveGridClick);
 
   $('snap-form').addEventListener('submit', openSnapshotView);
   $('snap-stop').addEventListener('click', stopSnapshotView);

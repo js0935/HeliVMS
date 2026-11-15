@@ -14,6 +14,17 @@
 const ICE_GATHER_TIMEOUT_MS = 3000;
 
 /**
+ * 協商成功後最多等多久才出現第一張影格。
+ *
+ * 現場回報「WEB 看不到畫面」時，畫面其實常常是**黑的但介面寫著已就緒**：
+ * <c>ontrack</c> 在 <c>setRemoteDescription</c> 當下就會觸發，此時 ICE／DTLS 可能還沒通、
+ * 一張 RTP 都還沒進來。只憑「POST 回 201」就宣布成功，等於把「連上但沒有影像」
+ * （防火牆擋 UDP、候選位址不可達、攝影機沒送流）與「正常播放」顯示成同一句話，
+ * 操作員只能猜，日誌也幫不上忙。所以要看真正的影格：<c>videoWidth &gt; 0</c>。
+ */
+const FIRST_FRAME_TIMEOUT_MS = 10000;
+
+/**
  * 建立一個即時監看控制器。
  *
  * 傳輸層（apiRaw／api）與翻譯（t）都由呼叫端注入，而不是在模組裡直接抓全域變數。
@@ -129,7 +140,13 @@ export function createLiveViewer({ apiRaw, t }) {
     try {
       const { location } = await negotiate(channelId, peer);
       session = { peer, location, video };
-      notify(t('state.liveReady'));
+      // 「協商成功」≠「看得到畫面」。先說實話，等第一張影格到了再改成播放中。
+      notify(t('state.liveNegotiated'));
+      void waitForFirstFrame(video).then((arrived) => {
+        // 這條連線可能已經被 stop() 或下一次 open() 取代；別把舊連線的狀態寫回新畫面。
+        if (session === null || session.video !== video) return;
+        notify(arrived ? t('state.liveReady') : t('state.liveNoFrame'));
+      });
       return true;
     } catch (err) {
       try {
@@ -156,6 +173,47 @@ export function createLiveViewer({ apiRaw, t }) {
       return session?.location ?? null;
     },
   };
+}
+
+/** 影格可能到達的事件；三個都聽才不會因瀏覽器差異而永遠等不到。 */
+const FRAME_EVENTS = ['loadeddata', 'resize', 'playing'];
+
+/** 等畫面真的解出一張影格，最多等 {@link FIRST_FRAME_TIMEOUT_MS}。
+ *
+ * 回 <c>true</c> 代表 <c>videoWidth &gt; 0</c>（真的有一張影像），<c>false</c> 代表等到逾時
+ * 都沒有——那種情況畫面上是一片黑，必須讓使用者看見原因，而不是繼續寫「已就緒」。
+ *
+ * @param {HTMLVideoElement} video
+ * @param {number} timeoutMs
+ */
+export function waitForFirstFrame(video, timeoutMs = FIRST_FRAME_TIMEOUT_MS) {
+  const hasFrame = () => Number(video?.videoWidth) > 0;
+
+  return new Promise((resolve) => {
+    if (hasFrame()) {
+      resolve(true);
+      return;
+    }
+
+    let settled = false;
+    let timer = 0;
+    const finish = (arrived) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      for (const name of FRAME_EVENTS) video.removeEventListener?.(name, onFrame);
+      resolve(arrived);
+    };
+
+    function onFrame() {
+      if (hasFrame()) finish(true);
+    }
+
+    // 三個事件都要聽：loadeddata 在一般情況最先到，resize 是尺寸確定時，
+    // 而已經在播的串流只會再送 playing。
+    for (const name of FRAME_EVENTS) video.addEventListener?.(name, onFrame);
+    timer = setTimeout(() => finish(hasFrame()), timeoutMs);
+  });
 }
 
 /**

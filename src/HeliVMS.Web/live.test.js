@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createLiveViewer, fetchDeployment, waitForIceGathering } from './live.js';
+import { createLiveViewer, fetchDeployment, waitForFirstFrame, waitForIceGathering } from './live.js';
 
 /**
  * M244 WHEP 客戶端測試。
@@ -54,6 +54,40 @@ class FakePeer {
 }
 
 const fakeVideo = () => ({ srcObject: 'unset' });
+
+/**
+ * 假的 <video>：可以真的收到影格（videoWidth > 0）與派發事件。
+ *
+ * 這是「已連線但沒有畫面」那條路徑唯一的觀測點——真瀏覽器裡 videoWidth 只有在真的解出
+ * 一張影格後才會變成非零，所以它就是「有沒有畫面」的判準。
+ */
+function fakeVideoEl() {
+  const listeners = {};
+  return {
+    srcObject: 'unset',
+    videoWidth: 0,
+    videoHeight: 0,
+    addEventListener(name, fn) {
+      (listeners[name] ??= []).push(fn);
+    },
+    removeEventListener(name, fn) {
+      listeners[name] = (listeners[name] ?? []).filter((h) => h !== fn);
+    },
+    /** 派發事件（不動尺寸）。 */
+    dispatch(event) {
+      for (const fn of listeners[event] ?? []) fn();
+    },
+    /** 模擬「第一張影格到了」：先設定尺寸再派發事件（順序與真瀏覽器一致）。 */
+    frame(width = 640, height = 360, event = 'loadeddata') {
+      this.videoWidth = width;
+      this.videoHeight = height;
+      for (const fn of listeners[event] ?? []) fn();
+    },
+    listenerCount() {
+      return Object.values(listeners).reduce((n, list) => n + list.length, 0);
+    },
+  };
+}
 
 const identity = (key) => key;
 
@@ -252,6 +286,125 @@ describe('createLiveViewer.open', () => {
 
     expect(FakePeer.instances[0].closed).toBe(true);
     expect(video.srcObject).toBeNull();
+  });
+
+  it('協商成功時只宣告已連線，不宣告畫面已就緒', async () => {
+    // 現場回報「WEB 看不到畫面」而介面寫著「即時畫面已就緒」：ontrack 在
+    // setRemoteDescription 當下就會觸發，此時一張 RTP 都還沒進來。把協商成功講成
+    // 播放成功，等於讓「防火牆擋住 UDP」與「正常播放」顯示成同一句話。
+    const apiRaw = vi.fn(async () => ({
+      ok: true,
+      status: 201,
+      headers: new Headers({ Location: '/x' }),
+      text: async () => 'v=0',
+    }));
+    const notify = vi.fn();
+
+    await viewer({ apiRaw }).open(1, fakeVideoEl(), notify);
+
+    expect(notify).toHaveBeenLastCalledWith('state.liveNegotiated');
+    expect(notify).not.toHaveBeenCalledWith('state.liveReady');
+  });
+
+  it('第一張影格到達後才宣告播放中', async () => {
+    const apiRaw = vi.fn(async () => ({
+      ok: true,
+      status: 201,
+      headers: new Headers({ Location: '/x' }),
+      text: async () => 'v=0',
+    }));
+    const notify = vi.fn();
+    const video = fakeVideoEl();
+
+    await viewer({ apiRaw }).open(1, video, notify);
+    video.frame();
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(notify).toHaveBeenLastCalledWith('state.liveReady');
+  });
+
+  it('逾時還沒有影格時說收不到影像', async () => {
+    vi.useFakeTimers();
+    try {
+      const apiRaw = vi.fn(async () => ({
+        ok: true,
+        status: 201,
+        headers: new Headers({ Location: '/x' }),
+        text: async () => 'v=0',
+      }));
+      const notify = vi.fn();
+
+      await viewer({ apiRaw }).open(1, fakeVideoEl(), notify);
+      await vi.advanceTimersByTimeAsync(11000);
+
+      expect(notify).toHaveBeenLastCalledWith('state.liveNoFrame');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('停止之後舊連線不會再把狀態寫回畫面', async () => {
+    // 停掉再開下一路時，前一路的看門狗若還活著，就會用上一路的結果蓋掉新畫面的狀態。
+    const apiRaw = vi.fn(async () => ({
+      ok: true,
+      status: 201,
+      headers: new Headers({ Location: '/x' }),
+      text: async () => 'v=0',
+    }));
+    const notify = vi.fn();
+    const v = viewer({ apiRaw });
+    const video = fakeVideoEl();
+
+    await v.open(1, video, notify);
+    await v.stop();
+    // 舊連線的看門狗（10 秒後）與影格事件都還可能到達；兩者都必須被會話身分擋掉。
+    video.frame();
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(notify).not.toHaveBeenCalledWith('state.liveReady');
+    expect(notify).not.toHaveBeenCalledWith('state.liveNoFrame');
+  });
+});
+
+/**
+ * 「有沒有畫面」的判準是 <c>videoWidth &gt; 0</c>，不是「POST 回了 201」。
+ */
+describe('waitForFirstFrame', () => {
+  it('已經有影格時立即回報', async () => {
+    const video = fakeVideoEl();
+    video.videoWidth = 1920;
+
+    await expect(waitForFirstFrame(video, 50)).resolves.toBe(true);
+  });
+
+  it('loadeddata 到達且尺寸非零時回報成功', async () => {
+    const video = fakeVideoEl();
+    const waiting = waitForFirstFrame(video, 1000);
+    video.frame(1280, 720);
+
+    await expect(waiting).resolves.toBe(true);
+  });
+
+  it('只派發事件但沒有尺寸時不算有畫面', async () => {
+    // 有些播放器會在還沒有任何影像時就派發 playing；光看事件名字會誤報成功。
+    const video = fakeVideoEl();
+    const waiting = waitForFirstFrame(video, 30);
+    video.dispatch('playing');
+    video.dispatch('resize');
+    await expect(waiting).resolves.toBe(false);
+  });
+
+  it('逾時時回報失敗而不是卡住', async () => {
+    await expect(waitForFirstFrame(fakeVideoEl(), 20)).resolves.toBe(false);
+  });
+
+  it('結束後移除事件監聽，避免洩漏', async () => {
+    const video = fakeVideoEl();
+    const waiting = waitForFirstFrame(video, 20);
+
+    await waiting;
+
+    expect(video.listenerCount()).toBe(0);
   });
 });
 
