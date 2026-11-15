@@ -45,13 +45,30 @@ public partial class PtzWindow : Window
     /// </summary>
     private bool _moveHeldByMouse;
 
+    /// <summary>
+    /// 載入速度偏好期間為 <c>true</c>：那段時間的 <see cref="OnSpeedChanged"/> 是「XAML 的
+    /// Value 與程式指派的 Value」，不是操作員在拖滑桿，寫回設定會把已存的級別蓋成預設值。
+    /// </summary>
+    /// <remarks>
+    /// 這個旗標同時是「建構子不能在建構子裡炸掉」的守衛：<c>_settings</c> 一律在
+    /// <c>InitializeComponent()</c> <b>之前</b> 建立——XAML 的 <c>Value="8"</c>
+    /// 會在 InitializeComponent 期間就觸發 ValueChanged，那時 <c>_settings</c> 若還是 null，
+    /// 建構子直接擲 NullReferenceException，症狀是「PTZ 完全叫不出來」（而且外面看不到錯誤）。
+    /// </remarks>
+    private bool _suppressSpeedChanged = true;
+
     public PtzWindow(SqliteStore store, ChannelInfo channel, DeviceRecord device)
     {
-        InitializeComponent();
+        // 必須在 InitializeComponent 之前（見 _suppressSpeedChanged 的說明）。
         _settings = new SettingsRepository(store);
         _speedLevel = ReadSpeedLevel();
-        // 指派 Value 會觸發 ValueChanged（那時 _settings 已備好，可以寫回同一個值而無害）。
+
+        InitializeComponent();
+
+        // 偏好套用完才開始處理操作員的拖曳。
         PtzSpeedSlider.Value = _speedLevel;
+        PtzSpeedSlider.ToolTip = string.Format(Localizer.T("Ptz.SpeedTip"), _speedLevel);
+        _suppressSpeedChanged = false;
         ApplyI18n();
         Title = string.Format(Localizer.T("Ptz.TitleWindow"), channel.Name);
 
@@ -112,8 +129,14 @@ public partial class PtzWindow : Window
 
     private void OnSpeedChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
     {
-        _speedLevel = Math.Clamp((int)Math.Round(e.NewValue), 1, 8);
-        PtzSpeedSlider.ToolTip = string.Format(Localizer.T("Ptz.SpeedTip"), _speedLevel);
+        var level = Math.Clamp((int)Math.Round(e.NewValue), 1, 8);
+        PtzSpeedSlider.ToolTip = string.Format(Localizer.T("Ptz.SpeedTip"), level);
+        if (_suppressSpeedChanged)
+        {
+            return;
+        }
+
+        _speedLevel = level;
         // 設定寫在改動當下：視窗關閉有自己的收尾路徑，等關窗才寫就漏掉了。
         _settings.Set(SpeedKey, _speedLevel.ToString(CultureInfo.InvariantCulture));
     }

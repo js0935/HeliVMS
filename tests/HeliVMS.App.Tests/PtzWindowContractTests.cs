@@ -79,4 +79,38 @@ public sealed class PtzWindowContractTests
         var changed = SourceContract.BodyOf(code, "OnSpeedChanged");
         Assert.Contains("_settings.Set(SpeedKey", changed);
     }
+
+    /// <summary>
+    /// 建構子必須在 <c>InitializeComponent()</c> <b>之前</b> 備好設定來源，而且載入偏好期間
+    /// 不得回寫設定。
+    /// </summary>
+    /// <remarks>
+    /// 這是一路走過來的現場故障：XAML 的 <c>Value="8"</c> 會在 InitializeComponent 期間就觸發
+    /// <c>ValueChanged</c>，那時若 <c>_settings</c> 還沒建立，建構子直接擲
+    /// NullReferenceException——症狀是「PTZ 完全叫不出來」，而且外層看不到任何錯誤訊息
+    /// （App.Tests 不編譯 App，這個錯在契約測試裡全綠）。同一個事件在載入偏好時若照樣寫回設定，
+    /// 還會把操作員存的級別蓋成 XAML 的預設值（設定中心「載入就回寫」那課的同一個形狀）。
+    /// </remarks>
+    [Fact]
+    public void 建構子先備好設定來源且載入期間不回寫()
+    {
+        var code = SourceContract.Read("src/HeliVMS.App/PtzWindow.xaml.cs");
+
+        var ctor = code.IndexOf("public PtzWindow(", StringComparison.Ordinal);
+        var settings = code.IndexOf("_settings = new SettingsRepository(store);", StringComparison.Ordinal);
+        var init = code.IndexOf("InitializeComponent();", StringComparison.Ordinal);
+        Assert.True(ctor >= 0 && settings > ctor, "找不到建構子裡的設定來源初始化");
+        Assert.True(init > ctor, "找不到 InitializeComponent()");
+        Assert.True(settings < init,
+            "設定來源必須在 InitializeComponent 之前建立：XAML 的 Value 會在 InitializeComponent "
+            + "期間觸發 ValueChanged，那時 _settings 為 null 就是建構子擲例外（PTZ 叫不出來）");
+
+        // 偏好套用完才解除抑制，否則「XAML 的 8」或「程式指派的級別」會被當成操作員拖曳而寫回設定。
+        Assert.Contains("private bool _suppressSpeedChanged = true;", code);
+        var slider = code.IndexOf("PtzSpeedSlider.Value = _speedLevel;", StringComparison.Ordinal);
+        var release = code.IndexOf("_suppressSpeedChanged = false;", StringComparison.Ordinal);
+        Assert.True(slider > init, "套用偏好要在 InitializeComponent 之後");
+        Assert.True(release > slider, "解除抑制要在套用偏好之後");
+        Assert.Contains("if (_suppressSpeedChanged)", code);
+    }
 }
