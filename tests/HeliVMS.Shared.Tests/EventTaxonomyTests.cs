@@ -57,4 +57,26 @@ public sealed class EventTaxonomyTests
         Assert.Equal("smart_motion", EventTaxonomy.ToQccEventType(EventTaxonomy.SmartMotion));
         Assert.Equal("shelter", EventTaxonomy.ToQccEventType(EventTaxonomy.Shelter));
     }
+
+    /// <summary>
+    /// 連線狀態事件只屬於事件平面，不能當成「偵測」去開事件錄影。
+    /// 舊版把離線事件一起丟進 <c>_scheduler.RegisterEvent</c>，Event 模式的頻道因此
+    /// 為了「攝影機離線」而開錄，錄到的是一段連不上的 corrupt 檔。
+    /// </summary>
+    [Theory]
+    [InlineData("offline", true)]
+    [InlineData("online", true)]
+    [InlineData("disconnected", true)]
+    [InlineData("reconnected", true)]
+    [InlineData("OFFLINE", true)]
+    [InlineData("motion", false)]
+    [InlineData("ai_person", false)]
+    [InlineData("io_input", false)]
+    [InlineData("schedule_start", false)]
+    [InlineData("", false)]
+    [InlineData(null, false)]
+    public void 只有離線與上線算連線狀態(string? raw, bool expected)
+    {
+        Assert.Equal(expected, EventTaxonomy.IsConnectivity(raw));
+    }
 }

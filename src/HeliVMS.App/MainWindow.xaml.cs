@@ -3034,6 +3034,33 @@ public partial class MainWindow : Window, IWallDisplayOptions
     /// </remarks>
     private void RouteAlarm(AlarmEventRecord record)
     {
+        // 連線狀態事件（offline／online）不是「偵測」：它們只屬於事件平面。
+        if (EventTaxonomy.IsConnectivity(record.EventType))
+        {
+            // 牆上事件面板吃的是同一條原始事件流，斷線／復連要跟其他事件一樣即時出現。
+            Dispatcher.BeginInvoke(new Action(() => AppendEventPanel(record)), DispatcherPriority.Background);
+
+            // CMS 端同樣要知道攝影機離線（QCC 的事件頁與 SEARCH_EVENT 同一個源頭）。
+            _qctekHost?.ReportEvent(
+                record.ChannelId, ChannelName(record.ChannelId), record.EventType, record.StartUtc, record.Detail);
+
+            // 刻意不進事件錄影閘：Event 模式的頻道把「任何事件」當開錄信號，
+            // 對離線事件開錄錄到的必然是 corrupt 段；上線時再開一次也是白開。
+            //
+            // 也刻意不走 SmartAlertHost 聚合與預設通知：一台不穩的攝影機一個晚上可以重連
+            // 幾十次，每一筆都外送就是通知洗版。需要知道的操作員用複合事件規則自行指定
+            // （規則命中才經 ApplyEventRules → NotifyAlarm）。
+            if (_eventRules is not null)
+            {
+                foreach (var enriched in ApplyEventRules(record))
+                {
+                    NotifyAlarm(enriched);
+                }
+            }
+
+            return;
+        }
+
         // 事件錄影接線：Event 模式的頻道以偵測事件為錄影閘（排程器內部會過濾模式，
         // 其他模式的事件呼叫是無害的 no-op）。放在智慧警報過濾之前——被聚合抑制通知的
         // 原始事件仍然是真實的偵測，該錄的就是要錄。
@@ -5378,7 +5405,7 @@ public partial class MainWindow : Window, IWallDisplayOptions
     private EventRow ToEventRow(AlarmEventRecord record)
         => new(
             record.StartUtc.ToLocalTime().ToString("HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture),
-            $"{ChannelName(record.ChannelId)} · {record.EventType}{(string.IsNullOrEmpty(record.Detail) ? string.Empty : $" · {record.Detail}")}",
+            $"{ChannelName(record.ChannelId)} · {EventTypeText.Label(record.EventType)}{(string.IsNullOrEmpty(record.Detail) ? string.Empty : $" · {EventDetailText.Format(Localizer.Lang, record.Detail)}")}",
             record.ChannelId);
 
     /// <summary>點事件列＝選取那台的格位（跟頁尾警報列點擊同一個行為）。</summary>

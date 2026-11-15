@@ -25,10 +25,16 @@ public sealed class AlertFeedContractTests
         Assert.Contains("public AlertBroadcastHub Alerts", code);
 
         // 事件接線已抽到 CreateSession（連線與切流共用），發布必須跟著在那裡。
+        // 事件寫進 alarm_events 後就要發布，否則訂閱端永遠不會被叫醒。
+        // 發布點只有 ChannelManager.PublishEvent 一處（連線事件也走它），所以這裡同時釘住
+        // 「偵測事件在 CreateSession 接上發布點」與「發布點真的推播」。
         var body = SourceContract.BodyOf(code, "CreateSession");
         Assert.NotEqual(string.Empty, body);
-        // 事件寫進 alarm_events 後就要發布，否則訂閱端永遠不會被叫醒。
-        Assert.Contains("Alerts.Publish(new AlertUpdate(\"alarm.created\"", body);
+        Assert.Contains("session.EventInserted += (_, r) => PublishEvent(session.Cell, r);", body);
+
+        var publish = SourceContract.BodyOf(code, "PublishEvent");
+        Assert.NotEqual(string.Empty, publish);
+        Assert.Contains("Alerts.Publish(new AlertUpdate(\"alarm.created\"", publish);
     }
 
     [Fact]

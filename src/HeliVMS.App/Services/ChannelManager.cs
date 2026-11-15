@@ -183,23 +183,47 @@ public sealed class ChannelManager : IDisposable
         {
             if (st == RtspState.Reconnecting)
             {
-                _offline.MarkOffline(ch.Id);
+                PublishEvent(session.Cell, _offline.MarkOffline(ch.Id));
             }
             else if (st == RtspState.Streaming)
             {
-                _offline.MarkOnline(ch.Id);
+                // 離線窗到「真的收到影格」才收斂。舊版是在健康檢查重啟成功後立刻收斂
+                // （StartAsync 只是把迴圈丟出去，回來時一幀都還沒到），於是每一段離線
+                // 都被壓成 0 秒，操作員看到的是一筆「離線」加一筆「秒回」。
+                PublishEvent(session.Cell, _offline.MarkOnline(ch.Id));
             }
 
             StateChanged?.Invoke(this, (session.Cell, ch, st));
         };
         session.AiDetections += (_, d) => AiDetections?.Invoke(this, (session.Cell, ch.Id, d));
-        session.EventInserted += (_, r) =>
-        {
-            AlarmEvent?.Invoke(this, (session.Cell, r));
-            Alerts.Publish(new AlertUpdate("alarm.created", r.Id));
-        };
+        session.EventInserted += (_, r) => PublishEvent(session.Cell, r);
         session.MotionSignal += (_, ratio) => MotionSignal?.Invoke(this, (session.Cell, ratio));
         return session;
+    }
+
+    /// <summary>
+    /// 事件寫入 <c>alarm_events</c> 後的<b>唯一</b>發布點：本地事件匯流排 ＋ 推播中樞。
+    /// </summary>
+    /// <remarks>
+    /// 為什麼要收斂成一個方法：偵測事件本來就走這裡，但離線／上線事件是
+    /// <see cref="OfflineEventTracker"/> 直接寫資料庫的，沒有經過任何發布——於是
+    /// 「攝影機斷線」只有警報管理器的 15 秒輪詢會發現，事件中心（只吃推播）與牆上
+    /// 事件面板（只在載入／切換時重讀）都不會更新。現場回報的「斷線超過 30 秒才顯示」
+    /// 就是 10.9 秒偵測窗 ＋ 最多 15 秒輪詢；資料庫裡其實事件時間是準的。
+    /// <para>
+    /// <paramref name="record"/> 為 null ＝ 這一次呼叫沒有真的寫入任何東西（同一個離線期
+    /// 的重複 Reconnecting、沒有開窗時的復連），不該推播。
+    /// </para>
+    /// </remarks>
+    private void PublishEvent(int cell, AlarmEventRecord? record)
+    {
+        if (record is null)
+        {
+            return;
+        }
+
+        AlarmEvent?.Invoke(this, (cell, record));
+        Alerts.Publish(new AlertUpdate("alarm.created", record.Id));
     }
 
     /// <summary>
@@ -419,12 +443,12 @@ public sealed class ChannelManager : IDisposable
             {
                 var info = _channels.Get(kv.Key);
                 var cell = GetCell(kv.Key);
-                _offline.MarkOffline(kv.Key);
-                var restarted = await RestartAsync(session);
-                if (restarted)
-                {
-                    _offline.MarkOnline(kv.Key);
-                }
+                PublishEvent(cell, _offline.MarkOffline(kv.Key));
+
+                // 刻意不在這裡補 MarkOnline：重啟只是把拉流迴圈丟出去，回來時還沒有一幀。
+                // 真正的上線由 StateChanged(Streaming) 收斂，離線窗才會有真實長度；
+                // 若攝影機根本連不上，窗就應該一直開著（而不是變成「0 秒後就上線」）。
+                await RestartAsync(session);
 
                 if (info is not null)
                 {
@@ -455,8 +479,14 @@ public sealed class ChannelManager : IDisposable
     /// <remarks>
     /// 串流不穩的攝影機跑幾天後 decoder 會進入「連著但不出畫」的狀態，健康檢查要等
     /// 逾時才會救；夜間保養排程讓操作員可以每天固定整牆重建一次。逐台走與健康檢查
-    /// 完全相同的路徑（停→啟→清偵測窗口→補離線/上線標記），不走 DisconnectAllAsync：
+    /// 完全相同的路徑（停→啟→清偵測窗口），不走 DisconnectAllAsync：
     /// 後者會重畫格子，凌晨三點的操作員不想看到牆面閃爍。
+    /// <para>
+    /// <b>健康的重連不得留下離線事件。</b>這裡是排程保養，不是故障：舊版對每一台都先
+    /// <c>MarkOffline</c> 再 <c>MarkOnline</c>，於是每天凌晨三點整牆都會被記成「斷線一次」，
+    /// 事件中心與 QCC 的歷史裡全是沒有人真的遇到的斷線。只有重連真的失敗時才開窗；
+    /// 成功的那台由接下來的 <c>StateChanged(Streaming)</c> 照常收斂（沒有開窗就是 no-op）。
+    /// </para>
     /// </remarks>
     public async Task<int> RestartAllAsync()
     {
@@ -471,11 +501,13 @@ public sealed class ChannelManager : IDisposable
 
             var info = _channels.Get(kv.Key);
             var cell = GetCell(kv.Key);
-            _offline.MarkOffline(kv.Key);
             if (await RestartAsync(session))
             {
                 restarted++;
-                _offline.MarkOnline(kv.Key);
+            }
+            else
+            {
+                PublishEvent(cell, _offline.MarkOffline(kv.Key));
             }
 
             if (info is not null)

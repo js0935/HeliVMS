@@ -20,7 +20,7 @@ public static class EventTypeText
     public static IReadOnlyList<string> KnownTypes { get; } = 
     [
         "motion", "ai_person", "ai_vehicle", "io_input", "tamper",
-        "line_cross", "intrusion", "offline", "smart_alert",
+        "line_cross", "intrusion", "offline", "online", "smart_alert",
     ];
 
     public static string Label(string eventType) => eventType switch
@@ -29,6 +29,7 @@ public static class EventTypeText
         "ai_person" => Localizer.T("EventCenter.TypeAiPerson"),
         "ai_vehicle" => Localizer.T("EventCenter.TypeAiVehicle"),
         "offline" => Localizer.T("EventCenter.TypeOffline"),
+        "online" => Localizer.T("EventCenter.TypeOnline"),
         "tamper" => Localizer.T("EventCenter.TypeTamper"),
         "io_input" => Localizer.T("EventCenter.TypeIoInput"),
         "line_cross" => Localizer.T("EventCenter.TypeLineCross"),

@@ -38,6 +38,22 @@ public static class EventTaxonomy
         return System;
     }
 
+    /// <summary>
+    /// 這一筆事件是否只是「連線狀態」（離線／上線），而不是偵測到的事件。
+    /// </summary>
+    /// <remarks>
+    /// 兩者的下游完全不同：偵測事件要進事件錄影閘（Event 模式的頻道靠它開錄）、要能觸發
+    /// 智慧聚合與通知；連線狀態事件只屬於事件平面（牆上事件面板、事件中心、CMS 回報）。
+    /// 把它們混在一起，最明顯的代價是「攝影機離線」本身會讓 Event 模式的頻道開錄，
+    /// 錄到的必然是 corrupt 段；其次是重連時的通知洗版。
+    /// <para>
+    /// 別名（<c>disconnected</c>／<c>reconnected</c>）也在這裡統一判定——各處自己寫
+    /// <c>== "offline"</c> 的比對遲早漏掉其中一種寫法，而症狀只是「某些連線事件照樣去開錄」。
+    /// </para>
+    /// </remarks>
+    public static bool IsConnectivity(string? eventType)
+        => CategoryOf(eventType) is Offline or Online;
+
     public static string ToQccEventType(string category) => category switch
     {
         Motion => "motion", Sensor => "sensor", Tripwire => "tripwire",
