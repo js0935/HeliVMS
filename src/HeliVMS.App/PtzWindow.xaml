@@ -66,8 +66,9 @@
         </UniformGrid>
 
         <!--
-            速度 1–8（參考機 PTZ 面板的控制項）：滑桿＋慢／快。預設 8＝與調整前相同的轉幅；
-            調慢是操作員主動選擇，不必為了微調而反覆點放。
+            Speed 1-8, the same control the reference PTZ panel has: slider plus slower/faster.
+            Default 8 keeps the step size this window had before the control existed, so slowing
+            down stays a deliberate choice. Text comes from the catalogue (Ptz.SpeedTip).
         -->
         <UniformGrid Grid.Row="3" Columns="3" Margin="2,6,2,0">
             <Button x:Name="PtzSlowerButton" AutomationProperties.AutomationId="PtzSlowerButton"
