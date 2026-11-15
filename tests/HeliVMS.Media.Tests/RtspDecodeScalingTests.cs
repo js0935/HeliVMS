@@ -256,6 +256,115 @@ public class RtspDecodeScalingTests
         Assert.Equal(RtspState.Streaming, client.State);
     }
 
+    /// <summary>
+    /// 換解碼寬度＝內部換手，對外不得出現「停止／連線中」。
+    /// </summary>
+    /// <remarks>
+    /// 這是現場回報的「切換多分割會重新連線」：跨過 <c>LiveWallBudget</c> 的解碼層級時
+    /// 每一格的次流都要重開，舊行為會先發布 Stopped（清掉最後一幀、變佔位圖）再發布 Connecting，
+    /// 整面牆看起來像全部斷線重連。畫面其實只是換了解析度，所以這一段必須靜默。
+    /// </remarks>
+    [Fact]
+    public async Task 換解碼寬度重開時不會對外發布停止或連線中()
+    {
+        var dir = NewDir();
+        var probe = WriteStub(dir, "ffprobe.cmd", EchoResolution64x36);
+        WriteFrame(dir, 64 * 36 * 3);
+        var ffmpeg = WriteStub(dir, "ffmpeg.cmd", EmitFramesContinuously);
+
+        await using var client = new RtspClient("rtsp://10.0.0.1/live.sdp", ffmpeg, probe)
+        {
+            ProbeTimeout = TimeSpan.FromSeconds(5),
+            FirstFrameTimeout = TimeSpan.FromSeconds(10),
+            FrameTimeout = TimeSpan.FromSeconds(10),
+            MaxFramesPerSecond = 30,
+        };
+
+        await client.StartAsync();
+        await WaitUntilAsync(() => client.FramesEmitted >= 1);
+        Assert.Equal(RtspState.Streaming, client.State);
+
+        var states = new List<RtspState>();
+        client.StateChanged += (_, s) =>
+        {
+            lock (states)
+            {
+                states.Add(s);
+            }
+        };
+
+        await client.SetDecodeWidthAsync(32);
+        await WaitUntilAsync(() => client.FrameSize == (32, 18));
+
+        Assert.Equal((32, 18), client.FrameSize);
+        lock (states)
+        {
+            Assert.DoesNotContain(RtspState.Stopped, states);
+            Assert.DoesNotContain(RtspState.Connecting, states);
+        }
+
+        Assert.Equal(RtspState.Streaming, client.State);
+    }
+
+    /// <summary>
+    /// 靜默換手不能變成「定格卻標著串流中」：寬限時間內回不來就照實回報。
+    /// </summary>
+    /// <remarks>
+    /// 攝影機慢到十幾秒才回第一幀時（現場有這種機器），若一路靜默到底，格位會停在舊影格而
+    /// 狀態列寫著「串流中」——那比閃一下「連線中」更難發現，因為畫面看起來完全正常。
+    /// </remarks>
+    [Fact]
+    public async Task 換解碼寬度後一直沒出畫仍會照實回報連線中()
+    {
+        var dir = NewDir();
+        var probe = WriteStub(dir, "ffprobe.cmd", EchoResolution64x36);
+        WriteFrame(dir, 64 * 36 * 3);
+        var ffmpeg = WriteStub(dir, "ffmpeg.cmd", EmitFramesOnceThenStall);
+
+        await using var client = new RtspClient("rtsp://10.0.0.1/live.sdp", ffmpeg, probe)
+        {
+            ProbeTimeout = TimeSpan.FromSeconds(5),
+            FirstFrameTimeout = TimeSpan.FromSeconds(20),
+            FrameTimeout = TimeSpan.FromSeconds(20),
+            MaxFramesPerSecond = 30,
+            SilentRescaleGrace = TimeSpan.FromMilliseconds(200),
+        };
+
+        await client.StartAsync();
+        await WaitUntilAsync(() => client.FramesEmitted >= 1);
+        Assert.Equal(RtspState.Streaming, client.State);
+
+        var states = new List<RtspState>();
+        client.StateChanged += (_, s) =>
+        {
+            lock (states)
+            {
+                states.Add(s);
+            }
+        };
+
+        // 第二輪的 stub 只睡不吐影格：換寬度後不會有新影格，靜默必須自己到期。
+        await client.SetDecodeWidthAsync(32);
+
+        await WaitUntilAsync(
+            () =>
+            {
+                lock (states)
+                {
+                    return states.Count > 0;
+                }
+            },
+            timeoutSeconds: 15);
+
+        lock (states)
+        {
+            Assert.NotEmpty(states);
+            Assert.Contains(states, s => s is RtspState.Stopped or RtspState.Connecting);
+        }
+
+        Assert.NotEqual(RtspState.Streaming, client.State);
+    }
+
     private const string EchoResolution64x36 =
         """
         @echo off
@@ -285,6 +394,25 @@ public class RtspDecodeScalingTests
         echo %* > "%~dp0args.txt"
         for /l %%i in (1,1,300) do @type "%~dp0frame.bin"
         ping -n 30 127.0.0.1 >nul
+        """;
+
+    // 第一輪吐滿 300 幀，之後每一輪只睡不吐：模擬「換寬度後攝影機遲遲不給新影格」，
+    // 用來驗證靜默換手有寬限時間、不會一路瞞著操作員。
+    private const string EmitFramesOnceThenStall =
+        """
+        @echo off
+        if "%2"=="-hwaccels" (
+          echo Hardware acceleration methods:
+          exit /b 0
+        )
+        echo %* > "%~dp0args.txt"
+        if exist "%~dp0restarted.marker" (
+          ping -n 60 127.0.0.1 >nul
+          exit /b 0
+        )
+        echo x> "%~dp0restarted.marker"
+        for /l %%i in (1,1,300) do @type "%~dp0frame.bin"
+        ping -n 60 127.0.0.1 >nul
         """;
 
     private static void WriteFrame(string dir, int bytes)

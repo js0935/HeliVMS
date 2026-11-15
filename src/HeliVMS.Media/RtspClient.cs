@@ -32,8 +32,11 @@ public sealed class RtspClient : IAsyncDisposable
     private readonly string? _hwAccel;
     private readonly FfmpegProcessRegistry _registry;
     private readonly object _gate = new();
+    private readonly object _stateGate = new();
     private CancellationTokenSource? _cts;
     private Task? _loop;
+    private bool _silentRestart;
+    private int _silentRestartGeneration;
     private Process? _process;
     private bool _disposed;
     private int _consecutiveFailures;
@@ -224,10 +227,16 @@ public sealed class RtspClient : IAsyncDisposable
     /// 要求把解碼寬度縮到 <paramref name="decodeWidth"/>（0＝原生），必要時重開 ffmpeg。
     /// </summary>
     /// <remarks>
+    /// <para>
     /// 「必要時」是真的判斷過：切佈局時這條路每次都會被呼叫，若每個版面都無條件重開行程，
     /// 操作員切一次 4 分割就會看到每一格閃一下「連線中」。所以先比較<b>實際生效的</b>寬度
     /// （以最近一次探測到的來源寬度換算），一樣就什麼都不做。還沒探測過（尚在連線中）時
     /// 也不重開：新值會在那一輪自然生效。
+    /// </para>
+    /// <para>
+    /// 真的需要換時，這一輪重開對外是<b>靜默</b>的（見 <see cref="SetState"/>）：格位留著最後
+    /// 一幀、狀態列也維持「串流中」，只有真的重連失敗或寬限時間內回不來才照實回報。
+    /// </para>
     /// </remarks>
     public async Task SetDecodeWidthAsync(int decodeWidth)
     {
@@ -238,9 +247,30 @@ public sealed class RtspClient : IAsyncDisposable
 
         DecodeWidth = cap;
 
-        if (changed && IsRunning)
+        if (!changed || !IsRunning)
         {
-            await RestartAsync().ConfigureAwait(false);
+            return;
+        }
+
+        // 只有「本來就在出畫」才把重開當成內部換手。已經在 Connecting／Reconnecting 的頻道
+        // 不套用靜默——那時的狀態變化正是操作員需要看到的故障資訊。
+        var silent = State == RtspState.Streaming;
+        var generation = silent ? BeginSilentRestart() : 0;
+        if (silent)
+        {
+            _ = ExpireSilentRestartAsync(generation);
+        }
+
+        try
+        {
+            await RestartCoreAsync(silent).ConfigureAwait(false);
+        }
+        catch
+        {
+            // 新迴圈沒能接手（例如實例已釋放）：靜默必須立刻收掉，否則這一格會永遠停在
+            // 「串流中＋舊影格」，而下一次真正的斷線也回報不出來。
+            EndSilentRestart();
+            throw;
         }
     }
 
@@ -276,6 +306,17 @@ public sealed class RtspClient : IAsyncDisposable
 
     /// <summary>已出過畫面後，串流停滯的容忍上限。</summary>
     public TimeSpan FrameTimeout { get; set; } = TimeSpan.FromSeconds(20);
+
+    /// <summary>
+    /// 為換解碼寬度而重開 ffmpeg 時，最多靜默多久（不對外發布 Stopped／Connecting）。
+    /// </summary>
+    /// <remarks>
+    /// 靜默是為了消掉「切換分割／點放大時每一格閃『連線中』」——那個重開只是內部換手，
+    /// 畫面照樣留著。但它不能無限延長：攝影機慢到十幾秒才回第一幀時，格位若仍標著
+    /// 「串流中」卻定格在舊影格，就變成「凍結的畫面看起來像還活著」，比閃一下更難發現。
+    /// 所以超過這個寬限時間還沒出新幀，就把目前狀態照實發布。
+    /// </remarks>
+    public TimeSpan SilentRescaleGrace { get; set; } = TimeSpan.FromSeconds(2.5);
 
     /// <summary>
     /// 硬體解碼嘗試失敗（有帶 <c>-hwaccel</c> 卻一幀都沒出）後，改用軟解的冷卻時間（預設 5 分鐘）。
@@ -395,8 +436,17 @@ public sealed class RtspClient : IAsyncDisposable
     /// （健康重啟會在同一實例上 Stop 後再 Start；若此處不清掉 _cts，重啟會被靜默忽略，
     /// 造成頻道永久無法恢復）。
     /// </summary>
-    public async Task StopAsync()
+    public Task StopAsync() => StopCoreAsync(keepSilentRestart: false);
+
+    private async Task StopCoreAsync(bool keepSilentRestart)
     {
+        // 明確停止不是「為換寬度而換手」：靜默收掉並把目前狀態照實發布，否則這一格會停在
+        // 「串流中」，而停止監看正是操作員最需要看到它變成離線的時候。
+        if (!keepSilentRestart)
+        {
+            EndSilentRestart();
+        }
+
         Task? loop;
         lock (_gate)
         {
@@ -432,9 +482,15 @@ public sealed class RtspClient : IAsyncDisposable
     /// 重新拉流：ffmpeg 的參數（含要不要掛音訊輸出）只在行程啟動時寫定，
     /// 改變參數的唯一途徑就是把行程殺掉重開。
     /// </summary>
-    public async Task RestartAsync()
+    public Task RestartAsync() => RestartCoreAsync(silent: false);
+
+    /// <param name="silent">
+    /// true＝這次重開是為換解碼寬度而做的內部換手，期間的 Stopped／Connecting 不對外發布
+    /// （畫面留著）。健康檢查重啟、操作員停止等一律走 false：那時的狀態變化就是故障資訊。
+    /// </param>
+    private async Task RestartCoreAsync(bool silent)
     {
-        await StopAsync().ConfigureAwait(false);
+        await StopCoreAsync(keepSilentRestart: silent).ConfigureAwait(false);
         await StartAsync().ConfigureAwait(false);
     }
 
@@ -549,12 +605,107 @@ public sealed class RtspClient : IAsyncDisposable
 
     private void SetState(RtspState state)
     {
-        if (State == state)
+        lock (_stateGate)
         {
+            if (State == state)
+            {
+                return;
+            }
+
+            State = state;
+
+            // 為換解碼寬度而重開的內部換手：舊行程收尾（Stopped）與新行程啟動（Connecting）
+            // 都不是「畫面出事」，對外不發布，格位才會留著最後一幀、狀態列也不會閃「連線中」。
+            // 真正的故障（Reconnecting）與重新出畫（Streaming）一律照常發布並結束靜默。
+            if (_silentRestart && state is RtspState.Stopped or RtspState.Connecting)
+            {
+                return;
+            }
+
+            if (state is RtspState.Streaming or RtspState.Reconnecting)
+            {
+                _silentRestart = false;
+            }
+        }
+
+        RaiseStateChanged(state);
+    }
+
+    /// <summary>開始一次「為換解碼寬度而重開」的靜默換手；回傳用來作廢舊寬限計時的世代號。</summary>
+    private int BeginSilentRestart()
+    {
+        lock (_stateGate)
+        {
+            _silentRestart = true;
+            return ++_silentRestartGeneration;
+        }
+    }
+
+    /// <summary>收掉靜默換手；若目前狀態一直被壓著沒發布，補發布一次。</summary>
+    /// <remarks>
+    /// 收尾路徑（明確停止、重開失敗）必須補發布：否則 <see cref="State"/> 已經是
+    /// Stopped／Connecting，而 UI 還停在最後一幀的「串流中」——那個畫面看起來完全正常。
+    /// </remarks>
+    private void EndSilentRestart()
+    {
+        RtspState? pending;
+        lock (_stateGate)
+        {
+            if (!_silentRestart)
+            {
+                return;
+            }
+
+            _silentRestart = false;
+            pending = State is RtspState.Stopped or RtspState.Connecting ? State : null;
+        }
+
+        if (pending is { } state)
+        {
+            RaiseStateChanged(state);
+        }
+    }
+
+    /// <summary>
+    /// 靜默換手超過 <see cref="SilentRescaleGrace"/> 還沒出新幀時，把目前狀態照實發布。
+    /// </summary>
+    /// <remarks>
+    /// 沒有這道寬限，攝影機慢到十幾秒才回第一幀時，格位會一直標著「串流中」卻定格在舊影格——
+    /// 「凍結的畫面看起來像還活著」比閃一下「連線中」危險得多。世代號用來作廢過期的計時：
+    /// 靜默被重新開啟後，上一輪的計時器不得提前結束這一輪。
+    /// </remarks>
+    private async Task ExpireSilentRestartAsync(int generation)
+    {
+        try
+        {
+            await Task.Delay(SilentRescaleGrace).ConfigureAwait(false);
+        }
+        catch (Exception)
+        {
+            // Task.Delay 沒有取消來源時不會拋；保險用，避免 fire-and-forget 任務把例外帶去未觀察。
             return;
         }
 
-        State = state;
+        RtspState? pending;
+        lock (_stateGate)
+        {
+            if (!_silentRestart || _silentRestartGeneration != generation)
+            {
+                return;
+            }
+
+            _silentRestart = false;
+            pending = State is RtspState.Stopped or RtspState.Connecting ? State : null;
+        }
+
+        if (pending is { } state)
+        {
+            RaiseStateChanged(state);
+        }
+    }
+
+    private void RaiseStateChanged(RtspState state)
+    {
         var handler = StateChanged;
         if (handler is not null)
         {

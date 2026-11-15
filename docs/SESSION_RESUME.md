@@ -72,6 +72,26 @@
 >   Shared 496／Media 194／Storage 1493／App 875（唯一紅為本機 untracked Tools/ 的既有
 >   SolutionCoverageTests，CI 不含）。
 >
+> **【追加 2026-11-15（之三）】切換多分割不再「重新連線」：換解碼寬度是**靜默換手**，且靜默有寬限時間**
+>
+> 操作員回報「切換多分割時會出現重新連線」。根因是跨過 `LiveWallBudget` 的解碼層級（≤4 格 Native／
+> ≤9 640／≤16 480／≤25 384／≤36 320／其餘 256）時，`RtspClient.SetDecodeWidthAsync` 會
+> `RestartAsync`，而舊行為把這件事照實回報：迴圈退場發布 `Stopped`（`ApplyCellState` 會清掉最後一幀、
+> 變佔位圖）→ 新迴圈 `Connecting` → 新幀 `Streaming`。整面牆看起來像全部斷線重連，其實只是換解析度。
+> - `SetDecodeWidthAsync`：只有「本來就在 `Streaming`」才走靜默換手（`RestartCoreAsync(silent: true)`）；
+>   已在 Connecting／Reconnecting 的頻道照常回報——那時的狀態就是故障資訊。
+> - `SetState`：靜默期間 `Stopped`／`Connecting` 只更新 `State`、不對外發布；`Reconnecting`／`Streaming`
+>   一律發布並結束靜默。`StopAsync`（明確停止、健康重啟）走 `keepSilentRestart: false`，會先收掉靜默
+>   並補發布，否則這一格會停在「串流中＋舊影格」。
+> - **靜默有上限**（`SilentRescaleGrace`，預設 2.5 秒）：超過還沒出新幀就把目前狀態照實發布。
+>   攝影機慢到十幾秒才回第一幀時，一路靜默等於「凍結的畫面標著串流中」，比閃一下更難發現；
+>   世代號讓重新開始的靜默不會被上一輪的計時提前結束。
+> - 測試（Media）：`換解碼寬度重開時不會對外發布停止或連線中`（stub 兩輪都吐幀；事件序列不得含
+>   Stopped／Connecting）、`換解碼寬度後一直沒出畫仍會照實回報連線中`（第二輪只睡不吐，200ms 寬限
+>   到期要補發）。突變驗證兩項：拿掉靜默判定→第一條紅（實測 `[Stopped, Connecting, Streaming]`）；
+>   拿掉寬限計時→第二條紅（集合空）；皆已還原。Media 196／Shared 496／Storage 1493／
+>   App 875（唯一紅為本機 untracked Tools/ 的既有 SolutionCoverageTests，CI 不含）。
+>
 > **【追加 2026-11-14】真機 QCV8001 → QCC 的線路格式全量解出：type=2 是音訊、`+0x20` 是指標槽，「伺服器先推流」被推翻**
 >
 > 依黃金抓包（`docs/qcc-qcv8001-golden.pcapng`，stream 0＝port 61265、stream 48＝
