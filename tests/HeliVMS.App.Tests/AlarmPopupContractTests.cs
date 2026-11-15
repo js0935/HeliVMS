@@ -10,18 +10,22 @@ public sealed class AlarmPopupContractTests
 {
     private const string Code = "src/HeliVMS.App/MainWindow.xaml.cs";
     private const string Xaml = "src/HeliVMS.App/MainWindow.xaml";
+    private const string SettingsXaml = "src/HeliVMS.App/SettingsWindow.xaml";
 
     [Fact]
-    public void 警報窗建在牆上方且預設收起()
+    public void 警報窗建在牆上方且開關在設定中心()
     {
         var xaml = SourceContract.Read(Xaml);
+        var settingsXaml = SourceContract.Read(SettingsXaml);
 
         Assert.Contains("x:Name=\"AlarmPopup\"", xaml);
         Assert.Contains("HorizontalAlignment=\"Center\"", xaml);
         Assert.Contains("VerticalAlignment=\"Top\"", xaml);
         Assert.Contains("x:Name=\"AlarmPopupText\"", xaml);
-        Assert.Contains("x:Name=\"AlarmPopupToggle\"", xaml);
-        Assert.Contains("Click=\"OnAlarmPopupToggled\"", xaml);
+
+        // 開關已移入設定中心「功能」頁；頂欄不再有它。
+        Assert.Contains("x:Name=\"WallAlarmPopupCheck\"", settingsXaml);
+        Assert.DoesNotContain("AlarmPopupToggle", xaml);
     }
 
     [Fact]
@@ -59,8 +63,15 @@ public sealed class AlarmPopupContractTests
         Assert.Contains("AlarmPopupEnabledKey = \"wall.alarm_popup\"", source);
         // 預設開：!= "0" 才關（QC_Live 的警報窗是常駐行為；與事件面板的 == "1" 相反是刻意的）。
         Assert.Contains("Get(AlarmPopupEnabledKey) != \"0\"", source);
-        var toggled = SourceContract.BodyOf(source, "OnAlarmPopupToggled");
+        var toggled = SourceContract.BodyOf(source, "SetAlarmPopupEnabled");
         Assert.Contains("Set(AlarmPopupEnabledKey", toggled);
+        Assert.Contains("return _alarmPopupEnabled", toggled);
+
+        // 設定頁那顆勾選 → WallDisplayOption.AlarmPopup → SetAlarmPopupEnabled。
+        Assert.Contains(
+            "_wallDisplayBoxes[WallAlarmPopupCheck] = WallDisplayOption.AlarmPopup",
+            SourceContract.Read("src/HeliVMS.App/SettingsWindow.xaml.cs"));
+        Assert.Contains("WallDisplayOption.AlarmPopup => SetAlarmPopupEnabled(enabled)", source);
     }
 
     [Fact]

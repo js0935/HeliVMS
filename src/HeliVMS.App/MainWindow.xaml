@@ -64,17 +64,14 @@
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="Auto" />
-                    <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
                 <Image x:Name="HeaderLogo" Grid.Column="0" Width="20" Height="20" VerticalAlignment="Center" Margin="0,0,8,0" />
                 <TextBlock Grid.Column="1" Text="HeliVMS" Foreground="{StaticResource Brand.TextPrimary}" FontSize="15" FontWeight="SemiBold" VerticalAlignment="Center" />
-                <CheckBox x:Name="AiToggle" Grid.Column="2" Content="" Foreground="White" VerticalAlignment="Center" AutomationProperties.AutomationId="AiToggle" ToolTip=""
-                          Margin="28,0,0,0" Checked="OnAiToggleChanged" Unchecked="OnAiToggleChanged"/>
                 <!-- Split-layout selector lives in the top bar so the monitor wall gets the full
                      height of the content row; the status/hint line shares the same line. -->
-                <Grid Grid.Column="3" Margin="28,0,24,0" VerticalAlignment="Center">
+                <Grid Grid.Column="2" Margin="28,0,24,0" VerticalAlignment="Center">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="Auto" />
                         <ColumnDefinition Width="*" />
@@ -108,39 +105,30 @@
                                HorizontalAlignment="Right" TextTrimming="CharacterEllipsis"
                                Foreground="{StaticResource Brand.TextDim}" FontSize="11" Text="" />
                 </Grid>
-                <StackPanel Grid.Column="4" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
-                    <!-- Monitor entry points (events / playback / map) live up here; every other feature button is in the settings center. -->
-                    <Button x:Name="HeaderEventButton" AutomationProperties.AutomationId="HeaderEventButton"
-                            Content="" ToolTip="" Click="OnEventClicked"
-                            VerticalAlignment="Center" Padding="12,4" Margin="0,0,8,0"
-                            Foreground="White" Background="#6A5A2E" BorderThickness="0" />
-                    <Button x:Name="HeaderPlaybackButton" AutomationProperties.AutomationId="HeaderPlaybackButton"
-                            Content="" ToolTip="" Click="OnPlaybackClicked"
-                            VerticalAlignment="Center" Padding="12,4" Margin="0,0,8,0"
-                            Foreground="White" Background="#2A5C8A" BorderThickness="0" />
-                    <Button x:Name="MapButton" AutomationProperties.AutomationId="MapButton"
-                            Content="" ToolTip="" Click="OnMapClicked"
-                            VerticalAlignment="Center" Padding="12,4" Margin="0,0,8,0"
-                            Foreground="White" Background="#2F6E5A" BorderThickness="0" />
-                    <ToggleButton x:Name="WallSequenceToggle" AutomationProperties.AutomationId="WallSequenceToggle"
-                                  Content="" ToolTip="" Click="OnWallSequenceToggled" Style="{StaticResource HeaderToggleButton}"
-                                  VerticalAlignment="Center" Margin="0,0,8,0" />
-                    <ToggleButton x:Name="QuickBarToggle" AutomationProperties.AutomationId="QuickBarToggle"
-                                  Content="" ToolTip="" Click="OnQuickBarToggled" Style="{StaticResource HeaderToggleButton}"
-                                  VerticalAlignment="Center" Margin="0,0,8,0" />
-                    <ToggleButton x:Name="EventPanelToggle" AutomationProperties.AutomationId="EventPanelToggle"
-                                  Content="" ToolTip="" Click="OnEventPanelToggled" Style="{StaticResource HeaderToggleButton}"
-                                  VerticalAlignment="Center" Margin="0,0,8,0" />
-                    <ToggleButton x:Name="AlarmPopupToggle" AutomationProperties.AutomationId="AlarmPopupToggle"
-                                  Content="" ToolTip="" Click="OnAlarmPopupToggled" Style="{StaticResource HeaderToggleButton}"
-                                  VerticalAlignment="Center" Margin="0,0,8,0" />
-                    <ToggleButton x:Name="MirrorToggle" AutomationProperties.AutomationId="MirrorToggle"
-                                  Content="" ToolTip="" Click="OnMirrorToggleClicked" Style="{StaticResource HeaderToggleButton}"
-                                  VerticalAlignment="Center" Margin="0,0,8,0" />
+                <StackPanel Grid.Column="3" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                    <!-- The top bar carries only the wall's own entry points (full screen / playback /
+                         sequence / events / map / settings / exit). Display toggles (quick bar, event
+                         panel, alarm popup, second screen, AI overlay) live in the settings center's
+                         "Feature" page - see the WallDisplaySection block in SettingsWindow.xaml. -->
                     <Button x:Name="HeaderImmersiveButton" AutomationProperties.AutomationId="HeaderImmersiveButton"
                             Content="" ToolTip="" Click="OnImmersiveClicked"
                             VerticalAlignment="Center" Padding="12,4" Margin="0,0,8,0"
                             Foreground="White" Background="#3A5A7A" BorderThickness="0" />
+                    <Button x:Name="HeaderPlaybackButton" AutomationProperties.AutomationId="HeaderPlaybackButton"
+                            Content="" ToolTip="" Click="OnPlaybackClicked"
+                            VerticalAlignment="Center" Padding="12,4" Margin="0,0,8,0"
+                            Foreground="White" Background="#2A5C8A" BorderThickness="0" />
+                    <ToggleButton x:Name="WallSequenceToggle" AutomationProperties.AutomationId="WallSequenceToggle"
+                                  Content="" ToolTip="" Click="OnWallSequenceToggled" Style="{StaticResource HeaderToggleButton}"
+                                  VerticalAlignment="Center" Margin="0,0,8,0" />
+                    <Button x:Name="HeaderEventButton" AutomationProperties.AutomationId="HeaderEventButton"
+                            Content="" ToolTip="" Click="OnEventClicked"
+                            VerticalAlignment="Center" Padding="12,4" Margin="0,0,8,0"
+                            Foreground="White" Background="#6A5A2E" BorderThickness="0" />
+                    <Button x:Name="MapButton" AutomationProperties.AutomationId="MapButton"
+                            Content="" ToolTip="" Click="OnMapClicked"
+                            VerticalAlignment="Center" Padding="12,4" Margin="0,0,8,0"
+                            Foreground="White" Background="#2F6E5A" BorderThickness="0" />
                     <Button x:Name="HeaderSettingsButton" AutomationProperties.AutomationId="HeaderSettingsButton"
                             Content="" ToolTip="" Click="OnSettingsClicked"
                             VerticalAlignment="Center" Padding="12,4"

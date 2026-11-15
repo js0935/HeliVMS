@@ -137,6 +137,18 @@ public partial class SettingsWindow : Window
     private readonly PatrolHostService? _patrolHost;
     private readonly Action? _channelsChanged;
 
+    /// <summary>
+    /// 監看牆顯示項目的中介（快速列／事件面板／警報窗／第二螢幕／AI 疊加）。
+    /// 這些開關原本在監控中心頂欄，現在收在「功能」頁；牆面仍是狀態的唯一持有者。
+    /// </summary>
+    private readonly IWallDisplayOptions? _wallDisplay;
+
+    /// <summary>CheckBox → 顯示項目的對照（按下時才知道要改哪一個）。</summary>
+    private readonly Dictionary<CheckBox, WallDisplayOption> _wallDisplayBoxes = [];
+
+    /// <summary>載入／回拋同步勾選時壓住 <c>Checked</c> 事件，避免把讀到的值再寫回去。</summary>
+    private bool _suppressWallDisplay;
+
     /// <summary>切換錄影磁碟時通知主視窗立即套用（重建錄影工作階段）。</summary>
     private readonly Action<string>? _recordingsRootChanged;
 
@@ -155,7 +167,8 @@ public partial class SettingsWindow : Window
         WebHost? webHost = null,
         QctekCompatHost? qctekHost = null,
         NetworkPortCoordinator? networkHost = null,
-        IPlaybackRecordingFinalizer? playbackFinalizer = null)
+        IPlaybackRecordingFinalizer? playbackFinalizer = null,
+        IWallDisplayOptions? wallDisplay = null)
     {
         _store = store;
         _dataRoot = dataRoot;
@@ -183,6 +196,7 @@ public partial class SettingsWindow : Window
         _manager = manager;
         _patrolHost = patrolHost;
         _playbackFinalizer = playbackFinalizer;
+        _wallDisplay = wallDisplay;
         // 由主視窗傳入：攝影機／頻道管理異動後立即請主視窗重載監看區。
         _channelsChanged = channelsChanged;
         _recordingsRootChanged = recordingsRootChanged;
@@ -237,6 +251,7 @@ public partial class SettingsWindow : Window
         OskToggleCheck.IsChecked = Osk.Enabled;
         ReloadHwAccel();
         ApplyI18n();
+        SetupWallDisplay();
         ReloadTools();
 
         FillAbout();
@@ -483,6 +498,21 @@ public partial class SettingsWindow : Window
         LaunchScheduleButton.ToolTip = Localizer.T("Settings.LaunchScheduleTip");
         LaunchDetectionButton.Content = Localizer.T("Settings.LaunchDetection");
         LaunchDetectionButton.ToolTip = Localizer.T("Settings.LaunchDetectionTip");
+
+        // 監看牆顯示（原監控中心頂欄的顯示開關，內容文字沿用既有的 Main.* 鍵）
+        WallDisplayHeading.Text = Localizer.T("Settings.WallDisplayHeading");
+        WallDisplayDesc.Text = Localizer.T("Settings.WallDisplayDesc");
+        WallQuickBarCheck.Content = Localizer.T("Main.QuickBar");
+        WallQuickBarCheck.ToolTip = Localizer.T("Main.QuickBarTip");
+        WallEventPanelCheck.Content = Localizer.T("Main.EventPanel");
+        WallEventPanelCheck.ToolTip = Localizer.T("Main.EventPanelTip");
+        WallAlarmPopupCheck.Content = Localizer.T("Main.AlarmPopup");
+        WallAlarmPopupCheck.ToolTip = Localizer.T("Main.AlarmPopupTip");
+        WallSecondScreenCheck.Content = Localizer.T("Main.Mirror");
+        WallSecondScreenCheck.ToolTip = Localizer.T("Main.MirrorTip");
+        WallAiOverlayCheck.Content = Localizer.T("Main.AiOverlay");
+        WallAiOverlayCheck.ToolTip = Localizer.T("Main.AiOverlayTip");
+
         TamperHeading.Text = Localizer.T("Settings.TamperHeading");
         TamperEnabledBox.Content = Localizer.T("Settings.TamperEnabled");
         TamperDesc.Text = Localizer.T("Settings.TamperDesc");
@@ -3283,6 +3313,10 @@ public partial class SettingsWindow : Window
         gate.Apply(TamperEnabledBox, LicenseFeatures.Ai);
         gate.Apply(EnterpriseSection, LicenseFeatures.AdSso);
 
+        // AI 疊加的開關跟著監看牆移到這一頁：可見性與 handler 必須綁同一個旗標，
+        // 否則會出現舊傷（可見性綁 ai.l1、handler 要 ai ⇒ 看得到、一按就失敗）。
+        gate.Apply(WallAiOverlayCheck, LicenseFeatures.Ai, Localizer.T("Main.AiOverlayTip"));
+
         // 續期動作就在這個頁面，提醒也得在這裡再說一次（§19.4 到期前 14 天提醒）。
         var notice = gate.Current.Expiry(DateTime.UtcNow);
         LicenseExpiryText.Text = notice.ShouldWarn ? notice.Message ?? string.Empty : string.Empty;
@@ -4658,6 +4692,111 @@ public partial class SettingsWindow : Window
     {
         try { DialogResult = false; } catch { }
         Close();
+    }
+
+    /// <summary>
+    /// 接上監看牆的顯示開關：建立 CheckBox→項目對照、載入現況、接回拋事件。
+    /// </summary>
+    /// <remarks>
+    /// 回拋事件必須在關窗時解除：主視窗活得比設定中心久，留著訂閱等於每開一次設定就多
+    /// 一個已關閉的視窗被呼叫，事件清單只會長不會短。
+    /// </remarks>
+    private void SetupWallDisplay()
+    {
+        _wallDisplayBoxes[WallQuickBarCheck] = WallDisplayOption.QuickBar;
+        _wallDisplayBoxes[WallEventPanelCheck] = WallDisplayOption.EventPanel;
+        _wallDisplayBoxes[WallAlarmPopupCheck] = WallDisplayOption.AlarmPopup;
+        _wallDisplayBoxes[WallSecondScreenCheck] = WallDisplayOption.SecondScreen;
+        _wallDisplayBoxes[WallAiOverlayCheck] = WallDisplayOption.AiOverlay;
+
+        ReloadWallDisplay();
+
+        if (_wallDisplay is { } wall)
+        {
+            wall.WallDisplayOptionChanged += OnWallDisplayOptionChanged;
+            Closed += (_, _) => wall.WallDisplayOptionChanged -= OnWallDisplayOptionChanged;
+        }
+        else
+        {
+            // 沒有牆面可比對（例如未來從 CLI 開設定）：整區停用，免得勾了什麼都沒發生。
+            WallDisplaySection.IsEnabled = false;
+        }
+    }
+
+    /// <summary>把牆面目前的顯示狀態填進勾選框（壓住事件，否則只是看一次就回寫一趟）。</summary>
+    private void ReloadWallDisplay()
+    {
+        _suppressWallDisplay = true;
+        try
+        {
+            foreach (var (box, option) in _wallDisplayBoxes)
+            {
+                box.IsChecked = _wallDisplay?.GetWallDisplayOption(option) == true;
+            }
+        }
+        finally
+        {
+            _suppressWallDisplay = false;
+        }
+    }
+
+    /// <summary>
+    /// 設定頁勾選／取消某個監看牆顯示項目。勾選狀態一律以牆面回報的<b>實際生效</b>值為準：
+    /// AI 沒有 <c>ai</c> 授權、第二螢幕開不起來時要退回，否則畫面不動而勾選說「已開啟」。
+    /// </summary>
+    private void OnWallDisplayToggled(object sender, RoutedEventArgs e)
+    {
+        if (_suppressWallDisplay
+            || sender is not CheckBox box
+            || !_wallDisplayBoxes.TryGetValue(box, out var option)
+            || _wallDisplay is null)
+        {
+            return;
+        }
+
+        var requested = box.IsChecked == true;
+        var effective = _wallDisplay.SetWallDisplayOption(option, requested);
+        if (effective == requested)
+        {
+            return;
+        }
+
+        _suppressWallDisplay = true;
+        try
+        {
+            box.IsChecked = effective;
+        }
+        finally
+        {
+            _suppressWallDisplay = false;
+        }
+
+        if (requested)
+        {
+            ToolsStatusText.Text = Localizer.T("Settings.WallDisplayUnavailable");
+        }
+    }
+
+    /// <summary>牆面自己關掉某個顯示項目（鏡像窗被 ✕／Esc 關閉、螢幕被拔掉）時同步勾選。</summary>
+    private void OnWallDisplayOptionChanged(object? sender, WallDisplayOption option)
+    {
+        foreach (var (box, mapped) in _wallDisplayBoxes)
+        {
+            if (mapped != option)
+            {
+                continue;
+            }
+
+            _suppressWallDisplay = true;
+            try
+            {
+                box.IsChecked = _wallDisplay?.GetWallDisplayOption(option) == true;
+            }
+            finally
+            {
+                _suppressWallDisplay = false;
+            }
+        }
     }
 
     private void OnWindowKeyDown(object sender, System.Windows.Input.KeyEventArgs e)

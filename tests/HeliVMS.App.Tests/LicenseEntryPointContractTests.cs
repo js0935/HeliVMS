@@ -38,7 +38,6 @@ public sealed class LicenseEntryPointContractTests
     private static readonly Gate[] Buttons =
     [
         new("MainWindow", "MapButton", nameof(LicenseFeatures.Gis), "OnMapClicked"),
-        new("MainWindow", "AiToggle", nameof(LicenseFeatures.Ai), "OnAiToggleChanged"),
         new("SettingsWindow", "LaunchScheduleButton", nameof(LicenseFeatures.Schedule), "OnLaunchScheduleClicked"),
         new("SettingsWindow", "LaunchDetectionButton", nameof(LicenseFeatures.AiL1), "OnLaunchDetectionClicked"),
         new("SettingsWindow", "PatrolButton", nameof(LicenseFeatures.Schedule), "OnPatrolClicked"),
@@ -61,6 +60,21 @@ public sealed class LicenseEntryPointContractTests
         new("SettingsWindow", "SharePortBox", nameof(LicenseFeatures.Remote)),
         new("SettingsWindow", "ShareBaseUrlBox", nameof(LicenseFeatures.Remote)),
         new("SettingsWindow", "ShareServiceStatusText", nameof(LicenseFeatures.Remote)),
+    ];
+
+    /// <summary>
+    /// 受旗標控制但守衛<b>不在設定視窗</b>的開關：勾選只是「要求」，真正的開關在監看牆。
+    /// </summary>
+    /// <remarks>
+    /// AI 疊加原本是頂欄的 <c>AiToggle</c>，可見性與 handler 守衛都在 <c>MainWindow</c>。
+    /// 移到設定中心後，<c>OnWallDisplayToggled</c> 只是把值轉給牆上的
+    /// <c>SetAiOverlayEnabled</c>（那裡才是 <c>RequireFeature(LicenseFeatures.Ai)</c> 的位置），
+    /// 所以在設定視窗上驗 handler 守衛只會驗到一個空方法。這一組因此只驗可見性，
+    /// 守衛本身由 <c>委派型開關的守衛在牆上</c> 釘住——兩邊各驗一半，合起來才是完整的一條。
+    /// </remarks>
+    private static readonly Gate[] DelegatedSwitches =
+    [
+        new("SettingsWindow", "WallAiOverlayCheck", nameof(LicenseFeatures.Ai)),
     ];
 
     /// <summary>整區隱藏的容器：容器沒有 Click 可驗，改為逐一手動列出區內 handler。</summary>
@@ -283,6 +297,25 @@ public sealed class LicenseEntryPointContractTests
         => Assert.Contains(FeatureValue(feature), VisibilityBindings(window, element));
 
     [Fact]
+    public void 委派型開關的守衛在牆上()
+    {
+        // 設定頁那顆勾選只轉發，真正擋旗標的是牆上的 setter。少了牆上那一段，
+        // 沒有 ai 授權的機器會「勾得下去、疊加永遠不出現」，而設定頁說已開啟。
+        Assert.Contains(
+            FeatureValue(nameof(LicenseFeatures.Ai)),
+            GuardedFeatures("MainWindow", "SetAiOverlayEnabled"));
+
+        Assert.Contains(
+            "WallDisplayOption.AiOverlay => SetAiOverlayEnabled(enabled)",
+            Read("src/HeliVMS.App/MainWindow.xaml.cs"));
+
+        foreach (var gate in DelegatedSwitches)
+        {
+            Assert.Contains(FeatureValue(gate.Feature), VisibilityBindings(gate.Window, gate.Element));
+        }
+    }
+
+    [Fact]
     public void 容器內每個handler都擋同一個旗標()
     {
         foreach (var (gate, handlers) in Sections)
@@ -305,7 +338,8 @@ public sealed class LicenseEntryPointContractTests
         // 新增一個 Apply(Element, LicenseFeatures.X) 卻沒列進契約表，等於有人加了受控元素
         // 卻沒想過它的 handler 該擋什麼。逼著新增的人同時補上守衛。
         var declared = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var gate in Buttons.Cast<Gate>().Concat(DataFields).Concat(Sections.Select(s => s.Gate)))
+        foreach (var gate in Buttons.Cast<Gate>().Concat(DataFields).Concat(DelegatedSwitches)
+                     .Concat(Sections.Select(s => s.Gate)))
         {
             declared.Add(Key(gate.Window, gate.Element));
         }

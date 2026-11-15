@@ -461,6 +461,33 @@
                             Foreground="White" AutomationProperties.AutomationId="LaunchDetectionButton"/>
                 </WrapPanel>
 
+                <!-- Monitor wall display: these toggles used to sit in the monitor center top bar next
+                     to the entry points (playback / events / map), where a row of a dozen buttons hid
+                     the entry points. Entries stay in the top bar; display preferences live here. -->
+                <StackPanel x:Name="WallDisplaySection">
+                    <TextBlock x:Name="WallDisplayHeading" Text="" FontSize="15" FontWeight="Bold" Margin="0,18,0,6"/>
+                    <TextBlock x:Name="WallDisplayDesc" Text=""
+                               Foreground="{StaticResource Brand.TextDim}" FontSize="11" Margin="0,0,0,10"
+                               TextWrapping="Wrap"/>
+                    <WrapPanel>
+                        <CheckBox x:Name="WallQuickBarCheck" AutomationProperties.AutomationId="WallQuickBarCheck"
+                                  Content="" Foreground="White" Margin="0,0,18,8"
+                                  Checked="OnWallDisplayToggled" Unchecked="OnWallDisplayToggled"/>
+                        <CheckBox x:Name="WallEventPanelCheck" AutomationProperties.AutomationId="WallEventPanelCheck"
+                                  Content="" Foreground="White" Margin="0,0,18,8"
+                                  Checked="OnWallDisplayToggled" Unchecked="OnWallDisplayToggled"/>
+                        <CheckBox x:Name="WallAlarmPopupCheck" AutomationProperties.AutomationId="WallAlarmPopupCheck"
+                                  Content="" Foreground="White" Margin="0,0,18,8"
+                                  Checked="OnWallDisplayToggled" Unchecked="OnWallDisplayToggled"/>
+                        <CheckBox x:Name="WallSecondScreenCheck" AutomationProperties.AutomationId="WallSecondScreenCheck"
+                                  Content="" Foreground="White" Margin="0,0,18,8"
+                                  Checked="OnWallDisplayToggled" Unchecked="OnWallDisplayToggled"/>
+                        <CheckBox x:Name="WallAiOverlayCheck" AutomationProperties.AutomationId="WallAiOverlayCheck"
+                                  Content="" Foreground="White" Margin="0,0,18,8"
+                                  Checked="OnWallDisplayToggled" Unchecked="OnWallDisplayToggled"/>
+                    </WrapPanel>
+                </StackPanel>
+
                 <TextBlock x:Name="ToolsRecordingHeader" Text="" FontSize="15" FontWeight="Bold" Margin="0,18,0,6"/>
                 <WrapPanel>
                     <Button x:Name="ExportButton" Content="" ToolTip="" Click="OnExportClicked"

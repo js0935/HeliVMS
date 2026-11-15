@@ -13,6 +13,7 @@ public sealed class WallMirrorContractTests
     private const string MirrorCode = "src/HeliVMS.App/WallMirrorWindow.xaml.cs";
     private const string MirrorXaml = "src/HeliVMS.App/WallMirrorWindow.xaml";
     private const string MainCode = "src/HeliVMS.App/MainWindow.xaml.cs";
+    private const string SettingsCode = "src/HeliVMS.App/SettingsWindow.xaml.cs";
 
     [Fact]
     public void 鏡像窗自帶出口且有分割按鈕()
@@ -83,12 +84,12 @@ public sealed class WallMirrorContractTests
         Assert.Contains("_groups.ListChannelIds(groupId)", mirrorChannels);
         Assert.Contains("WallChannels()", mirrorChannels);
 
-        Assert.Contains("mirror.SetChannels(MirrorChannels())", SourceContract.BodyOf(main, "OnMirrorToggleClicked"));
+        Assert.Contains("mirror.SetChannels(MirrorChannels())", SourceContract.BodyOf(main, "SetSecondScreenEnabled"));
         Assert.Contains("var channels = MirrorChannels();", SourceContract.BodyOf(main, "PushMirrorBadges"));
 
         // 來源與格數一樣：改動當下寫回設定，不等關窗（關窗有自己的收尾路徑）。
         Assert.Contains("wall.mirror.group", main);
-        Assert.Contains("settings.Set(", SourceContract.BodyOf(main, "OnMirrorToggleClicked"));
+        Assert.Contains("settings.Set(", SourceContract.BodyOf(main, "SetSecondScreenEnabled"));
 
         // 群組被刪除／改名後要重送來源清單，否則來源鈕顯示一個不存在的名字、也切不回來。
         Assert.Contains("_mirror?.SetSources(MirrorSources(), _mirror.SourceGroupId)", SourceContract.BodyOf(main, "ReloadGroupTabs"));
@@ -106,7 +107,7 @@ public sealed class WallMirrorContractTests
     {
         var main = SourceContract.Read(MainCode);
 
-        var toggle = SourceContract.BodyOf(main, "OnMirrorToggleClicked");
+        var toggle = SourceContract.BodyOf(main, "SetSecondScreenEnabled");
         Assert.Contains("mirror.Shutdown()", toggle);
         Assert.Contains("mirror.SetChannels(MirrorChannels())", toggle);
 
@@ -117,18 +118,38 @@ public sealed class WallMirrorContractTests
     [Fact]
     public void 關閉鏡像窗會取消主視窗的勾選()
     {
-        // 現場症狀：按 ✕ 或拔掉第二螢幕後窗已關，按鈕仍顯示「開著」，再按一次才開得起來
-        // ——操作員的結論是「這顆按鈕壞了」。三條關窗路徑都不經過 toggle 分支，所以只能
-        // 在 Closed 補這一行。
-        var toggle = SourceContract.BodyOf(SourceContract.Read(MainCode), "OnMirrorToggleClicked");
-        Assert.Contains("MirrorToggle.IsChecked = false", toggle);
+        // 現場症狀：按 ✕ 或拔掉第二螢幕後窗已關，勾選仍顯示「開著」，再按一次才開得起來
+        // ——操作員的結論是「這個開關壞了」。三條關窗路徑都不經過開關分支，所以只能在
+        // Closed 補回拋：勾選本體現在在設定中心，靠 WallDisplayOptionChanged 同步。
+        var toggle = SourceContract.BodyOf(SourceContract.Read(MainCode), "SetSecondScreenEnabled");
+        Assert.Contains("RaiseWallDisplayOptionChanged(WallDisplayOption.SecondScreen)", toggle);
+
+        // 設定頁收到回拋後必須重讀牆面狀態（而不是自己猜 false），勾選才會與畫面一致。
+        var settings = SourceContract.Read(SettingsCode);
+        var changed = SourceContract.BodyOf(settings, "OnWallDisplayOptionChanged");
+        Assert.Contains("GetWallDisplayOption(option)", changed);
+        Assert.Contains("wall.WallDisplayOptionChanged += OnWallDisplayOptionChanged", settings);
+    }
+
+    [Fact]
+    public void 第二螢幕開關移到設定中心且接到同一個顯示項目()
+    {
+        // 開關本體已移到設定中心「功能」頁；頂欄那顆必須真的不見（留著就有兩個寫入點）。
+        Assert.Contains("x:Name=\"WallSecondScreenCheck\"", SourceContract.Read("src/HeliVMS.App/SettingsWindow.xaml"));
+        Assert.DoesNotContain("MirrorToggle", SourceContract.Read("src/HeliVMS.App/MainWindow.xaml"));
+        Assert.Contains(
+            "_wallDisplayBoxes[WallSecondScreenCheck] = WallDisplayOption.SecondScreen",
+            SourceContract.Read(SettingsCode));
+        Assert.Contains(
+            "WallDisplayOption.SecondScreen => SetSecondScreenEnabled(enabled)",
+            SourceContract.Read(MainCode));
     }
 
     [Fact]
     public void 分割跟著設定記住且切換後仍對得上頻道()
     {
         var main = SourceContract.Read(MainCode);
-        var toggle = SourceContract.BodyOf(main, "OnMirrorToggleClicked");
+        var toggle = SourceContract.BodyOf(main, "SetSecondScreenEnabled");
 
         // 格數記在 wall.mirror.split；開窗與之後的每次切換都寫回，不等關窗才存。
         Assert.Contains("wall.mirror.split", main);
@@ -165,7 +186,7 @@ public sealed class WallMirrorContractTests
         Assert.Contains("PushMirrorBadges()", SourceContract.BodyOf(main, "UpdateBadges"));
 
         // 開窗與切分割都要當下補一次，否則新格位要等下一秒才有徽章。
-        Assert.Contains("PushMirrorBadges()", SourceContract.BodyOf(main, "OnMirrorToggleClicked"));
+        Assert.Contains("PushMirrorBadges()", SourceContract.BodyOf(main, "SetSecondScreenEnabled"));
 
         // 鏡像端只做顯示：時刻由共用組字器接上（徽章字串自己不含時刻）。
         Assert.Contains("WallMirrorLabel.Compose", SourceContract.BodyOf(mirror, "ApplyBadges"));

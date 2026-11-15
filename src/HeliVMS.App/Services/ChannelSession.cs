@@ -84,6 +84,7 @@ public sealed class ChannelSession : IDisposable
         // 次流常駐：多分割直接取用；切到單畫面時，主流尚未出畫前也先用次流頂著，
         // 故切換佈局不會出現「連線中」，也不會黑畫面。
         Client = new RtspClient(subDisplayUrl, hwAccel: ReadHwAccel()) { MaxFramesPerSecond = 15 };
+        AttachStateLog(Client);
         AttachSubClient(Client);
 
         // 現場收音的取樣率跟著播放裝置（呼叫端探測後傳入），之後開關收音沿用同一個值。
@@ -402,6 +403,16 @@ public sealed class ChannelSession : IDisposable
         await EnsureMainAsync();
     }
 
+    /// <summary>
+    /// 把「換手」診斷接到 <c>%TEMP%\helivms-live.log</c>：每 5 秒的牆面取樣抓不到一兩秒的
+    /// 「連線中」閃動，而切分割會不會閃正好取決於換手是靜默的還是照實發布的。
+    /// </summary>
+    private void AttachStateLog(RtspClient client)
+    {
+        client.StateLogPath = Path.Combine(Path.GetTempPath(), "helivms-live.log");
+        client.Tag = $"ch{ChannelId}";
+    }
+
     /// <summary>接上次流連線事件。次流常駐，是唯一對外發布 <see cref="StateChanged"/> 的來源，
     /// 這樣單畫面為升級畫質而建立的主流，其暫時的 Connecting／Reconnecting 就不會讓 UI 閃「連線中」。</summary>
     private void AttachSubClient(RtspClient client)
@@ -505,6 +516,7 @@ public sealed class ChannelSession : IDisposable
         }
 
         var main = new RtspClient(_mainUrl, hwAccel: ReadHwAccel()) { MaxFramesPerSecond = _budgetMaxFramesPerSecond };
+        AttachStateLog(main);
         AttachMainClient(main);
 
         // 主流可能在多分割時被手動切上來（切流視窗），所以要套用目前的解碼預算；

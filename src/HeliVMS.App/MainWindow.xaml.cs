@@ -23,7 +23,7 @@ namespace HeliVMS.App;
 /// 主視窗：M1–M2 監看（單一/多格佈局，M9 擴充 3×3／4×4 與佈局記憶）與錄影控制中心。
 /// 資料基準目錄 C:\HeliVMSData（§2.1）。
 /// </summary>
-public partial class MainWindow : Window
+public partial class MainWindow : Window, IWallDisplayOptions
 {
     internal const string DefaultDataRoot = DataRootLayout.DefaultRoot;
     private const int MaxCells = 64;
@@ -508,8 +508,6 @@ public partial class MainWindow : Window
     {
         // 標題列
         Title = Localizer.T("Main.Title");
-        AiToggle.Content = Localizer.T("Main.AiOverlay");
-        AiToggle.ToolTip = Localizer.T("Main.AiOverlayTip");
         HeaderSettingsButton.Content = Localizer.T("Main.Settings");
         HeaderSettingsButton.ToolTip = Localizer.T("Main.SettingsTip");
         HeaderExitButton.Content = Localizer.T("Main.Exit");
@@ -551,15 +549,7 @@ public partial class MainWindow : Window
         MapButton.ToolTip = Localizer.T("Main.MapTip");
         WallSequenceToggle.Content = Localizer.T("Main.WallSequence");
         WallSequenceToggle.ToolTip = Localizer.T("Main.WallSequenceTip");
-        QuickBarToggle.Content = Localizer.T("Main.QuickBar");
-        QuickBarToggle.ToolTip = Localizer.T("Main.QuickBarTip");
-        EventPanelToggle.Content = Localizer.T("Main.EventPanel");
-        EventPanelToggle.ToolTip = Localizer.T("Main.EventPanelTip");
         EventPanelHeader.Text = Localizer.T("Main.EventPanelHeader");
-        AlarmPopupToggle.Content = Localizer.T("Main.AlarmPopup");
-        AlarmPopupToggle.ToolTip = Localizer.T("Main.AlarmPopupTip");
-        MirrorToggle.Content = Localizer.T("Main.Mirror");
-        MirrorToggle.ToolTip = Localizer.T("Main.MirrorTip");
 
         HintText.Text = Localizer.T("Main.EmptyHint");
 
@@ -1002,11 +992,8 @@ public partial class MainWindow : Window
         _osdColorHex = WallOsdSettings.NormalizeColorHex(settings.Get(OsdFontColorKey)) ?? WallOsdSettings.DefaultColorHex;
         _osdFontSize = WallOsdSettings.NormalizeFontSize(settings.Get(OsdFontSizeKey));
         _quickBarEnabled = settings.Get(QuickBarEnabledKey) != "0";
-        QuickBarToggle.IsChecked = _quickBarEnabled;
         _eventPanelEnabled = settings.Get(EventPanelEnabledKey) == "1";
-        EventPanelToggle.IsChecked = _eventPanelEnabled;
         _alarmPopupEnabled = settings.Get(AlarmPopupEnabledKey) != "0";
-        AlarmPopupToggle.IsChecked = _alarmPopupEnabled;
         _alarmPopupSeconds = Math.Clamp(
             (int)Math.Round(settings.GetDoubleOrDefault(AlarmPopupSecondsKey, 10)), 3, 60);
 
@@ -3160,10 +3147,10 @@ public partial class MainWindow : Window
         }
     }
 
-    /// <summary>切換浮動警報窗（QC_Live 的警報窗常駐行為），狀態記 <c>wall.alarm_popup</c>。</summary>
-    private void OnAlarmPopupToggled(object sender, RoutedEventArgs e)
+    /// <summary>開關浮動警報窗（QC_Live 的警報窗常駐行為），狀態記 <c>wall.alarm_popup</c>。</summary>
+    private bool SetAlarmPopupEnabled(bool enabled)
     {
-        _alarmPopupEnabled = AlarmPopupToggle.IsChecked == true;
+        _alarmPopupEnabled = enabled;
         if (_store is not null)
         {
             new SettingsRepository(_store).Set(AlarmPopupEnabledKey, _alarmPopupEnabled ? "1" : "0");
@@ -3173,6 +3160,8 @@ public partial class MainWindow : Window
         {
             AlarmPopup.Visibility = Visibility.Collapsed;
         }
+
+        return _alarmPopupEnabled;
     }
 
     /// <summary>
@@ -3665,8 +3654,8 @@ public partial class MainWindow : Window
     /// 依授權隱藏未授權功能的入口（M209／§19.4）。
     ///
     /// 隱藏只是體面，事件處理器與 CLI 另有 <see cref="RequireFeature"/> 硬擋；
-    /// 此處同時把 <c>AiToggle</c> 的 <c>_aiVisible</c> 關掉——只藏控制項而不清狀態，
-    /// 疊加仍會照繪，會出現「沒有開關卻一直在畫 AI 方框」的幽靈行為。
+    /// 此處同時把 AI 疊加的 <c>_aiVisible</c> 關掉——只藏入口而不清狀態，
+    /// 疊加仍會照繪，會出現「開關是關的卻一直在畫 AI 方框」的幽靈行為。
     /// </summary>
     private void ApplyLicenseVisibility()
     {
@@ -3679,13 +3668,12 @@ public partial class MainWindow : Window
         // 只在「地圖」留在監控中心頂欄（見 LicenseEntryPointContractTests ★SettingsWindow 契約）。
         _licenseGate.Apply(MapButton, LicenseFeatures.Gis, Localizer.T("Main.MapTip"));
 
-        // AI 疊加開關對應 ai；偵測設定／分析視窗才是 ai.l1（§19.4 入口對應）。
-        // 先前把開關綁在 ai.l1，只帶 ai 的授權會出現「看得到開關、一切就失敗」。
-        _licenseGate.Apply(AiToggle, LicenseFeatures.Ai, Localizer.T("Main.AiOverlayTip"));
-        if (!_licenseGate.Allows(LicenseFeatures.Ai))
+        // AI 疊加開關已移入設定中心「功能」頁；可見性由設定視窗套用，這裡只負責把
+        // 失去授權後仍然掛著的疊加關掉並重畫（否則會留下一堆沒有開關可關的方框）。
+        if (!_licenseGate.Allows(LicenseFeatures.Ai) && _aiVisible)
         {
-            AiToggle.IsChecked = false;
             _aiVisible = false;
+            ApplyAiOverlayVisibility();
         }
 
         ApplyLicenseExpiryBanner(_licenseGate);
@@ -4174,7 +4162,8 @@ public partial class MainWindow : Window
             webHost: _webHost,
             qctekHost: _qctekHost,
             networkHost: _networkHost,
-            playbackFinalizer: _playbackFinalizer));
+            playbackFinalizer: _playbackFinalizer,
+            wallDisplay: this));
     }
 
     /// <summary>
@@ -4297,19 +4286,32 @@ public partial class MainWindow : Window
         }
     }
 
-    private void OnAiToggleChanged(object sender, RoutedEventArgs e)
+    /// <summary>
+    /// 開關 AI 偵測框疊加，回傳<b>實際生效</b>值。
+    /// </summary>
+    /// <remarks>
+    /// ai 旗標限定（M209）：沒有授權時勾選一律退回（設定頁會依回傳值把勾選取消），
+    /// 手動切回關閉則永遠合法——降級不需要授權。
+    /// </remarks>
+    private bool SetAiOverlayEnabled(bool enabled)
     {
-        // ai 旗標限定（M209）。手動切回關閉在未授權時是合法的降級行為，不需擋。
-        if (AiToggle.IsChecked == true && !RequireFeature(LicenseFeatures.Ai))
+        if (enabled && !RequireFeature(LicenseFeatures.Ai))
         {
-            AiToggle.IsChecked = false;
-            return;
+            return false;
         }
 
-        _aiVisible = AiToggle.IsChecked == true;
+        _aiVisible = enabled;
+        ApplyAiOverlayVisibility();
+        return _aiVisible;
+    }
 
-        // 原本只翻旗標就結束，要等下一幀才重畫——切回「關」時畫面會殘留偵測框最多一幀。
-        // 而且疊加有世代快取，沒人遞增世代的話 DrawLiveOverlay 會直接跳過、不會重畫。
+    /// <summary>依 <see cref="_aiVisible"/> 重畫所有格子的疊加（含清除殘留的偵測框）。</summary>
+    /// <remarks>
+    /// 原本只翻旗標就結束，要等下一幀才重畫——切回「關」時畫面會殘留偵測框最多一幀。
+    /// 而且疊加有世代快取，沒人遞增世代的話 DrawLiveOverlay 會直接跳過、不會重畫。
+    /// </remarks>
+    private void ApplyAiOverlayVisibility()
+    {
         BumpAllOverlayGenerations();
         for (var i = 0; i < MaxCells; i++)
         {
@@ -5117,16 +5119,17 @@ public partial class MainWindow : Window
             : Visibility.Collapsed;
     }
 
-    /// <summary>切換頻道快速列（QC_Live 的按鈕列常駐；這裡給操作員關掉的自由），狀態記 <c>wall.quick_bar</c>。</summary>
-    private void OnQuickBarToggled(object sender, RoutedEventArgs e)
+    /// <summary>開關頻道快速列（QC_Live 的按鈕列常駐；這裡給操作員關掉的自由），狀態記 <c>wall.quick_bar</c>。</summary>
+    private bool SetQuickBarEnabled(bool enabled)
     {
-        _quickBarEnabled = QuickBarToggle.IsChecked == true;
+        _quickBarEnabled = enabled;
         if (_store is not null)
         {
             new SettingsRepository(_store).Set(QuickBarEnabledKey, _quickBarEnabled ? "1" : "0");
         }
 
         UpdateQuickBarVisibility();
+        return _quickBarEnabled;
     }
 
     /// <summary>
@@ -5137,20 +5140,25 @@ public partial class MainWindow : Window
     /// <remarks>
     /// <para>
     /// 鏡像窗右上角的 ✕、Esc、以及「第二螢幕被拔掉」都會關掉它，而這三條路都不是走這裡的
-    /// toggle 分支——所以 <c>Closed</c> 必須把 <see cref="MirrorToggle"/> 的勾選清掉。少了那一行，
-    /// 按鈕會一直顯示「開著」而畫面已經沒有第二份，操作員的結論是「這顆按鈕壞了」。
+    /// 開關分支——所以 <c>Closed</c> 必須把設定頁的勾選清掉。少了那一步，
+    /// 勾選會一直顯示「開著」而畫面已經沒有第二份，操作員的結論是「這個開關壞了」。
     /// </para>
     /// <para>
     /// 來源與格數都在<b>改動當下</b>寫回設定，不等關窗：關窗有自己的收尾路徑（✕／Esc／拔螢幕），
     /// 漏掉就等於沒存到。
     /// </para>
     /// </remarks>
-    private void OnMirrorToggleClicked(object sender, RoutedEventArgs e)
+    private bool SetSecondScreenEnabled(bool enabled)
     {
+        if (!enabled)
+        {
+            _mirror?.Close();
+            return false;
+        }
+
         if (_mirror is not null)
         {
-            _mirror.Close();
-            return;
+            return true;
         }
 
         var mirror = new WallMirrorWindow { Owner = this };
@@ -5188,14 +5196,26 @@ public partial class MainWindow : Window
             if (ReferenceEquals(_mirror, mirror))
             {
                 _mirror = null;
-                MirrorToggle.IsChecked = false;
+                // 這條路是 ✕／Esc／螢幕被拔掉：牆面自己改的狀態要回拋，設定頁的勾選才會跟著退。
+                RaiseWallDisplayOptionChanged(WallDisplayOption.SecondScreen);
             }
         };
         _mirror = mirror;
         mirror.SetChannels(MirrorChannels());
         PushMirrorBadges();
-        mirror.Show();
-        MirrorToggle.IsChecked = true;
+        try
+        {
+            mirror.Show();
+        }
+        catch (Exception)
+        {
+            // 沒有可用桌面／視窗建立失敗：勾選要退回，不能讓設定頁說謊。
+            _mirror = null;
+            mirror.Shutdown();
+            return false;
+        }
+
+        return true;
     }
 
     /// <summary>鏡像牆目前的頻道來源（依 <c>wall.mirror.group</c> 還原；無效值退回「跟隨頁簽」）。</summary>
@@ -5244,10 +5264,10 @@ public partial class MainWindow : Window
             .ToList();
     }
 
-    /// <summary>切換牆上事件面板；開啟時先補一次最近事件（背景查，回 UI 執行緒填）。</summary>
-    private void OnEventPanelToggled(object sender, RoutedEventArgs e)
+    /// <summary>開關牆上事件面板；開啟時先補一次最近事件（背景查，回 UI 執行緒填）。</summary>
+    private bool SetEventPanelEnabled(bool enabled)
     {
-        _eventPanelEnabled = EventPanelToggle.IsChecked == true;
+        _eventPanelEnabled = enabled;
         if (_store is not null)
         {
             new SettingsRepository(_store).Set(EventPanelEnabledKey, _eventPanelEnabled ? "1" : "0");
@@ -5258,6 +5278,8 @@ public partial class MainWindow : Window
         {
             _ = LoadRecentEventsAsync();
         }
+
+        return _eventPanelEnabled;
     }
 
     /// <summary>依開關與沉浸模式顯示或收起事件面板；沉浸模式一律收起。</summary>
@@ -5272,6 +5294,40 @@ public partial class MainWindow : Window
             ? Visibility.Visible
             : Visibility.Collapsed;
     }
+
+    /// <summary>設定中心「監看牆顯示」區塊讀取目前的顯示狀態（回傳牆面真正的狀態）。</summary>
+    public bool GetWallDisplayOption(WallDisplayOption option) => option switch
+    {
+        WallDisplayOption.QuickBar => _quickBarEnabled,
+        WallDisplayOption.EventPanel => _eventPanelEnabled,
+        WallDisplayOption.AlarmPopup => _alarmPopupEnabled,
+        WallDisplayOption.SecondScreen => _mirror is not null,
+        WallDisplayOption.AiOverlay => _aiVisible,
+        _ => false,
+    };
+
+    /// <summary>
+    /// 設定中心「監看牆顯示」區塊切換一個項目；回傳<b>實際生效</b>值。
+    /// </summary>
+    /// <remarks>
+    /// 回傳值不是要求值的回音：AI 疊加沒有 <c>ai</c> 授權、第二螢幕視窗建立失敗時要退回，
+    /// 否則設定頁的勾選會與畫面不一致，而操作員只會覺得「勾了沒用」。
+    /// </remarks>
+    public bool SetWallDisplayOption(WallDisplayOption option, bool enabled) => option switch
+    {
+        WallDisplayOption.QuickBar => SetQuickBarEnabled(enabled),
+        WallDisplayOption.EventPanel => SetEventPanelEnabled(enabled),
+        WallDisplayOption.AlarmPopup => SetAlarmPopupEnabled(enabled),
+        WallDisplayOption.SecondScreen => SetSecondScreenEnabled(enabled),
+        WallDisplayOption.AiOverlay => SetAiOverlayEnabled(enabled),
+        _ => false,
+    };
+
+    /// <summary>牆面自己改動了顯示項目時回拋給設定頁（目前只有鏡像窗被 ✕／Esc 關掉）。</summary>
+    public event EventHandler<WallDisplayOption>? WallDisplayOptionChanged;
+
+    private void RaiseWallDisplayOptionChanged(WallDisplayOption option)
+        => WallDisplayOptionChanged?.Invoke(this, option);
 
     /// <summary>把最近一天的條列補進面板（新在上、最多 <see cref="EventPanelCapacity"/> 列）。</summary>
     private async Task LoadRecentEventsAsync()

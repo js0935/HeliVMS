@@ -261,6 +261,8 @@ public sealed class RtspClient : IAsyncDisposable
             _ = ExpireSilentRestartAsync(generation);
         }
 
+        AppendStateLog($"rescale {before}->{after}{(silent ? " silent" : string.Empty)}");
+
         try
         {
             await RestartCoreAsync(silent).ConfigureAwait(false);
@@ -306,6 +308,27 @@ public sealed class RtspClient : IAsyncDisposable
 
     /// <summary>已出過畫面後，串流停滯的容忍上限。</summary>
     public TimeSpan FrameTimeout { get; set; } = TimeSpan.FromSeconds(20);
+
+    /// <summary>
+    /// 狀態換手要寫進哪個診斷檔（null＝不寫）。由 <c>ChannelSession</c> 指到
+    /// <c>%TEMP%\helivms-live.log</c>，與每 5 秒的牆面取樣同一個檔案。
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// 只記「換手」，不記影格：換手是每秒不到一次的事件，而每 5 秒的取樣<b>抓不到</b>
+    /// 一兩秒的閃動。現場回報「切換分割會重新連線」時，若沒有這一類行，就只能憑畫面記憶
+    /// 猜是哪條路徑發布了「連線中」——是換解碼寬度的靜默換手失效、是寬限時間太短、
+    /// 還是健康檢查重啟？三者的處置完全不同。
+    /// </para>
+    /// <para>
+    /// 每行都寫出「這一個發布是靜默的還是照實的」，靜默被壓住的那幾筆也照寫（標
+    /// <c>suppressed</c>），所以「靜默有沒有生效」在日誌上看得出來，而不是只能祈禱。
+    /// </para>
+    /// </remarks>
+    public string? StateLogPath { get; set; }
+
+    /// <summary>診斷用的頻道標籤（例如 <c>ch115</c>）；只出現在 <see cref="StateLogPath"/> 的日誌行。</summary>
+    public string Tag { get; set; } = string.Empty;
 
     /// <summary>
     /// 為換解碼寬度而重開 ffmpeg 時，最多靜默多久（不對外發布 Stopped／Connecting）。
@@ -605,6 +628,8 @@ public sealed class RtspClient : IAsyncDisposable
 
     private void SetState(RtspState state)
     {
+        RtspState previous;
+        bool suppressed;
         lock (_stateGate)
         {
             if (State == state)
@@ -612,20 +637,25 @@ public sealed class RtspClient : IAsyncDisposable
                 return;
             }
 
+            previous = State;
             State = state;
 
             // 為換解碼寬度而重開的內部換手：舊行程收尾（Stopped）與新行程啟動（Connecting）
             // 都不是「畫面出事」，對外不發布，格位才會留著最後一幀、狀態列也不會閃「連線中」。
             // 真正的故障（Reconnecting）與重新出畫（Streaming）一律照常發布並結束靜默。
-            if (_silentRestart && state is RtspState.Stopped or RtspState.Connecting)
-            {
-                return;
-            }
-
-            if (state is RtspState.Streaming or RtspState.Reconnecting)
+            suppressed = _silentRestart && state is RtspState.Stopped or RtspState.Connecting;
+            if (!suppressed && state is RtspState.Streaming or RtspState.Reconnecting)
             {
                 _silentRestart = false;
             }
+        }
+
+        // 連被壓住的那幾筆也寫：這一行就是「靜默到底有沒有生效」的唯一證據。
+        AppendStateLog($"{previous}->{state} {(suppressed ? "suppressed(silent)" : "published")}");
+
+        if (suppressed)
+        {
+            return;
         }
 
         RaiseStateChanged(state);
@@ -662,7 +692,12 @@ public sealed class RtspClient : IAsyncDisposable
 
         if (pending is { } state)
         {
+            AppendStateLog($"silent ended ->{state} published(pending)");
             RaiseStateChanged(state);
+        }
+        else
+        {
+            AppendStateLog("silent ended");
         }
     }
 
@@ -700,7 +735,38 @@ public sealed class RtspClient : IAsyncDisposable
 
         if (pending is { } state)
         {
+            // 這一行就是「寬限太短」的證據：換手還沒回第一幀就照實發布了。
+            AppendStateLog($"silent grace expired ->{state} published");
             RaiseStateChanged(state);
+        }
+        else
+        {
+            AppendStateLog("silent grace expired");
+        }
+    }
+
+    /// <summary>把一次狀態換手寫進 <see cref="StateLogPath"/>（null／空白＝不寫）。</summary>
+    /// <remarks>
+    /// 寫日誌失敗一律吞掉：診斷不能反過來讓拉流停擺（%TEMP% 滿、檔案被別的程序鎖住都可能發生）。
+    /// </remarks>
+    private void AppendStateLog(string message)
+    {
+        var path = StateLogPath;
+        if (string.IsNullOrEmpty(path))
+        {
+            return;
+        }
+
+        try
+        {
+            HeliVMS.Shared.BoundedFileLog.Append(
+                path,
+                $"{DateTime.UtcNow:O} rtsp {(string.IsNullOrEmpty(Tag) ? "-" : Tag)} {message}\n",
+                512 * 1024);
+        }
+        catch (Exception)
+        {
+            // 診斷用；不得影響拉流。
         }
     }
 
