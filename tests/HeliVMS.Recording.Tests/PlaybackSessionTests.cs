@@ -229,6 +229,87 @@ public sealed class PlaybackSessionTests : IDisposable
     }
 
     /// <summary>
+    /// 多路對時的「等待」：被要求等的那一格在期限之前<b>一張影格都不吐</b>，解凍後從下一張
+    /// 繼續、不掉格也不跳時間。
+    /// </summary>
+    /// <remarks>
+    /// 這是參考機（QCV8001 web 播放器）「快的那幾格停下來等最慢的一格」在我們這邊的落地方式：
+    /// 等待期間<b>不讀取</b>（ffmpeg 的輸出管線填滿後行程自然停住，媒體位置凍結），解凍後管線裡
+    /// 的下一張仍然接在最後一張之後。若改成「丟棄超前影格」，解凍時畫面會往前跳一段——等於自己
+    /// 製造一次 seek，正是這個功能要消滅的東西。
+    /// </remarks>
+    [Fact]
+    public async Task 等待期間不吐影格且解凍後從下一張繼續()
+    {
+        var factory = new FakeProcessFactory(_ => new FakeProcess(new MemoryStream(Pixels(4))));
+        await using var session = new PlaybackSession(
+            Segment(CreateEmptyFile(), 10),
+            processFactory: factory,
+            probe: _ => Info,
+            frameTimes: _ => []);
+
+        var frames = new List<long>();
+        session.FrameDecoded += (_, frame) =>
+        {
+            lock (frames)
+            {
+                frames.Add(frame.PtsMs);
+            }
+        };
+
+        session.HoldUntil(DateTime.UtcNow.AddMilliseconds(400));
+        var play = session.PlayAsync();
+
+        await Task.Delay(150);
+        lock (frames)
+        {
+            Assert.Empty(frames);
+        }
+
+        await play.WaitAsync(TimeSpan.FromSeconds(10));
+
+        long[] emitted;
+        lock (frames)
+        {
+            emitted = [.. frames];
+        }
+
+        // 4 張全部都在，而且時間戳連續（25fps → 0/40/80/120ms）：沒有掉格、沒有跳時間。
+        Assert.Equal(new long[] { 0, 40, 80, 120 }, emitted);
+    }
+
+    /// <summary>
+    /// 等待期限可以被對時迴圈<b>提前解除</b>：領先量縮小之後不該繼續等完原本的期限。
+    /// </summary>
+    /// <remarks>
+    /// 對時迴圈每 150ms 重算一次「這一格還超前多少」，所以等待必須是「可以被改寫的期限」而不是
+    /// 一次性的長睡眠。少了這一條，某一格被判定超前 3 秒之後就算母鐘中途追上來，它也還是會把
+    /// 3 秒等完——期間整面牆看得到它不動，接著又換別人等，變成一路互相等。
+    /// </remarks>
+    [Fact]
+    public async Task 等待期限可以被對時迴圈提前解除()
+    {
+        var factory = new FakeProcessFactory(_ => new FakeProcess(new MemoryStream(Pixels(2))));
+        await using var session = new PlaybackSession(
+            Segment(CreateEmptyFile(), 10),
+            processFactory: factory,
+            probe: _ => Info,
+            frameTimes: _ => []);
+
+        session.HoldUntil(DateTime.UtcNow.AddSeconds(2));
+        var sw = Stopwatch.StartNew();
+        var play = session.PlayAsync();
+
+        await Task.Delay(100);
+        session.HoldUntil(DateTime.UtcNow);
+
+        await play.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.True(sw.ElapsedMilliseconds < 1500,
+            $"縮短等待之後應該立刻恢復，實際等了 {sw.ElapsedMilliseconds}ms");
+        Assert.False(session.IsHolding);
+    }
+
+    /// <summary>
     /// <see cref="PlaybackSession.Stop"/> 必須終止進行中的 ffmpeg，並以「未完成」結束。
     /// 若只取消讀取而不砍行程，被佔用的區段會讓之後的保留策略刪不掉檔（Windows 檔案鎖），
     /// 這是使用者回報的孤兒行程症狀。

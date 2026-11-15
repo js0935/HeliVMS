@@ -30,7 +30,19 @@
                 <TextBlock x:Name="PlaybackChannelLabel" Text="" Foreground="{StaticResource Brand.TextDim}" VerticalAlignment="Center"/>
                 <ComboBox x:Name="ChannelCombo" AutomationProperties.AutomationId="PlaybackChannelCombo" Width="170" Margin="6,0,0,0"
                           Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"
-                          SelectionChanged="OnChannelSelectionChanged"/>
+                          SelectionChanged="OnChannelSelectionChanged">
+                    <!--
+                        AutomationProperties.Name must be bound per item: DisplayMemberPath (set in code)
+                        only changes what is *drawn*. Without this, UI Automation - screen readers, and any
+                        script that has to drive this window - reads every entry as the type name
+                        "HeliVMS.Shared.Models.ChannelInfo", so the channels cannot be told apart.
+                    -->
+                    <ComboBox.ItemContainerStyle>
+                        <Style TargetType="ComboBoxItem">
+                            <Setter Property="AutomationProperties.Name" Value="{Binding Name}" />
+                        </Style>
+                    </ComboBox.ItemContainerStyle>
+                </ComboBox>
             </StackPanel>
 
             <StackPanel Orientation="Horizontal" Margin="0,0,14,0" VerticalAlignment="Center">

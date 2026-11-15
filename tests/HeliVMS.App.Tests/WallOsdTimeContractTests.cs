@@ -24,6 +24,41 @@ public sealed class WallOsdTimeContractTests
     }
 
     [Fact]
+    public void 重建格位後時間OSD會重新套用()
+    {
+        // 現場回報「時間 OSD 只有多分割才看得到，單畫面應該也要有」。
+        // 真正的原因不是單分割少了什麼，而是任何一次 RebuildCells 都會建立全新的 TextBlock
+        // （Visibility = Collapsed），而重建路徑上沒有人重新套用開關——切一次分割
+        // （4 分割 → 單畫面）、切一次群組頁簽、還原一次版面偏好，時間 OSD 就整面消失，
+        // 偏偏右鍵選單還是勾著的。這條測試守的就是「重建之後一定要再套用一次」。
+        var rebuild = SourceContract.BodyOf(SourceContract.Read(MainWindow), "RebuildCells");
+        Assert.NotEqual(string.Empty, rebuild);
+
+        var created = rebuild.IndexOf("_cellOsdTime[i] = osdTime", StringComparison.Ordinal);
+        var applied = rebuild.IndexOf("ApplyOsdTimeVisibility()", StringComparison.Ordinal);
+        Assert.True(created >= 0, "RebuildCells 應該建立每格的時間 OSD");
+        Assert.True(applied > created,
+            "RebuildCells 必須在建立元素之後重新套用時間 OSD，否則重建一次就整面消失");
+    }
+
+    [Fact]
+    public void 空格不顯示時間OSD且由狀態投影一起裁決()
+    {
+        var code = SourceContract.Read(MainWindow);
+
+        var cell = SourceContract.BodyOf(code, "ApplyCellOsdTime");
+        Assert.NotEqual(string.Empty, cell);
+        // 空格上的時鐘會被讀成「這格有在錄」（與「空格不留錄影模式燈」同一條規則）。
+        Assert.Contains("_cellChannel[cell] is not null", cell);
+        Assert.Contains("_osdTimeEnabled", cell);
+
+        // 顯示條件綁在「這一格有沒有頻道」，而頻道會被改派／刪除／換頁簽，
+        // 所以裁決點必須在狀態投影裡（唯一的匯集點），不能只在開關那一次。
+        var state = SourceContract.BodyOf(code, "ApplyCellState");
+        Assert.Contains("ApplyCellOsdTime(cell)", state);
+    }
+
+    [Fact]
     public void 每秒刷新走既有計時器且關閉時不碰字串()
     {
         var code = SourceContract.Read(MainWindow);

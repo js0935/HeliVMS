@@ -1007,8 +1007,6 @@ public partial class MainWindow : Window, IWallDisplayOptions
         {
             item.IsChecked = _osdTimeEnabled;
         }
-        ApplyOsdTimeVisibility();
-
         ApplyI18n();
         _channels = new ChannelRepository(_store);
         _groups = new ChannelGroupRepository(_store);
@@ -2464,6 +2462,11 @@ public partial class MainWindow : Window, IWallDisplayOptions
         // 只有 2 台，第 3、4 格就「串」著上一頁簽那兩台攝影機的最後一張畫面。
         ClearCellsBeyondChannels(WallChannels().Count);
 
+        // 重建後一定要重新套用時間 OSD：上面建立的是全新的 TextBlock（預設 Collapsed），
+        // 少了這一行，切一次分割（4 分割 → 單畫面）或切一次群組頁簽，操作員已經開啟的
+        // 時間 OSD 就會全部消失，而右鍵選單還勾著——現場就是這樣回報「時間只有多分割看得到」。
+        ApplyOsdTimeVisibility();
+
         // 頻道快速列跟著目前頁簽的牆序重建（按鈕編號＝牆序，與跳台/改派同一口徑）。
         RebuildQuickBar();
         // 鏡像窗的格位對應跟著目前頁簽重設（前四台）。
@@ -2573,19 +2576,42 @@ public partial class MainWindow : Window, IWallDisplayOptions
     /// <summary>把每格的時間 OSD 依開關顯示或收起；文字立刻補一次，不等下一秒的計時器。</summary>
     private void ApplyOsdTimeVisibility()
     {
-        var visibility = _osdTimeEnabled ? Visibility.Visible : Visibility.Collapsed;
-        var text = WallOsdSettings.FormatTime(_osdTimeModeNow(), DateTime.Now);
         for (var i = 0; i < MaxCells; i++)
         {
-            var t = _cellOsdTime[i];
-            if (t is null)
-            {
-                continue;
-            }
-
-            t.Visibility = visibility;
-            t.Text = text;
+            ApplyCellOsdTime(i);
         }
+    }
+
+    /// <summary>
+    /// 單一格子的時間 OSD：開關開著<b>且這一格真的有頻道</b>時才顯示。
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// 有兩件事必須在這裡一起決定，而且只能在這裡決定：
+    /// </para>
+    /// <list type="number">
+    /// <item><b>空格不顯示時間</b>——與「沒有頻道的格子不留錄影模式燈」同一條規則。空格上的時鐘
+    /// 會被讀成「這格有在錄」，而它其實只是牆上的當下時刻。</item>
+    /// <item><b>由狀態投影順便決定</b>（<see cref="ApplyCellState"/> 呼叫）。時間 OSD 的顯示條件
+    /// 與「這一格有沒有頻道」綁在一起，而頻道是隨時會被改派、被刪除、被群組頁簽換掉的。只靠
+    /// 開關那一次套用，任何一次重建（切分割、切群組頁簽、還原版面偏好都走
+    /// <see cref="RebuildCells"/>，那裡建的是全新的 TextBlock，預設 Collapsed）都會讓操作員
+    /// 已經開啟的時間 OSD 消失，而右鍵選單還勾著——現場回報的「只有多分割才看得到時間、
+    /// 切到單畫面就沒有」就是這個。
+    /// </item>
+    /// </list>
+    /// </remarks>
+    private void ApplyCellOsdTime(int cell)
+    {
+        var t = _cellOsdTime[cell];
+        if (t is null)
+        {
+            return;
+        }
+
+        var show = _osdTimeEnabled && _cellChannel[cell] is not null;
+        t.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+        t.Text = show ? WallOsdSettings.FormatTime(_osdTimeModeNow(), DateTime.Now) : string.Empty;
     }
 
     /// <summary>每秒刷新各格時間 OSD 的文字（只在開啟時動字串，關閉時完全不碰）。</summary>
@@ -2939,6 +2965,10 @@ public partial class MainWindow : Window, IWallDisplayOptions
         }
 
         ShowCellPlaceholder(cell);
+
+        // 這一格有沒有頻道隨時會變（改派、刪除、群組頁簽），時間 OSD 的顯示條件跟著它，
+        // 所以在同一個投影點一起裁決——否則改派之後會留下「有頻道卻沒有時間」的格子。
+        ApplyCellOsdTime(cell);
 
         // 沒有指派頻道的空格不顯示「未連線」文字：Disable 佔位圖已說明這格還沒配頻道，
         // 再寫「未連線」會被誤讀成「配了卻連不上」，也讓空格看起來像有問題。

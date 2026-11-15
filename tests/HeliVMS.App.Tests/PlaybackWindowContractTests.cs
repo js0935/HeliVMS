@@ -382,23 +382,23 @@ public sealed class PlaybackWindowContractTests
     }
 
     /// <summary>
-    /// 多路同步要「對得起來」：容差用共用常數（不是各寫一份的 1.5 秒），而且跳轉要補上
-    /// 這一格自己的啟動延遲。
+    /// 多路同步要「對得起來」：容差用排程核心的共用口徑（不是各寫一份的 1.5 秒），
+    /// 而且跳轉要補上這一格自己的啟動延遲。
     /// </summary>
     /// <remarks>
     /// 現場回報「多路回放各播各的」：舊容差 1.5 秒讓每格可以落後一個半秒以上才被拉回；
     /// 而啟動慢的那一格即使被拉回，也永遠落後同樣的啟動延遲——因為從按下播放到第一張影格
-    /// 之間的空窗沒有被補進跳轉位置。兩件事要一起修，單修容差會變成不停重開 ffmpeg。
+    /// 之間的空窗沒有被補進跳轉位置。
     /// </remarks>
     [Fact]
     public void 多路同步用共用容差且跳轉補上啟動延遲()
     {
         var source = SourceContract.Read(Code);
 
-        // 該不該重新對時由排程核心判定（容差＋啟動視窗＋滯後都在那裡）；視窗自己寫一個常數
+        // 該不該等待由排程核心判定（容差在 AlignmentHold 裡）；視窗自己寫一個常數
         // 或自己比 Math.Abs 就是「同一個決定有兩份」。
         var sync = SourceContract.BodyOf(source, "SyncPanes");
-        Assert.Contains("PlaybackSyncPlanner.EvaluateDrift(", sync);
+        Assert.Contains("PlaybackSyncPlanner.AlignmentHold(", sync);
         Assert.DoesNotContain("Math.Abs(", sync);
         Assert.DoesNotContain("PaneDriftToleranceSec", source);
 
@@ -413,25 +413,46 @@ public sealed class PlaybackWindowContractTests
     }
 
     /// <summary>
-    /// 同步重開要有滯後：每一輪的計數要寫回那一格，重開（含換段）時要歸零。
+    /// 多路對時用「停下來等最慢的一格」，<b>不再用重開解碼去追</b>。
     /// </summary>
     /// <remarks>
-    /// 排程核心的 <c>EvaluateDrift</c> 只是純函式；沒有把
-    /// <c>Streak</c> 寫回畫面格，每一輪都從 0 開始算＝回到「單輪超容差就重開 ffmpeg」，
-    /// 畫面一直閃而所有測試仍會全綠。
+    /// <para>
+    /// 現場回報「除了第一格，其他格時間都會延遲」：舊模型用主畫面當母鐘，落後的格只能靠
+    /// 重新開一個 ffmpeg 並 seek 去追；每一次重開都要再付一次啟動延遲（檔案回放 0.3–1.5 秒、
+    /// 慢的來源 2 秒以上），於是追不上的格永遠落後，中間還夾著黑畫面。
+    /// </para>
+    /// <para>
+    /// 新模型（參考機 QCV8001 web 播放器的做法）：<b>群組時刻取最慢的那一格</b>，比它超前的格
+    /// 停下來等（<c>HoldUntil</c>＝停止讀取、凍結媒體位置、不掉格）。這裡釘住三件事：
+    /// 有等待、主畫面也一起讓、而且漂移判定不再決定重開。
+    /// </para>
     /// </remarks>
     [Fact]
-    public void 同步重開的滯後計數會寫回該格且在重開時歸零()
+    public void 多路對時用等待而不是重開解碼()
     {
         var source = SourceContract.Read(Code);
 
         var sync = SourceContract.BodyOf(source, "SyncPanes");
-        Assert.Contains("pane.DriftStreak = driftDecision.Streak;", sync);
-        Assert.Contains("driftDecision.Reseek", sync);
+        Assert.Contains("PlaybackSyncPlanner.AlignmentHold(", sync);
+        Assert.Contains("HoldUntil(", sync);
 
-        // 重開（對時跳轉、換段）之後舊的累積不屬於新的一段。
-        var play = SourceContract.BodyOf(source, "PlayPane");
-        Assert.Contains("pane.DriftStreak = 0;", play);
+        // 主畫面也是「一格」：它比別人快時同樣要停下來等，否則母鐘永遠追不上它，
+        // 其他格就一路落後（就是現場看到的樣子）。
+        Assert.Contains("ApplyMainHold(", sync);
+        var main = SourceContract.BodyOf(source, "ApplyMainHold");
+        Assert.Contains("PlaybackSyncPlanner.AlignmentHold(", main);
+
+        // 群組時刻＝最慢的那一格。
+        var group = SourceContract.BodyOf(source, "GroupInstant");
+        Assert.Contains("PlaybackSyncPlanner.GroupInstant(", group);
+
+        // 「落後超過容差就重開」的判定必須真的消失：留著它，畫面就會回到
+        // 「開啟→落後→重開→再落後」的閃爍，而 hold 只是讓它晚一點發生。
+        Assert.DoesNotContain("driftDecision", sync);
+        Assert.DoesNotContain("EvaluateDrift", sync);
+
+        // 剩下的重開理由只有「根本沒有在動」。
+        Assert.Contains("PlaybackSyncPlanner.ShouldRestart(", sync);
     }
 
     /// <summary>

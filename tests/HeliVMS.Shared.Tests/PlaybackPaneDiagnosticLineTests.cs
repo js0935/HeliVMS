@@ -15,6 +15,7 @@ public class PlaybackPaneDiagnosticLineTests
         double shown = 14.9,
         double? drift = 0.1,
         int restarts = 0,
+        double hold = 0,
         int sinceLastFrameMs = 40,
         string state = "playing",
         int width = 960,
@@ -31,6 +32,7 @@ public class PlaybackPaneDiagnosticLineTests
             shown,
             drift,
             restarts,
+            hold,
             TimeSpan.FromMilliseconds(sinceLastFrameMs),
             state);
 
@@ -47,6 +49,30 @@ public class PlaybackPaneDiagnosticLineTests
             "2026-11-06T08:12:34.567Z | cells=4 tol=0.4s | ch103 main 960x540 shown=14.9/s"
             + " drift=+0.1s restarts=0 frame=40ms playing",
             line);
+    }
+
+    [Fact]
+    public void 停等下最慢的那一格時寫出等了多久()
+    {
+        // 多路對時改成「超前的格停下來等最慢的一格」之後，對時不再有任何 restarts。
+        // 若日誌只寫 restarts=0，「改成等待」與「判定被整段拿掉、牆面各播各的」看起來一模一樣，
+        // 所以 hold= 必須在這一輪真的等過的時候出現。
+        var line = PlaybackPaneDiagnosticLine.Format(
+            DateTime.UnixEpoch,
+            cells: 4,
+            toleranceSeconds: 0.4,
+            [Pane(channelId: 101, drift: 1.6, hold: 1.6)]);
+
+        Assert.Contains(" hold=1.6s", line);
+        Assert.Contains(" restarts=0", line);
+    }
+
+    [Fact]
+    public void 沒有停等時不寫hold欄位()
+    {
+        // 每一格每一輪都印 hold=0.0s 只會讓這一欄變成雜訊（現場要的是「有沒有在等」）。
+        Assert.DoesNotContain("hold=", PlaybackPaneDiagnosticLine.Format(
+            DateTime.UnixEpoch, cells: 4, toleranceSeconds: 0.4, [Pane()]));
     }
 
     [Fact]

@@ -83,84 +83,131 @@ public static class PlaybackSyncPlanner
     public const double MaxStartupLatencySeconds = 5;
 
     /// <summary>
-    /// 這一格該不該重新對時（單輪判定，不含滯後；實際接線走 <see cref="EvaluateDrift"/>）。
+    /// 多路回放的<b>群組時刻</b>：所有「畫面上已經有影格」的格之中<b>最慢</b>的那一個。
     /// </summary>
     /// <remarks>
     /// <para>
-    /// <b>等待第一張影格期間不做漂移判定</b>：那段時間的「目前時刻」是跳轉目標本身，而跳轉位置
-    /// 刻意超前補償了啟動延遲（見 <see cref="CompensatedOffset"/>）——拿它與母鐘比會永遠超出容差，
-    /// 於是每一輪都重開 ffmpeg，反而永遠播不起來。等待期間唯一要處理的是「卡住」：
-    /// 超過 <see cref="MaxStartupLatencySeconds"/> 還沒有第一張影格就重開一次。
+    /// 這是參考機（QCV8001 web 播放器的 <c>TVTPlayer</c>）的做法，也是這條路上唯一會收斂的做法：
+    /// <c>this._showTimestamp = Math.min.apply(null, 所有格的 timestamp)</c>——最慢的那一格定調，
+    /// 快的幾格停下來等它。
     /// </para>
     /// <para>
-    /// 第一張影格到達之後，母鐘也已經往前走了同樣的啟動時間，於是「畫面上的時刻」與母鐘
-    /// 只差「實際延遲與估計值的差」——那才是該用容差判定的量。
+    /// 為什麼不反過來「讓落後的去追」：追趕唯一的手段是重新開一個 ffmpeg 並 seek，而每一次重開都要
+    /// 再付一次啟動延遲（實測檔案回放 0.3–1.5 秒，慢的相機來源 2 秒以上）。於是「落後 → 重開 →
+    /// 開好又落後」變成一個永遠追不上的迴圈，操作員看到的就是「除了第一格，其他格都慢一拍」，
+    /// 中間還夾著黑畫面。停下來等不需要付任何啟動成本，而且慢的那一格本來就是事實：它的解碼
+    /// 就是比別人慢，畫面顯示它的時刻才是誠實的。
     /// </para>
     /// </remarks>
-    /// <param name="driftSeconds">畫面上的時刻與母鐘的差（秒）。</param>
-    /// <param name="waitingForFirstFrame">這一格是否還在等第一張影格。</param>
-    /// <param name="secondsSinceStart">從按下播放起算的秒數。</param>
-    /// <param name="toleranceSeconds">容差（秒）。</param>
-    public static bool ShouldReseek(
-        double driftSeconds,
-        bool waitingForFirstFrame,
-        double secondsSinceStart,
-        double toleranceSeconds = DefaultDriftToleranceSeconds)
-        => waitingForFirstFrame
-            ? secondsSinceStart > MaxStartupLatencySeconds
-            : Math.Abs(driftSeconds) > toleranceSeconds;
+    /// <param name="paneInstants">各格畫面上的時刻（還沒有影格的格給 <c>null</c>，不參與）。</param>
+    /// <returns>群組時刻；全部皆無影格時回 <c>null</c>。</returns>
+    public static DateTime? GroupInstant(IEnumerable<DateTime?> paneInstants)
+    {
+        DateTime? slowest = null;
+        foreach (var instant in paneInstants)
+        {
+            if (instant is not { } value)
+            {
+                continue;
+            }
+
+            if (slowest is null || value < slowest)
+            {
+                slowest = value;
+            }
+        }
+
+        return slowest;
+    }
 
     /// <summary>
-    /// 連續幾輪（同步計時器 150ms 一次）超容差才真的重新對時。
+    /// 這一格比群組時刻超前多少才要停下來等（秒）；不超前（含它就是最慢的那一格）時回 <see cref="TimeSpan.Zero"/>。
     /// </summary>
     /// <remarks>
     /// <para>
-    /// 每一次重新對時都是一次 <c>StopPane</c> ＋ 重開 ffmpeg：畫面會黑掉數百毫秒。
-    /// 舊的接線只要單輪超出容差就重開，於是「解碼速度比母鐘慢一點」的那一格會在
-    /// 開啟→落後→重開→再落後之間反覆閃爍（現場看到的「畫面一直閃／重來」，
-    /// 日誌特徵是 <c>restarts</c> 每 5 秒大於 2 而 <c>drift</c> 只是略超容差）。
+    /// 只停「超出容差的那一部分」，並且停在容差的一半處：停在剛好等於容差會讓下一次判定立刻又超標，
+    /// 於是每一輪都各停一次（畫面一格一格地頓）；停在半個容差留了餘裕，對時迴圈下一輪就安靜了。
     /// </para>
     /// <para>
-    /// 連續三輪＝約 0.45 秒：真的落後（解碼跟不上、seek 偏差）撐不過三輪；
-    /// 單一輪的抖動（VFR 影格間距、一次 GC、磁碟忙）則不會換來一次黑畫面。
-    /// 判定仍然只有一份（<see cref="ShouldReseek"/>），這裡只加「要連續幾次」。
+    /// 上限 <see cref="MaxAlignmentHoldSeconds"/> 是為了區分兩種完全不同的落後：<b>啟動時間差</b>
+    /// （半秒到一兩秒，停一下就會對齊）與<b>壞掉／被搶光的解碼</b>（落後持續變大）。後者若也照停，
+    /// 整面牆會跟著它一起凍住——那不是對時，那是當機。超過上限就不再等它，交由停滯判定處理。
     /// </para>
     /// </remarks>
-    public const int DriftHysteresisTicks = 3;
-
-    /// <summary>
-    /// 一輪漂移判定（含滯後）：要不要重新對時，以及下一次的「連續超容差」計數。
-    /// </summary>
-    /// <remarks>
-    /// 呼叫端（<c>PlaybackWindow.SyncPanes</c>）每一格各持有一個計數，逐輪把
-    /// <c>Streak</c> 寫回；等待第一張影格期間（含「卡住」重開）一律歸零——
-    /// 那段期間的漂移是刻意補償出來的，累積它會讓首幀一到就立刻再重開一次。
-    /// </remarks>
-    /// <param name="driftSeconds">畫面上的時刻與母鐘的差（秒）。</param>
-    /// <param name="waitingForFirstFrame">這一格是否還在等第一張影格。</param>
-    /// <param name="secondsSinceStart">從按下播放起算的秒數。</param>
-    /// <param name="streak">前一輪累積的連續超容差次數。</param>
+    /// <param name="paneInstant">這一格畫面上的時刻。</param>
+    /// <param name="groupInstant">群組時刻（<see cref="GroupInstant"/>）。</param>
     /// <param name="toleranceSeconds">容差（秒）。</param>
-    public static (bool Reseek, int Streak) EvaluateDrift(
-        double driftSeconds,
-        bool waitingForFirstFrame,
-        double secondsSinceStart,
-        int streak,
+    public static TimeSpan AlignmentHold(
+        DateTime paneInstant,
+        DateTime groupInstant,
         double toleranceSeconds = DefaultDriftToleranceSeconds)
     {
-        if (waitingForFirstFrame)
+        var ahead = (paneInstant - groupInstant).TotalSeconds;
+        if (ahead <= toleranceSeconds)
         {
-            return (ShouldReseek(driftSeconds, waitingForFirstFrame: true, secondsSinceStart, toleranceSeconds), 0);
+            return TimeSpan.Zero;
         }
 
-        if (!ShouldReseek(driftSeconds, waitingForFirstFrame: false, secondsSinceStart, toleranceSeconds))
-        {
-            return (false, 0);
-        }
-
-        var next = Math.Max(0, streak) + 1;
-        return (next >= DriftHysteresisTicks, next);
+        var hold = Math.Min(ahead - (toleranceSeconds / 2), MaxAlignmentHoldSeconds);
+        return hold <= 0 ? TimeSpan.Zero : TimeSpan.FromSeconds(hold);
     }
+
+    /// <summary>
+    /// 單一格的等待時間上限（秒）：超過這個量代表這不是啟動時間差，而是這一格的解碼壞了或被搶光。
+    /// </summary>
+    /// <remarks>
+    /// 與 <see cref="MaxStartupLatencySeconds"/> 同一個數量級，但用途不同：那個是「多久沒有第一張影格
+    /// 就當它卡住」，這裡是「願意為它把整面牆停多久」。整面牆停住的代價比單一格落後高得多，所以寧可
+    /// 讓壞掉的那一格自己落後（操作員看得到它不動），也不要讓其他格陪它凍住。
+    /// </remarks>
+    public const double MaxAlignmentHoldSeconds = 5;
+
+    /// <summary>
+    /// 這一格該不該<b>重新起播</b>——只涵蓋「它根本沒有在動」的兩種情況。
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>落後不是重新起播的理由。</b>落後由「最慢的那一格定調、超前的停下來等」處理（見
+    /// <see cref="GroupInstant"/>／<see cref="AlignmentHold"/>），那條路不需要任何啟動成本；
+    /// 而重新起播每一次都要再付一次啟動延遲（實測檔案回放 0.3–1.5 秒，慢的來源 2 秒以上），
+    /// 正是「除了第一格，其他格都慢一拍」的成因。
+    /// </para>
+    /// <para>
+    /// 留下來的兩種是真的壞掉：<b>等第一張影格等到超過 <see cref="MaxStartupLatencySeconds"/></b>
+    /// （ffmpeg 起不來、seek 卡住），以及<b>已經有畫面卻不再更新</b>（解碼行程死了、檔案被鎖住）。
+    /// 這兩種不救，整面牆會跟著它一起停住——等待量每一輪都會重算，所以「一直等」等於凍住。
+    /// </para>
+    /// <para>
+    /// 「不再更新」的門檻由 <see cref="StallSeconds"/> 給：只解關鍵影格的總覽牆每 2–20 秒才換一張，
+    /// 用一般門檻會把它每一輪都判成卡住而重開（64 條解碼行程的啟動風暴）。
+    /// </para>
+    /// </remarks>
+    /// <param name="waitingForFirstFrame">這一格是否還在等第一張影格。</param>
+    /// <param name="secondsSinceStart">從按下播放起算的秒數（等第一張影格時用）。</param>
+    /// <param name="secondsSinceLastFrame">距最後一張影格的秒數（已有畫面時用）。</param>
+    /// <param name="stallSeconds">「不再更新」的門檻（秒，見 <see cref="StallSeconds"/>）。</param>
+    public static bool ShouldRestart(
+        bool waitingForFirstFrame,
+        double secondsSinceStart,
+        double secondsSinceLastFrame,
+        double stallSeconds)
+        => waitingForFirstFrame
+            ? secondsSinceStart > MaxStartupLatencySeconds
+            : secondsSinceLastFrame > stallSeconds;
+
+    /// <summary>一般格「不再更新」的門檻（秒）。</summary>
+    /// <remarks>
+    /// 5 秒＝150ms 的同步週期連續三十幾輪都沒有新影格。比一個正常的 GOP（0.5–2 秒）大得多，
+    /// 所以不會把「正在解一個長 GOP」誤判成卡住，又小到整面牆最多只凍住幾秒。
+    /// </remarks>
+    public const double DefaultStallSeconds = 5;
+
+    /// <summary>只解關鍵影格的格「不再更新」的門檻（秒）：現場錄影的 GOP 實測 2–20 秒。</summary>
+    public const double KeyframesOnlyStallSeconds = 30;
+
+    /// <summary>依解碼預算決定「不再更新」的門檻（秒）。</summary>
+    public static double StallSeconds(bool keyframesOnly)
+        => keyframesOnly ? KeyframesOnlyStallSeconds : DefaultStallSeconds;
 
     /// <summary>
     /// 區段結束時刻。與時間軸色塊、事件比對、跳轉共用 <see cref="PlaybackSegmentTiming.EndOf"/>

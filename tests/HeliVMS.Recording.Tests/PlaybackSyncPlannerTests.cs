@@ -5,6 +5,119 @@ using HeliVMS.Shared.Models;
 namespace HeliVMS.Recording.Tests;
 
 /// <summary>
+/// 多路對時的「慢者定調」模型（參考機 QCV8001 web 播放器：<c>showTimestamp = min(各格 timestamp)</c>，
+/// 超前的格暫停，落後的那一格才是時間基準）。
+/// </summary>
+/// <remarks>
+/// <para>
+/// 現場回報「除了第一格，其他格都慢一拍」：舊模型用主畫面當母鐘，落後的格只能靠「重開 ffmpeg 並
+/// seek」去追，而每一次重開都要再付一次啟動延遲（檔案回放 0.3–1.5 秒，慢的來源 2 秒以上），
+/// 追不上的格於是永遠落後，中間還夾著黑畫面。新模型反過來：最慢的那一格定調，超前的幾格停下來等。
+/// </para>
+/// <para>
+/// 停等的落地是「停止讀取」而不是「丟棄影格」（見 <c>PlaybackSession.HoldUntil</c>）：
+/// 不讀，ffmpeg 的輸出管線填滿後行程停住，解凍後下一張仍然接在最後一張之後——不掉格、不跳時間。
+/// </para>
+/// </remarks>
+public sealed class PlaybackAlignmentTests
+{
+    private static readonly DateTime Base = new(2026, 11, 16, 10, 0, 0, DateTimeKind.Utc);
+
+    [Fact]
+    public void 群組時刻取畫面上最慢的那一格()
+    {
+        var group = PlaybackSyncPlanner.GroupInstant(
+            [Base.AddSeconds(0.4), null, Base.AddSeconds(1.9), Base]);
+
+        Assert.Equal(Base, group);
+    }
+
+    [Fact]
+    public void 沒有任何一格有畫面時沒有群組時刻()
+    {
+        Assert.Null(PlaybackSyncPlanner.GroupInstant([null, null]));
+        Assert.Null(PlaybackSyncPlanner.GroupInstant([]));
+    }
+
+    [Fact]
+    public void 最慢的那一格不用等()
+    {
+        // 它就是母鐘：等待量必須是 0，否則它一停就沒有人在前進（整面牆一起凍住）。
+        Assert.Equal(TimeSpan.Zero, PlaybackSyncPlanner.AlignmentHold(Base, Base));
+    }
+
+    [Fact]
+    public void 超前超過容差的格要停下來等()
+    {
+        var hold = PlaybackSyncPlanner.AlignmentHold(
+            Base.AddSeconds(1.8), Base, PlaybackSyncPlanner.DefaultDriftToleranceSeconds);
+
+        // 1.8 − 0.2（停在容差的一半，留餘裕避免下一輪又超標）= 1.6 秒。
+        Assert.Equal(1.6, hold.TotalSeconds, 3);
+    }
+
+    [Fact]
+    public void 容差之內不等待以免每一輪都在停()
+    {
+        Assert.Equal(
+            TimeSpan.Zero,
+            PlaybackSyncPlanner.AlignmentHold(
+                Base.AddSeconds(PlaybackSyncPlanner.DefaultDriftToleranceSeconds), Base));
+    }
+
+    [Fact]
+    public void 等待有上限_壞掉的一格不會讓整面牆陪它凍住()
+    {
+        // 落後 60 秒不是「啟動比較慢」，是那一格壞了。整面牆停住的代價比單一格落後高得多，
+        // 所以等待一律夾在上限內，剩下的交給停滯判定。
+        var hold = PlaybackSyncPlanner.AlignmentHold(Base.AddSeconds(60), Base);
+
+        Assert.Equal(PlaybackSyncPlanner.MaxAlignmentHoldSeconds, hold.TotalSeconds, 3);
+        Assert.True(hold.TotalSeconds < 10);
+    }
+
+    [Fact]
+    public void 超前的那一格停等之後會與群組對齊且不需要重開解碼()
+    {
+        // 模擬對時迴圈：群組（最慢的那一格）固定以 1× 前進；超前的那一格只有在「沒有在等」時
+        // 才前進。斷言它會收斂到容差內——而且整個過程沒有任何一次重新起播。
+        var group = Base;
+        var pane = Base.AddSeconds(1.8);
+        var tolerance = PlaybackSyncPlanner.DefaultDriftToleranceSeconds;
+        const int tickMs = 150;
+        var frozenMs = 0.0;
+        var restarts = 0;
+
+        for (var elapsed = 0; elapsed < 6000 && (pane - group).TotalSeconds > tolerance; elapsed += tickMs)
+        {
+            if (frozenMs > 0)
+            {
+                frozenMs = Math.Max(0, frozenMs - tickMs);
+            }
+            else
+            {
+                var hold = PlaybackSyncPlanner.AlignmentHold(pane, group, tolerance);
+                if (hold > TimeSpan.Zero)
+                {
+                    frozenMs = hold.TotalMilliseconds;
+                }
+                else
+                {
+                    // 沒在等就照自己的 1× 前進。
+                    pane = pane.AddMilliseconds(tickMs);
+                }
+            }
+
+            group = group.AddMilliseconds(tickMs);
+        }
+
+        Assert.True((pane - group).TotalSeconds <= tolerance,
+            $"停等之後應該對齊，實際還超前 {(pane - group).TotalSeconds:0.00}s");
+        Assert.Equal(0, restarts);
+    }
+}
+
+/// <summary>
 /// 多路同步回放排程核心（ARCHITECTURE §8.5／§11.4）。
 ///
 /// 這組測試守的是「同一播放頭換算到每一路」的語意：各路的錄影切點不同，
@@ -30,14 +143,22 @@ public sealed class PlaybackSyncTimingTests
     {
         Assert.True(PlaybackSyncPlanner.OverviewDriftToleranceSeconds >= 20);
 
-        // 落後 5 秒的關鍵影格格：總覽容差下不重開，一般容差下才重開。
-        const double drift = 5;
-        Assert.False(PlaybackSyncPlanner.ShouldReseek(
-            drift, waitingForFirstFrame: false, secondsSinceStart: 30,
-            PlaybackSyncPlanner.OverviewDriftToleranceSeconds));
-        Assert.True(PlaybackSyncPlanner.ShouldReseek(
-            drift, waitingForFirstFrame: false, secondsSinceStart: 30,
-            PlaybackSyncPlanner.DefaultDriftToleranceSeconds));
+        // 只解關鍵影格的那一格天生落後一個 GOP（現場實測 2–20 秒）。那份落後量在總覽容差下
+        // 不該讓別人停下來等（等＝整面牆一起變慢）；用一般容差就會讓主畫面每一輪都停到上限。
+        var group = new DateTime(2026, 11, 16, 10, 0, 0, DateTimeKind.Utc);
+        var keyframePane = group.AddSeconds(-18);
+
+        Assert.Equal(
+            TimeSpan.Zero,
+            PlaybackSyncPlanner.AlignmentHold(
+                group, keyframePane, PlaybackSyncPlanner.OverviewDriftToleranceSeconds));
+        Assert.True(
+            PlaybackSyncPlanner.AlignmentHold(
+                group, keyframePane, PlaybackSyncPlanner.DefaultDriftToleranceSeconds) > TimeSpan.Zero);
+
+        // 「不再更新」的門檻也要比一個 GOP 大，否則那一格每一輪都被判成卡住而重開。
+        Assert.True(PlaybackSyncPlanner.StallSeconds(keyframesOnly: true) >= 20);
+        Assert.True(PlaybackSyncPlanner.StallSeconds(keyframesOnly: true) > PlaybackSyncPlanner.StallSeconds(keyframesOnly: false));
     }
 
     [Fact]
@@ -69,25 +190,33 @@ public sealed class PlaybackSyncTimingTests
     }
 
     [Fact]
-    public void 等待第一張影格期間不比對漂移只有卡住才重開()
+    public void 等待第一張影格期間只有卡住才重開()
     {
-        // 啟動期間「目前時刻」是刻意超前補償的跳轉位置，與母鐘比一定超出容差；
-        // 照著判定就會每一輪重開 ffmpeg，畫面永遠起不來。
-        Assert.False(PlaybackSyncPlanner.ShouldReseek(driftSeconds: 0.8, waitingForFirstFrame: true, secondsSinceStart: 0.5));
-        // 卡住（超過啟動延遲上限）仍要救：重開一次。
-        Assert.True(PlaybackSyncPlanner.ShouldReseek(
-            driftSeconds: 0.8,
+        // 啟動期間「目前時刻」是刻意超前補償的跳轉位置（見 CompensatedOffset），不是畫面上的時刻，
+        // 所以那一段時間不算落後、也不重開：只有「等太久」才是真的起不來。
+        const double stall = PlaybackSyncPlanner.DefaultStallSeconds;
+        Assert.False(PlaybackSyncPlanner.ShouldRestart(
+            waitingForFirstFrame: true, secondsSinceStart: 0.5, secondsSinceLastFrame: 0, stall));
+        Assert.True(PlaybackSyncPlanner.ShouldRestart(
             waitingForFirstFrame: true,
-            secondsSinceStart: PlaybackSyncPlanner.MaxStartupLatencySeconds + 0.1));
+            secondsSinceStart: PlaybackSyncPlanner.MaxStartupLatencySeconds + 0.1,
+            secondsSinceLastFrame: 0,
+            stall));
     }
 
     [Fact]
-    public void 出畫之後才用容差判定()
+    public void 已經有畫面但不再更新才重開落後再多都不重開()
     {
-        Assert.False(PlaybackSyncPlanner.ShouldReseek(0.3, waitingForFirstFrame: false, secondsSinceStart: 10));
-        Assert.True(PlaybackSyncPlanner.ShouldReseek(0.6, waitingForFirstFrame: false, secondsSinceStart: 10));
-        // 正負都是漂移：落後與超前都要拉回。
-        Assert.True(PlaybackSyncPlanner.ShouldReseek(-0.6, waitingForFirstFrame: false, secondsSinceStart: 10));
+        const double stall = PlaybackSyncPlanner.DefaultStallSeconds;
+
+        // 有畫面、也一直在更新（150ms 一輪）：落後再多都不重開——落後交給「最慢的定調」處理，
+        // 重開只是再付一次啟動延遲，追不上的還是追不上（現場的「除了第一格都慢一拍」）。
+        Assert.False(PlaybackSyncPlanner.ShouldRestart(
+            waitingForFirstFrame: false, secondsSinceStart: 600, secondsSinceLastFrame: 0.04, stall));
+
+        // 真的不再更新（解碼行程死了、檔案被鎖）才重開。
+        Assert.True(PlaybackSyncPlanner.ShouldRestart(
+            waitingForFirstFrame: false, secondsSinceStart: 600, secondsSinceLastFrame: stall + 0.1, stall));
     }
 
     [Fact]
@@ -98,84 +227,28 @@ public sealed class PlaybackSyncTimingTests
     }
 
     /// <summary>
-    /// 超容差要連續幾輪才真的重新對時——不是一輪就重開 ffmpeg。
+    /// 等待首張影格與「不再更新」共用同一個判定（<see cref="PlaybackSyncPlanner.ShouldRestart"/>）。
     /// </summary>
     /// <remarks>
-    /// 現場症狀是「畫面一直閃／重來」，日誌裡 <c>restarts</c> 每 5 秒大於 2，而 <c>drift</c>
-    /// 只是略超容差：解碼比母鐘慢一點的那一格在 開啟→落後→重開→再落後 之間反覆，
-    /// 每一輪都是幾百毫秒的黑畫面，看起來比「稍微不同步」更糟。
+    /// 這個判定以前還帶一條「落後超過容差就重新對時」的分支，那條路已經整段移除：
+    /// 多路對時現在是「最慢的一格定調、超前的停下來等」（見 <c>PlaybackAlignmentTests</c>），
+    /// 留著舊分支就等於兩套對時機制並存，而重開那套會把等待換來的對齊又打散。
     /// </remarks>
     [Fact]
-    public void 超容差要連續三輪才重新對時()
+    public void 等待首張影格期間不會因為看起來落後就被重開()
     {
-        const double tolerance = PlaybackSyncPlanner.DefaultDriftToleranceSeconds;
-        const double drift = 0.6; // 超出 0.4 秒的容差
-        Assert.True(PlaybackSyncPlanner.DriftHysteresisTicks >= 2);
+        const double stall = PlaybackSyncPlanner.DefaultStallSeconds;
 
-        var streak = 0;
-        var reseeks = 0;
-        for (var tick = 1; tick <= PlaybackSyncPlanner.DriftHysteresisTicks; tick++)
-        {
-            var decision = PlaybackSyncPlanner.EvaluateDrift(
-                drift, waitingForFirstFrame: false, secondsSinceStart: 10, streak, tolerance);
-            streak = decision.Streak;
-            if (decision.Reseek)
-            {
-                reseeks++;
-                Assert.Equal(PlaybackSyncPlanner.DriftHysteresisTicks, tick);
-            }
-        }
+        // 剛開播（0.3 秒）：位置上「看起來落後」是補償出來的假象，不重開。
+        Assert.False(PlaybackSyncPlanner.ShouldRestart(
+            waitingForFirstFrame: true, secondsSinceStart: 0.3, secondsSinceLastFrame: 0, stall));
 
-        // 只有最後那一輪會重開；前兩輪只是記帳。
-        Assert.Equal(1, reseeks);
-        Assert.Equal(PlaybackSyncPlanner.DriftHysteresisTicks, streak);
-    }
-
-    [Fact]
-    public void 回到容差內會把滯後計數歸零()
-    {
-        const double tolerance = PlaybackSyncPlanner.DefaultDriftToleranceSeconds;
-
-        // 兩輪超容差之後回到容差內：計數歸零，下一次超容差要重新數滿三輪。
-        var first = PlaybackSyncPlanner.EvaluateDrift(0.6, false, 10, 0, tolerance);
-        var second = PlaybackSyncPlanner.EvaluateDrift(0.6, false, 10, first.Streak, tolerance);
-        Assert.Equal(2, second.Streak);
-        Assert.False(second.Reseek);
-
-        var back = PlaybackSyncPlanner.EvaluateDrift(0.1, false, 10, second.Streak, tolerance);
-        Assert.Equal(0, back.Streak);
-        Assert.False(back.Reseek);
-
-        // 抖動（時好時壞）因此永遠不會累積到門檻——這正是要的：不換來黑畫面。
-        Assert.False(PlaybackSyncPlanner.EvaluateDrift(0.6, false, 10, back.Streak, tolerance).Reseek);
-    }
-
-    /// <summary>
-    /// 等待第一張影格期間（含「卡住」）不累積滯後計數，卡住仍然立即重開。
-    /// </summary>
-    /// <remarks>
-    /// 那段期間的漂移是刻意超前補償出來的（見 <see cref="PlaybackSyncPlanner.CompensatedOffset"/>）：
-    /// 若照樣累積，第一張影格一到就會立刻再重開一次，變成每次開播都固定閃兩下。
-    /// </remarks>
-    [Fact]
-    public void 等待首張影格期間不累積滯後但卡住仍會重開()
-    {
-        const double tolerance = PlaybackSyncPlanner.DefaultDriftToleranceSeconds;
-
-        // 剛開播：漂移看起來很大（補償量），但不判定、也不記帳。
-        var starting = PlaybackSyncPlanner.EvaluateDrift(0.9, waitingForFirstFrame: true, secondsSinceStart: 0.3, streak: 2, tolerance);
-        Assert.False(starting.Reseek);
-        Assert.Equal(0, starting.Streak);
-
-        // 卡住超過啟動延遲上限：立即重開一次，滯後計數同樣歸零。
-        var stuck = PlaybackSyncPlanner.EvaluateDrift(
-            0.9,
+        // 等了超過啟動上限：這才是真的起不來，重開一次。
+        Assert.True(PlaybackSyncPlanner.ShouldRestart(
             waitingForFirstFrame: true,
             secondsSinceStart: PlaybackSyncPlanner.MaxStartupLatencySeconds + 0.1,
-            streak: 2,
-            tolerance);
-        Assert.True(stuck.Reseek);
-        Assert.Equal(0, stuck.Streak);
+            secondsSinceLastFrame: 0,
+            stall));
     }
 }
 

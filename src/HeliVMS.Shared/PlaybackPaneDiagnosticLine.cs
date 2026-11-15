@@ -32,7 +32,12 @@ public static class PlaybackPaneDiagnosticLine
     /// </param>
     /// <param name="ShownFps">實際顯示的更新率。</param>
     /// <param name="DriftSeconds">與母鐘的差（秒，正＝超前）；沒有在播時為 <c>null</c>。</param>
-    /// <param name="Restarts">這一格重開解碼的次數（對時跳轉、換段）。</param>
+    /// <param name="Restarts">這一格重開解碼的次數（跳轉、換段）。</param>
+    /// <param name="HoldSeconds">
+    /// 這一格為了等最慢的一格而停下來多久（0＝沒有等）。與 <paramref name="Restarts"/> 一起看：
+    /// 多路對時走的是「停下來等」而不是「重開行程」（見 <c>PlaybackSyncPlanner.AlignmentHold</c>），
+    /// 少了這一欄，「改成等待」與「判定被整段拿掉」在日誌上長得一樣（兩者 restarts 都是 0）。
+    /// </param>
     /// <param name="SinceLastFrame">距這一格最後一張影格多久（＝這一格還有沒有在更新）。</param>
     /// <param name="State">playing／gap／done／stopped。</param>
     public readonly record struct PaneSample(
@@ -45,6 +50,7 @@ public static class PlaybackPaneDiagnosticLine
         double ShownFps,
         double? DriftSeconds,
         int Restarts,
+        double HoldSeconds,
         TimeSpan SinceLastFrame,
         string State);
 
@@ -103,6 +109,15 @@ public static class PlaybackPaneDiagnosticLine
             }
 
             builder.Append(" restarts=").Append(pane.Restarts.ToString(CultureInfo.InvariantCulture));
+
+            // hold＝這一格為了等最慢的一格而停下來多久（見 PlaybackSyncPlanner.AlignmentHold）。
+            // 沒有這一欄，「多路回放不再重開 ffmpeg」與「重開的判定被整段拿掉」在日誌上長得一樣
+            // （restarts=0 兩者都成立），而後者會讓牆面永遠各播各的。
+            if (pane.HoldSeconds is { } hold && hold > 0)
+            {
+                builder.Append(" hold=").Append(hold.ToString("0.0", CultureInfo.InvariantCulture)).Append('s');
+            }
+
             builder.Append(" frame=").Append(Math.Round(Math.Max(0, pane.SinceLastFrame.TotalMilliseconds)).ToString("0", CultureInfo.InvariantCulture)).Append("ms");
             builder.Append(' ').Append(string.IsNullOrWhiteSpace(pane.State) ? "unknown" : pane.State);
         }

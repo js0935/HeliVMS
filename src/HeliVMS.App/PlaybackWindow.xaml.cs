@@ -60,6 +60,15 @@ public partial class PlaybackWindow : Window
     private AudioStreamReceiver? _audioReceiver;
     private double _basePos;
     private double _posInside;
+
+    /// <summary>
+    /// 最近一次真的畫出影格的 session 版本（0＝還沒畫過）。
+    /// </summary>
+    /// <remarks>
+    /// 進入多路對時之前必須知道主畫面「有沒有畫面」：<c>_posInside</c> 在按下播放的當下就被
+    /// 設成跳轉位置，拿它當母鐘等於用一個還沒顯示的時刻去要求其他格——其他格會白等一個啟動週期。
+    /// </remarks>
+    private long _renderedVersion;
     private bool _stopping;
     private long _sessionVersion;
     private WriteableBitmap? _bitmap;
@@ -236,13 +245,13 @@ public partial class PlaybackWindow : Window
         public double LastDriftSeconds { get; set; }
 
         /// <summary>
-        /// 連續幾輪被判定超容差；達 <see cref="PlaybackSyncPlanner.DriftHysteresisTicks"/> 才重開。
+        /// 這一輪為了等最慢的一格而停下來多久（秒；0＝沒有等）。
         /// </summary>
         /// <remarks>
-        /// 沒有這個計數就是「單輪超容差就重開 ffmpeg」：解碼比母鐘慢一點的那一格會反覆
-        /// 開啟→落後→重開→再落後，畫面一直閃，而每一輪都只是幾百毫秒的黑畫面。
+        /// 多路對時走「停下來等」而不是「重開行程」，所以這個值平常是 0，只有在某幾格啟動較慢時
+        /// 才短暫大於 0；日誌上的 <c>hold=</c> 就是它。
         /// </remarks>
-        public int DriftStreak { get; set; }
+        public double HoldSeconds { get; set; }
 
         /// <summary>已經播到檔案結尾的區段 Id（0＝沒有）；見 <see cref="SyncPanes"/> 的說明。</summary>
         public long FinishedSegmentId { get; set; }
@@ -2631,6 +2640,8 @@ public partial class PlaybackWindow : Window
                 0);
 
             _posInside = _basePos + frame.PtsMs / 1000.0;
+            // 主畫面到這一刻才算「畫面上有影格」；多路對時從現在起可以拿它當群組時刻的一員。
+            _renderedVersion = version;
             ShowPlayheadTime(seg);
             StatusText.Text = string.Format(Localizer.T("Playback.Playing"), GetSpeed().ToString("0.##"));
 
@@ -4429,6 +4440,7 @@ public partial class PlaybackWindow : Window
         }
 
         var target = focusSegment.StartUtc.AddSeconds(_posInside);
+        var now = DateTime.UtcNow;
 
         // 這一輪的預算與容差只跟格數、設定有關，所以放在回圈外算一次。舊寫法在每一格裡呼叫
         // SyncToleranceSeconds()，於是每一格每 150ms 都讀一次 decode.hwaccel（SQLite）並重跑一次
@@ -4436,6 +4448,11 @@ public partial class PlaybackWindow : Window
         // 而日誌與畫面都正常。
         var budget = PaneBudget();
         var tolerance = ToleranceForBudget(budget);
+
+        // 群組時刻＝所有「畫面上已經有影格」的格之中最慢的那一個（參考機 TVTPlayer 的
+        // Math.min(各格 timestamp)）。主畫面也只是一格：它比別人快時同樣要停下來等，
+        // 否則母鐘永遠追不上它，其他格就一路落後——現場回報的「除了第一格都慢一拍」。
+        var group = GroupInstant(target);
 
         foreach (var pane in _panes)
         {
@@ -4473,39 +4490,107 @@ public partial class PlaybackWindow : Window
             }
 
             var paneUtc = pane.Current is { } current ? current.StartUtc.AddSeconds(pane.PosInside) : (DateTime?)null;
+            pane.LastDriftSeconds = paneUtc is { } shown ? (shown - target).TotalSeconds : 0;
 
-            // 等待第一張影格期間不比對漂移：那時「目前時刻」是刻意超前補償過的跳轉位置，
-            // 與母鐘比一定超出容差（見 PlaybackSyncPlanner.ShouldReseek），只有卡住才重開。
-            var drift = paneUtc is { } shown ? (shown - target).TotalSeconds : 0;
-            pane.LastDriftSeconds = drift;
-            var sinceStart = pane.StartedAtUtc is { } startedAt
-                ? (DateTime.UtcNow - startedAt).TotalSeconds
-                : 0;
-
-            // 出畫之後要連續幾輪超容差才真的重開：單輪抖動換來一次黑畫面，畫面看起來就是
-            // 「一直閃／重來」（見 PlaybackSyncPlanner.DriftHysteresisTicks）。
-            var driftDecision = PlaybackSyncPlanner.EvaluateDrift(
-                drift,
+            // 「等第一張影格等到卡住」或「已經有畫面卻不再更新」＝真的壞掉，重開一次比讓整面牆
+            // 陪它凍住划算（等待量每一輪都會重算，一直等＝凍住）。
+            var sinceStart = pane.StartedAtUtc is { } startedAt ? (now - startedAt).TotalSeconds : 0;
+            var sinceLastFrame = pane.LastFrameAtUtc == default ? 0 : (now - pane.LastFrameAtUtc).TotalSeconds;
+            var notMoving = PlaybackSyncPlanner.ShouldRestart(
                 pane.StartedAtUtc is not null,
                 sinceStart,
-                pane.DriftStreak,
-                tolerance);
-            pane.DriftStreak = driftDecision.Streak;
+                sinceLastFrame,
+                PlaybackSyncPlanner.StallSeconds(budget.KeyframesOnly));
 
+            // 只有這三種情況要重新起播，而且都不是「落後」：
+            //   ① 操作員動作（force：跳轉、換段、改倍速）
+            //   ② 還沒起播／換到別段
+            //   ③ 根本沒有在動（見 PlaybackSyncPlanner.ShouldRestart）
+            // 以前④「落後超過容差就重開」是主要的對時手段，而每一次重開都要再付一次啟動延遲，
+            // 追不上的那幾格於是永遠落後、中間還夾著黑畫面（見 PlaybackSyncPlanner.GroupInstant）。
             var restart = force
                 || pane.Session is null
                 || pane.Current is null
                 || pane.Current.Id != cursor.Value.Segment.Id
-                || paneUtc is null
-                || driftDecision.Reseek;
+                || notMoving;
 
             if (restart)
             {
+                // 剛起播的格這一輪不參與等待：那時 pane.PosInside 是「跳轉目標」，不是畫面上
+                // 的時刻；拿它去等會讓它更晚出畫。
+                pane.HoldSeconds = 0;
                 PlayPane(pane, cursor.Value.Segment, cursor.Value.OffsetSeconds);
+                continue;
+            }
+
+            // 對時：比群組時刻超前就停下來等（凍結媒體位置；不重開行程、不掉格）。
+            if (pane.Session is { } session)
+            {
+                if (group is { } groupAt && paneUtc is { } shownAt && pane.StartedAtUtc is null)
+                {
+                    var hold = PlaybackSyncPlanner.AlignmentHold(shownAt, groupAt, tolerance);
+                    pane.HoldSeconds = hold.TotalSeconds;
+                    session.HoldUntil(now + hold);
+                }
+                else
+                {
+                    pane.HoldSeconds = 0;
+                    session.ReleaseHold();
+                }
             }
         }
 
+        ApplyMainHold(group, target, tolerance, now);
         WritePaneDiagnostics(budget);
+    }
+
+    /// <summary>
+    /// 群組時刻：主畫面與每一格之中，<b>畫面上已經有影格</b>且最慢的那一個。
+    /// </summary>
+    /// <remarks>
+    /// 還在等第一張影格的格不算：那時它的位置是「跳轉目標」而不是畫面上的時刻，把它算進來
+    /// 等於讓整面牆陪一張還沒出現的畫面等。
+    /// </remarks>
+    private DateTime? GroupInstant(DateTime target)
+    {
+        var instants = new List<DateTime?>();
+        if (_session is not null && _renderedVersion == _sessionVersion)
+        {
+            instants.Add(target);
+        }
+
+        foreach (var pane in _panes)
+        {
+            if (pane.Session is not null && pane.StartedAtUtc is null && pane.Current is { } segment)
+            {
+                instants.Add(segment.StartUtc.AddSeconds(pane.PosInside));
+            }
+        }
+
+        return PlaybackSyncPlanner.GroupInstant(instants);
+    }
+
+    /// <summary>
+    /// 主畫面也一樣要讓：它比群組時刻超前時停下來等，否則母鐘永遠追不上它。
+    /// </summary>
+    /// <remarks>
+    /// 單畫面時群組時刻就是主畫面自己，等待量恆為 0，行為與從前完全相同。
+    /// 逐幀暫停（<c>_pendingFramePause</c>）期間不插手：那段時間「停在下一張」是刻意的。
+    /// </remarks>
+    private void ApplyMainHold(DateTime? group, DateTime target, double tolerance, DateTime now)
+    {
+        if (_session is not { } session)
+        {
+            return;
+        }
+
+        if (_pendingFramePause || _stopping || group is not { } groupAt || _renderedVersion != _sessionVersion)
+        {
+            session.ReleaseHold();
+            return;
+        }
+
+        session.HoldUntil(now + PlaybackSyncPlanner.AlignmentHold(target, groupAt, tolerance));
     }
 
     /// <summary>診斷取樣的節拍（每秒 150ms 的同步計時器 → 每 5 秒寫一行）。</summary>
@@ -4551,6 +4636,7 @@ public partial class PlaybackWindow : Window
                 shown,
                 playing ? pane.LastDriftSeconds : null,
                 pane.Restarts,
+                playing ? pane.HoldSeconds : 0,
                 pane.LastFrameAtUtc == default ? TimeSpan.Zero : now - pane.LastFrameAtUtc,
                 playing ? "playing" : pane.NoRecording ? "gap" : pane.FinishedSegmentId != 0 ? "done" : "stopped"));
         }
@@ -4651,10 +4737,7 @@ public partial class PlaybackWindow : Window
 
         pane.Current = segment;
         pane.FinishedSegmentId = 0;
-
-        // 重新對時的滯後計數從零開始：舊的累積屬於上一次播放，留著會讓新的一段
-        // 在第一輪就被判定要重開。
-        pane.DriftStreak = 0;
+        pane.HoldSeconds = 0;
 
         // 加上這一格自己的啟動延遲：第一張影格才會落在正確的時刻上（見 StartupLatencySeconds）。
         var offset = PlaybackSyncPlanner.CompensatedOffset(offsetSeconds, pane.StartupLatencySeconds);
@@ -4662,6 +4745,10 @@ public partial class PlaybackWindow : Window
         pane.PosInside = offset;
         pane.NoRecording = false;
         pane.StartedAtUtc = DateTime.UtcNow;
+
+        // 沒有影格的時間從現在起算：上一輪的 LastFrameAtUtc 留著會讓剛重開的格立刻被判成
+        // 「不再更新」而再重開一次（無限重開）。
+        pane.LastFrameAtUtc = default;
         var version = ++pane.Version;
         var session = CreateSession(segment);
         pane.Session = session;

@@ -132,6 +132,40 @@ public sealed class PlaybackSession : IAsyncDisposable
     /// </remarks>
     public bool KeyframesOnly { get; set; }
 
+    /// <summary>
+    /// 多路對時：暫停讀取（＝凍結這一格的媒體位置）直到這個牆鐘時刻（UTC ticks，0＝沒有暫停）。
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// 這是參考機「快的那幾格停下來等最慢的一格」的落地方式（見
+    /// <see cref="PlaybackSyncPlanner.AlignmentHold"/>）。刻意做成<b>停止讀取</b>而不是丟棄影格：
+    /// 不讀，ffmpeg 的輸出管線就會填滿並阻塞，行程停在原地，媒體位置跟著凍結；解凍之後管線裡
+    /// 的下一張仍然是接在最後一張之後，<b>不掉格、不跳時間</b>。丟棄超前影格則相反——丟掉的是
+    /// 中間的內容，解凍時畫面會往前跳一段，等於自己製造一次 seek。
+    /// </para>
+    /// <para>
+    /// 停在「哪一個時刻」由對時迴圈每 150ms 重算（<c>PlaybackWindow.SyncPanes</c>），所以領先量
+    /// 縮小時期限會跟著提前，不會過衝。
+    /// </para>
+    /// </remarks>
+    private long _holdUntilUtcTicks;
+
+    /// <summary>
+    /// 要求這一格先不要顯示新影格，直到 <paramref name="deadlineUtc"/>。
+    /// </summary>
+    /// <remarks>
+    /// 由多路對時迴圈設定：這一格比群組時刻（最慢的那一格）超前時，它先停下來等。
+    /// 傳入過去或現在的時刻等同解除等待。
+    /// </remarks>
+    public void HoldUntil(DateTime deadlineUtc)
+        => Interlocked.Exchange(ref _holdUntilUtcTicks, deadlineUtc.ToUniversalTime().Ticks);
+
+    /// <summary>解除等待（停止、跳轉、改速率時呼叫：那時整組會重新對時）。</summary>
+    public void ReleaseHold() => Interlocked.Exchange(ref _holdUntilUtcTicks, 0L);
+
+    /// <summary>這一格現在是否正在等待（診斷用）。</summary>
+    public bool IsHolding => Interlocked.Read(ref _holdUntilUtcTicks) > DateTime.UtcNow.Ticks;
+
     /// <summary>上一次「帶了硬體解碼卻一幀都沒出」之後，停用它的期限。</summary>
     private static DateTime _hwAccelDisabledUntil = DateTime.MinValue;
 
@@ -552,6 +586,25 @@ public sealed class PlaybackSession : IAsyncDisposable
         {
             while (!token.IsCancellationRequested)
             {
+                // 多路對時：比群組時刻（最慢的那一格）超前時先停下來等——不讀取＝媒體位置凍結
+                // （見 _holdUntilUtcTicks）。睡一小段就重新評估，對時迴圈隨時可以縮短或解除。
+                var holdUntil = Interlocked.Read(ref _holdUntilUtcTicks);
+                if (holdUntil != 0)
+                {
+                    var nowTicks = DateTime.UtcNow.Ticks;
+                    if (holdUntil > nowTicks)
+                    {
+                        var waitMs = (int)Math.Ceiling(new TimeSpan(holdUntil - nowTicks).TotalMilliseconds);
+                        await Task.Delay(Math.Clamp(waitMs, 1, 50), token);
+                        continue;
+                    }
+
+                    // 解凍：把節奏錨點重設到當下（「時鐘位移」），否則等待期間累積的排程落後
+                    // 會被後續影格連續補送，畫面在解凍瞬間快轉一段。
+                    Interlocked.Exchange(ref _holdUntilUtcTicks, 0L);
+                    scheduledMs = sw.Elapsed.TotalMilliseconds;
+                }
+
                 var offset = 0;
                 while (offset < frameSize)
                 {
