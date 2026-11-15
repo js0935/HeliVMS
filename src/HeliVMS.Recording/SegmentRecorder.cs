@@ -39,6 +39,7 @@ public sealed class SegmentRecorder : ISegmentRecorder
     private readonly FfmpegProcessRegistry _registry;
     private readonly Func<DateTime> _clock;
     private readonly Func<string, double?> _probeDuration;
+    private readonly Func<int, TimeSpan> _retryDelay;
     private readonly TimeSpan _gracefulStopTimeout;
     private readonly CancellationTokenSource _cts = new();
     private Process? _process;
@@ -89,7 +90,8 @@ public sealed class SegmentRecorder : ISegmentRecorder
         Func<int, string?>? folderNameFor = null,
         Func<DateTime>? clock = null,
         TimeSpan? gracefulStopTimeout = null,
-        Func<string, double?>? probeDuration = null)
+        Func<string, double?>? probeDuration = null,
+        Func<int, TimeSpan>? retryDelay = null)
     {
         _repo = repo;
         _processFactory = processFactory ?? new DefaultProcessFactory();
@@ -98,6 +100,7 @@ public sealed class SegmentRecorder : ISegmentRecorder
         _registry = registry ?? FfmpegProcessRegistry.Shared;
         _folderNameFor = folderNameFor;
         _clock = clock ?? (static () => DateTime.UtcNow);
+        _retryDelay = retryDelay ?? RetryDelayFor;
         _probeDuration = probeDuration ?? (static path => MediaDurationProbe.ProbeSeconds(path));
         _gracefulStopTimeout = gracefulStopTimeout ?? DefaultGracefulStopTimeout;
     }
@@ -128,7 +131,8 @@ public sealed class SegmentRecorder : ISegmentRecorder
     public event EventHandler<RecordingStallInfo>? RecordingStalled;
 
     /// <summary>
-    /// 曾經停滯、如今又成功錄回檔（參數為頻道 ID）。
+    /// 停滯解除了：曾經停滯、如今又成功錄回檔，<b>或這個錄影機已經不再存在</b>
+    /// （停止錄影、被替換、關閉）。參數為頻道 ID。
     /// </summary>
     /// <remarks>
     /// 沒有這條訊號，UI 上的「錄影異常」只能靠逾時猜測要不要清掉。但不能用逾時判斷：
@@ -136,6 +140,10 @@ public sealed class SegmentRecorder : ISegmentRecorder
     /// 獨立連線，停滯時顯示畫面照常有幀、<see cref="IsRecording"/> 也仍是 true，
     /// 任何「畫面有在動就算好了」的判斷都會立刻把警示清掉——正好在最該警示的時候。
     /// 唯一可信的恢復證據是這裡真的寫出了一段。
+    /// <para>
+    /// 另一半同樣重要：錄影機被收掉之後再也不會成功錄出任何東西，所以「它不存在了」也是
+    /// 一個解除訊號。少了這一半，紅線會活得比它描述的那個故障還久，而畫面看起來一切正常。
+    /// </para>
     /// </remarks>
     public event EventHandler<int>? RecordingResumed;
 
@@ -368,6 +376,18 @@ public sealed class SegmentRecorder : ISegmentRecorder
         {
             // 迴圈結束（停止錄影、例外）時不能讓等收檔的人等到逾時。
             CompleteCutWaiters(completed: false);
+
+            // 停滯警示必須跟著這個錄影機一起結束，**無論它是怎麼結束的**。
+            // RecordingResumed 原本只在「整段成功錄完」時才發，所以被收掉的錄影機（停止錄影、
+            // 換串流／品質協調把錄影機替換掉、關閉程式）永遠不會再發任何訊號——牆上那一格就
+            // 一直留著紅線，即使錄影早就沒在跑了，畫面本身也完全正常（現場回報的
+            // 「畫面正常顯示但下方的線是紅色的」）。清除訊號放在這裡而不是逐一補在每個
+            // 收檔點，是因為「錄影機不再存在」本身就已經是解除停滯的充分理由。
+            if (_stallReported)
+            {
+                _stallReported = false;
+                RecordingResumed?.Invoke(this, ChannelId);
+            }
         }
     }
 
@@ -433,7 +453,7 @@ public sealed class SegmentRecorder : ISegmentRecorder
 
             try
             {
-                await Task.Delay(RetryDelayFor(_consecutiveFailures), token);
+                await Task.Delay(_retryDelay(_consecutiveFailures), token);
             }
             catch (OperationCanceledException)
             {

@@ -280,6 +280,17 @@ public sealed class ChannelSession : IDisposable
     /// <summary>新增錄影被授權閘門拒絕（UI 以此提示使用者）。</summary>
     public event EventHandler<RecordingGateResult>? RecordingBlocked;
 
+    /// <summary>本工作階段自己的錄影機（牆上手動錄影）連續錄不成。</summary>
+    /// <remarks>
+    /// 排程錄影有 <c>RecordingScheduler</c> 的同一組事件，但牆上手動錄影是由這裡持有的
+    /// <c>SegmentRecorder</c> 跑的。少了這條轉發，手動錄影失敗在畫面上完全看不出來：
+    /// REC 徽章亮著、磁碟上沒有檔案，而狀態列寫著一切正常。
+    /// </remarks>
+    public event EventHandler<RecordingStallInfo>? RecordingStalled;
+
+    /// <summary>本工作階段的錄影停滯已解除（成功錄回一段，或該錄影機已停止）。</summary>
+    public event EventHandler<int>? RecordingResumed;
+
     /// <summary>該頻道每幀完整 AI 偵測（即時監看疊加用）。</summary>
     public event EventHandler<DetectionsFrame>? AiDetections;
 
@@ -603,6 +614,10 @@ public sealed class ChannelSession : IDisposable
                 // 與排程錄影同一套資料夾命名（M311）：監看牆手動錄影若走舊制 ch{id}，
                 // 同一台攝影機會在磁碟上留下兩個不同名稱的目錄。
                 folderNameFor: id => RecordingFolderNaming.ResolveFor(_store, id));
+
+            // 訂閱要在 StartAsync 之前：錄影機一開就可能失敗，訂閱晚一步就漏掉第一次停滯。
+            recorder.RecordingStalled += (_, stall) => RecordingStalled?.Invoke(this, stall);
+            recorder.RecordingResumed += (_, id) => RecordingResumed?.Invoke(this, id);
             await recorder.StartAsync(ChannelId, RecordingUrl, _recordingsRoot, "main", segmentSeconds: RecordingSegmentPolicy.Read(_store));
             _recorder = recorder;
         }

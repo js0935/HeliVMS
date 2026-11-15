@@ -1811,6 +1811,11 @@ public partial class MainWindow : Window, IWallDisplayOptions
                 new Action(() => HintText.Text = string.Format(Localizer.T("Main.LiveTimeoutReconnect"), e.Channel.Name)),
                 DispatcherPriority.Background);
         manager.AlarmEvent += (_, e) => RouteAlarm(e.Record);
+
+        // 牆上「手動錄影」的錄影機掛在工作階段上，與排程器是兩條獨立路徑；兩邊的停滯都要
+        // 反映到同一組紅線。只接排程器的話，手動錄影失敗時格位看起來一切正常。
+        manager.RecordingStalled += OnRecordingStalled;
+        manager.RecordingResumed += OnRecordingResumed;
         return manager;
     }
 
@@ -2619,6 +2624,11 @@ public partial class MainWindow : Window, IWallDisplayOptions
     }
 
     /// <summary>把目前所有處於連線中的格，依 <see cref="_showCellStatus"/> 重畫或收掉狀態文字。</summary>
+    /// <remarks>
+    /// 一律走 <see cref="ApplyCellState"/> 而不是直接 <see cref="RenderCellStatusText"/>：
+    /// 後者只認得「串流中」，會把「錄影失敗 N 次」蓋成正常文字卻留下紅色色條——
+    /// 操作員看到的就是「畫面正常、下方的線是紅色的」，而且沒有任何說明。
+    /// </remarks>
     private void RefreshCellStatusText()
     {
         for (var i = 0; i < MaxCells; i++)
@@ -2628,7 +2638,7 @@ public partial class MainWindow : Window, IWallDisplayOptions
                 continue;
             }
 
-            RenderCellStatusText(i);
+            ApplyCellState(i, _cellStates[i]);
         }
     }
 
@@ -2841,9 +2851,20 @@ public partial class MainWindow : Window, IWallDisplayOptions
 
     /// <summary>錄影停滯（ffmpeg 連續錄不成，但 <c>IsRecording</c> 仍是 true）。</summary>
     /// <remarks>
-    /// 事件來自錄影執行緒。警示必須「持續存在」到復原為止，不能只丟一次浮動警報：
-    /// 錄影停滯的典型現場就是無人值守，操作員不會正好在那幾秒鐘看著畫面。
-    /// 復原事件（<see cref="RecordingScheduler.RecordingResumed"/>）是唯一能可靠清除它的訊號。
+    /// <para>
+    /// 事件來自錄影執行緒，而且有<b>兩個</b>來源：排程錄影
+    /// （<see cref="RecordingScheduler.RecordingStalled"/>）與牆上手動錄影
+    /// （<see cref="ChannelManager.RecordingStalled"/>，由工作階段自己的錄影機轉發）。
+    /// 兩條路徑各自跑自己的 ffmpeg，只接其中一條時，另一條的失敗在畫面上完全看不出來。
+    /// </para>
+    /// <para>
+    /// 警示必須「持續存在」到復原為止，不能只丟一次浮動警報：錄影停滯的典型現場就是
+    /// 無人值守，操作員不會正好在那幾秒鐘看著畫面。清除訊號是
+    /// <see cref="RecordingScheduler.RecordingResumed"/>／
+    /// <see cref="ChannelManager.RecordingResumed"/>——兩者都代表「成功錄回一段」或
+    /// 「這台錄影機已經不存在」，後者是不可省略的一半：被收掉的錄影機永遠不會再成功，
+    /// 少了它紅線會活得比故障本身還久。
+    /// </para>
     /// </remarks>
     private void OnRecordingStalled(object? sender, RecordingStallInfo stall)
     {
@@ -6119,6 +6140,13 @@ public partial class MainWindow : Window, IWallDisplayOptions
     /// 必須獨立於幀事件定時刷新：串流卡住時不會再送新影格，若只在幀事件時更新，
     /// 文字就會停在「最後一張影格當下」的數字——正好在畫面開始愈拖愈舊的時候
     /// 看不到任何變化，指示器等於白做。
+    /// <para>
+    /// 一律走 <see cref="ApplyCellState"/>：這條每秒執行的路徑曾經直接呼叫
+    /// <see cref="RenderCellStatusText"/>，於是一秒內就把「錄影失敗 N 次」換成正常的
+    /// fps 文字，而紅色色條仍留在原地——現場看到的是「畫面正常、下方的線是紅色的」，
+    /// 且畫面上再也找不到原因。<see cref="ApplyCellState"/> 是狀態的唯一投影點，
+    /// 停滯與否由它決定，每秒刷新只能沿用它，不能繞過它。
+    /// </para>
     /// </remarks>
     private void UpdateCellMetrics()
     {
@@ -6126,7 +6154,7 @@ public partial class MainWindow : Window, IWallDisplayOptions
         {
             if (_cellStates[i] == RtspState.Streaming)
             {
-                RenderCellStatusText(i);
+                ApplyCellState(i, _cellStates[i]);
             }
         }
     }

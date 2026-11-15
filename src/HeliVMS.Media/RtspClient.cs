@@ -37,6 +37,7 @@ public sealed class RtspClient : IAsyncDisposable
     private Task? _loop;
     private bool _silentRestart;
     private int _silentRestartGeneration;
+    private DateTime _connectingSinceUtc;
     private Process? _process;
     private bool _disposed;
     private int _consecutiveFailures;
@@ -255,13 +256,23 @@ public sealed class RtspClient : IAsyncDisposable
         // 只有「本來就在出畫」才把重開當成內部換手。已經在 Connecting／Reconnecting 的頻道
         // 不套用靜默——那時的狀態變化正是操作員需要看到的故障資訊。
         var silent = State == RtspState.Streaming;
-        var generation = silent ? BeginSilentRestart() : 0;
         if (silent)
         {
-            _ = ExpireSilentRestartAsync(generation);
+            // 寬限依這一路自己量到的啟動延遲決定，不是固定值：實測同一站台裡
+            // 區網攝影機換手 0.5 秒、十路網際網路攝影機同時重開要 5.2 秒，
+            // 固定 2.5 秒會讓後者每一格都在換手完成前就發布「連線中」。
+            var latency = LastStartupLatency;
+            var grace = SilentHandoffGrace.Resolve(SilentRescaleGrace, latency);
+            var generation = BeginSilentRestart();
+            _ = ExpireSilentRestartAsync(generation, grace);
+            AppendStateLog(
+                $"rescale {before}->{after} silent grace={grace.TotalSeconds:0.0#}s "
+                + $"latency={(latency is { } measured ? $"{measured.TotalSeconds:0.0#}s" : "-")}");
         }
-
-        AppendStateLog($"rescale {before}->{after}{(silent ? " silent" : string.Empty)}");
+        else
+        {
+            AppendStateLog($"rescale {before}->{after}");
+        }
 
         try
         {
@@ -334,12 +345,29 @@ public sealed class RtspClient : IAsyncDisposable
     /// 為換解碼寬度而重開 ffmpeg 時，最多靜默多久（不對外發布 Stopped／Connecting）。
     /// </summary>
     /// <remarks>
-    /// 靜默是為了消掉「切換分割／點放大時每一格閃『連線中』」——那個重開只是內部換手，
-    /// 畫面照樣留著。但它不能無限延長：攝影機慢到十幾秒才回第一幀時，格位若仍標著
-    /// 「串流中」卻定格在舊影格，就變成「凍結的畫面看起來像還活著」，比閃一下更難發現。
-    /// 所以超過這個寬限時間還沒出新幀，就把目前狀態照實發布。
+    /// <para>
+    /// 這是<b>下限</b>，不是完整的寬限：真正用掉多久由
+    /// <see cref="SilentHandoffGrace.Resolve"/> 依這一路自己量到的啟動延遲放大
+    /// （見 <see cref="LastStartupLatency"/>）。固定值在快機上是多餘的定格，在慢的
+    /// 網際網路攝影機上則會在換手完成前就照實發布「連線中」——那正是「切換分割
+    /// 會重新連線」的來源。測試把這個值調短，行為仍然可預期。
+    /// </para>
+    /// <para>
+    /// 靜默不能無限延長：攝影機慢到十幾秒才回第一幀時，格位若仍標著「串流中」卻定格
+    /// 在舊影格，就變成「凍結的畫面看起來像還活著」，比閃一下更難發現。
+    /// </para>
     /// </remarks>
-    public TimeSpan SilentRescaleGrace { get; set; } = TimeSpan.FromSeconds(2.5);
+    public TimeSpan SilentRescaleGrace { get; set; } = SilentHandoffGrace.DefaultFloor;
+
+    /// <summary>
+    /// 最近一次「連線中→串流中」實際花費（null＝還沒成功連上過）。
+    /// </summary>
+    /// <remarks>
+    /// 這是 <see cref="SilentHandoffGrace"/> 唯一的輸入：靜默換手要撐多久，只能由這一路
+    /// 自己的換手成本決定。用它而不是全域設定或平均值，是因為同一個站台裡區網攝影機
+    /// 換手 0.5 秒、網際網路攝影機 5 秒以上，任何單一數字都必然對其中一半是錯的。
+    /// </remarks>
+    public TimeSpan? LastStartupLatency { get; private set; }
 
     /// <summary>
     /// 硬體解碼嘗試失敗（有帶 <c>-hwaccel</c> 卻一幀都沒出）後，改用軟解的冷卻時間（預設 5 分鐘）。
@@ -640,6 +668,20 @@ public sealed class RtspClient : IAsyncDisposable
             previous = State;
             State = state;
 
+            // 量「連線中→串流中」實際花多久：這是靜默換手寬限的唯一依據（見 LastStartupLatency）。
+            // 只記真正走完的那一次，中途失敗（→Reconnecting）不記——那量到的是退避等待，
+            // 不是換手成本，會把寬限一路灌到上限。
+            if (state == RtspState.Connecting)
+            {
+                _connectingSinceUtc = DateTime.UtcNow;
+            }
+            else if (state == RtspState.Streaming
+                && previous == RtspState.Connecting
+                && _connectingSinceUtc != default)
+            {
+                LastStartupLatency = DateTime.UtcNow - _connectingSinceUtc;
+            }
+
             // 為換解碼寬度而重開的內部換手：舊行程收尾（Stopped）與新行程啟動（Connecting）
             // 都不是「畫面出事」，對外不發布，格位才會留著最後一幀、狀態列也不會閃「連線中」。
             // 真正的故障（Reconnecting）與重新出畫（Streaming）一律照常發布並結束靜默。
@@ -702,18 +744,25 @@ public sealed class RtspClient : IAsyncDisposable
     }
 
     /// <summary>
-    /// 靜默換手超過 <see cref="SilentRescaleGrace"/> 還沒出新幀時，把目前狀態照實發布。
+    /// 靜默換手超過 <paramref name="grace"/> 還沒出新幀時，把目前狀態照實發布。
     /// </summary>
     /// <remarks>
+    /// <para>
     /// 沒有這道寬限，攝影機慢到十幾秒才回第一幀時，格位會一直標著「串流中」卻定格在舊影格——
     /// 「凍結的畫面看起來像還活著」比閃一下「連線中」危險得多。世代號用來作廢過期的計時：
     /// 靜默被重新開啟後，上一輪的計時器不得提前結束這一輪。
+    /// </para>
+    /// <para>
+    /// <paramref name="grace"/> 由呼叫端依 <see cref="LastStartupLatency"/> 算好
+    /// （見 <see cref="SilentHandoffGrace"/>），不是讀固定值：換手本身要五秒的攝影機，
+    /// 用兩秒半去判它「回不來」只會製造一次假故障。
+    /// </para>
     /// </remarks>
-    private async Task ExpireSilentRestartAsync(int generation)
+    private async Task ExpireSilentRestartAsync(int generation, TimeSpan grace)
     {
         try
         {
-            await Task.Delay(SilentRescaleGrace).ConfigureAwait(false);
+            await Task.Delay(grace).ConfigureAwait(false);
         }
         catch (Exception)
         {
@@ -736,12 +785,13 @@ public sealed class RtspClient : IAsyncDisposable
         if (pending is { } state)
         {
             // 這一行就是「寬限太短」的證據：換手還沒回第一幀就照實發布了。
-            AppendStateLog($"silent grace expired ->{state} published");
+            // 旁邊一定要有 grace= 才知道是「設得太短」還是「這台真的變慢了」。
+            AppendStateLog($"silent grace expired ({grace.TotalSeconds:0.0#}s) ->{state} published");
             RaiseStateChanged(state);
         }
         else
         {
-            AppendStateLog("silent grace expired");
+            AppendStateLog($"silent grace expired ({grace.TotalSeconds:0.0#}s)");
         }
     }
 

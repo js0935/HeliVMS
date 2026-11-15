@@ -307,6 +307,63 @@ public class RtspDecodeScalingTests
     }
 
     /// <summary>
+    /// 換手比靜默下限還慢的攝影機：寬限必須依「這一路自己量到的」啟動延遲放大。
+    /// </summary>
+    /// <remarks>
+    /// 現場的十路網際網路攝影機同時重開時，<c>rescale</c> 到第一幀要 5.2 秒，而舊行為是
+    /// 固定 2.5 秒——於是每一格都在換手完成前就照實發布「連線中」，靜默等於沒生效。
+    /// 這裡把下限刻意調成 200ms（模擬「這個固定值比換手還短」），並讓 stub 每一輪都先睡
+    /// 約 2 秒才吐影格：若寬限沒有依實測延遲放大，換手途中就會冒出 Connecting，本測試即紅。
+    /// </remarks>
+    [Fact]
+    public async Task 換手比下限還慢時靜默寬限會依實測延遲放大()
+    {
+        var dir = NewDir();
+        var probe = WriteStub(dir, "ffprobe.cmd", EchoResolution64x36);
+        WriteFrame(dir, 64 * 36 * 3);
+        var ffmpeg = WriteStub(dir, "ffmpeg.cmd", EmitFramesAfterSlowStart);
+
+        await using var client = new RtspClient("rtsp://10.0.0.1/live.sdp", ffmpeg, probe)
+        {
+            ProbeTimeout = TimeSpan.FromSeconds(5),
+            FirstFrameTimeout = TimeSpan.FromSeconds(30),
+            FrameTimeout = TimeSpan.FromSeconds(30),
+            MaxFramesPerSecond = 30,
+            SilentRescaleGrace = TimeSpan.FromMilliseconds(200),
+        };
+
+        await client.StartAsync();
+        await WaitUntilAsync(() => client.FramesEmitted >= 1, timeoutSeconds: 40);
+        Assert.Equal(RtspState.Streaming, client.State);
+
+        // 前提：這一輪真的量到一段有意義的啟動延遲（否則這條測試證明不了任何事）。
+        Assert.True(
+            client.LastStartupLatency > TimeSpan.FromSeconds(1),
+            $"應量到慢啟動（實得 {client.LastStartupLatency}）");
+
+        var states = new List<RtspState>();
+        client.StateChanged += (_, s) =>
+        {
+            lock (states)
+            {
+                states.Add(s);
+            }
+        };
+
+        await client.SetDecodeWidthAsync(32);
+        await WaitUntilAsync(() => client.FrameSize == (32, 18), timeoutSeconds: 40);
+
+        Assert.Equal((32, 18), client.FrameSize);
+        lock (states)
+        {
+            Assert.DoesNotContain(RtspState.Stopped, states);
+            Assert.DoesNotContain(RtspState.Connecting, states);
+        }
+
+        Assert.Equal(RtspState.Streaming, client.State);
+    }
+
+    /// <summary>
     /// 靜默換手不能變成「定格卻標著串流中」：寬限時間內回不來就照實回報。
     /// </summary>
     /// <remarks>
@@ -411,6 +468,22 @@ public class RtspDecodeScalingTests
           exit /b 0
         )
         echo x> "%~dp0restarted.marker"
+        for /l %%i in (1,1,300) do @type "%~dp0frame.bin"
+        ping -n 60 127.0.0.1 >nul
+        """;
+
+    // 每一輪都先睡約 2 秒才吐影格：模擬「換手本來就要好幾秒」的攝影機（現場的網際網路
+    // 攝影機同時重開時實測 5.2 秒）。靜默寬限若沒依這個延遲放大，換手途中就會冒出
+    // 「連線中」——正是「切換分割會重新連線」的來源。
+    private const string EmitFramesAfterSlowStart =
+        """
+        @echo off
+        if "%2"=="-hwaccels" (
+          echo Hardware acceleration methods:
+          exit /b 0
+        )
+        echo %* > "%~dp0args.txt"
+        ping -n 3 127.0.0.1 >nul
         for /l %%i in (1,1,300) do @type "%~dp0frame.bin"
         ping -n 60 127.0.0.1 >nul
         """;

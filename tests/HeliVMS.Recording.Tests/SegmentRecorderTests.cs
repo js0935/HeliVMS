@@ -1123,6 +1123,79 @@ public sealed class SegmentRecorderTests : IDisposable
     }
 
     /// <summary>
+    /// 錄影機被收掉時必須解除停滯——它永遠不會再成功錄出任何東西。
+    /// </summary>
+    /// <remarks>
+    /// 現場症狀：畫面完全正常，格位下方的色條卻一直紅著。原因是
+    /// <see cref="SegmentRecorder.RecordingResumed"/> 原本只在「整段成功錄完」時才發，
+    /// 而停止錄影／品質協調換串流／關閉程式都是「收掉錄影機」——那之後不會再有任何成功紀錄，
+    /// 於是紅線活得比它所描述的那個故障還久。清除訊號因此必須在迴圈結束時發。
+    /// </remarks>
+    [Fact]
+    public async Task 錄影機被收掉時會解除停滯()
+    {
+        // 每一次都失敗，且重試延遲壓到 20ms：3 次失敗就會達到停滯門檻。
+        var factory = new FakeProcessFactory((_, psi) =>
+        {
+            var process = new FakeProcess(psi, exitCode: 1, stderr: "Connection refused");
+            process.ProduceAndExit();
+            return process;
+        });
+
+        await using var recorder = new SegmentRecorder(
+            _segments,
+            factory,
+            _ => string.Empty,
+            retryDelay: _ => TimeSpan.FromMilliseconds(20));
+
+        var stalls = 0;
+        var resumed = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
+        recorder.RecordingStalled += (_, _) => Interlocked.Increment(ref stalls);
+        recorder.RecordingResumed += (_, id) => resumed.TrySetResult(id);
+
+        await recorder.StartAsync(_channelId, RtspUrl, _recordingsRoot, "main", SegmentSeconds);
+
+        await WaitUntilAsync(() => Volatile.Read(ref stalls) >= 1, TimeSpan.FromSeconds(15));
+
+        // 收掉錄影機。之後它不會再有任何成功紀錄，所以解除訊號只能在這裡發。
+        await recorder.StopAsync();
+
+        var channelId = await resumed.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.Equal(_channelId, channelId);
+    }
+
+    /// <summary>
+    /// 停滯之後成功錄回一段也要解除停滯（不是只有「被收掉」才解除）。
+    /// </summary>
+    [Fact]
+    public async Task 停滯後成功錄回一段會解除停滯()
+    {
+        // 前三次失敗（達到停滯門檻），第四次成功收尾。
+        var factory = new FakeProcessFactory((index, psi) =>
+        {
+            var process = new FakeProcess(psi, exitCode: index < 3 ? 1 : 0, stderr: "Connection refused");
+            process.ProduceAndExit();
+            return process;
+        });
+
+        await using var recorder = new SegmentRecorder(
+            _segments,
+            factory,
+            _ => string.Empty,
+            retryDelay: _ => TimeSpan.FromMilliseconds(20));
+
+        var stalled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var resumed = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
+        recorder.RecordingStalled += (_, _) => stalled.TrySetResult();
+        recorder.RecordingResumed += (_, id) => resumed.TrySetResult(id);
+
+        await recorder.StartAsync(_channelId, RtspUrl, _recordingsRoot, "main", SegmentSeconds);
+
+        await stalled.Task.WaitAsync(TimeSpan.FromSeconds(15));
+        Assert.Equal(_channelId, await resumed.Task.WaitAsync(TimeSpan.FromSeconds(15)));
+    }
+
+    /// <summary>
     /// 暫存檔還在就代表改名根本沒成功（最常見的原因是目的地撞名），正式檔是<b>別人</b>的段；
     /// 這時候把它的資訊抄進這一列，就是把 A 台的錄影記到 B 台名下。
     ///

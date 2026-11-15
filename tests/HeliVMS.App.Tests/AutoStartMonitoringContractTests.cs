@@ -216,8 +216,12 @@ public sealed class AutoStartMonitoringContractTests
         // 一秒才變一次的統計值，每張影格重排只是白花 UI 成本）。這裡要確認那條路還在——
         // 搬到計時器卻忘了在計時器裡呼叫，症狀與原本的「卡在未連線」一模一樣。
         Assert.DoesNotContain("RenderCellStatusText(cell)", body);
+
+        // 計時器必須走 ApplyCellState（狀態的唯一投影點），不能直接呼叫 RenderCellStatusText：
+        // 後者只認得「串流中」，會把「錄影失敗 N 次」蓋成正常 fps 文字卻留下紅色色條，
+        // 現場看到的就是「畫面正常、下方的線是紅色的」且畫面上再也找不到原因。
         var metrics = SourceContract.BodyOf(SourceContract.Read(MainWindow), "UpdateCellMetrics");
-        Assert.Contains("RenderCellStatusText(", metrics);
+        Assert.Contains("ApplyCellState(", metrics);
     }
 
     /// <summary>按住畫面左鍵拖到別格，放開即調整攝影機順序。</summary>

@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.IO;
 using HeliVMS.Alarms;
 using HeliVMS.Media;
+using HeliVMS.Recording;
 using HeliVMS.Shared;
 using HeliVMS.Shared.Models;
 using HeliVMS.Storage;
@@ -104,6 +105,14 @@ public sealed class ChannelManager : IDisposable
     public event EventHandler<(int Cell, int ChannelId)>? CellMappingChanged;
 
     /// <summary>
+    /// 某個頻道的錄影連續失敗（顯示串流不受影響）。由工作階段轉發，牆上據此畫紅線。
+    /// </summary>
+    public event EventHandler<RecordingStallInfo>? RecordingStalled;
+
+    /// <summary>某個頻道的錄影停滯已解除（成功錄回一段，或該錄影機已停止）。</summary>
+    public event EventHandler<int>? RecordingResumed;
+
+    /// <summary>
     /// 本地警報推播中樞：事件寫入 alarm_events 後在此發布，事件中心／警報管理器即時刷新，
     /// 不必等 15 秒輪詢。與 WebApi 的 <c>/api/alerts/ws</c> 共用同一個型別。
     /// </summary>
@@ -198,6 +207,11 @@ public sealed class ChannelManager : IDisposable
         session.AiDetections += (_, d) => AiDetections?.Invoke(this, (session.Cell, ch.Id, d));
         session.EventInserted += (_, r) => PublishEvent(session.Cell, r);
         session.MotionSignal += (_, ratio) => MotionSignal?.Invoke(this, (session.Cell, ratio));
+
+        // 牆上手動錄影的停滯／解除：排程路徑有自己的事件，但手動錄影的錄影機是工作階段
+        // 持有的。不轉發的話，手動錄影失敗在牆上完全看不出來（REC 亮著、磁碟沒有檔案）。
+        session.RecordingStalled += (_, stall) => RecordingStalled?.Invoke(this, stall);
+        session.RecordingResumed += (_, id) => RecordingResumed?.Invoke(this, id);
         return session;
     }
 

@@ -107,7 +107,11 @@ public sealed class LiveViewDiagnosticsContractTests
         Assert.Contains("DrawLiveOverlay(", frame);
 
         var metrics = SourceContract.BodyOf(SourceContract.Read(MainCode), "UpdateCellMetrics");
-        Assert.Contains("RenderCellStatusText(", metrics);
+
+        // 每秒那條路徑走 ApplyCellState（狀態的唯一投影點），不是直接呼叫 RenderCellStatusText：
+        // 後者只認得「串流中」，會把「錄影失敗 N 次」蓋成正常文字卻留下紅色色條。
+        Assert.Contains("ApplyCellState(", metrics);
+        Assert.DoesNotContain("RenderCellStatusText(", metrics);
     }
 
     /// <summary>
