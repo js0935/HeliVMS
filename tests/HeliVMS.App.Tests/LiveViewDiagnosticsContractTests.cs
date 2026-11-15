@@ -110,10 +110,47 @@ public sealed class LiveViewDiagnosticsContractTests
         Assert.Contains("RenderCellStatusText(", metrics);
     }
 
+    /// <summary>
+    /// 狀態列的解析度必須報<b>來源</b>尺寸，真的縮小解碼時才附註解碼尺寸。
+    /// </summary>
+    /// <remarks>
+    /// 現場回報「子碼流顯示 480x270，應該是 640x480」。量到的實情是：次碼流來源是
+    /// 640x360／640x480 兩族，而 <c>LiveWallBudget.For(10)</c> 把每一格縮到寬 480 解碼。
+    /// 舊的狀態列直接寫解碼尺寸，操作員於是拿一個「我們自己縮出來的數字」去對攝影機設定，
+    /// 當然對不上——而畫面完全正常、日誌乾淨。
+    /// </remarks>
+    [Fact]
+    public void 狀態文字報的是來源解析度而不是只報解碼尺寸()
+    {
+        var status = SourceContract.BodyOf(SourceContract.Read(MainCode), "RenderCellStatusText");
+
+        Assert.Contains("LiveResolutionReport.Format(", status);
+        Assert.Contains("snapshot.SourceWidth", status);
+        // 文案走 i18n，不硬寫「解碼」。
+        Assert.Contains("Main.CellResolutionScaled", status);
+    }
+
+    /// <summary>
+    /// 診斷行也要寫出來源尺寸：它是事後唯一能分辨「攝影機本身是 640x360」與
+    /// 「我們縮成 480x270 解碼」的欄位，少了它就得對每支攝影機重跑 ffprobe。
+    /// </summary>
+    [Fact]
+    public void 診斷行會寫出探測到的來源尺寸()
+    {
+        var write = SourceContract.BodyOf(SourceContract.Read(MainCode), "WriteLiveDiagnostics");
+        Assert.Contains("counters.SourceWidth", write);
+        Assert.Contains("counters.SourceHeight", write);
+
+        var stats = SourceContract.BodyOf(SourceContract.Read(SessionCode), "GetDecodeSnapshot");
+        Assert.Contains("SourceSize", stats);
+
+        // 來源尺寸只有解碼端知道（探測到的），不可由顯示尺寸回推。
+        Assert.Contains("SourceSize", SourceContract.Read(MediaCode));
+    }
+
     [Fact]
     public void 進度回報不會擠掉真正的診斷訊息()
-    {
-        var client = SourceContract.Read(MediaCode);
+    {        var client = SourceContract.Read(MediaCode);
 
         // ffmpeg 的 -progress 每秒寫十幾行 key=value 到 stderr；那些行若進入尾端 20 行，
         // 操作員看到的「連線失敗原因」就變成 out_time_us=…。

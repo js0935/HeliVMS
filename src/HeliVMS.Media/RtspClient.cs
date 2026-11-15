@@ -333,6 +333,18 @@ public sealed class RtspClient : IAsyncDisposable
     public (int Width, int Height) FrameSize { get; private set; }
 
     /// <summary>
+    /// 最近一次探測到的<b>來源</b>尺寸（0×0＝還沒探測成功）。
+    /// </summary>
+    /// <remarks>
+    /// 與 <see cref="FrameSize"/> 的差別就是「我們有沒有縮小解碼」。這兩個數字在畫面上長得一樣
+    /// （都是同一支攝影機的同一條碼流），所以只要有人問「為什麼解析度是 480x270、它不是
+    /// 640x480 嗎」，就必須分得出來是哪一個：只報解碼後尺寸會讓操作員以為攝影機的子碼流
+    /// 設定錯了，而實際上那是 <see cref="LiveWallBudget"/> 依格數縮下來的。
+    /// 探測失敗時保留上一次成功的值——它正是 <see cref="DecodedSize"/> 換算時用的同一個值。
+    /// </remarks>
+    public (int Width, int Height) SourceSize => (_lastProbeWidth, _lastProbeHeight);
+
+    /// <summary>
     /// 本機解碼管線積了多少秒的影格（＝輸出進度自第一筆回報以來落後牆鐘多少）。
     /// </summary>
     /// <remarks>

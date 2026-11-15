@@ -50,6 +50,28 @@
 >   4 核＋38 條 ffmpeg＋代理工具競爭下的 UI 吐吐，色條／徽章零每幀成本，非本輪回歸；
 >   helivms-live.log 一行可判（wpf=2、read≈15/s、Streaming 全綠）。
 >
+> **【追加 2026-11-15（之二）】「子碼流顯示 480x270」是**我們的解碼預算**，不是攝影機設定——狀態列改報來源尺寸（`src=` 診斷欄同批）**
+>
+> 操作員回報「子碼流（串流2）顯示 480x270，應該是 640x480」。實測（ffprobe 10 支攝影機的次碼流，
+> 帳密自 `devices` 以 DPAPI 解開）：**來源是兩族**——115/116/117/118/125＝640x360、124＝**MJPEG**
+> 640x360、121/122/123＝640x480（119 探測失敗，220.130.205.226 為既有慢機），主碼流一律 1920x1080。
+> 而 `LiveWallBudget.For(10)`＝寬 480，於是同一面牆同時出現 480x270（16:9）與 480x360（4:3）——
+> 兩者都只是「依格數縮下來的解碼尺寸」。10 格在 1920 寬是 4 欄，每格剛好 480 px，**480 是對的**；
+> 錯的是它被當成「這支攝影機的解析度」講出來：操作員拿它去對攝影機設定，只會查到一個完全正常的
+> 640x360 或 640x480，然後判定系統壞了（畫面完全正常、日誌乾淨）。
+> - `LiveResolutionReport`（Shared，純函式）：報**來源**尺寸，真的縮小解碼才附「（解碼 …）」；
+>   來源未知時只報目前這張影格，不編造來源；沒有影格回空字串。
+> - 格內狀態文字（`RenderCellStatusText`）改用它；文案 `Main.CellResolutionScaled` 三語。
+> - 診斷行（`helivms-live.log`）每一格都加 `src=`（未知寫 `src=?`，理由同 `hw=`／`wpf=`）：
+>   `RtspClient.SourceSize` → `ChannelSession.DecodeSnapshot.SourceWidth/Height` → `CellSample`。
+>   少了它，日誌上只能對十支攝影機重跑一次 ffprobe 才知道誰在說實話。
+> - 測試：Shared.Tests `LiveResolutionReportTests` 6 條＋`LiveViewDiagnosticLineTests` 2 條；
+>   App.Tests 契約 2 條（狀態列用 `LiveResolutionReport.Format(`/`snapshot.SourceWidth`/
+>   `Main.CellResolutionScaled`；診斷行帶 `counters.SourceWidth`、快照帶 `SourceSize`）。
+>   突變驗證三項：純函式強制回解碼尺寸→3 紅；`src=` 忽略來源→2 紅；快照傳 0→契約紅；皆已還原。
+>   Shared 496／Media 194／Storage 1493／App 875（唯一紅為本機 untracked Tools/ 的既有
+>   SolutionCoverageTests，CI 不含）。
+>
 > **【追加 2026-11-14】真機 QCV8001 → QCC 的線路格式全量解出：type=2 是音訊、`+0x20` 是指標槽，「伺服器先推流」被推翻**
 >
 > 依黃金抓包（`docs/qcc-qcv8001-golden.pcapng`，stream 0＝port 61265、stream 48＝

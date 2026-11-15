@@ -38,6 +38,13 @@ public static class LiveViewDiagnosticLine
     /// <c>auto</c> 會被解析成明確的方法名、原生尺寸時刻意不啟用、失敗冷卻期內也會退回軟解。
     /// 沒有這一欄，現場「明明設了硬解卻還是吃滿 CPU」只能靠猜。
     /// </param>
+    /// <param name="SourceWidth">
+    /// 探測到的<b>來源</b>寬度（0＝還沒探測成功）。<see cref="Width"/>／<see cref="Height"/>
+    /// 是<em>解碼後</em>尺寸——兩者不同就代表這一格被 <see cref="LiveWallBudget"/> 縮過。
+    /// 少了這一欄，「解析度是 480x270 還是 640x360」在日誌上無從分辨，只能對每支攝影機
+    /// 重跑一次 ffprobe。
+    /// </param>
+    /// <param name="SourceHeight">探測到的來源高度。</param>
     public readonly record struct CellSample(
         int ChannelId,
         string StreamLabel,
@@ -51,10 +58,12 @@ public static class LiveViewDiagnosticLine
         TimeSpan Age,
         string State,
         double CapPerSecond = 0,
-        string? HwAccel = null);
+        string? HwAccel = null,
+        int SourceWidth = 0,
+        int SourceHeight = 0);
 
     /// <summary>
-    /// 一行：<c>時間 | cells=N | wpf=2 | ch103 sub 640x360 hw=d3d11va shown=14.8/s read=29.9/s drop=15.1/s backlog=120ms age=45ms Streaming</c>
+    /// 一行：<c>時間 | cells=N | wpf=2 | ch103 sub 640x360 src=640x360 hw=d3d11va shown=14.8/s read=29.9/s drop=15.1/s backlog=120ms age=45ms Streaming</c>
     /// </summary>
     /// <param name="utcNow">取樣時刻（UTC）。</param>
     /// <param name="cells">每一格的取樣值。</param>
@@ -100,6 +109,15 @@ public static class LiveViewDiagnosticLine
                     .Append('x').Append(cell.Height.ToString(CultureInfo.InvariantCulture));
             }
 
+            // 來源尺寸一直寫（未知寫 src=?），理由與 hw=／wpf= 相同：整欄省略與「這台是舊版
+            // 沒有這一欄」在日誌上長得一樣，而這一欄正是分辨「攝影機子碼流本身是 640x360」
+            // 與「我們把它縮成 480x270 解碼」的唯一線索。
+            var hasSource = cell.SourceWidth > 0 && cell.SourceHeight > 0;
+            builder.Append(" src=");
+            builder.Append(hasSource
+                ? cell.SourceWidth.ToString(CultureInfo.InvariantCulture) + "x" +
+                  cell.SourceHeight.ToString(CultureInfo.InvariantCulture)
+                : "?");
             // 硬解一直寫（軟解寫 hw=off），不寫「沒帶就整欄省略」：省略與「這台舊版沒有這一欄」
             // 在日誌上長得一樣，而這一欄正是分辨「設了硬解卻沒生效」的唯一線索。
             builder.Append(" hw=").Append(

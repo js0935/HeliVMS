@@ -22,7 +22,9 @@ public class LiveViewDiagnosticLineTests
         int height = 360,
         string stream = "sub",
         double cap = 0,
-        string? hw = null)
+        string? hw = null,
+        int sourceWidth = 0,
+        int sourceHeight = 0)
         => new(
             channelId,
             stream,
@@ -36,19 +38,46 @@ public class LiveViewDiagnosticLineTests
             age ?? TimeSpan.FromMilliseconds(45),
             state,
             cap,
-            hw);
+            hw,
+            sourceWidth,
+            sourceHeight);
 
     [Fact]
     public void 每個欄位都在同一行裡()
     {
         var line = LiveViewDiagnosticLine.Format(
             new DateTime(2026, 11, 5, 8, 12, 34, 567, DateTimeKind.Utc),
-            [Cell(backlog: TimeSpan.FromMilliseconds(780), cap: 15, hw: "d3d11va")]);
+            [Cell(backlog: TimeSpan.FromMilliseconds(780), cap: 15, hw: "d3d11va", sourceWidth: 640, sourceHeight: 360)]);
 
         Assert.Equal(
-            "2026-11-05T08:12:34.567Z | cells=1 | wpf=? | ch103 sub 640x360 hw=d3d11va shown=14.8/s read=29.9/s emit=14.9/s"
+            "2026-11-05T08:12:34.567Z | cells=1 | wpf=? | ch103 sub 640x360 src=640x360 hw=d3d11va shown=14.8/s read=29.9/s emit=14.9/s"
             + " drop=15/s cap=15/s backlog=780ms age=45ms Streaming",
             line);
+    }
+
+    /// <summary>
+    /// 來源尺寸與解碼尺寸都要寫。現場回報「子碼流顯示 480x270，應該是 640x480」，而這兩種
+    /// 說法在日誌上只能靠這一欄分辨：實測 10 支攝影機的次碼流是 640x360 與 640x480 兩族，
+    /// 480x270 是 <c>LiveWallBudget</c> 依格數（10 格→寬 480）縮下來的解碼尺寸。
+    /// 少了 <c>src=</c>，讀日誌的人只能對每支攝影機重跑 ffprobe 才知道誰在說實話。
+    /// </summary>
+    [Fact]
+    public void 診斷行會寫出來源尺寸而不是只寫解碼尺寸()
+    {
+        var line = LiveViewDiagnosticLine.Format(
+            DateTime.UnixEpoch,
+            [Cell(width: 480, height: 270, sourceWidth: 640, sourceHeight: 360)]);
+
+        Assert.Contains("ch103 sub 480x270 src=640x360", line);
+    }
+
+    /// <summary>還沒探測到來源時寫 <c>src=?</c>：整欄省略與「這台是舊版」在日誌上長得一樣。</summary>
+    [Fact]
+    public void 沒探測到來源尺寸時寫問號而不是省略()
+    {
+        var line = LiveViewDiagnosticLine.Format(DateTime.UnixEpoch, [Cell()]);
+
+        Assert.Contains("src=?", line);
     }
 
     /// <summary>
@@ -151,7 +180,7 @@ public class LiveViewDiagnosticLineTests
         // 但 hw 仍要寫——「連線中，軟解」正是這一格當下的解碼方式。
         var line = LiveViewDiagnosticLine.Format(DateTime.UnixEpoch, [Cell(width: 0, height: 0)]);
 
-        Assert.Contains("ch103 sub hw=off shown=", line);
+        Assert.Contains("ch103 sub src=? hw=off shown=", line);
         Assert.DoesNotContain("0x0", line);
     }
 }

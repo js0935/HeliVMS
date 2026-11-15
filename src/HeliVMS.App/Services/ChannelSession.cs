@@ -237,7 +237,9 @@ public sealed class ChannelSession : IDisposable
             EffectiveClient.FrameSize.Width,
             EffectiveClient.FrameSize.Height,
             EffectiveClient.MaxFramesPerSecond,
-            EffectiveClient.HwAccelInUse);
+            EffectiveClient.HwAccelInUse,
+            EffectiveClient.SourceSize.Width,
+            EffectiveClient.SourceSize.Height);
 
     /// <summary>已讀／已送出／因顯示上限丟棄的影格數、最近一次的影格尺寸，與生效中的顯示上限。</summary>
     /// <remarks>
@@ -246,6 +248,9 @@ public sealed class ChannelSession : IDisposable
     /// <see cref="HwAccel"/> 是「這一輪實際生效的加速方式」（<c>null</c>＝軟解），不是設定值：
     /// <c>auto</c> 會被解析成明確的方法名、原生尺寸時刻意不啟用、失敗冷卻期內也會退回軟解。
     /// 少了這一欄，現場「明明設了硬解卻還是吃滿 CPU」只能靠猜。
+    /// <see cref="SourceWidth"/>／<see cref="SourceHeight"/> 是探測到的來源尺寸（0＝還沒探測到），
+    /// 與 <see cref="Width"/>／<see cref="Height"/>（解碼後）不同就代表這一格被縮過——沒有它，
+    /// 「子碼流解析度是多少」只能對每支攝影機重跑 ffprobe 才知道。
     /// </remarks>
     public readonly record struct DecodeSnapshot(
         long Read,
@@ -254,7 +259,9 @@ public sealed class ChannelSession : IDisposable
         int Width,
         int Height,
         double Cap,
-        string? HwAccel = null);
+        string? HwAccel = null,
+        int SourceWidth = 0,
+        int SourceHeight = 0);
 
     public event EventHandler<VideoFrame>? FrameArrived;
 

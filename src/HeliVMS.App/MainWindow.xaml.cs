@@ -3503,7 +3503,21 @@ public partial class MainWindow : Window
         var parts = new List<string>(4) { Localizer.T("Main.CellLive") };
         if (_cellResolution[cell] is { } res)
         {
-            parts.Add($"{res.Width}×{res.Height}");
+            // 報「來源」尺寸，縮小解碼時才附註解碼尺寸：這個數字是操作員拿去對攝影機子碼流
+            // 設定的依據，只報解碼後尺寸會讓他把一個依格數縮下來的大小當成攝影機設定錯了。
+            var snapshot = _cellChannel[cell] is { } resolutionChannel
+                ? _manager?.ChannelSessionFor(resolutionChannel)?.GetDecodeSnapshot() ?? default
+                : default;
+            var label = LiveResolutionReport.Format(
+                snapshot.SourceWidth,
+                snapshot.SourceHeight,
+                res.Width,
+                res.Height,
+                Localizer.T("Main.CellResolutionScaled"));
+            if (label.Length > 0)
+            {
+                parts.Add(label);
+            }
         }
 
         var meter = _cellMeters[cell];
@@ -3583,7 +3597,9 @@ public partial class MainWindow : Window
                 _cellMeters[cell].Age(now),
                 _cellStates[cell].ToString(),
                 counters.Cap,
-                counters.HwAccel));
+                counters.HwAccel,
+                counters.SourceWidth,
+                counters.SourceHeight));
         }
 
         // 修剪「這一輪已經不在畫面上」的頻道：換台／關掉之後留著舊計數，下次回來會被當成
