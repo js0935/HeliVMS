@@ -68,6 +68,23 @@ public sealed class WhepOptions
 
         var stun = Read("STUN");
         var turnUser = Read("TURN_USERNAME");
+
+        // 閒置門檻不得短於啟動逾時，理由是一個具體的空窗：從「有人按下開啟」到「第一個 RTP 封包
+        // 到達」之間（最長遲 PublisherStartTimeout），那位觀眾還沒被登記成會話，通道執行期只能靠
+        // 「最近有人要來看」的時間戳撐著（見 ChannelRuntime.EnsurePublisherAsync）。門檻比啟動
+        // 逾時短，就等於允許維護迴圈把正在啟動的 ffmpeg 收掉——症狀是格子在「連線建立中」卡到
+        // 請求逾時，而日誌只有一行「回收了閒置的 publisher」。
+        var startSeconds = ParseSecondsValue(Read("PUBLISHER_START_SECONDS"), 30, name: "PUBLISHER_START_SECONDS", onInvalid: onInvalid);
+        var idleSeconds = ParseSecondsValue(Read("PUBLISHER_IDLE_SECONDS"), 30, name: "PUBLISHER_IDLE_SECONDS", onInvalid: onInvalid);
+        if (idleSeconds < startSeconds)
+        {
+            onInvalid?.Invoke(
+                Prefix,
+                $"HELIVMS_WHEP_PUBLISHER_IDLE_SECONDS「{idleSeconds}」比啟動逾時 {startSeconds} 秒短，"
+                + $"已提高到 {startSeconds}（否則等首包的 publisher 會被當成閒置而收掉）");
+            idleSeconds = startSeconds;
+        }
+
         return new WhepOptions
         {
             StunServers = stun is null
@@ -77,9 +94,9 @@ public sealed class WhepOptions
             PublicHost = ParseHost(Read("PUBLIC_HOST"), onInvalid),
             PublicPort = ParsePort(Read("PUBLIC_PORT"), onInvalid),
             MaxViewersPerChannel = ParseInt(Read("MAX_VIEWERS"), 8, min: 1, max: 64, name: "MAX_VIEWERS", onInvalid: onInvalid),
-            PublisherIdleTimeout = ParseSeconds(Read("PUBLISHER_IDLE_SECONDS"), 30, name: "PUBLISHER_IDLE_SECONDS", onInvalid: onInvalid),
+            PublisherIdleTimeout = TimeSpan.FromSeconds(idleSeconds),
             SessionIdleTimeout = ParseSeconds(Read("SESSION_IDLE_SECONDS"), 30, name: "SESSION_IDLE_SECONDS", onInvalid: onInvalid),
-            PublisherStartTimeout = ParseSeconds(Read("PUBLISHER_START_SECONDS"), 30, name: "PUBLISHER_START_SECONDS", onInvalid: onInvalid),
+            PublisherStartTimeout = TimeSpan.FromSeconds(startSeconds),
             FfmpegPath = Read("FFMPEG") ?? FfmpegLocator.Ffmpeg,
         };
     }
@@ -172,14 +189,17 @@ public sealed class WhepOptions
     }
 
     private static TimeSpan ParseSeconds(string? value, int fallback, string name, Action<string, string>? onInvalid)
+        => TimeSpan.FromSeconds(ParseSecondsValue(value, fallback, name, onInvalid));
+
+    private static int ParseSecondsValue(string? value, int fallback, string name, Action<string, string>? onInvalid)
     {
-        if (value is null) return TimeSpan.FromSeconds(fallback);
+        if (value is null) return fallback;
         if (!int.TryParse(value, out var seconds) || seconds < 1)
         {
             Report<int>($"HELIVMS_WHEP_{name}「{value}」無效（需 >= 1 秒），已改用 {fallback}", onInvalid);
-            return TimeSpan.FromSeconds(fallback);
+            return fallback;
         }
-        return TimeSpan.FromSeconds(seconds);
+        return seconds;
     }
 
     private static T Report<T>(string message, Action<string, string>? onInvalid)

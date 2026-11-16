@@ -1741,8 +1741,11 @@ Notes that will save you time:
   「連線建立中」，日誌只有一行「回收了閒置的 publisher」。這個洞在桌面版被上一條的
   `IncludeHostedServices=false` 掩蓋著（根本沒有維護迴圈），維護真的跑起來之後立刻現形
   （實測：三格同時卡在「連線建立中」，且三條會話的 peer 都變成 failed）。
-  修正在 `EnsurePublisherAsync` 開頭就把「有人要來看」寫進 `_lastViewerTicks`。
-  Guarded by `等首包的期間維護不會把publisher收掉`（突變：拿掉那行會紅）。
+  修正在 `EnsurePublisherAsync` 開頭就把「有人要來看」寫進 `_lastViewerTicks`；另外
+  `WhepOptions.FromLookup` 把 `PUBLISHER_IDLE_SECONDS` 夾到不小於 `PUBLISHER_START_SECONDS`
+  （設得比啟動逾時短就等於親手允許同一件事發生，而預設值剛好相等）。
+  Guarded by `等首包的期間維護不會把publisher收掉` 與 `閒置門檻不會短於啟動逾時`
+  （突變：分別拿掉那行與那段夾具都會紅）。
 - **掃 DLL 找字串常值時只試一種位移會出現假陰性，而那個假陰性會把你帶往完全錯的方向。**
   .NET 把字面字串放在 #US 堆，前面是<b>可變長度</b>的長度前綴，所以字串資料不一定從偶數位移
   開始；`[Text.Encoding]::Unicode.GetString([IO.File]::ReadAllBytes($dll))` 之後 `Contains(...)`

@@ -188,6 +188,34 @@ public class WhepOptionsTests
     }
 
     [Fact]
+    public void 閒置門檻不會短於啟動逾時()
+    {
+        // 等首包的那段空窗（最長 PUBLISHER_START_SECONDS）裡，觀眾還沒被登記成會話，
+        // 通道執行期靠的是「最近有人要來看」的時間戳。門檻設得比啟動逾時短，就等於親手
+        // 允許維護迴圈把正在啟動的 ffmpeg 收掉：格子卡在「連線建立中」、請求逾時，
+        // 而日誌只寫著「回收了閒置的 publisher」。
+        var log = new List<string>();
+        var clamped = Bind(new()
+        {
+            ["HELIVMS_WHEP_PUBLISHER_IDLE_SECONDS"] = "5",
+            ["HELIVMS_WHEP_PUBLISHER_START_SECONDS"] = "30",
+        }, log);
+
+        Assert.Equal(TimeSpan.FromSeconds(30), clamped.PublisherIdleTimeout);
+        Assert.Contains(log, m => m.Contains("PUBLISHER_IDLE_SECONDS", StringComparison.Ordinal));
+
+        // 反方向不夾：閒置比啟動久是正常設定（慢的攝影機開始播之後，觀眾離開仍然要等 90 秒）。
+        var longer = Bind(new()
+        {
+            ["HELIVMS_WHEP_PUBLISHER_IDLE_SECONDS"] = "90",
+            ["HELIVMS_WHEP_PUBLISHER_START_SECONDS"] = "30",
+        });
+
+        Assert.Equal(TimeSpan.FromSeconds(90), longer.PublisherIdleTimeout);
+        Assert.Equal(TimeSpan.FromSeconds(30), longer.PublisherStartTimeout);
+    }
+
+    [Fact]
     public void 零或負數的上限退回預設()
     {
         Assert.Equal(8, Bind(new() { ["HELIVMS_WHEP_MAX_VIEWERS"] = "0" }).MaxViewersPerChannel);
