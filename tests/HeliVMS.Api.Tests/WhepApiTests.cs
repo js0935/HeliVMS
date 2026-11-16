@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
+using System.Text.Json;
 using HeliVMS.Rtc;
 using HeliVMS.Storage;
 using HeliVMS.WebApi;
@@ -278,6 +279,28 @@ public sealed class WhepApiTests : IDisposable
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Contains("active", body, StringComparison.Ordinal);
         Assert.Contains("viewers", body, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task 狀態查詢會回報收包與漏包數讓掉包可以被歸因()
+    {
+        using var client = Client();
+        var channel = SeedRtspChannel();
+
+        var response = await client.GetAsync($"/api/stream/{channel}/whep");
+        var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement;
+
+        // 「ICE／DTLS 都通了、Chrome 每秒送 PLI、畫面十幾秒才出來」只有兩種成因：
+        // 封包掉在 ingest 之前，或掉在轉送出去之後。分界線就是這兩欄——少了它們，
+        // 現場只能靠猜測去改編碼／解碼參數，而兩邊的症狀一模一樣。
+        Assert.True(json.TryGetProperty("packetsReceived", out var received));
+        Assert.True(json.TryGetProperty("packetsMissed", out var missed));
+        Assert.Equal(JsonValueKind.Number, received.ValueKind);
+        Assert.Equal(JsonValueKind.Number, missed.ValueKind);
+
+        // 沒有 publisher 時必須說得出來，而不是讓前端以為「正在串流但沒影格」。
+        Assert.True(json.TryGetProperty("publisher", out var publisher));
+        Assert.Equal("Stopped", publisher.GetString());
     }
 
     // ── 契約與結構 ──────────────────────────────────────────────────────

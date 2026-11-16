@@ -165,6 +165,7 @@ public static class WhepEndpoints
     private static async Task HandleStatus(HttpContext context, int channelId, LiveStreamService live)
     {
         var view = live.Describe(channelId);
+        var status = live.Status(channelId);
         var options = live.Options;
         context.Response.Headers.CacheControl = "no-store";
         await context.Response.WriteAsJsonAsync(new
@@ -175,6 +176,19 @@ public static class WhepEndpoints
             limit = view.Limit,
             codec = "H264",
             transport = "WHEP",
+            publisher = status.Publisher.ToString(),
+
+            // 「ICE／DTLS 都通了、Chrome 每秒送 PLI、畫面十幾秒才出來」只有兩種成因，
+            // 而這兩欄就是分界線：packetsReceived 是 ingest 真的收到的量，
+            // packetsMissed 是依序號推算漏掉的量。前後者相加才是 ffmpeg 送出的量，
+            // 拿它去比對瀏覽器 getStats 的 packetsReceived + packetsLost 就能判定
+            // 掉包發生在 ingest 之前（本機 socket／抽包太慢）還是轉送出去之後。
+            // 沒有這兩個數字，就只能憑猜測改動解碼或編碼參數。
+            packetsReceived = status.PacketsReceived,
+            packetsMissed = status.PacketsMissed,
+
+            // 出錯時要說得出原因；遮蔽憑證由 publisher 自己負責。
+            problem = status.Problem,
 
             // 兩個都沒有時，對稱 NAT 環境一定連不上；這是部署限制而非程式錯誤。
             turnConfigured = options.TurnServers.Count > 0,

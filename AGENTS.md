@@ -117,6 +117,26 @@ Notes that will save you time:
   `packetization-mode=1`, `profile-level-id=42e01f`. Any mismatch means "connects,
   no picture" with a clean log. `WhepLoopbackTests` asserts the negotiated SDP and
   that ICE + DTLS really complete against it.
+- **The RTP ingest socket must hold more than one IDR — the Windows socket default drops
+  part of every keyframe and the picture only appears after a lucky one.** Measured here: a
+  1080p/2 Mbps H.264 IDR is 70–80 packets (~110 KB) written in one burst, while a default
+  `UdpClient` keeps ~64 KB (a 250 × 1460-byte blast delivered only 46 packets while the
+  reader was busy). HeliVMS forwards raw RTP with **no RTX/NACK** (SIPSorcery does not
+  retransmit), so one lost packet destroys that frame and a partially lost IDR means the
+  browser never assembles a keyframe: measured symptom was "ICE/DTLS connected, Chrome sends
+  a PLI every second, first frame 13.7 s", ingest `packetsMissed=50` in 8.5 s, both logs
+  clean. `RtpIngest` now builds its own socket, sets `ReceiveBufferSize = 1 MB`
+  **before bind**, then binds loopback (1 MB, not 4: the buffer is nonpaged pool and there is
+  one per publishing channel). The status endpoint answers `packetsReceived` /
+  `packetsMissed` / `publisher` so "lost before ingest" and "lost after forwarding" can be
+  told apart in one request instead of by guessing at encoder settings; `PacketsMissed` is a
+  16-bit wrap-aware sequence-gap counter whose baseline only advances on forward progress
+  (a late packet must not make the next normal packet look like a huge gap — measured
+  100,101,100,99,102 reported 2 lost packets in the naive version). After the fix:
+  ingest `packetsMissed=0`, Chrome `packetsLost=0`/`nackCount=0`, first frame 0.6–2.2 s
+  (bounded by the 2 s GOP). Guarded by `一次爆量送出的封包不會被socket緩衝吃掉`,
+  `序號空隙會累計成漏包數`, `序號回繞不會被算成六萬多個漏包`,
+  `重複與遲到的舊封包都不算漏包` and `狀態查詢會回報收包與漏包數讓掉包可以被歸因`.
 - **A `.csproj` outside `HeliVMS.slnx` is never compiled by anything.** No build,
   no CI, no error — the source can rot indefinitely. This is not hypothetical:
   `Tools/HeliVMS.Decoder` sat outside the solution from the initial commit with a

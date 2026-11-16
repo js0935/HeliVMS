@@ -7,12 +7,16 @@ namespace HeliVMS.Rtc;
 /// <param name="Publisher">publisher 狀態。</param>
 /// <param name="Viewers">目前觀看人數。</param>
 /// <param name="PacketsReceived">此 publisher 開啟以來收到的 RTP 封包數。</param>
+/// <param name="PacketsMissed">
+/// 依序號推算「ffmpeg 送了但 ingest 沒收到」的封包數（見 <see cref="RtpIngest.PacketsMissed"/>）。
+/// </param>
 /// <param name="Problem">publisher 的錯誤描述（已遮蔽憑證）；正常時為 <c>null</c>。</param>
 public readonly record struct ChannelLiveStatus(
     int ChannelId,
     PublisherState Publisher,
     int Viewers,
     long PacketsReceived,
+    long PacketsMissed,
     string? Problem);
 
 /// <summary>某通道目前的即時狀態查詢結果。</summary>
@@ -199,6 +203,23 @@ public sealed class LiveStreamService : IAsyncDisposable
             && runtime.PublisherState != PublisherState.Stopped;
 
         return new ChannelLiveView(channelId, active, _sessions.CountFor(channelId), _options.MaxViewersPerChannel);
+    }
+
+    /// <summary>查詢某通道的即時狀態；含收包品質（見 <see cref="ChannelLiveStatus.PacketsMissed"/>）。</summary>
+    public ChannelLiveStatus Status(int channelId)
+    {
+        if (!_channels.TryGetValue(channelId, out var runtime))
+        {
+            return new ChannelLiveStatus(channelId, PublisherState.Stopped, 0, 0, 0, null);
+        }
+
+        return new ChannelLiveStatus(
+            channelId,
+            runtime.PublisherState,
+            _sessions.CountFor(channelId),
+            runtime.PacketsReceived,
+            runtime.PacketsMissed,
+            runtime.Problem);
     }
 
     /// <summary>

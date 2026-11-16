@@ -83,6 +83,16 @@ internal sealed class ChannelRuntime : IAsyncDisposable
     /// <summary>已收到的 RTP 封包數。</summary>
     public long PacketsReceived => _ingest?.PacketCount ?? 0;
 
+    /// <summary>
+    /// 依序號推算「ffmpeg 送了但 ingest 沒收到」的封包數。
+    /// <para>
+    /// 與 <see cref="PacketsReceived"/> 配著看，就能把「WHEP 沒有畫面」分成兩類：
+    /// 這個數字在長，表示封包掉在 ffmpeg→本機這一段；這個數字不動而瀏覽器仍然
+    /// 一直送 PLI，表示掉在轉送出去之後（或瀏覽器自己解不開）。
+    /// </para>
+    /// </summary>
+    public long PacketsMissed => _ingest?.PacketsMissed ?? 0;
+
     /// <summary>publisher 的錯誤描述（已遮蔽）；正常時為 <c>null</c>。</summary>
     public string? Problem => PublisherState switch
     {
