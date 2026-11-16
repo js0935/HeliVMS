@@ -14,6 +14,13 @@ import {
   parseFmp4InitTracks,
   parseFmp4VideoSpan,
   parseM3u8,
+  playbackBufferedFor,
+  playbackNeedsSegment,
+  playbackRangesAheadToEvict,
+  playbackRangesToEvict,
+  playbackSeamStart,
+  playlistMediaStarts,
+  playlistSegmentIndexAt,
   PLAYLIST_WINDOW_LIMIT_S,
   buildTimelineQuery,
   canAct,
@@ -948,6 +955,152 @@ describe('buildRecordingClock', () => {
     expect(clock.at(-5)).toBe(T);
     expect(clock.at(9999)).toBe(T + 60 * 1000);
     expect(clock.at(Number.NaN)).toBeNull();
+  });
+});
+
+describe('playbackRangesToEvict', () => {
+  it('播放頭後方的舊資料會被丟掉，正在播與還沒播的一律留著', () => {
+    // SourceBuffer 的配額固定：整份 40 分鐘清單一次 append 會得到
+    // 「The SourceBuffer is full」而黑屏（實機症狀），所以邊播邊補時必須邊丟。
+    const ranges = [{ start: 0, end: 300 }];
+    expect(playbackRangesToEvict(ranges, 200, 30)).toEqual([{ start: 0, end: 170 }]);
+  });
+
+  it('還在保留範圍內時不丟任何東西', () => {
+    expect(playbackRangesToEvict([{ start: 0, end: 60 }], 30, 30)).toEqual([]);
+    expect(playbackRangesToEvict([], 500, 30)).toEqual([]);
+    expect(playbackRangesToEvict(null, 500, 30)).toEqual([]);
+  });
+
+  it('緩衝尾端在保留線之前時整段丟掉', () => {
+    expect(playbackRangesToEvict([{ start: 0, end: 60 }], 300, 30)).toEqual([{ start: 0, end: 60 }]);
+  });
+});
+
+describe('playbackNeedsSegment', () => {
+  it('完全沒有緩衝時要補第一段', () => {
+    expect(playbackNeedsSegment([], 0)).toBe(true);
+    expect(playbackNeedsSegment(null, 0)).toBe(true);
+  });
+
+  it('播放頭接近緩衝尾端才補下一段，不是一次抓完整份清單', () => {
+    // 這正是「SourceBuffer is full」的來源：舊版把整份清單 append 完才開播。
+    expect(playbackNeedsSegment([{ start: 0, end: 300 }], 0)).toBe(false);
+    expect(playbackNeedsSegment([{ start: 0, end: 300 }], 200)).toBe(false);
+    expect(playbackNeedsSegment([{ start: 0, end: 300 }], 260)).toBe(true);
+  });
+
+  it('一次補很多段時以最後一段的尾端為準', () => {
+    expect(
+      playbackNeedsSegment([{ start: 0, end: 300 }, { start: 300, end: 600 }], 550),
+    ).toBe(true);
+    expect(
+      playbackNeedsSegment([{ start: 0, end: 300 }, { start: 300, end: 600 }], 480),
+    ).toBe(false);
+  });
+
+  it('不會因為播放頭落在緩衝範圍外就一路補到清單結尾', () => {
+    // 這一條是「照順序補」與「跳到那一段」的分界：播放頭在最後一段後面 80 分鐘時，
+    // 尾端判斷必須是 false——真正的處置是跳到播放頭所在的那一段（呼叫端負責），
+    // 若這裡回 true，往回拖就會把整份清單重新抓一遍，正是爆配額的老問題。
+    expect(playbackNeedsSegment([{ start: 7770, end: 8113 }], 974)).toBe(false);
+  });
+});
+
+describe('playbackRangesAheadToEvict', () => {
+  it('跳段後把播放頭前方很遠的緩衝丟掉，往回拖才不會留下整份清單', () => {
+    // 實機症狀：在同一個 3 小時窗裡來回拖，之前跳過的時段一直留在 SourceBuffer，
+    // 幾次之後就撞上「The SourceBuffer is full」而畫面停在錯誤訊息。
+    expect(playbackRangesAheadToEvict([{ start: 7770, end: 8113 }], 974, 60))
+      .toEqual([{ start: 7770, end: 8113 }]);
+  });
+
+  it('播放頭附近與後方的資料留著，才不會為了跳一段而丟掉正在播的內容', () => {
+    expect(playbackRangesAheadToEvict([{ start: 900, end: 1200 }], 974, 60)).toEqual([]);
+    // 300 秒的段會超出 lookahead，但它從播放頭之前就開始，整段都要留。
+    expect(playbackRangesAheadToEvict([{ start: 0, end: 900 }], 10, 60)).toEqual([]);
+    expect(playbackRangesAheadToEvict([], 500, 60)).toEqual([]);
+    expect(playbackRangesAheadToEvict(null, Number.NaN, 60)).toEqual([]);
+  });
+});
+
+describe('playbackBufferedFor', () => {
+  const entry = { mediaStart: 0, mediaEnd: 300 };
+
+  it('資料還在緩衝區裡時說「有」，跳段與收斂時長才不會互相打架', () => {
+    // 播放頭跑到整條時間軸尾端時，最後一段其實還在緩衝區：那時該做的是把 duration
+    // 收斂到真實結尾，而不是每一輪重新 append 最後一段。
+    expect(playbackBufferedFor([{ start: 0, end: 300 }], entry)).toBe(true);
+    expect(playbackBufferedFor([{ start: 0, end: 320 }], entry)).toBe(true);
+  });
+
+  it('被淘汰、只留半段或查不到這一段時說「沒有」，才會重抓', () => {
+    expect(playbackBufferedFor([{ start: 120, end: 300 }], entry)).toBe(false);
+    expect(playbackBufferedFor([{ start: 300, end: 600 }], entry)).toBe(false);
+    expect(playbackBufferedFor([], entry)).toBe(false);
+    expect(playbackBufferedFor([{ start: 0, end: 300 }], undefined)).toBe(false);
+    expect(playbackBufferedFor([{ start: 0, end: 300 }], { mediaStart: 5, mediaEnd: 5 })).toBe(false);
+  });
+});
+
+describe('playlistMediaStarts', () => {
+  it('以 EXTINF 累計出每一段在時間軸上的起點', () => {
+    expect(playlistMediaStarts([{ duration: 300 }, { duration: 60 }, { duration: 15 }]))
+      .toEqual([0, 300, 360]);
+  });
+
+  it('缺長度的段沿用前一段，不會讓後面的段全部疊在同一點', () => {
+    // 索引偶爾有 duration 寫壞的段；若當成 0，後面每一段的累計位置都會塌回同一個時刻，
+    // 拖曳就永遠指到錯的段，而畫面看起來只是「跳錯地方」。
+    expect(playlistMediaStarts([{ duration: 30 }, { duration: null }, { duration: 30 }]))
+      .toEqual([0, 30, 60]);
+    expect(playlistMediaStarts([{}, { duration: 10 }])).toEqual([0, 0]);
+    expect(playlistMediaStarts(null)).toEqual([]);
+  });
+});
+
+describe('playlistSegmentIndexAt', () => {
+  const segments = [{ duration: 300 }, { duration: 300 }, { duration: 300 }];
+
+  it('拖到某個時刻就指出那一段，不必從頭逐段往前補', () => {
+    // 實機症狀（3 小時窗拖到 80%）：舊寫法只能從讀取頭一段一段補，補到第 10 次 append 時
+    // SourceBuffer 卡在 PARSING_MEDIA_SEGMENT，畫面停在錯誤訊息；而 24 段的窗本來就該
+    // 直接跳到播放頭所在的那一段。
+    expect(playlistSegmentIndexAt(segments, 0)).toBe(0);
+    expect(playlistSegmentIndexAt(segments, 450)).toBe(1);
+    expect(playlistSegmentIndexAt(segments, 720)).toBe(2);
+  });
+
+  it('段尾那一刻屬於下一段（半開區間），與桌面回放同一種落點', () => {
+    expect(playlistSegmentIndexAt(segments, 300)).toBe(1);
+    expect(playlistSegmentIndexAt(segments, 600)).toBe(2);
+  });
+
+  it('超出尾端回最後一段，空清單回 null，壞值回第一段', () => {
+    expect(playlistSegmentIndexAt(segments, 5000)).toBe(2);
+    expect(playlistSegmentIndexAt([], 10)).toBeNull();
+    expect(playlistSegmentIndexAt(segments, Number.NaN)).toBe(0);
+    expect(playlistSegmentIndexAt(segments, -5)).toBe(0);
+  });
+});
+
+describe('playbackSeamStart', () => {
+  it('EXTINF 比檔案長一點時從上一段結尾接上去，不留下沒有資料的洞', () => {
+    // 舊索引的 EXTINF 是牆鐘（每段多 0.6–12 秒），照它定位會在每個接縫留洞，
+    // 瀏覽器播到洞邊就停住，看起來是「播到一半卡住」。
+    expect(playbackSeamStart(600, 597.5)).toBe(597.5);
+    expect(playbackSeamStart(3600, 3599.9)).toBe(3599.9);
+  });
+
+  it('真的錄影中斷（大洞）要保留，時間軸與時鐘才不會騙人', () => {
+    expect(playbackSeamStart(7200, 300)).toBe(7200);
+    expect(playbackSeamStart(7200, 0)).toBe(7200);
+  });
+
+  it('第一段與壞值不會被推到負數', () => {
+    expect(playbackSeamStart(0, 0)).toBe(0);
+    expect(playbackSeamStart(Number.NaN, 120)).toBe(120);
+    expect(playbackSeamStart(-5, -1)).toBe(0);
   });
 });
 

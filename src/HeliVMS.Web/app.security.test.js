@@ -107,6 +107,19 @@ describe('shell hardening', () => {
     expect(indexSource).toMatch(/default-src 'self'/);
   });
 
+  it('allows blob media so the HLS playback MediaSource can load', () => {
+    // 遠程回放把 MediaSource 掛在 blob: URL 上（app.js attachPlaylist）。CSP 沒有 media-src
+    // 時會退回 default-src 'self'，blob: 當場被擋掉：video.error=4、訊息永遠停在「載入中」，
+    // 而即時監看（WebRTC 用 srcObject，不走 URL）完全正常。也就是「同一個頁面，監看有畫面、
+    // 回放黑屏」而且主控台只有一行 CSP 違規——這正是最難歸因的一種「WEB 看不到畫面」。
+    const policy = indexSource.match(/http-equiv="Content-Security-Policy"[\s\S]*?content="([^"]+)"/)?.[1] ?? '';
+    const directives = policy.split(';').map((part) => part.trim().split(/\s+/));
+    const mediaSrc = directives.find((d) => d[0] === 'media-src');
+    expect(mediaSrc, 'CSP 需要明確的 media-src，否則 blob: 會繼承 default-src 而被擋').toBeDefined();
+    expect(mediaSrc).toContain("'self'");
+    expect(mediaSrc).toContain('blob:');
+  });
+
   it('never ships the development api key in markup', () => {
     expect(indexSource).not.toContain('helivms-dev-key');
   });

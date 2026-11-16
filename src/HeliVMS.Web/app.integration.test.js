@@ -260,21 +260,82 @@ describe('remote playback (M239 HLS)', () => {
   it('pushes the init segment and every media segment through the authenticated transport', () => {
     expect(appSource).toMatch(/if \(initBytes\) await append\(initBytes, null\)/);
     expect(appSource).toMatch(/const bytes = await fetchBytes\(segment\.uri\)/);
-    expect(appSource).toMatch(/await append\(bytes, offset\)/);
+    expect(appSource).toMatch(/await append\(bytes, mediaStart - \(span \? span\.start : 0\)\)/);
     expect(appSource).toMatch(/const response = await apiRaw\(uri\)/);
-    expect(appSource).toMatch(/media\.endOfStream\(\)/);
-    expect(appSource).toMatch(/return timeline/);
+    expect(appSource).toMatch(/const player = \{ timeline, ready, done, stop \}/);
+  });
+
+  it('offers a ready/done handle so the page can play before the whole window is fetched', () => {
+    // 舊版 await 整份清單 append 完才回傳：40 分鐘的窗會撞上 SourceBuffer 配額，
+    // 畫面黑屏、訊息停在「載入中」，而即時監看完全正常。
+    expect(appSource).toMatch(/resolveReady\(\)/);
+    expect(appSource).toMatch(/await player\.ready/);
+    expect(appSource).toMatch(/player\.done\.catch/);
   });
 
   it('stitches segments onto one media timeline instead of restarting at zero', () => {
     // 每個錄影檔的時間戳都從 0 重新開始：不設 timestampOffset 直接 append，後段的幀
     // 會覆蓋到前段的時間軸上，操作員實際只能看第一段，而且 log 乾淨、沒有任何報錯。
-    // 接縫的依據是 moof 量出來的真實媒體長度，不能用 m3u8 的 EXTINF（伺服器量的牆鐘，
-    // 每段多含約一秒的啟動時間，累加起來是成串空隙）。
     expect(appSource).toMatch(/buffer\.timestampOffset = offsetSeconds/);
     expect(appSource).toMatch(/parseFmp4InitTracks\(initBytes\)/);
     expect(appSource).toMatch(/parseFmp4VideoSpan\(tracks, bytes\)/);
-    expect(appSource).toMatch(/const offset = mediaEnd - \(span \? span\.start : 0\)/);
+    // 位置取清單 EXTINF 的累計值，任何一段都能單獨接上去；接縫的小洞從上一段結尾補起，
+    // 舊索引的牆鐘 EXTINF 才不會在每段之間留下沒有資料的洞（播到洞邊就停住）。
+    expect(appSource).toMatch(/const mediaStarts = playlistMediaStarts\(playlist\.segments\)/);
+    expect(appSource).toMatch(/playbackSeamStart\(mediaStarts\[index\], previousEnd\)/);
+    expect(appSource).toMatch(/await append\(bytes, mediaStart - \(span \? span\.start : 0\)\)/);
+  });
+
+  it('邊播邊補並淘汰舊緩衝，不會一次抓完整份清單', () => {
+    // 實機症狀：40 分鐘的窗得到「The SourceBuffer is full, and cannot free space to
+    // append additional buffers」，畫面黑屏、訊息停在載入中，即時監看卻完全正常。
+    // 兩個關鍵呼叫：補段前先看播放頭是否接近緩衝尾端、append 前先 remove 舊資料。
+    expect(appSource).toMatch(/if \(!playbackNeedsSegment\(ranges, now\)\) break/);
+    expect(appSource).toMatch(/playbackRangesToEvict\(ranges, now\)/);
+    expect(appSource).toMatch(/await remove\(range\)/);
+    // endOfStream 之後就不能再 appendBuffer（往回拖要重抓），所以這條管線不能收尾。
+    const body = appSource.slice(appSource.indexOf('async function attachPlaylist'));
+    expect(body).not.toMatch(/media\.endOfStream\(\)/);
+  });
+
+  it('只在緩衝區閒著時改 timestampOffset 或 append／remove', () => {
+    // 實機症狀（3 小時的窗拖到 80%）：訊息變成「Failed to set the 'timestampOffset'
+    // property on 'SourceBuffer': The timestamp offset may not be set while the
+    // SourceBuffer's append state is 'PARSING_MEDIA_SEGMENT'」，畫面停在原地不再更新。
+    // 上一次 append 還沒 updateend 就改 timestampOffset／再 appendBuffer／remove，
+    // 瀏覽器直接擲 InvalidStateError，而畫面上只有一行看起來像「緩衝區滿了」的訊息。
+    const body = appSource.slice(appSource.indexOf('async function attachPlaylist'));
+    expect(body).toMatch(/const idleNow = \(\) =>/);
+    expect(body).toMatch(/await idleNow\(\);\s*\n\s*if \(offsetSeconds !== null\) \{/);
+    expect(body).toMatch(/await idleNow\(\);\s*\n\s*const idle = whenBufferIdle\(/);
+  });
+
+  it('append 狀態卡住時用 abort() 解開再重試，不是等它自己好', () => {
+    // 實測：卡住時 `updating` 已經是 false，append state 卻還是 PARSING_MEDIA_SEGMENT，
+    // 等 4 個 macrotask（含 100ms）重試都仍然擲同一個例外；只有 buffer.abort() 能把它
+    // 推回 WAITING_FOR_SEGMENT。沒有這條路，拖到沒抓過的時段就永遠停在錯誤訊息上。
+    const body = appSource.slice(appSource.indexOf('async function attachPlaylist'));
+    expect(body).toMatch(/buffer\.abort\(\)/);
+    expect(body).toMatch(/if \(attempt >= 3\) throw err/);
+  });
+
+  it('拖到還沒抓過的時段會直接跳到那一段，不從讀取頭逐段補', () => {
+    // 3 小時窗＝24 段、約 30 MB。逐段往前補等於把整份清單抓一遍，而且第 10 次 append
+    // 就讓 SourceBuffer 卡死；播放頭不在緩衝範圍內時應直接跳到它所在的段並補上它。
+    const body = appSource.slice(appSource.indexOf('async function attachPlaylist'));
+    expect(body).toMatch(/const covered = ranges\.some\(/);
+    expect(body).toMatch(/playlistSegmentIndexAt\(playlist\.segments, now\)/);
+    expect(body).toMatch(/if \(\s*!covered &&\s*target !== null &&\s*!playbackBufferedFor\(ranges, timeline\[target\]\)\s*\) \{/);
+  });
+
+  it('往回拖到已淘汰的時段時會重抓那一段，不是什麼都不補', () => {
+    // 實機症狀（3 小時窗播到 80% 後拖回 10%）：t 變成 974、paused=false，但緩衝區仍是
+    // [7770, 8113]，畫面與時鐘都停在 23:15，看起來完全沒反應。根因有兩個：
+    // ①`playbackNeedsSegment` 只看「離最後一段結尾多近」，最後一段在播放頭後面 80 分鐘，
+    //   判斷永遠是 false；②沒把播放頭前方很遠的緩衝丟掉，來回拖幾次就撞上 SourceBuffer 配額。
+    const body = appSource.slice(appSource.indexOf('async function attachPlaylist'));
+    expect(body).toMatch(/await appendSegment\(target\)/);
+    expect(body).toMatch(/playbackRangesAheadToEvict\(ranges, now\)/);
   });
 
   it('shows the recording wall-clock time for the current position', () => {

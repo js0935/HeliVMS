@@ -383,6 +383,188 @@ export function buildRecordingClock(timeline) {
 }
 
 /**
+ * 回放緩衝：播放頭後方保留的秒數。
+ *
+ * MSE 的 SourceBuffer 有固定配額（實測 Chrome 一次 append 整份 30 分鐘的清單會直接得到
+ * 「The SourceBuffer is full, and cannot free space to append additional buffers」），
+ * 所以遠程回放只能邊播邊補、也邊丟。已經播過的內容留著沒有任何好處。
+ */
+export const PlaybackKeepBehindSeconds = 30;
+
+/**
+ * 回放緩衝：播放頭離已緩衝尾端多近就要補下一段（秒）。
+ * 留一段的餘裕，換段時才不會在 append 的空檔停住畫面。
+ */
+export const PlaybackLookaheadSeconds = 60;
+
+/**
+ * 該從 SourceBuffer 丟掉的區間（播放頭後方）。
+ *
+ * 只往前砍：播放頭之後是還沒播到的內容，砍掉等於讓時間軸倒退。回傳的是可以直接餵給
+ * `buffer.remove(start, end)` 的區間；已經不需要的部分若是某個區間的前半段，就只砍那半段。
+ */
+export function playbackRangesToEvict(
+  ranges,
+  currentTime,
+  keepBehindSeconds = PlaybackKeepBehindSeconds,
+) {
+  if (!Number.isFinite(currentTime)) return [];
+  const limit = currentTime - keepBehindSeconds;
+  if (!Number.isFinite(limit) || limit <= 0) return [];
+  const out = [];
+  for (const range of Array.isArray(ranges) ? ranges : []) {
+    const start = Number(range?.start);
+    const end = Number(range?.end);
+    if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) continue;
+    if (end <= limit) out.push({ start, end });
+    else if (start < limit) out.push({ start, end: limit });
+  }
+  return out;
+}
+
+/**
+ * 播放頭是否已接近已緩衝內容的尾端（true ＝ 該再抓一段）。
+ * 完全沒有緩衝時也回 true：那是第一次載入，必須先補第一段。
+ *
+ * 這裡刻意只回答「尾端」：播放頭**整個落在沒有資料的地方**（往回拖進已淘汰的範圍、真的大洞）
+ * 由呼叫端另外處理——那個情況要的是「跳到那一段」，不是「照順序把後面的補完」，
+ * 用同一個判斷會變成一路補到清單結尾，正好是爆 SourceBuffer 配額的老問題。
+ */
+export function playbackNeedsSegment(
+  ranges,
+  currentTime,
+  lookaheadSeconds = PlaybackLookaheadSeconds,
+) {
+  const list = (Array.isArray(ranges) ? ranges : []).filter(
+    (range) => Number.isFinite(range?.start) && Number.isFinite(range?.end) && range.end > range.start,
+  );
+  if (list.length === 0) return true;
+  const last = list[list.length - 1];
+  const at = Number.isFinite(currentTime) ? currentTime : 0;
+  return at >= last.end - lookaheadSeconds;
+}
+
+/**
+ * 跳段時該丟掉的「遠方」區間（播放頭前方超過 lookahead 的部分）。
+ *
+ * 往回拖之後，之前跳過的時段還留在緩衝區裡：不清掉的話，操作員在同一個窗裡來回拖幾次就
+ * 會把整份清單都留在 SourceBuffer 裡——那正是「The SourceBuffer is full」的成因（實測
+ * 40 分鐘的窗一次 append 就爆）。遠方的資料沒有價值，真的要播時再抓就夠（一段約 300 秒）。
+ * 播放頭後方的舊資料由 `playbackRangesToEvict` 負責，兩者刻意分開。
+ */
+export function playbackRangesAheadToEvict(
+  ranges,
+  currentTime,
+  keepAheadSeconds = PlaybackLookaheadSeconds,
+) {
+  if (!Number.isFinite(currentTime)) return [];
+  const limit = currentTime + keepAheadSeconds;
+  if (!Number.isFinite(limit)) return [];
+  const out = [];
+  for (const range of Array.isArray(ranges) ? ranges : []) {
+    const start = Number(range?.start);
+    const end = Number(range?.end);
+    if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) continue;
+    if (start > limit) out.push({ start, end });
+  }
+  return out;
+}
+
+/**
+ * 這一段的資料是否還在緩衝區裡。
+ *
+ * 用來分辨兩件看起來一樣、處置相反的事：**資料還在**（播放頭跑到整條時間軸的尾端，
+ * 該做的是把 `media.duration` 收斂到真實結尾）與**資料已被淘汰**（該重抓那一段）。
+ * 只看「播放頭沒被覆蓋」就一律重抓，會讓停在尾端時每一輪都重 append 最後一段。
+ */
+export function playbackBufferedFor(ranges, entry) {
+  const start = Number(entry?.mediaStart);
+  const end = Number(entry?.mediaEnd);
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return false;
+  for (const range of Array.isArray(ranges) ? ranges : []) {
+    const from = Number(range?.start);
+    const to = Number(range?.end);
+    if (!Number.isFinite(from) || !Number.isFinite(to)) continue;
+    if (from <= start + 0.25 && to >= end - 0.25) return true;
+  }
+  return false;
+}
+
+/**
+ * 清單裡每一段在媒體時間軸上的起點（秒）：EXTINF 的累計值。
+ *
+ * 遠程回放的媒體時間軸以清單位置為準，而不是逐段量到的真實長度：操作員拖到某個時刻時，
+ * 必須能直接算出「那是第幾段」。舊寫法只能從讀取頭一段一段往前補，實測 3 小時的窗有 24 段、
+ * 約 30 MB，補到第 10 次 append 時 Chromium 的 SourceBuffer 就卡在 PARSING_MEDIA_SEGMENT
+ * （`timestampOffset` 再也設不進去，畫面停在錯誤訊息、兩邊日誌乾淨）。
+ * EXTINF 與索引的段長同源（結束時刻＝起點＋探測長度），所以累計值就是段在清單上的位置。
+ * 缺長度的段沿用前一段的長度，一個壞值不會把整條時間軸歸零。
+ */
+export function playlistMediaStarts(segments) {
+  const list = Array.isArray(segments) ? segments : [];
+  const out = [];
+  let at = 0;
+  let previous = 0;
+  for (const segment of list) {
+    const duration = Number(segment?.duration);
+    if (Number.isFinite(duration) && duration > 0) previous = duration;
+    out.push(at);
+    at += previous;
+  }
+  return out;
+}
+
+/**
+ * 播放頭落在清單的哪一段（回傳索引）。落在最後一段之後回最後一段，空清單回 null。
+ *
+ * 與桌面回放的落點規則一致：半開區間 [start, end)，落在段尾的那一刻屬於下一段。
+ * 拖到還沒抓過的時段時只有「直接跳段」是可行的：逐段補會把整份清單抓一遍，而且會讓
+ * SourceBuffer 卡在 append 狀態（見 `playlistMediaStarts`）。
+ */
+export function playlistSegmentIndexAt(segments, seconds) {
+  const starts = playlistMediaStarts(segments);
+  if (starts.length === 0) return null;
+  const at = Number(seconds);
+  if (!Number.isFinite(at)) return 0;
+  let lo = 0;
+  let hi = starts.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1;
+    if (starts[mid] <= at + 0.25) lo = mid;
+    else hi = mid - 1;
+  }
+  return lo;
+}
+
+/**
+ * 接縫容忍值（秒）：清單的 EXTINF 比檔案實際長度多出這麼多秒以內，就從上一段結尾接上去。
+ *
+ * 新寫入的索引列以探測長度為準（結束時刻＝起點＋檔案長度），兩者幾乎相等；但舊資料的
+ * EXTINF 是牆鐘，實測每段多 0.6–12 秒。照 EXTINF 定位就會在每個接縫留下一個沒有資料的洞，
+ * 瀏覽器播到洞邊就停住（看起來是「播到一半卡住」）。真的大洞（錄影中斷數十秒以上）保留，
+ * 時間軸與時鐘才不會騙人。
+ */
+export const PlaybackSeamToleranceSeconds = 30;
+
+/**
+ * 這一段要接在媒體時間軸的哪裡（秒）。
+ *
+ * `nominalStart` 是清單累計位置，`previousEnd` 是目前最後一段已接上的結尾。
+ */
+export function playbackSeamStart(
+  nominalStart,
+  previousEnd,
+  tolerance = PlaybackSeamToleranceSeconds,
+) {
+  const nominal = Number(nominalStart);
+  const end = Number(previousEnd);
+  const hasEnd = Number.isFinite(end) && end > 0;
+  if (!Number.isFinite(nominal)) return hasEnd ? end : 0;
+  if (hasEnd && nominal > end && nominal - end <= tolerance) return end;
+  return nominal > 0 ? nominal : 0;
+}
+
+/**
  * 回放時鐘的顯示格式（本地時間）。
  * 與 formatTimestamp（UTC，事件表慣例）刻意不同：回放時段欄位是 datetime-local、
  * 桌面端回放也是顯示本地時間，時鐘跟著它們走，操作員才不用自己換算時差。

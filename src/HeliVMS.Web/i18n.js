@@ -162,6 +162,7 @@ const CATALOGS = {
     'state.needRange': '請填有效的起訖時間（結束須晚於開始）',
     'state.channelPositive': '頻道須為正整數',
     'state.playlistFailed': '播放清單載入失敗（{status}）',
+    'state.appendFailed': '回放緩衝區寫入失敗（瀏覽器配額不足或影片段損壞）',
     'state.noSegments': '沒有可播放的片段',
     'state.webrtcUnsupported': '此瀏覽器不支援 WebRTC，請改用新版 Chrome、Edge 或 Safari',
     'state.liveConnecting': '正在建立即時連線…',
@@ -619,6 +620,7 @@ const CATALOGS = {
     'state.needRange': 'Enter a valid range (end must be later than start)',
     'state.channelPositive': 'Channel must be a positive integer',
     'state.playlistFailed': 'Failed to load playlist ({status})',
+    'state.appendFailed': 'Could not append to the playback buffer (out of buffer quota or a damaged segment)',
 
     'state.noSegments': 'No playable segments',
     'state.webrtcUnsupported': 'This browser has no WebRTC support; use a recent Chrome, Edge or Safari',

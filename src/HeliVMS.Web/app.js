@@ -18,6 +18,13 @@ import {
   parseLogin,
   parseM3u8,
   parseWsMessage,
+  playbackBufferedFor,
+  playbackNeedsSegment,
+  playbackRangesAheadToEvict,
+  playbackRangesToEvict,
+  playbackSeamStart,
+  playlistMediaStarts,
+  playlistSegmentIndexAt,
   pollGate,
   tx,
 } from './lib.js';
@@ -524,6 +531,38 @@ async function refreshLocalChannels() {
   }
 }
 
+/** 目前播放中的遠程回放：換一段或關頁前要停掉，否則舊管線會繼續抓檔案。 */
+let activePlayback = null;
+
+/** TimeRanges 只能逐索引取，轉成純陣列才好交給 lib.js 的純函式判斷。 */
+function readBufferedRanges(buffer) {
+  const ranges = [];
+  for (let i = 0; i < buffer.buffered.length; i++) {
+    ranges.push({ start: buffer.buffered.start(i), end: buffer.buffered.end(i) });
+  }
+  return ranges;
+}
+
+/** 等 SourceBuffer 空出來：append 與 remove 都以 updateend 收尾，error 就當場判失敗。 */
+function whenBufferIdle(buffer, message) {
+  return new Promise((resolve, reject) => {
+    const cleanup = () => {
+      buffer.removeEventListener('updateend', done);
+      buffer.removeEventListener('error', fail);
+    };
+    const done = () => {
+      cleanup();
+      resolve();
+    };
+    const fail = () => {
+      cleanup();
+      reject(new Error(message));
+    };
+    buffer.addEventListener('updateend', done);
+    buffer.addEventListener('error', fail);
+  });
+}
+
 /**
  * 遠程回放（M239，§14.3 串流 P0）：HLS VOD → MediaSource。
  * 伺服器每個錄影檔自帶 ftyp＋moov，所以初始化段只送第一段的那一份，
@@ -532,10 +571,17 @@ async function refreshLocalChannels() {
  * 每個錄影檔是獨立的 ffmpeg 行程寫的，時間戳都從 0 重新開始；不設 timestampOffset
  * 直接 append，後段的幀會覆蓋到前段的時間軸上，實際只剩第一段能播。所以要以
  * parseFmp4VideoSpan 量出的真實媒體長度累加偏移，把後段接到前段之後。
- * 回傳每段在合併時間軸上的位置與錄影牆鐘，讓時鐘能把 currentTime 換算成
- * 「這一刻是什麼時候錄的」。
+ *
+ * **一次 append 整份清單會撞上 SourceBuffer 的固定配額**（實機：40 分鐘的窗就得到
+ * 「The SourceBuffer is full, and cannot free space to append additional buffers」，
+ * 畫面黑屏、訊息停在載入中，而即時監看完全正常）。所以改成邊播邊補：只有播放頭
+ * 接近已緩衝尾端時才抓下一段，append 前先把播放頭後方的舊資料 remove 掉。
+ *
+ * 回傳 `{ timeline, ready, done }`：`ready` 在第一段真的 append 完成時 resolve
+ * （呼叫端才能把時鐘接上、顯示就緒），`done` 代表整條管線補完或失敗。`timeline`
+ * 是活的陣列，每補一段就更新，`options.onTimeline` 會拿到它。
  */
-async function attachPlaylist(video, playlist) {
+async function attachPlaylist(video, playlist, options = {}) {
   if (!('MediaSource' in window)) {
     throw new Error(t('state.mseUnsupported'));
   }
@@ -546,54 +592,248 @@ async function attachPlaylist(video, playlist) {
   );
 
   const media = new MediaSource();
-  video.src = URL.createObjectURL(media);
+  const objectUrl = URL.createObjectURL(media);
+  video.src = objectUrl;
+
+  await new Promise((resolve) => media.addEventListener('sourceopen', resolve, { once: true }));
+  const buffer = media.addSourceBuffer(type);
+
   const timeline = [];
-  try {
-    await new Promise((resolve) => media.addEventListener('sourceopen', resolve, { once: true }));
-    const buffer = media.addSourceBuffer(type);
-    const fetchBytes = async (uri) => {
-      const response = await apiRaw(uri);
-      if (!response.ok) throw new Error(`${uri} -> ${response.status}`);
-      return response.arrayBuffer();
-    };
-    const append = async (bytes, offsetSeconds) => {
-      await new Promise((resolve, reject) => {
-        buffer.addEventListener('updateend', resolve, { once: true });
-        buffer.addEventListener('error', reject, { once: true });
-        if (offsetSeconds !== null) buffer.timestampOffset = offsetSeconds;
-        buffer.appendBuffer(bytes);
-      });
-    };
+  // 每一段的媒體時間軸起點（秒）＝清單 EXTINF 的累計位置。位置一律取這裡，任何一段
+  // 都能單獨接上去：拖到還沒抓過的時段時直接跳到那一段，不必從讀取頭逐段補。
+  const mediaStarts = playlistMediaStarts(playlist.segments);
+  let tracks = null;
+  let nextIndex = 0;
+  let pumping = false;
+  let stopped = false;
+  let failure = null;
+  let appendedAny = false;
 
-    const initBytes = playlist.initUri ? await fetchBytes(playlist.initUri) : null;
-    if (initBytes) await append(initBytes, null);
-    const tracks = parseFmp4InitTracks(initBytes);
+  let resolveReady;
+  let rejectReady;
+  let resolveDone;
+  let rejectDone;
+  const ready = new Promise((resolve, reject) => {
+    resolveReady = resolve;
+    rejectReady = reject;
+  });
+  const done = new Promise((resolve, reject) => {
+    resolveDone = resolve;
+    rejectDone = reject;
+  });
+  // 呼叫端不一定會接住（第一段就失敗時 playRemote 只 await ready），沒有這個 catch
+  // 會變成 unhandled rejection，把真正的錯誤訊息埋掉。
+  ready.catch(() => {});
+  done.catch(() => {});
 
-    let mediaEnd = 0;
-    for (const segment of playlist.segments) {
-      const bytes = await fetchBytes(segment.uri);
-      // 解析不出跨度時退回「假設從零開始＋牆鐘長度」：仍比直接覆蓋成只剩第一段好，
-      // 時鐘誤差就是 EXTINF 與媒體長度的差（每段約一到兩秒）。
-      const span = parseFmp4VideoSpan(tracks, bytes);
-      const offset = mediaEnd - (span ? span.start : 0);
-      const mediaStart = mediaEnd;
-      const mediaDuration = span
-        ? span.end - span.start
-        : (Number.isFinite(segment.duration) && segment.duration > 0 ? segment.duration : 0);
-      await append(bytes, offset);
-      timeline.push({
-        mediaStart,
-        mediaEnd: mediaStart + mediaDuration,
-        wallStartMs: Number.isFinite(segment.start) ? segment.start : null,
-        wallDurS: Number.isFinite(segment.duration) ? segment.duration : null,
-      });
-      mediaEnd += mediaDuration;
+  const onProgress = () => {
+    pump().catch(() => {});
+  };
+
+  const stop = () => {
+    if (stopped) return;
+    stopped = true;
+    video.removeEventListener('timeupdate', onProgress);
+    video.removeEventListener('seeking', onProgress);
+    video.removeEventListener('seeked', onProgress);
+    try {
+      URL.revokeObjectURL(objectUrl);
+    } catch {
+      // 已經釋放
     }
-    media.endOfStream();
-    return timeline;
-  } finally {
-    URL.revokeObjectURL(video.src);
+  };
+
+  const fail = (err) => {
+    if (failure) return;
+    failure = err;
+    stop();
+    rejectReady(err);
+    rejectDone(err);
+  };
+
+  const fetchBytes = async (uri) => {
+    const response = await apiRaw(uri);
+    if (!response.ok) throw new Error(`${uri} -> ${response.status}`);
+    return response.arrayBuffer();
+  };
+
+  /**
+   * 等 SourceBuffer 真的閒下來。
+   *
+   * <para>
+   * `appendBuffer` 與 `remove` 都要求 `updating === false`，否則瀏覽器擲
+   * InvalidStateError 而畫面上只看到一行訊息、畫面不再更新（`fail()` 會把整條管線關掉）。
+   * `timestampOffset` 的例外更囉嗦——連 `updating` 已經是 false 都可能設不進去，
+   * 由 `append` 自己處理。
+   * </para>
+   */
+  const idleNow = () =>
+    (buffer.updating ? whenBufferIdle(buffer, t('state.appendFailed')) : Promise.resolve());
+
+  const append = async (bytes, offsetSeconds) => {
+    if (stopped) return;
+    await idleNow();
+    if (offsetSeconds !== null) {
+      // 實測：append 排到一半時 append state 是 PARSING_MEDIA_SEGMENT，而 `updating` 已經是
+      // false——這時連 timestampOffset 都不能設，等幾個 macrotask 也一樣，只有 abort() 能把
+      // 它推回 WAITING_FOR_SEGMENT。撞到就 abort 後重試，否則拖到還沒抓過的段就停在錯誤訊息。
+      for (let attempt = 1; ; attempt++) {
+        try {
+          buffer.timestampOffset = offsetSeconds;
+          break;
+        } catch (err) {
+          if (attempt >= 3) throw err;
+          if (buffer.updating) await idleNow();
+          else buffer.abort();
+        }
+      }
+    }
+    const idle = whenBufferIdle(buffer, t('state.appendFailed'));
+    buffer.appendBuffer(bytes);
+    await idle;
+  };
+
+  const remove = async (range) => {
+    if (stopped) return;
+    await idleNow();
+    const idle = whenBufferIdle(buffer, t('state.appendFailed'));
+    buffer.remove(range.start, range.end);
+    await idle;
+  };
+
+  /**
+   * 把第 index 段接到媒體時間軸上。
+   *
+   * 位置取清單的累計起點（EXTINF）、段內時間戳不從 0 開始時整個平移；解析不出跨度就
+   * 當成從 0 開始。任何一段都能單獨接上去，往回拖或跳段都不必重算偏移量（重算等於把
+   * 整份清單重新解析一遍）。
+   */
+  const appendSegment = async (index) => {
+    const segment = playlist.segments[index];
+    const bytes = await fetchBytes(segment.uri);
+    if (stopped) return;
+    const span = parseFmp4VideoSpan(tracks, bytes);
+    // 接縫只看**前一段**的結尾（不是整條時間軸的最大值）：往回拖之後重新接第 3 段時，
+    // 時間軸最大值還在第 27 段的尾端，用最大值會讓 `playbackSeamStart` 永遠走「照清單定位」
+    // 那條路，於是在每個接縫又留下那 0.6–12 秒的洞。
+    const previousEnd = Number(timeline[index - 1]?.mediaEnd) || 0;
+    const mediaStart = playbackSeamStart(mediaStarts[index], previousEnd);
+    const mediaDuration = span
+      ? span.end - span.start
+      : (Number.isFinite(segment.duration) && segment.duration > 0 ? segment.duration : 0);
+    await append(bytes, mediaStart - (span ? span.start : 0));
+    timeline[index] = {
+      index,
+      mediaStart,
+      mediaEnd: mediaStart + mediaDuration,
+      wallStartMs: Number.isFinite(segment.start) ? segment.start : null,
+      wallDurS: Number.isFinite(segment.duration) ? segment.duration : null,
+    };
+    options.onTimeline?.(timeline);
+  };
+
+  /** 補資料（必要時先淘汰舊資料）並維護 media.duration。序列化：同時間只有一條管線。 */
+  const pump = async () => {
+    if (pumping || stopped || failure) return;
+    pumping = true;
+    try {
+      const now = Number(video.currentTime) || 0;
+
+      // 播放頭不在已緩衝的範圍裡（拖到還沒抓過的時段、或往回拖進已淘汰的區間）：直接跳到
+      // 播放頭所在的那一段並補上它。舊寫法從讀取頭一段一段往前補，3 小時的窗補到第 10 次
+      // append 時 SourceBuffer 就卡在 PARSING_MEDIA_SEGMENT；往回拖更糟——最後一段在播放頭
+      // 後面 80 分鐘，「離尾端多近」永遠是「還很遠」，於是什麼都不補，畫面不動而讀數還停在
+      // 舊位置（實機回報「往回拖沒反應」）。
+      //
+      // 「這一段的資料還在緩衝區裡」時不跳：那是播放頭跑到整條時間軸尾端的情況（估算的
+      // duration 比媒體結尾多一個暖機量級），跳了只會每一輪重新 append 最後一段；
+      // 那時該做的是下面把 duration 收斂到真實結尾。
+      const ranges = readBufferedRanges(buffer);
+      const covered = ranges.some((range) => now >= range.start - 0.25 && now < range.end);
+      const target = playlistSegmentIndexAt(playlist.segments, now);
+      if (
+        !covered &&
+        target !== null &&
+        !playbackBufferedFor(ranges, timeline[target])
+      ) {
+        // 往回拖之後，先前跳過的那一大段還留在緩衝區裡：遠方的資料清掉，否則在同一個窗
+        // 來回拖幾次就會把整份清單留在 SourceBuffer 裡（「The SourceBuffer is full」）。
+        for (const range of playbackRangesAheadToEvict(ranges, now)) {
+          await remove(range);
+        }
+        nextIndex = target;
+        await appendSegment(target);
+        if (stopped) return;
+        nextIndex = target + 1;
+        if (!appendedAny) {
+          appendedAny = true;
+          resolveReady();
+        }
+      }
+
+      while (nextIndex < playlist.segments.length) {
+        const ranges = readBufferedRanges(buffer);
+        if (!playbackNeedsSegment(ranges, now)) break;
+        // 配額是固定的，所以每一段 append 前都先丟掉播放頭後方的舊資料。
+        for (const range of playbackRangesToEvict(ranges, now)) {
+          await remove(range);
+        }
+        const index = nextIndex;
+        await appendSegment(index);
+        if (stopped) return;
+        nextIndex = index + 1;
+        if (!appendedAny) {
+          appendedAny = true;
+          resolveReady();
+        }
+      }
+
+      // 全段都補完時把總長度收斂成真正的媒體結尾：估算值（EXTINF 總和）比實際接上的
+      // 媒體長度多一個連線暖機量級，留著估算值會讓最後幾秒「怎麼按都不動」。
+      if (nextIndex >= playlist.segments.length && media.readyState === 'open' && !buffer.updating) {
+        const last = timeline.filter(Boolean).pop();
+        if (last) {
+          try {
+            media.duration = last.mediaEnd;
+          } catch {
+            // 舊版 Safari 不給設 duration；維持估算值即可。
+          }
+        }
+        resolveDone();
+      }
+    } catch (err) {
+      fail(err);
+    } finally {
+      pumping = false;
+    }
+  };
+
+  const initBytes = playlist.initUri ? await fetchBytes(playlist.initUri) : null;
+  if (initBytes) await append(initBytes, null);
+  tracks = parseFmp4InitTracks(initBytes);
+
+  // 清單的牆鐘總長度先當成播放長度：操作員一拖游標就能跳到還沒抓過的段，
+  // 由 seeking 觸發的補資料把內容補上（整份清單一次抓完正是爆配額的原因）。
+  const estimated = playlist.segments.reduce(
+    (sum, segment) =>
+      sum + (Number.isFinite(segment.duration) && segment.duration > 0 ? segment.duration : 0),
+    0,
+  );
+  if (estimated > 0) {
+    try {
+      media.duration = estimated;
+    } catch {
+      // 同上：設定不了就讓瀏覽器自己算。
+    }
   }
+
+  video.addEventListener('timeupdate', onProgress);
+  video.addEventListener('seeking', onProgress);
+  video.addEventListener('seeked', onProgress);
+
+  const player = { timeline, ready, done, stop };
+  await pump();
+  return player;
 }
 
 let playInFlight = false;
@@ -661,8 +901,22 @@ async function playRemote(event) {
       return;
     }
 
-    const timeline = await attachPlaylist($('play-video'), playlist);
-    playClock = buildRecordingClock(timeline);
+    // 舊時段的管線要先停，否則兩條 append 會互搶同一個 video／SourceBuffer。
+    activePlayback?.stop();
+    activePlayback = null;
+
+    const player = await attachPlaylist($('play-video'), playlist, {
+      onTimeline: (timeline) => {
+        playClock = buildRecordingClock(timeline);
+        renderPlayClock();
+      },
+    });
+    activePlayback = player;
+    // 之後的補段與淘汰都在背景進行，err 由 done 回報；這裡只等第一段真的可播。
+    player.done.catch((err) => {
+      if (activePlayback === player) msg.textContent = err.message;
+    });
+    await player.ready;
     renderPlayClock();
     const first = playlist.segments[0];
     const last = playlist.segments[playlist.segments.length - 1];
