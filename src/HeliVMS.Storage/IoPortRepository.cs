@@ -66,9 +66,12 @@ public sealed class IoPortRepository
         string? terminalToken = null,
         int? ioChannelId = null)
     {
-        if (channelId <= 0)
+        // channelId = 0 是「網路 IO 模組的接點」：它不屬於任何攝影機，但仍然要有接點才能掛規則
+        // 與放上地圖（見 IoPortMirror）。舊版把 0 與負數一起擋掉，症狀是「加了一顆 ADAM-6250
+        // 之後 IO 監看整條掛掉」——例外從 RefreshAndStart 冒出來，而模組本身其實是好的。
+        if (channelId < 0)
         {
-            throw new ArgumentOutOfRangeException(nameof(channelId), "頻道須為正整數。");
+            throw new ArgumentOutOfRangeException(nameof(channelId), "頻道編號不可為負數（0＝網路 IO 模組接點）。");
         }
 
         if (number < 0)

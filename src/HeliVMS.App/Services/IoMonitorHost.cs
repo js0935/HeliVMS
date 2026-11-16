@@ -128,27 +128,11 @@ public sealed class IoMonitorHost : IDisposable
     /// 放在 RefreshAndStart（啟動與每次 IO 設定變更都會跑）：設定頁怎麼改都不會漏，
     /// 也不必在設定頁再接一次同步。
     /// </remarks>
-    private void SyncPortsForChannels()
-    {
-        var channels = _io.ListChannels();
-        var seen = new HashSet<int>();
-
-        foreach (var ch in channels)
-        {
-            seen.Add(ch.Id);
-            var kind = ch.Direction == "DO" ? IoPortKind.Do : IoPortKind.Di;
-            var polarity = ch.Polarity ? IoPolarity.NormallyClosed : IoPolarity.NormallyOpen;
-            _ports.EnsureForIoChannel(ch.CameraId ?? 0, ch.Id, kind, ch.IoIndex + 1, ch.Name, polarity, ch.DebounceMs);
-        }
-
-        foreach (var port in _ports.List().Where(p => p.IoChannelId is not null))
-        {
-            if (port.IoChannelId is int id && !seen.Contains(id))
-            {
-                _ports.DeleteByIoChannel(id);
-            }
-        }
-    }
+    /// <summary>
+    /// 把模組通道映到接點表。實作在 <see cref="IoPortMirror"/>：那是資料層的恆等式，
+    /// 純 Web／Agent 部署也需要，寫在桌面端會讓它無法被測試（App 專案沒有執行期測試）。
+    /// </summary>
+    private void SyncPortsForChannels() => IoPortMirror.Sync(_io, _ports);
 
 
     public void Dispose()
