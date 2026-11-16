@@ -142,10 +142,24 @@ export function createLiveViewer({ apiRaw, t }) {
       session = { peer, location, video };
       // 「協商成功」≠「看得到畫面」。先說實話，等第一張影格到了再改成播放中。
       notify(t('state.liveNegotiated'));
+      const current = session;
+      const isCurrent = () => session === current && session.video === video;
       void waitForFirstFrame(video).then((arrived) => {
         // 這條連線可能已經被 stop() 或下一次 open() 取代；別把舊連線的狀態寫回新畫面。
-        if (session === null || session.video !== video) return;
-        notify(arrived ? t('state.liveReady') : t('state.liveNoFrame'));
+        if (!isCurrent()) return;
+        if (arrived) {
+          notify(t('state.liveReady'));
+          return;
+        }
+
+        notify(t('state.liveNoFrame'));
+
+        // 逾時之後**繼續等**那張遲到的影格：現場的網路攝影機在同時被好幾條 WebRTC 拉流時，
+        // 第一張影格實測可以晚到 12 秒以上。少了這一段，畫面明明已經在播，格子的標籤卻永遠
+        // 寫著「收不到影像」——那是比沒有訊息更糟的一種錯（操作員會去查一個不存在的故障）。
+        void waitForFirstFrame(video, 0).then(() => {
+          if (isCurrent()) notify(t('state.liveReady'));
+        });
       });
       return true;
     } catch (err) {
@@ -212,7 +226,12 @@ export function waitForFirstFrame(video, timeoutMs = FIRST_FRAME_TIMEOUT_MS) {
     // 三個事件都要聽：loadeddata 在一般情況最先到，resize 是尺寸確定時，
     // 而已經在播的串流只會再送 playing。
     for (const name of FRAME_EVENTS) video.addEventListener?.(name, onFrame);
-    timer = setTimeout(() => finish(hasFrame()), timeoutMs);
+
+    // timeoutMs = 0／負值＝不設逾時，只等影格。呼叫端用它在「已經宣告收不到影像」之後
+    // 繼續等那張遲到的影格（見 open()）。
+    if (timeoutMs > 0) {
+      timer = setTimeout(() => finish(hasFrame()), timeoutMs);
+    }
   });
 }
 

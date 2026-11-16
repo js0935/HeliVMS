@@ -343,6 +343,35 @@ describe('createLiveViewer.open', () => {
     }
   });
 
+  it('宣告收不到影像之後，遲到的第一張影格仍會把標籤改成播放中', async () => {
+    // 現場的網路攝影機同時被好幾條 WebRTC 拉流時，第一張影格可以晚到 12 秒以上。
+    // 只有一次看門狗的話，畫面已經在播而格子標籤永遠寫著「收不到影像」——
+    // 操作員會去查一個不存在的故障（防火牆、線路）。
+    vi.useFakeTimers();
+    try {
+      const apiRaw = vi.fn(async () => ({
+        ok: true,
+        status: 201,
+        headers: new Headers({ Location: '/x' }),
+        text: async () => 'v=0',
+      }));
+      const notify = vi.fn();
+      const video = fakeVideoEl();
+
+      await viewer({ apiRaw }).open(1, video, notify);
+      await vi.advanceTimersByTimeAsync(11000);
+      expect(notify).toHaveBeenLastCalledWith('state.liveNoFrame');
+
+      // 影格迟到但連線還在：標籤必須改口。
+      video.frame();
+      await vi.advanceTimersByTimeAsync(1);
+
+      expect(notify).toHaveBeenLastCalledWith('state.liveReady');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('停止之後舊連線不會再把狀態寫回畫面', async () => {
     // 停掉再開下一路時，前一路的看門狗若還活著，就會用上一路的結果蓋掉新畫面的狀態。
     const apiRaw = vi.fn(async () => ({
@@ -405,6 +434,20 @@ describe('waitForFirstFrame', () => {
     await waiting;
 
     expect(video.listenerCount()).toBe(0);
+  });
+
+  it('逾時設為 0 時只等影格，不會自己回報沒有影格', async () => {
+    // 呼叫端用它在「已宣告收不到影像」之後繼續等那張遲到的影格。
+    const video = fakeVideoEl();
+    let settled = null;
+    void waitForFirstFrame(video, 0).then((arrived) => { settled = arrived; });
+
+    await new Promise((r) => setTimeout(r, 30));
+    expect(settled).toBeNull();
+
+    video.frame(1280, 720, 'loadeddata');
+    await new Promise((r) => setTimeout(r, 0));
+    expect(settled).toBe(true);
   });
 });
 

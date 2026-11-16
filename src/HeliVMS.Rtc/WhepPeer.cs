@@ -45,6 +45,16 @@ public sealed class WhepPeer : IWhepPeer
     private readonly RTCPeerConnection _pc;
     private bool _disposed;
 
+    /// <summary>
+    /// 這一條會話<b>協商到的</b>視訊 payload type（見 <see cref="WhepPayloadType"/>）。
+    /// </summary>
+    /// <remarks>
+    /// 協商前是我們的常數（<see cref="LiveEncodeOptions.PayloadType"/>），協商後被 answer 裡真正的
+    /// 編號取代。<see cref="NegotiateAsync"/> 之前的 <see cref="Forward"/> 沒有意義（還沒有會話），
+    /// 所以不會有「用常數送出去」的窗口。
+    /// </remarks>
+    public int VideoPayloadType { get; private set; } = LiveEncodeOptions.PayloadType;
+
     public WhepPeer(WhepOptions options)
     {
         _options = options;
@@ -151,6 +161,12 @@ public sealed class WhepPeer : IWhepPeer
 
         var answerSdp = local.ToString();
 
+        // payload type 由對端決定：answer 的 m=video 用 Chrome offer 的編號（常見 102），
+        // 而我們原本固定送 96（自己 offer 的編號）。96 在 Chrome 的 offer 裡是 VP8，
+        // 於是它把 H.264 位元流交給 VP8 解碼器——連得上、一張都解不出來。
+        // 這裡把真正協商到的編號記下來，Forward 之後照它送。
+        VideoPayloadType = WhepPayloadType.FromAnswerSdp(answerSdp) ?? LiveEncodeOptions.PayloadType;
+
         // 有設定對外位址就改寫 host 候選。改寫不到時要明確報錯：靜默回一個仍然只有內網位址的
         // answer，維運只會看到「設定了還是不行」，而真正的原因是設定值沒被套用。
         if (_options.PublicHost is { } publicHost)
@@ -183,7 +199,9 @@ public sealed class WhepPeer : IWhepPeer
             payload.ToArray(),
             header.Timestamp,
             header.MarkerBit ? 1 : 0,
-            LiveEncodeOptions.PayloadType,
+            // 必須是**協商到的**編號（見 VideoPayloadType）：寫死成我們的常數 96 時，
+            // 瀏覽器會照它自己 offer 的對應把位元流交給另一個解碼器，症狀是連得上、沒有畫面。
+            VideoPayloadType,
             header.SequenceNumber);
     }
 
