@@ -78,18 +78,50 @@ public sealed class WebServiceContractTests
     }
 
     [Fact]
-    public void 內嵌Web服務只綁本機且不重複掛保留清理()
+    public void 內嵌Web服務預設只綁本機且不重複掛保留清理()
     {
         var web = SourceContract.Read(WebHost);
         Assert.NotEqual(string.Empty, web);
 
-        // 只綁 localhost：預設無 TLS 的 Kestrel 不該被當成對外服務。
-        Assert.Contains("http://localhost:", web);
+        // 監聽網址的決策在 WebListenUrl（行為測試在 Shared.Tests：預設 localhost、開放區域網路才
+        // 綁所有介面、共用埠時仍只綁迴圈）。這裡釘住「有沒有走那個決策」，而不是某個字串——
+        // 各寫一份 URL 就是「設定頁說可以、實際上沒開」的成因。
+        Assert.Contains("--urls={WebListenUrl.For(port, sharePort, allowLan)}", web);
+
+        // 「要不要開放」也必須經過同一個政策（預設拒絕），而不是看一個勾選框。
+        Assert.Contains("WebBindPolicy.Resolve(", web);
 
         // 明確帶上桌面正在用的資料庫路徑，避免內嵌主機另開一份資料庫。
         Assert.Contains("DataRootLayout.DatabaseVariable", web);
 
         // 內嵌時不掛背景服務，避免與桌面保留迴圈搶同一批檔案。
         Assert.Contains("IncludeHostedServices = false", web);
+    }
+
+    /// <summary>
+    /// 設定頁要能勾「允許區域網路存取」，而且**多工器也要跟著綁對位址**。
+    /// </summary>
+    /// <remarks>
+    /// 共用埠模式下公開埠由多工器擁有，Kestrel 只綁系統指派的迴圈埠：只改 Kestrel 的 --urls
+    /// 等於什麼都沒做，症狀是「設定頁說開了、辦公室還是連不上」，而日誌只寫多工器啟動成功。
+    /// </remarks>
+    [Fact]
+    public void 開放區域網路要同時經過政策與多工器的綁定位址()
+    {
+        var xaml = SourceContract.Read(SettingsXaml);
+        foreach (var element in new[] { "WebAllowLanBox", "WebAllowLanHintText", "WebAllowLanDeniedText" })
+        {
+            Assert.Contains($"x:Name=\"{element}\"", xaml);
+        }
+
+        var settings = SourceContract.Read(SettingsCode);
+        Assert.Contains("WebBindPolicy.Resolve(", settings);
+        Assert.Contains("_settings.Set(WebHost.AllowLanKey", settings);
+        Assert.Contains("ShowLanDenial(", settings);
+
+        var qctek = SourceContract.Read("src/HeliVMS.App/Services/QctekCompatHost.cs");
+        Assert.Contains("WebBindPolicy.Resolve(", qctek);
+        Assert.Contains("StartMux(plan.PublicPort, httpPort, allowLan)", qctek);
+        Assert.Contains("allowLan ? IPAddress.Any : IPAddress.Loopback", qctek);
     }
 }

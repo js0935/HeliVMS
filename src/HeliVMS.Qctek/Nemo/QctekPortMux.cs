@@ -95,6 +95,15 @@ public sealed class QctekPortMux : IAsyncDisposable
     /// <summary>實際綁定的公開埠（<c>port: 0</c> 時由系統指派）。</summary>
     public int Port { get; private set; }
 
+    /// <summary>
+    /// 目前綁定的本機位址（<see cref="System.Net.IPAddress.Loopback"/>＝只有本機連得到）。
+    /// </summary>
+    /// <remarks>
+    /// 對外的呼叫端要靠它判斷「現在這一顆多工器是不是已經開放給區域網路」：位址是啟動參數，
+    /// 換了位址就得重建 listener，這與換埠是同一件事。
+    /// </remarks>
+    public IPAddress BoundAddress => _address;
+
     /// <summary>HTTP 轉發目標（內部 Kestrel 的埠）。</summary>
     public int InternalHttpPort => _httpPort;
 

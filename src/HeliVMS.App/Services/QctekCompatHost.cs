@@ -169,13 +169,19 @@ public sealed class QctekCompatHost : IDisposable
             return Localizer.T("Settings.QctekStopped");
         }
 
+        // 「開放區域網路」的政策只有一份（WebBindPolicy）：多工器擁有公開埠時，遠端連不連得上
+        // 取決於它綁哪個位址，所以這裡也必須問同一個決定，而不是自己看設定值。
+        var allowLan = WebBindPolicy.Resolve(
+            settings.Get(WebBindPolicy.AllowLanKey) == "1",
+            settings.Get(WebBindPolicy.NoKeyKey)).AllowLan;
+
         LastError = null;
         try
         {
             if (plan.ShareWebPort)
             {
                 // 公開埠要讓給多工器（Web 已在臨時埠上）；同一個埠上的 NemoServer 要收掉。
-                StartMux(plan.PublicPort, httpPort);
+                StartMux(plan.PublicPort, httpPort, allowLan);
             }
             else
             {
@@ -311,15 +317,22 @@ public sealed class QctekCompatHost : IDisposable
     /// 啟動 Web 埠多工器（公開埠由它擁有，HTTP 轉給 <paramref name="httpPort"/>）。
     /// 參數沒變就不重開——重開會斷掉正在連線的 QCC，也會在公開埠上留下一小段空窗。
     /// </summary>
-    private void StartMux(int publicPort, int httpPort)
+    private void StartMux(int publicPort, int httpPort, bool allowLan)
     {
-        if (_mux is { } running && running.Port == publicPort && running.InternalHttpPort == httpPort)
+        // 監聽位址是「這個公開埠要不要給區域網路用」的一部分：多工器擁有公開埠時，Kestrel 只綁
+        // 系統指派的迴圈埠，遠端能不能連「完全」取決於這裡——設定頁勾了允許區域網路，卻只改
+        // Kestrel 的 --urls，症狀是「設定說開了、辦公室還是連不上」，而日誌只寫多工器啟動成功。
+        var address = allowLan ? IPAddress.Any : IPAddress.Loopback;
+        if (_mux is { } running
+            && running.Port == publicPort
+            && running.InternalHttpPort == httpPort
+            && running.BoundAddress.Equals(address))
         {
             return;
         }
 
         StopMux();
-        var mux = new QctekPortMux(_context, httpPort, IPAddress.Loopback, publicPort, log: Diag);
+        var mux = new QctekPortMux(_context, httpPort, address, publicPort, log: Diag);
         mux.Start();
         _mux = mux;
         Port = publicPort;

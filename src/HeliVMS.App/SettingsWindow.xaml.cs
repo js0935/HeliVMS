@@ -381,6 +381,11 @@ public partial class SettingsWindow : Window
         WebPortLabel.Text = Localizer.T("Settings.WebPortLabel");
         WebAllowNoKeyBox.Content = Localizer.T("Settings.WebAllowNoKey");
         WebAllowNoKeyHintText.Text = Localizer.T("Settings.WebAllowNoKeyHint");
+        WebAllowLanBox.Content = Localizer.T("Settings.WebAllowLan");
+        WebAllowLanHintText.Text = Localizer.T("Settings.WebAllowLanHint");
+        ShowLanDenial(WebBindPolicy.Resolve(
+            WebAllowLanBox.IsChecked == true,
+            _settings.Get(WebHost.AllowNoKeyKey)));
         WebApplyButton.Content = Localizer.T("Settings.Apply");
         WebApplyButton.ToolTip = Localizer.T("Settings.WebApplyTip");
         QctekSectionTitle.Text = Localizer.T("Settings.QctekSectionTitle");
@@ -1194,8 +1199,17 @@ public partial class SettingsWindow : Window
         WebEnabledBox.IsChecked = _settings.Get(WebHost.EnabledKey) == "1";
         WebPortBox.Text = _settings.Get(WebHost.PortKey) ?? WebHost.DefaultPort.ToString(CultureInfo.InvariantCulture);
         WebAllowNoKeyBox.IsChecked = _settings.Get(WebHost.AllowNoKeyKey) == "1";
+        WebAllowLanBox.IsChecked = _settings.Get(WebHost.AllowLanKey) == "1";
+        ShowLanDenial(WebBindPolicy.Resolve(
+            WebAllowLanBox.IsChecked == true,
+            _settings.Get(WebHost.AllowNoKeyKey)));
+
+        // 狀態列要寫「怎麼連」而不是只有埠號：操作員的需求是「在辦公室連進來」，
+        // 而那個句子裡唯一缺的就是主機名稱。
         WebServiceStatusText.Text = _webHost?.IsRunning == true
-            ? string.Format(Localizer.T("Settings.WebRunning"), _webHost.Port)
+            ? (_webHost.AllowLan
+                ? string.Format(Localizer.T("Settings.WebRunningLan"), WebHost.LanUrl(_webHost.Port))
+                : string.Format(Localizer.T("Settings.WebRunning"), _webHost.Port))
             : Localizer.T("Settings.WebStopped");
 
         QctekEnabledBox.IsChecked = _settings.Get(QctekCompatHost.EnabledKey) == "1";
@@ -1230,6 +1244,13 @@ public partial class SettingsWindow : Window
         _settings.Set(WebHost.PortKey, port.ToString(CultureInfo.InvariantCulture));
         _settings.Set(WebHost.AllowNoKeyKey, WebAllowNoKeyBox.IsChecked == true ? "1" : "0");
 
+        // 政策判定只有一份（WebBindPolicy）：設定頁與真正啟動 Kestrel 的那一段都問它，
+        // 兩邊各寫一份條件遲早漂移，而漂移的方向是「畫面說可以、實際上沒開」。
+        var allowNoKeyStored = _settings.Get(WebHost.AllowNoKeyKey);
+        var bind = WebBindPolicy.Resolve(WebAllowLanBox.IsChecked == true, allowNoKeyStored);
+        _settings.Set(WebHost.AllowLanKey, bind.AllowLan ? "1" : "0");
+        ShowLanDenial(bind);
+
         if (_network is not null)
         {
             // 走協調者：兩個服務可能剛好同埠（QCC 連的就是 Web 埠），此時公開埠要
@@ -1245,6 +1266,32 @@ public partial class SettingsWindow : Window
         WebServiceStatusText.Text = _webHost is null
             ? Localizer.T("Settings.WebSavedNextStart")
             : _webHost.ApplySettings(_settings);
+    }
+
+    /// <summary>
+    /// 把「開放區域網路」被擋下來的原因亮在勾選框下面（沒有被擋就收起來）。
+    /// </summary>
+    /// <remarks>
+    /// 這一句是必要的：勾選框還勾著、狀態列卻只寫「執行中」，操作員會以為已經開放，
+    /// 然後在辦公室一直試同一個網址——而且找不到任何線索。訊息裡必須寫出「要改什麼」。
+    /// </remarks>
+    private void ShowLanDenial(WebBindDecision decision)
+    {
+        if (decision.Denial == WebBindDenial.None)
+        {
+            WebAllowLanDeniedText.Visibility = Visibility.Collapsed;
+            WebAllowLanDeniedText.Text = string.Empty;
+            return;
+        }
+
+        WebAllowLanDeniedText.Text = decision.Denial switch
+        {
+            WebBindDenial.NoKey => Localizer.T("Settings.WebLanNeedsKey"),
+            // 新增拒絕原因時一定要留這條：少了它，未來的成員會編譯失敗才知道（CS8524），
+            // 而在此之前畫面會顯示一句空字串——比說錯更糟。
+            _ => Localizer.T("Settings.WebLanDenied"),
+        };
+        WebAllowLanDeniedText.Visibility = Visibility.Visible;
     }
 
     /// <summary>警報回報狀態文字（載入與套用共用同一份組合，避免兩處漂移）。</summary>

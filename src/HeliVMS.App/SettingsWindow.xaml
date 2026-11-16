@@ -1427,6 +1427,15 @@
                            Foreground="{StaticResource Brand.TextDim}" FontSize="11" TextWrapping="Wrap"
                            Margin="24,4,0,0"/>
 
+                <CheckBox x:Name="WebAllowLanBox" AutomationProperties.AutomationId="WebAllowLanBox"
+                          Content="" Foreground="#EBF3FF" Margin="0,14,0,0"/>
+                <TextBlock x:Name="WebAllowLanHintText" Text=""
+                           Foreground="{StaticResource Brand.TextDim}" FontSize="11" TextWrapping="Wrap"
+                           Margin="24,4,0,0"/>
+                <TextBlock x:Name="WebAllowLanDeniedText" Text=""
+                           Foreground="#FFB36B" FontSize="11" TextWrapping="Wrap"
+                           Margin="24,4,0,0" Visibility="Collapsed"/>
+
                 <!-- QCTek CMS compatibility (M2c: NEMO server so QCC can manage this NVR) -->
                 <TextBlock x:Name="QctekSectionTitle" Text="" FontSize="13" FontWeight="Bold"
                            Foreground="#EBF3FF" Margin="0,22,0,0"/>

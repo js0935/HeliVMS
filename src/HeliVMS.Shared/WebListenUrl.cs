@@ -22,6 +22,12 @@ public static class WebListenUrl
     /// <summary>共用埠時的監聽網址：明確的 IPv4 迴環位址 + 系統指派埠。</summary>
     public const string DynamicLoopback = "http://127.0.0.1:0";
 
+    /// <summary>只聽迴圈位址的監聽網址前綴（預設；見 <see cref="WebBindPolicy"/> 的說明）。</summary>
+    public const string LoopbackPrefix = "http://localhost";
+
+    /// <summary>聽所有介面的監聽網址前綴（操作員明講要開放區域網路時）。</summary>
+    public const string AllInterfacesPrefix = "http://*";
+
     /// <summary>
     /// 組出 Kestrel 的 <c>--urls</c>。
     /// </summary>
@@ -29,6 +35,15 @@ public static class WebListenUrl
     /// <param name="sharePort">
     /// <c>true</c>＝公開埠由前置多工器擁有，這裡只綁臨時埠，<b>不能帶公開埠號</b>。
     /// </param>
-    public static string For(int port, bool sharePort)
-        => sharePort ? DynamicLoopback : $"http://localhost:{port}";
+    /// <param name="allowLan">
+    /// <c>true</c>＝綁所有介面（辦公室／手機連得進來）。
+    /// 是否允許由 <see cref="WebBindPolicy.Resolve"/> 決定，這裡只負責把決定翻成監聽網址：
+    /// 預設<b>只綁迴圈位址</b>，因為這個介面沒有 TLS 且可以看到影像、操作 PTZ、匯出錄影。
+    /// </param>
+    public static string For(int port, bool sharePort, bool allowLan = false)
+        => sharePort
+            ? DynamicLoopback
+            : allowLan
+                ? $"{AllInterfacesPrefix}:{port}"
+                : $"{LoopbackPrefix}:{port}";
 }
