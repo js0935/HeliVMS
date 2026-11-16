@@ -63,6 +63,9 @@ public class LiveStreamServiceTests
         public PublisherStartException? Failure { get; init; }
         public int SynthesizedPackets { get; private set; }
 
+        /// <summary>送出第一個封包前的延遲；用來製造「觀眾還在等首包」的空窗期。</summary>
+        public TimeSpan DelayBeforePacket { get; init; }
+
         public async Task<PublisherStartException?> Start(
             LivePublisher publisher,
             IPEndPoint rtpTarget,
@@ -71,6 +74,11 @@ public class LiveStreamServiceTests
         {
             _calls.Add(new StarterCall(source, rtpTarget));
             if (Failure is not null) return Failure;
+
+            if (DelayBeforePacket > TimeSpan.Zero)
+            {
+                await Task.Delay(DelayBeforePacket, token);
+            }
 
             await SendSyntheticPacketAsync(rtpTarget, token);
             return null;
@@ -398,6 +406,37 @@ public async Task 關到不存在的會話回傳null()
         await live.MaintainAsync(default);
 
         Assert.Equal(1, store.CountFor(7));
+    }
+
+    [Fact]
+    public async Task 等首包的期間維護不會把publisher收掉()
+    {
+        // 現場症狀：某些格永遠停在「連線建立中」，日誌只寫著「回收了閒置的 publisher」。
+        // 原因是「還有沒有人在看」看的是掛著的會話數，而一個剛進來的觀眾要等到<b>第一個 RTP
+        // 封包到達</b>才會被登記成會話（最長 30 秒）；那段空窗期對維護迴圈而言與「沒有人在看」
+        // 一模一樣，而閒置時鐘若還停在「從未有人看過」（0），一輪維護就會把正在等首包的
+        // ffmpeg 收掉。這條測試把那個空窗期做出來（starter 延後 1 秒才送封包），
+        // 在中間跑一輪維護，然後要求請求仍然成功——被收掉的話它會等到 30 秒逾時才失敗。
+        var store = new WhepSessionStore();
+        var starter = new RecordingStarter { DelayBeforePacket = TimeSpan.FromSeconds(1) };
+        await using var live = new LiveStreamService(new WhepOptions(), store, starter.Start);
+
+        var opening = live.OpenAsync(Source(), Offer(), () => new FakePeer(), default);
+
+        // 觀眾還在等首包、尚未登記成會話時跑一輪維護（它會等到 starter 讓出啟動閘門）。
+        await Task.Delay(150, CancellationToken.None);
+        var tick = live.MaintainAsync(default);
+
+        var (session, _) = await opening.WaitAsync(TimeSpan.FromSeconds(10));
+        await tick.WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.NotNull(session);
+        Assert.Equal(1, store.CountFor(7));
+
+        // 最關鍵的一項：publisher 還在。被閒置回收收掉的話這裡會是 Stopped，而那位觀眾
+        // 拿到的是「連線成功但永遠沒有畫面」——比連線失敗更難查。
+        Assert.True(live.Describe(7).Active, "等待首包期間不該把 publisher 當成閒置而收掉。");
+        Assert.Single(starter.Calls);
     }
 
     [Fact]

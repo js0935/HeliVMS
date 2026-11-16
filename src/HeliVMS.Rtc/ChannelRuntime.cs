@@ -147,6 +147,13 @@ internal sealed class ChannelRuntime : IAsyncDisposable
     {
         if (_disposed) throw new ObjectDisposedException(nameof(ChannelRuntime));
 
+        // 有人正在要求這條通道：從這裡到第一個 RTP 封包到達（最長 PublisherStartTimeout，預設 30 秒）
+        // 之間，這位觀眾還不會被登記成會話，所以對維護迴圈而言與「沒有人在看」一模一樣。
+        // 若閒置時鐘還停在「從未有人看過」（0），一輪維護就會把正在等首包的 ffmpeg 收掉——
+        // 症狀是格子在「連線建立中」卡到請求逾時，而日誌看起來只是「回收了閒置的 publisher」。
+        // 先把「有人要來看」記下來，維護迴圈的判準就與實際情況一致。
+        Interlocked.Exchange(ref _lastViewerTicks, _clock());
+
         // 快速路徑：已經在串流就不要再搶鎖。
         if (_publisher is not null && PublisherState == PublisherState.Streaming) return;
 

@@ -1698,20 +1698,56 @@ Notes that will save you time:
   `標籤sub代表次碼流且大小寫不敏感`, `標籤看不懂時當主流而不是讓請求失敗`,
   `多分割要次碼流時帶上參數`, `要求次碼流時真的向伺服器要次碼流`
   and `asks for the sub stream whenever more than one cell is shown`.
-- **一個沒有送 DELETE 就消失的瀏覽器永遠不會逾時：媒體還在流，所以會話一直是「有活動」。**
-  實測（2026-11-17）：把跑著 10 格監看的 headless Chrome 直接 kill，兩分鐘後
-  `/api/stream/{id}/whep` 仍回報 `viewers:1`，10 路 publisher（libx264）全部還活著，其中一路
-  `packetsMissed=32700`（本機 ingest 掉 31%）。原因：逾時判準是「多久沒有封包轉送出去」
-  （`WhepSessionStore.SweepIdle` 配上 `LiveStreamService.Forward` 的 `Touch`），而瀏覽器死掉之後
-  媒體仍在流，每一包都把活動時間往前推——逾時**永遠不會**成立，觀看名額（8）與 ffmpeg 就這樣
-  被一個不存在的瀏覽器佔著，下一個操作員得到 429。兩條修正缺一不可：
-  (1) `IWhepPeer.IsDisconnected`／`WhepPeer` 訂閱 `onconnectionstatechange`
-  （disconnected／failed／closed），`WhepSessionStore.SweepDisconnected` 由
-  `LiveStreamService.MaintainAsync` 與逾時回收並列；判準必須是「有斷線證據」——誤判會把正在看的
-  操作員踢掉，而症狀（畫面停住）與網路問題一模一樣。
+- **桌面內嵌主機不會跑 WHEP 的維護迴圈——觀眾走了 publisher 也永遠不關，名額被佔死。**
+  兩個症狀都量到了（2026-11-17，桌面版）：①對 `ch118` 開一條 WHEP 會話後送出 `DELETE`
+  （伺服器回 204、`viewers` 立刻歸零），90 秒後 `/api/stream/118/whep` 仍回報
+  `active:true publisher:Streaming`——`WhepOptions.PublisherIdleTimeout` 是 30 秒，
+  「沒有觀眾就關掉 publisher」這件事<b>從來沒發生</b>；②把跑著 3 格監看的 headless Chrome
+  直接 kill，`viewers` 停在 1、publisher 一直 Streaming，沒有任何回收（同一輪還看到
+  `packetsMissed=32700`，本機 ingest 掉 31%，因為沒有人在看的 encoder 仍在跑）。
+  根因既不是門檻也不是訊號：`src/HeliVMS.App/Services/WebHost.cs`（桌面）建立內嵌主機時傳
+  `IncludeHostedServices = false`，而 `LiveStreamMaintenance` 當時<b>被包在那個旗標裡</b>。
+  旗標的語意是「桌面已經有自己的大迴圈，不要掛一份重複的清理」（保留清理、索引對帳確實各有一條），
+  但 WHEP 的會話／publisher 回收<b>沒有任何桌面對應</b>，於是桌面版根本沒有維護迴圈。
+  修正：`LiveStreamMaintenance` 無條件註冊（旗標只管保留清理與索引對帳），並由
+  `HostCompositionTests` 以行為測試釘住——那條測試原本寫成 `DoesNotContain`，就是它讓這個洞
+  活了下來。修正後量測：DELETE 之後 45 秒內 `active:false pub:Stopped`；瀏覽器被 kill 之後
+  `disconnected`（8 秒）→ `failed`（16 秒）→ 一輪維護內被回收（`%TEMP%\helivms-whep.log`
+  出現 `reap session=…`）。
+- **一個沒有送 DELETE 就消失的瀏覽器，逾時回收救不了它：媒體還在流，所以會話一直是「有活動」。**
+  `WhepSessionStore.SweepIdle` 的判準是「多久沒有封包轉送出去」，而 `LiveStreamService.Forward`
+  每一包都會 `Touch` 會話——瀏覽器死掉之後 publisher 仍在送，活動時間一直被刷新，逾時<b>永遠不會</b>
+  成立（觀看名額 8 與 ffmpeg 就被一個不存在的瀏覽器佔著，下一個操作員拿到 429）。所以要另外兩條：
+  (1) `IWhepPeer.IsDisconnected`：`WhepPeer` 訂閱 `onconnectionstatechange`（disconnected／
+  failed／closed）、SIPSorcery 的媒體逾時（`OnTimeout`，現場約 30 秒）與 `OnRtcpBye`；
+  `WhepSessionStore.SweepDisconnected` 由 `LiveStreamService.MaintainAsync` 與逾時回收並列。
+  判準必須是「有斷線證據」——誤判會把正在看的操作員踢掉，而症狀（畫面停住）與網路問題一模一樣；
+  健康的觀眾實測 2 分鐘內不會被標記（同一份日誌沒有任何事件）。
   (2) 前端 `stop()` 的 DELETE 帶 `keepalive:true`，並在 `pagehide`（`event.persisted` 例外，
   那是 back/forward 快取，還原時畫面要還在）逐格 `viewer.stop()`：關分頁時普通 fetch 會被取消，
-  DELETE 到不了伺服器。Guarded by `斷線的會話會被回收且名額當下就釋放`,
-  `還活著的會話不會被斷線回收帶走`, `連線已死的會話即使媒體還在流也會被回收`,
-  `DELETE 帶 keepalive 才能在關分頁之後送達` and `releases every cell session when the page goes away`.
+  DELETE 到不了伺服器。生命週期一律寫進 `%TEMP%\helivms-whep.log`（`WhepDiagnostics`，上限
+  256 KB）：`close session=…`／`reap session=…`／`connection-state`／`timeout`。
+  「畫面突然沒了」只有這幾行能區分「觀眾自己走了」與「健康的瀏覽器被誤判」。
+  Guarded by `斷線的會話會被回收且名額當下就釋放`, `還活著的會話不會被斷線回收帶走`,
+  `連線已死的會話即使媒體還在流也會被回收`, `對端不再回應時會被判定為斷線`,
+  `DELETE 帶 keepalive 才能在關分頁之後送達`, `releases every cell session when the page goes away`
+  and `內嵌主機不掛背景清理而獨立主機才掛`.
+- **等首包的期間不是「沒有人看」——維護迴圈會把剛啟動的 publisher 收掉。**
+  `EnsurePublisherAsync` 要等到第一個 RTP 封包才讓觀眾登記成會話（`OpenAsync`：協商 → 啟動
+  publisher → 等首包 → `_sessions.Add` + `Attach`），這段空窗最長 30 秒
+  （`PublisherStartTimeout`）；而 `ChannelRuntime.StopPublisherIfIdleAsync` 的判準是
+  「掛著的會話數為 0 且距上次有人看超過 `PublisherIdleTimeout`」——那時 `_lastViewerTicks` 還是 0
+  （從未有人看過），於是<b>每一輪維護都可能把正在等首包的 ffmpeg 收掉</b>：請求逾時、格子停在
+  「連線建立中」，日誌只有一行「回收了閒置的 publisher」。這個洞在桌面版被上一條的
+  `IncludeHostedServices=false` 掩蓋著（根本沒有維護迴圈），維護真的跑起來之後立刻現形
+  （實測：三格同時卡在「連線建立中」，且三條會話的 peer 都變成 failed）。
+  修正在 `EnsurePublisherAsync` 開頭就把「有人要來看」寫進 `_lastViewerTicks`。
+  Guarded by `等首包的期間維護不會把publisher收掉`（突變：拿掉那行會紅）。
+- **掃 DLL 找字串常值時只試一種位移會出現假陰性，而那個假陰性會把你帶往完全錯的方向。**
+  .NET 把字面字串放在 #US 堆，前面是<b>可變長度</b>的長度前綴，所以字串資料不一定從偶數位移
+  開始；`[Text.Encoding]::Unicode.GetString([IO.File]::ReadAllBytes($dll))` 之後 `Contains(...)`
+  在起點是奇數時就找不到。本輪因此一度得到「建置出來的 DLL 沒有我剛寫的程式碼」的結論，
+  差一點沿著「MSBuild 沒有編譯這個檔案」追下去（真正的解釋是位移）。
+  要嘛兩種位移都試、要嘛直接看 `dotnet build -v:diag` 的 `/out:` 確認輸出路徑與時間戳；
+  用「DLL 裡有沒有某個字串」當建置驗證時，先拿一個<b>已知存在</b>的字串對照一次。
 

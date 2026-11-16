@@ -185,6 +185,8 @@ public sealed class LiveStreamService : IAsyncDisposable
     {
         if (!_sessions.Remove(sessionId, out var removed) || removed is null) return null;
 
+        WhepDiagnostics.Write($"close session={removed.Id[..8]} channel={removed.ChannelId} viewers={_sessions.CountFor(removed.ChannelId)}");
+
         removed.Peer.Close("viewer closed");
         removed.Dispose();
 
@@ -243,6 +245,8 @@ public sealed class LiveStreamService : IAsyncDisposable
             var reaped = 0;
             foreach (var session in doomed)
             {
+                WhepDiagnostics.Write(
+                    $"reap session={session.Id[..8]} channel={session.ChannelId} disconnected={session.Peer.IsDisconnected}");
                 session.Peer.Close("session reaped");
                 session.Dispose();
                 reaped++;

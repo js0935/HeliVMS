@@ -179,6 +179,70 @@ public sealed class WhepLoopbackTests
     }
 
     /// <summary>
+    /// 對端不再回應時，<see cref="WhepPeer"/> 必須自己說「斷了」。
+    /// </summary>
+    /// <remarks>
+    /// 這是唯一能收掉「媒體還在流、觀眾卻不見了」那條會話的訊號：逾時回收的判準是「有沒有封包
+    /// 轉送出去」，而 publisher 每一秒都還在送，所以那個判準永遠不會成立——實測把瀏覽器 kill 掉
+    /// 之後，10 路 publisher 與會話在幾分鐘後仍然活著（狀態端點回報 viewers=1 而已經沒有瀏覽器）。
+    /// 這條測試刻意讓對端<b>什麼都不送</b>：那正是瀏覽器消失之後的網路實況，而 SIPSorcery 的
+    /// 媒體逾時是「沒有收到」而不是「送不出去」。期間由第三方決定，所以這裡是等待而不是斷言數字。
+    /// </remarks>
+    [Fact]
+    public async Task 對端不再回應時會被判定為斷線()
+    {
+        var options = new WhepOptions { StunServers = [], TurnServers = [] };
+
+        using var peer = new WhepPeer(options);
+        using var browser = new BrowserViewer();
+        using var cts = new CancellationTokenSource(PeerSilenceBudget);
+
+        var offer = await browser.CreateOfferAsync(cts.Token);
+        var answer = await peer.NegotiateAsync(offer, cts.Token);
+
+        // 先讓連線真的建立（ICE + DTLS），否則測到的會是「從未連上」而不是「連上之後消失」。
+        await browser.ApplyAnswerAsync(answer.Answer, cts.Token);
+
+        // 送一點媒體過去（先讓連線真的在傳東西，再讓對端消失）。
+        for (ushort i = 0; i < 20; i++)
+        {
+            peer.Forward(
+                new RtpHeader(i, 1000u * i, true, (byte)LiveEncodeOptions.PayloadType, 0x1234, RtpHeader.FixedHeaderSize, SyntheticPayload.Length),
+                SyntheticPayload);
+            await Task.Delay(20, CancellationToken.None);
+        }
+
+        Assert.False(peer.IsDisconnected);
+
+        // 對端消失：socket 關掉之後不會再回應 ICE 的連通性檢查，而我們送出去的媒體不算「收到」。
+        browser.Dispose();
+
+        var deadline = Environment.TickCount64 + (long)PeerSilenceBudget.TotalMilliseconds;
+        while (!peer.IsDisconnected && Environment.TickCount64 < deadline)
+        {
+            await Task.Delay(250, CancellationToken.None);
+        }
+
+        Assert.True(
+            peer.IsDisconnected,
+            $"對端消失 {PeerSilenceBudget.TotalSeconds:F0} 秒之後，這條會話應該已經被判為斷線"
+            + "（否則 publisher 與觀看名額會被一個不存在的瀏覽器永久佔住）。");
+    }
+
+    /// <summary>最小的 H.264 RTP 負載（Annex-B 起始碼 + IDR slice），足以讓對端認得是一條視訊流。</summary>
+    private static readonly byte[] SyntheticPayload = [0x00, 0x00, 0x00, 0x01, 0x65, 0x88, 0x84, 0x00];
+
+    /// <summary>
+    /// 等 <see cref="WhepPeer"/> 判定對端消失的預算。
+    /// <para>
+    /// SIPSorcery 的 <c>RtpIceChannel</c> 在 <c>DISCONNECTED_TIMEOUT_PERIOD</c>＝8 秒、
+    /// <c>FAILED_TIMEOUT_PERIOD</c>＝16 秒沒有收到任何 RTP／RTCP 之後改狀態（現場實測值就落在
+    /// 8／16 秒），留一段餘裕給 CI 的慢機器——這條測試要的是「會不會發現」而不是「幾秒發現」。
+    /// </para>
+    /// </summary>
+    private static readonly TimeSpan PeerSilenceBudget = TimeSpan.FromSeconds(40);
+
+    /// <summary>
     /// 設定對外位址時，answer 的 host 候選必須真的被改寫成該位址。
     /// </summary>
     /// <remarks>

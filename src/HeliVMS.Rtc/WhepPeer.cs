@@ -83,7 +83,14 @@ public sealed class WhepPeer : IWhepPeer
         // （每一包都會 Touch 會話），所以「沒有活動」永遠不會成立：那條會話會一直佔著
         // 觀看名額，publisher 也永遠不關——實測瀏覽器被 kill 之後，10 路 publisher 與
         // 10 條會話在幾分鐘後仍然活著（狀態端點回報 viewers=1，而已經沒有瀏覽器了）。
-        // 這是唯一能靠對端自己說「斷了」來收尾的訊號；沒有這個訊號時不動作。
+        //
+        // 三個訊號，任何一個成立就足夠；全部都是「對端自己說的」，我們不猜：
+        //   1. connectionState 變成 disconnected／failed／closed。
+        //   2. SIPSorcery 的媒體逾時：它在一個期間內<b>沒有收到</b>任何 RTP／RTCP。
+        //      這是關鍵的一個——我們持續送媒體出去並不算「收到」，所以它與送出去的量無關。
+        //   3. 對端送來 RTCP BYE（正常關閉）。
+        // 反過來說，這裡刻意<b>不</b>用「我們送不出去」判斷：本機 UDP 送給一個已關閉的埠
+        // 不一定會回報錯誤，Windows 上的失敗形式也不一致。
         _pc.onconnectionstatechange += state =>
         {
             if (state is RTCPeerConnectionState.disconnected
@@ -91,7 +98,23 @@ public sealed class WhepPeer : IWhepPeer
                 or RTCPeerConnectionState.closed)
             {
                 _disconnected = true;
+                WhepDiagnostics.Write($"peer={PeerTag} connection-state {state} viewer_silent_seconds={ViewerSilenceSeconds()}");
             }
+        };
+
+        // 觀眾的存活訊號：瀏覽器會持續回 RTCP（RR，沒有畫面時是 PLI——實測每秒一次），
+        // 所以「有沒有收到對端的封包」正是「這個人還在不在」。單調時鐘（TickCount64）而非牆鐘：
+        // 這裡要的是「距上次收到多久」，而牆鐘被校正時那個距離會變成負的或好幾十年。
+        _pc.OnReceiveReport += (_, _, _) => Interlocked.Exchange(ref _viewerActivityMs, Environment.TickCount64);
+        _pc.OnTimeout += media =>
+        {
+            _viewerTimedOut = true;
+            WhepDiagnostics.Write($"peer={PeerTag} timeout media={media} viewer_silent_seconds={ViewerSilenceSeconds()}");
+        };
+        _pc.OnRtcpBye += reason =>
+        {
+            _disconnected = true;
+            WhepDiagnostics.Write($"peer={PeerTag} rtcp-bye reason={reason}");
         };
 
         var track = new MediaStreamTrack(SDPMediaTypesEnum.video, false, [new SDPAudioVideoMediaFormat(WhepCodec.H264)]);
@@ -100,9 +123,21 @@ public sealed class WhepPeer : IWhepPeer
     }
 
     /// <inheritdoc />
-    public bool IsDisconnected => _disconnected;
+    public bool IsDisconnected => _disconnected || _viewerTimedOut;
 
     private volatile bool _disconnected;
+    private volatile bool _viewerTimedOut;
+    private long _viewerActivityMs;
+
+    /// <summary>觀眾最後一次送來 RTCP 距今幾秒；從未收到時回 <c>-1</c>。</summary>
+    private long ViewerSilenceSeconds()
+    {
+        var last = Interlocked.Read(ref _viewerActivityMs);
+        return last == 0 ? -1 : (Environment.TickCount64 - last) / 1000;
+    }
+
+    /// <summary>日誌行的身分欄：同一條會話的多次事件要能歸在一起（WhepPeer 不知道自己的會話 ID）。</summary>
+    private int PeerTag => GetHashCode();
 
     /// <summary>
     /// 把設定展開成 SIPSorcery 的 ICE 伺服器清單。

@@ -219,10 +219,15 @@ public static class WebApiHost
             sp.GetRequiredService<WhepSessionStore>(),
             PublisherStarters.StartFfmpeg));
 
-        if (options.IncludeHostedServices)
-        {
-            builder.Services.AddHostedService<LiveStreamMaintenance>();
-        }
+        // M244 的即時串流維護迴圈：<b>不受</b> IncludeHostedServices 控制。
+        //
+        // 那個旗標的語意是「桌面端已經有自己的大迴圈，不要再掛一份重複的清理」，而它列舉的是
+        // 保留清理與索引對帳——桌面確實各有一條。但 WHEP 的會話與 publisher 回收<b>沒有任何
+        // 桌面對應</b>：內嵌主機不掛它就沒有人回收逾時會話、沒有人關掉沒有觀眾的 publisher，
+        // 而那些會話也不會自己逾時（媒體還在流，每一包都刷新活動時間）。實測桌面版
+        // （IncludeHostedServices=false）：瀏覽器關掉之後 publisher 永久活著（90 秒後仍
+        // 是 Streaming）、觀看名額一直被佔，最後每個人拿到 429。所以它無條件註冊。
+        builder.Services.AddHostedService<LiveStreamMaintenance>();
 
         // 遠程與本機共用同一份授權結論（M210／§19.4「合併檢查」）。公鑰可由
         // HELIVMS_LICENSE_PUBLIC_KEY 覆寫以支援金鑰輪替；未設定時用內嵌公鑰。

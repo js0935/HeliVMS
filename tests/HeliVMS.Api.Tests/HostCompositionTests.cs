@@ -30,7 +30,16 @@ public sealed class HostCompositionTests
             Assert.DoesNotContain(
                 nameof(RetentionService),
                 HostedServiceNames(new WebApiHostOptions { IncludeHostedServices = false }, dbPath));
-            Assert.DoesNotContain(
+
+            // WHEP 的維護迴圈是例外：它<b>必須</b>在內嵌主機也掛。
+            //
+            // 這裡曾經寫的是 DoesNotContain，而那個假設是錯的——桌面端沒有任何東西會回收
+            // WHEP 會話或關掉沒有觀眾的 publisher，而那種會話也不會自己逾時（媒體還在流，
+            // 每一包都刷新活動時間）。實測的後果：瀏覽器關掉後 publisher 永久活著
+            // （90 秒後狀態仍是 Streaming）、觀看名額被佔死，最後所有人拿到 429。
+            // 旗標說的是「不要重複桌面已經在做的清理」，而這一條沒有桌面對應，
+            // 所以不受旗標控制。
+            Assert.Contains(
                 nameof(LiveStreamMaintenance),
                 HostedServiceNames(new WebApiHostOptions { IncludeHostedServices = false }, dbPath));
 
