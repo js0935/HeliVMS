@@ -32,7 +32,7 @@ public sealed class IoRuleHost
     private IoRuleEngine _engine;
 
     /// <summary>輸出秒數的賦歸計時器（每埠一個；新的觸發先取消舊的，避免先開後關互相覆寫）。</summary>
-    private readonly Dictionary<long, Timer> _outputResets = new();
+    private readonly Dictionary<long, ITimer> _outputResets = new();
 
     public IoRuleHost(
         IoPortRepository ports,
@@ -156,7 +156,10 @@ public sealed class IoRuleHost
                 previous.Dispose();
             }
 
-            var timer = new Timer(_ =>
+            // 計時器走注入的時鐘（TimeProvider）而不是直接 new Timer：正式路徑兩者等價，
+            // 但測試能用手動時鐘把「1 秒後賦歸」推進過去，不必真的等——CI 慢機上真的等
+            // 會變成「Expected 2 / Actual 1」的假紅（程式其實是對的，只是 Timer 慢到）。
+            var timer = _clock.CreateTimer(_ =>
             {
                 lock (_gate)
                 {
