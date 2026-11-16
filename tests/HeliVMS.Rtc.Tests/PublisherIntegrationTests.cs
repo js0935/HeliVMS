@@ -54,6 +54,9 @@ public sealed class PublisherIntegrationTests
         {
         }
 
+        /// <inheritdoc />
+        public bool IsDisconnected => false;
+
         public void Dispose()
         {
         }

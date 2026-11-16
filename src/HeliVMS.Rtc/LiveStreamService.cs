@@ -234,10 +234,16 @@ public sealed class LiveStreamService : IAsyncDisposable
         if (!await _sweepGate.WaitAsync(0, token).ConfigureAwait(false)) return 0;
         try
         {
+            // 兩種回收：逾時（沒有封包）與連線已死（一直有封包，所以逾時永遠不會成立）。
+            // 後者不是重複保險——現場實測把瀏覽器砍掉之後，媒體仍在流，會話與 publisher
+            // 可以存活數分鐘以上，狀態端點回報 viewers=1 而已經沒有瀏覽器了。
+            var doomed = _sessions.SweepIdle(_options.SessionIdleTimeout)
+                .Concat(_sessions.SweepDisconnected());
+
             var reaped = 0;
-            foreach (var session in _sessions.SweepIdle(_options.SessionIdleTimeout))
+            foreach (var session in doomed)
             {
-                session.Peer.Close("idle timeout");
+                session.Peer.Close("session reaped");
                 session.Dispose();
                 reaped++;
 

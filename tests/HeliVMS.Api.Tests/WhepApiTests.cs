@@ -7,6 +7,7 @@ using HeliVMS.Storage;
 using HeliVMS.WebApi;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.Routing;
+using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace HeliVMS.Api.Tests;
@@ -29,6 +30,19 @@ public string DbPath { get; } = Path.Combine(Path.GetTempPath(), $"helivms-whep-
 
     public static string PlaceholderRtsp => "rtsp://192.0.2.10:554/stream";
 
+    public static string PlaceholderSubRtsp => "rtsp://192.0.2.10:554/sub-stream";
+
+    /// <summary>
+    /// 端點實際交給 publisher 的 RTSP 位址（依序）。
+    ///
+    /// <para>
+    /// 「選了次碼流但其實還在拉主流」不會有任何錯誤訊息，只有首包慢二十幾秒——所以碼流的選擇
+    /// 必須在這一層看得見。取代 <see cref="LiveStreamService"/> 的 starter 是最省事的觀測點：
+    /// ffmpeg 在測試裡本來就不存在，啟動必定失敗，但失敗前的位址已經被記下來了。
+    /// </para>
+    /// </summary>
+    public List<string> PublishedSources { get; } = [];
+
     /// <summary>
     /// 覆寫 <c>HELIVMS_WHEP_TURN</c>；必須在第一次 <c>CreateClient()</c> 之前設定，
     /// 因為主機在那一刻才建置。
@@ -50,6 +64,18 @@ public string DbPath { get; } = Path.Combine(Path.GetTempPath(), $"helivms-whep-
         if (TurnSetting is not null) builder.UseSetting("HELIVMS_WHEP_TURN", TurnSetting);
         if (PublicHostSetting is not null) builder.UseSetting("HELIVMS_WHEP_PUBLIC_HOST", PublicHostSetting);
 
+        // 換掉 publisher starter，只為了看得見端點把它送到哪一條 RTSP 位址（碼流選擇）。
+        // ConfigureTestServices 在應用程式自己的註冊之後才跑，同型別的後一筆註冊
+        // 就是解析出來的那一筆。ffmpeg 不存在，所以啟動必定失敗——但位址已經記下來了。
+        builder.ConfigureTestServices(services => services.AddSingleton(sp => new LiveStreamService(
+            sp.GetRequiredService<WhepOptions>(),
+            sp.GetRequiredService<WhepSessionStore>(),
+            (LivePublisher publisher, System.Net.IPEndPoint target, ChannelSource source, CancellationToken token) =>
+            {
+                lock (PublishedSources) PublishedSources.Add(source.RtspUrl);
+                return PublisherStarters.StartFfmpeg(publisher, target, source, token);
+            })));
+
         using var store = new SqliteStore(DbPath);
         store.Initialize();
         TestLicenseSeeder.Apply(
@@ -60,12 +86,12 @@ public string DbPath { get; } = Path.Combine(Path.GetTempPath(), $"helivms-whep-
     }
 
     /// <summary>建立一路攝影機；回傳實際拿到的通道編號。</summary>
-    public int SeedChannel(string? mainStreamUrl)
+    public int SeedChannel(string? mainStreamUrl, string? subStreamUrl = null)
     {
         using var store = new SqliteStore(DbPath);
         store.Initialize();
         var channels = new ChannelRepository(store);
-        return channels.Add($"cam-{Guid.NewGuid():N}"[..12], mainStreamUrl ?? string.Empty);
+        return channels.Add($"cam-{Guid.NewGuid():N}"[..12], mainStreamUrl ?? string.Empty, subStreamUrl);
     }
 
     protected override void Dispose(bool disposing)
@@ -86,6 +112,44 @@ public string DbPath { get; } = Path.Combine(Path.GetTempPath(), $"helivms-whep-
 public sealed class WhepApiTests : IDisposable
 {
     private const string Sdp = "v=0\r\no=- 0 0 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\n";
+
+    /// <summary>
+    /// 真的 Chrome 送出的 offer（實機樣本，同 <c>WhepNegotiatedPayloadTypeTests</c>）。
+    ///
+    /// <para>
+    /// 碼流選擇的測試必須讓協商真的成功：協商失敗時 <c>OpenAsync</c> 不會走到 publisher，
+    /// 於是「拉的是哪條位址」根本沒有發生——那種測試不管端點挑了什麼都會綠。
+    /// 假的 ffmpeg 會在下一步立刻失敗（502），但位址已經被記下來了。
+    /// </para>
+    /// </summary>
+    private const string ChromeOffer = """
+        v=0
+        o=- 2642440267667155890 2 IN IP4 127.0.0.1
+        s=-
+        t=0 0
+        a=group:BUNDLE 0
+        a=msid-semantic: WMS
+        m=video 9 UDP/TLS/RTP/SAVPF 96 97 102 108
+        c=IN IP4 0.0.0.0
+        a=rtcp:9 IN IP4 0.0.0.0
+        a=ice-ufrag:KWu6
+        a=ice-pwd:HxEbw5Y6H2h7RvLb1ggdxf+O
+        a=ice-options:trickle
+        a=fingerprint:sha-256 51:9B:B9:AE:FD:3C:DA:C6:B0:B3:C1:98:AF:E6:73:E2:76:34:7A:E4:9E:15:E2:9E:ED:A8:98:01:35:10:08:20
+        a=setup:actpass
+        a=mid:0
+        a=recvonly
+        a=rtcp-mux
+        a=rtpmap:96 VP8/90000
+        a=rtpmap:97 rtx/90000
+        a=fmtp:97 apt=96
+        a=rtpmap:102 H264/90000
+        a=rtcp-fb:102 transport-cc
+        a=fmtp:102 level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42001f
+        a=rtpmap:108 H264/90000
+        a=rtcp-fb:108 transport-cc
+        a=fmtp:108 level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e01f
+        """;
 
     private readonly WhepApiFactory _factory = new();
 
@@ -194,6 +258,46 @@ public sealed class WhepApiTests : IDisposable
         var response = await client.PostAsync($"/api/stream/{channel}/whep", SdpBody());
 
         Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+    }
+
+    // ── 碼流選擇：多分割監看要次碼流 ────────────────────────────────────
+
+    [Fact]
+    public async Task 要求次碼流時publisher拉的是次流位址()
+    {
+        // 現場回報「多格監看有些格等 24 秒以上仍無影格」：publisher 拉的是主流（1080p），
+        // 實測同一組 10 路併發首包 2.6–24.3 秒，次碼流全部 2.2–3.0 秒。
+        // 「選了次碼流但其實還在拉主流」不會有任何錯誤訊息，所以要在這裡釘住位址本身。
+        var channel = _factory.SeedChannel(WhepApiFactory.PlaceholderRtsp, WhepApiFactory.PlaceholderSubRtsp);
+        using var client = Client();
+
+        await client.PostAsync($"/api/stream/{channel}/whep?stream=sub", SdpBody(ChromeOffer));
+
+        Assert.Equal([WhepApiFactory.PlaceholderSubRtsp], _factory.PublishedSources);
+    }
+
+    [Fact]
+    public async Task 沒有指定碼流時仍然拉主流()
+    {
+        // 沒有這個參數的既有用戶端（行動版、QCC 相容層、維運手上的 curl）不該看到畫質默默變差。
+        var channel = _factory.SeedChannel(WhepApiFactory.PlaceholderRtsp, WhepApiFactory.PlaceholderSubRtsp);
+        using var client = Client();
+
+        await client.PostAsync($"/api/stream/{channel}/whep", SdpBody(ChromeOffer));
+
+        Assert.Equal([WhepApiFactory.PlaceholderRtsp], _factory.PublishedSources);
+    }
+
+    [Fact]
+    public async Task 頻道沒有次流時要求次碼流會退回主流()
+    {
+        // 手動輸入的頻道常常只有一條位址；退回主流是「畫質差一點」而不是「整格打不開」。
+        var channel = _factory.SeedChannel(WhepApiFactory.PlaceholderRtsp);
+        using var client = Client();
+
+        await client.PostAsync($"/api/stream/{channel}/whep?stream=sub", SdpBody(ChromeOffer));
+
+        Assert.Equal([WhepApiFactory.PlaceholderRtsp], _factory.PublishedSources);
     }
 
     [Fact]

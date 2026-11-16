@@ -26,6 +26,16 @@ public interface IWhepPeer : IDisposable
 
     /// <summary>關閉連線並釋放底層資源。</summary>
     void Close(string reason);
+
+    /// <summary>
+    /// 對端連線已經確定斷了（SIPSorcery 回報 disconnected／failed／closed）。
+    /// </summary>
+    /// <remarks>
+    /// 這是<b>唯一</b>能收掉「瀏覽器消失但媒體還在流」那條會話的訊號：逾時回收看的是
+    /// 「有沒有封包轉送出去」，而這種會話每一秒都還在轉送，因此永遠不會逾時。
+    /// 沒有證據時必須回 <c>false</c>——誤判會把正在看的操作員踢掉。
+    /// </remarks>
+    bool IsDisconnected { get; }
 }
 
 /// <summary>
@@ -69,10 +79,30 @@ public sealed class WhepPeer : IWhepPeer
 
         _pc = new RTCPeerConnection(configuration);
 
+        // 分頁被關掉、瀏覽器當掉或網路斷掉時，DELETE 不一定送得到，而媒體仍持續有封包
+        // （每一包都會 Touch 會話），所以「沒有活動」永遠不會成立：那條會話會一直佔著
+        // 觀看名額，publisher 也永遠不關——實測瀏覽器被 kill 之後，10 路 publisher 與
+        // 10 條會話在幾分鐘後仍然活著（狀態端點回報 viewers=1，而已經沒有瀏覽器了）。
+        // 這是唯一能靠對端自己說「斷了」來收尾的訊號；沒有這個訊號時不動作。
+        _pc.onconnectionstatechange += state =>
+        {
+            if (state is RTCPeerConnectionState.disconnected
+                or RTCPeerConnectionState.failed
+                or RTCPeerConnectionState.closed)
+            {
+                _disconnected = true;
+            }
+        };
+
         var track = new MediaStreamTrack(SDPMediaTypesEnum.video, false, [new SDPAudioVideoMediaFormat(WhepCodec.H264)]);
         _pc.addTrack(track);
         _pc.SetMediaStreamStatus(SDPMediaTypesEnum.video, MediaStreamStatusEnum.SendOnly);
     }
+
+    /// <inheritdoc />
+    public bool IsDisconnected => _disconnected;
+
+    private volatile bool _disconnected;
 
     /// <summary>
     /// 把設定展開成 SIPSorcery 的 ICE 伺服器清單。

@@ -18,6 +18,11 @@ namespace HeliVMS.WebApi;
 /// 以標頭保護。刻意<b>不</b>放寬 <c>?key=</c>：WHEP 是普通 POST，不是 WebSocket 升級，
 /// 秘密放進 query 會進 browser history 與伺服器 access log。
 /// </para>
+/// <para>
+/// <c>?stream=main|sub</c> 選碼流（預設 main）。多分割監看要的是次碼流：見
+/// <see cref="HandleCreate"/> 的實測數字——保留主流當預設，是為了不讓既有用戶端
+/// （行動版、QCC 相容層、以 curl 驗證的維運）在沒有這個參數時看到畫質默默變差。
+/// </para>
 /// </summary>
 public static class WhepEndpoints
 {
@@ -39,6 +44,7 @@ public static class WhepEndpoints
     private static async Task HandleCreate(
         HttpContext context,
         int channelId,
+        string? stream,
         LiveStreamService live,
         ChannelRepository channels,
         DeviceRepository devices,
@@ -63,8 +69,19 @@ public static class WhepEndpoints
 
         // 帳密一律在拉流的當下才組合，不落進資料庫、日誌或稽核（與 RtspStreamResolver 的
         // 既有約定一致）。channel.MainStreamUrl 保持裸位址。
-        var rtspUrl = RtspStreamResolver.Resolve(
+        //
+        // `?stream=sub` 走次碼流。多分割時每一格只有幾百像素寬，而主流是 1080p：publisher 得先
+        // 解碼再重新編碼一次，首包因此被攝影機端建立主流工作階段的時間綁住。實測同一組 10 路
+        // 併發首包：主流 2.6–24.3 秒（其中一台 24 秒，操作員看到的是「有一格一直沒有畫面」），
+        // 次碼流全部 2.2–3.0 秒。桌面監看牆是同一個取捨（單格才用主流），參考機的 NEMO
+        // GET_LIVE_START 也帶著同一個 subStream 旗標。次流缺席時 DisplayUrl 會退回主流。
+        var bareUrl = StreamRouting.DisplayUrl(
             channel.MainStreamUrl,
+            channel.SubStreamUrl,
+            StreamRouting.ParseLabel(stream));
+
+        var rtspUrl = RtspStreamResolver.Resolve(
+            bareUrl,
             channel.DeviceId,
             host => devices.FindByIp(host)?.Id,
             devices.GetRtspCredentials);

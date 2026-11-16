@@ -419,8 +419,25 @@ describe('multi-split live grid', () => {
     expect(appSource).toMatch(/await Promise\.all\(/);
   });
 
+  it('asks for the sub stream whenever more than one cell is shown', () => {
+    // 現場回報「多格監看有些格等 24 秒以上仍無影格」：主流是 1080p，伺服器端要先解碼再重新
+    // 編碼，實測 10 路併發首包 2.6–24.3 秒；次碼流全部 2.2–3.0 秒。單格才用主流。
+    // 少了這個選擇不會有任何錯誤訊息——只是有一格一直黑著。
+    expect(appSource).toMatch(/const stream = shown\.length > 1 \? 'sub' : 'main'/);
+    expect(appSource).toMatch(/viewer\.open\(channelId, video[\s\S]{0,120}\{ stream \}/);
+  });
+
   it('stops every cell session together', () => {
     expect(appSource).toMatch(/cells\.map\(\(\{ viewer \}\) => viewer\.stop\(\)\)/);
+  });
+
+  it('releases every cell session when the page goes away', () => {
+    // 關分頁不會送出「停止」：沒有任何呼叫端會呼叫 stopLiveView()，而那一條會話也不會逾時
+    // （媒體還在流，每個封包都刷新活動時間），於是觀看名額與 ffmpeg 被一個不存在的瀏覽器
+    // 一直佔著。pagehide 是唯一還來得及送 DELETE 的時機（見 live.js 的 keepalive）。
+    expect(appSource).toMatch(/window\.addEventListener\('pagehide'/);
+    expect(appSource).toMatch(/releaseLiveSessionsOnUnload\(\);/);
+    expect(appSource).toMatch(/liveCells\b[\s\S]{0,200}viewer\.stop\(\)/);
   });
 
   it('warns when nothing is selected instead of opening zero feeds', () => {

@@ -143,14 +143,21 @@ public sealed class WhepSessionStore
 
         lock (_gate)
         {
-            if (!_byId.Remove(id, out var found)) return false;
+            if (!_byId.TryGetValue(id, out var found)) return false;
             session = found;
-            if (_byChannel.TryGetValue(found.ChannelId, out var set))
-            {
-                set.Remove(found);
-                if (set.Count == 0) _byChannel.Remove(found.ChannelId);
-            }
+            RemoveLocked(found);
             return true;
+        }
+    }
+
+    /// <summary>從兩個索引移除會話（呼叫端必須已持有 <c>_gate</c>）。</summary>
+    private void RemoveLocked(WhepSession session)
+    {
+        _byId.Remove(session.Id);
+        if (_byChannel.TryGetValue(session.ChannelId, out var set))
+        {
+            set.Remove(session);
+            if (set.Count == 0) _byChannel.Remove(session.ChannelId);
         }
     }
 
@@ -169,9 +176,10 @@ public sealed class WhepSessionStore
     /// 移除閒置逾時的會話。
     /// </summary>
     /// <remarks>
-    /// 逾時回收是必要的，因為瀏覽器關分頁時不一定送得到 DELETE（網路被拔掉、
-    /// 分頁被回收、連線中斷）；沒有這一條，被遺忘的會話會一直佔著上限配額，
-    /// 直到沒有人能再看這一路攝影機。
+    /// 這一條處理的是「連線還在、只是這一路上沒有封包」（攝影機停了、publisher 掛了）。
+    /// 它<b>不能</b>取代 <see cref="SweepDisconnected"/>：瀏覽器消失時媒體仍在流，活動時間
+    /// 一直被刷新，逾時永遠不會成立——原本這裡的說明寫著「關分頁時不一定送得到 DELETE，
+    /// 所以需要逾時」，那個推論漏掉了「有封包＝有活動」這一半。
     /// </remarks>
     public IReadOnlyList<WhepSession> SweepIdle(TimeSpan idle)
     {
@@ -183,16 +191,36 @@ public sealed class WhepSessionStore
             foreach (var session in _byId.Values.Where(s => s.LastActivityTicks < cutoff).ToList())
             {
                 expired.Add(session);
-                _byId.Remove(session.Id);
-                if (_byChannel.TryGetValue(session.ChannelId, out var set))
-                {
-                    set.Remove(session);
-                    if (set.Count == 0) _byChannel.Remove(session.ChannelId);
-                }
+                RemoveLocked(session);
             }
         }
 
         return expired;
+    }
+
+    /// <summary>
+    /// 移除「對端連線已死」的會話。
+    /// </summary>
+    /// <remarks>
+    /// 這一條與 <see cref="SweepIdle"/> 是互補而不是重複：逾時的判準是「多久沒有封包轉送出去」，
+    /// 而瀏覽器消失（關分頁時 DELETE 沒送到、程序被砍、網路斷）之後，publisher 每一秒都還在
+    /// 轉送封包——那些封包會不斷把會話的活動時間往前推，於是逾時<b>永遠不會</b>成立。
+    /// 少了這裡，觀眾名額與 publisher 都會被一個不存在的瀏覽器長期佔住。
+    /// </remarks>
+    public IReadOnlyList<WhepSession> SweepDisconnected()
+    {
+        List<WhepSession> dead = [];
+
+        lock (_gate)
+        {
+            foreach (var session in _byId.Values.Where(s => s.Peer.IsDisconnected).ToList())
+            {
+                dead.Add(session);
+                RemoveLocked(session);
+            }
+        }
+
+        return dead;
     }
 
     /// <summary>取出並清空所有會話（應用關閉時用）。</summary>

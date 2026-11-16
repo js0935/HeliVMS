@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createLiveViewer, fetchDeployment, waitForFirstFrame, waitForIceGathering } from './live.js';
+import { createLiveViewer, fetchDeployment, waitForFirstFrame, waitForIceGathering, whepPath } from './live.js';
 
 /**
  * M244 WHEP 客戶端測試。
@@ -145,6 +145,19 @@ describe('waitForIceGathering', () => {
   });
 });
 
+describe('whepPath', () => {
+  it('多分割要次碼流時帶上參數', () => {
+    expect(whepPath(7, 'sub')).toBe('/api/stream/7/whep?stream=sub');
+  });
+
+  it('單格或未指定時不帶參數（舊版伺服器行為不變）', () => {
+    // 少了這一條，升級前端但沒升級伺服器時會變成 404／被忽略的查詢字串，
+    // 而畫面空白沒有任何線索。
+    expect(whepPath(7, 'main')).toBe('/api/stream/7/whep');
+    expect(whepPath(7, undefined)).toBe('/api/stream/7/whep');
+  });
+});
+
 describe('createLiveViewer.open', () => {
   it('拒絕非正整數的通道', async () => {
     const apiRaw = vi.fn();
@@ -187,6 +200,22 @@ describe('createLiveViewer.open', () => {
     expect(init.headers['Content-Type']).toBe('application/sdp');
     expect(v.isOpen).toBe(true);
     expect(v.sessionId).toBe('/api/stream/whep/abc');
+  });
+
+  it('要求次碼流時真的向伺服器要次碼流', async () => {
+    // 「挑了次碼流但其實還在拉主流」不會有任何錯誤：畫面照樣出來、只是首包慢二十幾秒，
+    // 而操作員看到的是一格一直沒有畫面。所以這條路徑要釘住請求本身。
+    const apiRaw = vi.fn(async () => ({
+      ok: true,
+      status: 201,
+      headers: new Headers({ Location: '/api/stream/whep/abc' }),
+      text: async () => 'v=0',
+    }));
+    const v = viewer({ apiRaw });
+
+    await expect(v.open(7, fakeVideo(), vi.fn(), { stream: 'sub' })).resolves.toBe(true);
+
+    expect(apiRaw.mock.calls[0][0]).toBe('/api/stream/7/whep?stream=sub');
   });
 
   it('只要求 video 且是 recvonly', async () => {
@@ -466,6 +495,19 @@ describe('createLiveViewer.stop', () => {
     expect(path).toBe('/api/stream/whep/abc');
     expect(init.method).toBe('DELETE');
     expect(v.isOpen).toBe(false);
+  });
+
+  it('DELETE 帶 keepalive 才能在關分頁之後送達', async () => {
+    // 少了 keepalive，pagehide 之後文件被丟掉、請求被取消，伺服器永遠不知道這個人走了。
+    // 而那條會話不會自己逾時：媒體還在流，每個封包都會刷新它的活動時間——實測瀏覽器被砍掉
+    // 之後 publisher 活了好幾分鐘，狀態端點回報 viewers=1。名額就是這樣被佔死的。
+    const apiRaw = vi.fn(async () => ({ ok: true, status: 201, headers: new Headers({ Location: '/api/stream/whep/abc' }), text: async () => 'v=0' }));
+    const v = viewer({ apiRaw });
+    await v.open(1, fakeVideo(), vi.fn());
+
+    await v.stop();
+
+    expect(apiRaw.mock.calls[1][1].keepalive).toBe(true);
   });
 
   it('DELETE 失敗時仍然算已停止', async () => {

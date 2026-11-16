@@ -31,4 +31,23 @@ public sealed class StreamRoutingTests
     {
         Assert.Equal("rtsp://cam/main", StreamRouting.RecordingUrl("rtsp://cam/main"));
     }
+
+    [Fact]
+    public void 標籤sub代表次碼流且大小寫不敏感()
+    {
+        Assert.Equal(StreamKind.Sub, StreamRouting.ParseLabel("sub"));
+        Assert.Equal(StreamKind.Sub, StreamRouting.ParseLabel("SUB"));
+        Assert.Equal(StreamKind.Sub, StreamRouting.ParseLabel(" sub "));
+    }
+
+    [Fact]
+    public void 標籤看不懂時當主流而不是讓請求失敗()
+    {
+        // 打錯字（?stream=subt）讓整格空白、伺服器只回一個沒人會看的 400，
+        // 遠比退回主流糟：主流一定存在，畫質差一點但看得到。
+        Assert.Equal(StreamKind.Main, StreamRouting.ParseLabel("subt"));
+        Assert.Equal(StreamKind.Main, StreamRouting.ParseLabel("102"));
+        Assert.Equal(StreamKind.Main, StreamRouting.ParseLabel(null));
+        Assert.Equal(StreamKind.Main, StreamRouting.ParseLabel(""));
+    }
 }

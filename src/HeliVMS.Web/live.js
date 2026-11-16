@@ -25,6 +25,23 @@ const ICE_GATHER_TIMEOUT_MS = 3000;
 const FIRST_FRAME_TIMEOUT_MS = 10000;
 
 /**
+ * WHEP 端點路徑；`stream: 'sub'` 時帶上次碼流參數。
+ *
+ * 多分割的每一格只有幾百像素寬，而主流是 1080p：伺服器端要先解碼再重新編碼一次，
+ * 首包因此被攝影機建立主流工作階段的時間綁住。實測同一組 10 路併發首包為
+ * 2.6–24.3 秒（最慢那台 24 秒，操作員看到的是「有一格一直沒有畫面」），
+ * 次碼流則全部落在 2.2–3.0 秒，順帶省下本機的重新編碼成本。單格（放大看）才用主流。
+ *
+ * 只有 `sub` 會改變路徑：不帶參數＝主流，讓舊版伺服器（沒有這個參數）行為不變。
+ *
+ * @param {number} channelId 通道編號。
+ * @param {'main'|'sub'|undefined} stream 碼流。
+ */
+export function whepPath(channelId, stream) {
+  return stream === 'sub' ? `/api/stream/${channelId}/whep?stream=sub` : `/api/stream/${channelId}/whep`;
+}
+
+/**
  * 建立一個即時監看控制器。
  *
  * 傳輸層（apiRaw／api）與翻譯（t）都由呼叫端注入，而不是在模組裡直接抓全域變數。
@@ -38,7 +55,7 @@ export function createLiveViewer({ apiRaw, t }) {
   let session = null;
 
   /** 送出 offer 並取回 answer。 */
-  async function negotiate(channelId, peer) {
+  async function negotiate(channelId, peer, stream) {
     const offer = await peer.createOffer();
     await peer.setLocalDescription(offer);
 
@@ -47,7 +64,7 @@ export function createLiveViewer({ apiRaw, t }) {
       await waitForIceGathering(peer);
     }
 
-    const response = await apiRaw(`/api/stream/${channelId}/whep`, {
+    const response = await apiRaw(whepPath(channelId, stream), {
       method: 'POST',
       headers: { 'Content-Type': 'application/sdp' },
       body: peer.localDescription.sdp,
@@ -83,12 +100,16 @@ export function createLiveViewer({ apiRaw, t }) {
       // 已關閉的 PeerConnection 再關一次不該讓 UI 卡住。
     }
 
-    // 一定要通知伺服器：沒有 DELETE，被遺忘的會話會佔住該通道的觀看名額直到逾時
-    // 回收（預設 30 秒）。使用者的「停止」按鈕必須是立即釋放。
+    // 一定要通知伺服器：沒有 DELETE，被遺忘的會話會佔住該通道的觀看名額。
+    //
+    // keepalive 是為了「關分頁／換頁」那條路徑：pagehide 之後文件會被丟掉，普通 fetch
+    // 會被取消，DELETE 到不了伺服器，而那一條會話並不會像直覺那樣逾時——媒體還在流，
+    // 每個封包都會把它的活動時間往前推，實測瀏覽器被砍掉後 publisher 仍活了好幾分鐘
+    // （狀態端點回報 viewers=1 而已經沒有瀏覽器）。keepalive 讓請求在文件消失後仍送得出去。
     try {
-      if (current.location) await apiRaw(current.location, { method: 'DELETE' });
+      if (current.location) await apiRaw(current.location, { method: 'DELETE', keepalive: true });
     } catch (err) {
-      // 伺服器最終仍會逾時回收；這裡不該讓使用者看到錯誤。
+      // 伺服器最終仍會由連線狀態回收；這裡不該讓使用者看到錯誤。
     }
 
     return true;
@@ -99,8 +120,9 @@ export function createLiveViewer({ apiRaw, t }) {
    * @param {number} channelId 通道編號。
    * @param {HTMLVideoElement} video 顯示畫面的元素。
    * @param {(text: string) => void} notify 把狀態訊息寫進 live region。
+   * @param {{stream?: 'main'|'sub'}} [options] 碼流；省略＝主流。
    */
-  async function open(channelId, video, notify) {
+  async function open(channelId, video, notify, options = {}) {
     if (!Number.isFinite(channelId) || channelId <= 0) {
       notify(t('state.channelPositive'));
       return false;
@@ -138,7 +160,7 @@ export function createLiveViewer({ apiRaw, t }) {
     notify(t('state.liveConnecting'));
 
     try {
-      const { location } = await negotiate(channelId, peer);
+      const { location } = await negotiate(channelId, peer, options.stream);
       session = { peer, location, video };
       // 「協商成功」≠「看得到畫面」。先說實話，等第一張影格到了再改成播放中。
       notify(t('state.liveNegotiated'));

@@ -1680,4 +1680,38 @@ Notes that will save you time:
   「解碼成索引尺寸的 Bgra」這一件事（`DecodeBgraIndex`），雜湊交給共用層。
   Guarded by `整張圖的雜湊與舊的灰階入口完全相同`（＝既有索引不需重建的唯一依據）、
   `索引解碼尺寸讓每個九乘八區塊剛好八乘八像素` and `灰階與雜湊都走共用的VisualHash管線`.
+- **Web 多分割監看要次碼流：同一組 10 路的首包，主流 2.6–24.3 秒、次碼流 2.2–3.0 秒。**
+  現場回報「多格 web 監看有些格等 24 秒以上仍無影格」。量測（本機、同一組 10 路、
+  `-f rtp` 到 loopback、記第一個封包的到達時間）：拉**主流**的 publisher 首包 2.6–24.3 秒
+  （攝影機07 單獨 10.6 秒、10 路併發 24.3 秒），同 10 路改拉**次碼流**全部 2.2–3.0 秒；
+  真實 UI（headless Chrome、16 格版面、10 路，`%TEMP%\live-grid-probe.mjs` 那套作法）
+  第一張影格：主流 9.4–24.5 秒 → 次碼流 8.4–11.5 秒，`videoWidth` 1920 → 640。
+  原因不是本機 CPU：publisher 會把攝影機串流解碼再重新編碼一次（`LiveEncodeOptions`），
+  首包被「攝影機建立**主流**工作階段」的時間綁住，而那台攝影機的 DESCRIBE 就要 19–47 秒。
+  `POST /api/stream/{id}/whep?stream=main|sub`（預設 main），SPA 在**格數 > 1** 時要 `sub`、
+  單格才要 main——與桌面監看牆同一條規則（`ChannelManager`：單格才用主流），也與參考機
+  NEMO `GET_LIVE_START` 的 subStream 旗標一致。次流缺席時 `StreamRouting.DisplayUrl` 退回主流；
+  `StreamRouting.ParseLabel` 對看不懂的值一律當主流（打錯字不該讓整格空白——主流一定存在）。
+  不要為了「畫質」把預設改成 sub：沒有這個參數的既有用戶端（行動版、QCC 相容層、維運的 curl）
+  會發現畫質默默變差。Guarded by `要求次碼流時publisher拉的是次流位址`,
+  `沒有指定碼流時仍然拉主流`, `頻道沒有次流時要求次碼流會退回主流`,
+  `標籤sub代表次碼流且大小寫不敏感`, `標籤看不懂時當主流而不是讓請求失敗`,
+  `多分割要次碼流時帶上參數`, `要求次碼流時真的向伺服器要次碼流`
+  and `asks for the sub stream whenever more than one cell is shown`.
+- **一個沒有送 DELETE 就消失的瀏覽器永遠不會逾時：媒體還在流，所以會話一直是「有活動」。**
+  實測（2026-11-17）：把跑著 10 格監看的 headless Chrome 直接 kill，兩分鐘後
+  `/api/stream/{id}/whep` 仍回報 `viewers:1`，10 路 publisher（libx264）全部還活著，其中一路
+  `packetsMissed=32700`（本機 ingest 掉 31%）。原因：逾時判準是「多久沒有封包轉送出去」
+  （`WhepSessionStore.SweepIdle` 配上 `LiveStreamService.Forward` 的 `Touch`），而瀏覽器死掉之後
+  媒體仍在流，每一包都把活動時間往前推——逾時**永遠不會**成立，觀看名額（8）與 ffmpeg 就這樣
+  被一個不存在的瀏覽器佔著，下一個操作員得到 429。兩條修正缺一不可：
+  (1) `IWhepPeer.IsDisconnected`／`WhepPeer` 訂閱 `onconnectionstatechange`
+  （disconnected／failed／closed），`WhepSessionStore.SweepDisconnected` 由
+  `LiveStreamService.MaintainAsync` 與逾時回收並列；判準必須是「有斷線證據」——誤判會把正在看的
+  操作員踢掉，而症狀（畫面停住）與網路問題一模一樣。
+  (2) 前端 `stop()` 的 DELETE 帶 `keepalive:true`，並在 `pagehide`（`event.persisted` 例外，
+  那是 back/forward 快取，還原時畫面要還在）逐格 `viewer.stop()`：關分頁時普通 fetch 會被取消，
+  DELETE 到不了伺服器。Guarded by `斷線的會話會被回收且名額當下就釋放`,
+  `還活著的會話不會被斷線回收帶走`, `連線已死的會話即使媒體還在流也會被回收`,
+  `DELETE 帶 keepalive 才能在關分頁之後送達` and `releases every cell session when the page goes away`.
 

@@ -349,6 +349,12 @@ async function openLiveView(event) {
   const cells = [...$('live-grid').querySelectorAll('.live-cell')];
   const shown = channels.slice(0, liveLayoutCount());
 
+  // 一格的畫面佔滿整個監看區（放大看車牌），多格則每一格只有幾百像素寬。
+  // 多格要次碼流：主流是 1080p，伺服器端要先解碼再重新編碼，首包實測 2.6–24.3 秒
+  // （最慢那台 24 秒＝「有一格一直沒有畫面」），次碼流全部 2.2–3.0 秒。
+  // 桌面監看牆用的是同一條規則（單格才用主流）。
+  const stream = shown.length > 1 ? 'sub' : 'main';
+
   msg.textContent = t('state.liveConnecting');
 
   liveCells = shown.map((channelId, i) => {
@@ -363,7 +369,7 @@ async function openLiveView(event) {
     liveCells.map(({ viewer, channelId, video, label }) =>
       viewer.open(channelId, video, (text) => {
         label.textContent = `${channelName(channelId)} · ${text}`;
-      }),
+      }, { stream }),
     ),
   );
 
@@ -377,6 +383,23 @@ async function openLiveView(event) {
   $('live-meta').textContent = t('live.gridMeta', {
     count: ok,
     channels: shown.map(channelName).join(t('list.separator')),
+  });
+}
+
+/**
+ * 分頁被關掉或換頁時，主動把每一格的 WHEP 會話收掉。
+ *
+ * 不做這件事的代價不是「等 30 秒就自己回收」——那一條會話永遠不會逾時（媒體還在流，
+ * 每個封包都會刷新它的活動時間），於是觀看名額與每一路的 ffmpeg 都被一個不存在的
+ * 瀏覽器繼續佔著。`stop()` 的 DELETE 帶 keepalive，所以在文件被丟掉之後仍送得出去。
+ */
+function releaseLiveSessionsOnUnload() {
+  window.addEventListener('pagehide', (event) => {
+    // persisted＝這一頁只是進到 back/forward 快取，等一下可能被還原；那不是真的離開，
+    // 收掉連線會讓「上一頁」回來時只剩一格死畫面。
+    if (event.persisted) return;
+    for (const { viewer } of liveCells) void viewer.stop();
+    liveCells = [];
   });
 }
 
@@ -1645,6 +1668,7 @@ function wire() {
 
   $('live-form').addEventListener('submit', openLiveView);
   $('live-stop').addEventListener('click', stopLiveView);
+  releaseLiveSessionsOnUnload();
   // 切版面立即重畫空格線（並收掉正在跑的會話，因為格數變了）。
   $('live-layout').addEventListener('change', () => {
     void stopLiveView();

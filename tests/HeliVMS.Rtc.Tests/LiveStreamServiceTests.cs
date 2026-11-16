@@ -40,6 +40,9 @@ public class LiveStreamServiceTests
         }
 
         public void Dispose() => Disposed = true;
+
+        /// <summary>模擬「對端連線已死」（瀏覽器分頁被關掉而 DELETE 沒送到）。</summary>
+        public bool IsDisconnected { get; set; }
     }
 
     private sealed record StarterCall(ChannelSource Source, IPEndPoint Target);
@@ -395,6 +398,32 @@ public async Task 關到不存在的會話回傳null()
         await live.MaintainAsync(default);
 
         Assert.Equal(1, store.CountFor(7));
+    }
+
+    [Fact]
+    public async Task 連線已死的會話即使媒體還在流也會被回收()
+    {
+        // 現場實測（2026-11-17）：把瀏覽器砍掉之後，媒體仍持續從 publisher 送出來，每一包都會
+        // Touch 會話，於是「沒有活動」永遠不成立——狀態端點一直回報 viewers=1，10 路 publisher
+        // 在幾分鐘後還活著。所以逾時回收對這種會話什麼都不做，唯一的出口是對端自己說斷了。
+        long now = 0;
+        var store = new WhepSessionStore(() => now);
+        var starter = new RecordingStarter();
+        await using var live = new LiveStreamService(
+            new WhepOptions { SessionIdleTimeout = TimeSpan.FromSeconds(30) }, store, starter.Start, () => now);
+
+        var peer = new FakePeer { IsDisconnected = true };
+        await live.OpenAsync(Source(), Offer(), () => peer, default);
+
+        // 媒體一直在流：活動時間剛剛才被刷新，逾時判定一定不會成立。
+        live.Forward(7, new RtpHeader(1, 2, true, 96, 3, 12, 2), new byte[] { 0xAA });
+
+        var reaped = await live.MaintainAsync(default);
+
+        Assert.Equal(1, reaped);
+        Assert.Equal(0, store.CountFor(7));
+        Assert.True(peer.Closed);
+        Assert.True(peer.Disposed);
     }
 
     [Fact]

@@ -26,6 +26,9 @@ public class WhepSessionStoreTests
         public void Close(string reason) => Closed = true;
 
         public void Dispose() => Disposed = true;
+
+        /// <summary>模擬對端連線已死。</summary>
+        public bool IsDisconnected { get; set; }
     }
 
     private static WhepSession Session(string id, int channel, long ticks)
@@ -177,6 +180,42 @@ public class WhepSessionStoreTests
         Assert.Single(swept);
         Assert.Equal("old", swept[0].Id);
         Assert.Equal(1, store.Count);
+    }
+
+    [Fact]
+    public void 斷線的會話會被回收且名額當下就釋放()
+    {
+        // 逾時回收救不了這一種：瀏覽器被關掉之後媒體還在流，每一包都會刷新活動時間。
+        // 沒有這一條，一個消失的瀏覽器就能把觀看名額佔到上限（8），下一個人得到 429。
+        var store = new WhepSessionStore();
+        var dead = Session("dead", 7, 0);
+        ((FakePeer)dead.Peer).IsDisconnected = true;
+        store.Add(dead, 1);
+
+        Assert.Throws<WhepViewerLimitException>(() => store.Add(Session("next", 7, 0), 1));
+
+        var swept = store.SweepDisconnected();
+
+        Assert.Single(swept);
+        Assert.Same(dead, swept[0]);
+        Assert.Null(store.Find("dead"));
+
+        // 名額真的回來了。
+        store.Add(Session("next", 7, 0), 1);
+        Assert.Equal(1, store.CountFor(7));
+    }
+
+    [Fact]
+    public void 還活著的會話不會被斷線回收帶走()
+    {
+        // 反向保證：誤判會把正在看的操作員踢掉，而症狀與網路斷線一模一樣。
+        var store = new WhepSessionStore();
+        var alive = Session("alive", 7, 0);
+        store.Add(alive, 8);
+
+        Assert.Empty(store.SweepDisconnected());
+        Assert.Equal(1, store.CountFor(7));
+        Assert.Same(alive, store.Find("alive"));
     }
 
     [Fact]
