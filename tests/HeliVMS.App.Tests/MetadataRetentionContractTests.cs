@@ -97,7 +97,10 @@ public sealed class MetadataRetentionContractTests
     {
         var main = SourceContract.Read(MainCode);
         Assert.Matches(@"(?m)^\s*var level = DiskPressureCoordinator\.RunConfigured\(", main);
-        Assert.Matches(@"(?m)^\s*diskFull: \(\) => DiskPressureCoordinator\.ShouldStopNewRecording\(", main);
+        // 閘門必須是 DiskPressureRelief：純查詢版（ShouldStopNewRecording）只會停錄，
+        // 真正刪檔要等下一個小時的保留迴圈，磁碟一滿就是整台機器停錄到下一輪。
+        Assert.Matches(@"private readonly DiskPressureRelief _diskRelief = new\(\);", main);
+        Assert.Matches(@"(?m)^\s*diskFull: \(\) => _diskRelief\.ShouldStopNewRecording\(", main);
     }
 
     /// <summary>

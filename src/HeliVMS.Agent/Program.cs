@@ -38,12 +38,15 @@ public class Program
                     }
 
                     var recordingsRoot = RecordingStorage.ResolveConfiguredRoot(dataRoot, configured);
-                    // 磁碟滿策略第三階段（§11.1）：可用空間低於寫入門檻時停開新錄影；
+                    // 磁碟滿策略（§11.1）：可用空間低於寫入門檻時，**先淘汰最舊的錄影**再回答
+                    // 能不能開新錄影。純查詢版只在每小時的保留迴圈刪檔，磁碟一滿就整台機器
+                    // 停止錄影直到下一輪（現場實測停了 39 分鐘）。
                     // 每次調和即時重算，設定中心切換磁碟後下一個週期即依新根判斷。
+                    var diskRelief = new DiskPressureRelief();
                     return new RecordingScheduler(
                         store,
                         recordingsRoot,
-                        diskFull: () => DiskPressureCoordinator.ShouldStopNewRecording(store, recordingsRoot),
+                        diskFull: () => diskRelief.ShouldStopNewRecording(store, recordingsRoot),
                         // 錄影心跳寫進資料根目錄（M320）；看門狗 WatchdogWorker 讀同一份。
                         heartbeatRoot: dataRoot,
                         // 每輪調和續約；非持有者不錄影（M321）。同級搶佔讓服務重啟後立即取回。

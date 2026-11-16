@@ -95,7 +95,7 @@ public sealed class SegmentRecorder : ISegmentRecorder
     {
         _repo = repo;
         _processFactory = processFactory ?? new DefaultProcessFactory();
-        _audioEncoderArgsFor = audioEncoderArgsFor ?? DefaultAudioEncoderArgsFor;
+        _audioEncoderArgsFor = audioEncoderArgsFor ?? (static url => AudioEncoderArgsFor(url));
         _rootSelector = rootSelector;
         _registry = registry ?? FfmpegProcessRegistry.Shared;
         _folderNameFor = folderNameFor;
@@ -707,19 +707,59 @@ public sealed class SegmentRecorder : ISegmentRecorder
     }
 
     /// <summary>
-    /// 預設音訊參數決策：以 ffprobe 探測一次，依結果決定 copy／aac 轉碼／不錄音。
-    /// 抽成可注入的委派，是為了讓 <see cref="SegmentRecorder"/> 的錄影收尾行為能在
-    /// 不連攝影機、不跑 ffprobe 的情況下被測（見 `SegmentRecorderTests`）。
+    /// 錄影前音訊探測的逾時上限。
+    ///
+    /// <para>
+    /// 刻意比 <see cref="StreamProbe.DefaultTimeout"/>（10 秒）寬、又比即時監看的
+    /// <c>RtspClient.ProbeTimeout</c>（60 秒）窄：攝影機的 RTSP DESCRIBE 不保證在 10 秒內
+    /// 回來——實測 VIVOTEK IP9167-HP（1080p，公網）同一支攝影機量到 19.1／29.3／46.7／24.2 秒。
+    /// 用 10 秒時每一次錄影都在開錄前擲出逾時，整段錄影永遠開不起來（現場症狀：即時監看正常、
+    /// 錄影完全沒有檔案，只有 `recording.stalled` 寫著「ffprobe 探測逾時（10 秒）」）。
+    /// </para>
     /// </summary>
-    private static string DefaultAudioEncoderArgsFor(string rtspUrl)
+    public static readonly TimeSpan AudioProbeTimeout = TimeSpan.FromSeconds(30);
+
+    /// <summary>
+    /// 探測失敗（逾時、連不上、ffprobe 不在）時的音訊參數：一律轉 AAC。
+    ///
+    /// <para>
+    /// 失敗時不能讓整段錄影開不起來，也不能猜「沒有音軌」——猜錯等於這台攝影機從此沒有聲音。
+    /// 轉成 AAC 對任何音訊編碼都成立（G.711／G.726／AAC 都吃得下），而 <c>-map 0:a:0?</c> 是
+    /// optional，真的沒有音軌時不會產生第二條串流、也不會失敗。代價只是失敗那一次的 CPU，
+    /// 換到的是「錄影一定開得起來」。
+    /// </para>
+    /// </summary>
+    public const string FallbackAudioEncoderArgs = "-c:a aac -b:a 128k -ac 1 -ar 44100";
+
+    /// <summary>
+    /// 音訊參數決策：探測一次，依結果決定 copy／AAC 轉碼／不錄音；探測失敗一律退回
+    /// <see cref="FallbackAudioEncoderArgs"/>（fail-open）。
+    ///
+    /// <para>
+    /// 探測只是「音訊能不能直接 copy」的最佳化，不是錄影的前提。把它做成純函式
+    /// （探測以委派注入）是為了讓「探測擲出逾時 → 仍然錄得下去」這件事可以在不連攝影機、
+    /// 不跑 ffprobe 的情況下被測試釘住。
+    /// </para>
+    /// </summary>
+    /// <param name="rtspUrl">要探測的串流位址。</param>
+    /// <param name="probe">探測實作；null 表示走真實 ffprobe（逾時 <see cref="AudioProbeTimeout"/>）。</param>
+    public static string AudioEncoderArgsFor(string rtspUrl, Func<string, StreamProbeInfo>? probe = null)
     {
-        var info = StreamProbe.Probe(rtspUrl);
-        return info.AudioCodec switch
+        try
         {
-            null => string.Empty,
-            "aac" => "-c:a copy",
-            _ => "-c:a aac -b:a 128k -ac 1 -ar 44100",
-        };
+            var info = (probe ?? (static url => StreamProbe.Probe(url, timeout: AudioProbeTimeout)))(rtspUrl);
+            return info.AudioCodec switch
+            {
+                null => string.Empty,
+                "aac" => "-c:a copy",
+                _ => FallbackAudioEncoderArgs,
+            };
+        }
+        catch (Exception)
+        {
+            // 任何探測失敗都只影響「音訊要不要轉碼」，不能影響錄影本身；見上方摘要。
+            return FallbackAudioEncoderArgs;
+        }
     }
 
     /// <summary>執行一段錄影，回傳是否正常收尾。</summary>

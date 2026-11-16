@@ -25,12 +25,17 @@ public sealed class AgentDiskPressureContractTests
     }
 
     /// <summary>Agent 的排程器要接上「停新錄」閘門，否則磁碟滿了仍會一直開新錄影。</summary>
+    /// <remarks>
+    /// 閘門必須是 <see cref="DiskPressureRelief"/> 而不是純查詢版：純查詢版只回報「停新錄」，
+    /// 真正刪檔要等下一個小時的保留迴圈，磁碟一滿就是整台機器停錄到下一輪（現場實測 39 分鐘）。
+    /// </remarks>
     [Fact]
     public void Agent排程接上停新錄閘門()
     {
         var program = Read(ProgramCode);
+        Assert.Matches(@"(?m)^\s*var diskRelief = new DiskPressureRelief\(\);", program);
         Assert.Matches(
-            @"(?m)^\s*diskFull: \(\) => DiskPressureCoordinator\.ShouldStopNewRecording\(",
+            @"(?m)^\s*diskFull: \(\) => diskRelief\.ShouldStopNewRecording\(",
             program);
     }
 

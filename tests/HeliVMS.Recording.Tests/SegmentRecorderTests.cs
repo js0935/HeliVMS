@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text;
+using HeliVMS.Media;
 using HeliVMS.Recording;
 using HeliVMS.Shared;
 using HeliVMS.Shared.Models;
@@ -1214,6 +1215,95 @@ public sealed class SegmentRecorderTests : IDisposable
         Assert.False(SegmentRecorder.TryCompleteMovedSegment(_segments, id, finalPath, tmpPath, t));
 
         Assert.Equal(SegmentStatus.Temporary, Assert.IsType<SegmentRecord>(_segments.Get(id)).Status);
+    }
+
+    // ===== 開錄前的音訊決策（探測失敗不能讓整台攝影機停止錄影）=====
+
+    /// <summary>
+    /// 錄影前的音訊探測逾時必須比一般探測寬：攝影機的 RTSP DESCRIBE 不保證在 10 秒內回來。
+    ///
+    /// <para>
+    /// 現場症狀：某台 VIVOTEK IP9167-HP（1080p、公網）即時監看完全正常，錄影卻一段都沒有，
+    /// 稽核只寫著「ffprobe 探測逾時（10 秒）」。實測同一支攝影機的 DESCRIBE 要
+    /// 19.1／29.3／46.7／24.2 秒，而錄影走的 <see cref="StreamProbe.DefaultTimeout"/> 是 10 秒、
+    /// 即時監看走的 <c>RtspClient.ProbeTimeout</c> 是 60 秒——差別就在這裡。把這個值改回
+    /// 預設，症狀會一模一樣地回來：畫面正常、錄影全空、日誌只有探測逾時。
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void 錄影音訊探測的逾時比一般探測寬()
+    {
+        Assert.Equal(TimeSpan.FromSeconds(30), SegmentRecorder.AudioProbeTimeout);
+        Assert.True(
+            SegmentRecorder.AudioProbeTimeout > StreamProbe.DefaultTimeout,
+            "錄影探測若沿用一般探測的 10 秒，慢速攝影機會永遠開不了錄");
+    }
+
+    /// <summary>
+    /// 探測擲出逾時時仍要回傳 AAC 轉碼參數，而不是空字串——空字串等於「這台沒有音軌」，
+    /// 猜錯就是這支攝影機從此沒有聲音。
+    /// </summary>
+    [Fact]
+    public void 音訊探測失敗時退回AAC而不是當成沒有音軌()
+    {
+        var args = SegmentRecorder.AudioEncoderArgsFor(
+            RtspUrl,
+            _ => throw new TimeoutException("ffprobe 探測逾時"));
+
+        Assert.Equal(SegmentRecorder.FallbackAudioEncoderArgs, args);
+        Assert.Contains("-c:a", args);
+        Assert.Contains("aac", args);
+    }
+
+    /// <summary>
+    /// 探測得到「真的有音軌」時不能把它當成沒有音軌（靜音也是資料遺失）；
+    /// G.711 這類進不了 MP4 的編碼則必須轉 AAC，不能 copy。
+    /// </summary>
+    [Fact]
+    public void 音訊決策會依探測到的編碼選擇copy或轉碼()
+    {
+        static StreamProbeInfo Info(string? audio) => new(1920, 1080, "h264", audio);
+
+        Assert.Equal(string.Empty, SegmentRecorder.AudioEncoderArgsFor(RtspUrl, _ => Info(null)));
+        Assert.Equal("-c:a copy", SegmentRecorder.AudioEncoderArgsFor(RtspUrl, _ => Info("aac")));
+        Assert.Equal(
+            SegmentRecorder.FallbackAudioEncoderArgs,
+            SegmentRecorder.AudioEncoderArgsFor(RtspUrl, _ => Info("pcm_mulaw")));
+    }
+
+    /// <summary>
+    /// 端到端：探測失敗（逾時）時錄影仍要真的開得起來，而且 ffmpeg 命令列帶著 AAC 參數。
+    ///
+    /// <para>
+    /// 這一條刻意走真正的 <see cref="SegmentRecorder"/> 錄影迴圈，因為要釘住的是「決策失敗
+    /// 不會中斷開錄」——只測純函式會漏掉呼叫端把例外吞掉、或把空字串當成 fatal 的寫法。
+    /// </para>
+    /// </summary>
+    [Fact]
+    public async Task 音訊探測逾時仍會以AAC轉碼開始錄影()
+    {
+        var factory = new FakeProcessFactory(FirstCompletesThenPending);
+        var completed = new TaskCompletionSource<SegmentRecord>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        await using var recorder = new SegmentRecorder(
+            _segments,
+            factory,
+            url => SegmentRecorder.AudioEncoderArgsFor(
+                url,
+                _ => throw new TimeoutException("ffprobe 探測逾時（10 秒）")),
+            gracefulStopTimeout: TimeSpan.FromMilliseconds(200));
+        recorder.SegmentCompleted += (_, segment) => completed.TrySetResult(segment);
+
+        await recorder.StartAsync(_channelId, RtspUrl, _recordingsRoot, "main", SegmentSeconds);
+
+        var segment = await completed.Task.WaitAsync(TimeSpan.FromSeconds(15));
+        Assert.Equal(_channelId, segment.ChannelId);
+
+        await recorder.StopAsync();
+
+        var args = factory.Processes[0].StartInfo.ArgumentList;
+        Assert.Contains("0:a:0?", args);
+        Assert.Equal("aac", ValueAfter(args, "-c:a"));
     }
 
     /// <summary>可推進的時鐘：分段長度、結束時間與 <see cref="SegmentRecorder.MinCutAge"/> 都由它決定。</summary>

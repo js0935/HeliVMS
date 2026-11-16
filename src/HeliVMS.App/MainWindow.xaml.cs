@@ -335,6 +335,13 @@ public partial class MainWindow : Window, IWallDisplayOptions
     private MaintenanceTaskHost? _taskHost;
 
     /// <summary>
+    /// 磁碟滿時「先淘汰最舊錄影、再回答能不能開新錄影」的閘門（§11.1 第四階段）。
+    /// 排程器每 30 秒問一次；沒有它，磁碟一到門檻就停錄，要等下一個小時的保留迴圈才第一次刪檔
+    /// （現場實測停了 39 分鐘）。實例要跨排程器重建（切換錄影碟）保留，節流狀態才不會被重設。
+    /// </summary>
+    private readonly DiskPressureRelief _diskRelief = new();
+
+    /// <summary>
     /// 桌面的錄影擁有者仲裁（M321，§11.1 進程分離）。桌面為較低優先序角色：Headless 服務在線時
     /// 搶下租約、桌面退為待命不錄影；服務缺席時桌面才錄。關閉時主動讓出，讓下次啟動或服務立即接手。
     /// </summary>
@@ -1830,9 +1837,11 @@ public partial class MainWindow : Window, IWallDisplayOptions
             _store!,
             _recordingsRoot,
             isCellRecording: ch => _manager!.IsRecording(ch),
-            // 磁碟滿策略第三階段（§11.1）：可用空間低於寫入門檻時停開新錄影。以目前錄影根目錄
-            // 即時判斷（每次調和重算），切換磁碟後下一個週期即依新根判斷。
-            diskFull: () => DiskPressureCoordinator.ShouldStopNewRecording(_store!, _recordingsRoot),
+            // 磁碟滿策略（§11.1）：可用空間低於寫入門檻時，**先淘汰最舊的錄影**再決定要不要
+            // 停新錄。純查詢版（DiskPressureCoordinator.ShouldStopNewRecording）只在每小時的
+            // 保留迴圈刪檔，磁碟一滿就整台機器停止錄影直到下一輪（現場實測 39 分鐘）。
+            // 以目前錄影根目錄即時判斷（每次調和重算），切換磁碟後下一個週期即依新根判斷。
+            diskFull: () => _diskRelief.ShouldStopNewRecording(_store!, _recordingsRoot),
             // 錄影心跳寫進資料根目錄（M320）；與 Headless Agent 的 WatchdogWorker 共用同一份。
             heartbeatRoot: ResolveDataRoot(),
             ownsRecording: () => _recordingOwnership!.AcquireOrRenew(DateTime.UtcNow));
