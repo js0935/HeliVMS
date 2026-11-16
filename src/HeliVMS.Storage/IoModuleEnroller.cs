@@ -70,10 +70,21 @@ public static class IoModuleEnroller
 
         // 同一個位址＝同一台模組。用位址而不是名稱比對：操作員常把名稱改成人看得懂的字
         // （「一樓電箱」），照名字比對會在改名後又新增出第二台，而兩台都連同一個 IP。
-        var existing = io.ListDevices()
+        var devices = io.ListDevices();
+        var existing = devices
             .FirstOrDefault(d => string.Equals(d.Host, resolvedHost, StringComparison.OrdinalIgnoreCase)
                                  && d.Port == resolvedPort);
         var deviceCreated = existing is null;
+
+        // 新模組撞名時補上位址。ADAM 出廠預設名都是「ADAM-6250」（表單也預填這個名字），
+        // 兩顆同名之後，規則下拉與地圖上的接點會是兩個一模一樣的「ADAM-6250 · DI 1」，
+        // 選錯等於驅動錯的繼電器；而兩張表都寫入成功，沒有任何錯誤訊息。
+        // 只有真的撞名才補，不撞名就維持操作員原本的名字。
+        if (deviceCreated && devices.Any(d => string.Equals(d.Name, resolvedName, StringComparison.OrdinalIgnoreCase)))
+        {
+            resolvedName = $"{resolvedName} ({resolvedHost})";
+        }
+
         var deviceId = existing?.Id
                        ?? io.AddDevice(resolvedName, resolvedHost, resolvedPort, resolvedUnit, resolvedPoll, actor);
 

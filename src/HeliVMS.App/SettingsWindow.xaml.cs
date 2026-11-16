@@ -657,10 +657,22 @@ public partial class SettingsWindow : Window
         IoDesc.Text = Localizer.T("Settings.IoDesc");
         IoDesc2.Text = Localizer.T("Settings.IoDesc2");
         IoModuleHeading.Text = Localizer.T("Settings.IoModuleHeading");
+        IoModelLabel.Text = Localizer.T("Settings.IoModelLabel");
+        IoModelCombo.ToolTip = Localizer.T("Settings.IoModelTip");
+        IoNameLabel.Text = Localizer.T("Settings.IoNameLabel");
         IoNameBox.ToolTip = Localizer.T("Settings.IoNameTip");
+        IoHostLabel.Text = Localizer.T("Settings.IoHostLabel");
         IoHostBox.ToolTip = Localizer.T("Settings.IoHostTip");
+        IoPortLabel.Text = Localizer.T("Settings.IoPortLabel");
         IoPortBox.ToolTip = Localizer.T("Settings.IoPortTip");
+        IoUnitLabel.Text = Localizer.T("Settings.IoUnitLabel");
+        IoUnitBox.ToolTip = Localizer.T("Settings.IoUnitTip");
+        IoPollLabel.Text = Localizer.T("Settings.IoPollLabel");
         IoPollBox.ToolTip = Localizer.T("Settings.IoPollTip");
+        IoDiCountLabel.Text = Localizer.T("Settings.IoDiCountLabel");
+        IoDiCountBox.ToolTip = Localizer.T("Settings.IoDiCountTip");
+        IoDoCountLabel.Text = Localizer.T("Settings.IoDoCountLabel");
+        IoDoCountBox.ToolTip = Localizer.T("Settings.IoDoCountTip");
         IoAddDeviceButton.Content = Localizer.T("Settings.IoAddDevice");
         IoAddDeviceButton.ToolTip = Localizer.T("Settings.IoAddDeviceTip");
         IoRefreshButton.Content = Localizer.T("Settings.Refresh");
@@ -675,13 +687,19 @@ public partial class SettingsWindow : Window
         IoDeleteDeviceButton.Content = Localizer.T("Settings.IoDeleteModule");
         IoDeleteDeviceButton.ToolTip = Localizer.T("Settings.IoDeleteModuleTip");
         IoChannelHeading.Text = Localizer.T("Settings.IoChannelHeading");
+        IoChannelDirLabel.Text = Localizer.T("Settings.IoChannelDirLabel");
+        IoChannelIndexLabel.Text = Localizer.T("Settings.IoChannelIndexLabel");
         IoIndexBox.ToolTip = Localizer.T("Settings.IoIndexTip");
+        IoChannelNameLabel.Text = Localizer.T("Settings.IoNameLabel");
         IoChannelNameBox.ToolTip = Localizer.T("Settings.IoChannelNameTip");
+        IoChannelDebounceLabel.Text = Localizer.T("Settings.IoChannelDebounceLabel");
         IoDebounceBox.ToolTip = Localizer.T("Settings.IoDebounceTip");
         IoNcBox.Content = Localizer.T("Settings.IoNc");
+        IoChannelCameraLabel.Text = Localizer.T("Settings.IoChannelCameraLabel");
         IoCameraCombo.ToolTip = Localizer.T("Settings.IoCameraTip");
         IoAddChannelButton.Content = Localizer.T("Settings.IoAddChannel");
         IoAddChannelButton.ToolTip = Localizer.T("Settings.IoAddChannelTip");
+        IoChannelHint.Text = Localizer.T("Settings.IoChannelHint");
         IoColDirection.Header = Localizer.T("Settings.IoColDirection");
         IoColChannelName.Header = Localizer.T("Settings.IoColChannelName");
         IoColChannelEnabled.Header = Localizer.T("Settings.IoColChannelEnabled");
@@ -1719,9 +1737,21 @@ public partial class SettingsWindow : Window
 
     private IoDeviceRow? SelectedIoDevice => IoDeviceList.SelectedItem as IoDeviceRow;
 
+    /// <summary>
+    /// 程式自己改「機型」下拉時不要順手把點數改回預設值。
+    /// </summary>
+    /// <remarks>
+    /// 同 <c>_suppressSelectionReload</c> 的理由：<see cref="ReloadIo"/> 會重建清單，而重建的
+    /// 副作用（<c>SelectionChanged</c>）不該覆蓋操作員剛填好的 16DI／0DO。少了這個旗標，
+    /// 症狀是「填好點數、按新增、清單一重載點數又變回 8」——而模組已經用 8 點建好了。
+    /// </remarks>
+    private bool _suppressIoModelChanged;
+
     /// <summary>M40：重載 IO 模組清單、相機下拉與 DO 測試下拉。</summary>
     private void ReloadIo()
     {
+        ReloadIoModelCombo();
+
         var devices = _io.ListDevices();
         IoDeviceList.ItemsSource = devices.Select(d => new IoDeviceRow(
             d.Id,
@@ -1750,6 +1780,71 @@ public partial class SettingsWindow : Window
         ReloadIoCameraCombo();
         ReloadIoChannels();
         ReloadIoCameras();
+    }
+
+    /// <summary>
+    /// 機型下拉只建一次：清單是靜態的（<see cref="IoModuleProfile.All"/>），每次重載都重建
+    /// 會把操作員選好的機型洗回第一項，而新增模組時選錯機型就是建出錯的點數。
+    /// </summary>
+    private void ReloadIoModelCombo()
+    {
+        if (IoModelCombo.Items.Count > 0)
+        {
+            return;
+        }
+
+        _suppressIoModelChanged = true;
+        try
+        {
+            foreach (var profile in IoModuleProfile.All)
+            {
+                IoModelCombo.Items.Add(new ComboBoxItem { Content = profile.DisplayName, Tag = profile.Kind });
+            }
+
+            IoModelCombo.SelectedIndex = 0;
+        }
+        finally
+        {
+            _suppressIoModelChanged = false;
+        }
+
+        // 第一次載入時把表單填成第一項機型的預設值（埠 502／Unit 1／8DI／8DO）。
+        ApplyIoProfileDefaults(IoModuleProfile.All[0]);
+    }
+
+    private IoModuleProfile? SelectedIoProfile()
+        => IoModelCombo.SelectedItem is ComboBoxItem { Tag: string kind } ? IoModuleProfile.FromKind(kind) : null;
+
+    private void OnIoModelChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_suppressIoModelChanged || SelectedIoProfile() is not { } profile)
+        {
+            return;
+        }
+
+        ApplyIoProfileDefaults(profile);
+    }
+
+    /// <summary>
+    /// 換機型＝換一台硬體：連線參數與點數一起換成該機型的預設值。
+    /// </summary>
+    /// <remarks>
+    /// 不換的話，先選 ADAM-6250（8DI）再改選 16DI 的模組時，表單還留著 8——新增出來的模組
+    /// 只有一半的點，而 IO 頁面「看起來都正常」，操作員只能自己數接點發現少了。
+    /// 名稱只在空白的、或還是某個機型顯示名時才覆蓋，免得把「一樓電箱」洗掉。
+    /// </remarks>
+    private void ApplyIoProfileDefaults(IoModuleProfile profile)
+    {
+        IoPortBox.Text = profile.DefaultPort.ToString(CultureInfo.InvariantCulture);
+        IoUnitBox.Text = profile.DefaultUnitId.ToString(CultureInfo.InvariantCulture);
+        IoDiCountBox.Text = profile.DefaultDiCount.ToString(CultureInfo.InvariantCulture);
+        IoDoCountBox.Text = profile.DefaultDoCount.ToString(CultureInfo.InvariantCulture);
+
+        var current = IoNameBox.Text.Trim();
+        if (current.Length == 0 || IoModuleProfile.All.Any(p => p.DisplayName == current))
+        {
+            IoNameBox.Text = profile.DisplayName;
+        }
     }
 
     private void ReloadIoCameraCombo()
@@ -1786,9 +1881,10 @@ public partial class SettingsWindow : Window
 
     private void OnIoAddDeviceClicked(object sender, RoutedEventArgs e)
     {
+        var profile = SelectedIoProfile() ?? IoModuleProfile.GenericModbus;
         var name = IoNameBox.Text.Trim();
         var host = IoHostBox.Text.Trim();
-        if (name.Length == 0 || host.Length == 0)
+        if (host.Length == 0)
         {
             IoReportText.Text = Localizer.T("Settings.ModuleNameHostRequired");
             return;
@@ -1812,12 +1908,83 @@ public partial class SettingsWindow : Window
             return;
         }
 
-        _io.AddDevice(name, host, port, unit, pollMs);
+        // 點數留白＝用機型的預設值；填了壞字要擋下來，而不是默默建出 8 點的模組。
+        if (!TryParsePointCount(IoDiCountBox.Text, out var diCount)
+            || !TryParsePointCount(IoDoCountBox.Text, out var doCount))
+        {
+            IoReportText.Text = Localizer.T("Settings.PointCountInvalid");
+            return;
+        }
+
+        // 一次呼叫建好「模組 ＋ 它的 DI/DO 通道」：只建模組的舊寫法讓 IO 頁面上接點一條都沒有，
+        // 而兩張表都寫入成功，所以沒有任何錯誤訊息。
+        var result = IoModuleEnroller.Enroll(
+            _io,
+            profile,
+            host,
+            port,
+            unit,
+            pollMs,
+            name,
+            diCount,
+            doCount);
+
+        // 通道要立刻變成接點（規則與地圖只認 io_ports）。RefreshAndStart 也會再同步一次，
+        // 這裡先做一次只是為了把「共幾個接點」寫進回報——重複同步是冪等的。
+        var ports = IoPortMirror.Sync(_io, _ports);
+        _ioHost?.RefreshAndStart();
+
         IoNameBox.Clear();
         IoHostBox.Clear();
-        IoReportText.Text = string.Format(Localizer.T("Settings.ModuleAdded"), name);
         ReloadIo();
-        _ioHost?.RefreshAndStart();
+
+        // 選取剛建立的模組：不選的話通道清單會列出「全部」模組的接點，
+        // 而操作員剛加的那 16 點混在裡面，看起來像沒有全部建立。
+        SelectIoDevice(result.DeviceId);
+
+        var resolvedName = _io.GetDevice(result.DeviceId)?.Name ?? name;
+        IoReportText.Text = string.Format(
+            Localizer.T("Settings.ModuleEnrolled"),
+            Localizer.T(result.DeviceCreated ? "Settings.EnrollCreated" : "Settings.EnrollToppedUp"),
+            resolvedName,
+            result.DiCount,
+            result.DoCount,
+            result.ChannelsCreated,
+            ports);
+    }
+
+    /// <summary>點數欄位：留白＝<c>null</c>（用機型預設）；非數字或負數＝讀不懂，回 <c>false</c>。</summary>
+    private static bool TryParsePointCount(string text, out int? count)
+    {
+        count = null;
+        var trimmed = text.Trim();
+        if (trimmed.Length == 0)
+        {
+            return true;
+        }
+
+        if (!int.TryParse(trimmed, out var parsed) || parsed < 0)
+        {
+            return false;
+        }
+
+        count = parsed;
+        return true;
+    }
+
+    /// <summary>在模組清單裡選取指定模組（同一個執行個體，ComboBox 的選取是參考比較）。</summary>
+    private void SelectIoDevice(int deviceId)
+    {
+        if (IoDeviceList.ItemsSource is not IEnumerable<IoDeviceRow> rows)
+        {
+            return;
+        }
+
+        var row = rows.FirstOrDefault(r => r.Id == deviceId);
+        if (row is not null)
+        {
+            IoDeviceList.SelectedItem = row;
+        }
     }
 
     private void OnIoRefreshClicked(object sender, RoutedEventArgs e) => ReloadIo();
@@ -1896,12 +2063,10 @@ public partial class SettingsWindow : Window
             return;
         }
 
+        // 模組 DI 不強制綁攝影機：接點本身就是規則的觸發來源（io_rules 只認接點）。
+        // 綁攝影機的意義只有一個——讓觸發寫成事件中心的紀錄（alarm_events.channel_id 不可為空），
+        // 所以它是選用的，而不是新增通道的前提。
         int? cameraId = IoCameraCombo.SelectedItem is ComboBoxItem { Tag: int cam } ? cam : null;
-        if (direction == "DI" && cameraId is null)
-        {
-            IoReportText.Text = Localizer.T("Settings.DiNeedsCamera");
-            return;
-        }
 
         try
         {
@@ -4013,6 +4178,7 @@ public partial class SettingsWindow : Window
             yield break;
         }
 
+        var modules = _io.ListDevices().ToDictionary(d => d.Id, d => d.Name);
         foreach (var c in _io.ListChannels())
         {
             var direction = c.Direction?.ToLowerInvariant() ?? "di";
@@ -4024,7 +4190,11 @@ public partial class SettingsWindow : Window
             var label = direction == "do"
                 ? Localizer.T("Settings.MapPinKindDo")
                 : Localizer.T("Settings.MapPinKindDi");
-            yield return (direction, c.Id, $"{label} {c.Name}");
+
+            // 帶模組名：ADAM 的通道名是 DI 1／DO 1，兩顆模組的同號接點會在下拉裡變成
+            // 兩個看不出差別的選項，而放到地圖上的圖釘也分不出來。
+            var module = modules.GetValueOrDefault(c.DeviceId);
+            yield return (direction, c.Id, $"{label} {IoContactLabel.ModuleChannel(c.Name, module, c.DeviceId)}");
         }
     }
 

@@ -831,29 +831,56 @@
                            Foreground="{StaticResource Brand.TextDim}" FontSize="11" Margin="0,0,0,10" TextWrapping="Wrap"/>
 
                 <TextBlock x:Name="IoModuleHeading" Text="" FontSize="14" FontWeight="Bold" Margin="0,0,0,6"/>
-                <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                <WrapPanel Margin="0,0,0,4">
+                    <TextBlock x:Name="IoModelLabel" Text="" Foreground="{StaticResource Brand.TextDim}"
+                               VerticalAlignment="Center" Margin="0,0,4,0"/>
+                    <ComboBox x:Name="IoModelCombo" AutomationProperties.AutomationId="IoModelCombo" Width="150"
+                              SelectionChanged="OnIoModelChanged"
+                              Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="2,4"/>
+                    <TextBlock x:Name="IoNameLabel" Text="" Foreground="{StaticResource Brand.TextDim}"
+                               VerticalAlignment="Center" Margin="10,0,4,0"/>
                     <TextBox x:Name="IoNameBox" AutomationProperties.AutomationId="IoNameBox"
                              Width="120" ToolTip=""
                              Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="8,4"/>
+                    <TextBlock x:Name="IoHostLabel" Text="" Foreground="{StaticResource Brand.TextDim}"
+                               VerticalAlignment="Center" Margin="10,0,4,0"/>
                     <TextBox x:Name="IoHostBox" AutomationProperties.AutomationId="IoHostBox"
-                             Width="130" Margin="6,0,0,0" ToolTip=""
+                             Width="130" ToolTip=""
                              Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="8,4"/>
+                    <TextBlock x:Name="IoPortLabel" Text="" Foreground="{StaticResource Brand.TextDim}"
+                               VerticalAlignment="Center" Margin="10,0,4,0"/>
                     <TextBox x:Name="IoPortBox" AutomationProperties.AutomationId="IoPortBox"
-                             Text="502" Width="66" Margin="6,0,0,0" ToolTip=""
+                             Text="502" Width="60" ToolTip=""
                              Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="8,4"/>
+                    <TextBlock x:Name="IoUnitLabel" Text="" Foreground="{StaticResource Brand.TextDim}"
+                               VerticalAlignment="Center" Margin="10,0,4,0"/>
                     <TextBox x:Name="IoUnitBox" AutomationProperties.AutomationId="IoUnitBox"
-                             Text="1" Width="50" Margin="6,0,0,0" ToolTip="Unit ID"
+                             Text="1" Width="48" ToolTip=""
                              Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="8,4"/>
+                    <TextBlock x:Name="IoPollLabel" Text="" Foreground="{StaticResource Brand.TextDim}"
+                               VerticalAlignment="Center" Margin="10,0,4,0"/>
                     <TextBox x:Name="IoPollBox" AutomationProperties.AutomationId="IoPollBox"
-                             Text="500" Width="70" Margin="6,0,0,0" ToolTip=""
+                             Text="500" Width="64" ToolTip=""
+                             Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="8,4"/>
+                </WrapPanel>
+                <WrapPanel Margin="0,0,0,6">
+                    <TextBlock x:Name="IoDiCountLabel" Text="" Foreground="{StaticResource Brand.TextDim}"
+                               VerticalAlignment="Center" Margin="0,0,4,0"/>
+                    <TextBox x:Name="IoDiCountBox" AutomationProperties.AutomationId="IoDiCountBox"
+                             Text="8" Width="52" ToolTip=""
+                             Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="8,4"/>
+                    <TextBlock x:Name="IoDoCountLabel" Text="" Foreground="{StaticResource Brand.TextDim}"
+                               VerticalAlignment="Center" Margin="10,0,4,0"/>
+                    <TextBox x:Name="IoDoCountBox" AutomationProperties.AutomationId="IoDoCountBox"
+                             Text="8" Width="52" ToolTip=""
                              Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="8,4"/>
                     <Button x:Name="IoAddDeviceButton" AutomationProperties.AutomationId="IoAddDeviceButton" ToolTip=""
-                            Content="" Click="OnIoAddDeviceClicked" Margin="6,0,0,0" Padding="8,4"
+                            Content="" Click="OnIoAddDeviceClicked" Margin="14,0,0,0" Padding="12,4"
                             Foreground="White" Background="#2A5C8A" BorderThickness="0"/>
                     <Button x:Name="IoRefreshButton" AutomationProperties.AutomationId="IoRefreshButton" ToolTip=""
-                            Content="" Click="OnIoRefreshClicked" Margin="6,0,0,0" Padding="8,4"
+                            Content="" Click="OnIoRefreshClicked" Margin="6,0,0,0" Padding="12,4"
                             Foreground="White" Background="#3A5A7A" BorderThickness="0"/>
-                </StackPanel>
+                </WrapPanel>
 
                 <ListView x:Name="IoDeviceList" AutomationProperties.AutomationId="IoDeviceList" SelectionMode="Single"
                           Height="118" SelectionChanged="OnIoDeviceSelectionChanged"
@@ -877,30 +904,42 @@
                 </StackPanel>
 
                 <TextBlock x:Name="IoChannelHeading" Text="" FontSize="14" FontWeight="Bold" Margin="0,4,0,6"/>
-                <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                <WrapPanel Margin="0,0,0,4">
+                    <TextBlock x:Name="IoChannelDirLabel" Text="" Foreground="{StaticResource Brand.TextDim}"
+                               VerticalAlignment="Center" Margin="0,0,4,0"/>
                     <ComboBox x:Name="IoDirCombo" AutomationProperties.AutomationId="IoDirCombo" Width="70"
                               Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="2,4">
                         <ComboBoxItem Content="DI"/>
                         <ComboBoxItem Content="DO"/>
                     </ComboBox>
+                    <TextBlock x:Name="IoChannelIndexLabel" Text="" Foreground="{StaticResource Brand.TextDim}"
+                               VerticalAlignment="Center" Margin="10,0,4,0"/>
                     <TextBox x:Name="IoIndexBox" AutomationProperties.AutomationId="IoIndexBox"
-                             Width="50" Margin="6,0,0,0" ToolTip=""
+                             Width="52" ToolTip=""
                              Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="8,4"/>
+                    <TextBlock x:Name="IoChannelNameLabel" Text="" Foreground="{StaticResource Brand.TextDim}"
+                               VerticalAlignment="Center" Margin="10,0,4,0"/>
                     <TextBox x:Name="IoChannelNameBox" AutomationProperties.AutomationId="IoChannelNameBox"
-                             Width="110" Margin="6,0,0,0" ToolTip=""
+                             Width="120" ToolTip=""
                              Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="8,4"/>
+                    <TextBlock x:Name="IoChannelDebounceLabel" Text="" Foreground="{StaticResource Brand.TextDim}"
+                               VerticalAlignment="Center" Margin="10,0,4,0"/>
                     <TextBox x:Name="IoDebounceBox" AutomationProperties.AutomationId="IoDebounceBox"
-                             Text="200" Width="60" Margin="6,0,0,0" ToolTip=""
+                             Text="200" Width="58" ToolTip=""
                              Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="8,4"/>
                     <CheckBox x:Name="IoNcBox" AutomationProperties.AutomationId="IoNcBox"
                               Content="" Foreground="White" VerticalAlignment="Center" Margin="10,0,0,0"/>
+                    <TextBlock x:Name="IoChannelCameraLabel" Text="" Foreground="{StaticResource Brand.TextDim}"
+                               VerticalAlignment="Center" Margin="10,0,4,0"/>
                     <ComboBox x:Name="IoCameraCombo" AutomationProperties.AutomationId="IoCameraCombo"
-                              Width="150" Margin="10,0,0,0" ToolTip=""
+                              Width="150" ToolTip=""
                               Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73" Padding="2,4"/>
                     <Button x:Name="IoAddChannelButton" AutomationProperties.AutomationId="IoAddChannelButton" ToolTip=""
                             Content="" Click="OnIoAddChannelClicked" Margin="10,0,0,0" Padding="8,4"
                             Foreground="White" Background="#2A5C8A" BorderThickness="0"/>
-                </StackPanel>
+                </WrapPanel>
+                <TextBlock x:Name="IoChannelHint" Text=""
+                           Foreground="{StaticResource Brand.TextDim}" FontSize="11" Margin="0,0,0,6" TextWrapping="Wrap"/>
 
                 <ListView x:Name="IoChannelList" AutomationProperties.AutomationId="IoChannelList" SelectionMode="Single"
                           Height="108"

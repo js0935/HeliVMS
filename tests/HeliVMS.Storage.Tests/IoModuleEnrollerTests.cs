@@ -66,6 +66,25 @@ public sealed class IoModuleEnrollerTests : IDisposable
     }
 
     [Fact]
+    public void 兩顆同名模組會帶上位址以便在規則與地圖上分辨()
+    {
+        var first = IoModuleEnroller.Enroll(_io, IoModuleProfile.Adam6250, "192.168.0.60");
+
+        // 表單預填的名字就是機型顯示名，所以第二顆十之八九也叫「ADAM-6250」。
+        var second = IoModuleEnroller.Enroll(_io, IoModuleProfile.Adam6250, "192.168.0.61", name: "ADAM-6250");
+
+        Assert.NotEqual(first.DeviceId, second.DeviceId);
+        Assert.Equal(
+            ["ADAM-6250", "ADAM-6250 (192.168.0.61)"],
+            _io.ListDevices().OrderBy(d => d.Id).Select(d => d.Name).ToArray());
+
+        // 同一台再一次（補點數）不該把名字改成帶位址的版本——那會讓已存的規則描述忽然換名字。
+        var again = IoModuleEnroller.Enroll(
+            _io, IoModuleProfile.Adam6250, "192.168.0.61", name: "ADAM-6250", diCount: 16);
+        Assert.Equal("ADAM-6250 (192.168.0.61)", _io.GetDevice(again.DeviceId)!.Name);
+    }
+
+    [Fact]
     public void 同一個位址再新增一次只補缺的通道且不動既有設定()
     {
         var first = IoModuleEnroller.Enroll(_io, IoModuleProfile.Adam6250, "192.168.0.52");

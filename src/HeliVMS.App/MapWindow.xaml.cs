@@ -9,6 +9,7 @@ using System.Windows.Shapes;
 using System.Windows.Threading;
 using HeliVMS.App.Services;
 using HeliVMS.Recording;
+using HeliVMS.Shared;
 using HeliVMS.Storage;
 
 namespace HeliVMS.App;
@@ -31,6 +32,9 @@ public partial class MapWindow : Window
     private readonly AlarmEventRepository _events;
     private readonly Dictionary<int, string> _cameraNames = new();
     private readonly Dictionary<int, (int? CameraId, string Name)> _ioNames = new();
+
+    /// <summary>模組名稱（<c>io_devices.id</c> → 名稱），讓 IO 圖釘能顯示「哪一顆模組的哪個接點」。</summary>
+    private readonly Dictionary<int, string> _moduleNames = new();
 
     /// <summary>
     /// 地圖上的一個圖釘。座標存的是「佔圖片寬／高的比例」（0–1），不是像素：縮放或改變視窗
@@ -139,9 +143,19 @@ public partial class MapWindow : Window
             _cameraNames[c.Id] = c.Name;
         }
 
+        foreach (var d in _io.ListDevices())
+        {
+            _moduleNames[d.Id] = d.Name;
+        }
+
         foreach (var c in _io.ListChannels())
         {
-            _ioNames[c.Id] = (c.CameraId, c.Name);
+            // 地圖上的 IO 圖釘名稱要帶模組名：ADAM 的通道名固定是 DI 1／DO 1，
+            // 兩顆模組的同號接點在圖上（與地圖設定頁的下拉裡）會變成一模一樣的兩個選項。
+            _ioNames[c.Id] = (c.CameraId, IoContactLabel.ModuleChannel(
+                c.Name,
+                _moduleNames.GetValueOrDefault(c.DeviceId),
+                c.DeviceId));
         }
 
         InitializeComponent();

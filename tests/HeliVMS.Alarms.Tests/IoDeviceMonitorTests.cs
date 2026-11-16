@@ -193,6 +193,52 @@ public class IoDeviceMonitorTests : IDisposable
         monitor.Dispose();
     }
 
+    [Fact]
+    public async Task 兩個DI同時觸發時各自留下自己的事件窗口()
+    {
+        // 一顆 ADAM-6250 有 8 個 DI，兩點同時閉合是常態（一道門＋一個門磁），不是邊角案例。
+        // 共用一個「開啟中的事件」欄位時：第二點沒有事件列，而它降下時關掉的是第一點的窗口——
+        // 事件中心於是把 A 顯示成「已結束」、B 從未發生，兩張表都寫入成功、日誌乾淨。
+        var devId = _io.AddDevice("門禁模組", "127.0.0.1");
+        _io.AddChannel(devId, "DI", 0, "大門", debounceMs: 0, cameraId: _cameraId);
+        _io.AddChannel(devId, "DI", 1, "門磁", debounceMs: 0, cameraId: _cameraId);
+        var fake = new FakeModbusClient([false, false]);
+        var monitor = new IoDeviceMonitor(_io.GetDevice(devId)!, _io, _events, client: fake);
+        monitor.RefreshChannels();
+
+        await monitor.PollOnceAsync();                 // 基準：兩點皆 false
+        fake.Push([true, true]);
+        await monitor.PollOnceAsync();                 // 候選 true
+        fake.Push([true, true]);
+        await monitor.PollOnceAsync();                 // 兩點同時生升沿
+
+        var all = _events.ListByRange(null, DateTime.MinValue, DateTime.MaxValue);
+        Assert.Equal(2, all.Count);
+        Assert.Contains(all, r => (r.Detail ?? string.Empty).Contains("io=大門") && r.EndUtc is null);
+        Assert.Contains(all, r => (r.Detail ?? string.Empty).Contains("io=門磁") && r.EndUtc is null);
+
+        // 只有大門落下：關掉的必須是大門那一個窗口，門磁仍在進行中。
+        fake.Push([false, true]);
+        await monitor.PollOnceAsync();
+        fake.Push([false, true]);
+        await monitor.PollOnceAsync();
+
+        var afterFirstFall = _events.ListByRange(null, DateTime.MinValue, DateTime.MaxValue);
+        Assert.NotNull(afterFirstFall.Single(r => (r.Detail ?? string.Empty).Contains("io=大門")).EndUtc);
+        Assert.Null(afterFirstFall.Single(r => (r.Detail ?? string.Empty).Contains("io=門磁")).EndUtc);
+
+        // 門磁落下：兩筆都收尾，且各自是不同的事件列。
+        fake.Push([false, false]);
+        await monitor.PollOnceAsync();
+        fake.Push([false, false]);
+        await monitor.PollOnceAsync();
+
+        var closed = _events.ListByRange(null, DateTime.MinValue, DateTime.MaxValue);
+        Assert.Equal(2, closed.Select(r => r.Id).Distinct().Count());
+        Assert.All(closed, r => Assert.NotNull(r.EndUtc));
+        monitor.Dispose();
+    }
+
     private async Task<(IoDeviceMonitor M, FakeModbusClient C)> BuildAsync(Func<int, int> seedChannel, int? knownDeviceId = null)
     {
         var devId = knownDeviceId ?? _io.AddDevice("門禁模組", "127.0.0.1");

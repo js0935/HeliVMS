@@ -17,7 +17,20 @@ public partial class RulesWindow : Window
     private readonly IoPortRepository _ioPorts;
     private readonly IoRuleRepository _ioRules;
     private readonly ChannelRepository _channels;
+    private readonly IoRepository _io;
     private readonly ScheduledTaskRepository _taskRepo;
+
+    /// <summary>
+    /// 接點標籤用的來源名稱（模組名／攝影機名），由 <see cref="RefreshPortLabelSources"/> 一次填好。
+    /// </summary>
+    /// <remarks>
+    /// 為什麼要標來源：ADAM-6250 的通道名固定是 <c>DI 1</c>／<c>DO 1</c>，兩顆模組的接點在規則下拉裡
+    /// 就長得一模一樣；選錯一顆等於驅動錯的繼電器，而且事後只看規則清單也分不出來。攝影機端子的
+    /// 名稱同樣可能重複（<c>di_i1</c>）。這裡把「模組名／攝影機名」放在最前面，一眼就能分辨。
+    /// </remarks>
+    private Dictionary<int, IoChannel> _ioChannelById = new();
+    private Dictionary<int, string> _ioDeviceNames = new();
+    private Dictionary<int, string> _channelNames = new();
 
     /// <summary>是否處於簡易（表單）模式；false＝進階（直接寫 JSON）。</summary>
     private bool _simpleMode = true;
@@ -75,6 +88,7 @@ public partial class RulesWindow : Window
         _ioPorts = new IoPortRepository(store);
         _ioRules = new IoRuleRepository(store);
         _channels = new ChannelRepository(store);
+        _io = new IoRepository(store);
         _taskRepo = new ScheduledTaskRepository(store);
         _ioRulesChanged = ioRulesChanged;
         _eventRulesChanged = eventRulesChanged;
@@ -527,6 +541,7 @@ public partial class RulesWindow : Window
 
     private void ReloadIoRuleChoices()
     {
+        RefreshPortLabelSources();
         var ports = _ioPorts.List();
 
         // 只列登記過的接點：沒登記的端子在這裡選不到，規則才不會指向不存在的硬體。
@@ -568,12 +583,44 @@ public partial class RulesWindow : Window
         IoRuleLinkCombo.SelectedIndex = 0;
     }
 
-    private static string DescribePort(IoPortRecord port) =>
-        string.Format(System.Globalization.CultureInfo.InvariantCulture, "{0}#{1} {2}",
-            port.Kind == IoPortKind.Di ? "DI" : "DO", port.Number, port.Name);
+    /// <summary>把接點標籤需要的來源名稱一次讀齊（模組清單／通道清單／攝影機清單各一次查詢）。</summary>
+    private void RefreshPortLabelSources()
+    {
+        _ioDeviceNames = _io.ListDevices().ToDictionary(d => d.Id, d => d.Name);
+        _ioChannelById = _io.ListChannels().ToDictionary(c => c.Id);
+        _channelNames = _channels.List().ToDictionary(c => c.Id, c => c.Name);
+    }
+
+    /// <summary>
+    /// 接點在規則下拉與規則清單裡的名字，前面帶上它的來源。
+    /// </summary>
+    /// <remarks>
+    /// 模組通道（<c>io_channel_id</c> 有值）顯示模組名，攝影機端子顯示攝影機名；兩者都可能重名，
+    /// 只寫 <c>DI#1 di_i1</c> 時操作員無法分辨自己選的是哪一顆模組／哪一台攝影機。
+    /// 拼字串只有一份實作（<see cref="IoContactLabel"/>），規則、地圖與地圖設定頁才不會漂移。
+    /// </remarks>
+    private string DescribePort(IoPortRecord port)
+    {
+        var kind = port.Kind == IoPortKind.Di ? "DI" : "DO";
+
+        if (port.IoChannelId is int ioChannelId
+            && _ioChannelById.TryGetValue(ioChannelId, out var ioChannel))
+        {
+            return IoContactLabel.ModuleChannel(
+                ioChannel.Name,
+                _ioDeviceNames.GetValueOrDefault(ioChannel.DeviceId),
+                ioChannel.DeviceId);
+        }
+
+        var camera = port.ChannelId > 0 && _channelNames.TryGetValue(port.ChannelId, out var name)
+            ? name
+            : null;
+        return IoContactLabel.Port(kind, port.Number, port.Name, camera);
+    }
 
     private void RefreshIoRules()
     {
+        RefreshPortLabelSources();
         var portById = _ioPorts.List().ToDictionary(p => p.Id);
         var rows = _ioRules.List().Select(r =>
         {

@@ -25,7 +25,18 @@ public sealed class IoDeviceMonitor : IDisposable
     private readonly Dictionary<int, bool> _lastStable = [];
     private readonly Dictionary<int, bool> _candidate = [];
     private readonly Dictionary<int, long> _candidateSinceMs = [];
-    private long _openEventId;
+
+    /// <summary>
+    /// 每個 DI 通道各自開啟中的 <c>io_input</c> 事件（通道 id → 事件 id）。
+    /// </summary>
+    /// <remarks>
+    /// 這裡刻意是「每通道一份」而不是一個欄位：一顆 ADAM-6250 有 8 個 DI，而事件窗口是
+    /// 「輸入 still active 期間」。共用一個 <c>_openEventId</c> 時，兩點同時 active 只有第一點
+    /// 會留下事件，第二點降下時關掉的是<b>第一點</b>的窗口——事件中心的時間軸因此顯示
+    /// 「A 已經結束」而 B 從未發生，兩張表都寫入成功、日誌乾淨。模組化接點普及後這是常態
+    /// （一道門＋一個門磁同時觸發），不是邊角案例。
+    /// </remarks>
+    private readonly Dictionary<int, long> _openEventIds = [];
     private bool _busy;
     private bool _disposed;
 
@@ -112,11 +123,12 @@ public sealed class IoDeviceMonitor : IDisposable
     {
         lock (_gate)
         {
-            if (_openEventId != 0)
+            foreach (var eventId in _openEventIds.Values)
             {
-                _events.UpdateEnd(_openEventId, DateTime.UtcNow, null);
-                _openEventId = 0;
+                _events.UpdateEnd(eventId, DateTime.UtcNow, null);
             }
+
+            _openEventIds.Clear();
         }
     }
 
@@ -280,10 +292,10 @@ public sealed class IoDeviceMonitor : IDisposable
         var now = DateTime.UtcNow;
         if (active)
         {
-            if (_openEventId == 0)
+            if (!_openEventIds.ContainsKey(ch.Id))
             {
                 // DI 未綁定相機（camera_id 為 NULL）時不寫入 alarm_events（避免 FK 違反）；
-                // 仍會發 StateChanged 供介面顯示。
+                // 仍會發 StateChanged 供介面顯示，規則由 FeedRuleEngine 另行餵入。
                 if (ch.CameraId is not int cameraId)
                 {
                     StateChanged?.Invoke(this, new IoChannelState(ch.Id, ch.Name, ch.IoIndex, active, ch.AlarmPriority));
@@ -292,7 +304,7 @@ public sealed class IoDeviceMonitor : IDisposable
 
                 var detail = $"device={_device.Name};io={ch.Name};index={ch.IoIndex};priority={ch.AlarmPriority};state=on";
                 var id = _events.Insert(cameraId, "io_input", now, null, detail);
-                _openEventId = id;
+                _openEventIds[ch.Id] = id;
                 EventInserted?.Invoke(this, new AlarmEventRecord
                 {
                     Id = id,
@@ -305,10 +317,9 @@ public sealed class IoDeviceMonitor : IDisposable
                 });
             }
         }
-        else if (_openEventId != 0)
+        else if (_openEventIds.Remove(ch.Id, out var openEventId))
         {
-            _events.UpdateEnd(_openEventId, now, null);
-            _openEventId = 0;
+            _events.UpdateEnd(openEventId, now, null);
         }
 
         StateChanged?.Invoke(this, new IoChannelState(ch.Id, ch.Name, ch.IoIndex, active, ch.AlarmPriority));
