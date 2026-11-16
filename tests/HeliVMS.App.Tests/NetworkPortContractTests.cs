@@ -96,7 +96,10 @@ public sealed class NetworkPortContractTests
         // 監聽網址的決策在 HeliVMS.Shared.WebListenUrl（行為測試在 Shared.Tests）；這裡只釘住
         // WebHost 不准自己另寫一份，尤其不能用 localhost:0——Kestrel 對它直接擲例外，
         // 於是 Web 沒起來、多工器也沒有公開埠可綁，QCC 只看到「連線中斷」。
-        Assert.Contains("--urls={WebListenUrl.For(port, sharePort)}", web);
+        // 監聽網址的決策在 HeliVMS.Shared.WebListenUrl（行為測試在 Shared.Tests：預設 localhost、
+        // 開放區域網路才綁所有介面、共用埠時仍只綁迴圈）。第三個參數是那個決定，漏掉它就等於
+        // 設定頁勾了「允許區域網路」而 Kestrel 還是只聽本機。
+        Assert.Contains("--urls={WebListenUrl.For(port, sharePort, allowLan)}", web);
         Assert.Contains("IServerAddressesFeature", web);
         Assert.Contains("InternalPort", web);
 
