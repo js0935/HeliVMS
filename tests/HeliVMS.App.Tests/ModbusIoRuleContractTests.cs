@@ -24,11 +24,18 @@ public sealed class ModbusIoRuleContractTests
 
         // 同步放在 RefreshAndStart（啟動與每次 IO 設定變更都會跑），設定頁不必再接一次。
         Assert.Contains("SyncPortsForChannels()", SourceContract.BodyOf(source, "RefreshAndStart"));
+
+        // 同步的實作只有一份，在 Storage 層的 IoPortMirror；桌面宿主只轉呼叫。
+        // 它原本寫在這裡，但 App 專案沒有編譯 App 的測試專案（見 AGENTS.md），
+        // 也就是說那時「登記接點」這件事在 CI 上完全沒有行為測試可碰。
         var sync = SourceContract.BodyOf(source, "SyncPortsForChannels");
-        Assert.Contains("EnsureForIoChannel(", sync);
+        Assert.Contains("IoPortMirror.Sync(", sync);
+
+        var mirror = SourceContract.Read("src/HeliVMS.Storage/IoPortMirror.cs");
 
         // 通道被刪除時接點與其規則一起清掉，規則才不會指向不存在的硬體。
-        Assert.Contains("DeleteByIoChannel(", sync);
+        Assert.Contains("EnsureForIoChannel(", mirror);
+        Assert.Contains("DeleteByIoChannel(", mirror);
     }
 
     [Fact]
