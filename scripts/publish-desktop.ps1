@@ -60,6 +60,23 @@ if ($missing.Count -gt 0) {
     exit 1
 }
 
+# ── 網頁主控台（SPA）隨包 ────────────────────────────────────────
+# WebApiHost.FindWebRoot 只認「程式目錄往上 14 層內的 src\HeliVMS.Web\index.html」
+# （或 HELIVMS_WEB 覆寫）。發佈輸出在 publish\HeliVMS\ 底下，往上找不到任何 SPA，
+# 於是 webRoot = null：安裝後的機器「API 有回應、網頁整個 404」，而且日誌沒有任何錯誤。
+# 所以把 SPA 原樣放進輸出（只帶執行期檔案，測試檔與 node_modules 不進安裝檔）。
+$webSource = 'src/HeliVMS.Web'
+$webTarget = Join-Path $Output 'src/HeliVMS.Web'
+if (Test-Path $webTarget) { Remove-Item $webTarget -Recurse -Force }
+New-Item -ItemType Directory -Force -Path $webTarget | Out-Null
+Get-ChildItem $webSource -File |
+    Where-Object { $_.Extension -in @('.js', '.css', '.html') -and $_.Name -notlike '*.test.js' } |
+    ForEach-Object { Copy-Item $_.FullName (Join-Path $webTarget $_.Name) -Force }
+if (-not (Test-Path (Join-Path $webTarget 'index.html'))) {
+    Write-Error "SPA 沒有被複製到輸出：$webTarget"
+    exit 1
+}
+
 # ── ffmpeg／ffprobe 隨包 ────────────────────────────────────────
 # 來源解析順序：-FfmpegDir > HELIVMS_FFMPEG 環境變數 > PATH（Get-Command）。
 # PATH 命中的可能是 shim（scoop 的 stub 行程，單獨複製出去會壞），
