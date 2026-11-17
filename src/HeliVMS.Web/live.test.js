@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createLiveViewer, fetchDeployment, waitForFirstFrame, waitForIceGathering, whepPath } from './live.js';
+import { createLiveViewer, fetchDeployment, hasIceCandidate, waitForFirstFrame, waitForIceGathering, whepPath } from './live.js';
 
 /**
  * M244 WHEP 客戶端測試。
@@ -29,7 +29,9 @@ class FakePeer {
   }
 
   async createOffer() {
-    return { type: 'offer', sdp: 'v=0\r\n' };
+    // 真實瀏覽器的 offer 一定有 host candidate；預設就放一個，讓「0 candidate」
+    // 成為必須明確製造的例外，而不是所有測試共同的隱含前提。
+    return { type: 'offer', sdp: 'v=0\r\na=candidate:1 1 udp 2130706431 127.0.0.1 5000 typ host\r\n' };
   }
 
   async setLocalDescription(desc) {
@@ -142,6 +144,19 @@ describe('waitForIceGathering', () => {
     await waitForIceGathering(peer, 20);
 
     expect(peer.handlers.icegatheringstatechange).toHaveLength(0);
+  });
+});
+
+describe('hasIceCandidate', () => {
+  it('只有 a=candidate 才算有候選', () => {
+    // 內嵌 Electron 收集完的 SDP 長得跟正常 offer 一樣，差的就是這一行。
+    expect(hasIceCandidate('v=0\r\na=ice-ufrag:abcd\r\n')).toBe(false);
+    expect(hasIceCandidate('v=0\r\na=candidate:1 1 udp 2130706431 127.0.0.1 5000 typ host\r\n')).toBe(true);
+    expect(hasIceCandidate(null)).toBe(false);
+  });
+
+  it('a=candidate 出現在行首才算，不要被說明文字騙到', () => {
+    expect(hasIceCandidate('v=0\r\n# a=candidate: 範例\r\n')).toBe(false);
   });
 });
 
@@ -333,6 +348,36 @@ describe('createLiveViewer.open', () => {
 
     expect(notify).toHaveBeenLastCalledWith('state.liveNegotiated');
     expect(notify).not.toHaveBeenCalledWith('state.liveReady');
+  });
+
+  it('瀏覽器沒有任何ICE候選時不送出offer並說明白是瀏覽器的問題', async () => {
+    // 現場（2026-11-18）：內嵌 Electron 的 iceGatheringState 直接 complete，
+    // 但 offer 一個 a=candidate: 都沒有。舊行為照樣 POST，伺服器回 201、
+    // RTP 進 ingest，12 秒後 peer failed，UI 說「請檢查防火牆或網路」——
+    // 而回放走 HTTP 正常，正好證明那是錯的方向。
+    const apiRaw = vi.fn(async () => ({
+      ok: true,
+      status: 201,
+      headers: new Headers({ Location: '/x' }),
+      text: async () => 'v=0',
+    }));
+    const notify = vi.fn();
+    const video = fakeVideoEl();
+    const viewerInstance = viewer({ apiRaw });
+    const originalCreateOffer = RTCPeerConnection.prototype.createOffer;
+
+    // 把這個假 Peer 的 offer 改成現場抓到的形狀（沒有候選）。
+    RTCPeerConnection.prototype.createOffer = async () => ({ type: 'offer', sdp: 'v=0\r\na=ice-ufrag:abcd\r\n' });
+    try {
+      await expect(viewerInstance.open(115, video, notify)).resolves.toBe(false);
+    } finally {
+      RTCPeerConnection.prototype.createOffer = originalCreateOffer;
+    }
+
+    expect(apiRaw).not.toHaveBeenCalled();
+    expect(notify).toHaveBeenLastCalledWith('state.liveNoIceCandidate');
+    expect(FakePeer.instances[0].closed).toBe(true);
+    expect(video.srcObject).toBeNull();
   });
 
   it('第一張影格到達後才宣告播放中', async () => {

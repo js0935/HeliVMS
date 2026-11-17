@@ -42,6 +42,22 @@ export function whepPath(channelId, stream) {
 }
 
 /**
+ * offer 裡到底有沒有 ICE candidate。
+ *
+ * 現場（2026-11-18）抓到的真實形狀：內嵌 Electron 瀏覽器在 setLocalDescription 之後
+ * `iceGatheringState` 直接變成 `complete`，但 `icecandidate` 只送來結尾的 `null`，
+ * SDP 裡一個 `a=candidate:` 都沒有。伺服器仍然回 201（協商只是交換 SDP），
+ * RTP 也照樣進 ingest、寫下 `first-rtp`，但沒有本地候選就沒有任何 ICE pair 可以連通：
+ * 約 12 秒後 peer 變成 `failed`，畫面全黑，而 UI 還寫「請檢查防火牆或網路」。
+ * 回放走 HTTP 正常正是反證——網路沒壞，是這個瀏覽器收不到 candidate。
+ * 把話說在前面，操作員才不會去查一個不存在的防火牆問題。
+ */
+export function hasIceCandidate(sdp) {
+  return typeof sdp === 'string'
+    && sdp.split(/\r?\n/).some((line) => line.startsWith('a=candidate:'));
+}
+
+/**
  * 建立一個即時監看控制器。
  *
  * 傳輸層（apiRaw／api）與翻譯（t）都由呼叫端注入，而不是在模組裡直接抓全域變數。
@@ -64,10 +80,18 @@ export function createLiveViewer({ apiRaw, t }) {
       await waitForIceGathering(peer);
     }
 
+    // 沒有本地候選就不要送出空offer：伺服器仍然會回 201 並開始把 RTP 送進一個
+    // 永遠連不通的peer，佔住觀看名額與 ffmpeg，最後只留下「收不到影像」的誤導訊息。
+    // 在這裡攔下來，畫面會直接說是瀏覽器收不到 ICE 候選，而不是叫人去查防火牆。
+    const offerSdp = peer.localDescription?.sdp;
+    if (!hasIceCandidate(offerSdp)) {
+      throw new Error(t('state.liveNoIceCandidate'));
+    }
+
     const response = await apiRaw(whepPath(channelId, stream), {
       method: 'POST',
       headers: { 'Content-Type': 'application/sdp' },
-      body: peer.localDescription.sdp,
+      body: offerSdp,
     });
 
     if (!response.ok) {
