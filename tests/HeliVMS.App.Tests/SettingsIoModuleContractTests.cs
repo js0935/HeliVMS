@@ -176,6 +176,29 @@ public sealed class SettingsIoModuleContractTests
     }
 
     [Fact]
+    public void IO頁分組與方向過濾()
+    {
+        var xaml = SourceContract.Read(Xaml);
+        var code = SourceContract.Read(Code);
+
+        // 版面對齊參考機的資訊架構：接點（Sensor/Relay）是操作員每天看的清單，放在最前面；
+        // 模組清單是設定；兩個測試區在最下面。四組各是一個框，不再是一整條表單。
+        Assert.Contains("x:Name=\"IoContactFilterCombo\"", xaml);
+        Assert.Contains("x:Name=\"IoChannelFormLabel\"", xaml);
+        Assert.Contains("x:Name=\"IoAddModuleLabel\"", xaml);
+        Assert.Matches(@"IoColState[\s\S]{0,900}IoColChannelEnabled", xaml);
+
+        // 過濾在清單查詢層做（direction 參數），不是抓回來再濾。
+        var reload = SourceContract.BodyOf(code, "ReloadIoChannels");
+        Assert.Contains("IoContactDirection", reload);
+
+        // 過濾只在接點方向上生效：方向與 Index 是實體接線，表單不因過濾而改變行為。
+        // （IoContactDirection 是運算式主體的屬性，BodyOf 抓不到，改用帶距離的正則。）
+        Assert.Matches(@"private string\? IoContactDirection[\s\S]{0,200}1 => ""DI""", code);
+        Assert.Matches(@"private string\? IoContactDirection[\s\S]{0,200}2 => ""DO""", code);
+    }
+
+    [Fact]
     public void IO頁新增的字串三語齊備()
     {
         string[] keys =
@@ -210,6 +233,10 @@ public sealed class SettingsIoModuleContractTests
             "Settings.IoStateOff",
             "Settings.IoApplyChannel",
             "Settings.ChannelUpdated",
+            "Settings.IoFilterAll",
+            "Settings.IoContactFilterLabel",
+            "Settings.IoChannelFormLabel",
+            "Settings.IoAddModuleLabel",
         ];
 
         // 不靠 I18n.Get 的繁中 fallback：那會讓「英文缺鍵」看起來有翻譯。

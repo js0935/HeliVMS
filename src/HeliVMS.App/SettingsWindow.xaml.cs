@@ -253,6 +253,10 @@ public partial class SettingsWindow : Window
         ReloadNotify();
         ReloadRules();
         ReloadTamper();
+        IoContactFilterCombo.SelectionChanged += OnIoContactFilterChanged;
+        // 第一項是「全部」（其餘兩項是 DI／DO 的協定名稱，不譯）。
+        IoContactFilterCombo.Items[0] = new ComboBoxItem { Content = Localizer.T("Settings.IoFilterAll") };
+        IoContactFilterCombo.SelectedIndex = 0;
         ReloadIo();
         ReloadMaps();
         ReloadAuthPolicy();
@@ -700,6 +704,9 @@ public partial class SettingsWindow : Window
         IoColEnabled.Header = Localizer.T("Settings.IoColEnabled");
         IoColPoll.Header = Localizer.T("Settings.IoColPoll");
         IoColLink.Header = Localizer.T("Settings.IoLinkHeader");
+        IoContactFilterLabel.Text = Localizer.T("Settings.IoContactFilterLabel");
+        IoAddModuleLabel.Text = Localizer.T("Settings.IoAddModuleLabel");
+        IoChannelFormLabel.Text = Localizer.T("Settings.IoChannelFormLabel");
         IoToggleDeviceButton.Content = Localizer.T("Settings.Toggle");
         IoToggleDeviceButton.ToolTip = Localizer.T("Settings.IoToggleDeviceTip");
         IoDeleteDeviceButton.Content = Localizer.T("Settings.IoDeleteModule");
@@ -1882,11 +1889,33 @@ public partial class SettingsWindow : Window
     }
 
     /// <summary>M40：依目前選取模組重載通道清單（未選則顯示全部）。</summary>
+    /// <summary>接點清單的方向過濾（參考機把感測器與繼電器分成兩頁；這裡用過濾達成同樣的專注）。</summary>
+    private void OnIoContactFilterChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (IoChannelList is null || _io is null)
+        {
+            return;
+        }
+
+        ReloadIoChannels();
+    }
+
+    /// <summary>目前接點過濾選的方向；<c>null</c>＝全部。</summary>
+    private string? IoContactDirection
+        => IoContactFilterCombo.SelectedIndex switch
+        {
+            1 => "DI",
+            2 => "DO",
+            _ => null,
+        };
+
     private void ReloadIoChannels()
     {
         var devId = SelectedIoDevice?.Id;
         var cameras = new ChannelRepository(_store).List().ToDictionary(c => c.Id, c => c.Name);
-        var channels = devId is int did ? _io.ListChannels(deviceId: did) : _io.ListChannels();
+        var channels = devId is int did
+            ? _io.ListChannels(deviceId: did, direction: IoContactDirection)
+            : _io.ListChannels(direction: IoContactDirection);
         _ioChannelCache = channels;
         _ioStateSignature = string.Empty;
         var rows = channels.Select(ch => new IoChannelRow(

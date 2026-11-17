@@ -1798,4 +1798,17 @@ Notes that will save you time:
   `IO頁即時狀態欄沒有狀態時不會重建清單`（突變：拿掉簽名比對會紅）、`修改接點是更新而不是刪除重加`
   （突變：改成 DeleteChannel 會紅）、`UpdateChannel_改設定不換ID_鏡射的接點跟著更新`,
   `UpdateChannel_不存在的通道回false而且不寫稽核` and `IO頁新增的字串三語齊備`.
+- **IO 頁的版面對齊參考機的資訊架構：接點清單在最前、模組清單是設定、測試區在最後。**
+  參考機（`D:\sdk\rea\QC_IODevice\README.md`）把 IO 分成「Sensor list／Relay list」兩份清單
+  （各 128 槽），操作員每天看的是清單、不是設定表單。原本 HeliVMS 的 IO 頁是「模組表單 → 模組清單 →
+  接點表單 → 接點清單 → DO 測試 → 攝影機乾接點」一整條疊下來，看起來雜亂無章。現在：
+  ①四組各是一個框（`Border` `#0D1826`／`#1F3A5F`），②**接點組在最前**（含即時狀態欄與方向過濾
+  `全部/DI/DO`——過濾在 `ListChannels(direction:)` 的查詢層做，不是抓回來再濾），③模組組的
+  **新增表單在清單下方**（清單才是重點），④兩個測試組在最後。方向與 Index 是實體接線，
+  表單標籤明講「建立後不可改」。
+  契約測試（`IO頁分組與方向過濾`）釘住：過濾在查詢層（`IoContactDirection` → `ListChannels(direction:)`）、
+  DI 在 1、DO 在 2。注意 `SourceContract.BodyOf` 對**運算式主體的屬性**抓不到
+  （簽名後面沒有 `(`），要用帶距離的正則。
+  Guarded by `IO頁分組與方向過濾`（突變：把 `_ => null` 改成 `_ => "DI"` 會紅）
+  and `IO頁新增的字串三語齊備`.
 
