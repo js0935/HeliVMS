@@ -68,6 +68,19 @@ public class RtpIngestSequenceGapTests
         }
     }
 
+    /// <summary>送一個帶指定 SSRC 的封包（模擬「同一個埠上還有第二個發送者」）。</summary>
+    private static async Task SendWithSsrcAsync(RtpIngest ingest, ushort sequenceNumber, uint ssrc)
+    {
+        var packet = Packet(sequenceNumber);
+        packet[8] = (byte)(ssrc >> 24);
+        packet[9] = (byte)(ssrc >> 16);
+        packet[10] = (byte)(ssrc >> 8);
+        packet[11] = (byte)ssrc;
+
+        using var udp = new UdpClient();
+        await udp.SendAsync(packet, ingest.Target, CancellationToken.None);
+    }
+
     /// <summary>
     /// UDP 沒有順序保證，這裡等的是「封包被處理完」而不是「送出去」。
     /// 用輪詢而不是固定 sleep，才不會在 CI 慢一點時假紅。
@@ -124,6 +137,132 @@ public class RtpIngestSequenceGapTests
         await WaitForPacketsAsync(ingest, 5);
 
         Assert.Equal(0, ingest.PacketsMissed);
+    }
+
+    [Fact]
+    public async Task 不是本串流的封包不會被算成收包也不推進序號()
+    {
+        // 真正的來源：ffmpeg 把 RTCP 送到 `rtp://host:port` 的 port + 1，而那個號碼常常正好是
+        // 另一條通道的 ingest socket（loopback 的臨時埠是連續配發的）。RTCP 也是 version 2、
+        // 長度欄位不為零，所以會通過 RTP 的標頭檢查——它的「序號」其實是 RTCP 長度（Sender
+        // Report 常見值 6），它的「SSRC」是 NTP 秒數高位。實測後果：每隔 5 秒一次，序號從
+        // 三萬多「跳回 6」，`packetsMissed` 於是報出 30,000+ 的假漏包。
+        await using var ingest = new RtpIngest();
+        var foreign = new List<(byte PayloadType, ushort SequenceField)>();
+        ingest.OnForeignPacket = (pt, seq) => foreign.Add((pt, seq));
+        ingest.Start();
+
+        await SendAsync(ingest, 100);
+        await SendRtcpSenderReportAsync(ingest);
+        await SendAsync(ingest, 101);
+        await WaitForPacketsAsync(ingest, 2);   // 只等真正的 RTP
+
+        Assert.Equal(2, ingest.PacketCount);
+        Assert.Equal(0, ingest.PacketsMissed);
+        Assert.Equal(1, ingest.ForeignPackets);
+        var seen = Assert.Single(foreign);
+        // RTP 標頭的 PT 欄位只有 7 位元，所以 RTCP Sender Report 的 200（0xC8）讀出來是 72
+        // （0xC8 & 0x7F）——現場日誌裡的 `pt=72` 就是它。
+        Assert.Equal(72, seen.PayloadType);
+        Assert.Equal(6, seen.SequenceField);    // RTCP 長度欄（＝被誤讀成序號的那個位址）
+    }
+
+    /// <summary>送一個 RTCP Sender Report 形狀的封包到 ingest 埠（ffmpeg 會送到 port + 1）。</summary>
+    private static async Task SendRtcpSenderReportAsync(RtpIngest ingest)
+    {
+        // 0x80 = V2/無 padding/RC=0；0xC8 = PT 200（Sender Report）；長度 6（7 個 32-bit 字）；
+        // SSRC、NTP 秒數高位、NTP 小數、RTP 時間戳、封包數、位元組數。
+        var packet = new byte[28];
+        packet[0] = 0x80;
+        packet[1] = 0xC8;
+        packet[2] = 0x00;
+        packet[3] = 0x06;
+        packet[4] = 0x11; packet[5] = 0x22; packet[6] = 0x33; packet[7] = 0x44;
+        packet[8] = 0xEE; packet[9] = 0xA6; packet[10] = 0x11; packet[11] = 0xE2;   // NTP 秒數高位
+        for (var i = 12; i < packet.Length; i++) packet[i] = (byte)i;
+
+        using var udp = new UdpClient();
+        await udp.SendAsync(packet, ingest.Target, CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task 一次大跳號會被單獨回報而不是只算成漏包()
+    {
+        // 現場問題：「packetsMissed 三萬多」是不是掉包？穩定掉包與序號跳號（publisher 重啟、
+        // 攝影機端重建串流）在計數器上長得一樣，但處置完全不同——前者要查緩衝與抽包速度，
+        // 後者什麼都不用修。所以超過門檻的一次空隙要另外回報出來。
+        await using var ingest = new RtpIngest();
+        var jumps = new List<(int Gap, ushort From, ushort To)>();
+        ingest.OnLargeGap = (gap, from, to) => jumps.Add((gap, from, to));
+        ingest.Start();
+
+        await SendAsync(ingest, 100, 30000);
+
+        await WaitForPacketsAsync(ingest, 2);
+
+        var jump = Assert.Single(jumps);
+        // Gap 是「兩包之間隔了幾個序號」（30000 − 100 = 29900），漏包數才是它減一（101..29999）。
+        // 這個差別就是本專案的量測腳本踩過的坑：把 gap 當成漏包數會變成每一包都多算一個。
+        Assert.Equal(29900, jump.Gap);
+        Assert.Equal(100, jump.From);
+        Assert.Equal(30000, jump.To);
+        Assert.Equal(29899, ingest.PacketsMissed);
+    }
+
+    [Fact]
+    public async Task 第二個SSRC出現時會被回報()
+    {
+        // 同一個 socket 上兩個發送者（publisher 重建時舊的還沒被殺掉、新的已經開始送，而
+        // loopback 埠被系統回收成同一個號碼）會讓序號交錯；漏包計數器於是報出「一次跳了三萬」，
+        // 看起來像掉包災難，其實一個封包都沒掉。這條回報是分辨兩者的唯一線索。
+        await using var ingest = new RtpIngest();
+        var changes = new List<(uint From, uint To, ushort Seq)>();
+        ingest.OnSourceChange = (from, to, seq) => changes.Add((from, to, seq));
+        ingest.Start();
+
+        await SendAsync(ingest, 100);                                   // SSRC 固定 0xCAFEBABE
+        await SendWithSsrcAsync(ingest, 200, 0x12345678);
+        await WaitForPacketsAsync(ingest, 2);
+
+        var change = Assert.Single(changes);
+        Assert.Equal(0xCAFEBABEu, change.From);
+        Assert.Equal(0x12345678u, change.To);
+    }
+
+    [Fact]
+    public async Task 換了SSRC不會被算成漏包()
+    {
+        // 序號空間是「每個 SSRC 各自一條」。同一個埠上出現第二個發送者（publisher 重建、
+        // ffmpeg 重新初始化輸出）時，拿舊基準去比會報出一次三萬多的假漏包——實測就是這樣
+        // 出現「packetsMissed 三萬多」而畫面完全正常。
+        await using var ingest = new RtpIngest();
+        ingest.Start();
+
+        await SendAsync(ingest, 100, 101);                              // 發送者 A（0xCAFEBABE）
+        await SendWithSsrcAsync(ingest, 6, 0x12345678);                 // 發送者 B：序號從 6 開始
+        await SendWithSsrcAsync(ingest, 7, 0x12345678);
+        await WaitForPacketsAsync(ingest, 4);
+
+        Assert.Equal(0, ingest.PacketsMissed);
+        Assert.Equal(4, ingest.PacketCount);
+    }
+
+    [Fact]
+    public async Task 正常的一個接一個不會被當成大跳號()
+    {
+        // 反向保證：門檻寫得太小（例如 >= 1）會讓每一包都寫一行日誌，那就等於沒有這個診斷。
+        await using var ingest = new RtpIngest();
+        var jumps = new List<(int Gap, ushort From, ushort To)>();
+        ingest.OnLargeGap = (gap, from, to) => jumps.Add((gap, from, to));
+        ingest.Start();
+
+        await SendAsync(ingest, 1, 2, 3, 4, 5, 6, 50, 51);
+
+        await WaitForPacketsAsync(ingest, 8);
+
+        Assert.Empty(jumps);
+        Assert.Equal(43, ingest.PacketsMissed);   // 7..49 是真的漏掉（43 包），但那不是「跳號」
+        Assert.True(RtpIngest.LargeGapThreshold > 43);
     }
 
     [Fact]

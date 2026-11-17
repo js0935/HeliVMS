@@ -93,6 +93,12 @@ internal sealed class ChannelRuntime : IAsyncDisposable
     /// </summary>
     public long PacketsMissed => _ingest?.PacketsMissed ?? 0;
 
+    /// <summary>
+    /// 收到但被丟棄的非本串流封包數（實測是別條通道的 RTCP 落到這個埠，見 <see cref="RtpIngest"/>）。
+    /// 它既不算收包也不算漏包，只在診斷時回答「這個埠上是不是還有別人在講話」。
+    /// </summary>
+    public long PacketsForeign => _ingest?.ForeignPackets ?? 0;
+
     /// <summary>publisher 的錯誤描述（已遮蔽）；正常時為 <c>null</c>。</summary>
     public string? Problem => PublisherState switch
     {
@@ -171,6 +177,20 @@ internal sealed class ChannelRuntime : IAsyncDisposable
 
             _ingest = new RtpIngest();
             _ingest.OnPacket = OnPacket;
+            // 一次幾千個「漏包」幾乎都是序號跳號（publisher 重啟、攝影機端重建串流）而不是掉包：
+            // 有了這一行，現場問「packetsMissed 三萬多是不是掉包」時不必再猜。
+            _ingest.OnLargeGap = (gap, from, to) => WhepDiagnostics.Write(
+                $"channel={_channelId} ingest-seq-jump gap={gap} from={from} to={to}");
+
+            // 這條 socket 只該有一個發送者；第二個 SSRC 出現就是「兩個 ffmpeg 同時在送」。
+            _ingest.OnSourceChange = (previous, current, seq) => WhepDiagnostics.Write(
+                $"channel={_channelId} ingest-source-change from=0x{previous:x8} to=0x{current:x8} seq={seq}");
+
+            // 落到這個埠的 RTCP（ffmpeg 把 RTCP 送到 port+1，而那個號碼常常是別條通道的 ingest）：
+            // 一次就寫一行，說明「這個埠上還有別人在講話」，它不算收包也不算漏包。
+            _ingest.OnForeignPacket = (payloadType, seq) => WhepDiagnostics.Write(
+                $"channel={_channelId} ingest-foreign-packet pt={payloadType} seq-field={seq}"
+                + "（不是本串流的 RTP：實測是別條通道 ffmpeg 的 RTCP 落到 port+1）");
             _ingest.Start();
 
             // 這次啟動自己的首包訊號。等待發生在鎖外（見下方），而 TeardownAsync 會把
@@ -203,6 +223,14 @@ internal sealed class ChannelRuntime : IAsyncDisposable
 
     private void OnPacket(RtpHeader header, ReadOnlyMemory<byte> payload)
     {
+        // 每個 publisher 的第一個封包記一行：publisher 被重啟（逾時、ffmpeg 掛掉後重建）
+        // 時，這一行是唯一能看出「這條通道的序號為什麼跳了」的地方。
+        if (!_firstPacketSeen)
+        {
+            WhepDiagnostics.Write(
+                $"channel={_channelId} first-rtp seq={header.SequenceNumber} ssrc={header.Ssrc}");
+        }
+
         _firstPacketSeen = true;
         _publisher?.MarkStreaming();
         _firstPacket?.TrySetResult(true);

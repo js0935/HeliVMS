@@ -97,8 +97,21 @@ public sealed class RtpIngest : IAsyncDisposable
     /// </summary>
     public long PacketsMissed => Interlocked.Read(ref _missed);
 
+    /// <summary>
+    /// 收到但被丟棄的非本串流封包數（實測都是落到這個埠的 RTCP，見 <see cref="PumpAsync"/>）。
+    /// </summary>
+    /// <remarks>
+    /// 這個數字<b>不算</b>漏包，也不算收包：它只是說明「這個埠上還有別人在講話」。留著它是因為
+    /// 「<c>packetsMissed</c> 為什麼以前會有三萬多」的答案就在這裡。
+    /// </remarks>
+    public long ForeignPackets => Interlocked.Read(ref _foreignPackets);
+
+    /// <summary>收到負載型別不符的封包時回報（型別、它的「序號」欄位）；只供診斷。</summary>
+    public Action<byte, ushort>? OnForeignPacket { get; set; }
+
     private long _packets;
     private long _missed;
+    private long _foreignPackets;
 
     /// <summary>上一個收到的序號；<c>-1</c> 表示還沒收到任何封包。</summary>
     private int _lastSequence = -1;
@@ -140,8 +153,25 @@ public sealed class RtpIngest : IAsyncDisposable
             if (!RtpHeader.TryParse(buffer, out var header)) continue;
             if (header.PayloadLength <= 0) continue;
 
+            // 只收這一條 publisher 約定的負載型別（ffmpeg 以 -payload_type 96 發布）。
+            //
+            // 少了這一關，RTCP 會被當成 RTP 收進來——兩個理由讓它一定會發生：ffmpeg 把 RTCP 送到
+            // `rtp://host:port` 的 **port + 1**，而另一個通道的 ingest socket 很可能正好被系統配到
+            // 那個號碼（loopback 的臨時埠是連續配發的）。RTCP 的標頭也是 version 2，於是通過
+            // `RtpHeader.TryParse`；它的「序號」欄位其實是 RTCP 的長度欄（Sender Report 常見值是 6），
+            // 它的「SSRC」欄位是 NTP 秒數高位（每秒加一）。
+            // 實測後果（2026-11-17，9 格監看、10 路）：每 5 秒一次 RTCP 讓序號從三萬多「跳回 6」，
+            // `packetsMissed` 因此報出 30,000+ 的假漏包，而且那個封包還會被當成 RTP 轉給瀏覽器。
+            if (header.PayloadType != LiveEncodeOptions.PayloadType)
+            {
+                Interlocked.Increment(ref _foreignPackets);
+                OnForeignPacket?.Invoke(header.PayloadType, header.SequenceNumber);
+                continue;
+            }
+
             Interlocked.Increment(ref _packets);
-            TrackSequence(header.SequenceNumber);
+            var newSource = TrackSource(header.Ssrc, header.SequenceNumber);
+            TrackSequence(header.SequenceNumber, newSource);
 
             // 單一訂閱者丟例外不該讓整條 ingest 停擺（一位觀看者的連線剛好死掉
             // 是常態，不是要記錄的系統性錯誤）。
@@ -156,11 +186,51 @@ public sealed class RtpIngest : IAsyncDisposable
         }
     }
 
+    /// <summary>上一個封包的 SSRC；0 表示還沒收到任何封包。</summary>
+    private uint _lastSsrc;
+
+    /// <summary>
+    /// 收到不同 SSRC 的封包時回報（前一個 SSRC、目前 SSRC、目前序號）。
+    /// </summary>
+    /// <remarks>
+    /// 這個 socket 只該有一個發送者（這條通道的 ffmpeg）。第二個 SSRC 出現代表真的有兩個發送者
+    /// 在同一條串流上——最可能的成因是 publisher 重建時<b>短暫同時存在</b>兩個 ffmpeg（舊的還沒被
+    /// 殺掉、新的已經開始送，而 loopback 埠被系統回收成同一個號碼）。那會讓序號交錯，漏包計數器
+    /// 於是報出「一次跳了三萬」這種像災難、實際上只是交錯的數字。沒有這一行，現場只能看著
+    /// `packetsMissed` 猜。
+    /// </remarks>
+    public Action<uint, uint, ushort>? OnSourceChange { get; set; }
+
+    /// <summary>回傳這次是否換了發送者（換了＝序號基準必須重置）。</summary>
+    private bool TrackSource(uint ssrc, ushort sequenceNumber)
+    {
+        var previous = _lastSsrc;
+        _lastSsrc = ssrc;
+        if (previous == 0 || previous == ssrc) return false;
+
+        try
+        {
+            OnSourceChange?.Invoke(previous, ssrc, sequenceNumber);
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            // 診斷回呼壞掉不該影響串流。
+        }
+
+        return true;
+    }
+
     /// <summary>以序號空隙累計遺失封包數（見 <see cref="PacketsMissed"/>）。</summary>
-    private void TrackSequence(ushort sequenceNumber)
+    /// <param name="sequenceNumber">這一包的序號。</param>
+    /// <param name="newSource">
+    /// 這一包的 SSRC 與上一包不同。<b>序號空間是「每個 SSRC 各自一條」</b>，所以換發送者時
+    /// 基準必須重置：拿舊的基準去比會把兩條空間的差距算成一次巨大的漏包——實測就是這樣出現
+    /// 「`packetsMissed` 三萬多」而畫面完全正常（見 AGENTS.md 的 ch121 記錄）。
+    /// </param>
+    private void TrackSequence(ushort sequenceNumber, bool newSource = false)
     {
         var previous = _lastSequence;
-        if (previous < 0)
+        if (newSource || previous < 0)
         {
             _lastSequence = sequenceNumber;
             return;
@@ -177,8 +247,29 @@ public sealed class RtpIngest : IAsyncDisposable
         if (gap is 0 or >= 0x8000) return;
 
         _lastSequence = sequenceNumber;
-        if (gap > 1) Interlocked.Add(ref _missed, gap - 1);
+        if (gap > 1)
+        {
+            Interlocked.Add(ref _missed, gap - 1);
+
+            // 一次「很大的空隙」與穩定的掉包是兩件不同的事：前者最常見的來源是**序號跳號**
+            // （publisher 重啟、攝影機端的串流重建），那會讓漏包數一次跳幾千，看起來像是
+            // 掉包災難，實際上一個封包都沒掉。現場問「packetsMissed 三萬多是不是掉包」時，
+            // 這一行是唯一能一眼分辨的證據（見 AGENTS.md 的 ch121 實測）。
+            if (gap > LargeGapThreshold)
+            {
+                OnLargeGap?.Invoke(gap, (ushort)previous, sequenceNumber);
+            }
+        }
     }
+
+    /// <summary>一次前進超過這個量就算「序號跳號」而不是掉包。</summary>
+    public const int LargeGapThreshold = 1000;
+
+    /// <summary>
+    /// 偵測到一次很大的前進空隙（跳了 <c>gap</c> 個序號，從 <c>from</c> 到 <c>to</c>）。
+    /// 呼叫端用它寫一行診斷；<c>null</c> 時不記錄。
+    /// </summary>
+    public Action<int, ushort, ushort>? OnLargeGap { get; set; }
 
     public async ValueTask DisposeAsync()
     {

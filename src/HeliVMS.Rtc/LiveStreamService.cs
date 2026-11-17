@@ -11,13 +11,18 @@ namespace HeliVMS.Rtc;
 /// 依序號推算「ffmpeg 送了但 ingest 沒收到」的封包數（見 <see cref="RtpIngest.PacketsMissed"/>）。
 /// </param>
 /// <param name="Problem">publisher 的錯誤描述（已遮蔽憑證）；正常時為 <c>null</c>。</param>
+/// <param name="PacketsForeign">
+/// 收到但被丟棄的非本串流封包數（實測是別條通道的 RTCP 落到 port + 1，見 <see cref="RtpIngest"/>）。
+/// 既不算收包也不算漏包；它回答的是「這個埠上是不是還有別人在講話」。
+/// </param>
 public readonly record struct ChannelLiveStatus(
     int ChannelId,
     PublisherState Publisher,
     int Viewers,
     long PacketsReceived,
     long PacketsMissed,
-    string? Problem);
+    string? Problem,
+    long PacketsForeign = 0);
 
 /// <summary>某通道目前的即時狀態查詢結果。</summary>
 /// <param name="ChannelId">通道 ID。</param>
@@ -221,7 +226,8 @@ public sealed class LiveStreamService : IAsyncDisposable
             _sessions.CountFor(channelId),
             runtime.PacketsReceived,
             runtime.PacketsMissed,
-            runtime.Problem);
+            runtime.Problem,
+            runtime.PacketsForeign);
     }
 
     /// <summary>

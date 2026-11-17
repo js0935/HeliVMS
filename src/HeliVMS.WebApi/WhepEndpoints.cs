@@ -204,6 +204,10 @@ public static class WhepEndpoints
             packetsReceived = status.PacketsReceived,
             packetsMissed = status.PacketsMissed,
 
+            // 被丟棄的非本串流封包（實測是別條通道的 RTCP 落到 port+1）。它不算收包也不算漏包，
+            // 但「packetsMissed 以前為什麼會有三萬多」的答案就在這裡（見 RtpIngest 的說明）。
+            packetsForeign = status.PacketsForeign,
+
             // 出錯時要說得出原因；遮蔽憑證由 publisher 自己負責。
             problem = status.Problem,
 

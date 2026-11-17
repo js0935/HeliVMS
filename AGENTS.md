@@ -1753,4 +1753,27 @@ Notes that will save you time:
   差一點沿著「MSBuild 沒有編譯這個檔案」追下去（真正的解釋是位移）。
   要嘛兩種位移都試、要嘛直接看 `dotnet build -v:diag` 的 `/out:` 確認輸出路徑與時間戳；
   用「DLL 裡有沒有某個字串」當建置驗證時，先拿一個<b>已知存在</b>的字串對照一次。
+- **`packetsMissed` 一次跳三萬不是掉包：那是別條通道的 RTCP 落到這個 ingest 埠，被當成 RTP 收進來。**
+  症狀：現場問「ch121 的 `packetsMissed` 三萬多是不是掉包」，而畫面完全正常（同一時間瀏覽器端
+  `currentTime` 穩定前進、`readyState=4`）。原始串流本身乾淨：用 Node 直接收 ffmpeg 的 RTP
+  15 秒＝2229 個封包、序號零空隙。機制：ffmpeg 把 RTCP 送到 `rtp://host:port` 的 **port + 1**，
+  而 loopback 的臨時埠是<b>連續配發</b>的，所以那個號碼常常正好是另一條通道的 ingest socket；
+  RTCP 也是 version 2、長度欄不為零，於是通過 `RtpHeader.TryParse`——它的「序號」是 RTCP 長度欄
+  （Sender Report 常見值 <b>6</b>），它的「SSRC」是 **NTP 秒數高位**（每秒加一，日誌裡看起來像一個
+  不斷遞增的來源），每 5 秒一次。實測日誌（2026-11-17，9 格監看、10 路）：
+  `ingest-seq-jump gap=32097 from=33445 to=6` 配上 `first-rtp seq=6`——那個 6 就是長度欄。
+  後果不只是數字：那個封包原本會被當成 RTP <b>轉給瀏覽器</b>。
+  修正：`RtpIngest` 只收 `LiveEncodeOptions.PayloadType`（96）；其餘計入 `ForeignPackets`
+  （狀態端點 `packetsForeign`）並寫一行 `ingest-foreign-packet pt=72`（`0xC8 & 0x7F`＝72 就是
+  Sender Report 被 7 位元 PT 欄位遮掉後的樣子）。修正後同一組量測：`miss` 全部為 0、
+  `ingest-seq-jump` 零筆、`first-rtp` 顯示真正的起點（1858／2089／2242／2674 而不是 6）。
+  另外兩件一起留下來的事：`TrackSequence` 在 **SSRC 變更時重置基準**（序號空間是每個 SSRC 各自
+  一條，拿舊基準去比就會生出一次巨大的假漏包），以及四個診斷欄位
+  （`first-rtp`／`ingest-seq-jump`／`ingest-source-change`／`ingest-foreign-packet`）——
+  「三萬多是掉包還是跳號」這種問題只有日誌能一眼回答。
+  量測腳本的對照坑（本輪踩到，兩支探針都寫錯過）：漏包數是 `gap − 1`；把 gap 直接累加會變成
+  「每一包都多算一個」，乾淨的串流被報成 100% 漏包（`gapTotal=4022`／`packets=4023`）。
+  Guarded by `不是本串流的封包不會被算成收包也不推進序號`（突變：關掉型別過濾會紅）、
+  `一次大跳號會被單獨回報而不是只算成漏包`、`正常的一個接一個不會被當成大跳號`、
+  `換了SSRC不會被算成漏包` and `第二個SSRC出現時會被回報`.
 
