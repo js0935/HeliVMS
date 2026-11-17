@@ -199,6 +199,53 @@ public sealed class SettingsIoModuleContractTests
     }
 
     [Fact]
+    public void IO頁用三個子頁且已連接設備表永遠可見()
+    {
+        var xaml = SourceContract.Read(Xaml);
+        var code = SourceContract.Read(Code);
+
+        // 參考機把感測器與繼電器分成兩份清單。這裡用三個子頁達成同樣的資訊架構：
+        // 每天看的是輸入／輸出接點，管理設備是設定；底部設備表則是「現在選了哪顆、有沒有連上」的唯一答案。
+        Assert.Contains("x:Name=\"IoSubDiButton\"", xaml);
+        Assert.Contains("x:Name=\"IoSubDoButton\"", xaml);
+        Assert.Contains("x:Name=\"IoSubManageButton\"", xaml);
+        Assert.Contains("Click=\"OnIoSubPageClicked\"", xaml);
+        Assert.Contains("x:Name=\"IoDiPanel\"", xaml);
+        Assert.Contains("x:Name=\"IoDoPanel\"", xaml);
+        Assert.Contains("x:Name=\"IoManagePanel\"", xaml);
+        Assert.Contains("x:Name=\"IoConnectedHeading\"", xaml);
+
+        // 設備表必須在三個子頁之外：放進任一子頁，切頁後就看不到連線狀態，
+        // 而操作員會以為模組離線——症狀與真的離線完全一樣。
+        var deviceList = xaml.IndexOf("x:Name=\"IoDeviceList\"", StringComparison.Ordinal);
+        Assert.True(deviceList > xaml.IndexOf("x:Name=\"IoDiPanel\"", StringComparison.Ordinal));
+        Assert.True(deviceList > xaml.IndexOf("x:Name=\"IoDoPanel\"", StringComparison.Ordinal));
+        Assert.True(deviceList > xaml.IndexOf("x:Name=\"IoManagePanel\"", StringComparison.Ordinal));
+
+        // XAML 的 Tag="0" 是字串；用 Tag: int 比對會讓三顆按鈕全部失效且沒有錯誤。
+        var clicked = SourceContract.BodyOf(code, "OnIoSubPageClicked");
+        Assert.Contains("int.TryParse(button.Tag?.ToString()", clicked);
+
+        // 子頁共用一份接點清單：切頁時改方向過濾與預設方向，且 suppressing 旗標避免重載兩次。
+        var show = SourceContract.BodyOf(code, "ShowIoSubPage");
+        Assert.Contains("IoContactGroup.Visibility", show);
+        Assert.Contains("IoContactFilterCombo.SelectedIndex = page + 1", show);
+        Assert.Contains("IoDirCombo.SelectedIndex = page", show);
+        Assert.Contains("_suppressIoContactFilter = true", show);
+        Assert.Contains("ReloadIoChannels();", show);
+
+        var filter = SourceContract.BodyOf(code, "OnIoContactFilterChanged");
+        Assert.Contains("if (_suppressIoContactFilter", filter);
+
+        // 點接點要把既有值帶進表單，否則「改名稱」得先手打索引，打錯就改到別的接點。
+        Assert.Contains("SelectionChanged=\"OnIoChannelSelectionChanged\"", xaml);
+        var selected = SourceContract.BodyOf(code, "OnIoChannelSelectionChanged");
+        Assert.Contains("IoIndexBox.Text = row.IoIndex", selected);
+        Assert.Contains("IoChannelNameBox.Text = row.Name", selected);
+        Assert.Contains("IoDebounceBox.Text = row.DebounceMs", selected);
+    }
+
+    [Fact]
     public void IO頁新增的字串三語齊備()
     {
         string[] keys =
@@ -237,6 +284,11 @@ public sealed class SettingsIoModuleContractTests
             "Settings.IoContactFilterLabel",
             "Settings.IoChannelFormLabel",
             "Settings.IoAddModuleLabel",
+            "Settings.IoSubDi",
+            "Settings.IoSubDo",
+            "Settings.IoSubManage",
+            "Settings.IoDiHint",
+            "Settings.IoConnectedHeading",
         ];
 
         // 不靠 I18n.Get 的繁中 fallback：那會讓「英文缺鍵」看起來有翻譯。

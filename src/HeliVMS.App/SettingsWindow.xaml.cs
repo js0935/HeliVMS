@@ -258,6 +258,7 @@ public partial class SettingsWindow : Window
         IoContactFilterCombo.Items[0] = new ComboBoxItem { Content = Localizer.T("Settings.IoFilterAll") };
         IoContactFilterCombo.SelectedIndex = 0;
         ReloadIo();
+        ShowIoSubPage(0);
         ReloadMaps();
         ReloadAuthPolicy();
         ReloadUsers();
@@ -675,6 +676,11 @@ public partial class SettingsWindow : Window
 
         // IO
         IoTitles.Text = Localizer.T("Settings.IoTitles");
+        IoSubDiButton.Content = Localizer.T("Settings.IoSubDi");
+        IoSubDoButton.Content = Localizer.T("Settings.IoSubDo");
+        IoSubManageButton.Content = Localizer.T("Settings.IoSubManage");
+        IoDiHint.Text = Localizer.T("Settings.IoDiHint");
+        IoConnectedHeading.Text = Localizer.T("Settings.IoConnectedHeading");
         IoDesc.Text = Localizer.T("Settings.IoDesc");
         IoDesc2.Text = Localizer.T("Settings.IoDesc2");
         IoModuleHeading.Text = Localizer.T("Settings.IoModuleHeading");
@@ -1775,6 +1781,102 @@ public partial class SettingsWindow : Window
     /// </remarks>
     private bool _suppressIoModelChanged;
 
+    /// <summary>子頁按鈕自己改方向下拉時不要再觸發一次清單重載。</summary>
+    private bool _suppressIoContactFilter;
+
+    /// <summary>
+    /// IO 頁三個子頁：輸入接點／輸出接點／管理設備。底下的「已連接的設備」表格永遠可見，
+    /// 這樣操作員在任何子頁都能看到選了哪顆模組、它有沒有連上。
+    /// </summary>
+    private void ShowIoSubPage(int page)
+    {
+        IoDiPanel.Visibility = page == 0 ? Visibility.Visible : Visibility.Collapsed;
+        IoDoPanel.Visibility = page == 1 ? Visibility.Visible : Visibility.Collapsed;
+        IoManagePanel.Visibility = page == 2 ? Visibility.Visible : Visibility.Collapsed;
+
+        // 管理設備子頁不需要接點清單；輸入／輸出子頁共用同一份清單，靠方向過濾區分。
+        IoContactGroup.Visibility = page == 2 ? Visibility.Collapsed : Visibility.Visible;
+
+        var active = new SolidColorBrush(Color.FromRgb(0x2A, 0x5C, 0x8A));
+        var idle = new SolidColorBrush(Color.FromRgb(0x24, 0x3B, 0x5E));
+        IoSubDiButton.Background = page == 0 ? active : idle;
+        IoSubDoButton.Background = page == 1 ? active : idle;
+        IoSubManageButton.Background = page == 2 ? active : idle;
+
+        // 方向下拉是表單的預設值，不是操作員的選擇：切子頁時跟著換，且不要重載兩次。
+        _suppressIoContactFilter = true;
+        try
+        {
+            if (page is 0 or 1)
+            {
+                IoContactFilterCombo.SelectedIndex = page + 1;   // 1＝DI、2＝DO
+                IoDirCombo.SelectedIndex = page;                 // 0＝DI、1＝DO
+            }
+            else
+            {
+                IoContactFilterCombo.SelectedIndex = 0;          // 全部（清單已隱藏）
+            }
+        }
+        finally
+        {
+            _suppressIoContactFilter = false;
+        }
+
+        ClearIoChannelForm();
+        ReloadIoChannels();
+    }
+
+    private void OnIoSubPageClicked(object sender, RoutedEventArgs e)
+    {
+        // XAML 的 Tag="0" 是字串，不是 int；用模式比對 int 會永遠不成立，
+        // 症狀是三顆子頁按鈕按了完全沒反應、畫面還是第一頁。
+        if (sender is Button button
+            && int.TryParse(button.Tag?.ToString(), out var page)
+            && page is >= 0 and <= 2)
+        {
+            ShowIoSubPage(page);
+        }
+    }
+
+    /// <summary>清單選取的接點帶進表單：操作員不用再手打索引與名稱才能改名／改去抖。</summary>
+    private void OnIoChannelSelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (IoChannelList.SelectedItem is not IoChannelRow row)
+        {
+            ClearIoChannelForm();
+            return;
+        }
+
+        IoIndexBox.Text = row.IoIndex.ToString(CultureInfo.InvariantCulture);
+        IoChannelNameBox.Text = row.Name;
+        IoDebounceBox.Text = row.DebounceMs.ToString(CultureInfo.InvariantCulture);
+        IoNcBox.IsChecked = row.NcLabel == "NC";
+        ReloadIoCameraCombo();
+        var cameraTag = _io.GetChannel(row.Id)?.CameraId;
+        for (var i = 0; i < IoCameraCombo.Items.Count; i++)
+        {
+            if (IoCameraCombo.Items[i] is ComboBoxItem { Tag: int id } && id == cameraTag)
+            {
+                IoCameraCombo.SelectedIndex = i;
+                return;
+            }
+        }
+
+        IoCameraCombo.SelectedIndex = 0;
+    }
+
+    private void ClearIoChannelForm()
+    {
+        IoIndexBox.Clear();
+        IoChannelNameBox.Clear();
+        IoDebounceBox.Text = "200";
+        IoNcBox.IsChecked = false;
+        if (IoCameraCombo.Items.Count > 0)
+        {
+            IoCameraCombo.SelectedIndex = 0;
+        }
+    }
+
     /// <summary>M40：重載 IO 模組清單、相機下拉與 DO 測試下拉。</summary>
     private void ReloadIo()
     {
@@ -1892,7 +1994,7 @@ public partial class SettingsWindow : Window
     /// <summary>接點清單的方向過濾（參考機把感測器與繼電器分成兩頁；這裡用過濾達成同樣的專注）。</summary>
     private void OnIoContactFilterChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (IoChannelList is null || _io is null)
+        if (_suppressIoContactFilter || IoChannelList is null || _io is null)
         {
             return;
         }
