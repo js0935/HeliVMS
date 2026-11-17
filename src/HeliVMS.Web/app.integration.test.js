@@ -497,3 +497,48 @@ describe('web settings', () => {
     expect(i18nSource).toContain("'setting.usage': '");
   });
 });
+
+describe('event query form', () => {
+  it('事件頁進場就填入與原本相同的最近二十四小時', () => {
+    // 空著日期欄會讓操作員以為一定要知道確切格式；先給一段可用的預設範圍，
+    // 搜尋行為才與加欄位之前一致（原本固定是最近 24 小時）。
+    expect(appSource).toMatch(/defaultPlayWindow\(\);\s*defaultEventWindow\(\);/);
+    expect(appSource).toMatch(/function defaultEventWindow\(\)[\s\S]*?\$\('event-from'\)\.value = toLocalInputValue\(from\)[\s\S]*?\$\('event-to'\)\.value = toLocalInputValue\(now\)/);
+  });
+
+  it('事件搜尋使用表單時間範圍而不是另外寫死的區間', () => {
+    // 後端 /api/events/search 本來就收 from/to；加欄位後若還用固定的一天，
+    // 操作員選了上個月的時段也只會看到今天的結果，且沒有任何錯誤。
+    expect(appSource).toMatch(/const range = eventQueryWindow\(\);\s*if \(!range\) return;/);
+    expect(appSource).toMatch(/\$\('event-from'\)\?\.value/);
+    expect(appSource).toMatch(/\$\('event-to'\)\?\.value/);
+    expect(appSource).toMatch(/new URLSearchParams\(\{ q, from: range\.from, to: range\.to, limit: String\(limit\) \}\)/);
+    expectLocalized(appSource, 'state.needRange', '請填有效的起訖時間（結束須晚於開始）');
+  });
+
+  it('來源類型下拉用位元過濾既有搜尋結果', () => {
+    // ForensicSource 是位元旗標（一筆事件可能同時是警報與邊緣 AI）；
+    // 用相等比較會把複合來源全部濾掉，看起來像「事件不見了」。
+    // 下拉只是畫面上的本機過濾，不許為它另開 API。
+    expect(appSource).toMatch(/const FORENSIC_SOURCE_FILTERS = \{ all: 0, alarm: 1, access: 2, pos: 4, edge: 8 \}/);
+    expect(appSource).toMatch(/!sourceFilter \|\| \(row\.source & sourceFilter\) !== 0/);
+    expect(appSource).toMatch(/\$\('event-type'\)\?\.value/);
+    expect(appSource).toMatch(/\/api\/events\/search\?\$\{params\}/);
+  });
+});
+
+describe('playback toolbar', () => {
+  it('三十秒跳躍只改本機游標且上界用seekable而不是無限的duration', () => {
+    // MSE 的 duration 常是 Infinity；拿它當上界會讓 +30 秒跳到不存在的位置、畫面停空白。
+    expect(appSource).toMatch(/if \(!Number\.isFinite\(upper\) && video\.seekable\?\.length > 0\)/);
+    expect(appSource).toMatch(/upper = video\.seekable\.end\(video\.seekable\.length - 1\)/);
+    expect(appSource).toMatch(/seekPlayback\(-30\)/);
+    expect(appSource).toMatch(/seekPlayback\(30\)/);
+  });
+
+  it('下一張會先暫停再前進並把全螢幕交给video元件', () => {
+    expect(appSource).toMatch(/function stepPlaybackFrame\(\)[\s\S]*?video\.pause\(\)[\s\S]*?playbackSeekTarget\(1 \/ 30\)/);
+    expect(appSource).toMatch(/video\.requestFullscreen\?\.\(\)/);
+    expect(appSource).toMatch(/document\.exitFullscreen\?\.\(\)/);
+  });
+});

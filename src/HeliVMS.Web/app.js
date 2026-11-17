@@ -885,6 +885,46 @@ function clearPlayClock() {
   if (el) el.textContent = '';
 }
 
+/**
+ * 回放工具列的跳躍只動 video.currentTime，不碰 MediaSource 的補段管線。
+ * MSE 的 duration 可能是 Infinity，上界改用 seekable 的最後一段，否則 +30 秒
+ * 會把游標設到一個不存在的位置並讓播放器停在空白畫面。
+ */
+function playbackSeekTarget(delta) {
+  const video = $('play-video');
+  if (!video || !Number.isFinite(video.currentTime)) return null;
+  let upper = video.duration;
+  if (!Number.isFinite(upper) && video.seekable?.length > 0) {
+    upper = video.seekable.end(video.seekable.length - 1);
+  }
+  if (!Number.isFinite(upper)) upper = video.currentTime;
+  return Math.min(Math.max(video.currentTime + delta, 0), upper);
+}
+
+function seekPlayback(delta) {
+  const target = playbackSeekTarget(delta);
+  if (target !== null) $('play-video').currentTime = target;
+}
+
+/** 下一張：先暫停再前進一格（HLS 無逐幀索引，用 1/30 秒做一個小步）。 */
+function stepPlaybackFrame() {
+  const video = $('play-video');
+  if (!video) return;
+  video.pause();
+  const target = playbackSeekTarget(1 / 30);
+  if (target !== null) video.currentTime = target;
+}
+
+function togglePlaybackFullscreen() {
+  const video = $('play-video');
+  if (!video) return;
+  if (document.fullscreenElement) {
+    document.exitFullscreen?.();
+  } else {
+    video.requestFullscreen?.();
+  }
+}
+
 async function playRemote(event) {
   event.preventDefault();
   if (playInFlight) return;
@@ -968,6 +1008,14 @@ function defaultPlayWindow() {
   const local = (d) => new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
   $('play-from').value = local(from);
   $('play-to').value = local(to);
+}
+
+/** 事件頁一進來就顯示與原本搜尋相同的「最近 24 小時」，操作員不必先猜要填哪個格式。 */
+function defaultEventWindow() {
+  const now = new Date();
+  const from = new Date(now.getTime() - 24 * 3600 * 1000);
+  $('event-from').value = toLocalInputValue(from);
+  $('event-to').value = toLocalInputValue(now);
 }
 
 let ptzProfileToken = '';
@@ -1322,6 +1370,23 @@ async function switchIoRelay(button) {
 
 // 必須是函式而不是模組層級常數：常數會在 import 時就把譯文定死，切換語言後這張表不會更新。
 const FORENSIC_SOURCE_NAMES = { 1: () => t('replay.sourceAlarm'), 2: () => t('replay.source'), 4: () => 'POS', 8: () => t('replay.sourceEdgeAi') };
+// 事件頁的來源類型下拉只是一層本機過濾：後端 /api/events/search 仍收同一組 q/from/to/limit，
+// 不為了「畫面像参考機」另開端點。0 代表全部，其餘是 ForensicSource 的位元值。
+const FORENSIC_SOURCE_FILTERS = { all: 0, alarm: 1, access: 2, pos: 4, edge: 8 };
+
+/** 把事件頁的可見時間範圍轉成後端要的 UTC；空值沿用原本「最近 24 小時」的行為。 */
+function eventQueryWindow() {
+  const now = new Date();
+  const fromText = $('event-from')?.value;
+  const toText = $('event-to')?.value;
+  const from = fromText ? new Date(fromText) : new Date(now.getTime() - 24 * 3600 * 1000);
+  const to = toText ? new Date(toText) : now;
+  if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime()) || to <= from) {
+    $('events-msg').textContent = t('state.needRange');
+    return null;
+  }
+  return { from: from.toISOString(), to: to.toISOString() };
+}
 
 async function searchEvents(raw) {
   const q = raw.trim();
@@ -1329,28 +1394,31 @@ async function searchEvents(raw) {
     $('events-msg').textContent = t('state.needKeyword');
     return;
   }
+  const range = eventQueryWindow();
+  if (!range) return;
   const limit = 50;
-  const to = new Date();
-  const from = new Date(to.getTime() - 24 * 3600 * 1000);
-  const params = new URLSearchParams({ q, from: from.toISOString(), to: to.toISOString(), limit: String(limit) });
+  const sourceFilter = FORENSIC_SOURCE_FILTERS[$('event-type')?.value] ?? 0;
+  const params = new URLSearchParams({ q, from: range.from, to: range.to, limit: String(limit) });
   const page = await api(`/api/events/search?${params}`).catch(() => null);
   if (!page) {
     $('events-msg').textContent = t('state.disconnected');
     return;
   }
-  const items = page.items ?? [];
-  $('events').querySelector('tbody').innerHTML = items
-    .map((hit) => {
-      const { id, time, source, text, status } = eventRow(hit);
+  const rows = (page.items ?? [])
+    .map((hit) => ({ hit, row: eventRow(hit) }))
+    .filter(({ row }) => !sourceFilter || (row.source & sourceFilter) !== 0);
+  $('events').querySelector('tbody').innerHTML = rows
+    .map(({ row }) => {
+      const { id, time, source, text, status } = row;
       return `<tr><td>${esc(id ? '#' + id : '')}</td><td>${esc(time)}</td><td>${esc(FORENSIC_SOURCE_NAMES[source]?.() ?? '—')}</td><td>${esc(text || '—')}</td><td>${esc(status || '—')}</td></tr>`;
     })
     .join('');
-  if (items.length === 0) {
+  if (rows.length === 0) {
     $('events-msg').textContent = t('state.noResults');
-  } else if (items.length >= limit) {
-    $('events-msg').textContent = t('search.foundCapped', { total: items.length, shown: items.length });
+  } else if (rows.length >= limit) {
+    $('events-msg').textContent = t('search.foundCapped', { total: rows.length, shown: rows.length });
   } else {
-    $('events-msg').textContent = t('search.found', { total: items.length });
+    $('events-msg').textContent = t('search.found', { total: rows.length });
   }
 }
 
@@ -1711,7 +1779,13 @@ function wire() {
   // 拖動游標只發 seeked、播放才發 timeupdate，兩個都聽時鐘才不會停在舊位置。
   $('play-video').addEventListener('timeupdate', renderPlayClock);
   $('play-video').addEventListener('seeked', renderPlayClock);
+  // 回放工具列（±30 秒／下一張／全螢幕）：對齊參考機 player 的控制項，全部只動本機 video。
+  $('play-back30')?.addEventListener('click', () => seekPlayback(-30));
+  $('play-next-frame')?.addEventListener('click', stepPlaybackFrame);
+  $('play-forward30')?.addEventListener('click', () => seekPlayback(30));
+  $('play-fullscreen')?.addEventListener('click', togglePlaybackFullscreen);
   defaultPlayWindow();
+  defaultEventWindow();
 
   $('search-form').addEventListener('submit', (e) => {
     e.preventDefault();

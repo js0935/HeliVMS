@@ -22,6 +22,20 @@ function rule(selector) {
   return cssSource.slice(at, cssSource.indexOf('}', at));
 }
 
+const QCV_SECTION_MARKER = 'QCV8001 Web 外觀對齊';
+
+/**
+ * 外觀覆寫刻意寫在檔案後段，前面的宣告仍被上面每一條幾何守衛檢查。
+ * 若用 rule() 會 grab 到前段原值，刪掉整段外觀也不會紅，所以這裡從標記之後找。
+ */
+function refRule(selector) {
+  const sectionAt = cssSource.indexOf(QCV_SECTION_MARKER);
+  expect(sectionAt, `styles.css 找不到 ${QCV_SECTION_MARKER} 區段`).toBeGreaterThan(-1);
+  const at = cssSource.indexOf(`${selector} {`, sectionAt);
+  expect(at, `QCV8001 外觀區段找不到 ${selector}`).toBeGreaterThan(-1);
+  return cssSource.slice(at, cssSource.indexOf('}', at));
+}
+
 describe('four feature tabs with in-page sub-tabs', () => {
   it('wraps the tab strip so labels do not overflow on narrow screens', () => {
     // 主頁籤在英文介面比中文長；單列會被擠爆並把後面的頁籤推出畫面。
@@ -265,5 +279,65 @@ describe('device info and export panels', () => {
     expect(cssSource).toMatch(/\.export-status\.ok \{/);
     expect(cssSource).toMatch(/\.export-status\.run \{/);
     expect(cssSource).toMatch(/\.export-status\.fail \{/);
+  });
+});
+
+describe('QCV8001 Web 外觀對齊', () => {
+  it('外觀覆寫使用參考機的深灰殼層與青色選取', () => {
+    // 這些色碼是參考站 main.css / liveWasm.css 的辨識特徵；少掉任何一項，
+    // 畫面仍功能正常但看起來完全是另一套系統，所以舊的版面測試不會紅。
+    const vars = refRule(':root');
+    for (const [name, color] of Object.entries({
+      '--shell-deep': '#35363a',
+      '--shell': '#505b69',
+      '--toolbar': '#c7ccd3',
+      '--ref-accent': '#00bbdb',
+    })) {
+      expect(vars, name).toMatch(new RegExp(`${name}:\\s*${color}`));
+    }
+    expect(refRule('body')).toMatch(/background:\s*var\(--shell-deep\)/);
+    expect(refRule('.topbar')).toMatch(/background:\s*var\(--shell\)/);
+    expect(refRule('.tabs')).toMatch(/background:\s*var\(--shell\)/);
+    expect(refRule('.tab.active')).toMatch(/background:\s*var\(--ref-accent\)/);
+    expect(refRule('.subtabs')).toMatch(/background:\s*var\(--toolbar\)/);
+  });
+
+  it('帳號面板與事件表頭沿用 Login 與事件查詢的醒目配色', () => {
+    expect(refRule('.topbar-auth > summary')).toMatch(/background:\s*#3c4756/);
+    expect(refRule('#login button')).toMatch(/background:\s*var\(--ref-accent\)/);
+    expect(refRule('#events thead th')).toMatch(/background:\s*#f0f0a0/);
+    expect(refRule('.search-section')).toMatch(/gap:\s*38px/);
+  });
+
+  it('事件表單提供日期範圍與來源類型欄位', () => {
+    // fun/event/query.html 的欄位橫排是操作員辨識「事件搜尋」的依靠；
+    // 只保留關鍵字單欄雖然能查，但時間與來源得先猜 API 格式。
+    expect(indexSource).toMatch(/id="search-form" class="row-form search-section"/);
+    for (const id of ['event-from', 'event-to', 'event-type']) {
+      expect(indexSource, id).toMatch(new RegExp(`id="${id}"`));
+    }
+    for (const [value, key] of [
+      ['all', 'common.all'],
+      ['alarm', 'replay.sourceAlarm'],
+      ['access', 'replay.source'],
+      ['edge', 'replay.sourceEdgeAi'],
+    ]) {
+      expect(indexSource, value).toMatch(new RegExp(`<option value="${value}" data-i18n="${key.replace('.', '\\.')}"`));
+    }
+    expect(indexSource).toMatch(/<option value="pos">POS<\/option>/);
+  });
+
+  it('回放工具列提供參考機的三十秒跳躍下一張與全螢幕', () => {
+    // player.html 的 bk30s/nextFrame/fw30s/fullScreen 是操作員辨識「這是回放播放器」的依靠；
+    // 只有原生 <video controls> 時，操作員得自己拖游標找三十秒前的畫面。
+    expect(refRule('.play-toolbar')).toMatch(/background:\s*var\(--toolbar\)/);
+    for (const [id, key] of [
+      ['play-back30', 'play.back30'],
+      ['play-next-frame', 'play.nextFrame'],
+      ['play-forward30', 'play.forward30'],
+      ['play-fullscreen', 'cell.fullscreen'],
+    ]) {
+      expect(indexSource, id).toMatch(new RegExp(`id="${id}"[^>]*data-i18n="${key.replace('.', '\\.')}"`));
+    }
   });
 });

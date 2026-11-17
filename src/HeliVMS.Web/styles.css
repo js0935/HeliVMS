@@ -443,3 +443,187 @@ button {
 .export-status.ok { background: #1d4d33; border-color: #2f7a52; }
 .export-status.run { background: #1d3a5f; border-color: #2a5c8a; }
 .export-status.fail { background: #5f1d1d; border-color: #8a3c2e; }
+
+/*
+ * QCV8001 Web 外觀對齊：深色外殼、#SHELL 頂列、灰色工具列、青色選取。
+ * 以獨立區段覆寫而不是改寫前面的規則：前面的宣告被版面回歸測試逐條釘住，
+ * 這裡只調整「看起來像不像参考機」，不觸及按得到、看得到的幾何約束。
+ */
+:root {
+  --accent: #00bbdb;
+  --shell: #505b69;
+  --shell-deep: #35363a;
+  --toolbar: #c7ccd3;
+  --ref-line: #79818b;
+  --ref-accent: #00bbdb;
+}
+
+body {
+  background: var(--shell-deep);
+  font-family: "Nunito", "Microsoft YaHei", "Helvetica", "Tahoma", sans-serif;
+}
+
+.topbar {
+  min-height: 100px;
+  align-content: center;
+  gap: 8px 18px;
+  padding: 12px 24px;
+  background: var(--shell);
+  border-bottom: 1px solid var(--ref-line);
+}
+.topbar h1 {
+  font-size: 22px;
+  letter-spacing: 0.08em;
+  color: #f4f8fc;
+}
+.topbar > label:not(.locale-pick) { margin-left: 0; }
+.topbar .locale-pick { margin-left: auto; }
+.badge {
+  background: #3c4756;
+  border: 1px solid var(--ref-line);
+  border-radius: 3px;
+}
+
+/* 帳號區參考登入方塊：收合時是一顆頂列按鈕，展開後是獨立深色面板。 */
+.topbar-auth {
+  background: #465363;
+  border: 1px solid var(--ref-line);
+  border-radius: 3px;
+}
+.topbar-auth > summary {
+  background: #3c4756;
+  border: 1px solid var(--ref-line);
+  border-radius: 3px;
+  color: #eef4fb;
+  padding: 6px 14px;
+}
+.topbar-auth-body {
+  gap: 10px 14px;
+  padding: 10px;
+  background: #465363;
+  border-top: 1px solid var(--ref-line);
+}
+#login input {
+  width: 140px;
+  background: #fff;
+  border: 1px solid #888;
+  color: #1e2935;
+}
+#login button {
+  background: var(--ref-accent);
+  border: 1px solid var(--ref-accent);
+  color: #04252c;
+}
+
+.tabs {
+  gap: 0;
+  padding: 0;
+  min-height: 52px;
+  background: var(--shell);
+  border-bottom: 1px solid var(--ref-line);
+}
+.tab {
+  min-width: 120px;
+  min-height: 52px;
+  padding: 8px 18px;
+  border: 0;
+  border-right: 1px solid rgba(255, 255, 255, 0.18);
+  border-bottom: 4px solid transparent;
+  border-radius: 0;
+  background: var(--shell);
+  color: #eef4fb;
+  font-size: 14px;
+  letter-spacing: 0.04em;
+}
+.tab:hover { background: #5c6878; color: #fff; }
+.tab.active {
+  background: var(--ref-accent);
+  border-color: var(--ref-accent);
+  border-bottom-color: #eafcff;
+  color: #04252c;
+}
+
+.subtabs {
+  gap: 0;
+  padding: 0;
+  margin-bottom: 10px;
+  overflow: hidden;
+  background: var(--toolbar);
+  border: 1px solid var(--ref-line);
+  border-radius: 4px;
+}
+.subtab {
+  padding: 8px 16px;
+  border: 0;
+  border-right: 1px solid #9aa4b0;
+  border-radius: 0;
+  background: #fff;
+  color: #26313d;
+}
+.subtab:hover { background: #e6f9fc; color: #0c6675; }
+.subtab.active { background: var(--ref-accent); color: #04252c; }
+
+.grid { gap: 16px; padding: 16px; }
+.panel {
+  padding: 16px;
+  border: 1px solid var(--ref-line);
+  border-radius: 4px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.28);
+}
+.panel h2 {
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--ref-line);
+  color: #eef4fb;
+}
+
+.live-grid {
+  gap: 6px;
+  padding: 6px;
+  background: #202934;
+  border: 1px solid var(--ref-line);
+}
+.live-cell { border-color: var(--ref-line); }
+.live-cell-label {
+  background: rgba(0, 187, 219, 0.88);
+  color: #04252c;
+  font-weight: 700;
+}
+.live-cell-actions { opacity: 1; }
+.cell-btn { border-color: var(--ref-accent); color: #eaffff; }
+
+.play-clock {
+  padding: 4px 10px;
+  border-left: 4px solid var(--ref-accent);
+  border-radius: 2px;
+  background: var(--toolbar);
+  color: #1e2935;
+}
+
+/* 回放工具列：對齊 player.css 的灰色工具列與青色選取；±30 秒／下一張／全螢幕。 */
+.play-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 6px 0;
+  padding: 6px;
+  background: var(--toolbar);
+  border-radius: 2px;
+}
+.play-toolbar button { min-width: 96px; }
+.play-toolbar button:hover { border-color: var(--ref-accent); color: #04252c; }
+
+/* 事件查詢：欄位間距與淡黃表header 對齊 fun/event/query.html。 */
+.search-section {
+  gap: 38px;
+  margin: 8px 0 16px;
+  align-items: flex-end;
+}
+.search-section .field {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.search-section .field > span { min-width: 80px; color: var(--muted); }
+#events thead th { background: #f0f0a0; color: #2b2b1f; }
+#events tbody tr:hover { background: #324153; }
