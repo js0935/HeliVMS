@@ -302,8 +302,15 @@ describe('QCV8001 Web 外觀對齊', () => {
     expect(refRule('.subtabs')).toMatch(/background:\s*var\(--toolbar\)/);
   });
 
-  it('帳號面板與事件表頭沿用 Login 與事件查詢的醒目配色', () => {
-    expect(refRule('.topbar-auth > summary')).toMatch(/background:\s*#3c4756/);
+  it('獨立登入頁與主介面互斥隱藏，未通過憑證前不會露出主介面', () => {
+    // .login-screen / #app-shell 都設了 display，單靠 HTML 的 hidden 會被蓋掉；
+    // 少了這條規則，未登入時主介面仍然整頁可見，只是所有 API 回 401。
+    expect(cssSource).toMatch(/#app-shell\[hidden\],\s*\.login-screen\[hidden\] \{ display: none; \}/);
+    expect(cssSource).toMatch(/\.login-screen \{[\s\S]*?min-height: 100vh/);
+  });
+
+  it('登入卡片與事件表頭沿用 Login 與事件查詢的醒目配色', () => {
+    expect(refRule('.login-card')).toMatch(/background:\s*#465363/);
     expect(refRule('#login button')).toMatch(/background:\s*var\(--ref-accent\)/);
     expect(refRule('#events thead th')).toMatch(/background:\s*#f0f0a0/);
     expect(refRule('.search-section')).toMatch(/gap:\s*38px/);

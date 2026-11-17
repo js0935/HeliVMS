@@ -46,14 +46,22 @@ describe('keyboard accessibility', () => {
     }
   });
 
-  it('focuses the account toggle on load instead of a field inside the collapsed block', () => {
-    // 原本是 autofocus 在使用者名稱欄，但那個欄位在收合的 <details> 裡：瀏覽器為了
-    // 顯示被聚焦的元素會自動展開它，帳號區（金鑰＋帳號＋密碼）於是永遠佔著頂列，
-    // 而這正是操作員抱怨「功能雜亂」的來源之一。焦點改放在 summary。
-    expect(indexSource).toMatch(/<summary[^>]*autofocus/);
-    expect(indexSource).not.toMatch(/<input id="user"[^>]*autofocus/);
-    // 收合的區塊仍要能被鍵盤展開：summary 在 details 內、且登入表單確實在裡面。
-    expect(indexSource).toMatch(/<details class="topbar-auth">[\s\S]*?<summary[^>]*data-i18n="app\.account"[^>]*>[\s\S]*?<form id="login">/);
+  it('登入表單住在獨立畫面裡，主介面未通過憑證前不出現', () => {
+    // 舊版把金鑰與登入表單塞進頂列 <details>，未登入時主介面仍整頁亮著。
+    // 現在兩個區塊各自獨立，且由 showLogin() 控制 hidden。
+    expect(indexSource).toMatch(/<div id="login-screen"[^>]*hidden>[\s\S]*?<form id="login"[^>]*>[\s\S]*?<\/div>/);
+    expect(indexSource).toMatch(/<div id="app-shell" hidden>[\s\S]*?<header id="app" class="topbar">/);
+    expect(indexSource).not.toMatch(/<details class="topbar-auth">/);
+    expect(indexSource).not.toMatch(/<summary[^>]*autofocus/);
+    expect(appSource).toMatch(/function showLogin\(show\)[\s\S]*\$\('login-screen'\)\.hidden = !show[\s\S]*\$\('app-shell'\)\.hidden = show/);
+    // 靜態 autofocus 對初始 hidden 的元素無效，改由 showLogin() 在 unhide 後移動焦點。
+    expect(appSource).toMatch(/requestAnimationFrame\(\(\) => \$\('user'\)\?\.focus\(\)\)/);
+  });
+
+  it('登入頁與主介面各有一個語系選擇器且 id 不重複', () => {
+    expect(indexSource.match(/id="login-locale"/g)).toHaveLength(1);
+    expect(indexSource.match(/id="locale"/g)).toHaveLength(1);
+    expect(appSource).toMatch(/for \(const id of \['locale', 'login-locale'\]\)/);
   });
 
   it('labels every table header with a column scope', () => {

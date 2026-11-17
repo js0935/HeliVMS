@@ -163,36 +163,46 @@ button:disabled {
 .subpanel[hidden] { display: none; }
 
 /*
- * 帳號區：API 金鑰與登入表單收進一個可展開的區塊。
+ * 登入畫面：未通過憑證檢查時，主介面整頁隱藏，只留下這張卡片。
  *
- * 頂列原本把金鑰欄、帳號、密碼、登入鈕全部平鋪在最上面，佔掉近半個螢幕寬，
- * 而它們一天用不到一次（金鑰一旦貼上就存進 localStorage）。收起來之後頂列只剩
- * 狀態：健康、連線、授權、身分、語言。內層的 label 不可吃 margin-left:auto
- * ——那是給頂列最後一個 label 用的，套進來會把欄位推到區塊最右邊。
+ * 舊版把金鑰欄與登入表單塞在頂列的 <details> 裡，未登入時所有 API 默默回 401，
+ * 操作員卻看到一整頁正常的監看介面。現在先擋在這一頁；[hidden] 必須明講，
+ * 因為 .login-screen / #app-shell 都設了 display，預設的 hidden 會被蓋掉。
  */
-.topbar-auth summary {
-  cursor: pointer;
-  color: var(--muted);
-  padding: 2px 8px;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  font-size: 12px;
-  list-style: none;
-}
-.topbar-auth summary::-webkit-details-marker { display: none; }
-.topbar-auth[open] summary { color: var(--text); border-color: var(--accent); }
-.topbar-auth-body {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px 12px;
-  align-items: center;
-  padding: 8px 0 2px;
-}
-.topbar-auth-body label { margin-left: 0; }
+#app-shell[hidden],
+.login-screen[hidden] { display: none; }
 
-#login { display: flex; gap: 6px; align-items: center; }
-#login input { width: 120px; }
-#login .muted { font-size: 12px; max-width: 180px; }
+.login-screen {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+.login-card {
+  width: min(420px, 100%);
+  display: grid;
+  gap: 14px;
+  padding: 24px;
+  border-radius: 4px;
+}
+.login-card h1 {
+  font-size: 20px;
+  letter-spacing: 0.08em;
+}
+.login-fields {
+  display: grid;
+  gap: 10px;
+}
+.login-fields label {
+  display: grid;
+  gap: 4px;
+  margin-left: 0;
+}
+.login-fields hr {
+  width: 100%;
+  border: 0;
+  border-top: 1px solid var(--line);
+}
 #login-msg:not(:empty) { color: var(--crit); }
 
 /*
@@ -484,27 +494,14 @@ body {
   border-radius: 3px;
 }
 
-/* 帳號區參考登入方塊：收合時是一顆頂列按鈕，展開後是獨立深色面板。 */
-.topbar-auth {
+/* 登入卡片沿用參考機的深色面板與青色主按鈕。 */
+.login-card {
   background: #465363;
   border: 1px solid var(--ref-line);
-  border-radius: 3px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
 }
-.topbar-auth > summary {
-  background: #3c4756;
-  border: 1px solid var(--ref-line);
-  border-radius: 3px;
-  color: #eef4fb;
-  padding: 6px 14px;
-}
-.topbar-auth-body {
-  gap: 10px 14px;
-  padding: 10px;
-  background: #465363;
-  border-top: 1px solid var(--ref-line);
-}
-#login input {
-  width: 140px;
+.login-fields input {
+  width: 100%;
   background: #fff;
   border: 1px solid #888;
   color: #1e2935;
@@ -513,6 +510,11 @@ body {
   background: var(--ref-accent);
   border: 1px solid var(--ref-accent);
   color: #04252c;
+}
+#login-key {
+  background: #3c4756;
+  border: 1px solid var(--ref-line);
+  color: #eef4fb;
 }
 
 .tabs {

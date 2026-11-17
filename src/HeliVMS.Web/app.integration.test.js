@@ -37,9 +37,32 @@ describe('five-tab console', () => {
   });
 });
 
+describe('standalone login screen', () => {
+  it('登入畫面的使用者可見文字都走 i18n，不在 HTML 寫死', () => {
+    // 登入頁是獨立畫面，最容易被直接寫死中文/英文；三個 key 都必須在目錄裡有譯文。
+    for (const key of ['login.title', 'login.hint', 'login.withKey']) {
+      expect(indexSource, key).toMatch(new RegExp(`data-i18n="${key.replace('.', '\\.')}"`));
+      expect(i18nSource, key).toContain(`'${key}':`);
+    }
+    expectLocalized(appSource, 'login.needKey', '請輸入 API 金鑰');
+  });
+});
+
 describe('api-key flow', () => {
-  it('refreshes immediately when the API key is committed with Enter', () => {
-    expect(appSource).toMatch(/apikey'\)\.addEventListener\('keydown'[\s\S]*Enter[\s\S]*refreshAll\(\)/);
+  it('validates the API key from the standalone login screen before entering the app', () => {
+    // 金鑰改在獨立登入頁輸入，Enter 不再只是 refreshAll()（那會在主介面還藏著時
+    // 默默刷新一堆 401），而是走 enterWithKey() 先驗憑證再切畫面。
+    expect(appSource).toMatch(/apikey'\)\.addEventListener\('keydown'[\s\S]*Enter[\s\S]*enterWithKey\(\)/);
+    expect(appSource).toMatch(/login-key'\)\.addEventListener\('click'/);
+    expect(appSource).toMatch(/async function enterWithKey\(\)/);
+  });
+
+  it('只有在憑證可用時才啟動主介面與背景輪詢', () => {
+    expect(appSource).toMatch(/if \(await canEnterApp\(\)\)[\s\S]*await enterApp\(\)[\s\S]*else[\s\S]*showLogin\(true\)/);
+    expect(appSource).toMatch(/if \(\$\('app-shell'\)\.hidden\) return;/);
+    // 只檢查 localStorage 有沒有值，會放過伺服器重開後已失效的舊 token，
+    // 症狀就是「主介面出現但每支 API 都 401」。必須用 /api/config 真實驗證。
+    expect(appSource).toMatch(/async function canEnterApp\(\)[\s\S]*apiRaw\('\/api\/config'\)[\s\S]*return res\.ok/);
   });
 });
 
