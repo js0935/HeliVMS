@@ -94,6 +94,37 @@ public sealed class IoMonitorHost : IDisposable
         }
     }
 
+    /// <summary>
+    /// 某模組目前各 DI 通道的狀態（設定中心 IO 頁的「狀態」欄）。
+    /// 沒有監視器（停用中、剛刪除）回空清單——UI 顯示「還不知道」而不是「全部斷開」。
+    /// </summary>
+    public IReadOnlyList<IoChannelState> States(int deviceId)
+    {
+        lock (_gate)
+        {
+            return _disposed || !_monitors.TryGetValue(deviceId, out var monitor)
+                ? []
+                : monitor.SnapshotStates();
+        }
+    }
+
+    /// <summary>
+    /// 某模組最近一次輪詢的結果（設定中心 IO 頁的「連線」欄）。
+    /// <c>null</c>＝這個模組沒有在輪詢（停用中或不存在）。
+    /// </summary>
+    public (bool LastPollSucceeded, DateTimeOffset? LastPollUtc)? PollStatus(int deviceId)
+    {
+        lock (_gate)
+        {
+            if (_disposed || !_monitors.TryGetValue(deviceId, out var monitor))
+            {
+                return null;
+            }
+
+            return (monitor.LastPollSucceeded, monitor.LastPollUtc);
+        }
+    }
+
     /// <summary>DO 寫出（依 io_ports 的接點；連動規則的輸出路由走這裡）。</summary>
     public async Task<bool> WriteOutputByIoChannelAsync(int ioChannelId, bool on)
     {

@@ -49,14 +49,28 @@ public partial class SettingsWindow : Window
     /// <summary>ReloadHwAccel 的程序化選取不得回寫設定（368 列 settings.set 的來源）。</summary>
     private bool _suppressHwAccelChanged;
 
+    /// <summary>
+    /// IO 頁即時狀態的更新節拍（1 秒）。接點的「開／關」與模組的「連線」是操作員加了模組之後
+    /// 第一個想看的東西——參考機的 IO 頁就有。只在 IO 頁可見時做事（見 <see cref="OnIoStateTimerTick"/>）。
+    /// </summary>
+    private readonly System.Windows.Threading.DispatcherTimer _ioStateTimer = new();
+
+    /// <summary>上次畫出來的狀態特徵。狀態沒變就不重建 ItemsSource：清單的選取與捲動位置才不會每秒跳一次。</summary>
+    private string _ioStateSignature = string.Empty;
+
+    /// <summary><see cref="ReloadIoChannels"/> 的通道快照；即時狀態欄每秒重算時不再查一次資料庫。</summary>
+    private IReadOnlyList<IoChannel> _ioChannelCache = [];
+
     /// <summary>告警規則頁顯示列。</summary>
     private sealed record RuleRow(long Id, string Name, string EventType, string ChannelLabel, string Keyword, string MatchTypes, string AggregateLabel, string Channels, string EnabledLabel);
 
     /// <summary>IO 模組頁顯示列。</summary>
-    private sealed record IoDeviceRow(int Id, string Name, string Host, string EndpointLabel, string EnabledLabel, int PollMs);
+    /// <remarks><paramref name="LinkLabel"/> 是最近一次 Modbus 輪詢的結果（線上／離線／還沒輪詢）。</remarks>
+    private sealed record IoDeviceRow(int Id, string Name, string Host, string EndpointLabel, string EnabledLabel, int PollMs, string LinkLabel);
 
     /// <summary>IO 通道頁顯示列。</summary>
-    private sealed record IoChannelRow(int Id, string Direction, int IoIndex, string Name, string EnabledLabel, string NcLabel, int DebounceMs, string CameraLabel);
+    /// <remarks><paramref name="StateLabel"/> 是接點目前的狀態（DI 來自輪詢的穩定值；其餘為「—」）。</remarks>
+    private sealed record IoChannelRow(int Id, string Direction, int IoIndex, string Name, string EnabledLabel, string NcLabel, int DebounceMs, string CameraLabel, string StateLabel);
 
     /// <summary>
     /// 攝影機乾接點端子列（設定中心 IO 頁）：設備上實際存在的一個 DI 或 DO 端子，
@@ -204,6 +218,9 @@ public partial class SettingsWindow : Window
 
         InitializeComponent();
         Title = Localizer.T("Settings.Title");
+        _ioStateTimer.Interval = TimeSpan.FromSeconds(1);
+        _ioStateTimer.Tick += OnIoStateTimerTick;
+        _ioStateTimer.Start();
         MapPinCanvas.PreviewMouseLeftButtonDown += OnMapPinCanvasClick;
         MapPinList.SelectionChanged += OnMapPinSelectionChanged;
 
@@ -682,6 +699,7 @@ public partial class SettingsWindow : Window
         IoColEndpoint.Header = Localizer.T("Settings.IoColEndpoint");
         IoColEnabled.Header = Localizer.T("Settings.IoColEnabled");
         IoColPoll.Header = Localizer.T("Settings.IoColPoll");
+        IoColLink.Header = Localizer.T("Settings.IoLinkHeader");
         IoToggleDeviceButton.Content = Localizer.T("Settings.Toggle");
         IoToggleDeviceButton.ToolTip = Localizer.T("Settings.IoToggleDeviceTip");
         IoDeleteDeviceButton.Content = Localizer.T("Settings.IoDeleteModule");
@@ -705,8 +723,11 @@ public partial class SettingsWindow : Window
         IoColChannelEnabled.Header = Localizer.T("Settings.IoColChannelEnabled");
         IoColDebounce.Header = Localizer.T("Settings.IoColDebounce");
         IoColCamera.Header = Localizer.T("Settings.IoColCamera");
+        IoColState.Header = Localizer.T("Settings.IoStateHeader");
         IoToggleChannelButton.Content = Localizer.T("Settings.IoToggleChannel");
         IoToggleChannelButton.ToolTip = Localizer.T("Settings.IoToggleChannelTip");
+        IoApplyChannelButton.Content = Localizer.T("Settings.IoApplyChannel");
+        IoApplyChannelButton.ToolTip = Localizer.T("Settings.IoApplyChannel");
         IoDeleteChannelButton.Content = Localizer.T("Settings.IoDeleteChannel");
         IoDeleteChannelButton.ToolTip = Localizer.T("Settings.IoDeleteChannelTip");
         IoDoTestHeading.Text = Localizer.T("Settings.IoDoTestHeading");
@@ -1759,7 +1780,8 @@ public partial class SettingsWindow : Window
             d.Host,
             $"{d.Port}/{d.UnitId}",
             d.Enabled ? Localizer.T("Settings.Enabled") : Localizer.T("Settings.Disabled"),
-            d.PollMs)).ToList();
+            d.PollMs,
+            IoLinkLabel(d.Id))).ToList();
 
         IoDoDeviceCombo.Items.Clear();
         foreach (var d in devices)
@@ -1864,9 +1886,10 @@ public partial class SettingsWindow : Window
     {
         var devId = SelectedIoDevice?.Id;
         var cameras = new ChannelRepository(_store).List().ToDictionary(c => c.Id, c => c.Name);
-        var rows = (devId is int did
-            ? _io.ListChannels(deviceId: did)
-            : _io.ListChannels()).Select(ch => new IoChannelRow(
+        var channels = devId is int did ? _io.ListChannels(deviceId: did) : _io.ListChannels();
+        _ioChannelCache = channels;
+        _ioStateSignature = string.Empty;
+        var rows = channels.Select(ch => new IoChannelRow(
                 ch.Id,
                 ch.Direction,
                 ch.IoIndex,
@@ -1874,10 +1897,102 @@ public partial class SettingsWindow : Window
                 ch.Enabled ? Localizer.T("Settings.Enabled") : Localizer.T("Settings.Disabled"),
                 ch.Polarity ? "NC" : "",
                 ch.DebounceMs,
-                ch.CameraId is { } cam && cameras.TryGetValue(cam, out var n) ? n : "—")).ToList();
+                ch.CameraId is { } cam && cameras.TryGetValue(cam, out var n) ? n : "—",
+                IoStateLabel(ch))).ToList();
         IoChannelList.ItemsSource = rows;
         IoReportText.Text = devId is not null && rows.Count == 0 ? Localizer.T("Settings.NoChannelsForModule") : " ";
     }
+
+    /// <summary>IO 頁即時狀態的節拍。IO 頁不可見時直接返回：設定中心有十幾個分頁，這個計時器不該替看不見的頁面做事。</summary>
+    private void OnIoStateTimerTick(object? sender, EventArgs e)
+    {
+        if (PageIo.Visibility != Visibility.Visible)
+        {
+            return;
+        }
+
+        RefreshIoLiveState();
+    }
+
+    /// <summary>
+    /// 只重畫「會變的兩欄」（模組的連線、接點的開關）。狀態沒變就不動 ItemsSource：
+    /// 清單的選取與捲動位置才不會每秒跳一次。
+    /// </summary>
+    private void RefreshIoLiveState()
+    {
+        var deviceRows = IoDeviceList.ItemsSource as IReadOnlyList<IoDeviceRow>;
+        var channelRows = IoChannelList.ItemsSource as IReadOnlyList<IoChannelRow>;
+        if (deviceRows is null && channelRows is null)
+        {
+            return;
+        }
+
+        var signature = string.Join(
+            "|",
+            (deviceRows ?? []).Select(d => d.LinkLabel).ToArray(),
+            (channelRows ?? []).Select(c => c.StateLabel).ToArray());
+        if (signature == _ioStateSignature)
+        {
+            return;
+        }
+
+        _ioStateSignature = signature;
+
+        if (deviceRows is not null)
+        {
+            var selected = SelectedIoDevice?.Id;
+            var rows = deviceRows.Select(d => d with { LinkLabel = IoLinkLabel(d.Id) }).ToList();
+            IoDeviceList.ItemsSource = rows;
+            if (selected is { } deviceId)
+            {
+                SelectIoDevice(deviceId);
+            }
+        }
+
+        if (channelRows is not null)
+        {
+            var selected = (IoChannelList.SelectedItem as IoChannelRow)?.Id;
+            var rows = channelRows.Select(c => c with { StateLabel = IoStateLabelFor(c.Id) }).ToList();
+            IoChannelList.ItemsSource = rows;
+            if (selected is { } channelId)
+            {
+                IoChannelList.SelectedItem = rows.FirstOrDefault(r => r.Id == channelId);
+            }
+        }
+    }
+
+    /// <summary>模組的連線狀態（最近一次 Modbus 輪詢的結果）；沒有監視器＝停用中或剛刪除，顯示「—」。</summary>
+    private string IoLinkLabel(int deviceId)
+    {
+        var status = _ioHost?.PollStatus(deviceId);
+        if (status is null)
+        {
+            return "—";
+        }
+
+        return status.Value.LastPollUtc is null
+            ? Localizer.T("Settings.IoPolling")
+            : status.Value.LastPollSucceeded
+                ? Localizer.T("Settings.IoOnline")
+                : Localizer.T("Settings.IoOffline");
+    }
+
+    /// <summary>接點目前的狀態。DI 來自輪詢的穩定值；DO 的現值要另外讀線圈（測試結果已在 DO 測試區顯示），顯示「—」。</summary>
+    private string IoStateLabel(IoChannel ch)
+    {
+        if (ch.Direction != "DI")
+        {
+            return "—";
+        }
+
+        var state = _ioHost?.States(ch.DeviceId).FirstOrDefault(s => s.ChannelId == ch.Id);
+        return state is null
+            ? "—"
+            : state.Active ? Localizer.T("Settings.IoStateOn") : Localizer.T("Settings.IoStateOff");
+    }
+
+    private string IoStateLabelFor(int ioChannelId)
+        => _ioChannelCache.FirstOrDefault(c => c.Id == ioChannelId) is { } ch ? IoStateLabel(ch) : "—";
 
     private void OnIoAddDeviceClicked(object sender, RoutedEventArgs e)
     {
@@ -2085,6 +2200,49 @@ public partial class SettingsWindow : Window
         ReloadIoChannels();
         ReloadIoDoChannels();
         _ioHost?.RefreshAndStart();
+    }
+
+    /// <summary>
+    /// 套用表單到選取的接點（名稱／去抖／極性／綁定攝影機）。<b>id 不變</b>：
+    /// 刪除重加會讓鏡射的接點換 id，指向它的 io_rules 從此默默失效。
+    /// </summary>
+    private void OnIoApplyChannelClicked(object sender, RoutedEventArgs e)
+    {
+        if (IoChannelList.SelectedItem is not IoChannelRow row)
+        {
+            IoReportText.Text = Localizer.T("Settings.SelectChannelFirst");
+            return;
+        }
+
+        var name = IoChannelNameBox.Text.Trim();
+        if (name.Length == 0)
+        {
+            IoReportText.Text = Localizer.T("Settings.ChannelNameRequired");
+            return;
+        }
+
+        if (!int.TryParse(IoDebounceBox.Text, out var debounce) || debounce < 0)
+        {
+            IoReportText.Text = Localizer.T("Settings.DebounceInvalid");
+            return;
+        }
+
+        int? cameraId = IoCameraCombo.SelectedItem is ComboBoxItem { Tag: int cam } ? cam : null;
+
+        var updated = _io.UpdateChannel(row.Id, name, debounce, IoNcBox.IsChecked == true, cameraId, "settings");
+        if (!updated)
+        {
+            // 選取的接點已經在別處被刪掉：重載清單讓畫面回到實際狀況。
+            ReloadIoChannels();
+            return;
+        }
+
+        // io_ports 的名稱／極性與監視器的去抖都要跟上（RefreshAndStart 內含接點鏡射），
+        // 否則規則與地圖顯示舊名、新的去抖要等重啟才生效。
+        _ioHost?.RefreshAndStart();
+        ReloadIoChannels();
+        ReloadIoDoChannels();
+        IoReportText.Text = string.Format(Localizer.T("Settings.ChannelUpdated"), name);
     }
 
     private void OnIoToggleChannelClicked(object sender, RoutedEventArgs e)
@@ -5022,5 +5180,12 @@ public partial class SettingsWindow : Window
         {
             Close();
         }
+    }
+
+    /// <summary>關窗時停掉 IO 即時狀態的節拍：設定中心可能開很久，計時器不留著空轉。</summary>
+    protected override void OnClosed(EventArgs e)
+    {
+        _ioStateTimer.Stop();
+        base.OnClosed(e);
     }
 }

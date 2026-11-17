@@ -239,6 +239,65 @@ public class IoDeviceMonitorTests : IDisposable
         monitor.Dispose();
     }
 
+    [Fact]
+    public async Task SnapshotStates_回報目前穩定狀態()
+    {
+        // IO 頁的「狀態」欄靠這個：操作員加了一顆模組、接上門磁，第一個想看的是「現在是開還是關」。
+        var devId = _io.AddDevice("門禁模組", "127.0.0.1");
+        _io.AddChannel(devId, "DI", 0, "大門", debounceMs: 0, cameraId: _cameraId);
+        _io.AddChannel(devId, "DI", 1, "門磁", debounceMs: 0, cameraId: _cameraId);
+        var fake = new FakeModbusClient([false, false]);
+        var monitor = new IoDeviceMonitor(_io.GetDevice(devId)!, _io, _events, client: fake);
+        monitor.RefreshChannels();
+
+        // 還沒輪詢＝還不知道，不該被顯示成「全部斷開」。
+        Assert.Empty(monitor.SnapshotStates());
+
+        await monitor.PollOnceAsync();
+        var snapshot = monitor.SnapshotStates();
+        Assert.Equal(2, snapshot.Count);
+        Assert.All(snapshot, s => Assert.False(s.Active));
+
+        fake.Push([false, true]);
+        await monitor.PollOnceAsync();
+        fake.Push([false, true]);
+        await monitor.PollOnceAsync();
+
+        var states = monitor.SnapshotStates().ToDictionary(s => s.Name, s => s.Active);
+        Assert.False(states["大門"]);
+        Assert.True(states["門磁"]);
+        monitor.Dispose();
+    }
+
+    [Fact]
+    public async Task 輪詢失敗會把連線狀態翻成離線()
+    {
+        // 填錯 IP 的模組：接點建好了、事件永遠不來——沒有這個旗標，操作員只能在日誌裡找答案。
+        var devId = _io.AddDevice("門禁模組", "127.0.0.1");
+        _io.AddChannel(devId, "DI", 0, "門磁", debounceMs: 0, cameraId: _cameraId);
+        var monitor = new IoDeviceMonitor(_io.GetDevice(devId)!, _io, _events, client: new ThrowingModbusClient());
+        monitor.RefreshChannels();
+
+        Assert.Null(monitor.LastPollUtc);
+
+        await monitor.PollOnceAsync();
+        Assert.False(monitor.LastPollSucceeded);
+        Assert.NotNull(monitor.LastPollUtc);
+        monitor.Dispose();
+    }
+
+    [Fact]
+    public async Task 輪詢成功會把連線狀態翻成線上()
+    {
+        var (monitor, _) = await BuildAsync(ch => _io.AddChannel(ch, "DI", 0, "門磁", debounceMs: 0, cameraId: _cameraId));
+
+        await monitor.PollOnceAsync();
+
+        Assert.True(monitor.LastPollSucceeded);
+        Assert.NotNull(monitor.LastPollUtc);
+        monitor.Dispose();
+    }
+
     private async Task<(IoDeviceMonitor M, FakeModbusClient C)> BuildAsync(Func<int, int> seedChannel, int? knownDeviceId = null)
     {
         var devId = knownDeviceId ?? _io.AddDevice("門禁模組", "127.0.0.1");
@@ -260,6 +319,19 @@ public class IoDeviceMonitorTests : IDisposable
         {
             File.Delete(_dbPath);
         }
+    }
+
+    /// <summary>每次讀取都丟出例外：模擬「模組離線／IP 填錯」。</summary>
+    private sealed class ThrowingModbusClient : IModbusTcpClient
+    {
+        public Task<IReadOnlyList<bool>> ReadDiscreteInputsAsync(byte unitId, ushort start, ushort count, CancellationToken ct = default)
+            => throw new System.Net.Sockets.SocketException();
+
+        public Task<IReadOnlyList<bool>> ReadCoilsAsync(byte unitId, ushort start, ushort count, CancellationToken ct = default)
+            => throw new System.Net.Sockets.SocketException();
+
+        public Task<bool> WriteSingleCoilAsync(byte unitId, ushort address, bool on, CancellationToken ct = default)
+            => throw new System.Net.Sockets.SocketException();
     }
 
     private sealed class FakeModbusClient : IModbusTcpClient

@@ -125,6 +125,57 @@ public sealed class SettingsIoModuleContractTests
     }
 
     [Fact]
+    public void IO頁有即時狀態與連線欄而且只在頁面可見時更新()
+    {
+        var xaml = SourceContract.Read(Xaml);
+        var code = SourceContract.Read(Code);
+
+        // 兩個新欄位：模組的「連線」（最近一次 Modbus 輪詢結果）與接點的「狀態」（目前的開關）。
+        // 加了模組卻填錯 IP，症狀是「接點建好了但永遠沒有事件」——沒有這兩欄就只能在日誌裡找答案。
+        Assert.Contains("x:Name=\"IoColLink\"", xaml);
+        Assert.Contains("x:Name=\"IoColState\"", xaml);
+
+        // 狀態來源是監視器（不是再開一條 Modbus 連線）：接錯來源會出現第二個輪詢者搶同一台模組。
+        Assert.Contains("_ioHost?.PollStatus(", code);
+        Assert.Contains("_ioHost?.States(", code);
+
+        // 節拍只在 IO 頁可見時做事；關窗要停掉（設定中心可能開很久，計時器不留著空轉）。
+        var tick = SourceContract.BodyOf(code, "OnIoStateTimerTick");
+        Assert.Contains("PageIo.Visibility != Visibility.Visible", tick);
+        Assert.Contains("RefreshIoLiveState()", tick);
+
+        var closed = SourceContract.BodyOf(code, "OnClosed");
+        Assert.Contains("_ioStateTimer.Stop()", closed);
+    }
+
+    [Fact]
+    public void IO頁即時狀態欄沒有狀態時不會重建清單()
+    {
+        // 每秒重建 ItemsSource 會讓清單的選取與捲動位置每秒跳一次；
+        // 狀態沒變就什麼都不做（用 record 的值相等比較當「有沒有變」的判準）。
+        var refresh = SourceContract.BodyOf(SourceContract.Read(Code), "RefreshIoLiveState");
+
+        Assert.Contains("signature == _ioStateSignature", refresh);
+        Assert.Contains("with { LinkLabel =", refresh);
+        Assert.Contains("with { StateLabel =", refresh);
+    }
+
+    [Fact]
+    public void 修改接點是更新而不是刪除重加()
+    {
+        var body = SourceContract.BodyOf(SourceContract.Read(Code), "OnIoApplyChannelClicked");
+
+        // id 不變的更新：刪除重加會讓鏡射的接點（io_ports）換 id，指向它的 io_rules 從此
+        // 默默失效——症狀是「規則還在但永遠不觸發」，兩張表都寫入成功、沒有任何錯誤。
+        Assert.Contains("_io.UpdateChannel(", body);
+        Assert.DoesNotContain("_io.DeleteChannel(", body);
+        Assert.DoesNotContain("_io.AddChannel(", body);
+
+        // io_ports 的名稱／極性與監視器的去抖要跟上，否則規則顯示舊名、新的去抖要等重啟。
+        Assert.Contains("RefreshAndStart(", body);
+    }
+
+    [Fact]
     public void IO頁新增的字串三語齊備()
     {
         string[] keys =
@@ -150,6 +201,15 @@ public sealed class SettingsIoModuleContractTests
             "Settings.EnrollCreated",
             "Settings.EnrollToppedUp",
             "Settings.PointCountInvalid",
+            "Settings.IoLinkHeader",
+            "Settings.IoStateHeader",
+            "Settings.IoOnline",
+            "Settings.IoOffline",
+            "Settings.IoPolling",
+            "Settings.IoStateOn",
+            "Settings.IoStateOff",
+            "Settings.IoApplyChannel",
+            "Settings.ChannelUpdated",
         ];
 
         // 不靠 I18n.Get 的繁中 fallback：那會讓「英文缺鍵」看起來有翻譯。

@@ -69,6 +69,36 @@ public sealed class IoDeviceMonitor : IDisposable
     /// <summary>成功輪詢次數（診斷）。</summary>
     public long PollCount { get; private set; }
 
+    /// <summary>最近一次輪詢的時刻；<c>null</c>＝還沒輪詢過（剛啟動，或這個模組沒有 DI）。</summary>
+    public DateTimeOffset? LastPollUtc { get; private set; }
+
+    /// <summary>
+    /// 最近一次輪詢是否成功（Modbus 讀取沒有丟出例外）。
+    /// <para>
+    /// UI 用它顯示模組在不在線：加了一顆 ADAM 卻填錯 IP，症狀是「接點建好了但永遠沒有事件」，
+    /// 沒有這個欄位就只能在日誌裡找。
+    /// </para>
+    /// </summary>
+    public bool LastPollSucceeded { get; private set; }
+
+    /// <summary>
+    /// 目前各 DI 通道的穩定狀態（UI 即時顯示用）。
+    /// <para>
+    /// 還沒輪詢到的通道<b>不會</b>出現在清單裡：對 UI 而言「還不知道」與「斷開」是兩回事，
+    /// 混在一起會把剛加好的模組顯示成全部斷開。
+    /// </para>
+    /// </summary>
+    public IReadOnlyList<IoChannelState> SnapshotStates()
+    {
+        lock (_gate)
+        {
+            return _diChannels
+                .Where(ch => _lastStable.ContainsKey(ch.Id))
+                .Select(ch => new IoChannelState(ch.Id, ch.Name, ch.IoIndex, _lastStable[ch.Id], ch.AlarmPriority))
+                .ToList();
+        }
+    }
+
     /// <summary>啟動週期輪詢（poll_ms）。</summary>
     public void Start()
     {
@@ -192,10 +222,15 @@ public sealed class IoDeviceMonitor : IDisposable
         }
         catch (Exception)
         {
+            // 連不上也要說出來：UI 的「連線」欄靠這個旗標顯示離線，而不是永遠顯示線上。
+            LastPollSucceeded = false;
+            LastPollUtc = DateTimeOffset.UtcNow;
             return;
         }
 
         PollCount++;
+        LastPollSucceeded = true;
+        LastPollUtc = DateTimeOffset.UtcNow;
         var nowMs = Environment.TickCount64;
         foreach (var ch in channels)
         {

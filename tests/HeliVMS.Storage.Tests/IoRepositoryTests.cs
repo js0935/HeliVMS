@@ -113,6 +113,46 @@ public class IoRepositoryTests : IDisposable
     }
 
     [Fact]
+    public void UpdateChannel_改設定不換ID_鏡射的接點跟著更新()
+    {
+        // 「改接點名稱」若走刪除重加，接點（io_ports）會換一個 id，指向它的 io_rules 從此
+        // 默默失效——症狀是「規則還在但永遠不觸發」，兩張表都寫入成功、沒有任何錯誤。
+        // 所以更新必須保持 id，而且鏡射要跟著名稱與極性走。
+        var devId = _repo.AddDevice("門禁模組", "127.0.0.1");
+        var chId = _repo.AddChannel(devId, "DI", 0, "大門", debounceMs: 200);
+        var ports = new IoPortRepository(_store);
+        IoPortMirror.Sync(_repo, ports);
+        var portBefore = ports.List().Single(p => p.IoChannelId == chId);
+
+        var updated = _repo.UpdateChannel(chId, "大門磁簧", debounceMs: 350, polarity: true, cameraId: 7, actor: "settings");
+
+        Assert.True(updated);
+        var ch = _repo.GetChannel(chId);
+        Assert.NotNull(ch);
+        Assert.Equal("大門磁簧", ch!.Name);       // id 沒變，只是內容更新
+        Assert.Equal(350, ch.DebounceMs);
+        Assert.True(ch.Polarity);
+        Assert.Equal(7, ch.CameraId);
+
+        // 鏡射跟上：接點還是同一個 id，名稱與極性已換新（io_rules 的參照因此仍然有效）。
+        IoPortMirror.Sync(_repo, ports);
+        var portAfter = ports.List().Single(p => p.IoChannelId == chId);
+        Assert.Equal(portBefore.Id, portAfter.Id);
+        Assert.Equal("大門磁簧", portAfter.Name);
+        Assert.Equal(IoPolarity.NormallyClosed, portAfter.Polarity);
+    }
+
+    [Fact]
+    public void UpdateChannel_不存在的通道回false而且不寫稽核()
+    {
+        var audit = new AuditLogRepository(_store);
+        var repo = new IoRepository(_store, audit);
+
+        Assert.False(repo.UpdateChannel(999, "不存在", 200, polarity: false, cameraId: null, actor: "settings"));
+        Assert.DoesNotContain(audit.List(new AuditLogQuery()), r => r.Action == "io.channel.update");
+    }
+
+    [Fact]
     public void AddChannel_DuplicateIndex_Throws()
     {
         var devId = _repo.AddDevice("測試", "127.0.0.1");

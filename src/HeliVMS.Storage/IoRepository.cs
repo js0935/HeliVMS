@@ -242,6 +242,44 @@ public sealed class IoRepository
         }
     }
 
+    /// <summary>
+    /// 更新既有通道的可編輯欄位（名稱、去抖、極性、綁定攝影機）；回傳是否真的有這一列。
+    /// </summary>
+    /// <remarks>
+    /// <b>刻意不接受 direction／io_index</b>：那是實體接線，改了等於換掉一個硬體接點，該走刪除重加。
+    /// 而名稱／去抖／極性／綁定是設定，走更新——<b>id 不變，io_rules 對接點的參照才不會斷</b>：
+    /// 刪除重加會讓接點（與其鏡射的 io_ports）消失，規則默默失效，症狀是「規則還在但永遠不觸發」。
+    /// io_ports 的名稱與極性由 <c>IoPortMirror.Sync</c> 在下一次 RefreshAndStart 跟上。
+    /// 啟用／停用走 <see cref="SetChannelEnabled"/>（表單裡沒有這個欄位，不能被更新蓋掉）。
+    /// </remarks>
+    public bool UpdateChannel(int id, string name, int debounceMs, bool polarity, int? cameraId, string? actor = null)
+    {
+        var affected = _store.Query(
+            """
+            UPDATE io_channels
+            SET name = $n, debounce_ms = $db, polarity = $pol, camera_id = $cam
+            WHERE id = $id;
+            SELECT changes();
+            """,
+            static r => r.Read() ? r.GetInt32(0) : 0,
+            cmd =>
+            {
+                cmd.Parameters.AddWithValue("$id", id);
+                cmd.Parameters.AddWithValue("$n", name);
+                cmd.Parameters.AddWithValue("$db", debounceMs);
+                cmd.Parameters.AddWithValue("$pol", polarity ? 1 : 0);
+                cmd.Parameters.AddWithValue("$cam", (object?)cameraId ?? DBNull.Value);
+            });
+
+        if (affected > 0)
+        {
+            _audit.Record(actor, "io.channel.update", AuditCategories.Config, "io_channel", id,
+                $"name={name} debounce={debounceMs} nc={polarity} camera={cameraId?.ToString() ?? "-"}");
+        }
+
+        return affected > 0;
+    }
+
     /// <summary>刪除通道。</summary>
     public void DeleteChannel(int id, string? actor = null)
     {

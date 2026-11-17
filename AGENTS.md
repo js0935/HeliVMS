@@ -1776,4 +1776,26 @@ Notes that will save you time:
   Guarded by `不是本串流的封包不會被算成收包也不推進序號`（突變：關掉型別過濾會紅）、
   `一次大跳號會被單獨回報而不是只算成漏包`、`正常的一個接一個不會被當成大跳號`、
   `換了SSRC不會被算成漏包` and `第二個SSRC出現時會被回報`.
+- **IO 頁要看得到「現在」：接點狀態與模組連線；改接點是更新，不是刪除重加。**
+  兩件事都是現場加了一顆 ADAM 之後第一個會碰到的：
+  ①「接點建好了，現在是開還是關？模組在不在線？」——`IoDeviceMonitor` 的穩定狀態原本只活在
+  記憶體裡（`StateChanged` 事件之外沒有查詢口），IO 頁因此只能顯示設定、不能顯示現況。現在
+  `SnapshotStates()`／`LastPollSucceeded`／`LastPollUtc` 經 `IoMonitorHost.States()`／`PollStatus()`
+  餵到 IO 頁的「狀態」「連線」兩欄，1 秒一拍、只在 IO 頁可見時做事，狀態沒變就不重建
+  ItemsSource（清單的選取與捲動位置才不會每秒跳一次）。還沒輪詢到的通道刻意<b>不</b>出現在
+  快照裡：「還不知道」與「斷開」是兩回事，混在一起會把剛加好的模組顯示成全部斷開。
+  ②「改接點名稱」原本只能刪除重加——刪除會讓鏡射的 io_ports 換 id，指向它的 io_rules 從此
+  默默失效（症狀：規則還在但永遠不觸發，兩張表都寫入成功、沒有任何錯誤）。現在
+  `IoRepository.UpdateChannel`（名稱／去抖／極性／綁定攝影機；<b>刻意不接受 direction／io_index</b>：
+  那是實體接線，改了等於換掉硬體接點，該走刪除重加）保持 id 不變，`IoPortMirror.Sync` 跟上
+  新名稱，規則與地圖沿用同一個接點。啟用／停用仍走 `SetChannelEnabled`（表單裡沒有這個欄位，
+  不能被更新蓋掉）。
+  i18n 的坑（本輪踩到）：加鍵之前先查表——`SelectChannelFirst`／`ChannelNameRequired`／
+  `DebounceInvalid` 早就存在，重複的鍵能編譯、卻在第一次建表時丟 ArgumentException；
+  `ForLang` 的契約測試會抓到，但那要等「把鍵加進測試清單」才會跑到。
+  Guarded by `SnapshotStates_回報目前穩定狀態`, `輪詢失敗會把連線狀態翻成離線`,
+  `輪詢成功會把連線狀態翻成線上`, `IO頁有即時狀態與連線欄而且只在頁面可見時更新`,
+  `IO頁即時狀態欄沒有狀態時不會重建清單`（突變：拿掉簽名比對會紅）、`修改接點是更新而不是刪除重加`
+  （突變：改成 DeleteChannel 會紅）、`UpdateChannel_改設定不換ID_鏡射的接點跟著更新`,
+  `UpdateChannel_不存在的通道回false而且不寫稽核` and `IO頁新增的字串三語齊備`.
 

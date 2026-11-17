@@ -893,6 +893,7 @@
                             <GridViewColumn x:Name="IoColEndpoint" Header="" Width="80" DisplayMemberBinding="{Binding EndpointLabel}"/>
                             <GridViewColumn x:Name="IoColEnabled" Header="" Width="50" DisplayMemberBinding="{Binding EnabledLabel}"/>
                             <GridViewColumn x:Name="IoColPoll" Header="" Width="56" DisplayMemberBinding="{Binding PollMs}"/>
+                            <GridViewColumn x:Name="IoColLink" Header="" Width="56" DisplayMemberBinding="{Binding LinkLabel}"/>
                         </GridView>
                     </ListView.View>
                 </ListView>
@@ -953,12 +954,15 @@
                             <GridViewColumn Header="NC" Width="40" DisplayMemberBinding="{Binding NcLabel}"/>
                             <GridViewColumn x:Name="IoColDebounce" Header="" Width="56" DisplayMemberBinding="{Binding DebounceMs}"/>
                             <GridViewColumn x:Name="IoColCamera" Header="" Width="110" DisplayMemberBinding="{Binding CameraLabel}"/>
+                            <GridViewColumn x:Name="IoColState" Header="" Width="56" DisplayMemberBinding="{Binding StateLabel}"/>
                         </GridView>
                     </ListView.View>
                 </ListView>
                 <StackPanel Orientation="Horizontal" Margin="0,4,0,8">
                     <Button x:Name="IoToggleChannelButton" Content="" Click="OnIoToggleChannelClicked" ToolTip=""
                             Padding="8,4" Foreground="White" Background="#3A5A7A" BorderThickness="0" AutomationProperties.AutomationId="IoToggleChannelButton"/>
+                    <Button x:Name="IoApplyChannelButton" Content="" Click="OnIoApplyChannelClicked" ToolTip="" Margin="6,0,0,0"
+                            Padding="8,4" Foreground="White" Background="#3A5A7A" BorderThickness="0" AutomationProperties.AutomationId="IoApplyChannelButton"/>
                     <Button x:Name="IoDeleteChannelButton" Content="" Click="OnIoDeleteChannelClicked" ToolTip="" Margin="6,0,0,0"
                             Padding="8,4" Foreground="White" Background="#8A3C2E" BorderThickness="0" AutomationProperties.AutomationId="IoDeleteChannelButton"/>
                     <TextBlock x:Name="IoReportText" AutomationProperties.AutomationId="IoReportText"
