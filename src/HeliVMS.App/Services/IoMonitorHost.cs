@@ -49,6 +49,15 @@ public sealed class IoMonitorHost : IDisposable
     /// <summary>任一監視器寫入 io_input 事件（與 motion/tamper 相同接法餵給通知平面）。</summary>
     public event EventHandler<AlarmEventRecord>? EventInserted;
 
+    /// <summary>
+    /// 任一監視器的規則動作鏈產出（帶畫面／截圖／播音／地圖／復歸；由主視窗執行）。
+    /// </summary>
+    /// <remarks>
+    /// 與 <c>CameraDiHost.LinkTriggered</c> 同一個接法。缺了它，Modbus 模組 DI 的連動只會
+    /// 落到事件與繼電器，畫面側（帶畫面／截圖／播音／地圖／復歸）整段沒有出口。
+    /// </remarks>
+    public event EventHandler<IReadOnlyList<IoAction>>? LinkTriggered;
+
     /// <summary>依資料庫現況同步監視器集合：新增啟用模組、移除停用/刪除的模組、重載通道。</summary>
     public void RefreshAndStart()
     {
@@ -87,6 +96,7 @@ public sealed class IoMonitorHost : IDisposable
                 {
                     var monitor = new IoDeviceMonitor(dev, _io, _events, _ruleHost, _ports);
                     monitor.EventInserted += OnEventInserted;
+                    monitor.LinkTriggered += OnLinkTriggered;
                     monitor.Start();
                     _monitors[dev.Id] = monitor;
                 }
@@ -190,6 +200,14 @@ public sealed class IoMonitorHost : IDisposable
         if (!_disposed)
         {
             EventInserted?.Invoke(this, record);
+        }
+    }
+
+    private void OnLinkTriggered(object? sender, IReadOnlyList<IoAction> actions)
+    {
+        if (!_disposed)
+        {
+            LinkTriggered?.Invoke(this, actions);
         }
     }
 }

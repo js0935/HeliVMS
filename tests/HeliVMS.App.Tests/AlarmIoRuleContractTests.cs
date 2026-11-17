@@ -82,9 +82,41 @@ public sealed class AlarmIoRuleContractTests
         Assert.Contains("OpenMapWindow", executor);
         Assert.Contains("ScheduleLinkReset", executor);
 
-        // 事件怎麼到畫面層：監視器 → 宿主 → 主視窗。
+        // 事件怎麼到畫面層：監視器 → 宿主 → 主視窗。攝影機乾接點與 Modbus 模組都要有——
+        // 只有乾接點有整套連動時，模組 DI 觸發就只是「事件有寫、畫面沒反應」的半套。
         Assert.Contains("LinkTriggered", SourceContract.Read("src/HeliVMS.Alarms/CameraDiMonitor.cs"));
+        Assert.Contains("LinkTriggered", SourceContract.Read("src/HeliVMS.Alarms/IoDeviceMonitor.cs"));
+        Assert.Contains("LinkTriggered", SourceContract.Read("src/HeliVMS.App/Services/IoMonitorHost.cs"));
         Assert.Contains("LinkTriggered", SourceContract.Read(Host));
+        Assert.Contains("_ioHost.LinkTriggered", main);
         Assert.Contains("OnCameraDiLinkTriggered", main);
+    }
+
+    [Fact]
+    public void IO連動編輯器是觸發動作輸出連動四段式()
+    {
+        var xaml = SourceContract.Read(RulesXaml);
+
+        // 四段各有小標：觸發 → 動作 → 輸出與復歸 → 連動。全塞在一行的時代，
+        // 操作員分不清哪個秒數管繼電器、哪個管畫面。
+        foreach (var section in new[] { "IoRuleTriggerSectionText", "IoRuleActionSectionText", "IoRuleOutputSectionText", "IoRuleLinkSectionText" })
+        {
+            Assert.Contains($"x:Name=\"{section}\"", xaml);
+        }
+
+        // 編輯器的欄位一個都不能少（自動化面板與既有契約都靠這些 AutomationId）。
+        foreach (var field in new[] { "IoRuleInputCombo", "IoRuleActionCombo", "IoRuleOutputCombo", "IoRuleEventTypeBox", "IoRuleRetriggerBox", "IoRuleOutputSecBox", "IoRuleResetBox", "IoRuleLinkCombo", "IoRuleFullscreenBox", "IoRuleSnapshotBox", "IoRuleMapBox", "IoRuleSoundBox", "IoRuleSoundBrowseButton" })
+        {
+            Assert.Contains($"x:Name=\"{field}\"", xaml);
+        }
+
+        // 清單要能一眼看到整條鏈：ActionText 帶上連動與復歸的摘要。
+        var code = SourceContract.Read(RulesCode);
+        var refresh = SourceContract.BodyOf(code, "RefreshIoRules");
+        Assert.Contains("Rules.IoLinkCamera", refresh);
+        Assert.Contains("Rules.IoLinkSnapshot", refresh);
+        Assert.Contains("Rules.IoLinkMap", refresh);
+        Assert.Contains("Rules.IoLinkReset", refresh);
+        Assert.Contains("Rules.IoLinkOutput", refresh);
     }
 }

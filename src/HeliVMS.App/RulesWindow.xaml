@@ -180,49 +180,70 @@
                     Background="#102030" BorderBrush="#2A5C8A" BorderThickness="1" CornerRadius="3"
                     Margin="0,10,0,0" Padding="10">
                 <StackPanel>
-                    <StackPanel Orientation="Horizontal">
+                    <!-- Section 1: trigger. -->
+                    <TextBlock x:Name="IoRuleTriggerSectionText" Text="" FontSize="12" FontWeight="Bold"
+                               Foreground="{StaticResource Brand.TextDim}"/>
+                    <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
                         <TextBlock x:Name="IoRuleInputLabel" Text="" VerticalAlignment="Center" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
                         <ComboBox x:Name="IoRuleInputCombo" AutomationProperties.AutomationId="IoRuleInputCombo"
                                   Width="230" Margin="8,0,0,0"/>
-                        <TextBlock x:Name="IoRuleActionLabel" Text="" VerticalAlignment="Center" Margin="16,0,0,0" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+                        <CheckBox x:Name="IoRuleEnabledBox" Content="" IsChecked="True" Margin="16,0,0,0"
+                                  Foreground="White" VerticalAlignment="Center" ToolTip=""/>
+                    </StackPanel>
+
+                    <!-- Section 2: action. -->
+                    <TextBlock x:Name="IoRuleActionSectionText" Text="" FontSize="12" FontWeight="Bold"
+                               Foreground="{StaticResource Brand.TextDim}" Margin="0,12,0,0"/>
+                    <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                        <TextBlock x:Name="IoRuleActionLabel" Text="" VerticalAlignment="Center" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
                         <ComboBox x:Name="IoRuleActionCombo" AutomationProperties.AutomationId="IoRuleActionCombo"
                                   Width="150" Margin="8,0,0,0" SelectionChanged="OnIoRuleActionChanged">
                             <ComboBoxItem x:Name="IoRuleActionAlarmItem"/>
                             <ComboBoxItem x:Name="IoRuleActionDoItem"/>
                         </ComboBox>
-                        <CheckBox x:Name="IoRuleEnabledBox" Content="" IsChecked="True" Margin="16,0,0,0"
-                                  Foreground="White" VerticalAlignment="Center" ToolTip=""/>
-                    </StackPanel>
-                                        <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
-                        <TextBlock x:Name="IoRuleTargetLabel" Text="" VerticalAlignment="Center" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+                        <TextBlock x:Name="IoRuleTargetLabel" Text="" VerticalAlignment="Center" Margin="16,0,0,0" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
                         <ComboBox x:Name="IoRuleOutputCombo" AutomationProperties.AutomationId="IoRuleOutputCombo"
                                   Width="200" Margin="8,0,0,0" Visibility="Collapsed"/>
                         <TextBox x:Name="IoRuleEventTypeBox" AutomationProperties.AutomationId="IoRuleEventTypeBox"
                                  Width="140" Margin="8,0,0,0" Visibility="Visible" Foreground="Black"/>
-                        <TextBlock x:Name="IoRuleRetriggerLabel" Text="" VerticalAlignment="Center" Margin="10,0,0,0" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+                        <TextBlock x:Name="IoRuleRetriggerLabel" Text="" VerticalAlignment="Center" Margin="16,0,0,0" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
                         <TextBox x:Name="IoRuleRetriggerBox" AutomationProperties.AutomationId="IoRuleRetriggerBox"
-                                 Width="46" Margin="6,0,0,0" Text="30" Foreground="Black"/>
-                        <TextBlock x:Name="IoRuleOutputSecLabel" Text="" VerticalAlignment="Center" Margin="10,0,0,0" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
-                        <TextBox x:Name="IoRuleOutputSecBox" AutomationProperties.AutomationId="IoRuleOutputSecBox"
-                                 Width="46" Margin="6,0,0,0" Text="0" Foreground="Black"/>
-                        <TextBlock x:Name="IoRuleResetLabel" Text="" VerticalAlignment="Center" Margin="10,0,0,0" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
-                        <TextBox x:Name="IoRuleResetBox" AutomationProperties.AutomationId="IoRuleResetBox"
-                                 Width="46" Margin="6,0,0,0" Text="0" Foreground="Black"/>
+                                 Width="46" Margin="6,0,0,0" Text="30" Foreground="Black" ToolTip=""/>
                     </StackPanel>
-                    <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+
+                    <!-- Section 3: output seconds and layout reset. -->
+                    <TextBlock x:Name="IoRuleOutputSectionText" Text="" FontSize="12" FontWeight="Bold"
+                               Foreground="{StaticResource Brand.TextDim}" Margin="0,12,0,0"/>
+                    <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                        <TextBlock x:Name="IoRuleOutputSecLabel" Text="" VerticalAlignment="Center" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+                        <TextBox x:Name="IoRuleOutputSecBox" AutomationProperties.AutomationId="IoRuleOutputSecBox"
+                                 Width="46" Margin="6,0,0,0" Text="0" Foreground="Black" ToolTip=""/>
+                        <TextBlock x:Name="IoRuleResetLabel" Text="" VerticalAlignment="Center" Margin="16,0,0,0" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
+                        <TextBox x:Name="IoRuleResetBox" AutomationProperties.AutomationId="IoRuleResetBox"
+                                 Width="46" Margin="6,0,0,0" Text="0" Foreground="Black" ToolTip=""/>
+                    </StackPanel>
+
+                    <!-- Section 4: linkage (camera / fullscreen / snapshot / map / sound). -->
+                    <TextBlock x:Name="IoRuleLinkSectionText" Text="" FontSize="12" FontWeight="Bold"
+                               Foreground="{StaticResource Brand.TextDim}" Margin="0,12,0,0"/>
+                    <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
                         <TextBlock x:Name="IoRuleLinkLabel" Text="" VerticalAlignment="Center" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
                         <ComboBox x:Name="IoRuleLinkCombo" AutomationProperties.AutomationId="IoRuleLinkCombo"
                                   Width="200" Margin="8,0,0,0"/>
                         <CheckBox x:Name="IoRuleFullscreenBox" Content="" Margin="12,0,0,0" Foreground="White" VerticalAlignment="Center"/>
                         <CheckBox x:Name="IoRuleSnapshotBox" Content="" Margin="10,0,0,0" Foreground="White" VerticalAlignment="Center"/>
                         <CheckBox x:Name="IoRuleMapBox" Content="" Margin="10,0,0,0" Foreground="White" VerticalAlignment="Center"/>
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                        <TextBlock x:Name="IoRuleSoundLabel" Text="" VerticalAlignment="Center" Foreground="{StaticResource Brand.TextDim}" FontSize="11"/>
                         <TextBox x:Name="IoRuleSoundBox" AutomationProperties.AutomationId="IoRuleSoundBox"
-                                 Width="170" Margin="10,0,0,0" Foreground="Black"/>
+                                 Width="240" Margin="8,0,0,0" Foreground="Black"/>
                         <Button x:Name="IoRuleSoundBrowseButton" Content="" Click="OnIoRuleSoundBrowseClicked"
                                 Margin="6,0,0,0" Padding="8,3"
                                 Foreground="White" Background="#3A5A7A" BorderThickness="0"/>
                     </StackPanel>
-                    <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+
+                    <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
                         <Button x:Name="IoRuleConfirmButton" AutomationProperties.AutomationId="IoRuleConfirmButton" ToolTip=""
                                 Content="" Click="OnIoRuleConfirmed"
                                 Width="90" Padding="0,5"
@@ -234,7 +255,6 @@
                 </StackPanel>
             </Border>
         </StackPanel>
-
         <ListView Grid.Row="4" x:Name="IoRuleList" AutomationProperties.AutomationId="IoRuleList"
                   Margin="0,10,0,0" Background="Transparent" BorderThickness="0"
                   Foreground="White" SelectionMode="Single" FontSize="12">

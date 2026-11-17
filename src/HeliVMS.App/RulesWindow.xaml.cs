@@ -138,7 +138,13 @@ public partial class RulesWindow : Window
         RulesEvalHeaderText.Text = Localizer.T("Rules.EvalHeader");
 
         // IO 連動（接點在設定中心 → IO 登記；這裡只設定觸發後做什麼）。
+        // 四段式表單：觸發 → 動作 → 輸出與復歸 → 連動，各段有自己的小標。
         IoRulesHeaderText.Text = Localizer.T("Rules.IoHeader");
+        IoRuleTriggerSectionText.Text = Localizer.T("Rules.IoTriggerSection");
+        IoRuleActionSectionText.Text = Localizer.T("Rules.IoActionSection");
+        IoRuleOutputSectionText.Text = Localizer.T("Rules.IoOutputSection");
+        IoRuleLinkSectionText.Text = Localizer.T("Rules.IoLinkSection");
+        IoRuleSoundLabel.Text = Localizer.T("Rules.IoSoundLabel");
         IoRulesAddToggleButton.Content = Localizer.T("Rules.IoAddToggle");
         IoRulesAddToggleButton.ToolTip = Localizer.T("Rules.IoAddToggleTip");
         IoRulesRefreshButton.Content = Localizer.T("Rules.IoRefresh");
@@ -629,6 +635,48 @@ public partial class RulesWindow : Window
                 ? string.Format(System.Globalization.CultureInfo.InvariantCulture, Localizer.T("Rules.IoActionAlarm"), EventTypeText.Label(r.EventType ?? string.Empty))
                 : string.Format(System.Globalization.CultureInfo.InvariantCulture, Localizer.T("Rules.IoActionDo"),
                     portById.TryGetValue(r.OutputPortId ?? 0, out var o) ? DescribePort(o) : $"#{r.OutputPortId}");
+
+            // 清單要能一眼看到整條鏈：動作之外還有連動（帶畫面／截圖／地圖／播音）與復歸秒數。
+            var links = new List<string>();
+            if (r.LinkChannelId is not null)
+            {
+                links.Add(Localizer.T("Rules.IoLinkCamera"));
+                if (r.LinkFullscreen)
+                {
+                    links.Add(Localizer.T("Rules.IoFullscreen"));
+                }
+            }
+
+            if (r.LinkSnapshot)
+            {
+                links.Add(Localizer.T("Rules.IoLinkSnapshot"));
+            }
+
+            if (r.LinkMap)
+            {
+                links.Add(Localizer.T("Rules.IoLinkMap"));
+            }
+
+            if (!string.IsNullOrWhiteSpace(r.LinkSoundPath))
+            {
+                links.Add(Localizer.T("Rules.IoLinkSound"));
+            }
+
+            if (r.OutputSeconds > 0)
+            {
+                links.Add(string.Format(System.Globalization.CultureInfo.InvariantCulture, Localizer.T("Rules.IoLinkOutput"), r.OutputSeconds));
+            }
+
+            if (r.ResetSeconds > 0)
+            {
+                links.Add(string.Format(System.Globalization.CultureInfo.InvariantCulture, Localizer.T("Rules.IoLinkReset"), r.ResetSeconds));
+            }
+
+            if (links.Count > 0)
+            {
+                action += "；" + string.Join("、", links);
+            }
+
             return new IoRuleRowViewModel
             {
                 Rule = r,

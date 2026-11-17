@@ -60,6 +60,16 @@ public sealed class IoDeviceMonitor : IDisposable
     /// <summary>io_input 事件已寫入 alarm_events（可接通知平面）。</summary>
     public event EventHandler<AlarmEventRecord>? EventInserted;
 
+    /// <summary>
+    /// 規則動作鏈產出時回報（畫面層執行：帶畫面／截圖／播音／地圖／復歸）。
+    /// </summary>
+    /// <remarks>
+    /// 與 <c>CameraDiMonitor.LinkTriggered</c> 同一個接法。<b>沒有這個出口時</b>，Modbus 模組 DI
+    /// 的連動會在 <see cref="FeedRuleEngine"/> 裡被丟掉：警報事件有寫、繼電器有動，
+    /// 畫面卻什麼都沒發生——整套連動只有攝影機乾接點有，模組接點等於半套。
+    /// </remarks>
+    public event EventHandler<IReadOnlyList<IoAction>>? LinkTriggered;
+
     /// <summary>任一 DI 通道穩定狀態變更（UI 顯示用）。</summary>
     public event EventHandler<IoChannelState>? StateChanged;
 
@@ -311,13 +321,20 @@ public sealed class IoDeviceMonitor : IDisposable
 
         _ = Task.Run(async () =>
         {
+            IReadOnlyList<IoAction> actions;
             try
             {
-                await _ruleHost.FeedAsync(id, active).ConfigureAwait(false);
+                actions = await _ruleHost.FeedAsync(id, active).ConfigureAwait(false);
             }
             catch (Exception)
             {
                 // 規則引擎的失敗（事件 FK、輸出失敗）不往外丟：採樣迴圈不能被它打斷。
+                return;
+            }
+
+            if (actions.Count > 0)
+            {
+                LinkTriggered?.Invoke(this, actions);
             }
         });
     }

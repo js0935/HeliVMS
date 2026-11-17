@@ -1811,4 +1811,23 @@ Notes that will save you time:
   （簽名後面沒有 `(`），要用帶距離的正則。
   Guarded by `IO頁分組與方向過濾`（突變：把 `_ => null` 改成 `_ => "DI"` 會紅）
   and `IO頁新增的字串三語齊備`.
+- **Modbus 模組 DI 的連動（帶畫面／截圖／播音／地圖／復歸）也要落到畫面層。**
+  參考機的 IO 連動鏈是「觸發 → 事件＋繼電器＋帶畫面／截圖／播音／地圖＋復歸」。HeliVMS 裡
+  這條鏈原本只有攝影機乾接點有整套：`IoDeviceMonitor.FeedRuleEngine` 呼叫
+  `_ruleHost.FeedAsync(...)` 之後把回傳的動作<b>丟掉</b>——Modbus DI 觸發時警報事件有寫、
+  繼電器有動，畫面卻什麼都沒發生（兩條監視器的差別沒有任何訊息）。修正：
+  `IoDeviceMonitor.LinkTriggered`（與 `CameraDiMonitor` 同一接法）→ `IoMonitorHost.LinkTriggered`
+  → 主視窗 `OnCameraDiLinkTriggered`（同一個執行器，Dispatcher 排回）。
+  `FeedRuleEngine` 射後不理是刻意的（採樣迴圈不能被規則打斷），所以測試用 TCS 等事件。
+  另外規則清單的「動作」欄現在會帶上整條鏈的摘要（帶畫面／截圖／開地圖／播音／輸出 N 秒／
+  佈局 N 秒後復歸）——只寫「alarm：IO 觸發」時操作員無法核對自己設的連動。
+  Guarded by `模組DI觸發會帶出連動動作`（突變：不發 LinkTriggered 會紅）、
+  `模組DI的連動動作也會落到畫面層`（契約：四條路徑都要有 LinkTriggered）and
+  `IO連動編輯器是觸發動作輸出連動四段式`（突變：拿掉截圖摘要會紅）.
+- **IO 連動編輯器是四段式：觸發 → 動作 → 輸出與復歸 → 連動。**
+  原本所有欄位塞在同一行（輸入、動作、啟用、目標、冷卻、輸出秒、復歸秒再接連動四項），
+  操作員分不清哪個秒數管繼電器、哪個管畫面。現在每段有自己的小標
+  （`Rules.IoTriggerSection`／`IoActionSection`／`IoOutputSection`／`IoLinkSection`，三語），
+  欄位與 AutomationId 一個都沒少（警報中心的自動化面板靠它們）。清單在編輯器下方不變。
+  Guarded by `IO連動編輯器是觸發動作輸出連動四段式`.
 

@@ -298,6 +298,47 @@ public class IoDeviceMonitorTests : IDisposable
         monitor.Dispose();
     }
 
+    [Fact]
+    public async Task 模組DI觸發會帶出連動動作()
+    {
+        // 模組 DI 的連動（帶畫面／截圖／播音／地圖／復歸）過去在 FeedRuleEngine 被丟掉：
+        // 警報事件有寫、繼電器有動，畫面卻什麼都沒發生——整套連動只有攝影機乾接點有。
+        var devId = _io.AddDevice("門禁模組", "127.0.0.1");
+        var chId = _io.AddChannel(devId, "DI", 0, "大門", debounceMs: 0, cameraId: _cameraId);
+        var ports = new IoPortRepository(_store);
+        IoPortMirror.Sync(_io, ports);
+        var port = ports.List().Single(p => p.IoChannelId == chId);
+
+        var rules = new IoRuleRepository(_store);
+        rules.Add(port.Id, IoActionKind.Alarm, outputPortId: null, eventType: "io_trigger",
+            retriggerSec: 0, enabled: true, linkChannelId: _cameraId, linkSnapshot: true);
+
+        var ruleHost = new IoRuleHost(ports, rules, _events);
+        var fake = new FakeModbusClient([false]);
+        var monitor = new IoDeviceMonitor(_io.GetDevice(devId)!, _io, _events, ruleHost, ports, fake);
+        monitor.RefreshChannels();
+
+        // FeedRuleEngine 是射後不理（採樣迴圈不能被規則打斷），所以用 TCS 等事件。
+        var raised = new TaskCompletionSource<IReadOnlyList<IoAction>>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        monitor.LinkTriggered += (_, actions) => raised.TrySetResult(actions);
+
+        await monitor.PollOnceAsync();                 // 基準
+        fake.Push([true]);
+        await monitor.PollOnceAsync();                 // 候選
+        fake.Push([true]);
+        await monitor.PollOnceAsync();                 // 升沿 → 引擎產出動作
+
+        var actions = await raised.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        var action = Assert.Single(actions, a => a.LinkChannelId == _cameraId);
+        Assert.True(action.LinkSnapshot);
+        Assert.Equal("io_trigger", action.EventType);
+
+        // 警報事件照舊落地（連動是加值，不能取代事件）。
+        Assert.NotEmpty(_events.ListByRange(null, DateTime.MinValue, DateTime.MaxValue));
+        monitor.Dispose();
+    }
+
     private async Task<(IoDeviceMonitor M, FakeModbusClient C)> BuildAsync(Func<int, int> seedChannel, int? knownDeviceId = null)
     {
         var devId = knownDeviceId ?? _io.AddDevice("門禁模組", "127.0.0.1");

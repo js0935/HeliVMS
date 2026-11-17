@@ -1215,6 +1215,7 @@ public partial class MainWindow : Window, IWallDisplayOptions
 
         // 警報動作：DI 觸發後的帶畫面／截圖／播音／地圖／賦歸（繼電器由 IoRuleHost 直接輸出）。
         _cameraDiHost.LinkTriggered += OnCameraDiLinkTriggered;
+        _ioHost.LinkTriggered += OnCameraDiLinkTriggered;
 
         // M305：內嵌 Web 服務。設定了 web.enabled=1 就在啟動時拉起，交由設定中心「網路」頁控制。
         // M2c：QCTek CMS 相容服務。設定了 qctek.compat.enabled=1 就在啟動時拉起 NEMO 伺服器，
