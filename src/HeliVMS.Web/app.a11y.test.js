@@ -3,11 +3,18 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 const appSource = readFileSync(fileURLToPath(new URL('./app.js', import.meta.url)), 'utf8');
+const loginSource = readFileSync(fileURLToPath(new URL('./login.js', import.meta.url)), 'utf8');
 const indexSource = readFileSync(fileURLToPath(new URL('./index.html', import.meta.url)), 'utf8');
+const loginHtml = readFileSync(fileURLToPath(new URL('./login.html', import.meta.url)), 'utf8');
 const cssSource = readFileSync(fileURLToPath(new URL('./styles.css', import.meta.url)), 'utf8');
 
 const elementIds = (source) => [...source.matchAll(/id="([^"]+)"/g)].map((m) => m[1]);
 const appIdRefs = () => [...new Set([...appSource.matchAll(/\$\('([^']+)'\)/g)].map((m) => m[1]))];
+const loginIdRefs = () => [...new Set([...loginSource.matchAll(/\$\('([^']+)'\)/g)].map((m) => m[1]))];
+/** 欄位現在分在兩頁，標籤檢查要在兩份 HTML 裡找。 */
+const tagFor = (id) =>
+  indexSource.match(new RegExp(`<[^>]+id="${id}"[^>]*>`))?.[0] ??
+  loginHtml.match(new RegExp(`<[^>]+id="${id}"[^>]*>`))?.[0] ?? '';
 
 describe('document structure', () => {
   it('has no duplicate element ids', () => {
@@ -15,9 +22,16 @@ describe('document structure', () => {
     expect([...new Set(ids.filter((v, i) => ids.indexOf(v) !== i))]).toEqual([]);
   });
 
-  it('every $() reference in app.js resolves to an element in index.html', () => {
-    const ids = elementIds(indexSource);
-    expect(appIdRefs().filter((r) => !ids.includes(r))).toEqual([]);
+  it('every $() reference resolves to an element on its own page', () => {
+    const mainIds = elementIds(indexSource);
+    expect(appIdRefs().filter((r) => !mainIds.includes(r))).toEqual([]);
+    const loginIds = elementIds(loginHtml);
+    expect(loginIdRefs().filter((r) => !loginIds.includes(r))).toEqual([]);
+  });
+
+  it('has no duplicate element ids on the login page either', () => {
+    const ids = elementIds(loginHtml);
+    expect([...new Set(ids.filter((v, i) => ids.indexOf(v) !== i))]).toEqual([]);
   });
 
   it('does not reference the removed alarm board', () => {
@@ -41,27 +55,33 @@ describe('keyboard accessibility', () => {
   it('labels every high-value placeholder-only input with an aria-label', () => {
     const labeled = ['user', 'pass', 'q', 'live-channels', 'snap-channel', 'ptz-channel', 'ptz-preset-name', 'io-channel'];
     for (const id of labeled) {
-      const tag = indexSource.match(new RegExp(`<[^>]+id="${id}"[^>]*>`))?.[0] ?? '';
-      expect(tag, `#${id}`).toMatch(/aria-label=/);
+      expect(tagFor(id), `#${id}`).toMatch(/aria-label=/);
     }
   });
 
-  it('登入表單住在獨立畫面裡，主介面未通過憑證前不出現', () => {
+  it('登入表單住在獨立頁面，主介面未通過憑證前不出現', () => {
     // 舊版把金鑰與登入表單塞進頂列 <details>，未登入時主介面仍整頁亮著。
-    // 現在兩個區塊各自獨立，且由 showLogin() 控制 hidden。
-    expect(indexSource).toMatch(/<div id="login-screen"[^>]*hidden>[\s\S]*?<form id="login"[^>]*>[\s\S]*?<\/div>/);
+    // 現在是兩個 HTML：登入頁一載入就看得見，主介面則保持 hidden 直到 hasAccess() 通過。
+    expect(loginHtml).toMatch(/<div id="login-screen" class="login-screen">[\s\S]*?<form id="login" class="login-fields">[\s\S]*?<\/div>/);
     expect(indexSource).toMatch(/<div id="app-shell" hidden>[\s\S]*?<header id="app" class="topbar">/);
+    expect(indexSource).not.toMatch(/<form id="login"/);
+    expect(indexSource).not.toMatch(/<div id="login-screen"/);
     expect(indexSource).not.toMatch(/<details class="topbar-auth">/);
     expect(indexSource).not.toMatch(/<summary[^>]*autofocus/);
-    expect(appSource).toMatch(/function showLogin\(show\)[\s\S]*\$\('login-screen'\)\.hidden = !show[\s\S]*\$\('app-shell'\)\.hidden = show/);
-    // 靜態 autofocus 對初始 hidden 的元素無效，改由 showLogin() 在 unhide 後移動焦點。
-    expect(appSource).toMatch(/requestAnimationFrame\(\(\) => \$\('user'\)\?\.focus\(\)\)/);
+    expect(appSource).toMatch(/\$\('app-shell'\)\.hidden = false;/);
+    expect(appSource).toMatch(/if \(\$\('app-shell'\)\.hidden\) return;/);
+    expect(appSource).toMatch(/if \(!\(await hasAccess\(\)\)\)/);
+    // 登入頁一開始就可見，autofocus 直接用 rAF 移動焦點。
+    expect(loginSource).toMatch(/requestAnimationFrame\(\(\) => \$\('user'\)\?\.focus\(\)\)/);
   });
 
   it('登入頁與主介面各有一個語系選擇器且 id 不重複', () => {
-    expect(indexSource.match(/id="login-locale"/g)).toHaveLength(1);
+    expect(loginHtml.match(/id="login-locale"/g)).toHaveLength(1);
     expect(indexSource.match(/id="locale"/g)).toHaveLength(1);
-    expect(appSource).toMatch(/for \(const id of \['locale', 'login-locale'\]\)/);
+    expect(indexSource).not.toMatch(/id="login-locale"/);
+    expect(loginHtml).not.toMatch(/id="locale"/);
+    expect(appSource).toMatch(/for \(const id of \['locale'\]\)/);
+    expect(loginSource).toMatch(/\$\('login-locale'\)\.addEventListener\('change'/);
   });
 
   it('labels every table header with a column scope', () => {

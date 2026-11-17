@@ -4,7 +4,10 @@ import { describe, expect, it } from 'vitest';
 
 const appSource = readFileSync(fileURLToPath(new URL('./app.js', import.meta.url)), 'utf8');
 const liveSource = readFileSync(fileURLToPath(new URL('./live.js', import.meta.url)), 'utf8');
+const authSource = readFileSync(fileURLToPath(new URL('./auth.js', import.meta.url)), 'utf8');
+const loginSource = readFileSync(fileURLToPath(new URL('./login.js', import.meta.url)), 'utf8');
 const indexSource = readFileSync(fileURLToPath(new URL('./index.html', import.meta.url)), 'utf8');
+const loginHtml = readFileSync(fileURLToPath(new URL('./login.html', import.meta.url)), 'utf8');
 
 /** Balanced scan of `${...}` interpolations; nested templates and braces are tracked. */
 function interpolations(source) {
@@ -57,17 +60,29 @@ function htmlAssignments(source) {
 }
 
 describe('single authenticated transport', () => {
-  it('calls fetch exactly once, inside apiRaw', () => {
-    expect(appSource.match(/\bfetch\(/g) ?? []).toHaveLength(1);
-    expect(appSource).toMatch(/async function apiRaw\([\s\S]*?await fetch\(/);
+  it('calls fetch exactly once, inside the shared apiRaw in auth.js', () => {
+    // login.html 與 index.html 現在是兩頁，但憑證只有一份 transport。任一方自己開一個 fetch
+    // 就會漏 bearer header，症狀是「登入成功卻每一支 API 都 401」。
+    expect(authSource.match(/\bfetch\(/g) ?? []).toHaveLength(1);
+    expect(authSource).toMatch(/export async function apiRaw\([\s\S]*?await fetch\(/);
+    expect(appSource).not.toMatch(/\bfetch\(/);
+    expect(loginSource).not.toMatch(/\bfetch\(/);
+    expect(liveSource).not.toMatch(/\bfetch\(/);
   });
 
-  it('sends the bearer header from apiRaw', () => {
-    expect(appSource).toMatch(/bearerHeader\(key\(\)\)/);
+  it('sends the bearer header from the shared apiRaw', () => {
+    expect(authSource).toMatch(/bearerHeader\(key\(\)\)/);
+  });
+
+  it('makes both pages import the shared transport', () => {
+    expect(appSource).toMatch(/from '\.\/auth\.js'/);
+    expect(loginSource).toMatch(/from '\.\/auth\.js'/);
   });
 
   it('does not hardcode the authorization header at call sites', () => {
-    expect(appSource).not.toMatch(/Authorization: `/);
+    for (const source of [authSource, appSource, loginSource]) {
+      expect(source).not.toMatch(/Authorization: `/);
+    }
   });
 
   it('keeps the live-stream viewer on the injected transport', () => {
@@ -102,9 +117,11 @@ describe('escaped rendering', () => {
 });
 
 describe('shell hardening', () => {
-  it('declares a content security policy', () => {
-    expect(indexSource).toMatch(/http-equiv="Content-Security-Policy"/);
-    expect(indexSource).toMatch(/default-src 'self'/);
+  it('declares a content security policy on both pages', () => {
+    for (const source of [indexSource, loginHtml]) {
+      expect(source).toMatch(/http-equiv="Content-Security-Policy"/);
+      expect(source).toMatch(/default-src 'self'/);
+    }
   });
 
   it('allows blob media so the HLS playback MediaSource can load', () => {
@@ -122,24 +139,33 @@ describe('shell hardening', () => {
 
   it('never ships the development api key in markup', () => {
     expect(indexSource).not.toContain('helivms-dev-key');
+    expect(loginHtml).not.toContain('helivms-dev-key');
   });
 
   it('does not persist a blank api key', () => {
-    expect(appSource).toMatch(/localStorage\.removeItem\('helivms\.apiKey'\)/);
+    expect(authSource).toMatch(/localStorage\.removeItem\(KEY_STORAGE\)/);
   });
 
-  it('stores the session token as the apiRaw credential after login', () => {
-    // 登入成功立即把工作階段 token 寫進 apiRaw 的憑證槽，之後所有 /api/* 請求都帶它，
+  it('stores the session token as the shared transport credential after login', () => {
+    // 登入頁拿到 token 後寫進共用憑證槽，主介面所有 /api/* 請求都帶它，
     // 使用者不需要另外手動餵 API 金鑰。
-    expect(appSource).toMatch(/state\.token[\s\S]*localStorage\.setItem\('helivms\.apiKey', state\.token\)/);
+    expect(loginSource).toMatch(/setApiKey\(state\.token\)/);
+    expect(authSource).toMatch(/localStorage\.setItem\(KEY_STORAGE,/);
   });
 
-  it('revokes the session and clears the credential on logout', () => {
+  it('revokes the session and returns to the standalone login page on logout', () => {
     expect(appSource).toMatch(/apiRaw\('\/api\/accounts\/logout', \{ method: 'POST' \}\)/);
-    expect(appSource).toMatch(/localStorage\.removeItem\('helivms\.apiKey'\)[\s\S]*window\.location\.reload\(\)/);
+    expect(appSource).toMatch(/clearApiKey\(\)[\s\S]*window\.location\.replace\('login\.html'\)/);
   });
 
   it('clears the session on logout instead of storing an empty object', () => {
-    expect(appSource).toMatch(/sessionStorage\.removeItem\('helivms\.session'\)/);
+    expect(authSource).toMatch(/sessionStorage\.removeItem\(SESSION_STORAGE\)/);
+  });
+
+  it('gives the standalone login page its own module script, not the main app', () => {
+    expect(loginHtml).toMatch(/<script type="module" src="\.\/login\.js"><\/script>/);
+    expect(loginHtml).not.toMatch(/src="\.\/app\.js"/);
+    expect(indexSource).toMatch(/<script type="module" src="\.\/app\.js"><\/script>/);
+    expect(indexSource).not.toMatch(/src="\.\/login\.js"/);
   });
 });

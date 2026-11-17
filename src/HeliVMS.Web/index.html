@@ -12,42 +12,9 @@
 </head>
 <body>
   <!--
-    獨立的登入畫面。舊版把金鑰欄、帳號、密碼塞在頂列的可展開區塊，操作員看到的是
-    「功能表裡混著一個登入框」，而且沒登入時主介面仍然整頁亮著、所有 API 默默回 401。
-    現在先顯示這一頁，憑證可用才顯示 #app-shell；欄位 id 全部保留，wire() 不必分岔。
+    主介面。登入是不可跳過的前置頁（login.html）：未通過憑證時 app.js 直接導向那頁，
+    這裡一開始保持 hidden，避免等待 /api/config 時先閃一下監看首頁。
   -->
-  <div id="login-screen" class="login-screen" hidden>
-    <section class="login-card" aria-labelledby="login-title">
-      <h1 id="login-title" data-i18n="login.title">登入 HeliVMS</h1>
-      <p class="muted" data-i18n="login.hint">請使用帳號密碼，或輸入 API 金鑰後按「以金鑰進入」。</p>
-      <form id="login" class="login-fields">
-        <label>
-          <span data-i18n="app.apiKey">API 金鑰</span>
-          <input id="apikey" type="password" placeholder="Enter API key" data-i18n-attr="placeholder:ph.apiKey,aria-label:app.apiKey" autocomplete="off" aria-label="API key" />
-        </label>
-        <button type="button" id="login-key" data-i18n="login.withKey">以金鑰進入</button>
-        <hr />
-        <label>
-          <span data-i18n="ph.username">帳號</span>
-          <input id="user" placeholder="Username" data-i18n-attr="placeholder:ph.username,aria-label:ph.username" autocomplete="username" aria-label="Username" />
-        </label>
-        <label>
-          <span data-i18n="ph.password">密碼</span>
-          <input id="pass" type="password" placeholder="Password" data-i18n-attr="placeholder:ph.password,aria-label:ph.password" autocomplete="current-password" aria-label="Password" />
-        </label>
-        <button type="submit" data-i18n="app.login">登入</button>
-        <span id="login-msg" class="muted" aria-live="polite"></span>
-      </form>
-      <label class="locale-pick">
-        <span data-i18n="app.language">語言</span>
-        <select id="login-locale" aria-label="Language" data-i18n-attr="aria-label:app.language">
-          <option value="zh-TW">繁體中文</option>
-          <option value="en">English</option>
-        </select>
-      </label>
-    </section>
-  </div>
-
   <div id="app-shell" hidden>
   <a class="skip" href="#content" data-i18n="a11y.skipToContent">略過至內容</a>
   <header id="app" class="topbar">

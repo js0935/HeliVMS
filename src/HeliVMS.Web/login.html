@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta
+    http-equiv="Content-Security-Policy"
+    content="default-src 'self'; connect-src 'self' ws: wss:; img-src 'self' data:; media-src 'self' blob:; style-src 'self'; base-uri 'none'; object-src 'none'; form-action 'self'"
+  />
+  <title>HeliVMS</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <!--
+    真正獨立的登入頁。舊版把金鑰欄與帳號密碼塞在主介面的頂列／同一份 index.html，
+    未登入時整頁仍亮著、所有 API 默默回 401。現在憑證只從這一頁取得；
+    欄位 id 全部保留，id 之外的既有自動化與 i18n key 不必改。
+  -->
+  <div id="login-screen" class="login-screen">
+    <section class="login-card" aria-labelledby="login-title">
+      <h1 id="login-title" data-i18n="login.title">登入 HeliVMS</h1>
+      <p class="muted" data-i18n="login.hint">請使用帳號密碼，或輸入 API 金鑰後按「以金鑰進入」。</p>
+      <form id="login" class="login-fields">
+        <label>
+          <span data-i18n="app.apiKey">API 金鑰</span>
+          <input id="apikey" type="password" placeholder="Enter API key" data-i18n-attr="placeholder:ph.apiKey,aria-label:app.apiKey" autocomplete="off" aria-label="API key" />
+        </label>
+        <button type="button" id="login-key" data-i18n="login.withKey">以金鑰進入</button>
+        <hr />
+        <label>
+          <span data-i18n="ph.username">帳號</span>
+          <input id="user" placeholder="Username" data-i18n-attr="placeholder:ph.username,aria-label:ph.username" autocomplete="username" aria-label="Username" />
+        </label>
+        <label>
+          <span data-i18n="ph.password">密碼</span>
+          <input id="pass" type="password" placeholder="Password" data-i18n-attr="placeholder:ph.password,aria-label:ph.password" autocomplete="current-password" aria-label="Password" />
+        </label>
+        <button type="submit" data-i18n="app.login">登入</button>
+        <span id="login-msg" class="muted" aria-live="polite"></span>
+      </form>
+      <label class="locale-pick">
+        <span data-i18n="app.language">語言</span>
+        <select id="login-locale" aria-label="Language" data-i18n-attr="aria-label:app.language">
+          <option value="zh-TW">繁體中文</option>
+          <option value="en">English</option>
+        </select>
+      </label>
+    </section>
+  </div>
+
+  <script type="module" src="./login.js"></script>
+</body>
+</html>

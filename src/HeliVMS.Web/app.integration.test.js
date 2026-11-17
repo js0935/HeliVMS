@@ -5,7 +5,10 @@ import { fileURLToPath } from 'node:url';
 
 const root = join(dirname(fileURLToPath(import.meta.url)));
 const appSource = readFileSync(join(root, 'app.js'), 'utf8');
+const authSource = readFileSync(join(root, 'auth.js'), 'utf8');
+const loginSource = readFileSync(join(root, 'login.js'), 'utf8');
 const indexSource = readFileSync(join(root, 'index.html'), 'utf8');
+const loginHtml = readFileSync(join(root, 'login.html'), 'utf8');
 const stylesSource = readFileSync(join(root, 'styles.css'), 'utf8');
 // M243：介面文字搬到 i18n.js 後，原始碼斷言不能只看 app.js，
 // 否則「字串還在不在」會被誤判成翻譯被刪掉。這裡同時確認 key 有被使用、且目錄裡真的有譯文。
@@ -37,32 +40,47 @@ describe('five-tab console', () => {
   });
 });
 
-describe('standalone login screen', () => {
+describe('standalone login page', () => {
   it('登入畫面的使用者可見文字都走 i18n，不在 HTML 寫死', () => {
     // 登入頁是獨立畫面，最容易被直接寫死中文/英文；三個 key 都必須在目錄裡有譯文。
     for (const key of ['login.title', 'login.hint', 'login.withKey']) {
-      expect(indexSource, key).toMatch(new RegExp(`data-i18n="${key.replace('.', '\\.')}"`));
+      expect(loginHtml, key).toMatch(new RegExp(`data-i18n="${key.replace('.', '\\.')}"`));
       expect(i18nSource, key).toContain(`'${key}':`);
     }
-    expectLocalized(appSource, 'login.needKey', '請輸入 API 金鑰');
+    expectLocalized(loginSource, 'login.needKey', '請輸入 API 金鑰');
+  });
+
+  it('登入表單只住在 login.html，index.html 不再保留欄位', () => {
+    expect(loginHtml).toMatch(/<form id="login" class="login-fields">/);
+    for (const id of ['apikey', 'user', 'pass', 'login', 'login-msg', 'login-key', 'login-locale']) {
+      expect(loginHtml, id).toMatch(new RegExp(`id="${id}"`));
+      expect(indexSource, `index.html 不該再有 #${id}`).not.toMatch(new RegExp(`id="${id}"`));
+    }
+  });
+
+  it('登入成功後帶著 token 回到主介面', () => {
+    expect(loginSource).toMatch(/setApiKey\(state\.token\)/);
+    expect(loginSource).toMatch(/window\.location\.replace\(MAIN_PAGE\)/);
+    expect(loginSource).toMatch(/const MAIN_PAGE = 'index\.html'/);
   });
 });
 
 describe('api-key flow', () => {
-  it('validates the API key from the standalone login screen before entering the app', () => {
+  it('validates the API key on the standalone login page before redirecting', () => {
     // 金鑰改在獨立登入頁輸入，Enter 不再只是 refreshAll()（那會在主介面還藏著時
     // 默默刷新一堆 401），而是走 enterWithKey() 先驗憑證再切畫面。
-    expect(appSource).toMatch(/apikey'\)\.addEventListener\('keydown'[\s\S]*Enter[\s\S]*enterWithKey\(\)/);
-    expect(appSource).toMatch(/login-key'\)\.addEventListener\('click'/);
-    expect(appSource).toMatch(/async function enterWithKey\(\)/);
+    expect(loginSource).toMatch(/apikey'\)\.addEventListener\('keydown'[\s\S]*Enter[\s\S]*enterWithKey\(\)/);
+    expect(loginSource).toMatch(/login-key'\)\.addEventListener\('click'/);
+    expect(loginSource).toMatch(/async function enterWithKey\(\)/);
+    expect(loginSource).toMatch(/if \(await hasAccess\(\)\)[\s\S]*window\.location\.replace\(MAIN_PAGE\)/);
   });
 
   it('只有在憑證可用時才啟動主介面與背景輪詢', () => {
-    expect(appSource).toMatch(/if \(await canEnterApp\(\)\)[\s\S]*await enterApp\(\)[\s\S]*else[\s\S]*showLogin\(true\)/);
+    expect(appSource).toMatch(/if \(!\(await hasAccess\(\)\)\) \{[\s\S]*window\.location\.replace\('login\.html'\)[\s\S]*return;/);
     expect(appSource).toMatch(/if \(\$\('app-shell'\)\.hidden\) return;/);
     // 只檢查 localStorage 有沒有值，會放過伺服器重開後已失效的舊 token，
     // 症狀就是「主介面出現但每支 API 都 401」。必須用 /api/config 真實驗證。
-    expect(appSource).toMatch(/async function canEnterApp\(\)[\s\S]*apiRaw\('\/api\/config'\)[\s\S]*return res\.ok/);
+    expect(authSource).toMatch(/export async function hasAccess\(\)[\s\S]*apiRaw\('\/api\/config'\)[\s\S]*return res\.ok/);
   });
 });
 
@@ -112,13 +130,13 @@ describe('connection banner', () => {
     expect(indexSource).toMatch(/id="conn"[^>]*role="status"[^>]*aria-live="polite"/);
   });
 
-  it('flips the banner inside the single transport around fetch', () => {
-    expect(appSource).toMatch(/const response = await fetch\(path, \{ \.\.\.init, headers \}\);\s*setConn\(true\);/);
-    expect(appSource).toMatch(/catch \(err\) \{\s*setConn\(false\);\s*throw err;\s*\}/);
+  it('flips the banner inside the shared transport around fetch', () => {
+    expect(authSource).toMatch(/const response = await fetch\(path, \{ \.\.\.init, headers \}\);\s*setConn\(true\);/);
+    expect(authSource).toMatch(/catch \(err\) \{\s*setConn\(false\);\s*throw err;\s*\}/);
   });
 
   it('renders a disconnect label and hides empty state', () => {
-    expect(appSource).toMatch(/el\.textContent = ok \? '' : t\('state\.disconnected'\);/);
+    expect(authSource).toMatch(/el\.textContent = ok \? '' : t\('state\.disconnected'\);/);
     expect(i18nSource).toContain("'state.disconnected': '連線中斷'");
   });
 });

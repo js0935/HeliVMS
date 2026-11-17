@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 const cssSource = readFileSync(fileURLToPath(new URL('./styles.css', import.meta.url)), 'utf8');
 const appSource = readFileSync(fileURLToPath(new URL('./app.js', import.meta.url)), 'utf8');
 const indexSource = readFileSync(fileURLToPath(new URL('./index.html', import.meta.url)), 'utf8');
+const loginHtml = readFileSync(fileURLToPath(new URL('./login.html', import.meta.url)), 'utf8');
 
 /**
  * 版面回歸測試。
@@ -302,11 +303,16 @@ describe('QCV8001 Web 外觀對齊', () => {
     expect(refRule('.subtabs')).toMatch(/background:\s*var\(--toolbar\)/);
   });
 
-  it('獨立登入頁與主介面互斥隱藏，未通過憑證前不會露出主介面', () => {
+  it('登入頁自成全頁，主介面未通過憑證前保持隱藏', () => {
     // .login-screen / #app-shell 都設了 display，單靠 HTML 的 hidden 會被蓋掉；
     // 少了這條規則，未登入時主介面仍然整頁可見，只是所有 API 回 401。
     expect(cssSource).toMatch(/#app-shell\[hidden\],\s*\.login-screen\[hidden\] \{ display: none; \}/);
     expect(cssSource).toMatch(/\.login-screen \{[\s\S]*?min-height: 100vh/);
+    // 登入頁是獨立檔案：一張全螢幕卡片，不再藏在 index.html 的 hidden 區塊裡。
+    expect(loginHtml).toMatch(/<div id="login-screen" class="login-screen">/);
+    expect(loginHtml).not.toMatch(/hidden/);
+    expect(indexSource).toMatch(/<div id="app-shell" hidden>/);
+    expect(indexSource).not.toMatch(/class="login-screen"/);
   });
 
   it('登入卡片與事件表頭沿用 Login 與事件查詢的醒目配色', () => {

@@ -1,8 +1,8 @@
 import { applyDom, DEFAULT_LOCALE, locale, setLocale, t } from './i18n.js';
 import { createAlertSocket } from './alerts.js';
 import { createLiveViewer } from './live.js';
+import { apiRaw, clearApiKey, hasAccess, key, readSession, storeSession } from './auth.js';
 import {
-  bearerHeader,
   buildCentralPlaylistQuery,
   buildPlaylistQuery,
   buildRecordingClock,
@@ -15,7 +15,6 @@ import {
   mseMimeType,
   parseFmp4InitTracks,
   parseFmp4VideoSpan,
-  parseLogin,
   parseM3u8,
   parseWsMessage,
   playbackBufferedFor,
@@ -30,32 +29,8 @@ import {
 } from './lib.js';
 
 const $ = (id) => document.getElementById(id);
-const key = () => (localStorage.getItem('helivms.apiKey') || $('apikey')?.value || '').trim();
 const POLL_MS = 12000; // 授權與健康狀態的輪詢；分頁隱藏或焦點在控制項上時暫停。
-
-/** Single authenticated transport: every API call must go through here so the bearer key is always sent. */
-async function apiRaw(path, init = {}) {
-  const headers = new Headers(init.headers);
-  for (const [name, value] of Object.entries(bearerHeader(key()))) {
-    headers.set(name, value);
-  }
-  try {
-    const response = await fetch(path, { ...init, headers });
-    setConn(true);
-    return response;
-  } catch (err) {
-    setConn(false);
-    throw err;
-  }
-}
-
-/** 連線旗標：任何請求成功即可正常；網路層失敗時在頂列顯示「連線中斷」。（HTTP 錯誤狀態不算斷線） */
-function setConn(ok) {
-  const el = $('conn');
-  if (!el) return;
-  el.textContent = ok ? '' : t('state.disconnected');
-  el.classList.toggle('off', !ok);
-}
+// apiRaw / key / session 讀寫都在 auth.js：登入頁與主介面共用同一份 transport 與憑證。
 
 async function api(path, init = {}) {
   const response = await apiRaw(path, init);
@@ -73,65 +48,19 @@ async function refreshHealth() {
   }
 }
 
-function readSession() {
-  try {
-    return JSON.parse(sessionStorage.getItem('helivms.session') || 'null');
-  } catch {
-    return null;
-  }
-}
-
-function storeSession(session) {
-  if (session) {
-    sessionStorage.setItem('helivms.session', JSON.stringify(session));
-  } else {
-    sessionStorage.removeItem('helivms.session');
-  }
-  updateChrome();
-}
-
-async function submitLogin(event) {
-  event.preventDefault();
-  const username = $('user').value.trim();
-  const password = $('pass').value;
-  $('pass').value = '';
-  let payload = {};
-  try {
-    const res = await apiRaw('/api/accounts/authenticate', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username, password }),
-    });
-    payload = await res.json().catch(() => ({}));
-  } catch {
-    payload = {};
-  }
-  const state = parseLogin(payload);
-  $('login-msg').textContent = state.ok ? '' : state.error;
-  if (!state.ok) return;
-  storeSession({ role: state.role, name: state.displayName });
-  // M306：登入成功即拿到工作階段 token；存成 apiRaw 的憑證，之後不必再手動餵 API 金鑰。
-  if (state.token) {
-    localStorage.setItem('helivms.apiKey', state.token);
-    $('apikey').value = state.token;
-  }
-  await enterApp();
-}
-
 async function logout() {
   // 撤銷伺服器端工作階段（M306）：token 一撤銷，帶著它的請求都回 401。
   // best-effort——連不上時仍要清掉本機憑證，伺服器端最終也會因過期而失效。
   try {
     await apiRaw('/api/accounts/logout', { method: 'POST' });
   } catch {
-    // 忽略：頁面仍要重載並清除本機狀態。
+    // 忽略：頁面仍要回到登入頁並清除本機狀態。
   }
   storeSession(null);
-  localStorage.removeItem('helivms.apiKey');
-  $('apikey').value = '';
+  clearApiKey();
   stopLiveView();
   stopSnapshotView();
-  window.location.reload();
+  window.location.replace('login.html');
 }
 
 function updateChrome() {
@@ -142,61 +71,14 @@ function updateChrome() {
   $('logout').hidden = !session;
 }
 
-/** 在獨立登入頁與主介面之間切換；憑證未通過前不顯示主介面。 */
-function showLogin(show) {
-  $('login-screen').hidden = !show;
-  $('app-shell').hidden = show;
-  if (show) {
-    $('login-msg').textContent = '';
-    // 靜態 autofocus 在初始 hidden 的元素上不會生效，unhide 後再把焦點放進帳號欄。
-    requestAnimationFrame(() => $('user')?.focus());
-  }
-}
-
-/**
- * 用真實請求判斷是否可直接進入主介面。不能只看 localStorage 有沒有 session/key：
- * 伺服器重開後 AccountSessionStore 是空的，舊 token 還留在瀏覽器裡，只靠本機值放行
- * 就會回到「主介面看得到、每一支 API 都 401」的舊症狀。/api/config 不受授權旗標影響，
- * HELIVMS_API_KEY_DISABLED=1 的部署不需金鑰就會回 200，其餘情況必須帶有效憑證。
- */
-async function canEnterApp() {
-  try {
-    const res = await apiRaw('/api/config');
-    return res.ok;
-  } catch {
-    return false;
-  }
-}
-
 /** 通過登入頁之後才啟動需要憑證的輪詢與 WebSocket，未登入時不製造一堆 401。 */
 async function enterApp() {
-  showLogin(false);
+  $('app-shell').hidden = false;
   updateChrome();
   await refreshHealth();
   await refreshLicense();
   await refreshAll();
   if (!alertSocket) connectLive();
-}
-
-/** 以 API 金鑰進入：先試再寫入本機，失敗時復原舊值，免得把有效憑證洗掉。 */
-async function enterWithKey() {
-  const value = $('apikey').value.trim();
-  if (!value) {
-    $('login-msg').textContent = t('login.needKey');
-    return;
-  }
-  const previous = localStorage.getItem('helivms.apiKey');
-  localStorage.setItem('helivms.apiKey', value);
-  try {
-    const res = await apiRaw('/api/config');
-    if (!res.ok) throw new Error(String(res.status));
-    $('login-msg').textContent = '';
-    await enterApp();
-  } catch {
-    if (previous === null) localStorage.removeItem('helivms.apiKey');
-    else localStorage.setItem('helivms.apiKey', previous);
-    $('login-msg').textContent = t('state.loginFailed');
-  }
 }
 
 /** 目前選取的次分頁（group → name）。切主頁籤再回來時要回到操作員最後看的那一頁。 */
@@ -1781,7 +1663,6 @@ function disconnectLive() {
 }
 
 function wire() {
-  $('login').addEventListener('submit', submitLogin);
   $('logout').addEventListener('click', (e) => {
     e.preventDefault();
     logout();
@@ -1847,16 +1728,6 @@ function wire() {
     e.preventDefault();
     searchEvents($('q').value).catch(console.error);
   });
-
-  const saved = localStorage.getItem('helivms.apiKey');
-  if (saved) $('apikey').value = saved;
-  $('login-key').addEventListener('click', () => { void enterWithKey(); });
-  $('apikey').addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      void enterWithKey();
-    }
-  });
 }
 
 /** 語系切換（M243）。選擇記在 localStorage，重載後沿用。 */
@@ -1886,7 +1757,7 @@ async function applyLocale(next, { persist = true } = {}) {
   }
 
   applyDom(document);
-  for (const id of ['locale', 'login-locale']) {
+  for (const id of ['locale']) {
     const pick = $(id);
     if (pick) pick.value = applied;
   }
@@ -1899,7 +1770,7 @@ async function applyLocale(next, { persist = true } = {}) {
 }
 
 function bindLocalePicker() {
-  for (const id of ['locale', 'login-locale']) {
+  for (const id of ['locale']) {
     const pick = $(id);
     if (!pick) continue;
     pick.value = locale();
@@ -1912,7 +1783,7 @@ function bindLocalePicker() {
 async function boot() {
   setLocale(storedLocale());
   applyDom(document);
-  for (const id of ['locale', 'login-locale']) {
+  for (const id of ['locale']) {
     const pick = $(id);
     if (pick) pick.value = locale();
   }
@@ -1921,13 +1792,13 @@ async function boot() {
   updateChrome();
   bindLocalePicker();
 
-  // 先判斷憑證，再決定要顯示登入頁還是啟動主介面。舊版無條件 refreshAll()，
-  // 未登入時每一支 API 都回 401，而畫面看起來像正常的監看首頁。
-  if (await canEnterApp()) {
-    await enterApp();
-  } else {
-    showLogin(true);
+  // 登入頁是完全獨立的 login.html。這裡不再自己畫一個登入框：憑證不可用就直接導向，
+  // 避免舊版「主介面亮著、每一支 API 默默回 401」的症狀，也讓兩頁共用一份 transport。
+  if (!(await hasAccess())) {
+    window.location.replace('login.html');
+    return;
   }
+  await enterApp();
 
   // 離開頁面時明確停掉重連。沒有這行的話 pagehide 之後重連計時器還在跑，
   // 會在背景不斷嘗試連線直到分頁被回收。

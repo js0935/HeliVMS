@@ -10,7 +10,16 @@ const root = dirname(fileURLToPath(import.meta.url));
 const appSource = readFileSync(join(root, 'app.js'), 'utf8');
 const libSource = readFileSync(join(root, 'lib.js'), 'utf8');
 const liveSource = readFileSync(join(root, 'live.js'), 'utf8');
+const authSource = readFileSync(join(root, 'auth.js'), 'utf8');
+const loginSource = readFileSync(join(root, 'login.js'), 'utf8');
 const indexSource = readFileSync(join(root, 'index.html'), 'utf8');
+const loginHtml = readFileSync(join(root, 'login.html'), 'utf8');
+
+/** 兩頁各自配對自己的腳本：主介面的 $() 不能去登入頁找，反之亦然。 */
+const pages = [
+  { html: indexSource, js: appSource, name: 'index.html' },
+  { html: loginHtml, js: loginSource, name: 'login.html' },
+];
 
 /** 剝掉註解後的程式碼，避免文件說明被誤判成硬編字串。 */
 function code(source) {
@@ -164,33 +173,39 @@ function textNodes(html) {
 const CJK_TEXT = /[　-〿一-鿿＀-￯]/;
 
 describe('static markup is wired to the catalog', () => {
-  it('marks translatable text with data-i18n', () => {
-    const marked = (indexSource.match(/data-i18n="/g) ?? []).length;
-    expect(marked).toBeGreaterThan(20);
+  it('marks translatable text with data-i18n on both pages', () => {
+    for (const { html, name } of pages) {
+      const marked = (html.match(/data-i18n="/g) ?? []).length;
+      expect(marked, name).toBeGreaterThan(name === 'index.html' ? 20 : 4);
+    }
   });
 
   it('uses only keys that exist', () => {
     const keys = new Set(Object.keys(catalogs['zh-TW']));
-    for (const m of indexSource.matchAll(/data-i18n="([^"]+)"/g)) {
-      expect(keys.has(m[1]), `index.html 參照了不存在的 key：${m[1]}`).toBe(true);
-    }
-    for (const m of indexSource.matchAll(/data-i18n-attr="([^"]+)"/g)) {
-      for (const pair of m[1].split(',')) {
-        const [, key] = pair.split(':').map((s) => s.trim());
-        expect(keys.has(key), `index.html 屬性參照了不存在的 key：${key}`).toBe(true);
+    for (const { html, name } of pages) {
+      for (const m of html.matchAll(/data-i18n="([^"]+)"/g)) {
+        expect(keys.has(m[1]), `${name} 參照了不存在的 key：${m[1]}`).toBe(true);
+      }
+      for (const m of html.matchAll(/data-i18n-attr="([^"]+)"/g)) {
+        for (const pair of m[1].split(',')) {
+          const [, key] = pair.split(':').map((s) => s.trim());
+          expect(keys.has(key), `${name} 屬性參照了不存在的 key：${key}`).toBe(true);
+        }
       }
     }
   });
 
-  it('does not stamp data-i18n on elements the app owns at runtime', () => {
+  it('does not stamp data-i18n on elements the page script owns at runtime', () => {
     // 否則切換語言會把「admin · 王小明」蓋回「未登入」——
     // 這是資料與翻譯爭用同一個節點的典型錯誤。
-    for (const m of indexSource.matchAll(/<(\w+)[^>]*\bid="([\w-]+)"[^>]*data-i18n="[^"]*"[^>]*>/g)) {
-      const id = m[2];
-      const assigned = new RegExp(
-        `\\$\\('${id}'\\)\\.(textContent|innerHTML|value)\\s*=|const \\w+ = \\$\\('${id}'\\)`,
-      );
-      expect(assigned.test(appSource), `#${id} 由 app.js 改寫，不應掛 data-i18n`).toBe(false);
+    for (const { html, js, name } of pages) {
+      for (const m of html.matchAll(/<(\w+)[^>]*\bid="([\w-]+)"[^>]*data-i18n="[^"]*"[^>]*>/g)) {
+        const id = m[2];
+        const assigned = new RegExp(
+          `\\$\\('${id}'\\)\\.(textContent|innerHTML|value)\\s*=|const \\w+ = \\$\\('${id}'\\)`,
+        );
+        expect(assigned.test(js), `#${id} 由 ${name} 的腳本改寫，不應掛 data-i18n`).toBe(false);
+      }
     }
   });
 
@@ -199,19 +214,21 @@ describe('static markup is wired to the catalog', () => {
     // 子元素，切換語言就會把那些子元素刪掉——<label>文字 <input></label> 會讓
     // 輸入框整個消失，<h2>標題 <span id="...-count"></span></h2> 會讓計數徽章消失。
     // 混合內容必須把 data-i18n 放在只包住文字的內層 span 上。
-    const parts = indexSource.split(/(<[^>]*>)/);
-    for (let i = 1; i < parts.length; i += 2) {
-      const open = parts[i];
-      if (!/data-i18n="/.test(open)) continue;
-      const tag = /^<(\w+)/.exec(open)?.[1];
-      if (!tag) continue;
-      const closeAt = indexSource.indexOf(`</${tag}>`, parts.slice(0, i + 1).join('').length);
-      if (closeAt < 0) continue;
-      const inner = indexSource.slice(parts.slice(0, i + 1).join('').length, closeAt);
-      const child = /<\s*(\w+)/.exec(inner);
-      const line = indexSource.slice(0, parts.slice(0, i).join('').length).split('\n').length;
-      expect(child, `L${line} 的 <${tag}> 同時帶 data-i18n 與子元素 <${child?.[1] ?? '?'}>，` +
-        `applyDom 會刪掉它；請把 data-i18n 下移到內層 span`).toBe(null);
+    for (const { html, name } of pages) {
+      const parts = html.split(/(<[^>]*>)/);
+      for (let i = 1; i < parts.length; i += 2) {
+        const open = parts[i];
+        if (!/data-i18n="/.test(open)) continue;
+        const tag = /^<(\w+)/.exec(open)?.[1];
+        if (!tag) continue;
+        const closeAt = html.indexOf(`</${tag}>`, parts.slice(0, i + 1).join('').length);
+        if (closeAt < 0) continue;
+        const inner = html.slice(parts.slice(0, i + 1).join('').length, closeAt);
+        const child = /<\s*(\w+)/.exec(inner);
+        const line = html.slice(0, parts.slice(0, i).join('').length).split('\n').length;
+        expect(child, `${name} L${line} 的 <${tag}> 同時帶 data-i18n 與子元素 <${child?.[1] ?? '?'}>，` +
+          `applyDom 會刪掉它；請把 data-i18n 下移到內層 span`).toBe(null);
+      }
     }
   });
 
@@ -220,50 +237,61 @@ describe('static markup is wired to the catalog', () => {
     // 使用者要靠它認出該切到哪一種語言，翻成英文反而認不出來。
     const intentionallyLeft = new Set(['未登入', '繁體中文']);
     const leftovers = [];
-    for (const n of textNodes(indexSource)) {
-      const text = n.text.trim();
-      if (!text || !CJK_TEXT.test(text) || intentionallyLeft.has(text)) continue;
-      if (/data-i18n="/.test(n.owner)) continue;
-      const line = indexSource.slice(0, n.at).split('\n').length;
-      leftovers.push(`L${line} ${JSON.stringify(text)}`);
+    for (const { html, name } of pages) {
+      for (const n of textNodes(html)) {
+        const text = n.text.trim();
+        if (!text || !CJK_TEXT.test(text) || intentionallyLeft.has(text)) continue;
+        if (/data-i18n="/.test(n.owner)) continue;
+        const line = html.slice(0, n.at).split('\n').length;
+        leftovers.push(`${name} L${line} ${JSON.stringify(text)}`);
+      }
     }
-    expect(leftovers, `index.html 仍有未翻譯的文字：${leftovers.join(' / ')}`).toEqual([]);
+    expect(leftovers, `仍有未翻譯的文字：${leftovers.join(' / ')}`).toEqual([]);
   });
 
   it('leaves no Chinese text unmapped in the attributes', () => {
     const leftovers = [];
-    for (const m of indexSource.matchAll(/<[^>]*>/g)) {
-      if (/data-i18n-attr/.test(m[0])) continue;
-      for (const a of m[0].matchAll(/\b(placeholder|aria-label|title)="([^"]+)"/g)) {
-        if (CJK_TEXT.test(a[2])) leftovers.push(a[0]);
+    for (const { html, name } of pages) {
+      for (const m of html.matchAll(/<[^>]*>/g)) {
+        if (/data-i18n-attr/.test(m[0])) continue;
+        for (const a of m[0].matchAll(/\b(placeholder|aria-label|title)="([^"]+)"/g)) {
+          if (CJK_TEXT.test(a[2])) leftovers.push(`${name}: ${a[0]}`);
+        }
       }
     }
-    expect(leftovers, `index.html 仍有未翻譯的屬性：${leftovers.join(' / ')}`).toEqual([]);
+    expect(leftovers, `仍有未翻譯的屬性：${leftovers.join(' / ')}`).toEqual([]);
   });
 });
 
 describe('ratchet: no hardcoded UI strings in JavaScript', () => {
-  it('keeps Chinese out of app.js, lib.js and live.js string literals', () => {
+  it('keeps Chinese out of every shipped module string literal', () => {
     // 這是棘輪：介面文字一旦又寫回程式碼，切換語言就會出現混雜畫面。
+    // 獨立登入頁與共用 transport 也必須在掃描範圍內，否則新頁可以偷偷硬編。
     const offenders = [
       ...stringLiterals(appSource).map((s) => `app.js: ${s}`),
       ...stringLiterals(libSource).map((s) => `lib.js: ${s}`),
       ...stringLiterals(liveSource).map((s) => `live.js: ${s}`),
+      ...stringLiterals(authSource).map((s) => `auth.js: ${s}`),
+      ...stringLiterals(loginSource).map((s) => `login.js: ${s}`),
     ].filter((s) => CJK_IN_UI.test(s));
     expect(offenders, `介面字串被硬編回去：${offenders.join(' / ')}`).toEqual([]);
   });
 
   it('reaches the catalog through t() or tx(), never raw concatenation', () => {
-    expect(appSource).toMatch(/from '\.\/i18n\.js'/);
-    expect(libSource).toMatch(/from '\.\/i18n\.js'/);
+    for (const source of [appSource, libSource, authSource, loginSource]) {
+      expect(source).toMatch(/from '\.\/i18n\.js'/);
+    }
   });
 
-  it('offers a language picker wired to the catalog', () => {
+  it('offers a language picker on both pages wired to the catalog', () => {
     expect(indexSource).toMatch(/<select id="locale"/);
     expect(appSource).toMatch(/addEventListener\('change',[\s\S]{0,80}applyLocale/);
     // 切換後必須重繪執行時產生的內容，而不只是靜態標記。
     expect(appSource).toMatch(/applyDom\(document\)/);
     expect(appSource).toMatch(/async function applyLocale[\s\S]*await refreshAll\(\)/);
+    expect(loginHtml).toMatch(/<select id="login-locale"/);
+    expect(loginSource).toMatch(/applyDom\(document\)/);
+    expect(loginSource).toMatch(/setLocale\(storedLocale\(\)\)/);
   });
 });
 
