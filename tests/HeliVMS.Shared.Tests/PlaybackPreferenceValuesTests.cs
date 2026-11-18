@@ -51,4 +51,32 @@ public class PlaybackPreferenceValuesTests
     {
         Assert.Equal(2, PlaybackPreferenceValues.Index("0", count: 0, fallback: 2));
     }
+
+    [Theory]
+    [InlineData("1", 1)]
+    [InlineData("4", 4)]
+    [InlineData("64", 64)]
+    public void 勾選台數落在範圍內時原樣還原(string stored, int expected)
+    {
+        Assert.Equal(expected, PlaybackPreferenceValues.Count(stored, minimum: 1, maximum: 64, fallback: 1));
+    }
+
+    [Theory]
+    [InlineData("0")]      // 0 路等於回放牆全空，必須夾成至少一路
+    [InlineData("-3")]
+    [InlineData("999")]    // 超過牆的設計上限（64）
+    public void 勾選台數不合理時夾回範圍(string stored)
+    {
+        Assert.InRange(PlaybackPreferenceValues.Count(stored, minimum: 1, maximum: 64, fallback: 1), 1, 64);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("abc")]
+    public void 勾選台數壞值退回預設(string? stored)
+    {
+        // 舊版存的是分割下拉索引（0–7），解析得出但語意不同；解析不出來時更不能讓牆變空。
+        Assert.Equal(4, PlaybackPreferenceValues.Count(stored, minimum: 1, maximum: 64, fallback: 4));
+    }
 }

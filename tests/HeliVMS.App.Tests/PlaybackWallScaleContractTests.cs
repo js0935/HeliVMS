@@ -20,18 +20,17 @@ public sealed class PlaybackWallScaleContractTests
     private const string Xaml = "src/HeliVMS.App/PlaybackWindow.xaml";
 
     [Fact]
-    public void 分割選單提供到六十四路()
+    public void 回放牆預算表提供到六十四路且沒有第二個路數入口()
     {
+        // 預算表的格數清單是單一來源（1／2／4／9／16／25／36／64）。路數改由勾選決定之後，
+        // 它仍然是每一格「解多大、多快、要不要只解關鍵影格」的依據：少一個值，那個路數就會
+        // 退回較小的預算（畫面更頓），而且不會有任何錯誤訊息。
+        var budget = SourceContract.Read("src/HeliVMS.Shared/PlaybackWallBudget.cs");
+        Assert.Matches(@"SplitOptions\s*\{ get; \}\s*=\s*\[1, 2, 4, 9, 16, 25, 36, 64\];", budget);
+
+        // UI 不該再有分割下拉：要播幾路只由左側勾選清單決定。
         var xaml = SourceContract.Read(Xaml);
-
-        foreach (var cells in new[] { "1", "2", "4", "9", "16", "25", "36", "64" })
-        {
-            Assert.Contains($"<ComboBoxItem Content=\"{cells}\"/>", xaml);
-        }
-
-        // 分割下拉的選項與預算表同一份來源：兩份清單遲早會漂移，而症狀是「選了 64 卻是 16 的預算」。
-        var combo = SourceContract.BodyOf(SourceContract.Read(Code), "ComboSplitCount");
-        Assert.Contains("PlaybackWallBudget.SplitOptions", combo);
+        Assert.DoesNotContain("x:Name=\"SplitCombo\"", xaml);
     }
 
     [Fact]

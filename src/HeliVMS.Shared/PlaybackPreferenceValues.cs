@@ -3,14 +3,15 @@ using System.Globalization;
 namespace HeliVMS.Shared;
 
 /// <summary>
-/// 回放偏好的儲存值還原（速度／分割數／自動接續／循環）。
+/// 回放偏好的儲存值還原（速度／勾選台數／自動接續／循環）。
 /// </summary>
 /// <remarks>
 /// <para>
-/// 操作員每次進入回放都要重選速度、分割數與兩個勾選（回看事故時通常是 4× 或 8×、四分割、
+/// 操作員每次進入回放都要重選速度、路數與兩個勾選（回看事故時通常是 4× 或 8×、四路、
 /// 自動接續），而這些值本來就該跟著人而不是跟著視窗。存的是字串（app_settings 一律字串），
-/// 還原時要能容忍壞值：索引超出目前選單長度（例如日後刪掉某個分割選項）要退回預設，
-/// 而不是讓 ComboBox 停在 -1（SelectedIndex 無效＝沒有選取，畫面看起來像壞掉）。
+/// 還原時要能容忍壞值：索引超出目前選單長度（例如日後刪掉某個速度選項）要退回預設，
+/// 而不是讓 ComboBox 停在 -1（SelectedIndex 無效＝沒有選取，畫面看起來像壞掉）；
+/// 勾選台數則要夾回至少一路，否則回放牆會是空的。
 /// </para>
 /// <para>
 /// 抽成純函式是為了能行為測試：桌面端沒有 WPF 執行期測試，而「壞值退回預設」正是
@@ -37,4 +38,14 @@ public static class PlaybackPreferenceValues
             && value < count
                 ? value
                 : fallback;
+
+    /// <summary>
+    /// 把儲存的數量夾回 <paramref name="minimum"/>–<paramref name="maximum"/>：無法解析時回
+    /// <paramref name="fallback"/>。用於「勾選了幾台」這類偏好——路數由勾選決定，存的不是索引，
+    /// 所以 0 或不合理的值要夾成至少一路，而不是讓回放牆變成空的。
+    /// </summary>
+    public static int Count(string? stored, int minimum, int maximum, int fallback)
+        => int.TryParse(stored, NumberStyles.Integer, CultureInfo.InvariantCulture, out var value)
+            ? Math.Clamp(value, minimum, Math.Max(minimum, maximum))
+            : fallback;
 }

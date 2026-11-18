@@ -301,24 +301,18 @@ public sealed class PlaybackWindowContractTests
     }
 
     [Fact]
-    public void 回放牆格數切換重建次畫面並重新對齊母鐘()
+    public void 勾選變動會重建次畫面並重新對齊母鐘()
     {
         var source = SourceContract.Read(Code);
 
-        var onSplit = SourceContract.BodyOf(source, "OnSplitChanged");
-        Assert.Contains("RebuildPanes(", onSplit);
-        Assert.Contains("SyncPanes(", onSplit);
+        var onPick = SourceContract.BodyOf(source, "OnCameraPickChanged");
+        Assert.Contains("RebuildPanes(", onPick);
+        Assert.Contains("SyncPanes(", onPick);
 
-        // 路數現在等於勾選的攝影機台數（SplitCombo 只是另一種改勾選的方式）。
+        // 路數只等於勾選的攝影機台數：分割下拉已移除，勾選清單是唯一來源。
         var split = SourceContract.BodyOf(source, "SplitCount");
         Assert.Contains("_cameraPicks.Count(p => p.IsChecked)", split);
         Assert.DoesNotContain("SplitCombo", split);
-
-        // 分割下拉的選項仍來自單一來源 PlaybackWallBudget.SplitOptions，索引要先夾住：
-        // ComboBox 在重建期間可能短暫是 -1，直接拿去索引清單會擲例外（整個回放開不起來）。
-        var combo = SourceContract.BodyOf(source, "ComboSplitCount");
-        Assert.Contains("PlaybackWallBudget.SplitOptions", combo);
-        Assert.Contains("Math.Clamp(", combo);
     }
 
     [Fact]
@@ -595,7 +589,7 @@ public sealed class PlaybackWindowContractTests
         Assert.Contains("JumpToDayEdge(forward: true)", keys);
     }
 
-    /// <summary>回放偏好（速度、分割數、自動接續、循環）要記得，且壞值退回預設。</summary>
+    /// <summary>回放偏好（速度、勾選台數、自動接續、循環）要記得，且壞值退回預設。</summary>
     [Fact]
     public void 回放偏好會記住且壞值退回預設()
     {
@@ -612,13 +606,19 @@ public sealed class PlaybackWindowContractTests
         Assert.Contains("SplitSettingKey", restore);
         Assert.Contains("AutoAdvanceSettingKey", restore);
         Assert.Contains("LoopSettingKey", restore);
-        // 越界／壞值一律走共用的還原函式（不是直接塞回 SelectedIndex）。
+        // 越界／壞值一律走共用的還原函式（不是直接塞回 SelectedIndex，也不是直接轉整數）。
         Assert.Contains("PlaybackPreferenceValues.Index(", restore);
+        Assert.Contains("PlaybackPreferenceValues.Count(", restore);
         Assert.Contains("PlaybackPreferenceValues.Bool(", restore);
 
         // 改動時就寫回，不必等關窗（關窗路徑有自己的一串收尾，漏掉就沒存到）。
         Assert.Contains("SavePlaybackPreferences();", SourceContract.BodyOf(source, "OnSpeedChanged"));
-        Assert.Contains("SavePlaybackPreferences();", SourceContract.BodyOf(source, "OnSplitChanged"));
+        Assert.Contains("SavePlaybackPreferences();", SourceContract.BodyOf(source, "OnCameraPickChanged"));
+
+        // 寫回的必須是「勾選台數」，不是一個已經不存在的下拉索引。
+        var save = SourceContract.BodyOf(source, "SavePlaybackPreferences");
+        Assert.Contains("SplitSettingKey", save);
+        Assert.Contains("SplitCount()", save);
 
         var xaml = SourceContract.Read("src/HeliVMS.App/PlaybackWindow.xaml");
         Assert.Contains("OnPlaybackPreferenceToggled", xaml);
@@ -784,12 +784,16 @@ public sealed class PlaybackWindowContractTests
             "FocusPaneAsync 必須等 SwitchChannelAsync 完成（新頻道索引已載入）才續播。");
     }
 
+    /// <summary>回放牆沒有分割下拉：要播幾路的唯一入口是左側勾選清單。</summary>
     [Fact]
-    public void 回放牆下拉有接線且不硬編中文()
+    public void 回放牆沒有分割下拉且不硬編中文()
     {
         var xaml = SourceContract.Read("src/HeliVMS.App/PlaybackWindow.xaml");
-        Assert.Contains("x:Name=\"SplitCombo\"", xaml);
-        Assert.Contains("SelectionChanged=\"OnSplitChanged\"", xaml);
+
+        // 同一個問題（要播幾路）不能有兩個答案：下拉與勾選清單並存時，操作員改了勾選
+        // 卻看到下拉停在上一個值（或反之），而兩者都不會報錯。
+        Assert.DoesNotContain("x:Name=\"SplitCombo\"", xaml);
+        Assert.DoesNotContain("OnSplitChanged", xaml);
         Assert.DoesNotMatch(@"[\u4e00-\u9fff]", xaml);
     }
 
@@ -1053,7 +1057,7 @@ public sealed class PlaybackWindowContractTests
     /// 單擊次畫面必須放大成單畫面（§8.5 主焦點，操作者回饋）：點擊路徑要「格數切到 1 →
     /// 頻道換成點到那台 → 從原播放頭續播」，三者缺一都有對應的壞掉畫面。
     /// <para>
-    /// （1）FocusPane 沒把 SplitCombo 切到 1：點次畫面只是把焦點換到左上角、牆還維持原格數，
+    /// （1）FocusPane 沒把勾選收斂成一台：點次畫面只是把焦點換到左上角、牆還維持原路數，
     /// 操作員要的「放大成單畫面」沒發生。
     /// </para>
     /// <para>
@@ -1075,7 +1079,7 @@ public sealed class PlaybackWindowContractTests
         var source = SourceContract.Read(Code);
 
         var focus = SourceContract.BodyOf(source, "FocusPaneAsync");
-        // 放大成單畫面＝只勾點到的那台（分割下拉由 SyncSplitComboToCheckedCount 同步）。
+        // 放大成單畫面＝只勾點到的那台（路數由勾選台數決定，沒有第二個下拉要同步）。
         Assert.Contains("SetCheckedCameras([pane.Channel.Id])", focus);
         Assert.Contains("SwitchChannelAsync(", focus);
         Assert.Contains("ResumePlaybackAt", focus);
@@ -1358,21 +1362,21 @@ public sealed class PlaybackWindowContractTests
     /// </para>
     /// </summary>
     [Fact]
-    public void 回放牆有九與十六分割且容量受限且可拖入即播()
+    public void 回放牆路數來自勾選且容量受限且可拖入即播()
     {
         var xaml = SourceContract.Read("src/HeliVMS.App/PlaybackWindow.xaml");
-        Assert.Contains("<ComboBoxItem Content=\"9\"/>", xaml);
-        Assert.Contains("<ComboBoxItem Content=\"16\"/>", xaml);
         Assert.Contains("AllowDrop=\"True\"", xaml);
         Assert.Contains("Drop=\"OnPlaybackDrop\"", xaml);
         Assert.Contains("AutomationProperties.AutomationId=\"PlaybackWallCapacity\"", xaml);
+        // 分割下拉已移除：多路只能靠勾選清單，畫面資料夾裡不再有第二個路數選單。
+        Assert.DoesNotContain("x:Name=\"SplitCombo\"", xaml);
 
         var source = SourceContract.Read(Code);
 
-        // 分割下拉的選項來自單一來源 `PlaybackWallBudget.SplitOptions`（1／2／4／9／16／25／36／64）。
-        // 清單抄兩份遲早會漂移，而症狀是「選了 64 卻是 16 的預算」——沒有任何錯誤訊息。
-        var combo = SourceContract.BodyOf(source, "ComboSplitCount");
-        Assert.Contains("PlaybackWallBudget.SplitOptions", combo);
+        // 路數只有一個來源（勾選台數）；每一格的解碼預算仍取自量測過的預算表。
+        var split = SourceContract.BodyOf(source, "SplitCount");
+        Assert.Contains("_cameraPicks.Count(p => p.IsChecked)", split);
+        Assert.DoesNotContain("SplitCombo", split);
 
         var geometry = SourceContract.BodyOf(source, "ApplyPlayerFrameGeometry");
         Assert.Contains("PlaybackWallCapacity.Effective", geometry);
@@ -1481,42 +1485,47 @@ public sealed class PlaybackWindowContractTests
     }
 
     /// <summary>
-    /// 分割下拉在 XAML 初始化期間的 SelectionChanged 不可重建回放牆（2026-10-19 事故）。
+    /// 勾選清單在開窗初始化期間不可重建回放牆（2026-10-19 事故的同一條路徑）。
     ///
     /// <para>
-    /// SplitCombo 帶 SelectedIndex="0"：InitializeComponent 建樹到那格時 EndInit 就送出
-    /// SelectionChanged → OnSplitChanged → RebuildPanes，此刻 PlayerFrame／PlayerArea 還沒建立，
+    /// 第一次 <c>LoadChannels</c> 建立勾選清單時，CheckBox 綁到 <c>IsChecked = true</c> 會送出
+    /// Checked → <c>OnCameraPickChanged</c> → RebuildPanes，此刻 PlayerFrame／PlayerArea 還沒建立，
     /// NullReferenceException 被 DispatcherUnhandledException 吞掉（Handled = true），
     /// 現場症狀是「按回放完全沒反應」——沒有對話框、沒有畫面，只有 helivms-crash.log
-    /// 裡一行 RebuildPanes ← OnSplitChanged ← InitializeComponent。
+    /// 裡一行 RebuildPanes ← OnCameraPickChanged ← RebuildCameraPicks。
     /// </para>
     /// <para>
     /// 斷言卡三點：XAML 的觸發來源還在（這條路徑真實存在）、handler 在 rebuild 前早退、
-    /// 建構子在 InitializeComponent 完成後才放行。去掉任一點事故就回來。
+    /// 建構子在 InitializeComponent 與 LoadChannels 之後才放行。去掉任一點事故就回來。
     /// </para>
     /// </summary>
     [Fact]
-    public void 分割選單在XAML初始化期間不重建畫面以免回放視窗開不起來()
+    public void 勾選清單在開窗初始化期間不重建畫面以免回放視窗開不起來()
     {
         var xaml = SourceContract.Read("src/HeliVMS.App/PlaybackWindow.xaml");
 
-        // 觸發來源：SplitCombo 一建好就帶選取（牆開窗即為 1 格），會在 InitializeComponent 期間送出事件。
-        Assert.Matches(@"x:Name=""SplitCombo""[\s\S]*?SelectedIndex=""0""[\s\S]*?SelectionChanged=""OnSplitChanged""", xaml);
+        // 觸發來源：勾選清單的 CheckBox 在建好、綁上 IsChecked 初值時就會送出 Checked。
+        Assert.Matches(
+            @"x:Name=""CameraCheckList""[\s\S]*?Checked=""OnCameraPickChanged""",
+            xaml);
 
         var source = SourceContract.Read(Code);
-        var onSplit = SourceContract.BodyOf(source, "OnSplitChanged");
+        var onPick = SourceContract.BodyOf(source, "OnCameraPickChanged");
 
         // 早退必須是真的 if 判斷式，不是只出現在註解裡；且必須在重建之前。
-        var guard = onSplit.IndexOf("if (!_uiReady)", StringComparison.Ordinal);
-        Assert.True(guard >= 0, "OnSplitChanged 必須在 _uiReady 就緒前早退，否則 InitializeComponent 期間會 NRE。");
+        var guard = onPick.IndexOf("if (!_uiReady", StringComparison.Ordinal);
+        Assert.True(guard >= 0, "OnCameraPickChanged 必須在 _uiReady 就緒前早退，否則初始勾選時會 NRE。");
         Assert.True(
-            guard < onSplit.IndexOf("RebuildPanes(", StringComparison.Ordinal),
-            "_uiReady 的早退必須在 RebuildPanes 之前；放在後面擋不住建樹期間的那次重建。");
+            guard < onPick.IndexOf("RebuildPanes(", StringComparison.Ordinal),
+            "_uiReady 的早退必須在 RebuildPanes 之前；放在後面擋不住建立勾選清單時的那次重建。");
 
         var ready = source.IndexOf("_uiReady = true", StringComparison.Ordinal);
         Assert.True(
             ready > source.IndexOf("InitializeComponent()", StringComparison.Ordinal),
             "_uiReady 只能在 InitializeComponent 完成後置位；提前放行等於沒有守衛。");
+        Assert.True(
+            ready > source.IndexOf("LoadChannels();", StringComparison.Ordinal),
+            "_uiReady 必須晚於 LoadChannels()：初始勾選就是在那裡建立的。");
     }
 
     /// <summary>

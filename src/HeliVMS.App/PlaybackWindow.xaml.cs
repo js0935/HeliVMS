@@ -133,8 +133,11 @@ public partial class PlaybackWindow : Window
     /// <summary>程式自己改勾選狀態時為 true，避免 Checked/Unchecked 事件再排一次載入。</summary>
     private bool _suppressCameraPickReload;
 
-    /// <summary>程式自己改分割下拉時為 true（由勾選數同步過來），避免它反過來改勾選。</summary>
-    private bool _suppressSplitChanged;
+    /// <summary>
+    /// 上次記住的勾選台數；第一次開窗（沒有任何既有勾選）時用它預勾前 N 台。
+    /// 路數完全由勾選決定，所以偏好存的是台數，不再是分割下拉的索引。
+    /// </summary>
+    private int _initialPickCount = 1;
 
     /// <summary>勾選清單的一列；Id 用來對回 ChannelCombo 裡同一份 ChannelInfo。</summary>
     private sealed class CameraPick : INotifyPropertyChanged
@@ -194,8 +197,11 @@ public partial class PlaybackWindow : Window
     private bool _suppressSelectionReload;
 
     /// <summary>
-    /// XAML 建樹完成前 <see cref="OnSplitChanged"/> 會先被觸發（SplitCombo 帶 SelectedIndex="0"，
-    /// InitializeComponent 的 EndInit 就送出 SelectionChanged）；那時 PlayerArea／PlayerFrame 還沒建立。
+    /// 開窗建樹期間不放行 <see cref="OnCameraPickChanged"/>。XAML 還沒有 <c>CameraCheckList</c>
+    /// 的時候不會有事，但第一次 <see cref="LoadChannels"/> 建立勾選清單時，CheckBox 綁到
+    /// <c>IsChecked = true</c> 會送出 Checked，此刻 PlayerArea／PlayerFrame 還沒建立，
+    /// RebuildPanes 取用會 NullReferenceException（被 DispatcherUnhandledException 吞掉，
+    /// 症狀是「按回放完全沒反應」）。建構子在 InitializeComponent 與 LoadChannels 之後才置位。
     /// </summary>
     private bool _uiReady;
 
@@ -457,14 +463,16 @@ public partial class PlaybackWindow : Window
         };
         _reverseTimer.Tick += (_, _) => OnReverseTick();
 
-        // XAML 建樹完成後才放行 OnSplitChanged：見 _uiReady 註解。
+        // 建樹與初始勾選都完成後才放行 OnCameraPickChanged：見 _uiReady 註解。
         _uiReady = true;
     }
 
-    // 回放偏好：速度、分割數、自動接續、循環。回看事故的習慣（例如 4× ＋ 四分割 ＋ 自動接續）
+    // 回放偏好：速度、勾選台數、自動接續、循環。回看事故的習慣（例如 4× ＋ 四路 ＋ 自動接續）
     // 每次都重選一次是純浪費，而這些值本來就該跟著操作員而不是跟著視窗。
     private const string SpeedSettingKey = "playback.speed";
 
+    // 鍵名沿用 `playback.split`（升級後的資料庫裡已經有值），但語意改成「勾選台數」：
+    // 路數由左側勾選決定，記住的當然是台數，不是一個已經不存在的下拉索引。
     private const string SplitSettingKey = "playback.split";
 
     private const string AutoAdvanceSettingKey = "playback.auto_advance";
@@ -494,21 +502,27 @@ public partial class PlaybackWindow : Window
 
         SpeedCombo.SelectedIndex = PlaybackPreferenceValues.Index(
             settings.Get(SpeedSettingKey), SpeedCombo.Items.Count, fallback: 1);
-        SplitCombo.SelectedIndex = PlaybackPreferenceValues.Index(
-            settings.Get(SplitSettingKey), SplitCombo.Items.Count, fallback: 0);
+
+        // 勾選台數：夾在 1（至少一路）與牆的設計上限之間。舊版存的是下拉索引（0–7），
+        // 升級後第一次開窗會被讀成 1–7 台——一次性失真，之後每個視窗都存正確的台數。
+        _initialPickCount = PlaybackPreferenceValues.Count(
+            settings.Get(SplitSettingKey),
+            minimum: 1,
+            maximum: HeliVMS.Shared.PlaybackWallBudget.SplitOptions[^1],
+            fallback: 1);
         AutoAdvanceCheck.IsChecked = PlaybackPreferenceValues.Bool(
             settings.Get(AutoAdvanceSettingKey), fallback: true);
         LoopCheck.IsChecked = PlaybackPreferenceValues.Bool(settings.Get(LoopSettingKey), fallback: false);
     }
 
-    /// <summary>寫回目前選項（速度、分割數、自動接續、循環）。</summary>
+    /// <summary>寫回目前選項（速度、勾選台數、自動接續、循環）。</summary>
     private void SavePlaybackPreferences()
     {
         try
         {
             var settings = new SettingsRepository(_store);
             settings.Set(SpeedSettingKey, SpeedCombo.SelectedIndex.ToString(System.Globalization.CultureInfo.InvariantCulture));
-            settings.Set(SplitSettingKey, SplitCombo.SelectedIndex.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            settings.Set(SplitSettingKey, SplitCount().ToString(System.Globalization.CultureInfo.InvariantCulture));
             settings.Set(AutoAdvanceSettingKey, AutoAdvanceCheck.IsChecked == true ? "1" : "0");
             settings.Set(LoopSettingKey, LoopCheck.IsChecked == true ? "1" : "0");
             if (ChannelCombo.SelectedItem is ChannelInfo selected)
@@ -556,7 +570,6 @@ public partial class PlaybackWindow : Window
         StopButton.Content = Localizer.T("Playback.Stop");
         StopButton.ToolTip = Localizer.T("Playback.StopTip");
         PlaybackSpeedLabel.Text = Localizer.T("Playback.Speed");
-        PlaybackSplitLabel.Text = Localizer.T("Playback.Split");
         ZoomSlider.Minimum = PlaybackTimelineScale.SliderValueFromSpan(TimeSpan.FromSeconds(PlaybackTimelineScale.MinSpanSeconds));
         ZoomSlider.Maximum = PlaybackTimelineScale.SliderValueFromSpan(TimeSpan.FromSeconds(PlaybackTimeline.DaySeconds));
         ZoomSlider.ToolTip = Localizer.T("Playback.ZoomTip");
@@ -637,7 +650,7 @@ public partial class PlaybackWindow : Window
         var previous = _cameraPicks.ToDictionary(p => p.Id, p => p.IsChecked);
         var focusId = ChannelCombo.SelectedItem is ChannelInfo focus ? focus.Id : (int?)null;
 
-        // 第一次開窗沒有既有勾選：沿用舊的 split 偏好決定要預勾幾台，且一定要含焦點台
+        // 第一次開窗沒有既有勾選：沿用記住的勾選台數預勾前 N 台，且一定要含焦點台
         // （主畫面播的那台若沒勾，回放牆上就看不到它）。
         var initialSet = new HashSet<int>();
         if (focusId is { } fid)
@@ -647,7 +660,7 @@ public partial class PlaybackWindow : Window
 
         foreach (var channel in channels)
         {
-            if (initialSet.Count >= ComboSplitCount())
+            if (initialSet.Count >= _initialPickCount)
             {
                 break;
             }
@@ -670,8 +683,18 @@ public partial class PlaybackWindow : Window
         }
 
         _cameraPicks = picks;
-        CameraCheckList.ItemsSource = _cameraPicks;
-        SyncSplitComboToCheckedCount();
+
+        // 建立 CheckBox 時 binding 會把 IsChecked = true 變成 Checked 事件；那只是把剛建好的
+        // 清單畫出來，不該再排一次載入／重建（換台時 _uiReady 已放行，這裡是最後一道）。
+        _suppressCameraPickReload = true;
+        try
+        {
+            CameraCheckList.ItemsSource = _cameraPicks;
+        }
+        finally
+        {
+            _suppressCameraPickReload = false;
+        }
     }
 
     /// <summary>目前勾選的頻道 Id（照清單由上到下）；至少回傳一個，避免回放牆全空。</summary>
@@ -706,49 +729,6 @@ public partial class PlaybackWindow : Window
         finally
         {
             _suppressCameraPickReload = false;
-        }
-
-        SyncSplitComboToCheckedCount();
-    }
-
-    /// <summary>分割下拉純讀取（不受勾選數影響）；只在初始值／OnSplitChanged 用。</summary>
-    private int ComboSplitCount()
-    {
-        var options = HeliVMS.Shared.PlaybackWallBudget.SplitOptions;
-        var index = Math.Clamp(SplitCombo.SelectedIndex, 0, options.Count - 1);
-        return options[index];
-    }
-
-    /// <summary>讓分割下拉反映目前的勾選數；沒有剛好的選項就退回不超過它的最大選項。</summary>
-    private void SyncSplitComboToCheckedCount()
-    {
-        var count = SplitCount();
-        var options = HeliVMS.Shared.PlaybackWallBudget.SplitOptions;
-
-        // IReadOnlyList 沒有 IndexOf；找剛好相等的，找不到就退回不超過勾選數的最大選項。
-        var index = 0;
-        for (var i = 0; i < options.Count; i++)
-        {
-            if (options[i] == count)
-            {
-                index = i;
-                break;
-            }
-
-            if (options[i] <= count)
-            {
-                index = i;
-            }
-        }
-
-        _suppressSplitChanged = true;
-        try
-        {
-            SplitCombo.SelectedIndex = index;
-        }
-        finally
-        {
-            _suppressSplitChanged = false;
         }
     }
 
@@ -791,7 +771,6 @@ public partial class PlaybackWindow : Window
             }
         }
 
-        SyncSplitComboToCheckedCount();
         SavePlaybackPreferences();
 
         if (focusChanged)
@@ -1096,8 +1075,6 @@ public partial class PlaybackWindow : Window
             {
                 _suppressCameraPickReload = false;
             }
-
-            SyncSplitComboToCheckedCount();
         }
 
         // 操作員自己換台就把這一台記下來（下次開窗直接落在它上面）。
@@ -2024,45 +2001,6 @@ public partial class PlaybackWindow : Window
         }
 
         UpdatePlaybackAudioIcon();
-    }
-
-    /// <summary>回放牆格數切換：同步成勾選清單前 N 台，重建次畫面並重新對齊到目前播放頭。</summary>
-    private void OnSplitChanged(object sender, SelectionChangedEventArgs e)
-    {
-        // SplitCombo 在 XAML 裡帶 SelectedIndex="0"：InitializeComponent 建樹到這格時
-        // EndInit 就會送出 SelectionChanged，此刻 PlayerFrame／PlayerArea 還沒建立，
-        // RebuildPanes 取用會 NullReferenceException。它被 DispatcherUnhandledException
-        // 吞掉（Handled = true），症狀是「按回放完全沒反應」——2026-10-19 現場就是這樣，
-        // helivms-crash.log 只留下 RebuildPanes ← OnSplitChanged ← InitializeComponent。
-        if (!_uiReady)
-        {
-            return;
-        }
-
-        if (_suppressSplitChanged)
-        {
-            return;
-        }
-
-        // 分割下拉是勾選清單的另一種操作方式：選 N 就勾前 N 台（焦點永遠在內）。
-        var count = ComboSplitCount();
-        var focusId = ChannelCombo.SelectedItem is ChannelInfo focus ? focus.Id : (_cameraPicks.Count > 0 ? _cameraPicks[0].Id : 0);
-        var ordered = new List<int>();
-        if (focusId > 0)
-        {
-            ordered.Add(focusId);
-        }
-
-        ordered.AddRange(_cameraPicks.Where(p => p.Id != focusId).Select(p => p.Id));
-        SetCheckedCameras(ordered.Take(count));
-
-        SavePlaybackPreferences();
-        RebuildPanes();
-        if (_session is not null)
-        {
-            StartSync();
-            SyncPanes(force: true);
-        }
     }
 
     /// <summary>全視窗鍵盤快捷鍵（M17，對齊 ARCHITECTURE §8.5）：Space 播放/暫停、方向鍵±10秒、Ctrl 方向鍵±1分、Shift 方向鍵±10分、F 逐幀、E 遮蔽匯出、1–4 選路、Esc 停止。</summary>
@@ -4450,13 +4388,11 @@ public partial class PlaybackWindow : Window
         _audioReceiver = null;
     }
 
-    /// <summary>回放牆格數（最多 64 路）。</summary>
+    /// <summary>回放牆路數＝左側勾選的攝影機台數（至少一路，最多由 <see cref="PlaybackWallBudget"/> 的預算表決定）。</summary>
     /// <remarks>
-    /// 選項與 <see cref="PlaybackWallBudget.SplitOptions"/> 同一份：格數決定每一格的解碼預算
-    /// （縮放寬度、顯示上限、執行緒數），而那個對應表是量出來的——兩份清單遲早會漂移，
-    /// 所以 UI 的格數一律從那裡取，這裡只把索引轉成格數。
+    /// 路數只有一個來源：勾選清單。每一格的解碼預算（縮放寬度、顯示上限、執行緒數）仍取自
+    /// <see cref="PlaybackWallBudget"/>——那張表是量出來的，不能在這裡另抄一份。
     /// </remarks>
-    /// <summary>回放牆路數＝左側勾選的攝影機台數（至少一路）。</summary>
     private int SplitCount() => Math.Max(1, _cameraPicks.Count(p => p.IsChecked));
 
     /// <summary>
@@ -4471,8 +4407,8 @@ public partial class PlaybackWindow : Window
             return;
         }
 
-        // 收成一格＝只勾焦點台（分割下拉跟著同步）。直接改 SplitCombo 會走 OnSplitChanged
-        // 按「焦點＋前 N 台」重勾，這裡語意是「只看主畫面這台」，所以明確指定。
+        // 收成一格＝只勾焦點台。路數只由勾選決定，所以這裡直接指定要勾哪一台，
+        // 不繞去改任何下拉（那會變成第二個決定路數的地方）。
         var focusId = ChannelCombo.SelectedItem is ChannelInfo focus ? focus.Id : (_cameraPicks.Count > 0 ? _cameraPicks[0].Id : 0);
         if (focusId > 0)
         {

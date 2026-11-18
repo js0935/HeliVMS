@@ -72,20 +72,8 @@
             </StackPanel>
 
             <StackPanel Orientation="Horizontal" Margin="14,0,0,0" VerticalAlignment="Center">
-                <TextBlock x:Name="PlaybackSplitLabel" Text="" Foreground="{StaticResource Brand.TextDim}" VerticalAlignment="Center"/>
-                <ComboBox x:Name="SplitCombo" AutomationProperties.AutomationId="PlaybackSplitCombo" Width="64" Margin="6,0,0,0"
-                          SelectedIndex="0" VerticalAlignment="Center"
-                          Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"
-                          SelectionChanged="OnSplitChanged">
-                    <ComboBoxItem Content="1"/>
-                    <ComboBoxItem Content="2"/>
-                    <ComboBoxItem Content="4"/>
-                    <ComboBoxItem Content="9"/>
-                    <ComboBoxItem Content="16"/>
-                    <ComboBoxItem Content="25"/>
-                    <ComboBoxItem Content="36"/>
-                    <ComboBoxItem Content="64"/>
-                </ComboBox>
+                <!-- The wall's pane count comes from the camera check list only: these two
+                     labels are diagnostics (effective capacity / decode budget), not a picker. -->
                 <TextBlock x:Name="WallCapacityText" Text="" Foreground="{StaticResource Brand.TextDim}" FontSize="11"
                            VerticalAlignment="Center" Margin="8,0,0,0" ToolTip=""
                            AutomationProperties.AutomationId="PlaybackWallCapacity"/>

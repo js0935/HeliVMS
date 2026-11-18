@@ -6,7 +6,7 @@ namespace HeliVMS.App.Tests;
 /// <para>
 /// 操作員不再點片段選時間（起播時刻由時間軸／事件／書籤決定），而是勾選要同時看哪幾台：
 /// 勾一台單路播放、勾兩台兩台同時播放。桌面端沒有 WPF 執行期測試環境，這裡守住幾件
-/// 改壞了畫面照樣動、但語意全錯的事：路數的來源、焦點的轉移、以及與舊分割下拉的同步。
+/// 改壞了畫面照樣動、但語意全錯的事：路數的來源、焦點的轉移，以及路數只能有一個入口。
 /// </para>
 /// </summary>
 public sealed class PlaybackCameraSelectionContractTests
@@ -79,17 +79,21 @@ public sealed class PlaybackCameraSelectionContractTests
     }
 
     [Fact]
-    public void 分割下拉與勾選清單雙向同步()
+    public void 分割下拉已移除且路數只由勾選決定()
     {
+        var xaml = SourceContract.Read(Xaml);
         var source = SourceContract.Read(Code);
 
-        // 改分割下拉＝勾前 N 台（焦點永遠在內）；改勾選＝回寫分割下拉。
-        var split = SourceContract.BodyOf(source, "OnSplitChanged");
-        Assert.Contains("SetCheckedCameras(ordered.Take(count))", split);
-        Assert.Contains("_suppressSplitChanged", split);
+        // 「要播幾路」只能有一個入口：下拉與勾選清單並存時，改了勾選下拉不會跟著動
+        // （反之亦然），而兩者都不會報錯——操作員只會覺得牆「有時對、有時不對」。
+        Assert.DoesNotContain("x:Name=\"SplitCombo\"", xaml);
+        Assert.DoesNotContain("OnSplitChanged", xaml);
+        Assert.DoesNotContain("OnSplitChanged", source);
+        Assert.DoesNotContain("SplitCombo", source);
 
-        var picks = SourceContract.BodyOf(source, "RebuildCameraPicks");
-        Assert.Contains("SyncSplitComboToCheckedCount()", picks);
+        // 勾選清單是路數與成員的唯一來源。
+        Assert.Contains("_cameraPicks.Count(p => p.IsChecked)", SourceContract.BodyOf(source, "SplitCount"));
+        Assert.Contains("x:Name=\"CameraCheckList\"", xaml);
     }
 
     [Fact]
@@ -97,7 +101,9 @@ public sealed class PlaybackCameraSelectionContractTests
     {
         var picks = SourceContract.BodyOf(SourceContract.Read(Code), "RebuildCameraPicks");
 
-        // 已有勾選狀態按 Id 保留；只有第一次開窗才用 split 偏好決定初始勾選。
+        // 已有勾選狀態按 Id 保留；只有第一次開窗才用記住的勾選台數決定初始勾選。
+        // 第一次開窗的初始勾選數來自記住的偏好（台數），不是任何下拉。
+        Assert.Contains("_initialPickCount", picks);
         Assert.Contains("previous.TryGetValue(channel.Id, out var wasChecked)", picks);
         Assert.Contains("channel.Id == focusId", picks);
     }
