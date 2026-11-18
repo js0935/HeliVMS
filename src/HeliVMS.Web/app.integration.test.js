@@ -181,7 +181,9 @@ describe('live streaming (WHEP)', () => {
   it('opens the viewer through the injected transport', () => {
     expect(appSource).toMatch(/createLiveViewer\(\{ apiRaw, t \}\)/);
     expect(appSource).toMatch(/viewer\.open\(channelId, video/);
-    expect(appSource).toMatch(/\$\('live-form'\)\.addEventListener\('submit', openLiveView\)/);
+    expect(appSource).toMatch(/\$\('live-layout'\)\.addEventListener\('click', \(event\) =>/);
+    // 沒有「開啟」按鈕，進到主介面就先開目前版面第一批，不能留一格空畫面。
+    expect(appSource).toMatch(/if \(!alertSocket\) connectLive\(\);[\s\S]{0,200}void openLiveView\(\);/);
   });
 });
 
@@ -423,26 +425,29 @@ describe('remote playback (M239 HLS)', () => {
   });
 });
 
-describe('channel picker', () => {
-  it('offers the real channel ids instead of making operators guess', () => {
-    // 資料庫主鍵不是從 1 起算（實機上是 91/93/94）；沒有這份清單只能靠猜編號，
-    // 猜錯時畫面全黑、訊息只寫「找不到這一路攝影機」。
-    expect(indexSource).toMatch(/<select id="live-channels"[^>]*multiple/);
+describe('live channel sources', () => {
+  it('uses the real channel list in order instead of an operator picker', () => {
+    // 資料庫主鍵不是從 1 起算（實機上是 91/93/94）；與其讓操作員猜編號再勾選，
+    // 即時監看直接照 /api/channels 的順序分批開播。選台清單與獨立「開啟」都拿掉。
+    expect(indexSource).not.toContain('id="live-channels"');
     for (const [input, list] of [['snap-channel', 'snap-channel-options'], ['ptz-channel', 'ptz-channel-options']]) {
       expect(indexSource, input).toMatch(new RegExp(`id="${input}"[^>]*list="${list}"`));
       expect(indexSource, list).toMatch(new RegExp(`<datalist id="${list}">`));
     }
     expect(appSource).toMatch(/api\('\/api\/channels'\)/);
+    expect(appSource).toMatch(/localChannels = \(Array\.isArray\(rows\) \? rows : \[\]\)\.filter\(\(c\) => c\.enabled !== false\)/);
     expect(appSource).toMatch(/Promise\.allSettled\(\[[\s\S]*refreshLocalChannels\(\)[\s\S]*\]\)/);
   });
 });
 
 describe('multi-split live grid', () => {
-  it('offers 1/4/9/16/25 layouts in the markup', () => {
-    // 版面值就是格數；少一個選項代表某種電視牆尺寸點不到。
-    expect(indexSource).toMatch(/<select id="live-layout"/);
+  it('offers 1/4/9/16/25 layouts as clickable buttons', () => {
+    // 版面值就是格數；少一顆代表某種電視牆尺寸點不到。
+    // 必須是按鈕：select 再選相同的值不會觸發 change，就換不了下一批。
+    expect(indexSource).toMatch(/<div id="live-layout"[^>]*class="layout-picker"[^>]*role="group"/);
+    expect(indexSource).not.toMatch(/<select id="live-layout"/);
     for (const n of [1, 4, 9, 16, 25]) {
-      expect(indexSource, `option ${n}`).toMatch(new RegExp(`<option value="${n}"`));
+      expect(indexSource, `data-layout ${n}`).toMatch(new RegExp(`data-layout="${n}"`));
     }
   });
 
@@ -452,12 +457,36 @@ describe('multi-split live grid', () => {
     expect(appSource).toMatch(/const count = liveLayoutCount\(\)/);
   });
 
-  it('opens one WHEP session per selected channel, capped at the layout', () => {
-    // 每格各自一條會話；選超過格數只取前 N 路，不逐格等待（ICE 最長 3 秒會拖垮 5x5）。
-    expect(appSource).toMatch(/channels\.slice\(0, liveLayoutCount\(\)\)/);
+  it('opens one WHEP session per channel in the current batch', () => {
+    // 每格各自一條會話；批次最多就是版面格數，不逐格等待（ICE 最長 3 秒會拖垮 5x5）。
+    expect(appSource).toMatch(/const shown = livePageChannels\(\)/);
     expect(appSource).toMatch(/viewer: createLiveViewer\(\{ apiRaw, t \}\)/);
     expect(appSource).toMatch(/viewer\.open\(channelId, video/);
     expect(appSource).toMatch(/await Promise\.all\(/);
+  });
+
+  it('advances to the next batch when the same layout is pressed again', () => {
+    // 4 分割第一次 1–4，再按一次 5–8；按不同格數則回到第一批。
+    // 頁次取模，才不會在最後一批再按時卡死或開出空畫面。
+    expect(appSource).toMatch(/if \(next === liveLayout\) livePage \+= 1;/);
+    expect(appSource).toMatch(/liveLayout = next;[\s\S]{0,80}livePage = 0;/);
+    expect(appSource).toMatch(/const page = livePage % pages;/);
+    expect(appSource).toMatch(/localChannels\.slice\(page \* size, page \* size \+ size\)/);
+  });
+
+  it('ignores a stale batch that finishes connecting after a newer click', () => {
+    // 連續按同一版面時，舊的 ICE 協商可能較晚回來；讓它寫訊息列就會變成
+    // 「畫面是 5–8、文字還寫 1–4」，操作員無從判斷現在看的是哪一批。
+    expect(appSource).toMatch(/const generation = \+\+liveOpenGeneration;/);
+    expect(appSource).toMatch(/await stopLiveView\(\{ external: false \}\)/);
+    expect(appSource.match(/if \(generation !== liveOpenGeneration\) return;/g)).toHaveLength(3);
+  });
+
+  it('shows which layout and batch is live', () => {
+    expect(appSource).toMatch(/btn\.setAttribute\('aria-pressed', String\(active\)\)/);
+    expect(appSource).toMatch(/t\('live\.pageMeta', \{ page, pages \}\)/);
+    expect(indexSource).toMatch(/id="live-layout"[^>]*data-i18n-attr="aria-label:live\.layout,title:live\.layoutHint"/);
+    expect(i18nSource).toContain("'live.layoutHint': '");
   });
 
   it('asks for the sub stream whenever more than one cell is shown', () => {
@@ -481,9 +510,10 @@ describe('multi-split live grid', () => {
     expect(appSource).toMatch(/liveCells\b[\s\S]{0,200}viewer\.stop\(\)/);
   });
 
-  it('warns when nothing is selected instead of opening zero feeds', () => {
-    expect(appSource).toMatch(/if \(channels\.length === 0\)[\s\S]*t\('live\.pickChannel'\)/);
-    expect(i18nSource).toContain("'live.pickChannel': '");
+  it('says there are no cameras instead of opening zero feeds', () => {
+    expect(appSource).toMatch(/if \(shown\.length === 0\)[\s\S]*t\('live\.noChannels'\)/);
+    expect(i18nSource).toContain("'live.noChannels': '");
+    expect(appSource).not.toContain("t('live.pickChannel')");
   });
 });
 

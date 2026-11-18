@@ -79,6 +79,9 @@ async function enterApp() {
   await refreshLicense();
   await refreshAll();
   if (!alertSocket) connectLive();
+  // 沒有選台清單也沒有「開啟」按鈕，進來就先照目前版面開第一批，
+  // 否則操作員看到的是一格空畫面，而且不知道該按哪裡才會有影像。
+  void openLiveView();
 }
 
 /** 目前選取的次分頁（group → name）。切主頁籤再回來時要回到操作員最後看的那一頁。 */
@@ -163,19 +166,33 @@ const snapshotViewer = createLiveViewer({ apiRaw, t });
 /** 目前格線上的每一格各自一條 WHEP 會話；「停止」一次整批收掉。 */
 let liveCells = [];
 
-/** 版面下拉的值就是格數（1／4／9／16／25），開根號即為每列格數。 */
+/**
+ * 每次收檔或重新開播都遞增；連續按同一版面時，較早那一輪的協商結果不能回來
+ * 覆蓋較新批次的訊息列（症狀是畫面是 5–8、文字還寫 1–4）。
+ */
+let liveOpenGeneration = 0;
+
+const LIVE_LAYOUTS = [1, 4, 9, 16, 25];
+
+/**
+ * 目前版面與第幾批頻道。不再有選台清單與「開啟」按鈕：按幾分割就開幾路，
+ * 再按同一個版面就往下一批。頁次用模運算循環，到底自然回到第一批。
+ */
+let liveLayout = 1;
+let livePage = 0;
+
+/** 版面值就是格數，開根號即為每列格數。 */
 function liveLayoutCount() {
-  const value = Number($('live-layout')?.value);
-  return [1, 4, 9, 16, 25].includes(value) ? value : 1;
+  return LIVE_LAYOUTS.includes(liveLayout) ? liveLayout : 1;
 }
 
-/** 多選清單目前勾選的頻道（依清單順序）。 */
-function selectedChannelIds() {
-  const select = $('live-channels');
-  if (!select) return [];
-  return [...select.selectedOptions]
-    .map((o) => Number(o.value))
-    .filter((n) => Number.isInteger(n) && n > 0);
+/** 依目前版面與頁次取出這一輪的頻道；不足一整批時就少開幾路。 */
+function livePageChannels() {
+  const size = liveLayoutCount();
+  if (localChannels.length === 0 || size < 1) return [];
+  const pages = Math.ceil(localChannels.length / size);
+  const page = livePage % pages;
+  return localChannels.slice(page * size, page * size + size);
 }
 
 function channelName(channelId) {
@@ -192,6 +209,13 @@ function renderLiveGrid() {
   const count = liveLayoutCount();
   const cols = Math.round(Math.sqrt(count));
   grid.style.gridTemplateColumns = `repeat(${cols}, minmax(0, 1fr))`;
+  // 版面按鈕同時是分頁器：讓「現在看的是幾分割」在按鈕上直接看得出來。
+  // aria-pressed 讓螢幕閱讀器唸得出目前版面，而不是只靠底色。
+  for (const btn of $('live-layout')?.querySelectorAll('[data-layout]') ?? []) {
+    const active = Number(btn.dataset.layout) === liveLayout;
+    btn.classList.toggle('active', active);
+    btn.setAttribute('aria-pressed', String(active));
+  }
   // 每一格自帶工具列：全螢幕、截圖、PTZ。動作跟著「那一格」而不是面板的某一頁，
   // 否則按了截圖卻抓到另一台。符號只是提示，真正的名稱放在 aria-label 與 title
   // （螢幕閱讀器唸得出「全螢幕」，唸不出「⛶」）。
@@ -248,8 +272,9 @@ function onLiveGridClick(event) {
   if (!btn) return;
   const cell = btn.closest('.live-cell');
   const entry = liveCells[liveCellIndex(cell)];
-  // 先取這一格自己的頻道；沒有連線中的格（例如剛改版面）才退回清單目前的選取。
-  const channelId = Number(entry?.channelId ?? 0) || Number($('live-channels')?.value) || 0;
+  // 先取這一格自己的頻道；剛換版面還沒開播時退回這一格在目前批次中的位置。
+  const channelId = Number(entry?.channelId ?? 0)
+    || Number(livePageChannels()[liveCellIndex(cell)]?.id ?? 0);
 
   if (btn.dataset.cellAction === 'fullscreen') {
     // 全螢幕失敗（瀏覽器政策、非使用者手勢）不該讓畫面壞掉，靜默即可。
@@ -266,26 +291,29 @@ function onLiveGridClick(event) {
 }
 
 /**
- * 多分割即時監看：版面決定格數，多選清單決定要看哪幾路；每一格各自一條 WHEP 會話。
+ * 多分割即時監看：版面決定格數、頁次決定看哪一批頻道；每一格各自一條 WHEP 會話。
  *
- * 選超過格數時只取前 N 路（不報錯，因為使用者通常只是懶得改清單）。
+ * 沒有選台清單：按了幾分割就開幾路，再按同一版面就換下一批。
  * 刻意平行開檔：ICE 收集最長 3 秒，逐格等待會讓 5x5 等到天荒地老。
  */
-async function openLiveView(event) {
-  event.preventDefault();
+async function openLiveView() {
+  const generation = ++liveOpenGeneration;
+  await stopLiveView({ external: false });
+  if (generation !== liveOpenGeneration) return;
   const msg = $('live-msg');
-  const channels = selectedChannelIds();
+  const shown = livePageChannels();
 
-  await stopLiveView();
   renderLiveGrid();
 
-  if (channels.length === 0) {
-    msg.textContent = t('live.pickChannel');
+  if (shown.length === 0) {
+    msg.textContent = t('live.noChannels');
+    $('live-meta').textContent = '';
     return;
   }
 
   const cells = [...$('live-grid').querySelectorAll('.live-cell')];
-  const shown = channels.slice(0, liveLayoutCount());
+  const pages = Math.ceil(localChannels.length / liveLayoutCount());
+  const page = (livePage % pages) + 1;
 
   // 一格的畫面佔滿整個監看區（放大看車牌），多格則每一格只有幾百像素寬。
   // 多格要次碼流：主流是 1080p，伺服器端要先解碼再重新編碼，首包實測 2.6–24.3 秒
@@ -310,6 +338,7 @@ async function openLiveView(event) {
       }, { stream }),
     ),
   );
+  if (generation !== liveOpenGeneration) return;
 
   const ok = results.filter(Boolean).length;
   // 這裡只證明「協商成功」，第一張影格還沒到；真正的「播放中」由每格自己的
@@ -318,10 +347,10 @@ async function openLiveView(event) {
   msg.textContent = ok === liveCells.length && ok > 0
     ? t('live.connected', { ok })
     : t('live.someFailed', { ok, total: liveCells.length });
-  $('live-meta').textContent = t('live.gridMeta', {
+  $('live-meta').textContent = `${t('live.gridMeta', {
     count: ok,
     channels: shown.map(channelName).join(t('list.separator')),
-  });
+  })} · ${t('live.pageMeta', { page, pages })}`;
 }
 
 /**
@@ -341,11 +370,15 @@ function releaseLiveSessionsOnUnload() {
   });
 }
 
-async function stopLiveView() {
+async function stopLiveView({ external = true } = {}) {
+  // 開播前收掉上一批不算「外部停止」，不能再遞一代，否則自己的結果會被自己作廢。
+  if (external) liveOpenGeneration += 1;
+  const generation = liveOpenGeneration;
   if (liveCells.length === 0) return;
   const cells = liveCells;
   liveCells = [];
   const results = await Promise.all(cells.map(({ viewer }) => viewer.stop()));
+  if (generation !== liveOpenGeneration) return;
   if (results.some(Boolean)) {
     $('live-msg').textContent = t('state.liveStopped');
     $('live-meta').textContent = '';
@@ -460,18 +493,8 @@ async function refreshLocalChannels() {
   // 那支可能先於這裡執行、拿不到 localChannels，所以在這裡補一次。
   fillPlayChannels();
 
-  // 即時監看是多選：重畫選項時要保留已勾選的頻道，否則每 12 秒的輪詢會把選取清掉。
-  const select = $('live-channels');
-  if (select) {
-    const hadOptions = select.options.length > 0;
-    const chosen = new Set([...select.selectedOptions].map((o) => o.value));
-    select.innerHTML = localChannels
-      .map((c) => `<option value="${Number(c.id)}">${esc(c.name)}</option>`)
-      .join('');
-    for (const option of select.options) option.selected = chosen.has(option.value);
-    // 只有第一次載入、且使用者尚未選任何頻道時才預選第一路，讓「開啟」有預設可看。
-    if (!hadOptions && select.options.length > 0) select.options[0].selected = true;
-  }
+  // 即時監看不再有選單：頻道順序就是分頁順序，輪詢更新 localChannels 後，
+  // 下一次按版面就會用到新的清單，不必保留任何選取狀態。
 
   // 截圖／PTZ／IO 仍是單一數字欄位，用 datalist 提供建議。
   for (const id of ['snap-channel-options', 'ptz-channel-options', 'io-channel-options']) {
@@ -1671,13 +1694,21 @@ function wire() {
   bindTabs();
   showTab('live');
 
-  $('live-form').addEventListener('submit', openLiveView);
   $('live-stop').addEventListener('click', stopLiveView);
   releaseLiveSessionsOnUnload();
-  // 切版面立即重畫空格線（並收掉正在跑的會話，因為格數變了）。
-  $('live-layout').addEventListener('change', () => {
-    void stopLiveView();
-    renderLiveGrid();
+  // 版面按鈕同時是開播與分頁：不同格數回到第一批，同一格數換下一批。
+  // 用按鈕而不是 select，是因為再選一次相同的值不會觸發 change。
+  $('live-layout').addEventListener('click', (event) => {
+    const btn = event.target.closest('[data-layout]');
+    if (!btn) return;
+    const next = Number(btn.dataset.layout);
+    if (!LIVE_LAYOUTS.includes(next)) return;
+    if (next === liveLayout) livePage += 1;
+    else {
+      liveLayout = next;
+      livePage = 0;
+    }
+    void openLiveView();
   });
   renderLiveGrid();
   // 每格的工具列（全螢幕／截圖／PTZ）：委派給格線容器，重畫後不必重新綁定。

@@ -58,18 +58,20 @@
 
       <div class="subpanels" data-subpanel-group="live">
         <div id="subpanel-live" class="subpanel" data-subpanel="wall" role="tabpanel" aria-labelledby="subtabbtn-live">
+          <!--
+            不再提供頻道多選清單：按幾分割就依序顯示幾路攝影機，再按一次同一版面
+            換下一批。版面必須用按鈕而不是下拉選單——選相同的值不會觸發 change，
+            「再按一次四分割」就沒有辦法被偵測到。
+          -->
           <form id="live-form" class="row-form">
-            <label><span data-i18n="live.layout">版面</span>
-              <select id="live-layout" aria-label="Layout" data-i18n-attr="aria-label:live.layout">
-                <option value="1">1</option>
-                <option value="4">2×2</option>
-                <option value="9">3×3</option>
-                <option value="16">4×4</option>
-                <option value="25">5×5</option>
-              </select>
-            </label>
-            <select id="live-channels" multiple size="3" aria-label="Channels" data-i18n-attr="aria-label:live.channels"></select>
-            <button type="submit" data-i18n="action.openLive">開啟即時畫面</button>
+            <span data-i18n="live.layout">版面</span>
+            <div id="live-layout" class="layout-picker" role="group" data-i18n-attr="aria-label:live.layout,title:live.layoutHint">
+              <button type="button" data-layout="1" aria-pressed="true">1</button>
+              <button type="button" data-layout="4" aria-pressed="false">2×2</button>
+              <button type="button" data-layout="9" aria-pressed="false">3×3</button>
+              <button type="button" data-layout="16" aria-pressed="false">4×4</button>
+              <button type="button" data-layout="25" aria-pressed="false">5×5</button>
+            </div>
             <button type="button" id="live-stop" class="btn-quiet" data-i18n="action.stopLive">停止</button>
             <span id="live-msg" class="muted" aria-live="polite"></span>
           </form>

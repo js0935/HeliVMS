@@ -116,6 +116,16 @@ describe('per-cell live tools', () => {
   });
 });
 
+describe('live layout picker', () => {
+  it('keeps all layout buttons reachable and marks the active one', () => {
+    // 版面按鈕是唯一的開播入口；換行也不能被裁掉，目前版面必須一眼看得出來。
+    expect(rule('.layout-picker')).toMatch(/display:\s*flex/);
+    expect(rule('.layout-picker')).toMatch(/flex-wrap:\s*wrap/);
+    expect(rule('.layout-picker button.active')).toMatch(/background:\s*var\(--accent\)/);
+    expect(indexSource).not.toContain('id="live-channels"');
+  });
+});
+
 describe('horizontal overflow', () => {
   it('lets a panel scroll horizontally instead of clipping its table', () => {
     // 事件搜尋有 5 欄，內容一長就撐破面板右緣；面板沒有捲動容器的話，

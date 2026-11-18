@@ -427,6 +427,25 @@ button {
   flex: 0 0 auto;
 }
 
+/*
+ * 即時監看的版面按鈕同時是分頁器：按不同格數回到第一批，按同一格數換下一批。
+ * 目前版面要看得見，不能用 select 的 value——再選一次相同的值不會觸發 change。
+ */
+.layout-picker { display: flex; gap: 4px; flex-wrap: wrap; }
+.layout-picker button {
+  background: transparent;
+  border: 1px solid var(--line);
+  color: var(--text);
+  padding: 4px 10px;
+}
+.layout-picker button:hover { border-color: var(--accent); }
+.layout-picker button.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #06121f;
+  font-weight: 700;
+}
+
 .log { list-style: none; margin: 0; padding: 0; max-height: 200px; overflow: auto; }
 .log li { padding: 3px 6px; border-bottom: 1px solid var(--line); font-family: Consolas, monospace; }
 

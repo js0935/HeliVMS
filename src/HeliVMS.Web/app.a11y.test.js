@@ -53,10 +53,19 @@ describe('keyboard accessibility', () => {
   });
 
   it('labels every high-value placeholder-only input with an aria-label', () => {
-    const labeled = ['user', 'pass', 'q', 'live-channels', 'snap-channel', 'ptz-channel', 'ptz-preset-name', 'io-channel'];
+    const labeled = ['user', 'pass', 'q', 'snap-channel', 'ptz-channel', 'ptz-preset-name', 'io-channel'];
     for (const id of labeled) {
       expect(tagFor(id), `#${id}`).toMatch(/aria-label=/);
     }
+  });
+
+  it('exposes the live layout choice as labeled, pressed buttons', () => {
+    // 版面現在是分頁器而不是下拉選單；螢幕閱讀器要唸得出群組名稱與目前按下的是哪一格。
+    expect(indexSource).toMatch(/<div id="live-layout"[^>]*role="group"[^>]*data-i18n-attr="aria-label:live\.layout/);
+    const buttons = indexSource.match(/<button type="button" data-layout="\d+"[^>]*>/g) ?? [];
+    expect(buttons).toHaveLength(5);
+    for (const button of buttons) expect(button).toMatch(/aria-pressed="(true|false)"/);
+    expect(appSource).toMatch(/btn\.setAttribute\('aria-pressed', String\(active\)\)/);
   });
 
   it('登入表單住在獨立頁面，主介面未通過憑證前不出現', () => {
