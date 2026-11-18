@@ -115,9 +115,19 @@ describe('per-cell live tools', () => {
     expect(appSource).toMatch(/'<div class="live-ptz" hidden>'/);
     expect(appSource).toMatch(/data-ptz-move="-1,1,0"/);
     expect(appSource).toMatch(/data-ptz-action="close"/);
-    expect(appSource).toMatch(/data-ptz-action="stop"/);
-    expect(appSource).toMatch(/data-ptz-action="home"/);
     expect(appSource).toMatch(/class="live-ptz-status" aria-live="polite"/);
+  });
+
+  it('fills the floating direction pad as a full nine-grid', () => {
+    // 8 顆方向鍵塞進 3 欄會在中間列留空洞，看起來像左右鍵錯位。
+    // 停止鍵排在 8 個方向之後才會落在第九格（正中央），與 PTZ 頁一致。
+    expect(appSource).toMatch(/data-ptz-move="1,-1,0"[^]*?class="ptz-btn" data-ptz-action="stop"/);
+
+    // 變焦刻意不帶 ptz-btn：帶了會被 .live-ptz .ptz-btn 撐成 26px，
+    // 跟旁邊的回預設位高度不同，動作列看起來一高一低。
+    expect(appSource).toMatch(/<button type="button" data-ptz-move="0,0,1"/);
+    expect(appSource).toMatch(/<button type="button" data-ptz-move="0,0,-1"/);
+    expect(appSource).toMatch(/<button type="button" data-ptz-action="home"/);
   });
 
   it('opens the floating control on the cell that was clicked', () => {
@@ -142,6 +152,8 @@ describe('floating PTZ pad layout', () => {
     expect(rule('.live-ptz .ptz-pad')).toMatch(/grid-template-columns:\s*repeat\(3, minmax\(0, 1fr\)\)/);
     expect(rule('.live-ptz .ptz-btn')).toMatch(/height:\s*26px/);
     expect(rule('.live-ptz-actions')).toMatch(/display:\s*flex/);
+    // 動作列合併成一列（變焦／回預設位），不再分成兩列各自伸縮。
+    expect((appSource.match(/class="live-ptz-actions"/g) ?? []).length).toBe(1);
     expect(rule('.live-ptz-status')).toMatch(/overflow-wrap:\s*anywhere/);
   });
 });
