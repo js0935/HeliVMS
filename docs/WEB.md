@@ -17,7 +17,7 @@ vanilla JS），由 `src/HeliVMS.WebApi`（ASP.NET Core Minimal API）在**同�
 ## 1. 啟動
 
 需要 .NET 10 SDK，且 `ffmpeg`（含 `libx264`）在 `PATH`（或設 `HELIVMS_FFMPEG`）——
-只有「即時監看」與「遠程回放」需要它，其餘分頁不需要。
+只有「即時監看」與「遠程回放」需要它，其餘面板不需要。
 
 ```powershell
 # 一定要先設 API 金鑰，否則非 Development 環境會 fail-closed（除了 /api/health 與
@@ -38,8 +38,9 @@ dotnet run -c Release --project src/HeliVMS.WebApi
   只提供 API（沒有網頁）。找不到時可用 `HELIVMS_WEB` 明確指定 SPA 目錄。
 - **沒有 HTTPS**：`Program.cs` 不呼叫 `UseHttps`／`UseUrls`。要對外曝露請自己在前方
   放一個 TLS 反向代理（CSP 已允許 `wss:`）。
-- 瀏覽器開 `http://localhost:5000`。
-- 前端靜態檔（`index.html`／`app.js`／`live.js`…）一律以 `Cache-Control: no-cache` 供應：
+- 瀏覽器開 `http://localhost:5000` 會先到獨立登入頁 `login.html`；登入成功才進入
+  `index.html` 主介面。未通過憑證時主介面保持隱藏，不會先閃一下監看畫面。
+- 前端靜態檔（`index.html`／`login.html`／`app.js`／`live.js`…）一律以 `Cache-Control: no-cache` 供應：
   瀏覽器每次都會回伺服器驗證（檔案沒變仍回 `304`），所以換版後重新整理即可看到，不會被
   啟發式快取留在舊版——遠端操作站尤其重要，否則「明明修好了、瀏覽器還在跑舊版」很難查。
 
@@ -72,9 +73,9 @@ dotnet run -c Release --project src/HeliVMS.WebApi
    之後 `Authorization: Bearer <token>` 就能存取全部 `/api/*`。登入端點本身**不需要金鑰**
    （同 `/api/health` 一律放行），所以登入成功即取得 API 存取權，不必先餵一顆 API 金鑰。
 
-- **登入成功後**：SPA 把 token 存進原本的「API 金鑰」框（`localStorage`），所有的
-  REST 與 WebSockets（`?key=`）都改用它；角色為 `admin`／`viewer`，`viewer` 隱藏
-  12 個管理面板。
+- **登入成功後**：登入頁把 token 存進 `localStorage`（沿用原本的「API 金鑰」機制的
+  欄位），所有的 REST 與 WebSockets（`?key=`）都改用它；角色為 `admin`／`viewer`，
+  兩者在主介面看到相同的面板——角色目前不控制 Web 上任何按鈕或分頁的顯示。
 - **登出**：`POST /api/accounts/logout` 撤銷該 token（需帶 `Bearer <token>`），之後
   再帶它就回 401。token 有效 12 小時，主機（或桌面程式）重啟即失效。
 - **API 金鑰仍可用**：以金鑰為憑的舊呼叫端（腳本、中央站）完全不受影響；金鑰與
@@ -91,18 +92,17 @@ dotnet run -c Release --project src/HeliVMS.WebApi
 
 ## 4. 介面面板
 
-主控台是**六個分頁**（頁籤），只保留這六項功能；其餘舊面板已移除。持有效金鑰或工作
-階段者皆可見（授權不足時對應動作顯示 `403` 理由）：
+主控台是**四個主分頁**，功能相近的放在同一頁的次分頁裡，避免操作員在六個頁籤之間找東西：
 
-- **即時監看**：WebRTC／WHEP 低延遲（§6）
-- **遠程回放**：HLS 已錄影區段（§6）
-- **截圖**：由即時畫面用 canvas 擷取一格下載 PNG（免後端端點，§6）
-- **PTZ 控制**：ONVIF 移動／停止／回預設位與預設點管理（§6）
+- **即時監看**：次分頁「監看牆」（WebRTC／WHEP 低延遲）、「截圖」（canvas 存 PNG）、
+  「PTZ 控制」（ONVIF 移動／預設點）
+- **遠程回放**：次分頁「回放」（HLS 已錄影區段）、「匯出」（建立匯出工作後下載 MP4）
 - **事件搜尋**：關鍵字搜尋事件表（唯讀）＋ WebSocket 即時警報流
-- **IO 接點**：攝影機乾接點——列出 DI、列出並切換 DO（§6）
+- **設定**：次分頁「一般」（憑證／語言等）、「裝置資訊」、「IO 接點」（列出 DI、
+  切換 DO）
 
-頂列另有健康、連線、授權徽章、API 金鑰／登入、語言選單。後端沒有 RBAC（見 §3 警告），
-所以 `admin` 與 `viewer` 目前看到相同的六個分頁。
+頂列另有健康、連線、授權徽章、目前登入者、登出與語言選單。後端沒有 RBAC（見 §3
+警告），所以 `admin` 與 `viewer` 目前看到相同的四個主分頁與次分頁。
 
 ## 5. 授權旗標（後端閘門）
 
@@ -124,9 +124,11 @@ SPA 的 `#lic` 徽章會說明缺哪一項。console 本身不受 `remote` 限�
 
 ## 6. 即時監看、回放、截圖、PTZ 與 IO
 
-**即時監看（WebRTC／WHEP）**：面板「即時監看」→ 選版面（1／4／9／16／25 分割）＋多選頻道
-→ 開啟。每一格各自一條 WHEP 會話；選超過格數只取前 N 路，「停止」一次收掉全部。前端是原生
-`RTCPeerConnection`（`live.js`，不用 WHEP 函式庫）。端點：
+**即時監看（WebRTC／WHEP）**：「即時監看 → 監看牆」→ 按版面（1／4／9／16／25 分割），
+立刻依序顯示前面幾路攝影機；**再按一次同一個版面就換下一批**（頁次循環），不需要先選台。
+點「1」是單格主流，2 格以上會要求次碼流以縮短首包時間；次流不存在時自動退回主流。每一格
+各自一條 WHEP 會話，「停止」一次收掉全部。前端是原生 `RTCPeerConnection`（`live.js`，
+不用 WHEP 函式庫）。端點：
 
 - `POST /api/stream/{channelId}/whep`（`Content-Type: application/sdp`）→ `201` ＋ answer
 - `DELETE /api/stream/whep/{sessionId}` → `204`（冪等）
@@ -148,15 +150,19 @@ SPA 的 `#lic` 徽章會說明缺哪一項。console 本身不受 `remote` 限�
 伺服器在**收到第一個 RTP 封包後**才回 `201`——所以「開啟成功」就代表真的有畫面，
 不會出現「連上了卻永遠黑畫面、日誌無訊息」的情況。
 
-**遠程回放（HLS）**：面板「遠程回放」→ 選來源節點（本機／子節點）與頻道、起訖時間
+**遠程回放（HLS）**：「遠程回放 → 回放」→ 選來源節點（本機／子節點）與頻道、起訖時間
 → 載入。走已錄影區段，同屬 `remote` 旗標；選子節點時改打跨機代理
-（`/api/central/playback`）。
+（`/api/central/playback`）。播放器下方工具列有上一張／下一張、±30 秒、播放速度
+（0.25×～4×）、循環播放與全螢幕，全部只操作本機 `<video>`；循環在游標接近媒體尾端時
+回到起點，不依賴 `ended`（這條 MSE 管線刻意不呼叫 `endOfStream()`，才能往回拖再補段）。
+工具列旁的時鐘顯示該影格的錄影時刻，不是段內位置。「匯出」次分頁建立工作後，
+在同一個清單查看狀態並下載 MP4。
 
-**截圖**：面板「截圖」→ 開即時畫面（同 §6 WebRTC）→ 擷取畫面。純前端：把
-`#snap-video` 目前解碼的影格畫進 canvas 再 `toBlob('image/png')` 下載——沒有伺服器端
+**截圖**：「即時監看 → 截圖」→ 輸入頻道並開即時畫面（同 §6 WebRTC）→ 擷取畫面。純前端：
+把 `#snap-video` 目前解碼的影格畫進 canvas 再 `toBlob('image/png')` 下載——沒有伺服器端
 截圖端點，抓到的就是操作員當下看到的那一格。
 
-**PTZ 控制**：面板「PTZ 控制」→ 輸入頻道 → 連線（列出 ONVIF 碼流 profile）。端點：
+**PTZ 控制**：「即時監看 → PTZ 控制」→ 輸入頻道 → 連線（列出 ONVIF 碼流 profile）。端點：
 
 - `GET /api/ptz/{channelId}/profiles` → `{ profiles: [{ token, name }] }`
 - `POST /api/ptz/{channelId}/move`（`{profileToken, pan, tilt, zoom}`）→ 連續移動（速度）
@@ -168,7 +174,7 @@ SPA 的 `#lic` 徽章會說明缺哪一項。console 本身不受 `remote` 限�
 `409` 代表該設備不支援 PTZ，與 `404`（頻道不存在）意義不同。`/api/ptz` 不受授權旗標
 閘門保護（見 §5）。
 
-**IO 接點（攝影機乾接點）**：面板「IO 接點」→ 輸入頻道 → 讀取。列出該設備的數位輸入
+**IO 接點（攝影機乾接點）**：「設定 → IO 接點」→ 輸入頻道 → 讀取。列出該設備的數位輸入
 （DI）與繼電器輸出（DO）；每一路 DO 可用「閉合／斷開」切換。端點：
 
 - `GET /api/io/{channelId}/inputs` → `{ inputs: [{ token, id, name, label }] }`
@@ -187,6 +193,8 @@ Notification）中回報，所以 DI 只列出有哪些端子，不含即時狀�
 | 所有 `/api/*` 回 401 | 沒設 `HELIVMS_API_KEY`（非 Development 會 fail-closed），或金鑰不符 |
 | 401 次數過多後變 429 | 觸發暴力破解防護（20 次/60 秒），等 `Retry-After` 秒 |
 | 某面板一片空白且提示缺功能 | 對應授權旗標未開（看 `#lic` 徽章） |
+| 一直跳回登入頁或顯示「未登入」 | 工作階段 token 已過期（12 小時）或被登出，重新登入即可 |
+| 即時監看的格子比選的版面少 | 啟用中的攝影機不足；按同一版面會輪到下一批，不是故障 |
 | 網頁打不開、只有 API 有回應 | 找不到 SPA 目錄，設 `HELIVMS_WEB` 指向含 `index.html` 的資料夾 |
 | 重新整理後前端仍是舊版 | 舊快取；靜態檔已送 `no-cache`，先確認伺服器已重啟（吃到新表頭）再重新整理 |
 | 即時監看一直 connecting／failed | 缺 `HELIVMS_WHEP_TURN`／`PUBLIC_HOST`，或 `ffmpeg` 不在 `PATH` |
