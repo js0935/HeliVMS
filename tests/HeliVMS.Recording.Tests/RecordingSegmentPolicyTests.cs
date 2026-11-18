@@ -95,4 +95,68 @@ public sealed class RecordingSegmentPolicyTests : IDisposable
     [Fact]
     public void 未寫入設定時Read回預設()
         => Assert.Equal(RecordingSegmentPolicy.DefaultSeconds, RecordingSegmentPolicy.Read(_store));
+
+    /// <summary>
+    /// 段檔資料夾是「起點所屬的那個小時」，而每小時合併以資料夾為單位重新封裝。固定長度
+    /// 會讓跨過整點的那一段把上一小時的內容帶進下一小時的資料夾，合併檔因此永遠不是
+    /// 01:00–02:00；這裡釘住「只有逼近整點的那一段會縮短，其餘仍是設定值」。
+    /// </summary>
+    [Fact]
+    public void 遠離整點時沿用設定的分段長度()
+    {
+        Assert.Equal(300, RecordingSegmentPolicy.PlanSeconds(300, At(10, 0, 7)));
+        Assert.Equal(300, RecordingSegmentPolicy.PlanSeconds(300, At(10, 50, 7)));
+    }
+
+    /// <summary>10:58:20 起錄、設定 300 秒：到下一個整點只剩 100 秒。</summary>
+    [Fact]
+    public void 逼近整點的段會縮短到下一個整點()
+        => Assert.Equal(100, RecordingSegmentPolicy.PlanSeconds(300, At(10, 58, 20)));
+
+    /// <summary>設定值剛好等於到整點的距離時，整段錄到整點為止（不跨點也不提前收）。</summary>
+    [Fact]
+    public void 設定值剛好等於到整點的距離時在整點收檔()
+        => Assert.Equal(600, RecordingSegmentPolicy.PlanSeconds(600, At(10, 50, 0)));
+
+    /// <summary>
+    /// 子秒起點要向下取整：10:57:20.500 到整點是 159.5 秒，取 159 才不會把內容推進下一個小時。
+    /// </summary>
+    [Fact]
+    public void 子秒起點向下取整不會超過整點()
+        => Assert.Equal(159, RecordingSegmentPolicy.PlanSeconds(300, At(10, 57, 20).AddMilliseconds(500)));
+
+    /// <summary>
+    /// 整點前不到一秒才開錄時，往下取整會是 0——<c>-t 0</c> 產不出任何影格。至少要給一秒，
+    /// 寧可跨過整點零點幾秒，也不要產生一筆沒有內容的損壞段。
+    /// </summary>
+    [Fact]
+    public void 整點前不到一秒仍會錄一秒而不是零秒()
+    {
+        var planned = RecordingSegmentPolicy.PlanSeconds(
+            300,
+            At(10, 59, 59).AddMilliseconds(700));
+
+        Assert.Equal(RecordingSegmentPolicy.MinimumAlignedSeconds, planned);
+    }
+
+    /// <summary>整天的每一個起點（含跨午夜的 23 時）都不會讓分段跨過整點。</summary>
+    [Fact]
+    public void 任何起點的分段都不會跨過整點()
+    {
+        for (var hour = 0; hour < 24; hour++)
+        {
+            var hourStart = At(hour, 0, 0);
+            for (var offset = 0; offset < 3600; offset += 7)
+            {
+                var start = hourStart.AddSeconds(offset);
+                var planned = RecordingSegmentPolicy.PlanSeconds(600, start);
+                Assert.True(
+                    start.AddSeconds(planned) <= hourStart.AddHours(1),
+                    $"{start:HH:mm:ss} 起錄的分段會跨過整點");
+            }
+        }
+    }
+
+    private static DateTime At(int hour, int minute, int second)
+        => new(2026, 1, 1, hour, minute, second, DateTimeKind.Utc);
 }

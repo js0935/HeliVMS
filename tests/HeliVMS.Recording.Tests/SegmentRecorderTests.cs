@@ -124,11 +124,16 @@ public sealed class SegmentRecorderTests : IDisposable
     /// 錄影參數是負載平衡的：`-c:v copy` 確保不轉碼、`-f mp4` 加
     /// `frag_keyframe+empty_moov+default_base_moof+faststart` 是 fMP4 分段與邊錄邊放的
     /// 前提，`-t` 決定區段長度。任一改動都會造成「有檔但時間軸壞掉」。
+    ///
+    /// 時鐘固定在同一小時的第 7 秒：接近整點時 `-t` 會依法縮短（見
+    /// <see cref="RecordingSegmentPolicy.PlanSeconds"/>），用真實時鐘會讓這條斷言
+    /// 每小時有 42 秒的隨機失敗窗口。
     /// </summary>
     [Fact]
     public async Task ffmpeg參數必須直拷畫面並輸出fMP4()
     {
-        var (recorder, factory, first) = BeginFirstSegment(FirstCompletesThenPending);
+        var start = new DateTime(2026, 1, 1, 12, 0, 7, DateTimeKind.Utc);
+        var (recorder, factory, first) = BeginFirstSegment(FirstCompletesThenPending, clock: () => start);
         await first.WaitAsync(TimeSpan.FromSeconds(10));
 
         var psi = factory.Processes[0].StartInfo;
@@ -145,6 +150,28 @@ public sealed class SegmentRecorderTests : IDisposable
         Assert.Equal(SegmentSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture), ValueAfter(args, "-t"));
         Assert.Equal("0:v:0", ValueAfter(args, "-map"));
         Assert.EndsWith(".tmp", args[^1], StringComparison.OrdinalIgnoreCase);
+
+        await recorder.DisposeAsync();
+    }
+
+    /// <summary>
+    /// 逼近整點的那一段必須在下一個整點前收檔。
+    ///
+    /// 段檔資料夾是「起點所屬的小時」，跨過整點的段會把上一小時的內容帶進下一小時的資料夾，
+    /// 每小時合併因此只能產出 01:57–02:03，而不是現場要求的 01:00–02:00。
+    /// 這裡讓設定的 42 秒大於「到整點只剩 30 秒」，就可以分辨「有沒有整點對齊」——
+    /// 沒有對齊時這個斷言會拿到 42。
+    /// </summary>
+    [Fact]
+    public async Task 逼近整點時段長會縮短到下一個整點()
+    {
+        var start = new DateTime(2026, 1, 1, 10, 59, 30, DateTimeKind.Utc);
+        var (recorder, factory, first) = BeginFirstSegment(FirstCompletesThenPending, clock: () => start);
+        await first.WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.Equal(
+            "30",
+            ValueAfter(factory.Processes[0].StartInfo.ArgumentList, "-t"));
 
         await recorder.DisposeAsync();
     }
@@ -1330,11 +1357,12 @@ public sealed class SegmentRecorderTests : IDisposable
 
     private (SegmentRecorder Recorder, FakeProcessFactory Factory, Task<SegmentRecord> First) BeginFirstSegment(
         Func<int, ProcessStartInfo, FakeProcess> make,
-        Func<string, string>? audioProbe = null)
+        Func<string, string>? audioProbe = null,
+        Func<DateTime>? clock = null)
     {
         var completed = new TaskCompletionSource<SegmentRecord>(TaskCreationOptions.RunContinuationsAsynchronously);
         var factory = new FakeProcessFactory(make);
-        var recorder = new SegmentRecorder(_segments, factory, audioProbe ?? (_ => string.Empty));
+        var recorder = new SegmentRecorder(_segments, factory, audioProbe ?? (_ => string.Empty), clock: clock);
         recorder.SegmentCompleted += (_, segment) => completed.TrySetResult(segment);
         _ = recorder.StartAsync(_channelId, RtspUrl, _recordingsRoot, "main", SegmentSeconds);
         return (recorder, factory, completed.Task);

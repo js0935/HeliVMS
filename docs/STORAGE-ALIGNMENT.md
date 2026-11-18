@@ -148,7 +148,7 @@ duration_sec, size_bytes, status, tier, origin_path`…），外加 `SegmentShar
 
 | 機制 | 實作 |
 |---|---|
-| 單檔秒數 | `recording.segment_seconds`；預設 **300 秒**、範圍 5–600（`RecordingSegmentPolicy`） |
+| 單檔秒數 | `recording.segment_seconds`；預設 **300 秒**、範圍 5–600（`RecordingSegmentPolicy`），跨整點會提前收檔（`PlanSeconds`） |
 | 小時合併 | `recording.hourly_merge`（選用）：remux → ffprobe 驗時長 → 改名 → 索引交易 → **最後才刪原檔** |
 | 多碟 | 錄影一律避開系統碟；`recording.root`＋`RecordingStorage.KnownRoots`（切換磁碟後舊根仍可汰除） |
 | 磁碟壓力 | `DiskPressurePolicy`：已用 ≥ **85%** 預警；可用 ≤ 門檻＝危急；**全部**磁碟都危急才停新錄 |

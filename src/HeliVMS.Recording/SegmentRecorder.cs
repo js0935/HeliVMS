@@ -113,7 +113,10 @@ public sealed class SegmentRecorder : ISegmentRecorder
 
     public bool IsRecording => _loop is { IsCompleted: false };
 
-    /// <summary>每段錄製秒數。</summary>
+    /// <summary>
+    /// 設定的分段上限（秒）。實際每段的 <c>-t</c> 由 <see cref="RecordingSegmentPolicy.PlanSeconds"/>
+    /// 依起點決定：逼近整點的那一段會縮短，其餘等於這個值。
+    /// </summary>
     public int SegmentSeconds { get; private set; } = DefaultSegmentSeconds;
 
     /// <summary>區段完成時觸發（已改名為正式檔且索引已回寫）。</summary>
@@ -483,9 +486,13 @@ public sealed class SegmentRecorder : ISegmentRecorder
 
         _activeSegmentId = _repo.BeginSegment(ChannelId, Stream, finalPath, startUtc);
 
+        // 每段的長度不是固定值：逼近整點的那一段會縮短到下一個整點，這樣每一段的內容都
+        // 留在它自己的小時資料夾裡，每小時合併才能產出 01:00–02:00 這種整點區間。
+        var segmentSeconds = RecordingSegmentPolicy.PlanSeconds(SegmentSeconds, startUtc);
+
         try
         {
-            var ok = await RunSegmentAsync(tmpPath, audioEncoderArgs, token);
+            var ok = await RunSegmentAsync(tmpPath, audioEncoderArgs, segmentSeconds, token);
             if (ok)
             {
                 // 先改名再看時間：改名是這段錄影「已經成為正式檔」的分界點。放在取時間之前，
@@ -763,7 +770,11 @@ public sealed class SegmentRecorder : ISegmentRecorder
     }
 
     /// <summary>執行一段錄影，回傳是否正常收尾。</summary>
-    private async Task<bool> RunSegmentAsync(string tmpPath, string audioEncoderArgs, CancellationToken token)
+    /// <param name="tmpPath">暫存檔路徑。</param>
+    /// <param name="audioEncoderArgs">音訊參數（空字串＝不錄音）。</param>
+    /// <param name="segmentSeconds">這一段的長度；已由 <see cref="RecordingSegmentPolicy.PlanSeconds"/> 整點對齊。</param>
+    /// <param name="token">停止訊號（收到時請 ffmpeg 收尾，不硬砍）。</param>
+    private async Task<bool> RunSegmentAsync(string tmpPath, string audioEncoderArgs, int segmentSeconds, CancellationToken token)
     {
         var psi = new ProcessStartInfo
         {
@@ -806,7 +817,7 @@ public sealed class SegmentRecorder : ISegmentRecorder
         psi.ArgumentList.Add("-movflags");
         psi.ArgumentList.Add("frag_keyframe+empty_moov+default_base_moof+faststart");
         psi.ArgumentList.Add("-t");
-        psi.ArgumentList.Add(SegmentSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        psi.ArgumentList.Add(segmentSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture));
         psi.ArgumentList.Add("-y");
         psi.ArgumentList.Add(tmpPath);
 

@@ -1004,6 +1004,26 @@ Notes that will save you time:
   fact first asserted the source contains 「小時合併失敗」 — the explanatory comment above the log
   line contains the same characters, so deleting the whole `LogWarning` kept it green. It now pins
   the message template (with the `{Failed}` placeholder) and `mergeFailures[0].FolderPath`.
+- **A segment must never carry content across the top of the hour — the merge partition is the
+  folder, and the folder is the segment's *start* hour.** `HourlySegmentMerger` groups by
+  `<root>\<channel>\yyyyMMdd\HH`, so a fixed-length segment launched at 01:57 and ending at 02:02 is
+  filed under `01` but brings two minutes of the next hour with it: every merged hour was really
+  `01:57–02:03`, i.e. the blocks never lined up with clock hours no matter how carefully the merger
+  ran (nothing is logged; the file simply covers the wrong span). `SegmentRecorder` now sizes each
+  ffmpeg run with `RecordingSegmentPolicy.PlanSeconds(configured, startUtc)` — the configured value
+  is an **upper bound**, and a segment that would cross the hour is shortened so it ends just before
+  the boundary. Only that last segment per hour is shorter, so the file count does not grow, and
+  continuous recording makes each folder's merged file start at ~`HH:00:00`. The minimum is 1
+  second, not 0: `-t 0` produces no frame and ffmpeg exits leaving a contentless corrupt row when
+  recording starts in the last second of an hour. The residual offset is the RTSP warm-up (`-t`
+  counts output content, ffmpeg starts it at the first frame, measured 0.6–0.9 s on healthy
+  cameras), plus the documented fact that `segments.start_time` is the launch time; do not "fix"
+  that here by shifting instants (see the segment-anchor bullet).
+  Guarded by `遠離整點時沿用設定的分段長度`, `逼近整點的段會縮短到下一個整點`,
+  `設定值剛好等於到整點的距離時在整點收檔`, `子秒起點向下取整不會超過整點`,
+  `整點前不到一秒仍會錄一秒而不是零秒`, `任何起點的分段都不會跨過整點` and
+  `逼近整點時段長會縮短到下一個整點` (the last one is the recorder wiring: reverting `-t` to
+  `SegmentSeconds` turns it red).
 - **A `corrupt` row must say why it failed — and a revived row must not keep accusing the file.**
   The live index had 207 `corrupt` rows (ch107 alone 118) with no cause anywhere in the row: the
   timeline shows a hole, the operator's only recourse was matching `recording.stalled` rows out of

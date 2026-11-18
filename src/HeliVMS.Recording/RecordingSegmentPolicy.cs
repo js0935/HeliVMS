@@ -30,9 +30,27 @@ namespace HeliVMS.Recording;
 /// 下限 <see cref="MinSeconds"/>＝5 秒與上限同樣重要：更短的分段會讓每段的 ffmpeg
 /// 啟停與收尾（改名、SHA-256、索引回寫）成為主體成本，反而更容易掉段。
 /// </para>
+///
+/// <para>
+/// 設定值是<b>上限</b>而不是固定長度：<see cref="PlanSeconds"/> 會把逼近整點的那一段縮短，
+/// 讓每一段都結束在下一個整點之前。這是每小時合併能產出「01:00–02:00」而不是
+/// 「01:57–02:03」的前提（段檔資料夾以起點所屬小時命名，跨點的段會把上一小時的內容
+/// 帶進下一小時的資料夾）。
+/// </para>
 /// </summary>
 public static class RecordingSegmentPolicy
 {
+    /// <summary>
+    /// 整點對齊後允許的最短分段（秒）。
+    ///
+    /// <para>
+    /// 只有「整點前不到一秒才開錄」會用到它：那時往下取整會得到 0，而 <c>-t 0</c>
+    /// 產不出任何影格，ffmpeg 直接結束，索引就多一筆沒有內容的 corrupt。1 秒至少是一張
+    /// 可回放的影格，跨過整點的量也只有零點幾秒。
+    /// </para>
+    /// </summary>
+    public const int MinimumAlignedSeconds = 1;
+
     /// <summary>分段秒數的設定鍵；未設定或無法解析時採 <see cref="DefaultSeconds"/>。</summary>
     public const string SettingKey = "recording.segment_seconds";
 
@@ -83,5 +101,36 @@ public static class RecordingSegmentPolicy
 
         seconds = DefaultSeconds;
         return false;
+    }
+
+    /// <summary>
+    /// 這一段實際要錄幾秒：不跨過下一個整點，且不超過設定值。
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// 為什麼要在整點收檔：段檔所在的資料夾是「起點所屬的那個小時」
+    /// （<c>&lt;root&gt;\&lt;頻道&gt;\yyyyMMdd\HH</c>），而每小時合併是以資料夾為單位
+    /// 重新封裝。固定長度會讓跨過整點的那一段把上一小時的內容帶進這個資料夾，合併出來的
+    /// 檔因此是 01:57–02:03 而不是 01:00–02:00；反過來說，這也是「合併檔的起點永遠不是
+    /// 整點」的唯一原因。
+    /// </para>
+    /// <para>
+    /// 只有逼近整點的那一段會縮短，其餘仍是設定值，所以檔數不會因此增加。
+    /// <c>-t</c> 量的是輸出內容長度，而 ffmpeg 從第一個影格起算，因此攝影機的連線暖機
+    /// （實測健康攝影機 0.6–0.9 秒）會讓實際收檔時刻略晚於整點；索引的起點本來就記
+    /// 「ffmpeg 啟動時刻」（見 AGENTS.md 的段起點口徑），不是這裡能修正的。
+    /// </para>
+    /// </remarks>
+    /// <param name="configuredSeconds">操作員設定的分段秒數（視為上限）。</param>
+    /// <param name="startUtc">這一段的起點（ffmpeg 啟動時刻；資料夾也用它分小時）。</param>
+    public static int PlanSeconds(int configuredSeconds, DateTime startUtc)
+    {
+        var secondsIntoHour = startUtc.Minute * 60 + startUtc.Second + (startUtc.Millisecond / 1000.0);
+        var toNextHour = 3600 - secondsIntoHour;
+        var planned = Math.Min(configuredSeconds, toNextHour);
+
+        // 向下取整：多錄的半秒會把「下一秒就是整點」的段推進下一個小時，正好是這個政策
+        // 要避免的事。整點前不到一秒仍然給一秒——`-t 0` 產不出任何影格。
+        return Math.Max(MinimumAlignedSeconds, (int)Math.Floor(planned));
     }
 }
