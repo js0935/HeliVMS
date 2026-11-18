@@ -68,13 +68,6 @@
                       ScrollViewer.HorizontalScrollBarVisibility="Disabled">
                 <ListView.View>
                     <GridView>
-                        <GridViewColumn Header="ID" Width="46">
-                            <GridViewColumn.CellTemplate>
-                                <DataTemplate>
-                                    <TextBlock Text="{Binding Id}" FontSize="12"/>
-                                </DataTemplate>
-                            </GridViewColumn.CellTemplate>
-                        </GridViewColumn>
                         <GridViewColumn x:Name="ChannelColName" Header="" Width="180">
                             <GridViewColumn.CellTemplate>
                                 <DataTemplate>

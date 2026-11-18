@@ -276,6 +276,23 @@ public sealed class ChannelAdminContractTests
     }
 
     /// <summary>
+    /// 頻道清單不顯示內部主鍵 ID——操作員看的是名稱、格位與串流，不是資料庫主鍵。
+    /// </summary>
+    /// <remarks>
+    /// 主鍵出現在每天盯的清單上只會製造混淆（「為什麼攝影機06的 ID 是 3？」），
+    /// 而且它是唯一硬編碼 Header 的欄位（其餘都走 i18n），拿掉也消除這個不一致。
+    /// 內部識別仍留在 <c>OnApplyChannelEditClicked</c> 的 Update 裡，只是不顯示。
+    /// </remarks>
+    [Fact]
+    public void 頻道清單不顯示內部ID()
+    {
+        var xaml = SourceContract.Read(Xaml);
+
+        Assert.DoesNotContain("Header=\"ID\"", xaml);
+        Assert.DoesNotContain("{Binding Id}", xaml);
+    }
+
+    /// <summary>
     /// 重新取得碼流的精靈要預填已知位址並自動探索，而且不以最大化開啟。
     /// </summary>
     /// <remarks>
