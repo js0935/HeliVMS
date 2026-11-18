@@ -117,20 +117,6 @@ function showSubTab(group, name) {
   }
 }
 
-/**
- * 從監看牆的某一格跳到它的工具頁（截圖／PTZ），並把該格的頻道帶過去。
- *
- * 這是「功能雜亂」的另一半：把截圖與 PTZ 收進監看頁之後，操作員不該還得自己
- * 記住「我在看第幾台、編號是多少」再手打一次——那一格就是答案。
- */
-function openCellTool(group, name, channelId) {
-  showSubTab(group, name);
-  const target = name === 'snapshot' ? $('snap-channel') : $('ptz-channel');
-  if (target && Number.isInteger(channelId) && channelId > 0) {
-    target.value = String(channelId);
-  }
-}
-
 /** 功能分頁。切換只改可見性與 ARIA 狀態，不重建內容，所以播放中的畫面不會被打斷。 */
 function showTab(name) {
   for (const btn of document.querySelectorAll('[data-tab]')) {
@@ -166,6 +152,13 @@ const snapshotViewer = createLiveViewer({ apiRaw, t });
 
 /** 目前格線上的每一格各自一條 WHEP 會話；「停止」一次整批收掉。 */
 let liveCells = [];
+
+/**
+ * 懸浮 PTZ 的狀態。一次只開一格：ONVIF ContinuousMove 是速度命令，同時讓兩台轉
+ * 是安全事故，而不是「多工方便」。profile 按頻道快取，ONVIF 探索很慢且結果不變。
+ */
+const floatingPtzProfiles = new Map();
+let activeFloatingPtz = null;
 
 /**
  * 每次收檔或重新開播都遞增；連續按同一版面時，較早那一輪的協商結果不能回來
@@ -207,6 +200,8 @@ function channelName(channelId) {
 function renderLiveGrid() {
   const grid = $('live-grid');
   if (!grid) return;
+  // 整批重畫會把舊的 overlay DOM 丟掉；先把命令停掉，否則鏡頭會在換版面後繼續轉。
+  closeFloatingPtz();
   const count = liveLayoutCount();
   const cols = Math.round(Math.sqrt(count));
   grid.style.gridTemplateColumns = `repeat(${cols}, minmax(0, 1fr))`;
@@ -227,6 +222,34 @@ function renderLiveGrid() {
     + `<button type="button" class="cell-btn" data-cell-action="fullscreen" title="${tx('cell.fullscreen')}" aria-label="${tx('cell.fullscreen')}">⛶</button>`
     + `<button type="button" class="cell-btn" data-cell-action="snapshot" title="${tx('cell.snapshot')}" aria-label="${tx('cell.snapshot')}">⎙</button>`
     + `<button type="button" class="cell-btn" data-cell-action="ptz" title="${tx('cell.ptz')}" aria-label="${tx('cell.ptz')}">⌖</button>`
+    + '</div>'
+    // 懸浮控制一開始收起來，按 ⌖ 才出現；它蓋在畫面上而不是另開分頁，
+    // 操作員才能一邊看畫面一邊調整鏡頭。方向鍵用 data-ptz-move（不是 PTZ 頁的
+    // data-move），避免被 bindPtzPad 的全域綁定攔去控制 PTZ 頁那一台。
+    + '<div class="live-ptz" hidden>'
+    + '<div class="live-ptz-head">'
+    + `<span class="live-ptz-title">${tx('ptz.floating')}</span>`
+    + `<button type="button" class="live-ptz-close" data-ptz-action="close" title="${tx('ptz.close')}" aria-label="${tx('ptz.close')}">✕</button>`
+    + '</div>'
+    + '<div class="ptz-pad">'
+    + `<button type="button" class="ptz-btn" data-ptz-move="-1,1,0" title="${tx('ptz.upLeft')}" aria-label="${tx('ptz.upLeft')}">↖</button>`
+    + `<button type="button" class="ptz-btn" data-ptz-move="0,1,0" title="${tx('ptz.up')}" aria-label="${tx('ptz.up')}">↑</button>`
+    + `<button type="button" class="ptz-btn" data-ptz-move="1,1,0" title="${tx('ptz.upRight')}" aria-label="${tx('ptz.upRight')}">↗</button>`
+    + `<button type="button" class="ptz-btn" data-ptz-move="-1,0,0" title="${tx('ptz.left')}" aria-label="${tx('ptz.left')}">←</button>`
+    + `<button type="button" class="ptz-btn" data-ptz-move="1,0,0" title="${tx('ptz.right')}" aria-label="${tx('ptz.right')}">→</button>`
+    + `<button type="button" class="ptz-btn" data-ptz-move="-1,-1,0" title="${tx('ptz.downLeft')}" aria-label="${tx('ptz.downLeft')}">↙</button>`
+    + `<button type="button" class="ptz-btn" data-ptz-move="0,-1,0" title="${tx('ptz.down')}" aria-label="${tx('ptz.down')}">↓</button>`
+    + `<button type="button" class="ptz-btn" data-ptz-move="1,-1,0" title="${tx('ptz.downRight')}" aria-label="${tx('ptz.downRight')}">↘</button>`
+    + '</div>'
+    + '<div class="live-ptz-actions">'
+    + `<button type="button" class="ptz-btn" data-ptz-move="0,0,1" title="${tx('ptz.zoomIn')}" aria-label="${tx('ptz.zoomIn')}">+</button>`
+    + `<button type="button" class="ptz-btn" data-ptz-move="0,0,-1" title="${tx('ptz.zoomOut')}" aria-label="${tx('ptz.zoomOut')}">−</button>`
+    + '</div>'
+    + '<div class="live-ptz-actions">'
+    + `<button type="button" data-ptz-action="stop">${tx('ptz.stop')}</button>`
+    + `<button type="button" data-ptz-action="home">${tx('ptz.home')}</button>`
+    + '</div>'
+    + '<div class="live-ptz-status" aria-live="polite"></div>'
     + '</div></div>',
   ).join('');
 }
@@ -288,7 +311,8 @@ function onLiveGridClick(event) {
     return;
   }
 
-  openCellTool('live', 'ptz', channelId);
+  // ⌖ 不再把操作員丟到沒有影像的 PTZ 頁：就在這一格上開懸浮控制。
+  void toggleCellPtz(cell, channelId);
 }
 
 /**
@@ -366,12 +390,15 @@ function releaseLiveSessionsOnUnload() {
     // persisted＝這一頁只是進到 back/forward 快取，等一下可能被還原；那不是真的離開，
     // 收掉連線會讓「上一頁」回來時只剩一格死畫面。
     if (event.persisted) return;
+    closeFloatingPtz();
     for (const { viewer } of liveCells) void viewer.stop();
     liveCells = [];
   });
 }
 
 async function stopLiveView({ external = true } = {}) {
+  // 懸浮控制必須先停：ContinuousMove 是速度命令，關掉畫面不等於鏡頭停下來。
+  closeFloatingPtz();
   // 開播前收掉上一批不算「外部停止」，不能再遞一代，否則自己的結果會被自己作廢。
   if (external) liveOpenGeneration += 1;
   const generation = liveOpenGeneration;
@@ -1031,7 +1058,39 @@ let ptzProfileToken = '';
 /**
  * PTZ（M310 後端 /api/ptz）：列出設備碼流，之後的移動／預設點都靠 profileToken 定位。
  * 409 代表「這個設備不支援 PTZ」——與 404「頻道不存在」的意義完全不同，所以分開講。
+ *
+ * PTZ 頁與監看牆的懸浮控制共用這一段：兩邊如果各自判斷 409／空清單，遲早有一邊
+ * 把「不支援」講成「連線失敗」，操作員就會往錯的方向查。
  */
+async function resolvePtzProfiles(channelId, msg) {
+  const resp = await apiRaw(`/api/ptz/${channelId}/profiles`).catch(() => null);
+  if (!resp) {
+    msg.textContent = t('state.disconnected');
+    return null;
+  }
+  if (!resp.ok) {
+    if (resp.status === 409) {
+      msg.textContent = t('ptz.notSupported');
+      return null;
+    }
+    const info = await resp.json().catch(() => null);
+    msg.textContent = t('ptz.connectFailed', { reason: info?.error ?? t('state.failed') });
+    return null;
+  }
+  const body = await resp.json().catch(() => null);
+  const profiles = body?.profiles ?? [];
+  if (profiles.length === 0) {
+    msg.textContent = t('ptz.noProfiles');
+    return null;
+  }
+  return profiles;
+}
+
+/** PTZ 頁所用的命令目標；懸浮控制會傳自己的 target，不覆寫這個全域值。 */
+function ptzPageTarget() {
+  return { channelId: Number($('ptz-channel').value), token: ptzProfileToken, msg: $('ptz-msg') };
+}
+
 async function loadPtz(event) {
   event.preventDefault();
   const channelId = Number($('ptz-channel').value);
@@ -1041,26 +1100,8 @@ async function loadPtz(event) {
     return;
   }
   msg.textContent = t('ptz.connecting');
-  const resp = await apiRaw(`/api/ptz/${channelId}/profiles`).catch(() => null);
-  if (!resp) {
-    msg.textContent = t('state.disconnected');
-    return;
-  }
-  if (!resp.ok) {
-    if (resp.status === 409) {
-      msg.textContent = t('ptz.notSupported');
-      return;
-    }
-    const info = await resp.json().catch(() => null);
-    msg.textContent = t('ptz.connectFailed', { reason: info?.error ?? t('state.failed') });
-    return;
-  }
-  const body = await resp.json().catch(() => null);
-  const profiles = body?.profiles ?? [];
-  if (profiles.length === 0) {
-    msg.textContent = t('ptz.noProfiles');
-    return;
-  }
+  const profiles = await resolvePtzProfiles(channelId, msg);
+  if (!profiles) return;
   ptzProfileToken = profiles[0].token;
   $('ptz-profile').innerHTML = profiles
     .map((p) => `<option value="${esc(p.token)}">${esc(p.label ?? p.name ?? p.token)}</option>`)
@@ -1083,8 +1124,7 @@ async function loadPtzPresets(channelId) {
 }
 
 /** 共用回應處理：把後端錯誤（含閘門的 403）原文顯示，成功則顯示呼叫端給的字串。 */
-async function ptzReport(resp, okText = '') {
-  const msg = $('ptz-msg');
+async function ptzReport(resp, okText = '', msg = $('ptz-msg')) {
   if (!resp) {
     msg.textContent = t('state.disconnected');
     return false;
@@ -1139,16 +1179,21 @@ function setPtzSpeed(level) {
   localStorage.setItem('helivms.ptzSpeed', String(next));
 }
 
-async function ptzMove(pan, tilt, zoom) {
-  if (!ptzProfileToken) {
-    $('ptz-msg').textContent = t('ptz.notSupported');
+/**
+ * 三道移動／停止／回預設位命令都接受明確的 target（頻道、profile、狀態列）。
+ * 沒傳就用 PTZ 頁的全域值——原有呼叫點不必改，懸浮控制則帶自己的那一格，
+ * 不會把 PTZ 頁的 ptzProfileToken 覆寫成別台攝影機。
+ */
+async function ptzMove(pan, tilt, zoom, target = ptzPageTarget()) {
+  if (!target.token) {
+    target.msg.textContent = t('ptz.notSupported');
     return;
   }
-  const channelId = Number($('ptz-channel').value);
+  const channelId = target.channelId;
   const scale = ptzVelocityScale();
   // 只有非零軸才縮放：0 代表「這一軸不動」，乘上比例還是 0，不必特別處理但寫出來較清楚。
   const body = {
-    profileToken: ptzProfileToken,
+    profileToken: target.token,
     pan: pan * scale,
     tilt: tilt * scale,
     zoom: zoom * scale,
@@ -1159,35 +1204,35 @@ async function ptzMove(pan, tilt, zoom) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     }).catch(() => null);
-    await ptzReport(resp);
+    await ptzReport(resp, '', target.msg);
   });
 }
 
-async function ptzStop() {
-  if (!ptzProfileToken) return;
-  const channelId = Number($('ptz-channel').value);
+async function ptzStop(target = ptzPageTarget()) {
+  if (!target.token) return;
+  const channelId = target.channelId;
   await ptzEnqueue(async () => {
     const resp = await apiRaw(`/api/ptz/${channelId}/stop`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ profileToken: ptzProfileToken }),
+      body: JSON.stringify({ profileToken: target.token }),
     }).catch(() => null);
-    await ptzReport(resp);
+    await ptzReport(resp, '', target.msg);
   });
 }
 
-async function ptzHome() {
-  if (!ptzProfileToken) {
-    $('ptz-msg').textContent = t('ptz.notSupported');
+async function ptzHome(target = ptzPageTarget()) {
+  if (!target.token) {
+    target.msg.textContent = t('ptz.notSupported');
     return;
   }
-  const channelId = Number($('ptz-channel').value);
+  const channelId = target.channelId;
   const resp = await apiRaw(`/api/ptz/${channelId}/home`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ profileToken: ptzProfileToken }),
+    body: JSON.stringify({ profileToken: target.token }),
   }).catch(() => null);
-  await ptzReport(resp, t('ptz.gonePreset'));
+  await ptzReport(resp, t('ptz.gonePreset'), target.msg);
 }
 
 async function savePtzPreset() {
@@ -1278,19 +1323,20 @@ function bindPtzPad() {
     });
     btn.addEventListener('keyup', () => void ptzStop());
   }
-  document.addEventListener('pointerup', () => void ptzStop());
+  document.addEventListener('pointerup', stopAllPtz);
   $('ptz-stop').addEventListener('click', () => void ptzStop());
   $('ptz-home').addEventListener('click', () => void ptzHome());
 
   // Esc 與「分頁切走／視窗失焦」一律停止：滑鼠放開的事件不一定會送到（拖到瀏覽器外面、
   // 切到別的視窗、手機上來電），而鏡頭會一直轉到逾時——這是安全問題，不只是體驗問題。
+  // 懸浮控制也必須一起停，否則從監看牆切走後那台相機仍會自己轉。
   document.addEventListener('keydown', (ev) => {
-    if (ev.key === 'Escape') void ptzStop();
+    if (ev.key === 'Escape') stopAllPtz();
   });
   document.addEventListener('visibilitychange', () => {
-    if (document.hidden) void ptzStop();
+    if (document.hidden) stopAllPtz();
   });
-  window.addEventListener('blur', () => void ptzStop());
+  window.addEventListener('blur', stopAllPtz);
 
   // 速度：滑桿與慢／快兩顆按鈕（與參考機同一組控制），值存在本機，換頁不會被重置。
   const slider = $('ptz-speed');
@@ -1302,6 +1348,108 @@ function bindPtzPad() {
   $('ptz-slower')?.addEventListener('click', () => setPtzSpeed(ptzSpeedLevel() - 1));
   $('ptz-faster')?.addEventListener('click', () => setPtzSpeed(ptzSpeedLevel() + 1));
   $('ptz-preset-update')?.addEventListener('click', () => void updatePtzPreset());
+}
+
+/**
+ * 監看牆的懸浮 PTZ。⌖ 只切換這一格的 overlay：不切分頁、不開第二條 WHEP，
+ * 所以操作員一邊看畫面一邊控制鏡頭，也不會多佔一個觀看名額。
+ */
+async function toggleCellPtz(cell, channelId) {
+  const overlay = cell?.querySelector?.('.live-ptz');
+  if (!overlay || !Number.isInteger(channelId) || channelId <= 0) return;
+  if (activeFloatingPtz?.cell === cell) {
+    closeFloatingPtz();
+    return;
+  }
+  // 同時只開一格：兩台一起轉無助於比對，反而容易在放開時忘了其中一台還在動。
+  closeFloatingPtz();
+  const msg = overlay.querySelector('.live-ptz-status');
+  overlay.hidden = false;
+  activeFloatingPtz = { cell, target: { channelId, token: '', msg } };
+  msg.textContent = t('ptz.connecting');
+  const token = await ensureFloatingPtz(channelId, msg);
+  // 等 ONVIF 回應時操作員可能已換格或關掉；舊的回應不能回來寫新的狀態列。
+  if (activeFloatingPtz?.cell !== cell) return;
+  if (token) activeFloatingPtz.target.token = token;
+}
+
+async function ensureFloatingPtz(channelId, msg) {
+  const cached = floatingPtzProfiles.get(channelId);
+  if (cached) {
+    msg.textContent = t('ptz.connected');
+    return cached;
+  }
+  const profiles = await resolvePtzProfiles(channelId, msg);
+  if (!profiles) return null;
+  const token = profiles[0].token;
+  if (!token) {
+    msg.textContent = t('ptz.noProfiles');
+    return null;
+  }
+  floatingPtzProfiles.set(channelId, token);
+  msg.textContent = t('ptz.connected');
+  return token;
+}
+
+/** 收掉懸浮控制；關閉前一定要送 Stop（ContinuousMove 是速度命令，不會自己停）。 */
+function closeFloatingPtz() {
+  const active = activeFloatingPtz;
+  if (!active) return;
+  activeFloatingPtz = null;
+  active.cell.querySelector('.live-ptz')?.setAttribute('hidden', '');
+  if (active.target.token) void ptzStop(active.target);
+  active.target.msg.textContent = '';
+}
+
+function stopAllPtz() {
+  void ptzStop();
+  if (activeFloatingPtz) void ptzStop(activeFloatingPtz.target);
+}
+
+/** 只接受目前那一格（且已開啟）的按鈕，避免舊格子的殘留事件控制到別台。 */
+function floatingTarget(event) {
+  const btn = event.target.closest?.('[data-ptz-move]');
+  if (!btn || !activeFloatingPtz) return null;
+  if (btn.closest('.live-cell') !== activeFloatingPtz.cell) return null;
+  return activeFloatingPtz.target;
+}
+
+function issueFloatingMove(target, value) {
+  if (!target.token) {
+    // 還在等 ONVIF 回應，不能誤報「不支援」——那會讓操作員以為設備壞了。
+    target.msg.textContent = t('ptz.connecting');
+    return;
+  }
+  const [pan, tilt, zoom] = String(value).split(',').map(Number);
+  void ptzMove(pan, tilt, zoom, target);
+}
+
+function onFloatingPtzDown(event) {
+  const target = floatingTarget(event);
+  if (!target) return;
+  event.preventDefault();
+  issueFloatingMove(target, event.target.closest('[data-ptz-move]').dataset.ptzMove);
+}
+
+function onFloatingPtzKeyDown(event) {
+  if (event.key !== 'Enter' && event.key !== ' ') return;
+  const target = floatingTarget(event);
+  if (!target) return;
+  event.preventDefault();
+  issueFloatingMove(target, event.target.closest('[data-ptz-move]').dataset.ptzMove);
+}
+
+function onFloatingPtzKeyUp(event) {
+  if (floatingTarget(event)) void ptzStop(activeFloatingPtz.target);
+}
+
+function onFloatingPtzClick(event) {
+  const btn = event.target.closest?.('[data-ptz-action]');
+  if (!btn || !activeFloatingPtz) return;
+  if (btn.closest('.live-cell') !== activeFloatingPtz.cell) return;
+  if (btn.dataset.ptzAction === 'close') closeFloatingPtz();
+  else if (btn.dataset.ptzAction === 'stop') void ptzStop(activeFloatingPtz.target);
+  else if (btn.dataset.ptzAction === 'home') void ptzHome(activeFloatingPtz.target);
 }
 
 /**
@@ -1813,7 +1961,14 @@ function wire() {
   });
   renderLiveGrid();
   // 每格的工具列（全螢幕／截圖／PTZ）：委派給格線容器，重畫後不必重新綁定。
-  $('live-grid').addEventListener('click', onLiveGridClick);
+  const liveGrid = $('live-grid');
+  liveGrid.addEventListener('click', onLiveGridClick);
+  // 懸浮 PTZ 的方向鍵是「按住移動、放開停止」，和 PTZ 頁一樣用委派配合重畫的格子。
+  // data-ptz-move 刻意與 PTZ 頁的 data-move 分開，兩邊的命令目標不能混。
+  liveGrid.addEventListener('pointerdown', onFloatingPtzDown);
+  liveGrid.addEventListener('keydown', onFloatingPtzKeyDown);
+  liveGrid.addEventListener('keyup', onFloatingPtzKeyUp);
+  liveGrid.addEventListener('click', onFloatingPtzClick);
 
   $('snap-form').addEventListener('submit', openSnapshotView);
   $('snap-stop').addEventListener('click', stopSnapshotView);

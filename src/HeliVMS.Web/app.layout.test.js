@@ -106,13 +106,43 @@ describe('per-cell live tools', () => {
 
   it('delegates the cell clicks from the grid container so redraws do not lose them', () => {
     // 格線每次開檔都整批重畫；逐格綁定會漏掉重畫後的按鈕。
-    expect(appSource).toMatch(/\$\('live-grid'\)\.addEventListener\('click', onLiveGridClick\)/);
+    expect(appSource).toMatch(/const liveGrid = \$\('live-grid'\)/);
+    expect(appSource).toMatch(/liveGrid\.addEventListener\('click', onLiveGridClick\)/);
   });
 
-  it('carries the cell channel into the snapshot and PTZ pages', () => {
-    expect(appSource).toMatch(/function openCellTool\(group, name, channelId\)/);
-    expect(appSource).toMatch(/openCellTool\('live', 'ptz', channelId\)/);
-    expect(appSource).toMatch(/name === 'snapshot' \? \$\('snap-channel'\) : \$\('ptz-channel'\)/);
+  it('renders a hidden floating pad in every cell', () => {
+    // overlay 一開始藏在格子裡，按 ⌖ 才出現；方向鍵用 data-ptz-move 與 PTZ 頁分開。
+    expect(appSource).toMatch(/'<div class="live-ptz" hidden>'/);
+    expect(appSource).toMatch(/data-ptz-move="-1,1,0"/);
+    expect(appSource).toMatch(/data-ptz-action="close"/);
+    expect(appSource).toMatch(/data-ptz-action="stop"/);
+    expect(appSource).toMatch(/data-ptz-action="home"/);
+    expect(appSource).toMatch(/class="live-ptz-status" aria-live="polite"/);
+  });
+
+  it('opens the floating control on the cell that was clicked', () => {
+    // 按 ⌖ 不切分頁、不開第二條 WHEP：該格頻道直接帶進懸浮控制。
+    expect(appSource).toMatch(/void toggleCellPtz\(cell, channelId\)/);
+    expect(appSource).toMatch(/async function toggleCellPtz\(cell, channelId\)/);
+    expect(appSource).toMatch(/activeFloatingPtz = \{ cell, target: \{ channelId, token: '', msg \} \}/);
+  });
+});
+
+describe('floating PTZ pad layout', () => {
+  it('floats above the frame but stays inside the cell', () => {
+    // 蓋在畫面上而不是推擠 video，否則每格 available 高度會被控制項吃掉。
+    expect(rule('.live-ptz')).toMatch(/position:\s*absolute/);
+    expect(rule('.live-ptz')).toMatch(/z-index:\s*3/);
+    expect(rule('.live-ptz')).toMatch(/max-height:\s*calc\(100% - 8px\)/);
+    expect(rule('.live-ptz[hidden]')).toMatch(/display:\s*none/);
+  });
+
+  it('keeps the pad and status readable in a small cell', () => {
+    // 9／16 分割的一格只有幾百像素寬；三個 44px 欄會撐破格子，所以改為等分。
+    expect(rule('.live-ptz .ptz-pad')).toMatch(/grid-template-columns:\s*repeat\(3, minmax\(0, 1fr\)\)/);
+    expect(rule('.live-ptz .ptz-btn')).toMatch(/height:\s*26px/);
+    expect(rule('.live-ptz-actions')).toMatch(/display:\s*flex/);
+    expect(rule('.live-ptz-status')).toMatch(/overflow-wrap:\s*anywhere/);
   });
 });
 

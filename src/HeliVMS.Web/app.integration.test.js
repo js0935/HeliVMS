@@ -232,6 +232,9 @@ describe('PTZ (M310 /api/ptz)', () => {
     expect(appSource).toMatch(/ev\.key === 'Escape'/);
     expect(appSource).toMatch(/document\.hidden/);
     expect(appSource).toMatch(/window\.addEventListener\('blur'/);
+    // 懸浮控制也要一起停：從監看牆切走時，那台相機不能還在轉。
+    expect(appSource).toMatch(/document\.addEventListener\('pointerup', stopAllPtz\)/);
+    expect(appSource).toMatch(/function stopAllPtz\(\)[\s\S]{0,200}if \(activeFloatingPtz\) void ptzStop\(activeFloatingPtz\.target\)/);
   });
 
   it('offers the speed control of the reference panel and remembers it', () => {
@@ -268,12 +271,60 @@ describe('PTZ (M310 /api/ptz)', () => {
   it('moves while held and stops on release', () => {
     // ONVIF ContinuousMove 是速度命令；點一下就走一步的相機放開後會持續移動。
     expect(appSource).toMatch(/btn\.addEventListener\('pointerdown', issue\)/);
-    expect(appSource).toMatch(/document\.addEventListener\('pointerup', \(\) => void ptzStop\(\)\)/);
+    expect(appSource).toMatch(/document\.addEventListener\('pointerup', stopAllPtz\)/);
     expect(appSource).toMatch(/\$\('ptz-stop'\)\.addEventListener\('click', \(\) => void ptzStop\(\)\)/);
   });
 
   it('refuses to move without a connected profile', () => {
-    expect(appSource).toMatch(/if \(!ptzProfileToken\) \{[\s\S]*t\('ptz\.notSupported'\)/);
+    // 只 pin 在 ptzMove 函式開頭：其他預設點函式也有「不支援」的檢查，
+    // 用跨函式的萬用字元會在 ptzMove 的守門被刪掉後仍然通過。
+    expect(appSource).toMatch(/async function ptzMove\(pan, tilt, zoom, target = ptzPageTarget\(\)\) \{\s*if \(!target\.token\) \{\s*target\.msg\.textContent = t\('ptz\.notSupported'\);/);
+    expect(appSource).toMatch(/function ptzPageTarget\(\) \{[\s\S]{0,160}token: ptzProfileToken/);
+  });
+});
+
+describe('floating PTZ on the live wall', () => {
+  it('toggles a pad over the clicked cell instead of leaving the picture', () => {
+    // ⌖ 不切分頁、不開第二條 WHEP：就在那一格上疊控制，並把該格頻道帶過去。
+    expect(appSource).toMatch(/void toggleCellPtz\(cell, channelId\)/);
+    expect(appSource).toMatch(/async function toggleCellPtz\(cell, channelId\)/);
+    expect(appSource).toMatch(/activeFloatingPtz = \{ cell, target: \{ channelId, token: '', msg \} \}/);
+    expect(appSource).toMatch(/overlay\.hidden = false/);
+    expect(appSource).not.toContain('openCellTool(');
+  });
+
+  it('caches one profile per channel and shares the lookup with the PTZ page', () => {
+    expect(appSource).toMatch(/const floatingPtzProfiles = new Map\(\)/);
+    expect(appSource).toMatch(/async function ensureFloatingPtz\(channelId, msg\)/);
+    expect(appSource).toMatch(/const profiles = await resolvePtzProfiles\(channelId, msg\)/);
+    expect(appSource).toMatch(/floatingPtzProfiles\.set\(channelId, token\)/);
+    expect(appSource).toMatch(/async function resolvePtzProfiles\(channelId, msg\)/);
+    // PTZ 頁也走同一個 409／空清單判斷，不能讓兩邊對「不支援」有不一樣的說法。
+    expect(appSource).toMatch(/const profiles = await resolvePtzProfiles\(channelId, msg\);\s*if \(!profiles\) return;/);
+  });
+
+  it('scopes pad commands to the open cell and the same serial queue', () => {
+    expect(appSource).toMatch(/function floatingTarget\(event\)[\s\S]{0,320}btn\.closest\('\.live-cell'\) !== activeFloatingPtz\.cell\) return null/);
+    expect(appSource).toMatch(/void ptzMove\(pan, tilt, zoom, target\)/);
+    expect(appSource).toMatch(/void ptzStop\(activeFloatingPtz\.target\)/);
+    expect(appSource).toMatch(/void ptzHome\(activeFloatingPtz\.target\)/);
+    // 浮動控制用獨立的 data-ptz-move，不能被 bindPtzPad 的全域綁定攔去控制 PTZ 頁那台。
+    expect(appSource).toMatch(/data-ptz-move/);
+    expect(appSource).toMatch(/liveGrid\.addEventListener\('pointerdown', onFloatingPtzDown\)/);
+  });
+
+  it('issues Stop when the pad is closed or the live view is torn down', () => {
+    // ContinuousMove 是速度命令；只把 overlay 藏起來，鏡頭會一直轉到逾時。
+    expect(appSource).toMatch(/if \(active\.target\.token\) void ptzStop\(active\.target\)/);
+    expect(appSource).toMatch(/closeFloatingPtz\(\);\s*const count = liveLayoutCount\(\)/);
+    expect(appSource).toMatch(/function stopLiveView\(\{ external = true \} = \{\}\) \{[\s\S]{0,180}closeFloatingPtz\(\)/);
+    expect(appSource).toMatch(/if \(event\.persisted\) return;\s*closeFloatingPtz\(\)/);
+  });
+
+  it('translates the overlay title and close button in both catalogs', () => {
+    for (const key of ['ptz.floating', 'ptz.close', 'ptz.stop', 'ptz.home']) {
+      expect(i18nSource, key).toContain(`'${key}':`);
+    }
   });
 });
 
