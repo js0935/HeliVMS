@@ -128,8 +128,8 @@ describe('live layout picker', () => {
 
 describe('horizontal overflow', () => {
   it('lets a panel scroll horizontally instead of clipping its table', () => {
-    // 事件搜尋有 5 欄，內容一長就撐破面板右緣；面板沒有捲動容器的話，
-    // 多出來的部分直接被裁掉，使用者永遠看不到右側的狀態欄。
+    // 事件搜尋有 6 欄（含「跳至回放」動作），內容一長就撐破面板右緣；
+    // 面板沒有捲動容器的話，多出來的部分直接被裁掉，右側的動作欄永遠看不到。
     expect(rule('.panel')).toMatch(/overflow-x:\s*auto/);
   });
 
@@ -369,5 +369,15 @@ describe('QCV8001 Web 外觀對齊', () => {
     expect(indexSource, 'play-loop').toMatch(/<input id="play-loop"[^>]*type="checkbox"/);
     expect(refRule('.play-toolbar select')).toMatch(/min-width:/);
     expect(refRule('.play-toolbar-field')).toMatch(/align-items:\s*center/);
+  });
+
+  it('事件表有動作欄可以從事件跳到回放', () => {
+    // 只有時間沒有動作時，操作員得抄事件時間再手動填回放表單；
+    // 欄頭一定要有 i18n，英文介面不能出現孤立的一格。
+    const head = indexSource.match(/<table id="events">[\s\S]*?<\/thead>/)?.[0] ?? '';
+    expect(head).toMatch(/data-i18n="col\.time"/);
+    expect(head).toMatch(/data-i18n="col\.status"/);
+    expect(head).toMatch(/data-i18n="col\.action"/);
+    expect((head.match(/<th\b/g) ?? []).length).toBe(6);
   });
 });

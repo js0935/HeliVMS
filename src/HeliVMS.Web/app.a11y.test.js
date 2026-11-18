@@ -59,6 +59,14 @@ describe('keyboard accessibility', () => {
     }
   });
 
+  it('事件列的回放動作有按鈕語意與翻譯過的標題', () => {
+    // 這顆按鈕是 innerHTML 生出來的，靜態 HTML 的 data-i18n 檢查看不到；
+    // 少了 type="button" 它會被當成 submit 重送搜尋表單，少了 title 工程師以外的人
+    // 只看得到一個沒有說明的圖示般的按鈕。
+    expect(appSource).toMatch(/<button type="button" class="btn-quiet event-replay"/);
+    expect(appSource).toMatch(/title="\$\{tx\('event\.toReplay'\)\}"/);
+  });
+
   it('回放工具列的速度與循環都有可讀名稱', () => {
     // select 只有數字選項時螢幕閱讀器唸不出「0.5×」是什麼；循環核取方塊也要有標籤，
     // 否則操作員只知道有一格打勾，不知道它會讓整段錄影重播。

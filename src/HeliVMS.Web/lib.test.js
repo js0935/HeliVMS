@@ -157,7 +157,7 @@ describe('eventRow', () => {
   it('maps a forensic search hit (source/sourceId/text/occurredAtUtc)', () => {
     expect(
       eventRow({ source: 1, sourceId: 7, text: 'connection lost', occurredAtUtc: '2026-01-02T03:04:05Z', status: 'pending' }),
-    ).toEqual({ id: 7, time: '03:04:05', source: 1, text: 'connection lost', status: 'pending' });
+    ).toEqual({ id: 7, at: '2026-01-02T03:04:05Z', time: '03:04:05', source: 1, text: 'connection lost', status: 'pending' });
   });
 });
 

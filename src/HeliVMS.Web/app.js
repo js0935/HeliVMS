@@ -1380,6 +1380,9 @@ const FORENSIC_SOURCE_NAMES = { 1: () => t('replay.sourceAlarm'), 2: () => t('re
 // 事件頁的來源類型下拉只是一層本機過濾：後端 /api/events/search 仍收同一組 q/from/to/limit，
 // 不為了「畫面像参考機」另開端點。0 代表全部，其餘是 ForensicSource 的位元值。
 const FORENSIC_SOURCE_FILTERS = { all: 0, alarm: 1, access: 2, pos: 4, edge: 8 };
+// 只有警報事件有對應的攝影機錄影；門禁／POS／邊緣 AI 命中沒有 channel，不能假造一個。
+const FORENSIC_SOURCE_ALARM = 1;
+const EVENT_REPLAY_WINDOW_MS = 30_000;
 
 /** 把事件頁的可見時間範圍轉成後端要的 UTC；空值沿用原本「最近 24 小時」的行為。 */
 function eventQueryWindow() {
@@ -1416,8 +1419,13 @@ async function searchEvents(raw) {
     .filter(({ row }) => !sourceFilter || (row.source & sourceFilter) !== 0);
   $('events').querySelector('tbody').innerHTML = rows
     .map(({ row }) => {
-      const { id, time, source, text, status } = row;
-      return `<tr><td>${esc(id ? '#' + id : '')}</td><td>${esc(time)}</td><td>${esc(FORENSIC_SOURCE_NAMES[source]?.() ?? '—')}</td><td>${esc(text || '—')}</td><td>${esc(status || '—')}</td></tr>`;
+      const { id, at, time, source, text, status } = row;
+      // 只有警報事件能回到攝影機錄影；門禁／POS／AI 命中沒有 channel，
+      // 硬帶一個號碼只會播到別台，所以那些列的按鈕直接隱藏。
+      // 用 esc() 包住 hidden 的取值（只會是 '' 或 ' hidden'），讓每一個插值都在
+      // innerHTML 安全守護的掃描範圍內，而不是把整顆按鈕藏到區塊外的變數裡。
+      const canReplay = source === FORENSIC_SOURCE_ALARM && Boolean(at);
+      return `<tr><td>${esc(id ? '#' + id : '')}</td><td>${esc(time)}</td><td>${esc(FORENSIC_SOURCE_NAMES[source]?.() ?? '—')}</td><td>${esc(text || '—')}</td><td>${esc(status || '—')}</td><td><button type="button" class="btn-quiet event-replay"${esc(canReplay ? '' : ' hidden')} data-event-id="${esc(id)}" data-event-at="${esc(at)}" title="${tx('event.toReplay')}">${tx('event.toReplay')}</button></td></tr>`;
     })
     .join('');
   if (rows.length === 0) {
@@ -1427,6 +1435,52 @@ async function searchEvents(raw) {
   } else {
     $('events-msg').textContent = t('search.found', { total: rows.length });
   }
+}
+
+/**
+ * 從既有的 /api/events 回查警報事件的頻道。
+ * /api/events/search 的 ForensicSearchHit 刻意沒有 channel，但 /api/events 的
+ * AlarmEventRecord 有；用事件時刻 ±1 秒當視窗、再依 id 比對，不為一顆按鈕新增端點。
+ * 查不到就回 0：讓操作員自己確認，也不要猜一個號碼讓證據指到別台攝影機。
+ */
+async function resolveAlarmChannel(alarmId, at) {
+  if (!Number.isFinite(alarmId) || alarmId <= 0) return 0;
+  const center = new Date(at).getTime();
+  if (!Number.isFinite(center)) return 0;
+  const params = new URLSearchParams({
+    from: new Date(center - 1000).toISOString(),
+    to: new Date(center + 1000).toISOString(),
+    limit: '200',
+  });
+  try {
+    const page = await api(`/api/events?${params}`);
+    const match = (page.items ?? []).find((item) => Number(item.id) === alarmId);
+    return Number(match?.channelId ?? 0);
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * 事件 → 回放：把事件時刻前後各 30 秒帶進回放表單並切到播放器。
+ * 不自動載入：先讓操作員看到「這段是哪一天、哪一頻道」，確認後按載入才啟動解碼，
+ * 避免點一下事件就開一條 ffmpeg 而畫面 Loading 半天。
+ */
+async function jumpEventToReplay(button) {
+  const at = new Date(button.dataset.eventAt);
+  if (!Number.isFinite(at.getTime())) {
+    $('events-msg').textContent = t('event.replayBadTime');
+    return;
+  }
+  const channelId = await resolveAlarmChannel(Number(button.dataset.eventId), at.toISOString());
+  if (channelId > 0) $('play-channel').value = String(channelId);
+  $('play-from').value = toLocalInputValue(new Date(at.getTime() - EVENT_REPLAY_WINDOW_MS));
+  $('play-to').value = toLocalInputValue(new Date(at.getTime() + EVENT_REPLAY_WINDOW_MS));
+  showTab('playback');
+  showSubTab('playback', 'player');
+  $('play-msg').textContent = channelId > 0
+    ? t('event.replayReady', { channel: String(channelId) })
+    : t('event.replayChannelUnknown');
 }
 
 /** 設定頁：GET /api/config 讀回目前值；configCard 正規化欄位大小寫與預設值。 */
@@ -1813,6 +1867,11 @@ function wire() {
   $('search-form').addEventListener('submit', (e) => {
     e.preventDefault();
     searchEvents($('q').value).catch(console.error);
+  });
+  // 事件列是搜尋後才產生的：用事件委派，不必每次 innerHTML 重繪就重綁每一顆按鈕。
+  $('events').querySelector('tbody').addEventListener('click', (ev) => {
+    const button = ev.target.closest?.('.event-replay');
+    if (button) void jumpEventToReplay(button).catch(console.error);
   });
 }
 

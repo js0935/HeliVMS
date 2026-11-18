@@ -40,8 +40,10 @@ export function formatTimestamp(iso) {
 }
 
 export function eventRow(e) {
+  // at 保留原始 ISO 時刻：回放跳轉要的是完整的日期＋時間，time 只是表上的 HH:mm:ss。
   return {
     id: e.sourceId ?? e.SourceId,
+    at: e.occurredAtUtc ?? e.OccurredAtUtc ?? '',
     time: formatTimestamp(e.occurredAtUtc ?? e.OccurredAtUtc),
     source: Number(e.source ?? e.Source ?? 0),
     text: e.text ?? e.Text ?? '',

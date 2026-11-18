@@ -598,6 +598,65 @@ describe('event query form', () => {
   });
 });
 
+describe('event to playback jump', () => {
+  it('只有警報事件有回放按鈕且事件資料都經過esc', () => {
+    // 門禁／POS／AI 命中沒有 channel，硬帶一個號碼只會播到別台；
+    // data-* 的值來自後端，一定要 esc() 才能進 innerHTML。
+    expect(appSource).toMatch(/const FORENSIC_SOURCE_ALARM = 1;/);
+    expect(appSource).toMatch(/const canReplay = source === FORENSIC_SOURCE_ALARM/);
+    expect(appSource).toMatch(/data-event-id="\$\{esc\(id\)\}" data-event-at="\$\{esc\(at\)\}"/);
+    expect(appSource).toMatch(/title="\$\{tx\('event\.toReplay'\)\}"/);
+    expect(appSource).toMatch(/>\$\{tx\('event\.toReplay'\)\}<\/button>/);
+  });
+
+  it('用既有events端點依id回查頻道且查不到時讓操作員自己確認', () => {
+    // 搜尋命中沒有 channel；與其新增後端端點，用事件時刻 ±1 秒的視窗問既有 /api/events，
+    // 再依 alarm id 比對。查不到就回 0，不能猜一個號碼讓證據指到別台。
+    const body = appSource.slice(
+      appSource.indexOf('async function resolveAlarmChannel'),
+      appSource.indexOf('/** 設定頁'),
+    );
+    expect(body).toMatch(/new Date\(center - 1000\)\.toISOString\(\)/);
+    expect(body).toMatch(/new Date\(center \+ 1000\)\.toISOString\(\)/);
+    expect(body).toMatch(/\/api\/events\?\$\{params\}/);
+    expect(body).toMatch(/\.find\(\(item\) => Number\(item\.id\) === alarmId\)/);
+    expect(body).toMatch(/Number\(match\?\.channelId \?\? 0\)/);
+    expect(body).toMatch(/catch \{\s*return 0;/);
+  });
+
+  it('帶入事件前後時段並切到播放器但不自動載入', () => {
+    // 自動 submit 等於點一下事件就開一條 ffmpeg；先讓操作員看到時段與頻道再按載入。
+    const body = appSource.slice(
+      appSource.indexOf('async function jumpEventToReplay'),
+      appSource.indexOf('/** 設定頁'),
+    );
+    expect(appSource).toMatch(/const EVENT_REPLAY_WINDOW_MS = 30_000;/);
+    expect(body).toMatch(/\$\('play-from'\)\.value = toLocalInputValue\(new Date\(at\.getTime\(\) - EVENT_REPLAY_WINDOW_MS\)\)/);
+    expect(body).toMatch(/\$\('play-to'\)\.value = toLocalInputValue\(new Date\(at\.getTime\(\) \+ EVENT_REPLAY_WINDOW_MS\)\)/);
+    expect(body).toMatch(/showTab\('playback'\)/);
+    expect(body).toMatch(/showSubTab\('playback', 'player'\)/);
+    expect(body).not.toMatch(/requestSubmit|\.submit\(\)/);
+    expect(body).toMatch(/channelId > 0\s*\? t\('event\.replayReady'/);
+    expect(body).toMatch(/t\('event\.replayChannelUnknown'\)/);
+  });
+
+  it('事件列用委派綁定且四個譯文鍵兩語齊備', () => {
+    // 列是 innerHTML 重繪出來的：每次重綁每顆按鈕遲早漏一顆，委派才是穩的。
+    expect(appSource).toContain("closest?.('.event-replay')");
+    expect(appSource).toMatch(/\$\('events'\)\.querySelector\('tbody'\)\.addEventListener\('click'/);
+    for (const key of [
+      'event.toReplay',
+      'event.replayReady',
+      'event.replayChannelUnknown',
+      'event.replayBadTime',
+    ]) {
+      expect(appSource, key).toContain(key);
+      expect(i18nSource, key).toMatch(new RegExp(`'${key.replace('.', '\\.')}':`));
+    }
+    expect(indexSource, '動作欄').toMatch(/data-i18n="col\.action"/);
+  });
+});
+
 describe('playback toolbar', () => {
   it('三十秒跳躍只改本機游標且上界用seekable而不是無限的duration', () => {
     // MSE 的 duration 常是 Infinity；拿它當上界會讓 +30 秒跳到不存在的位置、畫面停空白。
