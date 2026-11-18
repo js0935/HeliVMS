@@ -10,8 +10,9 @@ namespace HeliVMS.App.Tests;
 /// 這裡守住兩件曾經真實出錯、而且光看畫面不一定發現的事：
 /// </para>
 /// <para>
-/// （1）時間軸點擊／事件跳轉／跨段跳轉是靠「程式化改選取」帶動左側清單高亮的。
-/// 若 <c>OnSegmentSelected</c> 沒有被抑制，每次跳轉都會先從 0 播一段、再被外部指定的秒數打斷，
+/// （1）時間軸點擊／事件跳轉／跨段跳轉的起播秒數一律由呼叫端明確指定給 <c>PlayFrom</c>。
+/// 左側舊的「錄影片段清單」已改成攝影機勾選清單，那條 <c>OnSegmentSelected</c> 自動從 0
+/// 起播的路徑已移除；留下的話每次跳轉都會先從 0 播一段再被外部秒數打斷，
 /// 現場症狀是每跳一次就閃一下畫面並多開一個 ffmpeg 行程（<see cref="SourceContract.BodyOf"/>
 /// 掃原始碼，因為這個重複啟動在畫面上一閃而過）。
 /// </para>
@@ -25,16 +26,16 @@ public sealed class PlaybackWindowContractTests
     private const string Code = "src/HeliVMS.App/PlaybackWindow.xaml.cs";
 
     [Fact]
-    public void 程式化選取區段不會觸發自動播放()
+    public void 跳轉落點只記位置不會觸發自動播放()
     {
         var source = SourceContract.Read(Code);
 
+        // 左側片段清單已改為攝影機勾選清單，SelectionChanged 那條「從 0 起播」的路徑不存在了。
+        // SelectSegment 只記落點，起播位置一律由呼叫端 PlayFrom 明確指定。
         var select = SourceContract.BodyOf(source, "SelectSegment");
-        Assert.Contains("_suppressSegmentAutoplay = true", select);
-        Assert.Contains("SegmentList.SelectedItem", select);
-
-        var onSelected = SourceContract.BodyOf(source, "OnSegmentSelected");
-        Assert.Contains("_suppressSegmentAutoplay", onSelected);
+        Assert.Contains("_selectedBand = item", select);
+        Assert.DoesNotContain("PlayFrom(", select);
+        Assert.DoesNotContain("SegmentList", select);
     }
 
     [Theory]
@@ -308,11 +309,16 @@ public sealed class PlaybackWindowContractTests
         Assert.Contains("RebuildPanes(", onSplit);
         Assert.Contains("SyncPanes(", onSplit);
 
-        // 格數來自單一來源（PlaybackWallBudget.SplitOptions），而且索引要先夾住：
-        // ComboBox 在重建期間可能短暫是 -1，直接拿去索引清單會擲例外（整個回放開不起來）。
+        // 路數現在等於勾選的攝影機台數（SplitCombo 只是另一種改勾選的方式）。
         var split = SourceContract.BodyOf(source, "SplitCount");
-        Assert.Contains("PlaybackWallBudget.SplitOptions", split);
-        Assert.Contains("Math.Clamp(", split);
+        Assert.Contains("_cameraPicks.Count(p => p.IsChecked)", split);
+        Assert.DoesNotContain("SplitCombo", split);
+
+        // 分割下拉的選項仍來自單一來源 PlaybackWallBudget.SplitOptions，索引要先夾住：
+        // ComboBox 在重建期間可能短暫是 -1，直接拿去索引清單會擲例外（整個回放開不起來）。
+        var combo = SourceContract.BodyOf(source, "ComboSplitCount");
+        Assert.Contains("PlaybackWallBudget.SplitOptions", combo);
+        Assert.Contains("Math.Clamp(", combo);
     }
 
     [Fact]
@@ -1069,7 +1075,8 @@ public sealed class PlaybackWindowContractTests
         var source = SourceContract.Read(Code);
 
         var focus = SourceContract.BodyOf(source, "FocusPaneAsync");
-        Assert.Contains("SplitCombo.SelectedIndex = 0", focus);
+        // 放大成單畫面＝只勾點到的那台（分割下拉由 SyncSplitComboToCheckedCount 同步）。
+        Assert.Contains("SetCheckedCameras([pane.Channel.Id])", focus);
         Assert.Contains("SwitchChannelAsync(", focus);
         Assert.Contains("ResumePlaybackAt", focus);
         Assert.Contains("_current.StartUtc.AddSeconds(_posInside)", focus);
@@ -1098,7 +1105,7 @@ public sealed class PlaybackWindowContractTests
 
         var mainClick = SourceContract.BodyOf(source, "OnMainPlayerClicked");
         Assert.Contains("_panes.Count == 0", mainClick);
-        Assert.Contains("SplitCombo.SelectedIndex = 0", mainClick);
+        Assert.Contains("SetCheckedCameras([focusId])", mainClick);
     }
 
     /// <summary>
@@ -1362,10 +1369,10 @@ public sealed class PlaybackWindowContractTests
 
         var source = SourceContract.Read(Code);
 
-        // 格數與分割選單必須同一份來源：`PlaybackWallBudget.SplitOptions`（1／2／4／9／16／25／36／64）。
+        // 分割下拉的選項來自單一來源 `PlaybackWallBudget.SplitOptions`（1／2／4／9／16／25／36／64）。
         // 清單抄兩份遲早會漂移，而症狀是「選了 64 卻是 16 的預算」——沒有任何錯誤訊息。
-        var split = SourceContract.BodyOf(source, "SplitCount");
-        Assert.Contains("PlaybackWallBudget.SplitOptions", split);
+        var combo = SourceContract.BodyOf(source, "ComboSplitCount");
+        Assert.Contains("PlaybackWallBudget.SplitOptions", combo);
 
         var geometry = SourceContract.BodyOf(source, "ApplyPlayerFrameGeometry");
         Assert.Contains("PlaybackWallCapacity.Effective", geometry);

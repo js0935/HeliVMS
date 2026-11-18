@@ -28,7 +28,7 @@ public sealed class PlaybackRedactionContractTests
         var handler = SourceContract.BodyOf(SourceContract.Read(Code), "OnRedactFromPlaybackClicked");
         Assert.Contains("new RedactionWindow(", handler);
         Assert.Contains("ChannelCombo.SelectedItem", handler);
-        Assert.Contains("SegmentList.SelectedItem", handler);
+        Assert.Contains("_current ?? _selectedBand?.Segment", handler);
     }
 
     [Fact]

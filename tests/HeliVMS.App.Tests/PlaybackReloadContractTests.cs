@@ -182,7 +182,7 @@ public sealed class PlaybackReloadContractTests
         var empty = SourceContract.BodyOf(source, "ShowEmptyState");
         Assert.Contains("ClearPlaybackHead()", empty);
         Assert.Contains("StopPlayback()", empty);
-        Assert.Contains("SegmentList.ItemsSource = null", empty);
+        Assert.Contains("_selectedBand = null", empty);
         Assert.Contains("_bandSegments = []", empty);
         Assert.Contains("_events = []", empty);
         Assert.Contains("BookmarkList.ItemsSource = null", empty);

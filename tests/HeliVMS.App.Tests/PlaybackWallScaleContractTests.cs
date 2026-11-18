@@ -29,9 +29,9 @@ public sealed class PlaybackWallScaleContractTests
             Assert.Contains($"<ComboBoxItem Content=\"{cells}\"/>", xaml);
         }
 
-        // 格數與預算表同一份來源：兩份清單遲早會漂移，而症狀是「選了 64 卻是 16 的預算」。
-        var split = SourceContract.BodyOf(SourceContract.Read(Code), "SplitCount");
-        Assert.Contains("PlaybackWallBudget.SplitOptions", split);
+        // 分割下拉的選項與預算表同一份來源：兩份清單遲早會漂移，而症狀是「選了 64 卻是 16 的預算」。
+        var combo = SourceContract.BodyOf(SourceContract.Read(Code), "ComboSplitCount");
+        Assert.Contains("PlaybackWallBudget.SplitOptions", combo);
     }
 
     [Fact]

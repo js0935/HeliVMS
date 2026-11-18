@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.IO;
 using System.Windows;
 using System.Windows.Automation;
@@ -115,7 +116,52 @@ public partial class PlaybackWindow : Window
     /// </summary>
     private DateTime? _rangeStartUtc;
     private bool _pendingFramePause;
-    private bool _suppressSegmentAutoplay;
+
+    /// <summary>
+    /// 左側「攝影機選擇」勾選清單：勾幾台就同時播幾路，是回放牆路數與成員的唯一來源。
+    /// </summary>
+    /// <remarks>
+    /// 舊的左側是「錄影片段清單」，點一列就播那一段；改成時間軸選時刻之後，片段清單消失，
+    /// 這份勾選清單接手「要播哪幾台」。播哪一路的起點仍由時間軸／事件／書籤決定，
+    /// 但每個勾選的頻道各自 LoadPaneSegments 並由 SyncPanes 對到母鐘同一時刻。
+    /// </remarks>
+    private List<CameraPick> _cameraPicks = [];
+
+    /// <summary>最後一次跳轉落到的片段；左側已無片段清單，遮蔽匯出入口靠它帶時間範圍。</summary>
+    private SegmentItem? _selectedBand;
+
+    /// <summary>程式自己改勾選狀態時為 true，避免 Checked/Unchecked 事件再排一次載入。</summary>
+    private bool _suppressCameraPickReload;
+
+    /// <summary>程式自己改分割下拉時為 true（由勾選數同步過來），避免它反過來改勾選。</summary>
+    private bool _suppressSplitChanged;
+
+    /// <summary>勾選清單的一列；Id 用來對回 ChannelCombo 裡同一份 ChannelInfo。</summary>
+    private sealed class CameraPick : INotifyPropertyChanged
+    {
+        private bool _isChecked;
+
+        public int Id { get; init; }
+
+        public string Name { get; init; } = string.Empty;
+
+        public bool IsChecked
+        {
+            get => _isChecked;
+            set
+            {
+                if (_isChecked == value)
+                {
+                    return;
+                }
+
+                _isChecked = value;
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsChecked)));
+            }
+        }
+
+        public event PropertyChangedEventHandler? PropertyChanged;
+    }
 
     /// <summary>
     /// 這一段是「播到檔尾」才停下來的。按播放要從頭，而不是從終點再結束一次。
@@ -488,12 +534,9 @@ public partial class PlaybackWindow : Window
         LoadButton.ToolTip = Localizer.T("Playback.LoadTip");
         RedactExportButton.Content = Localizer.T("Playback.RedactExport");
         RedactExportButton.ToolTip = Localizer.T("Playback.RedactTip");
-        PlaybackSegmentsLabel.Text = Localizer.T("Playback.Segments");
+        PlaybackCameraSelectionLabel.Text = Localizer.T("Playback.CameraSelection");
         PlaybackDayEventsLabel.Text = Localizer.T("Playback.DayEvents");
         PlaybackDayEventsLabel2.Text = Localizer.T("Playback.DayEvents");
-        SegColStart.Header = Localizer.T("Playback.ColStart");
-        SegColDuration.Header = Localizer.T("Playback.ColDuration");
-        SegColSize.Header = Localizer.T("Playback.ColSize");
         EvtColStart.Header = Localizer.T("Playback.ColStart");
         EvtColType.Header = Localizer.T("Playback.ColType");
         EvtColDetail.Header = Localizer.T("Playback.ColDetail");
@@ -580,6 +623,189 @@ public partial class PlaybackWindow : Window
         else
         {
             ChannelCombo.SelectedIndex = 0;
+        }
+
+        RebuildCameraPicks(channels);
+    }
+
+    /// <summary>
+    /// 依目前頻道清單重建左側勾選清單。重複呼叫（換台時 <see cref="SwitchChannelAsync"/> 會再
+    /// <see cref="LoadChannels"/>）保留既有的勾選狀態：操作員勾好的多路不能被一次換台清掉。
+    /// </summary>
+    private void RebuildCameraPicks(IReadOnlyList<ChannelInfo> channels)
+    {
+        var previous = _cameraPicks.ToDictionary(p => p.Id, p => p.IsChecked);
+        var focusId = ChannelCombo.SelectedItem is ChannelInfo focus ? focus.Id : (int?)null;
+
+        // 第一次開窗沒有既有勾選：沿用舊的 split 偏好決定要預勾幾台，且一定要含焦點台
+        // （主畫面播的那台若沒勾，回放牆上就看不到它）。
+        var initialSet = new HashSet<int>();
+        if (focusId is { } fid)
+        {
+            initialSet.Add(fid);
+        }
+
+        foreach (var channel in channels)
+        {
+            if (initialSet.Count >= ComboSplitCount())
+            {
+                break;
+            }
+
+            initialSet.Add(channel.Id);
+        }
+
+        var picks = new List<CameraPick>(channels.Count);
+        foreach (var channel in channels)
+        {
+            var isChecked = previous.TryGetValue(channel.Id, out var wasChecked)
+                ? wasChecked
+                : initialSet.Contains(channel.Id);
+            if (channel.Id == focusId)
+            {
+                isChecked = true;
+            }
+
+            picks.Add(new CameraPick { Id = channel.Id, Name = channel.Name, IsChecked = isChecked });
+        }
+
+        _cameraPicks = picks;
+        CameraCheckList.ItemsSource = _cameraPicks;
+        SyncSplitComboToCheckedCount();
+    }
+
+    /// <summary>目前勾選的頻道 Id（照清單由上到下）；至少回傳一個，避免回放牆全空。</summary>
+    private IReadOnlyList<int> CheckedCameraIds()
+    {
+        var ids = _cameraPicks.Where(p => p.IsChecked).Select(p => p.Id).ToList();
+        if (ids.Count == 0 && ChannelCombo.SelectedItem is ChannelInfo focus)
+        {
+            ids.Add(focus.Id);
+        }
+
+        return ids;
+    }
+
+    /// <summary>把勾選狀態設成指定的一組頻道；程式決定的改動不觸發 Checked/Unchecked。</summary>
+    private void SetCheckedCameras(IEnumerable<int> ids)
+    {
+        var set = ids.ToHashSet();
+        if (set.Count == 0 && ChannelCombo.SelectedItem is ChannelInfo focus)
+        {
+            set.Add(focus.Id);
+        }
+
+        _suppressCameraPickReload = true;
+        try
+        {
+            foreach (var pick in _cameraPicks)
+            {
+                pick.IsChecked = set.Contains(pick.Id);
+            }
+        }
+        finally
+        {
+            _suppressCameraPickReload = false;
+        }
+
+        SyncSplitComboToCheckedCount();
+    }
+
+    /// <summary>分割下拉純讀取（不受勾選數影響）；只在初始值／OnSplitChanged 用。</summary>
+    private int ComboSplitCount()
+    {
+        var options = HeliVMS.Shared.PlaybackWallBudget.SplitOptions;
+        var index = Math.Clamp(SplitCombo.SelectedIndex, 0, options.Count - 1);
+        return options[index];
+    }
+
+    /// <summary>讓分割下拉反映目前的勾選數；沒有剛好的選項就退回不超過它的最大選項。</summary>
+    private void SyncSplitComboToCheckedCount()
+    {
+        var count = SplitCount();
+        var options = HeliVMS.Shared.PlaybackWallBudget.SplitOptions;
+
+        // IReadOnlyList 沒有 IndexOf；找剛好相等的，找不到就退回不超過勾選數的最大選項。
+        var index = 0;
+        for (var i = 0; i < options.Count; i++)
+        {
+            if (options[i] == count)
+            {
+                index = i;
+                break;
+            }
+
+            if (options[i] <= count)
+            {
+                index = i;
+            }
+        }
+
+        _suppressSplitChanged = true;
+        try
+        {
+            SplitCombo.SelectedIndex = index;
+        }
+        finally
+        {
+            _suppressSplitChanged = false;
+        }
+    }
+
+    /// <summary>操作員勾／取消勾一台攝影機：焦點仍在就保留，否則改第一台勾選的；重建回放牆。</summary>
+    private async void OnCameraPickChanged(object sender, RoutedEventArgs e)
+    {
+        if (!_uiReady || _suppressCameraPickReload)
+        {
+            return;
+        }
+
+        var checkedIds = CheckedCameraIds();
+        if (checkedIds.Count == 0)
+        {
+            // 不允許全不勾：全空等於沒有任何回放，而畫面上不會有任何錯誤提示。
+            var fallback = ChannelCombo.SelectedItem is ChannelInfo f ? f.Id : (_cameraPicks.Count > 0 ? _cameraPicks[0].Id : 0);
+            SetCheckedCameras([fallback]);
+            return;
+        }
+
+        var focus = ChannelCombo.SelectedItem as ChannelInfo;
+        var focusChanged = false;
+        if (focus is null || !checkedIds.Contains(focus.Id))
+        {
+            var newFocusId = checkedIds[0];
+            var newFocus = ChannelCombo.Items.OfType<ChannelInfo>().FirstOrDefault(c => c.Id == newFocusId);
+            if (newFocus is not null)
+            {
+                _suppressSelectionReload = true;
+                try
+                {
+                    ChannelCombo.SelectedItem = newFocus;
+                }
+                finally
+                {
+                    _suppressSelectionReload = false;
+                }
+
+                focusChanged = true;
+            }
+        }
+
+        SyncSplitComboToCheckedCount();
+        SavePlaybackPreferences();
+
+        if (focusChanged)
+        {
+            // 換焦點要等新台的索引載入完成（LoadSegments 最後會 RebuildPanes）。
+            await ReloadForPlaybackAsync();
+            return;
+        }
+
+        RebuildPanes();
+        if (_session is not null)
+        {
+            StartSync();
+            SyncPanes(force: true);
         }
     }
 
@@ -855,6 +1081,25 @@ public partial class PlaybackWindow : Window
             return;
         }
 
+        // 頻道下拉改的是焦點台：它不是勾選清單的替代，而是「左側時間軸看哪台」。
+        // 新焦點若沒被勾到，主畫面那一路就不在回放牆上——自動補勾，其餘勾選保持不動。
+        if (ChannelCombo.SelectedItem is ChannelInfo focus
+            && _cameraPicks.FirstOrDefault(p => p.Id == focus.Id) is { } pick
+            && !pick.IsChecked)
+        {
+            _suppressCameraPickReload = true;
+            try
+            {
+                pick.IsChecked = true;
+            }
+            finally
+            {
+                _suppressCameraPickReload = false;
+            }
+
+            SyncSplitComboToCheckedCount();
+        }
+
         // 操作員自己換台就把這一台記下來（下次開窗直接落在它上面）。
         SavePlaybackPreferences();
         await ReloadForPlaybackAsync();
@@ -1089,10 +1334,12 @@ public partial class PlaybackWindow : Window
 
         DateTime? fromUtc = null;
         DateTime? toUtc = null;
-        if (SegmentList.SelectedItem is SegmentItem item)
+        // 左側已無片段清單：以正在播的那一段（或最後一次跳轉的落點）帶入遮蔽範圍。
+        var redactSegment = _current ?? _selectedBand?.Segment;
+        if (redactSegment is not null)
         {
-            fromUtc = item.Segment.StartUtc;
-            toUtc = EndOf(item.Segment);
+            fromUtc = redactSegment.StartUtc;
+            toUtc = EndOf(redactSegment);
         }
 
         new RedactionWindow(_store, MainWindow.ResolveDataRoot(), ch.Id, fromUtc, toUtc) { Owner = this }.ShowDialog();
@@ -1299,7 +1546,6 @@ public partial class PlaybackWindow : Window
                     s.SizeBytes > 0 ? $"{s.SizeBytes / 1024d:0}KB" : "-"))
                 .ToList();
             _bandSegments = items;
-            SegmentList.ItemsSource = items;
 
             var startEvt = TimeZoneInfo.ConvertTimeToUtc(day.Date);
             var endEvt = startEvt.AddDays(1);
@@ -1396,7 +1642,7 @@ public partial class PlaybackWindow : Window
         // 那時舊的 session 還在跑——只清清單會變成「畫面有影像、清單是空的」。
         ClearPlaybackHead();
         StopPlayback();
-        SegmentList.ItemsSource = null;
+        _selectedBand = null;
         _bandSegments = [];
         _events = [];
         EventList.ItemsSource = null;
@@ -1416,37 +1662,15 @@ public partial class PlaybackWindow : Window
     }
 
     /// <summary>
-    /// 只有「使用者直接在清單點選區段」才自動從頭播放。
-    /// 時間軸點擊／事件跳轉／跨段跳轉是由程式改選取狀態後再自行指定起播秒數
-    /// （<see cref="SelectSegment"/>）；不抑制的話這裡會先從 0 起一段、外部再起第二段，
-    /// 每跳一次就多開一個 ffmpeg 行程並閃一下畫面。
+    /// 記住最後一次跳轉落到的片段，給遮蔽匯出入口帶時間範圍用。
     /// </summary>
-    private void OnSegmentSelected(object sender, SelectionChangedEventArgs e)
-    {
-        if (_suppressSegmentAutoplay)
-        {
-            return;
-        }
-
-        if (SegmentList.SelectedItem is SegmentItem item)
-        {
-            PlayFrom(item.Segment, 0);
-        }
-    }
-
-    /// <summary>程式化選取區段（不觸發 <see cref="OnSegmentSelected"/> 的自動播放），起播位置由呼叫端指定。</summary>
-    private void SelectSegment(SegmentItem item)
-    {
-        _suppressSegmentAutoplay = true;
-        try
-        {
-            SegmentList.SelectedItem = item;
-        }
-        finally
-        {
-            _suppressSegmentAutoplay = false;
-        }
-    }
+    /// <remarks>
+    /// 左側片段清單已改為攝影機勾選清單，沒有 SelectionChanged 事件會自動從 0 起播——
+    /// 跳轉的起播秒數一律由呼叫端 <c>PlayFrom</c> 明確指定，這個方法只記落點、不開播放器。
+    /// 舊寫法用 <c>_suppressSegmentAutoplay</c> 包住 <c>SegmentList.SelectedItem</c>，
+    /// 就是為了壓住那條多餘的自動播放；現在那條路徑不存在了。
+    /// </remarks>
+    private void SelectSegment(SegmentItem item) => _selectedBand = item;
 
     private void OnEventSelected(object sender, SelectionChangedEventArgs e)
     {
@@ -1802,7 +2026,7 @@ public partial class PlaybackWindow : Window
         UpdatePlaybackAudioIcon();
     }
 
-    /// <summary>回放牆格數切換（1／2／4）：重建次畫面並重新對齊到目前播放頭。</summary>
+    /// <summary>回放牆格數切換：同步成勾選清單前 N 台，重建次畫面並重新對齊到目前播放頭。</summary>
     private void OnSplitChanged(object sender, SelectionChangedEventArgs e)
     {
         // SplitCombo 在 XAML 裡帶 SelectedIndex="0"：InitializeComponent 建樹到這格時
@@ -1814,6 +2038,23 @@ public partial class PlaybackWindow : Window
         {
             return;
         }
+
+        if (_suppressSplitChanged)
+        {
+            return;
+        }
+
+        // 分割下拉是勾選清單的另一種操作方式：選 N 就勾前 N 台（焦點永遠在內）。
+        var count = ComboSplitCount();
+        var focusId = ChannelCombo.SelectedItem is ChannelInfo focus ? focus.Id : (_cameraPicks.Count > 0 ? _cameraPicks[0].Id : 0);
+        var ordered = new List<int>();
+        if (focusId > 0)
+        {
+            ordered.Add(focusId);
+        }
+
+        ordered.AddRange(_cameraPicks.Where(p => p.Id != focusId).Select(p => p.Id));
+        SetCheckedCameras(ordered.Take(count));
 
         SavePlaybackPreferences();
         RebuildPanes();
@@ -4215,12 +4456,8 @@ public partial class PlaybackWindow : Window
     /// （縮放寬度、顯示上限、執行緒數），而那個對應表是量出來的——兩份清單遲早會漂移，
     /// 所以 UI 的格數一律從那裡取，這裡只把索引轉成格數。
     /// </remarks>
-    private int SplitCount()
-    {
-        var options = HeliVMS.Shared.PlaybackWallBudget.SplitOptions;
-        var index = Math.Clamp(SplitCombo.SelectedIndex, 0, options.Count - 1);
-        return options[index];
-    }
+    /// <summary>回放牆路數＝左側勾選的攝影機台數（至少一路）。</summary>
+    private int SplitCount() => Math.Max(1, _cameraPicks.Count(p => p.IsChecked));
 
     /// <summary>
     /// 主畫面格單擊也放大成單畫面：焦點台（通常是攝影機 01）永遠排在主格、沒有次畫面可點，
@@ -4234,7 +4471,20 @@ public partial class PlaybackWindow : Window
             return;
         }
 
-        SplitCombo.SelectedIndex = 0;
+        // 收成一格＝只勾焦點台（分割下拉跟著同步）。直接改 SplitCombo 會走 OnSplitChanged
+        // 按「焦點＋前 N 台」重勾，這裡語意是「只看主畫面這台」，所以明確指定。
+        var focusId = ChannelCombo.SelectedItem is ChannelInfo focus ? focus.Id : (_cameraPicks.Count > 0 ? _cameraPicks[0].Id : 0);
+        if (focusId > 0)
+        {
+            SetCheckedCameras([focusId]);
+        }
+
+        RebuildPanes();
+        if (_session is not null)
+        {
+            StartSync();
+            SyncPanes(force: true);
+        }
     }
 
     /// <summary>依目前焦點頻道與格數重建次畫面（焦點永遠是主畫面 ChannelCombo 那台）。</summary>
@@ -4262,7 +4512,11 @@ public partial class PlaybackWindow : Window
 
         // 主畫面邊框＝焦點台在色帶列的顏色，與次畫面同一套色盤。
         PlayerFrame.BorderBrush = ChannelBrush(focus.Id);
-        foreach (var id in PlaybackSyncPlanner.WallChannelIds(channels.Select(c => c.Id).ToList(), focus.Id, SplitCount()).Skip(1))
+
+        // 次畫面只從「勾選的攝影機」補，且焦點固定主格、其餘照清單由上到下，不繞回開頭。
+        // 未勾的台即使還在 ChannelCombo 裡也不會被自動補進回放牆。
+        var pickedIds = CheckedCameraIds();
+        foreach (var id in PlaybackSyncPlanner.WallChannelIds(pickedIds, focus.Id, pickedIds.Count).Skip(1))
         {
             var channel = channels.FirstOrDefault(c => c.Id == id);
             if (channel is null)
@@ -4331,9 +4585,9 @@ public partial class PlaybackWindow : Window
             ? _current.StartUtc.AddSeconds(_posInside)
             : (DateTime?)null;
 
-        // 格數選到「1」＝單畫面（OnSplitChanged 重建牆時就沒有次畫面）；再把點到那台設成焦點。
-        // 先切格數再切頻道，避免先換焦點時用舊格數短暫長出一圈要立刻拆掉的次畫面。
-        SplitCombo.SelectedIndex = 0;
+        // 收成單畫面＝只勾點到的那台（分割下拉跟著同步），再把它設成焦點。
+        // 先收起勾選再切頻道，避免先換焦點時用舊的多路短暫長出一圈要立刻拆掉的次畫面。
+        SetCheckedCameras([pane.Channel.Id]);
 
         // 續播一定要等新頻道的索引載入完成：先續播再載入，會被那次載入的 StopPlayback 停掉，
         // 現場看到的就是「單擊放大後畫面停住」。
