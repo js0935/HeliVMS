@@ -118,10 +118,10 @@ describe('per-cell live tools', () => {
     expect(appSource).toMatch(/class="live-ptz-status" aria-live="polite"/);
   });
 
-  it('fills the floating direction pad as a full nine-grid', () => {
-    // 8 顆方向鍵塞進 3 欄會在中間列留空洞，看起來像左右鍵錯位。
-    // 停止鍵排在 8 個方向之後才會落在第九格（正中央），與 PTZ 頁一致。
-    expect(appSource).toMatch(/data-ptz-move="1,-1,0"[^]*?class="ptz-btn" data-ptz-action="stop"/);
+  it('puts stop in the centre of the floating nine-grid', () => {
+    // 3×3 的正中央是第 5 格：← 與 → 之間。放在 8 顆方向鍵最後會落到右下角，
+    // 那就是「上下左右看起來錯位」的來源；順序必須與 PTZ 頁一致。
+    expect(appSource).toMatch(/data-ptz-move="-1,0,0"[^]*?class="ptz-btn" data-ptz-action="stop"[^]*?data-ptz-move="1,0,0"/);
 
     // 變焦刻意不帶 ptz-btn：帶了會被 .live-ptz .ptz-btn 撐成 26px，
     // 跟旁邊的回預設位高度不同，動作列看起來一高一低。

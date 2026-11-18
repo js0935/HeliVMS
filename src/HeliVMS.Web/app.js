@@ -236,17 +236,17 @@ function renderLiveGrid() {
     + `<button type="button" class="ptz-btn" data-ptz-move="0,1,0" title="${tx('ptz.up')}" aria-label="${tx('ptz.up')}">↑</button>`
     + `<button type="button" class="ptz-btn" data-ptz-move="1,1,0" title="${tx('ptz.upRight')}" aria-label="${tx('ptz.upRight')}">↗</button>`
     + `<button type="button" class="ptz-btn" data-ptz-move="-1,0,0" title="${tx('ptz.left')}" aria-label="${tx('ptz.left')}">←</button>`
+    // 停止鍵必須排在 ← 與 → 之間，也就是 3×3 的第 5 格（正中央）。
+    // 放在 8 顆方向鍵最後會落到右下角；那正是之前「方向看起來錯位」的來源。
+    + `<button type="button" class="ptz-btn" data-ptz-action="stop" title="${tx('ptz.stop')}" aria-label="${tx('ptz.stop')}">■</button>`
     + `<button type="button" class="ptz-btn" data-ptz-move="1,0,0" title="${tx('ptz.right')}" aria-label="${tx('ptz.right')}">→</button>`
     + `<button type="button" class="ptz-btn" data-ptz-move="-1,-1,0" title="${tx('ptz.downLeft')}" aria-label="${tx('ptz.downLeft')}">↙</button>`
     + `<button type="button" class="ptz-btn" data-ptz-move="0,-1,0" title="${tx('ptz.down')}" aria-label="${tx('ptz.down')}">↓</button>`
     + `<button type="button" class="ptz-btn" data-ptz-move="1,-1,0" title="${tx('ptz.downRight')}" aria-label="${tx('ptz.downRight')}">↘</button>`
-    // 補中央停止鍵湊成完整九宮格。原本 8 顆塞進 3 欄，中間列會留一個空洞，
-    // 左右鍵看起來像錯位；跟 PTZ 頁一樣把停止鍵放在正中間，也更好找。
-    + `<button type="button" class="ptz-btn" data-ptz-action="stop" title="${tx('ptz.stop')}" aria-label="${tx('ptz.stop')}">■</button>`
     + '</div>'
     + '<div class="live-ptz-actions">'
     // 變焦與回預設位刻意都不帶 ptz-btn：原本變焦帶了它會被 .live-ptz .ptz-btn
-    // 撐成 26px，旁邊的停止／回預設位只有 padding 高度，兩列看起來一高一低。
+    // 撐成 26px，旁邊的回預設位只有 padding 高度，同一列看起來一高一低。
     + `<button type="button" data-ptz-move="0,0,1" title="${tx('ptz.zoomIn')}" aria-label="${tx('ptz.zoomIn')}">+</button>`
     + `<button type="button" data-ptz-move="0,0,-1" title="${tx('ptz.zoomOut')}" aria-label="${tx('ptz.zoomOut')}">−</button>`
     + `<button type="button" data-ptz-action="home">${tx('ptz.home')}</button>`
