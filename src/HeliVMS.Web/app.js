@@ -1150,6 +1150,19 @@ async function ptzReport(resp, okText = '', msg = $('ptz-msg')) {
 let ptzQueue = Promise.resolve();
 let ptzPending = 0;
 
+/**
+ * 「點一下轉一小格」：ContinuousMove 是速度命令，原本按住多久就轉多久，放開才送 Stop
+ * 又會被 SOAP 往返拉長，操作員看到的幅度完全不可預期。改成一次固定脈衝：
+ * pointerdown 送一道 Move，短時間後自動送 Stop；兩道都進同一條 ptzEnqueue，
+ * 相機看到的順序固定，幅度不再跟按住時間或網路快慢走。
+ */
+const PTZ_PULSE_MS = 80;
+
+function ptzPulse(pan, tilt, zoom, target) {
+  void ptzMove(pan, tilt, zoom, target);
+  window.setTimeout(() => void ptzStop(target), PTZ_PULSE_MS);
+}
+
 function ptzEnqueue(task) {
   ptzPending++;
   const run = ptzQueue.then(task, task).finally(() => {
@@ -1168,9 +1181,13 @@ function ptzSpeedLevel() {
   return Number.isFinite(raw) ? Math.min(8, Math.max(1, raw)) : 1;
 }
 
-/** 速度級別 → ONVIF 速度（-1..1）：1＝最慢（預設），8＝全速。 */
+/**
+ * 速度級別 → ONVIF 速度向量：1＝最小幅度（預設），8＝仍只有全速的 1/10。
+ * 不用 ÷8 是因為實機量到「點一下就轉一大段」：ContinuousMove 的幅度被 SOAP 往返拉長，
+ * 即使只按 80ms，相機也可能轉了半秒。把整個範圍壓小，才真的是「一小格」。
+ */
 function ptzVelocityScale() {
-  return ptzSpeedLevel() / 8;
+  return ptzSpeedLevel() / 80;
 }
 
 function setPtzSpeed(level) {
@@ -1315,7 +1332,8 @@ function bindPtzPad() {
     const issue = (ev) => {
       ev.preventDefault();
       const [pan, tilt, zoom] = btn.dataset.move.split(',').map(Number);
-      void ptzMove(pan, tilt, zoom);
+      // 點一下轉一小格：脈衝自己送 Stop，不再等放開（放開只當安全網）。
+      ptzPulse(pan, tilt, zoom, ptzPageTarget());
     };
     btn.addEventListener('pointerdown', issue);
     btn.addEventListener('keydown', (ev) => {
@@ -1324,7 +1342,6 @@ function bindPtzPad() {
         issue(ev);
       }
     });
-    btn.addEventListener('keyup', () => void ptzStop());
   }
   document.addEventListener('pointerup', stopAllPtz);
   $('ptz-stop').addEventListener('click', () => void ptzStop());
@@ -1425,7 +1442,8 @@ function issueFloatingMove(target, value) {
     return;
   }
   const [pan, tilt, zoom] = String(value).split(',').map(Number);
-  void ptzMove(pan, tilt, zoom, target);
+  // 與 PTZ 頁共用同一套「點一下一小格」脈衝，幅度不會因按太久或 SOAP 慢而變大。
+  ptzPulse(pan, tilt, zoom, target);
 }
 
 function onFloatingPtzDown(event) {
@@ -1441,10 +1459,6 @@ function onFloatingPtzKeyDown(event) {
   if (!target) return;
   event.preventDefault();
   issueFloatingMove(target, event.target.closest('[data-ptz-move]').dataset.ptzMove);
-}
-
-function onFloatingPtzKeyUp(event) {
-  if (floatingTarget(event)) void ptzStop(activeFloatingPtz.target);
 }
 
 function onFloatingPtzClick(event) {
@@ -1971,7 +1985,6 @@ function wire() {
   // data-ptz-move 刻意與 PTZ 頁的 data-move 分開，兩邊的命令目標不能混。
   liveGrid.addEventListener('pointerdown', onFloatingPtzDown);
   liveGrid.addEventListener('keydown', onFloatingPtzKeyDown);
-  liveGrid.addEventListener('keyup', onFloatingPtzKeyUp);
   liveGrid.addEventListener('click', onFloatingPtzClick);
 
   $('snap-form').addEventListener('submit', openSnapshotView);

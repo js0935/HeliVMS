@@ -242,6 +242,8 @@ describe('PTZ (M310 /api/ptz)', () => {
     expect(indexSource).toMatch(/id="ptz-speed-value"[^>]*>1</);
     expect(appSource).toMatch(/function ptzSpeedLevel\(\)[\s\S]{0,200}: 1;/);
     expect(appSource).toMatch(/function ptzVelocityScale\(\)/);
+    // 速度向量壓到原本的 1/10：單靠短脈衝不夠，SOAP 往返仍會把幅度拉長。
+    expect(appSource).toMatch(/return ptzSpeedLevel\(\) \/ 80;/);
     expect(appSource).toContain("localStorage.setItem('helivms.ptzSpeed'");
     // 懸浮控制與 PTZ 頁共用速度：沒有記住過時必須是最小檔，不能退回全速 8。
     expect(appSource).toMatch(/remembered : 1\)/);
@@ -271,10 +273,14 @@ describe('PTZ (M310 /api/ptz)', () => {
     expect(i18nSource).toContain("'ptz.connectFailed': '");
   });
 
-  it('moves while held and stops on release', () => {
-    // ONVIF ContinuousMove 是速度命令；點一下就走一步的相機放開後會持續移動。
-    expect(appSource).toMatch(/btn\.addEventListener\('pointerdown', issue\)/);
-    expect(appSource).toMatch(/document\.addEventListener\('pointerup', stopAllPtz\)/);
+  it('moves one small step per click and stops itself', () => {
+    // ContinuousMove 是速度命令；點一下送固定脈衝，Move 與 Stop 都進同一條佇列，
+    // 幅度才不會被按住時間或 SOAP 往返拉長。
+    expect(appSource).toMatch(/const PTZ_PULSE_MS = 80;/);
+    expect(appSource).toMatch(/function ptzPulse\(pan, tilt, zoom, target\) \{[\s\S]{0,200}window\.setTimeout\(\(\) => void ptzStop\(target\), PTZ_PULSE_MS\)/);
+    expect(appSource).toMatch(/ptzPulse\(pan, tilt, zoom, ptzPageTarget\(\)\)/);
+    // 不再用 keyup 當停止點：脈衝自己會送 Stop，放開只是安全網。
+    expect(appSource).not.toMatch(/btn\.addEventListener\('keyup', \(\) => void ptzStop\(\)\)/);
     expect(appSource).toMatch(/\$\('ptz-stop'\)\.addEventListener\('click', \(\) => void ptzStop\(\)\)/);
   });
 
@@ -308,7 +314,7 @@ describe('floating PTZ on the live wall', () => {
 
   it('scopes pad commands to the open cell and the same serial queue', () => {
     expect(appSource).toMatch(/function floatingTarget\(event\)[\s\S]{0,320}btn\.closest\('\.live-cell'\) !== activeFloatingPtz\.cell\) return null/);
-    expect(appSource).toMatch(/void ptzMove\(pan, tilt, zoom, target\)/);
+    expect(appSource).toMatch(/ptzPulse\(pan, tilt, zoom, target\)/);
     expect(appSource).toMatch(/void ptzStop\(activeFloatingPtz\.target\)/);
     expect(appSource).toMatch(/void ptzHome\(activeFloatingPtz\.target\)/);
     // 浮動控制用獨立的 data-ptz-move，不能被 bindPtzPad 的全域綁定攔去控制 PTZ 頁那台。
