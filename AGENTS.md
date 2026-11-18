@@ -283,14 +283,14 @@ Notes that will save you time:
   like any other (→ next segment forward, → that segment's last frame backward), and a seam
   (next start == previous end) still belongs to the later segment without relying on the
   "latest start wins" tiebreak. Every "jump to this instant" entry point resolves through this
-  one helper — timeline click, event, bookmark, the time-jump box and resume/drag-in
-  (`OnBandClicked`, `OnEventSelected`, `OnBookmarkSelected`, `JumpToLocalTime`,
+  one helper — timeline click, event, bookmark and resume/drag-in
+  (`OnBandClicked`, `OnEventSelected`, `OnBookmarkSelected`,
   `ResumePlaybackAt`) — because each of them had grown its own closed-interval `FirstOrDefault`
   loop; a gap returns no landing instead of a neighbouring segment (resume falls back to the
   latest segment and says so), so none of them can land on a block's 60th second. For the same
   reason the seek slider drag and frame-step clamp to `PlaybackSeekPlanner.LastFrameOf` (length
   − 1ms) instead of the length itself. Guarded by `PlaybackSeekPlannerTests`,
-  `時間軸點擊與方向鍵共用同一份落點規則`, `時間跳轉與續播也共用同一份落點規則`,
+  `時間軸點擊與方向鍵共用同一份落點規則`, `續播事件與書籤也共用同一份落點規則`,
   `拖到段尾與逐幀到段尾都停在最後一格` and `事件與書籤跳轉使用同一段結束口徑`.
 - **Reverse playback is a beat, not a negative speed — and its landing must be the same planner the
   arrow keys use.** `QC_Player` lists forward/slow/**reverse**/step as one family of playback

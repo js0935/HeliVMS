@@ -186,7 +186,7 @@ public partial class PlaybackWindow : Window
     private int _reloadGeneration;
 
     /// <summary>
-    /// 由程式自己改選取（換台、時間跳轉換日）時為 true，事件處理常式不要再排一次載入。
+    /// 由程式自己改選取（換台、回到現在、自動接續跨日）時為 true，事件處理常式不要再排一次載入。
     /// </summary>
     /// <remarks>
     /// <c>SelectedItem</c>／<c>SelectedDate</c> 一改，WPF 就同步送出 SelectionChanged，而那個處理常式
@@ -573,9 +573,6 @@ public partial class PlaybackWindow : Window
         ZoomSlider.Minimum = PlaybackTimelineScale.SliderValueFromSpan(TimeSpan.FromSeconds(PlaybackTimelineScale.MinSpanSeconds));
         ZoomSlider.Maximum = PlaybackTimelineScale.SliderValueFromSpan(TimeSpan.FromSeconds(PlaybackTimeline.DaySeconds));
         ZoomSlider.ToolTip = Localizer.T("Playback.ZoomTip");
-        PlaybackTimeJumpLabel.Text = Localizer.T("Playback.TimeJump");
-        JumpButton.Content = Localizer.T("Playback.Jump");
-        JumpButton.ToolTip = Localizer.T("Playback.TimeJumpTip");
         SnapshotMenuItem.Header = Localizer.T("Snapshot.Capture");
         WallCapacityText.ToolTip = Localizer.T("Playback.WallCapacityTip");
         SidebarToggleButton.ToolTip = Localizer.T("Playback.SidebarTip");
@@ -1085,7 +1082,7 @@ public partial class PlaybackWindow : Window
     private async void OnDateChanged(object sender, SelectionChangedEventArgs e)
     {
         // 建構子指派 DatePick.SelectedDate 時也會走到這裡：那時視窗還沒開，不該因此收檔。
-        // 時間跳轉自己換日期時同理（見 JumpToLocalTime）。
+        // 「回到現在」與自動接續跨日自己換日期時同理（見 OnJumpToNowClicked／ContinueToNextDayAsync）。
         if (!_uiReady || _suppressSelectionReload)
         {
             return;
@@ -1740,7 +1737,7 @@ public partial class PlaybackWindow : Window
             return;
         }
 
-        // 與事件、時間跳轉、時間軸點擊共用同一份落點規則；書籤正好記在段尾或接縫上時，
+        // 與事件、時間軸點擊、續播共用同一份落點規則；書籤正好記在段尾或接縫上時，
         // 舊的閉區間寫法會落進前一段沒有影格的最後一刻（點下去只回報「已播放完畢」）。
         var landing = HeliVMS.Shared.PlaybackSeekPlanner.ResolveAt(
             _bandSegments.Select(b => b.Segment),
@@ -2162,89 +2159,6 @@ public partial class PlaybackWindow : Window
 
         SelectSegment(item);
         PlayFrom(hit.Segment, hit.OffsetSeconds);
-    }
-
-    /// <summary>時間跳轉（§8.5）：輸入時刻或完整日期時間，跳到覆蓋該時刻的片段並從該點起播。
-    /// <para>
-    /// 規格寫的是 <c>2026-09-12 14:30:00</c>，但日期平常由 DatePick 記著，兩者各管一件事，
-    /// 所以兩種輸入都吃：只給 <c>HH:mm[:ss]</c> 時用 DatePick 的日期，給了日期就先把 DatePick
-    /// 換到那天、等那天的索引載入完成再比對，否則比對的是別天的片段索引。
-    /// </para>
-    /// <para>
-    /// 該時刻落在錄影空檔時留在原位並回報，不默默跳到鄰近片段——否則操作員會以為
-    /// 自己看到的就是所輸入時刻的畫面。
-    /// </para>
-    /// </summary>
-    private async Task JumpToLocalTime(string text)
-    {
-        if (PlaybackTimeJump.TryParse(text) is not { } jump)
-        {
-            StatusText.Text = Localizer.T("Playback.TimeJumpInvalid");
-            return;
-        }
-
-        var (clock, date) = jump;
-        if (date is { } requestedDay && DatePick.SelectedDate?.Date != requestedDay)
-        {
-            // 換日必須等新的一天的索引載入完成才能比對時刻。SelectedDate 一設就換日，但把
-            // _bandSegments 換成那天的清單是非同步的（還要先收檔）：同步往下比對，等於拿昨天的
-            // 段去比今天的時刻——命中時跳到別天，沒命中就回報「這裡沒有錄影」，兩種都誤導。
-            _suppressSelectionReload = true;
-            try
-            {
-                DatePick.SelectedDate = requestedDay;
-            }
-            finally
-            {
-                _suppressSelectionReload = false;
-            }
-
-            if (!await ReloadForPlaybackAsync())
-            {
-                // 收檔期間又有更新的操作（換台／換日）：讓那一次決定畫面，這裡不要再搶。
-                return;
-            }
-        }
-
-        if (_bandSegments.Count == 0 || DatePick.SelectedDate is not DateTime day)
-        {
-            StatusText.Text = Localizer.T("Playback.NoRecordingHere");
-            return;
-        }
-
-        var targetUtc = TimeZoneInfo.ConvertTimeToUtc(day.Date + clock);
-
-        // 與時間軸點擊、續播共用「某一瞬間屬於哪一段」的唯一一份規則（PlaybackSeekPlanner.ResolveAt，
-        // 涵蓋範圍 [起點, 結束)）。自己再寫一份閉區間迴圈，輸入的時刻剛好是某段結束、或兩段相接時，
-        // 會落在前一段的「第 60 秒」——ffmpeg -ss 60 不產生影格，畫面不動卻回報「已播放完畢」，
-        // 而右邊一格就是有影像的；操作員只會覺得時間跳轉壞了。
-        var landing = HeliVMS.Shared.PlaybackSeekPlanner.ResolveAt(
-            _bandSegments.Select(i => i.Segment),
-            targetUtc);
-        var item = landing is { } hit
-            ? _bandSegments.FirstOrDefault(i => ReferenceEquals(i.Segment, hit.Segment))
-            : null;
-        if (landing is not { } found || item is null)
-        {
-            StatusText.Text = Localizer.T("Playback.NoRecordingHere");
-            return;
-        }
-
-        SelectSegment(item);
-        PlayFrom(found.Segment, found.OffsetSeconds);
-    }
-
-    private void OnTimeJumpClicked(object sender, RoutedEventArgs e) => _ = JumpToLocalTime(TimeJumpBox.Text);
-
-    private void OnTimeJumpBoxKeyDown(object sender, KeyEventArgs e)
-    {
-        if (e.Key != Key.Enter)
-        {
-            return;
-        }
-
-        e.Handled = true;
-        _ = JumpToLocalTime(TimeJumpBox.Text);
     }
 
     /// <summary>右鍵快照（§8.5）：把目前顯示中的畫面存成 PNG。

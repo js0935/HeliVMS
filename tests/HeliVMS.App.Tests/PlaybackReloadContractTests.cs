@@ -63,7 +63,7 @@ public sealed class PlaybackReloadContractTests
     }
 
     /// <summary>
-    /// 程式自己改選取（換台、時間跳轉換日）時要抑制 SelectionChanged 再排一次載入：
+    /// 程式自己改選取（換台、「回到現在」換日、自動接續跨日）時要抑制 SelectionChanged 再排一次載入：
     /// 否則呼叫端 await 完載入後開播，事件處理常式又排一次收檔＋載入把它停掉。
     /// </summary>
     [Fact]
@@ -76,7 +76,7 @@ public sealed class PlaybackReloadContractTests
             SourceContract.BodyOf(source, "SwitchChannelAsync"));
         Assert.Contains(
             "_suppressSelectionReload",
-            SourceContract.BodyOf(source, "JumpToLocalTime"));
+            SourceContract.BodyOf(source, "OnJumpToNowClicked"));
 
         // 兩個事件處理常式都要看同一個旗標；只改一邊的話，換台或換日仍會多載入一次。
         Assert.Contains(

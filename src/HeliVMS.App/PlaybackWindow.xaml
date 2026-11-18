@@ -60,17 +60,6 @@
                     Padding="10,4" VerticalAlignment="Center" Margin="8,0,0,0"
                     Foreground="White" Background="#2A5C8A" BorderThickness="0" AutomationProperties.AutomationId="PlaybackRedactButton"/>
 
-            <StackPanel Orientation="Horizontal" Margin="0,0,14,0" VerticalAlignment="Center">
-                <TextBlock x:Name="PlaybackTimeJumpLabel" Text="" Foreground="{StaticResource Brand.TextDim}" VerticalAlignment="Center"/>
-                <TextBox x:Name="TimeJumpBox" Width="74" Margin="6,0,0,0" VerticalAlignment="Center"
-                         Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"
-                         AutomationProperties.AutomationId="PlaybackTimeJumpBox"
-                         KeyDown="OnTimeJumpBoxKeyDown"/>
-                <Button x:Name="JumpButton" Content="" Click="OnTimeJumpClicked" ToolTip=""
-                        Padding="8,4" Margin="6,0,0,0" VerticalAlignment="Center"
-                        Foreground="White" Background="#2A5C8A" BorderThickness="0" AutomationProperties.AutomationId="PlaybackJumpButton"/>
-            </StackPanel>
-
             <StackPanel Orientation="Horizontal" Margin="14,0,0,0" VerticalAlignment="Center">
                 <!-- The wall's pane count comes from the camera check list only: these two
                      labels are diagnostics (effective capacity / decode budget), not a picker. -->

@@ -134,8 +134,7 @@ public sealed class PlaybackWindowContractTests
     }
 
     /// <summary>
-    /// 所有「跳到某個時刻」的入口都必須走同一份落點規則：時間軸點擊、事件、書籤、時間跳轉、
-    /// 續播／拖進回放。
+    /// 所有「跳到某個時刻」的入口都必須走同一份落點規則：時間軸點擊、事件、書籤、續播／拖進回放。
     /// </summary>
     /// <remarks>
     /// 這些路徑從前各自留著一份閉區間比對，而且取「先出現」的那一段：時刻剛好是某段結束、或
@@ -144,13 +143,13 @@ public sealed class PlaybackWindowContractTests
     /// 不改就註定再分岔一次。
     /// </remarks>
     [Fact]
-    public void 時間跳轉與續播也共用同一份落點規則()
+    public void 續播事件與書籤也共用同一份落點規則()
     {
         var source = SourceContract.Read(Code);
 
         foreach (var method in new[]
                  {
-                     "JumpToLocalTime", "ResumePlaybackAt", "OnEventSelected", "OnBookmarkSelected",
+                     "ResumePlaybackAt", "OnEventSelected", "OnBookmarkSelected",
                  })
         {
             var body = SourceContract.BodyOf(source, method);
@@ -1286,7 +1285,7 @@ public sealed class PlaybackWindowContractTests
     }
 
     /// <summary>
-    /// §8.5 回放清單的其餘可達項：16× 速度、1–4 數字鍵選路、時間跳轉、右鍵快照。
+    /// §8.5 回放清單的其餘可達項：16× 速度、1–4 數字鍵選路、右鍵快照。
     /// <para>
     /// （1）速度選單加了 16× 但 <c>GetSpeed</c> 沒對應索引：畫面顯示 16× 實際仍以 1× 播，
     /// 越過整點對事件時對不上。
@@ -1296,23 +1295,27 @@ public sealed class PlaybackWindowContractTests
     /// 全螢幕操作時等於沒有這個快捷鍵。
     /// </para>
     /// <para>
-    /// （3）時間跳轉沒查「該時刻是否真的在錄影範圍內」：跳去鄰近片段會讓操作員以為
-    /// 自己看的是所輸入時刻的畫面。
+    /// （3）快照沒接 PngBitmapEncoder：右鍵選單出現卻存不出檔案。
     /// </para>
     /// <para>
-    /// （4）快照沒接 PngBitmapEncoder：右鍵選單出現卻存不出檔案。
+    /// 時間跳轉輸入框已移除：定位一律走時間軸點擊、事件、書籤與方向鍵。同一個問題不要有
+    /// 兩個入口——打錯格式只換來一行提示，而時間軸就在旁邊。
     /// </para>
     /// </summary>
     [Fact]
-    public void 回放整合清單有十六倍速數字鍵選路時間跳轉與右鍵快照()
+    public void 回放整合清單有十六倍速數字鍵選路與右鍵快照()
     {
         var xaml = SourceContract.Read("src/HeliVMS.App/PlaybackWindow.xaml");
         Assert.Contains("Content=\"16×\"", xaml);
-        Assert.Contains("AutomationProperties.AutomationId=\"PlaybackTimeJumpBox\"", xaml);
-        Assert.Contains("Click=\"OnTimeJumpClicked\"", xaml);
         Assert.Contains("Click=\"OnSnapshotClicked\"", xaml);
 
+        // 時間跳轉的輸入框與按鈕整組消失。
+        Assert.DoesNotContain("PlaybackTimeJumpBox", xaml);
+        Assert.DoesNotContain("OnTimeJumpClicked", xaml);
+
         var source = SourceContract.Read(Code);
+        Assert.DoesNotContain("JumpToLocalTime", source);
+        Assert.DoesNotContain("PlaybackTimeJump", source);
 
         var speed = SourceContract.BodyOf(source, "GetSpeed");
         Assert.Contains("5 => 16", speed);
@@ -1321,21 +1324,6 @@ public sealed class PlaybackWindowContractTests
         Assert.Contains("Key.D1", keys);
         Assert.Contains("Key.NumPad1", keys);
         Assert.Contains("ChannelCombo.SelectedIndex", keys);
-
-        var jump = SourceContract.BodyOf(source, "JumpToLocalTime");
-        Assert.Contains("ConvertTimeToUtc", jump);
-        Assert.Contains("PlayFrom", jump);
-
-        // §8.5 規格給的是完整日期時間（2026-09-12 14:30:00）；解析本身在 Shared
-        // （HeliVMS.Shared.Tests.PlaybackTimeJumpTests 有行為測試），這裡卡視窗接的是它，
-        // 免得日後又在視窗裡長出第二套解析、兩邊格式不同步。
-        Assert.Contains("PlaybackTimeJump.TryParse", jump);
-        Assert.Contains("DatePick.SelectedDate = requestedDay", jump);
-
-        // 按鈕／Enter 兩條路都要真的接到跳轉核心：只留 Click 屬性而事件空殼，
-        // 畫面看起來有按鈕，按了卻沒反應（上一輪匯出預填就是這樣被斷言漏掉的）。
-        Assert.Contains("JumpToLocalTime", SourceContract.BodyOf(source, "OnTimeJumpClicked"));
-        Assert.Contains("JumpToLocalTime", SourceContract.BodyOf(source, "OnTimeJumpBoxKeyDown"));
 
         var snapshot = SourceContract.BodyOf(source, "OnSnapshotClicked");
         Assert.Contains("PngBitmapEncoder", snapshot);
