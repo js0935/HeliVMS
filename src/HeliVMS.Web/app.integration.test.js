@@ -465,6 +465,13 @@ describe('multi-split live grid', () => {
     expect(appSource).toMatch(/await Promise\.all\(/);
   });
 
+  it('sends channel ids to WHEP, never the channel rows themselves', () => {
+    // 分頁直接 slice /api/channels 會拿到整列物件：viewer.open 驗證失敗，
+    // 角標補上「頻道須為正整數」後就變成 #[object Object]·頻道須為正整數。
+    expect(appSource).toMatch(/return liveChannelIds\(localChannels\.slice\(page \* size, page \* size \+ size\)\)/);
+    expect(appSource).toMatch(/Number\(livePageChannels\(\)\[liveCellIndex\(cell\)\] \?\? 0\)/);
+  });
+
   it('advances to the next batch when the same layout is pressed again', () => {
     // 4 分割第一次 1–4，再按一次 5–8；按不同格數則回到第一批。
     // 頁次取模，才不會在最後一批再按時卡死或開出空畫面。

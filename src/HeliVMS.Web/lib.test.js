@@ -33,6 +33,7 @@ import {
   focusLayout,
   formatLocalClock,
   formatTimestamp,
+  liveChannelIds,
   evRows,
   backupRows,
   centralRows,
@@ -210,6 +211,23 @@ describe('query builders', () => {
     expect(q).toContain('channelId=3');
     expect(q).toContain('from=2026-01-02T00');
     expect(q).toContain('to=2026-01-02T01');
+  });
+});
+
+describe('即時監看分批的頻道編號', () => {
+  it('分頁取出的是資料庫主鍵而不是頻道物件', () => {
+    // 實機主鍵是 91/93/94 這種值；把整列送給 viewer.open 會被當成物件，
+    // 角標顯示 #[object Object]·頻道須為正整數，每一格都黑畫面。
+    expect(liveChannelIds([{ id: 91, name: '大門' }, { id: 93, name: '車道' }])).toEqual([91, 93]);
+  });
+
+  it('字串主鍵會轉成正整數而無效列不會被送去開播', () => {
+    expect(liveChannelIds(['7', { id: '8' }, null, { id: 0 }, { id: NaN }, 9])).toEqual([7, 8, 9]);
+  });
+
+  it('沒有列時回空清單', () => {
+    expect(liveChannelIds(null)).toEqual([]);
+    expect(liveChannelIds([])).toEqual([]);
   });
 });
 

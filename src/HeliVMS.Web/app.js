@@ -12,6 +12,7 @@ import {
   eventRow,
   formatLocalClock,
   formatTimestamp,
+  liveChannelIds,
   mseMimeType,
   parseFmp4InitTracks,
   parseFmp4VideoSpan,
@@ -192,7 +193,7 @@ function livePageChannels() {
   if (localChannels.length === 0 || size < 1) return [];
   const pages = Math.ceil(localChannels.length / size);
   const page = livePage % pages;
-  return localChannels.slice(page * size, page * size + size);
+  return liveChannelIds(localChannels.slice(page * size, page * size + size));
 }
 
 function channelName(channelId) {
@@ -274,7 +275,7 @@ function onLiveGridClick(event) {
   const entry = liveCells[liveCellIndex(cell)];
   // 先取這一格自己的頻道；剛換版面還沒開播時退回這一格在目前批次中的位置。
   const channelId = Number(entry?.channelId ?? 0)
-    || Number(livePageChannels()[liveCellIndex(cell)]?.id ?? 0);
+    || Number(livePageChannels()[liveCellIndex(cell)] ?? 0);
 
   if (btn.dataset.cellAction === 'fullscreen') {
     // 全螢幕失敗（瀏覽器政策、非使用者手勢）不該讓畫面壞掉，靜默即可。

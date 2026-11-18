@@ -83,6 +83,18 @@ export function summarizeBoard(rows, now = Date.now()) {
   };
 }
 
+/**
+ * 即時監看分批取出的是 /api/channels 的整列資料，WHEP 端點要的卻是資料庫主鍵。
+ * 曾在分頁改寫時直接把整列當編號送給 viewer.open()：驗證失敗寫出「頻道須為正整數」，
+ * 而格子角標把整列插值成 `#[object Object] · 頻道須為正整數`（畫面全黑、日誌乾淨）。
+ * 在這裡換一次：接受物件列或純編號，只留下正整數主鍵。
+ */
+export function liveChannelIds(rows) {
+  return (Array.isArray(rows) ? rows : [])
+    .map((row) => Number(row?.id ?? row))
+    .filter((id) => Number.isInteger(id) && id > 0);
+}
+
 export function buildTimelineQuery({ channelId, stream, day }) {
   const params = new URLSearchParams({
     channelId: String(channelId),
