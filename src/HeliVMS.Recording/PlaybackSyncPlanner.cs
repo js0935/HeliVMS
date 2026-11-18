@@ -318,9 +318,15 @@ public static class PlaybackSyncPlanner
     }
 
     /// <summary>
-    /// 依格數與焦點頻道，選出壁面要顯示的頻道（焦點排第一格，其餘依清單順序遞補、繞回開頭）。
+    /// 依格數與焦點頻道，選出壁面要顯示的頻道（焦點排第一格，其餘照清單順序遞補，不繞回開頭）。
     /// 純函式，讓「2 路／4 路各顯示哪幾台」有測試可釘。
     /// </summary>
+    /// <remarks>
+    /// 舊版用 <c>(focusIndex + i) % count</c> 從焦點往後繞，焦點不是第一台時各格會變成
+    /// <c>5,6,7,8,9,1,2,3,4</c> 這種跳號——操作員回報「排序錯亂」。焦點仍舊必須排在主格
+    /// （回放視窗的焦點語意），但其他格照清單由上到下補，因此不論上次看的是哪一台，
+    /// 多路配置的相對順序都一致，不會每次開回放都換一個排法。
+    /// </remarks>
     public static IReadOnlyList<int> WallChannelIds(
         IReadOnlyList<int> orderedChannelIds,
         int focusChannelId,
@@ -336,26 +342,26 @@ public static class PlaybackSyncPlanner
             return [];
         }
 
-        var focusIndex = -1;
-        for (var i = 0; i < orderedChannelIds.Count; i++)
-        {
-            if (orderedChannelIds[i] == focusChannelId)
-            {
-                focusIndex = i;
-                break;
-            }
-        }
-
-        if (focusIndex < 0)
-        {
-            focusIndex = 0;
-        }
-
         var wanted = Math.Min(cells, orderedChannelIds.Count);
         var result = new List<int>(wanted);
-        for (var i = 0; i < wanted; i++)
+
+        // 焦點台已被刪掉時就單純照清單順序，不要硬塞一個不存在的 Id 進主格。
+        if (orderedChannelIds.Contains(focusChannelId))
         {
-            result.Add(orderedChannelIds[(focusIndex + i) % orderedChannelIds.Count]);
+            result.Add(focusChannelId);
+        }
+
+        foreach (var id in orderedChannelIds)
+        {
+            if (result.Count >= wanted)
+            {
+                break;
+            }
+
+            if (id != focusChannelId)
+            {
+                result.Add(id);
+            }
         }
 
         return result;

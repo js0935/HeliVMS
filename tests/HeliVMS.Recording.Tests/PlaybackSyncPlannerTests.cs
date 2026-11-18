@@ -375,14 +375,28 @@ public sealed class PlaybackSyncPlannerTests
         Assert.Null(PlaybackSyncPlanner.GroupBounds([[], []]));
     }
 
+    /// <summary>
+    /// 多分割回放的鏡位順序：焦點在主格，其餘照清單由上到下補，不能從焦點往後繞回開頭。
+    /// </summary>
+    /// <remarks>
+    /// 現場回報「多分割回放時攝影機排序錯亂」：舊版從焦點往後取，焦點是第 5 台時畫面是
+    /// 5,6,7,8,9,1,2,3,4，看起來像跳號。回放偏好會記住上次檢視的頻道，所以每次開窗
+    /// 焦點都可能不同，舊版等於每次開回放都換一個排法，操作員無從建立對應。
+    /// </remarks>
     [Fact]
-    public void 壁面頻道以焦點排第一格並依序遞補繞回()
+    public void 壁面頻道以焦點排第一格其餘照清單順序不繞回()
     {
-        var channels = new[] { 10, 20, 30, 40 };
+        var channels = new[] { 10, 20, 30, 40, 50 };
 
-        Assert.Equal(new[] { 30, 40, 10, 20 }, PlaybackSyncPlanner.WallChannelIds(channels, 30, 4));
-        Assert.Equal(new[] { 30, 40 }, PlaybackSyncPlanner.WallChannelIds(channels, 30, 2));
-        Assert.Equal(new[] { 40, 10 }, PlaybackSyncPlanner.WallChannelIds(channels, 40, 2));
+        // 焦點在中間：30 固定在主格，其後照清單補 10、20、40、50，不是 40 之後跳回 10。
+        Assert.Equal(new[] { 30, 10, 20, 40, 50 }, PlaybackSyncPlanner.WallChannelIds(channels, 30, 5));
+        Assert.Equal(new[] { 30, 10, 20, 40 }, PlaybackSyncPlanner.WallChannelIds(channels, 30, 4));
+        Assert.Equal(new[] { 30, 10 }, PlaybackSyncPlanner.WallChannelIds(channels, 30, 2));
+        Assert.Equal(new[] { 30 }, PlaybackSyncPlanner.WallChannelIds(channels, 30, 1));
+
+        // 焦點在第一台或最後一台：其餘仍然是清單順序，不會在尾端接回開頭。
+        Assert.Equal(new[] { 10, 20, 30, 40 }, PlaybackSyncPlanner.WallChannelIds(channels, 10, 4));
+        Assert.Equal(new[] { 50, 10, 20, 30 }, PlaybackSyncPlanner.WallChannelIds(channels, 50, 4));
     }
 
     [Fact]
