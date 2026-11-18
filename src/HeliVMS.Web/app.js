@@ -487,25 +487,35 @@ async function refreshPlaySources() {
   fillPlayChannels();
 }
 
-/** 選了子節點就只列該節點的頻道，避免使用者猜編號；本機則列資料庫裡的實機頻道（91/93/94 這種主鍵）。 */
+/**
+ * 回放頻道下拉：value 是資料庫主鍵，顯示的是攝影機名稱。
+ * 原本是 number input + datalist，但瀏覽器的建議清單在數字輸入框只顯示主鍵
+ * （115／116／117），操作員得自己記哪個號碼是哪支鏡頭——回放是查證用的，
+ * 認錯頻道比多按一下嚴重。
+ */
 function fillPlayChannels() {
-  const list = $('play-channel-options');
+  const list = $('play-channel');
   if (!list) return;
+  const current = list.value;
   const nodeValue = $('play-node')?.value ?? '';
   const rows = nodeValue
     ? playChannels
       .filter((c) => c.nodeId === Number(nodeValue))
-      .map((c) => ({ value: c.channelId, label: c.channelName }))
-    : localChannels.map((c) => ({ value: c.id, label: c.name }));
-  list.innerHTML = rows
-    .map((r) => `<option value="${Number(r.value)}">${esc(r.label)}</option>`)
-    .join('');
+      .map((c) => ({ value: c.channelId, label: c.channelName || `#${c.channelId}` }))
+    : localChannels.map((c) => ({ value: c.id, label: c.name || `#${c.id}` }));
 
-  // 本機時預設第一路可用頻道。原本輸入框硬寫 value="1"，但實機主鍵通常不是 1，
-  // 使用者一按「載入回放」就得到「此時段沒有錄影」，誤以為回放功能壞了。
-  const input = $('play-channel');
-  if (input && !nodeValue && !input.value && rows.length > 0) {
-    input.value = String(Number(rows[0].value));
+  const options = rows.map((r) => `<option value="${Number(r.value)}">${esc(r.label)}</option>`);
+  // 事件／書籤帶進來的頻道可能已停用而不在清單裡；留著它，否則 select 會被清空、
+  // required 直接擋下表單，操作員看到的是「點事件沒反應」。
+  const keepCurrent = current && !rows.some((r) => String(r.value) === current);
+  if (keepCurrent) options.push(`<option value="${Number(current)}">${esc(`#${current}`)}</option>`);
+  list.innerHTML = options.join('');
+
+  if (current && (keepCurrent || rows.some((r) => String(r.value) === current))) {
+    list.value = current;
+  } else if (!nodeValue && rows.length > 0) {
+    // 本機時預設第一路可用頻道。實機主鍵通常不是 1，硬寫 value="1" 會載到「沒有錄影」。
+    list.value = String(Number(rows[0].value));
   }
 }
 
@@ -1642,7 +1652,15 @@ async function jumpEventToReplay(button) {
     return;
   }
   const channelId = await resolveAlarmChannel(Number(button.dataset.eventId), at.toISOString());
-  if (channelId > 0) $('play-channel').value = String(channelId);
+  if (channelId > 0) {
+    const sel = $('play-channel');
+    // 事件頻道可能已停用、不在下拉清單裡；先補一個選項再選，
+    // 否則 select.value 設定會失敗，操作員點事件只看到空白的頻道欄。
+    if (sel && ![...sel.options].some((o) => o.value === String(channelId))) {
+      sel.add(new Option(`#${channelId}`, String(channelId)));
+    }
+    if (sel) sel.value = String(channelId);
+  }
   $('play-from').value = toLocalInputValue(new Date(at.getTime() - EVENT_REPLAY_WINDOW_MS));
   $('play-to').value = toLocalInputValue(new Date(at.getTime() + EVENT_REPLAY_WINDOW_MS));
   showTab('playback');

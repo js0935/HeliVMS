@@ -157,8 +157,9 @@
         <div id="subpanel-playback" class="subpanel" data-subpanel="player" role="tabpanel" aria-labelledby="subtabbtn-playback">
           <form id="play-form" class="row-form">
             <select id="play-node" aria-label="Source node" data-i18n-attr="aria-label:replay.node"></select>
-            <input id="play-channel" type="number" min="1" step="1" list="play-channel-options" aria-label="Channel number" data-i18n-attr="aria-label:ph.channelNumber" required />
-            <datalist id="play-channel-options"></datalist>
+            <!-- 用 select 而不是 number + datalist：datalist 的下拉建議只顯示主鍵（115／116），
+                 操作員認不出是哪一支鏡頭；select 直接顯示攝影機名稱，值仍是主鍵。 -->
+            <select id="play-channel" aria-label="Channel" data-i18n-attr="aria-label:ph.channel" required></select>
             <input id="play-from" type="datetime-local" aria-label="Start time" data-i18n-attr="aria-label:ph.startTime" required />
             <input id="play-to" type="datetime-local" aria-label="End time" data-i18n-attr="aria-label:ph.endTime" required />
             <button type="submit" data-i18n="action.load">載入回放</button>

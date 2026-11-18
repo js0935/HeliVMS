@@ -471,9 +471,13 @@ describe('remote playback (M239 HLS)', () => {
     expect(appSource).toMatch(/defaultPlayWindow\(\)/);
   });
 
-  it('feeds child-node channels into the playback suggestions', () => {
-    expect(indexSource).toMatch(/id="play-channel"[^>]*list="play-channel-options"/);
-    expect(indexSource).toMatch(/<datalist id="play-channel-options">/);
+  it('shows camera names in the playback channel picker', () => {
+    // number + datalist 的建議清單在數字輸入框只顯示主鍵（115／116／117），
+    // 操作員認不出鏡頭；select 的 option 文字直接用攝影機名稱，value 仍是主鍵。
+    expect(indexSource).toMatch(/<select id="play-channel"/);
+    expect(indexSource).not.toMatch(/id="play-channel-options"/);
+    expect(appSource).toMatch(/label: c\.name/);
+    expect(appSource).toMatch(/\$\{esc\(r\.label\)\}/);
     expect(appSource).toMatch(/centralChannelRows\(await api\('\/api\/central\/channels'\)/);
     // 函式必須真的 import 進來：呼叫包在 catch 裡時，ReferenceError 會被吞掉。
     expect(appSource).toMatch(/^\s*centralChannelRows,\s*$/m);
@@ -703,6 +707,8 @@ describe('event to playback jump', () => {
     expect(body).toMatch(/showTab\('playback'\)/);
     expect(body).toMatch(/showSubTab\('playback', 'player'\)/);
     expect(body).not.toMatch(/requestSubmit|\.submit\(\)/);
+    // 事件頻道可能已停用、不在下拉清單裡；先補 option 再選，select 才不會空白。
+    expect(body).toMatch(/sel\.add\(new Option\(`#\$\{channelId\}`, String\(channelId\)\)\)/);
     expect(body).toMatch(/channelId > 0\s*\? t\('event\.replayReady'/);
     expect(body).toMatch(/t\('event\.replayChannelUnknown'\)/);
   });
