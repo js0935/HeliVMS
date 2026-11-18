@@ -213,7 +213,7 @@ describe('PTZ (M310 /api/ptz)', () => {
     expect(appSource).toMatch(/apiRaw\(`\/api\/ptz\/\$\{channelId\}\/move`, \{/);
     expect(appSource).toMatch(/apiRaw\(`\/api\/ptz\/\$\{channelId\}\/stop`, \{/);
     expect(appSource).toMatch(/apiRaw\(`\/api\/ptz\/\$\{channelId\}\/home`, \{/);
-    // 速度級別換算成 ONVIF 的速度向量（8＝全速，與調整前相同）；三軸一起送。
+    // 速度級別換算成 ONVIF 的速度向量（預設 1＝最小幅度）；三軸一起送。
     expect(appSource).toMatch(/pan: pan \* scale,/);
     expect(appSource).toMatch(/tilt: tilt \* scale,/);
     expect(appSource).toMatch(/zoom: zoom \* scale,/);
@@ -238,10 +238,13 @@ describe('PTZ (M310 /api/ptz)', () => {
   });
 
   it('offers the speed control of the reference panel and remembers it', () => {
-    expect(indexSource).toMatch(/id="ptz-speed"[^>]*type="range"[^>]*min="1"[^>]*max="8"/);
-    expect(appSource).toMatch(/function ptzSpeedLevel\(\)/);
+    expect(indexSource).toMatch(/id="ptz-speed"[^>]*type="range"[^>]*min="1"[^>]*max="8"[^>]*value="1"/);
+    expect(indexSource).toMatch(/id="ptz-speed-value"[^>]*>1</);
+    expect(appSource).toMatch(/function ptzSpeedLevel\(\)[\s\S]{0,200}: 1;/);
     expect(appSource).toMatch(/function ptzVelocityScale\(\)/);
     expect(appSource).toContain("localStorage.setItem('helivms.ptzSpeed'");
+    // 懸浮控制與 PTZ 頁共用速度：沒有記住過時必須是最小檔，不能退回全速 8。
+    expect(appSource).toMatch(/remembered : 1\)/);
     for (const key of ['ptz.speed', 'ptz.slower', 'ptz.faster', 'ptz.updatePreset']) {
       expect(i18nSource, key).toContain(`'${key}':`);
     }

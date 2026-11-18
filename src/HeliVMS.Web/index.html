@@ -105,16 +105,17 @@
           <!--
             速度：參考機（QCV8001 web PTZ 面板）是 1–8 的滑桿＋慢／快兩顆按鈕，每一道命令都帶
             這個值；我們這台相機吃的是 ONVIF ContinuousMove 的速度向量（-1..1），所以換算關係是
-            「級別 ÷ 8」——預設 8 等於與調整前相同的全速，調慢是操作員主動選擇。
+            「級別 ÷ 8」——預設取最小檔 1（幅度最小，避免一按就轉過頭）；需要快速轉向時
+            操作員再自己調快，調過的值會記住。
           -->
           <div class="row-form">
             <label><span data-i18n="ptz.speed">速度</span>
-              <input id="ptz-speed" type="range" min="1" max="8" step="1" value="8"
+              <input id="ptz-speed" type="range" min="1" max="8" step="1" value="1"
                      aria-label="PTZ speed" data-i18n-attr="aria-label:ptz.speed" />
             </label>
             <button type="button" id="ptz-slower" class="btn-quiet" data-i18n="ptz.slower">慢</button>
             <button type="button" id="ptz-faster" class="btn-quiet" data-i18n="ptz.faster">快</button>
-            <span id="ptz-speed-value" class="muted">8</span>
+            <span id="ptz-speed-value" class="muted">1</span>
           </div>
           <div id="ptz-pad" class="ptz-pad">
             <button type="button" class="ptz-btn" data-move="-1,1,0" aria-label="Up-left" data-i18n-attr="aria-label:ptz.upLeft">↖</button>

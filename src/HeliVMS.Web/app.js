@@ -1159,13 +1159,16 @@ function ptzEnqueue(task) {
   return run;
 }
 
-/** 速度級別（1–8）：參考機的面板是 1–8 滑桿，每一道命令都帶它；我們換算成 ONVIF 的速度向量。 */
+/**
+ * 速度級別（1–8）：參考機的面板是 1–8 滑桿，每一道命令都帶它；我們換算成 ONVIF 的速度向量。
+ * 讀不到滑桿時退回最小檔 1，不是全速——懸浮控制也走這裡，全速一按就轉過頭。
+ */
 function ptzSpeedLevel() {
   const raw = Number($('ptz-speed')?.value);
-  return Number.isFinite(raw) ? Math.min(8, Math.max(1, raw)) : 8;
+  return Number.isFinite(raw) ? Math.min(8, Math.max(1, raw)) : 1;
 }
 
-/** 速度級別 → ONVIF 速度（-1..1）：8＝全速（與調整前相同），1＝最慢。 */
+/** 速度級別 → ONVIF 速度（-1..1）：1＝最慢（預設），8＝全速。 */
 function ptzVelocityScale() {
   return ptzSpeedLevel() / 8;
 }
@@ -1342,7 +1345,8 @@ function bindPtzPad() {
   const slider = $('ptz-speed');
   if (slider) {
     const remembered = Number(localStorage.getItem('helivms.ptzSpeed'));
-    setPtzSpeed(Number.isFinite(remembered) && remembered > 0 ? remembered : 8);
+    // 沒有記住過速度時用最小檔；懸浮控制共用這個值，全速會讓操作員一按就轉過頭。
+    setPtzSpeed(Number.isFinite(remembered) && remembered > 0 ? remembered : 1);
     slider.addEventListener('input', () => setPtzSpeed(Number(slider.value)));
   }
   $('ptz-slower')?.addEventListener('click', () => setPtzSpeed(ptzSpeedLevel() - 1));
