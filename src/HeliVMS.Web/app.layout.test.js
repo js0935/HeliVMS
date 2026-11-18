@@ -381,3 +381,31 @@ describe('QCV8001 Web 外觀對齊', () => {
     expect((head.match(/<th\b/g) ?? []).length).toBe(6);
   });
 });
+
+describe('表面細節打磨', () => {
+  it('深灰殼層用深色捲軸而不是系統白軌', () => {
+    // 白色 system 捲軸出現在深灰面板上，是「不像同一套介面」最明顯的訊號；
+    // 這裡只改顏色，不動任何被上面守衛釘住的 overflow／寬度。
+    expect(cssSource).toMatch(/html \{\s*scrollbar-color:\s*#5c6878 var\(--shell-deep\);\s*scrollbar-width:\s*thin;\s*\}/);
+    expect(cssSource).toMatch(/::-webkit-scrollbar-thumb \{[\s\S]*?background:\s*#5c6878/);
+    expect(cssSource).toMatch(/::-webkit-scrollbar-thumb:hover \{ background:\s*var\(--ref-accent\); \}/);
+  });
+
+  it('選取文字沿用參考機的青色', () => {
+    expect(cssSource).toMatch(/::selection \{ background:\s*var\(--ref-accent\); color:\s*#04252c; \}/);
+  });
+
+  it('長表格斑馬紋不會蓋掉滑過的強調色', () => {
+    expect(cssSource).toMatch(/tbody tr:nth-child\(even\) \{ background:\s*rgba\(0, 0, 0, 0\.14\); \}/);
+    // hover 選擇器帶 id，權重高於斑馬紋的元素選擇器，順序在後也一樣要贏。
+    expect(refRule('#events tbody tr:hover')).toMatch(/background:\s*#324153/);
+  });
+
+  it('切頁與hover有柔和過渡但尊重減少動態偏好', () => {
+    expect(cssSource).toMatch(/@media \(prefers-reduced-motion: no-preference\) \{[\s\S]*?transition: background-color/);
+  });
+
+  it('獨立登入頁頂端有青色識別線', () => {
+    expect(cssSource).toMatch(/\.login-screen \.login-card \{ border-top:\s*3px solid var\(--ref-accent\); \}/);
+  });
+});

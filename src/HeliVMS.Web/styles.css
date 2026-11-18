@@ -651,3 +651,39 @@ body {
 .search-section .field > span { min-width: 80px; color: var(--muted); }
 #events thead th { background: #f0f0a0; color: #2b2b1f; }
 #events tbody tr:hover { background: #324153; }
+
+/*
+ * 視覺細節打磨：只處理「功能正常但看起來粗糙」的表面——深灰殼層裡的白色系統捲軸、
+ * 預設藍色選取區、瞬間跳動的 hover、以及長表格難以逐列對讀。
+ * 刻意不改上面任何被版面回歸測試釘住的寬度／換行／overflow；這一整段全是表面樣式。
+ */
+html {
+  scrollbar-color: #5c6878 var(--shell-deep);
+  scrollbar-width: thin;
+}
+*::-webkit-scrollbar { width: 10px; height: 10px; }
+*::-webkit-scrollbar-track { background: var(--shell-deep); }
+*::-webkit-scrollbar-thumb {
+  background: #5c6878;
+  border: 2px solid var(--shell-deep);
+  border-radius: 6px;
+}
+*::-webkit-scrollbar-thumb:hover { background: var(--ref-accent); }
+
+::selection { background: var(--ref-accent); color: #04252c; }
+
+/*
+ * 斑馬紋用最低權重的元素選擇器：既有 `#events tbody tr:hover`（含 id）永遠蓋得過它，
+ * 滑過某一列時仍會亮起，不會被偶數列底色吃掉。
+ */
+tbody tr:nth-child(even) { background: rgba(0, 0, 0, 0.14); }
+
+/* 短過渡讓切頁與 hover 不再硬跳；系統要求減少動態時整段不生效。 */
+@media (prefers-reduced-motion: no-preference) {
+  .tab, .subtab, .btn-quiet, .layout-picker button, .cell-btn, .play-toolbar button {
+    transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
+  }
+}
+
+/* 獨立登入頁頂端一道青色識別線，不改變卡片尺寸或欄位配置。 */
+.login-screen .login-card { border-top: 3px solid var(--ref-accent); }
