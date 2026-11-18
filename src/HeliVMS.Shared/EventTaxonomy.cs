@@ -17,6 +17,81 @@ public static class EventTaxonomy
     public static readonly IReadOnlyList<string> All =
         [Motion, Sensor, Tripwire, Perimeter, SmartMotion, Shelter, Offline, Online, Manual, Schedule, System];
 
+    // ─────────────────────────────────────────────────────────────────────
+    // 事件平面分類（參考機 eventlog.type 1–5：System／Operation／Network／Event／Alarm）
+    //
+    // 這是「事件中心的分類欄」與「CMS 的型別碼」共用的唯一一份口徑。分類<b>衍生自既有資料</b>
+    // （警報事件的 event_type、稽核的 category），不新增一欄可以推導的重複值——那種欄位
+    // 一定會有一天和來源不一致，而畫面上看不出來。
+    // ─────────────────────────────────────────────────────────────────────
+
+    /// <summary>系統（參考機 type 1）。</summary>
+    public const string BucketSystem = "system";
+
+    /// <summary>操作（參考機 type 2；人做了什麼）。</summary>
+    public const string BucketOperation = "operation";
+
+    /// <summary>網路（參考機 type 3；離線／恢復連線）。</summary>
+    public const string BucketNetwork = "network";
+
+    /// <summary>事件（參考機 type 4；動作／智慧分析）。</summary>
+    public const string BucketEvent = "event";
+
+    /// <summary>警報（參考機 type 5；IO 乾接點）。</summary>
+    public const string BucketAlarm = "alarm";
+
+    /// <summary>分類清單（順序即 UI 與型別碼的順序）。</summary>
+    public static readonly IReadOnlyList<string> Buckets =
+        [BucketSystem, BucketOperation, BucketNetwork, BucketEvent, BucketAlarm];
+
+    /// <summary>分類的在地化鍵（<c>EventTaxonomy.Bucket.event</c>…）。</summary>
+    public static string BucketLabelKey(string bucket) => "EventTaxonomy.Bucket." + bucket;
+
+    /// <summary>
+    /// <c>alarm_events.event_type</c> → 事件平面分類。
+    /// </summary>
+    /// <remarks>
+    /// 走 <see cref="CategoryOf"/> 再分組，前綴規則（<c>ai_</c>／<c>io_</c>／<c>smart_</c>）
+    /// 因此仍只有一份實作；未來新增的別名只要 CategoryOf 認得，分類就跟著對。
+    /// </remarks>
+    public static string BucketOf(string? eventType) => CategoryOf(eventType) switch
+    {
+        Sensor => BucketAlarm,
+        Offline or Online => BucketNetwork,
+        Manual or Schedule => BucketOperation,
+        Motion or Tripwire or Perimeter or SmartMotion or Shelter => BucketEvent,
+        _ => BucketSystem,
+    };
+
+    /// <summary>
+    /// <c>audit_log.category</c> → 事件平面分類。
+    /// </summary>
+    /// <remarks>
+    /// 「誰做了什麼」是操作，「機器自己做的（保留清理／段長修正／磁碟狀態）」是系統。
+    /// 稽核目前沒有網路類別——離線／上線是警報事件，由 <see cref="BucketOf"/> 決定。
+    /// 未知類別歸系統：寧可放進「系統」讓它出現在清單裡，也不要因為分類看不懂就消失。
+    /// </remarks>
+    public static string BucketOfAuditCategory(string? category)
+    {
+        var c = (category ?? "").Trim().ToLowerInvariant();
+        return c switch
+        {
+            "network" => BucketNetwork,
+            "auth" or "config" or "export" or "share" or "evidence" or "legal_hold" => BucketOperation,
+            _ => BucketSystem,
+        };
+    }
+
+    /// <summary>事件平面分類 → CMS 型別碼（與 <c>QctekEventTypes</c> 的 1–5 相同口徑）。</summary>
+    public static int BucketToCmsTypeCode(string? bucket) => bucket switch
+    {
+        BucketOperation => 2,
+        BucketNetwork => 3,
+        BucketEvent => 4,
+        BucketAlarm => 5,
+        _ => 1,
+    };
+
     public static string LabelKey(string category) => "EventTaxonomy." + category;
 
     public static string CategoryOf(string? eventType)

@@ -175,6 +175,13 @@
                         Content="" Click="OnPingDeviceClicked" Margin="6,0,0,0" Padding="12,5"
                         Foreground="White" Background="#2F6B4F" BorderThickness="0"
                         ToolTip=""/>
+                <!-- Opens the camera's own web UI in the default browser. The URL is built by
+                     CameraWebUrl: devices.port is the ONVIF service port and must not be assumed
+                     to be the web port (see that class for the reasoning). -->
+                <Button x:Name="OpenWebButton" AutomationProperties.AutomationId="OpenWebButton"
+                        Content="" Click="OnOpenWebClicked" Margin="6,0,0,0" Padding="12,5"
+                        Foreground="White" Background="#1F6B8A" BorderThickness="0"
+                        ToolTip=""/>
                 <Button x:Name="OpenDeviceToolsButton" AutomationProperties.AutomationId="OpenDeviceToolsButton"
                         Content="" Click="OnOpenDeviceToolsClicked" Margin="12,0,0,0" Padding="12,5"
                         Foreground="White" Background="#2A4A73" BorderThickness="0"

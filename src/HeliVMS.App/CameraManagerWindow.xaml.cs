@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Diagnostics;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -257,6 +258,8 @@ public partial class CameraManagerWindow : Window
         DeleteDeviceButton.ToolTip = Localizer.T("Camera.DeleteTip");
         PingDeviceButton.Content = Localizer.T("Camera.Ping");
         PingDeviceButton.ToolTip = Localizer.T("Camera.PingTip");
+        OpenWebButton.Content = Localizer.T("Camera.OpenWeb");
+        OpenWebButton.ToolTip = Localizer.T("Camera.OpenWebTip");
         // 狀態列講的是「下一步該做什麼」，不是欄位佔位字元（那是「—」）。
         PingStatusText.Text = Localizer.T("Camera.PingIdleTip");
         OpenDeviceToolsButton.Content = Localizer.T("Camera.DeviceTools");
@@ -368,6 +371,47 @@ public partial class CameraManagerWindow : Window
         {
             _pinging = false;
             PingDeviceButton.IsEnabled = true;
+        }
+    }
+
+    /// <summary>
+    /// 用預設瀏覽器開啟選取攝影機的網頁介面（Web UI）。
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// 位址由 <see cref="CameraWebUrl"/> 組：<c>devices.port</c> 是 ONVIF 服務埠，直接拿它開
+    /// 瀏覽器會停在 SOAP 錯誤頁，所以只有設定值本身是網頁埠時才採用（理由見該類別）。
+    /// 憑證<b>不</b>寫進網址——那會留在瀏覽器歷史與截圖裡。
+    /// </para>
+    /// <para>
+    /// 唯讀操作，任何角色都能用（與 Ping 相同）。開不起來時要把「哪個位址、為什麼」寫在
+    /// 提示列：沒有預設瀏覽器或被群組原則封鎖的機器上，靜默無反應與按鈕壞掉無法區分。
+    /// </para>
+    /// </remarks>
+    private void OnOpenWebClicked(object sender, RoutedEventArgs e)
+    {
+        if (DeviceList.SelectedItem is not DeviceRow row)
+        {
+            DeviceHintText.Text = Localizer.T("Camera.SelectFirst");
+            return;
+        }
+
+        var url = CameraWebUrl.Build(row.Host, row.Port);
+        if (url is null)
+        {
+            DeviceHintText.Text = string.Format(Localizer.T("Camera.OpenWebBadAddress"), row.IpPort);
+            return;
+        }
+
+        try
+        {
+            Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
+            DeviceHintText.Text = string.Format(Localizer.T("Camera.OpenWebOpened"), url);
+        }
+        catch (Exception ex)
+        {
+            // 沒有預設瀏覽器（精簡安裝、群組原則封鎖）時 ShellExecute 會拋；照實回報。
+            DeviceHintText.Text = string.Format(Localizer.T("Camera.OpenWebFailed"), url, ex.Message);
         }
     }
 
