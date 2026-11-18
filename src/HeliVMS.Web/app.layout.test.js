@@ -350,17 +350,24 @@ describe('QCV8001 Web 外觀對齊', () => {
     expect(indexSource).toMatch(/<option value="pos">POS<\/option>/);
   });
 
-  it('回放工具列提供參考機的三十秒跳躍下一張與全螢幕', () => {
+  it('回放工具列提供上一張下一張三十秒跳躍速度循環與全螢幕', () => {
     // player.html 的 bk30s/nextFrame/fw30s/fullScreen 是操作員辨識「這是回放播放器」的依靠；
-    // 只有原生 <video controls> 時，操作員得自己拖游標找三十秒前的畫面。
+    // 桌面的逐幀、速度、循環也都要能在 Web 上用滑鼠操作，不該只靠快捷鍵或拖游標。
     expect(refRule('.play-toolbar')).toMatch(/background:\s*var\(--toolbar\)/);
     for (const [id, key] of [
-      ['play-back30', 'play.back30'],
+      ['play-prev-frame', 'play.prevFrame'],
       ['play-next-frame', 'play.nextFrame'],
+      ['play-back30', 'play.back30'],
       ['play-forward30', 'play.forward30'],
       ['play-fullscreen', 'cell.fullscreen'],
     ]) {
       expect(indexSource, id).toMatch(new RegExp(`id="${id}"[^>]*data-i18n="${key.replace('.', '\\.')}"`));
     }
+    // 速度與循環是表單控制項，不是按鈕：要有 i18n 化的可讀名稱，且 1× 必須是預設。
+    expect(indexSource, 'play-speed').toMatch(/<select id="play-speed"[^>]*data-i18n-attr="aria-label:play\.speed"[\s\S]*?<\/select>/);
+    expect(indexSource, 'play-speed default').toMatch(/<option value="1" selected>1×<\/option>/);
+    expect(indexSource, 'play-loop').toMatch(/<input id="play-loop"[^>]*type="checkbox"/);
+    expect(refRule('.play-toolbar select')).toMatch(/min-width:/);
+    expect(refRule('.play-toolbar-field')).toMatch(/align-items:\s*center/);
   });
 });

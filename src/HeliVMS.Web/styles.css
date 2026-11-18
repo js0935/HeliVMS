@@ -620,10 +620,11 @@ body {
   color: #1e2935;
 }
 
-/* 回放工具列：對齊 player.css 的灰色工具列與青色選取；±30 秒／下一張／全螢幕。 */
+/* 回放工具列：對齊 player.css 的灰色工具列與青色選取；上一張／下一張／±30 秒／速度／循環／全螢幕。 */
 .play-toolbar {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 6px;
   margin: 6px 0;
   padding: 6px;
@@ -632,6 +633,8 @@ body {
 }
 .play-toolbar button { min-width: 96px; }
 .play-toolbar button:hover { border-color: var(--ref-accent); color: #04252c; }
+.play-toolbar select { min-width: 84px; }
+.play-toolbar-field { display: inline-flex; align-items: center; gap: 4px; }
 
 /* 事件查詢：欄位間距與淡黃表header 對齊 fun/event/query.html。 */
 .search-section {

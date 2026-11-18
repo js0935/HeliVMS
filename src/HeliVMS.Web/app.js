@@ -851,14 +851,18 @@ function clearPlayClock() {
  * MSE 的 duration 可能是 Infinity，上界改用 seekable 的最後一段，否則 +30 秒
  * 會把游標設到一個不存在的位置並讓播放器停在空白畫面。
  */
-function playbackSeekTarget(delta) {
-  const video = $('play-video');
-  if (!video || !Number.isFinite(video.currentTime)) return null;
+function playbackUpperBound(video) {
   let upper = video.duration;
   if (!Number.isFinite(upper) && video.seekable?.length > 0) {
     upper = video.seekable.end(video.seekable.length - 1);
   }
-  if (!Number.isFinite(upper)) upper = video.currentTime;
+  return Number.isFinite(upper) ? upper : null;
+}
+
+function playbackSeekTarget(delta) {
+  const video = $('play-video');
+  if (!video || !Number.isFinite(video.currentTime)) return null;
+  const upper = playbackUpperBound(video) ?? video.currentTime;
   return Math.min(Math.max(video.currentTime + delta, 0), upper);
 }
 
@@ -867,13 +871,51 @@ function seekPlayback(delta) {
   if (target !== null) $('play-video').currentTime = target;
 }
 
-/** 下一張：先暫停再前進一格（HLS 無逐幀索引，用 1/30 秒做一個小步）。 */
-function stepPlaybackFrame() {
+/**
+ * 逐張前進／後退一格（HLS 無逐幀索引，用 1/30 秒做一個小步）。
+ * 一定要先暫停：時間軸還在跑時設 currentTime 會被後面的幀蓋過去，操作員看不出差別。
+ * 上一張與下一張共用這一個函式，只是步長正負不同——
+ * 事件回呼直接傳進來會把 Event 物件當成 delta，所以綁定處必須用箭頭函式。
+ */
+function stepPlaybackFrame(delta = 1 / 30) {
   const video = $('play-video');
   if (!video) return;
   video.pause();
-  const target = playbackSeekTarget(1 / 30);
+  const target = playbackSeekTarget(delta);
   if (target !== null) video.currentTime = target;
+}
+
+/** 速度改的是本機 video 的 playbackRate，不碰後端也不重新協商串流。 */
+function applyPlaybackSpeed() {
+  const video = $('play-video');
+  const select = $('play-speed');
+  if (!video || !select) return;
+  const rate = Number.parseFloat(select.value);
+  video.playbackRate = Number.isFinite(rate) && rate > 0 ? rate : 1;
+}
+
+const PLAY_LOOP_EPSILON_SECONDS = 0.25;
+let playLoopArmed = false;
+
+/**
+ * 循環不能依賴 ended：MSE 管線故意不呼叫 endOfStream()（往回拖要能再 append），
+ * 因此沒有可靠的 ended 事件可用。改用 timeupdate 在游標接近實際媒體結尾時回帶到 0；
+ * playLoopArmed 在一次回帶後先關閉，等游標真的回到開頭附近才重新備妥，
+ * 否則回帶前的舊 timeupdate 會連續再觸發好幾次，畫面在看起來像「一直在跳」。
+ */
+function maybeLoopPlayback() {
+  if (!$('play-loop')?.checked || !playLoopArmed) return;
+  const video = $('play-video');
+  if (!video || video.paused || !Number.isFinite(video.currentTime)) return;
+  const upper = playbackUpperBound(video);
+  if (upper === null || upper <= 0) return;
+  if (video.currentTime < upper - PLAY_LOOP_EPSILON_SECONDS) {
+    if (video.currentTime <= Math.min(1, upper / 2)) playLoopArmed = true;
+    return;
+  }
+  playLoopArmed = false;
+  video.currentTime = 0;
+  void video.play().catch(() => {});
 }
 
 function togglePlaybackFullscreen() {
@@ -941,6 +983,10 @@ async function playRemote(event) {
       if (activePlayback === player) msg.textContent = err.message;
     });
     await player.ready;
+    // 換上新的 MediaSource 後瀏覽器可能重置 playbackRate，用工具列目前的選擇重新套用。
+    applyPlaybackSpeed();
+    // 上一輪回帶後 playLoopArmed 是關的；新的一段要重新備妥，否則勾著循環也不動。
+    playLoopArmed = true;
     renderPlayClock();
     const first = playlist.segments[0];
     const last = playlist.segments[playlist.segments.length - 1];
@@ -1747,10 +1793,19 @@ function wire() {
   // 拖動游標只發 seeked、播放才發 timeupdate，兩個都聽時鐘才不會停在舊位置。
   $('play-video').addEventListener('timeupdate', renderPlayClock);
   $('play-video').addEventListener('seeked', renderPlayClock);
-  // 回放工具列（±30 秒／下一張／全螢幕）：對齊參考機 player 的控制項，全部只動本機 video。
+  // 迴圈只看 timeupdate：這條 MSE 管線刻意不收尾（往回拖要再 append），沒有 ended 可用。
+  $('play-video').addEventListener('timeupdate', maybeLoopPlayback);
+  // 回放工具列（上一張／下一張／±30 秒／速度／循環／全螢幕）：對齊參考機 player 的控制項，
+  // 全部只動本機 video。逐張一定要用箭頭函式傳步長，直接傳 stepPlaybackFrame 會把
+  // click 的 Event 物件當成 delta，上一張／下一張都變成無效的數值。
+  $('play-prev-frame')?.addEventListener('click', () => stepPlaybackFrame(-1 / 30));
+  $('play-next-frame')?.addEventListener('click', () => stepPlaybackFrame(1 / 30));
   $('play-back30')?.addEventListener('click', () => seekPlayback(-30));
-  $('play-next-frame')?.addEventListener('click', stepPlaybackFrame);
   $('play-forward30')?.addEventListener('click', () => seekPlayback(30));
+  $('play-speed')?.addEventListener('change', applyPlaybackSpeed);
+  $('play-loop')?.addEventListener('change', () => {
+    if ($('play-loop').checked) playLoopArmed = true;
+  });
   $('play-fullscreen')?.addEventListener('click', togglePlaybackFullscreen);
   defaultPlayWindow();
   defaultEventWindow();

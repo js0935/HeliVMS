@@ -165,9 +165,19 @@
           </form>
           <video id="play-video" class="player" controls playsinline preload="metadata"></video>
           <div class="play-toolbar" role="toolbar" aria-label="Playback tools" data-i18n-attr="aria-label:a11y.playbackTools">
-            <button type="button" id="play-back30" data-i18n="play.back30" data-i18n-attr="title:play.back30">後退 30 秒</button>
+            <button type="button" id="play-prev-frame" data-i18n="play.prevFrame" data-i18n-attr="title:play.prevFrame">上一張</button>
             <button type="button" id="play-next-frame" data-i18n="play.nextFrame" data-i18n-attr="title:play.nextFrame">下一張</button>
+            <button type="button" id="play-back30" data-i18n="play.back30" data-i18n-attr="title:play.back30">後退 30 秒</button>
             <button type="button" id="play-forward30" data-i18n="play.forward30" data-i18n-attr="title:play.forward30">前進 30 秒</button>
+            <label class="play-toolbar-field" for="play-speed"><span data-i18n="play.speed">速度</span></label>
+            <select id="play-speed" aria-label="Playback speed" data-i18n-attr="aria-label:play.speed">
+              <option value="0.25">0.25×</option>
+              <option value="0.5">0.5×</option>
+              <option value="1" selected>1×</option>
+              <option value="2">2×</option>
+              <option value="4">4×</option>
+            </select>
+            <label class="play-toolbar-field play-loop-field"><input id="play-loop" type="checkbox" data-i18n-attr="aria-label:play.loop" /><span data-i18n="play.loop">循環播放</span></label>
             <button type="button" id="play-fullscreen" data-i18n="cell.fullscreen" data-i18n-attr="title:cell.fullscreen">全螢幕</button>
           </div>
           <div id="play-clock" class="play-clock"></div>

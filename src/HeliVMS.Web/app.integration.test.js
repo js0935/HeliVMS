@@ -607,8 +607,44 @@ describe('playback toolbar', () => {
     expect(appSource).toMatch(/seekPlayback\(30\)/);
   });
 
-  it('下一張會先暫停再前進並把全螢幕交给video元件', () => {
-    expect(appSource).toMatch(/function stepPlaybackFrame\(\)[\s\S]*?video\.pause\(\)[\s\S]*?playbackSeekTarget\(1 \/ 30\)/);
+  it('上一張與下一張共用步長且在暫停之後才移動游標', () => {
+    // 把 stepPlaybackFrame 直接當 click 回呼傳進去會收到 Event 物件，delta 變成非數值，
+    // 兩顆按鈕都看不出動作；每一邊都要自己帶正負步長。
+    expect(appSource).toMatch(/function stepPlaybackFrame\(delta = 1 \/ 30\)[\s\S]*?video\.pause\(\)[\s\S]*?playbackSeekTarget\(delta\)/);
+    expect(appSource).toMatch(/\$\('play-prev-frame'\)\?\.addEventListener\('click', \(\) => stepPlaybackFrame\(-1 \/ 30\)\)/);
+    expect(appSource).toMatch(/\$\('play-next-frame'\)\?\.addEventListener\('click', \(\) => stepPlaybackFrame\(1 \/ 30\)\)/);
+    expect(appSource).not.toMatch(/addEventListener\('click', stepPlaybackFrame\)/);
+  });
+
+  it('播放速度改的是本機playbackRate且換段後重新套用', () => {
+    // 換上新的 MediaSource 時瀏覽器會重置 playbackRate；只監聽 change 而不在 ready 後重套，
+    // 操作員看到的就是「選了 2×，重新載入回放又變回 1×」。
+    expect(appSource).toMatch(/function applyPlaybackSpeed\(\)[\s\S]*?video\.playbackRate = Number\.isFinite\(rate\) && rate > 0 \? rate : 1/);
+    expect(appSource).toMatch(/\$\('play-speed'\)\?\.addEventListener\('change', applyPlaybackSpeed\)/);
+    const playRemoteBody = appSource.slice(
+      appSource.indexOf('async function playRemote'),
+      appSource.indexOf('function defaultPlayWindow'),
+    );
+    expect(playRemoteBody).toMatch(/applyPlaybackSpeed\(\);/);
+  });
+
+  it('循環靠timeupdate在媒體尾端回帶而不是靠不會發生的ended', () => {
+    // 這條 MSE 管線刻意不呼叫 endOfStream（往回拖要再 append），所以 ended 永遠不來，
+    // 依賴 ended 的循環等於完全沒有循環。回帶後還要有 armed 開關擋掉舊的 timeupdate。
+    const body = appSource.slice(appSource.indexOf('const PLAY_LOOP_EPSILON_SECONDS'));
+    expect(body).toMatch(/function maybeLoopPlayback\(\)[\s\S]*?playLoopArmed = false;[\s\S]*?video\.currentTime = 0;[\s\S]*?video\.play\(\)/);
+    expect(body).toMatch(/upper - PLAY_LOOP_EPSILON_SECONDS/);
+    expect(appSource).toMatch(/\$\('play-video'\)\.addEventListener\('timeupdate', maybeLoopPlayback\)/);
+    expect(appSource).toMatch(/\$\('play-loop'\)\?\.addEventListener\('change'/);
+    const playRemoteBody = appSource.slice(
+      appSource.indexOf('async function playRemote'),
+      appSource.indexOf('function defaultPlayWindow'),
+    );
+    expect(playRemoteBody).toMatch(/playLoopArmed = true;/);
+    expect(appSource).not.toMatch(/addEventListener\('ended', maybeLoopPlayback\)/);
+  });
+
+  it('全螢幕交給video元件而不是自己改造覆蓋層', () => {
     expect(appSource).toMatch(/video\.requestFullscreen\?\.\(\)/);
     expect(appSource).toMatch(/document\.exitFullscreen\?\.\(\)/);
   });

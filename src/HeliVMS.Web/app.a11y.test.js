@@ -59,6 +59,15 @@ describe('keyboard accessibility', () => {
     }
   });
 
+  it('回放工具列的速度與循環都有可讀名稱', () => {
+    // select 只有數字選項時螢幕閱讀器唸不出「0.5×」是什麼；循環核取方塊也要有標籤，
+    // 否則操作員只知道有一格打勾，不知道它會讓整段錄影重播。
+    expect(tagFor('play-speed'), 'play-speed').toMatch(/data-i18n-attr="aria-label:play\.speed"/);
+    expect(indexSource, 'play-speed label').toMatch(/<label[^>]*for="play-speed"[^>]*>[\s\S]*?<span data-i18n="play\.speed">/);
+    expect(tagFor('play-loop'), 'play-loop').toMatch(/data-i18n-attr="aria-label:play\.loop"/);
+    expect(indexSource, 'play-loop label').toMatch(/<label[^>]*>[\s\S]*?id="play-loop"[^>]*>[\s\S]*?<span data-i18n="play\.loop">[\s\S]*?<\/label>/);
+  });
+
   it('exposes the live layout choice as labeled, pressed buttons', () => {
     // 版面現在是分頁器而不是下拉選單；螢幕閱讀器要唸得出群組名稱與目前按下的是哪一格。
     expect(indexSource).toMatch(/<div id="live-layout"[^>]*role="group"[^>]*data-i18n-attr="aria-label:live\.layout/);
