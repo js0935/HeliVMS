@@ -21,6 +21,7 @@ public partial class EventCenterWindow : Window
     private readonly SqliteStore _store;
     private readonly ChannelRepository _channels;
     private readonly AlarmEventRepository _events;
+    private readonly EventLogRepository _eventLog;
     private Size _snapSource;
     private IReadOnlyList<Detection> _snapDetections = [];
     private long? _preselect;
@@ -42,10 +43,12 @@ public partial class EventCenterWindow : Window
 
     /// <summary>上面那個框是對哪一張樣本圖框的（換圖後框就不再適用）。</summary>
     private string? _visualRoiSamplePath;
-    private long? _selectedId;
 
-    /// <summary>本頁已選取的事件 Id（多選批次處置用）。重整後據此保留同頁選取。</summary>
-    private readonly HashSet<long> _selectedIds = [];
+    /// <summary>主要選取列的鍵（<c>a:12</c>／<c>u:12</c>；兩張表的 id 會碰撞）。</summary>
+    private string? _selectedId;
+
+    /// <summary>本頁已選取列的鍵（多選批次處置用）。重整後據此保留同頁選取。</summary>
+    private readonly HashSet<string> _selectedIds = new(StringComparer.Ordinal);
 
     /// <summary>程式化設定選取時抑制 SelectionChanged 遞迴，避免兩清單互相同步時打轉。</summary>
     private bool _restoringSelection;
@@ -66,6 +69,7 @@ public partial class EventCenterWindow : Window
         _store = store;
         _channels = new ChannelRepository(store);
         _events = new AlarmEventRepository(store);
+        _eventLog = new EventLogRepository(store);
         _preselect = preselectChannelId;
         _feed = alerts is null ? null : new AlertFeed(alerts, Dispatcher, OnAlertsChanged);
         _playbackFinalizer = playbackFinalizer;
@@ -102,9 +106,16 @@ public partial class EventCenterWindow : Window
 
     private sealed class EventRow
     {
+        /// <summary>跨來源唯一鍵（<c>a:12</c>／<c>u:12</c>）：兩張表的 id 會碰撞，用 id 當鍵會把
+        /// 稽核列選成警報列、或重整後勾錯。</summary>
+        public string Key { get; init; } = "";
+
+        /// <summary>這一列來自稽核日誌（唯讀：不能確認、處置、回放或遮蔽）。</summary>
+        public bool IsAudit { get; init; }
+
         public long Id { get; init; }
 
-        public long ChannelId { get; init; }
+        public long? ChannelId { get; init; }
 
         public DateTime StartUtc { get; init; }
 
@@ -112,43 +123,62 @@ public partial class EventCenterWindow : Window
 
         public string ChannelName { get; init; } = "";
 
-        public string EventType { get; init; } = "motion";
+        /// <summary>原始代碼：警報的 <c>event_type</c>／稽核的 <c>action</c>。</summary>
+        public string EventType { get; init; } = "";
+
+        /// <summary>事件平面分類（<see cref="EventTaxonomy.Buckets"/>）。</summary>
+        public string Bucket { get; init; } = EventTaxonomy.BucketSystem;
 
         public string? Detail { get; init; }
 
         /// <summary>「詳情」欄顯示字串：把引擎寫入的機器可讀 detail 轉成在地化說明。
-        /// <see cref="Detail"/> 本身（機器格式）不動，匯出與遮蔽仍靠它。</summary>
+        /// <see cref="Detail"/> 本身（機器格式）不動，匯出與遮蔽仍靠它。稽核列的文字
+        /// 認不出格式時原樣顯示（<see cref="EventDetailText"/> 的預設行為）。</summary>
         public string DetailLabel => EventDetailText.Format(Localizer.Lang, Detail);
 
         public string DurationLabel { get; init; } = "";
 
         public bool Acknowledged { get; init; }
 
-        public string Status { get; init; } = AlarmEventStatus.Pending;
+        /// <summary>處置狀態；稽核列沒有處置（null）。</summary>
+        public string? Status { get; init; }
 
         public string? AssignedTo { get; init; }
 
         public string? Note { get; init; }
 
-        public string StatusLabel => LocalizedStatus(Status);
+        public string StatusLabel => Status is null ? "" : LocalizedStatus(Status);
+
+        /// <summary>分類欄的在地化標籤（與篩選下拉共用同一份 taxonomy）。</summary>
+        public string BucketLabel => Localizer.T(EventTaxonomy.BucketLabelKey(Bucket));
 
         /// <summary>
-        /// 事件類型的顯示名；未列的類型原樣顯示（上游新增類型不會炸掉視窗）。
+        /// 類型欄：警報事件走 <see cref="EventTypeText"/> 的對照表；稽核列顯示原始動作代碼
+        /// （例如 <c>settings.set</c>）——那是維運人員拿來對照設定的名字，翻譯它反而對不上。
         /// </summary>
-        /// <remarks>
-        /// 對照表搬到 <see cref="EventTypeText"/>：通知紀錄也要顯示同一批事件類型，
-        /// 留在這裡等於兩份會各自漂移（新增類型只改到其中一邊，另一邊顯示英文代號）。
-        /// </remarks>
-        public string TypeLabel => EventTypeText.Label(EventType);
+        public string TypeLabel => IsAudit ? EventType : EventTypeText.Label(EventType);
 
         public string AssignedLabel => string.IsNullOrWhiteSpace(AssignedTo) ? "" : AssignedTo!;
+
+        /// <summary>操作者欄：稽核列是 <c>audit_log.actor</c>；警報事件沒有這個欄位。</summary>
+        public string ActorLabel { get; init; } = "";
 
         public Brush StatusBrush => Status switch
         {
             AlarmEventStatus.Acknowledged => new SolidColorBrush(Color.FromRgb(0x2A, 0x5C, 0x8A)),
             AlarmEventStatus.Actioned => new SolidColorBrush(Color.FromRgb(0x2A, 0x7F, 0x6E)),
             AlarmEventStatus.FalseAlarm => new SolidColorBrush(Color.FromRgb(0x55, 0x5F, 0x6B)),
+            null => Brushes.SlateGray,
             _ => new SolidColorBrush(Color.FromRgb(0x8A, 0x6F, 0x3A)),
+        };
+
+        public Brush BucketBrush => Bucket switch
+        {
+            EventTaxonomy.BucketEvent => Brushes.Gold,
+            EventTaxonomy.BucketAlarm => Brushes.Orange,
+            EventTaxonomy.BucketNetwork => Brushes.LightCoral,
+            EventTaxonomy.BucketOperation => Brushes.MediumSeaGreen,
+            _ => Brushes.LightSteelBlue,
         };
 
         public string? SnapshotPath { get; init; }
@@ -174,6 +204,7 @@ public partial class EventCenterWindow : Window
     {
         ApplyI18n();
         RefreshChannels();
+        RefreshCategories();
         RefreshTypes();
         DoRefresh();
     }
@@ -199,6 +230,7 @@ public partial class EventCenterWindow : Window
         Title = Localizer.T("EventCenter.Title");
         ChannelLabel.Text = Localizer.T("EventCenter.Channel");
         RangeLabel.Text = Localizer.T("EventCenter.Range");
+        CategoryLabel.Text = Localizer.T("EventCenter.Category");
         TypeLabel.Text = Localizer.T("EventCenter.Type");
         KeywordLabel.Text = Localizer.T("EventCenter.Keyword");
         ApplyQueryButton.Content = Localizer.T("EventCenter.Apply");
@@ -271,23 +303,46 @@ public partial class EventCenterWindow : Window
             }
         }
 
-        if (EventList.View is GridView grid && grid.Columns.Count >= 7)
+        if (EventList.View is GridView grid && grid.Columns.Count >= 9)
         {
             grid.Columns[0].Header = Localizer.T("EventCenter.ColTime");
-            grid.Columns[1].Header = Localizer.T("EventCenter.ColChannel");
-            grid.Columns[2].Header = Localizer.T("EventCenter.ColType");
-            grid.Columns[3].Header = Localizer.T("EventCenter.ColDuration");
-            grid.Columns[4].Header = Localizer.T("EventCenter.ColDetail");
-            grid.Columns[5].Header = Localizer.T("EventCenter.ColStatus");
-            grid.Columns[6].Header = Localizer.T("EventCenter.ColAssigned");
+            grid.Columns[1].Header = Localizer.T("EventCenter.ColCategory");
+            grid.Columns[2].Header = Localizer.T("EventCenter.ColChannel");
+            grid.Columns[3].Header = Localizer.T("EventCenter.ColType");
+            grid.Columns[4].Header = Localizer.T("EventCenter.ColDuration");
+            grid.Columns[5].Header = Localizer.T("EventCenter.ColDetail");
+            grid.Columns[6].Header = Localizer.T("EventCenter.ColStatus");
+            grid.Columns[7].Header = Localizer.T("EventCenter.ColAssigned");
+            grid.Columns[8].Header = Localizer.T("EventCenter.ColActor");
         }
+    }
+
+    /// <summary>分類下拉：口徑來自 <see cref="EventTaxonomy.Buckets"/>（與 CMS 型別碼共用）。</summary>
+    private void RefreshCategories()
+    {
+        CategoryCombo.Items.Clear();
+        CategoryCombo.Items.Add(new System.Windows.Controls.ComboBoxItem
+        {
+            Content = Localizer.T("EventCenter.AllCategories"),
+            Tag = null,
+        });
+        foreach (var bucket in EventTaxonomy.Buckets)
+        {
+            CategoryCombo.Items.Add(new System.Windows.Controls.ComboBoxItem
+            {
+                Content = Localizer.T(EventTaxonomy.BucketLabelKey(bucket)),
+                Tag = bucket,
+            });
+        }
+
+        CategoryCombo.SelectedIndex = 0;
     }
 
     private void RefreshTypes()
     {
         TypeCombo.Items.Clear();
         TypeCombo.Items.Add(new System.Windows.Controls.ComboBoxItem { Content = Localizer.T("EventCenter.AllTypes"), Tag = null });
-        foreach (var t in _events.ListEventTypes())
+        foreach (var t in _eventLog.ListAlarmTypes())
         {
             TypeCombo.Items.Add(new System.Windows.Controls.ComboBoxItem { Content = t, Tag = t });
         }
@@ -307,7 +362,7 @@ public partial class EventCenterWindow : Window
         ChannelCombo.Items.Add(all);
         foreach (var ch in _channels.List())
         {
-            ChannelCombo.Items.Add(new System.Windows.Controls.ComboBoxItem { Content = ch.Name, Tag = ch.Id });
+            ChannelCombo.Items.Add(new System.Windows.Controls.ComboBoxItem { Content = ch.Name, Tag = (long)ch.Id });
         }
 
         if (current is long id)
@@ -383,32 +438,21 @@ public partial class EventCenterWindow : Window
         }
 
         var q = BuildQuery();
-        var list = await Task.Run(() => _events.ListByQuery(q));
+        var list = await Task.Run(() => _eventLog.List(q));
         await Task.Run(() => WriteCsv(dlg.FileName, list, _channels.List()));
         CountText.Text = string.Format(
             CultureInfo.InvariantCulture, Localizer.T("EventCenter.Exported"), list.Count, dlg.FileName);
     }
 
     /// <summary>目前過濾列的查詢條件（不限頁數）。</summary>
-    private AlarmEventRepository.QueryArgs BuildQuery()
+    private EventLogQuery BuildQuery()
     {
         var (from, to) = RangeWindow();
-        int? channelId = null;
-        if (ChannelCombo.SelectedItem is System.Windows.Controls.ComboBoxItem item && item.Tag is int cid)
+        return new EventLogQuery
         {
-            channelId = cid;
-        }
-
-        string? eventType = null;
-        if (TypeCombo.SelectedItem is System.Windows.Controls.ComboBoxItem ti && ti.Tag is string ts)
-        {
-            eventType = ts;
-        }
-
-        return new AlarmEventRepository.QueryArgs
-        {
-            ChannelId = channelId,
-            EventType = eventType,
+            Bucket = SelectedCategory(),
+            ChannelId = SelectedChannelId(),
+            EventType = SelectedEventType(),
             Status = PendingOnlyCheck.IsChecked == true ? AlarmEventStatus.Pending : null,
             Keyword = KeywordBox.Text.Trim(),
             EventIds = _visualHits is { Count: > 0 } hits ? hits.ToList() : null,
@@ -417,6 +461,19 @@ public partial class EventCenterWindow : Window
             Limit = 10000,
         };
     }
+
+    /// <summary>目前選取的頻道（Tag 一律為 <c>long</c>——<see cref="ChannelInfo.Id"/> 是 int，
+    /// 兩邊型別不一致時比對永遠不成立，預選頻道會靜靜失效）。</summary>
+    private long? SelectedChannelId()
+        => ChannelCombo.SelectedItem is System.Windows.Controls.ComboBoxItem { Tag: long id } ? id : null;
+
+    /// <summary>目前選取的警報事件類型（只影響警報列；指定時稽核列整批排除）。</summary>
+    private string? SelectedEventType()
+        => TypeCombo.SelectedItem is System.Windows.Controls.ComboBoxItem { Tag: string t } ? t : null;
+
+    /// <summary>目前選取的分類（<see cref="EventTaxonomy.Buckets"/> 之一；null＝全部分類）。</summary>
+    private string? SelectedCategory()
+        => CategoryCombo.SelectedItem is System.Windows.Controls.ComboBoxItem { Tag: string b } ? b : null;
 
     /// <summary>
     /// 以圖搜索（QC_Live 的 <c>PopupVisualSearch</c> 對齊）：樣本圖 → 感知雜湊 →
@@ -551,10 +608,14 @@ public partial class EventCenterWindow : Window
         DoRefresh();
     }
 
-    /// <summary>將事件寫入 CSV（UTF-8 BOM，供 UI 匯出與 --events-export 共用）。</summary>
+    /// <summary>將事件平面的一頁寫入 CSV（UTF-8 BOM，供 UI 匯出與 --events-export 共用）。</summary>
+    /// <remarks>
+    /// 欄位與清單一致（時間／分類／頻道／類型／持續／詳情／快照／狀態／指派／操作者／備註）；
+    /// 稽核列的狀態、指派與快照是空的，不是「未知」——它本來就沒有那些欄位。
+    /// </remarks>
     public static void WriteCsv(
         string path,
-        IReadOnlyList<AlarmEventRecord> list,
+        IReadOnlyList<EventLogEntry> list,
         IReadOnlyList<ChannelInfo> channels)
     {
         var byId = channels.ToDictionary(x => x.Id);
@@ -570,17 +631,24 @@ public partial class EventCenterWindow : Window
         sb.AppendLine(Localizer.T("EventCenter.CsvHeader"));
         foreach (var ev in list)
         {
-            var name = byId.TryGetValue(ev.ChannelId, out var c) ? c.Name : $"#{ev.ChannelId}";
-            var duration = ev.EndUtc is DateTime end ? (end - ev.StartUtc).TotalSeconds.ToString("0.#", CultureInfo.InvariantCulture) : "";
+            var name = ev.ChannelId is long cid && byId.TryGetValue((int)cid, out var c)
+                ? c.Name
+                : "";
+            var duration = ev.DurationSeconds is double sec
+                ? sec.ToString("0.#", CultureInfo.InvariantCulture)
+                : "";
+            var type = ev.IsAudit ? ev.Code : EventTypeText.Label(ev.Code);
             sb.AppendLine(string.Join(",",
-                Csv(ev.StartUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture)),
+                Csv(ev.OccurredAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture)),
+                Csv(Localizer.T(EventTaxonomy.BucketLabelKey(ev.Bucket))),
                 Csv(name),
-                Csv(ev.EventType),
+                Csv(type),
                 Csv(duration),
                 Csv(ev.Detail),
                 Csv(ev.SnapshotPath),
-                Csv(LocalizedStatus(ev.Status)),
+                Csv(ev.Status is null ? "" : LocalizedStatus(ev.Status)),
                 Csv(ev.AssignedTo),
+                Csv(ev.Actor),
                 Csv(ev.Note)));
         }
 
@@ -592,24 +660,14 @@ public partial class EventCenterWindow : Window
     private void DoRefresh()
     {
         var (from, to) = RangeWindow();
-        int? channelId = null;
-        if (ChannelCombo.SelectedItem is System.Windows.Controls.ComboBoxItem item && item.Tag is int cid)
+        var q = new EventLogQuery
         {
-            channelId = cid;
-        }
-
-        string? eventType = null;
-        if (TypeCombo.SelectedItem is System.Windows.Controls.ComboBoxItem ti && ti.Tag is string ts)
-        {
-            eventType = ts;
-        }
-
-        var q = new AlarmEventRepository.QueryArgs
-        {
-            ChannelId = channelId,
-            EventType = eventType,
+            Bucket = SelectedCategory(),
+            ChannelId = SelectedChannelId(),
+            EventType = SelectedEventType(),
             // 「僅未確認」必須進查詢，否則清單照樣列出已確認事件，徽章指涉的未確認事件反而找不到、
             // 也因為分頁被推到後面而「全選」不到（實際症狀：徽章卡住、清不掉）。與 BuildQuery 一致。
+            // 稽核列沒有處置狀態，指定這個條件時 EventLogQuery 會整批排除它們。
             Status = PendingOnlyCheck.IsChecked == true ? AlarmEventStatus.Pending : null,
             Keyword = KeywordBox.Text.Trim(),
             FromUtc = from,
@@ -617,29 +675,10 @@ public partial class EventCenterWindow : Window
             Limit = PageSize,
             Offset = (_page - 1) * PageSize,
         };
-        var list = _events.ListByQuery(q);
-        var total = _events.CountByQuery(q);
+        var list = _eventLog.List(q);
+        var total = _eventLog.Count(q);
         var byId = _channels.List().ToDictionary(x => x.Id);
-        var eventRows = list
-            .Select(ev => new EventRow
-            {
-                Id = ev.Id,
-                ChannelId = ev.ChannelId,
-                StartUtc = ev.StartUtc,
-                StartLabel = ev.StartUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss"),
-                ChannelName = byId.TryGetValue(ev.ChannelId, out var c) ? c.Name : $"#{ev.ChannelId}",
-                EventType = ev.EventType,
-                Detail = ev.Detail,
-                DurationLabel = ev.EndUtc is DateTime end
-                    ? $"{(end - ev.StartUtc).TotalSeconds:0.#}s"
-                    : "",
-                Acknowledged = ev.Acknowledged,
-                Status = ev.Status,
-                AssignedTo = ev.AssignedTo,
-                Note = ev.Note,
-                SnapshotPath = ev.SnapshotPath,
-            })
-            .ToList();
+        var eventRows = list.Select(ev => ToRow(ev, byId)).ToList();
 
         // 載入縮圖（background, non-blocking）
         foreach (var row in eventRows)
@@ -665,15 +704,15 @@ public partial class EventCenterWindow : Window
             }
         }
 
-        // 保留同頁已選取的列：以 Id 集合保存，重整（含推播／輪詢）後重新勾回，操作不被打斷。
+        // 保留同頁已選取的列：以跨來源鍵保存，重整（含推播／輪詢）後重新勾回，操作不被打斷。
         // 必須在換 ItemsSource 前就舉起抑制旗標，否則換源觸發的 SelectionChanged 會把集合清空。
         _restoringSelection = true;
         EventList.ItemsSource = eventRows;
         CardList.ItemsSource = eventRows;
 
-        var pageIds = eventRows.Select(r => r.Id).ToHashSet();
-        _selectedIds.RemoveWhere(id => !pageIds.Contains(id));
-        foreach (var r in eventRows.Where(r => _selectedIds.Contains(r.Id)))
+        var pageKeys = eventRows.Select(r => r.Key).ToHashSet(StringComparer.Ordinal);
+        _selectedIds.RemoveWhere(key => !pageKeys.Contains(key));
+        foreach (var r in eventRows.Where(r => _selectedIds.Contains(r.Key)))
         {
             EventList.SelectedItems.Add(r);
             CardList.SelectedItems.Add(r);
@@ -690,12 +729,39 @@ public partial class EventCenterWindow : Window
         NextPageButton.IsEnabled = _page * PageSize < total;
 
         // 主要列（快照／軌跡）若已不在選取集合（例如被批次確認後從「僅未確認」視圖消失）就改指第一列。
-        if (_selectedId is long keep && !_selectedIds.Contains(keep))
+        if (_selectedId is string keep && !_selectedIds.Contains(keep))
         {
-            _selectedId = eventRows.FirstOrDefault(r => _selectedIds.Contains(r.Id))?.Id;
+            _selectedId = eventRows.FirstOrDefault(r => _selectedIds.Contains(r.Key))?.Key;
         }
 
         ApplySelection();
+    }
+
+    /// <summary>事件平面的一列 → 畫面列（來源差異只在這裡收斂）。</summary>
+    private static EventRow ToRow(EventLogEntry ev, IReadOnlyDictionary<int, ChannelInfo> byId)
+    {
+        var channelName = ev.ChannelId is long cid && byId.TryGetValue((int)cid, out var c) ? c.Name : "";
+        return new EventRow
+        {
+            Key = (ev.IsAudit ? "u:" : "a:") + ev.Id,
+            IsAudit = ev.IsAudit,
+            Id = ev.Id,
+            ChannelId = ev.ChannelId,
+            StartUtc = ev.OccurredAtUtc,
+            StartLabel = ev.OccurredAtUtc.ToLocalTime().ToString(
+                "yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture),
+            ChannelName = channelName,
+            EventType = ev.Code,
+            Bucket = ev.Bucket,
+            Detail = ev.Detail,
+            DurationLabel = ev.DurationSeconds is double sec ? $"{sec:0.#}s" : "",
+            Acknowledged = ev.Acknowledged,
+            Status = ev.Status,
+            AssignedTo = ev.AssignedTo,
+            Note = ev.Note,
+            ActorLabel = ev.Actor ?? "",
+            SnapshotPath = ev.SnapshotPath,
+        };
     }
 
     private void OnPrevPageClicked(object sender, RoutedEventArgs e)
@@ -758,15 +824,15 @@ public partial class EventCenterWindow : Window
         _selectedIds.Clear();
         foreach (var r in source.SelectedItems.OfType<EventRow>())
         {
-            _selectedIds.Add(r.Id);
+            _selectedIds.Add(r.Key);
         }
 
         // 主要列＝最後加入的列（快照／軌跡跟著最後點的那筆）；被移除時退回第一列。
         if (e.AddedItems.Count > 0 && e.AddedItems[e.AddedItems.Count - 1] is EventRow added)
         {
-            _selectedId = added.Id;
+            _selectedId = added.Key;
         }
-        else if (_selectedId is long id && !_selectedIds.Contains(id))
+        else if (_selectedId is string key && !_selectedIds.Contains(key))
         {
             _selectedId = null;
         }
@@ -785,19 +851,29 @@ public partial class EventCenterWindow : Window
 
     /// <summary>套用選取：按鈕狀態、快照、處置控制項與軌跡。多選時回放／地圖／遮蔽僅限單列，
     /// 確認與處置則一次套用到所有選取列。</summary>
+    /// <remarks>
+    /// 稽核列是唯讀的：它沒有 <c>event_dispositions</c> 的列，確認／處置只會寫到一張空表上，
+    /// 畫面會說「已套用」而什麼都沒變。所以整批都是稽核列時全部停用；只有單一稽核列時
+    /// 軌跡位置改成說明「唯讀」，不顯示一份不存在的處置歷史。
+    /// </remarks>
     private void ApplySelection()
     {
         var rows = SelectedRows;
         var count = rows.Count;
         var row = SelectedRow;
-        _selectedId = row?.Id;
+        _selectedId = row?.Key;
 
-        AckButton.IsEnabled = count > 0;
-        UnackButton.IsEnabled = count > 0;
-        PlaybackButton.IsEnabled = count == 1;
-        MapLocateButton.IsEnabled = count == 1;
-        SnapshotRedactButton.IsEnabled = count == 1;
-        ApplyDispositionButton.IsEnabled = count > 0;
+        var auditOnly = count > 0 && rows.All(static r => r.IsAudit);
+
+        AckButton.IsEnabled = count > 0 && !auditOnly;
+        UnackButton.IsEnabled = count > 0 && !auditOnly;
+        PlaybackButton.IsEnabled = count == 1 && row is { IsAudit: false };
+        MapLocateButton.IsEnabled = count == 1 && row is { IsAudit: false };
+        SnapshotRedactButton.IsEnabled = count == 1 && row is { IsAudit: false };
+        ApplyDispositionButton.IsEnabled = count > 0 && !auditOnly;
+        DispositionCombo.IsEnabled = count > 0 && !auditOnly;
+        AssignBox.IsEnabled = count > 0 && !auditOnly;
+        NoteBox.IsEnabled = count > 0 && !auditOnly;
 
         if (count == 0)
         {
@@ -810,11 +886,20 @@ public partial class EventCenterWindow : Window
 
         if (count == 1 && row is not null)
         {
-            SelectDisposition(row.Status);
-            AssignBox.Text = row.AssignedTo ?? "";
-            NoteBox.Text = row.Note ?? "";
-            ShowTrail(row.Id);
-            ShowSnapshot(row.SnapshotPath, row.Detail);
+            if (row.IsAudit)
+            {
+                DisposeDispositionEditor();
+                TrailText.Text = Localizer.T("EventCenter.AuditReadOnly");
+                ShowSnapshot(null, row.Detail);
+            }
+            else
+            {
+                SelectDisposition(row.Status);
+                AssignBox.Text = row.AssignedTo ?? "";
+                NoteBox.Text = row.Note ?? "";
+                ShowTrail(row.Id);
+                ShowSnapshot(row.SnapshotPath, row.Detail);
+            }
         }
         else
         {
@@ -848,13 +933,13 @@ public partial class EventCenterWindow : Window
             {
                 EventList.SelectedItems.Add(r);
                 CardList.SelectedItems.Add(r);
-                _selectedIds.Add(r.Id);
+                _selectedIds.Add(r.Key);
             }
         }
 
         _restoringSelection = false;
 
-        _selectedId = allSelected ? null : rows[0].Id;
+        _selectedId = allSelected ? null : rows[0].Key;
         ApplySelection();
     }
 
@@ -877,7 +962,7 @@ public partial class EventCenterWindow : Window
         NoteBox.Text = "";
     }
 
-    private void SelectDisposition(string status)
+    private void SelectDisposition(string? status)
     {
         var idx = 0;
         for (var i = 0; i < DispositionCombo.Items.Count; i++)
@@ -941,12 +1026,12 @@ public partial class EventCenterWindow : Window
 
     private void OnPlaybackClicked(object sender, RoutedEventArgs e)
     {
-        if (SelectedRow is not EventRow row)
+        if (SelectedRow is not EventRow { IsAudit: false, ChannelId: long cid } row)
         {
             return;
         }
 
-        OpenChild(("playback", row.Id), new PlaybackWindow(_store, row.ChannelId, row.StartUtc, playbackFinalizer: _playbackFinalizer));
+        OpenChild(("playback", row.Id), new PlaybackWindow(_store, cid, row.StartUtc, playbackFinalizer: _playbackFinalizer));
     }
 
     private void OnMapLocateClicked(object sender, RoutedEventArgs e)
@@ -957,12 +1042,12 @@ public partial class EventCenterWindow : Window
             return;
         }
 
-        if (SelectedRow is not EventRow row)
+        if (SelectedRow is not EventRow { IsAudit: false, ChannelId: long cid } row)
         {
             return;
         }
 
-        OpenChild(("map", row.ChannelId), new MapWindow(_store, (int)row.ChannelId, "camera", playbackFinalizer: _playbackFinalizer));
+        OpenChild(("map", row.Id), new MapWindow(_store, (int)cid, "camera", playbackFinalizer: _playbackFinalizer));
     }
 
     /// <summary>目前檢視中被選取的列（多選時為全部選取列）。</summary>
@@ -982,9 +1067,9 @@ public partial class EventCenterWindow : Window
                 return null;
             }
 
-            if (_selectedId is long id)
+            if (_selectedId is string key)
             {
-                var match = rows.FirstOrDefault(r => r.Id == id);
+                var match = rows.FirstOrDefault(r => r.Key == key);
                 if (match is not null)
                 {
                     return match;
@@ -998,7 +1083,7 @@ public partial class EventCenterWindow : Window
     /// <summary>對選取事件的快照開啟遮蔽窗（M116，單例重用）。</summary>
     private void OnRedactSnapshotClicked(object sender, RoutedEventArgs e)
     {
-        if (SelectedRow is not EventRow row)
+        if (SelectedRow is not EventRow { IsAudit: false, ChannelId: long cid } row)
         {
             return;
         }
@@ -1012,7 +1097,7 @@ public partial class EventCenterWindow : Window
 
         OpenChild(
             ("snapredact", row.Id),
-            new SnapshotRedactWindow(_store, row.SnapshotPath, row.Id, (int)row.ChannelId, row.StartUtc));
+            new SnapshotRedactWindow(_store, row.SnapshotPath, row.Id, (int)cid, row.StartUtc));
     }
 
     /// <summary>雙擊（清單／卡片）＝直接回放該事件（單例重用，不堆疊視窗）。</summary>
@@ -1038,16 +1123,22 @@ public partial class EventCenterWindow : Window
         DoRefresh();
     }
 
-    /// <summary>批次操作要處理的事件 Id：優先取多選集合，退回單一主要列。
+    /// <summary>批次操作要處理的警報事件 Id：優先取多選集合，退回單一主要列。
+    /// 稽核列沒有 <c>event_dispositions</c> 的列，確認／處置寫進去只會是一個沒有列的
+    /// update（回報成功、畫面不變），所以只取 <c>a:</c> 鍵。
     /// 順序依 Id 排序，確保處置軌跡與稽核的寫入次序可重現。</summary>
     private IReadOnlyList<long> SelectedIdsForBatch()
     {
         if (_selectedIds.Count > 0)
         {
-            return _selectedIds.OrderBy(x => x).ToList();
+            return _selectedIds
+                .Where(static k => k.StartsWith("a:", StringComparison.Ordinal))
+                .Select(static k => long.Parse(k.AsSpan(2), CultureInfo.InvariantCulture))
+                .OrderBy(static x => x)
+                .ToList();
         }
 
-        return SelectedRow is EventRow row ? [row.Id] : [];
+        return SelectedRow is { IsAudit: false } row ? [row.Id] : [];
     }
 
     private void ShowSnapshot(string? path, string? detail)

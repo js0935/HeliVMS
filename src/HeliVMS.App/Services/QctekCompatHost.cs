@@ -423,7 +423,7 @@ public sealed class QctekCompatHost : IDisposable
         private readonly UserRepository _users;
         private readonly SegmentRepository _segments;
         private readonly DeviceRepository _devices;
-        private readonly AlarmEventRepository _events;
+        private readonly EventLogRepository _eventLog;
 
         public DeviceContext(SqliteStore store)
         {
@@ -432,7 +432,7 @@ public sealed class QctekCompatHost : IDisposable
             _users = new UserRepository(store);
             _segments = new SegmentRepository(store);
             _devices = new DeviceRepository(store, new AuditLogRepository(store));
-            _events = new AlarmEventRepository(store);
+            _eventLog = new EventLogRepository(store);
         }
 
         /// <summary>
@@ -625,13 +625,29 @@ public sealed class QctekCompatHost : IDisposable
         }
 
         /// <summary>
-        /// 事件查詢（<c>SEARCH_EVENT</c>）：把 <c>alarm_events</c> 的欄位翻成 CMS 認得的
-        /// 頻道索引／型別碼／本地時間，先過濾再取頁。總筆數是<b>過濾後</b>的總數——QCC
-        /// 用它算頁數。
+        /// 事件查詢（<c>SEARCH_EVENT</c>）：走事件平面（警報事件＋稽核日誌的聯集），把分類
+        /// 換算成 CMS 認得的型別碼、把頻道換算成路序、時間換成本地時間。
+        /// 總筆數是<b>過濾後</b>的總數——QCC 用它算頁數；分頁在 SQL 端做，不是先把全部撈回來。
         /// </summary>
+        /// <remarks>
+        /// 型別碼 <c>0</c> 是「事件日誌全部」，200–205（VTMS／POS 標籤）與不認得的值一律
+        /// 0 筆：把那兩類當成「全部」會讓 CMS 的「全部事件」查詢收到一份它沒有要求的清單。
+        /// </remarks>
         public QctekEventPage SearchEvents(QctekEventSearchRequest query, int offset, int limit)
         {
             ArgumentNullException.ThrowIfNull(query);
+
+            string? bucket = null;
+            if (query.TypeCode != QctekEventTypes.Any)
+            {
+                bucket = EventTaxonomy.BucketFromCmsTypeCode(query.TypeCode);
+                if (bucket is null)
+                {
+                    QctekCompatHost.Diag(
+                        $"事件查詢：型別 {query.TypeCode} 不屬於事件日誌 → 0 筆");
+                    return QctekEventPage.Empty;
+                }
+            }
 
             var fromUtc = TimeZoneInfo.ConvertTimeToUtc(
                 DateTime.SpecifyKind(query.FromLocal, DateTimeKind.Unspecified));
@@ -639,54 +655,64 @@ public sealed class QctekCompatHost : IDisposable
                 DateTime.SpecifyKind(query.ToLocal, DateTimeKind.Unspecified));
 
             // 指定了不存在的頻道（頻道被刪、索引位移）：沒有事件，不要退化成「全部頻道」。
-            int? channelId = null;
+            long? channelId = null;
             if (query.ChannelIndex >= 0)
             {
-                channelId = ChannelIdAt(query.ChannelIndex);
-                if (channelId is null)
+                if (ChannelIdAt(query.ChannelIndex) is not { } id)
                 {
                     QctekCompatHost.Diag(
                         $"事件查詢：頻道 {query.ChannelIndex} 不存在 → 0 筆");
                     return QctekEventPage.Empty;
                 }
+
+                channelId = id;
             }
 
-            var rows = _events.ListByRange(channelId, fromUtc, toUtc);
+            var q = new EventLogQuery
+            {
+                Bucket = bucket,
+                ChannelId = channelId,
+                FromUtc = fromUtc,
+                ToUtc = toUtc,
+                Limit = Math.Max(1, limit),
+                Offset = Math.Max(0, offset),
+            };
+
+            var total = _eventLog.Count(q);
+            var rows = limit <= 0 ? [] : _eventLog.List(q);
+
             var channels = _channels.List();
-            var indexById = new Dictionary<int, int>(channels.Count);
+            var indexById = new Dictionary<long, int>(channels.Count);
             for (var i = 0; i < channels.Count; i++)
             {
                 indexById[channels[i].Id] = i;
             }
 
-            var matched = new List<QctekEventEntry>(rows.Count);
-            foreach (var row in rows)
+            var page = new QctekEventEntry[rows.Count];
+            for (var i = 0; i < rows.Count; i++)
             {
-                var type = QctekEventTypes.FromAlarmEventType(row.EventType);
-                if (!QctekEventTypes.Matches(query.TypeCode, type))
-                {
-                    continue;
-                }
+                var row = rows[i];
+                var index = row.ChannelId is long cid && indexById.TryGetValue(cid, out var at)
+                    ? at
+                    : -1;
+                var name = index >= 0
+                    ? channels[index].Name
+                    : row.ChannelId is long unknown ? $"CH{unknown}" : "";
 
-                var index = indexById.TryGetValue(row.ChannelId, out var at) ? at : -1;
-                var name = index >= 0 ? channels[index].Name : $"CH{row.ChannelId}";
+                // 稽核列的 code 是動作名（settings.set…），警報列是 event_type；兩者都是
+                // 維運看得懂的名字，附加在頻道名後面，QCC 的詳情欄才有內容可分。
                 var text = string.IsNullOrWhiteSpace(row.Detail)
-                    ? $"{name} {row.EventType}"
-                    : $"{name} {row.EventType} - {row.Detail}";
+                    ? $"{name} {row.Code}".Trim()
+                    : $"{name} {row.Code} - {row.Detail}".Trim();
 
-                matched.Add(new QctekEventEntry(
+                page[i] = new QctekEventEntry(
                     index,
-                    type,
+                    EventTaxonomy.BucketToCmsTypeCode(row.Bucket),
                     TimeZoneInfo.ConvertTimeFromUtc(
-                        DateTime.SpecifyKind(row.StartUtc, DateTimeKind.Utc),
+                        DateTime.SpecifyKind(row.OccurredAtUtc, DateTimeKind.Utc),
                         TimeZoneInfo.Local),
-                    text));
+                    text);
             }
-
-            var total = matched.Count;
-            var page = limit <= 0
-                ? Array.Empty<QctekEventEntry>()
-                : matched.Skip(Math.Max(0, offset)).Take(limit).ToArray();
 
             QctekCompatHost.Diag(
                 $"事件查詢：{query.FromLocal:yyyy/MM/dd HH:mm:ss}～{query.ToLocal:HH:mm:ss}" +

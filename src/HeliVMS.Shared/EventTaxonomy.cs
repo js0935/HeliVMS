@@ -92,6 +92,25 @@ public static class EventTaxonomy
         _ => 1,
     };
 
+    /// <summary>
+    /// CMS 型別碼 → 事件平面分類；對不上任何分類時回 <c>null</c>。
+    /// </summary>
+    /// <remarks>
+    /// 只有 <see cref="Buckets"/> 的五個型別碼（1–5）有分類。CMS 的查詢型別 <c>0</c> 是
+    /// 「不限」（＝全部），200–205 是 VTMS／POS 標籤，HeliVMS 沒有那批資料；兩者都回
+    /// <c>null</c> 代表「不要加分類條件」，而不是「歸到系統」——把 0 當系統會讓 CMS 的
+    /// 「全部事件」只剩系統事件。
+    /// </remarks>
+    public static string? BucketFromCmsTypeCode(int typeCode) => typeCode switch
+    {
+        1 => BucketSystem,
+        2 => BucketOperation,
+        3 => BucketNetwork,
+        4 => BucketEvent,
+        5 => BucketAlarm,
+        _ => null,
+    };
+
     public static string LabelKey(string category) => "EventTaxonomy." + category;
 
     public static string CategoryOf(string? eventType)
@@ -108,7 +127,7 @@ public static class EventTaxonomy
         if (e is "line_cross" or "tripwire" or "smart_pass_line") return Tripwire;
         if (e is "intrusion" or "perimeter" or "smart_aoi_entry" or "smart_aoi_leave") return Perimeter;
         if (e.StartsWith("ai_") || e.StartsWith("smart_") || e is "analytics" or "audio") return SmartMotion;
-        if (e is "disconnected") return Offline;
+        if (e is "disconnected" or "network") return Offline;
         if (e is "reconnected") return Online;
         return System;
     }
@@ -139,7 +158,7 @@ public static class EventTaxonomy
 
     public static int ToCmsTypeCode(string category) => category switch
     {
-        Motion or SmartMotion or Tripwire or Perimeter => 4,
+        Motion or SmartMotion or Tripwire or Perimeter or Shelter => 4,
         Sensor => 5,
         Offline or Online => 3,
         Manual or Schedule => 2,

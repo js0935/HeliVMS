@@ -1153,16 +1153,30 @@ public partial class PlaybackWindow : Window
             return;
         }
 
-        // 格位順序：CalendarDaysView 依序放進 6x7 格子，第 0 格永遠是「顯示月份的
-        // 第一個 FirstDayOfWeek」那天，往後逐格 +1 天（已以探針實測 42 格全對位）。
-        var first = new DateTime(cal.DisplayDate.Year, cal.DisplayDate.Month, 1);
-        var offset = ((int)first.DayOfWeek - (int)cal.FirstDayOfWeek + 7) % 7;
-        var firstCell = first.AddDays(-offset);
-
-        var windows = new List<(DateTime StartUtc, DateTime EndUtc)>(buttons.Count);
-        for (var i = 0; i < buttons.Count; i++)
+        // 日期一律取自每一格自己的 DataContext（就是它顯示的那一天），不從「1 日往前推 offset」
+        // 推算格位：WPF 的月曆固定畫滿 6 週，第一列可能是上個月底的**整整一週**——實測
+        // 2026-11-01 是星期日（offset 算出來 0，於是認定第 0 格是 11/01），但實際第 0 格是
+        // 10/25，整份 windows 比按鈕晚了 7 天。症狀正是現場回報的「11/18、11/19 有錄影，
+        // 藍色卻畫在 11/11、11/12 上」：有錄影的日子被往前推了一週，而且沒有任何錯誤訊息。
+        // 按鈕自己的 DataContext 無從錯位，也不會因為 WPF 改了補格規則而再偏移。
+        var cells = new List<(System.Windows.Controls.Primitives.CalendarDayButton Button, DateTime Day)>(buttons.Count);
+        foreach (var button in buttons)
         {
-            var startUtc = TimeZoneInfo.ConvertTimeToUtc(firstCell.AddDays(i));
+            if (button.DataContext is DateTime day)
+            {
+                cells.Add((button, day));
+            }
+        }
+
+        if (cells.Count == 0)
+        {
+            return;
+        }
+
+        var windows = new List<(DateTime StartUtc, DateTime EndUtc)>(cells.Count);
+        foreach (var cell in cells)
+        {
+            var startUtc = TimeZoneInfo.ConvertTimeToUtc(cell.Day);
             windows.Add((startUtc, startUtc.AddDays(1)));
         }
 
@@ -1177,12 +1191,12 @@ public partial class PlaybackWindow : Window
         }
         else
         {
-            has = new bool[buttons.Count];
+            has = new bool[cells.Count];
         }
 
-        for (var i = 0; i < buttons.Count; i++)
+        for (var i = 0; i < cells.Count; i++)
         {
-            var day = buttons[i];
+            var day = cells[i].Button;
             day.FontWeight = has[i] ? FontWeights.Bold : FontWeights.Normal;
 
             // 無錄影日用 ClearValue 而不是寫回白色：清掉本機值才會退回樣式，

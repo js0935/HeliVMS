@@ -36,6 +36,11 @@
                 <ComboBoxItem Content=""/>
             </ComboBox>
 
+            <TextBlock x:Name="CategoryLabel" Text="" Foreground="{StaticResource Brand.TextDim}" VerticalAlignment="Center" Margin="20,0,0,0"/>
+            <ComboBox x:Name="CategoryCombo" AutomationProperties.AutomationId="CategoryCombo" Width="110" Margin="6,0,0,0"
+                      Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"
+                      SelectionChanged="OnChannelSelectionChanged"/>
+
             <TextBlock x:Name="TypeLabel" Text="" Foreground="{StaticResource Brand.TextDim}" VerticalAlignment="Center" Margin="20,0,0,0"/>
             <ComboBox x:Name="TypeCombo" AutomationProperties.AutomationId="TypeCombo" Width="130" Margin="6,0,0,0"
                       Foreground="White" Background="#1A2C49" BorderBrush="#2A4A73"
@@ -122,35 +127,43 @@
                               Background="Transparent" BorderThickness="0" Foreground="White">
                         <ListView.View>
                             <GridView>
-                                <GridViewColumn Header="" Width="150">
+                                <GridViewColumn Header="" Width="140">
                                     <GridViewColumn.CellTemplate>
                                         <DataTemplate>
                                             <TextBlock Text="{Binding StartLabel}" FontSize="12"/>
                                         </DataTemplate>
                                     </GridViewColumn.CellTemplate>
                                 </GridViewColumn>
-                                <GridViewColumn Header="" Width="90">
+                                <GridViewColumn Header="" Width="60">
                                     <GridViewColumn.CellTemplate>
                                         <DataTemplate>
-                                            <TextBlock Text="{Binding ChannelName}" FontSize="12"/>
+                                            <TextBlock Text="{Binding BucketLabel}" FontSize="12" Foreground="{Binding BucketBrush}"/>
                                         </DataTemplate>
                                     </GridViewColumn.CellTemplate>
                                 </GridViewColumn>
                                 <GridViewColumn Header="" Width="80">
                                     <GridViewColumn.CellTemplate>
                                         <DataTemplate>
-                                            <TextBlock Text="{Binding TypeLabel}" FontSize="12" Foreground="{Binding TypeBrush}"/>
+                                            <TextBlock Text="{Binding ChannelName}" FontSize="12"/>
                                         </DataTemplate>
                                     </GridViewColumn.CellTemplate>
                                 </GridViewColumn>
-                                <GridViewColumn Header="" Width="70">
+                                <GridViewColumn Header="" Width="110">
+                                    <GridViewColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <TextBlock Text="{Binding TypeLabel}" FontSize="12" Foreground="{Binding TypeBrush}"
+                                                       TextTrimming="CharacterEllipsis"/>
+                                        </DataTemplate>
+                                    </GridViewColumn.CellTemplate>
+                                </GridViewColumn>
+                                <GridViewColumn Header="" Width="60">
                                     <GridViewColumn.CellTemplate>
                                         <DataTemplate>
                                             <TextBlock Text="{Binding DurationLabel}" FontSize="12"/>
                                         </DataTemplate>
                                     </GridViewColumn.CellTemplate>
                                 </GridViewColumn>
-                                <GridViewColumn Header="" Width="220">
+                                <GridViewColumn Header="" Width="200">
                                     <GridViewColumn.CellTemplate>
                                         <DataTemplate>
                                             <TextBlock Text="{Binding DetailLabel}" FontSize="12" TextTrimming="CharacterEllipsis"/>
@@ -164,10 +177,17 @@
                                         </DataTemplate>
                                     </GridViewColumn.CellTemplate>
                                 </GridViewColumn>
-                                <GridViewColumn Header="" Width="70">
+                                <GridViewColumn Header="" Width="80">
                                     <GridViewColumn.CellTemplate>
                                         <DataTemplate>
                                             <TextBlock Text="{Binding AssignedTo}" FontSize="12"/>
+                                        </DataTemplate>
+                                    </GridViewColumn.CellTemplate>
+                                </GridViewColumn>
+                                <GridViewColumn Header="" Width="80">
+                                    <GridViewColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <TextBlock Text="{Binding ActorLabel}" FontSize="12" TextTrimming="CharacterEllipsis"/>
                                         </DataTemplate>
                                     </GridViewColumn.CellTemplate>
                                 </GridViewColumn>

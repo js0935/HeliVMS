@@ -1007,6 +1007,36 @@ public sealed class PlaybackWindowContractTests
     }
 
     /// <summary>
+    /// 日曆藍色必須畫在「有錄影的那一天」：日期一律取自每一格自己的 DataContext。
+    ///
+    /// <para>
+    /// 現場回報「11/18、11/19 有錄影，藍色卻出現在 11/11、11/12」——整整早了一週。
+    /// 舊寫法用「每月 1 日往前推 offset」推算第 0 格，再逐格 +1 天；而 WPF 的月曆固定畫滿
+    /// 6 週，第一列可能是上個月底的整整一週（探針實測：DisplayDate=2026-11-01，1 日是星期日、
+    /// offset 算出 0，實際第一格卻是 10/25），整份查詢窗比按鈕晚了 7 天，於是 11/18 的錄影
+    /// 被畫在 11/11 上、11/19 畫在 11/12 上：日期錯了，日誌卻是乾淨的，只有操作員看得出不對。
+    /// </para>
+    /// <para>
+    /// 按鈕自己的 DataContext 就是它顯示的那一天（探針逐格印出 10/25、10/26…全對得上），
+    /// 既不依賴收集順序，也不依賴 WPF 的補格規則——那條規則沒有文件保證，換個
+    /// DisplayDateStart 就變一次。
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void 日曆標記的日期取自每一格自己的DataContext而不是推算格位()
+    {
+        var marks = SourceContract.BodyOf(SourceContract.Read(Code), "ApplyRecordingDayMarks");
+
+        Assert.Contains("DataContext is DateTime", marks);
+        Assert.Contains("ConvertTimeToUtc(cell.Day)", marks);
+
+        // 推算格位留著就會重現「整週位移」：這兩行正是算出 11/01 當第一格的那段。
+        Assert.DoesNotContain("firstCell", marks);
+        Assert.DoesNotContain("AddDays(-offset)", marks);
+        Assert.DoesNotContain("buttons[i]", marks);
+    }
+
+    /// <summary>
     /// 主時間列刻度與滾輪縮放（§3.4「時間刻度依縮放層級切換」、§8.5「主時間列：刻度／滾輪無級縮放，
     /// 縮放中心跟隨游標」）。桌面端沒有 WPF 執行期，刻度畫面驗不到，這裡守住三個一改就錯的接縫：
     ///

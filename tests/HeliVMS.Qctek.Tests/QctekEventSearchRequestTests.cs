@@ -146,40 +146,4 @@ public sealed class QctekEventSearchRequestTests
         Assert.True(QctekEventTypes.Matches(205, 205));
         Assert.False(QctekEventTypes.Matches(205, QctekEventTypes.Alarm));
     }
-
-    [Theory]
-    [InlineData("motion", QctekEventTypes.Event)]
-    [InlineData("ai_person", QctekEventTypes.Event)]
-    [InlineData("line_cross", QctekEventTypes.Event)]
-    [InlineData("intrusion", QctekEventTypes.Event)]
-    [InlineData("offline", QctekEventTypes.Network)]
-    [InlineData("online", QctekEventTypes.Network)]
-    [InlineData("io_input", QctekEventTypes.Alarm)]
-    [InlineData("io_trigger", QctekEventTypes.Alarm)]
-    [InlineData("schedule_start", QctekEventTypes.Operation)]
-    [InlineData("", QctekEventTypes.System)]
-    [InlineData("unknown_thing", QctekEventTypes.System)]
-    public void 事件字串對到CMS認得的型別碼(string eventType, int expected)
-    {
-        Assert.Equal(expected, QctekEventTypes.FromAlarmEventType(eventType));
-    }
-
-    [Fact]
-    public void 對映結果一定落在CMS認得的事件日誌型別裡()
-    {
-        // 落在 200–205 的話 QCC 會用 POS 標籤那條路徑解析，事件清單變空白。
-        string[] all =
-        [
-            "motion", "tamper", "smart_alert", "analytics", "audio", "offline", "online",
-            "network", "io_input", "io_trigger", "schedule_start", "manual", "export",
-            "snapshot", "license_limit", "ai_person", "line_cross", "",
-        ];
-
-        foreach (var name in all)
-        {
-            var type = QctekEventTypes.FromAlarmEventType(name);
-            Assert.True(QctekEventTypes.IsEventLog(type), $"{name} → {type} 不在事件日誌型別內");
-            Assert.False(QctekEventTypes.IsPosTag(type));
-        }
-    }
 }

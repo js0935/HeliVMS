@@ -50,54 +50,6 @@ public static class QctekEventTypes
     public static bool Matches(int queryType, int entryType)
         => queryType == Any ? IsEventLog(entryType) : queryType == entryType;
 
-    /// <summary>
-    /// HeliVMS <c>alarm_events.event_type</c>（<c>motion</c>／<c>offline</c>／<c>io_input</c>…）
-    /// → CMS 型別碼。未知字串歸到「系統」，至少不會變成空白列。
-    /// </summary>
-    public static int FromAlarmEventType(string? eventType)
-    {
-        if (string.IsNullOrWhiteSpace(eventType))
-        {
-            return System;
-        }
-
-        var normalized = eventType.Trim().ToLowerInvariant();
-
-        // 動作、竄改、智慧分析、音訊：對操作員都是「事件」。line_cross／intrusion 是
-        // 舊版規則編輯器就在用的名稱（見 App 的 EventTypeText.KnownTypes），一起收。
-        if (normalized is "motion" or "tamper" or "smart_alert" or "analytics" or "audio"
-            or "line_cross" or "intrusion")
-        {
-            return Event;
-        }
-
-        // 攝影機離線／恢復連線：網路類。
-        if (normalized is "offline" or "online" or "network")
-        {
-            return Network;
-        }
-
-        // IO 乾接點（含規則觸發）：警報類。
-        if (normalized.StartsWith("io_", StringComparison.Ordinal))
-        {
-            return Alarm;
-        }
-
-        // 排程／手動操作、匯出、快照、授權提醒：操作類。
-        if (normalized is "schedule_start" or "manual" or "export" or "snapshot" or "license_limit")
-        {
-            return Operation;
-        }
-
-        // AI 事件引擎的型別是 ai_person／ai_vehicle…；分析引擎是 line_cross／intrusion…
-        if (normalized.StartsWith("ai_", StringComparison.Ordinal))
-        {
-            return Event;
-        }
-
-        return System;
-    }
-
     /// <summary>型別碼的中文說明（只用在診斷日誌與測試描述，不進線路）。</summary>
     public static string Label(int typeCode) => typeCode switch
     {

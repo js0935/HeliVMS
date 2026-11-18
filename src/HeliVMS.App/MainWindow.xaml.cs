@@ -3893,15 +3893,15 @@ public partial class MainWindow : Window, IWallDisplayOptions
         }
 
         var source = new ChannelRepository(_store!);
-        var events = new AlarmEventRepository(_store!);
-        var q = new AlarmEventRepository.QueryArgs
+        var eventLog = new EventLogRepository(_store!);
+        var q = new EventLogQuery
         {
             FromUtc = new DateTime(2000, 1, 1, 0, 0, 0, DateTimeKind.Utc),
             ToUtc = DateTime.UtcNow.AddDays(30),
             Limit = 100000,
             Offset = 0,
         };
-        var list = events.ListByQuery(q);
+        var list = eventLog.List(q);
         EventCenterWindow.WriteCsv(path, list, source.List());
     }
 

@@ -11,6 +11,7 @@ public sealed class EventTaxonomyTests
     [InlineData("schedule_start", EventTaxonomy.Schedule)]
     [InlineData("offline", EventTaxonomy.Offline)]
     [InlineData("online", EventTaxonomy.Online)]
+    [InlineData("network", EventTaxonomy.Offline)]
     [InlineData("io_input", EventTaxonomy.Sensor)]
     [InlineData("io_output", EventTaxonomy.Sensor)]
     [InlineData("tamper", EventTaxonomy.Shelter)]
@@ -42,10 +43,72 @@ public sealed class EventTaxonomyTests
     {
         Assert.Equal(4, EventTaxonomy.ToCmsTypeCode(EventTaxonomy.Motion));
         Assert.Equal(4, EventTaxonomy.ToCmsTypeCode(EventTaxonomy.SmartMotion));
+        Assert.Equal(4, EventTaxonomy.ToCmsTypeCode(EventTaxonomy.Shelter));
         Assert.Equal(5, EventTaxonomy.ToCmsTypeCode(EventTaxonomy.Sensor));
         Assert.Equal(3, EventTaxonomy.ToCmsTypeCode(EventTaxonomy.Offline));
+        Assert.Equal(3, EventTaxonomy.ToCmsTypeCode(EventTaxonomy.Online));
+        Assert.Equal(3, EventTaxonomy.ToCmsTypeCode(EventTaxonomy.CategoryOf("network")));
         Assert.Equal(2, EventTaxonomy.ToCmsTypeCode(EventTaxonomy.Manual));
         Assert.Equal(1, EventTaxonomy.ToCmsTypeCode(EventTaxonomy.System));
+    }
+
+    /// <summary>
+    /// 分類與 CMS 型別碼是同一份口徑的兩個方向：每一類都要能走過去再走回來，
+    /// 否則「CMS 查型別 4」與「事件中心分類＝事件」會各查到不同的集合。
+    /// </summary>
+    [Fact]
+    public void 分類與CMS型別碼可以互相換算()
+    {
+        foreach (var bucket in EventTaxonomy.Buckets)
+        {
+            var code = EventTaxonomy.BucketToCmsTypeCode(bucket);
+            Assert.InRange(code, 1, 5);
+            Assert.Equal(bucket, EventTaxonomy.BucketFromCmsTypeCode(code));
+        }
+
+        // 0＝不限、200–205＝POS 標籤、其餘未知值：都不要被當成「系統」，否則
+        // CMS 的「全部事件」查詢會只剩下系統事件。
+        Assert.Null(EventTaxonomy.BucketFromCmsTypeCode(0));
+        Assert.Null(EventTaxonomy.BucketFromCmsTypeCode(200));
+        Assert.Null(EventTaxonomy.BucketFromCmsTypeCode(205));
+        Assert.Null(EventTaxonomy.BucketFromCmsTypeCode(-1));
+    }
+
+    /// <summary>
+    /// 事件平面分類衍生自既有資料：警報的 <c>event_type</c> 與稽核的 <c>category</c>。
+    /// 分類看不懂時要落在「系統」，讓那一列仍然出現在清單裡，而不是消失。
+    /// </summary>
+    [Theory]
+    [InlineData("motion", EventTaxonomy.BucketEvent)]
+    [InlineData("line_cross", EventTaxonomy.BucketEvent)]
+    [InlineData("ai_person", EventTaxonomy.BucketEvent)]
+    [InlineData("tamper", EventTaxonomy.BucketEvent)]
+    [InlineData("io_input", EventTaxonomy.BucketAlarm)]
+    [InlineData("io_trigger", EventTaxonomy.BucketAlarm)]
+    [InlineData("offline", EventTaxonomy.BucketNetwork)]
+    [InlineData("online", EventTaxonomy.BucketNetwork)]
+    [InlineData("network", EventTaxonomy.BucketNetwork)]
+    [InlineData("manual", EventTaxonomy.BucketOperation)]
+    [InlineData("schedule_start", EventTaxonomy.BucketOperation)]
+    [InlineData("unknown_future_type", EventTaxonomy.BucketSystem)]
+    [InlineData(null, EventTaxonomy.BucketSystem)]
+    public void 警報事件會歸到事件平面分類(string? eventType, string expected)
+    {
+        Assert.Equal(expected, EventTaxonomy.BucketOf(eventType));
+    }
+
+    [Theory]
+    [InlineData("auth", EventTaxonomy.BucketOperation)]
+    [InlineData("config", EventTaxonomy.BucketOperation)]
+    [InlineData("export", EventTaxonomy.BucketOperation)]
+    [InlineData("network", EventTaxonomy.BucketNetwork)]
+    [InlineData("recording", EventTaxonomy.BucketSystem)]
+    [InlineData("storage", EventTaxonomy.BucketSystem)]
+    [InlineData("", EventTaxonomy.BucketSystem)]
+    [InlineData(null, EventTaxonomy.BucketSystem)]
+    public void 稽核類別會歸到事件平面分類(string? category, string expected)
+    {
+        Assert.Equal(expected, EventTaxonomy.BucketOfAuditCategory(category));
     }
 
     [Fact]
