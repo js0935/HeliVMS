@@ -49,6 +49,8 @@ public class QctekSupportBinTests
     [InlineData("/QCSystemStatus.bin", true)]
     [InlineData("/qccamerastatus.bin", true)]   // 路徑比對不分大小寫（QCV8001 用 _stricmp）
     [InlineData("/QCBackupSystem.bin", true)]
+    [InlineData("/QCCamList.bin", true)]
+    [InlineData("/qcuserlist.BIN", true)]
     [InlineData("/api/channels", false)]
     [InlineData("/", false)]
     [InlineData("/QCUnknown.bin", false)]
@@ -72,5 +74,47 @@ public class QctekSupportBinTests
         Assert.Equal(12, camera!.Value.Body.Length);
         Assert.NotEmpty(backup!.Value.Body);
         Assert.Null(unknown);
+    }
+
+    [Fact]
+    public void 遠端設定的兩份清單由同一份路由分派且內容型別對齊真機()
+    {
+        var context = new QctekHttpResponder.Context(
+            RemoteConsolePort: "80",
+            TotalChannels: 2,
+            Cameras: [new QctekRemoteCamera("前門"), new QctekRemoteCamera("後門")],
+            Users:
+            [
+                new QctekRemoteUser("admin", QctekRemoteList.AdminPermission, IsCurrent: true),
+            ]);
+
+        var cameras = QctekHttpResponder.BuildBinaryBody("/QCCamList.bin", context);
+        var users = QctekHttpResponder.BuildBinaryBody("/QCUserList.bin", context);
+
+        // 真機對這兩支回 application/octet-stream; charset=utf-8（QC_Server 的路由）。
+        Assert.Equal("application/octet-stream; charset=utf-8", cameras!.Value.ContentType);
+        Assert.Equal("application/octet-stream; charset=utf-8", users!.Value.ContentType);
+        Assert.Equal(0x10 + (2 * 0x11c), cameras.Value.Body.Length);
+        Assert.Equal(0x10 + 0x228, users.Value.Body.Length);
+        Assert.Equal("RMCL", Encoding.ASCII.GetString(cameras.Value.Body, 0, 4));
+        Assert.Equal("RMUL", Encoding.ASCII.GetString(users.Value.Body, 0, 4));
+    }
+
+    [Fact]
+    public void 沒有提供清單時回零列而不是讓QCC拿到壞掉的標頭()
+    {
+        // 中介層取不到資料庫（或路徑只是狀態端點）時 Cameras／Users 是 null。
+        // 0 列是合法狀態；回 null 讓呼叫端 404 才是 QCC 的無限重試。
+        var context = new QctekHttpResponder.Context(RemoteConsolePort: "80", TotalChannels: 0);
+
+        var cameras = QctekHttpResponder.BuildBinaryBody("/QCCamList.bin", context);
+        var users = QctekHttpResponder.BuildBinaryBody("/QCUserList.bin", context);
+
+        Assert.NotNull(cameras);
+        Assert.NotNull(users);
+        Assert.Equal(0x10, cameras!.Value.Body.Length);
+        Assert.Equal(0x10, users!.Value.Body.Length);
+        Assert.Equal(0u, BinaryPrimitives.ReadUInt32LittleEndian(cameras.Value.Body.AsSpan(8)));
+        Assert.Equal(0u, BinaryPrimitives.ReadUInt32LittleEndian(users.Value.Body.AsSpan(8)));
     }
 }

@@ -5,9 +5,12 @@ using System.Text;
 namespace HeliVMS.Qctek.Nemo;
 
 /// <summary>
-/// QCC 的「裝置模組狀態」端點（<c>/QCSystemStatus.bin</c>／<c>/QCCameraStatus.bin</c>／
-/// <c>/QCBackupSystem.bin</c>）：QCC 連上裝置後會輪詢這三個路徑，404 會讓 QCC 無限重試
-/// （實測 3 秒一次）並把對應的裝置功能停在「未就緒」。
+/// QCC 的「裝置模組」端點：<c>/QCSystemStatus.bin</c>／<c>/QCCameraStatus.bin</c>／
+/// <c>/QCBackupSystem.bin</c>（狀態與設定備份）＋ <c>/QCCamList.bin</c>／
+/// <c>/QCUserList.bin</c>（遠端設定頁的相機／帳號清單，payload 由
+/// <see cref="QctekRemoteList"/> 產生）。QCC 連上裝置後會輪詢這些路徑，404 會讓 QCC
+/// 無限重試（實測 3 秒一次）並把對應的裝置功能停在「未就緒」；遠端設定頁則是
+/// <b>兩份清單任一壞掉就整頁空白</b>（見 <see cref="QctekRemoteList"/>）。
 /// </summary>
 /// <remarks>
 /// <para>
@@ -36,7 +39,9 @@ public static class QctekSupportBin
     public static bool IsSupportBinPath(string path)
         => path.Equals("/QCSystemStatus.bin", StringComparison.OrdinalIgnoreCase) ||
            path.Equals("/QCCameraStatus.bin", StringComparison.OrdinalIgnoreCase) ||
-           path.Equals("/QCBackupSystem.bin", StringComparison.OrdinalIgnoreCase);
+           path.Equals("/QCBackupSystem.bin", StringComparison.OrdinalIgnoreCase) ||
+           path.Equals("/QCCamList.bin", StringComparison.OrdinalIgnoreCase) ||
+           path.Equals("/QCUserList.bin", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>組出 SystemStatus 的 1024-byte NSSB payload。</summary>
     public static byte[] SystemStatus()

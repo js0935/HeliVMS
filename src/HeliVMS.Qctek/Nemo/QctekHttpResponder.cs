@@ -62,7 +62,20 @@ public static class QctekHttpResponder
     }
 
     /// <summary>HTTP 前景的上下文。</summary>
-    public sealed record Context(string RemoteConsolePort, int TotalChannels);
+    /// <param name="RemoteConsolePort">對外回報的 NEMO 埠。</param>
+    /// <param name="TotalChannels">裝置宣告的頻道數。</param>
+    /// <param name="Cameras">
+    /// 遠端設定頁的相機清單（<c>/QCCamList.bin</c>）；<c>null</c> 與空清單同義，
+    /// 都回「0 台」——QCC 收到 0 列是合法狀態。
+    /// </param>
+    /// <param name="Users">
+    /// 遠端設定頁的帳號清單（<c>/QCUserList.bin</c>）；<c>null</c> 與空清單同義。
+    /// </param>
+    public sealed record Context(
+        string RemoteConsolePort,
+        int TotalChannels,
+        IReadOnlyList<QctekRemoteCamera>? Cameras = null,
+        IReadOnlyList<QctekRemoteUser>? Users = null);
 
     /// <summary>
     /// 由請求建完整 HTTP 回應字串；不認識的路徑或非 GET 回 <c>null</c>
@@ -83,12 +96,22 @@ public static class QctekHttpResponder
             return null;
         }
 
-        return path.Equals("/QCSystemStatus.bin", StringComparison.OrdinalIgnoreCase)
-            ? ("application/octet-stream", QctekSupportBin.SystemStatus())
-            : path.Equals("/QCCameraStatus.bin", StringComparison.OrdinalIgnoreCase)
-                ? ("application/octet-stream", QctekSupportBin.CameraStatus())
-                : ("application/octet-stream", QctekSupportBin.BackupSystem(
-                    context.RemoteConsolePort, context.TotalChannels));
+        // 真機的兩份清單回應（QC_Server 的 /QCCamList.bin、/QCUserList.bin）帶
+        // `application/octet-stream; charset=utf-8`；三支狀態端點維持有回應即可。
+        var payload = path.ToLowerInvariant() switch
+        {
+            "/qcsystemstatus.bin" => ("application/octet-stream", QctekSupportBin.SystemStatus()),
+            "/qccamerastatus.bin" => ("application/octet-stream", QctekSupportBin.CameraStatus()),
+            "/qcbackupsystem.bin" => ("application/octet-stream", QctekSupportBin.BackupSystem(
+                context.RemoteConsolePort, context.TotalChannels)),
+            "/qccamlist.bin" => ("application/octet-stream; charset=utf-8",
+                QctekRemoteList.CameraList(context.Cameras ?? [])),
+            "/qcuserlist.bin" => ("application/octet-stream; charset=utf-8",
+                QctekRemoteList.UserList(context.Users ?? [])),
+            _ => ((string, byte[])?)null,
+        };
+
+        return payload;
     }
 
     /// <summary>

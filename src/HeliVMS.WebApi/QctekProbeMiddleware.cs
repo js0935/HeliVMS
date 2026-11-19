@@ -49,15 +49,27 @@ public static class QctekProbeMiddleware
         // QCC 的裝置模組狀態端點（.bin）必須在 isProbe 閘之前攔：這些路徑不帶 Basic
         // 認證（ua=QCHTMLGET），isProbe 判 false 會先 next() 掉——實測 404 後
         // QCC 以 3 秒一次無限重試，對應功能停在「未就緒」。
+        //
+        // 遠端設定頁的兩份清單也在這裡：/QCCamList.bin 與 /QCUserList.bin 任一壞掉，
+        // QC_rsClient 的 QueryUserSetting 就整體判定失敗（整頁空白，兩邊日誌乾淨）。
         if (QctekSupportBin.IsSupportBinPath(path))
         {
             var channels0 = context.RequestServices.GetService(typeof(ChannelRepository)) as ChannelRepository;
             var configuration0 = context.RequestServices.GetService(typeof(IConfiguration)) as IConfiguration;
+            var channelList = channels0?.List() ?? [];
             var binContext = new QctekHttpResponder.Context(
                 RemoteConsolePort: QctekHttpResponder.ResolveConsolePort(
                     context.Connection.LocalPort,
                     configuration0?[QctekHttpResponder.PublicPortConfigKey]),
-                TotalChannels: channels0?.List().Count ?? 0);
+                TotalChannels: channelList.Count,
+                // 只有真的被要求時才查資料庫：QCC 每 3 秒輪詢的是狀態端點，
+                // 不該為它們多做兩次清單查詢。
+                Cameras: path.Equals("/QCCamList.bin", StringComparison.OrdinalIgnoreCase)
+                    ? channelList.Select(static c => new QctekRemoteCamera(c.Name)).ToList()
+                    : null,
+                Users: path.Equals("/QCUserList.bin", StringComparison.OrdinalIgnoreCase)
+                    ? BuildUsers(context, authorization)
+                    : null);
             var bin = QctekHttpResponder.BuildBinaryBody(path, binContext);
             if (bin is { } payload)
             {
@@ -108,6 +120,52 @@ public static class QctekProbeMiddleware
         context.Response.Headers["Server"] = QctekHttpResponder.ProductName;
         context.Response.Headers["Connection"] = "close";
         await context.Response.WriteAsync(content.Body, context.RequestAborted);
+    }
+
+    /// <summary>
+    /// 把 HeliVMS 的本機帳號換成 RMUL 的列。<c>IsCurrent</c> 只依「這次請求帶的
+    /// Basic 帳號」判定：沒有認證標頭就不標記任何人，而不是猜第一個 admin——
+    /// QCC 的 <c>isCurrentUser</c> 只認權限位元的 0x20，猜錯會讓它把別人當成自己。
+    /// </summary>
+    private static IReadOnlyList<QctekRemoteUser>? BuildUsers(HttpContext context, string authorization)
+    {
+        var repository = context.RequestServices.GetService(typeof(UserRepository)) as UserRepository;
+        var users = repository?.ListUsers();
+        if (users is null)
+        {
+            return null;
+        }
+
+        var current = BasicUsername(authorization);
+        return users
+            .Select(u => new QctekRemoteUser(
+                u.Username,
+                QctekRemoteList.PermissionFor(u.Enabled, u.Role == "admin"),
+                IsCurrent: current is not null &&
+                           string.Equals(u.Username, current, StringComparison.OrdinalIgnoreCase)))
+            .ToList();
+    }
+
+    /// <summary>取 <c>Authorization: Basic</c> 的使用者名稱；沒有或格式不符回 null。</summary>
+    private static string? BasicUsername(string authorization)
+    {
+        const string prefix = "Basic ";
+        if (!authorization.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        try
+        {
+            var raw = Convert.FromBase64String(authorization[prefix.Length..].Trim());
+            var text = Encoding.UTF8.GetString(raw);
+            var colon = text.IndexOf(':');
+            return colon > 0 ? text[..colon] : null;
+        }
+        catch (FormatException)
+        {
+            return null;
+        }
     }
 
     /// <summary>與 NemoServer 共用同一份診斷日誌（順序對照才有意義）。</summary>

@@ -217,6 +217,13 @@ public sealed class NemoServer : IAsyncDisposable
                         // 多工，QCC 的裝置探測先送 HTTP（實測：GET /＋Basic admin:admin）。
                         // 回應後關閉連線——真機實測就是這樣（Connection: close），而且真機
                         // 正是這樣被 QCC 成功加入：QCC 收到 close 後自己開新連線講 NEMO。
+                        //
+                        // 這裡只走「文字」回應（BuildResponse）。裝置模組的 .bin 端點
+                        // （含 /QCCamList.bin、/QCUserList.bin）刻意不在這個埠提供：
+                        // 它們是二進位 body，而這條分支把整段請求當 UTF-8 字串處理、
+                        // 回應也以字串寫出；QCC 實際是對「裝置的 HTTP 埠」抓這些檔案，
+                        // 由 Web 埠的 QctekProbeMiddleware 直接寫 bytes。獨立 NEMO 埠
+                        // 收到 .bin 回 404 是刻意的，不是漏接。
                         if (QctekDiagnostics.LooksLikeHttp(pending.Span))
                         {
                             var headerEnd = pending.Span.IndexOf("\r\n\r\n"u8);

@@ -1694,6 +1694,29 @@ Notes that will save you time:
   segment silently loses its last frame. Guarded by `QctekSourceArgumentsTests`,
   `QctekSourceArgumentsFfmpegTests`, `QctekTimestampsTests`, `QctekTimestampCallSiteTests`,
   `QctekPlaybackSessionTests` and `遠端回放的段會帶上段長與檔案時間戳`.
+- **QCC remote settings needs *both* list endpoints, and their header arithmetic is checked
+  byte-for-byte.** `QC_rsClient::QueryUserSetting` fetches `/QCCamList.bin` (RMCL) **and**
+  `/QCUserList.bin` (RMUL) in one go and fails the whole page if either one's magic, row length or
+  total length is off (`Info("{RMS} ReadUserListResp check fail!")`) — so a missing endpoint and a
+  wrong constant look identical: an empty remote-settings page with clean logs on both sides.
+  Layout: 16-byte header — `+0` magic (`RMCL` 0x4C434D52 / `RMUL` 0x4C554D52), `+4` total =
+  rows × rowLength + 0x10, `+8` row count (< 0x400), `+0xc` row length (0x11c = 284 cameras /
+  0x228 = 552 users). Inside `__XLS_CAMERA_LIST` the decompiled `pwVar + 0x82` is a **wchar**
+  offset (byte 0x104): name `wchar[0x41]` at 0, group at 0x82, Excel columns 2/3/4/5 at
+  0x104/0x108/0x110/0x114 (all −1), column 7 colour at 0x10c (0x00FF0100), column 6 u16 at 0x118
+  (0). Inside `__SQL_USER_LIST`: `+0` = 0xEDE9, `+4` is one u32 read as **0x001E0003** (low half
+  version 3 at `+4`, high half flags 0x1E at `+6`), `+8` permission bits, `+0xc` account sequence
+  (negative = deleted; the producer skips those), name as **ANSI `char[32]` at `+0x28`**
+  (`FindAccountIndexByName` compares bytes, so write `?` for non-ASCII rather than UTF-8), and
+  `+0x48` the 32-byte password hash, which we always leave **zero** — these endpoints are served
+  without authentication (same trade-off as the other `.bin` probes) and a hash must never leak.
+  `isCurrentUser` only looks at bit **0x20** of the permission field; mark it from the request's
+  Basic username only, never guess the first admin. `PermissionFor`: disabled → 0, admin → 0x1C
+  (the real machine's `user.bin` holds 28), everyone else → 8 (`DefaultAccountSetting`). Only the
+  `.bin` paths in `IsSupportBinPath` are served, and only from the Web-port middleware: the
+  standalone NEMO port's HTTP branch is a text path, so it deliberately 404s these. Guarded by
+  `QctekRemoteListTests`, `QctekSupportBinTests` and `QctekRemoteListApiTests` (the last one boots
+  the real host, so "the middleware forgot to pass the repositories" shows up as 0 rows).
 - **Timestamps bind through `SqliteStore.Iso`, never a raw `DateTime` — mixing the two makes
   string comparisons timezone-dependent.** Several columns (`finished_at`, `started_at`, …) are
   TEXT and queries compare them against an Iso-bound cutoff; a raw-bound DateTime writes a
