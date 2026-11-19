@@ -6,9 +6,13 @@ using HeliVMS.Shared;
 namespace HeliVMS.App.Services;
 
 /// <summary>
-/// 一路即時影像的 ffmpeg 來源：RTSP 拉流 → <c>-f h264</c> stdout（Annex-B 基本流）。
+/// 一路影像的 ffmpeg 來源：RTSP 拉流或錄影檔 → <c>-f h264</c> stdout（Annex-B 基本流）。
 /// </summary>
 /// <remarks>
+/// <para>
+/// 即時影像與 QCC 遠端回放共用這一個包裝（引數由 <see cref="QctekSourceArguments"/> 組出）：
+/// 兩者只差來源是網路串流還是磁碟上的 mp4，輸出、stderr 處理、收尾完全相同。
+/// </para>
 /// <para>
 /// 每頻道一個短生命週期的 ffmpeg 行程：CMS（keepalive 位圖）要哪幾路才開哪幾路，
 /// 斷線即收——與排程截圖（<see cref="HeliVMS.Media.SnapshotGrabber"/>）同一個理由：便宜攝影機的
@@ -58,34 +62,21 @@ internal sealed class QctekLiveStreamSource : IQctekLiveSource
             CreateNoWindow = true,
         };
 
-        // stdin 立即送 EOF（Start 後 Close）：不讓 ffmpeg 等互動輸入（App 是 GUI、
-        // 也沒有人會去按「q」）。不用 -nostdin 選項——它是合法選項但不出現在
-        // `ffmpeg -h full`，契約測試（FfmpegOptionLiteralsFfmpegTests）以 help 為準。
-        psi.ArgumentList.Add("-loglevel");
-        psi.ArgumentList.Add("error");
-        if (url.StartsWith("rtsp://", StringComparison.OrdinalIgnoreCase) ||
-            url.StartsWith("rtsps://", StringComparison.OrdinalIgnoreCase))
+        // 引數由 Qctek 專案的純函式組出（即時影像與遠端回放共用；檔案來源會加 -re，
+        // 且 -re 必須在 -i 之前——見 QctekSourceArguments）。
+        foreach (var argument in QctekSourceArguments.Build(url))
         {
-            // RTSP 專用 demuxer 選項：對檔案來源會「Option not found」（與取影同一規則）。
-            psi.ArgumentList.Add("-rtsp_transport");
-            psi.ArgumentList.Add("tcp");
+            psi.ArgumentList.Add(argument);
         }
-
-        psi.ArgumentList.Add("-i");
-        psi.ArgumentList.Add(url);
-        psi.ArgumentList.Add("-an");            // CMS 即時影像只要視訊
-        psi.ArgumentList.Add("-c:v");
-        psi.ArgumentList.Add("copy");           // 純 remux，不解碼
-        psi.ArgumentList.Add("-bsf:v");
-        psi.ArgumentList.Add("dump_extra");     // 關鍵影格前補 SPS/PPS（見型別說明）
-        psi.ArgumentList.Add("-f");
-        psi.ArgumentList.Add("h264");
-        psi.ArgumentList.Add("-");
 
         try
         {
             var process = Process.Start(psi)
                 ?? throw new InvalidOperationException("Process.Start 回傳 null");
+
+            // stdin 立即送 EOF：不讓 ffmpeg 等互動輸入（App 是 GUI、也沒有人會去按「q」）。
+            // 不用 -nostdin 選項——它是合法選項但不出現在 `ffmpeg -h full`，契約測試
+            // （FfmpegOptionLiteralsFfmpegTests）以 help 為準。
             process.StandardInput.Close();
 
             // stderr 的 pipe 必須持續讀掉：塞滿（64 KB）會讓 ffmpeg 卡在寫入，

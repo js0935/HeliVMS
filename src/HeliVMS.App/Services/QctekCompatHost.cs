@@ -789,10 +789,22 @@ public sealed class QctekCompatHost : IDisposable
                     .AddSeconds(segment.DurationSec is { } duration and > 0 ? duration : 60);
 
         private static QctekPlaybackSegment ToPlaybackSegment(int channelIndex, SegmentRecord segment)
-            => new(
+        {
+            var startUtc = DateTime.SpecifyKind(segment.StartUtc, DateTimeKind.Utc);
+
+            // 段長與影格時刻都要給 QCC 的回放通道：段長決定「下一段從哪裡接」，影格時刻
+            // 決定 FRAM 上的錄影時刻（QCC 的進度條與 OSD 都靠它）。兩者都由裝置端（這裡）
+            // 提供——HeliVMS.Qctek 是純專案，不引用 Media/Recording。
+            // FrameTimes 走 PlaybackSession 的快取（路徑＋長度＋mtime），同一段只探測一次；
+            // 讀不到時回空清單，通道會退回舊的 33ms/幀節奏。
+            var duration = (SegmentEnd(segment) - startUtc).TotalSeconds;
+            return new(
                 channelIndex,
-                DateTime.SpecifyKind(segment.StartUtc, DateTimeKind.Utc),
+                startUtc,
                 segment.FilePath,
-                segment.SizeBytes);
+                segment.SizeBytes,
+                duration,
+                HeliVMS.Recording.PlaybackSession.FrameTimes(segment.FilePath));
+        }
     }
 }

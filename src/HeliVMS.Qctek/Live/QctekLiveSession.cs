@@ -367,7 +367,7 @@ internal sealed class LiveRunSync
                         unit.Block2,
                         unit.Video,
                         wallClock.ToUnixTimeSeconds(),
-                        wallClock.UtcDateTime.Microsecond));
+                        QctekTimestamps.MicrosecondOfSecond(wallClock)));
                 _videoFrames++;
                 state.LastStatusAt = wallClock;
                 continue;
@@ -490,7 +490,7 @@ internal sealed class LiveRunSync
             Write(QctekLivePackets.AudioFrame(
                 state.Channel,
                 wallClock.ToUnixTimeSeconds(),
-                wallClock.UtcDateTime.Microsecond));
+                QctekTimestamps.MicrosecondOfSecond(wallClock)));
             _audioFrames++;
         }
         catch (Exception ex)

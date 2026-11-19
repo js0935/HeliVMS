@@ -195,6 +195,21 @@ public sealed class QctekCompatContractTests
     }
 
     [Fact]
+    public void 遠端回放的段會帶上段長與檔案時間戳()
+    {
+        // 兩種缺口的症狀都不會報錯：
+        // ①沒有段長——QCC 每播完一段就從「五分鐘後」接（分段設 60 秒時跳過四分鐘的錄影，
+        //   看起來像時間軸破洞）；②沒有檔案時間戳——FRAM 時戳退回 33ms/幀，
+        //   實測宣稱 15fps、實際 12.5fps 的檔案會讓進度條與 OSD 慢 2.4 倍。
+        // 兩者都必須由裝置端（這裡）填，因為 HeliVMS.Qctek 是純專案、不引用 Media/Recording。
+        var code = SourceContract.Read(Host);
+        var to = SourceContract.BodyOf(code, "ToPlaybackSegment");
+        Assert.NotEqual(string.Empty, to);
+        Assert.Contains("SegmentEnd(segment)", to);
+        Assert.Contains("PlaybackSession.FrameTimes(segment.FilePath)", to);
+    }
+
+    [Fact]
     public void 即時影像來源的ffmpeg錯誤會留在診斷日誌()
     {
         // 攝影機層的失敗只出現在 ffmpeg stderr。先前只把 stderr 讀掉不記錄，

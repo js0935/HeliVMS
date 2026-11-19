@@ -18,6 +18,13 @@ namespace HeliVMS.Qctek.Live;
 /// <see cref="NetworkStream.DataAvailable"/> 輪詢，與 live 的 keepalive 同一模型。
 /// SEEKFILE 的秒數語意（相對/絕對）待真機抓包驗證，目前以「檔案起點的絕對秒」實作。
 /// </para>
+/// <para>
+/// 時戳<b>不猜</b>：段與段的界線用段自己的長度（<see cref="QctekPlaybackSegment.DurationSeconds"/>），
+/// 段內每一格的時刻用檔案的封包時間戳（<see cref="QctekPlaybackSegment.FrameTimes"/>）。
+/// 兩者都讀不到才退回舊假設（5 分鐘接段、33ms/幀）——實測攝影機的檔案常常不是名目幀率
+/// （宣稱 15fps、實際 12.5fps），用「影格序號 × 33ms」會讓 QCC 的進度條與 OSD 時刻
+/// 比內容慢 2.4 倍，而且在畫面上完全看不出來。
+/// </para>
 /// </remarks>
 public static class QctekPlaybackSession
 {
@@ -115,7 +122,7 @@ public static class QctekPlaybackSession
     }
 
     /// <summary>
-    /// 輸出一個段的幀流：ffmpeg 讀錄影檔 → AU → FRAM（時戳＝段起始＋幀偏移）；
+    /// 輸出一個段的幀流：ffmpeg 讀錄影檔 → AU → FRAM（時戳＝段起始＋檔案自己的封包時刻）；
     /// 段讀完回下一個起點；途中偵測 SEEK/CLOSE 回控制訊號。
     /// </summary>
     private static DateTime? StreamSegment(
@@ -132,7 +139,11 @@ public static class QctekPlaybackSession
         if (source is null)
         {
             log?.Invoke($"PB：錄影檔來源建立失敗（{segment.FilePath}）");
-            return segment.StartUtc;
+
+            // 往前推進到這一段的結尾，不要回 segment.StartUtc：那會讓外層重新找到同一段、
+            // 再一次建立失敗，形成沒有輸出的忙迴圈（日誌每毫秒一行）。
+            nextFrom = SegmentEndOf(segment);
+            return nextFrom;
         }
 
         try
@@ -141,6 +152,22 @@ public static class QctekPlaybackSession
             var grouper = new QctekH264AccessUnitGrouper();
             var buffer = new byte[64 * 1024];
             var auIndex = 0L;
+
+            void Emit(List<QctekAccessUnit> units)
+            {
+                foreach (var unit in units)
+                {
+                    var frameUtc = FrameInstant(segment, auIndex++);
+                    var packet = QctekLivePackets.Data(
+                        segment.ChannelIndex,
+                        unit.Block1,
+                        unit.Block2,
+                        unit.Video,
+                        new DateTimeOffset(frameUtc).ToUnixTimeSeconds(),
+                        QctekTimestamps.MicrosecondOfSecond(frameUtc));
+                    network.Write(packet, 0, packet.Length);
+                }
+            }
 
             while (true)
             {
@@ -178,23 +205,16 @@ public static class QctekPlaybackSession
                     break; // 段讀完
                 }
 
-                foreach (var unit in grouper.Append(buffer.AsSpan(0, count)))
-                {
-                    // 時戳＝錄影時刻：段起始＋幀偏移（33ms/幀的近似；精確時戳下輪從檔案讀）。
-                    var frameUtc = segment.StartUtc.AddMilliseconds(auIndex++ * 33);
-                    var packet = QctekLivePackets.Data(
-                        segment.ChannelIndex,
-                        unit.Block1,
-                        unit.Block2,
-                        unit.Video,
-                        new DateTimeOffset(frameUtc).ToUnixTimeSeconds(),
-                        frameUtc.Microsecond);
-                    network.Write(packet, 0, packet.Length);
-                }
+                Emit(grouper.Append(buffer.AsSpan(0, count)));
             }
 
-            // 段讀完：下一段從段尾開始（5 分鐘段；實際段長由下輪 FindSegmentFrom 銜接）。
-            nextFrom = segment.StartUtc.AddSeconds(300);
+            // 最後一個 AU 只看得到自己的第一個 slice，沒有「下一個 AU」能觸發分組完成；
+            // 不 Flush 就是每一段都少一格，而且沒有任何錯誤。
+            Emit(grouper.Flush());
+
+            // 段讀完：下一段從這一段的<b>實際</b>結尾開始（舊版硬寫 5 分鐘，分段設 60 秒時
+            // 每接一次就跳過四分鐘的錄影）。段長未知才退回 300 秒。
+            nextFrom = SegmentEndOf(segment);
             return nextFrom;
         }
         finally
@@ -202,6 +222,47 @@ public static class QctekPlaybackSession
             DisposeQuietly(source);
         }
     }
+
+    /// <summary>
+    /// 一格畫面的錄影時刻：段起始＋檔案自己的封包時間戳；沒有時間戳（或索引超出）時
+    /// 退回「影格序號 × 33ms」的舊節奏。
+    /// </summary>
+    private static DateTime FrameInstant(QctekPlaybackSegment segment, long auIndex)
+    {
+        if (segment.FrameTimes is { Count: > 0 } times && auIndex >= 0 && auIndex < times.Count)
+        {
+            var offset = times[(int)auIndex];
+            if (offset >= 0)
+            {
+                return segment.StartUtc.AddSeconds(offset);
+            }
+        }
+
+        return segment.StartUtc.AddMilliseconds(auIndex * 33);
+    }
+
+    /// <summary>
+    /// 段的結束時刻。檔案自己的最後一格就是內容的真實長度，優先採用；沒有時間戳時才用
+    /// 索引的段長（那是牆鐘，睡眠／校時之後會長成好幾小時——那種值一律當壞值，
+    /// 退回 300 秒），兩者都沒有才回到舊的 5 分鐘假設。
+    /// </summary>
+    private static DateTime SegmentEndOf(QctekPlaybackSegment segment)
+    {
+        if (segment.FrameTimes is { Count: > 0 } times && times[^1] > 0)
+        {
+            return segment.StartUtc.AddSeconds(times[^1]);
+        }
+
+        if (segment.DurationSeconds is > 0 and <= MaxSegmentSeconds)
+        {
+            return segment.StartUtc.AddSeconds(segment.DurationSeconds);
+        }
+
+        return segment.StartUtc.AddSeconds(300);
+    }
+
+    /// <summary>合理的單段長度上限（小時合併檔約 3600 秒；再大的值只可能是索引壞掉）。</summary>
+    private const double MaxSegmentSeconds = 3660;
 
     /// <summary>從累積緩衝取一條 NUL 結尾的文字命令；不足時回 false。</summary>
     private static bool TryTakeCommand(NemoSessionLoop.FrameBuffer buffer, out string text)

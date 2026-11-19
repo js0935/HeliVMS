@@ -1672,6 +1672,28 @@ Notes that will save you time:
   (same lesson as the export wizard's "5 seconds became 50 minutes"). Guarded by
   `QctekEventPayloadsTests`, `QctekEventSearchRequestTests` and the paging cases in
   `QctekSessionTests`.
+- **QCC remote playback: the recording file's bitstream filter has to restore Annex-B, and every
+  timestamp has to come from the file.** Three details, each with its own "connects but no picture"
+  or "picture fine but the clock is wrong" symptom and a clean log on both sides.
+  (1) **An mp4/fMP4 source needs `-bsf:v h264_mp4toannexb,dump_extra`.** Passing *any* `-bsf:v`
+  cancels ffmpeg's automatic `h264_mp4toannexb` insertion for `-f h264`; measured on this ffmpeg
+  (8.0.1, both plain mp4 and `frag_keyframe+empty_moov`) `dump_extra` alone exits with
+  `Invalid data found when processing input` and stdout stays at **zero bytes**, while
+  `h264_mp4toannexb` alone emits no packet-level SPS/PPS for `dump_extra` to duplicate (QCC decides
+  "keyframe" by `block1 size > 0`). Live RTSP keeps plain `dump_extra`; it is already Annex-B and
+  converting it again damages the NAL units. (2) **`-re` is an input option** and must sit before
+  `-i`; after it ffmpeg refuses with "cannot be applied to output", and without it the file is
+  pushed at disk speed so QCC's progress bar jumps to the end. (3) **The FRAM `+0x14` microseconds
+  field is the offset inside the second (0–999999)**, not `DateTime.Microsecond` (0–999): filling
+  the latter loses `Millisecond × 1000` µs on every frame, and QCC's wall-clock tolerance then
+  drops non-key frames wholesale ("a bit stuttery", nothing logged). `QctekTimestamps.
+  MicrosecondOfSecond` is the only conversion, shared by live video/audio and playback.
+  `QctekPlaybackSession.SegmentEndOf` prefers the file's own last packet timestamp because the
+  index `duration_sec` is a wall clock (measured at 6853 s) — anything above 3660 s is treated as
+  corrupt and falls back to 300 s — and the H.264 grouper must be flushed after each file or every
+  segment silently loses its last frame. Guarded by `QctekSourceArgumentsTests`,
+  `QctekSourceArgumentsFfmpegTests`, `QctekTimestampsTests`, `QctekTimestampCallSiteTests`,
+  `QctekPlaybackSessionTests` and `遠端回放的段會帶上段長與檔案時間戳`.
 - **Timestamps bind through `SqliteStore.Iso`, never a raw `DateTime` — mixing the two makes
   string comparisons timezone-dependent.** Several columns (`finished_at`, `started_at`, …) are
   TEXT and queries compare them against an Iso-bound cutoff; a raw-bound DateTime writes a
