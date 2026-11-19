@@ -35,9 +35,14 @@ public static class QctekSourceArguments
 {
     /// <summary>組出 <c>-f h264</c> 輸出到 stdout 的完整 ffmpeg 引數。</summary>
     /// <param name="source">RTSP／HTTP 位址或錄影檔路徑。</param>
-    public static IReadOnlyList<string> Build(string source)
+    /// <param name="audioPort">
+    /// 已綁定的本機 UDP 埠；大於 0 時在影像輸出<b>之後</b>追加一個 µ-law 音訊輸出
+    /// （<see cref="QctekAudioArguments.Build"/>）。0＝只有影像（既有行為）。
+    /// </param>
+    public static IReadOnlyList<string> Build(string source, int audioPort = 0)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(source);
+        ArgumentOutOfRangeException.ThrowIfNegative(audioPort);
 
         var live = IsLiveSource(source);
         var arguments = new List<string>
@@ -74,6 +79,17 @@ public static class QctekSourceArguments
         arguments.Add("-f");
         arguments.Add("h264");
         arguments.Add("-");                // stdout
+
+        if (audioPort > 0)
+        {
+            // 第二個輸出路徑：`-an` 只屬於前一個輸出（ffmpeg 的選項是「下一個輸出」的），
+            // 所以影像仍舊沒有音軌，音訊只從這一個 udp:// 出去。
+            foreach (var argument in QctekAudioArguments.Build(audioPort))
+            {
+                arguments.Add(argument);
+            }
+        }
+
         return arguments;
     }
 

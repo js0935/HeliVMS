@@ -2,6 +2,7 @@
 using System.Globalization;
 using System.IO;
 using System.Net;
+using HeliVMS.Media;
 using HeliVMS.Qctek.Alarm;
 using HeliVMS.Qctek.Live;
 using HeliVMS.Qctek.Nemo;
@@ -418,6 +419,12 @@ public sealed class QctekCompatHost : IDisposable
     /// <summary>NEMO 命令所需的裝置資訊與憑證驗證。</summary>
     private sealed class DeviceContext : IQctekDeviceContext
     {
+        /// <summary>音訊探測結果的快取時間：同一個頻道反覆開流不該每次多花一條 RTSP 工作階段。</summary>
+        private static readonly TimeSpan AudioProbeTtl = TimeSpan.FromMinutes(10);
+
+        /// <summary>音訊探測逾時：探測發生在開流<b>之前</b>，拖太久會直接延後第一張畫面。</summary>
+        private static readonly TimeSpan AudioProbeTimeout = TimeSpan.FromSeconds(3);
+
         private readonly AuthService _auth;
         private readonly ChannelRepository _channels;
         private readonly UserRepository _users;
@@ -425,6 +432,13 @@ public sealed class QctekCompatHost : IDisposable
         private readonly DeviceRepository _devices;
         private readonly EventLogRepository _eventLog;
         private readonly QctekPtzController _ptz;
+
+        /// <summary>
+        /// 每頻道／每碼流「有沒有可轉碼的音軌」。鍵用頻道 Id 而不是網址：網址含帳密，
+        /// 而且重新探索後可能換一個位址（那時本來就該重新探測）。
+        /// </summary>
+        private readonly ConcurrentDictionary<(int ChannelId, int SubStream), (bool HasAudio, DateTimeOffset ProbedAt)>
+            _audioProbe = new();
 
         public DeviceContext(SqliteStore store)
         {
@@ -542,7 +556,50 @@ public sealed class QctekCompatHost : IDisposable
                 host => _devices.FindByIp(host)?.Id,
                 _devices.GetRtspCredentials);
 
-            return QctekLiveStreamSource.TryOpen(resolved, QctekCompatHost.Diag);
+            // 「收音」是操作員在頻道設定明確打開的（預設關閉），而且要先確認來源真的
+            // 有可轉碼的音軌——沒探測就掛 -map 0:a:0 會讓整個頻道黑屏（見 HasAudioTrack）。
+            var withAudio = channel.ListenEnabled && HasAudioTrack(channel.Id, subStream, resolved);
+
+            return QctekLiveStreamSource.TryOpen(resolved, QctekCompatHost.Diag, withAudio);
+        }
+
+        /// <summary>
+        /// 這一路來源有沒有可以轉成 µ-law 的音軌（快取 10 分鐘）。
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// 探測是必要的，不是保險：對沒有音軌的來源下 <c>-map 0:a:0</c>，ffmpeg 會以
+        /// 「輸出檔沒有任何串流」直接結束，整個頻道連<b>畫面</b>都沒有，而兩端日誌只有
+        /// 一行 ffmpeg 錯誤。多加 <c>?</c> 也一樣（映射允許為空，但輸出仍然沒有串流）。
+        /// </para>
+        /// <para>
+        /// 探測失敗（ffprobe 不在、攝影機忙線、逾時）一律當「沒有音訊」：少一段聲音
+        /// 看得出來，黑屏看不出原因。
+        /// </para>
+        /// </remarks>
+        private bool HasAudioTrack(int channelId, int subStream, string resolvedUrl)
+        {
+            var key = (channelId, subStream);
+            var now = DateTimeOffset.UtcNow;
+            if (_audioProbe.TryGetValue(key, out var cached) && now - cached.ProbedAt < AudioProbeTtl)
+            {
+                return cached.HasAudio;
+            }
+
+            var hasAudio = false;
+            try
+            {
+                var probe = StreamProbe.Probe(resolvedUrl, timeout: AudioProbeTimeout);
+                hasAudio = QctekAudioArguments.ShouldAttach(probe.AudioCodec);
+            }
+            catch (Exception ex)
+            {
+                QctekCompatHost.Diag(
+                    $"QCTEK live：頻道 {channelId} 音訊探測失敗，視為沒有音訊：{ex.GetType().Name} {ex.Message}");
+            }
+
+            _audioProbe[key] = (hasAudio, now);
+            return hasAudio;
         }
 
         /// <summary>目前頻道清單中第 <paramref name="channelIndex"/> 個頻道的資料庫 Id。</summary>

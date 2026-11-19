@@ -20,4 +20,28 @@ public interface IQctekLiveSource : IAsyncDisposable
 {
     /// <summary>Annex-B 的 H.264 基本流（ffmpeg <c>-f h264</c> 的 stdout）。</summary>
     Stream Output { get; }
+
+    /// <summary>
+    /// 這一路來源的音訊（G.711 µ-law 位元組流）；沒掛音訊輸出時是 <c>null</c>。
+    /// </summary>
+    /// <remarks>
+    /// 預設實作回 <c>null</c>：只有即時影像會掛音訊（<c>channels.listen_enabled</c>），
+    /// 遠端回放與測試用的來源不需要為此多寫一個成員。回 <c>null</c> 時 live 迴圈
+    /// 只在開流時送一包近靜音幀，與加入音訊前的行為完全相同。
+    /// </remarks>
+    IQctekLiveAudio? Audio => null;
+}
+
+/// <summary>
+/// 一路來源的音訊位元組流：<b>非阻塞</b>讀取，讀不到就回 0。
+/// </summary>
+/// <remarks>
+/// 為什麼不是 <see cref="Stream"/>：即時影像的輪詢執行緒每 33ms 走一圈，阻塞讀會讓
+/// keepalive 與影像 tick 一起停擺（QCC 的狀態機以 33ms 為週期）；而聲音本來就可以
+/// 遲到或丟失，讀不到不是錯誤。
+/// </remarks>
+public interface IQctekLiveAudio
+{
+    /// <summary>把目前已到達的位元組讀進 <paramref name="destination"/>；沒有資料回 0。</summary>
+    int Read(Span<byte> destination);
 }

@@ -244,4 +244,28 @@ public sealed class QctekCompatContractTests
         Assert.Contains("RtspUri.RedactText(line)", code);
         Assert.Contains("QCTEK live：ffmpeg：", code);
     }
+
+    [Fact]
+    public void 只有打開收音且探測到音軌的頻道才會掛音訊輸出()
+    {
+        // 對沒有音軌的來源下 `-map 0:a:0`，ffmpeg 會以「輸出檔沒有任何串流」直接結束，
+        // 整個頻道連**畫面**都沒有，而兩端日誌只有一行 ffmpeg 錯誤。所以「收音」
+        // 這個開關之外還要先探測；探測失敗一律當沒有音訊（少聲音看得出來，黑屏看不出原因）。
+        var host = SourceContract.Read(Host);
+        var create = SourceContract.BodyOf(host, "CreateLiveSource");
+        Assert.NotEqual(string.Empty, create);
+        Assert.Contains("channel.ListenEnabled", create);
+        Assert.Contains("HasAudioTrack(channel.Id, subStream, resolved)", create);
+        Assert.Contains("QctekLiveStreamSource.TryOpen(resolved, QctekCompatHost.Diag, withAudio)", create);
+
+        Assert.Contains("StreamProbe.Probe(", host);
+        Assert.Contains("QctekAudioArguments.ShouldAttach(", host);
+        Assert.Contains("AudioProbeTtl", host); // 10 分鐘快取：開流不該每次多花一條 RTSP 工作階段
+
+        // 埠要在行程啟動前綁好（埠號是 ffmpeg 的引數），而且音訊輸出必須由共用引數函式組出。
+        var source = SourceContract.Read("src/HeliVMS.App/Services/QctekLiveStreamSource.cs");
+        Assert.Contains("QctekUdpAudio", source);
+        Assert.Contains("QctekSourceArguments.Build(url, audio?.Port ?? 0)", source);
+        Assert.Contains("public IQctekLiveAudio? Audio => _audio;", source);
+    }
 }

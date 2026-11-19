@@ -12,7 +12,7 @@ namespace HeliVMS.Qctek.Live;
 /// 8-byte 標頭 <c>"FRAM"</c>＋u16 channel（0-based）＋u16 status；status ≠ 0 時
 /// <b>只有</b>這 8 bytes（狀態幀，之後沒有 media）。status ＝ 0 時接 0x38-byte media
 /// header 與 payload；type＝1 是影像（block1 SPS → block2 PPS → video Annex-B），
-/// type＝2 是音訊（見 <see cref="AudioFrame"/>）：
+/// type＝2 是音訊（見 <c>AudioFrame</c>）：
 /// </para>
 /// <list type="bullet">
 /// <item><c>+0x00</c> u32 type（1＝視訊、2＝音訊）、<c>+0x04</c> u32 codec
@@ -111,9 +111,11 @@ public static class QctekLivePackets
     /// 預覽解析器的握手」。
     /// </para>
     /// <para>
-    /// 我們這條相容層沒有音訊來源（即時監看給的是 Annex-B H.264 管線），所以只在頻道
-    /// 開流時送<b>一包</b>近靜音音訊，讓「有音軌的裝置」對客戶端成立；之後不再送。
-    /// 真機每 tick 都送，但客戶端對音訊缺漏是容忍的（UDP 音訊本來就會丟包）。
+    /// 這份近靜音內容只在兩種情況送出：來源沒有麥克風（只在頻道開流時送<b>一包</b>，
+    /// 讓「有音軌的裝置」對客戶端成立），以及回應探測連線。操作員在頻道設定打開
+    /// 「收音」且探測到可轉碼的音軌時，改由 <see cref="AudioFrame(int, long, int, ReadOnlySpan{byte})"/>
+    /// 每 125ms 送一包真正的 µ-law（見 <c>QctekAudioArguments</c>）。客戶端對音訊缺漏是
+    /// 容忍的（UDP 音訊本來就會丟包），所以兩種情況都不會影響畫面。
     /// </para>
     /// </remarks>
     public static ReadOnlySpan<byte> SilentAudioPayload => new byte[]
@@ -173,9 +175,25 @@ public static class QctekLivePackets
     /// 組一個 type=2 音訊幀（G.711 µ-law、codec 200、1000 bytes payload）：
     /// <c>+0x04=200</c>、<c>+0x08=1000</c>、block1/block2 為 0，時戳以牆鐘蓋章。
     /// </summary>
-    public static byte[] AudioFrame(int channel, long unixSeconds, int microSeconds)
+    public static byte[] AudioFrame(int channel, long unixSeconds, int microSeconds) =>
+        AudioFrame(channel, unixSeconds, microSeconds, SilentAudioPayload);
+
+    /// <summary>
+    /// 組一個帶實際內容的 type=2 音訊幀（即時影像有麥克風時每 125ms 一包）。
+    /// </summary>
+    /// <param name="channel">0-based 頻道號（與影像幀同一個編號空間）。</param>
+    /// <param name="unixSeconds">寫出時刻的 Unix 秒。</param>
+    /// <param name="microSeconds">秒內微秒（0–999999，見 <c>QctekTimestamps.MicrosecondOfSecond</c>）。</param>
+    /// <param name="payload">
+    /// G.711 µ-law 位元組；真機的長度固定是 1000（8 kHz × 125ms），客戶端把它當一段
+    /// 連續音訊播放，長度不符時播放速度會跟著改變。
+    /// </param>
+    public static byte[] AudioFrame(
+        int channel,
+        long unixSeconds,
+        int microSeconds,
+        ReadOnlySpan<byte> payload)
     {
-        var payload = SilentAudioPayload;
         var buffer = new byte[HeaderLength + MediaHeaderLength + payload.Length];
         WriteHeader(buffer, channel, 0);
 

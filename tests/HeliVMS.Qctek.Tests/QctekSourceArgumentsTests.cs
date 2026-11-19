@@ -17,6 +17,8 @@ public sealed class QctekSourceArgumentsTests
 {
     private static List<string> Build(string source) => [.. QctekSourceArguments.Build(source)];
 
+    private static List<string> Build(string source, int audioPort) => [.. QctekSourceArguments.Build(source, audioPort)];
+
     [Fact]
     public void 錄影檔來源會加re而且排在i之前()
     {
@@ -86,4 +88,46 @@ public sealed class QctekSourceArgumentsTests
         Assert.False(QctekSourceArguments.IsLiveSource("192.168.1.10/live"));
         Assert.True(QctekSourceArguments.IsLiveSource("RTSPS://cam/live"));
     }
+
+    [Fact]
+    public void 沒有音訊埠時引數與加入音訊前完全相同()
+    {
+        // 預設（沒有麥克風、操作員沒打開收音）必須逐項等於舊行為：多一個 -map 0:a:0
+        // 就足以讓沒有音軌的攝影機整個頻道黑屏。結尾是 stdout 的 "-"。
+        foreach (var source in new[] { "rtsp://cam/live", @"D:\rec\seg-120000.mp4" })
+        {
+            var arguments = Build(source);
+
+            Assert.DoesNotContain("-map", arguments);
+            Assert.DoesNotContain("-acodec", arguments);
+            Assert.Equal("-", arguments[^1]);
+            Assert.Equal(arguments, Build(source, 0));
+        }
+    }
+
+    [Fact]
+    public void 有音訊埠時在影像輸出之後追加µlaw的第二個輸出()
+    {
+        var arguments = Build("rtsp://cam/live", 45678);
+
+        // 音訊是第二個輸出路徑：一定要排在影像的 `-f h264 -` 之後，否則 ffmpeg 會把
+        // 它當成影像輸出的參數（或反之），最常見的下場就是「只有畫面、沒有聲音」。
+        var video = arguments.IndexOf("-f");
+        Assert.Equal("h264", arguments[video + 1]);
+        Assert.Equal("-", arguments[video + 2]);
+
+        var audio = arguments.IndexOf("-f", video + 1);
+        Assert.True(audio > video + 2, "音訊輸出必須在影像輸出之後。");
+        Assert.Equal("mulaw", arguments[audio + 1]);
+        Assert.Equal("udp://127.0.0.1:45678", arguments[^1]);
+
+        // `-an` 只作用於影像輸出（它排在影像的 -f 之前）：影像沒有音軌、音訊只有一個輸出。
+        Assert.Equal(1, arguments.Count(argument => argument == "-an"));
+        Assert.True(arguments.IndexOf("-an") < video + 1);
+        Assert.Equal(1, arguments.Count(argument => argument == "-map"));
+    }
+
+    [Fact]
+    public void 音訊埠是負數時直接擋下來() =>
+        Assert.Throws<ArgumentOutOfRangeException>(() => QctekSourceArguments.Build("rtsp://cam/live", -1));
 }

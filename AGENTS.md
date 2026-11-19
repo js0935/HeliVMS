@@ -1648,6 +1648,36 @@ Notes that will save you time:
   `ALARM_HELLO` timing surveys and `ImmedChannels`/`ImmedSelAll` experiments produced "no
   signal". Confirm the loop is gone (no `Out of Memory!` / `Stop NVR 3: ShellStartPage`) before
   concluding anything about live view, and never "fix" it in our own code.
+- **QCC live audio rides the video ffmpeg as a second output, and only for channels that really
+  have a decodable track.** `type=2` is the audio track (codec 200 = G.711 µ-law, 1000-byte
+  payload at 8 packets/s = 125 ms), not a "wake-up" frame. Four things are load-bearing.
+  (1) **Never open a second RTSP session for sound** — cheap cameras allow 2–4 and the extra one
+  pushes the *picture* off ("the image drops when I turn the sound on", and the log shows only
+  RTSP reconnects). `QctekSourceArguments.Build(url, audioPort)` appends
+  `-map 0:a:0 -ac 1 -ar 8000 -acodec pcm_mulaw -f mulaw -flush_packets 1 udp://127.0.0.1:<port>`
+  *after* `-f h264 -`; `-an` stays before the video output, because an ffmpeg option belongs to
+  the next output. (2) **`-map 0:a:0` on a source without audio makes ffmpeg exit with no output
+  streams at all — a black channel**, and `0:a:0?` does not rescue it (the output still has no
+  stream). `QctekCompatHost` therefore probes with ffprobe (3 s, cached 10 min per
+  channel+stream, so opening a stream does not add an RTSP session each time) and attaches only
+  when `QctekAudioArguments.ShouldAttach(codec)` agrees — a whitelist, because a wrong "yes" is
+  a black screen while a wrong "no" is merely missing sound. Probe failure means no audio.
+  (3) **Audio is pumped before video inside the tick** (`PumpAudio` runs before the
+  `Queue.TryPop` branch, which `continue`s when video backs up): skipping audio alongside video
+  is audible stutter. The read is non-blocking (`Socket.Available` + synchronous `Receive`) and
+  `AudioFrameAssembler` hands out one 1000-byte frame per 125 ms — a burst of three outruns
+  QCC's player, which only counts packets. The assembler is bounded at 0.5 s and drops the
+  oldest **whole** frame; dropping at a half-frame boundary misaligns every later sample
+  (µ-law is byte-aligned). (4) The opening `type=2` frame is still sent once even without a
+  microphone (the real machine's first packet is audio; without it the client believes the
+  device has no track), and `channels.listen_enabled` defaults to 0, so this changes nothing
+  until an operator turns it on. Test-side trap: an audio end-to-end test needs a video stream
+  that never ends (`NeverEndingStream`), because video EOF disposes the whole source, audio
+  included. Guarded by `QctekAudioArgumentsTests`, `AudioFrameAssemblerTests`,
+  `沒有音訊埠時引數與加入音訊前完全相同`, `有音訊埠時在影像輸出之後追加µlaw的第二個輸出`,
+  `有麥克風的頻道會持續送出µlaw音訊幀`, `沒有麥克風的頻道只在開流時送一包音訊`,
+  `即時影像的視訊與音訊微秒欄位都走共用換算` and
+  `只有打開收音且探測到音軌的頻道才會掛音訊輸出`.
 - **QCC's event search answers with a *total count* and pages with raw `NEXT`/`PREV`, not a second
   query.** `SEARCH_EVENT` is the binary NEMO command behind the CMS event log page: 16-byte
   `"SEARCH_EVENT"` + u32 `0x150` (body length) + u32 page size + the 336-byte

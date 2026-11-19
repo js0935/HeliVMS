@@ -31,26 +31,54 @@ internal sealed class QctekLiveStreamSource : IQctekLiveSource
     private readonly Process _process;
     private readonly string _source;
     private readonly Task _stderrDrain;
+    private readonly QctekUdpAudio? _audio;
 
-    private QctekLiveStreamSource(Process process, string source, Task stderrDrain)
+    private QctekLiveStreamSource(Process process, string source, Task stderrDrain, QctekUdpAudio? audio)
     {
         _process = process;
         _source = source;
         _stderrDrain = stderrDrain;
+        _audio = audio;
         Output = process.StandardOutput.BaseStream;
     }
 
     public Stream Output { get; }
+
+    /// <summary>音訊來源；沒有麥克風或操作員沒打開收音時是 <c>null</c>。</summary>
+    public IQctekLiveAudio? Audio => _audio;
 
     /// <summary>
     /// 啟動 ffmpeg；啟動失敗（ffmpeg 不在、行程起不來）回 <c>null</c>——呼叫端會對
     /// 該頻道每秒回狀態幀，而不是讓 live 迴圈卡住。攝影機層的失敗（連不上、無授權）
     /// 要到 ffmpeg 跑起來之後才會發生，那時 stdout 沒有資料、狀態幀會說「尚無影格」。
     /// </summary>
-    public static QctekLiveStreamSource? TryOpen(string url, Action<string>? log)
+    /// <param name="url">RTSP 位址或錄影檔路徑（會先遮蔽帳密再寫日誌）。</param>
+    /// <param name="log">診斷輸出（<c>%TEMP%\helivms-qctek.log</c>）；<c>null</c>＝不記錄。</param>
+    /// <param name="withAudio">
+    /// true＝同一個行程多掛一個 µ-law 輸出到本機 UDP（<see cref="QctekUdpAudio"/>）。
+    /// <b>只能</b>在已探測到可轉碼音軌時傳 true：沒有音軌的來源掛 <c>-map 0:a:0</c>
+    /// 會讓 ffmpeg 直接結束，連畫面都沒有（見 <see cref="QctekAudioArguments"/>）。
+    /// </param>
+    public static QctekLiveStreamSource? TryOpen(string url, Action<string>? log, bool withAudio = false)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(url);
         var safe = RtspUri.Redact(url);
+
+        // 埠必須在行程啟動前就綁好：埠號是 ffmpeg 的引數，而「先綁著沒人讀」不會
+        // 反壓來源（UDP）。
+        QctekUdpAudio? audio = null;
+        if (withAudio)
+        {
+            try
+            {
+                audio = new QctekUdpAudio();
+            }
+            catch (Exception ex)
+            {
+                // 綁不到埠只是沒有聲音：影像照常，不要讓整個頻道黑屏。
+                log?.Invoke($"QCTEK live：音訊埠綁定失敗，改為只有影像：{ex.GetType().Name} {ex.Message}");
+            }
+        }
 
         var psi = new ProcessStartInfo
         {
@@ -64,7 +92,7 @@ internal sealed class QctekLiveStreamSource : IQctekLiveSource
 
         // 引數由 Qctek 專案的純函式組出（即時影像與遠端回放共用；檔案來源會加 -re，
         // 且 -re 必須在 -i 之前——見 QctekSourceArguments）。
-        foreach (var argument in QctekSourceArguments.Build(url))
+        foreach (var argument in QctekSourceArguments.Build(url, audio?.Port ?? 0))
         {
             psi.ArgumentList.Add(argument);
         }
@@ -108,11 +136,12 @@ internal sealed class QctekLiveStreamSource : IQctekLiveSource
                 }
             });
 
-            log?.Invoke($"QCTEK live：來源已啟動（{safe}，pid {process.Id}）");
-            return new QctekLiveStreamSource(process, safe, drain);
+            log?.Invoke($"QCTEK live：來源已啟動（{safe}，pid {process.Id}{(audio is null ? string.Empty : $"，音訊埠 {audio.Port}")}）");
+            return new QctekLiveStreamSource(process, safe, drain, audio);
         }
         catch (Exception ex)
         {
+            audio?.Dispose();
             log?.Invoke($"QCTEK live：來源啟動失敗（{safe}）：{ex.GetType().Name} {ex.Message}");
             return null;
         }
@@ -144,6 +173,7 @@ internal sealed class QctekLiveStreamSource : IQctekLiveSource
 
         Output.Dispose();
         _process.Dispose();
+        _audio?.Dispose();
 
         try
         {

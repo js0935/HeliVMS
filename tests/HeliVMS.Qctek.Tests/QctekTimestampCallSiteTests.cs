@@ -12,8 +12,8 @@ namespace HeliVMS.Qctek.Tests;
 /// <see cref="QctekTimestampsTests"/> 行為測試釘住，這裡釘的是「兩條路徑都還在用它」。
 /// </para>
 /// <para>
-/// 不是「有呼叫就好」：即時影像那兩處（視訊、音訊）都必須是同一份換算，
-/// 只改一處的症狀是音訊與影像各差一個數量級。
+/// 不是「有呼叫就好」：即時影像那三處（視訊、開流那一包音訊、之後每 125ms 的音訊）
+/// 都必須是同一份換算，只改一處的症狀是音訊與影像各差一個數量級。
 /// </para>
 /// </remarks>
 public sealed class QctekTimestampCallSiteTests
@@ -23,7 +23,8 @@ public sealed class QctekTimestampCallSiteTests
     {
         var live = ReadSource("src/HeliVMS.Qctek/Live/QctekLiveSession.cs");
 
-        Assert.Equal(2, Count(live, "QctekTimestamps.MicrosecondOfSecond(wallClock)"));
+        // 三個寫出點：Tick 的視訊、PumpAudio 的持續音訊、StartChannel 的開流音訊。
+        Assert.Equal(3, Count(live, "QctekTimestamps.MicrosecondOfSecond(wallClock)"));
         Assert.DoesNotContain("UtcDateTime.Microsecond", live);
     }
 

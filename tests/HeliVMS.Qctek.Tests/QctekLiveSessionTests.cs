@@ -130,7 +130,7 @@ public class QctekLiveSessionTests
 
     // ── 端到端（loopback + 假來源）─────────────────────────────────────────
 
-    private sealed class FakeLiveSource(byte[] payload) : IQctekLiveSource
+    private sealed class FakeLiveSource(byte[] payload, IQctekLiveAudio? audio = null) : IQctekLiveSource
     {
         private readonly MemoryStream _stream = new(payload);
 
@@ -138,9 +138,107 @@ public class QctekLiveSessionTests
 
         public Stream Output => _stream;
 
+        public IQctekLiveAudio? Audio => audio;
+
         public ValueTask DisposeAsync()
         {
             Disposed++;
+            _stream.Dispose();
+            return ValueTask.CompletedTask;
+        }
+    }
+
+    /// <summary>假的音訊來源：依固定大小的「datagram」吐出 µ-law 位元組，吐完回 0。</summary>
+    private sealed class FakeLiveAudio(byte[] payload, int chunk = 200) : IQctekLiveAudio
+    {
+        private int _offset;
+
+        public int Reads { get; private set; }
+
+        public int Read(Span<byte> destination)
+        {
+            if (_offset >= payload.Length)
+            {
+                return 0;
+            }
+
+            var take = Math.Min(Math.Min(chunk, destination.Length), payload.Length - _offset);
+            payload.AsSpan(_offset, take).CopyTo(destination);
+            _offset += take;
+            Reads++;
+            return take;
+        }
+    }
+
+    /// <summary>
+    /// 影像讀不完的來源：先吐一次影像，之後阻塞到被釋放。
+    /// </summary>
+    /// <remarks>
+    /// 音訊由 tick 執行緒從另一個來源讀，影像一旦 EOF，消費執行緒的收尾會把整個來源
+    /// 釋放（連音訊一起），音訊測試就永遠等不到第二包。
+    /// </remarks>
+    private sealed class NeverEndingStream(byte[] payload) : Stream
+    {
+        private readonly MemoryStream _inner = new(payload);
+        private readonly ManualResetEventSlim _released = new(false);
+
+        public override int Read(byte[] buffer, int offset, int count)
+        {
+            var read = _inner.Read(buffer, offset, count);
+            if (read > 0)
+            {
+                return read;
+            }
+
+            _released.Wait(TimeSpan.FromSeconds(30));
+            return 0;
+        }
+
+        public override bool CanRead => true;
+
+        public override bool CanSeek => false;
+
+        public override bool CanWrite => false;
+
+        public override long Length => throw new NotSupportedException();
+
+        public override long Position
+        {
+            get => throw new NotSupportedException();
+            set => throw new NotSupportedException();
+        }
+
+        public override void Flush()
+        {
+        }
+
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+
+        public override void SetLength(long value) => throw new NotSupportedException();
+
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                _released.Set();
+            }
+
+            base.Dispose(disposing);
+        }
+    }
+
+    private sealed class EndlessLiveSource(byte[] payload, IQctekLiveAudio? audio) : IQctekLiveSource
+    {
+        private readonly NeverEndingStream _stream = new(payload);
+
+        public Stream Output => _stream;
+
+        public IQctekLiveAudio? Audio => audio;
+
+        public ValueTask DisposeAsync()
+        {
             _stream.Dispose();
             return ValueTask.CompletedTask;
         }
@@ -799,5 +897,157 @@ public class QctekLiveSessionTests
         var summary = Assert.Single(logs, line => line.Contains("即時影像通道結束", StringComparison.Ordinal));
         Assert.Matches(@"狀態 [1-9]\d* 幀", summary);
         Assert.Contains("影像 0 幀", summary);
+    }
+
+    [Fact]
+    public async Task 有麥克風的頻道會持續送出µlaw音訊幀()
+    {
+        // 真機每個 tick 送 1–2 包 type=2（約 8 包/秒、每包 1000 bytes 的 G.711 µ-law）。
+        // 這裡釘住三件事：payload 是來源真的聲音（不是近靜音樣板）、長度固定 1000、
+        // 而且節奏是「每 125ms 一包」而不是一次倒完——一次倒完 QCC 的播放器追不上，
+        // 聲音會斷斷續續，而畫面完全正常。
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+        var samples = Enumerable.Repeat((byte)0x55, 4000).ToArray(); // 4 幀
+        var source = new EndlessLiveSource(AnnexBStream(), new FakeLiveAudio(samples));
+        var context = new LiveContext { Factory = (_, _) => source };
+        await using var server = new NemoServer(context, IPAddress.Loopback);
+        server.Start();
+
+        using var client = new TcpClient();
+        await client.ConnectAsync(IPAddress.Loopback, server.Port, timeout.Token);
+        var stream = client.GetStream();
+        await LoginAsync(stream, timeout.Token);
+
+        using var keepAliveCts = CancellationTokenSource.CreateLinkedTokenSource(timeout.Token);
+        var keepAlives = KeepAlive(0, 0);
+        var pacer = Task.Run(async () =>
+        {
+            try
+            {
+                while (!keepAliveCts.IsCancellationRequested)
+                {
+                    await stream.WriteAsync(keepAlives, keepAliveCts.Token);
+                    await Task.Delay(250, keepAliveCts.Token);
+                }
+            }
+            catch (Exception)
+            {
+            }
+        });
+
+        try
+        {
+            var frames = new List<FramPacket>();
+            var arrivals = new List<DateTime>();
+            var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
+            while (frames.Count < 4 && DateTime.UtcNow < deadline)
+            {
+                var packet = await ReadFramAsync(stream, timeout.Token);
+                if (packet.Status == 0 && packet.Type == 2 && packet.Payload.Length == 1000 && packet.Payload[0] == 0x55)
+                {
+                    frames.Add(packet);
+                    arrivals.Add(DateTime.UtcNow);
+                }
+            }
+
+            Assert.Equal(4, frames.Count);
+
+            foreach (var frame in frames)
+            {
+                Assert.Equal(0, frame.Channel);
+                Assert.Equal(2, BinaryPrimitives.ReadInt32LittleEndian(frame.Media.AsSpan(0x00)));
+                Assert.Equal(200, BinaryPrimitives.ReadInt32LittleEndian(frame.Media.AsSpan(0x04)));
+                Assert.Equal(1000, BinaryPrimitives.ReadInt32LittleEndian(frame.Media.AsSpan(0x08)));
+                Assert.Equal(0, BinaryPrimitives.ReadInt32LittleEndian(frame.Media.AsSpan(0x0c)));
+                Assert.Equal(0, BinaryPrimitives.ReadInt32LittleEndian(frame.Media.AsSpan(0x10)));
+                Assert.All(frame.Payload, b => Assert.Equal(0x55, b));
+            }
+
+            // 三包之間至少 3 × 125ms；一次倒完時這個間隔是 0。
+            var spacing = arrivals[^1] - arrivals[0];
+            Assert.True(
+                spacing >= TimeSpan.FromMilliseconds(250),
+                $"四包音訊在 {spacing.TotalMilliseconds:F0}ms 內全部送完：QCC 的播放器追不上，聲音會斷斷續續。");
+        }
+        finally
+        {
+            keepAliveCts.Cancel();
+            try
+            {
+                await pacer;
+            }
+            catch (Exception)
+            {
+            }
+        }
+    }
+
+    [Fact]
+    public async Task 沒有麥克風的頻道只在開流時送一包音訊()
+    {
+        // 加入音訊後的預設行為必須與之前完全相同：沒有音軌的來源不能反覆送出假的
+        // 音訊幀（客戶端當成真的聲音播放，聽到的卻是一片安靜），但開流那一包要留著
+        // ——真機的第一個封包就是 type=2，少了它客戶端認為這台裝置沒有音軌。
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+        var context = new LiveContext { Factory = (_, _) => new FakeLiveSource(AnnexBStream()) };
+        await using var server = new NemoServer(context, IPAddress.Loopback);
+        server.Start();
+
+        using var client = new TcpClient();
+        await client.ConnectAsync(IPAddress.Loopback, server.Port, timeout.Token);
+        var stream = client.GetStream();
+        await LoginAsync(stream, timeout.Token);
+
+        using var keepAliveCts = CancellationTokenSource.CreateLinkedTokenSource(timeout.Token);
+        var keepAlives = KeepAlive(0, 0);
+        var pacer = Task.Run(async () =>
+        {
+            try
+            {
+                while (!keepAliveCts.IsCancellationRequested)
+                {
+                    await stream.WriteAsync(keepAlives, keepAliveCts.Token);
+                    await Task.Delay(250, keepAliveCts.Token);
+                }
+            }
+            catch (Exception)
+            {
+            }
+        });
+
+        try
+        {
+            var audioFrames = 0;
+            using var window = CancellationTokenSource.CreateLinkedTokenSource(timeout.Token);
+            window.CancelAfter(TimeSpan.FromMilliseconds(1500));
+            try
+            {
+                while (true)
+                {
+                    var packet = await ReadFramAsync(stream, window.Token);
+                    if (packet.Status == 0 && packet.Type == 2)
+                    {
+                        audioFrames++;
+                    }
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                // 觀察窗結束（資料流還在，只是這一秒沒有更多音訊幀）。
+            }
+
+            Assert.Equal(1, audioFrames);
+        }
+        finally
+        {
+            keepAliveCts.Cancel();
+            try
+            {
+                await pacer;
+            }
+            catch (Exception)
+            {
+            }
+        }
     }
 }

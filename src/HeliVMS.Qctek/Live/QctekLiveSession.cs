@@ -356,6 +356,9 @@ internal sealed class LiveRunSync
                 continue;
             }
 
+            // 音訊先於影像：影像有積壓時下面的 `continue` 會跳過這一輪，但音軌沒有
+            // 「補送」這回事——跟著跳過就是聲音斷斷續續。
+            PumpAudio(state, now, wallClock);
             if (state.Queue.TryPop(out var unit) && unit is not null)
             {
                 // 時戳在寫出前以牆鐘蓋章：客戶端 DecProc 以封包時戳對牆鐘調速，
@@ -393,6 +396,65 @@ internal sealed class LiveRunSync
             _statusFrames++;
             state.LastStatusAt = wallClock;
         }
+    }
+
+    /// <summary>
+    /// 抽乾來源的音訊並每 125ms 寫出一個 <c>type=2</c> 幀；來源沒有音訊時什麼都不做。
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// 先讀、再（到點才）送：位元組留在 socket 裡不會變多，但留著只會讓聲音比自己
+    /// 蓋的時戳更舊。讀取是非阻塞的（<see cref="IQctekLiveAudio.Read"/>），所以每
+    /// 33ms 的 tick 可以放心走一圈。
+    /// </para>
+    /// <para>
+    /// 為什麼是固定 125ms 而不是「有幾幀送幾幀」：客戶端把每包當成 125ms 的音訊播放，
+    /// 長度與節奏要一致才是原速；積壓時 <see cref="AudioFrameAssembler"/> 丟最舊的整幀，
+    /// 我們也仍然一次只送一幀，避免一次灌三包讓播放端追不上。
+    /// </para>
+    /// </remarks>
+    private void PumpAudio(ChannelState state, long now, DateTimeOffset wallClock)
+    {
+        var audio = state.Source?.Audio;
+        var assembler = state.Audio;
+        if (audio is null || assembler is null)
+        {
+            return;
+        }
+
+        while (true)
+        {
+            int count;
+            try
+            {
+                count = audio.Read(state.AudioReadBuffer);
+            }
+            catch (Exception)
+            {
+                // 音訊收尾（socket 已關）或格式錯誤：聲音可以沒有，tick 不能停。
+                break;
+            }
+
+            if (count <= 0)
+            {
+                break;
+            }
+
+            assembler.Append(state.AudioReadBuffer.AsSpan(0, count));
+        }
+
+        if (now < state.NextAudioAtMs || !assembler.TryTakeFrame(state.AudioFrame))
+        {
+            return;
+        }
+
+        Write(QctekLivePackets.AudioFrame(
+            state.Channel,
+            wallClock.ToUnixTimeSeconds(),
+            QctekTimestamps.MicrosecondOfSecond(wallClock),
+            state.AudioFrame));
+        _audioFrames++;
+        state.NextAudioAtMs = now + QctekAudioArguments.FrameIntervalMilliseconds;
     }
 
     private void Write(byte[] packet)
@@ -472,6 +534,9 @@ internal sealed class LiveRunSync
         }
 
         state.SetSource(source);
+        // 有音軌才建組帧器：沒有音訊的來源在 tick 裡連讀都不讀（與加入音訊前完全相同）。
+        state.Audio = source.Audio is null ? null : new AudioFrameAssembler();
+        state.NextAudioAtMs = 0;
         state.ReaderCts = new CancellationTokenSource();
         var cts = state.ReaderCts;
         state.Reader = new Thread(() => ReadSourceSync(state, cts.Token))
@@ -483,7 +548,8 @@ internal sealed class LiveRunSync
 
         // 黃金抓包 stream 0 的第 0 個封包就是 type=2 音訊幀，它與影像無關（客戶端
         // GetFrameQCTekAudio 把它當音軌）——所以這裡送的是「有音軌」的先手，不是
-        // 「叫醒畫面」的握手。真機此後每 tick 都送 1–2 包，我們只送這一包。
+        // 「叫醒畫面」的握手。沒有麥克風的頻道這就是唯一一包；有麥克風時之後由
+        // PumpAudio 每 125ms 接著送真的 µ-law。
         try
         {
             var wallClock = DateTimeOffset.UtcNow;
@@ -575,6 +641,8 @@ internal sealed class LiveRunSync
         var source = state.TakeSource();
         state.LastStatusAt = DateTimeOffset.MinValue;
         state.Queue.Clear();
+        state.Audio = null;          // 舊聲音不該接到下一條來源的畫面上
+        state.NextAudioAtMs = 0;
         state.ReaderCts?.Cancel();
 
         var reader = state.Reader;
@@ -737,6 +805,18 @@ internal sealed class ChannelState
     public CancellationTokenSource? ReaderCts { get; set; }
 
     public LiveFrameQueue Queue { get; } = new(QctekLiveSession.QueueCapacity);
+
+    /// <summary>音訊組帧器；來源沒有音軌時是 <c>null</c>（tick 什麼都不做）。</summary>
+    public AudioFrameAssembler? Audio { get; set; }
+
+    /// <summary>下一個音訊幀可以送出的時刻（<see cref="Environment.TickCount64"/>）。</summary>
+    public long NextAudioAtMs { get; set; }
+
+    /// <summary>一次從來源讀取的暫存（非阻塞讀，一個 datagram 遠小於此）。</summary>
+    public byte[] AudioReadBuffer { get; } = new byte[4096];
+
+    /// <summary>要寫出的那一幀（固定 1000 bytes，避免每幀配置）。</summary>
+    public byte[] AudioFrame { get; } = new byte[QctekAudioArguments.FrameLength];
 
     /// <summary>上次狀態幀（或影格）送出的時刻；狀態幀靠它節流到每秒一個。</summary>
     public DateTimeOffset LastStatusAt { get; set; } = DateTimeOffset.MinValue;
