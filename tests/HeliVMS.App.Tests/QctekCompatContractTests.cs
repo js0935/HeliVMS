@@ -210,6 +210,31 @@ public sealed class QctekCompatContractTests
     }
 
     [Fact]
+    public void PTZ接線走桌面端裝置出口且有短逾時()
+    {
+        // PTZ 是 QCC 唯一會「連續送命令」的功能：搖桿按住時每秒十幾條，而每一條都要換成
+        // 一次 ONVIF 往返。接線斷掉或逾時太長的症狀都一樣——面板連得上、按了卻沒反應，
+        // 兩邊日誌乾淨。這條契約把「誰把控制器接上相容層」與「裝置出口的形狀」釘住：
+        //  ① QctekCompatHost 必須建立長生命週期控制器（速度／自動巡航要跨連線）；
+        //  ② 裝置出口必須查頻道→攝影機（ChannelRepository.List），並用短逾時，
+        //     否則一台失聯攝影機會讓 QCC 的 PTZ 面板整個卡住；
+        //  ③ 動作要真的落到 ONVIF（ContinuousMove／GotoPreset），AutoPan 則明確回 false。
+        var host = SourceContract.Read(Host);
+        Assert.Contains("_ptz = new QctekPtzController(new QctekPtzDevice(store, Diag));", host);
+        Assert.Contains("public QctekPtzController? Ptz => _ptz;", host);
+
+        var device = SourceContract.Read("src/HeliVMS.App/Services/QctekPtzDevice.cs");
+        Assert.Contains("TimeSpan.FromSeconds(5)", device);
+        Assert.Contains("_channels.List()", device);
+        Assert.Contains("ContinuousMoveAsync", device);
+        Assert.Contains("GotoPresetAsync", device);
+
+        // ONVIF 沒有自動巡航與對焦的連續移動：硬送會變成「面板顯示在動、畫面不動」，
+        // 因此這幾個動作明確回 false（仍是已知命令，不可落到 unknown）。
+        Assert.Contains("case QctekPtzAction.AutoPan:", device);
+    }
+
+    [Fact]
     public void 即時影像來源的ffmpeg錯誤會留在診斷日誌()
     {
         // 攝影機層的失敗只出現在 ffmpeg stderr。先前只把 stderr 讀掉不記錄，

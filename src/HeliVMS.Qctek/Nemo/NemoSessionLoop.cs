@@ -145,6 +145,24 @@ public static class NemoSessionLoop
                                 log);
                             return;
                         }
+
+                        if (result.Ptz)
+                        {
+                            // PTZ_Connect 的成功回覆（"OK …"＋NUL）已寫出：從現在起同一條
+                            // 連線是 raw 文字 PTZ 通道（客戶端立刻送 PTZ_STOP，之後是
+                            // 搖桿命令）。失敗（"FAILED"，無 NUL）刻意不交棒——客戶端看到
+                            // 第一個字元不是 'O' 就自己關線，留給 NEMO 狀態機只會讓那條
+                            // 連線卡著等資料。
+                            pending.Consume(result.Consumed);
+                            QctekPtzSession.RunSync(
+                                stream,
+                                pending.ToArray(),
+                                remote,
+                                context,
+                                result.PtzChannel,
+                                log);
+                            return;
+                        }
                     }
 
                     pending.Consume(result.Consumed);

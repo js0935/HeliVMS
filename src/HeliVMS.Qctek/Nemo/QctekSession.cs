@@ -91,6 +91,11 @@ public readonly record struct QctekRequest(
 /// </param>
 /// <param name="PlaybackStartUtc">回放的起播時刻（UTC；OPENFILE 的時間參數解析結果）。</param>
 /// <param name="PlaybackChannel">回放的 0-based 頻道號。</param>
+/// <param name="Ptz">
+/// 這次回覆是 <c>PTZ_Connect</c> 的<b>成功</b>回應：寫完 <see cref="Reply"/> 之後，
+/// 同一條連線要交給 <see cref="QctekPtzSession"/> 接手（raw 文字命令、動作不回覆）。
+/// </param>
+/// <param name="PtzChannel">PTZ 連線的 0-based 頻道號。</param>
 public readonly record struct QctekSessionResult(
     int Consumed,
     byte[]? Reply,
@@ -99,7 +104,9 @@ public readonly record struct QctekSessionResult(
     bool Live = false,
     bool Playback = false,
     DateTime PlaybackStartUtc = default,
-    int PlaybackChannel = 0);
+    int PlaybackChannel = 0,
+    bool Ptz = false,
+    int PtzChannel = 0);
 
 /// <summary>
 /// 單一 TCP 連線的 NEMO 協定狀態機：分辨 raw／NEMO 框、處理 <c>QCV8001_AUTH</c>
@@ -345,6 +352,22 @@ public sealed class QctekSession
 
         // 挑戰交換途中來了別的命令：丟掉過期的待辦狀態，當成新命令處理。
         _pending = null;
+
+        // PTZ 走另一條連線、不經 QCV8001_AUTH 挑戰（真機 QC_Server 的 PTZ_Connect
+        // 分支直接回 OK／FAILED，成功後同一條連線改成 raw 命令迴圈）。必須排在
+        // RequiresAuthorization 之前：一旦被當成「需要授權」，客戶端會收到 27 bytes
+        // 的挑戰而不是 OK，PTZ 面板永遠停在「連線中」而兩邊日誌乾淨。
+        if (QctekCommandHandler.IsPtzConnect(request))
+        {
+            var reply = QctekCommandHandler.HandlePtzConnect(request, _context, out var accepted);
+            return new QctekSessionResult(
+                consumed,
+                reply,
+                request.Command,
+                false,
+                Ptz: accepted,
+                PtzChannel: QctekCommandHandler.PtzChannel(request));
+        }
 
         // SEARCH_EVENT 不經 QCV8001_AUTH 挑戰（QC_RM_Event::SearchEvent 直接送框），
         // 而且它的回應要分頁——由連線層處理，不進 QctekCommandHandler。

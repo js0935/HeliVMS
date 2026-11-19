@@ -424,6 +424,7 @@ public sealed class QctekCompatHost : IDisposable
         private readonly SegmentRepository _segments;
         private readonly DeviceRepository _devices;
         private readonly EventLogRepository _eventLog;
+        private readonly QctekPtzController _ptz;
 
         public DeviceContext(SqliteStore store)
         {
@@ -433,7 +434,15 @@ public sealed class QctekCompatHost : IDisposable
             _segments = new SegmentRepository(store);
             _devices = new DeviceRepository(store, new AuditLogRepository(store));
             _eventLog = new EventLogRepository(store);
+
+            // PTZ 的狀態（速度、自動巡航）活得比單一連線長：真機把它存在 QC_UsageHabit
+            // （每頻道），而 QCC 每次開 PTZ 面板都是一條新連線。控制器放這裡的原因是
+            // 「下一條連線要看到上一條設定的速度」，不是為了共用連線。
+            _ptz = new QctekPtzController(new QctekPtzDevice(store, Diag));
         }
+
+        /// <summary>PTZ 控制器（<c>PTZ_Connect</c> 與其後的 raw 命令迴圈用）。</summary>
+        public QctekPtzController? Ptz => _ptz;
 
         /// <summary>
         /// 對 CMS 宣告 <c>QCV8001</c>：QCC 以學到的產品字串決定後續路徑

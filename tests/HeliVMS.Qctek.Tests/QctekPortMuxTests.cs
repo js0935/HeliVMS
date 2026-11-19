@@ -105,6 +105,17 @@ public class QctekPortMuxTests
     }
 
     [Fact]
+    public void PTZ連線命令會被分到NEMO而不是HTTP()
+    {
+        // PTZ 走同一台主機、同一個埠上的**另一條 TCP 連線**，開場是 raw 的
+        // "PTZ_Connect <ch>"＋NUL（沒有 NEMO 標頭）。分錯的話這條連線會被丟給
+        // Kestrel（回 400 並關線），QCC 的 PTZ 面板只會顯示「連線失敗」。
+        Assert.Equal(
+            QctekMuxProtocol.Nemo,
+            QctekPortMux.Classify(Encoding.ASCII.GetBytes("PTZ_Connect 0\0")));
+    }
+
+    [Fact]
     public void 只收到半個動詞時會等更多位元組()
     {
         // TCP 不保證一次讀到完整的請求行。太早猜成 HTTP 會把 NEMO 命令送進 Kestrel；

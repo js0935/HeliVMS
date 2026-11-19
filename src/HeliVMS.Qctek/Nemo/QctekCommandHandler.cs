@@ -78,6 +78,16 @@ public interface IQctekDeviceContext
     /// ffmpeg 不可用時回 null。
     /// </summary>
     IQctekLiveSource? CreatePlaybackSource(string filePath);
+
+    /// <summary>
+    /// PTZ 控制器（<c>PTZ_Connect</c> 與其後的 raw 命令迴圈用）。
+    /// <para>
+    /// 預設 <c>null</c>＝這個部署沒有接 ONVIF PTZ，<c>PTZ_Connect</c> 一律回
+    /// <c>FAILED</c>（QCC 的 PTZ 面板顯示不支援）。用 default interface member
+    /// 是為了不讓每一份測試假物件都被迫實作它——那些假物件測的是別的命令。
+    /// </para>
+    /// </summary>
+    QctekPtzController? Ptz => null;
 }
 
 /// <summary>
@@ -254,6 +264,52 @@ public static class QctekCommandHandler
     /// <summary>這條命令是否為回放開檔（OPENFILE/OPENSECOND）：成功回覆後交棒到回放通道。</summary>
     public static bool IsPlaybackStart(QctekRequest request)
         => request.Verb is "OPENFILE" or "OPENSECOND";
+
+    /// <summary>
+    /// 這條命令是否為 <c>PTZ_Connect</c>（開一條 PTZ 連線）。
+    /// <para>
+    /// 真機的 <c>PTZ_Connect</c> <b>不經</b> <c>QCV8001_AUTH</c> 挑戰：它自己就是
+    /// 「開一條新連線」的請求，成功回覆之後同一條連線改成 raw PTZ 命令迴圈。
+    /// 把它放進 <see cref="RequiresAuthorization"/> 會讓 QCC 的 PTZ 面板永遠停在
+    /// 「連線中」，而兩邊日誌都乾淨。
+    /// </para>
+    /// </summary>
+    public static bool IsPtzConnect(QctekRequest request)
+        => request.Framing == QctekFraming.Raw
+           && QctekPtzCommand.Parse(request.Command).Action == QctekPtzAction.Connect;
+
+    /// <summary><c>PTZ_Connect</c> 的 0-based 頻道號（<c>atoi</c> 語意；讀不懂＝0）。</summary>
+    public static int PtzChannel(QctekRequest request)
+        => QctekPtzCommand.Parse(request.Command).Argument;
+
+    /// <summary>
+    /// <c>PTZ_Connect &lt;ch&gt;</c> 的回覆：成功是 <c>"OK &lt;autopan&gt; 0 &lt;speed&gt;
+    /// &lt;presets&gt; "</c>＋NUL，失敗是 <c>"FAILED"</c> 共 7 bytes、<b>無</b> NUL。
+    /// </summary>
+    /// <param name="request">原始的 <c>PTZ_Connect</c> 命令（參數是頻道號）。</param>
+    /// <param name="context">裝置資訊（提供 <see cref="IQctekDeviceContext.Ptz"/>）。</param>
+    /// <param name="accepted">
+    /// 是否成功。只有成功才交棒到 <see cref="QctekPtzSession"/>；失敗時客戶端看到回應
+    /// 的第一個字元不是 <c>'O'</c> 就自己關線，留在 NEMO 狀態機反而會卡住那條連線。
+    /// </param>
+    public static byte[] HandlePtzConnect(
+        QctekRequest request,
+        IQctekDeviceContext context,
+        out bool accepted)
+    {
+        var state = context.Ptz?.Connect(PtzChannel(request));
+        if (state is null || !state.Value.Supported)
+        {
+            accepted = false;
+            return QctekReply.RawExact("FAILED");
+        }
+
+        accepted = true;
+        var s = state.Value;
+        // 真機 QC_Server FUN_180007d90：FUN_180001030(local_148, "OK %d 0 %d %d ",
+        // AutoPan, Speed+1, GetPresets) 之後寫 strlen+1 bytes——NUL 是回應的一部分。
+        return QctekReply.Raw($"OK {(s.AutoPan ? 1 : 0)} 0 {s.Speed} {s.PresetCount} ");
+    }
 
     /// <summary>
     /// OPENFILE 的起播時刻（UTC）：命令參數為寬鬆解析（年/月/日從數字辨識），
