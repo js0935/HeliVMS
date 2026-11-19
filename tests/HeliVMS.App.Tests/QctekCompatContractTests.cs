@@ -262,6 +262,11 @@ public sealed class QctekCompatContractTests
         Assert.Contains("QctekAudioArguments.ShouldAttach(", host);
         Assert.Contains("AudioProbeTtl", host); // 10 分鐘快取：開流不該每次多花一條 RTSP 工作階段
 
+        // 探測結果要留一行：操作員打開了「收音」卻沒聲音時，這是唯一能分辨
+        // 「沒有音軌／編碼不在白名單／探測失敗」的證據。
+        Assert.Contains("音訊探測：", host);
+        Assert.Contains("沒有可轉譯的音軌", host);
+
         // 埠要在行程啟動前綁好（埠號是 ffmpeg 的引數），而且音訊輸出必須由共用引數函式組出。
         var source = SourceContract.Read("src/HeliVMS.App/Services/QctekLiveStreamSource.cs");
         Assert.Contains("QctekUdpAudio", source);

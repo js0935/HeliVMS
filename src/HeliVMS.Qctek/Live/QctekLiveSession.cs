@@ -443,6 +443,17 @@ internal sealed class LiveRunSync
             assembler.Append(state.AudioReadBuffer.AsSpan(0, count));
         }
 
+        // 只記第一次：一次網路抖動就會丟好幾幀，每幀一行日誌會把真正的失敗洗掉
+        // （與影像積壓同一條規則）。這一行是「聲音斷斷續續」唯一能歸因的痕跡——
+        // 沒有它，現場只能說「聽起來不順」，而畫面完全正常。
+        if (assembler.DroppedFrames > 0 && !state.AudioDropLogged)
+        {
+            state.AudioDropLogged = true;
+            Log(
+                $"LIVE：頻道 {state.Channel} 的音訊積壓超過 " +
+                $"{QctekAudioArguments.MaxQueuedFrames} 幀，開始丟棄最舊的整幀（{_remote}）");
+        }
+
         if (now < state.NextAudioAtMs || !assembler.TryTakeFrame(state.AudioFrame))
         {
             return;
@@ -537,6 +548,7 @@ internal sealed class LiveRunSync
         // 有音軌才建組帧器：沒有音訊的來源在 tick 裡連讀都不讀（與加入音訊前完全相同）。
         state.Audio = source.Audio is null ? null : new AudioFrameAssembler();
         state.NextAudioAtMs = 0;
+        state.AudioDropLogged = false;   // 新來源重新計算（舊來源的丟棄不該算在它頭上）
         state.ReaderCts = new CancellationTokenSource();
         var cts = state.ReaderCts;
         state.Reader = new Thread(() => ReadSourceSync(state, cts.Token))
@@ -817,6 +829,9 @@ internal sealed class ChannelState
 
     /// <summary>要寫出的那一幀（固定 1000 bytes，避免每幀配置）。</summary>
     public byte[] AudioFrame { get; } = new byte[QctekAudioArguments.FrameLength];
+
+    /// <summary>是否已記錄過「音訊積壓丟棄」（只記第一次，避免每丟一幀就洗版）。</summary>
+    public bool AudioDropLogged { get; set; }
 
     /// <summary>上次狀態幀（或影格）送出的時刻；狀態幀靠它節流到每秒一個。</summary>
     public DateTimeOffset LastStatusAt { get; set; } = DateTimeOffset.MinValue;

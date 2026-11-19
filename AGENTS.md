@@ -1671,12 +1671,17 @@ Notes that will save you time:
   (µ-law is byte-aligned). (4) The opening `type=2` frame is still sent once even without a
   microphone (the real machine's first packet is audio; without it the client believes the
   device has no track), and `channels.listen_enabled` defaults to 0, so this changes nothing
-  until an operator turns it on. Test-side trap: an audio end-to-end test needs a video stream
-  that never ends (`NeverEndingStream`), because video EOF disposes the whole source, audio
-  included. Guarded by `QctekAudioArgumentsTests`, `AudioFrameAssemblerTests`,
+  until an operator turns it on. Two diagnostics exist because each answers a question nothing
+  else can: the probe writes one line naming the codec (or "no decodable track") on every fresh
+  probe — 10 min cache, so not once per stream open — which is the only way to tell "no
+  microphone" from "codec not in the whitelist" from "probe failed"; and the first audio
+  overflow writes one line (`音訊積壓超過 … 丟棄最舊的整幀`), never one per frame, which is the
+  only trace of "sound stutters, picture fine". Test-side trap: an audio end-to-end test needs a
+  video stream that never ends (`NeverEndingStream`), because video EOF disposes the whole
+  source, audio included. Guarded by `QctekAudioArgumentsTests`, `AudioFrameAssemblerTests`,
   `沒有音訊埠時引數與加入音訊前完全相同`, `有音訊埠時在影像輸出之後追加µlaw的第二個輸出`,
   `有麥克風的頻道會持續送出µlaw音訊幀`, `沒有麥克風的頻道只在開流時送一包音訊`,
-  `即時影像的視訊與音訊微秒欄位都走共用換算` and
+  `音訊積壓丟棄只記第一次`, `即時影像的視訊與音訊微秒欄位都走共用換算` and
   `只有打開收音且探測到音軌的頻道才會掛音訊輸出`.
 - **QCC's event search answers with a *total count* and pages with raw `NEXT`/`PREV`, not a second
   query.** `SEARCH_EVENT` is the binary NEMO command behind the CMS event log page: 16-byte

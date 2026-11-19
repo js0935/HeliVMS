@@ -587,10 +587,12 @@ public sealed class QctekCompatHost : IDisposable
             }
 
             var hasAudio = false;
+            string? codec = null;
             try
             {
                 var probe = StreamProbe.Probe(resolvedUrl, timeout: AudioProbeTimeout);
-                hasAudio = QctekAudioArguments.ShouldAttach(probe.AudioCodec);
+                codec = probe.AudioCodec;
+                hasAudio = QctekAudioArguments.ShouldAttach(codec);
             }
             catch (Exception ex)
             {
@@ -599,6 +601,14 @@ public sealed class QctekCompatHost : IDisposable
             }
 
             _audioProbe[key] = (hasAudio, now);
+
+            // 探測結果要留一行：操作員在頻道設定打開了「收音」，QCC 卻沒有聲音時，
+            // 這一行是唯一能分辨「沒有音軌／編碼不在白名單／探測失敗」的證據
+            // （探測有 10 分鐘快取，所以不會每次開流都寫）。
+            QctekCompatHost.Diag(hasAudio
+                ? $"QCTEK live：頻道 {channelId} 音訊探測：{codec}，會送出聲音"
+                : $"QCTEK live：頻道 {channelId} 已開啟收音但沒有可轉譯的音軌（{codec ?? "無音軌"}），不送聲音");
+
             return hasAudio;
         }
 

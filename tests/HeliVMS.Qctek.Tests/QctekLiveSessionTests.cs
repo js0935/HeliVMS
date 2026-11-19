@@ -1050,4 +1050,36 @@ public class QctekLiveSessionTests
             }
         }
     }
+
+    [Fact]
+    public async Task 音訊積壓丟棄只記第一次()
+    {
+        // 音訊沒有「補送」這回事，積壓超過半秒就丟最舊的整幀——但一次網路抖動會丟
+        // 好幾幀，每幀一行日誌等於把真正的失敗洗掉（與影像積壓同一條規則）。
+        // 這一行是現場「聲音斷斷續續、畫面完全正常」唯一能歸因的痕跡，所以既要有、
+        // 也只能有一行。
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+        var logs = new System.Collections.Concurrent.ConcurrentQueue<string>();
+
+        // 一個 tick 就讀進 8000 bytes＝8 幀，遠超過組帧器的 4 幀上限。
+        var source = new EndlessLiveSource(AnnexBStream(), new FakeLiveAudio(new byte[8000], chunk: 8000));
+        var context = new LiveContext { Factory = (_, _) => source };
+        await using var server = new NemoServer(context, IPAddress.Loopback, log: logs.Enqueue);
+        server.Start();
+
+        using var client = new TcpClient();
+        await client.ConnectAsync(IPAddress.Loopback, server.Port, timeout.Token);
+        var stream = client.GetStream();
+        await LoginAsync(stream, timeout.Token);
+        await stream.WriteAsync(KeepAlive(0, 0), timeout.Token);
+
+        await WaitForLogAsync(logs, "音訊積壓超過", timeout.Token);
+
+        // 再等一段時間讓後續的丟棄也發生：仍然只能有一行。
+        await Task.Delay(500, timeout.Token);
+
+        var lines = logs.Where(line => line.Contains("音訊積壓超過", StringComparison.Ordinal)).ToList();
+        Assert.Single(lines);
+        Assert.Contains("丟棄最舊的整幀", lines[0]);
+    }
 }
