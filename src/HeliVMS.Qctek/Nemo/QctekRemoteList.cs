@@ -30,7 +30,7 @@ namespace HeliVMS.Qctek.Nemo;
 /// Excel 欄 2/3/4/5（預設 -1）、欄 7（顏色，預設 <see cref="DefaultCameraColor"/>）、
 /// 欄 6（u16，預設 0）。使用者列是 <c>__SQL_USER_LIST</c>：<c>+0x00</c> 是帳號資料的
 /// <c>0xEDE9</c> 標記、<c>+0x08</c> 是權限位元、<c>+0x0c</c> 是帳號序號（負值＝已刪除，
-/// 產生端會跳過）、<c>+0x18</c> 的 <c>0x20</c> 位元標記「目前登入者」，名稱是
+/// 產生端會跳過）、<c>+0x18</c> 那個 u32 的 <c>0x20</c> 位元標記「目前登入者」，名稱是
 /// <c>+0x28</c> 的 <b>32-byte ANSI</b> 字串（<c>FindAccountIndexByName</c> 逐 byte 比對）。
 /// </para>
 /// <para>
@@ -82,7 +82,9 @@ public static class QctekRemoteList
     public const ushort UserRowFlags = 0x1e;
 
     /// <summary>
-    /// 權限位元的「目前登入者」旗標（<c>isCurrentUser</c> 只找這個位元）。
+    /// 使用者列 <c>+0x18</c> 那個 u32 的「目前登入者」旗標（<c>isCurrentUser</c> 只找
+    /// 這個位元）。注意它<b>不是</b>權限位元（<c>+0x08</c>）：真機的 <c>GetUsersList</c>
+    /// 對 <c>+0x18</c> 做 <c>&amp;~0x20</c>／<c>|0x20</c>，寫在權限位元會被驗證端忽略。
     /// </summary>
     public const int CurrentUserBit = 0x20;
 
@@ -157,15 +159,23 @@ public static class QctekRemoteList
             BinaryPrimitives.WriteUInt16LittleEndian(row.Slice(0x06), UserRowFlags);
 
             var permission = user.Permission;
-            if (user.IsCurrent) permission |= CurrentUserBit;
             BinaryPrimitives.WriteInt32LittleEndian(row.Slice(0x08), permission);
 
-            // 帳號序號：驗證端要求非負（負值＝已刪除），1 起算避免 0 被當成「未指定」。
-            BinaryPrimitives.WriteInt32LittleEndian(row.Slice(0x0c), i + 1);
+            // 帳號序號：驗證端要求非負（負值＝已刪除）。這是<b>帳號自己的序號</b>，
+            // 不是列的位置——QCC 就是拿它去呼叫 /QCRemoveAccount.bin?usr=<序號>
+            // 與更新端點的 +0x0c，用列位置會刪到／改到另一個帳號。
+            BinaryPrimitives.WriteInt32LittleEndian(row.Slice(0x0c), user.Sequence);
 
             // +0x10／+0x18／+0x20 是建立／到期／修改時間（真機 user.bin 是 Unix 秒）。
             // 我們不知道 HeliVMS 帳號在「裝置帳號」上的這三個時間，留 0 表示未知：
             // 編一個假期限會讓 QCC 顯示一個不存在的到期日，那比顯示 0 更糟。
+            //
+            // +0x18 同時是「目前登入者」旗標所在的 u32（isCurrentUser 讀的是它）。
+            // 時間留 0 正好讓這個位元不會與時間欄混淆。
+            BinaryPrimitives.WriteUInt32LittleEndian(
+                row.Slice(0x18),
+                user.IsCurrent ? (uint)CurrentUserBit : 0u);
+
             WriteAnsi(row.Slice(0x28, 32), user.Username);
 
             // +0x48 起是真機的 32-byte 密碼雜湊。這裡刻意全留 0——HeliVMS 的雜湊不外流。
@@ -231,6 +241,12 @@ public sealed record QctekRemoteCamera(string Name, string Group = "");
 
 /// <summary>
 /// RMUL 的一列帳號。<paramref name="Permission"/> 用 <see cref="QctekRemoteList.PermissionFor"/>
-/// 換算；<paramref name="IsCurrent"/> 只在使用者真的用該帳號認證時才設。
+/// 換算；<paramref name="Sequence"/> 是帳號自己的序號（HeliVMS 用 <c>users.id</c>），
+/// QCC 之後的刪除／更新都用它指名帳號；<paramref name="IsCurrent"/> 只在使用者真的用
+/// 該帳號認證時才設（寫在 <c>+0x18</c>，不是權限位元）。
 /// </summary>
-public sealed record QctekRemoteUser(string Username, int Permission, bool IsCurrent = false);
+public sealed record QctekRemoteUser(
+    string Username,
+    int Permission,
+    int Sequence,
+    bool IsCurrent = false);

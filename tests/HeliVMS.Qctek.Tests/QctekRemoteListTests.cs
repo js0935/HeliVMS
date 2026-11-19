@@ -40,7 +40,7 @@ public class QctekRemoteListTests
     {
         var body = QctekRemoteList.UserList(
         [
-            new QctekRemoteUser("admin", QctekRemoteList.AdminPermission),
+            new QctekRemoteUser("admin", QctekRemoteList.AdminPermission, 1),
         ]);
 
         Assert.Equal(QctekRemoteList.UserMagic, ReadU32(body, 0));
@@ -107,7 +107,7 @@ public class QctekRemoteListTests
     {
         var body = QctekRemoteList.UserList(
         [
-            new QctekRemoteUser("operator", QctekRemoteList.DefaultPermission),
+            new QctekRemoteUser("operator", QctekRemoteList.DefaultPermission, 3),
         ]);
         var row = body.AsSpan(0x10, 0x228);
 
@@ -130,20 +130,41 @@ public class QctekRemoteListTests
     }
 
     [Fact]
-    public void 目前登入者會加上權限位元的二十()
+    public void 目前登入者標記寫在偏移二十四而不是權限位元()
     {
         var body = QctekRemoteList.UserList(
         [
-            new QctekRemoteUser("admin", QctekRemoteList.AdminPermission, IsCurrent: true),
-            new QctekRemoteUser("viewer", QctekRemoteList.DefaultPermission),
+            new QctekRemoteUser("admin", QctekRemoteList.AdminPermission, 4, IsCurrent: true),
+            new QctekRemoteUser("viewer", QctekRemoteList.DefaultPermission, 5),
         ]);
 
-        var first = BinaryPrimitives.ReadInt32LittleEndian(body.AsSpan(0x10 + 0x08));
-        var second = BinaryPrimitives.ReadInt32LittleEndian(body.AsSpan(0x10 + 0x228 + 0x08));
+        // 權限位元（+0x08）不得被加上 0x20：真機的 isCurrentUser 讀的是 +0x18 那個 u32，
+        // 把旗標寫進權限會讓驗證端忽略它（QCC 因此不認得「哪一個是我」）。
+        var firstPermission = BinaryPrimitives.ReadInt32LittleEndian(body.AsSpan(0x10 + 0x08));
+        var secondPermission = BinaryPrimitives.ReadInt32LittleEndian(body.AsSpan(0x10 + 0x228 + 0x08));
+        Assert.Equal(0x1c, firstPermission);
+        Assert.Equal(0x08, secondPermission);
 
-        Assert.Equal(0x1c | 0x20, first);
+        var firstFlag = BinaryPrimitives.ReadUInt32LittleEndian(body.AsSpan(0x10 + 0x18));
+        var secondFlag = BinaryPrimitives.ReadUInt32LittleEndian(body.AsSpan(0x10 + 0x228 + 0x18));
+        Assert.Equal((uint)QctekRemoteList.CurrentUserBit, firstFlag);
         Assert.Equal(0x20, QctekRemoteList.CurrentUserBit);
-        Assert.Equal(0x08, second);
+        Assert.Equal(0u, secondFlag);
+    }
+
+    [Fact]
+    public void 帳號序號取自帳號本身而不是列的位置()
+    {
+        var body = QctekRemoteList.UserList(
+        [
+            new QctekRemoteUser("a", QctekRemoteList.AdminPermission, 17),
+            new QctekRemoteUser("b", QctekRemoteList.DefaultPermission, 42),
+        ]);
+
+        // QCC 之後會拿這個序號呼叫 /QCRemoveAccount.bin?usr=<序號> 與更新端點的 +0x0c；
+        // 用列的位置（1、2）會刪到／改到另一個帳號。
+        Assert.Equal(17, BinaryPrimitives.ReadInt32LittleEndian(body.AsSpan(0x10 + 0x0c)));
+        Assert.Equal(42, BinaryPrimitives.ReadInt32LittleEndian(body.AsSpan(0x10 + 0x228 + 0x0c)));
     }
 
     [Theory]
@@ -161,7 +182,7 @@ public class QctekRemoteListTests
     {
         var body = QctekRemoteList.UserList(
         [
-            new QctekRemoteUser("管理員", QctekRemoteList.AdminPermission),
+            new QctekRemoteUser("管理員", QctekRemoteList.AdminPermission, 1),
         ]);
 
         var field = body.AsSpan(0x10 + 0x28, 32);
@@ -173,7 +194,7 @@ public class QctekRemoteListTests
     public void 列數超過驗證端上限時會截到一千零二十三列()
     {
         var users = Enumerable.Range(0, QctekRemoteList.MaxRowCount + 5)
-            .Select(i => new QctekRemoteUser($"u{i}", QctekRemoteList.DefaultPermission))
+            .Select(i => new QctekRemoteUser($"u{i}", QctekRemoteList.DefaultPermission, i + 1))
             .ToList();
         var body = QctekRemoteList.UserList(users);
 

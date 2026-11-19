@@ -27,9 +27,9 @@ public sealed class QctekRemoteListApiTests : IClassFixture<ApiFactory>
         channels.Add("QCC前門", "rtsp://10.9.9.1/main");
         channels.Add("QCC後門", "rtsp://10.9.9.2/main");
 
-        var users = new UserRepository(_factory.Services.GetRequiredService<SqliteStore>());
-        users.CreateUser("qccadmin", PasswordHasher.Hash("pw1"), "admin");
-        users.CreateUser("qccview", PasswordHasher.Hash("pw2"), "viewer");
+        var repositories = new UserRepository(_factory.Services.GetRequiredService<SqliteStore>());
+        repositories.CreateUser("qccadmin", PasswordHasher.Hash("pw1"), "admin");
+        repositories.CreateUser("qccview", PasswordHasher.Hash("pw2"), "viewer");
 
         using var client = _factory.CreateClient();
 
@@ -49,9 +49,16 @@ public sealed class QctekRemoteListApiTests : IClassFixture<ApiFactory>
         Assert.Contains("QCC前門", cameraNames);
         Assert.Contains("QCC後門", cameraNames);
 
-        var permissions = ReadUsers(userBody);
-        Assert.Equal(QctekRemoteList.AdminPermission, permissions["qccadmin"] & ~QctekRemoteList.CurrentUserBit);
-        Assert.Equal(QctekRemoteList.DefaultPermission, permissions["qccview"] & ~QctekRemoteList.CurrentUserBit);
+        var listed = ReadUsers(userBody);
+        Assert.Equal(QctekRemoteList.AdminPermission, listed["qccadmin"].Permission);
+        Assert.Equal(QctekRemoteList.DefaultPermission, listed["qccview"].Permission);
+
+        // 序號（+0x0c）必須是帳號自己的 Id：QCC 之後用它刪除／更新帳號，
+        // 用列的位置會在刪掉一個帳號之後全部錯位（刪到別人）。
+        foreach (var user in repositories.ListUsers())
+        {
+            Assert.Equal(user.Id, listed[user.Username].Sequence);
+        }
     }
 
     [Fact]
@@ -66,11 +73,14 @@ public sealed class QctekRemoteListApiTests : IClassFixture<ApiFactory>
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Basic", credentials);
 
         var (body, _) = await GetBinaryAsync(client, "/QCUserList.bin");
-        var permissions = ReadUsers(body);
+        var listed = ReadUsers(body);
 
-        // isCurrentUser 只找權限位元的 0x20；標錯人會讓 QCC 把別人當成自己（改名／改密碼的對象）。
-        Assert.Equal(QctekRemoteList.CurrentUserBit, permissions["qcccurrent"] & QctekRemoteList.CurrentUserBit);
-        Assert.Equal(0, permissions["qccother"] & QctekRemoteList.CurrentUserBit);
+        // isCurrentUser 讀的是 +0x18 那個 u32 的 0x20（不是權限位元）；標錯人會讓 QCC
+        // 把別人當成自己（改名／改密碼的對象）。
+        Assert.Equal((uint)QctekRemoteList.CurrentUserBit, listed["qcccurrent"].Flag);
+        Assert.Equal(0u, listed["qccother"].Flag);
+        // 旗標不得混進權限位元。
+        Assert.Equal(QctekRemoteList.AdminPermission, listed["qcccurrent"].Permission);
     }
 
     private static async Task<(byte[] Body, string? ContentType)> GetBinaryAsync(HttpClient client, string path)
@@ -94,16 +104,22 @@ public sealed class QctekRemoteListApiTests : IClassFixture<ApiFactory>
         return names;
     }
 
-    /// <summary>使用者列：名稱在列內 <c>+0x28</c>（ANSI 32 bytes）、權限在 <c>+0x08</c>。</summary>
-    private static Dictionary<string, int> ReadUsers(byte[] body)
+    /// <summary>使用者列的關鍵欄位：名稱在 <c>+0x28</c>（ANSI 32 bytes）、權限在 <c>+0x08</c>、
+    /// 序號在 <c>+0x0c</c>、目前登入者旗標在 <c>+0x18</c>。</summary>
+    private sealed record ListedUser(int Permission, int Sequence, uint Flag);
+
+    private static Dictionary<string, ListedUser> ReadUsers(byte[] body)
     {
         var count = (int)ReadU32(body, 8);
-        var users = new Dictionary<string, int>(count, StringComparer.Ordinal);
+        var users = new Dictionary<string, ListedUser>(count, StringComparer.Ordinal);
         for (var i = 0; i < count; i++)
         {
             var offset = QctekRemoteList.HeaderLength + (i * QctekRemoteList.UserRowLength);
             var name = Encoding.ASCII.GetString(body, offset + 0x28, 32).TrimEnd('\0');
-            users[name] = BinaryPrimitives.ReadInt32LittleEndian(body.AsSpan(offset + 0x08));
+            users[name] = new ListedUser(
+                BinaryPrimitives.ReadInt32LittleEndian(body.AsSpan(offset + 0x08)),
+                BinaryPrimitives.ReadInt32LittleEndian(body.AsSpan(offset + 0x0c)),
+                BinaryPrimitives.ReadUInt32LittleEndian(body.AsSpan(offset + 0x18)));
         }
 
         return users;

@@ -1710,13 +1710,43 @@ Notes that will save you time:
   (`FindAccountIndexByName` compares bytes, so write `?` for non-ASCII rather than UTF-8), and
   `+0x48` the 32-byte password hash, which we always leave **zero** — these endpoints are served
   without authentication (same trade-off as the other `.bin` probes) and a hash must never leak.
-  `isCurrentUser` only looks at bit **0x20** of the permission field; mark it from the request's
+  `isCurrentUser` reads bit **0x20 of the u32 at `+0x18`** (modify time), **not** of the permission
+  field — writing it into `+0x08` is silently ignored by the verifier; mark it from the request's
   Basic username only, never guess the first admin. `PermissionFor`: disabled → 0, admin → 0x1C
   (the real machine's `user.bin` holds 28), everyone else → 8 (`DefaultAccountSetting`). Only the
   `.bin` paths in `IsSupportBinPath` are served, and only from the Web-port middleware: the
   standalone NEMO port's HTTP branch is a text path, so it deliberately 404s these. Guarded by
   `QctekRemoteListTests`, `QctekSupportBinTests` and `QctekRemoteListApiTests` (the last one boots
-  the real host, so "the middleware forgot to pass the repositories" shows up as 0 rows).
+  the real host, so "the middleware forgot to pass the repositories" shows up as 0 rows). The
+  **sequence at `+0x0c` is the account's own id (`users.id`), never the row position** — QCC uses
+  it to call `/QCRemoveAccount.bin?usr=<sequence>` and in the update payload, so a row index deletes
+  the wrong account (`帳號序號取自帳號本身而不是列的位置`).
+- **The three QCC account-write endpoints are `GET` with the payload in the raw query — form parsing
+  destroys them, and the `+0x0c` sequence is the only handle on an account.**
+  `/QCRemoveAccount.bin?usr=<n>` (`atoi`, so garbage → 0 → 500, not 400),
+  `/QCUpdateAccount.bin?<base64>` (must decode to exactly 0x228 = one `__SQL_USER_LIST` row; success
+  body is the account sequence as decimal text, not a status) and `/QCCopyAccount.bin?<base64>`
+  (0x2a8 = row + 128-byte bitmap, bit i of byte n = index `n*8+i`, LSB first). QCC embeds the base64
+  **without URL-encoding** (`FUN_180002cc0`), so `request.Query` turns `+` into a space and every
+  request fails with no error on either side — read `request.QueryString.Value` and only
+  `Uri.UnescapeDataString` it (never `WebUtility.UrlDecode`). Order is load-bearing: **authorize
+  (401) → parse (400) → data layer (500)**; reversed, a wrong password looks like a malformed
+  request and QCC changes format instead of asking for credentials. Credentials come from
+  `Authorization: Basic` or the query's `hBase64=` (`base64("user:pass")`), verified with
+  `PasswordHasher.Verify` — **not** `AuthService.Authenticate`, which would count failures and lock
+  the desktop login out for a remote client. QCC's 32-byte hash is MD5 + a `rand()` mask, unusable
+  as PBKDF2, so account writes map name/role/enabled only and new accounts get a random password
+  ("set it in HeliVMS", logged). Semantics: sequence < 0 is **create** (server assigns and returns
+  the id), ≥ 0 must exist (else 500); copy requires the source to be a viewer class
+  (`(perm & 0x1c) == 8`) and, in the real machine, only flips bit0 — for HeliVMS's 0/8/0x1c that is
+  a verified no-op, deliberately not "batch disable". Stricter than the real machine on purpose and
+  regardless of `auth.enabled`: never delete/rename/demote the last enabled admin or the requesting
+  account. The diagnostics log must never contain the query (it **is** the credentials) — only the
+  action, credential source and result. Guarded by `QctekAccountEndpointTests`,
+  `QctekAccountApiTests`, `QctekAccountGuardApiTests` and `QctekAccountWriteAuthApiTests`
+  (mutations verified: `UrlDecode` → `+` test red; row-index sequence → red; current bit into
+  `+0x08` → red; MSB bitmap → red; removed last-admin/self-delete/copy-source checks → red;
+  logging the query → red).
 - **Timestamps bind through `SqliteStore.Iso`, never a raw `DateTime` — mixing the two makes
   string comparisons timezone-dependent.** Several columns (`finished_at`, `started_at`, …) are
   TEXT and queries compare them against an Iso-bound cutoff; a raw-bound DateTime writes a

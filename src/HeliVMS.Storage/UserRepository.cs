@@ -167,6 +167,33 @@ public sealed class UserRepository
             });
     }
 
+    /// <summary>
+    /// 改使用者名稱（大小寫不敏感唯一；重名拋 <see cref="SqliteException"/>）。稽核：account.rename。
+    /// </summary>
+    /// <remarks>
+    /// QCC 遠端設定頁的「改名」走這條：<c>users.username</c> 是 <c>UNIQUE COLLATE NOCASE</c>，
+    /// 所以檢查與寫入都靠資料庫保證；呼叫端要先把「改成別人已在用的名稱」回成失敗（QCC 端是
+    /// 500），而不是讓例外冒到 HTTP 管線變成 500 空白頁——兩者在 QCC 看起來一樣，但前者會留下
+    /// 稽核與診斷。
+    /// </remarks>
+    public void SetUsername(int id, string username, string? actor = null)
+    {
+        var before = GetById(id)?.Username;
+        var affected = _store.Query<int>(
+            "UPDATE users SET username = $u WHERE id = $id; SELECT changes();",
+            r => r.Read() ? r.GetInt32(0) : 0,
+            cmd =>
+            {
+                cmd.Parameters.AddWithValue("$u", username);
+                cmd.Parameters.AddWithValue("$id", id);
+            });
+
+        if (affected > 0 && !string.Equals(before, username, StringComparison.Ordinal))
+        {
+            _audit.Record(actor, "account.rename", AuditCategories.Config, "user", id, $"{before} -> {username}");
+        }
+    }
+
     /// <summary>刪除使用者。稽核：account.delete。</summary>
     public void DeleteUser(int id, string? actor = null)
     {

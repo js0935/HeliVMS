@@ -198,6 +198,12 @@ public static class WebApiHost
         builder.Services.AddSingleton<AlertBroadcastHub>();
         builder.Services.AddSingleton<AuthService>();
 
+        // QCC 遠端設定頁的帳號寫入（/QCRemoveAccount.bin、/QCUpdateAccount.bin、
+        // /QCCopyAccount.bin）：與 RMCL／RMUL 同一頁，但走的是寫入而不是清單。
+        builder.Services.AddSingleton(static sp => new QctekAccountService(
+            sp.GetRequiredService<UserRepository>(),
+            sp.GetRequiredService<AuthService>()));
+
         // M306：網頁帳號登入的工作階段暫存區（登入成功簽發 token、ApiKeyAuthMiddleware 認可）。
         builder.Services.AddSingleton<AccountSessionStore>();
 

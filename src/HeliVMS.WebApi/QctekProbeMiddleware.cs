@@ -37,11 +37,18 @@ public static class QctekProbeMiddleware
         // 診斷：80 埠沒有 NemoServer 的日誌——QCC 實測「它到底送了什麼」必須看得到。
         // 只記「可疑」請求（瀏覽器 UA 開頭是 Mozilla；其餘工具與帶認證的一律留痕），
         // 避免把 SPA 的每個資源請求都寫進日誌。
+        //
+        // 帳號端點的 query 裡是 base64 的帳號與密碼（真機的 hBase64／update payload），
+        // 整段寫進日誌等於把密碼落地，所以那三條路徑只記「有 query」與長度。
+        var isAccountPath = QctekAccountEndpoint.IsAccountPath(path);
+        var queryForLog = isAccountPath
+            ? $" ?({request.QueryString.Value?.Length ?? 0} chars，已省略)"
+            : request.QueryString.ToString();
         var userAgent = request.Headers.UserAgent.ToString();
-        if (isProbe || authorization.Length > 0 ||
+        if (isProbe || isAccountPath || authorization.Length > 0 ||
             !userAgent.StartsWith("Mozilla", StringComparison.OrdinalIgnoreCase))
         {
-            Diag($"[WEB] {request.Method} {request.Path}{request.QueryString} " +
+            Diag($"[WEB] {request.Method} {request.Path}{queryForLog} " +
                  $"probe={isProbe} auth={authorization.Length > 0} " +
                  $"ua={(userAgent.Length <= 80 ? userAgent : userAgent[..80])}");
         }
@@ -52,6 +59,50 @@ public static class QctekProbeMiddleware
         //
         // 遠端設定頁的兩份清單也在這裡：/QCCamList.bin 與 /QCUserList.bin 任一壞掉，
         // QC_rsClient 的 QueryUserSetting 就整體判定失敗（整頁空白，兩邊日誌乾淨）。
+        //
+        // 遠端設定頁的「新增／修改／刪除／複製帳號」也走同一個 .bin 命名空間，但它是
+        // 寫入，而且在真機是另一組處理器（support_bin.cpp 的 update／remove），所以
+        // 先分流——QctekSupportBin 的白名單刻意不含這三條路徑（清單是唯讀資料，
+        // 寫入端點不該被當成「支援的 .bin」）。
+        if (QctekAccountEndpoint.IsAccountPath(path))
+        {
+            var accountService = context.RequestServices.GetService(typeof(QctekAccountService))
+                as QctekAccountService;
+            if (accountService is null)
+            {
+                // 沒有註冊服務時不可以安靜 next()：那會在 QCC 看起來像裝置不支援遠端設定，
+                // 而不是我們自己的接線漏了。回 500 並留一行診斷。
+                Diag($"[WEB] -> 500 {path}（QctekAccountService 未註冊）");
+                context.Response.StatusCode = StatusCodes.Status500InternalServerError;
+                context.Response.Headers["Server"] = QctekHttpResponder.ProductName;
+                context.Response.Headers["Connection"] = "close";
+                return;
+            }
+
+            // 真機這三支都是 GET（QCC 用 FUN_180002cc0 組出整段 query 直接送出）。
+            var account = request.Method.Equals("GET", StringComparison.OrdinalIgnoreCase)
+                ? accountService.Handle(path, request.QueryString.Value, authorization)
+                : new QctekAccountResult(
+                    QctekAccountStatus.BadRequest,
+                    Detail: $"{request.Method} 不是帳號端點支援的方法");
+
+            // 診斷只記「誰、做了什麼、結果」：query 裡是 base64 的帳號與密碼，
+            // 整段寫進日誌等於把密碼落地（真機的 hBase64 也是明文的 base64）。
+            Diag($"[WEB] -> {(int)account.Status} {path} action={QctekAccountEndpoint.Classify(path)} " +
+                 $"auth={account.AuthSource} {account.Detail}");
+
+            context.Response.StatusCode = (int)account.Status;
+            context.Response.Headers["Server"] = QctekHttpResponder.ProductName;
+            context.Response.Headers["Connection"] = "close";
+            if (account.Body is { Length: > 0 } accountBody)
+            {
+                context.Response.ContentType = account.ContentType;
+                await context.Response.WriteAsync(accountBody, context.RequestAborted);
+            }
+
+            return;
+        }
+
         if (QctekSupportBin.IsSupportBinPath(path))
         {
             var channels0 = context.RequestServices.GetService(typeof(ChannelRepository)) as ChannelRepository;
@@ -141,6 +192,9 @@ public static class QctekProbeMiddleware
             .Select(u => new QctekRemoteUser(
                 u.Username,
                 QctekRemoteList.PermissionFor(u.Enabled, u.Role == "admin"),
+                // 序號就是帳號自己的 Id：QCC 之後的刪除／更新／複製都用它指名帳號，
+                // 改用列的位置會在刪掉一個帳號之後全部錯位（刪到別人）。
+                u.Id,
                 IsCurrent: current is not null &&
                            string.Equals(u.Username, current, StringComparison.OrdinalIgnoreCase)))
             .ToList();

@@ -85,7 +85,7 @@ public class QctekSupportBinTests
             Cameras: [new QctekRemoteCamera("前門"), new QctekRemoteCamera("後門")],
             Users:
             [
-                new QctekRemoteUser("admin", QctekRemoteList.AdminPermission, IsCurrent: true),
+                new QctekRemoteUser("admin", QctekRemoteList.AdminPermission, 1, IsCurrent: true),
             ]);
 
         var cameras = QctekHttpResponder.BuildBinaryBody("/QCCamList.bin", context);
