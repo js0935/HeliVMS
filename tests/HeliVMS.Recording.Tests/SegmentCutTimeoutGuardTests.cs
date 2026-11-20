@@ -11,10 +11,11 @@ namespace HeliVMS.Recording.Tests;
 ///
 /// 現場證據：%TEMP%\helivms-playback.log 有 164 筆「回放前收檔失敗：TaskCanceledException」
 /// （2026-10-30 至 11-12，對應操作員每次開回放；收檔等於從未成功過）。HEAD 的
-/// <see cref="SegmentRecorder.CutAsync"/> 以 <c>WaitAsync(timeout)</c> 等待並只接
-/// <see cref="TimeoutException"/>——逾時回 false、不擲例外；本測試把這個形狀釘住，
-/// 防止未來改回「CTS + WaitAsync(token)」那種會把逾時變成 TaskCanceledException 的寫法
-/// （那正是現場 164 筆無名日誌的來源形狀）。
+/// <see cref="SegmentRecorder.CutAsync"/> 以 <c>WaitAsync(timeout)</c> 等待，逾時
+/// （<see cref="TimeoutException"/>）與底層冒出的取消（<see cref="OperationCanceledException"/>）
+/// 都要收斂成 false、不擲例外；本測試把這兩個形狀都釘住，防止未來改回
+/// 「CTS + WaitAsync(token)」那種會把逾時變成 TaskCanceledException 的寫法
+/// （那正是現場 164 筆無名日誌的來源形狀），也防止取消一路冒到回放失敗日誌。
 /// </summary>
 public sealed class SegmentCutTimeoutGuardTests : IDisposable
 {
@@ -86,6 +87,45 @@ public sealed class SegmentCutTimeoutGuardTests : IDisposable
         await recorder.DisposeAsync();
     }
 
+    /// <summary>
+    /// 收檔途中出現取消時要收斂成「沒切成」。
+    ///
+    /// 現場 %TEMP%\helivms-playback.log 的 「回放前收檔失敗（監看牆）：TaskCanceledException」
+    /// 堆疊只有 PlaybackRecordingFinalizer 一行：取消是從 CutAsync 的等待／行程收尾冒出來的。
+    /// 收檔是 best-effort，呼叫端只該看到 false——回放照常開，只是少最新的段。
+    /// </summary>
+    [Fact]
+    public async Task 收檔途中出現取消時回false而不是把TaskCanceledException冒出來()
+    {
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        StubProcess? stub = null;
+        var factory = new StubFactory(psi =>
+        {
+            // 第一次 q 模擬現場那種從底層冒出來的取消；第二次（停錄時）正常收尾，
+            // 讓 Dispose 不會卡在等行程結束。
+            stub = new StubProcess(psi, exitCode: 0, ignoreQuit: false, cancelFirstQuit: true);
+            started.TrySetResult();
+            return stub;
+        });
+
+        var now = DateTime.UtcNow;
+        await using var recorder = new SegmentRecorder(
+            _segments, factory, _ => string.Empty, clock: () => now);
+        await recorder.StartAsync(_channelId, RtspUrl, _recordingsRoot, "main", 42);
+
+        await started.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        // Start() 回傳後才指派 _testProcess；給它一小段時間，避免還沒指派就切而得到假綠。
+        await Task.Delay(100);
+        now = now.AddMinutes(1);
+
+        Assert.True(recorder.IsRecording);
+        var result = await recorder.CutAsync(TimeSpan.FromSeconds(2));
+
+        Assert.NotNull(stub);
+        Assert.Equal(1, stub.QuitRequestCount);
+        Assert.False(result);
+    }
+
     private sealed class StubFactory : IProcessFactory
     {
         private readonly Func<ProcessStartInfo, StubProcess> _make;
@@ -99,12 +139,14 @@ public sealed class SegmentCutTimeoutGuardTests : IDisposable
     {
         private readonly TaskCompletionSource _exited = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly bool _ignoreQuit;
+        private readonly bool _cancelFirstQuit;
         private readonly string _outputPath;
 
-        public StubProcess(ProcessStartInfo startInfo, int exitCode, bool ignoreQuit)
+        public StubProcess(ProcessStartInfo startInfo, int exitCode, bool ignoreQuit, bool cancelFirstQuit = false)
         {
             StartInfo = startInfo;
             _ignoreQuit = ignoreQuit;
+            _cancelFirstQuit = cancelFirstQuit;
             _outputPath = startInfo.ArgumentList[^1];
             ExitCode = exitCode;
             StandardError = new StreamReader(new MemoryStream());
@@ -132,6 +174,11 @@ public sealed class SegmentCutTimeoutGuardTests : IDisposable
         public void RequestQuit()
         {
             QuitRequestCount++;
+            if (_cancelFirstQuit && QuitRequestCount == 1)
+            {
+                throw new TaskCanceledException();
+            }
+
             if (!_ignoreQuit && !HasExited)
             {
                 ProduceAndExit();

@@ -295,20 +295,15 @@ public sealed class SegmentRecorder : ISegmentRecorder
             _cutWaiters.Add(waiter);
         }
 
-        // 介於兩段之間（ffmpeg 已結束、下一台還沒起來）時沒有任何東西可切：
-        // 那一段的收尾已經在跑，等它反而會多等一個逾時。
-        if (!TryRequestQuitForCut())
-        {
-            lock (_cutGate)
-            {
-                _cutWaiters.Remove(waiter);
-            }
-
-            return false;
-        }
-
         try
         {
+            // 介於兩段之間（ffmpeg 已結束、下一台還沒起來）時沒有任何東西可切：
+            // 那一段的收尾已經在跑，等它反而會多等一個逾時。
+            if (!TryRequestQuitForCut())
+            {
+                return false;
+            }
+
             // 冷卻從「真的送出收尾請求」起算：介於兩段之間或送不出去時，
             // 不該害下一次回放被冷卻擋掉。
             _lastCutUtc = _clock();
@@ -316,6 +311,15 @@ public sealed class SegmentRecorder : ISegmentRecorder
         }
         catch (TimeoutException)
         {
+            return false;
+        }
+        catch (OperationCanceledException)
+        {
+            // 2026-11-17/18 現場的 %TEMP%\helivms-playback.log 仍出現
+            // 「回放前收檔失敗（監看牆）：TaskCanceledException」。源碼裡既沒有人對這個 waiter
+            // 呼叫 TrySetCanceled，也沒有人把取消權杖傳進 WaitAsync，但取消仍會從底層等待或
+            // 行程收尾冒出來。收檔是 best-effort：對呼叫端就是「這次沒切成」，不能讓取消冒成
+            // 回放的失敗日誌——那會讓操作員以為回放壞了，實際上回放照常開啟，只是少最新的段。
             return false;
         }
         finally
