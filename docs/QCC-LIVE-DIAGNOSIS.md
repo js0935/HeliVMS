@@ -496,6 +496,123 @@ TCP 連線真的發生**。
 
 那段時間 `cfg=0` 的 live 成功，是**真機 QCV8001** 在回應，不是相容層。
 
+### 9.12 用 Frida 直接驅動 `QC_Live.exe` slot 狀態：觸發順序與影像路徑真相（2026-11-21）
+
+本輪第一次在不靠 GUI 拖曳的情況下，讓真實 QCC 對 `127.0.0.1:80` 送出 `cfg=0`、
+HeliVMS 來源啟動並 **送了 8147 幀 FRAM、546 秒**。方法與結論都是現場反編譯 +
+Frida 17（REA 內建）實測，記錄在此避免下次走回頭路。
+
+**環境**：QCC live 客戶端在 `QC_Live.exe`（不是 `QCC.exe`）；QCC DLL 的 PE
+preferred ImageBase 全是 `0x180000000`，所以 Ghidra 絕對址要換 RVA（RVA =
+絕對址 − `0x180000000`），`modbus.dll` 恰在 `0x180000000` 不能用絕對址判模組。
+Frida 17 移除 `Memory.readByteArray`／`Memory.readU32`，改用
+`NativePointer.readByteArray()`／`.readU16()`；`Module.findExportByName`／
+`Module.getExportByName` 都不存在，只剩 `Module.getGlobalExportByName('recv')`
+（WS2_32 的 recv/send 是全域匯出）。
+
+**slot 陣列與欄位**（device A 含 `127.0.0.1`）：slot0 base `0x204fc4e4478`、
+stride `0x46278`，slot2（探測槽）＝base + `2*0x46278`。每個 slot：
+`+0x26110` conn、`+0x26128` busy、`+0x26138` peer；`+0x461b8` state（S16）、
+`+0x461ba` flagA（S16）、`+0x461bc` flagB（S16）、`+0x461be` flagC（byte）、
+`+0x461e0` counter0、`+0x461e4` timer、`+0x461ec` 128-byte 頻道位圖（LSB-first）。
+`FUN_180012d10(param_1=slot base, param_2=index, param_3=slot2 base)` 是 30ms tick；
+`param_1[0x8c37]`（＝`+0x461b8`）就是 state。
+
+**關鍵：觸發順序不能颠倒**（完整反編譯 `FUN_180012d10` 才看得出來）：
+1. 先只寫 slot0 位圖 bit0=1（`+0x461ec`），**保持 flagA=0**、flagB=-10、flagC=0。
+   位圖非空才不會被 `IsMemoryEmpty(+0x461ec,0x80)` 提前 return；`flagA != 1` 才走
+   `else` 分支呼叫 `FUN_180013430` 建立 conn/peer。該分支的 `bVar7` 讀的是
+   **slot2（探測槽）** 的 `flagA==1 && flagB>=1 && flagC==0`，所以要先把探測槽備好。
+   同時寫位圖 **且** flagA=1 會直接跳到 `StartLive!`→`LiveAutuor`，但 conn/peer
+   還沒建立（`LiveAutuor` 失敗會把 state 設回 0，造成 `StartLive!` 狂印）——這是
+   一開始失敗的原因。
+2. 等 `FUN_180013430` 命中、ret=1、conn/peer 從 0 變成非 0（實測
+   `conn=2220140762456`、`peer=2218612408336`）之後，再讓 flagA=1 觸發
+   `StartLive!`→`LiveAutuor`；QCC 自己會把 flagA/flagB 帶到 1。
+3. `flagB` 是 **S16**：`-10=0xfff6`（U8 讀成 246），不能寫 U8；寫 U8 `1` 會讓
+   short 變成 `0xff01=-255`。探測槽的 `flagC(+0x461be)` 必須是 0 才滿足 Connect
+   的 `bVar7`。
+
+成功證據（兩端時間差 8 小時）：QCC `17:36:53 Connect! 0, 1, 1, 1, 0, -10` →
+`ConnectReq OK!` → `StartLive! 0` → **`GET_LIVE_START fd=0, cfg=0`** →
+`StartLiveReq 0, 0, 1`；HeliVMS `01:36:54` 挑战→SENDCODE→`OK`→來源啟動→
+`LIVE：頻道 0（主碼流）開始輸出`；ffmpeg
+`-i rtsp://.../live1s1.sdp -an -c:v copy -bsf:v dump_extra -f h264 -` 存活。
+
+**影像路徑真相（本輪最重要的糾正）**：先前以為「QCC 收到 FRAM 但影像路徑沒啟動、
+`GetFrame*` 全 0 = 沒收到影格」是 **hook 錯函式**。完整狀態機（§2）：
+`peer+0xaa328==0 → this+0x2c=0x10（GetLive）→ readQCV8001frame 讀 FRAM`；
+`!=0 → this+0x2c=5（GetFrame）→ GET_FRAME 文字協定（給 Aver IPC 用）`。
+`GetFrameSend/GetFrame/GetFrameH264/GetFrameQCTekAudio` 全是 **Aver 模式**的函式，
+不是 QCV8001。實測 hook `readQCV8001frame(0x180007920)`：回傳 `134/136/137/138`
+（完整 FRAM 影格長度，對應 golden 的 137B P-frame）、`GetLive(0x180007b60)` 呼叫
+550 次、`f328=0` 全程保持——**QCC 其實一直在成功讀取 HeliVMS 的 FRAM**。
+`GetLive` 讀到正數走 default case，呼叫 `this+0x68` 的 frame callback 送影格到 UI。
+
+**不要強制翻 `0xaa328=1`**：本輪做過實驗性翻轉，`GetFrameSend`/`GetFrame` 立刻從
+0 升到 420/210，但 QCC 改送 **165-byte `GET_FRAME 0 0 0 MP w=2592 h=1944`**
+（HeliVMS log：「非 keepalive 資料 165 bytes... h=1944」），HeliVMS 不認識這個
+文字協定、當成非 keepalive resync，305 ticks 無 keepalive 後關線，QCC 則瘋狂
+`dvr_proxy_live.cpp(L:291) program fail! 134/138`。也就是說 f328=1 是**錯誤模式**，
+黃金抓包裡 f328 應維持 0，靠 keepalive→FRAM 推送鏈顯示影像。
+
+**socket 層證據**：hook `ws2_32.recv` 觀察到 fd=4052（live socket，同時送 144B
+keepalive）收到 `10715/10689/10671 bytes` 的關鍵影格（golden 第一包 10279B）。
+所以 HeliVMS 推流、QCC 接收、QCC FRAM 解析三段都正常；剩下的未知數只在
+`this+0x68` frame callback 之後的 UI 顯示層（QCC 自繪牆的 cell 指派），本輪因
+Frida session 累積 21 個高頻 hook 後 `QC_Live.exe` 進程結束而未能走到那一步。
+下次應：重啟 QCC → 只用最少 hook → 重做 slot 兩階段觸發 → hook `this+0x68`
+的 callback 與 UI cell，確認影格真的被畫出來；不要把 f328 往上翻。
+
+**同日稍後續做（這一步已走到，答案確定）**：上一輪的未知數已收斂。重新 attach
+`QC_Live.exe`（本輪 PID 5772，`QC_IPCAM_Aver.dll` base `0x7ffe3da00000`，
+slot A base `0x23d89d2b498`——注意這些是當次行程的堆積位址，重啟會變，必須重新
+scan，不是硬編碼常數），把上面提到的 `this+0x68` 精確定為
+`FUN_180013330`（RVA `0x13330`），x64 `__fastcall(uint channel, undefined8,
+uint* frameType, longlong slotBase)`。它的守衛是
+`frameType < 9 && ((0x126 >> frameType) & 1)`，有效型別恰為 `{1,2,5,8}`；
+`frameType==1` 時寫時間戳 `slot+ch*0x80+0x261f0` 與 present byte `+0x26200`，
+然後對 3 個註冊的 consumer callback 派發；frame callback 自己在
+`FUN_1800136d0` 的 `StartLiveReq` case 被裝到 `slot+0x26168`（函式指標）與
+`slot+0x26170`（slotBase）。先前誤以為第四個參數是 slot、第三個參數裡的
+`0x89a5d440` 是 frame type，都是參數索引錯位：x64 下 `a[2]` 才是 `frameType*`。
+
+精確 hook 量到：`frame_callback` 呼叫 225 次、`frameType` 分布 **100% = 1**（有效）、
+`channel=0`、`a[2]=0x23d982b5358`（heap frame 物件，不是 slot）、
+`slot=0x23d89d2b498`（正確）；**但 3 個 consumer callback 指標
+`slot+ch*0x80+0x261c0/0x261c8/0x261d0` 全是 `0x0`**，派發計數 a/b/c 全 0。
+也就是：影格到了、時間戳和 present 旗標也寫了，卻沒有任何顯示 consumer 被通知。
+
+註冊點是 `QC_DVR_Aver::StartStream(this, device, callback, context, stream)`
+（RVA `0x11b10`）：它在 `slot + stream*0x80 + 0x261c0` 寫 callback、
+`+0x261d8` 寫 context、`+0x261b8` 寫 count、`+0x461ec` 設頻道位元；
+`StopStream`（`0x11d10`）註銷。`StartStream` 經 vtable（RVA `0x1ac20`，
+`StartStream` 槽 `0x1ac78`）間接呼叫，所以靜態 xref 只到 vtable 資料槽、找不到
+真正的 caller。hook `StartStream`/`StopStream` 6 秒：**starts/stops 全空**——
+顯示層 consumer 從未註冊。原因很明確：Frida 兩階段觸發只走了推流端
+（`Connect`/`StartLive`/`GET_LIVE_START`），而 consumer 註冊是 UI cell 指派
+（把攝影機拖到畫面格）才會呼叫 `StartStream` 的另一條路徑，這條路徑沒被走。
+
+**決定性驗證**：在進程內 scan 出 `QC_DVR_Aver` 實例
+`this=0x23d899f0a80`（其 `+0x58 = slot base`，vtable RVA `0x1ac20`，
+與 `StartStream` 槽吻合），主動呼叫
+`StartStream(this, 0, myCallback, 0x12345678, 0)`：`ok=1`、
+`slot+0x261c0=0x23d97d40010`（非 0）、context `+0x261d8=0x12345678`、
+count=1、bitmap=1。緊接著 FRAM **立即以約 15fps 派發到 myCallback**
+（3 秒計數 45→89→136→181→226→271），`data` 是同一個 frame heap 物件、
+`ctx=0x12345678` 正確。
+
+**結論（寫在這裡避免下次重查）**：HeliVMS 推流 → QCC 接收 → FRAM 解析 →
+frame callback → consumer 派發入口，**整條資料鏈完全通暢、端到端已證明**。
+真機「連得上、收到 FRAM、卻沒畫面」的唯一原因是 **QCC 顯示層的 display
+consumer callback 從未註冊**（`slot+0x261c0/8/d0` 全 0），而它只能由 QCC 自己的
+UI cell 指派（`StartStream`）建立——這一步在禁止 GUI 操作的前提下無法安全完成，
+且純屬 QCC 客戶端顯示層機制，**不是 HeliVMS 相容層的問題，不要改 HeliVMS 推流鏈**。
+若要讓 QCC UI 真的畫出 HeliVMS 畫面，唯一途徑是讓操作員在 QCC 上把該攝影機
+拖到一個畫面格（觸發 `StartStream` 註冊真實顯示回呼），而不是繼續改 slot 狀態或
+翻 `f328`。技術陷阱：scan `*(this+0x58)==slotBase` 時，`0x23d89d2b498` 的正確
+小端位元組是 `98 b4 d2 89 3d 02 00 00`，寫錯位移（`...2b...d8...`）會 0 match。
+
 同一個陷阱會以另一種形式重複：QCC 的裝置 `127.0.0.1:80` 到底是誰在聽，取決於哪個
 行程先綁到 80。這台機器同時安裝了 QCV8001（`C:\QCTek\QCV8001\bin_release`），它的
 `QC_Live.exe` 會佔用 `0.0.0.0:80`；HeliVMS 沒在執行時（或晚一步啟動時），
