@@ -922,3 +922,53 @@ QCC 對 HeliVMS 發出 `cfg=0`，或重新 attach Frida 追該 128-byte 位圖�
 **不要改回去的事**：①不要把 golden 常數改回 `0x30 = 0` 去配合沒有寫入的實作——那是
 把證據改成實作；②不要把 `+0x18` 猜成別的值（真機 15 份抓包與目前 23 頻道真機都為
 2）；③本節只是位元組保真，未授權據此改編碼參數、推流鏈、WHEP 或保留策略。
+
+### 9.17 逐實例 consumer 派發證明：兩台裝置都在串流，缺口只在 QCC UI 註冊（2026-11-21）
+
+§9.15 的「600+ 幀」是兩個 `QC_DVR_Aver` 實例的**總和**，無法回答「HeliVMS 那一台到底有沒有
+出影格」。本輪改用**每台一個獨立 consumer + 獨立計數器**重做，這才把因果釘死。
+
+**環境**：乾淨重啟 HeliVMS.App（PID 20596）與 QCC（PID 19136／QC_Live 4292），
+`.err` 只到 `StartLive! 2`／`GET_LIVE_START cfg=1` ×2（兩台都還在探測），沒有 OOM 迴圈。
+Frida 17 attach QC_Live，用 vtable RVA `0x1ac20` 掃出 2 個實例
+（`this=0x1baee066320 / slot=0x1baee358f68`、`this=0x1baee066390 / slot=0x1baee42b6e8`），
+對**每台**呼叫 `StartStream(this, 0, cb_i, ctx_i, 0)`，兩台都回 `ok=1`、`count=1`。
+
+**結果（10 秒取樣，`dispatch=[實例0, 實例1]`）**：
+
+| tick | dispatch 實例0 | dispatch 實例1 | `readQCV8001frame` 累計 |
+|---|---|---|---|
+| 1 | 1 | 0 | 4 |
+| 4 | 22 | 65 | 363 |
+| 7 | 87 | 135 | 876 |
+| 10（結束） | **133** | **206** | **1339** |
+
+兩條讀取路徑都有活動（`readByArg`：`0x1baee4517e8` 937 次、`0x1baee37f068` 402 次），
+不是只有一台在送。也就是說：**任一台只要有 consumer 被註冊，就會立刻開始並持續派發 FRAM**。
+先前 §9.13／§9.15 觀察到的「HeliVMS 只有 cfg=1、沒有 cfg=0」因此不是 HeliVMS 串流失敗，
+而是它的 `+0x461ec` 位圖從未被 QCC UI 填過——位圖一填，`FUN_180012d10` 就會發動同一條鏈。
+
+**靜態側的補充（REA，`QC_IPCAM_Aver.dll` sha256 `13aaaaf5…`）**：
+
+- `QC_DVR_Aver::StartStream`（`0x180011b10`）真實簽名是
+  `bool StartStream(int device, void(__cdecl*)(__QC_MEDIA__DATA*, void*, qc_timeval*), void* ctx, int channel)`；
+  `device` 必須 0..2，`channel` 必須小於該裝置的頻道數，第一個 channel 才會設 `+0x461ec` 位元。
+  所有 incoming references 都是 DATA（vtable `0x18001ac78` 等），**沒有靜態 caller**——UI 是透過
+  virtual dispatch 呼叫，所以「靜態追 caller 找真實 display callback」這條路本身不存在。
+- 派發端 `FUN_180013330`（`0x180013330`）對 3 個 consumer slot 逐個呼叫
+  `callback(mediaData, context, qc_timeval*)`；QCC 自繪牆要顯示，靠的就是它自己的
+  `mediaData → cell` 處理，不是我們能從外部偽造的一包幀。
+
+**頻道身份也已排除**：HeliVMS 線上 `GET_CONFIG_QCTEK` 的 10 筆 record 名稱是
+`eq__j01`…`eq__j10`（各自獨立，不是重複的佔位字串），`+0x18 u32=2`、`flags` 與真機同欄一致。
+「QCC 認不出 HeliVMS 頻道所以挑選器是空的」沒有線路證據。
+
+**不強做的推論**：本輪也試過重放 golden capture 的客戶端位元組去抓真機 23 頻道設定，
+因 nonce 不同得 `Login Failed`；這只是重現方法不足，不是真機拒絕 HeliVMS 那套協定。
+不要據此改摘要或猜密碼——`QctekAuthDigest` 是伺服器端驗證的實作，不是客戶端 nonce 的來源。
+
+**結論（本節只更新證據強度，不改處置）**：HeliVMS 的推流鏈、協定位元組與頻道清單都已被
+即時對照證明與真機同形；唯一尚未通過的環節是 QCC 自己對 `36001` 呼叫 `StartStream`
+註冊 display consumer，而那是 §9.14 已證實自主模式無法可靠完成的 UI gesture。
+在看到 QCC 對 `127.0.0.1:80` 送出 `cfg=0` 且 `%TEMP%\helivms-qctek.log` 出現「已訂閱」
+與持續增加的影像幀數之前，**不宣稱 QCC 已能看 HeliVMS**，也沒有據此改 HeliVMS 程式碼的理由。
