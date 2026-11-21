@@ -796,3 +796,37 @@ HeliVMS 的 cfg 匯出（`resource\CfgExport\127_0_0_1(80)\2026_11_14.cfg`）裡
 **結論（不要重查）**：乾淨重啟＋真實右鍵手勢仍無法讓 `36001` 對 HeliVMS 發動 live，
 再次確認缺口在 QCC 客戶端的「攝影機拖上監看牆」指派，不是 HeliVMS 相容層；唯一的
 下一步仍然是操作員在 QCC live view 把 HeliVMS 頻道拖上牆（§9.10、§9.12）。
+
+### 9.14 程式化自動化「拖上牆」不可行：Picker 是空的（2026-11-21）
+
+§9.13 留下的問題是：自主模式下能否用程式完成這個指派，而不要求操作員碰 GUI？
+本輪逐層驗證，結論是**做不到**：
+
+**(1) 影像牆沒有任何可程式化控制項。** UI Automation（ControlView）枚舉
+`QC_CMS_Class`（hwnd 1770660）只得到右側控制panel按鈕（`即時監控` 33010、
+`1分割`～`144分割` 33055–33064、`電子地圖` 33006 等）與一條捲軸；`EnumChildWindows`
+同樣只在右側（邏輯座標 x 941–1129）看到 `Button`/`ScrollBar`。左側影像牆（x 0–940）
+與攝影機樹完全沒有子視窗、沒有 UIA 元素——全是 `QC_CMS_Class` 自繪。因此沒有
+「來源項目」與「目的格位」可供 SendInput 精確拖曳，只能靠螢幕座標盲拖；而本機
+RDP 螢幕合成全黑、`PrintWindow` 只抓得到 GDI chrome、模型亦不能讀圖，座標無從取得。
+
+**(2) 唯一的標準控制項是「選擇攝影機」對話框，但它是空的。** Win32 枚舉發現 QCC
+預先建立一批隱藏的 `#32770` 對話框，其中 `選擇攝影機`（hwnd 7276042）內含標準
+`SysTreeView32`（hwnd 8455692）。以 `ShowWindow(SW_SHOW)` 直接顯示後，UIA 的
+TreeItem 數為 0、`TVM_GETCOUNT` 也回 0 —— 沒有任何可選的攝影機。這與
+`qc_setting.xls` 的 `Camera list` 工作表空白（§9.13）互不矛盾：QCC 的牆面指派
+不在這份表，但 picker 本身也沒有內容可供選取。
+
+**(3) 真實選單手勢選 `36001` 是完全的 no-op。** 用已驗證的 Win32 選單導航
+（右鍵 → `#32768` → 方向鍵 → Enter，不是 `PostMessage(WM_COMMAND)`）點
+`監控設備 → QCV8001 (127.0.0.1)`（id 36001，state 0x0 = enabled）：highlight
+正確停在 36001、Enter 已送出，但 picker 沒有變成可見、tree 仍是 0 項、QCC `.err`
+零新增、HeliVMS 只有例行的 `GET_CONFIG_QCTEK`／`GET_AUTH_USER` 輪詢，**沒有任何
+`GET_LIVE_START`**。對照 QCC 開機自己對 127.0.0.1 做的 cfg=1 探測仍正常
+（§9.13），差別只在於沒有任何頻道被指派到牆。
+
+**結論（不要再試自動化）**：自主模式下無法可靠完成 QCC 的「攝影機拖上牆」——沒有
+UIA 控制項可操作、攝影機挑選器是空的、右鍵選裝置也不會開啟挑選器。這不是 HeliVMS
+相容層的缺陷，改 HeliVMS 程式碼不會有任何幫助。唯一路徑仍是操作員在 QCC 先建立／
+確認攝影機清單，再於 live view 把 HeliVMS 頻道拖到監看牆格位
+（§9.10、§9.12、§9.13）。
