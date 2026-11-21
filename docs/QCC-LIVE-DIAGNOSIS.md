@@ -901,9 +901,11 @@ Ethernet）解析 `docs/qcc-qcv8001-golden.pcapng`，在單獨的 TCP payload �
 
 **REA 只證明「欄位被讀取」，沒有證明 live 因果**：`QC_IPCAM_Aver.dll` 的
 `dvrProxy::GetConfig_QCV8001`（`0x1800030d0`）呼叫 `GetConfig_QCV8001_Old`
-（`0x180002f50`），後者把 raw config 每頻道的 u32（`lVar2+0x28`，stride `0x20`）
-抄進 QCC 內部 record 的 `+0x18`（`puVar5+0x16`，stride `0x120`）並接著
-`qc_wcscpy` 名稱。所以該欄的確會被 QCC 保存，不是無用填充。但乾淨重啟後，不論
+（`0x180002f50`），後者把解析後 config 結構的每頻道 u32（`lVar2+0x28`，stride
+`0x20`）抄進 QCC 內部 record（`puVar5 = lVar3+0xd2`，stride `0x120`）的 `+0x16`
+（`*(puVar5 + 0x16) = *puVar6`），接著把名稱 `qc_wcscpy` 到同一 record 的 `+0x1a`
+（`lVar3+0xec`）。注意內部 record 的位移與線路 record 差 2 bytes，不要照抄線路的
+`+0x18`／`+0x1C`。所以該欄的確會被 QCC 保存，不是無用填充。但乾淨重啟後，不論
 修正前後，QCC 對**兩台**裝置都只印 `cfg=1` 探測（log delta 1103 bytes，`StartLiveReq
 0, 1, 1`），自動化情境沒有出現 `cfg=0`／`StartStream`——因此**不能宣稱這個修正已讓
 live 畫面出現**，也不能排除黑畫面另有原因。真正的 live 閘門仍在 `FUN_180012d10` 的
