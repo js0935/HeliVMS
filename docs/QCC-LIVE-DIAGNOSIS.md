@@ -817,6 +817,13 @@ TreeItem 數為 0、`TVM_GETCOUNT` 也回 0 —— 沒有任何可選的攝影�
 `qc_setting.xls` 的 `Camera list` 工作表空白（§9.13）互不矛盾：QCC 的牆面指派
 不在這份表，但 picker 本身也沒有內容可供選取。
 
+**(2a) 右側裝置面板的 6 項樹也是空的。** 即時監看右側（rect 999,88–1119,369）另有
+一棵固定的 6 項 `SysTreeView32`（屬於 QC_Live，hwnd 每次重啟會變）。UIA 對它回報
+TreeItem=0；改以 `VirtualAllocEx` 在 QC_Live 行程內配置 `TVITEM` 與文字緩衝，再用
+`TVM_GETITEMW` 跨行程讀取，六個 root 項目的訊息皆成功（回傳非 0）但文字全是空字串
+——這些是沒有內容的 place holder。因此即使改從右側裝置樹下手，也沒有 HeliVMS 頻道
+可供程式化選取。這與 (2) 一起排除了「也許某棵標準控制項其實有頻道」的最後一個可能。
+
 **(3) 真實選單手勢選 `36001` 是完全的 no-op。** 用已驗證的 Win32 選單導航
 （右鍵 → `#32768` → 方向鍵 → Enter，不是 `PostMessage(WM_COMMAND)`）點
 `監控設備 → QCV8001 (127.0.0.1)`（id 36001，state 0x0 = enabled）：highlight
