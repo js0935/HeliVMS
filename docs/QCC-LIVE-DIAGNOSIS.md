@@ -905,10 +905,17 @@ Ethernet）解析 `docs/qcc-qcv8001-golden.pcapng`，在單獨的 TCP payload �
 `0x20`）抄進 QCC 內部 record（`puVar5 = lVar3+0xd2`，stride `0x120`）的 `+0x16`
 （`*(puVar5 + 0x16) = *puVar6`），接著把名稱 `qc_wcscpy` 到同一 record 的 `+0x1a`
 （`lVar3+0xec`）。注意內部 record 的位移與線路 record 差 2 bytes，不要照抄線路的
-`+0x18`／`+0x1C`。所以該欄的確會被 QCC 保存，不是無用填充。但乾淨重啟後，不論
-修正前後，QCC 對**兩台**裝置都只印 `cfg=1` 探測（log delta 1103 bytes，`StartLiveReq
-0, 1, 1`），自動化情境沒有出現 `cfg=0`／`StartStream`——因此**不能宣稱這個修正已讓
-live 畫面出現**，也不能排除黑畫面另有原因。真正的 live 閘門仍在 `FUN_180012d10` 的
+`+0x18`／`+0x1C`。所以該欄的確會被 QCC 保存，不是無用填充。
+
+**自動化的重現限制，不是兩台對等的證據**：操作員已確認 `36002`（真機）**能顯示
+即時畫面**。乾淨重啟後我的自動化情境不論修正前後都只讓 QCC 對**兩台**印 `cfg=1`
+探測（log delta 1103 bytes，`StartLiveReq 0, 1, 1`），沒有重現 `cfg=0`／
+`StartStream`——這只能說自動化沒能重現操作員讓 36002 顯示的那個時刻（§9.13～
+§9.15：cell 指派／右鍵／拖上牆等 gesture 在自主模式下都無法可靠完成），**不能據以
+否定 36002 可見這件事實，更不能把兩台當成在自動化下同樣不可見**。所以在看到 QCC
+對 `127.0.0.1:80` 送出 `cfg=0`，且 HeliVMS 的 `%TEMP%\helivms-qctek.log` 出現
+「已訂閱」與持續增加的影像幀數之前，**不能宣稱這個修正已讓 QCC 能看 HeliVMS**，
+也不能排除黑畫面另有原因。真正的 live 閘門仍在 `FUN_180012d10` 的
 `IsMemoryEmpty(+0x461ec, 0x80)`（§9.10、§9.15）；若要繼續查因果，需要能可靠觸發
 QCC 對 HeliVMS 發出 `cfg=0`，或重新 attach Frida 追該 128-byte 位圖是誰填入的。
 
