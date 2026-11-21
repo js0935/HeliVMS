@@ -59,10 +59,26 @@ internal sealed class QctekLiveStreamSource : IQctekLiveSource
     /// <b>只能</b>在已探測到可轉碼音軌時傳 true：沒有音軌的來源掛 <c>-map 0:a:0</c>
     /// 會讓 ffmpeg 直接結束，連畫面都沒有（見 <see cref="QctekAudioArguments"/>）。
     /// </param>
-    public static QctekLiveStreamSource? TryOpen(string url, Action<string>? log, bool withAudio = false)
+    /// <param name="videoCodec">
+    /// ffprobe 的 <c>codec_name</c>；非 H.264 時 <see cref="QctekSourceArguments.Build"/>
+    /// 會改為即時轉碼，否則 <c>-f h264</c> muxer 直接結束、畫面永遠是黑的。
+    /// </param>
+    public static QctekLiveStreamSource? TryOpen(
+        string url,
+        Action<string>? log,
+        bool withAudio = false,
+        string? videoCodec = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(url);
         var safe = RtspUri.Redact(url);
+
+        var transcode = !QctekSourceArguments.CanRemux(videoCodec);
+        if (transcode)
+        {
+            // 這一行是「為什麼這一格在吃 CPU」的唯一證據：非 H.264 來源轉碼是必要的，
+            // 但如果是探測誤判把 H.264 也轉了，沒有它就只能看工作管理員猜。
+            log?.Invoke($"QCTEK live：來源影像編碼 {videoCodec} 無法直接 remux，改為即時轉成 H.264（{safe}）");
+        }
 
         // 埠必須在行程啟動前就綁好：埠號是 ffmpeg 的引數，而「先綁著沒人讀」不會
         // 反壓來源（UDP）。
@@ -92,7 +108,7 @@ internal sealed class QctekLiveStreamSource : IQctekLiveSource
 
         // 引數由 Qctek 專案的純函式組出（即時影像與遠端回放共用；檔案來源會加 -re，
         // 且 -re 必須在 -i 之前——見 QctekSourceArguments）。
-        foreach (var argument in QctekSourceArguments.Build(url, audio?.Port ?? 0))
+        foreach (var argument in QctekSourceArguments.Build(url, audio?.Port ?? 0, videoCodec))
         {
             psi.ArgumentList.Add(argument);
         }

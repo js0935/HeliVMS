@@ -19,6 +19,9 @@ public sealed class QctekSourceArgumentsTests
 
     private static List<string> Build(string source, int audioPort) => [.. QctekSourceArguments.Build(source, audioPort)];
 
+    private static List<string> Build(string source, int audioPort, string? videoCodec) =>
+        [.. QctekSourceArguments.Build(source, audioPort, videoCodec)];
+
     [Fact]
     public void 錄影檔來源會加re而且排在i之前()
     {
@@ -130,4 +133,80 @@ public sealed class QctekSourceArgumentsTests
     [Fact]
     public void 音訊埠是負數時直接擋下來() =>
         Assert.Throws<ArgumentOutOfRangeException>(() => QctekSourceArguments.Build("rtsp://cam/live", -1));
+
+    [Fact]
+    public void H264來源維持原本的copy_remux而不是開始轉碼()
+    {
+        // H.264 是絕大多數攝影機的常態，而且 remux 不花 CPU。探測結果只要是 H.264
+        // （或 avc1/avc3 這種 MP4 tag），命令列必須和沒有 videoCodec 參數時一模一樣：
+        // 多加一個 -preset 或把 copy 換成 libx264，等於讓十幾路正常攝影機平白吃滿 CPU。
+        foreach (var codec in new[] { "h264", "H264", "avc1", "avc3" })
+        {
+            var arguments = Build("rtsp://cam/live", 0, codec);
+            Assert.Equal("copy", arguments[arguments.IndexOf("-c:v") + 1]);
+            Assert.DoesNotContain("libx264", arguments);
+            Assert.DoesNotContain("-preset", arguments);
+            Assert.Equal(Build("rtsp://cam/live"), arguments);
+        }
+    }
+
+    [Fact]
+    public void 沒探測到影像編碼時維持原本的remux行為()
+    {
+        // ffprobe 不在、攝影機忙線、探測逾時都回 null／空字串。這時必須 fail-open 到
+        // 原本的 copy：讓全部 H.264 頻道突然轉碼是比「一台 MJPEG 沒畫面」大得多的 regression。
+        foreach (var codec in new string?[] { null, string.Empty, "   " })
+        {
+            Assert.True(QctekSourceArguments.CanRemux(codec));
+            Assert.Equal(Build("rtsp://cam/live"), Build("rtsp://cam/live", 0, codec));
+        }
+    }
+
+    [Fact]
+    public void MJPEG來源會轉碼成H264而不是讓muxer直接結束()
+    {
+        // 現場故障：60.249.85.192 的 sub stream 一度是 MJPEG，-c:v copy -f h264 會讓 ffmpeg
+        // 以「h264 muxer supports only codec h264」結束、stdout 零位元組，CMS 只收到狀態幀，
+        // 而該頻道每 5 秒重連一次。命令列必須改成即時編碼，且輸出仍是 Annex-B（dump_extra
+        // 補 SPS/PPS，QCC 以 block1 size > 0 認關鍵影格）。
+        var arguments = Build("rtsp://cam/live", 0, "mjpeg");
+
+        Assert.Equal("libx264", arguments[arguments.IndexOf("-c:v") + 1]);
+        Assert.DoesNotContain("copy", arguments);
+        Assert.Equal("ultrafast", arguments[arguments.IndexOf("-preset") + 1]);
+        Assert.Equal("yuv420p", arguments[arguments.IndexOf("-pix_fmt") + 1]);
+        Assert.Equal("15", arguments[arguments.IndexOf("-g") + 1]);
+        Assert.Equal("dump_extra", arguments[arguments.IndexOf("-bsf:v") + 1]);
+        Assert.Equal("h264", arguments[arguments.IndexOf("-f") + 1]);
+        Assert.Equal("-", arguments[^1]);
+    }
+
+    [Fact]
+    public void 轉碼時音訊輸出仍舊接在影像輸出之後()
+    {
+        // MJPEG 攝影機也可能有麥克風，聲音的 udp:// 輸出不能因為換了影像編碼就消失或
+        // 跑到影像前面（ffmpeg 的選項是「下一個輸出」的，順序錯了畫面就沒了）。
+        var arguments = Build("rtsp://cam/live", 45678, "mjpeg");
+        var video = arguments.IndexOf("-f");
+        Assert.Equal("h264", arguments[video + 1]);
+        Assert.Equal("-", arguments[video + 2]);
+
+        var audio = arguments.IndexOf("-f", video + 1);
+        Assert.True(audio > video + 2);
+        Assert.Equal("mulaw", arguments[audio + 1]);
+        Assert.Equal("udp://127.0.0.1:45678", arguments[^1]);
+        Assert.Equal(1, arguments.Count(argument => argument == "-map"));
+    }
+
+    [Fact]
+    public void 轉碼與remux的檔案來源都不會加RTSP選項()
+    {
+        // -rtsp_transport 只跟來源協定有關，不該被影像編碼判定帶著跑。
+        foreach (var codec in new string?[] { null, "h264", "mjpeg" })
+        {
+            var arguments = Build(@"D:\rec\seg-120000.mp4", 0, codec);
+            Assert.DoesNotContain("-rtsp_transport", arguments);
+            Assert.True(arguments.IndexOf("-re") < arguments.IndexOf("-i"));
+        }
+    }
 }

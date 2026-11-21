@@ -419,11 +419,11 @@ public sealed class QctekCompatHost : IDisposable
     /// <summary>NEMO 命令所需的裝置資訊與憑證驗證。</summary>
     private sealed class DeviceContext : IQctekDeviceContext
     {
-        /// <summary>音訊探測結果的快取時間：同一個頻道反覆開流不該每次多花一條 RTSP 工作階段。</summary>
-        private static readonly TimeSpan AudioProbeTtl = TimeSpan.FromMinutes(10);
+        /// <summary>串流探測結果的快取時間：同一個頻道反覆開流不該每次多花一條 RTSP 工作階段。</summary>
+        private static readonly TimeSpan StreamProbeTtl = TimeSpan.FromMinutes(10);
 
-        /// <summary>音訊探測逾時：探測發生在開流<b>之前</b>，拖太久會直接延後第一張畫面。</summary>
-        private static readonly TimeSpan AudioProbeTimeout = TimeSpan.FromSeconds(3);
+        /// <summary>串流探測逾時：探測發生在開流<b>之前</b>，拖太久會直接延後第一張畫面。</summary>
+        private static readonly TimeSpan StreamProbeTimeout = TimeSpan.FromSeconds(3);
 
         private readonly AuthService _auth;
         private readonly ChannelRepository _channels;
@@ -434,11 +434,22 @@ public sealed class QctekCompatHost : IDisposable
         private readonly QctekPtzController _ptz;
 
         /// <summary>
-        /// 每頻道／每碼流「有沒有可轉碼的音軌」。鍵用頻道 Id 而不是網址：網址含帳密，
-        /// 而且重新探索後可能換一個位址（那時本來就該重新探測）。
+        /// 每頻道／每碼流一次探測的結果（影像編碼＋有沒有可轉碼的音軌）。鍵用頻道 Id
+        /// 而不是網址：網址含帳密，而且重新探索後可能換一個位址（那時本來就該重新探測）。
         /// </summary>
-        private readonly ConcurrentDictionary<(int ChannelId, int SubStream), (bool HasAudio, DateTimeOffset ProbedAt)>
-            _audioProbe = new();
+        /// <remarks>
+        /// 影像編碼也放進同一次探測，而不是另寫一份：一是避免「開收音的頻道探兩次」
+        /// 多花一條 RTSP 工作階段（便宜攝影機只允許 2～4 條），二是兩份快取一旦漂移，
+        /// 就會出現「音訊判斷是新探測、影像判斷是舊探測」那種無法歸因的狀態。
+        /// </remarks>
+        private readonly ConcurrentDictionary<(int ChannelId, int SubStream), StreamProbeResult> _streamProbe = new();
+
+        /// <summary>一次 <see cref="StreamProbe.Probe"/> 的結果，兩件事共用同一份快取。</summary>
+        private sealed record StreamProbeResult(
+            bool HasAudio,
+            string? AudioCodec,
+            string? VideoCodec,
+            DateTimeOffset ProbedAt);
 
         public DeviceContext(SqliteStore store)
         {
@@ -556,60 +567,81 @@ public sealed class QctekCompatHost : IDisposable
                 host => _devices.FindByIp(host)?.Id,
                 _devices.GetRtspCredentials);
 
-            // 「收音」是操作員在頻道設定明確打開的（預設關閉），而且要先確認來源真的
-            // 有可轉碼的音軌——沒探測就掛 -map 0:a:0 會讓整個頻道黑屏（見 HasAudioTrack）。
-            var withAudio = channel.ListenEnabled && HasAudioTrack(channel.Id, subStream, resolved);
+            // 一次探測同時回答兩件事（見 ProbeStream）：
+            //  ①有沒有可轉碼的音軌——「收音」是操作員在頻道設定明確打開的（預設關閉），
+            //    沒探測就掛 -map 0:a:0 會讓整個頻道黑屏；
+            //  ②影像是不是 H.264——不是的話 -c:v copy -f h264 會在寫 header 時失敗，
+            //    stdout 零位元組，CMS 只收到狀態幀（實測 MJPEG 來源每 5 秒重連一次）。
+            // 即使頻道沒開收音也要探測影像編碼，所以不能再用 ListenEnabled 當探測的閘。
+            var probe = ProbeStream(channel.Id, subStream, resolved, channel.ListenEnabled);
+            var withAudio = channel.ListenEnabled && probe.HasAudio;
 
-            return QctekLiveStreamSource.TryOpen(resolved, QctekCompatHost.Diag, withAudio);
+            return QctekLiveStreamSource.TryOpen(
+                resolved,
+                QctekCompatHost.Diag,
+                withAudio,
+                probe.VideoCodec);
         }
 
         /// <summary>
-        /// 這一路來源有沒有可以轉成 µ-law 的音軌（快取 10 分鐘）。
+        /// 探測這一路來源的影像編碼與音軌（快取 10 分鐘），一次探測供兩個決定共用。
         /// </summary>
         /// <remarks>
         /// <para>
-        /// 探測是必要的，不是保險：對沒有音軌的來源下 <c>-map 0:a:0</c>，ffmpeg 會以
+        /// 音訊那一半是必要的，不是保險：對沒有音軌的來源下 <c>-map 0:a:0</c>，ffmpeg 會以
         /// 「輸出檔沒有任何串流」直接結束，整個頻道連<b>畫面</b>都沒有，而兩端日誌只有
         /// 一行 ffmpeg 錯誤。多加 <c>?</c> 也一樣（映射允許為空，但輸出仍然沒有串流）。
         /// </para>
         /// <para>
-        /// 探測失敗（ffprobe 不在、攝影機忙線、逾時）一律當「沒有音訊」：少一段聲音
-        /// 看得出來，黑屏看不出原因。
+        /// 影像那一半是新加的：<c>-c:v copy -f h264</c> 遇到 MJPEG 等非 H.264 來源會在
+        /// 寫 header 時以「h264 muxer supports only codec h264」失敗。探測結果決定要不要
+        /// 即時轉碼；沒探測到（null／空字串）時 <see cref="QctekSourceArguments.CanRemux"/>
+        /// 會 fail-open 到原本的 remux，避免探測失敗讓全部正常頻道開始吃 CPU。
+        /// </para>
+        /// <para>
+        /// 探測失敗一律當「沒有音訊、不知道影像編碼」：少一段聲音看得出來，黑屏看不出
+        /// 原因。診斷行只在真的探測時寫（有 10 分鐘快取），不會每次開流都刷。
         /// </para>
         /// </remarks>
-        private bool HasAudioTrack(int channelId, int subStream, string resolvedUrl)
+        private StreamProbeResult ProbeStream(int channelId, int subStream, string resolvedUrl, bool listenEnabled)
         {
             var key = (channelId, subStream);
             var now = DateTimeOffset.UtcNow;
-            if (_audioProbe.TryGetValue(key, out var cached) && now - cached.ProbedAt < AudioProbeTtl)
+            if (_streamProbe.TryGetValue(key, out var cached) && now - cached.ProbedAt < StreamProbeTtl)
             {
-                return cached.HasAudio;
+                return cached;
             }
 
             var hasAudio = false;
-            string? codec = null;
+            string? audioCodec = null;
+            string? videoCodec = null;
             try
             {
-                var probe = StreamProbe.Probe(resolvedUrl, timeout: AudioProbeTimeout);
-                codec = probe.AudioCodec;
-                hasAudio = QctekAudioArguments.ShouldAttach(codec);
+                var probe = StreamProbe.Probe(resolvedUrl, timeout: StreamProbeTimeout);
+                audioCodec = probe.AudioCodec;
+                videoCodec = probe.VideoCodec;
+                hasAudio = QctekAudioArguments.ShouldAttach(audioCodec);
             }
             catch (Exception ex)
             {
                 QctekCompatHost.Diag(
-                    $"QCTEK live：頻道 {channelId} 音訊探測失敗，視為沒有音訊：{ex.GetType().Name} {ex.Message}");
+                    $"QCTEK live：頻道 {channelId} 串流探測失敗，視為沒有音訊且不知道影像編碼：{ex.GetType().Name} {ex.Message}");
             }
 
-            _audioProbe[key] = (hasAudio, now);
+            var result = new StreamProbeResult(hasAudio, audioCodec, videoCodec, now);
+            _streamProbe[key] = result;
 
-            // 探測結果要留一行：操作員在頻道設定打開了「收音」，QCC 卻沒有聲音時，
-            // 這一行是唯一能分辨「沒有音軌／編碼不在白名單／探測失敗」的證據
-            // （探測有 10 分鐘快取，所以不會每次開流都寫）。
-            QctekCompatHost.Diag(hasAudio
-                ? $"QCTEK live：頻道 {channelId} 音訊探測：{codec}，會送出聲音"
-                : $"QCTEK live：頻道 {channelId} 已開啟收音但沒有可轉譯的音軌（{codec ?? "無音軌"}），不送聲音");
+            // 音訊診斷只有操作員真的開了收音才有意義：「已開啟收音但沒有可轉譯的音軌」
+            // 對沒開收音的頻道是在亂講話。影像編碼不另寫一行——真的轉碼時
+            // QctekLiveStreamSource.TryOpen 會留下「為什麼這一格在吃 CPU」的證據。
+            if (listenEnabled)
+            {
+                QctekCompatHost.Diag(hasAudio
+                    ? $"QCTEK live：頻道 {channelId} 音訊探測：{audioCodec}，會送出聲音"
+                    : $"QCTEK live：頻道 {channelId} 已開啟收音但沒有可轉譯的音軌（{audioCodec ?? "無音軌"}），不送聲音");
+            }
 
-            return hasAudio;
+            return result;
         }
 
         /// <summary>目前頻道清單中第 <paramref name="channelIndex"/> 個頻道的資料庫 Id。</summary>

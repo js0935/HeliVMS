@@ -191,7 +191,8 @@ public sealed class QctekCompatContractTests
         Assert.Contains("GetRtspCredentials", create);
 
         // 交給 ffmpeg 的必須是補完憑證的位址，不是資料庫裡的裸位址。
-        Assert.Contains("QctekLiveStreamSource.TryOpen(resolved", create);
+        Assert.Contains("QctekLiveStreamSource.TryOpen(", create);
+        Assert.Contains("resolved,", create);
     }
 
     [Fact]
@@ -255,12 +256,12 @@ public sealed class QctekCompatContractTests
         var create = SourceContract.BodyOf(host, "CreateLiveSource");
         Assert.NotEqual(string.Empty, create);
         Assert.Contains("channel.ListenEnabled", create);
-        Assert.Contains("HasAudioTrack(channel.Id, subStream, resolved)", create);
-        Assert.Contains("QctekLiveStreamSource.TryOpen(resolved, QctekCompatHost.Diag, withAudio)", create);
+        Assert.Contains("ProbeStream(channel.Id, subStream, resolved, channel.ListenEnabled)", create);
+        Assert.Contains("QctekLiveStreamSource.TryOpen(", create);
 
         Assert.Contains("StreamProbe.Probe(", host);
         Assert.Contains("QctekAudioArguments.ShouldAttach(", host);
-        Assert.Contains("AudioProbeTtl", host); // 10 分鐘快取：開流不該每次多花一條 RTSP 工作階段
+        Assert.Contains("StreamProbeTtl", host); // 10 分鐘快取：開流不該每次多花一條 RTSP 工作階段
 
         // 探測結果要留一行：操作員打開了「收音」卻沒聲音時，這是唯一能分辨
         // 「沒有音軌／編碼不在白名單／探測失敗」的證據。
@@ -270,7 +271,35 @@ public sealed class QctekCompatContractTests
         // 埠要在行程啟動前綁好（埠號是 ffmpeg 的引數），而且音訊輸出必須由共用引數函式組出。
         var source = SourceContract.Read("src/HeliVMS.App/Services/QctekLiveStreamSource.cs");
         Assert.Contains("QctekUdpAudio", source);
-        Assert.Contains("QctekSourceArguments.Build(url, audio?.Port ?? 0)", source);
+        Assert.Contains("QctekSourceArguments.Build(url, audio?.Port ?? 0, videoCodec)", source);
         Assert.Contains("public IQctekLiveAudio? Audio => _audio;", source);
+    }
+
+    [Fact]
+    public void 非H264來源的影像編碼會一路帶到ffmpeg引數而不是被丟掉()
+    {
+        // 現場故障：MJPEG 來源下 -c:v copy -f h264，ffmpeg 以「h264 muxer supports only
+        // codec h264」結束、stdout 零位元組，該頻道每 5 秒重連且 CMS 永遠只有狀態幀。
+        // 三處接線缺一不可：探測到 VideoCodec → 傳進 TryOpen → 傳進 Build 改成即時轉碼。
+        // 只改 QctekSourceArguments 而漏掉任一處，純函式測試會全綠但成品仍然黑屏。
+        var host = SourceContract.Read(Host);
+        var create = SourceContract.BodyOf(host, "CreateLiveSource");
+        Assert.NotEqual(string.Empty, create);
+        Assert.Contains("var probe = ProbeStream(channel.Id, subStream, resolved, channel.ListenEnabled)", create);
+        Assert.Contains("probe.VideoCodec", create);
+
+        var probe = SourceContract.BodyOf(host, "ProbeStream");
+        Assert.NotEqual(string.Empty, probe);
+        Assert.Contains("videoCodec = probe.VideoCodec", probe);
+        Assert.Contains("new StreamProbeResult(hasAudio, audioCodec, videoCodec, now)", probe);
+
+        var source = SourceContract.Read("src/HeliVMS.App/Services/QctekLiveStreamSource.cs");
+        Assert.Contains("string? videoCodec = null)", source);
+        Assert.Contains("QctekSourceArguments.CanRemux(videoCodec)", source);
+        Assert.Contains("QctekSourceArguments.Build(url, audio?.Port ?? 0, videoCodec)", source);
+
+        var arguments = SourceContract.Read("src/HeliVMS.Qctek/Live/QctekSourceArguments.cs");
+        Assert.Contains("public static bool CanRemux(string? videoCodec)", arguments);
+        Assert.Contains("TranscodeVideoArguments", arguments);
     }
 }

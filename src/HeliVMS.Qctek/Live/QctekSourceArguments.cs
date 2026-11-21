@@ -30,6 +30,14 @@ namespace HeliVMS.Qctek.Live;
 /// 加上 <c>h264_mp4toannexb</c> 後輸出才以 start code 開頭並帶著 SPS/PPS。
 /// 即時影像（RTSP）不能加：那裡的封包本來就是 Annex-B，再轉一次會把 NAL 弄壞。
 /// </para>
+/// <para>
+/// <b>只有 H.264 來源能 <c>-c:v copy</c></b>：QCC 的影像輸出固定是 <c>-f h264</c>，
+/// 對 MJPEG／MPEG-4 之類的來源下 <c>copy</c>，ffmpeg 會在寫 header 時以
+/// 「h264 muxer supports only codec h264 for type video」直接結束，stdout 零位元組。
+/// 現場症狀是該頻道一直重連、CMS 只看到狀態幀沒有畫面，兩端日誌都只有那一行。
+/// 呼叫端用 <see cref="CanRemux"/> 判定：<see langword="true"/> 維持原本零成本 remux；
+/// 其餘編碼即時轉成 H.264（<see cref="TranscodeVideoArguments"/>）。
+/// </para>
 /// </remarks>
 public static class QctekSourceArguments
 {
@@ -39,12 +47,18 @@ public static class QctekSourceArguments
     /// 已綁定的本機 UDP 埠；大於 0 時在影像輸出<b>之後</b>追加一個 µ-law 音訊輸出
     /// （<see cref="QctekAudioArguments.Build"/>）。0＝只有影像（既有行為）。
     /// </param>
-    public static IReadOnlyList<string> Build(string source, int audioPort = 0)
+    /// <param name="videoCodec">
+    /// ffprobe 探測到的 <c>codec_name</c>。<see cref="CanRemux"/> 為真（含 <see langword="null"/>／
+    /// 空字串＝沒探測到）時維持 <c>-c:v copy</c>；其餘編碼（例如 MJPEG）即時轉碼成 H.264，
+    /// 否則 <c>h264</c> muxer 會直接結束，該頻道只會送狀態幀沒有畫面（見型別說明）。
+    /// </param>
+    public static IReadOnlyList<string> Build(string source, int audioPort = 0, string? videoCodec = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(source);
         ArgumentOutOfRangeException.ThrowIfNegative(audioPort);
 
         var live = IsLiveSource(source);
+        var remux = CanRemux(videoCodec);
         var arguments = new List<string>
         {
             "-loglevel",
@@ -70,8 +84,19 @@ public static class QctekSourceArguments
         arguments.Add("-i");
         arguments.Add(source);
         arguments.Add("-an");              // CMS 端只要視訊
-        arguments.Add("-c:v");
-        arguments.Add("copy");             // 純 remux，不解碼
+        if (remux)
+        {
+            arguments.Add("-c:v");
+            arguments.Add("copy");         // H.264 純 remux，不解碼、不花 CPU
+        }
+        else
+        {
+            // 非 H.264 來源（MJPEG 等）：QCC 只收 Annex-B H.264，必須即時轉碼。
+            // libx264 的 raw h264 輸出本來就在每個 IDR 前寫 SPS/PPS，dump_extra 再補一層
+            // 以確保 QCC 的 block1 判準永遠成立（實測兩者輸出位元組相同，留著是保險）。
+            arguments.AddRange(TranscodeVideoArguments);
+        }
+
         arguments.Add("-bsf:v");
         arguments.Add(live
             ? "dump_extra"                    // 關鍵影格前補 SPS/PPS（QCC 以 block1 判關鍵影格）
@@ -92,6 +117,50 @@ public static class QctekSourceArguments
 
         return arguments;
     }
+
+    /// <summary>
+    /// 影像編碼能不能直接 <c>-c:v copy</c> 餵給 <c>-f h264</c>。
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// 只有 H.264 可以：<c>h264</c> 是 ffprobe 的 <c>codec_name</c>，<c>avc1</c>／
+    /// <c>avc3</c> 是 MP4 的 codec tag（有些探測路徑會回 tag）。白名單而不是黑名單：
+    /// 清單外的編碼一律轉碼，轉錯只是多花 CPU，漏判則是整個頻道黑屏。
+    /// </para>
+    /// <para>
+    /// <b>沒探測到（<see langword="null"/>／空字串）當作可以</b>：探測失敗（ffprobe 不在、
+    /// 攝影機忙線、逾時）時讓原本正常的 H.264 攝影機突然開始吃 CPU 轉碼是更大的 regression；
+    /// 代價是 MJPEG 來源在探測失敗時仍送不出畫面，但那是單一頻道而不是全部。
+    /// </para>
+    /// </remarks>
+    public static bool CanRemux(string? videoCodec) =>
+        string.IsNullOrWhiteSpace(videoCodec) || RemuxableCodecs.Contains(videoCodec);
+
+    /// <summary>非 H.264 來源轉成 QCC 可收的 H.264 Annex-B 所需的影片編碼引數。</summary>
+    /// <remarks>
+    /// <para>
+    /// <c>ultrafast</c>＋無 B 框：一台 NVR 同時解十幾路，轉碼不能把畫面拖慢；畫質在此
+    /// 不是重點（相容層的目標是讓舊 CMS 有畫面，不是取代主流錄影）。
+    /// </para>
+    /// <para>
+    /// <c>-g 15</c> 讓關鍵影格間隔約一秒：QCC 只能從關鍵影格開始解，GOP 太長時它會
+    /// 等完整一個 GOP 才出畫面（現場感受就是「開流後十幾秒都黑著」）。
+    /// </para>
+    /// </remarks>
+    private static readonly string[] TranscodeVideoArguments =
+    [
+        "-c:v", "libx264",
+        "-preset", "ultrafast",
+        "-pix_fmt", "yuv420p",
+        "-g", "15",
+    ];
+
+    private static readonly HashSet<string> RemuxableCodecs = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "h264",
+        "avc1",
+        "avc3",
+    };
 
     /// <summary>
     /// 來源是否為「本身即時」的網路串流（不加 <c>-re</c>）。看不懂的來源字串一律
