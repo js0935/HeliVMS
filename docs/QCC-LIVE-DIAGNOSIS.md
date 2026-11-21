@@ -745,3 +745,54 @@ if (IsMemoryEmpty((void *)((longlong)param_1 + 0x461ec), 0x80)) {
 客戶端送出 0x90 keepalive（bit0=1）後 6 秒收到 19,325 bytes 的連續影格資料。
 **伺服器端沒有剩餘工作**：HeliVMS ↔ QCC 之間未驗證的只剩「QCC 解碼器激活」
 （§9.1–9.3 的 QCC 端變數）與操作員把頻道放上牆（§9.10）。
+
+### 9.13 乾淨重啟後右鍵「監控設備 → 36001」仍不發動 live：再次確認是 QCC 上牆指派（2026-11-21）
+
+先前對 `36001`（QCV8001 (127.0.0.1)）的測試都在 QCC 忙碌／slot 殘留狀態下做，無法排除
+「busy 洩漏」（§9.4）的干擾。本輪先把 QCC/QC_Live 全部 kill，再依序啟動 HeliVMS.App
+（PID 20500，聽 `52660,8612,5170,80`）與 QCC（PID 2312，`QC_CMS_Class` hwnd 3932646），
+等 40 秒穩定後，用真實 Win32 選單手勢（右鍵 → `#32768` 選單 → 方向鍵 → Enter，
+不是 `PostMessage(WM_COMMAND)`）點 `36001`。結果：
+
+```
+08:16:22  qcc-nav3 -TargetId 36001 → enter sent（選單 highlight 已停在 36001）
+          QCC .err size 1147 → 1147（零新增）
+          HeliVMS 只有週期性 ALARM_ISALIVE / GET_IOCONFIG(280B) /
+          GET_CONFIG_QCTEK(2904B) / GET_AUTH_USER(152B)，無新 GET_LIVE_START
+```
+
+**但同一次乾淨啟動的開機探測確實打到了 HeliVMS**（`%TEMP%\helivms-qctek.log` 08:15:00）：
+
+```
+08:15:00.411 NEMO ← GET_LIVE_START admin QCV8001_AUTH
+08:15:00.413 LIVE：即時影像通道開始（127.0.0.1:64196）
+08:15:00.426 LIVE：對端關閉連線（127.0.0.1:64196）
+08:15:00.427 LIVE：即時影像通道結束：未訂閱、影像 0 幀、狀態 0 幀、音訊 0 幀、0.0 秒
+08:15:00.427 LIVE：判定為探測連線（未送出 keepalive，QCC 的 cfg=1）…
+```
+
+也就是說 `127.0.0.1` 這台裝置 **QCC 開機時會做 cfg=1 探測**（HeliVMS 正確辨識並關線），
+但右鍵點它不會像 `36002`（真機 60.251.180.241）那樣再補一發 cfg=0 真 live。這與
+§9.10 的閘門一致：`FUN_180012d10` 非 2 路徑在 `IsMemoryEmpty(slot+0x461ec, 0x80)`
+為真時直接 return，該位圖就是「這台裝置要推哪幾路」的 UI 指派；`127.0.0.1` 沒有任何
+頻道被拖上 QCC 監看牆，因此 `StartLive! 1` / cfg=0 永遠不發生。**不是 busy、不是
+HeliVMS 回應錯誤，也無法靠改 HeliVMS 設定修正。**
+
+**QCC 本地設定的交叉證據**（`C:\QCTek\QCC\setting\qc_setting.xls`，自建 OLE2+BIFF8
+解析器讀出，SST 每筆是 `cch(u16)+grbit(u8)`、BOUNDSHEET 名稱是 `cch(u8)+grbit(u8)`）：
+
+| Device list | B(IP) | C(port) | H(model) | I | J |
+|---|---|---|---|---|---|
+| 127.0.0.1 | 127.0.0.1 | 80 | QCV8001 | 5 | 10 |
+| 60.251.180.241 | 60.251.180.241 | 80 | QCV8001 | 4 | 23 |
+
+`J` 與裝置回報的頻道數吻合：HeliVMS 的 `GET_CONFIG_QCTEK` 回 2904 bytes
+＝ `0x18 + 10*0x120`（10 頻道），真機設定匯出則是 23 路真實攝影機（名稱／MAC／IP）。
+兩台裝置的 `I` 不同（5 vs 4），但都是同一型號 QCV8001；`Camera list` 工作表在
+`qc_setting.xls` 中是空的——QCC 的牆面指派不在這份表，而在各裝置的設定與 UI 狀態。
+HeliVMS 的 cfg 匯出（`resource\CfgExport\127_0_0_1(80)\2026_11_14.cfg`）裡 32 個
+`eq__j0` 佔位名稱，正是「沒有操作員指派過攝影機」的形狀。
+
+**結論（不要重查）**：乾淨重啟＋真實右鍵手勢仍無法讓 `36001` 對 HeliVMS 發動 live，
+再次確認缺口在 QCC 客戶端的「攝影機拖上監看牆」指派，不是 HeliVMS 相容層；唯一的
+下一步仍然是操作員在 QCC live view 把 HeliVMS 頻道拖上牆（§9.10、§9.12）。
