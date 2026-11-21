@@ -78,6 +78,22 @@ public class QctekPayloadsTests
     }
 
     [Fact]
+    public void 每筆頻道記錄的串流數欄都照抄真機為二()
+    {
+        // 真機 15 條黃金連線（單頻道）與目前連得上的 23 頻道真機，在 record +0x18
+        // （絕對 0x30，緊鄰名稱之前）都寫 2；HeliVMS 先前沒寫這一欄＝回 0，與真機不同。
+        // 位移寫死絕對值，引用常數會讓錯的常數自己也通過；逐筆檢查是因為單頻道 golden
+        // 測試抓不到「只寫第一筆」的回歸——其餘頻道在 QCC 仍會拿到 0。
+        var payload = QctekPayloads.Config(["A", "B", "C"]);
+
+        for (var i = 0; i < 3; i++)
+        {
+            var absolute = 0x30 + (i * QctekPayloads.ConfigRecordLength);
+            Assert.Equal(2u, BinaryPrimitives.ReadUInt32LittleEndian(payload.AsSpan(absolute)));
+        }
+    }
+
+    [Fact]
     public void 過長的頻道名會截斷在欄位容量內而不是寫出記錄()
     {
         // 容量 0x41 wchar（含結尾 NUL）＝最多 64 字。超長名稱若寫出去，會蓋掉下一筆

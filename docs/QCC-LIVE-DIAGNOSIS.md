@@ -863,3 +863,53 @@ UIA 控制項可操作、攝影機挑選器是空的、右鍵選裝置也不會�
 相容層的缺陷，改 HeliVMS 程式碼不會有任何幫助。唯一路徑仍是操作員在 QCC 先建立／
 確認攝影機清單，再於 live view 把 HeliVMS 頻道拖到監看牆格位
 （§9.10、§9.12、§9.13）。
+
+### 9.16 `GET_CONFIG_QCTEK` 每頻道 record `+0x18` 的位元組保真（2026-11-21）
+
+**新的現場事實**：操作員確認 QCC 連真實 `QCV8001`（`36002`）能正常顯示，連
+HeliVMS（`36001`）不能。這推翻了 §9.13／§9.14 原先「只是 QCC 端 cell 指派、不是
+HeliVMS 問題」的結案；以下只記錄有線路證據的差異，不把未證實的推測寫成結論。
+
+**黃金抓包的獨立驗證**：用自建 pcapng parser（LINKTYPE_NULL／BSD loopback，不是
+Ethernet）解析 `docs/qcc-qcv8001-golden.pcapng`，在單獨的 TCP payload 內找到 15 份
+312-byte `QCTEK_RM` config（`0x18` header + 1 筆 `0x120` record），15 份**完全一致**：
+
+```
+ hdr: 51 43 54 45 4b 5f 52 4d 1c 3b 34 01 00 00 00 00 ff ff ff ff 01 00 00 00
+ rec +0x18（絕對 0x30）: 02 00 00 00        ← 真機所有 15 份都是 2
+ rec flags +0x00       : 01 00 01 01 01 01 00 01
+```
+
+目前仍連得上的真機（23 頻道）在同一欄也是 2；金抓包與目前真機在這一欄一致。
+`tests/HeliVMS.Qctek.Tests/GoldenCapture.cs` 的 `ConfigPayloadBase64` 原本是
+`…0x30 = 0`，也就是**測試常數遷就了 `QctekPayloads.Config()` 沒有寫這一欄**（回 0），
+而不是照抄真機——已直接以程式從 pcap 抽取位元組寫回，round-trip 驗證
+`written len 312 byte0x30 2 EQUAL pcap True`，不再手抄 base64。
+
+**修正**：`QctekPayloads` 新增 `ConfigRecordStreamCount = 2` 與
+`ConfigRecordStreamCountOffset = 0x18`，每筆 record 都寫入 u32（不是只寫第一筆）。
+該欄語意未反編譯出來，不要當成頻道編號或旗標去「算」；照抄真機是唯一有證據的
+選擇。新增護欄 `每筆頻道記錄的串流數欄都照抄真機為二()` 用絕對位移 `0x30 + i*0x120`
+逐筆檢查（引用常數會讓錯的常數自己也通過；單頻道 golden 抓不到「只寫第一筆」）。
+突變驗證：把常數改回 0 時，新護欄與既有 golden 逐位元組測試都在位移 48 變紅；
+還原後 311 測試全綠、全方案 build 成功。
+
+**線路驗證**：完整重啟 HeliVMS（PID 18508，聽 `54237,8612,5170,80`）與 QCC
+（PID 148／QC_Live 2284）後，直接向 `127.0.0.1:80` 抓 `GET_CONFIG_QCTEK` 回傳
+2904 bytes＝`0x18 + 10*0x120`，逐筆 `+0x18 u32=2`、`flags=01 00 01 01 01 01 00 01`
+——與真機同欄一致。
+
+**REA 只證明「欄位被讀取」，沒有證明 live 因果**：`QC_IPCAM_Aver.dll` 的
+`dvrProxy::GetConfig_QCV8001`（`0x1800030d0`）呼叫 `GetConfig_QCV8001_Old`
+（`0x180002f50`），後者把 raw config 每頻道的 u32（`lVar2+0x28`，stride `0x20`）
+抄進 QCC 內部 record 的 `+0x18`（`puVar5+0x16`，stride `0x120`）並接著
+`qc_wcscpy` 名稱。所以該欄的確會被 QCC 保存，不是無用填充。但乾淨重啟後，不論
+修正前後，QCC 對**兩台**裝置都只印 `cfg=1` 探測（log delta 1103 bytes，`StartLiveReq
+0, 1, 1`），自動化情境沒有出現 `cfg=0`／`StartStream`——因此**不能宣稱這個修正已讓
+live 畫面出現**，也不能排除黑畫面另有原因。真正的 live 閘門仍在 `FUN_180012d10` 的
+`IsMemoryEmpty(+0x461ec, 0x80)`（§9.10、§9.15）；若要繼續查因果，需要能可靠觸發
+QCC 對 HeliVMS 發出 `cfg=0`，或重新 attach Frida 追該 128-byte 位圖是誰填入的。
+
+**不要改回去的事**：①不要把 golden 常數改回 `0x30 = 0` 去配合沒有寫入的實作——那是
+把證據改成實作；②不要把 `+0x18` 猜成別的值（真機 15 份抓包與目前 23 頻道真機都為
+2）；③本節只是位元組保真，未授權據此改編碼參數、推流鏈、WHEP 或保留策略。

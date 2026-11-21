@@ -36,6 +36,16 @@ public static class QctekPayloads
     /// <summary>單一頻道記錄的長度。</summary>
     public const int ConfigRecordLength = 0x120;
 
+    /// <summary>
+    /// 記錄內 <c>+0x18</c> 的 u32；真機所有黃金抓包（15 條連線，單頻道）與目前連得上的
+    /// 真機（23 頻道）在這一欄都寫 <c>2</c>。語意未反編譯出來，不要當成頻道編號或旗標去
+    /// 「算」——照抄真機是唯一有證據的選擇；寫 0 會讓 QCC 拿到的設定與真機不同。
+    /// </summary>
+    public const uint ConfigRecordStreamCount = 2;
+
+    /// <summary>上面那欄在記錄內的位移。</summary>
+    public const int ConfigRecordStreamCountOffset = 0x18;
+
     /// <summary>頻道名稱在記錄內的位移（UTF-16LE）。</summary>
     public const int ConfigNameOffset = 0x1C;
 
@@ -75,6 +85,8 @@ public static class QctekPayloads
         {
             var record = buffer.AsSpan(ConfigHeaderLength + (i * ConfigRecordLength));
             RecordFlags.CopyTo(record);
+            BinaryPrimitives.WriteUInt32LittleEndian(
+                record.Slice(ConfigRecordStreamCountOffset, sizeof(uint)), ConfigRecordStreamCount);
             WriteUtf16(record.Slice(ConfigNameOffset, ConfigNameCapacity * 2), channelNames[i]);
         }
 
