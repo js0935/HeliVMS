@@ -628,6 +628,32 @@ UI cell 指派（`StartStream`）建立——這一步在禁止 GUI 操作的前
 Web 埠改成別的（例如 8080），並在 QCC 用 `127.0.0.1:8080` 新增裝置（QCC 的裝置埠
 欄位就是 web 埠，相容服務會在同一個埠上多工）。
 
+### 9.15 重啟後兩台裝置的 display consumer 都是空的（2026-11-21，Frida 唯讀掃描）
+
+承接 §9.12 最後一個未解問題：既然 36002（真機）曾經能顯示畫面，它的
+`QC_DVR_Aver` slot 裡應該留有真實的 display consumer callback，也許能讀出來複製到
+36001。本輪用 REA 內建 Frida 17 attach 乾淨重啟後的 `QC_Live.exe`（pid 3092，
+`QC_IPCAM_Aver.dll` base `0x7ffe42ad0000`），以 vtable RVA `0x1ac20` 掃出 **2 個**
+`QC_DVR_Aver` 實例（對應 36001 與 36002 兩台裝置），逐 slot 唯讀取值：
+
+| 實例 `this` | slot base | stream 0 callback (c0/c8/d0) | stream 1 callback | context | count | 128-byte 位圖 |
+|---|---|---|---|---|---|---|
+| `0x22030d1cfe0` | `0x22030ee2bd8` | 0 / 0 / 0 | 0 / 0 / 0 | `0` | 0 | 全 0 |
+| `0x22030d1d280` | `0x22030fb5358` | 0 / 0 / 0 | 0 / 0 / 0 | `0` | 0 | 全 0 |
+
+兩台裝置的 stream 0 都是 `flagA=0, flagB=-10, flagC=0`（閒置），沒有任何通道被指派。
+重啟後連 36002 的 display consumer 都為 0，不是被覆蓋而是**根本不存在**。
+
+**結論**：display consumer 不是隨裝置設定或 registry 持久化的狀態，而是操作員在
+QCC live view 把攝影機拖到一個 cell 時，由 UI 當場呼叫 `StartStream` 建立的執行期
+狀態；QCC 一重啟就全部消失。這同時解釋了為什麼多次重啟後 36002 也從 `cfg=0`
+掉回只有 `cfg=1` 探測：沒有 cell 指派 → `+0x461ec` 位圖全空 → `FUN_180012d10`
+在 `StartLive!` 之前就 return（§9.10 的守門）。因此「從 36002 複製真實 display
+callback 到 36001」這條路**不存在**（沒有東西可複製）。§9.12 的端到端證明仍然成立：
+HeliVMS 推流 → QCC 接收 → FRAM 解析 → frame callback → consumer 派發入口整條資料鏈
+完全通暢，缺的 100% 是 QCC 客戶端顯示層的 cell 指派，純屬 QCC 機制，不是相容層缺陷。
+在禁止 GUI 操作的前提下，HeliVMS 端沒有任何改動能讓 QCC 註冊這個 callback。
+
 ### 9.8 對照實驗：60.251.180.241 是一台真機（2026-11-14）
 
 現場在 QCC 新增了一台外部裝置 `60.251.180.241:80`，「有畫面」。它**不是**我們的
