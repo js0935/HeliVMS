@@ -972,3 +972,61 @@ Frida 17 attach QC_Live，用 vtable RVA `0x1ac20` 掃出 2 個實例
 註冊 display consumer，而那是 §9.14 已證實自主模式無法可靠完成的 UI gesture。
 在看到 QCC 對 `127.0.0.1:80` 送出 `cfg=0` 且 `%TEMP%\helivms-qctek.log` 出現「已訂閱」
 與持續增加的影像幀數之前，**不宣稱 QCC 已能看 HeliVMS**，也沒有據此改 HeliVMS 程式碼的理由。
+
+### 9.18 自主模式最後一哩已被 QCC 自己打通：真 UI consumer 註冊與幀派發（2026-11-22，Frida + 日誌）
+
+本輪把 §9.17 留下的「只能靠 UI gesture」往前推了一步：**完全沒有使用者拖曳**，
+QCC 自己的 AutoScan 就完成了 display consumer 註冊與幀派發。三件獨立證據：
+
+**① 自動登入（解掉「沒有帳號就卡在登入窗」）**：設
+`HKCU\Software\QCTek\QCC\Advanced\AutoLoginAccount = admin` 後重啟，QC_Live 登入對話框消失、
+出現 `QC_CMS_Class` 主視窗，`QCC.log` 緊接出現 `StartLive!`／`GET_LIVE_START`。
+REA（`QC_Setting\decompiled\functions.txt`，`QC_Setting_User::AutoLogin`）證實非 RC 路徑
+`FindAccountIndexByName(param_1) >= 0` 就直接登入、不驗密碼；`AutoLoginPassword` 只用於 RC 分支。
+不需要明文密碼。
+
+**② QCC 自己註冊真 UI consumer**（QC_Live PID 23752）：Frida attach 後
+`QC_IPCAM_Aver.dll` 的 `StartStream`（RVA `0x11b10`）被 QCC 自己呼叫：
+`StartStream(this=0x1fb7ea1b580, dev=1, cb=0x7ffecf033ac0, ctx=0x1fb1169be70, stream=0/9, ret=1)`。
+callback 落點 `moduleOf(cb) = QC_Stream.dll+0x3ac0`——**就是自繪牆的真 UI 回呼，不是我們塞的假回呼**。
+hook 該回呼後呼叫數約 6 秒內 `8 → 27 → 172 → 340 → 516` 持續上升，
+dump .arg0/.arg1 的 frame 結構長度欄在 `0x13 / 0x31c / 0x14 / 0xba` 之間變化（確為逐幀資料）。
+這直接推翻 §9.17「自主模式無法可靠完成 UI gesture」——AutoScan 自己就會做。
+（probe 只是 QCC 的第一步；§9.12/§9.15 盯的 `slot+0x261c0/8/d0` 是 stream 0/1/2，
+本次註冊的是 `slot + 9*0x80 + 0x261c0`，所以那三格仍為 0 不矛盾。）
+
+**③ probe → 真 live 的確切分界**：成功那一輪 `%TEMP%\helivms-qctek.log` 與 `QCC\log\20261122.err`
+對照如下（時間相差 8 小時是兩邊時區不同）：
+
+| 本地 HeliVMS 時間 | QCC err 時間 | 事件 |
+|---|---|---|
+| 10:01:18 | 02:01:18 | `Connect! 2, 0, 0,…`（probe）→ `GET_LIVE_START cfg=1`，HeliVMS 判定為探測、**不推串流** |
+| 10:01:47 | 02:01:47 | `Connect! 1, 1, 1,…`（真 live 連線）→ `GET_LIVE_START cfg=0` → HeliVMS 解析來源 `rtsp://60.249.37.202:554/live1s2.sdp`（pid 3700），頻道 0 子碼流開始輸出 FRAM |
+| 10:01:52–58 | — | AutoScan 續開頻道 1/2/3，各自 `來源已連線` + `開始輸出` |
+
+也就是說 `cfg=1` 是 QCC 的便宜探測，`cfg=0` 才是真的要看；開真 live 時 QCC 會**另開一條**
+`Connect! 1` 連線，不是把 probe 升級。註冊 consumer 與幀派發就發生在這條真 live 路徑上。
+
+**兩個不是缺陷、但會誤導判讀的現場事實**：
+
+- `SetDisplay lock fail!`（`QC_Display\qc_display.cpp:125`，`FUN_180021430`）是 QC_Display
+  每個 window 一個 slot 的**過期鎖**（上一輪幀拷貝被中斷，slot 卡在 1 沒變 2），60 秒才印一次。
+  成功那一輪在真 live 開始後也出現過，stuck 那一輪在開頭出現——它與成敗無關，
+  是 RDP 無顯示驅動環境下的雜訊，不要當成 HeliVMS 的錯。
+- RDP/GPU 環境下**影像是 overlay**，PrintWindow 只抓得到 UI 外框
+  （`qcc-printwindow.png` 1128×752，mean `[6.41,2.44,5.42]`、stddev ≈18、只有 6 色），
+  無法用桌面截圖證明畫素。要證明影像請用 Frida 看 callback 收到的 frame 位元組，
+  不要用 PrintWindow 的結果下「黑屏」結論。
+
+**再現性仍不穩定（QCC 客戶端問題，非 HeliVMS）**：同一組設定
+（`AutoLoginAccount=admin`、`ImmedSelAll=1`、`ImmedChannels` 選 device 2 的 ch0–6、
+`AutoScanEnable=1`、`AutoScanPeriod=10`）四次重啟只有第一次在 ~29 秒後自己走到 `cfg=0`；
+其餘停在 `Connect! 2` / `cfg=1` 探測，每 ~15 秒重連一次（部分伴隨 `SetDisplay lock fail!`）。
+這段是在 QCC 的 AutoScan／display 選擇層，HeliVMS 對 `cfg=1` 的正確處置就是不推串流。
+**因此不據此改 HeliVMS 程式碼**；HeliVMS 端的推流、位元組、頻道清單已與真機同形（§9.16/§9.17）。
+
+**本節新增的可查檔案**：`%TEMP%\opencode\qcc_observe_consumer2.js`（StartStream + 真回呼計數）、
+`qcc_callback_bytes.js`／`qcc_callback_nal.js`／`qcc_nal_deep.js`（回呼位元組／NAL 掃描）、
+`run_qcc_nal_deep.py`（重啟 + 早掛 hook + 走一輪 AutoScan 的驅動）、
+`qcc-printwindow.png`（PrintWindow 只抓到 UI 的證據）、
+`qcc_nal_deep_result.jsonl`（本次 stuck 輪的結果：`cfg0=False`、consumer 未註冊）。
